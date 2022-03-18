@@ -1,3 +1,5 @@
+#pragma once
+
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 #define _IOV_ENTRY(var) {.iov_base = &var, .iov_len = sizeof(var)}
 
@@ -6,6 +8,8 @@
 
 #define MAX_ERRNO       4095
 #define IS_ERR_VALUE(x) unlikely((x) >= (unsigned long)-MAX_ERRNO)
+
+#define memory_barrier() do { __sync_synchronize(); } while(0)
 
 #define _CTOR   __attribute__((constructor(0)))
 #define _INL    __attribute__((always_inline))

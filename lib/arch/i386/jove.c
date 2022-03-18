@@ -577,6 +577,7 @@ static /* __thread */ struct CPUX86State *__jove_env_clunk = &__jove_env;
 
 #include "jove.constants.h"
 #include "jove.macros.h"
+#include "jove.types.h"
 
 #define JOVE_SYS_ATTR _NOINL _HIDDEN
 #include "jove_sys.h"

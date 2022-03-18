@@ -12,6 +12,8 @@ extern bool _jove_trace_enabled(void);
 extern bool _jove_dfsan_enabled(void);
 extern void _jove_call_entry(void);
 extern uintptr_t *_jove_get_function_table(void);
+extern uint32_t _jove_function_count(void);
+extern uint32_t _jove_foreign_functions_count(void);
 extern uintptr_t *_jove_get_dynl_function_table(void);
 extern uintptr_t *_jove_get_vdso_function_table(void);
 extern void _jove_do_tpoff_hack(void);

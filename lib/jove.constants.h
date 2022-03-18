@@ -1,3 +1,5 @@
+#pragma once
+
 #define _JOVE_MAX_BINARIES 512
 
 #define JOVE_PAGE_SIZE 4096
@@ -18,3 +20,5 @@ typedef uint16_t dfsan_label;
 struct shadow_t {
   uint16_t *X[JOVE_SHADOW_NUM_REGIONS];
 };
+
+#define JOVE_FUNCTION_MAP_HASH_BITS 22

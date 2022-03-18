@@ -40,8 +40,6 @@
 typedef unsigned long cap_user_data_t; /* XXX */
 typedef unsigned long cap_user_header_t; /* XXX */
 typedef unsigned long key_serial_t; /* XXX */
-typedef uint64_t u64;
-typedef uint32_t u32;
 typedef unsigned int qid_t;
 typedef int rwf_t;
 

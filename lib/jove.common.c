@@ -20,6 +20,8 @@ uintptr_t *__jove_foreign_function_tables[_JOVE_MAX_BINARIES] = {
   [0 ... _JOVE_MAX_BINARIES - 1] = NULL
 };
 
+extern DECLARE_HASHTABLE(__jove_function_map, JOVE_FUNCTION_MAP_HASH_BITS);
+
 extern void _jove_flush_trace(void);
 
 typedef void (*__jove_flush_trace_t)(void);
@@ -34,6 +36,8 @@ extern void __dfsan_log_global_buffers(void);
 static void _jove_install_function_table(void);
 static void _jove_install_sections_table(void);
 
+static void _jove_install_function_mappings(void);
+
 static void _jove_make_sections_executable(void);
 
 _CTOR _HIDDEN void _jove_initialize(void) {
@@ -43,8 +47,11 @@ _CTOR _HIDDEN void _jove_initialize(void) {
   _Done = true;
 
   _jove_install_foreign_function_tables();
+
   _jove_install_function_table();
   _jove_install_sections_table();
+
+  _jove_install_function_mappings();
 
   _jove_do_tpoff_hack();
   _jove_do_irelative_hack();
@@ -78,6 +85,43 @@ void _jove_make_sections_executable(void) {
 
   if (_jove_sys_mprotect(x, n, PROT_READ | PROT_WRITE | PROT_EXEC) < 0)
     _UNREACHABLE("failed to make sections executable\n");
+}
+
+void _jove_install_function_mappings(void) {
+  //
+  // allocate memory for function_info_t structures
+  //
+  uintptr_t fninfo_arr_addr = _mmap_rw_anonymous_private_memory(
+      QEMU_ALIGN_UP(_jove_function_count() * sizeof(struct _jove_function_info_t),
+      JOVE_PAGE_SIZE));
+
+  if (IS_ERR_VALUE(fninfo_arr_addr))
+    _UNREACHABLE("failed to allocate memory for function_info_t array");
+
+  //
+  // add the mappings
+  //
+  memory_barrier();
+  {
+    struct _jove_function_info_t *fninfo_p =
+        (struct _jove_function_info_t *)fninfo_arr_addr;
+
+    unsigned FIdx = 0;
+    for (uintptr_t *fn_p = _jove_get_function_table(); fn_p[0]; fn_p += 3) {
+      fninfo_p->BIdx = _jove_binary_index();
+      fninfo_p->FIdx = FIdx++;
+
+      fninfo_p->IsForeign = 0;
+
+      fninfo_p->Recompiled.SectPtr = fn_p[0];
+      fninfo_p->RecompiledFunc     = fn_p[2];
+
+      hash_add(__jove_function_map, &fninfo_p->hlist, fninfo_p->pc /* key */);
+
+      ++fninfo_p;
+    }
+  }
+  memory_barrier();
 }
 
 #if (!defined(__x86_64__) && defined(__i386__)) || \
@@ -505,6 +549,45 @@ void _jove_install_foreign_function_tables(void) {
       }
     }
   }
+
+  //
+  // allocate memory for function_info_t structures
+  //
+  uintptr_t fninfo_arr_addr = _mmap_rw_anonymous_private_memory(
+      QEMU_ALIGN_UP(_jove_foreign_functions_count() * sizeof(struct _jove_function_info_t),
+      JOVE_PAGE_SIZE));
+
+  if (IS_ERR_VALUE(fninfo_arr_addr))
+    _UNREACHABLE("failed to allocate memory for function_info_t array");
+
+  //
+  // install function mappings
+  //
+  memory_barrier();
+  {
+    struct _jove_function_info_t *fninfo_p =
+        (struct _jove_function_info_t *)fninfo_arr_addr;
+
+    for (unsigned BIdx = 1; BIdx < 3 + N; ++BIdx) {
+      uintptr_t *fns = __jove_foreign_function_tables[BIdx];
+      if (!fns)
+        continue;
+
+      for (unsigned FIdx = 0; fns[FIdx]; ++FIdx) {
+        fninfo_p->BIdx = BIdx;
+        fninfo_p->FIdx = FIdx;
+
+        fninfo_p->IsForeign = 1;
+
+        fninfo_p->Foreign.Func = fns[FIdx];
+
+        hash_add(__jove_function_map, &fninfo_p->hlist, fninfo_p->pc /* key */);
+
+        ++fninfo_p;
+      }
+    }
+  }
+  memory_barrier();
 }
 
 _NORET void _jove_fail1(uintptr_t a0, const char *reason) {
@@ -685,14 +768,28 @@ jove_thunk_return_t _jove_call(
                                uintptr_t pc, uint32_t BBIdx) {
   _jove_install_foreign_function_tables();
 
-  struct {
-    uint32_t BIdx;
-    uint32_t FIdx;
+  struct _jove_function_info_t Callee;
 
-    uintptr_t RecompiledFunc;
-    bool Foreign;
-  } Callee;
+  //
+  // lookup in __jove_function_map
+  //
+  {
+    struct _jove_function_info_t *finfo;
 
+    hash_for_each_possible(__jove_function_map, finfo, hlist, pc) {
+      if (finfo->pc != pc) {
+        continue;
+      } else {
+        Callee = *finfo;
+
+        goto found;
+      }
+    }
+  }
+
+  //
+  // lookup in __jove_function_map failed, now try brute force search
+  //
   for (unsigned BIdx = 0; BIdx < _JOVE_MAX_BINARIES ; ++BIdx) {
     uintptr_t *fns = __jove_function_tables_clunk
                          ? __jove_function_tables_clunk[BIdx]
@@ -713,10 +810,12 @@ jove_thunk_return_t _jove_call(
     if (BIdx == 1 || BIdx == 2) { /* XXX */
       for (unsigned FIdx = 0; fns[FIdx]; ++FIdx) {
         if (pc == fns[FIdx]) {
-          Callee.Foreign = true;
+          Callee.IsForeign = 1;
 
           Callee.BIdx = BIdx;
           Callee.FIdx = FIdx;
+
+          Callee.Foreign.Func = pc;
 
           goto found;
         }
@@ -724,11 +823,14 @@ jove_thunk_return_t _jove_call(
     } else {
       for (unsigned FIdx = 0; fns[3 * FIdx]; ++FIdx) {
         if (pc == fns[3 * FIdx + 0]) {
-          Callee.Foreign = false;
-          Callee.RecompiledFunc = fns[3 * FIdx + 2];
+          Callee.IsForeign = 0;
 
           Callee.BIdx = BIdx;
           Callee.FIdx = FIdx;
+
+          Callee.Recompiled.SectPtr = pc;
+          Callee.RecompiledFunc = fns[3 * FIdx + 2];
+
           goto found;
         }
       }
@@ -908,10 +1010,12 @@ jove_thunk_return_t _jove_call(
 
           for (unsigned FIdx = 0; ForeignFnTbl[FIdx]; ++FIdx) {
             if (pc == ForeignFnTbl[FIdx]) {
+              Callee.IsForeign = 1;
+
               Callee.BIdx = i + 3;
               Callee.FIdx = FIdx;
 
-              Callee.Foreign = true;
+              Callee.Foreign.Func = pc;
 
               goto found;
             }
@@ -964,7 +1068,7 @@ jove_thunk_return_t _jove_call(
   }
 
 found:
-  if (Callee.Foreign) {
+  if (Callee.IsForeign) {
     if (unlikely(!__jove_env_clunk)) {
       //
       // when might __jove_env_clunk be NULL? in an ifunc resolver, that's when

@@ -625,6 +625,7 @@ typedef uint64_t target_ulong;
 
 #include "rt.constants.h"
 #include "rt.macros.h"
+#include "rt.types.h"
 
 #define JOVE_SYS_ATTR _INL _UNUSED
 #include "jove_sys.h"

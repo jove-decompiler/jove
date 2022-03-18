@@ -1760,6 +1760,7 @@ static /* __thread */ struct CPUMIPSState *__jove_env_clunk = &__jove_env;
 
 #include "jove.constants.h"
 #include "jove.macros.h"
+#include "jove.types.h"
 
 #define JOVE_SYS_ATTR _INL _UNUSED
 #include "jove_sys.h"

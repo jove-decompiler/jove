@@ -12,6 +12,8 @@ uintptr_t *__jove_sections_tables[_JOVE_MAX_BINARIES] = {
   [0 ... _JOVE_MAX_BINARIES - 1] = NULL
 };
 
+DEFINE_HASHTABLE(__jove_function_map, JOVE_FUNCTION_MAP_HASH_BITS);
+
 static uintptr_t to_free[16];
 
 void _jove_free_stack_later(uintptr_t stack) {
@@ -389,6 +391,28 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
 
   const uintptr_t saved_pc = *pc_ptr;
 
+  struct _jove_function_info_t Callee;
+
+  //
+  // lookup in __jove_function_map
+  //
+  {
+    struct _jove_function_info_t *finfo;
+
+    hash_for_each_possible(__jove_function_map, finfo, hlist, saved_pc) {
+      if (finfo->pc != saved_pc) {
+        continue;
+      } else {
+        Callee = *finfo;
+
+        goto found;
+      }
+    }
+  }
+
+  //
+  // lookup in __jove_function_map failed, now try brute force search
+  //
   for (unsigned BIdx = 0; BIdx < _JOVE_MAX_BINARIES; ++BIdx) {
     if (BIdx == 1 ||
         BIdx == 2)
@@ -400,312 +424,332 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
       continue;
 
     for (unsigned FIdx = 0; fns[3 * FIdx]; ++FIdx) {
-      const uintptr_t FuncSectPtr = fns[3 * FIdx + 0];
-      const uintptr_t FuncPtr     = fns[3 * FIdx + 2];
-
-      if (likely(saved_pc != FuncSectPtr))
+      if (likely(saved_pc != fns[3 * FIdx + 0]))
         continue;
 
-      if (unlikely(!FuncPtr))
-        _UNREACHABLE("called recompiled function is not ABI");
+      Callee.IsForeign = 0;
 
-      uint64_t *const saved_callstack       = *callstack_ptr;
-      uint64_t *const saved_callstack_begin = *callstack_begin_ptr;
+      Callee.BIdx = BIdx;
+      Callee.FIdx = FIdx;
 
-      const uintptr_t saved_sp = *sp_ptr;
-      const uintptr_t saved_emusp = *emusp_ptr;
-      const uintptr_t saved_retaddr = ra_ptr ? *ra_ptr : *((uintptr_t *)saved_sp);
+      Callee.Recompiled.SectPtr = fns[3 * FIdx + 0];
+      Callee.RecompiledFunc     = fns[3 * FIdx + 2];
 
-      //
-      // inspect the instruction bytes that the return address points to, to
-      // determine whether the kernel has just delivered a signal XXX
-      //
-      bool SignalDelivery = is_sigreturn_insn_sequence((void *)saved_retaddr);
+      goto found;
+    }
+  }
 
-      if (SignalDelivery) {
-        ++__jove_dfsan_sig_handle;
-      }
+  goto not_found;
+
+found:
+  //
+  // native -> recompiled call
+  //
+  {
+    if (unlikely(Callee.IsForeign))
+      _UNREACHABLE("unexpected callee");
+
+    const uintptr_t FuncSectPtr = Callee.Recompiled.SectPtr;
+    const uintptr_t FuncPtr     = Callee.RecompiledFunc;
+
+    uint64_t *const saved_callstack       = *callstack_ptr;
+    uint64_t *const saved_callstack_begin = *callstack_begin_ptr;
+
+    const uintptr_t saved_sp = *sp_ptr;
+    const uintptr_t saved_emusp = *emusp_ptr;
+    const uintptr_t saved_retaddr = ra_ptr ? *ra_ptr : *((uintptr_t *)saved_sp);
+
+    //
+    // inspect the instruction bytes that the return address points to, to
+    // determine whether the kernel has just delivered a signal XXX
+    //
+    bool SignalDelivery = is_sigreturn_insn_sequence((void *)saved_retaddr);
+
+    if (SignalDelivery) {
+      ++__jove_dfsan_sig_handle;
+    }
 #if 0
-      if (SignalDelivery) {
-        //
-        // print number of signal and description of program counter
-        //
+    if (SignalDelivery) {
+      //
+      // print number of signal and description of program counter
+      //
 
-        char s[4096 * 16];
-        s[0] = '\0';
+      char s[4096 * 16];
+      s[0] = '\0';
 
-        _strcat(s, __ANSI_BOLD_BLUE "[signal ");
+      _strcat(s, __ANSI_BOLD_BLUE "[signal ");
 
-        int signo =
+      int signo =
 #if defined(__mips64) || defined(__mips__)
-            uctx->uc_mcontext.gregs[4]
+          uctx->uc_mcontext.gregs[4]
 #else
-            0
+          0
 #endif
-            ;
+          ;
 
-        {
-          char buff[65];
-          _uint_to_string(signo, buff, 10);
-
-          _strcat(s, buff);
-        }
-
-        _strcat(s, "] @ 0x");
-
-        {
-          char buff[65];
-          _uint_to_string(saved_pc, buff, 0x10);
-
-          _strcat(s, buff);
-        }
-
-        {
-          char maps[4096 * 8];
-          const unsigned maps_n = _read_pseudo_file("/proc/self/maps", maps, sizeof(maps));
-          maps[maps_n] = '\0';
-
-          char buff[256];
-          _description_of_address_for_maps(buff, saved_pc, maps, maps_n);
-          if (_strlen(buff) != 0) {
-            _strcat(s, " <");
-            _strcat(s, buff);
-            _strcat(s, ">");
-          }
-        }
-
-        _strcat(s, "\n" __ANSI_NORMAL_COLOR);
-
-        _jove_sys_write(2 /* stderr */, s, _strlen(s));
-      }
-#endif
-
-      //
-      // setup emulated stack
-      //
       {
-        const uintptr_t newstack = _jove_alloc_stack();
+        char buff[65];
+        _uint_to_string(signo, buff, 10);
 
-        uintptr_t newsp =
-            newstack + JOVE_STACK_SIZE - JOVE_PAGE_SIZE - 19 * sizeof(uintptr_t);
+        _strcat(s, buff);
+      }
 
-        if (SignalDelivery)
-          newsp -= sizeof(__jove_env);
+      _strcat(s, "] @ 0x");
 
-        {
-          //
-          // align the stack
-          //
-          const uintptr_t align_val = 15;
-          const uintptr_t align_mask = ~align_val;
+      {
+        char buff[65];
+        _uint_to_string(saved_pc, buff, 0x10);
 
-          newsp &= align_mask;
+        _strcat(s, buff);
+      }
+
+      {
+        char maps[4096 * 8];
+        const unsigned maps_n = _read_pseudo_file("/proc/self/maps", maps, sizeof(maps));
+        maps[maps_n] = '\0';
+
+        char buff[256];
+        _description_of_address_for_maps(buff, saved_pc, maps, maps_n);
+        if (_strlen(buff) != 0) {
+          _strcat(s, " <");
+          _strcat(s, buff);
+          _strcat(s, ">");
         }
+      }
 
-#if defined(__x86_64__) || defined(__i386__)
-        newsp -= sizeof(uintptr_t); /* account for return address on the stack */
+      _strcat(s, "\n" __ANSI_NORMAL_COLOR);
+
+      _jove_sys_write(2 /* stderr */, s, _strlen(s));
+    }
 #endif
 
-        {
-          uintptr_t *p = (uintptr_t *)newsp;
+    //
+    // setup emulated stack
+    //
+    {
+      const uintptr_t newstack = _jove_alloc_stack();
+
+      uintptr_t newsp =
+          newstack + JOVE_STACK_SIZE - JOVE_PAGE_SIZE - 19 * sizeof(uintptr_t);
+
+      if (SignalDelivery)
+        newsp -= sizeof(__jove_env);
+
+      {
+        //
+        // align the stack
+        //
+        const uintptr_t align_val = 15;
+        const uintptr_t align_mask = ~align_val;
+
+        newsp &= align_mask;
+      }
 
 #if defined(__x86_64__) || defined(__i386__)
-          *p++ = (uintptr_t)_jove_inverse_thunk;
-          *p++ = saved_retaddr;
-          *p++ = saved_sp;
-          *p++ = saved_emusp;
-          *p++ = (uintptr_t)saved_callstack;
-          *p++ = (uintptr_t)saved_callstack_begin;
-          *p++ = newstack;
-          *p++ = SignalDelivery;
+      newsp -= sizeof(uintptr_t); /* account for return address on the stack */
+#endif
+
+      {
+        uintptr_t *p = (uintptr_t *)newsp;
+
+#if defined(__x86_64__) || defined(__i386__)
+        *p++ = (uintptr_t)_jove_inverse_thunk;
+        *p++ = saved_retaddr;
+        *p++ = saved_sp;
+        *p++ = saved_emusp;
+        *p++ = (uintptr_t)saved_callstack;
+        *p++ = (uintptr_t)saved_callstack_begin;
+        *p++ = newstack;
+        *p++ = SignalDelivery;
 #elif defined(__mips__) || defined(__mips64)
-          *p++ = 0xdeadbeef;
-          *p++ = saved_retaddr;
-          *p++ = saved_sp;
-          *p++ = saved_emusp;
-          *p++ = (uintptr_t)saved_callstack;
-          *p++ = (uintptr_t)saved_callstack_begin;
-          *p++ = newstack;
-          *p++ = (uintptr_t)emusp_ptr;
-          *p++ = (uintptr_t)callstack_begin_ptr;
-          *p++ = (uintptr_t)saved_callstack;
-          *p++ = (uintptr_t)_jove_free_stack_later;
-          *p++ = (uintptr_t)_jove_free_callstack;
-          *p++ = 0; /* saved v0 */
-          *p++ = 0; /* saved v1 */
-          *p++ = (uintptr_t)callstack_begin_ptr;
-          *p++ = (uintptr_t)callstack_ptr;
-          *p++ = SignalDelivery;
-          *p++ = (uintptr_t)_jove_handle_signal_delivery;
+        *p++ = 0xdeadbeef;
+        *p++ = saved_retaddr;
+        *p++ = saved_sp;
+        *p++ = saved_emusp;
+        *p++ = (uintptr_t)saved_callstack;
+        *p++ = (uintptr_t)saved_callstack_begin;
+        *p++ = newstack;
+        *p++ = (uintptr_t)emusp_ptr;
+        *p++ = (uintptr_t)callstack_begin_ptr;
+        *p++ = (uintptr_t)saved_callstack;
+        *p++ = (uintptr_t)_jove_free_stack_later;
+        *p++ = (uintptr_t)_jove_free_callstack;
+        *p++ = 0; /* saved v0 */
+        *p++ = 0; /* saved v1 */
+        *p++ = (uintptr_t)callstack_begin_ptr;
+        *p++ = (uintptr_t)callstack_ptr;
+        *p++ = SignalDelivery;
+        *p++ = (uintptr_t)_jove_handle_signal_delivery;
 #elif defined(__aarch64__)
-          *p++ = 0xdeadbeeffeedface;
-          *p++ = saved_retaddr;
-          *p++ = saved_sp;
-          *p++ = saved_emusp;
-          *p++ = (uintptr_t)saved_callstack;
-          *p++ = (uintptr_t)saved_callstack_begin;
-          *p++ = newstack;
+        *p++ = 0xdeadbeeffeedface;
+        *p++ = saved_retaddr;
+        *p++ = saved_sp;
+        *p++ = saved_emusp;
+        *p++ = (uintptr_t)saved_callstack;
+        *p++ = (uintptr_t)saved_callstack_begin;
+        *p++ = newstack;
 #else
 #error
 #endif
 
-          *p = (uintptr_t)(p + 1);
-          ++p;
+        *p = (uintptr_t)(p + 1);
+        ++p;
 
-          if (SignalDelivery)
-            _memcpy(p, &__jove_env, sizeof(__jove_env));
-        }
-
-        *sp_ptr = newsp;
+        if (SignalDelivery)
+          _memcpy(p, &__jove_env, sizeof(__jove_env));
       }
 
-      if (ra_ptr)
-        *ra_ptr = (uintptr_t)_jove_inverse_thunk;
-      if (t9_ptr)
-        *t9_ptr = FuncPtr;
-      if (emut9_ptr)
-        *emut9_ptr = FuncSectPtr;
-
-      *callstack_begin_ptr = *callstack_ptr =
-          (uint64_t *)(_jove_alloc_callstack() + JOVE_PAGE_SIZE);
-
-      *emusp_ptr = saved_sp; /* native stack becomes emulated stack */
-
-      *pc_ptr = FuncPtr;
-      return;
+      *sp_ptr = newsp;
     }
+
+    if (ra_ptr)
+      *ra_ptr = (uintptr_t)_jove_inverse_thunk;
+    if (t9_ptr)
+      *t9_ptr = FuncPtr;
+    if (emut9_ptr)
+      *emut9_ptr = FuncSectPtr;
+
+    *callstack_begin_ptr = *callstack_ptr =
+        (uint64_t *)(_jove_alloc_callstack() + JOVE_PAGE_SIZE);
+
+    *emusp_ptr = saved_sp; /* native stack becomes emulated stack */
+
+    *pc_ptr = FuncPtr;
+    return;
   }
 
-  //
-  // if we get here, it's a crash.
-  //
-  char maps[4096 * 8];
-  const unsigned maps_n = _read_pseudo_file("/proc/self/maps", maps, sizeof(maps));
-  maps[maps_n] = '\0';
-
-  char s[4096 * 16];
-  s[0] = '\0';
-
-  _strcat(s, "*** crash (jove) *** [");
+not_found:
   {
-    char buff[65];
-    _uint_to_string(_jove_sys_gettid(), buff, 10);
+    //
+    // if we get here we'll assume it's a crash.
+    //
+    char maps[4096 * 8];
+    const unsigned maps_n = _read_pseudo_file("/proc/self/maps", maps, sizeof(maps));
+    maps[maps_n] = '\0';
 
-    _strcat(s, buff);
-  }
-  _strcat(s, "]\n");
+    char s[4096 * 16];
+    s[0] = '\0';
+
+    _strcat(s, "*** crash (jove) *** [");
+    {
+      char buff[65];
+      _uint_to_string(_jove_sys_gettid(), buff, 10);
+
+      _strcat(s, buff);
+    }
+    _strcat(s, "]\n");
 
 #define _FIELD(name, init)                                                     \
-  do {                                                                         \
-    _strcat(s, name " 0x");                                                    \
-                                                                               \
-    {                                                                          \
-      char _buff[65];                                                          \
-      _uint_to_string((uintptr_t)init, _buff, 0x10);                           \
-                                                                               \
-      _strcat(s, _buff);                                                       \
-    }                                                                          \
-    {                                                                          \
-      char _buff[256];                                                         \
-      _description_of_address_for_maps(_buff, (uintptr_t)(init), maps, maps_n);\
-      if (_strlen(_buff) != 0) {                                               \
-        _strcat(s, " <");                                                      \
-        _strcat(s, _buff);                                                     \
-        _strcat(s, ">");                                                       \
-      }                                                                        \
-    }                                                                          \
-                                                                               \
-    _strcat(s, "\n");                                                          \
-  } while (false)
+    do {                                                                         \
+      _strcat(s, name " 0x");                                                    \
+                                                                                 \
+      {                                                                          \
+        char _buff[65];                                                          \
+        _uint_to_string((uintptr_t)init, _buff, 0x10);                           \
+                                                                                 \
+        _strcat(s, _buff);                                                       \
+      }                                                                          \
+      {                                                                          \
+        char _buff[256];                                                         \
+        _description_of_address_for_maps(_buff, (uintptr_t)(init), maps, maps_n);\
+        if (_strlen(_buff) != 0) {                                               \
+          _strcat(s, " <");                                                      \
+          _strcat(s, _buff);                                                     \
+          _strcat(s, ">");                                                       \
+        }                                                                        \
+      }                                                                          \
+                                                                                 \
+      _strcat(s, "\n");                                                          \
+    } while (false)
 
-  if (si)
-    _FIELD("si_addr", si->si_addr);
+    if (si)
+      _FIELD("si_addr", si->si_addr);
 
-  _FIELD("pc", saved_pc);
+    _FIELD("pc", saved_pc);
 
 #if defined(__x86_64__)
 
-  _FIELD("rax", uctx->uc_mcontext.gregs[REG_RAX]);
-  _FIELD("rcx", uctx->uc_mcontext.gregs[REG_RCX]);
-  _FIELD("rdx", uctx->uc_mcontext.gregs[REG_RDX]);
-  _FIELD("rbx", uctx->uc_mcontext.gregs[REG_RBX]);
-  _FIELD("rsp", uctx->uc_mcontext.gregs[REG_RSP]);
-  _FIELD("rbp", uctx->uc_mcontext.gregs[REG_RBP]);
-  _FIELD("rsi", uctx->uc_mcontext.gregs[REG_RSI]);
-  _FIELD("rdi", uctx->uc_mcontext.gregs[REG_RDI]);
-  _FIELD("r8 ", uctx->uc_mcontext.gregs[REG_R8]);
-  _FIELD("r9 ", uctx->uc_mcontext.gregs[REG_R9]);
-  _FIELD("r10", uctx->uc_mcontext.gregs[REG_R10]);
-  _FIELD("r11", uctx->uc_mcontext.gregs[REG_R11]);
-  _FIELD("r12", uctx->uc_mcontext.gregs[REG_R12]);
-  _FIELD("r13", uctx->uc_mcontext.gregs[REG_R13]);
-  _FIELD("r14", uctx->uc_mcontext.gregs[REG_R14]);
-  _FIELD("r15", uctx->uc_mcontext.gregs[REG_R15]);
+    _FIELD("rax", uctx->uc_mcontext.gregs[REG_RAX]);
+    _FIELD("rcx", uctx->uc_mcontext.gregs[REG_RCX]);
+    _FIELD("rdx", uctx->uc_mcontext.gregs[REG_RDX]);
+    _FIELD("rbx", uctx->uc_mcontext.gregs[REG_RBX]);
+    _FIELD("rsp", uctx->uc_mcontext.gregs[REG_RSP]);
+    _FIELD("rbp", uctx->uc_mcontext.gregs[REG_RBP]);
+    _FIELD("rsi", uctx->uc_mcontext.gregs[REG_RSI]);
+    _FIELD("rdi", uctx->uc_mcontext.gregs[REG_RDI]);
+    _FIELD("r8 ", uctx->uc_mcontext.gregs[REG_R8]);
+    _FIELD("r9 ", uctx->uc_mcontext.gregs[REG_R9]);
+    _FIELD("r10", uctx->uc_mcontext.gregs[REG_R10]);
+    _FIELD("r11", uctx->uc_mcontext.gregs[REG_R11]);
+    _FIELD("r12", uctx->uc_mcontext.gregs[REG_R12]);
+    _FIELD("r13", uctx->uc_mcontext.gregs[REG_R13]);
+    _FIELD("r14", uctx->uc_mcontext.gregs[REG_R14]);
+    _FIELD("r15", uctx->uc_mcontext.gregs[REG_R15]);
 
 #elif defined(__i386__)
 
-  _FIELD("GS ", uctx->uc_mcontext.gregs[REG_GS]);
-  _FIELD("FS ", uctx->uc_mcontext.gregs[REG_FS]);
-  _FIELD("ES ", uctx->uc_mcontext.gregs[REG_ES]);
-  _FIELD("DS ", uctx->uc_mcontext.gregs[REG_DS]);
-  _FIELD("EDI", uctx->uc_mcontext.gregs[REG_EDI]);
-  _FIELD("ESI", uctx->uc_mcontext.gregs[REG_ESI]);
-  _FIELD("EBP", uctx->uc_mcontext.gregs[REG_EBP]);
-  _FIELD("ESP", uctx->uc_mcontext.gregs[REG_ESP]);
-  _FIELD("EBX", uctx->uc_mcontext.gregs[REG_EBX]);
-  _FIELD("EDX", uctx->uc_mcontext.gregs[REG_EDX]);
-  _FIELD("ECX", uctx->uc_mcontext.gregs[REG_ECX]);
-  _FIELD("EAX", uctx->uc_mcontext.gregs[REG_EAX]);
-  _FIELD("TRAPNO", uctx->uc_mcontext.gregs[REG_TRAPNO]);
-  _FIELD("ERR", uctx->uc_mcontext.gregs[REG_ERR]);
-  _FIELD("EIP", uctx->uc_mcontext.gregs[REG_EIP]);
-  _FIELD("CS", uctx->uc_mcontext.gregs[REG_CS]);
-  _FIELD("EFL", uctx->uc_mcontext.gregs[REG_EFL]);
-  _FIELD("UESP", uctx->uc_mcontext.gregs[REG_UESP]);
-  _FIELD("SS", uctx->uc_mcontext.gregs[REG_SS]);
+    _FIELD("GS ", uctx->uc_mcontext.gregs[REG_GS]);
+    _FIELD("FS ", uctx->uc_mcontext.gregs[REG_FS]);
+    _FIELD("ES ", uctx->uc_mcontext.gregs[REG_ES]);
+    _FIELD("DS ", uctx->uc_mcontext.gregs[REG_DS]);
+    _FIELD("EDI", uctx->uc_mcontext.gregs[REG_EDI]);
+    _FIELD("ESI", uctx->uc_mcontext.gregs[REG_ESI]);
+    _FIELD("EBP", uctx->uc_mcontext.gregs[REG_EBP]);
+    _FIELD("ESP", uctx->uc_mcontext.gregs[REG_ESP]);
+    _FIELD("EBX", uctx->uc_mcontext.gregs[REG_EBX]);
+    _FIELD("EDX", uctx->uc_mcontext.gregs[REG_EDX]);
+    _FIELD("ECX", uctx->uc_mcontext.gregs[REG_ECX]);
+    _FIELD("EAX", uctx->uc_mcontext.gregs[REG_EAX]);
+    _FIELD("TRAPNO", uctx->uc_mcontext.gregs[REG_TRAPNO]);
+    _FIELD("ERR", uctx->uc_mcontext.gregs[REG_ERR]);
+    _FIELD("EIP", uctx->uc_mcontext.gregs[REG_EIP]);
+    _FIELD("CS", uctx->uc_mcontext.gregs[REG_CS]);
+    _FIELD("EFL", uctx->uc_mcontext.gregs[REG_EFL]);
+    _FIELD("UESP", uctx->uc_mcontext.gregs[REG_UESP]);
+    _FIELD("SS", uctx->uc_mcontext.gregs[REG_SS]);
 
 #elif defined(__mips64) || defined(__mips__)
 
-  _FIELD("r0", uctx->uc_mcontext.gregs[0]);
-  _FIELD("at", uctx->uc_mcontext.gregs[1]);
-  _FIELD("v0", uctx->uc_mcontext.gregs[2]);
-  _FIELD("v1", uctx->uc_mcontext.gregs[3]);
-  _FIELD("a0", uctx->uc_mcontext.gregs[4]);
-  _FIELD("a1", uctx->uc_mcontext.gregs[5]);
-  _FIELD("a2", uctx->uc_mcontext.gregs[6]);
-  _FIELD("a3", uctx->uc_mcontext.gregs[7]);
-  _FIELD("t0", uctx->uc_mcontext.gregs[8]);
-  _FIELD("t1", uctx->uc_mcontext.gregs[9]);
-  _FIELD("t2", uctx->uc_mcontext.gregs[10]);
-  _FIELD("t3", uctx->uc_mcontext.gregs[11]);
-  _FIELD("t4", uctx->uc_mcontext.gregs[12]);
-  _FIELD("t5", uctx->uc_mcontext.gregs[13]);
-  _FIELD("t6", uctx->uc_mcontext.gregs[14]);
-  _FIELD("t7", uctx->uc_mcontext.gregs[15]);
-  _FIELD("s0", uctx->uc_mcontext.gregs[16]);
-  _FIELD("s1", uctx->uc_mcontext.gregs[17]);
-  _FIELD("s2", uctx->uc_mcontext.gregs[18]);
-  _FIELD("s3", uctx->uc_mcontext.gregs[19]);
-  _FIELD("s4", uctx->uc_mcontext.gregs[20]);
-  _FIELD("s5", uctx->uc_mcontext.gregs[21]);
-  _FIELD("s6", uctx->uc_mcontext.gregs[22]);
-  _FIELD("s7", uctx->uc_mcontext.gregs[23]);
-  _FIELD("t8", uctx->uc_mcontext.gregs[24]);
-  _FIELD("t9", uctx->uc_mcontext.gregs[25]);
-  _FIELD("k0", uctx->uc_mcontext.gregs[26]);
-  _FIELD("k1", uctx->uc_mcontext.gregs[27]);
-  _FIELD("gp", uctx->uc_mcontext.gregs[28]);
-  _FIELD("sp", uctx->uc_mcontext.gregs[29]);
-  _FIELD("s8", uctx->uc_mcontext.gregs[30]);
-  _FIELD("ra", uctx->uc_mcontext.gregs[31]);
+    _FIELD("r0", uctx->uc_mcontext.gregs[0]);
+    _FIELD("at", uctx->uc_mcontext.gregs[1]);
+    _FIELD("v0", uctx->uc_mcontext.gregs[2]);
+    _FIELD("v1", uctx->uc_mcontext.gregs[3]);
+    _FIELD("a0", uctx->uc_mcontext.gregs[4]);
+    _FIELD("a1", uctx->uc_mcontext.gregs[5]);
+    _FIELD("a2", uctx->uc_mcontext.gregs[6]);
+    _FIELD("a3", uctx->uc_mcontext.gregs[7]);
+    _FIELD("t0", uctx->uc_mcontext.gregs[8]);
+    _FIELD("t1", uctx->uc_mcontext.gregs[9]);
+    _FIELD("t2", uctx->uc_mcontext.gregs[10]);
+    _FIELD("t3", uctx->uc_mcontext.gregs[11]);
+    _FIELD("t4", uctx->uc_mcontext.gregs[12]);
+    _FIELD("t5", uctx->uc_mcontext.gregs[13]);
+    _FIELD("t6", uctx->uc_mcontext.gregs[14]);
+    _FIELD("t7", uctx->uc_mcontext.gregs[15]);
+    _FIELD("s0", uctx->uc_mcontext.gregs[16]);
+    _FIELD("s1", uctx->uc_mcontext.gregs[17]);
+    _FIELD("s2", uctx->uc_mcontext.gregs[18]);
+    _FIELD("s3", uctx->uc_mcontext.gregs[19]);
+    _FIELD("s4", uctx->uc_mcontext.gregs[20]);
+    _FIELD("s5", uctx->uc_mcontext.gregs[21]);
+    _FIELD("s6", uctx->uc_mcontext.gregs[22]);
+    _FIELD("s7", uctx->uc_mcontext.gregs[23]);
+    _FIELD("t8", uctx->uc_mcontext.gregs[24]);
+    _FIELD("t9", uctx->uc_mcontext.gregs[25]);
+    _FIELD("k0", uctx->uc_mcontext.gregs[26]);
+    _FIELD("k1", uctx->uc_mcontext.gregs[27]);
+    _FIELD("gp", uctx->uc_mcontext.gregs[28]);
+    _FIELD("sp", uctx->uc_mcontext.gregs[29]);
+    _FIELD("s8", uctx->uc_mcontext.gregs[30]);
+    _FIELD("ra", uctx->uc_mcontext.gregs[31]);
 
 #elif defined(__aarch64__)
 
-  _FIELD("fault_address ", uctx->uc_mcontext.fault_address);
-  _FIELD("sp ", uctx->uc_mcontext.sp);
-  _FIELD("pc ", uctx->uc_mcontext.pc);
+    _FIELD("fault_address ", uctx->uc_mcontext.fault_address);
+    _FIELD("sp ", uctx->uc_mcontext.sp);
+    _FIELD("pc ", uctx->uc_mcontext.pc);
 
-  // TODO
+    // TODO
 
 #else
 #error
@@ -713,67 +757,68 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
 
 #undef _FIELD
 
-  _strcat(s, "\n");
-  _strcat(s, maps);
+    _strcat(s, "\n");
+    _strcat(s, maps);
 
-  //
-  // dump message for user
-  //
-  _robust_write(2 /* stderr */, s, _strlen(s));
+    //
+    // dump message for user
+    //
+    _robust_write(2 /* stderr */, s, _strlen(s));
 
 #if 0
-  {
-    int fd = _jove_sys_open("/tmp/hack.tmp", O_WRONLY | O_CREAT | O_TRUNC, S_IRWXU);
-    _jove_sys_write(fd, buff, _strlen(buff));
-    _jove_sys_close(fd);
-  }
+    {
+      int fd = _jove_sys_open("/tmp/hack.tmp", O_WRONLY | O_CREAT | O_TRUNC, S_IRWXU);
+      _jove_sys_write(fd, buff, _strlen(buff));
+      _jove_sys_close(fd);
+    }
 #endif
 
-  //
-  // flush trace
-  //
-  _jove_flush_trace();
+    //
+    // flush trace
+    //
+    _jove_flush_trace();
 
-  //
-  // flush dfsan_log.pb
-  //
-  void (*dfsan_flush_ptr)(void) = __jove_dfsan_flush;
-  if (dfsan_flush_ptr) {
-    {
-      char buff[256];
-      buff[0] = '\0';
-
-      _strcat(buff, __ANSI_BOLD_BLUE "calling __jove_dfsan_flush\n" __ANSI_NORMAL_COLOR);
-
-      _jove_sys_write(2 /* stderr */, buff, _strlen(buff));
-    }
-
-    dfsan_flush_ptr();
-  }
-
-  {
-    char envs[4096 * 8];
-    const unsigned envs_n = _read_pseudo_file("/proc/self/environ", envs, sizeof(envs));
-    envs[envs_n] = '\0';
-
-    if (_should_sleep_on_crash(envs, envs_n)) {
+    //
+    // flush dfsan_log.pb
+    //
+    void (*dfsan_flush_ptr)(void) = __jove_dfsan_flush;
+    if (dfsan_flush_ptr) {
       {
         char buff[256];
         buff[0] = '\0';
 
-        _strcat(buff, __ANSI_BOLD_BLUE "sleeping...\n" __ANSI_NORMAL_COLOR);
+        _strcat(buff, __ANSI_BOLD_BLUE "calling __jove_dfsan_flush\n" __ANSI_NORMAL_COLOR);
 
         _jove_sys_write(2 /* stderr */, buff, _strlen(buff));
       }
 
-      for (;;) _jove_sleep();
-    } else {
-      _jove_sys_exit_group(0x77);
-      __builtin_trap();
+      dfsan_flush_ptr();
     }
-  }
 
-  __builtin_unreachable();
+    {
+      char envs[4096 * 8];
+      const unsigned envs_n = _read_pseudo_file("/proc/self/environ", envs, sizeof(envs));
+      envs[envs_n] = '\0';
+
+      if (_should_sleep_on_crash(envs, envs_n)) {
+        {
+          char buff[256];
+          buff[0] = '\0';
+
+          _strcat(buff, __ANSI_BOLD_BLUE "sleeping...\n" __ANSI_NORMAL_COLOR);
+
+          _jove_sys_write(2 /* stderr */, buff, _strlen(buff));
+        }
+
+        for (;;) _jove_sleep();
+      } else {
+        _jove_sys_exit_group(0x77);
+        __builtin_trap();
+      }
+    }
+
+    __builtin_unreachable();
+  }
 }
 
 uintptr_t _jove_handle_signal_delivery(uintptr_t SignalDelivery,
