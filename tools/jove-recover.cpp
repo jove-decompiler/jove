@@ -223,7 +223,7 @@ static void InvalidateAllFunctionAnalyses(void) {
 }
 
 #include "elf.hpp"
-#include "translate.hpp"
+#include "explore.hpp"
 
 static std::string DescribeFunction(binary_index_t, function_index_t);
 static std::string DescribeBasicBlock(binary_index_t, basic_block_index_t);
@@ -422,9 +422,9 @@ int recover(void) {
         basic_block_t succ = boost::target(cf, ICFG);
 
         function_index_t FIdx =
-            translate_function(CallerBinary, tcg, dis, ICFG[succ].Addr,
-                               CallerBinary.fnmap,
-                               CallerBinary.bbmap);
+            explore_function(CallerBinary, tcg, dis, ICFG[succ].Addr,
+                             CallerBinary.fnmap,
+                             CallerBinary.bbmap);
         assert(is_function_index_valid(FIdx));
         ICFG[CallerBB].DynTargets.insert({Caller.BIdx, FIdx});
       }
@@ -458,9 +458,9 @@ int recover(void) {
 
     assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP);
     basic_block_index_t target_bb_idx =
-        translate_basic_block(indbr_binary, tcg, dis, IndBr.Target,
-                              indbr_binary.fnmap,
-                              indbr_binary.bbmap);
+        explore_basic_block(indbr_binary, tcg, dis, IndBr.Target,
+                            indbr_binary.fnmap,
+                            indbr_binary.bbmap);
     if (!is_basic_block_index_valid(target_bb_idx)) {
       HumanOut() << llvm::formatv(
           "failed to recover control flow -> {0:x}\n", IndBr.Target);
@@ -508,9 +508,9 @@ int recover(void) {
     binary_t &CalleeBinary = Decompilation.Binaries.at(Callee.BIdx);
 
     function_index_t TargetFIdx =
-        translate_function(CalleeBinary, tcg, dis, Callee.FileAddr,
-                           CalleeBinary.fnmap,
-                           CalleeBinary.bbmap);
+        explore_function(CalleeBinary, tcg, dis, Callee.FileAddr,
+                         CalleeBinary.fnmap,
+                         CalleeBinary.bbmap);
     if (!is_function_index_valid(TargetFIdx)) {
       HumanOut() << llvm::formatv(
           "failed to translate indirect call target {0:x}\n", Callee.FileAddr);
@@ -595,9 +595,9 @@ int recover(void) {
 #endif
 
     basic_block_index_t next_bb_idx =
-      translate_basic_block(CallBinary, tcg, dis, NextAddr,
-                            CallBinary.fnmap,
-                            CallBinary.bbmap);
+      explore_basic_block(CallBinary, tcg, dis, NextAddr,
+                          CallBinary.fnmap,
+                          CallBinary.bbmap);
 
     auto &bbmap = CallBinary.bbmap;
     {

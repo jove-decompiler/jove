@@ -162,7 +162,7 @@ typedef std::tuple<llvm::MCDisassembler &,
 static decompilation_t decompilation;
 
 #include "elf.hpp"
-#include "translate.hpp"
+#include "explore.hpp"
 #include "relocs_common.hpp"
 
 static struct {
@@ -428,9 +428,9 @@ int add(void) {
     llvm::outs() << llvm::formatv("entry point @ {0:x}\n", EntryAddr);
 
     b.Analysis.EntryFunction =
-        translate_function(b, tcg, dis, EntryAddr,
-                           b.fnmap,
-                           b.bbmap);
+        explore_function(b, tcg, dis, EntryAddr,
+                         b.fnmap,
+                         b.bbmap);
   } else {
     b.Analysis.EntryFunction = invalid_function_index;
   }
@@ -769,9 +769,9 @@ int add(void) {
     Entrypoint &= ~1UL;
 #endif
 
-    translate_basic_block(b, tcg, dis, Entrypoint,
-                          b.fnmap,
-                          b.bbmap);
+    explore_basic_block(b, tcg, dis, Entrypoint,
+                        b.fnmap,
+                        b.bbmap);
   }
 
   for (target_ulong Entrypoint : boost::adaptors::reverse(Known.FunctionEntrypoints)) {
@@ -779,9 +779,9 @@ int add(void) {
     Entrypoint &= ~1UL;
 #endif
 
-    function_index_t FIdx = translate_function(b, tcg, dis, Entrypoint,
-                                               b.fnmap,
-                                               b.bbmap);
+    function_index_t FIdx = explore_function(b, tcg, dis, Entrypoint,
+                                             b.fnmap,
+                                             b.bbmap);
 
     if (!is_function_index_valid(FIdx))
       continue;
@@ -1084,9 +1084,9 @@ int add(void) {
 
         uint64_t A = P->p_vaddr + idx;
 
-        basic_block_index_t BBIdx = translate_basic_block(b, tcg, dis, A,
-                                                          b.fnmap,
-                                                          b.bbmap);
+        basic_block_index_t BBIdx = explore_basic_block(b, tcg, dis, A,
+                                                        b.fnmap,
+                                                        b.bbmap);
         if (!is_basic_block_index_valid(BBIdx))
           continue;
 
@@ -1133,9 +1133,9 @@ int add(void) {
 
         uint64_t A = P->p_vaddr + idx;
 
-        basic_block_index_t BBIdx = translate_basic_block(b, tcg, dis, A,
-                                                          b.fnmap,
-                                                          b.bbmap);
+        basic_block_index_t BBIdx = explore_basic_block(b, tcg, dis, A,
+                                                        b.fnmap,
+                                                        b.bbmap);
         if (!is_basic_block_index_valid(BBIdx))
           continue;
 

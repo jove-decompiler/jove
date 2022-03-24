@@ -48,7 +48,7 @@ namespace jove {
 #include "tcgcommon.hpp"
 
 namespace jove {
-#include "translate.hpp"
+#include "explore.hpp"
 }
 
 #include <tuple>
@@ -1370,14 +1370,14 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
 
                       unsigned brkpt_count = 0;
 
-                      basic_block_index_t entrybb_idx = translate_basic_block(
+                      basic_block_index_t entrybb_idx = explore_basic_block(
                           b, tcg, dis, rva_of_va(handler, BIdx),
                           b.fnmap,
                           b.bbmap,
                           on_new_basic_block);
 
                       if (is_basic_block_index_valid(entrybb_idx)) {
-                        function_index_t FIdx = translate_function(
+                        function_index_t FIdx = explore_function(
                             b, tcg, dis, rva_of_va(handler, BIdx),
                             b.fnmap,
                             b.bbmap,
@@ -1597,7 +1597,7 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
               basic_block_t succ = boost::target(cf, ICFG);
 
               unsigned brkpt_count = 0;
-              function_index_t FIdx = translate_function(
+              function_index_t FIdx = explore_function(
                   b, tcg, dis, ICFG[succ].Addr,
                   b.fnmap,
                   b.bbmap,
@@ -3152,11 +3152,11 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
   try {
   if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL) {
     function_index_t FIdx =
-        translate_function(TargetBinary, tcg, dis,
-                           rva_of_va(Target.Addr, Target.BIdx),
-                           TargetBinary.fnmap,
-                           TargetBinary.bbmap,
-                           on_new_basic_block);
+        explore_function(TargetBinary, tcg, dis,
+                         rva_of_va(Target.Addr, Target.BIdx),
+                         TargetBinary.fnmap,
+                         TargetBinary.bbmap,
+                         on_new_basic_block);
 
     Target.isNew = ICFG[bb].DynTargets.insert({Target.BIdx, FIdx}).second;
   } else if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP) {
@@ -3164,11 +3164,11 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
       //
       // non-local goto (aka "long jump")
       //
-      translate_basic_block(TargetBinary, tcg, dis,
-                            rva_of_va(Target.Addr, Target.BIdx),
-                            TargetBinary.fnmap,
-                            TargetBinary.bbmap,
-                            on_new_basic_block);
+      explore_basic_block(TargetBinary, tcg, dis,
+                          rva_of_va(Target.Addr, Target.BIdx),
+                          TargetBinary.fnmap,
+                          TargetBinary.bbmap,
+                          on_new_basic_block);
 
       ControlFlow.IsGoto = true;
       Target.isNew = opts::Longjmps;
@@ -3189,11 +3189,11 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
       if (isTailCall) {
         function_index_t FIdx =
-            translate_function(TargetBinary, tcg, dis,
-                               rva_of_va(Target.Addr, Target.BIdx),
-                               TargetBinary.fnmap,
-                               TargetBinary.bbmap,
-                               on_new_basic_block);
+            explore_function(TargetBinary, tcg, dis,
+                             rva_of_va(Target.Addr, Target.BIdx),
+                             TargetBinary.fnmap,
+                             TargetBinary.bbmap,
+                             on_new_basic_block);
 
         //
         // the block containing the terminator may have been split underneath us
@@ -3209,11 +3209,11 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
         Target.isNew = ICFG[bb].DynTargets.insert({Target.BIdx, FIdx}).second;
       } else {
         basic_block_index_t TargetBBIdx =
-            translate_basic_block(TargetBinary, tcg, dis,
-                                  rva_of_va(Target.Addr, Target.BIdx),
-                                  TargetBinary.fnmap,
-                                  TargetBinary.bbmap,
-                                  on_new_basic_block);
+            explore_basic_block(TargetBinary, tcg, dis,
+                                rva_of_va(Target.Addr, Target.BIdx),
+                                TargetBinary.fnmap,
+                                TargetBinary.bbmap,
+                                on_new_basic_block);
         basic_block_t TargetBB = boost::vertex(TargetBBIdx, ICFG);
 
         //
@@ -3305,7 +3305,7 @@ static void harvest_irelative_reloc_targets(pid_t child,
 
     binary_t &ResolvedBinary = decompilation.Binaries[Resolved.BIdx];
 
-    Resolved.FIdx = translate_function(
+    Resolved.FIdx = explore_function(
         ResolvedBinary, tcg, dis,
         rva_of_va(Resolved.Addr, Resolved.BIdx),
         ResolvedBinary.fnmap,
@@ -3414,7 +3414,7 @@ static void harvest_addressof_reloc_targets(pid_t child,
       binary_t &ResolvedBinary = decompilation.Binaries[Resolved.BIdx];
 
       unsigned brkpt_count = 0;
-      Resolved.FIdx = translate_function(
+      Resolved.FIdx = explore_function(
           ResolvedBinary, tcg, dis,
           rva_of_va(Resolved.Addr, Resolved.BIdx),
           ResolvedBinary.fnmap,
@@ -3516,7 +3516,7 @@ static void harvest_ctor_and_dtors(pid_t child,
             auto it = AddressSpace.find(Proc);
             if (it != AddressSpace.end() &&
                 -1+(*it).second == BIdx) {
-              function_index_t FIdx = translate_function(
+              function_index_t FIdx = explore_function(
                   Binary, tcg, dis, rva_of_va(Proc, BIdx),
                   Binary.fnmap,
                   Binary.bbmap,
@@ -3643,7 +3643,7 @@ static void harvest_global_GOT_entries(pid_t child,
       binary_t &ResolvedBinary = decompilation.Binaries.at(Resolved.BIdx);
 
       unsigned brkpt_count = 0;
-      basic_block_index_t resolved_bbidx = translate_basic_block(
+      basic_block_index_t resolved_bbidx = explore_basic_block(
           ResolvedBinary, tcg, dis,
           rva_of_va(Resolved.Addr, Resolved.BIdx),
           ResolvedBinary.fnmap,
@@ -3653,7 +3653,7 @@ static void harvest_global_GOT_entries(pid_t child,
       if (!is_basic_block_index_valid(resolved_bbidx))
         continue;
 
-      Resolved.FIdx = translate_function(
+      Resolved.FIdx = explore_function(
           ResolvedBinary, tcg, dis,
           rva_of_va(Resolved.Addr, Resolved.BIdx),
           ResolvedBinary.fnmap,
@@ -4716,10 +4716,10 @@ void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr,
 
         unsigned brkpt_count = 0;
         basic_block_index_t next_bb_idx =
-            translate_basic_block(binary, tcg, dis, rva,
-                                  binary.fnmap,
-                                  binary.bbmap,
-                                  on_new_basic_block);
+            explore_basic_block(binary, tcg, dis, rva,
+                                binary.fnmap,
+                                binary.bbmap,
+                                on_new_basic_block);
         if (is_basic_block_index_valid(next_bb_idx)) {
           basic_block_t bb;
 

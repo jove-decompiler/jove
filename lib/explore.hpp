@@ -3,21 +3,21 @@ typedef std::tuple<llvm::MCDisassembler &,
                    llvm::MCInstPrinter &>
     disas_t;
 
-static basic_block_index_t translate_basic_block(binary_t &b,
-                                                 tiny_code_generator_t &,
-                                                 disas_t &,
-                                                 const target_ulong Addr,
-                                                 fnmap_t &,
-                                                 bbmap_t &,
-                                                 std::function<void(binary_t &, basic_block_t, disas_t &)> on_newbb_proc = [](binary_t &, basic_block_t, disas_t &){});
+static basic_block_index_t explore_basic_block(binary_t &b,
+                                               tiny_code_generator_t &,
+                                               disas_t &,
+                                               const target_ulong Addr,
+                                               fnmap_t &,
+                                               bbmap_t &,
+                                               std::function<void(binary_t &, basic_block_t, disas_t &)> on_newbb_proc = [](binary_t &, basic_block_t, disas_t &){});
 
-static function_index_t translate_function(binary_t &b,
-                                           tiny_code_generator_t &tcg,
-                                           disas_t &dis,
-                                           const target_ulong Addr,
-                                           fnmap_t &fnmap,
-                                           bbmap_t &bbmap,
-                                           std::function<void(binary_t &, basic_block_t, disas_t &)> on_newbb_proc = [](binary_t &, basic_block_t, disas_t &){}) {
+static function_index_t explore_function(binary_t &b,
+                                         tiny_code_generator_t &tcg,
+                                         disas_t &dis,
+                                         const target_ulong Addr,
+                                         fnmap_t &fnmap,
+                                         bbmap_t &bbmap,
+                                         std::function<void(binary_t &, basic_block_t, disas_t &)> on_newbb_proc = [](binary_t &, basic_block_t, disas_t &){}) {
 #if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
   assert((Addr & 1) == 0);
 #endif
@@ -34,7 +34,7 @@ static function_index_t translate_function(binary_t &b,
   fnmap.insert({Addr, res});
 
   basic_block_index_t Entry =
-      translate_basic_block(b, tcg, dis, Addr, fnmap, bbmap, on_newbb_proc);
+      explore_basic_block(b, tcg, dis, Addr, fnmap, bbmap, on_newbb_proc);
 
 #ifdef WARN_ON
   WARN_ON(!is_basic_block_index_valid(Entry));
@@ -54,13 +54,13 @@ static function_index_t translate_function(binary_t &b,
 
 static bool does_function_definitely_return(binary_t &, function_index_t);
 
-basic_block_index_t translate_basic_block(binary_t &b,
-                                          tiny_code_generator_t &tcg,
-                                          disas_t &dis,
-                                          const target_ulong Addr,
-                                          fnmap_t &fnmap,
-                                          bbmap_t &bbmap,
-                                          std::function<void(binary_t &, basic_block_t, disas_t &)> on_newbb_proc) {
+basic_block_index_t explore_basic_block(binary_t &b,
+                                        tiny_code_generator_t &tcg,
+                                        disas_t &dis,
+                                        const target_ulong Addr,
+                                        fnmap_t &fnmap,
+                                        bbmap_t &bbmap,
+                                        std::function<void(binary_t &, basic_block_t, disas_t &)> on_newbb_proc) {
 #if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
   assert((Addr & 1) == 0);
 #endif
@@ -334,7 +334,7 @@ on_insn_boundary:
 #endif
 
     basic_block_index_t succidx =
-        translate_basic_block(b, tcg, dis, Target, fnmap, bbmap, on_newbb_proc);
+        explore_basic_block(b, tcg, dis, Target, fnmap, bbmap, on_newbb_proc);
 
     if (succidx == invalid_basic_block_index) {
       llvm::WithColor::warning() << llvm::formatv(
@@ -377,10 +377,10 @@ on_insn_boundary:
     CalleeAddr &= ~1UL;
 #endif
 
-    function_index_t FIdx = translate_function(b, tcg, dis, CalleeAddr,
-                                               fnmap,
-                                               bbmap,
-                                               on_newbb_proc);
+    function_index_t FIdx = explore_function(b, tcg, dis, CalleeAddr,
+                                             fnmap,
+                                             bbmap,
+                                             on_newbb_proc);
 
     basic_block_t _bb;
     {
