@@ -190,7 +190,7 @@ $(BINDIR)/$(1)/harvest-vdso: lib/arch/$(1)/harvest-vdso.c
 
 $(BINDIR)/$(1)/libjove_rt.so.0: lib/arch/$(1)/rt.c
 	@echo CC $$<
-	$(_LLVM_CC) -o $$@ -MMD -shared -Wl,-soname=$(JOVE_RT_SONAME) -Bsymbolic -fuse-ld=lld -nostdlib --sysroot $($(1)_sysroot) -I $($(1)_sysroot)/include -D TARGET_$(call uc,$(1)) --target=$($(1)_TRIPLE) -Ofast -ffreestanding -fno-stack-protector $($(1)_ARCH_CFLAGS) -D TARGET_ARCH_NAME=\"$($(1)_ARCH_NAME)\" -fPIC -g -Wall -I lib -I lib/arch/$(1) -Wl,-init,_jove_rt_init $$< -Wl,--push-state -Wl,--as-needed $($(1)_builtins_lib) -Wl,--pop-state -Wl,--exclude-libs,ALL
+	$(_LLVM_CC) -o $$@ -MMD -shared -Wl,-soname=$(JOVE_RT_SONAME) -Bsymbolic -fuse-ld=lld -nostdlib --sysroot $($(1)_sysroot) -I $($(1)_sysroot)/include -D TARGET_$(call uc,$(1)) --target=$($(1)_TRIPLE) -Ofast -ffreestanding -fno-stack-protector $($(1)_ARCH_CFLAGS) -D TARGET_ARCH_NAME=\"$($(1)_ARCH_NAME)\" -fPIC -g -Wall -I lib -I lib/arch/$(1) -Werror-implicit-function-declaration -Wl,-init,_jove_rt_init $$< -Wl,--push-state -Wl,--as-needed $($(1)_builtins_lib) -Wl,--pop-state -Wl,--exclude-libs,ALL
 
 $(BINDIR)/$(1)/jove.bc: lib/arch/$(1)/jove.c
 	@echo CC $$<
