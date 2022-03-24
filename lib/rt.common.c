@@ -242,7 +242,7 @@ void _jove_flush_trace(void) {
   --TracePtr;
   unsigned n = (TracePtr - TraceBegin) * sizeof(uint64_t);
 
-  ssize_t ret = _robust_write(fd, TraceBegin, n);
+  ssize_t ret = _jove_robust_write(fd, TraceBegin, n);
 
   if (ret != n)
     _UNREACHABLE("_jove_flush_trace: could not flush trace file");
@@ -505,7 +505,7 @@ found:
 
       {
         char maps[4096 * 8];
-        const unsigned maps_n = _read_pseudo_file("/proc/self/maps", maps, sizeof(maps));
+        const unsigned maps_n = _jove_read_pseudo_file("/proc/self/maps", maps, sizeof(maps));
         maps[maps_n] = '\0';
 
         char buff[256];
@@ -624,7 +624,7 @@ not_found:
     // if we get here we'll assume it's a crash.
     //
     char maps[4096 * 8];
-    const unsigned maps_n = _read_pseudo_file("/proc/self/maps", maps, sizeof(maps));
+    const unsigned maps_n = _jove_read_pseudo_file("/proc/self/maps", maps, sizeof(maps));
     maps[maps_n] = '\0';
 
     char s[4096 * 16];
@@ -763,7 +763,7 @@ not_found:
     //
     // dump message for user
     //
-    _robust_write(2 /* stderr */, s, _strlen(s));
+    _jove_robust_write(2 /* stderr */, s, _strlen(s));
 
 #if 0
     {
@@ -797,7 +797,7 @@ not_found:
 
     {
       char envs[4096 * 8];
-      const unsigned envs_n = _read_pseudo_file("/proc/self/environ", envs, sizeof(envs));
+      const unsigned envs_n = _jove_read_pseudo_file("/proc/self/environ", envs, sizeof(envs));
       envs[envs_n] = '\0';
 
       if (_should_sleep_on_crash(envs, envs_n)) {

@@ -85,7 +85,7 @@ static _INL _UNUSED void _uint_to_string(uint64_t x, char *Str, unsigned Radix) 
   *Str = '\0';
 }
 
-static _UNUSED unsigned _read_pseudo_file(const char *path, char *out, size_t len) {
+static _UNUSED unsigned _jove_read_pseudo_file(const char *path, char *out, size_t len) {
   unsigned n;
 
   {
@@ -288,7 +288,7 @@ static _UNUSED uintptr_t _parse_stack_end_of_maps(char *maps, const unsigned n) 
 
 static _INL _UNUSED uintptr_t _get_stack_end(void) {
   char buff[4096 * 16];
-  unsigned n = _read_pseudo_file("/proc/self/maps", buff, sizeof(buff));
+  unsigned n = _jove_read_pseudo_file("/proc/self/maps", buff, sizeof(buff));
   buff[n] = '\0';
 
   uintptr_t res = _parse_stack_end_of_maps(buff, n);
@@ -302,7 +302,7 @@ static _INL _UNUSED size_t _sum_iovec_lengths(const struct iovec *iov, unsigned 
   return expected;
 }
 
-static _UNUSED ssize_t _robust_write(int fd, void *const buf, const size_t count) {
+static _UNUSED ssize_t _jove_robust_write(int fd, void *const buf, const size_t count) {
   uint8_t *const _buf = (uint8_t *)buf;
 
   unsigned n = 0;

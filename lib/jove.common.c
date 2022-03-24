@@ -453,7 +453,7 @@ void _jove_install_foreign_function_tables(void) {
   /* we need to get the load addresses for the dynamic linker and VDSO by
    * parsing /proc/self/maps */
   char maps[4096 * 16];
-  unsigned n = _read_pseudo_file("/proc/self/maps", maps, sizeof(maps));
+  unsigned n = _jove_read_pseudo_file("/proc/self/maps", maps, sizeof(maps));
   maps[n] = '\0';
 
   uintptr_t dynl_load_bias = _parse_dynl_load_bias(maps, n);
@@ -592,7 +592,7 @@ void _jove_install_foreign_function_tables(void) {
 
 _NORET void _jove_fail1(uintptr_t a0, const char *reason) {
   char maps[4096 * 8];
-  const unsigned n = _read_pseudo_file("/proc/self/maps", maps, sizeof(maps));
+  const unsigned n = _jove_read_pseudo_file("/proc/self/maps", maps, sizeof(maps));
   maps[n] = '\0';
 
   {
@@ -629,7 +629,7 @@ _NORET void _jove_fail1(uintptr_t a0, const char *reason) {
     //
     // dump message for user
     //
-    _robust_write(2 /* stderr */, s, _strlen(s));
+    _jove_robust_write(2 /* stderr */, s, _strlen(s));
   }
 
   _jove_flush_trace_clunk();
@@ -647,7 +647,7 @@ _NORET void _jove_fail1(uintptr_t a0, const char *reason) {
 _NORET void _jove_fail2(uintptr_t a0,
                         uintptr_t a1) {
   char maps[4096 * 8];
-  const unsigned n = _read_pseudo_file("/proc/self/maps", maps, sizeof(maps));
+  const unsigned n = _jove_read_pseudo_file("/proc/self/maps", maps, sizeof(maps));
   maps[n] = '\0';
 
   {
@@ -696,7 +696,7 @@ _NORET void _jove_fail2(uintptr_t a0,
     //
     // dump message for user
     //
-    _robust_write(2 /* stderr */, s, _strlen(s));
+    _jove_robust_write(2 /* stderr */, s, _strlen(s));
   }
 
   for (;;)
@@ -721,7 +721,7 @@ void _jove_log1(const char *msg,
   }
   _strcat(s, ")\n");
 
-  _robust_write(2 /* stderr */, s, _strlen(s));
+  _jove_robust_write(2 /* stderr */, s, _strlen(s));
 }
 
 void _jove_log2(const char *msg,
@@ -748,7 +748,7 @@ void _jove_log2(const char *msg,
   }
   _strcat(s, ")\n");
 
-  _robust_write(2 /* stderr */, s, _strlen(s));
+  _jove_robust_write(2 /* stderr */, s, _strlen(s));
 }
 
 _HIDDEN void _jove_recover_function(uint32_t IndCallBBIdx,
@@ -849,7 +849,7 @@ jove_thunk_return_t _jove_call(
 
   if (!FoundAll) {
     char maps[4096 * 16];
-    unsigned n = _read_pseudo_file("/proc/self/maps", maps, sizeof(maps));
+    unsigned n = _jove_read_pseudo_file("/proc/self/maps", maps, sizeof(maps));
     maps[n] = '\0';
 
     char *const beg = &maps[0];
@@ -935,7 +935,7 @@ jove_thunk_return_t _jove_call(
     // see if this is a function in a foreign DSO
     //
     char maps[4096 * 16];
-    unsigned n = _read_pseudo_file("/proc/self/maps", maps, sizeof(maps));
+    unsigned n = _jove_read_pseudo_file("/proc/self/maps", maps, sizeof(maps));
     maps[n] = '\0';
 
     char *const beg = &maps[0];
