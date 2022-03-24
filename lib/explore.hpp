@@ -344,19 +344,11 @@ on_insn_boundary:
 
     assert(is_basic_block_index_valid(succidx));
 
-    basic_block_t _bb;
-    {
-      auto it = T.Addr ? bbmap.find(T.Addr) : bbmap.find(Addr);
-      assert(it != bbmap.end());
+    bb = basic_block_at_address(T.Addr ?: Addr, b, bbmap);
+    assert(T.Type == ICFG[bb].Term.Type);
 
-      basic_block_index_t _bbidx = -1+(*it).second;
-      _bb = boost::vertex(_bbidx, ICFG);
-      assert(T.Type == ICFG[_bb].Term.Type);
-    }
-
-    basic_block_t succ = boost::vertex(succidx, ICFG);
-    bool isNewTarget = boost::add_edge(_bb, succ, ICFG).second;
-
+    bool isNewTarget =
+        boost::add_edge(bb, basic_block_of_index(succidx, b), ICFG).second;
     (void)isNewTarget;
   };
 
@@ -381,20 +373,14 @@ on_insn_boundary:
                                              fnmap,
                                              bbmap,
                                              on_newbb_proc);
+    assert(T.Addr);
+    bb = basic_block_at_address(T.Addr, b, bbmap);
 
-    basic_block_t _bb;
-    {
-      auto it = T.Addr ? bbmap.find(T.Addr) : bbmap.find(Addr);
-      assert(it != bbmap.end());
-      basic_block_index_t _bbidx = -1+(*it).second;
-      _bb = boost::vertex(_bbidx, ICFG);
-    }
-
-    assert(ICFG[_bb].Term.Type == TERMINATOR::CALL);
-    ICFG[_bb].Term._call.Target = FIdx;
+    assert(ICFG[bb].Term.Type == TERMINATOR::CALL);
+    ICFG[bb].Term._call.Target = FIdx;
 
     if (is_function_index_valid(FIdx) &&
-        DoesFunctionReturnSlow(b.Analysis.Functions[FIdx], b))
+        does_function_return(b.Analysis.Functions[FIdx], b))
       control_flow(T._call.NextPC);
 
     break;

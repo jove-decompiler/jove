@@ -533,7 +533,8 @@ static inline void exit_basic_blocks_of_function(function_t &f,
                [&](basic_block_t bb) -> bool { return IsExitBlock(ICFG, bb); });
 }
 
-inline bool DoesFunctionReturnFast(const icfg_t &ICFG, const basic_block_vec_t &bbvec) {
+inline bool does_function_return_fast(const icfg_t &ICFG,
+                                      const basic_block_vec_t &bbvec) {
   return std::any_of(bbvec.begin(),
                      bbvec.end(),
                      [&](basic_block_t bb) -> bool {
@@ -541,8 +542,8 @@ inline bool DoesFunctionReturnFast(const icfg_t &ICFG, const basic_block_vec_t &
                      });
 }
 
-bool DoesFunctionReturnSlow(function_t &f,
-                            binary_t &b) {
+inline bool does_function_return(function_t &f,
+                                 binary_t &b) {
   basic_block_vec_t bbvec;
   basic_blocks_of_function(f, b, bbvec);
 
@@ -641,6 +642,22 @@ static inline void construct_fnmap(decompilation_t &decompilation,
 
     out.insert({A, FIdx});
   });
+}
+
+static inline basic_block_t basic_block_of_index(basic_block_index_t BBIdx,
+                                                 const binary_t &binary) {
+  const auto &ICFG = binary.Analysis.ICFG;
+  return boost::vertex(BBIdx, ICFG);
+}
+
+static inline basic_block_t basic_block_at_address(tcg_uintptr_t Addr,
+                                                   binary_t &binary,
+                                                   bbmap_t &bbmap) {
+  auto it = bbmap.find(Addr);
+  if (it == bbmap.end())
+    abort();
+
+  return basic_block_of_index(-1+(*it).second, binary);
 }
 
 static inline void identify_ABIs(decompilation_t &decompilation) {
