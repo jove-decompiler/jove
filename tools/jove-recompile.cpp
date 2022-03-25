@@ -65,6 +65,8 @@ struct dynamic_linking_info_t {
 #include <boost/graph/adj_list_serialize.hpp>
 #include <boost/range/adaptor/reversed.hpp>
 #include <boost/graph/topological_sort.hpp>
+#include <boost/graph/filtered_graph.hpp>
+#include <boost/graph/strong_components.hpp>
 #include <boost/format.hpp>
 
 #include "jove_macros.h"
@@ -224,6 +226,92 @@ static void worker(const dso_graph_t &dso_graph);
 static std::atomic<bool> worker_failed(false);
 
 static std::pair<tcg_uintptr_t, tcg_uintptr_t> base_of_executable(binary_t &);
+
+struct all_edges_t {
+  template <typename Edge> bool operator()(const Edge &e) const {
+    return true;
+  }
+};
+
+struct vert_exists_in_set_t {
+  const std::unordered_set<dso_t> *s;
+
+  vert_exists_in_set_t() : s(nullptr) {}
+  vert_exists_in_set_t(const std::unordered_set<dso_t> &s) : s(&s) {}
+
+  bool operator()(const dso_t &v) const {
+    return s->find(v) != s->end();
+  }
+};
+
+template <typename Graph>
+struct graphviz_label_writer {
+  const Graph &g;
+
+  graphviz_label_writer(const Graph &g) : g(g) {}
+
+  template <typename Vertex>
+  void operator()(std::ostream &out, Vertex v) const {
+    std::string name =
+        fs::path(Decompilation.Binaries.at(g[v].BIdx).Path).filename().string();
+
+    boost::replace_all(name, "\\", "\\\\");
+    boost::replace_all(name, "\r\n", "\\l");
+    boost::replace_all(name, "\n", "\\l");
+    boost::replace_all(name, "\"", "\\\"");
+    boost::replace_all(name, "{", "\\{");
+    boost::replace_all(name, "}", "\\}");
+    boost::replace_all(name, "|", "\\|");
+    boost::replace_all(name, "|", "\\|");
+    boost::replace_all(name, "<", "\\<");
+    boost::replace_all(name, ">", "\\>");
+    boost::replace_all(name, "(", "\\(");
+    boost::replace_all(name, ")", "\\)");
+    boost::replace_all(name, ",", "\\,");
+    boost::replace_all(name, ";", "\\;");
+    boost::replace_all(name, ":", "\\:");
+    boost::replace_all(name, " ", "\\ ");
+
+    out << "[label=\"";
+    out << name;
+    out << "\"]";
+  }
+};
+
+template <typename Graph>
+struct graphviz_edge_prop_writer {
+  const Graph &g;
+
+  graphviz_edge_prop_writer(const Graph &g) : g(g) {}
+
+  template <class Edge>
+  void operator()(std::ostream &out, const Edge &e) const {
+    static const char *edge_type_styles[] = {
+        "solid", "dashed", /*"invis"*/ "dotted"
+    };
+
+    out << "[style=\"" << edge_type_styles[0] << "\"]";
+  }
+};
+
+struct graphviz_prop_writer {
+  void operator()(std::ostream &out) const {
+    out << "fontname = \"Courier\"\n"
+           "fontsize = 10\n"
+           "\n"
+           "node [\n"
+           "fontname = \"Courier\"\n"
+           "fontsize = 10\n"
+           "shape = \"record\"\n"
+           "]\n"
+           "\n"
+           "edge [\n"
+           "fontname = \"Courier\"\n"
+           "fontsize = 10\n"
+           "]\n"
+           "\n";
+  }
+};
 
 int recompile(void) {
   compiler_runtime_afp =
@@ -701,6 +789,59 @@ int recompile(void) {
                          std::map<dso_t, boost::default_color_type>>(clr_map)));
   } catch (const boost::not_a_dag &) {
     WithColor::error() << "dynamic linking graph is not a DAG.\n";
+
+    std::map<dso_t, dso_graph_t::vertices_size_type> vert_comps;
+
+    {
+      std::map<dso_t, int> tm_map;
+      std::map<dso_t, dso_t> rt_map;
+      std::map<dso_t, boost::default_color_type> clr_map;
+      std::map<dso_t, int> idx_map;
+
+      boost::strong_components(
+	  dso_graph,
+	  boost::associative_property_map<
+	      std::map<dso_t, dso_graph_t::vertices_size_type>>(vert_comps),
+	  boost::root_map(boost::associative_property_map<std::map<dso_t, dso_t>>(rt_map))
+	        .discover_time_map(boost::associative_property_map<std::map<dso_t, int>>(tm_map))
+	        .color_map(boost::associative_property_map<std::map<dso_t, boost::default_color_type>>(clr_map))
+	        .vertex_index_map(boost::associative_property_map<std::map<dso_t, int>>(idx_map)));
+    }
+
+    std::map<dso_graph_t::vertices_size_type, std::unordered_set<dso_t>> comp_verts_map;
+    for (const auto &el : vert_comps)
+      comp_verts_map[el.second].insert(el.first);
+
+    std::unordered_map<dso_t, std::unordered_set<dso_t>> bad_edges;
+
+    for (const auto &comp_verts : comp_verts_map) {
+      if (comp_verts.second.size() == 1)
+        continue;
+
+      vert_exists_in_set_t v_filter(comp_verts.second);
+      all_edges_t _e_filter;
+      boost::filtered_graph<dso_graph_t, all_edges_t, vert_exists_in_set_t> fg(
+          dso_graph, _e_filter, v_filter);
+
+      {
+        std::string dotfp = std::string("/tmp/jove-recompile.scc.") +
+                            std::to_string(comp_verts.first) + ".dot";
+	std::ofstream out(dotfp);
+
+        WithColor::note() << llvm::formatv(
+            "writing scc of size {0} vertices ({1})\n",
+            comp_verts.second.size(), dotfp);
+
+        boost::write_graphviz(
+	    out, fg,
+	    graphviz_label_writer(fg),
+	    graphviz_edge_prop_writer(fg),
+	    graphviz_prop_writer());
+      }
+    }
+
+    top_sorted.clear();
+
     return 1;
   }
 
@@ -1334,71 +1475,6 @@ bool pop_dso(dso_t &out) {
     return true;
   }
 }
-
-struct graphviz_label_writer {
-  const dso_graph_t &g;
-
-  graphviz_label_writer(const dso_graph_t &g) : g(g) {}
-
-  void operator()(std::ostream &out, dso_t v) const {
-    std::string name =
-        fs::path(Decompilation.Binaries.at(g[v].BIdx).Path).filename().string();
-
-    boost::replace_all(name, "\\", "\\\\");
-    boost::replace_all(name, "\r\n", "\\l");
-    boost::replace_all(name, "\n", "\\l");
-    boost::replace_all(name, "\"", "\\\"");
-    boost::replace_all(name, "{", "\\{");
-    boost::replace_all(name, "}", "\\}");
-    boost::replace_all(name, "|", "\\|");
-    boost::replace_all(name, "|", "\\|");
-    boost::replace_all(name, "<", "\\<");
-    boost::replace_all(name, ">", "\\>");
-    boost::replace_all(name, "(", "\\(");
-    boost::replace_all(name, ")", "\\)");
-    boost::replace_all(name, ",", "\\,");
-    boost::replace_all(name, ";", "\\;");
-    boost::replace_all(name, ":", "\\:");
-    boost::replace_all(name, " ", "\\ ");
-
-    out << "[label=\"";
-    out << name;
-    out << "\"]";
-  }
-};
-
-struct graphviz_edge_prop_writer {
-  const dso_graph_t &g;
-  graphviz_edge_prop_writer(const dso_graph_t &g) : g(g) {}
-
-  template <class Edge>
-  void operator()(std::ostream &out, const Edge &e) const {
-    static const char *edge_type_styles[] = {
-        "solid", "dashed", /*"invis"*/ "dotted"
-    };
-
-    out << "[style=\"" << edge_type_styles[0] << "\"]";
-  }
-};
-
-struct graphviz_prop_writer {
-  void operator()(std::ostream &out) const {
-    out << "fontname = \"Courier\"\n"
-           "fontsize = 10\n"
-           "\n"
-           "node [\n"
-           "fontname = \"Courier\"\n"
-           "fontsize = 10\n"
-           "shape = \"record\"\n"
-           "]\n"
-           "\n"
-           "edge [\n"
-           "fontname = \"Courier\"\n"
-           "fontsize = 10\n"
-           "]\n"
-           "\n";
-  }
-};
 
 void write_dso_graphviz(std::ostream &out, const dso_graph_t &dso_graph) {
   boost::write_graphviz(
