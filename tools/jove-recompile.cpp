@@ -234,13 +234,16 @@ struct all_edges_t {
 };
 
 struct vert_exists_in_set_t {
-  const std::unordered_set<dso_t> *s;
+  const std::unordered_set<dso_t> *vert_set;
 
-  vert_exists_in_set_t() : s(nullptr) {}
-  vert_exists_in_set_t(const std::unordered_set<dso_t> &s) : s(&s) {}
+  vert_exists_in_set_t() : vert_set(nullptr) {}
+  vert_exists_in_set_t(const std::unordered_set<dso_t> &vert_set)
+      : vert_set(&vert_set) {}
 
   bool operator()(const dso_t &v) const {
-    return s->find(v) != s->end();
+    assert(this->vert_set);
+
+    return vert_set->find(v) != vert_set->end();
   }
 };
 
@@ -275,6 +278,33 @@ struct graphviz_label_writer {
     out << "[label=\"";
     out << name;
     out << "\"]";
+  }
+};
+
+struct no_bad_edges_t {
+  const dso_graph_t *g_ptr;
+  const std::unordered_map<dso_t, std::unordered_set<dso_t>> *bad_edges;
+
+  no_bad_edges_t() : g_ptr(nullptr) {}
+  no_bad_edges_t(
+      const dso_graph_t *g_ptr,
+      const std::unordered_map<dso_t, std::unordered_set<dso_t>> *bad_edges)
+      : g_ptr(g_ptr), bad_edges(bad_edges) {}
+
+  template <typename Edge> bool operator()(const Edge &e) const {
+    assert(this->bad_edges);
+
+    const dso_graph_t &g = *g_ptr;
+
+    auto src_it = bad_edges->find(boost::source(e, g));
+    if (src_it == bad_edges->end())
+      return true;
+
+    auto target_it = (*src_it).second.find(boost::target(e, g));
+    if (target_it == (*src_it).second.end())
+      return true;
+
+    return false;
   }
 };
 
@@ -374,17 +404,14 @@ int recompile(void) {
 
   jove_dfsan_path =
       (boost::dll::program_location().parent_path().parent_path().parent_path() /
-       "third_party" / "lib" / ("libclang_rt.dfsan.jove-" TARGET_ARCH_NAME ".so"))
-	  .string();
+       "third_party" / "lib" / ("libclang_rt.dfsan.jove-" TARGET_ARCH_NAME ".so")).string();
   if (!fs::exists(jove_dfsan_path)) {
-    WithColor::error() << llvm::formatv("could not find {0}\n",
-					jove_dfsan_path);
+    WithColor::error() << llvm::formatv("could not find {0}\n", jove_dfsan_path);
     return 1;
   }
 
   llc_path = (boost::dll::program_location().parent_path().parent_path().parent_path() /
-              "third_party" / "llvm-project" / "static_install" / "bin" / "llc")
-                 .string();
+              "third_party" / "llvm-project" / "static_install" / "bin" / "llc").string();
   if (!fs::exists(llc_path)) {
     WithColor::error() << "could not find /usr/bin/llc\n";
     return 1;
@@ -788,10 +815,11 @@ int recompile(void) {
         boost::color_map(boost::associative_property_map<
                          std::map<dso_t, boost::default_color_type>>(clr_map)));
   } catch (const boost::not_a_dag &) {
-    WithColor::error() << "dynamic linking graph is not a DAG.\n";
-
     std::map<dso_t, dso_graph_t::vertices_size_type> vert_comps;
 
+    //
+    // compute strongly-connected components
+    //
     {
       std::map<dso_t, int> tm_map;
       std::map<dso_t, dso_t> rt_map;
@@ -799,13 +827,13 @@ int recompile(void) {
       std::map<dso_t, int> idx_map;
 
       boost::strong_components(
-	  dso_graph,
-	  boost::associative_property_map<
-	      std::map<dso_t, dso_graph_t::vertices_size_type>>(vert_comps),
-	  boost::root_map(boost::associative_property_map<std::map<dso_t, dso_t>>(rt_map))
-	        .discover_time_map(boost::associative_property_map<std::map<dso_t, int>>(tm_map))
-	        .color_map(boost::associative_property_map<std::map<dso_t, boost::default_color_type>>(clr_map))
-	        .vertex_index_map(boost::associative_property_map<std::map<dso_t, int>>(idx_map)));
+          dso_graph,
+          boost::associative_property_map<
+              std::map<dso_t, dso_graph_t::vertices_size_type>>(vert_comps),
+          boost::root_map(boost::associative_property_map<std::map<dso_t, dso_t>>(rt_map))
+                .discover_time_map(boost::associative_property_map<std::map<dso_t, int>>(tm_map))
+                .color_map(boost::associative_property_map<std::map<dso_t, boost::default_color_type>>(clr_map))
+                .vertex_index_map(boost::associative_property_map<std::map<dso_t, int>>(idx_map)));
     }
 
     std::map<dso_graph_t::vertices_size_type, std::unordered_set<dso_t>> comp_verts_map;
@@ -814,35 +842,69 @@ int recompile(void) {
 
     std::unordered_map<dso_t, std::unordered_set<dso_t>> bad_edges;
 
+    //
+    // examine edges in strongly-connected components
+    //
     for (const auto &comp_verts : comp_verts_map) {
       if (comp_verts.second.size() == 1)
         continue;
 
-      vert_exists_in_set_t v_filter(comp_verts.second);
-      all_edges_t _e_filter;
-      boost::filtered_graph<dso_graph_t, all_edges_t, vert_exists_in_set_t> fg(
-          dso_graph, _e_filter, v_filter);
+      vert_exists_in_set_t vertex_filter(comp_verts.second);
+      all_edges_t edge_filter;
 
-      {
+      boost::filtered_graph<dso_graph_t, all_edges_t, vert_exists_in_set_t> fg(
+          dso_graph, edge_filter, vertex_filter);
+
+      if (opts::Verbose) {
+        //
+        // write graphviz file
+        //
         std::string dotfp = std::string("/tmp/jove-recompile.scc.") +
                             std::to_string(comp_verts.first) + ".dot";
-	std::ofstream out(dotfp);
+        std::ofstream out(dotfp);
 
         WithColor::note() << llvm::formatv(
             "writing scc of size {0} vertices ({1})\n",
             comp_verts.second.size(), dotfp);
 
         boost::write_graphviz(
-	    out, fg,
-	    graphviz_label_writer(fg),
-	    graphviz_edge_prop_writer(fg),
-	    graphviz_prop_writer());
+            out, fg,
+            graphviz_label_writer(fg),
+            graphviz_edge_prop_writer(fg),
+            graphviz_prop_writer());
+      }
+
+      //
+      // add to bad_edges
+      //
+      {
+        auto eit_pair = boost::edges(fg);
+        for (auto eit = eit_pair.first; eit != eit_pair.second; ++eit)
+          bad_edges[boost::source(*eit, fg)].insert(boost::target(*eit, fg));
       }
     }
 
-    top_sorted.clear();
+    //
+    // try to topologically sort again, without offending edges
+    //
+    try {
+      top_sorted.clear();
 
-    return 1;
+      no_bad_edges_t _edge_filter(&dso_graph, &bad_edges);
+      boost::filtered_graph<dso_graph_t, no_bad_edges_t> _fg(dso_graph, _edge_filter);
+
+      std::map<dso_t, boost::default_color_type> clr_map;
+
+      boost::topological_sort(
+          _fg, std::back_inserter(top_sorted),
+          boost::color_map(
+              boost::associative_property_map<
+                  std::map<dso_t, boost::default_color_type>>(clr_map)));
+    } catch (const boost::not_a_dag &) {
+      WithColor::error() << "dynamic linking graph is not a DAG.\n";
+
+      return 1;
+    }
   }
 
   Q.reserve(top_sorted.size());
