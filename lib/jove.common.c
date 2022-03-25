@@ -147,17 +147,7 @@ _HIDDEN void _jove_init(
   if (!initfn)
     return;
 
-  uintptr_t *const emusp_ptr =
-#if defined(__x86_64__)
-      &__jove_env_clunk->regs[R_ESP]
-#elif defined(__aarch64__)
-      &__jove_env_clunk->xregs[31]
-#elif defined(__mips64) || defined(__mips__)
-      &__jove_env_clunk->active_tc.gpr[29]
-#else
-#error
-#endif
-      ;
+  target_ulong *const emusp_ptr = emulated_stack_pointer_of_cpu_state(__jove_env_clunk);
 
   //
   // save things
@@ -259,17 +249,7 @@ _HIDDEN void _jove__libc_early_init(
 
   _jove_initialize();
 
-  uintptr_t *const emusp_ptr =
-#if defined(__x86_64__)
-      &__jove_env_clunk->regs[R_ESP]
-#elif defined(__aarch64__)
-      &__jove_env_clunk->xregs[31]
-#elif defined(__mips64) || defined(__mips__)
-      &__jove_env_clunk->active_tc.gpr[29]
-#else
-#error
-#endif
-      ;
+  target_ulong *const emusp_ptr = emulated_stack_pointer_of_cpu_state(__jove_env_clunk);
 
   //
   // save things
