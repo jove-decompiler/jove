@@ -288,7 +288,7 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
 #endif
     ;
 
-  greg_t  *const sp_ptr =
+  greg_t *const sp_ptr =
 #if defined(__mips64) || defined(__mips__)
       &uctx->uc_mcontext.gregs[29]
 #elif defined(__x86_64__)
@@ -312,18 +312,6 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
 #endif
       ;
 
-  target_ulong *const emusp_ptr =
-#if defined(__mips64) || defined(__mips__)
-      &__jove_env.active_tc.gpr[29]
-#elif defined(__x86_64__) || defined(__i386__)
-      &__jove_env.regs[R_ESP]
-#elif defined(__aarch64__)
-      &__jove_env.xregs[31]
-#else
-#error
-#endif
-      ;
-
   greg_t *const t9_ptr =
 #if defined(__mips64) || defined(__mips__)
       &uctx->uc_mcontext.gregs[25]
@@ -331,6 +319,9 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
       NULL
 #endif
       ;
+
+  target_ulong *const emusp_ptr =
+      emulated_stack_pointer_of_cpu_state(&__jove_env);
 
   target_ulong *const emut9_ptr =
 #if defined(__mips64) || defined(__mips__)

@@ -1077,17 +1077,7 @@ found:
 
       typeof(__jove_env) dummy_env = {0};
 
-      uintptr_t *const emusp_ptr =
-#if defined(__x86_64__) || defined(__i386__)
-          &dummy_env.regs[R_ESP]
-#elif defined(__aarch64__)
-          &dummy_env.xregs[31]
-#elif defined(__mips64) || defined(__mips__)
-          &dummy_env.active_tc.gpr[29]
-#else
-#error
-#endif
-          ;
+      target_ulong *const emusp_ptr = emulated_stack_pointer_of_cpu_state(&dummy_env);
 
       *emusp_ptr = dummy_stack + JOVE_STACK_SIZE - 2 * JOVE_PAGE_SIZE;
 
@@ -1104,17 +1094,7 @@ found:
 
       return res;
     } else {
-      uintptr_t *const emusp_ptr =
-#if defined(__x86_64__) || defined(__i386__)
-          &__jove_env_clunk->regs[R_ESP]
-#elif defined(__aarch64__)
-          &__jove_env_clunk->xregs[31]
-#elif defined(__mips64) || defined(__mips__)
-          &__jove_env_clunk->active_tc.gpr[29]
-#else
-#error
-#endif
-          ;
+      target_ulong *const emusp_ptr = emulated_stack_pointer_of_cpu_state(__jove_env_clunk);
 
       return BOOST_PP_CAT(_jove_thunk,TARGET_NUM_REG_ARGS)(
                           #define __REG_ARG(n, i, data) reg##i,

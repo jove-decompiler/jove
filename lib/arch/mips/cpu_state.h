@@ -1732,3 +1732,7 @@ struct CPUMIPSState {
     MemoryRegion *itc_tag; /* ITC Configuration Tags */
     target_ulong exception_base; /* ExceptionBase input to the core */
 };
+
+static inline target_ulong *emulated_stack_pointer_of_cpu_state(CPUMIPSState *env) {
+  return &env->active_tc.gpr[29];
+}
