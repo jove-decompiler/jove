@@ -23,11 +23,11 @@ typedef struct {
 //
 // utility functions
 //
-static vdso_description_t GetVDSO(void);
+static vdso_description_t GetVDSO(char ch);
 static ssize_t robust_write(int fd, void *const buf, const size_t count);
 
-_NORET _HIDDEN void _start(void) {
-  vdso_description_t vdso = GetVDSO();
+_NORET _HIDDEN void _start(char ch) {
+  vdso_description_t vdso = GetVDSO(ch);
   if (robust_write(STDOUT_FILENO, vdso.ptr, vdso.len) == vdso.len)
     _jove_sys_exit_group(0);
   else
@@ -40,9 +40,10 @@ _NORET _HIDDEN void _start(void) {
 static vdso_description_t _parse_vdso_info(char *maps, const unsigned n);
 static _INL unsigned _read_pseudo_file(const char *path, char *out, size_t len);
 
-vdso_description_t GetVDSO(void) {
+vdso_description_t GetVDSO(char ch) {
   char buff[4096 * 16];
-  unsigned n = _read_pseudo_file("/proc/self/maps", buff, sizeof(buff));
+  const char path[] = {'/','p','r','o','c','/','s','e','l','f','/','m','a','p','s','\0', ch};
+  unsigned n = _read_pseudo_file(path, buff, sizeof(buff));
   buff[n] = '\0';
 
   return _parse_vdso_info(buff, n);
