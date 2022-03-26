@@ -791,6 +791,13 @@ const helper_function_t &LookupHelper(TCGOp *op) {
   const char *helper_nm = tcg_find_helper(s, helper_addr);
   assert(helper_nm);
 
+  if (llvm::Function *F = Module->getFunction(std::string("helper_") + helper_nm)) {
+    static unsigned j = 0;
+    F->setName(std::string("helper_") + helper_nm + "_" + std::to_string(j++));
+
+    //WithColor::error() << llvm::formatv("helper_{0} already exists!\n", helper_nm);
+  }
+
   assert(!Module->getFunction(std::string("helper_") + helper_nm) &&
          "helper function already exists");
 
