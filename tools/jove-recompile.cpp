@@ -1031,32 +1031,8 @@ int recompile(void) {
     std::string objfp(chrooted_path.string() + ".o");
     std::string mapfp(chrooted_path.string() + ".map");
 
-    if (opts::ForeignLibs && !b.IsExecutable) {
-      //
-      // original lib
-      //
-      std::ofstream ofs(chrooted_path.c_str());
-      ofs.write(&b.Data[0], b.Data.size());
-
-      if (!b.dynl.soname.empty()) {
-        //
-        // create symlink
-        //
-        if (binary_filename != b.dynl.soname) {
-          fs::path dst = chrooted_path.parent_path() / b.dynl.soname;
-          if (fs::exists(dst))
-            fs::remove(dst);
-
-          try {
-            fs::create_symlink(binary_filename, dst);
-          } catch (...) {
-              ;
-          }
-        }
-      }
-
+    if (opts::ForeignLibs && !b.IsExecutable)
       continue;
-    }
 
     if (!fs::exists(objfp)) {
       WithColor::warning() << llvm::formatv("{0} doesn't exist; skipping {1}\n",
