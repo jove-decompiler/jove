@@ -75,16 +75,16 @@ basic_block_index_t explore_basic_block(binary_t &b,
   {
     auto it = bbmap.find(Addr);
     if (it != bbmap.end()) {
-      basic_block_index_t bbidx = -1+(*it).second;
-      basic_block_t bb = boost::vertex(bbidx, ICFG);
+      const basic_block_index_t BBIdx = -1+(*it).second;
+      basic_block_t bb = boost::vertex(BBIdx, ICFG);
 
-      assert(bbidx < boost::num_vertices(ICFG));
+      assert(BBIdx < boost::num_vertices(ICFG));
 
       uintptr_t beg = ICFG[bb].Addr;
 
       if (Addr == beg) {
         assert(ICFG[bb].Addr == (*it).first.lower());
-        return bbidx;
+        return BBIdx;
       }
 
       //
@@ -157,7 +157,7 @@ on_insn_boundary:
 
       boost::icl::interval<target_ulong>::type orig_intervl = (*it).first;
 
-      basic_block_index_t newbbidx = boost::num_vertices(ICFG);
+      const basic_block_index_t NewBBIdx = boost::num_vertices(ICFG);
       basic_block_t newbb = boost::add_vertex(ICFG);
       {
         basic_block_properties_t &newbbprop = ICFG[newbb];
@@ -210,22 +210,22 @@ on_insn_boundary:
       assert(bbmap.find(intervl1) == bbmap.end());
       assert(bbmap.find(intervl2) == bbmap.end());
 
-      bbmap.add({intervl1, 1+bbidx});
-      bbmap.add({intervl2, 1+newbbidx});
+      bbmap.add({intervl1, 1+BBIdx});
+      bbmap.add({intervl2, 1+NewBBIdx});
 
       {
         auto _it = bbmap.find(intervl1);
         assert(_it != bbmap.end());
-        assert((*_it).second == 1+bbidx);
+        assert((*_it).second == 1+BBIdx);
       }
 
       {
         auto _it = bbmap.find(intervl2);
         assert(_it != bbmap.end());
-        assert((*_it).second == 1+newbbidx);
+        assert((*_it).second == 1+NewBBIdx);
       }
 
-      return newbbidx;
+      return NewBBIdx;
     }
   }
 
@@ -297,7 +297,7 @@ on_insn_boundary:
     return invalid_basic_block_index;
   }
 
-  basic_block_index_t bbidx = boost::num_vertices(ICFG);
+  const basic_block_index_t BBIdx = boost::num_vertices(ICFG);
   basic_block_t bb = boost::add_vertex(ICFG);
   {
     basic_block_properties_t &bbprop = ICFG[bb];
@@ -318,7 +318,7 @@ on_insn_boundary:
         boost::icl::interval<target_ulong>::right_open(bbprop.Addr,
                                                        bbprop.Addr + bbprop.Size);
     assert(bbmap.find(intervl) == bbmap.end());
-    bbmap.add({intervl, 1+bbidx});
+    bbmap.add({intervl, 1+BBIdx});
   }
 
   //
@@ -326,7 +326,7 @@ on_insn_boundary:
   //
   on_newbb_proc(b, bb, dis);
 
-  auto control_flow = [&](target_ulong Target) -> void {
+  auto control_flow_to = [&](target_ulong Target) -> void {
     assert(Target);
 
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
@@ -338,7 +338,7 @@ on_insn_boundary:
 
     if (!is_basic_block_index_valid(SuccBBIdx)) {
       llvm::WithColor::warning() << llvm::formatv(
-          "control_flow: invalid edge {0:x} -> {1:x}\n", T.Addr, Target);
+          "control_flow_to: invalid edge {0:x} -> {1:x}\n", T.Addr, Target);
       return;
     }
 
@@ -352,12 +352,12 @@ on_insn_boundary:
 
   switch (T.Type) {
   case TERMINATOR::UNCONDITIONAL_JUMP:
-    control_flow(T._unconditional_jump.Target);
+    control_flow_to(T._unconditional_jump.Target);
     break;
 
   case TERMINATOR::CONDITIONAL_JUMP:
-    control_flow(T._conditional_jump.Target);
-    control_flow(T._conditional_jump.NextPC);
+    control_flow_to(T._conditional_jump.Target);
+    control_flow_to(T._conditional_jump.NextPC);
     break;
 
   case TERMINATOR::CALL: {
@@ -367,25 +367,30 @@ on_insn_boundary:
     CalleeAddr &= ~1UL;
 #endif
 
-    function_index_t FIdx = explore_function(b, tcg, dis, CalleeAddr,
-                                             fnmap,
-                                             bbmap,
-                                             on_newbb_proc);
-    assert(T.Addr);
-    bb = basic_block_at_address(T.Addr, b, bbmap);
+    function_index_t CalleeFIdx = explore_function(b, tcg, dis, CalleeAddr,
+                                                   fnmap,
+                                                   bbmap,
+                                                   on_newbb_proc);
 
+    bb = basic_block_at_address(T.Addr, b, bbmap); /* bb may have been split */
     assert(ICFG[bb].Term.Type == TERMINATOR::CALL);
-    ICFG[bb].Term._call.Target = FIdx;
 
-    if (is_function_index_valid(FIdx) &&
-        does_function_return(b.Analysis.Functions[FIdx], b))
-      control_flow(T._call.NextPC);
+    ICFG[bb].Term._call.Target = CalleeFIdx;
+
+    if (!is_function_index_valid(CalleeFIdx)) {
+      llvm::WithColor::warning() << llvm::formatv(
+          "explore_basic_block: invalid call @ {0:x}\n", T.Addr);
+      break;
+    }
+
+    if (does_function_return(b.Analysis.Functions[CalleeFIdx], b))
+      control_flow_to(T._call.NextPC);
 
     break;
   }
 
   case TERMINATOR::INDIRECT_CALL:
-    //control_flow(T._indirect_call.NextPC);
+    //control_flow_to(T._indirect_call.NextPC);
     break;
 
   case TERMINATOR::INDIRECT_JUMP:
@@ -394,12 +399,12 @@ on_insn_boundary:
     break;
 
   case TERMINATOR::NONE:
-    control_flow(T._none.NextPC);
+    control_flow_to(T._none.NextPC);
     break;
 
   default:
     abort();
   }
 
-  return bbidx;
+  return BBIdx;
 }
