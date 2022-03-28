@@ -650,14 +650,22 @@ static inline basic_block_t basic_block_of_index(basic_block_index_t BBIdx,
   return boost::vertex(BBIdx, ICFG);
 }
 
-static inline basic_block_t basic_block_at_address(tcg_uintptr_t Addr,
-                                                   binary_t &binary,
-                                                   bbmap_t &bbmap) {
+static inline basic_block_t index_of_basic_block_at_address(tcg_uintptr_t Addr,
+                                                            binary_t &binary,
+                                                            bbmap_t &bbmap) {
+  assert(Addr);
+
   auto it = bbmap.find(Addr);
   if (it == bbmap.end())
     abort();
 
-  return basic_block_of_index(-1+(*it).second, binary);
+  return -1+(*it).second;
+}
+
+static inline basic_block_t basic_block_at_address(tcg_uintptr_t Addr,
+                                                   binary_t &b,
+                                                   bbmap_t &bbmap) {
+  return basic_block_of_index(index_of_basic_block_at_address(Addr, b, bbmap), b);
 }
 
 static inline void identify_ABIs(decompilation_t &decompilation) {
