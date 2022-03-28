@@ -951,6 +951,62 @@ int recompile(void) {
     llvm::errs() << llvm::formatv(" {0} s\n", s_double.count());
 
   //
+  // to handle shared libraries needing each other (i.e. a cyclic dependency),
+  // we copy the original binary data for each DSO before we run the static
+  // linker to produce each recompiled DSO, this solves "unable to find library"
+  // errors XXX
+  //
+  for (dso_t dso : top_sorted) {
+    binary_index_t BIdx = dso_graph[dso].BIdx;
+
+    binary_t &b = Decompilation.Binaries.at(BIdx);
+
+    // make sure the path is absolute
+    assert(b.Path.at(0) == '/');
+
+    const fs::path chrooted_path = fs::path(opts::Output) / b.Path;
+    fs::create_directories(chrooted_path.parent_path());
+
+    fs::remove(chrooted_path);
+
+    {
+      std::ofstream ofs(chrooted_path.c_str());
+
+      ofs.write(&b.Data[0], b.Data.size());
+    }
+
+    fs::permissions(chrooted_path, fs::others_read |
+                                   fs::others_exe |
+
+                                   fs::group_read |
+                                   fs::group_exe |
+
+                                   fs::owner_read |
+                                   fs::owner_write |
+                                   fs::owner_exe);
+
+    if (!b.dynl.soname.empty()) {
+      std::string binary_filename = fs::path(b.Path).filename().string();
+
+      //
+      // create symlink
+      //
+      if (binary_filename != b.dynl.soname) {
+	fs::path dst = chrooted_path.parent_path() / b.dynl.soname;
+	if (fs::exists(dst))
+	  fs::remove(dst);
+
+	try {
+	  fs::create_symlink(binary_filename, dst);
+	} catch (...) {
+	  WithColor::warning()
+	      << llvm::formatv("{0}:{1}\n", __FILE__, __LINE__);
+	}
+      }
+    }
+  }
+
+  //
   // run ld on all the object files
   //
   for (dso_t dso : top_sorted) {
@@ -969,7 +1025,6 @@ int recompile(void) {
     assert(b.Path.at(0) == '/');
 
     const fs::path chrooted_path = fs::path(opts::Output) / b.Path;
-    fs::create_directories(chrooted_path.parent_path());
 
     std::string binary_filename = fs::path(b.Path).filename().string();
 
@@ -1008,6 +1063,8 @@ int recompile(void) {
                                             objfp, binary_filename);
       return 1;
     }
+
+    fs::remove(chrooted_path);
 
     //
     // run ld
@@ -1159,25 +1216,8 @@ int recompile(void) {
 
       std::string soname_arg = std::string("-soname=") + b.dynl.soname;
 
-      if (!b.dynl.soname.empty()) {
+      if (!b.dynl.soname.empty())
         arg_vec.push_back(soname_arg.c_str());
-
-        //
-        // create symlink
-        //
-        if (binary_filename != b.dynl.soname) {
-          fs::path dst = chrooted_path.parent_path() / b.dynl.soname;
-          if (fs::exists(dst))
-            fs::remove(dst);
-
-          try {
-            fs::create_symlink(binary_filename, dst);
-          } catch (...) {
-            WithColor::warning()
-                << llvm::formatv("{0}:{1}\n", __FILE__, __LINE__);
-          }
-        }
-      }
 
 #if 0
       std::string rtld_soname_arg = ":" + rtld_soname;
