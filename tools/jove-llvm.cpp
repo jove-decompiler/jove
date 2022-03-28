@@ -4027,46 +4027,41 @@ int CreateSectionGlobalVariables(void) {
     if (R.SymbolIndex < SymbolTable.size()) {
       const symbol_t &S = SymbolTable[R.SymbolIndex];
 
-      assert(S.IsUndefined());
-      assert(!S.Size);
-
       llvm::GlobalVariable *GV = Module->getGlobalVariable(S.Name, true);
 
       if (GV) {
-        assert(TPOFFHack.find(R.Addr) != TPOFFHack.end());
+        TPOFFHack[R.Addr] = GV;
         return llvm::ConstantExpr::getPtrToInt(GV, WordType());
       }
 
-      auto it = GlobalSymbolDefinedSizeMap.find(S.Name);
-      if (it == GlobalSymbolDefinedSizeMap.end()) {
-        llvm::outs() << "fucked because we don't have the size for " << S.Name
-                     << '\n';
-        return nullptr;
+      if (S.IsUndefined()) {
+        assert(!S.Size);
+
+        auto it = GlobalSymbolDefinedSizeMap.find(S.Name);
+        if (it == GlobalSymbolDefinedSizeMap.end()) {
+          llvm::outs() << "fucked because we don't have the size for " << S.Name
+                       << '\n';
+          return nullptr;
+        }
+
+        unsigned Size = (*it).second;
+
+        llvm::Type *T;
+        if (is_integral_size(Size)) {
+          T = llvm::Type::getIntNTy(*Context, Size * 8);
+        } else {
+          T = llvm::ArrayType::get(llvm::Type::getInt8Ty(*Context), Size);
+        }
+
+        GV = new llvm::GlobalVariable(*Module, T, false,
+                                      S.Bind == symbol_t::BINDING::WEAK
+                                          ? llvm::GlobalValue::ExternalWeakLinkage
+                                          : llvm::GlobalValue::ExternalLinkage,
+                                      nullptr, S.Name, nullptr,
+                                      llvm::GlobalValue::GeneralDynamicTLSModel);
       }
 
-      unsigned Size = (*it).second;
-
-      llvm::Type *T;
-      if (is_integral_size(Size)) {
-        T = llvm::Type::getIntNTy(*Context, Size * 8);
-      } else {
-        T = llvm::ArrayType::get(llvm::Type::getInt8Ty(*Context), Size);
-      }
-
-      GV = new llvm::GlobalVariable(*Module, T, false,
-                                    S.Bind == symbol_t::BINDING::WEAK
-                                        ? llvm::GlobalValue::ExternalWeakLinkage
-                                        : llvm::GlobalValue::ExternalLinkage,
-                                    nullptr, S.Name, nullptr,
-                                    llvm::GlobalValue::GeneralDynamicTLSModel);
-
-      TPOFFHack[R.Addr] = GV;
-
-#if 1
-      return llvm::ConstantExpr::getPtrToInt(GV, WordType());
-#else
-      return llvm::ConstantInt::get(llvm::Type::getIntNTy(*Context, WordBits()), 0x12345678);
-#endif
+      return nullptr;
     }
 
 #if defined(TARGET_I386) || defined(TARGET_MIPS32)
