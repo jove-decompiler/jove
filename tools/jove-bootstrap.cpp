@@ -3195,16 +3195,9 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
                              TargetBinary.bbmap,
                              on_new_basic_block);
 
-        //
-        // the block containing the terminator may have been split underneath us
-        //
-        {
-          auto it = bbmap.find(IndBrInfo.TermAddr);
-          assert(it != bbmap.end());
-
-          bbidx = -1+(*it).second;
-          bb = boost::vertex(bbidx, ICFG);
-        }
+        /* term bb may been split */
+        bb = basic_block_at_address(IndBrInfo.TermAddr, binary, bbmap);
+        assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP);
 
         Target.isNew = ICFG[bb].DynTargets.insert({Target.BIdx, FIdx}).second;
       } else {
@@ -3216,17 +3209,8 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
                                 on_new_basic_block);
         basic_block_t TargetBB = boost::vertex(TargetBBIdx, ICFG);
 
-        //
-        // the block containing the terminator may have been split underneath us
-        //
-        {
-          auto it = bbmap.find(IndBrInfo.TermAddr);
-          assert(it != bbmap.end());
-
-          bbidx = -1+(*it).second;
-          bb = boost::vertex(bbidx, ICFG);
-        }
-
+        /* term bb may been split */
+        bb = basic_block_at_address(IndBrInfo.TermAddr, binary, bbmap);
         assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP);
 
         Target.isNew = boost::add_edge(bb, TargetBB, ICFG).second;
