@@ -3871,7 +3871,9 @@ int CreateSectionGlobalVariables(void) {
       // relocations. FIXME
       //
       if (llvm::GlobalValue *GV = Module->getNamedValue(S.Name))
-        return llvm::ConstantExpr::getPtrToInt(GV, WordType());
+        return llvm::ConstantExpr::getAdd(
+            llvm::ConstantExpr::getPtrToInt(GV, WordType()),
+            llvm::ConstantInt::get(WordType(), R.Addend));
 
       AddrToSymbolMap[S.Addr].insert(S.Name);
       AddrToSizeMap[S.Addr] = S.Size;
@@ -3880,23 +3882,9 @@ int CreateSectionGlobalVariables(void) {
     }
 #endif
 
-    unsigned off = S.Addr - SectsStartAddr;
-
-    if (gdefs.find({S.Addr, S.Size}) == gdefs.end()) {
-      Module->appendModuleInlineAsm(
-          (fmt(".globl  %s\n"
-               ".type   %s,@object\n"
-               ".size   %s, %u\n"
-               ".set    %s, __jove_sections_%u + %u")
-           % S.Name
-           % S.Name
-           % S.Name % S.Size
-           % S.Name % BinaryIndex % off).str());
-
-      gdefs.insert({S.Addr, S.Size});
-    }
-
-    return SectionPointer(S.Addr);
+    return llvm::ConstantExpr::getAdd(
+        SectionPointer(S.Addr),
+        llvm::ConstantInt::get(WordType(), R.Addend));
   };
 
   auto constant_of_relative_relocation =
