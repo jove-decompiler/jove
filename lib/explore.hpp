@@ -333,22 +333,20 @@ on_insn_boundary:
     Target &= ~1UL;
 #endif
 
-    basic_block_index_t succidx =
+    basic_block_index_t SuccBBIdx =
         explore_basic_block(b, tcg, dis, Target, fnmap, bbmap, on_newbb_proc);
 
-    if (succidx == invalid_basic_block_index) {
+    if (!is_basic_block_index_valid(SuccBBIdx)) {
       llvm::WithColor::warning() << llvm::formatv(
           "control_flow: invalid edge {0:x} -> {1:x}\n", T.Addr, Target);
       return;
     }
 
-    assert(is_basic_block_index_valid(succidx));
-
     bb = basic_block_at_address(T.Addr ?: Addr, b, bbmap);
     assert(T.Type == ICFG[bb].Term.Type);
 
     bool isNewTarget =
-        boost::add_edge(bb, basic_block_of_index(succidx, b), ICFG).second;
+        boost::add_edge(bb, basic_block_of_index(SuccBBIdx, b), ICFG).second;
     (void)isNewTarget;
   };
 
