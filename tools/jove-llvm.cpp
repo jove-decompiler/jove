@@ -5170,7 +5170,7 @@ int ProcessDynamicSymbols2(void) {
 
 std::pair<binary_index_t, std::pair<target_ulong, unsigned>>
 decipher_copy_relocation(const symbol_t &S) {
-  assert(Decompilation.Binaries[BinaryIndex].IsExecutable); /* XXX? */
+  assert(Decompilation.Binaries[BinaryIndex].IsExecutable);
 
   for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
     if (BIdx == BinaryIndex)
@@ -5203,29 +5203,30 @@ decipher_copy_relocation(const symbol_t &S) {
       if (Sym.getType() != llvm::ELF::STT_OBJECT)
         continue;
 
-      llvm::StringRef SymName = unwrapOrError(Sym.getName(b._elf.DynamicStringTable));
+      llvm::Expected<llvm::StringRef> ExpectedSymName =
+          Sym.getName(b._elf.DynamicStringTable);
+      if (!ExpectedSymName)
+        continue;
 
-      symbol_t sym;
-
-      sym.Name = SymName;
+      llvm::StringRef SymName = *ExpectedSymName;
+      llvm::StringRef SymVers;
+      bool VisibilityIsDefault;
 
       //
       // symbol versioning
       //
-      if (!b._elf.SymbolVersionSection) {
-        sym.Visibility.IsDefault = false;
-      } else {
+      if (b._elf.SymbolVersionSection) {
         const Elf_Versym *Versym = unwrapOrError(
             E.getEntry<Elf_Versym>(b._elf.SymbolVersionSection, SymNo));
 
-        sym.Vers = getSymbolVersionByIndex(b._elf.VersionMap,
-                                           b._elf.DynamicStringTable,
-                                           Versym->vs_index,
-                                           sym.Visibility.IsDefault);
+        SymVers = getSymbolVersionByIndex(b._elf.VersionMap,
+                                          b._elf.DynamicStringTable,
+                                          Versym->vs_index,
+                                          VisibilityIsDefault);
       }
 
-      if ((sym.Name == S.Name &&
-           sym.Vers == S.Vers)) {
+      if ((SymName == S.Name &&
+           SymVers == S.Vers)) {
         //
         // we have a match.
         //
