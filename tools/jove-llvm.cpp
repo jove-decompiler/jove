@@ -2905,7 +2905,7 @@ int CreateFunctions(void) {
       //
       f.adapterF = llvm::Function::Create(
           FunctionTypeOfArgsAndRets(CallConvArgs, CallConvRets),
-          llvm::GlobalValue::ExternalLinkage, (fmt("jJ%lx") % Addr).str(),
+          llvm::GlobalValue::ExternalLinkage, (fmt("Jj%lx") % Addr).str(),
           Module.get());
 
       f.adapterF->setVisibility(llvm::GlobalValue::HiddenVisibility);
