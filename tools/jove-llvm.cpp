@@ -1141,7 +1141,7 @@ int llvm(void) {
   // AddrToSymbolMap is populated by CreateSectionGlobalVariables)
   //
   {
-    std::set<std::pair<uintptr_t, unsigned>> gdefs;
+    std::set<std::pair<target_ulong, unsigned>> gdefs;
 
     for_each_if(
         BinaryDynSyms.begin(),
