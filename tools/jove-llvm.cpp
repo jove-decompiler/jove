@@ -733,7 +733,6 @@ static int ProcessBinaryTLSSymbols(void);
 static int LocateHooks(void);
 static int CreateTLSModGlobal(void);
 static int CreateSectionGlobalVariables(void);
-static int ProcessDynamicSymbols2(void);
 static int CreateFunctionTable(void);
 static int FixupHelperStubs(void);
 static int CreateNoAliasMetadata(void);
@@ -1137,8 +1136,114 @@ int llvm(void) {
           VersionScript.Table[SymVers].insert(SymName);
       });
 
-  return ProcessDynamicSymbols2()
-      || CreateFunctionTable()
+  //
+  // process binary data symbols (this is intentionally done after
+  // AddrToSymbolMap is populated by CreateSectionGlobalVariables)
+  //
+  {
+    std::set<std::pair<uintptr_t, unsigned>> gdefs;
+
+    for_each_if(
+        BinaryDynSyms.begin(),
+        BinaryDynSyms.end(),
+        [&](const Elf_Sym &Sym) -> bool {
+          return !(Sym.isUndefined() ||
+                   Sym.st_shndx == llvm::ELF::SHN_UNDEF) &&
+                 Sym.getType() == llvm::ELF::STT_OBJECT &&
+                 Sym.st_size > 0;
+        },
+        [&](const Elf_Sym &Sym) {
+          llvm::Expected<llvm::StringRef> ExpectedSymName =
+              Sym.getName(Binary._elf.DynamicStringTable);
+
+          if (!ExpectedSymName)
+            return;
+
+          llvm::StringRef SymName = *ExpectedSymName;
+          llvm::StringRef SymVers;
+          bool VisibilityIsDefault;
+
+          if (Binary._elf.SymbolVersionSection) {
+            unsigned SymNo = (reinterpret_cast<uintptr_t>(&Sym) -
+                              reinterpret_cast<uintptr_t>(
+                                  Binary._elf.OptionalDynSymRegion->Addr)) /
+                             sizeof(Elf_Sym);
+
+            auto &E = *llvm::cast<ELFO>(Binary.ObjectFile.get())->getELFFile();
+
+            const Elf_Versym *Versym = unwrapOrError(
+                E.template getEntry<Elf_Versym>(Binary._elf.SymbolVersionSection, SymNo));
+
+            SymVers = getSymbolVersionByIndex(Binary._elf.VersionMap,
+                                              Binary._elf.DynamicStringTable,
+                                              Versym->vs_index,
+                                              VisibilityIsDefault);
+          }
+
+          const target_ulong Addr = Sym.st_value;
+          const unsigned Size = Sym.st_size;
+
+          const unsigned SectsOff = Addr - Binary.SectsStartAddr;
+
+          auto it = AddrToSymbolMap.find(Addr);
+          if (it == AddrToSymbolMap.end()) {
+            if (SymVers.empty()) {
+              Module->appendModuleInlineAsm(
+                  (fmt(".globl %s\n"
+                       ".type  %s,@object\n"
+                       ".size  %s, %u\n"
+                       ".set   %s, __jove_sections_%u + %u")
+                   % SymName.str()
+                   % SymName.str()
+                   % SymName.str() % Size
+                   % SymName.str() % BinaryIndex % SectsOff).str());
+            } else {
+              if (gdefs.find({Addr, Size}) == gdefs.end()) {
+                Module->appendModuleInlineAsm(
+                    (fmt(".hidden g%lx_%u\n"
+                         ".globl  g%lx_%u\n"
+                         ".type   g%lx_%u,@object\n"
+                         ".size   g%lx_%u, %u\n"
+                         ".set    g%lx_%u, __jove_sections_%u + %u")
+                     % Addr % Size
+                     % Addr % Size
+                     % Addr % Size
+                     % Addr % Size % Size
+                     % Addr % Size % BinaryIndex % SectsOff).str());
+
+                gdefs.insert({Addr, Size});
+              }
+
+              Module->appendModuleInlineAsm(
+                  (fmt(".symver g%lx_%u, %s%s%s")
+                   % Addr % Size
+                   % SymName.str()
+                   % (VisibilityIsDefault ? "@@" : "@")
+                   % SymVers.str()).str());
+
+              // make sure version node is defined
+              VersionScript.Table[SymVers];
+            }
+          } else {
+            if (Module->getNamedValue(SymName)) {
+              if (!SymVers.empty())
+                VersionScript.Table[SymVers].insert(SymName);
+
+              return;
+            }
+
+            llvm::GlobalVariable *GV =
+                Module->getGlobalVariable(*(*it).second.begin(), true);
+            assert(GV);
+
+            llvm::GlobalAlias::create(SymName, GV);
+            if (!SymVers.empty())
+              VersionScript.Table[SymVers].insert(SymName);
+          }
+        });
+  }
+
+  return CreateFunctionTable()
       || FixupHelperStubs()
       || CreateNoAliasMetadata()
       || CreateTPOFFCtorHack()
@@ -5023,147 +5128,6 @@ int CreateSectionGlobalVariables(void) {
     SectsGlobal->setSection(".jove"); /* we will refer to this later with ld,
                                        * placing the section at the executable's
                                        * original base address in memory */
-
-  return 0;
-}
-
-int ProcessDynamicSymbols2(void) {
-  std::set<std::pair<uintptr_t, unsigned>> gdefs;
-
-  for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
-    auto &b = Decompilation.Binaries[BIdx];
-    auto &fnmap = b.fnmap;
-
-    if (!b.ObjectFile)
-      continue;
-
-    assert(llvm::isa<ELFO>(b.ObjectFile.get()));
-    ELFO &O = *llvm::cast<ELFO>(b.ObjectFile.get());
-    const ELFF &E = *O.getELFFile();
-
-    if (!b._elf.OptionalDynSymRegion)
-      continue; /* no dynamic symbols */
-
-    auto DynSyms = b._elf.OptionalDynSymRegion->getAsArrayRef<Elf_Sym>();
-
-    for (unsigned SymNo = 0; SymNo < DynSyms.size(); ++SymNo) {
-      const Elf_Sym &Sym = DynSyms[SymNo];
-
-      if (Sym.isUndefined()) /* defined */
-        continue;
-
-      llvm::Expected<llvm::StringRef> ExpectedSymName = Sym.getName(b._elf.DynamicStringTable);
-      if (!ExpectedSymName)
-        continue;
-
-      llvm::StringRef SymName = *ExpectedSymName;
-
-      symbol_t sym;
-
-      sym.Name = SymName;
-
-      //
-      // symbol versioning
-      //
-      if (!b._elf.SymbolVersionSection) {
-        sym.Visibility.IsDefault = false;
-      } else {
-        const Elf_Versym *Versym = unwrapOrError(
-            E.getEntry<Elf_Versym>(b._elf.SymbolVersionSection, SymNo));
-
-        sym.Vers = getSymbolVersionByIndex(b._elf.VersionMap,
-                                           b._elf.DynamicStringTable,
-                                           Versym->vs_index,
-                                           sym.Visibility.IsDefault);
-      }
-
-      sym.Addr = Sym.isUndefined() ? 0 : Sym.st_value;
-      sym.Type = sym_type_of_elf_sym_type(Sym.getType());
-      sym.Size = Sym.st_size;
-      sym.Bind = sym_binding_of_elf_sym_binding(Sym.getBinding());
-
-      if (Sym.getType() == llvm::ELF::STT_OBJECT ||
-          Sym.getType() == llvm::ELF::STT_TLS) {
-        if (!Sym.st_size) {
-          if (opts::Verbose)
-            WithColor::warning() << "symbol '" << SymName
-                                 << "' defined but size is unknown; ignoring\n";
-          continue;
-        }
-
-        if (BIdx == BinaryIndex) {
-          //
-          // if this symbol is TLS, update the TLSValueToSymbolMap
-          //
-          if (Sym.getType() == llvm::ELF::STT_TLS) {
-            ;
-          } else {
-            auto it = AddrToSymbolMap.find(Sym.st_value);
-            if (it == AddrToSymbolMap.end()) {
-              unsigned off = Sym.st_value - b.SectsStartAddr;
-
-              if (sym.Vers.empty()) {
-                Module->appendModuleInlineAsm(
-                    (fmt(".globl %s\n"
-                         ".type  %s,@object\n"
-                         ".size  %s, %u\n"
-                         ".set   %s, __jove_sections_%u + %u")
-                     % sym.Name
-                     % sym.Name
-                     % sym.Name % Sym.st_size
-                     % sym.Name % BinaryIndex % off).str());
-              } else {
-                if (gdefs.find({Sym.st_value, Sym.st_size}) == gdefs.end()) {
-                  Module->appendModuleInlineAsm(
-                      (fmt(".hidden g%lx_%u\n"
-                           ".globl  g%lx_%u\n"
-                           ".type   g%lx_%u,@object\n"
-                           ".size   g%lx_%u, %u\n"
-                           ".set    g%lx_%u, __jove_sections_%u + %u")
-                       % Sym.st_value % Sym.st_size
-                       % Sym.st_value % Sym.st_size
-                       % Sym.st_value % Sym.st_size
-                       % Sym.st_value % Sym.st_size % Sym.st_size
-                       % Sym.st_value % Sym.st_size % BinaryIndex % off).str());
-
-                  gdefs.insert({Sym.st_value, Sym.st_size});
-                }
-
-                Module->appendModuleInlineAsm(
-                    (fmt(".symver g%lx_%u, %s%s%s")
-                     % Sym.st_value % Sym.st_size
-                     % sym.Name
-                     % (sym.Visibility.IsDefault ? "@@" : "@")
-                     % sym.Vers).str());
-
-                // make sure version node is defined
-                VersionScript.Table[sym.Vers];
-              }
-            } else {
-              if (Module->getNamedValue(sym.Name)) {
-                if (!sym.Vers.empty())
-                  VersionScript.Table[sym.Vers].insert(sym.Name);
-
-                continue;
-              }
-
-              llvm::GlobalVariable *GV =
-                  Module->getGlobalVariable(*(*it).second.begin(), true);
-              assert(GV);
-
-              llvm::GlobalAlias::create(sym.Name, GV);
-              if (!sym.Vers.empty())
-                VersionScript.Table[sym.Vers].insert(sym.Name);
-            }
-          }
-        }
-      } else if (Sym.getType() == llvm::ELF::STT_FUNC) {
-        ;
-      } else if (Sym.getType() == llvm::ELF::STT_GNU_IFUNC) {
-        ;
-      }
-    }
-  }
 
   return 0;
 }
