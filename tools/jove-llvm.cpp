@@ -116,8 +116,6 @@ struct hook_t;
                                                                                \
   bool IsNamed = false;                                                        \
                                                                                \
-  std::vector<symbol_t> Syms;                                                  \
-                                                                               \
   bool IsLeaf;                                                                 \
   bool IsSj, IsLj;                                                             \
                                                                                \
@@ -577,6 +575,8 @@ static llvm::Type *VoidFunctionPointer(void) {
 static llvm::GlobalIFunc *buildGlobalIFunc(function_t &f, dynamic_target_t,
                                            llvm::StringRef SymName);
 
+static bool is_builtin_sym(const std::string &);
+
 //
 // Globals
 //
@@ -837,90 +837,53 @@ int llvm(void) {
 
   identify_ABIs(Decompilation);
 
-  //
-  // find function symbols
-  //
-  for_each_binary_if(
-      Decompilation,
-      [&](binary_t &b) -> bool {
-        return b.ObjectFile.get() != nullptr &&
-               b._elf.OptionalDynSymRegion;
-      },
-      [&](binary_t &b) {
-        binary_index_t BIdx = index_of_binary(b, Decompilation);
+  if (unlikely(opts::DFSan)) {
+    //
+    // examine function symbols in every binary (ExportedFunctions)
+    //
+    for_each_binary_if(
+        Decompilation,
+        [&](binary_t &b) -> bool {
+          return b.ObjectFile.get() != nullptr &&
+                 b._elf.OptionalDynSymRegion;
+        },
+        [&](binary_t &b) {
+          binary_index_t BIdx = index_of_binary(b, Decompilation);
 
-        auto DynSyms = b._elf.OptionalDynSymRegion->template getAsArrayRef<Elf_Sym>();
+          auto DynSyms = b._elf.OptionalDynSymRegion->template getAsArrayRef<Elf_Sym>();
 
-        for_each_if(
-            DynSyms.begin(),
-            DynSyms.end(),
-            [&](const Elf_Sym &Sym) -> bool {
-              return !(Sym.isUndefined() ||
-                       Sym.st_shndx == llvm::ELF::SHN_UNDEF) &&
-                     Sym.getType() == llvm::ELF::STT_FUNC;
-            },
-            [&](const Elf_Sym &Sym) {
-              llvm::Expected<llvm::StringRef> ExpectedSymName =
-                  Sym.getName(b._elf.DynamicStringTable);
+          for_each_if(
+              DynSyms.begin(),
+              DynSyms.end(),
+              [&](const Elf_Sym &Sym) -> bool {
+                return !(Sym.isUndefined() ||
+                         Sym.st_shndx == llvm::ELF::SHN_UNDEF) &&
+                       Sym.getType() == llvm::ELF::STT_FUNC;
+              },
+              [&](const Elf_Sym &Sym) {
+                llvm::Expected<llvm::StringRef> ExpectedSymName =
+                    Sym.getName(b._elf.DynamicStringTable);
 
-              if (!ExpectedSymName)
-                return;
+                if (!ExpectedSymName)
+                  return;
 
-              function_index_t FIdx;
-              {
-                auto it = b.fnmap.find(Sym.st_value);
-                assert(it != b.fnmap.end());
+                function_index_t FIdx;
+                {
+                  auto it = b.fnmap.find(Sym.st_value);
+                  assert(it != b.fnmap.end());
 
-                FIdx = (*it).second;
-              }
+                  FIdx = (*it).second;
+                }
 
-              symbol_t &sym = b.Analysis.Functions[FIdx].Syms.emplace_back();
-              sym.Name = *ExpectedSymName;
+                llvm::StringRef SymName = *ExpectedSymName;
 
-              ExportedFunctions[sym.Name].insert({BIdx, FIdx});
-
-              if (!b._elf.SymbolVersionSection) {
-                sym.Visibility.IsDefault = false;
-              } else {
-                unsigned SymNo = (reinterpret_cast<uintptr_t>(&Sym) -
-                                  reinterpret_cast<uintptr_t>(
-                                      b._elf.OptionalDynSymRegion->Addr)) /
-                                 sizeof(Elf_Sym);
-
-                auto &E = *llvm::cast<ELFO>(b.ObjectFile.get())->getELFFile();
-
-                const Elf_Versym *Versym = unwrapOrError(
-                    E.template getEntry<Elf_Versym>(b._elf.SymbolVersionSection, SymNo));
-
-                sym.Vers = getSymbolVersionByIndex(b._elf.VersionMap,
-                                                   b._elf.DynamicStringTable,
-                                                   Versym->vs_index,
-                                                   sym.Visibility.IsDefault);
-              }
-
-              sym.Addr = Sym.isUndefined() ? 0 : Sym.st_value;
-              sym.Type = sym_type_of_elf_sym_type(Sym.getType());
-              sym.Size = Sym.st_size;
-              sym.Bind = sym_binding_of_elf_sym_binding(Sym.getBinding());
-
-              //
-              // hack for glibc 2.32+ XXX (should this go elsewhere?)
-              //
-              if (BIdx == BinaryIndex &&
-                  sym.Name == "__libc_early_init" &&
-                  sym.Vers == "GLIBC_PRIVATE") {
-                Module->appendModuleInlineAsm(
-                    ".symver "
-                    "_jove__libc_early_init,__libc_early_init@@GLIBC_PRIVATE");
-                VersionScript.Table["GLIBC_PRIVATE"];
-
-                libcEarlyInitAddr = Sym.st_value;
-              }
-            });
-      });
+                ExportedFunctions[SymName.str()].insert({BIdx, FIdx});
+              });
+        });
+  }
 
   //
-  // process data symbols (GlobalSymbolDefinedSizeMap)
+  // examine data symbols in every binary (GlobalSymbolDefinedSizeMap)
   //
   for_each_binary_if(
       Decompilation,
@@ -967,19 +930,115 @@ int llvm(void) {
       });
 
   binary_t &Binary = Decompilation.Binaries[BinaryIndex];
-
   assert(Binary.ObjectFile.get());
 
-  llvm::ArrayRef<Elf_Sym> DynSyms = {};
+  llvm::ArrayRef<Elf_Sym> BinaryDynSyms = {};
   if (Binary._elf.OptionalDynSymRegion)
-    DynSyms = Binary._elf.OptionalDynSymRegion->template getAsArrayRef<Elf_Sym>();
+    BinaryDynSyms = Binary._elf.OptionalDynSymRegion->template getAsArrayRef<Elf_Sym>();
+
+  //
+  // process binary function symbols
+  //
+  for_each_if(
+      BinaryDynSyms.begin(),
+      BinaryDynSyms.end(),
+      [&](const Elf_Sym &Sym) -> bool {
+        return !(Sym.isUndefined() ||
+                 Sym.st_shndx == llvm::ELF::SHN_UNDEF) &&
+               Sym.getType() == llvm::ELF::STT_FUNC;
+      },
+      [&](const Elf_Sym &Sym) {
+        llvm::Expected<llvm::StringRef> ExpectedSymName =
+            Sym.getName(Binary._elf.DynamicStringTable);
+
+        if (!ExpectedSymName)
+          return;
+
+        llvm::StringRef SymName = *ExpectedSymName;
+        llvm::StringRef SymVers;
+        bool VisibilityIsDefault;
+
+        if (Binary._elf.SymbolVersionSection) {
+          unsigned SymNo = (reinterpret_cast<uintptr_t>(&Sym) -
+                            reinterpret_cast<uintptr_t>(
+                                Binary._elf.OptionalDynSymRegion->Addr)) /
+                           sizeof(Elf_Sym);
+
+          auto &E = *llvm::cast<ELFO>(Binary.ObjectFile.get())->getELFFile();
+
+          const Elf_Versym *Versym = unwrapOrError(
+              E.template getEntry<Elf_Versym>(Binary._elf.SymbolVersionSection, SymNo));
+
+          SymVers = getSymbolVersionByIndex(Binary._elf.VersionMap,
+                                            Binary._elf.DynamicStringTable,
+                                            Versym->vs_index,
+                                            VisibilityIsDefault);
+        }
+
+        //
+        // avoid redefining symbols in libclang_rt.builtins-<arch>.a
+        //
+        if (is_builtin_sym(SymName.str()))
+          return;
+
+        const target_ulong Addr = Sym.st_value;
+
+        //
+        // XXX hack for glibc
+        //
+        if (unlikely(SymName == "__libc_early_init" &&
+                     SymVers == "GLIBC_PRIVATE")) {
+          Module->appendModuleInlineAsm(
+              ".symver "
+              "_jove__libc_early_init,__libc_early_init@@GLIBC_PRIVATE");
+          VersionScript.Table["GLIBC_PRIVATE"];
+
+          libcEarlyInitAddr = Addr; /* we are libc */
+          return;
+        }
+
+        // jove-add should have explored this
+        assert(Binary.fnmap.find(Addr) != Binary.fnmap.end());
+
+        const unsigned SectsOff = Addr - Binary.SectsStartAddr;
+
+        if (SymVers.empty()) {
+          Module->appendModuleInlineAsm(
+              (fmt(".globl %s\n"
+                   ".type  %s,@function\n"
+                   ".set   %s, __jove_sections_%u + %u")
+               % SymName.str()
+               % SymName.str()
+               % SymName.str() % BinaryIndex % SectsOff).str());
+        } else {
+           // make sure version node is defined
+          VersionScript.Table[SymVers.str()];
+
+          std::string dummy_name = (fmt("_dummy_%lx_%d") % Addr % rand()).str();
+
+          Module->appendModuleInlineAsm(
+              (fmt(".globl %s\n"
+                   ".hidden %s\n"
+                   ".type  %s,@function\n"
+                   ".set   %s, __jove_sections_%u + %u")
+               % dummy_name
+               % dummy_name
+               % dummy_name
+               % dummy_name % BinaryIndex % SectsOff).str());
+
+          Module->appendModuleInlineAsm(
+              (llvm::Twine(".symver ") + dummy_name + "," + SymName +
+               (VisibilityIsDefault ? "@@" : "@") + SymVers)
+                  .str());
+        }
+      });
 
   //
   // process binary TLS symbols
   //
   for_each_if(
-      DynSyms.begin(),
-      DynSyms.end(),
+      BinaryDynSyms.begin(),
+      BinaryDynSyms.end(),
       [&](const Elf_Sym &Sym) -> bool {
         return !(Sym.isUndefined() ||
                  Sym.st_shndx == llvm::ELF::SHN_UNDEF) &&
@@ -1021,11 +1080,11 @@ int llvm(void) {
     return rc;
 
   //
-  // process IFunc symbols
+  // process binary IFunc symbols
   //
   for_each_if(
-      DynSyms.begin(),
-      DynSyms.end(),
+      BinaryDynSyms.begin(),
+      BinaryDynSyms.end(),
       [&](const Elf_Sym &Sym) -> bool {
         return !(Sym.isUndefined() ||
                  Sym.st_shndx == llvm::ELF::SHN_UNDEF) &&
@@ -2790,11 +2849,11 @@ struct ConstCharStarComparator {
   }
 };
 
-static bool is_builtin_sym(const char* sym) {
+bool is_builtin_sym(const std::string &sym) {
   return std::binary_search(std::cbegin(builtin_syms_arr),
                             std::cend(builtin_syms_arr),
-                            sym,
-                            ConstCharStarComparator ());
+                            sym.c_str(),
+                            ConstCharStarComparator());
 }
 
 int CreateFunctions(void) {
@@ -2802,88 +2861,33 @@ int CreateFunctions(void) {
   const auto &ICFG = Binary.Analysis.ICFG;
 
   for_each_function_in_binary(Binary, [&](function_t &f) {
-    if (!is_basic_block_index_valid(f.Entry))
+    if (unlikely(!is_basic_block_index_valid(f.Entry)))
       return;
 
     const target_ulong Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
-    const unsigned SectsOff = Addr - Binary.SectsStartAddr;
 
-    if (!f.IsABI && !f.Syms.empty())
-      WithColor::warning() << llvm::formatv(
-          "!f.IsABI && !f.Syms.empty() where f.Syms[0] is {0} {1}\n",
-          f.Syms.front().Name, f.Syms.front().Vers);
-
-    std::string jove_name = (fmt("%c%lx") % (f.IsABI ? 'J' : 'j') %
-                             ICFG[boost::vertex(f.Entry, ICFG)].Addr)
-                                .str();
+    std::string jove_name = (fmt("%c%lx") % (f.IsABI ? 'J' : 'j') % Addr).str();
 
     f.F = llvm::Function::Create(DetermineFunctionType(f),
                                  f.IsABI ? llvm::GlobalValue::ExternalLinkage
                                          : llvm::GlobalValue::InternalLinkage,
                                  jove_name, Module.get());
+
+    if (f.IsABI)
+      f.F->setVisibility(llvm::GlobalValue::HiddenVisibility);
+
 #if defined(TARGET_I386)
+    //
+    // XXX i386 quirk
+    //
     if (f.IsABI) {
       for (unsigned i = 0; i < f.F->arg_size(); ++i) {
+        assert(i < 3);
+
         f.F->addParamAttr(i, llvm::Attribute::InReg);
       }
     }
 #endif
-
-    //f.F->addFnAttr(llvm::Attribute::UWTable);
-
-    for (const symbol_t &sym : f.Syms) {
-      // XXX hack for glibc 2.32+
-      if (sym.Name == "__libc_early_init" &&
-          sym.Vers == "GLIBC_PRIVATE")
-        continue;
-      // avoid conflicts with functions from libclang_rt.builtins-<arch>.a
-      if (is_builtin_sym(sym.Name.c_str()))
-        continue;
-
-      if (sym.Vers.empty()) {
-#if 0
-        llvm::GlobalAlias::create(sym.Name, f.F);
-#else
-        Module->appendModuleInlineAsm(
-            (fmt(".globl %s\n"
-                 ".type  %s,@function\n"
-                 ".set   %s, __jove_sections_%u + %u")
-             % sym.Name
-             % sym.Name
-             % sym.Name % BinaryIndex % SectsOff).str());
-#endif
-      } else {
-         // make sure version node is defined
-        VersionScript.Table[sym.Vers];
-
-#if 0
-        Module->appendModuleInlineAsm(
-            (llvm::Twine(".symver ") + jove_name + "," + sym.Name +
-             (sym.Visibility.IsDefault ? "@@" : "@") + sym.Vers)
-                .str());
-#else
-        std::string dummy_name = (fmt("_dummy_%lx_%d") % Addr % rand()).str();
-
-        Module->appendModuleInlineAsm(
-            (fmt(".globl %s\n"
-                 ".hidden %s\n"
-                 ".type  %s,@function\n"
-                 ".set   %s, __jove_sections_%u + %u")
-             % dummy_name
-             % dummy_name
-             % dummy_name
-             % dummy_name % BinaryIndex % SectsOff).str());
-
-        Module->appendModuleInlineAsm(
-            (llvm::Twine(".symver ") + dummy_name + "," + sym.Name +
-             (sym.Visibility.IsDefault ? "@@" : "@") + sym.Vers)
-                .str());
-#endif
-      }
-    }
-
-    if (f.IsABI)
-      f.F->setVisibility(llvm::GlobalValue::HiddenVisibility);
 
     //
     // assign names to the arguments, the registers they represent
@@ -2901,7 +2905,7 @@ int CreateFunctions(void) {
 
     if (!f.IsABI) {
       //
-      // create an "ABI adapter" for use with _jove_call
+      // create ABI adapter
       //
       f.adapterF = llvm::Function::Create(
           FunctionTypeOfArgsAndRets(CallConvArgs, CallConvRets),
