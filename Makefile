@@ -36,6 +36,7 @@ CXXFLAGS := -std=gnu++17 \
             -Wno-initializer-overrides \
             -Wno-c99-designator \
             -Werror-implicit-function-declaration \
+            -Werror-return-type \
             -fno-omit-frame-pointer \
             -fvisibility=hidden \
             -fexceptions \
