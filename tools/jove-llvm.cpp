@@ -48,41 +48,6 @@ class Binary;
 
 namespace jove {
 
-//
-// a symbol is basically a name and a value. in a program compiled from C, the
-// value of a symbol is roughly the address of a global. Each defined symbol has
-// an address, and the dynamic linker will resolve each undefined symbol by
-// finding a defined symbol with the same name.
-//
-struct symbol_t {
-  std::string Name;
-  std::string Vers;
-  uint64_t Addr;
-
-  enum class TYPE {
-    NONE,
-    DATA,
-    FUNCTION,
-    TLSDATA,
-  } Type;
-
-  unsigned Size;
-
-  enum class BINDING {
-    NONE,
-    LOCAL,
-    WEAK,
-    GLOBAL
-  } Bind;
-
-  struct {
-    bool IsDefault;
-  } Visibility;
-
-  bool IsUndefined() const { return Addr == 0; }
-  bool IsDefined() const { return !IsUndefined(); }
-};
-
 struct hook_t;
 
 #include "elf.hpp"
@@ -450,9 +415,6 @@ namespace jove {
 
 typedef boost::format fmt;
 
-struct binary_state_t {
-};
-
 struct section_t {
   std::string Name;
   llvm::ArrayRef<uint8_t> Contents;
@@ -474,64 +436,6 @@ struct section_t {
 typedef std::tuple<llvm::MCDisassembler &, const llvm::MCSubtargetInfo &,
                    llvm::MCInstPrinter &>
     disas_t;
-
-static const char *string_of_sym_type(symbol_t::TYPE ty) {
-  switch (ty) {
-  case symbol_t::TYPE::NONE:
-    return "NONE";
-  case symbol_t::TYPE::DATA:
-    return "DATA";
-  case symbol_t::TYPE::FUNCTION:
-    return "FUNCTION";
-  case symbol_t::TYPE::TLSDATA:
-    return "TLSDATA";
-  }
-
-  __builtin_trap();
-  __builtin_unreachable();
-}
-
-static const char *string_of_sym_binding(symbol_t::BINDING b) {
-  switch (b) {
-  case symbol_t::BINDING::NONE:
-    return "NONE";
-  case symbol_t::BINDING::LOCAL:
-    return "LOCAL";
-  case symbol_t::BINDING::WEAK:
-    return "WEAK";
-  case symbol_t::BINDING::GLOBAL:
-    return "GLOBAL";
-  }
-
-  __builtin_trap();
-  __builtin_unreachable();
-}
-
-static symbol_t::TYPE sym_type_of_elf_sym_type(unsigned ty) {
-  switch (ty) {
-  case llvm::ELF::STT_NOTYPE:  return symbol_t::TYPE::NONE;
-  case llvm::ELF::STT_OBJECT:  return symbol_t::TYPE::DATA;
-  case llvm::ELF::STT_FUNC:    return symbol_t::TYPE::FUNCTION;
-  case llvm::ELF::STT_SECTION: return symbol_t::TYPE::DATA;
-  case llvm::ELF::STT_FILE:    return symbol_t::TYPE::DATA;
-  case llvm::ELF::STT_COMMON:  return symbol_t::TYPE::DATA;
-  case llvm::ELF::STT_TLS:     return symbol_t::TYPE::TLSDATA;
-
-  default:
-    return symbol_t::TYPE::NONE;
-  }
-}
-
-static symbol_t::BINDING sym_binding_of_elf_sym_binding(unsigned ty) {
-  switch (ty) {
-  case llvm::ELF::STB_LOCAL:  return symbol_t::BINDING::LOCAL;
-  case llvm::ELF::STB_GLOBAL: return symbol_t::BINDING::GLOBAL;
-  case llvm::ELF::STB_WEAK:   return symbol_t::BINDING::WEAK;
-
-  default:
-    return symbol_t::BINDING::NONE;
-  }
-}
 
 static int tcg_global_index_of_name(const char *nm) {
   for (int i = 0; i < TCG->_ctx.nb_globals; i++) {
