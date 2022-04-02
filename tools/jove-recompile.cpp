@@ -362,7 +362,7 @@ int recompile(void) {
   //
   if (fs::exists(opts::Output)) {
     if (opts::Verbose)
-      WithColor::note() << llvm::formatv("reusing output directory {}\n",
+      WithColor::note() << llvm::formatv("reusing output directory {0}\n",
                                          opts::Output);
   } else {
     if (!fs::create_directory(opts::Output)) {
@@ -1719,10 +1719,12 @@ bool dynamic_linking_info_of_binary(binary_t &b, dynamic_linking_info_t &out) {
   }
 
   llvm::Expected<Elf_Phdr_Range> ExpectedPrgHdrs = E.program_headers();
-  for (const Elf_Phdr &Phdr : *ExpectedPrgHdrs) {
-    if (Phdr.p_type == llvm::ELF::PT_INTERP) {
-      out.interp = std::string(Buffer.data() + Phdr.p_offset);
-      break;
+  if (ExpectedPrgHdrs) {
+    for (const Elf_Phdr &Phdr : *ExpectedPrgHdrs) {
+      if (Phdr.p_type == llvm::ELF::PT_INTERP) {
+	out.interp = std::string(Buffer.data() + Phdr.p_offset);
+	break;
+      }
     }
   }
 
