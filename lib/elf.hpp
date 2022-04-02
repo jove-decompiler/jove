@@ -1092,6 +1092,8 @@ struct RelSymbol {
       : Sym(S), Name(N.str()) {}
   const Elf_Sym *Sym;
   std::string Name;
+  std::string Vers;
+  bool IsVersionDefault;
 };
 
 static RelSymbol getSymbolForReloc(ELFO &ObjF,
@@ -1138,12 +1140,13 @@ static RelSymbol getSymbolForReloc(ELFO &ObjF,
   return {Sym == FirstSym ? nullptr : Sym, (*ErrOrName).str()};
 }
 
+static
 void for_each_dynamic_relocation(const ELFF &E,
                                  DynRegionInfo &DynRelRegion,
                                  DynRegionInfo &DynRelaRegion,
                                  DynRegionInfo &DynRelrRegion,
                                  DynRegionInfo &DynPLTRelRegion,
-                                 std::function<void(const Relocation &R)> proc) {
+                                 std::function<void(const Relocation &)> proc) {
   const bool IsMips64EL = E.isMips64EL();
 
   //
@@ -1202,6 +1205,25 @@ void for_each_dynamic_relocation(const ELFF &E,
                     });
     }
   }
+}
+
+static
+void for_each_dynamic_relocation_if(const ELFF &E,
+                                    DynRegionInfo &DynRelRegion,
+                                    DynRegionInfo &DynRelaRegion,
+                                    DynRegionInfo &DynRelrRegion,
+                                    DynRegionInfo &DynPLTRelRegion,
+                                    std::function<bool(const Relocation &)> pred,
+                                    std::function<void(const Relocation &)> proc) {
+  for_each_dynamic_relocation(E,
+                              DynRelRegion,
+                              DynRelaRegion,
+                              DynRelrRegion,
+                              DynPLTRelRegion,
+                              [&](const Relocation &R) {
+			        if (pred(R))
+				  proc(R);
+			      });
 }
 
 static uint64_t extractAddress(const void *ptr) {

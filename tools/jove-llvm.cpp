@@ -134,6 +134,11 @@ struct hook_t;
     const Elf_Shdr *SymbolVersionSection;                                      \
     std::vector<VersionMapEntry> VersionMap;                                   \
     llvm::Optional<DynRegionInfo> OptionalDynSymRegion;                        \
+                                                                               \
+    DynRegionInfo DynRelRegion;                                                \
+    DynRegionInfo DynRelaRegion;                                               \
+    DynRegionInfo DynRelrRegion;                                               \
+    DynRegionInfo DynPLTRelRegion;                                             \
   } _elf;                                                                      \
   llvm::GlobalVariable *FunctionsTableClunk = nullptr;                         \
   llvm::Function *SectsF = nullptr;                                            \
@@ -470,8 +475,6 @@ typedef std::tuple<llvm::MCDisassembler &, const llvm::MCSubtargetInfo &,
                    llvm::MCInstPrinter &>
     disas_t;
 
-#include "relocs_common.hpp"
-
 static const char *string_of_sym_type(symbol_t::TYPE ty) {
   switch (ty) {
   case symbol_t::TYPE::NONE:
@@ -572,6 +575,16 @@ static llvm::Type *VoidFunctionPointer(void) {
   return llvm::PointerType::get(FTy, 0);
 }
 
+static llvm::Constant *BigWord(void) {
+  //
+  // we want a constant integer sufficiently large to cause a SIGSEGV if
+  // dereferenced or otherwise used as a pointer value.
+  //
+  return llvm::ConstantInt::get(WordType(), llvm::APSInt::getMaxValue(WordBits(), false));
+}
+
+#include "relocs_common.hpp"
+
 static llvm::GlobalIFunc *buildGlobalIFunc(function_t &f, dynamic_target_t,
                                            llvm::StringRef SymName);
 
@@ -602,8 +615,6 @@ static std::unique_ptr<llvm::MCDisassembler> DisAsm;
 static std::unique_ptr<llvm::MCInstPrinter> IP;
 static std::unique_ptr<llvm::TargetMachine> TM;
 
-static std::vector<symbol_t> SymbolTable;
-static std::vector<relocation_t> RelocationTable;
 static std::unordered_set<target_ulong> ConstantRelocationLocs;
 static target_ulong libcEarlyInitAddr;
 
@@ -687,7 +698,7 @@ static std::unordered_map<target_ulong, unsigned>
 
 static boost::icl::split_interval_set<target_ulong> AddressSpaceObjects;
 
-static std::unordered_map<target_ulong, std::set<llvm::StringRef>>
+static std::unordered_map<target_ulong, std::set<std::string>>
     AddrToSymbolMap;
 static std::unordered_map<target_ulong, unsigned>
     AddrToSizeMap;
@@ -697,8 +708,6 @@ static std::unordered_set<target_ulong>
 static std::unordered_set<std::string> CopyRelSyms;
 
 static std::unordered_map<llvm::Function *, llvm::Function *> CtorStubMap;
-
-static std::unordered_set<target_ulong> ExternGlobalAddrs;
 
 static std::unordered_set<llvm::Function *> FunctionsToInline;
 
@@ -710,8 +719,6 @@ static struct {
 static std::map<std::pair<target_ulong, unsigned>,
                 std::pair<binary_index_t, std::pair<target_ulong, unsigned>>>
     CopyRelocMap;
-
-static std::map<target_ulong, dynamic_target_t> IRELATIVEHack;
 
 static llvm::Constant *__jove_fail_UnknownBranchTarget;
 static llvm::Constant *__jove_fail_UnknownCallee;
@@ -725,7 +732,6 @@ static llvm::Constant *__jove_fail_UnknownCallee;
 static int InitStateForBinaries(void);
 static int CreateModule(void);
 static int PrepareToTranslateCode(void);
-static int ProcessBinaryRelocations(void);
 static int ProcessCOPYRelocations(void);
 static int CreateFunctions(void);
 static int CreateFunctionTables(void);
@@ -736,8 +742,7 @@ static int CreateSectionGlobalVariables(void);
 static int CreateFunctionTable(void);
 static int FixupHelperStubs(void);
 static int CreateNoAliasMetadata(void);
-static int CreateTPOFFCtorHack(void);
-static int CreateIRELATIVECtorHack(void);
+static int ProcessManualRelocations(void);
 static int CreateCopyRelocationHack(void);
 static int TranslateFunctions(void);
 static int InlineCalls(void);
@@ -1068,8 +1073,7 @@ int llvm(void) {
         }
       });
 
-  if ((rc = ProcessBinaryRelocations()) ||
-      (rc = ProcessCOPYRelocations()) ||
+  if ((rc = ProcessCOPYRelocations()) ||
       (rc = CreateFunctions()) ||
       (rc = CreateFunctionTables()) ||
       (rc = ProcessBinaryTLSSymbols()) ||
@@ -1246,8 +1250,7 @@ int llvm(void) {
   return CreateFunctionTable()
       || FixupHelperStubs()
       || CreateNoAliasMetadata()
-      || CreateTPOFFCtorHack()
-      || CreateIRELATIVECtorHack()
+      || ProcessManualRelocations()
       || CreateCopyRelocationHack()
       || TranslateFunctions()
       || InternalizeSections()
@@ -1536,13 +1539,22 @@ int InitStateForBinaries(void) {
 
       loadDynamicTable(&E, &O, binary._elf.DynamicTable);
 
-      if (binary._elf.DynamicTable.Addr)
+      if (binary._elf.DynamicTable.Addr) {
         binary._elf.OptionalDynSymRegion =
             loadDynamicSymbols(&E, &O,
                                binary._elf.DynamicTable,
                                binary._elf.DynamicStringTable,
                                binary._elf.SymbolVersionSection,
                                binary._elf.VersionMap);
+
+        if (BIdx == BinaryIndex)
+          loadDynamicRelocations(&E, &O,
+                                 binary._elf.DynamicTable,
+                                 binary._elf.DynRelRegion,
+                                 binary._elf.DynRelaRegion,
+                                 binary._elf.DynRelrRegion,
+                                 binary._elf.DynPLTRelRegion);
+      }
     }
   }
 
@@ -2326,25 +2338,13 @@ llvm::GlobalIFunc *buildGlobalIFunc(function_t &f, dynamic_target_t IdxPair, llv
   return res;
 }
 
-int ProcessBinaryRelocations(void) {
-  binary_t &b = Decompilation.Binaries[BinaryIndex];
+static std::pair<binary_index_t, std::pair<target_ulong, unsigned>>
+decipher_copy_relocation(const RelSymbol &S);
 
-  if (!b._elf.DynamicTable.Addr)
-    return 0;
+int ProcessCOPYRelocations(void) {
+  binary_t &Binary = Decompilation.Binaries[BinaryIndex];
 
-  assert(llvm::isa<ELFO>(b.ObjectFile.get()));
-  ELFO &O = *llvm::cast<ELFO>(b.ObjectFile.get());
-
-  TheTriple = O.makeTriple();
-  Features = O.getFeatures();
-
-  const ELFF &E = *O.getELFFile();
-
-  auto dynamic_table = [&](void) -> Elf_Dyn_Range {
-    return b._elf.DynamicTable.getAsArrayRef<Elf_Dyn>();
-  };
-
-  auto OptionalDynSymRegion = b._elf.OptionalDynSymRegion;
+  auto OptionalDynSymRegion = Binary._elf.OptionalDynSymRegion;
 
   if (!OptionalDynSymRegion)
     return 0; /* no dynamic symbols */
@@ -2355,226 +2355,87 @@ int ProcessBinaryRelocations(void) {
     return DynSymRegion.getAsArrayRef<Elf_Sym>();
   };
 
-  DynRegionInfo DynRelRegion(O.getFileName());
-  DynRegionInfo DynRelaRegion(O.getFileName());
-  DynRegionInfo DynRelrRegion(O.getFileName());
-  DynRegionInfo DynPLTRelRegion(O.getFileName());
+  assert(llvm::isa<ELFO>(Binary.ObjectFile.get()));
+  auto &O = *llvm::cast<ELFO>(Binary.ObjectFile.get());
+  const auto &E = *O.getELFFile();
 
-  loadDynamicRelocations(&E, &O,
-                         b._elf.DynamicTable,
-                         DynRelRegion,
-                         DynRelaRegion,
-                         DynRelrRegion,
-                         DynPLTRelRegion);
+  for_each_dynamic_relocation_if(E,
+      Binary._elf.DynRelRegion,
+      Binary._elf.DynRelaRegion,
+      Binary._elf.DynRelrRegion,
+      Binary._elf.DynPLTRelRegion,
+      is_copy_relocation,
+      [&](const Relocation &R) {
+        RelSymbol RelSym = getSymbolForReloc(O, dynamic_symbols(),
+                                             Binary._elf.DynamicStringTable, R);
 
-  auto processDynamicReloc = [&](const Relocation &R) -> void {
-    RelSymbol RelSym =
-        getSymbolForReloc(O, dynamic_symbols(), b._elf.DynamicStringTable, R);
+        assert(RelSym.Sym);
 
-    if (RelSym.Sym)
-      WithColor::note() << llvm::formatv("processDynamicReloc: RelSym: {0}\n", RelSym.Name);
-    else
-      WithColor::note() << "processDynamicReloc: no symbol\n";
+        //
+        // determine symbol version (if present)
+        //
+        if (Binary._elf.SymbolVersionSection) {
+          // Determine the position in the symbol table of this entry.
+          size_t EntryIndex =
+              (reinterpret_cast<uintptr_t>(RelSym.Sym) -
+               reinterpret_cast<uintptr_t>(Binary._elf.OptionalDynSymRegion->Addr)) /
+              sizeof(Elf_Sym);
 
-    relocation_t &res = RelocationTable.emplace_back();
+          // Get the corresponding version index entry.
+          llvm::Expected<const Elf_Versym *> ExpectedVersym =
+              E.getEntry<Elf_Versym>(Binary._elf.SymbolVersionSection, EntryIndex);
 
-    res.Addr = R.Offset;
-    res.Addend = R.Addend ? *R.Addend : 0;
-    res.Type = relocation_type_of_elf_rela_type(R.Type);
-    E.getRelocationTypeName(R.Type, res.RelocationTypeName);
-    res.T = nullptr;
-    res.C = nullptr;
-
-    if (const Elf_Sym *Sym = RelSym.Sym) {
-      res.SymbolIndex = SymbolTable.size();
-      symbol_t &sym = SymbolTable.emplace_back();
-
-      bool is_undefined = Sym->isUndefined() ||
-                          Sym->st_shndx == llvm::ELF::SHN_UNDEF;
-
-      sym.Name = RelSym.Name;
-      sym.Addr = is_undefined ? 0 : Sym->st_value;
-      sym.Visibility.IsDefault = false;
-
-      sym.Type = sym_type_of_elf_sym_type(Sym->getType());
-      sym.Size = Sym->st_size;
-      sym.Bind = sym_binding_of_elf_sym_binding(Sym->getBinding());
-
-      if (sym.Type == symbol_t::TYPE::NONE &&
-          sym.Bind == symbol_t::BINDING::WEAK && !sym.Addr) {
-        WithColor::warning() << llvm::formatv("making {0} into function symbol\n",
-                                              sym.Name);
-        sym.Type = symbol_t::TYPE::FUNCTION;
-      }
-
-      if (b._elf.SymbolVersionSection && b._elf.OptionalDynSymRegion) {
-        // Determine the position in the symbol table of this entry.
-        size_t EntryIndex =
-            (reinterpret_cast<uintptr_t>(Sym) -
-             reinterpret_cast<uintptr_t>(b._elf.OptionalDynSymRegion->Addr)) /
-            sizeof(Elf_Sym);
-
-        // Get the corresponding version index entry.
-        llvm::Expected<const Elf_Versym *> ExpectedVersym =
-            E.getEntry<Elf_Versym>(b._elf.SymbolVersionSection, EntryIndex);
-
-        if (ExpectedVersym) {
-          sym.Vers = getSymbolVersionByIndex(b._elf.VersionMap,
-                                             b._elf.DynamicStringTable,
-                                             (*ExpectedVersym)->vs_index,
-                                             sym.Visibility.IsDefault);
+          if (ExpectedVersym) {
+            RelSym.Vers = getSymbolVersionByIndex(Binary._elf.VersionMap,
+                                                  Binary._elf.DynamicStringTable,
+                                                  (*ExpectedVersym)->vs_index,
+                                                  RelSym.IsVersionDefault);
+          }
         }
-      }
-    } else {
-      res.SymbolIndex = std::numeric_limits<unsigned>::max();
-    }
-  };
 
-  for_each_dynamic_relocation(E,
-                              DynRelRegion,
-                              DynRelaRegion,
-                              DynRelrRegion,
-                              DynPLTRelRegion,
-                              processDynamicReloc);
+        llvm::errs() << llvm::formatv("COPY relocation: {0} {1}\n", RelSym.Name, RelSym.Vers);
 
-#if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
-  MipsGOTParser Parser(E, b.Path);
-  if (llvm::Error Err = Parser.findGOT(dynamic_table(),
-                                       dynamic_symbols())) {
-    WithColor::warning() << llvm::formatv("Parser.findGOT failed: {0}\n", Err);
-    return 1;
-  }
+        CopyRelSyms.insert(RelSym.Name);
 
-  if (Parser.isGotEmpty())
-    WithColor::note() << "Parser.isGotEmpty()\n";
+        if (!RelSym.Sym->st_size) {
+          WithColor::error() << llvm::formatv(
+              "copy relocation @ {0:x} specifies symbol {1} with size 0\n",
+              R.Offset, RelSym.Name);
+          abort();
+        }
 
-  for (const MipsGOTParser::Entry &Ent : Parser.getLocalEntries()) {
-    const target_ulong Addr = Parser.getGotAddress(&Ent);
+        WithColor::error() << llvm::formatv(
+            "copy relocation @ {0:x} specifies symbol {1} with size {2}\n"
+            "was prog compiled as position-independant (i.e. -fPIC)?\n",
+            R.Offset, RelSym.Name, RelSym.Sym->st_size);
+        //abort();
 
-    llvm::outs() << llvm::formatv("LocalEntry: {0:x}\n", Addr);
+        if (CopyRelocMap.find(std::pair<target_ulong, unsigned>(RelSym.Sym->st_value, RelSym.Sym->st_size)) !=
+            CopyRelocMap.end())
+          return;
 
-    relocation_t &res = RelocationTable.emplace_back();
-    res.Type = relocation_t::TYPE::RELATIVE;
-    res.Addr = Addr;
-    res.Addend = 0;
-    res.SymbolIndex = std::numeric_limits<unsigned>::max();
-    res.T = nullptr;
-    res.C = nullptr;
-    res.RelocationTypeName = "LocalGOTEntry";
-  }
+        //
+        // the dreaded copy relocation. we have to figure out who really defines
+        // the given symbol, and then insert an entry into a map we will read later
+        // to generate code that copies bytes from said symbol located in shared
+        // library to said symbol in executable
+        //
+        struct {
+          binary_index_t BIdx;
+          std::pair<target_ulong, unsigned> OffsetPair;
+        } CopyFrom;
 
-  for (const MipsGOTParser::Entry &Ent : Parser.getGlobalEntries()) {
-    const target_ulong Addr = Parser.getGotAddress(&Ent);
+        //
+        // find out who to copy from
+        //
+        std::tie(CopyFrom.BIdx, CopyFrom.OffsetPair) = decipher_copy_relocation(RelSym);
 
-    const Elf_Sym *Sym = Parser.getGotSym(&Ent);
+        if (is_binary_index_valid(CopyFrom.BIdx))
+          CopyRelocMap.emplace(std::pair<target_ulong, unsigned>(RelSym.Sym->st_value, RelSym.Sym->st_size),
+                               std::pair<binary_index_t, std::pair<target_ulong, unsigned>>(
+                                   CopyFrom.BIdx, CopyFrom.OffsetPair));
 
-    assert(Sym);
-
-    bool is_undefined =
-        Sym->isUndefined() || Sym->st_shndx == llvm::ELF::SHN_UNDEF;
-
-    if (!Ent)
-      assert(is_undefined);
-
-    if (!is_undefined) {
-      assert(Sym->st_size);
-      assert(Sym->st_value);
-      assert(Ent);
-    }
-
-
-    llvm::Expected<llvm::StringRef> ExpectedSymName = Sym->getName(b._elf.DynamicStringTable);
-    if (!ExpectedSymName)
-      continue;
-
-    llvm::StringRef SymName = *ExpectedSymName;
-
-    llvm::outs() << llvm::formatv("GlobalEntry: {0} {1}\n", Ent,
-                                  SymName);
-
-    relocation_t &res = RelocationTable.emplace_back();
-    res.Type = relocation_t::TYPE::ADDRESSOF;
-    res.Addr = Addr;
-    res.Addend = 0;
-    res.SymbolIndex = SymbolTable.size();
-    {
-      symbol_t &sym = SymbolTable.emplace_back();
-
-      sym.Name = SymName;
-      sym.Addr = is_undefined ? 0 : Sym->st_value;
-      sym.Visibility.IsDefault = false;
-
-      sym.Type = sym_type_of_elf_sym_type(Sym->getType());
-      sym.Size = Sym->st_size;
-      sym.Bind = sym_binding_of_elf_sym_binding(Sym->getBinding());
-    }
-
-    res.T = nullptr;
-    res.C = nullptr;
-    res.RelocationTypeName = "GlobalGOTEntry";
-  }
-#endif
-
-  //
-  // print relocations & symbols
-  //
-  llvm::outs() << "\nRelocations:\n\n";
-  for (relocation_t &reloc : RelocationTable) {
-    llvm::outs() << "  " <<
-      (fmt("%-12s [%-12s] @ %-16x +%-16x") % string_of_reloc_type(reloc.Type)
-                                           % reloc.RelocationTypeName.c_str()
-                                           % reloc.Addr
-                                           % reloc.Addend).str();
-
-    if (reloc.SymbolIndex < SymbolTable.size()) {
-      symbol_t &sym = SymbolTable[reloc.SymbolIndex];
-      llvm::outs() <<
-        (fmt("%-30s *%-10s *%-8s @ %x {%d}")
-         % sym.Name
-         % string_of_sym_type(sym.Type)
-         % string_of_sym_binding(sym.Bind)
-         % sym.Addr
-         % sym.Size).str();
-    }
-    llvm::outs() << '\n';
-  }
-
-  for (const relocation_t &R : RelocationTable) {
-    switch (R.Type) {
-#if 0
-    case relocation_t::TYPE::RELATIVE:
-#endif
-    case relocation_t::TYPE::IRELATIVE:
-    case relocation_t::TYPE::ABSOLUTE:
-    case relocation_t::TYPE::ADDRESSOF:
-#if 0
-    case relocation_t::TYPE::TPOFF:
-#endif
-    case relocation_t::TYPE::TPMOD:
-      ConstantRelocationLocs.insert(R.Addr);
-      break;
-
-    default:
-      break;
-    }
-  }
-
-  return 0;
-}
-
-int ProcessCOPYRelocations(void) {
-  for_each_if(RelocationTable.begin(),
-              RelocationTable.end(),
-              [&](const relocation_t &R) -> bool {
-                return R.SymbolIndex < SymbolTable.size() &&
-                       R.Type == relocation_t::TYPE::COPY;
-              },
-              [&](const relocation_t &R) {
-                symbol_t &sym = SymbolTable[R.SymbolIndex];
-
-                CopyRelSyms.insert(sym.Name);
-                llvm::errs() << llvm::formatv("COPY relocation: {0}\n", sym.Name);
-              });
+      });
 
   return 0;
 }
@@ -3354,8 +3215,233 @@ int CreateTLSModGlobal(void) {
   return 0;
 }
 
-static std::pair<binary_index_t, std::pair<target_ulong, unsigned>>
-decipher_copy_relocation(const symbol_t &S);
+static llvm::Constant *SymbolAddress(const RelSymbol &RelSym) {
+  assert(RelSym.Sym);
+
+  bool IsDefined = !RelSym.Sym->isUndefined() &&
+                   RelSym.Sym->st_shndx != llvm::ELF::SHN_UNDEF;
+
+  bool IsCode = RelSym.Sym->getType() == llvm::ELF::STT_FUNC;
+
+  bool IsTLS = RelSym.Sym->getType() == llvm::ELF::STT_TLS;
+
+  if (IsDefined) {
+    if (IsCode) {
+      //
+      // the following breaks symbol interposition
+      //
+      return SectionPointer(RelSym.Sym->st_value);
+    } else {
+      assert(RelSym.Sym->st_size > 0);
+      assert(!IsTLS);
+
+#if !defined(TARGET_MIPS64) && !defined(TARGET_MIPS32)
+      if (CopyRelSyms.find(RelSym.Name) == CopyRelSyms.end()) {
+        //
+        // working symbol interposition
+        //
+        if (llvm::GlobalValue *GV = Module->getNamedValue(RelSym.Name)) {
+          //assert(GV->hasInitializer());
+          return llvm::ConstantExpr::getPtrToInt(GV, WordType());
+        }
+
+        AddrToSymbolMap[RelSym.Sym->st_value].insert(RelSym.Name);
+        AddrToSizeMap[RelSym.Sym->st_value] = RelSym.Sym->st_size;
+
+        return nullptr;
+      }
+#endif
+
+      //
+      // the following breaks symbol interposition
+      //
+      return SectionPointer(RelSym.Sym->st_value);
+    }
+  } else {
+    if (IsCode) {
+      if (llvm::Function *F = Module->getFunction(RelSym.Name)) {
+        assert(F->empty());
+        return llvm::ConstantExpr::getPtrToInt(F, WordType());
+      }
+
+      //
+      // we have to declare it.
+      //
+      llvm::FunctionType *FTy = llvm::FunctionType::get(VoidType(), false); /* TODO */
+
+      llvm::Function *F =
+          llvm::Function::Create(FTy,
+                                 RelSym.Sym->getBinding() == llvm::ELF::STB_WEAK
+                                     ? llvm::GlobalValue::ExternalWeakLinkage
+                                     : llvm::GlobalValue::ExternalLinkage,
+                                 RelSym.Name, Module.get());
+      if (!RelSym.Vers.empty()) {
+        Module->appendModuleInlineAsm(
+            (llvm::Twine(".symver ") + RelSym.Name + "," + RelSym.Name +
+             (RelSym.IsVersionDefault ? "@@" : "@") + RelSym.Vers)
+                .str());
+
+        VersionScript.Table[RelSym.Vers];
+      }
+
+      return llvm::ConstantExpr::getPtrToInt(F, WordType());
+    } else {
+      if (llvm::GlobalVariable *GV = Module->getGlobalVariable(RelSym.Name, false)) {
+        assert(!GV->hasInitializer());
+        return llvm::ConstantExpr::getPtrToInt(GV, WordType());
+      }
+
+      //
+      // we have to declare it.
+      //
+      unsigned Size;
+
+      auto it = GlobalSymbolDefinedSizeMap.find(RelSym.Name);
+      if (it == GlobalSymbolDefinedSizeMap.end()) {
+        WithColor::warning() << llvm::formatv(
+            "{0}: unknown size for {1}\n",
+            __func__, RelSym.Name);
+
+        Size = sizeof(target_ulong);
+      } else {
+        Size = (*it).second;
+      }
+
+      llvm::Type *GTy =
+          is_integral_size(Size)
+              ? static_cast<llvm::Type *>(llvm::Type::getIntNTy(*Context, Size * 8))
+              : static_cast<llvm::Type *>(llvm::ArrayType::get(llvm::Type::getInt8Ty(*Context), Size));
+
+      auto *GV =
+          new llvm::GlobalVariable(*Module, GTy, false,
+                                   RelSym.Sym->getBinding() == llvm::ELF::STB_WEAK
+                                       ? llvm::GlobalValue::ExternalWeakLinkage
+                                       : llvm::GlobalValue::ExternalLinkage,
+                                   nullptr, RelSym.Name, nullptr,
+                                   IsTLS ? llvm::GlobalValue::GeneralDynamicTLSModel :
+                                           llvm::GlobalValue::NotThreadLocal);
+
+      if (!RelSym.Vers.empty()) {
+        Module->appendModuleInlineAsm(
+            (llvm::Twine(".symver ") + RelSym.Name + "," + RelSym.Name +
+             (RelSym.IsVersionDefault ? "@@" : "@") + RelSym.Vers)
+                .str());
+        //VersionScript.Table[RelSym.Vers];
+      }
+
+      return llvm::ConstantExpr::getPtrToInt(GV, WordType());
+    }
+  }
+}
+
+static void compute_irelative_relocation(llvm::IRBuilderTy &IRB,
+                                         target_ulong resolverAddr) {
+  llvm::Value *TemporaryStack = IRB.CreateCall(JoveAllocStackFunc);
+
+  llvm::Value *SPPtr = CPUStateGlobalPointer(tcg_stack_pointer_index, IRB);
+  {
+    llvm::Value *NewSP = IRB.CreateAdd(
+        TemporaryStack,
+        llvm::ConstantInt::get(WordType(), JOVE_STACK_SIZE - JOVE_PAGE_SIZE));
+
+    NewSP = IRB.CreateAnd(NewSP, IRB.getIntN(WordBits(), ~15UL));
+
+#if defined(TARGET_X86_64) || defined(TARGET_I386)
+    //
+    // account for stack pointer on stack
+    //
+    NewSP = IRB.CreateSub(NewSP, IRB.getIntN(WordBits(), sizeof(target_ulong)));
+#endif
+
+    IRB.CreateStore(NewSP, SPPtr);
+  }
+
+  binary_t &Binary = Decompilation.Binaries[BinaryIndex];
+  auto &fnmap = Binary.fnmap;
+
+  auto it = fnmap.find(resolverAddr);
+  assert(it != fnmap.end() && "resolver function not found!");
+
+  function_t &resolver_f = Binary.Analysis.Functions[(*it).second];
+  assert(resolver_f.IsABI && "resolver function should be ABI!");
+
+  llvm::Function *resolverF = resolver_f.F;
+
+  std::vector<llvm::Value *> ArgVec(
+      resolverF->getFunctionType()->getNumParams(),
+      llvm::Constant::getNullValue(WordType()));
+
+  llvm::CallInst *Call = IRB.CreateCall(resolverF, ArgVec);
+
+  llvm::Value *Res = nullptr;
+
+  if (resolverF->getFunctionType()->getReturnType()->isIntegerTy()) {
+    Res = Call;
+  } else {
+    assert(resolverF->getFunctionType()->getReturnType()->isStructTy());
+
+    Res = IRB.CreateExtractValue(Call, llvm::ArrayRef<unsigned>(0), "");
+  }
+
+  IRB.CreateCall(JoveFreeStackFunc, {TemporaryStack});
+
+  IRB.CreateRet(Res);
+}
+
+static llvm::Value *insertThreadPointerInlineAsm(llvm::IRBuilderTy &);
+
+static void compute_tpoff_relocation(llvm::IRBuilderTy &IRB,
+                                     const RelSymbol &RelSym,
+                                     unsigned Offset) {
+  llvm::Value *TLSAddr = nullptr;
+  if (RelSym.Sym) {
+    TLSAddr = SymbolAddress(RelSym);
+    assert(TLSAddr);
+  } else {
+    auto it = TLSValueToSymbolMap.find(Offset);
+    if (it == TLSValueToSymbolMap.end()) {
+      TLSAddr = llvm::ConstantExpr::getAdd(
+          llvm::ConstantExpr::getPtrToInt(TLSSectsGlobal, WordType()),
+          llvm::ConstantInt::get(WordType(), Offset));
+    } else {
+      llvm::GlobalVariable *GV = nullptr;
+      for (auto sym_it = (*it).second.begin(); sym_it != (*it).second.end(); ++sym_it) {
+        GV = Module->getGlobalVariable(*sym_it);
+        if (GV)
+          break;
+      }
+
+      assert(GV);
+      assert(GV->isThreadLocal());
+      TLSAddr = llvm::ConstantExpr::getPtrToInt(GV, WordType());
+    }
+  }
+
+  llvm::Value *TP = insertThreadPointerInlineAsm(IRB);
+
+  IRB.CreateRet(IRB.CreateSub(TLSAddr, TP));
+}
+
+static target_ulong ExtractWordAtAddress(target_ulong Addr) {
+  auto &Binary = Decompilation.Binaries[BinaryIndex];
+
+  auto &ObjectFile = Binary.ObjectFile;
+
+  assert(llvm::isa<ELFO>(ObjectFile.get()));
+  ELFO &O = *llvm::cast<ELFO>(ObjectFile.get());
+
+  const ELFF &E = *O.getELFFile();
+
+  llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Addr);
+  if (ExpectedPtr)
+    return extractAddress(*ExpectedPtr);
+
+  abort();
+}
+
+struct unhandled_relocation_exception {};
+
+#include "relocs_llvm.hpp"
 
 int CreateSectionGlobalVariables(void) {
   binary_t &Binary = Decompilation.Binaries[BinaryIndex];
@@ -3649,193 +3735,6 @@ int CreateSectionGlobalVariables(void) {
     Sect.Stuff.Types[Off] = T;
   };
 
-  auto type_of_addressof_undefined_function_relocation =
-      [&](const relocation_t &R, const symbol_t &S) -> llvm::Type * {
-    return WordType();
-  };
-
-  auto type_of_addressof_defined_function_relocation =
-      [&](const relocation_t &R, const symbol_t &S) -> llvm::Type * {
-    assert(!S.IsUndefined());
-
-    return WordType();
-  };
-
-  auto type_of_addressof_undefined_data_relocation =
-      [&](const relocation_t &R, const symbol_t &S) -> llvm::Type * {
-    assert(S.IsUndefined());
-#if 0
-    assert(!S.Size);
-#else
-    if (!S.Size) {
-      if (opts::Verbose)
-        WithColor::warning() <<
-          llvm::formatv("type_of_addressof_undefined_data_relocation: S.Name={0} S.Size={1}\n",
-                        S.Name, S.Size);
-    }
-#endif
-
-    unsigned Size;
-
-    auto it = GlobalSymbolDefinedSizeMap.find(S.Name);
-    if (it == GlobalSymbolDefinedSizeMap.end()) {
-      WithColor::error() << llvm::formatv(
-          "{0}: unknown size for {1}\n",
-          "type_of_addressof_undefined_data_relocation", S.Name);
-      Size = sizeof(target_ulong);
-    } else {
-      Size = (*it).second;
-    }
-
-    llvm::Type *T;
-    if (is_integral_size(Size))
-      T = llvm::Type::getIntNTy(*Context, Size * 8);
-    else
-      T = llvm::ArrayType::get(llvm::Type::getInt8Ty(*Context), Size);
-
-    return llvm::PointerType::get(T, 0);
-  };
-
-  auto type_of_addressof_defined_data_relocation =
-      [&](const relocation_t &R, const symbol_t &S) -> llvm::Type * {
-    assert(!S.IsUndefined());
-
-    return WordType();
-  };
-
-  auto type_of_relative_relocation =
-      [&](const relocation_t &R) -> llvm::Type * {
-    return WordType();
-  };
-
-  auto type_of_irelative_relocation =
-      [&](const relocation_t &R) -> llvm::Type * {
-    return WordType();
-  };
-
-  auto type_of_tpoff_relocation = [&](const relocation_t &R) -> llvm::Type * {
-    return WordType();
-  };
-
-  auto type_of_tpmod_relocation = [&](const relocation_t &R) -> llvm::Type * {
-    return TLSModGlobal->getType();
-  };
-
-  auto type_of_copy_relocation = [&](const relocation_t &R,
-                                     const symbol_t &S) -> llvm::Type * {
-    assert(R.Addr == S.Addr);
-
-#if defined(TARGET_X86_64)
-    const char *CopyRelocName = "R_X86_64_COPY";
-#elif defined(TARGET_I386)
-    const char *CopyRelocName = "R_386_COPY";
-#elif defined(TARGET_AARCH64)
-    const char *CopyRelocName = "R_AARCH64_COPY";
-#elif defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
-    const char *CopyRelocName = "R_MIPS_COPY";
-#else
-#error
-#endif
-
-    if (!S.Size) {
-      WithColor::error() << llvm::formatv(
-          "copy relocation @ {0:x} specifies symbol {1} with size 0\n",
-          R.Addr, S.Name);
-      abort();
-    }
-
-    WithColor::error() << llvm::formatv(
-        "copy relocation @ {0:x} specifies symbol {1} with size {2}\n"
-        "was prog compiled as position-independant (i.e. -fPIC)?\n",
-        R.Addr, S.Name, S.Size);
-    //abort();
-
-    if (CopyRelocMap.find(std::pair<target_ulong, unsigned>(S.Addr, S.Size)) !=
-        CopyRelocMap.end())
-      return VoidType();
-
-    //
-    // the dreaded copy relocation. we have to figure out who really defines
-    // the given symbol, and then insert an entry into a map we will read later
-    // to generate code that copies bytes from said symbol located in shared
-    // library to said symbol in executable
-    //
-    struct {
-      binary_index_t BIdx;
-      std::pair<target_ulong, unsigned> OffsetPair;
-    } CopyFrom;
-
-    //
-    // find out who to copy from
-    //
-    std::tie(CopyFrom.BIdx, CopyFrom.OffsetPair) = decipher_copy_relocation(S);
-
-    if (is_binary_index_valid(CopyFrom.BIdx))
-      CopyRelocMap.emplace(std::pair<target_ulong, unsigned>(S.Addr, S.Size),
-                           std::pair<binary_index_t, std::pair<target_ulong, unsigned>>(
-                               CopyFrom.BIdx, CopyFrom.OffsetPair));
-
-    return VoidType();
-  };
-
-  auto type_of_relocation = [&](const relocation_t &R) -> llvm::Type * {
-    switch (R.Type) {
-    case relocation_t::TYPE::ADDRESSOF: {
-      assert(R.SymbolIndex < SymbolTable.size());
-      const symbol_t &S = SymbolTable[R.SymbolIndex];
-
-      switch (S.Type) {
-      case symbol_t::TYPE::FUNCTION:
-        if (S.IsUndefined())
-          return type_of_addressof_undefined_function_relocation(R, S);
-        else
-          return type_of_addressof_defined_function_relocation(R, S);
-
-#if 1
-      default:
-        WithColor::warning() << llvm::formatv(
-            "addressof {0} has unknown symbol type; treating as data\n",
-            S.Name);
-#endif
-
-      case symbol_t::TYPE::DATA:
-        if (S.IsUndefined())
-          return type_of_addressof_undefined_data_relocation(R, S);
-        else
-          return type_of_addressof_defined_data_relocation(R, S);
-      }
-    }
-
-    case relocation_t::TYPE::RELATIVE:
-      return type_of_relative_relocation(R);
-
-    case relocation_t::TYPE::IRELATIVE:
-      return type_of_irelative_relocation(R);
-
-    case relocation_t::TYPE::TPOFF:
-      return type_of_tpoff_relocation(R);
-
-    case relocation_t::TYPE::TPMOD:
-      return type_of_tpmod_relocation(R);
-
-    case relocation_t::TYPE::COPY: {
-      assert(R.SymbolIndex < SymbolTable.size());
-      const symbol_t &S = SymbolTable[R.SymbolIndex];
-
-      return type_of_copy_relocation(R, S);
-    }
-
-    case relocation_t::TYPE::NONE:
-      return VoidType();
-
-    default:
-      WithColor::error() << llvm::formatv(
-          "type_of_relocation: unhandled relocation type {0}\n",
-          string_of_reloc_type(R.Type));
-      abort();
-    }
-  };
-
   auto constant_at_address = [&](target_ulong Addr, llvm::Constant *C) -> void {
     auto it = SectIdxMap.find(Addr);
     assert(it != SectIdxMap.end());
@@ -3854,440 +3753,6 @@ int CreateSectionGlobalVariables(void) {
     Sect.Stuff.Constants[Off] = C;
   };
 
-  auto constant_of_addressof_undefined_function_relocation =
-      [&](const relocation_t &R, const symbol_t &S) -> llvm::Constant * {
-    assert(S.IsUndefined());
-
-    if (llvm::Function *F = Module->getFunction(S.Name))
-      return llvm::ConstantExpr::getPtrToInt(F, WordType());
-
-    llvm::FunctionType *FTy = nullptr;
-    {
-      auto &RelocDynTargets =
-          Decompilation.Binaries[BinaryIndex].Analysis.RelocDynTargets;
-
-      auto it = RelocDynTargets.find(R.Addr);
-      if (it != RelocDynTargets.end() && !(*it).second.empty()) {
-        auto &DynTargets = (*it).second;
-
-        for (std::pair<binary_index_t, function_index_t> pair : DynTargets) {
-          if (pair.first == BinaryIndex)
-            continue;
-
-          function_t &f = function_of_target(pair, Decompilation);
-          bool SavedIsABI = f.IsABI;
-          if (!f.IsABI)
-            f.IsABI = true; /* XXX */
-
-          FTy = DetermineFunctionType(f);
-
-          f.IsABI = SavedIsABI; /* undo the temporary change */
-          break;
-        }
-
-        if (!FTy)
-          FTy = llvm::FunctionType::get(VoidType(), false);
-      } else {
-        FTy = llvm::FunctionType::get(VoidType(), false);
-      }
-    }
-
-    assert(FTy);
-
-    llvm::Function *F =
-        llvm::Function::Create(FTy,
-                               S.Bind == symbol_t::BINDING::WEAK
-                                   ? llvm::GlobalValue::ExternalWeakLinkage
-                                   : llvm::GlobalValue::ExternalLinkage,
-                               S.Name, Module.get());
-
-    if (!S.Vers.empty()) {
-      Module->appendModuleInlineAsm(
-          (llvm::Twine(".symver ") + S.Name + "," + S.Name +
-           (S.Visibility.IsDefault ? "@@" : "@") + S.Vers)
-              .str());
-
-      VersionScript.Table[S.Vers];
-    }
-
-    return llvm::ConstantExpr::getPtrToInt(F, WordType());
-  };
-
-  auto constant_of_addressof_defined_function_relocation =
-      [&](const relocation_t &R, const symbol_t &S) -> llvm::Constant * {
-    assert(!S.IsUndefined());
-
-    return SectionPointer(S.Addr);
-  };
-
-  auto constant_of_addressof_undefined_data_relocation =
-      [&](const relocation_t &R, const symbol_t &S) -> llvm::Constant * {
-    assert(S.IsUndefined());
-    WARN_ON(S.Size);
-
-    llvm::GlobalVariable *GV = Module->getGlobalVariable(S.Name, false);
-
-    if (GV)
-      return GV;
-
-    unsigned Size;
-
-    auto it = GlobalSymbolDefinedSizeMap.find(S.Name);
-    if (it == GlobalSymbolDefinedSizeMap.end()) {
-      WithColor::error() << llvm::formatv(
-          "{0}: unknown size for {1}\n",
-          "constant_of_addressof_undefined_data_relocation", S.Name);
-
-      Size = sizeof(target_ulong);
-    } else {
-      Size = (*it).second;
-    }
-
-    llvm::Type *T;
-    if (is_integral_size(Size)) {
-      T = llvm::Type::getIntNTy(*Context, Size * 8);
-    } else {
-      T = llvm::ArrayType::get(llvm::Type::getInt8Ty(*Context), Size);
-    }
-
-    GV = new llvm::GlobalVariable(*Module, T, false,
-                                  S.Bind == symbol_t::BINDING::WEAK
-                                      ? llvm::GlobalValue::ExternalWeakLinkage
-                                      : llvm::GlobalValue::ExternalLinkage,
-                                  nullptr, S.Name);
-
-    if (!S.Vers.empty()) {
-      Module->appendModuleInlineAsm(
-          (llvm::Twine(".symver ") + S.Name + "," + S.Name +
-           (S.Visibility.IsDefault ? "@@" : "@") + S.Vers)
-              .str());
-    }
-
-    return GV;
-  };
-
-  std::set<std::pair<uintptr_t, unsigned>> gdefs;
-
-  auto constant_of_addressof_defined_data_relocation =
-      [&](const relocation_t &R, const symbol_t &S) -> llvm::Constant * {
-    assert(!S.IsUndefined());
-
-#if !defined(TARGET_MIPS64) && !defined(TARGET_MIPS32)
-    if (CopyRelSyms.find(S.Name) == CopyRelSyms.end()) {
-      //
-      // XXX XXX XXX this is unsound because it breaks assumptions of where a global
-      // variable would exist in the sections, but we *need* it for COPY
-      // relocations. FIXME
-      //
-      if (llvm::GlobalValue *GV = Module->getNamedValue(S.Name))
-        return llvm::ConstantExpr::getAdd(
-            llvm::ConstantExpr::getPtrToInt(GV, WordType()),
-            llvm::ConstantInt::get(WordType(), R.Addend));
-
-      AddrToSymbolMap[S.Addr].insert(S.Name);
-      AddrToSizeMap[S.Addr] = S.Size;
-
-      return nullptr;
-    }
-#endif
-
-    return llvm::ConstantExpr::getAdd(
-        SectionPointer(S.Addr),
-        llvm::ConstantInt::get(WordType(), R.Addend));
-  };
-
-  auto constant_of_relative_relocation =
-      [&](const relocation_t &R) -> llvm::Constant * {
-#ifdef TARGET_MIPS32
-    if (R.SymbolIndex < SymbolTable.size()) {
-      const symbol_t &S = SymbolTable[R.SymbolIndex];
-      if (!S.IsUndefined()) {
-        if (S.Type == symbol_t::TYPE::DATA) {
-          if (llvm::GlobalValue *GV = Module->getNamedValue(S.Name))
-            return llvm::ConstantExpr::getPtrToInt(GV, WordType());
-
-          AddrToSymbolMap[S.Addr].insert(S.Name);
-          AddrToSizeMap[S.Addr] = S.Size;
-
-          return nullptr;
-        } else if (S.Type == symbol_t::TYPE::FUNCTION) {
-          return SectionPointer(S.Addr);
-        } else {
-          WARN();
-          return nullptr;
-        }
-      } else {
-        if (S.Type == symbol_t::TYPE::FUNCTION) {
-          if (llvm::Function *F = Module->getFunction(S.Name))
-            return llvm::ConstantExpr::getPtrToInt(F, WordType());
-
-          return nullptr;
-        } else if (S.Type == symbol_t::TYPE::DATA) {
-          //
-          // from constant_of_addressof_undefined_data_relocation XXX
-          //
-          llvm::GlobalVariable *GV = Module->getGlobalVariable(S.Name, false);
-
-          if (GV)
-            return llvm::ConstantExpr::getPtrToInt(GV, WordType());
-
-          return nullptr;
-        } else {
-          WARN();
-          return nullptr;
-        }
-      }
-    }
-#endif
-
-    target_ulong Addr = 0;
-    if (R.Addend) {
-      Addr = R.Addend;
-    } else {
-      llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(R.Addr);
-      if (ExpectedPtr)
-        Addr = extractAddress(*ExpectedPtr);
-    }
-
-    //assert(Addr);
-
-    if (opts::Verbose)
-      WithColor::note() << llvm::formatv(
-          "constant_of_relative_relocation: Addr is {0:x}\n", Addr);
-
-#if 0
-    auto it = fnmap.find(Addr);
-    if (it == fnmap.end()) {
-      llvm::Constant *C = SectionPointer(Addr);
-      assert(C);
-      return llvm::ConstantExpr::getPointerCast(
-          C, llvm::PointerType::get(llvm::Type::getInt8Ty(*Context), 0));
-    } else {
-      binary_t &Binary = Decompilation.Binaries[BinaryIndex];
-      return Binary.Analysis.Functions[(*it).second].F;
-    }
-#else
-    llvm::Constant *C = SectionPointer(Addr);
-    assert(C);
-    return C;
-#endif
-  };
-
-  auto constant_of_irelative_relocation =
-      [&](const relocation_t &R) -> llvm::Constant * {
-    std::pair<binary_index_t, function_index_t> IdxPair;
-
-    {
-      auto &RelocDynTargets =
-          Decompilation.Binaries[BinaryIndex].Analysis.RelocDynTargets;
-
-      auto it = RelocDynTargets.find(R.Addr);
-      if (it == RelocDynTargets.end() || (*it).second.empty()) {
-        WithColor::error() << llvm::formatv(
-          "constant_of_irelative_relocation: no RelocDynTarget found (R.Addr={0:x},R.Addend={1:x}\n", R.Addr, R.Addend);
-
-        target_ulong resolverAddr = R.Addend;
-        if (!resolverAddr) {
-          llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(R.Addr);
-          if (!ExpectedPtr)
-            abort();
-
-          resolverAddr = extractAddress(*ExpectedPtr);
-        }
-
-        auto resolver_f_it = fnmap.find(resolverAddr);
-        if (resolver_f_it == fnmap.end()) {
-          llvm::errs() << "constant_of_irelative_relocation: no function for resolver!\n";
-          abort();
-        } else {
-          IRELATIVEHack.insert({R.Addr, {BinaryIndex, (*resolver_f_it).second}});
-        }
-        return llvm::Constant::getNullValue(WordType());
-      } else {
-        WithColor::error() << llvm::formatv(
-          "constant_of_irelative_relocation: RelocDynTarget found (R.Addr={0:x},R.Addend={1:x}\n", R.Addr, R.Addend);
-      }
-
-      IdxPair = *(*it).second.begin();
-    }
-
-    binary_t &binary = Decompilation.Binaries.at(IdxPair.first);
-    auto &ICFG = binary.Analysis.ICFG;
-    function_t &f = binary.Analysis.Functions.at(IdxPair.second);
-    target_ulong Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
-
-    return SectionPointer(Addr);
-  };
-
-  auto constant_of_tpoff_relocation =
-      [&](const relocation_t &R) -> llvm::Constant * {
-    if (R.SymbolIndex < SymbolTable.size()) {
-      const symbol_t &S = SymbolTable[R.SymbolIndex];
-
-      llvm::GlobalVariable *GV = Module->getGlobalVariable(S.Name, true);
-
-      if (GV) {
-        TPOFFHack[R.Addr] = GV;
-        return llvm::ConstantExpr::getPtrToInt(GV, WordType());
-      }
-
-      if (S.IsUndefined()) {
-        assert(!S.Size);
-
-        auto it = GlobalSymbolDefinedSizeMap.find(S.Name);
-        if (it == GlobalSymbolDefinedSizeMap.end()) {
-          llvm::outs() << "fucked because we don't have the size for " << S.Name
-                       << '\n';
-          return nullptr;
-        }
-
-        unsigned Size = (*it).second;
-
-        llvm::Type *T;
-        if (is_integral_size(Size)) {
-          T = llvm::Type::getIntNTy(*Context, Size * 8);
-        } else {
-          T = llvm::ArrayType::get(llvm::Type::getInt8Ty(*Context), Size);
-        }
-
-        GV = new llvm::GlobalVariable(*Module, T, false,
-                                      S.Bind == symbol_t::BINDING::WEAK
-                                          ? llvm::GlobalValue::ExternalWeakLinkage
-                                          : llvm::GlobalValue::ExternalLinkage,
-                                      nullptr, S.Name, nullptr,
-                                      llvm::GlobalValue::GeneralDynamicTLSModel);
-      }
-
-      return nullptr;
-    }
-
-#if defined(TARGET_I386) || defined(TARGET_MIPS32)
-    unsigned tpoff;
-    {
-      llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(R.Addr);
-      if (!ExpectedPtr)
-        abort();
-
-      tpoff = extractAddress(*ExpectedPtr);
-    }
-    //WithColor::note() << llvm::formatv("TPOFF off={0}\n", off);
-#else
-    unsigned tpoff = R.Addend;
-#endif
-
-    auto it = TLSValueToSymbolMap.find(tpoff);
-    if (it == TLSValueToSymbolMap.end()) {
-      if (!TLSSectsGlobal) {
-        WithColor::warning()
-            << "constant_of_tpoff_relocation: !TLSSectsGlobal\n";
-        return nullptr;
-      }
-
-#if 0
-      WithColor::error() << llvm::formatv("no sym found for tpoff {0}; TLSValueToSymbolMap: {1}\n",
-                                          tpoff,
-                                          std::accumulate(
-                                            TLSValueToSymbolMap.begin(),
-                                            TLSValueToSymbolMap.end(),
-                                            std::string(),
-                                            [](const std::string &res, const std::pair<const uintptr_t, std::set<llvm::StringRef>>& pair) -> std::string {
-                                                std::string s = std::string("{") + std::to_string(pair.first) + std::string(", {") +
-                                                  std::accumulate(pair.second.begin(),
-                                                                  pair.second.end(),
-                                                                  std::string(),
-                                                                  [](const std::string &res, llvm::StringRef Str) -> std::string {
-                                                                    return res + (res.empty() ? std::string() : std::string(", ")) + Str.str();
-                                                                  }) + std::string("}}");
-
-                                                return res + (res.empty() ? std::string() : std::string(", ")) + s;
-                                            }));
-#endif
-
-      llvm::Constant *res = llvm::ConstantExpr::getAdd(
-          llvm::ConstantExpr::getPtrToInt(TLSSectsGlobal, WordType()),
-          llvm::ConstantInt::get(WordType(), tpoff));
-
-      TPOFFHack[R.Addr] = res;
-
-      return res;
-    }
-
-    llvm::GlobalVariable *GV = nullptr;
-    for (auto sym_it = (*it).second.begin(); sym_it != (*it).second.end(); ++sym_it) {
-      GV = Module->getGlobalVariable(*sym_it);
-      if (GV)
-        break;
-    }
-
-    if (!GV) {
-      WithColor::warning() << llvm::formatv(
-          "constant_of_tpoff_relocation: {0}:{1} [{2}]\n", __FILE__, __LINE__,
-          *(*it).second.begin());
-      return nullptr;
-    }
-
-    TPOFFHack[R.Addr] = GV;
-
-#if 1
-    return llvm::ConstantExpr::getPtrToInt(GV, WordType());
-#else
-    return llvm::ConstantInt::get(llvm::Type::getIntNTy(*Context, WordBits()), 0x12345678);
-#endif
-  };
-
-  auto constant_of_tpmod_relocation =
-      [&](const relocation_t &R) -> llvm::Constant * {
-    return TLSModGlobal;
-  };
-
-  auto constant_of_relocation = [&](const relocation_t &R) -> llvm::Constant * {
-    switch (R.Type) {
-    case relocation_t::TYPE::ADDRESSOF: {
-      const symbol_t &S = SymbolTable[R.SymbolIndex];
-
-      switch (S.Type) {
-      case symbol_t::TYPE::FUNCTION:
-        if (S.IsUndefined())
-          return constant_of_addressof_undefined_function_relocation(R, S);
-        else
-          return constant_of_addressof_defined_function_relocation(R, S);
-
-      default:
-        WithColor::warning() << llvm::formatv(
-            "addressof {0} has unknown symbol type; treating as data\n",
-            S.Name);
-        /* fallthrough */
-
-      case symbol_t::TYPE::DATA:
-        if (S.IsUndefined())
-          return constant_of_addressof_undefined_data_relocation(R, S);
-        else
-          return constant_of_addressof_defined_data_relocation(R, S);
-      }
-    }
-
-    case relocation_t::TYPE::RELATIVE:
-      return constant_of_relative_relocation(R);
-
-    case relocation_t::TYPE::IRELATIVE:
-      return constant_of_irelative_relocation(R);
-
-    case relocation_t::TYPE::TPOFF:
-      return constant_of_tpoff_relocation(R);
-
-    case relocation_t::TYPE::TPMOD:
-      return constant_of_tpmod_relocation(R);
-
-    case relocation_t::TYPE::NONE:
-      return nullptr;
-
-    default:
-      WithColor::error() << "constant_of_relocation: unhandled relocation type "
-                         << string_of_reloc_type(R.Type) << '\n';
-      abort();
-    }
-  };
-
   llvm::StructType *SectsGlobalTy;
 
   auto declare_sections = [&](void) -> void {
@@ -4297,6 +3762,7 @@ int CreateSectionGlobalVariables(void) {
     std::vector<llvm::Type *> SectsGlobalFieldTys;
     for (unsigned i = 0; i < NumSections; ++i) {
       section_t &Sect = SectTable[i];
+      llvm::errs() << llvm::formatv("Section: {0}\n", Sect.Name);
 
       //
       // check if there's space between the start of this section and the
@@ -4323,6 +3789,12 @@ int CreateSectionGlobalVariables(void) {
                                    intvl.upper() - intvl.lower());
         else
           T = (*it).second;
+
+#if 1
+        llvm::errs() << llvm::formatv("  [{0:x}, {1:x}) <T: {2}>\n",
+                                      intvl.lower(),
+                                      intvl.upper(), *T);
+#endif
 
         SectFieldTys.push_back(T);
       }
@@ -4386,6 +3858,8 @@ int CreateSectionGlobalVariables(void) {
     std::vector<llvm::Constant *> SectsGlobalFieldInits;
     for (unsigned i = 0; i < NumSections; ++i) {
       section_t &Sect = SectTable[i];
+      if (opts::Verbose)
+        llvm::errs() << llvm::formatv("Section: {0}\n", Sect.Name);
 
       //
       // check if there's space between the start of this section and the
@@ -4404,14 +3878,30 @@ int CreateSectionGlobalVariables(void) {
       std::vector<llvm::Constant *> SectFieldInits;
 
       for (const auto &intvl : Sect.Stuff.Intervals) {
+        //
+        // FIXME the following is code duplication, don't you think?
+        //
+        llvm::Type *T;
+        {
+          auto it = Sect.Stuff.Types.find(intvl.lower());
+
+          if (it == Sect.Stuff.Types.end() || !(*it).second)
+            T = llvm::ArrayType::get(llvm::IntegerType::get(*Context, 8),
+                                     intvl.upper() - intvl.lower());
+          else
+            T = (*it).second;
+        }
+
         auto it = Sect.Stuff.Constants.find(intvl.lower());
 
-        llvm::Constant *C;
-        if (it == Sect.Stuff.Constants.end() || !(*it).second) {
+        llvm::Constant *C = nullptr;
+        if (it == Sect.Stuff.Constants.end()) {
           ptrdiff_t len = intvl.upper() - intvl.lower();
           assert(len > 0);
 
           if (Sect.Contents.size() >= len) {
+            assert(Sect.Contents.size() - intvl.lower() >= len);
+
             C = llvm::ConstantDataArray::get(
                 *Context,
                 llvm::ArrayRef<uint8_t>(Sect.Contents.begin() + intvl.lower(),
@@ -4421,8 +3911,14 @@ int CreateSectionGlobalVariables(void) {
                 llvm::ArrayType::get(llvm::Type::getInt8Ty(*Context), len));
           }
         } else {
-          C = (*it).second;
+          C = (*it).second ?: llvm::Constant::getNullValue(T);
         }
+        assert(C);
+
+        if (opts::Verbose)
+          llvm::errs() << llvm::formatv("  [{0:x}, {1:x}) <C: {2}>\n",
+                                        intvl.lower(),
+                                        intvl.upper(), *C);
 
         SectFieldInits.push_back(C);
       }
@@ -4467,22 +3963,6 @@ int CreateSectionGlobalVariables(void) {
     assert(it != SectIdxMap.end());
     section_t &Sect = SectTable[(*it).second - 1];
     unsigned Off = Addr - Sect.Addr;
-
-    if (ExternGlobalAddrs.find(Addr) != ExternGlobalAddrs.end()) {
-      if (is_integral_size(Size)) {
-        return new llvm::GlobalVariable(
-            *Module, llvm::Type::getIntNTy(*Context, Size * 8), false,
-            llvm::GlobalValue::ExternalLinkage, nullptr, SymName, nullptr,
-            tlsMode);
-      } else {
-        // TODO weak linkage
-        return new llvm::GlobalVariable(
-            *Module,
-            llvm::ArrayType::get(llvm::IntegerType::get(*Context, 8), Size),
-            false, llvm::GlobalValue::ExternalLinkage, nullptr, SymName,
-            nullptr, tlsMode);
-      }
-    }
 
     if (is_integral_size(Size)) {
       if (Size == sizeof(target_ulong)) {
@@ -4667,80 +4147,99 @@ int CreateSectionGlobalVariables(void) {
 
     clear_section_stuff();
 
-    for (relocation_t &R : RelocationTable) {
-      R.T = type_of_relocation(R);
-      if (R.T && R.T->isVoidTy())
-        continue;
+    for_each_dynamic_relocation(E,
+        Binary._elf.DynRelRegion,
+        Binary._elf.DynRelaRegion,
+        Binary._elf.DynRelrRegion,
+        Binary._elf.DynPLTRelRegion,
+        [&](const Relocation &R) {
+          llvm::Type *R_T = nullptr;
 
-      type_at_address(R.Addr, R.T); /* note: R.T can be nullptr */
+          try {
+            R_T = type_of_expression_for_relocation(R);
+          } catch (const unhandled_relocation_exception &) {
+            WithColor::error() << llvm::formatv(
+                "type_of_expression_for_relocation: unhandled relocation {0}\n",
+                E.getRelocationTypeName(R.Type));
+            abort();
+          }
 
-      if (!R.T) {
-        done = false;
+          assert(R_T);
 
-        llvm::outs() << "!type_of_relocation(R): " <<
-          (fmt("%-12s [%-12s] @ %-16x +%-16x")
-           % string_of_reloc_type(R.Type)
-           % R.RelocationTypeName.c_str()
-           % R.Addr
-           % R.Addend).str();
+          if (R_T->isVoidTy())
+            return;
 
-        if (R.SymbolIndex < SymbolTable.size()) {
-          symbol_t &sym = SymbolTable[R.SymbolIndex];
-
-          llvm::outs() <<
-            (fmt("%-30s *%-10s *%-8s @ %x {%d}")
-             % sym.Name
-             % string_of_sym_type(sym.Type)
-             % string_of_sym_binding(sym.Bind)
-             % sym.Addr
-             % sym.Size).str();
-        }
-
-        llvm::outs() << '\n';
-      }
-    }
+          type_at_address(R.Offset, R_T);
+        });
 
     declare_sections();
 
-    for (relocation_t &R : RelocationTable) {
-      if (R.T && R.T->isVoidTy())
-        continue;
-      R.C = constant_of_relocation(R);
+    for_each_dynamic_relocation(E,
+        Binary._elf.DynRelRegion,
+        Binary._elf.DynRelaRegion,
+        Binary._elf.DynRelrRegion,
+        Binary._elf.DynPLTRelRegion,
+        [&](const Relocation &R) {
+          llvm::Type *R_T = type_of_expression_for_relocation(R);
+          assert(R_T);
 
-      constant_at_address(R.Addr, R.C); /* note: R.C can be nullptr */
+          if (R_T->isVoidTy())
+            return;
 
-      if (!R.C) {
-        done = false;
+          //
+          // determine symbol (if present)
+          //
+          RelSymbol RelSym(nullptr, "");
+          if (Binary._elf.OptionalDynSymRegion) {
+            const DynRegionInfo &DynSymRegion =
+                *Binary._elf.OptionalDynSymRegion;
 
-        llvm::outs() << "!constant_of_relocation(R): " <<
-          (fmt("%-12s [%-12s] @ %-16x +%-16x")
-           % string_of_reloc_type(R.Type)
-           % R.RelocationTypeName.c_str()
-           % R.Addr
-           % R.Addend).str();
+            auto dynamic_symbols = [&](void) -> Elf_Sym_Range {
+              return DynSymRegion.getAsArrayRef<Elf_Sym>();
+            };
 
-        if (R.SymbolIndex < SymbolTable.size()) {
-          symbol_t &sym = SymbolTable[R.SymbolIndex];
+            RelSym = getSymbolForReloc(O, dynamic_symbols(),
+                                       Binary._elf.DynamicStringTable, R);
 
-          llvm::outs() <<
-            (fmt("%-30s *%-10s *%-8s @ %x {%d}")
-             % sym.Name
-             % string_of_sym_type(sym.Type)
-             % string_of_sym_binding(sym.Bind)
-             % sym.Addr
-             % sym.Size).str();
-        }
+            //
+            // determine symbol version (if present)
+            //
+            if (RelSym.Sym && Binary._elf.SymbolVersionSection) {
+              // Determine the position in the symbol table of this entry.
+              size_t EntryIndex =
+                  (reinterpret_cast<uintptr_t>(RelSym.Sym) -
+                   reinterpret_cast<uintptr_t>(
+                       Binary._elf.OptionalDynSymRegion->Addr)) /
+                  sizeof(Elf_Sym);
 
-        llvm::outs() << '\n';
-      } else {
-        assert(R.T);
-        if (R.T != R.C->getType()) {
-          WithColor::error()
-              << llvm::formatv("{0}: bug? [{1}] ({2}) ({3})\n", __func__,
-                               string_of_reloc_type(R.Type), *R.T, *R.C);
-        }
-      }
-    }
+              // Get the corresponding version index entry.
+              llvm::Expected<const Elf_Versym *> ExpectedVersym =
+                  E.getEntry<Elf_Versym>(Binary._elf.SymbolVersionSection,
+                                         EntryIndex);
+
+              if (ExpectedVersym) {
+                RelSym.Vers = getSymbolVersionByIndex(
+                    Binary._elf.VersionMap, Binary._elf.DynamicStringTable,
+                    (*ExpectedVersym)->vs_index, RelSym.IsVersionDefault);
+              }
+            }
+          }
+
+          llvm::Constant *R_C = nullptr;
+          try {
+            R_C = expression_for_relocation(R, RelSym);
+          } catch (const unhandled_relocation_exception &) {
+            WithColor::error() << llvm::formatv(
+                "expression_for_relocation: unhandled relocation {0}\n",
+                E.getRelocationTypeName(R.Type));
+            abort();
+          }
+
+          if (!R_C)
+            done = false;
+
+          constant_at_address(R.Offset, R_C); /* n.b. R_C may be NULL */
+        });
 
     define_sections();
 
@@ -4748,10 +4247,10 @@ int CreateSectionGlobalVariables(void) {
     // global variables
     //
     for (const auto &pair : AddrToSymbolMap) {
-      const std::set<llvm::StringRef> &Syms = pair.second;
+      const std::set<std::string> &Syms = pair.second;
 
-      llvm::StringRef SymName = *Syms.begin();
       assert(!Syms.empty());
+      const std::string &SymName = *Syms.begin();
 
       llvm::errs() << llvm::formatv("iterating AddrToSymbolMap ({0})\n", SymName);
 
@@ -5133,7 +4632,7 @@ int CreateSectionGlobalVariables(void) {
 }
 
 std::pair<binary_index_t, std::pair<target_ulong, unsigned>>
-decipher_copy_relocation(const symbol_t &S) {
+decipher_copy_relocation(const RelSymbol &S) {
   assert(Decompilation.Binaries[BinaryIndex].IsExecutable);
 
   for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
@@ -5207,191 +4706,152 @@ decipher_copy_relocation(const symbol_t &S) {
   return {invalid_binary_index, {0, 0}};
 }
 
-static llvm::Value *insertThreadPointerInlineAsm(llvm::IRBuilderTy &);
+int ProcessManualRelocations(void) {
+  binary_t &Binary = Decompilation.Binaries[BinaryIndex];
 
-int CreateTPOFFCtorHack(void) {
-  auto &Binary = Decompilation.Binaries[BinaryIndex];
+  auto OptionalDynSymRegion = Binary._elf.OptionalDynSymRegion;
 
-  llvm::Function *F = Module->getFunction("_jove_do_tpoff_hack");
-  assert(F && F->empty());
+  if (!OptionalDynSymRegion)
+    return 0; /* no dynamic symbols */
 
-#if 1
-  llvm::DIBuilder &DIB = *DIBuilder;
-  llvm::DISubprogram::DISPFlags SubProgFlags =
-      llvm::DISubprogram::SPFlagDefinition |
-      llvm::DISubprogram::SPFlagOptimized;
+  const DynRegionInfo &DynSymRegion = *OptionalDynSymRegion;
 
-  SubProgFlags |= llvm::DISubprogram::SPFlagLocalToUnit;
+  auto dynamic_symbols = [&](void) -> Elf_Sym_Range {
+    return DynSymRegion.getAsArrayRef<Elf_Sym>();
+  };
 
-  llvm::DISubroutineType *SubProgType =
-      DIB.createSubroutineType(DIB.getOrCreateTypeArray(llvm::None));
+  assert(llvm::isa<ELFO>(Binary.ObjectFile.get()));
+  auto &O = *llvm::cast<ELFO>(Binary.ObjectFile.get());
+  const auto &E = *O.getELFFile();
 
-  struct {
-    llvm::DISubprogram *Subprogram;
-  } DebugInfo;
+  std::map<target_ulong, llvm::Function *> ManualRelocs;
 
-  DebugInfo.Subprogram = DIB.createFunction(
-      /* Scope       */ DebugInformation.CompileUnit,
-      /* Name        */ F->getName(),
-      /* LinkageName */ F->getName(),
-      /* File        */ DebugInformation.File,
-      /* LineNo      */ 0,
-      /* Ty          */ SubProgType,
-      /* ScopeLine   */ 0,
-      /* Flags       */ llvm::DINode::FlagZero,
-      /* SPFlags     */ SubProgFlags);
-#endif
+  for_each_dynamic_relocation_if(E,
+      Binary._elf.DynRelRegion,
+      Binary._elf.DynRelaRegion,
+      Binary._elf.DynRelrRegion,
+      Binary._elf.DynPLTRelRegion,
+      is_manual_relocation,
+      [&](const Relocation &R) {
+        RelSymbol RelSym = getSymbolForReloc(O, dynamic_symbols(),
+                                             Binary._elf.DynamicStringTable, R);
 
-  F->setSubprogram(DebugInfo.Subprogram);
+        llvm::Function *RelocF = llvm::Function::Create(
+            llvm::FunctionType::get(WordType(), false),
+            llvm::GlobalValue::InternalLinkage,
+            std::string("_jove_compute_relocation_") + (fmt("%lx") % R.Offset).str(),
+            Module.get());
 
-  llvm::BasicBlock *BB = llvm::BasicBlock::Create(*Context, "", F);
+        llvm::DIBuilder &DIB = *DIBuilder;
+        llvm::DISubprogram::DISPFlags SubProgFlags =
+            llvm::DISubprogram::SPFlagDefinition |
+            llvm::DISubprogram::SPFlagOptimized;
+
+        SubProgFlags |= llvm::DISubprogram::SPFlagLocalToUnit;
+
+        llvm::DISubroutineType *SubProgType =
+            DIB.createSubroutineType(DIB.getOrCreateTypeArray(llvm::None));
+
+        struct {
+          llvm::DISubprogram *Subprogram;
+        } DebugInfo;
+
+        DebugInfo.Subprogram = DIB.createFunction(
+            /* Scope       */ DebugInformation.CompileUnit,
+            /* Name        */ RelocF->getName(),
+            /* LinkageName */ RelocF->getName(),
+            /* File        */ DebugInformation.File,
+            /* LineNo      */ 0,
+            /* Ty          */ SubProgType,
+            /* ScopeLine   */ 0,
+            /* Flags       */ llvm::DINode::FlagZero,
+            /* SPFlags     */ SubProgFlags);
+
+        RelocF->setSubprogram(DebugInfo.Subprogram);
+
+        llvm::BasicBlock *BB = llvm::BasicBlock::Create(*Context, "", RelocF);
+        {
+          llvm::IRBuilderTy IRB(BB);
+
+          IRB.SetCurrentDebugLocation(llvm::DILocation::get(
+              *Context, 0 /* Line */, 0 /* Column */, DebugInfo.Subprogram));
+
+          try {
+            compute_manual_relocation(IRB, R, RelSym);
+          } catch (const unhandled_relocation_exception &) {
+            WithColor::error()
+                << llvm::formatv("{0}: unhandled relocation {1}", __func__,
+                                 E.getRelocationTypeName(R.Type));
+            abort();
+          }
+
+          assert(IRB.GetInsertBlock()->getTerminator() &&
+                 "manual fixup proc doesn't return!");
+        }
+
+        ManualRelocs[R.Offset] = RelocF;
+      });
+
   {
-    llvm::IRBuilderTy IRB(BB);
-#if 1
-    IRB.SetCurrentDebugLocation(llvm::DILocation::get(
-        *Context, 0 /* Line */, 0 /* Column */, DebugInfo.Subprogram));
-#endif
+    llvm::Function *F = Module->getFunction("_jove_do_manual_relocations");
+    assert(F && F->empty());
 
-    llvm::Value *TP = nullptr;
-    if (!TPOFFHack.empty())
-      TP = insertThreadPointerInlineAsm(IRB);
+    llvm::DIBuilder &DIB = *DIBuilder;
+    llvm::DISubprogram::DISPFlags SubProgFlags =
+        llvm::DISubprogram::SPFlagDefinition |
+        llvm::DISubprogram::SPFlagOptimized;
 
-    for (const auto &pair : TPOFFHack) {
-      uintptr_t off = pair.first - Binary.SectsStartAddr;
+    SubProgFlags |= llvm::DISubprogram::SPFlagLocalToUnit;
 
-      assert(pair.second->getType()->isPointerTy() ||
-             pair.second->getType()->isIntegerTy());
+    llvm::DISubroutineType *SubProgType =
+        DIB.createSubroutineType(DIB.getOrCreateTypeArray(llvm::None));
 
-      llvm::SmallVector<llvm::Value *, 4> Indices;
-      llvm::Value *gep = llvm::getNaturalGEPWithOffset(
-          IRB, DL, SectsGlobal, llvm::APInt(64, off), nullptr, Indices, "");
+    struct {
+      llvm::DISubprogram *Subprogram;
+    } DebugInfo;
 
-      llvm::Value *Val = pair.second;
+    DebugInfo.Subprogram = DIB.createFunction(
+        /* Scope       */ DebugInformation.CompileUnit,
+        /* Name        */ F->getName(),
+        /* LinkageName */ F->getName(),
+        /* File        */ DebugInformation.File,
+        /* LineNo      */ 0,
+        /* Ty          */ SubProgType,
+        /* ScopeLine   */ 0,
+        /* Flags       */ llvm::DINode::FlagZero,
+        /* SPFlags     */ SubProgFlags);
 
-      if (Val->getType()->isPointerTy())
-        Val = IRB.CreatePtrToInt(Val, WordType());
+    F->setSubprogram(DebugInfo.Subprogram);
 
-      assert(TP);
+    llvm::BasicBlock *BB = llvm::BasicBlock::Create(*Context, "", F);
+    {
+      llvm::IRBuilderTy IRB(BB);
 
-      llvm::Value *TPOffset = IRB.CreateSub(Val, TP);
+      IRB.SetCurrentDebugLocation(llvm::DILocation::get(
+          *Context, 0 /* Line */, 0 /* Column */, DebugInfo.Subprogram));
 
-      IRB.CreateStore(TPOffset, gep, true /* Volatile */);
+      std::for_each(
+          ManualRelocs.begin(),
+          ManualRelocs.end(), [&](const auto &pair) {
+            llvm::Value *Computation = IRB.CreateCall(pair.second);
+            assert(Computation->getType()->isIntegerTy(WordBits()));
+
+            uintptr_t off = pair.first - Binary.SectsStartAddr;
+
+            llvm::SmallVector<llvm::Value *, 4> Indices;
+            llvm::Value *SectGEP = llvm::getNaturalGEPWithOffset(
+                IRB, DL, SectsGlobal, llvm::APInt(64, off), nullptr, Indices,
+                "");
+
+            IRB.CreateStore(Computation, SectGEP, true /* Volatile */);
+          });
+
+      IRB.CreateRetVoid();
     }
 
-    IRB.CreateRetVoid();
+    F->setLinkage(llvm::GlobalValue::InternalLinkage);
+    assert(!F->empty());
   }
-
-  F->setLinkage(llvm::GlobalValue::InternalLinkage);
-  assert(!F->empty());
-
-  return 0;
-}
-
-int CreateIRELATIVECtorHack(void) {
-  auto &Binary = Decompilation.Binaries[BinaryIndex];
-
-  llvm::Function *F = Module->getFunction("_jove_do_irelative_hack");
-  assert(F && F->empty());
-
-#if 1
-  llvm::DIBuilder &DIB = *DIBuilder;
-  llvm::DISubprogram::DISPFlags SubProgFlags =
-      llvm::DISubprogram::SPFlagDefinition |
-      llvm::DISubprogram::SPFlagOptimized;
-
-  SubProgFlags |= llvm::DISubprogram::SPFlagLocalToUnit;
-
-  llvm::DISubroutineType *SubProgType =
-      DIB.createSubroutineType(DIB.getOrCreateTypeArray(llvm::None));
-
-  struct {
-    llvm::DISubprogram *Subprogram;
-  } DebugInfo;
-
-  DebugInfo.Subprogram = DIB.createFunction(
-      /* Scope       */ DebugInformation.CompileUnit,
-      /* Name        */ F->getName(),
-      /* LinkageName */ F->getName(),
-      /* File        */ DebugInformation.File,
-      /* LineNo      */ 0,
-      /* Ty          */ SubProgType,
-      /* ScopeLine   */ 0,
-      /* Flags       */ llvm::DINode::FlagZero,
-      /* SPFlags     */ SubProgFlags);
-#endif
-
-  F->setSubprogram(DebugInfo.Subprogram);
-
-  llvm::BasicBlock *BB = llvm::BasicBlock::Create(*Context, "", F);
-  {
-    llvm::IRBuilderTy IRB(BB);
-    IRB.SetCurrentDebugLocation(llvm::DILocation::get(
-        *Context, 0 /* Line */, 0 /* Column */, DebugInfo.Subprogram));
-
-    for (const auto &pair : IRELATIVEHack) {
-      assert(pair.second.first == BinaryIndex);
-
-      llvm::Value *SPPtr = CPUStateGlobalPointer(tcg_stack_pointer_index, IRB);
-
-      llvm::Value *TemporaryStack = nullptr;
-      {
-        TemporaryStack = IRB.CreateCall(JoveAllocStackFunc);
-        llvm::Value *NewSP = IRB.CreateAdd(
-            TemporaryStack, llvm::ConstantInt::get(
-                                WordType(), JOVE_STACK_SIZE - JOVE_PAGE_SIZE));
-
-        llvm::Value *AlignedNewSP =
-            IRB.CreateAnd(IRB.CreatePtrToInt(NewSP, WordType()),
-                          IRB.getIntN(sizeof(target_ulong) * 8, ~15UL));
-
-        llvm::Value *SPVal = AlignedNewSP;
-
-#if defined(TARGET_X86_64) || defined(TARGET_I386)
-        SPVal = IRB.CreateSub(
-            SPVal, IRB.getIntN(sizeof(target_ulong) * 8,
-                               sizeof(target_ulong)));
-#endif
-
-        IRB.CreateStore(SPVal, SPPtr);
-      }
-
-      function_t &f = Binary.Analysis.Functions[pair.second.second];
-      llvm::Function *resolverF = f.F;
-
-      std::vector<llvm::Value *> ArgVec(
-          resolverF->getFunctionType()->getNumParams(),
-          llvm::Constant::getNullValue(WordType()));
-
-      llvm::CallInst *Call = IRB.CreateCall(resolverF, ArgVec);
-
-      llvm::Value *Val = nullptr;
-
-      if (f.F->getFunctionType()->getReturnType()->isIntegerTy()) {
-        Val = Call;
-      } else {
-        assert(f.F->getFunctionType()->getReturnType()->isStructTy());
-
-        Val = IRB.CreateExtractValue(Call, llvm::ArrayRef<unsigned>(0), "");
-      }
-
-      uintptr_t off = pair.first - Binary.SectsStartAddr;
-
-      llvm::SmallVector<llvm::Value *, 4> Indices;
-      llvm::Value *gep = llvm::getNaturalGEPWithOffset(
-          IRB, DL, SectsGlobal, llvm::APInt(64, off), nullptr, Indices, "");
-
-      IRB.CreateStore(Val, gep, true /* Volatile */);
-
-      IRB.CreateCall(JoveFreeStackFunc, {TemporaryStack});
-
-      IRB.CreateStore(llvm::Constant::getNullValue(WordType()), SPPtr);
-    }
-
-    IRB.CreateRetVoid();
-  }
-
-  F->setLinkage(llvm::GlobalValue::InternalLinkage);
-  assert(!F->empty());
 
   return 0;
 }
@@ -5402,7 +4862,6 @@ int CreateCopyRelocationHack(void) {
 
   binary_t &Binary = Decompilation.Binaries[BinaryIndex];
 
-#if 1
   llvm::DIBuilder &DIB = *DIBuilder;
   llvm::DISubprogram::DISPFlags SubProgFlags =
       llvm::DISubprogram::SPFlagDefinition |
@@ -5427,17 +4886,15 @@ int CreateCopyRelocationHack(void) {
       /* ScopeLine   */ 0,
       /* Flags       */ llvm::DINode::FlagZero,
       /* SPFlags     */ SubProgFlags);
-#endif
 
   F->setSubprogram(DebugInfo.Subprogram);
 
   llvm::BasicBlock *BB = llvm::BasicBlock::Create(*Context, "", F);
   {
     llvm::IRBuilderTy IRB(BB);
-#if 1
+
     IRB.SetCurrentDebugLocation(llvm::DILocation::get(
         *Context, 0 /* Line */, 0 /* Column */, DebugInfo.Subprogram));
-#endif
 
     if (!Binary.IsExecutable) {
       assert(CopyRelocMap.empty());
@@ -5491,13 +4948,12 @@ int CreateCopyRelocationHack(void) {
             llvm::MaybeAlign(), pair.first.second, true /* Volatile */);
       }
 
-#if 1
-      WithColor::note() << llvm::formatv("COPY RELOC HACK {0} {1} {2} {3}\n",
-                                         pair.first.first,
-                                         pair.first.second,
-                                         pair.second.second.first,
-                                         pair.second.second.second);
-#endif
+      if (opts::Verbose)
+        WithColor::note() << llvm::formatv("COPY RELOC HACK {0} {1} {2} {3}\n",
+                                           pair.first.first,
+                                           pair.first.second,
+                                           pair.second.second.first,
+                                           pair.second.second.second);
     }
 
     IRB.CreateRetVoid();

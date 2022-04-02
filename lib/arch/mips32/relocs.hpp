@@ -1,118 +1,22 @@
-case llvm::ELF::R_MIPS_JUMP_SLOT:
-case llvm::ELF::R_MIPS_GLOB_DAT:
-case llvm::ELF::R_MIPS_32:
-  return relocation_t::TYPE::ADDRESSOF;
-case llvm::ELF::R_MIPS_COPY:
-  return relocation_t::TYPE::COPY;
-case llvm::ELF::R_MIPS_TLS_TPREL32:
-  return relocation_t::TYPE::TPOFF;
-case llvm::ELF::R_MIPS_TLS_DTPMOD64:
-  return relocation_t::TYPE::TPMOD;
-case llvm::ELF::R_MIPS_REL32:
-  return relocation_t::TYPE::RELATIVE;
-case llvm::ELF::R_MIPS_NONE:
-case llvm::ELF::R_MIPS_16:
-case llvm::ELF::R_MIPS_64:
-case llvm::ELF::R_MIPS_26:
-case llvm::ELF::R_MIPS_HI16:
-case llvm::ELF::R_MIPS_LO16:
-case llvm::ELF::R_MIPS_GPREL16:
-case llvm::ELF::R_MIPS_LITERAL:
-case llvm::ELF::R_MIPS_GOT16:
-case llvm::ELF::R_MIPS_PC16:
-case llvm::ELF::R_MIPS_CALL16:
-case llvm::ELF::R_MIPS_GPREL32:
-case llvm::ELF::R_MIPS_UNUSED1:
-case llvm::ELF::R_MIPS_UNUSED2:
-case llvm::ELF::R_MIPS_UNUSED3:
-case llvm::ELF::R_MIPS_SHIFT5:
-case llvm::ELF::R_MIPS_SHIFT6:
-case llvm::ELF::R_MIPS_GOT_DISP:
-case llvm::ELF::R_MIPS_GOT_PAGE:
-case llvm::ELF::R_MIPS_GOT_OFST:
-case llvm::ELF::R_MIPS_GOT_HI16:
-case llvm::ELF::R_MIPS_GOT_LO16:
-case llvm::ELF::R_MIPS_SUB:
-case llvm::ELF::R_MIPS_INSERT_A:
-case llvm::ELF::R_MIPS_INSERT_B:
-case llvm::ELF::R_MIPS_DELETE:
-case llvm::ELF::R_MIPS_HIGHER:
-case llvm::ELF::R_MIPS_HIGHEST:
-case llvm::ELF::R_MIPS_CALL_HI16:
-case llvm::ELF::R_MIPS_CALL_LO16:
-case llvm::ELF::R_MIPS_SCN_DISP:
-case llvm::ELF::R_MIPS_REL16:
-case llvm::ELF::R_MIPS_ADD_IMMEDIATE:
-case llvm::ELF::R_MIPS_PJUMP:
-case llvm::ELF::R_MIPS_RELGOT:
-case llvm::ELF::R_MIPS_JALR:
-case llvm::ELF::R_MIPS_TLS_DTPMOD32:
-case llvm::ELF::R_MIPS_TLS_DTPREL32:
-case llvm::ELF::R_MIPS_TLS_DTPREL64:
-case llvm::ELF::R_MIPS_TLS_GD:
-case llvm::ELF::R_MIPS_TLS_LDM:
-case llvm::ELF::R_MIPS_TLS_DTPREL_HI16:
-case llvm::ELF::R_MIPS_TLS_DTPREL_LO16:
-case llvm::ELF::R_MIPS_TLS_GOTTPREL:
-case llvm::ELF::R_MIPS_TLS_TPREL64:
-case llvm::ELF::R_MIPS_TLS_TPREL_HI16:
-case llvm::ELF::R_MIPS_TLS_TPREL_LO16:
-case llvm::ELF::R_MIPS_PC21_S2:
-case llvm::ELF::R_MIPS_PC26_S2:
-case llvm::ELF::R_MIPS_PC18_S3:
-case llvm::ELF::R_MIPS_PC19_S2:
-case llvm::ELF::R_MIPS_PCHI16:
-case llvm::ELF::R_MIPS_PCLO16:
-case llvm::ELF::R_MIPS16_26:
-case llvm::ELF::R_MIPS16_GPREL:
-case llvm::ELF::R_MIPS16_GOT16:
-case llvm::ELF::R_MIPS16_CALL16:
-case llvm::ELF::R_MIPS16_HI16:
-case llvm::ELF::R_MIPS16_LO16:
-case llvm::ELF::R_MIPS16_TLS_GD:
-case llvm::ELF::R_MIPS16_TLS_LDM:
-case llvm::ELF::R_MIPS16_TLS_DTPREL_HI16:
-case llvm::ELF::R_MIPS16_TLS_DTPREL_LO16:
-case llvm::ELF::R_MIPS16_TLS_GOTTPREL:
-case llvm::ELF::R_MIPS16_TLS_TPREL_HI16:
-case llvm::ELF::R_MIPS16_TLS_TPREL_LO16:
-case llvm::ELF::R_MICROMIPS_26_S1:
-case llvm::ELF::R_MICROMIPS_HI16:
-case llvm::ELF::R_MICROMIPS_LO16:
-case llvm::ELF::R_MICROMIPS_GPREL16:
-case llvm::ELF::R_MICROMIPS_LITERAL:
-case llvm::ELF::R_MICROMIPS_GOT16:
-case llvm::ELF::R_MICROMIPS_PC7_S1:
-case llvm::ELF::R_MICROMIPS_PC10_S1:
-case llvm::ELF::R_MICROMIPS_PC16_S1:
-case llvm::ELF::R_MICROMIPS_CALL16:
-case llvm::ELF::R_MICROMIPS_GOT_DISP:
-case llvm::ELF::R_MICROMIPS_GOT_PAGE:
-case llvm::ELF::R_MICROMIPS_GOT_OFST:
-case llvm::ELF::R_MICROMIPS_GOT_HI16:
-case llvm::ELF::R_MICROMIPS_GOT_LO16:
-case llvm::ELF::R_MICROMIPS_SUB:
-case llvm::ELF::R_MICROMIPS_HIGHER:
-case llvm::ELF::R_MICROMIPS_HIGHEST:
-case llvm::ELF::R_MICROMIPS_CALL_HI16:
-case llvm::ELF::R_MICROMIPS_CALL_LO16:
-case llvm::ELF::R_MICROMIPS_SCN_DISP:
-case llvm::ELF::R_MICROMIPS_JALR:
-case llvm::ELF::R_MICROMIPS_HI0_LO16:
-case llvm::ELF::R_MICROMIPS_TLS_GD:
-case llvm::ELF::R_MICROMIPS_TLS_LDM:
-case llvm::ELF::R_MICROMIPS_TLS_DTPREL_HI16:
-case llvm::ELF::R_MICROMIPS_TLS_DTPREL_LO16:
-case llvm::ELF::R_MICROMIPS_TLS_GOTTPREL:
-case llvm::ELF::R_MICROMIPS_TLS_TPREL_HI16:
-case llvm::ELF::R_MICROMIPS_TLS_TPREL_LO16:
-case llvm::ELF::R_MICROMIPS_GPREL7_S2:
-case llvm::ELF::R_MICROMIPS_PC23_S2:
-case llvm::ELF::R_MICROMIPS_PC21_S1:
-case llvm::ELF::R_MICROMIPS_PC26_S1:
-case llvm::ELF::R_MICROMIPS_PC18_S3:
-case llvm::ELF::R_MICROMIPS_PC19_S2:
-case llvm::ELF::R_MIPS_NUM:
-case llvm::ELF::R_MIPS_PC32:
-case llvm::ELF::R_MIPS_EH:
-  return relocation_t::TYPE::NONE;
+static bool is_copy_relocation(const Relocation &R) {
+  return R.Type == llvm::ELF::R_MIPS_COPY;
+}
+
+static bool is_irelative_relocation(const Relocation &R) {
+  return false;
+}
+
+static bool is_relative_relocation(const Relocation &R) {
+  return R.Type == llvm::ELF::R_MIPS_REL32;
+}
+
+static bool is_addressof_relocation(const Relocation &R) {
+  switch (R.Type) {
+  case llvm::ELF::R_MIPS_32:
+  case llvm::ELF::R_MIPS_GLOB_DAT:
+  case llvm::ELF::R_MIPS_JUMP_SLOT:
+    return true;
+  default:
+    return false;
+  }
+}

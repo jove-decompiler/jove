@@ -1,0 +1,81 @@
+static llvm::Type *type_of_expression_for_relocation(const Relocation &R) {
+  switch (R.Type) {
+  case llvm::ELF::R_X86_64_RELATIVE:
+  case llvm::ELF::R_X86_64_GLOB_DAT:
+  case llvm::ELF::R_X86_64_JUMP_SLOT:
+  case llvm::ELF::R_X86_64_64:
+  case llvm::ELF::R_X86_64_IRELATIVE:
+  case llvm::ELF::R_X86_64_TPOFF64:
+  case llvm::ELF::R_X86_64_DTPMOD64:
+    return WordType();
+
+  case llvm::ELF::R_X86_64_COPY:
+  case llvm::ELF::R_X86_64_NONE:
+    return VoidType();
+
+  default:
+    throw unhandled_relocation_exception();
+  }
+}
+
+static llvm::Constant *expression_for_relocation(const Relocation &R,
+                                                 const RelSymbol &RelSym) {
+  switch (R.Type) {
+  case llvm::ELF::R_X86_64_RELATIVE:
+    assert(R.Addend);
+    return SectionPointer(*R.Addend);
+
+  case llvm::ELF::R_X86_64_64:
+  case llvm::ELF::R_X86_64_GLOB_DAT:
+  case llvm::ELF::R_X86_64_JUMP_SLOT: {
+    assert(R.Addend);
+
+    llvm::Constant *GlobalAddr = SymbolAddress(RelSym);
+    if (!GlobalAddr)
+      return nullptr;
+
+    return llvm::ConstantExpr::getAdd(
+        GlobalAddr, llvm::ConstantInt::get(WordType(), *R.Addend));
+  }
+
+  case llvm::ELF::R_X86_64_IRELATIVE:
+  case llvm::ELF::R_X86_64_TPOFF64:
+  case llvm::ELF::R_X86_64_DTPMOD64:
+    return BigWord();
+
+  default:
+    throw unhandled_relocation_exception();
+  }
+}
+
+static bool is_manual_relocation(const Relocation &R) {
+  switch (R.Type) {
+  case llvm::ELF::R_X86_64_IRELATIVE:
+  case llvm::ELF::R_X86_64_TPOFF64:
+//case llvm::ELF::R_X86_64_DTPMOD64:
+
+    return true;
+
+  default:
+    return false;
+  }
+}
+
+static void compute_manual_relocation(llvm::IRBuilderTy &IRB,
+                                      const Relocation &R,
+                                      const RelSymbol &RelSym) {
+  switch (R.Type) {
+  case llvm::ELF::R_X86_64_IRELATIVE:
+    assert(R.Addend);
+    return compute_irelative_relocation(IRB, *R.Addend);
+
+  case llvm::ELF::R_X86_64_TPOFF64:
+    assert(R.Addend);
+    return compute_tpoff_relocation(IRB, RelSym, *R.Addend);
+
+//case llvm::ELF::R_X86_64_DTPMOD64:
+
+  default:
+    throw unhandled_relocation_exception();
+  }
+}

@@ -690,7 +690,7 @@ int add(void) {
       //
       // ifunc resolvers are ABIs
       //
-      if (relocation_type_of_elf_rela_type(R.Type) == relocation_t::TYPE::IRELATIVE) {
+      if (is_irelative_relocation(R)) {
         target_ulong resolverAddr = R.Addend ? *R.Addend : 0;
 
         if (!resolverAddr) {
@@ -725,12 +725,10 @@ int add(void) {
       if (!Contained)
         return;
 
-      if (relocation_type_of_elf_rela_type(R.Type) != relocation_t::TYPE::RELATIVE) {
-        llvm::SmallString<32> RelocationTypeName;
-        E.getRelocationTypeName(R.Type, RelocationTypeName);
+      if (is_relative_relocation(R)) {
         WithColor::warning() << llvm::formatv(
             "unrecognized relocation {0} in .init_array/.fini_array\n",
-            RelocationTypeName);
+            E.getRelocationTypeName(R.Type));
         return;
       }
 

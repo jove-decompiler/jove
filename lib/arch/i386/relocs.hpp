@@ -1,48 +1,22 @@
-case llvm::ELF::R_386_GLOB_DAT:
-case llvm::ELF::R_386_JUMP_SLOT:
-case llvm::ELF::R_386_32:
-  return relocation_t::TYPE::ADDRESSOF;
-case llvm::ELF::R_386_COPY:
-  return relocation_t::TYPE::COPY;
-case llvm::ELF::R_386_RELATIVE:
-  return relocation_t::TYPE::RELATIVE;
-case llvm::ELF::R_386_IRELATIVE:
-  return relocation_t::TYPE::IRELATIVE;
-case llvm::ELF::R_386_NONE:
-case llvm::ELF::R_386_PC32:
-case llvm::ELF::R_386_GOT32:
-case llvm::ELF::R_386_PLT32:
-case llvm::ELF::R_386_GOTOFF:
-case llvm::ELF::R_386_GOTPC:
-case llvm::ELF::R_386_32PLT:
-case llvm::ELF::R_386_TLS_IE:
-case llvm::ELF::R_386_TLS_GOTIE:
-case llvm::ELF::R_386_TLS_LE:
-case llvm::ELF::R_386_TLS_GD:
-case llvm::ELF::R_386_TLS_LDM:
-case llvm::ELF::R_386_16:
-case llvm::ELF::R_386_PC16:
-case llvm::ELF::R_386_8:
-case llvm::ELF::R_386_PC8:
-case llvm::ELF::R_386_TLS_GD_32:
-case llvm::ELF::R_386_TLS_GD_PUSH:
-case llvm::ELF::R_386_TLS_GD_CALL:
-case llvm::ELF::R_386_TLS_GD_POP:
-case llvm::ELF::R_386_TLS_LDM_32:
-case llvm::ELF::R_386_TLS_LDM_PUSH:
-case llvm::ELF::R_386_TLS_LDM_CALL:
-case llvm::ELF::R_386_TLS_LDM_POP:
-case llvm::ELF::R_386_TLS_LDO_32:
-case llvm::ELF::R_386_TLS_IE_32:
-case llvm::ELF::R_386_TLS_LE_32:
-case llvm::ELF::R_386_TLS_DTPOFF32:
-case llvm::ELF::R_386_TLS_TPOFF32:
-case llvm::ELF::R_386_TLS_GOTDESC:
-case llvm::ELF::R_386_TLS_DESC_CALL:
-case llvm::ELF::R_386_TLS_DESC:
-case llvm::ELF::R_386_GOT32X:
-  return relocation_t::TYPE::NONE;
-case llvm::ELF::R_386_TLS_TPOFF:
-  return relocation_t::TYPE::TPOFF;
-case llvm::ELF::R_386_TLS_DTPMOD32:
-  return relocation_t::TYPE::TPMOD;
+static bool is_copy_relocation(const Relocation &R) {
+  return R.Type == llvm::ELF::R_386_COPY;
+}
+
+static bool is_irelative_relocation(const Relocation &R) {
+  return R.Type == llvm::ELF::R_386_IRELATIVE;
+}
+
+static bool is_relative_relocation(const Relocation &R) {
+  return R.Type == llvm::ELF::R_386_RELATIVE;
+}
+
+static bool is_addressof_relocation(const Relocation &R) {
+  switch (R.Type) {
+  case llvm::ELF::R_386_32:
+  case llvm::ELF::R_386_GLOB_DAT:
+  case llvm::ELF::R_386_JUMP_SLOT:
+    return true;
+  default:
+    return false;
+  }
+}

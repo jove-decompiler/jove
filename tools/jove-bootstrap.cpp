@@ -3249,7 +3249,7 @@ static void harvest_irelative_reloc_targets(pid_t child,
   auto processDynamicReloc = [&](binary_t &b, const Relocation &R) -> void {
     binary_index_t BIdx = index_of_binary(b, decompilation);
 
-    if (relocation_type_of_elf_rela_type(R.Type) != relocation_t::TYPE::IRELATIVE)
+    if (!is_irelative_relocation(R))
       return;
 
     struct {
@@ -3338,7 +3338,7 @@ static void harvest_addressof_reloc_targets(pid_t child,
   auto processDynamicReloc = [&](binary_t &b, const Relocation &R) -> void {
     binary_index_t BIdx = index_of_binary(b, decompilation);
 
-    if (relocation_type_of_elf_rela_type(R.Type) != relocation_t::TYPE::ADDRESSOF)
+    if (!is_addressof_relocation(R))
       return;
 
     std::unique_ptr<obj::Binary> &Bin = b.ObjectFile;
