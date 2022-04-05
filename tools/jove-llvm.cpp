@@ -4061,6 +4061,66 @@ int CreateSectionGlobalVariables(void) {
     }
   };
 
+  //
+  // print relocations
+  //
+  for_each_dynamic_relocation(E,
+      Binary._elf.DynRelRegion,
+      Binary._elf.DynRelaRegion,
+      Binary._elf.DynRelrRegion,
+      Binary._elf.DynPLTRelRegion,
+      [&](const Relocation &R) {
+        //
+        // determine symbol (if present)
+        //
+        RelSymbol RelSym(nullptr, "");
+        if (Binary._elf.OptionalDynSymRegion) {
+          const DynRegionInfo &DynSymRegion = *Binary._elf.OptionalDynSymRegion;
+
+          RelSym = getSymbolForReloc(O, DynSymRegion.getAsArrayRef<Elf_Sym>(),
+                                     Binary._elf.DynamicStringTable, R);
+
+          //
+          // determine symbol version (if present)
+          //
+          if (RelSym.Sym && Binary._elf.SymbolVersionSection) {
+            // Determine the position in the symbol table of this entry.
+            size_t EntryIndex =
+                (reinterpret_cast<uintptr_t>(RelSym.Sym) -
+                 reinterpret_cast<uintptr_t>(DynSymRegion.Addr)) / sizeof(Elf_Sym);
+
+            // Get the corresponding version index entry.
+            llvm::Expected<const Elf_Versym *> ExpectedVersym =
+                E.getEntry<Elf_Versym>(Binary._elf.SymbolVersionSection,
+                                       EntryIndex);
+
+            if (ExpectedVersym) {
+              RelSym.Vers = getSymbolVersionByIndex(
+                  Binary._elf.VersionMap, Binary._elf.DynamicStringTable,
+                  (*ExpectedVersym)->vs_index, RelSym.IsVersionDefault);
+            }
+          }
+        }
+
+        llvm::outs() <<
+          (fmt("%-18s @ %-8x") % E.getRelocationTypeName(R.Type).str()
+                               % R.Offset).str();
+
+        if (R.Addend)
+          llvm::outs() << (fmt(" +%-8x") % *R.Addend).str();
+
+        if (const Elf_Sym *Sym = RelSym.Sym) {
+          llvm::outs() <<
+            (fmt(" %-30s %s [%s] @ %x {%d}")
+             % RelSym.Name
+             % RelSym.Vers
+             % llvm::object::ElfSymbolTypes[Sym->getType()].AltName.str()
+             % Sym->st_value
+             % Sym->st_size).str();
+        }
+        llvm::outs() << '\n';
+      });
+
   ConstSectsGlobal = nullptr;
   SectsGlobal = nullptr;
 
