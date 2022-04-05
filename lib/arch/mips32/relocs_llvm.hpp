@@ -3,6 +3,7 @@ static llvm::Type *type_of_expression_for_relocation(const Relocation &R) {
   case llvm::ELF::R_MIPS_REL32:
   case llvm::ELF::R_MIPS_JUMP_SLOT:
   case llvm::ELF::R_MIPS_TLS_TPREL32:
+  case llvm::ELF::R_MIPS_TLS_DTPMOD32:
     return WordType();
 
   case llvm::ELF::R_MIPS_COPY:
@@ -34,6 +35,7 @@ static llvm::Constant *expression_for_relocation(const Relocation &R,
   case llvm::ELF::R_MIPS_JUMP_SLOT:
     return SymbolAddress(RelSym);
 
+  case llvm::ELF::R_MIPS_TLS_DTPMOD32:
   case llvm::ELF::R_MIPS_TLS_TPREL32:
     return BigWord();
 
@@ -45,6 +47,7 @@ static llvm::Constant *expression_for_relocation(const Relocation &R,
 static bool is_manual_relocation(const Relocation &R) {
   switch (R.Type) {
   case llvm::ELF::R_MIPS_TLS_TPREL32:
+//case llvm::ELF::R_MIPS_TLS_DTPMOD32:
     return true;
 
   default:
@@ -58,6 +61,8 @@ static void compute_manual_relocation(llvm::IRBuilderTy &IRB,
   switch (R.Type) {
   case llvm::ELF::R_MIPS_TLS_TPREL32:
     return compute_tpoff_relocation(IRB, RelSym, ExtractWordAtAddress(R.Offset));
+
+//case llvm::ELF::R_MIPS_TLS_DTPMOD32:
 
   default:
     throw unhandled_relocation_exception();
