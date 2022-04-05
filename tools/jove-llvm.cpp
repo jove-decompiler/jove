@@ -3666,7 +3666,9 @@ int CreateSectionGlobalVariables(void) {
     std::vector<llvm::Type *> SectsGlobalFieldTys;
     for (unsigned i = 0; i < NumSections; ++i) {
       section_t &Sect = SectTable[i];
+#if 0
       llvm::errs() << llvm::formatv("Section: {0}\n", Sect.Name);
+#endif
 
       //
       // check if there's space between the start of this section and the
@@ -3694,7 +3696,7 @@ int CreateSectionGlobalVariables(void) {
         else
           T = (*it).second;
 
-#if 1
+#if 0
         llvm::errs() << llvm::formatv("  [{0:x}, {1:x}) <T: {2}>\n",
                                       intvl.lower(),
                                       intvl.upper(), *T);
@@ -3839,7 +3841,8 @@ int CreateSectionGlobalVariables(void) {
     ConstSectsGlobal->setConstant(true);
   };
 
-  auto create_global_variable = [&](target_ulong Addr, unsigned Size,
+  auto create_global_variable = [&](const target_ulong Addr,
+                                    const unsigned Size,
                                     llvm::StringRef SymName,
                                     llvm::GlobalValue::ThreadLocalMode tlsMode)
       -> llvm::GlobalVariable * {
@@ -3866,16 +3869,17 @@ int CreateSectionGlobalVariables(void) {
     auto it = SectIdxMap.find(Addr);
     assert(it != SectIdxMap.end());
     section_t &Sect = SectTable[(*it).second - 1];
-    unsigned Off = Addr - Sect.Addr;
+    const unsigned Off = Addr - Sect.Addr;
 
     if (is_integral_size(Size)) {
       if (Size == sizeof(target_ulong)) {
-        auto typeit = Sect.Stuff.Types.find(Off);
-        auto constit = Sect.Stuff.Constants.find(Off);
+        auto T_it = Sect.Stuff.Types.find(Off);
+        auto C_it = Sect.Stuff.Constants.find(Off);
 
-        if (typeit != Sect.Stuff.Types.end() &&
-            constit != Sect.Stuff.Constants.end()) {
-          llvm::Constant *Initializer = (*constit).second;
+        if (T_it != Sect.Stuff.Types.end()) {
+          assert(C_it != Sect.Stuff.Constants.end());
+
+          llvm::Constant *Initializer = (*C_it).second;
 
           if (!Initializer)
             return nullptr;
@@ -3887,43 +3891,56 @@ int CreateSectionGlobalVariables(void) {
         }
       }
 
-      llvm::Type *T = llvm::Type::getIntNTy(*Context, Size * 8);
-      llvm::Constant *Initializer;
+      bool HasRel = false;
+      for (unsigned byte = 0; byte < Size; ++byte)
+        HasRel |= (Sect.Stuff.Types.find(Off + byte) != Sect.Stuff.Types.end());
 
-      if (Sect.Contents.size() >= Size) {
-        uint64_t X;
+      if (!HasRel) {
+        llvm::IntegerType *IntTy = llvm::Type::getIntNTy(*Context, Size * 8);
 
-        const unsigned char *p = Sect.Contents.begin() + Off;
-        switch (Size) {
-        case 1:
-          X = *reinterpret_cast<const int8_t *>(p);
-          break;
+        llvm::Constant *Initializer;
+        if (Sect.Contents.empty()) {
+          Initializer = llvm::Constant::getNullValue(IntTy);
+        } else {
+          assert(Sect.Contents.size() >= Size);
+          assert(Off + (Size - 1) < Sect.Contents.size());
 
-        case 2:
-          X = *reinterpret_cast<const int16_t *>(p);
-          break;
+          llvm::APInt X(Size * 8, 0u, false);
 
-        case 4:
-          X = *reinterpret_cast<const int32_t *>(p);
-          break;
+          {
+            const uint8_t *const bytes = Sect.Contents.begin() + Off;
 
-        case 8:
-          X = *reinterpret_cast<const int64_t *>(p);
-          break;
+#define __APINT_BYTE(n, byte, data)                                            \
+  do {                                                                         \
+    std::bitset<8> bits(static_cast<unsigned long>(bytes[byte]));              \
+    for (unsigned i = 0; i < 8; ++i)                                           \
+      if (bits.test(i))                                                        \
+        X.setBit((byte * 8) + i);                                              \
+  } while (0);
 
-        default:
-          __builtin_trap();
-          __builtin_unreachable();
+#define __APINT_FROM_BYTES(n) BOOST_PP_REPEAT(n, __APINT_BYTE, void)
+
+            switch (Size) {
+            case 1: __APINT_FROM_BYTES(1); break;
+            case 2: __APINT_FROM_BYTES(2); break;
+            case 4: __APINT_FROM_BYTES(4); break;
+            case 8: __APINT_FROM_BYTES(8); break;
+
+            default:
+              abort();
+            }
+
+#undef __APINT_FROM_BYTES
+#undef __APINT_BYTE
+          }
+
+          Initializer = llvm::ConstantInt::get(IntTy, X);
         }
 
-        Initializer = llvm::ConstantInt::get(T, X);
-      } else {
-        Initializer = llvm::ConstantInt::get(T, 0);
+        return new llvm::GlobalVariable(*Module, Initializer->getType(), false,
+                                        llvm::GlobalValue::ExternalLinkage,
+                                        Initializer, SymName, nullptr, tlsMode);
       }
-
-      return new llvm::GlobalVariable(*Module, T, false,
-                                      llvm::GlobalValue::ExternalLinkage,
-                                      Initializer, SymName, nullptr, tlsMode);
     }
 
     std::vector<llvm::Type *> GVFieldTys;
@@ -3967,6 +3984,9 @@ int CreateSectionGlobalVariables(void) {
 
         Left -= len;
       } else {
+        assert(typeit != Sect.Stuff.Types.end());
+        assert(constit != Sect.Stuff.Constants.end());
+
         T = (*typeit).second;
         C = (*constit).second;
 
@@ -3974,7 +3994,7 @@ int CreateSectionGlobalVariables(void) {
         Left -= sizeof(target_ulong);
       }
 
-      if (!T)
+      if (!T || !C)
         return nullptr;
 
       GVFieldTys.push_back(T);
