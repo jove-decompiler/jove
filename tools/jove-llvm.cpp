@@ -4111,7 +4111,7 @@ int CreateSectionGlobalVariables(void) {
 
         if (const Elf_Sym *Sym = RelSym.Sym) {
           llvm::outs() <<
-            (fmt(" %-30s %s [%s] @ %x {%d}")
+            (fmt(" %-30s %-15s [%s] @ %x {%d}")
              % RelSym.Name
              % RelSym.Vers
              % llvm::object::ElfSymbolTypes[Sym->getType()].AltName.str()
@@ -4120,6 +4120,106 @@ int CreateSectionGlobalVariables(void) {
         }
         llvm::outs() << '\n';
       });
+
+#if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
+  //
+  // print arch-specific relocations
+  //
+  if (Binary._elf.OptionalDynSymRegion) {
+    const DynRegionInfo &DynSymRegion = *Binary._elf.OptionalDynSymRegion;
+
+    auto dynamic_table = [&](void) -> Elf_Dyn_Range {
+      return Binary._elf.DynamicTable.getAsArrayRef<Elf_Dyn>();
+    };
+    auto dynamic_symbols = [&](void) -> Elf_Sym_Range {
+      return DynSymRegion.getAsArrayRef<Elf_Sym>();
+    };
+
+    MipsGOTParser Parser(E, Binary.Path);
+    if (llvm::Error Err = Parser.findGOT(dynamic_table(),
+                                         dynamic_symbols())) {
+      WithColor::warning() << llvm::formatv("Failed to find GOT: {0}\n", Err);
+      return 1;
+    }
+
+    for (const MipsGOTParser::Entry &Ent : Parser.getLocalEntries()) {
+      const target_ulong Addr = Parser.getGotAddress(&Ent);
+
+      llvm::outs() << (fmt("%-18s @ %-8x\n") % "R_MIPS_32" % Addr).str();
+    }
+
+    for (const MipsGOTParser::Entry &Ent : Parser.getGlobalEntries()) {
+      const target_ulong Offset = Parser.getGotAddress(&Ent);
+
+      const Elf_Sym *Sym = Parser.getGotSym(&Ent);
+      assert(Sym);
+
+      auto ExpectedSymName = Sym->getName(Binary._elf.DynamicStringTable);
+      if (!ExpectedSymName) {
+        WithColor::error() << llvm::formatv(
+            "Failed to get symbol name for gotrel @ {0:x}: {1}\n", Offset,
+            llvm::toString(ExpectedSymName.takeError()));
+        continue;
+      }
+
+      llvm::StringRef SymName = *ExpectedSymName;
+      llvm::StringRef SymVers = "";
+      bool IsVersionDefault;
+
+      //
+      // determine symbol version (if present)
+      //
+      if (Binary._elf.SymbolVersionSection) {
+        // Determine the position in the symbol table of this entry.
+        size_t EntryIndex =
+            (reinterpret_cast<uintptr_t>(Sym) -
+             reinterpret_cast<uintptr_t>(DynSymRegion.Addr)) / sizeof(Elf_Sym);
+
+        // Get the corresponding version index entry.
+        llvm::Expected<const Elf_Versym *> ExpectedVersym =
+            E.getEntry<Elf_Versym>(Binary._elf.SymbolVersionSection,
+                                   EntryIndex);
+
+        if (ExpectedVersym)
+          SymVers = getSymbolVersionByIndex(Binary._elf.VersionMap,
+                                            Binary._elf.DynamicStringTable,
+                                            (*ExpectedVersym)->vs_index,
+                                            IsVersionDefault);
+      }
+
+      const char *RelocationTypeName = nullptr;
+      if (Sym->st_shndx == llvm::ELF::SHN_UNDEF) {
+        if (Sym->getType() == llvm::ELF::STT_FUNC && Sym->st_value)
+          RelocationTypeName = "R_MIPS_JUMP_SLOT";
+        else
+          RelocationTypeName = "R_MIPS_32";
+      } else if (Sym->st_shndx == llvm::ELF::SHN_COMMON) {
+        RelocationTypeName = "R_MIPS_32";
+      } else if (Sym->getType() == llvm::ELF::STT_FUNC &&
+                 ExtractWordAtAddress(Offset) != Sym->st_value) {
+        RelocationTypeName = "R_MIPS_JUMP_SLOT";
+      } else if (Sym->getType() == llvm::ELF::STT_SECTION) {
+        if (Sym->st_other == 0)
+          RelocationTypeName = "R_MIPS_32";
+        else
+          RelocationTypeName = "?";
+      } else {
+        RelocationTypeName = "R_MIPS_32";
+      }
+      assert(RelocationTypeName);
+
+      llvm::outs() <<
+        (fmt("%-18s @ %-8x %-30s %-15s [%s] @ %x {%d}\n")
+         % RelocationTypeName
+         % Offset
+         % SymName.str()
+         % SymVers.str()
+         % llvm::object::ElfSymbolTypes[Sym->getType()].AltName.str()
+         % Sym->st_value
+         % Sym->st_size).str();
+    }
+  }
+#endif
 
   ConstSectsGlobal = nullptr;
   SectsGlobal = nullptr;
@@ -4156,6 +4256,35 @@ int CreateSectionGlobalVariables(void) {
           type_at_address(R.Offset, R_T);
         });
 
+#if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
+    //
+    // arch-specific relocations
+    //
+    if (Binary._elf.OptionalDynSymRegion) {
+      const DynRegionInfo &DynSymRegion = *Binary._elf.OptionalDynSymRegion;
+
+      auto dynamic_table = [&](void) -> Elf_Dyn_Range {
+        return Binary._elf.DynamicTable.getAsArrayRef<Elf_Dyn>();
+      };
+      auto dynamic_symbols = [&](void) -> Elf_Sym_Range {
+        return DynSymRegion.getAsArrayRef<Elf_Sym>();
+      };
+
+      MipsGOTParser Parser(E, Binary.Path);
+      if (llvm::Error Err = Parser.findGOT(dynamic_table(),
+                                           dynamic_symbols())) {
+        WithColor::warning() << llvm::formatv("Failed to find GOT: {0}\n", Err);
+        return 1;
+      }
+
+      for (const MipsGOTParser::Entry &Ent : Parser.getLocalEntries())
+        type_at_address(Parser.getGotAddress(&Ent), WordType());
+
+      for (const MipsGOTParser::Entry &Ent : Parser.getGlobalEntries())
+        type_at_address(Parser.getGotAddress(&Ent), WordType());
+    }
+#endif
+
     declare_sections();
 
     for_each_dynamic_relocation(E,
@@ -4175,8 +4304,7 @@ int CreateSectionGlobalVariables(void) {
           //
           RelSymbol RelSym(nullptr, "");
           if (Binary._elf.OptionalDynSymRegion) {
-            const DynRegionInfo &DynSymRegion =
-                *Binary._elf.OptionalDynSymRegion;
+            const DynRegionInfo &DynSymRegion = *Binary._elf.OptionalDynSymRegion;
 
             auto dynamic_symbols = [&](void) -> Elf_Sym_Range {
               return DynSymRegion.getAsArrayRef<Elf_Sym>();
@@ -4192,8 +4320,7 @@ int CreateSectionGlobalVariables(void) {
               // Determine the position in the symbol table of this entry.
               size_t EntryIndex =
                   (reinterpret_cast<uintptr_t>(RelSym.Sym) -
-                   reinterpret_cast<uintptr_t>(
-                       Binary._elf.OptionalDynSymRegion->Addr)) /
+                   reinterpret_cast<uintptr_t>(DynSymRegion.Addr)) /
                   sizeof(Elf_Sym);
 
               // Get the corresponding version index entry.
@@ -4201,11 +4328,11 @@ int CreateSectionGlobalVariables(void) {
                   E.getEntry<Elf_Versym>(Binary._elf.SymbolVersionSection,
                                          EntryIndex);
 
-              if (ExpectedVersym) {
-                RelSym.Vers = getSymbolVersionByIndex(
-                    Binary._elf.VersionMap, Binary._elf.DynamicStringTable,
-                    (*ExpectedVersym)->vs_index, RelSym.IsVersionDefault);
-              }
+              if (ExpectedVersym)
+                RelSym.Vers = getSymbolVersionByIndex(Binary._elf.VersionMap,
+                                                      Binary._elf.DynamicStringTable,
+                                                      (*ExpectedVersym)->vs_index,
+                                                      RelSym.IsVersionDefault);
             }
           }
 
@@ -4224,6 +4351,87 @@ int CreateSectionGlobalVariables(void) {
 
           constant_at_address(R.Offset, R_C); /* n.b. R_C may be NULL */
         });
+
+#if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
+    //
+    // arch-specific relocations
+    //
+    if (Binary._elf.OptionalDynSymRegion) {
+      const DynRegionInfo &DynSymRegion = *Binary._elf.OptionalDynSymRegion;
+
+      auto dynamic_table = [&](void) -> Elf_Dyn_Range {
+        return Binary._elf.DynamicTable.getAsArrayRef<Elf_Dyn>();
+      };
+      auto dynamic_symbols = [&](void) -> Elf_Sym_Range {
+        return DynSymRegion.getAsArrayRef<Elf_Sym>();
+      };
+
+      MipsGOTParser Parser(E, Binary.Path);
+      if (llvm::Error Err = Parser.findGOT(dynamic_table(),
+                                           dynamic_symbols())) {
+        WithColor::warning() << llvm::formatv("Failed to find GOT: {0}\n", Err);
+        return 1;
+      }
+
+      for (const MipsGOTParser::Entry &Ent : Parser.getLocalEntries()) {
+        const target_ulong Offset = Parser.getGotAddress(&Ent);
+
+        llvm::Constant *R_C = SectionPointer(ExtractWordAtAddress(Offset));
+        assert(R_C);
+
+        constant_at_address(Offset, R_C);
+      }
+
+      for (const MipsGOTParser::Entry &Ent : Parser.getGlobalEntries()) {
+        const target_ulong Offset = Parser.getGotAddress(&Ent);
+
+        const Elf_Sym *Sym = Parser.getGotSym(&Ent);
+        assert(Sym);
+
+        auto ExpectedSymName = Sym->getName(Binary._elf.DynamicStringTable);
+        if (!ExpectedSymName) {
+          WithColor::error() << llvm::formatv(
+              "failed to get symbol name for gotrel @ {0:x}: {1}\n", Offset,
+              llvm::toString(ExpectedSymName.takeError()));
+          continue;
+        }
+
+        llvm::StringRef SymName = *ExpectedSymName;
+        llvm::StringRef SymVers = "";
+        bool IsVersionDefault = false;
+
+        //
+        // determine symbol version (if present)
+        //
+        if (Binary._elf.SymbolVersionSection) {
+          // Determine the position in the symbol table of this entry.
+          size_t EntryIndex =
+              (reinterpret_cast<uintptr_t>(Sym) -
+               reinterpret_cast<uintptr_t>(DynSymRegion.Addr)) / sizeof(Elf_Sym);
+
+          // Get the corresponding version index entry.
+          llvm::Expected<const Elf_Versym *> ExpectedVersym =
+              E.getEntry<Elf_Versym>(Binary._elf.SymbolVersionSection,
+                                     EntryIndex);
+
+          if (ExpectedVersym)
+            SymVers = getSymbolVersionByIndex(Binary._elf.VersionMap,
+                                              Binary._elf.DynamicStringTable,
+                                              (*ExpectedVersym)->vs_index,
+                                              IsVersionDefault);
+        }
+
+        RelSymbol RelSym(Sym, "");
+        RelSym.Name = SymName.str();
+        RelSym.Vers = SymVers.str();
+        RelSym.IsVersionDefault = IsVersionDefault;
+
+        llvm::Constant *R_C = SymbolAddress(RelSym);
+
+        constant_at_address(Offset, R_C); /* n.b. R_C may be NULL */
+      }
+    }
+#endif
 
     define_sections();
 
