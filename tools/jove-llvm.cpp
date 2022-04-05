@@ -1361,14 +1361,14 @@ int InitStateForBinaries(void) {
     llvm::StringRef Identifier(binary.Path);
     llvm::MemoryBufferRef MemBuffRef(Buffer, Identifier);
 
-    llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
-        obj::createBinary(MemBuffRef);
-    if (!BinOrErr) {
+    auto ExpectedBin = obj::createBinary(MemBuffRef);
+    if (!ExpectedBin) {
+      std::string errorStr = llvm::toString(ExpectedBin.takeError());
       if (!binary.IsVDSO)
         WithColor::error() << llvm::formatv(
-            "failed to create binary from {0}\n", binary.Path);
+            "failed to create binary from {0}: {1}\n", binary.Path, errorStr);
     } else {
-      std::unique_ptr<obj::Binary> &BinRef = BinOrErr.get();
+      std::unique_ptr<obj::Binary> &BinRef = *ExpectedBin;
 
       binary.ObjectFile = std::move(BinRef);
 
