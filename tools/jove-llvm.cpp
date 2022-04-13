@@ -1465,6 +1465,57 @@ int InitStateForBinaries(void) {
   return 0;
 }
 
+//
+// this function takes a pointer to an llvm::Function which is merely a
+// declaration, and turns it into a defined function with a single BB, and
+// supplies an IRBuilder for the purpose of building the rest of the
+// function's body
+//
+static void fillInFunctionDefinition(llvm::Function *F,
+                                     std::function<void(llvm::IRBuilderTy &)> funcBuilder) {
+  assert(F && F->empty());
+
+  llvm::DIBuilder &DIB = *DIBuilder;
+  llvm::DISubprogram::DISPFlags SubProgFlags =
+      llvm::DISubprogram::SPFlagDefinition |
+      llvm::DISubprogram::SPFlagOptimized;
+
+  SubProgFlags |= llvm::DISubprogram::SPFlagLocalToUnit;
+
+  llvm::DISubroutineType *SubProgType =
+      DIB.createSubroutineType(DIB.getOrCreateTypeArray(llvm::None));
+
+  struct {
+    llvm::DISubprogram *Subprogram;
+  } DebugInfo;
+
+  DebugInfo.Subprogram = DIB.createFunction(
+      /* Scope       */ DebugInformation.CompileUnit,
+      /* Name        */ F->getName(),
+      /* LinkageName */ F->getName(),
+      /* File        */ DebugInformation.File,
+      /* LineNo      */ 0,
+      /* Ty          */ SubProgType,
+      /* ScopeLine   */ 0,
+      /* Flags       */ llvm::DINode::FlagZero,
+      /* SPFlags     */ SubProgFlags);
+
+  F->setSubprogram(DebugInfo.Subprogram);
+
+  llvm::BasicBlock *BB = llvm::BasicBlock::Create(*Context, "", F);
+  {
+    llvm::IRBuilderTy IRB(BB);
+
+    IRB.SetCurrentDebugLocation(llvm::DILocation::get(
+        *Context, 0 /* Line */, 0 /* Column */, DebugInfo.Subprogram));
+
+    funcBuilder(IRB);
+
+    assert(IRB.GetInsertBlock()->getTerminator() &&
+           "did not define function!");
+  }
+}
+
 int CreateModule(void) {
   Context.reset(new llvm::LLVMContext);
 
@@ -2841,50 +2892,10 @@ int CreateFunctionTable(void) {
   binary_t &Binary = Decompilation.Binaries[BinaryIndex];
   auto &ICFG = Binary.Analysis.ICFG;
 
-  if (Binary.SectsF) {
-    //
-    // define SectsF
-    //
-#if 1
-    llvm::DIBuilder &DIB = *DIBuilder;
-    llvm::DISubprogram::DISPFlags SubProgFlags =
-        llvm::DISubprogram::SPFlagDefinition |
-        llvm::DISubprogram::SPFlagOptimized;
-
-    SubProgFlags |= llvm::DISubprogram::SPFlagLocalToUnit;
-
-    llvm::DISubroutineType *SubProgType =
-        DIB.createSubroutineType(DIB.getOrCreateTypeArray(llvm::None));
-
-    struct {
-      llvm::DISubprogram *Subprogram;
-    } DebugInfo;
-
-    DebugInfo.Subprogram = DIB.createFunction(
-        /* Scope       */ DebugInformation.CompileUnit,
-        /* Name        */ Binary.SectsF->getName(),
-        /* LinkageName */ Binary.SectsF->getName(),
-        /* File        */ DebugInformation.File,
-        /* LineNo      */ 0,
-        /* Ty          */ SubProgType,
-        /* ScopeLine   */ 0,
-        /* Flags       */ llvm::DINode::FlagZero,
-        /* SPFlags     */ SubProgFlags);
-#endif
-    Binary.SectsF->setSubprogram(DebugInfo.Subprogram);
-
-    llvm::BasicBlock *BB =
-        llvm::BasicBlock::Create(*Context, "", Binary.SectsF);
-    {
-      llvm::IRBuilderTy IRB(BB);
-#if 1
-      IRB.SetCurrentDebugLocation(llvm::DILocation::get(
-          *Context, 0 /* Line */, 0 /* Column */, DebugInfo.Subprogram));
-#endif
-
+  if (llvm::Function *F = Binary.SectsF)
+    fillInFunctionDefinition(F, [](auto &IRB) {
       IRB.CreateRet(llvm::ConstantExpr::getPtrToInt(SectsGlobal, WordType()));
-    }
-  }
+    });
 
   std::vector<llvm::Constant *> constantTable;
   constantTable.resize(3 * Binary.Analysis.Functions.size());
