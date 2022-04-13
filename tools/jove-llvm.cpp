@@ -2946,113 +2946,31 @@ int CreateFunctionTable(void) {
             IRB.CreateConstInBoundsGEP2_64(ConstantTableInternalGV, 0, 0));
       });
 
-  {
-    llvm::Function *F =
-        Module->getFunction("_jove_function_count");
-    assert(F && F->empty());
+  fillInFunctionBody(
+      Module->getFunction("_jove_function_count"), [&](auto &IRB) {
+        IRB.CreateRet(IRB.getInt32(Binary.Analysis.Functions.size()));
+      });
 
-    llvm::DIBuilder &DIB = *DIBuilder;
-    llvm::DISubprogram::DISPFlags SubProgFlags =
-        llvm::DISubprogram::SPFlagDefinition |
-        llvm::DISubprogram::SPFlagOptimized;
+  fillInFunctionBody(
+      Module->getFunction("_jove_foreign_functions_count"), [&](auto &IRB) {
+        unsigned N_1 =
+            std::accumulate(std::next(Decompilation.Binaries.begin(), 1),
+                            std::next(Decompilation.Binaries.begin(), 3), 0u,
+                            [&](unsigned res, const binary_t &b) -> unsigned {
+                              return res + b.Analysis.Functions.size();
+                            });
 
-    SubProgFlags |= llvm::DISubprogram::SPFlagLocalToUnit;
+        unsigned N_2 =
+            std::accumulate(std::next(Decompilation.Binaries.begin(), 3),
+                            Decompilation.Binaries.end(), 0u,
+                            [&](unsigned res, const binary_t &b) -> unsigned {
+                              return res + b.Analysis.Functions.size();
+                            });
 
-    llvm::DISubroutineType *SubProgType =
-        DIB.createSubroutineType(DIB.getOrCreateTypeArray(llvm::None));
+        unsigned M = N_1 + (opts::ForeignLibs ? N_2 : 0);
 
-    struct {
-      llvm::DISubprogram *Subprogram;
-    } DebugInfo;
-
-    DebugInfo.Subprogram = DIB.createFunction(
-        /* Scope       */ DebugInformation.CompileUnit,
-        /* Name        */ F->getName(),
-        /* LinkageName */ F->getName(),
-        /* File        */ DebugInformation.File,
-        /* LineNo      */ 0,
-        /* Ty          */ SubProgType,
-        /* ScopeLine   */ 0,
-        /* Flags       */ llvm::DINode::FlagZero,
-        /* SPFlags     */ SubProgFlags);
-    F->setSubprogram(DebugInfo.Subprogram);
-
-    llvm::BasicBlock *BB =
-        llvm::BasicBlock::Create(*Context, "", F);
-
-    {
-      llvm::IRBuilderTy IRB(BB);
-
-      IRB.SetCurrentDebugLocation(llvm::DILocation::get(
-          *Context, 0 /* Line */, 0 /* Column */, DebugInfo.Subprogram));
-
-      IRB.CreateRet(IRB.getInt32(Binary.Analysis.Functions.size()));
-    }
-
-    F->setLinkage(llvm::GlobalValue::InternalLinkage);
-  }
-
-  {
-    llvm::Function *F =
-        Module->getFunction("_jove_foreign_functions_count");
-    assert(F && F->empty());
-
-    llvm::DIBuilder &DIB = *DIBuilder;
-    llvm::DISubprogram::DISPFlags SubProgFlags =
-        llvm::DISubprogram::SPFlagDefinition |
-        llvm::DISubprogram::SPFlagOptimized;
-
-    SubProgFlags |= llvm::DISubprogram::SPFlagLocalToUnit;
-
-    llvm::DISubroutineType *SubProgType =
-        DIB.createSubroutineType(DIB.getOrCreateTypeArray(llvm::None));
-
-    struct {
-      llvm::DISubprogram *Subprogram;
-    } DebugInfo;
-
-    DebugInfo.Subprogram = DIB.createFunction(
-        /* Scope       */ DebugInformation.CompileUnit,
-        /* Name        */ F->getName(),
-        /* LinkageName */ F->getName(),
-        /* File        */ DebugInformation.File,
-        /* LineNo      */ 0,
-        /* Ty          */ SubProgType,
-        /* ScopeLine   */ 0,
-        /* Flags       */ llvm::DINode::FlagZero,
-        /* SPFlags     */ SubProgFlags);
-    F->setSubprogram(DebugInfo.Subprogram);
-
-    llvm::BasicBlock *BB =
-        llvm::BasicBlock::Create(*Context, "", F);
-
-    {
-      llvm::IRBuilderTy IRB(BB);
-
-      IRB.SetCurrentDebugLocation(llvm::DILocation::get(
-          *Context, 0 /* Line */, 0 /* Column */, DebugInfo.Subprogram));
-
-      unsigned N_1 = std::accumulate(
-          std::next(Decompilation.Binaries.begin(), 1),
-          std::next(Decompilation.Binaries.begin(), 3), 0u,
-          [&](unsigned res, const binary_t &b) -> unsigned {
-            return res + b.Analysis.Functions.size();
-          });
-
-      unsigned N_2 = std::accumulate(
-          std::next(Decompilation.Binaries.begin(), 3),
-          Decompilation.Binaries.end(), 0u,
-          [&](unsigned res, const binary_t &b) -> unsigned {
-            return res + b.Analysis.Functions.size();
-          });
-
-      unsigned M = N_1 + (opts::ForeignLibs ? N_2 : 0);
-
-      IRB.CreateRet(IRB.getInt32(M));
-    }
-
-    F->setLinkage(llvm::GlobalValue::InternalLinkage);
-  }
+        IRB.CreateRet(IRB.getInt32(M));
+      });
 
   return 0;
 }
