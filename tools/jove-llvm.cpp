@@ -1471,16 +1471,21 @@ int InitStateForBinaries(void) {
 // supplies an IRBuilder for the purpose of building the rest of the
 // function's body
 //
-static void fillInFunctionDefinition(llvm::Function *F,
-                                     std::function<void(llvm::IRBuilderTy &)> funcBuilder) {
+static void fillInFunctionBody(llvm::Function *F,
+                               std::function<void(llvm::IRBuilderTy &)> funcBuilder,
+                               bool internalize = true) {
   assert(F && F->empty());
 
+  //
+  // if we don't create debug information, llvm::verifyModule() will fail
+  //
   llvm::DIBuilder &DIB = *DIBuilder;
   llvm::DISubprogram::DISPFlags SubProgFlags =
       llvm::DISubprogram::SPFlagDefinition |
       llvm::DISubprogram::SPFlagOptimized;
 
-  SubProgFlags |= llvm::DISubprogram::SPFlagLocalToUnit;
+  if (internalize)
+    SubProgFlags |= llvm::DISubprogram::SPFlagLocalToUnit;
 
   llvm::DISubroutineType *SubProgType =
       DIB.createSubroutineType(DIB.getOrCreateTypeArray(llvm::None));
@@ -1514,6 +1519,9 @@ static void fillInFunctionDefinition(llvm::Function *F,
     assert(IRB.GetInsertBlock()->getTerminator() &&
            "did not define function!");
   }
+
+  if (internalize)
+    F->setLinkage(llvm::GlobalValue::InternalLinkage);
 }
 
 int CreateModule(void) {
@@ -2893,9 +2901,9 @@ int CreateFunctionTable(void) {
   auto &ICFG = Binary.Analysis.ICFG;
 
   if (llvm::Function *F = Binary.SectsF)
-    fillInFunctionDefinition(F, [](auto &IRB) {
+    fillInFunctionBody(F, [](auto &IRB) {
       IRB.CreateRet(llvm::ConstantExpr::getPtrToInt(SectsGlobal, WordType()));
-    });
+    }, false /* internalize */);
 
   std::vector<llvm::Constant *> constantTable;
   constantTable.resize(3 * Binary.Analysis.Functions.size());
@@ -2932,51 +2940,11 @@ int CreateFunctionTable(void) {
       *Module, T, true, llvm::GlobalValue::InternalLinkage, Init,
       (fmt("__jove_internal_b%u") % BinaryIndex).str());
 
-  {
-    llvm::Function *F =
-        Module->getFunction("_jove_get_function_table");
-    assert(F && F->empty());
-
-    llvm::DIBuilder &DIB = *DIBuilder;
-    llvm::DISubprogram::DISPFlags SubProgFlags =
-        llvm::DISubprogram::SPFlagDefinition |
-        llvm::DISubprogram::SPFlagOptimized;
-
-    SubProgFlags |= llvm::DISubprogram::SPFlagLocalToUnit;
-
-    llvm::DISubroutineType *SubProgType =
-        DIB.createSubroutineType(DIB.getOrCreateTypeArray(llvm::None));
-
-    struct {
-      llvm::DISubprogram *Subprogram;
-    } DebugInfo;
-
-    DebugInfo.Subprogram = DIB.createFunction(
-        /* Scope       */ DebugInformation.CompileUnit,
-        /* Name        */ F->getName(),
-        /* LinkageName */ F->getName(),
-        /* File        */ DebugInformation.File,
-        /* LineNo      */ 0,
-        /* Ty          */ SubProgType,
-        /* ScopeLine   */ 0,
-        /* Flags       */ llvm::DINode::FlagZero,
-        /* SPFlags     */ SubProgFlags);
-    F->setSubprogram(DebugInfo.Subprogram);
-
-    llvm::BasicBlock *BB =
-        llvm::BasicBlock::Create(*Context, "", F);
-
-    {
-      llvm::IRBuilderTy IRB(BB);
-
-      IRB.SetCurrentDebugLocation(llvm::DILocation::get(
-          *Context, 0 /* Line */, 0 /* Column */, DebugInfo.Subprogram));
-
-      IRB.CreateRet(IRB.CreateConstInBoundsGEP2_64(ConstantTableInternalGV, 0, 0));
-    }
-
-    F->setLinkage(llvm::GlobalValue::InternalLinkage);
-  }
+  fillInFunctionBody(
+      Module->getFunction("_jove_get_function_table"), [&](auto &IRB) {
+        IRB.CreateRet(
+            IRB.CreateConstInBoundsGEP2_64(ConstantTableInternalGV, 0, 0));
+      });
 
   {
     llvm::Function *F =
