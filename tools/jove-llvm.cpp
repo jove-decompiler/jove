@@ -4627,46 +4627,13 @@ int ProcessManualRelocations(void) {
         RelSymbol RelSym = getSymbolForReloc(O, dynamic_symbols(),
                                              Binary._elf.DynamicStringTable, R);
 
-        llvm::Function *RelocF = llvm::Function::Create(
+        llvm::Function *F = llvm::Function::Create(
             llvm::FunctionType::get(WordType(), false),
             llvm::GlobalValue::InternalLinkage,
             std::string("_jove_compute_relocation_") + (fmt("%lx") % R.Offset).str(),
             Module.get());
 
-        llvm::DIBuilder &DIB = *DIBuilder;
-        llvm::DISubprogram::DISPFlags SubProgFlags =
-            llvm::DISubprogram::SPFlagDefinition |
-            llvm::DISubprogram::SPFlagOptimized;
-
-        SubProgFlags |= llvm::DISubprogram::SPFlagLocalToUnit;
-
-        llvm::DISubroutineType *SubProgType =
-            DIB.createSubroutineType(DIB.getOrCreateTypeArray(llvm::None));
-
-        struct {
-          llvm::DISubprogram *Subprogram;
-        } DebugInfo;
-
-        DebugInfo.Subprogram = DIB.createFunction(
-            /* Scope       */ DebugInformation.CompileUnit,
-            /* Name        */ RelocF->getName(),
-            /* LinkageName */ RelocF->getName(),
-            /* File        */ DebugInformation.File,
-            /* LineNo      */ 0,
-            /* Ty          */ SubProgType,
-            /* ScopeLine   */ 0,
-            /* Flags       */ llvm::DINode::FlagZero,
-            /* SPFlags     */ SubProgFlags);
-
-        RelocF->setSubprogram(DebugInfo.Subprogram);
-
-        llvm::BasicBlock *BB = llvm::BasicBlock::Create(*Context, "", RelocF);
-        {
-          llvm::IRBuilderTy IRB(BB);
-
-          IRB.SetCurrentDebugLocation(llvm::DILocation::get(
-              *Context, 0 /* Line */, 0 /* Column */, DebugInfo.Subprogram));
-
+        fillInFunctionBody(F, [&](auto &IRB) {
           try {
             compute_manual_relocation(IRB, R, RelSym);
           } catch (const unhandled_relocation_exception &) {
@@ -4675,74 +4642,32 @@ int ProcessManualRelocations(void) {
                                  E.getRelocationTypeName(R.Type));
             abort();
           }
+        });
 
-          assert(IRB.GetInsertBlock()->getTerminator() &&
-                 "manual fixup proc doesn't return!");
-        }
-
-        ManualRelocs[R.Offset] = RelocF;
+        ManualRelocs.emplace(R.Offset, F);
       });
 
-  {
-    llvm::Function *F = Module->getFunction("_jove_do_manual_relocations");
-    assert(F && F->empty());
+  fillInFunctionBody(
+      Module->getFunction("_jove_do_manual_relocations"),
+      [&](auto &IRB) {
+        std::for_each(
+            ManualRelocs.begin(),
+            ManualRelocs.end(), [&](const auto &pair) {
+              llvm::Value *Computation = IRB.CreateCall(pair.second);
+              assert(Computation->getType()->isIntegerTy(WordBits()));
 
-    llvm::DIBuilder &DIB = *DIBuilder;
-    llvm::DISubprogram::DISPFlags SubProgFlags =
-        llvm::DISubprogram::SPFlagDefinition |
-        llvm::DISubprogram::SPFlagOptimized;
+              uintptr_t off = pair.first - Binary.SectsStartAddr;
 
-    SubProgFlags |= llvm::DISubprogram::SPFlagLocalToUnit;
+              llvm::SmallVector<llvm::Value *, 4> Indices;
+              llvm::Value *SectGEP = llvm::getNaturalGEPWithOffset(
+                  IRB, DL, SectsGlobal, llvm::APInt(64, off), nullptr, Indices,
+                  "");
 
-    llvm::DISubroutineType *SubProgType =
-        DIB.createSubroutineType(DIB.getOrCreateTypeArray(llvm::None));
+              IRB.CreateStore(Computation, SectGEP, true /* Volatile */);
+            });
 
-    struct {
-      llvm::DISubprogram *Subprogram;
-    } DebugInfo;
-
-    DebugInfo.Subprogram = DIB.createFunction(
-        /* Scope       */ DebugInformation.CompileUnit,
-        /* Name        */ F->getName(),
-        /* LinkageName */ F->getName(),
-        /* File        */ DebugInformation.File,
-        /* LineNo      */ 0,
-        /* Ty          */ SubProgType,
-        /* ScopeLine   */ 0,
-        /* Flags       */ llvm::DINode::FlagZero,
-        /* SPFlags     */ SubProgFlags);
-
-    F->setSubprogram(DebugInfo.Subprogram);
-
-    llvm::BasicBlock *BB = llvm::BasicBlock::Create(*Context, "", F);
-    {
-      llvm::IRBuilderTy IRB(BB);
-
-      IRB.SetCurrentDebugLocation(llvm::DILocation::get(
-          *Context, 0 /* Line */, 0 /* Column */, DebugInfo.Subprogram));
-
-      std::for_each(
-          ManualRelocs.begin(),
-          ManualRelocs.end(), [&](const auto &pair) {
-            llvm::Value *Computation = IRB.CreateCall(pair.second);
-            assert(Computation->getType()->isIntegerTy(WordBits()));
-
-            uintptr_t off = pair.first - Binary.SectsStartAddr;
-
-            llvm::SmallVector<llvm::Value *, 4> Indices;
-            llvm::Value *SectGEP = llvm::getNaturalGEPWithOffset(
-                IRB, DL, SectsGlobal, llvm::APInt(64, off), nullptr, Indices,
-                "");
-
-            IRB.CreateStore(Computation, SectGEP, true /* Volatile */);
-          });
-
-      IRB.CreateRetVoid();
-    }
-
-    F->setLinkage(llvm::GlobalValue::InternalLinkage);
-    assert(!F->empty());
-  }
+        IRB.CreateRetVoid();
+      });
 
   return 0;
 }
