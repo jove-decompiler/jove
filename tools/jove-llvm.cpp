@@ -5017,8 +5017,7 @@ int FixupHelperStubs(void) {
   fillInFunctionBody(
       Module->getFunction("_jove_foreign_lib_path"),
       [](auto &IRB) {
-        llvm::BasicBlock *BB = IRB.GetInsertBlock();
-        llvm::Function *F = BB->getParent();
+        llvm::Function *F = IRB.GetInsertBlock()->getParent();
 
         llvm::BasicBlock *DefaultBB = llvm::BasicBlock::Create(*Context, "", F);
         {
@@ -5058,8 +5057,7 @@ int FixupHelperStubs(void) {
   fillInFunctionBody(
       Module->getFunction("_jove_foreign_lib_function_table"),
       [](auto &IRB) {
-        llvm::BasicBlock *BB = IRB.GetInsertBlock();
-        llvm::Function *F = BB->getParent();
+        llvm::Function *F = IRB.GetInsertBlock()->getParent();
 
         llvm::BasicBlock *DefaultBB = llvm::BasicBlock::Create(*Context, "", F);
         {
