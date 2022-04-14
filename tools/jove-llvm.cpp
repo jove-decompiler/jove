@@ -4673,110 +4673,79 @@ int ProcessManualRelocations(void) {
 }
 
 int CreateCopyRelocationHack(void) {
-  llvm::Function *F = Module->getFunction("_jove_do_emulate_copy_relocations");
-  assert(F && F->empty());
+  fillInFunctionBody(
+      Module->getFunction("_jove_do_emulate_copy_relocations"),
+      [](auto &IRB) {
+        binary_t &Binary = Decompilation.Binaries[BinaryIndex];
 
-  binary_t &Binary = Decompilation.Binaries[BinaryIndex];
+        if (!Binary.IsExecutable) {
+          assert(CopyRelocMap.empty());
+        }
 
-  llvm::DIBuilder &DIB = *DIBuilder;
-  llvm::DISubprogram::DISPFlags SubProgFlags =
-      llvm::DISubprogram::SPFlagDefinition |
-      llvm::DISubprogram::SPFlagOptimized;
+        for (const auto &pair : CopyRelocMap) {
+          binary_index_t BIdxFrom = pair.second.first;
+          auto &BinaryFrom = Decompilation.Binaries.at(BIdxFrom);
 
-  SubProgFlags |= llvm::DISubprogram::SPFlagLocalToUnit;
+          WARN_ON(pair.second.first < 3);
 
-  llvm::DISubroutineType *SubProgType =
-      DIB.createSubroutineType(DIB.getOrCreateTypeArray(llvm::None));
+          if (BinaryFrom.SectsF) {
+            IRB.CreateMemCpy(
+                IRB.CreateIntToPtr(SectionPointer(pair.first.first),
+                                   IRB.getInt8PtrTy()),
+                llvm::MaybeAlign(),
+                IRB.CreateIntToPtr(
+                    IRB.CreateAdd(
+                        IRB.CreateCall(BinaryFrom.SectsF),
+                        IRB.getIntN(WordBits(), pair.second.second.second)),
+                    IRB.getInt8PtrTy()),
+                llvm::MaybeAlign(), pair.first.second, true /* Volatile */);
+          } else {
+            assert(opts::ForeignLibs);
 
-  struct {
-    llvm::DISubprogram *Subprogram;
-  } DebugInfo;
+            auto &ICFG = BinaryFrom.Analysis.ICFG;
 
-  DebugInfo.Subprogram = DIB.createFunction(
-      /* Scope       */ DebugInformation.CompileUnit,
-      /* Name        */ F->getName(),
-      /* LinkageName */ F->getName(),
-      /* File        */ DebugInformation.File,
-      /* LineNo      */ 0,
-      /* Ty          */ SubProgType,
-      /* ScopeLine   */ 0,
-      /* Flags       */ llvm::DINode::FlagZero,
-      /* SPFlags     */ SubProgFlags);
+            assert(!BinaryFrom.Analysis.Functions.empty());
 
-  F->setSubprogram(DebugInfo.Subprogram);
+            //
+            // get the load address
+            //
+            llvm::Value *FnsTbl = IRB.CreateLoad(IRB.CreateConstInBoundsGEP2_64(
+                JoveForeignFunctionTablesGlobal, 0, BIdxFrom));
 
-  llvm::BasicBlock *BB = llvm::BasicBlock::Create(*Context, "", F);
-  {
-    llvm::IRBuilderTy IRB(BB);
+            llvm::Value *FirstEntry = IRB.CreateLoad(FnsTbl);
 
-    IRB.SetCurrentDebugLocation(llvm::DILocation::get(
-        *Context, 0 /* Line */, 0 /* Column */, DebugInfo.Subprogram));
+            llvm::Value *LoadBias = IRB.CreateSub(
+                FirstEntry,
+                IRB.getIntN(
+                    WordBits(),
+                    ICFG[boost::vertex(BinaryFrom.Analysis.Functions[0].Entry,
+                                       ICFG)]
+                        .Addr));
 
-    if (!Binary.IsExecutable) {
-      assert(CopyRelocMap.empty());
-    }
+            llvm::errs() << llvm::formatv("FnsTbl: {0} Type: {1}\n", *FnsTbl,
+                                          *FnsTbl->getType());
 
-    for (const auto &pair : CopyRelocMap) {
-      binary_index_t BIdxFrom = pair.second.first;
-      auto &BinaryFrom = Decompilation.Binaries.at(BIdxFrom);
+            IRB.CreateMemCpy(
+                IRB.CreateIntToPtr(SectionPointer(pair.first.first),
+                                   IRB.getInt8PtrTy()),
+                llvm::MaybeAlign(),
+                IRB.CreateIntToPtr(
+                    IRB.CreateAdd(
+                        LoadBias,
+                        IRB.getIntN(WordBits(), pair.second.second.first)),
+                    IRB.getInt8PtrTy()),
+                llvm::MaybeAlign(), pair.first.second, true /* Volatile */);
+          }
 
-      WARN_ON(pair.second.first < 3);
+          if (opts::Verbose)
+            WithColor::note() << llvm::formatv(
+                "COPY RELOC HACK {0} {1} {2} {3}\n", pair.first.first,
+                pair.first.second, pair.second.second.first,
+                pair.second.second.second);
+        }
 
-      if (BinaryFrom.SectsF) {
-        IRB.CreateMemCpy(
-            IRB.CreateIntToPtr(SectionPointer(pair.first.first),
-                               IRB.getInt8PtrTy()),
-            llvm::MaybeAlign(),
-            IRB.CreateIntToPtr(
-                IRB.CreateAdd(IRB.CreateCall(BinaryFrom.SectsF),
-                              IRB.getIntN(WordBits(), pair.second.second.second)),
-                IRB.getInt8PtrTy()),
-            llvm::MaybeAlign(), pair.first.second, true /* Volatile */);
-      } else {
-        assert(opts::ForeignLibs);
-
-        auto &ICFG = BinaryFrom.Analysis.ICFG;
-
-        assert(!BinaryFrom.Analysis.Functions.empty());
-
-        //
-        // get the load address
-        //
-        llvm::Value *FnsTbl = IRB.CreateLoad(IRB.CreateConstInBoundsGEP2_64(
-            JoveForeignFunctionTablesGlobal, 0, BIdxFrom));
-
-        llvm::Value *FirstEntry = IRB.CreateLoad(FnsTbl);
-
-        llvm::Value *LoadBias = IRB.CreateSub(FirstEntry,
-          IRB.getIntN(WordBits(), ICFG[boost::vertex(BinaryFrom.Analysis.Functions[0].Entry, ICFG)].Addr));
-
-        llvm::errs() << llvm::formatv("FnsTbl: {0} Type: {1}\n", *FnsTbl,
-                                      *FnsTbl->getType());
-
-        IRB.CreateMemCpy(
-            IRB.CreateIntToPtr(SectionPointer(pair.first.first),
-                               IRB.getInt8PtrTy()),
-            llvm::MaybeAlign(),
-            IRB.CreateIntToPtr(
-                IRB.CreateAdd(LoadBias,
-                              IRB.getIntN(WordBits(), pair.second.second.first)),
-                IRB.getInt8PtrTy()),
-            llvm::MaybeAlign(), pair.first.second, true /* Volatile */);
-      }
-
-      if (opts::Verbose)
-        WithColor::note() << llvm::formatv("COPY RELOC HACK {0} {1} {2} {3}\n",
-                                           pair.first.first,
-                                           pair.first.second,
-                                           pair.second.second.first,
-                                           pair.second.second.second);
-    }
-
-    IRB.CreateRetVoid();
-  }
-
-  F->setLinkage(llvm::GlobalValue::InternalLinkage);
-  assert(!F->empty());
+        IRB.CreateRetVoid();
+      });
 
   return 0;
 }
