@@ -1474,7 +1474,8 @@ int InitStateForBinaries(void) {
 static void fillInFunctionBody(llvm::Function *F,
                                std::function<void(llvm::IRBuilderTy &)> funcBuilder,
                                bool internalize = true) {
-  assert(F && F->empty());
+  assert(F && "function is NULL!");
+  assert(F->empty() && "function is already defined!");
 
   //
   // if we don't create debug information, llvm::verifyModule() will fail
@@ -1516,8 +1517,12 @@ static void fillInFunctionBody(llvm::Function *F,
            "did not define function!");
   }
 
-  if (internalize)
+  if (internalize) {
     F->setLinkage(llvm::GlobalValue::InternalLinkage);
+  } else {
+    assert(F->getLinkage() == llvm::GlobalValue::ExternalLinkage);
+    F->setVisibility(llvm::GlobalValue::HiddenVisibility);
+  }
 
   DIB.finalizeSubprogram(DbgSubprogram);
 }
@@ -4387,118 +4392,34 @@ int CreateSectionGlobalVariables(void) {
       };
     }
 
-#if 0
-    if (initFunctionAddr) {
-      llvm::appendToGlobalCtors(
-          *Module,
-          (llvm::Function *)llvm::ConstantExpr::getIntToPtr(
-              SectionPointer(initFunctionAddr), VoidFunctionPointer()),
-          0);
-    }
+    if (llvm::Function *F = Module->getFunction("_jove_get_init_fn"))
+      fillInFunctionBody(F,
+          [&](auto &IRB) {
+            llvm::Value *Ret = nullptr;
+            if (initFunctionAddr) {
+              auto it = fnmap.find(initFunctionAddr);
 
-    initFunctionAddr = 0;
-#endif
+              assert(it != fnmap.end());
 
-    if (llvm::Function *F = Module->getFunction("_jove_get_init_fn")) {
-      assert(F && F->empty());
+              function_t &initfn_f = Decompilation.Binaries[BinaryIndex]
+                                         .Analysis.Functions[(*it).second];
 
-      llvm::DIBuilder &DIB = *DIBuilder;
-      llvm::DISubprogram::DISPFlags SubProgFlags =
-          llvm::DISubprogram::SPFlagDefinition |
-          llvm::DISubprogram::SPFlagOptimized;
+              Ret = llvm::ConstantExpr::getPtrToInt(initfn_f.F, WordType());
+            } else {
+              Ret = llvm::Constant::getNullValue(WordType());
+            }
+            IRB.CreateRet(Ret);
+          },
+          false);
 
-      SubProgFlags |= llvm::DISubprogram::SPFlagLocalToUnit;
-
-      llvm::DISubroutineType *SubProgType =
-          DIB.createSubroutineType(DIB.getOrCreateTypeArray(llvm::None));
-
-      struct {
-        llvm::DISubprogram *Subprogram;
-      } DebugInfo;
-
-      DebugInfo.Subprogram = DIB.createFunction(
-          /* Scope       */ DebugInformation.CompileUnit,
-          /* Name        */ F->getName(),
-          /* LinkageName */ F->getName(),
-          /* File        */ DebugInformation.File,
-          /* LineNo      */ 0,
-          /* Ty          */ SubProgType,
-          /* ScopeLine   */ 0,
-          /* Flags       */ llvm::DINode::FlagZero,
-          /* SPFlags     */ SubProgFlags);
-      F->setSubprogram(DebugInfo.Subprogram);
-
-      llvm::BasicBlock *BB = llvm::BasicBlock::Create(*Context, "", F);
-      {
-        llvm::IRBuilderTy IRB(BB);
-
-        IRB.SetCurrentDebugLocation(llvm::DILocation::get(
-            *Context, 0 /* Line */, 0 /* Column */, DebugInfo.Subprogram));
-
-        llvm::Value *Ret = nullptr;
-        if (initFunctionAddr) {
-          auto it = fnmap.find(initFunctionAddr);
-
-          assert(it != fnmap.end());
-
-          function_t &initfn_f = Decompilation.Binaries[BinaryIndex]
-                                     .Analysis.Functions[(*it).second];
-
-          Ret = llvm::ConstantExpr::getPtrToInt(initfn_f.F, WordType());
-        } else {
-          Ret = llvm::Constant::getNullValue(WordType());
-        }
-        IRB.CreateRet(Ret);
-
-        F->setLinkage(llvm::GlobalValue::ExternalLinkage);
-        F->setVisibility(llvm::GlobalValue::HiddenVisibility);
-      }
-    }
-
-    if (llvm::Function *F = Module->getFunction("_jove_get_init_fn_sect_ptr")) {
-      assert(F->empty());
-
-      llvm::DIBuilder &DIB = *DIBuilder;
-      llvm::DISubprogram::DISPFlags SubProgFlags =
-          llvm::DISubprogram::SPFlagDefinition |
-          llvm::DISubprogram::SPFlagOptimized;
-
-      SubProgFlags |= llvm::DISubprogram::SPFlagLocalToUnit;
-
-      llvm::DISubroutineType *SubProgType =
-          DIB.createSubroutineType(DIB.getOrCreateTypeArray(llvm::None));
-
-      struct {
-        llvm::DISubprogram *Subprogram;
-      } DebugInfo;
-
-      DebugInfo.Subprogram = DIB.createFunction(
-          /* Scope       */ DebugInformation.CompileUnit,
-          /* Name        */ F->getName(),
-          /* LinkageName */ F->getName(),
-          /* File        */ DebugInformation.File,
-          /* LineNo      */ 0,
-          /* Ty          */ SubProgType,
-          /* ScopeLine   */ 0,
-          /* Flags       */ llvm::DINode::FlagZero,
-          /* SPFlags     */ SubProgFlags);
-      F->setSubprogram(DebugInfo.Subprogram);
-
-      llvm::BasicBlock *BB = llvm::BasicBlock::Create(*Context, "", F);
-      {
-        llvm::IRBuilderTy IRB(BB);
-
-        IRB.SetCurrentDebugLocation(llvm::DILocation::get(
-            *Context, 0 /* Line */, 0 /* Column */, DebugInfo.Subprogram));
-
-        IRB.CreateRet(initFunctionAddr
-                          ? SectionPointer(initFunctionAddr)
-                          : llvm::Constant::getNullValue(WordType()));
-      }
-
-      F->setLinkage(llvm::GlobalValue::ExternalLinkage);
-      F->setVisibility(llvm::GlobalValue::HiddenVisibility);
-    }
+    if (llvm::Function *F = Module->getFunction("_jove_get_init_fn_sect_ptr"))
+      fillInFunctionBody(F,
+          [&](auto &IRB) {
+            IRB.CreateRet(initFunctionAddr
+                              ? SectionPointer(initFunctionAddr)
+                              : llvm::Constant::getNullValue(WordType()));
+          },
+          false);
   }
 
   if (llvm::Function *F = Module->getFunction("_jove_get_libc_early_init_fn")) {
