@@ -831,7 +831,7 @@ static int do_run(void) {
       }
 
       if (opts::Verbose)
-        HumanOut() << (__ANSI_CYAN "root file modified" __ANSI_NORMAL_COLOR);
+        HumanOut() << (__ANSI_CYAN "root file system modified" __ANSI_NORMAL_COLOR "\n");
     }
 #endif
 
@@ -939,7 +939,7 @@ static int do_run(void) {
     }
 
     if (opts::Verbose)
-      HumanOut() << (__ANSI_MAGENTA "root file system restored" __ANSI_NORMAL_COLOR);
+      HumanOut() << (__ANSI_MAGENTA "root file system restored" __ANSI_NORMAL_COLOR "\n");
 
     close(rfd);
   }
