@@ -636,8 +636,9 @@ static int do_run(void) {
 
       std::string sav_path = binary.Path + ".jove.sav";
       if (link(binary.Path.c_str(), sav_path.c_str()) < 0) {
-        HumanOut() << llvm::formatv("failed to create hard link for {0}\n",
-                                    binary.Path);
+        int err = errno;
+        HumanOut() << llvm::formatv("failed to create hard link for {0}: {1}\n",
+                                    binary.Path, strerror(err));
         return 1;
       }
     }
@@ -654,13 +655,25 @@ static int do_run(void) {
       fs::path chrooted_path = fs::path(opts::sysroot) / binary.Path;
       std::string new_path = binary.Path + ".jove.new";
 
-      try {
-        fs::copy_file(chrooted_path, new_path);
-      } catch (...) {
-        HumanOut() << llvm::formatv(
-            "dangerous mode: failed to copy {0} to {1}; aborting\n",
-            chrooted_path.c_str(), new_path.c_str());
-        return 1;
+      if (link(chrooted_path.c_str(), new_path.c_str()) < 0) {
+        if (opts::Verbose) {
+          int err = errno;
+          HumanOut() << llvm::formatv("failed to create hard link {0} -> {1}: {2}\n",
+                                      chrooted_path.c_str(), new_path, strerror(err));
+        }
+
+        //
+        // link may fail if src and dst are in different file systems. fallback
+        // to regular copy file
+        //
+        try {
+          fs::copy_file(chrooted_path, new_path);
+        } catch (...) {
+          HumanOut() << llvm::formatv(
+              "failed to copy {0} to {1}\n",
+              chrooted_path.c_str(), new_path.c_str());
+          return 1;
+        }
       }
     }
   }
