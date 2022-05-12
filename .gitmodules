@@ -8,15 +8,6 @@
 [submodule "libnvram"]
 	path = libnvram
 	url = https://github.com/aleden/libnvram.git
-[submodule "prebuilts/obj"]
-	path = prebuilts/obj
-	url = https://github.com/aleden/obj.git
-[submodule "prebuilts/lib"]
-	path = prebuilts/lib
-	url = https://github.com/aleden/lib.git
-[submodule "prebuilts/static_bin"]
-	path = prebuilts/static_bin
-	url = https://github.com/aleden/static_bin.git
 [submodule "boost-preprocessor"]
 	path = boost-preprocessor
 	url = https://github.com/boostorg/preprocessor.git
