@@ -1,1 +1,1 @@
-../../../third_party/llvm-project/build/lib/Target/X86/X86GenRegisterInfo.inc
+../../../llvm-project/build/lib/Target/X86/X86GenRegisterInfo.inc

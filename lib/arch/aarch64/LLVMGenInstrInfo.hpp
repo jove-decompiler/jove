@@ -1,1 +1,1 @@
-../../../third_party/llvm-project/build/lib/Target/AArch64/AArch64GenInstrInfo.inc
+../../../llvm-project/build/lib/Target/AArch64/AArch64GenInstrInfo.inc
