@@ -11,3 +11,6 @@
 [submodule "prebuilts"]
 	path = prebuilts
 	url = https://github.com/jove-decompiler/prebuilts.git
+[submodule "klee"]
+	path = klee
+	url = https://github.com/jove-decompiler/klee.git
