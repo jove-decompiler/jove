@@ -37,6 +37,7 @@ class Binary;
 
 #include <memory>
 #include <cstdlib>
+#include <llvm/ADT/PointerIntPair.h>
 #include <llvm/Support/CommandLine.h>
 #include <llvm/Support/WithColor.h>
 #include <llvm/Support/InitLLVM.h>

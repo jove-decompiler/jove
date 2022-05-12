@@ -61,6 +61,7 @@ class Binary;
 #include <chrono>
 #include <boost/filesystem.hpp>
 #include <boost/graph/graphviz.hpp>
+#include <llvm/ADT/PointerIntPair.h>
 #include <llvm/Analysis/TargetTransformInfo.h>
 #include <llvm/ADT/Statistic.h>
 #include <llvm/Support/DataExtractor.h>

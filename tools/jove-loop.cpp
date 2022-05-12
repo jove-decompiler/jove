@@ -22,6 +22,7 @@
 #include <boost/serialization/set.hpp>
 #include <boost/serialization/vector.hpp>
 #include <boost/graph/adj_list_serialize.hpp>
+#include <llvm/ADT/PointerIntPair.h>
 #include <llvm/Support/DataExtractor.h>
 #include <llvm/Support/CommandLine.h>
 #include <llvm/Support/InitLLVM.h>

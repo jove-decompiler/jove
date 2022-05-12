@@ -6,6 +6,7 @@
 #include <boost/icl/interval_set.hpp>
 #include <boost/icl/split_interval_map.hpp>
 #include <boost/graph/depth_first_search.hpp>
+#include <llvm/ADT/PointerIntPair.h>
 #include <llvm/Support/DataExtractor.h>
 #include <llvm/ADT/StringRef.h>
 #include <llvm/ADT/ArrayRef.h>

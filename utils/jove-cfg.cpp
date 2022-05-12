@@ -6,6 +6,7 @@
 #include <memory>
 #include <boost/filesystem.hpp>
 #include <cinttypes>
+#include <llvm/ADT/PointerIntPair.h>
 #include <llvm/Support/DataExtractor.h>
 #include <llvm/Object/ELFObjectFile.h>
 #include <llvm/Support/TargetRegistry.h>

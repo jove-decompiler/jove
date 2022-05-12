@@ -1,6 +1,7 @@
 #include <boost/icl/interval_set.hpp>
 #include <boost/icl/split_interval_map.hpp>
 #include <llvm/Support/DataExtractor.h>
+#include <llvm/ADT/PointerIntPair.h>
 #include <llvm/ADT/StringRef.h>
 #include <llvm/ADT/ArrayRef.h>
 #include <llvm/Support/Error.h>
@@ -649,7 +650,6 @@ static int CreateNoAliasMetadata(void);
 static int ProcessManualRelocations(void);
 static int CreateCopyRelocationHack(void);
 static int TranslateFunctions(void);
-static int InlineCalls(void);
 static int PrepareToOptimize(void);
 static int ConstifyRelocationSectionPointers(void);
 static int InternalizeStaticFunctions(void);
@@ -795,11 +795,11 @@ int llvm(void) {
   //
   for_each_binary_if(
       Decompilation,
-      [&](auto &b) -> bool {
+      [&](binary_t &b) -> bool {
         return b.ObjectFile.get() != nullptr &&
                b._elf.OptionalDynSymRegion;
       },
-      [&](auto &b) {
+      [&](binary_t &b) {
         auto DynSyms = b._elf.OptionalDynSymRegion->template getAsArrayRef<Elf_Sym>();
 
         for_each_if(
@@ -821,9 +821,9 @@ int llvm(void) {
 
               llvm::StringRef SymName = *ExpectedSymName;
 
-              auto it = GlobalSymbolDefinedSizeMap.find(SymName);
+              auto it = GlobalSymbolDefinedSizeMap.find(SymName.str());
               if (it == GlobalSymbolDefinedSizeMap.end()) {
-                GlobalSymbolDefinedSizeMap.insert({SymName, Sym.st_size});
+                GlobalSymbolDefinedSizeMap.emplace(SymName, Sym.st_size);
               } else {
                 if ((*it).second != Sym.st_size) {
                   if (opts::Verbose)
@@ -1041,7 +1041,7 @@ int llvm(void) {
         }
 
         if (!SymVers.empty())
-          VersionScript.Table[SymVers].insert(SymName);
+          VersionScript.Table[SymVers.str()].insert(SymName.str());
       });
 
   //
@@ -1130,12 +1130,12 @@ int llvm(void) {
                    % SymVers.str()).str());
 
               // make sure version node is defined
-              VersionScript.Table[SymVers];
+              VersionScript.Table[SymVers.str()];
             }
           } else {
             if (Module->getNamedValue(SymName)) {
               if (!SymVers.empty())
-                VersionScript.Table[SymVers].insert(SymName);
+                VersionScript.Table[SymVers.str()].insert(SymName.str());
 
               return;
             }
@@ -1146,7 +1146,7 @@ int llvm(void) {
 
             llvm::GlobalAlias::create(SymName, GV);
             if (!SymVers.empty())
-              VersionScript.Table[SymVers].insert(SymName);
+              VersionScript.Table[SymVers.str()].insert(SymName.str());
           }
         });
   }
@@ -2059,7 +2059,7 @@ int ProcessBinaryTLSSymbols(void) {
         }
 
         target_ulong Addr = ThreadLocalStorage.Beg + Sym.st_value;
-        AddrToSymbolMap[Addr].insert(SymName);
+        AddrToSymbolMap[Addr].insert(SymName.str());
         AddrToSizeMap[Addr] = Sym.st_size;
 
         TLSObjects.insert(Addr);
@@ -2103,7 +2103,7 @@ int ProcessBinaryTLSSymbols(void) {
     }
 
     target_ulong Addr = ThreadLocalStorage.Beg + Sym.st_value;
-    AddrToSymbolMap[Addr].insert(SymName);
+    AddrToSymbolMap[Addr].insert(SymName.str());
     AddrToSizeMap[Addr] = Sym.st_size;
 
     TLSObjects.insert(Addr);
@@ -2856,10 +2856,13 @@ int CreateFunctionTable(void) {
   binary_t &Binary = Decompilation.Binaries[BinaryIndex];
   auto &ICFG = Binary.Analysis.ICFG;
 
-  if (llvm::Function *F = Binary.SectsF)
+  if (llvm::Function *F = Binary.SectsF) {
     fillInFunctionBody(F, [](auto &IRB) {
       IRB.CreateRet(llvm::ConstantExpr::getPtrToInt(SectsGlobal, WordType()));
     }, false /* internalize */);
+
+    F->setVisibility(llvm::GlobalValue::DefaultVisibility);
+  }
 
   std::vector<llvm::Constant *> constantTable;
   constantTable.resize(3 * Binary.Analysis.Functions.size());
@@ -5219,6 +5222,7 @@ static int TranslateFunction(function_t &f) {
       LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
 
       IRB.CreateCall(
+          JoveLogFunctionStart->getFunctionType(),
           IRB.CreateIntToPtr(
               IRB.CreateLoad(JoveLogFunctionStartClunk),
               JoveLogFunctionStart->getType()),
@@ -5421,34 +5425,6 @@ int TranslateFunctions(void) {
   DIB.finalize();
 
   FPM.doFinalization();
-
-  return 0;
-}
-
-static int InlineCalls(void) {
-  std::unordered_set<llvm::CallInst *> CallsToInline;
-
-  for (llvm::Function *F : FunctionsToInline) {
-    for (llvm::User *U : F->users()) {
-
-      if (!llvm::isa<llvm::CallInst>(U))
-        continue;
-
-      llvm::CallInst *Call = llvm::cast<llvm::CallInst>(U);
-      if (Call->getCalledFunction() != F)
-        continue;
-
-      CallsToInline.insert(Call);
-    }
-  }
-
-  for (llvm::CallInst *CallInst : CallsToInline) {
-    llvm::InlineFunctionInfo IFI;
-    llvm::InlineResult InlRes = llvm::InlineFunction(CallInst, IFI);
-    if (!InlRes)
-      WithColor::error() << llvm::formatv(
-          "unable to inline {0} function ({1})\n", *CallInst, InlRes.message);
-  }
 
   return 0;
 }
@@ -5806,7 +5782,7 @@ int DFSanInstrument(void) {
     llvm::MDNode *SubNode = TopNode->getOperand(0);
 
     std::string ModuleID =
-        llvm::cast<llvm::MDString>(SubNode->getOperand(0))->getString();
+        llvm::cast<llvm::MDString>(SubNode->getOperand(0))->getString().str();
     WithColor::note() << llvm::formatv("ModuleID is {0}\n", ModuleID);
 
     {
@@ -6545,7 +6521,9 @@ int TranslateBasicBlock(TranslateContext &TC) {
         IRB.CreateCall(JoveLog1Func, {IRB.CreateGlobalStringPtr(message.c_str()), ArgVec.at(0)});
       }
 
-      llvm::CallInst *Ret = IRB.CreateCall(CastedPtr, ArgVec);
+      llvm::CallInst *Ret = IRB.CreateCall(
+          llvm::FunctionType::get(WordType(), argTypes, false),
+          CastedPtr, ArgVec);
 
       if (Sj) {
         set(Ret, CallConvRetArray.at(0));
@@ -6593,7 +6571,9 @@ int TranslateBasicBlock(TranslateContext &TC) {
                          llvm::Type *Ty = type_of_arg_info(info);
                          return llvm::Constant::getNullValue(Ty);
                        });
-        IRB.CreateCall(IRB.CreateIntToPtr(IRB.CreateLoad(callee.PreHookClunk), callee.PreHook->getType()), ArgVec);
+        IRB.CreateCall(
+            callee.PreHook->getFunctionType(),
+            IRB.CreateIntToPtr(IRB.CreateLoad(callee.PreHookClunk), callee.PreHook->getType()), ArgVec);
       }
     }
 
@@ -6798,7 +6778,11 @@ int TranslateBasicBlock(TranslateContext &TC) {
       //
       // make the call
       //
-      llvm::CallInst *PostHookRet = IRB.CreateCall(IRB.CreateIntToPtr(IRB.CreateLoad(callee.PostHookClunk), callee.PostHook->getType()), HookArgVec);
+      llvm::CallInst *PostHookRet = IRB.CreateCall(
+          callee.PostHook->getFunctionType(),
+          IRB.CreateIntToPtr(IRB.CreateLoad(callee.PostHookClunk),
+                             callee.PostHook->getType()),
+          HookArgVec);
 
       //
       // make the return value from the post-hook be the return value for the call to the hooked function
@@ -6993,7 +6977,9 @@ int TranslateBasicBlock(TranslateContext &TC) {
         IRB.CreateCall(JoveLog1Func, {IRB.CreateGlobalStringPtr(message.c_str()), ArgVec.at(0)});
       }
 
-      llvm::CallInst *Ret = IRB.CreateCall(CastedPtr, ArgVec);
+      llvm::CallInst *Ret = IRB.CreateCall(
+          llvm::FunctionType::get(WordType(), argTypes, false),
+          CastedPtr, ArgVec);
 
       if (Sj) {
         set(Ret, CallConvRetArray.at(0));
@@ -7296,6 +7282,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
               // make the call
               //
               IRB.CreateCall(
+                  callee.PreHook->getFunctionType(),
                   IRB.CreateIntToPtr(IRB.CreateLoad(callee.PreHookClunk),
                                      callee.PreHook->getType()),
                   HookArgVec);
@@ -7338,7 +7325,10 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
 
               assert(glbv.size() < ARRAY_SIZE(JoveThunkFuncArray));
 
-              llvm::Value *ThunkF = JoveThunkFuncArray[glbv.size()];
+              llvm::Function *ThunkF = JoveThunkFuncArray[glbv.size()];
+              llvm::FunctionType *ThunkFTy = ThunkF->getFunctionType();
+              llvm::Value *ThunkFVal = ThunkF;
+
 #if defined(TARGET_AARCH64)
               {
                 llvm::StructType *ResultType;
@@ -7356,15 +7346,13 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
                   ResultType = llvm::StructType::get(*Context, structRetTypes);
                 }
 
-                assert(llvm::isa<llvm::Function>(ThunkF));
-                llvm::FunctionType *ThunkFTy = llvm::cast<llvm::Function>(ThunkF)->getFunctionType();
-                llvm::PointerType *CastFTy = llvm::FunctionType::get(ResultType, ThunkFTy->params(), false)->getPointerTo();
-
-                ThunkF = IRB.CreatePointerCast(ThunkF, CastFTy);
+                ThunkFTy = llvm::FunctionType::get(ResultType, ThunkFTy->params(), false);
+                llvm::PointerType *CastFTy = ThunkFTy->getPointerTo();
+                ThunkFVal = IRB.CreatePointerCast(ThunkF, CastFTy);
               }
 #endif
 
-              Ret = IRB.CreateCall(ThunkF, ArgVec);
+              Ret = IRB.CreateCall(ThunkFTy, ThunkFVal, ArgVec);
               Ret->setIsNoInline();
             }
 
@@ -7415,6 +7403,7 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
             }
 
             Ret = IRB.CreateCall(
+                DetermineFunctionType(callee),
                 IRB.CreateIntToPtr(
                     GetDynTargetAddress<true>(IRB, DynTargetsVec[i]),
                     llvm::PointerType::get(DetermineFunctionType(callee), 0)),
@@ -7630,6 +7619,7 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
             // make the call
             //
             IRB.CreateCall(
+                callee.PostHook->getFunctionType(),
                 IRB.CreateIntToPtr(IRB.CreateLoad(callee.PostHookClunk),
                                    callee.PostHook->getType()),
                 HookArgVec);
@@ -7728,9 +7718,9 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
 
   case TERMINATOR::RETURN: {
     if (opts::DFSan && false /* opts::Paranoid */)
-      IRB.CreateCall(IRB.CreateIntToPtr(
-          IRB.CreateLoad(DFSanFiniClunk),
-          DFSanFiniFunc->getType())); /* flush the log file */
+      IRB.CreateCall(
+          DFSanFiniFunc->getFunctionType(),
+          IRB.CreateIntToPtr(IRB.CreateLoad(DFSanFiniClunk), DFSanFiniFunc->getType()));
 
     if (f.IsABI)
       store_stack_pointer();

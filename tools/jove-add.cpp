@@ -16,6 +16,7 @@
 #include <fstream>
 #include <boost/filesystem.hpp>
 #include <llvm/Support/DataExtractor.h>
+#include <llvm/ADT/PointerIntPair.h>
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
 #include <llvm/MC/MCAsmInfo.h>

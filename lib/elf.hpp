@@ -672,7 +672,7 @@ findNotEmptySectionByAddress(const ELFF &Obj, llvm::StringRef FileName,
 static std::string describe(const ELFF &Obj, const typename ELFT::Shdr &Sec) {
   unsigned SecNdx = &Sec - &llvm::cantFail(Obj.sections()).front();
   std::string SecTyNm = llvm::object::getELFSectionTypeName(
-      Obj.getHeader()->e_machine, Sec.sh_type);
+      Obj.getHeader()->e_machine, Sec.sh_type).str();
 
   char buff[256];
   snprintf(buff,

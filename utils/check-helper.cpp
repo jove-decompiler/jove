@@ -77,7 +77,7 @@ static void checkHelper(const std::string &helper_nm) {
           continue;
 #endif
 
-        syms.insert(F.getName());
+        syms.insert(F.getName().str());
 
         WithColor::error() << "undefined function " << F.getName()
                            << " in helper module " << helper_nm << '\n';
