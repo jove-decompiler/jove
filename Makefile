@@ -8,7 +8,7 @@ HOST_ARCH := $(shell gcc -dumpmachine | tr '-' ' ' | cut -d " " -f1)
 
 include gmsl
 
-_LLVM_DIR         := $(JOVE_ROOT_DIR)/third_party/llvm-project
+_LLVM_DIR         := $(JOVE_ROOT_DIR)/llvm-project
 _LLVM_INSTALL_DIR := $(_LLVM_DIR)/install
 
 _LLVM_CONFIG := $(_LLVM_INSTALL_DIR)/bin/llvm-config
@@ -88,12 +88,12 @@ mips_ARCH_NAME    := mips
 mips64_ARCH_NAME  := mips64el
 aarch64_ARCH_NAME := aarch64
 
-aarch64_builtins_lib := $(JOVE_ROOT_DIR)/third_party/obj/libclang_rt.builtins-aarch64.a
-i386_builtins_lib    := $(JOVE_ROOT_DIR)/third_party/obj/libclang_rt.builtins-i386.a
-x86_64_builtins_lib  := $(JOVE_ROOT_DIR)/third_party/obj/libclang_rt.builtins-x86_64.a
-mipsel_builtins_lib  := $(JOVE_ROOT_DIR)/third_party/obj/libclang_rt.builtins-mipsel.a
-mips_builtins_lib    := $(JOVE_ROOT_DIR)/third_party/obj/libclang_rt.builtins-mips.a
-mips64_builtins_lib  := $(JOVE_ROOT_DIR)/third_party/obj/libclang_rt.builtins-mips64el.a
+aarch64_builtins_lib := $(JOVE_ROOT_DIR)/prebuilts/obj/libclang_rt.builtins-aarch64.a
+i386_builtins_lib    := $(JOVE_ROOT_DIR)/prebuilts/obj/libclang_rt.builtins-i386.a
+x86_64_builtins_lib  := $(JOVE_ROOT_DIR)/prebuilts/obj/libclang_rt.builtins-x86_64.a
+mipsel_builtins_lib  := $(JOVE_ROOT_DIR)/prebuilts/obj/libclang_rt.builtins-mipsel.a
+mips_builtins_lib    := $(JOVE_ROOT_DIR)/prebuilts/obj/libclang_rt.builtins-mips.a
+mips64_builtins_lib  := $(JOVE_ROOT_DIR)/prebuilts/obj/libclang_rt.builtins-mips64el.a
 
 mipsel_ARCH_CFLAGS  := -D TARGET_MIPS32
 mips_ARCH_CFLAGS    := -D TARGET_MIPS32
@@ -196,11 +196,11 @@ $(BINDIR)/$(1)/libjove_rt.so.0: lib/arch/$(1)/rt.c
 
 $(BINDIR)/$(1)/jove.bc: lib/arch/$(1)/jove.c
 	@echo CC $$<
-	$(_LLVM_CC) -o $$@ -c -MMD -emit-llvm -I lib -I include -I third_party/boost-preprocessor/include -D TARGET_$(call uc,$(1)) --target=$($(1)_TRIPLE) -Ofast --sysroot $($(1)_sysroot) -ffreestanding -fno-stack-protector $($(1)_ARCH_CFLAGS) -D TARGET_ARCH_NAME=\"$($(1)_ARCH_NAME)\" -std=gnu99 -fPIC -g -Wall -Werror-implicit-function-declaration $$<
+	$(_LLVM_CC) -o $$@ -c -MMD -emit-llvm -I lib -I include -I boost-preprocessor/include -D TARGET_$(call uc,$(1)) --target=$($(1)_TRIPLE) -Ofast --sysroot $($(1)_sysroot) -ffreestanding -fno-stack-protector $($(1)_ARCH_CFLAGS) -D TARGET_ARCH_NAME=\"$($(1)_ARCH_NAME)\" -std=gnu99 -fPIC -g -Wall -Werror-implicit-function-declaration $$<
 
 $(BINDIR)/$(1)/jove.dfsan.bc: lib/arch/$(1)/jove.c
 	@echo CC "(DFSAN)" $$<
-	$(_LLVM_CC) -o $$@ -c -MMD -emit-llvm -I lib -I include -I third_party/boost-preprocessor/include -D TARGET_$(call uc,$(1)) --target=$($(1)_TRIPLE) -Ofast --sysroot $($(1)_sysroot) -ffreestanding -fno-stack-protector $($(1)_ARCH_CFLAGS) -D TARGET_ARCH_NAME=\"$($(1)_ARCH_NAME)\" -std=gnu99 -fPIC -g -Wall -Werror-implicit-function-declaration -DJOVE_DFSAN $$<
+	$(_LLVM_CC) -o $$@ -c -MMD -emit-llvm -I lib -I include -I boost-preprocessor/include -D TARGET_$(call uc,$(1)) --target=$($(1)_TRIPLE) -Ofast --sysroot $($(1)_sysroot) -ffreestanding -fno-stack-protector $($(1)_ARCH_CFLAGS) -D TARGET_ARCH_NAME=\"$($(1)_ARCH_NAME)\" -std=gnu99 -fPIC -g -Wall -Werror-implicit-function-declaration -DJOVE_DFSAN $$<
 endef
 $(foreach target,$(ALL_TARGETS),$(eval $(call target_code_template,$(target))))
 
@@ -222,22 +222,21 @@ PACKAGE_FILE_LIST := $(TOOLBINS) \
                      $(HELPERS_DFSAN_ASSEMBLY) \
                      bin/dfsan_abilist.txt \
                      $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/harvest-vdso) \
-                     third_party/llvm-project/static_install/bin/llc \
-                     third_party/llvm-project/static_install/bin/opt \
-                     third_party/llvm-project/static_install/bin/llvm-symbolizer \
-                     third_party/llvm-project/static_install/bin/llvm-dis \
-                     third_party/llvm-project/static_install/bin/ld.lld \
-                     third_party/llvm-project/static_install/bin/lld \
-                     third_party/obj/libclang_rt.builtins-aarch64.a \
-                     third_party/obj/libclang_rt.builtins-i386.a \
-                     third_party/obj/libclang_rt.builtins-mips64el.a \
-                     third_party/obj/libclang_rt.builtins-mipsel.a \
-                     third_party/obj/libclang_rt.builtins-x86_64.a \
-                     third_party/lib/libclang_rt.dfsan.jove-aarch64.so \
-                     third_party/lib/libclang_rt.dfsan.jove-i386.so \
-                     third_party/lib/libclang_rt.dfsan.jove-mipsel.so \
-                     third_party/lib/libclang_rt.dfsan.jove-x86_64.so \
-                     $(wildcard third_party/llvm-project/install/lib/clang/10.0.1/lib/linux/libclang_rt.dfsan.jove-*.so)
+                     llvm-project/static_install/bin/llc \
+                     llvm-project/static_install/bin/opt \
+                     llvm-project/static_install/bin/llvm-symbolizer \
+                     llvm-project/static_install/bin/llvm-dis \
+                     llvm-project/static_install/bin/ld.lld \
+                     llvm-project/static_install/bin/lld \
+                     prebuilts/obj/libclang_rt.builtins-aarch64.a \
+                     prebuilts/obj/libclang_rt.builtins-i386.a \
+                     prebuilts/obj/libclang_rt.builtins-mips64el.a \
+                     prebuilts/obj/libclang_rt.builtins-mipsel.a \
+                     prebuilts/obj/libclang_rt.builtins-x86_64.a \
+                     prebuilts/lib/libclang_rt.dfsan.jove-aarch64.so \
+                     prebuilts/lib/libclang_rt.dfsan.jove-i386.so \
+                     prebuilts/lib/libclang_rt.dfsan.jove-mipsel.so \
+                     prebuilts/lib/libclang_rt.dfsan.jove-x86_64.so
 
 .PHONY: package
 package: $(PACKAGE_FILE_LIST)
@@ -1544,3 +1543,92 @@ $(foreach target,$(ALL_TARGETS),$(foreach helper,$($(target)_HELPERS),$(eval $(c
 # qemu configure command
 #
 #./configure --target-list=i386-linux-user --cc=clang --host-cc=clang --cxx=clang++ --objcc=clang --enable-tcg-interpreter --disable-sdl --disable-gtk --disable-xen --disable-bluez --disable-kvm --disable-guest-agent --disable-vnc --disable-jemalloc --disable-tcmalloc --disable-vhost-user --disable-opengl --disable-glusterfs --disable-gnutls --disable-nettle --disable-gcrypt --disable-curses --disable-libnfs --disable-libusb --disable-lzo --disable-bzip2 --disable-vhost-vsock --disable-smartcard --disable-usb-redir --disable-spice --disable-vhost-net --disable-snappy --disable-seccomp --disable-vhost-scsi --disable-virglrenderer --disable-vde --disable-rbd --disable-live-block-migration --disable-tools --disable-tpm --disable-numa --disable-cap-ng --disable-replication --disable-vte --disable-qom-cast-debug --disable-tpm --disable-xfsctl --disable-linux-aio --disable-attr --disable-coroutine-pool --disable-hax --enable-trace-backends=nop --disable-libxml2 --disable-vhost-crypto --disable-capstone --disable-werror --extra-cflags="-Xclang -load -Xclang $HOME/clang-extricate/collect/bin/carbon-collect.so -Xclang -add-plugin -Xclang carbon-collect -Xclang -plugin-arg-carbon-collect -Xclang $(pwd) -Xclang -plugin-arg-carbon-collect -Xclang $(pwd)"
+
+#
+# building llvm-project
+#
+
+GCC_TARGET := $(shell gcc -dumpmachine | tr -cd '0-9_a-z-')
+
+ifeq "$(GCC_TARGET)" "x86_64-pc-linux-gnu"
+_LLVM_TARGETS_TO_BUILD := X86
+else ifeq "$(GCC_TARGET)" "x86_64-linux-gnu"
+_LLVM_TARGETS_TO_BUILD := X86
+else ifeq "$(GCC_TARGET)" "i686-pc-linux-gnu"
+_LLVM_TARGETS_TO_BUILD := X86
+else ifeq "$(GCC_TARGET)" "i686-linux-gnu"
+_LLVM_TARGETS_TO_BUILD := X86
+else ifeq "$(GCC_TARGET)" "aarch64-unknown-linux-gnu"
+_LLVM_TARGETS_TO_BUILD := AArch64
+else ifeq "$(GCC_TARGET)" "aarch64-linux-gnu"
+_LLVM_TARGETS_TO_BUILD := AArch64
+else ifeq "$(GCC_TARGET)" "armv7l-unknown-linux-gnueabihf"
+_LLVM_TARGETS_TO_BUILD := ARM
+else ifeq "$(GCC_TARGET)" "mips64el-linux-gnuabi64"
+_LLVM_TARGETS_TO_BUILD := Mips
+else ifeq "$(GCC_TARGET)" "mipsel-linux-gnu"
+_LLVM_TARGETS_TO_BUILD := Mips
+else ifeq "$(GCC_TARGET)" "mips-linux-gnu"
+_LLVM_TARGETS_TO_BUILD := Mips
+else
+$(error "Unknown GCC target $(GCC_TARGET)")
+endif
+
+#BUILD_TYPE := Debug
+BUILD_TYPE := Release
+
+.PHONY: nothing
+nothing:
+	@echo .
+
+.PHONY: build-llvm
+build-llvm:
+	cd $(_LLVM_DIR) && \
+	rm -rf static_build static_install && \
+	mkdir static_build && \
+	cd static_build && \
+	cp $(_LLVM_DIR)/llvm/cmake/config-ix.cmake config-ix.cmake.bak && \
+	sed -i '160d;161d;162d;163d;164d;165d;166d;167d;168d;169d;170d' $(_LLVM_DIR)/llvm/cmake/config-ix.cmake && \
+	cmake -G Ninja \
+	      -D CMAKE_BUILD_TYPE=Release \
+	      -D LLVM_ENABLE_ASSERTIONS=OFF \
+	      -D "CMAKE_INSTALL_PREFIX=$(_LLVM_DIR)/static_install" \
+	      -D "LLVM_ENABLE_PROJECTS=llvm;lld" \
+	      -D "LLVM_TARGETS_TO_BUILD=X86;AArch64;Mips" \
+	      -D CMAKE_C_COMPILER=$(shell which clang-13) \
+	      -D CMAKE_CXX_COMPILER=$(shell which clang++-13) \
+	      -D LLVM_ENABLE_LIBCXX=ON \
+	      -D LLVM_USE_LINKER=lld \
+	      -D BUILD_SHARED_LIBS=OFF \
+	      -D LLVM_BUILD_LLVM_DYLIB=OFF \
+	      -D LLVM_LINK_LLVM_DYLIB=OFF \
+	      -D "CMAKE_EXE_LINKER_FLAGS=-static" \
+	      ../llvm \
+	&& ninja install && \
+	mv config-ix.cmake.bak $(_LLVM_DIR)/llvm/cmake/config-ix.cmake && \
+	cd .. && \
+	rm -rf build install && \
+	mkdir build && \
+	cd build && \
+	cmake -G Ninja \
+	      -D CMAKE_BUILD_TYPE=$(BUILD_TYPE) \
+	      -D "CMAKE_INSTALL_PREFIX=$(_LLVM_DIR)/install" \
+	      -D "LLVM_ENABLE_PROJECTS=compiler-rt;clang;lld" \
+	      -D LLVM_ENABLE_RTTI=ON \
+	      -D LLVM_ENABLE_ASSERTIONS=OFF \
+	      -D COMPILER_RT_USE_BUILTINS_LIBRARY=ON \
+	      -D LLVM_ENABLE_EH=ON \
+	      -D LLVM_BUILD_DOCS=OFF \
+	      -D LLVM_BINUTILS_INCDIR=/usr/include \
+	      -D LLVM_ENABLE_BINDINGS=OFF \
+	      -D LLVM_ENABLE_PIC=ON \
+	      -D LLVM_ENABLE_Z3_SOLVER=ON \
+	      -D LLVM_HOST_TRIPLE=$(GCC_TARGET) \
+	      -D LLVM_DEFAULT_TARGET_TRIPLE=$(GCC_TARGET) \
+	      -D "LLVM_TARGETS_TO_BUILD=X86;AArch64;Mips" \
+	      -D LLVM_ENABLE_LTO=OFF \
+	      -D LLVM_USE_LINKER=bfd \
+	      -D "CMAKE_C_FLAGS=-I /usr/include/tirpc" \
+	      -D "CMAKE_CXX_FLAGS=-I /usr/include/tirpc" \
+	      ../llvm \
+	&& ninja install

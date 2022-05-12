@@ -2,24 +2,21 @@
 	path = third_party/llvm-project
 	url = git@gitlab.com:aarnolabs/llvm/llvm.git
 	branch = print_trace_llvm10_jove
-[submodule "third_party/prebuilts"]
-	path = third_party/prebuilts
-	url = https://github.com/aleden/prebuilts.git
-[submodule "third_party/clang-extricate"]
-	path = third_party/clang-extricate
+[submodule "carbon-copy"]
+	path = carbon-copy
 	url = https://github.com/aleden/carbon-copy.git
-[submodule "third_party/libnvram"]
-	path = third_party/libnvram
+[submodule "libnvram"]
+	path = libnvram
 	url = https://github.com/aleden/libnvram.git
-[submodule "third_party/obj"]
-	path = third_party/obj
+[submodule "prebuilts/obj"]
+	path = prebuilts/obj
 	url = https://github.com/aleden/obj.git
-[submodule "third_party/lib"]
-	path = third_party/lib
+[submodule "prebuilts/lib"]
+	path = prebuilts/lib
 	url = https://github.com/aleden/lib.git
-[submodule "third_party/static_bin"]
-	path = third_party/static_bin
+[submodule "prebuilts/static_bin"]
+	path = prebuilts/static_bin
 	url = https://github.com/aleden/static_bin.git
-[submodule "third_party/boost-preprocessor"]
-	path = third_party/boost-preprocessor
+[submodule "boost-preprocessor"]
+	path = boost-preprocessor
 	url = https://github.com/boostorg/preprocessor.git
