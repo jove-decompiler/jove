@@ -184,7 +184,7 @@ int server(void) {
 
   dfsan_rt_path =
       (boost::dll::program_location().parent_path().parent_path().parent_path() /
-       "third_party" / "lib" / ("libclang_rt.dfsan.jove-" TARGET_ARCH_NAME ".so")).string();
+       "prebuilts" / "lib" / ("libclang_rt.dfsan.jove-" TARGET_ARCH_NAME ".so")).string();
 
   if (!fs::exists(dfsan_rt_path)) {
     WithColor::error() << llvm::formatv(

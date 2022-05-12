@@ -582,7 +582,7 @@ int loop(void) {
 
   jove_dfsan_path =
       (boost::dll::program_location().parent_path().parent_path().parent_path() /
-       "third_party" / "lib" / ("libclang_rt.dfsan.jove-" TARGET_ARCH_NAME ".so"))
+       "prebuilts" / "lib" / ("libclang_rt.dfsan.jove-" TARGET_ARCH_NAME ".so"))
           .string();
   if (!fs::exists(jove_dfsan_path)) {
     HumanOut() << llvm::formatv("could not find {0}\n",

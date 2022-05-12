@@ -346,7 +346,7 @@ struct graphviz_prop_writer {
 int recompile(void) {
   compiler_runtime_afp =
       (boost::dll::program_location().parent_path().parent_path().parent_path() /
-       "third_party" / "obj" / ("libclang_rt.builtins-" TARGET_ARCH_NAME ".a"))
+       "prebuilts" / "obj" / ("libclang_rt.builtins-" TARGET_ARCH_NAME ".a"))
           .string();
 
   if (!fs::exists(compiler_runtime_afp) ||
@@ -404,14 +404,14 @@ int recompile(void) {
 
   jove_dfsan_path =
       (boost::dll::program_location().parent_path().parent_path().parent_path() /
-       "third_party" / "lib" / ("libclang_rt.dfsan.jove-" TARGET_ARCH_NAME ".so")).string();
+       "prebuilts" / "lib" / ("libclang_rt.dfsan.jove-" TARGET_ARCH_NAME ".so")).string();
   if (!fs::exists(jove_dfsan_path)) {
     WithColor::error() << llvm::formatv("could not find {0}\n", jove_dfsan_path);
     return 1;
   }
 
   llc_path = (boost::dll::program_location().parent_path().parent_path().parent_path() /
-              "third_party" / "llvm-project" / "static_install" / "bin" / "llc").string();
+              "llvm-project" / "static_install" / "bin" / "llc").string();
   if (!fs::exists(llc_path)) {
     WithColor::error() << "could not find /usr/bin/llc\n";
     return 1;
@@ -419,7 +419,7 @@ int recompile(void) {
 
   llvm_dis_path =
       (boost::dll::program_location().parent_path().parent_path().parent_path() /
-       "third_party" / "llvm-project" / "static_install" / "bin" / "llvm-dis")
+       "llvm-project" / "static_install" / "bin" / "llvm-dis")
           .string();
   if (!fs::exists(llvm_dis_path)) {
     WithColor::error() << "could not find llvm-dis\n";
@@ -429,7 +429,7 @@ int recompile(void) {
   // lld 9.0.1
   std::string lld_path =
       (boost::dll::program_location().parent_path().parent_path().parent_path() /
-       "third_party" / "llvm-project" / "static_install" / "bin" / "ld.lld").string();
+       "llvm-project" / "static_install" / "bin" / "ld.lld").string();
 
   std::string ld_gold_path = "/usr/bin/ld.gold";
   std::string ld_bfd_path = "/usr/bin/ld.bfd";
@@ -456,7 +456,7 @@ int recompile(void) {
   }
 
   opt_path = (boost::dll::program_location().parent_path().parent_path().parent_path() /
-              "third_party" / "llvm-project" / "static_install" / "bin" / "opt")
+              "llvm-project" / "static_install" / "bin" / "opt")
                  .string();
   if (!fs::exists(opt_path)) {
     WithColor::error() << llvm::formatv("could not find {0}\n", opt_path);
