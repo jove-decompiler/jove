@@ -1,1 +1,1 @@
-JOVE_VER := v0.79d
+JOVE_VER := v0.79e
