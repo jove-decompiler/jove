@@ -255,6 +255,7 @@ namespace jove {
 // set when jove-recover has been run (if nonzero then either 'f', 'b', 'F', 'r')
 //
 static std::atomic<char> recovered_ch;
+static std::atomic<bool> FileSystemRestored(false);
 
 static int await_process_completion(pid_t);
 
@@ -629,6 +630,8 @@ static int do_run(void) {
     // (1) create hard links to pre-existing binaries with .jove.sav suffix
     //
     for (const binary_t &binary : decompilation.Binaries) {
+      if (binary.IsExecutable)
+        continue;
       if (binary.IsVDSO)
         continue;
       if (binary.IsDynamicLinker)
@@ -647,6 +650,8 @@ static int do_run(void) {
     // (2) copy recompiled binaries to root filesystem
     //
     for (const binary_t &binary : decompilation.Binaries) {
+      if (binary.IsExecutable)
+        continue;
       if (binary.IsVDSO)
         continue;
       if (binary.IsDynamicLinker)
@@ -819,14 +824,16 @@ static int do_run(void) {
     if (opts::Verbose)
       print_command(&arg_vec[0]);
 
-#if 1
     if (LivingDangerously) {
-      usleep(100000 /* 0.1 s */);
+      if (opts::Verbose)
+        HumanOut() << (__ANSI_CYAN "modifying root file system..." __ANSI_NORMAL_COLOR "\n");
 
       //
       // (3) perform the renames!!!
       //
       for (const binary_t &binary : decompilation.Binaries) {
+        if (binary.IsExecutable)
+          continue;
         if (binary.IsVDSO)
           continue;
         if (binary.IsDynamicLinker)
@@ -844,9 +851,8 @@ static int do_run(void) {
       }
 
       if (opts::Verbose)
-        HumanOut() << (__ANSI_CYAN "root file system modified" __ANSI_NORMAL_COLOR "\n");
+        HumanOut() << (__ANSI_CYAN "modified root file system." __ANSI_NORMAL_COLOR "\n");
     }
-#endif
 
     execve(arg_vec[0],
            const_cast<char **>(&arg_vec[0]),
@@ -899,12 +905,17 @@ static int do_run(void) {
       HumanOut() << llvm::formatv("usleep failed: {0}\n", strerror(err));
     }
 
+    if (opts::Verbose)
+      HumanOut() << (__ANSI_MAGENTA "restoring root file system..." __ANSI_NORMAL_COLOR "\n");
+
     //
     // (4) perform the renames to undo the changes we made to the root
     // filesystem all DSO's except those dynamically loaded (we do that after the second sleep)
     //
     bool HaveDynamicallyLoaded = false;
     for (const binary_t &binary : decompilation.Binaries) {
+      if (binary.IsExecutable)
+        continue;
       if (binary.IsVDSO)
         continue;
       if (binary.IsDynamicLinker)
@@ -933,6 +944,8 @@ static int do_run(void) {
       // for all the dynamically loaded DSOs
       //
       for (const binary_t &binary : decompilation.Binaries) {
+        if (binary.IsExecutable)
+          continue;
         if (binary.IsVDSO)
           continue;
         if (binary.IsDynamicLinker)
@@ -951,8 +964,10 @@ static int do_run(void) {
       }
     }
 
+    FileSystemRestored.store(true);
+
     if (opts::Verbose)
-      HumanOut() << (__ANSI_MAGENTA "root file system restored" __ANSI_NORMAL_COLOR "\n");
+      HumanOut() << (__ANSI_MAGENTA "root file system restored." __ANSI_NORMAL_COLOR "\n");
 
     close(rfd);
   }
@@ -1043,6 +1058,9 @@ void touch(const fs::path &p) {
 }
 
 void *recover_proc(const char *fifo_path) {
+  const bool WillChroot = !(opts::NoChroot || opts::ForeignLibs);
+  const bool LivingDangerously = !WillChroot && !opts::ForeignLibs;
+
   //
   // ATTENTION: this thread has to be cancel-able.
   //
@@ -1128,6 +1146,18 @@ void *recover_proc(const char *fifo_path) {
 
     if (pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, nullptr) != 0)
       HumanOut() << "pthread_setcancelstate failed\n";
+
+    {
+      static bool FirstTime = true;
+
+      if (unlikely(FirstTime)) {
+        FirstTime = false;
+
+        if (LivingDangerously)
+          while (!FileSystemRestored.load())
+            usleep(10000 /* 0.01 s */);
+      }
+    }
 
     //
     // we assume ch is loaded with a byte from the fifo. it's got to be either
