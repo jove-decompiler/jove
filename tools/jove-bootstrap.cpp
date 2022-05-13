@@ -1337,10 +1337,9 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
               switch (no) {
 #ifdef __NR_rt_sigaction
               case __NR_rt_sigaction: {
-		if (opts::Verbose)
-		  HumanOut()
-		      << llvm::formatv("rt_sigaction({0}, {1:x}, {2:x}, {3})\n",
-				       a1, a2, a3, a4);
+                if (opts::Verbose)
+                  HumanOut() << llvm::formatv(
+                      "rt_sigaction({0}, {1:x}, {2:x}, {3})\n", a1, a2, a3, a4);
 
                 uintptr_t act = a2;
                 if (act) {
@@ -2728,7 +2727,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
           Inst.getOperand(0).getReg() == llvm::Mips::RA)) {
       HumanOut() << llvm::formatv(
           "emulate_return: expected jr $ra, instead {0} {1} @ {2}\n",
-	  Inst, StringOfMCInst(Inst, dis),
+          Inst, StringOfMCInst(Inst, dis),
           description_of_program_counter(saved_pc, true));
     }
 
@@ -3151,118 +3150,118 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
   } ControlFlow;
 
   try {
-  if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL) {
-    function_index_t FIdx =
-        explore_function(TargetBinary, tcg, dis,
-                         rva_of_va(Target.Addr, Target.BIdx),
-                         TargetBinary.fnmap,
-                         TargetBinary.bbmap,
-                         on_new_basic_block);
+    if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL) {
+      function_index_t FIdx =
+          explore_function(TargetBinary, tcg, dis,
+                           rva_of_va(Target.Addr, Target.BIdx),
+                           TargetBinary.fnmap,
+                           TargetBinary.bbmap,
+                           on_new_basic_block);
 
-    assert(is_function_index_valid(FIdx));
+      assert(is_function_index_valid(FIdx));
 
-    Target.isNew = ICFG[bb].DynTargets.insert({Target.BIdx, FIdx}).second;
-
-    /* term bb may been split */
-    bb = basic_block_at_address(IndBrInfo.TermAddr, binary, bbmap);
-    assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL);
-
-    if (Target.isNew &&
-        boost::out_degree(bb, ICFG) == 0 &&
-        does_function_return(TargetBinary.Analysis.Functions[FIdx], TargetBinary)) {
-      //
-      // this call instruction will return, so explore the return block
-      //
-      basic_block_index_t NextBBIdx =
-        explore_basic_block(binary, tcg, dis,
-                            IndBrInfo.TermAddr + IndBrInfo.InsnBytes.size(),
-                            binary.fnmap,
-                            binary.bbmap,
-                            on_new_basic_block);
-
-      assert(is_basic_block_index_valid(NextBBIdx));
+      Target.isNew = ICFG[bb].DynTargets.insert({Target.BIdx, FIdx}).second;
 
       /* term bb may been split */
       bb = basic_block_at_address(IndBrInfo.TermAddr, binary, bbmap);
       assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL);
 
-      boost::add_edge(bb, boost::vertex(NextBBIdx, ICFG), ICFG);
-    }
-  } else if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP) {
-    if (unlikely(ICFG[bb].Term._indirect_jump.IsLj)) {
-      //
-      // non-local goto (aka "long jump")
-      //
-      explore_basic_block(TargetBinary, tcg, dis,
-                          rva_of_va(Target.Addr, Target.BIdx),
-                          TargetBinary.fnmap,
-                          TargetBinary.bbmap,
-                          on_new_basic_block);
-
-      ControlFlow.IsGoto = true;
-      Target.isNew = opts::Longjmps;
-    } else {
-      // on an indirect jump, we must determine one of two possibilities.
-      //
-      // (1) transfers control to a label (i.e. a goto or switch-case statement)
-      //
-      // or
-      //
-      // (2) transfers control to a function (i.e. calling a function pointer)
-      //
-      bool isTailCall =
-          IsDefinitelyTailCall(ICFG, bb) ||
-          IndBrInfo.BIdx != Target.BIdx ||
-          (boost::out_degree(bb, ICFG) == 0 &&
-           TargetBinary.fnmap.count(rva_of_va(Target.Addr, Target.BIdx)));
-
-      if (isTailCall) {
-        function_index_t FIdx =
-            explore_function(TargetBinary, tcg, dis,
-                             rva_of_va(Target.Addr, Target.BIdx),
-                             TargetBinary.fnmap,
-                             TargetBinary.bbmap,
-                             on_new_basic_block);
-
-        assert(is_function_index_valid(FIdx));
-
-        /* term bb may been split */
-        bb = basic_block_at_address(IndBrInfo.TermAddr, binary, bbmap);
-        assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP);
-
-        Target.isNew = ICFG[bb].DynTargets.insert({Target.BIdx, FIdx}).second;
-      } else {
-        basic_block_index_t TargetBBIdx =
-            explore_basic_block(TargetBinary, tcg, dis,
-                                rva_of_va(Target.Addr, Target.BIdx),
-                                TargetBinary.fnmap,
-                                TargetBinary.bbmap,
+      if (Target.isNew &&
+          boost::out_degree(bb, ICFG) == 0 &&
+          does_function_return(TargetBinary.Analysis.Functions[FIdx], TargetBinary)) {
+        //
+        // this call instruction will return, so explore the return block
+        //
+        basic_block_index_t NextBBIdx =
+            explore_basic_block(binary, tcg, dis,
+                                IndBrInfo.TermAddr + IndBrInfo.InsnBytes.size(),
+                                binary.fnmap,
+                                binary.bbmap,
                                 on_new_basic_block);
 
-        assert(is_basic_block_index_valid(TargetBBIdx));
-        basic_block_t TargetBB = boost::vertex(TargetBBIdx, ICFG);
+        assert(is_basic_block_index_valid(NextBBIdx));
 
         /* term bb may been split */
         bb = basic_block_at_address(IndBrInfo.TermAddr, binary, bbmap);
-        assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP);
+        assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL);
 
-        Target.isNew = boost::add_edge(bb, TargetBB, ICFG).second;
-        if (Target.isNew)
-          ICFG[bb].InvalidateAnalysis();
+        boost::add_edge(bb, boost::vertex(NextBBIdx, ICFG), ICFG);
+      }
+    } else if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP) {
+      if (unlikely(ICFG[bb].Term._indirect_jump.IsLj)) {
+        //
+        // non-local goto (aka "long jump")
+        //
+        explore_basic_block(TargetBinary, tcg, dis,
+                            rva_of_va(Target.Addr, Target.BIdx),
+                            TargetBinary.fnmap,
+                            TargetBinary.bbmap,
+                            on_new_basic_block);
 
         ControlFlow.IsGoto = true;
-      }
-    }
-  } else {
-    abort();
-  }
+        Target.isNew = opts::Longjmps;
+      } else {
+        // on an indirect jump, we must determine one of two possibilities.
+        //
+        // (1) transfers control to a label (i.e. a goto or switch-case statement)
+        //
+        // or
+        //
+        // (2) transfers control to a function (i.e. calling a function pointer)
+        //
+        bool isTailCall =
+            IsDefinitelyTailCall(ICFG, bb) ||
+            IndBrInfo.BIdx != Target.BIdx ||
+            (boost::out_degree(bb, ICFG) == 0 &&
+             TargetBinary.fnmap.count(rva_of_va(Target.Addr, Target.BIdx)));
 
-  if (unlikely(!opts::Quiet) || unlikely(Target.isNew))
-    HumanOut() << llvm::formatv("{3}({0}) {1} -> {2}" __ANSI_NORMAL_COLOR "\n",
-                                ControlFlow.IsGoto ? (ICFG[bb].Term._indirect_jump.IsLj ? "longjmp" : "goto") : "call",
-                                description_of_program_counter(saved_pc),
-                                description_of_program_counter(Target.Addr),
-                                ControlFlow.IsGoto ? (ICFG[bb].Term._indirect_jump.IsLj ? __ANSI_MAGENTA : __ANSI_GREEN) : __ANSI_CYAN);
+        if (isTailCall) {
+          function_index_t FIdx =
+              explore_function(TargetBinary, tcg, dis,
+                               rva_of_va(Target.Addr, Target.BIdx),
+                               TargetBinary.fnmap,
+                               TargetBinary.bbmap,
+                               on_new_basic_block);
+
+          assert(is_function_index_valid(FIdx));
+
+          /* term bb may been split */
+          bb = basic_block_at_address(IndBrInfo.TermAddr, binary, bbmap);
+          assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP);
+
+          Target.isNew = ICFG[bb].DynTargets.insert({Target.BIdx, FIdx}).second;
+        } else {
+          basic_block_index_t TargetBBIdx =
+              explore_basic_block(TargetBinary, tcg, dis,
+                                  rva_of_va(Target.Addr, Target.BIdx),
+                                  TargetBinary.fnmap,
+                                  TargetBinary.bbmap,
+                                  on_new_basic_block);
+
+          assert(is_basic_block_index_valid(TargetBBIdx));
+          basic_block_t TargetBB = boost::vertex(TargetBBIdx, ICFG);
+
+          /* term bb may been split */
+          bb = basic_block_at_address(IndBrInfo.TermAddr, binary, bbmap);
+          assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP);
+
+          Target.isNew = boost::add_edge(bb, TargetBB, ICFG).second;
+          if (Target.isNew)
+            ICFG[bb].InvalidateAnalysis();
+
+          ControlFlow.IsGoto = true;
+        }
+      }
+    } else {
+      abort();
+    }
+
+    if (unlikely(!opts::Quiet) || unlikely(Target.isNew))
+      HumanOut() << llvm::formatv("{3}({0}) {1} -> {2}" __ANSI_NORMAL_COLOR "\n",
+                                  ControlFlow.IsGoto ? (ICFG[bb].Term._indirect_jump.IsLj ? "longjmp" : "goto") : "call",
+                                  description_of_program_counter(saved_pc),
+                                  description_of_program_counter(Target.Addr),
+                                  ControlFlow.IsGoto ? (ICFG[bb].Term._indirect_jump.IsLj ? __ANSI_MAGENTA : __ANSI_GREEN) : __ANSI_CYAN);
   } catch (const std::exception &e) { /* _jove_g2h probably threw an exception */
     HumanOut() << llvm::formatv(
         "on_breakpoint failed: {0} [target: {1}+{2:x} ({3:x}) binary.LoadAddr: {4:x}]\n",
