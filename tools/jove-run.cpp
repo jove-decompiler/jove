@@ -411,8 +411,10 @@ struct ScopedMount {
         switch (err) {
         case EBUSY:
           if (retries++ < MAX_UMOUNT_RETRIES) {
-            HumanOut() << llvm::formatv("retrying umount of {0} shortly...\n", this->target);
-            usleep(100000);
+            if (opts::Verbose)
+              HumanOut() << llvm::formatv("retrying umount of {0} shortly...\n", this->target);
+
+            usleep(10000 /* 0.01 s */);
           } else {
             HumanOut() << llvm::formatv("unmounting %s failed: EBUSY...\n", this->target);
             return;
