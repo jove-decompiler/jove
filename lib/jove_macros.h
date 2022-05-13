@@ -1,6 +1,8 @@
 #pragma once
 #include <llvm/Support/WithColor.h>
 
+#define JOVE_UNUSED __attribute__((unused))
+
 #ifndef likely
 #define likely(x)   __builtin_expect(!!(x), 1)
 #endif
@@ -9,7 +11,7 @@
 #define unlikely(x) __builtin_expect(!!(x), 0)
 #endif
 
-static void __warn(const char *file, int line) {
+JOVE_UNUSED static inline void __warn(const char *file, int line) {
   llvm::WithColor::warning() << llvm::formatv("{0}:{1}\n", file, line);
 }
 
