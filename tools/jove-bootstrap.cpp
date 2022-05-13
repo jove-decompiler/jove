@@ -3159,7 +3159,35 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
                          TargetBinary.bbmap,
                          on_new_basic_block);
 
+    assert(is_function_index_valid(FIdx));
+
     Target.isNew = ICFG[bb].DynTargets.insert({Target.BIdx, FIdx}).second;
+
+    /* term bb may been split */
+    bb = basic_block_at_address(IndBrInfo.TermAddr, binary, bbmap);
+    assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL);
+
+    if (Target.isNew &&
+        boost::out_degree(bb, ICFG) == 0 &&
+        does_function_return(TargetBinary.Analysis.Functions[FIdx], TargetBinary)) {
+      //
+      // this call instruction will return, so explore the return block
+      //
+      basic_block_index_t NextBBIdx =
+        explore_basic_block(binary, tcg, dis,
+                            IndBrInfo.TermAddr + IndBrInfo.InsnBytes.size(),
+                            binary.fnmap,
+                            binary.bbmap,
+                            on_new_basic_block);
+
+      assert(is_basic_block_index_valid(NextBBIdx));
+
+      /* term bb may been split */
+      bb = basic_block_at_address(IndBrInfo.TermAddr, binary, bbmap);
+      assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL);
+
+      boost::add_edge(bb, boost::vertex(NextBBIdx, ICFG), ICFG);
+    }
   } else if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP) {
     if (unlikely(ICFG[bb].Term._indirect_jump.IsLj)) {
       //
@@ -3196,6 +3224,8 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
                              TargetBinary.bbmap,
                              on_new_basic_block);
 
+        assert(is_function_index_valid(FIdx));
+
         /* term bb may been split */
         bb = basic_block_at_address(IndBrInfo.TermAddr, binary, bbmap);
         assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP);
@@ -3208,6 +3238,8 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
                                 TargetBinary.fnmap,
                                 TargetBinary.bbmap,
                                 on_new_basic_block);
+
+        assert(is_basic_block_index_valid(TargetBBIdx));
         basic_block_t TargetBB = boost::vertex(TargetBBIdx, ICFG);
 
         /* term bb may been split */
