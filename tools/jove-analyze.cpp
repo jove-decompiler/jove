@@ -35,9 +35,7 @@ class Binary;
 #define JOVE_EXTRA_BB_PROPERTIES                                               \
   tcg_global_set_t IN, OUT;                                                    \
                                                                                \
-  void Analyze(binary_index_t);                                                \
-                                                                               \
-  llvm::BasicBlock *B;
+  void Analyze(binary_index_t);
 
 #define JOVE_EXTRA_FN_PROPERTIES                                               \
   basic_block_vec_t bbvec;                                                     \
