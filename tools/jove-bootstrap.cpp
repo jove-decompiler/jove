@@ -3187,7 +3187,9 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
         boost::add_edge(bb, boost::vertex(NextBBIdx, ICFG), ICFG);
       }
-    } else if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP) {
+    } else {
+      assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP);
+
       if (unlikely(ICFG[bb].Term._indirect_jump.IsLj)) {
         //
         // non-local goto (aka "long jump")
@@ -3252,8 +3254,6 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
           ControlFlow.IsGoto = true;
         }
       }
-    } else {
-      abort();
     }
 
     if (unlikely(!opts::Quiet) || unlikely(Target.isNew))
