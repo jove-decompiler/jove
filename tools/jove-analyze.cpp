@@ -367,13 +367,14 @@ int AnalyzeBlocks(void) {
                                        cnt == 1 ? "" : "s");
 
   //
-  // XXX _jove_call
+  // XXX hack for _jove_call
   //
-  for_each_function(Decompilation, [&](function_t &f, binary_t &b) {
-    auto &ICFG = b.Analysis.ICFG;
-    if (f.IsABI)
-      ICFG[boost::vertex(f.Entry, ICFG)].Analysis.live.use |= CallConvArgs;
-  });
+  for_each_function_if(Decompilation,
+      [](function_t &f) { return f.IsABI; },
+      [](function_t &f, binary_t &b) {
+        auto &ICFG = b.Analysis.ICFG;
+        ICFG[boost::vertex(f.Entry, ICFG)].Analysis.live.use |= CallConvArgs;
+      });
 
   return 0;
 }

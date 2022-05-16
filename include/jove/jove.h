@@ -415,11 +415,11 @@ static inline void for_each_function_in_binary(binary_t &binary,
 
 static inline void for_each_function_if(decompilation_t &decompilation,
                                         std::function<bool(function_t &)> pred,
-                                        std::function<void(function_t &)> proc) {
-  for_each_binary(decompilation, [&](binary_t &binary) {
-    for_each_if(binary.Analysis.Functions.begin(),
-                binary.Analysis.Functions.end(),
-                pred, proc);
+                                        std::function<void(function_t &, binary_t &)> proc) {
+  for_each_binary(decompilation, [&](binary_t &b) {
+    for_each_if(b.Analysis.Functions.begin(),
+                b.Analysis.Functions.end(),
+                pred, [&](function_t &f) { proc(f, b); });
   });
 }
 
