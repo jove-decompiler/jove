@@ -287,7 +287,7 @@ static _UNUSED uintptr_t _parse_stack_end_of_maps(char *maps, const unsigned n) 
 }
 
 static _INL _UNUSED uintptr_t _get_stack_end(void) {
-  char buff[4096 * 16];
+  char buff[4096 * 32];
   unsigned n = _jove_read_pseudo_file("/proc/self/maps", buff, sizeof(buff));
   buff[n] = '\0';
 

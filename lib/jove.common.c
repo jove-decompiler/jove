@@ -431,7 +431,7 @@ void _jove_install_foreign_function_tables(void) {
 
   /* we need to get the load addresses for the dynamic linker and VDSO by
    * parsing /proc/self/maps */
-  char maps[4096 * 16];
+  char maps[4096 * 32];
   unsigned n = _jove_read_pseudo_file("/proc/self/maps", maps, sizeof(maps));
   maps[n] = '\0';
 
