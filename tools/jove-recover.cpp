@@ -470,14 +470,8 @@ int recover(void) {
 
     basic_block_t target_bb = boost::vertex(target_bb_idx, ICFG);
 
-    auto &bbmap = indbr_binary.bbmap;
-    {
-      auto it = bbmap.find(TermAddr);
-      assert(it != bbmap.end());
-
-      basic_block_index_t bbidx = (*it).second - 1;
-      bb = boost::vertex(bbidx, ICFG);
-    }
+    /* term bb may been split */
+    bb = basic_block_at_address(TermAddr, indbr_binary, indbr_binary.bbmap);
 
     assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP);
 
@@ -591,23 +585,13 @@ int recover(void) {
       return 1;
     }
 
-#if 0
-    assert(CallBinary.bbmap.find(NextAddr) == CallBinary.bbmap.end());
-#endif
-
     basic_block_index_t next_bb_idx =
       explore_basic_block(CallBinary, tcg, dis, NextAddr,
                           CallBinary.fnmap,
                           CallBinary.bbmap);
 
-    auto &bbmap = CallBinary.bbmap;
-    {
-      auto it = bbmap.find(TermAddr);
-      assert(it != bbmap.end());
-
-      basic_block_index_t bbidx = (*it).second - 1;
-      bb = boost::vertex(bbidx, ICFG);
-    }
+    /* term bb may been split */
+    bb = basic_block_at_address(TermAddr, CallBinary, CallBinary.bbmap);
 
     if (ICFG[bb].Term.Type == TERMINATOR::CALL &&
         is_function_index_valid(ICFG[bb].Term._call.Target)) {
