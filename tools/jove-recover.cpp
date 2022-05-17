@@ -501,6 +501,11 @@ int recover(void) {
     Callee.FileAddr = strtoul(opts::Function[3].c_str(), nullptr, 10);
 
     binary_t &CalleeBinary = Decompilation.Binaries.at(Callee.BIdx);
+    binary_t &CallerBinary = Decompilation.Binaries.at(IndCall.BIdx);
+
+    auto &ICFG = CallerBinary.Analysis.ICFG;
+    basic_block_t bb = boost::vertex(IndCall.BBIdx, ICFG);
+    uintptr_t TermAddr = ICFG[bb].Term.Addr;
 
     function_index_t CalleeFIdx =
         explore_function(CalleeBinary, tcg, dis, Callee.FileAddr,
@@ -512,9 +517,8 @@ int recover(void) {
       return 1;
     }
 
-    auto &ICFG = Decompilation.Binaries.at(IndCall.BIdx).Analysis.ICFG;
-
-    basic_block_t bb = boost::vertex(IndCall.BBIdx, ICFG);
+    /* term bb may been split */
+    bb = basic_block_at_address(TermAddr, CallerBinary, CallerBinary.bbmap);
 
     bool isNewTarget = ICFG[bb].DynTargets.insert({Callee.BIdx, CalleeFIdx}).second;
 
