@@ -495,7 +495,7 @@ found:
       }
 
       {
-        char maps[4096 * 8];
+        char maps[4096 * 32];
         const unsigned maps_n = _jove_read_pseudo_file("/proc/self/maps", maps, sizeof(maps));
         maps[maps_n] = '\0';
 

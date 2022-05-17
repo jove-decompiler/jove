@@ -570,12 +570,12 @@ void _jove_install_foreign_function_tables(void) {
 }
 
 _NORET void _jove_fail1(uintptr_t a0, const char *reason) {
-  char maps[4096 * 8];
+  char maps[4096 * 32];
   const unsigned n = _jove_read_pseudo_file("/proc/self/maps", maps, sizeof(maps));
   maps[n] = '\0';
 
   {
-    char s[4096 * 8];
+    char s[4096 * 32];
     s[0] = '\0';
 
     _strcat(s, "_jove_fail1: ");
@@ -625,7 +625,7 @@ _NORET void _jove_fail1(uintptr_t a0, const char *reason) {
 
 _NORET void _jove_fail2(uintptr_t a0,
                         uintptr_t a1) {
-  char maps[4096 * 8];
+  char maps[4096 * 32];
   const unsigned n = _jove_read_pseudo_file("/proc/self/maps", maps, sizeof(maps));
   maps[n] = '\0';
 
@@ -827,7 +827,7 @@ jove_thunk_return_t _jove_call(
   }
 
   if (!FoundAll) {
-    char maps[4096 * 16];
+    char maps[4096 * 32];
     unsigned n = _jove_read_pseudo_file("/proc/self/maps", maps, sizeof(maps));
     maps[n] = '\0';
 
@@ -913,7 +913,7 @@ jove_thunk_return_t _jove_call(
     //
     // see if this is a function in a foreign DSO
     //
-    char maps[4096 * 16];
+    char maps[4096 * 32];
     unsigned n = _jove_read_pseudo_file("/proc/self/maps", maps, sizeof(maps));
     maps[n] = '\0';
 
