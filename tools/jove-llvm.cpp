@@ -203,6 +203,7 @@ struct hook_t;
 #include <boost/preprocessor/arithmetic/inc.hpp>
 
 #include "jove_macros.h"
+#include "jove_constants.h"
 
 #define GET_INSTRINFO_ENUM
 #include "LLVMGenInstrInfo.hpp"
@@ -627,9 +628,6 @@ static std::map<std::pair<target_ulong, unsigned>,
 
 static llvm::Constant *__jove_fail_UnknownBranchTarget;
 static llvm::Constant *__jove_fail_UnknownCallee;
-
-#define JOVE_PAGE_SIZE 4096
-#define JOVE_STACK_SIZE (512 * JOVE_PAGE_SIZE)
 
 //
 // Stages
