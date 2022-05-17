@@ -455,7 +455,7 @@ int recover(void) {
 
     basic_block_t bb = boost::vertex(IndBr.BBIdx, ICFG);
 
-    uintptr_t TermAddr = ICFG[bb].Term.Addr;
+    tcg_uintptr_t TermAddr = ICFG[bb].Term.Addr;
 
     assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP);
     basic_block_index_t target_bb_idx =
@@ -505,7 +505,7 @@ int recover(void) {
 
     auto &ICFG = CallerBinary.Analysis.ICFG;
     basic_block_t bb = boost::vertex(IndCall.BBIdx, ICFG);
-    uintptr_t TermAddr = ICFG[bb].Term.Addr;
+    tcg_uintptr_t TermAddr = ICFG[bb].Term.Addr;
 
     function_index_t CalleeFIdx =
         explore_function(CalleeBinary, tcg, dis, Callee.FileAddr,
@@ -556,13 +556,13 @@ int recover(void) {
 
     basic_block_t bb = boost::vertex(Call.BBIdx, ICFG);
 
-    uintptr_t NextAddr = ICFG[bb].Addr + ICFG[bb].Size;
+    tcg_uintptr_t NextAddr = ICFG[bb].Addr + ICFG[bb].Size;
 
 #if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
     NextAddr += 4; /* delay slot */
 #endif
 
-    uintptr_t TermAddr = ICFG[bb].Term.Addr;
+    tcg_uintptr_t TermAddr = ICFG[bb].Term.Addr;
 
     bool isCall =
       ICFG[bb].Term.Type == TERMINATOR::CALL;
@@ -679,7 +679,7 @@ std::string DescribeFunction(binary_index_t BIdx,
   function_t &f = binary.Analysis.Functions.at(FIdx);
 
   auto &ICFG = binary.Analysis.ICFG;
-  uintptr_t Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
+  tcg_uintptr_t Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
 
   return (fmt("%s+%#lx") % fs::path(binary.Path).filename().string() % Addr).str();
 }
@@ -689,7 +689,7 @@ std::string DescribeBasicBlock(binary_index_t BIdx,
   auto &binary = Decompilation.Binaries.at(BIdx);
 
   auto &ICFG = binary.Analysis.ICFG;
-  uintptr_t Addr = ICFG[boost::vertex(BBIdx, ICFG)].Addr;
+  tcg_uintptr_t Addr = ICFG[boost::vertex(BBIdx, ICFG)].Addr;
 
   return (fmt("%s+%#lx") % fs::path(binary.Path).filename().string() % Addr).str();
 }
