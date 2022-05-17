@@ -502,11 +502,11 @@ int recover(void) {
 
     binary_t &CalleeBinary = Decompilation.Binaries.at(Callee.BIdx);
 
-    function_index_t TargetFIdx =
+    function_index_t CalleeFIdx =
         explore_function(CalleeBinary, tcg, dis, Callee.FileAddr,
                          CalleeBinary.fnmap,
                          CalleeBinary.bbmap);
-    if (!is_function_index_valid(TargetFIdx)) {
+    if (!is_function_index_valid(CalleeFIdx)) {
       HumanOut() << llvm::formatv(
           "failed to translate indirect call target {0:x}\n", Callee.FileAddr);
       return 1;
@@ -516,17 +516,11 @@ int recover(void) {
 
     basic_block_t bb = boost::vertex(IndCall.BBIdx, ICFG);
 
-    bool wasDynTargetsEmpty =
-        ICFG[boost::vertex(IndCall.BBIdx, ICFG)].DynTargets.empty();
-
-
-    bool isNewTarget = ICFG[boost::vertex(IndCall.BBIdx, ICFG)]
-                           .DynTargets.insert({Callee.BIdx, TargetFIdx})
-                           .second;
+    bool isNewTarget = ICFG[bb].DynTargets.insert({Callee.BIdx, CalleeFIdx}).second;
 
     msg = (fmt(__ANSI_CYAN "(call*) %s -> %s" __ANSI_NORMAL_COLOR) %
            DescribeBasicBlock(IndCall.BIdx, IndCall.BBIdx) %
-           DescribeFunction(Callee.BIdx, TargetFIdx))
+           DescribeFunction(Callee.BIdx, CalleeFIdx))
               .str();
   } else if (opts::ABI.size() > 0) {
     assert(opts::ABI.size() == 2);
