@@ -184,6 +184,10 @@ static cl::list<std::string>
                   cl::desc("force specified TCG globals to always go through CPUState"),
                   cl::cat(JoveCategory));
 
+static cl::opt<bool>
+    OnlyExecutable("exe", cl::desc("Only analyze functions in executable"),
+                   cl::cat(JoveCategory));
+
 } // namespace opts
 
 namespace jove {
@@ -435,6 +439,9 @@ int AnalyzeFunctions(void) {
     //
     for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
       binary_t &binary = Decompilation.Binaries[BIdx];
+      if (opts::OnlyExecutable && !binary.IsExecutable)
+        continue;
+
       for (function_index_t FIdx = 0; FIdx < binary.Analysis.Functions.size(); ++FIdx) {
         function_t &f = binary.Analysis.Functions[FIdx];
         if (f.Analysis.Stale)

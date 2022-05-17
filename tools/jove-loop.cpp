@@ -1352,6 +1352,9 @@ skip_run:
           arg_vec.push_back(pinned_globals_arg.c_str());
         }
 
+        if (opts::ForeignLibs)
+          arg_vec.push_back("--exe");
+
         arg_vec.push_back(nullptr);
 
         if (opts::Verbose)
