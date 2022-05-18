@@ -608,12 +608,7 @@ int recover(void) {
 
     basic_block_t bb = boost::vertex(Call.BBIdx, ICFG);
 
-    tcg_uintptr_t NextAddr = ICFG[bb].Addr + ICFG[bb].Size;
-
-#if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
-    NextAddr += 4; /* delay slot */
-#endif
-
+    tcg_uintptr_t NextAddr = ICFG[bb].Addr + ICFG[bb].Size + (unsigned)IsMIPSTarget * 4;
     tcg_uintptr_t TermAddr = ICFG[bb].Term.Addr;
 
     bool isCall =
