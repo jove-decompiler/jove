@@ -534,6 +534,8 @@ int recover(void) {
     basic_block_t bb = boost::vertex(IndCall.BBIdx, ICFG);
     tcg_uintptr_t TermAddr = ICFG[bb].Term.Addr;
 
+    assert(boost::out_degree(bb, ICFG) == 0);
+
     function_index_t CalleeFIdx =
         explore_function(CalleeBinary, tcg, dis, Callee.FileAddr,
                          CalleeBinary.fnmap,
@@ -544,10 +546,34 @@ int recover(void) {
       return 1;
     }
 
+    function_t &callee = CalleeBinary.Analysis.Functions.at(CalleeFIdx);
+
     /* term bb may been split */
     bb = basic_block_at_address(TermAddr, CallerBinary, CallerBinary.bbmap);
 
     bool isNewTarget = ICFG[bb].DynTargets.insert({Callee.BIdx, CalleeFIdx}).second;
+
+    assert(isNewTarget);
+
+    if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL &&
+        does_function_return(callee, CalleeBinary)) {
+      //
+      // this call instruction will return, so explore the return block
+      //
+      basic_block_index_t NextBBIdx =
+          explore_basic_block(CallerBinary, tcg, dis,
+                              ICFG[bb].Addr + ICFG[bb].Size + (unsigned)IsMIPSTarget * 4,
+                              CallerBinary.fnmap,
+                              CallerBinary.bbmap);
+
+      assert(is_basic_block_index_valid(NextBBIdx));
+
+      /* term bb may been split */
+      bb = basic_block_at_address(TermAddr, CallerBinary, CallerBinary.bbmap);
+      assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL);
+
+      boost::add_edge(bb, boost::vertex(NextBBIdx, ICFG), ICFG);
+    }
 
     msg = (fmt(__ANSI_CYAN "(call*) %s -> %s" __ANSI_NORMAL_COLOR) %
            DescribeBasicBlock(IndCall.BIdx, IndCall.BBIdx) %
