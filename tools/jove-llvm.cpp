@@ -6117,12 +6117,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
 
   if (opts::Trace) {
     binary_index_t BIdx = BinaryIndex;
-
-    boost::property_map<interprocedural_control_flow_graph_t,
-                        boost::vertex_index_t>::type bb_idx_map =
-        boost::get(boost::vertex_index, ICFG);
-
-    basic_block_index_t BBIdx = bb_idx_map[bb];
+    basic_block_index_t BBIdx = index_of_basic_block(ICFG, bb);
 
     static_assert(sizeof(BIdx) == sizeof(uint32_t), "sizeof(BIdx)");
     static_assert(sizeof(BBIdx) == sizeof(uint32_t), "sizeof(BBIdx)");
@@ -6374,12 +6369,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
     case TERMINATOR::CALL:
     case TERMINATOR::INDIRECT_CALL: {
       binary_index_t BIdx = BinaryIndex;
-
-      boost::property_map<interprocedural_control_flow_graph_t,
-                          boost::vertex_index_t>::type bb_idx_map =
-          boost::get(boost::vertex_index, ICFG);
-
-      basic_block_index_t BBIdx = bb_idx_map[bb];
+      basic_block_index_t BBIdx = index_of_basic_block(ICFG, bb);
 
       static_assert(sizeof(BIdx) == sizeof(uint32_t), "sizeof(BIdx)");
       static_assert(sizeof(BBIdx) == sizeof(uint32_t), "sizeof(BBIdx)");
@@ -6824,11 +6814,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
 
       llvm::Value *PC = IRB.CreateLoad(TC.PCAlloca);
 
-      boost::property_map<interprocedural_control_flow_graph_t,
-                          boost::vertex_index_t>::type bb_idx_map =
-          boost::get(boost::vertex_index, ICFG);
-
-      llvm::Value *RecoverArgs[] = {IRB.getInt32(bb_idx_map[bb]), PC};
+      llvm::Value *RecoverArgs[] = {IRB.getInt32(index_of_basic_block(ICFG, bb)), PC};
       llvm::Value *FailArgs[] = {PC, __jove_fail_UnknownBranchTarget};
 
       IRB.CreateCall(JoveRecoverBasicBlockFunc, RecoverArgs)->setIsNoInline();
@@ -6862,11 +6848,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
             "indirect control transfer @ {0:x} has zero dyn targets\n",
             ICFG[bb].Addr);
 
-      boost::property_map<interprocedural_control_flow_graph_t,
-                          boost::vertex_index_t>::type bb_idx_map =
-          boost::get(boost::vertex_index, ICFG);
-
-      llvm::Value *RecoverArgs[] = {IRB.getInt32(bb_idx_map[bb]), PC};
+      llvm::Value *RecoverArgs[] = {IRB.getInt32(index_of_basic_block(ICFG, bb)), PC};
 
       IRB.CreateCall(JoveRecoverDynTargetFunc, RecoverArgs)->setIsNoInline();
       if (!IsCall)
@@ -7144,10 +7126,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
       {
         IRB.SetInsertPoint(ElseB);
 
-        boost::property_map<interprocedural_control_flow_graph_t,
-                            boost::vertex_index_t>::type bb_idx_map =
-            boost::get(boost::vertex_index, ICFG);
-        llvm::Value *RecoverArgs[] = {IRB.getInt32(bb_idx_map[bb]), PC};
+        llvm::Value *RecoverArgs[] = {IRB.getInt32(index_of_basic_block(ICFG, bb)), PC};
         llvm::Value *FailArgs[] = {PC, __jove_fail_UnknownCallee};
 
         IRB.CreateCall(JoveRecoverDynTargetFunc, RecoverArgs)->setIsNoInline();
@@ -7684,15 +7663,8 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
   case TERMINATOR::INDIRECT_CALL: {
     auto eit_pair = boost::out_edges(bb, ICFG);
     if (eit_pair.first == eit_pair.second) { /* otherwise fallthrough */
-      boost::property_map<interprocedural_control_flow_graph_t,
-                          boost::vertex_index_t>::type bb_idx_map =
-          boost::get(boost::vertex_index, ICFG);
-
-      basic_block_index_t BBIdx = bb_idx_map[bb];
-
-      IRB.CreateCall(JoveRecoverReturnedFunc, IRB.getInt32(BBIdx))->setIsNoInline();
-      IRB.CreateCall(
-          llvm::Intrinsic::getDeclaration(Module.get(), llvm::Intrinsic::trap));
+      IRB.CreateCall(JoveRecoverReturnedFunc, IRB.getInt32(index_of_basic_block(ICFG, bb)))->setIsNoInline();
+      IRB.CreateCall(llvm::Intrinsic::getDeclaration(Module.get(), llvm::Intrinsic::trap));
       IRB.CreateUnreachable();
       break;
     }
