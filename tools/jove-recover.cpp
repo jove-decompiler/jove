@@ -395,20 +395,24 @@ int recover(void) {
              .Analysis.Functions.at(Callee.FIdx);
 
     binary_t &CallerBinary = Decompilation.Binaries.at(Caller.BIdx);
-    auto &ICFG = CallerBinary.Analysis.ICFG;
-    basic_block_t CallerBB = boost::vertex(Caller.BBIdx, ICFG);
-    bool wasDynTargetsEmpty = ICFG[CallerBB].DynTargets.empty();
+    binary_t &CalleeBinary = Decompilation.Binaries.at(Callee.BIdx);
 
-    bool isNewTarget = ICFG[CallerBB]
-                           .DynTargets.insert({Callee.BIdx, Callee.FIdx})
-                           .second;
+    function_t &callee = CalleeBinary.Analysis.Functions.at(Callee.FIdx);
+
+    auto &ICFG = CallerBinary.Analysis.ICFG;
+    basic_block_t bb = boost::vertex(Caller.BBIdx, ICFG);
+
+    tcg_uintptr_t TermAddr = ICFG[bb].Term.Addr;
+
+    bool isNewTarget =
+        ICFG[bb].DynTargets.insert({Callee.BIdx, Callee.FIdx}).second;
 
     //
     // check to see if this is an ambiguous indirect jump XXX duplicated code with jove-bootstrap
     //
-    if (ICFG[CallerBB].Term.Type == TERMINATOR::INDIRECT_JUMP &&
-        IsDefinitelyTailCall(ICFG, CallerBB) &&
-        boost::out_degree(CallerBB, ICFG) > 0) {
+    if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP &&
+        IsDefinitelyTailCall(ICFG, bb) &&
+        boost::out_degree(bb, ICFG) > 0) {
       //
       // we thought this was a goto, but now we know it's definitely a tail call.
       // translate all sucessors as functions, then store them into the dynamic
@@ -416,7 +420,7 @@ int recover(void) {
       // would originate from this basic block.
       //
       icfg_t::out_edge_iterator e_it, e_it_end;
-      for (std::tie(e_it, e_it_end) = boost::out_edges(CallerBB, ICFG);
+      for (std::tie(e_it, e_it_end) = boost::out_edges(bb, ICFG);
            e_it != e_it_end; ++e_it) {
         control_flow_t cf(*e_it);
 
@@ -427,10 +431,33 @@ int recover(void) {
                              CallerBinary.fnmap,
                              CallerBinary.bbmap);
         assert(is_function_index_valid(FIdx));
-        ICFG[CallerBB].DynTargets.insert({Caller.BIdx, FIdx});
+
+        /* term bb may been split */
+        bb = basic_block_at_address(TermAddr, CallerBinary, CallerBinary.bbmap);
+        ICFG[bb].DynTargets.insert({Caller.BIdx, FIdx});
       }
 
-      boost::clear_out_edges(CallerBB, ICFG);
+      boost::clear_out_edges(bb, ICFG);
+    } else if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL &&
+               isNewTarget &&
+               boost::out_degree(bb, ICFG) == 0 &&
+               does_function_return(callee, CalleeBinary)) {
+      //
+      // this call instruction will return, so explore the return block
+      //
+      basic_block_index_t NextBBIdx =
+          explore_basic_block(CallerBinary, tcg, dis,
+                              ICFG[bb].Addr + ICFG[bb].Size + (unsigned)IsMIPSTarget * 4,
+                              CallerBinary.fnmap,
+                              CallerBinary.bbmap);
+
+      assert(is_basic_block_index_valid(NextBBIdx));
+
+      /* term bb may been split */
+      bb = basic_block_at_address(TermAddr, CallerBinary, CallerBinary.bbmap);
+      assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL);
+
+      boost::add_edge(bb, boost::vertex(NextBBIdx, ICFG), ICFG);
     }
 
     msg = (fmt(__ANSI_CYAN "(call) %s -> %s" __ANSI_NORMAL_COLOR) %

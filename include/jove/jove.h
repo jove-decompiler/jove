@@ -77,6 +77,14 @@ constexpr bool is_dynamic_target_valid(dynamic_target_t X) {
          is_function_index_valid(X.second);
 }
 
+constexpr bool IsMIPSTarget =
+#if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
+    true
+#else
+    false
+#endif
+    ;
+
 struct basic_block_properties_t {
   tcg_uintptr_t Addr;
   uint32_t Size;
