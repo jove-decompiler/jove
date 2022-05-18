@@ -2321,11 +2321,9 @@ int ProcessCOPYRelocations(void) {
           abort();
         }
 
-        WithColor::error() << llvm::formatv(
-            "copy relocation @ {0:x} specifies symbol {1} with size {2}\n"
-            "was prog compiled as position-independant (i.e. -fPIC)?\n",
+        WithColor::note() << llvm::formatv(
+            "copy relocation @ {0:x} specifies symbol {1} with size {2}\n",
             R.Offset, RelSym.Name, RelSym.Sym->st_size);
-        //abort();
 
         if (CopyRelocMap.find(std::pair<target_ulong, unsigned>(RelSym.Sym->st_value, RelSym.Sym->st_size)) !=
             CopyRelocMap.end())
