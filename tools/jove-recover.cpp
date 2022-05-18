@@ -534,8 +534,6 @@ int recover(void) {
     basic_block_t bb = boost::vertex(IndCall.BBIdx, ICFG);
     tcg_uintptr_t TermAddr = ICFG[bb].Term.Addr;
 
-    assert(boost::out_degree(bb, ICFG) == 0);
-
     function_index_t CalleeFIdx =
         explore_function(CalleeBinary, tcg, dis, Callee.FileAddr,
                          CalleeBinary.fnmap,
@@ -554,6 +552,7 @@ int recover(void) {
     bool isNewTarget = ICFG[bb].DynTargets.insert({Callee.BIdx, CalleeFIdx}).second;
 
     assert(isNewTarget);
+    assert(boost::out_degree(bb, ICFG) == 0);
 
     if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL &&
         does_function_return(callee, CalleeBinary)) {
