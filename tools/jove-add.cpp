@@ -726,7 +726,7 @@ int add(void) {
       if (!Contained)
         return;
 
-      if (is_relative_relocation(R)) {
+      if (!is_relative_relocation(R)) {
         WithColor::warning() << llvm::formatv(
             "unrecognized relocation {0} in .init_array/.fini_array\n",
             E.getRelocationTypeName(R.Type));
