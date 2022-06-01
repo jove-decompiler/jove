@@ -48,7 +48,7 @@ int main(int argc, char **argv) {
   usage.push_back('\n');
 
   //
-  // scan for '--' on the command-line
+  // scan for '--' on the command-line, and if found, collect trailing arguments
   //
   std::vector<char *> dashdash_args;
   std::vector<char *> __argv;
