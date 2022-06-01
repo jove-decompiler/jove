@@ -27,13 +27,13 @@ int main(int argc, char **argv) {
 
   jove::tiny_code_generator_t tcg;
 
-  auto num_globals = [&](void) -> int { return tcg._ctx.nb_globals; };
+  auto num_globals = [&](void) -> int { return tcg.priv->_ctx.nb_globals; };
   auto num_helpers = [&](void) -> int { return ARRAY_SIZE(all_helpers); };
   auto max_temps = [&](void) -> int { return TCG_MAX_TEMPS; };
 
   auto tcg_index_of_named_global = [&](const char *nm) -> int {
-    for (int i = 0; i < tcg._ctx.nb_globals; i++) {
-      if (strcmp(tcg._ctx.temps[i].name, nm) == 0)
+    for (int i = 0; i < tcg.priv->_ctx.nb_globals; i++) {
+      if (strcmp(tcg.priv->_ctx.temps[i].name, nm) == 0)
         return i;
     }
 
@@ -349,16 +349,16 @@ int main(int argc, char **argv) {
   auto print_lookup_by_mem_offset = [&](void) -> void {
     unsigned max_offset = 0;
 
-    for (int i = 0; i < tcg._ctx.nb_globals; i++) {
-      TCGTemp &ts = tcg._ctx.temps[i];
+    for (int i = 0; i < tcg.priv->_ctx.nb_globals; i++) {
+      TCGTemp &ts = tcg.priv->_ctx.temps[i];
       max_offset = std::max<unsigned>(max_offset, ts.mem_offset);
     }
 
     printf("static const uint8_t tcg_global_by_offset_lookup_table[%u] = {\n"
            "[0 ... %u] = 0xff,\n", max_offset + 1, max_offset);
 
-    for (int i = 0; i < tcg._ctx.nb_globals; i++) {
-      TCGTemp &ts = tcg._ctx.temps[i];
+    for (int i = 0; i < tcg.priv->_ctx.nb_globals; i++) {
+      TCGTemp &ts = tcg.priv->_ctx.temps[i];
 
       if (!ts.mem_base || strcmp(ts.mem_base->name, "env") != 0)
         continue;
@@ -841,8 +841,8 @@ int main(int argc, char **argv) {
          "namespace jove {\n");
 
   printf("\n//\n");
-  for (int glb = 0; glb < tcg._ctx.nb_globals; glb++)
-    printf("// %s %s\n", cstr_of_tcg_type(tcg._ctx.temps[glb].type), tcg._ctx.temps[glb].name);
+  for (int glb = 0; glb < tcg.priv->_ctx.nb_globals; glb++)
+    printf("// %s %s\n", cstr_of_tcg_type(tcg.priv->_ctx.temps[glb].type), tcg.priv->_ctx.temps[glb].name);
   printf("//\n\n");
 
 #define __TCG_CONST(NM) printf("constexpr int tcg_" #NM " = %d;\n", NM())

@@ -47,6 +47,7 @@ CXXFLAGS := -std=gnu++17 \
             -g1 \
             -I include \
             -I lib \
+            -I core \
             -I $(_LLVM_INSTALL_DIR)/include \
             -D _GNU_SOURCE \
             -D BOOST_ICL_USE_STATIC_BOUNDED_INTERVALS \
@@ -67,7 +68,7 @@ LDFLAGS := -Wl,--no-undefined \
            -lboost_filesystem \
            -lboost_system \
            -lboost_serialization \
-           -fuse-ld=gold
+           -fuse-ld=lld
 
 #
 # important directories
@@ -103,21 +104,30 @@ mips_ARCH_CFLAGS    := -D TARGET_MIPS32
 #
 $(foreach target,$(ALL_TARGETS),$(shell mkdir -p $(BINDIR)/$(target)/helpers))
 
+CORESRCDIR := core
+CORESRCS   := $(wildcard $(CORESRCDIR)/*.cpp)
 #
 # find tools
 #
 TOOLSRCDIR := tools
 TOOLSRCS   := $(wildcard $(TOOLSRCDIR)/*.cpp)
-TOOLS      := $(patsubst $(TOOLSRCDIR)/%.cpp,%,$(TOOLSRCS))
-TOOLBINS   := $(foreach target,$(ALL_TARGETS),$(foreach tool,$(TOOLS),$(BINDIR)/$(target)/$(tool)))
-TOOLDEPS   := $(foreach target,$(ALL_TARGETS),$(foreach tool,$(TOOLS),$(BINDIR)/$(target)/$(tool).d))
+ALL_TOOLS  := $(patsubst $(TOOLSRCDIR)/%.cpp,%,$(TOOLSRCS))
+TOOLOBJS   := $(foreach target,$(ALL_TARGETS),$(patsubst $(TOOLSRCDIR)/%.cpp,$(BINDIR)/$(target)/%.o,$(TOOLSRCS)))
+TOOLBINS   := $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/jove)
+TOOLDEPS   := $(foreach target,$(ALL_TARGETS),$(patsubst $(TOOLSRCDIR)/%.cpp,$(BINDIR)/$(target)/%.d,$(TOOLSRCS)))
+
+#
+# create tool symlinks
+#
+$(foreach target,$(ALL_TARGETS),$(foreach tool,$(ALL_TOOLS),$(shell ln -sf jove $(BINDIR)/$(target)/$(tool))))
+
 
 #
 # find utils
 #
 UTILSRCDIR := utils
 UTILSRCS   := $(wildcard $(UTILSRCDIR)/*.cpp)
-UTILS      := $(patsubst $(UTILSRCDIR)/%.cpp,%,$(UTILSRCS))
+ALL_UTILS  := $(patsubst $(UTILSRCDIR)/%.cpp,%,$(UTILSRCS))
 UTILBINS   := $(foreach target,$(ALL_TARGETS),$(foreach util,$(UTILS),$(BINDIR)/$(target)/$(util)))
 UTILDEPS   := $(foreach target,$(ALL_TARGETS),$(foreach util,$(UTILS),$(BINDIR)/$(target)/$(util).d))
 
@@ -156,23 +166,79 @@ HELPERS_DFSAN_ASSEMBLY := $(foreach target,$(ALL_TARGETS),$(foreach helper,$($(t
 
 HELPERDEPS := $(foreach target,$(ALL_TARGETS),$(foreach helper,$($(target)_HELPERS),$(BINDIR)/$(target)/helpers/$(helper).d))
 
-all: $(UTILBINS) $(TOOLBINS) $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/libjove_rt.so.0) $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/jove.bc) $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/jove.dfsan.bc) $(HELPERS_BITCODE) $(HELPERS_DFSAN_BITCODE) $(HELPERS_ASSEMBLY) $(HELPERS_DFSAN_ASSEMBLY) $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/harvest-vdso)
+all: $(TOOLBINS) \
+     $(UTILBINS) \
+     $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/libjove_rt.so.0) \
+     $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/jove.bc) \
+     $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/jove.dfsan.bc) \
+     $(HELPERS_BITCODE) \
+     $(HELPERS_DFSAN_BITCODE) \
+     $(HELPERS_ASSEMBLY) \
+     $(HELPERS_DFSAN_ASSEMBLY) \
+     $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/harvest-vdso)
 
 helpers: $(HELPERS_BITCODE)
 
-define build_tool_template
-$(BINDIR)/$(2)/$(1): $(TOOLSRCDIR)/$(1).cpp
-	@echo CXX $(1) "[$(2)]"
-	$(_LLVM_CXX) -o $$@ -pipe -MMD $(CXXFLAGS) $$< $(LDFLAGS) -I lib/arch/$(2) -D TARGET_$(call uc,$(2)) $($(2)_ARCH_CFLAGS) -D TARGET_ARCH_NAME=\"$($(2)_ARCH_NAME)\" -fPIC -static
+define build_tool_obj_template
+$(BINDIR)/$(1)/%.o: $(TOOLSRCDIR)/%.cpp
+	@echo CXX $$< '<$(1)>'
+	@$(_LLVM_CXX) -o $$@ -c \
+	              -MMD \
+	              $(CXXFLAGS) \
+	              $($(1)_ARCH_CFLAGS) \
+	              -I lib/arch/$(1) \
+	              -D TARGET_$(call uc,$(1)) \
+	              -D TARGET_ARCH_NAME=\"$($(1)_ARCH_NAME)\" \
+	              $$<
 endef
-$(foreach target,$(ALL_TARGETS),$(foreach tool,$(TOOLS),$(eval $(call build_tool_template,$(tool),$(target)))))
+$(foreach target,$(ALL_TARGETS),$(eval $(call build_tool_obj_template,$(target))))
+
+define build_core_obj_template
+$(BINDIR)/$(1)/%.o: $(CORESRCDIR)/%.cpp
+	@echo CXX $$^ '<$(1)>'
+	@$(_LLVM_CXX) -o $$@ -c \
+	              -MMD \
+	              $(CXXFLAGS) \
+	              $($(1)_ARCH_CFLAGS) \
+	              -I lib/arch/$(1) \
+	              -D TARGET_$(call uc,$(1)) \
+	              -D TARGET_ARCH_NAME=\"$($(1)_ARCH_NAME)\" \
+	              $$<
+endef
+$(foreach target,$(ALL_TARGETS),$(eval $(call build_core_obj_template,$(target))))
+
+define build_tool_bin_template
+$(BINDIR)/$(1)/jove: $(patsubst $(CORESRCDIR)/%.cpp,$(BINDIR)/$(1)/%.o,$(CORESRCS)) \
+                     $(patsubst $(TOOLSRCDIR)/%.cpp,$(BINDIR)/$(1)/%.o,$(TOOLSRCS))
+	@echo LINK $$@
+	@$(_LLVM_CXX) -o $$@ \
+	              -MMD \
+	              $(CXXFLAGS) \
+	              $($(1)_ARCH_CFLAGS) \
+	              -I lib/arch/$(1) \
+	              -D TARGET_$(call uc,$(1)) \
+	              -D TARGET_ARCH_NAME=\"$($(1)_ARCH_NAME)\" \
+	              $(LDFLAGS) \
+	              $$^ \
+	              -static
+endef
+$(foreach target,$(ALL_TARGETS),$(eval $(call build_tool_bin_template,$(target))))
 
 define build_util_template
 $(BINDIR)/$(2)/$(1): $(UTILSRCDIR)/$(1).cpp
-	@echo CXX $(1) "[$(2)]"
-	$(_LLVM_CXX) -o $$@ -pipe -MMD $(CXXFLAGS) $$< $(LDFLAGS) -I lib/arch/$(2) -D TARGET_$(call uc,$(2)) $($(2)_ARCH_CFLAGS) -D TARGET_ARCH_NAME=\"$($(2)_ARCH_NAME)\" -fPIC -static
+	@echo CXX $$^
+	@$(_LLVM_CXX) -o $$@ \
+	              -MMD \
+	              $(CXXFLAGS) \
+	              $($(2)_ARCH_CFLAGS) \
+	              -I lib/arch/$(2) \
+	              -D TARGET_$(call uc,$(2)) \
+	              -D TARGET_ARCH_NAME=\"$($(2)_ARCH_NAME)\" \
+	              $(LDFLAGS) \
+	              $$^ \
+	              -static
 endef
-$(foreach target,$(ALL_TARGETS),$(foreach util,$(UTILS),$(eval $(call build_util_template,$(util),$(target)))))
+$(foreach target,$(ALL_TARGETS),$(foreach util,$(ALL_UTILS),$(eval $(call build_util_template,$(util),$(target)))))
 
 define gen_tcgconstants_template
 .PHONY: gen-tcgconstants-$(1)
@@ -212,7 +278,6 @@ $(foreach target,$(ALL_TARGETS),$(eval $(call target_code_template,$(target))))
 -include $(HELPERDEPS)
 
 PACKAGE_FILE_LIST := $(TOOLBINS) \
-                     $(UTILBINS) \
                      $(JOVE_C_BITCODE) \
                      $(JOVE_C_DFSAN_BITCODE) \
                      $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/libjove_rt.so.0) \
@@ -255,6 +320,7 @@ endif
 .PHONY: clean
 clean:
 	rm -rf $(TOOLBINS) \
+	       $(TOOLOBJS) \
 	       $(UTILBINS) \
 	       $(JOVE_C_BITCODE) \
 	       $(JOVE_C_DFSAN_BITCODE) \

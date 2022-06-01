@@ -3,122 +3,59 @@
     (defined(__aarch64__) && defined(TARGET_AARCH64)) || \
     (defined(__mips64)    && defined(TARGET_MIPS64))  || \
     (defined(__mips__)    && defined(TARGET_MIPS32))
-#include <boost/icl/interval_set.hpp>
-#include <boost/icl/split_interval_map.hpp>
-#include <boost/graph/depth_first_search.hpp>
-#include <llvm/ADT/PointerIntPair.h>
-#include <llvm/Support/DataExtractor.h>
-#include <llvm/ADT/StringRef.h>
-#include <llvm/ADT/ArrayRef.h>
-#include <llvm/Support/Error.h>
-#include <llvm/Support/WithColor.h>
-#include <llvm/Support/FormatVariadic.h>
-#include <llvm/Object/ELFObjectFile.h>
-#include <llvm/MC/MCDisassembler/MCDisassembler.h>
-#include <llvm/MC/MCSubtargetInfo.h>
-#include <llvm/MC/MCInstPrinter.h>
-#include <llvm/MC/MCInstrInfo.h>
-#include <llvm/MC/MCInst.h>
-#include <boost/format.hpp>
-
-namespace jove {
-#include "elf.hpp"
-}
-
-#define JOVE_EXTRA_BIN_PROPERTIES                                              \
-  fnmap_t fnmap;                                                               \
-  bbmap_t bbmap;                                                               \
-                                                                               \
-  uintptr_t LoadAddr = std::numeric_limits<uintptr_t>::max();                  \
-  uintptr_t LoadOffset = std::numeric_limits<uintptr_t>::max();                \
-                                                                               \
-  std::unique_ptr<llvm::object::Binary> ObjectFile;                            \
-  struct {                                                                     \
-    DynRegionInfo DynamicTable;                                                \
-    llvm::StringRef DynamicStringTable;                                        \
-    const Elf_Shdr *SymbolVersionSection;                                      \
-    std::vector<VersionMapEntry> VersionMap;                                   \
-    llvm::Optional<DynRegionInfo> OptionalDynSymRegion;                        \
-                                                                               \
-    DynRegionInfo DynRelRegion;                                                \
-    DynRegionInfo DynRelaRegion;                                               \
-    DynRegionInfo DynRelrRegion;                                               \
-    DynRegionInfo DynPLTRelRegion;                                             \
-  } _elf;
-
-#include "tcgcommon.hpp"
-
-namespace jove {
-#include "explore.hpp"
-}
-
-#include <tuple>
-#include <numeric>
-#include <memory>
-#include <sstream>
-#include <fstream>
-#include <cinttypes>
+#include "tool.h"
+#include "elf.h"
+#include "tcg.h"
+#include "explore.h"
 #include <array>
-#include <thread>
-#include <boost/filesystem.hpp>
 #include <boost/dll/runtime_symbol_info.hpp>
-#include <llvm/Bitcode/BitcodeWriter.h>
-#include <llvm/IR/LLVMContext.h>
-#include <llvm/IR/Module.h>
-#include <llvm/MC/MCAsmInfo.h>
-#include <llvm/MC/MCContext.h>
-#include <llvm/MC/MCDisassembler/MCDisassembler.h>
-#include <llvm/MC/MCInstPrinter.h>
-#include <llvm/MC/MCInstrInfo.h>
-#include <llvm/MC/MCObjectFileInfo.h>
-#include <llvm/MC/MCRegisterInfo.h>
-#include <llvm/MC/MCSubtargetInfo.h>
-#include <llvm/Object/ELFObjectFile.h>
-#include <llvm/Support/CommandLine.h>
-#include <llvm/Support/DataTypes.h>
-#include <llvm/Support/Debug.h>
-#include <llvm/Support/FileSystem.h>
-#include <llvm/Support/FormatVariadic.h>
-#include <llvm/Support/InitLLVM.h>
-#include <llvm/Support/ManagedStatic.h>
-#include <llvm/Support/PrettyStackTrace.h>
-#include <llvm/Support/ScopedPrinter.h>
-#include <llvm/Support/Signals.h>
-#include <llvm/Support/TargetRegistry.h>
-#include <llvm/Support/TargetSelect.h>
-#include <llvm/Support/WithColor.h>
-#include <sys/wait.h>
-#include <sys/user.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-#include <unistd.h>
-#include <sys/syscall.h>
-#include <asm/unistd.h>
-#include <asm/auxvec.h>
-#include <sys/uio.h>
-#if !defined(__x86_64__) && defined(__i386__)
-#include <asm/ldt.h>
-#endif
-
-#include "jove/jove.h"
-#include <boost/archive/text_iarchive.hpp>
-#include <boost/archive/text_oarchive.hpp>
 #include <boost/dynamic_bitset.hpp>
-#include <boost/graph/adj_list_serialize.hpp>
+#include <boost/filesystem.hpp>
+#include <boost/format.hpp>
 #include <boost/icl/interval_set.hpp>
 #include <boost/icl/split_interval_map.hpp>
 #include <boost/preprocessor/cat.hpp>
 #include <boost/preprocessor/repetition/repeat.hpp>
 #include <boost/preprocessor/repetition/repeat_from_to.hpp>
-#include <boost/serialization/bitset.hpp>
-#include <boost/serialization/map.hpp>
-#include <boost/serialization/set.hpp>
-#include <boost/serialization/vector.hpp>
+#include <cinttypes>
+#include <llvm/IR/LLVMContext.h>
+#include <llvm/IR/Module.h>
+#include <llvm/MC/MCAsmInfo.h>
+#include <llvm/MC/MCContext.h>
+#include <llvm/MC/MCInst.h>
+#include <llvm/MC/MCInstrInfo.h>
+#include <llvm/MC/MCInstrInfo.h>
+#include <llvm/MC/MCObjectFileInfo.h>
+#include <llvm/MC/MCRegisterInfo.h>
+#include <llvm/Support/DataTypes.h>
+#include <llvm/Support/Debug.h>
+#include <llvm/Support/Error.h>
+#include <llvm/Support/FileSystem.h>
+#include <llvm/Support/FormatVariadic.h>
+#include <llvm/Support/FormatVariadic.h>
+#include <llvm/Support/ScopedPrinter.h>
+#include <llvm/Support/TargetRegistry.h>
+#include <llvm/Support/TargetSelect.h>
+#include <llvm/Support/WithColor.h>
+#include <asm/auxvec.h>
+#include <asm/unistd.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <sys/syscall.h>
+#include <sys/types.h>
+#include <sys/uio.h>
+#include <sys/user.h>
+#include <unistd.h>
+#if !defined(__x86_64__) && defined(__i386__)
+#include <asm/ldt.h>
+#endif
+#include <sys/ptrace.h>
+#if defined(__mips__)
+#include <asm/ptrace.h> /* for pt_regs */
+#endif
+//#include <linux/ptrace.h>
 
 #include "jove_macros.h"
-
-extern "C" unsigned long getauxval(unsigned long type);
 
 #define GET_INSTRINFO_ENUM
 #include "LLVMGenInstrInfo.hpp"
@@ -126,141 +63,35 @@ extern "C" unsigned long getauxval(unsigned long type);
 #define GET_REGINFO_ENUM
 #include "LLVMGenRegisterInfo.hpp"
 
-#include <sys/ptrace.h>
-
-#if defined(__mips__)
-#include <asm/ptrace.h> /* for pt_regs */
-#endif
-
-//#include <linux/ptrace.h>
-
 namespace fs = boost::filesystem;
 namespace obj = llvm::object;
 namespace cl = llvm::cl;
 
 using llvm::WithColor;
 
-namespace opts {
-static cl::OptionCategory JoveCategory("Specific Options");
-
-static cl::opt<std::string> Prog(cl::Positional, cl::desc("prog"), cl::Required,
-                                 cl::value_desc("filename"),
-                                 cl::cat(JoveCategory));
-
-static cl::list<std::string> Args("args", cl::CommaSeparated,
-                                  cl::value_desc("arg_1,arg_2,...,arg_n"),
-                                  cl::desc("Program arguments"),
-                                  cl::cat(JoveCategory));
-
-static cl::list<std::string>
-    Envs("env", cl::CommaSeparated,
-         cl::value_desc("KEY_1=VALUE_1,KEY_2=VALUE_2,...,KEY_n=VALUE_n"),
-         cl::desc("Extra environment variables"), cl::cat(JoveCategory));
-
-static cl::opt<std::string> jv("decompilation", cl::desc("Jove decompilation"),
-                               cl::Required, cl::value_desc("filename"),
-                               cl::cat(JoveCategory));
-
-static cl::alias jvAlias("d", cl::desc("Alias for -decompilation."),
-                         cl::aliasopt(jv), cl::cat(JoveCategory));
-
-static cl::opt<bool>
-    Verbose("verbose",
-            cl::desc("Print extra information for debugging purposes"),
-            cl::cat(JoveCategory));
-
-static cl::alias VerboseAlias("v", cl::desc("Alias for -verbose."),
-                              cl::aliasopt(Verbose), cl::cat(JoveCategory));
-static cl::opt<bool>
-    VeryVerbose("veryverbose",
-                cl::desc("Print extra information for debugging purposes"),
-                cl::cat(JoveCategory));
-
-static cl::alias VeryVerboseAlias("vv", cl::desc("Alias for -veryverbose."),
-                                  cl::aliasopt(VeryVerbose),
-                                  cl::cat(JoveCategory));
-
-static cl::opt<bool> Quiet("quiet", cl::desc("Suppress non-error messages"),
-                           cl::cat(JoveCategory), cl::init(true));
-
-static cl::alias QuietAlias("q", cl::desc("Alias for -quiet."),
-                            cl::aliasopt(Quiet), cl::cat(JoveCategory));
-
-static cl::opt<bool>
-    Silent("silent",
-            cl::desc("Leave the stdout/stderr of the application undisturbed"),
-            cl::cat(JoveCategory));
-
-static cl::opt<std::string>
-    HumanOutput("human-output",
-                cl::desc("Print messages to the given file path"),
-                cl::cat(JoveCategory));
-
-static cl::opt<bool> RtldDbgBrk("rtld-dbg-brk",
-                                cl::desc("look for r_debug::r_brk"),
-                                cl::cat(JoveCategory), cl::init(true));
-
-static cl::opt<bool>
-    PrintPtraceEvents("events", cl::desc("Print PTRACE events when they occur"),
-                      cl::cat(JoveCategory));
-
-static cl::alias PrintPtraceEventsAlias("e", cl::desc("Alias for -events."),
-                                        cl::aliasopt(PrintPtraceEvents),
-                                        cl::cat(JoveCategory));
-
-static cl::opt<bool> Syscalls("syscalls", cl::desc("Always trace system calls"),
-                              cl::cat(JoveCategory));
-
-static cl::alias SyscallsAlias("s", cl::desc("Alias for -syscalls."),
-                               cl::aliasopt(Syscalls),
-                               cl::cat(JoveCategory));
-
-static cl::opt<bool> Signals("signals", cl::desc("Print when delivering signals"),
-                             cl::cat(JoveCategory));
-
-static cl::opt<bool> PrintLinkMap("print-link-map",
-                                 cl::desc("Always scan link map"),
-                                 cl::cat(JoveCategory));
-
-static cl::alias ScanLinkMapAlias("l", cl::desc("Alias for -scan-link-map."),
-                                  cl::aliasopt(PrintLinkMap), cl::cat(JoveCategory));
-
-static cl::opt<unsigned> PID("attach",
-                             cl::desc("attach to existing process PID"),
-                             cl::cat(JoveCategory));
-
-static cl::alias PIDAlias("p", cl::desc("Alias for -attach."),
-                          cl::aliasopt(PID),
-                          cl::cat(JoveCategory));
-
-static cl::opt<bool> Fast("fast",
-                          cl::desc("fast mode"),
-                          cl::cat(JoveCategory));
-
-static cl::alias FastAlias("f", cl::desc("Alias for -fast."),
-                           cl::aliasopt(Fast),
-                           cl::cat(JoveCategory));
-
-static cl::opt<bool> Longjmps("longjmps",
-                              cl::desc("Print when longjmp happens"),
-                              cl::cat(JoveCategory));
-
-} // namespace opts
-
 namespace jove {
 
-typedef boost::format fmt;
+struct binary_state_t {
+  fnmap_t fnmap;
+  bbmap_t bbmap;
 
-typedef std::tuple<llvm::MCDisassembler &, const llvm::MCSubtargetInfo &,
-                   llvm::MCInstPrinter &>
-    disas_t;
+  uintptr_t LoadAddr = std::numeric_limits<uintptr_t>::max();
+  uintptr_t LoadOffset = std::numeric_limits<uintptr_t>::max();
 
-static int ChildProc(int fd);
-static int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &);
+  std::unique_ptr<llvm::object::Binary> ObjectFile;
+  struct {
+    DynRegionInfo DynamicTable;
+    llvm::StringRef DynamicStringTable;
+    const Elf_Shdr *SymbolVersionSection;
+    std::vector<VersionMapEntry> VersionMap;
+    llvm::Optional<DynRegionInfo> OptionalDynSymRegion;
 
-static std::string jove_add_path;
-
-static decompilation_t decompilation;
+    DynRegionInfo DynRelRegion;
+    DynRegionInfo DynRelaRegion;
+    DynRegionInfo DynRelrRegion;
+    DynRegionInfo DynPLTRelRegion;
+  } _elf;
+};
 
 struct proc_map_t {
   uintptr_t beg;
@@ -281,590 +112,7 @@ struct proc_map_t {
   }
 };
 
-static std::vector<struct proc_map_t> cached_proc_maps;
-
 typedef std::set<struct proc_map_t> proc_map_set_t;
-static boost::icl::split_interval_map<uintptr_t, proc_map_set_t> pmm;
-
-static boost::dynamic_bitset<> BinFoundVec;
-static std::unordered_map<std::string, binary_index_t> BinPathToIdxMap;
-
-static std::pair<void *, unsigned> GetVDSO(void);
-static std::string ProcMapsForPid(pid_t);
-
-static void IgnoreCtrlC(void);
-static void UnIgnoreCtrlC(void);
-
-static std::atomic<bool> ToggleTurbo = false;
-static unsigned TurboToggle = 0;
-
-static pid_t saved_child = 0;
-static pid_t _child = 0; /* XXX */
-
-static std::unique_ptr<llvm::raw_fd_ostream> HumanOutputFileStream;
-
-static llvm::raw_ostream *HumanOutputStreamPtr = &llvm::nulls();
-static llvm::raw_ostream &HumanOut(void) {
-  return *HumanOutputStreamPtr;
-}
-
-}
-
-int main(int argc, char **argv) {
-  int _argc = argc;
-  char **_argv = argv;
-
-  // argc/argv replacement to handle '--'
-  struct {
-    std::vector<std::string> s;
-    std::vector<const char *> a;
-  } arg_vec;
-
-  {
-    int prog_args_idx = -1;
-
-    for (int i = 0; i < argc; ++i) {
-      if (strcmp(argv[i], "--") == 0) {
-        prog_args_idx = i;
-        break;
-      }
-    }
-
-    if (prog_args_idx != -1) {
-      for (int i = 0; i < prog_args_idx; ++i)
-        arg_vec.s.push_back(argv[i]);
-
-      for (std::string &s : arg_vec.s)
-        arg_vec.a.push_back(s.c_str());
-      arg_vec.a.push_back(nullptr);
-
-      _argc = prog_args_idx;
-      _argv = const_cast<char **>(&arg_vec.a[0]);
-
-      for (int i = prog_args_idx + 1; i < argc; ++i) {
-        //llvm::outs() << llvm::formatv("argv[{0}] = {1}\n", i, argv[i]);
-
-        opts::Args.push_back(argv[i]);
-      }
-    }
-  }
-
-  llvm::InitLLVM X(_argc, _argv);
-
-  cl::HideUnrelatedOptions({&opts::JoveCategory, &llvm::ColorCategory});
-  cl::AddExtraVersionPrinter([](llvm::raw_ostream &OS) -> void {
-    OS << "jove version " JOVE_VERSION "\n";
-  });
-  cl::ParseCommandLineOptions(_argc, _argv, "Jove Dynamic Analysis\n");
-
-  if (!opts::Silent) {
-    jove::HumanOutputStreamPtr = &llvm::errs();
-
-    if (!opts::HumanOutput.empty()) {
-      std::error_code EC;
-      jove::HumanOutputFileStream.reset(
-          new llvm::raw_fd_ostream(opts::HumanOutput, EC, llvm::sys::fs::OF_Text));
-
-      if (EC) {
-        WithColor::error() << "--human-output: invalid filename passed\n";
-        return 1;
-      }
-
-      jove::HumanOutputStreamPtr = jove::HumanOutputFileStream.get();
-    }
-  }
-
-  if (!fs::exists(opts::Prog)) {
-    jove::HumanOut() << "program does not exist\n";
-    return 1;
-  }
-
-  if (!fs::exists(opts::jv)) {
-    jove::HumanOut() << "decompilation does not exist\n";
-    return 1;
-  }
-
-  jove::jove_add_path =
-      (boost::dll::program_location().parent_path() / std::string("jove-add"))
-          .string();
-  if (!fs::exists(jove::jove_add_path))
-    jove::HumanOut() << "could not find jove-add at " << jove::jove_add_path << '\n';
-
-  //
-  // okay, it looks like we're actually going to run. initialize stuff
-  //
-  jove::tiny_code_generator_t tcg;
-
-  llvm::InitializeAllTargets();
-  llvm::InitializeAllTargetMCs();
-  llvm::InitializeAllAsmPrinters();
-  llvm::InitializeAllAsmParsers();
-  llvm::InitializeAllDisassemblers();
-
-  bool git = fs::is_directory(opts::jv);
-
-  //
-  // parse the existing decompilation file
-  //
-  {
-    std::ifstream ifs(git ? (opts::jv + "/decompilation.jv") : opts::jv);
-
-    boost::archive::text_iarchive ia(ifs);
-    ia >> jove::decompilation;
-  }
-
-  //
-  // OMG. this hack is awful. it is here because if a binary is dynamically
-  // added to the decompilation, the std::vector will resize if necessary- and
-  // if such an event occurs, pointers to the section data will be invalidated
-  // because the binary_t::Data will be recopied. TODO
-  //
-  jove::decompilation.Binaries.reserve(2 * jove::decompilation.Binaries.size());
-
-  //
-  // verify that the binaries on-disk are those found in the decompilation.
-  //
-  for (jove::binary_t &binary : jove::decompilation.Binaries) {
-    if (binary.IsVDSO) {
-      //
-      // check that the VDSO hasn't changed
-      //
-      void *vdso;
-      unsigned n;
-
-      std::tie(vdso, n) = jove::GetVDSO();
-
-      if (vdso && n > 0) {
-        if (binary.Data.size() != n ||
-            memcmp(&binary.Data[0], vdso, binary.Data.size())) {
-          jove::HumanOut() << "[vdso] has changed\n";
-          return 1;
-        }
-      }
-    } else {
-      llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> FileOrErr =
-          llvm::MemoryBuffer::getFileOrSTDIN(binary.Path);
-
-      if (std::error_code EC = FileOrErr.getError()) {
-        jove::HumanOut() << llvm::formatv("failed to open binary {0}\n", binary.Path);
-        return 1;
-      }
-
-      std::unique_ptr<llvm::MemoryBuffer> &Buffer = FileOrErr.get();
-      if (binary.Data.size() != Buffer->getBufferSize() ||
-          memcmp(&binary.Data[0], Buffer->getBufferStart(), binary.Data.size())) {
-        jove::HumanOut() << llvm::formatv(
-            "binary {0} has changed ; re-run jove-init?\n", binary.Path);
-        return 1;
-      }
-    }
-  }
-
-  llvm::Triple TheTriple;
-  llvm::SubtargetFeatures Features;
-
-  //
-  // initialize state associated with every binary
-  //
-  for_each_binary(jove::decompilation, [&](jove::binary_t &binary) {
-    jove::binary_index_t BIdx = index_of_binary(binary, jove::decompilation);
-
-    // add to path -> index map
-    if (binary.IsVDSO)
-      jove::BinPathToIdxMap["[vdso]"] = BIdx;
-    else
-      jove::BinPathToIdxMap[binary.Path] = BIdx;
-
-    construct_fnmap(jove::decompilation, binary, binary.fnmap);
-    construct_bbmap(jove::decompilation, binary, binary.bbmap);
-
-    llvm::StringRef Buffer(reinterpret_cast<char *>(&binary.Data[0]),
-                           binary.Data.size());
-    llvm::StringRef Identifier(binary.Path);
-    llvm::MemoryBufferRef MemBuffRef(Buffer, Identifier);
-
-    llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
-        obj::createBinary(MemBuffRef);
-    if (!BinOrErr) {
-      if (!binary.IsVDSO)
-        jove::HumanOut() << llvm::formatv(
-            "failed to create binary having path {0}\n", binary.Path);
-
-      return;
-    } else {
-      std::unique_ptr<obj::Binary> &BinRef = *BinOrErr;
-      assert(BinRef.get());
-
-      binary.ObjectFile = std::move(BinRef);
-
-      assert(binary.ObjectFile.get());
-      if (!llvm::isa<jove::ELFO>(binary.ObjectFile.get())) {
-        jove::HumanOut() << binary.Path << " is not ELF of expected type\n";
-        exit(1);
-      }
-
-      jove::ELFO &O = *llvm::cast<jove::ELFO>(binary.ObjectFile.get());
-      const jove::ELFF &E = *O.getELFFile();
-
-      loadDynamicTable(&E, &O, binary._elf.DynamicTable);
-
-      binary._elf.OptionalDynSymRegion =
-          loadDynamicSymbols(&E, &O,
-                             binary._elf.DynamicTable,
-                             binary._elf.DynamicStringTable,
-                             binary._elf.SymbolVersionSection,
-                             binary._elf.VersionMap);
-
-      loadDynamicRelocations(&E, &O,
-                             binary._elf.DynamicTable,
-                             binary._elf.DynRelRegion,
-                             binary._elf.DynRelaRegion,
-                             binary._elf.DynRelrRegion,
-                             binary._elf.DynPLTRelRegion);
-
-      TheTriple = O.makeTriple();
-      Features = O.getFeatures();
-    }
-  });
-
-  jove::BinFoundVec.resize(jove::decompilation.Binaries.size());
-
-  //
-  // initialize the LLVM objects necessary for disassembling instructions
-  //
-  std::string ArchName;
-  std::string Error;
-
-  const llvm::Target *TheTarget =
-      llvm::TargetRegistry::lookupTarget(ArchName, TheTriple, Error);
-  if (!TheTarget) {
-    jove::HumanOut() << "failed to lookup target: " << Error << '\n';
-    return 1;
-  }
-
-  std::string TripleName = TheTriple.getTriple();
-  std::string MCPU;
-
-  std::unique_ptr<const llvm::MCRegisterInfo> MRI(
-      TheTarget->createMCRegInfo(TripleName));
-  if (!MRI) {
-    jove::HumanOut() << "no register info for target\n";
-    return 1;
-  }
-
-  llvm::MCTargetOptions Options;
-  std::unique_ptr<const llvm::MCAsmInfo> AsmInfo(
-      TheTarget->createMCAsmInfo(*MRI, TripleName, Options));
-  if (!AsmInfo) {
-    jove::HumanOut() << "no assembly info\n";
-    return 1;
-  }
-
-  std::unique_ptr<const llvm::MCSubtargetInfo> STI(
-      TheTarget->createMCSubtargetInfo(TripleName, MCPU, Features.getString()));
-  if (!STI) {
-    jove::HumanOut() << "no subtarget info\n";
-    return 1;
-  }
-
-  std::unique_ptr<const llvm::MCInstrInfo> MII(TheTarget->createMCInstrInfo());
-  if (!MII) {
-    jove::HumanOut() << "no instruction info\n";
-    return 1;
-  }
-
-  llvm::MCObjectFileInfo MOFI;
-  llvm::MCContext Ctx(AsmInfo.get(), MRI.get(), &MOFI);
-  // FIXME: for now initialize MCObjectFileInfo with default values
-  MOFI.InitMCObjectFileInfo(llvm::Triple(TripleName), false, Ctx);
-
-  std::unique_ptr<llvm::MCDisassembler> DisAsm(
-      TheTarget->createMCDisassembler(*STI, Ctx));
-  if (!DisAsm) {
-    jove::HumanOut() << "no disassembler for target\n";
-    return 1;
-  }
-
-#if defined(__x86_64__) || defined(__i386__)
-  int AsmPrinterVariant = 1; // Intel syntax
-#else
-  int AsmPrinterVariant = AsmInfo->getAssemblerDialect();
-#endif
-  std::unique_ptr<llvm::MCInstPrinter> IP(TheTarget->createMCInstPrinter(
-      llvm::Triple(TripleName), AsmPrinterVariant, *AsmInfo, *MII, *MRI));
-  if (!IP) {
-    jove::HumanOut() << "no instruction printer\n";
-    return 1;
-  }
-
-  jove::disas_t dis(*DisAsm, std::cref(*STI), *IP);
-
-  auto sighandler = [](int no) -> void {
-    switch (no) {
-      case SIGSEGV: {
-        jove::HumanOut() << "***JOVE*** bootstrap crashed! detaching from tracee...\n";
-
-        //
-        // detach from tracee
-        //
-        if (ptrace(PTRACE_DETACH, jove::saved_child, 0UL, 0UL) < 0) {
-          int err = errno;
-          jove::HumanOut() << llvm::formatv("failed to detach from tracee [{0}]: {1}\n",
-                                            jove::saved_child,
-                                            strerror(err));
-          exit(1);
-        }
-
-        jove::HumanOut() << llvm::formatv("***JOVE*** bootstrap crashed! attach a debugger [{0}]...", getpid());
-        for (;;) {
-          for (unsigned i = 0; i < 10; ++i)
-            sleep(1);
-
-          jove::HumanOut() << ".";
-        }
-
-        __builtin_trap();
-        __builtin_unreachable();
-      }
-
-      case SIGUSR1:
-        jove::ToggleTurbo.store(true);
-        break;
-
-      //
-      // SIGUSR2: write decompilation and exit
-      //
-      case SIGUSR2: {
-        jove::HumanOut() << "writing decompilation and exiting...\n";
-
-        //
-        // write decompilation
-        //
-        bool git = fs::is_directory(opts::jv);
-        {
-          std::ofstream ofs(git ? (std::string(opts::jv) + "/decompilation.jv")
-                                : opts::jv);
-
-          boost::archive::text_oarchive oa(ofs);
-          oa << jove::decompilation;
-        }
-
-        exit(0);
-      }
-      /* fallthrough */
-
-      default:
-        __builtin_trap();
-        __builtin_unreachable();
-    }
-
-    if (jove::saved_child) {
-      //
-      // instigate a ptrace-stop
-      //
-      if (kill(jove::saved_child, SIGSTOP /* SIGWINCH */) < 0) {
-        int err = errno;
-        jove::HumanOut() << llvm::formatv("kill of {0} failed: {1}\n",
-                                          jove::saved_child, strerror(err));
-      }
-    }
-  };
-
-#define INSTALL_SIG(sig)                                                       \
-  do {                                                                         \
-    struct sigaction sa;                                                       \
-                                                                               \
-    sigemptyset(&sa.sa_mask);                                                  \
-    sa.sa_flags = SA_RESTART;                                                  \
-    sa.sa_handler = sighandler;                                                \
-                                                                               \
-    if (sigaction(sig, &sa, nullptr) < 0) {                                    \
-      int err = errno;                                                         \
-      jove::HumanOut() << llvm::formatv("{0}: sigaction failed ({1})\n",       \
-                                        __func__, strerror(err));              \
-    }                                                                          \
-  } while (0)
-
-  INSTALL_SIG(SIGUSR1);
-  INSTALL_SIG(SIGUSR2);
-  INSTALL_SIG(SIGSEGV);
-
-  //
-  // bootstrap has two modes of execution.
-  //
-  // (1) attach to existing process (--attach pid)
-  // (2) create new process (PROG -- ARG_1 ARG_2 ... ARG_N)
-  //
-  if (pid_t child = opts::PID) {
-    jove::saved_child = child;
-
-    //
-    // mode 1: attach
-    //
-    if (ptrace(PTRACE_ATTACH, child, 0UL, 0UL) < 0) {
-      jove::HumanOut() << llvm::formatv("PTRACE_ATTACH failed ({0})\n", strerror(errno));
-      return 1;
-    }
-
-    //
-    // since PTRACE_ATTACH succeeded, we know the tracee was sent a SIGSTOP.
-    // wait on it.
-    //
-    if (opts::Verbose)
-      jove::HumanOut() << "waiting for SIGSTOP...\n";
-
-    {
-      int status;
-      do
-        waitpid(-1, &status, __WALL);
-      while (!WIFSTOPPED(status));
-    }
-
-    if (opts::Verbose)
-      jove::HumanOut() << "waited on SIGSTOP.\n";
-
-    {
-      int ptrace_options = PTRACE_O_TRACESYSGOOD |
-                        /* PTRACE_O_EXITKILL   | */
-                           PTRACE_O_TRACEEXIT  |
-                        /* PTRACE_O_TRACEEXEC  | */
-                           PTRACE_O_TRACEFORK  |
-                           PTRACE_O_TRACEVFORK |
-                           PTRACE_O_TRACECLONE;
-
-      if (ptrace(PTRACE_SETOPTIONS, child, 0UL, ptrace_options) < 0) {
-        int err = errno;
-        jove::HumanOut() << llvm::formatv("{0}: PTRACE_SETOPTIONS failed ({1})\n",
-                                          __func__,
-                                          strerror(err));
-      }
-    }
-
-    return jove::TracerLoop(child, tcg, dis);
-  } else {
-    //
-    // mode 2: create new process
-    //
-    int pipefd[2];
-    if (pipe(pipefd) < 0) { /* first, create a pipe */
-      jove::HumanOut() << "pipe(2) failed. bug?\n";
-      return 1;
-    }
-
-    int rfd = pipefd[0];
-    int wfd = pipefd[1];
-
-    child = fork();
-    if (!child) {
-      {
-        int rc = close(rfd);
-        assert(!(rc < 0));
-      }
-
-      //
-      // make pipe close-on-exec
-      //
-      {
-        int rc = fcntl(wfd, F_SETFD, FD_CLOEXEC);
-        assert(!(rc < 0));
-      }
-
-      return jove::ChildProc(wfd);
-    }
-
-    jove::saved_child = child;
-    jove::IgnoreCtrlC();
-
-    {
-      int rc = close(wfd);
-      assert(!(rc < 0));
-    }
-
-    //
-    // observe the (initial) signal-delivery-stop
-    //
-    if (opts::Verbose)
-      jove::HumanOut() << "parent: waiting for initial stop of child " << child
-                       << "...\n";
-
-    {
-      int status;
-      do
-        waitpid(child, &status, 0);
-      while (!WIFSTOPPED(status));
-    }
-
-    if (opts::Verbose)
-      jove::HumanOut() << "parent: initial stop observed\n";
-
-    {
-      //
-      // trace exec for the following
-      //
-      int ptrace_options = PTRACE_O_TRACESYSGOOD |
-                        /* PTRACE_O_EXITKILL   | */
-                           PTRACE_O_TRACEEXIT  |
-                           PTRACE_O_TRACEEXEC  | /* needs to be set here */
-                           PTRACE_O_TRACEFORK  |
-                           PTRACE_O_TRACEVFORK |
-                           PTRACE_O_TRACECLONE;
-
-      if (ptrace(PTRACE_SETOPTIONS, child, 0UL, ptrace_options) < 0) {
-        int err = errno;
-        jove::HumanOut() << llvm::formatv("{0}: PTRACE_SETOPTIONS failed ({1})\n",
-                                          __func__,
-                                          strerror(err));
-      }
-    }
-
-    //
-    // allow the child to make progress (most importantly, execve)
-    //
-    if (ptrace(PTRACE_CONT, child, 0UL, 0UL) < 0) {
-      int err = errno;
-      jove::HumanOut() << llvm::formatv("failed to resume tracee! {0}", err);
-      return 1;
-    }
-
-    //
-    // "If a process attempts to read from an empty pipe, then read(2) will
-    // block until data is available."
-    //
-    {
-      ssize_t ret;
-      do {
-        uint8_t byte;
-        ret = read(rfd, &byte, 1);
-      } while (!(ret <= 0));
-
-      /* if we got here, the other end of the pipe must have been closed,
-       * most likely by close-on-exec */
-      close(rfd);
-    }
-
-    return jove::TracerLoop(-1, tcg, dis);
-  }
-}
-
-namespace jove {
-
-static bool update_view_of_virtual_memory(pid_t, disas_t &);
-
-#if defined(__mips64) || defined(__mips__)
-//
-// we need to find a code cave that can hold two instructions (8 bytes)
-//
-static uintptr_t ExecutableRegionAddress;
-#endif
-
-static struct {
-  bool Found;
-  uintptr_t Addr;
-
-  uintptr_t r_brk;
-} _r_debug = {.Found = false, .Addr = 0, .r_brk = 0};
-
-static boost::icl::split_interval_map<uintptr_t, unsigned> AddressSpace;
 
 struct indirect_branch_t {
   unsigned long words[2];
@@ -898,39 +146,6 @@ struct return_t {
   uintptr_t TermAddr;
 };
 
-static std::unordered_map<uintptr_t, indirect_branch_t> IndBrMap;
-static std::unordered_map<uintptr_t, return_t> RetMap;
-
-static uintptr_t va_of_rva(uintptr_t Addr, binary_index_t BIdx) {
-  binary_t &binary = decompilation.Binaries.at(BIdx);
-
-  if (!BinFoundVec.test(BIdx))
-    throw std::runtime_error(std::string(__func__) + ": given binary (" +
-                             binary.Path + " is not loaded\n");
-
-  if (!binary.IsPIC) {
-    assert(binary.IsExecutable);
-    return Addr;
-  }
-
-  return Addr + (binary.LoadAddr - binary.LoadOffset);
-}
-
-static uintptr_t rva_of_va(uintptr_t Addr, binary_index_t BIdx) {
-  binary_t &binary = decompilation.Binaries.at(BIdx);
-
-  if (!BinFoundVec.test(BIdx))
-    throw std::runtime_error(std::string(__func__) + ": given binary (" +
-                             binary.Path + " is not loaded\n");
-
-  if (!binary.IsPIC) {
-    assert(binary.IsExecutable);
-    return Addr;
-  }
-
-  return Addr - (binary.LoadAddr - binary.LoadOffset);
-}
-
 // one-shot breakpoint
 struct breakpoint_t {
   unsigned long words[2];
@@ -942,14 +157,677 @@ struct breakpoint_t {
   llvm::MCInst DelaySlotInst;
 #endif
 
-  void (*callback)(pid_t, tiny_code_generator_t &, disas_t &);
+  std::function<void(pid_t, tiny_code_generator_t &, disas_t &)> callback;
 };
-static std::unordered_map<uintptr_t, breakpoint_t> BrkMap;
 
-static void place_breakpoint_at_indirect_branch(pid_t, uintptr_t Addr,
-                                                indirect_branch_t &, disas_t &);
-static void place_breakpoint(pid_t, uintptr_t Addr, breakpoint_t &, disas_t &);
-static void on_breakpoint(pid_t, tiny_code_generator_t &, disas_t &);
+struct child_syscall_state_t {
+  unsigned no;
+  long a1, a2, a3, a4, a5, a6;
+  unsigned int dir : 1;
+
+  unsigned long pc;
+
+  child_syscall_state_t() : dir(0), pc(0) {}
+};
+
+struct BootstrapTool : public Tool {
+  struct Cmdline {
+    cl::opt<std::string> Prog;
+    cl::list<std::string> Args;
+    cl::list<std::string> Envs;
+    cl::opt<std::string> jv;
+    cl::alias jvAlias;
+    cl::opt<bool> Verbose;
+    cl::alias VerboseAlias;
+    cl::opt<bool> VeryVerbose;
+    cl::alias VeryVerboseAlias;
+    cl::opt<bool> Quiet;
+    cl::alias QuietAlias;
+    cl::opt<bool> Silent;
+    cl::opt<std::string> HumanOutput;
+    cl::opt<bool> RtldDbgBrk;
+    cl::opt<bool> PrintPtraceEvents;
+    cl::alias PrintPtraceEventsAlias;
+    cl::opt<bool> Syscalls;
+    cl::alias SyscallsAlias;
+    cl::opt<bool> Signals;
+    cl::opt<bool> PrintLinkMap;
+    cl::alias ScanLinkMapAlias;
+    cl::opt<unsigned> PID;
+    cl::alias PIDAlias;
+    cl::opt<bool> Fast;
+    cl::alias FastAlias;
+    cl::opt<bool> Longjmps;
+
+    Cmdline(llvm::cl::OptionCategory &JoveCategory)
+        : Prog(cl::Positional, cl::desc("prog"), cl::Required,
+               cl::value_desc("filename"), cl::cat(JoveCategory)),
+
+          Args("args", cl::CommaSeparated,
+               cl::value_desc("arg_1,arg_2,...,arg_n"),
+               cl::desc("Program arguments"), cl::cat(JoveCategory)),
+
+          Envs("env", cl::CommaSeparated,
+               cl::value_desc("KEY_1=VALUE_1,KEY_2=VALUE_2,...,KEY_n=VALUE_n"),
+               cl::desc("Extra environment variables"), cl::cat(JoveCategory)),
+
+          jv("Decompilation", cl::desc("Jove Decompilation"), cl::Required,
+             cl::value_desc("filename"), cl::cat(JoveCategory)),
+
+          jvAlias("d", cl::desc("Alias for -Decompilation."), cl::aliasopt(jv),
+                  cl::cat(JoveCategory)),
+
+          Verbose("verbose",
+                  cl::desc("Print extra information for debugging purposes"),
+                  cl::cat(JoveCategory)),
+
+          VerboseAlias("v", cl::desc("Alias for -verbose."),
+                       cl::aliasopt(Verbose), cl::cat(JoveCategory)),
+          VeryVerbose(
+              "veryverbose",
+              cl::desc("Print extra information for debugging purposes"),
+              cl::cat(JoveCategory)),
+
+          VeryVerboseAlias("vv", cl::desc("Alias for -veryverbose."),
+                           cl::aliasopt(VeryVerbose), cl::cat(JoveCategory)),
+
+          Quiet("quiet", cl::desc("Suppress non-error messages"),
+                cl::cat(JoveCategory), cl::init(true)),
+
+          QuietAlias("q", cl::desc("Alias for -quiet."), cl::aliasopt(Quiet),
+                     cl::cat(JoveCategory)),
+
+          Silent("silent",
+                 cl::desc(
+                     "Leave the stdout/stderr of the application undisturbed"),
+                 cl::cat(JoveCategory)),
+
+          HumanOutput("human-output",
+                      cl::desc("Print messages to the given file path"),
+                      cl::cat(JoveCategory)),
+
+          RtldDbgBrk("rtld-dbg-brk", cl::desc("look for r_debug::r_brk"),
+                     cl::cat(JoveCategory), cl::init(true)),
+
+          PrintPtraceEvents("events",
+                            cl::desc("Print PTRACE events when they occur"),
+                            cl::cat(JoveCategory)),
+
+          PrintPtraceEventsAlias("e", cl::desc("Alias for -events."),
+                                 cl::aliasopt(PrintPtraceEvents),
+                                 cl::cat(JoveCategory)),
+
+          Syscalls("syscalls", cl::desc("Always trace system calls"),
+                   cl::cat(JoveCategory)),
+
+          SyscallsAlias("s", cl::desc("Alias for -syscalls."),
+                        cl::aliasopt(Syscalls), cl::cat(JoveCategory)),
+
+          Signals("signals", cl::desc("Print when delivering signals"),
+                  cl::cat(JoveCategory)),
+
+          PrintLinkMap("print-link-map", cl::desc("Always scan link map"),
+                       cl::cat(JoveCategory)),
+
+          ScanLinkMapAlias("l", cl::desc("Alias for -scan-link-map."),
+                           cl::aliasopt(PrintLinkMap), cl::cat(JoveCategory)),
+
+          PID("attach", cl::desc("attach to existing process PID"),
+              cl::cat(JoveCategory)),
+
+          PIDAlias("p", cl::desc("Alias for -attach."), cl::aliasopt(PID),
+                   cl::cat(JoveCategory)),
+
+          Fast("fast", cl::desc("fast mode"), cl::cat(JoveCategory)),
+
+          FastAlias("f", cl::desc("Alias for -fast."), cl::aliasopt(Fast),
+                    cl::cat(JoveCategory)),
+
+          Longjmps("longjmps", cl::desc("Print when longjmp happens"),
+                   cl::cat(JoveCategory)) {}
+  } opts;
+
+  decompilation_t Decompilation;
+
+  std::string jove_add_path;
+
+  std::vector<struct proc_map_t> cached_proc_maps;
+
+  boost::icl::split_interval_map<uintptr_t, proc_map_set_t> pmm;
+
+  boost::icl::split_interval_map<uintptr_t, unsigned> AddressSpace;
+
+  boost::dynamic_bitset<> BinFoundVec;
+  std::unordered_map<std::string, binary_index_t> BinPathToIdxMap;
+
+  unsigned TurboToggle = 0;
+
+  pid_t _child = 0; /* XXX */
+
+  std::unordered_map<uintptr_t, indirect_branch_t> IndBrMap;
+  std::unordered_map<uintptr_t, return_t> RetMap;
+  std::unordered_map<uintptr_t, breakpoint_t> BrkMap;
+
+  std::unordered_map<pid_t, child_syscall_state_t> children_syscall_state;
+
+public:
+  BootstrapTool() : opts(JoveCategory) {}
+
+  int Run(void);
+
+  int ChildProc(int fd);
+  int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &);
+
+  void add_binary(pid_t, tiny_code_generator_t &, disas_t &,
+                  const char *path);
+
+  void on_new_basic_block(binary_t &, basic_block_t, disas_t &);
+
+  void place_breakpoint_at_indirect_branch(pid_t, uintptr_t Addr,
+                                           indirect_branch_t &, disas_t &);
+
+  void place_breakpoint_at_return(pid_t child, uintptr_t Addr, return_t &Ret);
+
+  void on_binary_loaded(pid_t, disas_t &, binary_index_t, const proc_map_t &);
+
+  void on_dynamic_linker_loaded(pid_t, disas_t &, binary_index_t,
+                                const proc_map_t &);
+
+  void place_breakpoint(pid_t, uintptr_t Addr, breakpoint_t &, disas_t &);
+  void on_breakpoint(pid_t, tiny_code_generator_t &, disas_t &);
+  void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr,
+                 tiny_code_generator_t &, disas_t &);
+
+  void harvest_reloc_targets(pid_t, tiny_code_generator_t &, disas_t &);
+  void rendezvous_with_dynamic_linker(pid_t, disas_t &);
+  void scan_rtld_link_map(pid_t, tiny_code_generator_t &, disas_t &);
+
+  void harvest_irelative_reloc_targets(pid_t child, tiny_code_generator_t &,
+                                       disas_t &);
+  void harvest_addressof_reloc_targets(pid_t child, tiny_code_generator_t &,
+                                       disas_t &);
+  void harvest_ctor_and_dtors(pid_t child, tiny_code_generator_t &tcg,
+                              disas_t &);
+
+#if defined(__mips64) || defined(__mips__)
+  void harvest_global_GOT_entries(pid_t child, tiny_code_generator_t &tcg,
+                                  disas_t &dis);
+#endif
+
+  bool update_view_of_virtual_memory(pid_t, disas_t &);
+
+  uintptr_t va_of_rva(uintptr_t Addr, binary_index_t BIdx);
+  uintptr_t rva_of_va(uintptr_t Addr, binary_index_t BIdx);
+
+  std::string description_of_program_counter(uintptr_t, bool Verbose = false);
+
+  void InvalidateAllFunctionAnalyses(void);
+};
+
+JOVE_REGISTER_TOOL("bootstrap", BootstrapTool);
+
+static pid_t saved_child;
+static std::atomic<bool> ToggleTurbo = false;
+static  bool git;
+static std::string jvfp;
+
+typedef boost::format fmt;
+
+static std::pair<void *, unsigned> GetVDSO(void);
+static std::string ProcMapsForPid(pid_t);
+
+static BootstrapTool *pTool;
+static void SignalHandler(int no);
+
+int BootstrapTool::Run(void) {
+  pTool = this;
+
+  for (char *dashdash_arg : dashdash_args)
+    opts.Args.push_back(dashdash_arg);
+
+  if (!opts.Silent && !opts.HumanOutput.empty())
+    HumanOutToFile(opts.HumanOutput);
+
+  if (!fs::exists(opts.Prog)) {
+    HumanOut() << "program does not exist\n";
+    return 1;
+  }
+
+  if (!fs::exists(opts.jv)) {
+    HumanOut() << "Decompilation does not exist\n";
+    return 1;
+  }
+
+  jove_add_path =
+      (boost::dll::program_location().parent_path() / std::string("jove-add"))
+          .string();
+  if (!fs::exists(jove_add_path))
+    HumanOut() << "could not find jove-add at " << jove_add_path << '\n';
+
+  //
+  // okay, it looks like we're actually going to run. initialize stuff
+  //
+  tiny_code_generator_t tcg;
+
+  llvm::InitializeAllTargets();
+  llvm::InitializeAllTargetMCs();
+  llvm::InitializeAllAsmPrinters();
+  llvm::InitializeAllAsmParsers();
+  llvm::InitializeAllDisassemblers();
+
+  git = fs::is_directory(opts.jv);
+  jvfp = git ? (std::string(opts.jv) + "/Decompilation.jv")
+                                 : opts.jv;
+  //
+  // parse the existing Decompilation file
+  //
+  ReadDecompilationFromFile(jvfp, Decompilation);
+
+  //
+  // OMG. this hack is awful. it is here because if a binary is dynamically
+  // added to the Decompilation, the std::vector will resize if necessary- and
+  // if such an event occurs, pointers to the section data will be invalidated
+  // because the binary_t::Data will be recopied. TODO
+  //
+  Decompilation.Binaries.reserve(2 * Decompilation.Binaries.size());
+
+  //
+  // verify that the binaries on-disk are those found in the Decompilation.
+  //
+  for (binary_t &binary : Decompilation.Binaries) {
+    if (binary.IsVDSO) {
+      //
+      // check that the VDSO hasn't changed
+      //
+      void *vdso;
+      unsigned n;
+
+      std::tie(vdso, n) = GetVDSO();
+
+      if (vdso && n > 0) {
+        if (binary.Data.size() != n ||
+            memcmp(&binary.Data[0], vdso, binary.Data.size())) {
+          HumanOut() << "[vdso] has changed\n";
+          return 1;
+        }
+      }
+    } else {
+      llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> FileOrErr =
+          llvm::MemoryBuffer::getFileOrSTDIN(binary.Path);
+
+      if (std::error_code EC = FileOrErr.getError()) {
+        HumanOut() << llvm::formatv("failed to open binary {0}\n", binary.Path);
+        return 1;
+      }
+
+      std::unique_ptr<llvm::MemoryBuffer> &Buffer = FileOrErr.get();
+      if (binary.Data.size() != Buffer->getBufferSize() ||
+          memcmp(&binary.Data[0], Buffer->getBufferStart(), binary.Data.size())) {
+        HumanOut() << llvm::formatv(
+            "binary {0} has changed ; re-run jove-init?\n", binary.Path);
+        return 1;
+      }
+    }
+  }
+
+  llvm::Triple TheTriple;
+  llvm::SubtargetFeatures Features;
+
+  //
+  // initialize state associated with every binary
+  //
+  for_each_binary(Decompilation, [&](binary_t &binary) {
+    binary_index_t BIdx = index_of_binary(binary, Decompilation);
+
+    // add to path -> index map
+    if (binary.IsVDSO)
+      BinPathToIdxMap["[vdso]"] = BIdx;
+    else
+      BinPathToIdxMap[binary.Path] = BIdx;
+
+    construct_fnmap(Decompilation, binary, state_for_binary(binary).fnmap);
+    construct_bbmap(Decompilation, binary, state_for_binary(binary).bbmap);
+
+    llvm::StringRef Buffer(reinterpret_cast<char *>(&binary.Data[0]),
+                           binary.Data.size());
+    llvm::StringRef Identifier(binary.Path);
+    llvm::MemoryBufferRef MemBuffRef(Buffer, Identifier);
+
+    llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
+        obj::createBinary(MemBuffRef);
+    if (!BinOrErr) {
+      if (!binary.IsVDSO)
+        HumanOut() << llvm::formatv(
+            "failed to create binary having path {0}\n", binary.Path);
+
+      return;
+    } else {
+      std::unique_ptr<obj::Binary> &BinRef = *BinOrErr;
+      assert(BinRef.get());
+
+      state_for_binary(binary).ObjectFile = std::move(BinRef);
+
+      assert(state_for_binary(binary).ObjectFile.get());
+      if (!llvm::isa<ELFO>(state_for_binary(binary).ObjectFile.get())) {
+        HumanOut() << binary.Path << " is not ELF of expected type\n";
+        exit(1);
+      }
+
+      ELFO &O = *llvm::cast<ELFO>(state_for_binary(binary).ObjectFile.get());
+      const ELFF &E = *O.getELFFile();
+
+      loadDynamicTable(&E, &O, state_for_binary(binary)._elf.DynamicTable);
+
+      state_for_binary(binary)._elf.OptionalDynSymRegion =
+          loadDynamicSymbols(&E, &O,
+                             state_for_binary(binary)._elf.DynamicTable,
+                             state_for_binary(binary)._elf.DynamicStringTable,
+                             state_for_binary(binary)._elf.SymbolVersionSection,
+                             state_for_binary(binary)._elf.VersionMap);
+
+      loadDynamicRelocations(&E, &O,
+                             state_for_binary(binary)._elf.DynamicTable,
+                             state_for_binary(binary)._elf.DynRelRegion,
+                             state_for_binary(binary)._elf.DynRelaRegion,
+                             state_for_binary(binary)._elf.DynRelrRegion,
+                             state_for_binary(binary)._elf.DynPLTRelRegion);
+
+      TheTriple = O.makeTriple();
+      Features = O.getFeatures();
+    }
+  });
+
+  BinFoundVec.resize(Decompilation.Binaries.size());
+
+  //
+  // initialize the LLVM objects necessary for disassembling instructions
+  //
+  std::string ArchName;
+  std::string Error;
+
+  const llvm::Target *TheTarget =
+      llvm::TargetRegistry::lookupTarget(ArchName, TheTriple, Error);
+  if (!TheTarget) {
+    HumanOut() << "failed to lookup target: " << Error << '\n';
+    return 1;
+  }
+
+  std::string TripleName = TheTriple.getTriple();
+  std::string MCPU;
+
+  std::unique_ptr<const llvm::MCRegisterInfo> MRI(
+      TheTarget->createMCRegInfo(TripleName));
+  if (!MRI) {
+    HumanOut() << "no register info for target\n";
+    return 1;
+  }
+
+  llvm::MCTargetOptions Options;
+  std::unique_ptr<const llvm::MCAsmInfo> AsmInfo(
+      TheTarget->createMCAsmInfo(*MRI, TripleName, Options));
+  if (!AsmInfo) {
+    HumanOut() << "no assembly info\n";
+    return 1;
+  }
+
+  std::unique_ptr<const llvm::MCSubtargetInfo> STI(
+      TheTarget->createMCSubtargetInfo(TripleName, MCPU, Features.getString()));
+  if (!STI) {
+    HumanOut() << "no subtarget info\n";
+    return 1;
+  }
+
+  std::unique_ptr<const llvm::MCInstrInfo> MII(TheTarget->createMCInstrInfo());
+  if (!MII) {
+    HumanOut() << "no instruction info\n";
+    return 1;
+  }
+
+  llvm::MCObjectFileInfo MOFI;
+  llvm::MCContext Ctx(AsmInfo.get(), MRI.get(), &MOFI);
+  // FIXME: for now initialize MCObjectFileInfo with default values
+  MOFI.InitMCObjectFileInfo(llvm::Triple(TripleName), false, Ctx);
+
+  std::unique_ptr<llvm::MCDisassembler> DisAsm(
+      TheTarget->createMCDisassembler(*STI, Ctx));
+  if (!DisAsm) {
+    HumanOut() << "no disassembler for target\n";
+    return 1;
+  }
+
+#if defined(__x86_64__) || defined(__i386__)
+  int AsmPrinterVariant = 1; // Intel syntax
+#else
+  int AsmPrinterVariant = AsmInfo->getAssemblerDialect();
+#endif
+  std::unique_ptr<llvm::MCInstPrinter> IP(TheTarget->createMCInstPrinter(
+      llvm::Triple(TripleName), AsmPrinterVariant, *AsmInfo, *MII, *MRI));
+  if (!IP) {
+    HumanOut() << "no instruction printer\n";
+    return 1;
+  }
+
+  disas_t dis(*DisAsm, std::cref(*STI), *IP);
+
+#define INSTALL_SIG(sig)                                                       \
+  do {                                                                         \
+    struct sigaction sa;                                                       \
+                                                                               \
+    sigemptyset(&sa.sa_mask);                                                  \
+    sa.sa_flags = SA_RESTART;                                                  \
+    sa.sa_handler = SignalHandler;                                             \
+                                                                               \
+    if (sigaction(sig, &sa, nullptr) < 0) {                                    \
+      int err = errno;                                                         \
+      HumanOut() << llvm::formatv("sigaction failed: {0}\n", strerror(err));   \
+    }                                                                          \
+  } while (0)
+
+  INSTALL_SIG(SIGUSR1);
+  INSTALL_SIG(SIGUSR2);
+  INSTALL_SIG(SIGSEGV);
+
+  //
+  // bootstrap has two modes of execution.
+  //
+  // (1) attach to existing process (--attach pid)
+  // (2) create new process (PROG -- ARG_1 ARG_2 ... ARG_N)
+  //
+  if (pid_t child = opts.PID) {
+    saved_child = child;
+
+    //
+    // mode 1: attach
+    //
+    if (ptrace(PTRACE_ATTACH, child, 0UL, 0UL) < 0) {
+      HumanOut() << llvm::formatv("PTRACE_ATTACH failed ({0})\n", strerror(errno));
+      return 1;
+    }
+
+    //
+    // since PTRACE_ATTACH succeeded, we know the tracee was sent a SIGSTOP.
+    // wait on it.
+    //
+    if (opts.Verbose)
+      HumanOut() << "waiting for SIGSTOP...\n";
+
+    {
+      int status;
+      do
+        waitpid(-1, &status, __WALL);
+      while (!WIFSTOPPED(status));
+    }
+
+    if (opts.Verbose)
+      HumanOut() << "waited on SIGSTOP.\n";
+
+    {
+      int ptrace_options = PTRACE_O_TRACESYSGOOD |
+                        /* PTRACE_O_EXITKILL   | */
+                           PTRACE_O_TRACEEXIT  |
+                        /* PTRACE_O_TRACEEXEC  | */
+                           PTRACE_O_TRACEFORK  |
+                           PTRACE_O_TRACEVFORK |
+                           PTRACE_O_TRACECLONE;
+
+      if (ptrace(PTRACE_SETOPTIONS, child, 0UL, ptrace_options) < 0) {
+        int err = errno;
+        HumanOut() << llvm::formatv("{0}: PTRACE_SETOPTIONS failed ({1})\n",
+                                          __func__,
+                                          strerror(err));
+      }
+    }
+
+    return TracerLoop(child, tcg, dis);
+  } else {
+    //
+    // mode 2: create new process
+    //
+    int pipefd[2];
+    if (pipe(pipefd) < 0) { /* first, create a pipe */
+      HumanOut() << "pipe(2) failed. bug?\n";
+      return 1;
+    }
+
+    int rfd = pipefd[0];
+    int wfd = pipefd[1];
+
+    child = fork();
+    if (!child) {
+      {
+        int rc = close(rfd);
+        assert(!(rc < 0));
+      }
+
+      //
+      // make pipe close-on-exec
+      //
+      {
+        int rc = fcntl(wfd, F_SETFD, FD_CLOEXEC);
+        assert(!(rc < 0));
+      }
+
+      return ChildProc(wfd);
+    }
+
+    saved_child = child;
+    IgnoreCtrlC();
+
+    {
+      int rc = close(wfd);
+      assert(!(rc < 0));
+    }
+
+    //
+    // observe the (initial) signal-delivery-stop
+    //
+    if (opts.Verbose)
+      HumanOut() << "parent: waiting for initial stop of child " << child
+                       << "...\n";
+
+    {
+      int status;
+      do
+        waitpid(child, &status, 0);
+      while (!WIFSTOPPED(status));
+    }
+
+    if (opts.Verbose)
+      HumanOut() << "parent: initial stop observed\n";
+
+    {
+      //
+      // trace exec for the following
+      //
+      int ptrace_options = PTRACE_O_TRACESYSGOOD |
+                        /* PTRACE_O_EXITKILL   | */
+                           PTRACE_O_TRACEEXIT  |
+                           PTRACE_O_TRACEEXEC  | /* needs to be set here */
+                           PTRACE_O_TRACEFORK  |
+                           PTRACE_O_TRACEVFORK |
+                           PTRACE_O_TRACECLONE;
+
+      if (ptrace(PTRACE_SETOPTIONS, child, 0UL, ptrace_options) < 0) {
+        int err = errno;
+        HumanOut() << llvm::formatv("{0}: PTRACE_SETOPTIONS failed ({1})\n",
+                                          __func__,
+                                          strerror(err));
+      }
+    }
+
+    //
+    // allow the child to make progress (most importantly, execve)
+    //
+    if (ptrace(PTRACE_CONT, child, 0UL, 0UL) < 0) {
+      int err = errno;
+      HumanOut() << llvm::formatv("failed to resume tracee! {0}", err);
+      return 1;
+    }
+
+    //
+    // "If a process attempts to read from an empty pipe, then read(2) will
+    // block until data is available."
+    //
+    {
+      ssize_t ret;
+      do {
+        uint8_t byte;
+        ret = read(rfd, &byte, 1);
+      } while (!(ret <= 0));
+
+      /* if we got here, the other end of the pipe must have been closed,
+       * most likely by close-on-exec */
+      close(rfd);
+    }
+
+    return TracerLoop(-1, tcg, dis);
+  }
+}
+
+#if defined(__mips64) || defined(__mips__)
+//
+// we need to find a code cave that can hold two instructions (8 bytes)
+//
+static uintptr_t ExecutableRegionAddress;
+#endif
+
+static struct {
+  bool Found;
+  uintptr_t Addr;
+
+  uintptr_t r_brk;
+} _r_debug = {.Found = false, .Addr = 0, .r_brk = 0};
+
+
+uintptr_t BootstrapTool::va_of_rva(uintptr_t Addr, binary_index_t BIdx) {
+  binary_t &binary = Decompilation.Binaries.at(BIdx);
+
+  if (!BinFoundVec.test(BIdx))
+    throw std::runtime_error(std::string(__func__) + ": given binary (" +
+                             binary.Path + " is not loaded\n");
+
+  if (!binary.IsPIC) {
+    assert(binary.IsExecutable);
+    return Addr;
+  }
+
+  return Addr + (state_for_binary(binary).LoadAddr - state_for_binary(binary).LoadOffset);
+}
+
+uintptr_t BootstrapTool::rva_of_va(uintptr_t Addr, binary_index_t BIdx) {
+  binary_t &binary = Decompilation.Binaries.at(BIdx);
+
+  if (!BinFoundVec.test(BIdx))
+    throw std::runtime_error(std::string(__func__) + ": given binary (" +
+                             binary.Path + " is not loaded\n");
+
+  if (!binary.IsPIC) {
+    assert(binary.IsExecutable);
+    return Addr;
+  }
+
+  return Addr - (state_for_binary(binary).LoadAddr - state_for_binary(binary).LoadOffset);
+}
 
 #if !defined(__x86_64__) && defined(__i386__)
 static uintptr_t segment_address_of_selector(pid_t, unsigned segsel);
@@ -969,34 +847,6 @@ static std::string _ptrace_read_string(pid_t, uintptr_t addr);
 static unsigned long _ptrace_peekdata(pid_t, uintptr_t addr);
 static void _ptrace_pokedata(pid_t, uintptr_t addr, unsigned long data);
 
-struct child_syscall_state_t {
-  unsigned no;
-  long a1, a2, a3, a4, a5, a6;
-  unsigned int dir : 1;
-
-  unsigned long pc;
-
-  child_syscall_state_t() : dir(0), pc(0) {}
-};
-
-static std::unordered_map<pid_t, child_syscall_state_t> children_syscall_state;
-
-static int await_process_completion(pid_t);
-
-static std::string description_of_program_counter(uintptr_t, bool Verbose = false);
-
-static void harvest_reloc_targets(pid_t, tiny_code_generator_t &, disas_t &);
-static void rendezvous_with_dynamic_linker(pid_t, disas_t &);
-static void scan_rtld_link_map(pid_t, tiny_code_generator_t &, disas_t &);
-
-static void on_return(pid_t child,
-                      uintptr_t AddrOfRet,
-                      uintptr_t RetAddr,
-                      tiny_code_generator_t &,
-                      disas_t &);
-
-static void on_new_basic_block(binary_t &, basic_block_t, disas_t &);
-
 static constexpr auto &pc_of_cpu_state(cpu_state_t &cpu_state) {
   return cpu_state.
 #if defined(__x86_64__)
@@ -1015,13 +865,13 @@ static constexpr auto &pc_of_cpu_state(cpu_state_t &cpu_state) {
       ;
 }
 
-static void InvalidateAllFunctionAnalyses(void) {
-  for (binary_t &binary : decompilation.Binaries)
+void BootstrapTool::InvalidateAllFunctionAnalyses(void) {
+  for (binary_t &binary : Decompilation.Binaries)
     for (function_t &f : binary.Analysis.Functions)
       f.InvalidateAnalysis();
 }
 
-int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
+int BootstrapTool::TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
   siginfo_t si;
   long sig = 0;
 
@@ -1030,7 +880,7 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
   try {
     for (;;) {
       if (likely(!(child < 0))) {
-        if (unlikely(ptrace(opts::Syscalls || unlikely(!BinFoundVec.all())
+        if (unlikely(ptrace(opts.Syscalls || unlikely(!BinFoundVec.all())
                                 ? PTRACE_SYSCALL
                                 : PTRACE_CONT,
                             child, nullptr, reinterpret_cast<void *>(sig)) < 0))
@@ -1284,7 +1134,7 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
               switch (no) {
               case __NR_exit:
               case __NR_exit_group:
-                if (opts::Verbose)
+                if (opts.Verbose)
                   HumanOut() << "Observed program exit.\n";
                 harvest_reloc_targets(child, tcg, dis);
                 break;
@@ -1337,7 +1187,7 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
               switch (no) {
 #ifdef __NR_rt_sigaction
               case __NR_rt_sigaction: {
-                if (opts::Verbose)
+                if (opts.Verbose)
                   HumanOut() << llvm::formatv(
                       "rt_sigaction({0}, {1:x}, {2:x}, {3})\n", a1, a2, a3, a4);
 
@@ -1352,7 +1202,7 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
                       ;
                   uintptr_t handler = _ptrace_peekdata(child, act + handler_offset);
 
-                  if (opts::Verbose)
+                  if (opts.Verbose)
                     HumanOut() << llvm::formatv(
                         "on rt_sigaction(): handler={0:x}\n", handler);
 
@@ -1366,22 +1216,24 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
                     auto it = AddressSpace.find(handler);
                     if (it != AddressSpace.end()) {
                       binary_index_t BIdx = -1+(*it).second;
-                      binary_t &b = decompilation.Binaries[BIdx];
+                      binary_t &b = Decompilation.Binaries[BIdx];
 
                       unsigned brkpt_count = 0;
 
                       basic_block_index_t entrybb_idx = explore_basic_block(
-                          b, tcg, dis, rva_of_va(handler, BIdx),
-                          b.fnmap,
-                          b.bbmap,
-                          on_new_basic_block);
+                          b, *state_for_binary(b).ObjectFile,
+                          tcg, dis, rva_of_va(handler, BIdx),
+                          state_for_binary(b).fnmap,
+                          state_for_binary(b).bbmap,
+                          std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
 
                       if (is_basic_block_index_valid(entrybb_idx)) {
                         function_index_t FIdx = explore_function(
-                            b, tcg, dis, rva_of_va(handler, BIdx),
-                            b.fnmap,
-                            b.bbmap,
-                            on_new_basic_block);
+                            b, *state_for_binary(b).ObjectFile, tcg, dis,
+                            rva_of_va(handler, BIdx),
+                            state_for_binary(b).fnmap,
+                            state_for_binary(b).bbmap,
+                            std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
 
                         if (is_function_index_valid(FIdx)) {
                           b.Analysis.Functions[FIdx].IsSignalHandler = true;
@@ -1421,7 +1273,7 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
           syscall_state.pc = pc;
           syscall_state.dir = dir;
 
-          if (unlikely(opts::PrintLinkMap))
+          if (unlikely(opts.PrintLinkMap))
             scan_rtld_link_map(child, tcg, dis);
 
           if (unlikely(!BinFoundVec.all()))
@@ -1437,12 +1289,12 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
           if (unlikely(event)) {
             switch (event) {
             case PTRACE_EVENT_VFORK:
-              if (opts::PrintPtraceEvents)
+              if (opts.PrintPtraceEvents)
                 HumanOut() << "ptrace event (PTRACE_EVENT_VFORK) [" << child
                            << "]\n";
               break;
             case PTRACE_EVENT_FORK:
-              if (opts::PrintPtraceEvents)
+              if (opts.PrintPtraceEvents)
                 HumanOut() << "ptrace event (PTRACE_EVENT_FORK) [" << child
                            << "]\n";
               break;
@@ -1450,39 +1302,39 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
               pid_t new_child;
               ptrace(PTRACE_GETEVENTMSG, child, nullptr, &new_child);
 
-              if (opts::PrintPtraceEvents)
+              if (opts.PrintPtraceEvents)
                 HumanOut() << "ptrace event (PTRACE_EVENT_CLONE) -> "
                            << new_child << " [" << child << "]\n";
               break;
             }
             case PTRACE_EVENT_VFORK_DONE:
-              if (opts::PrintPtraceEvents)
+              if (opts.PrintPtraceEvents)
                 HumanOut() << "ptrace event (PTRACE_EVENT_VFORK_DONE) ["
                            << child << "]\n";
               break;
             case PTRACE_EVENT_EXEC:
-              if (opts::PrintPtraceEvents)
+              if (opts.PrintPtraceEvents)
                 HumanOut() << "ptrace event (PTRACE_EVENT_EXEC) [" << child
                            << "]\n";
               break;
             case PTRACE_EVENT_EXIT:
-              if (opts::PrintPtraceEvents)
+              if (opts.PrintPtraceEvents)
                 HumanOut() << "ptrace event (PTRACE_EVENT_EXIT) [" << child
                            << "]\n";
 
               if (child == saved_child) {
-                if (opts::Verbose)
+                if (opts.Verbose)
                   HumanOut() << "Observed program exit.\n";
                 harvest_reloc_targets(child, tcg, dis);
               }
               break;
             case PTRACE_EVENT_STOP:
-              if (opts::PrintPtraceEvents)
+              if (opts.PrintPtraceEvents)
                 HumanOut() << "ptrace event (PTRACE_EVENT_STOP) [" << child
                            << "]\n";
               break;
             case PTRACE_EVENT_SECCOMP:
-              if (opts::PrintPtraceEvents)
+              if (opts.PrintPtraceEvents)
                 HumanOut() << "ptrace event (PTRACE_EVENT_SECCOMP) [" << child
                            << "]\n";
               break;
@@ -1501,7 +1353,7 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
           // (3) group-stop
           //
 
-          if (opts::PrintPtraceEvents)
+          if (opts.PrintPtraceEvents)
             HumanOut() << "ptrace group-stop [" << child << "]\n";
 
           // When restarting a tracee from a ptrace-stop other than
@@ -1542,7 +1394,7 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
           }
 #endif
 
-          if (sig && opts::Signals)
+          if (sig && opts.Signals)
             HumanOut() << llvm::formatv("delivering signal {0} <{1}> [{2}]\n",
                                         sig, strsignal(sig), child);
         }
@@ -1550,7 +1402,7 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
         //
         // the child terminated
         //
-        if (opts::VeryVerbose)
+        if (opts.VeryVerbose)
           HumanOut() << "child " << child << " terminated\n";
 
         child = -1;
@@ -1570,8 +1422,8 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
     //
     unsigned NumChanged = 0;
 
-    for (binary_index_t BIdx = 0; BIdx < decompilation.Binaries.size(); ++BIdx) {
-      auto &b = decompilation.Binaries[BIdx];
+    for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
+      auto &b = Decompilation.Binaries[BIdx];
       auto &ICFG = b.Analysis.ICFG;
 
       auto fix_ambiguous_indirect_jumps = [&](void) -> bool {
@@ -1598,10 +1450,11 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
 
               unsigned brkpt_count = 0;
               function_index_t FIdx = explore_function(
-                  b, tcg, dis, ICFG[succ].Addr,
-                  b.fnmap,
-                  b.bbmap,
-                  on_new_basic_block);
+                  b, *state_for_binary(b).ObjectFile,
+                  tcg, dis, ICFG[succ].Addr,
+                  state_for_binary(b).fnmap,
+                  state_for_binary(b).bbmap,
+                  std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
               assert(is_function_index_valid(FIdx));
               ICFG[bb].DynTargets.insert({BIdx, FIdx});
 
@@ -1630,16 +1483,9 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
   }
 
   //
-  // write decompilation
+  // write Decompilation
   //
-  bool git = fs::is_directory(opts::jv);
-  {
-    std::ofstream ofs(git ? (std::string(opts::jv) + "/decompilation.jv")
-                          : opts::jv);
-
-    boost::archive::text_oarchive oa(ofs);
-    oa << decompilation;
-  }
+  WriteDecompilationToFile(jvfp, Decompilation);
 
   //
   // git commit
@@ -1649,21 +1495,21 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
     if (!pid) { /* child */
       std::string msg("[jove-bootstrap] ");
 
-      for (const std::string &env : opts::Envs) {
+      for (const std::string &env : opts.Envs) {
         msg.append(env);
         msg.push_back(' ');
       }
 
-      msg.append(opts::Prog);
+      msg.append(opts.Prog);
 
-      for (const std::string &arg : opts::Args) {
+      for (const std::string &arg : opts.Args) {
         msg.push_back(' ');
         msg.push_back('\'');
         msg.append(arg);
         msg.push_back('\'');
       }
 
-      chdir(opts::jv.c_str());
+      chdir(opts.jv.c_str());
 
       const char *arg_arr[] = {
         "/usr/bin/git", "commit", ".", "-m", msg.c_str(),
@@ -1674,73 +1520,15 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
       return execve(arg_arr[0], const_cast<char **>(&arg_arr[0]), ::environ);
     }
 
-    if (int ret = await_process_completion(pid))
+    if (int ret = WaitForProcessToExit(pid))
       return ret;
   }
 
   return 0;
 }
 
-void IgnoreCtrlC(void) {
-  auto sighandler = [](int no) -> void {
-    ; // absorb
-  };
-
-  struct sigaction sa;
-
-  sigemptyset(&sa.sa_mask);
-  sa.sa_flags = 0;
-  sa.sa_handler = sighandler;
-
-  if (sigaction(SIGINT, &sa, nullptr) < 0) {
-    int err = errno;
-    HumanOut() << llvm::formatv("{0}: sigaction failed ({1})\n",
-                                __func__, strerror(err));
-  }
-}
-
-void UnIgnoreCtrlC(void) {
-  struct sigaction sa;
-
-  sigemptyset(&sa.sa_mask);
-  sa.sa_flags = 0;
-  sa.sa_handler = SIG_DFL;
-
-  if (sigaction(SIGINT, &sa, nullptr) < 0) {
-    int err = errno;
-    HumanOut() << llvm::formatv("{0}: sigaction failed ({1})\n",
-                                __func__, strerror(err));
-  }
-}
-
-int await_process_completion(pid_t pid) {
-  int wstatus;
-  do {
-    if (waitpid(pid, &wstatus, WUNTRACED | WCONTINUED) < 0)
-      abort();
-
-    if (WIFEXITED(wstatus)) {
-      //printf("exited, status=%d\n", WEXITSTATUS(wstatus));
-      return WEXITSTATUS(wstatus);
-    } else if (WIFSIGNALED(wstatus)) {
-      //printf("killed by signal %d\n", WTERMSIG(wstatus));
-      return 1;
-    } else if (WIFSTOPPED(wstatus)) {
-      //printf("stopped by signal %d\n", WSTOPSIG(wstatus));
-      return 1;
-    } else if (WIFCONTINUED(wstatus)) {
-      //printf("continued\n");
-    }
-  } while (!WIFEXITED(wstatus) && !WIFSIGNALED(wstatus));
-
-  abort();
-}
-
-static void place_breakpoint_at_return(pid_t child, uintptr_t Addr,
-                                       return_t &Ret);
-
-void on_new_basic_block(binary_t &b, basic_block_t bb, disas_t &dis) {
-  binary_index_t BIdx = index_of_binary(b, decompilation);
+void BootstrapTool::on_new_basic_block(binary_t &b, basic_block_t bb, disas_t &dis) {
+  binary_index_t BIdx = index_of_binary(b, Decompilation);
   auto &ICFG = b.Analysis.ICFG;
   const basic_block_properties_t &bbprop = ICFG[bb];
 
@@ -1764,8 +1552,8 @@ void on_new_basic_block(binary_t &b, basic_block_t bb, disas_t &dis) {
     assert(indbr.InsnBytes.size() == 2 * sizeof(uint32_t));
 #endif
 
-    assert(b.ObjectFile.get());
-    const ELFF &E = *llvm::cast<ELFO>(b.ObjectFile.get())->getELFFile();
+    assert(state_for_binary(b).ObjectFile.get());
+    const ELFF &E = *llvm::cast<ELFO>(state_for_binary(b).ObjectFile.get())->getELFFile();
 
     llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(bbprop.Term.Addr);
     if (!ExpectedPtr)
@@ -1823,8 +1611,8 @@ void on_new_basic_block(binary_t &b, basic_block_t bb, disas_t &dis) {
     assert(RetInfo.InsnBytes.size() == sizeof(uint64_t));
 #endif
 
-    assert(b.ObjectFile.get());
-    const ELFF &E = *llvm::cast<ELFO>(b.ObjectFile.get())->getELFFile();
+    assert(state_for_binary(b).ObjectFile.get());
+    const ELFF &E = *llvm::cast<ELFO>(state_for_binary(b).ObjectFile.get())->getELFFile();
 
     llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(bbprop.Term.Addr);
     if (!ExpectedPtr)
@@ -1994,10 +1782,10 @@ uint32_t encoding_of_jump_to_reg(unsigned r) {
 
 static void arch_put_breakpoint(void *code);
 
-void place_breakpoint_at_indirect_branch(pid_t child,
-                                         uintptr_t Addr,
-                                         indirect_branch_t &indbr,
-                                         disas_t &dis) {
+void BootstrapTool::place_breakpoint_at_indirect_branch(pid_t child,
+                                                        uintptr_t Addr,
+                                                        indirect_branch_t &indbr,
+                                                        disas_t &dis) {
   llvm::MCInst &Inst = indbr.Inst;
 
   auto is_opcode_handled = [](unsigned opc) -> bool {
@@ -2023,7 +1811,7 @@ void place_breakpoint_at_indirect_branch(pid_t child,
   };
 
   if (!is_opcode_handled(Inst.getOpcode())) {
-    binary_t &Binary = decompilation.Binaries[indbr.BIdx];
+    binary_t &Binary = Decompilation.Binaries[indbr.BIdx];
     const auto &ICFG = Binary.Analysis.ICFG;
     throw std::runtime_error(
       (fmt("could not place breakpoint @ %#lx\n"
@@ -2048,14 +1836,12 @@ void place_breakpoint_at_indirect_branch(pid_t child,
   // write the word back
   _ptrace_pokedata(child, Addr, word);
 
-  if (opts::VeryVerbose)
+  if (opts.VeryVerbose)
     HumanOut() << (fmt("breakpoint placed @ %#lx") % Addr).str() << '\n';
 }
 
-void place_breakpoint(pid_t child,
-                      uintptr_t Addr,
-                      breakpoint_t &brk,
-                      disas_t &dis) {
+void BootstrapTool::place_breakpoint(pid_t child, uintptr_t Addr,
+                                     breakpoint_t &brk, disas_t &dis) {
   // read a word of the instruction
   unsigned long word = _ptrace_peekdata(child, Addr);
 
@@ -2068,11 +1854,12 @@ void place_breakpoint(pid_t child,
   // write the word back
   _ptrace_pokedata(child, Addr, word);
 
-  if (opts::VeryVerbose)
+  if (opts.VeryVerbose)
     HumanOut() << (fmt("breakpoint placed @ %#lx") % Addr).str() << '\n';
 }
 
-void place_breakpoint_at_return(pid_t child, uintptr_t Addr, return_t &r) {
+void BootstrapTool::place_breakpoint_at_return(pid_t child, uintptr_t Addr,
+                                               return_t &r) {
   // read a word of the instruction
 
   unsigned long word = _ptrace_peekdata(child, Addr);
@@ -2097,7 +1884,7 @@ void place_breakpoint_at_return(pid_t child, uintptr_t Addr, return_t &r) {
   // write the word back
   _ptrace_pokedata(child, Addr, word);
 
-  if (opts::VeryVerbose)
+  if (opts.VeryVerbose)
     HumanOut() << (fmt("breakpoint placed @ %#lx") % Addr).str() << '\n';
 }
 
@@ -2109,7 +1896,7 @@ struct ScopedCPUState {
   ~ScopedCPUState()                          { _ptrace_set_cpu_state(child, gpr); }
 };
 
-void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
+void BootstrapTool::on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
   ScopedCPUState  _scoped_cpu_state(child);
 
   auto &gpr = _scoped_cpu_state.gpr;
@@ -2300,7 +2087,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
     //
     switch (opc) {
     default: { /* fallback to code cave XXX */
-      if (opts::Verbose)
+      if (opts.Verbose)
         HumanOut() << llvm::formatv("delayslot: {0} ({1})\n", I,
                                     StringOfMCInst(I, dis));
 
@@ -2690,7 +2477,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
       break;
     }
 
-    if (opts::VeryVerbose)
+    if (opts.VeryVerbose)
       HumanOut() << llvm::formatv("emudelayslot: {0} ({1})\n", I,
                                   StringOfMCInst(I, dis));
 
@@ -2759,7 +2546,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
   //
   {
     if (unlikely(saved_pc == _r_debug.r_brk)) {
-      if (opts::Verbose) {
+      if (opts.Verbose) {
         HumanOut() << llvm::formatv(
             "*_r_debug.r_brk [{0}]\n",
             description_of_program_counter(_r_debug.r_brk, true));
@@ -2823,7 +2610,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
       breakpoint_t &brk = (*it).second;
       brk.callback(child, tcg, dis);
 
-      if (opts::Verbose)
+      if (opts.Verbose)
         HumanOut() << llvm::formatv("one-shot breakpoint hit @ {0}\n",
                                       description_of_program_counter(saved_pc));
 
@@ -2853,9 +2640,12 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
   // it's an indirect branch.
   //
   indirect_branch_t &IndBrInfo = indirect_branch_of_address(saved_pc);
-  binary_t &binary = decompilation.Binaries[IndBrInfo.BIdx];
-  auto &bbmap = binary.bbmap;
+  binary_t &binary = Decompilation.Binaries[IndBrInfo.BIdx];
+  auto &bbmap = state_for_binary(binary).bbmap;
   auto &ICFG = binary.Analysis.ICFG;
+  basic_block_t bb = basic_block_at_address(IndBrInfo.TermAddr, binary, bbmap);
+
+  llvm::MCInst &Inst = IndBrInfo.Inst;
 
   //
   // push program counter past instruction (on x86_64 this is necessary to make
@@ -2866,19 +2656,6 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
   //
   // shorthand-functions for reading the tracee's memory and registers
   //
-  basic_block_index_t bbidx;
-  basic_block_t bb;
-
-  {
-    auto it = bbmap.find(IndBrInfo.TermAddr);
-    assert(it != bbmap.end());
-
-    bbidx = (*it).second - 1;
-    bb = boost::vertex(bbidx, ICFG);
-  }
-
-  llvm::MCInst &Inst = IndBrInfo.Inst;
-
   auto LoadAddr = [&](uintptr_t addr) -> uintptr_t {
     return _ptrace_peekdata(child, addr);
   };
@@ -3067,7 +2844,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
   {
     auto it = AddressSpace.find(Target.Addr);
     if (it == AddressSpace.end()) {
-      if (opts::Verbose) {
+      if (opts.Verbose) {
         update_view_of_virtual_memory(child, dis);
 
         HumanOut() << llvm::formatv("{0} -> {1} (unknown binary)\n",
@@ -3140,10 +2917,10 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 #endif
 
   //
-  // update the decompilation based on the target
+  // update the Decompilation based on the target
   //
 
-  binary_t &TargetBinary = decompilation.Binaries[Target.BIdx];
+  binary_t &TargetBinary = Decompilation.Binaries[Target.BIdx];
 
   struct {
     bool IsGoto = false;
@@ -3152,11 +2929,13 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
   try {
     if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL) {
       function_index_t FIdx =
-          explore_function(TargetBinary, tcg, dis,
+          explore_function(TargetBinary,
+                           *state_for_binary(TargetBinary).ObjectFile,
+                           tcg, dis,
                            rva_of_va(Target.Addr, Target.BIdx),
-                           TargetBinary.fnmap,
-                           TargetBinary.bbmap,
-                           on_new_basic_block);
+                           state_for_binary(TargetBinary).fnmap,
+                           state_for_binary(TargetBinary).bbmap,
+                           std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
 
       assert(is_function_index_valid(FIdx));
 
@@ -3173,11 +2952,11 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
         // this call instruction will return, so explore the return block
         //
         basic_block_index_t NextBBIdx =
-            explore_basic_block(binary, tcg, dis,
+            explore_basic_block(binary, *state_for_binary(binary).ObjectFile, tcg, dis,
                                 IndBrInfo.TermAddr + IndBrInfo.InsnBytes.size(),
-                                binary.fnmap,
-                                binary.bbmap,
-                                on_new_basic_block);
+                                state_for_binary(binary).fnmap,
+                                state_for_binary(binary).bbmap,
+                                std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
 
         assert(is_basic_block_index_valid(NextBBIdx));
 
@@ -3194,14 +2973,15 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
         //
         // non-local goto (aka "long jump")
         //
-        explore_basic_block(TargetBinary, tcg, dis,
+        explore_basic_block(TargetBinary, *state_for_binary(TargetBinary).ObjectFile,
+                            tcg, dis,
                             rva_of_va(Target.Addr, Target.BIdx),
-                            TargetBinary.fnmap,
-                            TargetBinary.bbmap,
-                            on_new_basic_block);
+                            state_for_binary(TargetBinary).fnmap,
+                            state_for_binary(TargetBinary).bbmap,
+                            std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
 
         ControlFlow.IsGoto = true;
-        Target.isNew = opts::Longjmps;
+        Target.isNew = opts.Longjmps;
       } else {
         // on an indirect jump, we must determine one of two possibilities.
         //
@@ -3215,15 +2995,16 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
             IsDefinitelyTailCall(ICFG, bb) ||
             IndBrInfo.BIdx != Target.BIdx ||
             (boost::out_degree(bb, ICFG) == 0 &&
-             TargetBinary.fnmap.count(rva_of_va(Target.Addr, Target.BIdx)));
+             state_for_binary(TargetBinary).fnmap.count(rva_of_va(Target.Addr, Target.BIdx)));
 
         if (isTailCall) {
           function_index_t FIdx =
-              explore_function(TargetBinary, tcg, dis,
+              explore_function(TargetBinary, *state_for_binary(TargetBinary).ObjectFile,
+                               tcg, dis,
                                rva_of_va(Target.Addr, Target.BIdx),
-                               TargetBinary.fnmap,
-                               TargetBinary.bbmap,
-                               on_new_basic_block);
+                               state_for_binary(TargetBinary).fnmap,
+                               state_for_binary(TargetBinary).bbmap,
+                               std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
 
           assert(is_function_index_valid(FIdx));
 
@@ -3234,11 +3015,11 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
           Target.isNew = ICFG[bb].DynTargets.insert({Target.BIdx, FIdx}).second;
         } else {
           basic_block_index_t TargetBBIdx =
-              explore_basic_block(TargetBinary, tcg, dis,
+              explore_basic_block(TargetBinary, *state_for_binary(TargetBinary).ObjectFile, tcg, dis,
                                   rva_of_va(Target.Addr, Target.BIdx),
-                                  TargetBinary.fnmap,
-                                  TargetBinary.bbmap,
-                                  on_new_basic_block);
+                                  state_for_binary(TargetBinary).fnmap,
+                                  state_for_binary(TargetBinary).bbmap,
+                                  std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
 
           assert(is_basic_block_index_valid(TargetBBIdx));
           basic_block_t TargetBB = boost::vertex(TargetBBIdx, ICFG);
@@ -3256,7 +3037,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
       }
     }
 
-    if (unlikely(!opts::Quiet) || unlikely(Target.isNew))
+    if (unlikely(!opts.Quiet) || unlikely(Target.isNew))
       HumanOut() << llvm::formatv("{3}({0}) {1} -> {2}" __ANSI_NORMAL_COLOR "\n",
                                   ControlFlow.IsGoto ? (ICFG[bb].Term._indirect_jump.IsLj ? "longjmp" : "goto") : "call",
                                   description_of_program_counter(saved_pc),
@@ -3267,7 +3048,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
         "on_breakpoint failed: {0} [target: {1}+{2:x} ({3:x}) binary.LoadAddr: {4:x}]\n",
         e.what(), fs::path(TargetBinary.Path).filename().string(),
         rva_of_va(Target.Addr, Target.BIdx), Target.Addr,
-        TargetBinary.LoadAddr);
+        state_for_binary(TargetBinary).LoadAddr);
 
     HumanOut() << ProcMapsForPid(child);
   }
@@ -3275,11 +3056,11 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
 #include "relocs_common.hpp"
 
-static void harvest_irelative_reloc_targets(pid_t child,
-                                            tiny_code_generator_t &tcg,
-                                            disas_t &dis) {
+void BootstrapTool::harvest_irelative_reloc_targets(pid_t child,
+                                                    tiny_code_generator_t &tcg,
+                                                    disas_t &dis) {
   auto processDynamicReloc = [&](binary_t &b, const Relocation &R) -> void {
-    binary_index_t BIdx = index_of_binary(b, decompilation);
+    binary_index_t BIdx = index_of_binary(b, Decompilation);
 
     if (!is_irelative_relocation(R))
       return;
@@ -3294,7 +3075,7 @@ static void harvest_irelative_reloc_targets(pid_t child,
     try {
       Resolved.Addr = _ptrace_peekdata(child, va_of_rva(R.Offset, BIdx));
     } catch (const std::exception &e) {
-      if (opts::Verbose)
+      if (opts.Verbose)
         HumanOut()
             << llvm::formatv("{0}: exception: {1}\n",
                              "harvest_irelative_reloc_targets", e.what());
@@ -3303,7 +3084,7 @@ static void harvest_irelative_reloc_targets(pid_t child,
 
     auto it = AddressSpace.find(Resolved.Addr);
     if (it == AddressSpace.end()) {
-      if (opts::Verbose)
+      if (opts.Verbose)
         HumanOut()
             << llvm::formatv("{0}: unknown binary for {1}: R.Offset={2:x}\n",
                              "harvest_irelative_reloc_targets",
@@ -3314,19 +3095,19 @@ static void harvest_irelative_reloc_targets(pid_t child,
 
     Resolved.BIdx = -1+(*it).second;
 
-    if (opts::Verbose)
+    if (opts.Verbose)
       HumanOut() << llvm::formatv("IFunc dyn target: {0:x} [R.Offset={1:x}]\n",
                                   rva_of_va(Resolved.Addr, Resolved.BIdx),
                                   R.Offset);
 
-    binary_t &ResolvedBinary = decompilation.Binaries[Resolved.BIdx];
+    binary_t &ResolvedBinary = Decompilation.Binaries[Resolved.BIdx];
 
     Resolved.FIdx = explore_function(
-        ResolvedBinary, tcg, dis,
+        ResolvedBinary, *state_for_binary(ResolvedBinary).ObjectFile, tcg, dis,
         rva_of_va(Resolved.Addr, Resolved.BIdx),
-        ResolvedBinary.fnmap,
-        ResolvedBinary.bbmap,
-        on_new_basic_block);
+        state_for_binary(ResolvedBinary).fnmap,
+        state_for_binary(ResolvedBinary).bbmap,
+        std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
 
     if (is_function_index_valid(Resolved.FIdx)) {
       if (R.Addend)
@@ -3338,15 +3119,15 @@ static void harvest_irelative_reloc_targets(pid_t child,
     }
   };
 
-  for (binary_index_t BIdx = 0; BIdx < decompilation.Binaries.size(); ++BIdx) {
-    auto &b = decompilation.Binaries[BIdx];
+  for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
+    auto &b = Decompilation.Binaries[BIdx];
     if (b.IsVDSO)
       continue;
 
     if (!BinFoundVec[BIdx])
       continue;
 
-    std::unique_ptr<obj::Binary> &Bin = b.ObjectFile;
+    std::unique_ptr<obj::Binary> &Bin = state_for_binary(b).ObjectFile;
 
     assert(Bin.get());
     assert(llvm::isa<ELFO>(Bin.get()));
@@ -3354,26 +3135,26 @@ static void harvest_irelative_reloc_targets(pid_t child,
     const ELFF &E = *O.getELFFile();
 
     for_each_dynamic_relocation(E,
-                                b._elf.DynRelRegion,
-                                b._elf.DynRelaRegion,
-                                b._elf.DynRelrRegion,
-                                b._elf.DynPLTRelRegion,
+                                state_for_binary(b)._elf.DynRelRegion,
+                                state_for_binary(b)._elf.DynRelaRegion,
+                                state_for_binary(b)._elf.DynRelrRegion,
+                                state_for_binary(b)._elf.DynPLTRelRegion,
                                 [&](const Relocation &R) {
                                   processDynamicReloc(b, R);
                                 });
   }
 }
 
-static void harvest_addressof_reloc_targets(pid_t child,
-                                            tiny_code_generator_t &tcg,
-                                            disas_t &dis) {
+void BootstrapTool::harvest_addressof_reloc_targets(pid_t child,
+                                                    tiny_code_generator_t &tcg,
+                                                    disas_t &dis) {
   auto processDynamicReloc = [&](binary_t &b, const Relocation &R) -> void {
-    binary_index_t BIdx = index_of_binary(b, decompilation);
+    binary_index_t BIdx = index_of_binary(b, Decompilation);
 
     if (!is_addressof_relocation(R))
       return;
 
-    std::unique_ptr<obj::Binary> &Bin = b.ObjectFile;
+    std::unique_ptr<obj::Binary> &Bin = state_for_binary(b).ObjectFile;
 
     assert(Bin.get());
     assert(llvm::isa<ELFO>(Bin.get()));
@@ -3381,11 +3162,11 @@ static void harvest_addressof_reloc_targets(pid_t child,
     const ELFF &E = *O.getELFFile();
 
     auto dynamic_symbols = [&](void) -> Elf_Sym_Range {
-      return b._elf.OptionalDynSymRegion->getAsArrayRef<Elf_Sym>();
+      return state_for_binary(b)._elf.OptionalDynSymRegion->getAsArrayRef<Elf_Sym>();
     };
 
     RelSymbol RelSym =
-        getSymbolForReloc(O, dynamic_symbols(), b._elf.DynamicStringTable, R);
+        getSymbolForReloc(O, dynamic_symbols(), state_for_binary(b)._elf.DynamicStringTable, R);
 
     if (const Elf_Sym *Sym = RelSym.Sym) {
       if (Sym->getType() != llvm::ELF::STT_FUNC)
@@ -3403,7 +3184,7 @@ static void harvest_addressof_reloc_targets(pid_t child,
       try {
         Resolved.Addr = _ptrace_peekdata(child, va_of_rva(R.Offset, BIdx));
       } catch (const std::exception &e) {
-        if (opts::Verbose)
+        if (opts.Verbose)
           HumanOut()
               << llvm::formatv("{0}: exception: {1}\n",
                                "harvest_addressof_reloc_targets", e.what());
@@ -3413,7 +3194,7 @@ static void harvest_addressof_reloc_targets(pid_t child,
 
       auto it = AddressSpace.find(Resolved.Addr);
       if (it == AddressSpace.end()) {
-        if (opts::Verbose)
+        if (opts.Verbose)
           HumanOut()
               << llvm::formatv("{0}: unknown binary for {1}\n",
                                "harvest_addressof_reloc_targets",
@@ -3427,15 +3208,15 @@ static void harvest_addressof_reloc_targets(pid_t child,
       if (Resolved.BIdx == BIdx) /* _dl_fixup... */
         return;
 
-      binary_t &ResolvedBinary = decompilation.Binaries[Resolved.BIdx];
+      binary_t &ResolvedBinary = Decompilation.Binaries[Resolved.BIdx];
 
       unsigned brkpt_count = 0;
       Resolved.FIdx = explore_function(
-          ResolvedBinary, tcg, dis,
+          ResolvedBinary, *state_for_binary(ResolvedBinary).ObjectFile, tcg, dis,
           rva_of_va(Resolved.Addr, Resolved.BIdx),
-          ResolvedBinary.fnmap,
-          ResolvedBinary.bbmap,
-          on_new_basic_block);
+          state_for_binary(ResolvedBinary).fnmap,
+          state_for_binary(ResolvedBinary).bbmap,
+          std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
 
       if (is_function_index_valid(Resolved.FIdx)) {
         auto &SymDynTargets = b.Analysis.SymDynTargets[RelSym.Name];
@@ -3447,18 +3228,18 @@ static void harvest_addressof_reloc_targets(pid_t child,
     }
   };
 
-  for (binary_index_t BIdx = 0; BIdx < decompilation.Binaries.size(); ++BIdx) {
-    auto &b = decompilation.Binaries[BIdx];
+  for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
+    auto &b = Decompilation.Binaries[BIdx];
     if (b.IsVDSO)
       continue;
 
     if (!BinFoundVec[BIdx])
       continue;
 
-    if (!b._elf.OptionalDynSymRegion)
+    if (!state_for_binary(b)._elf.OptionalDynSymRegion)
       continue;
 
-    std::unique_ptr<obj::Binary> &Bin = b.ObjectFile;
+    std::unique_ptr<obj::Binary> &Bin = state_for_binary(b).ObjectFile;
 
     assert(Bin.get());
     assert(llvm::isa<ELFO>(Bin.get()));
@@ -3466,21 +3247,21 @@ static void harvest_addressof_reloc_targets(pid_t child,
     const ELFF &E = *O.getELFFile();
 
     for_each_dynamic_relocation(E,
-                                b._elf.DynRelRegion,
-                                b._elf.DynRelaRegion,
-                                b._elf.DynRelrRegion,
-                                b._elf.DynPLTRelRegion,
+                                state_for_binary(b)._elf.DynRelRegion,
+                                state_for_binary(b)._elf.DynRelaRegion,
+                                state_for_binary(b)._elf.DynRelrRegion,
+                                state_for_binary(b)._elf.DynPLTRelRegion,
                                 [&](const Relocation &R) {
                                   processDynamicReloc(b, R);
                                 });
   }
 }
 
-static void harvest_ctor_and_dtors(pid_t child,
-                                   tiny_code_generator_t &tcg,
-                                   disas_t &dis) {
-  for (binary_index_t BIdx = 0; BIdx < decompilation.Binaries.size(); ++BIdx) {
-    auto &Binary = decompilation.Binaries[BIdx];
+void BootstrapTool::harvest_ctor_and_dtors(pid_t child,
+                                           tiny_code_generator_t &tcg,
+                                           disas_t &dis) {
+  for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
+    auto &Binary = Decompilation.Binaries[BIdx];
     if (Binary.IsVDSO)
       continue;
 
@@ -3489,7 +3270,7 @@ static void harvest_ctor_and_dtors(pid_t child,
 
     unsigned brkpt_count = 0;
 
-    std::unique_ptr<obj::Binary> &ObjectFile = Binary.ObjectFile;
+    std::unique_ptr<obj::Binary> &ObjectFile = state_for_binary(Binary).ObjectFile;
 
     assert(ObjectFile.get());
     assert(llvm::isa<ELFO>(ObjectFile.get()));
@@ -3533,16 +3314,17 @@ static void harvest_ctor_and_dtors(pid_t child,
             if (it != AddressSpace.end() &&
                 -1+(*it).second == BIdx) {
               function_index_t FIdx = explore_function(
-                  Binary, tcg, dis, rva_of_va(Proc, BIdx),
-                  Binary.fnmap,
-                  Binary.bbmap,
-                  on_new_basic_block);
+                  Binary, *state_for_binary(Binary).ObjectFile, tcg,
+                  dis, rva_of_va(Proc, BIdx),
+                  state_for_binary(Binary).fnmap,
+                  state_for_binary(Binary).bbmap,
+                  std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
 
               if (is_function_index_valid(FIdx))
                 Binary.Analysis.Functions[FIdx].IsABI = true; /* it is an ABI */
             }
           } catch (const std::exception &e) {
-            if (opts::Verbose)
+            if (opts.Verbose)
               HumanOut()
                   << llvm::formatv("failed examining ctor: {0}\n", e.what());
           }
@@ -3560,18 +3342,18 @@ static void harvest_ctor_and_dtors(pid_t child,
 }
 
 #if defined(__mips64) || defined(__mips__)
-static void harvest_global_GOT_entries(pid_t child,
-                                       tiny_code_generator_t &tcg,
-                                       disas_t &dis) {
-  for (binary_index_t BIdx = 0; BIdx < decompilation.Binaries.size(); ++BIdx) {
-    auto &b = decompilation.Binaries[BIdx];
+void BootstrapTool::harvest_global_GOT_entries(pid_t child,
+                                               tiny_code_generator_t &tcg,
+                                               disas_t &dis) {
+  for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
+    auto &b = Decompilation.Binaries[BIdx];
     if (b.IsVDSO)
       continue;
 
     if (!BinFoundVec[BIdx])
       continue;
 
-    if (!b._elf.OptionalDynSymRegion)
+    if (!state_for_binary(b)._elf.OptionalDynSymRegion)
       continue;
 
     unsigned brkpt_count = 0;
@@ -3584,11 +3366,11 @@ static void harvest_global_GOT_entries(pid_t child,
     const ELFF &E = *O.getELFFile();
 
     auto dynamic_table = [&](void) -> Elf_Dyn_Range {
-      return b._elf.DynamicTable.getAsArrayRef<Elf_Dyn>();
+      return state_for_binary(b)._elf.DynamicTable.getAsArrayRef<Elf_Dyn>();
     };
 
     auto dynamic_symbols = [&](void) -> Elf_Sym_Range {
-      return b._elf.OptionalDynSymRegion->getAsArrayRef<Elf_Sym>();
+      return state_for_binary(b)._elf.OptionalDynSymRegion->getAsArrayRef<Elf_Sym>();
     };
 
     MipsGOTParser Parser(E, b.Path);
@@ -3612,7 +3394,7 @@ static void harvest_global_GOT_entries(pid_t child,
       if (Sym->getType() != llvm::ELF::STT_FUNC)
         continue;
 
-      llvm::Expected<llvm::StringRef> ExpectedSymName = Sym->getName(b._elf.DynamicStringTable);
+      llvm::Expected<llvm::StringRef> ExpectedSymName = Sym->getName(state_for_binary(b)._elf.DynamicStringTable);
       if (!ExpectedSymName)
         continue;
 
@@ -3622,7 +3404,7 @@ static void harvest_global_GOT_entries(pid_t child,
       if (!SymDynTargets.empty())
         continue;
 
-      if (opts::Verbose)
+      if (opts.Verbose)
         HumanOut() << llvm::formatv("{0}: GlobalEntry: {1}\n", __func__, SymName);
 
       struct {
@@ -3635,7 +3417,7 @@ static void harvest_global_GOT_entries(pid_t child,
       try {
         Resolved.Addr = _ptrace_peekdata(child, va_of_rva(Addr, BIdx));
       } catch (const std::exception &e) {
-        if (opts::Verbose)
+        if (opts.Verbose)
           HumanOut() << llvm::formatv("{0}: exception: {1}\n", __func__, e.what());
 
         continue;
@@ -3647,7 +3429,7 @@ static void harvest_global_GOT_entries(pid_t child,
 
       auto it = AddressSpace.find(Resolved.Addr);
       if (it == AddressSpace.end()) {
-        if (opts::Verbose)
+        if (opts.Verbose)
           HumanOut()
               << llvm::formatv("{0}: unknown binary for {1}\n", __func__,
                                description_of_program_counter(Resolved.Addr, true));
@@ -3656,25 +3438,25 @@ static void harvest_global_GOT_entries(pid_t child,
       }
 
       Resolved.BIdx = -1+(*it).second;
-      binary_t &ResolvedBinary = decompilation.Binaries.at(Resolved.BIdx);
+      binary_t &ResolvedBinary = Decompilation.Binaries.at(Resolved.BIdx);
 
       unsigned brkpt_count = 0;
       basic_block_index_t resolved_bbidx = explore_basic_block(
-          ResolvedBinary, tcg, dis,
+          ResolvedBinary, *state_for_binary(ResolvedBinary).ObjectFile, tcg, dis,
           rva_of_va(Resolved.Addr, Resolved.BIdx),
-          ResolvedBinary.fnmap,
-          ResolvedBinary.bbmap,
-          on_new_basic_block);
+          state_for_binary(ResolvedBinary).fnmap,
+          state_for_binary(ResolvedBinary).bbmap,
+          std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
 
       if (!is_basic_block_index_valid(resolved_bbidx))
         continue;
 
       Resolved.FIdx = explore_function(
-          ResolvedBinary, tcg, dis,
+          ResolvedBinary, *state_for_binary(ResolvedBinary).ObjectFile, tcg, dis,
           rva_of_va(Resolved.Addr, Resolved.BIdx),
-          ResolvedBinary.fnmap,
-          ResolvedBinary.bbmap,
-          on_new_basic_block);
+          state_for_binary(ResolvedBinary).fnmap,
+          state_for_binary(ResolvedBinary).bbmap,
+          std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
       if (is_function_index_valid(Resolved.FIdx)) {
         SymDynTargets.insert({Resolved.BIdx, Resolved.FIdx});
       }
@@ -3684,9 +3466,9 @@ static void harvest_global_GOT_entries(pid_t child,
 
 #endif
 
-void harvest_reloc_targets(pid_t child,
-                           tiny_code_generator_t &tcg,
-                           disas_t &dis) {
+void BootstrapTool::harvest_reloc_targets(pid_t child,
+                                          tiny_code_generator_t &tcg,
+                                          disas_t &dis) {
   harvest_irelative_reloc_targets(child, tcg, dis);
   harvest_addressof_reloc_targets(child, tcg, dis);
   harvest_ctor_and_dtors(child, tcg, dis);
@@ -3696,18 +3478,16 @@ void harvest_reloc_targets(pid_t child,
 #endif
 }
 
-static void on_binary_loaded(pid_t, disas_t &, binary_index_t, const proc_map_t &);
-
 static bool load_proc_maps(pid_t child, std::vector<struct proc_map_t> &out);
 
-bool update_view_of_virtual_memory(pid_t child, disas_t &dis) {
+bool BootstrapTool::update_view_of_virtual_memory(pid_t child, disas_t &dis) {
   if (!load_proc_maps(child, cached_proc_maps))
     return false;
 
   pmm.clear();
   AddressSpace.clear();
-  for_each_binary(decompilation, [&](binary_t &b) {
-    b.LoadAddr = b.LoadOffset = std::numeric_limits<uintptr_t>::max(); /* reset */
+  for_each_binary(Decompilation, [&](binary_t &b) {
+    state_for_binary(b).LoadAddr = state_for_binary(b).LoadOffset = std::numeric_limits<uintptr_t>::max(); /* reset */
   });
 
   for (const auto &proc_map : cached_proc_maps) {
@@ -3722,7 +3502,7 @@ bool update_view_of_virtual_memory(pid_t child, disas_t &dis) {
 
     auto it = BinPathToIdxMap.find(proc_map.nm);
     if (it == BinPathToIdxMap.end()) {
-      if (opts::Verbose)
+      if (opts.Verbose)
         HumanOut() << llvm::formatv("{0}: what is this? \"{1}\"\n",
                                     __func__, proc_map.nm);
       continue;
@@ -3736,18 +3516,18 @@ bool update_view_of_virtual_memory(pid_t child, disas_t &dis) {
       else
         AddressSpace.add({intervl, 1+BIdx});
 
-      auto &b = decompilation.Binaries[BIdx];
+      auto &b = Decompilation.Binaries[BIdx];
 
-      uintptr_t SavedLoadAddr = b.LoadAddr;
-      b.LoadAddr = std::min(b.LoadAddr, proc_map.beg);
-      bool Changed = b.LoadAddr != SavedLoadAddr;
+      uintptr_t SavedLoadAddr = state_for_binary(b).LoadAddr;
+      state_for_binary(b).LoadAddr = std::min(state_for_binary(b).LoadAddr, proc_map.beg);
+      bool Changed = state_for_binary(b).LoadAddr != SavedLoadAddr;
 
       if (Changed) {
-        b.LoadOffset = proc_map.off;
+        state_for_binary(b).LoadOffset = proc_map.off;
 
-        if (opts::Verbose)
+        if (opts.Verbose)
           HumanOut() << llvm::formatv("LoadAddr for {0} is {1:x} (was {2:x})\n",
-                                      b.Path, b.LoadAddr, SavedLoadAddr);
+                                      b.Path, state_for_binary(b).LoadAddr, SavedLoadAddr);
       }
 
       if (!proc_map.x)
@@ -3764,20 +3544,15 @@ bool update_view_of_virtual_memory(pid_t child, disas_t &dis) {
   return true;
 }
 
-static void on_dynamic_linker_loaded(pid_t child,
+void BootstrapTool::on_binary_loaded(pid_t child,
                                      disas_t &dis,
                                      binary_index_t BIdx,
-                                     const proc_map_t &);
+                                     const proc_map_t &proc_map) {
+  binary_t &binary = Decompilation.Binaries[BIdx];
 
-void on_binary_loaded(pid_t child,
-                      disas_t &dis,
-                      binary_index_t BIdx,
-                      const proc_map_t &proc_map) {
-  binary_t &binary = decompilation.Binaries[BIdx];
+  auto &ObjectFile = state_for_binary(binary).ObjectFile;
 
-  auto &ObjectFile = binary.ObjectFile;
-
-  if (opts::Verbose)
+  if (opts.Verbose)
     HumanOut() << (fmt("found binary %s @ [%#lx, %#lx)")
                    % proc_map.nm
                    % proc_map.beg
@@ -3796,7 +3571,7 @@ void on_binary_loaded(pid_t child,
     uintptr_t Addr = va_of_rva(entry_rva, BIdx);
 
     breakpoint_t &brk = BrkMap[Addr];
-    brk.callback = harvest_reloc_targets;
+    brk.callback = std::bind(&BootstrapTool::harvest_reloc_targets, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3);
 
     try {
       place_breakpoint(child, Addr, brk, dis);
@@ -3834,7 +3609,7 @@ void on_binary_loaded(pid_t child,
       _ptrace_pokedata(child, ExecutableRegionAddress + i * (2 * sizeof(uint32_t)), insn);
     }
 
-    if (opts::Verbose)
+    if (opts.Verbose)
         HumanOut()
             << llvm::formatv("ExecutableRegionAddress = 0x{0:x}\n",
                              ExecutableRegionAddress);
@@ -3904,7 +3679,7 @@ void on_binary_loaded(pid_t child,
 #endif
 
     try {
-      if (opts::Fast && !bbprop.DynTargets.empty()) {
+      if (opts.Fast && !bbprop.DynTargets.empty()) {
         ;
       } else {
         place_breakpoint_at_indirect_branch(child, Addr, IndBrInfo, dis);
@@ -3971,7 +3746,7 @@ void on_binary_loaded(pid_t child,
 #endif
 
     try {
-      if (opts::Fast) {
+      if (opts.Fast) {
         ;
       } else {
         place_breakpoint_at_return(child, Addr, RetInfo);
@@ -4095,11 +3870,11 @@ void _ptrace_pokedata(pid_t child, uintptr_t addr, unsigned long data) {
                              std::string(strerror(errno)));
 }
 
-int ChildProc(int pipefd) {
+int BootstrapTool::ChildProc(int pipefd) {
   std::vector<const char *> arg_vec;
-  arg_vec.push_back(opts::Prog.c_str());
+  arg_vec.push_back(opts.Prog.c_str());
 
-  for (const std::string &Arg : opts::Args)
+  for (const std::string &Arg : opts.Args)
     arg_vec.push_back(Arg.c_str());
 
   arg_vec.push_back(nullptr);
@@ -4134,7 +3909,7 @@ int ChildProc(int pipefd) {
                     "-SSE2");
 #endif
 
-  for (const std::string &Env : opts::Envs)
+  for (const std::string &Env : opts.Envs)
     env_vec.push_back(Env.c_str());
 
   if (fs::exists("/firmadyne/libnvram.so"))
@@ -4259,14 +4034,9 @@ struct link_map {
   struct link_map *l_next, *l_prev; /* Chain of loaded objects.  */
 };
 
-static void add_binary(pid_t child, tiny_code_generator_t &, disas_t &,
-                       const char *path);
-
 static ssize_t _ptrace_memcpy(pid_t, void *dest, const void *src, size_t n);
 
-void scan_rtld_link_map(pid_t child,
-                        tiny_code_generator_t &tcg,
-                        disas_t &dis) {
+void BootstrapTool::scan_rtld_link_map(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
   if (!_r_debug.Addr)
     return;
 
@@ -4284,13 +4054,13 @@ void scan_rtld_link_map(pid_t child,
       return;
     }
   } catch (const std::exception &e) {
-    if (opts::Verbose)
+    if (opts.Verbose)
       HumanOut() << llvm::formatv("{0}: couldn't read r_debug structure ({1})\n", __func__, e.what());
 
     return;
   }
 
-  if (opts::PrintLinkMap)
+  if (opts.PrintLinkMap)
       HumanOut() << llvm::formatv("[r_debug] r_version = {0}\n"
                                   "          r_map     = {1}\n"
                                   "          r_brk     = {2}\n"
@@ -4302,7 +4072,7 @@ void scan_rtld_link_map(pid_t child,
                                   (void *)r_dbg.r_state,
                                   (void *)r_dbg.r_ldbase);
 
-  if (opts::Verbose) {
+  if (opts.Verbose) {
     WARN_ON(r_dbg.r_state != r_debug::RT_CONSISTENT &&
             r_dbg.r_state != r_debug::RT_ADD &&
             r_dbg.r_state != r_debug::RT_DELETE);
@@ -4337,7 +4107,7 @@ void scan_rtld_link_map(pid_t child,
       ;
     }
 
-    if (opts::PrintLinkMap)
+    if (opts.PrintLinkMap)
       HumanOut() << llvm::formatv("[link_map] l_addr = {0}\n"
                                   "           l_name =\"{1}\"\n"
                                   "           l_prev = {2}\n"
@@ -4354,7 +4124,7 @@ void scan_rtld_link_map(pid_t child,
 
       auto it = BinPathToIdxMap.find(path.c_str());
       if (it == BinPathToIdxMap.end()) {
-        HumanOut() << llvm::formatv("adding \"{0}\" to decompilation\n",
+        HumanOut() << llvm::formatv("adding \"{0}\" to Decompilation\n",
                                     path.c_str());
         add_binary(child, tcg, dis, path.c_str());
 
@@ -4369,9 +4139,7 @@ void scan_rtld_link_map(pid_t child,
     update_view_of_virtual_memory(child, dis);
 }
 
-static void print_command(std::vector<const char *> &arg_vec);
-
-void add_binary(pid_t child, tiny_code_generator_t &tcg, disas_t &dis,
+void BootstrapTool::add_binary(pid_t child, tiny_code_generator_t &tcg, disas_t &dis,
                 const char *path) {
   char tmpdir[] = {'/', 't', 'm', 'p', '/', 'X', 'X', 'X', 'X', 'X', 'X', '\0'};
 
@@ -4395,7 +4163,7 @@ void add_binary(pid_t child, tiny_code_generator_t &tcg, disas_t &dis,
       nullptr
     };
 
-    print_command(argv);
+    print_command(&argv[0]);
 
     std::string stdoutfp = std::string(tmpdir) + path + ".txt";
     int outfd = open(stdoutfp.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666);
@@ -4410,7 +4178,7 @@ void add_binary(pid_t child, tiny_code_generator_t &tcg, disas_t &dis,
         (fmt("execve failed: %s\n") % strerror(err)).str());
   }
 
-  if (int ret = await_process_completion(pid)) {
+  if (int ret = WaitForProcessToExit(pid)) {
     HumanOut() << __func__ << ": jove-add failed\n";
     return;
   }
@@ -4418,37 +4186,33 @@ void add_binary(pid_t child, tiny_code_generator_t &tcg, disas_t &dis,
   binary_index_t BIdx;
   {
     decompilation_t new_decompilation;
-    {
-      std::ifstream ifs(jvfp);
 
-      boost::archive::text_iarchive ia(ifs);
-      ia >> new_decompilation;
-    }
+    ReadDecompilationFromFile(jvfp, new_decompilation);
 
     if (new_decompilation.Binaries.size() != 1) {
       HumanOut() << "invalid intermediate result " << jvfp << '\n';
       return;
     }
 
-    BIdx = decompilation.Binaries.size();
+    BIdx = Decompilation.Binaries.size();
 
-    decompilation.Binaries.emplace_back(std::move(new_decompilation.Binaries.front()))
+    Decompilation.Binaries.emplace_back(std::move(new_decompilation.Binaries.front()))
         .IsDynamicallyLoaded = true;
   }
 
   BinFoundVec.resize(BinFoundVec.size() + 1, false);
-  BinPathToIdxMap[decompilation.Binaries.back().Path] = BIdx;
+  BinPathToIdxMap[Decompilation.Binaries.back().Path] = BIdx;
 
   //
   // initialize state associated with every binary
   //
-  binary_t &binary = decompilation.Binaries[BIdx];
+  binary_t &binary = Decompilation.Binaries[BIdx];
 
   assert(!binary.IsVDSO);
   BinPathToIdxMap[binary.Path] = BIdx;
 
-  construct_fnmap(decompilation, binary, binary.fnmap);
-  construct_bbmap(decompilation, binary, binary.bbmap);
+  construct_fnmap(Decompilation, binary, state_for_binary(binary).fnmap);
+  construct_bbmap(Decompilation, binary, state_for_binary(binary).bbmap);
 
   llvm::StringRef Buffer(reinterpret_cast<char *>(&binary.Data[0]),
                          binary.Data.size());
@@ -4464,56 +4228,45 @@ void add_binary(pid_t child, tiny_code_generator_t &tcg, disas_t &dis,
   } else {
     std::unique_ptr<obj::Binary> &BinRef = BinOrErr.get();
 
-    binary.ObjectFile = std::move(BinRef);
+    state_for_binary(binary).ObjectFile = std::move(BinRef);
 
-    assert(llvm::isa<ELFO>(binary.ObjectFile.get()));
+    assert(llvm::isa<ELFO>(state_for_binary(binary).ObjectFile.get()));
 
-    ELFO &O = *llvm::cast<ELFO>(binary.ObjectFile.get());
+    ELFO &O = *llvm::cast<ELFO>(state_for_binary(binary).ObjectFile.get());
     const ELFF &E = *O.getELFFile();
 
-    loadDynamicTable(&E, &O, binary._elf.DynamicTable);
+    loadDynamicTable(&E, &O, state_for_binary(binary)._elf.DynamicTable);
 
-    binary._elf.OptionalDynSymRegion =
+    state_for_binary(binary)._elf.OptionalDynSymRegion =
         loadDynamicSymbols(&E, &O,
-                           binary._elf.DynamicTable,
-                           binary._elf.DynamicStringTable,
-                           binary._elf.SymbolVersionSection,
-                           binary._elf.VersionMap);
+                           state_for_binary(binary)._elf.DynamicTable,
+                           state_for_binary(binary)._elf.DynamicStringTable,
+                           state_for_binary(binary)._elf.SymbolVersionSection,
+                           state_for_binary(binary)._elf.VersionMap);
 
     loadDynamicRelocations(&E, &O,
-                           binary._elf.DynamicTable,
-                           binary._elf.DynRelRegion,
-                           binary._elf.DynRelaRegion,
-                           binary._elf.DynRelrRegion,
-                           binary._elf.DynPLTRelRegion);
+                           state_for_binary(binary)._elf.DynamicTable,
+                           state_for_binary(binary)._elf.DynRelRegion,
+                           state_for_binary(binary)._elf.DynRelaRegion,
+                           state_for_binary(binary)._elf.DynRelrRegion,
+                           state_for_binary(binary)._elf.DynPLTRelRegion);
   }
 }
 
-void print_command(std::vector<const char *> &arg_vec) {
-  for (const char *s : arg_vec) {
-    if (!s)
-      continue;
+void BootstrapTool::on_dynamic_linker_loaded(pid_t child,
+                                             disas_t &dis,
+                                             binary_index_t BIdx,
+                                             const proc_map_t &proc_map) {
+  binary_t &b = Decompilation.Binaries[BIdx];
 
-    HumanOut() << s << ' ';
-  }
-
-  HumanOut() << '\n';
-}
-
-void on_dynamic_linker_loaded(pid_t child,
-                              disas_t &dis,
-                              binary_index_t BIdx,
-                              const proc_map_t &proc_map) {
-  binary_t &b = decompilation.Binaries[BIdx];
-
-  if (b._elf.OptionalDynSymRegion) {
-    auto DynSyms = b._elf.OptionalDynSymRegion->getAsArrayRef<Elf_Sym>();
+  if (state_for_binary(b)._elf.OptionalDynSymRegion) {
+    auto DynSyms = state_for_binary(b)._elf.OptionalDynSymRegion->getAsArrayRef<Elf_Sym>();
 
     for (const Elf_Sym &Sym : DynSyms) {
       if (Sym.isUndefined())
         continue;
 
-      llvm::Expected<llvm::StringRef> ExpectedSymName = Sym.getName(b._elf.DynamicStringTable);
+      llvm::Expected<llvm::StringRef> ExpectedSymName = Sym.getName(state_for_binary(b)._elf.DynamicStringTable);
       if (!ExpectedSymName)
         continue;
 
@@ -4541,7 +4294,7 @@ Found:
   ;
 }
 
-void rendezvous_with_dynamic_linker(pid_t child, disas_t &dis) {
+void BootstrapTool::rendezvous_with_dynamic_linker(pid_t child, disas_t &dis) {
   if (!_r_debug.Found)
     return;
 
@@ -4556,7 +4309,7 @@ void rendezvous_with_dynamic_linker(pid_t child, disas_t &dis) {
     try {
       ret = _ptrace_memcpy(child, &r_dbg, (void *)_r_debug.Addr, sizeof(struct r_debug));
     } catch (const std::exception &e) {
-      if (opts::Verbose)
+      if (opts.Verbose)
         HumanOut() << llvm::formatv("failed to read r_debug structure: {0}\n",
                                     e.what());
       return;
@@ -4574,17 +4327,17 @@ void rendezvous_with_dynamic_linker(pid_t child, disas_t &dis) {
       return;
     }
 
-    if (unlikely(opts::Verbose) && unlikely(r_dbg.r_brk))
+    if (unlikely(opts.Verbose) && unlikely(r_dbg.r_brk))
       HumanOut() << llvm::formatv("r_brk={0:x}\n", r_dbg.r_brk);
 
     _r_debug.r_brk = r_dbg.r_brk;
   }
 
   if (_r_debug.r_brk) {
-    if (unlikely(BrkMap.find(_r_debug.r_brk) == BrkMap.end()) && opts::RtldDbgBrk) {
+    if (unlikely(BrkMap.find(_r_debug.r_brk) == BrkMap.end()) && opts.RtldDbgBrk) {
       try {
         breakpoint_t brk;
-        brk.callback = scan_rtld_link_map;
+        brk.callback = std::bind(&BootstrapTool::scan_rtld_link_map, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3);
         brk.InsnBytes.resize(2 * sizeof(uint32_t));
         _ptrace_memcpy(child, &brk.InsnBytes[0], (void *)_r_debug.r_brk, brk.InsnBytes.size());
 
@@ -4623,7 +4376,7 @@ void rendezvous_with_dynamic_linker(pid_t child, disas_t &dis) {
 
         BrkMap.insert({_r_debug.r_brk, brk});
       } catch (const std::exception &e) {
-        if (opts::Verbose)
+        if (opts.Verbose)
           HumanOut() << llvm::formatv(
               "{0}: couldn't place breakpoint at r_brk [{1:x}] ({2})\n",
               __func__,
@@ -4634,10 +4387,13 @@ void rendezvous_with_dynamic_linker(pid_t child, disas_t &dis) {
   }
 }
 
-void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr,
-               tiny_code_generator_t &tcg, disas_t &dis) {
+void BootstrapTool::on_return(pid_t child,
+                              uintptr_t AddrOfRet,
+                              uintptr_t RetAddr,
+                              tiny_code_generator_t &tcg,
+                              disas_t &dis) {
 
-  if (unlikely(!opts::Quiet))
+  if (unlikely(!opts.Quiet))
     HumanOut() << llvm::formatv(__ANSI_YELLOW "(ret) {0} <-- {1}" __ANSI_NORMAL_COLOR "\n",
                                   description_of_program_counter(RetAddr),
                                   description_of_program_counter(AddrOfRet));
@@ -4665,13 +4421,13 @@ void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr,
             << llvm::formatv("{0}: (1) unknown binary for {1}\n", __func__,
                              description_of_program_counter(pc, true));
 
-        if (opts::Verbose)
+        if (opts.Verbose)
           HumanOut() << ProcMapsForPid(child);
       } else {
         BIdx = -1+(*it).second;
 
-        binary_t &binary = decompilation.Binaries.at(BIdx);
-        auto &bbmap = binary.bbmap;
+        binary_t &binary = Decompilation.Binaries.at(BIdx);
+        auto &bbmap = state_for_binary(binary).bbmap;
         auto &ICFG = binary.Analysis.ICFG;
 
         uintptr_t rva = rva_of_va(pc, BIdx);
@@ -4710,17 +4466,17 @@ void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr,
         HumanOut()
             << llvm::formatv("{0}: (2) unknown binary for {1}\n", __func__,
                              description_of_program_counter(pc, true));
-        if (opts::Verbose)
+        if (opts.Verbose)
           HumanOut() << ProcMapsForPid(child);
       } else {
         BIdx = -1+(*it).second;
 
         try {
-        binary_t &binary = decompilation.Binaries.at(BIdx);
-        auto &bbmap = binary.bbmap;
+        binary_t &binary = Decompilation.Binaries.at(BIdx);
+        auto &bbmap = state_for_binary(binary).bbmap;
         auto &ICFG = binary.Analysis.ICFG;
 
-        if (!binary.ObjectFile.get()) {
+        if (!state_for_binary(binary).ObjectFile.get()) {
           if (!binary.IsVDSO)
             HumanOut()
                 << llvm::formatv("{0}: (3) unknown RetAddr {1}\n", __func__,
@@ -4732,10 +4488,11 @@ void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr,
 
         unsigned brkpt_count = 0;
         basic_block_index_t next_bb_idx =
-            explore_basic_block(binary, tcg, dis, rva,
-                                binary.fnmap,
-                                binary.bbmap,
-                                on_new_basic_block);
+            explore_basic_block(binary, *state_for_binary(binary).ObjectFile,
+                                tcg, dis, rva,
+                                state_for_binary(binary).fnmap,
+                                state_for_binary(binary).bbmap,
+                                std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
         if (is_basic_block_index_valid(next_bb_idx)) {
           basic_block_t bb;
 
@@ -4753,7 +4510,7 @@ void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr,
               //
               // we have no preceeding call
               //
-              if (opts::Verbose)
+              if (opts.Verbose)
                 HumanOut() << llvm::formatv(
                     "{0}: could not find preceeding call @ {1:x}\n", __func__,
                     rva);
@@ -4769,7 +4526,7 @@ void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr,
 
           if (!isCall && !isIndirectCall) { /* this can occur on i386 because of
                                                hack in tcg.hpp */
-            if (opts::Verbose)
+            if (opts.Verbose)
               HumanOut() << llvm::formatv("on_return: unexpected terminator {0}\n",
                                           description_of_terminator(ICFG[bb].Term.Type));
             return;
@@ -4800,7 +4557,7 @@ void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr,
                                       brkpt_count > 1 ? "s" : "",
                                       binary.Path);
         } catch (const std::exception &e) {
-          std::string s = fs::path(decompilation.Binaries[BIdx].Path).filename().string();
+          std::string s = fs::path(Decompilation.Binaries[BIdx].Path).filename().string();
           HumanOut()
               << llvm::formatv("{0} failed: {1} [RetAddr: {2}+{3:x} ({4:x})]\n",
                                __func__, e.what(), s, rva_of_va(pc, BIdx), pc);
@@ -4870,7 +4627,7 @@ std::string StringOfMCInst(llvm::MCInst &Inst, disas_t &dis) {
   return res;
 }
 
-std::string description_of_program_counter(uintptr_t pc, bool Verbose) {
+std::string BootstrapTool::description_of_program_counter(uintptr_t pc, bool Verbose) {
 #if 0 /* defined(__mips64) || defined(__mips__) */
   if (ExecutableRegionAddress &&
       pc >= ExecutableRegionAddress &&
@@ -4886,7 +4643,7 @@ std::string description_of_program_counter(uintptr_t pc, bool Verbose) {
     return simple_desc;
   } else {
     std::string extra =
-        Verbose || opts::VeryVerbose ? (" (" + simple_desc + ")") : "";
+        Verbose || opts.VeryVerbose ? (" (" + simple_desc + ")") : "";
 
     const proc_map_set_t &pms = (*pm_it).second;
     assert(pms.size() == 1);
@@ -4912,14 +4669,12 @@ std::string description_of_program_counter(uintptr_t pc, bool Verbose) {
           << __func__
           << ": inconsistency with (BinFoundVec, pmm, AddressSpace) (BUG)\n";
 
-    target_ulong rva = rva_of_va(pc, BIdx);
+    uintptr_t rva = rva_of_va(pc, BIdx);
     std::string str = fs::path(pm.nm).filename().string();
 
     return (fmt("%s+%#lx%s") % str % rva % extra).str();
   }
 }
-
-void _qemu_log(const char *cstr) { HumanOut() << cstr; }
 
 ssize_t _ptrace_memcpy(pid_t child, void *dest, const void *src, size_t n) {
   std::vector<uint8_t> buff;
@@ -5031,15 +4786,92 @@ std::string ProcMapsForPid(pid_t pid) {
   return res;
 }
 
-} // namespace jove
+void SignalHandler(int no) {
+  assert(pTool);
+  BootstrapTool &tool = *pTool;
+
+  switch (no) {
+  case SIGSEGV: {
+    tool.HumanOut() << "***JOVE*** bootstrap crashed! detaching from tracee...\n";
+
+    //
+    // detach from tracee
+    //
+    if (ptrace(PTRACE_DETACH, saved_child, 0UL, 0UL) < 0) {
+      int err = errno;
+      tool.HumanOut() << llvm::formatv(
+          "failed to detach from tracee [{0}]: {1}\n",
+          saved_child,
+          strerror(err));
+      exit(1);
+    }
+
+    tool.HumanOut() << llvm::formatv(
+        "***JOVE*** bootstrap crashed! attach a debugger [{0}]...", getpid());
+
+    for (;;) {
+      sleep(1);
+
+      tool.HumanOut() << ".";
+    }
+
+    __builtin_unreachable();
+  }
+
+  case SIGUSR1:
+    ToggleTurbo.store(true);
+    break;
+
+  //
+  // SIGUSR2: write Decompilation and exit
+  //
+  case SIGUSR2: {
+    tool.HumanOut() << "writing Decompilation and exiting...\n";
+
+    //
+    // write Decompilation
+    //
+    tool.WriteDecompilationToFile(jvfp, tool.Decompilation);
+
+    exit(0);
+  }
+
+  default:
+    abort();
+  }
+
+  if (saved_child) {
+    //
+    // instigate a ptrace-stop
+    //
+    if (kill(saved_child, SIGSTOP /* SIGWINCH */) < 0) {
+      int err = errno;
+      tool.HumanOut() << llvm::formatv("kill of {0} failed: {1}\n", saved_child,
+                                       strerror(err));
+    }
+  }
+}
+
+}
 
 #else
 
-#include <iostream>
+//
+// target architecture != host architecture
+//
+#include "tool.h"
 
-int main(int argc, char **argv) {
-  std::cerr << "error: target architecture " TARGET_ARCH_NAME " does not match the host.\n";
-  return 1;
+namespace jove {
+
+struct BootstrapTool : public Tool {
+  int Run(void) {
+    HumanOut() << "bootstrap: host architecture != target\n";
+    return 1;
+  }
+};
+
+JOVE_REGISTER_TOOL("bootstrap", BootstrapTool);
+
 }
 
 #endif

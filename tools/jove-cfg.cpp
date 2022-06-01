@@ -1,51 +1,37 @@
-#define JOVE_EXTRA_BIN_PROPERTIES                                              \
-  std::unique_ptr<llvm::object::Binary> ObjectFile;
-
-#include "tcgcommon.hpp"
-
-#include <memory>
+#include "tool.h"
+#include "tcg.h"
+#include "elf.h"
+#include <boost/algorithm/string.hpp>
 #include <boost/filesystem.hpp>
-#include <cinttypes>
+#include <boost/format.hpp>
+#include <boost/graph/breadth_first_search.hpp>
+#include <boost/graph/filtered_graph.hpp>
+#include <boost/graph/graphviz.hpp>
+#include <boost/icl/split_interval_map.hpp>
+#include <boost/range/adaptor/reversed.hpp>
+#include <boost/unordered_set.hpp>
 #include <llvm/ADT/PointerIntPair.h>
-#include <llvm/Support/DataExtractor.h>
-#include <llvm/Object/ELFObjectFile.h>
-#include <llvm/Support/TargetRegistry.h>
-#include <llvm/Support/TargetSelect.h>
-#include <llvm/MC/MCContext.h>
 #include <llvm/MC/MCAsmInfo.h>
+#include <llvm/MC/MCContext.h>
 #include <llvm/MC/MCDisassembler/MCDisassembler.h>
+#include <llvm/MC/MCInstPrinter.h>
+#include <llvm/MC/MCInstrInfo.h>
 #include <llvm/MC/MCObjectFileInfo.h>
 #include <llvm/MC/MCRegisterInfo.h>
 #include <llvm/MC/MCSubtargetInfo.h>
-#include <llvm/MC/MCInstrInfo.h>
-#include <llvm/MC/MCInstPrinter.h>
+#include <llvm/Object/ELFObjectFile.h>
 #include <llvm/Support/CommandLine.h>
-#include <llvm/Support/PrettyStackTrace.h>
-#include <llvm/Support/Signals.h>
-#include <llvm/Support/ManagedStatic.h>
+#include <llvm/Support/DataExtractor.h>
 #include <llvm/Support/FormatVariadic.h>
 #include <llvm/Support/InitLLVM.h>
+#include <llvm/Support/ManagedStatic.h>
+#include <llvm/Support/PrettyStackTrace.h>
+#include <llvm/Support/Signals.h>
+#include <llvm/Support/TargetRegistry.h>
+#include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/WithColor.h>
 #include <llvm/Target/TargetMachine.h>
-#include <sys/wait.h>
-
-#include <boost/icl/split_interval_map.hpp>
-
-#include "jove/jove.h"
-#include <boost/format.hpp>
-#include <boost/archive/text_iarchive.hpp>
-#include <boost/archive/text_oarchive.hpp>
-#include <boost/serialization/bitset.hpp>
-#include <boost/serialization/map.hpp>
-#include <boost/serialization/vector.hpp>
-#include <boost/serialization/set.hpp>
-#include <boost/graph/filtered_graph.hpp>
-#include <boost/graph/breadth_first_search.hpp>
-#include <boost/graph/adj_list_serialize.hpp>
-#include <boost/range/adaptor/reversed.hpp>
-#include <boost/algorithm/string.hpp>
-#include <boost/graph/graphviz.hpp>
-#include <boost/unordered_set.hpp>
+#include <memory>
 
 #include "jove_macros.h"
 
@@ -55,53 +41,83 @@ namespace cl = llvm::cl;
 
 using llvm::WithColor;
 
-namespace opts {
-  static cl::OptionCategory JoveCategory("Specific Options");
-
-  static cl::opt<std::string> jv("decompilation", cl::desc("Jove decompilation"),
-				 cl::Required, cl::cat(JoveCategory));
-
-  static cl::alias jvAlias("d", cl::desc("Alias for --decompilation."),
-			   cl::aliasopt(jv), cl::cat(JoveCategory));
-
-  static cl::opt<std::string> Binary("binary", cl::desc("Binary of function"),
-                                     cl::Required, cl::cat(JoveCategory));
-
-  static cl::alias BinaryAlias("b", cl::desc("Alias for --binary."),
-                               cl::aliasopt(Binary), cl::cat(JoveCategory));
-
-  static cl::opt<std::string> FunctionAddress(cl::Positional,
-                                              cl::desc("<address>"),
-                                              cl::Required,
-                                              cl::cat(JoveCategory));
-
-  static cl::opt<bool>
-      PrintTerminatorType("terminator-type",
-                          cl::desc("Print terminator type at end of BB"),
-                          cl::cat(JoveCategory));
-}
-
 namespace jove {
-static int cfg(void);
-}
 
-int main(int argc, char **argv) {
-  llvm::InitLLVM X(argc, argv);
+struct binary_state_t {
+  std::unique_ptr<llvm::object::Binary> ObjectFile;
+};
 
-  cl::ParseCommandLineOptions(argc, argv, "CFG Visualizer\n");
+typedef boost::filtered_graph<
+    interprocedural_control_flow_graph_t,
+    boost::keep_all,
+    boost::is_in_subset<boost::unordered_set<basic_block_t>>>
+    control_flow_graph_t;
 
-  return jove::cfg();
-}
+typedef control_flow_graph_t cfg_t;
 
-namespace jove {
+class CFGTool : public Tool {
+  struct Cmdline {
+    cl::opt<std::string> jv;
+    cl::alias jvAlias;
+    cl::opt<std::string> Binary;
+    cl::alias BinaryAlias;
+    cl::opt<std::string> FunctionAddress;
+    cl::opt<bool> PrintTerminatorType;
+
+    Cmdline(llvm::cl::OptionCategory &JoveCategory)
+        : jv("decompilation", cl::desc("Jove decompilation"), cl::Required,
+             cl::cat(JoveCategory)),
+
+          jvAlias("d", cl::desc("Alias for --decompilation."), cl::aliasopt(jv),
+                  cl::cat(JoveCategory)),
+
+          Binary("binary", cl::desc("Binary of function"), cl::Required,
+                 cl::cat(JoveCategory)),
+
+          BinaryAlias("b", cl::desc("Alias for --binary."),
+                      cl::aliasopt(Binary), cl::cat(JoveCategory)),
+
+          FunctionAddress(cl::Positional, cl::desc("<address>"), cl::Required,
+                          cl::cat(JoveCategory)),
+
+          PrintTerminatorType("terminator-type",
+                              cl::desc("Print terminator type at end of BB"),
+                              cl::cat(JoveCategory))
+
+    {}
+  } opts;
+
+  decompilation_t Decompilation;
+
+  binary_index_t BinaryIndex = invalid_binary_index;
+
+  std::unique_ptr<tiny_code_generator_t> TCG;
+
+  llvm::Triple TheTriple;
+  llvm::SubtargetFeatures Features;
+
+  const llvm::Target *TheTarget;
+  std::unique_ptr<const llvm::MCRegisterInfo> MRI;
+  std::unique_ptr<const llvm::MCAsmInfo> AsmInfo;
+  std::unique_ptr<const llvm::MCSubtargetInfo> STI;
+  std::unique_ptr<const llvm::MCInstrInfo> MII;
+  std::unique_ptr<llvm::MCObjectFileInfo> MOFI;
+  std::unique_ptr<llvm::MCContext> MCCtx;
+  std::unique_ptr<llvm::MCDisassembler> DisAsm;
+  std::unique_ptr<llvm::MCInstPrinter> IP;
+  std::unique_ptr<llvm::TargetMachine> TM;
+
+public:
+  CFGTool() : opts(JoveCategory) {}
+
+  int Run(void);
+
+  std::string disassemble_basic_block(const cfg_t &, cfg_t::vertex_descriptor);
+};
+
+JOVE_REGISTER_TOOL("cfg", CFGTool);
 
 typedef boost::format fmt;
-
-static binary_index_t BinaryIndex = invalid_binary_index;
-
-#include "elf.hpp"
-
-static int await_process_completion(pid_t);
 
 struct reached_visitor : public boost::default_bfs_visitor {
   boost::unordered_set<basic_block_t> &out;
@@ -114,46 +130,15 @@ struct reached_visitor : public boost::default_bfs_visitor {
   }
 };
 
-//
-// globals
-//
-static decompilation_t Decompilation;
-
-typedef boost::filtered_graph<
-    interprocedural_control_flow_graph_t,
-    boost::keep_all,
-    boost::is_in_subset<boost::unordered_set<basic_block_t>>>
-    control_flow_graph_t;
-
-typedef control_flow_graph_t cfg_t;
-
-static std::string disassemble_basic_block(const cfg_t &,
-                                           cfg_t::vertex_descriptor);
-
-static std::unique_ptr<tiny_code_generator_t> TCG;
-
-static llvm::Triple TheTriple;
-static llvm::SubtargetFeatures Features;
-
-static const llvm::Target *TheTarget;
-static std::unique_ptr<const llvm::MCRegisterInfo> MRI;
-static std::unique_ptr<const llvm::MCAsmInfo> AsmInfo;
-static std::unique_ptr<const llvm::MCSubtargetInfo> STI;
-static std::unique_ptr<const llvm::MCInstrInfo> MII;
-static std::unique_ptr<llvm::MCObjectFileInfo> MOFI;
-static std::unique_ptr<llvm::MCContext> MCCtx;
-static std::unique_ptr<llvm::MCDisassembler> DisAsm;
-static std::unique_ptr<llvm::MCInstPrinter> IP;
-static std::unique_ptr<llvm::TargetMachine> TM;
-
 struct graphviz_label_writer {
+  CFGTool &tool;
   const cfg_t &cfg;
 
-  graphviz_label_writer(const cfg_t &cfg) : cfg(cfg) {}
+  graphviz_label_writer(CFGTool &tool, const cfg_t &cfg) : tool(tool), cfg(cfg) {}
 
   void operator()(std::ostream &out,
                   const cfg_t::vertex_descriptor &v) const {
-    std::string src = disassemble_basic_block(cfg, v);
+    std::string src = tool.disassemble_basic_block(cfg, v);
 
     src.reserve(2 * src.size());
 
@@ -194,15 +179,15 @@ struct graphviz_label_writer {
   }
 };
 
-static std::string disassemble_basic_block(const cfg_t &G,
-                                           cfg_t::vertex_descriptor V) {
+std::string CFGTool::disassemble_basic_block(const cfg_t &G,
+                                             cfg_t::vertex_descriptor V) {
   assert(BinaryIndex != invalid_binary_index);
 
   binary_t &binary = Decompilation.Binaries[BinaryIndex];
 
-  TCG->set_elf(llvm::cast<ELFO>(binary.ObjectFile.get())->getELFFile());
+  TCG->set_elf(llvm::cast<ELFO>(state_for_binary(binary).ObjectFile.get())->getELFFile());
 
-  const ELFF &E = *llvm::cast<ELFO>(binary.ObjectFile.get())->getELFFile();
+  const ELFF &E = *llvm::cast<ELFO>(state_for_binary(binary).ObjectFile.get())->getELFFile();
 
   tcg_uintptr_t End = G[V].Addr + G[V].Size;
 
@@ -256,7 +241,7 @@ static std::string disassemble_basic_block(const cfg_t &G,
     res.push_back('\n');
   }
 
-  if (opts::PrintTerminatorType && G[V].Term.Type != TERMINATOR::NONE) {
+  if (opts.PrintTerminatorType && G[V].Term.Type != TERMINATOR::NONE) {
     res.push_back('\n');
     res.append(description_of_terminator(G[V].Term.Type));
     res.push_back('\n');
@@ -304,30 +289,21 @@ struct graphviz_prop_writer {
   }
 };
 
-static void print_command(const char **argv);
-
 static char tmpdir[] = {'/', 't', 'm', 'p', '/', 'X',
                         'X', 'X', 'X', 'X', 'X', '\0'};
 
-int cfg(void) {
-  if (!fs::exists(opts::jv)) {
+int CFGTool::Run(void) {
+  if (!fs::exists(opts.jv)) {
     WithColor::error() << "can't find decompilation.jv\n";
     return 1;
   }
 
-  //
-  // parse the existing decompilation
-  //
-  {
-    std::ifstream ifs(fs::is_directory(opts::jv)
-                          ? (fs::path(opts::jv) / "decompilation.jv").string()
-                          : opts::jv);
+  bool git = fs::is_directory(opts.jv);
+  std::string jvfp = git ? opts.jv + "decompilation.jv" : opts.jv;
 
-    boost::archive::text_iarchive ia(ifs);
-    ia >> Decompilation;
-  }
+  ReadDecompilationFromFile(jvfp, Decompilation);
 
-  assert(!opts::FunctionAddress.empty());
+  assert(!opts.FunctionAddress.empty());
 
   //
   // find the binary of interest
@@ -336,7 +312,7 @@ int cfg(void) {
 
   for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
     const binary_t &binary = Decompilation.Binaries[BIdx];
-    if (binary.Path.find(opts::Binary) == std::string::npos)
+    if (binary.Path.find(opts.Binary) == std::string::npos)
       continue;
 
     BinaryIndex = BIdx;
@@ -345,7 +321,7 @@ int cfg(void) {
 
   if (BinaryIndex == invalid_binary_index) {
     WithColor::error() << llvm::formatv("failed to find binary \"{0}\"\n",
-                                        opts::Binary);
+                                        opts.Binary);
     return 1;
   }
 
@@ -371,17 +347,17 @@ int cfg(void) {
       obj::createBinary(MemBuffRef);
 
   if (!BinOrErr) {
-    fprintf(stderr, "failed to open %s\n", opts::Binary.c_str());
+    fprintf(stderr, "failed to open %s\n", opts.Binary.c_str());
     return 1;
   }
 
   {
     std::unique_ptr<obj::Binary> &BinRef = BinOrErr.get();
 
-    binary.ObjectFile = std::move(BinRef);
+    state_for_binary(binary).ObjectFile = std::move(BinRef);
   }
 
-  obj::Binary *B = binary.ObjectFile.get();
+  obj::Binary *B = state_for_binary(binary).ObjectFile.get();
   if (!llvm::isa<ELFO>(B)) {
     fprintf(stderr, "invalid binary\n");
     return 1;
@@ -464,8 +440,8 @@ int cfg(void) {
   //
   function_index_t FunctionIndex = invalid_function_index;
 
-  assert(!opts::FunctionAddress.empty());
-  uintptr_t FuncAddr = std::stoi(opts::FunctionAddress.c_str(), 0, 16);
+  assert(!opts.FunctionAddress.empty());
+  uintptr_t FuncAddr = std::stoi(opts.FunctionAddress.c_str(), 0, 16);
 
   const auto &ICFG = binary.Analysis.ICFG;
 
@@ -526,7 +502,7 @@ Found:
 
     boost::write_graphviz(
         ofs, cfg,
-	graphviz_label_writer(cfg),
+	graphviz_label_writer(*this, cfg),
         graphviz_edge_prop_writer(cfg),
 	graphviz_prop_writer(),
         boost::associative_property_map<std::map<cfg_t::vertex_descriptor, int>>(idx_map));
@@ -572,7 +548,7 @@ Found:
     //
     // check exit code
     //
-    if (await_process_completion(pid))
+    if (WaitForProcessToExit(pid))
       WithColor::warning() << "graph-easy failed for " << dot_path << '\n';
   } else {
     WithColor::error() << "failed to find graph-easy executable file\n";
@@ -581,38 +557,4 @@ Found:
   return 0;
 }
 
-void _qemu_log(const char *cstr) {
-  fputs(cstr, stdout);
 }
-
-int await_process_completion(pid_t pid) {
-  int wstatus;
-  do {
-    if (waitpid(pid, &wstatus, WUNTRACED | WCONTINUED) < 0)
-      abort();
-
-    if (WIFEXITED(wstatus)) {
-      //printf("exited, status=%d\n", WEXITSTATUS(wstatus));
-      return WEXITSTATUS(wstatus);
-    } else if (WIFSIGNALED(wstatus)) {
-      //printf("killed by signal %d\n", WTERMSIG(wstatus));
-      return 1;
-    } else if (WIFSTOPPED(wstatus)) {
-      //printf("stopped by signal %d\n", WSTOPSIG(wstatus));
-      return 1;
-    } else if (WIFCONTINUED(wstatus)) {
-      //printf("continued\n");
-    }
-  } while (!WIFEXITED(wstatus) && !WIFSIGNALED(wstatus));
-
-  abort();
-}
-
-void print_command(const char **argv) {
-  for (const char **s = argv; *s; ++s)
-    llvm::outs() << *s << ' ';
-
-  llvm::outs() << '\n';
-}
-
-} // namespace jove

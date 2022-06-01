@@ -1,5 +1,5 @@
+#include "tcg.h"
 #include <llvm/Object/ELFObjectFile.h>
-#include <jove/jove.h>
 
 static unsigned long __jove_end_pc = 0;
 
@@ -73,7 +73,7 @@ namespace jove {
 
 static bool do_tcg_optimization = false;
 
-struct tiny_code_generator_t {
+struct tiny_code_generator_private_t {
 #if defined(TARGET_X86_64) || defined(TARGET_I386)
   X86CPU _cpu;
 #elif defined(TARGET_AARCH64)
@@ -86,7 +86,7 @@ struct tiny_code_generator_t {
 
   TCGContext _ctx;
 
-  tiny_code_generator_t() {
+  tiny_code_generator_private_t() {
     // zero-initialize CPU
     memset(&_cpu, 0, sizeof(_cpu));
 
@@ -385,4 +385,20 @@ struct tiny_code_generator_t {
   }
 };
 
-} // namespace jove
+tiny_code_generator_t::tiny_code_generator_t()
+    : priv(new tiny_code_generator_private_t) {}
+
+void tiny_code_generator_t::set_elf(const void *e) {
+  priv->set_elf(e);
+}
+
+void tiny_code_generator_t::dump_operations(void) {
+  priv->dump_operations();
+}
+
+std::pair<unsigned, terminator_info_t>
+tiny_code_generator_t::translate(tcg_uintptr_t pc, tcg_uintptr_t pc_end) {
+  return priv->translate(pc, pc_end);
+}
+
+}

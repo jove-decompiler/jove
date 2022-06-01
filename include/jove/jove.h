@@ -136,11 +136,6 @@ struct basic_block_properties_t {
     bool Stale;
   } Analysis;
 
-#ifdef JOVE_EXTRA_BB_PROPERTIES
-  JOVE_EXTRA_BB_PROPERTIES;
-#undef JOVE_EXTRA_BB_PROPERTIES
-#endif
-
   bool IsSingleInstruction(void) const { return Addr == Term.Addr; }
 
   void InvalidateAnalysis(void) {
@@ -166,7 +161,19 @@ struct basic_block_properties_t {
        &BOOST_SERIALIZATION_NVP(Analysis.reach.def)
        &BOOST_SERIALIZATION_NVP(Analysis.Stale);
   }
+
+  mutable void *userdata = nullptr;
+
+  template <typename StateTy>
+  StateTy &state() const {
+    if (!this->userdata)
+      this->userdata = new StateTy;
+
+    return *reinterpret_cast<StateTy *>(this->userdata);
+  }
 };
+
+#define state_for_basic_block(bb) bb.state<basic_block_state_t>()
 
 typedef boost::adjacency_list<boost::setS,             /* OutEdgeList */
                               boost::vecS,             /* VertexList */
@@ -226,11 +233,6 @@ struct function_t {
     this->Analysis.Stale = true;
   }
 
-#ifdef JOVE_EXTRA_FN_PROPERTIES
-  JOVE_EXTRA_FN_PROPERTIES;
-#undef JOVE_EXTRA_FN_PROPERTIES
-#endif
-
   template <class Archive>
   void serialize(Archive &ar, const unsigned int) {
     ar &BOOST_SERIALIZATION_NVP(Entry)
@@ -241,7 +243,19 @@ struct function_t {
        &BOOST_SERIALIZATION_NVP(IsSignalHandler)
        &BOOST_SERIALIZATION_NVP(Returns);
   }
+
+  mutable void *userdata = nullptr;
+
+  template <typename StateTy>
+  StateTy &state() const {
+    if (!this->userdata)
+      this->userdata = new StateTy;
+
+    return *reinterpret_cast<StateTy *>(this->userdata);
+  }
 };
+
+#define state_for_function(f) f.state<function_state_t>()
 
 struct binary_t {
   std::string Path;
@@ -263,11 +277,6 @@ struct binary_t {
     std::map<std::string, std::set<dynamic_target_t>> SymDynTargets;
   } Analysis;
 
-#ifdef JOVE_EXTRA_BIN_PROPERTIES
-  JOVE_EXTRA_BIN_PROPERTIES;
-#undef JOVE_EXTRA_BIN_PROPERTIES
-#endif
-
   template <class Archive>
   void serialize(Archive &ar, const unsigned int) {
     ar &BOOST_SERIALIZATION_NVP(Path)
@@ -284,7 +293,19 @@ struct binary_t {
        &BOOST_SERIALIZATION_NVP(Analysis.IFuncDynTargets)
        &BOOST_SERIALIZATION_NVP(Analysis.SymDynTargets);
   }
+
+  mutable void *userdata = nullptr;
+
+  template <typename StateTy>
+  StateTy &state() const {
+    if (!this->userdata)
+      this->userdata = new StateTy;
+
+    return *reinterpret_cast<StateTy *>(this->userdata);
+  }
 };
+
+#define state_for_binary(b) (b.template state<binary_state_t>())
 
 struct decompilation_t {
   std::vector<binary_t> Binaries;

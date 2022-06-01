@@ -1,50 +1,28 @@
-#include <string>
-#include <vector>
-#include <boost/graph/adjacency_list.hpp>
+#include "tool.h"
+#include "elf.h"
+#include <boost/dll/runtime_symbol_info.hpp>
+#include <boost/filesystem.hpp>
+#include <boost/format.hpp>
 #include <boost/graph/graphviz.hpp>
-
-#include <unistd.h>
-#include <sys/syscall.h>
-#include <sys/wait.h>
-#include <sched.h>
-#include <tuple>
-#include <thread>
+#include <boost/graph/topological_sort.hpp>
+#include <boost/range/adaptor/reversed.hpp>
 #include <chrono>
-#include <memory>
+#include <llvm/ADT/PointerIntPair.h>
+#include <llvm/ADT/StringRef.h>
+#include <llvm/Support/FormatVariadic.h>
+#include <llvm/Support/WithColor.h>
 #include <mutex>
 #include <queue>
 #include <sstream>
-#include <fstream>
+#include <string>
+#include <thread>
 #include <unordered_set>
-#include <boost/filesystem.hpp>
-#include <boost/dll/runtime_symbol_info.hpp>
-#include <llvm/ADT/PointerIntPair.h>
-#include <llvm/ADT/StringRef.h>
-#include <llvm/Support/DataExtractor.h>
-#include <llvm/Object/ELF.h>
-#include <llvm/Object/ELFObjectFile.h>
-#include <llvm/Support/CommandLine.h>
-#include <llvm/Support/PrettyStackTrace.h>
-#include <llvm/Support/Signals.h>
-#include <llvm/Support/ManagedStatic.h>
-#include <llvm/Support/FormatVariadic.h>
-#include <llvm/Support/InitLLVM.h>
-#include <llvm/Support/WithColor.h>
-#include <sys/types.h>
-#include <sys/stat.h>
 #include <fcntl.h>
-
-#include "jove/jove.h"
-#include <boost/archive/text_iarchive.hpp>
-#include <boost/archive/text_oarchive.hpp>
-#include <boost/serialization/bitset.hpp>
-#include <boost/serialization/map.hpp>
-#include <boost/serialization/vector.hpp>
-#include <boost/serialization/set.hpp>
-#include <boost/graph/adj_list_serialize.hpp>
-#include <boost/range/adaptor/reversed.hpp>
-#include <boost/graph/topological_sort.hpp>
-#include <boost/format.hpp>
+#include <sched.h>
+#include <sys/stat.h>
+#include <sys/syscall.h>
+#include <sys/types.h>
+#include <unistd.h>
 
 #include "jove_macros.h"
 
@@ -56,83 +34,64 @@ using llvm::WithColor;
 
 namespace jove {
 static unsigned num_cpus(void);
-}
 
-namespace opts {
-static cl::OptionCategory JoveCategory("Specific Options");
+class InitTool : public Tool {
+  struct Cmdline {
+    cl::opt<std::string> TemporaryDir;
+    cl::opt<std::string> Input;
+    cl::opt<std::string> Output;
+    cl::alias OutputAlias;
+    cl::opt<unsigned> Threads;
+    cl::opt<bool> Git;
+    cl::opt<bool> Verbose;
+    cl::alias VerboseAlias;
+    cl::opt<bool> RedirectStderr;
 
-static cl::opt<std::string> TemporaryDir("tmpdir", cl::value_desc("directory"),
-                                         cl::cat(JoveCategory));
+    Cmdline(llvm::cl::OptionCategory &JoveCategory)
+        : TemporaryDir("tmpdir", cl::value_desc("directory"),
+                       cl::cat(JoveCategory)),
 
-static cl::opt<std::string> Input(cl::Positional, cl::desc("prog"),
-                                  cl::Required, cl::value_desc("filename"),
-                                  cl::cat(JoveCategory));
+          Input(cl::Positional, cl::desc("prog"), cl::Required,
+                cl::value_desc("filename"), cl::cat(JoveCategory)),
 
-static cl::opt<std::string> Output("output", cl::desc("Output"), cl::Required,
-                                   cl::value_desc("filename"),
-                                   cl::cat(JoveCategory));
+          Output("output", cl::desc("Output"), cl::Required,
+                 cl::value_desc("filename"), cl::cat(JoveCategory)),
 
-static cl::alias OutputAlias("o", cl::desc("Alias for -output."),
-                             cl::aliasopt(Output), cl::cat(JoveCategory));
+          OutputAlias("o", cl::desc("Alias for -output."), cl::aliasopt(Output),
+                      cl::cat(JoveCategory)),
 
-static cl::opt<unsigned> Threads("num-threads",
-                                 cl::desc("Number of CPU threads to use"),
-                                 cl::init(jove::num_cpus()),
-                                 cl::value_desc("int"), cl::cat(JoveCategory));
+          Threads("num-threads", cl::desc("Number of CPU threads to use"),
+                  cl::init(jove::num_cpus()), cl::value_desc("int"),
+                  cl::cat(JoveCategory)),
 
-static cl::opt<bool> Git("git", cl::desc("git mode"), cl::cat(JoveCategory));
+          Git("git", cl::desc("git mode"), cl::cat(JoveCategory)),
 
-static cl::opt<bool>
-    Verbose("verbose",
-            cl::desc("Print extra information for debugging purposes"));
+          Verbose("verbose",
+                  cl::desc("Print extra information for debugging purposes")),
 
-static cl::alias VerboseAlias("v", cl::desc("Alias for -verbose."),
-                              cl::aliasopt(Verbose), cl::cat(JoveCategory));
+          VerboseAlias("v", cl::desc("Alias for -verbose."),
+                       cl::aliasopt(Verbose), cl::cat(JoveCategory)),
 
-static cl::opt<bool>
-    RedirectStderr("redirect-stderr",
-            cl::desc("Like we do with stdout for jove-add, pipe it to a txt"));
-} // namespace opts
+          RedirectStderr(
+              "redirect-stderr",
+              cl::desc(
+                  "Like we do with stdout for jove-add, pipe it to a txt")) {}
+  } opts;
 
-namespace jove {
-static int init(void);
-}
+public:
+  InitTool() : opts(JoveCategory) {}
 
-int main(int argc, char **argv) {
-  llvm::InitLLVM X(argc, argv);
+  int Run(void);
 
-  cl::HideUnrelatedOptions({&opts::JoveCategory, &llvm::ColorCategory});
-  cl::AddExtraVersionPrinter([](llvm::raw_ostream &OS) -> void {
-    OS << "jove version " JOVE_VERSION "\n";
-  });
-  cl::ParseCommandLineOptions(argc, argv, "Jove Init\n");
+  void worker(void);
+  void spawn_workers(void);
+};
 
-  {
-    struct sigaction sa;
-
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = 0;
-    sa.sa_handler = SIG_IGN;
-
-    sigaction(SIGINT, &sa, nullptr);
-  }
-
-  return jove::init();
-}
-
-namespace jove {
-
-#include "elf.hpp"
-
-static void spawn_workers(void);
+JOVE_REGISTER_TOOL("init", InitTool);
 
 static std::queue<std::string> Q;
 
 static std::string tmpdir;
-
-static int await_process_completion(pid_t);
-
-static void print_command(const char **argv);
 
 static std::string jove_add_path, harvest_vdso_path;
 
@@ -494,7 +453,9 @@ static const uint8_t a_vdso[] = {
 static const uint8_t a_vdso[] = {};
 #endif
 
-int init(void) {
+int InitTool::Run(void) {
+  IgnoreCtrlC();
+
   null_fd = open("/dev/null", O_WRONLY);
   if (null_fd < 0) {
     WithColor::error() << "could not open /dev/null : " << strerror(errno)
@@ -547,7 +508,7 @@ int init(void) {
       exit(1);
     }
 
-    std::vector<const char *> arg_vec = {opts::Input.c_str(), nullptr};
+    std::vector<const char *> arg_vec = {opts.Input.c_str(), nullptr};
 
     std::vector<const char *> env_vec;
     for (char **env = ::environ; *env; ++env)
@@ -590,8 +551,8 @@ int init(void) {
   //
   // check exit code
   //
-  if (int ret = await_process_completion(pid)) {
-    WithColor::error() << "LD_TRACE_LOADED_OBJECTS=1 " << opts::Input
+  if (int ret = WaitForProcessToExit(pid)) {
+    WithColor::error() << "LD_TRACE_LOADED_OBJECTS=1 " << opts.Input
                  << " returned nonzero exit code " << ret << '\n';
     return 1;
   }
@@ -599,7 +560,7 @@ int init(void) {
   //
   // prepare to process the binaries by creating a unique temporary directory
   //
-  if (opts::TemporaryDir.empty()) {
+  if (opts.TemporaryDir.empty()) {
     tmpdir = "/tmp/XXXXXX";
 
     if (!mkdtemp(&tmpdir[0])) {
@@ -609,9 +570,9 @@ int init(void) {
     }
   } else {
     srand(time(nullptr));
-    tmpdir = (fs::path(opts::TemporaryDir) / std::to_string(rand())).string();
+    tmpdir = (fs::path(opts.TemporaryDir) / std::to_string(rand())).string();
 
-    if (opts::Verbose)
+    if (opts.Verbose)
       llvm::errs() << "temporary dir: " << tmpdir.c_str() << '\n';
 
     if (mkdir(tmpdir.c_str(), 0777) < 0) {
@@ -633,7 +594,7 @@ int init(void) {
   //
   // executable should be first
   //
-  binary_paths.push_back(fs::canonical(opts::Input).string());
+  binary_paths.push_back(fs::canonical(opts.Input).string());
 
   //
   // to get the vdso, we run $(BINDIR)/$(target)/harvest-vdso. if it exists, it
@@ -708,17 +669,17 @@ int init(void) {
 
   bool HasVDSO = true;
 
-  if (int ret = await_process_completion(pid)) {
+  if (int ret = WaitForProcessToExit(pid)) {
     HasVDSO = false;
 
-    if (opts::Verbose)
+    if (opts.Verbose)
       WithColor::error() << "harvest-vdso failed. bug?\n";
   }
 
   if (vdso.empty()) {
     HasVDSO = false;
 
-    if (opts::Verbose)
+    if (opts.Verbose)
       WithColor::error() << "no [vdso] found. bug?\n";
   }
 
@@ -777,7 +738,7 @@ int init(void) {
     }
 
     std::string bin_path = fs::canonical(path).string();
-    if (opts::Verbose)
+    if (opts.Verbose)
       llvm::errs() << llvm::formatv("path = {0} bin_path = {1}\n", path, bin_path);
 
     if (std::find(binary_paths.begin(), binary_paths.end(), bin_path) != binary_paths.end())
@@ -789,16 +750,16 @@ int init(void) {
   //
   // get the path to the dynamic linker (i.e. program interpreter)
   //
-  fs::path rtld_path = fs::canonical(program_interpreter_of_executable(opts::Input.c_str()));
+  fs::path rtld_path = fs::canonical(program_interpreter_of_executable(opts.Input.c_str()));
 
-  if (opts::Verbose)
+  if (opts.Verbose)
     WithColor::note() << llvm::formatv("rtld_path={0}\n", rtld_path.c_str());
 
   {
     unsigned Idx;
     for (Idx = 0; Idx < binary_paths.size(); ++Idx) {
       if (fs::equivalent(binary_paths[Idx], rtld_path)) {
-        if (opts::Verbose)
+        if (opts.Verbose)
           WithColor::note() << llvm::formatv("found rtld! idx={0} path={1} rtld_path={2}\n", Idx, binary_paths[Idx], rtld_path.c_str());
         goto Found;
       }
@@ -810,7 +771,7 @@ int init(void) {
 
 Found:
 
-    if (opts::Verbose)
+    if (opts.Verbose)
       WithColor::error() << llvm::formatv("rtld in binary_paths: idx={0}\n", Idx);
 
     if (Idx != 1) {
@@ -857,12 +818,7 @@ Found:
     }
 
     decompilation_t decompilation;
-    {
-      std::ifstream ifs(jvfp);
-
-      boost::archive::text_iarchive ia(ifs);
-      ia >> decompilation;
-    }
+    ReadDecompilationFromFile(jvfp, decompilation);
 
     if (decompilation.Binaries.size() != 1) {
       WithColor::error() << "invalid intermediate result " << jvfp << '\n';
@@ -896,32 +852,27 @@ found:
     ;
   }
 
-  if (fs::exists(opts::Output)) {
-    if (opts::Verbose)
-      llvm::outs() << "output already exists, overwriting " << opts::Output
+  if (fs::exists(opts.Output)) {
+    if (opts.Verbose)
+      llvm::outs() << "output already exists, overwriting " << opts.Output
                    << '\n';
 
-    if (fs::is_directory(opts::Output)) {
-      fs::remove_all(opts::Output);
+    if (fs::is_directory(opts.Output)) {
+      fs::remove_all(opts.Output);
     } else {
-      fs::remove(opts::Output);
+      fs::remove(opts.Output);
     }
   }
 
-  std::string final_output_path = opts::Output;
-  if (opts::Git) {
-    fs::create_directory(opts::Output);
+  std::string final_output_path = opts.Output;
+  if (opts.Git) {
+    fs::create_directory(opts.Output);
     final_output_path += "/decompilation.jv";
   }
 
-  {
-    std::ofstream ofs(final_output_path);
+  WriteDecompilationToFile(final_output_path, final_decompilation);
 
-    boost::archive::text_oarchive oa(ofs);
-    oa << final_decompilation;
-  }
-
-  if (opts::Git) {
+  if (opts.Git) {
     pid_t pid;
 
     //
@@ -929,7 +880,7 @@ found:
     //
     pid = fork();
     if (!pid) {
-      chdir(opts::Output.c_str());
+      chdir(opts.Output.c_str());
 
       std::vector<const char *> arg_vec = {"/usr/bin/git", "init", nullptr};
 
@@ -944,15 +895,15 @@ found:
       return 1;
     }
 
-    if (int ret = await_process_completion(pid))
+    if (int ret = WaitForProcessToExit(pid))
       return ret;
 
     //
     // Append '[diff "jv"]\n        textconv = jove-dump-x86_64' to .git/config
     //
-    assert(fs::exists(opts::Output + "/.git/config"));
+    assert(fs::exists(opts.Output + "/.git/config"));
     {
-      std::ofstream ofs(opts::Output + "/.git/config",
+      std::ofstream ofs(opts.Output + "/.git/config",
                         std::ios_base::out | std::ios_base::app);
       ofs << "\n[diff \"jv\"]\n        textconv = jove-dump";
     }
@@ -960,9 +911,9 @@ found:
     //
     // Write '*.jv diff=jv' to .git/info/attributes
     //
-    assert(!fs::exists(opts::Output + "/.git/info/attributes"));
+    assert(!fs::exists(opts.Output + "/.git/info/attributes"));
     {
-      std::ofstream ofs(opts::Output + "/.git/info/attributes");
+      std::ofstream ofs(opts.Output + "/.git/info/attributes");
       ofs << "*.jv diff=jv";
     }
 
@@ -971,7 +922,7 @@ found:
     //
     pid = fork();
     if (!pid) {
-      chdir(opts::Output.c_str());
+      chdir(opts.Output.c_str());
 
       std::vector<const char *> arg_vec = {"/usr/bin/git", "add",
                                            "decompilation.jv", nullptr};
@@ -987,7 +938,7 @@ found:
       return 1;
     }
 
-    if (int ret = await_process_completion(pid))
+    if (int ret = WaitForProcessToExit(pid))
       return ret;
 
     //
@@ -995,7 +946,7 @@ found:
     //
     pid = fork();
     if (!pid) {
-      chdir(opts::Output.c_str());
+      chdir(opts.Output.c_str());
 
       std::vector<const char *> arg_vec = {
         "/usr/bin/git",
@@ -1017,7 +968,7 @@ found:
       return 1;
     }
 
-    if (int ret = await_process_completion(pid))
+    if (int ret = WaitForProcessToExit(pid))
       return ret;
   }
 
@@ -1045,10 +996,13 @@ std::string program_interpreter_of_executable(const char *exepath) {
   const ELFO &O = *llvm::cast<ELFO>(B);
   const ELFF &E = *O.getELFFile();
 
-  for (const Elf_Phdr &Phdr : unwrapOrError(E.program_headers())) {
-    if (Phdr.p_type == llvm::ELF::PT_INTERP) {
-      res = std::string(reinterpret_cast<const char *>(E.base() + Phdr.p_offset));
-      break;
+  auto ExpectedHeaders = E.program_headers();
+  if (ExpectedHeaders) {
+    for (const Elf_Phdr &Phdr : *ExpectedHeaders) {
+      if (Phdr.p_type == llvm::ELF::PT_INTERP) {
+        res = std::string(reinterpret_cast<const char *>(E.base() + Phdr.p_offset));
+        break;
+      }
     }
   }
 
@@ -1178,7 +1132,7 @@ ssize_t robust_write(int fd, const void *const buf, const size_t count) {
 
 static std::mutex mtx;
 
-static void worker(void) {
+void InitTool::worker(void) {
   auto pop_path = [](std::string &out) -> bool {
     std::lock_guard<std::mutex> lck(mtx);
 
@@ -1210,7 +1164,7 @@ static void worker(void) {
       std::string stdoutfp = tmpdir + path + ".txt";
       int outfd = open(stdoutfp.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666);
       dup2(outfd, STDOUT_FILENO);
-      if (opts::RedirectStderr)
+      if (opts.RedirectStderr)
         dup2(outfd, STDERR_FILENO);
 
       close(STDIN_FILENO);
@@ -1223,46 +1177,23 @@ static void worker(void) {
       exit(1);
     }
 
-    if (int ret = await_process_completion(pid))
+    if (int ret = WaitForProcessToExit(pid))
       WithColor::error() << llvm::formatv("jove-add -o {0} -i {1}\n", jvfp,
                                           path);
   }
 }
 
-void spawn_workers(void) {
+void InitTool::spawn_workers(void) {
   std::vector<std::thread> workers;
 
-  unsigned N = opts::Threads;
+  unsigned N = opts.Threads;
 
   workers.reserve(N);
   for (unsigned i = 0; i < N; ++i)
-    workers.push_back(std::thread(worker));
+    workers.push_back(std::thread(&InitTool::worker, this));
 
   for (std::thread &t : workers)
     t.join();
-}
-
-int await_process_completion(pid_t pid) {
-  int wstatus;
-  do {
-    if (waitpid(pid, &wstatus, WUNTRACED | WCONTINUED) < 0)
-      abort();
-
-    if (WIFEXITED(wstatus)) {
-      //printf("exited, status=%d\n", WEXITSTATUS(wstatus));
-      return WEXITSTATUS(wstatus);
-    } else if (WIFSIGNALED(wstatus)) {
-      //printf("killed by signal %d\n", WTERMSIG(wstatus));
-      return 1;
-    } else if (WIFSTOPPED(wstatus)) {
-      //printf("stopped by signal %d\n", WSTOPSIG(wstatus));
-      return 1;
-    } else if (WIFCONTINUED(wstatus)) {
-      //printf("continued\n");
-    }
-  } while (!WIFEXITED(wstatus) && !WIFSIGNALED(wstatus));
-
-  abort();
 }
 
 unsigned num_cpus(void) {
@@ -1275,22 +1206,6 @@ unsigned num_cpus(void) {
   }
 
   return CPU_COUNT(&cpu_mask);
-}
-
-void print_command(const char **argv) {
-  std::string msg;
-
-  for (const char **s = argv; *s; ++s) {
-    msg.append(*s);
-    msg.push_back(' ');
-  }
-
-  if (msg.empty())
-    return;
-
-  msg[msg.size() - 1] = '\n';
-
-  llvm::outs() << msg;
 }
 
 } // namespace jove

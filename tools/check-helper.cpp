@@ -1,37 +1,55 @@
+#include "tool.h"
 #include <boost/dll/runtime_symbol_info.hpp>
 #include <llvm/Bitcode/BitcodeReader.h>
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
 #include <llvm/Support/CommandLine.h>
+#include <llvm/Support/FormatVariadic.h>
 #include <llvm/Support/InitLLVM.h>
 #include <llvm/Support/MemoryBuffer.h>
 #include <llvm/Support/WithColor.h>
-#include <llvm/Support/FormatVariadic.h>
-#include <unordered_set>
 #include <string>
+#include <unordered_set>
 
 namespace cl = llvm::cl;
 
 using llvm::WithColor;
 
-namespace opts {
-static cl::OptionCategory JoveCategory("Specific Options");
-
-static cl::list<std::string> InputHelpers(cl::Positional, cl::desc("<helper>"),
-                                          cl::OneOrMore, cl::cat(JoveCategory));
-
-static cl::opt<bool>
-    Verbose("verbose",
-            cl::desc("Print extra information for debugging purposes"),
-            cl::cat(JoveCategory));
-
-} // namespace opts
-
 namespace jove {
 
-static llvm::LLVMContext Context;
+class CheckHelpersTool : public Tool {
+  struct Cmdline {
+    cl::list<std::string> InputHelpers;
+    cl::opt<bool> Verbose;
 
-static void checkHelper(const std::string &helper_nm) {
+    Cmdline(llvm::cl::OptionCategory &JoveCategory)
+        : InputHelpers(cl::Positional, cl::desc("<helper>"), cl::OneOrMore,
+                       cl::cat(JoveCategory)),
+
+          Verbose("verbose",
+                  cl::desc("Print extra information for debugging purposes"),
+                  cl::cat(JoveCategory)) {}
+  } opts;
+
+  llvm::LLVMContext Context;
+
+public:
+  CheckHelpersTool() : opts(JoveCategory) {}
+
+  int Run(void);
+
+  void checkHelper(const std::string &helper_nm);
+};
+
+JOVE_REGISTER_TOOL("check-helpers", CheckHelpersTool);
+
+int CheckHelpersTool::Run(void) {
+  for (const std::string &nm : opts.InputHelpers)
+    checkHelper(nm);
+  return 0;
+}
+
+void CheckHelpersTool::checkHelper(const std::string &helper_nm) {
   std::string helperModulePath =
       (boost::dll::program_location().parent_path() / "helpers" / (helper_nm + ".bc"))
           .string();
@@ -65,7 +83,7 @@ static void checkHelper(const std::string &helper_nm) {
         continue;
 
       if (F.empty()) { /* is declaration? */
-        if (opts::Verbose)
+        if (opts.Verbose)
           llvm::errs() << helperM << '\n';
 
 #if 0
@@ -104,22 +122,6 @@ static void checkHelper(const std::string &helper_nm) {
     llvm::outs() << ' ' << sym;
 
   llvm::outs() << '\n';
-
-  exit(1);
 }
 
-}
-
-int main(int argc, char **argv) {
-  llvm::InitLLVM X(argc, argv);
-
-  cl::HideUnrelatedOptions({&opts::JoveCategory, &llvm::ColorCategory});
-  cl::AddExtraVersionPrinter([](llvm::raw_ostream &OS) -> void {
-    OS << "jove version " JOVE_VERSION "\n";
-  });
-  cl::ParseCommandLineOptions(argc, argv, "Helper Bitcode Checker\n");
-
-  llvm::for_each(opts::InputHelpers, jove::checkHelper);
-
-  return 0;
 }

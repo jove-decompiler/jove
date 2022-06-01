@@ -19,8 +19,8 @@ int main(int argc, char **argv) {
   llvm::ScopedPrinter Writer(llvm::outs());
   llvm::ListScope _(Writer);
 
-  for (int i = 0; i < tcg._ctx.nb_globals; i++)
-    print_tcgtemp(Writer, tcg._ctx.temps[i]);
+  for (int i = 0; i < tcg.priv->_ctx.nb_globals; i++)
+    print_tcgtemp(Writer, tcg.priv->_ctx.temps[i]);
 
   return 0;
 }

@@ -1,64 +1,20 @@
-#include <llvm/Object/ELFObjectFile.h>
-#include <boost/icl/split_interval_map.hpp>
-
-#define JOVE_EXTRA_BIN_PROPERTIES                                              \
-  bbmap_t bbmap;                                                               \
-  fnmap_t fnmap;                                                               \
-                                                                               \
-  std::unique_ptr<llvm::object::Binary> ObjectFile;
-
-#include "tcgcommon.hpp"
-#include "sha3.hpp"
-
-#include <tuple>
-#include <memory>
-#include <sstream>
-#include <fstream>
+#include "tool.h"
+#include "elf.h"
+#include "explore.h"
 #include <boost/filesystem.hpp>
-#include <llvm/Support/DataExtractor.h>
-#include <llvm/ADT/PointerIntPair.h>
-#include <llvm/IR/LLVMContext.h>
-#include <llvm/IR/Module.h>
+#include <boost/range/adaptor/reversed.hpp>
+#include <llvm/Support/WithColor.h>
+#include <llvm/Support/FormatVariadic.h>
 #include <llvm/MC/MCAsmInfo.h>
 #include <llvm/MC/MCContext.h>
-#include <llvm/MC/MCDisassembler/MCDisassembler.h>
-#include <llvm/MC/MCInstPrinter.h>
 #include <llvm/MC/MCInstrInfo.h>
 #include <llvm/MC/MCObjectFileInfo.h>
 #include <llvm/MC/MCRegisterInfo.h>
-#include <llvm/MC/MCSubtargetInfo.h>
-#include <llvm/Object/ELF.h>
-#include <llvm/Object/ELFObjectFile.h>
-#include <llvm/Support/CommandLine.h>
 #include <llvm/Support/FileSystem.h>
-#include <llvm/Support/InitLLVM.h>
-#include <llvm/Support/ManagedStatic.h>
-#include <llvm/Support/PrettyStackTrace.h>
-#include <llvm/Support/Signals.h>
 #include <llvm/Support/TargetRegistry.h>
 #include <llvm/Support/TargetSelect.h>
-#include <llvm/Support/WithColor.h>
-#include <llvm/Support/FormatVariadic.h>
 
-#include "jove/jove.h"
-#include <boost/range/adaptor/reversed.hpp>
-#include <boost/archive/text_iarchive.hpp>
-#include <boost/archive/text_oarchive.hpp>
-#include <boost/serialization/bitset.hpp>
-#include <boost/serialization/map.hpp>
-#include <boost/serialization/set.hpp>
-#include <boost/serialization/vector.hpp>
-#include <boost/graph/adj_list_serialize.hpp>
-#include <boost/graph/depth_first_search.hpp>
-#include <boost/icl/split_interval_map.hpp>
-#include <boost/format.hpp>
-
-#include <signal.h>
-
-#ifdef __mips64
-#include <unistd.h>
-#include <sys/syscall.h>   /* For SYS_xxx definitions */
-#endif
+#include "jove_macros.h"
 
 extern "C" {
 void __attribute__((noinline))
@@ -68,115 +24,112 @@ UserBreakPoint(void) {
 }
 }
 
-#include "jove_macros.h"
-
 namespace fs = boost::filesystem;
 namespace obj = llvm::object;
 namespace cl = llvm::cl;
 
 using llvm::WithColor;
 
-namespace opts {
-static cl::OptionCategory JoveCategory("Specific Options");
-
-static cl::opt<std::string> Input("input",
-                                  cl::desc("Path to DSO"),
-                                  cl::Required, cl::value_desc("filename"),
-                                  cl::cat(JoveCategory));
-
-static cl::alias InputAlias("i", cl::desc("Alias for -input."),
-                            cl::aliasopt(Input), cl::cat(JoveCategory));
-
-static cl::opt<std::string> Output("output", cl::desc("Jove decompilation"),
-                                   cl::value_desc("filename"),
-                                   cl::cat(JoveCategory));
-
-static cl::alias OutputAlias("o", cl::desc("Alias for -output."),
-                             cl::aliasopt(Output), cl::cat(JoveCategory));
-
-static cl::opt<std::string> jv("decompilation", cl::desc("Jove decompilation"),
-                               cl::value_desc("filename"),
-                               cl::cat(JoveCategory));
-
-static cl::alias jvAlias("d", cl::desc("Alias for -decompilation."),
-                         cl::aliasopt(jv), cl::cat(JoveCategory));
-
-static cl::opt<bool>
-    Verbose("verbose",
-            cl::desc("Print extra information for debugging purposes"),
-            cl::cat(JoveCategory));
-
-static cl::alias VerboseAlias("v", cl::desc("Alias for -verbose."),
-                              cl::aliasopt(Verbose), cl::cat(JoveCategory));
-
-static cl::opt<std::string> BreakOnAddr(
-    "break-on-addr",
-    cl::desc("Allow user to set a debugger breakpoint on TCGDumpBreakPoint, "
-             "and triggered when basic block address matches given address"),
-    cl::cat(JoveCategory));
-} // namespace opts
-
 namespace jove {
-static int add(void);
-}
 
-int main(int argc, char **argv) {
-  llvm::InitLLVM X(argc, argv);
+struct binary_state_t {
+  bbmap_t bbmap;
+  fnmap_t fnmap;
 
-  cl::HideUnrelatedOptions({&opts::JoveCategory, &llvm::ColorCategory});
-  cl::AddExtraVersionPrinter([](llvm::raw_ostream &OS) -> void {
-    OS << "jove version " JOVE_VERSION "\n";
-  });
-  cl::ParseCommandLineOptions(argc, argv, "Jove Add\n");
+  std::unique_ptr<llvm::object::Binary> ObjectFile;
+};
 
-  if (!fs::exists(opts::Input)) {
+class AddTool : public Tool {
+  struct Cmdline {
+    cl::opt<std::string> Input;
+    cl::alias InputAlias;
+
+    cl::opt<std::string> Output;
+    cl::alias OutputAlias;
+
+    cl::opt<std::string> jv;
+    cl::alias jvAlias;
+
+    cl::opt<bool> Verbose;
+    cl::alias VerboseAlias;
+
+    cl::opt<std::string> BreakOnAddr;
+
+    Cmdline(llvm::cl::OptionCategory &JoveCategory)
+        : Input("input", cl::desc("Path to DSO"), cl::Required,
+                cl::value_desc("filename"), cl::cat(JoveCategory)),
+
+          InputAlias("i", cl::desc("Alias for -input."), cl::aliasopt(Input),
+                     cl::cat(JoveCategory)),
+
+          Output("output", cl::desc("Jove decompilation"),
+                 cl::value_desc("filename"), cl::cat(JoveCategory)),
+
+          OutputAlias("o", cl::desc("Alias for -output."), cl::aliasopt(Output),
+                      cl::cat(JoveCategory)),
+
+          jv("decompilation", cl::desc("Jove decompilation"),
+             cl::value_desc("filename"), cl::cat(JoveCategory)),
+
+          jvAlias("d", cl::desc("Alias for -decompilation."), cl::aliasopt(jv),
+                  cl::cat(JoveCategory)),
+
+          Verbose("verbose",
+                  cl::desc("Print extra information for debugging purposes"),
+                  cl::cat(JoveCategory)),
+
+          VerboseAlias("v", cl::desc("Alias for -verbose."),
+                       cl::aliasopt(Verbose), cl::cat(JoveCategory)),
+
+          BreakOnAddr("break-on-addr",
+                      cl::desc("Allow user to set a debugger breakpoint on "
+                               "TCGDumpBreakPoint, "
+                               "and triggered when basic block address matches "
+                               "given address"),
+                      cl::cat(JoveCategory)) {}
+  } opts;
+
+  decompilation_t decompilation;
+
+public:
+  AddTool() : opts(JoveCategory) {}
+
+  int Run(void);
+};
+
+JOVE_REGISTER_TOOL("add", AddTool);
+
+static struct {
+  tcg_uintptr_t Addr;
+  bool Active;
+} BreakOn = {.Active = false};
+
+#include "relocs_common.hpp"
+
+int AddTool::Run(void) {
+  if (!fs::exists(opts.Input)) {
     WithColor::error() << "input binary does not exist\n";
     return 1;
   }
 
-  if (!opts::jv.empty() && !opts::Output.empty()) {
+  if (!opts.jv.empty() && !opts.Output.empty()) {
     WithColor::error() << "cannot specify both -d and -o\n";
     return 1;
   }
 
-  if (opts::jv.empty() && opts::Output.empty()) {
+  if (opts.jv.empty() && opts.Output.empty()) {
     WithColor::error() << "must pass -d or -o\n";
     return 1;
   }
 
-  if (!opts::jv.empty() && !fs::exists(opts::jv)) {
+  if (!opts.jv.empty() && !fs::exists(opts.jv)) {
     WithColor::error() << "given decompilation does not exist\n";
     return 1;
   }
 
-  return jove::add();
-}
-
-namespace jove {
-
-typedef boost::format fmt;
-
-typedef std::tuple<llvm::MCDisassembler &,
-                   const llvm::MCSubtargetInfo &,
-                   llvm::MCInstPrinter &> disas_t;
-
-static decompilation_t decompilation;
-
-#include "elf.hpp"
-#include "explore.hpp"
-#include "relocs_common.hpp"
-
-static struct {
-  target_ulong Addr;
-  bool Active;
-} BreakOn = {.Active = false};
-
-static void IgnoreCtrlC(void);
-
-int add(void) {
-  if (!opts::BreakOnAddr.empty()) {
+  if (!opts.BreakOnAddr.empty()) {
     BreakOn.Active = true;
-    BreakOn.Addr = std::stoi(opts::BreakOnAddr.c_str(), 0, 16);
+    BreakOn.Addr = std::stoi(opts.BreakOnAddr.c_str(), 0, 16);
   }
 
   tiny_code_generator_t tcg;
@@ -188,10 +141,10 @@ int add(void) {
   llvm::InitializeAllDisassemblers();
 
   llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> FileOrErr =
-      llvm::MemoryBuffer::getFileOrSTDIN(opts::Input);
+      llvm::MemoryBuffer::getFileOrSTDIN(opts.Input);
 
   if (std::error_code EC = FileOrErr.getError()) {
-    WithColor::error() << "failed to open " << opts::Input << '\n';
+    WithColor::error() << "failed to open " << opts.Input << '\n';
     return 1;
   }
 
@@ -214,19 +167,14 @@ int add(void) {
       b.IsPIC = true;
       b.IsDynamicallyLoaded = false;
 
-      b.Path = fs::canonical(opts::Input).string();
+      b.Path = fs::canonical(opts.Input).string();
       b.Data.resize(Buffer->getBufferSize());
       memcpy(&b.Data[0], Buffer->getBufferStart(), b.Data.size());
     }
 
     IgnoreCtrlC(); /* user probably doesn't want to interrupt the following */
 
-    {
-      std::ofstream ofs(opts::Output);
-
-      boost::archive::text_oarchive oa(ofs);
-      oa << decompilation;
-    }
+    WriteDecompilationToFile(opts.Output, decompilation);
 
     return 0;
   }
@@ -307,14 +255,10 @@ int add(void) {
   // initialize the decompilation of the given binary by exploring every defined
   // exported function
   //
-  if (fs::exists(opts::Output)) {
-    std::ifstream ifs(opts::Output);
+  if (fs::exists(opts.Output))
+    ReadDecompilationFromFile(opts.Output, decompilation);
 
-    boost::archive::text_iarchive ia(ifs);
-    ia >> decompilation;
-  }
-
-  b.ObjectFile = std::move(BinRef);
+  state_for_binary(b).ObjectFile = std::move(BinRef);
 
   b.IsDynamicLinker = false;
   b.IsExecutable = false;
@@ -323,7 +267,7 @@ int add(void) {
   b.IsPIC = true;
   b.IsDynamicallyLoaded = false;
 
-  b.Path = fs::canonical(opts::Input).string();
+  b.Path = fs::canonical(opts.Input).string();
   b.Data.resize(Buffer->getBufferSize());
   memcpy(&b.Data[0], Buffer->getBufferStart(), b.Data.size());
 
@@ -373,17 +317,17 @@ int add(void) {
 #endif
 
   struct {
-    std::set<target_ulong> FunctionEntrypoints, ABIs;
-    std::set<target_ulong> BasicBlockAddresses;
+    std::set<tcg_uintptr_t> FunctionEntrypoints, ABIs;
+    std::set<tcg_uintptr_t> BasicBlockAddresses;
   } Known;
 
-  auto BasicBlockAtAddress = [&](target_ulong A) -> void {
+  auto BasicBlockAtAddress = [&](tcg_uintptr_t A) -> void {
     Known.BasicBlockAddresses.insert(A);
   };
-  auto FunctionAtAddress = [&](target_ulong A) -> void {
+  auto FunctionAtAddress = [&](tcg_uintptr_t A) -> void {
     Known.FunctionEntrypoints.insert(A);
   };
-  auto ABIAtAddress = [&](target_ulong A) -> void {
+  auto ABIAtAddress = [&](tcg_uintptr_t A) -> void {
     Known.FunctionEntrypoints.insert(A);
     Known.ABIs.insert(A);
   };
@@ -424,14 +368,14 @@ int add(void) {
     std::any_of(PrgHdrs.begin(),
                 PrgHdrs.end(),
                 [](const Elf_Phdr &Phdr) -> bool{ return Phdr.p_type == llvm::ELF::PT_INTERP; });
-  target_ulong EntryAddr = E.getHeader()->e_entry;
+  tcg_uintptr_t EntryAddr = E.getHeader()->e_entry;
   if (HasInterpreter && EntryAddr) {
     llvm::outs() << llvm::formatv("entry point @ {0:x}\n", EntryAddr);
 
     b.Analysis.EntryFunction =
-        explore_function(b, tcg, dis, EntryAddr,
-                         b.fnmap,
-                         b.bbmap);
+        explore_function(b, O, tcg, dis, EntryAddr,
+                         state_for_binary(b).fnmap,
+                         state_for_binary(b).bbmap);
   } else {
     b.Analysis.EntryFunction = invalid_function_index;
   }
@@ -492,7 +436,7 @@ int add(void) {
           llvm::MemoryBuffer::getFileOrSTDIN(splitDbgInfo.c_str());
 
       if (std::error_code EC = FileOrErr.getError()) {
-        WithColor::error() << "failed to open debug info file " << opts::Input
+        WithColor::error() << "failed to open debug info file " << opts.Input
                            << '\n';
         return 1;
       }
@@ -641,11 +585,11 @@ int add(void) {
   // search for constructor/deconstructor array
   //
   struct {
-    target_ulong Beg, End;
+    tcg_uintptr_t Beg, End;
   } InitArray = {0u, 0u};
 
   struct {
-    target_ulong Beg, End;
+    tcg_uintptr_t Beg, End;
   } FiniArray = {0u, 0u};
 
   {
@@ -692,7 +636,7 @@ int add(void) {
       // ifunc resolvers are ABIs
       //
       if (is_irelative_relocation(R)) {
-        target_ulong resolverAddr = R.Addend ? *R.Addend : 0;
+        tcg_uintptr_t resolverAddr = R.Addend ? *R.Addend : 0;
 
         if (!resolverAddr) {
           llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(R.Offset);
@@ -736,15 +680,15 @@ int add(void) {
       //
       // constructors/deconstructors are ABIs
       //
-      target_ulong Addr = R.Addend ? *R.Addend : 0;
+      tcg_uintptr_t Addr = R.Addend ? *R.Addend : 0;
       if (!Addr) {
         llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(R.Offset);
 
         if (ExpectedPtr)
-          Addr = *reinterpret_cast<const target_ulong *>(*ExpectedPtr);
+          Addr = *reinterpret_cast<const tcg_uintptr_t *>(*ExpectedPtr);
       }
 
-      if (opts::Verbose)
+      if (opts.Verbose)
         WithColor::note() << llvm::formatv("ctor/dtor: off={0:x} Addr={1:x}\n",
                                            R.Offset, Addr);
 
@@ -763,24 +707,24 @@ int add(void) {
   //
   // explore known code
   //
-  for (target_ulong Entrypoint : boost::adaptors::reverse(Known.BasicBlockAddresses)) {
+  for (tcg_uintptr_t Entrypoint : boost::adaptors::reverse(Known.BasicBlockAddresses)) {
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
     Entrypoint &= ~1UL;
 #endif
 
-    explore_basic_block(b, tcg, dis, Entrypoint,
-                        b.fnmap,
-                        b.bbmap);
+    explore_basic_block(b, O, tcg, dis, Entrypoint,
+                        state_for_binary(b).fnmap,
+                        state_for_binary(b).bbmap);
   }
 
-  for (target_ulong Entrypoint : boost::adaptors::reverse(Known.FunctionEntrypoints)) {
+  for (tcg_uintptr_t Entrypoint : boost::adaptors::reverse(Known.FunctionEntrypoints)) {
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
     Entrypoint &= ~1UL;
 #endif
 
-    function_index_t FIdx = explore_function(b, tcg, dis, Entrypoint,
-                                             b.fnmap,
-                                             b.bbmap);
+    function_index_t FIdx = explore_function(b, O, tcg, dis, Entrypoint,
+                                             state_for_binary(b).fnmap,
+                                             state_for_binary(b).bbmap);
 
     if (!is_function_index_valid(FIdx))
       continue;
@@ -1083,9 +1027,9 @@ int add(void) {
 
         uint64_t A = P->p_vaddr + idx;
 
-        basic_block_index_t BBIdx = explore_basic_block(b, tcg, dis, A,
-                                                        b.fnmap,
-                                                        b.bbmap);
+        basic_block_index_t BBIdx = explore_basic_block(b, O, tcg, dis, A,
+                                                        state_for_binary(b).fnmap,
+                                                        state_for_binary(b).bbmap);
         if (!is_basic_block_index_valid(BBIdx))
           continue;
 
@@ -1132,9 +1076,9 @@ int add(void) {
 
         uint64_t A = P->p_vaddr + idx;
 
-        basic_block_index_t BBIdx = explore_basic_block(b, tcg, dis, A,
-                                                        b.fnmap,
-                                                        b.bbmap);
+        basic_block_index_t BBIdx = explore_basic_block(b, O, tcg, dis, A,
+                                                        state_for_binary(b).fnmap,
+                                                        state_for_binary(b).bbmap);
         if (!is_basic_block_index_valid(BBIdx))
           continue;
 
@@ -1149,58 +1093,22 @@ int add(void) {
 
   IgnoreCtrlC(); /* user probably doesn't want to interrupt the following */
 
-  if (opts::jv.empty()) {
-    //
-    // Output new decompilation
-    //
-    std::ofstream ofs(opts::Output);
-
-    boost::archive::text_oarchive oa(ofs);
-    oa << decompilation;
+  if (opts.jv.empty()) {
+    WriteDecompilationToFile(opts.Output, decompilation);
   } else {
     //
     // modify existing decompilation
     //
     decompilation_t working_decompilation;
-    {
-      std::ifstream ifs(opts::jv);
-
-      boost::archive::text_iarchive ia(ifs);
-      ia >> working_decompilation;
-    }
+    ReadDecompilationFromFile(opts.jv, working_decompilation);
 
     working_decompilation.Binaries.emplace_back(std::move(decompilation.Binaries.front()))
         .IsDynamicallyLoaded = true;
 
-    {
-      std::ofstream ofs(opts::jv);
-
-      boost::archive::text_oarchive oa(ofs);
-      oa << working_decompilation;
-    }
+    WriteDecompilationToFile(opts.jv, working_decompilation);
   }
 
   return 0;
 }
-
-void IgnoreCtrlC(void) {
-  auto sighandler = [](int no) -> void {
-    ; // do nothing
-  };
-
-  struct sigaction sa;
-
-  sigemptyset(&sa.sa_mask);
-  sa.sa_flags = 0;
-  sa.sa_handler = sighandler;
-
-  if (sigaction(SIGINT, &sa, nullptr) < 0) {
-    int err = errno;
-    WithColor::error() << llvm::formatv("{0}: sigaction failed ({1})\n",
-                                        __func__, strerror(err));
-  }
-}
-
-void _qemu_log(const char *cstr) { llvm::outs() << cstr; }
 
 } // namespace jove

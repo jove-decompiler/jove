@@ -1,4 +1,4 @@
-static llvm::Type *type_of_expression_for_relocation(const Relocation &R) {
+llvm::Type *LLVMTool::type_of_expression_for_relocation(const Relocation &R) {
   switch (R.Type) {
   case llvm::ELF::R_386_RELATIVE:
   case llvm::ELF::R_386_GLOB_DAT:
@@ -18,8 +18,8 @@ static llvm::Type *type_of_expression_for_relocation(const Relocation &R) {
   }
 }
 
-static llvm::Constant *expression_for_relocation(const Relocation &R,
-                                                 const RelSymbol &RelSym) {
+llvm::Constant *LLVMTool::expression_for_relocation(const Relocation &R,
+                                                    const RelSymbol &RelSym) {
   switch (R.Type) {
   case llvm::ELF::R_386_RELATIVE:
     if (R.Addend)
@@ -68,7 +68,7 @@ static llvm::Constant *expression_for_relocation(const Relocation &R,
   }
 }
 
-static bool is_manual_relocation(const Relocation &R) {
+bool LLVMTool::is_manual_relocation(const Relocation &R) {
   switch (R.Type) {
   case llvm::ELF::R_386_IRELATIVE:
   case llvm::ELF::R_386_TLS_TPOFF:
@@ -80,9 +80,9 @@ static bool is_manual_relocation(const Relocation &R) {
   }
 }
 
-static void compute_manual_relocation(llvm::IRBuilderTy &IRB,
-                                      const Relocation &R,
-                                      const RelSymbol &RelSym) {
+void LLVMTool::compute_manual_relocation(llvm::IRBuilderTy &IRB,
+                                         const Relocation &R,
+                                         const RelSymbol &RelSym) {
   switch (R.Type) {
   case llvm::ELF::R_386_IRELATIVE:
     return compute_irelative_relocation(IRB, R.Addend ? *R.Addend : ExtractWordAtAddress(R.Offset));

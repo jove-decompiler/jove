@@ -1,51 +1,26 @@
-#include <memory>
-
-//
-// forward decls
-//
-namespace llvm {
-class Function;
-class BasicBlock;
-class AllocaInst;
-class Type;
-class Value;
-class LoadInst;
-class CallInst;
-class DISubprogram;
-class GlobalIFunc;
-class GlobalVariable;
-namespace object {
-class Binary;
-}
-}
-
-#define JOVE_EXTRA_BIN_PROPERTIES                                              \
-  std::unique_ptr<llvm::object::Binary> ObjectFile;
-
-#include "jove/jove.h"
-
-#include <cstdlib>
-#include <sys/wait.h>
-#include <sys/vfs.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-#include <linux/magic.h>
-#include <boost/filesystem.hpp>
+#include "tool.h"
+#include "elf.h"
 #include <boost/archive/text_iarchive.hpp>
 #include <boost/archive/text_oarchive.hpp>
+#include <boost/filesystem.hpp>
+#include <boost/graph/adj_list_serialize.hpp>
 #include <boost/serialization/bitset.hpp>
 #include <boost/serialization/map.hpp>
 #include <boost/serialization/set.hpp>
 #include <boost/serialization/vector.hpp>
-#include <boost/graph/adj_list_serialize.hpp>
+#include <cstdlib>
 #include <llvm/ADT/PointerIntPair.h>
-#include <llvm/Support/DataExtractor.h>
-#include <llvm/Support/CommandLine.h>
-#include <llvm/Support/WithColor.h>
-#include <llvm/Support/InitLLVM.h>
-#include <llvm/Support/FormatVariadic.h>
 #include <llvm/Object/ELFObjectFile.h>
+#include <llvm/Support/CommandLine.h>
+#include <llvm/Support/DataExtractor.h>
+#include <llvm/Support/FormatVariadic.h>
+#include <llvm/Support/InitLLVM.h>
+#include <llvm/Support/WithColor.h>
+#include <fcntl.h>
+#include <linux/magic.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <sys/vfs.h>
 
 namespace fs = boost::filesystem;
 namespace obj = llvm::object;
@@ -53,186 +28,150 @@ namespace cl = llvm::cl;
 
 using llvm::WithColor;
 
-namespace opts {
-static cl::OptionCategory JoveCategory("Specific Options");
-
-static cl::opt<std::string> Prog(cl::Positional, cl::desc("prog"), cl::Required,
-                                 cl::value_desc("filename"),
-                                 cl::cat(JoveCategory));
-
-static cl::list<std::string> Args("args", cl::CommaSeparated,
-                                  cl::value_desc("arg_1,arg_2,...,arg_n"),
-                                  cl::desc("Program arguments"),
-                                  cl::cat(JoveCategory));
-
-static cl::list<std::string>
-    Envs("env", cl::CommaSeparated,
-         cl::value_desc("KEY_1=VALUE_1,KEY_2=VALUE_2,...,KEY_n=VALUE_n"),
-         cl::desc("Extra environment variables"), cl::cat(JoveCategory));
-
-static cl::opt<std::string> ExistingSysroot("existing-sysroot",
-                                            cl::desc("path to directory"),
-                                            cl::value_desc("filename"),
-                                            cl::cat(JoveCategory));
-
-static cl::opt<std::string> jv("decompilation", cl::desc("Jove decompilation"),
-                               cl::Required, cl::value_desc("filename"),
-                               cl::cat(JoveCategory));
-
-static cl::alias jvAlias("d", cl::desc("Alias for -decompilation."),
-                         cl::aliasopt(jv), cl::cat(JoveCategory));
-
-static cl::opt<std::string> Output("output", cl::desc("Output trace txt file"),
-                                   cl::Required, cl::value_desc("filename"),
-                                   cl::cat(JoveCategory));
-
-static cl::alias OutputAlias("o", cl::desc("Alias for -output."),
-                             cl::aliasopt(Output), cl::cat(JoveCategory));
-
-static cl::opt<bool> SkipUProbe("skip-uprobe",
-                                cl::desc("Skip adding userspace tracepoints"),
-                                cl::cat(JoveCategory));
-
-static cl::opt<bool> SkipExec("skip-exec",
-                              cl::desc("Skip executing prog"),
-                              cl::cat(JoveCategory));
-
-static cl::opt<unsigned> Sleep(
-    "sleep", cl::value_desc("seconds"),
-    cl::desc("Time in seconds to sleep for after finishing waiting on child; "
-             "can be useful if the program being recompiled forks"),
-    cl::cat(JoveCategory));
-
-static cl::list<std::string>
-    Excludes("exclude-binaries", cl::CommaSeparated,
-             cl::value_desc("binary_1,binary_2,...,binary_n"),
-             cl::desc("Binaries to exclude from trace"), cl::cat(JoveCategory));
-
-static cl::list<std::string>
-    Only("only-binaries", cl::CommaSeparated,
-         cl::value_desc("binary_1,binary_2,...,binary_n"),
-         cl::desc("Binaries to include in trace"), cl::cat(JoveCategory));
-
-static cl::opt<bool>
-    OutsideChroot("outside-chroot",
-                  cl::desc("Do not chroot(2)."),
-                  cl::cat(JoveCategory));
-
-static cl::alias
-    OutsideChrootAlias("x",
-                       cl::desc("Exe only. Alias for --outside-chroot."),
-                       cl::aliasopt(OutsideChroot), cl::cat(JoveCategory));
-
-static cl::opt<std::string> PathToTracefs("tracefs",
-                                          cl::desc("Provide path to mounted tracefs filesystem"),
-                                          cl::init("/sys/kernel/debug/tracing"),
-                                          cl::value_desc("directory"),
-                                          cl::cat(JoveCategory));
-
-static cl::opt<bool>
-    NoParseTrace("no-parse-trace",
-                 cl::desc("Do not parse /sys/kernel/debug/tracing/trace at the very end."),
-                 cl::cat(JoveCategory));
-
-static cl::opt<bool>
-    Verbose("verbose",
-            cl::desc("Print extra information for debugging purposes"),
-            cl::cat(JoveCategory));
-
-static cl::alias VerboseAlias("v", cl::desc("Alias for -verbose."),
-                              cl::aliasopt(Verbose), cl::cat(JoveCategory));
-
-static bool OnlyExecutable;
-
-} // namespace opts
-
-namespace jove {
-static int trace(void);
-}
-
-int main(int argc, char **argv) {
-  int _argc = argc;
-  char **_argv = argv;
-
-  // argc/argv replacement to handle '--'
-  struct {
-    std::vector<std::string> s;
-    std::vector<const char *> a;
-  } arg_vec;
-
-  {
-    int prog_args_idx = -1;
-
-    for (int i = 0; i < argc; ++i) {
-      if (strcmp(argv[i], "--") == 0) {
-        prog_args_idx = i;
-        break;
-      }
-    }
-
-    if (prog_args_idx != -1) {
-      for (int i = 0; i < prog_args_idx; ++i)
-        arg_vec.s.push_back(argv[i]);
-
-      for (std::string &s : arg_vec.s)
-        arg_vec.a.push_back(s.c_str());
-      arg_vec.a.push_back(nullptr);
-
-      _argc = prog_args_idx;
-      _argv = const_cast<char **>(&arg_vec.a[0]);
-
-      for (int i = prog_args_idx + 1; i < argc; ++i) {
-        //llvm::outs() << llvm::formatv("argv[{0}] = {1}\n", i, argv[i]);
-
-        opts::Args.push_back(argv[i]);
-      }
-    }
-  }
-
-  llvm::InitLLVM X(_argc, _argv);
-
-  cl::HideUnrelatedOptions({&opts::JoveCategory, &llvm::ColorCategory});
-  cl::AddExtraVersionPrinter([](llvm::raw_ostream &OS) -> void {
-    OS << "jove version " JOVE_VERSION "\n";
-  });
-  cl::ParseCommandLineOptions(argc, argv, "UProbes-based Tracer\n");
-
-  if (!fs::exists(opts::Prog)) {
-    WithColor::error() << "program does not exist\n";
-    return 1;
-  }
-
-  if (!fs::exists(opts::jv)) {
-    WithColor::error() << "decompilation does not exist\n";
-    return 1;
-  }
-
-  opts::OnlyExecutable = opts::OutsideChroot;
-
-  return jove::trace();
-}
-
 namespace jove {
 
-#include "elf.hpp"
+struct binary_state_t {
+  std::unique_ptr<llvm::object::Binary> ObjectFile;
+};
+
+class TraceTool : public Tool {
+  struct Cmdline {
+    cl::opt<std::string> Prog;
+    cl::list<std::string> Args;
+    cl::list<std::string> Envs;
+    cl::opt<std::string> ExistingSysroot;
+    cl::opt<std::string> jv;
+    cl::alias jvAlias;
+    cl::opt<std::string> Output;
+    cl::alias OutputAlias;
+    cl::opt<bool> SkipUProbe;
+    cl::opt<bool> SkipExec;
+    cl::opt<unsigned> Sleep;
+    cl::list<std::string> Excludes;
+    cl::list<std::string> Only;
+    cl::opt<bool> OutsideChroot;
+    cl::alias OutsideChrootAlias;
+    cl::opt<std::string> PathToTracefs;
+    cl::opt<bool> NoParseTrace;
+    cl::opt<bool> Verbose;
+    cl::alias VerboseAlias;
+
+    bool OnlyExecutable;
+
+    Cmdline(llvm::cl::OptionCategory &JoveCategory)
+        : Prog(cl::Positional, cl::desc("prog"), cl::Required,
+               cl::value_desc("filename"), cl::cat(JoveCategory)),
+
+          Args("args", cl::CommaSeparated,
+               cl::value_desc("arg_1,arg_2,...,arg_n"),
+               cl::desc("Program arguments"), cl::cat(JoveCategory)),
+
+          Envs("env", cl::CommaSeparated,
+               cl::value_desc("KEY_1=VALUE_1,KEY_2=VALUE_2,...,KEY_n=VALUE_n"),
+               cl::desc("Extra environment variables"), cl::cat(JoveCategory)),
+
+          ExistingSysroot("existing-sysroot", cl::desc("path to directory"),
+                          cl::value_desc("filename"), cl::cat(JoveCategory)),
+
+          jv("decompilation", cl::desc("Jove decompilation"), cl::Required,
+             cl::value_desc("filename"), cl::cat(JoveCategory)),
+
+          jvAlias("d", cl::desc("Alias for -decompilation."), cl::aliasopt(jv),
+                  cl::cat(JoveCategory)),
+
+          Output("output", cl::desc("Output trace txt file"), cl::Required,
+                 cl::value_desc("filename"), cl::cat(JoveCategory)),
+
+          OutputAlias("o", cl::desc("Alias for -output."), cl::aliasopt(Output),
+                      cl::cat(JoveCategory)),
+
+          SkipUProbe("skip-uprobe",
+                     cl::desc("Skip adding userspace tracepoints"),
+                     cl::cat(JoveCategory)),
+
+          SkipExec("skip-exec", cl::desc("Skip executing prog"),
+                   cl::cat(JoveCategory)),
+
+          Sleep("sleep", cl::value_desc("seconds"),
+                cl::desc("Time in seconds to sleep for after finishing waiting "
+                         "on child; "
+                         "can be useful if the program being recompiled forks"),
+                cl::cat(JoveCategory)),
+
+          Excludes("exclude-binaries", cl::CommaSeparated,
+                   cl::value_desc("binary_1,binary_2,...,binary_n"),
+                   cl::desc("Binaries to exclude from trace"),
+                   cl::cat(JoveCategory)),
+
+          Only("only-binaries", cl::CommaSeparated,
+               cl::value_desc("binary_1,binary_2,...,binary_n"),
+               cl::desc("Binaries to include in trace"), cl::cat(JoveCategory)),
+
+          OutsideChroot("outside-chroot", cl::desc("Do not chroot(2)."),
+                        cl::cat(JoveCategory)),
+
+          OutsideChrootAlias(
+              "x", cl::desc("Exe only. Alias for --outside-chroot."),
+              cl::aliasopt(OutsideChroot), cl::cat(JoveCategory)),
+
+          PathToTracefs("tracefs",
+                        cl::desc("Provide path to mounted tracefs filesystem"),
+                        cl::init("/sys/kernel/debug/tracing"),
+                        cl::value_desc("directory"), cl::cat(JoveCategory)),
+
+          NoParseTrace("no-parse-trace",
+                       cl::desc("Do not parse /sys/kernel/debug/tracing/trace "
+                                "at the very end."),
+                       cl::cat(JoveCategory)),
+
+          Verbose("verbose",
+                  cl::desc("Print extra information for debugging purposes"),
+                  cl::cat(JoveCategory)),
+
+          VerboseAlias("v", cl::desc("Alias for -verbose."),
+                       cl::aliasopt(Verbose), cl::cat(JoveCategory)) {}
+  } opts;
+
+  decompilation_t Decompilation;
+
+public:
+  TraceTool() : opts(JoveCategory) {}
+
+  int Run(void);
+};
+
+JOVE_REGISTER_TOOL("trace", TraceTool);
 
 static char tmpdir[] = {'/', 't', 'm', 'p', '/', 'X',
                         'X', 'X', 'X', 'X', 'X', '\0'};
 
 static void InitStateForBinaries(decompilation_t &);
 
-static int await_process_completion(pid_t);
+int TraceTool::Run(void) {
+  for (char *dashdash_arg : dashdash_args)
+    opts.Args.push_back(dashdash_arg);
 
-int trace(void) {
+  if (!fs::exists(opts.Prog)) {
+    WithColor::error() << "program does not exist\n";
+    return 1;
+  }
+
+  if (!fs::exists(opts.jv)) {
+    WithColor::error() << "decompilation does not exist\n";
+    return 1;
+  }
+
+  opts.OnlyExecutable = opts.OutsideChroot;
+
   //
   // establish that a mounted tracefs filesystem exists
   //
   {
     struct statfs buf;
-    if (statfs(opts::PathToTracefs.c_str(), &buf) < 0) {
+    if (statfs(opts.PathToTracefs.c_str(), &buf) < 0) {
       int err = errno;
       WithColor::error() << llvm::formatv(
-          "failed to access tracefs at {0}: {1}\n", opts::PathToTracefs.c_str(),
+          "failed to access tracefs at {0}: {1}\n", opts.PathToTracefs.c_str(),
           strerror(err));
       return 1;
     }
@@ -240,7 +179,7 @@ int trace(void) {
     if (buf.f_type != TRACEFS_MAGIC) {
       WithColor::error() << llvm::formatv(
           "tracefs at {0} has unknown filesystem type\n",
-          opts::PathToTracefs);
+          opts.PathToTracefs);
       return 1;
     }
   }
@@ -248,33 +187,25 @@ int trace(void) {
   //
   // parse the decompilation
   //
-  decompilation_t Decompilation;
-  {
-    bool git = fs::is_directory(opts::jv);
+  bool git = fs::is_directory(opts.jv);
+  std::string jvfp = git ? (opts.jv + "/decompilation.jv") : opts.jv;
 
-    {
-      std::ifstream ifs(git ? (opts::jv + "/decompilation.jv") : opts::jv);
-
-      boost::archive::text_iarchive ia(ifs);
-      ia >> Decompilation;
-    }
-  }
-
+  ReadDecompilationFromFile(jvfp, Decompilation);
   InitStateForBinaries(Decompilation);
 
   //
   // establish temporary directory that may or may not be used as a sysroot
   //
   fs::path SysrootPath;
-  if (!opts::ExistingSysroot.empty()) {
-    if (!fs::exists(opts::ExistingSysroot)) {
+  if (!opts.ExistingSysroot.empty()) {
+    if (!fs::exists(opts.ExistingSysroot)) {
       WithColor::error() << llvm::formatv(
           "provided directory for sysroot '{0}' does not exist\n",
-          opts::ExistingSysroot.c_str());
+          opts.ExistingSysroot.c_str());
       return 1;
     }
 
-    SysrootPath = opts::ExistingSysroot;
+    SysrootPath = opts.ExistingSysroot;
   } else {
     //
     // create a unique temporary directory
@@ -288,7 +219,7 @@ int trace(void) {
     SysrootPath = tmpdir;
   }
 
-  if (opts::Verbose)
+  if (opts.Verbose)
     WithColor::note() << llvm::formatv("sysroot: {0}\n", SysrootPath.c_str());
 
   //
@@ -312,7 +243,7 @@ int trace(void) {
                                  | fs::owner_exe);
   }
 
-  if (opts::SkipUProbe)
+  if (opts.SkipUProbe)
     goto skip_uprobe;
 
   {
@@ -320,7 +251,7 @@ open_events:
     int events_fd;
 
     {
-      std::string s(opts::PathToTracefs);
+      std::string s(opts.PathToTracefs);
       s.append("/uprobe_events");
 
       //
@@ -337,7 +268,7 @@ open_events:
         //
         int fd;
         {
-          std::string s(opts::PathToTracefs);
+          std::string s(opts.PathToTracefs);
           s.append("/events/jove/enable");
 
           fd = open(s.c_str(), O_WRONLY);
@@ -374,17 +305,17 @@ open_events:
         continue;
       if (binary.IsVDSO)
         continue;
-      if (opts::OnlyExecutable && !binary.IsExecutable)
+      if (opts.OnlyExecutable && !binary.IsExecutable)
         continue;
 
       std::string binaryName = fs::path(binary.Path).filename().string();
-      if (!opts::Only.empty()) {
-        if (std::find(opts::Only.begin(),
-                      opts::Only.end(), binaryName) == opts::Only.end())
+      if (!opts.Only.empty()) {
+        if (std::find(opts.Only.begin(),
+                      opts.Only.end(), binaryName) == opts.Only.end())
           continue;
       } else {
-        if (std::find(opts::Excludes.begin(),
-                      opts::Excludes.end(), binaryName) != opts::Excludes.end())
+        if (std::find(opts.Excludes.begin(),
+                      opts.Excludes.end(), binaryName) != opts.Excludes.end())
           continue;
       }
 
@@ -396,9 +327,9 @@ open_events:
         continue;
       }
 
-      assert(binary.ObjectFile.get() != nullptr);
-      assert(llvm::isa<ELFO>(binary.ObjectFile.get()));
-      ELFO &O = *llvm::cast<ELFO>(binary.ObjectFile.get());
+      assert(state_for_binary(binary).ObjectFile.get() != nullptr);
+      assert(llvm::isa<ELFO>(state_for_binary(binary).ObjectFile.get()));
+      ELFO &O = *llvm::cast<ELFO>(state_for_binary(binary).ObjectFile.get());
       const ELFF &E = *O.getELFFile();
 
       const auto &ICFG = binary.Analysis.ICFG;
@@ -480,7 +411,7 @@ enable_uprobe:
   // enable the uprobe_events we just added
   //
   {
-    std::string s(opts::PathToTracefs);
+    std::string s(opts.PathToTracefs);
     s.append("/events/jove/enable");
 
     int fd = open(s.c_str(), O_WRONLY);
@@ -528,13 +459,13 @@ skip_uprobe:
   // clear /sys/kernel/debug/tracing/trace
   //
   {
-    std::string s(opts::PathToTracefs);
+    std::string s(opts.PathToTracefs);
     s.append("/trace");
 
     (void)close(open(s.c_str(), O_TRUNC | O_WRONLY));
   }
 
-  if (opts::SkipExec)
+  if (opts.SkipExec)
     return 0;
 
   //
@@ -543,7 +474,7 @@ skip_uprobe:
   {
     pid_t child = fork();
     if (!child) {
-      if (!opts::OutsideChroot) {
+      if (!opts.OutsideChroot) {
         if (chroot(SysrootPath.c_str()) < 0) {
           int err = errno;
           WithColor::error() << llvm::formatv("failed to chroot: {0}\n",
@@ -564,13 +495,13 @@ skip_uprobe:
       //
       std::vector<const char *> arg_vec;
 
-      fs::path exe_path = opts::OutsideChroot
+      fs::path exe_path = opts.OutsideChroot
                               ? SysrootPath / Decompilation.Binaries[0].Path
                               : Decompilation.Binaries[0].Path;
 
       arg_vec.push_back(exe_path.c_str());
 
-      for (const std::string &arg : opts::Args)
+      for (const std::string &arg : opts.Args)
         arg_vec.push_back(arg.c_str());
 
       arg_vec.push_back(nullptr);
@@ -610,7 +541,7 @@ skip_uprobe:
       if (fs::exists("/firmadyne/libnvram.so"))
         env_vec.push_back("LD_PRELOAD=/firmadyne/libnvram.so");
 
-      for (const std::string &env : opts::Envs)
+      for (const std::string &env : opts.Envs)
         env_vec.push_back(env.c_str());
 
       env_vec.push_back(nullptr);
@@ -625,9 +556,9 @@ skip_uprobe:
       return 1;
     }
 
-    int ret = await_process_completion(child);
+    int ret = WaitForProcessToExit(child);
 
-    if (unsigned sec = opts::Sleep) {
+    if (unsigned sec = opts.Sleep) {
       llvm::errs() << llvm::formatv("sleeping for {0} seconds...\n", sec);
 
       for (unsigned t = 0; t < sec; ++t) {
@@ -637,7 +568,7 @@ skip_uprobe:
       }
     }
 
-    if (!opts::NoParseTrace) {
+    if (!opts.NoParseTrace) {
       llvm::errs() << "parsing trace...\n";
 
       //
@@ -659,8 +590,8 @@ skip_uprobe:
       //      returns_u64-24099 [003] d... 1045487.565114: JV_0_0: (0x40f0e0)
       //
 
-      std::ofstream ofs(opts::Output);
-      fs::path the_trace_path = fs::path(opts::PathToTracefs) / "trace";
+      std::ofstream ofs(opts.Output);
+      fs::path the_trace_path = fs::path(opts.PathToTracefs) / "trace";
       std::ifstream trace_ifs(the_trace_path.c_str());
 
       std::string line;
@@ -691,29 +622,6 @@ skip_uprobe:
   return 0;
 }
 
-int await_process_completion(pid_t pid) {
-  int wstatus;
-  do {
-    if (waitpid(pid, &wstatus, WUNTRACED | WCONTINUED) < 0)
-      abort();
-
-    if (WIFEXITED(wstatus)) {
-      //printf("exited, status=%d\n", WEXITSTATUS(wstatus));
-      return WEXITSTATUS(wstatus);
-    } else if (WIFSIGNALED(wstatus)) {
-      //printf("killed by signal %d\n", WTERMSIG(wstatus));
-      return 1;
-    } else if (WIFSTOPPED(wstatus)) {
-      //printf("stopped by signal %d\n", WSTOPSIG(wstatus));
-      return 1;
-    } else if (WIFCONTINUED(wstatus)) {
-      //printf("continued\n");
-    }
-  } while (!WIFEXITED(wstatus) && !WIFSIGNALED(wstatus));
-
-  abort();
-}
-
 void InitStateForBinaries(decompilation_t &Decompilation) {
   for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
     auto &binary = Decompilation.Binaries[BIdx];
@@ -736,7 +644,7 @@ void InitStateForBinaries(decompilation_t &Decompilation) {
     } else {
       std::unique_ptr<obj::Binary> &BinRef = BinOrErr.get();
 
-      binary.ObjectFile = std::move(BinRef);
+      state_for_binary(binary).ObjectFile = std::move(BinRef);
     }
   }
 }

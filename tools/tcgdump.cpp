@@ -1,80 +1,27 @@
-#define JOVE_EXTRA_BIN_PROPERTIES                                              \
-  std::unique_ptr<llvm::object::Binary> ObjectFile;
-
-#include "tcgcommon.hpp"
-
-#include <memory>
+#include "tool.h"
+#include "tcg.h"
+#include "elf.h"
 #include <boost/filesystem.hpp>
+#include <boost/format.hpp>
 #include <cinttypes>
-#include <llvm/ADT/PointerIntPair.h>
-#include <llvm/Object/ELFObjectFile.h>
-#include <llvm/Support/TargetRegistry.h>
-#include <llvm/Support/TargetSelect.h>
-#include <llvm/MC/MCContext.h>
 #include <llvm/MC/MCAsmInfo.h>
+#include <llvm/MC/MCContext.h>
 #include <llvm/MC/MCDisassembler/MCDisassembler.h>
+#include <llvm/MC/MCInstPrinter.h>
+#include <llvm/MC/MCInstrInfo.h>
 #include <llvm/MC/MCObjectFileInfo.h>
 #include <llvm/MC/MCRegisterInfo.h>
 #include <llvm/MC/MCSubtargetInfo.h>
-#include <llvm/MC/MCInstrInfo.h>
-#include <llvm/MC/MCInstPrinter.h>
-#include <llvm/Support/CommandLine.h>
-#include <llvm/Support/DataExtractor.h>
-#include <llvm/Support/PrettyStackTrace.h>
-#include <llvm/Support/Signals.h>
-#include <llvm/Support/ManagedStatic.h>
-#include <llvm/Support/InitLLVM.h>
 #include <llvm/Support/FormatVariadic.h>
+#include <llvm/Support/TargetRegistry.h>
+#include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/WithColor.h>
-#include <sys/wait.h>
-
-#include <boost/icl/split_interval_map.hpp>
 
 namespace fs = boost::filesystem;
 namespace obj = llvm::object;
 namespace cl = llvm::cl;
 
 using llvm::WithColor;
-
-namespace opts {
-static cl::OptionCategory JoveCategory("Specific Options");
-
-static cl::opt<std::string> Binary(cl::Positional, cl::desc("<binary>"),
-                                   cl::Required, cl::cat(JoveCategory));
-
-static cl::opt<bool> DoTCGOpt("do-tcg-opt",
-                              cl::desc("Run QEMU TCG optimizations"),
-                              cl::cat(JoveCategory));
-
-static cl::opt<std::string> BreakOnAddr(
-    "break-on-addr",
-    cl::desc(
-        "Allow user to set a debugger breakpoint on TCGDumpUserBreakPoint, "
-        "and triggered when basic block address matches given address"),
-    cl::cat(JoveCategory));
-
-static cl::opt<std::string>
-    StartingFrom("starting-from",
-                 cl::desc("Provide file address to disassemble"),
-                 cl::cat(JoveCategory));
-}
-
-namespace jove {
-static int tcgdump(void);
-
-static int await_process_completion(pid_t);
-}
-
-int main(int argc, char **argv) {
-  llvm::InitLLVM X(argc, argv);
-
-  cl::ParseCommandLineOptions(argc, argv, "TCG Dump\n");
-
-  if (opts::DoTCGOpt)
-    jove::do_tcg_optimization = true;
-
-  return jove::tcgdump();
-}
 
 extern "C" {
 void __attribute__((noinline))
@@ -86,44 +33,64 @@ TCGDumpUserBreakPoint(void) {
 
 namespace jove {
 
-int await_process_completion(pid_t pid) {
-  int wstatus;
-  do {
-    if (waitpid(pid, &wstatus, WUNTRACED | WCONTINUED) < 0)
-      abort();
+struct binary_state_t {
+  std::unique_ptr<llvm::object::Binary> ObjectFile;
+};
 
-    if (WIFEXITED(wstatus)) {
-      //printf("exited, status=%d\n", WEXITSTATUS(wstatus));
-      return WEXITSTATUS(wstatus);
-    } else if (WIFSIGNALED(wstatus)) {
-      //printf("killed by signal %d\n", WTERMSIG(wstatus));
-      return 1;
-    } else if (WIFSTOPPED(wstatus)) {
-      //printf("stopped by signal %d\n", WSTOPSIG(wstatus));
-      return 1;
-    } else if (WIFCONTINUED(wstatus)) {
-      //printf("continued\n");
-    }
-  } while (!WIFEXITED(wstatus) && !WIFSIGNALED(wstatus));
+class TCGDumpTool : public Tool {
+  struct Cmdline {
+    cl::opt<std::string> Binary;
+    cl::opt<bool> DoTCGOpt;
+    cl::opt<std::string> BreakOnAddr;
+    cl::opt<std::string> StartingFrom;
 
-  abort();
-}
+    Cmdline(llvm::cl::OptionCategory &JoveCategory)
+        : Binary(cl::Positional, cl::desc("<binary>"), cl::Required,
+                 cl::cat(JoveCategory)),
 
-#include "elf.hpp"
+          DoTCGOpt("do-tcg-opt", cl::desc("Run QEMU TCG optimizations"),
+                   cl::cat(JoveCategory)),
 
-int tcgdump(void) {
+          BreakOnAddr("break-on-addr",
+                      cl::desc("Allow user to set a debugger breakpoint on "
+                               "TCGDumpUserBreakPoint, "
+                               "and triggered when basic block address matches "
+                               "given address"),
+                      cl::cat(JoveCategory)),
+
+          StartingFrom("starting-from",
+                       cl::desc("Provide file address to disassemble"),
+                       cl::cat(JoveCategory)) {}
+  } opts;
+
+public:
+  TCGDumpTool() : opts(JoveCategory) {}
+
+  int Run(void);
+};
+
+JOVE_REGISTER_TOOL("tcgdump", TCGDumpTool);
+
+typedef boost::format fmt;
+
+int TCGDumpTool::Run(void) {
+#if 0
+  if (opts.DoTCGOpt)
+    do_tcg_optimization = true;
+#endif
+
   struct {
-    target_ulong Addr;
-    bool Active;
-  } BreakOn = { .Active = false };
+    tcg_uintptr_t Addr = 0;
+    bool Active = false;
+  } BreakOn;
 
-  if (!opts::BreakOnAddr.empty()) {
+  if (!opts.BreakOnAddr.empty()) {
     BreakOn.Active = true;
-    BreakOn.Addr = std::stoi(opts::BreakOnAddr.c_str(), 0, 16);
+    BreakOn.Addr = std::stoi(opts.BreakOnAddr.c_str(), 0, 16);
   }
 
-  if (!fs::exists(opts::Binary)) {
-    llvm::errs() << "given binary " << opts::Binary << " does not exist\n";
+  if (!fs::exists(opts.Binary)) {
+    HumanOut() << llvm::formatv("given binary {0} does not exist\n", opts.Binary);
     return 1;
   }
 
@@ -136,16 +103,16 @@ int tcgdump(void) {
   llvm::InitializeAllDisassemblers();
 
   llvm::Expected<obj::OwningBinary<obj::Binary>> BinaryOrErr =
-      obj::createBinary(opts::Binary);
+      obj::createBinary(opts.Binary);
 
   if (!BinaryOrErr) {
-    fprintf(stderr, "failed to open %s\n", opts::Binary.c_str());
+    HumanOut() << llvm::formatv("failed to open {0}\n", opts.Binary);
     return 1;
   }
 
   obj::Binary *B = BinaryOrErr.get().getBinary();
   if (!llvm::isa<ELFO>(B)) {
-    fprintf(stderr, "invalid binary\n");
+    HumanOut() << "invalid binary\n";
     return 1;
   }
 
@@ -156,7 +123,7 @@ int tcgdump(void) {
   loadDynamicTable(&E, &O, DynamicTable);
 
   if (!DynamicTable.Addr) {
-    fprintf(stderr, "no dynamic table for given binary\n");
+    HumanOut() << "no dynamic table for given binary\n";
     return 1;
   }
 
@@ -167,7 +134,7 @@ int tcgdump(void) {
   const llvm::Target *TheTarget =
       llvm::TargetRegistry::lookupTarget(ArchName, TheTriple, Error);
   if (!TheTarget) {
-    fprintf(stderr, "failed to lookup target: %s\n", Error.c_str());
+    HumanOut() << llvm::formatv("failed to lookup target: {0}\n", Error);
     return 1;
   }
 
@@ -178,7 +145,7 @@ int tcgdump(void) {
   std::unique_ptr<const llvm::MCRegisterInfo> MRI(
       TheTarget->createMCRegInfo(TripleName));
   if (!MRI) {
-    fprintf(stderr, "no register info for target\n");
+    HumanOut() << "no register info for target\n";
     return 1;
   }
 
@@ -186,20 +153,20 @@ int tcgdump(void) {
   std::unique_ptr<const llvm::MCAsmInfo> AsmInfo(
       TheTarget->createMCAsmInfo(*MRI, TripleName, Options));
   if (!AsmInfo) {
-    fprintf(stderr, "no assembly info\n");
+    HumanOut() << "no assembly info\n";
     return 1;
   }
 
   std::unique_ptr<const llvm::MCSubtargetInfo> STI(
       TheTarget->createMCSubtargetInfo(TripleName, MCPU, Features.getString()));
   if (!STI) {
-    fprintf(stderr, "no subtarget info\n");
+    HumanOut() << "no subtarget info\n";
     return 1;
   }
 
   std::unique_ptr<const llvm::MCInstrInfo> MII(TheTarget->createMCInstrInfo());
   if (!MII) {
-    fprintf(stderr, "no instruction info\n");
+    HumanOut() << "no instruction info\n";
     return 1;
   }
 
@@ -210,7 +177,7 @@ int tcgdump(void) {
   std::unique_ptr<llvm::MCDisassembler> DisAsm(
       TheTarget->createMCDisassembler(*STI, Ctx));
   if (!DisAsm) {
-    fprintf(stderr, "no disassembler for target\n");
+    HumanOut() << "no disassembler for target\n";
     return 1;
   }
 
@@ -224,7 +191,7 @@ int tcgdump(void) {
   std::unique_ptr<llvm::MCInstPrinter> IP(TheTarget->createMCInstPrinter(
       llvm::Triple(TripleName), AsmPrinterVariant, *AsmInfo, *MII, *MRI));
   if (!IP) {
-    fprintf(stderr, "no instruction printer\n");
+    HumanOut() << "no instruction printer\n";
     return 1;
   }
 
@@ -238,16 +205,16 @@ int tcgdump(void) {
                          SymbolVersionSection,
                          VersionMap);
 
-  auto linear_scan_disassemble = [&](target_ulong Addr, target_ulong End = 0) -> bool {
+  auto linear_scan_disassemble = [&](tcg_uintptr_t Addr, tcg_uintptr_t End = 0) -> bool {
     if (!End)
       End = Addr + 32;
 
     tcg.set_elf(&E);
 
-    printf("0x%" PRIx64 "\n", Addr);
+    HumanOut() << llvm::formatv("{0:x}\n", Addr);
 
     unsigned BBSize;
-    for (target_ulong A = Addr; A < End; A += BBSize) {
+    for (tcg_uintptr_t A = Addr; A < End; A += BBSize) {
       if (BreakOn.Active) {
         if (A == BreakOn.Addr) {
           ::TCGDumpUserBreakPoint();
@@ -275,7 +242,7 @@ int tcgdump(void) {
             Inst, InstLen, llvm::ArrayRef<uint8_t>(*ExpectedPtr, BBSize), _A,
             llvm::nulls());
         if (!Disassembled) {
-          fprintf(stderr, "failed to disassemble %" PRIx64 "\n", _A);
+          HumanOut() << llvm::formatv("failed to disassemble {0:x}\n", _A);
           break;
         }
 
@@ -285,64 +252,64 @@ int tcgdump(void) {
           IP->printInst(&Inst, _A, "", *STI, StrStream);
         }
 
-        printf("%" PRIx64 "%s\n", static_cast<uint64_t>(_A), inst_str.c_str());
+        HumanOut() << llvm::formatv("{0:x} {1}\n", _A, inst_str);
       }
-      fputc('\n', stdout);
+      HumanOut() << '\n';
 
       //
       // print TCG
       //
       tcg.dump_operations();
-      fputc('\n', stdout);
+      HumanOut() << '\n';
 
       //
       // print basic block terminator
       //
-      printf("%s @ 0x%" PRIx64 "\n",
-             description_of_terminator(T.Type), static_cast<uint64_t>(T.Addr));
+      HumanOut() << llvm::formatv("{0} @ {1:x}\n",
+                                  description_of_terminator(T.Type),
+                                  T.Addr);
 
       switch (T.Type) {
       case jove::TERMINATOR::UNCONDITIONAL_JUMP:
-        printf("Target: 0x%" PRIx64 "\n", static_cast<uint64_t>(T._unconditional_jump.Target));
+        HumanOut() << llvm::formatv("Target: {0:x}\n", T._unconditional_jump.Target);
         break;
 
       case jove::TERMINATOR::CONDITIONAL_JUMP:
-        printf("Target: 0x%" PRIx64 "\n", static_cast<uint64_t>(T._conditional_jump.Target));
-        printf("NextPC: 0x%" PRIx64 "\n", static_cast<uint64_t>(T._conditional_jump.NextPC));
+        HumanOut() << llvm::formatv("Target: {0:x}\n", T._conditional_jump.Target);
+        HumanOut() << llvm::formatv("NextPC: {0:x}\n", T._conditional_jump.NextPC);
         break;
 
       case jove::TERMINATOR::INDIRECT_CALL:
-        printf("NextPC: 0x%" PRIx64 "\n", static_cast<uint64_t>(T._indirect_call.NextPC));
+        HumanOut() << llvm::formatv("NextPC: {0:x}\n", T._indirect_call.NextPC);
         break;
 
       case jove::TERMINATOR::CALL:
-        printf("Target: 0x%" PRIx64 "\n", static_cast<uint64_t>(T._call.Target));
-        printf("NextPC: 0x%" PRIx64 "\n", static_cast<uint64_t>(T._call.NextPC));
+        HumanOut() << llvm::formatv("Target: {0:x}\n", T._call.Target);
+        HumanOut() << llvm::formatv("NextPC: {0:x}\n", T._call.NextPC);
         break;
 
       case jove::TERMINATOR::NONE:
-        printf("NextPC: 0x%" PRIx64 "\n", static_cast<uint64_t>(T._none.NextPC));
+        HumanOut() << llvm::formatv("NextPC: {0:x}\n", T._none.NextPC);
         break;
 
       default:
         break;
       }
 
-      fputc('\n', stdout);
+      HumanOut() << '\n';
     }
 
     return true;
   };
 
   struct {
-    target_ulong Addr;
-  } StartingFrom = {0};
+    tcg_uintptr_t Addr = 0;
+  } StartingFrom;
 
-  if (!opts::StartingFrom.empty()) {
-    StartingFrom.Addr = std::stoi(opts::StartingFrom.c_str(), 0, 16);
-  }
+  if (!opts.StartingFrom.empty())
+    StartingFrom.Addr = std::stoi(opts.StartingFrom.c_str(), 0, 16);
 
-  if (!opts::StartingFrom.empty()) {
+  if (!opts.StartingFrom.empty()) {
     linear_scan_disassemble(StartingFrom.Addr);
   } else if (OptionalDynSymRegion) {
     auto DynSyms = OptionalDynSymRegion->getAsArrayRef<Elf_Sym>();
@@ -361,21 +328,17 @@ int tcgdump(void) {
 
                   uintptr_t Addr = Sym.st_value;
 
-                  printf("//\n"
-                         "// %s\n"
-                         "//\n", (*ExpectedSymName).data());
+                  HumanOut() << (fmt("//\n"
+                                     "// %s\n"
+                                     "//\n") % (*ExpectedSymName).data()).str();
                   linear_scan_disassemble(Addr, Addr + Sym.st_size);
                 });
   } else {
-    fprintf(stderr, "no dynamic symbols for given binary\n");
+    HumanOut() << "no dynamic symbols for given binary\n";
     return 1;
   }
 
   return 0;
-}
-
-void _qemu_log(const char *cstr) {
-  fputs(cstr, stdout);
 }
 
 }

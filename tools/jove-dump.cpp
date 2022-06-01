@@ -1,8 +1,4 @@
-#include "tcgcommon.hpp"
-
-namespace jove {
-void _qemu_log(const char *cstr) { fputs(cstr, stdout); }
-} // namespace jove
+#include "tool.h"
 
 #include <llvm/Support/CommandLine.h>
 #include <llvm/Support/DataTypes.h>
@@ -32,49 +28,69 @@ namespace cl = llvm::cl;
 
 using llvm::WithColor;
 
-namespace opts {
-static cl::OptionCategory JoveCategory("Specific Options");
-
-static cl::list<std::string>
-    InputFilenames(cl::Positional, cl::desc("<input jove decompilations>"),
-                   cl::OneOrMore, cl::cat(JoveCategory));
-
-static cl::opt<bool>
-    Compact("compact",
-            cl::desc("Print functions as list of basic-blocks addresses"),
-            cl::cat(JoveCategory));
-
-static cl::opt<bool>
-    Graphviz("graphviz",
-             cl::desc("Produce control-flow graphs for each function"),
-             cl::cat(JoveCategory));
-
-static cl::opt<bool> Statistics("binary-stats", cl::desc("Print statistics"),
-                                cl::cat(JoveCategory));
-
-static cl::opt<bool> ListBinaries("list-binaries",
-                                  cl::desc("List binaries for decompilation"),
-                                  cl::cat(JoveCategory));
-
-static cl::alias ListBinariesAlias("l", cl::desc("Alias for -list-binaries."),
-                                   cl::aliasopt(ListBinaries),
-                                   cl::cat(JoveCategory));
-
-static cl::opt<std::string>
-    ListFunctions("list-functions", cl::desc("List functions for given binary"),
-                  cl::cat(JoveCategory));
-
-static cl::alias ListFunctionsAlias("f", cl::desc("Alias for -list-functions."),
-                                    cl::aliasopt(ListFunctions),
-                                    cl::cat(JoveCategory));
-
-static cl::opt<std::string> ListFunctionBBs(
-    "list-fn-bbs", cl::desc("List basic blocks for functions for given binary"),
-    cl::cat(JoveCategory));
-
-} // namespace opts
-
 namespace jove {
+
+class DumpTool : public Tool {
+  struct Cmdline {
+    cl::list<std::string> InputFilenames;
+    cl::opt<bool> Compact;
+    cl::opt<bool> Graphviz;
+    cl::opt<bool> Statistics;
+    cl::opt<bool> ListBinaries;
+    cl::alias ListBinariesAlias;
+    cl::opt<std::string> ListFunctions;
+    cl::alias ListFunctionsAlias;
+    cl::opt<std::string> ListFunctionBBs;
+
+    Cmdline(llvm::cl::OptionCategory &JoveCategory)
+        : InputFilenames(cl::Positional,
+                         cl::desc("<input jove decompilations>"), cl::OneOrMore,
+                         cl::cat(JoveCategory)),
+
+          Compact("compact",
+                  cl::desc("Print functions as list of basic-blocks addresses"),
+                  cl::cat(JoveCategory)),
+
+          Graphviz("graphviz",
+                   cl::desc("Produce control-flow graphs for each function"),
+                   cl::cat(JoveCategory)),
+
+          Statistics("binary-stats", cl::desc("Print statistics"),
+                     cl::cat(JoveCategory)),
+
+          ListBinaries("list-binaries",
+                       cl::desc("List binaries for decompilation"),
+                       cl::cat(JoveCategory)),
+
+          ListBinariesAlias("l", cl::desc("Alias for -list-binaries."),
+                            cl::aliasopt(ListBinaries), cl::cat(JoveCategory)),
+
+          ListFunctions("list-functions",
+                        cl::desc("List functions for given binary"),
+                        cl::cat(JoveCategory)),
+
+          ListFunctionsAlias("f", cl::desc("Alias for -list-functions."),
+                             cl::aliasopt(ListFunctions),
+                             cl::cat(JoveCategory)),
+
+          ListFunctionBBs(
+              "list-fn-bbs",
+              cl::desc("List basic blocks for functions for given binary"),
+              cl::cat(JoveCategory))
+
+    {}
+  } opts;
+
+public:
+  DumpTool() : opts(JoveCategory) {}
+
+  int Run(void);
+
+  void dumpDecompilation(const decompilation_t &);
+  void dumpInput(const std::string &Path);
+};
+
+JOVE_REGISTER_TOOL("dump", DumpTool);
 
 typedef boost::format fmt;
 
@@ -89,36 +105,10 @@ struct reached_visitor : public boost::default_bfs_visitor {
   }
 };
 
-// XXX code duplication
-static void explode_tcg_global_set(std::vector<unsigned> &out,
-                                   tcg_global_set_t glbs) {
-  if (glbs.none())
-    return;
-
-  out.reserve(glbs.count());
-
-  constexpr bool FitsInUnsignedLongLong =
-      tcg_num_globals <= sizeof(unsigned long long) * 8;
-
-  if (FitsInUnsignedLongLong) { /* use ffsll */
-    unsigned long long x = glbs.to_ullong();
-
-    int idx = 0;
-    do {
-      int pos = ffsll(x);
-      x >>= pos;
-      idx += pos;
-      out.push_back(idx - 1);
-    } while (x);
-  } else {
-    for (size_t glb = glbs._Find_first(); glb < glbs.size();
-         glb = glbs._Find_next(glb))
-      out.push_back(glb);
-  }
-}
-
-static void dumpDecompilation(const decompilation_t& decompilation) {
+void DumpTool::dumpDecompilation(const decompilation_t& decompilation) {
+#if 0
   tiny_code_generator_t tcg;
+#endif
 
   llvm::ScopedPrinter Writer(llvm::outs());
   llvm::ListScope _(Writer, (fmt("Binaries (%u)") % decompilation.Binaries.size()).str());
@@ -207,6 +197,7 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
             llvm::DictScope ______(Writer, "live");
 
             {
+#if 0
               std::vector<unsigned> glbv;
               explode_tcg_global_set(glbv, ICFG[bb].Analysis.live.def);
 
@@ -219,9 +210,13 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
                              });
 
               Writer.printList("def", descv);
+#else
+	      Writer.printString("def", ICFG[bb].Analysis.live.def.to_string());
+#endif
             }
 
             {
+#if 0
               std::vector<unsigned> glbv;
               explode_tcg_global_set(glbv, ICFG[bb].Analysis.live.use);
 
@@ -234,6 +229,9 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
                              });
 
               Writer.printList("use", descv);
+#else
+	      Writer.printString("use", ICFG[bb].Analysis.live.use.to_string());
+#endif
             }
           }
 
@@ -241,6 +239,7 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
             llvm::DictScope ______(Writer, "reach");
 
             {
+#if 0
               std::vector<unsigned> glbv;
               explode_tcg_global_set(glbv, ICFG[bb].Analysis.reach.def);
 
@@ -253,6 +252,9 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
                              });
 
               Writer.printList("def", descv);
+#else
+              Writer.printString("def", ICFG[bb].Analysis.reach.def.to_string());
+#endif
             }
           }
 
@@ -324,6 +326,7 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
           llvm::DictScope _____(Writer, "Analysis");
 
           {
+#if 0
             std::vector<unsigned> glbv;
             explode_tcg_global_set(glbv, f.Analysis.args);
 
@@ -336,9 +339,13 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
                            });
 
             Writer.printList("Args", descv);
+#else
+            Writer.printString("Args", f.Analysis.args.to_string());
+#endif
           }
 
           {
+#if 0
             std::vector<unsigned> glbv;
             explode_tcg_global_set(glbv, f.Analysis.rets);
 
@@ -351,6 +358,9 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
                            });
 
             Writer.printList("Rets", descv);
+#else
+            Writer.printString("Rets", f.Analysis.rets.to_string());
+#endif
           }
 
 #if 0
@@ -466,7 +476,15 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
   }
 }
 
-static void dumpInput(const std::string &Path) {
+
+int DumpTool::Run(void) {
+  for (const std::string &filename : opts.InputFilenames)
+    dumpInput(filename);
+
+  return 0;
+}
+
+void DumpTool::dumpInput(const std::string &Path) {
   decompilation_t decompilation;
   {
     std::ifstream ifs(fs::is_directory(Path) ? Path + "/decompilation.jv"
@@ -476,11 +494,11 @@ static void dumpInput(const std::string &Path) {
     ia >> decompilation;
   }
 
-  if (opts::ListBinaries) {
+  if (opts.ListBinaries) {
     for (const auto &binary : decompilation.Binaries) {
       llvm::outs() << binary.Path << '\n';
     }
-  } else if (opts::Statistics) {
+  } else if (opts.Statistics) {
     for (const binary_t &binary : decompilation.Binaries) {
       llvm::outs() << llvm::formatv("Binary: {0}\n", binary.Path);
       llvm::outs() << llvm::formatv("  # of basic blocks: {0}\n",
@@ -488,11 +506,11 @@ static void dumpInput(const std::string &Path) {
       llvm::outs() << llvm::formatv("  # of functions: {0}\n",
                                     binary.Analysis.Functions.size());
     }
-  } else if (!opts::ListFunctions.empty()) {
+  } else if (!opts.ListFunctions.empty()) {
     for (unsigned BIdx = 0; BIdx < decompilation.Binaries.size(); ++BIdx) {
       const binary_t &binary = decompilation.Binaries[BIdx];
 
-      if (binary.Path.find(opts::ListFunctions) == std::string::npos)
+      if (binary.Path.find(opts.ListFunctions) == std::string::npos)
         continue;
 
       const auto &ICFG = binary.Analysis.ICFG;
@@ -504,13 +522,13 @@ static void dumpInput(const std::string &Path) {
         llvm::outs() << llvm::formatv("{0:x}\n", Addr);
       }
     }
-  } else if (!opts::ListFunctionBBs.empty()) {
+  } else if (!opts.ListFunctionBBs.empty()) {
     llvm::ScopedPrinter Writer(llvm::outs());
 
     for (unsigned BIdx = 0; BIdx < decompilation.Binaries.size(); ++BIdx) {
       const binary_t &binary = decompilation.Binaries[BIdx];
 
-      if (fs::path(binary.Path).filename().string() != opts::ListFunctionBBs)
+      if (fs::path(binary.Path).filename().string() != opts.ListFunctionBBs)
         continue;
 
       auto &ICFG = binary.Analysis.ICFG;
@@ -539,25 +557,4 @@ static void dumpInput(const std::string &Path) {
   }
 }
 
-}
-
-int main(int argc, char **argv) {
-  llvm::InitLLVM X(argc, argv);
-
-  cl::HideUnrelatedOptions({&opts::JoveCategory, &llvm::ColorCategory});
-  cl::AddExtraVersionPrinter([](llvm::raw_ostream &OS) -> void {
-    OS << "jove version " JOVE_VERSION "\n";
-  });
-  cl::ParseCommandLineOptions(argc, argv, "Jove Decompilation Reader\n");
-
-  for (const std::string &Path : opts::InputFilenames) {
-    if (!fs::exists(Path)) {
-      WithColor::error() << Path << " does not exist\n";
-      return 1;
-    }
-  }
-
-  llvm::for_each(opts::InputFilenames, jove::dumpInput);
-
-  return 0;
 }

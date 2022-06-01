@@ -1,152 +1,17 @@
-#include <boost/icl/interval_set.hpp>
-#include <boost/icl/split_interval_map.hpp>
-#include <llvm/ADT/StringRef.h>
-#include <llvm/ADT/ArrayRef.h>
-#include <set>
-
-struct section_properties_t {
-  llvm::StringRef name;
-  llvm::ArrayRef<uint8_t> contents;
-
-  bool w, x;
-  bool initArray;
-  bool finiArray;
-
-  bool operator==(const section_properties_t &sect) const {
-    return name == sect.name;
-  }
-
-  bool operator<(const section_properties_t &sect) const {
-    return name < sect.name;
-  }
-};
-typedef std::set<section_properties_t> section_properties_set_t;
-
-//
-// forward decls
-//
-namespace llvm {
-class BasicBlock;
-namespace object {
-class Binary;
-}
-}
-
-#define JOVE_EXTRA_BB_PROPERTIES                                               \
-  tcg_global_set_t IN, OUT;                                                    \
-                                                                               \
-  void Analyze(binary_index_t);
-
-#define JOVE_EXTRA_FN_PROPERTIES                                               \
-  basic_block_vec_t bbvec;                                                     \
-  basic_block_vec_t exit_bbvec;                                                \
-                                                                               \
-  bool IsLeaf;                                                                 \
-                                                                               \
-  void Analyze(void);
-
-#define JOVE_EXTRA_BIN_PROPERTIES                                              \
-  std::unique_ptr<llvm::object::Binary> ObjectFile;
-
-#include "tcgcommon.hpp"
-
-#include <tuple>
-#include <memory>
-#include <sstream>
-#include <fstream>
-#include <unordered_set>
-#include <random>
-#include <chrono>
-#include <boost/filesystem.hpp>
-#include <boost/graph/graphviz.hpp>
-#include <llvm/ADT/PointerIntPair.h>
-#include <llvm/Analysis/TargetTransformInfo.h>
-#include <llvm/ADT/Statistic.h>
-#include <llvm/Support/DataExtractor.h>
-#include <llvm/Bitcode/BitcodeReader.h>
-#include <llvm/Bitcode/BitcodeWriter.h>
-#include <llvm/IR/Constants.h>
-#include <llvm/IR/DIBuilder.h>
-#include <llvm/IR/DebugInfo.h>
-#include <llvm/IR/GlobalAlias.h>
-#include <llvm/IR/GlobalIFunc.h>
-#include <llvm/IR/IRBuilder.h>
-#include <llvm/IR/InlineAsm.h>
-#include <llvm/IR/Intrinsics.h>
-#include <llvm/IR/LLVMContext.h>
-#include <llvm/IR/LegacyPassManager.h>
-#include <llvm/IR/MDBuilder.h>
-#include <llvm/IR/Metadata.h>
-#include <llvm/IR/Module.h>
-#include <llvm/IR/PatternMatch.h>
-#include <llvm/IR/Verifier.h>
-#include <llvm/IR/IntrinsicInst.h>
-#include <llvm/InitializePasses.h>
-#include <llvm/LinkAllPasses.h>
-#include <llvm/Linker/Linker.h>
-#include <llvm/MC/MCAsmInfo.h>
-#include <llvm/MC/MCContext.h>
-#include <llvm/MC/MCDisassembler/MCDisassembler.h>
-#include <llvm/MC/MCInstPrinter.h>
-#include <llvm/MC/MCInstrInfo.h>
-#include <llvm/MC/MCObjectFileInfo.h>
-#include <llvm/MC/MCRegisterInfo.h>
-#include <llvm/MC/MCSubtargetInfo.h>
-#include <llvm/Object/ELFObjectFile.h>
-#include <llvm/Object/ELFObjectFile.h>
-#include <thread>
-#include <llvm/Support/CommandLine.h>
-#include <llvm/Support/DataTypes.h>
-#include <llvm/Support/Debug.h>
-#include <llvm/Support/FileSystem.h>
-#include <llvm/Support/FormatVariadic.h>
-#include <llvm/Support/Host.h>
-#include <llvm/Support/InitLLVM.h>
-#include <llvm/Support/ManagedStatic.h>
-#include <llvm/Support/PrettyStackTrace.h>
-#include <llvm/Support/ScopedPrinter.h>
-#include <llvm/Support/Signals.h>
-#include <llvm/Support/TargetRegistry.h>
-#include <llvm/Support/TargetSelect.h>
-#include <llvm/Support/ToolOutputFile.h>
-#include <llvm/Support/WithColor.h>
-#include <llvm/Target/TargetMachine.h>
-#include <llvm/Target/TargetOptions.h>
-#include <llvm/Transforms/IPO/PassManagerBuilder.h>
-#include <llvm/Transforms/Utils/ModuleUtils.h>
-#include <llvm/Transforms/Utils/Cloning.h>
-#include <llvm/Transforms/Utils/LowerMemIntrinsics.h>
-#include <llvm/Support/Error.h>
-#include <sys/wait.h>
-#include <sys/user.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-#include <unistd.h>
-
-#include "jove/jove.h"
-#include <boost/algorithm/string/replace.hpp>
-#include <boost/archive/text_iarchive.hpp>
-#include <boost/archive/text_oarchive.hpp>
+#include "tool.h"
+#include "elf.h"
+#include "tcg.h"
 #include <boost/dll/runtime_symbol_info.hpp>
-#include <boost/dynamic_bitset.hpp>
-#include <boost/format.hpp>
-#include <boost/graph/adj_list_serialize.hpp>
-#include <boost/graph/copy.hpp>
-#include <boost/graph/depth_first_search.hpp>
-#include <boost/graph/filtered_graph.hpp>
-#include <boost/range/adaptor/reversed.hpp>
-#include <boost/serialization/bitset.hpp>
-#include <boost/serialization/map.hpp>
-#include <boost/serialization/set.hpp>
-#include <boost/serialization/vector.hpp>
-#include <boost/container_hash/extensions.hpp>
-
-#define GET_INSTRINFO_ENUM
-#include "LLVMGenInstrInfo.hpp"
-
-#define GET_REGINFO_ENUM
-#include "LLVMGenRegisterInfo.hpp"
+#include <boost/filesystem.hpp>
+#include <chrono>
+#include <llvm/IR/LLVMContext.h>
+#include <llvm/IR/Module.h>
+#include <llvm/Bitcode/BitcodeReader.h>
+#include <llvm/Support/Error.h>
+#include <llvm/Support/FormatVariadic.h>
+#include <llvm/Support/WithColor.h>
+#include <thread>
+#include <unordered_set>
 
 namespace fs = boost::filesystem;
 namespace obj = llvm::object;
@@ -155,135 +20,82 @@ namespace cl = llvm::cl;
 using llvm::WithColor;
 
 namespace jove {
-#include "elf.hpp"
-}
 
-#include "analyze.hpp"
+struct basic_block_state_t {
+  tcg_global_set_t IN, OUT;
+};
 
-namespace jove {
-bool isDFSan(void) { return false; }
-}
+struct function_state_t {
+  basic_block_vec_t bbvec;
+  basic_block_vec_t exit_bbvec;
 
-namespace jove {
-static unsigned num_cpus(void);
-}
+  bool IsLeaf;
+};
 
-namespace opts {
-static cl::OptionCategory JoveCategory("Specific Options");
+struct binary_state_t {
+  std::unique_ptr<llvm::object::Binary> ObjectFile;
+};
 
-static cl::opt<std::string> jv("decompilation", cl::desc("Jove decompilation"),
-                               cl::Required, cl::value_desc("filename"),
-                               cl::cat(JoveCategory));
+class AnalyzeTool : public Tool {
+  struct Cmdline {
+    cl::opt<std::string> jv;
+    cl::alias jvAlias;
+    cl::list<std::string> PinnedGlobals;
+    cl::opt<bool> OnlyExecutable;
 
-static cl::alias jvAlias("d", cl::desc("Alias for -decompilation."),
-                         cl::aliasopt(jv), cl::cat(JoveCategory));
+    Cmdline(llvm::cl::OptionCategory &JoveCategory)
+        : jv("decompilation", cl::desc("Jove decompilation"), cl::Required,
+             cl::value_desc("filename"), cl::cat(JoveCategory)),
 
-static cl::list<std::string>
-    PinnedGlobals("pinned-globals", cl::CommaSeparated,
-                  cl::value_desc("glb_1,glb_2,...,glb_n"),
-                  cl::desc("force specified TCG globals to always go through CPUState"),
-                  cl::cat(JoveCategory));
+          jvAlias("d", cl::desc("Alias for -decompilation."), cl::aliasopt(jv),
+                  cl::cat(JoveCategory)),
 
-static cl::opt<bool>
-    OnlyExecutable("exe", cl::desc("Only analyze functions in executable"),
-                   cl::cat(JoveCategory));
+          PinnedGlobals(
+              "pinned-globals", cl::CommaSeparated,
+              cl::value_desc("glb_1,glb_2,...,glb_n"),
+              cl::desc(
+                  "force specified TCG globals to always go through CPUState"),
+              cl::cat(JoveCategory)),
 
-} // namespace opts
+          OnlyExecutable("exe",
+                         cl::desc("Only analyze functions in executable"),
+                         cl::cat(JoveCategory)) {}
+  } opts;
 
-namespace jove {
-static int analyze(void);
+  decompilation_t Decompilation;
 
-}
+  std::unique_ptr<tiny_code_generator_t> TCG;
+  std::unique_ptr<llvm::LLVMContext> Context;
+  std::unique_ptr<llvm::Module> Module;
 
-int main(int argc, char **argv) {
-  llvm::InitLLVM X(argc, argv);
+  int AnalyzeBlocks(void);
+  int AnalyzeFunctions(void);
+  int WriteDecompilation(void);
 
-  cl::HideUnrelatedOptions({&opts::JoveCategory, &llvm::ColorCategory});
-  cl::AddExtraVersionPrinter([](llvm::raw_ostream &OS) -> void {
-    OS << "jove version " JOVE_VERSION "\n";
-  });
-  cl::ParseCommandLineOptions(argc, argv, "Jove Analyze\n");
+  void worker1(std::atomic<dynamic_target_t *> &Q_ptr, dynamic_target_t *const Q_end);
+  void worker2(std::atomic<dynamic_target_t *>& Q_ptr, dynamic_target_t *const Q_end);
 
-  if (!fs::exists(opts::jv)) {
-    llvm::errs() << "decompilation does not exist\n";
+public:
+  AnalyzeTool() : opts(JoveCategory) {}
+
+  int Run(void);
+};
+
+JOVE_REGISTER_TOOL("analyze", AnalyzeTool);
+
+int AnalyzeTool::Run(void) {
+  if (!fs::exists(opts.jv)) {
+    HumanOut() << "decompilation does not exist\n";
     return 1;
   }
 
-  return jove::analyze();
-}
-
-namespace jove {
-
-typedef boost::format fmt;
-
-static int ProcessCommandLine(void);
-static int ParseDecompilation(void);
-static int ProcessDynamicTargets(void);
-static int InitStateForBinaries(void);
-static int CreateModule(void);
-static int PrepareToTranslateCode(void);
-static int AnalyzeBlocks(void);
-static int AnalyzeFunctions(void);
-static int WriteDecompilation(void);
-
-int analyze(void) {
-  {
-    std::ifstream ifs(fs::is_directory(opts::jv)
-                          ? (opts::jv + "/decompilation.jv")
-                          : opts::jv);
-
-    boost::archive::text_iarchive ia(ifs);
-    ia >> Decompilation;
-  }
+  ReadDecompilationFromFile(
+      fs::is_directory(opts.jv) ? (opts.jv + "/decompilation.jv") : opts.jv,
+      Decompilation);
 
   identify_ABIs(Decompilation);
 
-  return InitStateForBinaries()
-      || CreateModule()
-      || PrepareToTranslateCode()
-      || ProcessCommandLine() /* must do this after TCG is ready */
-      || AnalyzeBlocks()
-      || AnalyzeFunctions()
-      || WriteDecompilation();
-}
-
-void _qemu_log(const char *cstr) {
-  llvm::errs() << cstr;
-}
-
-int ProcessCommandLine(void) {
-  auto tcg_index_of_named_global = [&](const char *nm) -> int {
-    for (int i = 0; i < TCG->_ctx.nb_globals; i++) {
-      if (strcmp(TCG->_ctx.temps[i].name, nm) == 0)
-        return i;
-    }
-
-    return -1;
-  };
-
-  for (const std::string &PinnedGlobalName : opts::PinnedGlobals) {
-    int idx = tcg_index_of_named_global(PinnedGlobalName.c_str());
-    if (idx < 0) {
-      WithColor::warning() << llvm::formatv(
-          "unknown global {0} (--pinned-globals); ignoring\n", idx);
-      continue;
-    }
-
-    CmdlinePinnedEnvGlbs.set(idx);
-  }
-
-  return 0;
-}
-
-// XXX code duplication
-int InitStateForBinaries(void) {
-  for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
-    auto &binary = Decompilation.Binaries[BIdx];
-    auto &ICFG = binary.Analysis.ICFG;
-
-    //
-    // parse the ELF
-    //
+  for_each_binary(Decompilation, [&](binary_t &binary) {
     llvm::StringRef Buffer(reinterpret_cast<const char *>(&binary.Data[0]),
                            binary.Data.size());
     llvm::StringRef Identifier(binary.Path);
@@ -292,21 +104,20 @@ int InitStateForBinaries(void) {
     auto ExpectedBin = obj::createBinary(MemBuffRef);
     if (ExpectedBin) {
       std::unique_ptr<obj::Binary> &BinRef = *ExpectedBin;
-      binary.ObjectFile = std::move(BinRef);
+      state_for_binary(binary).ObjectFile = std::move(BinRef);
 
-      assert(llvm::isa<ELFO>(binary.ObjectFile.get()));
+      assert(llvm::isa<ELFO>(state_for_binary(binary).ObjectFile.get()));
     } else {
       std::string errorStr = llvm::toString(ExpectedBin.takeError());
       if (!binary.IsVDSO)
         WithColor::error() << llvm::formatv(
             "failed to create binary from {0}: {1}\n", binary.Path, errorStr);
     }
-  }
+  });
 
-  return 0;
-}
-
-int CreateModule(void) {
+  //
+  // create LLVM module (necessary to analyze helpers)
+  //
   Context.reset(new llvm::LLVMContext);
 
   std::string bootstrap_mod_path =
@@ -324,25 +135,39 @@ int CreateModule(void) {
   llvm::Expected<std::unique_ptr<llvm::Module>> moduleOr =
       llvm::parseBitcodeFile(BufferOr.get()->getMemBufferRef(), *Context);
   if (!moduleOr) {
-    llvm::logAllUnhandledErrors(moduleOr.takeError(), llvm::errs(),
+    llvm::logAllUnhandledErrors(moduleOr.takeError(), HumanOut(),
                                 "could not parse helper bitcode: ");
     return 1;
   }
 
   Module = std::move(moduleOr.get());
 
-  DL = Module->getDataLayout();
-
-  return 0;
-}
-
-int PrepareToTranslateCode(void) {
+  //
+  // initialize TCG
+  //
   TCG.reset(new tiny_code_generator_t);
 
-  return 0;
+  return AnalyzeBlocks()
+      || AnalyzeFunctions()
+      || WriteDecompilation();
 }
 
-int AnalyzeBlocks(void) {
+// defined in tools/llvm.cpp
+void AnalyzeBasicBlock(tiny_code_generator_t &TCG,
+                       llvm::Module &M,
+                       binary_t &binary,
+                       llvm::object::Binary &B,
+                       basic_block_t bb,
+                       bool DFSan);
+
+void AnalyzeFunction(decompilation_t &Decompilation,
+                     tiny_code_generator_t &TCG,
+                     llvm::Module &M,
+                     function_t &f,
+                     std::function<llvm::object::Binary &(binary_t &)> GetBinary,
+                     bool DFSan);
+
+int AnalyzeTool::AnalyzeBlocks(void) {
   unsigned cnt = 0;
 
   auto t1 = std::chrono::high_resolution_clock::now();
@@ -358,7 +183,7 @@ int AnalyzeBlocks(void) {
       if (ICFG[bb].Analysis.Stale)
         ++cnt;
 
-      ICFG[bb].Analyze(BIdx);
+      AnalyzeBasicBlock(*TCG, *Module, binary, *state_for_binary(binary).ObjectFile, bb, false);
 
       assert(!ICFG[bb].Analysis.Stale);
     }
@@ -383,12 +208,16 @@ int AnalyzeBlocks(void) {
   return 0;
 }
 
+#if 0
 static void worker1(std::atomic<dynamic_target_t *> &Q_ptr,
                     dynamic_target_t *const Q_end);
 static void worker2(std::atomic<dynamic_target_t *> &Q_ptr,
                     dynamic_target_t *const Q_end);
+#endif
 
-int AnalyzeFunctions(void) {
+static unsigned num_cpus(void);
+
+int AnalyzeTool::AnalyzeFunctions(void) {
   // let N be the count of all functions (in all binaries)
   unsigned N = std::accumulate(
       Decompilation.Binaries.begin(),
@@ -418,9 +247,10 @@ int AnalyzeFunctions(void) {
 
         workers.reserve(NumThreads);
         for (unsigned i = 0; i < NumThreads; ++i)
-          workers.push_back(std::thread(worker1,
-                                        std::ref(Q_ptr),
-                                        Q.data() + Q.size()));
+          workers.emplace_back(&AnalyzeTool::worker1,
+                               this,
+                               std::ref(Q_ptr),
+                               Q.data() + Q.size());
 
         for (std::thread &t : workers)
           t.join();
@@ -439,7 +269,7 @@ int AnalyzeFunctions(void) {
     //
     for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
       binary_t &binary = Decompilation.Binaries[BIdx];
-      if (opts::OnlyExecutable && !binary.IsExecutable)
+      if (opts.OnlyExecutable && !binary.IsExecutable)
         continue;
 
       for (function_index_t FIdx = 0; FIdx < binary.Analysis.Functions.size(); ++FIdx) {
@@ -466,9 +296,10 @@ int AnalyzeFunctions(void) {
 
         workers.reserve(NumThreads);
         for (unsigned i = 0; i < NumThreads; ++i)
-          workers.push_back(std::thread(worker2,
-                                        std::ref(Q_ptr),
-                                        Q.data() + Q.size()));
+          workers.emplace_back(&AnalyzeTool::worker2,
+                               this,
+                               std::ref(Q_ptr),
+                               Q.data() + Q.size());
 
         for (std::thread &t : workers)
           t.join();
@@ -480,56 +311,37 @@ int AnalyzeFunctions(void) {
 
       std::chrono::duration<double> s_double = t2 - t1;
 
-      llvm::errs() << llvm::formatv(" {0} s\n", s_double.count());
+      HumanOut() << llvm::formatv(" {0} s\n", s_double.count());
     }
   }
 
   return 0;
 }
 
-void worker1(std::atomic<dynamic_target_t *> &Q_ptr, dynamic_target_t *const Q_end) {
+void AnalyzeTool::worker1(std::atomic<dynamic_target_t *> &Q_ptr,
+                          dynamic_target_t *const Q_end) {
   for (dynamic_target_t *p = Q_ptr++; p < Q_end; p = Q_ptr++) {
     dynamic_target_t X = *p;
 
     binary_t &b = Decompilation.Binaries.at(X.first);
     function_t &f = function_of_target(X, Decompilation);
 
-    basic_blocks_of_function(f, b, f.bbvec);
-    exit_basic_blocks_of_function(f, b, f.bbvec, f.exit_bbvec);
+    basic_blocks_of_function(f, b, state_for_function(f).bbvec);
+    exit_basic_blocks_of_function(f, b, state_for_function(f).bbvec,
+                                  state_for_function(f).exit_bbvec);
 
-    f.IsLeaf = IsLeafFunction(f, b, f.bbvec);
+    state_for_function(f).IsLeaf =
+        IsLeafFunction(f, b, state_for_function(f).bbvec);
   }
 }
 
-void worker2(std::atomic<dynamic_target_t *>& Q_ptr, dynamic_target_t *const Q_end) {
+void AnalyzeTool::worker2(std::atomic<dynamic_target_t *>& Q_ptr,
+                          dynamic_target_t *const Q_end) {
   for (dynamic_target_t *p = Q_ptr++; p < Q_end; p = Q_ptr++) {
     dynamic_target_t X = *p;
 
-    function_of_target(X, Decompilation).Analyze();
+    AnalyzeFunction(Decompilation, *TCG, *Module, function_of_target(X, Decompilation), [&](binary_t &b) -> llvm::object::Binary & { return *state_for_binary(b).ObjectFile; }, false);
   }
-}
-
-int await_process_completion(pid_t pid) {
-  int wstatus;
-  do {
-    if (waitpid(pid, &wstatus, WUNTRACED | WCONTINUED) < 0)
-      abort();
-
-    if (WIFEXITED(wstatus)) {
-      //printf("exited, status=%d\n", WEXITSTATUS(wstatus));
-      return WEXITSTATUS(wstatus);
-    } else if (WIFSIGNALED(wstatus)) {
-      //printf("killed by signal %d\n", WTERMSIG(wstatus));
-      return 1;
-    } else if (WIFSTOPPED(wstatus)) {
-      //printf("stopped by signal %d\n", WSTOPSIG(wstatus));
-      return 1;
-    } else if (WIFCONTINUED(wstatus)) {
-      //printf("continued\n");
-    }
-  } while (!WIFEXITED(wstatus) && !WIFSIGNALED(wstatus));
-
-  abort();
 }
 
 unsigned num_cpus(void) {
@@ -543,31 +355,12 @@ unsigned num_cpus(void) {
   return CPU_COUNT(&cpu_mask);
 }
 
-static void IgnoreCtrlC(void) {
-  struct sigaction sa;
-
-  sigemptyset(&sa.sa_mask);
-  sa.sa_flags = 0;
-  sa.sa_handler = SIG_IGN;
-
-  if (sigaction(SIGINT, &sa, nullptr) < 0) {
-    int err = errno;
-    WithColor::error() << llvm::formatv("{0}: sigaction failed ({1})\n",
-                                        __func__, strerror(err));
-  }
-}
-
-int WriteDecompilation(void) {
+int AnalyzeTool::WriteDecompilation(void) {
   IgnoreCtrlC();
 
-  {
-    std::ofstream ofs(fs::is_directory(opts::jv)
-                          ? (opts::jv + "/decompilation.jv")
-                          : opts::jv);
-
-    boost::archive::text_oarchive oa(ofs);
-    oa << Decompilation;
-  }
+  WriteDecompilationToFile(
+      fs::is_directory(opts.jv) ? (opts.jv + "/decompilation.jv") : opts.jv,
+      Decompilation);
 
   //
   // git commit
@@ -575,10 +368,10 @@ int WriteDecompilation(void) {
   std::string msg("[jove-analyze]");
 
   // TODO check that there are no uncommitted changes
-  if (fs::is_directory(opts::jv)) {
+  if (fs::is_directory(opts.jv)) {
     pid_t pid = fork();
     if (!pid) { /* child */
-      chdir(opts::jv.c_str());
+      chdir(opts.jv.c_str());
 
       const char *argv[] = {"/usr/bin/git", "commit",    ".",
                             "-m",           msg.c_str(), nullptr};
@@ -587,10 +380,10 @@ int WriteDecompilation(void) {
       abort();
     }
 
-    await_process_completion(pid);
+    WaitForProcessToExit(pid);
   }
 
   return 0;
 }
 
-} // namespace jove
+}

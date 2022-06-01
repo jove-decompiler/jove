@@ -1,32 +1,19 @@
-#include "jove/jove.h"
-#include <unistd.h>
-#include <iostream>
-#include <vector>
-#include <string>
-#include <cstring>
-#include <thread>
-#include <cinttypes>
+#include "tool.h"
 #include <atomic>
-#include <boost/filesystem.hpp>
 #include <boost/dll/runtime_symbol_info.hpp>
-#include <sys/wait.h>
+#include <boost/filesystem.hpp>
+#include <cinttypes>
+#include <llvm/Support/FormatVariadic.h>
+#include <llvm/Support/WithColor.h>
+#include <string>
+#include <thread>
+#include <unistd.h>
 #include <sys/mount.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/uio.h>
 #include <fcntl.h>
 #include <pthread.h>
-#include <boost/archive/text_iarchive.hpp>
-#include <boost/archive/text_oarchive.hpp>
-#include <boost/serialization/bitset.hpp>
-#include <boost/serialization/map.hpp>
-#include <boost/serialization/set.hpp>
-#include <boost/serialization/vector.hpp>
-#include <boost/graph/adj_list_serialize.hpp>
-#include <llvm/Support/FormatVariadic.h>
-#include <llvm/Support/CommandLine.h>
-#include <llvm/Support/InitLLVM.h>
-#include <llvm/Support/WithColor.h>
 
 #include "jove_macros.h"
 
@@ -35,221 +22,159 @@ namespace cl = llvm::cl;
 
 using llvm::WithColor;
 
-namespace opts {
-static cl::OptionCategory JoveCategory("Specific Options");
-
-static cl::opt<std::string> Prog(cl::Positional, cl::desc("prog"), cl::Required,
-                                 cl::value_desc("filename"),
-                                 cl::cat(JoveCategory));
-
-static cl::list<std::string> Args("args", cl::CommaSeparated,
-                                  cl::value_desc("arg_1,arg_2,...,arg_n"),
-                                  cl::desc("Program arguments"),
-                                  cl::cat(JoveCategory));
-
-static cl::list<std::string>
-    Envs("env", cl::CommaSeparated,
-         cl::value_desc("KEY_1=VALUE_1,KEY_2=VALUE_2,...,KEY_n=VALUE_n"),
-         cl::desc("Extra environment variables"), cl::cat(JoveCategory));
-
-static cl::opt<std::string>
-    EnvFromFile("env-from-file",
-                cl::desc("use output from `cat /proc/<pid>/environ`"),
-                cl::cat(JoveCategory));
-
-static cl::opt<std::string>
-    ArgsFromFile("args-from-file",
-                 cl::desc("use output from `cat /proc/<pid>/cmdline`"),
-                 cl::cat(JoveCategory));
-
-static cl::list<std::string>
-    BindMountDirs("bind", cl::CommaSeparated,
-         cl::value_desc("/path/to/dir_1,/path/to/dir_2,...,/path/to/dir_n"),
-         cl::desc("List of directories to bind mount"), cl::cat(JoveCategory));
-
-static cl::opt<std::string> sysroot("sysroot", cl::desc("Output directory"),
-                                    cl::Required, cl::cat(JoveCategory));
-
-static cl::opt<unsigned> Sleep(
-    "sleep", cl::value_desc("seconds"),
-    cl::desc("Time in seconds to sleep for after finishing waiting on child; "
-             "can be useful if the program being recompiled forks"),
-    cl::cat(JoveCategory));
-
-static cl::opt<unsigned> DangerousSleep1(
-    "dangerous-sleep1", cl::value_desc("useconds"),
-    cl::desc("Time in useconds to wait for the dynamic linker to do its thing (1)"),
-    cl::init(30000), cl::cat(JoveCategory));
-
-static cl::opt<unsigned> DangerousSleep2(
-    "dangerous-sleep2", cl::value_desc("useconds"),
-    cl::desc("Time in useconds to wait for the dynamic linker to do its thing (2)"),
-    cl::init(40000), cl::cat(JoveCategory));
-
-static cl::opt<bool>
-    NoChroot("no-chroot",
-             cl::desc("run program under real sysroot (useful when combined with --foreign-libs)"),
-             cl::cat(JoveCategory));
-
-static cl::opt<bool> Verbose("verbose",
-                             cl::desc("Output helpful messages for debugging"),
-                             cl::cat(JoveCategory));
-
-static cl::alias VerboseAlias("v", cl::desc("Alias for --verbose."),
-                              cl::aliasopt(Verbose), cl::cat(JoveCategory));
-
-static cl::opt<std::string>
-    ChangeDirectory("cd", cl::desc("change directory after chroot(2)'ing"),
-                    cl::cat(JoveCategory));
-
-static cl::opt<bool>
-    ForeignLibs("foreign-libs",
-                cl::desc("only recompile the executable itself; "
-                         "treat all other binaries as \"foreign\". Implies "
-                         "--no-chroot"),
-                cl::cat(JoveCategory));
-
-static cl::alias
-    ForeignLibsAlias("x", cl::desc("Exe only. Alias for --foreign-libs."),
-                     cl::aliasopt(ForeignLibs),
-                     cl::cat(JoveCategory));
-
-static cl::opt<std::string>
-    HumanOutput("human-output",
-                cl::desc("Print messages to the given file path"),
-                cl::cat(JoveCategory));
-
-static cl::opt<bool>
-    Silent("silent",
-            cl::desc("Leave the stdout/stderr of the application undisturbed"),
-            cl::cat(JoveCategory));
-}
-
 namespace jove {
 
+struct RunTool : public Tool {
+  struct Cmdline {
+    cl::opt<std::string> Prog;
+    cl::list<std::string> Args;
+    cl::list<std::string> Envs;
+    cl::opt<std::string> EnvFromFile;
+    cl::opt<std::string> ArgsFromFile;
+    cl::list<std::string> BindMountDirs;
+    cl::opt<std::string> sysroot;
+    cl::opt<unsigned> Sleep;
+    cl::opt<unsigned> DangerousSleep1;
+    cl::opt<unsigned> DangerousSleep2;
+    cl::opt<bool> NoChroot;
+    cl::opt<bool> Verbose;
+    cl::alias VerboseAlias;
+    cl::opt<std::string> ChangeDirectory;
+    cl::opt<bool> ForeignLibs;
+    cl::alias ForeignLibsAlias;
+    cl::opt<std::string> HumanOutput;
+    cl::opt<bool> Silent;
+
+    Cmdline(llvm::cl::OptionCategory &JoveCategory)
+        : Prog(cl::Positional, cl::desc("prog"), cl::Required,
+               cl::value_desc("filename"), cl::cat(JoveCategory)),
+
+          Args("args", cl::CommaSeparated,
+               cl::value_desc("arg_1,arg_2,...,arg_n"),
+               cl::desc("Program arguments"), cl::cat(JoveCategory)),
+
+          Envs("env", cl::CommaSeparated,
+               cl::value_desc("KEY_1=VALUE_1,KEY_2=VALUE_2,...,KEY_n=VALUE_n"),
+               cl::desc("Extra environment variables"), cl::cat(JoveCategory)),
+
+          EnvFromFile("env-from-file",
+                      cl::desc("use output from `cat /proc/<pid>/environ`"),
+                      cl::cat(JoveCategory)),
+
+          ArgsFromFile("args-from-file",
+                       cl::desc("use output from `cat /proc/<pid>/cmdline`"),
+                       cl::cat(JoveCategory)),
+
+          BindMountDirs("bind", cl::CommaSeparated,
+                        cl::value_desc(
+                            "/path/to/dir_1,/path/to/dir_2,...,/path/to/dir_n"),
+                        cl::desc("List of directories to bind mount"),
+                        cl::cat(JoveCategory)),
+
+          sysroot("sysroot", cl::desc("Output directory"), cl::Required,
+                  cl::cat(JoveCategory)),
+
+          Sleep("sleep", cl::value_desc("seconds"),
+                cl::desc("Time in seconds to sleep for after finishing waiting "
+                         "on child; "
+                         "can be useful if the program being recompiled forks"),
+                cl::cat(JoveCategory)),
+
+          DangerousSleep1("dangerous-sleep1", cl::value_desc("useconds"),
+                          cl::desc("Time in useconds to wait for the dynamic "
+                                   "linker to do its thing (1)"),
+                          cl::init(30000), cl::cat(JoveCategory)),
+
+          DangerousSleep2("dangerous-sleep2", cl::value_desc("useconds"),
+                          cl::desc("Time in useconds to wait for the dynamic "
+                                   "linker to do its thing (2)"),
+                          cl::init(40000), cl::cat(JoveCategory)),
+
+          NoChroot("no-chroot",
+                   cl::desc("run program under real sysroot (useful when "
+                            "combined with --foreign-libs)"),
+                   cl::cat(JoveCategory)),
+
+          Verbose("verbose", cl::desc("Output helpful messages for debugging"),
+                  cl::cat(JoveCategory)),
+
+          VerboseAlias("v", cl::desc("Alias for --verbose."),
+                       cl::aliasopt(Verbose), cl::cat(JoveCategory)),
+
+          ChangeDirectory("cd",
+                          cl::desc("change directory after chroot(2)'ing"),
+                          cl::cat(JoveCategory)),
+
+          ForeignLibs(
+              "foreign-libs",
+              cl::desc("only recompile the executable itself; "
+                       "treat all other binaries as \"foreign\". Implies "
+                       "--no-chroot"),
+              cl::cat(JoveCategory)),
+
+          ForeignLibsAlias("x", cl::desc("Exe only. Alias for --foreign-libs."),
+                           cl::aliasopt(ForeignLibs), cl::cat(JoveCategory)),
+
+          HumanOutput("human-output",
+                      cl::desc("Print messages to the given file path"),
+                      cl::cat(JoveCategory)),
+
+          Silent("silent",
+                 cl::desc(
+                     "Leave the stdout/stderr of the application undisturbed"),
+                 cl::cat(JoveCategory)) {}
+  } opts;
+
+public:
+  RunTool() : opts(JoveCategory) {}
+
+  int Run(void);
+
+  template <bool WillChroot>
+  int DoRun(void);
+};
+
+JOVE_REGISTER_TOOL("run", RunTool);
+
 static fs::path jove_recover_path, jv_path;
+static RunTool *pTool;
 
-static void sighandler(int no);
+static bool WillChroot;
+static bool LivingDangerously;
 
-static int run(void);
-static int run_outside_chroot(void);
+int RunTool::Run(void) {
+  pTool = this;
 
-static std::unique_ptr<llvm::raw_fd_ostream> HumanOutputFileStream;
+  for (char *dashdash_arg : dashdash_args)
+    opts.Args.push_back(dashdash_arg);
 
-static llvm::raw_ostream *HumanOutputStreamPtr = &llvm::nulls();
-static llvm::raw_ostream &HumanOut(void) {
-  return *HumanOutputStreamPtr;
-}
-
-} // namespace jove
-
-int main(int argc, char **argv) {
-  int _argc = argc;
-  char **_argv = argv;
-
-  // argc/argv replacement to handle '--'
-  struct {
-    std::vector<std::string> s;
-    std::vector<const char *> a;
-  } arg_vec;
-
-  {
-    int prog_args_idx = -1;
-
-    for (int i = 0; i < argc; ++i) {
-      if (strcmp(argv[i], "--") == 0) {
-        prog_args_idx = i;
-        break;
-      }
-    }
-
-    if (prog_args_idx != -1) {
-      for (int i = 0; i < prog_args_idx; ++i)
-        arg_vec.s.push_back(argv[i]);
-
-      for (std::string &s : arg_vec.s)
-        arg_vec.a.push_back(s.c_str());
-      arg_vec.a.push_back(nullptr);
-
-      _argc = prog_args_idx;
-      _argv = const_cast<char **>(&arg_vec.a[0]);
-
-      for (int i = prog_args_idx + 1; i < argc; ++i) {
-        //llvm::outs() << llvm::formatv("argv[{0}] = {1}\n", i, argv[i]);
-
-        opts::Args.push_back(argv[i]);
-      }
-    }
-  }
-
-  llvm::InitLLVM X(_argc, _argv);
-
-  cl::HideUnrelatedOptions({&opts::JoveCategory, &llvm::ColorCategory});
-  cl::AddExtraVersionPrinter([](llvm::raw_ostream &OS) -> void {
-    OS << "jove version " JOVE_VERSION "\n";
-  });
-  cl::ParseCommandLineOptions(_argc, _argv, "jove-run\n");
-
-  if (!opts::Silent) {
-    jove::HumanOutputStreamPtr = &llvm::errs();
-
-    if (!opts::HumanOutput.empty()) {
-      std::error_code EC;
-      jove::HumanOutputFileStream.reset(
-          new llvm::raw_fd_ostream(opts::HumanOutput, EC, llvm::sys::fs::OF_Text));
-
-      if (EC) {
-        WithColor::error() << "--human-output: invalid filename passed\n";
-        return 1;
-      }
-
-      jove::HumanOutputStreamPtr = jove::HumanOutputFileStream.get();
-    }
-  }
+  if (!opts.HumanOutput.empty())
+    HumanOutToFile(opts.HumanOutput);
 
   //
   // get paths to stuff
   //
-  jove::jove_recover_path =
+  jove_recover_path =
       boost::dll::program_location().parent_path() / "jove-recover";
-  if (!fs::exists(jove::jove_recover_path)) {
-    jove::HumanOut() << llvm::formatv("couldn't find jove-recover at {0}\n",
-                                      jove::jove_recover_path.c_str());
+  if (!fs::exists(jove_recover_path)) {
+    HumanOut() << llvm::formatv("couldn't find jove-recover at {0}\n",
+                                jove_recover_path.c_str());
     return 1;
   }
 
-  jove::jv_path = fs::read_symlink(fs::path(opts::sysroot) / ".jv");
-  if (!fs::exists(jove::jv_path)) {
-    jove::HumanOut() << llvm::formatv("recover: no jv found at {0}\n",
-                                      jove::jv_path.c_str());
+  jv_path = fs::read_symlink(fs::path(opts.sysroot) / ".jv");
+  if (!fs::exists(jv_path)) {
+    HumanOut() << llvm::formatv("recover: no jv found at {0}\n",
+                                jv_path.c_str());
     return 1;
   }
 
-  //
-  // signal handlers
-  //
-  {
-    struct sigaction sa;
+  WillChroot = !(opts.NoChroot || opts.ForeignLibs);
+  LivingDangerously = !WillChroot && !opts.ForeignLibs;
 
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = SA_RESTART;
-    sa.sa_handler = jove::sighandler;
-
-    if (sigaction(SIGSEGV, &sa, nullptr) < 0 ||
-        sigaction(SIGBUS, &sa, nullptr) < 0 ||
-        sigaction(SIGUSR1, &sa, nullptr) < 0) {
-      int err = errno;
-      jove::HumanOut() << llvm::formatv("[{0}] sigaction failed: {1}\n",
-                                        __func__, strerror(err));
-    }
-  }
-
-  return opts::NoChroot || opts::ForeignLibs ?
-    jove::run_outside_chroot() :
-    jove::run();
+  return !WillChroot ? DoRun<false>() :
+                       DoRun<true>();
 }
-
-namespace jove {
 
 //
 // set when jove-recover has been run (if nonzero then either 'f', 'b', 'F', 'r')
@@ -257,12 +182,7 @@ namespace jove {
 static std::atomic<char> recovered_ch;
 static std::atomic<bool> FileSystemRestored(false);
 
-static int await_process_completion(pid_t);
-
 static void *recover_proc(const char *fifo_path);
-static void IgnoreCtrlC(void);
-
-static void print_command(const char **argv);
 
 template <bool IsRead>
 static ssize_t robust_read_or_write(int fd, void *const buf, const size_t count) {
@@ -304,37 +224,12 @@ static ssize_t robust_write(int fd, const void *const buf, const size_t count) {
 
 static std::atomic<bool> interrupt_sleep;
 
-void sighandler(int no) {
-  switch (no) {
-  case SIGBUS:
-  case SIGSEGV: {
-#if 0
-    HumanOut() << llvm::formatv("jove-run crashed! run gdb -p {0}\n", gettid());
-#endif
-
-    const char *msg = "jove-run crashed! attach with a debugger..";
-    robust_write(STDERR_FILENO, msg, strlen(msg));
-
-    for (;;)
-      sleep(1);
-
-    __builtin_unreachable();
-  }
-
-  case SIGUSR1:
-    interrupt_sleep.store(true);
-    break;
-
-  default:
-    HumanOut() << llvm::formatv("unhandled signal {0}\n", no);
-    abort();
-  }
-}
-
 static constexpr unsigned MAX_UMOUNT_RETRIES = 10;
 
 template <bool IsEnabled>
 struct ScopedMount {
+  RunTool &tool;
+
   const char *const source;
   const char *const target;
   const char *const filesystemtype;
@@ -345,12 +240,14 @@ struct ScopedMount {
 
   ScopedMount() = delete;
 
-  ScopedMount(const char *source,
+  ScopedMount(RunTool &tool,
+              const char *source,
               const char *target,
               const char *filesystemtype,
               unsigned long mountflags,
               const void *data)
-      : source(source),
+      : tool(tool),
+        source(source),
         target(target),
         filesystemtype(filesystemtype),
         mountflags(mountflags),
@@ -375,8 +272,8 @@ struct ScopedMount {
           continue;
 
         default:
-          if (opts::Verbose)
-            HumanOut() << llvm::formatv("mount(\"{0}\", \"{1}\", \"{2}\", {3:x}, {4}) failed: {5}\n",
+          if (tool.opts.Verbose)
+            tool.HumanOut() << llvm::formatv("mount(\"{0}\", \"{1}\", \"{2}\", {3:x}, {4}) failed: {5}\n",
                     this->source,
                     this->target,
                     this->filesystemtype,
@@ -411,12 +308,12 @@ struct ScopedMount {
         switch (err) {
         case EBUSY:
           if (retries++ < MAX_UMOUNT_RETRIES) {
-            if (opts::Verbose)
-              HumanOut() << llvm::formatv("retrying umount of {0} shortly...\n", this->target);
+            if (tool.opts.Verbose)
+              tool.HumanOut() << llvm::formatv("retrying umount of {0} shortly...\n", this->target);
 
             usleep(10000 /* 0.01 s */);
           } else {
-            HumanOut() << llvm::formatv("unmounting %s failed: EBUSY...\n", this->target);
+            tool.HumanOut() << llvm::formatv("unmounting %s failed: EBUSY...\n", this->target);
             return;
           }
           /* fallthrough */
@@ -424,9 +321,9 @@ struct ScopedMount {
           continue;
 
         default:
-          HumanOut() << llvm::formatv("umount(\"{0}\") failed: {1}\n",
-                                      this->target,
-                                      strerror(err));
+          tool.HumanOut() << llvm::formatv("umount(\"{0}\") failed: {1}\n",
+                                           this->target,
+                                           strerror(err));
           return;
         }
       } else {
@@ -440,22 +337,24 @@ struct ScopedMount {
 static void touch(const fs::path &);
 
 template <bool WillChroot>
-static int do_run(void) {
+int RunTool::DoRun(void) {
 #if 0 /* is this necessary? */
-  if (mount(opts::sysroot, opts::sysroot, "", MS_BIND, nullptr) < 0)
-    fprintf(stderr, "bind mounting %s failed : %s\n", opts::sysroot,
+  if (mount(opts.sysroot, opts.sysroot, "", MS_BIND, nullptr) < 0)
+    fprintf(stderr, "bind mounting %s failed : %s\n", opts.sysroot,
             strerror(errno));
 #endif
 
-  fs::path proc_path = fs::path(opts::sysroot) / "proc";
-  ScopedMount<WillChroot> proc_mnt("proc",
+  fs::path proc_path = fs::path(opts.sysroot) / "proc";
+  ScopedMount<WillChroot> proc_mnt(*this,
+                                   "proc",
                                    proc_path.c_str(),
                                    "proc",
                                    MS_NOSUID | MS_NODEV | MS_NOEXEC,
                                    nullptr);
 
-  fs::path sys_path = fs::path(opts::sysroot) / "sys";
-  ScopedMount<WillChroot> sys_mnt("sys",
+  fs::path sys_path = fs::path(opts.sysroot) / "sys";
+  ScopedMount<WillChroot> sys_mnt(*this,
+                                  "sys",
                                   sys_path.c_str(),
                                   "sysfs",
                                   MS_RDONLY | MS_NOSUID | MS_NODEV | MS_NOEXEC,
@@ -467,12 +366,13 @@ static int do_run(void) {
   std::list<fs::path>                CmdLineBindMountChrootedDirs;
   std::list<ScopedMount<WillChroot>> CmdLineBindMounts;
 
-  for (const std::string &Dir : opts::BindMountDirs) {
+  for (const std::string &Dir : opts.BindMountDirs) {
     fs::path &chrooted_dir =
-        CmdLineBindMountChrootedDirs.emplace_back(fs::path(opts::sysroot) / Dir);
+        CmdLineBindMountChrootedDirs.emplace_back(fs::path(opts.sysroot) / Dir);
     fs::create_directories(chrooted_dir);
 
-    CmdLineBindMounts.emplace_back(Dir.c_str(),
+    CmdLineBindMounts.emplace_back(*this,
+                                   Dir.c_str(),
                                    chrooted_dir.c_str(),
                                    "",
                                    MS_BIND,
@@ -483,29 +383,33 @@ static int do_run(void) {
   //
   // common bind mounts
   //
-  fs::path dev_path = fs::path(opts::sysroot) / "dev";
-  ScopedMount<WillChroot> dev_mnt("udev",
+  fs::path dev_path = fs::path(opts.sysroot) / "dev";
+  ScopedMount<WillChroot> dev_mnt(*this,
+                                  "udev",
                                   dev_path.c_str(),
                                   "devtmpfs",
                                   MS_NOSUID,
                                   "mode=0755");
 
-  fs::path dev_pts_path = fs::path(opts::sysroot) / "dev" / "pts";
-  ScopedMount<WillChroot> dev_pts_mnt("devpts",
+  fs::path dev_pts_path = fs::path(opts.sysroot) / "dev" / "pts";
+  ScopedMount<WillChroot> dev_pts_mnt(*this,
+                                      "devpts",
                                       dev_pts_path.c_str(),
                                       "devpts",
                                       MS_NOSUID | MS_NOEXEC,
                                       "mode=0620,gid=5");
 
-  fs::path dev_shm_path = fs::path(opts::sysroot) / "dev" / "shm";
-  ScopedMount<WillChroot> dev_shm_mnt("shm",
+  fs::path dev_shm_path = fs::path(opts.sysroot) / "dev" / "shm";
+  ScopedMount<WillChroot> dev_shm_mnt(*this,
+                                      "shm",
                                       dev_shm_path.c_str(),
                                       "tmpfs",
                                       MS_NOSUID | MS_NODEV,
                                       "mode=1777");
 
-  fs::path tmp_path = fs::path(opts::sysroot) / "tmp";
-  ScopedMount<WillChroot> tmp_mnt("tmp",
+  fs::path tmp_path = fs::path(opts.sysroot) / "tmp";
+  ScopedMount<WillChroot> tmp_mnt(*this,
+                                  "tmp",
                                   tmp_path.c_str(),
                                   "tmpfs",
                                   MS_NOSUID | MS_NODEV | MS_STRICTATIME,
@@ -520,12 +424,13 @@ static int do_run(void) {
     ;                                                                          \
   }                                                                            \
                                                                                \
-  fs::path _##chrooted_##name = fs::path(opts::sysroot) / dir;                 \
+  fs::path _##chrooted_##name = fs::path(opts.sysroot) / dir;                 \
                                                                                \
   if (!_##name##_path.empty())                                                 \
     fs::create_directories(_##chrooted_##name);                                \
                                                                                \
-  ScopedMount<WillChroot> name##_mnt(_##name##_path.c_str(),                   \
+  ScopedMount<WillChroot> name##_mnt(*this,                                    \
+                                     _##name##_path.c_str(),                   \
                                      _##chrooted_##name.c_str(),               \
                                      "",                                       \
                                      MS_BIND,                                  \
@@ -548,12 +453,13 @@ static int do_run(void) {
     ;                                                                          \
   }                                                                            \
                                                                                \
-  fs::path _##chrooted_##name = fs::path(opts::sysroot) / filepath;            \
+  fs::path _##chrooted_##name = fs::path(opts.sysroot) / filepath;             \
                                                                                \
   if (!_##name##_path.empty())                                                 \
     touch(_##chrooted_##name.c_str());                                         \
                                                                                \
-  ScopedMount<WillChroot> name##_mnt(_##name##_path.c_str(),                   \
+  ScopedMount<WillChroot> name##_mnt(*this,                                    \
+                                     _##name##_path.c_str(),                   \
                                      _##chrooted_##name.c_str(), "", MS_BIND,  \
                                      nullptr);
 
@@ -573,7 +479,7 @@ static int do_run(void) {
   // create recover fifo
   //
   fs::path recover_fifo_path =
-      WillChroot ? fs::path(opts::sysroot) / "jove-recover.fifo"
+      WillChroot ? fs::path(opts.sysroot) / "jove-recover.fifo"
                  : "/jove-recover.fifo";
   unlink(recover_fifo_path.c_str());
   if (mkfifo(recover_fifo_path.c_str(), 0666) < 0) {
@@ -591,19 +497,15 @@ static int do_run(void) {
     return 1;
   }
 
-  const bool LivingDangerously = !WillChroot && !opts::ForeignLibs;
+  const bool LivingDangerously = !WillChroot && !opts.ForeignLibs;
 
   //
   // parse decompilation
   //
   decompilation_t decompilation;
 
-  if (LivingDangerously) {
-    std::ifstream ifs(jv_path.c_str());
-
-    boost::archive::text_iarchive ia(ifs);
-    ia >> decompilation;
-  }
+  if (LivingDangerously)
+    ReadDecompilationFromFile(jv_path.c_str(), decompilation);
 
   int rfd = -1;
   int wfd = -1;
@@ -659,11 +561,11 @@ static int do_run(void) {
       if (binary.IsDynamicLinker)
         continue;
 
-      fs::path chrooted_path = fs::path(opts::sysroot) / binary.Path;
+      fs::path chrooted_path = fs::path(opts.sysroot) / binary.Path;
       std::string new_path = binary.Path + ".jove.new";
 
       if (link(chrooted_path.c_str(), new_path.c_str()) < 0) {
-        if (opts::Verbose) {
+        if (opts.Verbose) {
           int err = errno;
           HumanOut() << llvm::formatv("failed to create hard link {0} -> {1}: {2}\n",
                                       chrooted_path.c_str(), new_path, strerror(err));
@@ -707,15 +609,15 @@ static int do_run(void) {
     }
 
     if (WillChroot) {
-      if (chroot(opts::sysroot.c_str()) < 0) {
+      if (chroot(opts.sysroot.c_str()) < 0) {
         int err = errno;
         HumanOut() << llvm::formatv("chroot failed : {0}\n", strerror(err));
         return 1;
       }
 
       const char *working_dir =
-          !opts::ChangeDirectory.empty() ?
-          opts::ChangeDirectory.c_str() : "/";
+          !opts.ChangeDirectory.empty() ?
+          opts.ChangeDirectory.c_str() : "/";
 
       if (chdir(working_dir) < 0) {
         int err = errno;
@@ -730,8 +632,8 @@ static int do_run(void) {
     std::list<std::string> env_file_args;
     std::vector<const char *> env_vec;
 
-    if (!opts::EnvFromFile.empty()) {
-      std::ifstream ifs(opts::EnvFromFile);
+    if (!opts.EnvFromFile.empty()) {
+      std::ifstream ifs(opts.EnvFromFile);
 
       while (ifs) {
         std::string &env_entry = env_file_args.emplace_back();
@@ -784,7 +686,7 @@ static int do_run(void) {
     if (fs::exists("/firmadyne/libnvram.so")) /* XXX firmadyne */
       env_vec.push_back("LD_PRELOAD=/firmadyne/libnvram.so");
 
-    for (std::string &s : opts::Envs)
+    for (std::string &s : opts.Envs)
       env_vec.push_back(s.c_str());
 
     env_vec.push_back(nullptr);
@@ -796,10 +698,10 @@ static int do_run(void) {
     std::vector<const char *> arg_vec;
 
     fs::path prog_path =
-        WillChroot ? opts::Prog : fs::path(opts::sysroot) / opts::Prog;
+        WillChroot ? opts.Prog : fs::path(opts.sysroot) / opts.Prog;
 
-    if (!opts::ArgsFromFile.empty()) {
-      std::ifstream ifs(opts::ArgsFromFile);
+    if (!opts.ArgsFromFile.empty()) {
+      std::ifstream ifs(opts.ArgsFromFile);
 
       while (ifs) {
         std::string &arg_entry = args_file_args.emplace_back();
@@ -817,17 +719,17 @@ static int do_run(void) {
     } else {
       arg_vec.push_back(prog_path.c_str());
 
-      for (std::string &s : opts::Args)
+      for (std::string &s : opts.Args)
         arg_vec.push_back(s.c_str());
     }
 
     arg_vec.push_back(nullptr);
 
-    if (opts::Verbose)
+    if (opts.Verbose)
       print_command(&arg_vec[0]);
 
     if (LivingDangerously) {
-      if (opts::Verbose)
+      if (opts.Verbose)
         HumanOut() << (__ANSI_CYAN "modifying root file system..." __ANSI_NORMAL_COLOR "\n");
 
       //
@@ -852,7 +754,7 @@ static int do_run(void) {
         }
       }
 
-      if (opts::Verbose)
+      if (opts.Verbose)
         HumanOut() << (__ANSI_CYAN "modified root file system." __ANSI_NORMAL_COLOR "\n");
     }
 
@@ -902,12 +804,12 @@ static int do_run(void) {
     /* if we got here, the other end of the pipe must have been closed,
      * most likely by close-on-exec */
 
-    if (usleep(opts::DangerousSleep1) < 0) { /* wait for the dynamic linker to load the program */
+    if (usleep(opts.DangerousSleep1) < 0) { /* wait for the dynamic linker to load the program */
       int err = errno;
       HumanOut() << llvm::formatv("usleep failed: {0}\n", strerror(err));
     }
 
-    if (opts::Verbose)
+    if (opts.Verbose)
       HumanOut() << (__ANSI_MAGENTA "restoring root file system..." __ANSI_NORMAL_COLOR "\n");
 
     //
@@ -939,7 +841,7 @@ static int do_run(void) {
     }
 
     if (HaveDynamicallyLoaded) {
-      usleep(opts::DangerousSleep2); /* wait for the dynamic linker to load the rest */
+      usleep(opts.DangerousSleep2); /* wait for the dynamic linker to load the rest */
 
       //
       // (5) perform the renames to undo the changes we made to the root filesystem
@@ -968,7 +870,7 @@ static int do_run(void) {
 
     FileSystemRestored.store(true);
 
-    if (opts::Verbose)
+    if (opts.Verbose)
       HumanOut() << (__ANSI_MAGENTA "root file system restored." __ANSI_NORMAL_COLOR "\n");
 
     close(rfd);
@@ -977,24 +879,24 @@ static int do_run(void) {
   //
   // wait for process to exit
   //
-  int ret = await_process_completion(pid);
+  int ret = WaitForProcessToExit(pid);
 
   //
   // optionally sleep
   //
-  if (unsigned sec = opts::Sleep) {
+  if (unsigned sec = opts.Sleep) {
     HumanOut() << llvm::formatv("sleeping for {0} seconds...\n", sec);
     for (unsigned t = 0; t < sec; ++t) {
       sleep(1);
 
       if (interrupt_sleep.load()) {
-        if (opts::Verbose)
+        if (opts.Verbose)
           HumanOut() << "sleep interrupted\n";
         break;
       }
 
       if (recovered_ch.load()) {
-        if (opts::Verbose)
+        if (opts.Verbose)
           HumanOut() << "sleep interrupted by jove-recover\n";
         sleep(std::min<unsigned>(sec - t, 3));
         break;
@@ -1029,8 +931,8 @@ static int do_run(void) {
   }
 
 #if 0 /* is this necessary? */
-  if (umount2(opts::sysroot, 0) < 0)
-    fprintf(stderr, "unmounting %s failed : %s\n", opts::sysroot, strerror(errno));
+  if (umount2(opts.sysroot, 0) < 0)
+    fprintf(stderr, "unmounting %s failed : %s\n", opts.sysroot, strerror(errno));
 #endif
 
   {
@@ -1045,14 +947,6 @@ static int do_run(void) {
   return ret;
 }
 
-int run(void) {
-  return do_run<true>();
-}
-
-int run_outside_chroot(void) {
-  return do_run<false>();
-}
-
 void touch(const fs::path &p) {
   fs::create_directories(p.parent_path());
   if (!fs::exists(p))
@@ -1060,8 +954,8 @@ void touch(const fs::path &p) {
 }
 
 void *recover_proc(const char *fifo_path) {
-  const bool WillChroot = !(opts::NoChroot || opts::ForeignLibs);
-  const bool LivingDangerously = !WillChroot && !opts::ForeignLibs;
+  assert(pTool);
+  RunTool &tool = *pTool;
 
   //
   // ATTENTION: this thread has to be cancel-able.
@@ -1074,16 +968,18 @@ void *recover_proc(const char *fifo_path) {
 
   if (recover_fd < 0) {
     int err = errno;
-    HumanOut() << llvm::formatv("recover: failed to open fifo at {0} ({1})\n",
-                                fifo_path, strerror(err));
+    tool.HumanOut() << llvm::formatv("recover: failed to open fifo at {0} ({1})\n",
+                                     fifo_path, strerror(err));
     return nullptr;
   }
 
   void (*cleanup_handler)(void *) = [](void *arg) -> void {
-    if (close(reinterpret_cast<long>(arg)) < 0) {
+    int fd = reinterpret_cast<long>(arg);
+    if (close(fd) < 0) {
       int err = errno;
-      HumanOut() << llvm::formatv(
-          "recover_proc: cleanup_handler: close failed ({0})\n", strerror(err));
+      throw std::runtime_error(
+          std::string("recover_proc: cleanup_handler: close failed: ") +
+          strerror(err));
     }
   };
 
@@ -1102,44 +998,44 @@ void *recover_proc(const char *fifo_path) {
           if (err == EINTR)
             continue;
 
-          HumanOut() << llvm::formatv("recover: read failed ({0})\n",
-                                      strerror(err));
+          tool.HumanOut() << llvm::formatv("recover: read failed ({0})\n",
+                                           strerror(err));
         } else if (ret == 0) {
           // NOTE: open is a cancellation point
           int new_recover_fd = open(fifo_path, O_RDONLY);
           if (new_recover_fd < 0) {
             int err = errno;
-            HumanOut() << llvm::formatv(
+            tool.HumanOut() << llvm::formatv(
                 "recover: failed to open fifo at {0} ({1})\n", fifo_path,
                 strerror(err));
             return nullptr;
           }
 
           if (pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, nullptr) != 0) {
-            HumanOut() << "pthread_setcancelstate failed\n";
+            tool.HumanOut() << "pthread_setcancelstate failed\n";
           }
 
           assert(new_recover_fd != recover_fd);
 
           if (dup2(new_recover_fd, recover_fd) < 0) {
             int err = errno;
-            HumanOut() << llvm::formatv(
+            tool.HumanOut() << llvm::formatv(
                 "recover: failed to dup2({0}, {1})) ({2})\n", new_recover_fd,
                 recover_fd, strerror(err));
           }
 
           if (close(new_recover_fd) < 0) {
             int err = errno;
-            HumanOut() << llvm::formatv("recover_proc: close failed ({0})\n",
+            tool.HumanOut() << llvm::formatv("recover_proc: close failed ({0})\n",
                                         strerror(err));
           }
 
           if (pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, nullptr) != 0)
-            HumanOut() << "pthread_setcancelstate failed\n";
+            tool.HumanOut() << "pthread_setcancelstate failed\n";
 
           continue;
         } else {
-          HumanOut() << llvm::formatv("recover: read gave {0}\n", ret);
+          tool.HumanOut() << llvm::formatv("recover: read gave {0}\n", ret);
         }
 
         break;
@@ -1147,7 +1043,7 @@ void *recover_proc(const char *fifo_path) {
     }
 
     if (pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, nullptr) != 0)
-      HumanOut() << "pthread_setcancelstate failed\n";
+      tool.HumanOut() << "pthread_setcancelstate failed\n";
 
     {
       static bool FirstTime = true;
@@ -1205,15 +1101,17 @@ void *recover_proc(const char *fifo_path) {
 
         const char *argv[] = {jove_recover_path.c_str(), "-d", jv_path.c_str(),
                               buff, nullptr};
-        if (opts::Verbose)
-          print_command(&argv[0]);
+        if (tool.opts.Verbose)
+          tool.print_command(&argv[0]);
+
         execve(jove_recover_path.c_str(), const_cast<char **>(argv), ::environ);
         int err = errno;
-        HumanOut() << llvm::formatv("recover: exec failed ({0})\n", strerror(err));
+        tool.HumanOut() << llvm::formatv("recover: exec failed: {0}\n",
+                                         strerror(err));
         exit(1);
       }
 
-      (void)await_process_completion(pid);
+      (void)tool.WaitForProcessToExit(pid);
     } else if (ch == 'b') {
       struct {
         uint32_t BIdx;
@@ -1246,15 +1144,17 @@ void *recover_proc(const char *fifo_path) {
 
         const char *argv[] = {jove_recover_path.c_str(), "-d", jv_path.c_str(),
                               buff, nullptr};
-        if (opts::Verbose)
-          print_command(&argv[0]);
+        if (tool.opts.Verbose)
+          tool.print_command(&argv[0]);
+
         execve(jove_recover_path.c_str(), const_cast<char **>(argv), ::environ);
         int err = errno;
-        HumanOut() << llvm::formatv("recover: exec failed ({0})\n", strerror(err));
+        tool.HumanOut() << llvm::formatv("recover: exec failed: {0}\n",
+                                         strerror(err));
         exit(1);
       }
 
-      (void)await_process_completion(pid);
+      (void)tool.WaitForProcessToExit(pid);
     } else if (ch == 'F') {
       struct {
         uint32_t BIdx;
@@ -1294,16 +1194,17 @@ void *recover_proc(const char *fifo_path) {
 
         const char *argv[] = {jove_recover_path.c_str(), "-d", jv_path.c_str(),
                               buff, nullptr};
-        if (opts::Verbose)
-          print_command(&argv[0]);
+        if (tool.opts.Verbose)
+          tool.print_command(&argv[0]);
 
         execve(jove_recover_path.c_str(), const_cast<char **>(argv), ::environ);
         int err = errno;
-        HumanOut() << llvm::formatv("recover: exec failed ({0})\n", strerror(err));
+        tool.HumanOut() << llvm::formatv("recover: exec failed: {0}\n",
+                                         strerror(err));
         exit(1);
       }
 
-      (void)await_process_completion(pid);
+      (void)tool.WaitForProcessToExit(pid);
     } else if (ch == 'a') {
       struct {
         uint32_t BIdx;
@@ -1330,15 +1231,17 @@ void *recover_proc(const char *fifo_path) {
 
         const char *argv[] = {jove_recover_path.c_str(), "-d", jv_path.c_str(),
                               buff, nullptr};
-        if (opts::Verbose)
-          print_command(&argv[0]);
+        if (tool.opts.Verbose)
+          tool.print_command(&argv[0]);
+
         execve(jove_recover_path.c_str(), const_cast<char **>(argv), ::environ);
         int err = errno;
-        HumanOut() << llvm::formatv("recover: exec failed ({0})\n", strerror(err));
+        tool.HumanOut() << llvm::formatv("recover: exec failed: {0}\n",
+                                         strerror(err));
         exit(1);
       }
 
-      (void)await_process_completion(pid);
+      (void)tool.WaitForProcessToExit(pid);
     } else if (ch == 'r') {
       struct {
         uint32_t BIdx;
@@ -1365,21 +1268,23 @@ void *recover_proc(const char *fifo_path) {
 
         const char *argv[] = {jove_recover_path.c_str(), "-d", jv_path.c_str(),
                               buff, nullptr};
-        if (opts::Verbose)
-          print_command(&argv[0]);
+        if (tool.opts.Verbose)
+          tool.print_command(&argv[0]);
+
         execve(jove_recover_path.c_str(), const_cast<char **>(argv), ::environ);
         int err = errno;
-        HumanOut() << llvm::formatv("recover: exec failed ({0})\n", strerror(err));
+        tool.HumanOut() << llvm::formatv("recover: exec failed: {0}\n",
+                                         strerror(err));
         exit(1);
       }
 
-      (void)await_process_completion(pid);
+      (void)tool.WaitForProcessToExit(pid);
     } else {
-      HumanOut() << llvm::formatv("recover: unknown character! ({0})\n", ch);
+      tool.HumanOut() << llvm::formatv("recover: unknown character! ({0})\n", ch);
     }
 
     if (pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, nullptr) != 0)
-      HumanOut() << "pthread_setcancelstate failed\n";
+      tool.HumanOut() << "pthread_setcancelstate failed\n";
   }
 
   // (Clean-up handlers are not called if the thread terminates by performing a
@@ -1387,66 +1292,6 @@ void *recover_proc(const char *fifo_path) {
   pthread_cleanup_pop(1 /* execute */);
 
   return nullptr;
-}
-
-int await_process_completion(pid_t pid) {
-  int wstatus;
-  do {
-    if (waitpid(pid, &wstatus, WUNTRACED | WCONTINUED) < 0) {
-      int err = errno;
-      switch (err) {
-      case ECHILD:
-        return 0;
-      case EINTR:
-        continue;
-      default:
-        HumanOut() << llvm::formatv("waitpid failed: {0}\n", strerror(err));
-        continue;
-      }
-    }
-
-    if (WIFEXITED(wstatus)) {
-      if (opts::Verbose)
-        HumanOut() << llvm::formatv("exited, status={0}\n", WEXITSTATUS(wstatus));
-      return WEXITSTATUS(wstatus);
-    } else if (WIFSIGNALED(wstatus)) {
-      HumanOut() << llvm::formatv("killed by signal {0}\n", WTERMSIG(wstatus));
-      return 1;
-    } else if (WIFSTOPPED(wstatus)) {
-      HumanOut() << llvm::formatv("stopped by signal {0}\n", WSTOPSIG(wstatus));
-      return 1;
-    } else if (WIFCONTINUED(wstatus)) {
-      HumanOut() << "continued\n";
-    }
-  } while (!WIFEXITED(wstatus) && !WIFSIGNALED(wstatus));
-
-  abort();
-}
-
-void IgnoreCtrlC(void) {
-  struct sigaction sa;
-
-  sigemptyset(&sa.sa_mask);
-  sa.sa_flags = 0;
-  sa.sa_handler = SIG_IGN;
-
-  sigaction(SIGINT, &sa, nullptr);
-}
-
-void print_command(const char **argv) {
-  std::string msg;
-
-  for (const char **s = argv; *s; ++s) {
-    msg.append(*s);
-    msg.push_back(' ');
-  }
-
-  if (msg.empty())
-    return;
-
-  msg[msg.size() - 1] = '\n';
-
-  HumanOut() << msg.c_str();
 }
 
 }

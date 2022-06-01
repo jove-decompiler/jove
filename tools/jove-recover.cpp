@@ -1,25 +1,8 @@
-#include <llvm/Object/ELFObjectFile.h>
-#include <boost/icl/split_interval_map.hpp>
-
-#define JOVE_EXTRA_BIN_PROPERTIES                                              \
-  bbmap_t bbmap;                                                               \
-  fnmap_t fnmap;                                                               \
-                                                                               \
-  std::unique_ptr<llvm::object::Binary> ObjectFile;
-
-#include "tcgcommon.hpp"
-
-#include <tuple>
-#include <numeric>
-#include <memory>
-#include <sstream>
-#include <fstream>
-#include <cinttypes>
-#include <array>
+#include "tool.h"
+#include "elf.h"
+#include "explore.h"
 #include <boost/filesystem.hpp>
-#include <llvm/ADT/PointerIntPair.h>
-#include <llvm/Bitcode/BitcodeWriter.h>
-#include <llvm/Support/DataExtractor.h>
+#include <boost/format.hpp>
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
 #include <llvm/MC/MCAsmInfo.h>
@@ -30,21 +13,15 @@
 #include <llvm/MC/MCObjectFileInfo.h>
 #include <llvm/MC/MCRegisterInfo.h>
 #include <llvm/MC/MCSubtargetInfo.h>
-#include <llvm/Object/ELFObjectFile.h>
-#include <llvm/Support/CommandLine.h>
 #include <llvm/Support/DataTypes.h>
 #include <llvm/Support/Debug.h>
 #include <llvm/Support/FileSystem.h>
 #include <llvm/Support/FormatVariadic.h>
-#include <llvm/Support/InitLLVM.h>
-#include <llvm/Support/ManagedStatic.h>
-#include <llvm/Support/PrettyStackTrace.h>
-#include <llvm/Support/ScopedPrinter.h>
-#include <llvm/Support/Signals.h>
 #include <llvm/Support/TargetRegistry.h>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/WithColor.h>
-#include <sys/wait.h>
+#include <numeric>
+#include <sstream>
 #include <sys/ptrace.h>
 #include <sys/user.h>
 #include <sys/types.h>
@@ -58,23 +35,6 @@
 #include <asm/ldt.h>
 #endif
 
-#include "jove/jove.h"
-#include <boost/archive/text_iarchive.hpp>
-#include <boost/archive/text_oarchive.hpp>
-#include <boost/dynamic_bitset.hpp>
-#include <boost/format.hpp>
-#include <boost/graph/adj_list_serialize.hpp>
-#include <boost/graph/depth_first_search.hpp>
-#include <boost/icl/interval_set.hpp>
-#include <boost/icl/split_interval_map.hpp>
-#include <boost/preprocessor/cat.hpp>
-#include <boost/preprocessor/repetition/repeat.hpp>
-#include <boost/preprocessor/repetition/repeat_from_to.hpp>
-#include <boost/serialization/bitset.hpp>
-#include <boost/serialization/map.hpp>
-#include <boost/serialization/set.hpp>
-#include <boost/serialization/vector.hpp>
-
 #include "jove_macros.h"
 
 namespace fs = boost::filesystem;
@@ -83,170 +43,124 @@ namespace cl = llvm::cl;
 
 using llvm::WithColor;
 
-namespace opts {
-static cl::OptionCategory JoveCategory("Specific Options");
-
-static cl::opt<std::string> jv("decompilation", cl::desc("Jove decompilation"),
-                               cl::Required, cl::value_desc("filename"),
-                               cl::cat(JoveCategory));
-
-static cl::alias jvAlias("d", cl::desc("Alias for -decompilation."),
-                         cl::aliasopt(jv), cl::cat(JoveCategory));
-
-static cl::list<std::string>
-    DynTarget("dyn-target", cl::CommaSeparated,
-              cl::value_desc("CallerBIdx,CallerBBIdx,CalleeBIdx,CalleeFIdx"),
-              cl::desc("New target for indirect branch"),
-              cl::cat(JoveCategory));
-
-static cl::list<std::string>
-    BasicBlock("basic-block", cl::CommaSeparated,
-               cl::value_desc("IndBrBIdx,IndBrBBIdx,FileAddr"),
-               cl::desc("New target for indirect branch"),
-               cl::cat(JoveCategory));
-
-static cl::list<std::string> Returns("returns", cl::CommaSeparated,
-                                     cl::value_desc("CallBIdx,CallBBIdx"),
-                                     cl::desc("A call has returned"),
-                                     cl::cat(JoveCategory));
-
-static cl::list<std::string>
-    Function("function", cl::CommaSeparated,
-               cl::value_desc("IndCallBIdx,IndCallBBIdx,CalleeBIdx,CalleeAddr"),
-               cl::desc("New target for indirect branch that is a function"),
-               cl::cat(JoveCategory));
-
-static cl::list<std::string>
-    ABI("abi", cl::CommaSeparated,
-        cl::value_desc("FuncBIdx,FIdx"),
-        cl::desc("Specified function is an ABI"),
-        cl::cat(JoveCategory));
-
-static cl::opt<std::string>
-    HumanOutput("human-output",
-                cl::desc("Print messages to the given file path"),
-                cl::cat(JoveCategory));
-
-static cl::opt<bool>
-    Silent("silent",
-           cl::desc("Leave the stdout/stderr of the application undisturbed"),
-           cl::cat(JoveCategory));
-
-} // namespace opts
-
 namespace jove {
 
-static int recover(void);
+struct binary_state_t {
+  bbmap_t bbmap;
+  fnmap_t fnmap;
 
-static std::unique_ptr<llvm::raw_fd_ostream> HumanOutputFileStream;
+  std::unique_ptr<llvm::object::Binary> ObjectFile;
+};
 
-static llvm::raw_ostream *HumanOutputStreamPtr = &llvm::nulls();
-static llvm::raw_ostream &HumanOut(void) {
-  return *HumanOutputStreamPtr;
-}
+class RecoverTool : public Tool {
+  struct Cmdline {
+    cl::opt<std::string> jv;
+    cl::alias jvAlias;
 
-}
+    cl::list<std::string> DynTarget;
+    cl::list<std::string> BasicBlock;
+    cl::list<std::string> Returns;
+    cl::list<std::string> Function;
+    cl::list<std::string> ABI;
 
-int main(int argc, char **argv) {
-  llvm::InitLLVM X(argc, argv);
+    cl::opt<std::string> HumanOutput;
+    cl::opt<bool> Silent;
 
-  cl::HideUnrelatedOptions({&opts::JoveCategory, &llvm::ColorCategory});
-  cl::AddExtraVersionPrinter([](llvm::raw_ostream &OS) -> void {
-    OS << "jove version " JOVE_VERSION "\n";
-  });
-  cl::ParseCommandLineOptions(argc, argv, "Jove Recover\n");
+    Cmdline(llvm::cl::OptionCategory &JoveCategory)
+        : jv("decompilation", cl::desc("Jove decompilation"), cl::Required,
+             cl::value_desc("filename"), cl::cat(JoveCategory)),
 
-  {
-    struct sigaction sa;
+          jvAlias("d", cl::desc("Alias for -decompilation."), cl::aliasopt(jv),
+                  cl::cat(JoveCategory)),
 
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = 0;
-    sa.sa_handler = SIG_IGN;
+          DynTarget(
+              "dyn-target", cl::CommaSeparated,
+              cl::value_desc("CallerBIdx,CallerBBIdx,CalleeBIdx,CalleeFIdx"),
+              cl::desc("New target for indirect branch"),
+              cl::cat(JoveCategory)),
 
-    sigaction(SIGINT, &sa, nullptr);
-  }
+          BasicBlock("basic-block", cl::CommaSeparated,
+                     cl::value_desc("IndBrBIdx,IndBrBBIdx,FileAddr"),
+                     cl::desc("New target for indirect branch"),
+                     cl::cat(JoveCategory)),
 
-  if (!fs::exists(opts::jv)) {
+          Returns("returns", cl::CommaSeparated,
+                  cl::value_desc("CallBIdx,CallBBIdx"),
+                  cl::desc("A call has returned"), cl::cat(JoveCategory)),
+
+          Function(
+              "function", cl::CommaSeparated,
+              cl::value_desc("IndCallBIdx,IndCallBBIdx,CalleeBIdx,CalleeAddr"),
+              cl::desc("New target for indirect branch that is a function"),
+              cl::cat(JoveCategory)),
+
+          ABI("abi", cl::CommaSeparated, cl::value_desc("FuncBIdx,FIdx"),
+              cl::desc("Specified function is an ABI"), cl::cat(JoveCategory)),
+
+          HumanOutput("human-output",
+                      cl::desc("Print messages to the given file path"),
+                      cl::cat(JoveCategory)),
+
+          Silent("silent",
+                 cl::desc(
+                     "Leave the stdout/stderr of the application undisturbed"),
+                 cl::cat(JoveCategory)) {}
+
+  } opts;
+
+  decompilation_t Decompilation;
+
+public:
+  RecoverTool() : opts(JoveCategory) {}
+
+  int Run(void);
+
+  std::string DescribeFunction(binary_index_t, function_index_t);
+  std::string DescribeBasicBlock(binary_index_t, basic_block_index_t);
+};
+
+JOVE_REGISTER_TOOL("recover", RecoverTool);
+
+typedef boost::format fmt;
+
+int RecoverTool::Run(void) {
+  if (!fs::exists(opts.jv)) {
     WithColor::error() << "decompilation does not exist\n";
     return 1;
   }
 
-  if (opts::DynTarget.size() > 0 && opts::DynTarget.size() != 4) {
+  if (opts.DynTarget.size() > 0 && opts.DynTarget.size() != 4) {
     WithColor::error() << "-dyn-target: invalid tuple\n";
     return 1;
   }
 
-  if (opts::BasicBlock.size() > 0 && opts::BasicBlock.size() != 3) {
+  if (opts.BasicBlock.size() > 0 && opts.BasicBlock.size() != 3) {
     WithColor::error() << "-basic-block: invalid tuple\n";
     return 1;
   }
 
-  if (opts::Function.size() > 0 && opts::Function.size() != 4) {
+  if (opts.Function.size() > 0 && opts.Function.size() != 4) {
     WithColor::error() << "-function: invalid tuple\n";
     return 1;
   }
 
-  if (opts::ABI.size() > 0 && opts::ABI.size() != 2) {
+  if (opts.ABI.size() > 0 && opts.ABI.size() != 2) {
     WithColor::error() << "-abi: invalid tuple\n";
     return 1;
   }
 
-  if (!opts::Silent) {
-    jove::HumanOutputStreamPtr = &llvm::errs();
-
-    if (!opts::HumanOutput.empty()) {
-      std::error_code EC;
-      jove::HumanOutputFileStream.reset(
-          new llvm::raw_fd_ostream(opts::HumanOutput, EC, llvm::sys::fs::OF_Text));
-
-      if (EC) {
-        WithColor::error() << "--human-output: invalid filename passed\n";
-        return 1;
-      }
-
-      jove::HumanOutputStreamPtr = jove::HumanOutputFileStream.get();
+  if (!opts.Silent) {
+    if (!opts.HumanOutput.empty()) {
+      HumanOutToFile(opts.HumanOutput);
     }
   }
 
-  return jove::recover();
-}
+  IgnoreCtrlC();
 
-namespace jove {
+  bool git = fs::is_directory(opts.jv);
+  std::string jvfp = git ? (opts.jv + "/decompilation.jv") : opts.jv;
 
-typedef boost::format fmt;
-
-static decompilation_t Decompilation;
-
-static void InvalidateAllFunctionAnalyses(void) {
-  for (binary_t &binary : Decompilation.Binaries)
-    for (function_t &f : binary.Analysis.Functions)
-      f.InvalidateAnalysis();
-}
-
-#include "elf.hpp"
-#include "explore.hpp"
-
-static std::string DescribeFunction(binary_index_t, function_index_t);
-static std::string DescribeBasicBlock(binary_index_t, basic_block_index_t);
-
-static int await_process_completion(pid_t);
-
-int recover(void) {
-  bool git = fs::is_directory(opts::jv);
-
-  //
-  // parse the existing decompilation file
-  //
-  {
-    std::string path = fs::is_directory(opts::jv)
-                           ? (opts::jv + "/decompilation.jv")
-                           : opts::jv;
-
-    std::ifstream ifs(path);
-
-    boost::archive::text_iarchive ia(ifs);
-    ia >> Decompilation;
-  }
+  ReadDecompilationFromFile(jvfp, Decompilation);
 
   tiny_code_generator_t tcg;
 
@@ -266,8 +180,8 @@ int recover(void) {
   for (binary_index_t i = 0; i < Decompilation.Binaries.size(); ++i) {
     binary_t &b = Decompilation.Binaries[i];
 
-    construct_fnmap(Decompilation, b, b.fnmap);
-    construct_bbmap(Decompilation, b, b.bbmap);
+    construct_fnmap(Decompilation, b, state_for_binary(b).fnmap);
+    construct_bbmap(Decompilation, b, state_for_binary(b).bbmap);
 
     //
     // build section map
@@ -289,15 +203,15 @@ int recover(void) {
 
     std::unique_ptr<obj::Binary> &BinRef = BinOrErr.get();
 
-    b.ObjectFile = std::move(BinRef);
+    state_for_binary(b).ObjectFile = std::move(BinRef);
 
-    if (!llvm::isa<ELFO>(b.ObjectFile.get())) {
+    if (!llvm::isa<ELFO>(state_for_binary(b).ObjectFile.get())) {
       HumanOut() << b.Path << " is not ELF of expected type\n";
       return 1;
     }
 
-    assert(llvm::isa<ELFO>(b.ObjectFile.get()));
-    ELFO &O = *llvm::cast<ELFO>(b.ObjectFile.get());
+    assert(llvm::isa<ELFO>(state_for_binary(b).ObjectFile.get()));
+    ELFO &O = *llvm::cast<ELFO>(state_for_binary(b).ObjectFile.get());
 
     TheTriple = O.makeTriple();
     Features = O.getFeatures();
@@ -373,7 +287,7 @@ int recover(void) {
 
   std::string msg;
 
-  if (opts::DynTarget.size() > 0) {
+  if (opts.DynTarget.size() > 0) {
     struct {
       binary_index_t BIdx;
       basic_block_index_t BBIdx;
@@ -384,11 +298,11 @@ int recover(void) {
       function_index_t FIdx;
     } Callee;
 
-    Caller.BIdx = strtoul(opts::DynTarget[0].c_str(), nullptr, 10);
-    Caller.BBIdx = strtoul(opts::DynTarget[1].c_str(), nullptr, 10);
+    Caller.BIdx = strtoul(opts.DynTarget[0].c_str(), nullptr, 10);
+    Caller.BBIdx = strtoul(opts.DynTarget[1].c_str(), nullptr, 10);
 
-    Callee.BIdx = strtoul(opts::DynTarget[2].c_str(), nullptr, 10);
-    Callee.FIdx = strtoul(opts::DynTarget[3].c_str(), nullptr, 10);
+    Callee.BIdx = strtoul(opts.DynTarget[2].c_str(), nullptr, 10);
+    Callee.FIdx = strtoul(opts.DynTarget[3].c_str(), nullptr, 10);
 
     // Check that Callee is valid
     (void)Decompilation.Binaries.at(Callee.BIdx)
@@ -427,13 +341,14 @@ int recover(void) {
         basic_block_t succ = boost::target(cf, ICFG);
 
         function_index_t FIdx =
-            explore_function(CallerBinary, tcg, dis, ICFG[succ].Addr,
-                             CallerBinary.fnmap,
-                             CallerBinary.bbmap);
+            explore_function(CallerBinary, *state_for_binary(CallerBinary).ObjectFile,
+                             tcg, dis, ICFG[succ].Addr,
+                             state_for_binary(CallerBinary).fnmap,
+                             state_for_binary(CallerBinary).bbmap);
         assert(is_function_index_valid(FIdx));
 
         /* term bb may been split */
-        bb = basic_block_at_address(TermAddr, CallerBinary, CallerBinary.bbmap);
+        bb = basic_block_at_address(TermAddr, CallerBinary, state_for_binary(CallerBinary).bbmap);
         ICFG[bb].DynTargets.insert({Caller.BIdx, FIdx});
       }
 
@@ -446,15 +361,15 @@ int recover(void) {
       // this call instruction will return, so explore the return block
       //
       basic_block_index_t NextBBIdx =
-          explore_basic_block(CallerBinary, tcg, dis,
+          explore_basic_block(CallerBinary, *state_for_binary(CallerBinary).ObjectFile, tcg, dis,
                               ICFG[bb].Addr + ICFG[bb].Size + (unsigned)IsMIPSTarget * 4,
-                              CallerBinary.fnmap,
-                              CallerBinary.bbmap);
+                              state_for_binary(CallerBinary).fnmap,
+                              state_for_binary(CallerBinary).bbmap);
 
       assert(is_basic_block_index_valid(NextBBIdx));
 
       /* term bb may been split */
-      bb = basic_block_at_address(TermAddr, CallerBinary, CallerBinary.bbmap);
+      bb = basic_block_at_address(TermAddr, CallerBinary, state_for_binary(CallerBinary).bbmap);
       assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL);
 
       boost::add_edge(bb, boost::vertex(NextBBIdx, ICFG), ICFG);
@@ -464,7 +379,7 @@ int recover(void) {
            DescribeBasicBlock(Caller.BIdx, Caller.BBIdx) %
            DescribeFunction(Callee.BIdx, Callee.FIdx))
               .str();
-  } else if (opts::BasicBlock.size() > 0) {
+  } else if (opts.BasicBlock.size() > 0) {
     struct {
       binary_index_t BIdx;
       basic_block_index_t BBIdx;
@@ -472,10 +387,10 @@ int recover(void) {
       uint64_t Target;
     } IndBr;
 
-    IndBr.BIdx = strtoul(opts::BasicBlock[0].c_str(), nullptr, 10);
-    IndBr.BBIdx = strtoul(opts::BasicBlock[1].c_str(), nullptr, 10);
+    IndBr.BIdx = strtoul(opts.BasicBlock[0].c_str(), nullptr, 10);
+    IndBr.BBIdx = strtoul(opts.BasicBlock[1].c_str(), nullptr, 10);
 
-    IndBr.Target = strtoul(opts::BasicBlock[2].c_str(), nullptr, 10);
+    IndBr.Target = strtoul(opts.BasicBlock[2].c_str(), nullptr, 10);
 
     binary_t &indbr_binary = Decompilation.Binaries.at(IndBr.BIdx);
     auto &ICFG = indbr_binary.Analysis.ICFG;
@@ -486,9 +401,10 @@ int recover(void) {
 
     assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP);
     basic_block_index_t target_bb_idx =
-        explore_basic_block(indbr_binary, tcg, dis, IndBr.Target,
-                            indbr_binary.fnmap,
-                            indbr_binary.bbmap);
+        explore_basic_block(indbr_binary, *state_for_binary(indbr_binary).ObjectFile,
+                            tcg, dis, IndBr.Target,
+                            state_for_binary(indbr_binary).fnmap,
+                            state_for_binary(indbr_binary).bbmap);
     if (!is_basic_block_index_valid(target_bb_idx)) {
       HumanOut() << llvm::formatv(
           "failed to recover control flow -> {0:x}\n", IndBr.Target);
@@ -498,7 +414,7 @@ int recover(void) {
     basic_block_t target_bb = boost::vertex(target_bb_idx, ICFG);
 
     /* term bb may been split */
-    bb = basic_block_at_address(TermAddr, indbr_binary, indbr_binary.bbmap);
+    bb = basic_block_at_address(TermAddr, indbr_binary, state_for_binary(indbr_binary).bbmap);
 
     assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP);
 
@@ -508,8 +424,8 @@ int recover(void) {
            DescribeBasicBlock(IndBr.BIdx, IndBr.BBIdx) %
            DescribeBasicBlock(IndBr.BIdx, target_bb_idx))
               .str();
-  } else if (opts::Function.size() > 0) {
-    assert(opts::Function.size() == 4);
+  } else if (opts.Function.size() > 0) {
+    assert(opts.Function.size() == 4);
 
     struct {
       binary_index_t BIdx;
@@ -518,14 +434,14 @@ int recover(void) {
 
     struct {
       binary_index_t BIdx;
-      target_ulong FileAddr;
+      tcg_uintptr_t FileAddr;
     } Callee;
 
-    IndCall.BIdx  = strtoul(opts::Function[0].c_str(), nullptr, 10);
-    IndCall.BBIdx = strtoul(opts::Function[1].c_str(), nullptr, 10);
+    IndCall.BIdx  = strtoul(opts.Function[0].c_str(), nullptr, 10);
+    IndCall.BBIdx = strtoul(opts.Function[1].c_str(), nullptr, 10);
 
-    Callee.BIdx     = strtoul(opts::Function[2].c_str(), nullptr, 10);
-    Callee.FileAddr = strtoul(opts::Function[3].c_str(), nullptr, 10);
+    Callee.BIdx     = strtoul(opts.Function[2].c_str(), nullptr, 10);
+    Callee.FileAddr = strtoul(opts.Function[3].c_str(), nullptr, 10);
 
     binary_t &CalleeBinary = Decompilation.Binaries.at(Callee.BIdx);
     binary_t &CallerBinary = Decompilation.Binaries.at(IndCall.BIdx);
@@ -535,9 +451,10 @@ int recover(void) {
     tcg_uintptr_t TermAddr = ICFG[bb].Term.Addr;
 
     function_index_t CalleeFIdx =
-        explore_function(CalleeBinary, tcg, dis, Callee.FileAddr,
-                         CalleeBinary.fnmap,
-                         CalleeBinary.bbmap);
+        explore_function(CalleeBinary, *state_for_binary(CalleeBinary).ObjectFile,
+                         tcg, dis, Callee.FileAddr,
+                         state_for_binary(CalleeBinary).fnmap,
+                         state_for_binary(CalleeBinary).bbmap);
     if (!is_function_index_valid(CalleeFIdx)) {
       HumanOut() << llvm::formatv(
           "failed to translate indirect call target {0:x}\n", Callee.FileAddr);
@@ -547,7 +464,7 @@ int recover(void) {
     function_t &callee = CalleeBinary.Analysis.Functions.at(CalleeFIdx);
 
     /* term bb may been split */
-    bb = basic_block_at_address(TermAddr, CallerBinary, CallerBinary.bbmap);
+    bb = basic_block_at_address(TermAddr, CallerBinary, state_for_binary(CallerBinary).bbmap);
 
     bool isNewTarget = ICFG[bb].DynTargets.insert({Callee.BIdx, CalleeFIdx}).second;
 
@@ -560,15 +477,15 @@ int recover(void) {
       // this call instruction will return, so explore the return block
       //
       basic_block_index_t NextBBIdx =
-          explore_basic_block(CallerBinary, tcg, dis,
+          explore_basic_block(CallerBinary, *state_for_binary(CallerBinary).ObjectFile, tcg, dis,
                               ICFG[bb].Addr + ICFG[bb].Size + (unsigned)IsMIPSTarget * 4,
-                              CallerBinary.fnmap,
-                              CallerBinary.bbmap);
+                              state_for_binary(CallerBinary).fnmap,
+                              state_for_binary(CallerBinary).bbmap);
 
       assert(is_basic_block_index_valid(NextBBIdx));
 
       /* term bb may been split */
-      bb = basic_block_at_address(TermAddr, CallerBinary, CallerBinary.bbmap);
+      bb = basic_block_at_address(TermAddr, CallerBinary, state_for_binary(CallerBinary).bbmap);
       assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL);
 
       boost::add_edge(bb, boost::vertex(NextBBIdx, ICFG), ICFG);
@@ -578,11 +495,11 @@ int recover(void) {
            DescribeBasicBlock(IndCall.BIdx, IndCall.BBIdx) %
            DescribeFunction(Callee.BIdx, CalleeFIdx))
               .str();
-  } else if (opts::ABI.size() > 0) {
-    assert(opts::ABI.size() == 2);
+  } else if (opts.ABI.size() > 0) {
+    assert(opts.ABI.size() == 2);
 
-    dynamic_target_t NewABI = {strtoul(opts::ABI[0].c_str(), nullptr, 10),
-                               strtoul(opts::ABI[1].c_str(), nullptr, 10)};
+    dynamic_target_t NewABI = {strtoul(opts.ABI[0].c_str(), nullptr, 10),
+                               strtoul(opts.ABI[1].c_str(), nullptr, 10)};
 
     function_t &f = function_of_target(NewABI, Decompilation);
 
@@ -594,14 +511,14 @@ int recover(void) {
     msg = (fmt(__ANSI_BLUE "(abi) %s" __ANSI_NORMAL_COLOR) %
            DescribeFunction(NewABI.first, NewABI.second))
               .str();
-  } else if (opts::Returns.size() > 0) {
+  } else if (opts.Returns.size() > 0) {
     struct {
       binary_index_t BIdx;
       basic_block_index_t BBIdx;
     } Call;
 
-    Call.BIdx = strtoul(opts::Returns[0].c_str(), nullptr, 10);
-    Call.BBIdx = strtoul(opts::Returns[1].c_str(), nullptr, 10);
+    Call.BIdx = strtoul(opts.Returns[0].c_str(), nullptr, 10);
+    Call.BBIdx = strtoul(opts.Returns[1].c_str(), nullptr, 10);
 
     binary_t &CallBinary = Decompilation.Binaries.at(Call.BIdx);
     auto &ICFG = CallBinary.Analysis.ICFG;
@@ -631,12 +548,12 @@ int recover(void) {
     }
 
     basic_block_index_t next_bb_idx =
-      explore_basic_block(CallBinary, tcg, dis, NextAddr,
-                          CallBinary.fnmap,
-                          CallBinary.bbmap);
+      explore_basic_block(CallBinary, *state_for_binary(CallBinary).ObjectFile, tcg, dis, NextAddr,
+                          state_for_binary(CallBinary).fnmap,
+                          state_for_binary(CallBinary).bbmap);
 
     /* term bb may been split */
-    bb = basic_block_at_address(TermAddr, CallBinary, CallBinary.bbmap);
+    bb = basic_block_at_address(TermAddr, CallBinary, state_for_binary(CallBinary).bbmap);
 
     if (ICFG[bb].Term.Type == TERMINATOR::CALL &&
         is_function_index_valid(ICFG[bb].Term._call.Target)) {
@@ -661,28 +578,23 @@ int recover(void) {
   assert(!msg.empty());
   HumanOut() << msg << '\n';
 
+  auto InvalidateAllFunctionAnalyses = [&](void) -> void {
+    for (binary_t &binary : Decompilation.Binaries)
+      for (function_t &f : binary.Analysis.Functions)
+        f.InvalidateAnalysis();
+  };
+
   InvalidateAllFunctionAnalyses();
 
-  //
-  // write decompilation
-  //
-  {
-    std::string path = fs::is_directory(opts::jv)
-                           ? (opts::jv + "/decompilation.jv")
-                           : opts::jv;
+  WriteDecompilationToFile(jvfp, Decompilation);
 
-    std::ofstream ofs(path);
-
-    boost::archive::text_oarchive oa(ofs);
-    oa << Decompilation;
-  }
   //
   // git commit
   //
   if (git) {
     pid_t pid = fork();
     if (!pid) { /* child */
-      chdir(opts::jv.c_str());
+      chdir(opts.jv.c_str());
 
       const char *argv[] = {"/usr/bin/git", "commit",    ".",
                             "-m",           msg.c_str(), nullptr};
@@ -690,38 +602,15 @@ int recover(void) {
       return execve(argv[0], const_cast<char **>(argv), ::environ);
     }
 
-    if (int ret = await_process_completion(pid))
+    if (int ret = WaitForProcessToExit(pid))
       return ret;
   }
 
   return 0;
 }
 
-int await_process_completion(pid_t pid) {
-  int wstatus;
-  do {
-    if (waitpid(pid, &wstatus, WUNTRACED | WCONTINUED) < 0)
-      abort();
-
-    if (WIFEXITED(wstatus)) {
-      //printf("exited, status=%d\n", WEXITSTATUS(wstatus));
-      return WEXITSTATUS(wstatus);
-    } else if (WIFSIGNALED(wstatus)) {
-      //printf("killed by signal %d\n", WTERMSIG(wstatus));
-      return 1;
-    } else if (WIFSTOPPED(wstatus)) {
-      //printf("stopped by signal %d\n", WSTOPSIG(wstatus));
-      return 1;
-    } else if (WIFCONTINUED(wstatus)) {
-      //printf("continued\n");
-    }
-  } while (!WIFEXITED(wstatus) && !WIFSIGNALED(wstatus));
-
-  abort();
-}
-
-std::string DescribeFunction(binary_index_t BIdx,
-                             function_index_t FIdx) {
+std::string RecoverTool::DescribeFunction(binary_index_t BIdx,
+                                          function_index_t FIdx) {
   auto &binary = Decompilation.Binaries.at(BIdx);
   function_t &f = binary.Analysis.Functions.at(FIdx);
 
@@ -731,8 +620,8 @@ std::string DescribeFunction(binary_index_t BIdx,
   return (fmt("%s+%#lx") % fs::path(binary.Path).filename().string() % Addr).str();
 }
 
-std::string DescribeBasicBlock(binary_index_t BIdx,
-                               basic_block_index_t BBIdx) {
+std::string RecoverTool::DescribeBasicBlock(binary_index_t BIdx,
+                                            basic_block_index_t BBIdx) {
   auto &binary = Decompilation.Binaries.at(BIdx);
 
   auto &ICFG = binary.Analysis.ICFG;
@@ -740,7 +629,4 @@ std::string DescribeBasicBlock(binary_index_t BIdx,
 
   return (fmt("%s+%#lx") % fs::path(binary.Path).filename().string() % Addr).str();
 }
-
-void _qemu_log(const char *cstr) { llvm::errs() << cstr; }
-
 }

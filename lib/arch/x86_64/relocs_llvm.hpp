@@ -1,4 +1,4 @@
-static llvm::Type *type_of_expression_for_relocation(const Relocation &R) {
+llvm::Type *LLVMTool::type_of_expression_for_relocation(const Relocation &R) {
   switch (R.Type) {
   case llvm::ELF::R_X86_64_RELATIVE:
   case llvm::ELF::R_X86_64_GLOB_DAT:
@@ -18,8 +18,8 @@ static llvm::Type *type_of_expression_for_relocation(const Relocation &R) {
   }
 }
 
-static llvm::Constant *expression_for_relocation(const Relocation &R,
-                                                 const RelSymbol &RelSym) {
+llvm::Constant *LLVMTool::expression_for_relocation(const Relocation &R,
+                                                    const RelSymbol &RelSym) {
   switch (R.Type) {
   case llvm::ELF::R_X86_64_RELATIVE:
     assert(R.Addend);
@@ -48,7 +48,7 @@ static llvm::Constant *expression_for_relocation(const Relocation &R,
   }
 }
 
-static bool is_manual_relocation(const Relocation &R) {
+bool LLVMTool::is_manual_relocation(const Relocation &R) {
   switch (R.Type) {
   case llvm::ELF::R_X86_64_IRELATIVE:
   case llvm::ELF::R_X86_64_TPOFF64:
@@ -61,9 +61,9 @@ static bool is_manual_relocation(const Relocation &R) {
   }
 }
 
-static void compute_manual_relocation(llvm::IRBuilderTy &IRB,
-                                      const Relocation &R,
-                                      const RelSymbol &RelSym) {
+void LLVMTool::compute_manual_relocation(llvm::IRBuilderTy &IRB,
+                                         const Relocation &R,
+                                         const RelSymbol &RelSym) {
   switch (R.Type) {
   case llvm::ELF::R_X86_64_IRELATIVE:
     assert(R.Addend);

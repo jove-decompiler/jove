@@ -1,39 +1,26 @@
-#include "jove/jove.h"
-#include <unistd.h>
-#include <iostream>
-#include <vector>
-#include <string>
-#include <cstring>
-#include <thread>
-#include <cinttypes>
-#include <boost/filesystem.hpp>
+#include "tool.h"
 #include <boost/dll/runtime_symbol_info.hpp>
-#include <sys/wait.h>
-#include <sys/mount.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <sys/uio.h>
-#include <sys/sendfile.h>
-#include <fcntl.h>
-#include <pthread.h>
-#include <boost/archive/text_iarchive.hpp>
-#include <boost/archive/text_oarchive.hpp>
-#include <boost/serialization/bitset.hpp>
-#include <boost/serialization/map.hpp>
-#include <boost/serialization/set.hpp>
-#include <boost/serialization/vector.hpp>
-#include <boost/graph/adj_list_serialize.hpp>
+#include <boost/filesystem.hpp>
+#include <cinttypes>
 #include <llvm/ADT/PointerIntPair.h>
-#include <llvm/Support/CommandLine.h>
-#include <llvm/Support/InitLLVM.h>
-#include <llvm/Support/WithColor.h>
 #include <llvm/Support/FormatVariadic.h>
-#include <sys/socket.h>
-#include <netdb.h>
+#include <llvm/Support/WithColor.h>
+#include <string>
+#include <thread>
+#include <unistd.h>
 #include <arpa/inet.h>
+#include <fcntl.h>
+#include <netdb.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
+#include <pthread.h>
 #include <sys/mman.h>
+#include <sys/mount.h>
+#include <sys/sendfile.h>
+#include <sys/socket.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <sys/uio.h>
 
 #ifndef likely
 #define likely(x)   __builtin_expect(!!(x), 1)
@@ -48,53 +35,42 @@ namespace cl = llvm::cl;
 
 using llvm::WithColor;
 
-namespace opts {
-static cl::OptionCategory JoveCategory("Specific Options");
-
-static cl::opt<std::string> TemporaryDir("tmpdir", cl::value_desc("directory"),
-                                         cl::cat(JoveCategory));
-
-static cl::opt<unsigned> Port("port", cl::desc("Network port to listen on"),
-                              cl::Required, cl::cat(JoveCategory));
-
-static cl::opt<bool> Verbose("verbose",
-                             cl::desc("Output helpful messages for debugging"),
-                             cl::cat(JoveCategory));
-
-static cl::alias VerboseAlias("v", cl::desc("Alias for --verbose."),
-                              cl::aliasopt(Verbose), cl::cat(JoveCategory));
-
-} // namespace opts
-
 namespace jove {
 
-static int server(void);
+class ServerTool : public Tool {
+  struct Cmdline {
+    cl::opt<std::string> TemporaryDir;
+    cl::opt<unsigned> Port;
+    cl::opt<bool> Verbose;
+    cl::alias VerboseAlias;
 
-} // namespace jove
+    Cmdline(llvm::cl::OptionCategory &JoveCategory)
+        : TemporaryDir("tmpdir", cl::value_desc("directory"),
+                       cl::cat(JoveCategory)),
 
-int main(int argc, char **argv) {
-  llvm::InitLLVM X(argc, argv);
+          Port("port", cl::desc("Network port to listen on"), cl::Required,
+               cl::cat(JoveCategory)),
 
-  cl::HideUnrelatedOptions({&opts::JoveCategory, &llvm::ColorCategory});
-  cl::AddExtraVersionPrinter([](llvm::raw_ostream &OS) -> void {
-    OS << "jove version " JOVE_VERSION "\n";
-  });
-  cl::ParseCommandLineOptions(argc, argv, "Jove Server\n");
+          Verbose("verbose", cl::desc("Output helpful messages for debugging"),
+                  cl::cat(JoveCategory)),
 
-  return jove::server();
-}
+          VerboseAlias("v", cl::desc("Alias for --verbose."),
+                       cl::aliasopt(Verbose), cl::cat(JoveCategory)) {}
+  } opts;
 
-namespace jove {
+public:
+  ServerTool() : opts(JoveCategory) {}
+
+  int Run(void);
+
+  void *ConnectionProc(void *);
+};
+
+JOVE_REGISTER_TOOL("server", ServerTool);
 
 static std::string tmpdir;
 
 static fs::path jove_recompile_path, jove_analyze_path, libjove_rt_path, dfsan_rt_path;
-
-static int await_process_completion(pid_t);
-
-static void IgnoreCtrlC(void);
-
-static void print_command(const char **argv);
 
 static std::atomic<bool> Cancelled(false);
 
@@ -150,9 +126,7 @@ struct ConnectionProcArgs {
   }
 };
 
-static void *ConnectionProc(void *);
-
-int server(void) {
+int ServerTool::Run(void) {
   jove_analyze_path = (boost::dll::program_location().parent_path() /
                        std::string("jove-analyze"))
                           .string();
@@ -197,7 +171,7 @@ int server(void) {
   //
   // prepare to process the binaries by creating a unique temporary directory
   //
-  if (opts::TemporaryDir.empty()) {
+  if (opts.TemporaryDir.empty()) {
     char tmpdir_c_str[] = {'/', 't', 'm', 'p', '/', 'X', 'X', 'X', 'X', 'X', 'X', '\0'};
     if (!mkdtemp(tmpdir_c_str)) {
       int err = errno;
@@ -208,9 +182,9 @@ int server(void) {
     tmpdir = tmpdir_c_str;
   } else {
     srand(time(NULL));
-    tmpdir = opts::TemporaryDir + "/" + std::to_string(rand());
+    tmpdir = opts.TemporaryDir + "/" + std::to_string(rand());
 
-    if (opts::Verbose)
+    if (opts.Verbose)
       llvm::errs() << "temporary dir: " << tmpdir.c_str() << '\n';
 
     if (mkdir(tmpdir.c_str(), 0777) < 0 && errno != EEXIST) {
@@ -233,7 +207,7 @@ int server(void) {
   {
     struct sockaddr_in server_addr;
     server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(opts::Port);
+    server_addr.sin_port = htons(opts.Port);
     server_addr.sin_addr.s_addr = INADDR_ANY;
 
     int ret = bind(connection_socket,
@@ -290,14 +264,8 @@ int server(void) {
     // Create thread to service that connection
     //
     {
-      pthread_t thd;
-      int ret = pthread_create(&thd, nullptr, ConnectionProc, args);
-      if (unlikely(ret != 0)) {
-        int err = errno;
-        WithColor::error() << llvm::formatv("pthread_create failed: {0}\n",
-                                            strerror(err));
-        delete args;
-      }
+      std::thread thd(&ServerTool::ConnectionProc, this, args);
+      thd.detach();
     }
   }
 
@@ -480,7 +448,7 @@ std::string string_of_sockaddr(const struct sockaddr *addr, socklen_t addrlen) {
   return std::string(hbuf);
 }
 
-void *ConnectionProc(void *arg) {
+void *ServerTool::ConnectionProc(void *arg) {
   std::unique_ptr<ConnectionProcArgs> args(
       reinterpret_cast<ConnectionProcArgs *>(arg));
 
@@ -535,7 +503,7 @@ void *ConnectionProc(void *arg) {
     PinnedGlobals.resize(NPinnedGlobals);
   }
 
-  if (opts::Verbose)
+  if (opts.Verbose)
     llvm::errs() << llvm::formatv("NPinnedGlobals: {0}\n", PinnedGlobals.size());
 
   for (unsigned i = 0; i < PinnedGlobals.size(); ++i) {
@@ -622,7 +590,7 @@ void *ConnectionProc(void *arg) {
     return nullptr;
   }
 
-  if (int ret = await_process_completion(pid)) {
+  if (int ret = WaitForProcessToExit(pid)) {
     WithColor::error() << llvm::formatv("jove-analyze failed [{0}]\n", ret);
     return nullptr;
   }
@@ -642,7 +610,7 @@ void *ConnectionProc(void *arg) {
         "-o", sysroot_dir.c_str(),
     };
 
-    if (opts::Verbose)
+    if (opts.Verbose)
       arg_vec.push_back("--verbose");
 
     if (options.dfsan)
@@ -683,7 +651,7 @@ void *ConnectionProc(void *arg) {
     return nullptr;
   }
 
-  if (int ret = await_process_completion(pid)) {
+  if (int ret = WaitForProcessToExit(pid)) {
     WithColor::error() << llvm::formatv("jove-recompile failed [{0}]\n", ret);
     return nullptr;
   }
@@ -704,12 +672,7 @@ void *ConnectionProc(void *arg) {
   // send the rest of the DSO's that were recompiled
   //
   decompilation_t decompilation;
-  {
-    std::ifstream ifs(tmpjv.c_str());
-
-    boost::archive::text_iarchive ia(ifs);
-    ia >> decompilation;
-  }
+  ReadDecompilationFromFile(tmpjv, decompilation);
 
   for (const binary_t &binary : decompilation.Binaries) {
     if (binary.IsVDSO)
@@ -724,7 +687,7 @@ void *ConnectionProc(void *arg) {
       return nullptr;
     }
 
-    if (opts::Verbose)
+    if (opts.Verbose)
       llvm::errs() << llvm::formatv("sending {0}\n", chrooted_path.c_str());
 
     ssize_t ret = robust_sendfile_with_size(data_socket, chrooted_path.c_str());
@@ -737,7 +700,7 @@ void *ConnectionProc(void *arg) {
   }
 
   {
-    if (opts::Verbose)
+    if (opts.Verbose)
       llvm::errs() << "sending jove runtime\n";
 
     ssize_t ret = robust_sendfile_with_size(data_socket, libjove_rt_path.c_str());
@@ -750,7 +713,7 @@ void *ConnectionProc(void *arg) {
   }
 
   if (options.dfsan) {
-    if (opts::Verbose)
+    if (opts.Verbose)
       llvm::errs() << "sending jove dfsan runtime\n";
 
     ssize_t ret = robust_sendfile_with_size(data_socket, dfsan_rt_path.c_str());
@@ -763,56 +726,6 @@ void *ConnectionProc(void *arg) {
   }
 
   return nullptr;
-}
-
-void print_command(const char **argv) {
-  std::string msg;
-
-  for (const char **s = argv; *s; ++s) {
-    msg.append(*s);
-    msg.push_back(' ');
-  }
-
-  if (msg.empty())
-    return;
-
-  msg[msg.size() - 1] = '\n';
-
-  llvm::errs() << msg;
-  llvm::errs().flush();
-}
-
-int await_process_completion(pid_t pid) {
-  int wstatus;
-  do {
-    if (waitpid(pid, &wstatus, WUNTRACED | WCONTINUED) < 0)
-      abort();
-
-    if (WIFEXITED(wstatus)) {
-      //printf("exited, status=%d\n", WEXITSTATUS(wstatus));
-      return WEXITSTATUS(wstatus);
-    } else if (WIFSIGNALED(wstatus)) {
-      //printf("killed by signal %d\n", WTERMSIG(wstatus));
-      return 1;
-    } else if (WIFSTOPPED(wstatus)) {
-      //printf("stopped by signal %d\n", WSTOPSIG(wstatus));
-      return 1;
-    } else if (WIFCONTINUED(wstatus)) {
-      //printf("continued\n");
-    }
-  } while (!WIFEXITED(wstatus) && !WIFSIGNALED(wstatus));
-
-  abort();
-}
-
-void IgnoreCtrlC(void) {
-  struct sigaction sa;
-
-  sigemptyset(&sa.sa_mask);
-  sa.sa_flags = 0;
-  sa.sa_handler = SIG_IGN;
-
-  sigaction(SIGINT, &sa, nullptr);
 }
 
 }
