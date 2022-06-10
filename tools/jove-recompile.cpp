@@ -97,6 +97,7 @@ class RecompileTool : public Tool {
     cl::opt<bool> ForeignLibs;
     cl::list<std::string> PinnedGlobals;
     cl::opt<bool> ABICalls;
+    cl::opt<bool> InlineHelpers;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : jv("decompilation", cl::desc("Jove decompilation"), cl::Required,
@@ -172,7 +173,11 @@ class RecompileTool : public Tool {
 
           ABICalls("abi-calls",
                    cl::desc("Call ABIs indirectly through _jove_call"),
-                   cl::cat(JoveCategory), cl::init(true)) {}
+                   cl::cat(JoveCategory), cl::init(true)),
+
+          InlineHelpers("inline-helpers",
+                        cl::desc("Try to inline all helper function calls"),
+                        cl::cat(JoveCategory)) {}
   } opts;
 
 public:
@@ -1311,6 +1316,8 @@ void RecompileTool::worker(const dso_graph_t &dso_graph) {
         arg_vec.push_back("--debug-sjlj");
       if (!opts.ABICalls)
         arg_vec.push_back("--abi-calls=0");
+      if (opts.InlineHelpers)
+        arg_vec.push_back("--inline-helpers");
 
       std::string pinned_globals_arg;
       if (!opts.PinnedGlobals.empty()) {
