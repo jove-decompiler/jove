@@ -211,6 +211,7 @@ struct LLVMTool : public Tool {
     cl::opt<bool> ForeignLibs;
     cl::list<std::string> PinnedGlobals;
     cl::opt<bool> ABICalls;
+    cl::opt<bool> InlineHelpers;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : jv("decompilation", cl::desc("Jove decompilation"), cl::Required,
@@ -328,7 +329,11 @@ struct LLVMTool : public Tool {
 
           ABICalls("abi-calls",
                    cl::desc("Call ABIs indirectly through _jove_call"),
-                   cl::cat(JoveCategory), cl::init(true)) {}
+                   cl::cat(JoveCategory), cl::init(true)),
+
+          InlineHelpers("inline-helpers",
+                        cl::desc("Try to inline all helper function calls"),
+                        cl::cat(JoveCategory)) {}
 
   } opts;
 
@@ -498,6 +503,7 @@ public:
   int DFSanInstrument(void);
   int RenameFunctionLocals(void);
   int WriteVersionScript(void);
+  int InlineHelpers(void);
   int WriteModule(void);
 
   void DumpModule(const char *);
@@ -2260,6 +2266,7 @@ int LLVMTool::Run(void) {
       || CreateCopyRelocationHack()
       || TranslateFunctions()
       || InternalizeSections()
+      || (opts.InlineHelpers ? InlineHelpers() : 0)
       || (opts.Optimize ? PrepareToOptimize() : 0)
       || (opts.DumpPreOpt1 ? (RenameFunctionLocals(), DumpModule("pre.opt1"), 1) : 0)
       || (opts.Optimize ? DoOptimize() : 0)
@@ -6744,6 +6751,29 @@ int LLVMTool::WriteVersionScript(void) {
   return 0;
 }
 
+int LLVMTool::InlineHelpers(void) {
+  if (!opts.InlineHelpers)
+    return 0;
+
+  std::set<llvm::CallInst *> calls;
+
+  for (const auto &pair : HelperFuncMap) {
+    llvm::Function *F = pair.second.F;
+
+    for (llvm::User *HelperFU : F->users()) {
+      if (llvm::CallInst *CI = llvm::dyn_cast<llvm::CallInst>(HelperFU))
+        calls.insert(CI);
+    }
+  }
+
+  for (llvm::CallInst *CI : calls) {
+    llvm::InlineFunctionInfo IFI;
+    llvm::InlineFunction(*CI, IFI);
+  }
+
+  return 0;
+}
+
 int LLVMTool::WriteModule(void) {
   if (opts.VerifyBitcode) {
     if (llvm::verifyModule(*Module, &llvm::errs())) {
@@ -7693,7 +7723,8 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
     //
     if (!_indirect_jump.IsTailCall) { /* otherwise fallthrough */
       llvm::BasicBlock *ElseBlock =
-          llvm::BasicBlock::Create(*Context, "else", state_for_function(f).F);
+          llvm::BasicBlock::Create(*Context, (fmt("%#lx_recover") % Addr).str(),
+                                   state_for_function(f).F);
 
       {
         llvm::Value *SectsGlobalOff = IRB.CreateSub(
