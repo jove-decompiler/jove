@@ -93,7 +93,7 @@ static std::queue<std::string> Q;
 
 static std::string tmpdir;
 
-static std::string jove_add_path, harvest_vdso_path;
+static std::string harvest_vdso_path;
 
 static int null_fd;
 
@@ -460,14 +460,6 @@ int InitTool::Run(void) {
   if (null_fd < 0) {
     WithColor::error() << "could not open /dev/null : " << strerror(errno)
                        << '\n';
-    return 1;
-  }
-
-  jove_add_path =
-      (boost::dll::program_location().parent_path() / std::string("jove-add"))
-          .string();
-  if (!fs::exists(jove_add_path)) {
-    WithColor::error() << "could not find jove-add at " << jove_add_path << '\n';
     return 1;
   }
 
@@ -1152,14 +1144,13 @@ void InitTool::worker(void) {
 
     pid_t pid = fork();
     if (!pid) {
-      std::vector<const char *> argv = {
-        jove_add_path.c_str(),
+      std::vector<const char *> arg_vec = {
         "-o", jvfp.c_str(),
-        "-i", path.c_str(),
-        nullptr
+        "-i", path.c_str()
       };
 
-      print_command(&argv[0]);
+      if (opts.Verbose)
+        print_tool_command("add", arg_vec);
 
       std::string stdoutfp = tmpdir + path + ".txt";
       int outfd = open(stdoutfp.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666);
@@ -1168,11 +1159,10 @@ void InitTool::worker(void) {
         dup2(outfd, STDERR_FILENO);
 
       close(STDIN_FILENO);
-      execve(argv[0], const_cast<char **>(&argv[0]), ::environ);
+      exec_tool("add", arg_vec);
 
       int err = errno;
-      WithColor::error() << llvm::formatv("execve of {0} failed: {1}\n",
-                                          argv[0],
+      WithColor::error() << llvm::formatv("execve of jove-add failed: {1}\n",
                                           strerror(err));
       exit(1);
     }

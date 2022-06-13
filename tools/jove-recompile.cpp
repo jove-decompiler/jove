@@ -194,7 +194,7 @@ JOVE_REGISTER_TOOL("recompile", RecompileTool);
 static char tmpdir[] = {'/', 't', 'm', 'p', '/', 'X',
                         'X', 'X', 'X', 'X', 'X', '\0'};
 
-static std::string compiler_runtime_afp, jove_llvm_path, jove_bin_path,
+static std::string compiler_runtime_afp, jove_bin_path,
     jove_rt_path, jove_dfsan_path, llc_path, ld_path, opt_path, llvm_dis_path;
 
 static std::atomic<bool> Cancel(false);
@@ -368,15 +368,6 @@ int RecompileTool::Run(void) {
   //
   // get paths to stuff
   //
-  jove_llvm_path =
-      (boost::dll::program_location().parent_path() / std::string("jove-llvm"))
-          .string();
-  if (!fs::exists(jove_llvm_path)) {
-    WithColor::error() << "could not find jove-llvm at " << jove_llvm_path
-                       << '\n';
-    return 1;
-  }
-
   jove_bin_path = boost::dll::program_location().parent_path().string();
 
   jove_rt_path = (boost::dll::program_location().parent_path() /
@@ -1280,8 +1271,6 @@ void RecompileTool::worker(const dso_graph_t &dso_graph) {
       std::string BIdx_arg(std::to_string(BIdx));
 
       std::vector<const char *> arg_vec = {
-        jove_llvm_path.c_str(),
-
         "-o", bcfp.c_str(),
         "--version-script", mapfp.c_str(),
 
@@ -1331,10 +1320,8 @@ void RecompileTool::worker(const dso_graph_t &dso_graph) {
         arg_vec.push_back(pinned_globals_arg.c_str());
       }
 
-      arg_vec.push_back(nullptr);
-
       if (opts.Verbose)
-        print_command(&arg_vec[0]);
+        print_tool_command("llvm", arg_vec);
 
       {
         std::string stdoutfp = bcfp + ".stdout.txt";
@@ -1351,7 +1338,7 @@ void RecompileTool::worker(const dso_graph_t &dso_graph) {
       }
 
       close(STDIN_FILENO);
-      execve(arg_vec[0], const_cast<char **>(&arg_vec[0]), ::environ);
+      exec_tool("llvm", arg_vec);
 
       int err = errno;
       WithColor::error() << llvm::formatv("execve failed: {0}\n",

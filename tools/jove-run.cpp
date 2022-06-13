@@ -136,7 +136,7 @@ public:
 
 JOVE_REGISTER_TOOL("run", RunTool);
 
-static fs::path jove_recover_path, jv_path;
+static fs::path jv_path;
 static RunTool *pTool;
 
 static bool WillChroot;
@@ -154,14 +154,6 @@ int RunTool::Run(void) {
   //
   // get paths to stuff
   //
-  jove_recover_path =
-      boost::dll::program_location().parent_path() / "jove-recover";
-  if (!fs::exists(jove_recover_path)) {
-    HumanOut() << llvm::formatv("couldn't find jove-recover at {0}\n",
-                                jove_recover_path.c_str());
-    return 1;
-  }
-
   jv_path = fs::read_symlink(fs::path(opts.sysroot) / ".jv");
   if (!fs::exists(jv_path)) {
     HumanOut() << llvm::formatv("recover: no jv found at {0}\n",
@@ -1099,12 +1091,11 @@ void *recover_proc(const char *fifo_path) {
                  Callee.BIdx,
                  Callee.FIdx);
 
-        const char *argv[] = {jove_recover_path.c_str(), "-d", jv_path.c_str(),
-                              buff, nullptr};
+        std::vector<const char *> arg_vec = {"-d", jv_path.c_str(), buff};
         if (tool.opts.Verbose)
-          tool.print_command(&argv[0]);
+          tool.print_tool_command("recover", arg_vec);
 
-        execve(jove_recover_path.c_str(), const_cast<char **>(argv), ::environ);
+        tool.exec_tool("recover", arg_vec);
         int err = errno;
         tool.HumanOut() << llvm::formatv("recover: exec failed: {0}\n",
                                          strerror(err));
@@ -1142,12 +1133,11 @@ void *recover_proc(const char *fifo_path) {
                  IndBr.BBIdx,
                  FileAddr);
 
-        const char *argv[] = {jove_recover_path.c_str(), "-d", jv_path.c_str(),
-                              buff, nullptr};
+        std::vector<const char *> arg_vec = {"-d", jv_path.c_str(), buff};
         if (tool.opts.Verbose)
-          tool.print_command(&argv[0]);
+          tool.print_tool_command("recover", arg_vec);
 
-        execve(jove_recover_path.c_str(), const_cast<char **>(argv), ::environ);
+        tool.exec_tool("recover", arg_vec);
         int err = errno;
         tool.HumanOut() << llvm::formatv("recover: exec failed: {0}\n",
                                          strerror(err));
@@ -1192,12 +1182,11 @@ void *recover_proc(const char *fifo_path) {
                  Callee.BIdx,
                  Callee.FileAddr);
 
-        const char *argv[] = {jove_recover_path.c_str(), "-d", jv_path.c_str(),
-                              buff, nullptr};
+        std::vector<const char *> arg_vec = {"-d", jv_path.c_str(), buff};
         if (tool.opts.Verbose)
-          tool.print_command(&argv[0]);
+          tool.print_tool_command("recover", arg_vec);
 
-        execve(jove_recover_path.c_str(), const_cast<char **>(argv), ::environ);
+        tool.exec_tool("recover", arg_vec);
         int err = errno;
         tool.HumanOut() << llvm::formatv("recover: exec failed: {0}\n",
                                          strerror(err));
@@ -1229,12 +1218,11 @@ void *recover_proc(const char *fifo_path) {
                  NewABI.BIdx,
                  NewABI.FIdx);
 
-        const char *argv[] = {jove_recover_path.c_str(), "-d", jv_path.c_str(),
-                              buff, nullptr};
+        std::vector<const char *> arg_vec = {"-d", jv_path.c_str(), buff};
         if (tool.opts.Verbose)
-          tool.print_command(&argv[0]);
+          tool.print_tool_command("recover", arg_vec);
 
-        execve(jove_recover_path.c_str(), const_cast<char **>(argv), ::environ);
+        tool.exec_tool("recover", arg_vec);
         int err = errno;
         tool.HumanOut() << llvm::formatv("recover: exec failed: {0}\n",
                                          strerror(err));
@@ -1266,12 +1254,11 @@ void *recover_proc(const char *fifo_path) {
                  Call.BIdx,
                  Call.BBIdx);
 
-        const char *argv[] = {jove_recover_path.c_str(), "-d", jv_path.c_str(),
-                              buff, nullptr};
+        std::vector<const char *> arg_vec = {"-d", jv_path.c_str(), buff};
         if (tool.opts.Verbose)
-          tool.print_command(&argv[0]);
+          tool.print_tool_command("recover", arg_vec);
 
-        execve(jove_recover_path.c_str(), const_cast<char **>(argv), ::environ);
+        tool.exec_tool("recover", arg_vec);
         int err = errno;
         tool.HumanOut() << llvm::formatv("recover: exec failed: {0}\n",
                                          strerror(err));

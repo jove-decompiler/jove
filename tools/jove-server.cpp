@@ -70,7 +70,7 @@ JOVE_REGISTER_TOOL("server", ServerTool);
 
 static std::string tmpdir;
 
-static fs::path jove_recompile_path, jove_analyze_path, libjove_rt_path, dfsan_rt_path;
+static fs::path libjove_rt_path, dfsan_rt_path;
 
 static std::atomic<bool> Cancelled(false);
 
@@ -127,26 +127,6 @@ struct ConnectionProcArgs {
 };
 
 int ServerTool::Run(void) {
-  jove_analyze_path = (boost::dll::program_location().parent_path() /
-                       std::string("jove-analyze"))
-                          .string();
-  if (!fs::exists(jove_analyze_path)) {
-    WithColor::error() << llvm::formatv(
-        "could not find jove-analyze at {0}\n", jove_analyze_path.c_str());
-
-    return 1;
-  }
-
-  jove_recompile_path = (boost::dll::program_location().parent_path() /
-                         std::string("jove-recompile"))
-                            .string();
-  if (!fs::exists(jove_recompile_path)) {
-    WithColor::error() << llvm::formatv(
-        "could not find jove-recompile at {0}\n", jove_analyze_path.c_str());
-
-    return 1;
-  }
-
   libjove_rt_path = (boost::dll::program_location().parent_path() /
                          std::string("libjove_rt.so.0"))
                             .string();
@@ -562,8 +542,6 @@ void *ServerTool::ConnectionProc(void *arg) {
   pid_t pid = fork();
   if (!pid) {
     std::vector<const char *> arg_vec = {
-        jove_analyze_path.c_str(),
-
         "-d", tmpjv.c_str()
     };
 
@@ -579,10 +557,8 @@ void *ServerTool::ConnectionProc(void *arg) {
       arg_vec.push_back(pinned_globals_arg.c_str());
     }
 
-    arg_vec.push_back(nullptr);
-
-    print_command(&arg_vec[0]);
-    execve(arg_vec[0], const_cast<char **>(&arg_vec[0]), ::environ);
+    print_tool_command("analyze", arg_vec);
+    exec_tool("analyze", arg_vec);
 
     int err = errno;
     WithColor::error() << llvm::formatv("execve failed: {0}\n",
@@ -604,8 +580,6 @@ void *ServerTool::ConnectionProc(void *arg) {
   pid = fork();
   if (!pid) {
     std::vector<const char *> arg_vec = {
-        jove_recompile_path.c_str(),
-
         "-d", tmpjv.c_str(),
         "-o", sysroot_dir.c_str(),
     };
@@ -640,10 +614,8 @@ void *ServerTool::ConnectionProc(void *arg) {
       arg_vec.push_back(pinned_globals_arg.c_str());
     }
 
-    arg_vec.push_back(nullptr);
-
-    print_command(&arg_vec[0]);
-    execve(arg_vec[0], const_cast<char **>(&arg_vec[0]), ::environ);
+    print_tool_command("recompile", arg_vec);
+    exec_tool("recompile", arg_vec);
 
     int err = errno;
     WithColor::error() << llvm::formatv("execve failed: {0}\n",

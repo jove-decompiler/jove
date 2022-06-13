@@ -246,7 +246,7 @@ public:
 
 JOVE_REGISTER_TOOL("loop", LoopTool);
 
-static fs::path jove_recompile_path, jove_run_path, jove_analyze_path, jove_rt_path, jove_dfsan_path;
+static fs::path jove_rt_path, jove_dfsan_path;
 
 static std::atomic<bool> Cancelled(false);
 
@@ -492,36 +492,6 @@ int LoopTool::Run(void) {
     return 1;
   }
 
-  jove_recompile_path = (boost::dll::program_location().parent_path() /
-                         std::string("jove-recompile"))
-                            .string();
-  if (!fs::exists(jove_recompile_path)) {
-    HumanOut() << llvm::formatv(
-        "could not find jove-recompile at {0}\n", jove_recompile_path.c_str());
-
-    return 1;
-  }
-
-  jove_run_path =
-      (boost::dll::program_location().parent_path() / std::string("jove-run"))
-          .string();
-  if (!fs::exists(jove_run_path)) {
-    HumanOut() << llvm::formatv(
-        "could not find jove-run at {0}\n", jove_run_path.c_str());
-
-    return 1;
-  }
-
-  jove_analyze_path = (boost::dll::program_location().parent_path() /
-                       std::string("jove-analyze"))
-                          .string();
-  if (!fs::exists(jove_analyze_path)) {
-    HumanOut() << llvm::formatv(
-        "could not find jove-analyze at {0}\n", jove_analyze_path.c_str());
-
-    return 1;
-  }
-
   jove_rt_path = (boost::dll::program_location().parent_path() /
                   std::string(JOVE_RT_SONAME))
                      .string();
@@ -597,8 +567,6 @@ run:
         std::string wrFdStr = std::to_string(wrFd);
 
         std::vector<const char *> arg_vec = {
-            jove_run_path.c_str(),
-
             "--sysroot",
             opts.sysroot.c_str(),
         };
@@ -686,8 +654,6 @@ run:
         for (std::string &s : opts.Args)
           arg_vec.push_back(s.c_str());
 
-        arg_vec.push_back(nullptr);
-
         std::vector<const char *> env_vec;
 
         //
@@ -703,11 +669,9 @@ run:
         env_vec.push_back(nullptr);
 
         if (opts.Verbose)
-          print_command(&arg_vec[0]);
+          print_tool_command("run", arg_vec);
 
-        execve(arg_vec[0],
-               const_cast<char **>(&arg_vec[0]),
-               const_cast<char **>(&env_vec[0]));
+        exec_tool("run", arg_vec, &env_vec[0]);
 
         int err = errno;
         HumanOut() << llvm::formatv("execve failed: {0}\n",
@@ -1280,9 +1244,7 @@ skip_run:
       pid = fork();
       if (!pid) {
         std::vector<const char *> arg_vec = {
-            jove_analyze_path.c_str(),
-
-            "-d", opts.jv.c_str(),
+            "-d", opts.jv.c_str()
         };
 
         std::string pinned_globals_arg = "--pinned-globals=";
@@ -1300,11 +1262,9 @@ skip_run:
         if (opts.ForeignLibs)
           arg_vec.push_back("--exe");
 
-        arg_vec.push_back(nullptr);
-
         if (opts.Verbose)
-          print_command(&arg_vec[0]);
-        execve(arg_vec[0], const_cast<char **>(&arg_vec[0]), ::environ);
+          print_tool_command("analyze", arg_vec);
+        exec_tool("analyze", arg_vec);
 
         int err = errno;
         HumanOut() << llvm::formatv("execve failed: {0}\n",
@@ -1323,8 +1283,6 @@ skip_run:
       pid = fork();
       if (!pid) {
         std::vector<const char *> arg_vec = {
-            jove_recompile_path.c_str(),
-
             "-d", opts.jv.c_str(),
             "-o", opts.sysroot.c_str(),
         };
@@ -1371,11 +1329,9 @@ skip_run:
           arg_vec.push_back(pinned_globals_arg.c_str());
         }
 
-        arg_vec.push_back(nullptr);
-
         if (opts.Verbose)
-          print_command(&arg_vec[0]);
-        execve(arg_vec[0], const_cast<char **>(&arg_vec[0]), ::environ);
+          print_tool_command("recompile", arg_vec);
+        exec_tool("recompile", arg_vec);
 
         int err = errno;
         HumanOut() << llvm::formatv("execve failed: {0}\n",

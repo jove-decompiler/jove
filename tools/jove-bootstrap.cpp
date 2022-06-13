@@ -289,8 +289,6 @@ struct BootstrapTool : public Tool {
 
   decompilation_t Decompilation;
 
-  std::string jove_add_path;
-
   std::vector<struct proc_map_t> cached_proc_maps;
 
   boost::icl::split_interval_map<uintptr_t, proc_map_set_t> pmm;
@@ -397,12 +395,6 @@ int BootstrapTool::Run(void) {
     HumanOut() << "Decompilation does not exist\n";
     return 1;
   }
-
-  jove_add_path =
-      (boost::dll::program_location().parent_path() / std::string("jove-add"))
-          .string();
-  if (!fs::exists(jove_add_path))
-    HumanOut() << "could not find jove-add at " << jove_add_path << '\n';
 
   //
   // okay, it looks like we're actually going to run. initialize stuff
@@ -4156,14 +4148,13 @@ void BootstrapTool::add_binary(pid_t child, tiny_code_generator_t &tcg, disas_t 
   //
   pid_t pid = fork();
   if (!pid) {
-    std::vector<const char *> argv = {
-      jove_add_path.c_str(),
+    std::vector<const char *> arg_vec = {
       "-o", jvfp.c_str(),
-      "-i", path,
-      nullptr
+      "-i", path
     };
 
-    print_command(&argv[0]);
+    if (opts.Verbose)
+      print_tool_command("add", arg_vec);
 
     std::string stdoutfp = std::string(tmpdir) + path + ".txt";
     int outfd = open(stdoutfp.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666);
@@ -4171,7 +4162,7 @@ void BootstrapTool::add_binary(pid_t child, tiny_code_generator_t &tcg, disas_t 
     dup2(outfd, STDERR_FILENO);
 
     close(STDIN_FILENO);
-    execve(argv[0], const_cast<char **>(&argv[0]), ::environ);
+    exec_tool("add", arg_vec);
 
     int err = errno;
     throw std::runtime_error(

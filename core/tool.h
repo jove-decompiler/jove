@@ -44,6 +44,17 @@ public:
   static int WaitForProcessToExit(pid_t);
   void IgnoreCtrlC(void);
   void print_command(const char** cstr_p);
+  void exec_tool(const char *name,
+                 const std::vector<const char *> &arg_vec,
+                 const char **envp = nullptr);
+
+  void print_tool_command(const char *name,
+                          const std::vector<const char *> &_arg_vec) {
+    std::vector<const char *> arg_vec(_arg_vec);
+    arg_vec.insert(arg_vec.begin(), name);
+    arg_vec.push_back(nullptr);
+    print_command(&arg_vec[0]);
+  }
 
   static void ReadDecompilationFromFile(const std::string &path,
                                         decompilation_t &);
