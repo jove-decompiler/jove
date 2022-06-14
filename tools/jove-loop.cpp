@@ -569,6 +569,9 @@ run:
         std::vector<const char *> arg_vec = {
             "--sysroot",
             opts.sysroot.c_str(),
+
+            "-d",
+            opts.jv.c_str(),
         };
 
         if (!opts.HumanOutput.empty()) {
