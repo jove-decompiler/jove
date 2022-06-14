@@ -1,23 +1,36 @@
 #include "tool.h"
+#include "recovery.h"
+#include "elf.h"
+
 #include <atomic>
 #include <boost/dll/runtime_symbol_info.hpp>
 #include <boost/filesystem.hpp>
+#include <boost/format.hpp>
 #include <cinttypes>
 #include <llvm/Support/FormatVariadic.h>
+#include <llvm/MC/MCAsmInfo.h>
+#include <llvm/MC/MCContext.h>
+#include <llvm/MC/MCInstrInfo.h>
+#include <llvm/MC/MCObjectFileInfo.h>
+#include <llvm/MC/MCRegisterInfo.h>
+#include <llvm/Support/TargetRegistry.h>
+#include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/WithColor.h>
 #include <string>
 #include <thread>
-#include <unistd.h>
-#include <sys/mount.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <sys/uio.h>
+
 #include <fcntl.h>
 #include <pthread.h>
+#include <sys/mount.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <sys/uio.h>
+#include <unistd.h>
 
 #include "jove_macros.h"
 
 namespace fs = boost::filesystem;
+namespace obj = llvm::object;
 namespace cl = llvm::cl;
 
 using llvm::WithColor;
@@ -26,6 +39,8 @@ namespace jove {
 
 struct RunTool : public Tool {
   struct Cmdline {
+    cl::opt<std::string> jv;
+    cl::alias jvAlias;
     cl::opt<std::string> Prog;
     cl::list<std::string> Args;
     cl::list<std::string> Envs;
@@ -46,7 +61,13 @@ struct RunTool : public Tool {
     cl::opt<bool> Silent;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
-        : Prog(cl::Positional, cl::desc("prog"), cl::Required,
+        : jv("decompilation", cl::desc("Jove decompilation"),
+             cl::value_desc("filename"), cl::cat(JoveCategory)),
+
+          jvAlias("d", cl::desc("Alias for -decompilation."), cl::aliasopt(jv),
+                  cl::cat(JoveCategory)),
+
+          Prog(cl::Positional, cl::desc("prog"), cl::Required,
                cl::value_desc("filename"), cl::cat(JoveCategory)),
 
           Args("args", cl::CommaSeparated,
@@ -125,8 +146,28 @@ struct RunTool : public Tool {
                  cl::cat(JoveCategory)) {}
   } opts;
 
+  decompilation_t decompilation;
+
+  llvm::Triple TheTriple;
+  llvm::SubtargetFeatures Features;
+
+  const llvm::Target *TheTarget = nullptr;
+  std::unique_ptr<const llvm::MCRegisterInfo> MRI;
+  std::unique_ptr<const llvm::MCAsmInfo> AsmInfo;
+  std::unique_ptr<const llvm::MCSubtargetInfo> STI;
+  std::unique_ptr<const llvm::MCInstrInfo> MII;
+  std::unique_ptr<llvm::MCContext> MCCtx;
+  std::unique_ptr<llvm::MCDisassembler> DisAsm;
+  std::unique_ptr<llvm::MCInstPrinter> IP;
+
+  std::unique_ptr<CodeRecovery> Recovery;
+
 public:
   RunTool() : opts(JoveCategory) {}
+  ~RunTool() {
+    if (!opts.jv.empty())
+      WriteDecompilationToFile(opts.jv, decompilation);
+  }
 
   int Run(void);
 
@@ -135,6 +176,8 @@ public:
 };
 
 JOVE_REGISTER_TOOL("run", RunTool);
+
+typedef boost::format fmt;
 
 static fs::path jv_path;
 static RunTool *pTool;
@@ -150,6 +193,7 @@ int RunTool::Run(void) {
 
   if (!opts.HumanOutput.empty())
     HumanOutToFile(opts.HumanOutput);
+
 
   //
   // get paths to stuff
@@ -494,10 +538,101 @@ int RunTool::DoRun(void) {
   //
   // parse decompilation
   //
-  decompilation_t decompilation;
+  if (!opts.jv.empty()) {
+    ReadDecompilationFromFile(opts.jv, decompilation);
 
-  if (LivingDangerously)
-    ReadDecompilationFromFile(jv_path.c_str(), decompilation);
+    {
+      binary_t &binary = decompilation.Binaries.at(0);
+
+      llvm::StringRef Buffer(reinterpret_cast<char *>(&binary.Data[0]),
+                             binary.Data.size());
+      llvm::StringRef Identifier(binary.Path);
+
+      llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
+          obj::createBinary(llvm::MemoryBufferRef(Buffer, Identifier));
+      if (!BinOrErr) {
+        HumanOut() << llvm::formatv("failed to create binary from {0}\n", binary.Path);
+        return 1;
+      }
+
+      std::unique_ptr<obj::Binary> &BinRef = BinOrErr.get();
+
+      assert(llvm::isa<ELFO>(BinRef.get()));
+      ELFO &O = *llvm::cast<ELFO>(BinRef.get());
+
+      TheTriple = O.makeTriple();
+      Features = O.getFeatures();
+    }
+
+    // Initialize targets and assembly printers/parsers.
+    llvm::InitializeAllTargets();
+    llvm::InitializeAllTargetMCs();
+    llvm::InitializeAllAsmPrinters();
+    llvm::InitializeAllAsmParsers();
+    llvm::InitializeAllDisassemblers();
+
+    //
+    // initialize the LLVM objects necessary for disassembling instructions
+    //
+    std::string ArchName;
+    std::string Error;
+
+    this->TheTarget =
+        llvm::TargetRegistry::lookupTarget(ArchName, TheTriple, Error);
+    if (!TheTarget) {
+      HumanOut() << "failed to lookup target: " << Error << '\n';
+      return 1;
+    }
+
+    std::string TripleName = TheTriple.getTriple();
+    std::string MCPU;
+
+    MRI.reset(TheTarget->createMCRegInfo(TripleName));
+    if (!MRI) {
+      HumanOut() << "no register info for target\n";
+      return 1;
+    }
+
+    llvm::MCTargetOptions Options;
+    AsmInfo.reset(TheTarget->createMCAsmInfo(*MRI, TripleName, Options));
+    if (!AsmInfo) {
+      HumanOut() << "no assembly info\n";
+      return 1;
+    }
+
+    STI.reset(TheTarget->createMCSubtargetInfo(TripleName, MCPU, Features.getString()));
+    if (!STI) {
+      HumanOut() << "no subtarget info\n";
+      return 1;
+    }
+
+    MII.reset(TheTarget->createMCInstrInfo());
+    if (!MII) {
+      HumanOut() << "no instruction info\n";
+      return 1;
+    }
+
+    llvm::MCObjectFileInfo MOFI;
+
+    MCCtx = std::make_unique<llvm::MCContext>(AsmInfo.get(), MRI.get(), &MOFI);
+
+    DisAsm.reset(TheTarget->createMCDisassembler(*STI, *MCCtx));
+    if (!DisAsm) {
+      HumanOut() << "no disassembler for target\n";
+      return 1;
+    }
+
+    IP.reset(TheTarget->createMCInstPrinter(llvm::Triple(TripleName),
+                                            AsmInfo->getAssemblerDialect(),
+                                            *AsmInfo, *MII, *MRI));
+    if (!IP) {
+      HumanOut() << "no instruction printer\n";
+      return 1;
+    }
+
+    Recovery = std::make_unique<CodeRecovery>(
+        decompilation, disas_t(*DisAsm, std::cref(*STI), *IP));
+  }
 
   int rfd = -1;
   int wfd = -1;
@@ -1053,221 +1188,154 @@ void *recover_proc(const char *fifo_path) {
     // we assume ch is loaded with a byte from the fifo. it's got to be either
     // 'f', 'F', 'b', 'a', or 'r'.
     //
+    assert(tool.Recovery);
+
     recovered_ch.store(ch);
-    if (ch == 'f') {
-      struct {
-        uint32_t BIdx;
-        uint32_t BBIdx;
-      } Caller;
 
-      struct {
-        uint32_t BIdx;
-        uint32_t FIdx;
-      } Callee;
+    auto do_recover = [&](void) -> std::string {
+      if (ch == 'f') {
+        struct {
+          uint32_t BIdx;
+          uint32_t BBIdx;
+        } Caller;
 
-      {
-        ssize_t ret;
+        struct {
+          uint32_t BIdx;
+          uint32_t FIdx;
+        } Callee;
 
-        ret = robust_read(recover_fd, &Caller.BIdx, sizeof(uint32_t));
-        assert(ret == sizeof(uint32_t));
+        {
+          ssize_t ret;
 
-        ret = robust_read(recover_fd, &Caller.BBIdx, sizeof(uint32_t));
-        assert(ret == sizeof(uint32_t));
+          ret = robust_read(recover_fd, &Caller.BIdx, sizeof(uint32_t));
+          assert(ret == sizeof(uint32_t));
 
-        ret = robust_read(recover_fd, &Callee.BIdx, sizeof(uint32_t));
-        assert(ret == sizeof(uint32_t));
+          ret = robust_read(recover_fd, &Caller.BBIdx, sizeof(uint32_t));
+          assert(ret == sizeof(uint32_t));
 
-        ret = robust_read(recover_fd, &Callee.FIdx, sizeof(uint32_t));
-        assert(ret == sizeof(uint32_t));
+          ret = robust_read(recover_fd, &Callee.BIdx, sizeof(uint32_t));
+          assert(ret == sizeof(uint32_t));
+
+          ret = robust_read(recover_fd, &Callee.FIdx, sizeof(uint32_t));
+          assert(ret == sizeof(uint32_t));
+        }
+
+        return tool.Recovery->RecoverDynamicTarget(Caller.BIdx,
+                                                   Caller.BBIdx,
+                                                   Callee.BIdx,
+                                                   Callee.FIdx);
+      } else if (ch == 'b') {
+        struct {
+          uint32_t BIdx;
+          uint32_t BBIdx;
+        } IndBr;
+
+        uintptr_t Addr;
+
+        {
+          ssize_t ret;
+
+          ret = robust_read(recover_fd, &IndBr.BIdx, sizeof(uint32_t));
+          assert(ret == sizeof(uint32_t));
+
+          ret = robust_read(recover_fd, &IndBr.BBIdx, sizeof(uint32_t));
+          assert(ret == sizeof(uint32_t));
+
+          ret = robust_read(recover_fd, &Addr, sizeof(uintptr_t));
+          assert(ret == sizeof(uintptr_t));
+        }
+
+        return tool.Recovery->RecoverBasicBlock(IndBr.BIdx,
+                                                IndBr.BBIdx,
+                                                Addr);
+      } else if (ch == 'F') {
+        struct {
+          uint32_t BIdx;
+          uint32_t BBIdx;
+        } IndCall;
+
+        struct {
+          uint32_t BIdx;
+          uintptr_t Addr;
+        } Callee;
+
+        {
+          ssize_t ret;
+
+          ret = robust_read(recover_fd, &IndCall.BIdx, sizeof(uint32_t));
+          assert(ret == sizeof(uint32_t));
+
+          ret = robust_read(recover_fd, &IndCall.BBIdx, sizeof(uint32_t));
+          assert(ret == sizeof(uint32_t));
+
+          ret = robust_read(recover_fd, &Callee.BIdx, sizeof(uint32_t));
+          assert(ret == sizeof(uint32_t));
+
+          ret = robust_read(recover_fd, &Callee.Addr, sizeof(uintptr_t));
+          assert(ret == sizeof(uintptr_t));
+        }
+
+        return tool.Recovery->RecoverFunction(IndCall.BIdx,
+                                              IndCall.BBIdx,
+                                              Callee.BIdx,
+                                              Callee.Addr);
+      } else if (ch == 'a') {
+        struct {
+          uint32_t BIdx;
+          uint32_t FIdx;
+        } NewABI;
+
+        {
+          ssize_t ret;
+
+          ret = robust_read(recover_fd, &NewABI.BIdx, sizeof(uint32_t));
+          assert(ret == sizeof(uint32_t));
+
+          ret = robust_read(recover_fd, &NewABI.FIdx, sizeof(uint32_t));
+          assert(ret == sizeof(uint32_t));
+        }
+
+        return tool.Recovery->RecoverABI(NewABI.BIdx,
+                                         NewABI.FIdx);
+      } else if (ch == 'r') {
+        struct {
+          uint32_t BIdx;
+          uint32_t BBIdx;
+        } Call;
+
+        {
+          ssize_t ret;
+
+          ret = robust_read(recover_fd, &Call.BIdx, sizeof(uint32_t));
+          assert(ret == sizeof(uint32_t));
+
+          ret = robust_read(recover_fd, &Call.BBIdx, sizeof(uint32_t));
+          assert(ret == sizeof(uint32_t));
+        }
+
+        return tool.Recovery->Returns(Call.BIdx,
+                                      Call.BBIdx);
+      } else {
+        return (fmt("recover: unknown character: %c!") % ch).str();
       }
+    };
 
-      int pid = fork();
-      if (!pid) {
-        char buff[256];
-        snprintf(buff, sizeof(buff),
-                 "--dyn-target=%" PRIu32 ",%" PRIu32 ",%" PRIu32 ",%" PRIu32,
-                 Caller.BIdx,
-                 Caller.BBIdx,
-                 Callee.BIdx,
-                 Callee.FIdx);
+    std::string msg;
+    try {
+      msg = do_recover();
+    } catch (const std::exception &e) {
+      tool.HumanOut() << llvm::formatv(
+          __ANSI_RED "failed to recover: {0}" __ANSI_NORMAL_COLOR "\n",
+          e.what());
+    }
 
-        std::vector<const char *> arg_vec = {"-d", jv_path.c_str(), buff};
-        if (tool.opts.Verbose)
-          tool.print_tool_command("recover", arg_vec);
+    if (!msg.empty()) {
+      /* XXX this should go elsewhere */
+      for (binary_t &binary : tool.decompilation.Binaries)
+        for (function_t &f : binary.Analysis.Functions)
+          f.InvalidateAnalysis();
 
-        tool.exec_tool("recover", arg_vec);
-        int err = errno;
-        tool.HumanOut() << llvm::formatv("recover: exec failed: {0}\n",
-                                         strerror(err));
-        exit(1);
-      }
-
-      (void)tool.WaitForProcessToExit(pid);
-    } else if (ch == 'b') {
-      struct {
-        uint32_t BIdx;
-        uint32_t BBIdx;
-      } IndBr;
-
-      uintptr_t FileAddr;
-
-      {
-        ssize_t ret;
-
-        ret = robust_read(recover_fd, &IndBr.BIdx, sizeof(uint32_t));
-        assert(ret == sizeof(uint32_t));
-
-        ret = robust_read(recover_fd, &IndBr.BBIdx, sizeof(uint32_t));
-        assert(ret == sizeof(uint32_t));
-
-        ret = robust_read(recover_fd, &FileAddr, sizeof(uintptr_t));
-        assert(ret == sizeof(uintptr_t));
-      }
-
-      int pid = fork();
-      if (!pid) {
-        char buff[256];
-        snprintf(buff, sizeof(buff),
-                 "--basic-block=%" PRIu32 ",%" PRIu32 ",%" PRIuPTR,
-                 IndBr.BIdx,
-                 IndBr.BBIdx,
-                 FileAddr);
-
-        std::vector<const char *> arg_vec = {"-d", jv_path.c_str(), buff};
-        if (tool.opts.Verbose)
-          tool.print_tool_command("recover", arg_vec);
-
-        tool.exec_tool("recover", arg_vec);
-        int err = errno;
-        tool.HumanOut() << llvm::formatv("recover: exec failed: {0}\n",
-                                         strerror(err));
-        exit(1);
-      }
-
-      (void)tool.WaitForProcessToExit(pid);
-    } else if (ch == 'F') {
-      struct {
-        uint32_t BIdx;
-        uint32_t BBIdx;
-      } IndCall;
-
-      struct {
-        uint32_t BIdx;
-        uintptr_t FileAddr;
-      } Callee;
-
-      {
-        ssize_t ret;
-
-        ret = robust_read(recover_fd, &IndCall.BIdx, sizeof(uint32_t));
-        assert(ret == sizeof(uint32_t));
-
-        ret = robust_read(recover_fd, &IndCall.BBIdx, sizeof(uint32_t));
-        assert(ret == sizeof(uint32_t));
-
-        ret = robust_read(recover_fd, &Callee.BIdx, sizeof(uint32_t));
-        assert(ret == sizeof(uint32_t));
-
-        ret = robust_read(recover_fd, &Callee.FileAddr, sizeof(uintptr_t));
-        assert(ret == sizeof(uintptr_t));
-      }
-
-      int pid = fork();
-      if (!pid) {
-        char buff[256];
-        snprintf(buff, sizeof(buff),
-                 "--function=%" PRIu32 ",%" PRIu32 ",%" PRIu32 ",%" PRIuPTR,
-                 IndCall.BIdx,
-                 IndCall.BBIdx,
-                 Callee.BIdx,
-                 Callee.FileAddr);
-
-        std::vector<const char *> arg_vec = {"-d", jv_path.c_str(), buff};
-        if (tool.opts.Verbose)
-          tool.print_tool_command("recover", arg_vec);
-
-        tool.exec_tool("recover", arg_vec);
-        int err = errno;
-        tool.HumanOut() << llvm::formatv("recover: exec failed: {0}\n",
-                                         strerror(err));
-        exit(1);
-      }
-
-      (void)tool.WaitForProcessToExit(pid);
-    } else if (ch == 'a') {
-      struct {
-        uint32_t BIdx;
-        uint32_t FIdx;
-      } NewABI;
-
-      {
-        ssize_t ret;
-
-        ret = robust_read(recover_fd, &NewABI.BIdx, sizeof(uint32_t));
-        assert(ret == sizeof(uint32_t));
-
-        ret = robust_read(recover_fd, &NewABI.FIdx, sizeof(uint32_t));
-        assert(ret == sizeof(uint32_t));
-      }
-
-      int pid = fork();
-      if (!pid) {
-        char buff[256];
-        snprintf(buff, sizeof(buff),
-                 "--abi=%" PRIu32 ",%" PRIu32,
-                 NewABI.BIdx,
-                 NewABI.FIdx);
-
-        std::vector<const char *> arg_vec = {"-d", jv_path.c_str(), buff};
-        if (tool.opts.Verbose)
-          tool.print_tool_command("recover", arg_vec);
-
-        tool.exec_tool("recover", arg_vec);
-        int err = errno;
-        tool.HumanOut() << llvm::formatv("recover: exec failed: {0}\n",
-                                         strerror(err));
-        exit(1);
-      }
-
-      (void)tool.WaitForProcessToExit(pid);
-    } else if (ch == 'r') {
-      struct {
-        uint32_t BIdx;
-        uint32_t BBIdx;
-      } Call;
-
-      {
-        ssize_t ret;
-
-        ret = robust_read(recover_fd, &Call.BIdx, sizeof(uint32_t));
-        assert(ret == sizeof(uint32_t));
-
-        ret = robust_read(recover_fd, &Call.BBIdx, sizeof(uint32_t));
-        assert(ret == sizeof(uint32_t));
-      }
-
-      int pid = fork();
-      if (!pid) {
-        char buff[256];
-        snprintf(buff, sizeof(buff),
-                 "--returns=%" PRIu32 ",%" PRIu32,
-                 Call.BIdx,
-                 Call.BBIdx);
-
-        std::vector<const char *> arg_vec = {"-d", jv_path.c_str(), buff};
-        if (tool.opts.Verbose)
-          tool.print_tool_command("recover", arg_vec);
-
-        tool.exec_tool("recover", arg_vec);
-        int err = errno;
-        tool.HumanOut() << llvm::formatv("recover: exec failed: {0}\n",
-                                         strerror(err));
-        exit(1);
-      }
-
-      (void)tool.WaitForProcessToExit(pid);
-    } else {
-      tool.HumanOut() << llvm::formatv("recover: unknown character! ({0})\n", ch);
+      tool.HumanOut() << msg << '\n';
     }
 
     if (pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, nullptr) != 0)
