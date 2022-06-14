@@ -674,9 +674,14 @@ static inline void construct_fnmap(decompilation_t &decompilation,
 }
 
 static inline basic_block_t basic_block_of_index(basic_block_index_t BBIdx,
+                                                 const icfg_t &ICFG) {
+  return boost::vertex(BBIdx, ICFG);
+}
+
+static inline basic_block_t basic_block_of_index(basic_block_index_t BBIdx,
                                                  const binary_t &binary) {
   const auto &ICFG = binary.Analysis.ICFG;
-  return boost::vertex(BBIdx, ICFG);
+  return basic_block_of_index(BBIdx, ICFG);
 }
 
 static inline basic_block_t index_of_basic_block_at_address(tcg_uintptr_t Addr,
