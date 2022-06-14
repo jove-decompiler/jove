@@ -30,6 +30,12 @@ CodeRecovery::CodeRecovery(decompilation_t &decompilation, disas_t dis)
 
     binary_state.block_term_addr_vec.resize(boost::num_vertices(ICFG));
 
+    //
+    // we need to record the addresses of terminator instructions at each
+    // basic block, before the indices are messed with, since the code in
+    // jove.recover.c is hard-coded against the version of the decompilation
+    // that existed when jove-recompile was run.
+    //
     for_each_basic_block_in_binary(decompilation, binary, [&](basic_block_t bb) {
       binary_state.block_term_addr_vec.at(index_of_basic_block(ICFG, bb)) = ICFG[bb].Term.Addr;
     });
@@ -58,9 +64,11 @@ std::string CodeRecovery::RecoverDynamicTarget(uint32_t CallerBIdx,
   function_t &callee = CalleeBinary.Analysis.Functions.at(CalleeFIdx);
 
   auto &ICFG = CallerBinary.Analysis.ICFG;
-  basic_block_t bb = boost::vertex(CallerBBIdx, ICFG);
 
-  tcg_uintptr_t TermAddr = ICFG[bb].Term.Addr;
+  tcg_uintptr_t TermAddr = state_for_binary(CallerBinary).block_term_addr_vec.at(CallerBBIdx);
+  assert(TermAddr);
+  basic_block_t bb = basic_block_at_address(
+      TermAddr, CallerBinary, state_for_binary(CallerBinary).bbmap);
 
   bool isNewTarget =
       ICFG[bb].DynTargets.insert({CalleeBIdx, CalleeFIdx}).second;
@@ -116,7 +124,7 @@ std::string CodeRecovery::RecoverDynamicTarget(uint32_t CallerBIdx,
     bb = basic_block_at_address(TermAddr, CallerBinary, state_for_binary(CallerBinary).bbmap);
     assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL);
 
-    boost::add_edge(bb, boost::vertex(NextBBIdx, ICFG), ICFG);
+    boost::add_edge(bb, basic_block_of_index(NextBBIdx, ICFG), ICFG);
   }
 
   return (fmt(__ANSI_CYAN "(call) %s -> %s" __ANSI_NORMAL_COLOR) %
@@ -131,9 +139,12 @@ std::string CodeRecovery::RecoverBasicBlock(uint32_t IndBrBIdx,
   binary_t &indbr_binary = decompilation.Binaries.at(IndBrBIdx);
   auto &ICFG = indbr_binary.Analysis.ICFG;
 
-  basic_block_t bb = boost::vertex(IndBrBBIdx, ICFG);
+  tcg_uintptr_t TermAddr =
+      state_for_binary(indbr_binary).block_term_addr_vec.at(IndBrBBIdx);
+  assert(TermAddr);
 
-  tcg_uintptr_t TermAddr = ICFG[bb].Term.Addr;
+  basic_block_t bb = basic_block_at_address(
+      TermAddr, indbr_binary, state_for_binary(indbr_binary).bbmap);
 
   assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP);
   basic_block_index_t target_bb_idx =
@@ -146,7 +157,7 @@ std::string CodeRecovery::RecoverBasicBlock(uint32_t IndBrBIdx,
         (fmt("failed to recover control flow to %#lx") % Addr).str());
   }
 
-  basic_block_t target_bb = boost::vertex(target_bb_idx, ICFG);
+  basic_block_t target_bb = basic_block_of_index(target_bb_idx, ICFG);
 
   /* term bb may been split */
   bb = basic_block_at_address(TermAddr, indbr_binary, state_for_binary(indbr_binary).bbmap);
@@ -169,8 +180,12 @@ std::string CodeRecovery::RecoverFunction(uint32_t IndCallBIdx,
   binary_t &CallerBinary = decompilation.Binaries.at(IndCallBIdx);
 
   auto &ICFG = CallerBinary.Analysis.ICFG;
-  basic_block_t bb = boost::vertex(IndCallBBIdx, ICFG);
-  tcg_uintptr_t TermAddr = ICFG[bb].Term.Addr;
+  tcg_uintptr_t TermAddr =
+      state_for_binary(CallerBinary).block_term_addr_vec.at(IndCallBBIdx);
+  assert(TermAddr);
+
+  basic_block_t bb = basic_block_at_address(
+      TermAddr, CallerBinary, state_for_binary(CallerBinary).bbmap);
 
   function_index_t CalleeFIdx =
       explore_function(CalleeBinary, *state_for_binary(CalleeBinary).ObjectFile,
@@ -186,7 +201,8 @@ std::string CodeRecovery::RecoverFunction(uint32_t IndCallBIdx,
   function_t &callee = CalleeBinary.Analysis.Functions.at(CalleeFIdx);
 
   /* term bb may been split */
-  bb = basic_block_at_address(TermAddr, CallerBinary, state_for_binary(CallerBinary).bbmap);
+  bb = basic_block_at_address(TermAddr, CallerBinary,
+                              state_for_binary(CallerBinary).bbmap);
 
   bool isNewTarget = ICFG[bb].DynTargets.insert({CalleeBIdx, CalleeFIdx}).second;
 
@@ -210,7 +226,7 @@ std::string CodeRecovery::RecoverFunction(uint32_t IndCallBIdx,
     bb = basic_block_at_address(TermAddr, CallerBinary, state_for_binary(CallerBinary).bbmap);
     assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL);
 
-    boost::add_edge(bb, boost::vertex(NextBBIdx, ICFG), ICFG);
+    boost::add_edge(bb, basic_block_of_index(NextBBIdx, ICFG), ICFG);
   }
 
   return (fmt(__ANSI_CYAN "(call*) %s -> %s" __ANSI_NORMAL_COLOR) %
@@ -240,10 +256,13 @@ std::string CodeRecovery::Returns(uint32_t CallBIdx,
   binary_t &CallBinary = decompilation.Binaries.at(CallBIdx);
   auto &ICFG = CallBinary.Analysis.ICFG;
 
-  basic_block_t bb = boost::vertex(CallBBIdx, ICFG);
+  tcg_uintptr_t TermAddr = state_for_binary(CallBinary).block_term_addr_vec.at(CallBBIdx);
+  assert(TermAddr);
+
+  basic_block_t bb = basic_block_at_address(
+      TermAddr, CallBinary, state_for_binary(CallBinary).bbmap);
 
   tcg_uintptr_t NextAddr = ICFG[bb].Addr + ICFG[bb].Size + (unsigned)IsMIPSTarget * 4;
-  tcg_uintptr_t TermAddr = ICFG[bb].Term.Addr;
 
   bool isCall =
     ICFG[bb].Term.Type == TERMINATOR::CALL;
@@ -278,7 +297,7 @@ std::string CodeRecovery::Returns(uint32_t CallBIdx,
   }
 
   assert(is_basic_block_index_valid(next_bb_idx));
-  basic_block_t next_bb = boost::vertex(next_bb_idx, ICFG);
+  basic_block_t next_bb = basic_block_of_index(next_bb_idx, ICFG);
 
   //assert(boost::out_degree(bb, ICFG) == 0);
   bool isNewTarget = boost::add_edge(bb, next_bb, ICFG).second;
