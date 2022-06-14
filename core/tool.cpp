@@ -172,7 +172,11 @@ found_tool:
   std::string Desc = (std::string("jove-") + name) + "\n";
   llvm::cl::ParseCommandLineOptions(argc, argv, Desc);
 
-  return tool->Run();
+  int res = tool->Run();
+
+  delete tool;
+
+  return res;
 }
 
 namespace jove {
