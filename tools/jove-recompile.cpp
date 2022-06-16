@@ -206,8 +206,6 @@ static void write_dso_graphviz(std::ostream &out, const dso_graph_t &);
 static std::vector<dso_t> Q;
 static std::mutex Q_mtx;
 
-static void worker(const dso_graph_t &dso_graph);
-
 static std::atomic<bool> worker_failed(false);
 
 static std::pair<tcg_uintptr_t, tcg_uintptr_t> base_of_executable(binary_t &);
