@@ -380,6 +380,7 @@ struct LLVMTool : public Tool {
   llvm::GlobalVariable *JoveForeignFunctionTablesGlobal;
   llvm::Function *JoveRecoverDynTargetFunc;
   llvm::Function *JoveRecoverBasicBlockFunc;
+  llvm::Function *JoveRecoverLocalGotoFunc;
   llvm::Function *JoveRecoverReturnedFunc;
   llvm::Function *JoveRecoverABIFunc;
   llvm::Function *JoveRecoverFunctionFunc;
@@ -2619,6 +2620,9 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
 
   JoveRecoverBasicBlockFunc = Module->getFunction("_jove_recover_basic_block");
   assert(JoveRecoverBasicBlockFunc && !JoveRecoverBasicBlockFunc->empty());
+
+  JoveRecoverLocalGotoFunc = Module->getFunction("_jove_recover_local_goto");
+  assert(JoveRecoverLocalGotoFunc && !JoveRecoverLocalGotoFunc->empty());
 
   JoveRecoverReturnedFunc = Module->getFunction("_jove_recover_returned");
   assert(JoveRecoverReturnedFunc && !JoveRecoverReturnedFunc->empty());
@@ -7726,15 +7730,16 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
           llvm::BasicBlock::Create(*Context, (fmt("%#lx_recover") % Addr).str(),
                                    state_for_function(f).F);
 
-      {
-        llvm::Value *SectsGlobalOff = IRB.CreateSub(
-            IRB.CreateLoad(TC.PCAlloca),
-            llvm::ConstantExpr::getPtrToInt(SectsGlobal, WordType()));
+      llvm::Value *PC = IRB.CreateLoad(TC.PCAlloca);
 
+      llvm::Value *SectsGlobalOff = IRB.CreateSub(
+          PC, llvm::ConstantExpr::getPtrToInt(SectsGlobal, WordType()));
+
+      auto it_pair = boost::adjacent_vertices(bb, ICFG);
+
+      {
         llvm::SwitchInst *SI = IRB.CreateSwitch(SectsGlobalOff, ElseBlock,
                                                 boost::out_degree(bb, ICFG));
-
-        auto it_pair = boost::adjacent_vertices(bb, ICFG);
 
         for (auto it = it_pair.first; it != it_pair.second; ++it) {
           basic_block_t succ = *it;
@@ -7746,7 +7751,10 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
 
       IRB.SetInsertPoint(ElseBlock);
 
-      llvm::Value *PC = IRB.CreateLoad(TC.PCAlloca);
+      if (it_pair.first != it_pair.second)
+        IRB.CreateCall(JoveRecoverLocalGotoFunc,
+                       {IRB.getInt32(index_of_basic_block(ICFG, bb)),
+                        SectsGlobalOff})->setIsNoInline();
 
       llvm::Value *RecoverArgs[] = {IRB.getInt32(index_of_basic_block(ICFG, bb)), PC};
       llvm::Value *FailArgs[] = {PC, __jove_fail_UnknownBranchTarget};

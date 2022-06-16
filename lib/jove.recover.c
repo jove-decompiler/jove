@@ -507,3 +507,14 @@ found:
     }
   }
 }
+
+_HIDDEN void _jove_recover_local_goto(uint32_t IndBrBBIdx,
+                                      uintptr_t BBAddr) {
+#ifdef __aarch64__
+    int fd = _jove_sys_openat(-1, "/dev/null", O_WRONLY, 0666);
+#else
+    int fd = _jove_sys_open("/dev/null", O_WRONLY, 0666);
+#endif
+
+    _jove_sys_close(fd);
+}
