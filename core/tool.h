@@ -61,6 +61,8 @@ public:
 
   static void WriteDecompilationToFile(const std::string &path,
                                        const decompilation_t &);
+  static ssize_t robust_read(int fd, void *const buf, const size_t count);
+  static ssize_t robust_write(int fd, const void *const buf, const size_t count);
 };
 
 typedef Tool *(*ToolCreationProc)(void);

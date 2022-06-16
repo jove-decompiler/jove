@@ -271,4 +271,41 @@ void Tool::WriteDecompilationToFile(const std::string &path,
   oa << in;
 }
 
+template <bool IsRead>
+static ssize_t robust_read_or_write(int fd, void *const buf, const size_t count) {
+  uint8_t *const _buf = (uint8_t *)buf;
+
+  unsigned n = 0;
+  do {
+    unsigned left = count - n;
+
+    ssize_t ret = IsRead ? read(fd, &_buf[n], left) :
+                          write(fd, &_buf[n], left);
+
+    if (ret == 0)
+      return -EIO;
+
+    if (ret < 0) {
+      int err = errno;
+
+      if (err == EINTR)
+        continue;
+
+      return -err;
+    }
+
+    n += ret;
+  } while (n != count);
+
+  return n;
+}
+
+ssize_t Tool::robust_read(int fd, void *const buf, const size_t count) {
+  return robust_read_or_write<true /* r */>(fd, buf, count);
+}
+
+ssize_t Tool::robust_write(int fd, const void *const buf, const size_t count) {
+  return robust_read_or_write<false /* w */>(fd, const_cast<void *>(buf), count);
+}
+
 }
