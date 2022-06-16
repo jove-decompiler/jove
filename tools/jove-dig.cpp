@@ -362,6 +362,9 @@ int CodeDigger::Run(void) {
   if (opts.Verbose)
     WithColor::note() << "writing decompilation...\n";
 
+  for_each_function(decompilation,
+                    [](function_t &f, binary_t b) { f.InvalidateAnalysis(); });
+
   if (!opts.jv.empty())
     WriteDecompilationToFile(opts.jv, decompilation);
 
