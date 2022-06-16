@@ -165,10 +165,12 @@ std::string CodeRecovery::RecoverBasicBlock(uint32_t IndBrBIdx,
   assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP);
 
   bool isNewTarget = boost::add_edge(bb, target_bb, ICFG).second;
+  if (!isNewTarget)
+    return std::string();
 
-  return (fmt(__ANSI_GREEN "(goto) %s -> %s" __ANSI_NORMAL_COLOR) %
-          DescribeBasicBlock(IndBrBIdx, IndBrBBIdx) %
-          DescribeBasicBlock(IndBrBIdx, target_bb_idx))
+  return (fmt(__ANSI_GREEN "(goto) %#lx -> %s" __ANSI_NORMAL_COLOR)
+          % TermAddr
+          % DescribeBasicBlock(IndBrBIdx, target_bb_idx))
       .str();
 }
 
