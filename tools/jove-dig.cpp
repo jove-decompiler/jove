@@ -43,6 +43,7 @@ class CodeDigger : public Tool {
     cl::opt<bool> NoSave;
     cl::opt<std::string> Binary;
     cl::alias BinaryAlias;
+    cl::opt<unsigned> PathLength;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : jv("decompilation", cl::desc("Jove Decompilation"), cl::Required,
@@ -70,8 +71,10 @@ class CodeDigger : public Tool {
                  cl::value_desc("path"), cl::cat(JoveCategory)),
 
           BinaryAlias("b", cl::desc("Alias for -binary."), cl::aliasopt(Binary),
-                      cl::cat(JoveCategory)) {}
+                      cl::cat(JoveCategory)),
 
+          PathLength("path-length", cl::desc("Length of paths generated"),
+                     cl::init(8), cl::cat(JoveCategory)) {}
 
   } opts;
 
@@ -610,6 +613,10 @@ void CodeDigger::Worker(void) {
           "--jove-sects-end-addr=" +
           std::to_string(state_for_binary(binary).SectsEndAddr);
       arg_vec.push_back(sects_end_arg.c_str());
+
+      std::string path_length_arg =
+          "--jove-path-length=" + std::to_string(opts.PathLength);
+      arg_vec.push_back(path_length_arg.c_str());
 
       arg_vec.push_back(bcfp.c_str());
       arg_vec.push_back(nullptr);
