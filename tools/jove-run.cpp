@@ -349,7 +349,7 @@ struct ScopedMount {
 
             usleep(10000 /* 0.01 s */);
           } else {
-            tool.HumanOut() << llvm::formatv("unmounting %s failed: EBUSY...\n", this->target);
+            tool.HumanOut() << llvm::formatv("unmounting {0} failed: EBUSY...\n", this->target);
             return;
           }
           /* fallthrough */
@@ -363,6 +363,9 @@ struct ScopedMount {
           return;
         }
       } else {
+        if (tool.opts.Verbose)
+          tool.HumanOut() << llvm::formatv("unmounted {0}.\n", this->target);
+
         /* unmount suceeded */
         break;
       }
