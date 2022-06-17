@@ -168,8 +168,8 @@ std::string CodeRecovery::RecoverBasicBlock(uint32_t IndBrBIdx,
   if (!isNewTarget)
     return std::string();
 
-  return (fmt(__ANSI_GREEN "(goto) %#lx -> %s" __ANSI_NORMAL_COLOR)
-          % TermAddr
+  return (fmt(__ANSI_GREEN "(goto) %s+%#lx -> %s" __ANSI_NORMAL_COLOR)
+          % fs::path(indbr_binary.Path).filename().string() % TermAddr
           % DescribeBasicBlock(IndBrBIdx, target_bb_idx))
       .str();
 }
