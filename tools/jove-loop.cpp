@@ -682,6 +682,8 @@ run:
         return 1;
       }
 
+      IgnoreCtrlC();
+
       run_pid.store(pid);
 
       if (close(wrFd) < 0) {
