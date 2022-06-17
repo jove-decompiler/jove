@@ -199,27 +199,42 @@ void Tool::HumanOutToFile(const std::string &path) {
   HumanOutputStreamPtr = HumanOutputFileStream.get();
 }
 
-int Tool::WaitForProcessToExit(pid_t pid) {
+int Tool::WaitForProcessToExit(pid_t pid, bool verbose) {
   int wstatus;
   do {
-    if (::waitpid(pid, &wstatus, WUNTRACED | WCONTINUED) < 0)
-      abort();
+    if (::waitpid(pid, &wstatus, WUNTRACED | WCONTINUED) < 0) {
+      int err = errno;
+      if (err == EINTR)
+        continue;
+      if (err == ECHILD)
+        break;
+
+      HumanOut() << llvm::formatv("waitpid failed: {0}\n", strerror(err));
+      break;
+    }
 
     if (WIFEXITED(wstatus)) {
-      // printf("exited, status=%d\n", WEXITSTATUS(wstatus));
+      if (verbose)
+        HumanOut() << llvm::formatv("child exited ({0})\n",
+                                    WEXITSTATUS(wstatus));
       return WEXITSTATUS(wstatus);
     } else if (WIFSIGNALED(wstatus)) {
-      // printf("killed by signal %d\n", WTERMSIG(wstatus));
-      return 1;
+      if (verbose)
+        HumanOut() << llvm::formatv("child killed by signal {0}\n",
+                                    WTERMSIG(wstatus));
+      break;
     } else if (WIFSTOPPED(wstatus)) {
-      // printf("stopped by signal %d\n", WSTOPSIG(wstatus));
-      return 1;
+      if (verbose)
+        HumanOut() << llvm::formatv("child stopped by signal {0}\n",
+                                    WSTOPSIG(wstatus));
+      break;
     } else if (WIFCONTINUED(wstatus)) {
-      // printf("continued\n");
+      if (verbose)
+        HumanOut() << "child continued\n";
     }
   } while (!WIFEXITED(wstatus) && !WIFSIGNALED(wstatus));
 
-  abort();
+  return 1;
 }
 
 void Tool::IgnoreCtrlC(void) {
@@ -227,7 +242,11 @@ void Tool::IgnoreCtrlC(void) {
 
   sigemptyset(&sa.sa_mask);
   sa.sa_flags = 0;
+#if 0
   sa.sa_handler = [](int) -> void {};
+#else
+  sa.sa_handler = SIG_IGN;
+#endif
 
   if (sigaction(SIGINT, &sa, nullptr) < 0) {
     int err = errno;

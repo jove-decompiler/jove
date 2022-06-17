@@ -41,7 +41,7 @@ public:
   //
   // utlity methods
   //
-  static int WaitForProcessToExit(pid_t);
+  int WaitForProcessToExit(pid_t, bool verbose = false);
   void IgnoreCtrlC(void);
   void print_command(const char** cstr_p);
   void exec_tool(const char *name,
