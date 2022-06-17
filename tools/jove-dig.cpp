@@ -362,6 +362,8 @@ int CodeDigger::Run(void) {
         "Generating LLVM and running KLEE on {0} binaries...",
         decompilation.Binaries.size() - 1);
 
+  bool Failed = false;
+
   queue_binaries();
   {
     auto t1 = std::chrono::high_resolution_clock::now();
@@ -384,12 +386,11 @@ int CodeDigger::Run(void) {
 
     auto t2 = std::chrono::high_resolution_clock::now();
 
-    if (worker_failed.load())
-      return 1;
+    Failed = worker_failed.load();
 
     std::chrono::duration<double> s_double = t2 - t1;
 
-    if (!opts.Verbose)
+    if (!Failed && !opts.Verbose)
       llvm::errs() << llvm::formatv(" {0} s\n", s_double.count());
   }
 
@@ -399,14 +400,13 @@ int CodeDigger::Run(void) {
   if (opts.NoSave)
     return 0;
 
-  if (opts.Verbose)
-    WithColor::note() << "writing decompilation...\n";
-
   for_each_function(decompilation,
                     [](function_t &f, binary_t b) { f.InvalidateAnalysis(); });
 
-  if (!opts.jv.empty())
-    WriteDecompilationToFile(opts.jv, decompilation);
+  if (opts.Verbose)
+    WithColor::note() << "writing decompilation...\n";
+
+  WriteDecompilationToFile(opts.jv, decompilation);
 
   return 0;
 }
