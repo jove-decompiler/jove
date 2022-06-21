@@ -359,8 +359,9 @@ int CodeDigger::Run(void) {
 
   if (!opts.Verbose)
     WithColor::note() << llvm::formatv(
-        "Generating LLVM and running KLEE on {0} binaries...",
-        decompilation.Binaries.size() - 1);
+        "Generating LLVM and running KLEE on {0} {1}...",
+        !opts.Binary.empty() ? 1 : decompilation.Binaries.size() - 2,
+        !opts.Binary.empty() ? "binary" : "binaries");
 
   bool Failed = false;
 
@@ -463,8 +464,7 @@ void CodeDigger::RecoverLoop(void) {
 
     if (!(Addr >= state_for_binary(binary).SectsStartAddr &&
           Addr < state_for_binary(binary).SectsEndAddr)) {
-      if (opts.Verbose)
-        WithColor::error() << llvm::formatv("CodeDigger: invalid target {0:x}\n", Off);
+      WithColor::error() << llvm::formatv("CodeDigger: invalid target {0:x}\n", Off);
       continue;
     }
 
