@@ -1,6 +1,6 @@
 """
 This is a script to open a trace txt file from jove. Run by going
-  File... -> Script File -> /path/to/jove/scripts/ida/jove_trace.py
+  File... -> Script File -> /path/to/jove/scripts/ida/jove_view_trace.py
 after doing so there will be a top-level menu named 'Jove'. Open trace by doing
   Jove -> Open trace...
 
