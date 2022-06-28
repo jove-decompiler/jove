@@ -14,6 +14,7 @@
 #include <llvm/Support/TargetRegistry.h>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/WithColor.h>
+#include <llvm/DebugInfo/Symbolize/Symbolize.h>
 #include <mutex>
 #include <thread>
 #include <fcntl.h>
@@ -44,6 +45,7 @@ class CodeDigger : public Tool {
     cl::opt<std::string> Binary;
     cl::alias BinaryAlias;
     cl::opt<unsigned> PathLength;
+    cl::opt<bool> ListLocalGotos;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : jv("decompilation", cl::desc("Jove Decompilation"), cl::Required,
@@ -74,8 +76,11 @@ class CodeDigger : public Tool {
                       cl::cat(JoveCategory)),
 
           PathLength("path-length", cl::desc("Length of paths generated"),
-                     cl::init(8), cl::cat(JoveCategory)) {}
+                     cl::init(8), cl::cat(JoveCategory)),
 
+          ListLocalGotos("list-local-gotos",
+                         cl::desc("Print each local goto we know about"),
+                         cl::cat(JoveCategory)) {}
   } opts;
 
   decompilation_t decompilation;
@@ -111,6 +116,8 @@ public:
   CodeDigger() : opts(JoveCategory) {}
 
   int Run(void);
+
+  int ListLocalGotos(void);
 
   void Worker(void);
   void RecoverLoop(void);
@@ -256,6 +263,9 @@ int CodeDigger::Run(void) {
       SectsEndAddr = LoadSegments.back()->p_vaddr + LoadSegments.back()->p_memsz;
     }
   });
+
+  if (opts.ListLocalGotos)
+    return ListLocalGotos();
 
   // Initialize targets and assembly printers/parsers.
   llvm::InitializeAllTargets();
@@ -656,6 +666,61 @@ void CodeDigger::Worker(void) {
                                           bcfp + ".stderr.klee.txt");
     }
   }
+}
+
+int CodeDigger::ListLocalGotos() {
+  auto process_basic_block = [&](binary_t &binary, basic_block_t bb) -> void {
+    auto &ICFG = binary.Analysis.ICFG;
+    if (ICFG[bb].Term.Type != TERMINATOR::INDIRECT_JUMP)
+      return;
+    if (boost::out_degree(bb, ICFG) == 0)
+      return;
+
+    llvm::symbolize::LLVMSymbolizer::Options Opts;
+    Opts.PrintFunctions = llvm::symbolize::FunctionNameKind::None;
+    Opts.UseSymbolTable = false;
+    Opts.Demangle = false;
+    Opts.RelativeAddresses = true;
+#if 0
+  Opts.FallbackDebugPath = ""; // ClFallbackDebugPath
+  Opts.DebugFileDirectory = ""; // ClDebugFileDirectory;
+#endif
+
+    llvm::symbolize::LLVMSymbolizer Symbolizer(Opts);
+
+    auto ResOrErr = Symbolizer.symbolizeCode(
+        binary.Path,
+        {ICFG[bb].Addr, llvm::object::SectionedAddress::UndefSection});
+    if (!ResOrErr)
+      return;
+
+    llvm::DILineInfo &LnInfo = ResOrErr.get();
+
+    if (LnInfo.FileName == llvm::DILineInfo::BadString)
+      return;
+
+    fs::path PrefixedFileName = fs::path("/usr/src/debug") /
+                                fs::path(binary.Path).stem().c_str() /
+                                LnInfo.FileName;
+
+    HumanOut() << llvm::formatv(
+        "{0}:{1}:{2}:{3}+{4:x}\n",
+        fs::path(LnInfo.FileName).is_relative() ? PrefixedFileName.c_str()
+                                                : LnInfo.FileName.c_str(),
+        LnInfo.Line, LnInfo.Column, fs::path(binary.Path).filename().c_str(),
+        ICFG[bb].Addr);
+  };
+
+  if (is_binary_index_valid(SingleBinaryIndex)) {
+    binary_t &binary = decompilation.Binaries.at(SingleBinaryIndex);
+    for_each_basic_block_in_binary(
+        decompilation, binary,
+        [&](basic_block_t bb) { process_basic_block(binary, bb); });
+  } else {
+    for_each_basic_block(decompilation, process_basic_block);
+  }
+
+  return 0;
 }
 
 unsigned num_cpus(void) {
