@@ -174,7 +174,7 @@ int CodeDigger::Run(void) {
       break;
     }
 
-    if (BinaryIndex == invalid_binary_index) {
+    if (!is_binary_index_valid(BinaryIndex)) {
       WithColor::error() << llvm::formatv("failed to find binary \"{0}\"\n",
                                           opts.Binary);
       return 1;
