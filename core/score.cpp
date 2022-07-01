@@ -8,9 +8,8 @@ namespace jove {
 
 typedef boost::format fmt;
 
-double compute_score(const decompilation_t &decompilation, binary_index_t BIdx) {
-  const binary_t &binary = decompilation.Binaries.at(BIdx);
-
+double compute_score(const decompilation_t &decompilation,
+                     const binary_t &binary) {
   llvm::StringRef Buffer(reinterpret_cast<const char *>(&binary.Data[0]),
                          binary.Data.size());
   llvm::StringRef Identifier(binary.Path);
@@ -71,5 +70,4 @@ double compute_score(const decompilation_t &decompilation, binary_index_t BIdx) 
   //
   return static_cast<double>(M) / static_cast<double>(N);
 }
-
 }

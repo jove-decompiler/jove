@@ -2,26 +2,35 @@
 #include "score.h"
 #include <boost/filesystem.hpp>
 #include <boost/format.hpp>
+#include <llvm/Support/WithColor.h>
+#include <llvm/Support/FormatVariadic.h>
 
 namespace cl = llvm::cl;
 namespace fs = boost::filesystem;
 
-//using llvm::WithColor;
+using llvm::WithColor;
 
 namespace jove {
 
 class ScoreTool : public Tool {
   struct Cmdline {
     cl::opt<std::string> jv;
-    cl::alias jvAlias;
+    cl::opt<std::string> Binary;
+    cl::alias BinaryAlias;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
-     :    jv("Decompilation", cl::desc("Jove Decompilation"), cl::Required,
-             cl::value_desc("filename"), cl::cat(JoveCategory)),
+        : jv(cl::Positional, cl::desc("<input jove decompilations>"),
+             cl::Required, cl::cat(JoveCategory)),
 
-          jvAlias("d", cl::desc("Alias for -Decompilation."), cl::aliasopt(jv),
-                  cl::cat(JoveCategory)) {}
+          Binary("binary", cl::desc("Operate on single given binary"),
+                 cl::value_desc("path"), cl::cat(JoveCategory)),
+
+          BinaryAlias("b", cl::desc("Alias for -binary."), cl::aliasopt(Binary),
+                      cl::cat(JoveCategory)) {}
+
   } opts;
+
+  binary_index_t SingleBinaryIndex = invalid_binary_index;
 
   decompilation_t decompilation;
 
@@ -41,15 +50,43 @@ int ScoreTool::Run(void) {
 
   ReadDecompilationFromFile(jvfp, decompilation);
 
-  for_each_binary(decompilation, [&](binary_t &binary) {
+  //
+  // operate on single binary? (cmdline)
+  //
+  if (!opts.Binary.empty()) {
+    binary_index_t BinaryIndex = invalid_binary_index;
+
+    for (binary_index_t BIdx = 0; BIdx < decompilation.Binaries.size(); ++BIdx) {
+      const binary_t &binary = decompilation.Binaries[BIdx];
+      if (binary.Path.find(opts.Binary) == std::string::npos)
+        continue;
+
+      BinaryIndex = BIdx;
+      break;
+    }
+
+    if (!is_binary_index_valid(BinaryIndex)) {
+      WithColor::error() << llvm::formatv("failed to find binary \"{0}\"\n",
+                                          opts.Binary);
+      return 1;
+    }
+
+    SingleBinaryIndex = BinaryIndex;
+  }
+
+  auto process_binary = [&](binary_t &binary) -> void {
     if (binary.IsVDSO)
       return;
 
-    binary_index_t BIdx = index_of_binary(binary, decompilation);
     HumanOut() << (fmt("%5f %s\n")
-                   % compute_score(decompilation, BIdx)
+                   % compute_score(decompilation, binary)
                    % binary.Path).str();
-  });
+  };
+
+  if (is_binary_index_valid(SingleBinaryIndex))
+    process_binary(decompilation.Binaries.at(SingleBinaryIndex));
+  else
+    for_each_binary(decompilation, process_binary);
 
   return 0;
 }
