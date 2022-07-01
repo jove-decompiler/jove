@@ -502,8 +502,8 @@ static inline binary_index_t index_of_binary(const binary_t &b,
   return &b - &decompilation.Binaries[0];
 }
 
-static inline binary_index_t index_of_function_in_binary(const function_t &f,
-                                                         const binary_t &b) {
+static inline function_index_t index_of_function_in_binary(const function_t &f,
+                                                           const binary_t &b) {
   if (!(&f >= &b.Analysis.Functions[0] &&
         &f < &b.Analysis.Functions[b.Analysis.Functions.size()]))
     abort();
