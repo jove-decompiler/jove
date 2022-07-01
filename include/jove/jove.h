@@ -641,38 +641,6 @@ inline bool IsFunctionLongjmp(function_t &f,
                      });
 }
 
-static inline void construct_bbmap(decompilation_t &decompilation,
-                                   binary_t &binary,
-                                   bbmap_t &out) {
-  auto &ICFG = binary.Analysis.ICFG;
-
-  for_each_basic_block_in_binary(decompilation, binary, [&](basic_block_t bb) {
-    const auto &bbprop = ICFG[bb];
-
-    boost::icl::interval<tcg_uintptr_t>::type intervl =
-        boost::icl::interval<tcg_uintptr_t>::right_open(bbprop.Addr,
-                                                        bbprop.Addr + bbprop.Size);
-    assert(out.find(intervl) == out.end());
-
-    out.add({intervl, 1+index_of_basic_block(ICFG, bb)});
-  });
-}
-
-static inline void construct_fnmap(decompilation_t &decompilation,
-                                   binary_t &binary,
-                                   fnmap_t &out) {
-  for_each_function_in_binary(binary, [&](function_t &f) {
-    basic_block_t entry_bb = boost::vertex(f.Entry, binary.Analysis.ICFG);
-    tcg_uintptr_t A = binary.Analysis.ICFG[entry_bb].Addr;
-
-    assert(out.find(A) == out.end());
-
-    unsigned FIdx = &f - &binary.Analysis.Functions[0];
-
-    out.insert({A, FIdx});
-  });
-}
-
 static inline basic_block_t basic_block_of_index(basic_block_index_t BBIdx,
                                                  const icfg_t &ICFG) {
   return boost::vertex(BBIdx, ICFG);
@@ -700,6 +668,39 @@ static inline basic_block_t basic_block_at_address(tcg_uintptr_t Addr,
                                                    binary_t &b,
                                                    bbmap_t &bbmap) {
   return basic_block_of_index(index_of_basic_block_at_address(Addr, b, bbmap), b);
+}
+
+static inline void construct_bbmap(decompilation_t &decompilation,
+                                   binary_t &binary,
+                                   bbmap_t &out) {
+  auto &ICFG = binary.Analysis.ICFG;
+
+  for_each_basic_block_in_binary(decompilation, binary, [&](basic_block_t bb) {
+    const auto &bbprop = ICFG[bb];
+
+    boost::icl::interval<tcg_uintptr_t>::type intervl =
+        boost::icl::interval<tcg_uintptr_t>::right_open(bbprop.Addr,
+                                                        bbprop.Addr + bbprop.Size);
+    assert(out.find(intervl) == out.end());
+
+    out.add({intervl, 1+index_of_basic_block(ICFG, bb)});
+  });
+}
+
+static inline void construct_fnmap(decompilation_t &decompilation,
+                                   binary_t &binary,
+                                   fnmap_t &out) {
+  for_each_function_in_binary(binary, [&](function_t &f) {
+    auto &ICFG = binary.Analysis.ICFG;
+
+    tcg_uintptr_t Addr = ICFG[basic_block_of_index(f.Entry, ICFG)].Addr;
+
+    assert(out.find(Addr) == out.end());
+
+    function_index_t FIdx = index_of_function_in_binary(f, binary);
+
+    out.insert({Addr, FIdx});
+  });
 }
 
 static inline void identify_ABIs(decompilation_t &decompilation) {
