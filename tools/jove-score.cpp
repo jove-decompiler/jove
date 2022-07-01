@@ -74,22 +74,22 @@ int ScoreTool::Run(void) {
     SingleBinaryIndex = BinaryIndex;
   }
 
-  auto process_binary = [&](binary_t &binary) -> void {
-    if (binary.IsVDSO)
-      return;
+  if (is_binary_index_valid(SingleBinaryIndex)) {
+    binary_t &binary = decompilation.Binaries.at(SingleBinaryIndex);
 
-    HumanOut() << (fmt("%5f %s\n")
-                   % compute_score(decompilation, binary)
-                   % binary.Path).str();
-  };
+    HumanOut() << (fmt("%.3f\n") % compute_score(decompilation, binary)).str();
+  } else {
+    for_each_binary(decompilation, [&](binary_t &binary) {
+      if (binary.IsVDSO)
+        return;
 
-  if (is_binary_index_valid(SingleBinaryIndex))
-    process_binary(decompilation.Binaries.at(SingleBinaryIndex));
-  else
-    for_each_binary(decompilation, process_binary);
+      HumanOut() << (fmt("%.3f %s\n")
+                     % compute_score(decompilation, binary)
+                     % binary.Path).str();
+    });
+  }
 
   return 0;
 }
 
 }
-
