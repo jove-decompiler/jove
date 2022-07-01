@@ -691,6 +691,9 @@ static inline void construct_fnmap(decompilation_t &decompilation,
                                    binary_t &binary,
                                    fnmap_t &out) {
   for_each_function_in_binary(binary, [&](function_t &f) {
+    if (!is_basic_block_index_valid(f.Entry))
+      return;
+
     auto &ICFG = binary.Analysis.ICFG;
 
     tcg_uintptr_t Addr = ICFG[basic_block_of_index(f.Entry, ICFG)].Addr;
