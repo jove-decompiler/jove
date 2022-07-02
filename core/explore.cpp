@@ -115,11 +115,12 @@ basic_block_index_t explore_basic_block(binary_t &b,
                 ErrorStrStream);
           }
 
-          if (!Disassembled)
+          if (!Disassembled) {
             llvm::WithColor::error() << llvm::formatv(
                 "failed to disassemble {0:x}: {1}\n", A, errmsg);
 
-          assert(Disassembled);
+	    return invalid_basic_block_index;
+	  }
 
           if (A == Addr)
             goto on_insn_boundary;
