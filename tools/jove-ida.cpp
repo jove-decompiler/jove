@@ -2,6 +2,7 @@
 #include "elf.h"
 #include "ida.h"
 #include "explore.h"
+#include "addr2line.h"
 
 #include <llvm/MC/MCAsmInfo.h>
 #include <llvm/MC/MCContext.h>
@@ -24,6 +25,8 @@
 #include <boost/filesystem.hpp>
 #include <boost/format.hpp>
 #include <fstream>
+
+#include "jove_macros.h"
 
 namespace obj = llvm::object;
 namespace fs = boost::filesystem;
@@ -388,6 +391,8 @@ int IDATool::Run(void) {
       exit(1);
     }
 
+    auto &ICFG = binary.Analysis.ICFG;
+
     fnmap_t fnmap;
     bbmap_t bbmap;
 
@@ -397,45 +402,151 @@ int IDATool::Run(void) {
     auto process_flowgraph = [&](binary_t &binary,
                                  const ida_flowgraph_t &flowgraph) -> void {
       ida_flowgraph_node_t entry_node = boost::vertex(0, flowgraph);
-      uint64_t entry_addr = flowgraph[entry_node].start_ea;
-
-      if (entry_addr == 0 || ~entry_addr == 0)
+      if (flowgraph[entry_node].HasUnknownAddress())
         return;
+
+      uint64_t entry_addr = flowgraph[entry_node].start_ea;
 
       if (opts.Verbose)
         llvm::errs() << llvm::formatv("exploring function @ {0:x}\n", entry_addr);
 
+      //
+      // import function
+      //
       try {
-        if (!is_basic_block_index_valid(explore_basic_block(
-                binary, *BinOrErr.get(), tcg, dis, entry_addr, fnmap, bbmap)))
-          throw std::runtime_error("failed to explore function entry block");
+        basic_block_index_t BBIdx = explore_basic_block(
+            binary, *BinOrErr.get(), tcg, dis, entry_addr, fnmap, bbmap);
+
+        if (!is_basic_block_index_valid(BBIdx))
+          throw std::runtime_error(std::string());
 
         explore_function(binary, *BinOrErr.get(), tcg, dis, entry_addr, fnmap, bbmap);
+      } catch (const std::exception &) {
+        if (opts.Verbose)
+          WithColor::warning() << llvm::formatv(
+              "failed to explore function @ {0:x}\n", entry_addr);
+        return;
+      }
 
-        ida_flowgraph_t::vertex_iterator it, it_end;
-        std::tie(it, it_end) = boost::vertices(flowgraph);
+      ida_flowgraph_t::vertex_iterator flowgraph_it, flowgraph_it_end;
+      std::tie(flowgraph_it, flowgraph_it_end) = boost::vertices(flowgraph);
 
-        std::for_each(it, it_end, [&](ida_flowgraph_node_t node) {
-          uint64_t addr = flowgraph[node].start_ea;
+      //
+      // import every basic block in flowgraph
+      //
+      std::for_each(flowgraph_it,
+                    flowgraph_it_end, [&](ida_flowgraph_node_t node) {
+        if (flowgraph[node].HasUnknownAddress()) {
+          if (opts.Verbose)
+            WithColor::warning()
+                << llvm::formatv("unidentified node has label: \"{0}\"\n",
+                                 flowgraph[node].label);
 
-          if (opts.Verbose && !addr) {
-            llvm::errs() << llvm::formatv("start_ea: {0:x}\n", addr);
-            llvm::errs() << llvm::formatv("label: {0}\n", flowgraph[node].label);
+          return;
+        }
+
+        uint64_t node_addr = flowgraph[node].start_ea;
+        try {
+          basic_block_index_t BBIdx = explore_basic_block(
+              binary, *BinOrErr.get(), tcg, dis, node_addr, fnmap, bbmap);
+
+          if (!is_basic_block_index_valid(BBIdx))
+            throw std::runtime_error(std::string());
+        } catch (const std::exception &) {
+          WithColor::warning()
+              << llvm::formatv("failed to explore node @ {0:x}\n", node_addr);
+        }
+      });
+
+      //
+      // examine indirect jumps
+      //
+      std::for_each(flowgraph_it, flowgraph_it_end, [&](ida_flowgraph_node_t node) {
+        if (boost::out_degree(node, flowgraph) == 0)
+          return;
+
+        if (flowgraph[node].HasUnknownAddress())
+          return;
+
+        //
+        // is our terminator for the block an indirect jump?
+        //
+        uint64_t node_addr = flowgraph[node].start_ea;
+        if (exists_indirect_jump_at_address(node_addr, binary, bbmap)) {
+          basic_block_t indjmp_bb = basic_block_at_address(node_addr, binary, bbmap);
+
+          ida_flowgraph_t::out_edge_iterator eit, eit_end;
+          std::tie(eit, eit_end) = boost::out_edges(node, flowgraph);
+
+          //
+          // collect targets of indirect jump
+          //
+          std::vector<ida_flowgraph_node_t> targets;
+          targets.resize(std::distance(eit, eit_end));
+          std::transform(
+              eit, eit_end, targets.begin(),
+              [&](ida_flowgraph_edge_t edge) -> ida_flowgraph_node_t {
+                return boost::target(edge, flowgraph);
+              });
+
+          std::vector<ida_flowgraph_node_t> valid_targets;
+          std::copy_if(targets.begin(),
+                       targets.end(), std::back_inserter(valid_targets),
+                       [&](ida_flowgraph_node_t node) -> bool {
+                         return flowgraph[node].HasKnownAddress();
+                       });
+
+          std::vector<uint64_t> targets_addr_vec;
+          targets_addr_vec.resize(valid_targets.size());
+          std::transform(valid_targets.begin(),
+                         valid_targets.end(), targets_addr_vec.begin(),
+                         [&](ida_flowgraph_node_t node) -> uint64_t {
+                           return flowgraph[node].start_ea;
+                         });
+          std::sort(targets_addr_vec.begin(), targets_addr_vec.end());
+          assert(std::adjacent_find(targets_addr_vec.begin(),
+                                    targets_addr_vec.end()) ==
+                 targets_addr_vec.end());
+
+          std::vector<bool> targets_is_new_vec(valid_targets.size(), false);
+
+          //
+          // add control flow edges to every basic_block corresponding to a
+          // target of the indirect jump
+          //
+          for (unsigned i = 0; i < targets_addr_vec.size(); ++i) {
+            uint64_t succ_addr = targets_addr_vec[i];
+            if (exists_basic_block_at_address(succ_addr, binary, bbmap)) {
+              basic_block_t succ_bb = basic_block_at_address(succ_addr, binary, bbmap);
+              targets_is_new_vec[i] = boost::add_edge(indjmp_bb, succ_bb, ICFG).second;
+            }
           }
 
-          if (addr == 0 || ~addr == 0)
-            return;
+          //
+          // print message to user describing indirect jump targets that were
+          // processed
+          //
+          {
+            std::string msgPreamble = addr2desc(binary, node_addr) + " -> { ";
+            llvm::errs() << msgPreamble;
+            for (unsigned i = 0; i < targets_addr_vec.size(); ++i) {
+              uint64_t succ_addr = targets_addr_vec[i];
+              if (i != 0)
+                llvm::errs() << ",\n" << std::string(msgPreamble.size(), ' ');
 
-          if (opts.Verbose)
-            llvm::errs() << llvm::formatv("exploring bb @ {0:x}\n", addr);
+              bool is_new = targets_is_new_vec[i];
+              if (is_new)
+                llvm::errs() << __ANSI_BOLD_GREEN;
 
-          basic_block_index_t BBIdx = explore_basic_block(
-              binary, *BinOrErr.get(), tcg, dis, addr, fnmap, bbmap);
-        });
-      } catch (const std::exception &) {
-        WithColor::warning() << llvm::formatv(
-            "failed to explore function @ {0:x}\n", entry_addr);
-      }
+              llvm::errs() << addr2desc(binary, succ_addr);
+
+              if (is_new)
+                llvm::errs() << __ANSI_NORMAL_COLOR;
+            }
+            llvm::errs() << " }\n";
+          }
+        }
+      });
     };
 
     //
