@@ -297,6 +297,8 @@ int IDATool::Run(void) {
   tiny_code_generator_t tcg;
   disas_t dis(*DisAsm, std::cref(*STI), *IP);
 
+  symbolizer_t symbolizer;
+
   auto process_binary = [&](binary_t &binary) -> void {
     llvm::StringRef Buffer(reinterpret_cast<char *>(&binary.Data[0]),
                            binary.Data.size());
@@ -496,8 +498,10 @@ int IDATool::Run(void) {
                          return flowgraph[node].HasKnownAddress();
                        });
 
+          unsigned N = valid_targets.size();
+
           std::vector<uint64_t> targets_addr_vec;
-          targets_addr_vec.resize(valid_targets.size());
+          targets_addr_vec.resize(N);
           std::transform(valid_targets.begin(),
                          valid_targets.end(), targets_addr_vec.begin(),
                          [&](ida_flowgraph_node_t node) -> uint64_t {
@@ -514,7 +518,7 @@ int IDATool::Run(void) {
           // add control flow edges to every basic_block corresponding to a
           // target of the indirect jump
           //
-          for (unsigned i = 0; i < targets_addr_vec.size(); ++i) {
+          for (unsigned i = 0; i < N; ++i) {
             uint64_t succ_addr = targets_addr_vec[i];
             if (exists_basic_block_at_address(succ_addr, binary, bbmap)) {
               basic_block_t succ_bb = basic_block_at_address(succ_addr, binary, bbmap);
@@ -527,9 +531,9 @@ int IDATool::Run(void) {
           // processed
           //
           {
-            std::string msgPreamble = addr2desc(binary, node_addr) + " -> { ";
+            std::string msgPreamble = symbolizer.addr2desc(binary, node_addr) + " -> { ";
             llvm::errs() << msgPreamble;
-            for (unsigned i = 0; i < targets_addr_vec.size(); ++i) {
+            for (unsigned i = 0; i < N; ++i) {
               uint64_t succ_addr = targets_addr_vec[i];
               if (i != 0)
                 llvm::errs() << ",\n" << std::string(msgPreamble.size(), ' ');
@@ -538,7 +542,7 @@ int IDATool::Run(void) {
               if (is_new)
                 llvm::errs() << __ANSI_BOLD_GREEN;
 
-              llvm::errs() << addr2desc(binary, succ_addr);
+              llvm::errs() << symbolizer.addr2desc(binary, succ_addr);
 
               if (is_new)
                 llvm::errs() << __ANSI_NORMAL_COLOR;

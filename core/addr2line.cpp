@@ -9,7 +9,19 @@ namespace jove {
 
 typedef boost::format fmt;
 
-std::string addr2line(const binary_t &binary, tcg_uintptr_t Addr) {
+symbolizer_t::symbolizer_t() {
+  llvm::symbolize::LLVMSymbolizer::Options Opts;
+  Opts.PrintFunctions = llvm::symbolize::FunctionNameKind::None;
+  Opts.UseSymbolTable = false;
+  Opts.Demangle = false;
+  Opts.RelativeAddresses = true;
+
+  Symbolizer = std::make_unique<llvm::symbolize::LLVMSymbolizer>(Opts);
+}
+
+symbolizer_t::~symbolizer_t() {}
+
+std::string symbolizer_t::addr2line(const binary_t &binary, tcg_uintptr_t Addr) {
   llvm::symbolize::LLVMSymbolizer::Options Opts;
   Opts.PrintFunctions = llvm::symbolize::FunctionNameKind::None;
   Opts.UseSymbolTable = false;
@@ -20,9 +32,7 @@ Opts.FallbackDebugPath = ""; // ClFallbackDebugPath
 Opts.DebugFileDirectory = ""; // ClDebugFileDirectory;
 #endif
 
-  llvm::symbolize::LLVMSymbolizer Symbolizer(Opts);
-
-  auto ResOrErr = Symbolizer.symbolizeCode(
+  auto ResOrErr = Symbolizer->symbolizeCode(
       binary.Path,
       {Addr, llvm::object::SectionedAddress::UndefSection});
   if (!ResOrErr)
@@ -48,7 +58,7 @@ Opts.DebugFileDirectory = ""; // ClDebugFileDirectory;
 	 ":" + std::to_string(LnInfo.Column);
 }
 
-std::string addr2desc(const binary_t &binary, tcg_uintptr_t Addr) {
+std::string symbolizer_t::addr2desc(const binary_t &binary, tcg_uintptr_t Addr) {
   std::string desc =
     (fmt("%s+0x%08x")
      % fs::path(binary.Path).filename().string()
