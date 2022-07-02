@@ -683,6 +683,7 @@ static inline bool exists_basic_block_at_address(tcg_uintptr_t Addr,
   return bbmap.find(Addr) != bbmap.end();
 }
 
+// NOTE: this function excludes tail calls.
 static inline bool exists_indirect_jump_at_address(tcg_uintptr_t Addr,
                                                    const binary_t &binary,
                                                    const bbmap_t &bbmap) {
@@ -690,7 +691,8 @@ static inline bool exists_indirect_jump_at_address(tcg_uintptr_t Addr,
   if (exists_basic_block_at_address(Addr, binary, bbmap)) {
     const auto &ICFG = binary.Analysis.ICFG;
     basic_block_t bb = basic_block_at_address(Addr, binary, bbmap);
-    if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP)
+    if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP &&
+        ICFG[bb].DynTargets.empty())
       return true;
   }
 
