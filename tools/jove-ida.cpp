@@ -44,6 +44,9 @@ class IDATool : public Tool {
     cl::opt<bool> Verbose;
     cl::alias VerboseAlias;
     cl::opt<bool> ImportFunctions;
+    cl::opt<bool> ImportBlocks;
+    cl::opt<bool> ImportLocalGotos;
+    cl::opt<bool> ListOurLocalGotos;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : jv(cl::Positional, cl::desc("<input jove decompilations>"),
@@ -62,12 +65,21 @@ class IDATool : public Tool {
           VerboseAlias("v", cl::desc("Alias for -verbose."),
                        cl::aliasopt(Verbose), cl::cat(JoveCategory)),
 
-          ImportFunctions(
-              "import-functions",
-              cl::desc("Explore every function that IDA knows about"),
-              cl::cat(JoveCategory))
+          ImportFunctions("import-functions", cl::desc("Import functions"),
+                          cl::cat(JoveCategory)),
 
-    {}
+          ImportBlocks("import-blocks", cl::desc("Import basic blocks"),
+                       cl::cat(JoveCategory)),
+
+          ImportLocalGotos("import-local-gotos",
+                           cl::desc("Import control flow from indirect jumps"),
+                           cl::cat(JoveCategory)),
+
+          ListOurLocalGotos(
+              "list-our-local-gotos",
+              cl::desc("List local gotos that already exist in the "
+                       "decompilation but do *not* exist in IDA's analysis"),
+              cl::cat(JoveCategory)) {}
   } opts;
 
   llvm::Triple TheTriple;
@@ -338,12 +350,7 @@ int IDATool::Run(void) {
         "-c", "-A"
       };
 
-      std::string script_path;
-
-      if (opts.ImportFunctions)
-        script_path = ida_scripts_dir + "/export_flowgraphs.py";
-
-      assert(!script_path.empty());
+      std::string script_path = ida_scripts_dir + "/export_flowgraphs.py";
 
       std::string script_arg("-S");
       script_arg.append(script_path);
@@ -412,26 +419,31 @@ int IDATool::Run(void) {
       if (opts.Verbose)
         llvm::errs() << llvm::formatv("exploring function @ {0:x}\n", entry_addr);
 
-      //
-      // import function
-      //
-      try {
-        basic_block_index_t BBIdx = explore_basic_block(
-            binary, *BinOrErr.get(), tcg, dis, entry_addr, fnmap, bbmap);
+      if (opts.ImportFunctions) {
+        //
+        // import functions
+        //
+        try {
+          basic_block_index_t BBIdx = explore_basic_block(
+              binary, *BinOrErr.get(), tcg, dis, entry_addr, fnmap, bbmap);
 
-        if (!is_basic_block_index_valid(BBIdx))
-          throw std::runtime_error(std::string());
+          if (!is_basic_block_index_valid(BBIdx))
+            throw std::runtime_error(std::string());
 
-        explore_function(binary, *BinOrErr.get(), tcg, dis, entry_addr, fnmap, bbmap);
-      } catch (const std::exception &) {
-        if (opts.Verbose)
-          WithColor::warning() << llvm::formatv(
-              "failed to explore function @ {0:x}\n", entry_addr);
-        return;
+          explore_function(binary, *BinOrErr.get(), tcg, dis, entry_addr, fnmap, bbmap);
+        } catch (const std::exception &) {
+          if (opts.Verbose)
+            WithColor::warning() << llvm::formatv(
+                "failed to explore function @ {0:x}\n", entry_addr);
+          return;
+        }
       }
 
       ida_flowgraph_t::vertex_iterator flowgraph_it, flowgraph_it_end;
       std::tie(flowgraph_it, flowgraph_it_end) = boost::vertices(flowgraph);
+
+      if (!opts.ImportBlocks && !opts.ImportLocalGotos && !opts.ListOurLocalGotos)
+        return;
 
       //
       // import every basic block in flowgraph
@@ -455,10 +467,14 @@ int IDATool::Run(void) {
           if (!is_basic_block_index_valid(BBIdx))
             throw std::runtime_error(std::string());
         } catch (const std::exception &) {
-          WithColor::warning()
-              << llvm::formatv("failed to explore node @ {0:x}\n", node_addr);
+          if (opts.Verbose)
+            WithColor::warning() << llvm::formatv(
+                "failed to explore block @ {0:x}\n", node_addr);
         }
       });
+
+      if (!opts.ImportLocalGotos && !opts.ListOurLocalGotos)
+        return;
 
       //
       // examine indirect jumps
@@ -511,6 +527,31 @@ int IDATool::Run(void) {
           assert(std::adjacent_find(targets_addr_vec.begin(),
                                     targets_addr_vec.end()) ==
                  targets_addr_vec.end());
+
+          if (opts.ListOurLocalGotos) {
+            icfg_t::out_edge_iterator our_eit, our_eit_end;
+            std::tie(our_eit, our_eit_end) = boost::out_edges(indjmp_bb, ICFG);
+            std::for_each(our_eit, our_eit_end, [&](control_flow_t our_cf) {
+                            basic_block_t our_bb = boost::target(our_cf, ICFG);
+                            tcg_uintptr_t our_addr = ICFG[our_bb].Addr;
+
+                            if (std::binary_search(targets_addr_vec.begin(),
+                                                   targets_addr_vec.end(),
+                                                   our_addr))
+                              return;
+
+                            llvm::errs()
+                                << __ANSI_CYAN
+                                << symbolizer.addr2desc(binary, node_addr)
+                                << " -> "
+                                << symbolizer.addr2desc(binary, our_addr)
+                                << __ANSI_NORMAL_COLOR << '\n';
+                          });
+            return;
+          }
+
+          if (!opts.ImportLocalGotos)
+            return;
 
           std::vector<bool> targets_is_new_vec(valid_targets.size(), false);
 
@@ -585,6 +626,9 @@ int IDATool::Run(void) {
     process_binary(decompilation.Binaries.at(SingleBinaryIndex));
   else
     for_each_binary(decompilation, process_binary);
+
+  if (opts.ListOurLocalGotos)
+    return 0;
 
   WriteDecompilationToFile(opts.jv, decompilation);
 
