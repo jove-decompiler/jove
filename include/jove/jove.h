@@ -481,8 +481,8 @@ static inline basic_block_index_t index_of_basic_block(const icfg_t &ICFG, basic
 }
 
 /* XXX this is O(n)... */
-static inline binary_index_t binary_index_of_function(function_t &f,
-                                                      decompilation_t &decompilation) {
+static inline binary_index_t binary_index_of_function(const function_t &f,
+                                                      const decompilation_t &decompilation) {
   for (binary_index_t BIdx = 0; BIdx < decompilation.Binaries.size(); ++BIdx) {
     auto &fns = decompilation.Binaries[BIdx].Analysis.Functions;
 
@@ -511,8 +511,13 @@ static inline function_index_t index_of_function_in_binary(const function_t &f,
   return &f - &b.Analysis.Functions[0];
 }
 
-static inline binary_t &binary_of_function(function_t &f,
+static inline binary_t &binary_of_function(const function_t &f,
                                            decompilation_t &decompilation) {
+  return decompilation.Binaries.at(binary_index_of_function(f, decompilation));
+}
+
+static inline const binary_t &binary_of_function(const function_t &f,
+                                                 const decompilation_t &decompilation) {
   return decompilation.Binaries.at(binary_index_of_function(f, decompilation));
 }
 
@@ -525,8 +530,8 @@ static inline function_t &function_of_target(dynamic_target_t X,
   return decompilation.Binaries.at(BIdx).Analysis.Functions.at(FIdx);
 }
 
-static inline void basic_blocks_of_function(function_t &f,
-                                            binary_t &b,
+static inline void basic_blocks_of_function(const function_t &f,
+                                            const binary_t &b,
                                             basic_block_vec_t &out) {
   const auto &ICFG = b.Analysis.ICFG;
 
@@ -548,8 +553,8 @@ static inline void basic_blocks_of_function(function_t &f,
           std::map<basic_block_t, boost::default_color_type>>(color));
 }
 
-static inline void exit_basic_blocks_of_function(function_t &f,
-                                                 binary_t &b,
+static inline void exit_basic_blocks_of_function(const function_t &f,
+                                                 const binary_t &b,
                                                  const basic_block_vec_t &bbvec,
                                                  basic_block_vec_t &out) {
   const auto &ICFG = b.Analysis.ICFG;
@@ -571,8 +576,8 @@ inline bool does_function_return_fast(const icfg_t &ICFG,
                      });
 }
 
-inline bool does_function_return(function_t &f,
-                                 binary_t &b) {
+inline bool does_function_return(const function_t &f,
+                                 const binary_t &b) {
   basic_block_vec_t bbvec;
   basic_blocks_of_function(f, b, bbvec);
 
@@ -585,8 +590,8 @@ inline bool does_function_return(function_t &f,
                      });
 }
 
-inline bool IsLeafFunction(function_t &f,
-                           binary_t &b,
+inline bool IsLeafFunction(const function_t &f,
+                           const binary_t &b,
                            const basic_block_vec_t &bbvec) {
   const auto &ICFG = b.Analysis.ICFG;
 
@@ -615,8 +620,8 @@ inline bool IsLeafFunction(function_t &f,
   }
 }
 
-inline bool IsFunctionSetjmp(function_t &f,
-                             binary_t &b,
+inline bool IsFunctionSetjmp(const function_t &f,
+                             const binary_t &b,
                              const basic_block_vec_t &bbvec) {
   const auto &ICFG = b.Analysis.ICFG;
 
@@ -627,8 +632,8 @@ inline bool IsFunctionSetjmp(function_t &f,
                      });
 }
 
-inline bool IsFunctionLongjmp(function_t &f,
-                              binary_t &b,
+inline bool IsFunctionLongjmp(const function_t &f,
+                              const binary_t &b,
                               const basic_block_vec_t &bbvec) {
   const auto &ICFG = b.Analysis.ICFG;
 
@@ -653,8 +658,8 @@ static inline basic_block_t basic_block_of_index(basic_block_index_t BBIdx,
 }
 
 static inline basic_block_t index_of_basic_block_at_address(tcg_uintptr_t Addr,
-                                                            binary_t &binary,
-                                                            bbmap_t &bbmap) {
+                                                            const binary_t &binary,
+                                                            const bbmap_t &bbmap) {
   assert(Addr);
 
   auto it = bbmap.find(Addr);
@@ -665,9 +670,31 @@ static inline basic_block_t index_of_basic_block_at_address(tcg_uintptr_t Addr,
 }
 
 static inline basic_block_t basic_block_at_address(tcg_uintptr_t Addr,
-                                                   binary_t &b,
-                                                   bbmap_t &bbmap) {
+                                                   const binary_t &b,
+                                                   const bbmap_t &bbmap) {
   return basic_block_of_index(index_of_basic_block_at_address(Addr, b, bbmap), b);
+}
+
+static inline bool exists_basic_block_at_address(tcg_uintptr_t Addr,
+                                                 const binary_t &binary,
+                                                 const bbmap_t &bbmap) {
+  assert(Addr);
+
+  return bbmap.find(Addr) != bbmap.end();
+}
+
+static inline bool exists_indirect_jump_at_address(tcg_uintptr_t Addr,
+                                                   const binary_t &binary,
+                                                   const bbmap_t &bbmap) {
+  assert(Addr);
+  if (exists_basic_block_at_address(Addr, binary, bbmap)) {
+    const auto &ICFG = binary.Analysis.ICFG;
+    basic_block_t bb = basic_block_at_address(Addr, binary, bbmap);
+    if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP)
+      return true;
+  }
+
+  return false;
 }
 
 static inline void construct_bbmap(decompilation_t &decompilation,
