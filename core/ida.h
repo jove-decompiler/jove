@@ -9,6 +9,14 @@ struct ida_flowgraph_node_info_t {
   uint64_t start_ea;
 
   std::string label;
+
+  inline bool HasUnknownAddress(void) const {
+    return start_ea == 0 || ~start_ea == 0;
+  }
+
+  inline bool HasKnownAddress(void) const {
+    return !HasUnknownAddress();
+  }
 };
 
 struct ida_flowgraph_edge_info_t {
