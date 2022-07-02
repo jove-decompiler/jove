@@ -1,4 +1,4 @@
-#include "addr2line.h"
+#include "symbolizer.h"
 #include <llvm/DebugInfo/Symbolize/Symbolize.h>
 #include <boost/filesystem.hpp>
 #include <boost/format.hpp>

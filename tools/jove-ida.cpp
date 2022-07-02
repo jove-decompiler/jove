@@ -2,7 +2,7 @@
 #include "elf.h"
 #include "ida.h"
 #include "explore.h"
-#include "addr2line.h"
+#include "symbolizer.h"
 
 #include <llvm/MC/MCAsmInfo.h>
 #include <llvm/MC/MCContext.h>
