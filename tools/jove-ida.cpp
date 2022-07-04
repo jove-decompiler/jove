@@ -529,25 +529,59 @@ int IDATool::Run(void) {
                                     targets_addr_vec.end()) ==
                  targets_addr_vec.end());
 
-          if (opts.ListOurLocalGotos) {
-            icfg_t::out_edge_iterator our_eit, our_eit_end;
-            std::tie(our_eit, our_eit_end) = boost::out_edges(indjmp_bb, ICFG);
-            std::for_each(our_eit, our_eit_end, [&](control_flow_t our_cf) {
+          icfg_t::out_edge_iterator our_eit, our_eit_end;
+          std::tie(our_eit, our_eit_end) = boost::out_edges(indjmp_bb, ICFG);
+          if (opts.ListOurLocalGotos &&
+              std::any_of(our_eit, our_eit_end,
+                          [&](control_flow_t our_cf) -> bool {
                             basic_block_t our_bb = boost::target(our_cf, ICFG);
                             tcg_uintptr_t our_addr = ICFG[our_bb].Addr;
 
-                            if (std::binary_search(targets_addr_vec.begin(),
-                                                   targets_addr_vec.end(),
-                                                   our_addr))
-                              return;
+                            return !std::binary_search(targets_addr_vec.begin(),
+                                                       targets_addr_vec.end(),
+                                                       our_addr);
+                          })) {
+            //
+            // print message to user describing indirect jump targets that were
+            // processed
+            //
+            {
+              unsigned M = std::distance(our_eit, our_eit_end);
 
-                            llvm::errs()
-                                << __ANSI_CYAN
-                                << symbolizer.addr2desc(binary, indjmp_addr)
-                                << " -> "
-                                << symbolizer.addr2desc(binary, our_addr)
-                                << __ANSI_NORMAL_COLOR << '\n';
-                          });
+              std::vector<uint64_t> our_targets_addr_vec;
+              our_targets_addr_vec.resize(M);
+              std::transform(our_eit, our_eit_end,
+                             our_targets_addr_vec.begin(),
+                             [&](control_flow_t our_cf) -> uint64_t {
+                               return ICFG[boost::target(our_cf, ICFG)].Addr;
+                             });
+              std::sort(our_targets_addr_vec.begin(),
+                        our_targets_addr_vec.end());
+              assert(std::adjacent_find(our_targets_addr_vec.begin(),
+                                        our_targets_addr_vec.end()) ==
+                     our_targets_addr_vec.end());
+
+              std::string msgPreamble =
+                  symbolizer.addr2desc(binary, indjmp_addr) + " -> { ";
+              llvm::errs() << msgPreamble;
+              for (unsigned i = 0; i < M; ++i) {
+                uint64_t our_addr = our_targets_addr_vec[i];
+                if (i != 0)
+                  llvm::errs() << ",\n" << std::string(msgPreamble.size(), ' ');
+
+                bool is_new =
+                    !std::binary_search(targets_addr_vec.begin(),
+                                        targets_addr_vec.end(), our_addr);
+                if (is_new)
+                  llvm::errs() << __ANSI_BLUE;
+
+                llvm::errs() << symbolizer.addr2desc(binary, our_addr);
+
+                if (is_new)
+                  llvm::errs() << __ANSI_NORMAL_COLOR;
+              }
+              llvm::errs() << " }\n";
+            }
             return;
           }
 
