@@ -46,7 +46,7 @@ class IDATool : public Tool {
     cl::opt<bool> ImportFunctions;
     cl::opt<bool> ImportBlocks;
     cl::opt<bool> ImportLocalGotos;
-    cl::opt<bool> ListOurLocalGotos;
+    cl::opt<bool> NoSave;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : jv(cl::Positional, cl::desc("<input jove decompilations>"),
@@ -75,11 +75,9 @@ class IDATool : public Tool {
                            cl::desc("Import control flow from indirect jumps"),
                            cl::cat(JoveCategory)),
 
-          ListOurLocalGotos(
-              "list-our-local-gotos",
-              cl::desc("List local gotos that already exist in the "
-                       "decompilation but do *not* exist in IDA's analysis"),
-              cl::cat(JoveCategory)) {}
+          NoSave("no-save",
+                 cl::desc("Do not save decompilation before exiting"),
+                 cl::cat(JoveCategory)) {}
   } opts;
 
   llvm::Triple TheTriple;
@@ -442,7 +440,7 @@ int IDATool::Run(void) {
       ida_flowgraph_t::vertex_iterator flowgraph_it, flowgraph_it_end;
       std::tie(flowgraph_it, flowgraph_it_end) = boost::vertices(flowgraph);
 
-      if (!opts.ImportBlocks && !opts.ImportLocalGotos && !opts.ListOurLocalGotos)
+      if (!opts.ImportBlocks && !opts.ImportLocalGotos)
         return;
 
       //
@@ -473,161 +471,191 @@ int IDATool::Run(void) {
         }
       });
 
-      if (!opts.ImportLocalGotos && !opts.ListOurLocalGotos)
+      if (!opts.ImportLocalGotos)
         return;
 
       //
       // examine indirect jumps
       //
-      std::for_each(flowgraph_it, flowgraph_it_end, [&](ida_flowgraph_node_t node) {
-        if (boost::out_degree(node, flowgraph) == 0)
-          return;
+      for_each_if(
+          flowgraph_it, flowgraph_it_end,
+          [&](ida_flowgraph_node_t node) -> bool {
+            return boost::out_degree(node, flowgraph) > 0 &&
+                   flowgraph[node].HasKnownAddress() &&
+                   exists_indirect_jump_at_address(flowgraph[node].start_ea,
+                                                   binary, bbmap);
+          },
+          [&](ida_flowgraph_node_t node) {
+            uint64_t node_addr = flowgraph[node].start_ea;
+            basic_block_t indjmp_bb =
+                basic_block_at_address(node_addr, binary, bbmap);
+            uint64_t indjmp_addr = ICFG[indjmp_bb].Term.Addr;
 
-        if (flowgraph[node].HasUnknownAddress())
-          return;
+            assert(ICFG[indjmp_bb].Term.Type == TERMINATOR::INDIRECT_JUMP);
 
-        //
-        // is our terminator for the block an indirect jump?
-        //
-        uint64_t node_addr = flowgraph[node].start_ea;
-        if (exists_indirect_jump_at_address(node_addr, binary, bbmap)) {
-          basic_block_t indjmp_bb = basic_block_at_address(node_addr, binary, bbmap);
-          uint64_t indjmp_addr = ICFG[indjmp_bb].Term.Addr;
+            //
+            // collect, sort our targets
+            //
+            struct {
+              std::vector<basic_block_t> succ_vec;
+              std::vector<uint64_t> succ_addr_vec; /* sorted */
+            } our;
 
-          ida_flowgraph_t::out_edge_iterator eit, eit_end;
-          std::tie(eit, eit_end) = boost::out_edges(node, flowgraph);
+            {
+              auto &v = our.succ_vec;
 
-          //
-          // collect targets of indirect jump
-          //
-          std::vector<ida_flowgraph_node_t> targets;
-          targets.resize(std::distance(eit, eit_end));
-          std::transform(
-              eit, eit_end, targets.begin(),
-              [&](ida_flowgraph_edge_t edge) -> ida_flowgraph_node_t {
-                return boost::target(edge, flowgraph);
-              });
+              auto it_pair = boost::adjacent_vertices(indjmp_bb, ICFG);
+              v.reserve(std::distance(it_pair.first, it_pair.second));
+              std::copy(it_pair.first, it_pair.second, std::back_inserter(v));
+            }
 
-          std::vector<ida_flowgraph_node_t> valid_targets;
-          std::copy_if(targets.begin(),
-                       targets.end(), std::back_inserter(valid_targets),
-                       [&](ida_flowgraph_node_t node) -> bool {
-                         return flowgraph[node].HasKnownAddress();
-                       });
+            {
+              auto &v = our.succ_addr_vec;
 
-          unsigned N = valid_targets.size();
+              v.resize(our.succ_vec.size());
+              std::transform(our.succ_vec.begin(),
+                             our.succ_vec.end(),
+                             v.begin(),
+                             [&](basic_block_t succ) -> tcg_uintptr_t {
+                               return ICFG[succ].Addr;
+                             });
 
-          std::vector<uint64_t> targets_addr_vec;
-          targets_addr_vec.resize(N);
-          std::transform(valid_targets.begin(),
-                         valid_targets.end(), targets_addr_vec.begin(),
-                         [&](ida_flowgraph_node_t node) -> uint64_t {
-                           return flowgraph[node].start_ea;
-                         });
-          std::sort(targets_addr_vec.begin(), targets_addr_vec.end());
-          assert(std::adjacent_find(targets_addr_vec.begin(),
-                                    targets_addr_vec.end()) ==
-                 targets_addr_vec.end());
+              std::sort(v.begin(), v.end());
+            }
 
-          icfg_t::out_edge_iterator our_eit, our_eit_end;
-          std::tie(our_eit, our_eit_end) = boost::out_edges(indjmp_bb, ICFG);
-          if (opts.ListOurLocalGotos &&
-              std::any_of(our_eit, our_eit_end,
-                          [&](control_flow_t our_cf) -> bool {
-                            basic_block_t our_bb = boost::target(our_cf, ICFG);
-                            tcg_uintptr_t our_addr = ICFG[our_bb].Addr;
+            //
+            // collect, sort IDA targets
+            //
+            struct {
+              std::vector<ida_flowgraph_node_t> succ_vec;
+              std::vector<uint64_t> succ_addr_vec; /* sorted */
 
-                            return !std::binary_search(targets_addr_vec.begin(),
-                                                       targets_addr_vec.end(),
-                                                       our_addr);
-                          })) {
+              std::vector<ida_flowgraph_node_t> valid_succ_vec;
+              std::vector<uint64_t> valid_succ_addr_vec; /* sorted */
+            } ida;
+
+            {
+              auto &v = ida.succ_vec;
+
+              auto it_pair = boost::adjacent_vertices(node, flowgraph);
+              v.reserve(std::distance(it_pair.first, it_pair.second));
+              std::copy(it_pair.first, it_pair.second, std::back_inserter(v));
+            }
+
+            {
+              auto &v = ida.succ_addr_vec;
+
+              v.resize(ida.succ_vec.size());
+              std::transform(ida.succ_vec.begin(),
+                             ida.succ_vec.end(), v.begin(),
+                             [&](ida_flowgraph_node_t succ) -> uint64_t {
+                               return flowgraph[succ].start_ea;
+                             });
+
+              std::sort(v.begin(), v.end());
+            }
+
+            {
+              auto &v = ida.valid_succ_vec;
+
+              auto it_pair = boost::adjacent_vertices(node, flowgraph);
+              v.reserve(std::distance(it_pair.first, it_pair.second));
+              std::copy_if(it_pair.first, it_pair.second, std::back_inserter(v),
+                           [&](ida_flowgraph_node_t node) -> bool {
+                             return flowgraph[node].HasKnownAddress();
+                           });
+            }
+
+            {
+              auto &v = ida.valid_succ_addr_vec;
+
+              v.resize(ida.valid_succ_vec.size());
+              std::transform(ida.valid_succ_vec.begin(),
+                             ida.valid_succ_vec.end(), v.begin(),
+                             [&](ida_flowgraph_node_t succ) -> uint64_t {
+                               return flowgraph[succ].start_ea;
+                             });
+
+              std::sort(v.begin(), v.end());
+            }
+
             //
             // print message to user describing indirect jump targets that were
             // processed
             //
             {
-              unsigned M = std::distance(our_eit, our_eit_end);
-
-              std::vector<uint64_t> our_targets_addr_vec;
-              our_targets_addr_vec.resize(M);
-              std::transform(our_eit, our_eit_end,
-                             our_targets_addr_vec.begin(),
-                             [&](control_flow_t our_cf) -> uint64_t {
-                               return ICFG[boost::target(our_cf, ICFG)].Addr;
-                             });
-              std::sort(our_targets_addr_vec.begin(),
-                        our_targets_addr_vec.end());
-              assert(std::adjacent_find(our_targets_addr_vec.begin(),
-                                        our_targets_addr_vec.end()) ==
-                     our_targets_addr_vec.end());
+              std::vector<uint64_t> v(our.succ_addr_vec.begin(),
+                                      our.succ_addr_vec.end());
+              std::copy_if(ida.succ_addr_vec.begin(),
+                           ida.succ_addr_vec.end(), std::back_inserter(v),
+                           [&](uint64_t ida_target) -> bool {
+                             return !std::binary_search(
+                                 our.succ_addr_vec.begin(),
+                                 our.succ_addr_vec.end(), ida_target);
+                           });
+              std::sort(v.begin(), v.end());
 
               std::string msgPreamble =
                   symbolizer.addr2desc(binary, indjmp_addr) + " -> { ";
               llvm::errs() << msgPreamble;
-              for (unsigned i = 0; i < M; ++i) {
-                uint64_t our_addr = our_targets_addr_vec[i];
-                if (i != 0)
+              for (unsigned i = 0; i < v.size(); ++i) {
+                uint64_t succ_addr = v[i];
+
+                bool is_our =
+                    std::binary_search(our.succ_addr_vec.begin(),
+                                       our.succ_addr_vec.end(), succ_addr);
+
+                bool is_ida =
+                    std::binary_search(ida.succ_addr_vec.begin(),
+                                       ida.succ_addr_vec.end(), succ_addr);
+                assert(is_our || is_ida);
+
+                const char *color_cstr;
+                const char *color_end_cstr;
+                if (is_our && is_ida) {
+                  color_cstr = "";
+                  color_end_cstr = "";
+                } else {
+                  color_cstr = is_our ? __ANSI_YELLOW : __ANSI_GREEN;
+                  color_end_cstr = __ANSI_NORMAL_COLOR;
+                }
+
+                if (i > 0)
                   llvm::errs() << ",\n" << std::string(msgPreamble.size(), ' ');
 
-                bool is_new =
-                    !std::binary_search(targets_addr_vec.begin(),
-                                        targets_addr_vec.end(), our_addr);
-                if (is_new)
-                  llvm::errs() << __ANSI_BLUE;
+                std::string desc = symbolizer.addr2desc(binary, succ_addr);
+                if (desc == "??")
+                  color_cstr = __ANSI_RED;
 
-                llvm::errs() << symbolizer.addr2desc(binary, our_addr);
-
-                if (is_new)
-                  llvm::errs() << __ANSI_NORMAL_COLOR;
+                llvm::errs()
+                    << color_cstr
+                    << desc
+                    << color_end_cstr;
               }
               llvm::errs() << " }\n";
             }
-            return;
-          }
 
-          if (!opts.ImportLocalGotos)
-            return;
+            //
+            // add control flow edges to every basic_block corresponding to a
+            // target of the indirect jump
+            //
+            {
+              auto &v = ida.valid_succ_addr_vec;
 
-          std::vector<bool> targets_is_new_vec(valid_targets.size(), false);
-
-          //
-          // add control flow edges to every basic_block corresponding to a
-          // target of the indirect jump
-          //
-          for (unsigned i = 0; i < N; ++i) {
-            uint64_t succ_addr = targets_addr_vec[i];
-            if (exists_basic_block_at_address(succ_addr, binary, bbmap)) {
-              basic_block_t succ_bb = basic_block_at_address(succ_addr, binary, bbmap);
-              targets_is_new_vec[i] = boost::add_edge(indjmp_bb, succ_bb, ICFG).second;
+              for_each_if(
+                  v.begin(), v.end(),
+                  [&](uint64_t start_ea) -> bool {
+                    return exists_basic_block_at_address(start_ea, binary,
+                                                         bbmap);
+                  },
+                  [&](uint64_t start_ea) {
+                    basic_block_t succ_bb =
+                        basic_block_at_address(start_ea, binary, bbmap);
+                    boost::add_edge(indjmp_bb, succ_bb, ICFG);
+                  });
             }
-          }
-
-          //
-          // print message to user describing indirect jump targets that were
-          // processed
-          //
-          {
-            std::string msgPreamble = symbolizer.addr2desc(binary, indjmp_addr) + " -> { ";
-            llvm::errs() << msgPreamble;
-            for (unsigned i = 0; i < N; ++i) {
-              uint64_t succ_addr = targets_addr_vec[i];
-              if (i != 0)
-                llvm::errs() << ",\n" << std::string(msgPreamble.size(), ' ');
-
-              bool is_new = targets_is_new_vec[i];
-              if (is_new)
-                llvm::errs() << __ANSI_BOLD_GREEN;
-
-              llvm::errs() << symbolizer.addr2desc(binary, succ_addr);
-
-              if (is_new)
-                llvm::errs() << __ANSI_NORMAL_COLOR;
-            }
-            llvm::errs() << " }\n";
-          }
-        }
-      });
-    };
+          });
+      };
 
     //
     // round up the flow graph files
@@ -662,7 +690,7 @@ int IDATool::Run(void) {
   else
     for_each_binary(decompilation, process_binary);
 
-  if (opts.ListOurLocalGotos)
+  if (opts.NoSave)
     return 0;
 
   WriteDecompilationToFile(opts.jv, decompilation);
