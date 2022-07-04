@@ -492,6 +492,7 @@ int IDATool::Run(void) {
         uint64_t node_addr = flowgraph[node].start_ea;
         if (exists_indirect_jump_at_address(node_addr, binary, bbmap)) {
           basic_block_t indjmp_bb = basic_block_at_address(node_addr, binary, bbmap);
+          uint64_t indjmp_addr = ICFG[indjmp_bb].Term.Addr;
 
           ida_flowgraph_t::out_edge_iterator eit, eit_end;
           std::tie(eit, eit_end) = boost::out_edges(node, flowgraph);
@@ -542,7 +543,7 @@ int IDATool::Run(void) {
 
                             llvm::errs()
                                 << __ANSI_CYAN
-                                << symbolizer.addr2desc(binary, node_addr)
+                                << symbolizer.addr2desc(binary, indjmp_addr)
                                 << " -> "
                                 << symbolizer.addr2desc(binary, our_addr)
                                 << __ANSI_NORMAL_COLOR << '\n';
@@ -572,7 +573,7 @@ int IDATool::Run(void) {
           // processed
           //
           {
-            std::string msgPreamble = symbolizer.addr2desc(binary, node_addr) + " -> { ";
+            std::string msgPreamble = symbolizer.addr2desc(binary, indjmp_addr) + " -> { ";
             llvm::errs() << msgPreamble;
             for (unsigned i = 0; i < N; ++i) {
               uint64_t succ_addr = targets_addr_vec[i];
