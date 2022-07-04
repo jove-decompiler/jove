@@ -59,6 +59,9 @@ Opts.DebugFileDirectory = ""; // ClDebugFileDirectory;
 }
 
 std::string symbolizer_t::addr2desc(const binary_t &binary, tcg_uintptr_t Addr) {
+  if (Addr == 0 || ~Addr == 0)
+    return "??";
+
   std::string desc =
     (fmt("%s+0x%08x")
      % fs::path(binary.Path).filename().string()
