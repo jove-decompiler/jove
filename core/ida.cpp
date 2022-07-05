@@ -221,6 +221,13 @@ bool ReadIDAFlowgraphFromGDLFile(const char *filepath, ida_flowgraph_t &out) {
           s[2] == 'b' &&
           s[3] == '_')
         s = s.substr(4); /* chop off prefix */
+
+      if (s.size() > 4 &&
+          s[0] == 'd' &&
+          s[1] == 'e' &&
+          s[2] == 'f' &&
+          s[3] == '_')
+        s = s.substr(4); /* chop off prefix */
     }
 
     bool is_hexaddr = std::all_of(s.begin(), s.end(), ::isxdigit);
