@@ -632,7 +632,13 @@ int IDATool::Run(void) {
                     << desc
                     << color_end_cstr;
               }
-              llvm::errs() << " }\n";
+              llvm::errs() << " }";
+
+              if (opts.Verbose)
+                llvm::errs() << " (function "
+                             << symbolizer.addr2desc(binary, entry_addr) << ")";
+
+              llvm::errs() << '\n';
             }
 
             //
