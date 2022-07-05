@@ -101,9 +101,6 @@ static std::pair<void *, unsigned> GetVDSO(void);
 
 static std::string program_interpreter_of_executable(const char *exepath);
 
-static ssize_t robust_read(int fd, void *const buf, const size_t count);
-static ssize_t robust_write(int fd, const void *const buf, const size_t count);
-
 #if defined(TARGET_MIPS32)
 static const uint8_t a_vdso[] = {
   0x17, 0x10, 0x02, 0x24, 0x0c, 0x00, 0x00, 0x00, 0x61, 0x10, 0x02, 0x24,
@@ -1082,44 +1079,6 @@ unsigned GetVDSOSize(void) {
   fclose(fp);
 
   return res;
-}
-
-template <bool IsRead>
-static ssize_t robust_read_or_write(int fd, void *const buf, const size_t count) {
-  uint8_t *const _buf = (uint8_t *)buf;
-
-  unsigned n = 0;
-  do {
-    unsigned left = count - n;
-
-    ssize_t ret = IsRead ? read(fd, &_buf[n], left) :
-                          write(fd, &_buf[n], left);
-
-    if (ret == 0)
-      return -EIO;
-
-    if (ret < 0) {
-      int err = errno;
-
-      if (err == EINTR)
-        continue;
-
-      return -err;
-    }
-
-    n += ret;
-  } while (n != count);
-
-  return n;
-}
-
-
-ssize_t robust_read(int fd, void *const buf, const size_t count) {
-  return robust_read_or_write<true /* r */>(fd, buf, count);
-}
-
-ssize_t robust_write(int fd, const void *const buf, const size_t count) {
-  return robust_read_or_write<false /* w */>(fd, const_cast<void *>(buf), count);
 }
 
 static std::mutex mtx;
