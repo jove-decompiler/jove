@@ -328,6 +328,52 @@ int IDATool::Run(void) {
     fs::path flowgraphs_dir = tmp_dir / std::to_string(BIdx);
     fs::create_directories(flowgraphs_dir);
 
+
+    //
+    // hide split debug information from IDA Pro (XXX HACK)
+    //
+    std::unique_ptr<obj::Binary> &Bin = BinOrErr.get();
+
+    if (!llvm::isa<ELFO>(Bin.get())) {
+      HumanOut() << "is not ELF of expected type\n";
+      return;
+    }
+
+    ELFO &O = *llvm::cast<ELFO>(Bin.get());
+    const ELFF &E = *O.getELFFile();
+
+    bool DidWeHideSplitDebugInfoFromIDA = false;
+
+    fs::path splitDbgInfo;
+    llvm::Optional<llvm::ArrayRef<uint8_t>> optionalBuildID = getBuildID(E);
+    if (optionalBuildID) {
+      llvm::ArrayRef<uint8_t> BuildID = *optionalBuildID;
+
+      splitDbgInfo =
+          fs::path("/usr/lib/debug") / ".build-id" /
+          llvm::toHex(BuildID[0], /*LowerCase=*/true) /
+          (llvm::toHex(BuildID.slice(1), /*LowerCase=*/true) + ".debug");
+
+      if (fs::exists(splitDbgInfo)) {
+        DidWeHideSplitDebugInfoFromIDA  = true;
+
+        fs::path sav_path =
+            tmp_dir / (splitDbgInfo.filename().string() + ".debug");
+
+        if (opts.Verbose)
+          WithColor::note() << llvm::formatv("XXX hiding split debug file {0}\n",
+                                             sav_path.c_str());
+
+        if (rename(splitDbgInfo.c_str(), sav_path.c_str()) < 0) {
+          int err = errno;
+          WithColor::warning() << llvm::formatv(
+              "failed to hide split debug file: {0}\n", strerror(err));
+
+          DidWeHideSplitDebugInfoFromIDA = false;
+        }
+      }
+    }
+
     //
     // run IDA
     //
@@ -376,6 +422,19 @@ int IDATool::Run(void) {
     // check exit code
     //
     int ret = WaitForProcessToExit(pid);
+
+    if (DidWeHideSplitDebugInfoFromIDA) {
+      if (opts.Verbose)
+        WithColor::note() << llvm::formatv("XXX restoring split debug file {0}\n",
+                                           splitDbgInfo.c_str());
+
+      fs::path sav_path = tmp_dir / (splitDbgInfo.filename().string() + ".debug");
+      if (rename(sav_path.c_str(), splitDbgInfo.c_str()) < 0) {
+        int err = errno;
+        HumanOut() << llvm::formatv("failed to restore split debug info file: {0}\n",
+                                    strerror(err));
+      }
+    }
 
     if (opts.Verbose) {
       //
@@ -690,6 +749,7 @@ int IDATool::Run(void) {
       process_flowgraph(binary, flowgraph);
     }
   };
+
 
   if (is_binary_index_valid(SingleBinaryIndex))
     process_binary(decompilation.Binaries.at(SingleBinaryIndex));
