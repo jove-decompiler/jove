@@ -220,44 +220,6 @@ static std::atomic<bool> FileSystemRestored(false);
 
 static void *recover_proc(const char *fifo_path);
 
-template <bool IsRead>
-static ssize_t robust_read_or_write(int fd, void *const buf, const size_t count) {
-  uint8_t *const _buf = (uint8_t *)buf;
-
-  unsigned n = 0;
-  do {
-    unsigned left = count - n;
-
-    ssize_t ret = IsRead ? read(fd, &_buf[n], left) :
-                          write(fd, &_buf[n], left);
-
-    if (ret == 0)
-      return -EIO;
-
-    if (ret < 0) {
-      int err = errno;
-
-      if (err == EINTR)
-        continue;
-
-      return -err;
-    }
-
-    n += ret;
-  } while (n != count);
-
-  return n;
-}
-
-
-static ssize_t robust_read(int fd, void *const buf, const size_t count) {
-  return robust_read_or_write<true /* r */>(fd, buf, count);
-}
-
-static ssize_t robust_write(int fd, const void *const buf, const size_t count) {
-  return robust_read_or_write<false /* w */>(fd, const_cast<void *>(buf), count);
-}
-
 static std::atomic<bool> interrupt_sleep;
 
 static constexpr unsigned MAX_UMOUNT_RETRIES = 10;
@@ -1210,16 +1172,16 @@ void *recover_proc(const char *fifo_path) {
         {
           ssize_t ret;
 
-          ret = robust_read(recover_fd, &Caller.BIdx, sizeof(uint32_t));
+          ret = Tool::robust_read(recover_fd, &Caller.BIdx, sizeof(uint32_t));
           assert(ret == sizeof(uint32_t));
 
-          ret = robust_read(recover_fd, &Caller.BBIdx, sizeof(uint32_t));
+          ret = Tool::robust_read(recover_fd, &Caller.BBIdx, sizeof(uint32_t));
           assert(ret == sizeof(uint32_t));
 
-          ret = robust_read(recover_fd, &Callee.BIdx, sizeof(uint32_t));
+          ret = Tool::robust_read(recover_fd, &Callee.BIdx, sizeof(uint32_t));
           assert(ret == sizeof(uint32_t));
 
-          ret = robust_read(recover_fd, &Callee.FIdx, sizeof(uint32_t));
+          ret = Tool::robust_read(recover_fd, &Callee.FIdx, sizeof(uint32_t));
           assert(ret == sizeof(uint32_t));
         }
 
@@ -1238,13 +1200,13 @@ void *recover_proc(const char *fifo_path) {
         {
           ssize_t ret;
 
-          ret = robust_read(recover_fd, &IndBr.BIdx, sizeof(uint32_t));
+          ret = Tool::robust_read(recover_fd, &IndBr.BIdx, sizeof(uint32_t));
           assert(ret == sizeof(uint32_t));
 
-          ret = robust_read(recover_fd, &IndBr.BBIdx, sizeof(uint32_t));
+          ret = Tool::robust_read(recover_fd, &IndBr.BBIdx, sizeof(uint32_t));
           assert(ret == sizeof(uint32_t));
 
-          ret = robust_read(recover_fd, &Addr, sizeof(uintptr_t));
+          ret = Tool::robust_read(recover_fd, &Addr, sizeof(uintptr_t));
           assert(ret == sizeof(uintptr_t));
         }
 
@@ -1265,16 +1227,16 @@ void *recover_proc(const char *fifo_path) {
         {
           ssize_t ret;
 
-          ret = robust_read(recover_fd, &IndCall.BIdx, sizeof(uint32_t));
+          ret = Tool::robust_read(recover_fd, &IndCall.BIdx, sizeof(uint32_t));
           assert(ret == sizeof(uint32_t));
 
-          ret = robust_read(recover_fd, &IndCall.BBIdx, sizeof(uint32_t));
+          ret = Tool::robust_read(recover_fd, &IndCall.BBIdx, sizeof(uint32_t));
           assert(ret == sizeof(uint32_t));
 
-          ret = robust_read(recover_fd, &Callee.BIdx, sizeof(uint32_t));
+          ret = Tool::robust_read(recover_fd, &Callee.BIdx, sizeof(uint32_t));
           assert(ret == sizeof(uint32_t));
 
-          ret = robust_read(recover_fd, &Callee.Addr, sizeof(uintptr_t));
+          ret = Tool::robust_read(recover_fd, &Callee.Addr, sizeof(uintptr_t));
           assert(ret == sizeof(uintptr_t));
         }
 
@@ -1291,10 +1253,10 @@ void *recover_proc(const char *fifo_path) {
         {
           ssize_t ret;
 
-          ret = robust_read(recover_fd, &NewABI.BIdx, sizeof(uint32_t));
+          ret = Tool::robust_read(recover_fd, &NewABI.BIdx, sizeof(uint32_t));
           assert(ret == sizeof(uint32_t));
 
-          ret = robust_read(recover_fd, &NewABI.FIdx, sizeof(uint32_t));
+          ret = Tool::robust_read(recover_fd, &NewABI.FIdx, sizeof(uint32_t));
           assert(ret == sizeof(uint32_t));
         }
 
@@ -1309,10 +1271,10 @@ void *recover_proc(const char *fifo_path) {
         {
           ssize_t ret;
 
-          ret = robust_read(recover_fd, &Call.BIdx, sizeof(uint32_t));
+          ret = Tool::robust_read(recover_fd, &Call.BIdx, sizeof(uint32_t));
           assert(ret == sizeof(uint32_t));
 
-          ret = robust_read(recover_fd, &Call.BBIdx, sizeof(uint32_t));
+          ret = Tool::robust_read(recover_fd, &Call.BBIdx, sizeof(uint32_t));
           assert(ret == sizeof(uint32_t));
         }
 
