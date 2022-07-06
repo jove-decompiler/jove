@@ -386,7 +386,9 @@ struct tiny_code_generator_private_t {
 };
 
 tiny_code_generator_t::tiny_code_generator_t()
-    : priv(new tiny_code_generator_private_t) {}
+    : priv(std::make_unique<tiny_code_generator_private_t>()) {}
+
+tiny_code_generator_t::~tiny_code_generator_t() {}
 
 void tiny_code_generator_t::set_elf(const void *e) {
   priv->set_elf(e);
