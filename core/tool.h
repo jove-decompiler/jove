@@ -63,6 +63,10 @@ public:
                                        const decompilation_t &);
   static ssize_t robust_read(int fd, void *const buf, const size_t count);
   static ssize_t robust_write(int fd, const void *const buf, const size_t count);
+  static uint32_t size_of_file32(const char *path);
+  static ssize_t robust_sendfile(int socket, const char *file_path, size_t file_size);
+  static ssize_t robust_sendfile_with_size(int socket, const char *file_path);
+  static ssize_t robust_receive_file_with_size(int socket, const char *out, unsigned file_perm);
 };
 
 typedef Tool *(*ToolCreationProc)(void);

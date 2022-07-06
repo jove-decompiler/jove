@@ -1,7 +1,6 @@
 #include "tool.h"
 #include <stdexcept>
 #include <fstream>
-#include <signal.h>
 #include <llvm/Support/WithColor.h>
 #include <llvm/Support/InitLLVM.h>
 #include <llvm/Support/FormatVariadic.h>
@@ -13,6 +12,11 @@
 #include <boost/serialization/set.hpp>
 #include <boost/serialization/vector.hpp>
 #include <boost/graph/adj_list_serialize.hpp>
+
+#include <fcntl.h>
+#include <signal.h>
+#include <sys/sendfile.h>
+#include <sys/stat.h>
 
 namespace jove {
 
@@ -325,6 +329,126 @@ ssize_t Tool::robust_read(int fd, void *const buf, const size_t count) {
 
 ssize_t Tool::robust_write(int fd, const void *const buf, const size_t count) {
   return robust_read_or_write<false /* w */>(fd, const_cast<void *>(buf), count);
+}
+
+uint32_t Tool::size_of_file32(const char *path) {
+  uint32_t res;
+  {
+    struct stat st;
+    if (stat(path, &st) < 0) {
+      int err = errno;
+      WithColor::error() << llvm::formatv("stat failed: {0}\n", strerror(err));
+      return 0;
+    }
+
+    res = st.st_size;
+  }
+
+  return res;
+}
+
+ssize_t Tool::robust_sendfile(int socket, const char *file_path, size_t file_size) {
+  int fd = open(file_path, O_RDONLY);
+
+  if (fd < 0)
+    return -errno;
+
+  struct closeme_t {
+    int fd;
+    closeme_t (int fd) : fd(fd) {}
+    ~closeme_t() { close(fd); }
+  } closeme(fd);
+
+  const size_t saved_file_size = file_size;
+
+  do {
+    ssize_t ret = sendfile(socket, fd, nullptr, file_size);
+
+    if (ret == 0)
+      return -EIO;
+
+    if (ret < 0) {
+      int err = errno;
+      WithColor::error() << llvm::formatv("sendfile failed: {0}\n",
+                                          strerror(err));
+      return -err;
+    }
+
+    file_size -= ret;
+  } while (file_size != 0);
+
+  return saved_file_size;
+}
+
+// TODO refactor
+ssize_t Tool::robust_sendfile_with_size(int socket, const char *file_path) {
+  ssize_t ret;
+
+  uint32_t file_size = size_of_file32(file_path);
+
+  std::string file_size_str = std::to_string(file_size);
+
+  ret = robust_write(socket, file_size_str.c_str(), file_size_str.size() + 1);
+  if (ret < 0)
+    return ret;
+
+  ret = robust_sendfile(socket, file_path, file_size);
+  if (ret < 0)
+    return ret;
+
+  return file_size;
+}
+
+ssize_t Tool::robust_receive_file_with_size(int socket, const char *out, unsigned file_perm) {
+  uint32_t file_size;
+  {
+    std::string file_size_str;
+
+    char ch;
+    do {
+      ssize_t n = robust_read(socket, &ch, sizeof(char));
+      if (n < 0)
+        return n;
+
+      assert(n == sizeof(char));
+
+      file_size_str.push_back(ch);
+    } while (ch != '\0');
+
+    file_size = std::atoi(file_size_str.c_str());
+  }
+  assert(file_size > 0);
+
+  std::vector<uint8_t> buff;
+  buff.resize(file_size);
+
+  {
+    ssize_t res = robust_read(socket, &buff[0], buff.size());
+    if (res < 0)
+      return res;
+  }
+
+  ssize_t res = -EBADF;
+  {
+    int fd = open(out, O_WRONLY | O_TRUNC | O_CREAT, file_perm);
+    if (fd < 0) {
+      int err = errno;
+      WithColor::error() << llvm::formatv("failed to receive file {0}: {1}\n",
+                                          out, strerror(err));
+      return -err;
+    }
+
+    res = robust_write(fd, &buff[0], buff.size());
+
+    if (close(fd) < 0) {
+      int err = errno;
+      WithColor::error() << llvm::formatv("failed to close received file {0}: {1}\n",
+                                          out, strerror(err));
+      return -err;
+    }
+  }
+
+  return res;
 }
 
 }
