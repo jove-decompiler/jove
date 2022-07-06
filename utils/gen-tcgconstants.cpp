@@ -1,4 +1,4 @@
-#include "tcgcommon.hpp"
+#include "tcg.cpp.inc"
 #include <llvm/Support/InitLLVM.h>
 #include <array>
 

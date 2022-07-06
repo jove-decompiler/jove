@@ -1,4 +1,4 @@
-#include "tcgcommon.hpp"
+#include "tcg.cpp.inc"
 #include "elf.h"
 #include "tool.h"
 #include <boost/algorithm/string/replace.hpp>
