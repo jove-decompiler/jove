@@ -36,7 +36,8 @@ void RegisterTool(const char *name, ToolCreationProc proc) {
 using llvm::WithColor;
 
 int main(int argc, char **argv) {
-  std::string usage =
+  auto usage = [&](void) -> std::string {
+    std::string res =
 "jove " JOVE_VERSION " multi-call binary." "\n"
 "\n"
 "Usage: jove [tool [arguments]...]"        "\n"
@@ -45,11 +46,14 @@ int main(int argc, char **argv) {
 "Currently defined tools:"                 "\n"
 "       ";
 
-  for (const auto &x : jove::AllTools) {
-    usage.push_back(' ');
-    usage.append(x.first);
-  }
-  usage.push_back('\n');
+    for (const auto &x : jove::AllTools) {
+      res.push_back(' ');
+      res.append(x.first);
+    }
+    res.push_back('\n');
+
+    return res;
+  };
 
   //
   // scan for '--' on the command-line, and if found, collect trailing arguments
@@ -109,7 +113,7 @@ int main(int argc, char **argv) {
     // interpret first argument as tool to call
     //
     if (argc < 2) {
-      llvm::errs() << usage;
+      llvm::errs() << usage();
       return 1;
     }
 
@@ -126,7 +130,7 @@ int main(int argc, char **argv) {
       }
     }
 
-    llvm::errs() << llvm::formatv("unknown tool '{0}'\n{1}", tool_name, usage);
+    llvm::errs() << llvm::formatv("unknown tool '{0}'\n{1}", tool_name, usage());
     return 1;
 
 found_tool:
@@ -155,7 +159,7 @@ found_tool:
   }
 
   if (!tool) {
-    llvm::errs() << usage;
+    llvm::errs() << usage();
     return 1;
   }
 
