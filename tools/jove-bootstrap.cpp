@@ -8,6 +8,7 @@
 #include "tcg.h"
 #include "explore.h"
 #include <array>
+#include <boost/algorithm/string/predicate.hpp>
 #include <boost/dll/runtime_symbol_info.hpp>
 #include <boost/dynamic_bitset.hpp>
 #include <boost/filesystem.hpp>
@@ -53,6 +54,7 @@
 #if defined(__mips__)
 #include <asm/ptrace.h> /* for pt_regs */
 #endif
+#include <sys/mman.h>
 //#include <linux/ptrace.h>
 
 #include "jove_macros.h"
@@ -427,6 +429,9 @@ int BootstrapTool::Run(void) {
   // verify that the binaries on-disk are those found in the Decompilation.
   //
   for (binary_t &binary : Decompilation.Binaries) {
+    if (binary.IsExecutable)
+      continue;
+
     if (binary.IsVDSO) {
       //
       // check that the VDSO hasn't changed
@@ -896,7 +901,8 @@ int BootstrapTool::TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &
         if (err == EINTR)
           continue;
 
-        HumanOut() << llvm::formatv("exiting... ({0})\n", strerror(err));
+        if (opts.Verbose)
+          HumanOut() << llvm::formatv("exiting... ({0})\n", strerror(err));
         break;
       }
 
@@ -3924,7 +3930,17 @@ int BootstrapTool::ChildProc(int pipefd) {
   // signal-delivery-stop.
   //
 
-  execve(arg_vec[0],
+  std::string name = "jove/bootstrap" + Decompilation.Binaries.at(0).Path;
+  int fd = memfd_create(name.c_str(), MFD_CLOEXEC);
+  if (fd < 0)
+    abort();
+  if (robust_write(fd,
+                   &Decompilation.Binaries.at(0).Data[0],
+                   Decompilation.Binaries.at(0).Data.size()) < 0)
+    abort();
+  std::string exe_path = "/proc/self/fd/" + std::to_string(fd);
+
+  execve(exe_path.c_str(),
          const_cast<char **>(&arg_vec[0]),
          const_cast<char **>(&env_vec[0]));
 
@@ -3934,6 +3950,7 @@ int BootstrapTool::ChildProc(int pipefd) {
                               strerror(err));
 
   close(pipefd);
+  close(fd);
   return 1;
 }
 
@@ -3984,7 +4001,16 @@ bool load_proc_maps(pid_t child, std::vector<struct proc_map_t> &out) {
     proc_map.w = perm.w == 'w';
     proc_map.x = perm.x == 'x';
     proc_map.p = flag_p == 'p';
-    proc_map.nm = path;
+
+    std::string nm(path);
+
+    //
+    // XXX check for "/memfd:jove/bootstrap" prefix
+    //
+    if (boost::algorithm::starts_with(nm, "/memfd:jove/bootstrap"))
+      nm = nm.substr(sizeof("/memfd:jove/bootstrap") - 1);
+
+    proc_map.nm = nm;
   }
 
   free(line);
