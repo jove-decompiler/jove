@@ -292,10 +292,30 @@ void Tool::ReadDecompilationFromFile(const std::string &path,
 
 void Tool::WriteDecompilationToFile(const std::string &path,
                                     const decompilation_t &in) {
-  std::ofstream ofs(path);
+  char tmp_fp[] = {'/', 't', 'm', 'p', '/', 'j', 'v', '.',
+                   'X', 'X', 'X', 'X', 'X', 'X', '\0'};
+  int fd = mkstemp(tmp_fp);
+  if (fd < 0) {
+    int err = errno;
+    HumanOut() << "WriteDecompilationToFile: mkstemp failed: " << strerror(err);
 
-  boost::archive::text_oarchive oa(ofs);
-  oa << in;
+    strcpy(tmp_fp, "/tmp/tmp.jv");
+  } else {
+    if (close(fd) < 0) {
+     int err = errno;
+     HumanOut() << "WriteDecompilationToFile: closing temporary file failed: "
+                << strerror(err);
+    }
+  }
+
+  {
+    std::ofstream ofs(tmp_fp);
+
+    boost::archive::text_oarchive oa(ofs);
+    oa << in;
+  }
+
+  rename(tmp_fp, path.c_str()); /* atomically replace old with new */
 }
 
 template <bool IsRead>

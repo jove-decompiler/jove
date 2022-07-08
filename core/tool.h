@@ -56,11 +56,12 @@ public:
     print_command(&arg_vec[0]);
   }
 
-  static void ReadDecompilationFromFile(const std::string &path,
-                                        decompilation_t &);
+  void ReadDecompilationFromFile(const std::string &path,
+                                 decompilation_t &);
 
-  static void WriteDecompilationToFile(const std::string &path,
-                                       const decompilation_t &);
+  void WriteDecompilationToFile(const std::string &path,
+                                const decompilation_t &);
+
   static ssize_t robust_read(int fd, void *const buf, const size_t count);
   static ssize_t robust_write(int fd, const void *const buf, const size_t count);
   static uint32_t size_of_file32(const char *path);
