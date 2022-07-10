@@ -292,19 +292,21 @@ void Tool::ReadDecompilationFromFile(const std::string &path,
 
 void Tool::WriteDecompilationToFile(const std::string &path,
                                     const decompilation_t &in) {
-  char tmp_fp[] = {'/', 't', 'm', 'p', '/', 'j', 'v', '.',
-                   'X', 'X', 'X', 'X', 'X', 'X', '\0'};
-  int fd = mkstemp(tmp_fp);
+  std::string tmp_fp(path);
+  tmp_fp.append(".XXXXXX");
+
+  int fd = mkstemp(&tmp_fp[0]);
   if (fd < 0) {
     int err = errno;
-    HumanOut() << "WriteDecompilationToFile: mkstemp failed: " << strerror(err);
-
-    strcpy(tmp_fp, "/tmp/tmp.jv");
+    throw std::runtime_error(
+        "WriteDecompilationToFile: failed to make temporary file: " +
+        std::string(strerror(err)));
   } else {
     if (close(fd) < 0) {
-     int err = errno;
-     HumanOut() << "WriteDecompilationToFile: closing temporary file failed: "
-                << strerror(err);
+      int err = errno;
+      throw std::runtime_error(
+          "WriteDecompilationToFile: closing temporary file failed: " +
+          std::string(strerror(err)));
     }
   }
 
@@ -315,7 +317,11 @@ void Tool::WriteDecompilationToFile(const std::string &path,
     oa << in;
   }
 
-  rename(tmp_fp, path.c_str()); /* atomically replace old with new */
+  if (rename(tmp_fp.c_str(), path.c_str()) < 0) { /* atomically replace */
+    int err = errno;
+    throw std::runtime_error("WriteDecompilationToFile: failed to rename: " +
+                             std::string(strerror(err)));
+  }
 }
 
 template <bool IsRead>
