@@ -3,7 +3,7 @@ _jove()
     local cur=${COMP_WORDS[COMP_CWORD]}
     COMPREPLY=()
     if [[ "$COMP_CWORD" == "1" ]]; then
-      COMPREPLY=( $(compgen -W "check-helpers add analyze bootstrap cfg dig dump extract ida init invalidate llvm loop readtrace recompile recover run score server stub trace2addrs trace2asm trace2lines trace jv2xml tcgdump" -- $cur) )
+      COMPREPLY=( $(compgen -W "check-helpers add analyze bootstrap cfg dig dump extract ida init invalidate llvm loop readtrace recompile recover run score server stub trace2addrs trace2asm trace2lines trace unstub jv2xml tcgdump" -- $cur) )
     else
       _filedir
     fi
