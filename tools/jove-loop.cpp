@@ -811,62 +811,6 @@ skip_run:
       fs::create_symlink(fs::canonical(jv_path), fs::path(opts.sysroot) / ".jv");
 
       //
-      // (1) copy dynamic linker
-      //
-      std::string rtld_soname;
-
-      for (binary_t &b : decompilation.Binaries) {
-        if (!b.IsDynamicLinker)
-          continue;
-
-        //
-        // we have the binary data in the decompilation. let's use it
-        //
-        fs::path rtld_path = fs::path(opts.sysroot) / b.Path;
-
-        fs::create_directories(rtld_path.parent_path());
-
-        {
-          int fd;
-          for (;;) {
-            fd = open(rtld_path.c_str(), O_WRONLY | O_TRUNC | O_CREAT, 0777);
-            if (fd < 0) {
-              switch (errno) {
-              case EBUSY:
-              case EINTR:
-                continue;
-              }
-            }
-
-            break;
-          }
-
-          if (fd < 0) {
-            int err = errno;
-            HumanOut() << llvm::formatv(
-                "failed to open fd to dynamic linker in sysroot: {0}\n",
-                strerror(err));
-          } else {
-            ssize_t ret = robust_write(fd, &b.Data[0], b.Data.size());
-            if (ret < 0) {
-              HumanOut() << llvm::formatv(
-                  "failed to write dynamic linker to sysroot: {0}\n",
-                  strerror(-ret));
-            }
-
-            if (close(fd) < 0) {
-              int err = errno;
-              HumanOut() << llvm::formatv(
-                  "failed to close dynamic linker path in sysroot: {0}\n",
-                  strerror(err));
-            }
-          }
-        }
-
-        break;
-      }
-
-      //
       // create basic directories (for chroot) XXX duplicated code from recompile
       //
       if (!opts.NoChroot) {
