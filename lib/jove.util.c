@@ -291,6 +291,52 @@ static _INL _UNUSED uintptr_t _get_stack_end(void) {
   return res;
 }
 
+static _INL _UNUSED char *_getenv(const char *name) {
+  static char envs[4096 * 32];
+  static unsigned envs_n = 0;
+
+  if (!envs_n) {
+    envs_n = _jove_read_pseudo_file("/proc/self/environ", envs, sizeof(envs));
+    envs[envs_n] = '\0';
+  }
+
+  unsigned name_len = _strlen(name);
+
+  char *const beg = &envs[0];
+  char *const end = &envs[envs_n];
+
+  char *eoe;
+  for (char *env = beg; env != end; env = eoe + 1) {
+    unsigned left = envs_n - (env - beg);
+
+    //
+    // find the end of the current entry
+    //
+    eoe = _memchr(env, '\0', left);
+
+    {
+      const char *s1 = name;
+      const char *s2 = env;
+      for (;;) {
+        char ch1 = *s1++;
+        char ch2 = *s2++;
+
+        if (ch1 != ch2)
+          break;
+
+        if ((s1 - name) == name_len) {
+          if (*s2 == '=')
+            return s2 + 1;
+
+          break;
+        }
+      }
+    }
+  }
+
+  return NULL;
+}
+
 static _INL _UNUSED size_t _sum_iovec_lengths(const struct iovec *iov, unsigned n) {
   size_t expected = 0;
   for (unsigned i = 0; i < n; ++i)

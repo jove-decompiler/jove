@@ -4,13 +4,9 @@
 
 _HIDDEN void _jove_recover_dyn_target(uint32_t CallerBBIdx,
                                       uintptr_t CalleeAddr) {
-#if 0
   char *recover_fifo_path = _getenv("JOVE_RECOVER_FIFO");
   if (!recover_fifo_path)
-    return;
-#else
-  const char *recover_fifo_path = "/jove-recover.fifo";
-#endif
+    _UNREACHABLE("missing JOVE_RECOVER_FIFO environment variable");
 
   uint32_t CallerBIdx = _jove_binary_index();
 
@@ -268,13 +264,9 @@ found:
 
 void _jove_recover_function(uint32_t IndCallBBIdx,
                             uintptr_t FuncAddr) {
-#if 0
   char *recover_fifo_path = _getenv("JOVE_RECOVER_FIFO");
   if (!recover_fifo_path)
-    return;
-#else
-  const char *recover_fifo_path = "/jove-recover.fifo";
-#endif
+    _UNREACHABLE("missing JOVE_RECOVER_FIFO environment variable");
 
   struct {
     uint32_t BIdx;
@@ -344,13 +336,9 @@ found:
 
 _HIDDEN void _jove_recover_basic_block(uint32_t IndBrBBIdx,
                                        uintptr_t BBAddr) {
-#if 0
   char *recover_fifo_path = _getenv("JOVE_RECOVER_FIFO");
   if (!recover_fifo_path)
-    return;
-#else
-  const char *recover_fifo_path = "/jove-recover.fifo";
-#endif
+    _UNREACHABLE("missing JOVE_RECOVER_FIFO environment variable");
 
   struct {
     uint32_t BIdx;
@@ -404,13 +392,9 @@ found:
 }
 
 _HIDDEN void _jove_recover_returned(uint32_t CallerBBIdx) {
-#if 0
   char *recover_fifo_path = _getenv("JOVE_RECOVER_FIFO");
   if (!recover_fifo_path)
-    return;
-#else
-  const char *recover_fifo_path = "/jove-recover.fifo";
-#endif
+    _UNREACHABLE("missing JOVE_RECOVER_FIFO environment variable");
 
   struct {
     uint32_t BIdx;
@@ -447,13 +431,9 @@ found:
 }
 
 _HIDDEN void _jove_recover_ABI(uint32_t FIdx) {
-#if 0
   char *recover_fifo_path = _getenv("JOVE_RECOVER_FIFO");
   if (!recover_fifo_path)
-    return;
-#else
-  const char *recover_fifo_path = "/jove-recover.fifo";
-#endif
+    _UNREACHABLE("missing JOVE_RECOVER_FIFO environment variable");
 
   struct {
     uint32_t BIdx;

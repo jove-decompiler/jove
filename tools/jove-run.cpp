@@ -479,23 +479,35 @@ int RunTool::DoRun(void) {
 #undef __BIND_MOUNT_FILE
 
   //
-  // create recover fifo
+  // code recovery fifo. why don't we use an anonymous pipe? because the
+  // program being recompiled may decide to close all the file descriptors
   //
-  fs::path recover_fifo_path =
-      WillChroot ? fs::path(opts.sysroot) / "jove-recover.fifo"
-                 : "/jove-recover.fifo";
-  unlink(recover_fifo_path.c_str());
-  if (mkfifo(recover_fifo_path.c_str(), 0666) < 0) {
-    HumanOut() << llvm::formatv("mkfifo failed : %s\n", strerror(errno));
+  std::string fifo_dir;
+  if (WillChroot)
+    fifo_dir = opts.sysroot;
+  fifo_dir.append("/tmp/jXXXXXX");
+
+  if (!mkdtemp(&fifo_dir[0])) {
+    int err = errno;
+    throw std::runtime_error("failed to make temporary directory: " +
+                             std::string(strerror(err)));
+  }
+
+  std::string fifo_path = fifo_dir + "/jove.fifo";
+  if (mkfifo(fifo_path.c_str(), 0666) < 0) {
+    int err = errno;
+    HumanOut() << llvm::formatv("mkfifo failed : %s\n", strerror(err));
     return 1;
   }
+
+  std::string fifo_file_path = fs::canonical(fifo_path).string();
 
   //
   // create thread reading from fifo
   //
   pthread_t recover_thd;
   if (pthread_create(&recover_thd, nullptr, (void *(*)(void *))recover_proc,
-                     (void *)recover_fifo_path.c_str()) != 0) {
+                     (void *)fifo_file_path.c_str()) != 0) {
     HumanOut() << "failed to create recover_proc thread\n";
     return 1;
   }
@@ -749,6 +761,9 @@ int RunTool::DoRun(void) {
       for (char **p = ::environ; *p; ++p)
         env_vec.push_back(*p);
     }
+
+    std::string fifo_env("JOVE_RECOVER_FIFO=" + fifo_file_path);
+    env_vec.push_back(fifo_env.c_str());
 
 #if defined(TARGET_X86_64)
     // <3 glibc
@@ -1019,10 +1034,7 @@ int RunTool::DoRun(void) {
               recover_retval);
   }
 
-  if (unlink(recover_fifo_path.c_str()) < 0) {
-    int err = errno;
-    HumanOut() << llvm::formatv("unlink of recover pipe failed: {0}\n", strerror(err));
-  }
+  fs::remove_all(fifo_dir);
 
 #if 0 /* is this necessary? */
   if (umount2(opts.sysroot, 0) < 0)
