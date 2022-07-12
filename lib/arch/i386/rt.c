@@ -28,8 +28,8 @@ _REGPARM _HIDDEN void _jove_free_stack_later(uintptr_t);
 _REGPARM _HIDDEN void _jove_free_callstack(uintptr_t);
 _NAKED static void _jove_do_rt_sigreturn(void);
 
-#include "rt.util.c"
 #include "rt.arch.c"
+#include "rt.util.c"
 #include "rt.common.c"
 
 void _jove_do_rt_sigreturn(void) {

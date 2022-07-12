@@ -78,8 +78,8 @@ _HIDDEN uintptr_t _jove_alloc_stack(void);
 _HIDDEN void _jove_free_stack(uintptr_t);
 
 #include "jove.llvm.c"
-#include "jove.util.c"
 #include "jove.arch.c"
+#include "jove.util.c"
 #include "jove.common.c"
 #include "jove.recover.c"
 

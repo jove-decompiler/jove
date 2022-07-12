@@ -59,8 +59,8 @@ _NAKED jove_thunk_return_t _jove_thunk4(uint32_t a0,
 _HIDDEN uintptr_t _jove_get_init_fn_sect_ptr(void);
 
 #include "jove.llvm.c"
-#include "jove.util.c"
 #include "jove.arch.c"
+#include "jove.util.c"
 #include "jove.common.c"
 #include "jove.recover.c"
 

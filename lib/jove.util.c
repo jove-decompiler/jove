@@ -392,8 +392,6 @@ static _UNUSED bool _jove_is_readable_mem(uintptr_t Addr) {
   return ret == sizeof(byte);
 }
 
-static uintptr_t _mmap_rw_anonymous_private_memory(size_t len);
-
 uintptr_t _jove_alloc_stack(void) {
   unsigned long ret = _mmap_rw_anonymous_private_memory(JOVE_STACK_SIZE);
   if (IS_ERR_VALUE(ret))

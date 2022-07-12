@@ -27,8 +27,8 @@
 #define JOVE_SYS_ATTR _HIDDEN _UNUSED
 #include "jove_sys.h"
 
-#include "rt.util.c"
 #include "rt.arch.c"
+#include "rt.util.c"
 #include "rt.common.c"
 
 void _jove_inverse_thunk(void) {

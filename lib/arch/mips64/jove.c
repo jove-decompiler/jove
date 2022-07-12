@@ -57,8 +57,8 @@ _NAKED jove_thunk_return_t _jove_thunk4(uint64_t a0,
                                         uint64_t *emuspp);
 
 #include "jove.llvm.c"
-#include "jove.util.c"
 #include "jove.arch.c"
+#include "jove.util.c"
 #include "jove.common.c"
 #include "jove.recover.c"
 
