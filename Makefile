@@ -181,7 +181,7 @@ helpers: $(HELPERS_BITCODE)
 
 define build_tool_obj_template
 $(BINDIR)/$(1)/%.o: $(TOOLSRCDIR)/%.cpp
-	@echo CXX $$< '<$(1)>'
+	@echo CXX '<$(1)>' $$<
 	@$(_LLVM_CXX) -o $$@ -c \
 	              -MMD \
 	              $(CXXFLAGS) \
@@ -195,7 +195,7 @@ $(foreach target,$(ALL_TARGETS),$(eval $(call build_tool_obj_template,$(target))
 
 define build_core_obj_template
 $(BINDIR)/$(1)/%.o: $(CORESRCDIR)/%.cpp
-	@echo CXX $$^ '<$(1)>'
+	@echo CXX '<$(1)>' $$^
 	@$(_LLVM_CXX) -o $$@ -c \
 	              -MMD \
 	              $(CXXFLAGS) \
