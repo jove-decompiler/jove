@@ -12,12 +12,6 @@
 #include <fstream>
 #include <algorithm>
 #include <boost/filesystem.hpp>
-#include <boost/archive/text_iarchive.hpp>
-#include <boost/graph/adj_list_serialize.hpp>
-#include <boost/serialization/bitset.hpp>
-#include <boost/serialization/map.hpp>
-#include <boost/serialization/set.hpp>
-#include <boost/serialization/vector.hpp>
 #include <boost/graph/breadth_first_search.hpp>
 #include <boost/pending/indirect_cmp.hpp>
 #include <boost/range/irange.hpp>
@@ -486,13 +480,9 @@ int DumpTool::Run(void) {
 
 void DumpTool::dumpInput(const std::string &Path) {
   decompilation_t decompilation;
-  {
-    std::ifstream ifs(fs::is_directory(Path) ? Path + "/decompilation.jv"
-                                             : Path);
-
-    boost::archive::text_iarchive ia(ifs);
-    ia >> decompilation;
-  }
+  ReadDecompilationFromFile(
+      fs::is_directory(Path) ? (Path + "/decompilation.jv") : Path,
+      decompilation);
 
   if (opts.ListBinaries) {
     for (const auto &binary : decompilation.Binaries) {
