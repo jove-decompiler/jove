@@ -165,7 +165,7 @@ struct RunTool : public Tool {
 public:
   RunTool() : opts(JoveCategory) {}
   ~RunTool() {
-    if (!opts.jv.empty())
+    if (!opts.jv.empty() && WasDecompilationModified.load())
       WriteDecompilationToFile(opts.jv, decompilation);
   }
 
@@ -173,6 +173,8 @@ public:
 
   template <bool WillChroot>
   int DoRun(void);
+
+  std::atomic<bool> WasDecompilationModified = false;
 };
 
 JOVE_REGISTER_TOOL("run", RunTool);
@@ -1288,6 +1290,8 @@ void *recover_proc(const char *fifo_path) {
     std::string msg;
     try {
       msg = do_recover();
+
+      tool.WasDecompilationModified.store(true);
     } catch (const std::exception &e) {
       tool.HumanOut() << llvm::formatv(
           __ANSI_RED "failed to recover: {0}" __ANSI_NORMAL_COLOR "\n",
