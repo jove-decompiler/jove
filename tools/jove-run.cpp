@@ -1283,7 +1283,9 @@ void *recover_proc(const char *fifo_path) {
         return tool.Recovery->Returns(Call.BIdx,
                                       Call.BBIdx);
       } else {
-        return (fmt("recover: unknown character: %c!") % ch).str();
+        std::string ch_s;
+        ch_s.push_back(ch);
+        throw std::runtime_error("unknown character \"" + ch_s + "\"");
       }
     };
 
