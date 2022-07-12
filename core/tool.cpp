@@ -285,6 +285,8 @@ void Tool::exec_tool(const char *name,
 void Tool::ReadDecompilationFromFile(const std::string &path,
                                      decompilation_t &out) {
   std::ifstream ifs(path);
+  if (!ifs.is_open())
+    throw std::runtime_error("ReadDecompilationFromFile: failed to open " + path);
 
   boost::archive::text_iarchive ia(ifs);
   ia >> out;
