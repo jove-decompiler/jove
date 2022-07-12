@@ -10,3 +10,7 @@ void _jove_sleep(void) {
 
   _jove_sys_nanosleep(&t, NULL);
 }
+
+int _jove_open(const char *path, int flags, mode_t mode) {
+  return _jove_sys_open(path, flags, mode);
+}

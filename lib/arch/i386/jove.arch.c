@@ -7,3 +7,7 @@ void _jove_sleep(void) {
   for (;;)
     _jove_sys_sched_yield(); /* TODO */
 }
+
+int _jove_open(const char *path, int flags, mode_t mode) {
+  return _jove_sys_open(path, flags, mode);
+}

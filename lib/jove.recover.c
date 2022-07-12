@@ -240,11 +240,7 @@ _HIDDEN void _jove_recover_dyn_target(uint32_t CallerBBIdx,
 
 found:
   {
-#ifdef __aarch64__
-    int recover_fd = _jove_sys_openat(-1, recover_fifo_path, O_WRONLY, 0666);
-#else
-    int recover_fd = _jove_sys_open(recover_fifo_path, O_WRONLY, 0666);
-#endif
+    int recover_fd = _jove_open(recover_fifo_path, O_WRONLY, 0666);
     if (recover_fd < 0)
       _UNREACHABLE("could not open recover fifo");
 
@@ -320,11 +316,7 @@ void _jove_recover_function(uint32_t IndCallBBIdx,
 
 found:
   {
-#ifdef __aarch64__
-    int recover_fd = _jove_sys_openat(-1, recover_fifo_path, O_WRONLY, 0666);
-#else
-    int recover_fd = _jove_sys_open(recover_fifo_path, O_WRONLY, 0666);
-#endif
+    int recover_fd = _jove_open(recover_fifo_path, O_WRONLY, 0666);
     if (recover_fd < 0)
       _UNREACHABLE("could not open recover fifo");
 
@@ -386,11 +378,7 @@ _HIDDEN void _jove_recover_basic_block(uint32_t IndBrBBIdx,
 
 found:
   {
-#ifdef __aarch64__
-    int recover_fd = _jove_sys_openat(-1, recover_fifo_path, O_WRONLY, 0666);
-#else
-    int recover_fd = _jove_sys_open(recover_fifo_path, O_WRONLY, 0666);
-#endif
+    int recover_fd = _jove_open(recover_fifo_path, O_WRONLY, 0666);
     if (recover_fd < 0)
       _UNREACHABLE("could not open recover fifo");
 
@@ -434,11 +422,7 @@ _HIDDEN void _jove_recover_returned(uint32_t CallerBBIdx) {
 
 found:
   {
-#ifdef __aarch64__
-    int recover_fd = _jove_sys_openat(-1, recover_fifo_path, O_WRONLY, 0666);
-#else
-    int recover_fd = _jove_sys_open(recover_fifo_path, O_WRONLY, 0666);
-#endif
+    int recover_fd = _jove_open(recover_fifo_path, O_WRONLY, 0666);
     if (recover_fd < 0)
       _UNREACHABLE("could not open recover fifo");
 
@@ -481,11 +465,7 @@ _HIDDEN void _jove_recover_ABI(uint32_t FIdx) {
 
 found:
   {
-#ifdef __aarch64__
-    int recover_fd = _jove_sys_openat(-1, recover_fifo_path, O_WRONLY, 0666);
-#else
-    int recover_fd = _jove_sys_open(recover_fifo_path, O_WRONLY, 0666);
-#endif
+    int recover_fd = _jove_open(recover_fifo_path, O_WRONLY, 0666);
     if (recover_fd < 0)
       _UNREACHABLE("could not open recover fifo");
 
@@ -510,11 +490,5 @@ found:
 
 _HIDDEN void _jove_recover_local_goto(uint32_t IndBrBBIdx,
                                       uintptr_t BBAddr) {
-#ifdef __aarch64__
-    int fd = _jove_sys_openat(-1, "/dev/null", O_WRONLY, 0666);
-#else
-    int fd = _jove_sys_open("/dev/null", O_WRONLY, 0666);
-#endif
-
-    _jove_sys_close(fd);
+  _jove_sys_close(_jove_open("/dev/null", O_WRONLY, 0666));
 }
