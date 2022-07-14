@@ -17,6 +17,7 @@
 #include <signal.h>
 #include <sys/sendfile.h>
 #include <sys/stat.h>
+#include <sched.h>
 
 namespace jove {
 
@@ -243,6 +244,16 @@ int Tool::WaitForProcessToExit(pid_t pid, bool verbose) {
   } while (!WIFEXITED(wstatus) && !WIFSIGNALED(wstatus));
 
   return 1;
+}
+
+unsigned Tool::num_cpus(void) {
+  cpu_set_t cpu_mask;
+  if (sched_getaffinity(0, sizeof(cpu_mask), &cpu_mask) < 0) {
+    int err = errno;
+    throw std::runtime_error(std::string("sched_getaffinity failed: ") + strerror(err));
+  }
+
+  return CPU_COUNT(&cpu_mask);
 }
 
 void Tool::IgnoreCtrlC(void) {

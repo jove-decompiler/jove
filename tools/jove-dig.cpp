@@ -32,8 +32,6 @@ struct binary_state_t {
   tcg_uintptr_t SectsStartAddr, SectsEndAddr;
 };
 
-static unsigned num_cpus(void);
-
 class CodeDigger : public Tool {
   struct Cmdline {
     cl::opt<std::string> jv;
@@ -721,17 +719,6 @@ int CodeDigger::ListLocalGotos() {
   }
 
   return 0;
-}
-
-unsigned num_cpus(void) {
-  cpu_set_t cpu_mask;
-  if (sched_getaffinity(0, sizeof(cpu_mask), &cpu_mask) < 0) {
-    WithColor::error() << "sched_getaffinity failed : " << strerror(errno)
-                       << '\n';
-    abort();
-  }
-
-  return CPU_COUNT(&cpu_mask);
 }
 
 }

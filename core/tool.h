@@ -68,6 +68,8 @@ public:
   static ssize_t robust_sendfile(int socket, const char *file_path, size_t file_size);
   static ssize_t robust_sendfile_with_size(int socket, const char *file_path);
   static ssize_t robust_receive_file_with_size(int socket, const char *out, unsigned file_perm);
+
+  static unsigned num_cpus(void);
 };
 
 typedef Tool *(*ToolCreationProc)(void);
