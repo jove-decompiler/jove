@@ -71,8 +71,6 @@ struct binary_state_t {
   dso_t dso;
 };
 
-static unsigned num_cpus(void);
-
 typedef boost::format fmt;
 
 static decompilation_t Decompilation;
@@ -114,7 +112,7 @@ class RecompileTool : public Tool {
 
           Threads("num-threads",
                   cl::desc("Number of CPU threads to use (hack)"),
-                  cl::init(jove::num_cpus()), cl::cat(JoveCategory)),
+                  cl::init(num_cpus()), cl::cat(JoveCategory)),
 
           Trace(
               "trace",
@@ -1654,17 +1652,6 @@ bool RecompileTool::dynamic_linking_info_of_binary(binary_t &b, dynamic_linking_
   }
 
   return true;
-}
-
-unsigned num_cpus(void) {
-  cpu_set_t cpu_mask;
-  if (sched_getaffinity(0, sizeof(cpu_mask), &cpu_mask) < 0) {
-    WithColor::error() << "sched_getaffinity failed : " << strerror(errno)
-                       << '\n';
-    abort();
-  }
-
-  return CPU_COUNT(&cpu_mask);
 }
 
 std::pair<tcg_uintptr_t, tcg_uintptr_t> base_of_executable(binary_t &binary) {
