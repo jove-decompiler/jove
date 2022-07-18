@@ -2,6 +2,7 @@
 #include <llvm/Object/ELFObjectFile.h>
 #include <llvm/Support/DataExtractor.h>
 #include <llvm/ADT/PointerIntPair.h>
+#include <utility>
 
 namespace jove {
 
@@ -277,5 +278,7 @@ private:
   Entries PltEntries;
 };
 #endif
+
+std::pair<uint64_t, uint64_t> bounds_of_binary(llvm::object::Binary &);
 
 }

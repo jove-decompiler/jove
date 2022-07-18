@@ -1013,4 +1013,64 @@ void for_each_dynamic_relocation(const ELFF &E,
   }
 }
 
+std::pair<uint64_t, uint64_t> bounds_of_binary(llvm::object::Binary &Bin) {
+  assert(llvm::isa<ELFO>(&Bin));
+  ELFO &O = *llvm::cast<ELFO>(&Bin);
+
+  const ELFF &E = *O.getELFFile();
+
+  uint64_t SectsStartAddr = std::numeric_limits<uint64_t>::max();
+  uint64_t SectsEndAddr = 0;
+
+  llvm::Expected<Elf_Shdr_Range> ExpectedSections = E.sections();
+  if (ExpectedSections && !(*ExpectedSections).empty()) {
+    for (const Elf_Shdr &Sec : *ExpectedSections) {
+      if (!(Sec.sh_flags & llvm::ELF::SHF_ALLOC))
+        continue;
+
+      llvm::Expected<llvm::StringRef> ExpectedName = E.getSectionName(&Sec);
+
+      if (!ExpectedName)
+        continue;
+
+      if ((Sec.sh_flags & llvm::ELF::SHF_TLS) &&
+          *ExpectedName == std::string(".tbss"))
+        continue;
+
+      if (!Sec.sh_size)
+        continue;
+
+      SectsStartAddr = std::min<uint64_t>(SectsStartAddr, Sec.sh_addr);
+      SectsEndAddr   = std::max<uint64_t>(SectsEndAddr, Sec.sh_addr + Sec.sh_size);
+    }
+  } else {
+    llvm::SmallVector<const Elf_Phdr *, 4> LoadSegments;
+
+    auto ProgramHeadersOrError = E.program_headers();
+    if (!ProgramHeadersOrError)
+      abort();
+
+    for (const Elf_Phdr &Phdr : *ProgramHeadersOrError) {
+      if (Phdr.p_type != llvm::ELF::PT_LOAD)
+        continue;
+
+      LoadSegments.push_back(&Phdr);
+    }
+
+    assert(!LoadSegments.empty());
+
+    std::stable_sort(LoadSegments.begin(),
+                     LoadSegments.end(),
+                     [](const Elf_Phdr *A,
+                        const Elf_Phdr *B) {
+                       return A->p_vaddr < B->p_vaddr;
+                     });
+
+    SectsStartAddr = LoadSegments.front()->p_vaddr;
+    SectsEndAddr = LoadSegments.back()->p_vaddr + LoadSegments.back()->p_memsz;
+  }
+
+  return {SectsStartAddr, SectsEndAddr};
+}
+
 }
