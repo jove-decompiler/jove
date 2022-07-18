@@ -85,6 +85,24 @@ constexpr bool IsMIPSTarget =
 #endif
     ;
 
+static const char *TargetStaticLinkerEmulation =
+#if defined(TARGET_X86_64)
+                      "elf_x86_64"
+#elif defined(TARGET_I386)
+                      "elf_i386"
+#elif defined(TARGET_AARCH64)
+                      "aarch64linux"
+#elif defined(TARGET_MIPS64)
+                      "elf64ltsmip"
+#elif defined(TARGET_MIPS32) && defined(TARGET_MIPSEL)
+                      "elf32ltsmip"
+#elif defined(TARGET_MIPS32) && defined(TARGET_MIPS)
+                      "elf32btsmip"
+#else
+#error
+#endif
+                  ;
+
 struct basic_block_properties_t {
   tcg_uintptr_t Addr;
   uint32_t Size;
