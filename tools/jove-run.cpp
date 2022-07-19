@@ -480,7 +480,7 @@ int RunTool::DoRun(void) {
 
   //
   // code recovery fifo. why don't we use an anonymous pipe? because the
-  // program being recompiled may decide to close all the file descriptors
+  // program being recompiled may decide to close all the open file descriptors
   //
   std::string fifo_dir;
   if (WillChroot)
@@ -500,7 +500,11 @@ int RunTool::DoRun(void) {
     return 1;
   }
 
-  std::string fifo_file_path = fs::canonical(fifo_path).string();
+  fs::path fifo_file_path = fs::canonical(fifo_path);
+
+  std::string fifo_path_under_sysroot;
+  if (WillChroot)
+    fifo_path_under_sysroot = "/" + fs::relative(fifo_file_path, fs::canonical(opts.sysroot)).string();
 
   //
   // create thread reading from fifo
@@ -762,8 +766,14 @@ int RunTool::DoRun(void) {
         env_vec.push_back(*p);
     }
 
-    std::string fifo_env("JOVE_RECOVER_FIFO=" + fifo_file_path);
+    std::string fifo_env("JOVE_RECOVER_FIFO=");
+    fifo_env.append(WillChroot ? fifo_path_under_sysroot.c_str()
+                               : fifo_file_path.c_str());
+
     env_vec.push_back(fifo_env.c_str());
+
+    if (opts.Verbose)
+      HumanOut() << fifo_env << '\n';
 
 #if defined(TARGET_X86_64)
     // <3 glibc
