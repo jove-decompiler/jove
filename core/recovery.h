@@ -1,6 +1,7 @@
 #pragma once
 #include <jove/jove.h>
 #include "explore.h"
+#include "symbolizer.h"
 
 namespace jove {
 
@@ -21,8 +22,7 @@ class CodeRecovery {
 
   std::vector<binary_state_t> bin_state_vec;
 
-  std::string DescribeFunction(binary_index_t, function_index_t);
-  std::string DescribeBasicBlock(binary_index_t, basic_block_index_t);
+  symbolizer_t symbolizer;
 
 public:
   CodeRecovery(decompilation_t &, disas_t);

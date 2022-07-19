@@ -127,9 +127,9 @@ std::string CodeRecovery::RecoverDynamicTarget(uint32_t CallerBIdx,
     boost::add_edge(bb, basic_block_of_index(NextBBIdx, ICFG), ICFG);
   }
 
-  return (fmt(__ANSI_CYAN "(call) %s -> %s" __ANSI_NORMAL_COLOR) %
-          DescribeBasicBlock(CallerBIdx, CallerBBIdx) %
-          DescribeFunction(CalleeBIdx, CalleeFIdx))
+  return (fmt(__ANSI_CYAN "(call) %s -> %s" __ANSI_NORMAL_COLOR)
+          % symbolizer.addr2desc(CallerBinary, TermAddr)
+          % symbolizer.addr2desc(CalleeBinary, entry_address_of_function(callee, CalleeBinary)))
       .str();
 }
 
@@ -168,9 +168,9 @@ std::string CodeRecovery::RecoverBasicBlock(uint32_t IndBrBIdx,
   if (!isNewTarget)
     return std::string();
 
-  return (fmt(__ANSI_GREEN "(goto) %s+%#lx -> %s" __ANSI_NORMAL_COLOR)
-          % fs::path(indbr_binary.Path).filename().string() % TermAddr
-          % DescribeBasicBlock(IndBrBIdx, target_bb_idx))
+  return (fmt(__ANSI_GREEN "(goto) %s -> %s" __ANSI_NORMAL_COLOR)
+	  % symbolizer.addr2desc(indbr_binary, TermAddr)
+	  % symbolizer.addr2desc(indbr_binary, Addr))
       .str();
 }
 
@@ -209,7 +209,7 @@ std::string CodeRecovery::RecoverFunction(uint32_t IndCallBIdx,
   bool isNewTarget = ICFG[bb].DynTargets.insert({CalleeBIdx, CalleeFIdx}).second;
   (void)isNewTarget; /* FIXME */
 
-  if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP);
+  if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP)
     assert(boost::out_degree(bb, ICFG) == 0);
 
   if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL &&
@@ -232,9 +232,9 @@ std::string CodeRecovery::RecoverFunction(uint32_t IndCallBIdx,
     boost::add_edge(bb, basic_block_of_index(NextBBIdx, ICFG), ICFG);
   }
 
-  return (fmt(__ANSI_CYAN "(call*) %s -> %s" __ANSI_NORMAL_COLOR) %
-          DescribeBasicBlock(IndCallBIdx, IndCallBBIdx) %
-          DescribeFunction(CalleeBIdx, CalleeFIdx))
+  return (fmt(__ANSI_CYAN "(call*) %s -> %s" __ANSI_NORMAL_COLOR)
+          % symbolizer.addr2desc(CallerBinary, TermAddr)
+          % symbolizer.addr2desc(CalleeBinary, CalleeAddr))
       .str();
 }
 
@@ -249,8 +249,8 @@ std::string CodeRecovery::RecoverABI(uint32_t BIdx,
 
   f.IsABI = true;
 
-  return (fmt(__ANSI_BLUE "(abi) %s" __ANSI_NORMAL_COLOR) %
-          DescribeFunction(NewABI.first, NewABI.second))
+  return (fmt(__ANSI_BLUE "(abi) %s" __ANSI_NORMAL_COLOR)
+          % symbolizer.addr2desc(decompilation.Binaries.at(NewABI.first), entry_address_of_function(f, decompilation.Binaries.at(NewABI.first))))
       .str();
 }
 
@@ -302,33 +302,12 @@ std::string CodeRecovery::Returns(uint32_t CallBIdx,
   assert(is_basic_block_index_valid(next_bb_idx));
   basic_block_t next_bb = basic_block_of_index(next_bb_idx, ICFG);
 
-  //assert(boost::out_degree(bb, ICFG) == 0);
   bool isNewTarget = boost::add_edge(bb, next_bb, ICFG).second;
+  (void)isNewTarget; /* FIXME */
 
-  return (fmt(__ANSI_YELLOW "(returned) %s" __ANSI_NORMAL_COLOR) %
-          DescribeBasicBlock(CallBIdx, next_bb_idx))
+  return (fmt(__ANSI_YELLOW "(returned) %s" __ANSI_NORMAL_COLOR)
+          % symbolizer.addr2desc(CallBinary, NextAddr))
       .str();
-}
-
-std::string CodeRecovery::DescribeFunction(binary_index_t BIdx,
-                                           function_index_t FIdx) {
-  auto &binary = decompilation.Binaries.at(BIdx);
-  function_t &f = binary.Analysis.Functions.at(FIdx);
-
-  auto &ICFG = binary.Analysis.ICFG;
-  tcg_uintptr_t Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
-
-  return (fmt("%s+%#lx") % fs::path(binary.Path).filename().string() % Addr).str();
-}
-
-std::string CodeRecovery::DescribeBasicBlock(binary_index_t BIdx,
-                                             basic_block_index_t BBIdx) {
-  auto &binary = decompilation.Binaries.at(BIdx);
-
-  auto &ICFG = binary.Analysis.ICFG;
-  tcg_uintptr_t Addr = ICFG[boost::vertex(BBIdx, ICFG)].Addr;
-
-  return (fmt("%s+%#lx") % fs::path(binary.Path).filename().string() % Addr).str();
 }
 
 }
