@@ -717,6 +717,15 @@ static inline bool exists_indirect_jump_at_address(tcg_uintptr_t Addr,
   return false;
 }
 
+static inline tcg_uintptr_t entry_address_of_function(const function_t &f,
+                                                      const binary_t &binary) {
+  if (!is_basic_block_index_valid(f.Entry))
+    abort();
+
+  const auto &ICFG = binary.Analysis.ICFG;
+  return ICFG[basic_block_of_index(f.Entry, binary)].Addr;
+}
+
 static inline void construct_bbmap(decompilation_t &decompilation,
                                    binary_t &binary,
                                    bbmap_t &out) {
