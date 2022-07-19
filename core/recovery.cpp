@@ -207,9 +207,10 @@ std::string CodeRecovery::RecoverFunction(uint32_t IndCallBIdx,
                               state_for_binary(CallerBinary).bbmap);
 
   bool isNewTarget = ICFG[bb].DynTargets.insert({CalleeBIdx, CalleeFIdx}).second;
+  (void)isNewTarget; /* FIXME */
 
-  assert(isNewTarget);
-  assert(boost::out_degree(bb, ICFG) == 0);
+  if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP);
+    assert(boost::out_degree(bb, ICFG) == 0);
 
   if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL &&
       does_function_return(callee, CalleeBinary)) {
