@@ -31,6 +31,9 @@ double compute_score(const decompilation_t &decompilation,
   llvm::SmallVector<const Elf_Phdr *, 4> LoadSegments;
 
   auto ProgramHeadersOrError = E.program_headers();
+  if (!ProgramHeadersOrError)
+    throw std::runtime_error("failed to to get program headers from " + binary.Path);
+
   for (const Elf_Phdr &Phdr : *ProgramHeadersOrError)
     if (Phdr.p_type == llvm::ELF::PT_LOAD)
       LoadSegments.push_back(const_cast<Elf_Phdr *>(&Phdr));
