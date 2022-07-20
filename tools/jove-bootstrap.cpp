@@ -4138,7 +4138,13 @@ void BootstrapTool::scan_rtld_link_map(pid_t child, tiny_code_generator_t &tcg, 
                                   (void *)lm.l_ld);
 
     if (!s.empty() && s.front() == '/' && fs::exists(s)) {
-      fs::path path = fs::canonical(s);
+      fs::path path = s;
+
+      //
+      // the following may throw an exception if the current working directory
+      // has been deleted
+      //
+      try { path = fs::canonical(s); } catch (...) {}
 
       auto it = BinPathToIdxMap.find(path.c_str());
       if (it == BinPathToIdxMap.end()) {
