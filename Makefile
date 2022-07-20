@@ -1649,6 +1649,7 @@ nothing:
 
 .PHONY: build-llvm
 build-llvm:
+	ln -sf $(JOVE_ROOT_DIR)/llvm-cbe $(_LLVM_DIR)/llvm/projects/llvm-cbe && \
 	cd $(_LLVM_DIR) && \
 	rm -rf static_build static_install && \
 	mkdir static_build && \
