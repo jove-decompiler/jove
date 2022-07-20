@@ -16,9 +16,7 @@ extern uintptr_t *__jove_sections_tables[_JOVE_MAX_BINARIES];
        static uintptr_t **__jove_function_tables_clunk = &__jove_function_tables;
        static uintptr_t **__jove_sections_tables_clunk = &__jove_sections_tables;
 
-uintptr_t *__jove_foreign_function_tables[_JOVE_MAX_BINARIES] = {
-  [0 ... _JOVE_MAX_BINARIES - 1] = NULL
-};
+extern uintptr_t *__jove_foreign_function_tables[_JOVE_MAX_BINARIES];
 
 extern DECLARE_HASHTABLE(__jove_function_map, JOVE_FUNCTION_MAP_HASH_BITS);
 

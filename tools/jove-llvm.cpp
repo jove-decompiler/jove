@@ -212,6 +212,7 @@ struct LLVMTool : public Tool {
     cl::list<std::string> PinnedGlobals;
     cl::opt<bool> ABICalls;
     cl::opt<bool> InlineHelpers;
+    cl::opt<bool> ForCBE;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : jv("decompilation", cl::desc("Jove decompilation"), cl::Required,
@@ -333,7 +334,10 @@ struct LLVMTool : public Tool {
 
           InlineHelpers("inline-helpers",
                         cl::desc("Try to inline all helper function calls"),
-                        cl::cat(JoveCategory)) {}
+                        cl::cat(JoveCategory)),
+
+          ForCBE("for-cbe", cl::desc("Generate LLVM for C backend"),
+                 cl::cat(JoveCategory)) {}
 
   } opts;
 
@@ -499,6 +503,7 @@ public:
   int PrepareToOptimize(void);
   int ConstifyRelocationSectionPointers(void);
   int InternalizeSections(void);
+  int PrepareForCBE(void);
   int ExpandMemoryIntrinsicCalls(void);
   int ReplaceAllRemainingUsesOfConstSections(void);
   int DFSanInstrument(void);
@@ -754,7 +759,7 @@ struct helper_function_t {
   } Analysis;
 };
 
-const helper_function_t &LookupHelper(llvm::Module &M, tiny_code_generator_t &TCG, TCGOp *op, bool DFSan);
+const helper_function_t &LookupHelper(llvm::Module &M, tiny_code_generator_t &TCG, TCGOp *op, bool DFSan, bool ForCBE);
 
 static std::unordered_map<uintptr_t, helper_function_t> HelperFuncMap;
 
@@ -833,7 +838,8 @@ void AnalyzeBasicBlock(tiny_code_generator_t &TCG,
                        binary_t &binary,
                        llvm::object::Binary &B,
                        basic_block_t bb,
-                       bool DFSan);
+                       bool DFSan = false,
+                       bool ForCBE = false);
 
 static flow_vertex_t copy_function_cfg(decompilation_t &Decompilation,
                                        tiny_code_generator_t &TCG,
@@ -842,6 +848,7 @@ static flow_vertex_t copy_function_cfg(decompilation_t &Decompilation,
                                        function_t &f,
                                        std::function<llvm::object::Binary &(binary_t &)> GetBinary,
                                        bool DFSan,
+                                       bool ForCBE,
                                        std::vector<exit_vertex_pair_t> &exitVertices,
                                        std::unordered_map<function_t *, std::pair<flow_vertex_t, std::vector<exit_vertex_pair_t>>> &memoize) {
   binary_index_t BIdx = binary_index_of_function(f, Decompilation); /* XXX */
@@ -858,7 +865,7 @@ static flow_vertex_t copy_function_cfg(decompilation_t &Decompilation,
   // make sure basic blocks have been analyzed
   //
   for (basic_block_t bb : bbvec)
-    AnalyzeBasicBlock(TCG, M, b, GetBinary(b), bb, DFSan);
+    AnalyzeBasicBlock(TCG, M, b, GetBinary(b), bb, DFSan, ForCBE);
 
   if (!IsLeafFunction(f, b, bbvec)) {
     //
@@ -928,7 +935,7 @@ static flow_vertex_t copy_function_cfg(decompilation_t &Decompilation,
 
         std::vector<exit_vertex_pair_t> calleeExitVertices;
         flow_vertex_t calleeEntryV =
-            copy_function_cfg(Decompilation, TCG, M, G, callee, GetBinary, DFSan, calleeExitVertices, memoize);
+            copy_function_cfg(Decompilation, TCG, M, G, callee, GetBinary, DFSan, ForCBE, calleeExitVertices, memoize);
         boost::add_edge(Orig2CopyMap[bb], calleeEntryV, G);
 
         if (eit_pair.first != eit_pair.second) {
@@ -963,7 +970,7 @@ static flow_vertex_t copy_function_cfg(decompilation_t &Decompilation,
 
       std::vector<exit_vertex_pair_t> calleeExitVertices;
       flow_vertex_t calleeEntryV =
-          copy_function_cfg(Decompilation, TCG, M, G, callee, GetBinary, DFSan, calleeExitVertices, memoize);
+          copy_function_cfg(Decompilation, TCG, M, G, callee, GetBinary, DFSan, ForCBE, calleeExitVertices, memoize);
 
       boost::add_edge(Orig2CopyMap[bb], calleeEntryV, G);
 
@@ -1013,7 +1020,7 @@ static flow_vertex_t copy_function_cfg(decompilation_t &Decompilation,
 
         std::vector<exit_vertex_pair_t> calleeExitVertices;
         flow_vertex_t calleeEntryV =
-            copy_function_cfg(Decompilation, TCG, M, G, callee, GetBinary, DFSan, calleeExitVertices, memoize);
+            copy_function_cfg(Decompilation, TCG, M, G, callee, GetBinary, DFSan, ForCBE, calleeExitVertices, memoize);
         boost::add_edge(Orig2CopyMap[bb], calleeEntryV, G);
 
         for (const auto &calleeExitVertPair : calleeExitVertices) {
@@ -1106,7 +1113,7 @@ static bool AnalyzeHelper(helper_function_t &hf) {
   return res;
 }
 
-const helper_function_t &LookupHelper(llvm::Module &M, tiny_code_generator_t &TCG, TCGOp *op, bool DFSan) {
+const helper_function_t &LookupHelper(llvm::Module &M, tiny_code_generator_t &TCG, TCGOp *op, bool DFSan, bool ForCBE) {
   int nb_oargs = TCGOP_CALLO(op);
   int nb_iargs = TCGOP_CALLI(op);
   int nb_cargs;
@@ -1129,16 +1136,14 @@ const helper_function_t &LookupHelper(llvm::Module &M, tiny_code_generator_t &TC
   TCGContext *s = &TCG.priv->_ctx;
   const char *helper_nm = tcg_find_helper(s, helper_addr);
   assert(helper_nm);
+  const std::string helper_fn_nm = std::string("helper_") + helper_nm;
 
-  if (llvm::Function *F = M.getFunction(std::string("helper_") + helper_nm)) {
+  if (llvm::Function *F = M.getFunction(helper_fn_nm)) {
     static unsigned j = 0;
-    F->setName(std::string("helper_") + helper_nm + "_" + std::to_string(j++));
-
-    //WithColor::error() << llvm::formatv("helper_{0} already exists!\n", helper_nm);
+    F->setName(helper_fn_nm + "_" + std::to_string(j++));
   }
 
-  assert(!M.getFunction(std::string("helper_") + helper_nm) &&
-         "helper function already exists");
+  assert(!M.getFunction(helper_fn_nm));
 
   std::string suffix = DFSan ? ".dfsan.bc" : ".bc";
 
@@ -1164,75 +1169,54 @@ const helper_function_t &LookupHelper(llvm::Module &M, tiny_code_generator_t &TC
   std::unique_ptr<llvm::Module> &helperModule = helperModuleOr.get();
 
   //
-  // process helper bitcode
+  // process global variables
   //
-  {
-    llvm::Module &helperM = *helperModule;
+  std::for_each(helperModule->global_begin(),
+                helperModule->global_end(),
+                [&](llvm::GlobalVariable &GV) {
+                  if (!GV.hasInitializer())
+                    return;
 
-    //
-    // internalize all functions except the desired helper
-    //
-    for (llvm::Function &F : helperM.functions()) {
-      if (F.isIntrinsic())
-        continue;
+                  GV.setLinkage(llvm::GlobalValue::InternalLinkage);
+                });
 
-      // is declaration?
-      if (F.empty())
-        continue;
+  //
+  // process functions
+  //
+  std::for_each(
+      helperModule->begin(),
+      helperModule->end(), [&](llvm::Function &F) {
+        if (F.isIntrinsic())
+          return;
 
-      // is helper function?
-      if (F.getName() == std::string("helper_") + helper_nm) {
-        assert(F.getLinkage() == llvm::GlobalValue::ExternalLinkage);
-        continue;
-      }
+        if (F.empty())
+          return;
 
-#if 1
-      F.setLinkage(llvm::GlobalValue::InternalLinkage);
-#else
-      F.setLinkage(llvm::GlobalValue::LinkOnceODRLinkage);
-      F.setVisibility(llvm::GlobalValue::HiddenVisibility);
-#endif
-    }
+        if (F.getName() == helper_fn_nm) {
+          assert(F.getLinkage() == llvm::GlobalValue::ExternalLinkage);
+          return;
+        }
 
-    //
-    // internalize global variables
-    //
-    for (llvm::GlobalVariable &GV : helperM.globals()) {
-      if (!GV.hasInitializer())
-        continue;
-
-#if 1
-      GV.setLinkage(llvm::GlobalValue::InternalLinkage);
-#else
-      GV.setLinkage(llvm::GlobalValue::LinkOnceODRLinkage);
-#endif
-    }
-  }
+        if (ForCBE)
+          F.deleteBody();
+        else
+          F.setLinkage(llvm::GlobalValue::InternalLinkage);
+      });
 
   llvm::Linker::linkModules(M, std::move(helperModule));
 
-  llvm::Function *helperF =
-      M.getFunction(std::string("helper_") + helper_nm);
-
-  if (unlikely(!helperF)) {
+  helper_function_t &hf = HelperFuncMap[helper_addr];
+  hf.F = M.getFunction(helper_fn_nm);
+  if (unlikely(!hf.F)) {
     WithColor::error() << llvm::formatv("cannot find helper function {0}\n",
                                         helper_nm);
     exit(1);
   }
 
-#if 0
-  if (helperF->arg_size() != nb_iargs) {
-    WithColor::error() << llvm::formatv(
-        "helper {0} takes {1} args but nb_iargs={2}\n", helper_nm,
-        helperF->arg_size(), nb_iargs);
-    exit(1);
-  }
-#else
-  assert(nb_iargs >= helperF->arg_size());
-#endif
+  if (!ForCBE)
+    hf.F->setVisibility(llvm::GlobalValue::HiddenVisibility);
 
-  assert(helperF->getLinkage() == llvm::GlobalValue::ExternalLinkage);
-  helperF->setVisibility(llvm::GlobalValue::HiddenVisibility);
+  assert(nb_iargs >= hf.F->arg_size());
 
   //
   // analyze helper
@@ -1249,8 +1233,6 @@ const helper_function_t &LookupHelper(llvm::Module &M, tiny_code_generator_t &TC
       EnvArgNo = std::distance(inputs_beg, it);
   }
 
-  helper_function_t &hf = HelperFuncMap[helper_addr];
-  hf.F = helperF;
   hf.EnvArgNo = EnvArgNo;
   hf.Analysis.Simple = AnalyzeHelper(hf); /* may modify hf.Analysis.InGlbs */
 
@@ -1330,7 +1312,8 @@ void AnalyzeBasicBlock(tiny_code_generator_t &TCG,
                        binary_t &binary,
                        llvm::object::Binary &B,
                        basic_block_t bb,
-                       bool DFSan) {
+                       bool DFSan,
+                       bool ForCBE) {
   auto &ICFG = binary.Analysis.ICFG;
   auto &bbprop = ICFG[bb];
 
@@ -1367,7 +1350,7 @@ void AnalyzeBasicBlock(tiny_code_generator_t &TCG,
         nb_oargs = TCGOP_CALLO(op);
         nb_iargs = TCGOP_CALLI(op);
 
-        const helper_function_t &hf = LookupHelper(M, TCG, op, DFSan);
+        const helper_function_t &hf = LookupHelper(M, TCG, op, DFSan, ForCBE);
 
         iglbs = hf.Analysis.InGlbs;
         oglbs = hf.Analysis.OutGlbs;
@@ -1469,7 +1452,8 @@ void AnalyzeFunction(decompilation_t &Decompilation,
                      llvm::Module &M,
                      function_t &f,
                      std::function<llvm::object::Binary &(binary_t &)> GetBinary,
-                     bool DFSan) {
+                     bool DFSan,
+                     bool ForCBE) {
   if (!f.Analysis.Stale)
     return;
   f.Analysis.Stale = false;
@@ -1482,7 +1466,7 @@ void AnalyzeFunction(decompilation_t &Decompilation,
         memoize;
 
     std::vector<exit_vertex_pair_t> exitVertices;
-    flow_vertex_t entryV = copy_function_cfg(Decompilation, TCG, M, G, f, GetBinary, DFSan, exitVertices, memoize);
+    flow_vertex_t entryV = copy_function_cfg(Decompilation, TCG, M, G, f, GetBinary, DFSan, ForCBE, exitVertices, memoize);
 
     //
     // build vector of vertices in DFS order
@@ -2217,12 +2201,12 @@ int LLVMTool::Run(void) {
             } else {
               if (gdefs.find({Addr, Size}) == gdefs.end()) {
                 Module->appendModuleInlineAsm(
-                    (fmt(".hidden g%lx_%u\n"
+                    (fmt(//".hidden g%lx_%u\n"
                          ".globl  g%lx_%u\n"
                          ".type   g%lx_%u,@object\n"
                          ".size   g%lx_%u, %u\n"
                          ".set    g%lx_%u, __jove_sections_%u + %u")
-                     % Addr % Size
+//                   % Addr % Size
                      % Addr % Size
                      % Addr % Size
                      % Addr % Size % Size
@@ -2268,11 +2252,11 @@ int LLVMTool::Run(void) {
       || TranslateFunctions()
       || InternalizeSections()
       || (opts.InlineHelpers ? InlineHelpers() : 0)
-      || (opts.Optimize ? PrepareToOptimize() : 0)
+      || (opts.ForCBE ? PrepareForCBE() : 0)
       || (opts.DumpPreOpt1 ? (RenameFunctionLocals(), DumpModule("pre.opt1"), 1) : 0)
-      || (opts.Optimize ? DoOptimize() : 0)
+      || ((opts.Optimize || opts.ForCBE) ? DoOptimize() : 0)
       || (opts.DumpPostOpt1 ? (RenameFunctionLocals(), DumpModule("post.opt1"), 1) : 0)
-      || ExpandMemoryIntrinsicCalls()
+      || (!opts.ForCBE ? ExpandMemoryIntrinsicCalls() : 0)
       || ReplaceAllRemainingUsesOfConstSections()
       || (opts.DFSan ? DFSanInstrument() : 0)
       || RenameFunctionLocals()
@@ -2521,7 +2505,11 @@ void LLVMTool::fillInFunctionBody(llvm::Function *F,
   if (internalize) {
     F->setLinkage(llvm::GlobalValue::InternalLinkage);
   } else {
-    assert(F->getLinkage() == llvm::GlobalValue::ExternalLinkage);
+    if (F->getLinkage() != llvm::GlobalValue::ExternalLinkage) {
+      WithColor::warning() << llvm::formatv("function {0} is not external!\n",
+                                            F->getName());
+      F->setLinkage(llvm::GlobalValue::ExternalLinkage);
+    }
     F->setVisibility(llvm::GlobalValue::HiddenVisibility);
   }
 
@@ -2612,8 +2600,14 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
   JoveForeignFunctionTablesGlobal =
       Module->getGlobalVariable("__jove_foreign_function_tables", true);
   assert(JoveForeignFunctionTablesGlobal);
-  JoveForeignFunctionTablesGlobal->setLinkage(
-      llvm::GlobalValue::InternalLinkage);
+  JoveForeignFunctionTablesGlobal->setInitializer(llvm::Constant::getNullValue(
+      JoveForeignFunctionTablesGlobal->getValueType()));
+  if (opts.ForCBE)
+    JoveForeignFunctionTablesGlobal->setVisibility(
+        llvm::GlobalValue::HiddenVisibility);
+  else
+    JoveForeignFunctionTablesGlobal->setLinkage(
+        llvm::GlobalValue::InternalLinkage);
 
   JoveRecoverDynTargetFunc = Module->getFunction("_jove_recover_dyn_target");
   assert(JoveRecoverDynTargetFunc && !JoveRecoverDynTargetFunc->empty());
@@ -2695,6 +2689,23 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
 
   JoveNoDCEFunc = Module->getFunction("__nodce");
   assert(JoveNoDCEFunc);
+
+  if (opts.ForCBE) {
+    std::for_each(Module->begin(),
+                  Module->end(), [&](llvm::Function &F) {
+      if (F.isIntrinsic())
+        return;
+
+      if (F.empty())
+        return;
+
+      if (&F == JoveNoDCEFunc)
+        return;
+
+      F.setVisibility(llvm::GlobalValue::DefaultVisibility);
+      F.deleteBody();
+    });
+  }
 
   return 0;
 }
@@ -3216,7 +3227,7 @@ llvm::GlobalIFunc *LLVMTool::buildGlobalIFunc(function_t &f,
         }
       }
     }
-  });
+  }, true);
 
   llvm::GlobalIFunc *res = llvm::GlobalIFunc::create(
       FTy, 0, llvm::GlobalValue::ExternalLinkage, SymName, F,
@@ -3508,13 +3519,13 @@ void LLVMTool::expandMemIntrinsicUses(llvm::Function &F) {
 }
 
 tcg_global_set_t LLVMTool::DetermineFunctionArgs(function_t &f) {
-  AnalyzeFunction(Decompilation, *TCG, *Module, f, [&](binary_t &b) -> llvm::object::Binary & { return *state_for_binary(b).ObjectFile; }, opts.DFSan);
+  AnalyzeFunction(Decompilation, *TCG, *Module, f, [&](binary_t &b) -> llvm::object::Binary & { return *state_for_binary(b).ObjectFile; }, opts.DFSan, opts.ForCBE);
 
   return f.Analysis.args;
 }
 
 tcg_global_set_t LLVMTool::DetermineFunctionRets(function_t &f) {
-  AnalyzeFunction(Decompilation, *TCG, *Module, f, [&](binary_t &b) -> llvm::object::Binary & { return *state_for_binary(b).ObjectFile; }, opts.DFSan);
+  AnalyzeFunction(Decompilation, *TCG, *Module, f, [&](binary_t &b) -> llvm::object::Binary & { return *state_for_binary(b).ObjectFile; }, opts.DFSan, opts.ForCBE);
 
   return f.Analysis.rets;
 }
@@ -3844,12 +3855,12 @@ int LLVMTool::CreateFunctionTable(void) {
       Module->getFunction("_jove_get_function_table"), [&](auto &IRB) {
         IRB.CreateRet(
             IRB.CreateConstInBoundsGEP2_64(ConstantTableInternalGV, 0, 0));
-      });
+      }, !opts.ForCBE);
 
   fillInFunctionBody(
       Module->getFunction("_jove_function_count"), [&](auto &IRB) {
         IRB.CreateRet(IRB.getInt32(Binary.Analysis.Functions.size()));
-      });
+      }, !opts.ForCBE);
 
   fillInFunctionBody(
       Module->getFunction("_jove_foreign_functions_count"), [&](auto &IRB) {
@@ -3870,7 +3881,7 @@ int LLVMTool::CreateFunctionTable(void) {
         unsigned M = N_1 + (opts.ForeignLibs ? N_2 : 0);
 
         IRB.CreateRet(IRB.getInt32(M));
-      });
+      }, !opts.ForCBE);
 
   return 0;
 }
@@ -5578,7 +5589,7 @@ int LLVMTool::ProcessManualRelocations(void) {
                                  E.getRelocationTypeName(R.Type));
             abort();
           }
-        });
+        }, true);
 
         ManualRelocs.emplace(R.Offset, F);
       });
@@ -5603,7 +5614,7 @@ int LLVMTool::ProcessManualRelocations(void) {
             });
 
         IRB.CreateRetVoid();
-      });
+      }, !opts.ForCBE);
 
   return 0;
 }
@@ -5681,7 +5692,7 @@ int LLVMTool::CreateCopyRelocationHack(void) {
         }
 
         IRB.CreateRetVoid();
-      });
+      }, !opts.ForCBE);
 
   return 0;
 }
@@ -5693,13 +5704,13 @@ int LLVMTool::FixupHelperStubs(void) {
       Module->getFunction("_jove_sections_start_file_addr"),
       [&](auto &IRB) {
         IRB.CreateRet(llvm::ConstantInt::get(WordType(), state_for_binary(Binary).SectsStartAddr));
-      });
+      }, !opts.ForCBE);
 
   fillInFunctionBody(
       Module->getFunction("_jove_sections_global_beg_addr"),
       [&](auto &IRB) {
         IRB.CreateRet(llvm::ConstantExpr::getPtrToInt(SectsGlobal, WordType()));
-      });
+      }, !opts.ForCBE);
 
   fillInFunctionBody(
       Module->getFunction("_jove_sections_global_end_addr"),
@@ -5710,13 +5721,13 @@ int LLVMTool::FixupHelperStubs(void) {
         IRB.CreateRet(llvm::ConstantExpr::getAdd(
             llvm::ConstantExpr::getPtrToInt(SectsGlobal, WordType()),
             llvm::ConstantInt::get(WordType(), SectsGlobalSize)));
-      });
+      }, !opts.ForCBE);
 
   fillInFunctionBody(
       Module->getFunction("_jove_binary_index"),
       [&](auto &IRB) {
         IRB.CreateRet(IRB.getInt32(BinaryIndex));
-      });
+      }, !opts.ForCBE);
 
   fillInFunctionBody(
       Module->getFunction("_jove_dynl_path"),
@@ -5731,19 +5742,19 @@ int LLVMTool::FixupHelperStubs(void) {
         assert(!dynl_path.empty());
 
         IRB.CreateRet(IRB.CreateGlobalStringPtr(dynl_path));
-      });
+      }, !opts.ForCBE);
 
   fillInFunctionBody(
       Module->getFunction("_jove_trace_enabled"),
       [&](auto &IRB) {
         IRB.CreateRet(IRB.getInt1(opts.Trace));
-      });
+      }, !opts.ForCBE);
 
   fillInFunctionBody(
       Module->getFunction("_jove_dfsan_enabled"),
       [&](auto &IRB) {
         IRB.CreateRet(IRB.getInt1(opts.DFSan));
-      });
+      }, !opts.ForCBE);
 
   if (Binary.IsExecutable)
     assert(is_function_index_valid(Binary.Analysis.EntryFunction));
@@ -5773,7 +5784,7 @@ int LLVMTool::FixupHelperStubs(void) {
         IRB.CreateCall(
             llvm::Intrinsic::getDeclaration(Module.get(), llvm::Intrinsic::trap));
         IRB.CreateUnreachable();
-      });
+      }, !opts.ForCBE);
 
   fillInFunctionBody(
       Module->getFunction("_jove_get_dynl_function_table"),
@@ -5804,7 +5815,7 @@ int LLVMTool::FixupHelperStubs(void) {
             "__jove_dynl_function_table");
 
         IRB.CreateRet(IRB.CreateConstInBoundsGEP2_64(ConstantTableGV, 0, 0));
-      });
+      }, !opts.ForCBE);
 
   fillInFunctionBody(
       Module->getFunction("_jove_get_vdso_function_table"),
@@ -5831,7 +5842,7 @@ int LLVMTool::FixupHelperStubs(void) {
             *Module, T, false, llvm::GlobalValue::InternalLinkage, Init,
             "__jove_vdso_function_table");
         IRB.CreateRet(IRB.CreateConstInBoundsGEP2_64(ConstantTableGV, 0, 0));
-      });
+      }, !opts.ForCBE);
 
   fillInFunctionBody(
       Module->getFunction("_jove_foreign_lib_count"),
@@ -5843,7 +5854,7 @@ int LLVMTool::FixupHelperStubs(void) {
                                  - 1 /* exe  */) : 0;
 
         IRB.CreateRet(IRB.getInt32(res));
-      });
+      }, !opts.ForCBE);
 
   fillInFunctionBody(
       Module->getFunction("_jove_foreign_lib_path"),
@@ -5882,7 +5893,7 @@ int LLVMTool::FixupHelperStubs(void) {
             }
           }
         }
-      });
+      }, !opts.ForCBE);
 
 
   fillInFunctionBody(
@@ -5947,7 +5958,7 @@ int LLVMTool::FixupHelperStubs(void) {
             }
           }
         }
-      });
+      }, !opts.ForCBE);
 
   return 0;
 }
@@ -6418,6 +6429,9 @@ void LLVMTool::ReloadGlobalVariables(void) {
 }
 
 int LLVMTool::DoOptimize(void) {
+  int rc = PrepareToOptimize();
+  assert(rc == 0);
+
   if (llvm::verifyModule(*Module, &llvm::errs())) {
     WithColor::error() << "DoOptimize: [pre] failed to verify module\n";
 
@@ -6556,7 +6570,28 @@ int LLVMTool::InternalizeSections(void) {
   return 0;
 }
 
+int LLVMTool::PrepareForCBE(void) {
+  assert(opts.ForCBE);
+
+  //
+  // delete function bodies for TCG helpers
+  //
+  for (auto &pair : HelperFuncMap) {
+    helper_function_t &hf = pair.second;
+
+    hf.F->setVisibility(llvm::GlobalValue::DefaultVisibility);
+    hf.F->deleteBody();
+  }
+
+  JoveNoDCEFunc->setVisibility(llvm::GlobalValue::DefaultVisibility);
+  JoveNoDCEFunc->deleteBody();
+
+  return 0;
+}
+
 int LLVMTool::ExpandMemoryIntrinsicCalls(void) {
+  assert(!opts.ForCBE);
+
   //
   // lower memory intrinsics (memcpy, memset, memmove)
   //
@@ -8684,6 +8719,13 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
 }
 
 llvm::Value *LLVMTool::insertThreadPointerInlineAsm(llvm::IRBuilderTy &IRB) {
+  if (opts.ForCBE) {
+    llvm::Function *TPIntrinsic = llvm::Intrinsic::getDeclaration(
+        Module.get(), llvm::Intrinsic::thread_pointer);
+    assert(TPIntrinsic);
+    return IRB.CreatePtrToInt(IRB.CreateCall(TPIntrinsic), WordType());
+  }
+
   llvm::InlineAsm *IA;
   {
     llvm::FunctionType *AsmFTy =
@@ -8928,7 +8970,7 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
     if (helper_ptr == helper_lookup_tb_ptr)
       break;
 
-    const helper_function_t &hf = LookupHelper(*Module, *TCG, op, opts.DFSan);
+    const helper_function_t &hf = LookupHelper(*Module, *TCG, op, opts.DFSan, opts.ForCBE);
     llvm::FunctionType *FTy = hf.F->getFunctionType();
 
     //

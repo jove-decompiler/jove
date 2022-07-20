@@ -158,14 +158,16 @@ void AnalyzeBasicBlock(tiny_code_generator_t &TCG,
                        binary_t &binary,
                        llvm::object::Binary &B,
                        basic_block_t bb,
-                       bool DFSan);
+                       bool DFSan = false,
+                       bool ForCBE = false);
 
 void AnalyzeFunction(decompilation_t &Decompilation,
                      tiny_code_generator_t &TCG,
                      llvm::Module &M,
                      function_t &f,
                      std::function<llvm::object::Binary &(binary_t &)> GetBinary,
-                     bool DFSan);
+                     bool DFSan = false,
+                     bool ForCBE = false);
 
 int AnalyzeTool::AnalyzeBlocks(void) {
   unsigned cnt = 0;
@@ -183,7 +185,7 @@ int AnalyzeTool::AnalyzeBlocks(void) {
       if (ICFG[bb].Analysis.Stale)
         ++cnt;
 
-      AnalyzeBasicBlock(*TCG, *Module, binary, *state_for_binary(binary).ObjectFile, bb, false);
+      AnalyzeBasicBlock(*TCG, *Module, binary, *state_for_binary(binary).ObjectFile, bb);
 
       assert(!ICFG[bb].Analysis.Stale);
     }
@@ -340,7 +342,7 @@ void AnalyzeTool::worker2(std::atomic<dynamic_target_t *>& Q_ptr,
   for (dynamic_target_t *p = Q_ptr++; p < Q_end; p = Q_ptr++) {
     dynamic_target_t X = *p;
 
-    AnalyzeFunction(Decompilation, *TCG, *Module, function_of_target(X, Decompilation), [&](binary_t &b) -> llvm::object::Binary & { return *state_for_binary(b).ObjectFile; }, false);
+    AnalyzeFunction(Decompilation, *TCG, *Module, function_of_target(X, Decompilation), [&](binary_t &b) -> llvm::object::Binary & { return *state_for_binary(b).ObjectFile; });
   }
 }
 

@@ -14,3 +14,6 @@
 [submodule "klee"]
 	path = klee
 	url = https://github.com/jove-decompiler/klee.git
+[submodule "llvm-cbe"]
+	path = llvm-cbe
+	url = https://github.com/jove-decompiler/llvm-cbe.git
