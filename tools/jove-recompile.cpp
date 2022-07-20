@@ -60,12 +60,6 @@ typedef boost::adjacency_list<boost::setS,           /* OutEdgeList */
 
 typedef dso_graph_t::vertex_descriptor dso_t;
 
-struct dynamic_linking_info_t {
-  std::string soname;
-  std::vector<std::string> needed;
-  std::string interp;
-};
-
 struct binary_state_t {
   dynamic_linking_info_t dynl;
   dso_t dso;
@@ -205,8 +199,6 @@ static std::vector<dso_t> Q;
 static std::mutex Q_mtx;
 
 static std::atomic<bool> worker_failed(false);
-
-static std::pair<tcg_uintptr_t, tcg_uintptr_t> base_of_executable(binary_t &);
 
 struct all_edges_t {
   template <typename Edge> bool operator()(const Edge &e) const {
@@ -1048,8 +1040,20 @@ int RecompileTool::Run(void) {
           //arg_vec.push_back("-z");
           //arg_vec.push_back("nocopyreloc");
 
-          tcg_uintptr_t Base, End;
-          std::tie(Base, End) = base_of_executable(b);
+          llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
+              obj::createBinary(llvm::MemoryBufferRef(
+                  llvm::StringRef(reinterpret_cast<const char *>(&b.Data[0]),
+                                  b.Data.size()),
+                  b.Path));
+          if (!BinOrErr) {
+            WithColor::error() << "failed to parse binary " << b.Path << '\n';
+            return 1;
+          }
+
+          std::unique_ptr<obj::Binary> &BinRef = BinOrErr.get();
+
+          uint64_t Base, End;
+          std::tie(Base, End) = bounds_of_binary(*BinRef);
 
           arg_vec.push_back("--section-start");
           _arg1 = (fmt(".jove=0x%lx") % Base).str();
@@ -1638,85 +1642,4 @@ bool RecompileTool::dynamic_linking_info_of_binary(binary_t &b, dynamic_linking_
   return true;
 }
 
-std::pair<tcg_uintptr_t, tcg_uintptr_t> base_of_executable(binary_t &binary) {
-  //
-  // parse the ELF
-  //
-  llvm::StringRef Buffer(reinterpret_cast<const char *>(&binary.Data[0]),
-                         binary.Data.size());
-  llvm::StringRef Identifier(binary.Path);
-  llvm::MemoryBufferRef MemBuffRef(Buffer, Identifier);
-
-  llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
-      obj::createBinary(MemBuffRef);
-  if (!BinOrErr) {
-    WithColor::error() << "failed to create binary from " << binary.Path
-                       << '\n';
-    abort();
-  }
-
-  std::unique_ptr<obj::Binary> &BinRef = BinOrErr.get();
-
-  assert(llvm::isa<ELFO>(BinRef.get()));
-  ELFO &O = *llvm::cast<ELFO>(BinRef.get());
-
-  // TheTriple = O.makeTriple();
-  // Features = O.getFeatures();
-
-  const ELFF &E = *O.getELFFile();
-
-  tcg_uintptr_t SectsStartAddr = std::numeric_limits<tcg_uintptr_t>::max();
-  tcg_uintptr_t SectsEndAddr = 0;
-
-  llvm::Expected<Elf_Shdr_Range> ExpectedSections = E.sections();
-  if (ExpectedSections && !(*ExpectedSections).empty()) {
-    for (const Elf_Shdr &Sec : *ExpectedSections) {
-      if (!(Sec.sh_flags & llvm::ELF::SHF_ALLOC))
-        continue;
-
-      llvm::Expected<llvm::StringRef> ExpectedName = E.getSectionName(&Sec);
-
-      if (!ExpectedName)
-        continue;
-
-      if ((Sec.sh_flags & llvm::ELF::SHF_TLS) &&
-          *ExpectedName == std::string(".tbss"))
-        continue;
-
-      if (!Sec.sh_size)
-        continue;
-
-      SectsStartAddr = std::min<tcg_uintptr_t>(SectsStartAddr, Sec.sh_addr);
-      SectsEndAddr   = std::max<tcg_uintptr_t>(SectsEndAddr, Sec.sh_addr + Sec.sh_size);
-    }
-  } else {
-    llvm::SmallVector<const Elf_Phdr *, 4> LoadSegments;
-
-    auto ProgramHeadersOrError = E.program_headers();
-    if (!ProgramHeadersOrError)
-      abort();
-
-    for (const Elf_Phdr &Phdr : *ProgramHeadersOrError) {
-      if (Phdr.p_type != llvm::ELF::PT_LOAD)
-        continue;
-
-      LoadSegments.push_back(&Phdr);
-    }
-
-    assert(!LoadSegments.empty());
-
-    std::stable_sort(LoadSegments.begin(),
-                     LoadSegments.end(),
-                     [](const Elf_Phdr *A,
-                        const Elf_Phdr *B) {
-                       return A->p_vaddr < B->p_vaddr;
-                     });
-
-    SectsStartAddr = LoadSegments.front()->p_vaddr;
-    SectsEndAddr = LoadSegments.back()->p_vaddr + LoadSegments.back()->p_memsz;
-  }
-
-  return {SectsStartAddr, SectsEndAddr};
 }
-
-} // namespace jove

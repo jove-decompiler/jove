@@ -281,4 +281,13 @@ private:
 
 std::pair<uint64_t, uint64_t> bounds_of_binary(llvm::object::Binary &);
 
+struct dynamic_linking_info_t {
+  std::string soname;
+  std::vector<std::string> needed;
+  std::string interp;
+};
+
+bool dynamic_linking_info_of_binary(llvm::object::Binary &,
+                                    struct dynamic_linking_info_t &out);
+
 }
