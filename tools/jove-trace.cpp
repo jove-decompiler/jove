@@ -14,7 +14,6 @@
 #include <llvm/Support/CommandLine.h>
 #include <llvm/Support/DataExtractor.h>
 #include <llvm/Support/FormatVariadic.h>
-#include <llvm/Support/InitLLVM.h>
 #include <llvm/Support/WithColor.h>
 #include <fcntl.h>
 #include <linux/magic.h>

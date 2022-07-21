@@ -3,7 +3,6 @@
 #include <fstream>
 #include <llvm/Support/CommandLine.h>
 #include <llvm/Support/FormatVariadic.h>
-#include <llvm/Support/InitLLVM.h>
 #include <llvm/Support/WithColor.h>
 
 namespace fs = boost::filesystem;

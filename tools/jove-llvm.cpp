@@ -4,7 +4,6 @@
 #include <boost/algorithm/string/replace.hpp>
 #include <boost/container_hash/extensions.hpp>
 #include <boost/dll/runtime_symbol_info.hpp>
-#include <boost/dynamic_bitset.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/format.hpp>
 #include <boost/graph/copy.hpp>
@@ -16,7 +15,6 @@
 #include <boost/preprocessor/repetition/repeat.hpp>
 #include <boost/range/adaptor/reversed.hpp>
 #include <cctype>
-#include <llvm/ADT/Statistic.h>
 #include <llvm/Analysis/Passes.h>
 #include <llvm/Analysis/TargetTransformInfo.h>
 #include <llvm/Bitcode/BitcodeReader.h>
@@ -50,7 +48,6 @@
 #include <llvm/Support/DataTypes.h>
 #include <llvm/Support/Debug.h>
 #include <llvm/Support/Error.h>
-#include <llvm/Support/Error.h>
 #include <llvm/Support/FileSystem.h>
 #include <llvm/Support/FormatVariadic.h>
 #include <llvm/Support/Host.h>
@@ -62,17 +59,11 @@
 #include <llvm/Target/TargetMachine.h>
 #include <llvm/Target/TargetOptions.h>
 #include <llvm/Transforms/IPO/PassManagerBuilder.h>
-#include <llvm/Transforms/Utils/Cloning.h>
 #include <llvm/Transforms/Utils/LowerMemIntrinsics.h>
 #include <llvm/Transforms/Utils/ModuleUtils.h>
 #include <random>
 #include <set>
 #include <unordered_set>
-#include <sys/stat.h>
-#include <sys/types.h>
-#include <sys/user.h>
-#include <unistd.h>
-#include <fcntl.h>
 
 #include "jove_macros.h"
 #include "jove_constants.h"
