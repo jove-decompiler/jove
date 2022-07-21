@@ -22,21 +22,17 @@ symbolizer_t::symbolizer_t() {
 symbolizer_t::~symbolizer_t() {}
 
 std::string symbolizer_t::addr2line(const binary_t &binary, tcg_uintptr_t Addr) {
-  llvm::symbolize::LLVMSymbolizer::Options Opts;
-  Opts.PrintFunctions = llvm::symbolize::FunctionNameKind::None;
-  Opts.UseSymbolTable = false;
-  Opts.Demangle = false;
-  Opts.RelativeAddresses = true;
-#if 0
-Opts.FallbackDebugPath = ""; // ClFallbackDebugPath
-Opts.DebugFileDirectory = ""; // ClDebugFileDirectory;
-#endif
-
   auto ResOrErr = Symbolizer->symbolizeCode(
       binary.Path,
       {Addr, llvm::object::SectionedAddress::UndefSection});
-  if (!ResOrErr)
+  if (!ResOrErr) {
+    std::string Buf;
+    {
+      llvm::raw_string_ostream OS(Buf);
+      llvm::logAllUnhandledErrors(ResOrErr.takeError(), OS, "");
+    }
     return std::string();
+  }
 
   llvm::DILineInfo &LnInfo = ResOrErr.get();
 
