@@ -209,7 +209,7 @@ int TCGDumpTool::Run(void) {
     if (!End)
       End = Addr + 32;
 
-    tcg.set_elf(&E);
+    tcg.set_binary(*B);
 
     HumanOut() << llvm::formatv("{0:x}\n", Addr);
 

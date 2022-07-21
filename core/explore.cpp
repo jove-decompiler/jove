@@ -227,7 +227,7 @@ on_insn_boundary:
     }
   }
 
-  tcg.set_elf(llvm::cast<ELFO>(&ObjectFile)->getELFFile());
+  tcg.set_binary(ObjectFile);
 
   unsigned Size = 0;
   jove::terminator_info_t T;

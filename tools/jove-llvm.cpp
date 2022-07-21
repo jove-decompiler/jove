@@ -1325,7 +1325,7 @@ void AnalyzeBasicBlock(tiny_code_generator_t &TCG,
   const tcg_uintptr_t Addr = bbprop.Addr;
   const unsigned Size = bbprop.Size;
 
-  TCG.set_elf(llvm::cast<ELFO>(&B)->getELFFile());
+  TCG.set_binary(B);
 
   bbprop.Analysis.live.use.reset();
   bbprop.Analysis.live.def.reset();
@@ -7121,7 +7121,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
     }
   }
 
-  TCG->set_elf(llvm::cast<ELFO>(state_for_binary(Binary).ObjectFile.get())->getELFFile());
+  TCG->set_binary(*state_for_binary(Binary).ObjectFile);
 
   llvm::BasicBlock *ExitBB = nullptr;
 

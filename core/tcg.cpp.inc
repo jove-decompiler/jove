@@ -1,7 +1,28 @@
 #include "tcg.h"
-#include <llvm/Object/ELFObjectFile.h>
+#include <llvm/Support/raw_ostream.h>
+#include <sstream>
 
 static unsigned long __jove_end_pc = 0;
+
+static const void *_jove_g2h(jove::tcg_uintptr_t Addr, const jove::ELFF *E) {
+  llvm::Expected<const uint8_t *> ExpectedPtr = E->toMappedAddr(Addr);
+  if (!ExpectedPtr) {
+    std::string ErrorBuf;
+    {
+      llvm::raw_string_ostream OS(ErrorBuf);
+      llvm::logAllUnhandledErrors(ExpectedPtr.takeError(), OS, "");
+    }
+
+    std::stringstream stream;
+    stream << std::hex << Addr;
+    std::string AddrHexString(stream.str());
+    throw std::runtime_error("_jove_g2h() failed [0x" + AddrHexString +
+                             "]: " + ErrorBuf);
+  }
+
+  const uint8_t *Ptr = *ExpectedPtr;
+  return Ptr;
+}
 
 #include "tcg.hpp"
 #include "stubs.hpp"
@@ -245,17 +266,20 @@ struct tiny_code_generator_private_t {
 #endif
   }
 
-  void set_elf(const void *e) {
+  void set_binary(llvm::object::Binary &Bin) {
+    assert(llvm::isa<ELFO>(&Bin));
+    const ELFF *E = llvm::cast<ELFO>(&Bin)->getELFFile();
+
     //
     // XXX we hijack a field of CPUArchState to pass the ELFFile handle. this
     // code is paired with definitions of g2h() in tcg.hpp
     //
 #if defined(TARGET_X86_64) || defined(TARGET_I386)
-    _cpu.env.vm_hsave = (uint64_t)e;
+    _cpu.env.vm_hsave = (uint64_t)const_cast<void *>((const void *)E);
 #elif defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
-    _cpu.env.timer = (QEMUTimer *)(const_cast<void *>(e));
+    _cpu.env.timer = (QEMUTimer *)const_cast<void *>((const void *)E);
 #elif defined(TARGET_AARCH64)
-    _cpu.env.nvic = const_cast<void *>(e);
+    _cpu.env.nvic = const_cast<void *>((const void *)E);
 #else
 #error
 #endif
@@ -390,8 +414,8 @@ tiny_code_generator_t::tiny_code_generator_t()
 
 tiny_code_generator_t::~tiny_code_generator_t() {}
 
-void tiny_code_generator_t::set_elf(const void *e) {
-  priv->set_elf(e);
+void tiny_code_generator_t::set_binary(llvm::object::Binary &Bin) {
+  priv->set_binary(Bin);
 }
 
 void tiny_code_generator_t::dump_operations(void) {

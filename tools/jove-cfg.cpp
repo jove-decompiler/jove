@@ -185,7 +185,7 @@ std::string CFGTool::disassemble_basic_block(const cfg_t &G,
 
   binary_t &binary = Decompilation.Binaries[BinaryIndex];
 
-  TCG->set_elf(llvm::cast<ELFO>(state_for_binary(binary).ObjectFile.get())->getELFFile());
+  TCG->set_binary(*state_for_binary(binary).ObjectFile);
 
   const ELFF &E = *llvm::cast<ELFO>(state_for_binary(binary).ObjectFile.get())->getELFFile();
 

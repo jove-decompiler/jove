@@ -4244,24 +4244,7 @@ struct TBContext {
 
 //#define g2h(x) ((void *)((unsigned long)(abi_ptr)(x) + guest_base))
 
-typedef llvm::object::ELF64LE TargetELF_t;
-
-static const void *_jove_g2h(target_ulong Addr,
-                             llvm::object::ELFFile<TargetELF_t> *E) {
-  llvm::Expected<const uint8_t *> ExpectedPtr = E->toMappedAddr(Addr);
-  if (!ExpectedPtr) {
-    std::stringstream stream;
-    stream << std::hex << Addr;
-    std::string AddrHexString(stream.str());
-    throw std::runtime_error("_jove_g2h() failed [0x" + AddrHexString + "]");
-  }
-
-  const uint8_t *Ptr = *ExpectedPtr;
-  return Ptr;
-}
-
-#define g2h(x, env)                                                            \
-  _jove_g2h(x, (llvm::object::ELFFile<TargetELF_t> *)env->nvic)
+#define g2h(x, env) _jove_g2h(x, (jove::ELFF *)env->nvic)
 
 typedef uint64_t abi_ptr;
 

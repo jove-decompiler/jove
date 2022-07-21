@@ -1,5 +1,6 @@
 #pragma once
 #include "jove/jove.h"
+#include "elf.h"
 #include <memory>
 #include <utility>
 
@@ -13,7 +14,7 @@ struct tiny_code_generator_t {
   tiny_code_generator_t();
   ~tiny_code_generator_t();
 
-  void set_elf(const void *e);
+  void set_binary(llvm::object::Binary &);
 
   std::pair<unsigned, terminator_info_t> translate(tcg_uintptr_t pc,
                                                    tcg_uintptr_t pc_end = 0);
