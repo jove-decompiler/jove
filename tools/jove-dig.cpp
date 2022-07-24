@@ -1,12 +1,12 @@
 #include "tool.h"
 #include "recovery.h"
 #include "elf.h"
+#include "symbolizer.h"
 
 #include <boost/dll/runtime_symbol_info.hpp>
 #include <boost/filesystem.hpp>
 #include <llvm/Support/FormatVariadic.h>
 #include <llvm/Support/WithColor.h>
-#include <llvm/DebugInfo/Symbolize/Symbolize.h>
 
 #include <atomic>
 #include <mutex>
@@ -522,6 +522,8 @@ void CodeDigger::Worker(void) {
 }
 
 int CodeDigger::ListLocalGotos() {
+  symbolizer_t symbolizer;
+
   auto process_basic_block = [&](binary_t &binary, basic_block_t bb) -> void {
     auto &ICFG = binary.Analysis.ICFG;
     if (ICFG[bb].Term.Type != TERMINATOR::INDIRECT_JUMP)
@@ -529,39 +531,7 @@ int CodeDigger::ListLocalGotos() {
     if (boost::out_degree(bb, ICFG) == 0)
       return;
 
-    llvm::symbolize::LLVMSymbolizer::Options Opts;
-    Opts.PrintFunctions = llvm::symbolize::FunctionNameKind::None;
-    Opts.UseSymbolTable = false;
-    Opts.Demangle = false;
-    Opts.RelativeAddresses = true;
-#if 0
-  Opts.FallbackDebugPath = ""; // ClFallbackDebugPath
-  Opts.DebugFileDirectory = ""; // ClDebugFileDirectory;
-#endif
-
-    llvm::symbolize::LLVMSymbolizer Symbolizer(Opts);
-
-    auto ResOrErr = Symbolizer.symbolizeCode(
-        binary.Path,
-        {ICFG[bb].Addr, llvm::object::SectionedAddress::UndefSection});
-    if (!ResOrErr)
-      return;
-
-    llvm::DILineInfo &LnInfo = ResOrErr.get();
-
-    if (LnInfo.FileName == llvm::DILineInfo::BadString)
-      return;
-
-    fs::path PrefixedFileName = fs::path("/usr/src/debug") /
-                                fs::path(binary.Path).stem().c_str() /
-                                LnInfo.FileName;
-
-    HumanOut() << llvm::formatv(
-        "{0}:{1}:{2}:{3}+{4:x}\n",
-        fs::path(LnInfo.FileName).is_relative() ? PrefixedFileName.c_str()
-                                                : LnInfo.FileName.c_str(),
-        LnInfo.Line, LnInfo.Column, fs::path(binary.Path).filename().c_str(),
-        ICFG[bb].Addr);
+    HumanOut() << symbolizer.addr2desc(binary, ICFG[bb].Term.Addr) << '\n';
   };
 
   if (is_binary_index_valid(SingleBinaryIndex)) {
