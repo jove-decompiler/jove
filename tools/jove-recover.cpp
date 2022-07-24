@@ -142,7 +142,10 @@ int RecoverTool::Run(void) {
 
   ReadDecompilationFromFile(jvfp, Decompilation);
 
-  CodeRecovery Recovery(Decompilation, disas);
+  tiny_code_generator_t tcg;
+  symbolizer_t symbolizer;
+
+  CodeRecovery Recovery(Decompilation, disas, tcg, symbolizer);
 
   std::string msg;
 

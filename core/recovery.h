@@ -8,8 +8,9 @@ namespace jove {
 class CodeRecovery {
   decompilation_t &decompilation;
 
-  tiny_code_generator_t tcg;
   disas_t &disas;
+  tiny_code_generator_t &tcg;
+  symbolizer_t &symbolizer;
 
   struct binary_state_t {
     std::vector<tcg_uintptr_t> block_term_addr_vec;
@@ -22,11 +23,11 @@ class CodeRecovery {
 
   std::vector<binary_state_t> bin_state_vec;
 
-  symbolizer_t symbolizer;
-
 public:
-  CodeRecovery(decompilation_t &, disas_t &);
+  CodeRecovery(decompilation_t &, disas_t &, tiny_code_generator_t &, symbolizer_t &);
   ~CodeRecovery();
+
+  tcg_uintptr_t AddressOfTerminatorAtBasicBlock(uint32_t BIdx, uint32_t BBIdx);
 
   std::string RecoverDynamicTarget(uint32_t CallerBIdx,
                                    uint32_t CallerBBIdx,

@@ -146,7 +146,9 @@ struct RunTool : public Tool {
 
   decompilation_t decompilation;
 
-  disas_t disas;
+  std::unique_ptr<disas_t> disas;
+  std::unique_ptr<tiny_code_generator_t> tcg;
+  std::unique_ptr<symbolizer_t> symbolizer;
   std::unique_ptr<CodeRecovery> Recovery;
 
 public:
@@ -511,10 +513,10 @@ int RunTool::DoRun(void) {
   if (!opts.jv.empty()) {
     ReadDecompilationFromFile(opts.jv, decompilation);
 
-    //
-    // initialize the LLVM objects necessary for disassembling instructions
-    //
-    Recovery = std::make_unique<CodeRecovery>(decompilation, disas);
+    disas = std::make_unique<disas_t>();
+    tcg = std::make_unique<tiny_code_generator_t>();
+    symbolizer = std::make_unique<symbolizer_t>();
+    Recovery = std::make_unique<CodeRecovery>(decompilation, *disas, *tcg, *symbolizer);
   }
 
   int rfd = -1;

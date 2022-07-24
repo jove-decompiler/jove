@@ -90,6 +90,9 @@ class CodeDigger : public Tool {
   int pipe_wrfd = -1;
 
   disas_t disas;
+  tiny_code_generator_t tcg;
+  symbolizer_t symbolizer;
+
   std::unique_ptr<CodeRecovery> Recovery;
 
 public:
@@ -187,7 +190,7 @@ int CodeDigger::Run(void) {
   if (opts.ListLocalGotos)
     return ListLocalGotos();
 
-  Recovery = std::make_unique<CodeRecovery>(decompilation, disas);
+  Recovery = std::make_unique<CodeRecovery>(decompilation, disas, tcg, symbolizer);
 
   //
   // prepare to process the binaries by creating a unique temporary directory
@@ -313,17 +316,6 @@ void CodeDigger::RecoverLoop(void) {
     if (opts.Verbose)
       HumanOut() << llvm::formatv("RecoverLoop: record: {0:x} @ ({1}, {2})\n",
                                   Addr, BIdx, BBIdx);
-
-#if 0
-    {
-      tcg_uintptr_t IndJmpAddr =
-          Recovery->bin_state_vec.at(BIdx).block_term_addr_vec.at(BBIdx);
-      if (Addr < IndJmpAddr) {
-        WithColor::warning() << llvm::formatv("({0},{1}): {2:x} -> {3:x}\n",
-                                            BIdx, BBIdx, IndJmpAddr, Addr);
-      }
-    }
-#endif
 
     if (!(Addr >= state_for_binary(binary).SectsStartAddr &&
           Addr < state_for_binary(binary).SectsEndAddr)) {
@@ -522,8 +514,6 @@ void CodeDigger::Worker(void) {
 }
 
 int CodeDigger::ListLocalGotos() {
-  symbolizer_t symbolizer;
-
   auto process_basic_block = [&](binary_t &binary, basic_block_t bb) -> void {
     auto &ICFG = binary.Analysis.ICFG;
     if (ICFG[bb].Term.Type != TERMINATOR::INDIRECT_JUMP)

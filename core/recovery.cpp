@@ -16,8 +16,10 @@ namespace jove {
 
 typedef boost::format fmt;
 
-CodeRecovery::CodeRecovery(decompilation_t &decompilation, disas_t &disas)
-    : decompilation(decompilation), disas(disas) {
+CodeRecovery::CodeRecovery(decompilation_t &decompilation, disas_t &disas,
+                           tiny_code_generator_t &tcg, symbolizer_t &symbolizer)
+    : decompilation(decompilation), disas(disas), tcg(tcg),
+      symbolizer(symbolizer) {
   bin_state_vec.resize(decompilation.Binaries.size());
 
   for_each_binary(decompilation, [&](binary_t &binary) {
@@ -55,6 +57,15 @@ CodeRecovery::CodeRecovery(decompilation_t &decompilation, disas_t &disas)
 }
 
 CodeRecovery::~CodeRecovery() {}
+
+tcg_uintptr_t CodeRecovery::AddressOfTerminatorAtBasicBlock(uint32_t BIdx,
+                                                            uint32_t BBIdx) {
+  binary_t &binary = decompilation.Binaries.at(BIdx);
+  tcg_uintptr_t TermAddr =
+      state_for_binary(binary).block_term_addr_vec.at(BBIdx);
+  assert(TermAddr);
+  return TermAddr;
+}
 
 std::string CodeRecovery::RecoverDynamicTarget(uint32_t CallerBIdx,
                                                uint32_t CallerBBIdx,
@@ -171,8 +182,8 @@ std::string CodeRecovery::RecoverBasicBlock(uint32_t IndBrBIdx,
     return std::string();
 
   return (fmt(__ANSI_GREEN "(goto) %s -> %s" __ANSI_NORMAL_COLOR)
-	  % symbolizer.addr2desc(indbr_binary, TermAddr)
-	  % symbolizer.addr2desc(indbr_binary, Addr))
+          % symbolizer.addr2desc(indbr_binary, TermAddr)
+          % symbolizer.addr2desc(indbr_binary, Addr))
       .str();
 }
 
