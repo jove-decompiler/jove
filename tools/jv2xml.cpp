@@ -1,4 +1,5 @@
 #include "tool.h"
+
 #include <boost/archive/xml_oarchive.hpp>
 #include <boost/dynamic_bitset.hpp>
 #include <boost/filesystem.hpp>
@@ -8,10 +9,12 @@
 #include <boost/serialization/map.hpp>
 #include <boost/serialization/set.hpp>
 #include <boost/serialization/vector.hpp>
-#include <fstream>
+
 #include <llvm/Support/DataTypes.h>
 #include <llvm/Support/FormatVariadic.h>
 #include <llvm/Support/WithColor.h>
+
+#include <fstream>
 #include <memory>
 #include <sstream>
 

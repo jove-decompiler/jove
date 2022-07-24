@@ -1,7 +1,9 @@
 #include "tool.h"
 #include "score.h"
+
 #include <boost/filesystem.hpp>
 #include <boost/format.hpp>
+
 #include <llvm/Support/WithColor.h>
 #include <llvm/Support/FormatVariadic.h>
 

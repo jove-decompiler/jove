@@ -1,20 +1,15 @@
 #include "tool.h"
 #include "elf.h"
-#include <boost/archive/text_iarchive.hpp>
-#include <boost/archive/text_oarchive.hpp>
+
 #include <boost/filesystem.hpp>
-#include <boost/graph/adj_list_serialize.hpp>
-#include <boost/serialization/bitset.hpp>
-#include <boost/serialization/map.hpp>
-#include <boost/serialization/set.hpp>
-#include <boost/serialization/vector.hpp>
-#include <cstdlib>
-#include <llvm/ADT/PointerIntPair.h>
-#include <llvm/Object/ELFObjectFile.h>
+
 #include <llvm/Support/CommandLine.h>
 #include <llvm/Support/DataExtractor.h>
 #include <llvm/Support/FormatVariadic.h>
 #include <llvm/Support/WithColor.h>
+
+#include <cstdlib>
+
 #include <fcntl.h>
 #include <linux/magic.h>
 #include <sys/stat.h>

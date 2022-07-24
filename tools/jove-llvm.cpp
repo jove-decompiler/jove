@@ -1,6 +1,8 @@
 #include "tcg.cpp.inc"
-#include "elf.h"
 #include "tool.h"
+#include "elf.h"
+#include "disas.h"
+
 #include <boost/algorithm/string/replace.hpp>
 #include <boost/container_hash/extensions.hpp>
 #include <boost/dll/runtime_symbol_info.hpp>
@@ -14,7 +16,7 @@
 #include <boost/preprocessor/punctuation/comma_if.hpp>
 #include <boost/preprocessor/repetition/repeat.hpp>
 #include <boost/range/adaptor/reversed.hpp>
-#include <cctype>
+
 #include <llvm/Analysis/Passes.h>
 #include <llvm/Analysis/TargetTransformInfo.h>
 #include <llvm/Bitcode/BitcodeReader.h>
@@ -38,13 +40,7 @@
 #include <llvm/InitializePasses.h>
 #include <llvm/LinkAllPasses.h>
 #include <llvm/Linker/Linker.h>
-#include <llvm/MC/MCAsmInfo.h>
-#include <llvm/MC/MCContext.h>
-#include <llvm/MC/MCDisassembler/MCDisassembler.h>
 #include <llvm/MC/MCInstPrinter.h>
-#include <llvm/MC/MCInstrInfo.h>
-#include <llvm/MC/MCObjectFileInfo.h>
-#include <llvm/MC/MCRegisterInfo.h>
 #include <llvm/Support/DataTypes.h>
 #include <llvm/Support/Debug.h>
 #include <llvm/Support/Error.h>
@@ -52,15 +48,15 @@
 #include <llvm/Support/FormatVariadic.h>
 #include <llvm/Support/Host.h>
 #include <llvm/Support/ScopedPrinter.h>
-#include <llvm/Support/TargetRegistry.h>
-#include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/ToolOutputFile.h>
 #include <llvm/Support/WithColor.h>
 #include <llvm/Target/TargetMachine.h>
-#include <llvm/Target/TargetOptions.h>
 #include <llvm/Transforms/IPO/PassManagerBuilder.h>
 #include <llvm/Transforms/Utils/LowerMemIntrinsics.h>
 #include <llvm/Transforms/Utils/ModuleUtils.h>
+#include <llvm/Transforms/Utils/Cloning.h>
+
+#include <cctype>
 #include <random>
 #include <set>
 #include <unordered_set>
@@ -350,16 +346,7 @@ struct LLVMTool : public Tool {
   llvm::Triple TheTriple;
   llvm::SubtargetFeatures Features;
 
-  const llvm::Target *TheTarget;
-  std::unique_ptr<const llvm::MCRegisterInfo> MRI;
-  std::unique_ptr<const llvm::MCAsmInfo> AsmInfo;
-  std::unique_ptr<const llvm::MCSubtargetInfo> STI;
-  std::unique_ptr<const llvm::MCInstrInfo> MII;
-  std::unique_ptr<llvm::MCObjectFileInfo> MOFI;
-  std::unique_ptr<llvm::MCContext> MCCtx;
-  std::unique_ptr<llvm::MCDisassembler> DisAsm;
-  std::unique_ptr<llvm::MCInstPrinter> IP;
-  std::unique_ptr<llvm::TargetMachine> TM;
+  disas_t disas;
 
   std::unordered_set<target_ulong> ConstantRelocationLocs;
   target_ulong libcEarlyInitAddr;
@@ -1667,10 +1654,6 @@ struct section_t {
 
   llvm::StructType *T;
 };
-
-typedef std::tuple<llvm::MCDisassembler &, const llvm::MCSubtargetInfo &,
-                   llvm::MCInstPrinter &>
-    disas_t;
 
 #if 0
 static int tcg_global_index_of_name(const char *nm) {
@@ -3326,86 +3309,6 @@ int LLVMTool::ProcessCOPYRelocations(void) {
 
 int LLVMTool::PrepareToTranslateCode(void) {
   TCG.reset(new tiny_code_generator_t);
-
-  llvm::InitializeAllTargets();
-  llvm::InitializeAllTargetMCs();
-  llvm::InitializeAllAsmPrinters();
-  llvm::InitializeAllAsmParsers();
-  llvm::InitializeAllDisassemblers();
-
-  std::string ArchName;
-  std::string Error;
-
-  TheTarget = llvm::TargetRegistry::lookupTarget(ArchName, TheTriple, Error);
-  if (!TheTarget) {
-    WithColor::error() << "failed to lookup target: " << Error << '\n';
-    return 1;
-  }
-
-  std::string TripleName = TheTriple.getTriple();
-
-  MRI.reset(TheTarget->createMCRegInfo(TripleName));
-  if (!MRI) {
-    WithColor::error() << "no register info for target\n";
-    return 1;
-  }
-
-  {
-    llvm::MCTargetOptions Options;
-    AsmInfo.reset(TheTarget->createMCAsmInfo(*MRI, TripleName, Options));
-  }
-  if (!AsmInfo) {
-    WithColor::error() << "no assembly info\n";
-    return 1;
-  }
-
-  std::string CPUStr;
-
-  STI.reset(
-      TheTarget->createMCSubtargetInfo(TripleName, CPUStr, Features.getString()));
-  if (!STI) {
-    WithColor::error() << "no subtarget info\n";
-    return 1;
-  }
-
-  MII.reset(TheTarget->createMCInstrInfo());
-  if (!MII) {
-    WithColor::error() << "no instruction info\n";
-    return 1;
-  }
-
-  MOFI.reset(new llvm::MCObjectFileInfo);
-  MCCtx.reset(new llvm::MCContext(AsmInfo.get(), MRI.get(), MOFI.get()));
-
-  // FIXME: for now initialize MCObjectFileInfo with default values
-  MOFI->InitMCObjectFileInfo(TheTriple, false, *MCCtx);
-
-  DisAsm.reset(TheTarget->createMCDisassembler(*STI, *MCCtx));
-  if (!DisAsm) {
-    WithColor::error() << "no disassembler for target\n";
-    return 1;
-  }
-
-  int AsmPrinterVariant =
-#if defined(TARGET_X86_64)
-      1 /* intel please */
-#else
-      AsmInfo->getAssemblerDialect()
-#endif
-      ;
-  IP.reset(TheTarget->createMCInstPrinter(
-      llvm::Triple(TripleName), AsmPrinterVariant, *AsmInfo, *MII, *MRI));
-  if (!IP) {
-    WithColor::error() << "no instruction printer\n";
-    return 1;
-  }
-
-  llvm::TargetOptions Options;
-
-  std::string FeaturesStr;
-  TM.reset(TheTarget->createTargetMachine(TheTriple.getTriple(), CPUStr,
-                                          Features.getString(), Options,
-                                          llvm::None));
 
   binary_t &Binary = Decompilation.Binaries[BinaryIndex];
 
@@ -6332,7 +6235,7 @@ int LLVMTool::TranslateFunctions(void) {
     TLII.disableAllFunctions();
 
   FPM.add(new llvm::TargetLibraryInfoWrapperPass(TLII));
-  FPM.add(llvm::createTargetTransformInfoWrapperPass(TM->getTargetIRAnalysis()));
+  FPM.add(llvm::createTargetTransformInfoWrapperPass(disas.TM->getTargetIRAnalysis()));
 
   FPM.add(llvm::createScopedNoAliasAAWrapperPass());
   FPM.add(llvm::createBasicAAWrapperPass());
@@ -6450,8 +6353,8 @@ int LLVMTool::DoOptimize(void) {
   MPM.add(new llvm::TargetLibraryInfoWrapperPass(TLII));
 
   // Add internal analysis passes from the target machine.
-  MPM.add(llvm::createTargetTransformInfoWrapperPass(TM->getTargetIRAnalysis()));
-  FPM.add(llvm::createTargetTransformInfoWrapperPass(TM->getTargetIRAnalysis()));
+  MPM.add(llvm::createTargetTransformInfoWrapperPass(disas.TM->getTargetIRAnalysis()));
+  FPM.add(llvm::createTargetTransformInfoWrapperPass(disas.TM->getTargetIRAnalysis()));
 
   llvm::PassManagerBuilder Builder;
   Builder.OptLevel = OptLevel;
@@ -6460,7 +6363,7 @@ int LLVMTool::DoOptimize(void) {
   Builder.Inliner =
       llvm::createFunctionInliningPass(OptLevel, SizeLevel, false);
 
-  TM->adjustPassManager(Builder);
+  disas.TM->adjustPassManager(Builder);
 
   Builder.populateFunctionPassManager(FPM);
   Builder.populateModulePassManager(MPM);
@@ -6684,7 +6587,7 @@ int LLVMTool::DFSanInstrument(void) {
   MPM.add(new llvm::TargetLibraryInfoWrapperPass(TLII));
 
   // Add internal analysis passes from the target machine.
-  MPM.add(llvm::createTargetTransformInfoWrapperPass(TM->getTargetIRAnalysis()));
+  MPM.add(llvm::createTargetTransformInfoWrapperPass(disas.TM->getTargetIRAnalysis()));
 
   std::vector<std::string> ABIList = {
       (boost::dll::program_location().parent_path() / "dfsan_abilist.txt")

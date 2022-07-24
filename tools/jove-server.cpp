@@ -1,10 +1,12 @@
 #include "tool.h"
+
 #include <boost/dll/runtime_symbol_info.hpp>
 #include <boost/filesystem.hpp>
-#include <cinttypes>
-#include <llvm/ADT/PointerIntPair.h>
+
 #include <llvm/Support/FormatVariadic.h>
 #include <llvm/Support/WithColor.h>
+
+#include <cinttypes>
 #include <string>
 #include <thread>
 

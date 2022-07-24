@@ -1,25 +1,23 @@
 #include "tool.h"
 #include "elf.h"
+
 #include <boost/dll/runtime_symbol_info.hpp>
 #include <boost/filesystem.hpp>
-#include <cinttypes>
-#include <cstring>
+
 #include <llvm/Support/FormatVariadic.h>
 #include <llvm/Support/WithColor.h>
+
 #include <string>
+#include <cinttypes>
+#include <cstring>
+
 #include <arpa/inet.h>
 #include <fcntl.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
-#include <pthread.h>
-#include <sys/mman.h>
 #include <sys/mount.h>
-#include <sys/sendfile.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
-#include <sys/types.h>
-#include <sys/uio.h>
-#include <unistd.h>
 
 #include "jove_macros.h"
 

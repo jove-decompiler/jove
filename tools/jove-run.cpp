@@ -2,20 +2,18 @@
 #include "recovery.h"
 #include "elf.h"
 
-#include <atomic>
 #include <boost/dll/runtime_symbol_info.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/format.hpp>
-#include <cinttypes>
+
 #include <llvm/Support/FormatVariadic.h>
-#include <llvm/MC/MCAsmInfo.h>
-#include <llvm/MC/MCContext.h>
 #include <llvm/MC/MCInstrInfo.h>
-#include <llvm/MC/MCObjectFileInfo.h>
-#include <llvm/MC/MCRegisterInfo.h>
 #include <llvm/Support/TargetRegistry.h>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/WithColor.h>
+
+#include <atomic>
+#include <cinttypes>
 #include <string>
 #include <thread>
 
@@ -148,18 +146,7 @@ struct RunTool : public Tool {
 
   decompilation_t decompilation;
 
-  llvm::Triple TheTriple;
-  llvm::SubtargetFeatures Features;
-
-  const llvm::Target *TheTarget = nullptr;
-  std::unique_ptr<const llvm::MCRegisterInfo> MRI;
-  std::unique_ptr<const llvm::MCAsmInfo> AsmInfo;
-  std::unique_ptr<const llvm::MCSubtargetInfo> STI;
-  std::unique_ptr<const llvm::MCInstrInfo> MII;
-  std::unique_ptr<llvm::MCContext> MCCtx;
-  std::unique_ptr<llvm::MCDisassembler> DisAsm;
-  std::unique_ptr<llvm::MCInstPrinter> IP;
-
+  disas_t disas;
   std::unique_ptr<CodeRecovery> Recovery;
 
 public:
@@ -524,97 +511,10 @@ int RunTool::DoRun(void) {
   if (!opts.jv.empty()) {
     ReadDecompilationFromFile(opts.jv, decompilation);
 
-    {
-      binary_t &binary = decompilation.Binaries.at(0);
-
-      llvm::StringRef Buffer(reinterpret_cast<char *>(&binary.Data[0]),
-                             binary.Data.size());
-      llvm::StringRef Identifier(binary.Path);
-
-      llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
-          obj::createBinary(llvm::MemoryBufferRef(Buffer, Identifier));
-      if (!BinOrErr) {
-        HumanOut() << llvm::formatv("failed to create binary from {0}\n", binary.Path);
-        return 1;
-      }
-
-      std::unique_ptr<obj::Binary> &BinRef = BinOrErr.get();
-
-      assert(llvm::isa<ELFO>(BinRef.get()));
-      ELFO &O = *llvm::cast<ELFO>(BinRef.get());
-
-      TheTriple = O.makeTriple();
-      Features = O.getFeatures();
-    }
-
-    // Initialize targets and assembly printers/parsers.
-    llvm::InitializeAllTargets();
-    llvm::InitializeAllTargetMCs();
-    llvm::InitializeAllAsmPrinters();
-    llvm::InitializeAllAsmParsers();
-    llvm::InitializeAllDisassemblers();
-
     //
     // initialize the LLVM objects necessary for disassembling instructions
     //
-    std::string ArchName;
-    std::string Error;
-
-    this->TheTarget =
-        llvm::TargetRegistry::lookupTarget(ArchName, TheTriple, Error);
-    if (!TheTarget) {
-      HumanOut() << "failed to lookup target: " << Error << '\n';
-      return 1;
-    }
-
-    std::string TripleName = TheTriple.getTriple();
-    std::string MCPU;
-
-    MRI.reset(TheTarget->createMCRegInfo(TripleName));
-    if (!MRI) {
-      HumanOut() << "no register info for target\n";
-      return 1;
-    }
-
-    llvm::MCTargetOptions Options;
-    AsmInfo.reset(TheTarget->createMCAsmInfo(*MRI, TripleName, Options));
-    if (!AsmInfo) {
-      HumanOut() << "no assembly info\n";
-      return 1;
-    }
-
-    STI.reset(TheTarget->createMCSubtargetInfo(TripleName, MCPU, Features.getString()));
-    if (!STI) {
-      HumanOut() << "no subtarget info\n";
-      return 1;
-    }
-
-    MII.reset(TheTarget->createMCInstrInfo());
-    if (!MII) {
-      HumanOut() << "no instruction info\n";
-      return 1;
-    }
-
-    llvm::MCObjectFileInfo MOFI;
-
-    MCCtx = std::make_unique<llvm::MCContext>(AsmInfo.get(), MRI.get(), &MOFI);
-
-    DisAsm.reset(TheTarget->createMCDisassembler(*STI, *MCCtx));
-    if (!DisAsm) {
-      HumanOut() << "no disassembler for target\n";
-      return 1;
-    }
-
-    IP.reset(TheTarget->createMCInstPrinter(llvm::Triple(TripleName),
-                                            AsmInfo->getAssemblerDialect(),
-                                            *AsmInfo, *MII, *MRI));
-    if (!IP) {
-      HumanOut() << "no instruction printer\n";
-      return 1;
-    }
-
-    Recovery = std::make_unique<CodeRecovery>(
-        decompilation, disas_t(*DisAsm, std::cref(*STI), *IP));
+    Recovery = std::make_unique<CodeRecovery>(decompilation, disas);
   }
 
   int rfd = -1;

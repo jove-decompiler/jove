@@ -1,9 +1,12 @@
 #include "tool.h"
-#include <sstream>
+
 #include <boost/filesystem.hpp>
 #include <boost/dll/runtime_symbol_info.hpp>
+
 #include <llvm/Support/FormatVariadic.h>
 #include <llvm/Support/WithColor.h>
+
+#include <sstream>
 
 namespace cl = llvm::cl;
 namespace fs = boost::filesystem;

@@ -1,5 +1,6 @@
 #include "tool.h"
 #include "elf.h"
+
 #include <boost/algorithm/string.hpp>
 #include <boost/dll/runtime_symbol_info.hpp>
 #include <boost/filesystem.hpp>
@@ -9,20 +10,20 @@
 #include <boost/graph/strong_components.hpp>
 #include <boost/graph/topological_sort.hpp>
 #include <boost/range/adaptor/reversed.hpp>
-#include <chrono>
-#include <llvm/ADT/PointerIntPair.h>
+
 #include <llvm/ADT/StringRef.h>
 #include <llvm/Support/FormatVariadic.h>
 #include <llvm/Support/WithColor.h>
+
+#include <chrono>
 #include <mutex>
 #include <queue>
 #include <sstream>
 #include <string>
 #include <thread>
 #include <unordered_set>
+
 #include <fcntl.h>
-#include <sched.h>
-#include <sys/syscall.h>
 #include <unistd.h>
 
 #include "jove_macros.h"

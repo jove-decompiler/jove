@@ -6,8 +6,9 @@
 #include "tool.h"
 #include "elf.h"
 #include "tcg.h"
+#include "disas.h"
 #include "explore.h"
-#include <array>
+
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/dll/runtime_symbol_info.hpp>
 #include <boost/dynamic_bitset.hpp>
@@ -18,16 +19,13 @@
 #include <boost/preprocessor/cat.hpp>
 #include <boost/preprocessor/repetition/repeat.hpp>
 #include <boost/preprocessor/repetition/repeat_from_to.hpp>
-#include <cinttypes>
+
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
-#include <llvm/MC/MCAsmInfo.h>
-#include <llvm/MC/MCContext.h>
 #include <llvm/MC/MCInst.h>
 #include <llvm/MC/MCInstrInfo.h>
-#include <llvm/MC/MCInstrInfo.h>
-#include <llvm/MC/MCObjectFileInfo.h>
-#include <llvm/MC/MCRegisterInfo.h>
+#include <llvm/MC/MCInstPrinter.h>
+#include <llvm/MC/MCDisassembler/MCDisassembler.h>
 #include <llvm/Support/DataTypes.h>
 #include <llvm/Support/Debug.h>
 #include <llvm/Support/Error.h>
@@ -38,6 +36,10 @@
 #include <llvm/Support/TargetRegistry.h>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/WithColor.h>
+
+#include <array>
+#include <cinttypes>
+
 #include <asm/auxvec.h>
 #include <asm/unistd.h>
 #include <fcntl.h>
@@ -291,6 +293,8 @@ struct BootstrapTool : public Tool {
 
   decompilation_t Decompilation;
 
+  disas_t disas;
+
   std::vector<struct proc_map_t> cached_proc_maps;
 
   boost::icl::split_interval_map<uintptr_t, proc_map_set_t> pmm;
@@ -316,45 +320,39 @@ public:
   int Run(void);
 
   int ChildProc(int fd);
-  int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &);
+  int TracerLoop(pid_t child, tiny_code_generator_t &tcg);
 
-  void add_binary(pid_t, tiny_code_generator_t &, disas_t &,
-                  const char *path);
+  void add_binary(pid_t, tiny_code_generator_t &, const char *path);
 
-  void on_new_basic_block(binary_t &, basic_block_t, disas_t &);
+  void on_new_basic_block(binary_t &, basic_block_t);
 
   void place_breakpoint_at_indirect_branch(pid_t, uintptr_t Addr,
-                                           indirect_branch_t &, disas_t &);
+                                           indirect_branch_t &);
 
   void place_breakpoint_at_return(pid_t child, uintptr_t Addr, return_t &Ret);
 
-  void on_binary_loaded(pid_t, disas_t &, binary_index_t, const proc_map_t &);
+  void on_binary_loaded(pid_t, binary_index_t, const proc_map_t &);
 
-  void on_dynamic_linker_loaded(pid_t, disas_t &, binary_index_t,
-                                const proc_map_t &);
+  void on_dynamic_linker_loaded(pid_t, binary_index_t, const proc_map_t &);
 
-  void place_breakpoint(pid_t, uintptr_t Addr, breakpoint_t &, disas_t &);
-  void on_breakpoint(pid_t, tiny_code_generator_t &, disas_t &);
+  void place_breakpoint(pid_t, uintptr_t Addr, breakpoint_t &);
+  void on_breakpoint(pid_t, tiny_code_generator_t &);
   void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr,
-                 tiny_code_generator_t &, disas_t &);
+                 tiny_code_generator_t &);
 
-  void harvest_reloc_targets(pid_t, tiny_code_generator_t &, disas_t &);
-  void rendezvous_with_dynamic_linker(pid_t, disas_t &);
-  void scan_rtld_link_map(pid_t, tiny_code_generator_t &, disas_t &);
+  void harvest_reloc_targets(pid_t, tiny_code_generator_t &);
+  void rendezvous_with_dynamic_linker(pid_t);
+  void scan_rtld_link_map(pid_t, tiny_code_generator_t &);
 
-  void harvest_irelative_reloc_targets(pid_t child, tiny_code_generator_t &,
-                                       disas_t &);
-  void harvest_addressof_reloc_targets(pid_t child, tiny_code_generator_t &,
-                                       disas_t &);
-  void harvest_ctor_and_dtors(pid_t child, tiny_code_generator_t &tcg,
-                              disas_t &);
+  void harvest_irelative_reloc_targets(pid_t child, tiny_code_generator_t &);
+  void harvest_addressof_reloc_targets(pid_t child, tiny_code_generator_t &);
+  void harvest_ctor_and_dtors(pid_t child, tiny_code_generator_t &tcg);
 
 #if defined(__mips64) || defined(__mips__)
-  void harvest_global_GOT_entries(pid_t child, tiny_code_generator_t &tcg,
-                                  disas_t &dis);
+  void harvest_global_GOT_entries(pid_t child, tiny_code_generator_t &tcg);
 #endif
 
-  bool update_view_of_virtual_memory(pid_t, disas_t &);
+  bool update_view_of_virtual_memory(pid_t);
 
   uintptr_t va_of_rva(uintptr_t Addr, binary_index_t BIdx);
   uintptr_t rva_of_va(uintptr_t Addr, binary_index_t BIdx);
@@ -402,12 +400,6 @@ int BootstrapTool::Run(void) {
   // okay, it looks like we're actually going to run. initialize stuff
   //
   tiny_code_generator_t tcg;
-
-  llvm::InitializeAllTargets();
-  llvm::InitializeAllTargetMCs();
-  llvm::InitializeAllAsmPrinters();
-  llvm::InitializeAllAsmParsers();
-  llvm::InitializeAllDisassemblers();
 
   git = fs::is_directory(opts.jv);
   jvfp = git ? (std::string(opts.jv) + "/Decompilation.jv")
@@ -536,76 +528,6 @@ int BootstrapTool::Run(void) {
 
   BinFoundVec.resize(Decompilation.Binaries.size());
 
-  //
-  // initialize the LLVM objects necessary for disassembling instructions
-  //
-  std::string ArchName;
-  std::string Error;
-
-  const llvm::Target *TheTarget =
-      llvm::TargetRegistry::lookupTarget(ArchName, TheTriple, Error);
-  if (!TheTarget) {
-    HumanOut() << "failed to lookup target: " << Error << '\n';
-    return 1;
-  }
-
-  std::string TripleName = TheTriple.getTriple();
-  std::string MCPU;
-
-  std::unique_ptr<const llvm::MCRegisterInfo> MRI(
-      TheTarget->createMCRegInfo(TripleName));
-  if (!MRI) {
-    HumanOut() << "no register info for target\n";
-    return 1;
-  }
-
-  llvm::MCTargetOptions Options;
-  std::unique_ptr<const llvm::MCAsmInfo> AsmInfo(
-      TheTarget->createMCAsmInfo(*MRI, TripleName, Options));
-  if (!AsmInfo) {
-    HumanOut() << "no assembly info\n";
-    return 1;
-  }
-
-  std::unique_ptr<const llvm::MCSubtargetInfo> STI(
-      TheTarget->createMCSubtargetInfo(TripleName, MCPU, Features.getString()));
-  if (!STI) {
-    HumanOut() << "no subtarget info\n";
-    return 1;
-  }
-
-  std::unique_ptr<const llvm::MCInstrInfo> MII(TheTarget->createMCInstrInfo());
-  if (!MII) {
-    HumanOut() << "no instruction info\n";
-    return 1;
-  }
-
-  llvm::MCObjectFileInfo MOFI;
-  llvm::MCContext Ctx(AsmInfo.get(), MRI.get(), &MOFI);
-  // FIXME: for now initialize MCObjectFileInfo with default values
-  MOFI.InitMCObjectFileInfo(llvm::Triple(TripleName), false, Ctx);
-
-  std::unique_ptr<llvm::MCDisassembler> DisAsm(
-      TheTarget->createMCDisassembler(*STI, Ctx));
-  if (!DisAsm) {
-    HumanOut() << "no disassembler for target\n";
-    return 1;
-  }
-
-#if defined(__x86_64__) || defined(__i386__)
-  int AsmPrinterVariant = 1; // Intel syntax
-#else
-  int AsmPrinterVariant = AsmInfo->getAssemblerDialect();
-#endif
-  std::unique_ptr<llvm::MCInstPrinter> IP(TheTarget->createMCInstPrinter(
-      llvm::Triple(TripleName), AsmPrinterVariant, *AsmInfo, *MII, *MRI));
-  if (!IP) {
-    HumanOut() << "no instruction printer\n";
-    return 1;
-  }
-
-  disas_t dis(*DisAsm, std::cref(*STI), *IP);
-
 #define INSTALL_SIG(sig)                                                       \
   do {                                                                         \
     struct sigaction sa;                                                       \
@@ -675,7 +597,7 @@ int BootstrapTool::Run(void) {
       }
     }
 
-    return TracerLoop(child, tcg, dis);
+    return TracerLoop(child, tcg);
   } else {
     //
     // mode 2: create new process
@@ -777,7 +699,7 @@ int BootstrapTool::Run(void) {
       close(rfd);
     }
 
-    return TracerLoop(-1, tcg, dis);
+    return TracerLoop(-1, tcg);
   }
 }
 
@@ -868,7 +790,7 @@ void BootstrapTool::InvalidateAllFunctionAnalyses(void) {
       f.InvalidateAnalysis();
 }
 
-int BootstrapTool::TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
+int BootstrapTool::TracerLoop(pid_t child, tiny_code_generator_t &tcg) {
   siginfo_t si;
   long sig = 0;
 
@@ -1019,7 +941,7 @@ int BootstrapTool::TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &
           TurboToggle ^= 1;
         }
 
-        rendezvous_with_dynamic_linker(child, dis);
+        rendezvous_with_dynamic_linker(child);
 
         //
         // the following kinds of ptrace-stops exist:
@@ -1134,7 +1056,7 @@ int BootstrapTool::TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &
               case __NR_exit_group:
                 if (opts.Verbose)
                   HumanOut() << "Observed program exit.\n";
-                harvest_reloc_targets(child, tcg, dis);
+                harvest_reloc_targets(child, tcg);
                 break;
 
               default:
@@ -1209,7 +1131,7 @@ int BootstrapTool::TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &
                     handler &= ~1UL;
 #endif
 
-                    update_view_of_virtual_memory(child, dis);
+                    update_view_of_virtual_memory(child);
 
                     auto it = AddressSpace.find(handler);
                     if (it != AddressSpace.end()) {
@@ -1220,18 +1142,18 @@ int BootstrapTool::TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &
 
                       basic_block_index_t entrybb_idx = explore_basic_block(
                           b, *state_for_binary(b).ObjectFile,
-                          tcg, dis, rva_of_va(handler, BIdx),
+                          tcg, disas, rva_of_va(handler, BIdx),
                           state_for_binary(b).fnmap,
                           state_for_binary(b).bbmap,
-                          std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
+                          std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2));
 
                       if (is_basic_block_index_valid(entrybb_idx)) {
                         function_index_t FIdx = explore_function(
-                            b, *state_for_binary(b).ObjectFile, tcg, dis,
+                            b, *state_for_binary(b).ObjectFile, tcg, disas,
                             rva_of_va(handler, BIdx),
                             state_for_binary(b).fnmap,
                             state_for_binary(b).bbmap,
-                            std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
+                            std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2));
 
                         if (is_function_index_valid(FIdx)) {
                           b.Analysis.Functions[FIdx].IsSignalHandler = true;
@@ -1272,10 +1194,10 @@ int BootstrapTool::TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &
           syscall_state.dir = dir;
 
           if (unlikely(opts.PrintLinkMap))
-            scan_rtld_link_map(child, tcg, dis);
+            scan_rtld_link_map(child, tcg);
 
           if (unlikely(!BinFoundVec.all()))
-            update_view_of_virtual_memory(child, dis);
+            update_view_of_virtual_memory(child);
         } else if (stopsig == SIGTRAP) {
           const unsigned int event = (unsigned int)status >> 16;
 
@@ -1323,7 +1245,7 @@ int BootstrapTool::TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &
               if (child == saved_child) {
                 if (opts.Verbose)
                   HumanOut() << "Observed program exit.\n";
-                harvest_reloc_targets(child, tcg, dis);
+                harvest_reloc_targets(child, tcg);
               }
               break;
             case PTRACE_EVENT_STOP:
@@ -1339,7 +1261,7 @@ int BootstrapTool::TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &
             }
           } else {
             try {
-              on_breakpoint(child, tcg, dis);
+              on_breakpoint(child, tcg);
             } catch (const std::exception &e) {
               /* TODO rate-limit */
               HumanOut() << llvm::formatv(
@@ -1387,7 +1309,7 @@ int BootstrapTool::TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &
 
               sig = 0; /* suppress */
 
-              on_return(child, 0 /* XXX */, RetAddr, tcg, dis);
+              on_return(child, 0 /* XXX */, RetAddr, tcg);
             }
           }
 #endif
@@ -1449,10 +1371,10 @@ int BootstrapTool::TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &
               unsigned brkpt_count = 0;
               function_index_t FIdx = explore_function(
                   b, *state_for_binary(b).ObjectFile,
-                  tcg, dis, ICFG[succ].Addr,
+                  tcg, disas, ICFG[succ].Addr,
                   state_for_binary(b).fnmap,
                   state_for_binary(b).bbmap,
-                  std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
+                  std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2));
               assert(is_function_index_valid(FIdx));
               ICFG[bb].DynTargets.insert({BIdx, FIdx});
 
@@ -1525,7 +1447,7 @@ int BootstrapTool::TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &
   return 0;
 }
 
-void BootstrapTool::on_new_basic_block(binary_t &b, basic_block_t bb, disas_t &dis) {
+void BootstrapTool::on_new_basic_block(binary_t &b, basic_block_t bb) {
   binary_index_t BIdx = index_of_binary(b, Decompilation);
   auto &ICFG = b.Analysis.ICFG;
   const basic_block_properties_t &bbprop = ICFG[bb];
@@ -1564,10 +1486,9 @@ void BootstrapTool::on_new_basic_block(binary_t &b, basic_block_t bb, disas_t &d
     //
     llvm::MCInst &Inst = indbr.Inst;
 
-    llvm::MCDisassembler &DisAsm = std::get<0>(dis);
     {
       uint64_t InstLen;
-      bool Disassembled = DisAsm.getInstruction(
+      bool Disassembled = disas.DisAsm->getInstruction(
           Inst, InstLen, indbr.InsnBytes, bbprop.Term.Addr, llvm::nulls());
       assert(Disassembled);
     }
@@ -1575,7 +1496,7 @@ void BootstrapTool::on_new_basic_block(binary_t &b, basic_block_t bb, disas_t &d
 #if defined(__mips64) || defined(__mips__)
     {
       uint64_t InstLen;
-      bool Disassembled = DisAsm.getInstruction(
+      bool Disassembled = disas.DisAsm->getInstruction(
           indbr.DelaySlotInst, InstLen,
           llvm::ArrayRef<uint8_t>(indbr.InsnBytes).slice(4),
           bbprop.Term.Addr + 4, llvm::nulls());
@@ -1584,7 +1505,7 @@ void BootstrapTool::on_new_basic_block(binary_t &b, basic_block_t bb, disas_t &d
 #endif
 
     try {
-      place_breakpoint_at_indirect_branch(_child, termpc, indbr, dis);
+      place_breakpoint_at_indirect_branch(_child, termpc, indbr);
     } catch (const std::exception &e) {
       HumanOut() << llvm::formatv("failed to place breakpoint: {0}\n", e.what());
     }
@@ -1619,12 +1540,10 @@ void BootstrapTool::on_new_basic_block(binary_t &b, basic_block_t bb, disas_t &d
     memcpy(&RetInfo.InsnBytes[0], *ExpectedPtr, RetInfo.InsnBytes.size());
 
     {
-      llvm::MCDisassembler &DisAsm = std::get<0>(dis);
-
       uint64_t InstLen;
       bool Disassembled =
-          DisAsm.getInstruction(RetInfo.Inst, InstLen, RetInfo.InsnBytes,
-                                bbprop.Term.Addr, llvm::nulls());
+          disas.DisAsm->getInstruction(RetInfo.Inst, InstLen, RetInfo.InsnBytes,
+                                       bbprop.Term.Addr, llvm::nulls());
       assert(Disassembled);
     }
 
@@ -1633,14 +1552,11 @@ void BootstrapTool::on_new_basic_block(binary_t &b, basic_block_t bb, disas_t &d
     // disassemble delay slot
     //
     {
-      llvm::MCDisassembler &DisAsm = std::get<0>(dis);
-
       uint64_t InstLen;
-      bool Disassembled =
-          DisAsm.getInstruction(RetInfo.DelaySlotInst, InstLen,
-                                llvm::ArrayRef<uint8_t>(RetInfo.InsnBytes).slice(4),
-                                bbprop.Term.Addr + 4,
-                                llvm::nulls());
+      bool Disassembled = disas.DisAsm->getInstruction(
+          RetInfo.DelaySlotInst, InstLen,
+          llvm::ArrayRef<uint8_t>(RetInfo.InsnBytes).slice(4),
+          bbprop.Term.Addr + 4, llvm::nulls());
       assert(Disassembled);
     }
 #endif
@@ -1782,8 +1698,7 @@ static void arch_put_breakpoint(void *code);
 
 void BootstrapTool::place_breakpoint_at_indirect_branch(pid_t child,
                                                         uintptr_t Addr,
-                                                        indirect_branch_t &indbr,
-                                                        disas_t &dis) {
+                                                        indirect_branch_t &indbr) {
   llvm::MCInst &Inst = indbr.Inst;
 
   auto is_opcode_handled = [](unsigned opc) -> bool {
@@ -1818,7 +1733,7 @@ void BootstrapTool::place_breakpoint_at_indirect_branch(pid_t child,
        % Addr
        % Binary.Path
        % indbr.TermAddr
-       % StringOfMCInst(Inst, dis)).str());
+       % StringOfMCInst(Inst, disas)).str());
   }
 
   // read a word of the branch instruction
@@ -1839,7 +1754,7 @@ void BootstrapTool::place_breakpoint_at_indirect_branch(pid_t child,
 }
 
 void BootstrapTool::place_breakpoint(pid_t child, uintptr_t Addr,
-                                     breakpoint_t &brk, disas_t &dis) {
+                                     breakpoint_t &brk) {
   // read a word of the instruction
   unsigned long word = _ptrace_peekdata(child, Addr);
 
@@ -1894,7 +1809,7 @@ struct ScopedCPUState {
   ~ScopedCPUState()                          { _ptrace_set_cpu_state(child, gpr); }
 };
 
-void BootstrapTool::on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
+void BootstrapTool::on_breakpoint(pid_t child, tiny_code_generator_t &tcg) {
   ScopedCPUState  _scoped_cpu_state(child);
 
   auto &gpr = _scoped_cpu_state.gpr;
@@ -2087,7 +2002,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
     default: { /* fallback to code cave XXX */
       if (opts.Verbose)
         HumanOut() << llvm::formatv("delayslot: {0} ({1})\n", I,
-                                    StringOfMCInst(I, dis));
+                                    StringOfMCInst(I, disas));
 
       assert(ExecutableRegionAddress);
 
@@ -2477,7 +2392,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
     if (opts.VeryVerbose)
       HumanOut() << llvm::formatv("emudelayslot: {0} ({1})\n", I,
-                                  StringOfMCInst(I, dis));
+                                  StringOfMCInst(I, disas));
 
     uintptr_t target = RegValue(reg);
 
@@ -2512,7 +2427,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
           Inst.getOperand(0).getReg() == llvm::Mips::RA)) {
       HumanOut() << llvm::formatv(
           "emulate_return: expected jr $ra, instead {0} {1} @ {2}\n",
-          Inst, StringOfMCInst(Inst, dis),
+          Inst, StringOfMCInst(Inst, disas),
           description_of_program_counter(saved_pc, true));
     }
 
@@ -2557,7 +2472,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
       assert(it != BrkMap.end());
       breakpoint_t &brk = (*it).second;
 
-      brk.callback(child, tcg, dis);
+      brk.callback(child, tcg, disas);
 
       try {
         emulate_return(brk.Inst,
@@ -2591,7 +2506,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
       }
 
       try {
-        on_return(child, saved_pc, pc, tcg, dis);
+        on_return(child, saved_pc, pc, tcg);
       } catch (const std::exception &e) {
         HumanOut() << llvm::formatv("{0} failed: {1}\n", __func__, e.what());
       }
@@ -2606,7 +2521,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
     auto it = BrkMap.find(saved_pc);
     if (it != BrkMap.end()) {
       breakpoint_t &brk = (*it).second;
-      brk.callback(child, tcg, dis);
+      brk.callback(child, tcg, disas);
 
       if (opts.Verbose)
         HumanOut() << llvm::formatv("one-shot breakpoint hit @ {0}\n",
@@ -2625,7 +2540,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
   auto indirect_branch_of_address = [&](uintptr_t addr) -> indirect_branch_t & {
     auto it = IndBrMap.find(addr);
     if (it == IndBrMap.end()) {
-      update_view_of_virtual_memory(child, dis);
+      update_view_of_virtual_memory(child);
 
       throw std::runtime_error("unknown breakpoint @ " +
                                description_of_program_counter(addr, true));
@@ -2843,7 +2758,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
     auto it = AddressSpace.find(Target.Addr);
     if (it == AddressSpace.end()) {
       if (opts.Verbose) {
-        update_view_of_virtual_memory(child, dis);
+        update_view_of_virtual_memory(child);
 
         HumanOut() << llvm::formatv("{0} -> {1} (unknown binary)\n",
                                     description_of_program_counter(saved_pc, true),
@@ -2929,11 +2844,11 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
       function_index_t FIdx =
           explore_function(TargetBinary,
                            *state_for_binary(TargetBinary).ObjectFile,
-                           tcg, dis,
+                           tcg, disas,
                            rva_of_va(Target.Addr, Target.BIdx),
                            state_for_binary(TargetBinary).fnmap,
                            state_for_binary(TargetBinary).bbmap,
-                           std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
+                           std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2));
 
       assert(is_function_index_valid(FIdx));
 
@@ -2950,11 +2865,11 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
         // this call instruction will return, so explore the return block
         //
         basic_block_index_t NextBBIdx =
-            explore_basic_block(binary, *state_for_binary(binary).ObjectFile, tcg, dis,
+            explore_basic_block(binary, *state_for_binary(binary).ObjectFile, tcg, disas,
                                 IndBrInfo.TermAddr + IndBrInfo.InsnBytes.size(),
                                 state_for_binary(binary).fnmap,
                                 state_for_binary(binary).bbmap,
-                                std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
+                                std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2));
 
         assert(is_basic_block_index_valid(NextBBIdx));
 
@@ -2972,11 +2887,11 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
         // non-local goto (aka "long jump")
         //
         explore_basic_block(TargetBinary, *state_for_binary(TargetBinary).ObjectFile,
-                            tcg, dis,
+                            tcg, disas,
                             rva_of_va(Target.Addr, Target.BIdx),
                             state_for_binary(TargetBinary).fnmap,
                             state_for_binary(TargetBinary).bbmap,
-                            std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
+                            std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2));
 
         ControlFlow.IsGoto = true;
         Target.isNew = opts.Longjmps;
@@ -2998,11 +2913,11 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
         if (isTailCall) {
           function_index_t FIdx =
               explore_function(TargetBinary, *state_for_binary(TargetBinary).ObjectFile,
-                               tcg, dis,
+                               tcg, disas,
                                rva_of_va(Target.Addr, Target.BIdx),
                                state_for_binary(TargetBinary).fnmap,
                                state_for_binary(TargetBinary).bbmap,
-                               std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
+                               std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2));
 
           assert(is_function_index_valid(FIdx));
 
@@ -3013,11 +2928,11 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
           Target.isNew = ICFG[bb].DynTargets.insert({Target.BIdx, FIdx}).second;
         } else {
           basic_block_index_t TargetBBIdx =
-              explore_basic_block(TargetBinary, *state_for_binary(TargetBinary).ObjectFile, tcg, dis,
+              explore_basic_block(TargetBinary, *state_for_binary(TargetBinary).ObjectFile, tcg, disas,
                                   rva_of_va(Target.Addr, Target.BIdx),
                                   state_for_binary(TargetBinary).fnmap,
                                   state_for_binary(TargetBinary).bbmap,
-                                  std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
+                                  std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2));
 
           assert(is_basic_block_index_valid(TargetBBIdx));
           basic_block_t TargetBB = boost::vertex(TargetBBIdx, ICFG);
@@ -3055,8 +2970,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 #include "relocs_common.hpp"
 
 void BootstrapTool::harvest_irelative_reloc_targets(pid_t child,
-                                                    tiny_code_generator_t &tcg,
-                                                    disas_t &dis) {
+                                                    tiny_code_generator_t &tcg) {
   auto processDynamicReloc = [&](binary_t &b, const Relocation &R) -> void {
     binary_index_t BIdx = index_of_binary(b, Decompilation);
 
@@ -3101,11 +3015,11 @@ void BootstrapTool::harvest_irelative_reloc_targets(pid_t child,
     binary_t &ResolvedBinary = Decompilation.Binaries[Resolved.BIdx];
 
     Resolved.FIdx = explore_function(
-        ResolvedBinary, *state_for_binary(ResolvedBinary).ObjectFile, tcg, dis,
+        ResolvedBinary, *state_for_binary(ResolvedBinary).ObjectFile, tcg, disas,
         rva_of_va(Resolved.Addr, Resolved.BIdx),
         state_for_binary(ResolvedBinary).fnmap,
         state_for_binary(ResolvedBinary).bbmap,
-        std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
+        std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2));
 
     if (is_function_index_valid(Resolved.FIdx)) {
       if (R.Addend)
@@ -3144,8 +3058,7 @@ void BootstrapTool::harvest_irelative_reloc_targets(pid_t child,
 }
 
 void BootstrapTool::harvest_addressof_reloc_targets(pid_t child,
-                                                    tiny_code_generator_t &tcg,
-                                                    disas_t &dis) {
+                                                    tiny_code_generator_t &tcg) {
   auto processDynamicReloc = [&](binary_t &b, const Relocation &R) -> void {
     binary_index_t BIdx = index_of_binary(b, Decompilation);
 
@@ -3210,11 +3123,11 @@ void BootstrapTool::harvest_addressof_reloc_targets(pid_t child,
 
       unsigned brkpt_count = 0;
       Resolved.FIdx = explore_function(
-          ResolvedBinary, *state_for_binary(ResolvedBinary).ObjectFile, tcg, dis,
+          ResolvedBinary, *state_for_binary(ResolvedBinary).ObjectFile, tcg, disas,
           rva_of_va(Resolved.Addr, Resolved.BIdx),
           state_for_binary(ResolvedBinary).fnmap,
           state_for_binary(ResolvedBinary).bbmap,
-          std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
+          std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2));
 
       if (is_function_index_valid(Resolved.FIdx)) {
         auto &SymDynTargets = b.Analysis.SymDynTargets[RelSym.Name];
@@ -3256,8 +3169,7 @@ void BootstrapTool::harvest_addressof_reloc_targets(pid_t child,
 }
 
 void BootstrapTool::harvest_ctor_and_dtors(pid_t child,
-                                           tiny_code_generator_t &tcg,
-                                           disas_t &dis) {
+                                           tiny_code_generator_t &tcg) {
   for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
     auto &Binary = Decompilation.Binaries[BIdx];
     if (Binary.IsVDSO)
@@ -3313,10 +3225,10 @@ void BootstrapTool::harvest_ctor_and_dtors(pid_t child,
                 -1+(*it).second == BIdx) {
               function_index_t FIdx = explore_function(
                   Binary, *state_for_binary(Binary).ObjectFile, tcg,
-                  dis, rva_of_va(Proc, BIdx),
+                  disas, rva_of_va(Proc, BIdx),
                   state_for_binary(Binary).fnmap,
                   state_for_binary(Binary).bbmap,
-                  std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
+                  std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2));
 
               if (is_function_index_valid(FIdx))
                 Binary.Analysis.Functions[FIdx].IsABI = true; /* it is an ABI */
@@ -3341,8 +3253,7 @@ void BootstrapTool::harvest_ctor_and_dtors(pid_t child,
 
 #if defined(__mips64) || defined(__mips__)
 void BootstrapTool::harvest_global_GOT_entries(pid_t child,
-                                               tiny_code_generator_t &tcg,
-                                               disas_t &dis) {
+                                               tiny_code_generator_t &tcg) {
   for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
     auto &b = Decompilation.Binaries[BIdx];
     if (b.IsVDSO)
@@ -3440,21 +3351,21 @@ void BootstrapTool::harvest_global_GOT_entries(pid_t child,
 
       unsigned brkpt_count = 0;
       basic_block_index_t resolved_bbidx = explore_basic_block(
-          ResolvedBinary, *state_for_binary(ResolvedBinary).ObjectFile, tcg, dis,
+          ResolvedBinary, *state_for_binary(ResolvedBinary).ObjectFile, tcg, disas,
           rva_of_va(Resolved.Addr, Resolved.BIdx),
           state_for_binary(ResolvedBinary).fnmap,
           state_for_binary(ResolvedBinary).bbmap,
-          std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
+          std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2));
 
       if (!is_basic_block_index_valid(resolved_bbidx))
         continue;
 
       Resolved.FIdx = explore_function(
-          ResolvedBinary, *state_for_binary(ResolvedBinary).ObjectFile, tcg, dis,
+          ResolvedBinary, *state_for_binary(ResolvedBinary).ObjectFile, tcg, disas,
           rva_of_va(Resolved.Addr, Resolved.BIdx),
           state_for_binary(ResolvedBinary).fnmap,
           state_for_binary(ResolvedBinary).bbmap,
-          std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
+          std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2));
       if (is_function_index_valid(Resolved.FIdx)) {
         SymDynTargets.insert({Resolved.BIdx, Resolved.FIdx});
       }
@@ -3465,20 +3376,19 @@ void BootstrapTool::harvest_global_GOT_entries(pid_t child,
 #endif
 
 void BootstrapTool::harvest_reloc_targets(pid_t child,
-                                          tiny_code_generator_t &tcg,
-                                          disas_t &dis) {
-  harvest_irelative_reloc_targets(child, tcg, dis);
-  harvest_addressof_reloc_targets(child, tcg, dis);
-  harvest_ctor_and_dtors(child, tcg, dis);
+                                          tiny_code_generator_t &tcg) {
+  harvest_irelative_reloc_targets(child, tcg);
+  harvest_addressof_reloc_targets(child, tcg);
+  harvest_ctor_and_dtors(child, tcg);
 
 #if defined(__mips64) || defined(__mips__)
-  harvest_global_GOT_entries(child, tcg, dis);
+  harvest_global_GOT_entries(child, tcg);
 #endif
 }
 
 static bool load_proc_maps(pid_t child, std::vector<struct proc_map_t> &out);
 
-bool BootstrapTool::update_view_of_virtual_memory(pid_t child, disas_t &dis) {
+bool BootstrapTool::update_view_of_virtual_memory(pid_t child) {
   if (!load_proc_maps(child, cached_proc_maps))
     return false;
 
@@ -3534,7 +3444,7 @@ bool BootstrapTool::update_view_of_virtual_memory(pid_t child, disas_t &dis) {
       if (!BinFoundVec.test(BIdx)) {
         BinFoundVec.set(BIdx);
 
-        on_binary_loaded(child, dis, BIdx, proc_map);
+        on_binary_loaded(child, BIdx, proc_map);
       }
     }
   }
@@ -3543,7 +3453,6 @@ bool BootstrapTool::update_view_of_virtual_memory(pid_t child, disas_t &dis) {
 }
 
 void BootstrapTool::on_binary_loaded(pid_t child,
-                                     disas_t &dis,
                                      binary_index_t BIdx,
                                      const proc_map_t &proc_map) {
   binary_t &binary = Decompilation.Binaries[BIdx];
@@ -3569,10 +3478,10 @@ void BootstrapTool::on_binary_loaded(pid_t child,
     uintptr_t Addr = va_of_rva(entry_rva, BIdx);
 
     breakpoint_t &brk = BrkMap[Addr];
-    brk.callback = std::bind(&BootstrapTool::harvest_reloc_targets, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3);
+    brk.callback = std::bind(&BootstrapTool::harvest_reloc_targets, this, std::placeholders::_1, std::placeholders::_2);
 
     try {
-      place_breakpoint(child, Addr, brk, dis);
+      place_breakpoint(child, Addr, brk);
     } catch (const std::exception &e) {
       HumanOut() << llvm::formatv("failed to place breakpoint: {0}\n", e.what());
     }
@@ -3585,7 +3494,7 @@ void BootstrapTool::on_binary_loaded(pid_t child,
   // mapping change is complete.
   //
   if (binary.IsDynamicLinker)
-    on_dynamic_linker_loaded(child, dis, BIdx, proc_map);
+    on_dynamic_linker_loaded(child, BIdx, proc_map);
 
 #if defined(__mips64) || defined(__mips__)
   if (binary.IsVDSO) {
@@ -3617,8 +3526,6 @@ void BootstrapTool::on_binary_loaded(pid_t child,
   //
   // place breakpoints for indirect branches
   //
-  llvm::MCDisassembler &DisAsm = std::get<0>(dis);
-
   for (basic_block_index_t bbidx = 0;
        bbidx < boost::num_vertices(binary.Analysis.ICFG); ++bbidx) {
     basic_block_t bb = boost::vertex(bbidx, binary.Analysis.ICFG);
@@ -3658,20 +3565,18 @@ void BootstrapTool::on_binary_loaded(pid_t child,
 
     {
       uint64_t InstLen;
-      bool Disassembled = DisAsm.getInstruction(
-          Inst, InstLen, IndBrInfo.InsnBytes, bbprop.Term.Addr,
-          llvm::nulls());
+      bool Disassembled = disas.DisAsm->getInstruction(
+          Inst, InstLen, IndBrInfo.InsnBytes, bbprop.Term.Addr, llvm::nulls());
       assert(Disassembled);
     }
 
 #if defined(__mips64) || defined(__mips__)
     {
       uint64_t InstLen;
-      bool Disassembled = DisAsm.getInstruction(
+      bool Disassembled = disas.DisAsm->getInstruction(
           IndBrInfo.DelaySlotInst, InstLen,
           llvm::ArrayRef<uint8_t>(IndBrInfo.InsnBytes).slice(4),
-          bbprop.Term.Addr + 4,
-          llvm::errs());
+          bbprop.Term.Addr + 4, llvm::errs());
       assert(Disassembled);
     }
 #endif
@@ -3680,7 +3585,7 @@ void BootstrapTool::on_binary_loaded(pid_t child,
       if (opts.Fast && !bbprop.DynTargets.empty()) {
         ;
       } else {
-        place_breakpoint_at_indirect_branch(child, Addr, IndBrInfo, dis);
+        place_breakpoint_at_indirect_branch(child, Addr, IndBrInfo);
       }
     } catch (const std::exception &e) {
       HumanOut() << llvm::formatv(
@@ -3725,8 +3630,8 @@ void BootstrapTool::on_binary_loaded(pid_t child,
     {
       uint64_t InstLen;
       bool Disassembled =
-          DisAsm.getInstruction(RetInfo.Inst, InstLen, RetInfo.InsnBytes,
-                                bbprop.Term.Addr, llvm::nulls());
+          disas.DisAsm->getInstruction(RetInfo.Inst, InstLen, RetInfo.InsnBytes,
+                                       bbprop.Term.Addr, llvm::nulls());
       assert(Disassembled);
       assert(InstLen <= RetInfo.InsnBytes.size());
     }
@@ -3734,11 +3639,10 @@ void BootstrapTool::on_binary_loaded(pid_t child,
 #if defined(__mips64) || defined(__mips__)
     {
       uint64_t InstLen;
-      bool Disassembled = DisAsm.getInstruction(
+      bool Disassembled = disas.DisAsm->getInstruction(
           RetInfo.DelaySlotInst, InstLen,
           llvm::ArrayRef<uint8_t>(RetInfo.InsnBytes).slice(4),
-          bbprop.Term.Addr + 4,
-          llvm::nulls());
+          bbprop.Term.Addr + 4, llvm::nulls());
       assert(Disassembled);
     }
 #endif
@@ -4054,7 +3958,7 @@ struct link_map {
 
 static ssize_t _ptrace_memcpy(pid_t, void *dest, const void *src, size_t n);
 
-void BootstrapTool::scan_rtld_link_map(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
+void BootstrapTool::scan_rtld_link_map(pid_t child, tiny_code_generator_t &tcg) {
   if (!_r_debug.Addr)
     return;
 
@@ -4150,7 +4054,7 @@ void BootstrapTool::scan_rtld_link_map(pid_t child, tiny_code_generator_t &tcg, 
       if (it == BinPathToIdxMap.end()) {
         HumanOut() << llvm::formatv("adding \"{0}\" to Decompilation\n",
                                     path.c_str());
-        add_binary(child, tcg, dis, path.c_str());
+        add_binary(child, tcg, path.c_str());
 
         newbin = true;
       }
@@ -4160,11 +4064,11 @@ void BootstrapTool::scan_rtld_link_map(pid_t child, tiny_code_generator_t &tcg, 
   } while (lmp && lmp != r_dbg.r_map);
 
   if (newbin)
-    update_view_of_virtual_memory(child, dis);
+    update_view_of_virtual_memory(child);
 }
 
-void BootstrapTool::add_binary(pid_t child, tiny_code_generator_t &tcg, disas_t &dis,
-                const char *path) {
+void BootstrapTool::add_binary(pid_t child, tiny_code_generator_t &tcg,
+                               const char *path) {
   char tmpdir[] = {'/', 't', 'm', 'p', '/', 'X', 'X', 'X', 'X', 'X', 'X', '\0'};
 
   if (!mkdtemp(tmpdir)) {
@@ -4277,7 +4181,6 @@ void BootstrapTool::add_binary(pid_t child, tiny_code_generator_t &tcg, disas_t 
 }
 
 void BootstrapTool::on_dynamic_linker_loaded(pid_t child,
-                                             disas_t &dis,
                                              binary_index_t BIdx,
                                              const proc_map_t &proc_map) {
   binary_t &b = Decompilation.Binaries[BIdx];
@@ -4301,7 +4204,7 @@ void BootstrapTool::on_dynamic_linker_loaded(pid_t child,
         _r_debug.Addr = va_of_rva(Sym.st_value, BIdx);
         _r_debug.Found = true;
 
-        rendezvous_with_dynamic_linker(child, dis);
+        rendezvous_with_dynamic_linker(child);
         goto Found;
       }
     }
@@ -4317,7 +4220,7 @@ Found:
   ;
 }
 
-void BootstrapTool::rendezvous_with_dynamic_linker(pid_t child, disas_t &dis) {
+void BootstrapTool::rendezvous_with_dynamic_linker(pid_t child) {
   if (!_r_debug.Found)
     return;
 
@@ -4360,15 +4263,13 @@ void BootstrapTool::rendezvous_with_dynamic_linker(pid_t child, disas_t &dis) {
     if (unlikely(BrkMap.find(_r_debug.r_brk) == BrkMap.end()) && opts.RtldDbgBrk) {
       try {
         breakpoint_t brk;
-        brk.callback = std::bind(&BootstrapTool::scan_rtld_link_map, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3);
+        brk.callback = std::bind(&BootstrapTool::scan_rtld_link_map, this, std::placeholders::_1, std::placeholders::_2);
         brk.InsnBytes.resize(2 * sizeof(uint32_t));
         _ptrace_memcpy(child, &brk.InsnBytes[0], (void *)_r_debug.r_brk, brk.InsnBytes.size());
 
-        llvm::MCDisassembler &DisAsm = std::get<0>(dis);
-
         {
           uint64_t InstLen = 0;
-          bool Disassembled = DisAsm.getInstruction(
+          bool Disassembled = disas.DisAsm->getInstruction(
               brk.Inst,
               InstLen,
               brk.InsnBytes,
@@ -4395,7 +4296,7 @@ void BootstrapTool::rendezvous_with_dynamic_linker(pid_t child, disas_t &dis) {
         }
 #endif
 
-        place_breakpoint(child, _r_debug.r_brk, brk, dis);
+        place_breakpoint(child, _r_debug.r_brk, brk);
 
         BrkMap.insert({_r_debug.r_brk, brk});
       } catch (const std::exception &e) {
@@ -4413,8 +4314,7 @@ void BootstrapTool::rendezvous_with_dynamic_linker(pid_t child, disas_t &dis) {
 void BootstrapTool::on_return(pid_t child,
                               uintptr_t AddrOfRet,
                               uintptr_t RetAddr,
-                              tiny_code_generator_t &tcg,
-                              disas_t &dis) {
+                              tiny_code_generator_t &tcg) {
 
   if (unlikely(!opts.Quiet))
     HumanOut() << llvm::formatv(__ANSI_YELLOW "(ret) {0} <-- {1}" __ANSI_NORMAL_COLOR "\n",
@@ -4435,7 +4335,7 @@ void BootstrapTool::on_return(pid_t child,
     {
       auto it = AddressSpace.find(pc);
       if (it == AddressSpace.end()) {
-        update_view_of_virtual_memory(child, dis);
+        update_view_of_virtual_memory(child);
         it = AddressSpace.find(pc);
       }
 
@@ -4481,7 +4381,7 @@ void BootstrapTool::on_return(pid_t child,
     {
       auto it = AddressSpace.find(pc);
       if (it == AddressSpace.end()) {
-        update_view_of_virtual_memory(child, dis);
+        update_view_of_virtual_memory(child);
         it = AddressSpace.find(pc);
       }
 
@@ -4512,10 +4412,10 @@ void BootstrapTool::on_return(pid_t child,
         unsigned brkpt_count = 0;
         basic_block_index_t next_bb_idx =
             explore_basic_block(binary, *state_for_binary(binary).ObjectFile,
-                                tcg, dis, rva,
+                                tcg, disas, rva,
                                 state_for_binary(binary).fnmap,
                                 state_for_binary(binary).bbmap,
-                                std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
+                                std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2));
         if (is_basic_block_index_valid(next_bb_idx)) {
           basic_block_t bb;
 
@@ -4609,16 +4509,13 @@ std::string _ptrace_read_string(pid_t child, uintptr_t Addr) {
   return res;
 }
 
-std::string StringOfMCInst(llvm::MCInst &Inst, disas_t &dis) {
-  const llvm::MCSubtargetInfo &STI = std::get<1>(dis);
-  llvm::MCInstPrinter &IP = std::get<2>(dis);
-
+std::string StringOfMCInst(llvm::MCInst &Inst, disas_t &disas) {
   std::string res;
 
   {
     llvm::raw_string_ostream ss(res);
 
-    IP.printInst(&Inst, 0x0 /* XXX */, "", STI, ss);
+    disas.IP->printInst(&Inst, 0x0 /* XXX */, "", *disas.STI, ss);
 
 #if 0
     ss << '\n';

@@ -2,23 +2,16 @@
 #include "recovery.h"
 #include "elf.h"
 
-#include <atomic>
 #include <boost/dll/runtime_symbol_info.hpp>
 #include <boost/filesystem.hpp>
-#include <llvm/MC/MCAsmInfo.h>
-#include <llvm/MC/MCContext.h>
-#include <llvm/MC/MCInstrInfo.h>
-#include <llvm/MC/MCObjectFileInfo.h>
-#include <llvm/MC/MCRegisterInfo.h>
 #include <llvm/Support/FormatVariadic.h>
-#include <llvm/Support/TargetRegistry.h>
-#include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/WithColor.h>
 #include <llvm/DebugInfo/Symbolize/Symbolize.h>
+
+#include <atomic>
 #include <mutex>
 #include <thread>
 #include <fcntl.h>
-#include <sched.h>
 
 namespace cl = llvm::cl;
 namespace obj = llvm::object;
@@ -29,7 +22,7 @@ using llvm::WithColor;
 namespace jove {
 
 struct binary_state_t {
-  tcg_uintptr_t SectsStartAddr, SectsEndAddr;
+  uint64_t SectsStartAddr, SectsEndAddr;
 };
 
 class CodeDigger : public Tool {
@@ -96,18 +89,7 @@ class CodeDigger : public Tool {
   int pipe_rdfd = -1;
   int pipe_wrfd = -1;
 
-  llvm::Triple TheTriple;
-  llvm::SubtargetFeatures Features;
-
-  const llvm::Target *TheTarget = nullptr;
-  std::unique_ptr<const llvm::MCRegisterInfo> MRI;
-  std::unique_ptr<const llvm::MCAsmInfo> AsmInfo;
-  std::unique_ptr<const llvm::MCSubtargetInfo> STI;
-  std::unique_ptr<const llvm::MCInstrInfo> MII;
-  std::unique_ptr<llvm::MCContext> MCCtx;
-  std::unique_ptr<llvm::MCDisassembler> DisAsm;
-  std::unique_ptr<llvm::MCInstPrinter> IP;
-
+  disas_t disas;
   std::unique_ptr<CodeRecovery> Recovery;
 
 public:
@@ -197,142 +179,15 @@ int CodeDigger::Run(void) {
     std::unique_ptr<obj::Binary> &BinRef = BinOrErr.get();
 
     assert(llvm::isa<ELFO>(BinRef.get()));
-    ELFO &O = *llvm::cast<ELFO>(BinRef.get());
 
-    TheTriple = O.makeTriple();
-    Features = O.getFeatures();
-
-    const ELFF &E = *O.getELFFile();
-
-    auto &SectsStartAddr = state_for_binary(binary).SectsStartAddr;
-    auto &SectsEndAddr   = state_for_binary(binary).SectsEndAddr;
-
-    llvm::Expected<Elf_Shdr_Range> ExpectedSections = E.sections();
-    if (ExpectedSections && !(*ExpectedSections).empty()) {
-      tcg_uintptr_t minAddr = std::numeric_limits<tcg_uintptr_t>::max(),
-                    maxAddr = 0;
-
-      for (const Elf_Shdr &Sec : *ExpectedSections) {
-        if (!(Sec.sh_flags & llvm::ELF::SHF_ALLOC))
-          continue;
-
-        llvm::Expected<llvm::StringRef> name = E.getSectionName(&Sec);
-
-        if (!name)
-          continue;
-
-        if ((Sec.sh_flags & llvm::ELF::SHF_TLS) &&
-            *name == std::string(".tbss"))
-          continue;
-
-        if (!Sec.sh_size)
-          continue;
-
-        minAddr = std::min<tcg_uintptr_t>(minAddr, Sec.sh_addr);
-        maxAddr = std::max<tcg_uintptr_t>(maxAddr, Sec.sh_addr + Sec.sh_size);
-      }
-
-      SectsStartAddr = minAddr;
-      SectsEndAddr = maxAddr;
-    } else {
-      llvm::SmallVector<const Elf_Phdr *, 4> LoadSegments;
-
-      auto ProgramHeadersOrError = E.program_headers();
-      if (!ProgramHeadersOrError)
-        abort();
-
-      for (const Elf_Phdr &Phdr : *ProgramHeadersOrError) {
-        if (Phdr.p_type != llvm::ELF::PT_LOAD)
-          continue;
-
-        LoadSegments.push_back(&Phdr);
-      }
-
-      assert(!LoadSegments.empty());
-
-      std::stable_sort(LoadSegments.begin(),
-                       LoadSegments.end(),
-                       [](const Elf_Phdr *A,
-                          const Elf_Phdr *B) {
-                         return A->p_vaddr < B->p_vaddr;
-                       });
-
-      SectsStartAddr = LoadSegments.front()->p_vaddr;
-      SectsEndAddr = LoadSegments.back()->p_vaddr + LoadSegments.back()->p_memsz;
-    }
+    auto &state = state_for_binary(binary);
+    std::tie(state.SectsStartAddr, state.SectsEndAddr) = bounds_of_binary(*BinRef);
   });
 
   if (opts.ListLocalGotos)
     return ListLocalGotos();
 
-  // Initialize targets and assembly printers/parsers.
-  llvm::InitializeAllTargets();
-  llvm::InitializeAllTargetMCs();
-  llvm::InitializeAllAsmPrinters();
-  llvm::InitializeAllAsmParsers();
-  llvm::InitializeAllDisassemblers();
-
-  //
-  // initialize the LLVM objects necessary for disassembling instructions
-  //
-  std::string ArchName;
-  std::string Error;
-
-  this->TheTarget =
-      llvm::TargetRegistry::lookupTarget(ArchName, TheTriple, Error);
-  if (!TheTarget) {
-    HumanOut() << "failed to lookup target: " << Error << '\n';
-    return 1;
-  }
-
-  std::string TripleName = TheTriple.getTriple();
-  std::string MCPU;
-
-  MRI.reset(TheTarget->createMCRegInfo(TripleName));
-  if (!MRI) {
-    HumanOut() << "no register info for target\n";
-    return 1;
-  }
-
-  llvm::MCTargetOptions Options;
-  AsmInfo.reset(TheTarget->createMCAsmInfo(*MRI, TripleName, Options));
-  if (!AsmInfo) {
-    HumanOut() << "no assembly info\n";
-    return 1;
-  }
-
-  STI.reset(TheTarget->createMCSubtargetInfo(TripleName, MCPU, Features.getString()));
-  if (!STI) {
-    HumanOut() << "no subtarget info\n";
-    return 1;
-  }
-
-  MII.reset(TheTarget->createMCInstrInfo());
-  if (!MII) {
-    HumanOut() << "no instruction info\n";
-    return 1;
-  }
-
-  llvm::MCObjectFileInfo MOFI;
-
-  MCCtx = std::make_unique<llvm::MCContext>(AsmInfo.get(), MRI.get(), &MOFI);
-
-  DisAsm.reset(TheTarget->createMCDisassembler(*STI, *MCCtx));
-  if (!DisAsm) {
-    HumanOut() << "no disassembler for target\n";
-    return 1;
-  }
-
-  IP.reset(TheTarget->createMCInstPrinter(llvm::Triple(TripleName),
-                                          AsmInfo->getAssemblerDialect(),
-                                          *AsmInfo, *MII, *MRI));
-  if (!IP) {
-    HumanOut() << "no instruction printer\n";
-    return 1;
-  }
-
-  Recovery = std::make_unique<CodeRecovery>(
-      decompilation, disas_t(*DisAsm, std::cref(*STI), *IP));
+  Recovery = std::make_unique<CodeRecovery>(decompilation, disas);
 
   //
   // prepare to process the binaries by creating a unique temporary directory

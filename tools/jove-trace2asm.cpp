@@ -1,43 +1,22 @@
 #include "tool.h"
 #include "elf.h"
+#include "disas.h"
+
 #include <boost/algorithm/string.hpp>
-#include <boost/archive/text_iarchive.hpp>
-#include <boost/archive/text_oarchive.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/format.hpp>
-#include <boost/graph/adj_list_serialize.hpp>
 #include <boost/graph/depth_first_search.hpp>
-#include <boost/serialization/bitset.hpp>
-#include <boost/serialization/map.hpp>
-#include <boost/serialization/set.hpp>
-#include <boost/serialization/vector.hpp>
-#include <cstdlib>
-#include <llvm/ADT/PointerIntPair.h>
-#include <llvm/DebugInfo/Symbolize/Symbolize.h>
-#include <llvm/MC/MCAsmInfo.h>
-#include <llvm/MC/MCContext.h>
+
 #include <llvm/MC/MCDisassembler/MCDisassembler.h>
+#include <llvm/MC/MCInst.h>
 #include <llvm/MC/MCInstPrinter.h>
 #include <llvm/MC/MCInstrInfo.h>
-#include <llvm/MC/MCObjectFileInfo.h>
-#include <llvm/MC/MCRegisterInfo.h>
-#include <llvm/MC/MCSubtargetInfo.h>
-#include <llvm/Object/ELFObjectFile.h>
 #include <llvm/Support/CommandLine.h>
-#include <llvm/Support/DataExtractor.h>
 #include <llvm/Support/FormatVariadic.h>
-#include <llvm/Support/TargetRegistry.h>
-#include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/WithColor.h>
-#include <llvm/Target/TargetMachine.h>
+
+#include <cstdlib>
 #include <memory>
-#include <sys/wait.h>
-#include <sys/vfs.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <sys/mman.h>
-#include <fcntl.h>
-#include <linux/magic.h>
 
 namespace fs = boost::filesystem;
 namespace obj = llvm::object;
@@ -157,16 +136,6 @@ int Trace2AsmTool::Run(void) {
   std::string jvfp = git ? (opts.jv + "/decompilation.jv") : opts.jv;
   ReadDecompilationFromFile(jvfp, decompilation);
 
-  llvm::InitializeAllTargets();
-
-  llvm::InitializeAllTargetMCs();
-  llvm::InitializeAllAsmPrinters();
-  llvm::InitializeAllAsmParsers();
-  llvm::InitializeAllDisassemblers();
-
-  llvm::Triple TheTriple;
-  llvm::SubtargetFeatures Features;
-
   //
   // init state for binaries
   //
@@ -194,87 +163,7 @@ int Trace2AsmTool::Run(void) {
     }
   }
 
-  const llvm::Target *TheTarget;
-  std::unique_ptr<const llvm::MCRegisterInfo> MRI;
-  std::unique_ptr<const llvm::MCAsmInfo> AsmInfo;
-  std::unique_ptr<const llvm::MCSubtargetInfo> STI;
-  std::unique_ptr<const llvm::MCInstrInfo> MII;
-  std::unique_ptr<llvm::MCObjectFileInfo> MOFI;
-  std::unique_ptr<llvm::MCContext> MCCtx;
-  std::unique_ptr<llvm::MCDisassembler> DisAsm;
-  std::unique_ptr<llvm::MCInstPrinter> IP;
-  std::unique_ptr<llvm::TargetMachine> TM;
-
-  //
-  // TheTarget
-  //
-  std::string ArchName;
-  std::string Error;
-
-  TheTarget = llvm::TargetRegistry::lookupTarget(ArchName, TheTriple, Error);
-  if (!TheTarget) {
-    WithColor::error() << llvm::formatv("failed to lookup target: {0}\n",
-                                        Error.c_str());
-    return 1;
-  }
-
-  std::string TripleName = TheTriple.getTriple();
-  std::string MCPU;
-
-  MRI.reset(TheTarget->createMCRegInfo(TripleName));
-  if (!MRI) {
-    fprintf(stderr, "no register info for target\n");
-    return 1;
-  }
-
-  {
-    llvm::MCTargetOptions Options;
-    AsmInfo.reset(
-	TheTarget->createMCAsmInfo(*MRI, TripleName, Options));
-  }
-  if (!AsmInfo) {
-    fprintf(stderr, "no assembly info\n");
-    return 1;
-  }
-
-  STI.reset(
-      TheTarget->createMCSubtargetInfo(TripleName, MCPU, Features.getString()));
-  if (!STI) {
-    fprintf(stderr, "no subtarget info\n");
-    return 1;
-  }
-
-  MII.reset(TheTarget->createMCInstrInfo());
-  if (!MII) {
-    fprintf(stderr, "no instruction info\n");
-    return 1;
-  }
-
-  MOFI.reset(new llvm::MCObjectFileInfo);
-  MCCtx.reset(new llvm::MCContext(AsmInfo.get(), MRI.get(), MOFI.get()));
-
-  // FIXME: for now initialize MCObjectFileInfo with default values
-  MOFI->InitMCObjectFileInfo(TheTriple, false, *MCCtx);
-
-  DisAsm.reset(TheTarget->createMCDisassembler(*STI, *MCCtx));
-  if (!DisAsm) {
-    fprintf(stderr, "no disassembler for target\n");
-    return 1;
-  }
-
-  int AsmPrinterVariant =
-#if defined(__x86_64__) || defined(__i386__)
-      1
-#else
-      AsmInfo->getAssemblerDialect()
-#endif
-      ;
-  IP.reset(TheTarget->createMCInstPrinter(
-      llvm::Triple(TripleName), AsmPrinterVariant, *AsmInfo, *MII, *MRI));
-  if (!IP) {
-    fprintf(stderr, "no instruction printer\n");
-    return 1;
-  }
+  disas_t disas;
 
   auto disassemble_basic_block = [&](binary_index_t BIdx,
                                      basic_block_index_t BBIdx) -> std::string {
@@ -310,7 +199,7 @@ int Trace2AsmTool::Run(void) {
       {
         llvm::raw_string_ostream ErrorStrStream(errmsg);
 
-        Disassembled = DisAsm->getInstruction(
+        Disassembled = disas.DisAsm->getInstruction(
             Inst, InstLen, llvm::ArrayRef<uint8_t>(*ExpectedPtr, End - Addr), A,
             ErrorStrStream);
       }
@@ -328,7 +217,7 @@ int Trace2AsmTool::Run(void) {
       std::string line;
       {
         llvm::raw_string_ostream StrStream(line);
-        IP->printInst(&Inst, A, "", *STI, StrStream);
+        disas.IP->printInst(&Inst, A, "", *disas.STI, StrStream);
       }
       boost::trim(line);
 

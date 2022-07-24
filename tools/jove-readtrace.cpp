@@ -1,9 +1,12 @@
 #include "tool.h"
+
 #include <boost/filesystem.hpp>
-#include <fstream>
+
 #include <llvm/Support/CommandLine.h>
 #include <llvm/Support/FormatVariadic.h>
 #include <llvm/Support/WithColor.h>
+
+#include <fstream>
 
 namespace fs = boost::filesystem;
 namespace cl = llvm::cl;

@@ -1,27 +1,18 @@
 #include "tool.h"
 #include "elf.h"
 #include "recovery.h"
+
 #include <boost/filesystem.hpp>
-#include <boost/format.hpp>
-#include <llvm/IR/LLVMContext.h>
-#include <llvm/IR/Module.h>
-#include <llvm/MC/MCAsmInfo.h>
-#include <llvm/MC/MCContext.h>
-#include <llvm/MC/MCDisassembler/MCDisassembler.h>
-#include <llvm/MC/MCInstPrinter.h>
-#include <llvm/MC/MCInstrInfo.h>
-#include <llvm/MC/MCObjectFileInfo.h>
-#include <llvm/MC/MCRegisterInfo.h>
-#include <llvm/MC/MCSubtargetInfo.h>
+
 #include <llvm/Support/DataTypes.h>
 #include <llvm/Support/Debug.h>
 #include <llvm/Support/FileSystem.h>
 #include <llvm/Support/FormatVariadic.h>
-#include <llvm/Support/TargetRegistry.h>
-#include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/WithColor.h>
+
 #include <numeric>
 #include <sstream>
+
 #include <sys/ptrace.h>
 #include <sys/user.h>
 #include <sys/types.h>
@@ -35,7 +26,6 @@
 #include "jove_macros.h"
 
 namespace fs = boost::filesystem;
-namespace obj = llvm::object;
 namespace cl = llvm::cl;
 
 using llvm::WithColor;
@@ -100,6 +90,8 @@ class RecoverTool : public Tool {
 
   decompilation_t Decompilation;
 
+  disas_t disas;
+
 public:
   RecoverTool() : opts(JoveCategory) {}
 
@@ -110,8 +102,6 @@ public:
 };
 
 JOVE_REGISTER_TOOL("recover", RecoverTool);
-
-typedef boost::format fmt;
 
 int RecoverTool::Run(void) {
   if (!fs::exists(opts.jv)) {
@@ -152,116 +142,7 @@ int RecoverTool::Run(void) {
 
   ReadDecompilationFromFile(jvfp, Decompilation);
 
-  // Initialize targets and assembly printers/parsers.
-  llvm::InitializeAllTargets();
-  llvm::InitializeAllTargetMCs();
-  llvm::InitializeAllAsmPrinters();
-  llvm::InitializeAllAsmParsers();
-  llvm::InitializeAllDisassemblers();
-
-  llvm::Triple TheTriple;
-  llvm::SubtargetFeatures Features;
-
-  //
-  // initialize state associated with every binary
-  //
-  {
-    binary_t &binary = Decompilation.Binaries.at(0);
-
-    llvm::StringRef Buffer(reinterpret_cast<char *>(&binary.Data[0]),
-                           binary.Data.size());
-    llvm::StringRef Identifier(binary.Path);
-
-    llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
-        obj::createBinary(llvm::MemoryBufferRef(Buffer, Identifier));
-    if (!BinOrErr) {
-      HumanOut() << llvm::formatv("failed to create binary from {0}\n",
-                                  binary.Path);
-
-      return 1;
-    }
-
-    std::unique_ptr<obj::Binary> &BinRef = BinOrErr.get();
-
-    if (!llvm::isa<ELFO>(BinRef.get())) {
-      HumanOut() << binary.Path << " is not ELF of expected type\n";
-      return 1;
-    }
-
-    assert(llvm::isa<ELFO>(BinRef.get()));
-    ELFO &O = *llvm::cast<ELFO>(BinRef.get());
-
-    TheTriple = O.makeTriple();
-    Features = O.getFeatures();
-  }
-
-  //
-  // initialize the LLVM objects necessary for disassembling instructions
-  //
-  std::string ArchName;
-  std::string Error;
-
-  const llvm::Target *TheTarget =
-      llvm::TargetRegistry::lookupTarget(ArchName, TheTriple, Error);
-  if (!TheTarget) {
-    HumanOut() << "failed to lookup target: " << Error << '\n';
-    return 1;
-  }
-
-  std::string TripleName = TheTriple.getTriple();
-  std::string MCPU;
-
-  std::unique_ptr<const llvm::MCRegisterInfo> MRI(
-      TheTarget->createMCRegInfo(TripleName));
-  if (!MRI) {
-    HumanOut() << "no register info for target\n";
-    return 1;
-  }
-
-  llvm::MCTargetOptions Options;
-  std::unique_ptr<const llvm::MCAsmInfo> AsmInfo(
-      TheTarget->createMCAsmInfo(*MRI, TripleName, Options));
-  if (!AsmInfo) {
-    HumanOut() << "no assembly info\n";
-    return 1;
-  }
-
-  std::unique_ptr<const llvm::MCSubtargetInfo> STI(
-      TheTarget->createMCSubtargetInfo(TripleName, MCPU,
-                                       Features.getString()));
-  if (!STI) {
-    HumanOut() << "no subtarget info\n";
-    return 1;
-  }
-
-  std::unique_ptr<const llvm::MCInstrInfo> MII(
-      TheTarget->createMCInstrInfo());
-  if (!MII) {
-    HumanOut() << "no instruction info\n";
-    return 1;
-  }
-
-  llvm::MCObjectFileInfo MOFI;
-  llvm::MCContext Ctx(AsmInfo.get(), MRI.get(), &MOFI);
-  // FIXME: for now initialize MCObjectFileInfo with default values
-  MOFI.InitMCObjectFileInfo(llvm::Triple(TripleName), false, Ctx);
-
-  std::unique_ptr<llvm::MCDisassembler> DisAsm(
-      TheTarget->createMCDisassembler(*STI, Ctx));
-  if (!DisAsm) {
-    HumanOut() << "no disassembler for target\n";
-    return 1;
-  }
-
-  int AsmPrinterVariant = 1 /* AsmInfo->getAssemblerDialect() */; // Intel
-  std::unique_ptr<llvm::MCInstPrinter> IP(TheTarget->createMCInstPrinter(
-      llvm::Triple(TripleName), AsmPrinterVariant, *AsmInfo, *MII, *MRI));
-  if (!IP) {
-    HumanOut() << "no instruction printer\n";
-    return 1;
-  }
-
-  CodeRecovery Recovery(Decompilation, disas_t(*DisAsm, std::cref(*STI), *IP));
+  CodeRecovery Recovery(Decompilation, disas);
 
   std::string msg;
 

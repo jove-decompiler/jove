@@ -1,5 +1,7 @@
 #include "tool.h"
+
 #include <boost/dll/runtime_symbol_info.hpp>
+
 #include <llvm/Bitcode/BitcodeReader.h>
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
@@ -7,6 +9,7 @@
 #include <llvm/Support/FormatVariadic.h>
 #include <llvm/Support/MemoryBuffer.h>
 #include <llvm/Support/WithColor.h>
+
 #include <string>
 #include <unordered_set>
 

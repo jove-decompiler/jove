@@ -1,5 +1,7 @@
 #include "tool.h"
+
 #include <boost/filesystem.hpp>
+
 #include <llvm/Support/FormatVariadic.h>
 #include <llvm/DebugInfo/Symbolize/Symbolize.h>
 #include <llvm/Support/WithColor.h>

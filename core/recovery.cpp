@@ -16,8 +16,8 @@ namespace jove {
 
 typedef boost::format fmt;
 
-CodeRecovery::CodeRecovery(decompilation_t &decompilation, disas_t dis)
-    : decompilation(decompilation), dis(dis) {
+CodeRecovery::CodeRecovery(decompilation_t &decompilation, disas_t &disas)
+    : decompilation(decompilation), disas(disas) {
   bin_state_vec.resize(decompilation.Binaries.size());
 
   for_each_binary(decompilation, [&](binary_t &binary) {
@@ -53,6 +53,8 @@ CodeRecovery::CodeRecovery(decompilation_t &decompilation, disas_t dis)
     }
   });
 }
+
+CodeRecovery::~CodeRecovery() {}
 
 std::string CodeRecovery::RecoverDynamicTarget(uint32_t CallerBIdx,
                                                uint32_t CallerBBIdx,
@@ -94,7 +96,7 @@ std::string CodeRecovery::RecoverDynamicTarget(uint32_t CallerBIdx,
 
       function_index_t FIdx =
           explore_function(CallerBinary, *state_for_binary(CallerBinary).ObjectFile,
-                           tcg, dis, ICFG[succ].Addr,
+                           tcg, disas, ICFG[succ].Addr,
                            state_for_binary(CallerBinary).fnmap,
                            state_for_binary(CallerBinary).bbmap);
       assert(is_function_index_valid(FIdx));
@@ -113,7 +115,7 @@ std::string CodeRecovery::RecoverDynamicTarget(uint32_t CallerBIdx,
     // this call instruction will return, so explore the return block
     //
     basic_block_index_t NextBBIdx =
-        explore_basic_block(CallerBinary, *state_for_binary(CallerBinary).ObjectFile, tcg, dis,
+        explore_basic_block(CallerBinary, *state_for_binary(CallerBinary).ObjectFile, tcg, disas,
                             ICFG[bb].Addr + ICFG[bb].Size + (unsigned)IsMIPSTarget * 4,
                             state_for_binary(CallerBinary).fnmap,
                             state_for_binary(CallerBinary).bbmap);
@@ -149,7 +151,7 @@ std::string CodeRecovery::RecoverBasicBlock(uint32_t IndBrBIdx,
   assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP);
   basic_block_index_t target_bb_idx =
       explore_basic_block(indbr_binary, *state_for_binary(indbr_binary).ObjectFile,
-                          tcg, dis, Addr,
+                          tcg, disas, Addr,
                           state_for_binary(indbr_binary).fnmap,
                           state_for_binary(indbr_binary).bbmap);
   if (!is_basic_block_index_valid(target_bb_idx)) {
@@ -191,7 +193,7 @@ std::string CodeRecovery::RecoverFunction(uint32_t IndCallBIdx,
 
   function_index_t CalleeFIdx =
       explore_function(CalleeBinary, *state_for_binary(CalleeBinary).ObjectFile,
-                       tcg, dis, CalleeAddr,
+                       tcg, disas, CalleeAddr,
                        state_for_binary(CalleeBinary).fnmap,
                        state_for_binary(CalleeBinary).bbmap);
   if (!is_function_index_valid(CalleeFIdx)) {
@@ -218,7 +220,7 @@ std::string CodeRecovery::RecoverFunction(uint32_t IndCallBIdx,
     // this call instruction will return, so explore the return block
     //
     basic_block_index_t NextBBIdx =
-        explore_basic_block(CallerBinary, *state_for_binary(CallerBinary).ObjectFile, tcg, dis,
+        explore_basic_block(CallerBinary, *state_for_binary(CallerBinary).ObjectFile, tcg, disas,
                             ICFG[bb].Addr + ICFG[bb].Size + (unsigned)IsMIPSTarget * 4,
                             state_for_binary(CallerBinary).fnmap,
                             state_for_binary(CallerBinary).bbmap);
@@ -286,7 +288,7 @@ std::string CodeRecovery::Returns(uint32_t CallBIdx,
   }
 
   basic_block_index_t next_bb_idx =
-    explore_basic_block(CallBinary, *state_for_binary(CallBinary).ObjectFile, tcg, dis, NextAddr,
+    explore_basic_block(CallBinary, *state_for_binary(CallBinary).ObjectFile, tcg, disas, NextAddr,
                         state_for_binary(CallBinary).fnmap,
                         state_for_binary(CallBinary).bbmap);
 

@@ -1,5 +1,4 @@
 #include "tool.h"
-#include <array>
 #include <boost/dynamic_bitset.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/format.hpp>
@@ -8,50 +7,19 @@
 #include <boost/preprocessor/cat.hpp>
 #include <boost/preprocessor/repetition/repeat.hpp>
 #include <boost/preprocessor/repetition/repeat_from_to.hpp>
-#include <cinttypes>
-#include <fstream>
-#include <llvm/Bitcode/BitcodeWriter.h>
-#include <llvm/IR/LLVMContext.h>
-#include <llvm/IR/Module.h>
-#include <llvm/MC/MCAsmInfo.h>
-#include <llvm/MC/MCContext.h>
-#include <llvm/MC/MCDisassembler/MCDisassembler.h>
-#include <llvm/MC/MCInstPrinter.h>
-#include <llvm/MC/MCInstrInfo.h>
-#include <llvm/MC/MCObjectFileInfo.h>
-#include <llvm/MC/MCRegisterInfo.h>
-#include <llvm/MC/MCSubtargetInfo.h>
-#include <llvm/Object/ELFObjectFile.h>
+
 #include <llvm/Support/CommandLine.h>
 #include <llvm/Support/DataTypes.h>
 #include <llvm/Support/Debug.h>
 #include <llvm/Support/FileSystem.h>
 #include <llvm/Support/FormatVariadic.h>
 #include <llvm/Support/ScopedPrinter.h>
-#include <llvm/Support/Signals.h>
-#include <llvm/Support/TargetRegistry.h>
-#include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/WithColor.h>
-#include <memory>
-#include <numeric>
-#include <sstream>
-#include <tuple>
-#include <sys/wait.h>
-#include <sys/ptrace.h>
-#include <sys/user.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-#include <unistd.h>
-#include <sys/syscall.h>
-#include <asm/unistd.h>
-#include <sys/uio.h>
-#if !defined(__x86_64__) && defined(__i386__)
-#include <asm/ldt.h>
-#endif
+
+#include <cinttypes>
+#include <fstream>
 
 namespace fs = boost::filesystem;
-namespace obj = llvm::object;
 namespace cl = llvm::cl;
 
 using llvm::WithColor;

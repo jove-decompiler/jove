@@ -1,18 +1,13 @@
 #include "tool.h"
 #include "elf.h"
 #include "explore.h"
+
 #include <boost/filesystem.hpp>
 #include <boost/range/adaptor/reversed.hpp>
+
 #include <llvm/Support/WithColor.h>
 #include <llvm/Support/FormatVariadic.h>
-#include <llvm/MC/MCAsmInfo.h>
-#include <llvm/MC/MCContext.h>
-#include <llvm/MC/MCInstrInfo.h>
-#include <llvm/MC/MCObjectFileInfo.h>
-#include <llvm/MC/MCRegisterInfo.h>
 #include <llvm/Support/FileSystem.h>
-#include <llvm/Support/TargetRegistry.h>
-#include <llvm/Support/TargetSelect.h>
 
 #include "jove_macros.h"
 
@@ -134,11 +129,7 @@ int AddTool::Run(void) {
 
   tiny_code_generator_t tcg;
 
-  llvm::InitializeAllTargets();
-  llvm::InitializeAllTargetMCs();
-  llvm::InitializeAllAsmPrinters();
-  llvm::InitializeAllAsmParsers();
-  llvm::InitializeAllDisassemblers();
+  disas_t disas;
 
   llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> FileOrErr =
       llvm::MemoryBuffer::getFileOrSTDIN(opts.Input);
@@ -188,69 +179,6 @@ int AddTool::Run(void) {
 
   ELFO &O = *llvm::cast<ELFO>(BinRef.get());
 
-  std::string ArchName;
-  llvm::Triple TheTriple = O.makeTriple();
-  std::string Error;
-
-  const llvm::Target *TheTarget =
-      llvm::TargetRegistry::lookupTarget(ArchName, TheTriple, Error);
-  if (!TheTarget) {
-    WithColor::error() << "failed to lookup target: " << Error << '\n';
-    return 1;
-  }
-
-  std::string TripleName = TheTriple.getTriple();
-  std::string MCPU;
-  llvm::SubtargetFeatures Features = O.getFeatures();
-
-  std::unique_ptr<const llvm::MCRegisterInfo> MRI(
-      TheTarget->createMCRegInfo(TripleName));
-  if (!MRI) {
-    WithColor::error() << "no register info for target\n";
-    return 1;
-  }
-
-  llvm::MCTargetOptions Options;
-  std::unique_ptr<const llvm::MCAsmInfo> AsmInfo(
-      TheTarget->createMCAsmInfo(*MRI, TripleName, Options));
-  if (!AsmInfo) {
-    WithColor::error() << "no assembly info\n";
-    return 1;
-  }
-
-  std::unique_ptr<const llvm::MCSubtargetInfo> STI(
-      TheTarget->createMCSubtargetInfo(TripleName, MCPU, Features.getString()));
-  if (!STI) {
-    WithColor::error() << "no subtarget info\n";
-    return 1;
-  }
-
-  std::unique_ptr<const llvm::MCInstrInfo> MII(TheTarget->createMCInstrInfo());
-  if (!MII) {
-    WithColor::error() << "no instruction info\n";
-    return 1;
-  }
-
-  llvm::MCObjectFileInfo MOFI;
-  llvm::MCContext Ctx(AsmInfo.get(), MRI.get(), &MOFI);
-  // FIXME: for now initialize MCObjectFileInfo with default values
-  MOFI.InitMCObjectFileInfo(llvm::Triple(TripleName), false, Ctx);
-
-  std::unique_ptr<llvm::MCDisassembler> DisAsm(
-      TheTarget->createMCDisassembler(*STI, Ctx));
-  if (!DisAsm) {
-    WithColor::error() << "no disassembler for target\n";
-    return 1;
-  }
-
-  int AsmPrinterVariant = AsmInfo->getAssemblerDialect();
-  std::unique_ptr<llvm::MCInstPrinter> IP(TheTarget->createMCInstPrinter(
-      llvm::Triple(TripleName), AsmPrinterVariant, *AsmInfo, *MII, *MRI));
-  if (!IP) {
-    WithColor::error() << "no instruction printer\n";
-    return 1;
-  }
-
   //
   // initialize the decompilation of the given binary by exploring every defined
   // exported function
@@ -297,8 +225,6 @@ int AddTool::Run(void) {
     abort();
     break;
   }
-
-  disas_t dis(*DisAsm, std::cref(*STI), *IP);
 
   DynRegionInfo DynamicTable(O.getFileName());
   loadDynamicTable(&E, &O, DynamicTable);
@@ -373,7 +299,7 @@ int AddTool::Run(void) {
     llvm::outs() << llvm::formatv("entry point @ {0:x}\n", EntryAddr);
 
     b.Analysis.EntryFunction =
-        explore_function(b, O, tcg, dis, EntryAddr,
+        explore_function(b, O, tcg, disas, EntryAddr,
                          state_for_binary(b).fnmap,
                          state_for_binary(b).bbmap);
   } else {
@@ -712,7 +638,7 @@ int AddTool::Run(void) {
     Entrypoint &= ~1UL;
 #endif
 
-    explore_basic_block(b, O, tcg, dis, Entrypoint,
+    explore_basic_block(b, O, tcg, disas, Entrypoint,
                         state_for_binary(b).fnmap,
                         state_for_binary(b).bbmap);
   }
@@ -722,7 +648,7 @@ int AddTool::Run(void) {
     Entrypoint &= ~1UL;
 #endif
 
-    function_index_t FIdx = explore_function(b, O, tcg, dis, Entrypoint,
+    function_index_t FIdx = explore_function(b, O, tcg, disas, Entrypoint,
                                              state_for_binary(b).fnmap,
                                              state_for_binary(b).bbmap);
 
@@ -1027,7 +953,7 @@ int AddTool::Run(void) {
 
         uint64_t A = P->p_vaddr + idx;
 
-        basic_block_index_t BBIdx = explore_basic_block(b, O, tcg, dis, A,
+        basic_block_index_t BBIdx = explore_basic_block(b, O, tcg, disas, A,
                                                         state_for_binary(b).fnmap,
                                                         state_for_binary(b).bbmap);
         if (!is_basic_block_index_valid(BBIdx))
@@ -1076,7 +1002,7 @@ int AddTool::Run(void) {
 
         uint64_t A = P->p_vaddr + idx;
 
-        basic_block_index_t BBIdx = explore_basic_block(b, O, tcg, dis, A,
+        basic_block_index_t BBIdx = explore_basic_block(b, O, tcg, disas, A,
                                                         state_for_binary(b).fnmap,
                                                         state_for_binary(b).bbmap);
         if (!is_basic_block_index_valid(BBIdx))

@@ -1,6 +1,20 @@
 #include "tool.h"
 #include "tcg.h"
 #include "elf.h"
+#include "disas.h"
+
+#include <llvm/MC/MCDisassembler/MCDisassembler.h>
+#include <llvm/MC/MCInstPrinter.h>
+#include <llvm/MC/MCInstrInfo.h>
+#include <llvm/MC/MCObjectFileInfo.h>
+#include <llvm/MC/MCRegisterInfo.h>
+#include <llvm/Object/ELFObjectFile.h>
+#include <llvm/Support/CommandLine.h>
+#include <llvm/Support/DataExtractor.h>
+#include <llvm/Support/FormatVariadic.h>
+#include <llvm/Support/Signals.h>
+#include <llvm/Support/WithColor.h>
+
 #include <boost/algorithm/string.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/format.hpp>
@@ -10,24 +24,7 @@
 #include <boost/icl/split_interval_map.hpp>
 #include <boost/range/adaptor/reversed.hpp>
 #include <boost/unordered_set.hpp>
-#include <llvm/ADT/PointerIntPair.h>
-#include <llvm/MC/MCAsmInfo.h>
-#include <llvm/MC/MCContext.h>
-#include <llvm/MC/MCDisassembler/MCDisassembler.h>
-#include <llvm/MC/MCInstPrinter.h>
-#include <llvm/MC/MCInstrInfo.h>
-#include <llvm/MC/MCObjectFileInfo.h>
-#include <llvm/MC/MCRegisterInfo.h>
-#include <llvm/MC/MCSubtargetInfo.h>
-#include <llvm/Object/ELFObjectFile.h>
-#include <llvm/Support/CommandLine.h>
-#include <llvm/Support/DataExtractor.h>
-#include <llvm/Support/FormatVariadic.h>
-#include <llvm/Support/Signals.h>
-#include <llvm/Support/TargetRegistry.h>
-#include <llvm/Support/TargetSelect.h>
-#include <llvm/Support/WithColor.h>
-#include <llvm/Target/TargetMachine.h>
+
 #include <memory>
 
 #include "jove_macros.h"
@@ -88,21 +85,8 @@ class CFGTool : public Tool {
 
   binary_index_t BinaryIndex = invalid_binary_index;
 
-  std::unique_ptr<tiny_code_generator_t> TCG;
-
-  llvm::Triple TheTriple;
-  llvm::SubtargetFeatures Features;
-
-  const llvm::Target *TheTarget;
-  std::unique_ptr<const llvm::MCRegisterInfo> MRI;
-  std::unique_ptr<const llvm::MCAsmInfo> AsmInfo;
-  std::unique_ptr<const llvm::MCSubtargetInfo> STI;
-  std::unique_ptr<const llvm::MCInstrInfo> MII;
-  std::unique_ptr<llvm::MCObjectFileInfo> MOFI;
-  std::unique_ptr<llvm::MCContext> MCCtx;
-  std::unique_ptr<llvm::MCDisassembler> DisAsm;
-  std::unique_ptr<llvm::MCInstPrinter> IP;
-  std::unique_ptr<llvm::TargetMachine> TM;
+  disas_t disas;
+  tiny_code_generator_t TCG;
 
 public:
   CFGTool() : opts(JoveCategory) {}
@@ -182,7 +166,7 @@ std::string CFGTool::disassemble_basic_block(const cfg_t &G,
 
   binary_t &binary = Decompilation.Binaries[BinaryIndex];
 
-  TCG->set_binary(*state_for_binary(binary).ObjectFile);
+  TCG.set_binary(*state_for_binary(binary).ObjectFile);
 
   const ELFF &E = *llvm::cast<ELFO>(state_for_binary(binary).ObjectFile.get())->getELFFile();
 
@@ -212,8 +196,8 @@ std::string CFGTool::disassemble_basic_block(const cfg_t &G,
 
       llvm::ArrayRef<uint8_t> ContentsRef(Contents, G[V].Size);
 
-      Disassembled =
-          DisAsm->getInstruction(Inst, InstLen, ContentsRef, A, ErrorStrStream);
+      Disassembled = disas.DisAsm->getInstruction(Inst, InstLen, ContentsRef, A,
+                                                  ErrorStrStream);
     }
 
     if (!Disassembled) {
@@ -229,7 +213,7 @@ std::string CFGTool::disassemble_basic_block(const cfg_t &G,
     std::string line;
     {
       llvm::raw_string_ostream StrStream(line);
-      IP->printInst(&Inst, A, "", *STI, StrStream);
+      disas.IP->printInst(&Inst, A, "", *disas.STI, StrStream);
     }
     boost::trim(line);
 
@@ -327,14 +311,6 @@ int CFGTool::Run(void) {
   //
   // initialize state associated with binary
   //
-  TCG.reset(new tiny_code_generator_t);
-
-  llvm::InitializeAllTargets();
-  llvm::InitializeAllTargetMCs();
-  llvm::InitializeAllAsmPrinters();
-  llvm::InitializeAllAsmParsers();
-  llvm::InitializeAllDisassemblers();
-
   llvm::StringRef Buffer(reinterpret_cast<const char *>(&binary.Data[0]),
                          binary.Data.size());
   llvm::StringRef Identifier(binary.Path);
@@ -357,78 +333,6 @@ int CFGTool::Run(void) {
   obj::Binary *B = state_for_binary(binary).ObjectFile.get();
   if (!llvm::isa<ELFO>(B)) {
     fprintf(stderr, "invalid binary\n");
-    return 1;
-  }
-
-  const ELFO &O = *llvm::cast<ELFO>(B);
-  const ELFF &E = *O.getELFFile();
-
-  std::string ArchName;
-  llvm::Triple TheTriple = O.makeTriple();
-  std::string Error;
-
-  TheTarget = llvm::TargetRegistry::lookupTarget(ArchName, TheTriple, Error);
-  if (!TheTarget) {
-    fprintf(stderr, "failed to lookup target: %s\n", Error.c_str());
-    return 1;
-  }
-
-  std::string TripleName = TheTriple.getTriple();
-  std::string MCPU;
-  llvm::SubtargetFeatures Features = O.getFeatures();
-
-  MRI.reset(TheTarget->createMCRegInfo(TripleName));
-  if (!MRI) {
-    fprintf(stderr, "no register info for target\n");
-    return 1;
-  }
-
-  {
-    llvm::MCTargetOptions Options;
-    AsmInfo.reset(
-	TheTarget->createMCAsmInfo(*MRI, TripleName, Options));
-  }
-  if (!AsmInfo) {
-    fprintf(stderr, "no assembly info\n");
-    return 1;
-  }
-
-  STI.reset(
-      TheTarget->createMCSubtargetInfo(TripleName, MCPU, Features.getString()));
-  if (!STI) {
-    fprintf(stderr, "no subtarget info\n");
-    return 1;
-  }
-
-  MII.reset(TheTarget->createMCInstrInfo());
-  if (!MII) {
-    fprintf(stderr, "no instruction info\n");
-    return 1;
-  }
-
-  MOFI.reset(new llvm::MCObjectFileInfo);
-  MCCtx.reset(new llvm::MCContext(AsmInfo.get(), MRI.get(), MOFI.get()));
-
-  // FIXME: for now initialize MCObjectFileInfo with default values
-  MOFI->InitMCObjectFileInfo(TheTriple, false, *MCCtx);
-
-  DisAsm.reset(TheTarget->createMCDisassembler(*STI, *MCCtx));
-  if (!DisAsm) {
-    fprintf(stderr, "no disassembler for target\n");
-    return 1;
-  }
-
-  int AsmPrinterVariant =
-#if defined(__x86_64__) || defined(__i386__)
-      1
-#else
-      AsmInfo->getAssemblerDialect()
-#endif
-      ;
-  IP.reset(TheTarget->createMCInstPrinter(
-      llvm::Triple(TripleName), AsmPrinterVariant, *AsmInfo, *MII, *MRI));
-  if (!IP) {
-    fprintf(stderr, "no instruction printer\n");
     return 1;
   }
 

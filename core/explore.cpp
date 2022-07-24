@@ -5,17 +5,20 @@
 #include <llvm/MC/MCInstrInfo.h>
 #include <llvm/Support/FormatVariadic.h>
 #include <llvm/Support/WithColor.h>
+#include <llvm/MC/MCDisassembler/MCDisassembler.h>
+#include <llvm/MC/MCInstPrinter.h>
+#include <llvm/MC/MCSubtargetInfo.h>
 
 namespace jove {
 
 function_index_t explore_function(binary_t &b,
                                   llvm::object::Binary &B,
                                   tiny_code_generator_t &tcg,
-                                  disas_t &dis,
+                                  disas_t &disas,
                                   const tcg_uintptr_t Addr,
                                   fnmap_t &fnmap,
                                   bbmap_t &bbmap,
-                                  std::function<void(binary_t &, basic_block_t, disas_t &)> on_newbb_proc) {
+                                  std::function<void(binary_t &, basic_block_t)> on_newbb_proc) {
 #if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
   assert((Addr & 1) == 0);
 #endif
@@ -32,7 +35,7 @@ function_index_t explore_function(binary_t &b,
   fnmap.insert({Addr, res});
 
   basic_block_index_t Entry =
-      explore_basic_block(b, B, tcg, dis, Addr, fnmap, bbmap, on_newbb_proc);
+      explore_basic_block(b, B, tcg, disas, Addr, fnmap, bbmap, on_newbb_proc);
 
 #ifdef WARN_ON
   WARN_ON(!is_basic_block_index_valid(Entry));
@@ -53,11 +56,11 @@ function_index_t explore_function(binary_t &b,
 basic_block_index_t explore_basic_block(binary_t &b,
                                         llvm::object::Binary &B,
                                         tiny_code_generator_t &tcg,
-                                        disas_t &dis,
+                                        disas_t &disas,
                                         const tcg_uintptr_t Addr,
                                         fnmap_t &fnmap,
                                         bbmap_t &bbmap,
-                                        std::function<void(binary_t &, basic_block_t, disas_t &)> on_newbb_proc) {
+                                        std::function<void(binary_t &, basic_block_t)> on_newbb_proc) {
 #if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
   assert((Addr & 1) == 0);
 #endif
@@ -90,10 +93,6 @@ basic_block_index_t explore_basic_block(binary_t &b,
       // occur, then we will assume the control-flow is invalid
       //
       {
-        llvm::MCDisassembler &DisAsm = std::get<0>(dis);
-        const llvm::MCSubtargetInfo &STI = std::get<1>(dis);
-        llvm::MCInstPrinter &IP = std::get<2>(dis);
-
         const ELFF &E = *llvm::cast<ELFO>(&ObjectFile)->getELFFile();
 
         uint64_t InstLen = 0;
@@ -109,7 +108,7 @@ basic_block_index_t explore_basic_block(binary_t &b,
             if (!ExpectedPtr)
               abort();
 
-            Disassembled = DisAsm.getInstruction(
+            Disassembled = disas.DisAsm->getInstruction(
                 Inst, InstLen,
                 llvm::ArrayRef<uint8_t>(*ExpectedPtr, ICFG[bb].Size), A,
                 ErrorStrStream);
@@ -263,10 +262,6 @@ on_insn_boundary:
     llvm::WithColor::error()
         << (boost::format("%s: unknown terminator @ %#lx\n") % __func__ % Addr).str();
 
-    llvm::MCDisassembler &DisAsm = std::get<0>(dis);
-    const llvm::MCSubtargetInfo &STI = std::get<1>(dis);
-    llvm::MCInstPrinter &IP = std::get<2>(dis);
-
     const ELFF &E = *llvm::cast<ELFO>(&ObjectFile)->getELFFile();
 
     uint64_t InstLen;
@@ -276,7 +271,7 @@ on_insn_boundary:
         abort();
 
       llvm::MCInst Inst;
-      bool Disassembled = DisAsm.getInstruction(
+      bool Disassembled = disas.DisAsm->getInstruction(
           Inst, InstLen, llvm::ArrayRef<uint8_t>(*ExpectedPtr, Size), A,
           llvm::nulls());
 
@@ -286,7 +281,7 @@ on_insn_boundary:
         break;
       }
 
-      IP.printInst(&Inst, A, "", STI, llvm::errs());
+      disas.IP->printInst(&Inst, A, "", *disas.STI, llvm::errs());
       llvm::errs() << '\n';
     }
 
@@ -322,7 +317,7 @@ on_insn_boundary:
   //
   // a new basic block has been created
   //
-  on_newbb_proc(b, bb, dis);
+  on_newbb_proc(b, bb);
 
   auto control_flow_to = [&](tcg_uintptr_t Target) -> void {
     assert(Target);
@@ -332,7 +327,7 @@ on_insn_boundary:
 #endif
 
     basic_block_index_t SuccBBIdx =
-        explore_basic_block(b, B, tcg, dis, Target, fnmap, bbmap, on_newbb_proc);
+        explore_basic_block(b, B, tcg, disas, Target, fnmap, bbmap, on_newbb_proc);
 
     if (!is_basic_block_index_valid(SuccBBIdx)) {
       llvm::WithColor::warning() << llvm::formatv(
@@ -365,7 +360,7 @@ on_insn_boundary:
     CalleeAddr &= ~1UL;
 #endif
 
-    function_index_t CalleeFIdx = explore_function(b, B, tcg, dis, CalleeAddr,
+    function_index_t CalleeFIdx = explore_function(b, B, tcg, disas, CalleeAddr,
                                                    fnmap,
                                                    bbmap,
                                                    on_newbb_proc);

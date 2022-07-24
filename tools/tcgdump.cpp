@@ -1,21 +1,21 @@
 #include "tool.h"
 #include "tcg.h"
 #include "elf.h"
+#include "disas.h"
+
 #include <boost/filesystem.hpp>
 #include <boost/format.hpp>
-#include <cinttypes>
-#include <llvm/MC/MCAsmInfo.h>
-#include <llvm/MC/MCContext.h>
+
 #include <llvm/MC/MCDisassembler/MCDisassembler.h>
+#include <llvm/MC/MCInst.h>
 #include <llvm/MC/MCInstPrinter.h>
 #include <llvm/MC/MCInstrInfo.h>
-#include <llvm/MC/MCObjectFileInfo.h>
-#include <llvm/MC/MCRegisterInfo.h>
-#include <llvm/MC/MCSubtargetInfo.h>
 #include <llvm/Support/FormatVariadic.h>
 #include <llvm/Support/TargetRegistry.h>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/WithColor.h>
+
+#include <cinttypes>
 
 namespace fs = boost::filesystem;
 namespace obj = llvm::object;
@@ -95,12 +95,7 @@ int TCGDumpTool::Run(void) {
   }
 
   jove::tiny_code_generator_t tcg;
-
-  llvm::InitializeAllTargets();
-  llvm::InitializeAllTargetMCs();
-  llvm::InitializeAllAsmPrinters();
-  llvm::InitializeAllAsmParsers();
-  llvm::InitializeAllDisassemblers();
+  disas_t disas;
 
   llvm::Expected<obj::OwningBinary<obj::Binary>> BinaryOrErr =
       obj::createBinary(opts.Binary);
@@ -124,74 +119,6 @@ int TCGDumpTool::Run(void) {
 
   if (!DynamicTable.Addr) {
     HumanOut() << "no dynamic table for given binary\n";
-    return 1;
-  }
-
-  std::string ArchName;
-  llvm::Triple TheTriple = O.makeTriple();
-  std::string Error;
-
-  const llvm::Target *TheTarget =
-      llvm::TargetRegistry::lookupTarget(ArchName, TheTriple, Error);
-  if (!TheTarget) {
-    HumanOut() << llvm::formatv("failed to lookup target: {0}\n", Error);
-    return 1;
-  }
-
-  std::string TripleName = TheTriple.getTriple();
-  std::string MCPU;
-  llvm::SubtargetFeatures Features = O.getFeatures();
-
-  std::unique_ptr<const llvm::MCRegisterInfo> MRI(
-      TheTarget->createMCRegInfo(TripleName));
-  if (!MRI) {
-    HumanOut() << "no register info for target\n";
-    return 1;
-  }
-
-  llvm::MCTargetOptions Options;
-  std::unique_ptr<const llvm::MCAsmInfo> AsmInfo(
-      TheTarget->createMCAsmInfo(*MRI, TripleName, Options));
-  if (!AsmInfo) {
-    HumanOut() << "no assembly info\n";
-    return 1;
-  }
-
-  std::unique_ptr<const llvm::MCSubtargetInfo> STI(
-      TheTarget->createMCSubtargetInfo(TripleName, MCPU, Features.getString()));
-  if (!STI) {
-    HumanOut() << "no subtarget info\n";
-    return 1;
-  }
-
-  std::unique_ptr<const llvm::MCInstrInfo> MII(TheTarget->createMCInstrInfo());
-  if (!MII) {
-    HumanOut() << "no instruction info\n";
-    return 1;
-  }
-
-  llvm::MCObjectFileInfo MOFI;
-  llvm::MCContext Ctx(AsmInfo.get(), MRI.get(), &MOFI); // FIXME: for now initialize MCObjectFileInfo with default values
-  MOFI.InitMCObjectFileInfo(llvm::Triple(TripleName), false, Ctx);
-
-  std::unique_ptr<llvm::MCDisassembler> DisAsm(
-      TheTarget->createMCDisassembler(*STI, Ctx));
-  if (!DisAsm) {
-    HumanOut() << "no disassembler for target\n";
-    return 1;
-  }
-
-  int AsmPrinterVariant =
-#if defined(TARGET_X86_64) || defined(TARGET_I386)
-      1 /* intel */
-#else
-      AsmInfo->getAssemblerDialect()
-#endif
-      ;
-  std::unique_ptr<llvm::MCInstPrinter> IP(TheTarget->createMCInstPrinter(
-      llvm::Triple(TripleName), AsmPrinterVariant, *AsmInfo, *MII, *MRI));
-  if (!IP) {
-    HumanOut() << "no instruction printer\n";
     return 1;
   }
 
@@ -238,7 +165,7 @@ int TCGDumpTool::Run(void) {
 
         llvm::MCInst Inst;
 
-        bool Disassembled = DisAsm->getInstruction(
+        bool Disassembled = disas.DisAsm->getInstruction(
             Inst, InstLen, llvm::ArrayRef<uint8_t>(*ExpectedPtr, BBSize), _A,
             llvm::nulls());
         if (!Disassembled) {
@@ -249,7 +176,7 @@ int TCGDumpTool::Run(void) {
         std::string inst_str;
         {
           llvm::raw_string_ostream StrStream(inst_str);
-          IP->printInst(&Inst, _A, "", *STI, StrStream);
+          disas.IP->printInst(&Inst, _A, "", *disas.STI, StrStream);
         }
 
         HumanOut() << llvm::formatv("{0:x} {1}\n", _A, inst_str);
