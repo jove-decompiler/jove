@@ -139,8 +139,8 @@ struct binary_state_t {
   } _elf;
   llvm::GlobalVariable *FunctionsTableClunk = nullptr;
   llvm::Function *SectsF = nullptr;
-  tcg_uintptr_t SectsStartAddr = 0;
-  tcg_uintptr_t SectsEndAddr = 0;
+  uint64_t SectsStartAddr = 0;
+  uint64_t SectsEndAddr = 0;
 };
 
 typedef std::unordered_set<
@@ -342,9 +342,6 @@ struct LLVMTool : public Tool {
   llvm::GlobalVariable *ConstSectsGlobal;
 
   std::unordered_map<std::string, std::set<dynamic_target_t>> ExportedFunctions;
-
-  llvm::Triple TheTriple;
-  llvm::SubtargetFeatures Features;
 
   disas_t disas;
 
@@ -2285,7 +2282,7 @@ int LLVMTool::InitStateForBinaries(void) {
   for_each_binary(Decompilation, [&](binary_t &binary) {
     binary_index_t BIdx = index_of_binary(binary, Decompilation);
 
-    auto &state = state_for_binary(binary);
+    binary_state_t &state = state_for_binary(binary);
     construct_fnmap(Decompilation, binary, state.fnmap);
 
     auto &ICFG = binary.Analysis.ICFG;
@@ -2332,74 +2329,18 @@ int LLVMTool::InitStateForBinaries(void) {
 
       state.ObjectFile = std::move(BinRef);
 
-      assert(llvm::isa<ELFO>(state.ObjectFile.get()));
-      ELFO &O = *llvm::cast<ELFO>(state.ObjectFile.get());
-
-      TheTriple = O.makeTriple();
-      Features = O.getFeatures();
-
-      const ELFF &E = *O.getELFFile();
-
       auto &SectsStartAddr = state.SectsStartAddr;
       auto &SectsEndAddr   = state.SectsEndAddr;
-
-      llvm::Expected<Elf_Shdr_Range> ExpectedSections = E.sections();
-      if (ExpectedSections && !(*ExpectedSections).empty()) {
-        target_ulong minAddr = std::numeric_limits<target_ulong>::max(),
-                     maxAddr = 0;
-
-        for (const Elf_Shdr &Sec : *ExpectedSections) {
-          if (!(Sec.sh_flags & llvm::ELF::SHF_ALLOC))
-            continue;
-
-          llvm::Expected<llvm::StringRef> name = E.getSectionName(&Sec);
-
-          if (!name)
-            continue;
-
-          if ((Sec.sh_flags & llvm::ELF::SHF_TLS) &&
-              *name == std::string(".tbss"))
-            continue;
-
-          if (!Sec.sh_size)
-            continue;
-
-          minAddr = std::min<target_ulong>(minAddr, Sec.sh_addr);
-          maxAddr = std::max<target_ulong>(maxAddr, Sec.sh_addr + Sec.sh_size);
-        }
-
-        SectsStartAddr = minAddr;
-        SectsEndAddr = maxAddr;
-      } else {
-        llvm::SmallVector<const Elf_Phdr *, 4> LoadSegments;
-
-        auto ProgramHeadersOrError = E.program_headers();
-        if (!ProgramHeadersOrError)
-          abort();
-
-        for (const Elf_Phdr &Phdr : *ProgramHeadersOrError) {
-          if (Phdr.p_type != llvm::ELF::PT_LOAD)
-            continue;
-
-          LoadSegments.push_back(&Phdr);
-        }
-
-        assert(!LoadSegments.empty());
-
-        std::stable_sort(LoadSegments.begin(),
-                         LoadSegments.end(),
-                         [](const Elf_Phdr *A,
-                            const Elf_Phdr *B) {
-                           return A->p_vaddr < B->p_vaddr;
-                         });
-
-        SectsStartAddr = LoadSegments.front()->p_vaddr;
-        SectsEndAddr = LoadSegments.back()->p_vaddr + LoadSegments.back()->p_memsz;
-      }
+      std::tie(SectsStartAddr, SectsEndAddr) = bounds_of_binary(*state.ObjectFile);
 
       WithColor::note() << llvm::formatv("SectsStartAddr for {0} is {1:x}\n",
                                          binary.Path,
                                          SectsStartAddr);
+
+      assert(llvm::isa<ELFO>(state.ObjectFile.get()));
+      ELFO &O = *llvm::cast<ELFO>(state.ObjectFile.get());
+
+      const ELFF &E = *O.getELFFile();
 
       loadDynamicTable(&E, &O, state._elf.DynamicTable);
 
