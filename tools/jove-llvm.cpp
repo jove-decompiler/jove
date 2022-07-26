@@ -2285,9 +2285,10 @@ int LLVMTool::InitStateForBinaries(void) {
   for_each_binary(Decompilation, [&](binary_t &binary) {
     binary_index_t BIdx = index_of_binary(binary, Decompilation);
 
-    auto &ICFG = binary.Analysis.ICFG;
+    auto &state = state_for_binary(binary);
+    construct_fnmap(Decompilation, binary, state.fnmap);
 
-    construct_fnmap(Decompilation, binary, state_for_binary(binary).fnmap);
+    auto &ICFG = binary.Analysis.ICFG;
 
     for_each_function_in_binary(binary, [&](function_t &f) {
       if (!is_basic_block_index_valid(f.Entry))
@@ -2329,18 +2330,18 @@ int LLVMTool::InitStateForBinaries(void) {
     } else {
       std::unique_ptr<obj::Binary> &BinRef = *ExpectedBin;
 
-      state_for_binary(binary).ObjectFile = std::move(BinRef);
+      state.ObjectFile = std::move(BinRef);
 
-      assert(llvm::isa<ELFO>(state_for_binary(binary).ObjectFile.get()));
-      ELFO &O = *llvm::cast<ELFO>(state_for_binary(binary).ObjectFile.get());
+      assert(llvm::isa<ELFO>(state.ObjectFile.get()));
+      ELFO &O = *llvm::cast<ELFO>(state.ObjectFile.get());
 
       TheTriple = O.makeTriple();
       Features = O.getFeatures();
 
       const ELFF &E = *O.getELFFile();
 
-      auto &SectsStartAddr = state_for_binary(binary).SectsStartAddr;
-      auto &SectsEndAddr   = state_for_binary(binary).SectsEndAddr;
+      auto &SectsStartAddr = state.SectsStartAddr;
+      auto &SectsEndAddr   = state.SectsEndAddr;
 
       llvm::Expected<Elf_Shdr_Range> ExpectedSections = E.sections();
       if (ExpectedSections && !(*ExpectedSections).empty()) {
@@ -2400,23 +2401,23 @@ int LLVMTool::InitStateForBinaries(void) {
                                          binary.Path,
                                          SectsStartAddr);
 
-      loadDynamicTable(&E, &O, state_for_binary(binary)._elf.DynamicTable);
+      loadDynamicTable(&E, &O, state._elf.DynamicTable);
 
-      if (state_for_binary(binary)._elf.DynamicTable.Addr) {
-        state_for_binary(binary)._elf.OptionalDynSymRegion =
+      if (state._elf.DynamicTable.Addr) {
+        state._elf.OptionalDynSymRegion =
             loadDynamicSymbols(&E, &O,
-                               state_for_binary(binary)._elf.DynamicTable,
-                               state_for_binary(binary)._elf.DynamicStringTable,
-                               state_for_binary(binary)._elf.SymbolVersionSection,
-                               state_for_binary(binary)._elf.VersionMap);
+                               state._elf.DynamicTable,
+                               state._elf.DynamicStringTable,
+                               state._elf.SymbolVersionSection,
+                               state._elf.VersionMap);
 
         if (BIdx == BinaryIndex)
           loadDynamicRelocations(&E, &O,
-                                 state_for_binary(binary)._elf.DynamicTable,
-                                 state_for_binary(binary)._elf.DynRelRegion,
-                                 state_for_binary(binary)._elf.DynRelaRegion,
-                                 state_for_binary(binary)._elf.DynRelrRegion,
-                                 state_for_binary(binary)._elf.DynPLTRelRegion);
+                                 state._elf.DynamicTable,
+                                 state._elf.DynRelRegion,
+                                 state._elf.DynRelaRegion,
+                                 state._elf.DynRelrRegion,
+                                 state._elf.DynPLTRelRegion);
       }
     }
   });
