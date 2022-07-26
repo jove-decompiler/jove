@@ -2280,8 +2280,6 @@ void LLVMTool::DumpModule(const char *suffix) {
 
 int LLVMTool::InitStateForBinaries(void) {
   for_each_binary(Decompilation, [&](binary_t &binary) {
-    binary_index_t BIdx = index_of_binary(binary, Decompilation);
-
     binary_state_t &state = state_for_binary(binary);
     construct_fnmap(Decompilation, binary, state.fnmap);
 
@@ -2352,7 +2350,7 @@ int LLVMTool::InitStateForBinaries(void) {
                                state._elf.SymbolVersionSection,
                                state._elf.VersionMap);
 
-        if (BIdx == BinaryIndex)
+        if (index_of_binary(binary, Decompilation) == BinaryIndex)
           loadDynamicRelocations(&E, &O,
                                  state._elf.DynamicTable,
                                  state._elf.DynRelRegion,
