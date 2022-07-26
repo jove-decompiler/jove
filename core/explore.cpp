@@ -1,15 +1,21 @@
 #include "explore.h"
 #include "elf.h"
+
 #include <boost/format.hpp>
+
+#include <llvm/MC/MCDisassembler/MCDisassembler.h>
 #include <llvm/MC/MCInst.h>
+#include <llvm/MC/MCInstPrinter.h>
 #include <llvm/MC/MCInstrInfo.h>
+#include <llvm/MC/MCSubtargetInfo.h>
 #include <llvm/Support/FormatVariadic.h>
 #include <llvm/Support/WithColor.h>
-#include <llvm/MC/MCDisassembler/MCDisassembler.h>
-#include <llvm/MC/MCInstPrinter.h>
-#include <llvm/MC/MCSubtargetInfo.h>
+
+#include <stdexcept>
 
 namespace jove {
+
+typedef boost::format fmt;
 
 function_index_t explore_function(binary_t &b,
                                   llvm::object::Binary &B,
@@ -125,11 +131,7 @@ basic_block_index_t explore_basic_block(binary_t &b,
             goto on_insn_boundary;
         }
 
-        llvm::WithColor::error() << llvm::formatv(
-            "control flow to {0:x} in {1} doesn't lie on instruction boundary\n",
-            Addr, b.Path);
-
-        return invalid_basic_block_index;
+        throw std::runtime_error((fmt("control flow to 0x%lx doesn't lie on instruction boundary") % Addr).str());
 
 on_insn_boundary:
         //
