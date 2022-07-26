@@ -36,7 +36,7 @@ function_index_t explore_function(binary_t &b,
   }
 
   const function_index_t res = b.Analysis.Functions.size();
-  (void)b.Analysis.Functions.emplace_back();
+  b.Analysis.Functions.emplace_back().Entry = invalid_basic_block_index;
 
   fnmap.insert({Addr, res});
 
