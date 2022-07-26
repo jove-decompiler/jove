@@ -303,35 +303,46 @@ void CodeDigger::RecoverLoop(void) {
     uint64_t Off   = *reinterpret_cast<uint64_t *>(&record[2 * sizeof(uint32_t)]);
 
     binary_t &binary = decompilation.Binaries.at(BIdx);
-    uint64_t Addr = Off + state_for_binary(binary).SectsStartAddr;
 
     {
       auto &bin_records = records.at(BIdx);
-      if (bin_records.find(std::make_pair(BBIdx, Addr)) != bin_records.end())
-        continue;
 
-      bin_records.emplace(BBIdx, Addr);
+      if (bin_records.find(std::make_pair(BBIdx, Off)) != bin_records.end())
+        continue; /* duplicate; skip */
+
+      bin_records.emplace(BBIdx, Off);
     }
 
-    if (opts.Verbose)
-      HumanOut() << llvm::formatv("RecoverLoop: record: {0:x} @ ({1}, {2})\n",
-                                  Addr, BIdx, BBIdx);
+    uint64_t TermAddr = Recovery->AddressOfTerminatorAtBasicBlock(BIdx, BBIdx);
 
-    if (!(Addr >= state_for_binary(binary).SectsStartAddr &&
-          Addr < state_for_binary(binary).SectsEndAddr)) {
-      WithColor::error() << llvm::formatv("CodeDigger: invalid target {0:x}\n", Off);
+    uint64_t SectsLen = state_for_binary(binary).SectsEndAddr -
+                        state_for_binary(binary).SectsStartAddr;
+    if (!(Off < SectsLen)) {
+      WithColor::error() << llvm::formatv(
+          "invalid offset {0:x} for {1}\n", Off,
+          symbolizer.addr2desc(binary, TermAddr));
       continue;
     }
 
-    try {
-      std::string msg = Recovery->RecoverBasicBlock(BIdx, BBIdx, Addr);
+    uint64_t DestAddr = Off + state_for_binary(binary).SectsStartAddr;
 
-      if (!msg.empty())
-        HumanOut() << msg << '\n';
+    if (opts.Verbose)
+      HumanOut() << llvm::formatv("{0} -> {1}\n",
+                                  symbolizer.addr2desc(binary, TermAddr),
+                                  symbolizer.addr2desc(binary, DestAddr));
+
+    std::string recovery_msg;
+    try {
+      recovery_msg = Recovery->RecoverBasicBlock(BIdx, BBIdx, DestAddr);
     } catch (const std::exception &e) {
-      WithColor::error() << llvm::formatv("CodeDigger: {0} ({1},{2}): {3:x}\n",
-                                          e.what(), BIdx, BBIdx, Addr);
+      WithColor::error() << llvm::formatv("{0} -> {1}: {2}\n",
+                                          symbolizer.addr2desc(binary, TermAddr),
+                                          symbolizer.addr2desc(binary, DestAddr),
+                                          e.what());
     }
+
+    if (!recovery_msg.empty())
+      HumanOut() << recovery_msg << '\n';
   }
 
   close(pipe_rdfd);
