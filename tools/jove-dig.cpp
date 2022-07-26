@@ -459,6 +459,8 @@ void CodeDigger::Worker(void) {
         "--output-istats=0",
         "--check-div-zero=0",
         "--check-overshift=0",
+        "--max-memory=0",
+        "--max-memory-inhibit=0",
       };
 
       std::string out_dir_arg = "--jove-output-dir=" + tmp_dir.string();
