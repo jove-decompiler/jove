@@ -268,7 +268,7 @@ int CodeDigger::Run(void) {
     return 0;
 
   for_each_function(decompilation,
-                    [](function_t &f, binary_t b) { f.InvalidateAnalysis(); });
+                    [](function_t &f, binary_t &b) { f.InvalidateAnalysis(); });
 
   if (opts.Verbose)
     WithColor::note() << "writing decompilation...\n";
