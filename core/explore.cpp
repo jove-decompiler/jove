@@ -43,9 +43,8 @@ function_index_t explore_function(binary_t &b,
   basic_block_index_t Entry =
       explore_basic_block(b, B, tcg, disas, Addr, fnmap, bbmap, on_newbb_proc);
 
-#ifdef WARN_ON
-  WARN_ON(!is_basic_block_index_valid(Entry));
-#endif
+  if (!is_basic_block_index_valid(Entry))
+    return invalid_function_index;
 
   {
     function_t &f = b.Analysis.Functions[res];
