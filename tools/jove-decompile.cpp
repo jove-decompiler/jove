@@ -47,6 +47,7 @@ class DecompileTool : public Tool {
     cl::opt<bool> ClearOutputDir;
     cl::alias ClearOutputDirAlias;
     cl::opt<unsigned> Threads;
+    cl::opt<bool> FakeLineNumbers;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : jv(cl::Positional, cl::desc("<input jove decompilations>"),
@@ -81,7 +82,13 @@ class DecompileTool : public Tool {
                               cl::cat(JoveCategory)),
 
           Threads("num-threads", cl::desc("Number of CPU threads to use"),
-                  cl::init(num_cpus()), cl::cat(JoveCategory)) {}
+                  cl::init(num_cpus()), cl::cat(JoveCategory)),
+
+          FakeLineNumbers(
+              "fake-line-numbers",
+              cl::desc("Preserve \"debugging information\" from LLVM IR"),
+              cl::cat(JoveCategory)) {}
+
   } opts;
 
   std::vector<binary_index_t> Q;
@@ -782,6 +789,9 @@ void DecompileTool::Worker(void) {
 
         "-o", cfp.c_str()
       };
+
+      if (opts.FakeLineNumbers)
+	arg_vec.push_back("--cbe-print-debug-locs");
 
       arg_vec.push_back(bcfp.c_str());
       arg_vec.push_back(nullptr);
