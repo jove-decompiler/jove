@@ -3572,27 +3572,6 @@ int LLVMTool::CreateFunctions(void) {
         ++i;
       }
     }
-
-    if (!f.IsABI) {
-      //
-      // create ABI adapter
-      //
-      state_for_function(f).adapterF = llvm::Function::Create(
-          FunctionTypeOfArgsAndRets(CallConvArgs, CallConvRets),
-          llvm::GlobalValue::ExternalLinkage, (fmt("Jj%lx") % Addr).str(),
-          Module.get());
-
-      state_for_function(f).adapterF->setVisibility(llvm::GlobalValue::HiddenVisibility);
-
-      //
-      // assign names to the arguments, the registers they represent
-      //
-      unsigned i = 0;
-      for (llvm::Argument &A : state_for_function(f).adapterF->args()) {
-        A.setName(TCG->priv->_ctx.temps[CallConvArgArray.at(i)].name);
-        ++i;
-      }
-    }
   });
 
   return 0;
@@ -6028,11 +6007,25 @@ int LLVMTool::TranslateFunction(function_t &f) {
 
   DIB.finalizeSubprogram(TC.DebugInformation.Subprogram);
 
-  if (state_for_function(f).adapterF) {
+  if (!f.IsABI) {
     //
-    // build "ABI-adapter"
+    // create "ABI adapter"
     //
-    assert(!f.IsABI);
+    state_for_function(f).adapterF = llvm::Function::Create(
+        FunctionTypeOfArgsAndRets(CallConvArgs, CallConvRets),
+        llvm::GlobalValue::ExternalLinkage,
+        (fmt("Jj%lx") % ICFG[entry_bb].Addr).str(), Module.get());
+
+    state_for_function(f).adapterF->setVisibility(llvm::GlobalValue::HiddenVisibility);
+
+    //
+    // assign names to the arguments, the registers they represent
+    //
+    unsigned i = 0;
+    for (llvm::Argument &A : state_for_function(f).adapterF->args()) {
+      A.setName(TCG->priv->_ctx.temps[CallConvArgArray.at(i)].name);
+      ++i;
+    }
 
     F = state_for_function(f).adapterF;
     llvm::FunctionType *FTy = F->getFunctionType();
