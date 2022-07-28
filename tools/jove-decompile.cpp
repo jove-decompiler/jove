@@ -291,6 +291,7 @@ int DecompileTool::Run(void) {
   }
 
   fs::create_directories(opts.Output);
+  fs::create_directories(fs::path(opts.Output) / ".obj");
 
   if (!opts.Verbose)
     WithColor::note() << llvm::formatv(
@@ -383,7 +384,7 @@ int DecompileTool::Run(void) {
     }
 
     std::string tmpbc_fp = (fs::path(tmp_dir) / helper_nm).string() + ".bc";
-    std::string o_fp = (fs::path(opts.Output) / helper_nm).string() + ".o";
+    std::string o_fp = (fs::path(opts.Output) / ".obj" / helper_nm).string() + ".o";
 
     //
     // run opt to internalize things
@@ -469,13 +470,14 @@ int DecompileTool::Run(void) {
     assert(fs::exists(o_fp));
   }
 
-  fs::copy_file(compiler_runtime_afp, fs::path(opts.Output) / "builtins.a",
+  fs::copy_file(compiler_runtime_afp,
+                fs::path(opts.Output) / ".obj" / "builtins.a",
                 fs::copy_option::overwrite_if_exists);
 
   //
   // compile jove starter bitcode
   //
-  std::string jove_o_fp = (fs::path(opts.Output) / "jove.o").string();
+  std::string jove_o_fp = (fs::path(opts.Output) / ".obj" / "jove.o").string();
   pid_t pid = fork();
   if (!pid) {
     IgnoreCtrlC();
@@ -565,7 +567,7 @@ int DecompileTool::Run(void) {
         "-nostdlib",                                 nullptr,
 
         "--push-state",
-        "--as-needed", "builtins.a",
+        "--as-needed", ".obj/builtins.a",
         "--pop-state",                               nullptr,
 
         "--exclude-libs", "ALL",                     nullptr,
@@ -578,22 +580,6 @@ int DecompileTool::Run(void) {
 
     ofs << '\n';
 
-    if (!helper_nms.empty()) {
-      ofs << "HELPERS := ";
-      for (auto it = helper_nms.begin(); it != helper_nms.end(); ++it) {
-        if (it != helper_nms.begin())
-          ofs << std::string(sizeof("HELPERS := ") - 1, ' ');
-
-        ofs << *it << ".o";
-
-        if (std::next(it) != helper_nms.end())
-          ofs << " \\\n";
-        else
-          ofs << '\n';
-      }
-      ofs << '\n';
-    }
-
     {
       binary_t &binary = decompilation.Binaries.at(0);
 
@@ -604,9 +590,7 @@ int DecompileTool::Run(void) {
       std::string binary_filename = fs::path(binary.Path).filename().string();
 
       ofs << binary_filename << ": " << binary_filename << ".o";
-      ofs << " jove.o";
-      if (!helper_nms.empty())
-        ofs << " $(HELPERS)" ;
+      ofs << " $(wildcard .obj/*.o)";
       ofs << "\n";
 
       ofs << "\t$(LD) -o $@ $^ $(LDFLAGS)";
