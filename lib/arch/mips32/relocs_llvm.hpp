@@ -68,3 +68,14 @@ void LLVMTool::compute_manual_relocation(llvm::IRBuilderTy &IRB,
     throw unhandled_relocation_exception();
   }
 }
+
+bool LLVMTool::is_constant_relocation(const Relocation &R) {
+  switch (R.Type) {
+  case llvm::ELF::R_MIPS_REL32:
+  case llvm::ELF::R_MIPS_JUMP_SLOT:
+    return true;
+
+  default:
+    return false;
+  }
+}

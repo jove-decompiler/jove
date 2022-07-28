@@ -72,3 +72,16 @@ void LLVMTool::compute_manual_relocation(llvm::IRBuilderTy &IRB,
     throw unhandled_relocation_exception();
   }
 }
+
+bool LLVMTool::is_constant_relocation(const Relocation &R) {
+  switch (R.Type) {
+  case llvm::ELF::R_AARCH64_RELATIVE:
+  case llvm::ELF::R_AARCH64_GLOB_DAT:
+  case llvm::ELF::R_AARCH64_JUMP_SLOT:
+  case llvm::ELF::R_AARCH64_ABS64:
+    return true;
+
+  default:
+    throw false;
+  }
+}

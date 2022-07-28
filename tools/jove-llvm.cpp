@@ -678,6 +678,7 @@ public:
                                             const RelSymbol &);
 
   bool is_manual_relocation(const Relocation &);
+  bool is_constant_relocation(const Relocation &);
 
   void compute_manual_relocation(llvm::IRBuilderTy &,
                                  const Relocation &,
@@ -4867,6 +4868,9 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
             return;
 
           type_at_address(R.Offset, R_T);
+
+	  if (is_constant_relocation(R))
+	    ConstantRelocationLocs.insert(R.Offset);
         });
 
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
@@ -4895,6 +4899,12 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
 
       for (const MipsGOTParser::Entry &Ent : Parser.getGlobalEntries())
         type_at_address(Parser.getGotAddress(&Ent), WordType());
+
+      for (const MipsGOTParser::Entry &Ent : Parser.getLocalEntries())
+        ConstantRelocationLocs.insert(Parser.getGotAddress(&Ent));
+
+      for (const MipsGOTParser::Entry &Ent : Parser.getGlobalEntries())
+        ConstantRelocationLocs.insert(Parser.getGotAddress(&Ent));
     }
 #endif
 
@@ -6413,7 +6423,7 @@ int LLVMTool::PrepareForCBE(void) {
   JoveNoDCEFunc->setVisibility(llvm::GlobalValue::DefaultVisibility);
   JoveNoDCEFunc->deleteBody();
 
-  return 0;
+  return ConstifyRelocationSectionPointers();
 }
 
 int LLVMTool::ExpandMemoryIntrinsicCalls(void) {
