@@ -6279,7 +6279,7 @@ int LLVMTool::DoOptimize(void) {
     return 1;
   }
 
-  constexpr unsigned OptLevel = 2;
+  constexpr unsigned OptLevel = 3;
   constexpr unsigned SizeLevel = 2;
 
   llvm::legacy::PassManager MPM;
