@@ -3569,7 +3569,9 @@ int LLVMTool::CreateFunctions(void) {
 
       unsigned i = 0;
       for (llvm::Argument &A : state_for_function(f).F->args()) {
-        A.setName(TCG->priv->_ctx.temps[glbv.at(i)].name);
+        std::string name = opts.ForCBE ? "_" : "";
+        name.append(TCG->priv->_ctx.temps[glbv.at(i)].name);
+        A.setName(name);
         ++i;
       }
     }
@@ -4869,8 +4871,8 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
 
           type_at_address(R.Offset, R_T);
 
-	  if (is_constant_relocation(R))
-	    ConstantRelocationLocs.insert(R.Offset);
+          if (is_constant_relocation(R))
+            ConstantRelocationLocs.insert(R.Offset);
         });
 
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
@@ -5828,7 +5830,7 @@ static llvm::AllocaInst *CreateAllocaForGlobal(TranslateContext &TC,
 
   llvm::AllocaInst *res = IRB.CreateAlloca(
       IRB.getIntNTy(bitsOfTCGType(TCG.priv->_ctx.temps[glb].type)), nullptr,
-      std::string(TCG.priv->_ctx.temps[glb].name) + "_ptr");
+      std::string(TCG.priv->_ctx.temps[glb].name));
 
   if (InitializeFromEnv) {
     llvm::MDNode *AliasScopeMetadata = TC.tool.AliasScopeMetadata;
@@ -5917,7 +5919,7 @@ int LLVMTool::TranslateFunction(function_t &f) {
   llvm::BasicBlock *EntryB = llvm::BasicBlock::Create(*Context, "", F);
   for (basic_block_t bb : state_for_function(f).bbvec)
     state_for_basic_block(ICFG[bb]).B = llvm::BasicBlock::Create(
-        *Context, (fmt("%#lx") % ICFG[bb].Addr).str(), F);
+        *Context, (fmt("l%lx") % ICFG[bb].Addr).str(), F);
 
   llvm::DISubprogram::DISPFlags SubProgFlags =
       llvm::DISubprogram::SPFlagDefinition |
@@ -6033,7 +6035,9 @@ int LLVMTool::TranslateFunction(function_t &f) {
     //
     unsigned i = 0;
     for (llvm::Argument &A : state_for_function(f).adapterF->args()) {
-      A.setName(TCG->priv->_ctx.temps[CallConvArgArray.at(i)].name);
+      std::string name = opts.ForCBE ? "_" : "";
+      name.append(TCG->priv->_ctx.temps[CallConvArgArray.at(i)].name);
+      A.setName(name);
       ++i;
     }
 
@@ -6123,7 +6127,7 @@ int LLVMTool::TranslateFunction(function_t &f) {
               if (glb == tcg_stack_pointer_index) {
                 llvm::Value *ReturnedSP = IRB.CreateExtractValue(
                     Ret, llvm::ArrayRef<unsigned>(i),
-                    (fmt("_%s_returned") % TCG->priv->_ctx.temps[glb].name).str());
+                    TCG->priv->_ctx.temps[glb].name + std::string("_"));
 
                 llvm::StoreInst *SI = IRB.CreateStore(ReturnedSP,
                                                       CPUStateGlobalPointer(glb, IRB));
@@ -6134,9 +6138,9 @@ int LLVMTool::TranslateFunction(function_t &f) {
                      std::find(CallConvRetArray.begin(),
                                CallConvRetArray.end(), glb));
 
-                RetValues.at(Idx) = IRB.CreateExtractValue(
-                    Ret, llvm::ArrayRef<unsigned>(i),
-                    (fmt("_%s_returned") % TCG->priv->_ctx.temps[glb].name).str());
+                 RetValues.at(Idx) = IRB.CreateExtractValue(
+                     Ret, llvm::ArrayRef<unsigned>(i),
+                     TCG->priv->_ctx.temps[glb].name + std::string("_"));
               } else {
                 ;
               }
@@ -6152,9 +6156,12 @@ int LLVMTool::TranslateFunction(function_t &f) {
                 RetValues.begin(),
                 RetValues.end(), init,
                 [&](llvm::Value *res, llvm::Value *Val) -> llvm::Value * {
+                  std::string nm = std::string("_ret_") + TCG->priv->_ctx.temps[CallConvRetArray.at(j)].name + std::string("_");
+
                   return IRB.CreateInsertValue(res,
                                                Val,
-                                               llvm::ArrayRef<unsigned>(j++));
+                                               llvm::ArrayRef<unsigned>(j++),
+                                               nm);
                 });
 
             IRB.CreateRet(res);
@@ -6467,6 +6474,39 @@ int LLVMTool::ReplaceAllRemainingUsesOfConstSections(void) {
 }
 
 int LLVMTool::RenameFunctionLocals(void) {
+  if (opts.ForCBE) {
+    for (llvm::Function &Func : *Module) {
+      for (llvm::BasicBlock &Block : Func) {
+        for (llvm::Instruction &Inst : Block) {
+          const llvm::StringRef &Name = Inst.getName();
+          if (std::all_of(Name.begin(),
+                          Name.end(),
+                          [](char ch) -> bool { return ::isalnum(ch) || ch == '_'; }))
+            continue;
+
+          std::string NewName;
+          for (auto it = Name.begin(); it != Name.end(); ++it) {
+            unsigned char ch = *it;
+
+            if (!((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
+                  (ch >= '0' && ch <= '9') || ch == '_')) {
+              if (ch == '.') {
+                NewName += '_';
+              } else {
+                NewName = "";
+                break;
+              }
+            } else {
+              NewName += ch;
+            }
+          }
+
+          Inst.setName(NewName);
+        }
+      }
+    }
+  }
+
   if (!CPUStateGlobal)
     return 0;
 
@@ -6495,7 +6535,7 @@ int LLVMTool::RenameFunctionLocals(void) {
     const char *nm = TCG->priv->_ctx.temps[glb].name;
     for (llvm::User *UU : U->users()) {
       if (llvm::isa<llvm::LoadInst>(UU))
-        UU->setName(nm);
+        UU->setName(nm + std::string("_"));
     }
   }
 
@@ -6969,7 +7009,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
   unsigned j = 0;
   do {
     ExitBB = llvm::BasicBlock::Create(
-        *Context, (fmt("%#lx_%u_exit") % Addr % j).str(), state_for_function(f).F);
+        *Context, (fmt("l%lx_%u_exit") % Addr % j).str(), state_for_function(f).F);
     ++j;
 
     unsigned len;
@@ -7054,7 +7094,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
     //
     for (unsigned i = 0; i < LabelVec.size(); ++i)
       LabelVec[i] = llvm::BasicBlock::Create(
-          *Context, (boost::format("%#lx_L%u") % ICFG[bb].Addr % i).str(), state_for_function(f).F);
+          *Context, (boost::format("l%lx_%u") % ICFG[bb].Addr % i).str(), state_for_function(f).F);
 
     if (opts.DumpTCG) {
       if (Addr == std::stoi(opts.ForAddr.c_str(), nullptr, 16))
@@ -7455,9 +7495,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
 
           llvm::Value *Val = IRB.CreateExtractValue(
               Ret, llvm::ArrayRef<unsigned>(i),
-              (fmt("_%s_returned_from_%s_")
-               % TCG->priv->_ctx.temps[glb].name
-               % state_for_function(callee).F->getName().str()).str());
+              TCG->priv->_ctx.temps[glb].name + std::string("_"));
 
           set(Val, glb);
         }
@@ -7599,7 +7637,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
     //
     if (!_indirect_jump.IsTailCall) { /* otherwise fallthrough */
       llvm::BasicBlock *ElseBlock =
-          llvm::BasicBlock::Create(*Context, (fmt("%#lx_recover") % Addr).str(),
+          llvm::BasicBlock::Create(*Context, (fmt("l%lx_recover") % Addr).str(),
                                    state_for_function(f).F);
 
       llvm::Value *PC = IRB.CreateLoad(TC.PCAlloca);
@@ -7846,8 +7884,8 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
       //assert(Ret->getType()->isIntegerTy(128));
       assert(Ret->getType()->isStructTy());
       {
-        llvm::Value *X = IRB.CreateExtractValue(Ret, 0, (fmt("_%s_returned") % TCG->priv->_ctx.temps[CallConvRetArray.at(0)].name).str());
-        llvm::Value *Y = IRB.CreateExtractValue(Ret, 1, (fmt("_%s_returned") % TCG->priv->_ctx.temps[CallConvRetArray.at(1)].name).str());
+        llvm::Value *X = IRB.CreateExtractValue(Ret, 0, TCG->priv->_ctx.temps[CallConvRetArray.at(0)].name + std::string("_"));
+        llvm::Value *Y = IRB.CreateExtractValue(Ret, 1, TCG->priv->_ctx.temps[CallConvRetArray.at(1)].name + std::string("_"));
 
         set(X, CallConvRetArray.at(0));
         set(Y, CallConvRetArray.at(1));
@@ -7859,18 +7897,20 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
       assert(Ret->getType()->isStructTy());
 
       for (unsigned j = 0; j < CallConvRetArray.size(); ++j) {
-        llvm::Value *X = IRB.CreateExtractValue(Ret, j,
-            (fmt("_%s_returned") % TCG->priv->_ctx.temps[CallConvRetArray.at(j)].name).str());
+        llvm::Value *X = IRB.CreateExtractValue(
+            Ret, j, TCG->priv->_ctx.temps[CallConvRetArray.at(j)].name + std::string("_"));
         set(X, CallConvRetArray.at(j));
       }
 #elif defined(TARGET_MIPS32) || defined(TARGET_I386)
       assert(Ret->getType()->isIntegerTy(64));
       {
-        llvm::Value *X = IRB.CreateTrunc(Ret, IRB.getInt32Ty(),
-            (fmt("_%s_returned") % TCG->priv->_ctx.temps[CallConvRetArray.at(0)].name).str());
+        llvm::Value *X =
+            IRB.CreateTrunc(Ret, IRB.getInt32Ty(),
+                            TCG->priv->_ctx.temps[CallConvRetArray.at(0)].name + std::string("_"));
 
-        llvm::Value *Y = IRB.CreateTrunc(IRB.CreateLShr(Ret, IRB.getInt64(32)), IRB.getInt32Ty(),
-            (fmt("_%s_returned") % TCG->priv->_ctx.temps[CallConvRetArray.at(1)].name).str());
+        llvm::Value *Y = IRB.CreateTrunc(
+            IRB.CreateLShr(Ret, IRB.getInt64(32)), IRB.getInt32Ty(),
+            TCG->priv->_ctx.temps[CallConvRetArray.at(1)].name + std::string("_"));
 
 #ifdef TARGET_WORDS_BIGENDIAN
         set(X, CallConvRetArray.at(1));
@@ -7911,7 +7951,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
         unsigned i = 0;
 
         llvm::BasicBlock *B = llvm::BasicBlock::Create(
-            *Context, (fmt("if %s") % dyn_target_desc(DynTargetsVec[i])).str(),
+            *Context, (fmt("if_%s") % dyn_target_desc(DynTargetsVec[i])).str(),
             state_for_function(f).F);
         IRB.CreateBr(B);
 
@@ -7920,11 +7960,11 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
 
           auto next_i = i + 1;
           if (next_i == DynTargetsVec.size())
-            B = llvm::BasicBlock::Create(*Context, "else", state_for_function(f).F);
+            B = llvm::BasicBlock::Create(*Context, "", state_for_function(f).F);
           else
             B = llvm::BasicBlock::Create(
                 *Context,
-                (fmt("if %s") % dyn_target_desc(DynTargetsVec[next_i])).str(),
+                (fmt("if_%s") % dyn_target_desc(DynTargetsVec[next_i])).str(),
                 state_for_function(f).F);
 
           llvm::Value *EQVal = IRB.CreateICmpEQ(
@@ -8232,8 +8272,10 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
             //assert(Ret->getType()->isIntegerTy(128));
             assert(Ret->getType()->isStructTy());
             {
-              llvm::Value *X = IRB.CreateExtractValue(Ret, 0, (fmt("_%s_returned") % TCG->priv->_ctx.temps[CallConvRetArray.at(0)].name).str());
-              llvm::Value *Y = IRB.CreateExtractValue(Ret, 1, (fmt("_%s_returned") % TCG->priv->_ctx.temps[CallConvRetArray.at(1)].name).str());
+              llvm::Value *X = IRB.CreateExtractValue(
+                  Ret, 0, TCG->priv->_ctx.temps[CallConvRetArray.at(0)].name + std::string("_"));
+              llvm::Value *Y = IRB.CreateExtractValue(
+                  Ret, 1, TCG->priv->_ctx.temps[CallConvRetArray.at(1)].name + std::string("_"));
 
               set(X, CallConvRetArray.at(0));
               set(Y, CallConvRetArray.at(1));
@@ -8245,18 +8287,20 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
             assert(Ret->getType()->isStructTy());
 
             for (unsigned j = 0; j < CallConvRetArray.size(); ++j) {
-              llvm::Value *X = IRB.CreateExtractValue(Ret, j,
-                  (fmt("_%s_returned") % TCG->priv->_ctx.temps[CallConvRetArray.at(j)].name).str());
+              llvm::Value *X = IRB.CreateExtractValue(
+                  Ret, j, TCG->priv->_ctx.temps[CallConvRetArray.at(j)].name + std::string("_"));
               set(X, CallConvRetArray.at(j));
             }
 #elif defined(TARGET_MIPS32) || defined(TARGET_I386)
             assert(Ret->getType()->isIntegerTy(64));
             {
-              llvm::Value *X = IRB.CreateTrunc(Ret, IRB.getInt32Ty(),
-                  (fmt("_%s_returned") % TCG->priv->_ctx.temps[CallConvRetArray.at(0)].name).str());
+              llvm::Value *X = IRB.CreateTrunc(
+                  Ret, IRB.getInt32Ty(),
+                  TCG->priv->_ctx.temps[CallConvRetArray.at(0)].name + std::string("_"));
 
-              llvm::Value *Y = IRB.CreateTrunc(IRB.CreateLShr(Ret, IRB.getInt64(32)), IRB.getInt32Ty(),
-                  (fmt("_%s_returned") % TCG->priv->_ctx.temps[CallConvRetArray.at(1)].name).str());
+              llvm::Value *Y = IRB.CreateTrunc(
+                  IRB.CreateLShr(Ret, IRB.getInt64(32)), IRB.getInt32Ty(),
+                  TCG->priv->_ctx.temps[CallConvRetArray.at(1)].name + std::string("_"));
 
 #ifdef TARGET_WORDS_BIGENDIAN
               set(X, CallConvRetArray.at(1));
@@ -8286,9 +8330,9 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
                 for (unsigned i = 0; i < glbv.size(); ++i) {
                   unsigned glb = glbv[i];
 
-                  llvm::Value *Val = IRB.CreateExtractValue(
-                      Ret, llvm::ArrayRef<unsigned>(i),
-                      (fmt("_%s_returned") % TCG->priv->_ctx.temps[glb].name).str());
+                  llvm::Value *Val =
+                      IRB.CreateExtractValue(Ret, llvm::ArrayRef<unsigned>(i),
+                                             TCG->priv->_ctx.temps[glb].name + std::string("_"));
 
                   set(Val, glb);
                 }
@@ -8535,8 +8579,7 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
       llvm::Value *retVal = std::accumulate(
           glbv.begin(), glbv.end(), init,
           [&](llvm::Value *res, unsigned glb) -> llvm::Value * {
-            std::string nm =
-                (fmt("_returning_%s_") % TCG->priv->_ctx.temps[glb].name).str();
+            std::string nm = std::string("_ret_") + TCG->priv->_ctx.temps[glb].name + std::string("_");
 
             return IRB.CreateInsertValue(res,
                                          get(glb),
@@ -9408,7 +9451,7 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
     llvm::BasicBlock *lblBB = LabelVec.at(lblidx);                             \
     assert(lblBB);                                                             \
     llvm::BasicBlock *fallthruBB = llvm::BasicBlock::Create(                   \
-        *Context, (boost::format("%#lx_fallthru") % ICFG[bb].Addr).str(),      \
+        *Context, (boost::format("l%lx_fallthru") % ICFG[bb].Addr).str(),      \
         state_for_function(f).F);                                              \
     IRB.CreateCondBr(V, lblBB, fallthruBB);                                    \
     IRB.SetInsertPoint(fallthruBB);                                            \
