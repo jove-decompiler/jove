@@ -678,7 +678,7 @@ int DecompileTool::Run(void) {
       ofs << binary_filename << ".o: " << binary_filename << ".c" << '\n';
       ofs << "\t$(CC) -o $@ -c $(CFLAGS)";
       if (binary.IsPIC)
-	ofs << " -fPIC";
+        ofs << " -fPIC";
       ofs << " $^\n";
     }
   }
@@ -787,11 +787,13 @@ void DecompileTool::Worker(void) {
       std::vector<const char *> arg_vec = {
         llvm_cbe_path.c_str(),
 
-        "-o", cfp.c_str()
+        "-o", cfp.c_str(),
+
+         "--cbe-jove"
       };
 
       if (opts.FakeLineNumbers)
-	arg_vec.push_back("--cbe-print-debug-locs");
+        arg_vec.push_back("--cbe-print-debug-locs");
 
       arg_vec.push_back(bcfp.c_str());
       arg_vec.push_back(nullptr);
