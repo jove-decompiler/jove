@@ -3575,6 +3575,27 @@ int LLVMTool::CreateFunctions(void) {
         ++i;
       }
     }
+
+    if (!f.IsABI) {
+      //
+      // create "ABI adapter"
+      //
+      state_for_function(f).adapterF = llvm::Function::Create(
+          FunctionTypeOfArgsAndRets(CallConvArgs, CallConvRets),
+          llvm::GlobalValue::ExternalLinkage,
+          (fmt("Jj%lx") % Addr).str(), Module.get());
+
+      //
+      // assign names to the arguments, the registers they represent
+      //
+      unsigned i = 0;
+      for (llvm::Argument &A : state_for_function(f).adapterF->args()) {
+        std::string name = opts.ForCBE ? "_" : "";
+        name.append(TCG->priv->_ctx.temps[CallConvArgArray.at(i)].name);
+        A.setName(name);
+        ++i;
+      }
+    }
   });
 
   return 0;
@@ -3647,6 +3668,9 @@ int LLVMTool::CreateFunctionTable(void) {
       C3 = llvm::Constant::getNullValue(WordType());
       continue;
     }
+
+    if (!f.IsABI)
+      assert(state_for_function(f).adapterF);
 
     C1 = SectionPointer(ICFG[boost::vertex(f.Entry, ICFG)].Addr);
     C2 = llvm::ConstantExpr::getPtrToInt(state_for_function(f).F, WordType());
@@ -6021,27 +6045,11 @@ int LLVMTool::TranslateFunction(function_t &f) {
 
   if (!f.IsABI) {
     //
-    // create "ABI adapter"
+    // build "ABI adapter"
     //
-    state_for_function(f).adapterF = llvm::Function::Create(
-        FunctionTypeOfArgsAndRets(CallConvArgs, CallConvRets),
-        llvm::GlobalValue::ExternalLinkage,
-        (fmt("Jj%lx") % ICFG[entry_bb].Addr).str(), Module.get());
-
-    state_for_function(f).adapterF->setVisibility(llvm::GlobalValue::HiddenVisibility);
-
-    //
-    // assign names to the arguments, the registers they represent
-    //
-    unsigned i = 0;
-    for (llvm::Argument &A : state_for_function(f).adapterF->args()) {
-      std::string name = opts.ForCBE ? "_" : "";
-      name.append(TCG->priv->_ctx.temps[CallConvArgArray.at(i)].name);
-      A.setName(name);
-      ++i;
-    }
-
     F = state_for_function(f).adapterF;
+
+    assert(F);
     llvm::FunctionType *FTy = F->getFunctionType();
 
     llvm::DISubprogram *Subprogram = DIB.createFunction(
@@ -6171,6 +6179,8 @@ int LLVMTool::TranslateFunction(function_t &f) {
     }
 
     DIB.finalizeSubprogram(Subprogram);
+
+    F->setVisibility(llvm::GlobalValue::HiddenVisibility);
   }
 
   return 0;
