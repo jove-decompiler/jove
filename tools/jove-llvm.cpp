@@ -3575,6 +3575,13 @@ int LLVMTool::CreateFunctions(void) {
         ++i;
       }
     }
+  });
+
+  for_each_function_in_binary(Binary, [&](function_t &f) {
+    if (unlikely(!is_basic_block_index_valid(f.Entry)))
+      return;
+
+    const target_ulong Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
 
     if (!f.IsABI) {
       //
