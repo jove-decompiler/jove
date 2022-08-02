@@ -559,7 +559,8 @@ int DecompileTool::Run(void) {
         "-O2",                                     nullptr,
         "-g",                                      nullptr,
         "-Wno-incompatible-library-redeclaration", nullptr,
-        "-Werror-implicit-function-declaration"
+        "-Werror-implicit-function-declaration",   nullptr,
+        "-Wno-parentheses-equality"
       };
 
       print_flags("CFLAGS", cflags);
