@@ -267,9 +267,9 @@ struct function_t {
   template <typename StateTy>
   StateTy &state() const {
     if (!this->userdata)
-      this->userdata = new StateTy;
+      this->userdata = new StateTy();
 
-    return *reinterpret_cast<StateTy *>(this->userdata);
+    return *static_cast<StateTy *>(this->userdata);
   }
 };
 
@@ -317,13 +317,13 @@ struct binary_t {
   template <typename StateTy>
   StateTy &state() const {
     if (!this->userdata)
-      this->userdata = new StateTy;
+      this->userdata = new StateTy();
 
-    return *reinterpret_cast<StateTy *>(this->userdata);
+    return *static_cast<StateTy *>(this->userdata);
   }
 };
 
-#define state_for_binary(b) (b.template state<binary_state_t>())
+#define state_for_binary(b) ((b).template state<binary_state_t>())
 
 struct decompilation_t {
   std::vector<binary_t> Binaries;
@@ -562,6 +562,9 @@ static inline void basic_blocks_of_function(const function_t &f,
       out.push_back(bb);
     }
   };
+
+  if (!is_basic_block_index_valid(f.Entry))
+    abort();
 
   std::map<basic_block_t, boost::default_color_type> color;
   bb_visitor vis(out);
