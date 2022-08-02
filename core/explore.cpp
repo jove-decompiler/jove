@@ -121,10 +121,10 @@ basic_block_index_t explore_basic_block(binary_t &b,
 
           if (!Disassembled)
             throw std::runtime_error(
-	      (fmt("failed to disassemble 0x%lx%s%s")
-	       % A
-	       % (errmsg.empty() ? "" : ": ")
-	       % errmsg).str());
+              (fmt("failed to disassemble 0x%lx%s%s")
+               % A
+               % (errmsg.empty() ? "" : ": ")
+               % errmsg).str());
 
           if (A == Addr)
             goto on_insn_boundary;
@@ -377,7 +377,15 @@ on_insn_boundary:
       break;
     }
 
-    if (does_function_return(b.Analysis.Functions[CalleeFIdx], b))
+    function_t &callee = b.Analysis.Functions[CalleeFIdx];
+
+    if (!is_basic_block_index_valid(callee.Entry)) {
+      llvm::WithColor::warning() << llvm::formatv(
+          "explore_basic_block: FIXME {0:x}\n", CalleeAddr);
+      break;
+    }
+
+    if (does_function_return(callee, b))
       control_flow_to(T._call.NextPC);
 
     break;
