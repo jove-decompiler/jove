@@ -44,7 +44,7 @@ CXXFLAGS := -std=gnu++17 \
             -fwrapv \
             -fno-common \
             -Ofast \
-            -g1 \
+            -g \
             -I include \
             -I lib \
             -I core \
@@ -106,6 +106,9 @@ $(foreach target,$(ALL_TARGETS),$(shell mkdir -p $(BINDIR)/$(target)/helpers))
 
 CORESRCDIR := core
 CORESRCS   := $(wildcard $(CORESRCDIR)/*.cpp)
+COREDEPS   := $(foreach target,$(ALL_TARGETS),$(patsubst $(CORESRCDIR)/%.cpp,$(BINDIR)/$(target)/%.d,$(CORESRCS)))
+COREOBJS   := $(foreach target,$(ALL_TARGETS),$(patsubst $(CORESRCDIR)/%.cpp,$(BINDIR)/$(target)/%.o,$(CORESRCS)))
+
 #
 # find tools
 #
@@ -195,7 +198,7 @@ $(foreach target,$(ALL_TARGETS),$(eval $(call build_tool_obj_template,$(target))
 
 define build_core_obj_template
 $(BINDIR)/$(1)/%.o: $(CORESRCDIR)/%.cpp
-	@echo CXX '<$(1)>' $$^
+	@echo CXX '<$(1)>' $$<
 	@$(_LLVM_CXX) -o $$@ -c \
 	              -MMD \
 	              $(CXXFLAGS) \
@@ -273,6 +276,7 @@ $(foreach target,$(ALL_TARGETS),$(eval $(call target_code_template,$(target))))
 -include $(JOVE_RT_DEPS)
 -include $(JOVE_C_BITCODE_DEPS)
 -include $(JOVE_C_DFSAN_BITCODE_DEPS)
+-include $(COREDEPS)
 -include $(TOOLDEPS)
 -include $(UTILDEPS)
 -include $(HELPERDEPS)
@@ -321,6 +325,7 @@ endif
 clean:
 	rm -rf $(TOOLBINS) \
 	       $(TOOLOBJS) \
+	       $(COREOBJS)  \
 	       $(UTILBINS) \
 	       $(JOVE_C_BITCODE) \
 	       $(JOVE_C_DFSAN_BITCODE) \
@@ -328,6 +333,7 @@ clean:
 	       $(JOVE_C_DFSAN_BITCODE_DEPS) \
 	       $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/libjove_rt.so.0) \
 	       $(TOOLDEPS) \
+	       $(COREDEPS) \
 	       $(UTILDEPS) \
 	       $(HELPERDEPS) \
 	       $(HELPERS_BITCODE) \
