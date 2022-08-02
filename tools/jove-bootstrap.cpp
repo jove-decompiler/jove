@@ -485,9 +485,10 @@ int BootstrapTool::Run(void) {
     llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
         obj::createBinary(MemBuffRef);
     if (!BinOrErr) {
+      std::string errorStr = llvm::toString(BinOrErr.takeError());
       if (!binary.IsVDSO)
         HumanOut() << llvm::formatv(
-            "failed to create binary having path {0}\n", binary.Path);
+            "failed to create binary having path {0}: {1}\n", binary.Path, errorStr);
 
       return;
     } else {
