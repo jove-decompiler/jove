@@ -4732,32 +4732,8 @@ static std::pair<void *, unsigned> GetVDSO(void) {
 }
 
 std::string ProcMapsForPid(pid_t pid) {
-  std::string res;
-
-  {
-    FILE *fp;
-    char *line = NULL;
-    size_t len = 0;
-    ssize_t read;
-
-    {
-      char path[128];
-      snprintf(path, sizeof(path), "/proc/%d/maps", static_cast<int>(pid));
-
-      fp = fopen(path, "r");
-
-      if (!fp)
-        return "";
-    }
-
-    while ((read = getline(&line, &len, fp)) != -1)
-      res.append(line);
-
-    free(line);
-    fclose(fp);
-  }
-
-  return res;
+  std::string path = "/proc/" + std::to_string(pid) + "/maps";
+  return read_file_into_string(path);
 }
 
 void SignalHandler(int no) {
