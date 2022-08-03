@@ -4733,7 +4733,7 @@ static std::pair<void *, unsigned> GetVDSO(void) {
 
 std::string ProcMapsForPid(pid_t pid) {
   std::string path = "/proc/" + std::to_string(pid) + "/maps";
-  return read_file_into_string(path);
+  return read_file_into_string(path.c_str());
 }
 
 void SignalHandler(int no) {
