@@ -474,8 +474,10 @@ int BootstrapTool::Run(void) {
     else
       BinPathToIdxMap[binary.Path] = BIdx;
 
-    construct_fnmap(Decompilation, binary, state_for_binary(binary).fnmap);
-    construct_bbmap(Decompilation, binary, state_for_binary(binary).bbmap);
+    binary_state_t &state = state_for_binary(binary);
+
+    construct_fnmap(Decompilation, binary, state.fnmap);
+    construct_bbmap(Decompilation, binary, state.bbmap);
 
     llvm::StringRef Buffer(reinterpret_cast<char *>(&binary.Data[0]),
                            binary.Data.size());
@@ -495,32 +497,32 @@ int BootstrapTool::Run(void) {
       std::unique_ptr<obj::Binary> &BinRef = *BinOrErr;
       assert(BinRef.get());
 
-      state_for_binary(binary).ObjectFile = std::move(BinRef);
+      state.ObjectFile = std::move(BinRef);
 
-      assert(state_for_binary(binary).ObjectFile.get());
-      if (!llvm::isa<ELFO>(state_for_binary(binary).ObjectFile.get())) {
+      assert(state.ObjectFile.get());
+      if (!llvm::isa<ELFO>(state.ObjectFile.get())) {
         HumanOut() << binary.Path << " is not ELF of expected type\n";
         exit(1);
       }
 
-      ELFO &O = *llvm::cast<ELFO>(state_for_binary(binary).ObjectFile.get());
+      ELFO &O = *llvm::cast<ELFO>(state.ObjectFile.get());
       const ELFF &E = *O.getELFFile();
 
-      loadDynamicTable(&E, &O, state_for_binary(binary)._elf.DynamicTable);
+      loadDynamicTable(&E, &O, state._elf.DynamicTable);
 
-      state_for_binary(binary)._elf.OptionalDynSymRegion =
+      state._elf.OptionalDynSymRegion =
           loadDynamicSymbols(&E, &O,
-                             state_for_binary(binary)._elf.DynamicTable,
-                             state_for_binary(binary)._elf.DynamicStringTable,
-                             state_for_binary(binary)._elf.SymbolVersionSection,
-                             state_for_binary(binary)._elf.VersionMap);
+                             state._elf.DynamicTable,
+                             state._elf.DynamicStringTable,
+                             state._elf.SymbolVersionSection,
+                             state._elf.VersionMap);
 
       loadDynamicRelocations(&E, &O,
-                             state_for_binary(binary)._elf.DynamicTable,
-                             state_for_binary(binary)._elf.DynRelRegion,
-                             state_for_binary(binary)._elf.DynRelaRegion,
-                             state_for_binary(binary)._elf.DynRelrRegion,
-                             state_for_binary(binary)._elf.DynPLTRelRegion);
+                             state._elf.DynamicTable,
+                             state._elf.DynRelRegion,
+                             state._elf.DynRelaRegion,
+                             state._elf.DynRelrRegion,
+                             state._elf.DynPLTRelRegion);
 
       TheTriple = O.makeTriple();
       Features = O.getFeatures();
