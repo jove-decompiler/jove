@@ -10,6 +10,7 @@
 #include "explore.h"
 
 #include <boost/algorithm/string/predicate.hpp>
+#include <boost/algorithm/string.hpp>
 #include <boost/dll/runtime_symbol_info.hpp>
 #include <boost/dynamic_bitset.hpp>
 #include <boost/filesystem.hpp>
@@ -3861,67 +3862,107 @@ int BootstrapTool::ChildProc(int pipefd) {
   return 1;
 }
 
+static std::string read_file_into_string(char const *infile) {
+  std::ifstream instream(infile);
+  if (!instream.is_open()) {
+    throw std::runtime_error(std::string("Couldn't open file ") + infile);
+  }
+  instream.unsetf(std::ios::skipws); // No white space skipping!
+  return std::string(std::istreambuf_iterator<char>(instream.rdbuf()),
+                     std::istreambuf_iterator<char>());
+}
+
 bool load_proc_maps(pid_t child, std::vector<struct proc_map_t> &out) {
-  FILE *fp;
-  char *line = NULL;
-  size_t len = 0;
-  ssize_t read;
+  std::string path = "/proc/" + std::to_string(child) + "/maps";
+  std::string maps = read_file_into_string(path.c_str());
 
-  {
-    char path[64];
-    snprintf(path, sizeof(path), "/proc/%d/maps", static_cast<int>(child));
-
-    fp = fopen(path, "r");
-  }
-
-  if (fp == NULL) {
+  if (maps.empty())
     return false;
-  }
 
   out.clear();
-  out.reserve(30);
 
-  while ((read = getline(&line, &len, fp)) != -1) {
-    int fields, dev_maj, dev_min, inode;
-    uint64_t min, max, offset;
-    struct {
-      char r, w, x;
-    } perm;
-    char flag_p;
-    char path[512] = "";
-    fields = sscanf(line,
-                    "%" PRIx64 "-%" PRIx64 " %c%c%c%c %" PRIx64 " %x:%x %d"
-                    " %512s",
-                    &min, &max, &perm.r, &perm.w, &perm.x, &flag_p, &offset,
-                    &dev_maj, &dev_min, &inode, path);
+  unsigned n = maps.size();
+  char *const beg = &maps[0];
+  char *const end = &maps[n];
 
-    if ((fields < 10) || (fields > 11)) {
-      continue;
+  char *eol;
+  for (char *line = beg; line != end; line = eol + 1) {
+    {
+      unsigned left = n - (line - beg);
+
+      //
+      // find the end of the current line
+      //
+      eol = (char *)memchr(line, '\n', left);
     }
+
+    assert(eol);
+
+    unsigned left = eol - line;
+
+#if 0
+    *eol = '\0';
+    llvm::errs() << line << '\n';
+#endif
 
     struct proc_map_t &proc_map = out.emplace_back();
 
-    proc_map.beg = min;
-    proc_map.end = max;
-    proc_map.off = offset;
-    proc_map.r = perm.r == 'r';
-    proc_map.w = perm.w == 'w';
-    proc_map.x = perm.x == 'x';
-    proc_map.p = flag_p == 'p';
+    char *const dash = (char *)memchr(line, '-', left);
+    assert(dash);
 
-    std::string nm(path);
+    char *const space = (char *)memchr(line, ' ', left);
+    assert(space);
+
+    *dash = '\0';
+    proc_map.beg = strtoul(line, nullptr, 0x10);
+
+    *space = '\0';
+    proc_map.end = strtoul(dash + 1, nullptr, 0x10);
+
+    proc_map.r = space[1] == 'r';
+    proc_map.w = space[2] == 'w';
+    proc_map.x = space[3] == 'x';
+    proc_map.p = space[4] == 'p';
+
+    char *const space2 = space + 5;
+    assert(*space2 == ' ');
+
+    char *const space3 = (char *)memchr(space2 + 1, ' ', eol - (space2 + 1));
+    assert(space3);
+
+    *space3 = '\0';
+    proc_map.off = strtoul(space2 + 1, nullptr, 0x10);
+
+    char *const space4 = (char *)memchr(space3 + 1, ' ', eol - (space3 + 1));
+    assert(space4);
+
+    char *const space5 = (char *)memchr(space4 + 1, ' ', eol - (space4 + 1));
+    assert(space5);
+
+    std::string &nm = proc_map.nm;
+
+    *eol = '\0';
+    nm = space5;
+
+    boost::trim_left(nm);
 
     //
-    // XXX check for "/memfd:jove/bootstrap" prefix
+    // XXX memfd cover-up
     //
-    if (boost::algorithm::starts_with(nm, "/memfd:jove/bootstrap"))
-      nm = nm.substr(sizeof("/memfd:jove/bootstrap") - 1);
+    if (boost::algorithm::starts_with(nm, "/memfd:jove/bootstrap")) {
+      nm = nm.substr(sizeof("/memfd:jove/bootstrap") - 1); /* chop it off */
 
-    proc_map.nm = nm;
+      if (boost::algorithm::ends_with(nm, " (deleted)"))
+        nm = nm.substr(0, nm.size() - sizeof(" (deleted)") + 1); /* chop it off */
+    }
+
+#if 0
+    llvm::errs() << llvm::formatv(
+        "[{0:x}, {1:x}) {2} {3} {4} {5} {6:x} \"{7}\"\n", proc_map.beg,
+        proc_map.end, proc_map.r, proc_map.w, proc_map.x, proc_map.p,
+        proc_map.off, nm);
+#endif
   }
-
-  free(line);
-  fclose(fp);
 
   return true;
 }
@@ -4635,7 +4676,7 @@ void arch_put_breakpoint(void *code) {
 #endif
 }
 
-std::pair<void *, unsigned> GetVDSO(void) {
+static std::pair<void *, unsigned> GetVDSO(void) {
   struct {
     void *first;
     unsigned second;
@@ -4644,38 +4685,48 @@ std::pair<void *, unsigned> GetVDSO(void) {
   res.first = nullptr;
   res.second = 0;
 
-  FILE *fp;
-  char *line = NULL;
-  size_t len = 0;
-  ssize_t read;
+  std::string maps = read_file_into_string("/proc/self/maps");
+  assert(!maps.empty());
 
-  fp = fopen("/proc/self/maps", "r");
-  assert(fp);
+  unsigned n = maps.size();
+  char *const beg = &maps[0];
+  char *const end = &maps[n];
 
-  while ((read = getline(&line, &len, fp)) != -1) {
-    int fields, dev_maj, dev_min, inode;
-    uint64_t min, max, offset;
-    char flag_r, flag_w, flag_x, flag_p;
-    char path[512] = "";
-    fields = sscanf(line,
-                    "%" PRIx64 "-%" PRIx64 " %c%c%c%c %" PRIx64 " %x:%x %d"
-                    " %512s",
-                    &min, &max, &flag_r, &flag_w, &flag_x, &flag_p, &offset,
-                    &dev_maj, &dev_min, &inode, path);
+  char *eol;
+  for (char *line = beg; line != end; line = eol + 1) {
+    unsigned left = n - (line - beg);
 
-    if ((fields < 10) || (fields > 11)) {
-      continue;
-    }
+    //
+    // find the end of the current line
+    //
+    eol = (char *)memchr(line, '\n', left);
 
-    if (strcmp(path, "[vdso]") == 0) {
+    //
+    // second hex address
+    //
+    if (eol[-1] == ']' &&
+        eol[-2] == 'o' &&
+        eol[-3] == 's' &&
+        eol[-4] == 'd' &&
+        eol[-5] == 'v' &&
+        eol[-6] == '[') {
+      char *const dash = (char *)memchr(line, '-', left);
+      assert(dash);
+
+      char *const space = (char *)memchr(line, ' ', left);
+      assert(space);
+
+      *dash = '\0';
+      uintptr_t min = strtoul(line, nullptr, 0x10);
+
+      *space = '\0';
+      uintptr_t max = strtoul(dash + 1, nullptr, 0x10);
+
       res.first = (void *)min;
       res.second = max - min;
       break;
     }
   }
-
-  free(line);
-  fclose(fp);
 
   return std::make_pair(res.first, res.second);
 }
