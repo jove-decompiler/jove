@@ -3205,6 +3205,29 @@ int LLVMTool::ProcessCOPYRelocations(void) {
 
         llvm::errs() << llvm::formatv("COPY relocation: {0} {1}\n", RelSym.Name, RelSym.Vers);
 
+        //
+        // _jove_do_emulate_copy_relocations is not actually called when the
+        // dynamic linker processes COPY relocations (in an ideal world it
+        // would). instead it is called some time later, after shared library
+        // constructors have run. the constructor function in glibc that gives
+        // us trouble is _init_first. here's what it does:
+        //
+        //  ...
+        //  /* Save the command-line arguments.  */
+        //  __environ = envp;
+        //  ...
+        //
+        //  in normal circumstances this happens after the dynamic linker has
+        //  processed COPY relocations but under jove, this happens *before*
+        //  COPY relocations are processed. consequently, a COPY relocation
+        //  for __environ would cause the assignment of __environ here to be
+        //  overwritten by _jove_do_emulate_copy_relocations. XXX
+        //
+        if (RelSym.Name == "__environ") {
+          WithColor::note() << "ignoring __environ COPY relocation\n";
+          return;
+        }
+
         CopyRelSyms.insert(RelSym.Name);
 
         if (!RelSym.Sym->st_size) {
