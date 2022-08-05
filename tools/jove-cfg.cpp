@@ -41,14 +41,6 @@ struct binary_state_t {
   std::unique_ptr<llvm::object::Binary> ObjectFile;
 };
 
-typedef boost::filtered_graph<
-    interprocedural_control_flow_graph_t,
-    boost::keep_all,
-    boost::is_in_subset<boost::unordered_set<basic_block_t>>>
-    control_flow_graph_t;
-
-typedef control_flow_graph_t cfg_t;
-
 class CFGTool : public Tool {
   struct Cmdline {
     cl::opt<std::string> jv;
@@ -57,6 +49,8 @@ class CFGTool : public Tool {
     cl::alias BinaryAlias;
     cl::opt<std::string> FunctionAddress;
     cl::opt<bool> PrintTerminatorType;
+    cl::opt<std::string> LocalGotoAddress;
+    cl::alias LocalGotoAddressAlias;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : jv("decompilation", cl::desc("Jove decompilation"), cl::Required,
@@ -76,7 +70,16 @@ class CFGTool : public Tool {
 
           PrintTerminatorType("terminator-type",
                               cl::desc("Print terminator type at end of BB"),
-                              cl::cat(JoveCategory))
+                              cl::cat(JoveCategory)),
+
+          LocalGotoAddress(
+              "indjmp",
+              cl::desc("Only print given local goto and its targets"),
+              cl::cat(JoveCategory)),
+
+          LocalGotoAddressAlias("j", cl::desc("Alias for --indjmp."),
+                                cl::aliasopt(LocalGotoAddress),
+                                cl::cat(JoveCategory))
 
     {}
   } opts;
@@ -93,7 +96,9 @@ public:
 
   int Run(void);
 
-  std::string disassemble_basic_block(const cfg_t &, cfg_t::vertex_descriptor);
+  template <typename GraphTy>
+  std::string disassemble_basic_block(const GraphTy &,
+                                      typename GraphTy::vertex_descriptor);
 };
 
 JOVE_REGISTER_TOOL("cfg", CFGTool);
@@ -111,15 +116,16 @@ struct reached_visitor : public boost::default_bfs_visitor {
   }
 };
 
+template <typename GraphTy>
 struct graphviz_label_writer {
   CFGTool &tool;
-  const cfg_t &cfg;
+  const GraphTy &G;
 
-  graphviz_label_writer(CFGTool &tool, const cfg_t &cfg) : tool(tool), cfg(cfg) {}
+  graphviz_label_writer(CFGTool &tool, const GraphTy &G) : tool(tool), G(G) {}
 
   void operator()(std::ostream &out,
-                  const cfg_t::vertex_descriptor &v) const {
-    std::string src = tool.disassemble_basic_block(cfg, v);
+                  const typename GraphTy::vertex_descriptor &V) const {
+    std::string src = tool.disassemble_basic_block(G, V);
 
     src.reserve(2 * src.size());
 
@@ -160,8 +166,9 @@ struct graphviz_label_writer {
   }
 };
 
-std::string CFGTool::disassemble_basic_block(const cfg_t &G,
-                                             cfg_t::vertex_descriptor V) {
+template <typename GraphTy>
+std::string CFGTool::disassemble_basic_block(const GraphTy &G,
+                                             typename GraphTy::vertex_descriptor V) {
   assert(BinaryIndex != invalid_binary_index);
 
   binary_t &binary = Decompilation.Binaries[BinaryIndex];
@@ -231,19 +238,20 @@ std::string CFGTool::disassemble_basic_block(const cfg_t &G,
   return res;
 }
 
+template <typename GraphTy>
 struct graphviz_edge_prop_writer {
-  const cfg_t &cfg;
-  graphviz_edge_prop_writer(const cfg_t &cfg) : cfg(cfg) {}
+  const GraphTy &G;
+  graphviz_edge_prop_writer(const GraphTy &G) : G(G) {}
 
   void operator()(std::ostream &out,
-                  const cfg_t::edge_descriptor &e) const {
+                  const typename GraphTy::edge_descriptor &E) const {
     static const char *edge_type_styles[] = {
         "solid", "dashed", /*"invis"*/ "dotted"
     };
 
-    const cfg_t::vertex_descriptor V = boost::source(e, cfg);
+    const typename GraphTy::vertex_descriptor V = boost::source(E, G);
 
-    const char *edge_type_style = cfg[V].Term.Type == TERMINATOR::INDIRECT_JUMP
+    const char *edge_type_style = G[V].Term.Type == TERMINATOR::INDIRECT_JUMP
                                       ? edge_type_styles[1]
                                       : edge_type_styles[0];
 
@@ -272,6 +280,14 @@ struct graphviz_prop_writer {
 
 static char tmpdir[] = {'/', 't', 'm', 'p', '/', 'X',
                         'X', 'X', 'X', 'X', 'X', '\0'};
+
+typedef boost::filtered_graph<
+    interprocedural_control_flow_graph_t,
+    boost::keep_all,
+    boost::is_in_subset<boost::unordered_set<basic_block_t>>>
+    control_flow_graph_t;
+
+typedef control_flow_graph_t cfg_t;
 
 int CFGTool::Run(void) {
   if (!fs::exists(opts.jv)) {
@@ -342,7 +358,7 @@ int CFGTool::Run(void) {
   function_index_t FunctionIndex = invalid_function_index;
 
   assert(!opts.FunctionAddress.empty());
-  uintptr_t FuncAddr = std::stoi(opts.FunctionAddress.c_str(), 0, 16);
+  uintptr_t FuncAddr = strtoull(opts.FunctionAddress.c_str(), nullptr, 0x10);
 
   const auto &ICFG = binary.Analysis.ICFG;
 
@@ -364,16 +380,7 @@ int CFGTool::Run(void) {
 
 Found:
   const function_t &f = binary.Analysis.Functions[FunctionIndex];
-
-  boost::unordered_set<basic_block_t> blocks;
-
-  reached_visitor vis(blocks);
-  boost::breadth_first_search(ICFG, f.Entry, boost::visitor(vis));
-
-  boost::keep_all e_filter;
-  boost::is_in_subset<boost::unordered_set<basic_block_t>> v_filter(blocks);
-
-  cfg_t cfg(ICFG, e_filter, v_filter);
+  assert(is_basic_block_index_valid(f.Entry));
 
   //
   // create temporary directory
@@ -387,10 +394,7 @@ Found:
 
   std::string dot_path = (fs::path(tmpdir) / "cfg.dot").string();
 
-  //
-  // generate graphviz
-  //
-  {
+  auto output_cfg = [&](const cfg_t &cfg) -> void {
     std::ofstream ofs(dot_path);
 
     std::map<cfg_t::vertex_descriptor, int> idx_map;
@@ -401,12 +405,62 @@ Found:
         idx_map[*vi] = i++;
     }
 
+    //
+    // generate graphviz
+    //
     boost::write_graphviz(
         ofs, cfg,
-	graphviz_label_writer(*this, cfg),
-        graphviz_edge_prop_writer(cfg),
-	graphviz_prop_writer(),
-        boost::associative_property_map<std::map<cfg_t::vertex_descriptor, int>>(idx_map));
+        graphviz_label_writer<cfg_t>(*this, cfg),
+        graphviz_edge_prop_writer<cfg_t>(cfg),
+        graphviz_prop_writer(),
+        boost::associative_property_map<
+            std::map<cfg_t::vertex_descriptor, int>>(idx_map));
+  };
+
+  boost::unordered_set<basic_block_t> blocks;
+
+  reached_visitor vis(blocks);
+  boost::breadth_first_search(ICFG, f.Entry, boost::visitor(vis));
+
+  boost::keep_all e_filter;
+  boost::is_in_subset<boost::unordered_set<basic_block_t>> v_filter(blocks);
+
+  cfg_t cfg(ICFG, e_filter, v_filter);
+
+  if (opts.LocalGotoAddress.empty()) {
+    output_cfg(cfg);
+  } else {
+    tcg_uintptr_t indjmp_addr =
+        strtoull(opts.LocalGotoAddress.c_str(), nullptr, 0x10);
+    boost::unordered_set<basic_block_t> indjmp_blocks;
+
+    cfg_t::vertex_iterator vi, vi_end;
+    for (std::tie(vi, vi_end) = boost::vertices(cfg); vi != vi_end; ++vi) {
+      if (cfg[*vi].Term.Addr == indjmp_addr) {
+        indjmp_blocks.insert(*vi);
+
+        {
+          auto it_pair = boost::adjacent_vertices(*vi, cfg);
+          std::copy(it_pair.first, it_pair.second,
+                    std::inserter(indjmp_blocks, indjmp_blocks.end()));
+        }
+
+        break;
+      }
+    }
+
+    if (indjmp_blocks.empty()) {
+      WithColor::error() << llvm::formatv("indirect jump @ {0:x} not found!",
+                                          indjmp_addr);
+      return 1;
+    }
+
+    boost::keep_all e_filter;
+    boost::is_in_subset<boost::unordered_set<basic_block_t>> v_filter(indjmp_blocks);
+
+    cfg_t _cfg(ICFG, e_filter, v_filter);
+
+    output_cfg(_cfg);
   }
 
   //
@@ -427,7 +481,7 @@ Found:
 
         input_arg.c_str(),
 #if 0
-	"--as=ascii",
+        "--as=ascii",
 #else
         "--as=boxart",
 #endif
