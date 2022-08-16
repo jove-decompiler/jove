@@ -37,6 +37,7 @@ class CodeDigger : public Tool {
     cl::alias BinaryAlias;
     cl::opt<unsigned> PathLength;
     cl::opt<bool> ListLocalGotos;
+    cl::opt<std::string> SingleBBIdx;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : jv("decompilation", cl::desc("Jove Decompilation"), cl::Required,
@@ -71,7 +72,12 @@ class CodeDigger : public Tool {
 
           ListLocalGotos("list-local-gotos",
                          cl::desc("Print each local goto we know about"),
-                         cl::cat(JoveCategory)) {}
+                         cl::cat(JoveCategory)),
+
+          SingleBBIdx(
+              "single-bbidx",
+              cl::desc("Only analyze indirect jump at given basic block index"),
+              cl::cat(JoveCategory)) {}
   } opts;
 
   decompilation_t decompilation;
@@ -487,6 +493,10 @@ void CodeDigger::Worker(void) {
           "--jove-path-length=" + std::to_string(opts.PathLength);
       arg_vec.push_back(path_length_arg.c_str());
 
+      std::string single_bb_idx_arg = "--jove-single-bbidx=" + opts.SingleBBIdx;
+      if (!opts.SingleBBIdx.empty())
+        arg_vec.push_back(single_bb_idx_arg.c_str());
+
       arg_vec.push_back(bcfp.c_str());
       arg_vec.push_back(nullptr);
 
@@ -532,10 +542,11 @@ int CodeDigger::ListLocalGotos() {
     auto &ICFG = binary.Analysis.ICFG;
     if (ICFG[bb].Term.Type != TERMINATOR::INDIRECT_JUMP)
       return;
-    if (boost::out_degree(bb, ICFG) == 0)
+    if (!ICFG[bb].DynTargets.empty())
       return;
 
-    HumanOut() << symbolizer.addr2desc(binary, ICFG[bb].Term.Addr) << '\n';
+    HumanOut() << symbolizer.addr2desc(binary, ICFG[bb].Term.Addr)
+               << " #" << index_of_basic_block(ICFG, bb) << '\n';
   };
 
   if (is_binary_index_valid(SingleBinaryIndex)) {
