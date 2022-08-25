@@ -1979,10 +1979,10 @@ int LLVMTool::Run(void) {
           Module->appendModuleInlineAsm(
               (fmt(".globl %s\n"
                    ".type  %s,@function\n"
-                   ".set   %s, __jove_sections_%u + %u")
+                   ".set   %s, __jove_sections + %u")
                % SymName.str()
                % SymName.str()
-               % SymName.str() % BinaryIndex % SectsOff).str());
+               % SymName.str() % SectsOff).str());
         } else {
            // make sure version node is defined
           VersionScript.Table[SymVers.str()];
@@ -1993,11 +1993,11 @@ int LLVMTool::Run(void) {
               (fmt(".globl %s\n"
                    ".hidden %s\n"
                    ".type  %s,@function\n"
-                   ".set   %s, __jove_sections_%u + %u")
+                   ".set   %s, __jove_sections + %u")
                % dummy_name
                % dummy_name
                % dummy_name
-               % dummy_name % BinaryIndex % SectsOff).str());
+               % dummy_name % SectsOff).str());
 
           Module->appendModuleInlineAsm(
               (llvm::Twine(".symver ") + dummy_name + "," + SymName +
@@ -2165,11 +2165,11 @@ int LLVMTool::Run(void) {
                   (fmt(".globl %s\n"
                        ".type  %s,@object\n"
                        ".size  %s, %u\n"
-                       ".set   %s, __jove_sections_%u + %u")
+                       ".set   %s, __jove_sections + %u")
                    % SymName.str()
                    % SymName.str()
                    % SymName.str() % Size
-                   % SymName.str() % BinaryIndex % SectsOff).str());
+                   % SymName.str() % SectsOff).str());
             } else {
               if (gdefs.find({Addr, Size}) == gdefs.end()) {
                 Module->appendModuleInlineAsm(
@@ -2177,12 +2177,12 @@ int LLVMTool::Run(void) {
                          ".globl  g%lx_%u\n"
                          ".type   g%lx_%u,@object\n"
                          ".size   g%lx_%u, %u\n"
-                         ".set    g%lx_%u, __jove_sections_%u + %u")
+                         ".set    g%lx_%u, __jove_sections + %u")
 //                   % Addr % Size
                      % Addr % Size
                      % Addr % Size
                      % Addr % Size % Size
-                     % Addr % Size % BinaryIndex % SectsOff).str());
+                     % Addr % Size % SectsOff).str());
 
                 gdefs.insert({Addr, Size});
               }
@@ -4398,7 +4398,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
 
     SectsGlobal = new llvm::GlobalVariable(*Module, SectsGlobalTy, false,
                                            llvm::GlobalValue::ExternalLinkage,
-                                           nullptr, (fmt("__jove_sections_%u") % BinaryIndex).str());
+                                           nullptr, "__jove_sections");
 
     ConstSectsGlobal = new llvm::GlobalVariable(
         *Module, SectsGlobalTy, false, llvm::GlobalValue::ExternalLinkage,
@@ -6308,8 +6308,8 @@ int LLVMTool::PrepareToOptimize(void) {
 }
 
 void LLVMTool::ReloadGlobalVariables(void) {
-  SectsGlobal      = Module->getGlobalVariable((fmt("__jove_sections_%u") % BinaryIndex).str(), true);
-  ConstSectsGlobal = Module->getGlobalVariable("__jove_sections_const",      true);
+  SectsGlobal      = Module->getGlobalVariable("__jove_sections",       true);
+  ConstSectsGlobal = Module->getGlobalVariable("__jove_sections_const", true);
 }
 
 int LLVMTool::DoOptimize(void) {
