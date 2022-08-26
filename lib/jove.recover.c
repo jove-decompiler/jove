@@ -467,8 +467,3 @@ found:
     }
   }
 }
-
-_HIDDEN void _jove_recover_local_goto(uint32_t IndBrBBIdx,
-                                      uintptr_t BBAddr) {
-  _jove_sys_close(_jove_open("/dev/null", O_WRONLY, 0666));
-}

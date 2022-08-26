@@ -359,7 +359,6 @@ struct LLVMTool : public Tool {
   llvm::GlobalVariable *JoveForeignFunctionTablesGlobal;
   llvm::Function *JoveRecoverDynTargetFunc;
   llvm::Function *JoveRecoverBasicBlockFunc;
-  llvm::Function *JoveRecoverLocalGotoFunc;
   llvm::Function *JoveRecoverReturnedFunc;
   llvm::Function *JoveRecoverABIFunc;
   llvm::Function *JoveRecoverFunctionFunc;
@@ -2529,9 +2528,6 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
 
   JoveRecoverBasicBlockFunc = Module->getFunction("_jove_recover_basic_block");
   assert(JoveRecoverBasicBlockFunc && !JoveRecoverBasicBlockFunc->empty());
-
-  JoveRecoverLocalGotoFunc = Module->getFunction("_jove_recover_local_goto");
-  assert(JoveRecoverLocalGotoFunc && !JoveRecoverLocalGotoFunc->empty());
 
   JoveRecoverReturnedFunc = Module->getFunction("_jove_recover_returned");
   assert(JoveRecoverReturnedFunc && !JoveRecoverReturnedFunc->empty());
@@ -7700,11 +7696,6 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
       }
 
       IRB.SetInsertPoint(ElseBlock);
-
-      if (it_pair.first != it_pair.second)
-        IRB.CreateCall(JoveRecoverLocalGotoFunc,
-                       {IRB.getInt32(index_of_basic_block(ICFG, bb)),
-                        SectsGlobalOff})->setIsNoInline();
 
       llvm::Value *RecoverArgs[] = {IRB.getInt32(index_of_basic_block(ICFG, bb)), PC};
       llvm::Value *FailArgs[] = {PC, __jove_fail_UnknownBranchTarget};
