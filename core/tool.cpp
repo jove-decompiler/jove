@@ -305,6 +305,8 @@ void Tool::ReadDecompilationFromFile(const std::string &path,
 
 void Tool::WriteDecompilationToFile(const std::string &path,
                                     const decompilation_t &in) {
+  assert(!path.empty());
+
   std::string tmp_fp(path);
   tmp_fp.append(".XXXXXX");
 
@@ -325,6 +327,9 @@ void Tool::WriteDecompilationToFile(const std::string &path,
 
   {
     std::ofstream ofs(tmp_fp);
+    if (!ofs.is_open())
+      throw std::runtime_error(
+          "WriteDecompilationToFile: failed to open temporary file " + tmp_fp);
 
     boost::archive::text_oarchive oa(ofs);
     oa << in;
@@ -332,7 +337,8 @@ void Tool::WriteDecompilationToFile(const std::string &path,
 
   if (rename(tmp_fp.c_str(), path.c_str()) < 0) { /* atomically replace */
     int err = errno;
-    throw std::runtime_error("WriteDecompilationToFile: failed to rename: " +
+    throw std::runtime_error("WriteDecompilationToFile: failed to rename " +
+                             tmp_fp + " to " + path + ": " +
                              std::string(strerror(err)));
   }
 }
