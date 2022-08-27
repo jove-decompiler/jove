@@ -503,14 +503,20 @@ void CodeDigger::Worker(void) {
       if (opts.Verbose)
         print_command(&arg_vec[0]);
 
-      {
+      if (!opts.Verbose) {
+        //
+        // redirect standard output to file
+        //
         std::string stdoutfp = bcfp + ".stdout.klee.txt";
         int stdoutfd = open(stdoutfp.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666);
         dup2(stdoutfd, STDOUT_FILENO);
         close(stdoutfd);
       }
 
-      {
+      if (!opts.Verbose) {
+        //
+        // redirect standard error to file
+        //
         std::string stderrfp = bcfp + ".stderr.klee.txt";
         int stderrfd = open(stderrfp.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666);
         dup2(stderrfd, STDERR_FILENO);
