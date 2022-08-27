@@ -86,6 +86,9 @@ std::string CodeRecovery::RecoverDynamicTarget(uint32_t CallerBIdx,
   bool isNewTarget =
       ICFG[bb].DynTargets.insert({CalleeBIdx, CalleeFIdx}).second;
 
+  if (!isNewTarget)
+    return std::string();
+
   //
   // check to see if this is an ambiguous indirect jump XXX duplicated code with jove-bootstrap
   //
