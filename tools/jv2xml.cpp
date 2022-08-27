@@ -49,10 +49,7 @@ int jv2xmlTool::Run(void) {
   }
 
   decompilation_t Decompilation;
-  bool git = fs::is_directory(opts.jv);
-  std::string jvfp = git ? (opts.jv + "/decompilation.jv") : opts.jv;
-
-  ReadDecompilationFromFile(jvfp, Decompilation);
+  ReadDecompilationFromFile(opts.jv, Decompilation);
 
   //
   // destructively modify data so the output is printable

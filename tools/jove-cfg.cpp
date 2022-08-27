@@ -295,10 +295,7 @@ int CFGTool::Run(void) {
     return 1;
   }
 
-  bool git = fs::is_directory(opts.jv);
-  std::string jvfp = git ? opts.jv + "decompilation.jv" : opts.jv;
-
-  ReadDecompilationFromFile(jvfp, Decompilation);
+  ReadDecompilationFromFile(opts.jv, Decompilation);
 
   assert(!opts.FunctionAddress.empty());
 

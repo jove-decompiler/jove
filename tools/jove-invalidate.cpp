@@ -56,12 +56,9 @@ int InvalidateTool::Run(void) {
   return 0;
 }
 
-void InvalidateTool::invalidateInput(const std::string &Path) {
-  bool git = fs::is_directory(Path);
-  std::string jvfp = git ? Path + "/decompilation.jv" : Path;
-
+void InvalidateTool::invalidateInput(const std::string &jvfp) {
   decompilation_t Decompilation;
-  ReadDecompilationFromFile(Path, Decompilation);
+  ReadDecompilationFromFile(jvfp, Decompilation);
 
   // invalidate all function analyses
   for (binary_t &binary : Decompilation.Binaries)
@@ -78,36 +75,7 @@ void InvalidateTool::invalidateInput(const std::string &Path) {
     }
   }
 
-  //
-  // write decompilation
-  //
   WriteDecompilationToFile(jvfp, Decompilation);
-
-  //
-  // git commit
-  //
-  if (git) {
-    pid_t pid = fork();
-    if (!pid) { /* child */
-      chdir(Path.c_str());
-
-      const char *argv[] = {
-	"/usr/bin/git",
-	"commit", ".",
-	"-m", "[jove-invalidate]",
-	nullptr
-      };
-
-      execve(argv[0], const_cast<char **>(&argv[0]), ::environ);
-
-      int err = errno;
-      WithColor::error() << llvm::formatv("execve failed ({0})\n",
-                                          strerror(err));
-      abort();
-    }
-
-    (void)WaitForProcessToExit(pid);
-  }
 }
 
 }

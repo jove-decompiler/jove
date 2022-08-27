@@ -468,10 +468,7 @@ int RecompileTool::Run(void) {
     }
   }
 
-  bool git = fs::is_directory(opts.jv);
-  std::string jvfp = git ? opts.jv + "/decompilation.jv" : opts.jv;
-
-  ReadDecompilationFromFile(jvfp, Decompilation);
+  ReadDecompilationFromFile(opts.jv, Decompilation);
 
   if (Cancel) {
     WithColor::note() << "Canceled.\n";

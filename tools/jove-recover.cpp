@@ -135,12 +135,9 @@ int RecoverTool::Run(void) {
     }
   }
 
+  ReadDecompilationFromFile(opts.jv, Decompilation);
+
   IgnoreCtrlC();
-
-  bool git = fs::is_directory(opts.jv);
-  std::string jvfp = git ? (opts.jv + "/decompilation.jv") : opts.jv;
-
-  ReadDecompilationFromFile(jvfp, Decompilation);
 
   tiny_code_generator_t tcg;
   symbolizer_t symbolizer;
@@ -237,25 +234,7 @@ int RecoverTool::Run(void) {
   HumanOut() << msg << '\n';
 
   Decompilation.InvalidateFunctionAnalyses();
-  WriteDecompilationToFile(jvfp, Decompilation);
-
-  //
-  // git commit
-  //
-  if (git) {
-    pid_t pid = fork();
-    if (!pid) { /* child */
-      chdir(opts.jv.c_str());
-
-      const char *argv[] = {"/usr/bin/git", "commit",    ".",
-                            "-m",           msg.c_str(), nullptr};
-
-      return execve(argv[0], const_cast<char **>(argv), ::environ);
-    }
-
-    if (int ret = WaitForProcessToExit(pid))
-      return ret;
-  }
+  WriteDecompilationToFile(opts.jv, Decompilation);
 
   return 0;
 }

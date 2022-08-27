@@ -128,13 +128,8 @@ int Trace2AsmTool::Run(void) {
     }
   }
 
-  //
-  // parse the existing decompilation file
-  //
   decompilation_t decompilation;
-  bool git = fs::is_directory(opts.jv);
-  std::string jvfp = git ? (opts.jv + "/decompilation.jv") : opts.jv;
-  ReadDecompilationFromFile(jvfp, decompilation);
+  ReadDecompilationFromFile(opts.jv, decompilation);
 
   //
   // init state for binaries

@@ -47,10 +47,7 @@ JOVE_REGISTER_TOOL("score", ScoreTool);
 typedef boost::format fmt;
 
 int ScoreTool::Run(void) {
-  bool git = fs::is_directory(opts.jv);
-  std::string jvfp = git ? (opts.jv + "/decompilation.jv") : opts.jv;
-
-  ReadDecompilationFromFile(jvfp, decompilation);
+  ReadDecompilationFromFile(opts.jv, decompilation);
 
   //
   // operate on single binary? (cmdline)

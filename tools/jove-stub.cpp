@@ -35,10 +35,7 @@ public:
 JOVE_REGISTER_TOOL("stub", StubTool);
 
 int StubTool::Run(void) {
-  bool git = fs::is_directory(opts.jv);
-  std::string jvfp =
-      fs::canonical(git ? (opts.jv + "/decompilation.jv") : opts.jv).string();
-
+  std::string jvfp = fs::canonical(opts.jv).string();
   ReadDecompilationFromFile(jvfp, decompilation);
 
   binary_t &binary = decompilation.Binaries.at(0);

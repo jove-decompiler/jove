@@ -103,14 +103,8 @@ int Trace2AddrsTool::Run(void) {
     }
   }
 
-  //
-  // parse the given decompilation
-  //
-  bool git = fs::is_directory(opts.jv);
-  std::string jvfp = git ? (opts.jv + "/decompilation.jv") : opts.jv;
-
   decompilation_t decompilation;
-  ReadDecompilationFromFile(jvfp , decompilation);
+  ReadDecompilationFromFile(opts.jv, decompilation);
 
   //
   // for every block in the trace, print out its description.

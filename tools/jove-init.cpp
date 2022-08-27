@@ -38,7 +38,6 @@ class InitTool : public Tool {
     cl::opt<std::string> Output;
     cl::alias OutputAlias;
     cl::opt<unsigned> Threads;
-    cl::opt<bool> Git;
     cl::opt<bool> Verbose;
     cl::alias VerboseAlias;
     cl::opt<bool> RedirectStderr;
@@ -59,8 +58,6 @@ class InitTool : public Tool {
           Threads("num-threads", cl::desc("Number of CPU threads to use"),
                   cl::init(jove::num_cpus()), cl::value_desc("int"),
                   cl::cat(JoveCategory)),
-
-          Git("git", cl::desc("git mode"), cl::cat(JoveCategory)),
 
           Verbose("verbose",
                   cl::desc("Print extra information for debugging purposes")),

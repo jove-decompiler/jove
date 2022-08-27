@@ -1734,12 +1734,7 @@ int LLVMTool::Run(void) {
   opts.CallStack = opts.DFSan;
   opts.CheckEmulatedReturnAddress = opts.DFSan;
 
-  //
-  // parse decompilation
-  //
-  bool git = fs::is_directory(opts.jv);
-  ReadDecompilationFromFile(git ? (opts.jv + "/decompilation.jv") : opts.jv,
-                            Decompilation);
+  ReadDecompilationFromFile(opts.jv, Decompilation);
 
   //
   // binary index (cmdline)

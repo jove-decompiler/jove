@@ -363,31 +363,7 @@ unsigned num_cpus(void) {
 int AnalyzeTool::WriteDecompilation(void) {
   IgnoreCtrlC();
 
-  WriteDecompilationToFile(
-      fs::is_directory(opts.jv) ? (opts.jv + "/decompilation.jv") : opts.jv,
-      Decompilation);
-
-  //
-  // git commit
-  //
-  std::string msg("[jove-analyze]");
-
-  // TODO check that there are no uncommitted changes
-  if (fs::is_directory(opts.jv)) {
-    pid_t pid = fork();
-    if (!pid) { /* child */
-      chdir(opts.jv.c_str());
-
-      const char *argv[] = {"/usr/bin/git", "commit",    ".",
-                            "-m",           msg.c_str(), nullptr};
-
-      execve(argv[0], const_cast<char **>(argv), ::environ);
-      abort();
-    }
-
-    WaitForProcessToExit(pid);
-  }
-
+  WriteDecompilationToFile(opts.jv, Decompilation);
   return 0;
 }
 

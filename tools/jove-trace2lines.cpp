@@ -170,9 +170,7 @@ int Trace2LinesTool::Run(void) {
     // parse the existing decompilation file
     //
     decompilation_t decompilation;
-    bool git = fs::is_directory(opts.jv);
-    ReadDecompilationFromFile(git ? (opts.jv + "/decompilation.jv") : opts.jv,
-                              decompilation);
+    ReadDecompilationFromFile(opts.jv, decompilation);
 
     //
     // compute the set of verts for each function
