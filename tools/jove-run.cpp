@@ -1,6 +1,7 @@
 #include "tool.h"
 #include "recovery.h"
 #include "elf.h"
+#include "crypto.h"
 
 #include <boost/dll/runtime_symbol_info.hpp>
 #include <boost/filesystem.hpp>
@@ -68,9 +69,8 @@ struct RunTool : public Tool {
           Prog(cl::Positional, cl::desc("prog"), cl::Required,
                cl::value_desc("filename"), cl::cat(JoveCategory)),
 
-          Args("args", cl::CommaSeparated,
-               cl::value_desc("arg_1,arg_2,...,arg_n"),
-               cl::desc("Program arguments"), cl::cat(JoveCategory)),
+          Args("args", cl::CommaSeparated, cl::ConsumeAfter,
+               cl::desc("<program arguments>..."), cl::cat(JoveCategory)),
 
           Envs("env", cl::CommaSeparated,
                cl::value_desc("KEY_1=VALUE_1,KEY_2=VALUE_2,...,KEY_n=VALUE_n"),
@@ -144,6 +144,9 @@ struct RunTool : public Tool {
                  cl::cat(JoveCategory)) {}
   } opts;
 
+  bool has_jv;
+  std::string jvfp;
+
   decompilation_t decompilation;
 
   std::unique_ptr<disas_t> disas;
@@ -153,10 +156,6 @@ struct RunTool : public Tool {
 
 public:
   RunTool() : opts(JoveCategory) {}
-  ~RunTool() {
-    if (!opts.jv.empty() && WasDecompilationModified.load())
-      WriteDecompilationToFile(opts.jv, decompilation);
-  }
 
   int Run(void);
 
@@ -170,11 +169,29 @@ JOVE_REGISTER_TOOL("run", RunTool);
 
 typedef boost::format fmt;
 
-static fs::path jv_path;
 static RunTool *pTool;
 
 static bool WillChroot;
 static bool LivingDangerously;
+
+static void CrashHandler(int no) {
+  switch (no) {
+  case SIGBUS:
+  case SIGABRT:
+  case SIGSEGV: {
+    const char *msg = "jove-run crashed! attach with a debugger..";
+    write(STDERR_FILENO, msg, strlen(msg));
+
+    for (;;)
+      sleep(1);
+
+    __builtin_unreachable();
+  }
+
+  default:
+    abort();
+  }
+}
 
 int RunTool::Run(void) {
   pTool = this;
@@ -185,15 +202,41 @@ int RunTool::Run(void) {
   if (!opts.HumanOutput.empty())
     HumanOutToFile(opts.HumanOutput);
 
+  jvfp = opts.jv;
+  if (jvfp.empty()) {
+    llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> FileOrErr =
+        llvm::MemoryBuffer::getFileOrSTDIN(opts.Prog);
+
+    if (std::error_code EC = FileOrErr.getError()) {
+      HumanOut() << llvm::formatv("failed to open {0}\n", opts.Prog);
+      return 1;
+    }
+
+    std::unique_ptr<llvm::MemoryBuffer> &Buffer = FileOrErr.get();
+
+    jvfp = "/jove/" +
+           crypto::sha3(Buffer->getBufferStart(), Buffer->getBufferSize()) +
+           ".jv";
+  }
+  has_jv = fs::exists(jvfp);
 
   //
-  // get paths to stuff
+  // signal handlers
   //
-  jv_path = fs::read_symlink(fs::path(opts.sysroot) / ".jv");
-  if (!fs::exists(jv_path)) {
-    HumanOut() << llvm::formatv("recover: no jv found at {0}\n",
-                                jv_path.c_str());
-    return 1;
+  {
+    struct sigaction sa;
+
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = SA_RESTART;
+    sa.sa_handler = CrashHandler;
+
+    if (sigaction(SIGSEGV, &sa, nullptr) < 0 ||
+/*      sigaction(SIGABRT, &sa, nullptr) < 0 || */
+        sigaction(SIGBUS, &sa, nullptr) < 0) {
+      int err = errno;
+      HumanOut() << llvm::formatv("sigaction failed: {0}\n", strerror(err));
+      return 1;
+    }
   }
 
   WillChroot = !(opts.NoChroot || opts.ForeignLibs);
@@ -510,8 +553,8 @@ int RunTool::DoRun(void) {
   //
   // parse decompilation
   //
-  if (!opts.jv.empty()) {
-    ReadDecompilationFromFile(opts.jv, decompilation);
+  if (has_jv) {
+    ReadDecompilationFromFile(jvfp, decompilation);
 
     disas = std::make_unique<disas_t>();
     tcg = std::make_unique<tiny_code_generator_t>();
@@ -952,6 +995,9 @@ int RunTool::DoRun(void) {
   if (umount2(opts.sysroot, 0) < 0)
     fprintf(stderr, "unmounting %s failed : %s\n", opts.sysroot, strerror(errno));
 #endif
+
+  if (has_jv && WasDecompilationModified.load())
+    WriteDecompilationToFile(jvfp, decompilation);
 
   {
     //

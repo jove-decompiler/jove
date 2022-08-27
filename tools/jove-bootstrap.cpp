@@ -8,6 +8,7 @@
 #include "tcg.h"
 #include "disas.h"
 #include "explore.h"
+#include "crypto.h"
 
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/algorithm/string.hpp>
@@ -208,15 +209,14 @@ struct BootstrapTool : public Tool {
         : Prog(cl::Positional, cl::desc("prog"), cl::Required,
                cl::value_desc("filename"), cl::cat(JoveCategory)),
 
-          Args("args", cl::CommaSeparated,
-               cl::value_desc("arg_1,arg_2,...,arg_n"),
-               cl::desc("Program arguments"), cl::cat(JoveCategory)),
+          Args("args", cl::CommaSeparated, cl::ConsumeAfter,
+               cl::desc("<program arguments>..."), cl::cat(JoveCategory)),
 
           Envs("env", cl::CommaSeparated,
                cl::value_desc("KEY_1=VALUE_1,KEY_2=VALUE_2,...,KEY_n=VALUE_n"),
                cl::desc("Extra environment variables"), cl::cat(JoveCategory)),
 
-          jv("Decompilation", cl::desc("Jove Decompilation"), cl::Required,
+          jv("decompilation", cl::desc("Jove Decompilation"),
              cl::value_desc("filename"), cl::cat(JoveCategory)),
 
           jvAlias("d", cl::desc("Alias for -Decompilation."), cl::aliasopt(jv),
@@ -292,8 +292,10 @@ struct BootstrapTool : public Tool {
                    cl::cat(JoveCategory)) {}
   } opts;
 
+  std::string jvfp;
   decompilation_t Decompilation;
 
+  tiny_code_generator_t tcg;
   disas_t disas;
 
   std::vector<struct proc_map_t> cached_proc_maps;
@@ -367,8 +369,6 @@ JOVE_REGISTER_TOOL("bootstrap", BootstrapTool);
 
 static pid_t saved_child;
 static std::atomic<bool> ToggleTurbo = false;
-static  bool git;
-static std::string jvfp;
 
 typedef boost::format fmt;
 
@@ -392,22 +392,30 @@ int BootstrapTool::Run(void) {
     return 1;
   }
 
-  if (!fs::exists(opts.jv)) {
-    HumanOut() << "Decompilation does not exist\n";
+  jvfp = opts.jv;
+  if (jvfp.empty()) {
+    llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> FileOrErr =
+        llvm::MemoryBuffer::getFileOrSTDIN(opts.Prog);
+
+    if (std::error_code EC = FileOrErr.getError()) {
+      HumanOut() << llvm::formatv("failed to open {0}\n", opts.Prog);
+      return 1;
+    }
+
+    std::unique_ptr<llvm::MemoryBuffer> &Buffer = FileOrErr.get();
+
+    fs::create_directories("/jove");
+    jvfp = "/jove/" +
+           crypto::sha3(Buffer->getBufferStart(), Buffer->getBufferSize()) +
+           ".jv";
+  }
+
+  if (!fs::exists(jvfp)) {
+    HumanOut() << llvm::formatv(
+        "{0} does not exist; did you forget to run 'jove init'?\n", jvfp);
     return 1;
   }
 
-  //
-  // okay, it looks like we're actually going to run. initialize stuff
-  //
-  tiny_code_generator_t tcg;
-
-  git = fs::is_directory(opts.jv);
-  jvfp = git ? (std::string(opts.jv) + "/Decompilation.jv")
-                                 : opts.jv;
-  //
-  // parse the existing Decompilation file
-  //
   ReadDecompilationFromFile(jvfp, Decompilation);
 
   //
@@ -1407,46 +1415,9 @@ int BootstrapTool::TracerLoop(pid_t child, tiny_code_generator_t &tcg) {
   }
 
   //
-  // write Decompilation
+  // FIXME only write if modified
   //
   WriteDecompilationToFile(jvfp, Decompilation);
-
-  //
-  // git commit
-  //
-  if (git) {
-    pid_t pid = fork();
-    if (!pid) { /* child */
-      std::string msg("[jove-bootstrap] ");
-
-      for (const std::string &env : opts.Envs) {
-        msg.append(env);
-        msg.push_back(' ');
-      }
-
-      msg.append(opts.Prog);
-
-      for (const std::string &arg : opts.Args) {
-        msg.push_back(' ');
-        msg.push_back('\'');
-        msg.append(arg);
-        msg.push_back('\'');
-      }
-
-      chdir(opts.jv.c_str());
-
-      const char *arg_arr[] = {
-        "/usr/bin/git", "commit", ".", "-m", msg.c_str(),
-
-        nullptr
-      };
-
-      return execve(arg_arr[0], const_cast<char **>(&arg_arr[0]), ::environ);
-    }
-
-    if (int ret = WaitForProcessToExit(pid))
-      return ret;
-  }
 
   return 0;
 }
@@ -4781,7 +4752,7 @@ void SignalHandler(int no) {
     //
     // write Decompilation
     //
-    tool.WriteDecompilationToFile(jvfp, tool.Decompilation);
+    tool.WriteDecompilationToFile(tool.jvfp, tool.Decompilation);
 
     exit(0);
   }

@@ -1,5 +1,6 @@
 #include "tool.h"
 #include "elf.h"
+#include "crypto.h"
 
 #include <boost/dll/runtime_symbol_info.hpp>
 #include <boost/filesystem.hpp>
@@ -32,8 +33,8 @@ static unsigned num_cpus(void);
 
 class InitTool : public Tool {
   struct Cmdline {
+    cl::opt<std::string> Prog;
     cl::opt<std::string> TemporaryDir;
-    cl::opt<std::string> Input;
     cl::opt<std::string> Output;
     cl::alias OutputAlias;
     cl::opt<unsigned> Threads;
@@ -43,13 +44,13 @@ class InitTool : public Tool {
     cl::opt<bool> RedirectStderr;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
-        : TemporaryDir("tmpdir", cl::value_desc("directory"),
+        : Prog(cl::Positional, cl::desc("prog"), cl::Required,
+               cl::value_desc("filename"), cl::cat(JoveCategory)),
+
+          TemporaryDir("tmpdir", cl::value_desc("directory"),
                        cl::cat(JoveCategory)),
 
-          Input(cl::Positional, cl::desc("prog"), cl::Required,
-                cl::value_desc("filename"), cl::cat(JoveCategory)),
-
-          Output("output", cl::desc("Output"), cl::Required,
+          Output("output", cl::desc("Output"),
                  cl::value_desc("filename"), cl::cat(JoveCategory)),
 
           OutputAlias("o", cl::desc("Alias for -output."), cl::aliasopt(Output),
@@ -446,6 +447,29 @@ static const uint8_t a_vdso[] = {};
 #endif
 
 int InitTool::Run(void) {
+  if (!fs::exists(opts.Prog)) {
+    WithColor::error() << llvm::formatv("failed to open {0}\n", opts.Prog);
+    return 1;
+  }
+
+  std::string jvfp = opts.Output;
+  if (jvfp.empty()) {
+    llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> FileOrErr =
+        llvm::MemoryBuffer::getFileOrSTDIN(opts.Prog);
+
+    if (std::error_code EC = FileOrErr.getError()) {
+      HumanOut() << llvm::formatv("failed to open {0}\n", opts.Prog);
+      return 1;
+    }
+
+    std::unique_ptr<llvm::MemoryBuffer> &Buffer = FileOrErr.get();
+
+    fs::create_directories("/jove");
+    jvfp = "/jove/" +
+           crypto::sha3(Buffer->getBufferStart(), Buffer->getBufferSize()) +
+           ".jv";
+  }
+
   IgnoreCtrlC();
 
   null_fd = open("/dev/null", O_WRONLY);
@@ -492,7 +516,7 @@ int InitTool::Run(void) {
       exit(1);
     }
 
-    std::vector<const char *> arg_vec = {opts.Input.c_str(), nullptr};
+    std::vector<const char *> arg_vec = {opts.Prog.c_str(), nullptr};
 
     std::vector<const char *> env_vec;
     for (char **env = ::environ; *env; ++env)
@@ -536,7 +560,7 @@ int InitTool::Run(void) {
   // check exit code
   //
   if (int ret = WaitForProcessToExit(pid)) {
-    WithColor::error() << "LD_TRACE_LOADED_OBJECTS=1 " << opts.Input
+    WithColor::error() << "LD_TRACE_LOADED_OBJECTS=1 " << opts.Prog
                  << " returned nonzero exit code " << ret << '\n';
     return 1;
   }
@@ -578,7 +602,7 @@ int InitTool::Run(void) {
   //
   // executable should be first
   //
-  binary_paths.push_back(fs::canonical(opts.Input).string());
+  binary_paths.push_back(fs::canonical(opts.Prog).string());
 
   //
   // to get the vdso, we run $(BINDIR)/$(target)/harvest-vdso. if it exists, it
@@ -734,7 +758,7 @@ int InitTool::Run(void) {
   //
   // get the path to the dynamic linker (i.e. program interpreter)
   //
-  fs::path rtld_path = fs::canonical(program_interpreter_of_executable(opts.Input.c_str()));
+  fs::path rtld_path = fs::canonical(program_interpreter_of_executable(opts.Prog.c_str()));
 
   if (opts.Verbose)
     WithColor::note() << llvm::formatv("rtld_path={0}\n", rtld_path.c_str());
@@ -836,125 +860,7 @@ found:
     ;
   }
 
-  if (fs::exists(opts.Output)) {
-    if (opts.Verbose)
-      llvm::outs() << "output already exists, overwriting " << opts.Output
-                   << '\n';
-
-    if (fs::is_directory(opts.Output)) {
-      fs::remove_all(opts.Output);
-    } else {
-      fs::remove(opts.Output);
-    }
-  }
-
-  std::string final_output_path = opts.Output;
-  if (opts.Git) {
-    fs::create_directory(opts.Output);
-    final_output_path += "/decompilation.jv";
-  }
-
-  WriteDecompilationToFile(final_output_path, final_decompilation);
-
-  if (opts.Git) {
-    pid_t pid;
-
-    //
-    // git init
-    //
-    pid = fork();
-    if (!pid) {
-      chdir(opts.Output.c_str());
-
-      std::vector<const char *> arg_vec = {"/usr/bin/git", "init", nullptr};
-
-      print_command(&arg_vec[0]);
-      execve(arg_vec[0], const_cast<char **>(&arg_vec[0]), ::environ);
-
-      /* if we get here, exec failed */
-      int err = errno;
-      WithColor::error() << llvm::formatv("failed to exec {0}: {1}\n",
-                                          arg_vec[0],
-                                          strerror(err));
-      return 1;
-    }
-
-    if (int ret = WaitForProcessToExit(pid))
-      return ret;
-
-    //
-    // Append '[diff "jv"]\n        textconv = jove-dump-x86_64' to .git/config
-    //
-    assert(fs::exists(opts.Output + "/.git/config"));
-    {
-      std::ofstream ofs(opts.Output + "/.git/config",
-                        std::ios_base::out | std::ios_base::app);
-      ofs << "\n[diff \"jv\"]\n        textconv = jove-dump";
-    }
-
-    //
-    // Write '*.jv diff=jv' to .git/info/attributes
-    //
-    assert(!fs::exists(opts.Output + "/.git/info/attributes"));
-    {
-      std::ofstream ofs(opts.Output + "/.git/info/attributes");
-      ofs << "*.jv diff=jv";
-    }
-
-    //
-    // git add
-    //
-    pid = fork();
-    if (!pid) {
-      chdir(opts.Output.c_str());
-
-      std::vector<const char *> arg_vec = {"/usr/bin/git", "add",
-                                           "decompilation.jv", nullptr};
-
-      print_command(&arg_vec[0]);
-      execve(arg_vec[0], const_cast<char **>(&arg_vec[0]), ::environ);
-
-      /* if we get here, exec failed */
-      int err = errno;
-      WithColor::error() << llvm::formatv("failed to exec {0}: {1}\n",
-                                          arg_vec[0],
-                                          strerror(err));
-      return 1;
-    }
-
-    if (int ret = WaitForProcessToExit(pid))
-      return ret;
-
-    //
-    // git commit
-    //
-    pid = fork();
-    if (!pid) {
-      chdir(opts.Output.c_str());
-
-      std::vector<const char *> arg_vec = {
-        "/usr/bin/git",
-        "commit",
-        ".",
-        "-m",
-        "initial commit",
-        nullptr
-      };
-
-      print_command(&arg_vec[0]);
-      execve(arg_vec[0], const_cast<char **>(&arg_vec[0]), ::environ);
-
-      /* if we get here, exec failed */
-      int err = errno;
-      WithColor::error() << llvm::formatv("failed to exec {0}: {1}\n",
-                                          arg_vec[0],
-                                          strerror(err));
-      return 1;
-    }
-
-    if (int ret = WaitForProcessToExit(pid))
-      return ret;
-  }
+  WriteDecompilationToFile(jvfp, final_decompilation);
 
   return 0;
 }

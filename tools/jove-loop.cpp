@@ -1,5 +1,6 @@
 #include "tool.h"
 #include "elf.h"
+#include "crypto.h"
 
 #include <boost/dll/runtime_symbol_info.hpp>
 #include <boost/filesystem.hpp>
@@ -74,9 +75,8 @@ class LoopTool : public Tool {
         : Prog(cl::Positional, cl::desc("prog"), cl::Required,
                cl::value_desc("filename"), cl::cat(JoveCategory)),
 
-          Args("args", cl::CommaSeparated,
-               cl::value_desc("arg_1,arg_2,...,arg_n"),
-               cl::desc("Program arguments"), cl::cat(JoveCategory)),
+          Args("args", cl::CommaSeparated, cl::ConsumeAfter,
+               cl::desc("<program arguments>..."), cl::cat(JoveCategory)),
 
           Envs("env", cl::CommaSeparated,
                cl::value_desc("KEY_1=VALUE_1,KEY_2=VALUE_2,...,KEY_n=VALUE_n"),
@@ -96,7 +96,7 @@ class LoopTool : public Tool {
                         cl::desc("List of directories to bind mount"),
                         cl::cat(JoveCategory)),
 
-          jv("decompilation", cl::desc("Jove decompilation"), cl::Required,
+          jv("decompilation", cl::desc("Jove decompilation"),
              cl::value_desc("filename"), cl::cat(JoveCategory)),
 
           jvAlias("d", cl::desc("Alias for -decompilation."), cl::aliasopt(jv),
@@ -215,6 +215,8 @@ class LoopTool : public Tool {
                  cl::cat(JoveCategory)) {}
 
   } opts;
+
+  std::string jv_path;
 
 public:
   LoopTool() : opts(JoveCategory) {}
@@ -347,9 +349,28 @@ int LoopTool::Run(void) {
     return 1;
   }
 
-  std::string jv_path(fs::is_directory(opts.jv)
-                        ? (fs::path(opts.jv) / "decompilation.jv").string()
-                        : opts.jv);
+  jv_path = opts.jv;
+  if (jv_path.empty()) {
+    llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> FileOrErr =
+        llvm::MemoryBuffer::getFileOrSTDIN(opts.Prog);
+
+    if (std::error_code EC = FileOrErr.getError()) {
+      HumanOut() << llvm::formatv("failed to open {0}\n", opts.Prog);
+      return 1;
+    }
+
+    std::unique_ptr<llvm::MemoryBuffer> &Buffer = FileOrErr.get();
+
+    fs::create_directories("/jove");
+    jv_path = "/jove/" +
+           crypto::sha3(Buffer->getBufferStart(), Buffer->getBufferSize()) +
+           ".jv";
+  }
+
+  if (!fs::exists(jv_path)) {
+    HumanOut() << "Decompilation does not exist\n";
+    return 1;
+  }
 
   while (!Cancelled) {
     pid_t pid;
@@ -402,7 +423,7 @@ run:
             opts.sysroot.c_str(),
 
             "-d",
-            opts.jv.c_str(),
+            jv_path.c_str(),
         };
 
         if (!opts.HumanOutput.empty()) {
@@ -1024,7 +1045,7 @@ skip_run:
       pid = fork();
       if (!pid) {
         std::vector<const char *> arg_vec = {
-            "-d", opts.jv.c_str()
+            "-d", jv_path.c_str()
         };
 
         std::string pinned_globals_arg = "--pinned-globals=";
@@ -1063,7 +1084,7 @@ skip_run:
       pid = fork();
       if (!pid) {
         std::vector<const char *> arg_vec = {
-            "-d", opts.jv.c_str(),
+            "-d", jv_path.c_str(),
             "-o", opts.sysroot.c_str(),
         };
 

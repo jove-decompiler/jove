@@ -68,6 +68,7 @@ LDFLAGS := -Wl,--no-undefined \
            -lboost_filesystem \
            -lboost_system \
            -lboost_serialization \
+           -lrhash \
            -fuse-ld=lld
 
 #
