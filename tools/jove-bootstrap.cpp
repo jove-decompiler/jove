@@ -361,8 +361,6 @@ public:
   uintptr_t rva_of_va(uintptr_t Addr, binary_index_t BIdx);
 
   std::string description_of_program_counter(uintptr_t, bool Verbose = false);
-
-  void InvalidateAllFunctionAnalyses(void);
 };
 
 JOVE_REGISTER_TOOL("bootstrap", BootstrapTool);
@@ -794,12 +792,6 @@ static constexpr auto &pc_of_cpu_state(cpu_state_t &cpu_state) {
 #error
 #endif
       ;
-}
-
-void BootstrapTool::InvalidateAllFunctionAnalyses(void) {
-  for (binary_t &binary : Decompilation.Binaries)
-    for (function_t &f : binary.Analysis.Functions)
-      f.InvalidateAnalysis();
 }
 
 int BootstrapTool::TracerLoop(pid_t child, tiny_code_generator_t &tcg) {
@@ -1406,7 +1398,7 @@ int BootstrapTool::TracerLoop(pid_t child, tiny_code_generator_t &tcg) {
     }
 
     if (unlikely(NumChanged)) {
-      InvalidateAllFunctionAnalyses();
+      Decompilation.InvalidateFunctionAnalyses();
 
       HumanOut() << llvm::formatv(
           "fixed {0} ambiguous indirect jump{1}\n", NumChanged,
@@ -4486,7 +4478,7 @@ void BootstrapTool::on_return(pid_t child,
 
           basic_block_t next_bb = boost::vertex(next_bb_idx, ICFG);
           if (boost::add_edge(bb, next_bb, ICFG).second)
-            InvalidateAllFunctionAnalyses();
+            Decompilation.InvalidateFunctionAnalyses();
         }
 
         if (brkpt_count > 0)

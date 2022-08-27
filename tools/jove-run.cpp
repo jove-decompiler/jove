@@ -996,8 +996,11 @@ int RunTool::DoRun(void) {
     fprintf(stderr, "unmounting %s failed : %s\n", opts.sysroot, strerror(errno));
 #endif
 
-  if (has_jv && WasDecompilationModified.load())
+  if (has_jv && WasDecompilationModified.load()) {
+    decompilation.InvalidateFunctionAnalyses();
+
     WriteDecompilationToFile(jvfp, decompilation);
+  }
 
   {
     //
@@ -1259,25 +1262,18 @@ void *recover_proc(const char *fifo_path) {
       }
     };
 
-    std::string msg;
     try {
-      msg = do_recover();
+      std::string msg = do_recover();
 
-      if (!msg.empty())
+      if (!msg.empty()) {
         tool.WasDecompilationModified.store(true);
+
+        tool.HumanOut() << msg << '\n';
+      }
     } catch (const std::exception &e) {
       tool.HumanOut() << llvm::formatv(
           __ANSI_RED "failed to recover: {0}" __ANSI_NORMAL_COLOR "\n",
           e.what());
-    }
-
-    if (!msg.empty()) {
-      /* XXX this should go elsewhere */
-      for (binary_t &binary : tool.decompilation.Binaries)
-        for (function_t &f : binary.Analysis.Functions)
-          f.InvalidateAnalysis();
-
-      tool.HumanOut() << msg << '\n';
     }
 
     if (pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, nullptr) != 0)

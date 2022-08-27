@@ -328,6 +328,12 @@ struct binary_t {
 struct decompilation_t {
   std::vector<binary_t> Binaries;
 
+  void InvalidateFunctionAnalyses(void) {
+    for (binary_t &b : Binaries)
+      for (function_t &f : b.Analysis.Functions)
+        f.InvalidateAnalysis();
+  }
+
   template <class Archive>
   void serialize(Archive &ar, const unsigned int) {
     ar &BOOST_SERIALIZATION_NVP(Binaries);
