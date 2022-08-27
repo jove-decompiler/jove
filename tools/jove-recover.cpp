@@ -236,10 +236,7 @@ int RecoverTool::Run(void) {
 
   HumanOut() << msg << '\n';
 
-  for (binary_t &binary : Decompilation.Binaries)
-    for (function_t &f : binary.Analysis.Functions)
-      f.InvalidateAnalysis();
-
+  Decompilation.InvalidateFunctionAnalyses();
   WriteDecompilationToFile(jvfp, Decompilation);
 
   //
