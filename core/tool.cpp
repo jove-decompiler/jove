@@ -84,7 +84,7 @@ int main(int argc, char **argv) {
   // examine argv[0]
   //
   const char *name = nullptr;
-  jove::Tool *tool = nullptr;
+  std::unique_ptr<jove::Tool> tool;
 
   std::string prefix("jove-");
   std::string arg0 = argv[0];
@@ -126,7 +126,7 @@ int main(int argc, char **argv) {
     for (const auto &x : jove::AllTools) {
       if (x.first == tool_name) {
         name = x.first;
-        tool = x.second(); /* instantiate */
+        tool.reset(x.second()); /* instantiate */
         goto found_tool;
       }
     }
@@ -153,7 +153,7 @@ found_tool:
     for (const auto &x : jove::AllTools) {
       if (x.first == arg0) {
         name = x.first;
-        tool = x.second(); /* instantiate */
+        tool.reset(x.second()); /* instantiate */
         break;
       }
     }
@@ -182,8 +182,6 @@ found_tool:
   llvm::cl::ParseCommandLineOptions(argc, argv, Desc);
 
   int res = tool->Run();
-
-  delete tool;
 
   return res;
 }
