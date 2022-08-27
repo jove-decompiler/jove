@@ -60,20 +60,10 @@ void InvalidateTool::invalidateInput(const std::string &jvfp) {
   decompilation_t Decompilation;
   ReadDecompilationFromFile(jvfp, Decompilation);
 
-  // invalidate all function analyses
-  for (binary_t &binary : Decompilation.Binaries)
-    for (function_t &f : binary.Analysis.Functions)
-      f.InvalidateAnalysis();
-
-  // invalidate all basic block analyses
-  for (binary_t &binary : Decompilation.Binaries) {
-    auto &ICFG = binary.Analysis.ICFG;
-    auto it_pair = boost::vertices(ICFG);
-    for (auto it = it_pair.first; it != it_pair.second; ++it) {
-      basic_block_t bb = *it;
-      ICFG[bb].InvalidateAnalysis();
-    }
-  }
+  Decompilation.InvalidateFunctionAnalyses();
+  for_each_binary(Decompilation, [&](binary_t &binary) {
+    binary.InvalidateBasicBlockAnalyses();
+  });
 
   WriteDecompilationToFile(jvfp, Decompilation);
 }

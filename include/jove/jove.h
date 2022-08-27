@@ -295,6 +295,12 @@ struct binary_t {
     std::map<std::string, std::set<dynamic_target_t>> SymDynTargets;
   } Analysis;
 
+  void InvalidateBasicBlockAnalyses(void) {
+    auto it_pair = boost::vertices(Analysis.ICFG);
+    for (auto it = it_pair.first; it != it_pair.second; ++it)
+      Analysis.ICFG[*it].InvalidateAnalysis();
+  }
+
   template <class Archive>
   void serialize(Archive &ar, const unsigned int) {
     ar &BOOST_SERIALIZATION_NVP(Path)
