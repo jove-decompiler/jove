@@ -317,6 +317,8 @@ struct BootstrapTool : public Tool {
 
   std::unordered_map<pid_t, child_syscall_state_t> children_syscall_state;
 
+  bool invalidateAnalyses = false;
+
 public:
   BootstrapTool() : opts(JoveCategory) {}
 
@@ -1409,6 +1411,8 @@ int BootstrapTool::TracerLoop(pid_t child, tiny_code_generator_t &tcg) {
   //
   // FIXME only write if modified
   //
+  if (invalidateAnalyses)
+    Decompilation.InvalidateFunctionAnalyses();
   WriteDecompilationToFile(jvfp, Decompilation);
 
   return 0;
@@ -4478,7 +4482,7 @@ void BootstrapTool::on_return(pid_t child,
 
           basic_block_t next_bb = boost::vertex(next_bb_idx, ICFG);
           if (boost::add_edge(bb, next_bb, ICFG).second)
-            Decompilation.InvalidateFunctionAnalyses();
+            invalidateAnalyses = true;
         }
 
         if (brkpt_count > 0)
