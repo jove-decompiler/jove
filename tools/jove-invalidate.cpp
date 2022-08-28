@@ -1,17 +1,9 @@
 #include "tool.h"
 
 #include <boost/filesystem.hpp>
-#include <boost/format.hpp>
 
-#include <llvm/Support/CommandLine.h>
-#include <llvm/Support/DataTypes.h>
-#include <llvm/Support/Debug.h>
-#include <llvm/Support/FileSystem.h>
 #include <llvm/Support/FormatVariadic.h>
 #include <llvm/Support/WithColor.h>
-
-#include <algorithm>
-#include <fstream>
 
 namespace fs = boost::filesystem;
 namespace cl = llvm::cl;
@@ -40,18 +32,15 @@ public:
 
 JOVE_REGISTER_TOOL("invalidate", InvalidateTool);
 
-typedef boost::format fmt;
-
 int InvalidateTool::Run(void) {
-  for (const std::string &Path : opts.InputFilenames) {
-    if (!fs::exists(Path)) {
-      WithColor::error() << Path << " does not exist\n";
-      return 1;
+  for (const std::string &path : opts.InputFilenames) {
+    if (!fs::exists(path)) {
+      WithColor::error() << path << " does not exist\n";
+      continue;
     }
-  }
 
-  for (const std::string &path : opts.InputFilenames)
     invalidateInput(path);
+  }
 
   return 0;
 }
