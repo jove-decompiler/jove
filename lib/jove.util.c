@@ -49,6 +49,14 @@ static _INL _UNUSED char *_strcat(char *s, const char *append) {
   return (save);
 }
 
+static _INL _UNUSED char *_strcpy(char *to, const char *from) {
+  char *save = to;
+
+  for (; (*to = *from) != '\0'; ++from, ++to)
+    ;
+  return (save);
+}
+
 static _INL _UNUSED int _strcmp(const char *s1, const char *s2) {
   while (*s1 == *s2++)
     if (*s1++ == 0)
