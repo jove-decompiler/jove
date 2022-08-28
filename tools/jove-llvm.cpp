@@ -3794,7 +3794,15 @@ llvm::Constant *LLVMTool::SymbolAddress(const RelSymbol &RelSym) {
       return SectionPointer(RelSym.Sym->st_value);
     } else {
       assert(RelSym.Sym->st_size > 0);
-      assert(!IsTLS);
+
+      if (IsTLS) {
+        llvm::GlobalValue *GV = Module->getNamedValue(RelSym.Name);
+
+        assert(GV);
+        assert(GV->getThreadLocalMode() != llvm::GlobalValue::NotThreadLocal);
+
+        return llvm::ConstantExpr::getPtrToInt(GV, WordType());
+      }
 
 #if !defined(TARGET_MIPS64) && !defined(TARGET_MIPS32)
       if (CopyRelSyms.find(RelSym.Name) == CopyRelSyms.end()) {
