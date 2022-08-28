@@ -38,7 +38,7 @@ static void _jove_install_function_mappings(void);
 
 static void _jove_make_sections_executable(void);
 
-_CTOR _HIDDEN void _jove_initialize(void) {
+_HIDDEN void _jove_initialize(void) {
   static bool _Done = false;
   if (_Done)
     return;
@@ -121,14 +121,10 @@ void _jove_install_function_mappings(void) {
   memory_barrier();
 }
 
-#if (!defined(__x86_64__) && defined(__i386__)) || \
+#if (defined(__x86_64__) || defined(__i386__)) || \
     (!defined(__mips64) && defined(__mips__))
 //
-// on i386, args are passed on stack. see definition of _jove_init in
-// lib/arch/i386/jove.c
-//
-// on mips32, we need to code _jove_init in assembly to produce "magic
-// instruction sequence"
+// see definition of _jove_init in lib/arch/<arch>/jove.c
 //
 #else
 _HIDDEN void _jove_init(
@@ -221,9 +217,9 @@ _HIDDEN void _jove_init(
 //
 // XXX hack for glibc 2.32+
 //
-#if !defined(__x86_64__) && defined(__i386__)
+#if defined(__x86_64__) || defined(__i386__)
 //
-// args are passed on stack. see definition of _jove__libc_early_init in lib/arch/i386/jove.c
+// see definition of _jove__libc_early_init in lib/arch/<arch>/jove.c
 //
 #else
 extern void _jove_rt_init(void);
@@ -611,7 +607,7 @@ _NORET void _jove_fail1(uintptr_t a0, const char *reason) {
 
   _jove_flush_trace_clunk();
 
-#if 0
+#if 1
   for (;;)
     _jove_sleep();
 #else
@@ -1002,14 +998,18 @@ jove_thunk_return_t _jove_call(
     }
   }
 
-#if defined(__mips64) || defined(__mips__)
   //
   // check for the possibility that _jove_init is our given pc, which may happen
   // if the code (usually in the dynamic linker) that calls the init functions
-  // of a newly dlopen'd shared library is, itself, recompiled
+  // of a newly dlopen'd shared library is, itself, recompiled. to know whether
+  // _jove_init is being called, we look for a unique sequence of nop
+  // instructions that are hard-coded into the function's (asm) definition
   //
+  bool IsJoveInit = false;
+
+#if defined(__mips64) || defined(__mips__)
   {
-    const uint32_t *p = (const uint32_t *)pc + 5;
+    const uint32_t *const p = (const uint32_t *)pc + 5;
 
     //
     // 24000929        li      zero,2345
@@ -1021,18 +1021,67 @@ jove_thunk_return_t _jove_call(
     // 24001538        li      zero,5432
     //
 
-    bool IsJoveInit = p[0] == 0x24000929 &&
-                      p[1] == 0x24000159 &&
-                      p[2] == 0x2400002d &&
-                      p[3] == 0x24000005 &&
-                      p[4] == 0x24000036 &&
-                      p[5] == 0x2400021f &&
-                      p[6] == 0x24001538;
+    IsJoveInit = p[0] == 0x24000929 &&
+                 p[1] == 0x24000159 &&
+                 p[2] == 0x2400002d &&
+                 p[3] == 0x24000005 &&
+                 p[4] == 0x24000036 &&
+                 p[5] == 0x2400021f &&
+                 p[6] == 0x24001538;
+  }
+#elif defined(__x86_64__)
+  {
+    const uint8_t *const p = (const uint8_t *)pc;
 
-    if (IsJoveInit) {
-      _jove_fail1(pc, "_jove_init is being called!!");
-      __builtin_unreachable();
+    //
+    // 4d 87 ff                xchg   %r15,%r15
+    // 4d 87 f6                xchg   %r14,%r14
+    // 4d 87 ed                xchg   %r13,%r13
+    // 4d 87 e4                xchg   %r12,%r12
+    // 4d 87 db                xchg   %r11,%r11
+    //
+
+    IsJoveInit = p[0*3+0] == 0x4d && p[0*3+1] == 0x87 && p[0*3+2] == 0xff &&
+                 p[1*3+0] == 0x4d && p[1*3+1] == 0x87 && p[1*3+2] == 0xf6 &&
+                 p[2*3+0] == 0x4d && p[2*3+1] == 0x87 && p[2*3+2] == 0xed &&
+                 p[3*3+0] == 0x4d && p[3*3+1] == 0x87 && p[3*3+2] == 0xe4 &&
+                 p[4*3+0] == 0x4d && p[4*3+1] == 0x87 && p[4*3+2] == 0xdb;
+  }
+#endif
+
+  if (unlikely(IsJoveInit))
+    return BOOST_PP_CAT(_jove_thunk,TARGET_NUM_REG_ARGS)(
+                        #define __REG_ARG(n, i, data) reg##i,
+
+                        BOOST_PP_REPEAT(TARGET_NUM_REG_ARGS, __REG_ARG, void)
+
+                        #undef __REG_ARG
+                        pc, emulated_stack_pointer_of_cpu_state(__jove_env_clunk));
+
+#if 0
+  {
+    char s[1024];
+    s[0] = '\0';
+
+    _strcpy(s, "address of _jove_init is 0x");
+    {
+      uintptr_t a0 = (uintptr_t)&_jove_init;
+
+      char buff[65];
+      _uint_to_string(a0, buff, 0x10);
+
+      _strcat(s, buff);
     }
+    _strcat(s, "\n");
+
+    _jove_robust_write(2 /* stderr */, s, _strlen(s));
+  }
+
+  if (unlikely(pc == (uintptr_t)&_jove_init)) {
+    target_ulong *const emusp_ptr =
+        emulated_stack_pointer_of_cpu_state(__jove_env_clunk);
+    *emusp_ptr += sizeof(uintptr_t);
+    return 0;
   }
 #endif
 
@@ -1168,7 +1217,7 @@ void __nodce(void **p) {
   *p++ = &__jove_callstack_clunk;
   *p++ = &__jove_callstack_begin_clunk;
   *p++ = &_jove_flush_trace_clunk;
-#if !(!defined(__x86_64__) && defined(__i386__))
+#if !(defined(__x86_64__) || defined(__i386__))
   *p++ = &_jove_rt_init_clunk;
 #endif
   *p++ = &__jove_function_tables_clunk;

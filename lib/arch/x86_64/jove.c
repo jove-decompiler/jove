@@ -94,6 +94,23 @@ static void _jove_begin(uint64_t rdi,
 
 _HIDDEN unsigned long _jove_thread_init(unsigned long clone_newsp);
 
+_NAKED _HIDDEN void _jove_init(uint64_t rdi,
+                               uint64_t rsi,
+                               uint64_t rdx,
+                               uint64_t rcx,
+                               uint64_t r8,
+                               uint64_t r9);
+
+//
+// XXX hack for glibc 2.32+
+//
+_NAKED _HIDDEN void _jove__libc_early_init(uint64_t rdi,
+                                           uint64_t rsi,
+                                           uint64_t rdx,
+                                           uint64_t rcx,
+                                           uint64_t r8,
+                                           uint64_t r9);
+
 void _jove_start(void) {
   asm volatile(/* Clearing frame pointer is insufficient, use CFI.  */
                ".cfi_undefined %%rip\n"
@@ -355,3 +372,88 @@ jove_thunk_return_t _jove_thunk6(uint64_t rdi,
 
 #undef JOVE_THUNK_PROLOGUE
 #undef JOVE_THUNK_EPILOGUE
+
+void _jove_init(uint64_t rdi,
+                uint64_t rsi,
+                uint64_t rdx,
+                uint64_t rcx,
+                uint64_t r8,
+                uint64_t r9) {
+  asm volatile(/* XXX MAGIC INSTRUCTION BYTES XXX */
+               "xchgq %%r15, %%r15\n" /* nop */
+               "xchgq %%r14, %%r14\n" /* nop */
+               "xchgq %%r13, %%r13\n" /* nop */
+               "xchgq %%r12, %%r12\n" /* nop */
+               "xchgq %%r11, %%r11\n" /* nop */
+
+               "pushq %%rdi\n" /* preserve arguments */
+               "pushq %%rsi\n"
+               "pushq %%rdx\n"
+               "pushq %%rcx\n"
+               "pushq %%r8\n"
+               "pushq %%r9\n"
+
+               "call _jove_initialize\n"
+               "call _jove_get_init_fn_sect_ptr\n"
+               "movq %%rax, %%r11\n"
+
+               "popq %%r9\n" /* preserve arguments */
+               "popq %%r8\n"
+               "popq %%rcx\n"
+               "popq %%rdx\n"
+               "popq %%rsi\n"
+               "popq %%rdi\n"
+
+               "test %%r11, %%r11\n" /* only call initfn if not-null */
+               "je dont_call_initfn\n"
+
+               "jmp *%%r11\n"
+
+               "dont_call_initfn:\n"
+               "ret\n"
+
+               : /* OutputOperands */
+               : /* InputOperands */
+               : /* Clobbers */);
+}
+
+//
+// XXX hack for glibc 2.32+
+//
+void _jove__libc_early_init(uint64_t rdi,
+                            uint64_t rsi,
+                            uint64_t rdx,
+                            uint64_t rcx,
+                            uint64_t r8,
+                            uint64_t r9) {
+  asm volatile("pushq %%rdi\n" /* preserve arguments */
+               "pushq %%rsi\n"
+               "pushq %%rdx\n"
+               "pushq %%rcx\n"
+               "pushq %%r8\n"
+               "pushq %%r9\n"
+
+               "call _jove_do_call_rt_init\n"
+               "call _jove_initialize\n"
+               "call _jove_get_libc_early_init_fn_sect_ptr\n"
+               "movq %%rax, %%r11\n"
+
+               "popq %%r9\n" /* preserve arguments */
+               "popq %%r8\n"
+               "popq %%rcx\n"
+               "popq %%rdx\n"
+               "popq %%rsi\n"
+               "popq %%rdi\n"
+
+               "jmp *%%r11\n"
+
+               : /* OutputOperands */
+               : /* InputOperands */
+               : /* Clobbers */);
+}
+
+extern void _jove_rt_init(void);
+
+_HIDDEN void _jove_do_call_rt_init(void) {
+  _jove_rt_init();
+}
