@@ -1058,33 +1058,9 @@ jove_thunk_return_t _jove_call(
                         #undef __REG_ARG
                         pc, emulated_stack_pointer_of_cpu_state(__jove_env_clunk));
 
-#if 0
-  {
-    char s[1024];
-    s[0] = '\0';
-
-    _strcpy(s, "address of _jove_init is 0x");
-    {
-      uintptr_t a0 = (uintptr_t)&_jove_init;
-
-      char buff[65];
-      _uint_to_string(a0, buff, 0x10);
-
-      _strcat(s, buff);
-    }
-    _strcat(s, "\n");
-
-    _jove_robust_write(2 /* stderr */, s, _strlen(s));
-  }
-
-  if (unlikely(pc == (uintptr_t)&_jove_init)) {
-    target_ulong *const emusp_ptr =
-        emulated_stack_pointer_of_cpu_state(__jove_env_clunk);
-    *emusp_ptr += sizeof(uintptr_t);
-    return 0;
-  }
-#endif
-
+  //
+  // we found new code?
+  //
   _jove_recover_function(BBIdx, pc);
 
   {
