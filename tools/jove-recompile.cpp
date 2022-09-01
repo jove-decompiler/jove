@@ -516,15 +516,16 @@ int RecompileTool::Run(void) {
     if (!b.IsDynamicLinker)
       continue;
 
-#if 0
-    assert(fs::exists(b.Path) && fs::is_regular_file(b.Path));
-#else
     //
     // we have the binary data in the decompilation. let's use it
     //
     fs::path ldso_path = fs::path(tmpdir) / "ld.so";
+
+    fs::path chrooted_path(opts.Output + b.Path);
+    fs::create_directories(chrooted_path.parent_path());
+
     {
-      std::ofstream ofs(ldso_path.c_str());
+      std::ofstream ofs(chrooted_path.string());
 
       ofs.write(reinterpret_cast<char *>(&b.Data[0]), b.Data.size());
     }
@@ -532,21 +533,15 @@ int RecompileTool::Run(void) {
     //
     // make rtld executable (chmod)
     //
-    fs::permissions(ldso_path, fs::others_read |
-                               fs::others_exe |
+    fs::permissions(chrooted_path, fs::others_read |
+                                   fs::others_exe |
 
-                               fs::group_read |
-                               fs::group_exe |
+                                   fs::group_read |
+                                   fs::group_exe |
 
-                               fs::owner_read |
-                               fs::owner_write |
-                               fs::owner_exe);
-#endif
-
-    fs::path chrooted_path(opts.Output + b.Path);
-    fs::create_directories(chrooted_path.parent_path());
-
-    fs::copy_file(ldso_path, chrooted_path, fs::copy_option::overwrite_if_exists);
+                                   fs::owner_read |
+                                   fs::owner_write |
+                                   fs::owner_exe);
 
     if (!state_for_binary(b).dynl.soname.empty()) {
       rtld_soname = state_for_binary(b).dynl.soname;
