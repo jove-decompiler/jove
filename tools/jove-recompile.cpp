@@ -187,7 +187,7 @@ JOVE_REGISTER_TOOL("recompile", RecompileTool);
 static char tmpdir[] = {'/', 't', 'm', 'p', '/', 'X',
                         'X', 'X', 'X', 'X', 'X', '\0'};
 
-static std::string compiler_runtime_afp, jove_bin_path,
+static std::string compiler_runtime_afp, libatomic_afp, jove_bin_path,
     jove_rt_path, jove_dfsan_path, llc_path, ld_path, opt_path, llvm_dis_path;
 
 static std::atomic<bool> Cancel(false);
@@ -330,6 +330,11 @@ int RecompileTool::Run(void) {
                        << "' (or is not regular file)\n";
     return 1;
   }
+
+  libatomic_afp =
+      (boost::dll::program_location().parent_path().parent_path().parent_path() /
+       "prebuilts" / "obj" / ("libatomic-" TARGET_ARCH_NAME ".a"))
+          .string();
 
   //
   // sanity checks for output path
@@ -1011,13 +1016,17 @@ int RecompileTool::Run(void) {
 
           "-nostdlib",
 
-          "--push-state", "--as-needed", compiler_runtime_afp.c_str(),
-          "--pop-state",
-
-          "--exclude-libs", "ALL",
-
           "-init", "_jove_init"
       };
+
+      arg_vec.push_back("--push-state");
+      arg_vec.push_back("--as-needed");
+      arg_vec.push_back(compiler_runtime_afp.c_str());
+      if (fs::exists(libatomic_afp))
+        arg_vec.push_back(libatomic_afp.c_str());
+      arg_vec.push_back("--pop-state");
+      arg_vec.push_back("--exclude-libs");
+      arg_vec.push_back("ALL");
 
       std::string _arg1, _arg2;
 
