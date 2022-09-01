@@ -265,7 +265,14 @@ jove_thunk_return_t _jove_thunk3(uint32_t eax,
 void _jove_init(uint32_t eax,
                 uint32_t edx,
                 uint32_t ecx /* TODO preserve */) {
-  asm volatile("pushl %%eax\n" /* preserve arguments */
+  asm volatile(
+               "xchgl %%ebx, %%ebx\n" /* nop */
+               "xchgl %%ecx, %%ecx\n" /* nop */
+               "xchgl %%edx, %%edx\n" /* nop */
+               "xchgl %%esi, %%esi\n" /* nop */
+               "xchgl %%edi, %%edi\n" /* nop */
+
+               "pushl %%eax\n" /* preserve arguments */
                "pushl %%edx\n"
 
                "call _jove_initialize\n"

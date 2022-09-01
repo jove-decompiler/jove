@@ -1047,6 +1047,24 @@ jove_thunk_return_t _jove_call(
                  p[3*3+0] == 0x4d && p[3*3+1] == 0x87 && p[3*3+2] == 0xe4 &&
                  p[4*3+0] == 0x4d && p[4*3+1] == 0x87 && p[4*3+2] == 0xdb;
   }
+#elif defined(__i386__)
+  {
+    const uint8_t *const p = (const uint8_t *)pc;
+
+    //
+    // 410a0:       87 db                   xchg   %ebx,%ebx
+    // 410a2:       87 c9                   xchg   %ecx,%ecx
+    // 410a4:       87 d2                   xchg   %edx,%edx
+    // 410a6:       87 f6                   xchg   %esi,%esi
+    // 410a8:       87 ff                   xchg   %edi,%edi
+    //
+
+    IsJoveInit = p[0*2+0] == 0x87 && p[0*2+1] == 0xdb &&
+                 p[1*2+0] == 0x87 && p[1*2+1] == 0xc9 &&
+                 p[2*2+0] == 0x87 && p[2*2+1] == 0xd2 &&
+                 p[3*2+0] == 0x87 && p[3*2+1] == 0xf6 &&
+                 p[4*2+0] == 0x87 && p[4*2+1] == 0xff;
+  }
 #endif
 
   if (unlikely(IsJoveInit))
