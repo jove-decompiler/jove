@@ -120,11 +120,6 @@ TOOLOBJS   := $(foreach target,$(ALL_TARGETS),$(patsubst $(TOOLSRCDIR)/%.cpp,$(B
 TOOLBINS   := $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/jove)
 TOOLDEPS   := $(foreach target,$(ALL_TARGETS),$(patsubst $(TOOLSRCDIR)/%.cpp,$(BINDIR)/$(target)/%.d,$(TOOLSRCS)))
 
-#
-# create tool symlinks
-#
-$(foreach target,$(ALL_TARGETS),$(foreach tool,$(ALL_TOOLS),$(shell ln -sf jove $(BINDIR)/$(target)/$(tool))))
-
 
 #
 # find utils
@@ -1608,7 +1603,7 @@ check-helpers: $(foreach target,$(ALL_TARGETS),$(foreach helper,$($(target)_HELP
 define check_helper_template
 .PHONY: check-$(2)-$(1)
 check-$(2)-$(1): $(BINDIR)/$(2)/helpers/$(1).bc
-	-$(BINDIR)/$(2)/check-helper $(1)
+	-$(BINDIR)/$(2) check-helper $(1)
 endef
 $(foreach target,$(ALL_TARGETS),$(foreach helper,$($(target)_HELPERS),$(eval $(call check_helper_template,$(helper),$(target)))))
 

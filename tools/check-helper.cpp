@@ -43,7 +43,7 @@ public:
   void checkHelper(const std::string &helper_nm);
 };
 
-JOVE_REGISTER_TOOL("check-helpers", CheckHelpersTool);
+JOVE_REGISTER_TOOL("check-helper", CheckHelpersTool);
 
 int CheckHelpersTool::Run(void) {
   for (const std::string &nm : opts.InputHelpers)
