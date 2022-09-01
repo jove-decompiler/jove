@@ -1052,11 +1052,11 @@ jove_thunk_return_t _jove_call(
     const uint8_t *const p = (const uint8_t *)pc;
 
     //
-    // 410a0:       87 db                   xchg   %ebx,%ebx
-    // 410a2:       87 c9                   xchg   %ecx,%ecx
-    // 410a4:       87 d2                   xchg   %edx,%edx
-    // 410a6:       87 f6                   xchg   %esi,%esi
-    // 410a8:       87 ff                   xchg   %edi,%edi
+    // 87 db                   xchg   %ebx,%ebx
+    // 87 c9                   xchg   %ecx,%ecx
+    // 87 d2                   xchg   %edx,%edx
+    // 87 f6                   xchg   %esi,%esi
+    // 87 ff                   xchg   %edi,%edi
     //
 
     IsJoveInit = p[0*2+0] == 0x87 && p[0*2+1] == 0xdb &&

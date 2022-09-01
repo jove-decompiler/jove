@@ -379,7 +379,7 @@ void _jove_init(uint64_t rdi,
                 uint64_t rcx,
                 uint64_t r8,
                 uint64_t r9) {
-  asm volatile(/* XXX MAGIC INSTRUCTION BYTES XXX */
+  asm volatile(
                "xchgq %%r15, %%r15\n" /* nop */
                "xchgq %%r14, %%r14\n" /* nop */
                "xchgq %%r13, %%r13\n" /* nop */
