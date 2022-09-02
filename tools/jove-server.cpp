@@ -17,6 +17,7 @@
 #include <pthread.h>
 #include <sys/mman.h>
 #include <sys/mount.h>
+#include <signal.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -84,7 +85,7 @@ static void sighandler(int no) {
   case SIGTERM:
     if (pid_t pid = app_pid.load()) {
       // what we really want to do is terminate the child.
-      if (kill(pid, SIGTERM) < 0) {
+      if (::kill(pid, SIGTERM) < 0) {
         int err = errno;
         WithColor::warning() << llvm::formatv(
             "failed to redirect SIGTERM: {0}\n", strerror(err));

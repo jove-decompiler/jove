@@ -4761,7 +4761,7 @@ void SignalHandler(int no) {
     //
     // instigate a ptrace-stop
     //
-    if (kill(saved_child, SIGSTOP /* SIGWINCH */) < 0) {
+    if (::kill(saved_child, SIGSTOP /* SIGWINCH */) < 0) {
       int err = errno;
       tool.HumanOut() << llvm::formatv("kill of {0} failed: {1}\n", saved_child,
                                        strerror(err));

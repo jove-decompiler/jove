@@ -241,7 +241,7 @@ static void SigHandler(int no) {
   case SIGTERM:
     if (pid_t pid = app_pid.load()) {
       // what we really want to do is terminate the child.
-      if (kill(pid, SIGTERM) < 0) {
+      if (::kill(pid, SIGTERM) < 0) {
         int err = errno;
         tool.HumanOut() << llvm::formatv(
             "failed to redirect SIGTERM: {0}\n", strerror(err));
@@ -255,7 +255,7 @@ static void SigHandler(int no) {
   case SIGINT:
     if (pid_t pid = run_pid.load()) {
       // tell run to exit sleep loop
-      if (kill(pid, SIGUSR1) < 0) {
+      if (::kill(pid, SIGUSR1) < 0) {
         int err = errno;
         tool.HumanOut() << llvm::formatv(
             "failed to send SIGUSR1 to jove-run: {0}\n", strerror(err));
