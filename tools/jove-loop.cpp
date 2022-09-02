@@ -22,9 +22,6 @@
 
 #include "jove_macros.h"
 
-#define JOVE_RT_SO "libjove_rt.so"
-#define JOVE_RT_SONAME JOVE_RT_SO ".0"
-
 namespace fs = boost::filesystem;
 namespace cl = llvm::cl;
 namespace obj = llvm::object;
@@ -325,11 +322,10 @@ int LoopTool::Run(void) {
     return 1;
   }
 
-  jove_rt_path = (boost::dll::program_location().parent_path() /
-                  std::string(JOVE_RT_SONAME))
-                     .string();
+  jove_rt_path =
+      (boost::dll::program_location().parent_path() / "libjove_rt.so").string();
   if (!fs::exists(jove_rt_path)) {
-    HumanOut() << llvm::formatv("could not find JOVE_RT_SONAME ({0})\n",
+    HumanOut() << llvm::formatv("could not find libjove_rt.so ({0})\n",
                                 jove_rt_path.c_str());
     return 1;
   }
@@ -851,25 +847,29 @@ skip_run:
       // (1) copy jove runtime XXX duplicated code w/ jove-recompile
       //
       {
-        {
-          fs::path chrooted_path =
-              fs::path(opts.sysroot) / "usr" / "lib" / JOVE_RT_SONAME;
+        fs::path chrooted_path =
+            fs::path(Prefix) / "usr" / "lib" / "libjove_rt.so";
 
-          fs::create_directories(chrooted_path.parent_path());
-          fs::copy_file(jove_rt_path, chrooted_path,
-                        fs::copy_option::overwrite_if_exists);
-        }
+        fs::create_directories(chrooted_path.parent_path());
+        fs::copy_file(jove_rt_path, chrooted_path,
+                      fs::copy_option::overwrite_if_exists);
 
-        {
-          fs::path chrooted_path =
-              fs::path(opts.sysroot) / "usr" / "lib" / JOVE_RT_SO;
+        //
+        // /lib could just be a symlink to usr/lib, in which case we don't want
+        // the following
+        //
+        if (!fs::equivalent(chrooted_path,
+                            fs::path(Prefix) / "lib" / "libjove_rt.so")) {
+          fs::create_directories(fs::path(Prefix) / "lib");
 
-          fs::create_directories(chrooted_path.parent_path());
-
-          if (fs::exists(chrooted_path))
-            fs::remove(chrooted_path);
-
-          fs::create_symlink(JOVE_RT_SONAME, chrooted_path);
+          try {
+            // XXX some dynamic linkers only look in /lib
+            fs::copy_file(jove_rt_path,
+                          fs::path(Prefix) / "lib" / "libjove_rt.so",
+                          fs::copy_option::overwrite_if_exists);
+          } catch (...) {
+            ;
+          }
         }
       }
 #else
@@ -879,9 +879,7 @@ skip_run:
       //
       const char *Prefix = opts.NoChroot ? "/" : opts.sysroot.c_str();
 
-      fs::remove(fs::path(Prefix) / "usr" / "lib" / "libjove_rt.so.0");
       fs::remove(fs::path(Prefix) / "usr" / "lib" / "libjove_rt.so");
-      fs::remove(fs::path(Prefix) / "lib" / "libjove_rt.so.0");
       fs::remove(fs::path(Prefix) / "lib" / "libjove_rt.so");
 
       //
@@ -889,7 +887,7 @@ skip_run:
       //
       {
         fs::path rt_path =
-            fs::path(Prefix) / "usr" / "lib" / "libjove_rt.so.0";
+            fs::path(Prefix) / "usr" / "lib" / "libjove_rt.so";
 
         if (opts.Verbose)
           HumanOut() << "receiving jove runtime\n";
@@ -903,27 +901,19 @@ skip_run:
           return 1;
         }
 
-        try {
-          fs::create_symlink("libjove_rt.so.0",
-                             fs::path(Prefix) / "usr" / "lib" / "libjove_rt.so");
-        } catch (...) {
-          ;
-        }
-
         //
         // /lib could just be a symlink to usr/lib, in which case we don't want
         // the following
         //
         if (!fs::equivalent(rt_path,
-                            fs::path(Prefix) / "lib" / "libjove_rt.so.0")) {
+                            fs::path(Prefix) / "lib" / "libjove_rt.so")) {
+          fs::create_directories(fs::path(Prefix) / "lib");
+
           try {
             // XXX some dynamic linkers only look in /lib
             fs::copy_file(rt_path,
-                          fs::path(Prefix) / "lib" / "libjove_rt.so.0",
+                          fs::path(Prefix) / "lib" / "libjove_rt.so",
                           fs::copy_option::overwrite_if_exists);
-
-            fs::create_symlink("libjove_rt.so.0",
-                               fs::path(Prefix) / "lib" / "libjove_rt.so");
           } catch (...) {
             ;
           }

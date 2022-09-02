@@ -136,9 +136,6 @@ JOVE_C_BITCODE_DEPS := $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/jove.
 JOVE_C_DFSAN_BITCODE      := $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/jove.dfsan.bc)
 JOVE_C_DFSAN_BITCODE_DEPS := $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/jove.dfsan.d)
 
-JOVE_RT_SONAME := libjove_rt.so
-JOVE_RT_SO     := $(JOVE_RT_SONAME).0
-
 JOVE_RT_DEPS := $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/libjove_rt.so.d)
 
 #
@@ -167,7 +164,7 @@ HELPERDEPS := $(foreach target,$(ALL_TARGETS),$(foreach helper,$($(target)_HELPE
 
 all: $(TOOLBINS) \
      $(UTILBINS) \
-     $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/libjove_rt.so.0) \
+     $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/libjove_rt.so) \
      $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/jove.bc) \
      $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/jove.dfsan.bc) \
      $(HELPERS_BITCODE) \
@@ -255,9 +252,9 @@ $(BINDIR)/$(1)/harvest-vdso: lib/arch/$(1)/harvest-vdso.c
 	@echo CC $$<
 	$(_LLVM_CC) -o $$@ -Wl,-e,_start -fuse-ld=lld -nostdlib --sysroot $($(1)_sysroot) --target=$($(1)_TRIPLE) -Ofast -ffreestanding -fno-stack-protector -D TARGET_ARCH_NAME=\"$($(1)_ARCH_NAME)\" -fPIC -static -g -Wall -I lib -I lib/arch/$(1) $$<
 
-$(BINDIR)/$(1)/libjove_rt.so.0: lib/arch/$(1)/rt.c
+$(BINDIR)/$(1)/libjove_rt.so: lib/arch/$(1)/rt.c
 	@echo CC $$<
-	$(_LLVM_CC) -o $$@ -MMD -shared -Wl,-soname=$(JOVE_RT_SONAME) -Bsymbolic -fuse-ld=lld -nostdlib --sysroot $($(1)_sysroot) -I $($(1)_sysroot)/include -D TARGET_$(call uc,$(1)) --target=$($(1)_TRIPLE) -Ofast -ffreestanding -fno-stack-protector $($(1)_ARCH_CFLAGS) -D TARGET_ARCH_NAME=\"$($(1)_ARCH_NAME)\" -fPIC -g -Wall -I lib -I lib/arch/$(1) -Werror-implicit-function-declaration -Wl,-init,_jove_rt_init $$< -Wl,--push-state -Wl,--as-needed $($(1)_builtins_lib) -Wl,--pop-state -Wl,--exclude-libs,ALL
+	$(_LLVM_CC) -o $$@ -MMD -shared -Wl,-soname=libjove_rt.so -Bsymbolic -fuse-ld=lld -nostdlib --sysroot $($(1)_sysroot) -I $($(1)_sysroot)/include -D TARGET_$(call uc,$(1)) --target=$($(1)_TRIPLE) -Ofast -ffreestanding -fno-stack-protector $($(1)_ARCH_CFLAGS) -D TARGET_ARCH_NAME=\"$($(1)_ARCH_NAME)\" -fPIC -g -Wall -I lib -I lib/arch/$(1) -Werror-implicit-function-declaration -Wl,-init,_jove_rt_init $$< -Wl,--push-state -Wl,--as-needed $($(1)_builtins_lib) -Wl,--pop-state -Wl,--exclude-libs,ALL
 
 $(BINDIR)/$(1)/jove.bc: lib/arch/$(1)/jove.c
 	@echo CC $$<
@@ -280,7 +277,7 @@ $(foreach target,$(ALL_TARGETS),$(eval $(call target_code_template,$(target))))
 PACKAGE_FILE_LIST := $(TOOLBINS) \
                      $(JOVE_C_BITCODE) \
                      $(JOVE_C_DFSAN_BITCODE) \
-                     $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/libjove_rt.so.0) \
+                     $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/libjove_rt.so) \
                      $(HELPERS_BITCODE) \
                      $(HELPERS_ASSEMBLY) \
                      $(HELPERS_DFSAN_BITCODE) \
@@ -327,7 +324,7 @@ clean:
 	       $(JOVE_C_DFSAN_BITCODE) \
 	       $(JOVE_C_BITCODE_DEPS) \
 	       $(JOVE_C_DFSAN_BITCODE_DEPS) \
-	       $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/libjove_rt.so.0) \
+	       $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/libjove_rt.so) \
 	       $(TOOLDEPS) \
 	       $(COREDEPS) \
 	       $(UTILDEPS) \

@@ -128,9 +128,8 @@ struct ConnectionProcArgs {
 };
 
 int ServerTool::Run(void) {
-  libjove_rt_path = (boost::dll::program_location().parent_path() /
-                         std::string("libjove_rt.so.0"))
-                            .string();
+  libjove_rt_path =
+      (boost::dll::program_location().parent_path() / "libjove_rt.so").string();
   if (!fs::exists(libjove_rt_path)) {
     WithColor::error() << llvm::formatv(
         "could not find jove runtime at {0}\n", libjove_rt_path.c_str());

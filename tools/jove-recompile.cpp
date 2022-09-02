@@ -38,9 +38,6 @@
 
 static void __warn(const char *file, int line);
 
-#define JOVE_RT_SO "libjove_rt.so"
-#define JOVE_RT_SONAME JOVE_RT_SO ".0"
-
 namespace fs = boost::filesystem;
 namespace cl = llvm::cl;
 namespace obj = llvm::object;
@@ -364,11 +361,10 @@ int RecompileTool::Run(void) {
   //
   jove_bin_path = boost::dll::program_location().parent_path().string();
 
-  jove_rt_path = (boost::dll::program_location().parent_path() /
-                  std::string(JOVE_RT_SONAME))
-                     .string();
+  jove_rt_path =
+      (boost::dll::program_location().parent_path() / "libjove_rt.so").string();
   if (!fs::exists(jove_rt_path)) {
-    WithColor::error() << "could not find JOVE_RT_SONAME\n";
+    WithColor::error() << "could not find libjove_rt.so\n";
     return 1;
   }
 
@@ -570,25 +566,29 @@ int RecompileTool::Run(void) {
   // copy jove runtime
   //
   {
-    {
-      fs::path chrooted_path =
-          fs::path(opts.Output) / "usr" / "lib" / JOVE_RT_SONAME;
+    fs::path chrooted_path =
+	fs::path(opts.Output) / "usr" / "lib" / "libjove_rt.so";
 
-      fs::create_directories(chrooted_path.parent_path());
-      fs::copy_file(jove_rt_path, chrooted_path,
-                    fs::copy_option::overwrite_if_exists);
-    }
+    fs::create_directories(chrooted_path.parent_path());
+    fs::copy_file(jove_rt_path, chrooted_path,
+		  fs::copy_option::overwrite_if_exists);
 
-    {
-      fs::path chrooted_path =
-          fs::path(opts.Output) / "usr" / "lib" / JOVE_RT_SO;
+    //
+    // /lib could just be a symlink to usr/lib, in which case we don't want
+    // the following
+    //
+    if (!fs::equivalent(chrooted_path,
+                        fs::path(opts.Output) / "lib" / "libjove_rt.so")) {
+      fs::create_directories(fs::path(opts.Output) / "lib");
 
-      fs::create_directories(chrooted_path.parent_path());
-
-      if (fs::exists(chrooted_path))
-        fs::remove(chrooted_path);
-
-      fs::create_symlink(JOVE_RT_SONAME, chrooted_path);
+      try {
+        // XXX some dynamic linkers only look in /lib
+        fs::copy_file(jove_rt_path,
+                      fs::path(opts.Output) / "lib" / "libjove_rt.so",
+                      fs::copy_option::overwrite_if_exists);
+      } catch (...) {
+        ;
+      }
     }
   }
 
