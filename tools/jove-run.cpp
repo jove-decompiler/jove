@@ -292,11 +292,11 @@ struct ScopedMount {
       return;
 
     for (;;) {
-      int ret = mount(this->source,
-                      this->target,
-                      this->filesystemtype,
-                      this->mountflags,
-                      this->data);
+      int ret = ::mount(this->source,
+                        this->target,
+                        this->filesystemtype,
+                        this->mountflags,
+                        this->data);
       if (ret < 0) {
         int err = errno;
         switch (err) {
@@ -332,7 +332,7 @@ struct ScopedMount {
     unsigned retries = 0;
 
     for (;;) {
-      int ret = umount2(this->target, 0);
+      int ret = ::umount2(this->target, 0);
 
       if (ret < 0) {
         int err = errno;
@@ -374,7 +374,7 @@ static void touch(const fs::path &);
 template <bool WillChroot>
 int RunTool::DoRun(void) {
 #if 0 /* is this necessary? */
-  if (mount(opts.sysroot, opts.sysroot, "", MS_BIND, nullptr) < 0)
+  if (::mount(opts.sysroot, opts.sysroot, "", MS_BIND, nullptr) < 0)
     fprintf(stderr, "bind mounting %s failed : %s\n", opts.sysroot,
             strerror(errno));
 #endif
@@ -992,7 +992,7 @@ int RunTool::DoRun(void) {
   fs::remove_all(fifo_dir);
 
 #if 0 /* is this necessary? */
-  if (umount2(opts.sysroot, 0) < 0)
+  if (::umount2(opts.sysroot, 0) < 0)
     fprintf(stderr, "unmounting %s failed : %s\n", opts.sysroot, strerror(errno));
 #endif
 
