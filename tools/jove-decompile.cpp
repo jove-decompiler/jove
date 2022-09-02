@@ -396,7 +396,7 @@ int DecompileTool::Run(void) {
     //
     // run opt to internalize things
     //
-    pid_t pid = fork();
+    pid_t pid = ::fork();
     if (!pid) {
       IgnoreCtrlC();
 
@@ -418,8 +418,8 @@ int DecompileTool::Run(void) {
       if (opts.Verbose)
         print_command(&arg_arr[0]);
 
-      close(STDIN_FILENO);
-      execve(arg_arr[0], const_cast<char **>(&arg_arr[0]), ::environ);
+      ::close(STDIN_FILENO);
+      ::execve(arg_arr[0], const_cast<char **>(&arg_arr[0]), ::environ);
 
       int err = errno;
       WithColor::error() << llvm::formatv("execve failed: {0}\n",
@@ -437,7 +437,7 @@ int DecompileTool::Run(void) {
     //
     // run llc on helper bitcode
     //
-    pid = fork();
+    pid = ::fork();
     if (!pid) {
       IgnoreCtrlC();
 
@@ -460,8 +460,8 @@ int DecompileTool::Run(void) {
       if (opts.Verbose)
         print_command(&arg_arr[0]);
 
-      close(STDIN_FILENO);
-      execve(arg_arr[0], const_cast<char **>(&arg_arr[0]), ::environ);
+      ::close(STDIN_FILENO);
+      ::execve(arg_arr[0], const_cast<char **>(&arg_arr[0]), ::environ);
 
       int err = errno;
       WithColor::error() << llvm::formatv("execve failed: {0}\n",
@@ -485,7 +485,7 @@ int DecompileTool::Run(void) {
   // compile jove starter bitcode
   //
   std::string jove_o_fp = (fs::path(opts.Output) / ".obj" / "jove.o").string();
-  pid_t pid = fork();
+  pid_t pid = ::fork();
   if (!pid) {
     IgnoreCtrlC();
 
@@ -508,8 +508,8 @@ int DecompileTool::Run(void) {
     if (opts.Verbose)
       print_command(&arg_arr[0]);
 
-    close(STDIN_FILENO);
-    execve(arg_arr[0], const_cast<char **>(&arg_arr[0]), ::environ);
+    ::close(STDIN_FILENO);
+    ::execve(arg_arr[0], const_cast<char **>(&arg_arr[0]), ::environ);
 
     int err = errno;
     WithColor::error() << llvm::formatv("execve failed: {0}\n", strerror(err));
@@ -721,7 +721,7 @@ void DecompileTool::Worker(void) {
     //
     // run jove-llvm
     //
-    pid_t pid = fork();
+    pid_t pid = ::fork();
     if (!pid) {
       IgnoreCtrlC();
 
@@ -745,19 +745,19 @@ void DecompileTool::Worker(void) {
 
       {
         std::string stdoutfp = bcfp + ".stdout.llvm.txt";
-        int stdoutfd = open(stdoutfp.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666);
-        dup2(stdoutfd, STDOUT_FILENO);
-        close(stdoutfd);
+        int stdoutfd = ::open(stdoutfp.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666);
+        ::dup2(stdoutfd, STDOUT_FILENO);
+        ::close(stdoutfd);
       }
 
       {
         std::string stderrfp = bcfp + ".stderr.llvm.txt";
-        int stderrfd = open(stderrfp.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666);
-        dup2(stderrfd, STDERR_FILENO);
-        close(stderrfd);
+        int stderrfd = ::open(stderrfp.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666);
+        ::dup2(stderrfd, STDERR_FILENO);
+        ::close(stderrfd);
       }
 
-      close(STDIN_FILENO);
+      ::close(STDIN_FILENO);
       exec_tool("llvm", arg_vec);
 
       int err = errno;
@@ -781,7 +781,7 @@ void DecompileTool::Worker(void) {
     //
     // run llvm-cbe
     //
-    pid = fork();
+    pid = ::fork();
     if (!pid) {
       IgnoreCtrlC();
 
@@ -804,20 +804,20 @@ void DecompileTool::Worker(void) {
 
       {
         std::string stdoutfp = bcfp + ".stdout.cbe.txt";
-        int stdoutfd = open(stdoutfp.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666);
-        dup2(stdoutfd, STDOUT_FILENO);
-        close(stdoutfd);
+        int stdoutfd = ::open(stdoutfp.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666);
+        ::dup2(stdoutfd, STDOUT_FILENO);
+        ::close(stdoutfd);
       }
 
       {
         std::string stderrfp = bcfp + ".stderr.cbe.txt";
-        int stderrfd = open(stderrfp.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666);
-        dup2(stderrfd, STDERR_FILENO);
-        close(stderrfd);
+        int stderrfd = ::open(stderrfp.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666);
+        ::dup2(stderrfd, STDERR_FILENO);
+        ::close(stderrfd);
       }
 
-      close(STDIN_FILENO);
-      execve(llvm_cbe_path.c_str(), const_cast<char **>(&arg_vec[0]), ::environ);
+      ::close(STDIN_FILENO);
+      ::execve(llvm_cbe_path.c_str(), const_cast<char **>(&arg_vec[0]), ::environ);
 
       int err = errno;
       HumanOut() << llvm::formatv("execve failed: {0}\n", strerror(err));

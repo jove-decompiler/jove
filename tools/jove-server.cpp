@@ -119,7 +119,7 @@ struct ConnectionProcArgs {
         "connection closed [{0}]\n",
         string_of_sockaddr((struct sockaddr *)&this->addr, this->addrlen));
 
-    if (close(data_socket) < 0) {
+    if (::close(data_socket) < 0) {
       int err = errno;
       WithColor::warning() << llvm::formatv(
           "failed to close data_socket: {0}]\n", strerror(err));
@@ -252,7 +252,7 @@ int ServerTool::Run(void) {
   //
   // cleanup
   //
-  close(connection_socket);
+  ::close(connection_socket);
 
   return 0;
 }
@@ -381,7 +381,7 @@ void *ServerTool::ConnectionProc(void *arg) {
   //
   // analyze
   //
-  pid_t pid = fork();
+  pid_t pid = ::fork();
   if (!pid) {
     std::vector<const char *> arg_vec = {
         "-d", tmpjv.c_str()
@@ -419,7 +419,7 @@ void *ServerTool::ConnectionProc(void *arg) {
   std::string sysroot_dir = (TemporaryDir / "sysroot").string();
   fs::create_directory(sysroot_dir);
 
-  pid = fork();
+  pid = ::fork();
   if (!pid) {
     std::vector<const char *> arg_vec = {
         "-d", tmpjv.c_str(),

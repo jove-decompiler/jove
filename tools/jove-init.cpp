@@ -469,7 +469,7 @@ int InitTool::Run(void) {
 
   IgnoreCtrlC();
 
-  null_fd = open("/dev/null", O_WRONLY);
+  null_fd = ::open("/dev/null", O_WRONLY);
   if (null_fd < 0) {
     WithColor::error() << "could not open /dev/null : " << strerror(errno)
                        << '\n';
@@ -489,7 +489,7 @@ int InitTool::Run(void) {
   // standard output, which will tell us what binaries are needed by prog.
   //
   int pipefd[2];
-  if (pipe(pipefd) < 0) {
+  if (::pipe(pipefd) < 0) {
     WithColor::error() << "pipe failed : " << strerror(errno) << '\n';
     return 1;
   }
@@ -499,16 +499,16 @@ int InitTool::Run(void) {
 
   const bool firmadyne = fs::exists("/firmadyne/libnvram.so");
 
-  pid_t pid = fork();
+  pid_t pid = ::fork();
 
   //
   // are we the child?
   //
   if (!pid) {
-    close(rfd); /* close unused read end */
+    ::close(rfd); /* close unused read end */
 
     /* make stdout be the write end of the pipe */
-    if (dup2(wfd, STDOUT_FILENO) < 0) {
+    if (::dup2(wfd, STDOUT_FILENO) < 0) {
       WithColor::error() << "dup2 failed : " << strerror(errno) << '\n';
       exit(1);
     }
@@ -527,9 +527,9 @@ int InitTool::Run(void) {
     env_vec.push_back(nullptr);
 
     print_command(&arg_vec[0]);
-    execve(arg_vec[0],
-           const_cast<char **>(&arg_vec[0]),
-           const_cast<char **>(&env_vec[0]));
+    ::execve(arg_vec[0],
+             const_cast<char **>(&arg_vec[0]),
+             const_cast<char **>(&env_vec[0]));
 
     /* if we get here, exec failed */
     int err = errno;
@@ -539,7 +539,7 @@ int InitTool::Run(void) {
     return 1;
   }
 
-  close(wfd); /* close unused write end */
+  ::close(wfd); /* close unused write end */
 
   //
   // slurp up the result of executing the binary
@@ -547,11 +547,11 @@ int InitTool::Run(void) {
   std::string dynlink_stdout;
   {
     char buf;
-    while (read(rfd, &buf, 1) > 0)
+    while (::read(rfd, &buf, 1) > 0)
       dynlink_stdout += buf;
   }
 
-  close(rfd); /* close read end */
+  ::close(rfd); /* close read end */
 
   //
   // check exit code
@@ -574,13 +574,13 @@ int InitTool::Run(void) {
       return 1;
     }
   } else {
-    srand(time(nullptr));
+    srand(::time(nullptr));
     tmpdir = (fs::path(opts.TemporaryDir) / std::to_string(rand())).string();
 
     if (opts.Verbose)
       llvm::errs() << "temporary dir: " << tmpdir.c_str() << '\n';
 
-    if (mkdir(tmpdir.c_str(), 0777) < 0) {
+    if (::mkdir(tmpdir.c_str(), 0777) < 0) {
       int err = errno;
       if (err != EEXIST) {
         WithColor::error() << llvm::formatv("could not create temporary directory: {0}\n", strerror(err));
@@ -605,7 +605,7 @@ int InitTool::Run(void) {
   // to get the vdso, we run $(BINDIR)/$(target)/harvest-vdso. if it exists, it
   // will write the contents to STDOUT. otherwise it returns a non-zero number.
   //
-  if (pipe(pipefd) < 0) {
+  if (::pipe(pipefd) < 0) {
     int err = errno;
     WithColor::error() << llvm::formatv("pipe failed: {0}\n", strerror(err));
     return 1;
@@ -617,12 +617,12 @@ int InitTool::Run(void) {
   //
   // run harvest-vdso
   //
-  pid = fork();
+  pid = ::fork();
   if (!pid) {
-    close(rfd); /* close unused read end */
+    ::close(rfd); /* close unused read end */
 
     /* make stdout be the write end of the pipe */
-    if (dup2(wfd, STDOUT_FILENO) < 0) {
+    if (::dup2(wfd, STDOUT_FILENO) < 0) {
       int err = errno;
       WithColor::error() << llvm::formatv("dup2 failed: {0}\n", strerror(err));
       return 1;
@@ -636,9 +636,9 @@ int InitTool::Run(void) {
 
     env_vec.push_back(nullptr);
 
-    execve(arg_vec[0],
-           const_cast<char **>(&arg_vec[0]),
-           const_cast<char **>(&env_vec[0]));
+    ::execve(arg_vec[0],
+             const_cast<char **>(&arg_vec[0]),
+             const_cast<char **>(&env_vec[0]));
 
     /* if we get here, exec failed */
     int err = errno;
@@ -649,7 +649,7 @@ int InitTool::Run(void) {
   }
 
   {
-    int rc = close(wfd);
+    int rc = ::close(wfd);
     assert(!(rc < 0));
   }
 
@@ -660,7 +660,7 @@ int InitTool::Run(void) {
   vdso.reserve(2 * 4096); /* XXX */
   {
     uint8_t byte;
-    while (read(rfd, &byte, 1) > 0)
+    while (::read(rfd, &byte, 1) > 0)
       vdso.push_back(byte);
   }
 
@@ -668,7 +668,7 @@ int InitTool::Run(void) {
   // close read end; we are done with it.
   //
   {
-    int rc = close(rfd);
+    int rc = ::close(rfd);
     assert(!(rc < 0));
   }
 
@@ -704,7 +704,7 @@ int InitTool::Run(void) {
     char path[0x100];
     snprintf(path, sizeof(path), "%s/linux-vdso.so", tmpdir.c_str());
 
-    int fd = open(path, O_CREAT | O_TRUNC | O_WRONLY, 0666);
+    int fd = ::open(path, O_CREAT | O_TRUNC | O_WRONLY, 0666);
     ssize_t ret = robust_write(fd, &vdso[0], vdso.size());
     if (ret < 0) {
       WithColor::error() << llvm::formatv(
@@ -713,7 +713,7 @@ int InitTool::Run(void) {
       return 1;
     }
 
-    close(fd);
+    ::close(fd);
 
     binary_paths.push_back(path);
   }
@@ -999,7 +999,7 @@ void InitTool::worker(void) {
     std::string jvfp = tmpdir + path + ".jv";
     fs::create_directories(fs::path(jvfp).parent_path());
 
-    pid_t pid = fork();
+    pid_t pid = ::fork();
     if (!pid) {
       std::vector<const char *> arg_vec = {
         "-o", jvfp.c_str(),
@@ -1010,12 +1010,12 @@ void InitTool::worker(void) {
         print_tool_command("add", arg_vec);
 
       std::string stdoutfp = tmpdir + path + ".txt";
-      int outfd = open(stdoutfp.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666);
-      dup2(outfd, STDOUT_FILENO);
+      int outfd = ::open(stdoutfp.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666);
+      ::dup2(outfd, STDOUT_FILENO);
       if (opts.RedirectStderr)
-        dup2(outfd, STDERR_FILENO);
+        ::dup2(outfd, STDERR_FILENO);
 
-      close(STDIN_FILENO);
+      ::close(STDIN_FILENO);
       exec_tool("add", arg_vec);
 
       int err = errno;

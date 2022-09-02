@@ -180,7 +180,7 @@ static void CrashHandler(int no) {
   case SIGABRT:
   case SIGSEGV: {
     const char *msg = "jove-run crashed! attach with a debugger..";
-    write(STDERR_FILENO, msg, strlen(msg));
+    ::write(STDERR_FILENO, msg, strlen(msg));
 
     for (;;)
       sleep(1);
@@ -230,9 +230,9 @@ int RunTool::Run(void) {
     sa.sa_flags = SA_RESTART;
     sa.sa_handler = CrashHandler;
 
-    if (sigaction(SIGSEGV, &sa, nullptr) < 0 ||
-/*      sigaction(SIGABRT, &sa, nullptr) < 0 || */
-        sigaction(SIGBUS, &sa, nullptr) < 0) {
+    if (::sigaction(SIGSEGV, &sa, nullptr) < 0 ||
+/*      ::sigaction(SIGABRT, &sa, nullptr) < 0 || */
+        ::sigaction(SIGBUS, &sa, nullptr) < 0) {
       int err = errno;
       HumanOut() << llvm::formatv("sigaction failed: {0}\n", strerror(err));
       return 1;
@@ -572,7 +572,7 @@ int RunTool::DoRun(void) {
     //
     {
       int pipefd[2] = {-1, -1};
-      if (pipe(pipefd) < 0) {
+      if (::pipe(pipefd) < 0) {
         HumanOut() << "pipe(2) failed. bug?\n";
         return 1;
       }
@@ -597,7 +597,7 @@ int RunTool::DoRun(void) {
         continue;
 
       std::string sav_path = binary.Path + ".jove.sav";
-      if (link(binary.Path.c_str(), sav_path.c_str()) < 0) {
+      if (::link(binary.Path.c_str(), sav_path.c_str()) < 0) {
         int err = errno;
         HumanOut() << llvm::formatv("failed to create hard link for {0}: {1}\n",
                                     binary.Path, strerror(err));
@@ -619,7 +619,7 @@ int RunTool::DoRun(void) {
       fs::path chrooted_path = fs::path(opts.sysroot) / binary.Path;
       std::string new_path = binary.Path + ".jove.new";
 
-      if (link(chrooted_path.c_str(), new_path.c_str()) < 0) {
+      if (::link(chrooted_path.c_str(), new_path.c_str()) < 0) {
         if (opts.Verbose) {
           int err = errno;
           HumanOut() << llvm::formatv("failed to create hard link {0} -> {1}: {2}\n",
@@ -645,13 +645,13 @@ int RunTool::DoRun(void) {
   //
   // now actually fork and exec the given executable
   //
-  int pid = fork();
+  int pid = ::fork();
   if (!pid) {
     if (LivingDangerously) {
       //
       // close unused read end of pipe
       //
-      close(rfd);
+      ::close(rfd);
 
       //
       // make the write end of the pipe be close-on-exec
@@ -664,7 +664,7 @@ int RunTool::DoRun(void) {
     }
 
     if (WillChroot) {
-      if (chroot(opts.sysroot.c_str()) < 0) {
+      if (::chroot(opts.sysroot.c_str()) < 0) {
         int err = errno;
         HumanOut() << llvm::formatv("chroot failed : {0}\n", strerror(err));
         return 1;
@@ -674,7 +674,7 @@ int RunTool::DoRun(void) {
           !opts.ChangeDirectory.empty() ?
           opts.ChangeDirectory.c_str() : "/";
 
-      if (chdir(working_dir) < 0) {
+      if (::chdir(working_dir) < 0) {
         int err = errno;
         HumanOut() << llvm::formatv("chdir failed : {0}\n", strerror(err));
         return 1;
@@ -809,7 +809,7 @@ int RunTool::DoRun(void) {
 
         std::string new_path = binary.Path + ".jove.new";
 
-        if (rename(new_path.c_str(), binary.Path.c_str()) < 0) {
+        if (::rename(new_path.c_str(), binary.Path.c_str()) < 0) {
           int err = errno;
           HumanOut() << llvm::formatv("rename of {0} to {1} failed: {2}\n",
                                       new_path.c_str(),
@@ -822,15 +822,15 @@ int RunTool::DoRun(void) {
         HumanOut() << (__ANSI_CYAN "modified root file system." __ANSI_NORMAL_COLOR "\n");
     }
 
-    execve(arg_vec[0],
-           const_cast<char **>(&arg_vec[0]),
-           const_cast<char **>(&env_vec[0]));
+    ::execve(arg_vec[0],
+             const_cast<char **>(&arg_vec[0]),
+             const_cast<char **>(&env_vec[0]));
 
     int err = errno;
     HumanOut() << llvm::formatv("execve failed: {0}\n", strerror(err));
 
     if (LivingDangerously)
-      close(wfd); /* close-on-exec didn't happen */
+      ::close(wfd); /* close-on-exec didn't happen */
 
     return 1;
   }
@@ -849,7 +849,7 @@ int RunTool::DoRun(void) {
     if (ret != sizeof(uint64_t))
       HumanOut() << llvm::formatv("failed to write to pipefd: {0}\n", ret);
 
-    if (close(pipefd) < 0) {
+    if (::close(pipefd) < 0) {
       int err = errno;
       HumanOut() << llvm::formatv("failed to close pipefd: {0}\n",
                                   strerror(err));
@@ -857,12 +857,12 @@ int RunTool::DoRun(void) {
   }
 
   if (LivingDangerously) {
-    close(wfd);
+    ::close(wfd);
 
     ssize_t ret;
     do {
       uint8_t byte;
-      ret = read(rfd, &byte, 1);
+      ret = ::read(rfd, &byte, 1);
     } while (!(ret <= 0));
 
     /* if we got here, the other end of the pipe must have been closed,
@@ -895,7 +895,7 @@ int RunTool::DoRun(void) {
 
       std::string sav_path = binary.Path + ".jove.sav";
 
-      if (rename(sav_path.c_str(), binary.Path.c_str()) < 0) {
+      if (::rename(sav_path.c_str(), binary.Path.c_str()) < 0) {
         int err = errno;
         HumanOut() << llvm::formatv("rename of {0} to {1} failed: {2}\n",
                                     sav_path.c_str(),
@@ -923,7 +923,7 @@ int RunTool::DoRun(void) {
 
         std::string sav_path = binary.Path + ".jove.sav";
 
-        if (rename(sav_path.c_str(), binary.Path.c_str()) < 0) {
+        if (::rename(sav_path.c_str(), binary.Path.c_str()) < 0) {
           int err = errno;
           HumanOut() << llvm::formatv(
               "rename of {0} to {1} failed: {2}\n",
@@ -937,7 +937,7 @@ int RunTool::DoRun(void) {
     if (opts.Verbose)
       HumanOut() << (__ANSI_MAGENTA "root file system restored." __ANSI_NORMAL_COLOR "\n");
 
-    close(rfd);
+    ::close(rfd);
   }
 
   //
@@ -1017,7 +1017,7 @@ int RunTool::DoRun(void) {
 void touch(const fs::path &p) {
   fs::create_directories(p.parent_path());
   if (!fs::exists(p))
-    close(open(p.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0666));
+    ::close(::open(p.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0666));
 }
 
 void *recover_proc(const char *fifo_path) {
@@ -1030,7 +1030,7 @@ void *recover_proc(const char *fifo_path) {
 
   int recover_fd;
   do
-    recover_fd = open(fifo_path, O_RDONLY);
+    recover_fd = ::open(fifo_path, O_RDONLY);
   while (recover_fd < 0 && errno == EINTR);
 
   if (recover_fd < 0) {
@@ -1042,7 +1042,7 @@ void *recover_proc(const char *fifo_path) {
 
   void (*cleanup_handler)(void *) = [](void *arg) -> void {
     int fd = reinterpret_cast<long>(arg);
-    if (close(fd) < 0) {
+    if (::close(fd) < 0) {
       int err = errno;
       throw std::runtime_error(
           std::string("recover_proc: cleanup_handler: close failed: ") +
@@ -1057,7 +1057,7 @@ void *recover_proc(const char *fifo_path) {
 
     {
       // NOTE: read is a cancellation point
-      ssize_t ret = read(recover_fd, &ch, 1);
+      ssize_t ret = ::read(recover_fd, &ch, 1);
       if (ret != 1) {
         if (ret < 0) {
           int err = errno;
@@ -1069,7 +1069,7 @@ void *recover_proc(const char *fifo_path) {
                                            strerror(err));
         } else if (ret == 0) {
           // NOTE: open is a cancellation point
-          int new_recover_fd = open(fifo_path, O_RDONLY);
+          int new_recover_fd = ::open(fifo_path, O_RDONLY);
           if (new_recover_fd < 0) {
             int err = errno;
             tool.HumanOut() << llvm::formatv(
@@ -1084,14 +1084,14 @@ void *recover_proc(const char *fifo_path) {
 
           assert(new_recover_fd != recover_fd);
 
-          if (dup2(new_recover_fd, recover_fd) < 0) {
+          if (::dup2(new_recover_fd, recover_fd) < 0) {
             int err = errno;
             tool.HumanOut() << llvm::formatv(
                 "recover: failed to dup2({0}, {1})) ({2})\n", new_recover_fd,
                 recover_fd, strerror(err));
           }
 
-          if (close(new_recover_fd) < 0) {
+          if (::close(new_recover_fd) < 0) {
             int err = errno;
             tool.HumanOut() << llvm::formatv("recover_proc: close failed ({0})\n",
                                         strerror(err));

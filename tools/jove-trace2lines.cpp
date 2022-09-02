@@ -274,7 +274,7 @@ int Trace2LinesTool::Run(void) {
     nullptr
   };
 
-  execve(arg_arr[0], const_cast<char **>(&arg_arr[0]), ::environ);
+  ::execve(arg_arr[0], const_cast<char **>(&arg_arr[0]), ::environ);
 
   /* if we got here, execve failed */
   int err = errno;

@@ -218,7 +218,7 @@ int CodeDigger::Run(void) {
   assert(fs::exists(tmp_dir) && fs::is_directory(tmp_dir));
 
   int pipefd[2];
-  if (pipe(pipefd) < 0) {
+  if (::pipe(pipefd) < 0) {
     int err = errno;
     WithColor::error() << llvm::formatv("pipe failed: {0}\n", strerror(err));
     return 1;
@@ -267,7 +267,7 @@ int CodeDigger::Run(void) {
       llvm::errs() << llvm::formatv(" {0} s\n", s_double.count());
   }
 
-  close(pipe_wrfd);
+  ::close(pipe_wrfd);
   recover_thread.join();
 
   if (opts.NoSave)
@@ -351,7 +351,7 @@ void CodeDigger::RecoverLoop(void) {
       HumanOut() << recovery_msg << '\n';
   }
 
-  close(pipe_rdfd);
+  ::close(pipe_rdfd);
 }
 
 bool CodeDigger::pop_binary(binary_index_t &out) {
@@ -385,11 +385,11 @@ void CodeDigger::Worker(void) {
     //
     // run jove-llvm
     //
-    pid_t pid = fork();
+    pid_t pid = ::fork();
     if (!pid) {
       IgnoreCtrlC();
-      close(pipe_rdfd);
-      close(pipe_wrfd);
+      ::close(pipe_rdfd);
+      ::close(pipe_wrfd);
 
       std::string BIdx_arg(std::to_string(BIdx));
 
@@ -414,19 +414,19 @@ void CodeDigger::Worker(void) {
 
       {
         std::string stdoutfp = bcfp + ".stdout.llvm.txt";
-        int stdoutfd = open(stdoutfp.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666);
-        dup2(stdoutfd, STDOUT_FILENO);
-        close(stdoutfd);
+        int stdoutfd = ::open(stdoutfp.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666);
+        ::dup2(stdoutfd, STDOUT_FILENO);
+        ::close(stdoutfd);
       }
 
       {
         std::string stderrfp = bcfp + ".stderr.llvm.txt";
-        int stderrfd = open(stderrfp.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666);
-        dup2(stderrfd, STDERR_FILENO);
-        close(stderrfd);
+        int stderrfd = ::open(stderrfp.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666);
+        ::dup2(stderrfd, STDERR_FILENO);
+        ::close(stderrfd);
       }
 
-      close(STDIN_FILENO);
+      ::close(STDIN_FILENO);
       exec_tool("llvm", arg_vec);
 
       int err = errno;
@@ -450,10 +450,10 @@ void CodeDigger::Worker(void) {
     //
     // run klee
     //
-    pid = fork();
+    pid = ::fork();
     if (!pid) {
       IgnoreCtrlC();
-      close(pipe_rdfd);
+      ::close(pipe_rdfd);
 
       std::vector<const char *> arg_vec = {
         klee_path.c_str(),
@@ -508,9 +508,9 @@ void CodeDigger::Worker(void) {
         // redirect standard output to file
         //
         std::string stdoutfp = bcfp + ".stdout.klee.txt";
-        int stdoutfd = open(stdoutfp.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666);
-        dup2(stdoutfd, STDOUT_FILENO);
-        close(stdoutfd);
+        int stdoutfd = ::open(stdoutfp.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666);
+        ::dup2(stdoutfd, STDOUT_FILENO);
+        ::close(stdoutfd);
       }
 
       if (!opts.Verbose) {
@@ -518,13 +518,13 @@ void CodeDigger::Worker(void) {
         // redirect standard error to file
         //
         std::string stderrfp = bcfp + ".stderr.klee.txt";
-        int stderrfd = open(stderrfp.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666);
-        dup2(stderrfd, STDERR_FILENO);
-        close(stderrfd);
+        int stderrfd = ::open(stderrfp.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666);
+        ::dup2(stderrfd, STDERR_FILENO);
+        ::close(stderrfd);
       }
 
-      close(STDIN_FILENO);
-      execve(klee_path.c_str(), const_cast<char **>(&arg_vec[0]), ::environ);
+      ::close(STDIN_FILENO);
+      ::execve(klee_path.c_str(), const_cast<char **>(&arg_vec[0]), ::environ);
 
       int err = errno;
       HumanOut() << llvm::formatv("execve failed: {0}\n", strerror(err));

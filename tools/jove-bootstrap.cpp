@@ -548,7 +548,7 @@ int BootstrapTool::Run(void) {
     sa.sa_flags = SA_RESTART;                                                  \
     sa.sa_handler = SignalHandler;                                             \
                                                                                \
-    if (sigaction(sig, &sa, nullptr) < 0) {                                    \
+    if (::sigaction(sig, &sa, nullptr) < 0) {                                  \
       int err = errno;                                                         \
       HumanOut() << llvm::formatv("sigaction failed: {0}\n", strerror(err));   \
     }                                                                          \
@@ -570,7 +570,7 @@ int BootstrapTool::Run(void) {
     //
     // mode 1: attach
     //
-    if (ptrace(PTRACE_ATTACH, child, 0UL, 0UL) < 0) {
+    if (::ptrace(PTRACE_ATTACH, child, 0UL, 0UL) < 0) {
       HumanOut() << llvm::formatv("PTRACE_ATTACH failed ({0})\n", strerror(errno));
       return 1;
     }
@@ -585,7 +585,7 @@ int BootstrapTool::Run(void) {
     {
       int status;
       do
-        waitpid(-1, &status, __WALL);
+        ::waitpid(-1, &status, __WALL);
       while (!WIFSTOPPED(status));
     }
 
@@ -601,7 +601,7 @@ int BootstrapTool::Run(void) {
                            PTRACE_O_TRACEVFORK |
                            PTRACE_O_TRACECLONE;
 
-      if (ptrace(PTRACE_SETOPTIONS, child, 0UL, ptrace_options) < 0) {
+      if (::ptrace(PTRACE_SETOPTIONS, child, 0UL, ptrace_options) < 0) {
         int err = errno;
         HumanOut() << llvm::formatv("{0}: PTRACE_SETOPTIONS failed ({1})\n",
                                           __func__,
@@ -615,7 +615,7 @@ int BootstrapTool::Run(void) {
     // mode 2: create new process
     //
     int pipefd[2];
-    if (pipe(pipefd) < 0) { /* first, create a pipe */
+    if (::pipe(pipefd) < 0) { /* first, create a pipe */
       HumanOut() << "pipe(2) failed. bug?\n";
       return 1;
     }
@@ -623,10 +623,10 @@ int BootstrapTool::Run(void) {
     int rfd = pipefd[0];
     int wfd = pipefd[1];
 
-    child = fork();
+    child = ::fork();
     if (!child) {
       {
-        int rc = close(rfd);
+        int rc = ::close(rfd);
         assert(!(rc < 0));
       }
 
@@ -634,7 +634,7 @@ int BootstrapTool::Run(void) {
       // make pipe close-on-exec
       //
       {
-        int rc = fcntl(wfd, F_SETFD, FD_CLOEXEC);
+        int rc = ::fcntl(wfd, F_SETFD, FD_CLOEXEC);
         assert(!(rc < 0));
       }
 
@@ -645,7 +645,7 @@ int BootstrapTool::Run(void) {
     IgnoreCtrlC();
 
     {
-      int rc = close(wfd);
+      int rc = ::close(wfd);
       assert(!(rc < 0));
     }
 
@@ -659,7 +659,7 @@ int BootstrapTool::Run(void) {
     {
       int status;
       do
-        waitpid(child, &status, 0);
+        ::waitpid(child, &status, 0);
       while (!WIFSTOPPED(status));
     }
 
@@ -678,7 +678,7 @@ int BootstrapTool::Run(void) {
                            PTRACE_O_TRACEVFORK |
                            PTRACE_O_TRACECLONE;
 
-      if (ptrace(PTRACE_SETOPTIONS, child, 0UL, ptrace_options) < 0) {
+      if (::ptrace(PTRACE_SETOPTIONS, child, 0UL, ptrace_options) < 0) {
         int err = errno;
         HumanOut() << llvm::formatv("{0}: PTRACE_SETOPTIONS failed ({1})\n",
                                           __func__,
@@ -689,7 +689,7 @@ int BootstrapTool::Run(void) {
     //
     // allow the child to make progress (most importantly, execve)
     //
-    if (ptrace(PTRACE_CONT, child, 0UL, 0UL) < 0) {
+    if (::ptrace(PTRACE_CONT, child, 0UL, 0UL) < 0) {
       int err = errno;
       HumanOut() << llvm::formatv("failed to resume tracee! {0}", err);
       return 1;
@@ -703,12 +703,12 @@ int BootstrapTool::Run(void) {
       ssize_t ret;
       do {
         uint8_t byte;
-        ret = read(rfd, &byte, 1);
+        ret = ::read(rfd, &byte, 1);
       } while (!(ret <= 0));
 
       /* if we got here, the other end of the pipe must have been closed,
        * most likely by close-on-exec */
-      close(rfd);
+      ::close(rfd);
     }
 
     return TracerLoop(-1, tcg);
@@ -805,7 +805,7 @@ int BootstrapTool::TracerLoop(pid_t child, tiny_code_generator_t &tcg) {
   try {
     for (;;) {
       if (likely(!(child < 0))) {
-        if (unlikely(ptrace(opts.Syscalls || unlikely(!BinFoundVec.all())
+        if (unlikely(::ptrace(opts.Syscalls || unlikely(!BinFoundVec.all())
                                 ? PTRACE_SYSCALL
                                 : PTRACE_CONT,
                             child, nullptr, reinterpret_cast<void *>(sig)) < 0))
@@ -822,7 +822,7 @@ int BootstrapTool::TracerLoop(pid_t child, tiny_code_generator_t &tcg) {
       // wait for a child process to stop or terminate
       //
       int status;
-      child = waitpid(-1, &status, __WALL);
+      child = ::waitpid(-1, &status, __WALL);
 
       if (unlikely(child < 0)) {
         int err = errno;
@@ -855,7 +855,7 @@ int BootstrapTool::TracerLoop(pid_t child, tiny_code_generator_t &tcg) {
                                PTRACE_O_TRACEVFORK |
                                PTRACE_O_TRACECLONE;
 
-          if (ptrace(PTRACE_SETOPTIONS, child, 0UL, ptrace_options) < 0) {
+          if (::ptrace(PTRACE_SETOPTIONS, child, 0UL, ptrace_options) < 0) {
             int err = errno;
             HumanOut() << llvm::formatv("{0}: PTRACE_SETOPTIONS failed ({1})\n",
                                         __func__,
@@ -1226,7 +1226,7 @@ int BootstrapTool::TracerLoop(pid_t child, tiny_code_generator_t &tcg) {
               break;
             case PTRACE_EVENT_CLONE: {
               pid_t new_child;
-              ptrace(PTRACE_GETEVENTMSG, child, nullptr, &new_child);
+              ::ptrace(PTRACE_GETEVENTMSG, child, nullptr, &new_child);
 
               if (opts.PrintPtraceEvents)
                 HumanOut() << "ptrace event (PTRACE_EVENT_CLONE) -> "
@@ -1274,7 +1274,7 @@ int BootstrapTool::TracerLoop(pid_t child, tiny_code_generator_t &tcg) {
                   "{0}: on_breakpoint failed: {1}\n", __func__, e.what());
             }
           }
-        } else if (ptrace(PTRACE_GETSIGINFO, child, 0UL, &si) < 0) {
+        } else if (::ptrace(PTRACE_GETSIGINFO, child, 0UL, &si) < 0) {
           //
           // (3) group-stop
           //
@@ -3793,7 +3793,7 @@ int BootstrapTool::ChildProc(int pipefd) {
   //
   // the request
   //
-  ptrace(PTRACE_TRACEME);
+  ::ptrace(PTRACE_TRACEME);
   //
   // turns the calling thread into a tracee.  The thread continues to run
   // (doesn't enter ptrace-stop).  A common practice is to follow the
@@ -3806,7 +3806,7 @@ int BootstrapTool::ChildProc(int pipefd) {
   //
 
   std::string name = "jove/bootstrap" + Decompilation.Binaries.at(0).Path;
-  int fd = memfd_create(name.c_str(), MFD_CLOEXEC);
+  int fd = ::memfd_create(name.c_str(), MFD_CLOEXEC);
   if (fd < 0)
     abort();
   if (robust_write(fd,
@@ -3815,17 +3815,17 @@ int BootstrapTool::ChildProc(int pipefd) {
     abort();
   std::string exe_path = "/proc/self/fd/" + std::to_string(fd);
 
-  execve(exe_path.c_str(),
-         const_cast<char **>(&arg_vec[0]),
-         const_cast<char **>(&env_vec[0]));
+  ::execve(exe_path.c_str(),
+           const_cast<char **>(&arg_vec[0]),
+           const_cast<char **>(&env_vec[0]));
 
   /* if we got here, execve failed */
   int err = errno;
   HumanOut() << llvm::formatv("failed to execve (reason: {0})",
                               strerror(err));
 
-  close(pipefd);
-  close(fd);
+  ::close(pipefd);
+  ::close(fd);
   return 1;
 }
 
@@ -4093,7 +4093,7 @@ void BootstrapTool::add_binary(pid_t child, tiny_code_generator_t &tcg,
   //
   // run jove-add on the DSO
   //
-  pid_t pid = fork();
+  pid_t pid = ::fork();
   if (!pid) {
     std::vector<const char *> arg_vec = {
       "-o", jvfp.c_str(),
@@ -4104,11 +4104,11 @@ void BootstrapTool::add_binary(pid_t child, tiny_code_generator_t &tcg,
       print_tool_command("add", arg_vec);
 
     std::string stdoutfp = std::string(tmpdir) + path + ".txt";
-    int outfd = open(stdoutfp.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666);
-    dup2(outfd, STDOUT_FILENO);
-    dup2(outfd, STDERR_FILENO);
+    int outfd = ::open(stdoutfp.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666);
+    ::dup2(outfd, STDOUT_FILENO);
+    ::dup2(outfd, STDERR_FILENO);
 
-    close(STDIN_FILENO);
+    ::close(STDIN_FILENO);
     exec_tool("add", arg_vec);
 
     int err = errno;
@@ -4714,7 +4714,7 @@ void SignalHandler(int no) {
     //
     // detach from tracee
     //
-    if (ptrace(PTRACE_DETACH, saved_child, 0UL, 0UL) < 0) {
+    if (::ptrace(PTRACE_DETACH, saved_child, 0UL, 0UL) < 0) {
       int err = errno;
       tool.HumanOut() << llvm::formatv(
           "failed to detach from tracee [{0}]: {1}\n",

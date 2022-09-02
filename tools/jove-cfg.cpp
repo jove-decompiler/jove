@@ -467,7 +467,7 @@ Found:
                        fs::exists("/usr/bin/graph-easy");
 
   if (haveGraphEasy) {
-    pid_t pid = fork();
+    pid_t pid = ::fork();
     if (!pid) {
       std::string input_arg = "--input=" + dot_path;
 
@@ -488,8 +488,8 @@ Found:
 
       print_command(&arg_arr[0]);
 
-      close(STDIN_FILENO);
-      execve(arg_arr[0], const_cast<char **>(&arg_arr[0]), ::environ);
+      ::close(STDIN_FILENO);
+      ::execve(arg_arr[0], const_cast<char **>(&arg_arr[0]), ::environ);
 
       int err = errno;
       WithColor::error() << llvm::formatv("execve failed: {0}\n",

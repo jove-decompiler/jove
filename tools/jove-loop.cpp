@@ -270,7 +270,7 @@ static void SigHandler(int no) {
   case SIGBUS:
   case SIGSEGV: {
     const char *msg = "jove-loop crashed! attach with a debugger..";
-    write(STDERR_FILENO, msg, strlen(msg));
+    ::write(STDERR_FILENO, msg, strlen(msg));
 
     for (;;)
       sleep(1);
@@ -302,10 +302,10 @@ int LoopTool::Run(void) {
     sa.sa_flags = SA_RESTART;
     sa.sa_handler = SigHandler;
 
-    if (sigaction(SIGINT, &sa, nullptr) < 0 ||
-        sigaction(SIGTERM, &sa, nullptr) < 0 ||
-        sigaction(SIGSEGV, &sa, nullptr) < 0 ||
-        sigaction(SIGBUS, &sa, nullptr) < 0) {
+    if (::sigaction(SIGINT, &sa, nullptr) < 0 ||
+        ::sigaction(SIGTERM, &sa, nullptr) < 0 ||
+        ::sigaction(SIGSEGV, &sa, nullptr) < 0 ||
+        ::sigaction(SIGBUS, &sa, nullptr) < 0) {
       int err = errno;
       HumanOut() << llvm::formatv("{0}: sigaction failed ({1})\n", __func__,
                                   strerror(err));
@@ -396,7 +396,7 @@ int LoopTool::Run(void) {
 run:
     {
       int pipefd[2];
-      if (pipe(pipefd) < 0) {
+      if (::pipe(pipefd) < 0) {
         int err = errno;
         HumanOut() << llvm::formatv("pipe failed: {0}\n", strerror(err));
         return 1;
@@ -405,9 +405,9 @@ run:
       int rdFd = pipefd[0];
       int wrFd = pipefd[1];
 
-      pid = fork();
+      pid = ::fork();
       if (!pid) {
-        if (close(rdFd) < 0) {
+        if (::close(rdFd) < 0) {
           int err = errno;
           HumanOut() << llvm::formatv("failed to close rdFd: {0}\n",
                                       strerror(err));
@@ -534,7 +534,7 @@ run:
 
       run_pid.store(pid);
 
-      if (close(wrFd) < 0) {
+      if (::close(wrFd) < 0) {
         int err = errno;
         HumanOut() << llvm::formatv("failed to close wrFd: {0}\n",
                                     strerror(err));
@@ -560,7 +560,7 @@ run:
         }
       }
 
-      if (close(rdFd) < 0) {
+      if (::close(rdFd) < 0) {
         int err = errno;
         HumanOut() << llvm::formatv("failed to close rdFd: {0}\n",
                                     strerror(err));
@@ -592,7 +592,7 @@ skip_run:
       //
       // connect to jove-server
       //
-      int remote_fd = socket(AF_INET, SOCK_STREAM, 0);
+      int remote_fd = ::socket(AF_INET, SOCK_STREAM, 0);
       if (remote_fd < 0) {
         int err = errno;
         HumanOut() << llvm::formatv("socket failed: {0}\n", strerror(err));
@@ -602,7 +602,7 @@ skip_run:
       struct closeme_t {
         const int fd;
         closeme_t(int fd) : fd(fd) {}
-        ~closeme_t() { close(fd); }
+        ~closeme_t() { ::close(fd); }
       } closeme(remote_fd);
 
       std::string addr_str;
@@ -628,9 +628,9 @@ skip_run:
       int connect_ret;
       if (opts.Verbose)
         HumanOut() << llvm::formatv("connecting to remote {0}...\n", opts.Connect);
-      connect_ret = connect(remote_fd,
-                            reinterpret_cast<struct sockaddr *>(&server_addr),
-                            sizeof(sockaddr_in));
+      connect_ret = ::connect(remote_fd,
+                              reinterpret_cast<struct sockaddr *>(&server_addr),
+                              sizeof(sockaddr_in));
       if (connect_ret < 0 && errno != EINPROGRESS) {
         int err = errno;
         HumanOut() << llvm::formatv("connect failed: {0}\n", strerror(err));
@@ -770,7 +770,7 @@ skip_run:
           return 1;
         }
 
-        if (rename(new_chrooted_path.c_str(), chrooted_path.c_str()) < 0) {
+        if (::rename(new_chrooted_path.c_str(), chrooted_path.c_str()) < 0) {
           int err = errno;
           HumanOut() << llvm::formatv("rename of {0} to {1} failed: {2}\n",
                                       new_chrooted_path.c_str(),
@@ -1032,7 +1032,7 @@ skip_run:
       //
       // analyze
       //
-      pid = fork();
+      pid = ::fork();
       if (!pid) {
         std::vector<const char *> arg_vec = {
             "-d", jv_path.c_str()
@@ -1071,7 +1071,7 @@ skip_run:
       //
       // recompile
       //
-      pid = fork();
+      pid = ::fork();
       if (!pid) {
         std::vector<const char *> arg_vec = {
             "-d", jv_path.c_str(),

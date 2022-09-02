@@ -462,7 +462,7 @@ int RecompileTool::Run(void) {
     sa.sa_flags = SA_RESTART;
     sa.sa_handler = handle_sigint;
 
-    if (sigaction(SIGINT, &sa, nullptr) < 0) {
+    if (::sigaction(SIGINT, &sa, nullptr) < 0) {
       int err = errno;
       WithColor::error() << llvm::formatv("{0}: sigaction failed ({1})\n",
                                           __func__, strerror(err));
@@ -720,7 +720,7 @@ int RecompileTool::Run(void) {
     // graph-easy
     //
 
-    pid_t pid = fork();
+    pid_t pid = ::fork();
     if (!pid) {
       IgnoreCtrlC();
 
@@ -743,8 +743,8 @@ int RecompileTool::Run(void) {
 
       print_command(&arg_arr[0]);
 
-      close(STDIN_FILENO);
-      execve(arg_arr[0], const_cast<char **>(&arg_arr[0]), ::environ);
+      ::close(STDIN_FILENO);
+      ::execve(arg_arr[0], const_cast<char **>(&arg_arr[0]), ::environ);
 
       int err = errno;
       WithColor::error() << llvm::formatv("execve failed: {0}\n",
@@ -1002,7 +1002,7 @@ int RecompileTool::Run(void) {
     //
     // run ld
     //
-    pid = fork();
+    pid = ::fork();
     if (!pid) {
       IgnoreCtrlC();
 
@@ -1194,8 +1194,8 @@ int RecompileTool::Run(void) {
       if (opts.Verbose)
         print_command(&arg_vec[0]);
 
-      close(STDIN_FILENO);
-      execve(arg_vec[0], const_cast<char **>(&arg_vec[0]), ::environ);
+      ::close(STDIN_FILENO);
+      ::execve(arg_vec[0], const_cast<char **>(&arg_vec[0]), ::environ);
 
       int err = errno;
       WithColor::error() << llvm::formatv("execve failed: {0}\n",
@@ -1250,7 +1250,7 @@ void RecompileTool::worker(const dso_graph_t &dso_graph) {
     //
     // run jove-llvm
     //
-    pid_t pid = fork();
+    pid_t pid = ::fork();
     if (!pid) {
       IgnoreCtrlC();
 
@@ -1311,19 +1311,19 @@ void RecompileTool::worker(const dso_graph_t &dso_graph) {
 
       {
         std::string stdoutfp = bcfp + ".stdout.txt";
-        int stdoutfd = open(stdoutfp.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666);
-        dup2(stdoutfd, STDOUT_FILENO);
-        close(stdoutfd);
+        int stdoutfd = ::open(stdoutfp.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666);
+        ::dup2(stdoutfd, STDOUT_FILENO);
+        ::close(stdoutfd);
       }
 
       {
         std::string stderrfp = bcfp + ".stderr.txt";
-        int stderrfd = open(stderrfp.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666);
-        dup2(stderrfd, STDERR_FILENO);
-        close(stderrfd);
+        int stderrfd = ::open(stderrfp.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666);
+        ::dup2(stderrfd, STDERR_FILENO);
+        ::close(stderrfd);
       }
 
-      close(STDIN_FILENO);
+      ::close(STDIN_FILENO);
       exec_tool("llvm", arg_vec);
 
       int err = errno;
@@ -1359,7 +1359,7 @@ void RecompileTool::worker(const dso_graph_t &dso_graph) {
     // run llvm-dis on bitcode
     //
     std::thread t1([&](void) -> void {
-      pid_t pid = fork();
+      pid_t pid = ::fork();
       if (!pid) {
         IgnoreCtrlC();
         nice(10);
@@ -1376,8 +1376,8 @@ void RecompileTool::worker(const dso_graph_t &dso_graph) {
         if (opts.Verbose)
           print_command(&arg_arr[0]);
 
-        close(STDIN_FILENO);
-        execve(arg_arr[0], const_cast<char **>(&arg_arr[0]), ::environ);
+        ::close(STDIN_FILENO);
+        ::execve(arg_arr[0], const_cast<char **>(&arg_arr[0]), ::environ);
 
         int err = errno;
         WithColor::error() << llvm::formatv("execve failed: {0}\n",
@@ -1392,7 +1392,7 @@ void RecompileTool::worker(const dso_graph_t &dso_graph) {
     // run opt on bitcode to generate stripped ll
     //
     std::thread t2([&](void) -> void {
-      pid_t pid = fork();
+      pid_t pid = ::fork();
       if (!pid) {
         IgnoreCtrlC();
         nice(10);
@@ -1410,8 +1410,8 @@ void RecompileTool::worker(const dso_graph_t &dso_graph) {
         if (opts.Verbose)
           print_command(&arg_arr[0]);
 
-        close(STDIN_FILENO);
-        execve(arg_arr[0], const_cast<char **>(&arg_arr[0]), ::environ);
+        ::close(STDIN_FILENO);
+        ::execve(arg_arr[0], const_cast<char **>(&arg_arr[0]), ::environ);
 
         int err = errno;
         WithColor::error() << llvm::formatv("execve failed: {0}\n",
@@ -1425,7 +1425,7 @@ void RecompileTool::worker(const dso_graph_t &dso_graph) {
     //
     // run llc
     //
-    pid = fork();
+    pid = ::fork();
     if (!pid) {
       IgnoreCtrlC();
 
@@ -1472,8 +1472,8 @@ void RecompileTool::worker(const dso_graph_t &dso_graph) {
       if (opts.Verbose)
         print_command(&arg_vec[0]);
 
-      close(STDIN_FILENO);
-      execve(arg_vec[0], const_cast<char **>(&arg_vec[0]), ::environ);
+      ::close(STDIN_FILENO);
+      ::execve(arg_vec[0], const_cast<char **>(&arg_vec[0]), ::environ);
 
       int err = errno;
       WithColor::error() << llvm::formatv("execve failed: {0}\n",

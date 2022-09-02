@@ -265,7 +265,7 @@ void Tool::IgnoreCtrlC(void) {
   sa.sa_handler = SIG_IGN;
 #endif
 
-  if (sigaction(SIGINT, &sa, nullptr) < 0) {
+  if (::sigaction(SIGINT, &sa, nullptr) < 0) {
     int err = errno;
     HumanOut() << llvm::formatv("sigaction failed: {0}\n", strerror(err));
   }
@@ -286,9 +286,9 @@ void Tool::exec_tool(const char *name,
   arg_vec.insert(arg_vec.begin(), name);
   arg_vec.push_back(nullptr);
 
-  execve("/proc/self/exe",
-         const_cast<char **>(&arg_vec[0]),
-         envp ? const_cast<char **>(envp) : ::environ);
+  ::execve("/proc/self/exe",
+           const_cast<char **>(&arg_vec[0]),
+           envp ? const_cast<char **>(envp) : ::environ);
 }
 
 void Tool::ReadDecompilationFromFile(const std::string &path,
@@ -315,7 +315,7 @@ void Tool::WriteDecompilationToFile(const std::string &path,
         "WriteDecompilationToFile: failed to make temporary file: " +
         std::string(strerror(err)));
   } else {
-    if (close(fd) < 0) {
+    if (::close(fd) < 0) {
       int err = errno;
       throw std::runtime_error(
           "WriteDecompilationToFile: closing temporary file failed: " +
@@ -333,7 +333,7 @@ void Tool::WriteDecompilationToFile(const std::string &path,
     oa << in;
   }
 
-  if (rename(tmp_fp.c_str(), path.c_str()) < 0) { /* atomically replace */
+  if (::rename(tmp_fp.c_str(), path.c_str()) < 0) { /* atomically replace */
     int err = errno;
     throw std::runtime_error("WriteDecompilationToFile: failed to rename " +
                              tmp_fp + " to " + path + ": " +
@@ -349,8 +349,8 @@ static ssize_t robust_read_or_write(int fd, void *const buf, const size_t count)
   do {
     unsigned left = count - n;
 
-    ssize_t ret = IsRead ? read(fd, &_buf[n], left) :
-                          write(fd, &_buf[n], left);
+    ssize_t ret = IsRead ? ::read(fd, &_buf[n], left) :
+                          ::write(fd, &_buf[n], left);
 
     if (ret == 0)
       return -EIO;
@@ -382,7 +382,7 @@ uint32_t Tool::size_of_file32(const char *path) {
   uint32_t res;
   {
     struct stat st;
-    if (stat(path, &st) < 0) {
+    if (::stat(path, &st) < 0) {
       int err = errno;
       WithColor::error() << llvm::formatv("stat failed: {0}\n", strerror(err));
       return 0;
@@ -395,7 +395,7 @@ uint32_t Tool::size_of_file32(const char *path) {
 }
 
 ssize_t Tool::robust_sendfile(int socket, const char *file_path, size_t file_size) {
-  int fd = open(file_path, O_RDONLY);
+  int fd = ::open(file_path, O_RDONLY);
 
   if (fd < 0)
     return -errno;
@@ -403,13 +403,13 @@ ssize_t Tool::robust_sendfile(int socket, const char *file_path, size_t file_siz
   struct closeme_t {
     int fd;
     closeme_t (int fd) : fd(fd) {}
-    ~closeme_t() { close(fd); }
+    ~closeme_t() { ::close(fd); }
   } closeme(fd);
 
   const size_t saved_file_size = file_size;
 
   do {
-    ssize_t ret = sendfile(socket, fd, nullptr, file_size);
+    ssize_t ret = ::sendfile(socket, fd, nullptr, file_size);
 
     if (ret == 0)
       return -EIO;
@@ -477,7 +477,7 @@ ssize_t Tool::robust_receive_file_with_size(int socket, const char *out, unsigne
 
   ssize_t res = -EBADF;
   {
-    int fd = open(out, O_WRONLY | O_TRUNC | O_CREAT, file_perm);
+    int fd = ::open(out, O_WRONLY | O_TRUNC | O_CREAT, file_perm);
     if (fd < 0) {
       int err = errno;
       WithColor::error() << llvm::formatv("failed to receive file {0}: {1}\n",
@@ -487,7 +487,7 @@ ssize_t Tool::robust_receive_file_with_size(int socket, const char *out, unsigne
 
     res = robust_write(fd, &buff[0], buff.size());
 
-    if (close(fd) < 0) {
+    if (::close(fd) < 0) {
       int err = errno;
       WithColor::error() << llvm::formatv("failed to close received file {0}: {1}\n",
                                           out, strerror(err));

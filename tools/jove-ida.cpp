@@ -174,7 +174,7 @@ int IDATool::Run(void) {
   //
   // run jove-extract
   //
-  pid_t pid = fork();
+  pid_t pid = ::fork();
   if (!pid) {
     IgnoreCtrlC();
 
@@ -259,7 +259,7 @@ int IDATool::Run(void) {
           WithColor::note() << llvm::formatv("XXX hiding split debug file {0}\n",
                                              sav_path.c_str());
 
-        if (rename(splitDbgInfo.c_str(), sav_path.c_str()) < 0) {
+        if (::rename(splitDbgInfo.c_str(), sav_path.c_str()) < 0) {
           int err = errno;
           WithColor::warning() << llvm::formatv(
               "failed to hide split debug file: {0}\n", strerror(err));
@@ -272,7 +272,7 @@ int IDATool::Run(void) {
     //
     // run IDA
     //
-    pid = fork();
+    pid = ::fork();
     if (!pid) {
       IgnoreCtrlC();
 
@@ -306,7 +306,7 @@ int IDATool::Run(void) {
       if (opts.Verbose)
         print_command(&arg_vec[0]);
 
-      execve(ida_path.c_str(), const_cast<char **>(&arg_vec[0]), ::environ);
+      ::execve(ida_path.c_str(), const_cast<char **>(&arg_vec[0]), ::environ);
 
       int err = errno;
       HumanOut() << llvm::formatv("execve failed: {0}\n", strerror(err));
@@ -324,7 +324,7 @@ int IDATool::Run(void) {
                                            splitDbgInfo.c_str());
 
       fs::path sav_path = tmp_dir / (splitDbgInfo.filename().string() + ".debug");
-      if (rename(sav_path.c_str(), splitDbgInfo.c_str()) < 0) {
+      if (::rename(sav_path.c_str(), splitDbgInfo.c_str()) < 0) {
         int err = errno;
         HumanOut() << llvm::formatv("failed to restore split debug info file: {0}\n",
                                     strerror(err));

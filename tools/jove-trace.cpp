@@ -245,7 +245,7 @@ open_events:
       //
       // open with O_TRUNC to clear any uprobe_events already registered
       //
-      events_fd = open(s.c_str(), O_TRUNC | O_WRONLY);
+      events_fd = ::open(s.c_str(), O_TRUNC | O_WRONLY);
     }
 
     if (events_fd < 0) {
@@ -259,15 +259,15 @@ open_events:
           std::string s(opts.PathToTracefs);
           s.append("/events/jove/enable");
 
-          fd = open(s.c_str(), O_WRONLY);
+          fd = ::open(s.c_str(), O_WRONLY);
         }
 
         if (fd < 0) {
           ;
         } else {
-          ssize_t ret = write(fd, "0\n", sizeof("0\n"));
+          ssize_t ret = ::write(fd, "0\n", sizeof("0\n"));
 
-          (void)close(fd);
+          (void)::close(fd);
 
           if (ret == sizeof("0\n")) {
             //
@@ -363,11 +363,11 @@ open_events:
                  chrooted_path.c_str(),
                  static_cast<uint64_t>(Off));
 
-        ssize_t ret = write(events_fd, buff, N);
+        ssize_t ret = ::write(events_fd, buff, N);
         if (ret < 0) {
           int err = errno;
 
-          (void)close(events_fd);
+          (void)::close(events_fd);
 
           if (err == ENODEV) {
             WithColor::warning()
@@ -382,7 +382,7 @@ open_events:
         }
 
         if (ret != N) {
-          (void)close(events_fd);
+          (void)::close(events_fd);
 
           WithColor::error()
               << llvm::formatv("only wrote {0} bytes to uprobe_events\n", ret);
@@ -392,7 +392,7 @@ open_events:
     }
 
 enable_uprobe:
-    (void)close(events_fd);
+    (void)::close(events_fd);
   }
 
   //
@@ -402,7 +402,7 @@ enable_uprobe:
     std::string s(opts.PathToTracefs);
     s.append("/events/jove/enable");
 
-    int fd = open(s.c_str(), O_WRONLY);
+    int fd = ::open(s.c_str(), O_WRONLY);
 
     if (fd < 0) {
       int err = errno;
@@ -415,7 +415,7 @@ enable_uprobe:
   unsigned c = 0;
 
 do_enable_uprobe:
-    ssize_t ret = write(fd, "1\n", sizeof("1\n"));
+    ssize_t ret = ::write(fd, "1\n", sizeof("1\n"));
     if (ret < 0) {
       int err = errno;
       if (err == EINVAL && ++c < MAX_RETRIES) {
@@ -425,14 +425,14 @@ do_enable_uprobe:
         goto do_enable_uprobe;
       }
 
-      (void)close(fd);
+      (void)::close(fd);
 
       WithColor::error() << llvm::formatv(
           "failed to write to {0}: {1}\n", s.c_str(), strerror(err));
       return 1;
     }
 
-    (void)close(fd);
+    (void)::close(fd);
 
     if (ret != sizeof("1\n")) {
       WithColor::error() << llvm::formatv(
@@ -450,7 +450,7 @@ skip_uprobe:
     std::string s(opts.PathToTracefs);
     s.append("/trace");
 
-    (void)close(open(s.c_str(), O_TRUNC | O_WRONLY));
+    (void)::close(::open(s.c_str(), O_TRUNC | O_WRONLY));
   }
 
   if (opts.SkipExec)
@@ -460,17 +460,17 @@ skip_uprobe:
   // fork, (optionally) chroot, exec
   //
   {
-    pid_t child = fork();
+    pid_t child = ::fork();
     if (!child) {
       if (!opts.OutsideChroot) {
-        if (chroot(SysrootPath.c_str()) < 0) {
+        if (::chroot(SysrootPath.c_str()) < 0) {
           int err = errno;
           WithColor::error() << llvm::formatv("failed to chroot: {0}\n",
                                               strerror(err));
           return 1;
         }
 
-        if (chdir("/") < 0) {
+        if (::chdir("/") < 0) {
           int err = errno;
           WithColor::error() << llvm::formatv("chdir failed : {0}\n",
                                               strerror(err));
@@ -534,9 +534,9 @@ skip_uprobe:
 
       env_vec.push_back(nullptr);
 
-      execve(arg_vec[0],
-             const_cast<char **>(&arg_vec[0]),
-             const_cast<char **>(&env_vec[0]));
+      ::execve(arg_vec[0],
+               const_cast<char **>(&arg_vec[0]),
+               const_cast<char **>(&env_vec[0]));
 
       int err = errno;
       WithColor::error() << llvm::formatv("execve failed: {0}\n",
