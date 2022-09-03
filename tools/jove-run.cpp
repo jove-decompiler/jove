@@ -58,6 +58,8 @@ struct RunTool : public Tool {
     cl::alias ForeignLibsAlias;
     cl::opt<std::string> HumanOutput;
     cl::opt<bool> Silent;
+    cl::opt<bool> RunAsRoot;
+    cl::alias RunAsRootAlias;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : jv("decompilation", cl::desc("Jove decompilation"),
@@ -141,7 +143,14 @@ struct RunTool : public Tool {
           Silent("silent",
                  cl::desc(
                      "Leave the stdout/stderr of the application undisturbed"),
-                 cl::cat(JoveCategory)) {}
+                 cl::cat(JoveCategory)),
+
+          RunAsRoot("superuser",
+                 cl::desc("Run the given command as the superuser"),
+                 cl::cat(JoveCategory)),
+
+          RunAsRootAlias("r", cl::desc("Alias for --superuser"),
+                      cl::aliasopt(RunAsRoot), cl::cat(JoveCategory)) {}
   } opts;
 
   bool has_jv;
@@ -171,7 +180,6 @@ typedef boost::format fmt;
 
 static RunTool *pTool;
 
-static bool WillChroot;
 static bool LivingDangerously;
 
 static void CrashHandler(int no) {
@@ -239,11 +247,11 @@ int RunTool::Run(void) {
     }
   }
 
-  WillChroot = !(opts.NoChroot || opts.ForeignLibs);
+  const bool WillChroot = !(opts.NoChroot || opts.ForeignLibs);
   LivingDangerously = !WillChroot && !opts.ForeignLibs;
 
-  return !WillChroot ? DoRun<false>() :
-                       DoRun<true>();
+  return WillChroot ? DoRun<true>() :
+                      DoRun<false>();
 }
 
 //
@@ -371,13 +379,59 @@ struct ScopedMount {
 
 static void touch(const fs::path &);
 
+#define __BEGIN_MOUNTS__ {
+#define __END_MOUNTS__ }
+
 template <bool WillChroot>
 int RunTool::DoRun(void) {
+  char *pid_fifo = getenv("JOVE_RUN_PID_FIFO");
+  int pid_fd = -1;
+
+  //
+  // if we were given a pipefd, then communicate the app child's PID
+  //
+  if (pid_fifo) {
+    pid_fd = ::open(pid_fifo, O_WRONLY);
+    if (pid_fd < 0) {
+      int err = errno;
+      HumanOut() << llvm::formatv("failed to open pid fifo: {0}\n",
+                                  strerror(err));
+    }
+  }
+
+  if (WillChroot || LivingDangerously) {
+    if (::getuid() > 0) {
+      HumanOut() << "must be root\n";
+      return 1;
+    }
+  }
+
+  char *uid_env = getenv("SUDO_UID");
+  char *gid_env = getenv("SUDO_GID");
+
+  bool sudo = uid_env && gid_env;
+
+  auto drop_privileges = [&](void) -> void {
+    unsigned uid = atoi(uid_env);
+    unsigned gid = atoi(gid_env);
+
+    if (::setgid(gid) < 0 ||
+        ::setuid(uid) < 0) {
+      int err = errno;
+      HumanOut() << llvm::formatv("setting user/group id failed: {0}",
+                                  strerror(err));
+    }
+  };
+
+  int ret_val = -1;
+
 #if 0 /* is this necessary? */
   if (::mount(opts.sysroot, opts.sysroot, "", MS_BIND, nullptr) < 0)
     fprintf(stderr, "bind mounting %s failed : %s\n", opts.sysroot,
             strerror(errno));
 #endif
+
+  __BEGIN_MOUNTS__
 
   fs::path proc_path = fs::path(opts.sysroot) / "proc";
   ScopedMount<WillChroot> proc_mnt(*this,
@@ -517,11 +571,17 @@ int RunTool::DoRun(void) {
   std::string fifo_dir;
   if (WillChroot)
     fifo_dir = opts.sysroot;
-  fifo_dir.append("/tmp/jXXXXXX");
+  fifo_dir.append("/tmp/jove.XXXXXX");
 
   if (!mkdtemp(&fifo_dir[0])) {
     int err = errno;
     throw std::runtime_error("failed to make temporary directory: " +
+                             std::string(strerror(err)));
+  }
+
+  if (::chmod(fifo_dir.c_str(), 0777) < 0) {
+    int err = errno;
+    throw std::runtime_error("failed to change permissions of temporary directory: " +
                              std::string(strerror(err)));
   }
 
@@ -530,6 +590,12 @@ int RunTool::DoRun(void) {
     int err = errno;
     HumanOut() << llvm::formatv("mkfifo failed : %s\n", strerror(err));
     return 1;
+  }
+
+  if (::chmod(fifo_path.c_str(), 0666) < 0) {
+    int err = errno;
+    throw std::runtime_error("failed to change permissions of temporary fifo: " +
+                             std::string(strerror(err)));
   }
 
   fs::path fifo_file_path = fs::canonical(fifo_path);
@@ -547,8 +613,6 @@ int RunTool::DoRun(void) {
     HumanOut() << "failed to create recover_proc thread\n";
     return 1;
   }
-
-  const bool LivingDangerously = !WillChroot && !opts.ForeignLibs;
 
   //
   // parse decompilation
@@ -656,7 +720,7 @@ int RunTool::DoRun(void) {
       //
       // make the write end of the pipe be close-on-exec
       //
-      if (fcntl(wfd, F_SETFD, FD_CLOEXEC) < 0) {
+      if (::fcntl(wfd, F_SETFD, FD_CLOEXEC) < 0) {
         int err = errno;
         HumanOut() << llvm::formatv(
             "failed to set pipe write end close-on-exec: {0}\n", strerror(err));
@@ -797,7 +861,7 @@ int RunTool::DoRun(void) {
         HumanOut() << (__ANSI_CYAN "modifying root file system..." __ANSI_NORMAL_COLOR "\n");
 
       //
-      // (3) perform the renames!!!
+      // (3) perform the renames!!! do this as close as possible before execve
       //
       for (const binary_t &binary : decompilation.Binaries) {
         if (binary.IsExecutable)
@@ -822,6 +886,11 @@ int RunTool::DoRun(void) {
         HumanOut() << (__ANSI_CYAN "modified root file system." __ANSI_NORMAL_COLOR "\n");
     }
 
+    if (!opts.RunAsRoot) {
+      if (sudo)
+        drop_privileges();
+    }
+
     ::execve(arg_vec[0],
              const_cast<char **>(&arg_vec[0]),
              const_cast<char **>(&env_vec[0]));
@@ -840,18 +909,16 @@ int RunTool::DoRun(void) {
   //
   // if we were given a pipefd, then communicate the app child's PID
   //
-  if (char *env = getenv("JOVE_RUN_PIPEFD")) {
-    int pipefd = atoi(env);
-
-    uint64_t uint64 = pid;
-    ssize_t ret = robust_write(pipefd, &uint64, sizeof(uint64_t));
+  if (pid_fifo && !(pid_fd < 0)) {
+    uint64_t u64 = pid;
+    ssize_t ret = robust_write(pid_fd, &u64, sizeof(uint64_t));
 
     if (ret != sizeof(uint64_t))
-      HumanOut() << llvm::formatv("failed to write to pipefd: {0}\n", ret);
+      HumanOut() << llvm::formatv("failed to write to pid_fd: {0}\n", ret);
 
-    if (::close(pipefd) < 0) {
+    if (::close(pid_fd) < 0) {
       int err = errno;
-      HumanOut() << llvm::formatv("failed to close pipefd: {0}\n",
+      HumanOut() << llvm::formatv("failed to close pid_fd: {0}\n",
                                   strerror(err));
     }
   }
@@ -943,7 +1010,7 @@ int RunTool::DoRun(void) {
   //
   // wait for process to exit
   //
-  int ret = WaitForProcessToExit(pid);
+  ret_val = WaitForProcessToExit(pid);
 
   //
   // optionally sleep
@@ -996,6 +1063,11 @@ int RunTool::DoRun(void) {
     fprintf(stderr, "unmounting %s failed : %s\n", opts.sysroot, strerror(errno));
 #endif
 
+  __END_MOUNTS__
+
+  if (sudo)
+    drop_privileges();
+
   if (has_jv && WasDecompilationModified.load()) {
     decompilation.InvalidateFunctionAnalyses();
 
@@ -1011,7 +1083,7 @@ int RunTool::DoRun(void) {
       return ch; /* return char jove-loop will recognize */
   }
 
-  return ret;
+  return ret_val;
 }
 
 void touch(const fs::path &p) {

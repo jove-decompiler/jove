@@ -4,6 +4,7 @@
 
 #include <boost/dll/runtime_symbol_info.hpp>
 #include <boost/filesystem.hpp>
+#include <boost/algorithm/string/predicate.hpp>
 
 #include <llvm/Support/FormatVariadic.h>
 #include <llvm/Support/WithColor.h>
@@ -67,6 +68,8 @@ class LoopTool : public Tool {
     cl::opt<bool> InlineHelpers;
     cl::opt<std::string> HumanOutput;
     cl::opt<bool> Silent;
+    cl::opt<bool> RunAsRoot;
+    cl::alias RunAsRootAlias;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : Prog(cl::Positional, cl::desc("prog"), cl::Required,
@@ -209,7 +212,14 @@ class LoopTool : public Tool {
           Silent("silent",
                  cl::desc(
                      "Leave the stdout/stderr of the application undisturbed"),
-                 cl::cat(JoveCategory)) {}
+                 cl::cat(JoveCategory)),
+
+          RunAsRoot("superuser",
+                 cl::desc("Run the given command as the superuser"),
+                 cl::cat(JoveCategory)),
+
+          RunAsRootAlias("r", cl::desc("Alias for --superuser"),
+                      cl::aliasopt(RunAsRoot), cl::cat(JoveCategory)) {}
 
   } opts;
 
@@ -340,6 +350,13 @@ int LoopTool::Run(void) {
     return 1;
   }
 
+  const char *const sudo_path = "/usr/bin/sudo";
+
+  const bool WillChroot = !(opts.NoChroot || opts.ForeignLibs);
+  const bool LivingDangerously = !WillChroot && !opts.ForeignLibs;
+
+  bool sudo = (WillChroot || LivingDangerously) && fs::exists(sudo_path);
+
   if (!opts.Connect.empty() && opts.Connect.find(':') == std::string::npos) {
     HumanOut() << "usage: --connect IPADDRESS:PORT\n";
     return 1;
@@ -395,32 +412,46 @@ int LoopTool::Run(void) {
     //
 run:
     {
-      int pipefd[2];
-      if (::pipe(pipefd) < 0) {
+      std::string fifo_dir = "/tmp/jove.XXXXXX";
+      if (!mkdtemp(&fifo_dir[0])) {
         int err = errno;
-        HumanOut() << llvm::formatv("pipe failed: {0}\n", strerror(err));
+        throw std::runtime_error("failed to make temporary directory: " +
+                                 std::string(strerror(err)));
+      }
+
+      if (::chmod(fifo_dir.c_str(), 0777) < 0) {
+        int err = errno;
+        throw std::runtime_error("failed to change permissions of temporary directory: " +
+                                 std::string(strerror(err)));
+      }
+
+      std::string fifo_path = fifo_dir + "/pid.fifo";
+      if (::mkfifo(fifo_path.c_str(), 0666) < 0) {
+        int err = errno;
+        HumanOut() << llvm::formatv("mkfifo failed : %s\n", strerror(err));
         return 1;
       }
 
-      int rdFd = pipefd[0];
-      int wrFd = pipefd[1];
-
       pid = ::fork();
       if (!pid) {
-        if (::close(rdFd) < 0) {
-          int err = errno;
-          HumanOut() << llvm::formatv("failed to close rdFd: {0}\n",
-                                      strerror(err));
+        std::vector<const char *> arg_vec;
+
+        if (sudo) {
+          arg_vec.push_back(sudo_path);
+          arg_vec.push_back("-E");
         }
-        std::string wrFdStr = std::to_string(wrFd);
 
-        std::vector<const char *> arg_vec = {
-            "--sysroot",
-            opts.sysroot.c_str(),
+        std::string jove_path = boost::dll::program_location().string();
+        if (boost::algorithm::ends_with(jove_path, " (deleted)"))
+          jove_path = jove_path.substr(0, jove_path.size() - sizeof(" (deleted)") + 1);
 
-            "-d",
-            jv_path.c_str(),
-        };
+        arg_vec.push_back(jove_path.c_str());
+        arg_vec.push_back("run");
+
+        arg_vec.push_back("--sysroot");
+        arg_vec.push_back(opts.sysroot.c_str());
+        arg_vec.push_back("-d");
+        arg_vec.push_back(jv_path.c_str());
 
         if (!opts.HumanOutput.empty()) {
           arg_vec.push_back("--human-output");
@@ -429,6 +460,9 @@ run:
 
         if (opts.Verbose)
           arg_vec.push_back("--verbose");
+
+        if (opts.RunAsRoot)
+          arg_vec.push_back("-r");
 
         if (opts.ForeignLibs)
           arg_vec.push_back("--foreign-libs");
@@ -505,6 +539,8 @@ run:
         for (std::string &s : opts.Args)
           arg_vec.push_back(s.c_str());
 
+        arg_vec.push_back(nullptr);
+
         std::vector<const char *> env_vec;
 
         //
@@ -513,16 +549,17 @@ run:
         for (char **p = ::environ; *p; ++p)
           env_vec.push_back(*p);
 
-        std::string pipe_fd_arg =
-            std::string("JOVE_RUN_PIPEFD=") + std::to_string(wrFd);
-        env_vec.push_back(pipe_fd_arg.c_str());
+        std::string fifo_arg = "JOVE_RUN_PID_FIFO=" + fifo_path;
+        env_vec.push_back(fifo_arg.c_str());
 
         env_vec.push_back(nullptr);
 
         if (opts.Verbose)
-          print_tool_command("run", arg_vec);
+          print_command(&arg_vec[0]);
 
-        exec_tool("run", arg_vec, &env_vec[0]);
+        ::execve(sudo ? "/usr/bin/sudo" : jove_path.c_str(),
+                 const_cast<char **>(&arg_vec[0]),
+                 const_cast<char **>(&env_vec[0]));
 
         int err = errno;
         HumanOut() << llvm::formatv("execve failed: {0}\n",
@@ -534,36 +571,45 @@ run:
 
       run_pid.store(pid);
 
-      if (::close(wrFd) < 0) {
-        int err = errno;
-        HumanOut() << llvm::formatv("failed to close wrFd: {0}\n",
-                                    strerror(err));
-      }
-
       //
-      // read app pid from pipe
+      // read app pid from fifo
       //
       {
-        uint64_t uint64;
-
-        ssize_t ret = robust_read(rdFd, &uint64, sizeof(uint64));
-
-        if (ret != sizeof(uint64)) {
-          if (ret < 0)
-            HumanOut() << llvm::formatv(
-                "failed to read pid from pipe: {0}\n", strerror(-ret));
-          else
-            HumanOut() << llvm::formatv(
-                "failed to read pid from pipe: got {0}\n", ret);
+        int pid_fd = ::open(fifo_path.c_str(), O_RDONLY);
+        if (pid_fd < 0) {
+          int err = errno;
+          HumanOut() << llvm::formatv("failed to open pid fifo: {0}\n",
+                                      strerror(err));
         } else {
-          app_pid.store(uint64);
-        }
-      }
+          uint64_t u64;
 
-      if (::close(rdFd) < 0) {
-        int err = errno;
-        HumanOut() << llvm::formatv("failed to close rdFd: {0}\n",
-                                    strerror(err));
+          ssize_t ret = robust_read(pid_fd, &u64, sizeof(u64));
+
+          if (ret != sizeof(u64)) {
+            if (ret < 0)
+              HumanOut() << llvm::formatv(
+                  "failed to read pid from pipe: {0}\n", strerror(-ret));
+            else
+              HumanOut() << llvm::formatv(
+                  "failed to read pid from pipe: got {0}\n", ret);
+          } else {
+            app_pid.store(u64);
+          }
+
+          if (::close(pid_fd) < 0) {
+            int err = errno;
+            HumanOut() << llvm::formatv("failed to close pid fifo: {0}\n",
+                                        strerror(err));
+          }
+        }
+
+        if (::unlink(fifo_path.c_str()) < 0) {
+          int err = errno;
+          HumanOut() << llvm::formatv("failed to delete pid fifo: {0}\n",
+                                      strerror(err));
+        }
+
+        fs::remove_all(fifo_dir);
       }
 
       {
