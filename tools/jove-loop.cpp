@@ -70,6 +70,8 @@ class LoopTool : public Tool {
     cl::opt<bool> Silent;
     cl::opt<bool> RunAsRoot;
     cl::alias RunAsRootAlias;
+    cl::opt<bool> PreserveEnvironment;
+    cl::alias PreserveEnvironmentAlias;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : Prog(cl::Positional, cl::desc("prog"), cl::Required,
@@ -215,12 +217,20 @@ class LoopTool : public Tool {
                  cl::cat(JoveCategory)),
 
           RunAsRoot("superuser",
-                 cl::desc("Run the given command as the superuser"),
-                 cl::cat(JoveCategory)),
+                    cl::desc("Run the given command as the superuser"),
+                    cl::cat(JoveCategory)),
 
           RunAsRootAlias("r", cl::desc("Alias for --superuser"),
-                      cl::aliasopt(RunAsRoot), cl::cat(JoveCategory)) {}
+                         cl::aliasopt(RunAsRoot), cl::cat(JoveCategory)),
 
+          PreserveEnvironment(
+              "preserve-environment",
+              cl::desc("Preserve environment variables when running as root"),
+              cl::cat(JoveCategory)),
+
+          PreserveEnvironmentAlias(
+              "E", cl::desc("Alias for --preserve-environment"),
+              cl::aliasopt(PreserveEnvironment), cl::cat(JoveCategory)) {}
   } opts;
 
   std::string jv_path;
@@ -438,7 +448,9 @@ run:
 
         if (sudo) {
           arg_vec.push_back(sudo_path);
-          arg_vec.push_back("-E");
+
+          if (opts.PreserveEnvironment)
+            arg_vec.push_back("-E");
         }
 
         std::string jove_path = boost::dll::program_location().string();
@@ -447,6 +459,9 @@ run:
 
         arg_vec.push_back(jove_path.c_str());
         arg_vec.push_back("run");
+
+        arg_vec.push_back("--pid-fifo");
+        arg_vec.push_back(fifo_path.c_str());
 
         arg_vec.push_back("--sysroot");
         arg_vec.push_back(opts.sysroot.c_str());
@@ -548,9 +563,6 @@ run:
         //
         for (char **p = ::environ; *p; ++p)
           env_vec.push_back(*p);
-
-        std::string fifo_arg = "JOVE_RUN_PID_FIFO=" + fifo_path;
-        env_vec.push_back(fifo_arg.c_str());
 
         env_vec.push_back(nullptr);
 

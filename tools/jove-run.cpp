@@ -60,6 +60,7 @@ struct RunTool : public Tool {
     cl::opt<bool> Silent;
     cl::opt<bool> RunAsRoot;
     cl::alias RunAsRootAlias;
+    cl::opt<std::string> PIDFifo;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : jv("decompilation", cl::desc("Jove decompilation"),
@@ -146,11 +147,15 @@ struct RunTool : public Tool {
                  cl::cat(JoveCategory)),
 
           RunAsRoot("superuser",
-                 cl::desc("Run the given command as the superuser"),
-                 cl::cat(JoveCategory)),
+                    cl::desc("Run the given command as the superuser"),
+                    cl::cat(JoveCategory)),
 
           RunAsRootAlias("r", cl::desc("Alias for --superuser"),
-                      cl::aliasopt(RunAsRoot), cl::cat(JoveCategory)) {}
+                         cl::aliasopt(RunAsRoot), cl::cat(JoveCategory)),
+
+          PIDFifo("pid-fifo",
+                  cl::desc("Path to FIFO which will receive child PID"),
+                  cl::cat(JoveCategory)) {}
   } opts;
 
   bool has_jv;
@@ -384,14 +389,13 @@ static void touch(const fs::path &);
 
 template <bool WillChroot>
 int RunTool::DoRun(void) {
-  char *pid_fifo = getenv("JOVE_RUN_PID_FIFO");
   int pid_fd = -1;
 
   //
   // if we were given a pipefd, then communicate the app child's PID
   //
-  if (pid_fifo) {
-    pid_fd = ::open(pid_fifo, O_WRONLY);
+  if (!opts.PIDFifo.empty()) {
+    pid_fd = ::open(opts.PIDFifo.c_str(), O_WRONLY);
     if (pid_fd < 0) {
       int err = errno;
       HumanOut() << llvm::formatv("failed to open pid fifo: {0}\n",
@@ -909,7 +913,7 @@ int RunTool::DoRun(void) {
   //
   // if we were given a pipefd, then communicate the app child's PID
   //
-  if (pid_fifo && !(pid_fd < 0)) {
+  if (!(pid_fd < 0)) {
     uint64_t u64 = pid;
     ssize_t ret = robust_write(pid_fd, &u64, sizeof(uint64_t));
 
