@@ -315,6 +315,13 @@ void Tool::WriteDecompilationToFile(const std::string &path,
         "WriteDecompilationToFile: failed to make temporary file: " +
         std::string(strerror(err)));
   } else {
+    if (::fchmod(fd, 0666) < 0) {
+      int err = errno;
+      throw std::runtime_error(
+          "WriteDecompilationToFile: changing permissions of temporary file failed: " +
+          std::string(strerror(err)));
+    }
+
     if (::close(fd) < 0) {
       int err = errno;
       throw std::runtime_error(
