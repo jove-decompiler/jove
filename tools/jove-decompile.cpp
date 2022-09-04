@@ -684,8 +684,6 @@ int DecompileTool::Run(void) {
     }
   }
 
-  // ~/jove/llvm-project/install/bin/clang -nostdlib -fuse-ld=lld -flto -fPIE -Wl,-e,_jove_start -O2 -Wl,-init,_jove_init -Wl,-pie -o complex_num.decompiled/home/aeden/jove/tests/bin/complex_num x86_64/jove.bc complex_num.decompiled/home/aeden/jove/tests/bin/complex_num.cbe.c -L ~/jove/bin/x86_64 -ljove_rt -lc-2.33 ../prebuilts/obj/libclang_rt.builtins-x86_64.a ~/jove/bin/x86_64/helpers/{cc_compute_all,muluh_i64,divl_EAX,idivq_EAX}.bc
-
   return 0;
 }
 
