@@ -29,7 +29,6 @@ namespace obj = llvm::object;
 using llvm::WithColor;
 
 namespace jove {
-static unsigned num_cpus(void);
 
 class InitTool : public Tool {
   struct Cmdline {
@@ -56,7 +55,7 @@ class InitTool : public Tool {
                       cl::cat(JoveCategory)),
 
           Threads("num-threads", cl::desc("Number of CPU threads to use"),
-                  cl::init(jove::num_cpus()), cl::value_desc("int"),
+                  cl::init(num_cpus()), cl::value_desc("int"),
                   cl::cat(JoveCategory)),
 
           Verbose("verbose",
@@ -1043,16 +1042,4 @@ void InitTool::spawn_workers(void) {
     t.join();
 }
 
-unsigned num_cpus(void) {
-  cpu_set_t cpu_mask;
-  if (sched_getaffinity(0, sizeof(cpu_mask), &cpu_mask) < 0) {
-    int err = errno;
-    WithColor::error() << llvm::formatv("sched_getaffinity failed: {0}\n",
-                                        strerror(err));
-    return 1;
-  }
-
-  return CPU_COUNT(&cpu_mask);
 }
-
-} // namespace jove
