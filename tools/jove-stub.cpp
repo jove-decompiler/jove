@@ -45,21 +45,8 @@ JOVE_REGISTER_TOOL("stub", StubTool);
 
 int StubTool::Run(void) {
   std::string jvfp = opts.jv;
-  if (jvfp.empty()) {
-    llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> FileOrErr =
-        llvm::MemoryBuffer::getFileOrSTDIN(opts.Prog);
-
-    if (std::error_code EC = FileOrErr.getError()) {
-      HumanOut() << llvm::formatv("failed to open {0}\n", opts.Prog);
-      return 1;
-    }
-
-    std::unique_ptr<llvm::MemoryBuffer> &Buffer = FileOrErr.get();
-
-    jvfp = "/jove/" +
-           crypto::sha3(Buffer->getBufferStart(), Buffer->getBufferSize()) +
-           ".jv";
-  }
+  if (jvfp.empty())
+    jvfp = path_to_jv(opts.Prog.c_str());
 
   if (!fs::exists(jvfp)) {
     WithColor::error() << llvm::formatv("{0} not found\n", jvfp);
@@ -75,17 +62,11 @@ int StubTool::Run(void) {
   // before replacing the executable, make sure it is what we expect it to be
   //
   {
-    llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> FileOrErr =
-        llvm::MemoryBuffer::getFileOrSTDIN(binary.Path);
+    std::vector<uint8_t> buff;
+    read_file_into_vector(binary.Path.c_str(), buff);
 
-    if (std::error_code EC = FileOrErr.getError()) {
-      HumanOut() << llvm::formatv("failed to open binary {0}\n", binary.Path);
-      return 1;
-    }
-
-    std::unique_ptr<llvm::MemoryBuffer> &Buffer = FileOrErr.get();
-    if (binary.Data.size() != Buffer->getBufferSize() ||
-        memcmp(&binary.Data[0], Buffer->getBufferStart(), binary.Data.size())) {
+    if (binary.Data.size() != buff.size() ||
+        memcmp(&binary.Data[0], &buff[0], binary.Data.size())) {
       HumanOut() << llvm::formatv(
           "file {0} does not match binary found in decompilation ; did you already run 'jove stub'?\n",
           binary.Path);

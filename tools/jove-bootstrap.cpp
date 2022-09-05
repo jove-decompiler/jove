@@ -393,22 +393,8 @@ int BootstrapTool::Run(void) {
   }
 
   jvfp = opts.jv;
-  if (jvfp.empty()) {
-    llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> FileOrErr =
-        llvm::MemoryBuffer::getFileOrSTDIN(opts.Prog);
-
-    if (std::error_code EC = FileOrErr.getError()) {
-      HumanOut() << llvm::formatv("failed to open {0}\n", opts.Prog);
-      return 1;
-    }
-
-    std::unique_ptr<llvm::MemoryBuffer> &Buffer = FileOrErr.get();
-
-    fs::create_directories("/jove");
-    jvfp = "/jove/" +
-           crypto::sha3(Buffer->getBufferStart(), Buffer->getBufferSize()) +
-           ".jv";
-  }
+  if (jvfp.empty())
+    jvfp = path_to_jv(opts.Prog.c_str());
 
   if (!fs::exists(jvfp)) {
     HumanOut() << llvm::formatv(

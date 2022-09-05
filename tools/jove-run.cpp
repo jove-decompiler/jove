@@ -216,21 +216,9 @@ int RunTool::Run(void) {
     HumanOutToFile(opts.HumanOutput);
 
   jvfp = opts.jv;
-  if (jvfp.empty()) {
-    llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> FileOrErr =
-        llvm::MemoryBuffer::getFileOrSTDIN(opts.Prog);
+  if (jvfp.empty())
+    jvfp = path_to_jv(opts.Prog.c_str());
 
-    if (std::error_code EC = FileOrErr.getError()) {
-      HumanOut() << llvm::formatv("failed to open {0}\n", opts.Prog);
-      return 1;
-    }
-
-    std::unique_ptr<llvm::MemoryBuffer> &Buffer = FileOrErr.get();
-
-    jvfp = "/jove/" +
-           crypto::sha3(Buffer->getBufferStart(), Buffer->getBufferSize()) +
-           ".jv";
-  }
   has_jv = fs::exists(jvfp);
 
   //

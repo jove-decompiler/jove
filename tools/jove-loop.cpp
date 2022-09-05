@@ -367,28 +367,17 @@ int LoopTool::Run(void) {
 
   bool sudo = (WillChroot || LivingDangerously) && fs::exists(sudo_path);
 
+  if (::getuid() == 0)
+    sudo = false; /* we are already root */
+
   if (!opts.Connect.empty() && opts.Connect.find(':') == std::string::npos) {
     HumanOut() << "usage: --connect IPADDRESS:PORT\n";
     return 1;
   }
 
   jv_path = opts.jv;
-  if (jv_path.empty()) {
-    llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> FileOrErr =
-        llvm::MemoryBuffer::getFileOrSTDIN(opts.Prog);
-
-    if (std::error_code EC = FileOrErr.getError()) {
-      HumanOut() << llvm::formatv("failed to open {0}\n", opts.Prog);
-      return 1;
-    }
-
-    std::unique_ptr<llvm::MemoryBuffer> &Buffer = FileOrErr.get();
-
-    fs::create_directories("/jove");
-    jv_path = "/jove/" +
-           crypto::sha3(Buffer->getBufferStart(), Buffer->getBufferSize()) +
-           ".jv";
-  }
+  if (jv_path.empty())
+    jv_path = path_to_jv(opts.Prog.c_str());
 
   if (!fs::exists(jv_path)) {
     HumanOut() << "Decompilation does not exist\n";
