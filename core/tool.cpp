@@ -1,10 +1,14 @@
 #include "tool.h"
+#include "crypto.h"
+
 #include <stdexcept>
 #include <fstream>
+
 #include <llvm/Support/WithColor.h>
 #include <llvm/Support/InitLLVM.h>
 #include <llvm/Support/FormatVariadic.h>
 #include <llvm/Support/raw_ostream.h>
+
 #include <boost/archive/text_iarchive.hpp>
 #include <boost/archive/text_oarchive.hpp>
 #include <boost/serialization/bitset.hpp>
@@ -18,6 +22,7 @@
 #include <sys/sendfile.h>
 #include <sys/stat.h>
 #include <sched.h>
+#include <pwd.h>
 
 namespace jove {
 
@@ -312,8 +317,8 @@ void Tool::WriteDecompilationToFile(const std::string &path,
   if (fd < 0) {
     int err = errno;
     throw std::runtime_error(
-        "WriteDecompilationToFile: failed to make temporary file: " +
-        std::string(strerror(err)));
+        "WriteDecompilationToFile: failed to make temporary file from " +
+        tmp_fp + ": " + std::string(strerror(err)));
   } else {
     if (::fchmod(fd, 0666) < 0) {
       int err = errno;
@@ -503,6 +508,42 @@ ssize_t Tool::robust_receive_file_with_size(int socket, const char *out, unsigne
   }
 
   return res;
+}
+
+void Tool::read_file_into_vector(const char *path, std::vector<uint8_t> &out) {
+  std::ifstream ifs(path);
+  if (!ifs.is_open())
+    throw std::runtime_error("read_file_into_vector: failed to open " +
+                             std::string(path));
+
+  ifs.seekg(0, std::ios::end);
+  out.resize(ifs.tellg());
+  ifs.seekg(0);
+
+  ifs.read(reinterpret_cast<char *>(&out[0]), out.size());
+}
+
+std::string Tool::home_dir(void) {
+  errno = 0;
+  const char *homedir = getpwuid(getuid())->pw_dir;
+  if (int err = errno)
+    throw std::runtime_error(std::string("home_dir: getpwuid failed: ") +
+                             strerror(err));
+
+  assert(homedir);
+  return homedir;
+}
+
+std::string Tool::jove_dir(void) {
+  return home_dir() + "/.jove";
+}
+
+std::string Tool::path_to_jv(const char *exe_path) {
+  std::vector<uint8_t> exe_bytes;
+  read_file_into_vector(exe_path, exe_bytes);
+
+  return jove_dir() + "/" + crypto::sha3(&exe_bytes[0], exe_bytes.size()) +
+         ".jv";
 }
 
 }
