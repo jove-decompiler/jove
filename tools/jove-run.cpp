@@ -58,8 +58,10 @@ struct RunTool : public Tool {
     cl::alias ForeignLibsAlias;
     cl::opt<std::string> HumanOutput;
     cl::opt<bool> Silent;
-    cl::opt<bool> RunAsRoot;
-    cl::alias RunAsRootAlias;
+    cl::opt<std::string> Group;
+    cl::alias GroupAlias;
+    cl::opt<std::string> User;
+    cl::alias UserAlias;
     cl::opt<std::string> PIDFifo;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
@@ -146,12 +148,17 @@ struct RunTool : public Tool {
                      "Leave the stdout/stderr of the application undisturbed"),
                  cl::cat(JoveCategory)),
 
-          RunAsRoot("superuser",
-                    cl::desc("Run the given command as the superuser"),
-                    cl::cat(JoveCategory)),
+          Group("group", cl::desc("Run the given command as the superuser"),
+                cl::cat(JoveCategory)),
 
-          RunAsRootAlias("r", cl::desc("Alias for --superuser"),
-                         cl::aliasopt(RunAsRoot), cl::cat(JoveCategory)),
+          GroupAlias("g", cl::desc("Alias for --group"), cl::aliasopt(Group),
+                     cl::cat(JoveCategory)),
+
+          User("user", cl::desc("Run the given command as the superuser"),
+               cl::cat(JoveCategory)),
+
+          UserAlias("u", cl::desc("Alias for --user"), cl::aliasopt(User),
+                    cl::cat(JoveCategory)),
 
           PIDFifo("pid-fifo",
                   cl::desc("Path to FIFO which will receive child PID"),
@@ -398,20 +405,23 @@ int RunTool::DoRun(void) {
     }
   }
 
-  char *uid_env = getenv("SUDO_UID");
-  char *gid_env = getenv("SUDO_GID");
-
-  bool sudo = uid_env && gid_env;
-
   auto drop_privileges = [&](void) -> void {
-    unsigned uid = atoi(uid_env);
-    unsigned gid = atoi(gid_env);
+    if (!opts.Group.empty()) {
+      unsigned gid = atoi(opts.Group.c_str());
 
-    if (::setgid(gid) < 0 ||
-        ::setuid(uid) < 0) {
-      int err = errno;
-      HumanOut() << llvm::formatv("setting user/group id failed: {0}",
-                                  strerror(err));
+      if (::setgid(gid) < 0) {
+        int err = errno;
+        HumanOut() << llvm::formatv("setgid failed: {0}", strerror(err));
+      }
+    }
+
+    if (!opts.User.empty()) {
+      unsigned uid = atoi(opts.User.c_str());
+
+      if (::setuid(uid) < 0) {
+        int err = errno;
+        HumanOut() << llvm::formatv("setuid failed: {0}", strerror(err));
+      }
     }
   };
 
@@ -878,10 +888,7 @@ int RunTool::DoRun(void) {
         HumanOut() << (__ANSI_CYAN "modified root file system." __ANSI_NORMAL_COLOR "\n");
     }
 
-    if (!opts.RunAsRoot) {
-      if (sudo)
-        drop_privileges();
-    }
+    drop_privileges();
 
     ::execve(arg_vec[0],
              const_cast<char **>(&arg_vec[0]),
@@ -1057,8 +1064,7 @@ int RunTool::DoRun(void) {
 
   __END_MOUNTS__
 
-  if (sudo)
-    drop_privileges();
+  drop_privileges();
 
   if (has_jv && WasDecompilationModified.load()) {
     decompilation.InvalidateFunctionAnalyses();

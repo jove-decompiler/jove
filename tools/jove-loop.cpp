@@ -365,7 +365,8 @@ int LoopTool::Run(void) {
   const bool WillChroot = !(opts.NoChroot || opts.ForeignLibs);
   const bool LivingDangerously = !WillChroot && !opts.ForeignLibs;
 
-  bool sudo = (WillChroot || LivingDangerously) && fs::exists(sudo_path);
+  bool sudo = (WillChroot || LivingDangerously || opts.RunAsRoot) &&
+              fs::exists(sudo_path);
 
   if (::getuid() == 0)
     sudo = false; /* we are already root */
@@ -380,7 +381,7 @@ int LoopTool::Run(void) {
     jv_path = path_to_jv(opts.Prog.c_str());
 
   if (!fs::exists(jv_path)) {
-    HumanOut() << "Decompilation does not exist\n";
+    HumanOut() << jv_path << " does not exist\n";
     return 1;
   }
 
@@ -452,6 +453,22 @@ run:
         arg_vec.push_back("--pid-fifo");
         arg_vec.push_back(fifo_path.c_str());
 
+        std::string gid_arg;
+        if (sudo && ::getgid() > 0 && !opts.RunAsRoot) {
+          gid_arg = std::to_string(::getgid());
+
+          arg_vec.push_back("-g");
+          arg_vec.push_back(gid_arg.c_str());
+        }
+
+        std::string uid_arg;
+        if (sudo && ::getuid() > 0 && !opts.RunAsRoot) {
+          uid_arg = std::to_string(::getuid());
+
+          arg_vec.push_back("-u");
+          arg_vec.push_back(uid_arg.c_str());
+        }
+
         arg_vec.push_back("--sysroot");
         arg_vec.push_back(opts.sysroot.c_str());
         arg_vec.push_back("-d");
@@ -464,9 +481,6 @@ run:
 
         if (opts.Verbose)
           arg_vec.push_back("--verbose");
-
-        if (opts.RunAsRoot)
-          arg_vec.push_back("-r");
 
         if (opts.ForeignLibs)
           arg_vec.push_back("--foreign-libs");
