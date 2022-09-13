@@ -65,6 +65,7 @@ public:
   static std::string home_dir(void);
   static std::string jove_dir(void);
   static std::string path_to_jv(const char *exe_path);
+  static std::string path_to_sysroot(const char *exe_path, bool ForeignLibs);
   static void read_file_into_vector(const char *path, std::vector<uint8_t> &out);
   static ssize_t robust_read(int fd, void *const buf, const size_t count);
   static ssize_t robust_write(int fd, const void *const buf, const size_t count);

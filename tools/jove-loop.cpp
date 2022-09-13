@@ -41,7 +41,7 @@ class LoopTool : public Tool {
     cl::list<std::string> BindMountDirs;
     cl::opt<std::string> jv;
     cl::alias jvAlias;
-    cl::opt<std::string> sysroot;
+    cl::opt<std::string> Sysroot;
     cl::opt<bool> DFSan;
     cl::opt<bool> Optimize;
     cl::opt<bool> SkipCopyRelocHack;
@@ -104,7 +104,7 @@ class LoopTool : public Tool {
           jvAlias("d", cl::desc("Alias for -decompilation."), cl::aliasopt(jv),
                   cl::cat(JoveCategory)),
 
-          sysroot("sysroot", cl::desc("Output directory"), cl::Required,
+          Sysroot("sysroot", cl::desc("Output directory"),
                   cl::cat(JoveCategory)),
 
           DFSan("dfsan", cl::desc("Run dfsan on bitcode"),
@@ -333,15 +333,6 @@ int LoopTool::Run(void) {
     }
   }
 
-  if (!fs::exists(opts.sysroot))
-    fs::create_directory(opts.sysroot);
-
-  if (!fs::exists(opts.sysroot) || !fs::is_directory(opts.sysroot)) {
-    HumanOut() << llvm::formatv(
-        "provided sysroot {0} is not directory\n", opts.sysroot);
-    return 1;
-  }
-
   jove_rt_path =
       (boost::dll::program_location().parent_path() / "libjove_rt.so").string();
   if (!fs::exists(jove_rt_path)) {
@@ -380,6 +371,17 @@ int LoopTool::Run(void) {
   if (jv_path.empty())
     jv_path = path_to_jv(opts.Prog.c_str());
 
+  std::string sysroot = opts.Sysroot;
+  if (sysroot.empty())
+    sysroot = path_to_sysroot(opts.Prog.c_str(), opts.ForeignLibs);
+
+  if (!fs::exists(sysroot)) {
+    fs::create_directory(sysroot);
+  } else if (!fs::is_directory(sysroot)) {
+    HumanOut() << llvm::formatv("sysroot {0} is not directory\n", sysroot);
+    return 1;
+  }
+
   if (!fs::exists(jv_path)) {
     HumanOut() << jv_path << " does not exist\n";
     return 1;
@@ -397,7 +399,7 @@ int LoopTool::Run(void) {
     }
 
     {
-      fs::path chrooted_path(opts.sysroot);
+      fs::path chrooted_path(sysroot);
       chrooted_path /= opts.Prog;
 
       if (!fs::exists(chrooted_path)) {
@@ -470,7 +472,7 @@ run:
         }
 
         arg_vec.push_back("--sysroot");
-        arg_vec.push_back(opts.sysroot.c_str());
+        arg_vec.push_back(sysroot.c_str());
         arg_vec.push_back("-d");
         arg_vec.push_back(jv_path.c_str());
 
@@ -814,7 +816,7 @@ skip_run:
         if (binary.IsDynamicLinker)
           continue;
 
-        fs::path chrooted_path(fs::path(opts.sysroot) / binary.Path);
+        fs::path chrooted_path(fs::path(sysroot) / binary.Path);
 
         fs::create_directories(chrooted_path.parent_path());
 
@@ -843,13 +845,13 @@ skip_run:
       // XXX duplicated code with jove-recompile
       if (opts.DFSan) {
         {
-          fs::path dir = fs::path(opts.sysroot) / "jove" / "BinaryBlockAddrTables";
+          fs::path dir = fs::path(sysroot) / "jove" / "BinaryBlockAddrTables";
           fs::remove_all(dir); /* wipe any old tables */
           fs::create_directories(dir);
         }
 
         {
-          std::ofstream ofs((fs::path(opts.sysroot) / "jove" / "BinaryPathsTable.txt").c_str());
+          std::ofstream ofs((fs::path(sysroot) / "jove" / "BinaryPathsTable.txt").c_str());
 
           for (const binary_t &binary : decompilation.Binaries)
             ofs << binary.Path << '\n';
@@ -860,7 +862,7 @@ skip_run:
           auto &ICFG = binary.Analysis.ICFG;
 
           {
-            std::ofstream ofs((fs::path(opts.sysroot) / "jove" /
+            std::ofstream ofs((fs::path(sysroot) / "jove" /
                                "BinaryBlockAddrTables" / std::to_string(BIdx))
                                   .c_str());
 
@@ -881,26 +883,26 @@ skip_run:
       //
       // create symlink back to jv
       //
-      if (fs::exists(fs::path(opts.sysroot) / ".jv")) // delete any stale symlinks
-        fs::remove(fs::path(opts.sysroot) / ".jv");
+      if (fs::exists(fs::path(sysroot) / ".jv")) // delete any stale symlinks
+        fs::remove(fs::path(sysroot) / ".jv");
 
-      fs::create_symlink(fs::canonical(jv_path), fs::path(opts.sysroot) / ".jv");
+      fs::create_symlink(fs::canonical(jv_path), fs::path(sysroot) / ".jv");
 
       //
       // create basic directories (for chroot) XXX duplicated code from recompile
       //
       if (!opts.NoChroot) {
-        fs::create_directories(fs::path(opts.sysroot) / "proc");
-        fs::create_directories(fs::path(opts.sysroot) / "sys");
-        fs::create_directories(fs::path(opts.sysroot) / "dev");
-        fs::create_directories(fs::path(opts.sysroot) / "run");
-        fs::create_directories(fs::path(opts.sysroot) / "tmp");
-        fs::create_directories(fs::path(opts.sysroot) / "etc");
-        fs::create_directories(fs::path(opts.sysroot) / "mnt"); /* dfsan_log.pb */
-        fs::create_directories(fs::path(opts.sysroot) / "usr" / "bin");
-        fs::create_directories(fs::path(opts.sysroot) / "usr" / "lib");
-        fs::create_directories(fs::path(opts.sysroot) / "var" / "run");
-        fs::create_directories(fs::path(opts.sysroot) / "lib"); /* XXX */
+        fs::create_directories(fs::path(sysroot) / "proc");
+        fs::create_directories(fs::path(sysroot) / "sys");
+        fs::create_directories(fs::path(sysroot) / "dev");
+        fs::create_directories(fs::path(sysroot) / "run");
+        fs::create_directories(fs::path(sysroot) / "tmp");
+        fs::create_directories(fs::path(sysroot) / "etc");
+        fs::create_directories(fs::path(sysroot) / "mnt"); /* dfsan_log.pb */
+        fs::create_directories(fs::path(sysroot) / "usr" / "bin");
+        fs::create_directories(fs::path(sysroot) / "usr" / "lib");
+        fs::create_directories(fs::path(sysroot) / "var" / "run");
+        fs::create_directories(fs::path(sysroot) / "lib"); /* XXX */
       }
 
 #if 0
@@ -938,7 +940,7 @@ skip_run:
       // delete any pre-existing runtime libraries so that we can be sure that
       // the newest version is the one that the dynamic linker reads
       //
-      const char *Prefix = opts.NoChroot ? "/" : opts.sysroot.c_str();
+      const char *Prefix = opts.NoChroot ? "/" : sysroot.c_str();
 
       fs::remove(fs::path(Prefix) / "usr" / "lib" / "libjove_rt.so");
       fs::remove(fs::path(Prefix) / "lib" / "libjove_rt.so");
@@ -1073,7 +1075,7 @@ skip_run:
           if (soname.empty())
             continue;
 
-          fs::path chrooted_path = fs::path(opts.sysroot) / b.Path;
+          fs::path chrooted_path = fs::path(sysroot) / b.Path;
           std::string binary_filename = fs::path(b.Path).filename().string();
 
           if (opts.Verbose)
@@ -1136,7 +1138,7 @@ skip_run:
       if (!pid) {
         std::vector<const char *> arg_vec = {
             "-d", jv_path.c_str(),
-            "-o", opts.sysroot.c_str(),
+            "-o", sysroot.c_str(),
         };
 
         std::string use_ld_arg;

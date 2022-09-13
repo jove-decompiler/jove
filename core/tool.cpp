@@ -546,4 +546,16 @@ std::string Tool::path_to_jv(const char *exe_path) {
          ".jv";
 }
 
+std::string Tool::path_to_sysroot(const char *exe_path, bool ForeignLibs) {
+  std::vector<uint8_t> exe_bytes;
+  read_file_into_vector(exe_path, exe_bytes);
+
+  std::string res = jove_dir() + "/" +
+                    crypto::sha3(&exe_bytes[0], exe_bytes.size()) + ".sysroot";
+  if (ForeignLibs)
+    res.append(".x");
+
+  return res;
+}
+
 }
