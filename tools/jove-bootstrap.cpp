@@ -216,10 +216,10 @@ struct BootstrapTool : public Tool {
                cl::value_desc("KEY_1=VALUE_1,KEY_2=VALUE_2,...,KEY_n=VALUE_n"),
                cl::desc("Extra environment variables"), cl::cat(JoveCategory)),
 
-          jv("decompilation", cl::desc("Jove Decompilation"),
+          jv("decompilation", cl::desc("Jove jv"),
              cl::value_desc("filename"), cl::cat(JoveCategory)),
 
-          jvAlias("d", cl::desc("Alias for -Decompilation."), cl::aliasopt(jv),
+          jvAlias("d", cl::desc("Alias for -jv."), cl::aliasopt(jv),
                   cl::cat(JoveCategory)),
 
           Verbose("verbose",
@@ -293,7 +293,7 @@ struct BootstrapTool : public Tool {
   } opts;
 
   std::string jvfp;
-  decompilation_t Decompilation;
+  decompilation_t jv;
 
   tiny_code_generator_t tcg;
   disas_t disas;
@@ -402,20 +402,20 @@ int BootstrapTool::Run(void) {
     return 1;
   }
 
-  ReadDecompilationFromFile(jvfp, Decompilation);
+  ReadDecompilationFromFile(jvfp, jv);
 
   //
   // OMG. this hack is awful. it is here because if a binary is dynamically
-  // added to the Decompilation, the std::vector will resize if necessary- and
+  // added to the jv, the std::vector will resize if necessary- and
   // if such an event occurs, pointers to the section data will be invalidated
   // because the binary_t::Data will be recopied. TODO
   //
-  Decompilation.Binaries.reserve(2 * Decompilation.Binaries.size());
+  jv.Binaries.reserve(2 * jv.Binaries.size());
 
   //
-  // verify that the binaries on-disk are those found in the Decompilation.
+  // verify that the binaries on-disk are those found in the jv.
   //
-  for (binary_t &binary : Decompilation.Binaries) {
+  for (binary_t &binary : jv.Binaries) {
     if (binary.IsExecutable)
       continue;
 
@@ -460,8 +460,8 @@ int BootstrapTool::Run(void) {
   //
   // initialize state associated with every binary
   //
-  for_each_binary(Decompilation, [&](binary_t &binary) {
-    binary_index_t BIdx = index_of_binary(binary, Decompilation);
+  for_each_binary(jv, [&](binary_t &binary) {
+    binary_index_t BIdx = index_of_binary(binary, jv);
 
     // add to path -> index map
     if (binary.IsVDSO)
@@ -471,8 +471,8 @@ int BootstrapTool::Run(void) {
 
     binary_state_t &state = state_for_binary(binary);
 
-    construct_fnmap(Decompilation, binary, state.fnmap);
-    construct_bbmap(Decompilation, binary, state.bbmap);
+    construct_fnmap(jv, binary, state.fnmap);
+    construct_bbmap(jv, binary, state.bbmap);
 
     llvm::StringRef Buffer(reinterpret_cast<char *>(&binary.Data[0]),
                            binary.Data.size());
@@ -524,7 +524,7 @@ int BootstrapTool::Run(void) {
     }
   });
 
-  BinFoundVec.resize(Decompilation.Binaries.size());
+  BinFoundVec.resize(jv.Binaries.size());
 
 #define INSTALL_SIG(sig)                                                       \
   do {                                                                         \
@@ -717,7 +717,7 @@ static struct {
 
 
 uintptr_t BootstrapTool::va_of_rva(uintptr_t Addr, binary_index_t BIdx) {
-  binary_t &binary = Decompilation.Binaries.at(BIdx);
+  binary_t &binary = jv.Binaries.at(BIdx);
 
   if (!BinFoundVec.test(BIdx))
     throw std::runtime_error(std::string(__func__) + ": given binary (" +
@@ -732,7 +732,7 @@ uintptr_t BootstrapTool::va_of_rva(uintptr_t Addr, binary_index_t BIdx) {
 }
 
 uintptr_t BootstrapTool::rva_of_va(uintptr_t Addr, binary_index_t BIdx) {
-  binary_t &binary = Decompilation.Binaries.at(BIdx);
+  binary_t &binary = jv.Binaries.at(BIdx);
 
   if (!BinFoundVec.test(BIdx))
     throw std::runtime_error(std::string(__func__) + ": given binary (" +
@@ -1128,7 +1128,7 @@ int BootstrapTool::TracerLoop(pid_t child, tiny_code_generator_t &tcg) {
                     auto it = AddressSpace.find(handler);
                     if (it != AddressSpace.end()) {
                       binary_index_t BIdx = -1+(*it).second;
-                      binary_t &b = Decompilation.Binaries[BIdx];
+                      binary_t &b = jv.Binaries[BIdx];
 
                       unsigned brkpt_count = 0;
 
@@ -1334,8 +1334,8 @@ int BootstrapTool::TracerLoop(pid_t child, tiny_code_generator_t &tcg) {
     //
     unsigned NumChanged = 0;
 
-    for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
-      auto &b = Decompilation.Binaries[BIdx];
+    for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
+      auto &b = jv.Binaries[BIdx];
       auto &ICFG = b.Analysis.ICFG;
 
       auto fix_ambiguous_indirect_jumps = [&](void) -> bool {
@@ -1386,7 +1386,7 @@ int BootstrapTool::TracerLoop(pid_t child, tiny_code_generator_t &tcg) {
     }
 
     if (unlikely(NumChanged)) {
-      Decompilation.InvalidateFunctionAnalyses();
+      jv.InvalidateFunctionAnalyses();
 
       HumanOut() << llvm::formatv(
           "fixed {0} ambiguous indirect jump{1}\n", NumChanged,
@@ -1398,14 +1398,14 @@ int BootstrapTool::TracerLoop(pid_t child, tiny_code_generator_t &tcg) {
   // FIXME only write if modified
   //
   if (invalidateAnalyses)
-    Decompilation.InvalidateFunctionAnalyses();
-  WriteDecompilationToFile(jvfp, Decompilation);
+    jv.InvalidateFunctionAnalyses();
+  WriteDecompilationToFile(jvfp, jv);
 
   return 0;
 }
 
 void BootstrapTool::on_new_basic_block(binary_t &b, basic_block_t bb) {
-  binary_index_t BIdx = index_of_binary(b, Decompilation);
+  binary_index_t BIdx = index_of_binary(b, jv);
   auto &ICFG = b.Analysis.ICFG;
   const basic_block_properties_t &bbprop = ICFG[bb];
 
@@ -1681,7 +1681,7 @@ void BootstrapTool::place_breakpoint_at_indirect_branch(pid_t child,
   };
 
   if (!is_opcode_handled(Inst.getOpcode())) {
-    binary_t &Binary = Decompilation.Binaries[indbr.BIdx];
+    binary_t &Binary = jv.Binaries[indbr.BIdx];
     const auto &ICFG = Binary.Analysis.ICFG;
     throw std::runtime_error(
       (fmt("could not place breakpoint @ %#lx\n"
@@ -2510,7 +2510,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
   // it's an indirect branch.
   //
   indirect_branch_t &IndBrInfo = indirect_branch_of_address(saved_pc);
-  binary_t &binary = Decompilation.Binaries[IndBrInfo.BIdx];
+  binary_t &binary = jv.Binaries[IndBrInfo.BIdx];
   auto &bbmap = state_for_binary(binary).bbmap;
   auto &ICFG = binary.Analysis.ICFG;
   basic_block_t bb = basic_block_at_address(IndBrInfo.TermAddr, binary, bbmap);
@@ -2787,10 +2787,10 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 #endif
 
   //
-  // update the Decompilation based on the target
+  // update the jv based on the target
   //
 
-  binary_t &TargetBinary = Decompilation.Binaries[Target.BIdx];
+  binary_t &TargetBinary = jv.Binaries[Target.BIdx];
 
   struct {
     bool IsGoto = false;
@@ -2929,7 +2929,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 void BootstrapTool::harvest_irelative_reloc_targets(pid_t child,
                                                     tiny_code_generator_t &tcg) {
   auto processDynamicReloc = [&](binary_t &b, const Relocation &R) -> void {
-    binary_index_t BIdx = index_of_binary(b, Decompilation);
+    binary_index_t BIdx = index_of_binary(b, jv);
 
     if (!is_irelative_relocation(R))
       return;
@@ -2969,7 +2969,7 @@ void BootstrapTool::harvest_irelative_reloc_targets(pid_t child,
                                   rva_of_va(Resolved.Addr, Resolved.BIdx),
                                   R.Offset);
 
-    binary_t &ResolvedBinary = Decompilation.Binaries[Resolved.BIdx];
+    binary_t &ResolvedBinary = jv.Binaries[Resolved.BIdx];
 
     Resolved.FIdx = explore_function(
         ResolvedBinary, *state_for_binary(ResolvedBinary).ObjectFile, tcg, disas,
@@ -2988,8 +2988,8 @@ void BootstrapTool::harvest_irelative_reloc_targets(pid_t child,
     }
   };
 
-  for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
-    auto &b = Decompilation.Binaries[BIdx];
+  for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
+    auto &b = jv.Binaries[BIdx];
     if (b.IsVDSO)
       continue;
 
@@ -3017,7 +3017,7 @@ void BootstrapTool::harvest_irelative_reloc_targets(pid_t child,
 void BootstrapTool::harvest_addressof_reloc_targets(pid_t child,
                                                     tiny_code_generator_t &tcg) {
   auto processDynamicReloc = [&](binary_t &b, const Relocation &R) -> void {
-    binary_index_t BIdx = index_of_binary(b, Decompilation);
+    binary_index_t BIdx = index_of_binary(b, jv);
 
     if (!is_addressof_relocation(R))
       return;
@@ -3076,7 +3076,7 @@ void BootstrapTool::harvest_addressof_reloc_targets(pid_t child,
       if (Resolved.BIdx == BIdx) /* _dl_fixup... */
         return;
 
-      binary_t &ResolvedBinary = Decompilation.Binaries[Resolved.BIdx];
+      binary_t &ResolvedBinary = jv.Binaries[Resolved.BIdx];
 
       unsigned brkpt_count = 0;
       Resolved.FIdx = explore_function(
@@ -3096,8 +3096,8 @@ void BootstrapTool::harvest_addressof_reloc_targets(pid_t child,
     }
   };
 
-  for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
-    auto &b = Decompilation.Binaries[BIdx];
+  for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
+    auto &b = jv.Binaries[BIdx];
     if (b.IsVDSO)
       continue;
 
@@ -3127,8 +3127,8 @@ void BootstrapTool::harvest_addressof_reloc_targets(pid_t child,
 
 void BootstrapTool::harvest_ctor_and_dtors(pid_t child,
                                            tiny_code_generator_t &tcg) {
-  for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
-    auto &Binary = Decompilation.Binaries[BIdx];
+  for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
+    auto &Binary = jv.Binaries[BIdx];
     if (Binary.IsVDSO)
       continue;
 
@@ -3211,8 +3211,8 @@ void BootstrapTool::harvest_ctor_and_dtors(pid_t child,
 #if defined(__mips64) || defined(__mips__)
 void BootstrapTool::harvest_global_GOT_entries(pid_t child,
                                                tiny_code_generator_t &tcg) {
-  for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
-    auto &b = Decompilation.Binaries[BIdx];
+  for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
+    auto &b = jv.Binaries[BIdx];
     if (b.IsVDSO)
       continue;
 
@@ -3304,7 +3304,7 @@ void BootstrapTool::harvest_global_GOT_entries(pid_t child,
       }
 
       Resolved.BIdx = -1+(*it).second;
-      binary_t &ResolvedBinary = Decompilation.Binaries.at(Resolved.BIdx);
+      binary_t &ResolvedBinary = jv.Binaries.at(Resolved.BIdx);
 
       unsigned brkpt_count = 0;
       basic_block_index_t resolved_bbidx = explore_basic_block(
@@ -3351,7 +3351,7 @@ bool BootstrapTool::update_view_of_virtual_memory(pid_t child) {
 
   pmm.clear();
   AddressSpace.clear();
-  for_each_binary(Decompilation, [&](binary_t &b) {
+  for_each_binary(jv, [&](binary_t &b) {
     state_for_binary(b).LoadAddr = state_for_binary(b).LoadOffset = std::numeric_limits<uintptr_t>::max(); /* reset */
   });
 
@@ -3381,7 +3381,7 @@ bool BootstrapTool::update_view_of_virtual_memory(pid_t child) {
       else
         AddressSpace.add({intervl, 1+BIdx});
 
-      auto &b = Decompilation.Binaries[BIdx];
+      auto &b = jv.Binaries[BIdx];
 
       uintptr_t SavedLoadAddr = state_for_binary(b).LoadAddr;
       state_for_binary(b).LoadAddr = std::min(state_for_binary(b).LoadAddr, proc_map.beg);
@@ -3412,7 +3412,7 @@ bool BootstrapTool::update_view_of_virtual_memory(pid_t child) {
 void BootstrapTool::on_binary_loaded(pid_t child,
                                      binary_index_t BIdx,
                                      const proc_map_t &proc_map) {
-  binary_t &binary = Decompilation.Binaries[BIdx];
+  binary_t &binary = jv.Binaries[BIdx];
 
   auto &ObjectFile = state_for_binary(binary).ObjectFile;
 
@@ -3791,13 +3791,13 @@ int BootstrapTool::ChildProc(int pipefd) {
   // signal-delivery-stop.
   //
 
-  std::string name = "jove/bootstrap" + Decompilation.Binaries.at(0).Path;
+  std::string name = "jove/bootstrap" + jv.Binaries.at(0).Path;
   int fd = ::memfd_create(name.c_str(), MFD_CLOEXEC);
   if (fd < 0)
     abort();
   if (robust_write(fd,
-                   &Decompilation.Binaries.at(0).Data[0],
-                   Decompilation.Binaries.at(0).Data.size()) < 0)
+                   &jv.Binaries.at(0).Data[0],
+                   jv.Binaries.at(0).Data.size()) < 0)
     abort();
   std::string exe_path = "/proc/self/fd/" + std::to_string(fd);
 
@@ -4049,7 +4049,7 @@ void BootstrapTool::scan_rtld_link_map(pid_t child, tiny_code_generator_t &tcg) 
 
       auto it = BinPathToIdxMap.find(path.c_str());
       if (it == BinPathToIdxMap.end()) {
-        HumanOut() << llvm::formatv("adding \"{0}\" to Decompilation\n",
+        HumanOut() << llvm::formatv("adding \"{0}\" to jv\n",
                                     path.c_str());
         add_binary(child, tcg, path.c_str());
 
@@ -4118,25 +4118,25 @@ void BootstrapTool::add_binary(pid_t child, tiny_code_generator_t &tcg,
       return;
     }
 
-    BIdx = Decompilation.Binaries.size();
+    BIdx = jv.Binaries.size();
 
-    Decompilation.Binaries.emplace_back(std::move(new_decompilation.Binaries.front()))
+    jv.Binaries.emplace_back(std::move(new_decompilation.Binaries.front()))
         .IsDynamicallyLoaded = true;
   }
 
   BinFoundVec.resize(BinFoundVec.size() + 1, false);
-  BinPathToIdxMap[Decompilation.Binaries.back().Path] = BIdx;
+  BinPathToIdxMap[jv.Binaries.back().Path] = BIdx;
 
   //
   // initialize state associated with every binary
   //
-  binary_t &binary = Decompilation.Binaries[BIdx];
+  binary_t &binary = jv.Binaries[BIdx];
 
   assert(!binary.IsVDSO);
   BinPathToIdxMap[binary.Path] = BIdx;
 
-  construct_fnmap(Decompilation, binary, state_for_binary(binary).fnmap);
-  construct_bbmap(Decompilation, binary, state_for_binary(binary).bbmap);
+  construct_fnmap(jv, binary, state_for_binary(binary).fnmap);
+  construct_bbmap(jv, binary, state_for_binary(binary).bbmap);
 
   llvm::StringRef Buffer(reinterpret_cast<char *>(&binary.Data[0]),
                          binary.Data.size());
@@ -4180,7 +4180,7 @@ void BootstrapTool::add_binary(pid_t child, tiny_code_generator_t &tcg,
 void BootstrapTool::on_dynamic_linker_loaded(pid_t child,
                                              binary_index_t BIdx,
                                              const proc_map_t &proc_map) {
-  binary_t &b = Decompilation.Binaries[BIdx];
+  binary_t &b = jv.Binaries[BIdx];
 
   if (state_for_binary(b)._elf.OptionalDynSymRegion) {
     auto DynSyms = state_for_binary(b)._elf.OptionalDynSymRegion->getAsArrayRef<Elf_Sym>();
@@ -4346,7 +4346,7 @@ void BootstrapTool::on_return(pid_t child,
       } else {
         BIdx = -1+(*it).second;
 
-        binary_t &binary = Decompilation.Binaries.at(BIdx);
+        binary_t &binary = jv.Binaries.at(BIdx);
         auto &bbmap = state_for_binary(binary).bbmap;
         auto &ICFG = binary.Analysis.ICFG;
 
@@ -4392,7 +4392,7 @@ void BootstrapTool::on_return(pid_t child,
         BIdx = -1+(*it).second;
 
         try {
-        binary_t &binary = Decompilation.Binaries.at(BIdx);
+        binary_t &binary = jv.Binaries.at(BIdx);
         auto &bbmap = state_for_binary(binary).bbmap;
         auto &ICFG = binary.Analysis.ICFG;
 
@@ -4477,7 +4477,7 @@ void BootstrapTool::on_return(pid_t child,
                                       brkpt_count > 1 ? "s" : "",
                                       binary.Path);
         } catch (const std::exception &e) {
-          std::string s = fs::path(Decompilation.Binaries[BIdx].Path).filename().string();
+          std::string s = fs::path(jv.Binaries[BIdx].Path).filename().string();
           HumanOut()
               << llvm::formatv("{0} failed: {1} [RetAddr: {2}+{3:x} ({4:x})]\n",
                                __func__, e.what(), s, rva_of_va(pc, BIdx), pc);
@@ -4726,15 +4726,15 @@ void SignalHandler(int no) {
     break;
 
   //
-  // SIGUSR2: write Decompilation and exit
+  // SIGUSR2: write jv and exit
   //
   case SIGUSR2: {
-    tool.HumanOut() << "writing Decompilation and exiting...\n";
+    tool.HumanOut() << "writing jv and exiting...\n";
 
     //
-    // write Decompilation
+    // write jv
     //
-    tool.WriteDecompilationToFile(tool.jvfp, tool.Decompilation);
+    tool.WriteDecompilationToFile(tool.jvfp, tool.jv);
 
     exit(0);
   }

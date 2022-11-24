@@ -26,10 +26,10 @@ class StubTool : public Tool {
         : Prog(cl::Positional, cl::desc("prog"), cl::Required,
                cl::value_desc("filename"), cl::cat(JoveCategory)),
 
-          jv("decompilation", cl::desc("Jove Decompilation"),
+          jv("decompilation", cl::desc("Jove jv"),
              cl::value_desc("filename"), cl::cat(JoveCategory)),
 
-          jvAlias("d", cl::desc("Alias for -Decompilation."), cl::aliasopt(jv),
+          jvAlias("d", cl::desc("Alias for -jv."), cl::aliasopt(jv),
                   cl::cat(JoveCategory)) {}
   } opts;
 

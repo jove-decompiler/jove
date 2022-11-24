@@ -43,7 +43,7 @@ class ExtractTool : public Tool {
                   cl::cat(JoveCategory)) {}
   } opts;
 
-  decompilation_t Decompilation;
+  decompilation_t jv;
 
 public:
   ExtractTool() : opts(JoveCategory) {}
@@ -61,7 +61,7 @@ int ExtractTool::Run(void) {
     return 1;
   }
 
-  ReadDecompilationFromFile(opts.jv, Decompilation);
+  ReadDecompilationFromFile(opts.jv, jv);
 
   if (fs::exists(opts.OutDir))
     fs::remove_all(opts.OutDir);
@@ -75,7 +75,7 @@ int ExtractTool::Run(void) {
   WithColor::note() << llvm::formatv("extracting binaries into {0}\n",
                                      opts.OutDir.c_str());
 
-  for (binary_t &b : Decompilation.Binaries) {
+  for (binary_t &b : jv.Binaries) {
     assert(b.Path[0] == '/');
 
     fs::path chrooted_path(std::string(opts.OutDir) + b.Path);

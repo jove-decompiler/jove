@@ -48,13 +48,13 @@ int jv2xmlTool::Run(void) {
     return 1;
   }
 
-  decompilation_t Decompilation;
-  ReadDecompilationFromFile(opts.jv, Decompilation);
+  decompilation_t jv;
+  ReadDecompilationFromFile(opts.jv, jv);
 
   //
   // destructively modify data so the output is printable
   //
-  for (auto &binary : Decompilation.Binaries) {
+  for (auto &binary : jv.Binaries) {
     for (unsigned i = 0; i < binary.Data.size(); ++i) {
       binary.Data[i] = ' ';
     }
@@ -67,7 +67,7 @@ int jv2xmlTool::Run(void) {
     {
       boost::archive::xml_oarchive oa(oss);
 
-      oa << BOOST_SERIALIZATION_NVP(Decompilation);
+      oa << BOOST_SERIALIZATION_NVP(jv);
     }
 
     res = oss.str();

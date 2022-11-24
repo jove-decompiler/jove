@@ -65,7 +65,7 @@ struct binary_state_t {
 
 typedef boost::format fmt;
 
-static decompilation_t Decompilation;
+static decompilation_t jv;
 
 class RecompileTool : public Tool {
   struct Cmdline {
@@ -226,7 +226,7 @@ struct graphviz_label_writer {
   template <typename Vertex>
   void operator()(std::ostream &out, Vertex v) const {
     std::string name =
-        fs::path(Decompilation.Binaries.at(g[v].BIdx).Path).filename().string();
+        fs::path(jv.Binaries.at(g[v].BIdx).Path).filename().string();
 
     boost::replace_all(name, "\\", "\\\\");
     boost::replace_all(name, "\r\n", "\\l");
@@ -468,7 +468,7 @@ int RecompileTool::Run(void) {
     }
   }
 
-  ReadDecompilationFromFile(opts.jv, Decompilation);
+  ReadDecompilationFromFile(opts.jv, jv);
 
   if (Cancel) {
     WithColor::note() << "Canceled.\n";
@@ -478,7 +478,7 @@ int RecompileTool::Run(void) {
   //
   // gather dynamic linking information
   //
-  for (binary_t &b : Decompilation.Binaries) {
+  for (binary_t &b : jv.Binaries) {
     if (b.IsVDSO)
       continue;
 
@@ -530,7 +530,7 @@ int RecompileTool::Run(void) {
   //
   std::string rtld_soname;
 
-  for (binary_t &b : Decompilation.Binaries) {
+  for (binary_t &b : jv.Binaries) {
     if (!b.IsDynamicLinker)
       continue;
 
@@ -645,15 +645,15 @@ int RecompileTool::Run(void) {
       std::ofstream ofs(
           (fs::path(opts.Output) / "jove" / "BinaryPathsTable.txt").c_str());
 
-      for (const binary_t &binary : Decompilation.Binaries)
+      for (const binary_t &binary : jv.Binaries)
         ofs << binary.Path << '\n';
     }
 
     fs::create_directories(fs::path(opts.Output) / "jove" /
                            "BinaryBlockAddrTables");
 
-    for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
-      binary_t &binary = Decompilation.Binaries[BIdx];
+    for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
+      binary_t &binary = jv.Binaries[BIdx];
       auto &ICFG = binary.Analysis.ICFG;
 
       {
@@ -675,8 +675,8 @@ int RecompileTool::Run(void) {
   // build dynamic linking graph
   //
   dso_graph_t dso_graph;
-  for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
-    binary_t &b = Decompilation.Binaries[BIdx];
+  for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
+    binary_t &b = jv.Binaries[BIdx];
 
     state_for_binary(b).dso = boost::add_vertex(dso_graph);
     dso_graph[state_for_binary(b).dso].BIdx = BIdx;
@@ -684,8 +684,8 @@ int RecompileTool::Run(void) {
 
   std::unordered_map<std::string, binary_index_t> soname_map;
 
-  for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
-    binary_t &b = Decompilation.Binaries[BIdx];
+  for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
+    binary_t &b = jv.Binaries[BIdx];
 
     if (state_for_binary(b).dynl.soname.empty() && !b.IsExecutable) {
       soname_map.insert({fs::path(b.Path).filename().string(), BIdx}); /* XXX */
@@ -701,8 +701,8 @@ int RecompileTool::Run(void) {
     soname_map.insert({state_for_binary(b).dynl.soname, BIdx});
   }
 
-  for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
-    binary_t &b = Decompilation.Binaries[BIdx];
+  for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
+    binary_t &b = jv.Binaries[BIdx];
 
     for (const std::string &sonm : state_for_binary(b).dynl.needed) {
       auto it = soname_map.find(sonm);
@@ -714,7 +714,7 @@ int RecompileTool::Run(void) {
 
       boost::add_edge(
           state_for_binary(b).dso,
-          state_for_binary(Decompilation.Binaries[(*it).second]).dso,
+          state_for_binary(jv.Binaries[(*it).second]).dso,
           dso_graph);
     }
   }
@@ -884,7 +884,7 @@ int RecompileTool::Run(void) {
   Q.reserve(top_sorted.size());
   for (dso_t dso : boost::adaptors::reverse(top_sorted)) {
     binary_index_t BIdx = dso_graph[dso].BIdx;
-    if (opts.ForeignLibs && !Decompilation.Binaries[BIdx].IsExecutable)
+    if (opts.ForeignLibs && !jv.Binaries[BIdx].IsExecutable)
       continue;
 
     Q.push_back(dso);
@@ -893,7 +893,7 @@ int RecompileTool::Run(void) {
   if (!opts.Verbose)
     WithColor::note() << llvm::formatv(
         "Recompiling {0} {1}...",
-        (opts.ForeignLibs ? 3 : Decompilation.Binaries.size()) - 2,
+        (opts.ForeignLibs ? 3 : jv.Binaries.size()) - 2,
         opts.ForeignLibs ? "binary" : "binaries");
 
   auto t1 = std::chrono::high_resolution_clock::now();
@@ -933,7 +933,7 @@ int RecompileTool::Run(void) {
   for (dso_t dso : top_sorted) {
     binary_index_t BIdx = dso_graph[dso].BIdx;
 
-    binary_t &b = Decompilation.Binaries.at(BIdx);
+    binary_t &b = jv.Binaries.at(BIdx);
 
     // make sure the path is absolute
     assert(b.Path.at(0) == '/');
@@ -986,7 +986,7 @@ int RecompileTool::Run(void) {
   for (dso_t dso : top_sorted) {
     binary_index_t BIdx = dso_graph[dso].BIdx;
 
-    binary_t &b = Decompilation.Binaries.at(BIdx);
+    binary_t &b = jv.Binaries.at(BIdx);
 
     if (b.IsDynamicLinker)
       continue;
@@ -1131,7 +1131,7 @@ int RecompileTool::Run(void) {
           continue;
         }
 
-        binary_t &needed_b = Decompilation.Binaries.at((*it).second);
+        binary_t &needed_b = jv.Binaries.at((*it).second);
 #if 1
         const fs::path needed_chrooted_path(opts.Output + needed_b.Path);
         lib_dirs.insert(needed_chrooted_path.parent_path().string());
@@ -1152,7 +1152,7 @@ int RecompileTool::Run(void) {
 
       const char *rtld_path = nullptr;
       if (!state_for_binary(b).dynl.interp.empty()) {
-        for (binary_t &b : Decompilation.Binaries) {
+        for (binary_t &b : jv.Binaries) {
           if (b.IsDynamicLinker) {
             rtld_path = b.Path.c_str();
             break;
@@ -1240,7 +1240,7 @@ void RecompileTool::worker(const dso_graph_t &dso_graph) {
   while (pop_dso(dso)) {
     binary_index_t BIdx = dso_graph[dso].BIdx;
 
-    binary_t &b = Decompilation.Binaries.at(BIdx);
+    binary_t &b = jv.Binaries.at(BIdx);
 
     if (b.IsDynamicLinker)
       continue;

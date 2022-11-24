@@ -88,7 +88,7 @@ class RecoverTool : public Tool {
 
   } opts;
 
-  decompilation_t Decompilation;
+  decompilation_t jv;
 
   disas_t disas;
 
@@ -135,14 +135,14 @@ int RecoverTool::Run(void) {
     }
   }
 
-  ReadDecompilationFromFile(opts.jv, Decompilation);
+  ReadDecompilationFromFile(opts.jv, jv);
 
   IgnoreCtrlC();
 
   tiny_code_generator_t tcg;
   symbolizer_t symbolizer;
 
-  CodeRecovery Recovery(Decompilation, disas, tcg, symbolizer);
+  CodeRecovery Recovery(jv, disas, tcg, symbolizer);
 
   std::string msg;
 
@@ -233,8 +233,8 @@ int RecoverTool::Run(void) {
 
   HumanOut() << msg << '\n';
 
-  Decompilation.InvalidateFunctionAnalyses();
-  WriteDecompilationToFile(opts.jv, Decompilation);
+  jv.InvalidateFunctionAnalyses();
+  WriteDecompilationToFile(opts.jv, jv);
 
   return 0;
 }

@@ -65,7 +65,7 @@ class AnalyzeTool : public Tool {
                          cl::cat(JoveCategory)) {}
   } opts;
 
-  decompilation_t Decompilation;
+  decompilation_t jv;
 
   std::unique_ptr<tiny_code_generator_t> TCG;
   std::unique_ptr<llvm::LLVMContext> Context;
@@ -94,11 +94,11 @@ int AnalyzeTool::Run(void) {
 
   ReadDecompilationFromFile(
       fs::is_directory(opts.jv) ? (opts.jv + "/decompilation.jv") : opts.jv,
-      Decompilation);
+      jv);
 
-  identify_ABIs(Decompilation);
+  identify_ABIs(jv);
 
-  for_each_binary(Decompilation, [&](binary_t &binary) {
+  for_each_binary(jv, [&](binary_t &binary) {
     llvm::StringRef Buffer(reinterpret_cast<const char *>(&binary.Data[0]),
                            binary.Data.size());
     llvm::StringRef Identifier(binary.Path);
@@ -164,7 +164,7 @@ void AnalyzeBasicBlock(tiny_code_generator_t &TCG,
                        bool DFSan = false,
                        bool ForCBE = false);
 
-void AnalyzeFunction(decompilation_t &Decompilation,
+void AnalyzeFunction(decompilation_t &jv,
                      tiny_code_generator_t &TCG,
                      llvm::Module &M,
                      function_t &f,
@@ -177,8 +177,8 @@ int AnalyzeTool::AnalyzeBlocks(void) {
 
   auto t1 = std::chrono::high_resolution_clock::now();
 
-  for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
-    auto &binary = Decompilation.Binaries[BIdx];
+  for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
+    auto &binary = jv.Binaries[BIdx];
     auto &ICFG = binary.Analysis.ICFG;
 
     icfg_t::vertex_iterator vi, vi_end;
@@ -203,7 +203,7 @@ int AnalyzeTool::AnalyzeBlocks(void) {
   //
   // XXX hack for _jove_call
   //
-  for_each_function_if(Decompilation,
+  for_each_function_if(jv,
       [](function_t &f) { return f.IsABI; },
       [](function_t &f, binary_t &b) {
         auto &ICFG = b.Analysis.ICFG;
@@ -225,8 +225,8 @@ static unsigned num_cpus(void);
 int AnalyzeTool::AnalyzeFunctions(void) {
   // let N be the count of all functions (in all binaries)
   unsigned N = std::accumulate(
-      Decompilation.Binaries.begin(),
-      Decompilation.Binaries.end(), 0u,
+      jv.Binaries.begin(),
+      jv.Binaries.end(), 0u,
       [&](unsigned res, const binary_t &binary) -> unsigned {
         return res + binary.Analysis.Functions.size();
       });
@@ -238,8 +238,8 @@ int AnalyzeTool::AnalyzeFunctions(void) {
     //
     // Build queue with all function pairs (b, f)
     //
-    for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx)
-      for (function_index_t FIdx = 0; FIdx < Decompilation.Binaries[BIdx].Analysis.Functions.size(); ++FIdx)
+    for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx)
+      for (function_index_t FIdx = 0; FIdx < jv.Binaries[BIdx].Analysis.Functions.size(); ++FIdx)
         Q.emplace_back(BIdx, FIdx);
 
     if (!Q.empty()) {
@@ -272,8 +272,8 @@ int AnalyzeTool::AnalyzeFunctions(void) {
     //
     // Build queue with functions having stale analyses in Q2.
     //
-    for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
-      binary_t &binary = Decompilation.Binaries[BIdx];
+    for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
+      binary_t &binary = jv.Binaries[BIdx];
       if (opts.OnlyExecutable && !binary.IsExecutable)
         continue;
 
@@ -328,8 +328,8 @@ void AnalyzeTool::worker1(std::atomic<dynamic_target_t *> &Q_ptr,
   for (dynamic_target_t *p = Q_ptr++; p < Q_end; p = Q_ptr++) {
     dynamic_target_t X = *p;
 
-    binary_t &b = Decompilation.Binaries.at(X.first);
-    function_t &f = function_of_target(X, Decompilation);
+    binary_t &b = jv.Binaries.at(X.first);
+    function_t &f = function_of_target(X, jv);
 
     basic_blocks_of_function(f, b, state_for_function(f).bbvec);
     exit_basic_blocks_of_function(f, b, state_for_function(f).bbvec,
@@ -345,7 +345,7 @@ void AnalyzeTool::worker2(std::atomic<dynamic_target_t *>& Q_ptr,
   for (dynamic_target_t *p = Q_ptr++; p < Q_end; p = Q_ptr++) {
     dynamic_target_t X = *p;
 
-    AnalyzeFunction(Decompilation, *TCG, *Module, function_of_target(X, Decompilation), [&](binary_t &b) -> llvm::object::Binary & { return *state_for_binary(b).ObjectFile; });
+    AnalyzeFunction(jv, *TCG, *Module, function_of_target(X, jv), [&](binary_t &b) -> llvm::object::Binary & { return *state_for_binary(b).ObjectFile; });
   }
 }
 
@@ -363,7 +363,7 @@ unsigned num_cpus(void) {
 int AnalyzeTool::WriteDecompilation(void) {
   IgnoreCtrlC();
 
-  WriteDecompilationToFile(opts.jv, Decompilation);
+  WriteDecompilationToFile(opts.jv, jv);
   return 0;
 }
 

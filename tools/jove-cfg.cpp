@@ -84,7 +84,7 @@ class CFGTool : public Tool {
     {}
   } opts;
 
-  decompilation_t Decompilation;
+  decompilation_t jv;
 
   binary_index_t BinaryIndex = invalid_binary_index;
 
@@ -171,7 +171,7 @@ std::string CFGTool::disassemble_basic_block(const GraphTy &G,
                                              typename GraphTy::vertex_descriptor V) {
   assert(BinaryIndex != invalid_binary_index);
 
-  binary_t &binary = Decompilation.Binaries[BinaryIndex];
+  binary_t &binary = jv.Binaries[BinaryIndex];
 
   TCG.set_binary(*state_for_binary(binary).ObjectFile);
 
@@ -295,7 +295,7 @@ int CFGTool::Run(void) {
     return 1;
   }
 
-  ReadDecompilationFromFile(opts.jv, Decompilation);
+  ReadDecompilationFromFile(opts.jv, jv);
 
   assert(!opts.FunctionAddress.empty());
 
@@ -304,8 +304,8 @@ int CFGTool::Run(void) {
   //
   BinaryIndex = invalid_binary_index;
 
-  for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
-    const binary_t &binary = Decompilation.Binaries[BIdx];
+  for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
+    const binary_t &binary = jv.Binaries[BIdx];
     if (binary.Path.find(opts.Binary) == std::string::npos)
       continue;
 
@@ -319,7 +319,7 @@ int CFGTool::Run(void) {
     return 1;
   }
 
-  binary_t &binary = Decompilation.Binaries[BinaryIndex];
+  binary_t &binary = jv.Binaries[BinaryIndex];
 
   //
   // initialize state associated with binary

@@ -328,7 +328,7 @@ struct LLVMTool : public Tool {
 
   } opts;
 
-  decompilation_t Decompilation;
+  decompilation_t jv;
 
   binary_index_t BinaryIndex = invalid_binary_index;
 
@@ -502,7 +502,7 @@ public:
   llvm::Value *BuildCPUStatePointer(llvm::IRBuilderTy &, llvm::Value *Env, unsigned glb);
 
   llvm::Constant *SectionPointer(target_ulong Addr) {
-    auto &Binary = Decompilation.Binaries[BinaryIndex];
+    auto &Binary = jv.Binaries[BinaryIndex];
 
     int64_t off =
         static_cast<int64_t>(Addr) -
@@ -515,7 +515,7 @@ public:
 
   bool DynTargetNeedsThunkPred(dynamic_target_t DynTarget) {
     binary_index_t BIdx = DynTarget.first;
-    const binary_t &binary = Decompilation.Binaries[BIdx];
+    const binary_t &binary = jv.Binaries[BIdx];
 
     if (opts.ForeignLibs)
       return !binary.IsExecutable;
@@ -535,7 +535,7 @@ public:
 
     std::tie(DynTarget.BIdx, DynTarget.FIdx) = IdxPair;
 
-    binary_t &binary = Decompilation.Binaries[DynTarget.BIdx];
+    binary_t &binary = jv.Binaries[DynTarget.BIdx];
 
     if (DynTarget.BIdx == BinaryIndex) {
       const function_t &f = binary.Analysis.Functions[DynTarget.FIdx];
@@ -555,7 +555,7 @@ public:
     }
 
     if (!binary.IsDynamicallyLoaded) {
-      llvm::Value *FnsTbl = IRB.CreateLoad(state_for_binary(Decompilation.Binaries[DynTarget.BIdx]).FunctionsTableClunk);
+      llvm::Value *FnsTbl = IRB.CreateLoad(state_for_binary(jv.Binaries[DynTarget.BIdx]).FunctionsTableClunk);
       assert(FnsTbl);
 
       return IRB.CreateLoad(IRB.CreateConstGEP2_64(
@@ -662,7 +662,7 @@ public:
   }
 
   llvm::FunctionType *DetermineFunctionType(dynamic_target_t X) {
-    return DetermineFunctionType(function_of_target(X, Decompilation));
+    return DetermineFunctionType(function_of_target(X, jv));
   }
 
   llvm::FunctionType *DetermineFunctionType(binary_index_t BIdx,
@@ -816,7 +816,7 @@ void AnalyzeBasicBlock(tiny_code_generator_t &TCG,
                        bool DFSan = false,
                        bool ForCBE = false);
 
-static flow_vertex_t copy_function_cfg(decompilation_t &Decompilation,
+static flow_vertex_t copy_function_cfg(decompilation_t &jv,
                                        tiny_code_generator_t &TCG,
                                        llvm::Module &M,
                                        flow_graph_t &G,
@@ -826,8 +826,8 @@ static flow_vertex_t copy_function_cfg(decompilation_t &Decompilation,
                                        bool ForCBE,
                                        std::vector<exit_vertex_pair_t> &exitVertices,
                                        std::unordered_map<function_t *, std::pair<flow_vertex_t, std::vector<exit_vertex_pair_t>>> &memoize) {
-  binary_index_t BIdx = binary_index_of_function(f, Decompilation); /* XXX */
-  auto &b = Decompilation.Binaries.at(BIdx);
+  binary_index_t BIdx = binary_index_of_function(f, jv); /* XXX */
+  auto &b = jv.Binaries.at(BIdx);
   auto &ICFG = b.Analysis.ICFG;
 
   basic_block_vec_t bbvec;
@@ -906,11 +906,11 @@ static flow_vertex_t copy_function_cfg(decompilation_t &Decompilation,
       auto eit_pair = boost::out_edges(bb, ICFG);
 
       for (dynamic_target_t DynTarget : DynTargets) {
-        function_t &callee = function_of_target(DynTarget, Decompilation);
+        function_t &callee = function_of_target(DynTarget, jv);
 
         std::vector<exit_vertex_pair_t> calleeExitVertices;
         flow_vertex_t calleeEntryV =
-            copy_function_cfg(Decompilation, TCG, M, G, callee, GetBinary, DFSan, ForCBE, calleeExitVertices, memoize);
+            copy_function_cfg(jv, TCG, M, G, callee, GetBinary, DFSan, ForCBE, calleeExitVertices, memoize);
         boost::add_edge(Orig2CopyMap[bb], calleeEntryV, G);
 
         if (eit_pair.first != eit_pair.second) {
@@ -945,7 +945,7 @@ static flow_vertex_t copy_function_cfg(decompilation_t &Decompilation,
 
       std::vector<exit_vertex_pair_t> calleeExitVertices;
       flow_vertex_t calleeEntryV =
-          copy_function_cfg(Decompilation, TCG, M, G, callee, GetBinary, DFSan, ForCBE, calleeExitVertices, memoize);
+          copy_function_cfg(jv, TCG, M, G, callee, GetBinary, DFSan, ForCBE, calleeExitVertices, memoize);
 
       boost::add_edge(Orig2CopyMap[bb], calleeEntryV, G);
 
@@ -991,11 +991,11 @@ static flow_vertex_t copy_function_cfg(decompilation_t &Decompilation,
       assert(!DynTargets.empty());
 
       for (dynamic_target_t DynTarget : DynTargets) {
-        function_t &callee = function_of_target(DynTarget, Decompilation);
+        function_t &callee = function_of_target(DynTarget, jv);
 
         std::vector<exit_vertex_pair_t> calleeExitVertices;
         flow_vertex_t calleeEntryV =
-            copy_function_cfg(Decompilation, TCG, M, G, callee, GetBinary, DFSan, ForCBE, calleeExitVertices, memoize);
+            copy_function_cfg(jv, TCG, M, G, callee, GetBinary, DFSan, ForCBE, calleeExitVertices, memoize);
         boost::add_edge(Orig2CopyMap[bb], calleeEntryV, G);
 
         for (const auto &calleeExitVertPair : calleeExitVertices) {
@@ -1422,7 +1422,7 @@ void AnalyzeBasicBlock(tiny_code_generator_t &TCG,
 #endif
 }
 
-void AnalyzeFunction(decompilation_t &Decompilation,
+void AnalyzeFunction(decompilation_t &jv,
                      tiny_code_generator_t &TCG,
                      llvm::Module &M,
                      function_t &f,
@@ -1441,7 +1441,7 @@ void AnalyzeFunction(decompilation_t &Decompilation,
         memoize;
 
     std::vector<exit_vertex_pair_t> exitVertices;
-    flow_vertex_t entryV = copy_function_cfg(Decompilation, TCG, M, G, f, GetBinary, DFSan, ForCBE, exitVertices, memoize);
+    flow_vertex_t entryV = copy_function_cfg(jv, TCG, M, G, f, GetBinary, DFSan, ForCBE, exitVertices, memoize);
 
     //
     // build vector of vertices in DFS order
@@ -1734,14 +1734,14 @@ int LLVMTool::Run(void) {
   opts.CallStack = opts.DFSan;
   opts.CheckEmulatedReturnAddress = opts.DFSan;
 
-  ReadDecompilationFromFile(opts.jv, Decompilation);
+  ReadDecompilationFromFile(opts.jv, jv);
 
   //
   // binary index (cmdline)
   //
   if (!opts.Binary.empty()) {
-    for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
-      binary_t &b = Decompilation.Binaries[BIdx];
+    for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
+      binary_t &b = jv.Binaries[BIdx];
 
       if (fs::path(b.Path).filename().string() == opts.Binary) {
         if (b.IsDynamicLinker) {
@@ -1764,7 +1764,7 @@ int LLVMTool::Run(void) {
   if (!opts.BinaryIndex.empty()) {
     int idx = atoi(opts.BinaryIndex.c_str());
 
-    if (idx < 0 || idx >= Decompilation.Binaries.size()) {
+    if (idx < 0 || idx >= jv.Binaries.size()) {
       WithColor::error() << "invalid binary index supplied\n";
       return 1;
     }
@@ -1773,7 +1773,7 @@ int LLVMTool::Run(void) {
   }
 
   if (opts.ForeignLibs) {
-    if (!Decompilation.Binaries[BinaryIndex].IsExecutable) {
+    if (!jv.Binaries[BinaryIndex].IsExecutable) {
       WithColor::error() << "--foreign-libs specified but given binary is not "
                             "the executable\n";
       return 1;
@@ -1802,20 +1802,20 @@ int LLVMTool::Run(void) {
   }
 #endif
 
-  identify_ABIs(Decompilation);
+  identify_ABIs(jv);
 
   if (unlikely(opts.DFSan)) {
     //
     // examine function symbols in every binary (ExportedFunctions)
     //
     for_each_binary_if(
-        Decompilation,
+        jv,
         [&](binary_t &b) -> bool {
           return state_for_binary(b).ObjectFile.get() != nullptr &&
                  state_for_binary(b)._elf.OptionalDynSymRegion;
         },
         [&](binary_t &b) {
-          binary_index_t BIdx = index_of_binary(b, Decompilation);
+          binary_index_t BIdx = index_of_binary(b, jv);
 
           auto DynSyms = state_for_binary(b)._elf.OptionalDynSymRegion->template getAsArrayRef<Elf_Sym>();
 
@@ -1853,7 +1853,7 @@ int LLVMTool::Run(void) {
   // examine data symbols in every binary (GlobalSymbolDefinedSizeMap)
   //
   for_each_binary_if(
-      Decompilation,
+      jv,
       [&](binary_t &b) -> bool {
         return state_for_binary(b).ObjectFile.get() != nullptr &&
                state_for_binary(b)._elf.OptionalDynSymRegion;
@@ -1896,7 +1896,7 @@ int LLVMTool::Run(void) {
             });
       });
 
-  binary_t &Binary = Decompilation.Binaries[BinaryIndex];
+  binary_t &Binary = jv.Binaries[BinaryIndex];
   assert(state_for_binary(Binary).ObjectFile.get());
 
   llvm::ArrayRef<Elf_Sym> BinaryDynSyms = {};
@@ -2274,9 +2274,9 @@ void LLVMTool::DumpModule(const char *suffix) {
 }
 
 int LLVMTool::InitStateForBinaries(void) {
-  for_each_binary(Decompilation, [&](binary_t &binary) {
+  for_each_binary(jv, [&](binary_t &binary) {
     binary_state_t &state = state_for_binary(binary);
-    construct_fnmap(Decompilation, binary, state.fnmap);
+    construct_fnmap(jv, binary, state.fnmap);
 
     auto &ICFG = binary.Analysis.ICFG;
 
@@ -2345,7 +2345,7 @@ int LLVMTool::InitStateForBinaries(void) {
                                state._elf.SymbolVersionSection,
                                state._elf.VersionMap);
 
-        if (index_of_binary(binary, Decompilation) == BinaryIndex)
+        if (index_of_binary(binary, jv) == BinaryIndex)
           loadDynamicRelocations(&E, &O,
                                  state._elf.DynamicTable,
                                  state._elf.DynRelRegion,
@@ -2844,7 +2844,7 @@ int LLVMTool::LocateHooks(void) {
     assert(!(*it).second.empty());
 
     for (dynamic_target_t IdxPair : (*it).second) {
-      function_t &f = function_of_target(IdxPair, Decompilation);
+      function_t &f = function_of_target(IdxPair, jv);
 
       if (state_for_function(f).hook) {
         WithColor::warning() << llvm::formatv("hook already installed for {0}\n", h.Sym);
@@ -2871,7 +2871,7 @@ int LLVMTool::LocateHooks(void) {
 }
 
 int LLVMTool::ProcessBinaryTLSSymbols(void) {
-  binary_t &b = Decompilation.Binaries[BinaryIndex];
+  binary_t &b = jv.Binaries[BinaryIndex];
 
   assert(state_for_binary(b).ObjectFile);
   assert(llvm::isa<ELFO>(state_for_binary(b).ObjectFile.get()));
@@ -3027,9 +3027,9 @@ llvm::GlobalIFunc *LLVMTool::buildGlobalIFunc(function_t &f,
 
   fillInFunctionBody(F, [&](auto &IRB) {
     if (is_dynamic_target_valid(IdxPair) && IdxPair.first == BinaryIndex) {
-      function_t &f = function_of_target(IdxPair, Decompilation);
+      function_t &f = function_of_target(IdxPair, jv);
 
-      auto &Binary = Decompilation.Binaries[BinaryIndex];
+      auto &Binary = jv.Binaries[BinaryIndex];
       auto &ICFG = Binary.Analysis.ICFG;
 
       target_ulong Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
@@ -3045,7 +3045,7 @@ llvm::GlobalIFunc *LLVMTool::buildGlobalIFunc(function_t &f,
       IRB.CreateRet(
           IRB.CreateIntToPtr(Res, F->getFunctionType()->getReturnType()));
     } else if (is_dynamic_target_valid(IdxPair) &&
-               !Decompilation.Binaries.at(IdxPair.first).IsDynamicallyLoaded) {
+               !jv.Binaries.at(IdxPair.first).IsDynamicallyLoaded) {
       llvm::Value *Res = GetDynTargetAddress<false>(IRB, IdxPair);
 
       IRB.CreateRet(
@@ -3143,7 +3143,7 @@ llvm::GlobalIFunc *LLVMTool::buildGlobalIFunc(function_t &f,
 }
 
 int LLVMTool::ProcessCOPYRelocations(void) {
-  binary_t &Binary = Decompilation.Binaries[BinaryIndex];
+  binary_t &Binary = jv.Binaries[BinaryIndex];
 
   auto OptionalDynSymRegion = state_for_binary(Binary)._elf.OptionalDynSymRegion;
 
@@ -3265,7 +3265,7 @@ int LLVMTool::ProcessCOPYRelocations(void) {
 int LLVMTool::PrepareToTranslateCode(void) {
   TCG.reset(new tiny_code_generator_t);
 
-  binary_t &Binary = Decompilation.Binaries[BinaryIndex];
+  binary_t &Binary = jv.Binaries[BinaryIndex];
 
   DIBuilder.reset(new llvm::DIBuilder(*Module));
 
@@ -3368,13 +3368,13 @@ void LLVMTool::expandMemIntrinsicUses(llvm::Function &F) {
 }
 
 tcg_global_set_t LLVMTool::DetermineFunctionArgs(function_t &f) {
-  AnalyzeFunction(Decompilation, *TCG, *Module, f, [&](binary_t &b) -> llvm::object::Binary & { return *state_for_binary(b).ObjectFile; }, opts.DFSan, opts.ForCBE);
+  AnalyzeFunction(jv, *TCG, *Module, f, [&](binary_t &b) -> llvm::object::Binary & { return *state_for_binary(b).ObjectFile; }, opts.DFSan, opts.ForCBE);
 
   return f.Analysis.args;
 }
 
 tcg_global_set_t LLVMTool::DetermineFunctionRets(function_t &f) {
-  AnalyzeFunction(Decompilation, *TCG, *Module, f, [&](binary_t &b) -> llvm::object::Binary & { return *state_for_binary(b).ObjectFile; }, opts.DFSan, opts.ForCBE);
+  AnalyzeFunction(jv, *TCG, *Module, f, [&](binary_t &b) -> llvm::object::Binary & { return *state_for_binary(b).ObjectFile; }, opts.DFSan, opts.ForCBE);
 
   return f.Analysis.rets;
 }
@@ -3541,7 +3541,7 @@ bool is_builtin_sym(const std::string &sym) {
 }
 
 int LLVMTool::CreateFunctions(void) {
-  binary_t &Binary = Decompilation.Binaries[BinaryIndex];
+  binary_t &Binary = jv.Binaries[BinaryIndex];
   const auto &ICFG = Binary.Analysis.ICFG;
 
   for_each_function_in_binary(Binary, [&](function_t &f) {
@@ -3623,8 +3623,8 @@ int LLVMTool::CreateFunctions(void) {
 }
 
 int LLVMTool::CreateFunctionTables(void) {
-  for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
-    binary_t &binary = Decompilation.Binaries[BIdx];
+  for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
+    binary_t &binary = jv.Binaries[BIdx];
     if (binary.IsDynamicLinker)
       continue;
     if (binary.IsVDSO)
@@ -3662,7 +3662,7 @@ int LLVMTool::CreateFunctionTables(void) {
 }
 
 int LLVMTool::CreateFunctionTable(void) {
-  binary_t &Binary = Decompilation.Binaries[BinaryIndex];
+  binary_t &Binary = jv.Binaries[BinaryIndex];
   auto &ICFG = Binary.Analysis.ICFG;
 
   if (llvm::Function *F = state_for_binary(Binary).SectsF) {
@@ -3726,15 +3726,15 @@ int LLVMTool::CreateFunctionTable(void) {
   fillInFunctionBody(
       Module->getFunction("_jove_foreign_functions_count"), [&](auto &IRB) {
         unsigned N_1 =
-            std::accumulate(std::next(Decompilation.Binaries.begin(), 1),
-                            std::next(Decompilation.Binaries.begin(), 3), 0u,
+            std::accumulate(std::next(jv.Binaries.begin(), 1),
+                            std::next(jv.Binaries.begin(), 3), 0u,
                             [&](unsigned res, const binary_t &b) -> unsigned {
                               return res + b.Analysis.Functions.size();
                             });
 
         unsigned N_2 =
-            std::accumulate(std::next(Decompilation.Binaries.begin(), 3),
-                            Decompilation.Binaries.end(), 0u,
+            std::accumulate(std::next(jv.Binaries.begin(), 3),
+                            jv.Binaries.end(), 0u,
                             [&](unsigned res, const binary_t &b) -> unsigned {
                               return res + b.Analysis.Functions.size();
                             });
@@ -3925,7 +3925,7 @@ void LLVMTool::compute_irelative_relocation(llvm::IRBuilderTy &IRB,
     IRB.CreateStore(NewSP, SPPtr);
   }
 
-  binary_t &Binary = Decompilation.Binaries[BinaryIndex];
+  binary_t &Binary = jv.Binaries[BinaryIndex];
   auto &fnmap = state_for_binary(Binary).fnmap;
 
   auto it = fnmap.find(resolverAddr);
@@ -3990,7 +3990,7 @@ void LLVMTool::compute_tpoff_relocation(llvm::IRBuilderTy &IRB,
 }
 
 target_ulong LLVMTool::ExtractWordAtAddress(target_ulong Addr) {
-  auto &Binary = Decompilation.Binaries[BinaryIndex];
+  auto &Binary = jv.Binaries[BinaryIndex];
 
   auto &ObjectFile = state_for_binary(Binary).ObjectFile;
 
@@ -4011,7 +4011,7 @@ struct unhandled_relocation_exception {};
 #include "relocs_llvm.hpp"
 
 int LLVMTool::CreateSectionGlobalVariables(void) {
-  binary_t &Binary = Decompilation.Binaries[BinaryIndex];
+  binary_t &Binary = jv.Binaries[BinaryIndex];
   auto &ObjectFile = state_for_binary(Binary).ObjectFile;
   auto &fnmap = state_for_binary(Binary).fnmap;
 
@@ -4021,13 +4021,13 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
   const ELFF &E = *O.getELFFile();
 
   struct PatchContents {
-    decompilation_t &Decompilation;
+    decompilation_t &jv;
     binary_index_t BinaryIndex;
     std::vector<uint32_t> FunctionOrigInsnTable;
 
-    PatchContents(decompilation_t &Decompilation, binary_index_t BinaryIndex)
-        : Decompilation(Decompilation), BinaryIndex(BinaryIndex) {
-      auto &Binary = Decompilation.Binaries[BinaryIndex];
+    PatchContents(decompilation_t &jv, binary_index_t BinaryIndex)
+        : jv(jv), BinaryIndex(BinaryIndex) {
+      auto &Binary = jv.Binaries[BinaryIndex];
       auto &ICFG = Binary.Analysis.ICFG;
 
       FunctionOrigInsnTable.resize(Binary.Analysis.Functions.size());
@@ -4090,7 +4090,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
       }
     }
     ~PatchContents() {
-      auto &Binary = Decompilation.Binaries[BinaryIndex];
+      auto &Binary = jv.Binaries[BinaryIndex];
       auto &ICFG = Binary.Analysis.ICFG;
 
       //
@@ -4117,7 +4117,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
     }
 
     void *binary_data_ptr_of_addr(target_ulong Addr) {
-      auto &Binary = Decompilation.Binaries[BinaryIndex];
+      auto &Binary = jv.Binaries[BinaryIndex];
       auto &ObjectFile = state_for_binary(Binary).ObjectFile;
 
       const ELFF &E = *llvm::cast<ELFO>(ObjectFile.get())->getELFFile();
@@ -4135,7 +4135,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
       //
       return const_cast<uint8_t *>(*ExpectedPtr);
     }
-  } __PatchContents(Decompilation, BinaryIndex);
+  } __PatchContents(jv, BinaryIndex);
 
   unsigned NumSections = 0;
   boost::icl::split_interval_map<tcg_uintptr_t, section_properties_set_t> SectMap;
@@ -4403,8 +4403,8 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
         *Module, SectsGlobalTy, false, llvm::GlobalValue::ExternalLinkage,
         nullptr, "__jove_sections_const");
 
-    if (Decompilation.Binaries[BinaryIndex].IsExecutable &&
-        !Decompilation.Binaries[BinaryIndex].IsPIC) {
+    if (jv.Binaries[BinaryIndex].IsExecutable &&
+        !jv.Binaries[BinaryIndex].IsPIC) {
       SectsGlobal->setAlignment(llvm::MaybeAlign(1));
       ConstSectsGlobal->setAlignment(llvm::MaybeAlign(1));
     }
@@ -5189,7 +5189,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
   //
   // XXX this should go somewhere else
   {
-    auto &binary = Decompilation.Binaries[BinaryIndex];
+    auto &binary = jv.Binaries[BinaryIndex];
 
     assert(llvm::isa<ELFO>(state_for_binary(binary).ObjectFile.get()));
     ELFO &O = *llvm::cast<ELFO>(state_for_binary(binary).ObjectFile.get());
@@ -5226,7 +5226,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
 
               assert(it != fnmap.end());
 
-              function_t &initfn_f = Decompilation.Binaries[BinaryIndex]
+              function_t &initfn_f = jv.Binaries[BinaryIndex]
                                          .Analysis.Functions[(*it).second];
 
               Ret = llvm::ConstantExpr::getPtrToInt(state_for_function(initfn_f).F, WordType());
@@ -5256,7 +5256,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
 
             assert(it != fnmap.end());
 
-            function_t &f = Decompilation.Binaries[BinaryIndex]
+            function_t &f = jv.Binaries[BinaryIndex]
                                 .Analysis.Functions[(*it).second];
 
             Ret = llvm::ConstantExpr::getPtrToInt(state_for_function(f).F, WordType());
@@ -5302,7 +5302,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
         uintptr_t off = matched_Addend->getValue().getZExtValue();
         uintptr_t FileAddr = off + SectsStartAddr;
 
-        binary_t &Binary = Decompilation.Binaries[BinaryIndex];
+        binary_t &Binary = jv.Binaries[BinaryIndex];
         auto &fnmap = state_for_binary(Binary).fnmap;
         auto it = fnmap.find(FileAddr);
         assert(it != fnmap.end());
@@ -5338,8 +5338,8 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
     }
   }
 
-  if (Decompilation.Binaries[BinaryIndex].IsExecutable &&
-      !Decompilation.Binaries[BinaryIndex].IsPIC)
+  if (jv.Binaries[BinaryIndex].IsExecutable &&
+      !jv.Binaries[BinaryIndex].IsPIC)
     SectsGlobal->setSection(".jove"); /* we will refer to this later with ld,
                                        * placing the section at the executable's
                                        * original base address in memory */
@@ -5349,13 +5349,13 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
 
 std::pair<binary_index_t, std::pair<target_ulong, unsigned>>
 LLVMTool::decipher_copy_relocation(const RelSymbol &S) {
-  assert(Decompilation.Binaries[BinaryIndex].IsExecutable);
+  assert(jv.Binaries[BinaryIndex].IsExecutable);
 
-  for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
+  for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
     if (BIdx == BinaryIndex)
       continue;
 
-    auto &b = Decompilation.Binaries[BIdx];
+    auto &b = jv.Binaries[BIdx];
     if (b.IsVDSO)
       continue;
     if (b.IsDynamicLinker)
@@ -5423,7 +5423,7 @@ LLVMTool::decipher_copy_relocation(const RelSymbol &S) {
 }
 
 int LLVMTool::ProcessManualRelocations(void) {
-  binary_t &Binary = Decompilation.Binaries[BinaryIndex];
+  binary_t &Binary = jv.Binaries[BinaryIndex];
 
   auto OptionalDynSymRegion = state_for_binary(Binary)._elf.OptionalDynSymRegion;
 
@@ -5501,7 +5501,7 @@ int LLVMTool::CreateCopyRelocationHack(void) {
   fillInFunctionBody(
       Module->getFunction("_jove_do_emulate_copy_relocations"),
       [&](auto &IRB) {
-        binary_t &Binary = Decompilation.Binaries[BinaryIndex];
+        binary_t &Binary = jv.Binaries[BinaryIndex];
 
         if (!Binary.IsExecutable) {
           assert(CopyRelocMap.empty());
@@ -5509,7 +5509,7 @@ int LLVMTool::CreateCopyRelocationHack(void) {
 
         for (const auto &pair : CopyRelocMap) {
           binary_index_t BIdxFrom = pair.second.first;
-          auto &BinaryFrom = Decompilation.Binaries.at(BIdxFrom);
+          auto &BinaryFrom = jv.Binaries.at(BIdxFrom);
 
           WARN_ON(pair.second.first < 3);
 
@@ -5576,7 +5576,7 @@ int LLVMTool::CreateCopyRelocationHack(void) {
 }
 
 int LLVMTool::FixupHelperStubs(void) {
-  binary_t &Binary = Decompilation.Binaries[BinaryIndex];
+  binary_t &Binary = jv.Binaries[BinaryIndex];
 
   fillInFunctionBody(
       Module->getFunction("_jove_sections_start_file_addr"),
@@ -5611,7 +5611,7 @@ int LLVMTool::FixupHelperStubs(void) {
       Module->getFunction("_jove_dynl_path"),
       [&](auto &IRB) {
         std::string dynl_path;
-        for (binary_t &binary : Decompilation.Binaries) {
+        for (binary_t &binary : jv.Binaries) {
           if (binary.IsDynamicLinker) {
             dynl_path = binary.Path;
             break;
@@ -5667,7 +5667,7 @@ int LLVMTool::FixupHelperStubs(void) {
   fillInFunctionBody(
       Module->getFunction("_jove_get_dynl_function_table"),
       [&](auto &IRB) {
-        binary_t &dynl_binary = Decompilation.Binaries.at(1);
+        binary_t &dynl_binary = jv.Binaries.at(1);
         assert(dynl_binary.IsDynamicLinker);
         auto &ICFG = dynl_binary.Analysis.ICFG;
 
@@ -5698,7 +5698,7 @@ int LLVMTool::FixupHelperStubs(void) {
   fillInFunctionBody(
       Module->getFunction("_jove_get_vdso_function_table"),
       [&](auto &IRB) {
-        binary_t &vdso_binary = Decompilation.Binaries.at(2);
+        binary_t &vdso_binary = jv.Binaries.at(2);
         auto &ICFG = vdso_binary.Analysis.ICFG;
 
         std::vector<llvm::Constant *> constantTable;
@@ -5726,7 +5726,7 @@ int LLVMTool::FixupHelperStubs(void) {
       Module->getFunction("_jove_foreign_lib_count"),
       [&](auto &IRB) {
         uint32_t res =
-            opts.ForeignLibs ? (Decompilation.Binaries.size()
+            opts.ForeignLibs ? (jv.Binaries.size()
                                  - 1 /* rtld */
                                  - 1 /* vdso */
                                  - 1 /* exe  */) : 0;
@@ -5753,9 +5753,9 @@ int LLVMTool::FixupHelperStubs(void) {
         {
           assert(F->arg_begin() != F->arg_end());
           llvm::SwitchInst *SI = IRB.CreateSwitch(F->arg_begin(), DefaultBB,
-                                                  Decompilation.Binaries.size() - 3);
+                                                  jv.Binaries.size() - 3);
           if (opts.ForeignLibs) {
-            for (binary_index_t BIdx = 3; BIdx < Decompilation.Binaries.size(); ++BIdx) {
+            for (binary_index_t BIdx = 3; BIdx < jv.Binaries.size(); ++BIdx) {
               llvm::BasicBlock *CaseBB = llvm::BasicBlock::Create(*Context, "", F);
               {
                 llvm::IRBuilderTy CaseIRB(CaseBB);
@@ -5764,7 +5764,7 @@ int LLVMTool::FixupHelperStubs(void) {
                     *Context, 0 /* Line */, 0 /* Column */, F->getSubprogram()));
 
                 CaseIRB.CreateRet(
-                    CaseIRB.CreateGlobalStringPtr(Decompilation.Binaries[BIdx].Path));
+                    CaseIRB.CreateGlobalStringPtr(jv.Binaries[BIdx].Path));
               }
 
               SI->addCase(llvm::ConstantInt::get(IRB.getInt32Ty(), BIdx - 3),  CaseBB);
@@ -5793,10 +5793,10 @@ int LLVMTool::FixupHelperStubs(void) {
         {
           assert(F->arg_begin() != F->arg_end());
           llvm::SwitchInst *SI = IRB.CreateSwitch(F->arg_begin(), DefaultBB,
-                                                  Decompilation.Binaries.size() - 3);
+                                                  jv.Binaries.size() - 3);
           if (opts.ForeignLibs) {
-            for (binary_index_t BIdx = 3; BIdx < Decompilation.Binaries.size(); ++BIdx) {
-              binary_t &binary = Decompilation.Binaries[BIdx];
+            for (binary_index_t BIdx = 3; BIdx < jv.Binaries.size(); ++BIdx) {
+              binary_t &binary = jv.Binaries[BIdx];
               auto &ICFG = binary.Analysis.ICFG;
 
               llvm::ArrayType *TblTy =
@@ -5958,7 +5958,7 @@ llvm::Value *LLVMTool::BuildCPUStatePointer(llvm::IRBuilderTy &IRB,
 int LLVMTool::TranslateFunction(function_t &f) {
   TranslateContext TC(*this, f);
 
-  binary_t &Binary = Decompilation.Binaries[BinaryIndex];
+  binary_t &Binary = jv.Binaries[BinaryIndex];
   const function_index_t FIdx = index_of_function_in_binary(f, Binary);
   interprocedural_control_flow_graph_t &ICFG = Binary.Analysis.ICFG;
   llvm::Function *F = state_for_function(f).F;
@@ -6245,7 +6245,7 @@ int LLVMTool::TranslateFunctions(void) {
 
   FPM.doInitialization();
 
-  binary_t &Binary = Decompilation.Binaries[BinaryIndex];
+  binary_t &Binary = jv.Binaries[BinaryIndex];
   for (function_t &f : Binary.Analysis.Functions) {
     int ret = TranslateFunction(f);
     if (unlikely(ret))
@@ -6381,7 +6381,7 @@ int LLVMTool::DoOptimize(void) {
 }
 
 int LLVMTool::ConstifyRelocationSectionPointers(void) {
-  binary_t &Binary = Decompilation.Binaries[BinaryIndex];
+  binary_t &Binary = jv.Binaries[BinaryIndex];
 
   assert(SectsGlobal && ConstSectsGlobal);
 
@@ -6638,7 +6638,7 @@ int LLVMTool::DFSanInstrument(void) {
   FPM.add(llvm::createDataFlowSanitizerPass(ABIList, nullptr, nullptr));
 
   FPM.doInitialization();
-  for (function_t &f : Decompilation.Binaries[BinaryIndex].Analysis.Functions) {
+  for (function_t &f : jv.Binaries[BinaryIndex].Analysis.Functions) {
     assert(f.F);
 
     FPM.run(*f.F);
@@ -6942,7 +6942,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
   basic_block_t bb = TC.bb;
   function_t &f = TC.f;
 
-  binary_t &Binary = Decompilation.Binaries[BinaryIndex];
+  binary_t &Binary = jv.Binaries[BinaryIndex];
   const auto &ICFG = Binary.Analysis.ICFG;
   llvm::IRBuilderTy IRB(state_for_basic_block(ICFG[bb]).B);
 
@@ -7752,12 +7752,12 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
     const bool Lj = std::any_of(DynTargets.begin(),
                                 DynTargets.end(),
                                 [&](dynamic_target_t X) -> bool {
-                                  return state_for_function(function_of_target(X, Decompilation)).IsLj;
+                                  return state_for_function(function_of_target(X, jv)).IsLj;
                                 });
     const bool Sj = std::any_of(DynTargets.begin(),
                                 DynTargets.end(),
                                 [&](dynamic_target_t X) -> bool {
-                                  return state_for_function(function_of_target(X, Decompilation)).IsSj;
+                                  return state_for_function(function_of_target(X, jv)).IsSj;
                                 });
 
     const bool SjLj = Lj || Sj;
@@ -7766,7 +7766,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
 
       dynamic_target_t X = *DynTargets.begin();
 
-      function_t &callee = function_of_target(X, Decompilation);
+      function_t &callee = function_of_target(X, jv);
 
       llvm::outs() << llvm::formatv("calling {0} from {1:x} ({2})\n",
                                     Lj ? "longjmp" : "setjmp",
@@ -7874,7 +7874,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
     bool IsABICall = std::all_of(DynTargets.begin(),
                                  DynTargets.end(),
                                  [&](dynamic_target_t X) -> bool {
-                                   return function_of_target(X, Decompilation).IsABI;
+                                   return function_of_target(X, jv).IsABI;
                                  });
     if (opts.ABICalls && IsABICall)
     {
@@ -8037,7 +8037,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
 
           bool foreign = DynTargetNeedsThunkPred(DynTargetsVec[i]);
 
-          function_t &callee = function_of_target(DynTargetsVec[i], Decompilation);
+          function_t &callee = function_of_target(DynTargetsVec[i], jv);
 
           const bool Lj = state_for_function(callee).IsLj;
           const bool Sj = state_for_function(callee).IsSj;
@@ -8680,7 +8680,7 @@ std::string LLVMTool::dyn_target_desc(dynamic_target_t IdxPair) {
 
   std::tie(DynTarget.BIdx, DynTarget.FIdx) = IdxPair;
 
-  binary_t &b = Decompilation.Binaries[DynTarget.BIdx];
+  binary_t &b = jv.Binaries[DynTarget.BIdx];
   function_t &f = b.Analysis.Functions[DynTarget.FIdx];
 
   target_ulong Addr =
@@ -8707,7 +8707,7 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
   auto &TempAllocaVec = TC.TempAllocaVec;
   auto &LabelVec = TC.LabelVec;
 
-  binary_t &Binary = TC.tool.Decompilation.Binaries[TC.tool.BinaryIndex];
+  binary_t &Binary = TC.tool.jv.Binaries[TC.tool.BinaryIndex];
   const auto &ICFG = Binary.Analysis.ICFG;
   auto &PCAlloca = TC.PCAlloca;
   TCGContext *s = &TC.tool.TCG->priv->_ctx;

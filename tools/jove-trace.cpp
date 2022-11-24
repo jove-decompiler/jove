@@ -126,7 +126,7 @@ class TraceTool : public Tool {
                        cl::aliasopt(Verbose), cl::cat(JoveCategory)) {}
   } opts;
 
-  decompilation_t Decompilation;
+  decompilation_t jv;
 
 public:
   TraceTool() : opts(JoveCategory) {}
@@ -178,8 +178,8 @@ int TraceTool::Run(void) {
     }
   }
 
-  ReadDecompilationFromFile(opts.jv, Decompilation);
-  InitStateForBinaries(Decompilation);
+  ReadDecompilationFromFile(opts.jv, jv);
+  InitStateForBinaries(jv);
 
   //
   // establish temporary directory that may or may not be used as a sysroot
@@ -213,7 +213,7 @@ int TraceTool::Run(void) {
   //
   // recreate sysroot as best we can TODO refactor
   //
-  for (const binary_t &binary : Decompilation.Binaries) {
+  for (const binary_t &binary : jv.Binaries) {
     fs::path chrooted_path(SysrootPath / binary.Path);
     fs::create_directories(chrooted_path.parent_path());
 
@@ -286,8 +286,8 @@ open_events:
     //
     // register uprobes
     //
-    for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
-      const binary_t &binary = Decompilation.Binaries[BIdx];
+    for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
+      const binary_t &binary = jv.Binaries[BIdx];
 
       if (binary.IsDynamicLinker)
         continue;
@@ -484,8 +484,8 @@ skip_uprobe:
       std::vector<const char *> arg_vec;
 
       fs::path exe_path = opts.OutsideChroot
-                              ? SysrootPath / Decompilation.Binaries[0].Path
-                              : Decompilation.Binaries[0].Path;
+                              ? SysrootPath / jv.Binaries[0].Path
+                              : jv.Binaries[0].Path;
 
       arg_vec.push_back(exe_path.c_str());
 
@@ -610,9 +610,9 @@ skip_uprobe:
   return 0;
 }
 
-void InitStateForBinaries(decompilation_t &Decompilation) {
-  for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
-    auto &binary = Decompilation.Binaries[BIdx];
+void InitStateForBinaries(decompilation_t &jv) {
+  for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
+    auto &binary = jv.Binaries[BIdx];
     auto &ICFG = binary.Analysis.ICFG;
 
     //

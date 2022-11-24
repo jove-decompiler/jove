@@ -40,10 +40,10 @@ class CodeDigger : public Tool {
     cl::opt<std::string> SingleBBIdx;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
-        : jv("decompilation", cl::desc("Jove Decompilation"), cl::Required,
+        : jv("decompilation", cl::desc("Jove jv"), cl::Required,
              cl::value_desc("filename"), cl::cat(JoveCategory)),
 
-          jvAlias("d", cl::desc("Alias for -Decompilation."), cl::aliasopt(jv),
+          jvAlias("d", cl::desc("Alias for -jv."), cl::aliasopt(jv),
                   cl::cat(JoveCategory)),
 
           Verbose("verbose",

@@ -46,15 +46,15 @@ int InvalidateTool::Run(void) {
 }
 
 void InvalidateTool::invalidateInput(const std::string &jvfp) {
-  decompilation_t Decompilation;
-  ReadDecompilationFromFile(jvfp, Decompilation);
+  decompilation_t jv;
+  ReadDecompilationFromFile(jvfp, jv);
 
-  Decompilation.InvalidateFunctionAnalyses();
-  for_each_binary(Decompilation, [&](binary_t &binary) {
+  jv.InvalidateFunctionAnalyses();
+  for_each_binary(jv, [&](binary_t &binary) {
     binary.InvalidateBasicBlockAnalyses();
   });
 
-  WriteDecompilationToFile(jvfp, Decompilation);
+  WriteDecompilationToFile(jvfp, jv);
 }
 
 }
