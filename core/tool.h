@@ -18,6 +18,7 @@ class Tool {
 
 public:
   llvm::cl::OptionCategory JoveCategory;
+  jv_t jv;
 
 public:
   Tool();
@@ -78,6 +79,14 @@ public:
 };
 
 typedef Tool *(*ToolCreationProc)(void);
+
+template <typename BinaryStateT, typename FunctionStateT = int>
+struct TransformerTool : public Tool
+{
+  jv_state_t<BinaryStateT, FunctionStateT> state;
+
+  TransformerTool() : state(jv) {}
+};
 
 void RegisterTool(const char *name, ToolCreationProc Create);
 

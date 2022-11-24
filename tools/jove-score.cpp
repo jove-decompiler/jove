@@ -34,8 +34,6 @@ class ScoreTool : public Tool {
 
   binary_index_t SingleBinaryIndex = invalid_binary_index;
 
-  jv_t jv;
-
 public:
   ScoreTool() : opts(JoveCategory) {}
 

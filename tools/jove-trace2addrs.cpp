@@ -103,7 +103,6 @@ int Trace2AddrsTool::Run(void) {
     }
   }
 
-  jv_t jv;
   ReadDecompilationFromFile(opts.jv, jv);
 
   //

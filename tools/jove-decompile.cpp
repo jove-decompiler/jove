@@ -30,12 +30,16 @@ using llvm::WithColor;
 
 namespace jove {
 
+namespace {
+
 struct binary_state_t {
   std::unique_ptr<obj::Binary> Bin;
   dynamic_linking_info_t dynl;
 };
 
-class DecompileTool : public Tool {
+}
+
+class DecompileTool : public TransformerTool<binary_state_t> {
   struct Cmdline {
     cl::opt<std::string> jv;
     cl::opt<std::string> Binary;

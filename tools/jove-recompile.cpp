@@ -58,16 +58,19 @@ typedef boost::adjacency_list<boost::setS,           /* OutEdgeList */
 
 typedef dso_graph_t::vertex_descriptor dso_t;
 
+
+namespace {
+
 struct binary_state_t {
   dynamic_linking_info_t dynl;
   dso_t dso;
 };
 
+}
+
 typedef boost::format fmt;
 
-static jv_t jv;
-
-class RecompileTool : public Tool {
+class RecompileTool : public TransformerTool<binary_state_t> {
   struct Cmdline {
     cl::opt<std::string> jv;
     cl::alias jvAlias;
@@ -176,6 +179,8 @@ public:
   int Run(void);
 
   void worker(const dso_graph_t &dso_graph);
+
+  void write_dso_graphviz(std::ostream &out, const dso_graph_t &);
 };
 
 JOVE_REGISTER_TOOL("recompile", RecompileTool);
@@ -189,8 +194,6 @@ static std::string compiler_runtime_afp, libatomic_afp, jove_bin_path,
 static std::atomic<bool> Cancel(false);
 
 static void handle_sigint(int);
-
-static void write_dso_graphviz(std::ostream &out, const dso_graph_t &);
 
 static std::vector<dso_t> Q;
 static std::mutex Q_mtx;
@@ -219,14 +222,15 @@ struct vert_exists_in_set_t {
 
 template <typename Graph>
 struct graphviz_label_writer {
+  Tool &tool;
   const Graph &g;
 
-  graphviz_label_writer(const Graph &g) : g(g) {}
+  graphviz_label_writer(Tool &tool, const Graph &g) : tool(tool), g(g) {}
 
   template <typename Vertex>
   void operator()(std::ostream &out, Vertex v) const {
     std::string name =
-        fs::path(jv.Binaries.at(g[v].BIdx).Path).filename().string();
+        fs::path(tool.jv.Binaries.at(g[v].BIdx).Path).filename().string();
 
     boost::replace_all(name, "\\", "\\\\");
     boost::replace_all(name, "\r\n", "\\l");
@@ -843,7 +847,7 @@ int RecompileTool::Run(void) {
 
         boost::write_graphviz(
             out, fg,
-            graphviz_label_writer(fg),
+            graphviz_label_writer(*this, fg),
             graphviz_edge_prop_writer(fg),
             graphviz_prop_writer());
       }
@@ -1526,9 +1530,10 @@ bool pop_dso(dso_t &out) {
   }
 }
 
-void write_dso_graphviz(std::ostream &out, const dso_graph_t &dso_graph) {
+void RecompileTool::write_dso_graphviz(std::ostream &out,
+                                       const dso_graph_t &dso_graph) {
   boost::write_graphviz(
-      out, dso_graph, graphviz_label_writer(dso_graph),
+      out, dso_graph, graphviz_label_writer(*this, dso_graph),
       graphviz_edge_prop_writer(dso_graph), graphviz_prop_writer());
 }
 

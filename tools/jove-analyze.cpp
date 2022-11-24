@@ -24,6 +24,8 @@ using llvm::WithColor;
 
 namespace jove {
 
+namespace {
+
 struct basic_block_state_t {
   tcg_global_set_t IN, OUT;
 };
@@ -39,7 +41,9 @@ struct binary_state_t {
   std::unique_ptr<llvm::object::Binary> ObjectFile;
 };
 
-class AnalyzeTool : public Tool {
+}
+
+class AnalyzeTool : public TransformerTool<binary_state_t, function_state_t> {
   struct Cmdline {
     cl::opt<std::string> jv;
     cl::alias jvAlias;
@@ -64,8 +68,6 @@ class AnalyzeTool : public Tool {
                          cl::desc("Only analyze functions in executable"),
                          cl::cat(JoveCategory)) {}
   } opts;
-
-  jv_t jv;
 
   std::unique_ptr<tiny_code_generator_t> TCG;
   std::unique_ptr<llvm::LLVMContext> Context;

@@ -88,6 +88,8 @@ namespace jove {
 
 struct hook_t;
 
+namespace {
+
 struct basic_block_state_t {
   tcg_global_set_t IN, OUT;
 
@@ -143,6 +145,8 @@ struct binary_state_t {
   uint64_t SectsEndAddr = 0;
 };
 
+}
+
 typedef std::unordered_set<
     std::pair<binary_index_t, function_index_t>,
     boost::hash<std::pair<binary_index_t, function_index_t>>>
@@ -165,7 +169,7 @@ struct hook_t {
 
 struct TranslateContext;
 
-struct LLVMTool : public Tool {
+struct LLVMTool : public TransformerTool<binary_state_t, function_state_t> {
   struct Cmdline {
     cl::opt<std::string> jv;
     cl::alias jvAlias;
@@ -327,8 +331,6 @@ struct LLVMTool : public Tool {
                  cl::cat(JoveCategory)) {}
 
   } opts;
-
-  jv_t jv;
 
   binary_index_t BinaryIndex = invalid_binary_index;
 

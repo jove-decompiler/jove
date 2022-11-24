@@ -82,7 +82,6 @@ class IDATool : public Tool {
   std::string ida_dir;
   std::string ida_scripts_dir;
 
-  jv_t jv;
   disas_t disas;
 
 public:

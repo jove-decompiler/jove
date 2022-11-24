@@ -33,11 +33,15 @@ TCGDumpUserBreakPoint(void) {
 
 namespace jove {
 
+namespace {
+
 struct binary_state_t {
   std::unique_ptr<llvm::object::Binary> ObjectFile;
 };
 
-class TCGDumpTool : public Tool {
+}
+
+class TCGDumpTool : public TransformerTool<binary_state_t> {
   struct Cmdline {
     cl::opt<std::string> Binary;
     cl::opt<bool> DoTCGOpt;

@@ -88,8 +88,6 @@ class RecoverTool : public Tool {
 
   } opts;
 
-  jv_t jv;
-
   disas_t disas;
 
 public:

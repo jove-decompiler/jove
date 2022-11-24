@@ -13,11 +13,15 @@ using llvm::WithColor;
 
 namespace jove {
 
+namespace {
+
 struct function_state_t {
   basic_block_vec_t BasicBlocks;
 };
 
-class Trace2LinesTool : public Tool {
+}
+
+class Trace2LinesTool : public TransformerTool<int, function_state_t> {
   struct Cmdline {
     cl::opt<std::string> TracePath;
     cl::opt<std::string> jv;

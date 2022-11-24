@@ -37,11 +37,15 @@ using llvm::WithColor;
 
 namespace jove {
 
+namespace {
+
 struct binary_state_t {
   std::unique_ptr<llvm::object::Binary> ObjectFile;
 };
 
-class CFGTool : public Tool {
+}
+
+class CFGTool : public TransformerTool<binary_state_t> {
   struct Cmdline {
     cl::opt<std::string> jv;
     cl::alias jvAlias;
@@ -83,8 +87,6 @@ class CFGTool : public Tool {
 
     {}
   } opts;
-
-  jv_t jv;
 
   binary_index_t BinaryIndex = invalid_binary_index;
 

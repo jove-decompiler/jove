@@ -24,8 +24,6 @@ class UnstubTool : public Tool {
                cl::value_desc("filename"), cl::cat(JoveCategory)) {}
   } opts;
 
-  jv_t jv;
-
 public:
   UnstubTool() : opts(JoveCategory) {}
 

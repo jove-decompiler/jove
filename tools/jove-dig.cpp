@@ -21,11 +21,15 @@ using llvm::WithColor;
 
 namespace jove {
 
+namespace {
+
 struct binary_state_t {
   uint64_t SectsStartAddr, SectsEndAddr;
 };
 
-class CodeDigger : public Tool {
+}
+
+class CodeDigger : public TransformerTool<binary_state_t> {
   struct Cmdline {
     cl::opt<std::string> jv;
     cl::alias jvAlias;
@@ -79,8 +83,6 @@ class CodeDigger : public Tool {
               cl::desc("Only analyze indirect jump at given basic block index"),
               cl::cat(JoveCategory)) {}
   } opts;
-
-  jv_t jv;
 
   std::atomic<bool> worker_failed = false;
 

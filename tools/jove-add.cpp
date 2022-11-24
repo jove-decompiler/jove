@@ -27,6 +27,8 @@ using llvm::WithColor;
 
 namespace jove {
 
+namespace {
+
 struct binary_state_t {
   bbmap_t bbmap;
   fnmap_t fnmap;
@@ -34,7 +36,9 @@ struct binary_state_t {
   std::unique_ptr<llvm::object::Binary> ObjectFile;
 };
 
-class AddTool : public Tool {
+}
+
+class AddTool : public TransformerTool<binary_state_t> {
   struct Cmdline {
     cl::opt<std::string> Input;
     cl::alias InputAlias;
@@ -83,8 +87,6 @@ class AddTool : public Tool {
                                "given address"),
                       cl::cat(JoveCategory)) {}
   } opts;
-
-  jv_t jv;
 
 public:
   AddTool() : opts(JoveCategory) {}

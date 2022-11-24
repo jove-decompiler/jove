@@ -77,6 +77,8 @@ using llvm::WithColor;
 
 namespace jove {
 
+namespace {
+
 struct binary_state_t {
   fnmap_t fnmap;
   bbmap_t bbmap;
@@ -98,6 +100,8 @@ struct binary_state_t {
     DynRegionInfo DynPLTRelRegion;
   } _elf;
 };
+
+}
 
 struct proc_map_t {
   uintptr_t beg;
@@ -176,7 +180,7 @@ struct child_syscall_state_t {
   child_syscall_state_t() : dir(0), pc(0) {}
 };
 
-struct BootstrapTool : public Tool {
+struct BootstrapTool : public TransformerTool<binary_state_t> {
   struct Cmdline {
     cl::opt<std::string> Prog;
     cl::list<std::string> Args;
@@ -293,7 +297,6 @@ struct BootstrapTool : public Tool {
   } opts;
 
   std::string jvfp;
-  jv_t jv;
 
   tiny_code_generator_t tcg;
   disas_t disas;

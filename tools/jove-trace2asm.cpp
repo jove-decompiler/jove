@@ -26,11 +26,15 @@ using llvm::WithColor;
 
 namespace jove {
 
+namespace {
+
 struct binary_state_t {
   std::unique_ptr<llvm::object::Binary> ObjectFile;
 };
 
-class Trace2AsmTool : public Tool {
+}
+
+class Trace2AsmTool : public TransformerTool<binary_state_t> {
   struct Cmdline {
     cl::opt<std::string> TracePath;
     cl::opt<std::string> jv;
@@ -128,7 +132,6 @@ int Trace2AsmTool::Run(void) {
     }
   }
 
-  jv_t jv;
   ReadDecompilationFromFile(opts.jv, jv);
 
   //

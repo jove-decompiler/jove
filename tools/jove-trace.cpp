@@ -24,11 +24,15 @@ using llvm::WithColor;
 
 namespace jove {
 
+namespace {
+
 struct binary_state_t {
   std::unique_ptr<llvm::object::Binary> ObjectFile;
 };
 
-class TraceTool : public Tool {
+}
+
+class TraceTool : public TransformerTool<binary_state_t> {
   struct Cmdline {
     cl::opt<std::string> Prog;
     cl::list<std::string> Args;
@@ -125,8 +129,6 @@ class TraceTool : public Tool {
           VerboseAlias("v", cl::desc("Alias for -verbose."),
                        cl::aliasopt(Verbose), cl::cat(JoveCategory)) {}
   } opts;
-
-  jv_t jv;
 
 public:
   TraceTool() : opts(JoveCategory) {}
