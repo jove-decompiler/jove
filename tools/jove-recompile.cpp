@@ -503,8 +503,9 @@ int RecompileTool::Run(void) {
     }
 
     if (!dynamic_linking_info_of_binary(*Bin, state_for_binary(b).dynl)) {
-      WithColor::warning() << llvm::formatv(
+      WithColor::error() << llvm::formatv(
           "!dynamic_linking_info_of_binary({0})\n", b.Path.c_str());
+      return 1;
     }
   }
 
