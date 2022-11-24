@@ -46,7 +46,7 @@ int InvalidateTool::Run(void) {
 }
 
 void InvalidateTool::invalidateInput(const std::string &jvfp) {
-  decompilation_t jv;
+  jv_t jv;
   ReadDecompilationFromFile(jvfp, jv);
 
   jv.InvalidateFunctionAnalyses();

@@ -126,7 +126,7 @@ class TraceTool : public Tool {
                        cl::aliasopt(Verbose), cl::cat(JoveCategory)) {}
   } opts;
 
-  decompilation_t jv;
+  jv_t jv;
 
 public:
   TraceTool() : opts(JoveCategory) {}
@@ -139,7 +139,7 @@ JOVE_REGISTER_TOOL("trace", TraceTool);
 static char tmpdir[] = {'/', 't', 'm', 'p', '/', 'X',
                         'X', 'X', 'X', 'X', 'X', '\0'};
 
-static void InitStateForBinaries(decompilation_t &);
+static void InitStateForBinaries(jv_t &);
 
 int TraceTool::Run(void) {
   for (char *dashdash_arg : dashdash_args)
@@ -610,7 +610,7 @@ skip_uprobe:
   return 0;
 }
 
-void InitStateForBinaries(decompilation_t &jv) {
+void InitStateForBinaries(jv_t &jv) {
   for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
     auto &binary = jv.Binaries[BIdx];
     auto &ICFG = binary.Analysis.ICFG;

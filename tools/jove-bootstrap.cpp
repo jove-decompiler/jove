@@ -293,7 +293,7 @@ struct BootstrapTool : public Tool {
   } opts;
 
   std::string jvfp;
-  decompilation_t jv;
+  jv_t jv;
 
   tiny_code_generator_t tcg;
   disas_t disas;
@@ -4109,7 +4109,7 @@ void BootstrapTool::add_binary(pid_t child, tiny_code_generator_t &tcg,
 
   binary_index_t BIdx;
   {
-    decompilation_t new_decompilation;
+    jv_t new_decompilation;
 
     ReadDecompilationFromFile(jvfp, new_decompilation);
 

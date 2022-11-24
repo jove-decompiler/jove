@@ -84,7 +84,7 @@ class CFGTool : public Tool {
     {}
   } opts;
 
-  decompilation_t jv;
+  jv_t jv;
 
   binary_index_t BinaryIndex = invalid_binary_index;
 

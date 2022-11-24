@@ -8,7 +8,7 @@ namespace jove {
 
 typedef boost::format fmt;
 
-double compute_score(const decompilation_t &jv,
+double compute_score(const jv_t &jv,
                      const binary_t &binary) {
   llvm::StringRef Buffer(reinterpret_cast<const char *>(&binary.Data[0]),
                          binary.Data.size());

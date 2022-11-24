@@ -486,7 +486,7 @@ void *ServerTool::ConnectionProc(void *arg) {
   //
   // send the rest of the DSO's that were recompiled
   //
-  decompilation_t jv;
+  jv_t jv;
   ReadDecompilationFromFile(tmpjv, jv);
 
   for (const binary_t &binary : jv.Binaries) {

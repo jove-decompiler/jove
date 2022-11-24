@@ -3,6 +3,6 @@
 
 namespace jove {
 
-double compute_score(const decompilation_t &, const binary_t &);
+double compute_score(const jv_t &, const binary_t &);
 
 }

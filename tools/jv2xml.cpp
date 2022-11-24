@@ -48,7 +48,7 @@ int jv2xmlTool::Run(void) {
     return 1;
   }
 
-  decompilation_t jv;
+  jv_t jv;
   ReadDecompilationFromFile(opts.jv, jv);
 
   //

@@ -331,7 +331,7 @@ struct binary_t {
 
 #define state_for_binary(b) ((b).template state<binary_state_t>())
 
-struct decompilation_t {
+struct jv_t {
   std::vector<binary_t> Binaries;
 
   void InvalidateFunctionAnalyses(void) {
@@ -442,14 +442,14 @@ static inline void for_each_if(Iter first, Iter last, Pred p, Op op) {
   }
 }
 
-static inline void for_each_binary(decompilation_t &decompilation,
+static inline void for_each_binary(jv_t &decompilation,
                                    std::function<void(binary_t &)> proc) {
   std::for_each(decompilation.Binaries.begin(),
                 decompilation.Binaries.end(),
                 proc);
 }
 
-static inline void for_each_binary_if(decompilation_t &decompilation,
+static inline void for_each_binary_if(jv_t &decompilation,
                                       std::function<bool(binary_t &)> pred,
                                       std::function<void(binary_t &)> proc) {
   for_each_if(decompilation.Binaries.begin(),
@@ -457,7 +457,7 @@ static inline void for_each_binary_if(decompilation_t &decompilation,
               pred, proc);
 }
 
-static inline void for_each_function(decompilation_t &decompilation,
+static inline void for_each_function(jv_t &decompilation,
                                      std::function<void(function_t &, binary_t &)> proc) {
   for_each_binary(decompilation, [&](binary_t &binary) {
     std::for_each(binary.Analysis.Functions.begin(),
@@ -472,7 +472,7 @@ static inline void for_each_function_in_binary(binary_t &binary,
                 binary.Analysis.Functions.end(), proc);
 }
 
-static inline void for_each_function_if(decompilation_t &decompilation,
+static inline void for_each_function_if(jv_t &decompilation,
                                         std::function<bool(function_t &)> pred,
                                         std::function<void(function_t &, binary_t &)> proc) {
   for_each_binary(decompilation, [&](binary_t &b) {
@@ -482,7 +482,7 @@ static inline void for_each_function_if(decompilation_t &decompilation,
   });
 }
 
-static inline void for_each_basic_block(decompilation_t &decompilation,
+static inline void for_each_basic_block(jv_t &decompilation,
                                         std::function<void(binary_t &, basic_block_t)> proc) {
   for_each_binary(decompilation, [&](binary_t &binary) {
     icfg_t::vertex_iterator it, it_end;
@@ -493,7 +493,7 @@ static inline void for_each_basic_block(decompilation_t &decompilation,
   });
 }
 
-static inline void for_each_basic_block_in_binary(decompilation_t &decompilation,
+static inline void for_each_basic_block_in_binary(jv_t &decompilation,
                                                   binary_t &binary,
                                                   std::function<void(basic_block_t)> proc) {
   auto &ICFG = binary.Analysis.ICFG;
@@ -512,7 +512,7 @@ static inline basic_block_index_t index_of_basic_block(const icfg_t &ICFG, basic
 
 /* XXX this is O(n)... */
 static inline binary_index_t binary_index_of_function(const function_t &f,
-                                                      const decompilation_t &decompilation) {
+                                                      const jv_t &decompilation) {
   for (binary_index_t BIdx = 0; BIdx < decompilation.Binaries.size(); ++BIdx) {
     auto &fns = decompilation.Binaries[BIdx].Analysis.Functions;
 
@@ -524,7 +524,7 @@ static inline binary_index_t binary_index_of_function(const function_t &f,
 }
 
 static inline binary_index_t index_of_binary(const binary_t &b,
-                                             const decompilation_t &decompilation) {
+                                             const jv_t &decompilation) {
   if (!(&b >= &decompilation.Binaries[0] &&
         &b < &decompilation.Binaries[decompilation.Binaries.size()]))
     abort();
@@ -542,17 +542,17 @@ static inline function_index_t index_of_function_in_binary(const function_t &f,
 }
 
 static inline binary_t &binary_of_function(const function_t &f,
-                                           decompilation_t &decompilation) {
+                                           jv_t &decompilation) {
   return decompilation.Binaries.at(binary_index_of_function(f, decompilation));
 }
 
 static inline const binary_t &binary_of_function(const function_t &f,
-                                                 const decompilation_t &decompilation) {
+                                                 const jv_t &decompilation) {
   return decompilation.Binaries.at(binary_index_of_function(f, decompilation));
 }
 
 static inline function_t &function_of_target(dynamic_target_t X,
-                                             decompilation_t &decompilation) {
+                                             jv_t &decompilation) {
   binary_index_t BIdx;
   function_index_t FIdx;
   std::tie(BIdx, FIdx) = X;
@@ -741,7 +741,7 @@ static inline tcg_uintptr_t entry_address_of_function(const function_t &f,
   return ICFG[basic_block_of_index(f.Entry, binary)].Addr;
 }
 
-static inline void construct_bbmap(decompilation_t &decompilation,
+static inline void construct_bbmap(jv_t &decompilation,
                                    binary_t &binary,
                                    bbmap_t &out) {
   auto &ICFG = binary.Analysis.ICFG;
@@ -758,7 +758,7 @@ static inline void construct_bbmap(decompilation_t &decompilation,
   });
 }
 
-static inline void construct_fnmap(decompilation_t &decompilation,
+static inline void construct_fnmap(jv_t &decompilation,
                                    binary_t &binary,
                                    fnmap_t &out) {
   for_each_function_in_binary(binary, [&](function_t &f) {
@@ -777,7 +777,7 @@ static inline void construct_fnmap(decompilation_t &decompilation,
   });
 }
 
-static inline void identify_ABIs(decompilation_t &decompilation) {
+static inline void identify_ABIs(jv_t &decompilation) {
   //
   // If a function is called from a different binary, it is an ABI.
   //

@@ -328,7 +328,7 @@ struct LLVMTool : public Tool {
 
   } opts;
 
-  decompilation_t jv;
+  jv_t jv;
 
   binary_index_t BinaryIndex = invalid_binary_index;
 
@@ -816,7 +816,7 @@ void AnalyzeBasicBlock(tiny_code_generator_t &TCG,
                        bool DFSan = false,
                        bool ForCBE = false);
 
-static flow_vertex_t copy_function_cfg(decompilation_t &jv,
+static flow_vertex_t copy_function_cfg(jv_t &jv,
                                        tiny_code_generator_t &TCG,
                                        llvm::Module &M,
                                        flow_graph_t &G,
@@ -1422,7 +1422,7 @@ void AnalyzeBasicBlock(tiny_code_generator_t &TCG,
 #endif
 }
 
-void AnalyzeFunction(decompilation_t &jv,
+void AnalyzeFunction(jv_t &jv,
                      tiny_code_generator_t &TCG,
                      llvm::Module &M,
                      function_t &f,
@@ -4021,11 +4021,11 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
   const ELFF &E = *O.getELFFile();
 
   struct PatchContents {
-    decompilation_t &jv;
+    jv_t &jv;
     binary_index_t BinaryIndex;
     std::vector<uint32_t> FunctionOrigInsnTable;
 
-    PatchContents(decompilation_t &jv, binary_index_t BinaryIndex)
+    PatchContents(jv_t &jv, binary_index_t BinaryIndex)
         : jv(jv), BinaryIndex(BinaryIndex) {
       auto &Binary = jv.Binaries[BinaryIndex];
       auto &ICFG = Binary.Analysis.ICFG;

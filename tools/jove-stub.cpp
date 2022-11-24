@@ -33,7 +33,7 @@ class StubTool : public Tool {
                   cl::cat(JoveCategory)) {}
   } opts;
 
-  decompilation_t jv;
+  jv_t jv;
 
 public:
   StubTool() : opts(JoveCategory) {}

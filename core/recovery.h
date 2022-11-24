@@ -6,7 +6,7 @@
 namespace jove {
 
 class CodeRecovery {
-  decompilation_t &jv;
+  jv_t &jv;
 
   disas_t &disas;
   tiny_code_generator_t &tcg;
@@ -24,7 +24,7 @@ class CodeRecovery {
   std::vector<binary_state_t> bin_state_vec;
 
 public:
-  CodeRecovery(decompilation_t &, disas_t &, tiny_code_generator_t &, symbolizer_t &);
+  CodeRecovery(jv_t &, disas_t &, tiny_code_generator_t &, symbolizer_t &);
   ~CodeRecovery();
 
   tcg_uintptr_t AddressOfTerminatorAtBasicBlock(uint32_t BIdx, uint32_t BBIdx);

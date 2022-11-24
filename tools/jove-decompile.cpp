@@ -96,7 +96,7 @@ class DecompileTool : public Tool {
 
   binary_index_t SingleBinaryIndex = invalid_binary_index;
 
-  decompilation_t jv;
+  jv_t jv;
 
   std::string tmp_dir;
 

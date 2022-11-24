@@ -169,7 +169,7 @@ int Trace2LinesTool::Run(void) {
     //
     // parse the existing jv file
     //
-    decompilation_t jv;
+    jv_t jv;
     ReadDecompilationFromFile(opts.jv, jv);
 
     //

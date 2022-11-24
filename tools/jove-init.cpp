@@ -799,7 +799,7 @@ Found:
   //
   // merge the intermediate jv files
   //
-  decompilation_t final_decompilation;
+  jv_t final_decompilation;
   final_decompilation.Binaries.reserve(binary_paths.size());
 
   for (const std::string &path : binary_paths) {
@@ -809,7 +809,7 @@ Found:
       return 1;
     }
 
-    decompilation_t jv;
+    jv_t jv;
     ReadDecompilationFromFile(jvfp, jv);
 
     if (jv.Binaries.size() != 1) {

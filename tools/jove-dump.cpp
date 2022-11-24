@@ -79,7 +79,7 @@ public:
 
   int Run(void);
 
-  void dumpDecompilation(const decompilation_t &);
+  void dumpDecompilation(const jv_t &);
   void dumpInput(const std::string &Path);
 };
 
@@ -98,7 +98,7 @@ struct reached_visitor : public boost::default_bfs_visitor {
   }
 };
 
-void DumpTool::dumpDecompilation(const decompilation_t& jv) {
+void DumpTool::dumpDecompilation(const jv_t& jv) {
 #if 0
   tiny_code_generator_t tcg;
 #endif
@@ -478,7 +478,7 @@ int DumpTool::Run(void) {
 }
 
 void DumpTool::dumpInput(const std::string &Path) {
-  decompilation_t jv;
+  jv_t jv;
   ReadDecompilationFromFile(
       fs::is_directory(Path) ? (Path + "/jv.jv") : Path,
       jv);

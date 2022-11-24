@@ -84,7 +84,7 @@ class AddTool : public Tool {
                       cl::cat(JoveCategory)) {}
   } opts;
 
-  decompilation_t jv;
+  jv_t jv;
 
 public:
   AddTool() : opts(JoveCategory) {}
@@ -1025,7 +1025,7 @@ int AddTool::Run(void) {
     //
     // modify existing jv
     //
-    decompilation_t working_decompilation;
+    jv_t working_decompilation;
     ReadDecompilationFromFile(opts.jv, working_decompilation);
 
     working_decompilation.Binaries.emplace_back(std::move(jv.Binaries.front()))

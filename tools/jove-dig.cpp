@@ -80,7 +80,7 @@ class CodeDigger : public Tool {
               cl::cat(JoveCategory)) {}
   } opts;
 
-  decompilation_t jv;
+  jv_t jv;
 
   std::atomic<bool> worker_failed = false;
 

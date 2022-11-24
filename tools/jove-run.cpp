@@ -168,7 +168,7 @@ struct RunTool : public Tool {
   bool has_jv;
   std::string jvfp;
 
-  decompilation_t jv;
+  jv_t jv;
 
   std::unique_ptr<disas_t> disas;
   std::unique_ptr<tiny_code_generator_t> tcg;

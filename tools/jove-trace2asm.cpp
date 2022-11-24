@@ -128,7 +128,7 @@ int Trace2AsmTool::Run(void) {
     }
   }
 
-  decompilation_t jv;
+  jv_t jv;
   ReadDecompilationFromFile(opts.jv, jv);
 
   //

@@ -65,7 +65,7 @@ class AnalyzeTool : public Tool {
                          cl::cat(JoveCategory)) {}
   } opts;
 
-  decompilation_t jv;
+  jv_t jv;
 
   std::unique_ptr<tiny_code_generator_t> TCG;
   std::unique_ptr<llvm::LLVMContext> Context;
@@ -164,7 +164,7 @@ void AnalyzeBasicBlock(tiny_code_generator_t &TCG,
                        bool DFSan = false,
                        bool ForCBE = false);
 
-void AnalyzeFunction(decompilation_t &jv,
+void AnalyzeFunction(jv_t &jv,
                      tiny_code_generator_t &TCG,
                      llvm::Module &M,
                      function_t &f,

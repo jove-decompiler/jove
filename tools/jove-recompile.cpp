@@ -65,7 +65,7 @@ struct binary_state_t {
 
 typedef boost::format fmt;
 
-static decompilation_t jv;
+static jv_t jv;
 
 class RecompileTool : public Tool {
   struct Cmdline {

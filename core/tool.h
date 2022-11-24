@@ -57,10 +57,10 @@ public:
   }
 
   void ReadDecompilationFromFile(const std::string &path,
-                                 decompilation_t &);
+                                 jv_t &);
 
   void WriteDecompilationToFile(const std::string &path,
-                                const decompilation_t &);
+                                const jv_t &);
 
   static std::string home_dir(void);
   static std::string jove_dir(void);

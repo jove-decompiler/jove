@@ -16,7 +16,7 @@ namespace jove {
 
 typedef boost::format fmt;
 
-CodeRecovery::CodeRecovery(decompilation_t &jv, disas_t &disas,
+CodeRecovery::CodeRecovery(jv_t &jv, disas_t &disas,
                            tiny_code_generator_t &tcg, symbolizer_t &symbolizer)
     : jv(jv), disas(disas), tcg(tcg),
       symbolizer(symbolizer) {

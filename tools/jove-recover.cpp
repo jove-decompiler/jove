@@ -88,7 +88,7 @@ class RecoverTool : public Tool {
 
   } opts;
 
-  decompilation_t jv;
+  jv_t jv;
 
   disas_t disas;
 

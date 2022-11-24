@@ -789,7 +789,7 @@ skip_run:
         }
       }
 
-      decompilation_t jv;
+      jv_t jv;
       ReadDecompilationFromFile(jv_path, jv);
 
       //

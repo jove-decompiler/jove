@@ -43,7 +43,7 @@ class ExtractTool : public Tool {
                   cl::cat(JoveCategory)) {}
   } opts;
 
-  decompilation_t jv;
+  jv_t jv;
 
 public:
   ExtractTool() : opts(JoveCategory) {}
