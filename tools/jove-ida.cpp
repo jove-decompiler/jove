@@ -125,7 +125,7 @@ int IDATool::Run(void) {
     return 1;
   }
 
-  ReadDecompilationFromFile(opts.jv, jv);
+  ReadJvFromFile(opts.jv, jv);
 
   //
   // operate on single binary? (cmdline)
@@ -653,7 +653,7 @@ int IDATool::Run(void) {
   if (opts.NoSave)
     return 0;
 
-  WriteDecompilationToFile(opts.jv, jv);
+  WriteJvToFile(opts.jv, jv);
 
   return 0;
 }

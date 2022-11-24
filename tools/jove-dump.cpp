@@ -479,7 +479,7 @@ int DumpTool::Run(void) {
 
 void DumpTool::dumpInput(const std::string &Path) {
   jv_t jv;
-  ReadDecompilationFromFile(
+  ReadJvFromFile(
       fs::is_directory(Path) ? (Path + "/jv.jv") : Path,
       jv);
 

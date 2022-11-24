@@ -45,7 +45,7 @@ JOVE_REGISTER_TOOL("score", ScoreTool);
 typedef boost::format fmt;
 
 int ScoreTool::Run(void) {
-  ReadDecompilationFromFile(opts.jv, jv);
+  ReadJvFromFile(opts.jv, jv);
 
   //
   // operate on single binary? (cmdline)

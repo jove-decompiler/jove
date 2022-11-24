@@ -405,7 +405,7 @@ int BootstrapTool::Run(void) {
     return 1;
   }
 
-  ReadDecompilationFromFile(jvfp, jv);
+  ReadJvFromFile(jvfp, jv);
 
   //
   // OMG. this hack is awful. it is here because if a binary is dynamically
@@ -1402,7 +1402,7 @@ int BootstrapTool::TracerLoop(pid_t child, tiny_code_generator_t &tcg) {
   //
   if (invalidateAnalyses)
     jv.InvalidateFunctionAnalyses();
-  WriteDecompilationToFile(jvfp, jv);
+  WriteJvToFile(jvfp, jv);
 
   return 0;
 }
@@ -4114,7 +4114,7 @@ void BootstrapTool::add_binary(pid_t child, tiny_code_generator_t &tcg,
   {
     jv_t new_decompilation;
 
-    ReadDecompilationFromFile(jvfp, new_decompilation);
+    ReadJvFromFile(jvfp, new_decompilation);
 
     if (new_decompilation.Binaries.size() != 1) {
       HumanOut() << "invalid intermediate result " << jvfp << '\n';
@@ -4737,7 +4737,7 @@ void SignalHandler(int no) {
     //
     // write jv
     //
-    tool.WriteDecompilationToFile(tool.jvfp, tool.jv);
+    tool.WriteJvToFile(tool.jvfp, tool.jv);
 
     exit(0);
   }

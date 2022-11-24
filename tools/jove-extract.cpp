@@ -59,7 +59,7 @@ int ExtractTool::Run(void) {
     return 1;
   }
 
-  ReadDecompilationFromFile(opts.jv, jv);
+  ReadJvFromFile(opts.jv, jv);
 
   if (fs::exists(opts.OutDir))
     fs::remove_all(opts.OutDir);

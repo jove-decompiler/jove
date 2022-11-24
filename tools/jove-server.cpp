@@ -486,7 +486,7 @@ void *ServerTool::ConnectionProc(void *arg) {
   //
   // send the rest of the DSO's that were recompiled
   //
-  ReadDecompilationFromFile(tmpjv, jv);
+  ReadJvFromFile(tmpjv, jv);
 
   for (const binary_t &binary : jv.Binaries) {
     if (binary.IsVDSO)

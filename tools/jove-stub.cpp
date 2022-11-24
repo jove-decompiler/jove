@@ -51,7 +51,7 @@ int StubTool::Run(void) {
     return 1;
   }
 
-  ReadDecompilationFromFile(jvfp, jv);
+  ReadJvFromFile(jvfp, jv);
 
   binary_t &binary = jv.Binaries.at(0);
   assert(binary.IsExecutable);

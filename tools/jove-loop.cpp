@@ -789,7 +789,7 @@ skip_run:
         }
       }
 
-      ReadDecompilationFromFile(jv_path, jv);
+      ReadJvFromFile(jv_path, jv);
 
       //
       // ... the remote analyzes and recompiles and sends us a new jv

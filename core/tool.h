@@ -57,11 +57,8 @@ public:
     print_command(&arg_vec[0]);
   }
 
-  void ReadDecompilationFromFile(const std::string &path,
-                                 jv_t &);
-
-  void WriteDecompilationToFile(const std::string &path,
-                                const jv_t &);
+  void ReadJvFromFile(const std::string &path, jv_t &);
+  void WriteJvToFile(const std::string &path, const jv_t &);
 
   static std::string home_dir(void);
   static std::string jove_dir(void);

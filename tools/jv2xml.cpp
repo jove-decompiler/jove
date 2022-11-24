@@ -49,7 +49,7 @@ int jv2xmlTool::Run(void) {
   }
 
   jv_t jv;
-  ReadDecompilationFromFile(opts.jv, jv);
+  ReadJvFromFile(opts.jv, jv);
 
   //
   // destructively modify data so the output is printable

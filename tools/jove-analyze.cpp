@@ -90,7 +90,7 @@ int AnalyzeTool::Run(void) {
     return 1;
   }
 
-  ReadDecompilationFromFile(
+  ReadJvFromFile(
       fs::is_directory(opts.jv) ? (opts.jv + "/jv.jv") : opts.jv,
       jv);
 
@@ -361,7 +361,7 @@ unsigned num_cpus(void) {
 int AnalyzeTool::WriteDecompilation(void) {
   IgnoreCtrlC();
 
-  WriteDecompilationToFile(opts.jv, jv);
+  WriteJvToFile(opts.jv, jv);
   return 0;
 }
 

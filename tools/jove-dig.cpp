@@ -148,7 +148,7 @@ int CodeDigger::Run(void) {
     return 1;
   }
 
-  ReadDecompilationFromFile(opts.jv, jv);
+  ReadJvFromFile(opts.jv, jv);
 
   //
   // operate on single binary? (cmdline)
@@ -281,7 +281,7 @@ int CodeDigger::Run(void) {
   if (opts.Verbose)
     WithColor::note() << "writing jv...\n";
 
-  WriteDecompilationToFile(opts.jv, jv);
+  WriteJvToFile(opts.jv, jv);
 
   return 0;
 }

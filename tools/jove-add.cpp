@@ -167,7 +167,7 @@ int AddTool::Run(void) {
 
     IgnoreCtrlC(); /* user probably doesn't want to interrupt the following */
 
-    WriteDecompilationToFile(opts.Output, jv);
+    WriteJvToFile(opts.Output, jv);
 
     return 0;
   }
@@ -186,7 +186,7 @@ int AddTool::Run(void) {
   // exported function
   //
   if (fs::exists(opts.Output))
-    ReadDecompilationFromFile(opts.Output, jv);
+    ReadJvFromFile(opts.Output, jv);
 
   state_for_binary(b).ObjectFile = std::move(BinRef);
 
@@ -1022,18 +1022,18 @@ int AddTool::Run(void) {
   IgnoreCtrlC(); /* user probably doesn't want to interrupt the following */
 
   if (opts.jv.empty()) {
-    WriteDecompilationToFile(opts.Output, jv);
+    WriteJvToFile(opts.Output, jv);
   } else {
     //
     // modify existing jv
     //
     jv_t working_decompilation;
-    ReadDecompilationFromFile(opts.jv, working_decompilation);
+    ReadJvFromFile(opts.jv, working_decompilation);
 
     working_decompilation.Binaries.emplace_back(std::move(jv.Binaries.front()))
         .IsDynamicallyLoaded = true;
 
-    WriteDecompilationToFile(opts.jv, working_decompilation);
+    WriteJvToFile(opts.jv, working_decompilation);
   }
 
   return 0;

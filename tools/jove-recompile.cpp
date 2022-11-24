@@ -472,7 +472,7 @@ int RecompileTool::Run(void) {
     }
   }
 
-  ReadDecompilationFromFile(opts.jv, jv);
+  ReadJvFromFile(opts.jv, jv);
 
   if (Cancel) {
     WithColor::note() << "Canceled.\n";

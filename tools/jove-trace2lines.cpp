@@ -174,7 +174,7 @@ int Trace2LinesTool::Run(void) {
     // parse the existing jv file
     //
     jv_t jv;
-    ReadDecompilationFromFile(opts.jv, jv);
+    ReadJvFromFile(opts.jv, jv);
 
     //
     // compute the set of verts for each function

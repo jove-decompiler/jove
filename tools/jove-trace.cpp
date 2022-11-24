@@ -180,7 +180,7 @@ int TraceTool::Run(void) {
     }
   }
 
-  ReadDecompilationFromFile(opts.jv, jv);
+  ReadJvFromFile(opts.jv, jv);
   InitStateForBinaries(jv);
 
   //

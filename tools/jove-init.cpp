@@ -810,7 +810,7 @@ Found:
     }
 
     jv_t jv;
-    ReadDecompilationFromFile(jvfp, jv);
+    ReadJvFromFile(jvfp, jv);
 
     if (jv.Binaries.size() != 1) {
       WithColor::error() << "invalid intermediate result " << jvfp << '\n';
@@ -844,7 +844,7 @@ found:
     ;
   }
 
-  WriteDecompilationToFile(jvfp, final_decompilation);
+  WriteJvToFile(jvfp, final_decompilation);
 
   return 0;
 }

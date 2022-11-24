@@ -297,7 +297,7 @@ int CFGTool::Run(void) {
     return 1;
   }
 
-  ReadDecompilationFromFile(opts.jv, jv);
+  ReadJvFromFile(opts.jv, jv);
 
   assert(!opts.FunctionAddress.empty());
 

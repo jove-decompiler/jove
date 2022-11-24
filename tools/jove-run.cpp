@@ -618,7 +618,7 @@ int RunTool::DoRun(void) {
   // parse jv
   //
   if (has_jv) {
-    ReadDecompilationFromFile(jvfp, jv);
+    ReadJvFromFile(jvfp, jv);
 
     disas = std::make_unique<disas_t>();
     tcg = std::make_unique<tiny_code_generator_t>();
@@ -1067,7 +1067,7 @@ int RunTool::DoRun(void) {
   if (has_jv && WasDecompilationModified.load()) {
     jv.InvalidateFunctionAnalyses();
 
-    WriteDecompilationToFile(jvfp, jv);
+    WriteJvToFile(jvfp, jv);
   }
 
   {

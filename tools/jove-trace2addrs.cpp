@@ -103,7 +103,7 @@ int Trace2AddrsTool::Run(void) {
     }
   }
 
-  ReadDecompilationFromFile(opts.jv, jv);
+  ReadJvFromFile(opts.jv, jv);
 
   //
   // for every block in the trace, print out its description.

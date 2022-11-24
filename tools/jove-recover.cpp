@@ -133,7 +133,7 @@ int RecoverTool::Run(void) {
     }
   }
 
-  ReadDecompilationFromFile(opts.jv, jv);
+  ReadJvFromFile(opts.jv, jv);
 
   IgnoreCtrlC();
 
@@ -232,7 +232,7 @@ int RecoverTool::Run(void) {
   HumanOut() << msg << '\n';
 
   jv.InvalidateFunctionAnalyses();
-  WriteDecompilationToFile(opts.jv, jv);
+  WriteJvToFile(opts.jv, jv);
 
   return 0;
 }

@@ -296,8 +296,7 @@ void Tool::exec_tool(const char *name,
            envp ? const_cast<char **>(envp) : ::environ);
 }
 
-void Tool::ReadDecompilationFromFile(const std::string &path,
-                                     jv_t &out) {
+void Tool::ReadJvFromFile(const std::string &path, jv_t &out) {
   std::ifstream ifs(path);
   if (!ifs.is_open())
     throw std::runtime_error("ReadDecompilationFromFile: failed to open " + path);
@@ -306,8 +305,7 @@ void Tool::ReadDecompilationFromFile(const std::string &path,
   ia >> out;
 }
 
-void Tool::WriteDecompilationToFile(const std::string &path,
-                                    const jv_t &in) {
+void Tool::WriteJvToFile(const std::string &path, const jv_t &in) {
   assert(!path.empty());
 
   std::string tmp_fp(path);

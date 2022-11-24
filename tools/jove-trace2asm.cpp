@@ -132,7 +132,7 @@ int Trace2AsmTool::Run(void) {
     }
   }
 
-  ReadDecompilationFromFile(opts.jv, jv);
+  ReadJvFromFile(opts.jv, jv);
 
   //
   // init state for binaries

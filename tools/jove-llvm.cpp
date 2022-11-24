@@ -1736,7 +1736,7 @@ int LLVMTool::Run(void) {
   opts.CallStack = opts.DFSan;
   opts.CheckEmulatedReturnAddress = opts.DFSan;
 
-  ReadDecompilationFromFile(opts.jv, jv);
+  ReadJvFromFile(opts.jv, jv);
 
   //
   // binary index (cmdline)
