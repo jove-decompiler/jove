@@ -442,31 +442,31 @@ static inline void for_each_if(Iter first, Iter last, Pred p, Op op) {
   }
 }
 
-static inline void for_each_binary(jv_t &decompilation,
+static inline void for_each_binary(jv_t &jv,
                                    std::function<void(binary_t &)> proc) {
-  std::for_each(decompilation.Binaries.begin(),
-                decompilation.Binaries.end(),
+  std::for_each(jv.Binaries.begin(),
+                jv.Binaries.end(),
                 proc);
 }
 
-static inline void for_each_binary(const jv_t &decompilation,
+static inline void for_each_binary(const jv_t &jv,
                                    std::function<void(const binary_t &)> proc) {
-  std::for_each(decompilation.Binaries.begin(),
-                decompilation.Binaries.end(),
+  std::for_each(jv.Binaries.begin(),
+                jv.Binaries.end(),
                 proc);
 }
 
-static inline void for_each_binary_if(jv_t &decompilation,
+static inline void for_each_binary_if(jv_t &jv,
                                       std::function<bool(binary_t &)> pred,
                                       std::function<void(binary_t &)> proc) {
-  for_each_if(decompilation.Binaries.begin(),
-              decompilation.Binaries.end(),
+  for_each_if(jv.Binaries.begin(),
+              jv.Binaries.end(),
               pred, proc);
 }
 
-static inline void for_each_function(jv_t &decompilation,
+static inline void for_each_function(jv_t &jv,
                                      std::function<void(function_t &, binary_t &)> proc) {
-  for_each_binary(decompilation, [&](binary_t &binary) {
+  for_each_binary(jv, [&](binary_t &binary) {
     std::for_each(binary.Analysis.Functions.begin(),
                   binary.Analysis.Functions.end(),
                   [&](function_t &f) { proc(f, binary); });
@@ -479,19 +479,19 @@ static inline void for_each_function_in_binary(binary_t &binary,
                 binary.Analysis.Functions.end(), proc);
 }
 
-static inline void for_each_function_if(jv_t &decompilation,
+static inline void for_each_function_if(jv_t &jv,
                                         std::function<bool(function_t &)> pred,
                                         std::function<void(function_t &, binary_t &)> proc) {
-  for_each_binary(decompilation, [&](binary_t &b) {
+  for_each_binary(jv, [&](binary_t &b) {
     for_each_if(b.Analysis.Functions.begin(),
                 b.Analysis.Functions.end(),
                 pred, [&](function_t &f) { proc(f, b); });
   });
 }
 
-static inline void for_each_basic_block(jv_t &decompilation,
+static inline void for_each_basic_block(jv_t &jv,
                                         std::function<void(binary_t &, basic_block_t)> proc) {
-  for_each_binary(decompilation, [&](binary_t &binary) {
+  for_each_binary(jv, [&](binary_t &binary) {
     icfg_t::vertex_iterator it, it_end;
     std::tie(it, it_end) = boost::vertices(binary.Analysis.ICFG);
 
@@ -500,7 +500,7 @@ static inline void for_each_basic_block(jv_t &decompilation,
   });
 }
 
-static inline void for_each_basic_block_in_binary(jv_t &decompilation,
+static inline void for_each_basic_block_in_binary(jv_t &jv,
                                                   binary_t &binary,
                                                   std::function<void(basic_block_t)> proc) {
   auto &ICFG = binary.Analysis.ICFG;
@@ -519,9 +519,9 @@ static inline basic_block_index_t index_of_basic_block(const icfg_t &ICFG, basic
 
 /* XXX this is O(n)... */
 static inline binary_index_t binary_index_of_function(const function_t &f,
-                                                      const jv_t &decompilation) {
-  for (binary_index_t BIdx = 0; BIdx < decompilation.Binaries.size(); ++BIdx) {
-    auto &fns = decompilation.Binaries[BIdx].Analysis.Functions;
+                                                      const jv_t &jv) {
+  for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
+    auto &fns = jv.Binaries[BIdx].Analysis.Functions;
 
     if (&f >= &fns[0] && &f < &fns[fns.size()])
       return BIdx; /* found */
@@ -531,12 +531,12 @@ static inline binary_index_t binary_index_of_function(const function_t &f,
 }
 
 static inline binary_index_t index_of_binary(const binary_t &b,
-                                             const jv_t &decompilation) {
-  if (!(&b >= &decompilation.Binaries[0] &&
-        &b < &decompilation.Binaries[decompilation.Binaries.size()]))
+                                             const jv_t &jv) {
+  if (!(&b >= &jv.Binaries[0] &&
+        &b < &jv.Binaries[jv.Binaries.size()]))
     abort();
 
-  return &b - &decompilation.Binaries[0];
+  return &b - &jv.Binaries[0];
 }
 
 static inline function_index_t index_of_function_in_binary(const function_t &f,
@@ -549,22 +549,22 @@ static inline function_index_t index_of_function_in_binary(const function_t &f,
 }
 
 static inline binary_t &binary_of_function(const function_t &f,
-                                           jv_t &decompilation) {
-  return decompilation.Binaries.at(binary_index_of_function(f, decompilation));
+                                           jv_t &jv) {
+  return jv.Binaries.at(binary_index_of_function(f, jv));
 }
 
 static inline const binary_t &binary_of_function(const function_t &f,
-                                                 const jv_t &decompilation) {
-  return decompilation.Binaries.at(binary_index_of_function(f, decompilation));
+                                                 const jv_t &jv) {
+  return jv.Binaries.at(binary_index_of_function(f, jv));
 }
 
 static inline function_t &function_of_target(dynamic_target_t X,
-                                             jv_t &decompilation) {
+                                             jv_t &jv) {
   binary_index_t BIdx;
   function_index_t FIdx;
   std::tie(BIdx, FIdx) = X;
 
-  return decompilation.Binaries.at(BIdx).Analysis.Functions.at(FIdx);
+  return jv.Binaries.at(BIdx).Analysis.Functions.at(FIdx);
 }
 
 static inline void basic_blocks_of_function(const function_t &f,
@@ -748,12 +748,12 @@ static inline tcg_uintptr_t entry_address_of_function(const function_t &f,
   return ICFG[basic_block_of_index(f.Entry, binary)].Addr;
 }
 
-static inline void construct_bbmap(jv_t &decompilation,
+static inline void construct_bbmap(jv_t &jv,
                                    binary_t &binary,
                                    bbmap_t &out) {
   auto &ICFG = binary.Analysis.ICFG;
 
-  for_each_basic_block_in_binary(decompilation, binary, [&](basic_block_t bb) {
+  for_each_basic_block_in_binary(jv, binary, [&](basic_block_t bb) {
     const auto &bbprop = ICFG[bb];
 
     boost::icl::interval<tcg_uintptr_t>::type intervl =
@@ -765,7 +765,7 @@ static inline void construct_bbmap(jv_t &decompilation,
   });
 }
 
-static inline void construct_fnmap(jv_t &decompilation,
+static inline void construct_fnmap(jv_t &jv,
                                    binary_t &binary,
                                    fnmap_t &out) {
   for_each_function_in_binary(binary, [&](function_t &f) {
@@ -784,13 +784,13 @@ static inline void construct_fnmap(jv_t &decompilation,
   });
 }
 
-static inline void identify_ABIs(jv_t &decompilation) {
+static inline void identify_ABIs(jv_t &jv) {
   //
   // If a function is called from a different binary, it is an ABI.
   //
-  for_each_basic_block(decompilation, [&](binary_t &b, basic_block_t bb) {
+  for_each_basic_block(jv, [&](binary_t &b, basic_block_t bb) {
     auto &DynTargets = b.Analysis.ICFG[bb].DynTargets;
-    binary_index_t BIdx = &b - &decompilation.Binaries[0];
+    binary_index_t BIdx = &b - &jv.Binaries[0];
 
     if (std::any_of(
             DynTargets.begin(),
@@ -799,12 +799,12 @@ static inline void identify_ABIs(jv_t &decompilation) {
       std::for_each(DynTargets.begin(),
                     DynTargets.end(),
                     [&](dynamic_target_t X) {
-                      function_of_target(X, decompilation).IsABI = true;
+                      function_of_target(X, jv).IsABI = true;
                     });
   });
 
   // XXX unnecessary?
-  for_each_binary(decompilation, [&](auto &binary) {
+  for_each_binary(jv, [&](auto &binary) {
     auto &IFuncDynTargets = binary.Analysis.IFuncDynTargets;
 
     std::for_each(
@@ -814,7 +814,7 @@ static inline void identify_ABIs(jv_t &decompilation) {
           std::for_each(pair.second.begin(),
                         pair.second.end(),
               [&](dynamic_target_t X) {
-                function_of_target(X, decompilation).IsABI = true;
+                function_of_target(X, jv).IsABI = true;
               });
         });
   });
