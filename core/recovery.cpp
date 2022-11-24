@@ -10,23 +10,23 @@ namespace obj = llvm::object;
 namespace fs = boost::filesystem;
 
 #undef state_for_binary
-#define state_for_binary(binary) (this->bin_state_vec.at(index_of_binary(binary, this->decompilation)))
+#define state_for_binary(binary) (this->bin_state_vec.at(index_of_binary(binary, this->jv)))
 
 namespace jove {
 
 typedef boost::format fmt;
 
-CodeRecovery::CodeRecovery(decompilation_t &decompilation, disas_t &disas,
+CodeRecovery::CodeRecovery(decompilation_t &jv, disas_t &disas,
                            tiny_code_generator_t &tcg, symbolizer_t &symbolizer)
-    : decompilation(decompilation), disas(disas), tcg(tcg),
+    : jv(jv), disas(disas), tcg(tcg),
       symbolizer(symbolizer) {
-  bin_state_vec.resize(decompilation.Binaries.size());
+  bin_state_vec.resize(jv.Binaries.size());
 
-  for_each_binary(decompilation, [&](binary_t &binary) {
+  for_each_binary(jv, [&](binary_t &binary) {
     binary_state_t &binary_state = state_for_binary(binary);
 
-    construct_fnmap(decompilation, binary, binary_state.fnmap);
-    construct_bbmap(decompilation, binary, binary_state.bbmap);
+    construct_fnmap(jv, binary, binary_state.fnmap);
+    construct_bbmap(jv, binary, binary_state.bbmap);
 
     auto &ICFG = binary.Analysis.ICFG;
 
@@ -35,10 +35,10 @@ CodeRecovery::CodeRecovery(decompilation_t &decompilation, disas_t &disas,
     //
     // we need to record the addresses of terminator instructions at each
     // basic block, before the indices are messed with, since the code in
-    // jove.recover.c is hard-coded against the version of the decompilation
+    // jove.recover.c is hard-coded against the version of the jv
     // that existed when jove-recompile was run.
     //
-    for_each_basic_block_in_binary(decompilation, binary, [&](basic_block_t bb) {
+    for_each_basic_block_in_binary(jv, binary, [&](basic_block_t bb) {
       binary_state.block_term_addr_vec.at(index_of_basic_block(ICFG, bb)) = ICFG[bb].Term.Addr;
     });
 
@@ -60,7 +60,7 @@ CodeRecovery::~CodeRecovery() {}
 
 tcg_uintptr_t CodeRecovery::AddressOfTerminatorAtBasicBlock(uint32_t BIdx,
                                                             uint32_t BBIdx) {
-  binary_t &binary = decompilation.Binaries.at(BIdx);
+  binary_t &binary = jv.Binaries.at(BIdx);
   tcg_uintptr_t TermAddr =
       state_for_binary(binary).block_term_addr_vec.at(BBIdx);
   assert(TermAddr);
@@ -71,8 +71,8 @@ std::string CodeRecovery::RecoverDynamicTarget(uint32_t CallerBIdx,
                                                uint32_t CallerBBIdx,
                                                uint32_t CalleeBIdx,
                                                uint32_t CalleeFIdx) {
-  binary_t &CallerBinary = decompilation.Binaries.at(CallerBIdx);
-  binary_t &CalleeBinary = decompilation.Binaries.at(CalleeBIdx);
+  binary_t &CallerBinary = jv.Binaries.at(CallerBIdx);
+  binary_t &CalleeBinary = jv.Binaries.at(CalleeBIdx);
 
   function_t &callee = CalleeBinary.Analysis.Functions.at(CalleeFIdx);
 
@@ -152,7 +152,7 @@ std::string CodeRecovery::RecoverDynamicTarget(uint32_t CallerBIdx,
 std::string CodeRecovery::RecoverBasicBlock(uint32_t IndBrBIdx,
                                             uint32_t IndBrBBIdx,
                                             tcg_uintptr_t Addr) {
-  binary_t &indbr_binary = decompilation.Binaries.at(IndBrBIdx);
+  binary_t &indbr_binary = jv.Binaries.at(IndBrBIdx);
   auto &ICFG = indbr_binary.Analysis.ICFG;
 
   tcg_uintptr_t TermAddr =
@@ -194,8 +194,8 @@ std::string CodeRecovery::RecoverFunction(uint32_t IndCallBIdx,
                                           uint32_t IndCallBBIdx,
                                           uint32_t CalleeBIdx,
                                           tcg_uintptr_t CalleeAddr) {
-  binary_t &CalleeBinary = decompilation.Binaries.at(CalleeBIdx);
-  binary_t &CallerBinary = decompilation.Binaries.at(IndCallBIdx);
+  binary_t &CalleeBinary = jv.Binaries.at(CalleeBIdx);
+  binary_t &CallerBinary = jv.Binaries.at(IndCallBIdx);
 
   auto &ICFG = CallerBinary.Analysis.ICFG;
   tcg_uintptr_t TermAddr =
@@ -258,7 +258,7 @@ std::string CodeRecovery::RecoverABI(uint32_t BIdx,
                                      uint32_t FIdx) {
   dynamic_target_t NewABI(BIdx, FIdx);
 
-  function_t &f = function_of_target(NewABI, decompilation);
+  function_t &f = function_of_target(NewABI, jv);
 
   if (f.IsABI)
     return std::string(); // given function already marked as an ABI
@@ -266,13 +266,13 @@ std::string CodeRecovery::RecoverABI(uint32_t BIdx,
   f.IsABI = true;
 
   return (fmt(__ANSI_BLUE "(abi) %s" __ANSI_NORMAL_COLOR)
-          % symbolizer.addr2desc(decompilation.Binaries.at(NewABI.first), entry_address_of_function(f, decompilation.Binaries.at(NewABI.first))))
+          % symbolizer.addr2desc(jv.Binaries.at(NewABI.first), entry_address_of_function(f, jv.Binaries.at(NewABI.first))))
       .str();
 }
 
 std::string CodeRecovery::Returns(uint32_t CallBIdx,
                                   uint32_t CallBBIdx) {
-  binary_t &CallBinary = decompilation.Binaries.at(CallBIdx);
+  binary_t &CallBinary = jv.Binaries.at(CallBIdx);
   auto &ICFG = CallBinary.Analysis.ICFG;
 
   tcg_uintptr_t TermAddr = state_for_binary(CallBinary).block_term_addr_vec.at(CallBBIdx);

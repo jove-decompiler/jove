@@ -6,7 +6,7 @@
 namespace jove {
 
 class CodeRecovery {
-  decompilation_t &decompilation;
+  decompilation_t &jv;
 
   disas_t &disas;
   tiny_code_generator_t &tcg;
