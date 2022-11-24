@@ -21,9 +21,14 @@ llvm::Type *LLVMTool::type_of_expression_for_relocation(const Relocation &R) {
 llvm::Constant *LLVMTool::expression_for_relocation(const Relocation &R,
                                                     const RelSymbol &RelSym) {
   switch (R.Type) {
-  case llvm::ELF::R_X86_64_RELATIVE:
-    assert(R.Addend);
-    return SectionPointer(*R.Addend);
+  case llvm::ELF::R_X86_64_RELATIVE: {
+    assert(R.Addend); /* XXX this will not be true forever because of DT_RELR */
+    tcg_uintptr_t Addr = *R.Addend;
+    if (!Addr) /* XXX could happen if DT_RELR */
+      Addr = ExtractWordAtAddress(R.Offset);
+
+    return SectionPointer(Addr);
+  }
 
   case llvm::ELF::R_X86_64_64:
   case llvm::ELF::R_X86_64_GLOB_DAT:
