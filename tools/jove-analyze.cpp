@@ -26,10 +26,6 @@ namespace jove {
 
 namespace {
 
-struct basic_block_state_t {
-  tcg_global_set_t IN, OUT;
-};
-
 struct function_state_t {
   basic_block_vec_t bbvec;
   basic_block_vec_t exit_bbvec;
