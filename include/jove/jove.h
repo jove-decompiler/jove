@@ -449,6 +449,13 @@ static inline void for_each_binary(jv_t &decompilation,
                 proc);
 }
 
+static inline void for_each_binary(const jv_t &decompilation,
+                                   std::function<void(const binary_t &)> proc) {
+  std::for_each(decompilation.Binaries.begin(),
+                decompilation.Binaries.end(),
+                proc);
+}
+
 static inline void for_each_binary_if(jv_t &decompilation,
                                       std::function<bool(binary_t &)> pred,
                                       std::function<void(binary_t &)> proc) {
@@ -812,6 +819,44 @@ static inline void identify_ABIs(jv_t &decompilation) {
         });
   });
 }
+
+template <typename BinaryStateTy, typename FunctionStateTy = int>
+struct jv_state_t {
+  const jv_t &jv;
+  std::vector<std::pair<BinaryStateTy, std::vector<FunctionStateTy>>> stuff;
+
+  jv_state_t(const jv_t &jv)
+      : jv(jv) {
+    update();
+  }
+
+  BinaryStateTy &for_binary(const binary_t &binary) {
+    return stuff.at(index_of_binary(binary, jv)).first;
+  }
+
+  FunctionStateTy &for_function(const function_t &function) {
+    binary_index_t BIdx = binary_index_of_function(function, jv);
+    std::vector<FunctionStateTy> &function_state_vec = stuff.at(BIdx).second;
+
+    const binary_t &binary = jv.Binaries.at(BIdx);
+    function_index_t FIdx = index_of_function_in_binary(function, binary);
+
+    return function_state_vec.at(FIdx);
+  }
+
+  void update(void) {
+    unsigned N = jv.Binaries.size();
+    if (stuff.size() >= N)
+      return;
+
+    stuff.resize(N);
+
+    for_each_binary(jv, [&](const binary_t &binary) {
+      stuff.at(index_of_binary(binary, jv))
+          .second.resize(binary.Analysis.Functions.size());
+    });
+  }
+};
 
 }
 
