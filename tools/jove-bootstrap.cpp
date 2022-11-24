@@ -3920,6 +3920,17 @@ bool load_proc_maps(pid_t child, std::vector<struct proc_map_t> &out) {
   return true;
 }
 
+struct link_map {
+  /* These first few members are part of the protocol with the debugger.
+     This is the same format used in SVR4.  */
+
+  unsigned long l_addr; /* Difference between the address in the ELF file and
+                           the addresses in memory.  */
+  char *l_name;         /* Absolute file name object was found in.  */
+  unsigned long *l_ld;  /* Dynamic section of the shared object.  */
+  struct link_map *l_next, *l_prev; /* Chain of loaded objects.  */
+};
+
 struct r_debug {
   int r_version; /* Version number for this protocol.  */
 
@@ -3940,17 +3951,6 @@ struct r_debug {
   } r_state;
 
   unsigned long r_ldbase; /* Base address the linker is loaded at.  */
-};
-
-struct link_map {
-  /* These first few members are part of the protocol with the debugger.
-     This is the same format used in SVR4.  */
-
-  unsigned long l_addr; /* Difference between the address in the ELF file and
-                           the addresses in memory.  */
-  char *l_name;         /* Absolute file name object was found in.  */
-  unsigned long *l_ld;  /* Dynamic section of the shared object.  */
-  struct link_map *l_next, *l_prev; /* Chain of loaded objects.  */
 };
 
 static ssize_t _ptrace_memcpy(pid_t, void *dest, const void *src, size_t n);
