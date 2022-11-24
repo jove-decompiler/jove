@@ -40,7 +40,7 @@ class CodeDigger : public Tool {
     cl::opt<std::string> SingleBBIdx;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
-        : jv("decompilation", cl::desc("Jove jv"), cl::Required,
+        : jv("jv", cl::desc("Jove jv"), cl::Required,
              cl::value_desc("filename"), cl::cat(JoveCategory)),
 
           jvAlias("d", cl::desc("Alias for -jv."), cl::aliasopt(jv),
@@ -58,7 +58,7 @@ class CodeDigger : public Tool {
                   cl::init(num_cpus()), cl::cat(JoveCategory)),
 
           NoSave("no-save",
-                 cl::desc("Do not overwrite decompilation before exiting"),
+                 cl::desc("Do not overwrite jv before exiting"),
                  cl::cat(JoveCategory)),
 
           Binary("binary", cl::desc("Operate on single given binary"),
@@ -80,7 +80,7 @@ class CodeDigger : public Tool {
               cl::cat(JoveCategory)) {}
   } opts;
 
-  decompilation_t decompilation;
+  decompilation_t jv;
 
   std::atomic<bool> worker_failed = false;
 
@@ -119,20 +119,20 @@ JOVE_REGISTER_TOOL("dig", CodeDigger);
 
 void CodeDigger::queue_binaries(void) {
   Q.clear();
-  Q.reserve(decompilation.Binaries.size());
+  Q.reserve(jv.Binaries.size());
 
   if (is_binary_index_valid(SingleBinaryIndex)) {
     Q.push_back(SingleBinaryIndex);
     return;
   }
 
-  for_each_binary(decompilation, [&](binary_t &binary) {
+  for_each_binary(jv, [&](binary_t &binary) {
     if (binary.IsVDSO)
       return;
     if (binary.IsDynamicLinker)
       return;
 
-    binary_index_t BIdx = index_of_binary(binary, decompilation);
+    binary_index_t BIdx = index_of_binary(binary, jv);
     Q.push_back(BIdx);
   });
 }
@@ -146,7 +146,7 @@ int CodeDigger::Run(void) {
     return 1;
   }
 
-  ReadDecompilationFromFile(opts.jv, decompilation);
+  ReadDecompilationFromFile(opts.jv, jv);
 
   //
   // operate on single binary? (cmdline)
@@ -154,8 +154,8 @@ int CodeDigger::Run(void) {
   if (!opts.Binary.empty()) {
     binary_index_t BinaryIndex = invalid_binary_index;
 
-    for (binary_index_t BIdx = 0; BIdx < decompilation.Binaries.size(); ++BIdx) {
-      const binary_t &binary = decompilation.Binaries[BIdx];
+    for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
+      const binary_t &binary = jv.Binaries[BIdx];
       if (binary.Path.find(opts.Binary) == std::string::npos)
         continue;
 
@@ -172,7 +172,7 @@ int CodeDigger::Run(void) {
     SingleBinaryIndex = BinaryIndex;
   }
 
-  for_each_binary(decompilation, [&](binary_t &binary) {
+  for_each_binary(jv, [&](binary_t &binary) {
     llvm::StringRef Buffer(reinterpret_cast<char *>(&binary.Data[0]),
                            binary.Data.size());
     llvm::StringRef Identifier(binary.Path);
@@ -196,7 +196,7 @@ int CodeDigger::Run(void) {
   if (opts.ListLocalGotos)
     return ListLocalGotos();
 
-  Recovery = std::make_unique<CodeRecovery>(decompilation, disas, tcg, symbolizer);
+  Recovery = std::make_unique<CodeRecovery>(jv, disas, tcg, symbolizer);
 
   //
   // prepare to process the binaries by creating a unique temporary directory
@@ -232,7 +232,7 @@ int CodeDigger::Run(void) {
   if (!opts.Verbose)
     WithColor::note() << llvm::formatv(
         "Generating LLVM and running KLEE on {0} {1}...",
-        !opts.Binary.empty() ? 1 : decompilation.Binaries.size() - 2,
+        !opts.Binary.empty() ? 1 : jv.Binaries.size() - 2,
         !opts.Binary.empty() ? "binary" : "binaries");
 
   bool Failed = false;
@@ -273,20 +273,20 @@ int CodeDigger::Run(void) {
   if (opts.NoSave)
     return 0;
 
-  for_each_function(decompilation,
+  for_each_function(jv,
                     [](function_t &f, binary_t &b) { f.InvalidateAnalysis(); });
 
   if (opts.Verbose)
-    WithColor::note() << "writing decompilation...\n";
+    WithColor::note() << "writing jv...\n";
 
-  WriteDecompilationToFile(opts.jv, decompilation);
+  WriteDecompilationToFile(opts.jv, jv);
 
   return 0;
 }
 
 void CodeDigger::RecoverLoop(void) {
   std::vector<std::set<std::pair<basic_block_index_t, uint64_t>>> records;
-  records.resize(decompilation.Binaries.size());
+  records.resize(jv.Binaries.size());
 
   for (;;) {
     constexpr unsigned RECORD_LEN =
@@ -308,7 +308,7 @@ void CodeDigger::RecoverLoop(void) {
     uint32_t BBIdx = *reinterpret_cast<uint32_t *>(&record[1 * sizeof(uint32_t)]);
     uint64_t Off   = *reinterpret_cast<uint64_t *>(&record[2 * sizeof(uint32_t)]);
 
-    binary_t &binary = decompilation.Binaries.at(BIdx);
+    binary_t &binary = jv.Binaries.at(BIdx);
 
     {
       auto &bin_records = records.at(BIdx);
@@ -369,7 +369,7 @@ bool CodeDigger::pop_binary(binary_index_t &out) {
 void CodeDigger::Worker(void) {
   binary_index_t BIdx = invalid_binary_index;
   while (pop_binary(BIdx)) {
-    binary_t &binary = decompilation.Binaries.at(BIdx);
+    binary_t &binary = jv.Binaries.at(BIdx);
 
     // make sure the path is absolute
     assert(binary.Path.at(0) == '/');
@@ -556,12 +556,12 @@ int CodeDigger::ListLocalGotos() {
   };
 
   if (is_binary_index_valid(SingleBinaryIndex)) {
-    binary_t &binary = decompilation.Binaries.at(SingleBinaryIndex);
+    binary_t &binary = jv.Binaries.at(SingleBinaryIndex);
     for_each_basic_block_in_binary(
-        decompilation, binary,
+        jv, binary,
         [&](basic_block_t bb) { process_basic_block(binary, bb); });
   } else {
-    for_each_basic_block(decompilation, process_basic_block);
+    for_each_basic_block(jv, process_basic_block);
   }
 
   return 0;

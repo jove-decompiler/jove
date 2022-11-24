@@ -42,10 +42,10 @@ class Trace2AsmTool : public Tool {
         : TracePath(cl::Positional, cl::desc("trace.txt"), cl::Required,
                     cl::value_desc("filename"), cl::cat(JoveCategory)),
 
-          jv("decompilation", cl::desc("Jove decompilation"), cl::Required,
+          jv("jv", cl::desc("Jove jv"), cl::Required,
              cl::value_desc("filename"), cl::cat(JoveCategory)),
 
-          jvAlias("d", cl::desc("Alias for -decompilation."), cl::aliasopt(jv),
+          jvAlias("d", cl::desc("Alias for -jv."), cl::aliasopt(jv),
                   cl::cat(JoveCategory)),
 
           ExcludeBinaries("exclude-bins", cl::CommaSeparated,
@@ -74,7 +74,7 @@ int Trace2AsmTool::Run(void) {
   }
 
   if (!fs::exists(opts.jv)) {
-    WithColor::error() << "decompilation does not exist\n";
+    WithColor::error() << "jv does not exist\n";
     return 1;
   }
 
@@ -128,14 +128,14 @@ int Trace2AsmTool::Run(void) {
     }
   }
 
-  decompilation_t decompilation;
-  ReadDecompilationFromFile(opts.jv, decompilation);
+  decompilation_t jv;
+  ReadDecompilationFromFile(opts.jv, jv);
 
   //
   // init state for binaries
   //
-  for (binary_index_t BIdx = 0; BIdx < decompilation.Binaries.size(); ++BIdx) {
-    auto &binary = decompilation.Binaries[BIdx];
+  for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
+    auto &binary = jv.Binaries[BIdx];
     auto &ICFG = binary.Analysis.ICFG;
 
     //
@@ -162,7 +162,7 @@ int Trace2AsmTool::Run(void) {
 
   auto disassemble_basic_block = [&](binary_index_t BIdx,
                                      basic_block_index_t BBIdx) -> std::string {
-    auto &binary = decompilation.Binaries[BIdx];
+    auto &binary = jv.Binaries[BIdx];
     auto &ICFG = binary.Analysis.ICFG;
     basic_block_t bb = boost::vertex(BBIdx, ICFG);
 

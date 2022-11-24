@@ -578,7 +578,7 @@ int InitTool::Run(void) {
 
   //
   // parse the standard output from the dynamic linker to produce a set of paths
-  // to binaries that will be added to the decompilation
+  // to binaries that will be added to the jv
   //
   std::vector<std::string> binary_paths;
   binary_paths.reserve(3);
@@ -797,7 +797,7 @@ Found:
   spawn_workers();
 
   //
-  // merge the intermediate decompilation files
+  // merge the intermediate jv files
   //
   decompilation_t final_decompilation;
   final_decompilation.Binaries.reserve(binary_paths.size());
@@ -809,10 +809,10 @@ Found:
       return 1;
     }
 
-    decompilation_t decompilation;
-    ReadDecompilationFromFile(jvfp, decompilation);
+    decompilation_t jv;
+    ReadDecompilationFromFile(jvfp, jv);
 
-    if (decompilation.Binaries.size() != 1) {
+    if (jv.Binaries.size() != 1) {
       WithColor::error() << "invalid intermediate result " << jvfp << '\n';
       return 1;
     }
@@ -820,7 +820,7 @@ Found:
     //
     // trivially combine decompilations
     //
-    final_decompilation.Binaries.push_back(decompilation.Binaries.front());
+    final_decompilation.Binaries.push_back(jv.Binaries.front());
   }
 
   final_decompilation.Binaries.at(0).IsExecutable = true;

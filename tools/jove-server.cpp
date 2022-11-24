@@ -368,7 +368,7 @@ void *ServerTool::ConnectionProc(void *arg) {
   options.debug_sjlj = headerBits.test(5);
   options.abi_calls = headerBits.test(6);
 
-  std::string tmpjv = (TemporaryDir / "decompilation.jv").string();
+  std::string tmpjv = (TemporaryDir / "jv.jv").string();
   {
     ssize_t ret = robust_receive_file_with_size(data_socket, tmpjv.c_str(), 0666);
     if (ret < 0) {
@@ -486,10 +486,10 @@ void *ServerTool::ConnectionProc(void *arg) {
   //
   // send the rest of the DSO's that were recompiled
   //
-  decompilation_t decompilation;
-  ReadDecompilationFromFile(tmpjv, decompilation);
+  decompilation_t jv;
+  ReadDecompilationFromFile(tmpjv, jv);
 
-  for (const binary_t &binary : decompilation.Binaries) {
+  for (const binary_t &binary : jv.Binaries) {
     if (binary.IsVDSO)
       continue;
     if (binary.IsDynamicLinker)

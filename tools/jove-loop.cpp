@@ -98,10 +98,10 @@ class LoopTool : public Tool {
                         cl::desc("List of directories to bind mount"),
                         cl::cat(JoveCategory)),
 
-          jv("decompilation", cl::desc("Jove decompilation"),
+          jv("jv", cl::desc("Jove jv"),
              cl::value_desc("filename"), cl::cat(JoveCategory)),
 
-          jvAlias("d", cl::desc("Alias for -decompilation."), cl::aliasopt(jv),
+          jvAlias("d", cl::desc("Alias for -jv."), cl::aliasopt(jv),
                   cl::cat(JoveCategory)),
 
           Sysroot("sysroot", cl::desc("Output directory"),
@@ -783,14 +783,14 @@ skip_run:
 
         if (ret < 0) {
           HumanOut() << llvm::formatv(
-              "failed to send decompilation: {0}\n", strerror(-ret));
+              "failed to send jv: {0}\n", strerror(-ret));
 
           break;
         }
       }
 
-      decompilation_t decompilation;
-      ReadDecompilationFromFile(jv_path, decompilation);
+      decompilation_t jv;
+      ReadDecompilationFromFile(jv_path, jv);
 
       //
       // ... the remote analyzes and recompiles and sends us a new jv
@@ -804,13 +804,13 @@ skip_run:
         ssize_t ret = robust_receive_file_with_size(remote_fd, jv_path.c_str(), 0666);
         if (ret < 0) {
           HumanOut() << llvm::formatv(
-              "failed to receive decompilation from remote: {0}\n",
+              "failed to receive jv from remote: {0}\n",
               strerror(-ret));
           break;
         }
       }
 
-      for (const binary_t &binary : decompilation.Binaries) {
+      for (const binary_t &binary : jv.Binaries) {
         if (binary.IsVDSO)
           continue;
         if (binary.IsDynamicLinker)
@@ -853,12 +853,12 @@ skip_run:
         {
           std::ofstream ofs((fs::path(sysroot) / "jove" / "BinaryPathsTable.txt").c_str());
 
-          for (const binary_t &binary : decompilation.Binaries)
+          for (const binary_t &binary : jv.Binaries)
             ofs << binary.Path << '\n';
         }
 
-        for (binary_index_t BIdx = 0; BIdx < decompilation.Binaries.size(); ++BIdx) {
-          binary_t &binary = decompilation.Binaries[BIdx];
+        for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
+          binary_t &binary = jv.Binaries[BIdx];
           auto &ICFG = binary.Analysis.ICFG;
 
           {
@@ -995,15 +995,15 @@ skip_run:
           std::ofstream ofs(
               (fs::path(Prefix) / "jove" / "BinaryPathsTable.txt").c_str());
 
-          for (const binary_t &binary : decompilation.Binaries)
+          for (const binary_t &binary : jv.Binaries)
             ofs << binary.Path << '\n';
         }
 
         fs::create_directories(fs::path(Prefix) / "jove" /
                                "BinaryBlockAddrTables");
 
-        for (binary_index_t BIdx = 0; BIdx < decompilation.Binaries.size(); ++BIdx) {
-          binary_t &binary = decompilation.Binaries[BIdx];
+        for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
+          binary_t &binary = jv.Binaries[BIdx];
           auto &ICFG = binary.Analysis.ICFG;
 
           {
@@ -1066,7 +1066,7 @@ skip_run:
       // create symlinks as necessary
       //
       if (!opts.NoChroot) {
-        for (binary_t &b : decompilation.Binaries) {
+        for (binary_t &b : jv.Binaries) {
           if (b.IsVDSO)
             continue;
 

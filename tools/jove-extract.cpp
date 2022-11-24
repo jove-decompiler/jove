@@ -36,10 +36,10 @@ class ExtractTool : public Tool {
         : OutDir(cl::Positional, cl::desc("outdir"), cl::Required,
                  cl::value_desc("filename"), cl::cat(JoveCategory)),
 
-          jv("decompilation", cl::desc("Jove decompilation"), cl::Required,
+          jv("jv", cl::desc("Jove jv"), cl::Required,
              cl::value_desc("filename"), cl::cat(JoveCategory)),
 
-          jvAlias("d", cl::desc("Alias for -decompilation."), cl::aliasopt(jv),
+          jvAlias("d", cl::desc("Alias for -jv."), cl::aliasopt(jv),
                   cl::cat(JoveCategory)) {}
   } opts;
 
@@ -57,7 +57,7 @@ typedef boost::format fmt;
 
 int ExtractTool::Run(void) {
   if (!fs::exists(opts.jv)) {
-    WithColor::error() << "decompilation does not exist\n";
+    WithColor::error() << "jv does not exist\n";
     return 1;
   }
 

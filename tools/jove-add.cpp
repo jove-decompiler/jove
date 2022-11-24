@@ -57,16 +57,16 @@ class AddTool : public Tool {
           InputAlias("i", cl::desc("Alias for -input."), cl::aliasopt(Input),
                      cl::cat(JoveCategory)),
 
-          Output("output", cl::desc("Jove decompilation"),
+          Output("output", cl::desc("Jove jv"),
                  cl::value_desc("filename"), cl::cat(JoveCategory)),
 
           OutputAlias("o", cl::desc("Alias for -output."), cl::aliasopt(Output),
                       cl::cat(JoveCategory)),
 
-          jv("decompilation", cl::desc("Jove decompilation"),
+          jv("jv", cl::desc("Jove jv"),
              cl::value_desc("filename"), cl::cat(JoveCategory)),
 
-          jvAlias("d", cl::desc("Alias for -decompilation."), cl::aliasopt(jv),
+          jvAlias("d", cl::desc("Alias for -jv."), cl::aliasopt(jv),
                   cl::cat(JoveCategory)),
 
           Verbose("verbose",
@@ -84,7 +84,7 @@ class AddTool : public Tool {
                       cl::cat(JoveCategory)) {}
   } opts;
 
-  decompilation_t decompilation;
+  decompilation_t jv;
 
 public:
   AddTool() : opts(JoveCategory) {}
@@ -118,7 +118,7 @@ int AddTool::Run(void) {
   }
 
   if (!opts.jv.empty() && !fs::exists(opts.jv)) {
-    WithColor::error() << "given decompilation does not exist\n";
+    WithColor::error() << "given jv does not exist\n";
     return 1;
   }
 
@@ -144,7 +144,7 @@ int AddTool::Run(void) {
   llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
       obj::createBinary(Buffer->getMemBufferRef());
 
-  binary_t &b = decompilation.Binaries.emplace_back();
+  binary_t &b = jv.Binaries.emplace_back();
 
   if (!BinOrErr) {
     //
@@ -165,7 +165,7 @@ int AddTool::Run(void) {
 
     IgnoreCtrlC(); /* user probably doesn't want to interrupt the following */
 
-    WriteDecompilationToFile(opts.Output, decompilation);
+    WriteDecompilationToFile(opts.Output, jv);
 
     return 0;
   }
@@ -180,11 +180,11 @@ int AddTool::Run(void) {
   ELFO &O = *llvm::cast<ELFO>(BinRef.get());
 
   //
-  // initialize the decompilation of the given binary by exploring every defined
+  // initialize the jv of the given binary by exploring every defined
   // exported function
   //
   if (fs::exists(opts.Output))
-    ReadDecompilationFromFile(opts.Output, decompilation);
+    ReadDecompilationFromFile(opts.Output, jv);
 
   state_for_binary(b).ObjectFile = std::move(BinRef);
 
@@ -1020,15 +1020,15 @@ int AddTool::Run(void) {
   IgnoreCtrlC(); /* user probably doesn't want to interrupt the following */
 
   if (opts.jv.empty()) {
-    WriteDecompilationToFile(opts.Output, decompilation);
+    WriteDecompilationToFile(opts.Output, jv);
   } else {
     //
-    // modify existing decompilation
+    // modify existing jv
     //
     decompilation_t working_decompilation;
     ReadDecompilationFromFile(opts.jv, working_decompilation);
 
-    working_decompilation.Binaries.emplace_back(std::move(decompilation.Binaries.front()))
+    working_decompilation.Binaries.emplace_back(std::move(jv.Binaries.front()))
         .IsDynamicallyLoaded = true;
 
     WriteDecompilationToFile(opts.jv, working_decompilation);

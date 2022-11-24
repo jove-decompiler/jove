@@ -65,10 +65,10 @@ struct RunTool : public Tool {
     cl::opt<std::string> PIDFifo;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
-        : jv("decompilation", cl::desc("Jove decompilation"),
+        : jv("jv", cl::desc("Jove jv"),
              cl::value_desc("filename"), cl::cat(JoveCategory)),
 
-          jvAlias("d", cl::desc("Alias for -decompilation."), cl::aliasopt(jv),
+          jvAlias("d", cl::desc("Alias for -jv."), cl::aliasopt(jv),
                   cl::cat(JoveCategory)),
 
           Prog(cl::Positional, cl::desc("prog"), cl::Required,
@@ -168,7 +168,7 @@ struct RunTool : public Tool {
   bool has_jv;
   std::string jvfp;
 
-  decompilation_t decompilation;
+  decompilation_t jv;
 
   std::unique_ptr<disas_t> disas;
   std::unique_ptr<tiny_code_generator_t> tcg;
@@ -617,15 +617,15 @@ int RunTool::DoRun(void) {
   }
 
   //
-  // parse decompilation
+  // parse jv
   //
   if (has_jv) {
-    ReadDecompilationFromFile(jvfp, decompilation);
+    ReadDecompilationFromFile(jvfp, jv);
 
     disas = std::make_unique<disas_t>();
     tcg = std::make_unique<tiny_code_generator_t>();
     symbolizer = std::make_unique<symbolizer_t>();
-    Recovery = std::make_unique<CodeRecovery>(decompilation, *disas, *tcg, *symbolizer);
+    Recovery = std::make_unique<CodeRecovery>(jv, *disas, *tcg, *symbolizer);
   }
 
   int rfd = -1;
@@ -654,7 +654,7 @@ int RunTool::DoRun(void) {
     //
     // (1) create hard links to pre-existing binaries with .jove.sav suffix
     //
-    for (const binary_t &binary : decompilation.Binaries) {
+    for (const binary_t &binary : jv.Binaries) {
       if (binary.IsExecutable)
         continue;
       if (binary.IsVDSO)
@@ -674,7 +674,7 @@ int RunTool::DoRun(void) {
     //
     // (2) copy recompiled binaries to root filesystem
     //
-    for (const binary_t &binary : decompilation.Binaries) {
+    for (const binary_t &binary : jv.Binaries) {
       if (binary.IsExecutable)
         continue;
       if (binary.IsVDSO)
@@ -865,7 +865,7 @@ int RunTool::DoRun(void) {
       //
       // (3) perform the renames!!! do this as close as possible before execve
       //
-      for (const binary_t &binary : decompilation.Binaries) {
+      for (const binary_t &binary : jv.Binaries) {
         if (binary.IsExecutable)
           continue;
         if (binary.IsVDSO)
@@ -947,7 +947,7 @@ int RunTool::DoRun(void) {
     // filesystem all DSO's except those dynamically loaded (we do that after the second sleep)
     //
     bool HaveDynamicallyLoaded = false;
-    for (const binary_t &binary : decompilation.Binaries) {
+    for (const binary_t &binary : jv.Binaries) {
       if (binary.IsExecutable)
         continue;
       if (binary.IsVDSO)
@@ -977,7 +977,7 @@ int RunTool::DoRun(void) {
       // (5) perform the renames to undo the changes we made to the root filesystem
       // for all the dynamically loaded DSOs
       //
-      for (const binary_t &binary : decompilation.Binaries) {
+      for (const binary_t &binary : jv.Binaries) {
         if (binary.IsExecutable)
           continue;
         if (binary.IsVDSO)
@@ -1067,9 +1067,9 @@ int RunTool::DoRun(void) {
   drop_privileges();
 
   if (has_jv && WasDecompilationModified.load()) {
-    decompilation.InvalidateFunctionAnalyses();
+    jv.InvalidateFunctionAnalyses();
 
-    WriteDecompilationToFile(jvfp, decompilation);
+    WriteDecompilationToFile(jvfp, jv);
   }
 
   {

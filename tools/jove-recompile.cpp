@@ -90,10 +90,10 @@ class RecompileTool : public Tool {
     cl::opt<bool> InlineHelpers;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
-        : jv("decompilation", cl::desc("Jove decompilation"), cl::Required,
+        : jv("jv", cl::desc("Jove jv"), cl::Required,
              cl::cat(JoveCategory)),
 
-          jvAlias("d", cl::desc("Alias for -decompilation."), cl::aliasopt(jv),
+          jvAlias("d", cl::desc("Alias for -jv."), cl::aliasopt(jv),
                   cl::cat(JoveCategory)),
 
           Output("output", cl::desc("Output directory"), cl::Required,
@@ -447,7 +447,7 @@ int RecompileTool::Run(void) {
     llvm::errs() << llvm::formatv("tmpdir: {0}\n", tmpdir);
 
   if (!fs::exists(opts.jv)) {
-    WithColor::error() << "can't find decompilation.jv\n";
+    WithColor::error() << "can't find jv.jv\n";
     return 1;
   }
 
@@ -535,7 +535,7 @@ int RecompileTool::Run(void) {
       continue;
 
     //
-    // we have the binary data in the decompilation. let's use it
+    // we have the binary data in the jv. let's use it
     //
     fs::path ldso_path = fs::path(tmpdir) / "ld.so";
 

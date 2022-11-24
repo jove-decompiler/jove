@@ -52,7 +52,7 @@ class DumpTool : public Tool {
                      cl::cat(JoveCategory)),
 
           ListBinaries("list-binaries",
-                       cl::desc("List binaries for decompilation"),
+                       cl::desc("List binaries for jv"),
                        cl::cat(JoveCategory)),
 
           ListBinariesAlias("l", cl::desc("Alias for -list-binaries."),
@@ -98,15 +98,15 @@ struct reached_visitor : public boost::default_bfs_visitor {
   }
 };
 
-void DumpTool::dumpDecompilation(const decompilation_t& decompilation) {
+void DumpTool::dumpDecompilation(const decompilation_t& jv) {
 #if 0
   tiny_code_generator_t tcg;
 #endif
 
   llvm::ScopedPrinter Writer(llvm::outs());
-  llvm::ListScope _(Writer, (fmt("Binaries (%u)") % decompilation.Binaries.size()).str());
+  llvm::ListScope _(Writer, (fmt("Binaries (%u)") % jv.Binaries.size()).str());
 
-  for (const auto &B : decompilation.Binaries) {
+  for (const auto &B : jv.Binaries) {
     llvm::DictScope __(Writer, B.Path.c_str());
 
     Writer.printBoolean("IsDynamicLinker",     B.IsDynamicLinker);
@@ -269,7 +269,7 @@ void DumpTool::dumpDecompilation(const decompilation_t& decompilation) {
                            function_index_t FIdx;
                            std::tie(BIdx, FIdx) = pair;
 
-                           auto &b = decompilation.Binaries[BIdx];
+                           auto &b = jv.Binaries[BIdx];
                            const auto &_ICFG = b.Analysis.ICFG;
                            auto &callee = b.Analysis.Functions[FIdx];
                            uintptr_t target_addr =
@@ -385,7 +385,7 @@ void DumpTool::dumpDecompilation(const decompilation_t& decompilation) {
                            function_index_t FIdx;
                            std::tie(BIdx, FIdx) = pair;
 
-                           auto &b = decompilation.Binaries[BIdx];
+                           auto &b = jv.Binaries[BIdx];
                            const auto &_ICFG = b.Analysis.ICFG;
                            auto &callee = b.Analysis.Functions[FIdx];
                            uintptr_t target_addr =
@@ -418,7 +418,7 @@ void DumpTool::dumpDecompilation(const decompilation_t& decompilation) {
                            function_index_t FIdx;
                            std::tie(BIdx, FIdx) = pair;
 
-                           auto &b = decompilation.Binaries[BIdx];
+                           auto &b = jv.Binaries[BIdx];
                            const auto &_ICFG = b.Analysis.ICFG;
                            auto &callee = b.Analysis.Functions[FIdx];
                            uintptr_t target_addr =
@@ -451,7 +451,7 @@ void DumpTool::dumpDecompilation(const decompilation_t& decompilation) {
                            function_index_t FIdx;
                            std::tie(BIdx, FIdx) = pair;
 
-                           auto &b = decompilation.Binaries[BIdx];
+                           auto &b = jv.Binaries[BIdx];
                            const auto &_ICFG = b.Analysis.ICFG;
                            auto &callee = b.Analysis.Functions[FIdx];
                            uintptr_t target_addr =
@@ -478,17 +478,17 @@ int DumpTool::Run(void) {
 }
 
 void DumpTool::dumpInput(const std::string &Path) {
-  decompilation_t decompilation;
+  decompilation_t jv;
   ReadDecompilationFromFile(
-      fs::is_directory(Path) ? (Path + "/decompilation.jv") : Path,
-      decompilation);
+      fs::is_directory(Path) ? (Path + "/jv.jv") : Path,
+      jv);
 
   if (opts.ListBinaries) {
-    for (const auto &binary : decompilation.Binaries) {
+    for (const auto &binary : jv.Binaries) {
       llvm::outs() << binary.Path << '\n';
     }
   } else if (opts.Statistics) {
-    for (const binary_t &binary : decompilation.Binaries) {
+    for (const binary_t &binary : jv.Binaries) {
       llvm::outs() << llvm::formatv("Binary: {0}\n", binary.Path);
       llvm::outs() << llvm::formatv("  # of basic blocks: {0}\n",
                                     boost::num_vertices(binary.Analysis.ICFG));
@@ -496,8 +496,8 @@ void DumpTool::dumpInput(const std::string &Path) {
                                     binary.Analysis.Functions.size());
     }
   } else if (!opts.ListFunctions.empty()) {
-    for (unsigned BIdx = 0; BIdx < decompilation.Binaries.size(); ++BIdx) {
-      const binary_t &binary = decompilation.Binaries[BIdx];
+    for (unsigned BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
+      const binary_t &binary = jv.Binaries[BIdx];
 
       if (binary.Path.find(opts.ListFunctions) == std::string::npos)
         continue;
@@ -514,8 +514,8 @@ void DumpTool::dumpInput(const std::string &Path) {
   } else if (!opts.ListFunctionBBs.empty()) {
     llvm::ScopedPrinter Writer(llvm::outs());
 
-    for (unsigned BIdx = 0; BIdx < decompilation.Binaries.size(); ++BIdx) {
-      const binary_t &binary = decompilation.Binaries[BIdx];
+    for (unsigned BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
+      const binary_t &binary = jv.Binaries[BIdx];
 
       if (fs::path(binary.Path).filename().string() != opts.ListFunctionBBs)
         continue;
@@ -542,7 +542,7 @@ void DumpTool::dumpInput(const std::string &Path) {
       }
     }
   } else {
-    dumpDecompilation(decompilation);
+    dumpDecompilation(jv);
   }
 }
 

@@ -202,10 +202,10 @@ struct LLVMTool : public Tool {
     cl::opt<bool> ForCBE;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
-        : jv("decompilation", cl::desc("Jove decompilation"), cl::Required,
+        : jv("jv", cl::desc("Jove jv"), cl::Required,
              cl::value_desc("filename"), cl::cat(JoveCategory)),
 
-          jvAlias("d", cl::desc("Alias for -decompilation."), cl::aliasopt(jv),
+          jvAlias("d", cl::desc("Alias for -jv."), cl::aliasopt(jv),
                   cl::cat(JoveCategory)),
 
           Binary("binary", cl::desc("Binary to translate"),
@@ -1726,7 +1726,7 @@ static int DoOptimize(void);
 
 int LLVMTool::Run(void) {
   if (!fs::exists(opts.jv)) {
-    llvm::errs() << "decompilation does not exist\n";
+    llvm::errs() << "jv does not exist\n";
     return 1;
   }
 

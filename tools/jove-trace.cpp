@@ -67,10 +67,10 @@ class TraceTool : public Tool {
           ExistingSysroot("existing-sysroot", cl::desc("path to directory"),
                           cl::value_desc("filename"), cl::cat(JoveCategory)),
 
-          jv("decompilation", cl::desc("Jove decompilation"), cl::Required,
+          jv("jv", cl::desc("Jove jv"), cl::Required,
              cl::value_desc("filename"), cl::cat(JoveCategory)),
 
-          jvAlias("d", cl::desc("Alias for -decompilation."), cl::aliasopt(jv),
+          jvAlias("d", cl::desc("Alias for -jv."), cl::aliasopt(jv),
                   cl::cat(JoveCategory)),
 
           Output("output", cl::desc("Output trace txt file"), cl::Required,
@@ -151,7 +151,7 @@ int TraceTool::Run(void) {
   }
 
   if (!fs::exists(opts.jv)) {
-    WithColor::error() << "decompilation does not exist\n";
+    WithColor::error() << "jv does not exist\n";
     return 1;
   }
 

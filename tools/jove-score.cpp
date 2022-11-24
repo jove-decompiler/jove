@@ -34,7 +34,7 @@ class ScoreTool : public Tool {
 
   binary_index_t SingleBinaryIndex = invalid_binary_index;
 
-  decompilation_t decompilation;
+  decompilation_t jv;
 
 public:
   ScoreTool() : opts(JoveCategory) {}
@@ -47,7 +47,7 @@ JOVE_REGISTER_TOOL("score", ScoreTool);
 typedef boost::format fmt;
 
 int ScoreTool::Run(void) {
-  ReadDecompilationFromFile(opts.jv, decompilation);
+  ReadDecompilationFromFile(opts.jv, jv);
 
   //
   // operate on single binary? (cmdline)
@@ -55,8 +55,8 @@ int ScoreTool::Run(void) {
   if (!opts.Binary.empty()) {
     binary_index_t BinaryIndex = invalid_binary_index;
 
-    for (binary_index_t BIdx = 0; BIdx < decompilation.Binaries.size(); ++BIdx) {
-      const binary_t &binary = decompilation.Binaries[BIdx];
+    for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
+      const binary_t &binary = jv.Binaries[BIdx];
       if (binary.Path.find(opts.Binary) == std::string::npos)
         continue;
 
@@ -74,16 +74,16 @@ int ScoreTool::Run(void) {
   }
 
   if (is_binary_index_valid(SingleBinaryIndex)) {
-    binary_t &binary = decompilation.Binaries.at(SingleBinaryIndex);
+    binary_t &binary = jv.Binaries.at(SingleBinaryIndex);
 
-    HumanOut() << (fmt("%.3f\n") % compute_score(decompilation, binary)).str();
+    HumanOut() << (fmt("%.3f\n") % compute_score(jv, binary)).str();
   } else {
-    for_each_binary(decompilation, [&](binary_t &binary) {
+    for_each_binary(jv, [&](binary_t &binary) {
       if (binary.IsVDSO)
         return;
 
       HumanOut() << (fmt("%.3f %s\n")
-                     % compute_score(decompilation, binary)
+                     % compute_score(jv, binary)
                      % binary.Path).str();
     });
   }

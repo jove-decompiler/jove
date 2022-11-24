@@ -53,10 +53,10 @@ class CFGTool : public Tool {
     cl::alias LocalGotoAddressAlias;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
-        : jv("decompilation", cl::desc("Jove decompilation"), cl::Required,
+        : jv("jv", cl::desc("Jove jv"), cl::Required,
              cl::cat(JoveCategory)),
 
-          jvAlias("d", cl::desc("Alias for --decompilation."), cl::aliasopt(jv),
+          jvAlias("d", cl::desc("Alias for --jv."), cl::aliasopt(jv),
                   cl::cat(JoveCategory)),
 
           Binary("binary", cl::desc("Binary of function"), cl::Required,
@@ -291,7 +291,7 @@ typedef control_flow_graph_t cfg_t;
 
 int CFGTool::Run(void) {
   if (!fs::exists(opts.jv)) {
-    WithColor::error() << "can't find decompilation.jv\n";
+    WithColor::error() << "can't find jv.jv\n";
     return 1;
   }
 

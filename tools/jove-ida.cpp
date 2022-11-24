@@ -71,7 +71,7 @@ class IDATool : public Tool {
                            cl::cat(JoveCategory)),
 
           NoSave("no-save",
-                 cl::desc("Do not save decompilation before exiting"),
+                 cl::desc("Do not save jv before exiting"),
                  cl::cat(JoveCategory)) {}
   } opts;
 
@@ -82,7 +82,7 @@ class IDATool : public Tool {
   std::string ida_dir;
   std::string ida_scripts_dir;
 
-  decompilation_t decompilation;
+  decompilation_t jv;
   disas_t disas;
 
 public:
@@ -126,7 +126,7 @@ int IDATool::Run(void) {
     return 1;
   }
 
-  ReadDecompilationFromFile(opts.jv, decompilation);
+  ReadDecompilationFromFile(opts.jv, jv);
 
   //
   // operate on single binary? (cmdline)
@@ -134,8 +134,8 @@ int IDATool::Run(void) {
   if (!opts.Binary.empty()) {
     binary_index_t BinaryIndex = invalid_binary_index;
 
-    for (binary_index_t BIdx = 0; BIdx < decompilation.Binaries.size(); ++BIdx) {
-      const binary_t &binary = decompilation.Binaries[BIdx];
+    for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
+      const binary_t &binary = jv.Binaries[BIdx];
       if (binary.Path.find(opts.Binary) == std::string::npos)
         continue;
 
@@ -215,7 +215,7 @@ int IDATool::Run(void) {
     if (!BinOrErr)
       return;
 
-    binary_index_t BIdx = index_of_binary(binary, decompilation);
+    binary_index_t BIdx = index_of_binary(binary, jv);
 
     fs::path chrooted_path = tmp_dir / binary.Path;
     std::string log_path = chrooted_path.string() + ".log.txt";
@@ -357,8 +357,8 @@ int IDATool::Run(void) {
     fnmap_t fnmap;
     bbmap_t bbmap;
 
-    construct_fnmap(decompilation, binary, fnmap);
-    construct_bbmap(decompilation, binary, bbmap);
+    construct_fnmap(jv, binary, fnmap);
+    construct_bbmap(jv, binary, bbmap);
 
     auto process_flowgraph = [&](binary_t &binary,
                                  const ida_flowgraph_t &flowgraph) -> void {
@@ -647,14 +647,14 @@ int IDATool::Run(void) {
 
 
   if (is_binary_index_valid(SingleBinaryIndex))
-    process_binary(decompilation.Binaries.at(SingleBinaryIndex));
+    process_binary(jv.Binaries.at(SingleBinaryIndex));
   else
-    for_each_binary(decompilation, process_binary);
+    for_each_binary(jv, process_binary);
 
   if (opts.NoSave)
     return 0;
 
-  WriteDecompilationToFile(opts.jv, decompilation);
+  WriteDecompilationToFile(opts.jv, jv);
 
   return 0;
 }

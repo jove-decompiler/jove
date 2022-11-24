@@ -30,7 +30,7 @@ class jv2xmlTool : public Tool {
     cl::opt<std::string> jv;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
-        : jv(cl::Positional, cl::desc("decompilation.jv"), cl::Required,
+        : jv(cl::Positional, cl::desc("jv.jv"), cl::Required,
              cl::value_desc("filename"), cl::cat(JoveCategory)) {}
   } opts;
 
@@ -44,7 +44,7 @@ JOVE_REGISTER_TOOL("jv2xml", jv2xmlTool);
 
 int jv2xmlTool::Run(void) {
   if (!fs::exists(opts.jv)) {
-    WithColor::error() << "decompilation does not exist\n";
+    WithColor::error() << "jv does not exist\n";
     return 1;
   }
 

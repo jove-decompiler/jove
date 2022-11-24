@@ -47,10 +47,10 @@ class AnalyzeTool : public Tool {
     cl::opt<bool> OnlyExecutable;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
-        : jv("decompilation", cl::desc("Jove decompilation"), cl::Required,
+        : jv("jv", cl::desc("Jove jv"), cl::Required,
              cl::value_desc("filename"), cl::cat(JoveCategory)),
 
-          jvAlias("d", cl::desc("Alias for -decompilation."), cl::aliasopt(jv),
+          jvAlias("d", cl::desc("Alias for -jv."), cl::aliasopt(jv),
                   cl::cat(JoveCategory)),
 
           PinnedGlobals(
@@ -88,12 +88,12 @@ JOVE_REGISTER_TOOL("analyze", AnalyzeTool);
 
 int AnalyzeTool::Run(void) {
   if (!fs::exists(opts.jv)) {
-    HumanOut() << "decompilation does not exist\n";
+    HumanOut() << "jv does not exist\n";
     return 1;
   }
 
   ReadDecompilationFromFile(
-      fs::is_directory(opts.jv) ? (opts.jv + "/decompilation.jv") : opts.jv,
+      fs::is_directory(opts.jv) ? (opts.jv + "/jv.jv") : opts.jv,
       jv);
 
   identify_ABIs(jv);

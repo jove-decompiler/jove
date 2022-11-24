@@ -32,10 +32,10 @@ class Trace2LinesTool : public Tool {
         : TracePath(cl::Positional, cl::desc("trace.txt"), cl::Required,
                     cl::value_desc("filename"), cl::cat(JoveCategory)),
 
-          jv("decompilation", cl::desc("Jove decompilation"), cl::Required,
+          jv("jv", cl::desc("Jove jv"), cl::Required,
              cl::value_desc("filename"), cl::cat(JoveCategory)),
 
-          jvAlias("d", cl::desc("Alias for -decompilation."), cl::aliasopt(jv),
+          jvAlias("d", cl::desc("Alias for -jv."), cl::aliasopt(jv),
                   cl::cat(JoveCategory)),
 
           ExcludeFns("exclude-fns", cl::CommaSeparated,
@@ -81,7 +81,7 @@ int Trace2LinesTool::Run(void) {
   }
 
   if (!fs::exists(opts.jv)) {
-    WithColor::error() << "decompilation does not exist\n";
+    WithColor::error() << "jv does not exist\n";
     return 1;
   }
 
@@ -167,27 +167,27 @@ int Trace2LinesTool::Run(void) {
     }
 
     //
-    // parse the existing decompilation file
+    // parse the existing jv file
     //
-    decompilation_t decompilation;
-    ReadDecompilationFromFile(opts.jv, decompilation);
+    decompilation_t jv;
+    ReadDecompilationFromFile(opts.jv, jv);
 
     //
     // compute the set of verts for each function
     //
-    for (binary_t &b : decompilation.Binaries) {
+    for (binary_t &b : jv.Binaries) {
       for (function_t &f : b.Analysis.Functions)
         basic_blocks_of_function(f, b, state_for_function(f).BasicBlocks);
     }
 
     std::vector<std::unordered_set<basic_block_index_t>> Excludes;
-    Excludes.resize(decompilation.Binaries.size());
+    Excludes.resize(jv.Binaries.size());
 
     for (unsigned i = 0; i < opts.ExcludeFns.size(); i += 2) {
       binary_index_t BIdx = opts.ExcludeFns[i + 0];
       function_index_t FIdx = opts.ExcludeFns[i + 1];
 
-      binary_t &binary = decompilation.Binaries.at(BIdx);
+      binary_t &binary = jv.Binaries.at(BIdx);
       function_t &function = binary.Analysis.Functions.at(FIdx);
 
       const auto &ICFG = binary.Analysis.ICFG;
@@ -231,7 +231,7 @@ int Trace2LinesTool::Run(void) {
                     BIdx) != opts.ExcludeBinaries.end())
         continue;
 
-      const auto &binary = decompilation.Binaries.at(BIdx);
+      const auto &binary = jv.Binaries.at(BIdx);
       const auto &ICFG = binary.Analysis.ICFG;
       basic_block_t bb = boost::vertex(BBIdx, ICFG);
 

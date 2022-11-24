@@ -26,14 +26,14 @@ class StubTool : public Tool {
         : Prog(cl::Positional, cl::desc("prog"), cl::Required,
                cl::value_desc("filename"), cl::cat(JoveCategory)),
 
-          jv("decompilation", cl::desc("Jove jv"),
+          jv("jv", cl::desc("Jove jv"),
              cl::value_desc("filename"), cl::cat(JoveCategory)),
 
           jvAlias("d", cl::desc("Alias for -jv."), cl::aliasopt(jv),
                   cl::cat(JoveCategory)) {}
   } opts;
 
-  decompilation_t decompilation;
+  decompilation_t jv;
 
 public:
   StubTool() : opts(JoveCategory) {}
@@ -53,9 +53,9 @@ int StubTool::Run(void) {
     return 1;
   }
 
-  ReadDecompilationFromFile(jvfp, decompilation);
+  ReadDecompilationFromFile(jvfp, jv);
 
-  binary_t &binary = decompilation.Binaries.at(0);
+  binary_t &binary = jv.Binaries.at(0);
   assert(binary.IsExecutable);
 
   //
@@ -68,7 +68,7 @@ int StubTool::Run(void) {
     if (binary.Data.size() != buff.size() ||
         memcmp(&binary.Data[0], &buff[0], binary.Data.size())) {
       HumanOut() << llvm::formatv(
-          "file {0} does not match binary found in decompilation ; did you already run 'jove stub'?\n",
+          "file {0} does not match binary found in jv ; did you already run 'jove stub'?\n",
           binary.Path);
       return 1;
     }

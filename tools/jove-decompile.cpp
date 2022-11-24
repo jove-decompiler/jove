@@ -96,7 +96,7 @@ class DecompileTool : public Tool {
 
   binary_index_t SingleBinaryIndex = invalid_binary_index;
 
-  decompilation_t decompilation;
+  decompilation_t jv;
 
   std::string tmp_dir;
 
@@ -121,20 +121,20 @@ typedef boost::format fmt;
 
 void DecompileTool::queue_binaries(void) {
   Q.clear();
-  Q.reserve(decompilation.Binaries.size());
+  Q.reserve(jv.Binaries.size());
 
   if (is_binary_index_valid(SingleBinaryIndex)) {
     Q.push_back(SingleBinaryIndex);
     return;
   }
 
-  for_each_binary(decompilation, [&](binary_t &binary) {
+  for_each_binary(jv, [&](binary_t &binary) {
     if (binary.IsVDSO)
       return;
     if (binary.IsDynamicLinker)
       return;
 
-    binary_index_t BIdx = index_of_binary(binary, decompilation);
+    binary_index_t BIdx = index_of_binary(binary, jv);
     Q.push_back(BIdx);
   });
 }
@@ -204,12 +204,12 @@ int DecompileTool::Run(void) {
     return 1;
   }
 
-  ReadDecompilationFromFile(opts.jv, decompilation);
+  ReadDecompilationFromFile(opts.jv, jv);
 
   //
   // gather dynamic linking information
   //
-  for_each_binary(decompilation, [&](binary_t &binary) {
+  for_each_binary(jv, [&](binary_t &binary) {
     if (binary.IsVDSO)
       return;
 
@@ -231,8 +231,8 @@ int DecompileTool::Run(void) {
 
   std::unordered_map<std::string, binary_index_t> soname_map;
 
-  for_each_binary(decompilation, [&](binary_t &binary) {
-    binary_index_t BIdx = index_of_binary(binary, decompilation);
+  for_each_binary(jv, [&](binary_t &binary) {
+    binary_index_t BIdx = index_of_binary(binary, jv);
     auto &state = state_for_binary(binary);
 
     if (state.dynl.soname.empty() && !binary.IsExecutable) {
@@ -256,8 +256,8 @@ int DecompileTool::Run(void) {
   if (!opts.Binary.empty()) {
     binary_index_t BinaryIndex = invalid_binary_index;
 
-    for (binary_index_t BIdx = 0; BIdx < decompilation.Binaries.size(); ++BIdx) {
-      const binary_t &binary = decompilation.Binaries[BIdx];
+    for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
+      const binary_t &binary = jv.Binaries[BIdx];
       if (binary.Path.find(opts.Binary) == std::string::npos)
         continue;
 
@@ -274,7 +274,7 @@ int DecompileTool::Run(void) {
     SingleBinaryIndex = BinaryIndex;
   }
 
-  bool IsPIC = decompilation.Binaries.at(0).IsPIC;
+  bool IsPIC = jv.Binaries.at(0).IsPIC;
 
   tmp_dir = "/tmp/jXXXXXX";
   if (!mkdtemp(&tmp_dir[0])) {
@@ -303,7 +303,7 @@ int DecompileTool::Run(void) {
   if (!opts.Verbose)
     WithColor::note() << llvm::formatv(
         "Generating LLVM and running llvm-cbe on {0} {1}...",
-        !opts.Binary.empty() ? 1 : decompilation.Binaries.size() - 2,
+        !opts.Binary.empty() ? 1 : jv.Binaries.size() - 2,
         !opts.Binary.empty() ? "binary" : "binaries");
 
   queue_binaries();
@@ -341,7 +341,7 @@ int DecompileTool::Run(void) {
   std::unordered_set<std::string> helper_nms;
 
   auto Context = std::make_unique<llvm::LLVMContext>();
-  for_each_binary(decompilation, [&](binary_t &binary) {
+  for_each_binary(jv, [&](binary_t &binary) {
     if (!binary.IsExecutable)
       return; /* FIXME */
 
@@ -589,7 +589,7 @@ int DecompileTool::Run(void) {
     ofs << '\n';
 
     {
-      binary_t &binary = decompilation.Binaries.at(0);
+      binary_t &binary = jv.Binaries.at(0);
 
       std::unique_ptr<obj::Binary> &BinRef = state_for_binary(binary).Bin;
 
@@ -645,7 +645,7 @@ int DecompileTool::Run(void) {
           continue;
         }
 
-        binary_t &needed_b = decompilation.Binaries.at((*it).second);
+        binary_t &needed_b = jv.Binaries.at((*it).second);
 
         const fs::path needed_path(needed_b.Path);
         needed_lib_dirs.insert(needed_path.parent_path().string());
@@ -702,7 +702,7 @@ bool DecompileTool::pop_binary(binary_index_t &out) {
 void DecompileTool::Worker(void) {
   binary_index_t BIdx = invalid_binary_index;
   while (pop_binary(BIdx)) {
-    binary_t &binary = decompilation.Binaries.at(BIdx);
+    binary_t &binary = jv.Binaries.at(BIdx);
 
     // make sure the path is absolute
     assert(binary.Path.at(0) == '/');

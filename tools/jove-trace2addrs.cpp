@@ -23,10 +23,10 @@ class Trace2AddrsTool : public Tool {
         : TracePath(cl::Positional, cl::desc("trace.txt"), cl::Required,
                     cl::value_desc("filename"), cl::cat(JoveCategory)),
 
-          jv("decompilation", cl::desc("Jove decompilation"), cl::Required,
+          jv("jv", cl::desc("Jove jv"), cl::Required,
              cl::value_desc("filename"), cl::cat(JoveCategory)),
 
-          jvAlias("d", cl::desc("Alias for -decompilation."), cl::aliasopt(jv),
+          jvAlias("d", cl::desc("Alias for -jv."), cl::aliasopt(jv),
                   cl::cat(JoveCategory)),
 
           SkipRepeated("skip-repeated", cl::desc("Skip repeated blocks"),
@@ -48,7 +48,7 @@ int Trace2AddrsTool::Run(void) {
   }
 
   if (!fs::exists(opts.jv)) {
-    WithColor::error() << "decompilation does not exist\n";
+    WithColor::error() << "jv does not exist\n";
     return 1;
   }
 
@@ -103,8 +103,8 @@ int Trace2AddrsTool::Run(void) {
     }
   }
 
-  decompilation_t decompilation;
-  ReadDecompilationFromFile(opts.jv, decompilation);
+  decompilation_t jv;
+  ReadDecompilationFromFile(opts.jv, jv);
 
   //
   // for every block in the trace, print out its description.
@@ -115,7 +115,7 @@ int Trace2AddrsTool::Run(void) {
 
     std::tie(BIdx, BBIdx) = pair;
 
-    const auto &binary = decompilation.Binaries.at(BIdx);
+    const auto &binary = jv.Binaries.at(BIdx);
     const auto &ICFG = binary.Analysis.ICFG;
     basic_block_t bb = boost::vertex(BBIdx, ICFG);
 
