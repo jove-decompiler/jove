@@ -175,7 +175,6 @@ public:
 
   int Run(void);
 
-  bool dynamic_linking_info_of_binary(binary_t &, dynamic_linking_info_t &out);
   void worker(const dso_graph_t &dso_graph);
 };
 
@@ -483,12 +482,29 @@ int RecompileTool::Run(void) {
     if (b.IsVDSO)
       continue;
 
-    if (!dynamic_linking_info_of_binary(b, state_for_binary(b).dynl)) {
-#if 0
+    llvm::StringRef Buffer(reinterpret_cast<const char *>(&b.Data[0]),
+                           b.Data.size());
+    llvm::StringRef Identifier(b.Path);
+    llvm::MemoryBufferRef MemBuffRef(Buffer, Identifier);
+
+    llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
+        obj::createBinary(MemBuffRef);
+
+    if (!BinOrErr) {
+      WithColor::error() << "failed to create binary from" << b.Path << '\n';
+      return false;
+    }
+
+    std::unique_ptr<obj::Binary> &Bin = BinOrErr.get();
+
+    if (!llvm::isa<ELFO>(Bin.get())) {
+      WithColor::error() << "is not ELF of expected type\n";
+      return false;
+    }
+
+    if (!dynamic_linking_info_of_binary(*Bin, state_for_binary(b).dynl)) {
       WithColor::warning() << llvm::formatv(
           "!dynamic_linking_info_of_binary({0})\n", b.Path.c_str());
-      return 1;
-#endif
     }
   }
 
@@ -1517,131 +1533,6 @@ void write_dso_graphviz(std::ostream &out, const dso_graph_t &dso_graph) {
 
 void handle_sigint(int no) {
   Cancel.store(true);
-}
-
-bool RecompileTool::dynamic_linking_info_of_binary(binary_t &b, dynamic_linking_info_t &out) {
-  //
-  // parse the ELF
-  //
-  llvm::StringRef Buffer(reinterpret_cast<const char *>(&b.Data[0]),
-                         b.Data.size());
-  llvm::StringRef Identifier(b.Path);
-  llvm::MemoryBufferRef MemBuffRef(Buffer, Identifier);
-
-  llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
-      obj::createBinary(MemBuffRef);
-
-  if (!BinOrErr) {
-    WithColor::error() << "failed to create binary from" << b.Path << '\n';
-    return false;
-  }
-
-  std::unique_ptr<obj::Binary> &Bin = BinOrErr.get();
-
-  if (!llvm::isa<ELFO>(Bin.get())) {
-    WithColor::error() << "is not ELF of expected type\n";
-    return false;
-  }
-
-  ELFO &O = *llvm::cast<ELFO>(Bin.get());
-
-  const ELFF &E = *O.getELFFile();
-
-  DynRegionInfo DynamicTable(O.getFileName());
-  loadDynamicTable(&E, &O, DynamicTable);
-
-  if (!DynamicTable.Addr)
-    return false;
-
-  auto dynamic_table = [&DynamicTable](void) -> Elf_Dyn_Range {
-    return DynamicTable.getAsArrayRef<Elf_Dyn>();
-  };
-
-  llvm::StringRef DynamicStringTable;
-  const Elf_Shdr *SymbolVersionSection;
-  std::vector<VersionMapEntry> VersionMap;
-  llvm::Optional<DynRegionInfo> OptionalDynSymRegion =
-      loadDynamicSymbols(&E, &O,
-                         DynamicTable,
-                         DynamicStringTable,
-                         SymbolVersionSection,
-                         VersionMap);
-
-  std::vector<uint64_t> needed_offsets;
-  struct {
-    bool Found;
-    uint64_t Offset;
-  } SOName = {false, 0};
-
-  for (const Elf_Dyn &Dyn : dynamic_table()) {
-    if (unlikely(Dyn.d_tag == llvm::ELF::DT_NULL))
-      break; /* marks end of dynamic table. */
-
-    switch (Dyn.d_tag) {
-    case llvm::ELF::DT_SONAME:
-      SOName.Offset = Dyn.getVal();
-      SOName.Found = true;
-      break;
-
-    case llvm::ELF::DT_NEEDED:
-      uint64_t needed_offset = Dyn.getVal();
-
-      if (opts.Verbose)
-        llvm::errs() << llvm::formatv("{0}: DT_NEEDED: {1}\n", b.Path, needed_offset);
-
-      if (needed_offset >= DynamicStringTable.size()) {
-        if (opts.Verbose)
-          WithColor::warning() << llvm::formatv(
-              "ignoring DT_NEEDED entry; offset is {0} >= {1}\n", needed_offset,
-              DynamicStringTable.size());
-        break;
-      }
-
-      needed_offsets.push_back(needed_offset);
-      break;
-    }
-  }
-
-  if (SOName.Found) {
-    if (SOName.Offset >= DynamicStringTable.size()) {
-      if (opts.Verbose)
-        llvm::errs() << llvm::formatv("[{0}] bad SOName.Offset {1}\n", b.Path, SOName.Offset);
-    } else {
-      const char *soname_cstr = DynamicStringTable.data() + SOName.Offset;
-
-      if (opts.Verbose)
-        llvm::errs() << llvm::formatv("[{0}] out.soname=\"{1}\"\n", b.Path, soname_cstr);
-
-      out.soname = soname_cstr;
-    }
-  }
-
-  for (uint64_t off : needed_offsets) {
-    if (off >= DynamicStringTable.size()) {
-      if (opts.Verbose)
-        llvm::errs() << llvm::formatv("[{0}] bad needed_offset {1}\n", b.Path, off);
-      continue;
-    }
-
-    const char *needed_cstr = DynamicStringTable.data() + off;
-
-    if (opts.Verbose)
-      llvm::errs() << llvm::formatv("[{0}] out.needed=\"{1}\"\n", b.Path, needed_cstr);
-
-    out.needed.emplace_back(needed_cstr);
-  }
-
-  llvm::Expected<Elf_Phdr_Range> ExpectedPrgHdrs = E.program_headers();
-  if (ExpectedPrgHdrs) {
-    for (const Elf_Phdr &Phdr : *ExpectedPrgHdrs) {
-      if (Phdr.p_type == llvm::ELF::PT_INTERP) {
-        out.interp = std::string(Buffer.data() + Phdr.p_offset);
-        break;
-      }
-    }
-  }
-
-  return true;
 }
 
 }
