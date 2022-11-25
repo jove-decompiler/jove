@@ -225,7 +225,7 @@ int DecompileTool::Run(void) {
       return;
     }
 
-    auto &binary_state = state_for_binary(binary);
+    auto &binary_state = state.for_binary(binary);
     binary_state.Bin = std::move(BinOrErr.get());
 
     dynamic_linking_info_of_binary(*binary_state.Bin, binary_state.dynl);
@@ -235,21 +235,21 @@ int DecompileTool::Run(void) {
 
   for_each_binary(jv, [&](binary_t &binary) {
     binary_index_t BIdx = index_of_binary(binary, jv);
-    auto &state = state_for_binary(binary);
+    auto &_state = state.for_binary(binary);
 
-    if (state.dynl.soname.empty() && !binary.IsExecutable) {
+    if (_state.dynl.soname.empty() && !binary.IsExecutable) {
       soname_map.insert(
           {fs::path(binary.Path).filename().string(), BIdx}); /* XXX */
       return;
     }
 
-    if (soname_map.find(state.dynl.soname) != soname_map.end()) {
+    if (soname_map.find(_state.dynl.soname) != soname_map.end()) {
       WithColor::error() << llvm::formatv(
-          "same soname {0} occurs more than once\n", state.dynl.soname);
+          "same soname {0} occurs more than once\n", _state.dynl.soname);
       return;
     }
 
-    soname_map.insert({state.dynl.soname, BIdx});
+    soname_map.insert({_state.dynl.soname, BIdx});
   });
 
   //
@@ -593,7 +593,7 @@ int DecompileTool::Run(void) {
     {
       binary_t &binary = jv.Binaries.at(0);
 
-      std::unique_ptr<obj::Binary> &BinRef = state_for_binary(binary).Bin;
+      std::unique_ptr<obj::Binary> &BinRef = state.for_binary(binary).Bin;
 
       assert(binary.IsExecutable); /* FIXME */
 
@@ -639,7 +639,7 @@ int DecompileTool::Run(void) {
       //
       std::unordered_set<std::string> needed_lib_dirs = {"/lib"};
       std::unordered_set<std::string> needed_sonames;
-      for (std::string &needed : state_for_binary(binary).dynl.needed) {
+      for (std::string &needed : state.for_binary(binary).dynl.needed) {
         auto it = soname_map.find(needed);
         if (it == soname_map.end()) {
           WithColor::warning()
@@ -662,8 +662,8 @@ int DecompileTool::Run(void) {
 
       ofs << " -ljove_rt";
 
-      if (!state_for_binary(binary).dynl.soname.empty())
-        ofs << " -soname=" << state_for_binary(binary).dynl.soname;
+      if (!state.for_binary(binary).dynl.soname.empty())
+        ofs << " -soname=" << state.for_binary(binary).dynl.soname;
 
       std::vector<std::string> needed_arg_vec;
 
@@ -671,9 +671,9 @@ int DecompileTool::Run(void) {
         ofs << " -l :" << needed;
       }
 
-      if (!state_for_binary(binary).dynl.interp.empty()) {
+      if (!state.for_binary(binary).dynl.interp.empty()) {
         ofs << " -dynamic-linker "
-            << fs::canonical(state_for_binary(binary).dynl.interp).string();
+            << fs::canonical(state.for_binary(binary).dynl.interp).string();
       }
 
       ofs << "\n\n";

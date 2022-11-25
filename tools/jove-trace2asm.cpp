@@ -157,7 +157,7 @@ int Trace2AsmTool::Run(void) {
     } else {
       std::unique_ptr<obj::Binary> &BinRef = BinOrErr.get();
 
-      state_for_binary(binary).ObjectFile = std::move(BinRef);
+      state.for_binary(binary).ObjectFile = std::move(BinRef);
     }
   }
 
@@ -169,7 +169,7 @@ int Trace2AsmTool::Run(void) {
     auto &ICFG = binary.Analysis.ICFG;
     basic_block_t bb = boost::vertex(BBIdx, ICFG);
 
-    const ELFF &E = *llvm::cast<ELFO>(state_for_binary(binary).ObjectFile.get())->getELFFile();
+    const ELFF &E = *llvm::cast<ELFO>(state.for_binary(binary).ObjectFile.get())->getELFFile();
 
     tcg_uintptr_t Addr = ICFG[bb].Addr;
     unsigned Size = ICFG[bb].Size;

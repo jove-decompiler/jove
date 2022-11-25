@@ -134,14 +134,14 @@ public:
   TraceTool() : opts(JoveCategory) {}
 
   int Run(void);
+
+  void InitStateForBinaries(jv_t &);
 };
 
 JOVE_REGISTER_TOOL("trace", TraceTool);
 
 static char tmpdir[] = {'/', 't', 'm', 'p', '/', 'X',
                         'X', 'X', 'X', 'X', 'X', '\0'};
-
-static void InitStateForBinaries(jv_t &);
 
 int TraceTool::Run(void) {
   for (char *dashdash_arg : dashdash_args)
@@ -317,9 +317,9 @@ open_events:
         continue;
       }
 
-      assert(state_for_binary(binary).ObjectFile.get() != nullptr);
-      assert(llvm::isa<ELFO>(state_for_binary(binary).ObjectFile.get()));
-      ELFO &O = *llvm::cast<ELFO>(state_for_binary(binary).ObjectFile.get());
+      assert(state.for_binary(binary).ObjectFile.get() != nullptr);
+      assert(llvm::isa<ELFO>(state.for_binary(binary).ObjectFile.get()));
+      ELFO &O = *llvm::cast<ELFO>(state.for_binary(binary).ObjectFile.get());
       const ELFF &E = *O.getELFFile();
 
       const auto &ICFG = binary.Analysis.ICFG;
@@ -612,7 +612,7 @@ skip_uprobe:
   return 0;
 }
 
-void InitStateForBinaries(jv_t &jv) {
+void TraceTool::InitStateForBinaries(jv_t &jv) {
   for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
     auto &binary = jv.Binaries[BIdx];
     auto &ICFG = binary.Analysis.ICFG;
@@ -634,7 +634,7 @@ void InitStateForBinaries(jv_t &jv) {
     } else {
       std::unique_ptr<obj::Binary> &BinRef = BinOrErr.get();
 
-      state_for_binary(binary).ObjectFile = std::move(BinRef);
+      state.for_binary(binary).ObjectFile = std::move(BinRef);
     }
   }
 }

@@ -261,19 +261,7 @@ struct function_t {
        &BOOST_SERIALIZATION_NVP(IsSignalHandler)
        &BOOST_SERIALIZATION_NVP(Returns);
   }
-
-  mutable void *userdata = nullptr;
-
-  template <typename StateTy>
-  StateTy &state() const {
-    if (!this->userdata)
-      this->userdata = new StateTy();
-
-    return *static_cast<StateTy *>(this->userdata);
-  }
 };
-
-#define state_for_function(f) f.state<function_state_t>()
 
 struct binary_t {
   std::string Path;
@@ -317,19 +305,7 @@ struct binary_t {
        &BOOST_SERIALIZATION_NVP(Analysis.IFuncDynTargets)
        &BOOST_SERIALIZATION_NVP(Analysis.SymDynTargets);
   }
-
-  mutable void *userdata = nullptr;
-
-  template <typename StateTy>
-  StateTy &state() const {
-    if (!this->userdata)
-      this->userdata = new StateTy();
-
-    return *static_cast<StateTy *>(this->userdata);
-  }
 };
-
-#define state_for_binary(b) ((b).template state<binary_state_t>())
 
 struct jv_t {
   std::vector<binary_t> Binaries;

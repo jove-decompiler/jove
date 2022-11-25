@@ -181,7 +181,7 @@ int Trace2LinesTool::Run(void) {
     //
     for (binary_t &b : jv.Binaries) {
       for (function_t &f : b.Analysis.Functions)
-        basic_blocks_of_function(f, b, state_for_function(f).BasicBlocks);
+        basic_blocks_of_function(f, b, state.for_function(f).BasicBlocks);
     }
 
     std::vector<std::unordered_set<basic_block_index_t>> Excludes;
@@ -200,7 +200,7 @@ int Trace2LinesTool::Run(void) {
                           boost::vertex_index_t>::type bb_idx_map =
           boost::get(boost::vertex_index, ICFG);
 
-      for (basic_block_t bb : state_for_function(function).BasicBlocks) {
+      for (basic_block_t bb : state.for_function(function).BasicBlocks) {
         basic_block_index_t BBIdx = bb_idx_map[bb];
 
         Excludes[BIdx].insert(BBIdx);

@@ -191,8 +191,8 @@ int CodeDigger::Run(void) {
 
     assert(llvm::isa<ELFO>(BinRef.get()));
 
-    auto &state = state_for_binary(binary);
-    std::tie(state.SectsStartAddr, state.SectsEndAddr) = bounds_of_binary(*BinRef);
+    std::tie(state.for_binary(binary).SectsStartAddr,
+             state.for_binary(binary).SectsEndAddr) = bounds_of_binary(*BinRef);
   });
 
   if (opts.ListLocalGotos)
@@ -323,8 +323,8 @@ void CodeDigger::RecoverLoop(void) {
 
     uint64_t TermAddr = Recovery->AddressOfTerminatorAtBasicBlock(BIdx, BBIdx);
 
-    uint64_t SectsLen = state_for_binary(binary).SectsEndAddr -
-                        state_for_binary(binary).SectsStartAddr;
+    uint64_t SectsLen = state.for_binary(binary).SectsEndAddr -
+                        state.for_binary(binary).SectsStartAddr;
     if (!(Off < SectsLen)) {
       WithColor::error() << llvm::formatv(
           "invalid offset {0:x} for {1}\n", Off,
@@ -332,7 +332,7 @@ void CodeDigger::RecoverLoop(void) {
       continue;
     }
 
-    uint64_t DestAddr = Off + state_for_binary(binary).SectsStartAddr;
+    uint64_t DestAddr = Off + state.for_binary(binary).SectsStartAddr;
 
     if (opts.Verbose)
       HumanOut() << llvm::formatv("{0} -> {1}\n",
@@ -483,12 +483,12 @@ void CodeDigger::Worker(void) {
 
       std::string sects_start_arg =
           "--jove-sects-start-addr=" +
-          std::to_string(state_for_binary(binary).SectsStartAddr);
+          std::to_string(state.for_binary(binary).SectsStartAddr);
       arg_vec.push_back(sects_start_arg.c_str());
 
       std::string sects_end_arg =
           "--jove-sects-end-addr=" +
-          std::to_string(state_for_binary(binary).SectsEndAddr);
+          std::to_string(state.for_binary(binary).SectsEndAddr);
       arg_vec.push_back(sects_end_arg.c_str());
 
       std::string path_length_arg =

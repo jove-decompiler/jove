@@ -406,6 +406,7 @@ int BootstrapTool::Run(void) {
   }
 
   ReadJvFromFile(jvfp, jv);
+  state.update();
 
   //
   // OMG. this hack is awful. it is here because if a binary is dynamically
@@ -472,10 +473,10 @@ int BootstrapTool::Run(void) {
     else
       BinPathToIdxMap[binary.Path] = BIdx;
 
-    binary_state_t &state = state_for_binary(binary);
+    binary_state_t &x = state.for_binary(binary);
 
-    construct_fnmap(jv, binary, state.fnmap);
-    construct_bbmap(jv, binary, state.bbmap);
+    construct_fnmap(jv, binary, x.fnmap);
+    construct_bbmap(jv, binary, x.bbmap);
 
     llvm::StringRef Buffer(reinterpret_cast<char *>(&binary.Data[0]),
                            binary.Data.size());
@@ -493,34 +494,37 @@ int BootstrapTool::Run(void) {
       return;
     } else {
       std::unique_ptr<obj::Binary> &BinRef = *BinOrErr;
-      assert(BinRef.get());
+      if (!BinRef.get()) {
+        if (!binary.IsVDSO)
+          HumanOut() << llvm::formatv(
+              "failed to create binary having path {0}\n", binary.Path);
+        return;
+      }
 
-      state.ObjectFile = std::move(BinRef);
-
-      assert(state.ObjectFile.get());
-      if (!llvm::isa<ELFO>(state.ObjectFile.get())) {
+      x.ObjectFile = std::move(BinRef);
+      if (!llvm::isa<ELFO>(x.ObjectFile.get())) {
         HumanOut() << binary.Path << " is not ELF of expected type\n";
         exit(1);
       }
 
-      ELFO &O = *llvm::cast<ELFO>(state.ObjectFile.get());
+      ELFO &O = *llvm::cast<ELFO>(x.ObjectFile.get());
       const ELFF &E = *O.getELFFile();
 
-      loadDynamicTable(&E, &O, state._elf.DynamicTable);
+      loadDynamicTable(&E, &O, x._elf.DynamicTable);
 
-      state._elf.OptionalDynSymRegion =
+      x._elf.OptionalDynSymRegion =
           loadDynamicSymbols(&E, &O,
-                             state._elf.DynamicTable,
-                             state._elf.DynamicStringTable,
-                             state._elf.SymbolVersionSection,
-                             state._elf.VersionMap);
+                             x._elf.DynamicTable,
+                             x._elf.DynamicStringTable,
+                             x._elf.SymbolVersionSection,
+                             x._elf.VersionMap);
 
       loadDynamicRelocations(&E, &O,
-                             state._elf.DynamicTable,
-                             state._elf.DynRelRegion,
-                             state._elf.DynRelaRegion,
-                             state._elf.DynRelrRegion,
-                             state._elf.DynPLTRelRegion);
+                             x._elf.DynamicTable,
+                             x._elf.DynRelRegion,
+                             x._elf.DynRelaRegion,
+                             x._elf.DynRelrRegion,
+                             x._elf.DynPLTRelRegion);
 
       TheTriple = O.makeTriple();
       Features = O.getFeatures();
@@ -731,7 +735,7 @@ uintptr_t BootstrapTool::va_of_rva(uintptr_t Addr, binary_index_t BIdx) {
     return Addr;
   }
 
-  return Addr + (state_for_binary(binary).LoadAddr - state_for_binary(binary).LoadOffset);
+  return Addr + (state.for_binary(binary).LoadAddr - state.for_binary(binary).LoadOffset);
 }
 
 uintptr_t BootstrapTool::rva_of_va(uintptr_t Addr, binary_index_t BIdx) {
@@ -746,7 +750,7 @@ uintptr_t BootstrapTool::rva_of_va(uintptr_t Addr, binary_index_t BIdx) {
     return Addr;
   }
 
-  return Addr - (state_for_binary(binary).LoadAddr - state_for_binary(binary).LoadOffset);
+  return Addr - (state.for_binary(binary).LoadAddr - state.for_binary(binary).LoadOffset);
 }
 
 #if !defined(__x86_64__) && defined(__i386__)
@@ -1136,18 +1140,18 @@ int BootstrapTool::TracerLoop(pid_t child, tiny_code_generator_t &tcg) {
                       unsigned brkpt_count = 0;
 
                       basic_block_index_t entrybb_idx = explore_basic_block(
-                          b, *state_for_binary(b).ObjectFile,
+                          b, *state.for_binary(b).ObjectFile,
                           tcg, disas, rva_of_va(handler, BIdx),
-                          state_for_binary(b).fnmap,
-                          state_for_binary(b).bbmap,
+                          state.for_binary(b).fnmap,
+                          state.for_binary(b).bbmap,
                           std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2));
 
                       if (is_basic_block_index_valid(entrybb_idx)) {
                         function_index_t FIdx = explore_function(
-                            b, *state_for_binary(b).ObjectFile, tcg, disas,
+                            b, *state.for_binary(b).ObjectFile, tcg, disas,
                             rva_of_va(handler, BIdx),
-                            state_for_binary(b).fnmap,
-                            state_for_binary(b).bbmap,
+                            state.for_binary(b).fnmap,
+                            state.for_binary(b).bbmap,
                             std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2));
 
                         if (is_function_index_valid(FIdx)) {
@@ -1365,10 +1369,10 @@ int BootstrapTool::TracerLoop(pid_t child, tiny_code_generator_t &tcg) {
 
               unsigned brkpt_count = 0;
               function_index_t FIdx = explore_function(
-                  b, *state_for_binary(b).ObjectFile,
+                  b, *state.for_binary(b).ObjectFile,
                   tcg, disas, ICFG[succ].Addr,
-                  state_for_binary(b).fnmap,
-                  state_for_binary(b).bbmap,
+                  state.for_binary(b).fnmap,
+                  state.for_binary(b).bbmap,
                   std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2));
               assert(is_function_index_valid(FIdx));
               ICFG[bb].DynTargets.insert({BIdx, FIdx});
@@ -1432,8 +1436,8 @@ void BootstrapTool::on_new_basic_block(binary_t &b, basic_block_t bb) {
     assert(indbr.InsnBytes.size() == 2 * sizeof(uint32_t));
 #endif
 
-    assert(state_for_binary(b).ObjectFile.get());
-    const ELFF &E = *llvm::cast<ELFO>(state_for_binary(b).ObjectFile.get())->getELFFile();
+    assert(state.for_binary(b).ObjectFile.get());
+    const ELFF &E = *llvm::cast<ELFO>(state.for_binary(b).ObjectFile.get())->getELFFile();
 
     llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(bbprop.Term.Addr);
     if (!ExpectedPtr)
@@ -1490,8 +1494,8 @@ void BootstrapTool::on_new_basic_block(binary_t &b, basic_block_t bb) {
     assert(RetInfo.InsnBytes.size() == sizeof(uint64_t));
 #endif
 
-    assert(state_for_binary(b).ObjectFile.get());
-    const ELFF &E = *llvm::cast<ELFO>(state_for_binary(b).ObjectFile.get())->getELFFile();
+    assert(state.for_binary(b).ObjectFile.get());
+    const ELFF &E = *llvm::cast<ELFO>(state.for_binary(b).ObjectFile.get())->getELFFile();
 
     llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(bbprop.Term.Addr);
     if (!ExpectedPtr)
@@ -2514,7 +2518,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
   //
   indirect_branch_t &IndBrInfo = indirect_branch_of_address(saved_pc);
   binary_t &binary = jv.Binaries[IndBrInfo.BIdx];
-  auto &bbmap = state_for_binary(binary).bbmap;
+  auto &bbmap = state.for_binary(binary).bbmap;
   auto &ICFG = binary.Analysis.ICFG;
   basic_block_t bb = basic_block_at_address(IndBrInfo.TermAddr, binary, bbmap);
 
@@ -2803,11 +2807,11 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
     if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL) {
       function_index_t FIdx =
           explore_function(TargetBinary,
-                           *state_for_binary(TargetBinary).ObjectFile,
+                           *state.for_binary(TargetBinary).ObjectFile,
                            tcg, disas,
                            rva_of_va(Target.Addr, Target.BIdx),
-                           state_for_binary(TargetBinary).fnmap,
-                           state_for_binary(TargetBinary).bbmap,
+                           state.for_binary(TargetBinary).fnmap,
+                           state.for_binary(TargetBinary).bbmap,
                            std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2));
 
       assert(is_function_index_valid(FIdx));
@@ -2825,10 +2829,10 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
         // this call instruction will return, so explore the return block
         //
         basic_block_index_t NextBBIdx =
-            explore_basic_block(binary, *state_for_binary(binary).ObjectFile, tcg, disas,
+            explore_basic_block(binary, *state.for_binary(binary).ObjectFile, tcg, disas,
                                 IndBrInfo.TermAddr + IndBrInfo.InsnBytes.size(),
-                                state_for_binary(binary).fnmap,
-                                state_for_binary(binary).bbmap,
+                                state.for_binary(binary).fnmap,
+                                state.for_binary(binary).bbmap,
                                 std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2));
 
         assert(is_basic_block_index_valid(NextBBIdx));
@@ -2846,11 +2850,11 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
         //
         // non-local goto (aka "long jump")
         //
-        explore_basic_block(TargetBinary, *state_for_binary(TargetBinary).ObjectFile,
+        explore_basic_block(TargetBinary, *state.for_binary(TargetBinary).ObjectFile,
                             tcg, disas,
                             rva_of_va(Target.Addr, Target.BIdx),
-                            state_for_binary(TargetBinary).fnmap,
-                            state_for_binary(TargetBinary).bbmap,
+                            state.for_binary(TargetBinary).fnmap,
+                            state.for_binary(TargetBinary).bbmap,
                             std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2));
 
         ControlFlow.IsGoto = true;
@@ -2868,15 +2872,15 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
             IsDefinitelyTailCall(ICFG, bb) ||
             IndBrInfo.BIdx != Target.BIdx ||
             (boost::out_degree(bb, ICFG) == 0 &&
-             state_for_binary(TargetBinary).fnmap.count(rva_of_va(Target.Addr, Target.BIdx)));
+             state.for_binary(TargetBinary).fnmap.count(rva_of_va(Target.Addr, Target.BIdx)));
 
         if (isTailCall) {
           function_index_t FIdx =
-              explore_function(TargetBinary, *state_for_binary(TargetBinary).ObjectFile,
+              explore_function(TargetBinary, *state.for_binary(TargetBinary).ObjectFile,
                                tcg, disas,
                                rva_of_va(Target.Addr, Target.BIdx),
-                               state_for_binary(TargetBinary).fnmap,
-                               state_for_binary(TargetBinary).bbmap,
+                               state.for_binary(TargetBinary).fnmap,
+                               state.for_binary(TargetBinary).bbmap,
                                std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2));
 
           assert(is_function_index_valid(FIdx));
@@ -2888,10 +2892,10 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
           Target.isNew = ICFG[bb].DynTargets.insert({Target.BIdx, FIdx}).second;
         } else {
           basic_block_index_t TargetBBIdx =
-              explore_basic_block(TargetBinary, *state_for_binary(TargetBinary).ObjectFile, tcg, disas,
+              explore_basic_block(TargetBinary, *state.for_binary(TargetBinary).ObjectFile, tcg, disas,
                                   rva_of_va(Target.Addr, Target.BIdx),
-                                  state_for_binary(TargetBinary).fnmap,
-                                  state_for_binary(TargetBinary).bbmap,
+                                  state.for_binary(TargetBinary).fnmap,
+                                  state.for_binary(TargetBinary).bbmap,
                                   std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2));
 
           assert(is_basic_block_index_valid(TargetBBIdx));
@@ -2921,7 +2925,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
         "on_breakpoint failed: {0} [target: {1}+{2:x} ({3:x}) binary.LoadAddr: {4:x}]\n",
         e.what(), fs::path(TargetBinary.Path).filename().string(),
         rva_of_va(Target.Addr, Target.BIdx), Target.Addr,
-        state_for_binary(TargetBinary).LoadAddr);
+        state.for_binary(TargetBinary).LoadAddr);
 
     HumanOut() << ProcMapsForPid(child);
   }
@@ -2975,10 +2979,10 @@ void BootstrapTool::harvest_irelative_reloc_targets(pid_t child,
     binary_t &ResolvedBinary = jv.Binaries[Resolved.BIdx];
 
     Resolved.FIdx = explore_function(
-        ResolvedBinary, *state_for_binary(ResolvedBinary).ObjectFile, tcg, disas,
+        ResolvedBinary, *state.for_binary(ResolvedBinary).ObjectFile, tcg, disas,
         rva_of_va(Resolved.Addr, Resolved.BIdx),
-        state_for_binary(ResolvedBinary).fnmap,
-        state_for_binary(ResolvedBinary).bbmap,
+        state.for_binary(ResolvedBinary).fnmap,
+        state.for_binary(ResolvedBinary).bbmap,
         std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2));
 
     if (is_function_index_valid(Resolved.FIdx)) {
@@ -2999,7 +3003,7 @@ void BootstrapTool::harvest_irelative_reloc_targets(pid_t child,
     if (!BinFoundVec[BIdx])
       continue;
 
-    std::unique_ptr<obj::Binary> &Bin = state_for_binary(b).ObjectFile;
+    std::unique_ptr<obj::Binary> &Bin = state.for_binary(b).ObjectFile;
 
     assert(Bin.get());
     assert(llvm::isa<ELFO>(Bin.get()));
@@ -3007,10 +3011,10 @@ void BootstrapTool::harvest_irelative_reloc_targets(pid_t child,
     const ELFF &E = *O.getELFFile();
 
     for_each_dynamic_relocation(E,
-                                state_for_binary(b)._elf.DynRelRegion,
-                                state_for_binary(b)._elf.DynRelaRegion,
-                                state_for_binary(b)._elf.DynRelrRegion,
-                                state_for_binary(b)._elf.DynPLTRelRegion,
+                                state.for_binary(b)._elf.DynRelRegion,
+                                state.for_binary(b)._elf.DynRelaRegion,
+                                state.for_binary(b)._elf.DynRelrRegion,
+                                state.for_binary(b)._elf.DynPLTRelRegion,
                                 [&](const Relocation &R) {
                                   processDynamicReloc(b, R);
                                 });
@@ -3025,7 +3029,7 @@ void BootstrapTool::harvest_addressof_reloc_targets(pid_t child,
     if (!is_addressof_relocation(R))
       return;
 
-    std::unique_ptr<obj::Binary> &Bin = state_for_binary(b).ObjectFile;
+    std::unique_ptr<obj::Binary> &Bin = state.for_binary(b).ObjectFile;
 
     assert(Bin.get());
     assert(llvm::isa<ELFO>(Bin.get()));
@@ -3033,11 +3037,11 @@ void BootstrapTool::harvest_addressof_reloc_targets(pid_t child,
     const ELFF &E = *O.getELFFile();
 
     auto dynamic_symbols = [&](void) -> Elf_Sym_Range {
-      return state_for_binary(b)._elf.OptionalDynSymRegion->getAsArrayRef<Elf_Sym>();
+      return state.for_binary(b)._elf.OptionalDynSymRegion->getAsArrayRef<Elf_Sym>();
     };
 
     RelSymbol RelSym =
-        getSymbolForReloc(O, dynamic_symbols(), state_for_binary(b)._elf.DynamicStringTable, R);
+        getSymbolForReloc(O, dynamic_symbols(), state.for_binary(b)._elf.DynamicStringTable, R);
 
     if (const Elf_Sym *Sym = RelSym.Sym) {
       if (Sym->getType() != llvm::ELF::STT_FUNC)
@@ -3083,10 +3087,10 @@ void BootstrapTool::harvest_addressof_reloc_targets(pid_t child,
 
       unsigned brkpt_count = 0;
       Resolved.FIdx = explore_function(
-          ResolvedBinary, *state_for_binary(ResolvedBinary).ObjectFile, tcg, disas,
+          ResolvedBinary, *state.for_binary(ResolvedBinary).ObjectFile, tcg, disas,
           rva_of_va(Resolved.Addr, Resolved.BIdx),
-          state_for_binary(ResolvedBinary).fnmap,
-          state_for_binary(ResolvedBinary).bbmap,
+          state.for_binary(ResolvedBinary).fnmap,
+          state.for_binary(ResolvedBinary).bbmap,
           std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2));
 
       if (is_function_index_valid(Resolved.FIdx)) {
@@ -3107,10 +3111,10 @@ void BootstrapTool::harvest_addressof_reloc_targets(pid_t child,
     if (!BinFoundVec[BIdx])
       continue;
 
-    if (!state_for_binary(b)._elf.OptionalDynSymRegion)
+    if (!state.for_binary(b)._elf.OptionalDynSymRegion)
       continue;
 
-    std::unique_ptr<obj::Binary> &Bin = state_for_binary(b).ObjectFile;
+    std::unique_ptr<obj::Binary> &Bin = state.for_binary(b).ObjectFile;
 
     assert(Bin.get());
     assert(llvm::isa<ELFO>(Bin.get()));
@@ -3118,10 +3122,10 @@ void BootstrapTool::harvest_addressof_reloc_targets(pid_t child,
     const ELFF &E = *O.getELFFile();
 
     for_each_dynamic_relocation(E,
-                                state_for_binary(b)._elf.DynRelRegion,
-                                state_for_binary(b)._elf.DynRelaRegion,
-                                state_for_binary(b)._elf.DynRelrRegion,
-                                state_for_binary(b)._elf.DynPLTRelRegion,
+                                state.for_binary(b)._elf.DynRelRegion,
+                                state.for_binary(b)._elf.DynRelaRegion,
+                                state.for_binary(b)._elf.DynRelrRegion,
+                                state.for_binary(b)._elf.DynPLTRelRegion,
                                 [&](const Relocation &R) {
                                   processDynamicReloc(b, R);
                                 });
@@ -3140,7 +3144,7 @@ void BootstrapTool::harvest_ctor_and_dtors(pid_t child,
 
     unsigned brkpt_count = 0;
 
-    std::unique_ptr<obj::Binary> &ObjectFile = state_for_binary(Binary).ObjectFile;
+    std::unique_ptr<obj::Binary> &ObjectFile = state.for_binary(Binary).ObjectFile;
 
     assert(ObjectFile.get());
     assert(llvm::isa<ELFO>(ObjectFile.get()));
@@ -3184,10 +3188,10 @@ void BootstrapTool::harvest_ctor_and_dtors(pid_t child,
             if (it != AddressSpace.end() &&
                 -1+(*it).second == BIdx) {
               function_index_t FIdx = explore_function(
-                  Binary, *state_for_binary(Binary).ObjectFile, tcg,
+                  Binary, *state.for_binary(Binary).ObjectFile, tcg,
                   disas, rva_of_va(Proc, BIdx),
-                  state_for_binary(Binary).fnmap,
-                  state_for_binary(Binary).bbmap,
+                  state.for_binary(Binary).fnmap,
+                  state.for_binary(Binary).bbmap,
                   std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2));
 
               if (is_function_index_valid(FIdx))
@@ -3222,7 +3226,7 @@ void BootstrapTool::harvest_global_GOT_entries(pid_t child,
     if (!BinFoundVec[BIdx])
       continue;
 
-    if (!state_for_binary(b)._elf.OptionalDynSymRegion)
+    if (!state.for_binary(b)._elf.OptionalDynSymRegion)
       continue;
 
     unsigned brkpt_count = 0;
@@ -3235,11 +3239,11 @@ void BootstrapTool::harvest_global_GOT_entries(pid_t child,
     const ELFF &E = *O.getELFFile();
 
     auto dynamic_table = [&](void) -> Elf_Dyn_Range {
-      return state_for_binary(b)._elf.DynamicTable.getAsArrayRef<Elf_Dyn>();
+      return state.for_binary(b)._elf.DynamicTable.getAsArrayRef<Elf_Dyn>();
     };
 
     auto dynamic_symbols = [&](void) -> Elf_Sym_Range {
-      return state_for_binary(b)._elf.OptionalDynSymRegion->getAsArrayRef<Elf_Sym>();
+      return state.for_binary(b)._elf.OptionalDynSymRegion->getAsArrayRef<Elf_Sym>();
     };
 
     MipsGOTParser Parser(E, b.Path);
@@ -3263,7 +3267,7 @@ void BootstrapTool::harvest_global_GOT_entries(pid_t child,
       if (Sym->getType() != llvm::ELF::STT_FUNC)
         continue;
 
-      llvm::Expected<llvm::StringRef> ExpectedSymName = Sym->getName(state_for_binary(b)._elf.DynamicStringTable);
+      llvm::Expected<llvm::StringRef> ExpectedSymName = Sym->getName(state.for_binary(b)._elf.DynamicStringTable);
       if (!ExpectedSymName)
         continue;
 
@@ -3311,20 +3315,20 @@ void BootstrapTool::harvest_global_GOT_entries(pid_t child,
 
       unsigned brkpt_count = 0;
       basic_block_index_t resolved_bbidx = explore_basic_block(
-          ResolvedBinary, *state_for_binary(ResolvedBinary).ObjectFile, tcg, disas,
+          ResolvedBinary, *state.for_binary(ResolvedBinary).ObjectFile, tcg, disas,
           rva_of_va(Resolved.Addr, Resolved.BIdx),
-          state_for_binary(ResolvedBinary).fnmap,
-          state_for_binary(ResolvedBinary).bbmap,
+          state.for_binary(ResolvedBinary).fnmap,
+          state.for_binary(ResolvedBinary).bbmap,
           std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2));
 
       if (!is_basic_block_index_valid(resolved_bbidx))
         continue;
 
       Resolved.FIdx = explore_function(
-          ResolvedBinary, *state_for_binary(ResolvedBinary).ObjectFile, tcg, disas,
+          ResolvedBinary, *state.for_binary(ResolvedBinary).ObjectFile, tcg, disas,
           rva_of_va(Resolved.Addr, Resolved.BIdx),
-          state_for_binary(ResolvedBinary).fnmap,
-          state_for_binary(ResolvedBinary).bbmap,
+          state.for_binary(ResolvedBinary).fnmap,
+          state.for_binary(ResolvedBinary).bbmap,
           std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2));
       if (is_function_index_valid(Resolved.FIdx)) {
         SymDynTargets.insert({Resolved.BIdx, Resolved.FIdx});
@@ -3355,7 +3359,7 @@ bool BootstrapTool::update_view_of_virtual_memory(pid_t child) {
   pmm.clear();
   AddressSpace.clear();
   for_each_binary(jv, [&](binary_t &b) {
-    state_for_binary(b).LoadAddr = state_for_binary(b).LoadOffset = std::numeric_limits<uintptr_t>::max(); /* reset */
+    state.for_binary(b).LoadAddr = state.for_binary(b).LoadOffset = std::numeric_limits<uintptr_t>::max(); /* reset */
   });
 
   for (const auto &proc_map : cached_proc_maps) {
@@ -3386,16 +3390,16 @@ bool BootstrapTool::update_view_of_virtual_memory(pid_t child) {
 
       auto &b = jv.Binaries[BIdx];
 
-      uintptr_t SavedLoadAddr = state_for_binary(b).LoadAddr;
-      state_for_binary(b).LoadAddr = std::min(state_for_binary(b).LoadAddr, proc_map.beg);
-      bool Changed = state_for_binary(b).LoadAddr != SavedLoadAddr;
+      uintptr_t SavedLoadAddr = state.for_binary(b).LoadAddr;
+      state.for_binary(b).LoadAddr = std::min(state.for_binary(b).LoadAddr, proc_map.beg);
+      bool Changed = state.for_binary(b).LoadAddr != SavedLoadAddr;
 
       if (Changed) {
-        state_for_binary(b).LoadOffset = proc_map.off;
+        state.for_binary(b).LoadOffset = proc_map.off;
 
         if (opts.Verbose)
           HumanOut() << llvm::formatv("LoadAddr for {0} is {1:x} (was {2:x})\n",
-                                      b.Path, state_for_binary(b).LoadAddr, SavedLoadAddr);
+                                      b.Path, state.for_binary(b).LoadAddr, SavedLoadAddr);
       }
 
       if (!proc_map.x)
@@ -3417,7 +3421,7 @@ void BootstrapTool::on_binary_loaded(pid_t child,
                                      const proc_map_t &proc_map) {
   binary_t &binary = jv.Binaries[BIdx];
 
-  auto &ObjectFile = state_for_binary(binary).ObjectFile;
+  auto &ObjectFile = state.for_binary(binary).ObjectFile;
 
   if (opts.Verbose)
     HumanOut() << (fmt("found binary %s @ [%#lx, %#lx)")
@@ -4129,6 +4133,7 @@ void BootstrapTool::add_binary(pid_t child, tiny_code_generator_t &tcg,
 
   BinFoundVec.resize(BinFoundVec.size() + 1, false);
   BinPathToIdxMap[jv.Binaries.back().Path] = BIdx;
+  state.update();
 
   //
   // initialize state associated with every binary
@@ -4138,8 +4143,8 @@ void BootstrapTool::add_binary(pid_t child, tiny_code_generator_t &tcg,
   assert(!binary.IsVDSO);
   BinPathToIdxMap[binary.Path] = BIdx;
 
-  construct_fnmap(jv, binary, state_for_binary(binary).fnmap);
-  construct_bbmap(jv, binary, state_for_binary(binary).bbmap);
+  construct_fnmap(jv, binary, state.for_binary(binary).fnmap);
+  construct_bbmap(jv, binary, state.for_binary(binary).bbmap);
 
   llvm::StringRef Buffer(reinterpret_cast<char *>(&binary.Data[0]),
                          binary.Data.size());
@@ -4155,28 +4160,28 @@ void BootstrapTool::add_binary(pid_t child, tiny_code_generator_t &tcg,
   } else {
     std::unique_ptr<obj::Binary> &BinRef = BinOrErr.get();
 
-    state_for_binary(binary).ObjectFile = std::move(BinRef);
+    state.for_binary(binary).ObjectFile = std::move(BinRef);
 
-    assert(llvm::isa<ELFO>(state_for_binary(binary).ObjectFile.get()));
+    assert(llvm::isa<ELFO>(state.for_binary(binary).ObjectFile.get()));
 
-    ELFO &O = *llvm::cast<ELFO>(state_for_binary(binary).ObjectFile.get());
+    ELFO &O = *llvm::cast<ELFO>(state.for_binary(binary).ObjectFile.get());
     const ELFF &E = *O.getELFFile();
 
-    loadDynamicTable(&E, &O, state_for_binary(binary)._elf.DynamicTable);
+    loadDynamicTable(&E, &O, state.for_binary(binary)._elf.DynamicTable);
 
-    state_for_binary(binary)._elf.OptionalDynSymRegion =
+    state.for_binary(binary)._elf.OptionalDynSymRegion =
         loadDynamicSymbols(&E, &O,
-                           state_for_binary(binary)._elf.DynamicTable,
-                           state_for_binary(binary)._elf.DynamicStringTable,
-                           state_for_binary(binary)._elf.SymbolVersionSection,
-                           state_for_binary(binary)._elf.VersionMap);
+                           state.for_binary(binary)._elf.DynamicTable,
+                           state.for_binary(binary)._elf.DynamicStringTable,
+                           state.for_binary(binary)._elf.SymbolVersionSection,
+                           state.for_binary(binary)._elf.VersionMap);
 
     loadDynamicRelocations(&E, &O,
-                           state_for_binary(binary)._elf.DynamicTable,
-                           state_for_binary(binary)._elf.DynRelRegion,
-                           state_for_binary(binary)._elf.DynRelaRegion,
-                           state_for_binary(binary)._elf.DynRelrRegion,
-                           state_for_binary(binary)._elf.DynPLTRelRegion);
+                           state.for_binary(binary)._elf.DynamicTable,
+                           state.for_binary(binary)._elf.DynRelRegion,
+                           state.for_binary(binary)._elf.DynRelaRegion,
+                           state.for_binary(binary)._elf.DynRelrRegion,
+                           state.for_binary(binary)._elf.DynPLTRelRegion);
   }
 }
 
@@ -4185,14 +4190,14 @@ void BootstrapTool::on_dynamic_linker_loaded(pid_t child,
                                              const proc_map_t &proc_map) {
   binary_t &b = jv.Binaries[BIdx];
 
-  if (state_for_binary(b)._elf.OptionalDynSymRegion) {
-    auto DynSyms = state_for_binary(b)._elf.OptionalDynSymRegion->getAsArrayRef<Elf_Sym>();
+  if (state.for_binary(b)._elf.OptionalDynSymRegion) {
+    auto DynSyms = state.for_binary(b)._elf.OptionalDynSymRegion->getAsArrayRef<Elf_Sym>();
 
     for (const Elf_Sym &Sym : DynSyms) {
       if (Sym.isUndefined())
         continue;
 
-      llvm::Expected<llvm::StringRef> ExpectedSymName = Sym.getName(state_for_binary(b)._elf.DynamicStringTable);
+      llvm::Expected<llvm::StringRef> ExpectedSymName = Sym.getName(state.for_binary(b)._elf.DynamicStringTable);
       if (!ExpectedSymName)
         continue;
 
@@ -4350,7 +4355,7 @@ void BootstrapTool::on_return(pid_t child,
         BIdx = -1+(*it).second;
 
         binary_t &binary = jv.Binaries.at(BIdx);
-        auto &bbmap = state_for_binary(binary).bbmap;
+        auto &bbmap = state.for_binary(binary).bbmap;
         auto &ICFG = binary.Analysis.ICFG;
 
         uintptr_t rva = rva_of_va(pc, BIdx);
@@ -4396,10 +4401,10 @@ void BootstrapTool::on_return(pid_t child,
 
         try {
         binary_t &binary = jv.Binaries.at(BIdx);
-        auto &bbmap = state_for_binary(binary).bbmap;
+        auto &bbmap = state.for_binary(binary).bbmap;
         auto &ICFG = binary.Analysis.ICFG;
 
-        if (!state_for_binary(binary).ObjectFile.get()) {
+        if (!state.for_binary(binary).ObjectFile.get()) {
           if (!binary.IsVDSO)
             HumanOut()
                 << llvm::formatv("{0}: (3) unknown RetAddr {1}\n", __func__,
@@ -4411,10 +4416,10 @@ void BootstrapTool::on_return(pid_t child,
 
         unsigned brkpt_count = 0;
         basic_block_index_t next_bb_idx =
-            explore_basic_block(binary, *state_for_binary(binary).ObjectFile,
+            explore_basic_block(binary, *state.for_binary(binary).ObjectFile,
                                 tcg, disas, rva,
-                                state_for_binary(binary).fnmap,
-                                state_for_binary(binary).bbmap,
+                                state.for_binary(binary).fnmap,
+                                state.for_binary(binary).bbmap,
                                 std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2));
         if (is_basic_block_index_valid(next_bb_idx)) {
           basic_block_t bb;

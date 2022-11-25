@@ -508,7 +508,7 @@ public:
 
     int64_t off =
         static_cast<int64_t>(Addr) -
-        static_cast<int64_t>(state_for_binary(Binary).SectsStartAddr);
+        static_cast<int64_t>(state.for_binary(Binary).SectsStartAddr);
 
     return llvm::ConstantExpr::getAdd(
         llvm::ConstantExpr::getPtrToInt(SectsGlobal, WordType()),
@@ -542,8 +542,8 @@ public:
     if (DynTarget.BIdx == BinaryIndex) {
       const function_t &f = binary.Analysis.Functions[DynTarget.FIdx];
       if (Callable) {
-        assert(state_for_function(f).F);
-        return llvm::ConstantExpr::getPtrToInt(state_for_function(f).F, WordType());
+        assert(state.for_function(f).F);
+        return llvm::ConstantExpr::getPtrToInt(state.for_function(f).F, WordType());
       } else {
         auto &ICFG = binary.Analysis.ICFG;
         return SectionPointer(ICFG[boost::vertex(f.Entry, ICFG)].Addr);
@@ -557,7 +557,7 @@ public:
     }
 
     if (!binary.IsDynamicallyLoaded) {
-      llvm::Value *FnsTbl = IRB.CreateLoad(state_for_binary(jv.Binaries[DynTarget.BIdx]).FunctionsTableClunk);
+      llvm::Value *FnsTbl = IRB.CreateLoad(state.for_binary(jv.Binaries[DynTarget.BIdx]).FunctionsTableClunk);
       assert(FnsTbl);
 
       return IRB.CreateLoad(IRB.CreateConstGEP2_64(
@@ -1737,6 +1737,7 @@ int LLVMTool::Run(void) {
   opts.CheckEmulatedReturnAddress = opts.DFSan;
 
   ReadJvFromFile(opts.jv, jv);
+  state.update();
 
   //
   // binary index (cmdline)
@@ -1813,13 +1814,13 @@ int LLVMTool::Run(void) {
     for_each_binary_if(
         jv,
         [&](binary_t &b) -> bool {
-          return state_for_binary(b).ObjectFile.get() != nullptr &&
-                 state_for_binary(b)._elf.OptionalDynSymRegion;
+          return state.for_binary(b).ObjectFile.get() != nullptr &&
+                 state.for_binary(b)._elf.OptionalDynSymRegion;
         },
         [&](binary_t &b) {
           binary_index_t BIdx = index_of_binary(b, jv);
 
-          auto DynSyms = state_for_binary(b)._elf.OptionalDynSymRegion->template getAsArrayRef<Elf_Sym>();
+          auto DynSyms = state.for_binary(b)._elf.OptionalDynSymRegion->template getAsArrayRef<Elf_Sym>();
 
           for_each_if(
               DynSyms.begin(),
@@ -1831,15 +1832,15 @@ int LLVMTool::Run(void) {
               },
               [&](const Elf_Sym &Sym) {
                 llvm::Expected<llvm::StringRef> ExpectedSymName =
-                    Sym.getName(state_for_binary(b)._elf.DynamicStringTable);
+                    Sym.getName(state.for_binary(b)._elf.DynamicStringTable);
 
                 if (!ExpectedSymName)
                   return;
 
                 function_index_t FIdx;
                 {
-                  auto it = state_for_binary(b).fnmap.find(Sym.st_value);
-                  assert(it != state_for_binary(b).fnmap.end());
+                  auto it = state.for_binary(b).fnmap.find(Sym.st_value);
+                  assert(it != state.for_binary(b).fnmap.end());
 
                   FIdx = (*it).second;
                 }
@@ -1857,11 +1858,11 @@ int LLVMTool::Run(void) {
   for_each_binary_if(
       jv,
       [&](binary_t &b) -> bool {
-        return state_for_binary(b).ObjectFile.get() != nullptr &&
-               state_for_binary(b)._elf.OptionalDynSymRegion;
+        return state.for_binary(b).ObjectFile.get() != nullptr &&
+               state.for_binary(b)._elf.OptionalDynSymRegion;
       },
       [&](binary_t &b) {
-        auto DynSyms = state_for_binary(b)._elf.OptionalDynSymRegion->template getAsArrayRef<Elf_Sym>();
+        auto DynSyms = state.for_binary(b)._elf.OptionalDynSymRegion->template getAsArrayRef<Elf_Sym>();
 
         for_each_if(
             DynSyms.begin(),
@@ -1875,7 +1876,7 @@ int LLVMTool::Run(void) {
             },
             [&](const Elf_Sym &Sym) {
               llvm::Expected<llvm::StringRef> ExpectedSymName =
-                  Sym.getName(state_for_binary(b)._elf.DynamicStringTable);
+                  Sym.getName(state.for_binary(b)._elf.DynamicStringTable);
 
               if (!ExpectedSymName)
                 return;
@@ -1899,11 +1900,11 @@ int LLVMTool::Run(void) {
       });
 
   binary_t &Binary = jv.Binaries[BinaryIndex];
-  assert(state_for_binary(Binary).ObjectFile.get());
+  assert(state.for_binary(Binary).ObjectFile.get());
 
   llvm::ArrayRef<Elf_Sym> BinaryDynSyms = {};
-  if (state_for_binary(Binary)._elf.OptionalDynSymRegion)
-    BinaryDynSyms = state_for_binary(Binary)._elf.OptionalDynSymRegion->template getAsArrayRef<Elf_Sym>();
+  if (state.for_binary(Binary)._elf.OptionalDynSymRegion)
+    BinaryDynSyms = state.for_binary(Binary)._elf.OptionalDynSymRegion->template getAsArrayRef<Elf_Sym>();
 
   //
   // process binary function symbols
@@ -1918,7 +1919,7 @@ int LLVMTool::Run(void) {
       },
       [&](const Elf_Sym &Sym) {
         llvm::Expected<llvm::StringRef> ExpectedSymName =
-            Sym.getName(state_for_binary(Binary)._elf.DynamicStringTable);
+            Sym.getName(state.for_binary(Binary)._elf.DynamicStringTable);
 
         if (!ExpectedSymName)
           return;
@@ -1927,19 +1928,19 @@ int LLVMTool::Run(void) {
         llvm::StringRef SymVers;
         bool VisibilityIsDefault;
 
-        if (state_for_binary(Binary)._elf.SymbolVersionSection) {
+        if (state.for_binary(Binary)._elf.SymbolVersionSection) {
           unsigned SymNo = (reinterpret_cast<uintptr_t>(&Sym) -
                             reinterpret_cast<uintptr_t>(
-                                state_for_binary(Binary)._elf.OptionalDynSymRegion->Addr)) /
+                                state.for_binary(Binary)._elf.OptionalDynSymRegion->Addr)) /
                            sizeof(Elf_Sym);
 
-          auto &E = *llvm::cast<ELFO>(state_for_binary(Binary).ObjectFile.get())->getELFFile();
+          auto &E = *llvm::cast<ELFO>(state.for_binary(Binary).ObjectFile.get())->getELFFile();
 
           const Elf_Versym *Versym = unwrapOrError(
-              E.template getEntry<Elf_Versym>(state_for_binary(Binary)._elf.SymbolVersionSection, SymNo));
+              E.template getEntry<Elf_Versym>(state.for_binary(Binary)._elf.SymbolVersionSection, SymNo));
 
-          SymVers = getSymbolVersionByIndex(state_for_binary(Binary)._elf.VersionMap,
-                                            state_for_binary(Binary)._elf.DynamicStringTable,
+          SymVers = getSymbolVersionByIndex(state.for_binary(Binary)._elf.VersionMap,
+                                            state.for_binary(Binary)._elf.DynamicStringTable,
                                             Versym->vs_index,
                                             VisibilityIsDefault);
         }
@@ -1967,9 +1968,9 @@ int LLVMTool::Run(void) {
         }
 
         // jove-add should have explored this
-        assert(state_for_binary(Binary).fnmap.find(Addr) != state_for_binary(Binary).fnmap.end());
+        assert(state.for_binary(Binary).fnmap.find(Addr) != state.for_binary(Binary).fnmap.end());
 
-        const unsigned SectsOff = Addr - state_for_binary(Binary).SectsStartAddr;
+        const unsigned SectsOff = Addr - state.for_binary(Binary).SectsStartAddr;
 
         if (SymVers.empty()) {
           Module->appendModuleInlineAsm(
@@ -2015,7 +2016,7 @@ int LLVMTool::Run(void) {
       },
       [&](const Elf_Sym &Sym) {
         llvm::Expected<llvm::StringRef> ExpectedSymName =
-            Sym.getName(state_for_binary(Binary)._elf.DynamicStringTable);
+            Sym.getName(state.for_binary(Binary)._elf.DynamicStringTable);
 
         if (!ExpectedSymName)
           return;
@@ -2060,7 +2061,7 @@ int LLVMTool::Run(void) {
       },
       [&](const Elf_Sym &Sym) {
         llvm::Expected<llvm::StringRef> ExpectedSymName =
-            Sym.getName(state_for_binary(Binary)._elf.DynamicStringTable);
+            Sym.getName(state.for_binary(Binary)._elf.DynamicStringTable);
 
         if (!ExpectedSymName)
           return;
@@ -2069,36 +2070,36 @@ int LLVMTool::Run(void) {
         llvm::StringRef SymVers;
         bool VisibilityIsDefault;
 
-        if (state_for_binary(Binary)._elf.SymbolVersionSection) {
+        if (state.for_binary(Binary)._elf.SymbolVersionSection) {
           unsigned SymNo = (reinterpret_cast<uintptr_t>(&Sym) -
                             reinterpret_cast<uintptr_t>(
-                                state_for_binary(Binary)._elf.OptionalDynSymRegion->Addr)) /
+                                state.for_binary(Binary)._elf.OptionalDynSymRegion->Addr)) /
                            sizeof(Elf_Sym);
 
-          auto &E = *llvm::cast<ELFO>(state_for_binary(Binary).ObjectFile.get())->getELFFile();
+          auto &E = *llvm::cast<ELFO>(state.for_binary(Binary).ObjectFile.get())->getELFFile();
 
           const Elf_Versym *Versym = unwrapOrError(
-              E.template getEntry<Elf_Versym>(state_for_binary(Binary)._elf.SymbolVersionSection, SymNo));
+              E.template getEntry<Elf_Versym>(state.for_binary(Binary)._elf.SymbolVersionSection, SymNo));
 
-          SymVers = getSymbolVersionByIndex(state_for_binary(Binary)._elf.VersionMap,
-                                            state_for_binary(Binary)._elf.DynamicStringTable,
+          SymVers = getSymbolVersionByIndex(state.for_binary(Binary)._elf.VersionMap,
+                                            state.for_binary(Binary)._elf.DynamicStringTable,
                                             Versym->vs_index,
                                             VisibilityIsDefault);
         }
 
-        auto it = state_for_binary(Binary).fnmap.find(Sym.st_value);
-        assert(it != state_for_binary(Binary).fnmap.end());
+        auto it = state.for_binary(Binary).fnmap.find(Sym.st_value);
+        assert(it != state.for_binary(Binary).fnmap.end());
 
         function_t &f = Binary.Analysis.Functions[((*it).second)];
 
-        if (state_for_function(f)._resolver.IFunc) { /* aliased? */
+        if (state.for_function(f)._resolver.IFunc) { /* aliased? */
           llvm::FunctionType *FTy = llvm::FunctionType::get(VoidType(), false);
 
           llvm::GlobalIFunc *IFunc = llvm::GlobalIFunc::create(
               FTy, 0, llvm::GlobalValue::ExternalLinkage, SymName,
-              state_for_function(f)._resolver.IFunc->getResolver(), Module.get());
+              state.for_function(f)._resolver.IFunc->getResolver(), Module.get());
         } else {
-          state_for_function(f)._resolver.IFunc = buildGlobalIFunc(f, invalid_dynamic_target, SymName);
+          state.for_function(f)._resolver.IFunc = buildGlobalIFunc(f, invalid_dynamic_target, SymName);
         }
 
         if (!SymVers.empty())
@@ -2123,7 +2124,7 @@ int LLVMTool::Run(void) {
         },
         [&](const Elf_Sym &Sym) {
           llvm::Expected<llvm::StringRef> ExpectedSymName =
-              Sym.getName(state_for_binary(Binary)._elf.DynamicStringTable);
+              Sym.getName(state.for_binary(Binary)._elf.DynamicStringTable);
 
           if (!ExpectedSymName)
             return;
@@ -2132,19 +2133,19 @@ int LLVMTool::Run(void) {
           llvm::StringRef SymVers;
           bool VisibilityIsDefault;
 
-          if (state_for_binary(Binary)._elf.SymbolVersionSection) {
+          if (state.for_binary(Binary)._elf.SymbolVersionSection) {
             unsigned SymNo = (reinterpret_cast<uintptr_t>(&Sym) -
                               reinterpret_cast<uintptr_t>(
-                                  state_for_binary(Binary)._elf.OptionalDynSymRegion->Addr)) /
+                                  state.for_binary(Binary)._elf.OptionalDynSymRegion->Addr)) /
                              sizeof(Elf_Sym);
 
-            auto &E = *llvm::cast<ELFO>(state_for_binary(Binary).ObjectFile.get())->getELFFile();
+            auto &E = *llvm::cast<ELFO>(state.for_binary(Binary).ObjectFile.get())->getELFFile();
 
             const Elf_Versym *Versym = unwrapOrError(
-                E.template getEntry<Elf_Versym>(state_for_binary(Binary)._elf.SymbolVersionSection, SymNo));
+                E.template getEntry<Elf_Versym>(state.for_binary(Binary)._elf.SymbolVersionSection, SymNo));
 
-            SymVers = getSymbolVersionByIndex(state_for_binary(Binary)._elf.VersionMap,
-                                              state_for_binary(Binary)._elf.DynamicStringTable,
+            SymVers = getSymbolVersionByIndex(state.for_binary(Binary)._elf.VersionMap,
+                                              state.for_binary(Binary)._elf.DynamicStringTable,
                                               Versym->vs_index,
                                               VisibilityIsDefault);
           }
@@ -2152,7 +2153,7 @@ int LLVMTool::Run(void) {
           const target_ulong Addr = Sym.st_value;
           const unsigned Size = Sym.st_size;
 
-          const unsigned SectsOff = Addr - state_for_binary(Binary).SectsStartAddr;
+          const unsigned SectsOff = Addr - state.for_binary(Binary).SectsStartAddr;
 
           auto it = AddrToSymbolMap.find(Addr);
           if (it == AddrToSymbolMap.end()) {
@@ -2277,8 +2278,7 @@ void LLVMTool::DumpModule(const char *suffix) {
 
 int LLVMTool::InitStateForBinaries(void) {
   for_each_binary(jv, [&](binary_t &binary) {
-    binary_state_t &state = state_for_binary(binary);
-    construct_fnmap(jv, binary, state.fnmap);
+    construct_fnmap(jv, binary, state.for_binary(binary).fnmap);
 
     auto &ICFG = binary.Analysis.ICFG;
 
@@ -2286,20 +2286,20 @@ int LLVMTool::InitStateForBinaries(void) {
       if (!is_basic_block_index_valid(f.Entry))
         return;
 
-      basic_blocks_of_function(f, binary, state_for_function(f).bbvec);
-      exit_basic_blocks_of_function(f, binary, state_for_function(f).bbvec, state_for_function(f).exit_bbvec);
+      basic_blocks_of_function(f, binary, state.for_function(f).bbvec);
+      exit_basic_blocks_of_function(f, binary, state.for_function(f).bbvec, state.for_function(f).exit_bbvec);
 
-      state_for_function(f).IsLeaf = IsLeafFunction(f, binary, state_for_function(f).bbvec);
+      state.for_function(f).IsLeaf = IsLeafFunction(f, binary, state.for_function(f).bbvec);
 
-      state_for_function(f).IsSj = IsFunctionSetjmp(f, binary, state_for_function(f).bbvec);
-      state_for_function(f).IsLj = IsFunctionLongjmp(f, binary, state_for_function(f).bbvec);
+      state.for_function(f).IsSj = IsFunctionSetjmp(f, binary, state.for_function(f).bbvec);
+      state.for_function(f).IsLj = IsFunctionLongjmp(f, binary, state.for_function(f).bbvec);
 
-      if (state_for_function(f).IsSj)
+      if (state.for_function(f).IsSj)
         llvm::outs() << llvm::formatv("setjmp found at {0:x} in {1}\n",
                                       ICFG[boost::vertex(f.Entry, ICFG)].Addr,
                                       fs::path(binary.Path).filename().string());
 
-      if (state_for_function(f).IsLj)
+      if (state.for_function(f).IsLj)
         llvm::outs() << llvm::formatv("longjmp found at {0:x} in {1}\n",
                                       ICFG[boost::vertex(f.Entry, ICFG)].Addr,
                                       fs::path(binary.Path).filename().string());
@@ -2322,38 +2322,40 @@ int LLVMTool::InitStateForBinaries(void) {
     } else {
       std::unique_ptr<obj::Binary> &BinRef = *ExpectedBin;
 
-      state.ObjectFile = std::move(BinRef);
+      binary_state_t &_state = state.for_binary(binary);
 
-      auto &SectsStartAddr = state.SectsStartAddr;
-      auto &SectsEndAddr   = state.SectsEndAddr;
-      std::tie(SectsStartAddr, SectsEndAddr) = bounds_of_binary(*state.ObjectFile);
+      _state.ObjectFile = std::move(BinRef);
+
+      auto &SectsStartAddr = _state.SectsStartAddr;
+      auto &SectsEndAddr   = _state.SectsEndAddr;
+      std::tie(SectsStartAddr, SectsEndAddr) = bounds_of_binary(*_state.ObjectFile);
 
       WithColor::note() << llvm::formatv("SectsStartAddr for {0} is {1:x}\n",
                                          binary.Path,
                                          SectsStartAddr);
 
-      assert(llvm::isa<ELFO>(state.ObjectFile.get()));
-      ELFO &O = *llvm::cast<ELFO>(state.ObjectFile.get());
+      assert(llvm::isa<ELFO>(_state.ObjectFile.get()));
+      ELFO &O = *llvm::cast<ELFO>(_state.ObjectFile.get());
 
       const ELFF &E = *O.getELFFile();
 
-      loadDynamicTable(&E, &O, state._elf.DynamicTable);
+      loadDynamicTable(&E, &O, _state._elf.DynamicTable);
 
-      if (state._elf.DynamicTable.Addr) {
-        state._elf.OptionalDynSymRegion =
+      if (_state._elf.DynamicTable.Addr) {
+        _state._elf.OptionalDynSymRegion =
             loadDynamicSymbols(&E, &O,
-                               state._elf.DynamicTable,
-                               state._elf.DynamicStringTable,
-                               state._elf.SymbolVersionSection,
-                               state._elf.VersionMap);
+                               _state._elf.DynamicTable,
+                               _state._elf.DynamicStringTable,
+                               _state._elf.SymbolVersionSection,
+                               _state._elf.VersionMap);
 
         if (index_of_binary(binary, jv) == BinaryIndex)
           loadDynamicRelocations(&E, &O,
-                                 state._elf.DynamicTable,
-                                 state._elf.DynRelRegion,
-                                 state._elf.DynRelaRegion,
-                                 state._elf.DynRelrRegion,
-                                 state._elf.DynPLTRelRegion);
+                                 _state._elf.DynamicTable,
+                                 _state._elf.DynRelRegion,
+                                 _state._elf.DynRelaRegion,
+                                 _state._elf.DynRelrRegion,
+                                 _state._elf.DynPLTRelRegion);
       }
     }
   });
@@ -2848,7 +2850,7 @@ int LLVMTool::LocateHooks(void) {
     for (dynamic_target_t IdxPair : (*it).second) {
       function_t &f = function_of_target(IdxPair, jv);
 
-      if (state_for_function(f).hook) {
+      if (state.for_function(f).hook) {
         WithColor::warning() << llvm::formatv("hook already installed for {0}\n", h.Sym);
         continue;
       }
@@ -2857,15 +2859,15 @@ int LLVMTool::LocateHooks(void) {
                                     h.Sym,
                                     dyn_target_desc(IdxPair));
 
-      state_for_function(f).hook = &h;
+      state.for_function(f).hook = &h;
 
       if (h.Pre)
-        std::tie(state_for_function(f).PreHookClunk,
-                 state_for_function(f).PreHook) = declarePreHook(h);
+        std::tie(state.for_function(f).PreHookClunk,
+                 state.for_function(f).PreHook) = declarePreHook(h);
 
       if (h.Post)
-        std::tie(state_for_function(f).PostHookClunk,
-                 state_for_function(f).PostHook) = declarePostHook(h);
+        std::tie(state.for_function(f).PostHookClunk,
+                 state.for_function(f).PostHook) = declarePostHook(h);
     }
   }
 
@@ -2875,9 +2877,9 @@ int LLVMTool::LocateHooks(void) {
 int LLVMTool::ProcessBinaryTLSSymbols(void) {
   binary_t &b = jv.Binaries[BinaryIndex];
 
-  assert(state_for_binary(b).ObjectFile);
-  assert(llvm::isa<ELFO>(state_for_binary(b).ObjectFile.get()));
-  ELFO &O = *llvm::cast<ELFO>(state_for_binary(b).ObjectFile.get());
+  assert(state.for_binary(b).ObjectFile);
+  assert(llvm::isa<ELFO>(state.for_binary(b).ObjectFile.get()));
+  ELFO &O = *llvm::cast<ELFO>(state.for_binary(b).ObjectFile.get());
   const ELFF &E = *O.getELFFile();
 
   //
@@ -2962,7 +2964,7 @@ int LLVMTool::ProcessBinaryTLSSymbols(void) {
   //
   // iterate dynamic symbols
   //
-  auto OptionalDynSymRegion = state_for_binary(b)._elf.OptionalDynSymRegion;
+  auto OptionalDynSymRegion = state.for_binary(b)._elf.OptionalDynSymRegion;
   if (!OptionalDynSymRegion)
     return 0; /* no dynamic symbols */
 
@@ -2979,7 +2981,7 @@ int LLVMTool::ProcessBinaryTLSSymbols(void) {
     if (Sym.isUndefined())
       continue;
 
-    llvm::StringRef SymName = unwrapOrError(Sym.getName(state_for_binary(b)._elf.DynamicStringTable));
+    llvm::StringRef SymName = unwrapOrError(Sym.getName(state.for_binary(b)._elf.DynamicStringTable));
 
     WithColor::note() << llvm::formatv("{0}: {1} [{2}]\n", __func__, SymName,
                                        __LINE__);
@@ -3025,7 +3027,7 @@ llvm::GlobalIFunc *LLVMTool::buildGlobalIFunc(function_t &f,
   llvm::Function *F = llvm::Function::Create(
       llvm::FunctionType::get(llvm::PointerType::get(FTy, 0), false),
       llvm::GlobalValue::ExternalLinkage,
-      std::string(state_for_function(f).F->getName()) + "_ifunc", Module.get());
+      std::string(state.for_function(f).F->getName()) + "_ifunc", Module.get());
 
   fillInFunctionBody(F, [&](auto &IRB) {
     if (is_dynamic_target_valid(IdxPair) && IdxPair.first == BinaryIndex) {
@@ -3100,12 +3102,12 @@ llvm::GlobalIFunc *LLVMTool::buildGlobalIFunc(function_t &f,
       }
 
       std::vector<llvm::Value *> ArgVec;
-      ArgVec.resize(state_for_function(f).F->getFunctionType()->getNumParams());
+      ArgVec.resize(state.for_function(f).F->getFunctionType()->getNumParams());
 
       for (unsigned i = 0; i < ArgVec.size(); ++i)
-        ArgVec[i] = llvm::UndefValue::get(state_for_function(f).F->getFunctionType()->getParamType(i));
+        ArgVec[i] = llvm::UndefValue::get(state.for_function(f).F->getFunctionType()->getParamType(i));
 
-      llvm::CallInst *Call = IRB.CreateCall(state_for_function(f).F, ArgVec);
+      llvm::CallInst *Call = IRB.CreateCall(state.for_function(f).F, ArgVec);
 
       IRB.CreateStore(SavedSP, SPPtr);
 
@@ -3114,18 +3116,18 @@ llvm::GlobalIFunc *LLVMTool::buildGlobalIFunc(function_t &f,
       if (opts.Trace)
         IRB.CreateStore(SavedTraceP, TraceGlobal);
 
-      if (state_for_function(f).F->getFunctionType()->getReturnType()->isVoidTy()) {
+      if (state.for_function(f).F->getFunctionType()->getReturnType()->isVoidTy()) {
         WithColor::warning()
-            << llvm::formatv("ifunc resolver {0} returns void\n", *state_for_function(f).F);
+            << llvm::formatv("ifunc resolver {0} returns void\n", *state.for_function(f).F);
 
         IRB.CreateRet(llvm::Constant::getNullValue(
             F->getFunctionType()->getReturnType()));
       } else {
-        if (state_for_function(f).F->getFunctionType()->getReturnType()->isIntegerTy()) {
+        if (state.for_function(f).F->getFunctionType()->getReturnType()->isIntegerTy()) {
           IRB.CreateRet(IRB.CreateIntToPtr(
               Call, F->getFunctionType()->getReturnType()));
         } else {
-          assert(state_for_function(f).F->getFunctionType()->getReturnType()->isStructTy());
+          assert(state.for_function(f).F->getFunctionType()->getReturnType()->isStructTy());
 
           llvm::Value *Val =
               IRB.CreateExtractValue(Call, llvm::ArrayRef<unsigned>(0), "");
@@ -3147,7 +3149,7 @@ llvm::GlobalIFunc *LLVMTool::buildGlobalIFunc(function_t &f,
 int LLVMTool::ProcessCOPYRelocations(void) {
   binary_t &Binary = jv.Binaries[BinaryIndex];
 
-  auto OptionalDynSymRegion = state_for_binary(Binary)._elf.OptionalDynSymRegion;
+  auto OptionalDynSymRegion = state.for_binary(Binary)._elf.OptionalDynSymRegion;
 
   if (!OptionalDynSymRegion)
     return 0; /* no dynamic symbols */
@@ -3158,39 +3160,39 @@ int LLVMTool::ProcessCOPYRelocations(void) {
     return DynSymRegion.getAsArrayRef<Elf_Sym>();
   };
 
-  assert(llvm::isa<ELFO>(state_for_binary(Binary).ObjectFile.get()));
-  auto &O = *llvm::cast<ELFO>(state_for_binary(Binary).ObjectFile.get());
+  assert(llvm::isa<ELFO>(state.for_binary(Binary).ObjectFile.get()));
+  auto &O = *llvm::cast<ELFO>(state.for_binary(Binary).ObjectFile.get());
   const auto &E = *O.getELFFile();
 
   for_each_dynamic_relocation_if(E,
-      state_for_binary(Binary)._elf.DynRelRegion,
-      state_for_binary(Binary)._elf.DynRelaRegion,
-      state_for_binary(Binary)._elf.DynRelrRegion,
-      state_for_binary(Binary)._elf.DynPLTRelRegion,
+      state.for_binary(Binary)._elf.DynRelRegion,
+      state.for_binary(Binary)._elf.DynRelaRegion,
+      state.for_binary(Binary)._elf.DynRelrRegion,
+      state.for_binary(Binary)._elf.DynPLTRelRegion,
       is_copy_relocation,
       [&](const Relocation &R) {
         RelSymbol RelSym = getSymbolForReloc(O, dynamic_symbols(),
-                                             state_for_binary(Binary)._elf.DynamicStringTable, R);
+                                             state.for_binary(Binary)._elf.DynamicStringTable, R);
 
         assert(RelSym.Sym);
 
         //
         // determine symbol version (if present)
         //
-        if (state_for_binary(Binary)._elf.SymbolVersionSection) {
+        if (state.for_binary(Binary)._elf.SymbolVersionSection) {
           // Determine the position in the symbol table of this entry.
           size_t EntryIndex =
               (reinterpret_cast<uintptr_t>(RelSym.Sym) -
-               reinterpret_cast<uintptr_t>(state_for_binary(Binary)._elf.OptionalDynSymRegion->Addr)) /
+               reinterpret_cast<uintptr_t>(state.for_binary(Binary)._elf.OptionalDynSymRegion->Addr)) /
               sizeof(Elf_Sym);
 
           // Get the corresponding version index entry.
           llvm::Expected<const Elf_Versym *> ExpectedVersym =
-              E.getEntry<Elf_Versym>(state_for_binary(Binary)._elf.SymbolVersionSection, EntryIndex);
+              E.getEntry<Elf_Versym>(state.for_binary(Binary)._elf.SymbolVersionSection, EntryIndex);
 
           if (ExpectedVersym) {
-            RelSym.Vers = getSymbolVersionByIndex(state_for_binary(Binary)._elf.VersionMap,
-                                                  state_for_binary(Binary)._elf.DynamicStringTable,
+            RelSym.Vers = getSymbolVersionByIndex(state.for_binary(Binary)._elf.VersionMap,
+                                                  state.for_binary(Binary)._elf.DynamicStringTable,
                                                   (*ExpectedVersym)->vs_index,
                                                   RelSym.IsVersionDefault);
           }
@@ -3370,13 +3372,13 @@ void LLVMTool::expandMemIntrinsicUses(llvm::Function &F) {
 }
 
 tcg_global_set_t LLVMTool::DetermineFunctionArgs(function_t &f) {
-  AnalyzeFunction(jv, *TCG, *Module, f, [&](binary_t &b) -> llvm::object::Binary & { return *state_for_binary(b).ObjectFile; }, opts.DFSan, opts.ForCBE);
+  AnalyzeFunction(jv, *TCG, *Module, f, [&](binary_t &b) -> llvm::object::Binary & { return *state.for_binary(b).ObjectFile; }, opts.DFSan, opts.ForCBE);
 
   return f.Analysis.args;
 }
 
 tcg_global_set_t LLVMTool::DetermineFunctionRets(function_t &f) {
-  AnalyzeFunction(jv, *TCG, *Module, f, [&](binary_t &b) -> llvm::object::Binary & { return *state_for_binary(b).ObjectFile; }, opts.DFSan, opts.ForCBE);
+  AnalyzeFunction(jv, *TCG, *Module, f, [&](binary_t &b) -> llvm::object::Binary & { return *state.for_binary(b).ObjectFile; }, opts.DFSan, opts.ForCBE);
 
   return f.Analysis.rets;
 }
@@ -3554,24 +3556,24 @@ int LLVMTool::CreateFunctions(void) {
 
     std::string jove_name = (fmt("%c%lx") % (f.IsABI ? 'J' : 'j') % Addr).str();
 
-    state_for_function(f).F =
+    state.for_function(f).F =
         llvm::Function::Create(DetermineFunctionType(f),
                                f.IsABI ? llvm::GlobalValue::ExternalLinkage
                                        : llvm::GlobalValue::InternalLinkage,
                                jove_name, Module.get());
 
     if (f.IsABI)
-      state_for_function(f).F->setVisibility(llvm::GlobalValue::HiddenVisibility);
+      state.for_function(f).F->setVisibility(llvm::GlobalValue::HiddenVisibility);
 
 #if defined(TARGET_I386)
     //
     // XXX i386 quirk
     //
     if (f.IsABI) {
-      for (unsigned i = 0; i < state_for_function(f).F->arg_size(); ++i) {
+      for (unsigned i = 0; i < state.for_function(f).F->arg_size(); ++i) {
         assert(i < 3);
 
-        state_for_function(f).F->addParamAttr(i, llvm::Attribute::InReg);
+        state.for_function(f).F->addParamAttr(i, llvm::Attribute::InReg);
       }
     }
 #endif
@@ -3584,7 +3586,7 @@ int LLVMTool::CreateFunctions(void) {
       ExplodeFunctionArgs(f, glbv);
 
       unsigned i = 0;
-      for (llvm::Argument &A : state_for_function(f).F->args()) {
+      for (llvm::Argument &A : state.for_function(f).F->args()) {
         std::string name = opts.ForCBE ? "_" : "";
         name.append(TCG->priv->_ctx.temps[glbv.at(i)].name);
         A.setName(name);
@@ -3603,7 +3605,7 @@ int LLVMTool::CreateFunctions(void) {
       //
       // create "ABI adapter"
       //
-      state_for_function(f).adapterF = llvm::Function::Create(
+      state.for_function(f).adapterF = llvm::Function::Create(
           FunctionTypeOfArgsAndRets(CallConvArgs, CallConvRets),
           llvm::GlobalValue::ExternalLinkage,
           (fmt("Jj%lx") % Addr).str(), Module.get());
@@ -3612,7 +3614,7 @@ int LLVMTool::CreateFunctions(void) {
       // assign names to the arguments, the registers they represent
       //
       unsigned i = 0;
-      for (llvm::Argument &A : state_for_function(f).adapterF->args()) {
+      for (llvm::Argument &A : state.for_function(f).adapterF->args()) {
         std::string name = opts.ForCBE ? "_" : "";
         name.append(TCG->priv->_ctx.temps[CallConvArgArray.at(i)].name);
         A.setName(name);
@@ -3636,7 +3638,7 @@ int LLVMTool::CreateFunctionTables(void) {
     if (opts.ForeignLibs && !binary.IsExecutable)
       continue;
 
-    state_for_binary(binary).SectsF = llvm::Function::Create(
+    state.for_binary(binary).SectsF = llvm::Function::Create(
         llvm::FunctionType::get(WordType(), false),
         llvm::GlobalValue::ExternalLinkage,
         (fmt("__jove_b%u_sects") % BIdx).str(), Module.get());
@@ -3651,13 +3653,13 @@ int LLVMTool::CreateFunctionTables(void) {
         false, llvm::GlobalValue::ExternalLinkage, nullptr,
         (fmt("__jove_b%u") % BIdx).str());
 
-    state_for_binary(binary).FunctionsTableClunk = new llvm::GlobalVariable(
+    state.for_binary(binary).FunctionsTableClunk = new llvm::GlobalVariable(
         *Module,
         FunctionsTable->getType(),
         false, llvm::GlobalValue::InternalLinkage, FunctionsTable,
         (fmt("__jove_b%u_clunk") % BIdx).str());
 
-    ReferenceInNoDCEFunc(state_for_binary(binary).FunctionsTableClunk);
+    ReferenceInNoDCEFunc(state.for_binary(binary).FunctionsTableClunk);
   }
 
   return 0;
@@ -3667,7 +3669,7 @@ int LLVMTool::CreateFunctionTable(void) {
   binary_t &Binary = jv.Binaries[BinaryIndex];
   auto &ICFG = Binary.Analysis.ICFG;
 
-  if (llvm::Function *F = state_for_binary(Binary).SectsF) {
+  if (llvm::Function *F = state.for_binary(Binary).SectsF) {
     fillInFunctionBody(F, [&](auto &IRB) {
       IRB.CreateRet(llvm::ConstantExpr::getPtrToInt(SectsGlobal, WordType()));
     }, false /* internalize */);
@@ -3693,13 +3695,13 @@ int LLVMTool::CreateFunctionTable(void) {
     }
 
     if (!f.IsABI)
-      assert(state_for_function(f).adapterF);
+      assert(state.for_function(f).adapterF);
 
     C1 = SectionPointer(ICFG[boost::vertex(f.Entry, ICFG)].Addr);
-    C2 = llvm::ConstantExpr::getPtrToInt(state_for_function(f).F, WordType());
-    C3 = state_for_function(f).adapterF
-             ? llvm::ConstantExpr::getPtrToInt(state_for_function(f).adapterF, WordType())
-             : llvm::ConstantExpr::getPtrToInt(state_for_function(f).F, WordType());
+    C2 = llvm::ConstantExpr::getPtrToInt(state.for_function(f).F, WordType());
+    C3 = state.for_function(f).adapterF
+             ? llvm::ConstantExpr::getPtrToInt(state.for_function(f).adapterF, WordType())
+             : llvm::ConstantExpr::getPtrToInt(state.for_function(f).F, WordType());
   }
 
   constantTable.push_back(llvm::Constant::getNullValue(WordType()));
@@ -3928,7 +3930,7 @@ void LLVMTool::compute_irelative_relocation(llvm::IRBuilderTy &IRB,
   }
 
   binary_t &Binary = jv.Binaries[BinaryIndex];
-  auto &fnmap = state_for_binary(Binary).fnmap;
+  auto &fnmap = state.for_binary(Binary).fnmap;
 
   auto it = fnmap.find(resolverAddr);
   assert(it != fnmap.end() && "resolver function not found!");
@@ -3936,7 +3938,7 @@ void LLVMTool::compute_irelative_relocation(llvm::IRBuilderTy &IRB,
   function_t &resolver_f = Binary.Analysis.Functions[(*it).second];
   assert(resolver_f.IsABI && "resolver function should be ABI!");
 
-  llvm::Function *resolverF = state_for_function(resolver_f).F;
+  llvm::Function *resolverF = state.for_function(resolver_f).F;
 
   std::vector<llvm::Value *> ArgVec(
       resolverF->getFunctionType()->getNumParams(),
@@ -3994,7 +3996,7 @@ void LLVMTool::compute_tpoff_relocation(llvm::IRBuilderTy &IRB,
 target_ulong LLVMTool::ExtractWordAtAddress(target_ulong Addr) {
   auto &Binary = jv.Binaries[BinaryIndex];
 
-  auto &ObjectFile = state_for_binary(Binary).ObjectFile;
+  auto &ObjectFile = state.for_binary(Binary).ObjectFile;
 
   assert(llvm::isa<ELFO>(ObjectFile.get()));
   ELFO &O = *llvm::cast<ELFO>(ObjectFile.get());
@@ -4014,8 +4016,8 @@ struct unhandled_relocation_exception {};
 
 int LLVMTool::CreateSectionGlobalVariables(void) {
   binary_t &Binary = jv.Binaries[BinaryIndex];
-  auto &ObjectFile = state_for_binary(Binary).ObjectFile;
-  auto &fnmap = state_for_binary(Binary).fnmap;
+  auto &ObjectFile = state.for_binary(Binary).ObjectFile;
+  auto &fnmap = state.for_binary(Binary).fnmap;
 
   assert(llvm::isa<ELFO>(ObjectFile.get()));
   ELFO &O = *llvm::cast<ELFO>(ObjectFile.get());
@@ -4023,13 +4025,13 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
   const ELFF &E = *O.getELFFile();
 
   struct PatchContents {
-    jv_t &jv;
+    LLVMTool &tool;
     binary_index_t BinaryIndex;
     std::vector<uint32_t> FunctionOrigInsnTable;
 
-    PatchContents(jv_t &jv, binary_index_t BinaryIndex)
-        : jv(jv), BinaryIndex(BinaryIndex) {
-      auto &Binary = jv.Binaries[BinaryIndex];
+    PatchContents(LLVMTool &tool, binary_index_t BinaryIndex)
+        : tool(tool), BinaryIndex(BinaryIndex) {
+      auto &Binary = tool.jv.Binaries[BinaryIndex];
       auto &ICFG = Binary.Analysis.ICFG;
 
       FunctionOrigInsnTable.resize(Binary.Analysis.Functions.size());
@@ -4054,8 +4056,8 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
         if (!f.IsABI)
           continue;
 
-        if (state_for_function(f).IsLj ||
-            state_for_function(f).IsSj)
+        if (tool.state.for_function(f).IsLj ||
+            tool.state.for_function(f).IsSj)
           continue;
 
         target_ulong Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
@@ -4092,7 +4094,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
       }
     }
     ~PatchContents() {
-      auto &Binary = jv.Binaries[BinaryIndex];
+      auto &Binary = tool.jv.Binaries[BinaryIndex];
       auto &ICFG = Binary.Analysis.ICFG;
 
       //
@@ -4106,8 +4108,8 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
         if (!f.IsABI)
           continue;
 
-        if (state_for_function(f).IsLj ||
-            state_for_function(f).IsSj)
+        if (tool.state.for_function(f).IsLj ||
+            tool.state.for_function(f).IsSj)
           continue;
 
         target_ulong Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
@@ -4119,8 +4121,8 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
     }
 
     void *binary_data_ptr_of_addr(target_ulong Addr) {
-      auto &Binary = jv.Binaries[BinaryIndex];
-      auto &ObjectFile = state_for_binary(Binary).ObjectFile;
+      auto &Binary = tool.jv.Binaries[BinaryIndex];
+      auto &ObjectFile = tool.state.for_binary(Binary).ObjectFile;
 
       const ELFF &E = *llvm::cast<ELFO>(ObjectFile.get())->getELFFile();
 
@@ -4137,7 +4139,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
       //
       return const_cast<uint8_t *>(*ExpectedPtr);
     }
-  } __PatchContents(jv, BinaryIndex);
+  } __PatchContents(*this, BinaryIndex);
 
   unsigned NumSections = 0;
   boost::icl::split_interval_map<tcg_uintptr_t, section_properties_set_t> SectMap;
@@ -4146,8 +4148,8 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
 
   std::vector<std::vector<uint8_t>> SegContents;
 
-  const tcg_uintptr_t SectsStartAddr = state_for_binary(Binary).SectsStartAddr;
-  const tcg_uintptr_t SectsEndAddr = state_for_binary(Binary).SectsEndAddr;
+  const tcg_uintptr_t SectsStartAddr = state.for_binary(Binary).SectsStartAddr;
+  const tcg_uintptr_t SectsEndAddr = state.for_binary(Binary).SectsEndAddr;
 
   llvm::Expected<Elf_Shdr_Range> ExpectedSections = E.sections();
   if (ExpectedSections && !(*ExpectedSections).empty()) {
@@ -4735,25 +4737,25 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
   // print relocations
   //
   for_each_dynamic_relocation(E,
-      state_for_binary(Binary)._elf.DynRelRegion,
-      state_for_binary(Binary)._elf.DynRelaRegion,
-      state_for_binary(Binary)._elf.DynRelrRegion,
-      state_for_binary(Binary)._elf.DynPLTRelRegion,
+      state.for_binary(Binary)._elf.DynRelRegion,
+      state.for_binary(Binary)._elf.DynRelaRegion,
+      state.for_binary(Binary)._elf.DynRelrRegion,
+      state.for_binary(Binary)._elf.DynPLTRelRegion,
       [&](const Relocation &R) {
         //
         // determine symbol (if present)
         //
         RelSymbol RelSym(nullptr, "");
-        if (state_for_binary(Binary)._elf.OptionalDynSymRegion) {
-          const DynRegionInfo &DynSymRegion = *state_for_binary(Binary)._elf.OptionalDynSymRegion;
+        if (state.for_binary(Binary)._elf.OptionalDynSymRegion) {
+          const DynRegionInfo &DynSymRegion = *state.for_binary(Binary)._elf.OptionalDynSymRegion;
 
           RelSym = getSymbolForReloc(O, DynSymRegion.getAsArrayRef<Elf_Sym>(),
-                                     state_for_binary(Binary)._elf.DynamicStringTable, R);
+                                     state.for_binary(Binary)._elf.DynamicStringTable, R);
 
           //
           // determine symbol version (if present)
           //
-          if (RelSym.Sym && state_for_binary(Binary)._elf.SymbolVersionSection) {
+          if (RelSym.Sym && state.for_binary(Binary)._elf.SymbolVersionSection) {
             // Determine the position in the symbol table of this entry.
             size_t EntryIndex =
                 (reinterpret_cast<uintptr_t>(RelSym.Sym) -
@@ -4761,13 +4763,13 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
 
             // Get the corresponding version index entry.
             llvm::Expected<const Elf_Versym *> ExpectedVersym =
-                E.getEntry<Elf_Versym>(state_for_binary(Binary)._elf.SymbolVersionSection,
+                E.getEntry<Elf_Versym>(state.for_binary(Binary)._elf.SymbolVersionSection,
                                        EntryIndex);
 
             if (ExpectedVersym) {
               RelSym.Vers = getSymbolVersionByIndex(
-                  state_for_binary(Binary)._elf.VersionMap,
-                  state_for_binary(Binary)._elf.DynamicStringTable,
+                  state.for_binary(Binary)._elf.VersionMap,
+                  state.for_binary(Binary)._elf.DynamicStringTable,
                   (*ExpectedVersym)->vs_index, RelSym.IsVersionDefault);
             }
           }
@@ -4796,11 +4798,11 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
   //
   // print arch-specific relocations
   //
-  if (state_for_binary(Binary)._elf.OptionalDynSymRegion) {
-    const DynRegionInfo &DynSymRegion = *state_for_binary(Binary)._elf.OptionalDynSymRegion;
+  if (state.for_binary(Binary)._elf.OptionalDynSymRegion) {
+    const DynRegionInfo &DynSymRegion = *state.for_binary(Binary)._elf.OptionalDynSymRegion;
 
     auto dynamic_table = [&](void) -> Elf_Dyn_Range {
-      return state_for_binary(Binary)._elf.DynamicTable.getAsArrayRef<Elf_Dyn>();
+      return state.for_binary(Binary)._elf.DynamicTable.getAsArrayRef<Elf_Dyn>();
     };
     auto dynamic_symbols = [&](void) -> Elf_Sym_Range {
       return DynSymRegion.getAsArrayRef<Elf_Sym>();
@@ -4825,7 +4827,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
       const Elf_Sym *Sym = Parser.getGotSym(&Ent);
       assert(Sym);
 
-      auto ExpectedSymName = Sym->getName(state_for_binary(Binary)._elf.DynamicStringTable);
+      auto ExpectedSymName = Sym->getName(state.for_binary(Binary)._elf.DynamicStringTable);
       if (!ExpectedSymName) {
         WithColor::error() << llvm::formatv(
             "Failed to get symbol name for gotrel @ {0:x}: {1}\n", Offset,
@@ -4840,7 +4842,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
       //
       // determine symbol version (if present)
       //
-      if (state_for_binary(Binary)._elf.SymbolVersionSection) {
+      if (state.for_binary(Binary)._elf.SymbolVersionSection) {
         // Determine the position in the symbol table of this entry.
         size_t EntryIndex =
             (reinterpret_cast<uintptr_t>(Sym) -
@@ -4848,12 +4850,12 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
 
         // Get the corresponding version index entry.
         llvm::Expected<const Elf_Versym *> ExpectedVersym =
-            E.getEntry<Elf_Versym>(state_for_binary(Binary)._elf.SymbolVersionSection,
+            E.getEntry<Elf_Versym>(state.for_binary(Binary)._elf.SymbolVersionSection,
                                    EntryIndex);
 
         if (ExpectedVersym)
-          SymVers = getSymbolVersionByIndex(state_for_binary(Binary)._elf.VersionMap,
-                                            state_for_binary(Binary)._elf.DynamicStringTable,
+          SymVers = getSymbolVersionByIndex(state.for_binary(Binary)._elf.VersionMap,
+                                            state.for_binary(Binary)._elf.DynamicStringTable,
                                             (*ExpectedVersym)->vs_index,
                                             IsVersionDefault);
       }
@@ -4903,10 +4905,10 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
     clear_section_stuff();
 
     for_each_dynamic_relocation(E,
-        state_for_binary(Binary)._elf.DynRelRegion,
-        state_for_binary(Binary)._elf.DynRelaRegion,
-        state_for_binary(Binary)._elf.DynRelrRegion,
-        state_for_binary(Binary)._elf.DynPLTRelRegion,
+        state.for_binary(Binary)._elf.DynRelRegion,
+        state.for_binary(Binary)._elf.DynRelaRegion,
+        state.for_binary(Binary)._elf.DynRelrRegion,
+        state.for_binary(Binary)._elf.DynPLTRelRegion,
         [&](const Relocation &R) {
           llvm::Type *R_T = nullptr;
 
@@ -4934,11 +4936,11 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
     //
     // arch-specific relocations
     //
-    if (state_for_binary(Binary)._elf.OptionalDynSymRegion) {
-      const DynRegionInfo &DynSymRegion = *state_for_binary(Binary)._elf.OptionalDynSymRegion;
+    if (state.for_binary(Binary)._elf.OptionalDynSymRegion) {
+      const DynRegionInfo &DynSymRegion = *state.for_binary(Binary)._elf.OptionalDynSymRegion;
 
       auto dynamic_table = [&](void) -> Elf_Dyn_Range {
-        return state_for_binary(Binary)._elf.DynamicTable.getAsArrayRef<Elf_Dyn>();
+        return state.for_binary(Binary)._elf.DynamicTable.getAsArrayRef<Elf_Dyn>();
       };
       auto dynamic_symbols = [&](void) -> Elf_Sym_Range {
         return DynSymRegion.getAsArrayRef<Elf_Sym>();
@@ -4968,10 +4970,10 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
     declare_sections();
 
     for_each_dynamic_relocation(E,
-        state_for_binary(Binary)._elf.DynRelRegion,
-        state_for_binary(Binary)._elf.DynRelaRegion,
-        state_for_binary(Binary)._elf.DynRelrRegion,
-        state_for_binary(Binary)._elf.DynPLTRelRegion,
+        state.for_binary(Binary)._elf.DynRelRegion,
+        state.for_binary(Binary)._elf.DynRelaRegion,
+        state.for_binary(Binary)._elf.DynRelrRegion,
+        state.for_binary(Binary)._elf.DynPLTRelRegion,
         [&](const Relocation &R) {
           llvm::Type *R_T = type_of_expression_for_relocation(R);
           assert(R_T);
@@ -4983,20 +4985,20 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
           // determine symbol (if present)
           //
           RelSymbol RelSym(nullptr, "");
-          if (state_for_binary(Binary)._elf.OptionalDynSymRegion) {
-            const DynRegionInfo &DynSymRegion = *state_for_binary(Binary)._elf.OptionalDynSymRegion;
+          if (state.for_binary(Binary)._elf.OptionalDynSymRegion) {
+            const DynRegionInfo &DynSymRegion = *state.for_binary(Binary)._elf.OptionalDynSymRegion;
 
             auto dynamic_symbols = [&](void) -> Elf_Sym_Range {
               return DynSymRegion.getAsArrayRef<Elf_Sym>();
             };
 
             RelSym = getSymbolForReloc(O, dynamic_symbols(),
-                                       state_for_binary(Binary)._elf.DynamicStringTable, R);
+                                       state.for_binary(Binary)._elf.DynamicStringTable, R);
 
             //
             // determine symbol version (if present)
             //
-            if (RelSym.Sym && state_for_binary(Binary)._elf.SymbolVersionSection) {
+            if (RelSym.Sym && state.for_binary(Binary)._elf.SymbolVersionSection) {
               // Determine the position in the symbol table of this entry.
               size_t EntryIndex =
                   (reinterpret_cast<uintptr_t>(RelSym.Sym) -
@@ -5005,12 +5007,12 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
 
               // Get the corresponding version index entry.
               llvm::Expected<const Elf_Versym *> ExpectedVersym =
-                  E.getEntry<Elf_Versym>(state_for_binary(Binary)._elf.SymbolVersionSection,
+                  E.getEntry<Elf_Versym>(state.for_binary(Binary)._elf.SymbolVersionSection,
                                          EntryIndex);
 
               if (ExpectedVersym)
-                RelSym.Vers = getSymbolVersionByIndex(state_for_binary(Binary)._elf.VersionMap,
-                                                      state_for_binary(Binary)._elf.DynamicStringTable,
+                RelSym.Vers = getSymbolVersionByIndex(state.for_binary(Binary)._elf.VersionMap,
+                                                      state.for_binary(Binary)._elf.DynamicStringTable,
                                                       (*ExpectedVersym)->vs_index,
                                                       RelSym.IsVersionDefault);
             }
@@ -5036,11 +5038,11 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
     //
     // arch-specific relocations
     //
-    if (state_for_binary(Binary)._elf.OptionalDynSymRegion) {
-      const DynRegionInfo &DynSymRegion = *state_for_binary(Binary)._elf.OptionalDynSymRegion;
+    if (state.for_binary(Binary)._elf.OptionalDynSymRegion) {
+      const DynRegionInfo &DynSymRegion = *state.for_binary(Binary)._elf.OptionalDynSymRegion;
 
       auto dynamic_table = [&](void) -> Elf_Dyn_Range {
-        return state_for_binary(Binary)._elf.DynamicTable.getAsArrayRef<Elf_Dyn>();
+        return state.for_binary(Binary)._elf.DynamicTable.getAsArrayRef<Elf_Dyn>();
       };
       auto dynamic_symbols = [&](void) -> Elf_Sym_Range {
         return DynSymRegion.getAsArrayRef<Elf_Sym>();
@@ -5068,7 +5070,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
         const Elf_Sym *Sym = Parser.getGotSym(&Ent);
         assert(Sym);
 
-        auto ExpectedSymName = Sym->getName(state_for_binary(Binary)._elf.DynamicStringTable);
+        auto ExpectedSymName = Sym->getName(state.for_binary(Binary)._elf.DynamicStringTable);
         if (!ExpectedSymName) {
           WithColor::error() << llvm::formatv(
               "failed to get symbol name for gotrel @ {0:x}: {1}\n", Offset,
@@ -5083,7 +5085,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
         //
         // determine symbol version (if present)
         //
-        if (state_for_binary(Binary)._elf.SymbolVersionSection) {
+        if (state.for_binary(Binary)._elf.SymbolVersionSection) {
           // Determine the position in the symbol table of this entry.
           size_t EntryIndex =
               (reinterpret_cast<uintptr_t>(Sym) -
@@ -5091,12 +5093,12 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
 
           // Get the corresponding version index entry.
           llvm::Expected<const Elf_Versym *> ExpectedVersym =
-              E.getEntry<Elf_Versym>(state_for_binary(Binary)._elf.SymbolVersionSection,
+              E.getEntry<Elf_Versym>(state.for_binary(Binary)._elf.SymbolVersionSection,
                                      EntryIndex);
 
           if (ExpectedVersym)
-            SymVers = getSymbolVersionByIndex(state_for_binary(Binary)._elf.VersionMap,
-                                              state_for_binary(Binary)._elf.DynamicStringTable,
+            SymVers = getSymbolVersionByIndex(state.for_binary(Binary)._elf.VersionMap,
+                                              state.for_binary(Binary)._elf.DynamicStringTable,
                                               (*ExpectedVersym)->vs_index,
                                               IsVersionDefault);
         }
@@ -5193,8 +5195,8 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
   {
     auto &binary = jv.Binaries[BinaryIndex];
 
-    assert(llvm::isa<ELFO>(state_for_binary(binary).ObjectFile.get()));
-    ELFO &O = *llvm::cast<ELFO>(state_for_binary(binary).ObjectFile.get());
+    assert(llvm::isa<ELFO>(state.for_binary(binary).ObjectFile.get()));
+    ELFO &O = *llvm::cast<ELFO>(state.for_binary(binary).ObjectFile.get());
     const ELFF &E = *O.getELFFile();
 
     //
@@ -5202,9 +5204,9 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
     //
     target_ulong initFunctionAddr = 0;
 
-    if (state_for_binary(binary)._elf.DynamicTable.Addr) {
+    if (state.for_binary(binary)._elf.DynamicTable.Addr) {
       auto dynamic_table = [&](void) -> Elf_Dyn_Range {
-        return state_for_binary(binary)._elf.DynamicTable.getAsArrayRef<Elf_Dyn>();
+        return state.for_binary(binary)._elf.DynamicTable.getAsArrayRef<Elf_Dyn>();
       };
 
       for (const Elf_Dyn &Dyn : dynamic_table()) {
@@ -5231,7 +5233,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
               function_t &initfn_f = jv.Binaries[BinaryIndex]
                                          .Analysis.Functions[(*it).second];
 
-              Ret = llvm::ConstantExpr::getPtrToInt(state_for_function(initfn_f).F, WordType());
+              Ret = llvm::ConstantExpr::getPtrToInt(state.for_function(initfn_f).F, WordType());
             } else {
               Ret = llvm::Constant::getNullValue(WordType());
             }
@@ -5261,7 +5263,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
             function_t &f = jv.Binaries[BinaryIndex]
                                 .Analysis.Functions[(*it).second];
 
-            Ret = llvm::ConstantExpr::getPtrToInt(state_for_function(f).F, WordType());
+            Ret = llvm::ConstantExpr::getPtrToInt(state.for_function(f).F, WordType());
           } else {
             Ret = llvm::Constant::getNullValue(WordType());
           }
@@ -5305,7 +5307,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
         uintptr_t FileAddr = off + SectsStartAddr;
 
         binary_t &Binary = jv.Binaries[BinaryIndex];
-        auto &fnmap = state_for_binary(Binary).fnmap;
+        auto &fnmap = state.for_binary(Binary).fnmap;
         auto it = fnmap.find(FileAddr);
         assert(it != fnmap.end());
         function_t &f = Binary.Analysis.Functions[(*it).second];
@@ -5313,7 +5315,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
         if (!f.IsABI) {
           WithColor::error() << llvm::formatv(
               "!IsABI for {0}; did you run jove-bootstrap -s?\n",
-              state_for_function(f).F->getName());
+              state.for_function(f).F->getName());
           abort();
         }
 
@@ -5363,17 +5365,17 @@ LLVMTool::decipher_copy_relocation(const RelSymbol &S) {
     if (b.IsDynamicLinker)
       continue;
 
-    if (!state_for_binary(b).ObjectFile)
+    if (!state.for_binary(b).ObjectFile)
       continue;
 
-    assert(llvm::isa<ELFO>(state_for_binary(b).ObjectFile.get()));
-    ELFO &O = *llvm::cast<ELFO>(state_for_binary(b).ObjectFile.get());
+    assert(llvm::isa<ELFO>(state.for_binary(b).ObjectFile.get()));
+    ELFO &O = *llvm::cast<ELFO>(state.for_binary(b).ObjectFile.get());
     const ELFF &E = *O.getELFFile();
 
-    if (!state_for_binary(b)._elf.OptionalDynSymRegion)
+    if (!state.for_binary(b)._elf.OptionalDynSymRegion)
       continue; /* no dynamic symbols */
 
-    auto DynSyms = state_for_binary(b)._elf.OptionalDynSymRegion->getAsArrayRef<Elf_Sym>();
+    auto DynSyms = state.for_binary(b)._elf.OptionalDynSymRegion->getAsArrayRef<Elf_Sym>();
 
     for (unsigned SymNo = 0; SymNo < DynSyms.size(); ++SymNo) {
       const Elf_Sym &Sym = DynSyms[SymNo];
@@ -5385,7 +5387,7 @@ LLVMTool::decipher_copy_relocation(const RelSymbol &S) {
         continue;
 
       llvm::Expected<llvm::StringRef> ExpectedSymName =
-          Sym.getName(state_for_binary(b)._elf.DynamicStringTable);
+          Sym.getName(state.for_binary(b)._elf.DynamicStringTable);
       if (!ExpectedSymName)
         continue;
 
@@ -5396,12 +5398,12 @@ LLVMTool::decipher_copy_relocation(const RelSymbol &S) {
       //
       // symbol versioning
       //
-      if (state_for_binary(b)._elf.SymbolVersionSection) {
+      if (state.for_binary(b)._elf.SymbolVersionSection) {
         const Elf_Versym *Versym = unwrapOrError(
-            E.getEntry<Elf_Versym>(state_for_binary(b)._elf.SymbolVersionSection, SymNo));
+            E.getEntry<Elf_Versym>(state.for_binary(b)._elf.SymbolVersionSection, SymNo));
 
-        SymVers = getSymbolVersionByIndex(state_for_binary(b)._elf.VersionMap,
-                                          state_for_binary(b)._elf.DynamicStringTable,
+        SymVers = getSymbolVersionByIndex(state.for_binary(b)._elf.VersionMap,
+                                          state.for_binary(b)._elf.DynamicStringTable,
                                           Versym->vs_index,
                                           VisibilityIsDefault);
       }
@@ -5411,9 +5413,9 @@ LLVMTool::decipher_copy_relocation(const RelSymbol &S) {
         //
         // we have a match.
         //
-        assert(Sym.st_value > state_for_binary(b).SectsStartAddr);
+        assert(Sym.st_value > state.for_binary(b).SectsStartAddr);
 
-        return {BIdx, {Sym.st_value, Sym.st_value - state_for_binary(b).SectsStartAddr}};
+        return {BIdx, {Sym.st_value, Sym.st_value - state.for_binary(b).SectsStartAddr}};
       }
     }
   }
@@ -5427,7 +5429,7 @@ LLVMTool::decipher_copy_relocation(const RelSymbol &S) {
 int LLVMTool::ProcessManualRelocations(void) {
   binary_t &Binary = jv.Binaries[BinaryIndex];
 
-  auto OptionalDynSymRegion = state_for_binary(Binary)._elf.OptionalDynSymRegion;
+  auto OptionalDynSymRegion = state.for_binary(Binary)._elf.OptionalDynSymRegion;
 
   if (!OptionalDynSymRegion)
     return 0; /* no dynamic symbols */
@@ -5438,21 +5440,21 @@ int LLVMTool::ProcessManualRelocations(void) {
     return DynSymRegion.getAsArrayRef<Elf_Sym>();
   };
 
-  assert(llvm::isa<ELFO>(state_for_binary(Binary).ObjectFile.get()));
-  auto &O = *llvm::cast<ELFO>(state_for_binary(Binary).ObjectFile.get());
+  assert(llvm::isa<ELFO>(state.for_binary(Binary).ObjectFile.get()));
+  auto &O = *llvm::cast<ELFO>(state.for_binary(Binary).ObjectFile.get());
   const auto &E = *O.getELFFile();
 
   std::map<target_ulong, llvm::Function *> ManualRelocs;
 
   for_each_dynamic_relocation_if(E,
-      state_for_binary(Binary)._elf.DynRelRegion,
-      state_for_binary(Binary)._elf.DynRelaRegion,
-      state_for_binary(Binary)._elf.DynRelrRegion,
-      state_for_binary(Binary)._elf.DynPLTRelRegion,
+      state.for_binary(Binary)._elf.DynRelRegion,
+      state.for_binary(Binary)._elf.DynRelaRegion,
+      state.for_binary(Binary)._elf.DynRelrRegion,
+      state.for_binary(Binary)._elf.DynPLTRelRegion,
       [&](const Relocation &R) -> bool { return is_manual_relocation(R); },
       [&](const Relocation &R) {
         RelSymbol RelSym = getSymbolForReloc(O, dynamic_symbols(),
-                                             state_for_binary(Binary)._elf.DynamicStringTable, R);
+                                             state.for_binary(Binary)._elf.DynamicStringTable, R);
 
         llvm::Function *F = llvm::Function::Create(
             llvm::FunctionType::get(WordType(), false),
@@ -5483,7 +5485,7 @@ int LLVMTool::ProcessManualRelocations(void) {
               llvm::Value *Computation = IRB.CreateCall(pair.second);
               assert(Computation->getType()->isIntegerTy(WordBits()));
 
-              uintptr_t off = pair.first - state_for_binary(Binary).SectsStartAddr;
+              uintptr_t off = pair.first - state.for_binary(Binary).SectsStartAddr;
 
               llvm::SmallVector<llvm::Value *, 4> Indices;
               llvm::Value *SectGEP = llvm::getNaturalGEPWithOffset(
@@ -5515,14 +5517,14 @@ int LLVMTool::CreateCopyRelocationHack(void) {
 
           WARN_ON(pair.second.first < 3);
 
-          if (state_for_binary(BinaryFrom).SectsF) {
+          if (state.for_binary(BinaryFrom).SectsF) {
             IRB.CreateMemCpy(
                 IRB.CreateIntToPtr(SectionPointer(pair.first.first),
                                    IRB.getInt8PtrTy()),
                 llvm::MaybeAlign(),
                 IRB.CreateIntToPtr(
                     IRB.CreateAdd(
-                        IRB.CreateCall(state_for_binary(BinaryFrom).SectsF),
+                        IRB.CreateCall(state.for_binary(BinaryFrom).SectsF),
                         IRB.getIntN(WordBits(), pair.second.second.second)),
                     IRB.getInt8PtrTy()),
                 llvm::MaybeAlign(), pair.first.second, true /* Volatile */);
@@ -5583,7 +5585,7 @@ int LLVMTool::FixupHelperStubs(void) {
   fillInFunctionBody(
       Module->getFunction("_jove_sections_start_file_addr"),
       [&](auto &IRB) {
-        IRB.CreateRet(llvm::ConstantInt::get(WordType(), state_for_binary(Binary).SectsStartAddr));
+        IRB.CreateRet(llvm::ConstantInt::get(WordType(), state.for_binary(Binary).SectsStartAddr));
       }, !opts.ForCBE);
 
   fillInFunctionBody(
@@ -5596,7 +5598,7 @@ int LLVMTool::FixupHelperStubs(void) {
       Module->getFunction("_jove_sections_global_end_addr"),
       [&](auto &IRB) {
         // TODO call DL.getAllocSize and verify the numbers are the same
-        target_ulong SectsGlobalSize = state_for_binary(Binary).SectsEndAddr - state_for_binary(Binary).SectsStartAddr;
+        target_ulong SectsGlobalSize = state.for_binary(Binary).SectsEndAddr - state.for_binary(Binary).SectsStartAddr;
 
         IRB.CreateRet(llvm::ConstantExpr::getAdd(
             llvm::ConstantExpr::getPtrToInt(SectsGlobal, WordType()),
@@ -5658,7 +5660,7 @@ int LLVMTool::FixupHelperStubs(void) {
                            });
           }
 
-          IRB.CreateCall(state_for_function(f).F, ArgVec)->setIsNoInline();
+          IRB.CreateCall(state.for_function(f).F, ArgVec)->setIsNoInline();
         }
 
         IRB.CreateCall(
@@ -5963,16 +5965,16 @@ int LLVMTool::TranslateFunction(function_t &f) {
   binary_t &Binary = jv.Binaries[BinaryIndex];
   const function_index_t FIdx = index_of_function_in_binary(f, Binary);
   interprocedural_control_flow_graph_t &ICFG = Binary.Analysis.ICFG;
-  llvm::Function *F = state_for_function(f).F;
+  llvm::Function *F = state.for_function(f).F;
   llvm::DIBuilder &DIB = *DIBuilder;
 
-  if (unlikely(state_for_function(f).bbvec.empty()))
+  if (unlikely(state.for_function(f).bbvec.empty()))
     return 0;
 
-  basic_block_t entry_bb = state_for_function(f).bbvec.front();
+  basic_block_t entry_bb = state.for_function(f).bbvec.front();
 
   llvm::BasicBlock *EntryB = llvm::BasicBlock::Create(*Context, "", F);
-  for (basic_block_t bb : state_for_function(f).bbvec)
+  for (basic_block_t bb : state.for_function(f).bbvec)
     state_for_basic_block(ICFG[bb]).B = llvm::BasicBlock::Create(
         *Context, (fmt("l%lx") % ICFG[bb].Addr).str(), F);
 
@@ -6063,7 +6065,7 @@ int LLVMTool::TranslateFunction(function_t &f) {
     IRB.CreateBr(state_for_basic_block(ICFG[entry_bb]).B);
   }
 
-  for (basic_block_t bb : state_for_function(f).bbvec) {
+  for (basic_block_t bb : state.for_function(f).bbvec) {
     TC.bb = bb;
 
     int ret = TranslateBasicBlock(&TC);
@@ -6078,7 +6080,7 @@ int LLVMTool::TranslateFunction(function_t &f) {
     //
     // build "ABI adapter"
     //
-    F = state_for_function(f).adapterF;
+    F = state.for_function(f).adapterF;
 
     assert(F);
     llvm::FunctionType *FTy = F->getFunctionType();
@@ -6129,7 +6131,7 @@ int LLVMTool::TranslateFunction(function_t &f) {
                        });
       }
 
-      llvm::CallInst *Ret = IRB.CreateCall(state_for_function(f).F, argsToPass);
+      llvm::CallInst *Ret = IRB.CreateCall(state.for_function(f).F, argsToPass);
       Ret->setIsNoInline();
 
       {
@@ -6253,8 +6255,8 @@ int LLVMTool::TranslateFunctions(void) {
     if (unlikely(ret))
       return ret;
 
-    if (likely(state_for_function(f).F))
-      FPM.run(*state_for_function(f).F);
+    if (likely(state.for_function(f).F))
+      FPM.run(*state.for_function(f).F);
   }
 
   llvm::DIBuilder &DIB = *DIBuilder;
@@ -6414,7 +6416,7 @@ int LLVMTool::ConstifyRelocationSectionPointers(void) {
         uintptr_t off =
             llvm::cast<llvm::ConstantInt>(Addend)->getValue().getZExtValue();
 
-        uintptr_t FileAddr = off + state_for_binary(Binary).SectsStartAddr;
+        uintptr_t FileAddr = off + state.for_binary(Binary).SectsStartAddr;
 
         bool RelocLoc = ConstantRelocationLocs.find(FileAddr) !=
                         ConstantRelocationLocs.end();
@@ -6964,7 +6966,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
 
     llvm::AllocaInst *&Ptr = GlobalAllocaArr.at(glb);
     if (!Ptr) {
-      llvm::IRBuilderTy tmpIRB(&state_for_function(f).F->getEntryBlock().front());
+      llvm::IRBuilderTy tmpIRB(&state.for_function(f).F->getEntryBlock().front());
 
       Ptr = CreateAllocaForGlobal(TC, tmpIRB, glb);
     }
@@ -6996,7 +6998,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
 
     llvm::AllocaInst *&Ptr = GlobalAllocaArr.at(glb);
     if (!Ptr) {
-      llvm::IRBuilderTy tmpIRB(&state_for_function(f).F->getEntryBlock().front());
+      llvm::IRBuilderTy tmpIRB(&state.for_function(f).F->getEntryBlock().front());
 
       Ptr = CreateAllocaForGlobal(TC, tmpIRB, glb);
     }
@@ -7039,7 +7041,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
     }
   }
 
-  TCG->set_binary(*state_for_binary(Binary).ObjectFile);
+  TCG->set_binary(*state.for_binary(Binary).ObjectFile);
 
   llvm::BasicBlock *ExitBB = nullptr;
 
@@ -7050,7 +7052,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
   unsigned j = 0;
   do {
     ExitBB = llvm::BasicBlock::Create(
-        *Context, (fmt("l%lx_%u_exit") % Addr % j).str(), state_for_function(f).F);
+        *Context, (fmt("l%lx_%u_exit") % Addr % j).str(), state.for_function(f).F);
     ++j;
 
     unsigned len;
@@ -7096,7 +7098,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
             continue;
 
           {
-            llvm::IRBuilderTy tmpIRB(&state_for_function(f).F->getEntryBlock().front());
+            llvm::IRBuilderTy tmpIRB(&state.for_function(f).F->getEntryBlock().front());
 
             TempAllocaVec.at(idx) =
               tmpIRB.CreateAlloca(tmpIRB.getIntNTy(bitsOfTCGType(ts->type)), 0,
@@ -7117,7 +7119,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
             continue;
 
           {
-            llvm::IRBuilderTy tmpIRB(&state_for_function(f).F->getEntryBlock().front());
+            llvm::IRBuilderTy tmpIRB(&state.for_function(f).F->getEntryBlock().front());
 
             TempAllocaVec.at(idx) =
               tmpIRB.CreateAlloca(tmpIRB.getIntNTy(bitsOfTCGType(ts->type)), 0,
@@ -7135,7 +7137,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
     //
     for (unsigned i = 0; i < LabelVec.size(); ++i)
       LabelVec[i] = llvm::BasicBlock::Create(
-          *Context, (boost::format("l%lx_%u") % ICFG[bb].Addr % i).str(), state_for_function(f).F);
+          *Context, (boost::format("l%lx_%u") % ICFG[bb].Addr % i).str(), state.for_function(f).F);
 
     if (opts.DumpTCG) {
       if (Addr == std::stoi(opts.ForAddr.c_str(), nullptr, 16))
@@ -7319,8 +7321,8 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
     //
     // setjmp/longjmp
     //
-    const bool Lj = state_for_function(callee).IsLj;
-    const bool Sj = state_for_function(callee).IsSj;
+    const bool Lj = state.for_function(callee).IsLj;
+    const bool Sj = state.for_function(callee).IsSj;
     const bool SjLj = Lj || Sj;
     if (unlikely(SjLj)) {
       assert(Lj ^ Sj);
@@ -7425,15 +7427,15 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
     assert(!SjLj);
 
     if (opts.DFSan) {
-      if (state_for_function(callee).PreHook) {
-        assert(state_for_function(callee).hook);
-        assert(state_for_function(callee).PreHookClunk);
+      if (state.for_function(callee).PreHook) {
+        assert(state.for_function(callee).hook);
+        assert(state.for_function(callee).PreHookClunk);
 
         llvm::outs() << llvm::formatv("calling pre-hook ({0}, {1})\n",
                                       BinaryIndex,
                                       FIdx);
 
-        const hook_t &hook = *state_for_function(callee).hook;
+        const hook_t &hook = *state.for_function(callee).hook;
 
         std::vector<llvm::Value *> ArgVec;
 
@@ -7446,8 +7448,8 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
                          return llvm::Constant::getNullValue(Ty);
                        });
         IRB.CreateCall(
-            state_for_function(callee).PreHook->getFunctionType(),
-            IRB.CreateIntToPtr(IRB.CreateLoad(state_for_function(callee).PreHookClunk), state_for_function(callee).PreHook->getType()), ArgVec);
+            state.for_function(callee).PreHook->getFunctionType(),
+            IRB.CreateIntToPtr(IRB.CreateLoad(state.for_function(callee).PreHookClunk), state.for_function(callee).PreHook->getType()), ArgVec);
       }
     }
 
@@ -7471,8 +7473,8 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
     } _dfsan_hook;
 
     if (opts.DFSan) {
-      if (state_for_function(callee).PreHook ||
-          state_for_function(callee).PostHook) {
+      if (state.for_function(callee).PreHook ||
+          state.for_function(callee).PostHook) {
         _dfsan_hook.SavedArgs.resize(CallConvArgArray.size());
         std::transform(
             CallConvArgArray.begin(),
@@ -7500,10 +7502,10 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
       store_stack_pointer();
     }
 
-    llvm::CallInst *Ret = IRB.CreateCall(state_for_function(callee).F, ArgVec);
+    llvm::CallInst *Ret = IRB.CreateCall(state.for_function(callee).F, ArgVec);
 
-    if (state_for_function(callee).PreHook ||
-        state_for_function(callee).PostHook) {
+    if (state.for_function(callee).PreHook ||
+        state.for_function(callee).PostHook) {
       llvm::MDNode *Node =
           llvm::MDNode::get(*Context, llvm::MDString::get(*Context, "1"));
       Ret->setMetadata("jove.hook", Node);
@@ -7543,15 +7545,15 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
       }
     }
 
-    if (state_for_function(callee).PostHook) {
-      assert(state_for_function(callee).hook);
-      assert(state_for_function(callee).PostHookClunk);
+    if (state.for_function(callee).PostHook) {
+      assert(state.for_function(callee).hook);
+      assert(state.for_function(callee).PostHookClunk);
 
       llvm::outs() << llvm::formatv("calling post-hook ({0}, {1})\n",
                                     BinaryIndex,
                                     FIdx);
 
-      const hook_t &hook = *state_for_function(callee).hook;
+      const hook_t &hook = *state.for_function(callee).hook;
 
       //
       // prepare arguments for post hook
@@ -7653,9 +7655,9 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
       // make the call
       //
       llvm::CallInst *PostHookRet = IRB.CreateCall(
-          state_for_function(callee).PostHook->getFunctionType(),
-          IRB.CreateIntToPtr(IRB.CreateLoad(state_for_function(callee).PostHookClunk),
-                             state_for_function(callee).PostHook->getType()),
+          state.for_function(callee).PostHook->getFunctionType(),
+          IRB.CreateIntToPtr(IRB.CreateLoad(state.for_function(callee).PostHookClunk),
+                             state.for_function(callee).PostHook->getType()),
           HookArgVec);
 
       //
@@ -7679,7 +7681,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
     if (!_indirect_jump.IsTailCall) { /* otherwise fallthrough */
       llvm::BasicBlock *ElseBlock =
           llvm::BasicBlock::Create(*Context, (fmt("l%lx_recover") % Addr).str(),
-                                   state_for_function(f).F);
+                                   state.for_function(f).F);
 
       llvm::Value *PC = IRB.CreateLoad(TC.PCAlloca);
 
@@ -7695,7 +7697,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
         for (auto it = it_pair.first; it != it_pair.second; ++it) {
           basic_block_t succ = *it;
           SI->addCase(
-              IRB.getIntN(WordBits(), ICFG[succ].Addr - state_for_binary(Binary).SectsStartAddr),
+              IRB.getIntN(WordBits(), ICFG[succ].Addr - state.for_binary(Binary).SectsStartAddr),
               state_for_basic_block(ICFG[succ]).B);
         }
       }
@@ -7754,12 +7756,12 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
     const bool Lj = std::any_of(DynTargets.begin(),
                                 DynTargets.end(),
                                 [&](dynamic_target_t X) -> bool {
-                                  return state_for_function(function_of_target(X, jv)).IsLj;
+                                  return state.for_function(function_of_target(X, jv)).IsLj;
                                 });
     const bool Sj = std::any_of(DynTargets.begin(),
                                 DynTargets.end(),
                                 [&](dynamic_target_t X) -> bool {
-                                  return state_for_function(function_of_target(X, jv)).IsSj;
+                                  return state.for_function(function_of_target(X, jv)).IsSj;
                                 });
 
     const bool SjLj = Lj || Sj;
@@ -7966,7 +7968,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
 
       llvm::Value *PC = IRB.CreateLoad(TC.PCAlloca);
 
-      llvm::BasicBlock *ThruB = llvm::BasicBlock::Create(*Context, "", state_for_function(f).F);
+      llvm::BasicBlock *ThruB = llvm::BasicBlock::Create(*Context, "", state.for_function(f).F);
 
       std::vector<std::pair<binary_index_t, function_index_t>> DynTargetsVec(
           DynTargets.begin(), DynTargets.end());
@@ -7979,7 +7981,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
                      DynTargetsDoCallBVec.begin(),
                      [&](dynamic_target_t IdxPair) -> llvm::BasicBlock * {
                        return llvm::BasicBlock::Create(*Context,
-                                                       (fmt("call_%s") % dyn_target_desc(IdxPair)).str(), state_for_function(f).F);
+                                                       (fmt("call_%s") % dyn_target_desc(IdxPair)).str(), state.for_function(f).F);
                      });
 
       llvm::BasicBlock *ElseB = nullptr;
@@ -7988,7 +7990,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
 
         llvm::BasicBlock *B = llvm::BasicBlock::Create(
             *Context, (fmt("if_%s") % dyn_target_desc(DynTargetsVec[i])).str(),
-            state_for_function(f).F);
+            state.for_function(f).F);
         IRB.CreateBr(B);
 
         do {
@@ -7996,12 +7998,12 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
 
           auto next_i = i + 1;
           if (next_i == DynTargetsVec.size())
-            B = llvm::BasicBlock::Create(*Context, "", state_for_function(f).F);
+            B = llvm::BasicBlock::Create(*Context, "", state.for_function(f).F);
           else
             B = llvm::BasicBlock::Create(
                 *Context,
                 (fmt("if_%s") % dyn_target_desc(DynTargetsVec[next_i])).str(),
-                state_for_function(f).F);
+                state.for_function(f).F);
 
           llvm::Value *EQVal = IRB.CreateICmpEQ(
               PC, GetDynTargetAddress<false>(IRB, DynTargetsVec[i], B));
@@ -8041,8 +8043,8 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
 
           function_t &callee = function_of_target(DynTargetsVec[i], jv);
 
-          const bool Lj = state_for_function(callee).IsLj;
-          const bool Sj = state_for_function(callee).IsSj;
+          const bool Lj = state.for_function(callee).IsLj;
+          const bool Sj = state.for_function(callee).IsSj;
           const bool SjLj = Lj || Sj;
 
           if (unlikely(SjLj)) {
@@ -8057,10 +8059,10 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
           } _dfsan_hook;
 
           if (opts.DFSan) {
-            if (state_for_function(callee).PreHook ||
-                state_for_function(callee).PostHook) {
-              assert(state_for_function(callee).hook);
-              const hook_t &hook = *state_for_function(callee).hook;
+            if (state.for_function(callee).PreHook ||
+                state.for_function(callee).PostHook) {
+              assert(state.for_function(callee).hook);
+              const hook_t &hook = *state.for_function(callee).hook;
 
 #if 0
               llvm::outs() << llvm::formatv("calling post-hook ({0}, {1})\n", (*it).first, (*it).second);
@@ -8076,14 +8078,14 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
           }
 
           if (opts.DFSan) {
-            if (state_for_function(callee).PreHook) {
-              assert(state_for_function(callee).hook);
-              assert(state_for_function(callee).PreHookClunk);
+            if (state.for_function(callee).PreHook) {
+              assert(state.for_function(callee).hook);
+              assert(state.for_function(callee).PreHookClunk);
 
               llvm::outs() << llvm::formatv("calling pre-hook ({0}, {1})\n",
                                             ADynTarget.BIdx, ADynTarget.FIdx);
 
-              const hook_t &hook = *state_for_function(callee).hook;
+              const hook_t &hook = *state.for_function(callee).hook;
 
               //
               // prepare arguments for post hook
@@ -8148,9 +8150,9 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
               // make the call
               //
               IRB.CreateCall(
-                  state_for_function(callee).PreHook->getFunctionType(),
-                  IRB.CreateIntToPtr(IRB.CreateLoad(state_for_function(callee).PreHookClunk),
-                                     state_for_function(callee).PreHook->getType()),
+                  state.for_function(callee).PreHook->getFunctionType(),
+                  IRB.CreateIntToPtr(IRB.CreateLoad(state.for_function(callee).PreHookClunk),
+                                     state.for_function(callee).PreHook->getType()),
                   HookArgVec);
             }
           }
@@ -8288,8 +8290,8 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
             }
           }
 
-          if (state_for_function(callee).PreHook ||
-              state_for_function(callee).PostHook) {
+          if (state.for_function(callee).PreHook ||
+              state.for_function(callee).PostHook) {
             llvm::MDNode *Node =
                 llvm::MDNode::get(*Context, llvm::MDString::get(*Context, "1"));
             Ret->setMetadata("jove.hook", Node);
@@ -8376,14 +8378,14 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
             }
           }
 
-          if (state_for_function(callee).PostHook) {
-            assert(state_for_function(callee).hook);
-            assert(state_for_function(callee).PostHookClunk);
+          if (state.for_function(callee).PostHook) {
+            assert(state.for_function(callee).hook);
+            assert(state.for_function(callee).PostHookClunk);
 
             llvm::outs() << llvm::formatv("calling post-hook ({0}, {1})\n",
                                           ADynTarget.BIdx, ADynTarget.FIdx);
 
-            const hook_t &hook = *state_for_function(callee).hook;
+            const hook_t &hook = *state.for_function(callee).hook;
 
             //
             // prepare arguments for post hook
@@ -8490,9 +8492,9 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
             // make the call
             //
             IRB.CreateCall(
-                state_for_function(callee).PostHook->getFunctionType(),
-                IRB.CreateIntToPtr(IRB.CreateLoad(state_for_function(callee).PostHookClunk),
-                                   state_for_function(callee).PostHook->getType()),
+                state.for_function(callee).PostHook->getFunctionType(),
+                IRB.CreateIntToPtr(IRB.CreateLoad(state.for_function(callee).PostHookClunk),
+                                   state.for_function(callee).PostHook->getType()),
                 HookArgVec);
           }
 
@@ -8730,7 +8732,7 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
 
       llvm::AllocaInst *&Ptr = GlobalAllocaArr.at(idx);
       if (!Ptr) {
-        llvm::IRBuilderTy tmpIRB(&state_for_function(f).F->getEntryBlock().front());
+        llvm::IRBuilderTy tmpIRB(&state.for_function(f).F->getEntryBlock().front());
 
         Ptr = CreateAllocaForGlobal(TC, tmpIRB, idx);
       }
@@ -8772,7 +8774,7 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
 
       llvm::AllocaInst *&Ptr = GlobalAllocaArr.at(idx);
       if (!Ptr) {
-        llvm::IRBuilderTy tmpIRB(&state_for_function(f).F->getEntryBlock().front());
+        llvm::IRBuilderTy tmpIRB(&state.for_function(f).F->getEntryBlock().front());
 
         Ptr = CreateAllocaForGlobal(TC, tmpIRB, idx);
       }
@@ -8801,7 +8803,7 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
         llvm::ConstantExpr::getPtrToInt(SectsGlobal, WordType()),
         llvm::ConstantExpr::getSub(
             llvm::ConstantInt::get(WordType(), A),
-            llvm::ConstantInt::get(WordType(), state_for_binary(Binary).SectsStartAddr)));
+            llvm::ConstantInt::get(WordType(), state.for_binary(Binary).SectsStartAddr)));
   };
 
   unsigned opc = op->opc;
@@ -9488,7 +9490,7 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
     assert(lblBB);                                                             \
     llvm::BasicBlock *fallthruBB = llvm::BasicBlock::Create(                   \
         *Context, (boost::format("l%lx_fallthru") % ICFG[bb].Addr).str(),      \
-        state_for_function(f).F);                                              \
+        state.for_function(f).F);                                              \
     IRB.CreateCondBr(V, lblBB, fallthruBB);                                    \
     IRB.SetInsertPoint(fallthruBB);                                            \
   } break;

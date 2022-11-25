@@ -188,7 +188,8 @@ int AddTool::Run(void) {
   if (fs::exists(opts.Output))
     ReadJvFromFile(opts.Output, jv);
 
-  state_for_binary(b).ObjectFile = std::move(BinRef);
+  state.update();
+  state.for_binary(b).ObjectFile = std::move(BinRef);
 
   b.IsDynamicLinker = false;
   b.IsExecutable = false;
@@ -302,8 +303,8 @@ int AddTool::Run(void) {
 
     b.Analysis.EntryFunction =
         explore_function(b, O, tcg, disas, EntryAddr,
-                         state_for_binary(b).fnmap,
-                         state_for_binary(b).bbmap);
+                         state.for_binary(b).fnmap,
+                         state.for_binary(b).bbmap);
   } else {
     b.Analysis.EntryFunction = invalid_function_index;
   }
@@ -641,8 +642,8 @@ int AddTool::Run(void) {
 #endif
 
     explore_basic_block(b, O, tcg, disas, Entrypoint,
-                        state_for_binary(b).fnmap,
-                        state_for_binary(b).bbmap);
+                        state.for_binary(b).fnmap,
+                        state.for_binary(b).bbmap);
   }
 
   for (tcg_uintptr_t Entrypoint : boost::adaptors::reverse(Known.FunctionEntrypoints)) {
@@ -651,8 +652,8 @@ int AddTool::Run(void) {
 #endif
 
     function_index_t FIdx = explore_function(b, O, tcg, disas, Entrypoint,
-                                             state_for_binary(b).fnmap,
-                                             state_for_binary(b).bbmap);
+                                             state.for_binary(b).fnmap,
+                                             state.for_binary(b).bbmap);
 
     if (!is_function_index_valid(FIdx))
       continue;
@@ -956,8 +957,8 @@ int AddTool::Run(void) {
         uint64_t A = P->p_vaddr + idx;
 
         basic_block_index_t BBIdx = explore_basic_block(b, O, tcg, disas, A,
-                                                        state_for_binary(b).fnmap,
-                                                        state_for_binary(b).bbmap);
+                                                        state.for_binary(b).fnmap,
+                                                        state.for_binary(b).bbmap);
         if (!is_basic_block_index_valid(BBIdx))
           continue;
 
@@ -1005,8 +1006,8 @@ int AddTool::Run(void) {
         uint64_t A = P->p_vaddr + idx;
 
         basic_block_index_t BBIdx = explore_basic_block(b, O, tcg, disas, A,
-                                                        state_for_binary(b).fnmap,
-                                                        state_for_binary(b).bbmap);
+                                                        state.for_binary(b).fnmap,
+                                                        state.for_binary(b).bbmap);
         if (!is_basic_block_index_valid(BBIdx))
           continue;
 

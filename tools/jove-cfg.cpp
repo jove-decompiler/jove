@@ -175,9 +175,9 @@ std::string CFGTool::disassemble_basic_block(const GraphTy &G,
 
   binary_t &binary = jv.Binaries[BinaryIndex];
 
-  TCG.set_binary(*state_for_binary(binary).ObjectFile);
+  TCG.set_binary(*state.for_binary(binary).ObjectFile);
 
-  const ELFF &E = *llvm::cast<ELFO>(state_for_binary(binary).ObjectFile.get())->getELFFile();
+  const ELFF &E = *llvm::cast<ELFO>(state.for_binary(binary).ObjectFile.get())->getELFFile();
 
   tcg_uintptr_t End = G[V].Addr + G[V].Size;
 
@@ -342,10 +342,10 @@ int CFGTool::Run(void) {
   {
     std::unique_ptr<obj::Binary> &BinRef = BinOrErr.get();
 
-    state_for_binary(binary).ObjectFile = std::move(BinRef);
+    state.for_binary(binary).ObjectFile = std::move(BinRef);
   }
 
-  obj::Binary *B = state_for_binary(binary).ObjectFile.get();
+  obj::Binary *B = state.for_binary(binary).ObjectFile.get();
   if (!llvm::isa<ELFO>(B)) {
     fprintf(stderr, "invalid binary\n");
     return 1;

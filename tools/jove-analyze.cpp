@@ -93,6 +93,7 @@ int AnalyzeTool::Run(void) {
   ReadJvFromFile(
       fs::is_directory(opts.jv) ? (opts.jv + "/jv.jv") : opts.jv,
       jv);
+  state.update();
 
   identify_ABIs(jv);
 
@@ -105,9 +106,8 @@ int AnalyzeTool::Run(void) {
     auto ExpectedBin = obj::createBinary(MemBuffRef);
     if (ExpectedBin) {
       std::unique_ptr<obj::Binary> &BinRef = *ExpectedBin;
-      state_for_binary(binary).ObjectFile = std::move(BinRef);
-
-      assert(llvm::isa<ELFO>(state_for_binary(binary).ObjectFile.get()));
+      state.for_binary(binary).ObjectFile = std::move(BinRef);
+      assert(llvm::isa<ELFO>(state.for_binary(binary).ObjectFile.get()));
     } else {
       std::string errorStr = llvm::toString(ExpectedBin.takeError());
       if (!binary.IsVDSO)
@@ -186,7 +186,7 @@ int AnalyzeTool::AnalyzeBlocks(void) {
       if (ICFG[bb].Analysis.Stale)
         ++cnt;
 
-      AnalyzeBasicBlock(*TCG, *Module, binary, *state_for_binary(binary).ObjectFile, bb);
+      AnalyzeBasicBlock(*TCG, *Module, binary, *state.for_binary(binary).ObjectFile, bb);
 
       assert(!ICFG[bb].Analysis.Stale);
     }
@@ -329,12 +329,12 @@ void AnalyzeTool::worker1(std::atomic<dynamic_target_t *> &Q_ptr,
     binary_t &b = jv.Binaries.at(X.first);
     function_t &f = function_of_target(X, jv);
 
-    basic_blocks_of_function(f, b, state_for_function(f).bbvec);
-    exit_basic_blocks_of_function(f, b, state_for_function(f).bbvec,
-                                  state_for_function(f).exit_bbvec);
+    basic_blocks_of_function(f, b, state.for_function(f).bbvec);
+    exit_basic_blocks_of_function(f, b, state.for_function(f).bbvec,
+                                  state.for_function(f).exit_bbvec);
 
-    state_for_function(f).IsLeaf =
-        IsLeafFunction(f, b, state_for_function(f).bbvec);
+    state.for_function(f).IsLeaf =
+        IsLeafFunction(f, b, state.for_function(f).bbvec);
   }
 }
 
@@ -343,7 +343,7 @@ void AnalyzeTool::worker2(std::atomic<dynamic_target_t *>& Q_ptr,
   for (dynamic_target_t *p = Q_ptr++; p < Q_end; p = Q_ptr++) {
     dynamic_target_t X = *p;
 
-    AnalyzeFunction(jv, *TCG, *Module, function_of_target(X, jv), [&](binary_t &b) -> llvm::object::Binary & { return *state_for_binary(b).ObjectFile; });
+    AnalyzeFunction(jv, *TCG, *Module, function_of_target(X, jv), [&](binary_t &b) -> llvm::object::Binary & { return *state.for_binary(b).ObjectFile; });
   }
 }
 

@@ -379,26 +379,30 @@ int RecompileTool::Run(void) {
     return 1;
   }
 
+#if 0
   llc_path = (boost::dll::program_location().parent_path().parent_path().parent_path() /
               "llvm-project" / "static_install" / "bin" / "llc").string();
   if (!fs::exists(llc_path)) {
     WithColor::error() << "could not find /usr/bin/llc\n";
     return 1;
   }
+#else
+  llc_path = (boost::dll::program_location().parent_path() / "llc").string();
+  if (!fs::exists(llc_path)) {
+    WithColor::error() << "could not find llc\n";
+    return 1;
+  }
+#endif
 
   llvm_dis_path =
-      (boost::dll::program_location().parent_path().parent_path().parent_path() /
-       "llvm-project" / "static_install" / "bin" / "llvm-dis")
-          .string();
+      (boost::dll::program_location().parent_path() / "llvm-dis").string();
   if (!fs::exists(llvm_dis_path)) {
     WithColor::error() << "could not find llvm-dis\n";
     return 1;
   }
 
-  // lld 9.0.1
   std::string lld_path =
-      (boost::dll::program_location().parent_path().parent_path().parent_path() /
-       "llvm-project" / "static_install" / "bin" / "ld.lld").string();
+      (boost::dll::program_location().parent_path() / "ld.lld").string();
 
   std::string ld_gold_path = "/usr/bin/ld.gold";
   std::string ld_bfd_path = "/usr/bin/ld.bfd";
@@ -424,11 +428,9 @@ int RecompileTool::Run(void) {
     return 1;
   }
 
-  opt_path = (boost::dll::program_location().parent_path().parent_path().parent_path() /
-              "llvm-project" / "static_install" / "bin" / "opt")
-                 .string();
+  opt_path = (boost::dll::program_location().parent_path() / "opt").string();
   if (!fs::exists(opt_path)) {
-    WithColor::error() << llvm::formatv("could not find {0}\n", opt_path);
+    WithColor::error() << llvm::formatv("could not find opt\n", opt_path);
     return 1;
   }
 
@@ -473,6 +475,7 @@ int RecompileTool::Run(void) {
   }
 
   ReadJvFromFile(opts.jv, jv);
+  state.update();
 
   if (Cancel) {
     WithColor::note() << "Canceled.\n";
@@ -506,7 +509,7 @@ int RecompileTool::Run(void) {
       return false;
     }
 
-    if (!dynamic_linking_info_of_binary(*Bin, state_for_binary(b).dynl)) {
+    if (!dynamic_linking_info_of_binary(*Bin, state.for_binary(b).dynl)) {
       WithColor::error() << llvm::formatv(
           "!dynamic_linking_info_of_binary({0})\n", b.Path.c_str());
       return 1;
@@ -565,13 +568,13 @@ int RecompileTool::Run(void) {
                                    fs::owner_write |
                                    fs::owner_exe);
 
-    if (!state_for_binary(b).dynl.soname.empty()) {
-      rtld_soname = state_for_binary(b).dynl.soname;
+    if (!state.for_binary(b).dynl.soname.empty()) {
+      rtld_soname = state.for_binary(b).dynl.soname;
 
       std::string binary_filename = fs::path(b.Path).filename().string();
 
-      if (binary_filename != state_for_binary(b).dynl.soname) {
-        fs::path dst = chrooted_path.parent_path() / state_for_binary(b).dynl.soname;
+      if (binary_filename != state.for_binary(b).dynl.soname) {
+        fs::path dst = chrooted_path.parent_path() / state.for_binary(b).dynl.soname;
 
         if (fs::exists(dst))
           fs::remove(dst);
@@ -682,8 +685,8 @@ int RecompileTool::Run(void) {
   for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
     binary_t &b = jv.Binaries[BIdx];
 
-    state_for_binary(b).dso = boost::add_vertex(dso_graph);
-    dso_graph[state_for_binary(b).dso].BIdx = BIdx;
+    state.for_binary(b).dso = boost::add_vertex(dso_graph);
+    dso_graph[state.for_binary(b).dso].BIdx = BIdx;
   }
 
   std::unordered_map<std::string, binary_index_t> soname_map;
@@ -691,24 +694,24 @@ int RecompileTool::Run(void) {
   for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
     binary_t &b = jv.Binaries[BIdx];
 
-    if (state_for_binary(b).dynl.soname.empty() && !b.IsExecutable) {
+    if (state.for_binary(b).dynl.soname.empty() && !b.IsExecutable) {
       soname_map.insert({fs::path(b.Path).filename().string(), BIdx}); /* XXX */
       continue;
     }
 
-    if (soname_map.find(state_for_binary(b).dynl.soname) != soname_map.end()) {
+    if (soname_map.find(state.for_binary(b).dynl.soname) != soname_map.end()) {
       WithColor::error() << llvm::formatv(
-          "same soname {0} occurs more than once\n", state_for_binary(b).dynl.soname);
+          "same soname {0} occurs more than once\n", state.for_binary(b).dynl.soname);
       continue;
     }
 
-    soname_map.insert({state_for_binary(b).dynl.soname, BIdx});
+    soname_map[state.for_binary(b).dynl.soname] = BIdx;
   }
 
   for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
     binary_t &b = jv.Binaries[BIdx];
 
-    for (const std::string &sonm : state_for_binary(b).dynl.needed) {
+    for (const std::string &sonm : state.for_binary(b).dynl.needed) {
       auto it = soname_map.find(sonm);
       if (it == soname_map.end()) {
         WithColor::warning() << llvm::formatv(
@@ -717,8 +720,8 @@ int RecompileTool::Run(void) {
       }
 
       boost::add_edge(
-          state_for_binary(b).dso,
-          state_for_binary(jv.Binaries[(*it).second]).dso,
+          state.for_binary(b).dso,
+          state.for_binary(jv.Binaries[(*it).second]).dso,
           dso_graph);
     }
   }
@@ -963,14 +966,14 @@ int RecompileTool::Run(void) {
                                    fs::owner_write |
                                    fs::owner_exe);
 
-    if (!state_for_binary(b).dynl.soname.empty()) {
+    if (!state.for_binary(b).dynl.soname.empty()) {
       std::string binary_filename = fs::path(b.Path).filename().string();
 
       //
       // create symlink
       //
-      if (binary_filename != state_for_binary(b).dynl.soname) {
-        fs::path dst = chrooted_path.parent_path() / state_for_binary(b).dynl.soname;
+      if (binary_filename != state.for_binary(b).dynl.soname) {
+        fs::path dst = chrooted_path.parent_path() / state.for_binary(b).dynl.soname;
         if (fs::exists(dst))
           fs::remove(dst);
 
@@ -1127,7 +1130,7 @@ int RecompileTool::Run(void) {
       std::unordered_set<std::string> lib_dirs({jove_bin_path, "/usr/lib"});
 #endif
 
-      for (std::string &needed : state_for_binary(b).dynl.needed) {
+      for (std::string &needed : state.for_binary(b).dynl.needed) {
         auto it = soname_map.find(needed);
         if (it == soname_map.end()) {
           WithColor::warning()
@@ -1155,7 +1158,7 @@ int RecompileTool::Run(void) {
         arg_vec.push_back("-lclang_rt.dfsan.jove-" TARGET_ARCH_NAME);
 
       const char *rtld_path = nullptr;
-      if (!state_for_binary(b).dynl.interp.empty()) {
+      if (!state.for_binary(b).dynl.interp.empty()) {
         for (binary_t &b : jv.Binaries) {
           if (b.IsDynamicLinker) {
             rtld_path = b.Path.c_str();
@@ -1168,9 +1171,9 @@ int RecompileTool::Run(void) {
         arg_vec.push_back(rtld_path);
       }
 
-      std::string soname_arg = std::string("-soname=") + state_for_binary(b).dynl.soname;
+      std::string soname_arg = std::string("-soname=") + state.for_binary(b).dynl.soname;
 
-      if (!state_for_binary(b).dynl.soname.empty())
+      if (!state.for_binary(b).dynl.soname.empty())
         arg_vec.push_back(soname_arg.c_str());
 
 #if 0
@@ -1183,7 +1186,7 @@ int RecompileTool::Run(void) {
 
       std::vector<std::string> needed_arg_vec;
 
-      for (const std::string &needed : state_for_binary(b).dynl.needed) {
+      for (const std::string &needed : state.for_binary(b).dynl.needed) {
 #if 0
         if (needed == rtld_soname)
           continue;
