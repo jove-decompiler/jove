@@ -100,8 +100,6 @@ class DecompileTool : public TransformerTool<binary_state_t> {
 
   binary_index_t SingleBinaryIndex = invalid_binary_index;
 
-  jv_t jv;
-
   std::string tmp_dir;
 
   std::string jove_dir, llvm_cbe_path, clang_path, lld_path, compiler_runtime_afp, jove_bc_fp, llc_path, opt_path;
