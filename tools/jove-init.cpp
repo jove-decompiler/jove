@@ -883,6 +883,16 @@ std::string program_interpreter_of_executable(const char *exepath) {
   return res;
 }
 
+static std::string read_file_into_string(char const *infile) {
+  std::ifstream instream(infile);
+  if (!instream.is_open()) {
+    throw std::runtime_error(std::string("Couldn't open file ") + infile);
+  }
+  instream.unsetf(std::ios::skipws); // No white space skipping!
+  return std::string(std::istreambuf_iterator<char>(instream.rdbuf()),
+                     std::istreambuf_iterator<char>());
+}
+
 std::pair<void *, unsigned> GetVDSO(void) {
   struct {
     void *first;
@@ -892,38 +902,48 @@ std::pair<void *, unsigned> GetVDSO(void) {
   res.first = nullptr;
   res.second = 0;
 
-  FILE *fp;
-  char *line = NULL;
-  size_t len = 0;
-  ssize_t read;
+  std::string maps = read_file_into_string("/proc/self/maps");
+  assert(!maps.empty());
 
-  fp = fopen("/proc/self/maps", "r");
-  assert(fp);
+  unsigned n = maps.size();
+  char *const beg = &maps[0];
+  char *const end = &maps[n];
 
-  while ((read = getline(&line, &len, fp)) != -1) {
-    int fields, dev_maj, dev_min, inode;
-    uint64_t min, max, offset;
-    char flag_r, flag_w, flag_x, flag_p;
-    char path[512] = "";
-    fields = sscanf(line,
-                    "%" PRIx64 "-%" PRIx64 " %c%c%c%c %" PRIx64 " %x:%x %d"
-                    " %512s",
-                    &min, &max, &flag_r, &flag_w, &flag_x, &flag_p, &offset,
-                    &dev_maj, &dev_min, &inode, path);
+  char *eol;
+  for (char *line = beg; line != end; line = eol + 1) {
+    unsigned left = n - (line - beg);
 
-    if ((fields < 10) || (fields > 11)) {
-      continue;
-    }
+    //
+    // find the end of the current line
+    //
+    eol = (char *)memchr(line, '\n', left);
 
-    if (strcmp(path, "[vdso]") == 0) {
+    //
+    // second hex address
+    //
+    if (eol[-1] == ']' &&
+        eol[-2] == 'o' &&
+        eol[-3] == 's' &&
+        eol[-4] == 'd' &&
+        eol[-5] == 'v' &&
+        eol[-6] == '[') {
+      char *const dash = (char *)memchr(line, '-', left);
+      assert(dash);
+
+      char *const space = (char *)memchr(line, ' ', left);
+      assert(space);
+
+      *dash = '\0';
+      uintptr_t min = strtoul(line, nullptr, 0x10);
+
+      *space = '\0';
+      uintptr_t max = strtoul(dash + 1, nullptr, 0x10);
+
       res.first = (void *)min;
       res.second = max - min;
       break;
     }
   }
-
-  free(line);
-  fclose(fp);
 
   return std::make_pair(res.first, res.second);
 }
