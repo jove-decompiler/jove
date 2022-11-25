@@ -4742,7 +4742,7 @@ void SignalHandler(int no) {
     //
     // write jv
     //
-    tool.WriteJvToFile(tool.jvfp, tool.jv);
+    WriteJvToFile(tool.jvfp, tool.jv);
 
     exit(0);
   }

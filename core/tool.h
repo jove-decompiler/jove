@@ -1,5 +1,5 @@
 #pragma once
-#include "jove/jove.h"
+#include "jv.h"
 #include <llvm/Support/CommandLine.h>
 #include <memory>
 #include <vector>
@@ -56,9 +56,6 @@ public:
     arg_vec.push_back(nullptr);
     print_command(&arg_vec[0]);
   }
-
-  void ReadJvFromFile(const std::string &path, jv_t &);
-  void WriteJvToFile(const std::string &path, const jv_t &);
 
   static std::string home_dir(void);
   static std::string jove_dir(void);
