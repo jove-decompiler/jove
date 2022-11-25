@@ -379,30 +379,25 @@ int RecompileTool::Run(void) {
     return 1;
   }
 
-#if 0
   llc_path = (boost::dll::program_location().parent_path().parent_path().parent_path() /
               "llvm-project" / "static_install" / "bin" / "llc").string();
   if (!fs::exists(llc_path)) {
     WithColor::error() << "could not find /usr/bin/llc\n";
     return 1;
   }
-#else
-  llc_path = (boost::dll::program_location().parent_path() / "llc").string();
-  if (!fs::exists(llc_path)) {
-    WithColor::error() << "could not find llc\n";
-    return 1;
-  }
-#endif
 
   llvm_dis_path =
-      (boost::dll::program_location().parent_path() / "llvm-dis").string();
+      (boost::dll::program_location().parent_path().parent_path().parent_path() /
+       "llvm-project" / "static_install" / "bin" / "llvm-dis")
+          .string();
   if (!fs::exists(llvm_dis_path)) {
     WithColor::error() << "could not find llvm-dis\n";
     return 1;
   }
 
   std::string lld_path =
-      (boost::dll::program_location().parent_path() / "ld.lld").string();
+      (boost::dll::program_location().parent_path().parent_path().parent_path() /
+       "llvm-project" / "static_install" / "bin" / "ld.lld").string();
 
   std::string ld_gold_path = "/usr/bin/ld.gold";
   std::string ld_bfd_path = "/usr/bin/ld.bfd";
@@ -428,9 +423,11 @@ int RecompileTool::Run(void) {
     return 1;
   }
 
-  opt_path = (boost::dll::program_location().parent_path() / "opt").string();
+  opt_path = (boost::dll::program_location().parent_path().parent_path().parent_path() /
+              "llvm-project" / "static_install" / "bin" / "opt")
+                 .string();
   if (!fs::exists(opt_path)) {
-    WithColor::error() << llvm::formatv("could not find opt\n", opt_path);
+    WithColor::error() << llvm::formatv("could not find {0}\n", opt_path);
     return 1;
   }
 
