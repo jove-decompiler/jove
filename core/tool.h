@@ -1,6 +1,9 @@
 #pragma once
 #include "jv.h"
+#include "util.h"
+
 #include <llvm/Support/CommandLine.h>
+
 #include <memory>
 #include <vector>
 #include <sys/wait.h>
@@ -61,15 +64,6 @@ public:
   static std::string jove_dir(void);
   static std::string path_to_jv(const char *exe_path);
   static std::string path_to_sysroot(const char *exe_path, bool ForeignLibs);
-  static void read_file_into_vector(const char *path, std::vector<uint8_t> &out);
-  static ssize_t robust_read(int fd, void *const buf, const size_t count);
-  static ssize_t robust_write(int fd, const void *const buf, const size_t count);
-  static uint32_t size_of_file32(const char *path);
-  static ssize_t robust_sendfile(int socket, const char *file_path, size_t file_size);
-  static ssize_t robust_sendfile_with_size(int socket, const char *file_path);
-  static ssize_t robust_receive_file_with_size(int socket, const char *out, unsigned file_perm);
-
-  static unsigned num_cpus(void);
 };
 
 typedef Tool *(*ToolCreationProc)(void);

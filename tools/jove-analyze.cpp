@@ -218,8 +218,6 @@ static void worker2(std::atomic<dynamic_target_t *> &Q_ptr,
                     dynamic_target_t *const Q_end);
 #endif
 
-static unsigned num_cpus(void);
-
 int AnalyzeTool::AnalyzeFunctions(void) {
   // let N be the count of all functions (in all binaries)
   unsigned N = std::accumulate(
@@ -345,17 +343,6 @@ void AnalyzeTool::worker2(std::atomic<dynamic_target_t *>& Q_ptr,
 
     AnalyzeFunction(jv, *TCG, *Module, function_of_target(X, jv), [&](binary_t &b) -> llvm::object::Binary & { return *state.for_binary(b).ObjectFile; });
   }
-}
-
-unsigned num_cpus(void) {
-  cpu_set_t cpu_mask;
-  if (sched_getaffinity(0, sizeof(cpu_mask), &cpu_mask) < 0) {
-    WithColor::error() << "sched_getaffinity failed : " << strerror(errno)
-                       << '\n';
-    abort();
-  }
-
-  return CPU_COUNT(&cpu_mask);
 }
 
 int AnalyzeTool::WriteDecompilation(void) {

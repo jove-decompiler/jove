@@ -1215,16 +1215,16 @@ void *recover_proc(const char *fifo_path) {
         {
           ssize_t ret;
 
-          ret = Tool::robust_read(recover_fd, &Caller.BIdx, sizeof(uint32_t));
+          ret = robust_read(recover_fd, &Caller.BIdx, sizeof(uint32_t));
           assert(ret == sizeof(uint32_t));
 
-          ret = Tool::robust_read(recover_fd, &Caller.BBIdx, sizeof(uint32_t));
+          ret = robust_read(recover_fd, &Caller.BBIdx, sizeof(uint32_t));
           assert(ret == sizeof(uint32_t));
 
-          ret = Tool::robust_read(recover_fd, &Callee.BIdx, sizeof(uint32_t));
+          ret = robust_read(recover_fd, &Callee.BIdx, sizeof(uint32_t));
           assert(ret == sizeof(uint32_t));
 
-          ret = Tool::robust_read(recover_fd, &Callee.FIdx, sizeof(uint32_t));
+          ret = robust_read(recover_fd, &Callee.FIdx, sizeof(uint32_t));
           assert(ret == sizeof(uint32_t));
         }
 
@@ -1243,13 +1243,13 @@ void *recover_proc(const char *fifo_path) {
         {
           ssize_t ret;
 
-          ret = Tool::robust_read(recover_fd, &IndBr.BIdx, sizeof(uint32_t));
+          ret = robust_read(recover_fd, &IndBr.BIdx, sizeof(uint32_t));
           assert(ret == sizeof(uint32_t));
 
-          ret = Tool::robust_read(recover_fd, &IndBr.BBIdx, sizeof(uint32_t));
+          ret = robust_read(recover_fd, &IndBr.BBIdx, sizeof(uint32_t));
           assert(ret == sizeof(uint32_t));
 
-          ret = Tool::robust_read(recover_fd, &Addr, sizeof(uintptr_t));
+          ret = robust_read(recover_fd, &Addr, sizeof(uintptr_t));
           assert(ret == sizeof(uintptr_t));
         }
 
@@ -1270,16 +1270,16 @@ void *recover_proc(const char *fifo_path) {
         {
           ssize_t ret;
 
-          ret = Tool::robust_read(recover_fd, &IndCall.BIdx, sizeof(uint32_t));
+          ret = robust_read(recover_fd, &IndCall.BIdx, sizeof(uint32_t));
           assert(ret == sizeof(uint32_t));
 
-          ret = Tool::robust_read(recover_fd, &IndCall.BBIdx, sizeof(uint32_t));
+          ret = robust_read(recover_fd, &IndCall.BBIdx, sizeof(uint32_t));
           assert(ret == sizeof(uint32_t));
 
-          ret = Tool::robust_read(recover_fd, &Callee.BIdx, sizeof(uint32_t));
+          ret = robust_read(recover_fd, &Callee.BIdx, sizeof(uint32_t));
           assert(ret == sizeof(uint32_t));
 
-          ret = Tool::robust_read(recover_fd, &Callee.Addr, sizeof(uintptr_t));
+          ret = robust_read(recover_fd, &Callee.Addr, sizeof(uintptr_t));
           assert(ret == sizeof(uintptr_t));
         }
 
@@ -1296,10 +1296,10 @@ void *recover_proc(const char *fifo_path) {
         {
           ssize_t ret;
 
-          ret = Tool::robust_read(recover_fd, &NewABI.BIdx, sizeof(uint32_t));
+          ret = robust_read(recover_fd, &NewABI.BIdx, sizeof(uint32_t));
           assert(ret == sizeof(uint32_t));
 
-          ret = Tool::robust_read(recover_fd, &NewABI.FIdx, sizeof(uint32_t));
+          ret = robust_read(recover_fd, &NewABI.FIdx, sizeof(uint32_t));
           assert(ret == sizeof(uint32_t));
         }
 
@@ -1314,10 +1314,10 @@ void *recover_proc(const char *fifo_path) {
         {
           ssize_t ret;
 
-          ret = Tool::robust_read(recover_fd, &Call.BIdx, sizeof(uint32_t));
+          ret = robust_read(recover_fd, &Call.BIdx, sizeof(uint32_t));
           assert(ret == sizeof(uint32_t));
 
-          ret = Tool::robust_read(recover_fd, &Call.BBIdx, sizeof(uint32_t));
+          ret = robust_read(recover_fd, &Call.BBIdx, sizeof(uint32_t));
           assert(ret == sizeof(uint32_t));
         }
 
