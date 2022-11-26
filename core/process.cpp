@@ -1,5 +1,6 @@
 #include "process.h"
 
+#include <cassert>
 #include <cstring>
 #include <stdexcept>
 #include <string>
@@ -7,10 +8,8 @@
 namespace jove {
 
 int WaitForProcessToExit(pid_t pid) {
-  int res = 1;
-
-  int wstatus = 0;
-  do {
+  for (;;) {
+    int wstatus = 0;
     if (::waitpid(pid, &wstatus, WUNTRACED | WCONTINUED) == -1) {
       int err = errno;
 
@@ -18,7 +17,7 @@ int WaitForProcessToExit(pid_t pid) {
         continue;
 
       if (err == ECHILD)
-        break;
+        return 0;
 
       throw std::runtime_error(
           std::string("WaitForProcessToExit: waitpid failed: ") +
@@ -26,17 +25,15 @@ int WaitForProcessToExit(pid_t pid) {
     }
 
     if (WIFEXITED(wstatus)) {
-      res = WEXITSTATUS(wstatus);
+      return WEXITSTATUS(wstatus);
     } else if (WIFSIGNALED(wstatus)) {
-      ;
-    } else if (WIFSTOPPED(wstatus)) {
-      ;
-    } else if (WIFCONTINUED(wstatus)) {
-      ;
+      return 1;
+    } else {
+      assert(WIFSTOPPED(wstatus) || WIFCONTINUED(wstatus));
     }
-  } while (!WIFEXITED(wstatus) && !WIFSIGNALED(wstatus));
+  }
 
-  return res;
+  abort();
 }
 
 }
