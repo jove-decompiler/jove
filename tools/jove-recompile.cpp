@@ -486,26 +486,7 @@ int RecompileTool::Run(void) {
     if (b.IsVDSO)
       continue;
 
-    llvm::StringRef Buffer(reinterpret_cast<const char *>(&b.Data[0]),
-                           b.Data.size());
-    llvm::StringRef Identifier(b.Path);
-    llvm::MemoryBufferRef MemBuffRef(Buffer, Identifier);
-
-    llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
-        obj::createBinary(MemBuffRef);
-
-    if (!BinOrErr) {
-      WithColor::error() << "failed to create binary from" << b.Path << '\n';
-      return false;
-    }
-
-    std::unique_ptr<obj::Binary> &Bin = BinOrErr.get();
-
-    if (!llvm::isa<ELFO>(Bin.get())) {
-      WithColor::error() << "is not ELF of expected type\n";
-      return false;
-    }
-
+    auto Bin = CreateBinary(b.Data);
     if (!dynamic_linking_info_of_binary(*Bin, state.for_binary(b).dynl)) {
       WithColor::error() << llvm::formatv(
           "!dynamic_linking_info_of_binary({0})\n", b.Path.c_str());
@@ -1063,20 +1044,10 @@ int RecompileTool::Run(void) {
           //arg_vec.push_back("-z");
           //arg_vec.push_back("nocopyreloc");
 
-          llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
-              obj::createBinary(llvm::MemoryBufferRef(
-                  llvm::StringRef(reinterpret_cast<const char *>(&b.Data[0]),
-                                  b.Data.size()),
-                  b.Path));
-          if (!BinOrErr) {
-            WithColor::error() << "failed to parse binary " << b.Path << '\n';
-            return 1;
-          }
-
-          std::unique_ptr<obj::Binary> &BinRef = BinOrErr.get();
+          std::unique_ptr<obj::Binary> Bin = CreateBinary(b.Data);
 
           uint64_t Base, End;
-          std::tie(Base, End) = bounds_of_binary(*BinRef);
+          std::tie(Base, End) = bounds_of_binary(*Bin);
 
           arg_vec.push_back("--section-start");
           _arg1 = (fmt(".jove=0x%lx") % Base).str();

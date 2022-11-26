@@ -101,15 +101,9 @@ int TCGDumpTool::Run(void) {
   jove::tiny_code_generator_t tcg;
   disas_t disas;
 
-  llvm::Expected<obj::OwningBinary<obj::Binary>> BinaryOrErr =
-      obj::createBinary(opts.Binary);
+  auto BinPair = CreateBinaryFromFile(opts.Binary.c_str());
 
-  if (!BinaryOrErr) {
-    HumanOut() << llvm::formatv("failed to open {0}\n", opts.Binary);
-    return 1;
-  }
-
-  obj::Binary *B = BinaryOrErr.get().getBinary();
+  obj::Binary *B = BinPair.getBinary();
   if (!llvm::isa<ELFO>(B)) {
     HumanOut() << "invalid binary\n";
     return 1;

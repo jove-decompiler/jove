@@ -130,25 +130,16 @@ int AddTool::Run(void) {
   }
 
   tiny_code_generator_t tcg;
-
   disas_t disas;
 
-  llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> FileOrErr =
-      llvm::MemoryBuffer::getFileOrSTDIN(opts.Input);
-
-  if (std::error_code EC = FileOrErr.getError()) {
-    WithColor::error() << "failed to open " << opts.Input << '\n';
-    return 1;
-  }
-
-  std::unique_ptr<llvm::MemoryBuffer> &Buffer = FileOrErr.get();
-
-  llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
-      obj::createBinary(Buffer->getMemBufferRef());
-
   binary_t &b = jv.Binaries.emplace_back();
+  state.update();
 
-  if (!BinOrErr) {
+  read_file_into_a_string(opts.Input.c_str(), b.Data);
+
+  try {
+    state.for_binary(b).ObjectFile = CreateBinary(b.Data);
+  } catch (const std::exception &) {
     //
     // interpret as a raw stream of instructions
     //
@@ -161,8 +152,6 @@ int AddTool::Run(void) {
       b.IsDynamicallyLoaded = false;
 
       b.Path = fs::canonical(opts.Input).string();
-      b.Data.resize(Buffer->getBufferSize());
-      memcpy(&b.Data[0], Buffer->getBufferStart(), b.Data.size());
     }
 
     IgnoreCtrlC(); /* user probably doesn't want to interrupt the following */
@@ -172,24 +161,12 @@ int AddTool::Run(void) {
     return 0;
   }
 
-  std::unique_ptr<obj::Binary> &BinRef = BinOrErr.get();
-
-  if (!llvm::isa<ELFO>(BinRef.get())) {
+  if (!llvm::isa<ELFO>(state.for_binary(b).ObjectFile.get())) {
     WithColor::error() << "is not ELF of expected type\n";
     return 1;
   }
 
-  ELFO &O = *llvm::cast<ELFO>(BinRef.get());
-
-  //
-  // initialize the jv of the given binary by exploring every defined
-  // exported function
-  //
-  if (fs::exists(opts.Output))
-    ReadJvFromFile(opts.Output, jv);
-
-  state.update();
-  state.for_binary(b).ObjectFile = std::move(BinRef);
+  ELFO &O = *llvm::cast<ELFO>(state.for_binary(b).ObjectFile.get());
 
   b.IsDynamicLinker = false;
   b.IsExecutable = false;
@@ -199,8 +176,6 @@ int AddTool::Run(void) {
   b.IsDynamicallyLoaded = false;
 
   b.Path = fs::canonical(opts.Input).string();
-  b.Data.resize(Buffer->getBufferSize());
-  memcpy(&b.Data[0], Buffer->getBufferStart(), b.Data.size());
 
   const ELFF &E = *O.getELFFile();
 
@@ -361,35 +336,16 @@ int AddTool::Run(void) {
       WithColor::note() << llvm::formatv("found split debug info file {0}\n",
                                          splitDbgInfo.c_str());
 
-      llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> FileOrErr =
-          llvm::MemoryBuffer::getFileOrSTDIN(splitDbgInfo.c_str());
+      auto splitBinPair = CreateBinaryFromFile(splitDbgInfo.c_str());
 
-      if (std::error_code EC = FileOrErr.getError()) {
-        WithColor::error() << "failed to open debug info file " << opts.Input
-                           << '\n';
-        return 1;
-      }
+      obj::Binary *splitB = splitBinPair.getBinary();
 
-      std::unique_ptr<llvm::MemoryBuffer> &Buffer = FileOrErr.get();
-
-      llvm::Expected<std::unique_ptr<obj::Binary>> split_BinOrErr =
-          obj::createBinary(Buffer->getMemBufferRef());
-
-      if (!split_BinOrErr) {
-        WithColor::error() << "failed to create binary from split debug info "
-                           << splitDbgInfo.c_str() << '\n';
-        return 1;
-      }
-
-      std::unique_ptr<obj::Binary> &split_Bin = split_BinOrErr.get();
-
-      if (!llvm::isa<ELFO>(split_Bin.get())) {
+      if (!llvm::isa<ELFO>(splitB)) {
         WithColor::error() << "split debug info is not ELF of expected type\n";
         return 1;
       }
 
-      ELFO &split_O = *llvm::cast<ELFO>(split_Bin.get());
-
+      ELFO &split_O = *llvm::cast<ELFO>(splitB);
       const ELFF &split_E = *split_O.getELFFile();
 
       //

@@ -12,7 +12,8 @@
 
 namespace jove {
 
-void read_file_into_vector(const char *path, std::vector<uint8_t> &out) {
+template <typename T>
+static void read_file_into_thing(const char *path, T &out) {
   std::ifstream ifs(path);
   if (!ifs.is_open())
     throw std::runtime_error("read_file_into_vector: failed to open " +
@@ -23,6 +24,14 @@ void read_file_into_vector(const char *path, std::vector<uint8_t> &out) {
   ifs.seekg(0);
 
   ifs.read(reinterpret_cast<char *>(&out[0]), out.size());
+}
+
+void read_file_into_vector(const char *path, std::vector<uint8_t> &out) {
+  read_file_into_thing<std::vector<uint8_t>>(path, out);
+}
+
+void read_file_into_a_string(const char *path, std::string &out) {
+  read_file_into_thing<std::string>(path, out);
 }
 
 uint64_t size_of_file(const char *path) {

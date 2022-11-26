@@ -61,6 +61,10 @@ typedef typename ELFT::Versym Elf_Versym;
 typedef typename ELFT::Word Elf_Word;
 typedef typename ELFT::uint uintX_t;
 
+std::unique_ptr<llvm::object::Binary> CreateBinary(llvm::StringRef Data);
+llvm::object::OwningBinary<llvm::object::Binary>
+CreateBinaryFromFile(const char *path);
+
 /// Represents a contiguous uniform range in the file. We cannot just create a
 /// range directly because when creating one of these from the .dynamic table
 /// the size, entity size and virtual address are different entries in arbitrary

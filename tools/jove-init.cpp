@@ -853,16 +853,9 @@ found:
 std::string program_interpreter_of_executable(const char *exepath) {
   std::string res;
 
-  llvm::Expected<obj::OwningBinary<obj::Binary>> BinaryOrErr =
-      obj::createBinary(exepath);
+  auto BinPair = CreateBinaryFromFile(exepath);
 
-  if (!BinaryOrErr) {
-    WithColor::error() << llvm::formatv("{0}: failed to open {1}\n", __func__,
-                                        exepath);
-    return res;
-  }
-
-  obj::Binary *B = BinaryOrErr.get().getBinary();
+  obj::Binary *B = BinPair.getBinary();
   if (!llvm::isa<ELFO>(B)) {
     WithColor::error() << llvm::formatv("{0}: invalid binary\n", __func__);
     return res;

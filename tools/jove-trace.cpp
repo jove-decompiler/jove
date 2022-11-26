@@ -613,30 +613,10 @@ skip_uprobe:
 }
 
 void TraceTool::InitStateForBinaries(jv_t &jv) {
-  for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
-    auto &binary = jv.Binaries[BIdx];
-    auto &ICFG = binary.Analysis.ICFG;
-
-    //
-    // parse the ELF
-    //
-    llvm::StringRef Buffer(reinterpret_cast<const char *>(&binary.Data[0]),
-                           binary.Data.size());
-    llvm::StringRef Identifier(binary.Path);
-    llvm::MemoryBufferRef MemBuffRef(Buffer, Identifier);
-
-    llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
-        obj::createBinary(MemBuffRef);
-    if (!BinOrErr) {
-      if (!binary.IsVDSO)
-        WithColor::error() << "failed to create binary from " << binary.Path
-                           << '\n';
-    } else {
-      std::unique_ptr<obj::Binary> &BinRef = BinOrErr.get();
-
-      state.for_binary(binary).ObjectFile = std::move(BinRef);
-    }
-  }
+  for_each_binary(jv, [&](binary_t &binary) {
+    ignore_exception([&]() {
+      state.for_binary(binary).ObjectFile = CreateBinary(binary.Data);
+    });
+  });
 }
-
 }

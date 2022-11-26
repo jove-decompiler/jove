@@ -215,19 +215,8 @@ int DecompileTool::Run(void) {
     if (binary.IsVDSO)
       return;
 
-    llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
-        obj::createBinary(llvm::MemoryBufferRef(
-            llvm::StringRef(reinterpret_cast<const char *>(&binary.Data[0]),
-                            binary.Data.size()),
-            binary.Path));
-    if (!BinOrErr) {
-      WithColor::error() << "failed to parse binary " << binary.Path << '\n';
-      return;
-    }
-
     auto &binary_state = state.for_binary(binary);
-    binary_state.Bin = std::move(BinOrErr.get());
-
+    binary_state.Bin = std::move(CreateBinary(binary.Data));
     dynamic_linking_info_of_binary(*binary_state.Bin, binary_state.dynl);
   });
 

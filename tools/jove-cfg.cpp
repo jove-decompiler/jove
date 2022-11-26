@@ -326,24 +326,7 @@ int CFGTool::Run(void) {
   //
   // initialize state associated with binary
   //
-  llvm::StringRef Buffer(reinterpret_cast<const char *>(&binary.Data[0]),
-                         binary.Data.size());
-  llvm::StringRef Identifier(binary.Path);
-  llvm::MemoryBufferRef MemBuffRef(Buffer, Identifier);
-
-  llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
-      obj::createBinary(MemBuffRef);
-
-  if (!BinOrErr) {
-    fprintf(stderr, "failed to open %s\n", opts.Binary.c_str());
-    return 1;
-  }
-
-  {
-    std::unique_ptr<obj::Binary> &BinRef = BinOrErr.get();
-
-    state.for_binary(binary).ObjectFile = std::move(BinRef);
-  }
+  state.for_binary(binary).ObjectFile = CreateBinary(binary.Data);
 
   obj::Binary *B = state.for_binary(binary).ObjectFile.get();
   if (!llvm::isa<ELFO>(B)) {

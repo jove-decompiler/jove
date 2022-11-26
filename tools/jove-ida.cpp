@@ -204,15 +204,13 @@ int IDATool::Run(void) {
   symbolizer_t symbolizer;
 
   auto process_binary = [&](binary_t &binary) -> void {
-    llvm::StringRef Buffer(reinterpret_cast<char *>(&binary.Data[0]),
-                           binary.Data.size());
-    llvm::StringRef Identifier(binary.Path);
+    std::unique_ptr<obj::Binary> Bin;
 
-    llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
-        obj::createBinary(llvm::MemoryBufferRef(Buffer, Identifier));
-
-    if (!BinOrErr)
+    try {
+      Bin = CreateBinary(binary.Data);
+    } catch (const std::exception &) {
       return;
+    }
 
     binary_index_t BIdx = index_of_binary(binary, jv);
 
@@ -222,12 +220,9 @@ int IDATool::Run(void) {
     fs::path flowgraphs_dir = tmp_dir / std::to_string(BIdx);
     fs::create_directories(flowgraphs_dir);
 
-
     //
     // hide split debug information from IDA Pro (XXX HACK)
     //
-    std::unique_ptr<obj::Binary> &Bin = BinOrErr.get();
-
     if (!llvm::isa<ELFO>(Bin.get())) {
       HumanOut() << "is not ELF of expected type\n";
       return;
@@ -376,12 +371,12 @@ int IDATool::Run(void) {
         //
         try {
           basic_block_index_t BBIdx = explore_basic_block(
-              binary, *BinOrErr.get(), tcg, dis, entry_addr, fnmap, bbmap);
+              binary, *Bin, tcg, dis, entry_addr, fnmap, bbmap);
 
           if (!is_basic_block_index_valid(BBIdx))
             throw std::runtime_error(std::string());
 
-          explore_function(binary, *BinOrErr.get(), tcg, dis, entry_addr, fnmap, bbmap);
+          explore_function(binary, *Bin, tcg, dis, entry_addr, fnmap, bbmap);
         } catch (const std::exception &) {
           if (opts.Verbose)
             WithColor::warning() << llvm::formatv(
@@ -413,7 +408,7 @@ int IDATool::Run(void) {
         uint64_t node_addr = flowgraph[node].start_ea;
         try {
           basic_block_index_t BBIdx = explore_basic_block(
-              binary, *BinOrErr.get(), tcg, dis, node_addr, fnmap, bbmap);
+              binary, *Bin, tcg, dis, node_addr, fnmap, bbmap);
 
           if (!is_basic_block_index_valid(BBIdx))
             throw std::runtime_error(std::string());
@@ -643,7 +638,6 @@ int IDATool::Run(void) {
       process_flowgraph(binary, flowgraph);
     }
   };
-
 
   if (is_binary_index_valid(SingleBinaryIndex))
     process_binary(jv.Binaries.at(SingleBinaryIndex));

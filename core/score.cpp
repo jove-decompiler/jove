@@ -10,22 +10,13 @@ typedef boost::format fmt;
 
 double compute_score(const jv_t &jv,
                      const binary_t &binary) {
-  llvm::StringRef Buffer(reinterpret_cast<const char *>(&binary.Data[0]),
-                         binary.Data.size());
-  llvm::StringRef Identifier(binary.Path);
+  auto Bin = CreateBinary(binary.Data);
 
-  llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
-      obj::createBinary(llvm::MemoryBufferRef(Buffer, Identifier));
-  if (!BinOrErr)
-    throw std::runtime_error("failed to create binary from " + binary.Path);
-
-  std::unique_ptr<obj::Binary> &BinRef = BinOrErr.get();
-
-  if (!llvm::isa<ELFO>(BinRef.get()))
+  if (!llvm::isa<ELFO>(Bin.get()))
     throw std::runtime_error(binary.Path + " is not ELF of expected type\n");
 
-  assert(llvm::isa<ELFO>(BinRef.get()));
-  const ELFO &O = *llvm::cast<ELFO>(BinRef.get());
+  assert(llvm::isa<ELFO>(Bin.get()));
+  const ELFO &O = *llvm::cast<ELFO>(Bin.get());
   const ELFF &E = *O.getELFFile();
 
   llvm::SmallVector<const Elf_Phdr *, 4> LoadSegments;

@@ -1,23 +1,50 @@
 #include "elf.h"
+
+#include <stdexcept>
+
 #include <llvm/Support/WithColor.h>
 #include <llvm/Support/FormatVariadic.h>
 
 namespace jove {
 
-template <class T>
-static T unwrapOrError(llvm::Expected<T> EO) {
-  if (EO)
-    return *EO;
+std::unique_ptr<llvm::object::Binary> CreateBinary(llvm::StringRef Data) {
+  llvm::Expected<std::unique_ptr<llvm::object::Binary>> BinOrErr =
+      llvm::object::createBinary(llvm::MemoryBufferRef(Data, ""));
 
-  std::string Buf;
-  {
-    llvm::raw_string_ostream OS(Buf);
-    llvm::logAllUnhandledErrors(EO.takeError(), OS, "");
-  }
-  llvm::WithColor::error() << Buf << '\n';
-  abort();
+  if (!BinOrErr)
+    throw std::runtime_error("CreateBinary failed: " +
+                             llvm::toString(BinOrErr.takeError()));
+
+  return std::move(*BinOrErr);
 }
 
+llvm::object::OwningBinary<llvm::object::Binary>
+CreateBinaryFromFile(const char *path) {
+  llvm::Expected<llvm::object::OwningBinary<llvm::object::Binary>> BinOrErr =
+      llvm::object::createBinary(path);
+
+  if (!BinOrErr)
+    throw std::runtime_error("CreateBinaryFromFile failed: " +
+                             llvm::toString(BinOrErr.takeError()));
+
+  return std::move(*BinOrErr);
+}
+
+template <typename T>
+static T unwrapOrError(llvm::Expected<T> ValOrErr) {
+  if (ValOrErr)
+    return std::move(*ValOrErr);
+
+  auto E = ValOrErr.takeError();
+
+  std::string ErrorStr;
+  {
+    llvm::raw_string_ostream OS(ErrorStr);
+    OS << E;
+  }
+
+  throw std::runtime_error(ErrorStr);
+}
 
 llvm::Optional<llvm::ArrayRef<uint8_t>> getBuildID(const ELFF &Obj) {
   auto PhdrsOrErr = Obj.program_headers();

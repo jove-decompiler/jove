@@ -2278,7 +2278,9 @@ void LLVMTool::DumpModule(const char *suffix) {
 
 int LLVMTool::InitStateForBinaries(void) {
   for_each_binary(jv, [&](binary_t &binary) {
-    construct_fnmap(jv, binary, state.for_binary(binary).fnmap);
+    binary_state_t &x = state.for_binary(binary);
+
+    construct_fnmap(jv, binary, x.fnmap);
 
     auto &ICFG = binary.Analysis.ICFG;
 
@@ -2286,78 +2288,62 @@ int LLVMTool::InitStateForBinaries(void) {
       if (!is_basic_block_index_valid(f.Entry))
         return;
 
-      basic_blocks_of_function(f, binary, state.for_function(f).bbvec);
-      exit_basic_blocks_of_function(f, binary, state.for_function(f).bbvec, state.for_function(f).exit_bbvec);
+      function_state_t &y = state.for_function(f);
 
-      state.for_function(f).IsLeaf = IsLeafFunction(f, binary, state.for_function(f).bbvec);
+      basic_blocks_of_function(f, binary, y.bbvec);
+      exit_basic_blocks_of_function(f, binary, y.bbvec, y.exit_bbvec);
 
-      state.for_function(f).IsSj = IsFunctionSetjmp(f, binary, state.for_function(f).bbvec);
-      state.for_function(f).IsLj = IsFunctionLongjmp(f, binary, state.for_function(f).bbvec);
+      y.IsLeaf = IsLeafFunction(f, binary, y.bbvec);
 
-      if (state.for_function(f).IsSj)
+      y.IsSj = IsFunctionSetjmp(f, binary, y.bbvec);
+      y.IsLj = IsFunctionLongjmp(f, binary, y.bbvec);
+
+      if (y.IsSj)
         llvm::outs() << llvm::formatv("setjmp found at {0:x} in {1}\n",
                                       ICFG[boost::vertex(f.Entry, ICFG)].Addr,
                                       fs::path(binary.Path).filename().string());
 
-      if (state.for_function(f).IsLj)
+      if (y.IsLj)
         llvm::outs() << llvm::formatv("longjmp found at {0:x} in {1}\n",
                                       ICFG[boost::vertex(f.Entry, ICFG)].Addr,
                                       fs::path(binary.Path).filename().string());
     });
 
-    //
-    // parse the ELF
-    //
-    llvm::StringRef Buffer(reinterpret_cast<const char *>(&binary.Data[0]),
-                           binary.Data.size());
-    llvm::StringRef Identifier(binary.Path);
-    llvm::MemoryBufferRef MemBuffRef(Buffer, Identifier);
+    ignore_exception([&]() {
+      x.ObjectFile = CreateBinary(binary.Data);
 
-    auto ExpectedBin = obj::createBinary(MemBuffRef);
-    if (!ExpectedBin) {
-      std::string errorStr = llvm::toString(ExpectedBin.takeError());
-      if (!binary.IsVDSO)
-        WithColor::error() << llvm::formatv(
-            "failed to create binary from {0}: {1}\n", binary.Path, errorStr);
-    } else {
-      std::unique_ptr<obj::Binary> &BinRef = *ExpectedBin;
-
-      binary_state_t &_state = state.for_binary(binary);
-
-      _state.ObjectFile = std::move(BinRef);
-
-      auto &SectsStartAddr = _state.SectsStartAddr;
-      auto &SectsEndAddr   = _state.SectsEndAddr;
-      std::tie(SectsStartAddr, SectsEndAddr) = bounds_of_binary(*_state.ObjectFile);
+      auto &SectsStartAddr = x.SectsStartAddr;
+      auto &SectsEndAddr   = x.SectsEndAddr;
+      std::tie(SectsStartAddr, SectsEndAddr) = bounds_of_binary(*x.ObjectFile);
 
       WithColor::note() << llvm::formatv("SectsStartAddr for {0} is {1:x}\n",
                                          binary.Path,
                                          SectsStartAddr);
 
-      assert(llvm::isa<ELFO>(_state.ObjectFile.get()));
-      ELFO &O = *llvm::cast<ELFO>(_state.ObjectFile.get());
+      assert(llvm::isa<ELFO>(x.ObjectFile.get()));
+      ELFO &O = *llvm::cast<ELFO>(x.ObjectFile.get());
 
       const ELFF &E = *O.getELFFile();
 
-      loadDynamicTable(&E, &O, _state._elf.DynamicTable);
+      loadDynamicTable(&E, &O, x._elf.DynamicTable);
 
-      if (_state._elf.DynamicTable.Addr) {
-        _state._elf.OptionalDynSymRegion =
+      if (x._elf.DynamicTable.Addr) {
+        x._elf.OptionalDynSymRegion =
             loadDynamicSymbols(&E, &O,
-                               _state._elf.DynamicTable,
-                               _state._elf.DynamicStringTable,
-                               _state._elf.SymbolVersionSection,
-                               _state._elf.VersionMap);
+                               x._elf.DynamicTable,
+                               x._elf.DynamicStringTable,
+                               x._elf.SymbolVersionSection,
+                               x._elf.VersionMap);
 
         if (index_of_binary(binary, jv) == BinaryIndex)
           loadDynamicRelocations(&E, &O,
-                                 _state._elf.DynamicTable,
-                                 _state._elf.DynRelRegion,
-                                 _state._elf.DynRelaRegion,
-                                 _state._elf.DynRelrRegion,
-                                 _state._elf.DynPLTRelRegion);
+                                 x._elf.DynamicTable,
+                                 x._elf.DynRelRegion,
+                                 x._elf.DynRelaRegion,
+                                 x._elf.DynRelrRegion,
+                                 x._elf.DynPLTRelRegion);
       }
-    }
+    });
   });
 
   return 0;

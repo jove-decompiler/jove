@@ -1200,29 +1200,10 @@ skip_run:
 }
 
 std::string LoopTool::soname_of_binary(binary_t &b) {
-  //
-  // parse the ELF
-  //
-  llvm::StringRef Buffer(reinterpret_cast<const char *>(&b.Data[0]),
-                         b.Data.size());
-  llvm::StringRef Identifier(b.Path);
-  llvm::MemoryBufferRef MemBuffRef(Buffer, Identifier);
-
-  llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
-      obj::createBinary(MemBuffRef);
-
-  std::string res;
-
-  if (!BinOrErr) {
-    HumanOut() << "failed to create binary from" << b.Path << '\n';
-    return res;
-  }
-
-  std::unique_ptr<obj::Binary> &Bin = BinOrErr.get();
-
+  auto Bin = CreateBinary(b.Data);
   if (!llvm::isa<ELFO>(Bin.get())) {
     HumanOut() << "is not ELF of expected type\n";
-    return res;
+    return "";
   }
 
   ELFO &O = *llvm::cast<ELFO>(Bin.get());
@@ -1237,7 +1218,7 @@ std::string LoopTool::soname_of_binary(binary_t &b) {
   };
 
   if (!DynamicTable.Addr)
-    return res;
+    return "";
 
   llvm::StringRef DynamicStringTable;
   const Elf_Shdr *SymbolVersionSection;
@@ -1250,7 +1231,7 @@ std::string LoopTool::soname_of_binary(binary_t &b) {
                          VersionMap);
 
   if (!DynamicStringTable.data())
-    return res;
+    return "";
 
   //
   // parse dynamic table
@@ -1280,7 +1261,7 @@ std::string LoopTool::soname_of_binary(binary_t &b) {
     }
   }
 
-  return res;
+  return "";
 }
 
 } // namespace jove

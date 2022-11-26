@@ -175,24 +175,14 @@ int CodeDigger::Run(void) {
   }
 
   for_each_binary(jv, [&](binary_t &binary) {
-    llvm::StringRef Buffer(reinterpret_cast<char *>(&binary.Data[0]),
-                           binary.Data.size());
-    llvm::StringRef Identifier(binary.Path);
+    ignore_exception([&]() {
+      auto Bin = CreateBinary(binary.Data);
 
-    llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
-        obj::createBinary(llvm::MemoryBufferRef(Buffer, Identifier));
-    if (!BinOrErr) {
-      if (!binary.IsVDSO)
-        HumanOut() << llvm::formatv("failed to create binary from {0}\n", binary.Path);
-      return;
-    }
+      assert(llvm::isa<ELFO>(Bin.get()));
 
-    std::unique_ptr<obj::Binary> &BinRef = BinOrErr.get();
-
-    assert(llvm::isa<ELFO>(BinRef.get()));
-
-    std::tie(state.for_binary(binary).SectsStartAddr,
-             state.for_binary(binary).SectsEndAddr) = bounds_of_binary(*BinRef);
+      std::tie(state.for_binary(binary).SectsStartAddr,
+               state.for_binary(binary).SectsEndAddr) = bounds_of_binary(*Bin);
+    });
   });
 
   if (opts.ListLocalGotos)

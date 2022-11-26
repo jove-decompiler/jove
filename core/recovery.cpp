@@ -1,8 +1,12 @@
 #include "recovery.h"
+#include "util.h"
+
+#include <stdexcept>
+
+#include <llvm/Support/FormatVariadic.h>
+
 #include <boost/filesystem.hpp>
 #include <boost/format.hpp>
-#include <llvm/Support/FormatVariadic.h>
-#include <stdexcept>
 
 #include "jove_macros.h"
 
@@ -39,17 +43,9 @@ CodeRecovery::CodeRecovery(jv_t &jv, disas_t &disas,
       binary_state.block_term_addr_vec.at(index_of_basic_block(ICFG, bb)) = ICFG[bb].Term.Addr;
     });
 
-    {
-      llvm::StringRef Buffer(reinterpret_cast<char *>(&binary.Data[0]),
-                             binary.Data.size());
-      llvm::StringRef Identifier(binary.Path);
-
-      llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
-          obj::createBinary(llvm::MemoryBufferRef(Buffer, Identifier));
-
-      if (BinOrErr)
-        binary_state.ObjectFile = std::move(BinOrErr.get());
-    }
+    ignore_exception([&]() {
+      binary_state.ObjectFile = CreateBinary(binary.Data);
+    });
   });
 }
 

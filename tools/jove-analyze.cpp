@@ -98,22 +98,9 @@ int AnalyzeTool::Run(void) {
   identify_ABIs(jv);
 
   for_each_binary(jv, [&](binary_t &binary) {
-    llvm::StringRef Buffer(reinterpret_cast<const char *>(&binary.Data[0]),
-                           binary.Data.size());
-    llvm::StringRef Identifier(binary.Path);
-    llvm::MemoryBufferRef MemBuffRef(Buffer, Identifier);
-
-    auto ExpectedBin = obj::createBinary(MemBuffRef);
-    if (ExpectedBin) {
-      std::unique_ptr<obj::Binary> &BinRef = *ExpectedBin;
-      state.for_binary(binary).ObjectFile = std::move(BinRef);
-      assert(llvm::isa<ELFO>(state.for_binary(binary).ObjectFile.get()));
-    } else {
-      std::string errorStr = llvm::toString(ExpectedBin.takeError());
-      if (!binary.IsVDSO)
-        WithColor::error() << llvm::formatv(
-            "failed to create binary from {0}: {1}\n", binary.Path, errorStr);
-    }
+    ignore_exception([&]() {
+      state.for_binary(binary).ObjectFile = CreateBinary(binary.Data);
+    });
   });
 
   //
