@@ -33,8 +33,9 @@ namespace jove {
 namespace {
 
 struct binary_state_t {
-  std::unique_ptr<obj::Binary> Bin;
   dynamic_linking_info_t dynl;
+
+  std::unique_ptr<llvm::object::Binary> Bin;
 };
 
 }
@@ -212,12 +213,13 @@ int DecompileTool::Run(void) {
   // gather dynamic linking information
   //
   for_each_binary(jv, [&](binary_t &binary) {
-    if (binary.IsVDSO)
-      return;
+    ignore_exception([&]() {
+      auto &x = state.for_binary(binary);
 
-    auto &binary_state = state.for_binary(binary);
-    binary_state.Bin = std::move(CreateBinary(binary.Data));
-    dynamic_linking_info_of_binary(*binary_state.Bin, binary_state.dynl);
+      x.Bin = CreateBinary(binary.Data);
+
+      dynamic_linking_info_of_binary(*x.Bin, x.dynl);
+    });
   });
 
   std::unordered_map<std::string, binary_index_t> soname_map;
@@ -582,8 +584,6 @@ int DecompileTool::Run(void) {
     {
       binary_t &binary = jv.Binaries.at(0);
 
-      std::unique_ptr<obj::Binary> &BinRef = state.for_binary(binary).Bin;
-
       assert(binary.IsExecutable); /* FIXME */
 
       std::string binary_filename = fs::path(binary.Path).filename().string();
@@ -602,7 +602,7 @@ int DecompileTool::Run(void) {
           // the following has only been tested to work with the lld linker.
           //
           uint64_t Base, End;
-          std::tie(Base, End) = bounds_of_binary(*BinRef);
+          std::tie(Base, End) = bounds_of_binary(*state.for_binary(binary).Bin);
 
           ofs << " --section-start " << (fmt(".jove=0x%lx") % Base).str();
         }
