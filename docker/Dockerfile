@@ -54,6 +54,7 @@ RUN apt-get update && \
       pkg-config \
       libglib2.0-dev \
       exuberant-ctags \
+      librhash-dev \
       clang-13 \
       lld-13 \
       libc++-13-dev \
