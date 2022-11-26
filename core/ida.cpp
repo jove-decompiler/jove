@@ -1,4 +1,5 @@
 #include "ida.h"
+#include "util.h"
 
 #include <boost/algorithm/string.hpp>
 #include <boost/bind/bind.hpp>
@@ -137,8 +138,6 @@ struct on_token {
     return true; // always continue to tokenize
   }
 };
-
-static std::string read_file_into_string(char const *infile);
 
 bool ReadIDAFlowgraphFromGDLFile(const char *filepath, ida_flowgraph_t &out) {
   std::unordered_map<std::string, ida_flowgraph_node_t> title_node_map;
@@ -415,16 +414,6 @@ check_vertical_order:
   }
 
   return r;
-}
-
-std::string read_file_into_string(char const *infile) {
-  std::ifstream instream(infile);
-  if (!instream.is_open()) {
-    throw std::runtime_error(std::string("Couldn't open file ") + infile);
-  }
-  instream.unsetf(std::ios::skipws); // No white space skipping!
-  return std::string(std::istreambuf_iterator<char>(instream.rdbuf()),
-                     std::istreambuf_iterator<char>());
 }
 
 }

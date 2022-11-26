@@ -9,6 +9,7 @@
 #include "disas.h"
 #include "explore.h"
 #include "crypto.h"
+#include "util.h"
 
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/algorithm/string.hpp>
@@ -3820,16 +3821,6 @@ int BootstrapTool::ChildProc(int pipefd) {
   ::close(pipefd);
   ::close(fd);
   return 1;
-}
-
-static std::string read_file_into_string(char const *infile) {
-  std::ifstream instream(infile);
-  if (!instream.is_open()) {
-    throw std::runtime_error(std::string("Couldn't open file ") + infile);
-  }
-  instream.unsetf(std::ios::skipws); // No white space skipping!
-  return std::string(std::istreambuf_iterator<char>(instream.rdbuf()),
-                     std::istreambuf_iterator<char>());
 }
 
 bool load_proc_maps(pid_t child, std::vector<struct proc_map_t> &out) {

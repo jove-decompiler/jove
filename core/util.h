@@ -1,11 +1,13 @@
 #pragma once
-#include <vector>
-#include <cstdint>
 #include <cstddef>
+#include <cstdint>
+#include <string>
+#include <vector>
 
 namespace jove {
 
 void read_file_into_vector(const char *path, std::vector<uint8_t> &out);
+std::string read_file_into_string(char const *infile);
 long robust_read(int fd, void *const buf, const size_t count);
 long robust_write(int fd, const void *const buf, const size_t count);
 long size_of_file32(const char *path);

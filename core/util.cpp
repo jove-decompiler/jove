@@ -179,4 +179,14 @@ unsigned num_cpus(void) {
   return CPU_COUNT(&cpu_mask);
 }
 
+std::string read_file_into_string(char const *infile) {
+  std::ifstream instream(infile);
+  if (!instream.is_open())
+    throw std::runtime_error(std::string("read_file_into_string: could not open ") + infile);
+
+  instream.unsetf(std::ios::skipws); // No white space skipping!
+  return std::string(std::istreambuf_iterator<char>(instream.rdbuf()),
+                     std::istreambuf_iterator<char>());
+}
+
 }

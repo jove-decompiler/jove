@@ -1,6 +1,7 @@
 #include "tool.h"
 #include "elf.h"
 #include "crypto.h"
+#include "util.h"
 
 #include <boost/dll/runtime_symbol_info.hpp>
 #include <boost/filesystem.hpp>
@@ -881,16 +882,6 @@ std::string program_interpreter_of_executable(const char *exepath) {
   }
 
   return res;
-}
-
-static std::string read_file_into_string(char const *infile) {
-  std::ifstream instream(infile);
-  if (!instream.is_open()) {
-    throw std::runtime_error(std::string("Couldn't open file ") + infile);
-  }
-  instream.unsetf(std::ios::skipws); // No white space skipping!
-  return std::string(std::istreambuf_iterator<char>(instream.rdbuf()),
-                     std::istreambuf_iterator<char>());
 }
 
 std::pair<void *, unsigned> GetVDSO(void) {
