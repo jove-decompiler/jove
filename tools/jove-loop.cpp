@@ -1,6 +1,7 @@
 #include "tool.h"
 #include "elf.h"
 #include "crypto.h"
+#include "fd.h"
 
 #include <boost/dll/runtime_symbol_info.hpp>
 #include <boost/filesystem.hpp>
@@ -662,11 +663,7 @@ skip_run:
         return 1;
       }
 
-      struct closeme_t {
-        const int fd;
-        closeme_t(int fd) : fd(fd) {}
-        ~closeme_t() { ::close(fd); }
-      } closeme(remote_fd);
+      scoped_fd __remote_fd(remote_fd);
 
       std::string addr_str;
 

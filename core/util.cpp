@@ -1,4 +1,5 @@
 #include "util.h"
+#include "fd.h"
 
 #include <cassert>
 #include <cstring>
@@ -79,14 +80,13 @@ long size_of_file32(const char *path) {
 long robust_sendfile(int socket, const char *file_path, size_t file_size) {
   int fd = ::open(file_path, O_RDONLY);
 
-  if (fd < 0)
-    return -errno;
+  if (fd < 0) {
+    int err = errno;
+    throw std::runtime_error(std::string("robust_sendfile: open failed: ") +
+                             strerror(err));
+  }
 
-  struct closeme_t {
-    int fd;
-    closeme_t (int fd) : fd(fd) {}
-    ~closeme_t() { ::close(fd); }
-  } closeme(fd);
+  scoped_fd __fd(fd);
 
   const size_t saved_file_size = file_size;
 
