@@ -9,7 +9,6 @@
 #include <llvm/Support/FormatVariadic.h>
 #include <llvm/Support/raw_ostream.h>
 
-#include <signal.h>
 #include <pwd.h>
 
 namespace jove {
@@ -235,23 +234,6 @@ int Tool::WaitForProcessToExit(pid_t pid, bool verbose) {
   } while (!WIFEXITED(wstatus) && !WIFSIGNALED(wstatus));
 
   return 1;
-}
-
-void Tool::IgnoreCtrlC(void) {
-  struct sigaction sa;
-
-  sigemptyset(&sa.sa_mask);
-  sa.sa_flags = 0;
-#if 0
-  sa.sa_handler = [](int) -> void {};
-#else
-  sa.sa_handler = SIG_IGN;
-#endif
-
-  if (::sigaction(SIGINT, &sa, nullptr) < 0) {
-    int err = errno;
-    HumanOut() << llvm::formatv("sigaction failed: {0}\n", strerror(err));
-  }
 }
 
 void Tool::print_command(const char **c_str_arr) {

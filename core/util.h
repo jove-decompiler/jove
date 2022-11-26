@@ -15,5 +15,6 @@ long robust_sendfile(int socket, const char *file_path, size_t file_size);
 long robust_sendfile_with_size(int socket, const char *file_path);
 long robust_receive_file_with_size(int socket, const char *out, unsigned file_perm);
 unsigned num_cpus(void);
+void IgnoreCtrlC(void);
 
 }

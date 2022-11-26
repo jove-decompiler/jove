@@ -8,6 +8,7 @@
 
 #include <fcntl.h>
 #include <sched.h>
+#include <signal.h>
 #include <sys/sendfile.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -187,6 +188,23 @@ std::string read_file_into_string(char const *infile) {
   instream.unsetf(std::ios::skipws); // No white space skipping!
   return std::string(std::istreambuf_iterator<char>(instream.rdbuf()),
                      std::istreambuf_iterator<char>());
+}
+
+void IgnoreCtrlC(void) {
+  struct sigaction sa;
+
+  sigemptyset(&sa.sa_mask);
+  sa.sa_flags = 0;
+#if 0
+  sa.sa_handler = [](int) -> void {};
+#else
+  sa.sa_handler = SIG_IGN;
+#endif
+
+  if (::sigaction(SIGINT, &sa, nullptr) < 0) {
+    int err = errno;
+    throw std::runtime_error(std::string("IgnoreCtrlC: sigaction failed: ") + strerror(err));
+  }
 }
 
 }
