@@ -25,17 +25,22 @@ void read_file_into_vector(const char *path, std::vector<uint8_t> &out) {
   ifs.read(reinterpret_cast<char *>(&out[0]), out.size());
 }
 
-long size_of_file32(const char *path) {
-  uint32_t res;
-  {
-    struct stat st;
-    if (::stat(path, &st) < 0)
-      return -errno;
-
-    res = st.st_size;
+uint64_t size_of_file(const char *path) {
+  struct stat64 st;
+  if (::stat64(path, &st) < 0) {
+    int err = errno;
+    throw std::runtime_error(std::string("size_of_file: stat64 failed: ") + strerror(err));
   }
 
-  return res;
+  return st.st_size;
+}
+
+uint32_t size_of_file32(const char *path) {
+  uint64_t res = size_of_file(path);
+  if (res > 0xffffffff)
+    throw std::runtime_error("size_of_file32: overflow");
+
+  return static_cast<uint32_t>(res);
 }
 
 unsigned num_cpus(void) {
