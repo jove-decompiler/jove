@@ -1,6 +1,7 @@
 #pragma once
 #include "jv.h"
 #include "util.h"
+#include "fd.h"
 
 #include <llvm/Support/CommandLine.h>
 
