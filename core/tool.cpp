@@ -191,9 +191,8 @@ void Tool::HumanOutToFile(const std::string &path) {
   HumanOutputFileStream.reset(
       new llvm::raw_fd_ostream(path, EC, llvm::sys::fs::OF_Text));
 
-  if (EC) {
-    throw std::runtime_error("HumanOutToFile: failed to open file");
-  }
+  if (EC)
+    throw std::runtime_error("HumanOutToFile: failed to open \"" + path + "\"");
 
   HumanOutputStreamPtr = HumanOutputFileStream.get();
 }
