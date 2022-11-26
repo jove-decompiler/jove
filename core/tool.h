@@ -2,6 +2,7 @@
 #include "jv.h"
 #include "util.h"
 #include "fd.h"
+#include "process.h"
 
 #include <llvm/Support/CommandLine.h>
 
@@ -46,7 +47,6 @@ public:
   //
   // utlity methods
   //
-  int WaitForProcessToExit(pid_t, bool verbose = false);
   void print_command(const char** cstr_p);
   void exec_tool(const char *name,
                  const std::vector<const char *> &arg_vec,

@@ -197,44 +197,6 @@ void Tool::HumanOutToFile(const std::string &path) {
   HumanOutputStreamPtr = HumanOutputFileStream.get();
 }
 
-int Tool::WaitForProcessToExit(pid_t pid, bool verbose) {
-  int wstatus;
-  do {
-    if (::waitpid(pid, &wstatus, WUNTRACED | WCONTINUED) < 0) {
-      int err = errno;
-      if (err == EINTR)
-        continue;
-      if (err == ECHILD)
-        break;
-
-      HumanOut() << llvm::formatv("waitpid failed: {0}\n", strerror(err));
-      break;
-    }
-
-    if (WIFEXITED(wstatus)) {
-      if (verbose)
-        HumanOut() << llvm::formatv("child exited ({0})\n",
-                                    WEXITSTATUS(wstatus));
-      return WEXITSTATUS(wstatus);
-    } else if (WIFSIGNALED(wstatus)) {
-      if (verbose)
-        HumanOut() << llvm::formatv("child killed by signal {0}\n",
-                                    WTERMSIG(wstatus));
-      break;
-    } else if (WIFSTOPPED(wstatus)) {
-      if (verbose)
-        HumanOut() << llvm::formatv("child stopped by signal {0}\n",
-                                    WSTOPSIG(wstatus));
-      break;
-    } else if (WIFCONTINUED(wstatus)) {
-      if (verbose)
-        HumanOut() << "child continued\n";
-    }
-  } while (!WIFEXITED(wstatus) && !WIFSIGNALED(wstatus));
-
-  return 1;
-}
-
 void Tool::print_command(const char **c_str_arr) {
   for (const char **p = c_str_arr; *p; ++p) {
     HumanOut() << *p << ' ';
