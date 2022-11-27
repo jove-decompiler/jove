@@ -52,8 +52,6 @@ class LoopTool : public Tool {
     cl::opt<std::string> UseLd;
     cl::opt<bool> Trace;
     cl::opt<bool> DebugSjlj;
-    cl::opt<bool> Verbose;
-    cl::alias VerboseAlias;
     cl::opt<std::string> Connect;
     cl::alias ConnectAlias;
     cl::opt<unsigned> Sleep;
@@ -144,12 +142,6 @@ class LoopTool : public Tool {
               cl::desc(
                   "Before setjmp/longjmp, dump information about the call"),
               cl::cat(JoveCategory)),
-
-          Verbose("verbose", cl::desc("Output helpful messages for debugging"),
-                  cl::cat(JoveCategory)),
-
-          VerboseAlias("v", cl::desc("Alias for --verbose."),
-                       cl::aliasopt(Verbose), cl::cat(JoveCategory)),
 
           Connect("connect", cl::desc("Offload work to remote server"),
                   cl::value_desc("ip address:port"), cl::cat(JoveCategory)),
@@ -482,7 +474,7 @@ run:
           arg_vec.push_back(opts.HumanOutput.c_str());
         }
 
-        if (opts.Verbose)
+        if (IsVerbose())
           arg_vec.push_back("--verbose");
 
         if (opts.ForeignLibs)
@@ -572,7 +564,7 @@ run:
 
         env_vec.push_back(nullptr);
 
-        if (opts.Verbose)
+        if (IsVerbose())
           print_command(&arg_vec[0]);
 
         ::execve(sudo ? "/usr/bin/sudo" : jove_path.c_str(),
@@ -672,7 +664,7 @@ skip_run:
         auto colon_idx = opts.Connect.find(':');
         assert(colon_idx != std::string::npos);
         std::string port_s = opts.Connect.substr(colon_idx + 1, std::string::npos);
-        if (opts.Verbose)
+        if (IsVerbose())
           HumanOut() << llvm::formatv("parsed port as {0}\n", port_s);
         port = atoi(port_s.c_str());
 
@@ -686,7 +678,7 @@ skip_run:
       server_addr.sin_addr.s_addr = inet_addr(addr_str.c_str());
 
       int connect_ret;
-      if (opts.Verbose)
+      if (IsVerbose())
         HumanOut() << llvm::formatv("connecting to remote {0}...\n", opts.Connect);
       connect_ret = ::connect(remote_fd,
                               reinterpret_cast<struct sockaddr *>(&server_addr),
@@ -773,7 +765,7 @@ skip_run:
       // send the jv
       //
       {
-        if (opts.Verbose)
+        if (IsVerbose())
           HumanOut() << llvm::formatv("sending {0}\n", jv_path.c_str());
 
         ssize_t ret = robust_sendfile_with_size(remote_fd, jv_path.c_str());
@@ -794,7 +786,7 @@ skip_run:
       {
         std::string tmpjv = "/tmp/tmpjv.jv";
 
-        if (opts.Verbose)
+        if (IsVerbose())
           HumanOut() << llvm::formatv("receiving {0}\n", jv_path.c_str());
 
         ssize_t ret = robust_receive_file_with_size(remote_fd, jv_path.c_str(), 0666);
@@ -818,7 +810,7 @@ skip_run:
 
         std::string new_chrooted_path = chrooted_path.string() + ".new";
 
-        if (opts.Verbose)
+        if (IsVerbose())
           HumanOut() << llvm::formatv("receiving {0}\n", chrooted_path.c_str());
 
         ssize_t ret = robust_receive_file_with_size(remote_fd, new_chrooted_path.c_str(), 0777);
@@ -948,7 +940,7 @@ skip_run:
         fs::path rt_path =
             fs::path(Prefix) / "usr" / "lib" / "libjove_rt.so";
 
-        if (opts.Verbose)
+        if (IsVerbose())
           HumanOut() << "receiving jove runtime\n";
 
         ssize_t ret =
@@ -1029,7 +1021,7 @@ skip_run:
         fs::path dfsan_rt_path =
             fs::path(Prefix) / "usr" / "lib" / dfsan_rt_filename;
 
-        if (opts.Verbose)
+        if (IsVerbose())
           HumanOut() << "receiving jove dfsan runtime\n";
 
         ssize_t ret =
@@ -1074,7 +1066,7 @@ skip_run:
           fs::path chrooted_path = fs::path(sysroot) / b.Path;
           std::string binary_filename = fs::path(b.Path).filename().string();
 
-          if (opts.Verbose)
+          if (IsVerbose())
             HumanOut() << llvm::formatv("{0}'s soname is {1}\n", b.Path, soname);
 
           if (binary_filename != soname) {
@@ -1112,7 +1104,7 @@ skip_run:
         if (opts.ForeignLibs)
           arg_vec.push_back("--exe");
 
-        if (opts.Verbose)
+        if (IsVerbose())
           print_tool_command("analyze", arg_vec);
         exec_tool("analyze", arg_vec);
 
@@ -1143,7 +1135,7 @@ skip_run:
           arg_vec.push_back(use_ld_arg.c_str());
         }
 
-        if (opts.Verbose)
+        if (IsVerbose())
           arg_vec.push_back("--verbose");
 
         if (opts.DFSan)
@@ -1179,7 +1171,7 @@ skip_run:
           arg_vec.push_back(pinned_globals_arg.c_str());
         }
 
-        if (opts.Verbose)
+        if (IsVerbose())
           print_tool_command("recompile", arg_vec);
         exec_tool("recompile", arg_vec);
 
@@ -1252,7 +1244,7 @@ std::string LoopTool::soname_of_binary(binary_t &b) {
   if (SONameOffset) {
     uint64_t Off = *SONameOffset;
     if (Off >= DynamicStringTable.size()) {
-      if (opts.Verbose)
+      if (IsVerbose())
         HumanOut() << llvm::formatv("[{0}] bad SONameOffset {1}\n",
                                     b.Path, Off);
     } else {

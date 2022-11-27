@@ -182,7 +182,19 @@ namespace jove {
 
 Tool::Tool()
     : HumanOutputStreamPtr(&llvm::errs()),
-      JoveCategory("Specific Options") {}
+
+      JoveCategory("Specific Options"),
+
+      opt_Verbose(
+          "verbose",
+          llvm::cl::desc("Print extra information for debugging purposes"),
+          llvm::cl::cat(JoveCategory)),
+
+      opt_VerboseAlias("v", llvm::cl::desc("Alias for -verbose."),
+                       llvm::cl::aliasopt(opt_Verbose),
+                       llvm::cl::cat(JoveCategory))
+
+{}
 
 Tool::~Tool() {}
 

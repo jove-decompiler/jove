@@ -79,8 +79,6 @@ class RecompileTool : public TransformerTool<binary_state_t> {
     cl::opt<unsigned> Threads;
     cl::opt<bool> Trace;
     cl::opt<std::string> UseLd;
-    cl::opt<bool> Verbose;
-    cl::alias VerboseAlias;
     cl::opt<bool> DFSan;
     cl::opt<bool> Optimize;
     cl::opt<bool> SkipCopyRelocHack;
@@ -117,13 +115,6 @@ class RecompileTool : public TransformerTool<binary_state_t> {
           UseLd("use-ld",
                 cl::desc("Force using particular linker (lld,bfd,gold)"),
                 cl::cat(JoveCategory)),
-
-          Verbose("verbose",
-                  cl::desc("Print extra information for debugging purposes"),
-                  cl::cat(JoveCategory)),
-
-          VerboseAlias("v", cl::desc("Alias for -verbose."),
-                       cl::aliasopt(Verbose), cl::cat(JoveCategory)),
 
           DFSan("dfsan", cl::desc("Run dfsan on bitcode"),
                 cl::cat(JoveCategory)),
@@ -340,7 +331,7 @@ int RecompileTool::Run(void) {
   // sanity checks for output path
   //
   if (fs::exists(opts.Output)) {
-    if (opts.Verbose)
+    if (IsVerbose())
       WithColor::note() << llvm::formatv("reusing output directory {0}\n",
                                          opts.Output);
   } else {
@@ -446,7 +437,7 @@ int RecompileTool::Run(void) {
     }
   } rm_tmpdir;
 
-  if (opts.Verbose)
+  if (IsVerbose())
     llvm::errs() << llvm::formatv("tmpdir: {0}\n", tmpdir);
 
   if (!fs::exists(opts.jv)) {
@@ -706,7 +697,7 @@ int RecompileTool::Run(void) {
 
   bool haveGraphEasy = fs::exists("/usr/bin/vendor_perl/graph-easy") ||
                        fs::exists("/usr/bin/graph-easy");
-  if (opts.Verbose && haveGraphEasy) {
+  if (IsVerbose() && haveGraphEasy) {
     //
     // graphviz
     //
@@ -814,7 +805,7 @@ int RecompileTool::Run(void) {
       boost::filtered_graph<dso_graph_t, all_edges_t, vert_exists_in_set_t> fg(
           dso_graph, edge_filter, vertex_filter);
 
-      if (opts.Verbose) {
+      if (IsVerbose()) {
         //
         // write graphviz file
         //
@@ -875,7 +866,7 @@ int RecompileTool::Run(void) {
     Q.push_back(dso);
   }
 
-  if (!opts.Verbose)
+  if (!IsVerbose())
     WithColor::note() << llvm::formatv(
         "Recompiling {0} {1}...",
         (opts.ForeignLibs ? 3 : jv.Binaries.size()) - 2,
@@ -906,7 +897,7 @@ int RecompileTool::Run(void) {
 
   std::chrono::duration<double> s_double = t2 - t1;
 
-  if (!opts.Verbose)
+  if (!IsVerbose())
     llvm::errs() << llvm::formatv(" {0} s\n", s_double.count());
 
   //
@@ -1183,7 +1174,7 @@ int RecompileTool::Run(void) {
 
       arg_vec.push_back(nullptr);
 
-      if (opts.Verbose)
+      if (IsVerbose())
         print_command(&arg_vec[0]);
 
       ::close(STDIN_FILENO);
@@ -1298,7 +1289,7 @@ void RecompileTool::worker(const dso_graph_t &dso_graph) {
         arg_vec.push_back(pinned_globals_arg.c_str());
       }
 
-      if (opts.Verbose)
+      if (IsVerbose())
         print_tool_command("llvm", arg_vec);
 
       {
@@ -1365,7 +1356,7 @@ void RecompileTool::worker(const dso_graph_t &dso_graph) {
           nullptr
         };
 
-        if (opts.Verbose)
+        if (IsVerbose())
           print_command(&arg_arr[0]);
 
         ::close(STDIN_FILENO);
@@ -1399,7 +1390,7 @@ void RecompileTool::worker(const dso_graph_t &dso_graph) {
           nullptr
         };
 
-        if (opts.Verbose)
+        if (IsVerbose())
           print_command(&arg_arr[0]);
 
         ::close(STDIN_FILENO);
@@ -1461,7 +1452,7 @@ void RecompileTool::worker(const dso_graph_t &dso_graph) {
 
       arg_vec.push_back(nullptr);
 
-      if (opts.Verbose)
+      if (IsVerbose())
         print_command(&arg_vec[0]);
 
       ::close(STDIN_FILENO);

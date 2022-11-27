@@ -33,8 +33,6 @@ class CodeDigger : public TransformerTool<binary_state_t> {
   struct Cmdline {
     cl::opt<std::string> jv;
     cl::alias jvAlias;
-    cl::opt<bool> Verbose;
-    cl::alias VerboseAlias;
     cl::opt<unsigned> Threads;
     cl::opt<bool> NoSave;
     cl::opt<std::string> Binary;
@@ -49,13 +47,6 @@ class CodeDigger : public TransformerTool<binary_state_t> {
 
           jvAlias("d", cl::desc("Alias for -jv."), cl::aliasopt(jv),
                   cl::cat(JoveCategory)),
-
-          Verbose("verbose",
-                  cl::desc("Print extra information for debugging purposes"),
-                  cl::cat(JoveCategory)),
-
-          VerboseAlias("v", cl::desc("Alias for -verbose."),
-                       cl::aliasopt(Verbose), cl::cat(JoveCategory)),
 
           Threads("num-threads",
                   cl::desc("Number of CPU threads to use (hack)"),
@@ -221,7 +212,7 @@ int CodeDigger::Run(void) {
 
   std::thread recover_thread(&CodeDigger::RecoverLoop, this);
 
-  if (!opts.Verbose)
+  if (!IsVerbose())
     WithColor::note() << llvm::formatv(
         "Generating LLVM and running KLEE on {0} {1}...",
         !opts.Binary.empty() ? 1 : jv.Binaries.size() - 2,
@@ -255,7 +246,7 @@ int CodeDigger::Run(void) {
 
     std::chrono::duration<double> s_double = t2 - t1;
 
-    if (!Failed && !opts.Verbose)
+    if (!Failed && !IsVerbose())
       llvm::errs() << llvm::formatv(" {0} s\n", s_double.count());
   }
 
@@ -268,7 +259,7 @@ int CodeDigger::Run(void) {
   for_each_function(jv,
                     [](function_t &f, binary_t &b) { f.InvalidateAnalysis(); });
 
-  if (opts.Verbose)
+  if (IsVerbose())
     WithColor::note() << "writing jv...\n";
 
   WriteJvToFile(opts.jv, jv);
@@ -324,7 +315,7 @@ void CodeDigger::RecoverLoop(void) {
 
     uint64_t DestAddr = Off + state.for_binary(binary).SectsStartAddr;
 
-    if (opts.Verbose)
+    if (IsVerbose())
       HumanOut() << llvm::formatv("{0} -> {1}\n",
                                   symbolizer.addr2desc(binary, TermAddr),
                                   symbolizer.addr2desc(binary, DestAddr));
@@ -401,7 +392,7 @@ void CodeDigger::Worker(void) {
 #endif
       };
 
-      if (opts.Verbose)
+      if (IsVerbose())
         print_tool_command("llvm", arg_vec);
 
       {
@@ -492,10 +483,10 @@ void CodeDigger::Worker(void) {
       arg_vec.push_back(bcfp.c_str());
       arg_vec.push_back(nullptr);
 
-      if (opts.Verbose)
+      if (IsVerbose())
         print_command(&arg_vec[0]);
 
-      if (!opts.Verbose) {
+      if (!IsVerbose()) {
         //
         // redirect standard output to file
         //
@@ -505,7 +496,7 @@ void CodeDigger::Worker(void) {
         ::close(stdoutfd);
       }
 
-      if (!opts.Verbose) {
+      if (!IsVerbose()) {
         //
         // redirect standard error to file
         //

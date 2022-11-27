@@ -51,8 +51,6 @@ struct RunTool : public Tool {
     cl::opt<unsigned> DangerousSleep1;
     cl::opt<unsigned> DangerousSleep2;
     cl::opt<bool> NoChroot;
-    cl::opt<bool> Verbose;
-    cl::alias VerboseAlias;
     cl::opt<std::string> ChangeDirectory;
     cl::opt<bool> ForeignLibs;
     cl::alias ForeignLibsAlias;
@@ -118,12 +116,6 @@ struct RunTool : public Tool {
                    cl::desc("run program under real sysroot (useful when "
                             "combined with --foreign-libs)"),
                    cl::cat(JoveCategory)),
-
-          Verbose("verbose", cl::desc("Output helpful messages for debugging"),
-                  cl::cat(JoveCategory)),
-
-          VerboseAlias("v", cl::desc("Alias for --verbose."),
-                       cl::aliasopt(Verbose), cl::cat(JoveCategory)),
 
           ChangeDirectory("cd",
                           cl::desc("change directory after chroot(2)'ing"),
@@ -310,7 +302,7 @@ struct ScopedMount {
           continue;
 
         default:
-          if (tool.opts.Verbose)
+          if (tool.IsVerbose())
             tool.HumanOut() << llvm::formatv("mount(\"{0}\", \"{1}\", \"{2}\", {3:x}, {4}) failed: {5}\n",
                     this->source,
                     this->target,
@@ -346,7 +338,7 @@ struct ScopedMount {
         switch (err) {
         case EBUSY:
           if (retries++ < MAX_UMOUNT_RETRIES) {
-            if (tool.opts.Verbose)
+            if (tool.IsVerbose())
               tool.HumanOut() << llvm::formatv("retrying umount of {0} shortly...\n", this->target);
 
             usleep(10000 /* 0.01 s */);
@@ -365,7 +357,7 @@ struct ScopedMount {
           return;
         }
       } else {
-        if (tool.opts.Verbose)
+        if (tool.IsVerbose())
           tool.HumanOut() << llvm::formatv("unmounted {0}.\n", this->target);
 
         /* unmount suceeded */
@@ -684,7 +676,7 @@ int RunTool::DoRun(void) {
       std::string new_path = binary.Path + ".jove.new";
 
       if (::link(chrooted_path.c_str(), new_path.c_str()) < 0) {
-        if (opts.Verbose) {
+        if (IsVerbose()) {
           int err = errno;
           HumanOut() << llvm::formatv("failed to create hard link {0} -> {1}: {2}\n",
                                       chrooted_path.c_str(), new_path, strerror(err));
@@ -781,7 +773,7 @@ int RunTool::DoRun(void) {
 
     env_vec.push_back(fifo_env.c_str());
 
-    if (opts.Verbose)
+    if (IsVerbose())
       HumanOut() << fifo_env << '\n';
 
 #if defined(TARGET_X86_64)
@@ -853,11 +845,11 @@ int RunTool::DoRun(void) {
 
     arg_vec.push_back(nullptr);
 
-    if (opts.Verbose)
+    if (IsVerbose())
       print_command(&arg_vec[0]);
 
     if (LivingDangerously) {
-      if (opts.Verbose)
+      if (IsVerbose())
         HumanOut() << (__ANSI_CYAN "modifying root file system..." __ANSI_NORMAL_COLOR "\n");
 
       //
@@ -882,7 +874,7 @@ int RunTool::DoRun(void) {
         }
       }
 
-      if (opts.Verbose)
+      if (IsVerbose())
         HumanOut() << (__ANSI_CYAN "modified root file system." __ANSI_NORMAL_COLOR "\n");
     }
 
@@ -937,7 +929,7 @@ int RunTool::DoRun(void) {
       HumanOut() << llvm::formatv("usleep failed: {0}\n", strerror(err));
     }
 
-    if (opts.Verbose)
+    if (IsVerbose())
       HumanOut() << (__ANSI_MAGENTA "restoring root file system..." __ANSI_NORMAL_COLOR "\n");
 
     //
@@ -998,7 +990,7 @@ int RunTool::DoRun(void) {
 
     FileSystemRestored.store(true);
 
-    if (opts.Verbose)
+    if (IsVerbose())
       HumanOut() << (__ANSI_MAGENTA "root file system restored." __ANSI_NORMAL_COLOR "\n");
 
     ::close(rfd);
@@ -1018,13 +1010,13 @@ int RunTool::DoRun(void) {
       sleep(1);
 
       if (interrupt_sleep.load()) {
-        if (opts.Verbose)
+        if (IsVerbose())
           HumanOut() << "sleep interrupted\n";
         break;
       }
 
       if (recovered_ch.load()) {
-        if (opts.Verbose)
+        if (IsVerbose())
           HumanOut() << "sleep interrupted by jove-recover\n";
         sleep(std::min<unsigned>(sec - t, 3));
         break;

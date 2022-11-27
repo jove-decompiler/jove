@@ -36,8 +36,6 @@ class IDATool : public Tool {
     cl::opt<std::string> jv;
     cl::opt<std::string> Binary;
     cl::alias BinaryAlias;
-    cl::opt<bool> Verbose;
-    cl::alias VerboseAlias;
     cl::opt<bool> ImportFunctions;
     cl::opt<bool> ImportBlocks;
     cl::opt<bool> ImportLocalGotos;
@@ -52,13 +50,6 @@ class IDATool : public Tool {
 
           BinaryAlias("b", cl::desc("Alias for -binary."), cl::aliasopt(Binary),
                       cl::cat(JoveCategory)),
-
-          Verbose("verbose",
-                  cl::desc("Print extra information for debugging purposes"),
-                  cl::cat(JoveCategory)),
-
-          VerboseAlias("v", cl::desc("Alias for -verbose."),
-                       cl::aliasopt(Verbose), cl::cat(JoveCategory)),
 
           ImportFunctions("import-functions", cl::desc("Import functions"),
                           cl::cat(JoveCategory)),
@@ -183,7 +174,7 @@ int IDATool::Run(void) {
       tmp_dir.c_str()
     };
 
-    if (opts.Verbose)
+    if (IsVerbose())
       print_tool_command("extract", arg_vec);
 
     exec_tool("extract", arg_vec);
@@ -249,7 +240,7 @@ int IDATool::Run(void) {
         fs::path sav_path =
             tmp_dir / (splitDbgInfo.filename().string() + ".debug");
 
-        if (opts.Verbose)
+        if (IsVerbose())
           WithColor::note() << llvm::formatv("XXX hiding split debug file {0}\n",
                                              sav_path.c_str());
 
@@ -297,7 +288,7 @@ int IDATool::Run(void) {
 
       arg_vec.push_back(nullptr);
 
-      if (opts.Verbose)
+      if (IsVerbose())
         print_command(&arg_vec[0]);
 
       ::execve(ida_path.c_str(), const_cast<char **>(&arg_vec[0]), ::environ);
@@ -313,7 +304,7 @@ int IDATool::Run(void) {
     int ret = WaitForProcessToExit(pid);
 
     if (DidWeHideSplitDebugInfoFromIDA) {
-      if (opts.Verbose)
+      if (IsVerbose())
         WithColor::note() << llvm::formatv("XXX restoring split debug file {0}\n",
                                            splitDbgInfo.c_str());
 
@@ -325,7 +316,7 @@ int IDATool::Run(void) {
       }
     }
 
-    if (opts.Verbose) {
+    if (IsVerbose()) {
       //
       // dump log contents
       //
@@ -362,7 +353,7 @@ int IDATool::Run(void) {
 
       uint64_t entry_addr = flowgraph[entry_node].start_ea;
 
-      if (opts.Verbose)
+      if (IsVerbose())
         llvm::errs() << llvm::formatv("exploring function @ {0:x}\n", entry_addr);
 
       if (opts.ImportFunctions) {
@@ -378,7 +369,7 @@ int IDATool::Run(void) {
 
           explore_function(binary, *Bin, tcg, dis, entry_addr, fnmap, bbmap);
         } catch (const std::exception &) {
-          if (opts.Verbose)
+          if (IsVerbose())
             WithColor::warning() << llvm::formatv(
                 "failed to explore function @ {0:x}\n", entry_addr);
           return;
@@ -397,7 +388,7 @@ int IDATool::Run(void) {
       std::for_each(flowgraph_it,
                     flowgraph_it_end, [&](ida_flowgraph_node_t node) {
         if (flowgraph[node].HasUnknownAddress()) {
-          if (opts.Verbose)
+          if (IsVerbose())
             WithColor::warning()
                 << llvm::formatv("unidentified node has label: \"{0}\"\n",
                                  flowgraph[node].label);
@@ -413,7 +404,7 @@ int IDATool::Run(void) {
           if (!is_basic_block_index_valid(BBIdx))
             throw std::runtime_error(std::string());
         } catch (const std::exception &) {
-          if (opts.Verbose)
+          if (IsVerbose())
             WithColor::warning() << llvm::formatv(
                 "failed to explore block @ {0:x}\n", node_addr);
         }
@@ -582,7 +573,7 @@ int IDATool::Run(void) {
               }
               llvm::errs() << " }";
 
-              if (opts.Verbose)
+              if (IsVerbose())
                 llvm::errs() << " (function "
                              << symbolizer.addr2desc(binary, entry_addr) << ")";
 
@@ -627,7 +618,7 @@ int IDATool::Run(void) {
 
       std::string p = (*it).string();
 
-      if (opts.Verbose)
+      if (IsVerbose())
         llvm::errs() << llvm::formatv("parsing {0}...\n", p);
 
       if (!ReadIDAFlowgraphFromGDLFile(p.c_str(), flowgraph)) {

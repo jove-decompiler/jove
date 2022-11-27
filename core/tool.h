@@ -4,11 +4,12 @@
 #include "fd.h"
 #include "process.h"
 
-#include <llvm/Support/CommandLine.h>
-
+#include <functional>
 #include <memory>
+#include <string>
 #include <vector>
-#include <sys/wait.h>
+
+#include <llvm/Support/CommandLine.h>
 
 namespace llvm {
 class raw_ostream;
@@ -23,6 +24,12 @@ class Tool {
 
 public:
   llvm::cl::OptionCategory JoveCategory;
+
+private:
+  llvm::cl::opt<bool> opt_Verbose;
+  llvm::cl::alias opt_VerboseAlias;
+
+public:
   jv_t jv;
 
 public:
@@ -39,6 +46,10 @@ public:
     return *HumanOutputStreamPtr;
   }
 
+  bool IsVerbose(void) {
+    return opt_Verbose;
+  }
+
   std::vector<char *> dashdash_args;
   void set_dashdash_args(const std::vector<char *> dashdash_args) {
     this->dashdash_args = dashdash_args;
@@ -51,7 +62,6 @@ public:
   void exec_tool(const char *name,
                  const std::vector<const char *> &arg_vec,
                  const char **envp = nullptr);
-
   void print_tool_command(const char *name,
                           const std::vector<const char *> &_arg_vec) {
     std::vector<const char *> arg_vec(_arg_vec);

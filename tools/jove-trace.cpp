@@ -51,8 +51,6 @@ class TraceTool : public TransformerTool<binary_state_t> {
     cl::alias OutsideChrootAlias;
     cl::opt<std::string> PathToTracefs;
     cl::opt<bool> NoParseTrace;
-    cl::opt<bool> Verbose;
-    cl::alias VerboseAlias;
 
     bool OnlyExecutable;
 
@@ -120,14 +118,7 @@ class TraceTool : public TransformerTool<binary_state_t> {
           NoParseTrace("no-parse-trace",
                        cl::desc("Do not parse /sys/kernel/debug/tracing/trace "
                                 "at the very end."),
-                       cl::cat(JoveCategory)),
-
-          Verbose("verbose",
-                  cl::desc("Print extra information for debugging purposes"),
-                  cl::cat(JoveCategory)),
-
-          VerboseAlias("v", cl::desc("Alias for -verbose."),
-                       cl::aliasopt(Verbose), cl::cat(JoveCategory)) {}
+                       cl::cat(JoveCategory)) {}
   } opts;
 
 public:
@@ -209,7 +200,7 @@ int TraceTool::Run(void) {
     SysrootPath = tmpdir;
   }
 
-  if (opts.Verbose)
+  if (IsVerbose())
     WithColor::note() << llvm::formatv("sysroot: {0}\n", SysrootPath.c_str());
 
   //

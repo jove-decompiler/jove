@@ -43,21 +43,13 @@ class ServerTool : public Tool {
   struct Cmdline {
     cl::opt<std::string> TemporaryDir;
     cl::opt<unsigned> Port;
-    cl::opt<bool> Verbose;
-    cl::alias VerboseAlias;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : TemporaryDir("tmpdir", cl::value_desc("directory"),
                        cl::cat(JoveCategory)),
 
           Port("port", cl::desc("Network port to listen on"), cl::Required,
-               cl::cat(JoveCategory)),
-
-          Verbose("verbose", cl::desc("Output helpful messages for debugging"),
-                  cl::cat(JoveCategory)),
-
-          VerboseAlias("v", cl::desc("Alias for --verbose."),
-                       cl::aliasopt(Verbose), cl::cat(JoveCategory)) {}
+               cl::cat(JoveCategory)) {}
   } opts;
 
 public:
@@ -165,7 +157,7 @@ int ServerTool::Run(void) {
     srand(time(NULL));
     tmpdir = opts.TemporaryDir + "/" + std::to_string(rand());
 
-    if (opts.Verbose)
+    if (IsVerbose())
       llvm::errs() << "temporary dir: " << tmpdir.c_str() << '\n';
 
     if (mkdir(tmpdir.c_str(), 0777) < 0 && errno != EEXIST) {
@@ -326,7 +318,7 @@ void *ServerTool::ConnectionProc(void *arg) {
     PinnedGlobals.resize(NPinnedGlobals);
   }
 
-  if (opts.Verbose)
+  if (IsVerbose())
     llvm::errs() << llvm::formatv("NPinnedGlobals: {0}\n", PinnedGlobals.size());
 
   for (unsigned i = 0; i < PinnedGlobals.size(); ++i) {
@@ -427,7 +419,7 @@ void *ServerTool::ConnectionProc(void *arg) {
         "-o", sysroot_dir.c_str(),
     };
 
-    if (opts.Verbose)
+    if (IsVerbose())
       arg_vec.push_back("--verbose");
 
     if (options.dfsan)
@@ -501,7 +493,7 @@ void *ServerTool::ConnectionProc(void *arg) {
       return nullptr;
     }
 
-    if (opts.Verbose)
+    if (IsVerbose())
       llvm::errs() << llvm::formatv("sending {0}\n", chrooted_path.c_str());
 
     ssize_t ret = robust_sendfile_with_size(data_socket, chrooted_path.c_str());
@@ -514,7 +506,7 @@ void *ServerTool::ConnectionProc(void *arg) {
   }
 
   {
-    if (opts.Verbose)
+    if (IsVerbose())
       llvm::errs() << "sending jove runtime\n";
 
     ssize_t ret = robust_sendfile_with_size(data_socket, libjove_rt_path.c_str());
@@ -527,7 +519,7 @@ void *ServerTool::ConnectionProc(void *arg) {
   }
 
   if (options.dfsan) {
-    if (opts.Verbose)
+    if (IsVerbose())
       llvm::errs() << "sending jove dfsan runtime\n";
 
     ssize_t ret = robust_sendfile_with_size(data_socket, dfsan_rt_path.c_str());

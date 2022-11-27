@@ -188,8 +188,6 @@ struct BootstrapTool : public TransformerTool<binary_state_t> {
     cl::list<std::string> Envs;
     cl::opt<std::string> jv;
     cl::alias jvAlias;
-    cl::opt<bool> Verbose;
-    cl::alias VerboseAlias;
     cl::opt<bool> VeryVerbose;
     cl::alias VeryVerboseAlias;
     cl::opt<bool> Quiet;
@@ -227,12 +225,6 @@ struct BootstrapTool : public TransformerTool<binary_state_t> {
           jvAlias("d", cl::desc("Alias for -jv."), cl::aliasopt(jv),
                   cl::cat(JoveCategory)),
 
-          Verbose("verbose",
-                  cl::desc("Print extra information for debugging purposes"),
-                  cl::cat(JoveCategory)),
-
-          VerboseAlias("v", cl::desc("Alias for -verbose."),
-                       cl::aliasopt(Verbose), cl::cat(JoveCategory)),
           VeryVerbose(
               "veryverbose",
               cl::desc("Print extra information for debugging purposes"),
@@ -557,7 +549,7 @@ int BootstrapTool::Run(void) {
     // since PTRACE_ATTACH succeeded, we know the tracee was sent a SIGSTOP.
     // wait on it.
     //
-    if (opts.Verbose)
+    if (IsVerbose())
       HumanOut() << "waiting for SIGSTOP...\n";
 
     {
@@ -567,7 +559,7 @@ int BootstrapTool::Run(void) {
       while (!WIFSTOPPED(status));
     }
 
-    if (opts.Verbose)
+    if (IsVerbose())
       HumanOut() << "waited on SIGSTOP.\n";
 
     {
@@ -630,7 +622,7 @@ int BootstrapTool::Run(void) {
     //
     // observe the (initial) signal-delivery-stop
     //
-    if (opts.Verbose)
+    if (IsVerbose())
       HumanOut() << "parent: waiting for initial stop of child " << child
                        << "...\n";
 
@@ -641,7 +633,7 @@ int BootstrapTool::Run(void) {
       while (!WIFSTOPPED(status));
     }
 
-    if (opts.Verbose)
+    if (IsVerbose())
       HumanOut() << "parent: initial stop observed\n";
 
     {
@@ -807,7 +799,7 @@ int BootstrapTool::TracerLoop(pid_t child, tiny_code_generator_t &tcg) {
         if (err == EINTR)
           continue;
 
-        if (opts.Verbose)
+        if (IsVerbose())
           HumanOut() << llvm::formatv("exiting... ({0})\n", strerror(err));
         break;
       }
@@ -1038,7 +1030,7 @@ int BootstrapTool::TracerLoop(pid_t child, tiny_code_generator_t &tcg) {
               switch (no) {
               case __NR_exit:
               case __NR_exit_group:
-                if (opts.Verbose)
+                if (IsVerbose())
                   HumanOut() << "Observed program exit.\n";
                 harvest_reloc_targets(child, tcg);
                 break;
@@ -1091,7 +1083,7 @@ int BootstrapTool::TracerLoop(pid_t child, tiny_code_generator_t &tcg) {
               switch (no) {
 #ifdef __NR_rt_sigaction
               case __NR_rt_sigaction: {
-                if (opts.Verbose)
+                if (IsVerbose())
                   HumanOut() << llvm::formatv(
                       "rt_sigaction({0}, {1:x}, {2:x}, {3})\n", a1, a2, a3, a4);
 
@@ -1106,7 +1098,7 @@ int BootstrapTool::TracerLoop(pid_t child, tiny_code_generator_t &tcg) {
                       ;
                   uintptr_t handler = _ptrace_peekdata(child, act + handler_offset);
 
-                  if (opts.Verbose)
+                  if (IsVerbose())
                     HumanOut() << llvm::formatv(
                         "on rt_sigaction(): handler={0:x}\n", handler);
 
@@ -1227,7 +1219,7 @@ int BootstrapTool::TracerLoop(pid_t child, tiny_code_generator_t &tcg) {
                            << "]\n";
 
               if (child == saved_child) {
-                if (opts.Verbose)
+                if (IsVerbose())
                   HumanOut() << "Observed program exit.\n";
                 harvest_reloc_targets(child, tcg);
               }
@@ -1949,7 +1941,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
     //
     switch (opc) {
     default: { /* fallback to code cave XXX */
-      if (opts.Verbose)
+      if (IsVerbose())
         HumanOut() << llvm::formatv("delayslot: {0} ({1})\n", I,
                                     StringOfMCInst(I, disas));
 
@@ -2408,7 +2400,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
   //
   {
     if (unlikely(saved_pc == _r_debug.r_brk)) {
-      if (opts.Verbose) {
+      if (IsVerbose()) {
         HumanOut() << llvm::formatv(
             "*_r_debug.r_brk [{0}]\n",
             description_of_program_counter(_r_debug.r_brk, true));
@@ -2472,7 +2464,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
       breakpoint_t &brk = (*it).second;
       brk.callback(child, tcg, disas);
 
-      if (opts.Verbose)
+      if (IsVerbose())
         HumanOut() << llvm::formatv("one-shot breakpoint hit @ {0}\n",
                                       description_of_program_counter(saved_pc));
 
@@ -2706,7 +2698,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
   {
     auto it = AddressSpace.find(Target.Addr);
     if (it == AddressSpace.end()) {
-      if (opts.Verbose) {
+      if (IsVerbose()) {
         update_view_of_virtual_memory(child);
 
         HumanOut() << llvm::formatv("{0} -> {1} (unknown binary)\n",
@@ -2936,7 +2928,7 @@ void BootstrapTool::harvest_irelative_reloc_targets(pid_t child,
     try {
       Resolved.Addr = _ptrace_peekdata(child, va_of_rva(R.Offset, BIdx));
     } catch (const std::exception &e) {
-      if (opts.Verbose)
+      if (IsVerbose())
         HumanOut()
             << llvm::formatv("{0}: exception: {1}\n",
                              "harvest_irelative_reloc_targets", e.what());
@@ -2945,7 +2937,7 @@ void BootstrapTool::harvest_irelative_reloc_targets(pid_t child,
 
     auto it = AddressSpace.find(Resolved.Addr);
     if (it == AddressSpace.end()) {
-      if (opts.Verbose)
+      if (IsVerbose())
         HumanOut()
             << llvm::formatv("{0}: unknown binary for {1}: R.Offset={2:x}\n",
                              "harvest_irelative_reloc_targets",
@@ -2956,7 +2948,7 @@ void BootstrapTool::harvest_irelative_reloc_targets(pid_t child,
 
     Resolved.BIdx = -1+(*it).second;
 
-    if (opts.Verbose)
+    if (IsVerbose())
       HumanOut() << llvm::formatv("IFunc dyn target: {0:x} [R.Offset={1:x}]\n",
                                   rva_of_va(Resolved.Addr, Resolved.BIdx),
                                   R.Offset);
@@ -3044,7 +3036,7 @@ void BootstrapTool::harvest_addressof_reloc_targets(pid_t child,
       try {
         Resolved.Addr = _ptrace_peekdata(child, va_of_rva(R.Offset, BIdx));
       } catch (const std::exception &e) {
-        if (opts.Verbose)
+        if (IsVerbose())
           HumanOut()
               << llvm::formatv("{0}: exception: {1}\n",
                                "harvest_addressof_reloc_targets", e.what());
@@ -3054,7 +3046,7 @@ void BootstrapTool::harvest_addressof_reloc_targets(pid_t child,
 
       auto it = AddressSpace.find(Resolved.Addr);
       if (it == AddressSpace.end()) {
-        if (opts.Verbose)
+        if (IsVerbose())
           HumanOut()
               << llvm::formatv("{0}: unknown binary for {1}\n",
                                "harvest_addressof_reloc_targets",
@@ -3183,7 +3175,7 @@ void BootstrapTool::harvest_ctor_and_dtors(pid_t child,
                 Binary.Analysis.Functions[FIdx].IsABI = true; /* it is an ABI */
             }
           } catch (const std::exception &e) {
-            if (opts.Verbose)
+            if (IsVerbose())
               HumanOut()
                   << llvm::formatv("failed examining ctor: {0}\n", e.what());
           }
@@ -3262,7 +3254,7 @@ void BootstrapTool::harvest_global_GOT_entries(pid_t child,
       if (!SymDynTargets.empty())
         continue;
 
-      if (opts.Verbose)
+      if (IsVerbose())
         HumanOut() << llvm::formatv("{0}: GlobalEntry: {1}\n", __func__, SymName);
 
       struct {
@@ -3275,7 +3267,7 @@ void BootstrapTool::harvest_global_GOT_entries(pid_t child,
       try {
         Resolved.Addr = _ptrace_peekdata(child, va_of_rva(Addr, BIdx));
       } catch (const std::exception &e) {
-        if (opts.Verbose)
+        if (IsVerbose())
           HumanOut() << llvm::formatv("{0}: exception: {1}\n", __func__, e.what());
 
         continue;
@@ -3287,7 +3279,7 @@ void BootstrapTool::harvest_global_GOT_entries(pid_t child,
 
       auto it = AddressSpace.find(Resolved.Addr);
       if (it == AddressSpace.end()) {
-        if (opts.Verbose)
+        if (IsVerbose())
           HumanOut()
               << llvm::formatv("{0}: unknown binary for {1}\n", __func__,
                                description_of_program_counter(Resolved.Addr, true));
@@ -3359,7 +3351,7 @@ bool BootstrapTool::update_view_of_virtual_memory(pid_t child) {
 
     auto it = BinPathToIdxMap.find(proc_map.nm);
     if (it == BinPathToIdxMap.end()) {
-      if (opts.Verbose)
+      if (IsVerbose())
         HumanOut() << llvm::formatv("{0}: what is this? \"{1}\"\n",
                                     __func__, proc_map.nm);
       continue;
@@ -3382,7 +3374,7 @@ bool BootstrapTool::update_view_of_virtual_memory(pid_t child) {
       if (Changed) {
         state.for_binary(b).LoadOffset = proc_map.off;
 
-        if (opts.Verbose)
+        if (IsVerbose())
           HumanOut() << llvm::formatv("LoadAddr for {0} is {1:x} (was {2:x})\n",
                                       b.Path, state.for_binary(b).LoadAddr, SavedLoadAddr);
       }
@@ -3408,7 +3400,7 @@ void BootstrapTool::on_binary_loaded(pid_t child,
 
   auto &ObjectFile = state.for_binary(binary).ObjectFile;
 
-  if (opts.Verbose)
+  if (IsVerbose())
     HumanOut() << (fmt("found binary %s @ [%#lx, %#lx)")
                    % proc_map.nm
                    % proc_map.beg
@@ -3465,7 +3457,7 @@ void BootstrapTool::on_binary_loaded(pid_t child,
       _ptrace_pokedata(child, ExecutableRegionAddress + i * (2 * sizeof(uint32_t)), insn);
     }
 
-    if (opts.Verbose)
+    if (IsVerbose())
         HumanOut()
             << llvm::formatv("ExecutableRegionAddress = 0x{0:x}\n",
                              ExecutableRegionAddress);
@@ -3955,7 +3947,7 @@ void BootstrapTool::scan_rtld_link_map(pid_t child, tiny_code_generator_t &tcg) 
       return;
     }
   } catch (const std::exception &e) {
-    if (opts.Verbose)
+    if (IsVerbose())
       HumanOut() << llvm::formatv("{0}: couldn't read r_debug structure ({1})\n", __func__, e.what());
 
     return;
@@ -3973,7 +3965,7 @@ void BootstrapTool::scan_rtld_link_map(pid_t child, tiny_code_generator_t &tcg) 
                                   (void *)r_dbg.r_state,
                                   (void *)r_dbg.r_ldbase);
 
-  if (opts.Verbose) {
+  if (IsVerbose()) {
     WARN_ON(r_dbg.r_state != r_debug::RT_CONSISTENT &&
             r_dbg.r_state != r_debug::RT_ADD &&
             r_dbg.r_state != r_debug::RT_DELETE);
@@ -4068,7 +4060,7 @@ void BootstrapTool::add_binary(pid_t child, tiny_code_generator_t &tcg,
       "-i", path
     };
 
-    if (opts.Verbose)
+    if (IsVerbose())
       print_tool_command("add", arg_vec);
 
     std::string stdoutfp = std::string(tmpdir) + path + ".txt";
@@ -4206,7 +4198,7 @@ void BootstrapTool::rendezvous_with_dynamic_linker(pid_t child) {
     try {
       ret = _ptrace_memcpy(child, &r_dbg, (void *)_r_debug.Addr, sizeof(struct r_debug));
     } catch (const std::exception &e) {
-      if (opts.Verbose)
+      if (IsVerbose())
         HumanOut() << llvm::formatv("failed to read r_debug structure: {0}\n",
                                     e.what());
       return;
@@ -4224,7 +4216,7 @@ void BootstrapTool::rendezvous_with_dynamic_linker(pid_t child) {
       return;
     }
 
-    if (unlikely(opts.Verbose) && unlikely(r_dbg.r_brk))
+    if (unlikely(IsVerbose()) && unlikely(r_dbg.r_brk))
       HumanOut() << llvm::formatv("r_brk={0:x}\n", r_dbg.r_brk);
 
     _r_debug.r_brk = r_dbg.r_brk;
@@ -4271,7 +4263,7 @@ void BootstrapTool::rendezvous_with_dynamic_linker(pid_t child) {
 
         BrkMap.insert({_r_debug.r_brk, brk});
       } catch (const std::exception &e) {
-        if (opts.Verbose)
+        if (IsVerbose())
           HumanOut() << llvm::formatv(
               "{0}: couldn't place breakpoint at r_brk [{1:x}] ({2})\n",
               __func__,
@@ -4315,7 +4307,7 @@ void BootstrapTool::on_return(pid_t child,
             << llvm::formatv("{0}: (1) unknown binary for {1}\n", __func__,
                              description_of_program_counter(pc, true));
 
-        if (opts.Verbose)
+        if (IsVerbose())
           HumanOut() << ProcMapsForPid(child);
       } else {
         BIdx = -1+(*it).second;
@@ -4360,7 +4352,7 @@ void BootstrapTool::on_return(pid_t child,
         HumanOut()
             << llvm::formatv("{0}: (2) unknown binary for {1}\n", __func__,
                              description_of_program_counter(pc, true));
-        if (opts.Verbose)
+        if (IsVerbose())
           HumanOut() << ProcMapsForPid(child);
       } else {
         BIdx = -1+(*it).second;
@@ -4404,7 +4396,7 @@ void BootstrapTool::on_return(pid_t child,
               //
               // we have no preceeding call
               //
-              if (opts.Verbose)
+              if (IsVerbose())
                 HumanOut() << llvm::formatv(
                     "{0}: could not find preceeding call @ {1:x}\n", __func__,
                     rva);
@@ -4420,7 +4412,7 @@ void BootstrapTool::on_return(pid_t child,
 
           if (!isCall && !isIndirectCall) { /* this can occur on i386 because of
                                                hack in tcg.hpp */
-            if (opts.Verbose)
+            if (IsVerbose())
               HumanOut() << llvm::formatv("on_return: unexpected terminator {0}\n",
                                           description_of_terminator(ICFG[bb].Term.Type));
             return;

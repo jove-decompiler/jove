@@ -38,8 +38,6 @@ class InitTool : public Tool {
     cl::opt<std::string> Output;
     cl::alias OutputAlias;
     cl::opt<unsigned> Threads;
-    cl::opt<bool> Verbose;
-    cl::alias VerboseAlias;
     cl::opt<bool> RedirectStderr;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
@@ -58,12 +56,6 @@ class InitTool : public Tool {
           Threads("num-threads", cl::desc("Number of CPU threads to use"),
                   cl::init(num_cpus()), cl::value_desc("int"),
                   cl::cat(JoveCategory)),
-
-          Verbose("verbose",
-                  cl::desc("Print extra information for debugging purposes")),
-
-          VerboseAlias("v", cl::desc("Alias for -verbose."),
-                       cl::aliasopt(Verbose), cl::cat(JoveCategory)),
 
           RedirectStderr(
               "redirect-stderr",
@@ -565,7 +557,7 @@ int InitTool::Run(void) {
     srand(::time(nullptr));
     tmpdir = (fs::path(opts.TemporaryDir) / std::to_string(rand())).string();
 
-    if (opts.Verbose)
+    if (IsVerbose())
       llvm::errs() << "temporary dir: " << tmpdir.c_str() << '\n';
 
     if (::mkdir(tmpdir.c_str(), 0777) < 0) {
@@ -665,14 +657,14 @@ int InitTool::Run(void) {
   if (int ret = WaitForProcessToExit(pid)) {
     HasVDSO = false;
 
-    if (opts.Verbose)
+    if (IsVerbose())
       WithColor::error() << "harvest-vdso failed. bug?\n";
   }
 
   if (vdso.empty()) {
     HasVDSO = false;
 
-    if (opts.Verbose)
+    if (IsVerbose())
       WithColor::error() << "no [vdso] found. bug?\n";
   }
 
@@ -731,7 +723,7 @@ int InitTool::Run(void) {
     }
 
     std::string bin_path = fs::canonical(path).string();
-    if (opts.Verbose)
+    if (IsVerbose())
       llvm::errs() << llvm::formatv("path = {0} bin_path = {1}\n", path, bin_path);
 
     if (std::find(binary_paths.begin(), binary_paths.end(), bin_path) != binary_paths.end())
@@ -745,14 +737,14 @@ int InitTool::Run(void) {
   //
   fs::path rtld_path = fs::canonical(program_interpreter_of_executable(opts.Prog.c_str()));
 
-  if (opts.Verbose)
+  if (IsVerbose())
     WithColor::note() << llvm::formatv("rtld_path={0}\n", rtld_path.c_str());
 
   {
     unsigned Idx;
     for (Idx = 0; Idx < binary_paths.size(); ++Idx) {
       if (fs::equivalent(binary_paths[Idx], rtld_path)) {
-        if (opts.Verbose)
+        if (IsVerbose())
           WithColor::note() << llvm::formatv("found rtld! idx={0} path={1} rtld_path={2}\n", Idx, binary_paths[Idx], rtld_path.c_str());
         goto Found;
       }
@@ -764,7 +756,7 @@ int InitTool::Run(void) {
 
 Found:
 
-    if (opts.Verbose)
+    if (IsVerbose())
       WithColor::error() << llvm::formatv("rtld in binary_paths: idx={0}\n", Idx);
 
     if (Idx != 1) {
@@ -959,7 +951,7 @@ void InitTool::worker(void) {
         "-i", path.c_str()
       };
 
-      if (opts.Verbose)
+      if (IsVerbose())
         print_tool_command("add", arg_vec);
 
       std::string stdoutfp = tmpdir + path + ".txt";

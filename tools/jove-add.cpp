@@ -49,9 +49,6 @@ class AddTool : public TransformerTool<binary_state_t> {
     cl::opt<std::string> jv;
     cl::alias jvAlias;
 
-    cl::opt<bool> Verbose;
-    cl::alias VerboseAlias;
-
     cl::opt<std::string> BreakOnAddr;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
@@ -73,12 +70,6 @@ class AddTool : public TransformerTool<binary_state_t> {
           jvAlias("d", cl::desc("Alias for -jv."), cl::aliasopt(jv),
                   cl::cat(JoveCategory)),
 
-          Verbose("verbose",
-                  cl::desc("Print extra information for debugging purposes"),
-                  cl::cat(JoveCategory)),
-
-          VerboseAlias("v", cl::desc("Alias for -verbose."),
-                       cl::aliasopt(Verbose), cl::cat(JoveCategory)),
 
           BreakOnAddr("break-on-addr",
                       cl::desc("Allow user to set a debugger breakpoint on "
@@ -573,7 +564,7 @@ int AddTool::Run(void) {
           Addr = *reinterpret_cast<const tcg_uintptr_t *>(*ExpectedPtr);
       }
 
-      if (opts.Verbose)
+      if (IsVerbose())
         WithColor::note() << llvm::formatv("ctor/dtor: off={0:x} Addr={1:x}\n",
                                            R.Offset, Addr);
 

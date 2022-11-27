@@ -185,8 +185,6 @@ struct LLVMTool : public TransformerTool<binary_state_t, function_state_t> {
     cl::opt<bool> PrintDefAndUse;
     cl::opt<bool> PrintLiveness;
     cl::opt<bool> DebugSjlj;
-    cl::opt<bool> Verbose;
-    cl::alias VerboseAlias;
     cl::opt<bool> DumpTCG;
     cl::opt<std::string> ForAddr;
     cl::opt<bool> Optimize;
@@ -258,13 +256,6 @@ struct LLVMTool : public TransformerTool<binary_state_t, function_state_t> {
               cl::desc(
                   "Before setjmp/longjmp, dump information about the call"),
               cl::cat(JoveCategory)),
-
-          Verbose("verbose",
-                  cl::desc("Print extra information for debugging purposes"),
-                  cl::cat(JoveCategory)),
-
-          VerboseAlias("v", cl::desc("Alias for -verbose."),
-                       cl::aliasopt(Verbose), cl::cat(JoveCategory)),
 
           DumpTCG("dump-tcg",
                   cl::desc("Dump TCG operations when translating basic blocks"),
@@ -1888,7 +1879,7 @@ int LLVMTool::Run(void) {
                 GlobalSymbolDefinedSizeMap.emplace(SymName, Sym.st_size);
               } else {
                 if ((*it).second != Sym.st_size) {
-                  if (opts.Verbose)
+                  if (IsVerbose())
                     WithColor::warning()
                         << llvm::formatv("global symbol {0} is defined with "
                                          "multiple distinct sizes: {1}, {2}\n",
@@ -4422,7 +4413,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
     std::vector<llvm::Constant *> SectsGlobalFieldInits;
     for (unsigned i = 0; i < NumSections; ++i) {
       section_t &Sect = SectTable[i];
-      if (opts.Verbose)
+      if (IsVerbose())
         llvm::errs() << llvm::formatv("Section: {0}\n", Sect.Name);
 
       //
@@ -4479,7 +4470,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
         }
         assert(C);
 
-        if (opts.Verbose)
+        if (IsVerbose())
           llvm::errs() << llvm::formatv("  [{0:x}, {1:x}) <C: {2}>\n",
                                         intvl.lower(),
                                         intvl.upper(), *C);
@@ -5552,7 +5543,7 @@ int LLVMTool::CreateCopyRelocationHack(void) {
                 llvm::MaybeAlign(), pair.first.second, true /* Volatile */);
           }
 
-          if (opts.Verbose)
+          if (IsVerbose())
             WithColor::note() << llvm::formatv(
                 "COPY RELOC HACK {0} {1} {2} {3}\n", pair.first.first,
                 pair.first.second, pair.second.second.first,
@@ -7150,7 +7141,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
     }
 
     if (!IRB.GetInsertBlock()->getTerminator()) {
-      if (opts.Verbose)
+      if (IsVerbose())
         WithColor::warning() << "TranslateBasicBlock: no terminator in block\n";
       IRB.CreateBr(ExitBB);
     }
@@ -7719,7 +7710,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
     }
 
     if (DynTargets.empty()) {
-      if (opts.Verbose)
+      if (IsVerbose())
         WithColor::warning() << llvm::formatv(
             "indirect control transfer @ {0:x} has zero dyn targets\n",
             ICFG[bb].Addr);
@@ -8899,7 +8890,7 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
         ++iarg_idx;
 
         if (ts->type == TCG_TYPE_I32 && sizeof(TCGArg) == sizeof(uint64_t)) {
-          if (opts.Verbose)
+          if (IsVerbose())
             WithColor::warning() << llvm::formatv("skipping arg at {0}\n", iarg_idx);
           ++iarg_idx;
         }
@@ -8917,7 +8908,7 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
         ++iarg_idx;
 
         if (ts->type == TCG_TYPE_I32 && sizeof(TCGArg) == sizeof(uint64_t)) {
-          if (opts.Verbose)
+          if (IsVerbose())
             WithColor::warning() << llvm::formatv("skipping arg at {0}\n", iarg_idx);
           ++iarg_idx;
         }

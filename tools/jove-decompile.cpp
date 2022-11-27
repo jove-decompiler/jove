@@ -45,8 +45,6 @@ class DecompileTool : public TransformerTool<binary_state_t> {
     cl::opt<std::string> jv;
     cl::opt<std::string> Binary;
     cl::alias BinaryAlias;
-    cl::opt<bool> Verbose;
-    cl::alias VerboseAlias;
     cl::opt<std::string> Output;
     cl::alias OutputAlias;
     cl::opt<bool> ClearOutputDir;
@@ -63,13 +61,6 @@ class DecompileTool : public TransformerTool<binary_state_t> {
 
           BinaryAlias("b", cl::desc("Alias for -binary."), cl::aliasopt(Binary),
                       cl::cat(JoveCategory)),
-
-          Verbose("verbose",
-                  cl::desc("Print extra information for debugging purposes"),
-                  cl::cat(JoveCategory)),
-
-          VerboseAlias("v", cl::desc("Alias for -verbose."),
-                       cl::aliasopt(Verbose), cl::cat(JoveCategory)),
 
           Output("output", cl::desc("Output directory"), cl::Required,
                  cl::cat(JoveCategory)),
@@ -293,7 +284,7 @@ int DecompileTool::Run(void) {
   fs::create_directories(opts.Output);
   fs::create_directories(fs::path(opts.Output) / ".obj");
 
-  if (!opts.Verbose)
+  if (!IsVerbose())
     WithColor::note() << llvm::formatv(
         "Generating LLVM and running llvm-cbe on {0} {1}...",
         !opts.Binary.empty() ? 1 : jv.Binaries.size() - 2,
@@ -324,7 +315,7 @@ int DecompileTool::Run(void) {
     if (Failed)
       return 1;
 
-    if (!opts.Verbose)
+    if (!IsVerbose())
       llvm::errs() << llvm::formatv(" {0} s\n", s_double.count());
   }
 
@@ -408,7 +399,7 @@ int DecompileTool::Run(void) {
         nullptr
       };
 
-      if (opts.Verbose)
+      if (IsVerbose())
         print_command(&arg_arr[0]);
 
       ::close(STDIN_FILENO);
@@ -450,7 +441,7 @@ int DecompileTool::Run(void) {
         nullptr
       };
 
-      if (opts.Verbose)
+      if (IsVerbose())
         print_command(&arg_arr[0]);
 
       ::close(STDIN_FILENO);
@@ -498,7 +489,7 @@ int DecompileTool::Run(void) {
       nullptr
     };
 
-    if (opts.Verbose)
+    if (IsVerbose())
       print_command(&arg_arr[0]);
 
     ::close(STDIN_FILENO);
@@ -729,7 +720,7 @@ void DecompileTool::Worker(void) {
         "--foreign-libs" /* FIXME */
       };
 
-      if (opts.Verbose)
+      if (IsVerbose())
         print_tool_command("llvm", arg_vec);
 
       {
@@ -786,9 +777,10 @@ void DecompileTool::Worker(void) {
         arg_vec.push_back("--cbe-print-debug-locs");
 
       arg_vec.push_back(bcfp.c_str());
+
       arg_vec.push_back(nullptr);
 
-      if (opts.Verbose)
+      if (IsVerbose())
         print_command(&arg_vec[0]);
 
       {

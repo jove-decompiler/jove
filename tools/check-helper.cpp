@@ -22,15 +22,10 @@ namespace jove {
 class CheckHelpersTool : public Tool {
   struct Cmdline {
     cl::list<std::string> InputHelpers;
-    cl::opt<bool> Verbose;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : InputHelpers(cl::Positional, cl::desc("<helper>"), cl::OneOrMore,
-                       cl::cat(JoveCategory)),
-
-          Verbose("verbose",
-                  cl::desc("Print extra information for debugging purposes"),
-                  cl::cat(JoveCategory)) {}
+                       cl::cat(JoveCategory)) {}
   } opts;
 
   llvm::LLVMContext Context;
@@ -85,7 +80,7 @@ void CheckHelpersTool::checkHelper(const std::string &helper_nm) {
         continue;
 
       if (F.empty()) { /* is declaration? */
-        if (opts.Verbose)
+        if (IsVerbose())
           llvm::errs() << helperM << '\n';
 
 #if 0
