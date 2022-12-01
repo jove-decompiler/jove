@@ -34,7 +34,6 @@ namespace jove {
 class InitTool : public Tool {
   struct Cmdline {
     cl::opt<std::string> Prog;
-    cl::opt<std::string> TemporaryDir;
     cl::opt<std::string> Output;
     cl::alias OutputAlias;
     cl::opt<unsigned> Threads;
@@ -43,9 +42,6 @@ class InitTool : public Tool {
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : Prog(cl::Positional, cl::desc("prog"), cl::Required,
                cl::value_desc("filename"), cl::cat(JoveCategory)),
-
-          TemporaryDir("tmpdir", cl::value_desc("directory"),
-                       cl::cat(JoveCategory)),
 
           Output("output", cl::desc("Output"),
                  cl::value_desc("filename"), cl::cat(JoveCategory)),
@@ -75,8 +71,6 @@ public:
 JOVE_REGISTER_TOOL("init", InitTool);
 
 static std::queue<std::string> Q;
-
-static std::string tmpdir;
 
 static std::string harvest_vdso_path;
 
@@ -543,33 +537,6 @@ int InitTool::Run(void) {
   }
 
   //
-  // prepare to process the binaries by creating a unique temporary directory
-  //
-  if (opts.TemporaryDir.empty()) {
-    tmpdir = "/tmp/XXXXXX";
-
-    if (!mkdtemp(&tmpdir[0])) {
-      int err = errno;
-      WithColor::error() << llvm::formatv("mkdtemp failed: {0}\n", strerror(err));
-      return 1;
-    }
-  } else {
-    srand(::time(nullptr));
-    tmpdir = (fs::path(opts.TemporaryDir) / std::to_string(rand())).string();
-
-    if (IsVerbose())
-      llvm::errs() << "temporary dir: " << tmpdir.c_str() << '\n';
-
-    if (::mkdir(tmpdir.c_str(), 0777) < 0) {
-      int err = errno;
-      if (err != EEXIST) {
-        WithColor::error() << llvm::formatv("could not create temporary directory: {0}\n", strerror(err));
-        return 1;
-      }
-    }
-  }
-
-  //
   // parse the standard output from the dynamic linker to produce a set of paths
   // to binaries that will be added to the jv
   //
@@ -682,7 +649,7 @@ int InitTool::Run(void) {
 
   {
     char path[0x100];
-    snprintf(path, sizeof(path), "%s/linux-vdso.so", tmpdir.c_str());
+    snprintf(path, sizeof(path), "%s/linux-vdso.so", temporary_dir().c_str());
 
     int fd = ::open(path, O_CREAT | O_TRUNC | O_WRONLY, 0666);
     ssize_t ret = robust_write(fd, &vdso[0], vdso.size());
@@ -796,7 +763,7 @@ Found:
   final_decompilation.Binaries.reserve(binary_paths.size());
 
   for (const std::string &path : binary_paths) {
-    std::string jvfp = tmpdir + path + ".jv";
+    std::string jvfp = temporary_dir() + path + ".jv";
     if (!fs::exists(jvfp)) {
       WithColor::error() << "intermediate result " << jvfp << " not found" << '\n';
       return 1;
@@ -941,7 +908,7 @@ void InitTool::worker(void) {
 
   std::string path;
   while (pop_path(path)) {
-    std::string jvfp = tmpdir + path + ".jv";
+    std::string jvfp = temporary_dir() + path + ".jv";
     fs::create_directories(fs::path(jvfp).parent_path());
 
     pid_t pid = ::fork();
@@ -954,7 +921,7 @@ void InitTool::worker(void) {
       if (IsVerbose())
         print_tool_command("add", arg_vec);
 
-      std::string stdoutfp = tmpdir + path + ".txt";
+      std::string stdoutfp = temporary_dir() + path + ".txt";
       int outfd = ::open(stdoutfp.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666);
       ::dup2(outfd, STDOUT_FILENO);
       if (opts.RedirectStderr)

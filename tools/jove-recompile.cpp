@@ -176,9 +176,6 @@ public:
 
 JOVE_REGISTER_TOOL("recompile", RecompileTool);
 
-static char tmpdir[] = {'/', 't', 'm', 'p', '/', 'X',
-                        'X', 'X', 'X', 'X', 'X', '\0'};
-
 static std::string compiler_runtime_afp, libatomic_afp, jove_bin_path,
     jove_rt_path, jove_dfsan_path, llc_path, ld_path, opt_path, llvm_dis_path;
 
@@ -422,24 +419,6 @@ int RecompileTool::Run(void) {
     return 1;
   }
 
-  //
-  // prepare to process the binaries by creating a unique temporary directory
-  //
-  if (!mkdtemp(tmpdir)) {
-    WithColor::error() << "mkdtemp failed : " << strerror(errno) << '\n';
-    return 1;
-  }
-
-  struct rm_tmpdir_t {
-    rm_tmpdir_t () {}
-    ~rm_tmpdir_t () {
-      fs::remove_all(fs::path(tmpdir));
-    }
-  } rm_tmpdir;
-
-  if (IsVerbose())
-    llvm::errs() << llvm::formatv("tmpdir: {0}\n", tmpdir);
-
   if (!fs::exists(opts.jv)) {
     WithColor::error() << "can't find jv.jv\n";
     return 1;
@@ -513,7 +492,7 @@ int RecompileTool::Run(void) {
     //
     // we have the binary data in the jv. let's use it
     //
-    fs::path ldso_path = fs::path(tmpdir) / "ld.so";
+    fs::path ldso_path = fs::path(temporary_dir()) / "ld.so";
 
     fs::path chrooted_path(opts.Output + b.Path);
     fs::create_directories(chrooted_path.parent_path());
@@ -701,7 +680,7 @@ int RecompileTool::Run(void) {
     //
     // graphviz
     //
-    std::string dso_dot_path = (fs::path(tmpdir) /  "dso_graph.dot").string();
+    std::string dso_dot_path = (fs::path(temporary_dir()) /  "dso_graph.dot").string();
 
     {
       std::ofstream ofs(dso_dot_path);

@@ -280,9 +280,6 @@ struct graphviz_prop_writer {
   }
 };
 
-static char tmpdir[] = {'/', 't', 'm', 'p', '/', 'X',
-                        'X', 'X', 'X', 'X', 'X', '\0'};
-
 typedef boost::filtered_graph<
     interprocedural_control_flow_graph_t,
     boost::keep_all,
@@ -364,17 +361,7 @@ Found:
   const function_t &f = binary.Analysis.Functions[FunctionIndex];
   assert(is_basic_block_index_valid(f.Entry));
 
-  //
-  // create temporary directory
-  //
-  if (!mkdtemp(tmpdir)) {
-    WithColor::error() << "mkdtemp failed : " << strerror(errno) << '\n';
-    return 1;
-  }
-
-  llvm::outs() << "tmpdir: " << tmpdir << '\n';
-
-  std::string dot_path = (fs::path(tmpdir) / "cfg.dot").string();
+  std::string dot_path = (fs::path(temporary_dir()) / "cfg.dot").string();
 
   auto output_cfg = [&](const cfg_t &cfg) -> void {
     std::ofstream ofs(dot_path);

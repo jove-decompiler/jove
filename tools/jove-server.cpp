@@ -41,14 +41,10 @@ namespace jove {
 
 class ServerTool : public Tool {
   struct Cmdline {
-    cl::opt<std::string> TemporaryDir;
     cl::opt<unsigned> Port;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
-        : TemporaryDir("tmpdir", cl::value_desc("directory"),
-                       cl::cat(JoveCategory)),
-
-          Port("port", cl::desc("Network port to listen on"), cl::Required,
+        : Port("port", cl::desc("Network port to listen on"), cl::Required,
                cl::cat(JoveCategory)) {}
   } opts;
 
@@ -61,8 +57,6 @@ public:
 };
 
 JOVE_REGISTER_TOOL("server", ServerTool);
-
-static std::string tmpdir;
 
 static fs::path libjove_rt_path, dfsan_rt_path;
 
@@ -139,32 +133,6 @@ int ServerTool::Run(void) {
         "could not find jove dfsan runtime at {0}\n", dfsan_rt_path.c_str());
 
     return 1;
-  }
-
-  //
-  // prepare to process the binaries by creating a unique temporary directory
-  //
-  if (opts.TemporaryDir.empty()) {
-    char tmpdir_c_str[] = {'/', 't', 'm', 'p', '/', 'X', 'X', 'X', 'X', 'X', 'X', '\0'};
-    if (!mkdtemp(tmpdir_c_str)) {
-      int err = errno;
-      WithColor::error() << llvm::formatv("mkdtemp failed: {0}\n", strerror(err));
-      return 1;
-    }
-
-    tmpdir = tmpdir_c_str;
-  } else {
-    srand(time(NULL));
-    tmpdir = opts.TemporaryDir + "/" + std::to_string(rand());
-
-    if (IsVerbose())
-      llvm::errs() << "temporary dir: " << tmpdir.c_str() << '\n';
-
-    if (mkdir(tmpdir.c_str(), 0777) < 0 && errno != EEXIST) {
-      int err = errno;
-      llvm::errs() << "could not create temporary directory: " << strerror(err) << '\n';
-      return 1;
-    }
   }
 
   //
@@ -291,7 +259,7 @@ void *ServerTool::ConnectionProc(void *arg) {
   {
     static std::atomic<unsigned> x = 0;
 
-    TemporaryDir = fs::path(tmpdir) / std::to_string(x++);
+    TemporaryDir = fs::path(temporary_dir()) / std::to_string(x++);
     fs::create_directory(TemporaryDir);
   }
 

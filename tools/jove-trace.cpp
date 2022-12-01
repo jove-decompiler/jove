@@ -131,9 +131,6 @@ public:
 
 JOVE_REGISTER_TOOL("trace", TraceTool);
 
-static char tmpdir[] = {'/', 't', 'm', 'p', '/', 'X',
-                        'X', 'X', 'X', 'X', 'X', '\0'};
-
 int TraceTool::Run(void) {
   for (char *dashdash_arg : dashdash_args)
     opts.Args.push_back(dashdash_arg);
@@ -188,16 +185,7 @@ int TraceTool::Run(void) {
 
     SysrootPath = opts.ExistingSysroot;
   } else {
-    //
-    // create a unique temporary directory
-    //
-    if (!mkdtemp(tmpdir)) {
-      int err = errno;
-      WithColor::error() << llvm::formatv("mkdtemp failed: {0}\n", strerror(err));
-      return 1;
-    }
-
-    SysrootPath = tmpdir;
+    SysrootPath = temporary_dir();
   }
 
   if (IsVerbose())

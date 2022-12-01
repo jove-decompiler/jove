@@ -181,24 +181,7 @@ int CodeDigger::Run(void) {
 
   Recovery = std::make_unique<CodeRecovery>(jv, disas, tcg, symbolizer);
 
-  //
-  // prepare to process the binaries by creating a unique temporary directory
-  //
-  {
-    static char tmpdir[] = {'/', 't', 'm', 'p', '/', 'X',
-                            'X', 'X', 'X', 'X', 'X', '\0'};
-
-    if (!mkdtemp(tmpdir)) {
-      int err = errno;
-      WithColor::error() << "mkdtemp failed : " << strerror(err) << '\n';
-      return 1;
-    }
-
-    tmp_dir = fs::path(tmpdir);
-
-    HumanOut() << llvm::formatv("Temporary directory: {0}\n", tmp_dir.string());
-  }
-  assert(fs::exists(tmp_dir) && fs::is_directory(tmp_dir));
+  tmp_dir = temporary_dir();
 
   int pipefd[2];
   if (::pipe(pipefd) < 0) {

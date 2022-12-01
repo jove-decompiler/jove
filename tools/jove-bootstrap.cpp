@@ -4040,14 +4040,7 @@ void BootstrapTool::scan_rtld_link_map(pid_t child, tiny_code_generator_t &tcg) 
 
 void BootstrapTool::add_binary(pid_t child, tiny_code_generator_t &tcg,
                                const char *path) {
-  char tmpdir[] = {'/', 't', 'm', 'p', '/', 'X', 'X', 'X', 'X', 'X', 'X', '\0'};
-
-  if (!mkdtemp(tmpdir)) {
-    HumanOut() << "mkdtemp failed : " << strerror(errno) << '\n';
-    return;
-  }
-
-  std::string jvfp = std::string(tmpdir) + path + ".jv";
+  std::string jvfp = temporary_dir() + path + ".jv";
   fs::create_directories(fs::path(jvfp).parent_path());
 
   //
@@ -4063,7 +4056,7 @@ void BootstrapTool::add_binary(pid_t child, tiny_code_generator_t &tcg,
     if (IsVerbose())
       print_tool_command("add", arg_vec);
 
-    std::string stdoutfp = std::string(tmpdir) + path + ".txt";
+    std::string stdoutfp = temporary_dir() + path + ".txt";
     int outfd = ::open(stdoutfp.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666);
     ::dup2(outfd, STDOUT_FILENO);
     ::dup2(outfd, STDERR_FILENO);

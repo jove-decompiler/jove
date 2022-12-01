@@ -260,15 +260,7 @@ int DecompileTool::Run(void) {
 
   bool IsPIC = jv.Binaries.at(0).IsPIC;
 
-  tmp_dir = "/tmp/jXXXXXX";
-  if (!mkdtemp(&tmp_dir[0])) {
-    int err = errno;
-    throw std::runtime_error("failed to make temporary directory: " +
-                             std::string(strerror(err)));
-  }
-  assert(fs::exists(tmp_dir) && fs::is_directory(tmp_dir));
-
-  WithColor::note() << llvm::formatv("temporary directory: {0}\n", tmp_dir);
+  tmp_dir = temporary_dir();
 
   if (fs::exists(opts.Output)) {
     if (!fs::is_directory(opts.Output)) {

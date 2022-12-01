@@ -4,6 +4,8 @@
 #include <stdexcept>
 #include <fstream>
 
+#include <boost/filesystem.hpp>
+
 #include <llvm/Support/WithColor.h>
 #include <llvm/Support/InitLLVM.h>
 #include <llvm/Support/FormatVariadic.h>
@@ -159,6 +161,7 @@ found_tool:
   assert(name);
   assert(tool);
 
+  tool->_name = name;
   tool->set_dashdash_args(dashdash_args);
 
   llvm::InitLLVM X(argc, argv);
@@ -178,6 +181,8 @@ found_tool:
   return res;
 }
 
+namespace fs = boost::filesystem;
+
 namespace jove {
 
 Tool::Tool()
@@ -192,11 +197,21 @@ Tool::Tool()
 
       opt_VerboseAlias("v", llvm::cl::desc("Alias for -verbose."),
                        llvm::cl::aliasopt(opt_Verbose),
-                       llvm::cl::cat(JoveCategory))
+                       llvm::cl::cat(JoveCategory)),
+
+      opt_TemporaryDir("temp-dir", llvm::cl::value_desc("directory"),
+                       llvm::cl::cat(JoveCategory)),
+
+      opt_NoDeleteTemporaryDir(
+          "no-rm-temp-dir",
+          llvm::cl::desc("Do not remove temporary directory on exit"),
+          llvm::cl::cat(JoveCategory))
 
 {}
 
-Tool::~Tool() {}
+Tool::~Tool() {
+  cleanup_temp_dir();
+}
 
 void Tool::HumanOutToFile(const std::string &path) {
   std::error_code EC;
@@ -262,6 +277,48 @@ std::string Tool::path_to_sysroot(const char *exe_path, bool ForeignLibs) {
     res.append(".x");
 
   return res;
+}
+
+const std::string &Tool::temporary_dir(void) {
+  auto &dir = _temp_dir;
+
+  if (dir.empty()) {
+    if (opt_TemporaryDir.empty())
+      dir = "/tmp";
+    else
+      dir = opt_TemporaryDir;
+
+    dir.append("/jove.");
+
+    assert(_name);
+    dir.append(_name);
+
+    dir.append(".XXXXXX");
+
+    if (!mkdtemp(&dir[0])) {
+      int err = errno;
+      throw std::runtime_error(std::string("Tool::temporary_dir: mkdtemp failed: ") +
+                               strerror(err));
+    }
+
+    assert(!dir.empty());
+
+    if (IsVerbose())
+      HumanOut() << llvm::formatv("created temporary directory at {0}\n", dir);
+  }
+
+  return dir;
+}
+
+void Tool::cleanup_temp_dir(void) {
+  if (opt_NoDeleteTemporaryDir)
+    return;
+
+  if (!_temp_dir.empty() &&
+      fs::exists(_temp_dir) &&
+      fs::is_directory(_temp_dir)) {
+    fs::remove_all(_temp_dir);
+  }
 }
 
 }

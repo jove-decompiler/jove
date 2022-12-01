@@ -72,9 +72,6 @@ JOVE_REGISTER_TOOL("trace2lines", Trace2LinesTool);
 
 static fs::path path_to_vim;
 
-static char tmpdir[] = {'/', 't', 'm', 'p', '/', 'X',
-                        'X', 'X', 'X', 'X', 'X', '\0'};
-
 static fs::path path_to_tmpfile;
 static std::unique_ptr<llvm::raw_fd_ostream> tmpfile_ostream;
 
@@ -102,14 +99,7 @@ int Trace2LinesTool::Run(void) {
       return 1;
     }
 
-    if (!mkdtemp(tmpdir)) {
-      int err = errno;
-      WithColor::error() << llvm::formatv("mkdtemp failed : {0}\n",
-                                          strerror(err));
-      return 1;
-    }
-
-    path_to_tmpfile = fs::path(tmpdir) / "Trace.txt";
+    path_to_tmpfile = fs::path(temporary_dir()) / "Trace.txt";
     std::error_code EC;
 
     tmpfile_ostream.reset(

@@ -28,8 +28,14 @@ public:
 private:
   llvm::cl::opt<bool> opt_Verbose;
   llvm::cl::alias opt_VerboseAlias;
+  llvm::cl::opt<std::string> opt_TemporaryDir;
+  llvm::cl::opt<bool> opt_NoDeleteTemporaryDir;
 
+  std::string _temp_dir;
+  void cleanup_temp_dir(void);
 public:
+  const char *_name = nullptr;
+
   jv_t jv;
 
 public:
@@ -74,6 +80,8 @@ public:
   static std::string jove_dir(void);
   static std::string path_to_jv(const char *exe_path);
   static std::string path_to_sysroot(const char *exe_path, bool ForeignLibs);
+
+  const std::string &temporary_dir(void);
 };
 
 typedef Tool *(*ToolCreationProc)(void);
