@@ -6,6 +6,7 @@
 
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -31,6 +32,7 @@ private:
   llvm::cl::opt<std::string> opt_TemporaryDir;
   llvm::cl::opt<bool> opt_NoDeleteTemporaryDir;
 
+  std::mutex _temp_dir_mtx;
   std::string _temp_dir;
   void cleanup_temp_dir(void);
 public:

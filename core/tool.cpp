@@ -352,8 +352,9 @@ std::string Tool::path_to_sysroot(const char *exe_path, bool ForeignLibs) {
 }
 
 const std::string &Tool::temporary_dir(void) {
-  auto &dir = _temp_dir;
+  std::lock_guard<std::mutex> lck(_temp_dir_mtx);
 
+  auto &dir = _temp_dir;
   if (dir.empty()) {
     if (opt_TemporaryDir.empty())
       dir = "/tmp";
