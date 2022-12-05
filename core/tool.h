@@ -61,9 +61,34 @@ public:
     this->dashdash_args = dashdash_args;
   }
 
-  //
-  // utlity methods
-  //
+  pid_t RunExecutable(const char *exe_path,
+      compute_args_t compute_args,
+      const std::string &stdout_path = std::string(),
+      const std::string &stderr_path = std::string());
+
+  pid_t RunExecutable(const char *exe_path,
+      compute_args_t compute_args,
+      compute_envs_t compute_envs,
+      const std::string &stdout_path = std::string(),
+      const std::string &stderr_path = std::string());
+
+  int RunTool(const char *tool_name,
+      compute_args_t compute_args,
+      const std::string &stdout_path = std::string(),
+      const std::string &stderr_path = std::string());
+
+  template <typename... Args>
+  int RunExecutableToExit(Args &&...args) {
+    pid_t pid = RunExecutable(std::forward<Args>(args)...);
+    return WaitForProcessToExit(pid);
+  }
+
+  template <typename... Args>
+  int RunToolToExit(Args &&...args) {
+    pid_t pid = RunTool(std::forward<Args>(args)...);
+    return WaitForProcessToExit(pid);
+  }
+
   void print_command(const char** cstr_p);
   void exec_tool(const char *name,
                  const std::vector<const char *> &arg_vec,
@@ -82,6 +107,10 @@ public:
   static std::string path_to_sysroot(const char *exe_path, bool ForeignLibs);
 
   const std::string &temporary_dir(void);
+
+private:
+  void on_exec(const char **argv, const char **envp);
+  void on_exec_tool(const char **argv, const char **envp);
 };
 
 typedef Tool *(*ToolCreationProc)(void);

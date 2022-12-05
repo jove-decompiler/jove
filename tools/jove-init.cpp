@@ -37,7 +37,6 @@ class InitTool : public Tool {
     cl::opt<std::string> Output;
     cl::alias OutputAlias;
     cl::opt<unsigned> Threads;
-    cl::opt<bool> RedirectStderr;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : Prog(cl::Positional, cl::desc("prog"), cl::Required,
@@ -51,12 +50,8 @@ class InitTool : public Tool {
 
           Threads("num-threads", cl::desc("Number of CPU threads to use"),
                   cl::init(num_cpus()), cl::value_desc("int"),
-                  cl::cat(JoveCategory)),
-
-          RedirectStderr(
-              "redirect-stderr",
-              cl::desc(
-                  "Like we do with stdout for jove-add, pipe it to a txt")) {}
+                  cl::cat(JoveCategory))
+    {}
   } opts;
 
 public:
@@ -458,82 +453,41 @@ int InitTool::Run(void) {
     return 1;
   }
 
+  const bool firmadyne = fs::exists("/firmadyne/libnvram.so"); /* XXX */
+
   //
   // run program with LD_TRACE_LOADED_OBJECTS=1 and no arguments. capture the
   // standard output, which will tell us what binaries are needed by prog.
   //
-  int pipefd[2];
-  if (::pipe(pipefd) < 0) {
-    WithColor::error() << "pipe failed : " << strerror(errno) << '\n';
-    return 1;
-  }
-
-  int rfd = pipefd[0];
-  int wfd = pipefd[1];
-
-  const bool firmadyne = fs::exists("/firmadyne/libnvram.so");
-
-  pid_t pid = ::fork();
-
-  //
-  // are we the child?
-  //
-  if (!pid) {
-    ::close(rfd); /* close unused read end */
-
-    /* make stdout be the write end of the pipe */
-    if (::dup2(wfd, STDOUT_FILENO) < 0) {
-      WithColor::error() << "dup2 failed : " << strerror(errno) << '\n';
-      exit(1);
-    }
-
-    std::vector<const char *> arg_vec = {opts.Prog.c_str(), nullptr};
-
-    std::vector<const char *> env_vec;
-    for (char **env = ::environ; *env; ++env)
-      env_vec.push_back(*env);
-
-    env_vec.push_back("LD_TRACE_LOADED_OBJECTS=1");
-
-    if (firmadyne)
-      env_vec.push_back("LD_PRELOAD=/firmadyne/libnvram.so");
-
-    env_vec.push_back(nullptr);
-
-    print_command(&arg_vec[0]);
-    ::execve(arg_vec[0],
-             const_cast<char **>(&arg_vec[0]),
-             const_cast<char **>(&env_vec[0]));
-
-    /* if we get here, exec failed */
-    int err = errno;
-    WithColor::error() << llvm::formatv("failed to exec {0}: {1}\n",
-                                        arg_vec[0],
-                                        strerror(err));
-    return 1;
-  }
-
-  ::close(wfd); /* close unused write end */
-
-  //
-  // slurp up the result of executing the binary
-  //
   std::string dynlink_stdout;
   {
-    char buf;
-    while (::read(rfd, &buf, 1) > 0)
-      dynlink_stdout += buf;
-  }
+    std::string path_to_stdout = temporary_dir() + "/trace_loaded_objects.stdout.txt";
+    std::string path_to_stderr = temporary_dir() + "/trace_loaded_objects.stderr.txt";
 
-  ::close(rfd); /* close read end */
+    int rc = RunExecutableToExit(
+        opts.Prog.c_str(),
+        [&](auto Arg) {
+          Arg(opts.Prog);
+        },
+        [&](auto Env) {
+          InitWithEnviron(Env);
 
-  //
-  // check exit code
-  //
-  if (int ret = WaitForProcessToExit(pid)) {
-    WithColor::error() << "LD_TRACE_LOADED_OBJECTS=1 " << opts.Prog
-                 << " returned nonzero exit code " << ret << '\n';
-    return 1;
+          Env("LD_TRACE_LOADED_OBJECTS=1");
+
+          if (firmadyne) /* XXX */
+            Env("LD_PRELOAD=/firmadyne/libnvram.so");
+        },
+        path_to_stdout,
+        path_to_stderr);
+
+    if (rc) {
+      WithColor::error() << llvm::formatv(
+          "LD_TRACE_LOADED_OBJECTS=1 {0} returned nonzero exit code {1}",
+          opts.Prog, rc);
+      return 1;
+    }
+
+    dynlink_stdout = read_file_into_string(path_to_stdout.c_str());
   }
 
   //
@@ -552,19 +506,20 @@ int InitTool::Run(void) {
   // to get the vdso, we run $(BINDIR)/$(target)/harvest-vdso. if it exists, it
   // will write the contents to STDOUT. otherwise it returns a non-zero number.
   //
+  int pipefd[2];
   if (::pipe(pipefd) < 0) {
     int err = errno;
     WithColor::error() << llvm::formatv("pipe failed: {0}\n", strerror(err));
     return 1;
   }
 
-  rfd = pipefd[0];
-  wfd = pipefd[1];
+  int rfd = pipefd[0];
+  int wfd = pipefd[1];
 
   //
   // run harvest-vdso
   //
-  pid = ::fork();
+  pid_t pid = ::fork();
   if (!pid) {
     ::close(rfd); /* close unused read end */
 
@@ -911,34 +866,24 @@ void InitTool::worker(void) {
     std::string jvfp = temporary_dir() + path + ".jv";
     fs::create_directories(fs::path(jvfp).parent_path());
 
-    pid_t pid = ::fork();
-    if (!pid) {
-      std::vector<const char *> arg_vec = {
-        "-o", jvfp.c_str(),
-        "-i", path.c_str()
-      };
+    std::string path_to_stdout = temporary_dir() + path + ".add.stdout.txt";
+    std::string path_to_stderr = temporary_dir() + path + ".add.stderr.txt";
 
-      if (IsVerbose())
-        print_tool_command("add", arg_vec);
+    int rc = RunToolToExit(
+        "add",
+        [&](auto Arg) {
+          Arg("-o");
+          Arg(jvfp);
+          Arg("-i");
+          Arg(path);
+        },
+        path_to_stdout,
+        path_to_stderr);
 
-      std::string stdoutfp = temporary_dir() + path + ".txt";
-      int outfd = ::open(stdoutfp.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666);
-      ::dup2(outfd, STDOUT_FILENO);
-      if (opts.RedirectStderr)
-        ::dup2(outfd, STDERR_FILENO);
-
-      ::close(STDIN_FILENO);
-      exec_tool("add", arg_vec);
-
-      int err = errno;
-      WithColor::error() << llvm::formatv("execve of jove-add failed: {1}\n",
-                                          strerror(err));
-      exit(1);
-    }
-
-    if (int ret = WaitForProcessToExit(pid))
-      WithColor::error() << llvm::formatv("jove-add -o {0} -i {1}\n", jvfp,
-                                          path);
+    if (rc)
+      WithColor::error() << llvm::formatv(
+          "jove add failed!\n{0}\n",
+          read_file_into_string(path_to_stderr.c_str()));
   }
 }
 

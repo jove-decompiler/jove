@@ -224,12 +224,84 @@ void Tool::HumanOutToFile(const std::string &path) {
   HumanOutputStreamPtr = HumanOutputFileStream.get();
 }
 
-void Tool::print_command(const char **c_str_arr) {
-  for (const char **p = c_str_arr; *p; ++p) {
-    HumanOut() << *p << ' ';
+void Tool::print_command(const char **argv) {
+  for (const char **argp = argv; *argp; ++argp) {
+    HumanOut() << *argp;
+
+    if (*(argp + 1))
+      HumanOut() << ' ';
   }
 
   HumanOut() << '\n';
+}
+
+void Tool::on_exec(const char **argv, const char **envp) {
+  if (!IsVerbose())
+    return;
+
+  print_command(argv);
+}
+
+void Tool::on_exec_tool(const char **argv, const char **envp) {
+  if (!IsVerbose())
+    return;
+
+  HumanOut() << "jove ";
+
+  print_command(argv);
+}
+
+pid_t Tool::RunExecutable(const char *exe_path,
+                          compute_args_t compute_args,
+                          const std::string &stdout_path,
+                          const std::string &stderr_path) {
+  using namespace std::placeholders;
+
+  return jove::RunExecutable(
+      exe_path,
+      compute_args,
+      stdout_path,
+      stderr_path,
+      std::bind(&Tool::on_exec, this, _1, _2));
+}
+
+pid_t Tool::RunExecutable(const char *exe_path,
+                          compute_args_t compute_args,
+                          compute_envs_t compute_envs,
+                          const std::string &stdout_path,
+                          const std::string &stderr_path) {
+  using namespace std::placeholders;
+
+  return jove::RunExecutable(
+      exe_path,
+      compute_args,
+      compute_envs,
+      stdout_path,
+      stderr_path,
+      std::bind(&Tool::on_exec, this, _1, _2));
+}
+
+int Tool::RunTool(const char *tool_name,
+                  compute_args_t compute_args,
+                  const std::string &stdout_path,
+                  const std::string &stderr_path) {
+  using namespace std::placeholders;
+
+  return jove::RunExecutable(
+      "/proc/self/exe",
+      [&](auto Arg) {
+        Arg(tool_name);
+
+        if (IsVerbose())
+          Arg("-v");
+        if (opt_NoDeleteTemporaryDir)
+          Arg("--no-rm-temp-dir");
+
+        compute_args(Arg);
+      },
+      stdout_path,
+      stderr_path,
+      std::bind(&Tool::on_exec_tool, this, _1, _2));
 }
 
 void Tool::exec_tool(const char *name,

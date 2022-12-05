@@ -948,8 +948,6 @@ int RecompileTool::Run(void) {
     if (b.IsVDSO)
       continue;
 
-    pid_t pid;
-
     // make sure the path is absolute
     assert(b.Path.at(0) == '/');
 
@@ -974,91 +972,70 @@ int RecompileTool::Run(void) {
     //
     // run ld
     //
-    pid = ::fork();
-    if (!pid) {
-      IgnoreCtrlC();
+    int rc = RunExecutableToExit(ld_path.c_str(), [&](auto Arg) {
+      Arg(ld_path);
 
-      std::vector<const char *> arg_vec = {
-          ld_path.c_str(),
+      Arg("-o");
+      Arg(chrooted_path.string());
 
-          "-o", chrooted_path.c_str(),
-          objfp.c_str(),
+      Arg(objfp);
 
-          "-m", TargetStaticLinkerEmulation,
+      Arg("-m");
+      Arg(TargetStaticLinkerEmulation);
 
-          "-nostdlib",
+      Arg("-nostdlib");
 
-          "-init", "_jove_init"
-      };
+      Arg("-init");
+      Arg("_jove_init");
 
-      arg_vec.push_back("--push-state");
-      arg_vec.push_back("--as-needed");
-      arg_vec.push_back(compiler_runtime_afp.c_str());
+      Arg("--push-state");
+      Arg("--as-needed");
+      Arg(compiler_runtime_afp);
       if (fs::exists(libatomic_afp))
-        arg_vec.push_back(libatomic_afp.c_str());
-      arg_vec.push_back("--pop-state");
-      arg_vec.push_back("--exclude-libs");
-      arg_vec.push_back("ALL");
-
-      std::string _arg1, _arg2;
+        Arg(libatomic_afp);
+      Arg("--pop-state");
+      Arg("--exclude-libs");
+      Arg("ALL");
 
       if (b.IsExecutable) {
         if (b.IsPIC) {
-          arg_vec.push_back("-pie");
+          Arg("-pie");
         } else {
-          //
-          // the following has only been tested to work with the lld linker.
-          //
-          arg_vec[0] = lld_path.c_str();
-
-          //arg_vec.push_back("-z");
-          //arg_vec.push_back("nocopyreloc");
+          // Arg("-z");
+          // Arg("nocopyreloc");
 
           std::unique_ptr<obj::Binary> Bin = CreateBinary(b.Data);
 
           uint64_t Base, End;
           std::tie(Base, End) = bounds_of_binary(*Bin);
 
-          arg_vec.push_back("--section-start");
-          _arg1 = (fmt(".jove=0x%lx") % Base).str();
-          arg_vec.push_back(_arg1.c_str());
-
-#if 0
-#define ALIGN_DOWN(n, m) ((n) / (m) * (m))
-#define ALIGN_UP(n, m) ALIGN_DOWN((n) + (m) - 1, (m))
-
-          arg_vec.push_back("--image-base");
-          _arg2 = (fmt("0x%lx") % (ALIGN_DOWN(Base, 4096))).str();
-          arg_vec.push_back(_arg2.c_str());
-
-#undef ALIGN_UP
-#undef ALIGN_DOWN
-#endif
+          Arg("--section-start");
+          Arg((fmt(".jove=0x%lx") % Base).str());
         }
       } else {
         assert(b.IsPIC);
-        arg_vec.push_back("-shared");
+        Arg("-shared");
       }
 
 #if 0
-      arg_vec.push_back("-z");
-      arg_vec.push_back("now");
+      Arg("-z");
+      Arg("now");
 #endif
 
       // XXX assuming lld
-      arg_vec.push_back("--allow-shlib-undefined");
+      Arg("--allow-shlib-undefined");
       if (b.IsExecutable)
-        arg_vec.push_back("--unresolved-symbols=ignore-all");
+        Arg("--unresolved-symbols=ignore-all");
 
       if (fs::exists(mapfp) && fs::is_regular_file(mapfp) &&
           fs::file_size(mapfp) > 0) {
-        arg_vec.push_back("--version-script");
-        arg_vec.push_back(mapfp.c_str());
+        Arg("--version-script");
+        Arg(mapfp);
       }
 
       if (is_function_index_valid(b.Analysis.EntryFunction)) {
-        arg_vec.push_back("-e");
-        arg_vec.push_back("_jove_start");
+        Arg("-e");
+        Arg("_jove_start");
       }
 
       // include lib directories
@@ -1087,13 +1064,13 @@ int RecompileTool::Run(void) {
       }
 
       for (const std::string &lib_dir : lib_dirs) {
-        arg_vec.push_back("-L");
-        arg_vec.push_back(lib_dir.c_str());
+        Arg("-L");
+        Arg(lib_dir);
       }
 
-      arg_vec.push_back("-ljove_rt");
+      Arg("-ljove_rt");
       if (opts.DFSan)
-        arg_vec.push_back("-lclang_rt.dfsan.jove-" TARGET_ARCH_NAME);
+        Arg("-lclang_rt.dfsan.jove-" TARGET_ARCH_NAME);
 
       const char *rtld_path = nullptr;
       if (!state.for_binary(b).dynl.interp.empty()) {
@@ -1105,24 +1082,19 @@ int RecompileTool::Run(void) {
         }
         assert(rtld_path);
 
-        arg_vec.push_back("-dynamic-linker");
-        arg_vec.push_back(rtld_path);
+        Arg("-dynamic-linker");
+        Arg(rtld_path);
       }
-
-      std::string soname_arg = std::string("-soname=") + state.for_binary(b).dynl.soname;
 
       if (!state.for_binary(b).dynl.soname.empty())
-        arg_vec.push_back(soname_arg.c_str());
+        Arg(std::string("-soname=") + state.for_binary(b).dynl.soname);
 
 #if 0
-      std::string rtld_soname_arg = ":" + rtld_soname;
       if (!rtld_soname.empty()) {
-        arg_vec.push_back("-l");
-        arg_vec.push_back(rtld_soname_arg.c_str());
+        Arg("-l");
+        Arg(":" + rtld_soname);
       }
 #endif
-
-      std::vector<std::string> needed_arg_vec;
 
       for (const std::string &needed : state.for_binary(b).dynl.needed) {
 #if 0
@@ -1137,38 +1109,21 @@ int RecompileTool::Run(void) {
           continue;
         }
 
-        needed_arg_vec.push_back(std::string(":") + needed);
-      }
-
-      for (const std::string &needed_arg : needed_arg_vec) {
-        arg_vec.push_back("-l");
-        arg_vec.push_back(needed_arg.c_str());
+        Arg("-l");
+        Arg(std::string(":") + needed);
       }
 
       if (rtld_path && fs::exists(rtld_path)) /* XXX */
-        arg_vec.push_back(rtld_path);
+        Arg(rtld_path);
 
       if (opts.SkipCopyRelocHack)
-        arg_vec.push_back("--skip-copy-reloc-hack");
-
-      arg_vec.push_back(nullptr);
-
-      if (IsVerbose())
-        print_command(&arg_vec[0]);
-
-      ::close(STDIN_FILENO);
-      ::execve(arg_vec[0], const_cast<char **>(&arg_vec[0]), ::environ);
-
-      int err = errno;
-      WithColor::error() << llvm::formatv("execve failed: {0}\n",
-                                          strerror(err));
-      return 1;
-    }
+        Arg("--skip-copy-reloc-hack");
+    });
 
     //
     // check exit code
     //
-    if (int ret = WaitForProcessToExit(pid)) {
+    if (rc) {
       WithColor::error() << llvm::formatv("ld failed for {0}; skipping {1}\n",
                                           objfp, binary_filename);
       return 1;
@@ -1181,6 +1136,8 @@ int RecompileTool::Run(void) {
 static bool pop_dso(dso_t &out);
 
 void RecompileTool::worker(const dso_graph_t &dso_graph) {
+  int rc;
+
   dso_t dso;
   while (pop_dso(dso)) {
     binary_index_t BIdx = dso_graph[dso].BIdx;
@@ -1212,96 +1169,56 @@ void RecompileTool::worker(const dso_graph_t &dso_graph) {
     //
     // run jove-llvm
     //
-    pid_t pid = ::fork();
-    if (!pid) {
-      IgnoreCtrlC();
+    std::string path_to_stdout = bcfp + ".llvm.stdout.txt";
+    std::string path_to_stderr = bcfp + ".llvm.stderr.txt";
+    rc = RunToolToExit(
+        "llvm",
+        [&](auto Arg) {
+          Arg("-o");
+          Arg(bcfp);
 
-      std::string BIdx_arg(std::to_string(BIdx));
+          Arg("--version-script");
+          Arg(mapfp);
 
-      std::vector<const char *> arg_vec = {
-        "-o", bcfp.c_str(),
-        "--version-script", mapfp.c_str(),
+          Arg("--binary-index");
+          Arg(std::to_string(BIdx));
 
-        "--binary-index", BIdx_arg.c_str(),
+          Arg("-d");
+          Arg(opts.jv);
 
-        "-d", opts.jv.c_str(),
-      };
+          if (opts.Optimize)
+            Arg("--optimize");
 
-      if (opts.Optimize)
-        arg_vec.push_back("--optimize");
+          if (opts.DFSan) {
+            Arg("--dfsan");
+            Arg("--dfsan-output-module-id=" + dfsan_modid_fp);
+            Arg("--dfsan-bytecode-loc=" + bytecode_loc);
+            Arg("--dfsan-no-loop-starts");
+          }
 
-      std::string output_module_id_file_arg =
-          "--dfsan-output-module-id=" + dfsan_modid_fp;
-
-      std::string dfsan_bytecode_loc_arg =
-          "--dfsan-bytecode-loc=" + bytecode_loc;
-
-      if (opts.DFSan) {
-        arg_vec.push_back("--dfsan");
-        arg_vec.push_back(output_module_id_file_arg.c_str());
-        arg_vec.push_back(dfsan_bytecode_loc_arg.c_str());
-        arg_vec.push_back("--dfsan-no-loop-starts");
-      }
-
-      if (opts.CheckEmulatedStackReturnAddress)
-        arg_vec.push_back("--check-emulated-stack-return-address");
-      if (opts.Trace)
-        arg_vec.push_back("--trace");
-      if (opts.ForeignLibs)
-        arg_vec.push_back("--foreign-libs");
-      if (opts.DebugSjlj)
-        arg_vec.push_back("--debug-sjlj");
-      if (!opts.ABICalls)
-        arg_vec.push_back("--abi-calls=0");
-      if (opts.InlineHelpers)
-        arg_vec.push_back("--inline-helpers");
-
-      std::string pinned_globals_arg;
-      if (!opts.PinnedGlobals.empty()) {
-        pinned_globals_arg = "--pinned-globals=";
-        for (const std::string &PinnedGlbStr : opts.PinnedGlobals) {
-          pinned_globals_arg.append(PinnedGlbStr);
-          pinned_globals_arg.push_back(',');
-        }
-        pinned_globals_arg.resize(pinned_globals_arg.size() - 1);
-
-        arg_vec.push_back(pinned_globals_arg.c_str());
-      }
-
-      if (IsVerbose())
-        print_tool_command("llvm", arg_vec);
-
-      {
-        std::string stdoutfp = bcfp + ".stdout.txt";
-        int stdoutfd = ::open(stdoutfp.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666);
-        ::dup2(stdoutfd, STDOUT_FILENO);
-        ::close(stdoutfd);
-      }
-
-      {
-        std::string stderrfp = bcfp + ".stderr.txt";
-        int stderrfd = ::open(stderrfp.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666);
-        ::dup2(stderrfd, STDERR_FILENO);
-        ::close(stderrfd);
-      }
-
-      ::close(STDIN_FILENO);
-      exec_tool("llvm", arg_vec);
-
-      int err = errno;
-      WithColor::error() << llvm::formatv("execve failed: {0}\n",
-                                          strerror(err));
-      exit(1);
-    }
+          if (opts.CheckEmulatedStackReturnAddress)
+            Arg("--check-emulated-stack-return-address");
+          if (opts.Trace)
+            Arg("--trace");
+          if (opts.ForeignLibs)
+            Arg("--foreign-libs");
+          if (opts.DebugSjlj)
+            Arg("--debug-sjlj");
+          if (!opts.ABICalls)
+            Arg("--abi-calls=0");
+          if (opts.InlineHelpers)
+            Arg("--inline-helpers");
+        },
+        path_to_stdout,
+        path_to_stderr);
 
     //
     // check exit code
     //
-    if (int ret = WaitForProcessToExit(pid)) {
+    if (rc) {
       worker_failed.store(true);
-      WithColor::error() << llvm::formatv("jove-llvm failed on {0}: see {1}\n",
-                                          binary_filename,
-                                          bcfp + ".stderr.txt");
+      WithColor::error() << llvm::formatv("jove llvm failed! see {0}\n",
+                                          path_to_stderr);
       continue;
     }
 
@@ -1321,132 +1238,79 @@ void RecompileTool::worker(const dso_graph_t &dso_graph) {
     // run llvm-dis on bitcode
     //
     std::thread t1([&](void) -> void {
-      pid_t pid = ::fork();
-      if (!pid) {
-        IgnoreCtrlC();
+      RunExecutableToExit(llvm_dis_path.c_str(), [&](auto Arg) {
         nice(10);
 
-        const char *arg_arr[] = {
-          llvm_dis_path.c_str(),
-
-          "-o", llfp.c_str(),
-          bcfp.c_str(),
-
-          nullptr
-        };
-
-        if (IsVerbose())
-          print_command(&arg_arr[0]);
-
-        ::close(STDIN_FILENO);
-        ::execve(arg_arr[0], const_cast<char **>(&arg_arr[0]), ::environ);
-
-        int err = errno;
-        WithColor::error() << llvm::formatv("execve failed: {0}\n",
-                                            strerror(err));
-        exit(1);
-      }
-
-      (void)WaitForProcessToExit(pid);
+        Arg(llvm_dis_path);
+        Arg("-o");
+        Arg(llfp);
+        Arg(bcfp);
+      });
     });
 
     //
     // run opt on bitcode to generate stripped ll
     //
     std::thread t2([&](void) -> void {
-      pid_t pid = ::fork();
-      if (!pid) {
-        IgnoreCtrlC();
+      RunExecutableToExit(opt_path.c_str(), [&](auto Arg) {
         nice(10);
 
-        const char *arg_arr[] = {
-          opt_path.c_str(),
-
-          "-o", ll_strip_fp.c_str(),
-          "-S", "--strip-debug",
-          bcfp.c_str(),
-
-          nullptr
-        };
-
-        if (IsVerbose())
-          print_command(&arg_arr[0]);
-
-        ::close(STDIN_FILENO);
-        ::execve(arg_arr[0], const_cast<char **>(&arg_arr[0]), ::environ);
-
-        int err = errno;
-        WithColor::error() << llvm::formatv("execve failed: {0}\n",
-                                            strerror(err));
-        exit(1);
-      }
-
-      (void)WaitForProcessToExit(pid);
+        Arg(opt_path);
+        Arg("-o");
+        Arg(ll_strip_fp);
+        Arg("-S");
+        Arg("--strip-debug");
+        Arg(bcfp);
+      });
     });
 
     //
     // run llc
     //
-    pid = ::fork();
-    if (!pid) {
-      IgnoreCtrlC();
+    rc = RunExecutableToExit(llc_path.c_str(),
+                             [&](auto Arg) {
+      Arg(llc_path);
 
-      std::vector<const char *> arg_vec = {
-        llc_path.c_str(),
+      Arg("-o");
+      Arg(objfp);
+      Arg(bcfp);
 
-        "-o", objfp.c_str(),
-        bcfp.c_str(),
+      Arg("--filetype=obj");
 
-        "--filetype=obj",
-
-        "--disable-simplify-libcalls",
-      };
+      Arg("--disable-simplify-libcalls");
 
       if (!opts.Optimize || opts.DFSan) {
-        arg_vec.push_back("--fast-isel");
-        arg_vec.push_back("-O0");
+        Arg("--fast-isel");
+        Arg("-O0");
       }
 
       if (!opts.Optimize) {
-        arg_vec.push_back("--frame-pointer=all");
+        Arg("--frame-pointer=all");
 
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
-        arg_vec.push_back("--disable-mips-delay-filler"); /* make our life easier */
+        Arg("--disable-mips-delay-filler"); /* make our life easier */
 #endif
       }
 
       if (b.IsPIC) {
-        arg_vec.push_back("--relocation-model=pic");
+        Arg("--relocation-model=pic");
       } else {
         assert(b.IsExecutable);
-        arg_vec.push_back("--relocation-model=static");
+        Arg("--relocation-model=static");
       }
 
 #if defined(TARGET_X86_64) || defined(TARGET_I386)
       if (opts.DFSan) { /* XXX */
-        arg_vec.push_back("--stack-alignment=16");
-        arg_vec.push_back("--stackrealign");
+        Arg("--stack-alignment=16");
+        Arg("--stackrealign");
       }
 #endif
-
-      arg_vec.push_back(nullptr);
-
-      if (IsVerbose())
-        print_command(&arg_vec[0]);
-
-      ::close(STDIN_FILENO);
-      ::execve(arg_vec[0], const_cast<char **>(&arg_vec[0]), ::environ);
-
-      int err = errno;
-      WithColor::error() << llvm::formatv("execve failed: {0}\n",
-                                          strerror(err));
-      exit(1);
-    }
+    });
 
     //
     // check exit code
     //
-    if (int ret = WaitForProcessToExit(pid)) {
+    if (rc) {
       worker_failed = true;
       WithColor::error() << llvm::formatv("llc failed for {0}\n",
                                           binary_filename);

@@ -297,6 +297,8 @@ static void SigHandler(int no) {
 }
 
 int LoopTool::Run(void) {
+  int rc;
+
   pTool = this;
 
   for (char *dashdash_arg : dashdash_args)
@@ -1083,107 +1085,58 @@ skip_run:
       //
       // analyze
       //
-      pid = ::fork();
-      if (!pid) {
-        std::vector<const char *> arg_vec = {
-            "-d", jv_path.c_str()
-        };
+      rc = RunToolToExit("analyze",
+        [&](auto Arg) {
+          Arg("-d");
+          Arg(jv_path);
 
-        std::string pinned_globals_arg = "--pinned-globals=";
-        if (!opts.PinnedGlobals.empty()) {
-          for (const std::string &PinnedGlbStr : opts.PinnedGlobals) {
-            pinned_globals_arg.append(PinnedGlbStr);
-            pinned_globals_arg.push_back(',');
-          }
-          assert(!pinned_globals_arg.empty());
-          pinned_globals_arg.resize(pinned_globals_arg.size() - 1);
+          if (opts.ForeignLibs)
+            Arg("--exe");
+        });
 
-          arg_vec.push_back(pinned_globals_arg.c_str());
-        }
-
-        if (opts.ForeignLibs)
-          arg_vec.push_back("--exe");
-
-        if (IsVerbose())
-          print_tool_command("analyze", arg_vec);
-        exec_tool("analyze", arg_vec);
-
-        int err = errno;
-        HumanOut() << llvm::formatv("execve failed: {0}\n",
-                                    strerror(err));
-        return 1;
-      }
-
-      if (int ret = WaitForProcessToExit(pid)) {
-        HumanOut() << llvm::formatv("jove-analyze failed [{0}]\n", ret);
-        return ret;
+      if (rc) {
+        HumanOut() << "jove analyze failed!\n";
+        return rc;
       }
 
       //
       // recompile
       //
-      pid = ::fork();
-      if (!pid) {
-        std::vector<const char *> arg_vec = {
-            "-d", jv_path.c_str(),
-            "-o", sysroot.c_str(),
-        };
+      rc = RunToolToExit("recompile",
+        [&](auto Arg) {
+          Arg("-d");
+          Arg(jv_path);
+          Arg("-o");
+          Arg(sysroot);
 
-        std::string use_ld_arg;
-        if (!opts.UseLd.empty()) {
-          use_ld_arg = "--use-ld=" + opts.UseLd;
-          arg_vec.push_back(use_ld_arg.c_str());
-        }
+          if (!opts.UseLd.empty())
+            Arg("--use-ld=" + opts.UseLd);
 
-        if (IsVerbose())
-          arg_vec.push_back("--verbose");
+          if (opts.DFSan)
+            Arg("--dfsan");
 
-        if (opts.DFSan)
-          arg_vec.push_back("--dfsan");
+          if (opts.Optimize)
+            Arg("--optimize");
 
-        if (opts.Optimize)
-          arg_vec.push_back("--optimize");
+          if (opts.Trace)
+            Arg("--trace");
 
-        if (opts.Trace)
-          arg_vec.push_back("--trace");
+          if (opts.DebugSjlj)
+            Arg("--debug-sjlj");
 
-        if (opts.DebugSjlj)
-          arg_vec.push_back("--debug-sjlj");
+          if (opts.ForeignLibs)
+            Arg("--foreign-libs");
 
-        if (opts.ForeignLibs)
-          arg_vec.push_back("--foreign-libs");
+          if (!opts.ABICalls)
+            Arg("--abi-calls=0");
 
-        if (!opts.ABICalls)
-          arg_vec.push_back("--abi-calls=0");
+          if (opts.InlineHelpers)
+            Arg("--inline-helpers");
+        });
 
-        if (opts.InlineHelpers)
-          arg_vec.push_back("--inline-helpers");
-
-        std::string pinned_globals_arg;
-        if (!opts.PinnedGlobals.empty()) {
-          pinned_globals_arg = "--pinned-globals=";
-          for (const std::string &PinnedGlbStr : opts.PinnedGlobals) {
-            pinned_globals_arg.append(PinnedGlbStr);
-            pinned_globals_arg.push_back(',');
-          }
-          pinned_globals_arg.resize(pinned_globals_arg.size() - 1);
-
-          arg_vec.push_back(pinned_globals_arg.c_str());
-        }
-
-        if (IsVerbose())
-          print_tool_command("recompile", arg_vec);
-        exec_tool("recompile", arg_vec);
-
-        int err = errno;
-        HumanOut() << llvm::formatv("execve failed: {0}\n",
-                                    strerror(err));
-        return 1;
-      }
-
-      if (int ret = WaitForProcessToExit(pid)) {
-        HumanOut() << llvm::formatv("jove-recompile failed [{0}]\n", ret);
-        return ret;
+      if (rc) {
+        HumanOut() << "jove recompile failed!\n";
+        return rc;
       }
     }
   }

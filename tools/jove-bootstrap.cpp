@@ -4046,32 +4046,25 @@ void BootstrapTool::add_binary(pid_t child, tiny_code_generator_t &tcg,
   //
   // run jove-add on the DSO
   //
-  pid_t pid = ::fork();
-  if (!pid) {
-    std::vector<const char *> arg_vec = {
-      "-o", jvfp.c_str(),
-      "-i", path
-    };
+  {
+    std::string path_to_stdout = temporary_dir() + path + ".add.stdout.txt";
+    std::string path_to_stderr = temporary_dir() + path + ".add.stderr.txt";
 
-    if (IsVerbose())
-      print_tool_command("add", arg_vec);
+    int rc = RunToolToExit("add",
+        [&](auto Arg) {
+          Arg("-o");
+          Arg(jvfp);
+          Arg("-i");
+          Arg(path);
+        },
+        path_to_stdout,
+        path_to_stderr);
 
-    std::string stdoutfp = temporary_dir() + path + ".txt";
-    int outfd = ::open(stdoutfp.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666);
-    ::dup2(outfd, STDOUT_FILENO);
-    ::dup2(outfd, STDERR_FILENO);
-
-    ::close(STDIN_FILENO);
-    exec_tool("add", arg_vec);
-
-    int err = errno;
-    throw std::runtime_error(
-        (fmt("execve failed: %s\n") % strerror(err)).str());
-  }
-
-  if (int ret = WaitForProcessToExit(pid)) {
-    HumanOut() << __func__ << ": jove-add failed\n";
-    return;
+    if (rc) {
+      HumanOut() << llvm::formatv("jove add failed!\n{0}\n",
+                                  read_file_into_string(path_to_stderr.c_str()));
+      return;
+    }
   }
 
   binary_index_t BIdx;
