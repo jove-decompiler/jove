@@ -680,7 +680,7 @@ int RecompileTool::Run(void) {
     //
     // graphviz
     //
-    std::string dso_dot_path = (fs::path(temporary_dir()) /  "dso_graph.dot").string();
+    std::string dso_dot_path = temporary_dir() + "/dso_graph.dot";
 
     {
       std::ofstream ofs(dso_dot_path);
@@ -691,44 +691,20 @@ int RecompileTool::Run(void) {
     //
     // graph-easy
     //
+    const char *graph_easy_path = fs::exists("/usr/bin/vendor_perl/graph-easy")
+                                      ? "/usr/bin/vendor_perl/graph-easy"
+                                      : "/usr/bin/graph-easy";
 
-    pid_t pid = ::fork();
-    if (!pid) {
-      IgnoreCtrlC();
+    int rc = RunExecutableToExit(graph_easy_path, [&](auto Arg) {
+      Arg(graph_easy_path);
+      Arg("--input=" + dso_dot_path);
+      // Arg("--as=ascii");
+      Arg("--as=boxart");
+    });
 
-      std::string input_arg = "--input=" + dso_dot_path;
-
-      const char *arg_arr[] = {
-        fs::exists("/usr/bin/vendor_perl/graph-easy")
-            ? "/usr/bin/vendor_perl/graph-easy"
-            : "/usr/bin/graph-easy",
-
-        input_arg.c_str(),
-#if 0
-        "--as=ascii",
-#else
-        "--as=boxart",
-#endif
-
-        nullptr
-      };
-
-      print_command(&arg_arr[0]);
-
-      ::close(STDIN_FILENO);
-      ::execve(arg_arr[0], const_cast<char **>(&arg_arr[0]), ::environ);
-
-      int err = errno;
-      WithColor::error() << llvm::formatv("execve failed: {0}\n",
-                                          strerror(err));
-      return 1;
-    }
-
-    //
-    // check exit code
-    //
-    if (WaitForProcessToExit(pid))
-      WithColor::warning() << "graph-easy failed for " << dso_dot_path << '\n';
+    if (rc)
+      WithColor::warning() << llvm::formatv("graph-easy failed for {0}\n",
+                                            dso_dot_path);
   }
 
   //
