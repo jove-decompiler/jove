@@ -31,10 +31,6 @@ static inline int RunExecutableToExit(Args &&...args) {
   return WaitForProcessToExit(pid);
 }
 
-static inline void
-InitWithEnviron(std::function<void(const std::string &)> Env) {
-  for (char **env = ::environ; *env; ++env)
-    Env(*env);
-}
+void InitWithEnviron(std::function<void(const std::string &)> Env);
 
 }
