@@ -346,16 +346,11 @@ int LoopTool::Run(void) {
     return 1;
   }
 
-  const char *const sudo_path = "/usr/bin/sudo";
-
   const bool WillChroot = !(opts.NoChroot || opts.ForeignLibs);
   const bool LivingDangerously = !WillChroot && !opts.ForeignLibs;
 
-  bool sudo = (WillChroot || LivingDangerously || opts.RunAsRoot) &&
-              fs::exists(sudo_path);
-
-  if (::getuid() == 0)
-    sudo = false; /* we are already root */
+  const bool sudo =
+      (WillChroot || LivingDangerously || opts.RunAsRoot) && ::getuid() != 0;
 
   if (!opts.Connect.empty() && opts.Connect.find(':') == std::string::npos) {
     HumanOut() << "usage: --connect IPADDRESS:PORT\n";
@@ -429,155 +424,101 @@ run:
         return 1;
       }
 
-      pid = ::fork();
-      if (!pid) {
-        std::vector<const char *> arg_vec;
+      pid = RunTool(
+          "run",
+          [&](auto Arg) {
+            Arg("--pid-fifo");
+            Arg(fifo_path);
 
-        if (sudo) {
-          arg_vec.push_back(sudo_path);
+            if (sudo && ::getgid() > 0 && !opts.RunAsRoot) {
+              Arg("-g");
+              Arg(std::to_string(::getgid()));
+            }
 
-          if (opts.PreserveEnvironment)
-            arg_vec.push_back("-E");
-        }
+            if (sudo && ::getuid() > 0 && !opts.RunAsRoot) {
+              Arg("-u");
+              Arg(std::to_string(::getuid()));
+            }
 
-        std::string jove_path = boost::dll::program_location().string();
-        if (boost::algorithm::ends_with(jove_path, " (deleted)"))
-          jove_path = jove_path.substr(0, jove_path.size() - sizeof(" (deleted)") + 1);
+            Arg("--sysroot");
+            Arg(sysroot);
+            Arg("-d");
+            Arg(jv_path);
 
-        arg_vec.push_back(jove_path.c_str());
-        arg_vec.push_back("run");
+            if (!opts.HumanOutput.empty()) {
+              Arg("--human-output");
+              Arg(opts.HumanOutput);
+            }
 
-        arg_vec.push_back("--pid-fifo");
-        arg_vec.push_back(fifo_path.c_str());
+            if (opts.ForeignLibs)
+              Arg("--foreign-libs");
 
-        std::string gid_arg;
-        if (sudo && ::getgid() > 0 && !opts.RunAsRoot) {
-          gid_arg = std::to_string(::getgid());
+            if (opts.NoChroot || opts.ForeignLibs)
+              Arg("--no-chroot");
 
-          arg_vec.push_back("-g");
-          arg_vec.push_back(gid_arg.c_str());
-        }
+            if (opts.NoChroot && !opts.ForeignLibs)
+              Arg("--dangerous-sleep1=" + std::to_string(opts.DangerousSleep1));
 
-        std::string uid_arg;
-        if (sudo && ::getuid() > 0 && !opts.RunAsRoot) {
-          uid_arg = std::to_string(::getuid());
+            if (opts.NoChroot && !opts.ForeignLibs)
+              Arg("--dangerous-sleep2=" + std::to_string(opts.DangerousSleep2));
 
-          arg_vec.push_back("-u");
-          arg_vec.push_back(uid_arg.c_str());
-        }
+            if (!opts.ChangeDirectory.empty()) {
+              Arg("--cd");
+              Arg(opts.ChangeDirectory);
+            }
 
-        arg_vec.push_back("--sysroot");
-        arg_vec.push_back(sysroot.c_str());
-        arg_vec.push_back("-d");
-        arg_vec.push_back(jv_path.c_str());
+            if (!opts.EnvFromFile.empty()) {
+              Arg("--env-from-file");
+              Arg(opts.EnvFromFile);
+            }
 
-        if (!opts.HumanOutput.empty()) {
-          arg_vec.push_back("--human-output");
-          arg_vec.push_back(opts.HumanOutput.c_str());
-        }
+            if (!opts.ArgsFromFile.empty()) {
+              Arg("--args-from-file");
+              Arg(opts.ArgsFromFile);
+            }
 
-        if (IsVerbose())
-          arg_vec.push_back("--verbose");
+            if (!opts.BindMountDirs.empty()) {
+              std::string bind_arg = "--bind=";
 
-        if (opts.ForeignLibs)
-          arg_vec.push_back("--foreign-libs");
+              for (const std::string &Dir : opts.BindMountDirs) {
+                bind_arg.append(Dir);
+                bind_arg.push_back(',');
+              }
+              bind_arg.resize(bind_arg.size() - 1); /* remove extra comma */
 
-        if (opts.NoChroot || opts.ForeignLibs)
-          arg_vec.push_back("--no-chroot");
+              Arg(bind_arg);
+            }
 
-        std::string danger_sleep1_arg;
-        if (opts.NoChroot && !opts.ForeignLibs) {
-          danger_sleep1_arg = "--dangerous-sleep1=" + std::to_string(opts.DangerousSleep1);
-          arg_vec.push_back(danger_sleep1_arg.c_str());
-        }
+            if (!opts.Envs.empty()) {
+              std::string env_arg;
 
-        std::string danger_sleep2_arg;
-        if (opts.NoChroot && !opts.ForeignLibs) {
-          danger_sleep2_arg = "--dangerous-sleep2=" + std::to_string(opts.DangerousSleep2);
-          arg_vec.push_back(danger_sleep2_arg.c_str());
-        }
+              for (std::string &s : opts.Envs) {
+                env_arg.append(s);
+                env_arg.push_back(',');
+              }
+              env_arg.resize(env_arg.size() - 1);
 
-        if (!opts.ChangeDirectory.empty()) {
-          arg_vec.push_back("--cd");
-          arg_vec.push_back(opts.ChangeDirectory.c_str());
-        }
+              Arg("--env");
+              Arg(env_arg);
+            }
 
-        std::string env_arg;
+            if (unsigned Sec = opts.Sleep) {
+              Arg("--sleep");
+              Arg(std::to_string(Sec));
+            }
 
-        if (!opts.EnvFromFile.empty()) {
-          arg_vec.push_back("--env-from-file");
-          arg_vec.push_back(opts.EnvFromFile.c_str());
-        }
-
-        if (!opts.ArgsFromFile.empty()) {
-          arg_vec.push_back("--args-from-file");
-          arg_vec.push_back(opts.ArgsFromFile.c_str());
-        }
-
-        std::string bind_arg;
-        if (!opts.BindMountDirs.empty()) {
-          bind_arg = "--bind=";
-
-          for (const std::string &Dir : opts.BindMountDirs) {
-            bind_arg.append(Dir);
-            bind_arg.push_back(',');
-          }
-          bind_arg.resize(bind_arg.size() - 1); /* remove extra comma */
-
-          arg_vec.push_back(bind_arg.c_str());
-        }
-
-        if (!opts.Envs.empty()) {
-          for (std::string &s : opts.Envs) {
-            env_arg.append(s);
-            env_arg.push_back(',');
-          }
-          env_arg.resize(env_arg.size() - 1);
-
-          arg_vec.push_back("--env");
-          arg_vec.push_back(env_arg.c_str());
-        }
-
-        std::string sleep_arg;
-        if (unsigned Sec = opts.Sleep) {
-          arg_vec.push_back("--sleep");
-          sleep_arg = std::to_string(Sec);
-          arg_vec.push_back(sleep_arg.c_str());
-        }
-
-        //
-        // program + args
-        //
-        arg_vec.push_back(opts.Prog.c_str());
-        if (!opts.Args.empty())
-          arg_vec.push_back("--");
-        for (std::string &s : opts.Args)
-          arg_vec.push_back(s.c_str());
-
-        arg_vec.push_back(nullptr);
-
-        std::vector<const char *> env_vec;
-
-        //
-        // initialize env from environ
-        //
-        for (char **p = ::environ; *p; ++p)
-          env_vec.push_back(*p);
-
-        env_vec.push_back(nullptr);
-
-        if (IsVerbose())
-          print_command(&arg_vec[0]);
-
-        ::execve(sudo ? "/usr/bin/sudo" : jove_path.c_str(),
-                 const_cast<char **>(&arg_vec[0]),
-                 const_cast<char **>(&env_vec[0]));
-
-        int err = errno;
-        HumanOut() << llvm::formatv("execve failed: {0}\n",
-                                    strerror(err));
-        return 1;
-      }
+            //
+            // program + args
+            //
+            Arg(opts.Prog);
+            if (!opts.Args.empty())
+              Arg("--");
+            for (std::string &s : opts.Args)
+              Arg(s);
+          },
+          std::string(),
+          std::string(),
+          Tool::RunToolExtraArgs(sudo, opts.PreserveEnvironment));
 
       IgnoreCtrlC();
 

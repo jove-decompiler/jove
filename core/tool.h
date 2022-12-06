@@ -74,10 +74,22 @@ public:
       const std::string &stdout_path = std::string(),
       const std::string &stderr_path = std::string());
 
+  struct RunToolExtraArgs {
+    struct {
+      bool On;
+      bool PreserveEnvironment;
+    } sudo;
+
+    RunToolExtraArgs() : sudo({false, false}) {}
+    RunToolExtraArgs(bool SudoOn, bool SudoPreserveEnvironment)
+        : sudo({SudoOn, SudoPreserveEnvironment}) {}
+  };
+
   int RunTool(const char *tool_name,
       compute_args_t compute_args,
       const std::string &stdout_path = std::string(),
-      const std::string &stderr_path = std::string());
+      const std::string &stderr_path = std::string(),
+      const RunToolExtraArgs &Extra = RunToolExtraArgs());
 
   template <typename... Args>
   int RunExecutableToExit(Args &&...args) {
@@ -113,6 +125,8 @@ public:
 private:
   void on_exec(const char **argv, const char **envp);
   void on_exec_tool(const char **argv, const char **envp);
+  void persist_tool_options(std::function<void(const std::string &)> Arg);
+  std::string path_to_jove(void);
 };
 
 typedef Tool *(*ToolCreationProc)(void);

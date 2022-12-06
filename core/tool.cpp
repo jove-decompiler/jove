@@ -4,6 +4,8 @@
 #include <stdexcept>
 #include <fstream>
 
+#include <boost/algorithm/string/predicate.hpp>
+#include <boost/dll/runtime_symbol_info.hpp>
 #include <boost/filesystem.hpp>
 
 #include <llvm/Support/WithColor.h>
@@ -246,7 +248,7 @@ void Tool::on_exec_tool(const char **argv, const char **envp) {
   if (!IsVerbose())
     return;
 
-  HumanOut() << "jove ";
+  HumanOut() << path_to_jove() << ' ';
 
   print_command(argv);
 }
@@ -281,21 +283,61 @@ pid_t Tool::RunExecutable(const char *exe_path,
       std::bind(&Tool::on_exec, this, _1, _2));
 }
 
+void Tool::persist_tool_options(std::function<void(const std::string &)> Arg) {
+  if (IsVerbose())
+    Arg("-v");
+  if (opt_NoDeleteTemporaryDir)
+    Arg("--no-rm-temp-dir");
+}
+
+std::string Tool::path_to_jove(void) {
+  std::string jove_path = boost::dll::program_location().string();
+
+  if (boost::algorithm::ends_with(jove_path, " (deleted)")) /* XXX */
+    jove_path = jove_path.substr(0, jove_path.size() - sizeof(" (deleted)") + 1);
+
+  if (!fs::exists(jove_path))
+    throw std::runtime_error("could not locate jove executable");
+
+  return jove_path;
+}
+
 int Tool::RunTool(const char *tool_name,
                   compute_args_t compute_args,
                   const std::string &stdout_path,
-                  const std::string &stderr_path) {
+                  const std::string &stderr_path,
+                  const RunToolExtraArgs &Extra) {
   using namespace std::placeholders;
+
+  if (Extra.sudo.On) {
+    const char *sudo_path = "/usr/bin/sudo";
+    std::string jove_path = path_to_jove();
+
+    return jove::RunExecutable(sudo_path,
+        [&](auto Arg) {
+          Arg(sudo_path);
+
+          if (Extra.sudo.PreserveEnvironment)
+            Arg("-E");
+
+          Arg(jove_path);
+          Arg(tool_name);
+
+          persist_tool_options(Arg);
+
+          compute_args(Arg);
+        },
+        stdout_path,
+        stderr_path,
+        std::bind(&Tool::on_exec, this, _1, _2));
+  }
 
   return jove::RunExecutable(
       "/proc/self/exe",
       [&](auto Arg) {
         Arg(tool_name);
 
-        if (IsVerbose())
-          Arg("-v");
-        if (opt_NoDeleteTemporaryDir)
-          Arg("--no-rm-temp-dir");
+        persist_tool_options(Arg);
 
         compute_args(Arg);
       },
