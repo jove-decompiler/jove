@@ -199,6 +199,7 @@ int DecompileTool::Run(void) {
   }
 
   ReadJvFromFile(opts.jv, jv);
+  state.update();
 
   //
   // gather dynamic linking information
