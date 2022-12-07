@@ -370,41 +370,24 @@ int DecompileTool::Run(void) {
     std::string tmpbc_fp = (fs::path(tmp_dir) / helper_nm).string() + ".bc";
     std::string o_fp = (fs::path(opts.Output) / ".obj" / helper_nm).string() + ".o";
 
+    int rc;
+
     //
     // run opt to internalize things
     //
-    pid_t pid = ::fork();
-    if (!pid) {
-      IgnoreCtrlC();
+    rc = RunExecutableToExit(opt_path.c_str(), [&](auto Arg) {
+      Arg(opt_path);
 
-      std::string internalize_arg("--internalize-public-api-list=helper_");
-      internalize_arg.append(helper_nm);
+      Arg("-o");
+      Arg(tmpbc_fp);
 
-      const char *arg_arr[] = {
-        opt_path.c_str(),
+      Arg("--internalize");
+      Arg("--internalize-public-api-list=helper_" + helper_nm);
 
-        "-o", tmpbc_fp.c_str(),
+      Arg(helper_bc_fp);
+    });
 
-        "--internalize", internalize_arg.c_str(),
-
-        helper_bc_fp.c_str(),
-
-        nullptr
-      };
-
-      if (IsVerbose())
-        print_command(&arg_arr[0]);
-
-      ::close(STDIN_FILENO);
-      ::execve(arg_arr[0], const_cast<char **>(&arg_arr[0]), ::environ);
-
-      int err = errno;
-      WithColor::error() << llvm::formatv("execve failed: {0}\n",
-                                          strerror(err));
-      exit(1);
-    }
-
-    if (int rc = WaitForProcessToExit(pid)) {
+    if (rc) {
       WithColor::error() << "failed to run opt on helper\n";
       return 1;
     }
@@ -414,39 +397,22 @@ int DecompileTool::Run(void) {
     //
     // run llc on helper bitcode
     //
-    pid = ::fork();
-    if (!pid) {
-      IgnoreCtrlC();
+    rc = RunExecutableToExit(llc_path.c_str(), [&](auto Arg) {
+      Arg(llc_path);
 
-      const char *arg_arr[] = {
-        llc_path.c_str(),
+      Arg("-o");
+      Arg(o_fp);
 
-        "-o", o_fp.c_str(),
-        tmpbc_fp.c_str(),
+      Arg(tmpbc_fp);
 
-        "--filetype=obj",
+      Arg("--filetype=obj");
 
-        "--disable-simplify-libcalls",
+      Arg("--disable-simplify-libcalls");
 
-        IsPIC ? "--relocation-model=pic" :
-                "--relocation-model=static",
+      Arg(IsPIC ? "--relocation-model=pic" : "--relocation-model=static");
+    });
 
-        nullptr
-      };
-
-      if (IsVerbose())
-        print_command(&arg_arr[0]);
-
-      ::close(STDIN_FILENO);
-      ::execve(arg_arr[0], const_cast<char **>(&arg_arr[0]), ::environ);
-
-      int err = errno;
-      WithColor::error() << llvm::formatv("execve failed: {0}\n",
-                                          strerror(err));
-      exit(1);
-    }
-
-    if (int rc = WaitForProcessToExit(pid)) {
+    if (rc) {
       WithColor::error() << "failed to run llc on helper bitcode\n";
       return 1;
     }
@@ -462,38 +428,21 @@ int DecompileTool::Run(void) {
   // compile jove starter bitcode
   //
   std::string jove_o_fp = (fs::path(opts.Output) / ".obj" / "jove.o").string();
-  pid_t pid = ::fork();
-  if (!pid) {
-    IgnoreCtrlC();
+  int rc = RunExecutableToExit(llc_path.c_str(), [&](auto Arg) {
+    Arg(llc_path);
 
-    const char *arg_arr[] = {
-      llc_path.c_str(),
+    Arg("-o");
+    Arg(jove_o_fp);
+    Arg(jove_bc_fp);
 
-      "-o", jove_o_fp.c_str(),
-      jove_bc_fp.c_str(),
+    Arg("--filetype=obj");
 
-      "--filetype=obj",
+    Arg("--disable-simplify-libcalls");
 
-      "--disable-simplify-libcalls",
+    Arg(IsPIC ? "--relocation-model=pic" : "--relocation-model=static");
+  });
 
-      IsPIC ? "--relocation-model=pic" :
-              "--relocation-model=static",
-
-      nullptr
-    };
-
-    if (IsVerbose())
-      print_command(&arg_arr[0]);
-
-    ::close(STDIN_FILENO);
-    ::execve(arg_arr[0], const_cast<char **>(&arg_arr[0]), ::environ);
-
-    int err = errno;
-    WithColor::error() << llvm::formatv("execve failed: {0}\n", strerror(err));
-    exit(1);
-  }
-
-  if (int rc = WaitForProcessToExit(pid)) {
+  if (rc) {
     WithColor::error() << "llc on jove.bc failed\n";
     return 1;
   }
@@ -694,59 +643,44 @@ void DecompileTool::Worker(void) {
     //
     // run jove-llvm
     //
-    pid_t pid = ::fork();
-    if (!pid) {
-      IgnoreCtrlC();
+    {
+      std::string path_to_stdout = bcfp + ".stdout.llvm.txt";
+      std::string path_to_stderr = bcfp + ".stderr.llvm.txt";
 
-      std::string BIdx_arg(std::to_string(BIdx));
+      int rc = RunToolToExit(
+          "llvm",
+          [&](auto Arg) {
+            Arg("-o");
+            Arg(bcfp);
 
-      std::vector<const char *> arg_vec = {
-        "-o", bcfp.c_str(),
-        "--version-script", mapfp.c_str(),
+            Arg("--version-script");
+            Arg(mapfp);
 
-        "--binary-index", BIdx_arg.c_str(),
+            Arg("--binary-index");
+            Arg(std::to_string(BIdx));
 
-        "-d", opts.jv.c_str(),
+            Arg("-d");
+            Arg(opts.jv);
 
-        "--for-cbe",
+            Arg("--for-cbe");
 
-        "--foreign-libs" /* FIXME */
-      };
+            Arg("--foreign-libs"); /* TODO */
+          },
+          path_to_stdout,
+          path_to_stderr);
 
-      if (IsVerbose())
-        print_tool_command("llvm", arg_vec);
+      //
+      // check exit code
+      //
+      if (rc) {
+        worker_failed.store(true);
 
-      {
-        std::string stdoutfp = bcfp + ".stdout.llvm.txt";
-        int stdoutfd = ::open(stdoutfp.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666);
-        ::dup2(stdoutfd, STDOUT_FILENO);
-        ::close(stdoutfd);
+        WithColor::error() << llvm::formatv(
+            "jove llvm failed on {0}: see {1}\n", binary_filename,
+            path_to_stderr);
+
+        continue;
       }
-
-      {
-        std::string stderrfp = bcfp + ".stderr.llvm.txt";
-        int stderrfd = ::open(stderrfp.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666);
-        ::dup2(stderrfd, STDERR_FILENO);
-        ::close(stderrfd);
-      }
-
-      ::close(STDIN_FILENO);
-      exec_tool("llvm", arg_vec);
-
-      int err = errno;
-      HumanOut() << llvm::formatv("execve failed: {0}\n", strerror(err));
-      exit(1);
-    }
-
-    //
-    // check exit code
-    //
-    if (int ret = WaitForProcessToExit(pid)) {
-      worker_failed.store(true);
-      WithColor::error() << llvm::formatv("jove-llvm failed on {0}: see {1}\n",
-                                          binary_filename,
-                                          bcfp + ".stderr.llvm.txt");
-      continue;
     }
 
     assert(fs::exists(bcfp));
@@ -754,58 +688,36 @@ void DecompileTool::Worker(void) {
     //
     // run llvm-cbe
     //
-    pid = ::fork();
-    if (!pid) {
-      IgnoreCtrlC();
+    {
+      std::string path_to_stdout = bcfp + ".stdout.cbe.txt";
+      std::string path_to_stderr = bcfp + ".stderr.cbe.txt";
 
-      std::vector<const char *> arg_vec = {
-        llvm_cbe_path.c_str(),
+      int rc = RunExecutableToExit(
+          llvm_cbe_path.c_str(),
+          [&](auto Arg) {
+            Arg(llvm_cbe_path);
 
-        "-o", cfp.c_str(),
+            Arg("-o");
+            Arg(cfp);
 
-         "--cbe-jove"
-      };
+            Arg("--cbe-jove");
 
-      if (opts.FakeLineNumbers)
-        arg_vec.push_back("--cbe-print-debug-locs");
+            if (opts.FakeLineNumbers)
+              Arg("--cbe-print-debug-locs");
 
-      arg_vec.push_back(bcfp.c_str());
+            Arg(bcfp);
+          },
+          path_to_stdout,
+          path_to_stderr);
 
-      arg_vec.push_back(nullptr);
-
-      if (IsVerbose())
-        print_command(&arg_vec[0]);
-
-      {
-        std::string stdoutfp = bcfp + ".stdout.cbe.txt";
-        int stdoutfd = ::open(stdoutfp.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666);
-        ::dup2(stdoutfd, STDOUT_FILENO);
-        ::close(stdoutfd);
+      //
+      // check exit code
+      //
+      if (rc) {
+        worker_failed.store(true);
+        WithColor::error() << llvm::formatv("llvm-cbe failed on {0}: see {1}\n",
+                                            binary_filename, path_to_stderr);
       }
-
-      {
-        std::string stderrfp = bcfp + ".stderr.cbe.txt";
-        int stderrfd = ::open(stderrfp.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666);
-        ::dup2(stderrfd, STDERR_FILENO);
-        ::close(stderrfd);
-      }
-
-      ::close(STDIN_FILENO);
-      ::execve(llvm_cbe_path.c_str(), const_cast<char **>(&arg_vec[0]), ::environ);
-
-      int err = errno;
-      HumanOut() << llvm::formatv("execve failed: {0}\n", strerror(err));
-      exit(1);
-    }
-
-    //
-    // check exit code
-    //
-    if (int ret = WaitForProcessToExit(pid)) {
-      worker_failed.store(true);
-      WithColor::error() << llvm::formatv("llvm-cbe failed on {0}: see {1}\n",
-                                          binary_filename,
-                                          bcfp + ".stderr.cbe.txt");
     }
   }
 }
