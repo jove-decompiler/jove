@@ -140,6 +140,7 @@ int CodeDigger::Run(void) {
   }
 
   ReadJvFromFile(opts.jv, jv);
+  state.update();
 
   //
   // operate on single binary? (cmdline)
