@@ -352,64 +352,43 @@ void CodeDigger::Worker(void) {
     //
     // run jove-llvm
     //
-    pid_t pid = ::fork();
-    if (!pid) {
-      IgnoreCtrlC();
-      ::close(pipe_rdfd);
-      ::close(pipe_wrfd);
+    {
+      std::string path_to_stdout = bcfp + ".stdout.llvm.txt";
+      std::string path_to_stderr = bcfp + ".stderr.llvm.txt";
 
-      std::string BIdx_arg(std::to_string(BIdx));
+      int rc = RunToolToExit(
+          "llvm",
+          [&](auto Arg) {
+            ::close(pipe_rdfd);
+            ::close(pipe_wrfd);
 
-      std::vector<const char *> arg_vec = {
-        "-o", bcfp.c_str(),
-        "--version-script", mapfp.c_str(),
+            Arg("-o");
+            Arg(bcfp);
+            Arg("--version-script");
+            Arg(mapfp);
 
-        "--binary-index", BIdx_arg.c_str(),
+            Arg("--binary-index");
+            Arg(std::to_string(BIdx));
 
-        "-d", opts.jv.c_str(),
+            Arg("-d");
+            Arg(opts.jv);
 
-#if 0
-        "--inline-helpers",
-#endif
-#if 0
-        "--optimize"
-#endif
-      };
+            //Arg("--inline-helpers");
+            //Arg("--optimize");
+          },
+          path_to_stdout,
+          path_to_stderr);
 
-      if (IsVerbose())
-        print_tool_command("llvm", arg_vec);
-
-      {
-        std::string stdoutfp = bcfp + ".stdout.llvm.txt";
-        int stdoutfd = ::open(stdoutfp.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666);
-        ::dup2(stdoutfd, STDOUT_FILENO);
-        ::close(stdoutfd);
+      //
+      // check exit code
+      //
+      if (rc) {
+        worker_failed.store(true);
+        WithColor::error() << llvm::formatv(
+            "jove llvm failed on {0}: see {1}\n", binary_filename,
+            path_to_stderr);
+        continue;
       }
-
-      {
-        std::string stderrfp = bcfp + ".stderr.llvm.txt";
-        int stderrfd = ::open(stderrfp.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666);
-        ::dup2(stderrfd, STDERR_FILENO);
-        ::close(stderrfd);
-      }
-
-      ::close(STDIN_FILENO);
-      exec_tool("llvm", arg_vec);
-
-      int err = errno;
-      HumanOut() << llvm::formatv("execve failed: {0}\n", strerror(err));
-      exit(1);
-    }
-
-    //
-    // check exit code
-    //
-    if (int ret = WaitForProcessToExit(pid)) {
-      worker_failed.store(true);
-      WithColor::error() << llvm::formatv("jove-llvm failed on {0}: see {1}\n",
-                                          binary_filename,
-                                          bcfp + ".stderr.txt");
-      continue;
     }
 
     assert(fs::exists(bcfp));
@@ -417,95 +396,49 @@ void CodeDigger::Worker(void) {
     //
     // run klee
     //
-    pid = ::fork();
-    if (!pid) {
-      IgnoreCtrlC();
-      ::close(pipe_rdfd);
+    {
+      std::string path_to_stdout = bcfp + ".stdout.klee.txt";
+      std::string path_to_stderr = bcfp + ".stderr.klee.txt";
 
-      std::vector<const char *> arg_vec = {
-        klee_path.c_str(),
+      int rc = RunExecutableToExit(
+          klee_path.c_str(),
+          [&](auto Arg) {
+            ::close(pipe_rdfd);
 
-        "--entry-point=_jove_begin",
-        "--solver-backend=stp",
-        "--write-no-tests",
-        "--output-stats=0",
-        "--output-istats=0",
-        "--check-div-zero=0",
-        "--check-overshift=0",
-        "--max-memory=0",
-        "--max-memory-inhibit=0",
-        "--use-forked-solver=0",
-      };
+            Arg(klee_path);
 
-      std::string out_dir_arg = "--jove-output-dir=" + tmp_dir.string();
-      arg_vec.push_back(out_dir_arg.c_str());
+            Arg("--entry-point=_jove_begin");
+            Arg("--solver-backend=stp");
+            Arg("--write-no-tests");
+            Arg("--output-stats=0");
+            Arg("--output-istats=0");
+            Arg("--check-div-zero=0");
+            Arg("--check-overshift=0");
+            Arg("--max-memory=0");
+            Arg("--max-memory-inhibit=0");
+            Arg("--use-forked-solver=0");
 
-      std::string pipefd_arg = "--jove-pipefd=" + std::to_string(pipe_wrfd);
-      arg_vec.push_back(pipefd_arg.c_str());
+            Arg("--jove-output-dir=" + tmp_dir.string());
+            Arg("--jove-pipefd=" + std::to_string(pipe_wrfd));
+            Arg("--jove-binary-index=" + std::to_string(BIdx));
+            Arg("--jove-sects-start-addr=" + std::to_string(state.for_binary(binary).SectsStartAddr));
+            Arg("--jove-sects-end-addr=" + std::to_string(state.for_binary(binary).SectsEndAddr));
+            Arg("--jove-path-length=" + std::to_string(opts.PathLength));
+            if (!opts.SingleBBIdx.empty())
+              Arg("--jove-single-bbidx=" + opts.SingleBBIdx);
+            Arg(bcfp);
+          },
+          path_to_stdout,
+          path_to_stderr);
 
-      std::string bin_index_arg = "--jove-binary-index=" + std::to_string(BIdx);
-      arg_vec.push_back(bin_index_arg.c_str());
-
-      std::string sects_start_arg =
-          "--jove-sects-start-addr=" +
-          std::to_string(state.for_binary(binary).SectsStartAddr);
-      arg_vec.push_back(sects_start_arg.c_str());
-
-      std::string sects_end_arg =
-          "--jove-sects-end-addr=" +
-          std::to_string(state.for_binary(binary).SectsEndAddr);
-      arg_vec.push_back(sects_end_arg.c_str());
-
-      std::string path_length_arg =
-          "--jove-path-length=" + std::to_string(opts.PathLength);
-      arg_vec.push_back(path_length_arg.c_str());
-
-      std::string single_bb_idx_arg = "--jove-single-bbidx=" + opts.SingleBBIdx;
-      if (!opts.SingleBBIdx.empty())
-        arg_vec.push_back(single_bb_idx_arg.c_str());
-
-      arg_vec.push_back(bcfp.c_str());
-      arg_vec.push_back(nullptr);
-
-      if (IsVerbose())
-        print_command(&arg_vec[0]);
-
-      if (!IsVerbose()) {
-        //
-        // redirect standard output to file
-        //
-        std::string stdoutfp = bcfp + ".stdout.klee.txt";
-        int stdoutfd = ::open(stdoutfp.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666);
-        ::dup2(stdoutfd, STDOUT_FILENO);
-        ::close(stdoutfd);
+      //
+      // check exit code
+      //
+      if (rc) {
+        worker_failed.store(true);
+        WithColor::error() << llvm::formatv("klee failed on {0}: see {1}\n",
+                                            binary_filename, path_to_stderr);
       }
-
-      if (!IsVerbose()) {
-        //
-        // redirect standard error to file
-        //
-        std::string stderrfp = bcfp + ".stderr.klee.txt";
-        int stderrfd = ::open(stderrfp.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666);
-        ::dup2(stderrfd, STDERR_FILENO);
-        ::close(stderrfd);
-      }
-
-      ::close(STDIN_FILENO);
-      ::execve(klee_path.c_str(), const_cast<char **>(&arg_vec[0]), ::environ);
-
-      int err = errno;
-      HumanOut() << llvm::formatv("execve failed: {0}\n", strerror(err));
-      exit(1);
-    }
-
-    //
-    // check exit code
-    //
-    if (int ret = WaitForProcessToExit(pid)) {
-      worker_failed.store(true);
-      WithColor::error() << llvm::formatv("klee failed on {0}: see {1}\n",
-                                          binary_filename,
-                                          bcfp + ".stderr.klee.txt");
     }
   }
 }
