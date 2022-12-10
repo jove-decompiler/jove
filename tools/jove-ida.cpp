@@ -351,10 +351,11 @@ int IDATool::Run(void) {
             throw std::runtime_error(std::string());
 
           explore_function(binary, *Bin, tcg, dis, entry_addr, fnmap, bbmap);
-        } catch (const std::exception &) {
+        } catch (const std::exception &e) {
           if (IsVerbose())
-            WithColor::warning() << llvm::formatv(
-                "failed to explore function @ {0:x}\n", entry_addr);
+            WithColor::warning()
+                << llvm::formatv("failed to explore function @ {0:x}: {1}\n",
+                                 entry_addr, e.what());
           return;
         }
       }
@@ -386,10 +387,10 @@ int IDATool::Run(void) {
 
           if (!is_basic_block_index_valid(BBIdx))
             throw std::runtime_error(std::string());
-        } catch (const std::exception &) {
+        } catch (const std::exception &e) {
           if (IsVerbose())
             WithColor::warning() << llvm::formatv(
-                "failed to explore block @ {0:x}\n", node_addr);
+                "failed to explore block @ {0:x}: {1}\n", node_addr, e.what());
         }
       });
 
