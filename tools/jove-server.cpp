@@ -342,14 +342,14 @@ void *ServerTool::ConnectionProc(void *arg) {
   //
   // analyze
   //
-  pid_t pid = ::fork();
-  if (!pid) {
-    std::vector<const char *> arg_vec = {
-        "-d", tmpjv.c_str()
-    };
+  int rc = RunToolToExit("analyze", [&](auto Arg) {
+    Arg("-d");
+    Arg(tmpjv);
 
-    std::string pinned_globals_arg = "--pinned-globals=";
+#if 0
     if (!PinnedGlobals.empty()) {
+      std::string pinned_globals_arg = "--pinned-globals=";
+
       for (const std::string &PinnedGlbStr : PinnedGlobals) {
         pinned_globals_arg.append(PinnedGlbStr);
         pinned_globals_arg.push_back(',');
@@ -357,20 +357,13 @@ void *ServerTool::ConnectionProc(void *arg) {
       assert(!pinned_globals_arg.empty());
       pinned_globals_arg.resize(pinned_globals_arg.size() - 1);
 
-      arg_vec.push_back(pinned_globals_arg.c_str());
+      Arg(pinned_globals_arg);
     }
+#endif
+  });
 
-    print_tool_command("analyze", arg_vec);
-    exec_tool("analyze", arg_vec);
-
-    int err = errno;
-    WithColor::error() << llvm::formatv("execve failed: {0}\n",
-                                        strerror(err));
-    return nullptr;
-  }
-
-  if (int ret = WaitForProcessToExit(pid)) {
-    WithColor::error() << llvm::formatv("jove-analyze failed [{0}]\n", ret);
+  if (rc) {
+    WithColor::error() << llvm::formatv("jove analyze failed!\n");
     return nullptr;
   }
 
@@ -380,33 +373,31 @@ void *ServerTool::ConnectionProc(void *arg) {
   std::string sysroot_dir = (TemporaryDir / "sysroot").string();
   fs::create_directory(sysroot_dir);
 
-  pid = ::fork();
-  if (!pid) {
-    std::vector<const char *> arg_vec = {
-        "-d", tmpjv.c_str(),
-        "-o", sysroot_dir.c_str(),
-    };
-
-    if (IsVerbose())
-      arg_vec.push_back("--verbose");
+  rc = RunToolToExit("recompile", [&](auto Arg) {
+    Arg("-d");
+    Arg(tmpjv);
+    Arg("-o");
+    Arg(sysroot_dir);
 
     if (options.dfsan)
-      arg_vec.push_back("--dfsan");
+      Arg("--dfsan");
     if (options.foreign_libs)
-      arg_vec.push_back("--foreign-libs");
+      Arg("--foreign-libs");
     if (options.trace)
-      arg_vec.push_back("--trace");
+      Arg("--trace");
     if (options.optimize)
-      arg_vec.push_back("--optimize");
+      Arg("--optimize");
     if (options.skip_copy_reloc_hack)
-      arg_vec.push_back("--skip-copy-reloc-hack");
+      Arg("--skip-copy-reloc-hack");
     if (options.debug_sjlj)
-      arg_vec.push_back("--debug-sjlj");
+      Arg("--debug-sjlj");
     if (!options.abi_calls)
-      arg_vec.push_back("--abi-calls=0");
+      Arg("--abi-calls=0");
 
-    std::string pinned_globals_arg = "--pinned-globals=";
+#if 0
     if (!PinnedGlobals.empty()) {
+      std::string pinned_globals_arg = "--pinned-globals=";
+
       for (const std::string &PinnedGlbStr : PinnedGlobals) {
         pinned_globals_arg.append(PinnedGlbStr);
         pinned_globals_arg.push_back(',');
@@ -414,20 +405,13 @@ void *ServerTool::ConnectionProc(void *arg) {
       assert(!pinned_globals_arg.empty());
       pinned_globals_arg.resize(pinned_globals_arg.size() - 1);
 
-      arg_vec.push_back(pinned_globals_arg.c_str());
+      Arg(pinned_globals_arg);
     }
+#endif
+  });
 
-    print_tool_command("recompile", arg_vec);
-    exec_tool("recompile", arg_vec);
-
-    int err = errno;
-    WithColor::error() << llvm::formatv("execve failed: {0}\n",
-                                        strerror(err));
-    return nullptr;
-  }
-
-  if (int ret = WaitForProcessToExit(pid)) {
-    WithColor::error() << llvm::formatv("jove-recompile failed [{0}]\n", ret);
+  if (rc) {
+    WithColor::error() << llvm::formatv("jove recompile failed!\n");
     return nullptr;
   }
 
