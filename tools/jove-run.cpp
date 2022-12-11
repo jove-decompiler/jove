@@ -924,7 +924,9 @@ int RunTool::DoRun(void) {
     }
 
     if (IsVerbose())
-      HumanOut() << (__ANSI_MAGENTA "restoring root file system..." __ANSI_NORMAL_COLOR "\n");
+      HumanOut() << (__ANSI_MAGENTA
+                     "*** restoring root file system ***" __ANSI_NORMAL_COLOR
+                     "\n");
 
     //
     // (4) perform the renames to undo the changes we made to the root
@@ -986,7 +988,9 @@ int RunTool::DoRun(void) {
     FileSystemRestored.store(true);
 
     if (IsVerbose())
-      HumanOut() << (__ANSI_MAGENTA "root file system restored." __ANSI_NORMAL_COLOR "\n");
+      HumanOut() << (__ANSI_MAGENTA
+                     "*** restored root file system ***" __ANSI_NORMAL_COLOR
+                     "\n");
 
     ::close(rfd);
   }
