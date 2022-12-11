@@ -147,27 +147,12 @@ int IDATool::Run(void) {
   //
   // run jove-extract
   //
-  pid_t pid = ::fork();
-  if (!pid) {
-    IgnoreCtrlC();
+  if (RunToolToExit("extract", [&](auto Arg) {
+        Arg("-d");
+        Arg(opts.jv);
 
-    std::vector<const char *> arg_vec = {
-      "-d", opts.jv.c_str(),
-
-      tmp_dir.c_str()
-    };
-
-    if (IsVerbose())
-      print_tool_command("extract", arg_vec);
-
-    exec_tool("extract", arg_vec);
-
-    int err = errno;
-    HumanOut() << llvm::formatv("execve failed: {0}\n", strerror(err));
-    exit(1);
-  }
-
-  if (int ret = WaitForProcessToExit(pid)) {
+        Arg(tmp_dir.string());
+      })) {
     WithColor::error() << "jove-extract failed to run\n";
     return 1;
   }
@@ -240,22 +225,18 @@ int IDATool::Run(void) {
     //
     // run IDA
     //
-    pid = ::fork();
-    if (!pid) {
-      IgnoreCtrlC();
+    std::string ida_path = ida_dir;
 
-      std::string ida_path = ida_dir;
+    if (ELFT::Is64Bits)
+      ida_path.append("/idat64");
+    else
+      ida_path.append("/idat");
 
-      if (ELFT::Is64Bits)
-        ida_path.append("/idat64");
-      else
-        ida_path.append("/idat");
+    int rc = RunExecutableToExit(ida_path.c_str(), [&](auto Arg) {
+      Arg(ida_path);
 
-      std::vector<const char *> arg_vec = {
-        ida_path.c_str(),
-
-        "-c", "-A"
-      };
+      Arg("-c");
+      Arg("-A");
 
       std::string script_path = ida_scripts_dir + "/export_flowgraphs.py";
 
@@ -265,27 +246,14 @@ int IDATool::Run(void) {
       script_arg.append(log_path);
       script_arg.push_back(' ');
       script_arg.append(flowgraphs_dir.c_str());
-      arg_vec.push_back(script_arg.c_str());
+      Arg(script_arg);
 
-      arg_vec.push_back(chrooted_path.c_str());
-
-      arg_vec.push_back(nullptr);
-
-      if (IsVerbose())
-        print_command(&arg_vec[0]);
-
-      ::execve(ida_path.c_str(), const_cast<char **>(&arg_vec[0]), ::environ);
-
-      int err = errno;
-      HumanOut() << llvm::formatv("execve failed: {0}\n", strerror(err));
-      exit(1);
-    }
+      Arg(chrooted_path.string());
+    });
 
     //
     // check exit code
     //
-    int ret = WaitForProcessToExit(pid);
-
     if (DidWeHideSplitDebugInfoFromIDA) {
       if (IsVerbose())
         WithColor::note() << llvm::formatv("XXX restoring split debug file {0}\n",
@@ -315,7 +283,7 @@ int IDATool::Run(void) {
       llvm::errs() << log_contents;
     }
 
-    if (ret) {
+    if (rc) {
       WithColor::error() << "IDA failed\n";
       exit(1);
     }
