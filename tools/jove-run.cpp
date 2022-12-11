@@ -704,11 +704,101 @@ int RunTool::DoRun(void) {
   fs::path prog_path =
       WillChroot ? opts.Prog : fs::path(opts.sysroot) / opts.Prog;
 
-  pid_t pid -1;
+  pid_t pid = -1;
   try {
     pid = jove::RunExecutable(
         prog_path.c_str(),
         [&](auto Arg) {
+          if (!opts.ArgsFromFile.empty()) {
+            std::ifstream ifs(opts.ArgsFromFile);
+
+            while (ifs) {
+              std::string arg_entry;
+              char ch;
+              while (ifs.read(&ch, sizeof(ch))) {
+                if (ch == '\0')
+                  break;
+
+                arg_entry.push_back(ch);
+              }
+
+              if (!arg_entry.empty())
+                Arg(arg_entry);
+            }
+          } else {
+            Arg(prog_path.string());
+
+            for (const std::string &s : opts.Args)
+              Arg(s);
+          }
+        },
+        [&](auto Env) {
+          if (!opts.EnvFromFile.empty()) {
+            std::ifstream ifs(opts.EnvFromFile);
+
+            while (ifs) {
+              std::string env_entry;
+              char ch;
+              while (ifs.read(&ch, sizeof(ch))) {
+                if (ch == '\0')
+                  break;
+
+                env_entry.push_back(ch);
+              }
+
+              if (!env_entry.empty())
+                Env(env_entry);
+            }
+          } else {
+            InitWithEnviron(Env);
+          }
+
+          std::string fifo_env("JOVE_RECOVER_FIFO=");
+          fifo_env.append(WillChroot ? fifo_path_under_sysroot.c_str()
+                                     : fifo_file_path.c_str());
+
+          Env(fifo_env);
+
+          if (IsVerbose())
+            HumanOut() << fifo_env << '\n';
+
+          //
+          // XXX DISABLE GLIBC IFUNCS
+          //
+#if defined(TARGET_X86_64)
+          Env("GLIBC_TUNABLES=glibc.cpu.hwcaps="
+              "-AVX,"
+              "-AVX2,"
+              "-AVX_Usable,"
+              "-AVX2_Usable,"
+              "-AVX512F_Usable,"
+              "-SSE4_1,"
+              "-SSE4_2,"
+              "-SSSE3,"
+              "-Fast_Unaligned_Load,"
+              "-ERMS,"
+              "-AVX_Fast_Unaligned_Load");
+#elif defined(TARGET_I386)
+          Env("GLIBC_TUNABLES=glibc.cpu.hwcaps="
+              "-SSE4_1,"
+              "-SSE4_2,"
+              "-SSSE3,"
+              "-Fast_Rep_String,"
+              "-Fast_Unaligned_Load,"
+              "-SSE2");
+#endif
+
+          Env("LD_BIND_NOW=1"); /* disable lazy linking (please) */
+
+          if (fs::exists("/firmadyne/libnvram.so")) /* XXX firmadyne */
+            Env("LD_PRELOAD=/firmadyne/libnvram.so");
+
+          for (const std::string &s : opts.Envs)
+            Env(s);
+        },
+        std::string(),
+        std::string(),
+        [&](const char **, const char **) {
           if (LivingDangerously) {
             //
             // close unused read end of pipe
@@ -746,112 +836,16 @@ int RunTool::DoRun(void) {
             }
           }
 
-          //
-          // compute args
-          //
-          if (!opts.ArgsFromFile.empty()) {
-            std::ifstream ifs(opts.ArgsFromFile);
-
-            while (ifs) {
-              std::string arg_entry;
-              char ch;
-              while (ifs.read(&ch, sizeof(ch))) {
-                if (ch == '\0')
-                  break;
-
-                arg_entry.push_back(ch);
-              }
-
-              if (!arg_entry.empty())
-                Arg(arg_entry);
-            }
-          } else {
-            Arg(prog_path.string());
-
-            for (const std::string &s : opts.Args)
-              Arg(s);
-          }
-        },
-        [&](auto Env) {
-          //
-          // compute environment
-          //
-          if (!opts.EnvFromFile.empty()) {
-            std::ifstream ifs(opts.EnvFromFile);
-
-            while (ifs) {
-              std::string env_entry;
-              char ch;
-              while (ifs.read(&ch, sizeof(ch))) {
-                if (ch == '\0')
-                  break;
-
-                env_entry.push_back(ch);
-              }
-
-              if (!env_entry.empty())
-                Env(env_entry);
-            }
-          } else {
-            InitWithEnviron(Env);
-          }
-
-          std::string fifo_env("JOVE_RECOVER_FIFO=");
-          fifo_env.append(WillChroot ? fifo_path_under_sysroot.c_str()
-                                     : fifo_file_path.c_str());
-
-          Env(fifo_env);
-
-          if (IsVerbose())
-            HumanOut() << fifo_env << '\n';
-
-        //
-        // XXX DISABLE GLIBC IFUNCS
-        //
-#if defined(TARGET_X86_64)
-          Env("GLIBC_TUNABLES=glibc.cpu.hwcaps="
-              "-AVX,"
-              "-AVX2,"
-              "-AVX_Usable,"
-              "-AVX2_Usable,"
-              "-AVX512F_Usable,"
-              "-SSE4_1,"
-              "-SSE4_2,"
-              "-SSSE3,"
-              "-Fast_Unaligned_Load,"
-              "-ERMS,"
-              "-AVX_Fast_Unaligned_Load");
-#elif defined(TARGET_I386)
-          Env("GLIBC_TUNABLES=glibc.cpu.hwcaps="
-              "-SSE4_1,"
-              "-SSE4_2,"
-              "-SSSE3,"
-              "-Fast_Rep_String,"
-              "-Fast_Unaligned_Load,"
-              "-SSE2");
-#endif
-
-          Env("LD_BIND_NOW=1"); /* disable lazy linking (please) */
-
-          if (fs::exists("/firmadyne/libnvram.so")) /* XXX firmadyne */
-            Env("LD_PRELOAD=/firmadyne/libnvram.so");
-
-          for (const std::string &s : opts.Envs)
-            Env(s);
-        },
-        std::string(),
-        std::string(),
-        [&](const char **, const char **) {
           if (LivingDangerously) {
-            if (IsVerbose())
-              HumanOut() << (__ANSI_CYAN
-                             "modifying root file system..." __ANSI_NORMAL_COLOR
-                             "\n");
-
             //
             // (3) perform the renames!!! do this as close as possible before
             // execve
             //
+            if (IsVerbose())
+              HumanOut() << (__ANSI_CYAN
+                             "*** modifying root file system ***" __ANSI_NORMAL_COLOR
+                             "\n");
+
             for (const binary_t &binary : jv.Binaries) {
               if (binary.IsExecutable)
                 continue;
@@ -874,9 +868,10 @@ int RunTool::DoRun(void) {
             }
 
             if (IsVerbose())
-              HumanOut() << (__ANSI_CYAN
-                             "modified root file system." __ANSI_NORMAL_COLOR
-                             "\n");
+              HumanOut()
+                  << (__ANSI_CYAN
+                      "*** modified root file system ***" __ANSI_NORMAL_COLOR
+                      "\n");
           }
 
           drop_privileges();
