@@ -346,18 +346,6 @@ int Tool::RunTool(const char *tool_name,
       std::bind(&Tool::on_exec_tool, this, _1, _2));
 }
 
-void Tool::exec_tool(const char *name,
-                     const std::vector<const char *> &_arg_vec,
-                     const char **envp) {
-  std::vector<const char *> arg_vec(_arg_vec);
-  arg_vec.insert(arg_vec.begin(), name);
-  arg_vec.push_back(nullptr);
-
-  ::execve("/proc/self/exe",
-           const_cast<char **>(&arg_vec[0]),
-           envp ? const_cast<char **>(envp) : ::environ);
-}
-
 std::string Tool::home_dir(void) {
   errno = 0;
   const char *homedir = getpwuid(getuid())->pw_dir;

@@ -104,9 +104,6 @@ public:
   }
 
   void print_command(const char** cstr_p);
-  void exec_tool(const char *name,
-                 const std::vector<const char *> &arg_vec,
-                 const char **envp = nullptr);
   void print_tool_command(const char *name,
                           const std::vector<const char *> &_arg_vec) {
     std::vector<const char *> arg_vec(_arg_vec);
