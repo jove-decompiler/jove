@@ -699,198 +699,197 @@ int RunTool::DoRun(void) {
   }
 
   //
-  // now actually fork and exec the given executable
+  // now actually exec the given executable
   //
-  int pid = ::fork();
-  if (!pid) {
-    if (LivingDangerously) {
-      //
-      // close unused read end of pipe
-      //
-      ::close(rfd);
+  fs::path prog_path =
+      WillChroot ? opts.Prog : fs::path(opts.sysroot) / opts.Prog;
 
-      //
-      // make the write end of the pipe be close-on-exec
-      //
-      if (::fcntl(wfd, F_SETFD, FD_CLOEXEC) < 0) {
-        int err = errno;
-        HumanOut() << llvm::formatv(
-            "failed to set pipe write end close-on-exec: {0}\n", strerror(err));
-      }
-    }
+  pid_t pid -1;
+  try {
+    pid = jove::RunExecutable(
+        prog_path.c_str(),
+        [&](auto Arg) {
+          if (LivingDangerously) {
+            //
+            // close unused read end of pipe
+            //
+            ::close(rfd);
 
-    if (WillChroot) {
-      if (::chroot(opts.sysroot.c_str()) < 0) {
-        int err = errno;
-        HumanOut() << llvm::formatv("chroot failed : {0}\n", strerror(err));
-        return 1;
-      }
+            //
+            // make the write end of the pipe be close-on-exec
+            //
+            if (::fcntl(wfd, F_SETFD, FD_CLOEXEC) < 0) {
+              int err = errno;
+              HumanOut() << llvm::formatv(
+                  "failed to set pipe write end close-on-exec: {0}\n",
+                  strerror(err));
+            }
+          }
 
-      const char *working_dir =
-          !opts.ChangeDirectory.empty() ?
-          opts.ChangeDirectory.c_str() : "/";
+          if (WillChroot) {
+            if (::chroot(opts.sysroot.c_str()) < 0) {
+              int err = errno;
 
-      if (::chdir(working_dir) < 0) {
-        int err = errno;
-        HumanOut() << llvm::formatv("chdir failed : {0}\n", strerror(err));
-        return 1;
-      }
-    }
+              throw std::runtime_error(std::string("chroot failed: ") +
+                                       strerror(err));
+            }
 
-    //
-    // compute environment
-    //
-    std::list<std::string> env_file_args;
-    std::vector<const char *> env_vec;
+            const char *working_dir = !opts.ChangeDirectory.empty()
+                                          ? opts.ChangeDirectory.c_str()
+                                          : "/";
 
-    if (!opts.EnvFromFile.empty()) {
-      std::ifstream ifs(opts.EnvFromFile);
+            if (::chdir(working_dir) < 0) {
+              int err = errno;
 
-      while (ifs) {
-        std::string &env_entry = env_file_args.emplace_back();
-        char ch;
-        while (ifs.read(&ch, sizeof(ch))) {
-          if (ch == '\0')
-            break;
+              throw std::runtime_error(std::string("chdir failed: ") +
+                                       strerror(err));
+            }
+          }
 
-          env_entry.push_back(ch);
-        }
+          //
+          // compute args
+          //
+          if (!opts.ArgsFromFile.empty()) {
+            std::ifstream ifs(opts.ArgsFromFile);
 
-        if (!env_entry.empty())
-          env_vec.push_back(env_entry.c_str());
-      }
-    } else {
-      //
-      // initialize env from environ
-      //
-      for (char **p = ::environ; *p; ++p)
-        env_vec.push_back(*p);
-    }
+            while (ifs) {
+              std::string arg_entry;
+              char ch;
+              while (ifs.read(&ch, sizeof(ch))) {
+                if (ch == '\0')
+                  break;
 
-    std::string fifo_env("JOVE_RECOVER_FIFO=");
-    fifo_env.append(WillChroot ? fifo_path_under_sysroot.c_str()
-                               : fifo_file_path.c_str());
+                arg_entry.push_back(ch);
+              }
 
-    env_vec.push_back(fifo_env.c_str());
+              if (!arg_entry.empty())
+                Arg(arg_entry);
+            }
+          } else {
+            Arg(prog_path.string());
 
-    if (IsVerbose())
-      HumanOut() << fifo_env << '\n';
+            for (const std::string &s : opts.Args)
+              Arg(s);
+          }
+        },
+        [&](auto Env) {
+          //
+          // compute environment
+          //
+          if (!opts.EnvFromFile.empty()) {
+            std::ifstream ifs(opts.EnvFromFile);
 
+            while (ifs) {
+              std::string env_entry;
+              char ch;
+              while (ifs.read(&ch, sizeof(ch))) {
+                if (ch == '\0')
+                  break;
+
+                env_entry.push_back(ch);
+              }
+
+              if (!env_entry.empty())
+                Env(env_entry);
+            }
+          } else {
+            InitWithEnviron(Env);
+          }
+
+          std::string fifo_env("JOVE_RECOVER_FIFO=");
+          fifo_env.append(WillChroot ? fifo_path_under_sysroot.c_str()
+                                     : fifo_file_path.c_str());
+
+          Env(fifo_env);
+
+          if (IsVerbose())
+            HumanOut() << fifo_env << '\n';
+
+        //
+        // XXX DISABLE GLIBC IFUNCS
+        //
 #if defined(TARGET_X86_64)
-    // <3 glibc
-    env_vec.push_back("GLIBC_TUNABLES=glibc.cpu.hwcaps="
-                      "-AVX,"
-                      "-AVX2,"
-                      "-AVX_Usable,"
-                      "-AVX2_Usable,"
-                      "-AVX512F_Usable,"
-                      "-SSE4_1,"
-                      "-SSE4_2,"
-                      "-SSSE3,"
-                      "-Fast_Unaligned_Load,"
-                      "-ERMS,"
-                      "-AVX_Fast_Unaligned_Load");
+          Env("GLIBC_TUNABLES=glibc.cpu.hwcaps="
+              "-AVX,"
+              "-AVX2,"
+              "-AVX_Usable,"
+              "-AVX2_Usable,"
+              "-AVX512F_Usable,"
+              "-SSE4_1,"
+              "-SSE4_2,"
+              "-SSSE3,"
+              "-Fast_Unaligned_Load,"
+              "-ERMS,"
+              "-AVX_Fast_Unaligned_Load");
 #elif defined(TARGET_I386)
-    // <3 glibc
-    env_vec.push_back("GLIBC_TUNABLES=glibc.cpu.hwcaps="
-                      "-SSE4_1,"
-                      "-SSE4_2,"
-                      "-SSSE3,"
-                      "-Fast_Rep_String,"
-                      "-Fast_Unaligned_Load,"
-                      "-SSE2");
+          Env("GLIBC_TUNABLES=glibc.cpu.hwcaps="
+              "-SSE4_1,"
+              "-SSE4_2,"
+              "-SSSE3,"
+              "-Fast_Rep_String,"
+              "-Fast_Unaligned_Load,"
+              "-SSE2");
 #endif
 
-    env_vec.push_back("LD_BIND_NOW=1"); /* disable lazy linking (please) */
+          Env("LD_BIND_NOW=1"); /* disable lazy linking (please) */
 
-    if (fs::exists("/firmadyne/libnvram.so")) /* XXX firmadyne */
-      env_vec.push_back("LD_PRELOAD=/firmadyne/libnvram.so");
+          if (fs::exists("/firmadyne/libnvram.so")) /* XXX firmadyne */
+            Env("LD_PRELOAD=/firmadyne/libnvram.so");
 
-    for (std::string &s : opts.Envs)
-      env_vec.push_back(s.c_str());
+          for (const std::string &s : opts.Envs)
+            Env(s);
+        },
+        std::string(),
+        std::string(),
+        [&](const char **, const char **) {
+          if (LivingDangerously) {
+            if (IsVerbose())
+              HumanOut() << (__ANSI_CYAN
+                             "modifying root file system..." __ANSI_NORMAL_COLOR
+                             "\n");
 
-    env_vec.push_back(nullptr);
+            //
+            // (3) perform the renames!!! do this as close as possible before
+            // execve
+            //
+            for (const binary_t &binary : jv.Binaries) {
+              if (binary.IsExecutable)
+                continue;
+              if (binary.IsVDSO)
+                continue;
+              if (binary.IsDynamicLinker)
+                continue;
 
-    //
-    // compute args
-    //
-    std::list<std::string> args_file_args;
-    std::vector<const char *> arg_vec;
+              std::string new_path = binary.Path + ".jove.new";
 
-    fs::path prog_path =
-        WillChroot ? opts.Prog : fs::path(opts.sysroot) / opts.Prog;
+              if (::rename(new_path.c_str(), binary.Path.c_str()) < 0) {
+                int err = errno;
 
-    if (!opts.ArgsFromFile.empty()) {
-      std::ifstream ifs(opts.ArgsFromFile);
+                HumanOut() << llvm::formatv(__ANSI_BOLD_RED
+                    "rename of {0} to {1} failed: {2}\n" __ANSI_NORMAL_COLOR,
+                    new_path.c_str(),
+                    binary.Path.c_str(),
+                    strerror(err));
+              }
+            }
 
-      while (ifs) {
-        std::string &arg_entry = args_file_args.emplace_back();
-        char ch;
-        while (ifs.read(&ch, sizeof(ch))) {
-          if (ch == '\0')
-            break;
+            if (IsVerbose())
+              HumanOut() << (__ANSI_CYAN
+                             "modified root file system." __ANSI_NORMAL_COLOR
+                             "\n");
+          }
 
-          arg_entry.push_back(ch);
-        }
-
-        if (!arg_entry.empty())
-          arg_vec.push_back(arg_entry.c_str());
-      }
-    } else {
-      arg_vec.push_back(prog_path.c_str());
-
-      for (std::string &s : opts.Args)
-        arg_vec.push_back(s.c_str());
-    }
-
-    arg_vec.push_back(nullptr);
-
-    if (IsVerbose())
-      print_command(&arg_vec[0]);
-
-    if (LivingDangerously) {
-      if (IsVerbose())
-        HumanOut() << (__ANSI_CYAN "modifying root file system..." __ANSI_NORMAL_COLOR "\n");
-
-      //
-      // (3) perform the renames!!! do this as close as possible before execve
-      //
-      for (const binary_t &binary : jv.Binaries) {
-        if (binary.IsExecutable)
-          continue;
-        if (binary.IsVDSO)
-          continue;
-        if (binary.IsDynamicLinker)
-          continue;
-
-        std::string new_path = binary.Path + ".jove.new";
-
-        if (::rename(new_path.c_str(), binary.Path.c_str()) < 0) {
-          int err = errno;
-          HumanOut() << llvm::formatv("rename of {0} to {1} failed: {2}\n",
-                                      new_path.c_str(),
-                                      binary.Path.c_str(),
-                                      strerror(err));
-        }
-      }
-
-      if (IsVerbose())
-        HumanOut() << (__ANSI_CYAN "modified root file system." __ANSI_NORMAL_COLOR "\n");
-    }
-
-    drop_privileges();
-
-    ::execve(arg_vec[0],
-             const_cast<char **>(&arg_vec[0]),
-             const_cast<char **>(&env_vec[0]));
-
-    int err = errno;
-    HumanOut() << llvm::formatv("execve failed: {0}\n", strerror(err));
-
+          drop_privileges();
+        });
+  } catch (const std::exception &e) {
+#if 0
     if (LivingDangerously)
       ::close(wfd); /* close-on-exec didn't happen */
+#endif
 
-    return 1;
+    HumanOut() << e.what() << '\n';
+
+    exit(1); /* exception must have been thrown in (forked) child process XXX */
   }
 
   IgnoreCtrlC();
@@ -953,7 +952,8 @@ int RunTool::DoRun(void) {
 
       if (::rename(sav_path.c_str(), binary.Path.c_str()) < 0) {
         int err = errno;
-        HumanOut() << llvm::formatv("rename of {0} to {1} failed: {2}\n",
+        HumanOut() << llvm::formatv(__ANSI_BOLD_RED "rename of {0} to {1} failed: {2}\n"
+                                    __ANSI_NORMAL_COLOR,
                                     sav_path.c_str(),
                                     binary.Path.c_str(),
                                     strerror(err));
