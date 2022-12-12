@@ -130,7 +130,7 @@ int ServerTool::Run(void) {
   //
   // Create TCP socket
   //
-  int connection_socket = socket(AF_INET, SOCK_STREAM, 0);
+  int connection_socket = ::socket(AF_INET, SOCK_STREAM, 0);
   if (connection_socket < 0) {
     int err = errno;
     WithColor::error() << llvm::formatv("socket failed: {0}\n", strerror(err));
@@ -143,9 +143,9 @@ int ServerTool::Run(void) {
     server_addr.sin_port = htons(opts.Port);
     server_addr.sin_addr.s_addr = INADDR_ANY;
 
-    int ret = bind(connection_socket,
-                   (const struct sockaddr *)&server_addr,
-                   sizeof(server_addr));
+    int ret = ::bind(connection_socket,
+                     (const struct sockaddr *)&server_addr,
+                     sizeof(server_addr));
     if (ret < 0) {
       int err = errno;
       WithColor::error() << llvm::formatv("bind failed: {0}\n", strerror(err));
@@ -161,7 +161,7 @@ int ServerTool::Run(void) {
   {
     constexpr unsigned BACKLOG = 20;
 
-    int ret = listen(connection_socket, BACKLOG);
+    int ret = ::listen(connection_socket, BACKLOG);
     if (ret < 0) {
       int err = errno;
       WithColor::error() << llvm::formatv("listen failed: {0}\n", strerror(err));
@@ -178,7 +178,7 @@ int ServerTool::Run(void) {
     //
     ConnectionProcArgs *args = new ConnectionProcArgs;
 
-    int data_socket = accept(connection_socket, (struct sockaddr *)&args->addr, &args->addrlen);
+    int data_socket = ::accept(connection_socket, (struct sockaddr *)&args->addr, &args->addrlen);
     if (unlikely(data_socket < 0)) {
       int err = errno;
       WithColor::error() << llvm::formatv("accept failed: {0}\n", strerror(err));
