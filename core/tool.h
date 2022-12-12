@@ -54,8 +54,8 @@ public:
     return *HumanOutputStreamPtr;
   }
 
-  bool IsVerbose(void) {
-    return opt_Verbose;
+  inline bool IsVerbose(void) {
+    return unlikely(opt_Verbose);
   }
 
   std::vector<char *> dashdash_args;
