@@ -12,12 +12,6 @@ typedef std::function<void(const char **, const char **)> before_exec_t;
 
 pid_t RunExecutable(const char *exe_path,
     compute_args_t,
-    const std::string &stdout_path = std::string(),
-    const std::string &stderr_path = std::string(),
-    before_exec_t before_exec = [](const char **, const char **) {});
-
-pid_t RunExecutable(const char *exe_path,
-    compute_args_t,
     compute_envs_t,
     const std::string &stdout_path = std::string(),
     const std::string &stderr_path = std::string(),
