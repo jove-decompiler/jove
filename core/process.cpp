@@ -74,20 +74,6 @@ pid_t RunExecutable(const char *exe_path,
   throw runtime_error(string("execve failed: ") + strerror(err));
 }
 
-pid_t RunExecutable(const char *exe_path,
-    compute_args_t compute_args,
-    const string &stdout_path,
-    const string &stderr_path,
-    before_exec_t before_exec) {
-  return RunExecutable(
-      exe_path,
-      compute_args,
-      [&](auto Env) { InitWithEnviron(Env); },
-      stdout_path,
-      stderr_path,
-      before_exec);
-}
-
 int WaitForProcessToExit(pid_t pid) {
   for (;;) {
     int wstatus = 0;

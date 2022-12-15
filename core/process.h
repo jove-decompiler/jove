@@ -33,4 +33,18 @@ static inline int RunExecutableToExit(Args &&...args) {
 
 void InitWithEnviron(std::function<void(const std::string &)> Env);
 
+inline pid_t RunExecutable(const char *exe_path,
+                           compute_args_t compute_args,
+                           const std::string &stdout_path,
+                           const std::string &stderr_path,
+                           before_exec_t before_exec) {
+  return RunExecutable(
+      exe_path,
+      compute_args,
+      [&](auto Env) { InitWithEnviron(Env); },
+      stdout_path,
+      stderr_path,
+      before_exec);
+}
+
 }
