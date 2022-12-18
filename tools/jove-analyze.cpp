@@ -39,7 +39,7 @@ struct binary_state_t {
 
 }
 
-class AnalyzeTool : public TransformerTool<binary_state_t, function_state_t> {
+class AnalyzeTool : public TransformerTool_BinFn<binary_state_t, function_state_t> {
   struct Cmdline {
     cl::opt<std::string> jv;
     cl::alias jvAlias;

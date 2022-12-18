@@ -169,7 +169,9 @@ struct hook_t {
 
 struct TranslateContext;
 
-struct LLVMTool : public TransformerTool<binary_state_t, function_state_t> {
+struct LLVMTool : public TransformerTool_BinFnBB<binary_state_t,
+                                                 function_state_t,
+                                                 basic_block_state_t> {
   struct Cmdline {
     cl::opt<std::string> jv;
     cl::alias jvAlias;
@@ -5952,7 +5954,7 @@ int LLVMTool::TranslateFunction(function_t &f) {
 
   llvm::BasicBlock *EntryB = llvm::BasicBlock::Create(*Context, "", F);
   for (basic_block_t bb : state.for_function(f).bbvec)
-    state_for_basic_block(ICFG[bb]).B = llvm::BasicBlock::Create(
+    state.for_basic_block(Binary, bb).B = llvm::BasicBlock::Create(
         *Context, (fmt("l%lx") % ICFG[bb].Addr).str(), F);
 
   llvm::DISubprogram::DISPFlags SubProgFlags =
@@ -6039,7 +6041,7 @@ int LLVMTool::TranslateFunction(function_t &f) {
           {IRB.CreateIntCast(LI, IRB.getInt64Ty(), false)});
     }
 
-    IRB.CreateBr(state_for_basic_block(ICFG[entry_bb]).B);
+    IRB.CreateBr(state.for_basic_block(Binary, entry_bb).B);
   }
 
   for (basic_block_t bb : state.for_function(f).bbvec) {
@@ -6925,7 +6927,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
 
   binary_t &Binary = jv.Binaries[BinaryIndex];
   const auto &ICFG = Binary.Analysis.ICFG;
-  llvm::IRBuilderTy IRB(state_for_basic_block(ICFG[bb]).B);
+  llvm::IRBuilderTy IRB(state.for_basic_block(Binary, bb).B);
 
   //
   // helper functions for GlobalAllocaArr
@@ -7194,7 +7196,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
            std::next(eit_pair.first) == eit_pair.second);
     control_flow_t cf = *eit_pair.first;
     basic_block_t succ = boost::target(cf, ICFG);
-    IRB.CreateBr(state_for_basic_block(ICFG[succ]).B);
+    IRB.CreateBr(state.for_basic_block(Binary, succ).B);
     return 0;
   }
 
@@ -7675,7 +7677,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
           basic_block_t succ = *it;
           SI->addCase(
               IRB.getIntN(WordBits(), ICFG[succ].Addr - state.for_binary(Binary).SectsStartAddr),
-              state_for_basic_block(ICFG[succ]).B);
+              state.for_basic_block(Binary, succ).B);
         }
       }
 
@@ -8531,8 +8533,8 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
     llvm::Value *EQV = IRB.CreateICmpEQ(
         PC, IRB.getIntN(WordBits(), ICFG[succ1].Addr));
     IRB.CreateCondBr(EQV,
-                     state_for_basic_block(ICFG[succ1]).B,
-                     state_for_basic_block(ICFG[succ2]).B);
+                     state.for_basic_block(Binary, succ1).B,
+                     state.for_basic_block(Binary, succ2).B);
     break;
   }
 
@@ -8553,7 +8555,7 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
            std::next(eit_pair.first) == eit_pair.second);
     control_flow_t cf = *eit_pair.first;
     basic_block_t succ = boost::target(cf, ICFG);
-    IRB.CreateBr(state_for_basic_block(ICFG[succ]).B);
+    IRB.CreateBr(state.for_basic_block(Binary, succ).B);
     break;
   }
 

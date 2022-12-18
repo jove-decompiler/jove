@@ -29,7 +29,7 @@ struct binary_state_t {
 
 }
 
-class CodeDigger : public TransformerTool<binary_state_t> {
+class CodeDigger : public TransformerTool_Bin<binary_state_t> {
   struct Cmdline {
     cl::opt<std::string> jv;
     cl::alias jvAlias;

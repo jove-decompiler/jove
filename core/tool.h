@@ -128,12 +128,36 @@ private:
 
 typedef Tool *(*ToolCreationProc)(void);
 
-template <typename BinaryStateT, typename FunctionStateT = int>
-struct TransformerTool : public Tool
+template <typename BinaryStateT>
+struct TransformerTool_Bin : public Tool
 {
-  jv_state_t<BinaryStateT, FunctionStateT> state;
+  jv_bin_state_t<BinaryStateT> state;
 
-  TransformerTool() : state(jv) {}
+  TransformerTool_Bin() : state(jv) {}
+};
+
+template <typename FunctionStateT>
+struct TransformerTool_Fn : public Tool
+{
+  jv_fn_state_t<FunctionStateT> state;
+
+  TransformerTool_Fn() : state(jv) {}
+};
+
+template <typename BinaryStateT, typename FunctionStateT>
+struct TransformerTool_BinFn : public Tool
+{
+  jv_bin_fn_state_t<BinaryStateT, FunctionStateT> state;
+
+  TransformerTool_BinFn() : state(jv) {}
+};
+
+template <typename BinaryStateT, typename FunctionStateT, typename BBStateT>
+struct TransformerTool_BinFnBB : public Tool
+{
+  jv_bin_fn_bb_state_t<BinaryStateT, FunctionStateT, BBStateT> state;
+
+  TransformerTool_BinFnBB() : state(jv) {}
 };
 
 void RegisterTool(const char *name, ToolCreationProc Create);

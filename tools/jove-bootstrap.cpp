@@ -181,7 +181,7 @@ struct child_syscall_state_t {
   child_syscall_state_t() : dir(0), pc(0) {}
 };
 
-struct BootstrapTool : public TransformerTool<binary_state_t> {
+struct BootstrapTool : public TransformerTool_Bin<binary_state_t> {
   struct Cmdline {
     cl::opt<std::string> Prog;
     cl::list<std::string> Args;

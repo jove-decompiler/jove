@@ -21,7 +21,7 @@ class CodeRecovery {
     std::unique_ptr<llvm::object::Binary> ObjectFile;
   };
 
-  jv_state_t<binary_state_t> state;
+  jv_bin_state_t<binary_state_t> state;
 
 public:
   CodeRecovery(jv_t &, disas_t &, tiny_code_generator_t &, symbolizer_t &);

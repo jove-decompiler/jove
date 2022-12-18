@@ -38,7 +38,7 @@ struct binary_state_t {
 
 }
 
-class AddTool : public TransformerTool<binary_state_t> {
+class AddTool : public TransformerTool_Bin<binary_state_t> {
   struct Cmdline {
     cl::opt<std::string> Input;
     cl::alias InputAlias;
