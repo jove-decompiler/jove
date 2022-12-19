@@ -11,14 +11,6 @@
 
 #include "jove_macros.h"
 
-extern "C" {
-void __attribute__((noinline))
-     __attribute__((visibility("default")))
-UserBreakPoint(void) {
-  puts(__func__);
-}
-}
-
 namespace fs = boost::filesystem;
 namespace obj = llvm::object;
 namespace cl = llvm::cl;
