@@ -164,21 +164,23 @@ public:
   void worker(const dso_graph_t &dso_graph);
 
   void write_dso_graphviz(std::ostream &out, const dso_graph_t &);
+
+  bool pop_dso(dso_t &out);
+
+  std::string compiler_runtime_afp, libatomic_afp, jove_bin_path, jove_rt_path,
+      jove_dfsan_path, llc_path, ld_path, opt_path, llvm_dis_path;
+
+  std::vector<dso_t> Q;
+  std::mutex Q_mtx;
+
+  std::atomic<bool> worker_failed = false;
 };
 
 JOVE_REGISTER_TOOL("recompile", RecompileTool);
 
-static std::string compiler_runtime_afp, libatomic_afp, jove_bin_path,
-    jove_rt_path, jove_dfsan_path, llc_path, ld_path, opt_path, llvm_dis_path;
-
 static std::atomic<bool> Cancel(false);
 
 static void handle_sigint(int);
-
-static std::vector<dso_t> Q;
-static std::mutex Q_mtx;
-
-static std::atomic<bool> worker_failed(false);
 
 struct all_edges_t {
   template <typename Edge> bool operator()(const Edge &e) const {
@@ -1101,8 +1103,6 @@ int RecompileTool::Run(void) {
   return 0;
 }
 
-static bool pop_dso(dso_t &out);
-
 void RecompileTool::worker(const dso_graph_t &dso_graph) {
   int rc;
 
@@ -1291,7 +1291,7 @@ void RecompileTool::worker(const dso_graph_t &dso_graph) {
   }
 }
 
-bool pop_dso(dso_t &out) {
+bool RecompileTool::pop_dso(dso_t &out) {
   std::lock_guard<std::mutex> lck(Q_mtx);
 
   if (Q.empty()) {

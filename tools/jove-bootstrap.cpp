@@ -311,9 +311,23 @@ struct BootstrapTool : public TransformerTool_Bin<binary_state_t> {
   std::unordered_map<uintptr_t, return_t> RetMap;
   std::unordered_map<uintptr_t, breakpoint_t> BrkMap;
 
+  struct {
+    bool Found = false;
+    uintptr_t Addr = 0;
+
+    uintptr_t r_brk = 0;
+  } _r_debug;
+
   std::unordered_map<pid_t, child_syscall_state_t> children_syscall_state;
 
   bool invalidateAnalyses = false;
+
+#if defined(__mips64) || defined(__mips__)
+  //
+  // we need to find a code cave that can hold two instructions (8 bytes)
+  //
+  uintptr_t ExecutableRegionAddress = 0;
+#endif
 
 public:
   BootstrapTool() : opts(JoveCategory) {}
@@ -359,12 +373,12 @@ public:
   uintptr_t rva_of_va(uintptr_t Addr, binary_index_t BIdx);
 
   std::string description_of_program_counter(uintptr_t, bool Verbose = false);
+
+  pid_t saved_child;
+  std::atomic<bool> ToggleTurbo = false;
 };
 
 JOVE_REGISTER_TOOL("bootstrap", BootstrapTool);
-
-static pid_t saved_child;
-static std::atomic<bool> ToggleTurbo = false;
 
 typedef boost::format fmt;
 
@@ -684,21 +698,6 @@ int BootstrapTool::Run(void) {
     return TracerLoop(-1, tcg);
   }
 }
-
-#if defined(__mips64) || defined(__mips__)
-//
-// we need to find a code cave that can hold two instructions (8 bytes)
-//
-static uintptr_t ExecutableRegionAddress;
-#endif
-
-static struct {
-  bool Found;
-  uintptr_t Addr;
-
-  uintptr_t r_brk;
-} _r_debug = {.Found = false, .Addr = 0, .r_brk = 0};
-
 
 uintptr_t BootstrapTool::va_of_rva(uintptr_t Addr, binary_index_t BIdx) {
   binary_t &binary = jv.Binaries.at(BIdx);
@@ -4652,11 +4651,11 @@ void SignalHandler(int no) {
     //
     // detach from tracee
     //
-    if (::ptrace(PTRACE_DETACH, saved_child, 0UL, 0UL) < 0) {
+    if (::ptrace(PTRACE_DETACH, tool.saved_child, 0UL, 0UL) < 0) {
       int err = errno;
       tool.HumanOut() << llvm::formatv(
           "failed to detach from tracee [{0}]: {1}\n",
-          saved_child,
+          tool.saved_child,
           strerror(err));
       exit(1);
     }
@@ -4674,7 +4673,7 @@ void SignalHandler(int no) {
   }
 
   case SIGUSR1:
-    ToggleTurbo.store(true);
+    tool.ToggleTurbo.store(true);
     break;
 
   //
@@ -4695,14 +4694,14 @@ void SignalHandler(int no) {
     abort();
   }
 
-  if (saved_child) {
+  if (tool.saved_child) {
     //
     // instigate a ptrace-stop
     //
-    if (::kill(saved_child, SIGSTOP /* SIGWINCH */) < 0) {
+    if (::kill(tool.saved_child, SIGSTOP /* SIGWINCH */) < 0) {
       int err = errno;
-      tool.HumanOut() << llvm::formatv("kill of {0} failed: {1}\n", saved_child,
-                                       strerror(err));
+      tool.HumanOut() << llvm::formatv("kill of {0} failed: {1}\n",
+                                       tool.saved_child, strerror(err));
     }
   }
 }

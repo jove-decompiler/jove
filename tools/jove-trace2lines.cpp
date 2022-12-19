@@ -66,14 +66,14 @@ public:
   Trace2LinesTool() : opts(JoveCategory) {}
 
   int Run(void);
+
+  fs::path path_to_vim;
+  fs::path path_to_tmpfile;
+
+  std::unique_ptr<llvm::raw_fd_ostream> tmpfile_ostream;
 };
 
 JOVE_REGISTER_TOOL("trace2lines", Trace2LinesTool);
-
-static fs::path path_to_vim;
-
-static fs::path path_to_tmpfile;
-static std::unique_ptr<llvm::raw_fd_ostream> tmpfile_ostream;
 
 int Trace2LinesTool::Run(void) {
   if (!fs::exists(opts.TracePath)) {

@@ -441,6 +441,8 @@ struct LLVMTool : public TransformerTool_BinFnBB<binary_state_t,
   llvm::Constant *__jove_fail_UnknownBranchTarget;
   llvm::Constant *__jove_fail_UnknownCallee;
 
+  bool pcrel_flag = false; /* XXX this is ugly, but it works */
+
 public:
   LLVMTool() : opts(JoveCategory), DL("") {}
 
@@ -8677,8 +8679,6 @@ static const unsigned bits_of_memop_lookup_table[] = {8, 16, 32, 64};
 static unsigned bits_of_memop(MemOp op) {
   return bits_of_memop_lookup_table[op & MO_SIZE];
 }
-
-static bool pcrel_flag = false; /* XXX this is ugly, but it works */
 
 int LLVMTool::TranslateTCGOp(TCGOp *op,
                              llvm::BasicBlock *ExitBB,

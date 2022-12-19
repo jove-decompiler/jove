@@ -46,11 +46,11 @@ public:
   int Run(void);
 
   void *ConnectionProc(void *);
+
+  fs::path libjove_rt_path, dfsan_rt_path;
 };
 
 JOVE_REGISTER_TOOL("server", ServerTool);
-
-static fs::path libjove_rt_path, dfsan_rt_path;
 
 static std::atomic<bool> Cancelled(false);
 

@@ -174,6 +174,10 @@ public:
   int DoRun(void);
 
   std::atomic<bool> WasDecompilationModified = false;
+  bool LivingDangerously = false;
+
+  std::atomic<char> recovered_ch = '\0';
+  std::atomic<bool> FileSystemRestored = false;
 };
 
 JOVE_REGISTER_TOOL("run", RunTool);
@@ -181,8 +185,6 @@ JOVE_REGISTER_TOOL("run", RunTool);
 typedef boost::format fmt;
 
 static RunTool *pTool;
-
-static bool LivingDangerously;
 
 static void CrashHandler(int no) {
   switch (no) {
@@ -243,12 +245,6 @@ int RunTool::Run(void) {
   return WillChroot ? DoRun<true>() :
                       DoRun<false>();
 }
-
-//
-// set when jove-recover has been run (if nonzero then either 'f', 'b', 'F', 'r')
-//
-static std::atomic<char> recovered_ch;
-static std::atomic<bool> FileSystemRestored(false);
 
 static void *recover_proc(const char *fifo_path);
 
@@ -1177,8 +1173,8 @@ void *recover_proc(const char *fifo_path) {
       if (unlikely(FirstTime)) {
         FirstTime = false;
 
-        if (LivingDangerously)
-          while (!FileSystemRestored.load())
+        if (tool.LivingDangerously)
+          while (!tool.FileSystemRestored.load())
             usleep(10000 /* 0.01 s */);
       }
     }
@@ -1189,7 +1185,7 @@ void *recover_proc(const char *fifo_path) {
     //
     assert(tool.Recovery);
 
-    recovered_ch.store(ch);
+    tool.recovered_ch.store(ch);
 
     auto do_recover = [&](void) -> std::string {
       if (ch == 'f') {

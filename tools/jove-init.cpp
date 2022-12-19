@@ -61,15 +61,14 @@ public:
 
   void worker(void);
   void spawn_workers(void);
+
+  std::mutex mtx;
+  std::queue<std::string> Q;
+  std::string harvest_vdso_path;
+  int null_fd;
 };
 
 JOVE_REGISTER_TOOL("init", InitTool);
-
-static std::queue<std::string> Q;
-
-static std::string harvest_vdso_path;
-
-static int null_fd;
 
 static std::pair<void *, unsigned> GetVDSO(void);
 
@@ -846,10 +845,8 @@ std::pair<void *, unsigned> GetVDSO(void) {
   return std::make_pair(res.first, res.second);
 }
 
-static std::mutex mtx;
-
 void InitTool::worker(void) {
-  auto pop_path = [](std::string &out) -> bool {
+  auto pop_path = [&](std::string &out) -> bool {
     std::lock_guard<std::mutex> lck(mtx);
 
     if (Q.empty()) {

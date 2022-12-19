@@ -234,25 +234,23 @@ public:
   int Run(void);
 
   std::string soname_of_binary(binary_t &b);
+
+  fs::path jove_rt_path, jove_dfsan_path;
+  std::atomic<bool> Cancelled = false;
+  std::atomic<pid_t> app_pid, run_pid;
 };
 
 JOVE_REGISTER_TOOL("loop", LoopTool);
 
-static fs::path jove_rt_path, jove_dfsan_path;
-
-static std::atomic<bool> Cancelled(false);
-
-static std::atomic<pid_t> app_pid, run_pid;
-
-static Tool *pTool;
+static LoopTool *pTool;
 
 static void SigHandler(int no) {
   assert(pTool);
-  Tool &tool = *pTool;
+  LoopTool &tool = *pTool;
 
   switch (no) {
   case SIGTERM:
-    if (pid_t pid = app_pid.load()) {
+    if (pid_t pid = tool.app_pid.load()) {
       // what we really want to do is terminate the child.
       if (::kill(pid, SIGTERM) < 0) {
         int err = errno;
@@ -266,7 +264,7 @@ static void SigHandler(int no) {
     break;
 
   case SIGINT:
-    if (pid_t pid = run_pid.load()) {
+    if (pid_t pid = tool.run_pid.load()) {
       // tell run to exit sleep loop
       if (::kill(pid, SIGUSR1) < 0) {
         int err = errno;
@@ -276,7 +274,7 @@ static void SigHandler(int no) {
     } else {
       tool.HumanOut() << "Received SIGINT. Cancelling..\n";
 
-      Cancelled.store(true);
+      tool.Cancelled.store(true);
     }
     break;
 
