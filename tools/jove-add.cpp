@@ -49,8 +49,6 @@ class AddTool : public TransformerTool_Bin<binary_state_t> {
     cl::opt<std::string> jv;
     cl::alias jvAlias;
 
-    cl::opt<std::string> BreakOnAddr;
-
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : Input("input", cl::desc("Path to DSO"), cl::Required,
                 cl::value_desc("filename"), cl::cat(JoveCategory)),
@@ -68,15 +66,7 @@ class AddTool : public TransformerTool_Bin<binary_state_t> {
              cl::value_desc("filename"), cl::cat(JoveCategory)),
 
           jvAlias("d", cl::desc("Alias for -jv."), cl::aliasopt(jv),
-                  cl::cat(JoveCategory)),
-
-
-          BreakOnAddr("break-on-addr",
-                      cl::desc("Allow user to set a debugger breakpoint on "
-                               "TCGDumpBreakPoint, "
-                               "and triggered when basic block address matches "
-                               "given address"),
-                      cl::cat(JoveCategory)) {}
+                  cl::cat(JoveCategory)) {}
   } opts;
 
 public:
@@ -86,11 +76,6 @@ public:
 };
 
 JOVE_REGISTER_TOOL("add", AddTool);
-
-static struct {
-  tcg_uintptr_t Addr;
-  bool Active;
-} BreakOn = {.Active = false};
 
 #include "relocs_common.hpp"
 
@@ -113,11 +98,6 @@ int AddTool::Run(void) {
   if (!opts.jv.empty() && !fs::exists(opts.jv)) {
     WithColor::error() << "given jv does not exist\n";
     return 1;
-  }
-
-  if (!opts.BreakOnAddr.empty()) {
-    BreakOn.Active = true;
-    BreakOn.Addr = std::stoi(opts.BreakOnAddr.c_str(), 0, 16);
   }
 
   tiny_code_generator_t tcg;

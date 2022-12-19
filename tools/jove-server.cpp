@@ -52,36 +52,7 @@ public:
 
 JOVE_REGISTER_TOOL("server", ServerTool);
 
-static std::atomic<bool> Cancelled(false);
-
-static std::atomic<pid_t> app_pid;
-
 static std::string string_of_sockaddr(const struct sockaddr *addr, socklen_t addrlen);
-
-static void sighandler(int no) {
-  switch (no) {
-  case SIGTERM:
-    if (pid_t pid = app_pid.load()) {
-      // what we really want to do is terminate the child.
-      if (::kill(pid, SIGTERM) < 0) {
-        int err = errno;
-        WithColor::warning() << llvm::formatv(
-            "failed to redirect SIGTERM: {0}\n", strerror(err));
-      }
-    } else {
-      WithColor::warning() << "received SIGTERM but no app to redirect to!\n";
-    }
-    break;
-
-  case SIGINT:
-    llvm::errs() << "Received SIGINT. Cancelling..\n";
-    Cancelled.store(true);
-    break;
-
-  default:
-    abort();
-  }
-}
 
 struct ConnectionProcArgs {
   int data_socket = -1;
