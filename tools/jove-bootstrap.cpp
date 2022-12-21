@@ -67,6 +67,10 @@
 #define GET_INSTRINFO_ENUM
 #include "LLVMGenInstrInfo.hpp"
 
+#if defined(__mips64) || defined(__mips__)
+#undef PC /* XXX */
+#endif
+
 #define GET_REGINFO_ENUM
 #include "LLVMGenRegisterInfo.hpp"
 
@@ -3207,7 +3211,7 @@ void BootstrapTool::harvest_global_GOT_entries(pid_t child,
 
     unsigned brkpt_count = 0;
 
-    std::unique_ptr<obj::Binary> &ObjectFile = b.ObjectFile;
+    std::unique_ptr<obj::Binary> &ObjectFile = state.for_binary(b).ObjectFile;
 
     assert(ObjectFile.get());
     assert(llvm::isa<ELFO>(ObjectFile.get()));
@@ -3231,7 +3235,7 @@ void BootstrapTool::harvest_global_GOT_entries(pid_t child,
     }
 
     for (const MipsGOTParser::Entry &Ent : Parser.getGlobalEntries()) {
-      const target_ulong Addr = Parser.getGotAddress(&Ent);
+      const tcg_uintptr_t Addr = Parser.getGotAddress(&Ent);
 
       const Elf_Sym *Sym = Parser.getGotSym(&Ent);
       assert(Sym);
@@ -3249,7 +3253,7 @@ void BootstrapTool::harvest_global_GOT_entries(pid_t child,
 
       llvm::StringRef SymName = *ExpectedSymName;
 
-      auto &SymDynTargets = b.Analysis.SymDynTargets[SymName];
+      auto &SymDynTargets = b.Analysis.SymDynTargets[SymName.str()];
       if (!SymDynTargets.empty())
         continue;
 
@@ -4236,11 +4240,11 @@ void BootstrapTool::rendezvous_with_dynamic_linker(pid_t child) {
         {
           uint64_t InstLen = 0;
           bool Disassembled =
-              DisAsm.getInstruction(brk.DelaySlotInst,
-                                    InstLen,
-                                    llvm::ArrayRef<uint8_t>(brk.InsnBytes).slice(4),
-                                    4 /* should not matter */,
-                                    llvm::nulls());
+              disas.DisAsm->getInstruction(brk.DelaySlotInst,
+                                           InstLen,
+                                           llvm::ArrayRef<uint8_t>(brk.InsnBytes).slice(4),
+                                           4 /* should not matter */,
+                                           llvm::nulls());
         }
 #endif
 
