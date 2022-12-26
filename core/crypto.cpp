@@ -8,8 +8,7 @@ namespace jove {
 namespace crypto {
 
 std::string sha3(const void* data, size_t len) {
-  unsigned digest_length = SHA256_DIGEST_LENGTH;
-  uint8_t digest[digest_length];
+  uint8_t digest[SHA256_DIGEST_LENGTH];
 
   EVP_MD_CTX *ctx = EVP_MD_CTX_new();
   if (!ctx)
@@ -28,6 +27,7 @@ std::string sha3(const void* data, size_t len) {
   if (EVP_DigestUpdate(ctx, data, len) != 1)
     throw std::runtime_error("EVP_DigestUpdate failed");
 
+  unsigned digest_length = sizeof(digest);
   if (EVP_DigestFinal_ex(ctx, digest, &digest_length) != 1)
     throw std::runtime_error("EVP_DigestFinal_ex failed");
 
