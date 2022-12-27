@@ -44,12 +44,12 @@ disas_t::disas_t() {
     Features.AddFeature("mips64r2");
 #elif defined(TARGET_MIPS32)
     Features.AddFeature("mips32r2");
-    Features.AddFeature("o32");
+    //Features.AddFeature("o32");
 #endif
 
-    Features.AddFeature("cpic");
-    Features.AddFeature("noreorder");
-    Features.AddFeature("pic");
+    //Features.AddFeature("cpic");
+    //Features.AddFeature("noreorder");
+    //Features.AddFeature("pic");
   }
 
   std::string ArchName;
