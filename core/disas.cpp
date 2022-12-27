@@ -37,7 +37,20 @@ disas_t::disas_t() {
   // initialize the LLVM objects necessary for disassembling instructions
   //
   llvm::Triple TheTriple = getTargetTriple();
-  llvm::SubtargetFeatures Features; /* TODO mips? */
+  llvm::SubtargetFeatures Features;
+
+  if (IsMIPSTarget) {
+#if defined(TARGET_MIPS64)
+    Features.AddFeature("mips64r2");
+#elif defined(TARGET_MIPS32)
+    Features.AddFeature("mips32r2");
+    Features.AddFeature("o32");
+#endif
+
+    Features.AddFeature("cpic");
+    Features.AddFeature("noreorder");
+    Features.AddFeature("pic");
+  }
 
   std::string ArchName;
   std::string Error;
