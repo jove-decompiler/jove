@@ -3780,12 +3780,17 @@ int BootstrapTool::ChildProc(int pipefd) {
 
   std::string name = "jove/bootstrap" + jv.Binaries.at(0).Path;
   int fd = ::memfd_create(name.c_str(), MFD_CLOEXEC);
-  if (fd < 0)
+  if (fd < 0) {
+    ::close(pipefd);
     abort();
+  }
   if (robust_write(fd,
                    &jv.Binaries.at(0).Data[0],
-                   jv.Binaries.at(0).Data.size()) < 0)
+                   jv.Binaries.at(0).Data.size()) < 0) {
+    ::close(pipefd);
+    ::close(fd);
     abort();
+  }
   std::string exe_path = "/proc/self/fd/" + std::to_string(fd);
 
   ::execve(exe_path.c_str(),
