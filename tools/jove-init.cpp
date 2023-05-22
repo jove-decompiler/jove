@@ -2,6 +2,7 @@
 #include "elf.h"
 #include "crypto.h"
 #include "util.h"
+#include "vdso.h"
 
 #include <boost/dll/runtime_symbol_info.hpp>
 #include <boost/filesystem.hpp>
@@ -64,13 +65,10 @@ public:
 
   std::mutex mtx;
   std::queue<std::string> Q;
-  std::string harvest_vdso_path;
   int null_fd;
 };
 
 JOVE_REGISTER_TOOL("init", InitTool);
-
-static std::pair<void *, unsigned> GetVDSO(void);
 
 static std::string program_interpreter_of_executable(const char *exepath);
 
@@ -444,14 +442,6 @@ int InitTool::Run(void) {
     return 1;
   }
 
-  harvest_vdso_path = (boost::dll::program_location().parent_path() /
-                       std::string("harvest-vdso"))
-                          .string();
-  if (!fs::exists(harvest_vdso_path)) {
-    WithColor::error() << "could not find harvest-vdso at " << harvest_vdso_path << '\n';
-    return 1;
-  }
-
   const bool firmadyne = fs::exists("/firmadyne/libnvram.so"); /* XXX */
 
   //
@@ -501,97 +491,18 @@ int InitTool::Run(void) {
   //
   binary_paths.push_back(fs::canonical(opts.Prog).string());
 
-  //
-  // to get the vdso, we run $(BINDIR)/$(target)/harvest-vdso. if it exists, it
-  // will write the contents to STDOUT. otherwise it returns a non-zero number.
-  //
-  int pipefd[2];
-  if (::pipe(pipefd) < 0) {
-    int err = errno;
-    WithColor::error() << llvm::formatv("pipe failed: {0}\n", strerror(err));
-    return 1;
-  }
+  auto vdso_pair = GetVDSO();
+  bool HasVDSO = vdso_pair.first != nullptr;
 
-  int rfd = pipefd[0];
-  int wfd = pipefd[1];
-
-  //
-  // run harvest-vdso
-  //
-  pid_t pid = ::fork();
-  if (!pid) {
-    ::close(rfd); /* close unused read end */
-
-    /* make stdout be the write end of the pipe */
-    if (::dup2(wfd, STDOUT_FILENO) < 0) {
-      int err = errno;
-      WithColor::error() << llvm::formatv("dup2 failed: {0}\n", strerror(err));
-      return 1;
-    }
-
-    std::vector<const char *> arg_vec = {harvest_vdso_path.c_str(), nullptr};
-
-    std::vector<const char *> env_vec;
-    for (char **env = ::environ; *env; ++env)
-      env_vec.push_back(*env);
-
-    env_vec.push_back(nullptr);
-
-    ::execve(arg_vec[0],
-             const_cast<char **>(&arg_vec[0]),
-             const_cast<char **>(&env_vec[0]));
-
-    /* if we get here, exec failed */
-    int err = errno;
-    WithColor::error() << llvm::formatv("failed to exec {0}: {1}\n",
-                                        arg_vec[0],
-                                        strerror(err));
-    return 1;
-  }
-
-  {
-    int rc = ::close(wfd);
-    assert(!(rc < 0));
-  }
-
-  //
-  // stdout are contents of VDSO, if exists
-  //
   std::vector<uint8_t> vdso;
-  vdso.reserve(2 * 4096); /* XXX */
-  {
-    uint8_t byte;
-    while (::read(rfd, &byte, 1) > 0)
-      vdso.push_back(byte);
-  }
-
-  //
-  // close read end; we are done with it.
-  //
-  {
-    int rc = ::close(rfd);
-    assert(!(rc < 0));
-  }
-
-  bool HasVDSO = true;
-
-  if (int ret = WaitForProcessToExit(pid)) {
-    HasVDSO = false;
-
-    if (IsVerbose())
-      WithColor::error() << "harvest-vdso failed. bug?\n";
-  }
-
-  if (vdso.empty()) {
-    HasVDSO = false;
-
-    if (IsVerbose())
-      WithColor::error() << "no [vdso] found. bug?\n";
-  }
-
   if (HasVDSO) {
-    assert(vdso.size() % 4096 == 0);
-  } else { /* XXX */
+    vdso.resize(vdso_pair.second);
+    memcpy(&vdso[0], vdso_pair.first, vdso.size());
+  }
+
+  assert(vdso.size() % 4096 == 0);
+
+  if (!HasVDSO) {
 #if defined(TARGET_MIPS32)
     vdso.resize(sizeof(a_vdso));
     memcpy(&vdso[0], &a_vdso[0], vdso.size());
@@ -788,61 +699,6 @@ std::string program_interpreter_of_executable(const char *exepath) {
   }
 
   return res;
-}
-
-std::pair<void *, unsigned> GetVDSO(void) {
-  struct {
-    void *first;
-    unsigned second;
-  } res;
-
-  res.first = nullptr;
-  res.second = 0;
-
-  std::string maps = read_file_into_string("/proc/self/maps");
-  assert(!maps.empty());
-
-  unsigned n = maps.size();
-  char *const beg = &maps[0];
-  char *const end = &maps[n];
-
-  char *eol;
-  for (char *line = beg; line != end; line = eol + 1) {
-    unsigned left = n - (line - beg);
-
-    //
-    // find the end of the current line
-    //
-    eol = (char *)memchr(line, '\n', left);
-
-    //
-    // second hex address
-    //
-    if (eol[-1] == ']' &&
-        eol[-2] == 'o' &&
-        eol[-3] == 's' &&
-        eol[-4] == 'd' &&
-        eol[-5] == 'v' &&
-        eol[-6] == '[') {
-      char *const dash = (char *)memchr(line, '-', left);
-      assert(dash);
-
-      char *const space = (char *)memchr(line, ' ', left);
-      assert(space);
-
-      *dash = '\0';
-      uintptr_t min = strtoul(line, nullptr, 0x10);
-
-      *space = '\0';
-      uintptr_t max = strtoul(dash + 1, nullptr, 0x10);
-
-      res.first = (void *)min;
-      res.second = max - min;
-      break;
-    }
-  }
-
-  return std::make_pair(res.first, res.second);
 }
 
 void InitTool::worker(void) {
