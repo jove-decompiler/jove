@@ -5,8 +5,6 @@
 _HIDDEN void _jove_recover_dyn_target(uint32_t CallerBBIdx,
                                       uintptr_t CalleeAddr) {
   char *recover_fifo_path = _getenv("JOVE_RECOVER_FIFO");
-  if (!recover_fifo_path)
-    _UNREACHABLE("missing JOVE_RECOVER_FIFO environment variable");
 
   uint32_t CallerBIdx = _jove_binary_index();
 
@@ -235,6 +233,48 @@ _HIDDEN void _jove_recover_dyn_target(uint32_t CallerBBIdx,
   return; /* not found */
 
 found:
+  if (!recover_fifo_path) {
+    char s[1024];
+    s[0] = '\0';
+
+    _strcat(s, "recover --dyn-target=");
+    {
+      char buff[65];
+      _uint_to_string(_jove_binary_index(), buff, 10);
+
+      _strcat(s, buff);
+    }
+
+    _strcat(s, ",");
+    {
+      char buff[65];
+      _uint_to_string(CallerBBIdx, buff, 10);
+
+      _strcat(s, buff);
+    }
+
+    _strcat(s, ",");
+    {
+      char buff[65];
+      _uint_to_string(Callee.BIdx, buff, 10);
+
+      _strcat(s, buff);
+    }
+
+    _strcat(s, ",");
+    {
+      char buff[65];
+      _uint_to_string(Callee.FIdx, buff, 10);
+
+      _strcat(s, buff);
+    }
+    _strcat(s, "\n");
+
+    _jove_robust_write(2 /* stderr */, s, _strlen(s));
+
+    _UNREACHABLE("missing JOVE_RECOVER_FIFO environment variable");
+  }
+
   {
     int recover_fd = _jove_open(recover_fifo_path, O_WRONLY, 0666);
     if (recover_fd < 0)
@@ -265,8 +305,6 @@ found:
 void _jove_recover_function(uint32_t IndCallBBIdx,
                             uintptr_t FuncAddr) {
   char *recover_fifo_path = _getenv("JOVE_RECOVER_FIFO");
-  if (!recover_fifo_path)
-    _UNREACHABLE("missing JOVE_RECOVER_FIFO environment variable");
 
   struct {
     uint32_t BIdx;
@@ -307,6 +345,48 @@ void _jove_recover_function(uint32_t IndCallBBIdx,
   return; /* not found */
 
 found:
+  if (!recover_fifo_path) {
+    char s[1024];
+    s[0] = '\0';
+
+    _strcat(s, "recover --function=");
+    {
+      char buff[65];
+      _uint_to_string(IndCall.BIdx, buff, 10);
+
+      _strcat(s, buff);
+    }
+
+    _strcat(s, ",");
+    {
+      char buff[65];
+      _uint_to_string(IndCall.BBIdx, buff, 10);
+
+      _strcat(s, buff);
+    }
+
+    _strcat(s, ",");
+    {
+      char buff[65];
+      _uint_to_string(Callee.BIdx, buff, 10);
+
+      _strcat(s, buff);
+    }
+
+    _strcat(s, ",");
+    {
+      char buff[65];
+      _uint_to_string(Callee.FileAddr, buff, 10);
+
+      _strcat(s, buff);
+    }
+    _strcat(s, "\n");
+
+    _jove_robust_write(2 /* stderr */, s, _strlen(s));
+
+    _UNREACHABLE("missing JOVE_RECOVER_FIFO environment variable");
+  }
+
   {
     int recover_fd = _jove_open(recover_fifo_path, O_WRONLY, 0666);
     if (recover_fd < 0)
@@ -337,8 +417,6 @@ found:
 _HIDDEN void _jove_recover_basic_block(uint32_t IndBrBBIdx,
                                        uintptr_t BBAddr) {
   char *recover_fifo_path = _getenv("JOVE_RECOVER_FIFO");
-  if (!recover_fifo_path)
-    _UNREACHABLE("missing JOVE_RECOVER_FIFO environment variable");
 
   struct {
     uint32_t BIdx;
@@ -365,6 +443,40 @@ _HIDDEN void _jove_recover_basic_block(uint32_t IndBrBBIdx,
   uintptr_t FileAddr = (BBAddr - SectionsGlobal.Beg) + SectsStartFileAddr;
 
 found:
+  if (!recover_fifo_path) {
+    char s[1024];
+    s[0] = '\0';
+
+    _strcat(s, "recover --basic-block=");
+    {
+      char buff[65];
+      _uint_to_string(IndBr.BIdx, buff, 10);
+
+      _strcat(s, buff);
+    }
+
+    _strcat(s, ",");
+    {
+      char buff[65];
+      _uint_to_string(IndBr.BBIdx, buff, 10);
+
+      _strcat(s, buff);
+    }
+
+    _strcat(s, ",");
+    {
+      char buff[65];
+      _uint_to_string(FileAddr, buff, 10);
+
+      _strcat(s, buff);
+    }
+    _strcat(s, "\n");
+
+    _jove_robust_write(2 /* stderr */, s, _strlen(s));
+
+    _UNREACHABLE("missing JOVE_RECOVER_FIFO environment variable");
+  }
+
   {
     int recover_fd = _jove_open(recover_fifo_path, O_WRONLY, 0666);
     if (recover_fd < 0)
@@ -405,6 +517,33 @@ _HIDDEN void _jove_recover_returned(uint32_t CallerBBIdx) {
   Call.BBIdx = CallerBBIdx;
 
 found:
+  if (!recover_fifo_path) {
+    char s[1024];
+    s[0] = '\0';
+
+    _strcat(s, "recover --returns=");
+    {
+      char buff[65];
+      _uint_to_string(Call.BIdx, buff, 10);
+
+      _strcat(s, buff);
+    }
+
+    _strcat(s, ",");
+    {
+      char buff[65];
+      _uint_to_string(Call.BBIdx, buff, 10);
+
+      _strcat(s, buff);
+    }
+
+    _strcat(s, "\n");
+
+    _jove_robust_write(2 /* stderr */, s, _strlen(s));
+
+    _UNREACHABLE("missing JOVE_RECOVER_FIFO environment variable");
+  }
+
   {
     int recover_fd = _jove_open(recover_fifo_path, O_WRONLY, 0666);
     if (recover_fd < 0)
@@ -432,8 +571,6 @@ found:
 
 _HIDDEN void _jove_recover_ABI(uint32_t FIdx) {
   char *recover_fifo_path = _getenv("JOVE_RECOVER_FIFO");
-  if (!recover_fifo_path)
-    _UNREACHABLE("missing JOVE_RECOVER_FIFO environment variable");
 
   struct {
     uint32_t BIdx;
@@ -444,6 +581,33 @@ _HIDDEN void _jove_recover_ABI(uint32_t FIdx) {
   NewABI.FIdx = FIdx;
 
 found:
+  if (!recover_fifo_path) {
+    char s[1024];
+    s[0] = '\0';
+
+    _strcat(s, "recover --abi=");
+    {
+      char buff[65];
+      _uint_to_string(NewABI.BIdx, buff, 10);
+
+      _strcat(s, buff);
+    }
+
+    _strcat(s, ",");
+    {
+      char buff[65];
+      _uint_to_string(NewABI.FIdx, buff, 10);
+
+      _strcat(s, buff);
+    }
+
+    _strcat(s, "\n");
+
+    _jove_robust_write(2 /* stderr */, s, _strlen(s));
+
+    _UNREACHABLE("missing JOVE_RECOVER_FIFO environment variable");
+  }
+
   {
     int recover_fd = _jove_open(recover_fifo_path, O_WRONLY, 0666);
     if (recover_fd < 0)
