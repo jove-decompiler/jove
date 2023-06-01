@@ -3,7 +3,6 @@
 #include "elf.h"
 #include "symbolizer.h"
 
-#include <boost/dll/runtime_symbol_info.hpp>
 #include <boost/filesystem.hpp>
 #include <llvm/Support/FormatVariadic.h>
 #include <llvm/Support/WithColor.h>
@@ -82,9 +81,6 @@ class CodeDigger : public TransformerTool_Bin<binary_state_t> {
 
   binary_index_t SingleBinaryIndex = invalid_binary_index;
 
-  fs::path tmp_dir;
-  std::string klee_path;
-
   int pipe_rdfd = -1;
   int pipe_wrfd = -1;
 
@@ -131,14 +127,6 @@ void CodeDigger::queue_binaries(void) {
 }
 
 int CodeDigger::Run(void) {
-  klee_path = (boost::dll::program_location().parent_path().parent_path().parent_path() /
-               "klee" / "build" / "bin" / "klee")
-                  .string();
-  if (!fs::exists(klee_path)) {
-    WithColor::error() << "could not find klee at " << klee_path << '\n';
-    return 1;
-  }
-
   ReadJvFromFile(opts.jv, jv);
   state.update();
 
@@ -181,8 +169,6 @@ int CodeDigger::Run(void) {
     return ListLocalGotos();
 
   Recovery = std::make_unique<CodeRecovery>(jv, disas, tcg, symbolizer);
-
-  tmp_dir = temporary_dir();
 
   int pipefd[2];
   if (::pipe(pipefd) < 0) {
@@ -341,7 +327,7 @@ void CodeDigger::Worker(void) {
     // make sure the path is absolute
     assert(binary.Path.at(0) == '/');
 
-    const fs::path chrooted_path = tmp_dir / binary.Path;
+    const fs::path chrooted_path = fs::path(temporary_dir()) / binary.Path;
     fs::create_directories(chrooted_path.parent_path());
 
     std::string binary_filename = fs::path(binary.Path).filename().string();
@@ -401,11 +387,11 @@ void CodeDigger::Worker(void) {
       std::string path_to_stderr = bcfp + ".stderr.klee.txt";
 
       int rc = RunExecutableToExit(
-          klee_path.c_str(),
+          locator().klee(),
           [&](auto Arg) {
             ::close(pipe_rdfd);
 
-            Arg(klee_path);
+            Arg(locator().klee());
 
             Arg("--entry-point=_jove_begin");
             Arg("--solver-backend=stp");
@@ -418,7 +404,7 @@ void CodeDigger::Worker(void) {
             Arg("--max-memory-inhibit=0");
             Arg("--use-forked-solver=0");
 
-            Arg("--jove-output-dir=" + tmp_dir.string());
+            Arg("--jove-output-dir=" + temporary_dir());
             Arg("--jove-pipefd=" + std::to_string(pipe_wrfd));
             Arg("--jove-binary-index=" + std::to_string(BIdx));
             Arg("--jove-sects-start-addr=" + std::to_string(state.for_binary(binary).SectsStartAddr));

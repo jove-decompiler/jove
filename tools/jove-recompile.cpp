@@ -2,7 +2,6 @@
 #include "elf.h"
 
 #include <boost/algorithm/string.hpp>
-#include <boost/dll/runtime_symbol_info.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/format.hpp>
 #include <boost/graph/filtered_graph.hpp>
@@ -167,9 +166,6 @@ public:
 
   bool pop_dso(dso_t &out);
 
-  std::string compiler_runtime_afp, libatomic_afp, jove_bin_path, jove_rt_path,
-      jove_dfsan_path, llc_path, ld_path, opt_path, llvm_dis_path;
-
   std::vector<dso_t> Q;
   std::mutex Q_mtx;
 
@@ -300,24 +296,6 @@ struct graphviz_prop_writer {
 };
 
 int RecompileTool::Run(void) {
-  compiler_runtime_afp =
-      (boost::dll::program_location().parent_path().parent_path().parent_path() /
-       "prebuilts" / "obj" / ("libclang_rt.builtins-" TARGET_ARCH_NAME ".a"))
-          .string();
-
-  if (!fs::exists(compiler_runtime_afp) ||
-      !fs::is_regular_file(compiler_runtime_afp)) {
-    WithColor::error() << "compiler runtime does not exist at path '"
-                       << compiler_runtime_afp
-                       << "' (or is not regular file)\n";
-    return 1;
-  }
-
-  libatomic_afp =
-      (boost::dll::program_location().parent_path().parent_path().parent_path() /
-       "prebuilts" / "obj" / ("libatomic-" TARGET_ARCH_NAME ".a"))
-          .string();
-
   //
   // sanity checks for output path
   //
@@ -333,6 +311,11 @@ int RecompileTool::Run(void) {
     }
   }
 
+  if (!fs::exists(opts.jv)) {
+    WithColor::error() << "can't find jv.jv\n";
+    return 1;
+  }
+
   //
   // create symlink back to jv
   //
@@ -340,83 +323,6 @@ int RecompileTool::Run(void) {
     fs::remove(fs::path(opts.Output) / ".jv");
 
   fs::create_symlink(fs::canonical(opts.jv), fs::path(opts.Output) / ".jv");
-
-  //
-  // get paths to stuff
-  //
-  jove_bin_path = boost::dll::program_location().parent_path().string();
-
-  jove_rt_path =
-      (boost::dll::program_location().parent_path() / "libjove_rt.so").string();
-  if (!fs::exists(jove_rt_path)) {
-    WithColor::error() << "could not find libjove_rt.so\n";
-    return 1;
-  }
-
-  jove_dfsan_path =
-      (boost::dll::program_location().parent_path().parent_path().parent_path() /
-       "prebuilts" / "lib" / ("libclang_rt.dfsan.jove-" TARGET_ARCH_NAME ".so")).string();
-  if (!fs::exists(jove_dfsan_path)) {
-    WithColor::error() << llvm::formatv("could not find {0}\n", jove_dfsan_path);
-    return 1;
-  }
-
-  llc_path = (boost::dll::program_location().parent_path().parent_path().parent_path() /
-              "llvm-project" / "static_install" / "bin" / "llc").string();
-  if (!fs::exists(llc_path)) {
-    WithColor::error() << "could not find /usr/bin/llc\n";
-    return 1;
-  }
-
-  llvm_dis_path =
-      (boost::dll::program_location().parent_path().parent_path().parent_path() /
-       "llvm-project" / "static_install" / "bin" / "llvm-dis")
-          .string();
-  if (!fs::exists(llvm_dis_path)) {
-    WithColor::error() << "could not find llvm-dis\n";
-    return 1;
-  }
-
-  std::string lld_path =
-      (boost::dll::program_location().parent_path().parent_path().parent_path() /
-       "llvm-project" / "static_install" / "bin" / "ld.lld").string();
-
-  std::string ld_gold_path = "/usr/bin/ld.gold";
-  std::string ld_bfd_path = "/usr/bin/ld.bfd";
-
-  ld_path = lld_path;
-
-  if (!opts.UseLd.empty()) {
-    if (opts.UseLd.compare("gold") == 0) {
-      ld_path = ld_gold_path;
-    } else if (opts.UseLd.compare("bfd") == 0) {
-      ld_path = ld_bfd_path;
-    } else if (opts.UseLd.compare("lld") == 0) {
-      ld_path = lld_path;
-    } else {
-      WithColor::error() << llvm::formatv("unknown linker \"{0}\"\n", opts.UseLd);
-      return 1;
-    }
-  }
-
-  if (!fs::exists(ld_path)) {
-    WithColor::error() << llvm::formatv("could not find linker at {0}\n",
-                                        ld_path);
-    return 1;
-  }
-
-  opt_path = (boost::dll::program_location().parent_path().parent_path().parent_path() /
-              "llvm-project" / "static_install" / "bin" / "opt")
-                 .string();
-  if (!fs::exists(opt_path)) {
-    WithColor::error() << llvm::formatv("could not find {0}\n", opt_path);
-    return 1;
-  }
-
-  if (!fs::exists(opts.jv)) {
-    WithColor::error() << "can't find jv.jv\n";
-    return 1;
-  }
 
   //
   // install signal handler for Ctrl-C to gracefully cancel
@@ -536,7 +442,7 @@ int RecompileTool::Run(void) {
 	fs::path(opts.Output) / "usr" / "lib" / "libjove_rt.so";
 
     fs::create_directories(chrooted_path.parent_path());
-    fs::copy_file(jove_rt_path, chrooted_path,
+    fs::copy_file(locator().runtime(), chrooted_path,
 		  fs::copy_option::overwrite_if_exists);
 
     //
@@ -549,7 +455,7 @@ int RecompileTool::Run(void) {
 
       try {
         // XXX some dynamic linkers only look in /lib
-        fs::copy_file(jove_rt_path,
+        fs::copy_file(locator().runtime(),
                       fs::path(opts.Output) / "lib" / "libjove_rt.so",
                       fs::copy_option::overwrite_if_exists);
       } catch (...) {
@@ -568,7 +474,7 @@ int RecompileTool::Run(void) {
       fs::path chrooted_path =
           fs::path(opts.Output) / "usr" / "lib" / dfsan_rt_filename;
 
-      fs::copy_file(jove_dfsan_path, chrooted_path,
+      fs::copy_file(locator().dfsan_runtime(), chrooted_path,
                     fs::copy_option::overwrite_if_exists);
     }
 
@@ -578,7 +484,7 @@ int RecompileTool::Run(void) {
       fs::path chrooted_path =
           fs::path(opts.Output) / "lib" / dfsan_rt_filename;
 
-      fs::copy_file(jove_dfsan_path, chrooted_path,
+      fs::copy_file(locator().dfsan_runtime(), chrooted_path,
                     fs::copy_option::overwrite_if_exists);
     }
   }
@@ -668,9 +574,8 @@ int RecompileTool::Run(void) {
     }
   }
 
-  bool haveGraphEasy = fs::exists("/usr/bin/vendor_perl/graph-easy") ||
-                       fs::exists("/usr/bin/graph-easy");
-  if (IsVerbose() && haveGraphEasy) {
+
+  if (IsVerbose() && fs::exists(locator().graph_easy())) {
     //
     // graphviz
     //
@@ -682,15 +587,8 @@ int RecompileTool::Run(void) {
       write_dso_graphviz(ofs, dso_graph);
     }
 
-    //
-    // graph-easy
-    //
-    const char *graph_easy_path = fs::exists("/usr/bin/vendor_perl/graph-easy")
-                                      ? "/usr/bin/vendor_perl/graph-easy"
-                                      : "/usr/bin/graph-easy";
-
-    int rc = RunExecutableToExit(graph_easy_path, [&](auto Arg) {
-      Arg(graph_easy_path);
+    int rc = RunExecutableToExit(locator().graph_easy(), [&](auto Arg) {
+      Arg(locator().graph_easy());
       Arg("--input=" + dso_dot_path);
       // Arg("--as=ascii");
       Arg("--as=boxart");
@@ -942,8 +840,8 @@ int RecompileTool::Run(void) {
     //
     // run ld
     //
-    int rc = RunExecutableToExit(ld_path.c_str(), [&](auto Arg) {
-      Arg(ld_path);
+    int rc = RunExecutableToExit(locator().lld(), [&](auto Arg) {
+      Arg(locator().lld());
 
       Arg("-o");
       Arg(chrooted_path.string());
@@ -960,9 +858,9 @@ int RecompileTool::Run(void) {
 
       Arg("--push-state");
       Arg("--as-needed");
-      Arg(compiler_runtime_afp);
-      if (fs::exists(libatomic_afp))
-        Arg(libatomic_afp);
+      Arg(locator().builtins());
+      if (fs::exists(locator().atomics()))
+        Arg(locator().atomics());
       Arg("--pop-state");
       Arg("--exclude-libs");
       Arg("ALL");
@@ -1206,10 +1104,10 @@ void RecompileTool::worker(const dso_graph_t &dso_graph) {
     // run llvm-dis on bitcode
     //
     std::thread t1([&](void) -> void {
-      RunExecutableToExit(llvm_dis_path.c_str(), [&](auto Arg) {
+      RunExecutableToExit(locator().dis(), [&](auto Arg) {
         nice(10);
 
-        Arg(llvm_dis_path);
+        Arg(locator().dis());
         Arg("-o");
         Arg(llfp);
         Arg(bcfp);
@@ -1220,10 +1118,10 @@ void RecompileTool::worker(const dso_graph_t &dso_graph) {
     // run opt on bitcode to generate stripped ll
     //
     std::thread t2([&](void) -> void {
-      RunExecutableToExit(opt_path.c_str(), [&](auto Arg) {
+      RunExecutableToExit(locator().opt(), [&](auto Arg) {
         nice(10);
 
-        Arg(opt_path);
+        Arg(locator().opt());
         Arg("-o");
         Arg(ll_strip_fp);
         Arg("-S");
@@ -1235,9 +1133,9 @@ void RecompileTool::worker(const dso_graph_t &dso_graph) {
     //
     // run llc
     //
-    rc = RunExecutableToExit(llc_path.c_str(),
+    rc = RunExecutableToExit(locator().llc(),
                              [&](auto Arg) {
-      Arg(llc_path);
+      Arg(locator().llc());
 
       Arg("-o");
       Arg(objfp);

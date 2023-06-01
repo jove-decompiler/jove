@@ -2,7 +2,6 @@
 #include "crypto.h"
 
 #include <boost/filesystem.hpp>
-#include <boost/dll/runtime_symbol_info.hpp>
 
 #include <llvm/Support/FormatVariadic.h>
 #include <llvm/Support/WithColor.h>
@@ -72,8 +71,6 @@ int StubTool::Run(void) {
     }
   }
 
-  std::string jove_path =
-      fs::canonical(boost::dll::program_location()).string();
   std::string digest = crypto::sha3(&binary.Data[0], binary.Data.size());
 
   std::ostringstream oss;
@@ -84,7 +81,7 @@ int StubTool::Run(void) {
     << "# NOTE: FILE OVERWRITTEN BY 'jove stub'" "\n"
     << "# RESTORE VIA 'jove unstub'"             "\n"
     << "#"                                       "\n"
-    << "exec " << jove_path << " bootstrap -d " <<
+    << "exec " << locator().tool() << " bootstrap -d " <<
                   fs::canonical(jvfp).string() << " --human-output " <<
                   binary.Path << ".bootstrap.log " << binary.Path << " -- $@\n"
     << "\n"

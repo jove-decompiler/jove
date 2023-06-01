@@ -13,7 +13,7 @@ using namespace std;
 
 namespace jove {
 
-pid_t RunExecutable(const char *exe_path,
+pid_t RunExecutable(const std::string &exe_path,
                     compute_args_t compute_args,
                     compute_envs_t compute_envs,
                     const string &stdout_path,
@@ -66,7 +66,7 @@ pid_t RunExecutable(const char *exe_path,
 
   errno = 0;
 
-  ::execve(exe_path,
+  ::execve(exe_path.c_str(),
            const_cast<char **>(&arg_vec[0]),
            const_cast<char **>(&env_vec[0]));
 

@@ -14,7 +14,6 @@
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/WithColor.h>
 
-#include <boost/dll/runtime_symbol_info.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/format.hpp>
 
@@ -68,10 +67,7 @@ class IDATool : public Tool {
 
   binary_index_t SingleBinaryIndex = invalid_binary_index;
 
-  fs::path tmp_dir;
-
   std::string ida_dir;
-  std::string ida_scripts_dir;
 
   disas_t disas;
 
@@ -107,15 +103,6 @@ int IDATool::Run(void) {
     return 1;
   }
 
-  ida_scripts_dir = (boost::dll::program_location().parent_path().parent_path().parent_path() /
-               "scripts" / "ida" / "_")
-                  .string();
-  if (!fs::exists(ida_scripts_dir) || !fs::is_directory(ida_scripts_dir)) {
-    WithColor::error() << "could not ida scripts directory at "
-                       << ida_scripts_dir << '\n';
-    return 1;
-  }
-
   ReadJvFromFile(opts.jv, jv);
 
   //
@@ -142,7 +129,8 @@ int IDATool::Run(void) {
     SingleBinaryIndex = BinaryIndex;
   }
 
-  tmp_dir = temporary_dir();
+
+  fs::path tmp_dir = temporary_dir();
 
   //
   // run jove-extract
@@ -238,7 +226,8 @@ int IDATool::Run(void) {
       Arg("-c");
       Arg("-A");
 
-      std::string script_path = ida_scripts_dir + "/export_flowgraphs.py";
+      std::string script_path =
+          (fs::path(locator().ida_scripts()) / "export_flowgraphs.py").string();
 
       std::string script_arg("-S");
       script_arg.append(script_path);

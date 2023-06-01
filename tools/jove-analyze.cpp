@@ -2,7 +2,6 @@
 #include "elf.h"
 #include "tcg.h"
 
-#include <boost/dll/runtime_symbol_info.hpp>
 #include <boost/filesystem.hpp>
 
 #include <llvm/IR/LLVMContext.h>
@@ -108,14 +107,11 @@ int AnalyzeTool::Run(void) {
   //
   Context.reset(new llvm::LLVMContext);
 
-  std::string bootstrap_mod_path =
-      (boost::dll::program_location().parent_path() / "jove.bc").string();
-
   llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> BufferOr =
-      llvm::MemoryBuffer::getFile(bootstrap_mod_path);
+      llvm::MemoryBuffer::getFile(locator().starter_bitcode());
   if (!BufferOr) {
     WithColor::error() << llvm::formatv("failed to open bitcode {0}: {1}\n",
-                                        bootstrap_mod_path,
+                                        locator().starter_bitcode(),
                                         BufferOr.getError().message());
     return 1;
   }
@@ -147,7 +143,8 @@ void AnalyzeBasicBlock(tiny_code_generator_t &TCG,
                        llvm::object::Binary &B,
                        basic_block_t bb,
                        bool DFSan = false,
-                       bool ForCBE = false);
+                       bool ForCBE = false,
+                       Tool *tool = nullptr);
 
 void AnalyzeFunction(jv_t &jv,
                      tiny_code_generator_t &TCG,
@@ -155,7 +152,8 @@ void AnalyzeFunction(jv_t &jv,
                      function_t &f,
                      std::function<llvm::object::Binary &(binary_t &)> GetBinary,
                      bool DFSan = false,
-                     bool ForCBE = false);
+                     bool ForCBE = false,
+                     Tool *tool = nullptr);
 
 int AnalyzeTool::AnalyzeBlocks(void) {
   unsigned cnt = 0;
@@ -173,7 +171,7 @@ int AnalyzeTool::AnalyzeBlocks(void) {
       if (ICFG[bb].Analysis.Stale)
         ++cnt;
 
-      AnalyzeBasicBlock(*TCG, *Module, binary, *state.for_binary(binary).ObjectFile, bb);
+      AnalyzeBasicBlock(*TCG, *Module, binary, *state.for_binary(binary).ObjectFile, bb, this);
 
       assert(!ICFG[bb].Analysis.Stale);
     }
@@ -328,7 +326,7 @@ void AnalyzeTool::worker2(std::atomic<dynamic_target_t *>& Q_ptr,
   for (dynamic_target_t *p = Q_ptr++; p < Q_end; p = Q_ptr++) {
     dynamic_target_t X = *p;
 
-    AnalyzeFunction(jv, *TCG, *Module, function_of_target(X, jv), [&](binary_t &b) -> llvm::object::Binary & { return *state.for_binary(b).ObjectFile; });
+    AnalyzeFunction(jv, *TCG, *Module, function_of_target(X, jv), [&](binary_t &b) -> llvm::object::Binary & { return *state.for_binary(b).ObjectFile; }, this);
   }
 }
 

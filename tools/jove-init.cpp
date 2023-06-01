@@ -4,7 +4,6 @@
 #include "util.h"
 #include "vdso.h"
 
-#include <boost/dll/runtime_symbol_info.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/format.hpp>
 #include <boost/graph/graphviz.hpp>

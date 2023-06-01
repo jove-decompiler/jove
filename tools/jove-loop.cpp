@@ -3,7 +3,6 @@
 #include "crypto.h"
 #include "fd.h"
 
-#include <boost/dll/runtime_symbol_info.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/algorithm/string/predicate.hpp>
 
@@ -235,7 +234,6 @@ public:
 
   std::string soname_of_binary(binary_t &b);
 
-  fs::path jove_rt_path, jove_dfsan_path;
   std::atomic<bool> Cancelled = false;
   std::atomic<pid_t> app_pid, run_pid;
 };
@@ -324,24 +322,6 @@ int LoopTool::Run(void) {
                                   strerror(err));
       return 1;
     }
-  }
-
-  jove_rt_path =
-      (boost::dll::program_location().parent_path() / "libjove_rt.so").string();
-  if (!fs::exists(jove_rt_path)) {
-    HumanOut() << llvm::formatv("could not find libjove_rt.so ({0})\n",
-                                jove_rt_path.c_str());
-    return 1;
-  }
-
-  jove_dfsan_path =
-      (boost::dll::program_location().parent_path().parent_path().parent_path() /
-       "prebuilts" / "lib" / ("libclang_rt.dfsan.jove-" TARGET_ARCH_NAME ".so"))
-          .string();
-  if (!fs::exists(jove_dfsan_path)) {
-    HumanOut() << llvm::formatv("could not find {0}\n",
-                                jove_dfsan_path.c_str());
-    return 1;
   }
 
   const bool WillChroot = !(opts.NoChroot || opts.ForeignLibs);
@@ -843,7 +823,7 @@ skip_run:
             fs::path(Prefix) / "usr" / "lib" / "libjove_rt.so";
 
         fs::create_directories(chrooted_path.parent_path());
-        fs::copy_file(jove_rt_path, chrooted_path,
+        fs::copy_file(locator().runtime(), chrooted_path,
                       fs::copy_option::overwrite_if_exists);
 
         //
@@ -856,7 +836,7 @@ skip_run:
 
           try {
             // XXX some dynamic linkers only look in /lib
-            fs::copy_file(jove_rt_path,
+            fs::copy_file(locator().runtime(),
                           fs::path(Prefix) / "lib" / "libjove_rt.so",
                           fs::copy_option::overwrite_if_exists);
           } catch (...) {

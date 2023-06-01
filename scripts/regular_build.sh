@@ -1,19 +1,16 @@
 #!/bin/bash
 set -x
 
-rm -rf $HOME/jove/llvm-project/build
-mkdir $HOME/jove/llvm-project/build
-cd $HOME/jove/llvm-project/build
-
 cmake -G Ninja \
       -D CMAKE_BUILD_TYPE=RelWithDebInfo \
-      -D "CMAKE_INSTALL_PREFIX=$HOME/jove/llvm-project/install" \
+      -D "CMAKE_INSTALL_PREFIX=$(pwd)/../install" \
       -D CMAKE_C_COMPILER=$(which clang) \
       -D CMAKE_CXX_COMPILER=$(which clang++) \
       -D CMAKE_C_FLAGS="-gdwarf-4" \
       -D CMAKE_CXX_FLAGS="-gdwarf-4" \
       -D CMAKE_SYSTEM_NAME=Linux \
       -D "LLVM_TARGETS_TO_BUILD=Mips;X86;AArch64" \
+      -D "JOVE_TARGETS_TO_BUILD=all" \
       -D LLVM_BUILD_TESTS=OFF \
       -D LLVM_INCLUDE_TESTS=OFF \
       -D LLVM_ENABLE_BINDINGS=OFF \

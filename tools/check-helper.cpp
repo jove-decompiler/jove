@@ -1,7 +1,5 @@
 #include "tool.h"
 
-#include <boost/dll/runtime_symbol_info.hpp>
-
 #include <llvm/Bitcode/BitcodeReader.h>
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
@@ -47,12 +45,8 @@ int CheckHelpersTool::Run(void) {
 }
 
 void CheckHelpersTool::checkHelper(const std::string &helper_nm) {
-  std::string helperModulePath =
-      (boost::dll::program_location().parent_path() / "helpers" / (helper_nm + ".bc"))
-          .string();
-
   llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> BufferOr =
-      llvm::MemoryBuffer::getFile(helperModulePath);
+      llvm::MemoryBuffer::getFile(locator().helper_bitcode(helper_nm));
   if (!BufferOr) {
     WithColor::error() << "could not open bitcode for helper_" << helper_nm
                        << " (" << BufferOr.getError().message() << ")\n";

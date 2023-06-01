@@ -105,7 +105,7 @@ int main(int argc, char **argv) {
   // is the multi-call binary being invoked?
   //
   std::vector<char *> _argv;
-  if (arg0 == "jove") {
+  if (arg0 == "jove" || arg0 == TARGET_ARCH_NAME) {
     //
     // interpret first argument as tool to call
     //
@@ -253,7 +253,7 @@ void Tool::on_exec_tool(const char **argv, const char **envp) {
   print_command(argv);
 }
 
-pid_t Tool::RunExecutable(const char *exe_path,
+pid_t Tool::RunExecutable(const std::string &exe_path,
                           compute_args_t compute_args,
                           const std::string &stdout_path,
                           const std::string &stderr_path) {
@@ -267,7 +267,7 @@ pid_t Tool::RunExecutable(const char *exe_path,
       std::bind(&Tool::on_exec, this, _1, _2));
 }
 
-pid_t Tool::RunExecutable(const char *exe_path,
+pid_t Tool::RunExecutable(const std::string &exe_path,
                           compute_args_t compute_args,
                           compute_envs_t compute_envs,
                           const std::string &stdout_path,

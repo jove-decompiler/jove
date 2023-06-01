@@ -105,30 +105,14 @@ mips_ARCH_CFLAGS    := -D TARGET_MIPS32
 #
 $(foreach target,$(ALL_TARGETS),$(shell mkdir -p $(BINDIR)/$(target)/helpers))
 
-CORESRCDIR := core
-CORESRCS   := $(wildcard $(CORESRCDIR)/*.cpp)
-COREDEPS   := $(foreach target,$(ALL_TARGETS),$(patsubst $(CORESRCDIR)/%.cpp,$(BINDIR)/$(target)/%.d,$(CORESRCS)))
-COREOBJS   := $(foreach target,$(ALL_TARGETS),$(patsubst $(CORESRCDIR)/%.cpp,$(BINDIR)/$(target)/%.o,$(CORESRCS)))
-
-#
-# find tools
-#
-TOOLSRCDIR := tools
-TOOLSRCS   := $(wildcard $(TOOLSRCDIR)/*.cpp)
-ALL_TOOLS  := $(patsubst $(TOOLSRCDIR)/%.cpp,%,$(TOOLSRCS))
-TOOLOBJS   := $(foreach target,$(ALL_TARGETS),$(patsubst $(TOOLSRCDIR)/%.cpp,$(BINDIR)/$(target)/%.o,$(TOOLSRCS)))
-TOOLBINS   := $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/jove)
-TOOLDEPS   := $(foreach target,$(ALL_TARGETS),$(patsubst $(TOOLSRCDIR)/%.cpp,$(BINDIR)/$(target)/%.d,$(TOOLSRCS)))
-
-
 #
 # find utils
 #
 UTILSRCDIR := utils
 UTILSRCS   := $(wildcard $(UTILSRCDIR)/*.cpp)
 ALL_UTILS  := $(patsubst $(UTILSRCDIR)/%.cpp,%,$(UTILSRCS))
-UTILBINS   := $(foreach target,$(ALL_TARGETS),$(foreach util,$(UTILS),$(BINDIR)/$(target)/$(util)))
-UTILDEPS   := $(foreach target,$(ALL_TARGETS),$(foreach util,$(UTILS),$(BINDIR)/$(target)/$(util).d))
+UTILBINS   := $(foreach target,$(ALL_TARGETS),$(foreach util,$(ALL_UTILS),$(BINDIR)/$(target)/$(util)))
+UTILDEPS   := $(foreach target,$(ALL_TARGETS),$(foreach util,$(ALL_UTILS),$(BINDIR)/$(target)/$(util).d))
 
 JOVE_C_BITCODE      := $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/jove.bc)
 JOVE_C_BITCODE_DEPS := $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/jove.d)
@@ -162,7 +146,9 @@ HELPERS_DFSAN_ASSEMBLY := $(foreach target,$(ALL_TARGETS),$(foreach helper,$($(t
 
 HELPERDEPS := $(foreach target,$(ALL_TARGETS),$(foreach helper,$($(target)_HELPERS),$(BINDIR)/$(target)/helpers/$(helper).d))
 
-all: $(TOOLBINS) \
+all: helpers runtime
+
+everything: \
      $(UTILBINS) \
      $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/libjove_rt.so) \
      $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/jove.bc) \
@@ -175,50 +161,8 @@ all: $(TOOLBINS) \
 
 helpers: $(HELPERS_BITCODE)
 
-define build_tool_obj_template
-$(BINDIR)/$(1)/%.o: $(TOOLSRCDIR)/%.cpp
-	@echo CXX '<$(1)>' $$<
-	@$(_LLVM_CXX) -o $$@ -c \
-	              -MMD \
-	              $(CXXFLAGS) \
-	              $($(1)_ARCH_CFLAGS) \
-	              -I lib/arch/$(1) \
-	              -D TARGET_$(call uc,$(1)) \
-	              -D TARGET_ARCH_NAME=\"$($(1)_ARCH_NAME)\" \
-	              $$<
-endef
-$(foreach target,$(ALL_TARGETS),$(eval $(call build_tool_obj_template,$(target))))
-
-define build_core_obj_template
-$(BINDIR)/$(1)/%.o: $(CORESRCDIR)/%.cpp
-	@echo CXX '<$(1)>' $$<
-	@$(_LLVM_CXX) -o $$@ -c \
-	              -MMD \
-	              $(CXXFLAGS) \
-	              $($(1)_ARCH_CFLAGS) \
-	              -I lib/arch/$(1) \
-	              -D TARGET_$(call uc,$(1)) \
-	              -D TARGET_ARCH_NAME=\"$($(1)_ARCH_NAME)\" \
-	              $$<
-endef
-$(foreach target,$(ALL_TARGETS),$(eval $(call build_core_obj_template,$(target))))
-
-define build_tool_bin_template
-$(BINDIR)/$(1)/jove: $(patsubst $(CORESRCDIR)/%.cpp,$(BINDIR)/$(1)/%.o,$(CORESRCS)) \
-                     $(patsubst $(TOOLSRCDIR)/%.cpp,$(BINDIR)/$(1)/%.o,$(TOOLSRCS))
-	@echo LINK $$@
-	@$(_LLVM_CXX) -o $$@ \
-	              -MMD \
-	              $(CXXFLAGS) \
-	              $($(1)_ARCH_CFLAGS) \
-	              -I lib/arch/$(1) \
-	              -D TARGET_$(call uc,$(1)) \
-	              -D TARGET_ARCH_NAME=\"$($(1)_ARCH_NAME)\" \
-	              $(LDFLAGS) \
-	              $$^ \
-	              -static
-endef
-$(foreach target,$(ALL_TARGETS),$(eval $(call build_tool_bin_template,$(target))))
+runtime: $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/libjove_rt.so) \
+         $(JOVE_C_BITCODE)
 
 define build_util_template
 $(BINDIR)/$(2)/$(1): $(UTILSRCDIR)/$(1).cpp
@@ -269,8 +213,6 @@ $(foreach target,$(ALL_TARGETS),$(eval $(call target_code_template,$(target))))
 -include $(JOVE_RT_DEPS)
 -include $(JOVE_C_BITCODE_DEPS)
 -include $(JOVE_C_DFSAN_BITCODE_DEPS)
--include $(COREDEPS)
--include $(TOOLDEPS)
 -include $(UTILDEPS)
 -include $(HELPERDEPS)
 
@@ -316,17 +258,12 @@ endif
 
 .PHONY: clean
 clean:
-	rm -rf $(TOOLBINS) \
-	       $(TOOLOBJS) \
-	       $(COREOBJS)  \
-	       $(UTILBINS) \
+	rm -rf $(UTILBINS) \
 	       $(JOVE_C_BITCODE) \
 	       $(JOVE_C_DFSAN_BITCODE) \
 	       $(JOVE_C_BITCODE_DEPS) \
 	       $(JOVE_C_DFSAN_BITCODE_DEPS) \
 	       $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/libjove_rt.so) \
-	       $(TOOLDEPS) \
-	       $(COREDEPS) \
 	       $(UTILDEPS) \
 	       $(HELPERDEPS) \
 	       $(HELPERS_BITCODE) \

@@ -5,7 +5,6 @@
 
 #include <boost/algorithm/string/replace.hpp>
 #include <boost/container_hash/extensions.hpp>
-#include <boost/dll/runtime_symbol_info.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/format.hpp>
 #include <boost/graph/copy.hpp>
@@ -731,7 +730,7 @@ struct helper_function_t {
   } Analysis;
 };
 
-const helper_function_t &LookupHelper(llvm::Module &M, tiny_code_generator_t &TCG, TCGOp *op, bool DFSan, bool ForCBE);
+const helper_function_t &LookupHelper(llvm::Module &M, tiny_code_generator_t &TCG, TCGOp *op, bool DFSan, bool ForCBE, Tool &tool);
 
 static std::unordered_map<uintptr_t, helper_function_t> HelperFuncMap;
 
@@ -811,7 +810,8 @@ void AnalyzeBasicBlock(tiny_code_generator_t &TCG,
                        llvm::object::Binary &B,
                        basic_block_t bb,
                        bool DFSan = false,
-                       bool ForCBE = false);
+                       bool ForCBE = false,
+                       Tool *tool = nullptr);
 
 static flow_vertex_t copy_function_cfg(jv_t &jv,
                                        tiny_code_generator_t &TCG,
@@ -822,7 +822,8 @@ static flow_vertex_t copy_function_cfg(jv_t &jv,
                                        bool DFSan,
                                        bool ForCBE,
                                        std::vector<exit_vertex_pair_t> &exitVertices,
-                                       std::unordered_map<function_t *, std::pair<flow_vertex_t, std::vector<exit_vertex_pair_t>>> &memoize) {
+                                       std::unordered_map<function_t *, std::pair<flow_vertex_t, std::vector<exit_vertex_pair_t>>> &memoize,
+                                       Tool &tool) {
   binary_index_t BIdx = binary_index_of_function(f, jv); /* XXX */
   auto &b = jv.Binaries.at(BIdx);
   auto &ICFG = b.Analysis.ICFG;
@@ -837,7 +838,7 @@ static flow_vertex_t copy_function_cfg(jv_t &jv,
   // make sure basic blocks have been analyzed
   //
   for (basic_block_t bb : bbvec)
-    AnalyzeBasicBlock(TCG, M, b, GetBinary(b), bb, DFSan, ForCBE);
+    AnalyzeBasicBlock(TCG, M, b, GetBinary(b), bb, DFSan, ForCBE, &tool);
 
   if (!IsLeafFunction(f, b, bbvec)) {
     //
@@ -907,7 +908,7 @@ static flow_vertex_t copy_function_cfg(jv_t &jv,
 
         std::vector<exit_vertex_pair_t> calleeExitVertices;
         flow_vertex_t calleeEntryV =
-            copy_function_cfg(jv, TCG, M, G, callee, GetBinary, DFSan, ForCBE, calleeExitVertices, memoize);
+            copy_function_cfg(jv, TCG, M, G, callee, GetBinary, DFSan, ForCBE, calleeExitVertices, memoize, tool);
         boost::add_edge(Orig2CopyMap[bb], calleeEntryV, G);
 
         if (eit_pair.first != eit_pair.second) {
@@ -942,7 +943,7 @@ static flow_vertex_t copy_function_cfg(jv_t &jv,
 
       std::vector<exit_vertex_pair_t> calleeExitVertices;
       flow_vertex_t calleeEntryV =
-          copy_function_cfg(jv, TCG, M, G, callee, GetBinary, DFSan, ForCBE, calleeExitVertices, memoize);
+          copy_function_cfg(jv, TCG, M, G, callee, GetBinary, DFSan, ForCBE, calleeExitVertices, memoize, tool);
 
       boost::add_edge(Orig2CopyMap[bb], calleeEntryV, G);
 
@@ -992,7 +993,7 @@ static flow_vertex_t copy_function_cfg(jv_t &jv,
 
         std::vector<exit_vertex_pair_t> calleeExitVertices;
         flow_vertex_t calleeEntryV =
-            copy_function_cfg(jv, TCG, M, G, callee, GetBinary, DFSan, ForCBE, calleeExitVertices, memoize);
+            copy_function_cfg(jv, TCG, M, G, callee, GetBinary, DFSan, ForCBE, calleeExitVertices, memoize, tool);
         boost::add_edge(Orig2CopyMap[bb], calleeEntryV, G);
 
         for (const auto &calleeExitVertPair : calleeExitVertices) {
@@ -1085,7 +1086,7 @@ static bool AnalyzeHelper(helper_function_t &hf) {
   return res;
 }
 
-const helper_function_t &LookupHelper(llvm::Module &M, tiny_code_generator_t &TCG, TCGOp *op, bool DFSan, bool ForCBE) {
+const helper_function_t &LookupHelper(llvm::Module &M, tiny_code_generator_t &TCG, TCGOp *op, bool DFSan, bool ForCBE, Tool &tool) {
   int nb_oargs = TCGOP_CALLO(op);
   int nb_iargs = TCGOP_CALLI(op);
   int nb_cargs;
@@ -1119,14 +1120,11 @@ const helper_function_t &LookupHelper(llvm::Module &M, tiny_code_generator_t &TC
 
   std::string suffix = DFSan ? ".dfsan.bc" : ".bc";
 
-  std::string helperModulePath =
-      (boost::dll::program_location().parent_path() / "helpers" / (std::string(helper_nm) + suffix)).string();
-
   llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> BufferOr =
-      llvm::MemoryBuffer::getFile(helperModulePath);
+      llvm::MemoryBuffer::getFile(tool.locator().helper_bitcode(helper_nm));
   if (!BufferOr) {
     WithColor::error() << "could not open bitcode for helper_" << helper_nm
-                       << " at " << helperModulePath << " (" << BufferOr.getError().message() << ")\n";
+                       << " at " << tool.locator().helper_bitcode(helper_nm) << " (" << BufferOr.getError().message() << ")\n";
     exit(1);
   }
 
@@ -1285,7 +1283,8 @@ void AnalyzeBasicBlock(tiny_code_generator_t &TCG,
                        llvm::object::Binary &B,
                        basic_block_t bb,
                        bool DFSan,
-                       bool ForCBE) {
+                       bool ForCBE,
+                       Tool *tool) {
   auto &ICFG = binary.Analysis.ICFG;
   auto &bbprop = ICFG[bb];
 
@@ -1322,7 +1321,7 @@ void AnalyzeBasicBlock(tiny_code_generator_t &TCG,
         nb_oargs = TCGOP_CALLO(op);
         nb_iargs = TCGOP_CALLI(op);
 
-        const helper_function_t &hf = LookupHelper(M, TCG, op, DFSan, ForCBE);
+        const helper_function_t &hf = LookupHelper(M, TCG, op, DFSan, ForCBE, *tool);
 
         iglbs = hf.Analysis.InGlbs;
         oglbs = hf.Analysis.OutGlbs;
@@ -1425,7 +1424,8 @@ void AnalyzeFunction(jv_t &jv,
                      function_t &f,
                      std::function<llvm::object::Binary &(binary_t &)> GetBinary,
                      bool DFSan,
-                     bool ForCBE) {
+                     bool ForCBE,
+                     Tool *tool) {
   if (!f.Analysis.Stale)
     return;
   f.Analysis.Stale = false;
@@ -1438,7 +1438,7 @@ void AnalyzeFunction(jv_t &jv,
         memoize;
 
     std::vector<exit_vertex_pair_t> exitVertices;
-    flow_vertex_t entryV = copy_function_cfg(jv, TCG, M, G, f, GetBinary, DFSan, ForCBE, exitVertices, memoize);
+    flow_vertex_t entryV = copy_function_cfg(jv, TCG, M, G, f, GetBinary, DFSan, ForCBE, exitVertices, memoize, *tool);
 
     //
     // build vector of vertices in DFS order
@@ -2415,15 +2415,10 @@ int LLVMTool::CreateModule(void) {
 
   const char *bootstrap_mod_name = opts.DFSan ? "jove.dfsan" : "jove";
 
-  std::string bootstrap_mod_path =
-      (boost::dll::program_location().parent_path() /
-       (std::string(bootstrap_mod_name) + ".bc"))
-          .string();
-
   llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> BufferOr =
-      llvm::MemoryBuffer::getFile(bootstrap_mod_path);
+      llvm::MemoryBuffer::getFile(locator().starter_bitcode());
   if (!BufferOr) {
-    WithColor::error() << "failed to open bitcode " << bootstrap_mod_path
+    WithColor::error() << "failed to open bitcode " << locator().starter_bitcode()
                        << ": " << BufferOr.getError().message() << '\n';
     return 1;
   }
@@ -3353,13 +3348,13 @@ void LLVMTool::expandMemIntrinsicUses(llvm::Function &F) {
 }
 
 tcg_global_set_t LLVMTool::DetermineFunctionArgs(function_t &f) {
-  AnalyzeFunction(jv, *TCG, *Module, f, [&](binary_t &b) -> llvm::object::Binary & { return *state.for_binary(b).ObjectFile; }, opts.DFSan, opts.ForCBE);
+  AnalyzeFunction(jv, *TCG, *Module, f, [&](binary_t &b) -> llvm::object::Binary & { return *state.for_binary(b).ObjectFile; }, opts.DFSan, opts.ForCBE, this);
 
   return f.Analysis.args;
 }
 
 tcg_global_set_t LLVMTool::DetermineFunctionRets(function_t &f) {
-  AnalyzeFunction(jv, *TCG, *Module, f, [&](binary_t &b) -> llvm::object::Binary & { return *state.for_binary(b).ObjectFile; }, opts.DFSan, opts.ForCBE);
+  AnalyzeFunction(jv, *TCG, *Module, f, [&](binary_t &b) -> llvm::object::Binary & { return *state.for_binary(b).ObjectFile; }, opts.DFSan, opts.ForCBE, this);
 
   return f.Analysis.rets;
 }
@@ -6596,9 +6591,7 @@ int LLVMTool::DFSanInstrument(void) {
   // Add internal analysis passes from the target machine.
   MPM.add(llvm::createTargetTransformInfoWrapperPass(disas.TM->getTargetIRAnalysis()));
 
-  std::vector<std::string> ABIList = {
-      (boost::dll::program_location().parent_path() / "dfsan_abilist.txt")
-          .string()};
+  std::vector<std::string> ABIList = {locator().dfsan_abilist()};
 
   MPM.add(llvm::createDataFlowSanitizerPass(ABIList, nullptr, nullptr));
 
@@ -8867,7 +8860,7 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
     if (helper_ptr == helper_lookup_tb_ptr)
       break;
 
-    const helper_function_t &hf = LookupHelper(*Module, *TCG, op, opts.DFSan, opts.ForCBE);
+    const helper_function_t &hf = LookupHelper(*Module, *TCG, op, opts.DFSan, opts.ForCBE, *this);
     llvm::FunctionType *FTy = hf.F->getFunctionType();
 
     //

@@ -1,6 +1,5 @@
 #include "tool.h"
 
-#include <boost/dll/runtime_symbol_info.hpp>
 #include <boost/filesystem.hpp>
 
 #include <llvm/Support/FormatVariadic.h>
@@ -46,8 +45,6 @@ public:
   int Run(void);
 
   void *ConnectionProc(void *);
-
-  fs::path libjove_rt_path, dfsan_rt_path;
 };
 
 JOVE_REGISTER_TOOL("server", ServerTool);
@@ -78,26 +75,6 @@ struct ConnectionProcArgs {
 };
 
 int ServerTool::Run(void) {
-  libjove_rt_path =
-      (boost::dll::program_location().parent_path() / "libjove_rt.so").string();
-  if (!fs::exists(libjove_rt_path)) {
-    WithColor::error() << llvm::formatv(
-        "could not find jove runtime at {0}\n", libjove_rt_path.c_str());
-
-    return 1;
-  }
-
-  dfsan_rt_path =
-      (boost::dll::program_location().parent_path().parent_path().parent_path() /
-       "prebuilts" / "lib" / ("libclang_rt.dfsan.jove-" TARGET_ARCH_NAME ".so")).string();
-
-  if (!fs::exists(dfsan_rt_path)) {
-    WithColor::error() << llvm::formatv(
-        "could not find jove dfsan runtime at {0}\n", dfsan_rt_path.c_str());
-
-    return 1;
-  }
-
   //
   // Create TCP socket
   //
@@ -424,7 +401,7 @@ void *ServerTool::ConnectionProc(void *arg) {
     if (IsVerbose())
       llvm::errs() << "sending jove runtime\n";
 
-    ssize_t ret = robust_sendfile_with_size(data_socket, libjove_rt_path.c_str());
+    ssize_t ret = robust_sendfile_with_size(data_socket, locator().runtime().c_str());
 
     if (ret < 0) {
       WithColor::error() << llvm::formatv(
@@ -437,7 +414,8 @@ void *ServerTool::ConnectionProc(void *arg) {
     if (IsVerbose())
       llvm::errs() << "sending jove dfsan runtime\n";
 
-    ssize_t ret = robust_sendfile_with_size(data_socket, dfsan_rt_path.c_str());
+    ssize_t ret =
+        robust_sendfile_with_size(data_socket, locator().dfsan_runtime().c_str());
 
     if (ret < 0) {
       WithColor::error() << llvm::formatv(

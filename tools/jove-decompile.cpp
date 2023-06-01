@@ -10,7 +10,6 @@
 #include <llvm/Support/WithColor.h>
 
 #include <algorithm>
-#include <boost/dll/runtime_symbol_info.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/format.hpp>
 #include <boost/algorithm/string.hpp>
@@ -42,7 +41,9 @@ struct binary_state_t {
 
 class DecompileTool : public TransformerTool_Bin<binary_state_t> {
   struct Cmdline {
+    cl::opt<std::string> Prog;
     cl::opt<std::string> jv;
+    cl::alias jvAlias;
     cl::opt<std::string> Binary;
     cl::alias BinaryAlias;
     cl::opt<std::string> Output;
@@ -53,14 +54,20 @@ class DecompileTool : public TransformerTool_Bin<binary_state_t> {
     cl::opt<bool> FakeLineNumbers;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
-        : jv(cl::Positional, cl::desc("<input jove decompilations>"),
-             cl::Required, cl::cat(JoveCategory)),
+        : Prog(cl::Positional, cl::desc("prog"), cl::Required,
+               cl::value_desc("filename"), cl::cat(JoveCategory)),
 
           Binary("binary", cl::desc("Operate on single given binary"),
                  cl::value_desc("path"), cl::cat(JoveCategory)),
 
           BinaryAlias("b", cl::desc("Alias for -binary."), cl::aliasopt(Binary),
                       cl::cat(JoveCategory)),
+
+          jv("jv", cl::desc("Jove jv"),
+             cl::value_desc("filename"), cl::cat(JoveCategory)),
+
+          jvAlias("d", cl::desc("Alias for -jv."), cl::aliasopt(jv),
+                  cl::cat(JoveCategory)),
 
           Output("output", cl::desc("Output directory"), cl::Required,
                  cl::cat(JoveCategory)),
@@ -87,14 +94,12 @@ class DecompileTool : public TransformerTool_Bin<binary_state_t> {
 
   } opts;
 
+  std::string jvfp;
+
   std::vector<binary_index_t> Q;
   std::mutex Q_mtx;
 
   binary_index_t SingleBinaryIndex = invalid_binary_index;
-
-  std::string tmp_dir;
-
-  std::string jove_dir, llvm_cbe_path, clang_path, lld_path, compiler_runtime_afp, jove_bc_fp, llc_path, opt_path;
 
   std::atomic<bool> worker_failed = false;
 
@@ -134,71 +139,11 @@ void DecompileTool::queue_binaries(void) {
 }
 
 int DecompileTool::Run(void) {
-  jove_dir = boost::dll::program_location().parent_path().parent_path().parent_path().string();
-  if (!fs::exists(jove_dir)) {
-    WithColor::error() << "could not locate jove directory\n";
-    return 1;
-  }
-  assert(fs::is_directory(jove_dir));
+  jvfp = opts.jv;
+  if (jvfp.empty())
+    jvfp = path_to_jv(opts.Prog.c_str());
 
-  llvm_cbe_path = (boost::dll::program_location().parent_path().parent_path().parent_path() /
-               "llvm-project" / "install" / "bin" / "llvm-cbe")
-                  .string();
-  if (!fs::exists(llvm_cbe_path)) {
-    WithColor::error() << "could not find llvm-cbe at " << llvm_cbe_path << '\n';
-    return 1;
-  }
-
-  clang_path = (boost::dll::program_location().parent_path().parent_path().parent_path() /
-               "llvm-project" / "install" / "bin" / "clang")
-                  .string();
-  if (!fs::exists(clang_path)) {
-    WithColor::error() << "could not find clang at " << clang_path << '\n';
-    return 1;
-  }
-
-  lld_path = (boost::dll::program_location().parent_path().parent_path().parent_path() /
-               "llvm-project" / "install" / "bin" / "ld.lld")
-                  .string();
-  if (!fs::exists(lld_path)) {
-    WithColor::error() << "could not find ld.lld at " << lld_path << '\n';
-    return 1;
-  }
-
-  compiler_runtime_afp =
-      (boost::dll::program_location().parent_path().parent_path().parent_path() /
-       "prebuilts" / "obj" / ("libclang_rt.builtins-" TARGET_ARCH_NAME ".a"))
-          .string();
-
-  if (!fs::exists(compiler_runtime_afp) ||
-      !fs::is_regular_file(compiler_runtime_afp)) {
-    WithColor::error() << "compiler runtime does not exist at path '"
-                       << compiler_runtime_afp
-                       << "' (or is not regular file)\n";
-    return 1;
-  }
-
-  jove_bc_fp = (boost::dll::program_location().parent_path() / "jove.bc").string();
-  if (!fs::exists(jove_bc_fp)) {
-    WithColor::error() << "could not find " << jove_bc_fp << '\n';
-    return 1;
-  }
-
-  llc_path = (boost::dll::program_location().parent_path().parent_path().parent_path() /
-              "llvm-project" / "install" / "bin" / "llc").string();
-  if (!fs::exists(llc_path)) {
-    WithColor::error() << "could not find llc\n";
-    return 1;
-  }
-
-  opt_path = (boost::dll::program_location().parent_path().parent_path().parent_path() /
-              "llvm-project" / "install" / "bin" / "opt").string();
-  if (!fs::exists(opt_path)) {
-    WithColor::error() << "could not find opt\n";
-    return 1;
-  }
-
-  ReadJvFromFile(opts.jv, jv);
+  ReadJvFromFile(jvfp, jv);
   state.update();
 
   //
@@ -261,8 +206,6 @@ int DecompileTool::Run(void) {
 
   bool IsPIC = jv.Binaries.at(0).IsPIC;
 
-  tmp_dir = temporary_dir();
-
   if (fs::exists(opts.Output)) {
     if (!fs::is_directory(opts.Output)) {
       WithColor::error() << llvm::formatv(
@@ -322,7 +265,7 @@ int DecompileTool::Run(void) {
     if (!binary.IsExecutable)
       return; /* FIXME */
 
-    const fs::path chrooted_path = fs::path(tmp_dir) / binary.Path;
+    const fs::path chrooted_path = fs::path(temporary_dir()) / binary.Path;
     std::string bcfp(chrooted_path.string() + ".bc");
 
     assert(fs::exists(bcfp));
@@ -361,13 +304,9 @@ int DecompileTool::Run(void) {
   });
 
   for (const std::string &helper_nm : helper_nms) {
-    std::string helper_bc_fp = (boost::dll::program_location().parent_path() / "helpers" / (helper_nm + ".bc")).string();
-    if (!fs::exists(jove_bc_fp)) {
-      WithColor::error() << "could not find " << jove_bc_fp << '\n';
-      return 1;
-    }
+    std::string helper_bc_fp = locator().helper_bitcode(helper_nm);
 
-    std::string tmpbc_fp = (fs::path(tmp_dir) / helper_nm).string() + ".bc";
+    std::string tmpbc_fp = (fs::path(temporary_dir()) / helper_nm).string() + ".bc";
     std::string o_fp = (fs::path(opts.Output) / ".obj" / helper_nm).string() + ".o";
 
     int rc;
@@ -375,8 +314,8 @@ int DecompileTool::Run(void) {
     //
     // run opt to internalize things
     //
-    rc = RunExecutableToExit(opt_path.c_str(), [&](auto Arg) {
-      Arg(opt_path);
+    rc = RunExecutableToExit(locator().opt(), [&](auto Arg) {
+      Arg(locator().opt());
 
       Arg("-o");
       Arg(tmpbc_fp);
@@ -397,8 +336,8 @@ int DecompileTool::Run(void) {
     //
     // run llc on helper bitcode
     //
-    rc = RunExecutableToExit(llc_path.c_str(), [&](auto Arg) {
-      Arg(llc_path);
+    rc = RunExecutableToExit(locator().llc(), [&](auto Arg) {
+      Arg(locator().llc());
 
       Arg("-o");
       Arg(o_fp);
@@ -420,7 +359,7 @@ int DecompileTool::Run(void) {
     assert(fs::exists(o_fp));
   }
 
-  fs::copy_file(compiler_runtime_afp,
+  fs::copy_file(locator().builtins(),
                 fs::path(opts.Output) / ".obj" / "builtins.a",
                 fs::copy_option::overwrite_if_exists);
 
@@ -428,12 +367,12 @@ int DecompileTool::Run(void) {
   // compile jove starter bitcode
   //
   std::string jove_o_fp = (fs::path(opts.Output) / ".obj" / "jove.o").string();
-  int rc = RunExecutableToExit(llc_path.c_str(), [&](auto Arg) {
-    Arg(llc_path);
+  int rc = RunExecutableToExit(locator().llc(), [&](auto Arg) {
+    Arg(locator().llc());
 
     Arg("-o");
     Arg(jove_o_fp);
-    Arg(jove_bc_fp);
+    Arg(locator().starter_bitcode());
 
     Arg("--filetype=obj");
 
@@ -451,13 +390,15 @@ int DecompileTool::Run(void) {
   {
     std::ofstream ofs(makefp);
 
+#if 0
     ofs << "JOVE_DIR := " << jove_dir << '\n';
     ofs << "LLVM_DIR := $(JOVE_DIR)/llvm-project/install\n";
+#endif
 
     ofs << '\n';
 
-    ofs << "CC := $(LLVM_DIR)/bin/clang" << '\n';
-    ofs << "LD := $(LLVM_DIR)/bin/ld.lld" << '\n';
+    ofs << "CC := clang" << '\n';
+    ofs << "LD := ld.lld" << '\n';
 
     ofs << '\n';
 
@@ -486,6 +427,7 @@ int DecompileTool::Run(void) {
         "-g",                                      nullptr,
         "-Wno-incompatible-library-redeclaration", nullptr,
         "-Werror-implicit-function-declaration",   nullptr,
+        "-Wno-builtin-requires-header",            nullptr,
         "-Wno-parentheses-equality"
       };
 
@@ -631,7 +573,7 @@ void DecompileTool::Worker(void) {
     // make sure the path is absolute
     assert(binary.Path.at(0) == '/');
 
-    const fs::path chrooted_path = fs::path(tmp_dir) / binary.Path;
+    const fs::path chrooted_path = fs::path(temporary_dir()) / binary.Path;
     fs::create_directories(chrooted_path.parent_path());
 
     std::string binary_filename = fs::path(binary.Path).filename().string();
@@ -660,7 +602,7 @@ void DecompileTool::Worker(void) {
             Arg(std::to_string(BIdx));
 
             Arg("-d");
-            Arg(opts.jv);
+            Arg(jvfp);
 
             Arg("--for-cbe");
 
@@ -693,9 +635,9 @@ void DecompileTool::Worker(void) {
       std::string path_to_stderr = bcfp + ".stderr.cbe.txt";
 
       int rc = RunExecutableToExit(
-          llvm_cbe_path.c_str(),
+          locator().cbe(),
           [&](auto Arg) {
-            Arg(llvm_cbe_path);
+            Arg(locator().cbe());
 
             Arg("-o");
             Arg(cfp);

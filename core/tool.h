@@ -3,6 +3,7 @@
 #include "util.h"
 #include "fd.h"
 #include "process.h"
+#include "locator.h"
 
 #include <functional>
 #include <memory>
@@ -35,6 +36,8 @@ private:
   std::mutex _temp_dir_mtx;
   std::string _temp_dir;
   void cleanup_temp_dir(void);
+
+  locator_t loc;
 public:
   const char *_name = nullptr;
 
@@ -63,12 +66,12 @@ public:
     this->dashdash_args = dashdash_args;
   }
 
-  pid_t RunExecutable(const char *exe_path,
+  pid_t RunExecutable(const std::string &exe_path,
       compute_args_t compute_args,
       const std::string &stdout_path = std::string(),
       const std::string &stderr_path = std::string());
 
-  pid_t RunExecutable(const char *exe_path,
+  pid_t RunExecutable(const std::string &exe_path,
       compute_args_t compute_args,
       compute_envs_t compute_envs,
       const std::string &stdout_path = std::string(),
@@ -118,6 +121,8 @@ public:
   static std::string path_to_sysroot(const char *exe_path, bool ForeignLibs);
 
   const std::string &temporary_dir(void);
+
+  locator_t &locator() { return loc; }
 
 private:
   void on_exec(const char **argv, const char **envp);

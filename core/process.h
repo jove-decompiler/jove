@@ -10,7 +10,7 @@ typedef std::function<void(std::function<void(const std::string &)>)> compute_ar
 typedef std::function<void(std::function<void(const std::string &)>)> compute_envs_t;
 typedef std::function<void(const char **, const char **)> before_exec_t;
 
-pid_t RunExecutable(const char *exe_path,
+pid_t RunExecutable(const std::string &exe_path,
     compute_args_t,
     compute_envs_t,
     const std::string &stdout_path = std::string(),
@@ -27,7 +27,7 @@ static inline int RunExecutableToExit(Args &&...args) {
 
 void InitWithEnviron(std::function<void(const std::string &)> Env);
 
-inline pid_t RunExecutable(const char *exe_path,
+inline pid_t RunExecutable(const std::string &exe_path,
                            compute_args_t compute_args,
                            const std::string &stdout_path,
                            const std::string &stderr_path,

@@ -15,12 +15,18 @@
 namespace jove {
 
 void ReadJvFromFile(const std::string &path, jv_t &out) {
+  std::string errstr = "ReadDecompilationFromFile: failed to open " + path;
+
   std::ifstream ifs(path);
   if (!ifs.is_open())
-    throw std::runtime_error("ReadDecompilationFromFile: failed to open " + path);
+    throw std::runtime_error(errstr);
 
-  boost::archive::text_iarchive ia(ifs);
-  ia >> out;
+  try {
+    boost::archive::text_iarchive ia(ifs);
+    ia >> out;
+  } catch (...) {
+    throw std::runtime_error(errstr);
+  }
 }
 
 void WriteJvToFile(const std::string &path, const jv_t &in) {
