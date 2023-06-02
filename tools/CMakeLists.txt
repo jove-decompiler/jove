@@ -13,7 +13,7 @@ set(JOVE_ALL_TARGETS
   aarch64
   mipsel
   mips
-  mips64
+  mips64el
 )
 
 set(JOVE_TARGETS_TO_BUILD "all"
@@ -21,6 +21,14 @@ set(JOVE_TARGETS_TO_BUILD "all"
 
 if( JOVE_TARGETS_TO_BUILD STREQUAL "all" )
   set( JOVE_TARGETS_TO_BUILD ${JOVE_ALL_TARGETS} )
+else()
+  foreach(t ${JOVE_TARGETS_TO_BUILD})
+    list(FIND JOVE_ALL_TARGETS ${t} idx)
+
+    if( idx LESS 0 )
+      message(FATAL_ERROR "Target ${t} is not a valid target.")
+    endif()
+  endforeach()
 endif()
 
 function(tool_for_arch arch arch_extra_cflags)
@@ -127,6 +135,7 @@ set(LLVM_LINK_COMPONENTS
 #
 set(JOVE_mipsel_extra_cflags "-DTARGET_MIPS32")
 set(JOVE_mips_extra_cflags "-DTARGET_MIPS32")
+set(JOVE_mips64el_extra_cflags "-DTARGET_MIPS64")
 
 foreach(arch ${JOVE_TARGETS_TO_BUILD})
   tool_for_arch("${arch}" "${JOVE_${arch}_extra_cflags}")
