@@ -85,8 +85,6 @@ function(tool_for_arch arch arch_extra_cflags)
     boost_system
     boost_filesystem
     boost_serialization
-    ssl
-    crypto
     glib-2.0
   )
 

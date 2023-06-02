@@ -107,7 +107,7 @@ int UnstubTool::Run(void) {
   }
 
   std::string expected_digest =
-      crypto::sha3(&original_contents[0], original_contents.size());
+      crypto::hash(&original_contents[0], original_contents.size());
 
   if (digest != expected_digest) {
     WithColor::error() << llvm::formatv("digests do not match; {0} != {1}\n",

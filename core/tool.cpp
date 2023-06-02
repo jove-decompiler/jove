@@ -365,7 +365,7 @@ std::string Tool::path_to_jv(const char *exe_path) {
   std::vector<uint8_t> exe_bytes;
   read_file_into_vector(exe_path, exe_bytes);
 
-  return jove_dir() + "/" + crypto::sha3(&exe_bytes[0], exe_bytes.size()) +
+  return jove_dir() + "/" + crypto::hash(&exe_bytes[0], exe_bytes.size()) +
          ".jv";
 }
 
@@ -374,7 +374,7 @@ std::string Tool::path_to_sysroot(const char *exe_path, bool ForeignLibs) {
   read_file_into_vector(exe_path, exe_bytes);
 
   std::string res = jove_dir() + "/" +
-                    crypto::sha3(&exe_bytes[0], exe_bytes.size()) + ".sysroot";
+                    crypto::hash(&exe_bytes[0], exe_bytes.size()) + ".sysroot";
   if (ForeignLibs)
     res.append(".x");
 

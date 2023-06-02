@@ -71,7 +71,7 @@ int StubTool::Run(void) {
     }
   }
 
-  std::string digest = crypto::sha3(&binary.Data[0], binary.Data.size());
+  std::string digest = crypto::hash(&binary.Data[0], binary.Data.size());
 
   std::ostringstream oss;
 
