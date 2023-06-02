@@ -3888,6 +3888,7 @@ bool load_proc_maps(pid_t child, std::vector<struct proc_map_t> &out) {
 
     boost::trim_left(nm);
 
+#ifdef JOVE_HAVE_MEMFD
     //
     // XXX memfd cover-up
     //
@@ -3897,6 +3898,7 @@ bool load_proc_maps(pid_t child, std::vector<struct proc_map_t> &out) {
       if (boost::algorithm::ends_with(nm, " (deleted)"))
         nm = nm.substr(0, nm.size() - sizeof(" (deleted)") + 1); /* chop it off */
     }
+#endif
 
 #if 0
     llvm::errs() << llvm::formatv(
