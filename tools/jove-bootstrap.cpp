@@ -74,6 +74,8 @@
 #define GET_REGINFO_ENUM
 #include "LLVMGenRegisterInfo.hpp"
 
+//#define JOVE_HAVE_MEMFD
+
 namespace fs = boost::filesystem;
 namespace obj = llvm::object;
 namespace cl = llvm::cl;
@@ -3777,6 +3779,7 @@ int BootstrapTool::ChildProc(int pipefd) {
   // signal-delivery-stop.
   //
 
+#ifdef JOVE_HAVE_MEMFD
   std::string name = "jove/bootstrap" + jv.Binaries.at(0).Path;
   int fd = ::memfd_create(name.c_str(), MFD_CLOEXEC);
   if (fd < 0) {
@@ -3791,6 +3794,9 @@ int BootstrapTool::ChildProc(int pipefd) {
     abort();
   }
   std::string exe_path = "/proc/self/fd/" + std::to_string(fd);
+#else
+  std::string exe_path = arg_vec[0];
+#endif
 
   ::execve(exe_path.c_str(),
            const_cast<char **>(&arg_vec[0]),
@@ -3802,7 +3808,9 @@ int BootstrapTool::ChildProc(int pipefd) {
                               strerror(err));
 
   ::close(pipefd);
+#ifdef JOVE_HAVE_MEMFD
   ::close(fd);
+#endif
   return 1;
 }
 
