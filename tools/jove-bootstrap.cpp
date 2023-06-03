@@ -281,7 +281,7 @@ struct BootstrapTool : public TransformerTool_Bin<binary_state_t> {
           PIDAlias("p", cl::desc("Alias for -attach."), cl::aliasopt(PID),
                    cl::cat(JoveCategory)),
 
-          Fast("fast", cl::desc("fast mode"), cl::cat(JoveCategory)),
+          Fast("fast", cl::desc("\"Fast\" mode"), cl::cat(JoveCategory)),
 
           FastAlias("f", cl::desc("Alias for -fast."), cl::aliasopt(Fast),
                     cl::cat(JoveCategory)),
