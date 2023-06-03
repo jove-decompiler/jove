@@ -198,7 +198,6 @@ struct BootstrapTool : public TransformerTool_Bin<binary_state_t> {
     cl::alias VeryVerboseAlias;
     cl::opt<bool> Quiet;
     cl::alias QuietAlias;
-    cl::opt<bool> Silent;
     cl::opt<std::string> HumanOutput;
     cl::opt<bool> RtldDbgBrk;
     cl::opt<bool> PrintPtraceEvents;
@@ -213,6 +212,7 @@ struct BootstrapTool : public TransformerTool_Bin<binary_state_t> {
     cl::opt<bool> Fast;
     cl::alias FastAlias;
     cl::opt<bool> Longjmps;
+    cl::opt<std::string> ShowMe;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : Prog(cl::Positional, cl::desc("prog"), cl::Required,
@@ -225,8 +225,8 @@ struct BootstrapTool : public TransformerTool_Bin<binary_state_t> {
                cl::value_desc("KEY_1=VALUE_1,KEY_2=VALUE_2,...,KEY_n=VALUE_n"),
                cl::desc("Extra environment variables"), cl::cat(JoveCategory)),
 
-          jv("jv", cl::desc("Jove jv"),
-             cl::value_desc("filename"), cl::cat(JoveCategory)),
+          jv("jv", cl::desc("Jove jv"), cl::value_desc("filename"),
+             cl::cat(JoveCategory)),
 
           jvAlias("d", cl::desc("Alias for -jv."), cl::aliasopt(jv),
                   cl::cat(JoveCategory)),
@@ -240,15 +240,10 @@ struct BootstrapTool : public TransformerTool_Bin<binary_state_t> {
                            cl::aliasopt(VeryVerbose), cl::cat(JoveCategory)),
 
           Quiet("quiet", cl::desc("Suppress non-error messages"),
-                cl::cat(JoveCategory), cl::init(true)),
+                cl::cat(JoveCategory), cl::init(false)),
 
           QuietAlias("q", cl::desc("Alias for -quiet."), cl::aliasopt(Quiet),
                      cl::cat(JoveCategory)),
-
-          Silent("silent",
-                 cl::desc(
-                     "Leave the stdout/stderr of the application undisturbed"),
-                 cl::cat(JoveCategory)),
 
           HumanOutput("human-output",
                       cl::desc("Print messages to the given file path"),
@@ -292,7 +287,12 @@ struct BootstrapTool : public TransformerTool_Bin<binary_state_t> {
                     cl::cat(JoveCategory)),
 
           Longjmps("longjmps", cl::desc("Print when longjmp happens"),
-                   cl::cat(JoveCategory)) {}
+                   cl::cat(JoveCategory)),
+
+          ShowMe("show",
+                 cl::desc("Control whether to print when code is recovered"),
+                 cl::value_desc("(n)ever|(a)lways|(s)ometimes"), cl::init("s"),
+                 cl::cat(JoveCategory)) {}
   } opts;
 
   std::string jvfp;
@@ -334,6 +334,10 @@ struct BootstrapTool : public TransformerTool_Bin<binary_state_t> {
   //
   uintptr_t ExecutableRegionAddress = 0;
 #endif
+
+  bool ShowMeN = false;
+  bool ShowMeA = false;
+  bool ShowMeS = false;
 
 public:
   BootstrapTool() : opts(JoveCategory) {}
@@ -399,8 +403,16 @@ int BootstrapTool::Run(void) {
   for (char *dashdash_arg : dashdash_args)
     opts.Args.push_back(dashdash_arg);
 
-  if (!opts.Silent && !opts.HumanOutput.empty())
+  if (!opts.HumanOutput.empty())
     HumanOutToFile(opts.HumanOutput);
+
+  if (opts.ShowMe.size() == 1) {
+    ShowMeN = opts.ShowMe[0] == 'n';
+    ShowMeA = opts.ShowMe[0] == 'a';
+    ShowMeS = opts.ShowMe[0] == 's';
+
+    WARN_ON(!ShowMeN && !ShowMeA && !ShowMeS);
+  }
 
   if (!fs::exists(opts.Prog)) {
     HumanOut() << "program does not exist\n";
@@ -2895,7 +2907,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
       }
     }
 
-    if (unlikely(!opts.Quiet) || unlikely(Target.isNew))
+    if (unlikely(!opts.Quiet && !ShowMeN && (ShowMeA || (ShowMeS && Target.isNew))))
       HumanOut() << llvm::formatv("{3}({0}) {1} -> {2}" __ANSI_NORMAL_COLOR "\n",
                                   ControlFlow.IsGoto ? (ICFG[bb].Term._indirect_jump.IsLj ? "longjmp" : "goto") : "call",
                                   description_of_program_counter(saved_pc),
@@ -4281,8 +4293,7 @@ void BootstrapTool::on_return(pid_t child,
                               uintptr_t AddrOfRet,
                               uintptr_t RetAddr,
                               tiny_code_generator_t &tcg) {
-
-  if (unlikely(!opts.Quiet))
+  if (unlikely(!opts.Quiet && !ShowMeN && ShowMeA))
     HumanOut() << llvm::formatv(__ANSI_YELLOW "(ret) {0} <-- {1}" __ANSI_NORMAL_COLOR "\n",
                                   description_of_program_counter(RetAddr),
                                   description_of_program_counter(AddrOfRet));
