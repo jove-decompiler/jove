@@ -3248,7 +3248,7 @@ void BootstrapTool::harvest_global_GOT_entries(pid_t child,
     }
 
     for (const MipsGOTParser::Entry &Ent : Parser.getGlobalEntries()) {
-      const tcg_uintptr_t Addr = Parser.getGotAddress(&Ent);
+      const uint64_t Addr = Parser.getGotAddress(&Ent);
 
       const Elf_Sym *Sym = Parser.getGotSym(&Ent);
       assert(Sym);

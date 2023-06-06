@@ -179,7 +179,7 @@ std::string CFGTool::disassemble_basic_block(const GraphTy &G,
 
   const ELFF &E = *llvm::cast<ELFO>(state.for_binary(binary).ObjectFile.get())->getELFFile();
 
-  tcg_uintptr_t End = G[V].Addr + G[V].Size;
+  uint64_t End = G[V].Addr + G[V].Size;
 
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
   if (G[V].Term.Type != TERMINATOR::NONE)
@@ -399,7 +399,7 @@ Found:
   if (opts.LocalGotoAddress.empty()) {
     output_cfg(cfg);
   } else {
-    tcg_uintptr_t indjmp_addr =
+    uint64_t indjmp_addr =
         strtoull(opts.LocalGotoAddress.c_str(), nullptr, 0x10);
     boost::unordered_set<basic_block_t> indjmp_blocks;
 

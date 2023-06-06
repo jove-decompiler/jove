@@ -191,7 +191,7 @@ int RecoverTool::Run(void) {
 
     struct {
       binary_index_t BIdx;
-      tcg_uintptr_t FileAddr;
+      uint64_t FileAddr;
     } Callee;
 
     IndCall.BIdx  = strtoul(opts.Function[0].c_str(), nullptr, 10);

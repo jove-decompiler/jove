@@ -21,7 +21,7 @@ function_index_t explore_function(binary_t &b,
                                   llvm::object::Binary &B,
                                   tiny_code_generator_t &tcg,
                                   disas_t &disas,
-                                  const tcg_uintptr_t Addr,
+                                  const uint64_t Addr,
                                   fnmap_t &fnmap,
                                   bbmap_t &bbmap,
                                   std::function<void(binary_t &, basic_block_t)> on_newbb_proc) {
@@ -62,7 +62,7 @@ basic_block_index_t explore_basic_block(binary_t &b,
                                         llvm::object::Binary &B,
                                         tiny_code_generator_t &tcg,
                                         disas_t &disas,
-                                        const tcg_uintptr_t Addr,
+                                        const uint64_t Addr,
                                         fnmap_t &fnmap,
                                         bbmap_t &bbmap,
                                         std::function<void(binary_t &, basic_block_t)> on_newbb_proc) {
@@ -101,7 +101,7 @@ basic_block_index_t explore_basic_block(binary_t &b,
         const ELFF &E = *llvm::cast<ELFO>(&ObjectFile)->getELFFile();
 
         uint64_t InstLen = 0;
-        for (tcg_uintptr_t A = beg; A < beg + ICFG[bb].Size; A += InstLen) {
+        for (uint64_t A = beg; A < beg + ICFG[bb].Size; A += InstLen) {
           llvm::MCInst Inst;
 
           std::string errmsg;
@@ -153,7 +153,7 @@ on_insn_boundary:
       ptrdiff_t off = Addr - beg;
       assert(off > 0);
 
-      boost::icl::interval<tcg_uintptr_t>::type orig_intervl = (*it).first;
+      boost::icl::interval<uint64_t>::type orig_intervl = (*it).first;
 
       const basic_block_index_t NewBBIdx = boost::num_vertices(ICFG);
       basic_block_t newbb = boost::add_vertex(ICFG);
@@ -191,12 +191,12 @@ on_insn_boundary:
       assert(ICFG[bb].Term.Type == TERMINATOR::NONE);
       assert(boost::out_degree(bb, ICFG) == 1);
 
-      boost::icl::interval<tcg_uintptr_t>::type intervl1 =
-          boost::icl::interval<tcg_uintptr_t>::right_open(
+      boost::icl::interval<uint64_t>::type intervl1 =
+          boost::icl::interval<uint64_t>::right_open(
               ICFG[bb].Addr, ICFG[bb].Addr + ICFG[bb].Size);
 
-      boost::icl::interval<tcg_uintptr_t>::type intervl2 =
-          boost::icl::interval<tcg_uintptr_t>::right_open(
+      boost::icl::interval<uint64_t>::type intervl2 =
+          boost::icl::interval<uint64_t>::right_open(
               ICFG[newbb].Addr, ICFG[newbb].Addr + ICFG[newbb].Size);
 
       assert(boost::icl::disjoint(intervl1, intervl2));
@@ -238,11 +238,11 @@ on_insn_boundary:
     Size += size;
 
     {
-      boost::icl::interval<tcg_uintptr_t>::type intervl =
-          boost::icl::interval<tcg_uintptr_t>::right_open(Addr, Addr + Size);
+      boost::icl::interval<uint64_t>::type intervl =
+          boost::icl::interval<uint64_t>::right_open(Addr, Addr + Size);
       auto it = bbmap.find(intervl);
       if (it != bbmap.end()) {
-        const boost::icl::interval<tcg_uintptr_t>::type &_intervl = (*it).first;
+        const boost::icl::interval<uint64_t>::type &_intervl = (*it).first;
 
         assert(intervl.lower() < _intervl.lower());
 
@@ -266,7 +266,7 @@ on_insn_boundary:
     const ELFF &E = *llvm::cast<ELFO>(&ObjectFile)->getELFFile();
 
     uint64_t InstLen;
-    for (tcg_uintptr_t A = Addr; A < Addr + Size; A += InstLen) {
+    for (uint64_t A = Addr; A < Addr + Size; A += InstLen) {
       llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(A);
       if (!ExpectedPtr)
         abort();
@@ -308,8 +308,8 @@ on_insn_boundary:
     bbprop.Term._return.Returns = false;
     bbprop.InvalidateAnalysis();
 
-    boost::icl::interval<tcg_uintptr_t>::type intervl =
-        boost::icl::interval<tcg_uintptr_t>::right_open(bbprop.Addr,
+    boost::icl::interval<uint64_t>::type intervl =
+        boost::icl::interval<uint64_t>::right_open(bbprop.Addr,
                                                         bbprop.Addr + bbprop.Size);
     assert(bbmap.find(intervl) == bbmap.end());
     bbmap.add({intervl, 1+BBIdx});
@@ -320,7 +320,7 @@ on_insn_boundary:
   //
   on_newbb_proc(b, bb);
 
-  auto control_flow_to = [&](tcg_uintptr_t Target) -> void {
+  auto control_flow_to = [&](uint64_t Target) -> void {
     assert(Target);
 
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
@@ -355,7 +355,7 @@ on_insn_boundary:
     break;
 
   case TERMINATOR::CALL: {
-    tcg_uintptr_t CalleeAddr = T._call.Target;
+    uint64_t CalleeAddr = T._call.Target;
 
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
     CalleeAddr &= ~1UL;

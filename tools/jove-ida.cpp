@@ -396,7 +396,7 @@ int IDATool::Run(void) {
               std::transform(our.succ_vec.begin(),
                              our.succ_vec.end(),
                              v.begin(),
-                             [&](basic_block_t succ) -> tcg_uintptr_t {
+                             [&](basic_block_t succ) -> uint64_t {
                                return ICFG[succ].Addr;
                              });
 

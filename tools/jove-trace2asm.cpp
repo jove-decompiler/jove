@@ -153,13 +153,13 @@ int Trace2AsmTool::Run(void) {
 
     const ELFF &E = *llvm::cast<ELFO>(state.for_binary(binary).ObjectFile.get())->getELFFile();
 
-    tcg_uintptr_t Addr = ICFG[bb].Addr;
+    uint64_t Addr = ICFG[bb].Addr;
     unsigned Size = ICFG[bb].Size;
 
     //std::string res = (fmt("%08x [%u]\n\n") % ICFG[bb].Addr % ICFG[bb].Size).str();
     std::string res;
 
-    tcg_uintptr_t End = Addr + Size;
+    uint64_t End = Addr + Size;
 
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
     if (ICFG[bb].Term.Type != TERMINATOR::NONE)

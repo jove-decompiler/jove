@@ -21,7 +21,7 @@ symbolizer_t::symbolizer_t() {
 
 symbolizer_t::~symbolizer_t() {}
 
-std::string symbolizer_t::addr2line(const binary_t &binary, tcg_uintptr_t Addr) {
+std::string symbolizer_t::addr2line(const binary_t &binary, uint64_t Addr) {
   auto ResOrErr = Symbolizer->symbolizeCode(
       binary.Path,
       {Addr, llvm::object::SectionedAddress::UndefSection});
@@ -54,7 +54,7 @@ std::string symbolizer_t::addr2line(const binary_t &binary, tcg_uintptr_t Addr) 
 	 ":" + std::to_string(LnInfo.Column);
 }
 
-std::string symbolizer_t::addr2desc(const binary_t &binary, tcg_uintptr_t Addr) {
+std::string symbolizer_t::addr2desc(const binary_t &binary, uint64_t Addr) {
   if (Addr == 0 || ~Addr == 0)
     return "??";
 

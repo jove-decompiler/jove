@@ -4,7 +4,7 @@
 
 static unsigned long __jove_end_pc = 0;
 
-static const void *_jove_g2h(jove::tcg_uintptr_t Addr, const jove::ELFF *E) {
+static const void *_jove_g2h(uint64_t Addr, const jove::ELFF *E) {
   llvm::Expected<const uint8_t *> ExpectedPtr = E->toMappedAddr(Addr);
   if (!ExpectedPtr) {
     std::string ErrorBuf;
@@ -423,7 +423,7 @@ void tiny_code_generator_t::dump_operations(void) {
 }
 
 std::pair<unsigned, terminator_info_t>
-tiny_code_generator_t::translate(tcg_uintptr_t pc, tcg_uintptr_t pc_end) {
+tiny_code_generator_t::translate(uint64_t pc, uint64_t pc_end) {
   return priv->translate(pc, pc_end);
 }
 

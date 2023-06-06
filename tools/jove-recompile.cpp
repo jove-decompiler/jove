@@ -519,7 +519,7 @@ int RecompileTool::Run(void) {
         for (basic_block_index_t BBIdx = 0; BBIdx < boost::num_vertices(ICFG);
              ++BBIdx) {
           basic_block_t bb = boost::vertex(BBIdx, ICFG);
-          tcg_uintptr_t Addr = ICFG[bb].Term.Addr; /* XXX */
+          uint64_t Addr = ICFG[bb].Term.Addr; /* XXX */
           ofs.write(reinterpret_cast<char *>(&Addr), sizeof(Addr));
         }
       }

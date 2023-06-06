@@ -51,10 +51,10 @@ CodeRecovery::CodeRecovery(jv_t &jv, disas_t &disas,
 
 CodeRecovery::~CodeRecovery() {}
 
-tcg_uintptr_t CodeRecovery::AddressOfTerminatorAtBasicBlock(uint32_t BIdx,
+uint64_t CodeRecovery::AddressOfTerminatorAtBasicBlock(uint32_t BIdx,
                                                             uint32_t BBIdx) {
   binary_t &binary = jv.Binaries.at(BIdx);
-  tcg_uintptr_t TermAddr =
+  uint64_t TermAddr =
       state.for_binary(binary).block_term_addr_vec.at(BBIdx);
   assert(TermAddr);
   return TermAddr;
@@ -71,7 +71,7 @@ std::string CodeRecovery::RecoverDynamicTarget(uint32_t CallerBIdx,
 
   auto &ICFG = CallerBinary.Analysis.ICFG;
 
-  tcg_uintptr_t TermAddr = state.for_binary(CallerBinary).block_term_addr_vec.at(CallerBBIdx);
+  uint64_t TermAddr = state.for_binary(CallerBinary).block_term_addr_vec.at(CallerBBIdx);
   assert(TermAddr);
   basic_block_t bb = basic_block_at_address(
       TermAddr, CallerBinary, state.for_binary(CallerBinary).bbmap);
@@ -144,11 +144,11 @@ std::string CodeRecovery::RecoverDynamicTarget(uint32_t CallerBIdx,
 
 std::string CodeRecovery::RecoverBasicBlock(uint32_t IndBrBIdx,
                                             uint32_t IndBrBBIdx,
-                                            tcg_uintptr_t Addr) {
+                                            uint64_t Addr) {
   binary_t &indbr_binary = jv.Binaries.at(IndBrBIdx);
   auto &ICFG = indbr_binary.Analysis.ICFG;
 
-  tcg_uintptr_t TermAddr =
+  uint64_t TermAddr =
       state.for_binary(indbr_binary).block_term_addr_vec.at(IndBrBBIdx);
   assert(TermAddr);
 
@@ -186,12 +186,12 @@ std::string CodeRecovery::RecoverBasicBlock(uint32_t IndBrBIdx,
 std::string CodeRecovery::RecoverFunction(uint32_t IndCallBIdx,
                                           uint32_t IndCallBBIdx,
                                           uint32_t CalleeBIdx,
-                                          tcg_uintptr_t CalleeAddr) {
+                                          uint64_t CalleeAddr) {
   binary_t &CalleeBinary = jv.Binaries.at(CalleeBIdx);
   binary_t &CallerBinary = jv.Binaries.at(IndCallBIdx);
 
   auto &ICFG = CallerBinary.Analysis.ICFG;
-  tcg_uintptr_t TermAddr =
+  uint64_t TermAddr =
       state.for_binary(CallerBinary).block_term_addr_vec.at(IndCallBBIdx);
   assert(TermAddr);
 
@@ -268,13 +268,13 @@ std::string CodeRecovery::Returns(uint32_t CallBIdx,
   binary_t &CallBinary = jv.Binaries.at(CallBIdx);
   auto &ICFG = CallBinary.Analysis.ICFG;
 
-  tcg_uintptr_t TermAddr = state.for_binary(CallBinary).block_term_addr_vec.at(CallBBIdx);
+  uint64_t TermAddr = state.for_binary(CallBinary).block_term_addr_vec.at(CallBBIdx);
   assert(TermAddr);
 
   basic_block_t bb = basic_block_at_address(
       TermAddr, CallBinary, state.for_binary(CallBinary).bbmap);
 
-  tcg_uintptr_t NextAddr = ICFG[bb].Addr + ICFG[bb].Size + (unsigned)IsMIPSTarget * 4;
+  uint64_t NextAddr = ICFG[bb].Addr + ICFG[bb].Size + (unsigned)IsMIPSTarget * 4;
 
   bool isCall =
     ICFG[bb].Term.Type == TERMINATOR::CALL;

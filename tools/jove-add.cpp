@@ -184,17 +184,17 @@ int AddTool::Run(void) {
 #endif
 
   struct {
-    std::set<tcg_uintptr_t> FunctionEntrypoints, ABIs;
-    std::set<tcg_uintptr_t> BasicBlockAddresses;
+    std::set<uint64_t> FunctionEntrypoints, ABIs;
+    std::set<uint64_t> BasicBlockAddresses;
   } Known;
 
-  auto BasicBlockAtAddress = [&](tcg_uintptr_t A) -> void {
+  auto BasicBlockAtAddress = [&](uint64_t A) -> void {
     Known.BasicBlockAddresses.insert(A);
   };
-  auto FunctionAtAddress = [&](tcg_uintptr_t A) -> void {
+  auto FunctionAtAddress = [&](uint64_t A) -> void {
     Known.FunctionEntrypoints.insert(A);
   };
-  auto ABIAtAddress = [&](tcg_uintptr_t A) -> void {
+  auto ABIAtAddress = [&](uint64_t A) -> void {
     Known.FunctionEntrypoints.insert(A);
     Known.ABIs.insert(A);
   };
@@ -235,7 +235,7 @@ int AddTool::Run(void) {
     std::any_of(PrgHdrs.begin(),
                 PrgHdrs.end(),
                 [](const Elf_Phdr &Phdr) -> bool{ return Phdr.p_type == llvm::ELF::PT_INTERP; });
-  tcg_uintptr_t EntryAddr = E.getHeader()->e_entry;
+  uint64_t EntryAddr = E.getHeader()->e_entry;
   if (HasInterpreter && EntryAddr) {
     llvm::outs() << llvm::formatv("entry point @ {0:x}\n", EntryAddr);
 
@@ -433,11 +433,11 @@ int AddTool::Run(void) {
   // search for constructor/deconstructor array
   //
   struct {
-    tcg_uintptr_t Beg, End;
+    uint64_t Beg, End;
   } InitArray = {0u, 0u};
 
   struct {
-    tcg_uintptr_t Beg, End;
+    uint64_t Beg, End;
   } FiniArray = {0u, 0u};
 
   {
@@ -484,7 +484,7 @@ int AddTool::Run(void) {
       // ifunc resolvers are ABIs
       //
       if (is_irelative_relocation(R)) {
-        tcg_uintptr_t resolverAddr = R.Addend ? *R.Addend : 0;
+        uint64_t resolverAddr = R.Addend ? *R.Addend : 0;
 
         if (!resolverAddr) {
           llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(R.Offset);
@@ -528,12 +528,12 @@ int AddTool::Run(void) {
       //
       // constructors/deconstructors are ABIs
       //
-      tcg_uintptr_t Addr = R.Addend ? *R.Addend : 0;
+      uint64_t Addr = R.Addend ? *R.Addend : 0;
       if (!Addr) {
         llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(R.Offset);
 
         if (ExpectedPtr)
-          Addr = *reinterpret_cast<const tcg_uintptr_t *>(*ExpectedPtr);
+          Addr = *reinterpret_cast<const uint64_t *>(*ExpectedPtr);
       }
 
       if (IsVerbose())
@@ -555,7 +555,7 @@ int AddTool::Run(void) {
   //
   // explore known code
   //
-  for (tcg_uintptr_t Entrypoint : boost::adaptors::reverse(Known.BasicBlockAddresses)) {
+  for (uint64_t Entrypoint : boost::adaptors::reverse(Known.BasicBlockAddresses)) {
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
     Entrypoint &= ~1UL;
 #endif
@@ -565,7 +565,7 @@ int AddTool::Run(void) {
                         state.for_binary(b).bbmap);
   }
 
-  for (tcg_uintptr_t Entrypoint : boost::adaptors::reverse(Known.FunctionEntrypoints)) {
+  for (uint64_t Entrypoint : boost::adaptors::reverse(Known.FunctionEntrypoints)) {
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
     Entrypoint &= ~1UL;
 #endif

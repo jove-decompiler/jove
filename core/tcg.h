@@ -16,8 +16,8 @@ struct tiny_code_generator_t {
 
   void set_binary(llvm::object::Binary &);
 
-  std::pair<unsigned, terminator_info_t> translate(tcg_uintptr_t pc,
-                                                   tcg_uintptr_t pc_end = 0);
+  std::pair<unsigned, terminator_info_t> translate(uint64_t pc,
+                                                   uint64_t pc_end = 0);
 
   void dump_operations(void);
 };

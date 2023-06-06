@@ -13,7 +13,7 @@ class CodeRecovery {
   symbolizer_t &symbolizer;
 
   struct binary_state_t {
-    std::vector<tcg_uintptr_t> block_term_addr_vec;
+    std::vector<uint64_t> block_term_addr_vec;
 
     bbmap_t bbmap;
     fnmap_t fnmap;
@@ -27,7 +27,7 @@ public:
   CodeRecovery(jv_t &, disas_t &, tiny_code_generator_t &, symbolizer_t &);
   ~CodeRecovery();
 
-  tcg_uintptr_t AddressOfTerminatorAtBasicBlock(uint32_t BIdx, uint32_t BBIdx);
+  uint64_t AddressOfTerminatorAtBasicBlock(uint32_t BIdx, uint32_t BBIdx);
 
   std::string RecoverDynamicTarget(uint32_t CallerBIdx,
                                    uint32_t CallerBBIdx,
@@ -36,12 +36,12 @@ public:
 
   std::string RecoverBasicBlock(uint32_t IndBrBIdx,
                                 uint32_t IndBrBBIdx,
-                                tcg_uintptr_t Addr);
+                                uint64_t Addr);
 
   std::string RecoverFunction(uint32_t IndCallBIdx,
                               uint32_t IndCallBBIdx,
                               uint32_t CalleeBIdx,
-                              tcg_uintptr_t CalleeAddr);
+                              uint64_t CalleeAddr);
 
   std::string RecoverABI(uint32_t BIdx,
                          uint32_t FIdx);

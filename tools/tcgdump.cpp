@@ -84,7 +84,7 @@ int TCGDumpTool::Run(void) {
 #endif
 
   struct {
-    tcg_uintptr_t Addr = 0;
+    uint64_t Addr = 0;
     bool Active = false;
   } BreakOn;
 
@@ -130,7 +130,7 @@ int TCGDumpTool::Run(void) {
                          SymbolVersionSection,
                          VersionMap);
 
-  auto linear_scan_disassemble = [&](tcg_uintptr_t Addr, tcg_uintptr_t End = 0) -> bool {
+  auto linear_scan_disassemble = [&](uint64_t Addr, uint64_t End = 0) -> bool {
     if (!End)
       End = Addr + 32;
 
@@ -139,7 +139,7 @@ int TCGDumpTool::Run(void) {
     HumanOut() << llvm::formatv("{0:x}\n", Addr);
 
     unsigned BBSize;
-    for (tcg_uintptr_t A = Addr; A < End; A += BBSize) {
+    for (uint64_t A = Addr; A < End; A += BBSize) {
       if (BreakOn.Active) {
         if (A == BreakOn.Addr) {
           ::TCGDumpUserBreakPoint();
@@ -228,7 +228,7 @@ int TCGDumpTool::Run(void) {
   };
 
   struct {
-    tcg_uintptr_t Addr = 0;
+    uint64_t Addr = 0;
   } StartingFrom;
 
   if (!opts.StartingFrom.empty())

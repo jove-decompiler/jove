@@ -59,8 +59,8 @@ typedef uint32_t basic_block_index_t;
 
 typedef std::pair<binary_index_t, function_index_t> dynamic_target_t;
 
-typedef boost::icl::split_interval_map<tcg_uintptr_t, basic_block_index_t> bbmap_t;
-typedef std::unordered_map<tcg_uintptr_t, function_index_t> fnmap_t;
+typedef boost::icl::split_interval_map<uint64_t, basic_block_index_t> bbmap_t;
+typedef std::unordered_map<uint64_t, function_index_t> fnmap_t;
 
 constexpr binary_index_t
     invalid_binary_index = std::numeric_limits<binary_index_t>::max();
@@ -113,11 +113,11 @@ static const char *TargetStaticLinkerEmulation =
                   ;
 
 struct basic_block_properties_t {
-  tcg_uintptr_t Addr;
+  uint64_t Addr;
   uint32_t Size;
 
   struct {
-    tcg_uintptr_t Addr;
+    uint64_t Addr;
     TERMINATOR Type;
 
     struct {
@@ -275,8 +275,8 @@ struct binary_t {
     std::vector<function_t> Functions;
     interprocedural_control_flow_graph_t ICFG;
 
-    std::map<tcg_uintptr_t, std::set<dynamic_target_t>> RelocDynTargets;
-    std::map<tcg_uintptr_t, std::set<dynamic_target_t>> IFuncDynTargets;
+    std::map<uint64_t, std::set<dynamic_target_t>> RelocDynTargets;
+    std::map<uint64_t, std::set<dynamic_target_t>> IFuncDynTargets;
     std::map<std::string, std::set<dynamic_target_t>> SymDynTargets;
   } Analysis;
 
@@ -367,25 +367,25 @@ inline const char *description_of_terminator(TERMINATOR TermTy) {
 
 struct terminator_info_t {
   TERMINATOR Type;
-  tcg_uintptr_t Addr;
+  uint64_t Addr;
 
   union {
     struct {
-      tcg_uintptr_t Target;
+      uint64_t Target;
     } _unconditional_jump;
 
     struct {
-      tcg_uintptr_t Target;
-      tcg_uintptr_t NextPC;
+      uint64_t Target;
+      uint64_t NextPC;
     } _conditional_jump;
 
     struct {
-      tcg_uintptr_t Target;
-      tcg_uintptr_t NextPC;
+      uint64_t Target;
+      uint64_t NextPC;
     } _call;
 
     struct {
-      tcg_uintptr_t NextPC;
+      uint64_t NextPC;
     } _indirect_call;
 
     struct {
@@ -401,7 +401,7 @@ struct terminator_info_t {
     } _unreachable;
 
     struct {
-      tcg_uintptr_t NextPC;
+      uint64_t NextPC;
     } _none;
   };
 };
@@ -670,7 +670,7 @@ static inline basic_block_t basic_block_of_index(basic_block_index_t BBIdx,
   return basic_block_of_index(BBIdx, ICFG);
 }
 
-static inline basic_block_t index_of_basic_block_at_address(tcg_uintptr_t Addr,
+static inline basic_block_t index_of_basic_block_at_address(uint64_t Addr,
                                                             const binary_t &binary,
                                                             const bbmap_t &bbmap) {
   assert(Addr);
@@ -682,13 +682,13 @@ static inline basic_block_t index_of_basic_block_at_address(tcg_uintptr_t Addr,
   return -1+(*it).second;
 }
 
-static inline basic_block_t basic_block_at_address(tcg_uintptr_t Addr,
+static inline basic_block_t basic_block_at_address(uint64_t Addr,
                                                    const binary_t &b,
                                                    const bbmap_t &bbmap) {
   return basic_block_of_index(index_of_basic_block_at_address(Addr, b, bbmap), b);
 }
 
-static inline bool exists_basic_block_at_address(tcg_uintptr_t Addr,
+static inline bool exists_basic_block_at_address(uint64_t Addr,
                                                  const binary_t &binary,
                                                  const bbmap_t &bbmap) {
   assert(Addr);
@@ -697,7 +697,7 @@ static inline bool exists_basic_block_at_address(tcg_uintptr_t Addr,
 }
 
 // NOTE: this function excludes tail calls.
-static inline bool exists_indirect_jump_at_address(tcg_uintptr_t Addr,
+static inline bool exists_indirect_jump_at_address(uint64_t Addr,
                                                    const binary_t &binary,
                                                    const bbmap_t &bbmap) {
   assert(Addr);
@@ -712,7 +712,7 @@ static inline bool exists_indirect_jump_at_address(tcg_uintptr_t Addr,
   return false;
 }
 
-static inline tcg_uintptr_t entry_address_of_function(const function_t &f,
+static inline uint64_t entry_address_of_function(const function_t &f,
                                                       const binary_t &binary) {
   if (!is_basic_block_index_valid(f.Entry))
     abort();
@@ -729,8 +729,8 @@ static inline void construct_bbmap(jv_t &jv,
   for_each_basic_block_in_binary(jv, binary, [&](basic_block_t bb) {
     const auto &bbprop = ICFG[bb];
 
-    boost::icl::interval<tcg_uintptr_t>::type intervl =
-        boost::icl::interval<tcg_uintptr_t>::right_open(bbprop.Addr,
+    boost::icl::interval<uint64_t>::type intervl =
+        boost::icl::interval<uint64_t>::right_open(bbprop.Addr,
                                                         bbprop.Addr + bbprop.Size);
     assert(out.find(intervl) == out.end());
 
@@ -747,7 +747,7 @@ static inline void construct_fnmap(jv_t &jv,
 
     auto &ICFG = binary.Analysis.ICFG;
 
-    tcg_uintptr_t Addr = ICFG[basic_block_of_index(f.Entry, ICFG)].Addr;
+    uint64_t Addr = ICFG[basic_block_of_index(f.Entry, ICFG)].Addr;
 
     assert(out.find(Addr) == out.end());
 
