@@ -99,6 +99,8 @@ mips64el_builtins_lib  := $(JOVE_ROOT_DIR)/prebuilts/obj/libclang_rt.builtins-mi
 mipsel_ARCH_CFLAGS  := -D TARGET_MIPS32
 mips_ARCH_CFLAGS    := -D TARGET_MIPS32
 
+mips64el_ARCH_CFLAGS    := -D TARGET_MIPS64
+
 #
 # create build objects subdirectories
 #
@@ -165,7 +167,7 @@ runtime: $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/libjove_rt.so) \
 
 define build_util_template
 $(BINDIR)/$(2)/$(1): $(UTILSRCDIR)/$(1).cpp
-	@echo CXX $$^
+	@echo CXX $$<
 	@$(_LLVM_CXX) -o $$@ \
 	              -MMD \
 	              $(CXXFLAGS) \
@@ -174,7 +176,7 @@ $(BINDIR)/$(2)/$(1): $(UTILSRCDIR)/$(1).cpp
 	              -D TARGET_$(call uc,$(2)) \
 	              -D TARGET_ARCH_NAME=\"$($(2)_ARCH_NAME)\" \
 	              $(LDFLAGS) \
-	              $$^ \
+	              $$< \
 	              -static
 endef
 $(foreach target,$(ALL_TARGETS),$(foreach util,$(ALL_UTILS),$(eval $(call build_util_template,$(util),$(target)))))
