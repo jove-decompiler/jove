@@ -1293,7 +1293,7 @@ void AnalyzeBasicBlock(tiny_code_generator_t &TCG,
 
   bbprop.Analysis.Stale = false;
 
-  const tcg_uintptr_t Addr = bbprop.Addr;
+  const uint64_t Addr = bbprop.Addr;
   const unsigned Size = bbprop.Size;
 
   TCG.set_binary(B);
@@ -4118,14 +4118,14 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
   } __PatchContents(*this, BinaryIndex);
 
   unsigned NumSections = 0;
-  boost::icl::split_interval_map<tcg_uintptr_t, section_properties_set_t> SectMap;
+  boost::icl::split_interval_map<uint64_t, section_properties_set_t> SectMap;
   std::vector<section_t> SectTable;
   boost::icl::interval_map<uint64_t, unsigned> SectIdxMap;
 
   std::vector<std::vector<uint8_t>> SegContents;
 
-  const tcg_uintptr_t SectsStartAddr = state.for_binary(Binary).SectsStartAddr;
-  const tcg_uintptr_t SectsEndAddr = state.for_binary(Binary).SectsEndAddr;
+  const uint64_t SectsStartAddr = state.for_binary(Binary).SectsStartAddr;
+  const uint64_t SectsEndAddr = state.for_binary(Binary).SectsEndAddr;
 
   llvm::Expected<Elf_Shdr_Range> ExpectedSections = E.sections();
   if (ExpectedSections && !(*ExpectedSections).empty()) {
