@@ -339,8 +339,8 @@ struct LLVMTool : public TransformerTool_BinFnBB<binary_state_t,
 
   disas_t disas;
 
-  std::unordered_set<target_ulong> ConstantRelocationLocs;
-  target_ulong libcEarlyInitAddr;
+  std::unordered_set<uint64_t> ConstantRelocationLocs;
+  uint64_t libcEarlyInitAddr;
 
   llvm::GlobalVariable *CPUStateGlobal;
   llvm::Type *CPUStateType;
@@ -391,7 +391,7 @@ struct LLVMTool : public TransformerTool_BinFnBB<binary_state_t,
 
   std::unique_ptr<llvm::DIBuilder> DIBuilder;
 
-  std::map<target_ulong, llvm::Constant *> TPOFFHack;
+  std::map<uint64_t, llvm::Constant *> TPOFFHack;
 
   struct {
     struct {
@@ -400,7 +400,7 @@ struct LLVMTool : public TransformerTool_BinFnBB<binary_state_t,
       unsigned Size;
     } Data;
 
-    target_ulong Beg, End;
+    uint64_t Beg, End;
 
     bool Present;
   } ThreadLocalStorage;
@@ -412,15 +412,15 @@ struct LLVMTool : public TransformerTool_BinFnBB<binary_state_t,
 
   std::unordered_map<std::string, unsigned> GlobalSymbolDefinedSizeMap;
 
-  std::unordered_map<target_ulong, std::set<llvm::StringRef>>
+  std::unordered_map<uint64_t, std::set<llvm::StringRef>>
       TLSValueToSymbolMap;
-  std::unordered_map<target_ulong, unsigned> TLSValueToSizeMap;
+  std::unordered_map<uint64_t, unsigned> TLSValueToSizeMap;
 
-  boost::icl::split_interval_set<target_ulong> AddressSpaceObjects;
+  boost::icl::split_interval_set<uint64_t> AddressSpaceObjects;
 
-  std::unordered_map<target_ulong, std::set<std::string>> AddrToSymbolMap;
-  std::unordered_map<target_ulong, unsigned> AddrToSizeMap;
-  std::unordered_set<target_ulong> TLSObjects; // XXX
+  std::unordered_map<uint64_t, std::set<std::string>> AddrToSymbolMap;
+  std::unordered_map<uint64_t, unsigned> AddrToSizeMap;
+  std::unordered_set<uint64_t> TLSObjects; // XXX
 
   std::unordered_set<std::string> CopyRelSyms;
 
@@ -433,8 +433,8 @@ struct LLVMTool : public TransformerTool_BinFnBB<binary_state_t,
   } VersionScript;
 
   // set {int}0x08053ebc = 0xf7fa83f0
-  std::map<std::pair<target_ulong, unsigned>,
-           std::pair<binary_index_t, std::pair<target_ulong, unsigned>>>
+  std::map<std::pair<uint64_t, unsigned>,
+           std::pair<binary_index_t, std::pair<uint64_t, unsigned>>>
       CopyRelocMap;
 
   llvm::Constant *__jove_fail_UnknownBranchTarget;
@@ -497,7 +497,7 @@ public:
   llvm::Value *CPUStateGlobalPointer(unsigned glb, llvm::IRBuilderTy &);
   llvm::Value *BuildCPUStatePointer(llvm::IRBuilderTy &, llvm::Value *Env, unsigned glb);
 
-  llvm::Constant *SectionPointer(target_ulong Addr) {
+  llvm::Constant *SectionPointer(uint64_t Addr) {
     auto &Binary = jv.Binaries[BinaryIndex];
 
     int64_t off =
@@ -684,13 +684,13 @@ public:
                                 unsigned Offset);
 
   void compute_irelative_relocation(llvm::IRBuilderTy &,
-                                    target_ulong resolverAddr);
+                                    uint64_t resolverAddr);
 
   llvm::Constant *SymbolAddress(const RelSymbol &);
 
-  target_ulong ExtractWordAtAddress(target_ulong Addr);
+  uint64_t ExtractWordAtAddress(uint64_t Addr);
 
-  std::pair<binary_index_t, std::pair<target_ulong, unsigned>>
+  std::pair<binary_index_t, std::pair<uint64_t, unsigned>>
   decipher_copy_relocation(const RelSymbol &S);
 
   llvm::Value *insertThreadPointerInlineAsm(llvm::IRBuilderTy &);
@@ -1634,14 +1634,14 @@ void AnalyzeFunction(jv_t &jv,
 struct section_t {
   std::string Name;
   llvm::ArrayRef<uint8_t> Contents;
-  target_ulong Addr;
+  uint64_t Addr;
   unsigned Size;
 
   bool initArray;
   bool finiArray;
 
   struct {
-    boost::icl::split_interval_set<target_ulong> Intervals;
+    boost::icl::split_interval_set<uint64_t> Intervals;
     std::map<unsigned, llvm::Constant *> Constants;
     std::map<unsigned, llvm::Type *> Types;
   } Stuff;
@@ -1665,7 +1665,7 @@ static bool is_integral_size(unsigned n) {
 }
 
 static constexpr unsigned WordBytes(void) {
-  return sizeof(target_ulong);
+  return sizeof(uint64_t);
 }
 
 static constexpr unsigned WordBits(void) {
@@ -1946,7 +1946,7 @@ int LLVMTool::Run(void) {
         if (is_builtin_sym(SymName.str()))
           return;
 
-        const target_ulong Addr = Sym.st_value;
+        const uint64_t Addr = Sym.st_value;
 
         //
         // XXX hack for glibc
@@ -2106,7 +2106,7 @@ int LLVMTool::Run(void) {
   // AddrToSymbolMap is populated by CreateSectionGlobalVariables)
   //
   {
-    std::set<std::pair<target_ulong, unsigned>> gdefs;
+    std::set<std::pair<uint64_t, unsigned>> gdefs;
 
     for_each_if(
         BinaryDynSyms.begin(),
@@ -2145,7 +2145,7 @@ int LLVMTool::Run(void) {
                                               VisibilityIsDefault);
           }
 
-          const target_ulong Addr = Sym.st_value;
+          const uint64_t Addr = Sym.st_value;
           const unsigned Size = Sym.st_size;
 
           const unsigned SectsOff = Addr - state.for_binary(Binary).SectsStartAddr;
@@ -2628,7 +2628,7 @@ static const std::array<hook_t, NumHooks> HookArray{{
 #define ___HOOK0(hook_kind, rett, sym)                                         \
   {                                                                            \
       .Sym = #sym,                                                             \
-      .Ret = {.Size = sizeof(target_ulong),                                    \
+      .Ret = {.Size = sizeof(uint64_t),                                    \
               .isPointer = std::is_pointer<rett>::value},                      \
       .Pre = !!((hook_kind) & PRE),                                            \
       .Post = !!((hook_kind) & POST),                                          \
@@ -2637,9 +2637,9 @@ static const std::array<hook_t, NumHooks> HookArray{{
 #define ___HOOK1(hook_kind, rett, sym, t1)                                     \
   {                                                                            \
       .Sym = #sym,                                                             \
-      .Args = {{.Size = sizeof(target_ulong),                                  \
+      .Args = {{.Size = sizeof(uint64_t),                                  \
                 .isPointer = std::is_pointer<t1>::value}},                     \
-      .Ret = {.Size = sizeof(target_ulong),                                    \
+      .Ret = {.Size = sizeof(uint64_t),                                    \
               .isPointer = std::is_pointer<rett>::value},                      \
       .Pre = !!((hook_kind) & PRE),                                            \
       .Post = !!((hook_kind) & POST),                                          \
@@ -2648,9 +2648,9 @@ static const std::array<hook_t, NumHooks> HookArray{{
 #define ___HOOK2(hook_kind, rett, sym, t1, t2)                                 \
   {                                                                            \
       .Sym = #sym,                                                             \
-      .Args = {{.Size = sizeof(target_ulong),                                  \
+      .Args = {{.Size = sizeof(uint64_t),                                  \
                 .isPointer = std::is_pointer<t1>::value},                      \
-               {.Size = sizeof(target_ulong),                                  \
+               {.Size = sizeof(uint64_t),                                  \
                 .isPointer = std::is_pointer<t2>::value}},                     \
       .Ret = {.Size = sizeof(rett),                                            \
               .isPointer = std::is_pointer<rett>::value},                      \
@@ -2661,13 +2661,13 @@ static const std::array<hook_t, NumHooks> HookArray{{
 #define ___HOOK3(hook_kind, rett, sym, t1, t2, t3)                             \
   {                                                                            \
       .Sym = #sym,                                                             \
-      .Args = {{.Size = sizeof(target_ulong),                                  \
+      .Args = {{.Size = sizeof(uint64_t),                                  \
                 .isPointer = std::is_pointer<t1>::value},                      \
-               {.Size = sizeof(target_ulong),                                  \
+               {.Size = sizeof(uint64_t),                                  \
                 .isPointer = std::is_pointer<t2>::value},                      \
-               {.Size = sizeof(target_ulong),                                  \
+               {.Size = sizeof(uint64_t),                                  \
                 .isPointer = std::is_pointer<t3>::value}},                     \
-      .Ret = {.Size = sizeof(target_ulong),                                    \
+      .Ret = {.Size = sizeof(uint64_t),                                    \
               .isPointer = std::is_pointer<rett>::value},                      \
       .Pre = !!((hook_kind) & PRE),                                            \
       .Post = !!((hook_kind) & POST),                                          \
@@ -2676,15 +2676,15 @@ static const std::array<hook_t, NumHooks> HookArray{{
 #define ___HOOK4(hook_kind, rett, sym, t1, t2, t3, t4)                         \
   {                                                                            \
       .Sym = #sym,                                                             \
-      .Args = {{.Size = sizeof(target_ulong),                                  \
+      .Args = {{.Size = sizeof(uint64_t),                                  \
                 .isPointer = std::is_pointer<t1>::value},                      \
-               {.Size = sizeof(target_ulong),                                  \
+               {.Size = sizeof(uint64_t),                                  \
                 .isPointer = std::is_pointer<t2>::value},                      \
-               {.Size = sizeof(target_ulong),                                  \
+               {.Size = sizeof(uint64_t),                                  \
                 .isPointer = std::is_pointer<t3>::value},                      \
-               {.Size = sizeof(target_ulong),                                  \
+               {.Size = sizeof(uint64_t),                                  \
                 .isPointer = std::is_pointer<t4>::value}},                     \
-      .Ret = {.Size = sizeof(target_ulong),                                    \
+      .Ret = {.Size = sizeof(uint64_t),                                    \
               .isPointer = std::is_pointer<rett>::value},                      \
       .Pre = !!((hook_kind) & PRE),                                            \
       .Post = !!((hook_kind) & POST),                                          \
@@ -2693,17 +2693,17 @@ static const std::array<hook_t, NumHooks> HookArray{{
 #define ___HOOK5(hook_kind, rett, sym, t1, t2, t3, t4, t5)                     \
   {                                                                            \
       .Sym = #sym,                                                             \
-      .Args = {{.Size = sizeof(target_ulong),                                  \
+      .Args = {{.Size = sizeof(uint64_t),                                  \
                 .isPointer = std::is_pointer<t1>::value},                      \
-               {.Size = sizeof(target_ulong),                                  \
+               {.Size = sizeof(uint64_t),                                  \
                 .isPointer = std::is_pointer<t2>::value},                      \
-               {.Size = sizeof(target_ulong),                                  \
+               {.Size = sizeof(uint64_t),                                  \
                 .isPointer = std::is_pointer<t3>::value},                      \
-               {.Size = sizeof(target_ulong),                                  \
+               {.Size = sizeof(uint64_t),                                  \
                 .isPointer = std::is_pointer<t4>::value},                      \
-               {.Size = sizeof(target_ulong),                                  \
+               {.Size = sizeof(uint64_t),                                  \
                 .isPointer = std::is_pointer<t5>::value}},                     \
-      .Ret = {.Size = sizeof(target_ulong),                                    \
+      .Ret = {.Size = sizeof(uint64_t),                                    \
               .isPointer = std::is_pointer<rett>::value},                      \
       .Pre = !!((hook_kind) & PRE),                                            \
       .Post = !!((hook_kind) & POST),                                          \
@@ -2712,19 +2712,19 @@ static const std::array<hook_t, NumHooks> HookArray{{
 #define ___HOOK6(hook_kind, rett, sym, t1, t2, t3, t4, t5, t6)                 \
   {                                                                            \
       .Sym = #sym,                                                             \
-      .Args = {{.Size = sizeof(target_ulong),                                  \
+      .Args = {{.Size = sizeof(uint64_t),                                  \
                 .isPointer = std::is_pointer<t1>::value},                      \
-               {.Size = sizeof(target_ulong),                                  \
+               {.Size = sizeof(uint64_t),                                  \
                 .isPointer = std::is_pointer<t2>::value},                      \
-               {.Size = sizeof(target_ulong),                                  \
+               {.Size = sizeof(uint64_t),                                  \
                 .isPointer = std::is_pointer<t3>::value},                      \
-               {.Size = sizeof(target_ulong),                                  \
+               {.Size = sizeof(uint64_t),                                  \
                 .isPointer = std::is_pointer<t4>::value},                      \
-               {.Size = sizeof(target_ulong),                                  \
+               {.Size = sizeof(uint64_t),                                  \
                 .isPointer = std::is_pointer<t5>::value},                      \
-               {.Size = sizeof(target_ulong),                                  \
+               {.Size = sizeof(uint64_t),                                  \
                 .isPointer = std::is_pointer<t6>::value}},                     \
-      .Ret = {.Size = sizeof(target_ulong),                                    \
+      .Ret = {.Size = sizeof(uint64_t),                                    \
               .isPointer = std::is_pointer<rett>::value},                      \
       .Pre = !!((hook_kind) & PRE),                                            \
       .Post = !!((hook_kind) & POST),                                          \
@@ -2925,7 +2925,7 @@ int LLVMTool::ProcessBinaryTLSSymbols(void) {
           continue;
         }
 
-        target_ulong Addr = ThreadLocalStorage.Beg + Sym.st_value;
+        uint64_t Addr = ThreadLocalStorage.Beg + Sym.st_value;
         AddrToSymbolMap[Addr].insert(SymName.str());
         AddrToSizeMap[Addr] = Sym.st_size;
 
@@ -2969,7 +2969,7 @@ int LLVMTool::ProcessBinaryTLSSymbols(void) {
       continue;
     }
 
-    target_ulong Addr = ThreadLocalStorage.Beg + Sym.st_value;
+    uint64_t Addr = ThreadLocalStorage.Beg + Sym.st_value;
     AddrToSymbolMap[Addr].insert(SymName.str());
     AddrToSizeMap[Addr] = Sym.st_size;
 
@@ -3012,7 +3012,7 @@ llvm::GlobalIFunc *LLVMTool::buildGlobalIFunc(function_t &f,
       auto &Binary = jv.Binaries[BinaryIndex];
       auto &ICFG = Binary.Analysis.ICFG;
 
-      target_ulong Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
+      uint64_t Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
 
       IRB.CreateRet(IRB.CreateIntToPtr(
           SectionPointer(Addr), F->getFunctionType()->getReturnType()));
@@ -3047,13 +3047,13 @@ llvm::GlobalIFunc *LLVMTool::buildGlobalIFunc(function_t &f,
 
         llvm::Value *AlignedNewSP =
             IRB.CreateAnd(IRB.CreatePtrToInt(NewSP, WordType()),
-                          IRB.getIntN(sizeof(target_ulong) * 8, ~15UL));
+                          IRB.getIntN(sizeof(uint64_t) * 8, ~15UL));
 
         llvm::Value *SPVal = AlignedNewSP;
 
 #if defined(TARGET_X86_64) || defined(TARGET_I386)
         SPVal = IRB.CreateSub(
-            SPVal, IRB.getIntN(sizeof(target_ulong) * 8, sizeof(target_ulong)));
+            SPVal, IRB.getIntN(sizeof(uint64_t) * 8, sizeof(uint64_t)));
 #endif
 
         IRB.CreateStore(SPVal, SPPtr);
@@ -3212,7 +3212,7 @@ int LLVMTool::ProcessCOPYRelocations(void) {
             "copy relocation @ {0:x} specifies symbol {1} with size {2}\n",
             R.Offset, RelSym.Name, RelSym.Sym->st_size);
 
-        if (CopyRelocMap.find(std::pair<target_ulong, unsigned>(RelSym.Sym->st_value, RelSym.Sym->st_size)) !=
+        if (CopyRelocMap.find(std::pair<uint64_t, unsigned>(RelSym.Sym->st_value, RelSym.Sym->st_size)) !=
             CopyRelocMap.end())
           return;
 
@@ -3224,7 +3224,7 @@ int LLVMTool::ProcessCOPYRelocations(void) {
         //
         struct {
           binary_index_t BIdx;
-          std::pair<target_ulong, unsigned> OffsetPair;
+          std::pair<uint64_t, unsigned> OffsetPair;
         } CopyFrom;
 
         //
@@ -3233,8 +3233,8 @@ int LLVMTool::ProcessCOPYRelocations(void) {
         std::tie(CopyFrom.BIdx, CopyFrom.OffsetPair) = decipher_copy_relocation(RelSym);
 
         if (is_binary_index_valid(CopyFrom.BIdx))
-          CopyRelocMap.emplace(std::pair<target_ulong, unsigned>(RelSym.Sym->st_value, RelSym.Sym->st_size),
-                               std::pair<binary_index_t, std::pair<target_ulong, unsigned>>(
+          CopyRelocMap.emplace(std::pair<uint64_t, unsigned>(RelSym.Sym->st_value, RelSym.Sym->st_size),
+                               std::pair<binary_index_t, std::pair<uint64_t, unsigned>>(
                                    CopyFrom.BIdx, CopyFrom.OffsetPair));
 
       });
@@ -3528,7 +3528,7 @@ int LLVMTool::CreateFunctions(void) {
     if (unlikely(!is_basic_block_index_valid(f.Entry)))
       return;
 
-    const target_ulong Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
+    const uint64_t Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
 
     std::string jove_name = (fmt("%c%lx") % (f.IsABI ? 'J' : 'j') % Addr).str();
 
@@ -3575,7 +3575,7 @@ int LLVMTool::CreateFunctions(void) {
     if (unlikely(!is_basic_block_index_valid(f.Entry)))
       return;
 
-    const target_ulong Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
+    const uint64_t Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
 
     if (!f.IsABI) {
       //
@@ -3851,7 +3851,7 @@ llvm::Constant *LLVMTool::SymbolAddress(const RelSymbol &RelSym) {
             "{0}: unknown size for {1}\n",
             __func__, RelSym.Name);
 
-        Size = sizeof(target_ulong);
+        Size = sizeof(uint64_t);
       } else {
         Size = (*it).second;
       }
@@ -3884,7 +3884,7 @@ llvm::Constant *LLVMTool::SymbolAddress(const RelSymbol &RelSym) {
 }
 
 void LLVMTool::compute_irelative_relocation(llvm::IRBuilderTy &IRB,
-                                            target_ulong resolverAddr) {
+                                            uint64_t resolverAddr) {
   llvm::Value *TemporaryStack = IRB.CreateCall(JoveAllocStackFunc);
 
   llvm::Value *SPPtr = CPUStateGlobalPointer(tcg_stack_pointer_index, IRB);
@@ -3899,7 +3899,7 @@ void LLVMTool::compute_irelative_relocation(llvm::IRBuilderTy &IRB,
     //
     // account for stack pointer on stack
     //
-    NewSP = IRB.CreateSub(NewSP, IRB.getIntN(WordBits(), sizeof(target_ulong)));
+    NewSP = IRB.CreateSub(NewSP, IRB.getIntN(WordBits(), sizeof(uint64_t)));
 #endif
 
     IRB.CreateStore(NewSP, SPPtr);
@@ -3969,7 +3969,7 @@ void LLVMTool::compute_tpoff_relocation(llvm::IRBuilderTy &IRB,
   IRB.CreateRet(IRB.CreateSub(TLSAddr, TP));
 }
 
-target_ulong LLVMTool::ExtractWordAtAddress(target_ulong Addr) {
+uint64_t LLVMTool::ExtractWordAtAddress(uint64_t Addr) {
   auto &Binary = jv.Binaries[BinaryIndex];
 
   auto &ObjectFile = state.for_binary(Binary).ObjectFile;
@@ -4017,7 +4017,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
         if (!is_basic_block_index_valid(f.Entry))
           continue;
 
-        target_ulong Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
+        uint64_t Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
 
         uint32_t &insn = *((uint32_t *)binary_data_ptr_of_addr(Addr));
 
@@ -4036,7 +4036,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
             tool.state.for_function(f).IsSj)
           continue;
 
-        target_ulong Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
+        uint64_t Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
 
 #if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
         uint8_t *insnp = ((uint8_t *)binary_data_ptr_of_addr(Addr));
@@ -4088,7 +4088,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
             tool.state.for_function(f).IsSj)
           continue;
 
-        target_ulong Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
+        uint64_t Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
 
         uint32_t &insn = *((uint32_t *)binary_data_ptr_of_addr(Addr));
 
@@ -4096,7 +4096,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
       }
     }
 
-    void *binary_data_ptr_of_addr(target_ulong Addr) {
+    void *binary_data_ptr_of_addr(uint64_t Addr) {
       auto &Binary = tool.jv.Binaries[BinaryIndex];
       auto &ObjectFile = tool.state.for_binary(Binary).ObjectFile;
 
@@ -4120,7 +4120,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
   unsigned NumSections = 0;
   boost::icl::split_interval_map<tcg_uintptr_t, section_properties_set_t> SectMap;
   std::vector<section_t> SectTable;
-  boost::icl::interval_map<target_ulong, unsigned> SectIdxMap;
+  boost::icl::interval_map<uint64_t, unsigned> SectIdxMap;
 
   std::vector<std::vector<uint8_t>> SegContents;
 
@@ -4166,8 +4166,8 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
       sectprop.initArray = Sec.sh_type == llvm::ELF::SHT_INIT_ARRAY;
       sectprop.finiArray = Sec.sh_type == llvm::ELF::SHT_FINI_ARRAY;
 
-      boost::icl::interval<target_ulong>::type intervl =
-          boost::icl::interval<target_ulong>::right_open(
+      boost::icl::interval<uint64_t>::type intervl =
+          boost::icl::interval<uint64_t>::right_open(
               Sec.sh_addr, Sec.sh_addr + Sec.sh_size);
 
       {
@@ -4198,7 +4198,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
       Sect.Name = prop.name;
       Sect.Contents = prop.contents;
       Sect.Stuff.Intervals.insert(
-          boost::icl::interval<target_ulong>::right_open(0, Sect.Size));
+          boost::icl::interval<uint64_t>::right_open(0, Sect.Size));
       Sect.initArray = prop.initArray;
       Sect.finiArray = prop.finiArray;
 
@@ -4239,8 +4239,8 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
       memset(&vec[0], 0, vec.size());
       memcpy(&vec[0], E.base() + LoadSegments[i]->p_offset, LoadSegments[i]->p_filesz);
 
-      boost::icl::interval<target_ulong>::type intervl =
-          boost::icl::interval<target_ulong>::right_open(
+      boost::icl::interval<uint64_t>::type intervl =
+          boost::icl::interval<uint64_t>::right_open(
               LoadSegments[i]->p_vaddr,
               LoadSegments[i]->p_vaddr + LoadSegments[i]->p_memsz);
 
@@ -4267,7 +4267,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
         s.Name = (fmt(".seg.%u") % i).str();
         s.Contents = vec;
         s.Stuff.Intervals.insert(
-            boost::icl::interval<target_ulong>::right_open(0, s.Size));
+            boost::icl::interval<uint64_t>::right_open(0, s.Size));
         s.initArray = false;
         s.finiArray = false;
         s.T = nullptr;
@@ -4275,19 +4275,19 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
     }
   }
 
-  auto type_at_address = [&](target_ulong Addr, llvm::Type *T) -> void {
+  auto type_at_address = [&](uint64_t Addr, llvm::Type *T) -> void {
     auto it = SectIdxMap.find(Addr);
     assert(it != SectIdxMap.end());
 
     section_t &Sect = SectTable[(*it).second - 1];
     unsigned Off = Addr - Sect.Addr;
 
-    Sect.Stuff.Intervals.insert(boost::icl::interval<target_ulong>::right_open(
-        Off, Off + sizeof(target_ulong)));
+    Sect.Stuff.Intervals.insert(boost::icl::interval<uint64_t>::right_open(
+        Off, Off + sizeof(uint64_t)));
     Sect.Stuff.Types[Off] = T;
   };
 
-  auto constant_at_address = [&](target_ulong Addr, llvm::Constant *C) -> void {
+  auto constant_at_address = [&](uint64_t Addr, llvm::Constant *C) -> void {
     auto it = SectIdxMap.find(Addr);
     assert(it != SectIdxMap.end());
 
@@ -4489,7 +4489,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
     ConstSectsGlobal->setConstant(true);
   };
 
-  auto create_global_variable = [&](const target_ulong Addr,
+  auto create_global_variable = [&](const uint64_t Addr,
                                     const unsigned Size,
                                     llvm::StringRef SymName,
                                     llvm::GlobalValue::ThreadLocalMode tlsMode)
@@ -4520,7 +4520,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
     const unsigned Off = Addr - Sect.Addr;
 
     if (is_integral_size(Size)) {
-      if (Size == sizeof(target_ulong)) {
+      if (Size == sizeof(uint64_t)) {
         auto T_it = Sect.Stuff.Types.find(Off);
         auto C_it = Sect.Stuff.Constants.find(Off);
 
@@ -4597,8 +4597,8 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
     int Left = Size;
 
     for (const auto &_intvl : Sect.Stuff.Intervals) {
-      target_ulong lower = _intvl.lower();
-      target_ulong upper = _intvl.upper();
+      uint64_t lower = _intvl.lower();
+      uint64_t upper = _intvl.upper();
 
       if (upper <= Off)
         continue;
@@ -4639,7 +4639,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
         C = (*constit).second;
 
         assert(T->isIntegerTy(WordBits()) || T->isPointerTy());
-        Left -= sizeof(target_ulong);
+        Left -= sizeof(uint64_t);
       }
 
       if (!T || !C)
@@ -4705,7 +4705,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
       Sect.Stuff.Types.clear();
       Sect.Stuff.Intervals.clear();
       Sect.Stuff.Intervals.insert(
-          boost::icl::interval<target_ulong>::right_open(0, Sect.Size));
+          boost::icl::interval<uint64_t>::right_open(0, Sect.Size));
     }
   };
 
@@ -4792,13 +4792,13 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
     }
 
     for (const MipsGOTParser::Entry &Ent : Parser.getLocalEntries()) {
-      const target_ulong Addr = Parser.getGotAddress(&Ent);
+      const uint64_t Addr = Parser.getGotAddress(&Ent);
 
       llvm::outs() << (fmt("%-18s @ %-8x\n") % "R_MIPS_32" % Addr).str();
     }
 
     for (const MipsGOTParser::Entry &Ent : Parser.getGlobalEntries()) {
-      const target_ulong Offset = Parser.getGotAddress(&Ent);
+      const uint64_t Offset = Parser.getGotAddress(&Ent);
 
       const Elf_Sym *Sym = Parser.getGotSym(&Ent);
       assert(Sym);
@@ -5032,7 +5032,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
       }
 
       for (const MipsGOTParser::Entry &Ent : Parser.getLocalEntries()) {
-        const target_ulong Offset = Parser.getGotAddress(&Ent);
+        const uint64_t Offset = Parser.getGotAddress(&Ent);
 
         llvm::Constant *R_C = SectionPointer(ExtractWordAtAddress(Offset));
         assert(R_C);
@@ -5041,7 +5041,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
       }
 
       for (const MipsGOTParser::Entry &Ent : Parser.getGlobalEntries()) {
-        const target_ulong Offset = Parser.getGotAddress(&Ent);
+        const uint64_t Offset = Parser.getGotAddress(&Ent);
 
         const Elf_Sym *Sym = Parser.getGotSym(&Ent);
         assert(Sym);
@@ -5109,7 +5109,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
           continue;
       }
 
-      target_ulong Addr = pair.first;
+      uint64_t Addr = pair.first;
 
       unsigned Size;
       {
@@ -5178,7 +5178,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
     //
     // parse dynamic table
     //
-    target_ulong initFunctionAddr = 0;
+    uint64_t initFunctionAddr = 0;
 
     if (state.for_binary(binary)._elf.DynamicTable.Addr) {
       auto dynamic_table = [&](void) -> Elf_Dyn_Range {
@@ -5327,7 +5327,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
   return 0;
 }
 
-std::pair<binary_index_t, std::pair<target_ulong, unsigned>>
+std::pair<binary_index_t, std::pair<uint64_t, unsigned>>
 LLVMTool::decipher_copy_relocation(const RelSymbol &S) {
   assert(jv.Binaries[BinaryIndex].IsExecutable);
 
@@ -5420,7 +5420,7 @@ int LLVMTool::ProcessManualRelocations(void) {
   auto &O = *llvm::cast<ELFO>(state.for_binary(Binary).ObjectFile.get());
   const auto &E = *O.getELFFile();
 
-  std::map<target_ulong, llvm::Function *> ManualRelocs;
+  std::map<uint64_t, llvm::Function *> ManualRelocs;
 
   for_each_dynamic_relocation_if(E,
       state.for_binary(Binary)._elf.DynRelRegion,
@@ -5574,7 +5574,7 @@ int LLVMTool::FixupHelperStubs(void) {
       Module->getFunction("_jove_sections_global_end_addr"),
       [&](auto &IRB) {
         // TODO call DL.getAllocSize and verify the numbers are the same
-        target_ulong SectsGlobalSize = state.for_binary(Binary).SectsEndAddr - state.for_binary(Binary).SectsStartAddr;
+        uint64_t SectsGlobalSize = state.for_binary(Binary).SectsEndAddr - state.for_binary(Binary).SectsStartAddr;
 
         IRB.CreateRet(llvm::ConstantExpr::getAdd(
             llvm::ConstantExpr::getPtrToInt(SectsGlobal, WordType()),
@@ -7318,11 +7318,11 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
         llvm::Value *SP = get(tcg_stack_pointer_index);
 
         ArgVec.push_back(IRB.CreateLoad(IRB.CreateIntToPtr(
-            IRB.CreateAdd(SP, IRB.getIntN(WordBits(), 1 * sizeof(target_ulong))),
+            IRB.CreateAdd(SP, IRB.getIntN(WordBits(), 1 * sizeof(uint64_t))),
             WordType()->getPointerTo())));
 
         ArgVec.push_back(IRB.CreateLoad(IRB.CreateIntToPtr(
-            IRB.CreateAdd(SP, IRB.getIntN(WordBits(), 2 * sizeof(target_ulong))),
+            IRB.CreateAdd(SP, IRB.getIntN(WordBits(), 2 * sizeof(uint64_t))),
             WordType()->getPointerTo())));
 
 #if 0
@@ -7384,7 +7384,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
         //
         set(IRB.CreateAdd(
                 get(tcg_stack_pointer_index),
-                llvm::ConstantInt::get(WordType(), sizeof(target_ulong))),
+                llvm::ConstantInt::get(WordType(), sizeof(uint64_t))),
             tcg_stack_pointer_index);
 #endif
         break;
@@ -7536,7 +7536,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
       HookArgVec.resize(hook.Args.size());
 
       {
-        unsigned SPAddend = sizeof(target_ulong);
+        unsigned SPAddend = sizeof(uint64_t);
 
         for (unsigned j = 0; j < hook.Args.size(); ++j) {
           const hook_t::arg_info_t &info = hook.Args[j];
@@ -7764,11 +7764,11 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
         llvm::Value *SP = get(tcg_stack_pointer_index);
 
         ArgVec.push_back(IRB.CreateLoad(IRB.CreateIntToPtr(
-            IRB.CreateAdd(SP, IRB.getIntN(WordBits(), 1 * sizeof(target_ulong))),
+            IRB.CreateAdd(SP, IRB.getIntN(WordBits(), 1 * sizeof(uint64_t))),
             WordType()->getPointerTo())));
 
         ArgVec.push_back(IRB.CreateLoad(IRB.CreateIntToPtr(
-            IRB.CreateAdd(SP, IRB.getIntN(WordBits(), 2 * sizeof(target_ulong))),
+            IRB.CreateAdd(SP, IRB.getIntN(WordBits(), 2 * sizeof(uint64_t))),
             WordType()->getPointerTo())));
 
 #if 0
@@ -7832,7 +7832,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
         //
         set(IRB.CreateAdd(
                 get(tcg_stack_pointer_index),
-                llvm::ConstantInt::get(WordType(), sizeof(target_ulong))),
+                llvm::ConstantInt::get(WordType(), sizeof(uint64_t))),
             tcg_stack_pointer_index);
 #endif
         break;
@@ -8068,7 +8068,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
               HookArgVec.resize(hook.Args.size());
 
               {
-                unsigned SPAddend = sizeof(target_ulong);
+                unsigned SPAddend = sizeof(uint64_t);
 
                 for (unsigned j = 0; j < hook.Args.size(); ++j) {
                   const hook_t::arg_info_t &info = hook.Args[j];
@@ -8368,7 +8368,7 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
             HookArgVec.resize(hook.Args.size());
 
             {
-              unsigned SPAddend = sizeof(target_ulong);
+              unsigned SPAddend = sizeof(uint64_t);
 
               for (unsigned j = 0; j < hook.Args.size(); ++j) {
                 const hook_t::arg_info_t &info = hook.Args[j];
@@ -8661,7 +8661,7 @@ std::string LLVMTool::dyn_target_desc(dynamic_target_t IdxPair) {
   binary_t &b = jv.Binaries[DynTarget.BIdx];
   function_t &f = b.Analysis.Functions[DynTarget.FIdx];
 
-  target_ulong Addr =
+  uint64_t Addr =
       b.Analysis.ICFG[boost::vertex(f.Entry, b.Analysis.ICFG)].Addr;
 
   return (fmt("%s+%#lx") % fs::path(b.Path).filename().string() % Addr).str();
