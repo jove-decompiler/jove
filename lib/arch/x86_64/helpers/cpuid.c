@@ -655,10 +655,10 @@ void helper_cpuid(CPUX86State *env) {
 
     uint32_t eax, ebx, ecx, edx;
     asm volatile("cpuid"
-		 : "=a"(eax), "=b"(ebx),
-		   "=c"(ecx), "=d"(edx)
-		 : "0"(index), "c"(count)
-		 : "cc");
+                 : "=a"(eax), "=b"(ebx),
+                   "=c"(ecx), "=d"(edx)
+                 : "0"(index), "c"(count)
+                 : "cc");
 
     env->regs[R_EAX] = eax;
     env->regs[R_EBX] = ebx;

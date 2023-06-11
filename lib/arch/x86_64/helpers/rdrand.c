@@ -635,13 +635,13 @@ target_ulong HELPER(rdrand)(CPUX86State *env)
     uint8_t valid = 0;
 
     asm volatile("rdrand     %0\n\t"
-		 "setc       %1\n"
-		 : "=r"(res), "=qm"(valid));
+                 "setc       %1\n"
+                 : "=r"(res), "=qm"(valid));
 
     if (!valid) {
-	/* Failure clears CF and all other flags, and returns 0.  */
-	env->cc_src = 0;
-	return 0;
+        /* Failure clears CF and all other flags, and returns 0.  */
+        env->cc_src = 0;
+        return 0;
     }
 
     /* Success sets CF and clears all others.  */
