@@ -10,13 +10,9 @@
 
 #define QEMU_ALIGNED(X) __attribute__((aligned(X)))
 
-#define likely(x)   __builtin_expect(!!(x), 1)
-
 #define container_of(ptr, type, member) ({                      \
         const typeof(((type *) 0)->member) *__mptr = (ptr);     \
         (type *) ((char *) __mptr - offsetof(type, member));})
-
-# define QEMU_ERROR(X) __attribute__((error(X)))
 
 #include <stddef.h>
 
@@ -27,8 +23,6 @@
 #include <sys/types.h>
 
 #include <stdio.h>
-
-#include <string.h>
 
 #include <limits.h>
 
@@ -46,12 +40,6 @@
 
 #define G_GNUC_END_IGNORE_DEPRECATIONS \
   _Pragma("clang diagnostic pop")
-
-#define G_STRFUNC     ((const char*) (__func__))
-
-#define G_STMT_START  do
-
-#define G_STMT_END    while (0)
 
 # define G_NORETURN __attribute__ ((__noreturn__))
 
@@ -151,8 +139,6 @@ GLIB_AVAILABLE_IN_ALL
 void     g_slist_free_full               (GSList           *list,
 					  GDestroyNotify    free_func);
 
-#define G_LOG_DOMAIN    ((gchar*) 0)
-
 typedef struct _GQueue GQueue;
 
 struct _GQueue
@@ -165,16 +151,6 @@ struct _GQueue
 GLIB_AVAILABLE_IN_ALL
 void     g_queue_free_full      (GQueue           *queue,
 				GDestroyNotify    free_func);
-
-#define g_assert_not_reached()          G_STMT_START { g_assertion_message_expr (G_LOG_DOMAIN, __FILE__, __LINE__, G_STRFUNC, NULL); } G_STMT_END
-
-GLIB_AVAILABLE_IN_ALL
-G_NORETURN
-void    g_assertion_message_expr        (const char     *domain,
-                                         const char     *file,
-                                         int             line,
-                                         const char     *func,
-                                         const char     *expr);
 
 typedef struct AddressSpace AddressSpace;
 
@@ -216,67 +192,7 @@ typedef struct VMStateDescription VMStateDescription;
 
 typedef struct IRQState *qemu_irq;
 
-#define qemu_build_not_reached()  qemu_build_not_reached_always()
-
-#define qemu_build_assert(test)  while (!(test)) qemu_build_not_reached()
-
 #define DIV_ROUND_UP(n, d) (((n) + (d) - 1) / (d))
-
-G_NORETURN extern
-void QEMU_ERROR("code path is reachable")
-    qemu_build_not_reached_always(void);
-
-#define typeof_strip_qual(expr)                                                    \
-  typeof(                                                                          \
-    __builtin_choose_expr(                                                         \
-      __builtin_types_compatible_p(typeof(expr), bool) ||                          \
-        __builtin_types_compatible_p(typeof(expr), const bool) ||                  \
-        __builtin_types_compatible_p(typeof(expr), volatile bool) ||               \
-        __builtin_types_compatible_p(typeof(expr), const volatile bool),           \
-        (bool)1,                                                                   \
-    __builtin_choose_expr(                                                         \
-      __builtin_types_compatible_p(typeof(expr), signed char) ||                   \
-        __builtin_types_compatible_p(typeof(expr), const signed char) ||           \
-        __builtin_types_compatible_p(typeof(expr), volatile signed char) ||        \
-        __builtin_types_compatible_p(typeof(expr), const volatile signed char),    \
-        (signed char)1,                                                            \
-    __builtin_choose_expr(                                                         \
-      __builtin_types_compatible_p(typeof(expr), unsigned char) ||                 \
-        __builtin_types_compatible_p(typeof(expr), const unsigned char) ||         \
-        __builtin_types_compatible_p(typeof(expr), volatile unsigned char) ||      \
-        __builtin_types_compatible_p(typeof(expr), const volatile unsigned char),  \
-        (unsigned char)1,                                                          \
-    __builtin_choose_expr(                                                         \
-      __builtin_types_compatible_p(typeof(expr), signed short) ||                  \
-        __builtin_types_compatible_p(typeof(expr), const signed short) ||          \
-        __builtin_types_compatible_p(typeof(expr), volatile signed short) ||       \
-        __builtin_types_compatible_p(typeof(expr), const volatile signed short),   \
-        (signed short)1,                                                           \
-    __builtin_choose_expr(                                                         \
-      __builtin_types_compatible_p(typeof(expr), unsigned short) ||                \
-        __builtin_types_compatible_p(typeof(expr), const unsigned short) ||        \
-        __builtin_types_compatible_p(typeof(expr), volatile unsigned short) ||     \
-        __builtin_types_compatible_p(typeof(expr), const volatile unsigned short), \
-        (unsigned short)1,                                                         \
-      (expr)+0))))))
-
-# define ATOMIC_REG_SIZE  8
-
-#define qatomic_read__nocheck(ptr) \
-    __atomic_load_n(ptr, __ATOMIC_RELAXED)
-
-#define qatomic_read(ptr)                              \
-    ({                                                 \
-    qemu_build_assert(sizeof(*ptr) <= ATOMIC_REG_SIZE); \
-    qatomic_read__nocheck(ptr);                        \
-    })
-
-#define qatomic_cmpxchg__nocheck(ptr, old, new)    ({                   \
-    typeof_strip_qual(*ptr) _old = (old);                               \
-    (void)__atomic_compare_exchange_n(ptr, &_old, new, false,           \
-                              __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);      \
-    _old;                                                               \
-})
 
 #define QLIST_HEAD(name, type)                                          \
 struct name {                                                           \
@@ -319,6 +235,13 @@ static inline void bswap64s(uint64_t *s)
     *s = __builtin_bswap64(*s);
 }
 
+static inline int lduw_he_p(const void *ptr)
+{
+    uint16_t r;
+    __builtin_memcpy(&r, ptr, sizeof(r));
+    return r;
+}
+
 typedef struct Int128 Int128;
 
 struct Int128 {
@@ -340,12 +263,6 @@ static inline Int128 bswap128(Int128 a)
 {
     return int128_make128(bswap64(a.hi), bswap64(a.lo));
 }
-
-typedef union {
-    __uint128_t u;
-    __int128_t i;
-    Int128 s;
-} Int128Alias __attribute__((transparent_union));
 
 #define BITS_PER_BYTE           CHAR_BIT
 
@@ -2164,60 +2081,10 @@ G_NORETURN static inline void cpu_loop_exit_noexc(CPUState *cpu) {
   __builtin_unreachable();
 }
 
-G_NORETURN static inline void cpu_loop_exit_atomic(CPUState *cpu, uintptr_t pc) {
-  __builtin_trap();
-  __builtin_unreachable();
-}
-
 # define GETPC() 0
 
 # define tcg_debug_assert(X) \
     do { if (!(X)) { __builtin_unreachable(); } } while (0)
-
-# define ATTRIBUTE_ATOMIC128_OPT
-
-#define CPUINFO_ATOMIC_VMOVDQA  (1u << 16)
-
-static inline Int128 ATTRIBUTE_ATOMIC128_OPT
-atomic16_cmpxchg(Int128 *ptr, Int128 cmp, Int128 new)
-{
-    __int128_t *ptr_align = __builtin_assume_aligned(ptr, 16);
-    Int128Alias r, c, n;
-
-    c.s = cmp;
-    n.s = new;
-    r.i = qatomic_cmpxchg__nocheck(ptr_align, c.i, n.i);
-    return r.s;
-}
-
-static unsigned cpuinfo = 0;
-
-#define HAVE_ATOMIC128_RO  likely(cpuinfo & CPUINFO_ATOMIC_VMOVDQA)
-
-#define HAVE_ATOMIC128_RW  1
-
-static inline Int128 atomic16_read_ro(const Int128 *ptr)
-{
-    Int128Alias r;
-
-    tcg_debug_assert(HAVE_ATOMIC128_RO);
-    asm("vmovdqa %1, %0" : "=x" (r.i) : "m" (*ptr));
-
-    return r.s;
-}
-
-static inline Int128 atomic16_read_rw(Int128 *ptr)
-{
-    __int128_t *ptr_align = __builtin_assume_aligned(ptr, 16);
-    Int128Alias r;
-
-    if (HAVE_ATOMIC128_RO) {
-        asm("vmovdqa %1, %0" : "=x" (r.i) : "m" (*ptr_align));
-    } else {
-        r.i = __sync_val_compare_and_swap_16(ptr_align, 0, 0);
-    }
-    return r.s;
-}
 
 static void *cpu_mmu_lookup(CPUArchState *env, abi_ptr addr,
                             MemOp mop, uintptr_t ra, MMUAccessType type)
@@ -2239,170 +2106,11 @@ static void *cpu_mmu_lookup(CPUArchState *env, abi_ptr addr,
     return ret;
 }
 
-# define HAVE_al8          true
-
-static int required_atomicity(CPUArchState *env, uintptr_t p, MemOp memop)
-{
-    return MO_8;
-}
-
-static inline uint16_t load_atomic2(void *pv)
-{
-    uint16_t *p = __builtin_assume_aligned(pv, 2);
-    return qatomic_read(p);
-}
-
-static inline uint32_t load_atomic4(void *pv)
-{
-    uint32_t *p = __builtin_assume_aligned(pv, 4);
-    return qatomic_read(p);
-}
-
-static inline uint64_t load_atomic8(void *pv)
-{
-    uint64_t *p = __builtin_assume_aligned(pv, 8);
-
-    qemu_build_assert(HAVE_al8);
-    return qatomic_read__nocheck(p);
-}
-
-static Int128 load_atomic16_or_exit(CPUArchState *env, uintptr_t ra, void *pv)
-{
-    Int128 *p = __builtin_assume_aligned(pv, 16);
-
-    if (HAVE_ATOMIC128_RO) {
-        return atomic16_read_ro(p);
-    }
-
-#ifndef CONFIG_JOVE_HELPERS
-#ifdef CONFIG_USER_ONLY
-    /*
-     * We can only use cmpxchg to emulate a load if the page is writable.
-     * If the page is not writable, then assume the value is immutable
-     * and requires no locking.  This ignores the case of MAP_SHARED with
-     * another process, because the fallback start_exclusive solution
-     * provides no protection across processes.
-     */
-    if (!page_check_range(h2g(p), 16, PAGE_WRITE_ORG)) {
-        return *p;
-    }
-#endif
-#endif
-
-    /*
-     * In system mode all guest pages are writable, and for user-only
-     * we have just checked writability.  Try cmpxchg.
-     */
-    if (HAVE_ATOMIC128_RW) {
-        return atomic16_read_rw(p);
-    }
-
-    /* Ultimate fallback: re-execute in serial context. */
-    cpu_loop_exit_atomic(env_cpu(env), ra);
-}
-
-static uint64_t load_atom_extract_al8x2(void *pv)
-{
-    uintptr_t pi = (uintptr_t)pv;
-    int sh = (pi & 7) * 8;
-    uint64_t a, b;
-
-    pv = (void *)(pi & ~7);
-    a = load_atomic8(pv);
-    b = load_atomic8(pv + 8);
-
-    if (HOST_BIG_ENDIAN) {
-        return (a << sh) | (b >> (-sh & 63));
-    } else {
-        return (a >> sh) | (b << (-sh & 63));
-    }
-}
-
-static inline uint32_t load_atom_4_by_2(void *pv)
-{
-    uint32_t a = load_atomic2(pv);
-    uint32_t b = load_atomic2(pv + 2);
-
-    if (HOST_BIG_ENDIAN) {
-        return (a << 16) | b;
-    } else {
-        return (b << 16) | a;
-    }
-}
-
-static inline uint64_t load_atom_8_by_2(void *pv)
-{
-    uint32_t a = load_atom_4_by_2(pv);
-    uint32_t b = load_atom_4_by_2(pv + 4);
-
-    if (HOST_BIG_ENDIAN) {
-        return ((uint64_t)a << 32) | b;
-    } else {
-        return ((uint64_t)b << 32) | a;
-    }
-}
-
-static inline uint64_t load_atom_8_by_4(void *pv)
-{
-    uint32_t a = load_atomic4(pv);
-    uint32_t b = load_atomic4(pv + 4);
-
-    if (HOST_BIG_ENDIAN) {
-        return ((uint64_t)a << 32) | b;
-    } else {
-        return ((uint64_t)b << 32) | a;
-    }
-}
-
 static Int128 load_atom_16(CPUArchState *env, uintptr_t ra,
-                           void *pv, MemOp memop)
-{
-    uintptr_t pi = (uintptr_t)pv;
-    int atmax;
+                           void *pv, MemOp memop) {
     Int128 r;
-    uint64_t a, b;
-
-    /*
-     * If the host does not support 16-byte atomics, wait until we have
-     * examined the atomicity parameters below.
-     */
-    if (HAVE_ATOMIC128_RO && likely((pi & 15) == 0)) {
-        return atomic16_read_ro(pv);
-    }
-
-    atmax = required_atomicity(env, pi, memop);
-    switch (atmax) {
-    case MO_8:
-        memcpy(&r, pv, 16);
-        return r;
-    case MO_16:
-        a = load_atom_8_by_2(pv);
-        b = load_atom_8_by_2(pv + 8);
-        break;
-    case MO_32:
-        a = load_atom_8_by_4(pv);
-        b = load_atom_8_by_4(pv + 8);
-        break;
-    case MO_64:
-        if (!HAVE_al8) {
-            cpu_loop_exit_atomic(env_cpu(env), ra);
-        }
-        a = load_atomic8(pv);
-        b = load_atomic8(pv + 8);
-        break;
-    case -MO_64:
-        if (!HAVE_al8) {
-            cpu_loop_exit_atomic(env_cpu(env), ra);
-        }
-        a = load_atom_extract_al8x2(pv);
-        b = load_atom_extract_al8x2(pv + 8);
-        break;
-    case MO_128:
-        return load_atomic16_or_exit(env, ra, pv);
-    default:
-        g_assert_not_reached();
-    }
-    return int128_make128(HOST_BIG_ENDIAN ? b : a, HOST_BIG_ENDIAN ? a : b);
+    __builtin_memcpy(&r, pv, 16);
+    return r;
 }
 
 static Int128 do_ld16_mmu(CPUArchState *env, abi_ptr addr,
