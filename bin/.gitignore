@@ -1,5 +1,0 @@
-*
-!mips32
-!mips32/dfsan_abilist.txt
-!.gitignore
-!dfsan_abilist.txt
