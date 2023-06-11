@@ -1316,14 +1316,10 @@ void AnalyzeBasicBlock(tiny_code_generator_t &TCG,
         nb_oargs = TCGOP_CALLO(op);
         nb_iargs = TCGOP_CALLI(op);
 
-        if (strcmp(jv_tcg_find_helper(op), "lookup_tb_ptr") == 0) { /* FIXME */
-          ;
-        } else {
-          const helper_function_t &hf = LookupHelper(M, TCG, op, DFSan, ForCBE, *tool);
+        const helper_function_t &hf = LookupHelper(M, TCG, op, DFSan, ForCBE, *tool);
 
-          iglbs = hf.Analysis.InGlbs;
-          oglbs = hf.Analysis.OutGlbs;
-        }
+        iglbs = hf.Analysis.InGlbs;
+        oglbs = hf.Analysis.OutGlbs;
       } else {
         nb_iargs = jv_tcgopc_nb_iargs_in_def(opc);
         nb_oargs = jv_tcgopc_nb_oargs_in_def(opc);
