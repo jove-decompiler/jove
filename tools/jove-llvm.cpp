@@ -1,4 +1,7 @@
-#include "tcg.cpp.inc"
+#include "../bin/x86_64/tcg.h"
+#include "../qemu/include/jove.h"
+
+#include "tcg.h"
 #include "tool.h"
 #include "elf.h"
 #include "disas.h"
@@ -1089,16 +1092,8 @@ static bool AnalyzeHelper(helper_function_t &hf) {
 const helper_function_t &LookupHelper(llvm::Module &M, tiny_code_generator_t &TCG, TCGOp *op, bool DFSan, bool ForCBE, Tool &tool) {
   int nb_oargs = TCGOP_CALLO(op);
   int nb_iargs = TCGOP_CALLI(op);
-  int nb_cargs;
 
-  {
-    const TCGOpcode opc = op->opc;
-    const TCGOpDef &def = tcg_op_defs[opc];
-
-    nb_cargs = def.nb_cargs;
-  }
-
-  uintptr_t helper_addr = op->args[nb_oargs + nb_iargs];
+  TCGArg helper_addr = op->args[nb_oargs + nb_iargs];
 
   {
     auto it = HelperFuncMap.find(helper_addr);
@@ -1106,8 +1101,7 @@ const helper_function_t &LookupHelper(llvm::Module &M, tiny_code_generator_t &TC
       return (*it).second;
   }
 
-  TCGContext *s = &TCG.priv->_ctx;
-  const char *helper_nm = tcg_find_helper(s, helper_addr);
+  const char *helper_nm = jv_tcg_find_helper(op);
   assert(helper_nm);
   const std::string helper_fn_nm = std::string("helper_") + helper_nm;
 
@@ -1195,9 +1189,10 @@ const helper_function_t &LookupHelper(llvm::Module &M, tiny_code_generator_t &TC
   {
     TCGArg *const inputs_beg = &op->args[nb_oargs + 0];
     TCGArg *const inputs_end = &op->args[nb_oargs + nb_iargs];
-    TCGArg *it =
-        std::find(inputs_beg, inputs_end,
-                  reinterpret_cast<TCGArg>(&s->temps[tcg_env_index]));
+    TCGArg *it = std::find_if(inputs_beg, inputs_end, [](TCGArg arg) -> bool {
+      char buf[256];
+      return strcmp(jv_tcg_get_arg_str(buf, sizeof(buf), arg), "env") == 0;
+    });
 
     if (it != inputs_end)
       EnvArgNo = std::distance(inputs_beg, it);
@@ -1209,21 +1204,21 @@ const helper_function_t &LookupHelper(llvm::Module &M, tiny_code_generator_t &TC
   //
   // is this a system call?
   //
-  const uintptr_t syscall_helper_addr = (uintptr_t)
+  const char *const syscall_helper_nm =
 #if defined(TARGET_X86_64)
-      helper_syscall
+      "syscall"
 #elif defined(TARGET_I386)
-      helper_raise_interrupt
+      "raise_interrupt"
 #elif defined(TARGET_AARCH64)
-      helper_exception_with_syndrome
+      "exception_with_syndrome"
 #elif defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
-      helper_raise_exception_err
+      "raise_exception_err"
 #else
 #error
 #endif
       ;
 
-  if (helper_addr == syscall_helper_addr)
+  if (strcmp(helper_nm, syscall_helper_nm) == 0)
     hf.Analysis.Simple = true; /* force */
 
   {
@@ -1237,7 +1232,7 @@ const helper_function_t &LookupHelper(llvm::Module &M, tiny_code_generator_t &TC
       for (auto it = iglbv.begin(); it != iglbv.end(); ++it) {
         unsigned glb = *it;
 
-        InGlbsStr.append(TCG.priv->_ctx.temps[glb].name);
+        InGlbsStr.append(jv_get_global_name(glb));
         if (std::next(it) != iglbv.end())
           InGlbsStr.append(", ");
       }
@@ -1254,7 +1249,7 @@ const helper_function_t &LookupHelper(llvm::Module &M, tiny_code_generator_t &TC
       for (auto it = oglbv.begin(); it != oglbv.end(); ++it) {
         unsigned glb = *it;
 
-        OutGlbsStr.append(TCG.priv->_ctx.temps[glb].name);
+        OutGlbsStr.append(jv_get_global_name(glb));
         if (std::next(it) != oglbv.end())
           OutGlbsStr.append(", ");
       }
@@ -1302,7 +1297,7 @@ void AnalyzeBasicBlock(tiny_code_generator_t &TCG,
   bbprop.Analysis.live.def.reset();
   bbprop.Analysis.reach.def.reset();
 
-  TCGContext *s = &TCG.priv->_ctx;
+  TCGContext *s = jv_get_tcg_context();
 
   unsigned size = 0;
   jove::terminator_info_t T;
@@ -1310,8 +1305,8 @@ void AnalyzeBasicBlock(tiny_code_generator_t &TCG,
     unsigned len;
     std::tie(len, T) = TCG.translate(Addr + size, Addr + Size);
 
-    TCGOp *op, *op_next;
-    QTAILQ_FOREACH_SAFE(op, &s->ops, link, op_next) {
+    TCGOp *op;
+    QTAILQ_FOREACH(op, &s->ops, link) {
       TCGOpcode opc = op->opc;
 
       tcg_global_set_t iglbs, oglbs;
@@ -1321,20 +1316,22 @@ void AnalyzeBasicBlock(tiny_code_generator_t &TCG,
         nb_oargs = TCGOP_CALLO(op);
         nb_iargs = TCGOP_CALLI(op);
 
-        const helper_function_t &hf = LookupHelper(M, TCG, op, DFSan, ForCBE, *tool);
+        if (strcmp(jv_tcg_find_helper(op), "lookup_tb_ptr") == 0) { /* FIXME */
+          ;
+        } else {
+          const helper_function_t &hf = LookupHelper(M, TCG, op, DFSan, ForCBE, *tool);
 
-        iglbs = hf.Analysis.InGlbs;
-        oglbs = hf.Analysis.OutGlbs;
+          iglbs = hf.Analysis.InGlbs;
+          oglbs = hf.Analysis.OutGlbs;
+        }
       } else {
-        const TCGOpDef &opdef = tcg_op_defs[opc];
-
-        nb_iargs = opdef.nb_iargs;
-        nb_oargs = opdef.nb_oargs;
+        nb_iargs = jv_tcgopc_nb_iargs_in_def(opc);
+        nb_oargs = jv_tcgopc_nb_oargs_in_def(opc);
       }
 
       for (int i = 0; i < nb_iargs; ++i) {
         TCGTemp *ts = arg_temp(op->args[nb_oargs + i]);
-        if (!ts->temp_global)
+        if (ts->kind != TEMP_GLOBAL)
           continue;
 
         unsigned glb_idx = temp_idx(ts);
@@ -1346,7 +1343,7 @@ void AnalyzeBasicBlock(tiny_code_generator_t &TCG,
 
       for (int i = 0; i < nb_oargs; ++i) {
         TCGTemp *ts = arg_temp(op->args[i]);
-        if (!ts->temp_global)
+        if (ts->kind != TEMP_GLOBAL)
           continue;
 
         unsigned glb_idx = temp_idx(ts);
@@ -1651,8 +1648,8 @@ struct section_t {
 
 #if 0
 static int tcg_global_index_of_name(const char *nm) {
-  for (int i = 0; i < TCG->priv->_ctx.nb_globals; i++) {
-    if (strcmp(TCG->priv->_ctx.temps[i].name, nm) == 0)
+  for (int i = 0; i < jv_get_tcg_context()->nb_globals; i++) {
+    if (strcmp(jv_get_tcg_context()->temps[i].name, nm) == 0)
       return i;
   }
 
@@ -1665,7 +1662,7 @@ static bool is_integral_size(unsigned n) {
 }
 
 static constexpr unsigned WordBytes(void) {
-  return sizeof(uint64_t);
+  return TCG_TARGET_REG_BITS == 64 ? sizeof(uint64_t) : sizeof(uint32_t);
 }
 
 static constexpr unsigned WordBits(void) {
@@ -3440,22 +3437,15 @@ void LLVMTool::ExplodeFunctionRets(function_t &f, std::vector<unsigned> &glbv) {
 }
 
 static unsigned bitsOfTCGType(TCGType ty) {
-  switch (ty) {
-  case TCG_TYPE_I32:
-    return 32;
-  case TCG_TYPE_I64:
-    return 64;
+  static_assert(TCG_TYPE_I32 == 0);
+  static_assert(TCG_TYPE_I64 == 1);
+  static_assert(TCG_TYPE_I128 == 2);
 
-  case TCG_TYPE_V64:
-  case TCG_TYPE_V128:
-  case TCG_TYPE_V256:
-    WithColor::error() << "vector TCGType\n";
-    abort();
+  if (unlikely(ty > 2))
+    throw std::runtime_error("unhandled: vector TCGType");
 
-  default:
-    WithColor::error() << "unknown TCGType\n";
-    abort();
-  }
+  static const unsigned lookup_table[] = {32, 64, 128};
+  return lookup_table[ty];
 }
 
 llvm::FunctionType *LLVMTool::FunctionTypeOfArgsAndRets(tcg_global_set_t args,
@@ -3472,7 +3462,7 @@ llvm::FunctionType *LLVMTool::FunctionTypeOfArgsAndRets(tcg_global_set_t args,
                    argTypes.begin(),
                    [&](unsigned glb) -> llvm::Type * {
                      return llvm::Type::getIntNTy(
-                         *Context, bitsOfTCGType(TCG->priv->_ctx.temps[glb].type));
+                         *Context, bitsOfTCGType(jv_get_tcg_context()->temps[glb].type));
                    });
   }
 
@@ -3486,14 +3476,14 @@ llvm::FunctionType *LLVMTool::FunctionTypeOfArgsAndRets(tcg_global_set_t args,
       retTy = VoidType();
     } else if (glbv.size() == 1) {
       retTy = llvm::Type::getIntNTy(
-          *Context, bitsOfTCGType(TCG->priv->_ctx.temps[glbv.front()].type));
+          *Context, bitsOfTCGType(jv_get_tcg_context()->temps[glbv.front()].type));
     } else {
       std::vector<llvm::Type *> retTypes;
       retTypes.resize(glbv.size());
       std::transform(glbv.begin(), glbv.end(), retTypes.begin(),
                      [&](unsigned glb) -> llvm::Type * {
                        return llvm::Type::getIntNTy(
-                           *Context, bitsOfTCGType(TCG->priv->_ctx.temps[glb].type));
+                           *Context, bitsOfTCGType(jv_get_tcg_context()->temps[glb].type));
                      });
 
       retTy = llvm::StructType::get(*Context, retTypes);
@@ -3564,7 +3554,7 @@ int LLVMTool::CreateFunctions(void) {
       unsigned i = 0;
       for (llvm::Argument &A : state.for_function(f).F->args()) {
         std::string name = opts.ForCBE ? "_" : "";
-        name.append(TCG->priv->_ctx.temps[glbv.at(i)].name);
+        name.append(jv_get_tcg_context()->temps[glbv.at(i)].name);
         A.setName(name);
         ++i;
       }
@@ -3592,7 +3582,7 @@ int LLVMTool::CreateFunctions(void) {
       unsigned i = 0;
       for (llvm::Argument &A : state.for_function(f).adapterF->args()) {
         std::string name = opts.ForCBE ? "_" : "";
-        name.append(TCG->priv->_ctx.temps[CallConvArgArray.at(i)].name);
+        name.append(jv_get_tcg_context()->temps[CallConvArgArray.at(i)].name);
         A.setName(name);
         ++i;
       }
@@ -5859,11 +5849,9 @@ static llvm::AllocaInst *CreateAllocaForGlobal(TranslateContext &TC,
                                                llvm::IRBuilderTy &IRB,
                                                unsigned glb,
                                                bool InitializeFromEnv = true) {
-  auto &TCG = *TC.tool.TCG;
-
   llvm::AllocaInst *res = IRB.CreateAlloca(
-      IRB.getIntNTy(bitsOfTCGType(TCG.priv->_ctx.temps[glb].type)), nullptr,
-      std::string(TCG.priv->_ctx.temps[glb].name));
+      IRB.getIntNTy(bitsOfTCGType(jv_get_tcg_context()->temps[glb].type)), nullptr,
+      std::string(jv_get_tcg_context()->temps[glb].name));
 
   if (InitializeFromEnv) {
     llvm::MDNode *AliasScopeMetadata = TC.tool.AliasScopeMetadata;
@@ -5882,14 +5870,14 @@ llvm::Value *LLVMTool::CPUStateGlobalPointer(unsigned glb, llvm::IRBuilderTy &IR
   assert(glb < tcg_num_globals);
   assert(glb != tcg_env_index);
 
-  unsigned bits = bitsOfTCGType(TCG->priv->_ctx.temps[glb].type);
+  unsigned bits = bitsOfTCGType(jv_get_tcg_context()->temps[glb].type);
   llvm::Type *GlbTy = llvm::IntegerType::get(*Context, bits);
 
-  struct TCGTemp *base_tmp = TCG->priv->_ctx.temps[glb].mem_base;
+  struct TCGTemp *base_tmp = jv_get_tcg_context()->temps[glb].mem_base;
   if (unlikely(!base_tmp || temp_idx(base_tmp) != tcg_env_index))
     return nullptr;
 
-  unsigned off = TCG->priv->_ctx.temps[glb].mem_offset;
+  unsigned off = jv_get_tcg_context()->temps[glb].mem_offset;
 
   llvm::SmallVector<llvm::Value *, 4> Indices;
   llvm::Value *res = llvm::getNaturalGEPWithOffset(
@@ -5912,14 +5900,14 @@ llvm::Value *LLVMTool::BuildCPUStatePointer(llvm::IRBuilderTy &IRB,
   assert(glb < tcg_num_globals);
   assert(glb != tcg_env_index);
 
-  unsigned bits = bitsOfTCGType(TCG->priv->_ctx.temps[glb].type);
+  unsigned bits = bitsOfTCGType(jv_get_tcg_context()->temps[glb].type);
   llvm::Type *GlbTy = llvm::IntegerType::get(*Context, bits);
 
-  struct TCGTemp *base_tmp = TCG->priv->_ctx.temps[glb].mem_base;
+  struct TCGTemp *base_tmp = jv_get_tcg_context()->temps[glb].mem_base;
   if (unlikely(!base_tmp || temp_idx(base_tmp) != tcg_env_index))
     return nullptr;
 
-  unsigned off = TCG->priv->_ctx.temps[glb].mem_offset;
+  unsigned off = jv_get_tcg_context()->temps[glb].mem_offset;
 
   llvm::SmallVector<llvm::Value *, 4> Indices;
   llvm::Value *res = llvm::getNaturalGEPWithOffset(
@@ -6124,7 +6112,7 @@ int LLVMTool::TranslateFunction(function_t &f) {
           std::vector<llvm::Value *> RetValues(
               CallConvRetArray.size(),
               llvm::UndefValue::get(llvm::Type::getIntNTy(*Context,
-                  bitsOfTCGType(TCG->priv->_ctx.temps[CallConvRetArray.at(0)].type))));
+                  bitsOfTCGType(jv_get_tcg_context()->temps[CallConvRetArray.at(0)].type))));
 
           if (Ret->getType()->isIntegerTy(WordBits())) {
             assert(glbv.size() == 1);
@@ -6144,7 +6132,7 @@ int LLVMTool::TranslateFunction(function_t &f) {
               if (glb == tcg_stack_pointer_index) {
                 llvm::Value *ReturnedSP = IRB.CreateExtractValue(
                     Ret, llvm::ArrayRef<unsigned>(i),
-                    TCG->priv->_ctx.temps[glb].name + std::string("_"));
+                    jv_get_tcg_context()->temps[glb].name + std::string("_"));
 
                 llvm::StoreInst *SI = IRB.CreateStore(ReturnedSP,
                                                       CPUStateGlobalPointer(glb, IRB));
@@ -6157,7 +6145,7 @@ int LLVMTool::TranslateFunction(function_t &f) {
 
                  RetValues.at(Idx) = IRB.CreateExtractValue(
                      Ret, llvm::ArrayRef<unsigned>(i),
-                     TCG->priv->_ctx.temps[glb].name + std::string("_"));
+                     jv_get_tcg_context()->temps[glb].name + std::string("_"));
               } else {
                 ;
               }
@@ -6173,7 +6161,7 @@ int LLVMTool::TranslateFunction(function_t &f) {
                 RetValues.begin(),
                 RetValues.end(), init,
                 [&](llvm::Value *res, llvm::Value *Val) -> llvm::Value * {
-                  std::string nm = std::string("_ret_") + TCG->priv->_ctx.temps[CallConvRetArray.at(j)].name + std::string("_");
+                  std::string nm = std::string("_ret_") + jv_get_tcg_context()->temps[CallConvRetArray.at(j)].name + std::string("_");
 
                   return IRB.CreateInsertValue(res,
                                                Val,
@@ -6231,8 +6219,10 @@ int LLVMTool::TranslateFunctions(void) {
     if (unlikely(ret))
       return ret;
 
+#if 1
     if (likely(state.for_function(f).F))
       FPM.run(*state.for_function(f).F);
+#endif
   }
 
   llvm::DIBuilder &DIB = *DIBuilder;
@@ -6551,7 +6541,7 @@ int LLVMTool::RenameFunctionLocals(void) {
     if (glb == 0xff)
       continue;
 
-    const char *nm = TCG->priv->_ctx.temps[glb].name;
+    const char *nm = jv_get_tcg_context()->temps[glb].name;
     for (llvm::User *UU : U->users()) {
       if (llvm::isa<llvm::LoadInst>(UU))
         UU->setName(nm + std::string("_"));
@@ -6908,9 +6898,9 @@ typedef int (*translate_tcg_op_proc_t)(TCGOp *,
                                        llvm::IRBuilderTy &,
                                        TranslateContext &);
 
-extern const translate_tcg_op_proc_t TranslateTCGOpTable[180];
-
+#if 0
 static bool seenOpTable[ARRAY_SIZE(tcg_op_defs)];
+#endif
 
 int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
   TranslateContext &TC = *ptrTC;
@@ -7019,7 +7009,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
 
   llvm::BasicBlock *ExitBB = nullptr;
 
-  TCGContext *s = &TCG->priv->_ctx;
+  TCGContext *s = jv_get_tcg_context();
 
   unsigned size = 0;
   jove::terminator_info_t T;
@@ -7047,8 +7037,8 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
     // create temp alloca's up-front
     //
     {
-      TCGOp *op, *op_next;
-      QTAILQ_FOREACH_SAFE(op, &s->ops, link, op_next) {
+      TCGOp *op;
+      QTAILQ_FOREACH(op, &s->ops, link) {
         TCGOpcode opc = op->opc;
 
         int nb_oargs, nb_iargs;
@@ -7056,18 +7046,31 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
           nb_oargs = TCGOP_CALLO(op);
           nb_iargs = TCGOP_CALLI(op);
         } else {
-          const TCGOpDef &opdef = tcg_op_defs[opc];
-
-          nb_iargs = opdef.nb_iargs;
-          nb_oargs = opdef.nb_oargs;
+          nb_iargs = jv_tcgopc_nb_iargs_in_def(opc);
+          nb_oargs = jv_tcgopc_nb_oargs_in_def(opc);
         }
 
         for (int i = 0; i < nb_iargs; ++i) {
           TCGTemp *ts = arg_temp(op->args[nb_oargs + i]);
-          if (ts->temp_global)
+          if (ts->kind == TEMP_GLOBAL)
             continue;
 
           unsigned idx = temp_idx(ts);
+	  if (idx == tcg_env_index)
+	    continue;
+
+#if 0
+	  if (!(idx >= tcg_num_globals)) {
+            char buf[256];
+            HumanOut() << "WTF? "
+	               << idx << " "
+                       << jv_tcg_get_arg_str(buf, sizeof(buf),
+                                             op->args[nb_oargs + i])
+                       << '\n';
+          }
+#endif
+	  assert(idx >= tcg_num_globals);
+
           if (TempAllocaVec.at(idx))
             continue;
 
@@ -7078,17 +7081,31 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
               tmpIRB.CreateAlloca(tmpIRB.getIntNTy(bitsOfTCGType(ts->type)), 0,
                                   (fmt("%#lx_%s%u")
                                    % ICFG[bb].Addr
-                                   % (ts->temp_local ? "loc" : "tmp")
+                                   % "tmp"
                                    % (idx - tcg_num_globals)).str());
           }
         }
 
         for (int i = 0; i < nb_oargs; ++i) {
           TCGTemp *ts = arg_temp(op->args[i]);
-          if (ts->temp_global)
+          if (ts->kind == TEMP_GLOBAL)
             continue;
 
           unsigned idx = temp_idx(ts);
+	  if (idx == tcg_env_index)
+	    continue;
+
+#if 0
+	  if (!(idx >= tcg_num_globals)) {
+            char buf[256];
+            HumanOut() << "WTF? "
+	               << idx << " "
+                       << jv_tcg_get_arg_str(buf, sizeof(buf), op->args[i])
+                       << '\n';
+          }
+#endif
+	  assert(idx >= tcg_num_globals);
+
           if (TempAllocaVec.at(idx))
             continue;
 
@@ -7099,7 +7116,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
               tmpIRB.CreateAlloca(tmpIRB.getIntNTy(bitsOfTCGType(ts->type)), 0,
                               (fmt("%#lx_%s%u")
                                % ICFG[bb].Addr
-                               % (ts->temp_local ? "loc" : "tmp")
+                               % "tmp"
                                % (idx - tcg_num_globals)).str());
           }
         }
@@ -7118,10 +7135,10 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
         TCG->dump_operations();
     }
 
-    TCGOp *op, *op_next;
-    QTAILQ_FOREACH_SAFE(op, &s->ops, link, op_next) {
+    TCGOp *op;
+    QTAILQ_FOREACH(op, &s->ops, link) {
+#if 0
       unsigned opc = op->opc;
-      assert(opc < ARRAY_SIZE(TranslateTCGOpTable));
 
       if (unlikely(!seenOpTable[opc])) {
         WithColor::note() << llvm::formatv("[TCG opcode] {0}\n",
@@ -7129,9 +7146,11 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
 
         seenOpTable[opc] = true;
       }
+#endif
 
       int ret = TranslateTCGOp(op, ExitBB, IRB, TC);
       if (unlikely(ret)) {
+        WithColor::warning() << "!TranslateTCGOp\n";
         TCG->dump_operations();
         return ret;
       }
@@ -7512,7 +7531,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
 
           llvm::Value *Val = IRB.CreateExtractValue(
               Ret, llvm::ArrayRef<unsigned>(i),
-              TCG->priv->_ctx.temps[glb].name + std::string("_"));
+              jv_get_tcg_context()->temps[glb].name + std::string("_"));
 
           set(Val, glb);
         }
@@ -7896,8 +7915,8 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
       //assert(Ret->getType()->isIntegerTy(128));
       assert(Ret->getType()->isStructTy());
       {
-        llvm::Value *X = IRB.CreateExtractValue(Ret, 0, TCG->priv->_ctx.temps[CallConvRetArray.at(0)].name + std::string("_"));
-        llvm::Value *Y = IRB.CreateExtractValue(Ret, 1, TCG->priv->_ctx.temps[CallConvRetArray.at(1)].name + std::string("_"));
+        llvm::Value *X = IRB.CreateExtractValue(Ret, 0, jv_get_tcg_context()->temps[CallConvRetArray.at(0)].name + std::string("_"));
+        llvm::Value *Y = IRB.CreateExtractValue(Ret, 1, jv_get_tcg_context()->temps[CallConvRetArray.at(1)].name + std::string("_"));
 
         set(X, CallConvRetArray.at(0));
         set(Y, CallConvRetArray.at(1));
@@ -7910,7 +7929,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
 
       for (unsigned j = 0; j < CallConvRetArray.size(); ++j) {
         llvm::Value *X = IRB.CreateExtractValue(
-            Ret, j, TCG->priv->_ctx.temps[CallConvRetArray.at(j)].name + std::string("_"));
+            Ret, j, jv_get_tcg_context()->temps[CallConvRetArray.at(j)].name + std::string("_"));
         set(X, CallConvRetArray.at(j));
       }
 #elif defined(TARGET_MIPS32) || defined(TARGET_I386)
@@ -7918,11 +7937,11 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
       {
         llvm::Value *X =
             IRB.CreateTrunc(Ret, IRB.getInt32Ty(),
-                            TCG->priv->_ctx.temps[CallConvRetArray.at(0)].name + std::string("_"));
+                            jv_get_tcg_context()->temps[CallConvRetArray.at(0)].name + std::string("_"));
 
         llvm::Value *Y = IRB.CreateTrunc(
             IRB.CreateLShr(Ret, IRB.getInt64(32)), IRB.getInt32Ty(),
-            TCG->priv->_ctx.temps[CallConvRetArray.at(1)].name + std::string("_"));
+            jv_get_tcg_context()->temps[CallConvRetArray.at(1)].name + std::string("_"));
 
 #ifdef TARGET_WORDS_BIGENDIAN
         set(X, CallConvRetArray.at(1));
@@ -8285,9 +8304,9 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
             assert(Ret->getType()->isStructTy());
             {
               llvm::Value *X = IRB.CreateExtractValue(
-                  Ret, 0, TCG->priv->_ctx.temps[CallConvRetArray.at(0)].name + std::string("_"));
+                  Ret, 0, jv_get_tcg_context()->temps[CallConvRetArray.at(0)].name + std::string("_"));
               llvm::Value *Y = IRB.CreateExtractValue(
-                  Ret, 1, TCG->priv->_ctx.temps[CallConvRetArray.at(1)].name + std::string("_"));
+                  Ret, 1, jv_get_tcg_context()->temps[CallConvRetArray.at(1)].name + std::string("_"));
 
               set(X, CallConvRetArray.at(0));
               set(Y, CallConvRetArray.at(1));
@@ -8300,7 +8319,7 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
 
             for (unsigned j = 0; j < CallConvRetArray.size(); ++j) {
               llvm::Value *X = IRB.CreateExtractValue(
-                  Ret, j, TCG->priv->_ctx.temps[CallConvRetArray.at(j)].name + std::string("_"));
+                  Ret, j, jv_get_tcg_context()->temps[CallConvRetArray.at(j)].name + std::string("_"));
               set(X, CallConvRetArray.at(j));
             }
 #elif defined(TARGET_MIPS32) || defined(TARGET_I386)
@@ -8308,11 +8327,11 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
             {
               llvm::Value *X = IRB.CreateTrunc(
                   Ret, IRB.getInt32Ty(),
-                  TCG->priv->_ctx.temps[CallConvRetArray.at(0)].name + std::string("_"));
+                  jv_get_tcg_context()->temps[CallConvRetArray.at(0)].name + std::string("_"));
 
               llvm::Value *Y = IRB.CreateTrunc(
                   IRB.CreateLShr(Ret, IRB.getInt64(32)), IRB.getInt32Ty(),
-                  TCG->priv->_ctx.temps[CallConvRetArray.at(1)].name + std::string("_"));
+                  jv_get_tcg_context()->temps[CallConvRetArray.at(1)].name + std::string("_"));
 
 #ifdef TARGET_WORDS_BIGENDIAN
               set(X, CallConvRetArray.at(1));
@@ -8344,7 +8363,7 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
 
                   llvm::Value *Val =
                       IRB.CreateExtractValue(Ret, llvm::ArrayRef<unsigned>(i),
-                                             TCG->priv->_ctx.temps[glb].name + std::string("_"));
+                                             jv_get_tcg_context()->temps[glb].name + std::string("_"));
 
                   set(Val, glb);
                 }
@@ -8591,7 +8610,7 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
       llvm::Value *retVal = std::accumulate(
           glbv.begin(), glbv.end(), init,
           [&](llvm::Value *res, unsigned glb) -> llvm::Value * {
-            std::string nm = std::string("_ret_") + TCG->priv->_ctx.temps[glb].name + std::string("_");
+            std::string nm = std::string("_ret_") + jv_get_tcg_context()->temps[glb].name + std::string("_");
 
             return IRB.CreateInsertValue(res,
                                          get(glb),
@@ -8667,10 +8686,10 @@ std::string LLVMTool::dyn_target_desc(dynamic_target_t IdxPair) {
   return (fmt("%s+%#lx") % fs::path(b.Path).filename().string() % Addr).str();
 }
 
-static const unsigned bits_of_memop_lookup_table[] = {8, 16, 32, 64};
+static unsigned BitsOfMemOp(MemOp op) {
+  static const unsigned lookup_table[] = {8, 16, 32, 64, 128, 256, 512, 1024};
 
-static unsigned bits_of_memop(MemOp op) {
-  return bits_of_memop_lookup_table[op & MO_SIZE];
+  return lookup_table[op & MO_SIZE];
 }
 
 int LLVMTool::TranslateTCGOp(TCGOp *op,
@@ -8686,14 +8705,17 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
   binary_t &Binary = TC.tool.jv.Binaries[TC.tool.BinaryIndex];
   const auto &ICFG = Binary.Analysis.ICFG;
   auto &PCAlloca = TC.PCAlloca;
-  TCGContext *s = &TC.tool.TCG->priv->_ctx;
+  TCGContext *s = jv_get_tcg_context();
 
   auto set = [&](llvm::Value *V, TCGTemp *ts) -> void {
+    assert(ts->kind != TEMP_CONST);
+
     unsigned idx = temp_idx(ts);
+    assert(idx != tcg_env_index);
 
-    if (ts->temp_global) {
-      assert(idx != tcg_env_index);
+    V = IRB.CreateIntCast(V, IRB.getIntNTy(bitsOfTCGType(ts->type)), false);
 
+    if (ts->kind == TEMP_GLOBAL) {
 #if 0
       if (unlikely(CmdlinePinnedEnvGlbs.test(idx))) {
         llvm::StoreInst *SI = IRB.CreateStore(V, CPUStateGlobalPointer(idx, IRB));
@@ -8720,22 +8742,38 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
     }
   };
 
+  auto immediate_constant = [&](unsigned bits, TCGArg A) -> llvm::Value * {
+    if (!pcrel_flag)
+      return llvm::ConstantInt::get(llvm::Type::getIntNTy(*Context, bits), A);
+
+    pcrel_flag = false; /* reset pcrel flag */
+    assert(bits == WordBits());
+
+    return llvm::ConstantExpr::getAdd(
+        llvm::ConstantExpr::getPtrToInt(SectsGlobal, WordType()),
+        llvm::ConstantExpr::getSub(
+            llvm::ConstantInt::get(WordType(), A),
+            llvm::ConstantInt::get(WordType(), state.for_binary(Binary).SectsStartAddr)));
+  };
+
   auto get = [&](TCGTemp *ts) -> llvm::Value * {
+    if (ts->kind == TEMP_CONST)
+      return immediate_constant(bitsOfTCGType(ts->type), ts->val);
+
     unsigned idx = temp_idx(ts);
-
-    if (ts->temp_global) {
-      switch (idx) {
-      case tcg_env_index:
-        return IRB.CreatePtrToInt(CPUStateGlobal, WordType());
+    switch (idx) {
+    case tcg_env_index:
+      return IRB.CreatePtrToInt(CPUStateGlobal, WordType());
 #if defined(TARGET_X86_64)
-      case tcg_fs_base_index:
-        return insertThreadPointerInlineAsm(IRB);
+    case tcg_fs_base_index:
+      return insertThreadPointerInlineAsm(IRB);
 #elif defined(TARGET_I386)
-      case tcg_gs_base_index:
-        return insertThreadPointerInlineAsm(IRB);
+    case tcg_gs_base_index:
+      return insertThreadPointerInlineAsm(IRB);
 #endif
-      }
+    }
 
+    if (ts->kind == TEMP_GLOBAL) {
 #if 0
       if (unlikely(CmdlinePinnedEnvGlbs.test(idx))) {
         llvm::LoadInst *LI = IRB.CreateLoad(CPUStateGlobalPointer(idx, IRB));
@@ -8764,37 +8802,171 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
     }
   };
 
-  auto immediate_constant = [&](unsigned bits, TCGArg A) -> llvm::Value * {
-    if (!pcrel_flag)
-      return llvm::ConstantInt::get(llvm::Type::getIntNTy(*Context, bits), A);
+  TCGOpcode opc = op->opc;
 
-    pcrel_flag = false; /* reset pcrel flag */
-    assert(bits == WordBits());
-
-    return llvm::ConstantExpr::getAdd(
-        llvm::ConstantExpr::getPtrToInt(SectsGlobal, WordType()),
-        llvm::ConstantExpr::getSub(
-            llvm::ConstantInt::get(WordType(), A),
-            llvm::ConstantInt::get(WordType(), state.for_binary(Binary).SectsStartAddr)));
-  };
-
-  unsigned opc = op->opc;
-
+#if 0
   if (opc >= ARRAY_SIZE(tcg_op_defs))
     return 1;
 
   const TCGOpDef &def = tcg_op_defs[opc];
+#endif
 
-  int nb_oargs = def.nb_oargs;
-  int nb_iargs = def.nb_iargs;
-  int nb_cargs = def.nb_cargs;
+  int nb_oargs = jv_tcgopc_nb_oargs_in_def(opc);
+  int nb_iargs = jv_tcgopc_nb_iargs_in_def(opc);
+  int nb_cargs = jv_tcgopc_nb_cargs_in_def(opc);
+
+#if 0
+  if (IsVerbose())
+    HumanOut() << llvm::formatv("{0} {1}:{2}:{3}\n",
+                                jv_tcgopc_name_in_def(opc),
+                                nb_oargs, nb_iargs, nb_cargs);
+#endif
+
+  auto output_arg = [&](int i) -> TCGTemp * {
+    assert(i < nb_oargs);
+    return arg_temp(op->args[i]);
+  };
+  auto input_arg = [&](int i) -> TCGTemp * {
+    assert(i < nb_iargs);
+    return arg_temp(op->args[nb_oargs + i]);
+  };
+  auto const_arg = [&](int i) -> TCGArg {
+    assert(i < nb_cargs);
+    return op->args[nb_oargs + nb_iargs + i];
+  };
+
+  /* Set two 32 bit registers from a 64 bit value. */
+  auto write_reg64 = [&](TCGTemp *high, TCGTemp *low, llvm::Value *value) -> void {
+    assert(TCG_TARGET_REG_BITS == 32);
+    assert(value->getType()->isIntegerTy(64));
+
+    set(IRB.CreateTrunc(value, IRB.getInt32Ty()), low);
+    set(IRB.CreateTrunc(IRB.CreateLShr(value, IRB.getInt64(32)),
+                        IRB.getInt32Ty()), high);
+  };
+
+  /* Create a 64 bit value from two 32 bit values. */
+  auto uint64 = [&](llvm::Value *high, llvm::Value *low) -> llvm::Value * {
+    assert(high->getType()->isIntegerTy(32));
+    assert(low->getType()->isIntegerTy(32));
+
+    return IRB.CreateAdd(
+        IRB.CreateShl(IRB.CreateZExt(high, IRB.getInt64Ty()), IRB.getInt64(32)),
+        IRB.CreateZExt(low, IRB.getInt64Ty()));
+  };
+
+  auto do_qemu_ld = [&](llvm::Value *Addr, MemOpIdx oi) -> llvm::Value * {
+    MemOp mop = get_memop(oi);
+
+    Addr = IRB.CreateZExt(Addr, WordType());
+
+    Addr = IRB.CreateIntToPtr(                                             
+        Addr, llvm::PointerType::get(IRB.getIntNTy(BitsOfMemOp(mop)), 0));
+                            
+    llvm::LoadInst *LI = IRB.CreateLoad(Addr);                  
+    LI->setMetadata(llvm::LLVMContext::MD_noalias, AliasScopeMetadata);
+
+    llvm::Value *Res = LI;
+
+    if (mop & MO_BSWAP) {
+      assert(BitsOfMemOp(mop) > 8);
+
+      llvm::Type *Tys[] = {IRB.getIntNTy(BitsOfMemOp(mop))};
+      llvm::Function *bswap =
+          llvm::Intrinsic::getDeclaration(Module.get(), llvm::Intrinsic::bswap,
+                                          llvm::ArrayRef<llvm::Type *>(Tys, 1));
+      Res = IRB.CreateCall(bswap, Res);
+    }
+
+    Res = IRB.CreateIntCast(Res, IRB.getInt64Ty(), !!(mop & MO_SIGN));
+
+    return Res;
+  };
+
+  auto do_qemu_st = [&](llvm::Value *Addr, llvm::Value *Val, MemOpIdx oi) -> void {
+    assert(Val->getType()->isIntegerTy(64));
+
+    MemOp mop = get_memop(oi);
+    assert(!(mop & MO_SIGN));
+
+    Addr = IRB.CreateZExt(Addr, WordType());
+    Addr = IRB.CreateIntToPtr(
+        Addr, llvm::PointerType::get(IRB.getIntNTy(BitsOfMemOp(mop)), 0));
+
+    llvm::StoreInst *St = IRB.CreateStore(
+        IRB.CreateIntCast(Val, IRB.getIntNTy(BitsOfMemOp(mop)), false), Addr);
+    St->setMetadata(llvm::LLVMContext::MD_noalias, AliasScopeMetadata);
+  };
+
+  auto do_ld_or_store = [&](bool IsLoad, unsigned bits, bool Signed) -> void {
+    TCGArg ofs = const_arg(0);
+    llvm::Value *ptr = get(input_arg(IsLoad ? 0 : 1));
+
+    ptr = IRB.CreateZExt(ptr, WordType());
+    ptr = IRB.CreateAdd(ptr, IRB.getIntN(WordBits(), ofs));
+
+    ptr = IRB.CreateIntToPtr(
+        ptr, llvm::PointerType::get(IRB.getIntNTy(bits), 0));
+
+    if (IsLoad) {
+      llvm::LoadInst *LI = IRB.CreateLoad(ptr);
+
+      llvm::Value *Casted =
+          IRB.CreateIntCast(LI,
+                            IRB.getIntNTy(bitsOfTCGType(
+                                tcg_ctx->temps[temp_idx(output_arg(0))].type)),
+                            Signed);
+
+      set(Casted, output_arg(0));
+    } else {
+      llvm::Value *Casted =
+          IRB.CreateIntCast(get(input_arg(0)), IRB.getIntNTy(bits), Signed);
+      IRB.CreateStore(Casted, ptr);
+    }
+  };
+
+  auto do_extract = [&](unsigned bits, bool Signed) -> void {
+    assert(bits == 32 || bits == 64);
+
+    TCGArg start = const_arg(0);
+    TCGArg length = const_arg(1);
+
+    assert(start >= 0 && length > 0 && length <= bits - start);
+
+    if (Signed) {
+      set(IRB.CreateAShr(
+              IRB.CreateShl(get(input_arg(0)),
+                            IRB.getIntN(bits, bits - length - start)),
+              IRB.getIntN(bits, bits - length)),
+          output_arg(0));
+    } else {
+      set(IRB.CreateAnd(
+              IRB.CreateLShr(get(input_arg(0)), IRB.getIntN(bits, start)),
+              IRB.getIntN(bits, ~0ULL >> (bits - length))),
+          output_arg(0));
+    }
+  };
+
+  llvm::Value *taddr = nullptr;
+  llvm::Value *tmp64 = nullptr;
+
+
+#if TCG_TARGET_REG_BITS == 64
+#define CASE_32_64(x)                                                          \
+  case INDEX_op_##x##_i64:                                                     \
+  case INDEX_op_##x##_i32:
+#define CASE_64(x) case INDEX_op_##x##_i64:
+#else
+#define CASE_32_64(x) case INDEX_op_##x##_i32:
+# define CASE_64(x)
+#endif
 
   switch (opc) {
-  case INDEX_op_insn_start:
+  case INDEX_op_insn_start: {
     static uint64_t lstaddr = 0;
     static unsigned NextLine = 0;
 
-    if (op->args[0] == JOVE_PCREL_MAGIC && op->args[1] == JOVE_PCREL_MAGIC) {
+    if (const_arg(0) == JOVE_PCREL_MAGIC) {
       pcrel_flag = true;
 
       if (opts.PrintPCRel)
@@ -8806,6 +8978,9 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
       uint64_t Addr = op->args[0];
       assert(Addr < UINT32_MAX);
 
+      if (IsVerbose())
+        HumanOut() << llvm::formatv("insn @ {0:x}\n", Addr);
+
       lstaddr = Addr;
 
       unsigned Line = Addr;
@@ -8814,13 +8989,14 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
           *Context, Line, 0 /* Column */, TC.DebugInformation.Subprogram));
     }
     break;
+  }
 
   case INDEX_op_discard: {
 #if 0
     TCGTemp *dst = arg_temp(op->args[0]);
     unsigned idx = temp_idx(dst);
 
-    llvm::Type *Ty = IRB.getIntNTy(bitsOfTCGType(TCG->priv->_ctx.temps[idx].type));
+    llvm::Type *Ty = IRB.getIntNTy(bitsOfTCGType(jv_get_tcg_context()->temps[idx].type));
     //set(llvm::UndefValue::get(Ty), dst);
     set(llvm::Constant::getNullValue(Ty), dst);
 #endif
@@ -8850,14 +9026,12 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
   case INDEX_op_call: {
     nb_oargs = TCGOP_CALLO(op);
     nb_iargs = TCGOP_CALLI(op);
-    uintptr_t helper_addr = op->args[nb_oargs + nb_iargs];
-    void *helper_ptr = reinterpret_cast<void *>(helper_addr);
-    const char *helper_nm = tcg_find_helper(&TCG->priv->_ctx, helper_addr);
+    const char *helper_nm = jv_tcg_find_helper(op);
 
     //
     // some helper functions are special-cased
     //
-    if (helper_ptr == helper_lookup_tb_ptr)
+    if (strcmp(helper_nm, "lookup_tb_ptr") == 0) /* FIXME */
       break;
 
     const helper_function_t &hf = LookupHelper(*Module, *TCG, op, opts.DFSan, opts.ForCBE, *this);
@@ -9022,13 +9196,12 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
     break;
   }
 
-  case INDEX_op_movi_i64:
-    set(immediate_constant(64, op->args[1]), arg_temp(op->args[0]));
+#if 1
+  case INDEX_op_mov_i64:
+  case INDEX_op_mov_i32:
+    set(get(input_arg(0)), output_arg(0));
     break;
-
-  case INDEX_op_movi_i32:
-    set(immediate_constant(32, op->args[1]), arg_temp(op->args[0]));
-    break;
+#else
 
   case INDEX_op_mov_i32: {
     assert(nb_iargs == 1);
@@ -9059,6 +9232,7 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
     set(get(src), dst);
     break;
   }
+#endif
 
 #define __EXT_OP(opc_name, truncBits, opBits, signE)                           \
   case opc_name:                                                               \
@@ -9090,99 +9264,80 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
 
 #undef __EXT_OP
 
-#define __OP_QEMU_LD(opc_name, regBits)                                        \
-  case opc_name: {                                                             \
-    assert(nb_iargs == 1);                                                     \
-    assert(nb_oargs == 1 || nb_oargs == 2);                                    \
-                                                                               \
-    TCGMemOpIdx moidx = op->args[nb_oargs + nb_iargs];                         \
-    MemOp mop = get_memop(moidx);                                              \
-                                                                               \
-    llvm::Value *Addr = get(arg_temp(op->args[nb_oargs]));                     \
-    Addr = IRB.CreateZExt(Addr, WordType());                                   \
-    Addr = IRB.CreateIntToPtr(                                                 \
-        Addr, llvm::PointerType::get(IRB.getIntNTy(bits_of_memop(mop)), 0));   \
-                                                                               \
-    llvm::LoadInst *Li = IRB.CreateLoad(Addr);                                 \
-    Li->setMetadata(llvm::LLVMContext::MD_noalias, AliasScopeMetadata);        \
-    llvm::Value *Val = Li;                                                     \
-    if (regBits > bits_of_memop(mop))                                          \
-      Val = mop & MO_SIGN ? IRB.CreateSExt(Val, IRB.getIntNTy(regBits))        \
-                          : IRB.CreateZExt(Val, IRB.getIntNTy(regBits));       \
-                                                                               \
-    if (nb_oargs == 1) {                                                       \
-      set(Val, arg_temp(op->args[0]));                                         \
-      break;                                                                   \
-    }                                                                          \
-                                                                               \
-    assert(nb_oargs == 2);                                                     \
-    assert(WordBits() == 32);                                                  \
-    assert(regBits == 64);                                                     \
-                                                                               \
-    llvm::Value *ValLow = IRB.CreateTrunc(Val, IRB.getInt32Ty());              \
-    llvm::Value *ValHigh = IRB.CreateTrunc(                                    \
-        IRB.CreateLShr(Val, IRB.getInt64(32)), IRB.getInt32Ty());              \
-                                                                               \
-    set(ValLow, arg_temp(op->args[0]));                                        \
-    set(ValHigh, arg_temp(op->args[1]));                                       \
-    break;                                                                     \
-  }
+  case INDEX_op_qemu_ld_a32_i32:
+    taddr = IRB.CreateIntCast(get(input_arg(0)), IRB.getInt32Ty(), false);
+    goto do_ld_i32;
+  case INDEX_op_qemu_ld_a64_i32:
+    if (TCG_TARGET_REG_BITS == 64)
+      taddr = get(input_arg(0));
+    else
+      taddr = uint64(get(input_arg(1)), get(input_arg(0)));
 
-    __OP_QEMU_LD(INDEX_op_qemu_ld_i32, 32)
-    __OP_QEMU_LD(INDEX_op_qemu_ld_i64, 64)
+  do_ld_i32:
+    set(do_qemu_ld(taddr, const_arg(0)), output_arg(0));
+    break;
 
-#undef __OP_QEMU_LD
+  case INDEX_op_qemu_ld_a32_i64:
+    taddr = IRB.CreateIntCast(get(input_arg(0)), IRB.getInt32Ty(), false);
+    goto do_ld_i64;
+  case INDEX_op_qemu_ld_a64_i64:
+    if (TCG_TARGET_REG_BITS == 64)
+      taddr = get(input_arg(0));
+    else
+      taddr = uint64(get(input_arg(1)), get(input_arg(0)));
 
-#define __OP_QEMU_ST(opc_name, bits)                                           \
-  case opc_name: {                                                             \
-    assert(nb_oargs == 0);                                                     \
-    assert(nb_iargs == 2 || nb_iargs == 3);                                    \
-                                                                               \
-    TCGMemOpIdx moidx = op->args[nb_oargs + nb_iargs];                         \
-    MemOp mop = get_memop(moidx);                                              \
-                                                                               \
-    llvm::Value *Addr = get(arg_temp(op->args[nb_oargs + nb_iargs - 1]));      \
-    Addr = IRB.CreateZExt(Addr, WordType());                                   \
-    Addr = IRB.CreateIntToPtr(                                                 \
-        Addr, llvm::PointerType::get(IRB.getIntNTy(bits_of_memop(mop)), 0));   \
-                                                                               \
-    llvm::Value *Val;                                                          \
-    if (nb_iargs == 2) {                                                       \
-      Val = get(arg_temp(op->args[nb_oargs + 0]));                             \
-    } else {                                                                   \
-      assert(nb_iargs == 3);                                                   \
-      assert(WordBits() == 32);                                                \
-      assert(bits == 64);                                                      \
-                                                                               \
-      llvm::Value *LowVal = get(arg_temp(op->args[nb_oargs + 0]));             \
-      llvm::Value *HighVal = get(arg_temp(op->args[nb_oargs + 1]));            \
-                                                                               \
-      Val = IRB.CreateOr(                                                      \
-          IRB.CreateZExt(LowVal, IRB.getInt64Ty()),                            \
-          IRB.CreateShl(IRB.CreateZExt(HighVal, IRB.getInt64Ty()),             \
-                        IRB.getInt64(32)));                                    \
-    }                                                                          \
-                                                                               \
-    Val = IRB.CreateIntCast(Val, IRB.getIntNTy(bits_of_memop(mop)),            \
-                            mop & MO_SIGN ? true : false);                     \
-                                                                               \
-    llvm::StoreInst *St = IRB.CreateStore(Val, Addr);                          \
-    St->setMetadata(llvm::LLVMContext::MD_noalias, AliasScopeMetadata);        \
-    break;                                                                     \
-  }
+  do_ld_i64:
+    tmp64 = do_qemu_ld(taddr, const_arg(0));
+    if (TCG_TARGET_REG_BITS == 32)
+      write_reg64(output_arg(1), output_arg(0), tmp64);
+    else
+      set(tmp64, output_arg(0));
+    break;
 
-    __OP_QEMU_ST(INDEX_op_qemu_st_i32, 32)
-    __OP_QEMU_ST(INDEX_op_qemu_st_i64, 64)
+  case INDEX_op_qemu_st_a32_i32:
+    taddr = IRB.CreateIntCast(get(input_arg(1)), IRB.getInt32Ty(), false);
+    goto do_st_i32;
+  case INDEX_op_qemu_st_a64_i32:
+    if (TCG_TARGET_REG_BITS == 64)
+      taddr = get(input_arg(1));
+    else
+      taddr = uint64(get(input_arg(2)), get(input_arg(1)));
 
-#undef __OP_QEMU_ST
+  do_st_i32:
+    do_qemu_st(taddr,
+               IRB.CreateIntCast(IRB.CreateIntCast(get(input_arg(0)),
+                                                   IRB.getInt32Ty(), false),
+                                 IRB.getInt64Ty(), false),
+               const_arg(0));
+    break;
+
+  case INDEX_op_qemu_st_a32_i64:
+    if (TCG_TARGET_REG_BITS == 64) {
+      tmp64 = get(input_arg(0));
+      taddr = IRB.CreateIntCast(get(input_arg(1)), IRB.getInt32Ty(), false);
+    } else {
+      tmp64 = uint64(get(input_arg(1)), get(input_arg(0)));
+      taddr = get(input_arg(2));
+    }
+    goto do_st_i64;
+  case INDEX_op_qemu_st_a64_i64:
+    if (TCG_TARGET_REG_BITS == 64) {
+      tmp64 = get(input_arg(0));
+      taddr = get(input_arg(1));
+    } else {
+      tmp64 = uint64(get(input_arg(1)), get(input_arg(0)));
+      taddr = uint64(get(input_arg(3)), get(input_arg(2)));
+    }
+
+  do_st_i64:
+    do_qemu_st(taddr, tmp64, const_arg(0));
+    break;
 
 #define __ARITH_OP(opc_name, LLVMOp, bits)                                     \
-  case opc_name: {                                                             \
-    llvm::Value *v1 = get(arg_temp(op->args[1]));                              \
-    llvm::Value *v2 = get(arg_temp(op->args[2]));                              \
-                                                                               \
-    set(IRB.Create##LLVMOp(v1, v2), arg_temp(op->args[0]));                    \
-  } break;
+  case opc_name:                                                               \
+    set(IRB.Create##LLVMOp(get(input_arg(0)), get(input_arg(1))),              \
+        output_arg(0));                                                        \
+    break;
 
     __ARITH_OP(INDEX_op_add_i32, Add, 32)
     __ARITH_OP(INDEX_op_sub_i32, Sub, 32)
@@ -9285,14 +9440,14 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
     if (off == offsetof(CPUMIPSState, lladdr)) {                               \
       TCGTemp *dst = arg_temp(op->args[0]);                                    \
       assert(dst->type == TCG_TYPE_I32);                                       \
-      set(get(&TCG->priv->_ctx.temps[tcg_lladdr_index]), dst);                 \
+      set(get(&jv_get_tcg_context()->temps[tcg_lladdr_index]), dst);                 \
       break;                                                                   \
     }                                                                          \
                                                                                \
     if (off == offsetof(CPUMIPSState, llval)) {                                \
       TCGTemp *dst = arg_temp(op->args[0]);                                    \
       assert(dst->type == TCG_TYPE_I32);                                       \
-      set(get(&TCG->priv->_ctx.temps[tcg_llval_index]), dst);                  \
+      set(get(&jv_get_tcg_context()->temps[tcg_llval_index]), dst);                  \
       break;                                                                   \
     }                                                                          \
                                                                                \
@@ -9336,6 +9491,7 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
     break;                                                                     \
   }
 
+#if 0
     __LD_OP(INDEX_op_ld8u_i32,  8,  32, Z)
     __LD_OP(INDEX_op_ld8s_i32,  8,  32, S)
     __LD_OP(INDEX_op_ld16u_i32, 16, 32, Z)
@@ -9351,6 +9507,7 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
     __LD_OP(INDEX_op_ld32s_i64, 32, 64, S)
     __LD_OP(INDEX_op_ld_i64,    64, 64, Z)
 #endif
+#endif
 
 #undef __LD_OP
 
@@ -9358,12 +9515,12 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
 #define __ARCH_ST_OP(off)                                                      \
   {                                                                            \
     if (off == offsetof(CPUMIPSState, lladdr)) {                               \
-      set(Val, &TCG->priv->_ctx.temps[tcg_lladdr_index]);                      \
+      set(Val, &jv_get_tcg_context()->temps[tcg_lladdr_index]);                      \
       break;                                                                   \
     }                                                                          \
                                                                                \
     if (off == offsetof(CPUMIPSState, llval)) {                                \
-      set(Val, &TCG->priv->_ctx.temps[tcg_llval_index]);                       \
+      set(Val, &jv_get_tcg_context()->temps[tcg_llval_index]);                       \
       break;                                                                   \
     }                                                                          \
                                                                                \
@@ -9415,6 +9572,7 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
     break;                                                                     \
   }
 
+#if 0
     __ST_OP(INDEX_op_st8_i32, 8, 32)
     __ST_OP(INDEX_op_st16_i32, 16, 32)
     __ST_OP(INDEX_op_st_i32, 32, 32)
@@ -9425,8 +9583,51 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
     __ST_OP(INDEX_op_st32_i64, 32, 64)
     __ST_OP(INDEX_op_st_i64, 64, 64)
 #endif
+#endif
 
 #undef __ST_OP
+
+        /* Load/store operations (32 bit). */
+        CASE_32_64(ld8u)
+            do_ld_or_store(true, 8, false);
+            break;
+        CASE_32_64(ld8s)
+            do_ld_or_store(true, 8, true);
+            break;
+        CASE_32_64(ld16u)
+            do_ld_or_store(true, 16, false);
+            break;
+        CASE_32_64(ld16s)
+            do_ld_or_store(true, 16, true);
+            break;
+        case INDEX_op_ld_i32:
+        CASE_64(ld32u)
+            do_ld_or_store(true, 32, false);
+            break;
+        CASE_32_64(st8)
+            do_ld_or_store(false, 8, false);
+            break;
+        CASE_32_64(st16)
+            do_ld_or_store(false, 16, false);
+            break;
+        case INDEX_op_st_i32:
+        CASE_64(st32)
+            do_ld_or_store(false, 32, false);
+            break;
+
+#if TCG_TARGET_REG_BITS == 64
+         /* Load/store operations (64 bit). */
+        case INDEX_op_ld32s_i64:
+            do_ld_or_store(true, 32, true);
+            break;
+        case INDEX_op_ld_i64:
+            do_ld_or_store(true, 64, false);
+            break;
+        case INDEX_op_st_i64:
+            do_ld_or_store(false, 64, false);
+            break;
+#endif
+
 
   case INDEX_op_br: {
     llvm::BasicBlock* lblB = LabelVec.at(arg_label(op->args[0])->id);
@@ -9718,6 +9919,19 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
     break;
   }
 
+  case INDEX_op_extract_i32:
+    do_extract(32, false);
+    break;
+  case INDEX_op_sextract_i32:
+    do_extract(32, true);
+    break;
+  case INDEX_op_extract_i64:
+    do_extract(64, false);
+    break;
+  case INDEX_op_sextract_i64:
+    do_extract(64, true);
+    break;
+
   case INDEX_op_muluh_i64: {
     TCGTemp *dst = arg_temp(op->args[0]);
     TCGTemp *src1 = arg_temp(op->args[1]);
@@ -9880,7 +10094,8 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
   }
 
   default:
-    return 1;
+    throw std::runtime_error(std::string("unhandled TCGOpcode: ") +
+                             jv_tcgopc_name_in_def(opc));
   }
 
   return 0;

@@ -8,4 +8,6 @@ elseif (LLVM_VERSION_MAJOR LESS 10)
   message(WARNING "Building with LLVM < 10.0.0 is at your own risk.")
 endif()
 
+set(JOVE_SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR})
+
 add_subdirectory(tools)

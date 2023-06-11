@@ -104,4 +104,8 @@ std::string locator_t::ida_scripts(void) {
   return must_exist(scripts_path()  / "ida" / "_");
 }
 
+std::string locator_t::softfloat_bitcode(void) {
+  return must_exist(jove_path() / "qemu" / "carbon_build" / "libfpu_soft.a");
+}
+
 }

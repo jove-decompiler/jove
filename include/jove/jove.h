@@ -13,6 +13,8 @@
 #include <boost/icl/split_interval_map.hpp>
 #endif /* __cplusplus */
 
+#if 1
+
 #if defined(TARGET_AARCH64)
 #include <jove/tcgconstants-aarch64.h>
 #elif defined(TARGET_X86_64)
@@ -29,12 +31,18 @@
 #error "unknown target"
 #endif
 
+#endif
+
 #ifndef likely
 #define likely(x) __builtin_expect(!!(x), 1)
 #endif
 
 #ifndef unlikely
 #define unlikely(x) __builtin_expect(!!(x), 0)
+#endif
+
+#ifndef ARRAY_SIZE
+#define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
 #endif
 
 #ifdef __cplusplus

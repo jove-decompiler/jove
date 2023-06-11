@@ -793,7 +793,7 @@ int RunTool::DoRun(void) {
         },
         std::string(),
         std::string(),
-        [&](const char **, const char **) {
+        [&](const char **_argv, const char **_argc) {
           if (LivingDangerously) {
             //
             // close unused read end of pipe
@@ -870,6 +870,8 @@ int RunTool::DoRun(void) {
           }
 
           drop_privileges();
+
+          print_command(_argv);
         });
   } catch (const std::exception &e) {
 #if 0

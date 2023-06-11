@@ -505,8 +505,6 @@ found:
 
 _HIDDEN void _jove_recover_returned(uint32_t CallerBBIdx) {
   char *recover_fifo_path = _getenv("JOVE_RECOVER_FIFO");
-  if (!recover_fifo_path)
-    _UNREACHABLE("missing JOVE_RECOVER_FIFO environment variable");
 
   struct {
     uint32_t BIdx;

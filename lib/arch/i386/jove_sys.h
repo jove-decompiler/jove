@@ -46,7 +46,7 @@ typedef s32 old_time32_t;
 #define __SYSCALL_CLOBBERS "memory", "cc"
 
 #define ___SYSCALL0(nr, nm)                                                    \
-  JOVE_SYS_ATTR long _jove_sys_##nm(void) {                                    \
+static  JOVE_SYS_ATTR long _jove_sys_##nm(void) {                                    \
     long retval;                                                               \
                                                                                \
     unsigned long _nr = nr;                                                    \
@@ -60,7 +60,7 @@ typedef s32 old_time32_t;
   }
 
 #define ___SYSCALL1(nr, nm, t1, a1)                                            \
-  JOVE_SYS_ATTR long _jove_sys_##nm(long a1) {                                 \
+static  JOVE_SYS_ATTR long _jove_sys_##nm(long a1) {                                 \
     long retval;                                                               \
                                                                                \
     unsigned long _nr = nr;                                                    \
@@ -75,7 +75,7 @@ typedef s32 old_time32_t;
   }
 
 #define ___SYSCALL2(nr, nm, t1, a1, t2, a2)                                    \
-  JOVE_SYS_ATTR long _jove_sys_##nm(long a1, long a2) {                        \
+static  JOVE_SYS_ATTR long _jove_sys_##nm(long a1, long a2) {                        \
     long retval;                                                               \
                                                                                \
     unsigned long _nr = nr;                                                    \
@@ -91,7 +91,7 @@ typedef s32 old_time32_t;
   }
 
 #define ___SYSCALL3(nr, nm, t1, a1, t2, a2, t3, a3)                            \
-  JOVE_SYS_ATTR long _jove_sys_##nm(long a1, long a2, long a3) {               \
+static  JOVE_SYS_ATTR long _jove_sys_##nm(long a1, long a2, long a3) {               \
     long retval;                                                               \
                                                                                \
     unsigned long _nr = nr;                                                    \
@@ -108,7 +108,7 @@ typedef s32 old_time32_t;
   }
 
 #define ___SYSCALL4(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4)                    \
-  JOVE_SYS_ATTR long _jove_sys_##nm(long a1, long a2, long a3,                 \
+static  JOVE_SYS_ATTR long _jove_sys_##nm(long a1, long a2, long a3,                 \
                                            long a4) {                          \
     long retval;                                                               \
                                                                                \
@@ -127,7 +127,7 @@ typedef s32 old_time32_t;
   }
 
 #define ___SYSCALL5(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5)            \
-  JOVE_SYS_ATTR long _jove_sys_##nm(long a1, long a2, long a3, long a4,        \
+static  JOVE_SYS_ATTR long _jove_sys_##nm(long a1, long a2, long a3, long a4,        \
                                            long a5) {                          \
     long retval;                                                               \
                                                                                \
@@ -151,7 +151,7 @@ typedef s32 old_time32_t;
 // is because the sixth argument is in ebp.
 //
 #define ___SYSCALL6(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5, t6, a6)    \
-  JOVE_SYS_ATTR __attribute__((naked)) long _jove_sys_##nm(                    \
+static  JOVE_SYS_ATTR __attribute__((naked)) long _jove_sys_##nm(                    \
       long a1, long a2, long a3, long a4, long a5, long a6) {                  \
     asm volatile("pushl %%ebp\n"                                               \
                  "pushl %%ebx\n"                                               \

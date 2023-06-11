@@ -126,7 +126,7 @@ JOVE_RT_DEPS := $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/libjove_rt.s
 #
 # TCG helpers (for each architecture)
 #
-x86_64_HELPERS := cc_compute_all cc_compute_c write_eflags read_eflags divb_AL idivb_AL divw_AX idivw_AX divl_EAX idivl_EAX divq_EAX idivq_EAX cr4_testbit bndck bndldx32 bndldx64 bndstx32 bndstx64 bnd_jmp aam aad aaa aas daa das lsl lar verr verw lldt ltr load_seg ljmp_protected lcall_real lcall_protected iret_real iret_protected lret_protected read_crN write_crN lmsw clts set_dr get_dr invlpg sysenter sysexit syscall sysret hlt monitor mwait pause debug reset_rf raise_interrupt raise_exception cli sti clac stac boundw boundl rsm into cmpxchg8b_unlocked cmpxchg8b cmpxchg16b_unlocked cmpxchg16b single_step rechecking_single_step cpuid rdtsc rdtscp rdpmc rdmsr wrmsr check_iob check_iow check_iol outb inb outw inw outl inl bpt_io svm_check_intercept_param svm_check_io vmrun vmmcall vmload vmsave stgi clgi skinit invlpga flds_FT0 fldl_FT0 fildl_FT0 flds_ST0 fldl_ST0 fildl_ST0 fildll_ST0 fsts_ST0 fstl_ST0 fist_ST0 fistl_ST0 fistll_ST0 fistt_ST0 fisttl_ST0 fisttll_ST0 fldt_ST0 fstt_ST0 fpush fpop fdecstp fincstp ffree_STN fmov_ST0_FT0 fmov_FT0_STN fmov_ST0_STN fmov_STN_ST0 fxchg_ST0_STN fcom_ST0_FT0 fucom_ST0_FT0 fcomi_ST0_FT0 fucomi_ST0_FT0 fadd_ST0_FT0 fmul_ST0_FT0 fsub_ST0_FT0 fsubr_ST0_FT0 fdiv_ST0_FT0 fdivr_ST0_FT0 fadd_STN_ST0 fmul_STN_ST0 fsub_STN_ST0 fsubr_STN_ST0 fdiv_STN_ST0 fdivr_STN_ST0 fchs_ST0 fabs_ST0 fxam_ST0 fld1_ST0 fldl2t_ST0 fldl2e_ST0 fldpi_ST0 fldlg2_ST0 fldln2_ST0 fldz_ST0 fldz_FT0 fnstsw fnstcw fldcw fclex fwait fninit fbld_ST0 fbst_ST0 f2xm1 fyl2x fptan fpatan fxtract fprem1 fprem fyl2xp1 fsqrt fsincos frndint fscale fsin fcos fstenv fldenv fsave frstor fxsave fxrstor xsave xsaveopt xrstor xgetbv xsetbv rdpkru wrpkru pdep pext ldmxcsr enter_mmx emms movq psrlw_mmx psraw_mmx psllw_mmx psrld_mmx psrad_mmx pslld_mmx psrlq_mmx psllq_mmx paddb_mmx paddw_mmx paddl_mmx paddq_mmx psubb_mmx psubw_mmx psubl_mmx psubq_mmx paddusb_mmx paddsb_mmx psubusb_mmx psubsb_mmx paddusw_mmx paddsw_mmx psubusw_mmx psubsw_mmx pminub_mmx pmaxub_mmx pminsw_mmx pmaxsw_mmx pand_mmx pandn_mmx por_mmx pxor_mmx pcmpgtb_mmx pcmpgtw_mmx pcmpgtl_mmx pcmpeqb_mmx pcmpeqw_mmx pcmpeql_mmx pmullw_mmx pmulhrw_mmx pmulhuw_mmx pmulhw_mmx pavgb_mmx pavgw_mmx pmuludq_mmx pmaddwd_mmx psadbw_mmx maskmov_mmx movl_mm_T0_mmx movq_mm_T0_mmx pshufw_mmx pmovmskb_mmx packsswb_mmx packuswb_mmx packssdw_mmx punpcklbw_mmx punpcklwd_mmx punpckldq_mmx punpckhbw_mmx punpckhwd_mmx punpckhdq_mmx pi2fd pi2fw pf2id pf2iw pfacc pfadd pfcmpeq pfcmpge pfcmpgt pfmax pfmin pfmul pfnacc pfpnacc pfrcp pfrsqrt pfsub pfsubr pswapd phaddw_mmx phaddd_mmx phaddsw_mmx phsubw_mmx phsubd_mmx phsubsw_mmx pabsb_mmx pabsw_mmx pabsd_mmx pmaddubsw_mmx pmulhrsw_mmx pshufb_mmx psignb_mmx psignw_mmx psignd_mmx palignr_mmx psrlw_xmm psraw_xmm psllw_xmm psrld_xmm psrad_xmm pslld_xmm psrlq_xmm psllq_xmm psrldq_xmm pslldq_xmm paddb_xmm paddw_xmm paddl_xmm paddq_xmm psubb_xmm psubw_xmm psubl_xmm psubq_xmm paddusb_xmm paddsb_xmm psubusb_xmm psubsb_xmm paddusw_xmm paddsw_xmm psubusw_xmm psubsw_xmm pminub_xmm pmaxub_xmm pminsw_xmm pmaxsw_xmm pand_xmm pandn_xmm por_xmm pxor_xmm pcmpgtb_xmm pcmpgtw_xmm pcmpgtl_xmm pcmpeqb_xmm pcmpeqw_xmm pcmpeql_xmm pmullw_xmm pmulhuw_xmm pmulhw_xmm pavgb_xmm pavgw_xmm pmuludq_xmm pmaddwd_xmm psadbw_xmm maskmov_xmm movl_mm_T0_xmm movq_mm_T0_xmm shufps shufpd pshufd_xmm pshuflw_xmm pshufhw_xmm addps addss addpd addsd subps subss subpd subsd mulps mulss mulpd mulsd divps divss divpd divsd minps minss minpd minsd maxps maxss maxpd maxsd sqrtps sqrtss sqrtpd sqrtsd cvtps2pd cvtpd2ps cvtss2sd cvtsd2ss cvtdq2ps cvtdq2pd cvtpi2ps cvtpi2pd cvtsi2ss cvtsi2sd cvtsq2ss cvtsq2sd cvtps2dq cvtpd2dq cvtps2pi cvtpd2pi cvtss2si cvtsd2si cvtss2sq cvtsd2sq cvttps2dq cvttpd2dq cvttps2pi cvttpd2pi cvttss2si cvttsd2si cvttss2sq cvttsd2sq rsqrtps rsqrtss rcpps rcpss extrq_r extrq_i insertq_r insertq_i haddps haddpd hsubps hsubpd addsubps addsubpd cmpeqps cmpeqss cmpeqpd cmpeqsd cmpltps cmpltss cmpltpd cmpltsd cmpleps cmpless cmplepd cmplesd cmpunordps cmpunordss cmpunordpd cmpunordsd cmpneqps cmpneqss cmpneqpd cmpneqsd cmpnltps cmpnltss cmpnltpd cmpnltsd cmpnleps cmpnless cmpnlepd cmpnlesd cmpordps cmpordss cmpordpd cmpordsd ucomiss comiss ucomisd comisd movmskps movmskpd pmovmskb_xmm packsswb_xmm packuswb_xmm packssdw_xmm punpcklbw_xmm punpcklwd_xmm punpckldq_xmm punpckhbw_xmm punpckhwd_xmm punpckhdq_xmm punpcklqdq_xmm punpckhqdq_xmm phaddw_xmm phaddd_xmm phaddsw_xmm phsubw_xmm phsubd_xmm phsubsw_xmm pabsb_xmm pabsw_xmm pabsd_xmm pmaddubsw_xmm pmulhrsw_xmm pshufb_xmm psignb_xmm psignw_xmm psignd_xmm palignr_xmm pblendvb_xmm blendvps_xmm blendvpd_xmm ptest_xmm pmovsxbw_xmm pmovsxbd_xmm pmovsxbq_xmm pmovsxwd_xmm pmovsxwq_xmm pmovsxdq_xmm pmovzxbw_xmm pmovzxbd_xmm pmovzxbq_xmm pmovzxwd_xmm pmovzxwq_xmm pmovzxdq_xmm pmuldq_xmm pcmpeqq_xmm packusdw_xmm pminsb_xmm pminsd_xmm pminuw_xmm pminud_xmm pmaxsb_xmm pmaxsd_xmm pmaxuw_xmm pmaxud_xmm pmulld_xmm phminposuw_xmm roundps_xmm roundpd_xmm roundss_xmm roundsd_xmm blendps_xmm blendpd_xmm pblendw_xmm dpps_xmm dppd_xmm mpsadbw_xmm pcmpgtq_xmm pcmpestri_xmm pcmpestrm_xmm pcmpistri_xmm pcmpistrm_xmm crc32 aesdec_xmm aesdeclast_xmm aesenc_xmm aesenclast_xmm aesimc_xmm aeskeygenassist_xmm pclmulqdq_xmm rclb rclw rcll rcrb rcrw rcrl rclq rcrq rdrand trace_guest_mem_before_exec_proxy div_i32 rem_i32 divu_i32 remu_i32 div_i64 rem_i64 divu_i64 remu_i64 shl_i64 shr_i64 sar_i64 mulsh_i64 muluh_i64 clz_i32 ctz_i32 clz_i64 ctz_i64 clrsb_i32 clrsb_i64 ctpop_i32 ctpop_i64 lookup_tb_ptr exit_atomic atomic_cmpxchgb atomic_cmpxchgw_be atomic_cmpxchgw_le atomic_cmpxchgl_be atomic_cmpxchgl_le atomic_cmpxchgq_be atomic_cmpxchgq_le atomic_fetch_addb atomic_fetch_addw_le atomic_fetch_addw_be atomic_fetch_addl_le atomic_fetch_addl_be atomic_fetch_addq_le atomic_fetch_addq_be atomic_fetch_andb atomic_fetch_andw_le atomic_fetch_andw_be atomic_fetch_andl_le atomic_fetch_andl_be atomic_fetch_andq_le atomic_fetch_andq_be atomic_fetch_orb atomic_fetch_orw_le atomic_fetch_orw_be atomic_fetch_orl_le atomic_fetch_orl_be atomic_fetch_orq_le atomic_fetch_orq_be atomic_fetch_xorb atomic_fetch_xorw_le atomic_fetch_xorw_be atomic_fetch_xorl_le atomic_fetch_xorl_be atomic_fetch_xorq_le atomic_fetch_xorq_be atomic_fetch_sminb atomic_fetch_sminw_le atomic_fetch_sminw_be atomic_fetch_sminl_le atomic_fetch_sminl_be atomic_fetch_sminq_le atomic_fetch_sminq_be atomic_fetch_uminb atomic_fetch_uminw_le atomic_fetch_uminw_be atomic_fetch_uminl_le atomic_fetch_uminl_be atomic_fetch_uminq_le atomic_fetch_uminq_be atomic_fetch_smaxb atomic_fetch_smaxw_le atomic_fetch_smaxw_be atomic_fetch_smaxl_le atomic_fetch_smaxl_be atomic_fetch_smaxq_le atomic_fetch_smaxq_be atomic_fetch_umaxb atomic_fetch_umaxw_le atomic_fetch_umaxw_be atomic_fetch_umaxl_le atomic_fetch_umaxl_be atomic_fetch_umaxq_le atomic_fetch_umaxq_be atomic_add_fetchb atomic_add_fetchw_le atomic_add_fetchw_be atomic_add_fetchl_le atomic_add_fetchl_be atomic_add_fetchq_le atomic_add_fetchq_be atomic_and_fetchb atomic_and_fetchw_le atomic_and_fetchw_be atomic_and_fetchl_le atomic_and_fetchl_be atomic_and_fetchq_le atomic_and_fetchq_be atomic_or_fetchb atomic_or_fetchw_le atomic_or_fetchw_be atomic_or_fetchl_le atomic_or_fetchl_be atomic_or_fetchq_le atomic_or_fetchq_be atomic_xor_fetchb atomic_xor_fetchw_le atomic_xor_fetchw_be atomic_xor_fetchl_le atomic_xor_fetchl_be atomic_xor_fetchq_le atomic_xor_fetchq_be atomic_smin_fetchb atomic_smin_fetchw_le atomic_smin_fetchw_be atomic_smin_fetchl_le atomic_smin_fetchl_be atomic_smin_fetchq_le atomic_smin_fetchq_be atomic_umin_fetchb atomic_umin_fetchw_le atomic_umin_fetchw_be atomic_umin_fetchl_le atomic_umin_fetchl_be atomic_umin_fetchq_le atomic_umin_fetchq_be atomic_smax_fetchb atomic_smax_fetchw_le atomic_smax_fetchw_be atomic_smax_fetchl_le atomic_smax_fetchl_be atomic_smax_fetchq_le atomic_smax_fetchq_be atomic_umax_fetchb atomic_umax_fetchw_le atomic_umax_fetchw_be atomic_umax_fetchl_le atomic_umax_fetchl_be atomic_umax_fetchq_le atomic_umax_fetchq_be atomic_xchgb atomic_xchgw_le atomic_xchgw_be atomic_xchgl_le atomic_xchgl_be atomic_xchgq_le atomic_xchgq_be gvec_mov gvec_dup8 gvec_dup16 gvec_dup32 gvec_dup64 gvec_add8 gvec_add16 gvec_add32 gvec_add64 gvec_adds8 gvec_adds16 gvec_adds32 gvec_adds64 gvec_sub8 gvec_sub16 gvec_sub32 gvec_sub64 gvec_subs8 gvec_subs16 gvec_subs32 gvec_subs64 gvec_mul8 gvec_mul16 gvec_mul32 gvec_mul64 gvec_muls8 gvec_muls16 gvec_muls32 gvec_muls64 gvec_ssadd8 gvec_ssadd16 gvec_ssadd32 gvec_ssadd64 gvec_sssub8 gvec_sssub16 gvec_sssub32 gvec_sssub64 gvec_usadd8 gvec_usadd16 gvec_usadd32 gvec_usadd64 gvec_ussub8 gvec_ussub16 gvec_ussub32 gvec_ussub64 gvec_smin8 gvec_smin16 gvec_smin32 gvec_smin64 gvec_smax8 gvec_smax16 gvec_smax32 gvec_smax64 gvec_umin8 gvec_umin16 gvec_umin32 gvec_umin64 gvec_umax8 gvec_umax16 gvec_umax32 gvec_umax64 gvec_neg8 gvec_neg16 gvec_neg32 gvec_neg64 gvec_abs8 gvec_abs16 gvec_abs32 gvec_abs64 gvec_not gvec_and gvec_or gvec_xor gvec_andc gvec_orc gvec_nand gvec_nor gvec_eqv gvec_ands gvec_xors gvec_ors gvec_shl8i gvec_shl16i gvec_shl32i gvec_shl64i gvec_shr8i gvec_shr16i gvec_shr32i gvec_shr64i gvec_sar8i gvec_sar16i gvec_sar32i gvec_sar64i gvec_shl8v gvec_shl16v gvec_shl32v gvec_shl64v gvec_shr8v gvec_shr16v gvec_shr32v gvec_shr64v gvec_sar8v gvec_sar16v gvec_sar32v gvec_sar64v gvec_eq8 gvec_eq16 gvec_eq32 gvec_eq64 gvec_ne8 gvec_ne16 gvec_ne32 gvec_ne64 gvec_lt8 gvec_lt16 gvec_lt32 gvec_lt64 gvec_le8 gvec_le16 gvec_le32 gvec_le64 gvec_ltu8 gvec_ltu16 gvec_ltu32 gvec_ltu64 gvec_leu8 gvec_leu16 gvec_leu32 gvec_leu64 gvec_bitsel
+x86_64_HELPERS := cc_compute_all cc_compute_c write_eflags read_eflags divb_AL idivb_AL divw_AX idivw_AX divl_EAX idivl_EAX divq_EAX idivq_EAX cr4_testbit bndck bndldx32 bndldx64 bndstx32 bndstx64 bnd_jmp aam aad aaa aas daa das lsl lar verr verw lldt ltr load_seg ljmp_protected lcall_real lcall_protected iret_real iret_protected lret_protected clts sysenter sysexit syscall sysret pause raise_interrupt raise_exception boundw boundl into single_step rechecking_single_step cpuid rdtsc rdtscp rdpmc flds_FT0 fldl_FT0 fildl_FT0 flds_ST0 fldl_ST0 fildl_ST0 fildll_ST0 fsts_ST0 fstl_ST0 fist_ST0 fistl_ST0 fistll_ST0 fistt_ST0 fisttl_ST0 fisttll_ST0 fldt_ST0 fstt_ST0 fpush fpop fdecstp fincstp ffree_STN fmov_ST0_FT0 fmov_FT0_STN fmov_ST0_STN fmov_STN_ST0 fxchg_ST0_STN fcom_ST0_FT0 fucom_ST0_FT0 fcomi_ST0_FT0 fucomi_ST0_FT0 fadd_ST0_FT0 fmul_ST0_FT0 fsub_ST0_FT0 fsubr_ST0_FT0 fdiv_ST0_FT0 fdivr_ST0_FT0 fadd_STN_ST0 fmul_STN_ST0 fsub_STN_ST0 fsubr_STN_ST0 fdiv_STN_ST0 fdivr_STN_ST0 fchs_ST0 fabs_ST0 fxam_ST0 fld1_ST0 fldl2t_ST0 fldl2e_ST0 fldpi_ST0 fldlg2_ST0 fldln2_ST0 fldz_ST0 fldz_FT0 fnstsw fnstcw fldcw fclex fwait fninit fbld_ST0 fbst_ST0 f2xm1 fyl2x fptan fpatan fxtract fprem1 fprem fyl2xp1 fsqrt fsincos frndint fscale fsin fcos fstenv fldenv fsave frstor fxsave fxrstor xsave xsaveopt xrstor xgetbv xsetbv rdpkru wrpkru pdep pext ldmxcsr update_mxcsr enter_mmx emms psrlw_mmx psraw_mmx psllw_mmx psrld_mmx psrad_mmx pslld_mmx psrlq_mmx psllq_mmx pmulhrw_mmx pmulhuw_mmx pmulhw_mmx pavgb_mmx pavgw_mmx pmuludq_mmx pmaddwd_mmx psadbw_mmx maskmov_mmx pshufw_mmx packsswb_mmx packuswb_mmx packssdw_mmx punpcklbw_mmx punpcklwd_mmx punpckldq_mmx punpckhbw_mmx punpckhwd_mmx punpckhdq_mmx pi2fd pi2fw pf2id pf2iw pfacc pfadd pfcmpeq pfcmpge pfcmpgt pfmax pfmin pfmul pfnacc pfpnacc pfrcp pfrsqrt pfsub pfsubr pswapd phaddw_mmx phaddd_mmx phaddsw_mmx phsubw_mmx phsubd_mmx phsubsw_mmx pmaddubsw_mmx pmulhrsw_mmx pshufb_mmx psignb_mmx psignw_mmx psignd_mmx palignr_mmx psrlw_xmm psraw_xmm psllw_xmm psrld_xmm psrad_xmm pslld_xmm psrlq_xmm psllq_xmm psrldq_xmm pslldq_xmm pmulhuw_xmm pmulhw_xmm pavgb_xmm pavgw_xmm pmuludq_xmm pmaddwd_xmm psadbw_xmm maskmov_xmm pshufd_xmm pshuflw_xmm pshufhw_xmm shufps_xmm shufpd_xmm addps_xmm addpd_xmm addss addsd subps_xmm subpd_xmm subss subsd mulps_xmm mulpd_xmm mulss mulsd divps_xmm divpd_xmm divss divsd minps_xmm minpd_xmm minss minsd maxps_xmm maxpd_xmm maxss maxsd sqrtps_xmm sqrtpd_xmm sqrtss sqrtsd cvtps2pd_xmm cvtpd2ps_xmm cvtdq2ps_xmm cvtdq2pd_xmm cvtps2dq_xmm cvtpd2dq_xmm cvttps2dq_xmm cvttpd2dq_xmm cvtss2sd cvtsd2ss cvtpi2ps cvtpi2pd cvtsi2ss cvtsi2sd cvtsq2ss cvtsq2sd cvtps2pi cvtpd2pi cvtss2si cvtsd2si cvtss2sq cvtsd2sq cvttps2pi cvttpd2pi cvttss2si cvttsd2si cvttss2sq cvttsd2sq rsqrtps_xmm rcpps_xmm rsqrtss rcpss extrq_r extrq_i insertq_r insertq_i haddps_xmm haddpd_xmm hsubps_xmm hsubpd_xmm addsubps_xmm addsubpd_xmm cmpeqps_xmm cmpeqpd_xmm cmpeqss cmpeqsd cmpltps_xmm cmpltpd_xmm cmpltss cmpltsd cmpleps_xmm cmplepd_xmm cmpless cmplesd cmpunordps_xmm cmpunordpd_xmm cmpunordss cmpunordsd cmpneqps_xmm cmpneqpd_xmm cmpneqss cmpneqsd cmpnltps_xmm cmpnltpd_xmm cmpnltss cmpnltsd cmpnleps_xmm cmpnlepd_xmm cmpnless cmpnlesd cmpordps_xmm cmpordpd_xmm cmpordss cmpordsd cmpequps_xmm cmpequpd_xmm cmpequss cmpequsd cmpngeps_xmm cmpngepd_xmm cmpngess cmpngesd cmpngtps_xmm cmpngtpd_xmm cmpngtss cmpngtsd cmpfalseps_xmm cmpfalsepd_xmm cmpfalsess cmpfalsesd cmpnequps_xmm cmpnequpd_xmm cmpnequss cmpnequsd cmpgeps_xmm cmpgepd_xmm cmpgess cmpgesd cmpgtps_xmm cmpgtpd_xmm cmpgtss cmpgtsd cmptrueps_xmm cmptruepd_xmm cmptruess cmptruesd cmpeqsps_xmm cmpeqspd_xmm cmpeqsss cmpeqssd cmpltqps_xmm cmpltqpd_xmm cmpltqss cmpltqsd cmpleqps_xmm cmpleqpd_xmm cmpleqss cmpleqsd cmpunordsps_xmm cmpunordspd_xmm cmpunordsss cmpunordssd cmpneqqps_xmm cmpneqqpd_xmm cmpneqqss cmpneqqsd cmpnltqps_xmm cmpnltqpd_xmm cmpnltqss cmpnltqsd cmpnleqps_xmm cmpnleqpd_xmm cmpnleqss cmpnleqsd cmpordsps_xmm cmpordspd_xmm cmpordsss cmpordssd cmpequsps_xmm cmpequspd_xmm cmpequsss cmpequssd cmpngeqps_xmm cmpngeqpd_xmm cmpngeqss cmpngeqsd cmpngtqps_xmm cmpngtqpd_xmm cmpngtqss cmpngtqsd cmpfalsesps_xmm cmpfalsespd_xmm cmpfalsesss cmpfalsessd cmpnequsps_xmm cmpnequspd_xmm cmpnequsss cmpnequssd cmpgeqps_xmm cmpgeqpd_xmm cmpgeqss cmpgeqsd cmpgtqps_xmm cmpgtqpd_xmm cmpgtqss cmpgtqsd cmptruesps_xmm cmptruespd_xmm cmptruesss cmptruessd ucomiss comiss ucomisd comisd movmskps_xmm movmskpd_xmm packsswb_xmm packuswb_xmm packssdw_xmm punpcklbw_xmm punpcklwd_xmm punpckldq_xmm punpckhbw_xmm punpckhwd_xmm punpckhdq_xmm punpcklqdq_xmm punpckhqdq_xmm phaddw_xmm phaddd_xmm phaddsw_xmm phsubw_xmm phsubd_xmm phsubsw_xmm pmaddubsw_xmm pmulhrsw_xmm pshufb_xmm psignb_xmm psignw_xmm psignd_xmm palignr_xmm pblendvb_xmm blendvps_xmm blendvpd_xmm ptest_xmm pmovsxbw_xmm pmovsxbd_xmm pmovsxbq_xmm pmovsxwd_xmm pmovsxwq_xmm pmovsxdq_xmm pmovzxbw_xmm pmovzxbd_xmm pmovzxbq_xmm pmovzxwd_xmm pmovzxwq_xmm pmovzxdq_xmm pmovsldup_xmm pmovshdup_xmm pmovdldup_xmm pmuldq_xmm packusdw_xmm phminposuw_xmm roundps_xmm roundpd_xmm roundss_xmm roundsd_xmm blendps_xmm blendpd_xmm pblendw_xmm dpps_xmm dppd_xmm mpsadbw_xmm pcmpestri_xmm pcmpestrm_xmm pcmpistri_xmm pcmpistrm_xmm crc32 aesdec_xmm aesdeclast_xmm aesenc_xmm aesenclast_xmm aesimc_xmm aeskeygenassist_xmm pclmulqdq_xmm cvtph2ps_xmm cvtps2ph_xmm fma4ss fma4sd fma4ps_xmm fma4pd_xmm vpermilpd_xmm vpermilps_xmm vpermilpd_imm_xmm vpermilps_imm_xmm vpsrlvd_xmm vpsravd_xmm vpsllvd_xmm vpsrlvq_xmm vpsravq_xmm vpsllvq_xmm vtestps_xmm vtestpd_xmm vpmaskmovd_st_xmm vpmaskmovq_st_xmm vpmaskmovd_xmm vpmaskmovq_xmm vpgatherdd_xmm vpgatherdq_xmm vpgatherqd_xmm vpgatherqq_xmm psrlw_ymm psraw_ymm psllw_ymm psrld_ymm psrad_ymm pslld_ymm psrlq_ymm psllq_ymm psrldq_ymm pslldq_ymm pmulhuw_ymm pmulhw_ymm pavgb_ymm pavgw_ymm pmuludq_ymm pmaddwd_ymm psadbw_ymm pshufd_ymm pshuflw_ymm pshufhw_ymm shufps_ymm shufpd_ymm addps_ymm addpd_ymm subps_ymm subpd_ymm mulps_ymm mulpd_ymm divps_ymm divpd_ymm minps_ymm minpd_ymm maxps_ymm maxpd_ymm sqrtps_ymm sqrtpd_ymm cvtps2pd_ymm cvtpd2ps_ymm cvtdq2ps_ymm cvtdq2pd_ymm cvtps2dq_ymm cvtpd2dq_ymm cvttps2dq_ymm cvttpd2dq_ymm rsqrtps_ymm rcpps_ymm haddps_ymm haddpd_ymm hsubps_ymm hsubpd_ymm addsubps_ymm addsubpd_ymm cmpeqps_ymm cmpeqpd_ymm cmpltps_ymm cmpltpd_ymm cmpleps_ymm cmplepd_ymm cmpunordps_ymm cmpunordpd_ymm cmpneqps_ymm cmpneqpd_ymm cmpnltps_ymm cmpnltpd_ymm cmpnleps_ymm cmpnlepd_ymm cmpordps_ymm cmpordpd_ymm cmpequps_ymm cmpequpd_ymm cmpngeps_ymm cmpngepd_ymm cmpngtps_ymm cmpngtpd_ymm cmpfalseps_ymm cmpfalsepd_ymm cmpnequps_ymm cmpnequpd_ymm cmpgeps_ymm cmpgepd_ymm cmpgtps_ymm cmpgtpd_ymm cmptrueps_ymm cmptruepd_ymm cmpeqsps_ymm cmpeqspd_ymm cmpltqps_ymm cmpltqpd_ymm cmpleqps_ymm cmpleqpd_ymm cmpunordsps_ymm cmpunordspd_ymm cmpneqqps_ymm cmpneqqpd_ymm cmpnltqps_ymm cmpnltqpd_ymm cmpnleqps_ymm cmpnleqpd_ymm cmpordsps_ymm cmpordspd_ymm cmpequsps_ymm cmpequspd_ymm cmpngeqps_ymm cmpngeqpd_ymm cmpngtqps_ymm cmpngtqpd_ymm cmpfalsesps_ymm cmpfalsespd_ymm cmpnequsps_ymm cmpnequspd_ymm cmpgeqps_ymm cmpgeqpd_ymm cmpgtqps_ymm cmpgtqpd_ymm cmptruesps_ymm cmptruespd_ymm movmskps_ymm movmskpd_ymm packsswb_ymm packuswb_ymm packssdw_ymm punpcklbw_ymm punpcklwd_ymm punpckldq_ymm punpckhbw_ymm punpckhwd_ymm punpckhdq_ymm punpcklqdq_ymm punpckhqdq_ymm phaddw_ymm phaddd_ymm phaddsw_ymm phsubw_ymm phsubd_ymm phsubsw_ymm pmaddubsw_ymm pmulhrsw_ymm pshufb_ymm psignb_ymm psignw_ymm psignd_ymm palignr_ymm pblendvb_ymm blendvps_ymm blendvpd_ymm ptest_ymm pmovsxbw_ymm pmovsxbd_ymm pmovsxbq_ymm pmovsxwd_ymm pmovsxwq_ymm pmovsxdq_ymm pmovzxbw_ymm pmovzxbd_ymm pmovzxbq_ymm pmovzxwd_ymm pmovzxwq_ymm pmovzxdq_ymm pmovsldup_ymm pmovshdup_ymm pmovdldup_ymm pmuldq_ymm packusdw_ymm roundps_ymm roundpd_ymm blendps_ymm blendpd_ymm pblendw_ymm dpps_ymm mpsadbw_ymm aesdec_ymm aesdeclast_ymm aesenc_ymm aesenclast_ymm pclmulqdq_ymm cvtph2ps_ymm cvtps2ph_ymm fma4ps_ymm fma4pd_ymm vpermilpd_ymm vpermilps_ymm vpermilpd_imm_ymm vpermilps_imm_ymm vpsrlvd_ymm vpsravd_ymm vpsllvd_ymm vpsrlvq_ymm vpsravq_ymm vpsllvq_ymm vtestps_ymm vtestpd_ymm vpmaskmovd_st_ymm vpmaskmovq_st_ymm vpmaskmovd_ymm vpmaskmovq_ymm vpgatherdd_ymm vpgatherdq_ymm vpgatherqd_ymm vpgatherqq_ymm vpermd_ymm vpermdq_ymm vpermq_ymm rclb rclw rcll rcrb rcrw rcrl rclq rcrq rdrand div_i32 rem_i32 divu_i32 remu_i32 div_i64 rem_i64 divu_i64 remu_i64 shl_i64 shr_i64 sar_i64 mulsh_i64 muluh_i64 clz_i32 ctz_i32 clz_i64 ctz_i64 clrsb_i32 clrsb_i64 ctpop_i32 ctpop_i64 lookup_tb_ptr exit_atomic memset ld_i128 st_i128 atomic_cmpxchgb atomic_cmpxchgw_be atomic_cmpxchgw_le atomic_cmpxchgl_be atomic_cmpxchgl_le atomic_cmpxchgq_be atomic_cmpxchgq_le nonatomic_cmpxchgo atomic_fetch_addb atomic_fetch_addw_le atomic_fetch_addw_be atomic_fetch_addl_le atomic_fetch_addl_be atomic_fetch_addq_le atomic_fetch_addq_be atomic_fetch_andb atomic_fetch_andw_le atomic_fetch_andw_be atomic_fetch_andl_le atomic_fetch_andl_be atomic_fetch_andq_le atomic_fetch_andq_be atomic_fetch_orb atomic_fetch_orw_le atomic_fetch_orw_be atomic_fetch_orl_le atomic_fetch_orl_be atomic_fetch_orq_le atomic_fetch_orq_be atomic_fetch_xorb atomic_fetch_xorw_le atomic_fetch_xorw_be atomic_fetch_xorl_le atomic_fetch_xorl_be atomic_fetch_xorq_le atomic_fetch_xorq_be atomic_fetch_sminb atomic_fetch_sminw_le atomic_fetch_sminw_be atomic_fetch_sminl_le atomic_fetch_sminl_be atomic_fetch_sminq_le atomic_fetch_sminq_be atomic_fetch_uminb atomic_fetch_uminw_le atomic_fetch_uminw_be atomic_fetch_uminl_le atomic_fetch_uminl_be atomic_fetch_uminq_le atomic_fetch_uminq_be atomic_fetch_smaxb atomic_fetch_smaxw_le atomic_fetch_smaxw_be atomic_fetch_smaxl_le atomic_fetch_smaxl_be atomic_fetch_smaxq_le atomic_fetch_smaxq_be atomic_fetch_umaxb atomic_fetch_umaxw_le atomic_fetch_umaxw_be atomic_fetch_umaxl_le atomic_fetch_umaxl_be atomic_fetch_umaxq_le atomic_fetch_umaxq_be atomic_add_fetchb atomic_add_fetchw_le atomic_add_fetchw_be atomic_add_fetchl_le atomic_add_fetchl_be atomic_add_fetchq_le atomic_add_fetchq_be atomic_and_fetchb atomic_and_fetchw_le atomic_and_fetchw_be atomic_and_fetchl_le atomic_and_fetchl_be atomic_and_fetchq_le atomic_and_fetchq_be atomic_or_fetchb atomic_or_fetchw_le atomic_or_fetchw_be atomic_or_fetchl_le atomic_or_fetchl_be atomic_or_fetchq_le atomic_or_fetchq_be atomic_xor_fetchb atomic_xor_fetchw_le atomic_xor_fetchw_be atomic_xor_fetchl_le atomic_xor_fetchl_be atomic_xor_fetchq_le atomic_xor_fetchq_be atomic_smin_fetchb atomic_smin_fetchw_le atomic_smin_fetchw_be atomic_smin_fetchl_le atomic_smin_fetchl_be atomic_smin_fetchq_le atomic_smin_fetchq_be atomic_umin_fetchb atomic_umin_fetchw_le atomic_umin_fetchw_be atomic_umin_fetchl_le atomic_umin_fetchl_be atomic_umin_fetchq_le atomic_umin_fetchq_be atomic_smax_fetchb atomic_smax_fetchw_le atomic_smax_fetchw_be atomic_smax_fetchl_le atomic_smax_fetchl_be atomic_smax_fetchq_le atomic_smax_fetchq_be atomic_umax_fetchb atomic_umax_fetchw_le atomic_umax_fetchw_be atomic_umax_fetchl_le atomic_umax_fetchl_be atomic_umax_fetchq_le atomic_umax_fetchq_be atomic_xchgb atomic_xchgw_le atomic_xchgw_be atomic_xchgl_le atomic_xchgl_be atomic_xchgq_le atomic_xchgq_be gvec_mov gvec_dup8 gvec_dup16 gvec_dup32 gvec_dup64 gvec_add8 gvec_add16 gvec_add32 gvec_add64 gvec_adds8 gvec_adds16 gvec_adds32 gvec_adds64 gvec_sub8 gvec_sub16 gvec_sub32 gvec_sub64 gvec_subs8 gvec_subs16 gvec_subs32 gvec_subs64 gvec_mul8 gvec_mul16 gvec_mul32 gvec_mul64 gvec_muls8 gvec_muls16 gvec_muls32 gvec_muls64 gvec_ssadd8 gvec_ssadd16 gvec_ssadd32 gvec_ssadd64 gvec_sssub8 gvec_sssub16 gvec_sssub32 gvec_sssub64 gvec_usadd8 gvec_usadd16 gvec_usadd32 gvec_usadd64 gvec_ussub8 gvec_ussub16 gvec_ussub32 gvec_ussub64 gvec_smin8 gvec_smin16 gvec_smin32 gvec_smin64 gvec_smax8 gvec_smax16 gvec_smax32 gvec_smax64 gvec_umin8 gvec_umin16 gvec_umin32 gvec_umin64 gvec_umax8 gvec_umax16 gvec_umax32 gvec_umax64 gvec_neg8 gvec_neg16 gvec_neg32 gvec_neg64 gvec_abs8 gvec_abs16 gvec_abs32 gvec_abs64 gvec_not gvec_and gvec_or gvec_xor gvec_andc gvec_orc gvec_nand gvec_nor gvec_eqv gvec_ands gvec_andcs gvec_xors gvec_ors gvec_shl8i gvec_shl16i gvec_shl32i gvec_shl64i gvec_shr8i gvec_shr16i gvec_shr32i gvec_shr64i gvec_sar8i gvec_sar16i gvec_sar32i gvec_sar64i gvec_rotl8i gvec_rotl16i gvec_rotl32i gvec_rotl64i gvec_shl8v gvec_shl16v gvec_shl32v gvec_shl64v gvec_shr8v gvec_shr16v gvec_shr32v gvec_shr64v gvec_sar8v gvec_sar16v gvec_sar32v gvec_sar64v gvec_rotl8v gvec_rotl16v gvec_rotl32v gvec_rotl64v gvec_rotr8v gvec_rotr16v gvec_rotr32v gvec_rotr64v gvec_eq8 gvec_eq16 gvec_eq32 gvec_eq64 gvec_ne8 gvec_ne16 gvec_ne32 gvec_ne64 gvec_lt8 gvec_lt16 gvec_lt32 gvec_lt64 gvec_le8 gvec_le16 gvec_le32 gvec_le64 gvec_ltu8 gvec_ltu16 gvec_ltu32 gvec_ltu64 gvec_leu8 gvec_leu16 gvec_leu32 gvec_leu64 gvec_bitsel
 
 i386_HELPERS := cc_compute_all cc_compute_c write_eflags read_eflags divb_AL idivb_AL divw_AX idivw_AX divl_EAX idivl_EAX cr4_testbit bndck bndldx32 bndldx64 bndstx32 bndstx64 bnd_jmp aam aad aaa aas daa das lsl lar verr verw lldt ltr load_seg ljmp_protected lcall_real lcall_protected iret_real iret_protected lret_protected read_crN write_crN lmsw clts set_dr get_dr invlpg sysenter sysexit hlt monitor mwait pause debug reset_rf raise_interrupt raise_exception cli sti clac stac boundw boundl rsm into cmpxchg8b_unlocked cmpxchg8b single_step rechecking_single_step cpuid rdtsc rdtscp rdpmc rdmsr wrmsr check_iob check_iow check_iol outb inb outw inw outl inl bpt_io svm_check_intercept_param svm_check_io vmrun vmmcall vmload vmsave stgi clgi skinit invlpga flds_FT0 fldl_FT0 fildl_FT0 flds_ST0 fldl_ST0 fildl_ST0 fildll_ST0 fsts_ST0 fstl_ST0 fist_ST0 fistl_ST0 fistll_ST0 fistt_ST0 fisttl_ST0 fisttll_ST0 fldt_ST0 fstt_ST0 fpush fpop fdecstp fincstp ffree_STN fmov_ST0_FT0 fmov_FT0_STN fmov_ST0_STN fmov_STN_ST0 fxchg_ST0_STN fcom_ST0_FT0 fucom_ST0_FT0 fcomi_ST0_FT0 fucomi_ST0_FT0 fadd_ST0_FT0 fmul_ST0_FT0 fsub_ST0_FT0 fsubr_ST0_FT0 fdiv_ST0_FT0 fdivr_ST0_FT0 fadd_STN_ST0 fmul_STN_ST0 fsub_STN_ST0 fsubr_STN_ST0 fdiv_STN_ST0 fdivr_STN_ST0 fchs_ST0 fabs_ST0 fxam_ST0 fld1_ST0 fldl2t_ST0 fldl2e_ST0 fldpi_ST0 fldlg2_ST0 fldln2_ST0 fldz_ST0 fldz_FT0 fnstsw fnstcw fldcw fclex fwait fninit fbld_ST0 fbst_ST0 f2xm1 fyl2x fptan fpatan fxtract fprem1 fprem fyl2xp1 fsqrt fsincos frndint fscale fsin fcos fstenv fldenv fsave frstor fxsave fxrstor xsave xsaveopt xrstor xgetbv xsetbv rdpkru wrpkru pdep pext ldmxcsr enter_mmx emms movq psrlw_mmx psraw_mmx psllw_mmx psrld_mmx psrad_mmx pslld_mmx psrlq_mmx psllq_mmx paddb_mmx paddw_mmx paddl_mmx paddq_mmx psubb_mmx psubw_mmx psubl_mmx psubq_mmx paddusb_mmx paddsb_mmx psubusb_mmx psubsb_mmx paddusw_mmx paddsw_mmx psubusw_mmx psubsw_mmx pminub_mmx pmaxub_mmx pminsw_mmx pmaxsw_mmx pand_mmx pandn_mmx por_mmx pxor_mmx pcmpgtb_mmx pcmpgtw_mmx pcmpgtl_mmx pcmpeqb_mmx pcmpeqw_mmx pcmpeql_mmx pmullw_mmx pmulhrw_mmx pmulhuw_mmx pmulhw_mmx pavgb_mmx pavgw_mmx pmuludq_mmx pmaddwd_mmx psadbw_mmx maskmov_mmx movl_mm_T0_mmx pshufw_mmx pmovmskb_mmx packsswb_mmx packuswb_mmx packssdw_mmx punpcklbw_mmx punpcklwd_mmx punpckldq_mmx punpckhbw_mmx punpckhwd_mmx punpckhdq_mmx pi2fd pi2fw pf2id pf2iw pfacc pfadd pfcmpeq pfcmpge pfcmpgt pfmax pfmin pfmul pfnacc pfpnacc pfrcp pfrsqrt pfsub pfsubr pswapd phaddw_mmx phaddd_mmx phaddsw_mmx phsubw_mmx phsubd_mmx phsubsw_mmx pabsb_mmx pabsw_mmx pabsd_mmx pmaddubsw_mmx pmulhrsw_mmx pshufb_mmx psignb_mmx psignw_mmx psignd_mmx palignr_mmx psrlw_xmm psraw_xmm psllw_xmm psrld_xmm psrad_xmm pslld_xmm psrlq_xmm psllq_xmm psrldq_xmm pslldq_xmm paddb_xmm paddw_xmm paddl_xmm paddq_xmm psubb_xmm psubw_xmm psubl_xmm psubq_xmm paddusb_xmm paddsb_xmm psubusb_xmm psubsb_xmm paddusw_xmm paddsw_xmm psubusw_xmm psubsw_xmm pminub_xmm pmaxub_xmm pminsw_xmm pmaxsw_xmm pand_xmm pandn_xmm por_xmm pxor_xmm pcmpgtb_xmm pcmpgtw_xmm pcmpgtl_xmm pcmpeqb_xmm pcmpeqw_xmm pcmpeql_xmm pmullw_xmm pmulhuw_xmm pmulhw_xmm pavgb_xmm pavgw_xmm pmuludq_xmm pmaddwd_xmm psadbw_xmm maskmov_xmm movl_mm_T0_xmm shufps shufpd pshufd_xmm pshuflw_xmm pshufhw_xmm addps addss addpd addsd subps subss subpd subsd mulps mulss mulpd mulsd divps divss divpd divsd minps minss minpd minsd maxps maxss maxpd maxsd sqrtps sqrtss sqrtpd sqrtsd cvtps2pd cvtpd2ps cvtss2sd cvtsd2ss cvtdq2ps cvtdq2pd cvtpi2ps cvtpi2pd cvtsi2ss cvtsi2sd cvtps2dq cvtpd2dq cvtps2pi cvtpd2pi cvtss2si cvtsd2si cvttps2dq cvttpd2dq cvttps2pi cvttpd2pi cvttss2si cvttsd2si rsqrtps rsqrtss rcpps rcpss extrq_r extrq_i insertq_r insertq_i haddps haddpd hsubps hsubpd addsubps addsubpd cmpeqps cmpeqss cmpeqpd cmpeqsd cmpltps cmpltss cmpltpd cmpltsd cmpleps cmpless cmplepd cmplesd cmpunordps cmpunordss cmpunordpd cmpunordsd cmpneqps cmpneqss cmpneqpd cmpneqsd cmpnltps cmpnltss cmpnltpd cmpnltsd cmpnleps cmpnless cmpnlepd cmpnlesd cmpordps cmpordss cmpordpd cmpordsd ucomiss comiss ucomisd comisd movmskps movmskpd pmovmskb_xmm packsswb_xmm packuswb_xmm packssdw_xmm punpcklbw_xmm punpcklwd_xmm punpckldq_xmm punpckhbw_xmm punpckhwd_xmm punpckhdq_xmm punpcklqdq_xmm punpckhqdq_xmm phaddw_xmm phaddd_xmm phaddsw_xmm phsubw_xmm phsubd_xmm phsubsw_xmm pabsb_xmm pabsw_xmm pabsd_xmm pmaddubsw_xmm pmulhrsw_xmm pshufb_xmm psignb_xmm psignw_xmm psignd_xmm palignr_xmm pblendvb_xmm blendvps_xmm blendvpd_xmm ptest_xmm pmovsxbw_xmm pmovsxbd_xmm pmovsxbq_xmm pmovsxwd_xmm pmovsxwq_xmm pmovsxdq_xmm pmovzxbw_xmm pmovzxbd_xmm pmovzxbq_xmm pmovzxwd_xmm pmovzxwq_xmm pmovzxdq_xmm pmuldq_xmm pcmpeqq_xmm packusdw_xmm pminsb_xmm pminsd_xmm pminuw_xmm pminud_xmm pmaxsb_xmm pmaxsd_xmm pmaxuw_xmm pmaxud_xmm pmulld_xmm phminposuw_xmm roundps_xmm roundpd_xmm roundss_xmm roundsd_xmm blendps_xmm blendpd_xmm pblendw_xmm dpps_xmm dppd_xmm mpsadbw_xmm pcmpgtq_xmm pcmpestri_xmm pcmpestrm_xmm pcmpistri_xmm pcmpistrm_xmm crc32 aesdec_xmm aesdeclast_xmm aesenc_xmm aesenclast_xmm aesimc_xmm aeskeygenassist_xmm pclmulqdq_xmm rclb rclw rcll rcrb rcrw rcrl rdrand trace_guest_mem_before_exec_proxy div_i32 rem_i32 divu_i32 remu_i32 div_i64 rem_i64 divu_i64 remu_i64 shl_i64 shr_i64 sar_i64 mulsh_i64 muluh_i64 clz_i32 ctz_i32 clz_i64 ctz_i64 clrsb_i32 clrsb_i64 ctpop_i32 ctpop_i64 lookup_tb_ptr exit_atomic atomic_cmpxchgb atomic_cmpxchgw_be atomic_cmpxchgw_le atomic_cmpxchgl_be atomic_cmpxchgl_le atomic_cmpxchgq_be atomic_cmpxchgq_le atomic_fetch_addb atomic_fetch_addw_le atomic_fetch_addw_be atomic_fetch_addl_le atomic_fetch_addl_be atomic_fetch_addq_le atomic_fetch_addq_be atomic_fetch_andb atomic_fetch_andw_le atomic_fetch_andw_be atomic_fetch_andl_le atomic_fetch_andl_be atomic_fetch_andq_le atomic_fetch_andq_be atomic_fetch_orb atomic_fetch_orw_le atomic_fetch_orw_be atomic_fetch_orl_le atomic_fetch_orl_be atomic_fetch_orq_le atomic_fetch_orq_be atomic_fetch_xorb atomic_fetch_xorw_le atomic_fetch_xorw_be atomic_fetch_xorl_le atomic_fetch_xorl_be atomic_fetch_xorq_le atomic_fetch_xorq_be atomic_fetch_sminb atomic_fetch_sminw_le atomic_fetch_sminw_be atomic_fetch_sminl_le atomic_fetch_sminl_be atomic_fetch_sminq_le atomic_fetch_sminq_be atomic_fetch_uminb atomic_fetch_uminw_le atomic_fetch_uminw_be atomic_fetch_uminl_le atomic_fetch_uminl_be atomic_fetch_uminq_le atomic_fetch_uminq_be atomic_fetch_smaxb atomic_fetch_smaxw_le atomic_fetch_smaxw_be atomic_fetch_smaxl_le atomic_fetch_smaxl_be atomic_fetch_smaxq_le atomic_fetch_smaxq_be atomic_fetch_umaxb atomic_fetch_umaxw_le atomic_fetch_umaxw_be atomic_fetch_umaxl_le atomic_fetch_umaxl_be atomic_fetch_umaxq_le atomic_fetch_umaxq_be atomic_add_fetchb atomic_add_fetchw_le atomic_add_fetchw_be atomic_add_fetchl_le atomic_add_fetchl_be atomic_add_fetchq_le atomic_add_fetchq_be atomic_and_fetchb atomic_and_fetchw_le atomic_and_fetchw_be atomic_and_fetchl_le atomic_and_fetchl_be atomic_and_fetchq_le atomic_and_fetchq_be atomic_or_fetchb atomic_or_fetchw_le atomic_or_fetchw_be atomic_or_fetchl_le atomic_or_fetchl_be atomic_or_fetchq_le atomic_or_fetchq_be atomic_xor_fetchb atomic_xor_fetchw_le atomic_xor_fetchw_be atomic_xor_fetchl_le atomic_xor_fetchl_be atomic_xor_fetchq_le atomic_xor_fetchq_be atomic_smin_fetchb atomic_smin_fetchw_le atomic_smin_fetchw_be atomic_smin_fetchl_le atomic_smin_fetchl_be atomic_smin_fetchq_le atomic_smin_fetchq_be atomic_umin_fetchb atomic_umin_fetchw_le atomic_umin_fetchw_be atomic_umin_fetchl_le atomic_umin_fetchl_be atomic_umin_fetchq_le atomic_umin_fetchq_be atomic_smax_fetchb atomic_smax_fetchw_le atomic_smax_fetchw_be atomic_smax_fetchl_le atomic_smax_fetchl_be atomic_smax_fetchq_le atomic_smax_fetchq_be atomic_umax_fetchb atomic_umax_fetchw_le atomic_umax_fetchw_be atomic_umax_fetchl_le atomic_umax_fetchl_be atomic_umax_fetchq_le atomic_umax_fetchq_be atomic_xchgb atomic_xchgw_le atomic_xchgw_be atomic_xchgl_le atomic_xchgl_be atomic_xchgq_le atomic_xchgq_be gvec_mov gvec_dup8 gvec_dup16 gvec_dup32 gvec_dup64 gvec_add8 gvec_add16 gvec_add32 gvec_add64 gvec_adds8 gvec_adds16 gvec_adds32 gvec_adds64 gvec_sub8 gvec_sub16 gvec_sub32 gvec_sub64 gvec_subs8 gvec_subs16 gvec_subs32 gvec_subs64 gvec_mul8 gvec_mul16 gvec_mul32 gvec_mul64 gvec_muls8 gvec_muls16 gvec_muls32 gvec_muls64 gvec_ssadd8 gvec_ssadd16 gvec_ssadd32 gvec_ssadd64 gvec_sssub8 gvec_sssub16 gvec_sssub32 gvec_sssub64 gvec_usadd8 gvec_usadd16 gvec_usadd32 gvec_usadd64 gvec_ussub8 gvec_ussub16 gvec_ussub32 gvec_ussub64 gvec_smin8 gvec_smin16 gvec_smin32 gvec_smin64 gvec_smax8 gvec_smax16 gvec_smax32 gvec_smax64 gvec_umin8 gvec_umin16 gvec_umin32 gvec_umin64 gvec_umax8 gvec_umax16 gvec_umax32 gvec_umax64 gvec_neg8 gvec_neg16 gvec_neg32 gvec_neg64 gvec_abs8 gvec_abs16 gvec_abs32 gvec_abs64 gvec_not gvec_and gvec_or gvec_xor gvec_andc gvec_orc gvec_nand gvec_nor gvec_eqv gvec_ands gvec_xors gvec_ors gvec_shl8i gvec_shl16i gvec_shl32i gvec_shl64i gvec_shr8i gvec_shr16i gvec_shr32i gvec_shr64i gvec_sar8i gvec_sar16i gvec_sar32i gvec_sar64i gvec_shl8v gvec_shl16v gvec_shl32v gvec_shl64v gvec_shr8v gvec_shr16v gvec_shr32v gvec_shr64v gvec_sar8v gvec_sar16v gvec_sar32v gvec_sar64v gvec_eq8 gvec_eq16 gvec_eq32 gvec_eq64 gvec_ne8 gvec_ne16 gvec_ne32 gvec_ne64 gvec_lt8 gvec_lt16 gvec_lt32 gvec_lt64 gvec_le8 gvec_le16 gvec_le32 gvec_le64 gvec_ltu8 gvec_ltu16 gvec_ltu32 gvec_ltu64 gvec_leu8 gvec_leu16 gvec_leu32 gvec_leu64 gvec_bitsel
 
@@ -150,17 +150,22 @@ HELPERDEPS := $(foreach target,$(ALL_TARGETS),$(foreach helper,$($(target)_HELPE
 all: helpers runtime
 
 everything: \
-     $(UTILBINS) \
      $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/libjove_rt.so) \
      $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/jove.bc) \
-     $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/jove.dfsan.bc) \
      $(HELPERS_BITCODE) \
-     $(HELPERS_DFSAN_BITCODE) \
      $(HELPERS_ASSEMBLY) \
-     $(HELPERS_DFSAN_ASSEMBLY) \
      $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/harvest-vdso)
 
-helpers: $(HELPERS_BITCODE)
+helpers: \
+     $(HELPERS_BITCODE) \
+     $(HELPERS_ASSEMBLY)
+
+#
+#     $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/jove.dfsan.bc) \
+#
+#     $(HELPERS_DFSAN_BITCODE) \
+#     $(HELPERS_DFSAN_ASSEMBLY) \
+#
 
 runtime: $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/libjove_rt.so) \
          $(JOVE_C_BITCODE)
@@ -290,9 +295,9 @@ clean-helpers:
 # for extricating QEMU code
 #
 
-CLANG_EXTRICATE := ~/clang-extricate
-QEMU_SRC_DIR    := ~/qemu
-QEMU_BUILD_DIR  := ~/qemu
+CLANG_EXTRICATE := ~/carbon-copy/build
+QEMU_SRC_DIR    := $(JOVE_ROOT_DIR)/qemu
+QEMU_BUILD_DIR  := $(JOVE_ROOT_DIR)/qemu/carbon_build
 
 _SL_TCG_GEN_ADDI_I64 := tcg/tcg-op.c:1243l
 _SL_TCG_OPTIMIZE     := tcg/optimize.c:599l
@@ -791,215 +796,51 @@ aarch64-sve_ftmad_h_EXTRICATE_ARGS := float16_muladd
 aarch64-sve_ftmad_s_EXTRICATE_ARGS := float32_muladd
 aarch64-sve_ftmad_d_EXTRICATE_ARGS := float64_muladd
 
+x86_64-bndldx32_EXTRICATE_ARGS := cpu_ldl_le_data_ra
+x86_64-bndldx64_EXTRICATE_ARGS := cpu_ldq_le_data_ra
+x86_64-bndstx32_EXTRICATE_ARGS := cpu_ldl_le_data_ra cpu_stl_le_data_ra
+x86_64-bndstx64_EXTRICATE_ARGS := cpu_ldq_le_data_ra cpu_stq_le_data_ra
+x86_64-lsl_EXTRICATE_ARGS := cpu_ldl_le_mmuidx_ra cpu_cc_compute_all
+x86_64-lar_EXTRICATE_ARGS := cpu_ldl_le_mmuidx_ra cpu_cc_compute_all
+x86_64-verr_EXTRICATE_ARGS := cpu_ldl_le_mmuidx_ra cpu_cc_compute_all
+x86_64-verw_EXTRICATE_ARGS := cpu_ldl_le_mmuidx_ra cpu_cc_compute_all
+x86_64-boundw_EXTRICATE_ARGS := cpu_ldsw_le_data_ra
+x86_64-boundl_EXTRICATE_ARGS := cpu_ldl_le_data_ra
+x86_64-fldt_ST0_EXTRICATE_ARGS := cpu_lduw_le_data_ra cpu_ldq_le_data_ra
+x86_64-fstt_ST0_EXTRICATE_ARGS := cpu_stw_le_data_ra cpu_stq_le_data_ra
+x86_64-fbld_ST0_EXTRICATE_ARGS := cpu_ldub_data_ra
+x86_64-fbst_ST0_EXTRICATE_ARGS := cpu_stb_data_ra
+x86_64-fstenv_EXTRICATE_ARGS := cpu_stw_le_data_ra cpu_stl_le_data_ra
+x86_64-fldenv_EXTRICATE_ARGS := cpu_lduw_le_data_ra
+x86_64-fsave_EXTRICATE_ARGS := cpu_stq_le_data_ra cpu_stw_le_data_ra cpu_stl_le_data_ra
+x86_64-frstor_EXTRICATE_ARGS := cpu_ldq_le_data_ra cpu_lduw_le_data_ra
+x86_64-fxsave_EXTRICATE_ARGS := cpu_stl_le_data_ra cpu_stq_le_data_ra cpu_stw_le_data_ra
+x86_64-fxrstor_EXTRICATE_ARGS := cpu_ldl_le_data_ra cpu_ldq_le_data_ra cpu_lduw_le_data_ra
+x86_64-xsave_EXTRICATE_ARGS := cpu_stw_le_data_ra cpu_stq_le_data_ra cpu_stl_le_data_ra cpu_ldq_le_data_ra
+x86_64-xsaveopt_EXTRICATE_ARGS := cpu_stw_le_data_ra cpu_stq_le_data_ra cpu_stl_le_data_ra cpu_ldq_le_data_ra
+x86_64-xrstor_EXTRICATE_ARGS := cpu_ldl_le_data_ra cpu_lduw_le_data_ra cpu_sync_bndcs_hflags cpu_ldq_le_data_ra
+x86_64-maskmov_mmx_EXTRICATE_ARGS := cpu_stb_data_ra
+x86_64-maskmov_xmm_EXTRICATE_ARGS := cpu_stb_data_ra
+x86_64-vpmaskmovd_st_xmm_EXTRICATE_ARGS := cpu_stl_le_data_ra
+x86_64-vpmaskmovq_st_xmm_EXTRICATE_ARGS := cpu_stq_le_data_ra
+x86_64-vpgatherdd_xmm_EXTRICATE_ARGS := cpu_ldl_le_data_ra
+x86_64-vpgatherdq_xmm_EXTRICATE_ARGS := cpu_ldq_le_data_ra
+x86_64-vpgatherqd_xmm_EXTRICATE_ARGS := cpu_ldl_le_data_ra
+x86_64-vpgatherqq_xmm_EXTRICATE_ARGS := cpu_ldq_le_data_ra
+x86_64-vpmaskmovd_st_ymm_EXTRICATE_ARGS := cpu_stl_le_data_ra
+x86_64-vpmaskmovq_st_ymm_EXTRICATE_ARGS := cpu_stq_le_data_ra
+x86_64-vpgatherdd_ymm_EXTRICATE_ARGS := cpu_ldl_le_data_ra
+x86_64-vpgatherdq_ymm_EXTRICATE_ARGS := cpu_ldq_le_data_ra
+x86_64-vpgatherqd_ymm_EXTRICATE_ARGS := cpu_ldl_le_data_ra
+x86_64-vpgatherqq_ymm_EXTRICATE_ARGS := cpu_ldq_le_data_ra
 x86_64-aaa_EXTRICATE_ARGS := cpu_cc_compute_all
 x86_64-aas_EXTRICATE_ARGS := cpu_cc_compute_all
 x86_64-daa_EXTRICATE_ARGS := cpu_cc_compute_all
 x86_64-das_EXTRICATE_ARGS := cpu_cc_compute_all
-x86_64-lsl_EXTRICATE_ARGS := cpu_cc_compute_all
-x86_64-lar_EXTRICATE_ARGS := cpu_cc_compute_all
-x86_64-verr_EXTRICATE_ARGS := cpu_cc_compute_all
-x86_64-verw_EXTRICATE_ARGS := cpu_cc_compute_all
-x86_64-load_seg_EXTRICATE_ARGS := cpu_sync_bndcs_hflags
-x86_64-lret_protected_EXTRICATE_ARGS := cpu_sync_bndcs_hflags
-x86_64-invlpg_EXTRICATE_ARGS := cpu_svm_check_intercept_param
-x86_64-ljmp_protected_EXTRICATE_ARGS := cpu_cc_compute_all cpu_sync_bndcs_hflags
-x86_64-sysenter_EXTRICATE_ARGS := cpu_sync_bndcs_hflags
-x86_64-monitor_EXTRICATE_ARGS := cpu_svm_check_intercept_param
-x86_64-sysexit_EXTRICATE_ARGS := cpu_sync_bndcs_hflags
-x86_64-sysret_EXTRICATE_ARGS := cpu_sync_bndcs_hflags
-x86_64-mwait_EXTRICATE_ARGS := cpu_svm_check_intercept_param
-x86_64-pause_EXTRICATE_ARGS := cpu_svm_check_intercept_param
-x86_64-into_EXTRICATE_ARGS := raise_interrupt cpu_cc_compute_all
-x86_64-cmpxchg8b_unlocked_EXTRICATE_ARGS := cpu_cc_compute_all
-x86_64-cmpxchg8b_EXTRICATE_ARGS := cpu_cc_compute_all
-x86_64-cmpxchg16b_unlocked_EXTRICATE_ARGS := cpu_cc_compute_all
-x86_64-cmpxchg16b_EXTRICATE_ARGS := helper_atomic_cmpxchgo_le_mmu cpu_cc_compute_all
-x86_64-cpuid_EXTRICATE_ARGS := cpu_x86_cpuid cpu_svm_check_intercept_param
-x86_64-rdtsc_EXTRICATE_ARGS := cpu_get_tsc cpu_svm_check_intercept_param
-x86_64-rdtscp_EXTRICATE_ARGS := cpu_get_tsc cpu_svm_check_intercept_param
-x86_64-rdpmc_EXTRICATE_ARGS := cpu_svm_check_intercept_param
-x86_64-flds_FT0_EXTRICATE_ARGS := float32_to_floatx80
-x86_64-fildl_FT0_EXTRICATE_ARGS := int32_to_floatx80
-x86_64-flds_ST0_EXTRICATE_ARGS := float32_to_floatx80
-x86_64-fldl_FT0_EXTRICATE_ARGS := float64_to_floatx80
-x86_64-fldl_ST0_EXTRICATE_ARGS := float64_to_floatx80
-x86_64-fildl_ST0_EXTRICATE_ARGS := int32_to_floatx80
-x86_64-fildll_ST0_EXTRICATE_ARGS := int64_to_floatx80
-x86_64-fsts_ST0_EXTRICATE_ARGS := floatx80_to_float32
-x86_64-fstl_ST0_EXTRICATE_ARGS := floatx80_to_float64
-x86_64-fist_ST0_EXTRICATE_ARGS := floatx80_to_int32
-x86_64-fistl_ST0_EXTRICATE_ARGS := floatx80_to_int32
-x86_64-fistll_ST0_EXTRICATE_ARGS := floatx80_to_int64
-x86_64-fistt_ST0_EXTRICATE_ARGS := floatx80_to_int32_round_to_zero
-x86_64-fisttl_ST0_EXTRICATE_ARGS := floatx80_to_int32_round_to_zero
-x86_64-fisttll_ST0_EXTRICATE_ARGS := floatx80_to_int64_round_to_zero
-x86_64-fcom_ST0_FT0_EXTRICATE_ARGS := floatx80_compare
-x86_64-fucom_ST0_FT0_EXTRICATE_ARGS := floatx80_compare_quiet
-x86_64-fcomi_ST0_FT0_EXTRICATE_ARGS := cpu_cc_compute_all floatx80_compare
-x86_64-fucomi_ST0_FT0_EXTRICATE_ARGS := cpu_cc_compute_all floatx80_compare_quiet
-x86_64-fadd_ST0_FT0_EXTRICATE_ARGS := floatx80_add
-x86_64-fmul_ST0_FT0_EXTRICATE_ARGS := floatx80_mul
-x86_64-fsub_ST0_FT0_EXTRICATE_ARGS := floatx80_sub
-x86_64-fsubr_ST0_FT0_EXTRICATE_ARGS := floatx80_sub
-x86_64-fdiv_ST0_FT0_EXTRICATE_ARGS := floatx80_div
-x86_64-fdivr_ST0_FT0_EXTRICATE_ARGS := floatx80_div
-x86_64-fadd_STN_ST0_EXTRICATE_ARGS := floatx80_add
-x86_64-fmul_STN_ST0_EXTRICATE_ARGS := floatx80_mul
-x86_64-fsub_STN_ST0_EXTRICATE_ARGS := floatx80_sub
-x86_64-fsubr_STN_ST0_EXTRICATE_ARGS := floatx80_sub
-x86_64-fdiv_STN_ST0_EXTRICATE_ARGS := floatx80_div
-x86_64-fdivr_STN_ST0_EXTRICATE_ARGS := floatx80_div
-x86_64-f2xm1_EXTRICATE_ARGS := float64_to_floatx80 pow floatx80_to_float64
-x86_64-fptan_EXTRICATE_ARGS := float64_to_floatx80 tan floatx80_to_float64
-x86_64-fbst_ST0_EXTRICATE_ARGS := floatx80_to_int64
-x86_64-fyl2x_EXTRICATE_ARGS := float64_to_floatx80 log floatx80_to_float64
-x86_64-fbld_ST0_EXTRICATE_ARGS := int64_to_floatx80
-x86_64-fpatan_EXTRICATE_ARGS := float64_to_floatx80 atan2 floatx80_to_float64
-x86_64-fxtract_EXTRICATE_ARGS := int32_to_floatx80 floatx80_div
-x86_64-fyl2xp1_EXTRICATE_ARGS := float64_to_floatx80 log floatx80_to_float64
-x86_64-fprem1_EXTRICATE_ARGS := float64_to_floatx80 floor rint pow fabs floatx80_to_float64
-x86_64-fprem_EXTRICATE_ARGS := float64_to_floatx80 floatx80_to_float64 rint pow fabs floor ceil
-x86_64-fsqrt_EXTRICATE_ARGS := floatx80_sqrt
-x86_64-fsincos_EXTRICATE_ARGS := float64_to_floatx80 floatx80_to_float64 sin cos
-x86_64-frndint_EXTRICATE_ARGS := floatx80_round_to_int
-x86_64-fscale_EXTRICATE_ARGS := floatx80_scalbn floatx80_to_int32_round_to_zero
-x86_64-fcos_EXTRICATE_ARGS := float64_to_floatx80 cos floatx80_to_float64
-x86_64-fsin_EXTRICATE_ARGS := float64_to_floatx80 sin floatx80_to_float64
-x86_64-xsetbv_EXTRICATE_ARGS := cpu_sync_bndcs_hflags cpu_x86_cpuid
-x86_64-xrstor_EXTRICATE_ARGS := cpu_sync_bndcs_hflags
-x86_64-pi2fw_EXTRICATE_ARGS := int32_to_float32
-x86_64-pi2fd_EXTRICATE_ARGS := int32_to_float32
-x86_64-pf2id_EXTRICATE_ARGS := float32_to_int32_round_to_zero
-x86_64-pf2iw_EXTRICATE_ARGS := float32_to_int32_round_to_zero
-x86_64-pfacc_EXTRICATE_ARGS := float32_add
-x86_64-pfadd_EXTRICATE_ARGS := float32_add
-x86_64-pfcmpeq_EXTRICATE_ARGS := float32_eq_quiet
-x86_64-pfcmpge_EXTRICATE_ARGS := float32_le
-x86_64-pfcmpgt_EXTRICATE_ARGS := float32_lt
-x86_64-pfmax_EXTRICATE_ARGS := float32_lt
-x86_64-pfmul_EXTRICATE_ARGS := float32_mul
-x86_64-pfmin_EXTRICATE_ARGS := float32_lt
-x86_64-pfnacc_EXTRICATE_ARGS := float32_sub
-x86_64-pfpnacc_EXTRICATE_ARGS := float32_add float32_sub
-x86_64-pfrcp_EXTRICATE_ARGS := float32_div
-x86_64-pfrsqrt_EXTRICATE_ARGS := float32_sqrt float32_div
-x86_64-pfsub_EXTRICATE_ARGS := float32_sub
-x86_64-pfsubr_EXTRICATE_ARGS := float32_sub
-x86_64-addps_EXTRICATE_ARGS := float64_add float32_add
-x86_64-addss_EXTRICATE_ARGS := float64_add float32_add
-x86_64-addsd_EXTRICATE_ARGS := float64_add float32_add
-x86_64-subps_EXTRICATE_ARGS := float64_sub float32_sub
-x86_64-addpd_EXTRICATE_ARGS := float64_add float32_add
-x86_64-subss_EXTRICATE_ARGS := float64_sub float32_sub
-x86_64-subpd_EXTRICATE_ARGS := float64_sub float32_sub
-x86_64-subsd_EXTRICATE_ARGS := float64_sub float32_sub
-x86_64-mulps_EXTRICATE_ARGS := float64_mul float32_mul
-x86_64-mulss_EXTRICATE_ARGS := float64_mul float32_mul
-x86_64-mulpd_EXTRICATE_ARGS := float64_mul float32_mul
-x86_64-mulsd_EXTRICATE_ARGS := float64_mul float32_mul
-x86_64-divps_EXTRICATE_ARGS := float64_div float32_div
-x86_64-divpd_EXTRICATE_ARGS := float64_div float32_div
-x86_64-divss_EXTRICATE_ARGS := float64_div float32_div
-x86_64-divsd_EXTRICATE_ARGS := float64_div float32_div
-x86_64-minps_EXTRICATE_ARGS := float64_lt float32_lt
-x86_64-minss_EXTRICATE_ARGS := float64_lt float32_lt
-x86_64-minpd_EXTRICATE_ARGS := float64_lt float32_lt
-x86_64-minsd_EXTRICATE_ARGS := float64_lt float32_lt
-x86_64-maxps_EXTRICATE_ARGS := float64_lt float32_lt
-x86_64-maxss_EXTRICATE_ARGS := float64_lt float32_lt
-x86_64-maxpd_EXTRICATE_ARGS := float64_lt float32_lt
-x86_64-maxsd_EXTRICATE_ARGS := float64_lt float32_lt
-x86_64-sqrtps_EXTRICATE_ARGS := float64_sqrt float32_sqrt
-x86_64-sqrtss_EXTRICATE_ARGS := float64_sqrt float32_sqrt
-x86_64-sqrtpd_EXTRICATE_ARGS := float64_sqrt float32_sqrt
-x86_64-sqrtsd_EXTRICATE_ARGS := float64_sqrt float32_sqrt
-x86_64-cvtps2pd_EXTRICATE_ARGS := float32_to_float64
-x86_64-cvtpd2ps_EXTRICATE_ARGS := float64_to_float32
-x86_64-cvtss2sd_EXTRICATE_ARGS := float32_to_float64
-x86_64-cvtsd2ss_EXTRICATE_ARGS := float64_to_float32
-x86_64-cvtdq2ps_EXTRICATE_ARGS := int32_to_float32
-x86_64-cvtdq2pd_EXTRICATE_ARGS := int32_to_float64
-x86_64-cvtpi2ps_EXTRICATE_ARGS := int32_to_float32
-x86_64-cvtpi2pd_EXTRICATE_ARGS := int32_to_float64
-x86_64-cvtsi2ss_EXTRICATE_ARGS := int32_to_float32
-x86_64-cvtsi2sd_EXTRICATE_ARGS := int32_to_float64
-x86_64-cvtsq2sd_EXTRICATE_ARGS := int64_to_float64
-x86_64-cvtsq2ss_EXTRICATE_ARGS := int64_to_float32
-x86_64-cvtps2dq_EXTRICATE_ARGS := float32_to_int32
-x86_64-cvtpd2dq_EXTRICATE_ARGS := float64_to_int32
-x86_64-cvtps2pi_EXTRICATE_ARGS := float32_to_int32
-x86_64-cvtpd2pi_EXTRICATE_ARGS := float64_to_int32
-x86_64-cvtss2si_EXTRICATE_ARGS := float32_to_int32
-x86_64-cvtsd2si_EXTRICATE_ARGS := float64_to_int32
-x86_64-cvtss2sq_EXTRICATE_ARGS := float32_to_int64
-x86_64-cvtsd2sq_EXTRICATE_ARGS := float64_to_int64
-x86_64-cvttps2dq_EXTRICATE_ARGS := float32_to_int32_round_to_zero
-x86_64-cvttpd2dq_EXTRICATE_ARGS := float64_to_int32_round_to_zero
-x86_64-cvttps2pi_EXTRICATE_ARGS := float32_to_int32_round_to_zero
-x86_64-cvttpd2pi_EXTRICATE_ARGS := float64_to_int32_round_to_zero
-x86_64-cvttss2si_EXTRICATE_ARGS := float32_to_int32_round_to_zero
-x86_64-cvttsd2si_EXTRICATE_ARGS := float64_to_int32_round_to_zero
-x86_64-cvttss2sq_EXTRICATE_ARGS := float32_to_int64_round_to_zero
-x86_64-cvttsd2sq_EXTRICATE_ARGS := float64_to_int64_round_to_zero
-x86_64-rsqrtps_EXTRICATE_ARGS := float32_sqrt float32_div
-x86_64-rsqrtss_EXTRICATE_ARGS := float32_sqrt float32_div
-x86_64-rcpps_EXTRICATE_ARGS := float32_div
-x86_64-rcpss_EXTRICATE_ARGS := float32_div
-x86_64-haddps_EXTRICATE_ARGS := float32_add
-x86_64-haddpd_EXTRICATE_ARGS := float64_add
-x86_64-hsubps_EXTRICATE_ARGS := float32_sub
-x86_64-hsubpd_EXTRICATE_ARGS := float64_sub
-x86_64-addsubps_EXTRICATE_ARGS := float32_add float32_sub
-x86_64-addsubpd_EXTRICATE_ARGS := float64_add float64_sub
-x86_64-cmpeqpd_EXTRICATE_ARGS := float64_eq_quiet float32_eq_quiet
-x86_64-cmpeqps_EXTRICATE_ARGS := float64_eq_quiet float32_eq_quiet
-x86_64-cmpeqss_EXTRICATE_ARGS := float64_eq_quiet float32_eq_quiet
-x86_64-cmpeqsd_EXTRICATE_ARGS := float64_eq_quiet float32_eq_quiet
-x86_64-cmpltps_EXTRICATE_ARGS := float64_lt float32_lt
-x86_64-cmpltss_EXTRICATE_ARGS := float64_lt float32_lt
-x86_64-cmpltpd_EXTRICATE_ARGS := float64_lt float32_lt
-x86_64-cmpltsd_EXTRICATE_ARGS := float64_lt float32_lt
-x86_64-cmpleps_EXTRICATE_ARGS := float64_le float32_le
-x86_64-cmpless_EXTRICATE_ARGS := float64_le float32_le
-x86_64-cmplepd_EXTRICATE_ARGS := float64_le float32_le
-x86_64-cmplesd_EXTRICATE_ARGS := float64_le float32_le
-x86_64-cmpunordps_EXTRICATE_ARGS := float64_unordered_quiet float32_unordered_quiet
-x86_64-cmpunordss_EXTRICATE_ARGS := float64_unordered_quiet float32_unordered_quiet
-x86_64-cmpunordpd_EXTRICATE_ARGS := float64_unordered_quiet float32_unordered_quiet
-x86_64-cmpunordsd_EXTRICATE_ARGS := float64_unordered_quiet float32_unordered_quiet
-x86_64-cmpneqps_EXTRICATE_ARGS := float64_eq_quiet float32_eq_quiet
-x86_64-cmpneqss_EXTRICATE_ARGS := float64_eq_quiet float32_eq_quiet
-x86_64-cmpneqpd_EXTRICATE_ARGS := float64_eq_quiet float32_eq_quiet
-x86_64-cmpneqsd_EXTRICATE_ARGS := float64_eq_quiet float32_eq_quiet
-x86_64-cmpnltps_EXTRICATE_ARGS := float64_lt float32_lt
-x86_64-cmpnltss_EXTRICATE_ARGS := float64_lt float32_lt
-x86_64-cmpnltsd_EXTRICATE_ARGS := float64_lt float32_lt
-x86_64-cmpnltpd_EXTRICATE_ARGS := float64_lt float32_lt
-x86_64-cmpnleps_EXTRICATE_ARGS := float64_le float32_le
-x86_64-cmpnless_EXTRICATE_ARGS := float64_le float32_le
-x86_64-cmpnlepd_EXTRICATE_ARGS := float64_le float32_le
-x86_64-cmpnlesd_EXTRICATE_ARGS := float64_le float32_le
-x86_64-cmpordps_EXTRICATE_ARGS := float64_unordered_quiet float32_unordered_quiet
-x86_64-cmpordss_EXTRICATE_ARGS := float64_unordered_quiet float32_unordered_quiet
-x86_64-cmpordpd_EXTRICATE_ARGS := float64_unordered_quiet float32_unordered_quiet
-x86_64-cmpordsd_EXTRICATE_ARGS := float64_unordered_quiet float32_unordered_quiet
-x86_64-ucomiss_EXTRICATE_ARGS := float32_compare_quiet
-x86_64-comiss_EXTRICATE_ARGS := float32_compare
-x86_64-ucomisd_EXTRICATE_ARGS := float64_compare_quiet
-x86_64-comisd_EXTRICATE_ARGS := float64_compare
-x86_64-roundps_xmm_EXTRICATE_ARGS := float32_round_to_int
-x86_64-roundpd_xmm_EXTRICATE_ARGS := float64_round_to_int
-x86_64-roundss_xmm_EXTRICATE_ARGS := float32_round_to_int
-x86_64-roundsd_xmm_EXTRICATE_ARGS := float64_round_to_int
-x86_64-dpps_xmm_EXTRICATE_ARGS := float32_mul float32_add
-x86_64-dppd_xmm_EXTRICATE_ARGS := float64_mul float64_add
-x86_64-rdrand_EXTRICATE_ARGS := error_get_pretty error_free qemu_guest_getrandom qemu_log
-x86_64-aesdec_xmm_EXTRICATE_ARGS := AES_Td3 AES_Td2 AES_Td1 AES_ishifts AES_Td0
-x86_64-aesdeclast_xmm_EXTRICATE_ARGS := AES_ishifts AES_isbox
-x86_64-aesenc_xmm_EXTRICATE_ARGS := AES_Te3 AES_Te2 AES_Te1 AES_shifts AES_Te0
-x86_64-aesenclast_xmm_EXTRICATE_ARGS := AES_shifts AES_sbox
-x86_64-aesimc_xmm_EXTRICATE_ARGS := AES_imc
-x86_64-aeskeygenassist_xmm_EXTRICATE_ARGS := AES_sbox
+x86_64-into_EXTRICATE_ARGS := cpu_cc_compute_all
+x86_64-fcomi_ST0_FT0_EXTRICATE_ARGS := cpu_cc_compute_all
+x86_64-fucomi_ST0_FT0_EXTRICATE_ARGS := cpu_cc_compute_all
+x86_64-write_eflags_EXTRICATE_ARGS := cpu_load_eflags
 
 i386-aaa_EXTRICATE_ARGS := cpu_cc_compute_all
 i386-aas_EXTRICATE_ARGS := cpu_cc_compute_all
@@ -1501,12 +1342,12 @@ mips32-muluh_i64_EXTRICATE_ARGS := mulu64
 extract-helpers: $(foreach helper,$($(HOST_ARCH)_HELPERS),extract-$(helper))
 
 .PHONY: build-helpers
-build-helpers: $(HELPERS_BITCODE) $(HELPERS_ASSEMBLY) $(HELPERS_DFSAN_ASSEMBLY) $(HELPERS_DFSAN_BITCODE)
+build-helpers: $(HELPERS_BITCODE) $(HELPERS_ASSEMBLY)
 
 define extract_helper_template
 .PHONY: extract-$(1)
 extract-$(1):
-	-$(CLANG_EXTRICATE)/extract/bin/carbon-extract --src $(QEMU_SRC_DIR) --bin $(QEMU_BUILD_DIR) helper_$(1) $($(HOST_ARCH)-$(1)_EXTRICATE_ARGS) > lib/arch/$(HOST_ARCH)/helpers/$(1).c
+	-$(CLANG_EXTRICATE)/extract/carbon-extract --src $(QEMU_SRC_DIR) --bin $(QEMU_BUILD_DIR) helper_$(1) $($(HOST_ARCH)-$(1)_EXTRICATE_ARGS) > lib/arch/$(HOST_ARCH)/helpers/$(1).c
 endef
 $(foreach helper,$($(HOST_ARCH)_HELPERS),$(eval $(call extract_helper_template,$(helper))))
 
@@ -1517,7 +1358,9 @@ $(BINDIR)/$(2)/helpers/$(1).ll: $(BINDIR)/$(2)/helpers/$(1).bc
 
 $(BINDIR)/$(2)/helpers/$(1).bc: lib/arch/$(2)/helpers/$(1).c
 	@echo BC $$<
-	$(_LLVM_CC) -o $$@ -c -MMD -I lib -I lib/arch/$(2) -emit-llvm -fPIC -g -O3 -ffreestanding -fno-stack-protector -Wall -Wno-macro-redefined -Wno-initializer-overrides -fno-strict-aliasing -fno-common -fwrapv -DNEED_CPU_H -DNDEBUG --sysroot $($(2)_sysroot) --target=$($(2)_TRIPLE) $($(2)_HELPER_CFLAGS) $$<
+	$(_LLVM_CC) -o $(1).1.bc -c -MMD -I lib -I lib/arch/$(2) -emit-llvm -fPIC -g -O3 -ffreestanding -fno-stack-protector -Wall -Wno-macro-redefined -Wno-initializer-overrides -fno-strict-aliasing -fno-common -fwrapv -DNEED_CPU_H -DNDEBUG --sysroot $($(2)_sysroot) --target=$($(2)_TRIPLE) $($(2)_HELPER_CFLAGS) $$<
+	@$(_LLVM_OPT) -o $(1).2.bc $(1).1.bc -internalize -internalize-public-api-list=helper_$(1)
+	@$(_LLVM_OPT) -o $$@ -O3 $(1).2.bc
 endef
 $(foreach target,$(ALL_TARGETS),$(foreach helper,$($(target)_HELPERS),$(eval $(call build_helper_template,$(helper),$(target)))))
 
@@ -1535,10 +1378,16 @@ $(foreach target,$(ALL_TARGETS),$(foreach helper,$($(target)_HELPERS),$(eval $(c
 .PHONY: check-helpers
 check-helpers: $(foreach target,$(ALL_TARGETS),$(foreach helper,$($(target)_HELPERS),check-$(target)-$(helper)))
 
+define check_helpers_template
+.PHONY: check-helpers-$(1)
+check-helpers-$(1): $(foreach helper,$($(1)_HELPERS),check-$(1)-$(helper))
+endef
+$(foreach target,$(ALL_TARGETS),$(eval $(call check_helpers_template,$(target))))
+
 define check_helper_template
 .PHONY: check-$(2)-$(1)
 check-$(2)-$(1): $(BINDIR)/$(2)/helpers/$(1).bc
-	-$(BINDIR)/$(2) check-helper $(1)
+	@$(_LLVM_DIR)/build/bin/jove-$(2) check-helper --vars $(1)
 endef
 $(foreach target,$(ALL_TARGETS),$(foreach helper,$($(target)_HELPERS),$(eval $(call check_helper_template,$(helper),$(target)))))
 

@@ -20,10 +20,15 @@ namespace jove {
 class CheckHelpersTool : public Tool {
   struct Cmdline {
     cl::list<std::string> InputHelpers;
+    cl::opt<bool> Vars;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : InputHelpers(cl::Positional, cl::desc("<helper>"), cl::OneOrMore,
-                       cl::cat(JoveCategory)) {}
+                       cl::cat(JoveCategory)),
+
+          Vars("vars", cl::desc("List undefined variables"),
+               cl::cat(JoveCategory)) {}
+
   } opts;
 
   llvm::LLVMContext Context;
@@ -64,7 +69,8 @@ void CheckHelpersTool::checkHelper(const std::string &helper_nm) {
 
   std::unique_ptr<llvm::Module> &helperModule = helperModuleOr.get();
 
-  std::unordered_set<std::string> syms;
+  std::unordered_set<std::string> fun_syms;
+  std::unordered_set<std::string> var_syms;
 
   {
     llvm::Module &helperM = *helperModule;
@@ -86,33 +92,46 @@ void CheckHelpersTool::checkHelper(const std::string &helper_nm) {
           continue;
 #endif
 
-        syms.insert(F.getName().str());
+        fun_syms.insert(F.getName().str());
 
+#if 0
         WithColor::error() << "undefined function " << F.getName()
                            << " in helper module " << helper_nm << '\n';
+#endif
       }
     }
 
     for (llvm::GlobalVariable &GV : helperM.globals()) {
       if (!GV.hasInitializer()) {
+#if 0
         WithColor::error() << "undefined global variable " << GV.getName()
                            << " in helper module " << helper_nm << '\n';
+#endif
 
-        //syms.insert(GV.getName());
+        var_syms.insert(GV.getName().str());
       }
     }
   }
 
-  if (syms.empty())
-    return;
+  if (!fun_syms.empty()) {
+    llvm::outs() << llvm::formatv(TARGET_ARCH_NAME "-{0}_EXTRICATE_ARGS :=",
+                                  helper_nm);
 
-  llvm::outs() << llvm::formatv(TARGET_ARCH_NAME "-{0}_EXTRICATE_ARGS :=",
-                                helper_nm);
+    for (const std::string &sym : fun_syms)
+      llvm::outs() << ' ' << sym;
 
-  for (const std::string &sym : syms)
-    llvm::outs() << ' ' << sym;
+    llvm::outs() << '\n';
+  }
 
-  llvm::outs() << '\n';
+  if (opts.Vars && !var_syms.empty()) {
+    llvm::outs() << llvm::formatv(TARGET_ARCH_NAME "-{0}_UNDEF_VARS :=",
+                                  helper_nm);
+
+    for (const std::string &sym : var_syms)
+      llvm::outs() << ' ' << sym;
+
+    llvm::outs() << '\n';
+  }
 }
 
 }

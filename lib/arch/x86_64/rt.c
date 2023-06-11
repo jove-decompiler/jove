@@ -2,7 +2,7 @@
 
 #include <stddef.h>
 
-/* __thread */ struct CPUX86State __jove_env;
+/* __thread */ CPUX86State __jove_env;
 
 #define _GNU_SOURCE /* for REG_RIP */
 #include <sys/types.h>

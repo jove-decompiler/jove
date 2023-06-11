@@ -1,6 +1,7 @@
 #pragma once
 #include "jove/jove.h"
 #include "elf.h"
+
 #include <memory>
 #include <utility>
 
@@ -9,8 +10,6 @@ namespace jove {
 struct tiny_code_generator_private_t;
 
 struct tiny_code_generator_t {
-  std::unique_ptr<tiny_code_generator_private_t> priv;
-
   tiny_code_generator_t();
   ~tiny_code_generator_t();
 
@@ -20,6 +19,8 @@ struct tiny_code_generator_t {
                                                    uint64_t pc_end = 0);
 
   void dump_operations(void);
+
+  void print_shit(void);
 };
 
 }

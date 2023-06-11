@@ -10,6 +10,8 @@ struct locator_t {
   std::string starter_bitcode(void); // jove.bc
   std::string helper_bitcode(const std::string &name);
 
+  std::string softfloat_bitcode(void);
+
   std::string cbe(void); // llvm-cbe
   std::string dis(void); // llvm-dis
   std::string llc(void);
@@ -28,6 +30,8 @@ struct locator_t {
 
   std::string scripts(void);
   std::string ida_scripts(void);
+
+  std::string starter_bin(void);
 };
 
 }

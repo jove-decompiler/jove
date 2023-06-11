@@ -109,6 +109,8 @@ int TCGDumpTool::Run(void) {
     return 1;
   }
 
+  tcg.set_binary(*B);
+
   const ELFO &O = *llvm::cast<ELFO>(B);
   const ELFF &E = *O.getELFFile();
 
@@ -133,8 +135,6 @@ int TCGDumpTool::Run(void) {
   auto linear_scan_disassemble = [&](uint64_t Addr, uint64_t End = 0) -> bool {
     if (!End)
       End = Addr + 32;
-
-    tcg.set_binary(*B);
 
     HumanOut() << llvm::formatv("{0:x}\n", Addr);
 
@@ -180,6 +180,7 @@ int TCGDumpTool::Run(void) {
         HumanOut() << llvm::formatv("{0:x} {1}\n", _A, inst_str);
       }
       HumanOut() << '\n';
+      HumanOut().flush();
 
       //
       // print TCG
