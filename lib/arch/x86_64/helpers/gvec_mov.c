@@ -10,9 +10,14 @@
 
 #include <stdio.h>
 
-#include <string.h>
-
 #include <assert.h>
+
+static inline int lduw_he_p(const void *ptr)
+{
+    uint16_t r;
+    __builtin_memcpy(&r, ptr, sizeof(r));
+    return r;
+}
 
 static inline uint32_t extract32(uint32_t value, int start, int length)
 {
@@ -42,6 +47,8 @@ static inline intptr_t simd_oprsz(uint32_t desc)
     intptr_t m = simd_maxsz(desc);
     return f == 2 ? m : o;
 }
+
+#define memcpy __builtin_memcpy
 
 static inline void clear_high(void *d, intptr_t oprsz, uint32_t desc)
 {
