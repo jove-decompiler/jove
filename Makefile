@@ -1358,9 +1358,9 @@ $(BINDIR)/$(2)/helpers/$(1).ll: $(BINDIR)/$(2)/helpers/$(1).bc
 
 $(BINDIR)/$(2)/helpers/$(1).bc: lib/arch/$(2)/helpers/$(1).c
 	@echo BC $$<
-	$(_LLVM_CC) -o $(1).1.bc -c -MMD -I lib -I lib/arch/$(2) -emit-llvm -fPIC -g -O3 -ffreestanding -fno-stack-protector -Wall -Wno-macro-redefined -Wno-initializer-overrides -fno-strict-aliasing -fno-common -fwrapv -DNEED_CPU_H -DNDEBUG --sysroot $($(2)_sysroot) --target=$($(2)_TRIPLE) $($(2)_HELPER_CFLAGS) $$<
-	@$(_LLVM_OPT) -o $(1).2.bc $(1).1.bc -internalize -internalize-public-api-list=helper_$(1)
-	@$(_LLVM_OPT) -o $$@ -O3 $(1).2.bc
+	$(_LLVM_CC) -o $$@.1 -c -MMD -I lib -I lib/arch/$(2) -emit-llvm -fPIC -g -O3 -ffreestanding -fno-stack-protector -Wall -Wno-macro-redefined -Wno-initializer-overrides -fno-strict-aliasing -fno-common -fwrapv -DNEED_CPU_H -DNDEBUG --sysroot $($(2)_sysroot) --target=$($(2)_TRIPLE) $($(2)_HELPER_CFLAGS) $$<
+	@$(_LLVM_OPT) -o $$@.2 $$@.1 -internalize -internalize-public-api-list=helper_$(1)
+	@$(_LLVM_OPT) -o $$@ -O3 $$@.2
 endef
 $(foreach target,$(ALL_TARGETS),$(foreach helper,$($(target)_HELPERS),$(eval $(call build_helper_template,$(helper),$(target)))))
 
