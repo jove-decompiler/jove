@@ -841,6 +841,16 @@ x86_64-into_EXTRICATE_ARGS := cpu_cc_compute_all
 x86_64-fcomi_ST0_FT0_EXTRICATE_ARGS := cpu_cc_compute_all
 x86_64-fucomi_ST0_FT0_EXTRICATE_ARGS := cpu_cc_compute_all
 x86_64-write_eflags_EXTRICATE_ARGS := cpu_load_eflags
+x86_64-aesdeclast_xmm_EXTRICATE_ARGS := AES_ishifts
+x86_64-aesenc_xmm_EXTRICATE_ARGS := AES_shifts
+x86_64-aeskeygenassist_xmm_EXTRICATE_ARGS := AES_sbox
+x86_64-aesdec_xmm_EXTRICATE_ARGS := AES_ishifts
+x86_64-aesenclast_xmm_EXTRICATE_ARGS := AES_shifts
+x86_64-aesimc_xmm_EXTRICATE_ARGS := AES_imc
+x86_64-aesdec_ymm_EXTRICATE_ARGS := AES_ishifts
+x86_64-aesdeclast_ymm_EXTRICATE_ARGS := AES_ishifts
+x86_64-aesenc_ymm_EXTRICATE_ARGS := AES_shifts
+x86_64-aesenclast_ymm_EXTRICATE_ARGS := AES_shifts
 
 i386-aaa_EXTRICATE_ARGS := cpu_cc_compute_all
 i386-aas_EXTRICATE_ARGS := cpu_cc_compute_all
