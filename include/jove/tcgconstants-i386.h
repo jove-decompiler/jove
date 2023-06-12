@@ -14,6 +14,7 @@ namespace jove {
 // I32 cc_dst
 // I32 cc_src
 // I32 cc_src2
+// I32 eip
 // I32 eax
 // I32 ecx
 // I32 edx
@@ -47,69 +48,69 @@ namespace jove {
 //
 
 typedef uint32_t tcg_uintptr_t;
-constexpr int tcg_num_globals = 36;
-constexpr int tcg_num_helpers = 805;
+constexpr int tcg_num_globals = 37;
 constexpr int tcg_max_temps = 512;
 constexpr int tcg_env_index = 1;
 constexpr int tcg_program_counter_index = -1;
-constexpr int tcg_frame_pointer_index = 11;
-constexpr int tcg_stack_pointer_index = 10;
+constexpr int tcg_frame_pointer_index = 12;
+constexpr int tcg_stack_pointer_index = 11;
 constexpr int tcg_program_counter_env_offset = 32;
-constexpr int tcg_syscall_number_index = 6;
-constexpr int tcg_syscall_return_index = 6;
-constexpr int tcg_syscall_arg1_index = 9;
-constexpr int tcg_syscall_arg2_index = 7;
-constexpr int tcg_syscall_arg3_index = 8;
-constexpr int tcg_syscall_arg4_index = 12;
-constexpr int tcg_syscall_arg5_index = 13;
-constexpr int tcg_syscall_arg6_index = 11;
-constexpr int tcg_gs_base_index = 19;
+constexpr int tcg_syscall_number_index = 7;
+constexpr int tcg_syscall_return_index = 7;
+constexpr int tcg_syscall_arg1_index = 10;
+constexpr int tcg_syscall_arg2_index = 8;
+constexpr int tcg_syscall_arg3_index = 9;
+constexpr int tcg_syscall_arg4_index = 13;
+constexpr int tcg_syscall_arg5_index = 14;
+constexpr int tcg_syscall_arg6_index = 12;
+constexpr int tcg_gs_base_index = 20;
 typedef std::bitset<tcg_num_globals> tcg_global_set_t;
-constexpr tcg_global_set_t NotArgs(68719460415);
-constexpr tcg_global_set_t NotRets(68719460415);
-constexpr tcg_global_set_t CallConvArgs(448);
+constexpr tcg_global_set_t NotArgs(137438920767);
+constexpr tcg_global_set_t NotRets(137438920767);
+constexpr tcg_global_set_t CallConvArgs(896);
 typedef std::array<unsigned, 3> CallConvArgArrayTy;
-static const CallConvArgArrayTy CallConvArgArray{6, 8, 7};
-constexpr tcg_global_set_t CallConvRets(320);
+static const CallConvArgArrayTy CallConvArgArray{7, 9, 8};
+constexpr tcg_global_set_t CallConvRets(640);
 typedef std::array<unsigned, 2> CallConvRetArrayTy;
-static const CallConvRetArrayTy CallConvRetArray{6, 8};
-constexpr tcg_global_set_t CalleeSavedRegs(14848);
-static const uint8_t tcg_global_by_offset_lookup_table[313] = {
-[0 ... 312] = 0xff,
+static const CallConvRetArrayTy CallConvRetArray{7, 9};
+constexpr tcg_global_set_t CalleeSavedRegs(29696);
+static const uint8_t tcg_global_by_offset_lookup_table[349] = {
+[0 ... 348] = 0xff,
 [52] = 2,
 [40] = 3,
 [44] = 4,
 [48] = 5,
-[0] = 6,
-[4] = 7,
-[8] = 8,
-[12] = 9,
-[16] = 10,
-[20] = 11,
-[24] = 12,
-[28] = 13,
-[72] = 14,
-[88] = 15,
-[104] = 16,
-[120] = 17,
-[136] = 18,
-[152] = 19,
-[252] = 20,
-[256] = 21,
-[260] = 22,
-[264] = 23,
-[268] = 24,
-[272] = 25,
-[276] = 26,
-[280] = 27,
-[284] = 28,
-[288] = 29,
-[292] = 30,
-[296] = 31,
-[300] = 32,
-[304] = 33,
-[308] = 34,
-[312] = 35,
+[32] = 6,
+[0] = 7,
+[4] = 8,
+[8] = 9,
+[12] = 10,
+[16] = 11,
+[20] = 12,
+[24] = 13,
+[28] = 14,
+[72] = 15,
+[88] = 16,
+[104] = 17,
+[120] = 18,
+[136] = 19,
+[152] = 20,
+[288] = 21,
+[292] = 22,
+[296] = 23,
+[300] = 24,
+[304] = 25,
+[308] = 26,
+[312] = 27,
+[316] = 28,
+[320] = 29,
+[324] = 30,
+[328] = 31,
+[332] = 32,
+[336] = 33,
+[340] = 34,
+[344] = 35,
+[348] = 36,
 };
 constexpr tcg_global_set_t PinnedEnvGlbs(0);
 }
