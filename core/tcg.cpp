@@ -1,6 +1,4 @@
-#include "tcg.h"
-
-#include "../bin/x86_64/tcg.h"
+#include "qemu_tcg.h"
 #include "../qemu/include/jove.h"
 
 #include <algorithm>
