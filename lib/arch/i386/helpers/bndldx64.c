@@ -1,8 +1,16 @@
+#define CONFIG_JOVE_HELPERS
+
 #define CONFIG_LINUX 1
+
+#define TARGET_BIG_ENDIAN 0
 
 #define HOST_BIG_ENDIAN (__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__)
 
 #define QEMU_ALIGNED(X) __attribute__((aligned(X)))
+
+#define container_of(ptr, type, member) ({                      \
+        const typeof(((type *) 0)->member) *__mptr = (ptr);     \
+        (type *) ((char *) __mptr - offsetof(type, member));})
 
 #include <stddef.h>
 
@@ -146,6 +154,8 @@ void     g_queue_free_full      (GQueue           *queue,
 
 typedef struct AddressSpace AddressSpace;
 
+typedef struct ArchCPU ArchCPU;
+
 typedef struct BusState BusState;
 
 typedef struct Clock Clock;
@@ -175,6 +185,8 @@ typedef struct Property Property;
 typedef struct QDict QDict;
 
 typedef struct QemuMutex QemuMutex;
+
+typedef struct VMChangeStateEntry VMChangeStateEntry;
 
 typedef struct VMStateDescription VMStateDescription;
 
@@ -211,10 +223,31 @@ union {                                                                 \
         QTailQLink tqe_circ;          /* link for circular backwards list */ \
 }
 
+#define bswap64(_x) __builtin_bswap64(_x)
+
 typedef struct QTailQLink {
     void *tql_next;
     struct QTailQLink *tql_prev;
 } QTailQLink;
+
+static inline void bswap64s(uint64_t *s)
+{
+    *s = __builtin_bswap64(*s);
+}
+
+static inline int lduw_he_p(const void *ptr)
+{
+    uint16_t r;
+    __builtin_memcpy(&r, ptr, sizeof(r));
+    return r;
+}
+
+static inline uint64_t ldq_he_p(const void *ptr)
+{
+    uint64_t r;
+    __builtin_memcpy(&r, ptr, sizeof(r));
+    return r;
+}
 
 #define BITS_PER_BYTE           CHAR_BIT
 
@@ -249,11 +282,21 @@ struct QemuThread {
     pthread_t thread;
 };
 
+struct Notifier;
+
 struct QemuLockCnt {
 #ifndef CONFIG_LINUX
     QemuMutex mutex;
 #endif
     unsigned count;
+};
+
+typedef struct Notifier Notifier;
+
+struct Notifier
+{
+    void (*notify)(Notifier *notifier, void *data);
+    QLIST_ENTRY(Notifier) node;
 };
 
 struct TypeImpl;
@@ -909,6 +952,16 @@ enum qemu_plugin_event {
 
 typedef struct CPUClass CPUClass;
 
+#define OBJECT_DECLARE_CPU_TYPE(CpuInstanceType, CpuClassType, CPU_MODULE_OBJ_NAME) \
+    typedef struct ArchCPU CpuInstanceType; \
+    OBJECT_DECLARE_TYPE(ArchCPU, CpuClassType, CPU_MODULE_OBJ_NAME);
+
+typedef enum MMUAccessType {
+    MMU_DATA_LOAD  = 0,
+    MMU_DATA_STORE = 1,
+    MMU_INST_FETCH = 2
+} MMUAccessType;
+
 typedef struct CPUWatchpoint CPUWatchpoint;
 
 struct TCGCPUOps;
@@ -1128,6 +1181,10 @@ struct CPUState {
     GArray *iommu_notifiers;
 };
 
+#define TYPE_X86_CPU "i386-cpu"
+
+OBJECT_DECLARE_CPU_TYPE(X86CPU, X86CPUClass, X86_CPU)
+
 #define HV_SINT_COUNT                         16
 
 #define HV_X64_MSR_CRASH_P0                     0x40000100
@@ -1139,6 +1196,20 @@ struct CPUState {
 #define HV_STIMER_COUNT                       4
 
 typedef uint32_t target_ulong;
+
+typedef struct CPUTLB { } CPUTLB;
+
+typedef struct CPUNegativeOffsetState {
+    CPUTLB tlb;
+    IcountDecr icount_decr;
+} CPUNegativeOffsetState;
+
+typedef enum OnOffAuto {
+    ON_OFF_AUTO_AUTO,
+    ON_OFF_AUTO_ON,
+    ON_OFF_AUTO_OFF,
+    ON_OFF_AUTO__MAX,
+} OnOffAuto;
 
 typedef uint16_t float16;
 
@@ -1193,9 +1264,15 @@ typedef struct float_status {
     bool rebias_underflow;
 } float_status;
 
+#define AC_MASK                 0x00040000
+
 #define HF_CPL_SHIFT         0
 
+#define HF_SMAP_SHIFT       23
+
 #define HF_CPL_MASK          (3 << HF_CPL_SHIFT)
+
+#define HF_SMAP_MASK         (1 << HF_SMAP_SHIFT)
 
 #define MCE_BANKS_DEF   10
 
@@ -1686,11 +1763,348 @@ typedef struct CPUArchState {
     unsigned nr_dies;
 } CPUX86State;
 
+struct kvm_msrs;
+
+struct ArchCPU {
+    /*< private >*/
+    CPUState parent_obj;
+    /*< public >*/
+
+    CPUNegativeOffsetState neg;
+    CPUX86State env;
+    VMChangeStateEntry *vmsentry;
+
+    uint64_t ucode_rev;
+
+    uint32_t hyperv_spinlock_attempts;
+    char *hyperv_vendor;
+    bool hyperv_synic_kvm_only;
+    uint64_t hyperv_features;
+    bool hyperv_passthrough;
+    OnOffAuto hyperv_no_nonarch_cs;
+    uint32_t hyperv_vendor_id[3];
+    uint32_t hyperv_interface_id[4];
+    uint32_t hyperv_limits[3];
+    bool hyperv_enforce_cpuid;
+    uint32_t hyperv_ver_id_build;
+    uint16_t hyperv_ver_id_major;
+    uint16_t hyperv_ver_id_minor;
+    uint32_t hyperv_ver_id_sp;
+    uint8_t hyperv_ver_id_sb;
+    uint32_t hyperv_ver_id_sn;
+
+    bool check_cpuid;
+    bool enforce_cpuid;
+    /*
+     * Force features to be enabled even if the host doesn't support them.
+     * This is dangerous and should be done only for testing CPUID
+     * compatibility.
+     */
+    bool force_features;
+    bool expose_kvm;
+    bool expose_tcg;
+    bool migratable;
+    bool migrate_smi_count;
+    bool max_features; /* Enable all supported features automatically */
+    uint32_t apic_id;
+
+    /* Enables publishing of TSC increment and Local APIC bus frequencies to
+     * the guest OS in CPUID page 0x40000010, the same way that VMWare does. */
+    bool vmware_cpuid_freq;
+
+    /* if true the CPUID code directly forward host cache leaves to the guest */
+    bool cache_info_passthrough;
+
+    /* if true the CPUID code directly forwards
+     * host monitor/mwait leaves to the guest */
+    struct {
+        uint32_t eax;
+        uint32_t ebx;
+        uint32_t ecx;
+        uint32_t edx;
+    } mwait;
+
+    /* Features that were filtered out because of missing host capabilities */
+    FeatureWordArray filtered_features;
+
+    /* Enable PMU CPUID bits. This can't be enabled by default yet because
+     * it doesn't have ABI stability guarantees, as it passes all PMU CPUID
+     * bits returned by GET_SUPPORTED_CPUID (that depend on host CPU and kernel
+     * capabilities) directly to the guest.
+     */
+    bool enable_pmu;
+
+    /*
+     * Enable LBR_FMT bits of IA32_PERF_CAPABILITIES MSR.
+     * This can't be initialized with a default because it doesn't have
+     * stable ABI support yet. It is only allowed to pass all LBR_FMT bits
+     * returned by kvm_arch_get_supported_msr_feature()(which depends on both
+     * host CPU and kernel capabilities) to the guest.
+     */
+    uint64_t lbr_fmt;
+
+    /* LMCE support can be enabled/disabled via cpu option 'lmce=on/off'. It is
+     * disabled by default to avoid breaking migration between QEMU with
+     * different LMCE configurations.
+     */
+    bool enable_lmce;
+
+    /* Compatibility bits for old machine types.
+     * If true present virtual l3 cache for VM, the vcpus in the same virtual
+     * socket share an virtual l3 cache.
+     */
+    bool enable_l3_cache;
+
+    /* Compatibility bits for old machine types.
+     * If true present the old cache topology information
+     */
+    bool legacy_cache;
+
+    /* Compatibility bits for old machine types: */
+    bool enable_cpuid_0xb;
+
+    /* Enable auto level-increase for all CPUID leaves */
+    bool full_cpuid_auto_level;
+
+    /* Only advertise CPUID leaves defined by the vendor */
+    bool vendor_cpuid_only;
+
+    /* Enable auto level-increase for Intel Processor Trace leave */
+    bool intel_pt_auto_level;
+
+    /* if true fill the top bits of the MTRR_PHYSMASKn variable range */
+    bool fill_mtrr_mask;
+
+    /* if true override the phys_bits value with a value read from the host */
+    bool host_phys_bits;
+
+    /* if set, limit maximum value for phys_bits when host_phys_bits is true */
+    uint8_t host_phys_bits_limit;
+
+    /* Stop SMI delivery for migration compatibility with old machines */
+    bool kvm_no_smi_migration;
+
+    /* Forcefully disable KVM PV features not exposed in guest CPUIDs */
+    bool kvm_pv_enforce_cpuid;
+
+    /* Number of physical address bits supported */
+    uint32_t phys_bits;
+
+    /* in order to simplify APIC support, we leave this pointer to the
+       user */
+    struct DeviceState *apic_state;
+    struct MemoryRegion *cpu_as_root, *cpu_as_mem, *smram;
+    Notifier machine_done;
+
+    struct kvm_msrs *kvm_msr_buf;
+
+    int32_t node_id; /* NUMA node this CPU belongs to */
+    int32_t socket_id;
+    int32_t die_id;
+    int32_t core_id;
+    int32_t thread_id;
+
+    int32_t hv_max_vps;
+
+    bool xen_vapic;
+};
+
+#define MMU_KSMAP_IDX   0
+
+#define MMU_USER_IDX    1
+
+#define MMU_KNOSMAP_IDX 2
+
+static inline int cpu_mmu_index(CPUX86State *env, bool ifetch)
+{
+    return (env->hflags & HF_CPL_MASK) == 3 ? MMU_USER_IDX :
+        (!(env->hflags & HF_SMAP_MASK) || (env->eflags & AC_MASK))
+        ? MMU_KNOSMAP_IDX : MMU_KSMAP_IDX;
+}
+
+static inline ArchCPU *env_archcpu(CPUArchState *env)
+{
+    return container_of(env, ArchCPU, env);
+}
+
+static inline CPUState *env_cpu(CPUArchState *env)
+{
+    return &env_archcpu(env)->parent_obj;
+}
+
+typedef enum MemOp {
+    MO_8     = 0,
+    MO_16    = 1,
+    MO_32    = 2,
+    MO_64    = 3,
+    MO_128   = 4,
+    MO_256   = 5,
+    MO_512   = 6,
+    MO_1024  = 7,
+    MO_SIZE  = 0x07,   /* Mask for the above.  */
+
+    MO_SIGN  = 0x08,   /* Sign-extended, otherwise zero-extended.  */
+
+    MO_BSWAP = 0x10,   /* Host reverse endian.  */
+#if HOST_BIG_ENDIAN
+    MO_LE    = MO_BSWAP,
+    MO_BE    = 0,
+#else
+    MO_LE    = 0,
+    MO_BE    = MO_BSWAP,
+#endif
+#ifdef NEED_CPU_H
+#if TARGET_BIG_ENDIAN
+    MO_TE    = MO_BE,
+#else
+    MO_TE    = MO_LE,
+#endif
+#endif
+
+    /*
+     * MO_UNALN accesses are never checked for alignment.
+     * MO_ALIGN accesses will result in a call to the CPU's
+     * do_unaligned_access hook if the guest address is not aligned.
+     *
+     * Some architectures (e.g. ARMv8) need the address which is aligned
+     * to a size more than the size of the memory access.
+     * Some architectures (e.g. SPARCv9) need an address which is aligned,
+     * but less strictly than the natural alignment.
+     *
+     * MO_ALIGN supposes the alignment size is the size of a memory access.
+     *
+     * There are three options:
+     * - unaligned access permitted (MO_UNALN).
+     * - an alignment to the size of an access (MO_ALIGN);
+     * - an alignment to a specified size, which may be more or less than
+     *   the access size (MO_ALIGN_x where 'x' is a size in bytes);
+     */
+    MO_ASHIFT = 5,
+    MO_AMASK = 0x7 << MO_ASHIFT,
+    MO_UNALN    = 0,
+    MO_ALIGN_2  = 1 << MO_ASHIFT,
+    MO_ALIGN_4  = 2 << MO_ASHIFT,
+    MO_ALIGN_8  = 3 << MO_ASHIFT,
+    MO_ALIGN_16 = 4 << MO_ASHIFT,
+    MO_ALIGN_32 = 5 << MO_ASHIFT,
+    MO_ALIGN_64 = 6 << MO_ASHIFT,
+    MO_ALIGN    = MO_AMASK,
+
+    /*
+     * MO_ATOM_* describes the atomicity requirements of the operation:
+     * MO_ATOM_IFALIGN: the operation must be single-copy atomic if it
+     *    is aligned; if unaligned there is no atomicity.
+     * MO_ATOM_IFALIGN_PAIR: the entire operation may be considered to
+     *    be a pair of half-sized operations which are packed together
+     *    for convenience, with single-copy atomicity on each half if
+     *    the half is aligned.
+     *    This is the atomicity e.g. of Arm pre-FEAT_LSE2 LDP.
+     * MO_ATOM_WITHIN16: the operation is single-copy atomic, even if it
+     *    is unaligned, so long as it does not cross a 16-byte boundary;
+     *    if it crosses a 16-byte boundary there is no atomicity.
+     *    This is the atomicity e.g. of Arm FEAT_LSE2 LDR.
+     * MO_ATOM_WITHIN16_PAIR: the entire operation is single-copy atomic,
+     *    if it happens to be within a 16-byte boundary, otherwise it
+     *    devolves to a pair of half-sized MO_ATOM_WITHIN16 operations.
+     *    Depending on alignment, one or both will be single-copy atomic.
+     *    This is the atomicity e.g. of Arm FEAT_LSE2 LDP.
+     * MO_ATOM_SUBALIGN: the operation is single-copy atomic by parts
+     *    by the alignment.  E.g. if the address is 0 mod 4, then each
+     *    4-byte subobject is single-copy atomic.
+     *    This is the atomicity e.g. of IBM Power.
+     * MO_ATOM_NONE: the operation has no atomicity requirements.
+     *
+     * Note the default (i.e. 0) value is single-copy atomic to the
+     * size of the operation, if aligned.  This retains the behaviour
+     * from before this field was introduced.
+     */
+    MO_ATOM_SHIFT         = 8,
+    MO_ATOM_IFALIGN       = 0 << MO_ATOM_SHIFT,
+    MO_ATOM_IFALIGN_PAIR  = 1 << MO_ATOM_SHIFT,
+    MO_ATOM_WITHIN16      = 2 << MO_ATOM_SHIFT,
+    MO_ATOM_WITHIN16_PAIR = 3 << MO_ATOM_SHIFT,
+    MO_ATOM_SUBALIGN      = 4 << MO_ATOM_SHIFT,
+    MO_ATOM_NONE          = 5 << MO_ATOM_SHIFT,
+    MO_ATOM_MASK          = 7 << MO_ATOM_SHIFT,
+
+    /* Combinations of the above, for ease of use.  */
+    MO_UB    = MO_8,
+    MO_UW    = MO_16,
+    MO_UL    = MO_32,
+    MO_UQ    = MO_64,
+    MO_UO    = MO_128,
+    MO_SB    = MO_SIGN | MO_8,
+    MO_SW    = MO_SIGN | MO_16,
+    MO_SL    = MO_SIGN | MO_32,
+    MO_SQ    = MO_SIGN | MO_64,
+    MO_SO    = MO_SIGN | MO_128,
+
+    MO_LEUW  = MO_LE | MO_UW,
+    MO_LEUL  = MO_LE | MO_UL,
+    MO_LEUQ  = MO_LE | MO_UQ,
+    MO_LESW  = MO_LE | MO_SW,
+    MO_LESL  = MO_LE | MO_SL,
+    MO_LESQ  = MO_LE | MO_SQ,
+
+    MO_BEUW  = MO_BE | MO_UW,
+    MO_BEUL  = MO_BE | MO_UL,
+    MO_BEUQ  = MO_BE | MO_UQ,
+    MO_BESW  = MO_BE | MO_SW,
+    MO_BESL  = MO_BE | MO_SL,
+    MO_BESQ  = MO_BE | MO_SQ,
+
+#ifdef NEED_CPU_H
+    MO_TEUW  = MO_TE | MO_UW,
+    MO_TEUL  = MO_TE | MO_UL,
+    MO_TEUQ  = MO_TE | MO_UQ,
+    MO_TEUO  = MO_TE | MO_UO,
+    MO_TESW  = MO_TE | MO_SW,
+    MO_TESL  = MO_TE | MO_SL,
+    MO_TESQ  = MO_TE | MO_SQ,
+#endif
+
+    MO_SSIZE = MO_SIZE | MO_SIGN,
+} MemOp;
+
+typedef uint32_t MemOpIdx;
+
+static inline MemOpIdx make_memop_idx(MemOp op, unsigned idx)
+{
+#ifdef CONFIG_DEBUG_TCG
+    assert(idx <= 15);
+#endif
+    return (op << 4) | idx;
+}
+
+static inline MemOp get_memop(MemOpIdx oi)
+{
+    return (MemOp)(oi >> 4);
+}
+
 typedef uint32_t abi_ptr;
+
+static inline abi_ptr cpu_untagged_addr(CPUState *cs, abi_ptr x)
+{
+    return x;
+}
+
+static inline void *g2h_untagged(abi_ptr x)
+{
+    return (void *)((uintptr_t)(x));
+}
+
+static inline void *g2h(CPUState *cs, abi_ptr x)
+{
+    return g2h_untagged(cpu_untagged_addr(cs, x));
+}
 
 uint64_t cpu_ldq_le_data_ra(CPUArchState *env, abi_ptr ptr, uintptr_t ra);
 
+static inline void set_helper_retaddr(uintptr_t ra) {}
+
 # define cpu_ldq_data_ra      cpu_ldq_le_data_ra
+
+static inline void clear_helper_retaddr(void) {}
 
 G_NORETURN static inline void cpu_loop_exit_noexc(CPUState *cpu) {
   __builtin_trap();
@@ -1698,6 +2112,83 @@ G_NORETURN static inline void cpu_loop_exit_noexc(CPUState *cpu) {
 }
 
 # define GETPC() 0
+
+enum qemu_plugin_mem_rw {
+    QEMU_PLUGIN_MEM_R = 1,
+    QEMU_PLUGIN_MEM_W,
+    QEMU_PLUGIN_MEM_RW,
+};
+
+static inline void qemu_plugin_vcpu_mem_cb(CPUState *cpu, uint64_t vaddr,
+                                           MemOpIdx oi,
+                                           enum qemu_plugin_mem_rw rw)
+{ }
+
+# define tcg_debug_assert(X) \
+    do { if (!(X)) { __builtin_unreachable(); } } while (0)
+
+static void *cpu_mmu_lookup(CPUArchState *env, abi_ptr addr,
+                            MemOp mop, uintptr_t ra, MMUAccessType type)
+{
+#ifdef CONFIG_JOVE_HELPERS
+    void *ret;
+#else
+    int a_bits = get_alignment_bits(mop);
+    void *ret;
+
+    /* Enforce guest required alignment.  */
+    if (unlikely(addr & ((1 << a_bits) - 1))) {
+        cpu_loop_exit_sigbus(env_cpu(env), addr, type, ra);
+    }
+#endif
+
+    ret = g2h(env_cpu(env), addr);
+    set_helper_retaddr(ra);
+    return ret;
+}
+
+static uint64_t load_atom_8(CPUArchState *env, uintptr_t ra,
+                            void *pv, MemOp memop)
+{
+    return ldq_he_p(pv);
+}
+
+static uint64_t do_ld8_mmu(CPUArchState *env, abi_ptr addr,
+                           MemOp mop, uintptr_t ra)
+{
+    void *haddr;
+    uint64_t ret;
+
+    tcg_debug_assert((mop & MO_SIZE) == MO_64);
+    haddr = cpu_mmu_lookup(env, addr, mop, ra, MMU_DATA_LOAD);
+    ret = load_atom_8(env, ra, haddr, mop);
+    clear_helper_retaddr();
+
+    if (mop & MO_BSWAP) {
+        ret = bswap64(ret);
+    }
+    return ret;
+}
+
+uint64_t cpu_ldq_mmu(CPUArchState *env, abi_ptr addr,
+                     MemOpIdx oi, uintptr_t ra)
+{
+    uint64_t ret = do_ld8_mmu(env, addr, get_memop(oi), ra);
+    qemu_plugin_vcpu_mem_cb(env_cpu(env), addr, oi, QEMU_PLUGIN_MEM_R);
+    return ret;
+}
+
+uint64_t cpu_ldq_le_mmuidx_ra(CPUArchState *env, abi_ptr addr,
+                              int mmu_idx, uintptr_t ra)
+{
+    MemOpIdx oi = make_memop_idx(MO_LEUQ | MO_UNALN, mmu_idx);
+    return cpu_ldq_mmu(env, addr, oi, ra);
+}
+
+uint64_t cpu_ldq_le_data_ra(CPUArchState *env, abi_ptr addr, uintptr_t ra)
+{
+    return cpu_ldq_le_mmuidx_ra(env, addr, cpu_mmu_index(env, false), ra);
+}
 
 inline G_NORETURN void raise_exception_ra(CPUX86State *env, int exception_index,
                                           uintptr_t retaddr) {

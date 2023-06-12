@@ -1,6 +1,18 @@
+#define CONFIG_JOVE_HELPERS
+
+#define CONFIG_LINUX 1
+
 #define CONFIG_USER_ONLY 1
 
+#define TARGET_BIG_ENDIAN 0
+
+#define HOST_BIG_ENDIAN (__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__)
+
 #define QEMU_ALIGNED(X) __attribute__((aligned(X)))
+
+#define container_of(ptr, type, member) ({                      \
+        const typeof(((type *) 0)->member) *__mptr = (ptr);     \
+        (type *) ((char *) __mptr - offsetof(type, member));})
 
 #define QEMU_BUILD_BUG_ON_STRUCT(x) \
     struct { \
@@ -10,13 +22,187 @@
 #define QEMU_BUILD_BUG_ON_ZERO(x) (sizeof(QEMU_BUILD_BUG_ON_STRUCT(x)) - \
                                    sizeof(QEMU_BUILD_BUG_ON_STRUCT(x)))
 
+#include <stddef.h>
+
 #include <stdbool.h>
 
 #include <stdint.h>
 
+#include <sys/types.h>
+
+#include <stdio.h>
+
+#include <limits.h>
+
 #include <assert.h>
 
+#include <setjmp.h>
+
+#define G_GNUC_PRINTF( format_idx, arg_idx )    \
+  __attribute__((__format__ (__printf__, format_idx, arg_idx)))
+
+#define G_GNUC_UNUSED \
+  __attribute__ ((__unused__))
+
+#define G_GNUC_BEGIN_IGNORE_DEPRECATIONS \
+  _Pragma("clang diagnostic push") \
+  _Pragma("clang diagnostic ignored \"-Wdeprecated-declarations\"")
+
+#define G_GNUC_END_IGNORE_DEPRECATIONS \
+  _Pragma("clang diagnostic pop")
+
+# define G_NORETURN __attribute__ ((__noreturn__))
+
+#define _GLIB_EXTERN extern
+
+#define _GLIB_AUTOPTR_FUNC_NAME(TypeName) glib_autoptr_cleanup_##TypeName
+
+#define _GLIB_AUTOPTR_CLEAR_FUNC_NAME(TypeName) glib_autoptr_clear_##TypeName
+
+#define _GLIB_AUTOPTR_TYPENAME(TypeName)  TypeName##_autoptr
+
+#define _GLIB_AUTOPTR_LIST_FUNC_NAME(TypeName) glib_listautoptr_cleanup_##TypeName
+
+#define _GLIB_AUTOPTR_LIST_TYPENAME(TypeName)  TypeName##_listautoptr
+
+#define _GLIB_AUTOPTR_SLIST_FUNC_NAME(TypeName) glib_slistautoptr_cleanup_##TypeName
+
+#define _GLIB_AUTOPTR_SLIST_TYPENAME(TypeName)  TypeName##_slistautoptr
+
+#define _GLIB_AUTOPTR_QUEUE_FUNC_NAME(TypeName) glib_queueautoptr_cleanup_##TypeName
+
+#define _GLIB_AUTOPTR_QUEUE_TYPENAME(TypeName)  TypeName##_queueautoptr
+
+#define _GLIB_DEFINE_AUTOPTR_CLEANUP_FUNCS(TypeName, ParentName, cleanup) \
+  typedef TypeName *_GLIB_AUTOPTR_TYPENAME(TypeName);                                                           \
+  typedef GList *_GLIB_AUTOPTR_LIST_TYPENAME(TypeName);                                                         \
+  typedef GSList *_GLIB_AUTOPTR_SLIST_TYPENAME(TypeName);                                                       \
+  typedef GQueue *_GLIB_AUTOPTR_QUEUE_TYPENAME(TypeName);                                                       \
+  G_GNUC_BEGIN_IGNORE_DEPRECATIONS                                                                              \
+  static G_GNUC_UNUSED inline void _GLIB_AUTOPTR_CLEAR_FUNC_NAME(TypeName) (TypeName *_ptr)                     \
+    { if (_ptr) (cleanup) ((ParentName *) _ptr); }                                                              \
+  static G_GNUC_UNUSED inline void _GLIB_AUTOPTR_FUNC_NAME(TypeName) (TypeName **_ptr)                          \
+    { _GLIB_AUTOPTR_CLEAR_FUNC_NAME(TypeName) (*_ptr); }                                                        \
+  static G_GNUC_UNUSED inline void _GLIB_AUTOPTR_LIST_FUNC_NAME(TypeName) (GList **_l)                          \
+    { g_list_free_full (*_l, (GDestroyNotify) (void(*)(void)) cleanup); }                                       \
+  static G_GNUC_UNUSED inline void _GLIB_AUTOPTR_SLIST_FUNC_NAME(TypeName) (GSList **_l)                        \
+    { g_slist_free_full (*_l, (GDestroyNotify) (void(*)(void)) cleanup); }                                      \
+  static G_GNUC_UNUSED inline void _GLIB_AUTOPTR_QUEUE_FUNC_NAME(TypeName) (GQueue **_q)                        \
+    { if (*_q) g_queue_free_full (*_q, (GDestroyNotify) (void(*)(void)) cleanup); }                             \
+  G_GNUC_END_IGNORE_DEPRECATIONS
+
+#define G_DEFINE_AUTOPTR_CLEANUP_FUNC(TypeName, func) \
+  _GLIB_DEFINE_AUTOPTR_CLEANUP_FUNCS(TypeName, TypeName, func)
+
+typedef unsigned char guint8;
+
+#define GLIB_AVAILABLE_IN_ALL                   _GLIB_EXTERN
+
+typedef char   gchar;
+
+typedef unsigned int    guint;
+
+typedef void* gpointer;
+
+typedef void            (*GDestroyNotify)       (gpointer       data);
+
+typedef struct _GArray		GArray;
+
+typedef struct _GByteArray	GByteArray;
+
+struct _GArray
+{
+  gchar *data;
+  guint len;
+};
+
+struct _GByteArray
+{
+  guint8 *data;
+  guint	  len;
+};
+
+typedef struct _GList GList;
+
+struct _GList
+{
+  gpointer data;
+  GList *next;
+  GList *prev;
+};
+
+GLIB_AVAILABLE_IN_ALL
+void     g_list_free_full               (GList            *list,
+					 GDestroyNotify    free_func);
+
+typedef struct _GHashTable  GHashTable;
+
+typedef struct _GSList GSList;
+
+struct _GSList
+{
+  gpointer data;
+  GSList *next;
+};
+
+GLIB_AVAILABLE_IN_ALL
+void     g_slist_free_full               (GSList           *list,
+					  GDestroyNotify    free_func);
+
+typedef struct _GQueue GQueue;
+
+struct _GQueue
+{
+  GList *head;
+  GList *tail;
+  guint  length;
+};
+
+GLIB_AVAILABLE_IN_ALL
+void     g_queue_free_full      (GQueue           *queue,
+				GDestroyNotify    free_func);
+
+typedef struct AddressSpace AddressSpace;
+
+typedef struct ArchCPU ArchCPU;
+
+typedef struct BusState BusState;
+
+typedef struct Clock Clock;
+
+typedef struct CPUAddressSpace CPUAddressSpace;
+
 typedef struct CPUArchState CPUArchState;
+
+typedef struct CpuInfoFast CpuInfoFast;
+
+typedef struct CPUJumpCache CPUJumpCache;
+
+typedef struct CPUState CPUState;
+
+typedef struct DeviceState DeviceState;
+
+typedef struct Error Error;
+
+typedef struct MemoryRegion MemoryRegion;
+
+typedef struct Object Object;
+
+typedef struct ObjectClass ObjectClass;
+
+typedef struct Property Property;
+
+typedef struct QDict QDict;
+
+typedef struct QemuMutex QemuMutex;
+
+typedef struct VMChangeStateEntry VMChangeStateEntry;
+
+typedef struct VMStateDescription VMStateDescription;
+
+typedef struct IRQState *qemu_irq;
+
+#define DIV_ROUND_UP(n, d) (((n) + (d) - 1) / (d))
 
 #define QEMU_IS_ARRAY(x) (!__builtin_types_compatible_p(typeof(x), \
                                                         typeof(&(x)[0])))
@@ -24,9 +210,28 @@ typedef struct CPUArchState CPUArchState;
 #define ARRAY_SIZE(x) ((sizeof(x) / sizeof((x)[0])) + \
                        QEMU_BUILD_BUG_ON_ZERO(!QEMU_IS_ARRAY(x)))
 
-#define tcg_enabled() (tcg_allowed)
+#define QLIST_HEAD(name, type)                                          \
+struct name {                                                           \
+        struct type *lh_first;  /* first element */                     \
+}
 
-static bool tcg_allowed = true;
+#define QLIST_ENTRY(type)                                               \
+struct {                                                                \
+        struct type *le_next;   /* next element */                      \
+        struct type **le_prev;  /* address of previous next element */  \
+}
+
+#define QSIMPLEQ_HEAD(name, type)                                       \
+struct name {                                                           \
+    struct type *sqh_first;    /* first element */                      \
+    struct type **sqh_last;    /* addr of last next element */          \
+}
+
+#define QTAILQ_HEAD(name, type)                                         \
+union name {                                                            \
+        struct type *tqh_first;       /* first element */               \
+        QTailQLink tqh_circ;          /* link for circular backwards list */ \
+}
 
 #define QTAILQ_ENTRY(type)                                              \
 union {                                                                 \
@@ -34,10 +239,667 @@ union {                                                                 \
         QTailQLink tqe_circ;          /* link for circular backwards list */ \
 }
 
+#define bswap16(_x) __builtin_bswap16(_x)
+
 typedef struct QTailQLink {
     void *tql_next;
     struct QTailQLink *tql_prev;
 } QTailQLink;
+
+static inline void bswap16s(uint16_t *s)
+{
+    *s = __builtin_bswap16(*s);
+}
+
+static inline int lduw_he_p(const void *ptr)
+{
+    uint16_t r;
+    __builtin_memcpy(&r, ptr, sizeof(r));
+    return r;
+}
+
+#define BITS_PER_BYTE           CHAR_BIT
+
+#define BITS_TO_LONGS(nr)       DIV_ROUND_UP(nr, BITS_PER_BYTE * sizeof(long))
+
+#define DECLARE_BITMAP(name,bits)                  \
+        unsigned long name[BITS_TO_LONGS(bits)]
+
+typedef struct QemuLockCnt QemuLockCnt;
+
+struct QemuMutex {
+    pthread_mutex_t lock;
+#ifdef CONFIG_DEBUG_MUTEX
+    const char *file;
+    int line;
+#endif
+    bool initialized;
+};
+
+struct QemuCond {
+    pthread_cond_t cond;
+    bool initialized;
+};
+
+struct QemuThread {
+    pthread_t thread;
+};
+
+struct Notifier;
+
+struct QemuLockCnt {
+#ifndef CONFIG_LINUX
+    QemuMutex mutex;
+#endif
+    unsigned count;
+};
+
+typedef struct Notifier Notifier;
+
+struct Notifier
+{
+    void (*notify)(Notifier *notifier, void *data);
+    QLIST_ENTRY(Notifier) node;
+};
+
+struct TypeImpl;
+
+typedef struct TypeImpl *Type;
+
+typedef void (ObjectUnparent)(Object *obj);
+
+#define OBJECT_CLASS_CAST_CACHE 4
+
+typedef void (ObjectFree)(void *obj);
+
+struct ObjectClass
+{
+    /* private: */
+    Type type;
+    GSList *interfaces;
+
+    const char *object_cast_cache[OBJECT_CLASS_CAST_CACHE];
+    const char *class_cast_cache[OBJECT_CLASS_CAST_CACHE];
+
+    ObjectUnparent *unparent;
+
+    GHashTable *properties;
+};
+
+#define DECLARE_INSTANCE_CHECKER(InstanceType, OBJ_NAME, TYPENAME) \
+    static inline G_GNUC_UNUSED InstanceType * \
+    OBJ_NAME(const void *obj) \
+    { return OBJECT_CHECK(InstanceType, obj, TYPENAME); }
+
+#define DECLARE_CLASS_CHECKERS(ClassType, OBJ_NAME, TYPENAME) \
+    static inline G_GNUC_UNUSED ClassType * \
+    OBJ_NAME##_GET_CLASS(const void *obj) \
+    { return OBJECT_GET_CLASS(ClassType, obj, TYPENAME); } \
+    \
+    static inline G_GNUC_UNUSED ClassType * \
+    OBJ_NAME##_CLASS(const void *klass) \
+    { return OBJECT_CLASS_CHECK(ClassType, klass, TYPENAME); }
+
+#define DECLARE_OBJ_CHECKERS(InstanceType, ClassType, OBJ_NAME, TYPENAME) \
+    DECLARE_INSTANCE_CHECKER(InstanceType, OBJ_NAME, TYPENAME) \
+    \
+    DECLARE_CLASS_CHECKERS(ClassType, OBJ_NAME, TYPENAME)
+
+#define OBJECT_DECLARE_TYPE(InstanceType, ClassType, MODULE_OBJ_NAME) \
+    typedef struct InstanceType InstanceType; \
+    typedef struct ClassType ClassType; \
+    \
+    G_DEFINE_AUTOPTR_CLEANUP_FUNC(InstanceType, object_unref) \
+    \
+    DECLARE_OBJ_CHECKERS(InstanceType, ClassType, \
+                         MODULE_OBJ_NAME, TYPE_##MODULE_OBJ_NAME)
+
+struct Object
+{
+    /* private: */
+    ObjectClass *clazz;
+    ObjectFree *free;
+    GHashTable *properties;
+    uint32_t ref;
+    Object *parent;
+};
+
+#define OBJECT(obj) \
+    ((Object *)(obj))
+
+#define OBJECT_CLASS(class) \
+    ((ObjectClass *)(class))
+
+#define OBJECT_CHECK(type, obj, name) \
+    ((type *)object_dynamic_cast_assert(OBJECT(obj), (name), \
+                                        __FILE__, __LINE__, __func__))
+
+#define OBJECT_CLASS_CHECK(class_type, class, name) \
+    ((class_type *)object_class_dynamic_cast_assert(OBJECT_CLASS(class), (name), \
+                                               __FILE__, __LINE__, __func__))
+
+#define OBJECT_GET_CLASS(class, obj, name) \
+    OBJECT_CLASS_CHECK(class, object_get_class(OBJECT(obj)), name)
+
+Object *object_dynamic_cast_assert(Object *obj, const char *,
+                                   const char *file, int line, const char *func);
+
+ObjectClass *object_get_class(Object *obj);
+
+ObjectClass *object_class_dynamic_cast_assert(ObjectClass *klass,
+                                              const char *,
+                                              const char *file, int line,
+                                              const char *func);
+
+void object_unref(void *obj);
+
+typedef struct ResettableState ResettableState;
+
+struct ResettableState {
+    unsigned count;
+    bool hold_phase_pending;
+    bool exit_phase_in_progress;
+};
+
+#define TYPE_DEVICE "device"
+
+OBJECT_DECLARE_TYPE(DeviceState, DeviceClass, DEVICE)
+
+typedef enum DeviceCategory {
+    DEVICE_CATEGORY_BRIDGE,
+    DEVICE_CATEGORY_USB,
+    DEVICE_CATEGORY_STORAGE,
+    DEVICE_CATEGORY_NETWORK,
+    DEVICE_CATEGORY_INPUT,
+    DEVICE_CATEGORY_DISPLAY,
+    DEVICE_CATEGORY_SOUND,
+    DEVICE_CATEGORY_MISC,
+    DEVICE_CATEGORY_CPU,
+    DEVICE_CATEGORY_WATCHDOG,
+    DEVICE_CATEGORY_MAX
+} DeviceCategory;
+
+typedef void (*DeviceRealize)(DeviceState *dev, Error **errp);
+
+typedef void (*DeviceUnrealize)(DeviceState *dev);
+
+typedef void (*DeviceReset)(DeviceState *dev);
+
+struct DeviceClass {
+    /*< private >*/
+    ObjectClass parent_class;
+    /*< public >*/
+
+    DECLARE_BITMAP(categories, DEVICE_CATEGORY_MAX);
+    const char *fw_name;
+    const char *desc;
+
+    /*
+     * The underscore at the end ensures a compile-time error if someone
+     * assigns to dc->props instead of using device_class_set_props.
+     */
+    Property *props_;
+
+    /*
+     * Can this device be instantiated with -device / device_add?
+     * All devices should support instantiation with device_add, and
+     * this flag should not exist.  But we're not there, yet.  Some
+     * devices fail to instantiate with cryptic error messages.
+     * Others instantiate, but don't work.  Exposing users to such
+     * behavior would be cruel; clearing this flag will protect them.
+     * It should never be cleared without a comment explaining why it
+     * is cleared.
+     * TODO remove once we're there
+     */
+    bool user_creatable;
+    bool hotpluggable;
+
+    /* callbacks */
+    /*
+     * Reset method here is deprecated and replaced by methods in the
+     * resettable class interface to implement a multi-phase reset.
+     * TODO: remove once every reset callback is unused
+     */
+    DeviceReset reset;
+    DeviceRealize realize;
+    DeviceUnrealize unrealize;
+
+    /* device state */
+    const VMStateDescription *vmsd;
+
+    /* Private to qdev / bus.  */
+    const char *bus_type;
+};
+
+struct NamedGPIOList {
+    char *name;
+    qemu_irq *in;
+    int num_in;
+    int num_out;
+    QLIST_ENTRY(NamedGPIOList) node;
+};
+
+typedef struct Clock Clock;
+
+struct NamedClockList {
+    char *name;
+    Clock *clock;
+    bool output;
+    bool alias;
+    QLIST_ENTRY(NamedClockList) node;
+};
+
+typedef struct {
+    bool engaged_in_io;
+} MemReentrancyGuard;
+
+struct DeviceState {
+    /*< private >*/
+    Object parent_obj;
+    /*< public >*/
+
+    char *id;
+    char *canonical_path;
+    bool realized;
+    bool pending_deleted_event;
+    int64_t pending_deleted_expires_ms;
+    QDict *opts;
+    int hotplugged;
+    bool allow_unplug_during_migration;
+    BusState *parent_bus;
+    QLIST_HEAD(, NamedGPIOList) gpios;
+    QLIST_HEAD(, NamedClockList) clocks;
+    QLIST_HEAD(, BusState) child_bus;
+    int num_child_bus;
+    int instance_id_alias;
+    int alias_required_for_version;
+    ResettableState reset;
+    GSList *unplug_blockers;
+
+    /* Is the device currently in mmio/pio/dma? Used to prevent re-entrancy */
+    MemReentrancyGuard mem_reentrancy_guard;
+};
+
+typedef void *PTR;
+
+typedef uint64_t bfd_vma;
+
+typedef uint8_t bfd_byte;
+
+enum bfd_flavour {
+  bfd_target_unknown_flavour,
+  bfd_target_aout_flavour,
+  bfd_target_coff_flavour,
+  bfd_target_ecoff_flavour,
+  bfd_target_elf_flavour,
+  bfd_target_ieee_flavour,
+  bfd_target_nlm_flavour,
+  bfd_target_oasys_flavour,
+  bfd_target_tekhex_flavour,
+  bfd_target_srec_flavour,
+  bfd_target_ihex_flavour,
+  bfd_target_som_flavour,
+  bfd_target_os9k_flavour,
+  bfd_target_versados_flavour,
+  bfd_target_msdos_flavour,
+  bfd_target_evax_flavour
+};
+
+enum bfd_endian { BFD_ENDIAN_BIG, BFD_ENDIAN_LITTLE, BFD_ENDIAN_UNKNOWN };
+
+enum bfd_architecture
+{
+  bfd_arch_unknown,    /* File arch not known */
+  bfd_arch_obscure,    /* Arch known, not one of these */
+  bfd_arch_m68k,       /* Motorola 68xxx */
+#define bfd_mach_m68000 1
+#define bfd_mach_m68008 2
+#define bfd_mach_m68010 3
+#define bfd_mach_m68020 4
+#define bfd_mach_m68030 5
+#define bfd_mach_m68040 6
+#define bfd_mach_m68060 7
+#define bfd_mach_cpu32  8
+#define bfd_mach_mcf5200  9
+#define bfd_mach_mcf5206e 10
+#define bfd_mach_mcf5307  11
+#define bfd_mach_mcf5407  12
+#define bfd_mach_mcf528x  13
+#define bfd_mach_mcfv4e   14
+#define bfd_mach_mcf521x   15
+#define bfd_mach_mcf5249   16
+#define bfd_mach_mcf547x   17
+#define bfd_mach_mcf548x   18
+  bfd_arch_vax,        /* DEC Vax */
+  bfd_arch_i960,       /* Intel 960 */
+     /* The order of the following is important.
+       lower number indicates a machine type that
+       only accepts a subset of the instructions
+       available to machines with higher numbers.
+       The exception is the "ca", which is
+       incompatible with all other machines except
+       "core". */
+
+#define bfd_mach_i960_core      1
+#define bfd_mach_i960_ka_sa     2
+#define bfd_mach_i960_kb_sb     3
+#define bfd_mach_i960_mc        4
+#define bfd_mach_i960_xa        5
+#define bfd_mach_i960_ca        6
+#define bfd_mach_i960_jx        7
+#define bfd_mach_i960_hx        8
+
+  bfd_arch_a29k,       /* AMD 29000 */
+  bfd_arch_sparc,      /* SPARC */
+#define bfd_mach_sparc                 1
+/* The difference between v8plus and v9 is that v9 is a true 64 bit env.  */
+#define bfd_mach_sparc_sparclet        2
+#define bfd_mach_sparc_sparclite       3
+#define bfd_mach_sparc_v8plus          4
+#define bfd_mach_sparc_v8plusa         5 /* with ultrasparc add'ns.  */
+#define bfd_mach_sparc_sparclite_le    6
+#define bfd_mach_sparc_v9              7
+#define bfd_mach_sparc_v9a             8 /* with ultrasparc add'ns.  */
+#define bfd_mach_sparc_v8plusb         9 /* with cheetah add'ns.  */
+#define bfd_mach_sparc_v9b             10 /* with cheetah add'ns.  */
+/* Nonzero if MACH has the v9 instruction set.  */
+#define bfd_mach_sparc_v9_p(mach) \
+  ((mach) >= bfd_mach_sparc_v8plus && (mach) <= bfd_mach_sparc_v9b \
+   && (mach) != bfd_mach_sparc_sparclite_le)
+  bfd_arch_mips,       /* MIPS Rxxxx */
+#define bfd_mach_mips3000              3000
+#define bfd_mach_mips3900              3900
+#define bfd_mach_mips4000              4000
+#define bfd_mach_mips4010              4010
+#define bfd_mach_mips4100              4100
+#define bfd_mach_mips4300              4300
+#define bfd_mach_mips4400              4400
+#define bfd_mach_mips4600              4600
+#define bfd_mach_mips4650              4650
+#define bfd_mach_mips5000              5000
+#define bfd_mach_mips6000              6000
+#define bfd_mach_mips8000              8000
+#define bfd_mach_mips10000             10000
+#define bfd_mach_mips16                16
+  bfd_arch_i386,       /* Intel 386 */
+#define bfd_mach_i386_i386 0
+#define bfd_mach_i386_i8086 1
+#define bfd_mach_i386_i386_intel_syntax 2
+#define bfd_mach_x86_64 3
+#define bfd_mach_x86_64_intel_syntax 4
+  bfd_arch_we32k,      /* AT&T WE32xxx */
+  bfd_arch_tahoe,      /* CCI/Harris Tahoe */
+  bfd_arch_i860,       /* Intel 860 */
+  bfd_arch_romp,       /* IBM ROMP PC/RT */
+  bfd_arch_alliant,    /* Alliant */
+  bfd_arch_convex,     /* Convex */
+  bfd_arch_m88k,       /* Motorola 88xxx */
+  bfd_arch_pyramid,    /* Pyramid Technology */
+  bfd_arch_h8300,      /* Hitachi H8/300 */
+#define bfd_mach_h8300   1
+#define bfd_mach_h8300h  2
+#define bfd_mach_h8300s  3
+  bfd_arch_powerpc,    /* PowerPC */
+#define bfd_mach_ppc           0
+#define bfd_mach_ppc64         1
+#define bfd_mach_ppc_403       403
+#define bfd_mach_ppc_403gc     4030
+#define bfd_mach_ppc_e500      500
+#define bfd_mach_ppc_505       505
+#define bfd_mach_ppc_601       601
+#define bfd_mach_ppc_602       602
+#define bfd_mach_ppc_603       603
+#define bfd_mach_ppc_ec603e    6031
+#define bfd_mach_ppc_604       604
+#define bfd_mach_ppc_620       620
+#define bfd_mach_ppc_630       630
+#define bfd_mach_ppc_750       750
+#define bfd_mach_ppc_860       860
+#define bfd_mach_ppc_a35       35
+#define bfd_mach_ppc_rs64ii    642
+#define bfd_mach_ppc_rs64iii   643
+#define bfd_mach_ppc_7400      7400
+  bfd_arch_rs6000,     /* IBM RS/6000 */
+  bfd_arch_hppa,       /* HP PA RISC */
+#define bfd_mach_hppa10        10
+#define bfd_mach_hppa11        11
+#define bfd_mach_hppa20        20
+#define bfd_mach_hppa20w       25
+  bfd_arch_d10v,       /* Mitsubishi D10V */
+  bfd_arch_z8k,        /* Zilog Z8000 */
+#define bfd_mach_z8001         1
+#define bfd_mach_z8002         2
+  bfd_arch_h8500,      /* Hitachi H8/500 */
+  bfd_arch_sh,         /* Hitachi SH */
+#define bfd_mach_sh            1
+#define bfd_mach_sh2        0x20
+#define bfd_mach_sh_dsp     0x2d
+#define bfd_mach_sh2a       0x2a
+#define bfd_mach_sh2a_nofpu 0x2b
+#define bfd_mach_sh2e       0x2e
+#define bfd_mach_sh3        0x30
+#define bfd_mach_sh3_nommu  0x31
+#define bfd_mach_sh3_dsp    0x3d
+#define bfd_mach_sh3e       0x3e
+#define bfd_mach_sh4        0x40
+#define bfd_mach_sh4_nofpu  0x41
+#define bfd_mach_sh4_nommu_nofpu  0x42
+#define bfd_mach_sh4a       0x4a
+#define bfd_mach_sh4a_nofpu 0x4b
+#define bfd_mach_sh4al_dsp  0x4d
+#define bfd_mach_sh5        0x50
+  bfd_arch_alpha,      /* Dec Alpha */
+#define bfd_mach_alpha 1
+#define bfd_mach_alpha_ev4  0x10
+#define bfd_mach_alpha_ev5  0x20
+#define bfd_mach_alpha_ev6  0x30
+  bfd_arch_arm,        /* Advanced Risc Machines ARM */
+#define bfd_mach_arm_unknown  0
+#define bfd_mach_arm_2        1
+#define bfd_mach_arm_2a       2
+#define bfd_mach_arm_3        3
+#define bfd_mach_arm_3M       4
+#define bfd_mach_arm_4        5
+#define bfd_mach_arm_4T       6
+#define bfd_mach_arm_5        7
+#define bfd_mach_arm_5T       8
+#define bfd_mach_arm_5TE      9
+#define bfd_mach_arm_XScale   10
+#define bfd_mach_arm_ep9312   11
+#define bfd_mach_arm_iWMMXt   12
+#define bfd_mach_arm_iWMMXt2  13
+  bfd_arch_ns32k,      /* National Semiconductors ns32000 */
+  bfd_arch_w65,        /* WDC 65816 */
+  bfd_arch_tic30,      /* Texas Instruments TMS320C30 */
+  bfd_arch_v850,       /* NEC V850 */
+#define bfd_mach_v850          0
+  bfd_arch_arc,        /* Argonaut RISC Core */
+#define bfd_mach_arc_base 0
+  bfd_arch_m32r,       /* Mitsubishi M32R/D */
+#define bfd_mach_m32r          0  /* backwards compatibility */
+  bfd_arch_mn10200,    /* Matsushita MN10200 */
+  bfd_arch_mn10300,    /* Matsushita MN10300 */
+  bfd_arch_avr,        /* AVR microcontrollers */
+#define bfd_mach_avr1       1
+#define bfd_mach_avr2       2
+#define bfd_mach_avr25      25
+#define bfd_mach_avr3       3
+#define bfd_mach_avr31      31
+#define bfd_mach_avr35      35
+#define bfd_mach_avr4       4
+#define bfd_mach_avr5       5
+#define bfd_mach_avr51      51
+#define bfd_mach_avr6       6
+#define bfd_mach_avrtiny    100
+#define bfd_mach_avrxmega1  101
+#define bfd_mach_avrxmega2  102
+#define bfd_mach_avrxmega3  103
+#define bfd_mach_avrxmega4  104
+#define bfd_mach_avrxmega5  105
+#define bfd_mach_avrxmega6  106
+#define bfd_mach_avrxmega7  107
+  bfd_arch_cris,       /* Axis CRIS */
+#define bfd_mach_cris_v0_v10   255
+#define bfd_mach_cris_v32      32
+#define bfd_mach_cris_v10_v32  1032
+  bfd_arch_microblaze, /* Xilinx MicroBlaze.  */
+  bfd_arch_moxie,      /* The Moxie core.  */
+  bfd_arch_ia64,      /* HP/Intel ia64 */
+#define bfd_mach_ia64_elf64    64
+#define bfd_mach_ia64_elf32    32
+  bfd_arch_nios2,      /* Nios II */
+#define bfd_mach_nios2          0
+#define bfd_mach_nios2r1        1
+#define bfd_mach_nios2r2        2
+  bfd_arch_rx,       /* Renesas RX */
+#define bfd_mach_rx            0x75
+#define bfd_mach_rx_v2         0x76
+#define bfd_mach_rx_v3         0x77
+  bfd_arch_loongarch,
+  bfd_arch_last
+  };
+
+typedef struct symbol_cache_entry
+{
+    const char *name;
+    union
+    {
+        PTR p;
+        bfd_vma i;
+    } udata;
+} asymbol;
+
+typedef int (*fprintf_function)(FILE *f, const char *fmt, ...)
+    G_GNUC_PRINTF(2, 3);
+
+enum dis_insn_type {
+  dis_noninsn,          /* Not a valid instruction */
+  dis_nonbranch,        /* Not a branch instruction */
+  dis_branch,           /* Unconditional branch */
+  dis_condbranch,       /* Conditional branch */
+  dis_jsr,              /* Jump to subroutine */
+  dis_condjsr,          /* Conditional jump to subroutine */
+  dis_dref,             /* Data reference instruction */
+  dis_dref2             /* Two data references in instruction */
+};
+
+typedef struct disassemble_info {
+  fprintf_function fprintf_func;
+  FILE *stream;
+  PTR application_data;
+
+  /* Target description.  We could replace this with a pointer to the bfd,
+     but that would require one.  There currently isn't any such requirement
+     so to avoid introducing one we record these explicitly.  */
+  /* The bfd_flavour.  This can be bfd_target_unknown_flavour.  */
+  enum bfd_flavour flavour;
+  /* The bfd_arch value.  */
+  enum bfd_architecture arch;
+  /* The bfd_mach value.  */
+  unsigned long mach;
+  /* Endianness (for bi-endian cpus).  Mono-endian cpus can ignore this.  */
+  enum bfd_endian endian;
+
+  /* An array of pointers to symbols either at the location being disassembled
+     or at the start of the function being disassembled.  The array is sorted
+     so that the first symbol is intended to be the one used.  The others are
+     present for any misc. purposes.  This is not set reliably, but if it is
+     not NULL, it is correct.  */
+  asymbol **symbols;
+  /* Number of symbols in array.  */
+  int num_symbols;
+
+  /* For use by the disassembler.
+     The top 16 bits are reserved for public use (and are documented here).
+     The bottom 16 bits are for the internal use of the disassembler.  */
+  unsigned long flags;
+#define INSN_HAS_RELOC  0x80000000
+#define INSN_ARM_BE32   0x00010000
+  PTR private_data;
+
+  /* Function used to get bytes to disassemble.  MEMADDR is the
+     address of the stuff to be disassembled, MYADDR is the address to
+     put the bytes in, and LENGTH is the number of bytes to read.
+     INFO is a pointer to this struct.
+     Returns an errno value or 0 for success.  */
+  int (*read_memory_func)
+    (bfd_vma memaddr, bfd_byte *myaddr, int length,
+        struct disassemble_info *info);
+
+  /* Function which should be called if we get an error that we can't
+     recover from.  STATUS is the errno value from read_memory_func and
+     MEMADDR is the address that we were trying to read.  INFO is a
+     pointer to this struct.  */
+  void (*memory_error_func)
+    (int status, bfd_vma memaddr, struct disassemble_info *info);
+
+  /* Function called to print ADDR.  */
+  void (*print_address_func)
+    (bfd_vma addr, struct disassemble_info *info);
+
+    /* Function called to print an instruction. The function is architecture
+     * specific.
+     */
+    int (*print_insn)(bfd_vma addr, struct disassemble_info *info);
+
+  /* Function called to determine if there is a symbol at the given ADDR.
+     If there is, the function returns 1, otherwise it returns 0.
+     This is used by ports which support an overlay manager where
+     the overlay number is held in the top part of an address.  In
+     some circumstances we want to include the overlay number in the
+     address, (normally because there is a symbol associated with
+     that address), but sometimes we want to mask out the overlay bits.  */
+  int (* symbol_at_address_func)
+    (bfd_vma addr, struct disassemble_info * info);
+
+  /* These are for buffer_read_memory.  */
+  const bfd_byte *buffer;
+  bfd_vma buffer_vma;
+  int buffer_length;
+
+  /* This variable may be set by the instruction decoder.  It suggests
+      the number of bytes objdump should display on a single line.  If
+      the instruction decoder sets this, it should always set it to
+      the same value in order to get reasonable looking output.  */
+  int bytes_per_line;
+
+  /* the next two variables control the way objdump displays the raw data */
+  /* For example, if bytes_per_line is 8 and bytes_per_chunk is 4, the */
+  /* output will look like this:
+     00:   00000000 00000000
+     with the chunks displayed according to "display_endian". */
+  int bytes_per_chunk;
+  enum bfd_endian display_endian;
+
+  /* Results from instruction decoders.  Not all decoders yet support
+     this information.  This info is set each time an instruction is
+     decoded, and is only valid for the last such instruction.
+
+     To determine whether this decoder supports this information, set
+     insn_info_valid to 0, decode an instruction, then check it.  */
+
+  char insn_info_valid;         /* Branch info has been set. */
+  char branch_delay_insns;      /* How many sequential insn's will run before
+                                   a branch takes effect.  (0 = normal) */
+  char data_size;               /* Size of data reference in insn, in bytes */
+  enum dis_insn_type insn_type; /* Type of instruction */
+  bfd_vma target;               /* Target address of branch or dref, if known;
+                                   zero if unknown.  */
+  bfd_vma target2;              /* Second target address for dref2 */
+
+  /* Command line options specific to the target disassembler.  */
+  char * disassembler_options;
+
+  /* Field intended to be used by targets in any way they deem suitable.  */
+  int64_t target_info;
+
+  /* Options for Capstone disassembly.  */
+  int cap_arch;
+  int cap_mode;
+  int cap_insn_unit;
+  int cap_insn_split;
+
+} disassemble_info;
 
 typedef uint64_t vaddr;
 
@@ -78,6 +940,101 @@ typedef struct MemTxAttrs {
     unsigned int target_tlb_bit2 : 1;
 } MemTxAttrs;
 
+enum qemu_plugin_event {
+    QEMU_PLUGIN_EV_VCPU_INIT,
+    QEMU_PLUGIN_EV_VCPU_EXIT,
+    QEMU_PLUGIN_EV_VCPU_TB_TRANS,
+    QEMU_PLUGIN_EV_VCPU_IDLE,
+    QEMU_PLUGIN_EV_VCPU_RESUME,
+    QEMU_PLUGIN_EV_VCPU_SYSCALL,
+    QEMU_PLUGIN_EV_VCPU_SYSCALL_RET,
+    QEMU_PLUGIN_EV_FLUSH,
+    QEMU_PLUGIN_EV_ATEXIT,
+    QEMU_PLUGIN_EV_MAX, /* total number of plugin events we support */
+};
+
+typedef struct CPUClass CPUClass;
+
+#define OBJECT_DECLARE_CPU_TYPE(CpuInstanceType, CpuClassType, CPU_MODULE_OBJ_NAME) \
+    typedef struct ArchCPU CpuInstanceType; \
+    OBJECT_DECLARE_TYPE(ArchCPU, CpuClassType, CPU_MODULE_OBJ_NAME);
+
+typedef enum MMUAccessType {
+    MMU_DATA_LOAD  = 0,
+    MMU_DATA_STORE = 1,
+    MMU_INST_FETCH = 2
+} MMUAccessType;
+
+typedef struct CPUWatchpoint CPUWatchpoint;
+
+struct TCGCPUOps;
+
+struct AccelCPUClass;
+
+struct SysemuCPUOps;
+
+struct CPUClass {
+    /*< private >*/
+    DeviceClass parent_class;
+    /*< public >*/
+
+    ObjectClass *(*class_by_name)(const char *cpu_model);
+    void (*parse_features)(const char *, char *str, Error **errp);
+
+    bool (*has_work)(CPUState *cpu);
+    int (*memory_rw_debug)(CPUState *cpu, vaddr addr,
+                           uint8_t *buf, int len, bool is_write);
+    void (*dump_state)(CPUState *cpu, FILE *, int flags);
+    void (*query_cpu_fast)(CPUState *cpu, CpuInfoFast *value);
+    int64_t (*get_arch_id)(CPUState *cpu);
+    void (*set_pc)(CPUState *cpu, vaddr value);
+    vaddr (*get_pc)(CPUState *cpu);
+    int (*gdb_read_register)(CPUState *cpu, GByteArray *buf, int reg);
+    int (*gdb_write_register)(CPUState *cpu, uint8_t *buf, int reg);
+    vaddr (*gdb_adjust_breakpoint)(CPUState *cpu, vaddr addr);
+
+    const char *gdb_core_xml_file;
+    gchar * (*gdb_arch_name)(CPUState *cpu);
+    const char * (*gdb_get_dynamic_xml)(CPUState *cpu, const char *xmlname);
+
+    void (*disas_set_info)(CPUState *cpu, disassemble_info *info);
+
+    const char *deprecation_note;
+    struct AccelCPUClass *accel_cpu;
+
+    /* when system emulation is not available, this pointer is NULL */
+    const struct SysemuCPUOps *sysemu_ops;
+
+    /* when TCG is not available, this pointer is NULL */
+    const struct TCGCPUOps *tcg_ops;
+
+    /*
+     * if not NULL, this is called in order for the CPUClass to initialize
+     * class data that depends on the accelerator, see accel/accel-common.c.
+     */
+    void (*init_accel_cpu)(struct AccelCPUClass *accel_cpu, CPUClass *cc);
+
+    /*
+     * Keep non-pointer data at the end to minimize holes.
+     */
+    int reset_dump_flags;
+    int gdb_num_core_regs;
+    bool gdb_stop_before_watchpoint;
+};
+
+typedef union IcountDecr {
+    uint32_t u32;
+    struct {
+#if HOST_BIG_ENDIAN
+        uint16_t high;
+        uint16_t low;
+#else
+        uint16_t low;
+        uint16_t high;
+#endif
+    } u16;
+} IcountDecr;
+
 typedef struct CPUBreakpoint {
     vaddr pc;
     int flags; /* BP_* */
@@ -93,6 +1050,148 @@ struct CPUWatchpoint {
     QTAILQ_ENTRY(CPUWatchpoint) entry;
 };
 
+struct KVMState;
+
+struct kvm_run;
+
+struct hax_vcpu_state;
+
+struct hvf_vcpu_state;
+
+struct qemu_work_item;
+
+struct CPUState {
+    /*< private >*/
+    DeviceState parent_obj;
+    /* cache to avoid expensive CPU_GET_CLASS */
+    CPUClass *cc;
+    /*< public >*/
+
+    int nr_cores;
+    int nr_threads;
+
+    struct QemuThread *thread;
+#ifdef _WIN32
+    HANDLE hThread;
+    QemuSemaphore sem;
+#endif
+    int thread_id;
+    bool running, has_waiter;
+    struct QemuCond *halt_cond;
+    bool thread_kicked;
+    bool created;
+    bool stop;
+    bool stopped;
+
+    /* Should CPU start in powered-off state? */
+    bool start_powered_off;
+
+    bool unplug;
+    bool crash_occurred;
+    bool exit_request;
+    int exclusive_context_count;
+    uint32_t cflags_next_tb;
+    /* updates protected by BQL */
+    uint32_t interrupt_request;
+    int singlestep_enabled;
+    int64_t icount_budget;
+    int64_t icount_extra;
+    uint64_t random_seed;
+    sigjmp_buf jmp_env;
+
+    QemuMutex work_mutex;
+    QSIMPLEQ_HEAD(, qemu_work_item) work_list;
+
+    CPUAddressSpace *cpu_ases;
+    int num_ases;
+    AddressSpace *as;
+    MemoryRegion *memory;
+
+    CPUArchState *env_ptr;
+    IcountDecr *icount_decr_ptr;
+
+    CPUJumpCache *tb_jmp_cache;
+
+    struct GDBRegisterState *gdb_regs;
+    int gdb_num_regs;
+    int gdb_num_g_regs;
+    QTAILQ_ENTRY(CPUState) node;
+
+    /* ice debug support */
+    QTAILQ_HEAD(, CPUBreakpoint) breakpoints;
+
+    QTAILQ_HEAD(, CPUWatchpoint) watchpoints;
+    CPUWatchpoint *watchpoint_hit;
+
+    void *opaque;
+
+    /* In order to avoid passing too many arguments to the MMIO helpers,
+     * we store some rarely used information in the CPU context.
+     */
+    uintptr_t mem_io_pc;
+
+    /* Only used in KVM */
+    int kvm_fd;
+    struct KVMState *kvm_state;
+    struct kvm_run *kvm_run;
+    struct kvm_dirty_gfn *kvm_dirty_gfns;
+    uint32_t kvm_fetch_index;
+    uint64_t dirty_pages;
+
+    /* Use by accel-block: CPU is executing an ioctl() */
+    QemuLockCnt in_ioctl_lock;
+
+    DECLARE_BITMAP(plugin_mask, QEMU_PLUGIN_EV_MAX);
+
+#ifdef CONFIG_PLUGIN
+    GArray *plugin_mem_cbs;
+    /* saved iotlb data from io_writex */
+    SavedIOTLB saved_iotlb;
+#endif
+
+    /* TODO Move common fields from CPUArchState here. */
+    int cpu_index;
+    int cluster_index;
+    uint32_t tcg_cflags;
+    uint32_t halted;
+    uint32_t can_do_io;
+    int32_t exception_index;
+
+    /* shared by kvm, hax and hvf */
+    bool vcpu_dirty;
+
+    /* Used to keep track of an outstanding cpu throttle thread for migration
+     * autoconverge
+     */
+    bool throttle_thread_scheduled;
+
+    /*
+     * Sleep throttle_us_per_full microseconds once dirty ring is full
+     * if dirty page rate limit is enabled.
+     */
+    int64_t throttle_us_per_full;
+
+    bool ignore_memory_transaction_failures;
+
+    /* Used for user-only emulation of prctl(PR_SET_UNALIGN). */
+    bool prctl_unalign_sigbus;
+
+    struct hax_vcpu_state *hax_vcpu;
+
+    struct hvf_vcpu_state *hvf;
+
+    /* track IOMMUs whose translations we've cached in the TCG TLB */
+    GArray *iommu_notifiers;
+};
+
+#define tcg_enabled() (tcg_allowed)
+
+#define TYPE_X86_CPU "i386-cpu"
+
+OBJECT_DECLARE_CPU_TYPE(X86CPU, X86CPUClass, X86_CPU)
+
+static bool tcg_allowed = true;
+
 #define HV_SINT_COUNT                         16
 
 #define HV_X64_MSR_CRASH_P0                     0x40000100
@@ -104,6 +1203,20 @@ struct CPUWatchpoint {
 #define HV_STIMER_COUNT                       4
 
 typedef uint32_t target_ulong;
+
+typedef struct CPUTLB { } CPUTLB;
+
+typedef struct CPUNegativeOffsetState {
+    CPUTLB tlb;
+    IcountDecr icount_decr;
+} CPUNegativeOffsetState;
+
+typedef enum OnOffAuto {
+    ON_OFF_AUTO_AUTO,
+    ON_OFF_AUTO_ON,
+    ON_OFF_AUTO_OFF,
+    ON_OFF_AUTO__MAX,
+} OnOffAuto;
 
 typedef uint16_t float16;
 
@@ -157,6 +1270,16 @@ typedef struct float_status {
     /* should underflowed results add re_bias to its exponent? */
     bool rebias_underflow;
 } float_status;
+
+#define AC_MASK                 0x00040000
+
+#define HF_CPL_SHIFT         0
+
+#define HF_SMAP_SHIFT       23
+
+#define HF_CPL_MASK          (3 << HF_CPL_SHIFT)
+
+#define HF_SMAP_MASK         (1 << HF_SMAP_SHIFT)
 
 #define MCE_BANKS_DEF   10
 
@@ -643,6 +1766,175 @@ typedef struct CPUArchState {
     unsigned nr_dies;
 } CPUX86State;
 
+struct kvm_msrs;
+
+struct ArchCPU {
+    /*< private >*/
+    CPUState parent_obj;
+    /*< public >*/
+
+    CPUNegativeOffsetState neg;
+    CPUX86State env;
+    VMChangeStateEntry *vmsentry;
+
+    uint64_t ucode_rev;
+
+    uint32_t hyperv_spinlock_attempts;
+    char *hyperv_vendor;
+    bool hyperv_synic_kvm_only;
+    uint64_t hyperv_features;
+    bool hyperv_passthrough;
+    OnOffAuto hyperv_no_nonarch_cs;
+    uint32_t hyperv_vendor_id[3];
+    uint32_t hyperv_interface_id[4];
+    uint32_t hyperv_limits[3];
+    bool hyperv_enforce_cpuid;
+    uint32_t hyperv_ver_id_build;
+    uint16_t hyperv_ver_id_major;
+    uint16_t hyperv_ver_id_minor;
+    uint32_t hyperv_ver_id_sp;
+    uint8_t hyperv_ver_id_sb;
+    uint32_t hyperv_ver_id_sn;
+
+    bool check_cpuid;
+    bool enforce_cpuid;
+    /*
+     * Force features to be enabled even if the host doesn't support them.
+     * This is dangerous and should be done only for testing CPUID
+     * compatibility.
+     */
+    bool force_features;
+    bool expose_kvm;
+    bool expose_tcg;
+    bool migratable;
+    bool migrate_smi_count;
+    bool max_features; /* Enable all supported features automatically */
+    uint32_t apic_id;
+
+    /* Enables publishing of TSC increment and Local APIC bus frequencies to
+     * the guest OS in CPUID page 0x40000010, the same way that VMWare does. */
+    bool vmware_cpuid_freq;
+
+    /* if true the CPUID code directly forward host cache leaves to the guest */
+    bool cache_info_passthrough;
+
+    /* if true the CPUID code directly forwards
+     * host monitor/mwait leaves to the guest */
+    struct {
+        uint32_t eax;
+        uint32_t ebx;
+        uint32_t ecx;
+        uint32_t edx;
+    } mwait;
+
+    /* Features that were filtered out because of missing host capabilities */
+    FeatureWordArray filtered_features;
+
+    /* Enable PMU CPUID bits. This can't be enabled by default yet because
+     * it doesn't have ABI stability guarantees, as it passes all PMU CPUID
+     * bits returned by GET_SUPPORTED_CPUID (that depend on host CPU and kernel
+     * capabilities) directly to the guest.
+     */
+    bool enable_pmu;
+
+    /*
+     * Enable LBR_FMT bits of IA32_PERF_CAPABILITIES MSR.
+     * This can't be initialized with a default because it doesn't have
+     * stable ABI support yet. It is only allowed to pass all LBR_FMT bits
+     * returned by kvm_arch_get_supported_msr_feature()(which depends on both
+     * host CPU and kernel capabilities) to the guest.
+     */
+    uint64_t lbr_fmt;
+
+    /* LMCE support can be enabled/disabled via cpu option 'lmce=on/off'. It is
+     * disabled by default to avoid breaking migration between QEMU with
+     * different LMCE configurations.
+     */
+    bool enable_lmce;
+
+    /* Compatibility bits for old machine types.
+     * If true present virtual l3 cache for VM, the vcpus in the same virtual
+     * socket share an virtual l3 cache.
+     */
+    bool enable_l3_cache;
+
+    /* Compatibility bits for old machine types.
+     * If true present the old cache topology information
+     */
+    bool legacy_cache;
+
+    /* Compatibility bits for old machine types: */
+    bool enable_cpuid_0xb;
+
+    /* Enable auto level-increase for all CPUID leaves */
+    bool full_cpuid_auto_level;
+
+    /* Only advertise CPUID leaves defined by the vendor */
+    bool vendor_cpuid_only;
+
+    /* Enable auto level-increase for Intel Processor Trace leave */
+    bool intel_pt_auto_level;
+
+    /* if true fill the top bits of the MTRR_PHYSMASKn variable range */
+    bool fill_mtrr_mask;
+
+    /* if true override the phys_bits value with a value read from the host */
+    bool host_phys_bits;
+
+    /* if set, limit maximum value for phys_bits when host_phys_bits is true */
+    uint8_t host_phys_bits_limit;
+
+    /* Stop SMI delivery for migration compatibility with old machines */
+    bool kvm_no_smi_migration;
+
+    /* Forcefully disable KVM PV features not exposed in guest CPUIDs */
+    bool kvm_pv_enforce_cpuid;
+
+    /* Number of physical address bits supported */
+    uint32_t phys_bits;
+
+    /* in order to simplify APIC support, we leave this pointer to the
+       user */
+    struct DeviceState *apic_state;
+    struct MemoryRegion *cpu_as_root, *cpu_as_mem, *smram;
+    Notifier machine_done;
+
+    struct kvm_msrs *kvm_msr_buf;
+
+    int32_t node_id; /* NUMA node this CPU belongs to */
+    int32_t socket_id;
+    int32_t die_id;
+    int32_t core_id;
+    int32_t thread_id;
+
+    int32_t hv_max_vps;
+
+    bool xen_vapic;
+};
+
+#define MMU_KSMAP_IDX   0
+
+#define MMU_USER_IDX    1
+
+#define MMU_KNOSMAP_IDX 2
+
+static inline int cpu_mmu_index(CPUX86State *env, bool ifetch)
+{
+    return (env->hflags & HF_CPL_MASK) == 3 ? MMU_USER_IDX :
+        (!(env->hflags & HF_SMAP_MASK) || (env->eflags & AC_MASK))
+        ? MMU_KNOSMAP_IDX : MMU_KSMAP_IDX;
+}
+
+static inline ArchCPU *env_archcpu(CPUArchState *env)
+{
+    return container_of(env, ArchCPU, env);
+}
+
+static inline CPUState *env_cpu(CPUArchState *env)
+{
+    return &env_archcpu(env)->parent_obj;
+}
+
 void update_fp_status(CPUX86State *env);
 
 static inline void cpu_set_fpuc(CPUX86State *env, uint16_t fpuc)
@@ -651,6 +1943,264 @@ static inline void cpu_set_fpuc(CPUX86State *env, uint16_t fpuc)
      if (tcg_enabled()) {
         update_fp_status(env);
      }
+}
+
+typedef enum MemOp {
+    MO_8     = 0,
+    MO_16    = 1,
+    MO_32    = 2,
+    MO_64    = 3,
+    MO_128   = 4,
+    MO_256   = 5,
+    MO_512   = 6,
+    MO_1024  = 7,
+    MO_SIZE  = 0x07,   /* Mask for the above.  */
+
+    MO_SIGN  = 0x08,   /* Sign-extended, otherwise zero-extended.  */
+
+    MO_BSWAP = 0x10,   /* Host reverse endian.  */
+#if HOST_BIG_ENDIAN
+    MO_LE    = MO_BSWAP,
+    MO_BE    = 0,
+#else
+    MO_LE    = 0,
+    MO_BE    = MO_BSWAP,
+#endif
+#ifdef NEED_CPU_H
+#if TARGET_BIG_ENDIAN
+    MO_TE    = MO_BE,
+#else
+    MO_TE    = MO_LE,
+#endif
+#endif
+
+    /*
+     * MO_UNALN accesses are never checked for alignment.
+     * MO_ALIGN accesses will result in a call to the CPU's
+     * do_unaligned_access hook if the guest address is not aligned.
+     *
+     * Some architectures (e.g. ARMv8) need the address which is aligned
+     * to a size more than the size of the memory access.
+     * Some architectures (e.g. SPARCv9) need an address which is aligned,
+     * but less strictly than the natural alignment.
+     *
+     * MO_ALIGN supposes the alignment size is the size of a memory access.
+     *
+     * There are three options:
+     * - unaligned access permitted (MO_UNALN).
+     * - an alignment to the size of an access (MO_ALIGN);
+     * - an alignment to a specified size, which may be more or less than
+     *   the access size (MO_ALIGN_x where 'x' is a size in bytes);
+     */
+    MO_ASHIFT = 5,
+    MO_AMASK = 0x7 << MO_ASHIFT,
+    MO_UNALN    = 0,
+    MO_ALIGN_2  = 1 << MO_ASHIFT,
+    MO_ALIGN_4  = 2 << MO_ASHIFT,
+    MO_ALIGN_8  = 3 << MO_ASHIFT,
+    MO_ALIGN_16 = 4 << MO_ASHIFT,
+    MO_ALIGN_32 = 5 << MO_ASHIFT,
+    MO_ALIGN_64 = 6 << MO_ASHIFT,
+    MO_ALIGN    = MO_AMASK,
+
+    /*
+     * MO_ATOM_* describes the atomicity requirements of the operation:
+     * MO_ATOM_IFALIGN: the operation must be single-copy atomic if it
+     *    is aligned; if unaligned there is no atomicity.
+     * MO_ATOM_IFALIGN_PAIR: the entire operation may be considered to
+     *    be a pair of half-sized operations which are packed together
+     *    for convenience, with single-copy atomicity on each half if
+     *    the half is aligned.
+     *    This is the atomicity e.g. of Arm pre-FEAT_LSE2 LDP.
+     * MO_ATOM_WITHIN16: the operation is single-copy atomic, even if it
+     *    is unaligned, so long as it does not cross a 16-byte boundary;
+     *    if it crosses a 16-byte boundary there is no atomicity.
+     *    This is the atomicity e.g. of Arm FEAT_LSE2 LDR.
+     * MO_ATOM_WITHIN16_PAIR: the entire operation is single-copy atomic,
+     *    if it happens to be within a 16-byte boundary, otherwise it
+     *    devolves to a pair of half-sized MO_ATOM_WITHIN16 operations.
+     *    Depending on alignment, one or both will be single-copy atomic.
+     *    This is the atomicity e.g. of Arm FEAT_LSE2 LDP.
+     * MO_ATOM_SUBALIGN: the operation is single-copy atomic by parts
+     *    by the alignment.  E.g. if the address is 0 mod 4, then each
+     *    4-byte subobject is single-copy atomic.
+     *    This is the atomicity e.g. of IBM Power.
+     * MO_ATOM_NONE: the operation has no atomicity requirements.
+     *
+     * Note the default (i.e. 0) value is single-copy atomic to the
+     * size of the operation, if aligned.  This retains the behaviour
+     * from before this field was introduced.
+     */
+    MO_ATOM_SHIFT         = 8,
+    MO_ATOM_IFALIGN       = 0 << MO_ATOM_SHIFT,
+    MO_ATOM_IFALIGN_PAIR  = 1 << MO_ATOM_SHIFT,
+    MO_ATOM_WITHIN16      = 2 << MO_ATOM_SHIFT,
+    MO_ATOM_WITHIN16_PAIR = 3 << MO_ATOM_SHIFT,
+    MO_ATOM_SUBALIGN      = 4 << MO_ATOM_SHIFT,
+    MO_ATOM_NONE          = 5 << MO_ATOM_SHIFT,
+    MO_ATOM_MASK          = 7 << MO_ATOM_SHIFT,
+
+    /* Combinations of the above, for ease of use.  */
+    MO_UB    = MO_8,
+    MO_UW    = MO_16,
+    MO_UL    = MO_32,
+    MO_UQ    = MO_64,
+    MO_UO    = MO_128,
+    MO_SB    = MO_SIGN | MO_8,
+    MO_SW    = MO_SIGN | MO_16,
+    MO_SL    = MO_SIGN | MO_32,
+    MO_SQ    = MO_SIGN | MO_64,
+    MO_SO    = MO_SIGN | MO_128,
+
+    MO_LEUW  = MO_LE | MO_UW,
+    MO_LEUL  = MO_LE | MO_UL,
+    MO_LEUQ  = MO_LE | MO_UQ,
+    MO_LESW  = MO_LE | MO_SW,
+    MO_LESL  = MO_LE | MO_SL,
+    MO_LESQ  = MO_LE | MO_SQ,
+
+    MO_BEUW  = MO_BE | MO_UW,
+    MO_BEUL  = MO_BE | MO_UL,
+    MO_BEUQ  = MO_BE | MO_UQ,
+    MO_BESW  = MO_BE | MO_SW,
+    MO_BESL  = MO_BE | MO_SL,
+    MO_BESQ  = MO_BE | MO_SQ,
+
+#ifdef NEED_CPU_H
+    MO_TEUW  = MO_TE | MO_UW,
+    MO_TEUL  = MO_TE | MO_UL,
+    MO_TEUQ  = MO_TE | MO_UQ,
+    MO_TEUO  = MO_TE | MO_UO,
+    MO_TESW  = MO_TE | MO_SW,
+    MO_TESL  = MO_TE | MO_SL,
+    MO_TESQ  = MO_TE | MO_SQ,
+#endif
+
+    MO_SSIZE = MO_SIZE | MO_SIGN,
+} MemOp;
+
+typedef uint32_t MemOpIdx;
+
+static inline MemOpIdx make_memop_idx(MemOp op, unsigned idx)
+{
+#ifdef CONFIG_DEBUG_TCG
+    assert(idx <= 15);
+#endif
+    return (op << 4) | idx;
+}
+
+static inline MemOp get_memop(MemOpIdx oi)
+{
+    return (MemOp)(oi >> 4);
+}
+
+typedef uint32_t abi_ptr;
+
+static inline abi_ptr cpu_untagged_addr(CPUState *cs, abi_ptr x)
+{
+    return x;
+}
+
+static inline void *g2h_untagged(abi_ptr x)
+{
+    return (void *)((uintptr_t)(x));
+}
+
+static inline void *g2h(CPUState *cs, abi_ptr x)
+{
+    return g2h_untagged(cpu_untagged_addr(cs, x));
+}
+
+uint32_t cpu_lduw_le_data_ra(CPUArchState *env, abi_ptr ptr, uintptr_t ra);
+
+static inline void set_helper_retaddr(uintptr_t ra) {}
+
+# define cpu_lduw_data_ra     cpu_lduw_le_data_ra
+
+static inline void clear_helper_retaddr(void) {}
+
+G_NORETURN static inline void cpu_loop_exit_noexc(CPUState *cpu) {
+  __builtin_trap();
+  __builtin_unreachable();
+}
+
+# define GETPC() 0
+
+enum qemu_plugin_mem_rw {
+    QEMU_PLUGIN_MEM_R = 1,
+    QEMU_PLUGIN_MEM_W,
+    QEMU_PLUGIN_MEM_RW,
+};
+
+static inline void qemu_plugin_vcpu_mem_cb(CPUState *cpu, uint64_t vaddr,
+                                           MemOpIdx oi,
+                                           enum qemu_plugin_mem_rw rw)
+{ }
+
+# define tcg_debug_assert(X) \
+    do { if (!(X)) { __builtin_unreachable(); } } while (0)
+
+static void *cpu_mmu_lookup(CPUArchState *env, abi_ptr addr,
+                            MemOp mop, uintptr_t ra, MMUAccessType type)
+{
+#ifdef CONFIG_JOVE_HELPERS
+    void *ret;
+#else
+    int a_bits = get_alignment_bits(mop);
+    void *ret;
+
+    /* Enforce guest required alignment.  */
+    if (unlikely(addr & ((1 << a_bits) - 1))) {
+        cpu_loop_exit_sigbus(env_cpu(env), addr, type, ra);
+    }
+#endif
+
+    ret = g2h(env_cpu(env), addr);
+    set_helper_retaddr(ra);
+    return ret;
+}
+
+static uint16_t load_atom_2(CPUArchState *env, uintptr_t ra,
+                            void *pv, MemOp memop)
+{
+    return lduw_he_p(pv);
+}
+
+static uint16_t do_ld2_mmu(CPUArchState *env, abi_ptr addr,
+                           MemOp mop, uintptr_t ra)
+{
+    void *haddr;
+    uint16_t ret;
+
+    tcg_debug_assert((mop & MO_SIZE) == MO_16);
+    haddr = cpu_mmu_lookup(env, addr, mop, ra, MMU_DATA_LOAD);
+    ret = load_atom_2(env, ra, haddr, mop);
+    clear_helper_retaddr();
+
+    if (mop & MO_BSWAP) {
+        ret = bswap16(ret);
+    }
+    return ret;
+}
+
+uint16_t cpu_ldw_mmu(CPUArchState *env, abi_ptr addr,
+                     MemOpIdx oi, uintptr_t ra)
+{
+    uint16_t ret = do_ld2_mmu(env, addr, get_memop(oi), ra);
+    qemu_plugin_vcpu_mem_cb(env_cpu(env), addr, oi, QEMU_PLUGIN_MEM_R);
+    return ret;
+}
+
+uint32_t cpu_lduw_le_mmuidx_ra(CPUArchState *env, abi_ptr addr,
+                               int mmu_idx, uintptr_t ra)
+{
+    MemOpIdx oi = make_memop_idx(MO_LEUW | MO_UNALN, mmu_idx);
+    return cpu_ldw_mmu(env, addr, oi, ra);
+}
+
+uint32_t cpu_lduw_le_data_ra(CPUArchState *env, abi_ptr addr, uintptr_t ra)
+{
+    return cpu_lduw_le_mmuidx_ra(env, addr, cpu_mmu_index(env, false), ra);
 }
 
 static inline void set_float_rounding_mode(FloatRoundMode val,
@@ -664,14 +2214,6 @@ static inline void set_floatx80_rounding_precision(FloatX80RoundPrec val,
 {
     status->floatx80_rounding_precision = val;
 }
-
-typedef uint32_t abi_ptr;
-
-uint32_t cpu_lduw_le_data_ra(CPUArchState *env, abi_ptr ptr, uintptr_t ra);
-
-# define cpu_lduw_data_ra     cpu_lduw_le_data_ra
-
-# define GETPC() 0
 
 #define FPU_RC_SHIFT        10
 

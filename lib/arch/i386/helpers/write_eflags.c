@@ -134,6 +134,18 @@ typedef struct float_status {
     bool rebias_underflow;
 } float_status;
 
+#define CC_C    0x0001
+
+#define CC_P    0x0004
+
+#define CC_A    0x0010
+
+#define CC_Z    0x0040
+
+#define CC_S    0x0080
+
+#define CC_O    0x0800
+
 #define MCE_BANKS_DEF   10
 
 #define MSR_MTRRcap_VCNT                8
@@ -187,6 +199,75 @@ typedef enum FeatureWord {
 } FeatureWord;
 
 typedef uint64_t FeatureWordArray[FEATURE_WORDS];
+
+typedef enum {
+    CC_OP_DYNAMIC, /* must use dynamic code to get cc_op */
+    CC_OP_EFLAGS,  /* all cc are explicitly computed, CC_SRC = flags */
+
+    CC_OP_MULB, /* modify all flags, C, O = (CC_SRC != 0) */
+    CC_OP_MULW,
+    CC_OP_MULL,
+    CC_OP_MULQ,
+
+    CC_OP_ADDB, /* modify all flags, CC_DST = res, CC_SRC = src1 */
+    CC_OP_ADDW,
+    CC_OP_ADDL,
+    CC_OP_ADDQ,
+
+    CC_OP_ADCB, /* modify all flags, CC_DST = res, CC_SRC = src1 */
+    CC_OP_ADCW,
+    CC_OP_ADCL,
+    CC_OP_ADCQ,
+
+    CC_OP_SUBB, /* modify all flags, CC_DST = res, CC_SRC = src1 */
+    CC_OP_SUBW,
+    CC_OP_SUBL,
+    CC_OP_SUBQ,
+
+    CC_OP_SBBB, /* modify all flags, CC_DST = res, CC_SRC = src1 */
+    CC_OP_SBBW,
+    CC_OP_SBBL,
+    CC_OP_SBBQ,
+
+    CC_OP_LOGICB, /* modify all flags, CC_DST = res */
+    CC_OP_LOGICW,
+    CC_OP_LOGICL,
+    CC_OP_LOGICQ,
+
+    CC_OP_INCB, /* modify all flags except, CC_DST = res, CC_SRC = C */
+    CC_OP_INCW,
+    CC_OP_INCL,
+    CC_OP_INCQ,
+
+    CC_OP_DECB, /* modify all flags except, CC_DST = res, CC_SRC = C  */
+    CC_OP_DECW,
+    CC_OP_DECL,
+    CC_OP_DECQ,
+
+    CC_OP_SHLB, /* modify all flags, CC_DST = res, CC_SRC.msb = C */
+    CC_OP_SHLW,
+    CC_OP_SHLL,
+    CC_OP_SHLQ,
+
+    CC_OP_SARB, /* modify all flags, CC_DST = res, CC_SRC.lsb = C */
+    CC_OP_SARW,
+    CC_OP_SARL,
+    CC_OP_SARQ,
+
+    CC_OP_BMILGB, /* Z,S via CC_DST, C = SRC==0; O=0; P,A undefined */
+    CC_OP_BMILGW,
+    CC_OP_BMILGL,
+    CC_OP_BMILGQ,
+
+    CC_OP_ADCX, /* CC_DST = C, CC_SRC = rest.  */
+    CC_OP_ADOX, /* CC_DST = O, CC_SRC = rest.  */
+    CC_OP_ADCOX, /* CC_DST = C, CC_SRC2 = O, CC_SRC = rest.  */
+
+    CC_OP_CLR, /* Z set, all other flags clear.  */
+    CC_OP_POPCNT, /* Z via CC_SRC, all other flags clear.  */
+
+    CC_OP_NB,
+} CCOp;
 
 typedef struct SegmentCache {
     uint32_t selector;
@@ -619,7 +700,20 @@ typedef struct CPUArchState {
     unsigned nr_dies;
 } CPUX86State;
 
+#define CC_SRC  (env->cc_src)
+
+#define CC_OP   (env->cc_op)
+
 void cpu_load_eflags(CPUX86State *env, int eflags, int update_mask);
+
+void cpu_load_eflags(CPUX86State *env, int eflags, int update_mask)
+{
+    CC_SRC = eflags & (CC_O | CC_S | CC_Z | CC_A | CC_P | CC_C);
+    CC_OP = CC_OP_EFLAGS;
+    env->df = 1 - (2 * ((eflags >> 10) & 1));
+    env->eflags = (env->eflags & ~update_mask) |
+        (eflags & update_mask) | 0x2;
+}
 
 void helper_write_eflags(CPUX86State *env, target_ulong t0,
                          uint32_t update_mask)
