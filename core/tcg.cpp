@@ -274,7 +274,7 @@ void tiny_code_generator_t::print_shit(void) {
     const auto &not_ret_regs = not_arg_or_ret_regs;
     const auto &not_arg_regs = not_arg_or_ret_regs;
 #elif defined(TARGET_I386)
-    const std::array<const char *, 28> not_arg_or_ret_regs{
+    const std::array<const char *, 36> not_arg_or_ret_regs{
       "_frame",
       "env",
       "es_base",
@@ -303,6 +303,15 @@ void tiny_code_generator_t::print_shit(void) {
       "cc_dst",
       "cc_src",
       "cc_src2",
+
+      "bnd0_lb",
+      "bnd0_ub",
+      "bnd1_lb",
+      "bnd1_ub",
+      "bnd2_lb",
+      "bnd2_ub",
+      "bnd3_lb",
+      "bnd3_ub"
     };
 
     const auto &not_ret_regs = not_arg_or_ret_regs;
@@ -362,7 +371,11 @@ void tiny_code_generator_t::print_shit(void) {
       jove::tcg_global_set_t s;
       for (const char *nm : not_arg_regs) {
         int idx = tcg_index_of_named_global(nm);
-        assert(idx >= 0 && idx < s.size());
+        if (idx == -1)
+          continue;
+
+        assert(idx >= 0);
+        assert(idx < s.size());
         s.set(idx);
       }
 
@@ -378,6 +391,9 @@ void tiny_code_generator_t::print_shit(void) {
       jove::tcg_global_set_t s;
       for (const char *nm : not_ret_regs) {
         int idx = tcg_index_of_named_global(nm);
+        if (idx == -1)
+          continue;
+
         assert(idx >= 0 && idx < s.size());
         s.set(idx);
       }
@@ -724,6 +740,8 @@ void tiny_code_generator_t::print_shit(void) {
   auto program_counter_index = [&](void) -> int {
 #if defined(TARGET_X86_64)
     return tcg_index_of_named_global("rip");
+#elif defined(TARGET_I386)
+    return tcg_index_of_named_global("eip");
 #elif defined(TARGET_MIPS64) || defined(TARGET_MIPS32) || defined(TARGET_AARCH64)
     return tcg_index_of_named_global("PC");
 #else
