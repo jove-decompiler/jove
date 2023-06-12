@@ -2,7 +2,6 @@
 #include "elf.h"
 
 #include <boost/algorithm/string.hpp>
-#include <boost/filesystem.hpp>
 #include <boost/format.hpp>
 #include <boost/graph/filtered_graph.hpp>
 #include <boost/graph/graphviz.hpp>
@@ -21,6 +20,7 @@
 #include <string>
 #include <thread>
 #include <unordered_set>
+#include <filesystem>
 
 #include <fcntl.h>
 #include <unistd.h>
@@ -29,7 +29,7 @@
 
 static void __warn(const char *file, int line);
 
-namespace fs = boost::filesystem;
+namespace fs = std::filesystem;
 namespace cl = llvm::cl;
 namespace obj = llvm::object;
 
@@ -299,19 +299,19 @@ int RecompileTool::Run(void) {
   //
   // sanity checks for output path
   //
-  if (fs::exists(opts.Output)) {
+  if (fs::exists(fs::path(opts.Output.getValue()))) {
     if (IsVerbose())
       WithColor::note() << llvm::formatv("reusing output directory {0}\n",
                                          opts.Output);
   } else {
-    if (!fs::create_directory(opts.Output)) {
+    if (!fs::create_directory(opts.Output.getValue())) {
       WithColor::error() << "failed to create directory at \"" << opts.Output
                          << "\"\n";
       return 1;
     }
   }
 
-  if (!fs::exists(opts.jv)) {
+  if (!fs::exists(opts.jv.getValue())) {
     WithColor::error() << "can't find jv.jv\n";
     return 1;
   }
@@ -319,10 +319,10 @@ int RecompileTool::Run(void) {
   //
   // create symlink back to jv
   //
-  if (fs::exists(fs::path(opts.Output) / ".jv")) // delete any stale symlinks
-    fs::remove(fs::path(opts.Output) / ".jv");
+  if (fs::exists(fs::path(opts.Output.getValue()) / ".jv")) // delete any stale symlinks
+    fs::remove(fs::path(opts.Output.getValue()) / ".jv");
 
-  fs::create_symlink(fs::canonical(opts.jv), fs::path(opts.Output) / ".jv");
+  fs::create_symlink(fs::canonical(opts.jv.getValue()), fs::path(opts.Output.getValue()) / ".jv");
 
   //
   // install signal handler for Ctrl-C to gracefully cancel
@@ -368,16 +368,16 @@ int RecompileTool::Run(void) {
   // create basic directories for sysroot
   //
   {
-    fs::create_directories(fs::path(opts.Output) / "proc");
-    fs::create_directories(fs::path(opts.Output) / "sys");
-    fs::create_directories(fs::path(opts.Output) / "dev");
-    fs::create_directories(fs::path(opts.Output) / "run");
-    fs::create_directories(fs::path(opts.Output) / "tmp");
-    fs::create_directories(fs::path(opts.Output) / "etc");
-    fs::create_directories(fs::path(opts.Output) / "usr" / "bin");
-    fs::create_directories(fs::path(opts.Output) / "usr" / "lib");
-    fs::create_directories(fs::path(opts.Output) / "lib"); /* XXX? */
-    fs::create_directories(fs::path(opts.Output) / "var" / "run");
+    fs::create_directories(fs::path(opts.Output.getValue()) / "proc");
+    fs::create_directories(fs::path(opts.Output.getValue()) / "sys");
+    fs::create_directories(fs::path(opts.Output.getValue()) / "dev");
+    fs::create_directories(fs::path(opts.Output.getValue()) / "run");
+    fs::create_directories(fs::path(opts.Output.getValue()) / "tmp");
+    fs::create_directories(fs::path(opts.Output.getValue()) / "etc");
+    fs::create_directories(fs::path(opts.Output.getValue()) / "usr" / "bin");
+    fs::create_directories(fs::path(opts.Output.getValue()) / "usr" / "lib");
+    fs::create_directories(fs::path(opts.Output.getValue()) / "lib"); /* XXX? */
+    fs::create_directories(fs::path(opts.Output.getValue()) / "var" / "run");
   }
 
   //
@@ -406,15 +406,15 @@ int RecompileTool::Run(void) {
     //
     // make rtld executable (chmod)
     //
-    fs::permissions(chrooted_path, fs::others_read |
-                                   fs::others_exe |
+    fs::permissions(chrooted_path, fs::perms::others_read |
+                                   fs::perms::others_exec |
 
-                                   fs::group_read |
-                                   fs::group_exe |
+                                   fs::perms::group_read |
+                                   fs::perms::group_exec |
 
-                                   fs::owner_read |
-                                   fs::owner_write |
-                                   fs::owner_exe);
+                                   fs::perms::owner_read |
+                                   fs::perms::owner_write |
+                                   fs::perms::owner_exec);
 
     if (!state.for_binary(b).dynl.soname.empty()) {
       rtld_soname = state.for_binary(b).dynl.soname;
@@ -439,25 +439,25 @@ int RecompileTool::Run(void) {
   //
   {
     fs::path chrooted_path =
-	fs::path(opts.Output) / "usr" / "lib" / "libjove_rt.so";
+	fs::path(opts.Output.getValue()) / "usr" / "lib" / "libjove_rt.so";
 
     fs::create_directories(chrooted_path.parent_path());
     fs::copy_file(locator().runtime(), chrooted_path,
-		  fs::copy_option::overwrite_if_exists);
+		  fs::copy_options::overwrite_existing);
 
     //
     // /lib could just be a symlink to usr/lib, in which case we don't want
     // the following
     //
     if (!fs::equivalent(chrooted_path,
-                        fs::path(opts.Output) / "lib" / "libjove_rt.so")) {
-      fs::create_directories(fs::path(opts.Output) / "lib");
+                        fs::path(opts.Output.getValue()) / "lib" / "libjove_rt.so")) {
+      fs::create_directories(fs::path(opts.Output.getValue()) / "lib");
 
       try {
         // XXX some dynamic linkers only look in /lib
         fs::copy_file(locator().runtime(),
-                      fs::path(opts.Output) / "lib" / "libjove_rt.so",
-                      fs::copy_option::overwrite_if_exists);
+                      fs::path(opts.Output.getValue()) / "lib" / "libjove_rt.so",
+                      fs::copy_options::overwrite_existing);
       } catch (...) {
         ;
       }
@@ -472,20 +472,20 @@ int RecompileTool::Run(void) {
 
     {
       fs::path chrooted_path =
-          fs::path(opts.Output) / "usr" / "lib" / dfsan_rt_filename;
+          fs::path(opts.Output.getValue()) / "usr" / "lib" / dfsan_rt_filename;
 
       fs::copy_file(locator().dfsan_runtime(), chrooted_path,
-                    fs::copy_option::overwrite_if_exists);
+                    fs::copy_options::overwrite_existing);
     }
 
-    if (!fs::equivalent(fs::path(opts.Output) / "usr" / "lib" / dfsan_rt_filename,
-                        fs::path(opts.Output) / "lib" / dfsan_rt_filename)) {
+    if (!fs::equivalent(fs::path(opts.Output.getValue()) / "usr" / "lib" / dfsan_rt_filename,
+                        fs::path(opts.Output.getValue()) / "lib" / dfsan_rt_filename)) {
       /* XXX some dynamic linkers only look in /lib */
       fs::path chrooted_path =
-          fs::path(opts.Output) / "lib" / dfsan_rt_filename;
+          fs::path(opts.Output.getValue()) / "lib" / dfsan_rt_filename;
 
       fs::copy_file(locator().dfsan_runtime(), chrooted_path,
-                    fs::copy_option::overwrite_if_exists);
+                    fs::copy_options::overwrite_existing);
     }
   }
 
@@ -493,18 +493,18 @@ int RecompileTool::Run(void) {
   // additional stuff for DFSan
   //
   if (opts.DFSan) {
-    fs::create_directories(fs::path(opts.Output) / "jove");
-    fs::create_directories(fs::path(opts.Output) / "dfsan");
+    fs::create_directories(fs::path(opts.Output.getValue()) / "jove");
+    fs::create_directories(fs::path(opts.Output.getValue()) / "dfsan");
 
     {
       std::ofstream ofs(
-          (fs::path(opts.Output) / "jove" / "BinaryPathsTable.txt").c_str());
+          (fs::path(opts.Output.getValue()) / "jove" / "BinaryPathsTable.txt").c_str());
 
       for (const binary_t &binary : jv.Binaries)
         ofs << binary.Path << '\n';
     }
 
-    fs::create_directories(fs::path(opts.Output) / "jove" /
+    fs::create_directories(fs::path(opts.Output.getValue()) / "jove" /
                            "BinaryBlockAddrTables");
 
     for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
@@ -512,7 +512,7 @@ int RecompileTool::Run(void) {
       auto &ICFG = binary.Analysis.ICFG;
 
       {
-        std::ofstream ofs((fs::path(opts.Output) / "jove" /
+        std::ofstream ofs((fs::path(opts.Output.getValue()) / "jove" /
                            "BinaryBlockAddrTables" / std::to_string(BIdx))
                               .c_str());
 
@@ -761,7 +761,7 @@ int RecompileTool::Run(void) {
     // make sure the path is absolute
     assert(b.Path.at(0) == '/');
 
-    const fs::path chrooted_path = fs::path(opts.Output) / b.Path;
+    const fs::path chrooted_path = fs::path(opts.Output.getValue()) / b.Path;
     fs::create_directories(chrooted_path.parent_path());
 
     fs::remove(chrooted_path);
@@ -772,15 +772,15 @@ int RecompileTool::Run(void) {
       ofs.write(&b.Data[0], b.Data.size());
     }
 
-    fs::permissions(chrooted_path, fs::others_read |
-                                   fs::others_exe |
+    fs::permissions(chrooted_path, fs::perms::others_read |
+                                   fs::perms::others_exec |
 
-                                   fs::group_read |
-                                   fs::group_exe |
+                                   fs::perms::group_read |
+                                   fs::perms::group_exec |
 
-                                   fs::owner_read |
-                                   fs::owner_write |
-                                   fs::owner_exe);
+                                   fs::perms::owner_read |
+                                   fs::perms::owner_write |
+                                   fs::perms::owner_exec);
 
     if (!state.for_binary(b).dynl.soname.empty()) {
       std::string binary_filename = fs::path(b.Path).filename().string();
@@ -819,7 +819,7 @@ int RecompileTool::Run(void) {
     // make sure the path is absolute
     assert(b.Path.at(0) == '/');
 
-    const fs::path chrooted_path = fs::path(opts.Output) / b.Path;
+    const fs::path chrooted_path = fs::path(opts.Output.getValue()) / b.Path;
 
     std::string binary_filename = fs::path(b.Path).filename().string();
 
@@ -1021,7 +1021,7 @@ void RecompileTool::worker(const dso_graph_t &dso_graph) {
     // make sure the path is absolute
     assert(b.Path.at(0) == '/');
 
-    const fs::path chrooted_path = fs::path(opts.Output) / b.Path;
+    const fs::path chrooted_path = fs::path(opts.Output.getValue()) / b.Path;
     fs::create_directories(chrooted_path.parent_path());
 
     std::string binary_filename = fs::path(b.Path).filename().string();
@@ -1033,7 +1033,7 @@ void RecompileTool::worker(const dso_graph_t &dso_graph) {
     std::string mapfp(chrooted_path.string() + ".map");
     std::string dfsan_modid_fp(chrooted_path.string() + ".modid");
 
-    std::string bytecode_loc = (fs::path(opts.Output) / "dfsan").string();
+    std::string bytecode_loc = (fs::path(opts.Output.getValue()) / "dfsan").string();
 
     //
     // run jove-llvm
@@ -1100,7 +1100,7 @@ void RecompileTool::worker(const dso_graph_t &dso_graph) {
                                          dfsan_modid);
 
       fs::copy_file(bcfp, opts.Output + "/dfsan/" + dfsan_modid,
-                    fs::copy_option::overwrite_if_exists);
+                    fs::copy_options::overwrite_existing);
     }
 
     //
