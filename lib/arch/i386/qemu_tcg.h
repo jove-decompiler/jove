@@ -144,6 +144,18 @@ GLIB_AVAILABLE_IN_ALL
 void     g_queue_free_full      (GQueue           *queue,
 				GDestroyNotify    free_func);
 
+#define HV_SINT_COUNT                         16
+
+#define HV_X64_MSR_CRASH_P0                     0x40000100
+
+#define HV_X64_MSR_CRASH_P4                     0x40000104
+
+#define HV_CRASH_PARAMS    (HV_X64_MSR_CRASH_P4 - HV_X64_MSR_CRASH_P0 + 1)
+
+#define HV_STIMER_COUNT                       4
+
+#define QEMU_ALIGNED(X) __attribute__((aligned(X)))
+
 typedef uint32_t target_ulong;
 
 typedef uint16_t float16;
