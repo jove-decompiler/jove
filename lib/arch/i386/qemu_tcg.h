@@ -144,6 +144,8 @@ GLIB_AVAILABLE_IN_ALL
 void     g_queue_free_full      (GQueue           *queue,
 				GDestroyNotify    free_func);
 
+typedef uint32_t target_ulong;
+
 typedef uint16_t float16;
 
 typedef uint32_t float32;
@@ -2609,5 +2611,3 @@ static inline TCGLabel *arg_label(TCGArg i)
 {
     return (TCGLabel *)(uintptr_t)i;
 }
-
-typedef uint32_t target_ulong;
