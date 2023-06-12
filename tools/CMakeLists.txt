@@ -57,6 +57,7 @@ function(tool_for_arch arch arch_extra_cflags qemu_objs)
     ../core/util.cpp
     ../core/vdso.cpp
     check-helper.cpp
+    gen-tcgconstants.cpp
     jove-add.cpp
     jove-analyze.cpp
     jove-bootstrap.cpp
