@@ -1,6 +1,8 @@
 #include "qemu_tcg.h"
 #include "../qemu/include/jove.h"
 
+#include "tcg.h"
+
 #include <algorithm>
 #include <sstream>
 #include <string>
