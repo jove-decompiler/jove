@@ -171,7 +171,7 @@ function(tool_for_arch arch arch_extra_cflags)
   )
 
   target_include_directories(jove-${arch} PRIVATE
-    ../lib/arch/${arch}
+    ${JOVE_SRC_DIR}/lib/arch/${arch}
   )
 
   target_compile_options(jove-${arch} PRIVATE
