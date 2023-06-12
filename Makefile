@@ -1354,12 +1354,18 @@ extract-helpers: $(foreach helper,$($(HOST_ARCH)_HELPERS),extract-$(helper))
 .PHONY: build-helpers
 build-helpers: $(HELPERS_BITCODE) $(HELPERS_ASSEMBLY)
 
-define extract_helper_template
-.PHONY: extract-$(1)
-extract-$(1):
-	$(CLANG_EXTRICATE)/extract/carbon-extract --src $(QEMU_SRC_DIR) --bin $(QEMU_BUILD_DIR) helper_$(1) $($(HOST_ARCH)-$(1)_EXTRICATE_ARGS) > lib/arch/$(HOST_ARCH)/helpers/$(1).c
+define extract_helpers_template
+.PHONY: extract-helpers-$(1)
+extract-helpers-$(1): $(foreach helper,$($(1)_HELPERS),extract-$(1)-$(helper))
 endef
-$(foreach helper,$($(HOST_ARCH)_HELPERS),$(eval $(call extract_helper_template,$(helper))))
+$(foreach target,$(ALL_TARGETS),$(eval $(call extract_helpers_template,$(target))))
+
+define extract_helper_template
+.PHONY: extract-$(2)-$(1)
+extract-$(2)-$(1):
+	$(CLANG_EXTRICATE)/extract/carbon-extract --src $(QEMU_SRC_DIR) --bin $(QEMU_BUILD_DIR) helper_$(1) $($(2)-$(1)_EXTRICATE_ARGS) > lib/arch/$(2)/helpers/$(1).c
+endef
+$(foreach target,$(ALL_TARGETS),$(foreach helper,$($(target)_HELPERS),$(eval $(call extract_helper_template,$(helper),$(target)))))
 
 define build_helper_template
 $(BINDIR)/$(2)/helpers/$(1).ll: $(BINDIR)/$(2)/helpers/$(1).bc
