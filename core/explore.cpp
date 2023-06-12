@@ -111,7 +111,7 @@ basic_block_index_t explore_basic_block(binary_t &b,
 
             llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(A);
             if (!ExpectedPtr)
-              abort();
+              throw std::runtime_error((fmt("%s: invalid address 0x%lx") % __func__ % A).str());
 
             Disassembled = disas.DisAsm->getInstruction(
                 Inst, InstLen,
@@ -121,7 +121,8 @@ basic_block_index_t explore_basic_block(binary_t &b,
 
           if (!Disassembled)
             throw std::runtime_error(
-              (fmt("failed to disassemble 0x%lx%s%s")
+              (fmt("%s: failed to disassemble 0x%lx%s%s")
+               % __func__
                % A
                % (errmsg.empty() ? "" : ": ")
                % errmsg).str());
@@ -130,7 +131,7 @@ basic_block_index_t explore_basic_block(binary_t &b,
             goto on_insn_boundary;
         }
 
-        throw std::runtime_error((fmt("control flow to 0x%lx doesn't lie on instruction boundary") % Addr).str());
+        throw std::runtime_error((fmt("%s: control flow to 0x%lx doesn't lie on instruction boundary") % __func__ % Addr).str());
 
 on_insn_boundary:
         //
@@ -269,18 +270,15 @@ on_insn_boundary:
     for (uint64_t A = Addr; A < Addr + Size; A += InstLen) {
       llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(A);
       if (!ExpectedPtr)
-        abort();
+        throw std::runtime_error((fmt("%s: invalid address 0x%lx") % __func__ % A).str());
 
       llvm::MCInst Inst;
       bool Disassembled = disas.DisAsm->getInstruction(
           Inst, InstLen, llvm::ArrayRef<uint8_t>(*ExpectedPtr, Size), A,
           llvm::nulls());
 
-      if (!Disassembled) {
-        llvm::WithColor::error()
-            << (boost::format("%s: failed to disassemble %#lx\n") % __func__ % Addr).str();
-        break;
-      }
+      if (!Disassembled)
+        throw std::runtime_error((fmt("%s: failed to disassemble %#lx") % __func__ % A).str());
 
       disas.IP->printInst(&Inst, A, "", *disas.STI, llvm::errs());
       llvm::errs() << '\n';
@@ -310,7 +308,7 @@ on_insn_boundary:
 
     boost::icl::interval<uint64_t>::type intervl =
         boost::icl::interval<uint64_t>::right_open(bbprop.Addr,
-                                                        bbprop.Addr + bbprop.Size);
+                                                   bbprop.Addr + bbprop.Size);
     assert(bbmap.find(intervl) == bbmap.end());
     bbmap.add({intervl, 1+BBIdx});
   }
@@ -404,8 +402,9 @@ on_insn_boundary:
     control_flow_to(T._none.NextPC);
     break;
 
+  case TERMINATOR::UNKNOWN:
   default:
-    abort();
+    throw std::runtime_error((fmt("%s: unknown terminator @ 0x%lx") % __func__ % T.Addr).str());
   }
 
   return BBIdx;
