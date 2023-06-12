@@ -1658,7 +1658,7 @@ static bool is_integral_size(unsigned n) {
 }
 
 static constexpr unsigned WordBytes(void) {
-  return TCG_TARGET_REG_BITS == 64 ? sizeof(uint64_t) : sizeof(uint32_t);
+  return sizeof(target_ulong);
 }
 
 static constexpr unsigned WordBits(void) {
@@ -4398,8 +4398,10 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
     std::vector<llvm::Constant *> SectsGlobalFieldInits;
     for (unsigned i = 0; i < NumSections; ++i) {
       section_t &Sect = SectTable[i];
+#if 0
       if (IsVerbose())
         llvm::errs() << llvm::formatv("Section: {0}\n", Sect.Name);
+#endif
 
       //
       // check if there's space between the start of this section and the
