@@ -1,4 +1,4 @@
-#if !defined(__i386__)
+#if !defined(__i386__) && !defined(__x86_64__)
 #error
 #endif
 
@@ -1958,7 +1958,13 @@ struct CPUState {
     GArray *iommu_notifiers;
 };
 
+#if defined(__x86_64__)
+# define TCG_TARGET_REG_BITS 64
+typedef uint64_t tcg_target_ulong;
+#else
 # define TCG_TARGET_REG_BITS 32
+typedef uint32_t tcg_target_ulong;
+#endif
 
 #define TCG_TARGET_INTERPRETER 1
 
@@ -2026,8 +2032,6 @@ typedef enum {
     TCG_COND_LEU    = 8 | 4 | 0 | 0,
     TCG_COND_GTU    = 8 | 4 | 0 | 1,
 } TCGCond;
-
-typedef uint32_t tcg_target_ulong;
 
 #define TCG_TARGET_MAYBE_vec            0
 

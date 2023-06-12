@@ -1,19 +1,10 @@
+#define HOST_BIG_ENDIAN (__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__)
+
 #define QEMU_ALIGNED(X) __attribute__((aligned(X)))
 
 #include <stdbool.h>
 
 #include <stdint.h>
-
-#define QTAILQ_ENTRY(type)                                              \
-union {                                                                 \
-        struct type *tqe_next;        /* next element */                \
-        QTailQLink tqe_circ;          /* link for circular backwards list */ \
-}
-
-typedef struct QTailQLink {
-    void *tql_next;
-    struct QTailQLink *tql_prev;
-} QTailQLink;
 
 void mulu64(uint64_t *plow, uint64_t *phigh, uint64_t a, uint64_t b);
 
@@ -49,6 +40,57 @@ static inline uint64_t usub64_borrow(uint64_t x, uint64_t y, bool *pborrow)
     return x;
 #endif
 }
+
+static inline void mul64(uint64_t *plow, uint64_t *phigh,
+                         uint64_t a, uint64_t b)
+{
+    typedef union {
+        uint64_t ll;
+        struct {
+#if HOST_BIG_ENDIAN
+            uint32_t high, low;
+#else
+            uint32_t low, high;
+#endif
+        } l;
+    } LL;
+    LL rl, rm, rn, rh, a0, b0;
+    uint64_t c;
+
+    a0.ll = a;
+    b0.ll = b;
+
+    rl.ll = (uint64_t)a0.l.low * b0.l.low;
+    rm.ll = (uint64_t)a0.l.low * b0.l.high;
+    rn.ll = (uint64_t)a0.l.high * b0.l.low;
+    rh.ll = (uint64_t)a0.l.high * b0.l.high;
+
+    c = (uint64_t)rl.l.high + rm.l.low + rn.l.low;
+    rl.l.high = c;
+    c >>= 32;
+    c = c + rm.l.high + rn.l.high + rh.l.low;
+    rh.l.low = c;
+    rh.l.high += (uint32_t)(c >> 32);
+
+    *plow = rl.ll;
+    *phigh = rh.ll;
+}
+
+void mulu64 (uint64_t *plow, uint64_t *phigh, uint64_t a, uint64_t b)
+{
+    mul64(plow, phigh, a, b);
+}
+
+#define QTAILQ_ENTRY(type)                                              \
+union {                                                                 \
+        struct type *tqe_next;        /* next element */                \
+        QTailQLink tqe_circ;          /* link for circular backwards list */ \
+}
+
+typedef struct QTailQLink {
+    void *tql_next;
+    struct QTailQLink *tql_prev;
+} QTailQLink;
 
 typedef uint64_t vaddr;
 
