@@ -533,7 +533,7 @@ int AddTool::Run(void) {
         llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(R.Offset);
 
         if (ExpectedPtr)
-          Addr = *reinterpret_cast<const uint64_t *>(*ExpectedPtr);
+          Addr = extractAddress(*ExpectedPtr);
       }
 
       if (IsVerbose())
