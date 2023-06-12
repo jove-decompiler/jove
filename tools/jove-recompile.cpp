@@ -155,6 +155,10 @@ class RecompileTool : public TransformerTool_Bin<binary_state_t> {
                         cl::cat(JoveCategory)) {}
   } opts;
 
+  inline fs::path a2r(const std::string &ap) {
+    return fs::relative(ap, "/");
+  }
+
 public:
   RecompileTool() : opts(JoveCategory) {}
 
@@ -761,7 +765,7 @@ int RecompileTool::Run(void) {
     // make sure the path is absolute
     assert(b.Path.at(0) == '/');
 
-    const fs::path chrooted_path = fs::path(opts.Output.getValue()) / b.Path;
+    const fs::path chrooted_path = fs::path(opts.Output.getValue()) / a2r(b.Path);
     fs::create_directories(chrooted_path.parent_path());
 
     fs::remove(chrooted_path);
@@ -819,7 +823,7 @@ int RecompileTool::Run(void) {
     // make sure the path is absolute
     assert(b.Path.at(0) == '/');
 
-    const fs::path chrooted_path = fs::path(opts.Output.getValue()) / b.Path;
+    const fs::path chrooted_path = fs::path(opts.Output.getValue()) / a2r(b.Path);
 
     std::string binary_filename = fs::path(b.Path).filename().string();
 
@@ -1021,7 +1025,7 @@ void RecompileTool::worker(const dso_graph_t &dso_graph) {
     // make sure the path is absolute
     assert(b.Path.at(0) == '/');
 
-    const fs::path chrooted_path = fs::path(opts.Output.getValue()) / b.Path;
+    const fs::path chrooted_path = fs::path(opts.Output.getValue()) / a2r(b.Path);
     fs::create_directories(chrooted_path.parent_path());
 
     std::string binary_filename = fs::path(b.Path).filename().string();
