@@ -1,4 +1,4 @@
-#include "../bin/x86_64/tcg.h"
+#include "tcg.h"
 #include "../qemu/include/jove.h"
 
 #include "tcg.h"
