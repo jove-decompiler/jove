@@ -15,7 +15,6 @@ static inline int clrsb32(uint32_t val)
 
 #define HELPER(name) glue(helper_, name)
 
-__attribute__((always_inline))
 uint32_t HELPER(clrsb_i32)(uint32_t arg)
 {
     return clrsb32(arg);

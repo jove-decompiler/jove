@@ -16,7 +16,6 @@ static inline int ctpop32(uint32_t val)
 
 #define HELPER(name) glue(helper_, name)
 
-__attribute__((always_inline))
 uint32_t HELPER(ctpop_i32)(uint32_t arg)
 {
     return ctpop32(arg);

@@ -15,7 +15,6 @@ static inline int clrsb64(uint64_t val)
 
 #define HELPER(name) glue(helper_, name)
 
-__attribute__((always_inline))
 uint64_t HELPER(clrsb_i64)(uint64_t arg)
 {
     return clrsb64(arg);

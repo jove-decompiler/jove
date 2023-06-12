@@ -1,89 +1,10 @@
-#define xglue(x, y) x ## y
-
-#define glue(x, y) xglue(x, y)
-
-#define unlikely(x)   __builtin_expect(!!(x), 0)
-
-#define container_of(ptr, type, member) ({                      \
-        const typeof(((type *) 0)->member) *__mptr = (ptr);     \
-        (type *) ((char *) __mptr - offsetof(type, member));})
-
-#include <stddef.h>
+#define QEMU_ALIGNED(X) __attribute__((aligned(X)))
 
 #include <stdbool.h>
 
 #include <stdint.h>
 
-#include <sys/types.h>
-
-#include <stdio.h>
-
-#include <limits.h>
-
-#include <setjmp.h>
-
-typedef char   gchar;
-
-typedef unsigned int    guint;
-
-typedef void* gpointer;
-
-typedef struct _GArray		GArray;
-
-struct _GArray
-{
-  gchar *data;
-  guint len;
-};
-
-typedef struct _GHashTable  GHashTable;
-
-typedef struct _GSList GSList;
-
-struct _GSList
-{
-  gpointer data;
-  GSList *next;
-};
-
-typedef struct AddressSpace AddressSpace;
-
-typedef struct BusState BusState;
-
-typedef struct CPUAddressSpace CPUAddressSpace;
-
-typedef struct CPUState CPUState;
-
-typedef struct DeviceState DeviceState;
-
-typedef struct MemoryRegion MemoryRegion;
-
-typedef struct ObjectClass ObjectClass;
-
-typedef struct QemuMutex QemuMutex;
-
-typedef struct QemuOpts QemuOpts;
-
-typedef struct IRQState *qemu_irq;
-
-#define DIV_ROUND_UP(n, d) (((n) + (d) - 1) / (d))
-
-#define QLIST_HEAD(name, type)                                          \
-struct name {                                                           \
-        struct type *lh_first;  /* first element */                     \
-}
-
-#define QLIST_ENTRY(type)                                               \
-struct {                                                                \
-        struct type *le_next;   /* next element */                      \
-        struct type **le_prev;  /* address of previous next element */  \
-}
-
-#define QTAILQ_HEAD(name, type)                                         \
-union name {                                                            \
-        struct type *tqh_first;       /* first element */               \
-        QTailQLink tqh_circ;          /* link for circular backwards list */ \
-}
+typedef struct CPUArchState CPUArchState;
 
 #define QTAILQ_ENTRY(type)                                              \
 union {                                                                 \
@@ -96,133 +17,7 @@ typedef struct QTailQLink {
     struct QTailQLink *tql_prev;
 } QTailQLink;
 
-typedef uint8_t flag;
-
-typedef uint32_t float32;
-
-typedef uint64_t float64;
-
-typedef struct {
-    uint64_t low;
-    uint16_t high;
-} floatx80;
-
-typedef struct float_status {
-    signed char float_detect_tininess;
-    signed char float_rounding_mode;
-    uint8_t     float_exception_flags;
-    signed char floatx80_rounding_precision;
-    /* should denormalised results go to zero and set the inexact flag? */
-    flag flush_to_zero;
-    /* should denormalised inputs go to zero and set the input_denormal flag? */
-    flag flush_inputs_to_zero;
-    flag default_nan_mode;
-    /* not always used -- see snan_bit_is_one() in softfloat-specialize.h */
-    flag snan_bit_is_one;
-} float_status;
-
-#define le_bswap(v, size) (v)
-
-static inline int lduw_he_p(const void *ptr)
-{
-    uint16_t r;
-    __builtin_memcpy(&r, ptr, sizeof(r));
-    return r;
-}
-
-static inline int ldl_he_p(const void *ptr)
-{
-    int32_t r;
-    __builtin_memcpy(&r, ptr, sizeof(r));
-    return r;
-}
-
-static inline int ldl_le_p(const void *ptr)
-{
-    return le_bswap(ldl_he_p(ptr), 32);
-}
-
-#define signal_barrier() do {} while (0)
-
-#define BITS_PER_BYTE           CHAR_BIT
-
-#define BITS_PER_LONG           (sizeof (unsigned long) * BITS_PER_BYTE)
-
-#define BIT_WORD(nr)            ((nr) / BITS_PER_LONG)
-
-#define BITS_TO_LONGS(nr)       DIV_ROUND_UP(nr, BITS_PER_BYTE * sizeof(long))
-
-static inline int test_bit(long nr, const unsigned long *addr)
-{
-    return 1UL & (addr[BIT_WORD(nr)] >> (nr & (BITS_PER_LONG-1)));
-}
-
-#define DECLARE_BITMAP(name,bits)                  \
-        unsigned long name[BITS_TO_LONGS(bits)]
-
-struct TypeImpl;
-
-typedef struct TypeImpl *Type;
-
-typedef struct Object Object;
-
-typedef void (ObjectUnparent)(Object *obj);
-
-#define OBJECT_CLASS_CAST_CACHE 4
-
-typedef void (ObjectFree)(void *obj);
-
-struct ObjectClass
-{
-    /*< private >*/
-    Type type;
-    GSList *interfaces;
-
-    const char *object_cast_cache[OBJECT_CLASS_CAST_CACHE];
-    const char *class_cast_cache[OBJECT_CLASS_CAST_CACHE];
-
-    ObjectUnparent *unparent;
-
-    GHashTable *properties;
-};
-
-struct Object
-{
-    /*< private >*/
-    ObjectClass *class;
-    ObjectFree *free;
-    GHashTable *properties;
-    uint32_t ref;
-    Object *parent;
-};
-
-struct NamedGPIOList {
-    char *name;
-    qemu_irq *in;
-    int num_in;
-    int num_out;
-    QLIST_ENTRY(NamedGPIOList) node;
-};
-
-struct DeviceState {
-    /*< private >*/
-    Object parent_obj;
-    /*< public >*/
-
-    const char *id;
-    char *canonical_path;
-    bool realized;
-    bool pending_deleted_event;
-    QemuOpts *opts;
-    int hotplugged;
-    bool allow_unplug_during_migration;
-    BusState *parent_bus;
-    QLIST_HEAD(, NamedGPIOList) gpios;
-    QLIST_HEAD(, BusState) child_bus;
-    int num_child_bus;
-    int instance_id_alias;
-    int alias_required_for_version;
-};
+typedef uint64_t vaddr;
 
 typedef struct MemTxAttrs {
     /* Bus masters which don't specify any attributes will get this
@@ -237,6 +32,14 @@ typedef struct MemTxAttrs {
     unsigned int secure:1;
     /* Memory access is usermode (unprivileged) */
     unsigned int user:1;
+    /*
+     * Bus interconnect and peripherals can access anything (memories,
+     * devices) by default. By setting the 'memory' bit, bus transaction
+     * are restricted to "normal" memories (per the AMBA documentation)
+     * versus devices. Access to devices will be logged and rejected
+     * (see MEMTX_ACCESS_ERROR).
+     */
+    unsigned int memory:1;
     /* Requester ID (for MSI for example) */
     unsigned int requester_id:16;
     /* Invert endianness for this page */
@@ -253,58 +56,6 @@ typedef struct MemTxAttrs {
     unsigned int target_tlb_bit2 : 1;
 } MemTxAttrs;
 
-struct QemuMutex {
-    pthread_mutex_t lock;
-#ifdef CONFIG_DEBUG_MUTEX
-    const char *file;
-    int line;
-#endif
-    bool initialized;
-};
-
-struct QemuCond {
-    pthread_cond_t cond;
-    bool initialized;
-};
-
-struct QemuThread {
-    pthread_t thread;
-};
-
-struct Notifier;
-
-enum qemu_plugin_event {
-    QEMU_PLUGIN_EV_VCPU_INIT,
-    QEMU_PLUGIN_EV_VCPU_EXIT,
-    QEMU_PLUGIN_EV_VCPU_TB_TRANS,
-    QEMU_PLUGIN_EV_VCPU_IDLE,
-    QEMU_PLUGIN_EV_VCPU_RESUME,
-    QEMU_PLUGIN_EV_VCPU_SYSCALL,
-    QEMU_PLUGIN_EV_VCPU_SYSCALL_RET,
-    QEMU_PLUGIN_EV_FLUSH,
-    QEMU_PLUGIN_EV_ATEXIT,
-    QEMU_PLUGIN_EV_MAX, /* total number of plugin events we support */
-};
-
-typedef uint64_t vaddr;
-
-typedef struct CPUWatchpoint CPUWatchpoint;
-
-struct TranslationBlock;
-
-typedef union IcountDecr {
-    uint32_t u32;
-    struct {
-#ifdef HOST_WORDS_BIGENDIAN
-        uint16_t high;
-        uint16_t low;
-#else
-        uint16_t low;
-        uint16_t high;
-#endif
-    } u16;
-} IcountDecr;
-
 typedef struct CPUBreakpoint {
     vaddr pc;
     int flags; /* BP_* */
@@ -312,7 +63,7 @@ typedef struct CPUBreakpoint {
 } CPUBreakpoint;
 
 struct CPUWatchpoint {
-    vaddr vaddr;
+    vaddr _vaddr;
     vaddr len;
     vaddr hitaddr;
     MemTxAttrs hitattrs;
@@ -320,132 +71,7 @@ struct CPUWatchpoint {
     QTAILQ_ENTRY(CPUWatchpoint) entry;
 };
 
-struct KVMState;
-
-struct kvm_run;
-
-#define TB_JMP_CACHE_BITS 12
-
-#define TB_JMP_CACHE_SIZE (1 << TB_JMP_CACHE_BITS)
-
-struct hax_vcpu_state;
-
-#define CPU_TRACE_DSTATE_MAX_EVENTS 32
-
-struct qemu_work_item;
-
-struct CPUState {
-    /*< private >*/
-    DeviceState parent_obj;
-    /*< public >*/
-
-    int nr_cores;
-    int nr_threads;
-
-    struct QemuThread *thread;
-#ifdef _WIN32
-    HANDLE hThread;
-#endif
-    int thread_id;
-    bool running, has_waiter;
-    struct QemuCond *halt_cond;
-    bool thread_kicked;
-    bool created;
-    bool stop;
-    bool stopped;
-    bool unplug;
-    bool crash_occurred;
-    bool exit_request;
-    bool in_exclusive_context;
-    uint32_t cflags_next_tb;
-    /* updates protected by BQL */
-    uint32_t interrupt_request;
-    int singlestep_enabled;
-    int64_t icount_budget;
-    int64_t icount_extra;
-    uint64_t random_seed;
-    sigjmp_buf jmp_env;
-
-    QemuMutex work_mutex;
-    struct qemu_work_item *queued_work_first, *queued_work_last;
-
-    CPUAddressSpace *cpu_ases;
-    int num_ases;
-    AddressSpace *as;
-    MemoryRegion *memory;
-
-    void *env_ptr; /* CPUArchState */
-    IcountDecr *icount_decr_ptr;
-
-    /* Accessed in parallel; all accesses must be atomic */
-    struct TranslationBlock *tb_jmp_cache[TB_JMP_CACHE_SIZE];
-
-    struct GDBRegisterState *gdb_regs;
-    int gdb_num_regs;
-    int gdb_num_g_regs;
-    QTAILQ_ENTRY(CPUState) node;
-
-    /* ice debug support */
-    QTAILQ_HEAD(, CPUBreakpoint) breakpoints;
-
-    QTAILQ_HEAD(, CPUWatchpoint) watchpoints;
-    CPUWatchpoint *watchpoint_hit;
-
-    void *opaque;
-
-    /* In order to avoid passing too many arguments to the MMIO helpers,
-     * we store some rarely used information in the CPU context.
-     */
-    uintptr_t mem_io_pc;
-
-    int kvm_fd;
-    struct KVMState *kvm_state;
-    struct kvm_run *kvm_run;
-
-    /* Used for events with 'vcpu' and *without* the 'disabled' properties */
-    DECLARE_BITMAP(trace_dstate_delayed, CPU_TRACE_DSTATE_MAX_EVENTS);
-    DECLARE_BITMAP(trace_dstate, CPU_TRACE_DSTATE_MAX_EVENTS);
-
-    DECLARE_BITMAP(plugin_mask, QEMU_PLUGIN_EV_MAX);
-
-    GArray *plugin_mem_cbs;
-
-    /* TODO Move common fields from CPUArchState here. */
-    int cpu_index;
-    int cluster_index;
-    uint32_t halted;
-    uint32_t can_do_io;
-    int32_t exception_index;
-
-    /* shared by kvm, hax and hvf */
-    bool vcpu_dirty;
-
-    /* Used to keep track of an outstanding cpu throttle thread for migration
-     * autoconverge
-     */
-    bool throttle_thread_scheduled;
-
-    bool ignore_memory_transaction_failures;
-
-    struct hax_vcpu_state *hax_vcpu;
-
-    int hvf_fd;
-
-    /* track IOMMUs whose translations we've cached in the TCG TLB */
-    GArray *iommu_notifiers;
-};
-
-typedef struct Notifier Notifier;
-
-struct Notifier
-{
-    void (*notify)(Notifier *notifier, void *data);
-    QLIST_ENTRY(Notifier) node;
-};
-
 #define HV_SINT_COUNT                         16
-
-typedef struct X86CPU X86CPU;
 
 #define HV_X64_MSR_CRASH_P0                     0x40000100
 
@@ -455,23 +81,60 @@ typedef struct X86CPU X86CPU;
 
 #define HV_STIMER_COUNT                       4
 
-typedef int32_t target_long;
-
 typedef uint32_t target_ulong;
 
-typedef struct CPUTLB { } CPUTLB;
+typedef uint16_t float16;
 
-typedef struct CPUNegativeOffsetState {
-    CPUTLB tlb;
-    IcountDecr icount_decr;
-} CPUNegativeOffsetState;
+typedef uint32_t float32;
 
-typedef enum OnOffAuto {
-    ON_OFF_AUTO_AUTO,
-    ON_OFF_AUTO_ON,
-    ON_OFF_AUTO_OFF,
-    ON_OFF_AUTO__MAX,
-} OnOffAuto;
+typedef uint64_t float64;
+
+typedef struct {
+    uint64_t low;
+    uint16_t high;
+} floatx80;
+
+typedef enum __attribute__((__packed__)) {
+    float_round_nearest_even = 0,
+    float_round_down         = 1,
+    float_round_up           = 2,
+    float_round_to_zero      = 3,
+    float_round_ties_away    = 4,
+    /* Not an IEEE rounding mode: round to closest odd, overflow to max */
+    float_round_to_odd       = 5,
+    /* Not an IEEE rounding mode: round to closest odd, overflow to inf */
+    float_round_to_odd_inf   = 6,
+} FloatRoundMode;
+
+typedef enum __attribute__((__packed__)) {
+    floatx80_precision_x,
+    floatx80_precision_d,
+    floatx80_precision_s,
+} FloatX80RoundPrec;
+
+typedef struct float_status {
+    uint16_t float_exception_flags;
+    FloatRoundMode float_rounding_mode;
+    FloatX80RoundPrec floatx80_rounding_precision;
+    bool tininess_before_rounding;
+    /* should denormalised results go to zero and set the inexact flag? */
+    bool flush_to_zero;
+    /* should denormalised inputs go to zero and set the input_denormal flag? */
+    bool flush_inputs_to_zero;
+    bool default_nan_mode;
+    /*
+     * The flags below are not used on all specializations and may
+     * constant fold away (see snan_bit_is_one()/no_signalling_nans() in
+     * softfloat-specialize.inc.c)
+     */
+    bool snan_bit_is_one;
+    bool use_first_nan;
+    bool no_signaling_nans;
+    /* should overflowed results subtract re_bias to its exponent? */
+    bool rebias_overflow;
+    /* should underflowed results add re_bias to its exponent? */
+    bool rebias_underflow;
+} float_status;
 
 #define DESC_G_SHIFT    23
 
@@ -489,21 +152,17 @@ typedef enum OnOffAuto {
 
 #define DESC_C_MASK     (1 << 10)
 
-#define CC_C    0x0001
-
-#define CC_P    0x0004
-
-#define CC_A    0x0010
-
 #define CC_Z    0x0040
 
-#define CC_S    0x0080
-
-#define CC_O    0x0800
+#define AC_MASK                 0x00040000
 
 #define HF_CPL_SHIFT         0
 
+#define HF_SMAP_SHIFT       23
+
 #define HF_CPL_MASK          (3 << HF_CPL_SHIFT)
+
+#define HF_SMAP_MASK         (1 << HF_SMAP_SHIFT)
 
 #define MCE_BANKS_DEF   10
 
@@ -526,21 +185,18 @@ typedef enum FeatureWord {
     FEAT_8000_0001_ECX, /* CPUID[8000_0001].ECX */
     FEAT_8000_0007_EDX, /* CPUID[8000_0007].EDX */
     FEAT_8000_0008_EBX, /* CPUID[8000_0008].EBX */
+    FEAT_8000_0021_EAX, /* CPUID[8000_0021].EAX */
     FEAT_C000_0001_EDX, /* CPUID[C000_0001].EDX */
     FEAT_KVM,           /* CPUID[4000_0001].EAX (KVM_CPUID_FEATURES) */
     FEAT_KVM_HINTS,     /* CPUID[4000_0001].EDX */
-    FEAT_HYPERV_EAX,    /* CPUID[4000_0003].EAX */
-    FEAT_HYPERV_EBX,    /* CPUID[4000_0003].EBX */
-    FEAT_HYPERV_EDX,    /* CPUID[4000_0003].EDX */
-    FEAT_HV_RECOMM_EAX, /* CPUID[4000_0004].EAX */
-    FEAT_HV_NESTED_EAX, /* CPUID[4000_000A].EAX */
     FEAT_SVM,           /* CPUID[8000_000A].EDX */
     FEAT_XSAVE,         /* CPUID[EAX=0xd,ECX=1].EAX */
     FEAT_6_EAX,         /* CPUID[6].EAX */
-    FEAT_XSAVE_COMP_LO, /* CPUID[EAX=0xd,ECX=0].EAX */
-    FEAT_XSAVE_COMP_HI, /* CPUID[EAX=0xd,ECX=0].EDX */
+    FEAT_XSAVE_XCR0_LO, /* CPUID[EAX=0xd,ECX=0].EAX */
+    FEAT_XSAVE_XCR0_HI, /* CPUID[EAX=0xd,ECX=0].EDX */
     FEAT_ARCH_CAPABILITIES,
     FEAT_CORE_CAPABILITY,
+    FEAT_PERF_CAPABILITIES,
     FEAT_VMX_PROCBASED_CTLS,
     FEAT_VMX_SECONDARY_CTLS,
     FEAT_VMX_PINBASED_CTLS,
@@ -550,89 +206,17 @@ typedef enum FeatureWord {
     FEAT_VMX_EPT_VPID_CAPS,
     FEAT_VMX_BASIC,
     FEAT_VMX_VMFUNC,
+    FEAT_14_0_ECX,
+    FEAT_SGX_12_0_EAX,  /* CPUID[EAX=0x12,ECX=0].EAX (SGX) */
+    FEAT_SGX_12_0_EBX,  /* CPUID[EAX=0x12,ECX=0].EBX (SGX MISCSELECT[31:0]) */
+    FEAT_SGX_12_1_EAX,  /* CPUID[EAX=0x12,ECX=1].EAX (SGX ATTRIBUTES[31:0]) */
+    FEAT_XSAVE_XSS_LO,     /* CPUID[EAX=0xd,ECX=1].ECX */
+    FEAT_XSAVE_XSS_HI,     /* CPUID[EAX=0xd,ECX=1].EDX */
+    FEAT_7_1_EDX,       /* CPUID[EAX=7,ECX=1].EDX */
     FEATURE_WORDS,
 } FeatureWord;
 
 typedef uint64_t FeatureWordArray[FEATURE_WORDS];
-
-typedef enum {
-    CC_OP_DYNAMIC, /* must use dynamic code to get cc_op */
-    CC_OP_EFLAGS,  /* all cc are explicitly computed, CC_SRC = flags */
-
-    CC_OP_MULB, /* modify all flags, C, O = (CC_SRC != 0) */
-    CC_OP_MULW,
-    CC_OP_MULL,
-    CC_OP_MULQ,
-
-    CC_OP_ADDB, /* modify all flags, CC_DST = res, CC_SRC = src1 */
-    CC_OP_ADDW,
-    CC_OP_ADDL,
-    CC_OP_ADDQ,
-
-    CC_OP_ADCB, /* modify all flags, CC_DST = res, CC_SRC = src1 */
-    CC_OP_ADCW,
-    CC_OP_ADCL,
-    CC_OP_ADCQ,
-
-    CC_OP_SUBB, /* modify all flags, CC_DST = res, CC_SRC = src1 */
-    CC_OP_SUBW,
-    CC_OP_SUBL,
-    CC_OP_SUBQ,
-
-    CC_OP_SBBB, /* modify all flags, CC_DST = res, CC_SRC = src1 */
-    CC_OP_SBBW,
-    CC_OP_SBBL,
-    CC_OP_SBBQ,
-
-    CC_OP_LOGICB, /* modify all flags, CC_DST = res */
-    CC_OP_LOGICW,
-    CC_OP_LOGICL,
-    CC_OP_LOGICQ,
-
-    CC_OP_INCB, /* modify all flags except, CC_DST = res, CC_SRC = C */
-    CC_OP_INCW,
-    CC_OP_INCL,
-    CC_OP_INCQ,
-
-    CC_OP_DECB, /* modify all flags except, CC_DST = res, CC_SRC = C  */
-    CC_OP_DECW,
-    CC_OP_DECL,
-    CC_OP_DECQ,
-
-    CC_OP_SHLB, /* modify all flags, CC_DST = res, CC_SRC.msb = C */
-    CC_OP_SHLW,
-    CC_OP_SHLL,
-    CC_OP_SHLQ,
-
-    CC_OP_SARB, /* modify all flags, CC_DST = res, CC_SRC.lsb = C */
-    CC_OP_SARW,
-    CC_OP_SARL,
-    CC_OP_SARQ,
-
-    CC_OP_BMILGB, /* Z,S via CC_DST, C = SRC==0; O=0; P,A undefined */
-    CC_OP_BMILGW,
-    CC_OP_BMILGL,
-    CC_OP_BMILGQ,
-
-    CC_OP_ADCX, /* CC_DST = C, CC_SRC = rest.  */
-    CC_OP_ADOX, /* CC_DST = O, CC_SRC = rest.  */
-    CC_OP_ADCOX, /* CC_DST = C, CC_SRC2 = O, CC_SRC = rest.  */
-
-    CC_OP_CLR, /* Z set, all other flags clear.  */
-    CC_OP_POPCNT, /* Z via CC_SRC, all other flags clear.  */
-
-    CC_OP_NB,
-} CCOp;
-
-#define MMREG_UNION(n, bits)        \
-    union n {                       \
-        uint8_t  _b_##n[(bits)/8];  \
-        uint16_t _w_##n[(bits)/16]; \
-        uint32_t _l_##n[(bits)/32]; \
-        uint64_t _q_##n[(bits)/64]; \
-        float32  _s_##n[(bits)/32]; \
-        float64  _d_##n[(bits)/64]; \
-    }
 
 typedef struct SegmentCache {
     uint32_t selector;
@@ -641,23 +225,35 @@ typedef struct SegmentCache {
     uint32_t flags;
 } SegmentCache;
 
-typedef union {
-    uint8_t _b[16];
-    uint16_t _w[8];
-    uint32_t _l[4];
-    uint64_t _q[2];
+typedef union MMXReg {
+    uint8_t  _b_MMXReg[64 / 8];
+    uint16_t _w_MMXReg[64 / 16];
+    uint32_t _l_MMXReg[64 / 32];
+    uint64_t _q_MMXReg[64 / 64];
+    float32  _s_MMXReg[64 / 32];
+    float64  _d_MMXReg[64 / 64];
+} MMXReg;
+
+typedef union XMMReg {
+    uint64_t _q_XMMReg[128 / 64];
 } XMMReg;
 
-typedef union {
-    uint8_t _b[32];
-    uint16_t _w[16];
-    uint32_t _l[8];
-    uint64_t _q[4];
+typedef union YMMReg {
+    uint64_t _q_YMMReg[256 / 64];
+    XMMReg   _x_YMMReg[256 / 128];
 } YMMReg;
 
-typedef MMREG_UNION(ZMMReg, 512) ZMMReg;
-
-typedef MMREG_UNION(MMXReg, 64)  MMXReg;
+typedef union ZMMReg {
+    uint8_t  _b_ZMMReg[512 / 8];
+    uint16_t _w_ZMMReg[512 / 16];
+    uint32_t _l_ZMMReg[512 / 32];
+    uint64_t _q_ZMMReg[512 / 64];
+    float16  _h_ZMMReg[512 / 16];
+    float32  _s_ZMMReg[512 / 32];
+    float64  _d_ZMMReg[512 / 64];
+    XMMReg   _x_ZMMReg[512 / 128];
+    YMMReg   _y_ZMMReg[512 / 256];
+} ZMMReg;
 
 typedef struct BNDReg {
     uint64_t lb;
@@ -688,6 +284,14 @@ typedef struct {
     uint64_t base;
     uint64_t mask;
 } MTRRVar;
+
+#define ARCH_LBR_NR_ENTRIES            32
+
+typedef struct {
+       uint64_t from;
+       uint64_t to;
+       uint64_t info;
+} LBREntry;
 
 typedef enum TPRAccess {
     TPR_ACCESS_READ,
@@ -750,7 +354,7 @@ typedef struct CPUCaches {
         CPUCacheInfo *l3_cache;
 } CPUCaches;
 
-typedef struct CPUX86State {
+typedef struct CPUArchState {
     /* standard registers */
     target_ulong regs[CPU_NB_REGS];
     target_ulong eip;
@@ -776,6 +380,9 @@ typedef struct CPUX86State {
     SegmentCache idt; /* only base and limit are used */
 
     target_ulong cr[5]; /* NOTE: cr1 is unused */
+
+    bool pdptrs_valid;
+    uint64_t pdptrs[4];
     int32_t a20_mask;
 
     BNDReg bnd_regs[4];
@@ -794,6 +401,8 @@ typedef struct CPUX86State {
     FPReg fpregs[8];
     /* KVM-only so far */
     uint16_t fpop;
+    uint16_t fpcs;
+    uint16_t fpds;
     uint64_t fpip;
     uint64_t fpdp;
 
@@ -804,15 +413,15 @@ typedef struct CPUX86State {
     float_status mmx_status; /* for 3DNow! float ops */
     float_status sse_status;
     uint32_t mxcsr;
-    ZMMReg xmm_regs[CPU_NB_REGS == 8 ? 8 : 32];
-    ZMMReg xmm_t0;
+    ZMMReg xmm_regs[CPU_NB_REGS == 8 ? 8 : 32] QEMU_ALIGNED(16);
+    ZMMReg xmm_t0 QEMU_ALIGNED(16);
     MMXReg mmx_t0;
 
-    XMMReg ymmh_regs[CPU_NB_REGS];
-
     uint64_t opmask_regs[NB_OPMASK_REGS];
-    YMMReg zmmh_regs[CPU_NB_REGS];
-    ZMMReg hi16_zmm_regs[CPU_NB_REGS];
+#ifdef TARGET_X86_64
+    uint8_t xtilecfg[64];
+    uint8_t xtiledata[8192];
+#endif
 
     /* sysenter registers */
     uint32_t sysenter_cs;
@@ -829,7 +438,6 @@ typedef struct CPUX86State {
     target_ulong kernelgsbase;
 #endif
 
-    uint64_t tsc;
     uint64_t tsc_adjust;
     uint64_t tsc_deadline;
     uint64_t tsc_aux;
@@ -839,6 +447,7 @@ typedef struct CPUX86State {
     uint64_t mcg_status;
     uint64_t msr_ia32_misc_enable;
     uint64_t msr_ia32_feature_control;
+    uint64_t msr_ia32_sgxlepubkeyhash[4];
 
     uint64_t msr_fixed_ctr_ctrl;
     uint64_t msr_global_ctrl;
@@ -853,9 +462,11 @@ typedef struct CPUX86State {
     uint64_t msr_smi_count;
 
     uint32_t pkru;
+    uint32_t pkrs;
     uint32_t tsx_ctrl;
 
     uint64_t spec_ctrl;
+    uint64_t amd_tsc_scale_msr;
     uint64_t virt_ssbd;
 
     /* End of state preserved by INIT (dummy marker).  */
@@ -865,6 +476,7 @@ typedef struct CPUX86State {
     uint64_t wall_clock_msr;
     uint64_t steal_time_msr;
     uint64_t async_pf_en_msr;
+    uint64_t async_pf_int_msr;
     uint64_t pv_eoi_en_msr;
     uint64_t poll_control_msr;
 
@@ -872,6 +484,12 @@ typedef struct CPUX86State {
     uint64_t msr_hv_hypercall;
     uint64_t msr_hv_guest_os_id;
     uint64_t msr_hv_tsc;
+    uint64_t msr_hv_syndbg_control;
+    uint64_t msr_hv_syndbg_status;
+    uint64_t msr_hv_syndbg_send_page;
+    uint64_t msr_hv_syndbg_recv_page;
+    uint64_t msr_hv_syndbg_pending_page;
+    uint64_t msr_hv_syndbg_options;
 
     /* Per-VCPU HV MSRs */
     uint64_t msr_hv_vapic;
@@ -893,6 +511,15 @@ typedef struct CPUX86State {
     uint64_t msr_rtit_output_mask;
     uint64_t msr_rtit_cr3_match;
     uint64_t msr_rtit_addrs[MAX_RTIT_ADDRS];
+
+    /* Per-VCPU XFD MSRs */
+    uint64_t msr_xfd;
+    uint64_t msr_xfd_err;
+
+    /* Per-VCPU Arch LBR MSRs */
+    uint64_t msr_lbr_ctl;
+    uint64_t msr_lbr_depth;
+    LBREntry lbr_records[ARCH_LBR_NR_ENTRIES];
 
     /* exception/interrupt handling */
     int error_code;
@@ -916,6 +543,7 @@ typedef struct CPUX86State {
     uint64_t nested_cr3;
     uint32_t nested_pg_mode;
     uint8_t v_tpr;
+    uint32_t int_ctl;
 
     /* KVM states, automatically cleared on reset */
     uint8_t nmi_injected;
@@ -968,19 +596,38 @@ typedef struct CPUX86State {
     uint8_t has_error_code;
     uint8_t exception_has_payload;
     uint64_t exception_payload;
+    uint8_t triple_fault_pending;
     uint32_t ins_len;
     uint32_t sipi_vector;
     bool tsc_valid;
     int64_t tsc_khz;
     int64_t user_tsc_khz; /* for sanity check only */
+    uint64_t apic_bus_freq;
+    uint64_t tsc;
 #if defined(CONFIG_KVM) || defined(CONFIG_HVF)
     void *xsave_buf;
+    uint32_t xsave_buf_len;
 #endif
 #if defined(CONFIG_KVM)
     struct kvm_nested_state *nested_state;
+    MemoryRegion *xen_vcpu_info_mr;
+    void *xen_vcpu_info_hva;
+    uint64_t xen_vcpu_info_gpa;
+    uint64_t xen_vcpu_info_default_gpa;
+    uint64_t xen_vcpu_time_info_gpa;
+    uint64_t xen_vcpu_runstate_gpa;
+    uint8_t xen_vcpu_callback_vector;
+    bool xen_callback_asserted;
+    uint16_t xen_virq[XEN_NR_VIRQS];
+    uint64_t xen_singleshot_timer_ns;
+    QEMUTimer *xen_singleshot_timer;
+    uint64_t xen_periodic_timer_period;
+    QEMUTimer *xen_periodic_timer;
+    QemuMutex xen_timers_lock;
 #endif
 #if defined(CONFIG_HVF)
-    HVFX86EmulatorState *hvf_emul;
+    HVFX86LazyFlags hvf_lflags;
+    void *hvf_mmio_buf;
 #endif
 
     uint64_t mcg_cap;
@@ -1002,1078 +649,34 @@ typedef struct CPUX86State {
     unsigned nr_dies;
 } CPUX86State;
 
-struct kvm_msrs;
+#define MMU_KSMAP_IDX   0
 
-struct X86CPU {
-    /*< private >*/
-    CPUState parent_obj;
-    /*< public >*/
-
-    CPUNegativeOffsetState neg;
-    CPUX86State env;
-
-    uint32_t hyperv_spinlock_attempts;
-    char *hyperv_vendor_id;
-    bool hyperv_synic_kvm_only;
-    uint64_t hyperv_features;
-    bool hyperv_passthrough;
-    OnOffAuto hyperv_no_nonarch_cs;
-
-    bool check_cpuid;
-    bool enforce_cpuid;
-    /*
-     * Force features to be enabled even if the host doesn't support them.
-     * This is dangerous and should be done only for testing CPUID
-     * compatibility.
-     */
-    bool force_features;
-    bool expose_kvm;
-    bool expose_tcg;
-    bool migratable;
-    bool migrate_smi_count;
-    bool max_features; /* Enable all supported features automatically */
-    uint32_t apic_id;
-
-    /* Enables publishing of TSC increment and Local APIC bus frequencies to
-     * the guest OS in CPUID page 0x40000010, the same way that VMWare does. */
-    bool vmware_cpuid_freq;
-
-    /* if true the CPUID code directly forward host cache leaves to the guest */
-    bool cache_info_passthrough;
-
-    /* if true the CPUID code directly forwards
-     * host monitor/mwait leaves to the guest */
-    struct {
-        uint32_t eax;
-        uint32_t ebx;
-        uint32_t ecx;
-        uint32_t edx;
-    } mwait;
-
-    /* Features that were filtered out because of missing host capabilities */
-    FeatureWordArray filtered_features;
-
-    /* Enable PMU CPUID bits. This can't be enabled by default yet because
-     * it doesn't have ABI stability guarantees, as it passes all PMU CPUID
-     * bits returned by GET_SUPPORTED_CPUID (that depend on host CPU and kernel
-     * capabilities) directly to the guest.
-     */
-    bool enable_pmu;
-
-    /* LMCE support can be enabled/disabled via cpu option 'lmce=on/off'. It is
-     * disabled by default to avoid breaking migration between QEMU with
-     * different LMCE configurations.
-     */
-    bool enable_lmce;
-
-    /* Compatibility bits for old machine types.
-     * If true present virtual l3 cache for VM, the vcpus in the same virtual
-     * socket share an virtual l3 cache.
-     */
-    bool enable_l3_cache;
-
-    /* Compatibility bits for old machine types.
-     * If true present the old cache topology information
-     */
-    bool legacy_cache;
-
-    /* Compatibility bits for old machine types: */
-    bool enable_cpuid_0xb;
-
-    /* Enable auto level-increase for all CPUID leaves */
-    bool full_cpuid_auto_level;
-
-    /* Enable auto level-increase for Intel Processor Trace leave */
-    bool intel_pt_auto_level;
-
-    /* if true fill the top bits of the MTRR_PHYSMASKn variable range */
-    bool fill_mtrr_mask;
-
-    /* if true override the phys_bits value with a value read from the host */
-    bool host_phys_bits;
-
-    /* if set, limit maximum value for phys_bits when host_phys_bits is true */
-    uint8_t host_phys_bits_limit;
-
-    /* Stop SMI delivery for migration compatibility with old machines */
-    bool kvm_no_smi_migration;
-
-    /* Number of physical address bits supported */
-    uint32_t phys_bits;
-
-    /* in order to simplify APIC support, we leave this pointer to the
-       user */
-    struct DeviceState *apic_state;
-    struct MemoryRegion *cpu_as_root, *cpu_as_mem, *smram;
-    Notifier machine_done;
-
-    struct kvm_msrs *kvm_msr_buf;
-
-    int32_t node_id; /* NUMA node this CPU belongs to */
-    int32_t socket_id;
-    int32_t die_id;
-    int32_t core_id;
-    int32_t thread_id;
-
-    int32_t hv_max_vps;
-};
-
-#define MMU_USER_IDX    1
-
-#define CC_DST  (env->cc_dst)
+#define MMU_KNOSMAP_IDX 2
 
 #define CC_SRC  (env->cc_src)
 
-#define CC_SRC2 (env->cc_src2)
-
 #define CC_OP   (env->cc_op)
 
-static inline target_long lshift(target_long x, int n)
+static inline int cpu_mmu_index_kernel(CPUX86State *env)
 {
-    if (n >= 0) {
-        return x << n;
-    } else {
-        return x >> (-n);
-    }
-}
-
-typedef CPUX86State CPUArchState;
-
-typedef X86CPU ArchCPU;
-
-#define ldl_p(p) ldl_le_p(p)
-
-extern unsigned long guest_base;
-
-static inline ArchCPU *env_archcpu(CPUArchState *env)
-{
-    return container_of(env, ArchCPU, env);
-}
-
-static inline CPUState *env_cpu(CPUArchState *env)
-{
-    return &env_archcpu(env)->parent_obj;
+    return !(env->hflags & HF_SMAP_MASK) ? MMU_KNOSMAP_IDX :
+        ((env->hflags & HF_CPL_MASK) < 3 && (env->eflags & AC_MASK))
+        ? MMU_KNOSMAP_IDX : MMU_KSMAP_IDX;
 }
 
 uint32_t cpu_cc_compute_all(CPUX86State *env1, int op);
 
-#define SHIFT 0
-
-#define DATA_BITS (1 << (3 + SHIFT))
-
-#define SUFFIX b
-
-#define DATA_TYPE uint8_t
-
-#define SIGN_MASK (((DATA_TYPE)1) << (DATA_BITS - 1))
-
-const uint8_t parity_table[256] = {
-    CC_P, 0, 0, CC_P, 0, CC_P, CC_P, 0,
-    0, CC_P, CC_P, 0, CC_P, 0, 0, CC_P,
-    0, CC_P, CC_P, 0, CC_P, 0, 0, CC_P,
-    CC_P, 0, 0, CC_P, 0, CC_P, CC_P, 0,
-    0, CC_P, CC_P, 0, CC_P, 0, 0, CC_P,
-    CC_P, 0, 0, CC_P, 0, CC_P, CC_P, 0,
-    CC_P, 0, 0, CC_P, 0, CC_P, CC_P, 0,
-    0, CC_P, CC_P, 0, CC_P, 0, 0, CC_P,
-    0, CC_P, CC_P, 0, CC_P, 0, 0, CC_P,
-    CC_P, 0, 0, CC_P, 0, CC_P, CC_P, 0,
-    CC_P, 0, 0, CC_P, 0, CC_P, CC_P, 0,
-    0, CC_P, CC_P, 0, CC_P, 0, 0, CC_P,
-    CC_P, 0, 0, CC_P, 0, CC_P, CC_P, 0,
-    0, CC_P, CC_P, 0, CC_P, 0, 0, CC_P,
-    0, CC_P, CC_P, 0, CC_P, 0, 0, CC_P,
-    CC_P, 0, 0, CC_P, 0, CC_P, CC_P, 0,
-    0, CC_P, CC_P, 0, CC_P, 0, 0, CC_P,
-    CC_P, 0, 0, CC_P, 0, CC_P, CC_P, 0,
-    CC_P, 0, 0, CC_P, 0, CC_P, CC_P, 0,
-    0, CC_P, CC_P, 0, CC_P, 0, 0, CC_P,
-    CC_P, 0, 0, CC_P, 0, CC_P, CC_P, 0,
-    0, CC_P, CC_P, 0, CC_P, 0, 0, CC_P,
-    0, CC_P, CC_P, 0, CC_P, 0, 0, CC_P,
-    CC_P, 0, 0, CC_P, 0, CC_P, CC_P, 0,
-    CC_P, 0, 0, CC_P, 0, CC_P, CC_P, 0,
-    0, CC_P, CC_P, 0, CC_P, 0, 0, CC_P,
-    0, CC_P, CC_P, 0, CC_P, 0, 0, CC_P,
-    CC_P, 0, 0, CC_P, 0, CC_P, CC_P, 0,
-    0, CC_P, CC_P, 0, CC_P, 0, 0, CC_P,
-    CC_P, 0, 0, CC_P, 0, CC_P, CC_P, 0,
-    CC_P, 0, 0, CC_P, 0, CC_P, CC_P, 0,
-    0, CC_P, CC_P, 0, CC_P, 0, 0, CC_P,
-};
-
-static int glue(compute_all_add, SUFFIX)(DATA_TYPE dst, DATA_TYPE src1)
-{
-    int cf, pf, af, zf, sf, of;
-    DATA_TYPE src2 = dst - src1;
-
-    cf = dst < src1;
-    pf = parity_table[(uint8_t)dst];
-    af = (dst ^ src1 ^ src2) & CC_A;
-    zf = (dst == 0) * CC_Z;
-    sf = lshift(dst, 8 - DATA_BITS) & CC_S;
-    of = lshift((src1 ^ src2 ^ -1) & (src1 ^ dst), 12 - DATA_BITS) & CC_O;
-    return cf | pf | af | zf | sf | of;
-}
-
-static int glue(compute_all_adc, SUFFIX)(DATA_TYPE dst, DATA_TYPE src1,
-                                         DATA_TYPE src3)
-{
-    int cf, pf, af, zf, sf, of;
-    DATA_TYPE src2 = dst - src1 - src3;
-
-    cf = (src3 ? dst <= src1 : dst < src1);
-    pf = parity_table[(uint8_t)dst];
-    af = (dst ^ src1 ^ src2) & 0x10;
-    zf = (dst == 0) << 6;
-    sf = lshift(dst, 8 - DATA_BITS) & 0x80;
-    of = lshift((src1 ^ src2 ^ -1) & (src1 ^ dst), 12 - DATA_BITS) & CC_O;
-    return cf | pf | af | zf | sf | of;
-}
-
-static int glue(compute_all_sub, SUFFIX)(DATA_TYPE dst, DATA_TYPE src2)
-{
-    int cf, pf, af, zf, sf, of;
-    DATA_TYPE src1 = dst + src2;
-
-    cf = src1 < src2;
-    pf = parity_table[(uint8_t)dst];
-    af = (dst ^ src1 ^ src2) & CC_A;
-    zf = (dst == 0) * CC_Z;
-    sf = lshift(dst, 8 - DATA_BITS) & CC_S;
-    of = lshift((src1 ^ src2) & (src1 ^ dst), 12 - DATA_BITS) & CC_O;
-    return cf | pf | af | zf | sf | of;
-}
-
-static int glue(compute_all_sbb, SUFFIX)(DATA_TYPE dst, DATA_TYPE src2,
-                                         DATA_TYPE src3)
-{
-    int cf, pf, af, zf, sf, of;
-    DATA_TYPE src1 = dst + src2 + src3;
-
-    cf = (src3 ? src1 <= src2 : src1 < src2);
-    pf = parity_table[(uint8_t)dst];
-    af = (dst ^ src1 ^ src2) & 0x10;
-    zf = (dst == 0) << 6;
-    sf = lshift(dst, 8 - DATA_BITS) & 0x80;
-    of = lshift((src1 ^ src2) & (src1 ^ dst), 12 - DATA_BITS) & CC_O;
-    return cf | pf | af | zf | sf | of;
-}
-
-static int glue(compute_all_logic, SUFFIX)(DATA_TYPE dst, DATA_TYPE src1)
-{
-    int cf, pf, af, zf, sf, of;
-
-    cf = 0;
-    pf = parity_table[(uint8_t)dst];
-    af = 0;
-    zf = (dst == 0) * CC_Z;
-    sf = lshift(dst, 8 - DATA_BITS) & CC_S;
-    of = 0;
-    return cf | pf | af | zf | sf | of;
-}
-
-static int glue(compute_all_inc, SUFFIX)(DATA_TYPE dst, DATA_TYPE src1)
-{
-    int cf, pf, af, zf, sf, of;
-    DATA_TYPE src2;
-
-    cf = src1;
-    src1 = dst - 1;
-    src2 = 1;
-    pf = parity_table[(uint8_t)dst];
-    af = (dst ^ src1 ^ src2) & CC_A;
-    zf = (dst == 0) * CC_Z;
-    sf = lshift(dst, 8 - DATA_BITS) & CC_S;
-    of = (dst == SIGN_MASK) * CC_O;
-    return cf | pf | af | zf | sf | of;
-}
-
-static int glue(compute_all_dec, SUFFIX)(DATA_TYPE dst, DATA_TYPE src1)
-{
-    int cf, pf, af, zf, sf, of;
-    DATA_TYPE src2;
-
-    cf = src1;
-    src1 = dst + 1;
-    src2 = 1;
-    pf = parity_table[(uint8_t)dst];
-    af = (dst ^ src1 ^ src2) & CC_A;
-    zf = (dst == 0) * CC_Z;
-    sf = lshift(dst, 8 - DATA_BITS) & CC_S;
-    of = (dst == SIGN_MASK - 1) * CC_O;
-    return cf | pf | af | zf | sf | of;
-}
-
-static int glue(compute_all_shl, SUFFIX)(DATA_TYPE dst, DATA_TYPE src1)
-{
-    int cf, pf, af, zf, sf, of;
-
-    cf = (src1 >> (DATA_BITS - 1)) & CC_C;
-    pf = parity_table[(uint8_t)dst];
-    af = 0; /* undefined */
-    zf = (dst == 0) * CC_Z;
-    sf = lshift(dst, 8 - DATA_BITS) & CC_S;
-    /* of is defined iff shift count == 1 */
-    of = lshift(src1 ^ dst, 12 - DATA_BITS) & CC_O;
-    return cf | pf | af | zf | sf | of;
-}
-
-static int glue(compute_all_sar, SUFFIX)(DATA_TYPE dst, DATA_TYPE src1)
-{
-    int cf, pf, af, zf, sf, of;
-
-    cf = src1 & 1;
-    pf = parity_table[(uint8_t)dst];
-    af = 0; /* undefined */
-    zf = (dst == 0) * CC_Z;
-    sf = lshift(dst, 8 - DATA_BITS) & CC_S;
-    /* of is defined iff shift count == 1 */
-    of = lshift(src1 ^ dst, 12 - DATA_BITS) & CC_O;
-    return cf | pf | af | zf | sf | of;
-}
-
-static int glue(compute_all_mul, SUFFIX)(DATA_TYPE dst, target_long src1)
-{
-    int cf, pf, af, zf, sf, of;
-
-    cf = (src1 != 0);
-    pf = parity_table[(uint8_t)dst];
-    af = 0; /* undefined */
-    zf = (dst == 0) * CC_Z;
-    sf = lshift(dst, 8 - DATA_BITS) & CC_S;
-    of = cf * CC_O;
-    return cf | pf | af | zf | sf | of;
-}
-
-static int glue(compute_all_bmilg, SUFFIX)(DATA_TYPE dst, DATA_TYPE src1)
-{
-    int cf, pf, af, zf, sf, of;
-
-    cf = (src1 == 0);
-    pf = 0; /* undefined */
-    af = 0; /* undefined */
-    zf = (dst == 0) * CC_Z;
-    sf = lshift(dst, 8 - DATA_BITS) & CC_S;
-    of = 0;
-    return cf | pf | af | zf | sf | of;
-}
-
-#define SHIFT 1
-
-#define DATA_BITS (1 << (3 + SHIFT))
-
-#define SUFFIX w
-
-#define DATA_TYPE uint16_t
-
-#define SIGN_MASK (((DATA_TYPE)1) << (DATA_BITS - 1))
-
-static int glue(compute_all_add, SUFFIX)(DATA_TYPE dst, DATA_TYPE src1)
-{
-    int cf, pf, af, zf, sf, of;
-    DATA_TYPE src2 = dst - src1;
-
-    cf = dst < src1;
-    pf = parity_table[(uint8_t)dst];
-    af = (dst ^ src1 ^ src2) & CC_A;
-    zf = (dst == 0) * CC_Z;
-    sf = lshift(dst, 8 - DATA_BITS) & CC_S;
-    of = lshift((src1 ^ src2 ^ -1) & (src1 ^ dst), 12 - DATA_BITS) & CC_O;
-    return cf | pf | af | zf | sf | of;
-}
-
-static int glue(compute_all_adc, SUFFIX)(DATA_TYPE dst, DATA_TYPE src1,
-                                         DATA_TYPE src3)
-{
-    int cf, pf, af, zf, sf, of;
-    DATA_TYPE src2 = dst - src1 - src3;
-
-    cf = (src3 ? dst <= src1 : dst < src1);
-    pf = parity_table[(uint8_t)dst];
-    af = (dst ^ src1 ^ src2) & 0x10;
-    zf = (dst == 0) << 6;
-    sf = lshift(dst, 8 - DATA_BITS) & 0x80;
-    of = lshift((src1 ^ src2 ^ -1) & (src1 ^ dst), 12 - DATA_BITS) & CC_O;
-    return cf | pf | af | zf | sf | of;
-}
-
-static int glue(compute_all_sub, SUFFIX)(DATA_TYPE dst, DATA_TYPE src2)
-{
-    int cf, pf, af, zf, sf, of;
-    DATA_TYPE src1 = dst + src2;
-
-    cf = src1 < src2;
-    pf = parity_table[(uint8_t)dst];
-    af = (dst ^ src1 ^ src2) & CC_A;
-    zf = (dst == 0) * CC_Z;
-    sf = lshift(dst, 8 - DATA_BITS) & CC_S;
-    of = lshift((src1 ^ src2) & (src1 ^ dst), 12 - DATA_BITS) & CC_O;
-    return cf | pf | af | zf | sf | of;
-}
-
-static int glue(compute_all_sbb, SUFFIX)(DATA_TYPE dst, DATA_TYPE src2,
-                                         DATA_TYPE src3)
-{
-    int cf, pf, af, zf, sf, of;
-    DATA_TYPE src1 = dst + src2 + src3;
-
-    cf = (src3 ? src1 <= src2 : src1 < src2);
-    pf = parity_table[(uint8_t)dst];
-    af = (dst ^ src1 ^ src2) & 0x10;
-    zf = (dst == 0) << 6;
-    sf = lshift(dst, 8 - DATA_BITS) & 0x80;
-    of = lshift((src1 ^ src2) & (src1 ^ dst), 12 - DATA_BITS) & CC_O;
-    return cf | pf | af | zf | sf | of;
-}
-
-static int glue(compute_all_logic, SUFFIX)(DATA_TYPE dst, DATA_TYPE src1)
-{
-    int cf, pf, af, zf, sf, of;
-
-    cf = 0;
-    pf = parity_table[(uint8_t)dst];
-    af = 0;
-    zf = (dst == 0) * CC_Z;
-    sf = lshift(dst, 8 - DATA_BITS) & CC_S;
-    of = 0;
-    return cf | pf | af | zf | sf | of;
-}
-
-static int glue(compute_all_inc, SUFFIX)(DATA_TYPE dst, DATA_TYPE src1)
-{
-    int cf, pf, af, zf, sf, of;
-    DATA_TYPE src2;
-
-    cf = src1;
-    src1 = dst - 1;
-    src2 = 1;
-    pf = parity_table[(uint8_t)dst];
-    af = (dst ^ src1 ^ src2) & CC_A;
-    zf = (dst == 0) * CC_Z;
-    sf = lshift(dst, 8 - DATA_BITS) & CC_S;
-    of = (dst == SIGN_MASK) * CC_O;
-    return cf | pf | af | zf | sf | of;
-}
-
-static int glue(compute_all_dec, SUFFIX)(DATA_TYPE dst, DATA_TYPE src1)
-{
-    int cf, pf, af, zf, sf, of;
-    DATA_TYPE src2;
-
-    cf = src1;
-    src1 = dst + 1;
-    src2 = 1;
-    pf = parity_table[(uint8_t)dst];
-    af = (dst ^ src1 ^ src2) & CC_A;
-    zf = (dst == 0) * CC_Z;
-    sf = lshift(dst, 8 - DATA_BITS) & CC_S;
-    of = (dst == SIGN_MASK - 1) * CC_O;
-    return cf | pf | af | zf | sf | of;
-}
-
-static int glue(compute_all_shl, SUFFIX)(DATA_TYPE dst, DATA_TYPE src1)
-{
-    int cf, pf, af, zf, sf, of;
-
-    cf = (src1 >> (DATA_BITS - 1)) & CC_C;
-    pf = parity_table[(uint8_t)dst];
-    af = 0; /* undefined */
-    zf = (dst == 0) * CC_Z;
-    sf = lshift(dst, 8 - DATA_BITS) & CC_S;
-    /* of is defined iff shift count == 1 */
-    of = lshift(src1 ^ dst, 12 - DATA_BITS) & CC_O;
-    return cf | pf | af | zf | sf | of;
-}
-
-static int glue(compute_all_sar, SUFFIX)(DATA_TYPE dst, DATA_TYPE src1)
-{
-    int cf, pf, af, zf, sf, of;
-
-    cf = src1 & 1;
-    pf = parity_table[(uint8_t)dst];
-    af = 0; /* undefined */
-    zf = (dst == 0) * CC_Z;
-    sf = lshift(dst, 8 - DATA_BITS) & CC_S;
-    /* of is defined iff shift count == 1 */
-    of = lshift(src1 ^ dst, 12 - DATA_BITS) & CC_O;
-    return cf | pf | af | zf | sf | of;
-}
-
-static int glue(compute_all_mul, SUFFIX)(DATA_TYPE dst, target_long src1)
-{
-    int cf, pf, af, zf, sf, of;
-
-    cf = (src1 != 0);
-    pf = parity_table[(uint8_t)dst];
-    af = 0; /* undefined */
-    zf = (dst == 0) * CC_Z;
-    sf = lshift(dst, 8 - DATA_BITS) & CC_S;
-    of = cf * CC_O;
-    return cf | pf | af | zf | sf | of;
-}
-
-static int glue(compute_all_bmilg, SUFFIX)(DATA_TYPE dst, DATA_TYPE src1)
-{
-    int cf, pf, af, zf, sf, of;
-
-    cf = (src1 == 0);
-    pf = 0; /* undefined */
-    af = 0; /* undefined */
-    zf = (dst == 0) * CC_Z;
-    sf = lshift(dst, 8 - DATA_BITS) & CC_S;
-    of = 0;
-    return cf | pf | af | zf | sf | of;
-}
-
-#define SHIFT 2
-
-#define DATA_BITS (1 << (3 + SHIFT))
-
-#define SUFFIX l
-
-#define DATA_TYPE uint32_t
-
-#define SIGN_MASK (((DATA_TYPE)1) << (DATA_BITS - 1))
-
-static int glue(compute_all_add, SUFFIX)(DATA_TYPE dst, DATA_TYPE src1)
-{
-    int cf, pf, af, zf, sf, of;
-    DATA_TYPE src2 = dst - src1;
-
-    cf = dst < src1;
-    pf = parity_table[(uint8_t)dst];
-    af = (dst ^ src1 ^ src2) & CC_A;
-    zf = (dst == 0) * CC_Z;
-    sf = lshift(dst, 8 - DATA_BITS) & CC_S;
-    of = lshift((src1 ^ src2 ^ -1) & (src1 ^ dst), 12 - DATA_BITS) & CC_O;
-    return cf | pf | af | zf | sf | of;
-}
-
-static int glue(compute_all_adc, SUFFIX)(DATA_TYPE dst, DATA_TYPE src1,
-                                         DATA_TYPE src3)
-{
-    int cf, pf, af, zf, sf, of;
-    DATA_TYPE src2 = dst - src1 - src3;
-
-    cf = (src3 ? dst <= src1 : dst < src1);
-    pf = parity_table[(uint8_t)dst];
-    af = (dst ^ src1 ^ src2) & 0x10;
-    zf = (dst == 0) << 6;
-    sf = lshift(dst, 8 - DATA_BITS) & 0x80;
-    of = lshift((src1 ^ src2 ^ -1) & (src1 ^ dst), 12 - DATA_BITS) & CC_O;
-    return cf | pf | af | zf | sf | of;
-}
-
-static int glue(compute_all_sub, SUFFIX)(DATA_TYPE dst, DATA_TYPE src2)
-{
-    int cf, pf, af, zf, sf, of;
-    DATA_TYPE src1 = dst + src2;
-
-    cf = src1 < src2;
-    pf = parity_table[(uint8_t)dst];
-    af = (dst ^ src1 ^ src2) & CC_A;
-    zf = (dst == 0) * CC_Z;
-    sf = lshift(dst, 8 - DATA_BITS) & CC_S;
-    of = lshift((src1 ^ src2) & (src1 ^ dst), 12 - DATA_BITS) & CC_O;
-    return cf | pf | af | zf | sf | of;
-}
-
-static int glue(compute_all_sbb, SUFFIX)(DATA_TYPE dst, DATA_TYPE src2,
-                                         DATA_TYPE src3)
-{
-    int cf, pf, af, zf, sf, of;
-    DATA_TYPE src1 = dst + src2 + src3;
-
-    cf = (src3 ? src1 <= src2 : src1 < src2);
-    pf = parity_table[(uint8_t)dst];
-    af = (dst ^ src1 ^ src2) & 0x10;
-    zf = (dst == 0) << 6;
-    sf = lshift(dst, 8 - DATA_BITS) & 0x80;
-    of = lshift((src1 ^ src2) & (src1 ^ dst), 12 - DATA_BITS) & CC_O;
-    return cf | pf | af | zf | sf | of;
-}
-
-static int glue(compute_all_logic, SUFFIX)(DATA_TYPE dst, DATA_TYPE src1)
-{
-    int cf, pf, af, zf, sf, of;
-
-    cf = 0;
-    pf = parity_table[(uint8_t)dst];
-    af = 0;
-    zf = (dst == 0) * CC_Z;
-    sf = lshift(dst, 8 - DATA_BITS) & CC_S;
-    of = 0;
-    return cf | pf | af | zf | sf | of;
-}
-
-static int glue(compute_all_inc, SUFFIX)(DATA_TYPE dst, DATA_TYPE src1)
-{
-    int cf, pf, af, zf, sf, of;
-    DATA_TYPE src2;
-
-    cf = src1;
-    src1 = dst - 1;
-    src2 = 1;
-    pf = parity_table[(uint8_t)dst];
-    af = (dst ^ src1 ^ src2) & CC_A;
-    zf = (dst == 0) * CC_Z;
-    sf = lshift(dst, 8 - DATA_BITS) & CC_S;
-    of = (dst == SIGN_MASK) * CC_O;
-    return cf | pf | af | zf | sf | of;
-}
-
-static int glue(compute_all_dec, SUFFIX)(DATA_TYPE dst, DATA_TYPE src1)
-{
-    int cf, pf, af, zf, sf, of;
-    DATA_TYPE src2;
-
-    cf = src1;
-    src1 = dst + 1;
-    src2 = 1;
-    pf = parity_table[(uint8_t)dst];
-    af = (dst ^ src1 ^ src2) & CC_A;
-    zf = (dst == 0) * CC_Z;
-    sf = lshift(dst, 8 - DATA_BITS) & CC_S;
-    of = (dst == SIGN_MASK - 1) * CC_O;
-    return cf | pf | af | zf | sf | of;
-}
-
-static int glue(compute_all_shl, SUFFIX)(DATA_TYPE dst, DATA_TYPE src1)
-{
-    int cf, pf, af, zf, sf, of;
-
-    cf = (src1 >> (DATA_BITS - 1)) & CC_C;
-    pf = parity_table[(uint8_t)dst];
-    af = 0; /* undefined */
-    zf = (dst == 0) * CC_Z;
-    sf = lshift(dst, 8 - DATA_BITS) & CC_S;
-    /* of is defined iff shift count == 1 */
-    of = lshift(src1 ^ dst, 12 - DATA_BITS) & CC_O;
-    return cf | pf | af | zf | sf | of;
-}
-
-static int glue(compute_all_sar, SUFFIX)(DATA_TYPE dst, DATA_TYPE src1)
-{
-    int cf, pf, af, zf, sf, of;
-
-    cf = src1 & 1;
-    pf = parity_table[(uint8_t)dst];
-    af = 0; /* undefined */
-    zf = (dst == 0) * CC_Z;
-    sf = lshift(dst, 8 - DATA_BITS) & CC_S;
-    /* of is defined iff shift count == 1 */
-    of = lshift(src1 ^ dst, 12 - DATA_BITS) & CC_O;
-    return cf | pf | af | zf | sf | of;
-}
-
-static int glue(compute_all_mul, SUFFIX)(DATA_TYPE dst, target_long src1)
-{
-    int cf, pf, af, zf, sf, of;
-
-    cf = (src1 != 0);
-    pf = parity_table[(uint8_t)dst];
-    af = 0; /* undefined */
-    zf = (dst == 0) * CC_Z;
-    sf = lshift(dst, 8 - DATA_BITS) & CC_S;
-    of = cf * CC_O;
-    return cf | pf | af | zf | sf | of;
-}
-
-static int glue(compute_all_bmilg, SUFFIX)(DATA_TYPE dst, DATA_TYPE src1)
-{
-    int cf, pf, af, zf, sf, of;
-
-    cf = (src1 == 0);
-    pf = 0; /* undefined */
-    af = 0; /* undefined */
-    zf = (dst == 0) * CC_Z;
-    sf = lshift(dst, 8 - DATA_BITS) & CC_S;
-    of = 0;
-    return cf | pf | af | zf | sf | of;
-}
-
-static target_ulong compute_all_adcx(target_ulong dst, target_ulong src1,
-                                     target_ulong src2)
-{
-    return (src1 & ~CC_C) | (dst * CC_C);
-}
-
-static target_ulong compute_all_adox(target_ulong dst, target_ulong src1,
-                                     target_ulong src2)
-{
-    return (src1 & ~CC_O) | (src2 * CC_O);
-}
-
-static target_ulong compute_all_adcox(target_ulong dst, target_ulong src1,
-                                      target_ulong src2)
-{
-    return (src1 & ~(CC_C | CC_O)) | (dst * CC_C) | (src2 * CC_O);
-}
-
-target_ulong helper_cc_compute_all(target_ulong dst, target_ulong src1,
-                                   target_ulong src2, int op)
-{
-    switch (op) {
-    default: /* should never happen */
-        return 0;
-
-    case CC_OP_EFLAGS:
-        return src1;
-    case CC_OP_CLR:
-        return CC_Z | CC_P;
-    case CC_OP_POPCNT:
-        return src1 ? 0 : CC_Z;
-
-    case CC_OP_MULB:
-        return compute_all_mulb(dst, src1);
-    case CC_OP_MULW:
-        return compute_all_mulw(dst, src1);
-    case CC_OP_MULL:
-        return compute_all_mull(dst, src1);
-
-    case CC_OP_ADDB:
-        return compute_all_addb(dst, src1);
-    case CC_OP_ADDW:
-        return compute_all_addw(dst, src1);
-    case CC_OP_ADDL:
-        return compute_all_addl(dst, src1);
-
-    case CC_OP_ADCB:
-        return compute_all_adcb(dst, src1, src2);
-    case CC_OP_ADCW:
-        return compute_all_adcw(dst, src1, src2);
-    case CC_OP_ADCL:
-        return compute_all_adcl(dst, src1, src2);
-
-    case CC_OP_SUBB:
-        return compute_all_subb(dst, src1);
-    case CC_OP_SUBW:
-        return compute_all_subw(dst, src1);
-    case CC_OP_SUBL:
-        return compute_all_subl(dst, src1);
-
-    case CC_OP_SBBB:
-        return compute_all_sbbb(dst, src1, src2);
-    case CC_OP_SBBW:
-        return compute_all_sbbw(dst, src1, src2);
-    case CC_OP_SBBL:
-        return compute_all_sbbl(dst, src1, src2);
-
-    case CC_OP_LOGICB:
-        return compute_all_logicb(dst, src1);
-    case CC_OP_LOGICW:
-        return compute_all_logicw(dst, src1);
-    case CC_OP_LOGICL:
-        return compute_all_logicl(dst, src1);
-
-    case CC_OP_INCB:
-        return compute_all_incb(dst, src1);
-    case CC_OP_INCW:
-        return compute_all_incw(dst, src1);
-    case CC_OP_INCL:
-        return compute_all_incl(dst, src1);
-
-    case CC_OP_DECB:
-        return compute_all_decb(dst, src1);
-    case CC_OP_DECW:
-        return compute_all_decw(dst, src1);
-    case CC_OP_DECL:
-        return compute_all_decl(dst, src1);
-
-    case CC_OP_SHLB:
-        return compute_all_shlb(dst, src1);
-    case CC_OP_SHLW:
-        return compute_all_shlw(dst, src1);
-    case CC_OP_SHLL:
-        return compute_all_shll(dst, src1);
-
-    case CC_OP_SARB:
-        return compute_all_sarb(dst, src1);
-    case CC_OP_SARW:
-        return compute_all_sarw(dst, src1);
-    case CC_OP_SARL:
-        return compute_all_sarl(dst, src1);
-
-    case CC_OP_BMILGB:
-        return compute_all_bmilgb(dst, src1);
-    case CC_OP_BMILGW:
-        return compute_all_bmilgw(dst, src1);
-    case CC_OP_BMILGL:
-        return compute_all_bmilgl(dst, src1);
-
-    case CC_OP_ADCX:
-        return compute_all_adcx(dst, src1, src2);
-    case CC_OP_ADOX:
-        return compute_all_adox(dst, src1, src2);
-    case CC_OP_ADCOX:
-        return compute_all_adcox(dst, src1, src2);
-
-#ifdef TARGET_X86_64
-    case CC_OP_MULQ:
-        return compute_all_mulq(dst, src1);
-    case CC_OP_ADDQ:
-        return compute_all_addq(dst, src1);
-    case CC_OP_ADCQ:
-        return compute_all_adcq(dst, src1, src2);
-    case CC_OP_SUBQ:
-        return compute_all_subq(dst, src1);
-    case CC_OP_SBBQ:
-        return compute_all_sbbq(dst, src1, src2);
-    case CC_OP_LOGICQ:
-        return compute_all_logicq(dst, src1);
-    case CC_OP_INCQ:
-        return compute_all_incq(dst, src1);
-    case CC_OP_DECQ:
-        return compute_all_decq(dst, src1);
-    case CC_OP_SHLQ:
-        return compute_all_shlq(dst, src1);
-    case CC_OP_SARQ:
-        return compute_all_sarq(dst, src1);
-    case CC_OP_BMILGQ:
-        return compute_all_bmilgq(dst, src1);
-#endif
-    }
-}
-
-uint32_t cpu_cc_compute_all(CPUX86State *env, int op)
-{
-    return helper_cc_compute_all(CC_DST, CC_SRC, CC_SRC2, op);
-}
-
-#define g2h(x) ((void *)((unsigned long)(x)))
-
 typedef uint32_t abi_ptr;
 
-static uintptr_t helper_retaddr;
+uint32_t cpu_ldl_le_mmuidx_ra(CPUArchState *env, abi_ptr ptr,
+                              int mmu_idx, uintptr_t ra);
 
-static inline void set_helper_retaddr(uintptr_t ra)
-{
-    helper_retaddr = ra;
-    /*
-     * Ensure that this write is visible to the SIGSEGV handler that
-     * may be invoked due to a subsequent invalid memory operation.
-     */
-    signal_barrier();
-}
+# define cpu_ldl_mmuidx_ra    cpu_ldl_le_mmuidx_ra
 
-static inline void clear_helper_retaddr(void)
-{
-    /*
-     * Ensure that previous memory operations have succeeded before
-     * removing the data visible to the signal handler.
-     */
-    signal_barrier();
-    helper_retaddr = 0;
-}
+# define GETPC() 0
 
-typedef struct TraceEvent {
-    uint32_t id;
-    uint32_t vcpu_id;
-    const char * name;
-    const bool sstate;
-    uint16_t *dstate;
-} TraceEvent;
-
-extern int trace_events_enabled_count;
-
-#define trace_event_get_vcpu_state(vcpu, id)                            \
-    ((id ##_ENABLED) &&                                                 \
-     trace_event_get_vcpu_state_dynamic_by_vcpu_id(                     \
-         vcpu, _ ## id ## _EVENT.vcpu_id))
-
-static inline bool
-trace_event_get_vcpu_state_dynamic_by_vcpu_id(CPUState *vcpu,
-                                              uint32_t vcpu_id)
-{
-    /* it's on fast path, avoid consistency checks (asserts) */
-    if (unlikely(trace_events_enabled_count)) {
-        return test_bit(vcpu_id, vcpu->trace_dstate);
-    } else {
-        return false;
-    }
-}
-
-extern TraceEvent _TRACE_GUEST_MEM_BEFORE_EXEC_EVENT;
-
-#define TRACE_GUEST_MEM_BEFORE_EXEC_ENABLED 1
-
-static inline void _nocheck__trace_guest_mem_before_exec(CPUState * __cpu, uint64_t vaddr, uint16_t info)
-{
-}
-
-static inline void trace_guest_mem_before_exec(CPUState * __cpu, uint64_t vaddr, uint16_t info)
-{
-    if (trace_event_get_vcpu_state(__cpu, TRACE_GUEST_MEM_BEFORE_EXEC)) {
-        _nocheck__trace_guest_mem_before_exec(__cpu, vaddr, info);
-    }
-}
-
-typedef enum MemOp {
-    MO_8     = 0,
-    MO_16    = 1,
-    MO_32    = 2,
-    MO_64    = 3,
-    MO_SIZE  = 3,   /* Mask for the above.  */
-
-    MO_SIGN  = 4,   /* Sign-extended, otherwise zero-extended.  */
-
-    MO_BSWAP = 8,   /* Host reverse endian.  */
-#ifdef HOST_WORDS_BIGENDIAN
-    MO_LE    = MO_BSWAP,
-    MO_BE    = 0,
-#else
-    MO_LE    = 0,
-    MO_BE    = MO_BSWAP,
-#endif
-#ifdef NEED_CPU_H
-#ifdef TARGET_WORDS_BIGENDIAN
-    MO_TE    = MO_BE,
-#else
-    MO_TE    = MO_LE,
-#endif
-#endif
-
-    /*
-     * MO_UNALN accesses are never checked for alignment.
-     * MO_ALIGN accesses will result in a call to the CPU's
-     * do_unaligned_access hook if the guest address is not aligned.
-     * The default depends on whether the target CPU defines
-     * TARGET_ALIGNED_ONLY.
-     *
-     * Some architectures (e.g. ARMv8) need the address which is aligned
-     * to a size more than the size of the memory access.
-     * Some architectures (e.g. SPARCv9) need an address which is aligned,
-     * but less strictly than the natural alignment.
-     *
-     * MO_ALIGN supposes the alignment size is the size of a memory access.
-     *
-     * There are three options:
-     * - unaligned access permitted (MO_UNALN).
-     * - an alignment to the size of an access (MO_ALIGN);
-     * - an alignment to a specified size, which may be more or less than
-     *   the access size (MO_ALIGN_x where 'x' is a size in bytes);
-     */
-    MO_ASHIFT = 4,
-    MO_AMASK = 7 << MO_ASHIFT,
-#ifdef NEED_CPU_H
-#ifdef TARGET_ALIGNED_ONLY
-    MO_ALIGN = 0,
-    MO_UNALN = MO_AMASK,
-#else
-    MO_ALIGN = MO_AMASK,
-    MO_UNALN = 0,
-#endif
-#endif
-    MO_ALIGN_2  = 1 << MO_ASHIFT,
-    MO_ALIGN_4  = 2 << MO_ASHIFT,
-    MO_ALIGN_8  = 3 << MO_ASHIFT,
-    MO_ALIGN_16 = 4 << MO_ASHIFT,
-    MO_ALIGN_32 = 5 << MO_ASHIFT,
-    MO_ALIGN_64 = 6 << MO_ASHIFT,
-
-    /* Combinations of the above, for ease of use.  */
-    MO_UB    = MO_8,
-    MO_UW    = MO_16,
-    MO_UL    = MO_32,
-    MO_SB    = MO_SIGN | MO_8,
-    MO_SW    = MO_SIGN | MO_16,
-    MO_SL    = MO_SIGN | MO_32,
-    MO_Q     = MO_64,
-
-    MO_LEUW  = MO_LE | MO_UW,
-    MO_LEUL  = MO_LE | MO_UL,
-    MO_LESW  = MO_LE | MO_SW,
-    MO_LESL  = MO_LE | MO_SL,
-    MO_LEQ   = MO_LE | MO_Q,
-
-    MO_BEUW  = MO_BE | MO_UW,
-    MO_BEUL  = MO_BE | MO_UL,
-    MO_BESW  = MO_BE | MO_SW,
-    MO_BESL  = MO_BE | MO_SL,
-    MO_BEQ   = MO_BE | MO_Q,
-
-#ifdef NEED_CPU_H
-    MO_TEUW  = MO_TE | MO_UW,
-    MO_TEUL  = MO_TE | MO_UL,
-    MO_TESW  = MO_TE | MO_SW,
-    MO_TESL  = MO_TE | MO_SL,
-    MO_TEQ   = MO_TE | MO_Q,
-#endif
-
-    MO_SSIZE = MO_SIZE | MO_SIGN,
-} MemOp;
-
-#define TRACE_MEM_SZ_SHIFT_MASK 0xf
-
-#define TRACE_MEM_SE (1ULL << 4)
-
-#define TRACE_MEM_BE (1ULL << 5)
-
-#define TRACE_MEM_ST (1ULL << 6)
-
-static inline uint16_t trace_mem_build_info(
-    int size_shift, bool sign_extend, MemOp endianness,
-    bool store, unsigned int mmu_idx)
-{
-    uint16_t res;
-
-    res = size_shift & TRACE_MEM_SZ_SHIFT_MASK;
-    if (sign_extend) {
-        res |= TRACE_MEM_SE;
-    }
-    if (endianness == MO_BE) {
-        res |= TRACE_MEM_BE;
-    }
-    if (store) {
-        res |= TRACE_MEM_ST;
-    }
-#ifdef CONFIG_SOFTMMU
-    res |= mmu_idx << TRACE_MEM_MMU_SHIFT;
-#endif
-    return res;
-}
-
-# define GETPC() tci_tb_ptr
-
-extern uintptr_t tci_tb_ptr;
-
-#define MEMSUFFIX _kernel
-
-#define USUFFIX l
-
-#define SHIFT 2
-
-#define RES_TYPE uint32_t
-
-static inline RES_TYPE
-glue(glue(cpu_ld, USUFFIX), MEMSUFFIX)(CPUArchState *env, abi_ptr ptr)
-{
-    RES_TYPE ret;
-#ifdef CODE_ACCESS
-    set_helper_retaddr(1);
-    ret = glue(glue(ld, USUFFIX), _p)(g2h(ptr));
-    clear_helper_retaddr();
-#else
-    uint16_t meminfo = trace_mem_build_info(SHIFT, false, MO_TE, false,
-                                            MMU_USER_IDX);
-    trace_guest_mem_before_exec(env_cpu(env), ptr, meminfo);
-    ret = glue(glue(ld, USUFFIX), _p)(g2h(ptr));
-#endif
-    return ret;
-}
-
-static inline RES_TYPE
-glue(glue(glue(cpu_ld, USUFFIX), MEMSUFFIX), _ra)(CPUArchState *env,
-                                                  abi_ptr ptr,
-                                                  uintptr_t retaddr)
-{
-    RES_TYPE ret;
-    set_helper_retaddr(retaddr);
-    ret = glue(glue(cpu_ld, USUFFIX), MEMSUFFIX)(env, ptr);
-    clear_helper_retaddr();
-    return ret;
-}
+#define cpu_ldl_kernel_ra(e, p, r) \
+    cpu_ldl_mmuidx_ra(e, p, cpu_mmu_index_kernel(e), r)
 
 static inline int load_segment_ra(CPUX86State *env, uint32_t *e1_ptr,
                                uint32_t *e2_ptr, int selector,

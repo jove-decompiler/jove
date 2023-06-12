@@ -1,18 +1,8 @@
-#define CONFIG_USER_ONLY 1
+#define CONFIG_LINUX 1
 
-#define QEMU_NORETURN __attribute__ ((__noreturn__))
+#define HOST_BIG_ENDIAN (__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__)
 
-#define xglue(x, y) x ## y
-
-#define glue(x, y) xglue(x, y)
-
-#define unlikely(x)   __builtin_expect(!!(x), 0)
-
-#define container_of(ptr, type, member) ({                      \
-        const typeof(((type *) 0)->member) *__mptr = (ptr);     \
-        (type *) ((char *) __mptr - offsetof(type, member));})
-
-#  define GCC_FMT_ATTR(n, m) __attribute__((format(printf, n, m)))
+#define QEMU_ALIGNED(X) __attribute__((aligned(X)))
 
 #include <stddef.h>
 
@@ -28,19 +18,102 @@
 
 #include <setjmp.h>
 
+#define G_GNUC_PRINTF( format_idx, arg_idx )    \
+  __attribute__((__format__ (__printf__, format_idx, arg_idx)))
+
+#define G_GNUC_UNUSED \
+  __attribute__ ((__unused__))
+
+#define G_GNUC_BEGIN_IGNORE_DEPRECATIONS \
+  _Pragma("clang diagnostic push") \
+  _Pragma("clang diagnostic ignored \"-Wdeprecated-declarations\"")
+
+#define G_GNUC_END_IGNORE_DEPRECATIONS \
+  _Pragma("clang diagnostic pop")
+
+# define G_NORETURN __attribute__ ((__noreturn__))
+
+#define _GLIB_EXTERN extern
+
+#define _GLIB_AUTOPTR_FUNC_NAME(TypeName) glib_autoptr_cleanup_##TypeName
+
+#define _GLIB_AUTOPTR_CLEAR_FUNC_NAME(TypeName) glib_autoptr_clear_##TypeName
+
+#define _GLIB_AUTOPTR_TYPENAME(TypeName)  TypeName##_autoptr
+
+#define _GLIB_AUTOPTR_LIST_FUNC_NAME(TypeName) glib_listautoptr_cleanup_##TypeName
+
+#define _GLIB_AUTOPTR_LIST_TYPENAME(TypeName)  TypeName##_listautoptr
+
+#define _GLIB_AUTOPTR_SLIST_FUNC_NAME(TypeName) glib_slistautoptr_cleanup_##TypeName
+
+#define _GLIB_AUTOPTR_SLIST_TYPENAME(TypeName)  TypeName##_slistautoptr
+
+#define _GLIB_AUTOPTR_QUEUE_FUNC_NAME(TypeName) glib_queueautoptr_cleanup_##TypeName
+
+#define _GLIB_AUTOPTR_QUEUE_TYPENAME(TypeName)  TypeName##_queueautoptr
+
+#define _GLIB_DEFINE_AUTOPTR_CLEANUP_FUNCS(TypeName, ParentName, cleanup) \
+  typedef TypeName *_GLIB_AUTOPTR_TYPENAME(TypeName);                                                           \
+  typedef GList *_GLIB_AUTOPTR_LIST_TYPENAME(TypeName);                                                         \
+  typedef GSList *_GLIB_AUTOPTR_SLIST_TYPENAME(TypeName);                                                       \
+  typedef GQueue *_GLIB_AUTOPTR_QUEUE_TYPENAME(TypeName);                                                       \
+  G_GNUC_BEGIN_IGNORE_DEPRECATIONS                                                                              \
+  static G_GNUC_UNUSED inline void _GLIB_AUTOPTR_CLEAR_FUNC_NAME(TypeName) (TypeName *_ptr)                     \
+    { if (_ptr) (cleanup) ((ParentName *) _ptr); }                                                              \
+  static G_GNUC_UNUSED inline void _GLIB_AUTOPTR_FUNC_NAME(TypeName) (TypeName **_ptr)                          \
+    { _GLIB_AUTOPTR_CLEAR_FUNC_NAME(TypeName) (*_ptr); }                                                        \
+  static G_GNUC_UNUSED inline void _GLIB_AUTOPTR_LIST_FUNC_NAME(TypeName) (GList **_l)                          \
+    { g_list_free_full (*_l, (GDestroyNotify) (void(*)(void)) cleanup); }                                       \
+  static G_GNUC_UNUSED inline void _GLIB_AUTOPTR_SLIST_FUNC_NAME(TypeName) (GSList **_l)                        \
+    { g_slist_free_full (*_l, (GDestroyNotify) (void(*)(void)) cleanup); }                                      \
+  static G_GNUC_UNUSED inline void _GLIB_AUTOPTR_QUEUE_FUNC_NAME(TypeName) (GQueue **_q)                        \
+    { if (*_q) g_queue_free_full (*_q, (GDestroyNotify) (void(*)(void)) cleanup); }                             \
+  G_GNUC_END_IGNORE_DEPRECATIONS
+
+#define G_DEFINE_AUTOPTR_CLEANUP_FUNC(TypeName, func) \
+  _GLIB_DEFINE_AUTOPTR_CLEANUP_FUNCS(TypeName, TypeName, func)
+
+typedef unsigned char guint8;
+
+#define GLIB_AVAILABLE_IN_ALL                   _GLIB_EXTERN
+
 typedef char   gchar;
 
 typedef unsigned int    guint;
 
 typedef void* gpointer;
 
+typedef void            (*GDestroyNotify)       (gpointer       data);
+
 typedef struct _GArray		GArray;
+
+typedef struct _GByteArray	GByteArray;
 
 struct _GArray
 {
   gchar *data;
   guint len;
 };
+
+struct _GByteArray
+{
+  guint8 *data;
+  guint	  len;
+};
+
+typedef struct _GList GList;
+
+struct _GList
+{
+  gpointer data;
+  GList *next;
+  GList *prev;
+};
+
+GLIB_AVAILABLE_IN_ALL
+void     g_list_free_full               (GList            *list,
+					 GDestroyNotify    free_func);
 
 typedef struct _GHashTable  GHashTable;
 
@@ -52,31 +125,60 @@ struct _GSList
   GSList *next;
 };
 
+GLIB_AVAILABLE_IN_ALL
+void     g_slist_free_full               (GSList           *list,
+					  GDestroyNotify    free_func);
+
+typedef struct _GQueue GQueue;
+
+struct _GQueue
+{
+  GList *head;
+  GList *tail;
+  guint  length;
+};
+
+GLIB_AVAILABLE_IN_ALL
+void     g_queue_free_full      (GQueue           *queue,
+				GDestroyNotify    free_func);
+
 typedef struct AddressSpace AddressSpace;
 
 typedef struct BusState BusState;
 
+typedef struct Clock Clock;
+
 typedef struct CPUAddressSpace CPUAddressSpace;
+
+typedef struct CPUArchState CPUArchState;
+
+typedef struct CpuInfoFast CpuInfoFast;
+
+typedef struct CPUJumpCache CPUJumpCache;
 
 typedef struct CPUState CPUState;
 
 typedef struct DeviceState DeviceState;
 
+typedef struct Error Error;
+
 typedef struct MemoryRegion MemoryRegion;
+
+typedef struct Object Object;
 
 typedef struct ObjectClass ObjectClass;
 
+typedef struct Property Property;
+
+typedef struct QDict QDict;
+
 typedef struct QemuMutex QemuMutex;
 
-typedef struct QemuOpts QemuOpts;
+typedef struct VMStateDescription VMStateDescription;
 
 typedef struct IRQState *qemu_irq;
 
 #define DIV_ROUND_UP(n, d) (((n) + (d) - 1) / (d))
-
-static bool tcg_allowed = true;
-
-#define tcg_enabled() (tcg_allowed)
 
 #define QLIST_HEAD(name, type)                                          \
 struct name {                                                           \
@@ -87,6 +189,12 @@ struct name {                                                           \
 struct {                                                                \
         struct type *le_next;   /* next element */                      \
         struct type **le_prev;  /* address of previous next element */  \
+}
+
+#define QSIMPLEQ_HEAD(name, type)                                       \
+struct name {                                                           \
+    struct type *sqh_first;    /* first element */                      \
+    struct type **sqh_last;    /* addr of last next element */          \
 }
 
 #define QTAILQ_HEAD(name, type)                                         \
@@ -106,197 +214,14 @@ typedef struct QTailQLink {
     struct QTailQLink *tql_prev;
 } QTailQLink;
 
-typedef uint8_t flag;
-
-typedef uint32_t float32;
-
-typedef uint64_t float64;
-
-typedef struct {
-    uint64_t low;
-    uint16_t high;
-} floatx80;
-
-typedef struct float_status {
-    signed char float_detect_tininess;
-    signed char float_rounding_mode;
-    uint8_t     float_exception_flags;
-    signed char floatx80_rounding_precision;
-    /* should denormalised results go to zero and set the inexact flag? */
-    flag flush_to_zero;
-    /* should denormalised inputs go to zero and set the input_denormal flag? */
-    flag flush_inputs_to_zero;
-    flag default_nan_mode;
-    /* not always used -- see snan_bit_is_one() in softfloat-specialize.h */
-    flag snan_bit_is_one;
-} float_status;
-
-#define le_bswap(v, size) (v)
-
-static inline int ldub_p(const void *ptr)
-{
-    return *(uint8_t *)ptr;
-}
-
-static inline void stb_p(void *ptr, uint8_t v)
-{
-    *(uint8_t *)ptr = v;
-}
-
-static inline int lduw_he_p(const void *ptr)
-{
-    uint16_t r;
-    __builtin_memcpy(&r, ptr, sizeof(r));
-    return r;
-}
-
-static inline void stw_he_p(void *ptr, uint16_t v)
-{
-    __builtin_memcpy(ptr, &v, sizeof(v));
-}
-
-static inline int ldl_he_p(const void *ptr)
-{
-    int32_t r;
-    __builtin_memcpy(&r, ptr, sizeof(r));
-    return r;
-}
-
-static inline void stl_he_p(void *ptr, uint32_t v)
-{
-    __builtin_memcpy(ptr, &v, sizeof(v));
-}
-
-static inline int lduw_le_p(const void *ptr)
-{
-    return (uint16_t)le_bswap(lduw_he_p(ptr), 16);
-}
-
-static inline int ldl_le_p(const void *ptr)
-{
-    return le_bswap(ldl_he_p(ptr), 32);
-}
-
-static inline void stw_le_p(void *ptr, uint16_t v)
-{
-    stw_he_p(ptr, le_bswap(v, 16));
-}
-
-static inline void stl_le_p(void *ptr, uint32_t v)
-{
-    stl_he_p(ptr, le_bswap(v, 32));
-}
-
-#define signal_barrier() do {} while (0)
-
 #define BITS_PER_BYTE           CHAR_BIT
 
-#define BITS_PER_LONG           (sizeof (unsigned long) * BITS_PER_BYTE)
-
-#define BIT_WORD(nr)            ((nr) / BITS_PER_LONG)
-
 #define BITS_TO_LONGS(nr)       DIV_ROUND_UP(nr, BITS_PER_BYTE * sizeof(long))
-
-static inline int test_bit(long nr, const unsigned long *addr)
-{
-    return 1UL & (addr[BIT_WORD(nr)] >> (nr & (BITS_PER_LONG-1)));
-}
 
 #define DECLARE_BITMAP(name,bits)                  \
         unsigned long name[BITS_TO_LONGS(bits)]
 
-struct TypeImpl;
-
-typedef struct TypeImpl *Type;
-
-typedef struct Object Object;
-
-typedef void (ObjectUnparent)(Object *obj);
-
-#define OBJECT_CLASS_CAST_CACHE 4
-
-typedef void (ObjectFree)(void *obj);
-
-struct ObjectClass
-{
-    /*< private >*/
-    Type type;
-    GSList *interfaces;
-
-    const char *object_cast_cache[OBJECT_CLASS_CAST_CACHE];
-    const char *class_cast_cache[OBJECT_CLASS_CAST_CACHE];
-
-    ObjectUnparent *unparent;
-
-    GHashTable *properties;
-};
-
-struct Object
-{
-    /*< private >*/
-    ObjectClass *class;
-    ObjectFree *free;
-    GHashTable *properties;
-    uint32_t ref;
-    Object *parent;
-};
-
-struct NamedGPIOList {
-    char *name;
-    qemu_irq *in;
-    int num_in;
-    int num_out;
-    QLIST_ENTRY(NamedGPIOList) node;
-};
-
-struct DeviceState {
-    /*< private >*/
-    Object parent_obj;
-    /*< public >*/
-
-    const char *id;
-    char *canonical_path;
-    bool realized;
-    bool pending_deleted_event;
-    QemuOpts *opts;
-    int hotplugged;
-    bool allow_unplug_during_migration;
-    BusState *parent_bus;
-    QLIST_HEAD(, NamedGPIOList) gpios;
-    QLIST_HEAD(, BusState) child_bus;
-    int num_child_bus;
-    int instance_id_alias;
-    int alias_required_for_version;
-};
-
-typedef struct MemTxAttrs {
-    /* Bus masters which don't specify any attributes will get this
-     * (via the MEMTXATTRS_UNSPECIFIED constant), so that we can
-     * distinguish "all attributes deliberately clear" from
-     * "didn't specify" if necessary.
-     */
-    unsigned int unspecified:1;
-    /* ARM/AMBA: TrustZone Secure access
-     * x86: System Management Mode access
-     */
-    unsigned int secure:1;
-    /* Memory access is usermode (unprivileged) */
-    unsigned int user:1;
-    /* Requester ID (for MSI for example) */
-    unsigned int requester_id:16;
-    /* Invert endianness for this page */
-    unsigned int byte_swap:1;
-    /*
-     * The following are target-specific page-table bits.  These are not
-     * related to actual memory transactions at all.  However, this structure
-     * is part of the tlb_fill interface, cached in the cputlb structure,
-     * and has unused bits.  These fields will be read by target-specific
-     * helpers using env->iotlb[mmu_idx][tlb_index()].attrs.target_tlb_bitN.
-     */
-    unsigned int target_tlb_bit0 : 1;
-    unsigned int target_tlb_bit1 : 1;
-    unsigned int target_tlb_bit2 : 1;
-} MemTxAttrs;
+typedef struct QemuLockCnt QemuLockCnt;
 
 struct QemuMutex {
     pthread_mutex_t lock;
@@ -316,7 +241,650 @@ struct QemuThread {
     pthread_t thread;
 };
 
-struct Notifier;
+struct QemuLockCnt {
+#ifndef CONFIG_LINUX
+    QemuMutex mutex;
+#endif
+    unsigned count;
+};
+
+struct TypeImpl;
+
+typedef struct TypeImpl *Type;
+
+typedef void (ObjectUnparent)(Object *obj);
+
+#define OBJECT_CLASS_CAST_CACHE 4
+
+typedef void (ObjectFree)(void *obj);
+
+struct ObjectClass
+{
+    /* private: */
+    Type type;
+    GSList *interfaces;
+
+    const char *object_cast_cache[OBJECT_CLASS_CAST_CACHE];
+    const char *class_cast_cache[OBJECT_CLASS_CAST_CACHE];
+
+    ObjectUnparent *unparent;
+
+    GHashTable *properties;
+};
+
+#define DECLARE_INSTANCE_CHECKER(InstanceType, OBJ_NAME, TYPENAME) \
+    static inline G_GNUC_UNUSED InstanceType * \
+    OBJ_NAME(const void *obj) \
+    { return OBJECT_CHECK(InstanceType, obj, TYPENAME); }
+
+#define DECLARE_CLASS_CHECKERS(ClassType, OBJ_NAME, TYPENAME) \
+    static inline G_GNUC_UNUSED ClassType * \
+    OBJ_NAME##_GET_CLASS(const void *obj) \
+    { return OBJECT_GET_CLASS(ClassType, obj, TYPENAME); } \
+    \
+    static inline G_GNUC_UNUSED ClassType * \
+    OBJ_NAME##_CLASS(const void *klass) \
+    { return OBJECT_CLASS_CHECK(ClassType, klass, TYPENAME); }
+
+#define DECLARE_OBJ_CHECKERS(InstanceType, ClassType, OBJ_NAME, TYPENAME) \
+    DECLARE_INSTANCE_CHECKER(InstanceType, OBJ_NAME, TYPENAME) \
+    \
+    DECLARE_CLASS_CHECKERS(ClassType, OBJ_NAME, TYPENAME)
+
+#define OBJECT_DECLARE_TYPE(InstanceType, ClassType, MODULE_OBJ_NAME) \
+    typedef struct InstanceType InstanceType; \
+    typedef struct ClassType ClassType; \
+    \
+    G_DEFINE_AUTOPTR_CLEANUP_FUNC(InstanceType, object_unref) \
+    \
+    DECLARE_OBJ_CHECKERS(InstanceType, ClassType, \
+                         MODULE_OBJ_NAME, TYPE_##MODULE_OBJ_NAME)
+
+struct Object
+{
+    /* private: */
+    ObjectClass *clazz;
+    ObjectFree *free;
+    GHashTable *properties;
+    uint32_t ref;
+    Object *parent;
+};
+
+#define OBJECT(obj) \
+    ((Object *)(obj))
+
+#define OBJECT_CLASS(class) \
+    ((ObjectClass *)(class))
+
+#define OBJECT_CHECK(type, obj, name) \
+    ((type *)object_dynamic_cast_assert(OBJECT(obj), (name), \
+                                        __FILE__, __LINE__, __func__))
+
+#define OBJECT_CLASS_CHECK(class_type, class, name) \
+    ((class_type *)object_class_dynamic_cast_assert(OBJECT_CLASS(class), (name), \
+                                               __FILE__, __LINE__, __func__))
+
+#define OBJECT_GET_CLASS(class, obj, name) \
+    OBJECT_CLASS_CHECK(class, object_get_class(OBJECT(obj)), name)
+
+Object *object_dynamic_cast_assert(Object *obj, const char *,
+                                   const char *file, int line, const char *func);
+
+ObjectClass *object_get_class(Object *obj);
+
+ObjectClass *object_class_dynamic_cast_assert(ObjectClass *klass,
+                                              const char *,
+                                              const char *file, int line,
+                                              const char *func);
+
+void object_unref(void *obj);
+
+typedef struct ResettableState ResettableState;
+
+struct ResettableState {
+    unsigned count;
+    bool hold_phase_pending;
+    bool exit_phase_in_progress;
+};
+
+#define TYPE_DEVICE "device"
+
+OBJECT_DECLARE_TYPE(DeviceState, DeviceClass, DEVICE)
+
+typedef enum DeviceCategory {
+    DEVICE_CATEGORY_BRIDGE,
+    DEVICE_CATEGORY_USB,
+    DEVICE_CATEGORY_STORAGE,
+    DEVICE_CATEGORY_NETWORK,
+    DEVICE_CATEGORY_INPUT,
+    DEVICE_CATEGORY_DISPLAY,
+    DEVICE_CATEGORY_SOUND,
+    DEVICE_CATEGORY_MISC,
+    DEVICE_CATEGORY_CPU,
+    DEVICE_CATEGORY_WATCHDOG,
+    DEVICE_CATEGORY_MAX
+} DeviceCategory;
+
+typedef void (*DeviceRealize)(DeviceState *dev, Error **errp);
+
+typedef void (*DeviceUnrealize)(DeviceState *dev);
+
+typedef void (*DeviceReset)(DeviceState *dev);
+
+struct DeviceClass {
+    /*< private >*/
+    ObjectClass parent_class;
+    /*< public >*/
+
+    DECLARE_BITMAP(categories, DEVICE_CATEGORY_MAX);
+    const char *fw_name;
+    const char *desc;
+
+    /*
+     * The underscore at the end ensures a compile-time error if someone
+     * assigns to dc->props instead of using device_class_set_props.
+     */
+    Property *props_;
+
+    /*
+     * Can this device be instantiated with -device / device_add?
+     * All devices should support instantiation with device_add, and
+     * this flag should not exist.  But we're not there, yet.  Some
+     * devices fail to instantiate with cryptic error messages.
+     * Others instantiate, but don't work.  Exposing users to such
+     * behavior would be cruel; clearing this flag will protect them.
+     * It should never be cleared without a comment explaining why it
+     * is cleared.
+     * TODO remove once we're there
+     */
+    bool user_creatable;
+    bool hotpluggable;
+
+    /* callbacks */
+    /*
+     * Reset method here is deprecated and replaced by methods in the
+     * resettable class interface to implement a multi-phase reset.
+     * TODO: remove once every reset callback is unused
+     */
+    DeviceReset reset;
+    DeviceRealize realize;
+    DeviceUnrealize unrealize;
+
+    /* device state */
+    const VMStateDescription *vmsd;
+
+    /* Private to qdev / bus.  */
+    const char *bus_type;
+};
+
+struct NamedGPIOList {
+    char *name;
+    qemu_irq *in;
+    int num_in;
+    int num_out;
+    QLIST_ENTRY(NamedGPIOList) node;
+};
+
+typedef struct Clock Clock;
+
+struct NamedClockList {
+    char *name;
+    Clock *clock;
+    bool output;
+    bool alias;
+    QLIST_ENTRY(NamedClockList) node;
+};
+
+typedef struct {
+    bool engaged_in_io;
+} MemReentrancyGuard;
+
+struct DeviceState {
+    /*< private >*/
+    Object parent_obj;
+    /*< public >*/
+
+    char *id;
+    char *canonical_path;
+    bool realized;
+    bool pending_deleted_event;
+    int64_t pending_deleted_expires_ms;
+    QDict *opts;
+    int hotplugged;
+    bool allow_unplug_during_migration;
+    BusState *parent_bus;
+    QLIST_HEAD(, NamedGPIOList) gpios;
+    QLIST_HEAD(, NamedClockList) clocks;
+    QLIST_HEAD(, BusState) child_bus;
+    int num_child_bus;
+    int instance_id_alias;
+    int alias_required_for_version;
+    ResettableState reset;
+    GSList *unplug_blockers;
+
+    /* Is the device currently in mmio/pio/dma? Used to prevent re-entrancy */
+    MemReentrancyGuard mem_reentrancy_guard;
+};
+
+typedef void *PTR;
+
+typedef uint64_t bfd_vma;
+
+typedef uint8_t bfd_byte;
+
+enum bfd_flavour {
+  bfd_target_unknown_flavour,
+  bfd_target_aout_flavour,
+  bfd_target_coff_flavour,
+  bfd_target_ecoff_flavour,
+  bfd_target_elf_flavour,
+  bfd_target_ieee_flavour,
+  bfd_target_nlm_flavour,
+  bfd_target_oasys_flavour,
+  bfd_target_tekhex_flavour,
+  bfd_target_srec_flavour,
+  bfd_target_ihex_flavour,
+  bfd_target_som_flavour,
+  bfd_target_os9k_flavour,
+  bfd_target_versados_flavour,
+  bfd_target_msdos_flavour,
+  bfd_target_evax_flavour
+};
+
+enum bfd_endian { BFD_ENDIAN_BIG, BFD_ENDIAN_LITTLE, BFD_ENDIAN_UNKNOWN };
+
+enum bfd_architecture
+{
+  bfd_arch_unknown,    /* File arch not known */
+  bfd_arch_obscure,    /* Arch known, not one of these */
+  bfd_arch_m68k,       /* Motorola 68xxx */
+#define bfd_mach_m68000 1
+#define bfd_mach_m68008 2
+#define bfd_mach_m68010 3
+#define bfd_mach_m68020 4
+#define bfd_mach_m68030 5
+#define bfd_mach_m68040 6
+#define bfd_mach_m68060 7
+#define bfd_mach_cpu32  8
+#define bfd_mach_mcf5200  9
+#define bfd_mach_mcf5206e 10
+#define bfd_mach_mcf5307  11
+#define bfd_mach_mcf5407  12
+#define bfd_mach_mcf528x  13
+#define bfd_mach_mcfv4e   14
+#define bfd_mach_mcf521x   15
+#define bfd_mach_mcf5249   16
+#define bfd_mach_mcf547x   17
+#define bfd_mach_mcf548x   18
+  bfd_arch_vax,        /* DEC Vax */
+  bfd_arch_i960,       /* Intel 960 */
+     /* The order of the following is important.
+       lower number indicates a machine type that
+       only accepts a subset of the instructions
+       available to machines with higher numbers.
+       The exception is the "ca", which is
+       incompatible with all other machines except
+       "core". */
+
+#define bfd_mach_i960_core      1
+#define bfd_mach_i960_ka_sa     2
+#define bfd_mach_i960_kb_sb     3
+#define bfd_mach_i960_mc        4
+#define bfd_mach_i960_xa        5
+#define bfd_mach_i960_ca        6
+#define bfd_mach_i960_jx        7
+#define bfd_mach_i960_hx        8
+
+  bfd_arch_a29k,       /* AMD 29000 */
+  bfd_arch_sparc,      /* SPARC */
+#define bfd_mach_sparc                 1
+/* The difference between v8plus and v9 is that v9 is a true 64 bit env.  */
+#define bfd_mach_sparc_sparclet        2
+#define bfd_mach_sparc_sparclite       3
+#define bfd_mach_sparc_v8plus          4
+#define bfd_mach_sparc_v8plusa         5 /* with ultrasparc add'ns.  */
+#define bfd_mach_sparc_sparclite_le    6
+#define bfd_mach_sparc_v9              7
+#define bfd_mach_sparc_v9a             8 /* with ultrasparc add'ns.  */
+#define bfd_mach_sparc_v8plusb         9 /* with cheetah add'ns.  */
+#define bfd_mach_sparc_v9b             10 /* with cheetah add'ns.  */
+/* Nonzero if MACH has the v9 instruction set.  */
+#define bfd_mach_sparc_v9_p(mach) \
+  ((mach) >= bfd_mach_sparc_v8plus && (mach) <= bfd_mach_sparc_v9b \
+   && (mach) != bfd_mach_sparc_sparclite_le)
+  bfd_arch_mips,       /* MIPS Rxxxx */
+#define bfd_mach_mips3000              3000
+#define bfd_mach_mips3900              3900
+#define bfd_mach_mips4000              4000
+#define bfd_mach_mips4010              4010
+#define bfd_mach_mips4100              4100
+#define bfd_mach_mips4300              4300
+#define bfd_mach_mips4400              4400
+#define bfd_mach_mips4600              4600
+#define bfd_mach_mips4650              4650
+#define bfd_mach_mips5000              5000
+#define bfd_mach_mips6000              6000
+#define bfd_mach_mips8000              8000
+#define bfd_mach_mips10000             10000
+#define bfd_mach_mips16                16
+  bfd_arch_i386,       /* Intel 386 */
+#define bfd_mach_i386_i386 0
+#define bfd_mach_i386_i8086 1
+#define bfd_mach_i386_i386_intel_syntax 2
+#define bfd_mach_x86_64 3
+#define bfd_mach_x86_64_intel_syntax 4
+  bfd_arch_we32k,      /* AT&T WE32xxx */
+  bfd_arch_tahoe,      /* CCI/Harris Tahoe */
+  bfd_arch_i860,       /* Intel 860 */
+  bfd_arch_romp,       /* IBM ROMP PC/RT */
+  bfd_arch_alliant,    /* Alliant */
+  bfd_arch_convex,     /* Convex */
+  bfd_arch_m88k,       /* Motorola 88xxx */
+  bfd_arch_pyramid,    /* Pyramid Technology */
+  bfd_arch_h8300,      /* Hitachi H8/300 */
+#define bfd_mach_h8300   1
+#define bfd_mach_h8300h  2
+#define bfd_mach_h8300s  3
+  bfd_arch_powerpc,    /* PowerPC */
+#define bfd_mach_ppc           0
+#define bfd_mach_ppc64         1
+#define bfd_mach_ppc_403       403
+#define bfd_mach_ppc_403gc     4030
+#define bfd_mach_ppc_e500      500
+#define bfd_mach_ppc_505       505
+#define bfd_mach_ppc_601       601
+#define bfd_mach_ppc_602       602
+#define bfd_mach_ppc_603       603
+#define bfd_mach_ppc_ec603e    6031
+#define bfd_mach_ppc_604       604
+#define bfd_mach_ppc_620       620
+#define bfd_mach_ppc_630       630
+#define bfd_mach_ppc_750       750
+#define bfd_mach_ppc_860       860
+#define bfd_mach_ppc_a35       35
+#define bfd_mach_ppc_rs64ii    642
+#define bfd_mach_ppc_rs64iii   643
+#define bfd_mach_ppc_7400      7400
+  bfd_arch_rs6000,     /* IBM RS/6000 */
+  bfd_arch_hppa,       /* HP PA RISC */
+#define bfd_mach_hppa10        10
+#define bfd_mach_hppa11        11
+#define bfd_mach_hppa20        20
+#define bfd_mach_hppa20w       25
+  bfd_arch_d10v,       /* Mitsubishi D10V */
+  bfd_arch_z8k,        /* Zilog Z8000 */
+#define bfd_mach_z8001         1
+#define bfd_mach_z8002         2
+  bfd_arch_h8500,      /* Hitachi H8/500 */
+  bfd_arch_sh,         /* Hitachi SH */
+#define bfd_mach_sh            1
+#define bfd_mach_sh2        0x20
+#define bfd_mach_sh_dsp     0x2d
+#define bfd_mach_sh2a       0x2a
+#define bfd_mach_sh2a_nofpu 0x2b
+#define bfd_mach_sh2e       0x2e
+#define bfd_mach_sh3        0x30
+#define bfd_mach_sh3_nommu  0x31
+#define bfd_mach_sh3_dsp    0x3d
+#define bfd_mach_sh3e       0x3e
+#define bfd_mach_sh4        0x40
+#define bfd_mach_sh4_nofpu  0x41
+#define bfd_mach_sh4_nommu_nofpu  0x42
+#define bfd_mach_sh4a       0x4a
+#define bfd_mach_sh4a_nofpu 0x4b
+#define bfd_mach_sh4al_dsp  0x4d
+#define bfd_mach_sh5        0x50
+  bfd_arch_alpha,      /* Dec Alpha */
+#define bfd_mach_alpha 1
+#define bfd_mach_alpha_ev4  0x10
+#define bfd_mach_alpha_ev5  0x20
+#define bfd_mach_alpha_ev6  0x30
+  bfd_arch_arm,        /* Advanced Risc Machines ARM */
+#define bfd_mach_arm_unknown  0
+#define bfd_mach_arm_2        1
+#define bfd_mach_arm_2a       2
+#define bfd_mach_arm_3        3
+#define bfd_mach_arm_3M       4
+#define bfd_mach_arm_4        5
+#define bfd_mach_arm_4T       6
+#define bfd_mach_arm_5        7
+#define bfd_mach_arm_5T       8
+#define bfd_mach_arm_5TE      9
+#define bfd_mach_arm_XScale   10
+#define bfd_mach_arm_ep9312   11
+#define bfd_mach_arm_iWMMXt   12
+#define bfd_mach_arm_iWMMXt2  13
+  bfd_arch_ns32k,      /* National Semiconductors ns32000 */
+  bfd_arch_w65,        /* WDC 65816 */
+  bfd_arch_tic30,      /* Texas Instruments TMS320C30 */
+  bfd_arch_v850,       /* NEC V850 */
+#define bfd_mach_v850          0
+  bfd_arch_arc,        /* Argonaut RISC Core */
+#define bfd_mach_arc_base 0
+  bfd_arch_m32r,       /* Mitsubishi M32R/D */
+#define bfd_mach_m32r          0  /* backwards compatibility */
+  bfd_arch_mn10200,    /* Matsushita MN10200 */
+  bfd_arch_mn10300,    /* Matsushita MN10300 */
+  bfd_arch_avr,        /* AVR microcontrollers */
+#define bfd_mach_avr1       1
+#define bfd_mach_avr2       2
+#define bfd_mach_avr25      25
+#define bfd_mach_avr3       3
+#define bfd_mach_avr31      31
+#define bfd_mach_avr35      35
+#define bfd_mach_avr4       4
+#define bfd_mach_avr5       5
+#define bfd_mach_avr51      51
+#define bfd_mach_avr6       6
+#define bfd_mach_avrtiny    100
+#define bfd_mach_avrxmega1  101
+#define bfd_mach_avrxmega2  102
+#define bfd_mach_avrxmega3  103
+#define bfd_mach_avrxmega4  104
+#define bfd_mach_avrxmega5  105
+#define bfd_mach_avrxmega6  106
+#define bfd_mach_avrxmega7  107
+  bfd_arch_cris,       /* Axis CRIS */
+#define bfd_mach_cris_v0_v10   255
+#define bfd_mach_cris_v32      32
+#define bfd_mach_cris_v10_v32  1032
+  bfd_arch_microblaze, /* Xilinx MicroBlaze.  */
+  bfd_arch_moxie,      /* The Moxie core.  */
+  bfd_arch_ia64,      /* HP/Intel ia64 */
+#define bfd_mach_ia64_elf64    64
+#define bfd_mach_ia64_elf32    32
+  bfd_arch_nios2,      /* Nios II */
+#define bfd_mach_nios2          0
+#define bfd_mach_nios2r1        1
+#define bfd_mach_nios2r2        2
+  bfd_arch_rx,       /* Renesas RX */
+#define bfd_mach_rx            0x75
+#define bfd_mach_rx_v2         0x76
+#define bfd_mach_rx_v3         0x77
+  bfd_arch_loongarch,
+  bfd_arch_last
+  };
+
+typedef struct symbol_cache_entry
+{
+    const char *name;
+    union
+    {
+        PTR p;
+        bfd_vma i;
+    } udata;
+} asymbol;
+
+typedef int (*fprintf_function)(FILE *f, const char *fmt, ...)
+    G_GNUC_PRINTF(2, 3);
+
+enum dis_insn_type {
+  dis_noninsn,          /* Not a valid instruction */
+  dis_nonbranch,        /* Not a branch instruction */
+  dis_branch,           /* Unconditional branch */
+  dis_condbranch,       /* Conditional branch */
+  dis_jsr,              /* Jump to subroutine */
+  dis_condjsr,          /* Conditional jump to subroutine */
+  dis_dref,             /* Data reference instruction */
+  dis_dref2             /* Two data references in instruction */
+};
+
+typedef struct disassemble_info {
+  fprintf_function fprintf_func;
+  FILE *stream;
+  PTR application_data;
+
+  /* Target description.  We could replace this with a pointer to the bfd,
+     but that would require one.  There currently isn't any such requirement
+     so to avoid introducing one we record these explicitly.  */
+  /* The bfd_flavour.  This can be bfd_target_unknown_flavour.  */
+  enum bfd_flavour flavour;
+  /* The bfd_arch value.  */
+  enum bfd_architecture arch;
+  /* The bfd_mach value.  */
+  unsigned long mach;
+  /* Endianness (for bi-endian cpus).  Mono-endian cpus can ignore this.  */
+  enum bfd_endian endian;
+
+  /* An array of pointers to symbols either at the location being disassembled
+     or at the start of the function being disassembled.  The array is sorted
+     so that the first symbol is intended to be the one used.  The others are
+     present for any misc. purposes.  This is not set reliably, but if it is
+     not NULL, it is correct.  */
+  asymbol **symbols;
+  /* Number of symbols in array.  */
+  int num_symbols;
+
+  /* For use by the disassembler.
+     The top 16 bits are reserved for public use (and are documented here).
+     The bottom 16 bits are for the internal use of the disassembler.  */
+  unsigned long flags;
+#define INSN_HAS_RELOC  0x80000000
+#define INSN_ARM_BE32   0x00010000
+  PTR private_data;
+
+  /* Function used to get bytes to disassemble.  MEMADDR is the
+     address of the stuff to be disassembled, MYADDR is the address to
+     put the bytes in, and LENGTH is the number of bytes to read.
+     INFO is a pointer to this struct.
+     Returns an errno value or 0 for success.  */
+  int (*read_memory_func)
+    (bfd_vma memaddr, bfd_byte *myaddr, int length,
+        struct disassemble_info *info);
+
+  /* Function which should be called if we get an error that we can't
+     recover from.  STATUS is the errno value from read_memory_func and
+     MEMADDR is the address that we were trying to read.  INFO is a
+     pointer to this struct.  */
+  void (*memory_error_func)
+    (int status, bfd_vma memaddr, struct disassemble_info *info);
+
+  /* Function called to print ADDR.  */
+  void (*print_address_func)
+    (bfd_vma addr, struct disassemble_info *info);
+
+    /* Function called to print an instruction. The function is architecture
+     * specific.
+     */
+    int (*print_insn)(bfd_vma addr, struct disassemble_info *info);
+
+  /* Function called to determine if there is a symbol at the given ADDR.
+     If there is, the function returns 1, otherwise it returns 0.
+     This is used by ports which support an overlay manager where
+     the overlay number is held in the top part of an address.  In
+     some circumstances we want to include the overlay number in the
+     address, (normally because there is a symbol associated with
+     that address), but sometimes we want to mask out the overlay bits.  */
+  int (* symbol_at_address_func)
+    (bfd_vma addr, struct disassemble_info * info);
+
+  /* These are for buffer_read_memory.  */
+  const bfd_byte *buffer;
+  bfd_vma buffer_vma;
+  int buffer_length;
+
+  /* This variable may be set by the instruction decoder.  It suggests
+      the number of bytes objdump should display on a single line.  If
+      the instruction decoder sets this, it should always set it to
+      the same value in order to get reasonable looking output.  */
+  int bytes_per_line;
+
+  /* the next two variables control the way objdump displays the raw data */
+  /* For example, if bytes_per_line is 8 and bytes_per_chunk is 4, the */
+  /* output will look like this:
+     00:   00000000 00000000
+     with the chunks displayed according to "display_endian". */
+  int bytes_per_chunk;
+  enum bfd_endian display_endian;
+
+  /* Results from instruction decoders.  Not all decoders yet support
+     this information.  This info is set each time an instruction is
+     decoded, and is only valid for the last such instruction.
+
+     To determine whether this decoder supports this information, set
+     insn_info_valid to 0, decode an instruction, then check it.  */
+
+  char insn_info_valid;         /* Branch info has been set. */
+  char branch_delay_insns;      /* How many sequential insn's will run before
+                                   a branch takes effect.  (0 = normal) */
+  char data_size;               /* Size of data reference in insn, in bytes */
+  enum dis_insn_type insn_type; /* Type of instruction */
+  bfd_vma target;               /* Target address of branch or dref, if known;
+                                   zero if unknown.  */
+  bfd_vma target2;              /* Second target address for dref2 */
+
+  /* Command line options specific to the target disassembler.  */
+  char * disassembler_options;
+
+  /* Field intended to be used by targets in any way they deem suitable.  */
+  int64_t target_info;
+
+  /* Options for Capstone disassembly.  */
+  int cap_arch;
+  int cap_mode;
+  int cap_insn_unit;
+  int cap_insn_split;
+
+} disassemble_info;
+
+typedef uint64_t vaddr;
+
+typedef struct MemTxAttrs {
+    /* Bus masters which don't specify any attributes will get this
+     * (via the MEMTXATTRS_UNSPECIFIED constant), so that we can
+     * distinguish "all attributes deliberately clear" from
+     * "didn't specify" if necessary.
+     */
+    unsigned int unspecified:1;
+    /* ARM/AMBA: TrustZone Secure access
+     * x86: System Management Mode access
+     */
+    unsigned int secure:1;
+    /* Memory access is usermode (unprivileged) */
+    unsigned int user:1;
+    /*
+     * Bus interconnect and peripherals can access anything (memories,
+     * devices) by default. By setting the 'memory' bit, bus transaction
+     * are restricted to "normal" memories (per the AMBA documentation)
+     * versus devices. Access to devices will be logged and rejected
+     * (see MEMTX_ACCESS_ERROR).
+     */
+    unsigned int memory:1;
+    /* Requester ID (for MSI for example) */
+    unsigned int requester_id:16;
+    /* Invert endianness for this page */
+    unsigned int byte_swap:1;
+    /*
+     * The following are target-specific page-table bits.  These are not
+     * related to actual memory transactions at all.  However, this structure
+     * is part of the tlb_fill interface, cached in the cputlb structure,
+     * and has unused bits.  These fields will be read by target-specific
+     * helpers using env->iotlb[mmu_idx][tlb_index()].attrs.target_tlb_bitN.
+     */
+    unsigned int target_tlb_bit0 : 1;
+    unsigned int target_tlb_bit1 : 1;
+    unsigned int target_tlb_bit2 : 1;
+} MemTxAttrs;
 
 enum qemu_plugin_event {
     QEMU_PLUGIN_EV_VCPU_INIT,
@@ -331,22 +899,69 @@ enum qemu_plugin_event {
     QEMU_PLUGIN_EV_MAX, /* total number of plugin events we support */
 };
 
-static inline void qemu_plugin_vcpu_mem_cb(CPUState *cpu, uint64_t vaddr,
-                                           uint32_t meminfo)
-{ }
-
-#define CPU(obj) ((CPUState *)(obj))
-
-typedef uint64_t vaddr;
+typedef struct CPUClass CPUClass;
 
 typedef struct CPUWatchpoint CPUWatchpoint;
 
-struct TranslationBlock;
+struct TCGCPUOps;
+
+struct AccelCPUClass;
+
+struct SysemuCPUOps;
+
+struct CPUClass {
+    /*< private >*/
+    DeviceClass parent_class;
+    /*< public >*/
+
+    ObjectClass *(*class_by_name)(const char *cpu_model);
+    void (*parse_features)(const char *, char *str, Error **errp);
+
+    bool (*has_work)(CPUState *cpu);
+    int (*memory_rw_debug)(CPUState *cpu, vaddr addr,
+                           uint8_t *buf, int len, bool is_write);
+    void (*dump_state)(CPUState *cpu, FILE *, int flags);
+    void (*query_cpu_fast)(CPUState *cpu, CpuInfoFast *value);
+    int64_t (*get_arch_id)(CPUState *cpu);
+    void (*set_pc)(CPUState *cpu, vaddr value);
+    vaddr (*get_pc)(CPUState *cpu);
+    int (*gdb_read_register)(CPUState *cpu, GByteArray *buf, int reg);
+    int (*gdb_write_register)(CPUState *cpu, uint8_t *buf, int reg);
+    vaddr (*gdb_adjust_breakpoint)(CPUState *cpu, vaddr addr);
+
+    const char *gdb_core_xml_file;
+    gchar * (*gdb_arch_name)(CPUState *cpu);
+    const char * (*gdb_get_dynamic_xml)(CPUState *cpu, const char *xmlname);
+
+    void (*disas_set_info)(CPUState *cpu, disassemble_info *info);
+
+    const char *deprecation_note;
+    struct AccelCPUClass *accel_cpu;
+
+    /* when system emulation is not available, this pointer is NULL */
+    const struct SysemuCPUOps *sysemu_ops;
+
+    /* when TCG is not available, this pointer is NULL */
+    const struct TCGCPUOps *tcg_ops;
+
+    /*
+     * if not NULL, this is called in order for the CPUClass to initialize
+     * class data that depends on the accelerator, see accel/accel-common.c.
+     */
+    void (*init_accel_cpu)(struct AccelCPUClass *accel_cpu, CPUClass *cc);
+
+    /*
+     * Keep non-pointer data at the end to minimize holes.
+     */
+    int reset_dump_flags;
+    int gdb_num_core_regs;
+    bool gdb_stop_before_watchpoint;
+};
 
 typedef union IcountDecr {
     uint32_t u32;
     struct {
-#ifdef HOST_WORDS_BIGENDIAN
+#if HOST_BIG_ENDIAN
         uint16_t high;
         uint16_t low;
 #else
@@ -363,7 +978,7 @@ typedef struct CPUBreakpoint {
 } CPUBreakpoint;
 
 struct CPUWatchpoint {
-    vaddr vaddr;
+    vaddr _vaddr;
     vaddr len;
     vaddr hitaddr;
     MemTxAttrs hitattrs;
@@ -375,19 +990,17 @@ struct KVMState;
 
 struct kvm_run;
 
-#define TB_JMP_CACHE_BITS 12
-
-#define TB_JMP_CACHE_SIZE (1 << TB_JMP_CACHE_BITS)
-
 struct hax_vcpu_state;
 
-#define CPU_TRACE_DSTATE_MAX_EVENTS 32
+struct hvf_vcpu_state;
 
 struct qemu_work_item;
 
 struct CPUState {
     /*< private >*/
     DeviceState parent_obj;
+    /* cache to avoid expensive CPU_GET_CLASS */
+    CPUClass *cc;
     /*< public >*/
 
     int nr_cores;
@@ -396,6 +1009,7 @@ struct CPUState {
     struct QemuThread *thread;
 #ifdef _WIN32
     HANDLE hThread;
+    QemuSemaphore sem;
 #endif
     int thread_id;
     bool running, has_waiter;
@@ -404,10 +1018,14 @@ struct CPUState {
     bool created;
     bool stop;
     bool stopped;
+
+    /* Should CPU start in powered-off state? */
+    bool start_powered_off;
+
     bool unplug;
     bool crash_occurred;
     bool exit_request;
-    bool in_exclusive_context;
+    int exclusive_context_count;
     uint32_t cflags_next_tb;
     /* updates protected by BQL */
     uint32_t interrupt_request;
@@ -418,18 +1036,17 @@ struct CPUState {
     sigjmp_buf jmp_env;
 
     QemuMutex work_mutex;
-    struct qemu_work_item *queued_work_first, *queued_work_last;
+    QSIMPLEQ_HEAD(, qemu_work_item) work_list;
 
     CPUAddressSpace *cpu_ases;
     int num_ases;
     AddressSpace *as;
     MemoryRegion *memory;
 
-    void *env_ptr; /* CPUArchState */
+    CPUArchState *env_ptr;
     IcountDecr *icount_decr_ptr;
 
-    /* Accessed in parallel; all accesses must be atomic */
-    struct TranslationBlock *tb_jmp_cache[TB_JMP_CACHE_SIZE];
+    CPUJumpCache *tb_jmp_cache;
 
     struct GDBRegisterState *gdb_regs;
     int gdb_num_regs;
@@ -449,21 +1066,29 @@ struct CPUState {
      */
     uintptr_t mem_io_pc;
 
+    /* Only used in KVM */
     int kvm_fd;
     struct KVMState *kvm_state;
     struct kvm_run *kvm_run;
+    struct kvm_dirty_gfn *kvm_dirty_gfns;
+    uint32_t kvm_fetch_index;
+    uint64_t dirty_pages;
 
-    /* Used for events with 'vcpu' and *without* the 'disabled' properties */
-    DECLARE_BITMAP(trace_dstate_delayed, CPU_TRACE_DSTATE_MAX_EVENTS);
-    DECLARE_BITMAP(trace_dstate, CPU_TRACE_DSTATE_MAX_EVENTS);
+    /* Use by accel-block: CPU is executing an ioctl() */
+    QemuLockCnt in_ioctl_lock;
 
     DECLARE_BITMAP(plugin_mask, QEMU_PLUGIN_EV_MAX);
 
+#ifdef CONFIG_PLUGIN
     GArray *plugin_mem_cbs;
+    /* saved iotlb data from io_writex */
+    SavedIOTLB saved_iotlb;
+#endif
 
     /* TODO Move common fields from CPUArchState here. */
     int cpu_index;
     int cluster_index;
+    uint32_t tcg_cflags;
     uint32_t halted;
     uint32_t can_do_io;
     int32_t exception_index;
@@ -476,30 +1101,26 @@ struct CPUState {
      */
     bool throttle_thread_scheduled;
 
+    /*
+     * Sleep throttle_us_per_full microseconds once dirty ring is full
+     * if dirty page rate limit is enabled.
+     */
+    int64_t throttle_us_per_full;
+
     bool ignore_memory_transaction_failures;
+
+    /* Used for user-only emulation of prctl(PR_SET_UNALIGN). */
+    bool prctl_unalign_sigbus;
 
     struct hax_vcpu_state *hax_vcpu;
 
-    int hvf_fd;
+    struct hvf_vcpu_state *hvf;
 
     /* track IOMMUs whose translations we've cached in the TCG TLB */
     GArray *iommu_notifiers;
 };
 
-void QEMU_NORETURN cpu_abort(CPUState *cpu, const char *fmt, ...)
-    GCC_FMT_ATTR(2, 3);
-
-typedef struct Notifier Notifier;
-
-struct Notifier
-{
-    void (*notify)(Notifier *notifier, void *data);
-    QLIST_ENTRY(Notifier) node;
-};
-
 #define HV_SINT_COUNT                         16
-
-typedef struct X86CPU X86CPU;
 
 #define HV_X64_MSR_CRASH_P0                     0x40000100
 
@@ -511,139 +1132,58 @@ typedef struct X86CPU X86CPU;
 
 typedef uint32_t target_ulong;
 
-typedef struct CPUTLB { } CPUTLB;
+typedef uint16_t float16;
 
-typedef struct CPUNegativeOffsetState {
-    CPUTLB tlb;
-    IcountDecr icount_decr;
-} CPUNegativeOffsetState;
+typedef uint32_t float32;
 
-typedef enum OnOffAuto {
-    ON_OFF_AUTO_AUTO,
-    ON_OFF_AUTO_ON,
-    ON_OFF_AUTO_OFF,
-    ON_OFF_AUTO__MAX,
-} OnOffAuto;
+typedef uint64_t float64;
 
-enum {
-    R_EAX = 0,
-    R_ECX = 1,
-    R_EDX = 2,
-    R_EBX = 3,
-    R_ESP = 4,
-    R_EBP = 5,
-    R_ESI = 6,
-    R_EDI = 7,
-    R_R8 = 8,
-    R_R9 = 9,
-    R_R10 = 10,
-    R_R11 = 11,
-    R_R12 = 12,
-    R_R13 = 13,
-    R_R14 = 14,
-    R_R15 = 15,
+typedef struct {
+    uint64_t low;
+    uint16_t high;
+} floatx80;
 
-    R_AL = 0,
-    R_CL = 1,
-    R_DL = 2,
-    R_BL = 3,
-    R_AH = 4,
-    R_CH = 5,
-    R_DH = 6,
-    R_BH = 7,
-};
+typedef enum __attribute__((__packed__)) {
+    float_round_nearest_even = 0,
+    float_round_down         = 1,
+    float_round_up           = 2,
+    float_round_to_zero      = 3,
+    float_round_ties_away    = 4,
+    /* Not an IEEE rounding mode: round to closest odd, overflow to max */
+    float_round_to_odd       = 5,
+    /* Not an IEEE rounding mode: round to closest odd, overflow to inf */
+    float_round_to_odd_inf   = 6,
+} FloatRoundMode;
 
-#define DESC_G_SHIFT    23
+typedef enum __attribute__((__packed__)) {
+    floatx80_precision_x,
+    floatx80_precision_d,
+    floatx80_precision_s,
+} FloatX80RoundPrec;
 
-#define DESC_G_MASK     (1 << DESC_G_SHIFT)
-
-#define DESC_B_SHIFT    22
-
-#define DESC_B_MASK     (1 << DESC_B_SHIFT)
-
-#define DESC_P_SHIFT    15
-
-#define DESC_P_MASK     (1 << DESC_P_SHIFT)
-
-#define DESC_DPL_SHIFT  13
-
-#define DESC_S_SHIFT    12
-
-#define DESC_S_MASK     (1 << DESC_S_SHIFT)
-
-#define DESC_TYPE_SHIFT 8
-
-#define DESC_A_MASK     (1 << 8)
-
-#define DESC_CS_MASK    (1 << 11)
-
-#define DESC_C_MASK     (1 << 10)
-
-#define DESC_R_MASK     (1 << 9)
-
-#define DESC_W_MASK     (1 << 9)
-
-#define DESC_TSS_BUSY_MASK (1 << 9)
-
-#define CC_C    0x0001
-
-#define CC_P    0x0004
-
-#define CC_A    0x0010
-
-#define CC_Z    0x0040
-
-#define CC_S    0x0080
-
-#define CC_O    0x0800
-
-#define TF_MASK                 0x00000100
-
-#define IF_MASK                 0x00000200
-
-#define DF_MASK                 0x00000400
-
-#define IOPL_MASK               0x00003000
-
-#define NT_MASK                 0x00004000
-
-#define RF_MASK                 0x00010000
-
-#define VM_MASK                 0x00020000
-
-#define AC_MASK                 0x00040000
-
-#define ID_MASK                 0x00200000
-
-#define HF_CPL_SHIFT         0
-
-#define HF_CS32_SHIFT        4
-
-#define HF_SS32_SHIFT        5
-
-#define HF_ADDSEG_SHIFT      6
-
-#define HF_TS_SHIFT         11
-
-#define HF_CS64_SHIFT       15
-
-#define HF_CPL_MASK          (3 << HF_CPL_SHIFT)
-
-#define HF_CS32_MASK         (1 << HF_CS32_SHIFT)
-
-#define HF_SS32_MASK         (1 << HF_SS32_SHIFT)
-
-#define HF_ADDSEG_MASK       (1 << HF_ADDSEG_SHIFT)
-
-#define HF_TS_MASK           (1 << HF_TS_SHIFT)
-
-#define HF_CS64_MASK         (1 << HF_CS64_SHIFT)
-
-#define CR0_PE_MASK  (1U << 0)
-
-#define CR0_TS_MASK  (1U << 3)
-
-#define CR0_PG_MASK  (1U << 31)
+typedef struct float_status {
+    uint16_t float_exception_flags;
+    FloatRoundMode float_rounding_mode;
+    FloatX80RoundPrec floatx80_rounding_precision;
+    bool tininess_before_rounding;
+    /* should denormalised results go to zero and set the inexact flag? */
+    bool flush_to_zero;
+    /* should denormalised inputs go to zero and set the input_denormal flag? */
+    bool flush_inputs_to_zero;
+    bool default_nan_mode;
+    /*
+     * The flags below are not used on all specializations and may
+     * constant fold away (see snan_bit_is_one()/no_signalling_nans() in
+     * softfloat-specialize.inc.c)
+     */
+    bool snan_bit_is_one;
+    bool use_first_nan;
+    bool no_signaling_nans;
+    /* should overflowed results subtract re_bias to its exponent? */
+    bool rebias_overflow;
+    /* should underflowed results add re_bias to its exponent? */
+    bool rebias_underflow;
+} float_status;
 
 #define MCE_BANKS_DEF   10
 
@@ -654,17 +1194,6 @@ enum {
 #define MSR_IA32_PERF_STATUS            0x198
 
 #define MAX_RTIT_ADDRS                  8
-
-typedef enum X86Seg {
-    R_ES = 0,
-    R_CS = 1,
-    R_SS = 2,
-    R_DS = 3,
-    R_FS = 4,
-    R_GS = 5,
-    R_LDTR = 6,
-    R_TR = 7,
-} X86Seg;
 
 typedef enum FeatureWord {
     FEAT_1_EDX,         /* CPUID[1].EDX */
@@ -677,21 +1206,18 @@ typedef enum FeatureWord {
     FEAT_8000_0001_ECX, /* CPUID[8000_0001].ECX */
     FEAT_8000_0007_EDX, /* CPUID[8000_0007].EDX */
     FEAT_8000_0008_EBX, /* CPUID[8000_0008].EBX */
+    FEAT_8000_0021_EAX, /* CPUID[8000_0021].EAX */
     FEAT_C000_0001_EDX, /* CPUID[C000_0001].EDX */
     FEAT_KVM,           /* CPUID[4000_0001].EAX (KVM_CPUID_FEATURES) */
     FEAT_KVM_HINTS,     /* CPUID[4000_0001].EDX */
-    FEAT_HYPERV_EAX,    /* CPUID[4000_0003].EAX */
-    FEAT_HYPERV_EBX,    /* CPUID[4000_0003].EBX */
-    FEAT_HYPERV_EDX,    /* CPUID[4000_0003].EDX */
-    FEAT_HV_RECOMM_EAX, /* CPUID[4000_0004].EAX */
-    FEAT_HV_NESTED_EAX, /* CPUID[4000_000A].EAX */
     FEAT_SVM,           /* CPUID[8000_000A].EDX */
     FEAT_XSAVE,         /* CPUID[EAX=0xd,ECX=1].EAX */
     FEAT_6_EAX,         /* CPUID[6].EAX */
-    FEAT_XSAVE_COMP_LO, /* CPUID[EAX=0xd,ECX=0].EAX */
-    FEAT_XSAVE_COMP_HI, /* CPUID[EAX=0xd,ECX=0].EDX */
+    FEAT_XSAVE_XCR0_LO, /* CPUID[EAX=0xd,ECX=0].EAX */
+    FEAT_XSAVE_XCR0_HI, /* CPUID[EAX=0xd,ECX=0].EDX */
     FEAT_ARCH_CAPABILITIES,
     FEAT_CORE_CAPABILITY,
+    FEAT_PERF_CAPABILITIES,
     FEAT_VMX_PROCBASED_CTLS,
     FEAT_VMX_SECONDARY_CTLS,
     FEAT_VMX_PINBASED_CTLS,
@@ -701,95 +1227,17 @@ typedef enum FeatureWord {
     FEAT_VMX_EPT_VPID_CAPS,
     FEAT_VMX_BASIC,
     FEAT_VMX_VMFUNC,
+    FEAT_14_0_ECX,
+    FEAT_SGX_12_0_EAX,  /* CPUID[EAX=0x12,ECX=0].EAX (SGX) */
+    FEAT_SGX_12_0_EBX,  /* CPUID[EAX=0x12,ECX=0].EBX (SGX MISCSELECT[31:0]) */
+    FEAT_SGX_12_1_EAX,  /* CPUID[EAX=0x12,ECX=1].EAX (SGX ATTRIBUTES[31:0]) */
+    FEAT_XSAVE_XSS_LO,     /* CPUID[EAX=0xd,ECX=1].ECX */
+    FEAT_XSAVE_XSS_HI,     /* CPUID[EAX=0xd,ECX=1].EDX */
+    FEAT_7_1_EDX,       /* CPUID[EAX=7,ECX=1].EDX */
     FEATURE_WORDS,
 } FeatureWord;
 
-#define EXCP0A_TSS	10
-
-#define EXCP0B_NOSEG	11
-
-#define EXCP0D_GPF	13
-
 typedef uint64_t FeatureWordArray[FEATURE_WORDS];
-
-typedef enum {
-    CC_OP_DYNAMIC, /* must use dynamic code to get cc_op */
-    CC_OP_EFLAGS,  /* all cc are explicitly computed, CC_SRC = flags */
-
-    CC_OP_MULB, /* modify all flags, C, O = (CC_SRC != 0) */
-    CC_OP_MULW,
-    CC_OP_MULL,
-    CC_OP_MULQ,
-
-    CC_OP_ADDB, /* modify all flags, CC_DST = res, CC_SRC = src1 */
-    CC_OP_ADDW,
-    CC_OP_ADDL,
-    CC_OP_ADDQ,
-
-    CC_OP_ADCB, /* modify all flags, CC_DST = res, CC_SRC = src1 */
-    CC_OP_ADCW,
-    CC_OP_ADCL,
-    CC_OP_ADCQ,
-
-    CC_OP_SUBB, /* modify all flags, CC_DST = res, CC_SRC = src1 */
-    CC_OP_SUBW,
-    CC_OP_SUBL,
-    CC_OP_SUBQ,
-
-    CC_OP_SBBB, /* modify all flags, CC_DST = res, CC_SRC = src1 */
-    CC_OP_SBBW,
-    CC_OP_SBBL,
-    CC_OP_SBBQ,
-
-    CC_OP_LOGICB, /* modify all flags, CC_DST = res */
-    CC_OP_LOGICW,
-    CC_OP_LOGICL,
-    CC_OP_LOGICQ,
-
-    CC_OP_INCB, /* modify all flags except, CC_DST = res, CC_SRC = C */
-    CC_OP_INCW,
-    CC_OP_INCL,
-    CC_OP_INCQ,
-
-    CC_OP_DECB, /* modify all flags except, CC_DST = res, CC_SRC = C  */
-    CC_OP_DECW,
-    CC_OP_DECL,
-    CC_OP_DECQ,
-
-    CC_OP_SHLB, /* modify all flags, CC_DST = res, CC_SRC.msb = C */
-    CC_OP_SHLW,
-    CC_OP_SHLL,
-    CC_OP_SHLQ,
-
-    CC_OP_SARB, /* modify all flags, CC_DST = res, CC_SRC.lsb = C */
-    CC_OP_SARW,
-    CC_OP_SARL,
-    CC_OP_SARQ,
-
-    CC_OP_BMILGB, /* Z,S via CC_DST, C = SRC==0; O=0; P,A undefined */
-    CC_OP_BMILGW,
-    CC_OP_BMILGL,
-    CC_OP_BMILGQ,
-
-    CC_OP_ADCX, /* CC_DST = C, CC_SRC = rest.  */
-    CC_OP_ADOX, /* CC_DST = O, CC_SRC = rest.  */
-    CC_OP_ADCOX, /* CC_DST = C, CC_SRC2 = O, CC_SRC = rest.  */
-
-    CC_OP_CLR, /* Z set, all other flags clear.  */
-    CC_OP_POPCNT, /* Z via CC_SRC, all other flags clear.  */
-
-    CC_OP_NB,
-} CCOp;
-
-#define MMREG_UNION(n, bits)        \
-    union n {                       \
-        uint8_t  _b_##n[(bits)/8];  \
-        uint16_t _w_##n[(bits)/16]; \
-        uint32_t _l_##n[(bits)/32]; \
-        uint64_t _q_##n[(bits)/64]; \
-        float32  _s_##n[(bits)/32]; \
-        float64  _d_##n[(bits)/64]; \
-    }
 
 typedef struct SegmentCache {
     uint32_t selector;
@@ -798,23 +1246,35 @@ typedef struct SegmentCache {
     uint32_t flags;
 } SegmentCache;
 
-typedef union {
-    uint8_t _b[16];
-    uint16_t _w[8];
-    uint32_t _l[4];
-    uint64_t _q[2];
+typedef union MMXReg {
+    uint8_t  _b_MMXReg[64 / 8];
+    uint16_t _w_MMXReg[64 / 16];
+    uint32_t _l_MMXReg[64 / 32];
+    uint64_t _q_MMXReg[64 / 64];
+    float32  _s_MMXReg[64 / 32];
+    float64  _d_MMXReg[64 / 64];
+} MMXReg;
+
+typedef union XMMReg {
+    uint64_t _q_XMMReg[128 / 64];
 } XMMReg;
 
-typedef union {
-    uint8_t _b[32];
-    uint16_t _w[16];
-    uint32_t _l[8];
-    uint64_t _q[4];
+typedef union YMMReg {
+    uint64_t _q_YMMReg[256 / 64];
+    XMMReg   _x_YMMReg[256 / 128];
 } YMMReg;
 
-typedef MMREG_UNION(ZMMReg, 512) ZMMReg;
-
-typedef MMREG_UNION(MMXReg, 64)  MMXReg;
+typedef union ZMMReg {
+    uint8_t  _b_ZMMReg[512 / 8];
+    uint16_t _w_ZMMReg[512 / 16];
+    uint32_t _l_ZMMReg[512 / 32];
+    uint64_t _q_ZMMReg[512 / 64];
+    float16  _h_ZMMReg[512 / 16];
+    float32  _s_ZMMReg[512 / 32];
+    float64  _d_ZMMReg[512 / 64];
+    XMMReg   _x_ZMMReg[512 / 128];
+    YMMReg   _y_ZMMReg[512 / 256];
+} ZMMReg;
 
 typedef struct BNDReg {
     uint64_t lb;
@@ -845,6 +1305,14 @@ typedef struct {
     uint64_t base;
     uint64_t mask;
 } MTRRVar;
+
+#define ARCH_LBR_NR_ENTRIES            32
+
+typedef struct {
+       uint64_t from;
+       uint64_t to;
+       uint64_t info;
+} LBREntry;
 
 typedef enum TPRAccess {
     TPR_ACCESS_READ,
@@ -907,7 +1375,7 @@ typedef struct CPUCaches {
         CPUCacheInfo *l3_cache;
 } CPUCaches;
 
-typedef struct CPUX86State {
+typedef struct CPUArchState {
     /* standard registers */
     target_ulong regs[CPU_NB_REGS];
     target_ulong eip;
@@ -933,6 +1401,9 @@ typedef struct CPUX86State {
     SegmentCache idt; /* only base and limit are used */
 
     target_ulong cr[5]; /* NOTE: cr1 is unused */
+
+    bool pdptrs_valid;
+    uint64_t pdptrs[4];
     int32_t a20_mask;
 
     BNDReg bnd_regs[4];
@@ -951,6 +1422,8 @@ typedef struct CPUX86State {
     FPReg fpregs[8];
     /* KVM-only so far */
     uint16_t fpop;
+    uint16_t fpcs;
+    uint16_t fpds;
     uint64_t fpip;
     uint64_t fpdp;
 
@@ -961,15 +1434,15 @@ typedef struct CPUX86State {
     float_status mmx_status; /* for 3DNow! float ops */
     float_status sse_status;
     uint32_t mxcsr;
-    ZMMReg xmm_regs[CPU_NB_REGS == 8 ? 8 : 32];
-    ZMMReg xmm_t0;
+    ZMMReg xmm_regs[CPU_NB_REGS == 8 ? 8 : 32] QEMU_ALIGNED(16);
+    ZMMReg xmm_t0 QEMU_ALIGNED(16);
     MMXReg mmx_t0;
 
-    XMMReg ymmh_regs[CPU_NB_REGS];
-
     uint64_t opmask_regs[NB_OPMASK_REGS];
-    YMMReg zmmh_regs[CPU_NB_REGS];
-    ZMMReg hi16_zmm_regs[CPU_NB_REGS];
+#ifdef TARGET_X86_64
+    uint8_t xtilecfg[64];
+    uint8_t xtiledata[8192];
+#endif
 
     /* sysenter registers */
     uint32_t sysenter_cs;
@@ -986,7 +1459,6 @@ typedef struct CPUX86State {
     target_ulong kernelgsbase;
 #endif
 
-    uint64_t tsc;
     uint64_t tsc_adjust;
     uint64_t tsc_deadline;
     uint64_t tsc_aux;
@@ -996,6 +1468,7 @@ typedef struct CPUX86State {
     uint64_t mcg_status;
     uint64_t msr_ia32_misc_enable;
     uint64_t msr_ia32_feature_control;
+    uint64_t msr_ia32_sgxlepubkeyhash[4];
 
     uint64_t msr_fixed_ctr_ctrl;
     uint64_t msr_global_ctrl;
@@ -1010,9 +1483,11 @@ typedef struct CPUX86State {
     uint64_t msr_smi_count;
 
     uint32_t pkru;
+    uint32_t pkrs;
     uint32_t tsx_ctrl;
 
     uint64_t spec_ctrl;
+    uint64_t amd_tsc_scale_msr;
     uint64_t virt_ssbd;
 
     /* End of state preserved by INIT (dummy marker).  */
@@ -1022,6 +1497,7 @@ typedef struct CPUX86State {
     uint64_t wall_clock_msr;
     uint64_t steal_time_msr;
     uint64_t async_pf_en_msr;
+    uint64_t async_pf_int_msr;
     uint64_t pv_eoi_en_msr;
     uint64_t poll_control_msr;
 
@@ -1029,6 +1505,12 @@ typedef struct CPUX86State {
     uint64_t msr_hv_hypercall;
     uint64_t msr_hv_guest_os_id;
     uint64_t msr_hv_tsc;
+    uint64_t msr_hv_syndbg_control;
+    uint64_t msr_hv_syndbg_status;
+    uint64_t msr_hv_syndbg_send_page;
+    uint64_t msr_hv_syndbg_recv_page;
+    uint64_t msr_hv_syndbg_pending_page;
+    uint64_t msr_hv_syndbg_options;
 
     /* Per-VCPU HV MSRs */
     uint64_t msr_hv_vapic;
@@ -1050,6 +1532,15 @@ typedef struct CPUX86State {
     uint64_t msr_rtit_output_mask;
     uint64_t msr_rtit_cr3_match;
     uint64_t msr_rtit_addrs[MAX_RTIT_ADDRS];
+
+    /* Per-VCPU XFD MSRs */
+    uint64_t msr_xfd;
+    uint64_t msr_xfd_err;
+
+    /* Per-VCPU Arch LBR MSRs */
+    uint64_t msr_lbr_ctl;
+    uint64_t msr_lbr_depth;
+    LBREntry lbr_records[ARCH_LBR_NR_ENTRIES];
 
     /* exception/interrupt handling */
     int error_code;
@@ -1073,6 +1564,7 @@ typedef struct CPUX86State {
     uint64_t nested_cr3;
     uint32_t nested_pg_mode;
     uint8_t v_tpr;
+    uint32_t int_ctl;
 
     /* KVM states, automatically cleared on reset */
     uint8_t nmi_injected;
@@ -1125,19 +1617,38 @@ typedef struct CPUX86State {
     uint8_t has_error_code;
     uint8_t exception_has_payload;
     uint64_t exception_payload;
+    uint8_t triple_fault_pending;
     uint32_t ins_len;
     uint32_t sipi_vector;
     bool tsc_valid;
     int64_t tsc_khz;
     int64_t user_tsc_khz; /* for sanity check only */
+    uint64_t apic_bus_freq;
+    uint64_t tsc;
 #if defined(CONFIG_KVM) || defined(CONFIG_HVF)
     void *xsave_buf;
+    uint32_t xsave_buf_len;
 #endif
 #if defined(CONFIG_KVM)
     struct kvm_nested_state *nested_state;
+    MemoryRegion *xen_vcpu_info_mr;
+    void *xen_vcpu_info_hva;
+    uint64_t xen_vcpu_info_gpa;
+    uint64_t xen_vcpu_info_default_gpa;
+    uint64_t xen_vcpu_time_info_gpa;
+    uint64_t xen_vcpu_runstate_gpa;
+    uint8_t xen_vcpu_callback_vector;
+    bool xen_callback_asserted;
+    uint16_t xen_virq[XEN_NR_VIRQS];
+    uint64_t xen_singleshot_timer_ns;
+    QEMUTimer *xen_singleshot_timer;
+    uint64_t xen_periodic_timer_period;
+    QEMUTimer *xen_periodic_timer;
+    QemuMutex xen_timers_lock;
 #endif
 #if defined(CONFIG_HVF)
-    HVFX86EmulatorState *hvf_emul;
+    HVFX86LazyFlags hvf_lflags;
+    void *hvf_mmio_buf;
 #endif
 
     uint64_t mcg_cap;
@@ -1159,1390 +1670,15 @@ typedef struct CPUX86State {
     unsigned nr_dies;
 } CPUX86State;
 
-struct kvm_msrs;
-
-struct X86CPU {
-    /*< private >*/
-    CPUState parent_obj;
-    /*< public >*/
-
-    CPUNegativeOffsetState neg;
-    CPUX86State env;
-
-    uint32_t hyperv_spinlock_attempts;
-    char *hyperv_vendor_id;
-    bool hyperv_synic_kvm_only;
-    uint64_t hyperv_features;
-    bool hyperv_passthrough;
-    OnOffAuto hyperv_no_nonarch_cs;
-
-    bool check_cpuid;
-    bool enforce_cpuid;
-    /*
-     * Force features to be enabled even if the host doesn't support them.
-     * This is dangerous and should be done only for testing CPUID
-     * compatibility.
-     */
-    bool force_features;
-    bool expose_kvm;
-    bool expose_tcg;
-    bool migratable;
-    bool migrate_smi_count;
-    bool max_features; /* Enable all supported features automatically */
-    uint32_t apic_id;
-
-    /* Enables publishing of TSC increment and Local APIC bus frequencies to
-     * the guest OS in CPUID page 0x40000010, the same way that VMWare does. */
-    bool vmware_cpuid_freq;
-
-    /* if true the CPUID code directly forward host cache leaves to the guest */
-    bool cache_info_passthrough;
-
-    /* if true the CPUID code directly forwards
-     * host monitor/mwait leaves to the guest */
-    struct {
-        uint32_t eax;
-        uint32_t ebx;
-        uint32_t ecx;
-        uint32_t edx;
-    } mwait;
-
-    /* Features that were filtered out because of missing host capabilities */
-    FeatureWordArray filtered_features;
-
-    /* Enable PMU CPUID bits. This can't be enabled by default yet because
-     * it doesn't have ABI stability guarantees, as it passes all PMU CPUID
-     * bits returned by GET_SUPPORTED_CPUID (that depend on host CPU and kernel
-     * capabilities) directly to the guest.
-     */
-    bool enable_pmu;
-
-    /* LMCE support can be enabled/disabled via cpu option 'lmce=on/off'. It is
-     * disabled by default to avoid breaking migration between QEMU with
-     * different LMCE configurations.
-     */
-    bool enable_lmce;
-
-    /* Compatibility bits for old machine types.
-     * If true present virtual l3 cache for VM, the vcpus in the same virtual
-     * socket share an virtual l3 cache.
-     */
-    bool enable_l3_cache;
-
-    /* Compatibility bits for old machine types.
-     * If true present the old cache topology information
-     */
-    bool legacy_cache;
-
-    /* Compatibility bits for old machine types: */
-    bool enable_cpuid_0xb;
-
-    /* Enable auto level-increase for all CPUID leaves */
-    bool full_cpuid_auto_level;
-
-    /* Enable auto level-increase for Intel Processor Trace leave */
-    bool intel_pt_auto_level;
-
-    /* if true fill the top bits of the MTRR_PHYSMASKn variable range */
-    bool fill_mtrr_mask;
-
-    /* if true override the phys_bits value with a value read from the host */
-    bool host_phys_bits;
-
-    /* if set, limit maximum value for phys_bits when host_phys_bits is true */
-    uint8_t host_phys_bits_limit;
-
-    /* Stop SMI delivery for migration compatibility with old machines */
-    bool kvm_no_smi_migration;
-
-    /* Number of physical address bits supported */
-    uint32_t phys_bits;
-
-    /* in order to simplify APIC support, we leave this pointer to the
-       user */
-    struct DeviceState *apic_state;
-    struct MemoryRegion *cpu_as_root, *cpu_as_mem, *smram;
-    Notifier machine_done;
-
-    struct kvm_msrs *kvm_msr_buf;
-
-    int32_t node_id; /* NUMA node this CPU belongs to */
-    int32_t socket_id;
-    int32_t die_id;
-    int32_t core_id;
-    int32_t thread_id;
-
-    int32_t hv_max_vps;
-};
-
-void cpu_sync_bndcs_hflags(CPUX86State *env);
-
-static inline void cpu_x86_load_seg_cache(CPUX86State *env,
-                                          int seg_reg, unsigned int selector,
-                                          target_ulong base,
-                                          unsigned int limit,
-                                          unsigned int flags)
-{
-    SegmentCache *sc;
-    unsigned int new_hflags;
-
-    sc = &env->segs[seg_reg];
-    sc->selector = selector;
-    sc->base = base;
-    sc->limit = limit;
-    sc->flags = flags;
-
-    /* update the hidden flags */
-    {
-        if (seg_reg == R_CS) {
-#ifdef TARGET_X86_64
-            if ((env->hflags & HF_LMA_MASK) && (flags & DESC_L_MASK)) {
-                /* long mode */
-                env->hflags |= HF_CS32_MASK | HF_SS32_MASK | HF_CS64_MASK;
-                env->hflags &= ~(HF_ADDSEG_MASK);
-            } else
-#endif
-            {
-                /* legacy / compatibility case */
-                new_hflags = (env->segs[R_CS].flags & DESC_B_MASK)
-                    >> (DESC_B_SHIFT - HF_CS32_SHIFT);
-                env->hflags = (env->hflags & ~(HF_CS32_MASK | HF_CS64_MASK)) |
-                    new_hflags;
-            }
-        }
-        if (seg_reg == R_SS) {
-            int cpl = (flags >> DESC_DPL_SHIFT) & 3;
-#if HF_CPL_MASK != 3
-#error HF_CPL_MASK is hardcoded
-#endif
-            env->hflags = (env->hflags & ~HF_CPL_MASK) | cpl;
-            /* Possibly switch between BNDCFGS and BNDCFGU */
-            cpu_sync_bndcs_hflags(env);
-        }
-        new_hflags = (env->segs[R_SS].flags & DESC_B_MASK)
-            >> (DESC_B_SHIFT - HF_SS32_SHIFT);
-        if (env->hflags & HF_CS64_MASK) {
-            /* zero base assumed for DS, ES and SS in long mode */
-        } else if (!(env->cr[0] & CR0_PE_MASK) ||
-                   (env->eflags & VM_MASK) ||
-                   !(env->hflags & HF_CS32_MASK)) {
-            /* XXX: try to avoid this test. The problem comes from the
-               fact that is real mode or vm86 mode we only modify the
-               'base' and 'selector' fields of the segment cache to go
-               faster. A solution may be to force addseg to one in
-               translate-i386.c. */
-            new_hflags |= HF_ADDSEG_MASK;
-        } else {
-            new_hflags |= ((env->segs[R_DS].base |
-                            env->segs[R_ES].base |
-                            env->segs[R_SS].base) != 0) <<
-                HF_ADDSEG_SHIFT;
-        }
-        env->hflags = (env->hflags &
-                       ~(HF_SS32_MASK | HF_ADDSEG_MASK)) | new_hflags;
-    }
+G_NORETURN static inline void cpu_loop_exit_noexc(CPUState *cpu) {
+  __builtin_trap();
+  __builtin_unreachable();
 }
-
-void cpu_x86_update_cr3(CPUX86State *env, target_ulong new_cr3);
-
-#define MMU_USER_IDX    1
-
-#define CC_SRC  (env->cc_src)
-
-#define CC_OP   (env->cc_op)
-
-typedef CPUX86State CPUArchState;
-
-typedef X86CPU ArchCPU;
-
-#define lduw_p(p) lduw_le_p(p)
-
-#define ldl_p(p) ldl_le_p(p)
-
-#define stw_p(p, v) stw_le_p(p, v)
-
-#define stl_p(p, v) stl_le_p(p, v)
-
-extern unsigned long guest_base;
-
-static inline ArchCPU *env_archcpu(CPUArchState *env)
-{
-    return container_of(env, ArchCPU, env);
-}
-
-static inline CPUState *env_cpu(CPUArchState *env)
-{
-    return &env_archcpu(env)->parent_obj;
-}
-
-void QEMU_NORETURN raise_exception_err_ra(CPUX86State *env, int exception_index,
-                                          int error_code, uintptr_t retaddr);
-
-uint32_t cpu_cc_compute_all(CPUX86State *env1, int op);
-
-static inline uint32_t cpu_compute_eflags(CPUX86State *env)
-{
-    uint32_t eflags = env->eflags;
-    if (tcg_enabled()) {
-        eflags |= cpu_cc_compute_all(env, CC_OP) | (env->df & DF_MASK);
-    }
-    return eflags;
-}
-
-static inline void cpu_load_eflags(CPUX86State *env, int eflags,
-                                   int update_mask)
-{
-    CC_SRC = eflags & (CC_O | CC_S | CC_Z | CC_A | CC_P | CC_C);
-    CC_OP = CC_OP_EFLAGS;
-    env->df = 1 - (2 * ((eflags >> 10) & 1));
-    env->eflags = (env->eflags & ~update_mask) |
-        (eflags & update_mask) | 0x2;
-}
-
-#define g2h(x) ((void *)((unsigned long)(x)))
-
-typedef uint32_t abi_ptr;
-
-static uintptr_t helper_retaddr;
-
-static inline void set_helper_retaddr(uintptr_t ra)
-{
-    helper_retaddr = ra;
-    /*
-     * Ensure that this write is visible to the SIGSEGV handler that
-     * may be invoked due to a subsequent invalid memory operation.
-     */
-    signal_barrier();
-}
-
-static inline void clear_helper_retaddr(void)
-{
-    /*
-     * Ensure that previous memory operations have succeeded before
-     * removing the data visible to the signal handler.
-     */
-    signal_barrier();
-    helper_retaddr = 0;
-}
-
-typedef struct TraceEvent {
-    uint32_t id;
-    uint32_t vcpu_id;
-    const char * name;
-    const bool sstate;
-    uint16_t *dstate;
-} TraceEvent;
-
-extern int trace_events_enabled_count;
-
-#define trace_event_get_vcpu_state(vcpu, id)                            \
-    ((id ##_ENABLED) &&                                                 \
-     trace_event_get_vcpu_state_dynamic_by_vcpu_id(                     \
-         vcpu, _ ## id ## _EVENT.vcpu_id))
-
-static inline bool
-trace_event_get_vcpu_state_dynamic_by_vcpu_id(CPUState *vcpu,
-                                              uint32_t vcpu_id)
-{
-    /* it's on fast path, avoid consistency checks (asserts) */
-    if (unlikely(trace_events_enabled_count)) {
-        return test_bit(vcpu_id, vcpu->trace_dstate);
-    } else {
-        return false;
-    }
-}
-
-extern TraceEvent _TRACE_GUEST_MEM_BEFORE_EXEC_EVENT;
-
-#define TRACE_GUEST_MEM_BEFORE_EXEC_ENABLED 1
-
-static inline void _nocheck__trace_guest_mem_before_exec(CPUState * __cpu, uint64_t vaddr, uint16_t info)
-{
-}
-
-static inline void trace_guest_mem_before_exec(CPUState * __cpu, uint64_t vaddr, uint16_t info)
-{
-    if (trace_event_get_vcpu_state(__cpu, TRACE_GUEST_MEM_BEFORE_EXEC)) {
-        _nocheck__trace_guest_mem_before_exec(__cpu, vaddr, info);
-    }
-}
-
-typedef enum MemOp {
-    MO_8     = 0,
-    MO_16    = 1,
-    MO_32    = 2,
-    MO_64    = 3,
-    MO_SIZE  = 3,   /* Mask for the above.  */
-
-    MO_SIGN  = 4,   /* Sign-extended, otherwise zero-extended.  */
-
-    MO_BSWAP = 8,   /* Host reverse endian.  */
-#ifdef HOST_WORDS_BIGENDIAN
-    MO_LE    = MO_BSWAP,
-    MO_BE    = 0,
-#else
-    MO_LE    = 0,
-    MO_BE    = MO_BSWAP,
-#endif
-#ifdef NEED_CPU_H
-#ifdef TARGET_WORDS_BIGENDIAN
-    MO_TE    = MO_BE,
-#else
-    MO_TE    = MO_LE,
-#endif
-#endif
-
-    /*
-     * MO_UNALN accesses are never checked for alignment.
-     * MO_ALIGN accesses will result in a call to the CPU's
-     * do_unaligned_access hook if the guest address is not aligned.
-     * The default depends on whether the target CPU defines
-     * TARGET_ALIGNED_ONLY.
-     *
-     * Some architectures (e.g. ARMv8) need the address which is aligned
-     * to a size more than the size of the memory access.
-     * Some architectures (e.g. SPARCv9) need an address which is aligned,
-     * but less strictly than the natural alignment.
-     *
-     * MO_ALIGN supposes the alignment size is the size of a memory access.
-     *
-     * There are three options:
-     * - unaligned access permitted (MO_UNALN).
-     * - an alignment to the size of an access (MO_ALIGN);
-     * - an alignment to a specified size, which may be more or less than
-     *   the access size (MO_ALIGN_x where 'x' is a size in bytes);
-     */
-    MO_ASHIFT = 4,
-    MO_AMASK = 7 << MO_ASHIFT,
-#ifdef NEED_CPU_H
-#ifdef TARGET_ALIGNED_ONLY
-    MO_ALIGN = 0,
-    MO_UNALN = MO_AMASK,
-#else
-    MO_ALIGN = MO_AMASK,
-    MO_UNALN = 0,
-#endif
-#endif
-    MO_ALIGN_2  = 1 << MO_ASHIFT,
-    MO_ALIGN_4  = 2 << MO_ASHIFT,
-    MO_ALIGN_8  = 3 << MO_ASHIFT,
-    MO_ALIGN_16 = 4 << MO_ASHIFT,
-    MO_ALIGN_32 = 5 << MO_ASHIFT,
-    MO_ALIGN_64 = 6 << MO_ASHIFT,
-
-    /* Combinations of the above, for ease of use.  */
-    MO_UB    = MO_8,
-    MO_UW    = MO_16,
-    MO_UL    = MO_32,
-    MO_SB    = MO_SIGN | MO_8,
-    MO_SW    = MO_SIGN | MO_16,
-    MO_SL    = MO_SIGN | MO_32,
-    MO_Q     = MO_64,
-
-    MO_LEUW  = MO_LE | MO_UW,
-    MO_LEUL  = MO_LE | MO_UL,
-    MO_LESW  = MO_LE | MO_SW,
-    MO_LESL  = MO_LE | MO_SL,
-    MO_LEQ   = MO_LE | MO_Q,
-
-    MO_BEUW  = MO_BE | MO_UW,
-    MO_BEUL  = MO_BE | MO_UL,
-    MO_BESW  = MO_BE | MO_SW,
-    MO_BESL  = MO_BE | MO_SL,
-    MO_BEQ   = MO_BE | MO_Q,
-
-#ifdef NEED_CPU_H
-    MO_TEUW  = MO_TE | MO_UW,
-    MO_TEUL  = MO_TE | MO_UL,
-    MO_TESW  = MO_TE | MO_SW,
-    MO_TESL  = MO_TE | MO_SL,
-    MO_TEQ   = MO_TE | MO_Q,
-#endif
-
-    MO_SSIZE = MO_SIZE | MO_SIGN,
-} MemOp;
-
-#define TRACE_MEM_SZ_SHIFT_MASK 0xf
-
-#define TRACE_MEM_SE (1ULL << 4)
-
-#define TRACE_MEM_BE (1ULL << 5)
-
-#define TRACE_MEM_ST (1ULL << 6)
-
-static inline uint16_t trace_mem_build_info(
-    int size_shift, bool sign_extend, MemOp endianness,
-    bool store, unsigned int mmu_idx)
-{
-    uint16_t res;
-
-    res = size_shift & TRACE_MEM_SZ_SHIFT_MASK;
-    if (sign_extend) {
-        res |= TRACE_MEM_SE;
-    }
-    if (endianness == MO_BE) {
-        res |= TRACE_MEM_BE;
-    }
-    if (store) {
-        res |= TRACE_MEM_ST;
-    }
-#ifdef CONFIG_SOFTMMU
-    res |= mmu_idx << TRACE_MEM_MMU_SHIFT;
-#endif
-    return res;
-}
-
-# define GETPC() tci_tb_ptr
-
-extern uintptr_t tci_tb_ptr;
-
-# define LOG_PCALL(...) do { } while (0)
-
-# define LOG_PCALL_STATE(cpu) do { } while (0)
-
-#define MEMSUFFIX _kernel
-
-#define SUFFIX b
-
-#define USUFFIX ub
-
-#define SHIFT 0
-
-#define RES_TYPE uint32_t
-
-static inline RES_TYPE
-glue(glue(cpu_ld, USUFFIX), MEMSUFFIX)(CPUArchState *env, abi_ptr ptr)
-{
-    RES_TYPE ret;
-#ifdef CODE_ACCESS
-    set_helper_retaddr(1);
-    ret = glue(glue(ld, USUFFIX), _p)(g2h(ptr));
-    clear_helper_retaddr();
-#else
-    uint16_t meminfo = trace_mem_build_info(SHIFT, false, MO_TE, false,
-                                            MMU_USER_IDX);
-    trace_guest_mem_before_exec(env_cpu(env), ptr, meminfo);
-    ret = glue(glue(ld, USUFFIX), _p)(g2h(ptr));
-#endif
-    return ret;
-}
-
-static inline RES_TYPE
-glue(glue(glue(cpu_ld, USUFFIX), MEMSUFFIX), _ra)(CPUArchState *env,
-                                                  abi_ptr ptr,
-                                                  uintptr_t retaddr)
-{
-    RES_TYPE ret;
-    set_helper_retaddr(retaddr);
-    ret = glue(glue(cpu_ld, USUFFIX), MEMSUFFIX)(env, ptr);
-    clear_helper_retaddr();
-    return ret;
-}
-
-static inline void
-glue(glue(cpu_st, SUFFIX), MEMSUFFIX)(CPUArchState *env, abi_ptr ptr,
-                                      RES_TYPE v)
-{
-    uint16_t meminfo = trace_mem_build_info(SHIFT, false, MO_TE, true,
-                                            MMU_USER_IDX);
-    trace_guest_mem_before_exec(env_cpu(env), ptr, meminfo);
-    glue(glue(st, SUFFIX), _p)(g2h(ptr), v);
-    qemu_plugin_vcpu_mem_cb(env_cpu(env), ptr, meminfo);
-}
-
-static inline void
-glue(glue(glue(cpu_st, SUFFIX), MEMSUFFIX), _ra)(CPUArchState *env,
-                                                  abi_ptr ptr,
-                                                  RES_TYPE v,
-                                                  uintptr_t retaddr)
-{
-    set_helper_retaddr(retaddr);
-    glue(glue(cpu_st, SUFFIX), MEMSUFFIX)(env, ptr, v);
-    clear_helper_retaddr();
-}
-
-#define SUFFIX w
-
-#define USUFFIX uw
-
-#define SHIFT 1
-
-#define RES_TYPE uint32_t
-
-static inline RES_TYPE
-glue(glue(cpu_ld, USUFFIX), MEMSUFFIX)(CPUArchState *env, abi_ptr ptr)
-{
-    RES_TYPE ret;
-#ifdef CODE_ACCESS
-    set_helper_retaddr(1);
-    ret = glue(glue(ld, USUFFIX), _p)(g2h(ptr));
-    clear_helper_retaddr();
-#else
-    uint16_t meminfo = trace_mem_build_info(SHIFT, false, MO_TE, false,
-                                            MMU_USER_IDX);
-    trace_guest_mem_before_exec(env_cpu(env), ptr, meminfo);
-    ret = glue(glue(ld, USUFFIX), _p)(g2h(ptr));
-#endif
-    return ret;
-}
-
-static inline RES_TYPE
-glue(glue(glue(cpu_ld, USUFFIX), MEMSUFFIX), _ra)(CPUArchState *env,
-                                                  abi_ptr ptr,
-                                                  uintptr_t retaddr)
-{
-    RES_TYPE ret;
-    set_helper_retaddr(retaddr);
-    ret = glue(glue(cpu_ld, USUFFIX), MEMSUFFIX)(env, ptr);
-    clear_helper_retaddr();
-    return ret;
-}
-
-static inline void
-glue(glue(cpu_st, SUFFIX), MEMSUFFIX)(CPUArchState *env, abi_ptr ptr,
-                                      RES_TYPE v)
-{
-    uint16_t meminfo = trace_mem_build_info(SHIFT, false, MO_TE, true,
-                                            MMU_USER_IDX);
-    trace_guest_mem_before_exec(env_cpu(env), ptr, meminfo);
-    glue(glue(st, SUFFIX), _p)(g2h(ptr), v);
-    qemu_plugin_vcpu_mem_cb(env_cpu(env), ptr, meminfo);
-}
-
-static inline void
-glue(glue(glue(cpu_st, SUFFIX), MEMSUFFIX), _ra)(CPUArchState *env,
-                                                  abi_ptr ptr,
-                                                  RES_TYPE v,
-                                                  uintptr_t retaddr)
-{
-    set_helper_retaddr(retaddr);
-    glue(glue(cpu_st, SUFFIX), MEMSUFFIX)(env, ptr, v);
-    clear_helper_retaddr();
-}
-
-#define SUFFIX l
-
-#define USUFFIX l
-
-#define SHIFT 2
-
-#define RES_TYPE uint32_t
-
-static inline RES_TYPE
-glue(glue(cpu_ld, USUFFIX), MEMSUFFIX)(CPUArchState *env, abi_ptr ptr)
-{
-    RES_TYPE ret;
-#ifdef CODE_ACCESS
-    set_helper_retaddr(1);
-    ret = glue(glue(ld, USUFFIX), _p)(g2h(ptr));
-    clear_helper_retaddr();
-#else
-    uint16_t meminfo = trace_mem_build_info(SHIFT, false, MO_TE, false,
-                                            MMU_USER_IDX);
-    trace_guest_mem_before_exec(env_cpu(env), ptr, meminfo);
-    ret = glue(glue(ld, USUFFIX), _p)(g2h(ptr));
-#endif
-    return ret;
-}
-
-static inline RES_TYPE
-glue(glue(glue(cpu_ld, USUFFIX), MEMSUFFIX), _ra)(CPUArchState *env,
-                                                  abi_ptr ptr,
-                                                  uintptr_t retaddr)
-{
-    RES_TYPE ret;
-    set_helper_retaddr(retaddr);
-    ret = glue(glue(cpu_ld, USUFFIX), MEMSUFFIX)(env, ptr);
-    clear_helper_retaddr();
-    return ret;
-}
-
-static inline void
-glue(glue(cpu_st, SUFFIX), MEMSUFFIX)(CPUArchState *env, abi_ptr ptr,
-                                      RES_TYPE v)
-{
-    uint16_t meminfo = trace_mem_build_info(SHIFT, false, MO_TE, true,
-                                            MMU_USER_IDX);
-    trace_guest_mem_before_exec(env_cpu(env), ptr, meminfo);
-    glue(glue(st, SUFFIX), _p)(g2h(ptr), v);
-    qemu_plugin_vcpu_mem_cb(env_cpu(env), ptr, meminfo);
-}
-
-static inline void
-glue(glue(glue(cpu_st, SUFFIX), MEMSUFFIX), _ra)(CPUArchState *env,
-                                                  abi_ptr ptr,
-                                                  RES_TYPE v,
-                                                  uintptr_t retaddr)
-{
-    set_helper_retaddr(retaddr);
-    glue(glue(cpu_st, SUFFIX), MEMSUFFIX)(env, ptr, v);
-    clear_helper_retaddr();
-}
-
-static inline int load_segment_ra(CPUX86State *env, uint32_t *e1_ptr,
-                               uint32_t *e2_ptr, int selector,
-                               uintptr_t retaddr)
-{
-    SegmentCache *dt;
-    int index;
-    target_ulong ptr;
-
-    if (selector & 0x4) {
-        dt = &env->ldt;
-    } else {
-        dt = &env->gdt;
-    }
-    index = selector & ~7;
-    if ((index + 7) > dt->limit) {
-        return -1;
-    }
-    ptr = dt->base + index;
-    *e1_ptr = cpu_ldl_kernel_ra(env, ptr, retaddr);
-    *e2_ptr = cpu_ldl_kernel_ra(env, ptr + 4, retaddr);
-    return 0;
-}
-
-static inline unsigned int get_seg_limit(uint32_t e1, uint32_t e2)
-{
-    unsigned int limit;
-
-    limit = (e1 & 0xffff) | (e2 & 0x000f0000);
-    if (e2 & DESC_G_MASK) {
-        limit = (limit << 12) | 0xfff;
-    }
-    return limit;
-}
-
-static inline uint32_t get_seg_base(uint32_t e1, uint32_t e2)
-{
-    return (e1 >> 16) | ((e2 & 0xff) << 16) | (e2 & 0xff000000);
-}
-
-static inline void load_seg_cache_raw_dt(SegmentCache *sc, uint32_t e1,
-                                         uint32_t e2)
-{
-    sc->base = get_seg_base(e1, e2);
-    sc->limit = get_seg_limit(e1, e2);
-    sc->flags = e2;
-}
-
-static inline void load_seg_vm(CPUX86State *env, int seg, int selector)
-{
-    selector &= 0xffff;
-
-    cpu_x86_load_seg_cache(env, seg, selector, (selector << 4), 0xffff,
-                           DESC_P_MASK | DESC_S_MASK | DESC_W_MASK |
-                           DESC_A_MASK | (3 << DESC_DPL_SHIFT));
-}
-
-static inline void get_ss_esp_from_tss(CPUX86State *env, uint32_t *ss_ptr,
-                                       uint32_t *esp_ptr, int dpl,
-                                       uintptr_t retaddr)
-{
-    X86CPU *cpu = env_archcpu(env);
-    int type, index, shift;
-
-#if 0
-    {
-        int i;
-        printf("TR: base=%p limit=%x\n", env->tr.base, env->tr.limit);
-        for (i = 0; i < env->tr.limit; i++) {
-            printf("%02x ", env->tr.base[i]);
-            if ((i & 7) == 7) {
-                printf("\n");
-            }
-        }
-        printf("\n");
-    }
-#endif
-
-    if (!(env->tr.flags & DESC_P_MASK)) {
-        cpu_abort(CPU(cpu), "invalid tss");
-    }
-    type = (env->tr.flags >> DESC_TYPE_SHIFT) & 0xf;
-    if ((type & 7) != 1) {
-        cpu_abort(CPU(cpu), "invalid tss type");
-    }
-    shift = type >> 3;
-    index = (dpl * 4 + 2) << shift;
-    if (index + (4 << shift) - 1 > env->tr.limit) {
-        raise_exception_err_ra(env, EXCP0A_TSS, env->tr.selector & 0xfffc, retaddr);
-    }
-    if (shift == 0) {
-        *esp_ptr = cpu_lduw_kernel_ra(env, env->tr.base + index, retaddr);
-        *ss_ptr = cpu_lduw_kernel_ra(env, env->tr.base + index + 2, retaddr);
-    } else {
-        *esp_ptr = cpu_ldl_kernel_ra(env, env->tr.base + index, retaddr);
-        *ss_ptr = cpu_lduw_kernel_ra(env, env->tr.base + index + 4, retaddr);
-    }
-}
-
-#define SWITCH_TSS_JMP  0
-
-#define SWITCH_TSS_IRET 1
-
-#define SWITCH_TSS_CALL 2
-
-static void tss_load_seg(CPUX86State *env, int seg_reg, int selector, int cpl,
-                         uintptr_t retaddr)
-{
-    uint32_t e1, e2;
-    int rpl, dpl;
-
-    if ((selector & 0xfffc) != 0) {
-        if (load_segment_ra(env, &e1, &e2, selector, retaddr) != 0) {
-            raise_exception_err_ra(env, EXCP0A_TSS, selector & 0xfffc, retaddr);
-        }
-        if (!(e2 & DESC_S_MASK)) {
-            raise_exception_err_ra(env, EXCP0A_TSS, selector & 0xfffc, retaddr);
-        }
-        rpl = selector & 3;
-        dpl = (e2 >> DESC_DPL_SHIFT) & 3;
-        if (seg_reg == R_CS) {
-            if (!(e2 & DESC_CS_MASK)) {
-                raise_exception_err_ra(env, EXCP0A_TSS, selector & 0xfffc, retaddr);
-            }
-            if (dpl != rpl) {
-                raise_exception_err_ra(env, EXCP0A_TSS, selector & 0xfffc, retaddr);
-            }
-        } else if (seg_reg == R_SS) {
-            /* SS must be writable data */
-            if ((e2 & DESC_CS_MASK) || !(e2 & DESC_W_MASK)) {
-                raise_exception_err_ra(env, EXCP0A_TSS, selector & 0xfffc, retaddr);
-            }
-            if (dpl != cpl || dpl != rpl) {
-                raise_exception_err_ra(env, EXCP0A_TSS, selector & 0xfffc, retaddr);
-            }
-        } else {
-            /* not readable code */
-            if ((e2 & DESC_CS_MASK) && !(e2 & DESC_R_MASK)) {
-                raise_exception_err_ra(env, EXCP0A_TSS, selector & 0xfffc, retaddr);
-            }
-            /* if data or non conforming code, checks the rights */
-            if (((e2 >> DESC_TYPE_SHIFT) & 0xf) < 12) {
-                if (dpl < cpl || dpl < rpl) {
-                    raise_exception_err_ra(env, EXCP0A_TSS, selector & 0xfffc, retaddr);
-                }
-            }
-        }
-        if (!(e2 & DESC_P_MASK)) {
-            raise_exception_err_ra(env, EXCP0B_NOSEG, selector & 0xfffc, retaddr);
-        }
-        cpu_x86_load_seg_cache(env, seg_reg, selector,
-                               get_seg_base(e1, e2),
-                               get_seg_limit(e1, e2),
-                               e2);
-    } else {
-        if (seg_reg == R_SS || seg_reg == R_CS) {
-            raise_exception_err_ra(env, EXCP0A_TSS, selector & 0xfffc, retaddr);
-        }
-    }
-}
-
-static void switch_tss_ra(CPUX86State *env, int tss_selector,
-                          uint32_t e1, uint32_t e2, int source,
-                          uint32_t next_eip, uintptr_t retaddr)
-{
-    int tss_limit, tss_limit_max, type, old_tss_limit_max, old_type, v1, v2, i;
-    target_ulong tss_base;
-    uint32_t new_regs[8], new_segs[6];
-    uint32_t new_eflags, new_eip, new_cr3, new_ldt, new_trap;
-    uint32_t old_eflags, eflags_mask;
-    SegmentCache *dt;
-    int index;
-    target_ulong ptr;
-
-    type = (e2 >> DESC_TYPE_SHIFT) & 0xf;
-    LOG_PCALL("switch_tss: sel=0x%04x type=%d src=%d\n", tss_selector, type,
-              source);
-
-    /* if task gate, we read the TSS segment and we load it */
-    if (type == 5) {
-        if (!(e2 & DESC_P_MASK)) {
-            raise_exception_err_ra(env, EXCP0B_NOSEG, tss_selector & 0xfffc, retaddr);
-        }
-        tss_selector = e1 >> 16;
-        if (tss_selector & 4) {
-            raise_exception_err_ra(env, EXCP0A_TSS, tss_selector & 0xfffc, retaddr);
-        }
-        if (load_segment_ra(env, &e1, &e2, tss_selector, retaddr) != 0) {
-            raise_exception_err_ra(env, EXCP0D_GPF, tss_selector & 0xfffc, retaddr);
-        }
-        if (e2 & DESC_S_MASK) {
-            raise_exception_err_ra(env, EXCP0D_GPF, tss_selector & 0xfffc, retaddr);
-        }
-        type = (e2 >> DESC_TYPE_SHIFT) & 0xf;
-        if ((type & 7) != 1) {
-            raise_exception_err_ra(env, EXCP0D_GPF, tss_selector & 0xfffc, retaddr);
-        }
-    }
-
-    if (!(e2 & DESC_P_MASK)) {
-        raise_exception_err_ra(env, EXCP0B_NOSEG, tss_selector & 0xfffc, retaddr);
-    }
-
-    if (type & 8) {
-        tss_limit_max = 103;
-    } else {
-        tss_limit_max = 43;
-    }
-    tss_limit = get_seg_limit(e1, e2);
-    tss_base = get_seg_base(e1, e2);
-    if ((tss_selector & 4) != 0 ||
-        tss_limit < tss_limit_max) {
-        raise_exception_err_ra(env, EXCP0A_TSS, tss_selector & 0xfffc, retaddr);
-    }
-    old_type = (env->tr.flags >> DESC_TYPE_SHIFT) & 0xf;
-    if (old_type & 8) {
-        old_tss_limit_max = 103;
-    } else {
-        old_tss_limit_max = 43;
-    }
-
-    /* read all the registers from the new TSS */
-    if (type & 8) {
-        /* 32 bit */
-        new_cr3 = cpu_ldl_kernel_ra(env, tss_base + 0x1c, retaddr);
-        new_eip = cpu_ldl_kernel_ra(env, tss_base + 0x20, retaddr);
-        new_eflags = cpu_ldl_kernel_ra(env, tss_base + 0x24, retaddr);
-        for (i = 0; i < 8; i++) {
-            new_regs[i] = cpu_ldl_kernel_ra(env, tss_base + (0x28 + i * 4),
-                                            retaddr);
-        }
-        for (i = 0; i < 6; i++) {
-            new_segs[i] = cpu_lduw_kernel_ra(env, tss_base + (0x48 + i * 4),
-                                             retaddr);
-        }
-        new_ldt = cpu_lduw_kernel_ra(env, tss_base + 0x60, retaddr);
-        new_trap = cpu_ldl_kernel_ra(env, tss_base + 0x64, retaddr);
-    } else {
-        /* 16 bit */
-        new_cr3 = 0;
-        new_eip = cpu_lduw_kernel_ra(env, tss_base + 0x0e, retaddr);
-        new_eflags = cpu_lduw_kernel_ra(env, tss_base + 0x10, retaddr);
-        for (i = 0; i < 8; i++) {
-            new_regs[i] = cpu_lduw_kernel_ra(env, tss_base + (0x12 + i * 2),
-                                             retaddr) | 0xffff0000;
-        }
-        for (i = 0; i < 4; i++) {
-            new_segs[i] = cpu_lduw_kernel_ra(env, tss_base + (0x22 + i * 4),
-                                             retaddr);
-        }
-        new_ldt = cpu_lduw_kernel_ra(env, tss_base + 0x2a, retaddr);
-        new_segs[R_FS] = 0;
-        new_segs[R_GS] = 0;
-        new_trap = 0;
-    }
-    /* XXX: avoid a compiler warning, see
-     http://support.amd.com/us/Processor_TechDocs/24593.pdf
-     chapters 12.2.5 and 13.2.4 on how to implement TSS Trap bit */
-    (void)new_trap;
-
-    /* NOTE: we must avoid memory exceptions during the task switch,
-       so we make dummy accesses before */
-    /* XXX: it can still fail in some cases, so a bigger hack is
-       necessary to valid the TLB after having done the accesses */
-
-    v1 = cpu_ldub_kernel_ra(env, env->tr.base, retaddr);
-    v2 = cpu_ldub_kernel_ra(env, env->tr.base + old_tss_limit_max, retaddr);
-    cpu_stb_kernel_ra(env, env->tr.base, v1, retaddr);
-    cpu_stb_kernel_ra(env, env->tr.base + old_tss_limit_max, v2, retaddr);
-
-    /* clear busy bit (it is restartable) */
-    if (source == SWITCH_TSS_JMP || source == SWITCH_TSS_IRET) {
-        target_ulong ptr;
-        uint32_t e2;
-
-        ptr = env->gdt.base + (env->tr.selector & ~7);
-        e2 = cpu_ldl_kernel_ra(env, ptr + 4, retaddr);
-        e2 &= ~DESC_TSS_BUSY_MASK;
-        cpu_stl_kernel_ra(env, ptr + 4, e2, retaddr);
-    }
-    old_eflags = cpu_compute_eflags(env);
-    if (source == SWITCH_TSS_IRET) {
-        old_eflags &= ~NT_MASK;
-    }
-
-    /* save the current state in the old TSS */
-    if (type & 8) {
-        /* 32 bit */
-        cpu_stl_kernel_ra(env, env->tr.base + 0x20, next_eip, retaddr);
-        cpu_stl_kernel_ra(env, env->tr.base + 0x24, old_eflags, retaddr);
-        cpu_stl_kernel_ra(env, env->tr.base + (0x28 + 0 * 4), env->regs[R_EAX], retaddr);
-        cpu_stl_kernel_ra(env, env->tr.base + (0x28 + 1 * 4), env->regs[R_ECX], retaddr);
-        cpu_stl_kernel_ra(env, env->tr.base + (0x28 + 2 * 4), env->regs[R_EDX], retaddr);
-        cpu_stl_kernel_ra(env, env->tr.base + (0x28 + 3 * 4), env->regs[R_EBX], retaddr);
-        cpu_stl_kernel_ra(env, env->tr.base + (0x28 + 4 * 4), env->regs[R_ESP], retaddr);
-        cpu_stl_kernel_ra(env, env->tr.base + (0x28 + 5 * 4), env->regs[R_EBP], retaddr);
-        cpu_stl_kernel_ra(env, env->tr.base + (0x28 + 6 * 4), env->regs[R_ESI], retaddr);
-        cpu_stl_kernel_ra(env, env->tr.base + (0x28 + 7 * 4), env->regs[R_EDI], retaddr);
-        for (i = 0; i < 6; i++) {
-            cpu_stw_kernel_ra(env, env->tr.base + (0x48 + i * 4),
-                              env->segs[i].selector, retaddr);
-        }
-    } else {
-        /* 16 bit */
-        cpu_stw_kernel_ra(env, env->tr.base + 0x0e, next_eip, retaddr);
-        cpu_stw_kernel_ra(env, env->tr.base + 0x10, old_eflags, retaddr);
-        cpu_stw_kernel_ra(env, env->tr.base + (0x12 + 0 * 2), env->regs[R_EAX], retaddr);
-        cpu_stw_kernel_ra(env, env->tr.base + (0x12 + 1 * 2), env->regs[R_ECX], retaddr);
-        cpu_stw_kernel_ra(env, env->tr.base + (0x12 + 2 * 2), env->regs[R_EDX], retaddr);
-        cpu_stw_kernel_ra(env, env->tr.base + (0x12 + 3 * 2), env->regs[R_EBX], retaddr);
-        cpu_stw_kernel_ra(env, env->tr.base + (0x12 + 4 * 2), env->regs[R_ESP], retaddr);
-        cpu_stw_kernel_ra(env, env->tr.base + (0x12 + 5 * 2), env->regs[R_EBP], retaddr);
-        cpu_stw_kernel_ra(env, env->tr.base + (0x12 + 6 * 2), env->regs[R_ESI], retaddr);
-        cpu_stw_kernel_ra(env, env->tr.base + (0x12 + 7 * 2), env->regs[R_EDI], retaddr);
-        for (i = 0; i < 4; i++) {
-            cpu_stw_kernel_ra(env, env->tr.base + (0x22 + i * 4),
-                              env->segs[i].selector, retaddr);
-        }
-    }
-
-    /* now if an exception occurs, it will occurs in the next task
-       context */
-
-    if (source == SWITCH_TSS_CALL) {
-        cpu_stw_kernel_ra(env, tss_base, env->tr.selector, retaddr);
-        new_eflags |= NT_MASK;
-    }
-
-    /* set busy bit */
-    if (source == SWITCH_TSS_JMP || source == SWITCH_TSS_CALL) {
-        target_ulong ptr;
-        uint32_t e2;
-
-        ptr = env->gdt.base + (tss_selector & ~7);
-        e2 = cpu_ldl_kernel_ra(env, ptr + 4, retaddr);
-        e2 |= DESC_TSS_BUSY_MASK;
-        cpu_stl_kernel_ra(env, ptr + 4, e2, retaddr);
-    }
-
-    /* set the new CPU state */
-    /* from this point, any exception which occurs can give problems */
-    env->cr[0] |= CR0_TS_MASK;
-    env->hflags |= HF_TS_MASK;
-    env->tr.selector = tss_selector;
-    env->tr.base = tss_base;
-    env->tr.limit = tss_limit;
-    env->tr.flags = e2 & ~DESC_TSS_BUSY_MASK;
-
-    if ((type & 8) && (env->cr[0] & CR0_PG_MASK)) {
-        cpu_x86_update_cr3(env, new_cr3);
-    }
-
-    /* load all registers without an exception, then reload them with
-       possible exception */
-    env->eip = new_eip;
-    eflags_mask = TF_MASK | AC_MASK | ID_MASK |
-        IF_MASK | IOPL_MASK | VM_MASK | RF_MASK | NT_MASK;
-    if (!(type & 8)) {
-        eflags_mask &= 0xffff;
-    }
-    cpu_load_eflags(env, new_eflags, eflags_mask);
-    /* XXX: what to do in 16 bit case? */
-    env->regs[R_EAX] = new_regs[0];
-    env->regs[R_ECX] = new_regs[1];
-    env->regs[R_EDX] = new_regs[2];
-    env->regs[R_EBX] = new_regs[3];
-    env->regs[R_ESP] = new_regs[4];
-    env->regs[R_EBP] = new_regs[5];
-    env->regs[R_ESI] = new_regs[6];
-    env->regs[R_EDI] = new_regs[7];
-    if (new_eflags & VM_MASK) {
-        for (i = 0; i < 6; i++) {
-            load_seg_vm(env, i, new_segs[i]);
-        }
-    } else {
-        /* first just selectors as the rest may trigger exceptions */
-        for (i = 0; i < 6; i++) {
-            cpu_x86_load_seg_cache(env, i, new_segs[i], 0, 0, 0);
-        }
-    }
-
-    env->ldt.selector = new_ldt & ~4;
-    env->ldt.base = 0;
-    env->ldt.limit = 0;
-    env->ldt.flags = 0;
-
-    /* load the LDT */
-    if (new_ldt & 4) {
-        raise_exception_err_ra(env, EXCP0A_TSS, new_ldt & 0xfffc, retaddr);
-    }
-
-    if ((new_ldt & 0xfffc) != 0) {
-        dt = &env->gdt;
-        index = new_ldt & ~7;
-        if ((index + 7) > dt->limit) {
-            raise_exception_err_ra(env, EXCP0A_TSS, new_ldt & 0xfffc, retaddr);
-        }
-        ptr = dt->base + index;
-        e1 = cpu_ldl_kernel_ra(env, ptr, retaddr);
-        e2 = cpu_ldl_kernel_ra(env, ptr + 4, retaddr);
-        if ((e2 & DESC_S_MASK) || ((e2 >> DESC_TYPE_SHIFT) & 0xf) != 2) {
-            raise_exception_err_ra(env, EXCP0A_TSS, new_ldt & 0xfffc, retaddr);
-        }
-        if (!(e2 & DESC_P_MASK)) {
-            raise_exception_err_ra(env, EXCP0A_TSS, new_ldt & 0xfffc, retaddr);
-        }
-        load_seg_cache_raw_dt(&env->ldt, e1, e2);
-    }
-
-    /* load the segments */
-    if (!(new_eflags & VM_MASK)) {
-        int cpl = new_segs[R_CS] & 3;
-        tss_load_seg(env, R_CS, new_segs[R_CS], cpl, retaddr);
-        tss_load_seg(env, R_SS, new_segs[R_SS], cpl, retaddr);
-        tss_load_seg(env, R_ES, new_segs[R_ES], cpl, retaddr);
-        tss_load_seg(env, R_DS, new_segs[R_DS], cpl, retaddr);
-        tss_load_seg(env, R_FS, new_segs[R_FS], cpl, retaddr);
-        tss_load_seg(env, R_GS, new_segs[R_GS], cpl, retaddr);
-    }
-
-    /* check that env->eip is in the CS segment limits */
-    if (new_eip > env->segs[R_CS].limit) {
-        /* XXX: different exception if CALL? */
-        raise_exception_err_ra(env, EXCP0D_GPF, 0, retaddr);
-    }
-
-#ifndef CONFIG_USER_ONLY
-    /* reset local breakpoints */
-    if (env->dr[7] & DR7_LOCAL_BP_MASK) {
-        cpu_x86_update_dr7(env, env->dr[7] & ~DR7_LOCAL_BP_MASK);
-    }
-#endif
-}
-
-static inline unsigned int get_sp_mask(unsigned int e2)
-{
-#ifdef TARGET_X86_64
-    if (e2 & DESC_L_MASK) {
-        return 0;
-    } else
-#endif
-    if (e2 & DESC_B_MASK) {
-        return 0xffffffff;
-    } else {
-        return 0xffff;
-    }
-}
-
-#define SET_ESP(val, sp_mask)                                   \
-    do {                                                        \
-        env->regs[R_ESP] = (env->regs[R_ESP] & ~(sp_mask)) |    \
-            ((val) & (sp_mask));                                \
-    } while (0)
-
-#define SEG_ADDL(ssp, sp, sp_mask) ((uint32_t)((ssp) + (sp & (sp_mask))))
-
-#define PUSHW_RA(ssp, sp, sp_mask, val, ra)                      \
-    {                                                            \
-        sp -= 2;                                                 \
-        cpu_stw_kernel_ra(env, (ssp) + (sp & (sp_mask)), (val), ra); \
-    }
-
-#define PUSHL_RA(ssp, sp, sp_mask, val, ra)                             \
-    {                                                                   \
-        sp -= 4;                                                        \
-        cpu_stl_kernel_ra(env, SEG_ADDL(ssp, sp, sp_mask), (uint32_t)(val), ra); \
-    }
 
 void helper_lcall_protected(CPUX86State *env, int new_cs, target_ulong new_eip,
                             int shift, target_ulong next_eip)
 {
-#if 0
-    int new_stack, i;
-    uint32_t e1, e2, cpl, dpl, rpl, selector, param_count;
-    uint32_t ss = 0, ss_e1 = 0, ss_e2 = 0, type, ss_dpl, sp_mask;
-    uint32_t val, limit, old_sp_mask;
-    target_ulong ssp, old_ssp, offset, sp;
-
-    LOG_PCALL("lcall %04x:" TARGET_FMT_lx " s=%d\n", new_cs, new_eip, shift);
-    LOG_PCALL_STATE(env_cpu(env));
-    if ((new_cs & 0xfffc) == 0) {
-        raise_exception_err_ra(env, EXCP0D_GPF, 0, GETPC());
-    }
-    if (load_segment_ra(env, &e1, &e2, new_cs, GETPC()) != 0) {
-        raise_exception_err_ra(env, EXCP0D_GPF, new_cs & 0xfffc, GETPC());
-    }
-    cpl = env->hflags & HF_CPL_MASK;
-    LOG_PCALL("desc=%08x:%08x\n", e1, e2);
-    if (e2 & DESC_S_MASK) {
-        if (!(e2 & DESC_CS_MASK)) {
-            raise_exception_err_ra(env, EXCP0D_GPF, new_cs & 0xfffc, GETPC());
-        }
-        dpl = (e2 >> DESC_DPL_SHIFT) & 3;
-        if (e2 & DESC_C_MASK) {
-            /* conforming code segment */
-            if (dpl > cpl) {
-                raise_exception_err_ra(env, EXCP0D_GPF, new_cs & 0xfffc, GETPC());
-            }
-        } else {
-            /* non conforming code segment */
-            rpl = new_cs & 3;
-            if (rpl > cpl) {
-                raise_exception_err_ra(env, EXCP0D_GPF, new_cs & 0xfffc, GETPC());
-            }
-            if (dpl != cpl) {
-                raise_exception_err_ra(env, EXCP0D_GPF, new_cs & 0xfffc, GETPC());
-            }
-        }
-        if (!(e2 & DESC_P_MASK)) {
-            raise_exception_err_ra(env, EXCP0B_NOSEG, new_cs & 0xfffc, GETPC());
-        }
-
-#ifdef TARGET_X86_64
-        /* XXX: check 16/32 bit cases in long mode */
-        if (shift == 2) {
-            target_ulong rsp;
-
-            /* 64 bit case */
-            rsp = env->regs[R_ESP];
-            PUSHQ_RA(rsp, env->segs[R_CS].selector, GETPC());
-            PUSHQ_RA(rsp, next_eip, GETPC());
-            /* from this point, not restartable */
-            env->regs[R_ESP] = rsp;
-            cpu_x86_load_seg_cache(env, R_CS, (new_cs & 0xfffc) | cpl,
-                                   get_seg_base(e1, e2),
-                                   get_seg_limit(e1, e2), e2);
-            env->eip = new_eip;
-        } else
-#endif
-        {
-            sp = env->regs[R_ESP];
-            sp_mask = get_sp_mask(env->segs[R_SS].flags);
-            ssp = env->segs[R_SS].base;
-            if (shift) {
-                PUSHL_RA(ssp, sp, sp_mask, env->segs[R_CS].selector, GETPC());
-                PUSHL_RA(ssp, sp, sp_mask, next_eip, GETPC());
-            } else {
-                PUSHW_RA(ssp, sp, sp_mask, env->segs[R_CS].selector, GETPC());
-                PUSHW_RA(ssp, sp, sp_mask, next_eip, GETPC());
-            }
-
-            limit = get_seg_limit(e1, e2);
-            if (new_eip > limit) {
-                raise_exception_err_ra(env, EXCP0D_GPF, new_cs & 0xfffc, GETPC());
-            }
-            /* from this point, not restartable */
-            SET_ESP(sp, sp_mask);
-            cpu_x86_load_seg_cache(env, R_CS, (new_cs & 0xfffc) | cpl,
-                                   get_seg_base(e1, e2), limit, e2);
-            env->eip = new_eip;
-        }
-    } else {
-        /* check gate type */
-        type = (e2 >> DESC_TYPE_SHIFT) & 0x1f;
-        dpl = (e2 >> DESC_DPL_SHIFT) & 3;
-        rpl = new_cs & 3;
-
-#ifdef TARGET_X86_64
-        if (env->efer & MSR_EFER_LMA) {
-            if (type != 12) {
-                raise_exception_err_ra(env, EXCP0D_GPF, new_cs & 0xfffc, GETPC());
-            }
-        }
-#endif
-
-        switch (type) {
-        case 1: /* available 286 TSS */
-        case 9: /* available 386 TSS */
-        case 5: /* task gate */
-            if (dpl < cpl || dpl < rpl) {
-                raise_exception_err_ra(env, EXCP0D_GPF, new_cs & 0xfffc, GETPC());
-            }
-            switch_tss_ra(env, new_cs, e1, e2, SWITCH_TSS_CALL, next_eip, GETPC());
-            return;
-        case 4: /* 286 call gate */
-        case 12: /* 386 call gate */
-            break;
-        default:
-            raise_exception_err_ra(env, EXCP0D_GPF, new_cs & 0xfffc, GETPC());
-            break;
-        }
-        shift = type >> 3;
-
-        if (dpl < cpl || dpl < rpl) {
-            raise_exception_err_ra(env, EXCP0D_GPF, new_cs & 0xfffc, GETPC());
-        }
-        /* check valid bit */
-        if (!(e2 & DESC_P_MASK)) {
-            raise_exception_err_ra(env, EXCP0B_NOSEG,  new_cs & 0xfffc, GETPC());
-        }
-        selector = e1 >> 16;
-        param_count = e2 & 0x1f;
-        offset = (e2 & 0xffff0000) | (e1 & 0x0000ffff);
-#ifdef TARGET_X86_64
-        if (env->efer & MSR_EFER_LMA) {
-            /* load the upper 8 bytes of the 64-bit call gate */
-            if (load_segment_ra(env, &e1, &e2, new_cs + 8, GETPC())) {
-                raise_exception_err_ra(env, EXCP0D_GPF, new_cs & 0xfffc,
-                                       GETPC());
-            }
-            type = (e2 >> DESC_TYPE_SHIFT) & 0x1f;
-            if (type != 0) {
-                raise_exception_err_ra(env, EXCP0D_GPF, new_cs & 0xfffc,
-                                       GETPC());
-            }
-            offset |= ((target_ulong)e1) << 32;
-        }
-#endif
-        if ((selector & 0xfffc) == 0) {
-            raise_exception_err_ra(env, EXCP0D_GPF, 0, GETPC());
-        }
-
-        if (load_segment_ra(env, &e1, &e2, selector, GETPC()) != 0) {
-            raise_exception_err_ra(env, EXCP0D_GPF, selector & 0xfffc, GETPC());
-        }
-        if (!(e2 & DESC_S_MASK) || !(e2 & (DESC_CS_MASK))) {
-            raise_exception_err_ra(env, EXCP0D_GPF, selector & 0xfffc, GETPC());
-        }
-        dpl = (e2 >> DESC_DPL_SHIFT) & 3;
-        if (dpl > cpl) {
-            raise_exception_err_ra(env, EXCP0D_GPF, selector & 0xfffc, GETPC());
-        }
-#ifdef TARGET_X86_64
-        if (env->efer & MSR_EFER_LMA) {
-            if (!(e2 & DESC_L_MASK)) {
-                raise_exception_err_ra(env, EXCP0D_GPF, selector & 0xfffc, GETPC());
-            }
-            if (e2 & DESC_B_MASK) {
-                raise_exception_err_ra(env, EXCP0D_GPF, selector & 0xfffc, GETPC());
-            }
-            shift++;
-        }
-#endif
-        if (!(e2 & DESC_P_MASK)) {
-            raise_exception_err_ra(env, EXCP0B_NOSEG, selector & 0xfffc, GETPC());
-        }
-
-        if (!(e2 & DESC_C_MASK) && dpl < cpl) {
-            /* to inner privilege */
-#ifdef TARGET_X86_64
-            if (shift == 2) {
-                sp = get_rsp_from_tss(env, dpl);
-                ss = dpl;  /* SS = NULL selector with RPL = new CPL */
-                new_stack = 1;
-                sp_mask = 0;
-                ssp = 0;  /* SS base is always zero in IA-32e mode */
-                LOG_PCALL("new ss:rsp=%04x:%016llx env->regs[R_ESP]="
-                          TARGET_FMT_lx "\n", ss, sp, env->regs[R_ESP]);
-            } else
-#endif
-            {
-                uint32_t sp32;
-                get_ss_esp_from_tss(env, &ss, &sp32, dpl, GETPC());
-                LOG_PCALL("new ss:esp=%04x:%08x param_count=%d env->regs[R_ESP]="
-                          TARGET_FMT_lx "\n", ss, sp32, param_count,
-                          env->regs[R_ESP]);
-                sp = sp32;
-                if ((ss & 0xfffc) == 0) {
-                    raise_exception_err_ra(env, EXCP0A_TSS, ss & 0xfffc, GETPC());
-                }
-                if ((ss & 3) != dpl) {
-                    raise_exception_err_ra(env, EXCP0A_TSS, ss & 0xfffc, GETPC());
-                }
-                if (load_segment_ra(env, &ss_e1, &ss_e2, ss, GETPC()) != 0) {
-                    raise_exception_err_ra(env, EXCP0A_TSS, ss & 0xfffc, GETPC());
-                }
-                ss_dpl = (ss_e2 >> DESC_DPL_SHIFT) & 3;
-                if (ss_dpl != dpl) {
-                    raise_exception_err_ra(env, EXCP0A_TSS, ss & 0xfffc, GETPC());
-                }
-                if (!(ss_e2 & DESC_S_MASK) ||
-                    (ss_e2 & DESC_CS_MASK) ||
-                    !(ss_e2 & DESC_W_MASK)) {
-                    raise_exception_err_ra(env, EXCP0A_TSS, ss & 0xfffc, GETPC());
-                }
-                if (!(ss_e2 & DESC_P_MASK)) {
-                    raise_exception_err_ra(env, EXCP0A_TSS, ss & 0xfffc, GETPC());
-                }
-
-                sp_mask = get_sp_mask(ss_e2);
-                ssp = get_seg_base(ss_e1, ss_e2);
-            }
-
-            /* push_size = ((param_count * 2) + 8) << shift; */
-
-            old_sp_mask = get_sp_mask(env->segs[R_SS].flags);
-            old_ssp = env->segs[R_SS].base;
-#ifdef TARGET_X86_64
-            if (shift == 2) {
-                /* XXX: verify if new stack address is canonical */
-                PUSHQ_RA(sp, env->segs[R_SS].selector, GETPC());
-                PUSHQ_RA(sp, env->regs[R_ESP], GETPC());
-                /* parameters aren't supported for 64-bit call gates */
-            } else
-#endif
-            if (shift == 1) {
-                PUSHL_RA(ssp, sp, sp_mask, env->segs[R_SS].selector, GETPC());
-                PUSHL_RA(ssp, sp, sp_mask, env->regs[R_ESP], GETPC());
-                for (i = param_count - 1; i >= 0; i--) {
-                    val = cpu_ldl_kernel_ra(env, old_ssp +
-                                            ((env->regs[R_ESP] + i * 4) &
-                                             old_sp_mask), GETPC());
-                    PUSHL_RA(ssp, sp, sp_mask, val, GETPC());
-                }
-            } else {
-                PUSHW_RA(ssp, sp, sp_mask, env->segs[R_SS].selector, GETPC());
-                PUSHW_RA(ssp, sp, sp_mask, env->regs[R_ESP], GETPC());
-                for (i = param_count - 1; i >= 0; i--) {
-                    val = cpu_lduw_kernel_ra(env, old_ssp +
-                                             ((env->regs[R_ESP] + i * 2) &
-                                              old_sp_mask), GETPC());
-                    PUSHW_RA(ssp, sp, sp_mask, val, GETPC());
-                }
-            }
-            new_stack = 1;
-        } else {
-            /* to same privilege */
-            sp = env->regs[R_ESP];
-            sp_mask = get_sp_mask(env->segs[R_SS].flags);
-            ssp = env->segs[R_SS].base;
-            /* push_size = (4 << shift); */
-            new_stack = 0;
-        }
-
-#ifdef TARGET_X86_64
-        if (shift == 2) {
-            PUSHQ_RA(sp, env->segs[R_CS].selector, GETPC());
-            PUSHQ_RA(sp, next_eip, GETPC());
-        } else
-#endif
-        if (shift == 1) {
-            PUSHL_RA(ssp, sp, sp_mask, env->segs[R_CS].selector, GETPC());
-            PUSHL_RA(ssp, sp, sp_mask, next_eip, GETPC());
-        } else {
-            PUSHW_RA(ssp, sp, sp_mask, env->segs[R_CS].selector, GETPC());
-            PUSHW_RA(ssp, sp, sp_mask, next_eip, GETPC());
-        }
-
-        /* from this point, not restartable */
-
-        if (new_stack) {
-#ifdef TARGET_X86_64
-            if (shift == 2) {
-                cpu_x86_load_seg_cache(env, R_SS, ss, 0, 0, 0);
-            } else
-#endif
-            {
-                ss = (ss & ~3) | dpl;
-                cpu_x86_load_seg_cache(env, R_SS, ss,
-                                       ssp,
-                                       get_seg_limit(ss_e1, ss_e2),
-                                       ss_e2);
-            }
-        }
-
-        selector = (selector & ~3) | dpl;
-        cpu_x86_load_seg_cache(env, R_CS, selector,
-                       get_seg_base(e1, e2),
-                       get_seg_limit(e1, e2),
-                       e2);
-        SET_ESP(sp, sp_mask);
-        env->eip = offset;
-    }
-#else
     __builtin_trap();
-#endif
+    __builtin_unreachable();
 }
 

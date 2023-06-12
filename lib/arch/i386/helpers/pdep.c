@@ -1,5 +1,10 @@
 #include <stdint.h>
 
+static inline int ctz8(uint8_t val)
+{
+    return val ? __builtin_ctz(val) : 8;
+}
+
 static inline int ctz32(uint32_t val)
 {
     return val ? __builtin_ctz(val) : 32;
