@@ -2621,7 +2621,7 @@ static const std::array<hook_t, NumHooks> HookArray{{
 #define ___HOOK0(hook_kind, rett, sym)                                         \
   {                                                                            \
       .Sym = #sym,                                                             \
-      .Ret = {.Size = sizeof(uint64_t),                                    \
+      .Ret = {.Size = sizeof(target_ulong),                                    \
               .isPointer = std::is_pointer<rett>::value},                      \
       .Pre = !!((hook_kind) & PRE),                                            \
       .Post = !!((hook_kind) & POST),                                          \
@@ -2630,9 +2630,9 @@ static const std::array<hook_t, NumHooks> HookArray{{
 #define ___HOOK1(hook_kind, rett, sym, t1)                                     \
   {                                                                            \
       .Sym = #sym,                                                             \
-      .Args = {{.Size = sizeof(uint64_t),                                  \
+      .Args = {{.Size = sizeof(target_ulong),                                  \
                 .isPointer = std::is_pointer<t1>::value}},                     \
-      .Ret = {.Size = sizeof(uint64_t),                                    \
+      .Ret = {.Size = sizeof(target_ulong),                                    \
               .isPointer = std::is_pointer<rett>::value},                      \
       .Pre = !!((hook_kind) & PRE),                                            \
       .Post = !!((hook_kind) & POST),                                          \
@@ -2641,9 +2641,9 @@ static const std::array<hook_t, NumHooks> HookArray{{
 #define ___HOOK2(hook_kind, rett, sym, t1, t2)                                 \
   {                                                                            \
       .Sym = #sym,                                                             \
-      .Args = {{.Size = sizeof(uint64_t),                                  \
+      .Args = {{.Size = sizeof(target_ulong),                                  \
                 .isPointer = std::is_pointer<t1>::value},                      \
-               {.Size = sizeof(uint64_t),                                  \
+               {.Size = sizeof(target_ulong),                                  \
                 .isPointer = std::is_pointer<t2>::value}},                     \
       .Ret = {.Size = sizeof(rett),                                            \
               .isPointer = std::is_pointer<rett>::value},                      \
@@ -2654,13 +2654,13 @@ static const std::array<hook_t, NumHooks> HookArray{{
 #define ___HOOK3(hook_kind, rett, sym, t1, t2, t3)                             \
   {                                                                            \
       .Sym = #sym,                                                             \
-      .Args = {{.Size = sizeof(uint64_t),                                  \
+      .Args = {{.Size = sizeof(target_ulong),                                  \
                 .isPointer = std::is_pointer<t1>::value},                      \
-               {.Size = sizeof(uint64_t),                                  \
+               {.Size = sizeof(target_ulong),                                  \
                 .isPointer = std::is_pointer<t2>::value},                      \
-               {.Size = sizeof(uint64_t),                                  \
+               {.Size = sizeof(target_ulong),                                  \
                 .isPointer = std::is_pointer<t3>::value}},                     \
-      .Ret = {.Size = sizeof(uint64_t),                                    \
+      .Ret = {.Size = sizeof(target_ulong),                                    \
               .isPointer = std::is_pointer<rett>::value},                      \
       .Pre = !!((hook_kind) & PRE),                                            \
       .Post = !!((hook_kind) & POST),                                          \
@@ -2669,15 +2669,15 @@ static const std::array<hook_t, NumHooks> HookArray{{
 #define ___HOOK4(hook_kind, rett, sym, t1, t2, t3, t4)                         \
   {                                                                            \
       .Sym = #sym,                                                             \
-      .Args = {{.Size = sizeof(uint64_t),                                  \
+      .Args = {{.Size = sizeof(target_ulong),                                  \
                 .isPointer = std::is_pointer<t1>::value},                      \
-               {.Size = sizeof(uint64_t),                                  \
+               {.Size = sizeof(target_ulong),                                  \
                 .isPointer = std::is_pointer<t2>::value},                      \
-               {.Size = sizeof(uint64_t),                                  \
+               {.Size = sizeof(target_ulong),                                  \
                 .isPointer = std::is_pointer<t3>::value},                      \
-               {.Size = sizeof(uint64_t),                                  \
+               {.Size = sizeof(target_ulong),                                  \
                 .isPointer = std::is_pointer<t4>::value}},                     \
-      .Ret = {.Size = sizeof(uint64_t),                                    \
+      .Ret = {.Size = sizeof(target_ulong),                                    \
               .isPointer = std::is_pointer<rett>::value},                      \
       .Pre = !!((hook_kind) & PRE),                                            \
       .Post = !!((hook_kind) & POST),                                          \
@@ -2686,17 +2686,17 @@ static const std::array<hook_t, NumHooks> HookArray{{
 #define ___HOOK5(hook_kind, rett, sym, t1, t2, t3, t4, t5)                     \
   {                                                                            \
       .Sym = #sym,                                                             \
-      .Args = {{.Size = sizeof(uint64_t),                                  \
+      .Args = {{.Size = sizeof(target_ulong),                                  \
                 .isPointer = std::is_pointer<t1>::value},                      \
-               {.Size = sizeof(uint64_t),                                  \
+               {.Size = sizeof(target_ulong),                                  \
                 .isPointer = std::is_pointer<t2>::value},                      \
-               {.Size = sizeof(uint64_t),                                  \
+               {.Size = sizeof(target_ulong),                                  \
                 .isPointer = std::is_pointer<t3>::value},                      \
-               {.Size = sizeof(uint64_t),                                  \
+               {.Size = sizeof(target_ulong),                                  \
                 .isPointer = std::is_pointer<t4>::value},                      \
-               {.Size = sizeof(uint64_t),                                  \
+               {.Size = sizeof(target_ulong),                                  \
                 .isPointer = std::is_pointer<t5>::value}},                     \
-      .Ret = {.Size = sizeof(uint64_t),                                    \
+      .Ret = {.Size = sizeof(target_ulong),                                    \
               .isPointer = std::is_pointer<rett>::value},                      \
       .Pre = !!((hook_kind) & PRE),                                            \
       .Post = !!((hook_kind) & POST),                                          \
@@ -2705,19 +2705,19 @@ static const std::array<hook_t, NumHooks> HookArray{{
 #define ___HOOK6(hook_kind, rett, sym, t1, t2, t3, t4, t5, t6)                 \
   {                                                                            \
       .Sym = #sym,                                                             \
-      .Args = {{.Size = sizeof(uint64_t),                                  \
+      .Args = {{.Size = sizeof(target_ulong),                                  \
                 .isPointer = std::is_pointer<t1>::value},                      \
-               {.Size = sizeof(uint64_t),                                  \
+               {.Size = sizeof(target_ulong),                                  \
                 .isPointer = std::is_pointer<t2>::value},                      \
-               {.Size = sizeof(uint64_t),                                  \
+               {.Size = sizeof(target_ulong),                                  \
                 .isPointer = std::is_pointer<t3>::value},                      \
-               {.Size = sizeof(uint64_t),                                  \
+               {.Size = sizeof(target_ulong),                                  \
                 .isPointer = std::is_pointer<t4>::value},                      \
-               {.Size = sizeof(uint64_t),                                  \
+               {.Size = sizeof(target_ulong),                                  \
                 .isPointer = std::is_pointer<t5>::value},                      \
-               {.Size = sizeof(uint64_t),                                  \
+               {.Size = sizeof(target_ulong),                                  \
                 .isPointer = std::is_pointer<t6>::value}},                     \
-      .Ret = {.Size = sizeof(uint64_t),                                    \
+      .Ret = {.Size = sizeof(target_ulong),                                    \
               .isPointer = std::is_pointer<rett>::value},                      \
       .Pre = !!((hook_kind) & PRE),                                            \
       .Post = !!((hook_kind) & POST),                                          \
@@ -3040,13 +3040,13 @@ llvm::GlobalIFunc *LLVMTool::buildGlobalIFunc(function_t &f,
 
         llvm::Value *AlignedNewSP =
             IRB.CreateAnd(IRB.CreatePtrToInt(NewSP, WordType()),
-                          IRB.getIntN(sizeof(uint64_t) * 8, ~15UL));
+                          IRB.getIntN(WordBytes() * 8, ~15UL));
 
         llvm::Value *SPVal = AlignedNewSP;
 
 #if defined(TARGET_X86_64) || defined(TARGET_I386)
         SPVal = IRB.CreateSub(
-            SPVal, IRB.getIntN(sizeof(uint64_t) * 8, sizeof(uint64_t)));
+            SPVal, IRB.getIntN(WordBytes() * 8, WordBytes()));
 #endif
 
         IRB.CreateStore(SPVal, SPPtr);
@@ -3837,7 +3837,7 @@ llvm::Constant *LLVMTool::SymbolAddress(const RelSymbol &RelSym) {
             "{0}: unknown size for {1}\n",
             __func__, RelSym.Name);
 
-        Size = sizeof(uint64_t);
+        Size = WordBytes();
       } else {
         Size = (*it).second;
       }
@@ -3885,7 +3885,7 @@ void LLVMTool::compute_irelative_relocation(llvm::IRBuilderTy &IRB,
     //
     // account for stack pointer on stack
     //
-    NewSP = IRB.CreateSub(NewSP, IRB.getIntN(WordBits(), sizeof(uint64_t)));
+    NewSP = IRB.CreateSub(NewSP, IRB.getIntN(WordBits(), WordBytes()));
 #endif
 
     IRB.CreateStore(NewSP, SPPtr);
@@ -4269,7 +4269,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
     unsigned Off = Addr - Sect.Addr;
 
     Sect.Stuff.Intervals.insert(boost::icl::interval<uint64_t>::right_open(
-        Off, Off + sizeof(uint64_t)));
+        Off, Off + WordBytes()));
     Sect.Stuff.Types[Off] = T;
   };
 
@@ -4398,10 +4398,10 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
     std::vector<llvm::Constant *> SectsGlobalFieldInits;
     for (unsigned i = 0; i < NumSections; ++i) {
       section_t &Sect = SectTable[i];
-#if 0
+
       if (IsVerbose())
-        llvm::errs() << llvm::formatv("Section: {0}\n", Sect.Name);
-#endif
+        llvm::errs() << llvm::formatv("Section: {0} ({1} bytes)\n", Sect.Name,
+                                      Sect.Contents.size());
 
       //
       // check if there's space between the start of this section and the
@@ -4420,6 +4420,10 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
       std::vector<llvm::Constant *> SectFieldInits;
 
       for (const auto &intvl : Sect.Stuff.Intervals) {
+        if (IsVerbose())
+          llvm::errs() << llvm::formatv("  [{0:x}, {1:x})\n",
+                                        intvl.lower(),
+                                        intvl.upper());
         //
         // FIXME the following is code duplication, don't you think?
         //
@@ -4457,10 +4461,12 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
         }
         assert(C);
 
+#if 0
         if (IsVerbose())
           llvm::errs() << llvm::formatv("  [{0:x}, {1:x}) <C: {2}>\n",
                                         intvl.lower(),
                                         intvl.upper(), *C);
+#endif
 
         SectFieldInits.push_back(C);
       }
@@ -4508,7 +4514,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
     const unsigned Off = Addr - Sect.Addr;
 
     if (is_integral_size(Size)) {
-      if (Size == sizeof(uint64_t)) {
+      if (Size == WordBytes()) {
         auto T_it = Sect.Stuff.Types.find(Off);
         auto C_it = Sect.Stuff.Constants.find(Off);
 
@@ -4627,7 +4633,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
         C = (*constit).second;
 
         assert(T->isIntegerTy(WordBits()) || T->isPointerTy());
-        Left -= sizeof(uint64_t);
+        Left -= WordBytes();
       }
 
       if (!T || !C)
@@ -7335,11 +7341,11 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
         llvm::Value *SP = get(tcg_stack_pointer_index);
 
         ArgVec.push_back(IRB.CreateLoad(IRB.CreateIntToPtr(
-            IRB.CreateAdd(SP, IRB.getIntN(WordBits(), 1 * sizeof(uint64_t))),
+            IRB.CreateAdd(SP, IRB.getIntN(WordBits(), 1 * WordBytes())),
             WordType()->getPointerTo())));
 
         ArgVec.push_back(IRB.CreateLoad(IRB.CreateIntToPtr(
-            IRB.CreateAdd(SP, IRB.getIntN(WordBits(), 2 * sizeof(uint64_t))),
+            IRB.CreateAdd(SP, IRB.getIntN(WordBits(), 2 * WordBytes())),
             WordType()->getPointerTo())));
 
 #if 0
@@ -7401,7 +7407,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
         //
         set(IRB.CreateAdd(
                 get(tcg_stack_pointer_index),
-                llvm::ConstantInt::get(WordType(), sizeof(uint64_t))),
+                llvm::ConstantInt::get(WordType(), WordBytes())),
             tcg_stack_pointer_index);
 #endif
         break;
@@ -7553,7 +7559,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
       HookArgVec.resize(hook.Args.size());
 
       {
-        unsigned SPAddend = sizeof(uint64_t);
+        unsigned SPAddend = WordBytes();
 
         for (unsigned j = 0; j < hook.Args.size(); ++j) {
           const hook_t::arg_info_t &info = hook.Args[j];
@@ -7849,7 +7855,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
         //
         set(IRB.CreateAdd(
                 get(tcg_stack_pointer_index),
-                llvm::ConstantInt::get(WordType(), sizeof(uint64_t))),
+                llvm::ConstantInt::get(WordType(), WordBytes())),
             tcg_stack_pointer_index);
 #endif
         break;
@@ -8976,8 +8982,10 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
       uint64_t Addr = op->args[0];
       assert(Addr < UINT32_MAX);
 
+#if 0
       if (IsVerbose())
         HumanOut() << llvm::formatv("insn @ {0:x}\n", Addr);
+#endif
 
       lstaddr = Addr;
 
