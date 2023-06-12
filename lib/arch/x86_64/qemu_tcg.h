@@ -1,3 +1,7 @@
+#if !defined(__x86_64__)
+#error
+#endif
+
 #define TARGET_X86_64 1
 
 #define QEMU_ALIGNED(X) __attribute__((aligned(X)))
