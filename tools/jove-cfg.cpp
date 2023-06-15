@@ -295,6 +295,7 @@ int CFGTool::Run(void) {
   }
 
   ReadJvFromFile(opts.jv, jv);
+  state.update();
 
   assert(!opts.FunctionAddress.empty());
 
