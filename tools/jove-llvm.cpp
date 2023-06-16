@@ -7090,20 +7090,20 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
             continue;
 
           unsigned idx = temp_idx(ts);
-	  if (idx == tcg_env_index)
-	    continue;
+          if (idx == tcg_env_index)
+            continue;
 
 #if 0
-	  if (!(idx >= tcg_num_globals)) {
+          if (!(idx >= tcg_num_globals)) {
             char buf[256];
             HumanOut() << "WTF? "
-	               << idx << " "
+                       << idx << " "
                        << jv_tcg_get_arg_str(buf, sizeof(buf),
                                              op->args[nb_oargs + i])
                        << '\n';
           }
 #endif
-	  assert(idx >= tcg_num_globals);
+          assert(idx >= tcg_num_globals);
 
           if (TempAllocaVec.at(idx))
             continue;
@@ -7126,19 +7126,19 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
             continue;
 
           unsigned idx = temp_idx(ts);
-	  if (idx == tcg_env_index)
-	    continue;
+          if (idx == tcg_env_index)
+            continue;
 
 #if 0
-	  if (!(idx >= tcg_num_globals)) {
+          if (!(idx >= tcg_num_globals)) {
             char buf[256];
             HumanOut() << "WTF? "
-	               << idx << " "
+                       << idx << " "
                        << jv_tcg_get_arg_str(buf, sizeof(buf), op->args[i])
                        << '\n';
           }
 #endif
-	  assert(idx >= tcg_num_globals);
+          assert(idx >= tcg_num_globals);
 
           if (TempAllocaVec.at(idx))
             continue;
@@ -8891,7 +8891,7 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
 
     Addr = IRB.CreateIntToPtr(                                             
         Addr, llvm::PointerType::get(IRB.getIntNTy(BitsOfMemOp(mop)), 0));
-                            
+
     llvm::LoadInst *LI = IRB.CreateLoad(Addr);                  
     LI->setMetadata(llvm::LLVMContext::MD_noalias, AliasScopeMetadata);
 
@@ -8984,9 +8984,11 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
 #define CASE_32_64(x)                                                          \
   case INDEX_op_##x##_i64:                                                     \
   case INDEX_op_##x##_i32:
-#define CASE_64(x) case INDEX_op_##x##_i64:
+#define CASE_64(x)                                                             \
+  case INDEX_op_##x##_i64:
 #else
-#define CASE_32_64(x) case INDEX_op_##x##_i32:
+#define CASE_32_64(x)                                                          \
+  case INDEX_op_##x##_i32:
 # define CASE_64(x)
 #endif
 
@@ -10096,6 +10098,12 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
     __EQV_OP(INDEX_op_eqv_i64, 64)
 
 #undef __EQV_OP
+
+  CASE_32_64(nor)
+    set(IRB.CreateNot(IRB.CreateOr(get(input_arg(0)),
+                                   get(input_arg(1)))),
+        output_arg(0));
+    break;
 
   case INDEX_op_mb: {
     llvm::StringRef AsmText;
