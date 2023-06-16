@@ -2,13 +2,15 @@
 set -x
 
 ../configure \
-  --target-list=i386-linux-user,x86_64-linux-user,mipsel-linux-user,mips-linux-user \
-  --cc=clang-15 \
-  --host-cc=clang-15 \
-  --cxx=clang++-15 \
-  --objcc=clang-15 \
-  --enable-tcg-interpreter \
+  --cc=$(which clang-15) \
+  --host-cc=$(which clang-15) \
+  --cxx=$(which clang++-15) \
+  --objcc=$(which clang-15) \
   --disable-werror \
+  --target-list=i386-linux-user \
+  --cross-prefix=i686-linux-gnu- \
+  --cpu=i386 \
+  --enable-tcg-interpreter \
   --disable-docs \
   --disable-install-blobs \
   --disable-qom-cast-debug \
@@ -18,6 +20,5 @@ set -x
   --disable-vhost-crypto \
   --disable-vhost-vdpa \
   --disable-plugins \
-  --disable-capstone \
   --disable-stack-protector \
   --enable-jove

@@ -8,7 +8,9 @@ set -x
 TRIPLE="mipsel-linux-gnu"
 
 OURCFLAGS=\
-"--target=$TRIPLE"
+"--target=$TRIPLE"\
+" -gdwarf-4"\
+" -g1"
 
 cmake -G Ninja \
   -D CMAKE_BUILD_TYPE=RelWithDebInfo \
@@ -18,8 +20,8 @@ cmake -G Ninja \
   -D LLVM_TARGET_ARCH=mipsel \
   -D LLVM_DEFAULT_TARGET_TRIPLE=$TRIPLE \
   -D LLVM_HOST_TRIPLE=$TRIPLE \
-  -D CMAKE_C_COMPILER=$(which clang) \
-  -D CMAKE_CXX_COMPILER=$(which clang++) \
+  -D CMAKE_C_COMPILER=$(which clang-15) \
+  -D CMAKE_CXX_COMPILER=$(which clang++-15) \
   -D "CMAKE_C_FLAGS=$OURCFLAGS" \
   -D "CMAKE_CXX_FLAGS=$OURCFLAGS" \
   -D "LLVM_TARGETS_TO_BUILD=Mips" \

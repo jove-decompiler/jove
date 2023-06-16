@@ -1,0 +1,38 @@
+#!/bin/bash
+
+TRIPLE="mipsel-linux-gnu"
+
+OURCFLAGS=\
+"--target=$TRIPLE"
+
+if test "$#" = 1 ; then
+  if test "$1" = "helpers" ; then
+    OURCFLAGS+=" -Xclang -load -Xclang $HOME/carbon-copy/build/collect/libcarbon-collect.so -Xclang -add-plugin -Xclang carbon-collect -Xclang -plugin-arg-carbon-collect -Xclang $(pwd)/.. -Xclang -plugin-arg-carbon-collect -Xclang $(pwd)"
+  fi
+fi
+
+export PKG_CONFIG_LIBDIR=/usr/lib/mipsel-linux-gnu/pkgconfig 
+
+set -x
+../configure \
+  --cc=$(which clang-15) \
+  --host-cc=$(which clang-15) \
+  --cxx=$(which clang++-15) \
+  --objcc=$(which clang-15) \
+  --disable-werror \
+  --extra-cflags="$OURCFLAGS" \
+  --target-list=mipsel-linux-user \
+  --cross-prefix=mipsel-linux-gnu- \
+  --cpu=mips \
+  --enable-tcg-interpreter \
+  --disable-docs \
+  --disable-install-blobs \
+  --disable-qom-cast-debug \
+  --disable-vhost-kernel \
+  --disable-vhost-net \
+  --disable-vhost-user \
+  --disable-vhost-crypto \
+  --disable-vhost-vdpa \
+  --disable-plugins \
+  --disable-stack-protector \
+  --enable-jove-helpers

@@ -38,7 +38,7 @@ def jove_unwind(debugger, command, result, dict):
 
                     path = path[:-len(suffix)]
 
-                    completedProcess = subprocess.run(["/usr/bin/llvm-symbolizer", "-print-address", "-inlining=0", "-pretty-print", "-print-source-context-lines=10"], input=('%s 0x%x' % (path, addr)), capture_output=True, text=True)
+                    completedProcess = subprocess.run(["/usr/bin/llvm-symbolizer-15", "-print-address", "-inlining=0", "-pretty-print", "-print-source-context-lines=10"], input=('%s 0x%x' % (path, addr)), capture_output=True, text=True)
 
                     print(completedProcess.stdout)
                     print(completedProcess.stderr)
