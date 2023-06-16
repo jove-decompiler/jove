@@ -66,6 +66,14 @@
 #include "jove_macros.h"
 #include "jove_constants.h"
 
+extern "C" {
+void __attribute__((noinline))
+     __attribute__((visibility("default")))
+TCGLLVMUserBreakPoint(void) {
+  puts(__func__);
+}
+}
+
 #define GET_INSTRINFO_ENUM
 #include "LLVMGenInstrInfo.hpp"
 
@@ -328,6 +336,8 @@ struct LLVMTool : public TransformerTool_BinFnBB<binary_state_t,
   } opts;
 
   binary_index_t BinaryIndex = invalid_binary_index;
+
+  uint64_t ForAddr = 0;
 
   std::unique_ptr<tiny_code_generator_t> TCG;
   std::unique_ptr<llvm::LLVMContext> Context;
@@ -1761,6 +1771,18 @@ int LLVMTool::Run(void) {
     }
 
     BinaryIndex = idx;
+  }
+  if (!is_binary_index_valid(BinaryIndex)) {
+    WithColor::error() << "must specify binary\n";
+    return 1;
+  }
+  if (opts.DumpTCG) {
+    if (opts.ForAddr.empty()) {
+      WithColor::error() << "if --dump-tcg is passed, --for-addr must also be passed\n";
+      return 1;
+    } else {
+      ForAddr = std::stoi(opts.ForAddr.c_str(), nullptr, 16);
+    }
   }
 
   if (opts.ForeignLibs) {
@@ -7023,8 +7045,16 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
         *Context, (fmt("l%lx_%u_exit") % Addr % j).str(), state.for_function(f).F);
     ++j;
 
+    bool ForAddrMatch = opts.DumpTCG && Addr == ForAddr;
+
+    if (unlikely(ForAddrMatch))
+      TCGLLVMUserBreakPoint();
+
     unsigned len;
     std::tie(len, T) = TCG->translate(Addr + size, Addr + Size);
+
+    if (unlikely(ForAddrMatch))
+      TCG->dump_operations();
 
     TempAllocaVec.resize(s->nb_temps);
     LabelVec.resize(s->nb_labels);
@@ -7133,11 +7163,6 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
     for (unsigned i = 0; i < LabelVec.size(); ++i)
       LabelVec[i] = llvm::BasicBlock::Create(
           *Context, (boost::format("l%lx_%u") % ICFG[bb].Addr % i).str(), state.for_function(f).F);
-
-    if (opts.DumpTCG) {
-      if (Addr == std::stoi(opts.ForAddr.c_str(), nullptr, 16))
-        TCG->dump_operations();
-    }
 
     TCGOp *op;
     QTAILQ_FOREACH(op, &s->ops, link) {
