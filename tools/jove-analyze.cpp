@@ -171,7 +171,7 @@ int AnalyzeTool::AnalyzeBlocks(void) {
       if (ICFG[bb].Analysis.Stale)
         ++cnt;
 
-      AnalyzeBasicBlock(*TCG, *Module, binary, *state.for_binary(binary).ObjectFile, bb, this);
+      AnalyzeBasicBlock(*TCG, *Module, binary, *state.for_binary(binary).ObjectFile, bb, false, false, this);
 
       assert(!ICFG[bb].Analysis.Stale);
     }
