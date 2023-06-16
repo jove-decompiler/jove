@@ -105,7 +105,7 @@ std::string locator_t::ida_scripts(void) {
 }
 
 std::string locator_t::softfloat_bitcode(void) {
-  return must_exist(jove_path() / "qemu" / "build" /
+  return must_exist(prebuilts_path() / "lib" /
                     ("libfpu_soft-" TARGET_ARCH_NAME "-linux-user.a"));
 }
 
