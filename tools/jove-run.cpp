@@ -871,7 +871,8 @@ int RunTool::DoRun(void) {
 
           drop_privileges();
 
-          print_command(_argv);
+	  if (IsVerbose())
+	    print_command(_argv);
         });
   } catch (const std::exception &e) {
 #if 0
