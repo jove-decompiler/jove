@@ -1,6 +1,5 @@
 #include <stdint.h>
 
-__attribute__((always_inline))
 uint64_t helper_biadd(uint64_t fs)
 {
     unsigned i, fd;

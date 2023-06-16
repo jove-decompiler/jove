@@ -147,8 +147,10 @@ void _jove_rt_init(void) {
   if (_jove_sys_rt_sigaction(SIGBUS, &sa, NULL, sizeof(kernel_sigset_t)) < 0)
     _UNREACHABLE("failed to install SIGBUS handler");
 
+#if 0
   if (_jove_sys_rt_sigaction(SIGABRT, &sa, NULL, sizeof(kernel_sigset_t)) < 0)
     _UNREACHABLE("failed to install SIGABRT handler");
+#endif
 
   if (_jove_sys_rt_sigaction(SIGILL, &sa, NULL, sizeof(kernel_sigset_t)) < 0)
     _UNREACHABLE("failed to install SIGILL handler");

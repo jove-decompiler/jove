@@ -95,6 +95,26 @@ extern "C" void jv_term_addr_is(uint64_t Addr) {
   jv_ti.Addr = Addr;
 }
 
+extern "C" bool jv_is_term_ind_call(void) {
+  return jv_ti.Type == jove::TERMINATOR::INDIRECT_CALL;
+}
+
+extern "C" bool jv_is_term_call(void) {
+  return jv_ti.Type == jove::TERMINATOR::CALL;
+}
+
+extern "C" void jv_ind_call_term_next_pc_is(uint64_t NextPC) {
+  jv_ti._indirect_call.NextPC = NextPC;
+}
+
+extern "C" void jv_call_term_next_pc_is(uint64_t NextPC) {
+  jv_ti._call.NextPC = NextPC;
+}
+
+extern "C" void jv_set_end_pc(uint64_t EndPC) {
+  jv_end_pc = EndPC;
+}
+
 
 extern CPUState *jv_cpu;
 
@@ -721,6 +741,9 @@ void tiny_code_generator_t::print_shit(void) {
       jove::tcg_global_set_t s;
       for (const char *nm : pinned_env_glbs) {
         int idx = tcg_index_of_named_global(nm);
+        if (idx == -1)
+          continue;
+
         assert(idx >= 0 && idx < s.size());
         s.set(idx);
       }
@@ -1068,6 +1091,13 @@ tiny_code_generator_t::tiny_code_generator_t() {
   std::string starter_bin_path = starter_bin();
 
   jv_init_libqemu(starter_bin_path.c_str());
+
+  unsigned max_insns = jv_cpu->cflags_next_tb & CF_COUNT_MASK;
+
+  jv_cpu->cflags_next_tb &= ~CF_COUNT_MASK;
+
+  max_insns /= 2;
+  jv_cpu->cflags_next_tb |= max_insns;
 }
 
 tiny_code_generator_t::~tiny_code_generator_t() {}
@@ -1096,7 +1126,7 @@ tiny_code_generator_t::translate(uint64_t pc, uint64_t pc_end) {
   jv_ti.Type = TERMINATOR::UNKNOWN;
   jv_ti.Addr = 0;
 
-  int max_insns = 10000;
+  int max_insns = 64;
   TranslationBlock tb = {0};
   tb.flags = jv_hflags_of_cpu_env(jv_cpu);
   tb.cflags = jv_cpu->tcg_cflags | CF_NOIRQ;

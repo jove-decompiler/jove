@@ -5,7 +5,7 @@
 
 #include <stddef.h>
 
-/* __thread */ struct CPUMIPSState __jove_env;
+/* __thread */ CPUMIPSState __jove_env;
 
 #include <sys/types.h>
 #include <sys/stat.h>

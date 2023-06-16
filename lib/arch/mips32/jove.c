@@ -1,8 +1,8 @@
 #include "cpu_state.h"
 #include <stddef.h>
 
-extern /* __thread */ struct CPUMIPSState __jove_env;
-static /* __thread */ struct CPUMIPSState *__jove_env_clunk = &__jove_env;
+extern /* __thread */ CPUMIPSState __jove_env;
+static /* __thread */ CPUMIPSState *__jove_env_clunk = &__jove_env;
 
 #include <sys/types.h>
 #include <sys/stat.h>

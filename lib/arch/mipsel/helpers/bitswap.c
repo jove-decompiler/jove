@@ -13,7 +13,6 @@ static inline target_ulong bitswap(target_ulong v)
     return v;
 }
 
-__attribute__((always_inline))
 target_ulong helper_bitswap(target_ulong rt)
 {
     return (int32_t)bitswap(rt);
