@@ -709,6 +709,20 @@ public:
   llvm::Value *insertThreadPointerInlineAsm(llvm::IRBuilderTy &);
 
   std::string dyn_target_desc(dynamic_target_t IdxPair);
+
+  const char *name_of_global_for_offset(unsigned off) {
+    if (!(off < sizeof(tcg_global_by_offset_lookup_table)) ||
+        tcg_global_by_offset_lookup_table[off] == 0xff) {
+      return nullptr;
+    }
+
+    unsigned glb =
+        static_cast<unsigned>(tcg_global_by_offset_lookup_table[off]);
+
+    TCGTemp *ts = &jv_get_tcg_context()->temps[glb];
+    assert(ts->kind == TEMP_GLOBAL);
+    return ts->name;
+  }
 };
 
 JOVE_REGISTER_TOOL("llvm", LLVMTool);
@@ -4442,10 +4456,12 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
       std::vector<llvm::Constant *> SectFieldInits;
 
       for (const auto &intvl : Sect.Stuff.Intervals) {
+#if 0
         if (IsVerbose())
           llvm::errs() << llvm::formatv("  [{0:x}, {1:x})\n",
                                         intvl.lower(),
                                         intvl.upper());
+#endif
         //
         // FIXME the following is code duplication, don't you think?
         //
@@ -6968,7 +6984,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
   auto get = [&](unsigned glb) -> llvm::Value * {
     switch (glb) {
     case tcg_env_index:
-      return IRB.CreatePtrToInt(CPUStateGlobal, WordType());
+      return llvm::ConstantExpr::getPtrToInt(CPUStateGlobal, WordType());
 #if defined(TARGET_X86_64)
     case tcg_fs_base_index:
       return insertThreadPointerInlineAsm(IRB);
@@ -7186,8 +7202,10 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
     }
 
     if (!IRB.GetInsertBlock()->getTerminator()) {
+#if 0
       if (IsVerbose())
         WithColor::warning() << "TranslateBasicBlock: no terminator in block\n";
+#endif
       IRB.CreateBr(ExitBB);
     }
 
@@ -7755,10 +7773,12 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
     }
 
     if (DynTargets.empty()) {
+#if 0
       if (IsVerbose())
         WithColor::warning() << llvm::formatv(
             "indirect control transfer @ {0:x} has zero dyn targets\n",
             ICFG[bb].Addr);
+#endif
 
       llvm::Value *RecoverArgs[] = {IRB.getInt32(index_of_basic_block(ICFG, bb)), PC};
 
@@ -8929,7 +8949,52 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
 
   auto do_ld_or_store = [&](bool IsLoad, unsigned bits, bool Signed) -> void {
     TCGArg ofs = const_arg(0);
-    llvm::Value *ptr = get(input_arg(IsLoad ? 0 : 1));
+    TCGTemp *ptr_tmp = input_arg(IsLoad ? 0 : 1);
+
+    if (temp_idx(ptr_tmp) == tcg_env_index) {
+      if (IsLoad) {
+        TCGTemp *dst = output_arg(0);
+
+        switch (ofs) {
+#ifdef TARGET_MIPS32
+        case offsetof(CPUMIPSState, active_tc.CP0_UserLocal):
+          set(insertThreadPointerInlineAsm(IRB), dst);
+          return;
+        case offsetof(CPUMIPSState, lladdr):
+          set(get(&jv_get_tcg_context()->temps[tcg_lladdr_index]), dst);
+          return;
+        case offsetof(CPUMIPSState, llval):
+          set(get(&jv_get_tcg_context()->temps[tcg_llval_index]), dst);
+          return;
+#endif
+
+        default:
+          if (IsVerbose())
+            llvm::outs() << llvm::formatv("CURIOSITY: load(env+{0}) [{1}]\n",
+                                          ofs, name_of_global_for_offset(ofs));
+          break;
+        }
+      } else {
+        switch (ofs) {
+#ifdef TARGET_MIPS32
+        case offsetof(CPUMIPSState, lladdr):
+          set(get(input_arg(0)), &jv_get_tcg_context()->temps[tcg_lladdr_index]);
+          return;
+        case offsetof(CPUMIPSState, llval):
+          set(get(input_arg(0)), &jv_get_tcg_context()->temps[tcg_llval_index]);
+          return;
+#endif
+
+        default:
+          if (IsVerbose())
+            llvm::outs() << llvm::formatv("CURIOSITY: store(env+{0}) [{1}]\n",
+                                          ofs, name_of_global_for_offset(ofs));
+          break;
+        }
+      }
+    }
+
+    llvm::Value *ptr = get(ptr_tmp);
 
     ptr = IRB.CreateZExt(ptr, WordType());
     ptr = IRB.CreateAdd(ptr, IRB.getIntN(WordBits(), ofs));
