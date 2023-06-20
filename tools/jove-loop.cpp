@@ -70,6 +70,8 @@ class LoopTool : public Tool {
     cl::alias RunAsRootAlias;
     cl::opt<bool> PreserveEnvironment;
     cl::alias PreserveEnvironmentAlias;
+    cl::opt<bool> Dbg;
+    cl::alias DbgAlias;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : Prog(cl::Positional, cl::desc("prog"), cl::Required,
@@ -96,8 +98,8 @@ class LoopTool : public Tool {
                         cl::desc("List of directories to bind mount"),
                         cl::cat(JoveCategory)),
 
-          jv("jv", cl::desc("Jove jv"),
-             cl::value_desc("filename"), cl::cat(JoveCategory)),
+          jv("jv", cl::desc("Jove jv"), cl::value_desc("filename"),
+             cl::cat(JoveCategory)),
 
           jvAlias("d", cl::desc("Alias for -jv."), cl::aliasopt(jv),
                   cl::cat(JoveCategory)),
@@ -222,7 +224,12 @@ class LoopTool : public Tool {
 
           PreserveEnvironmentAlias(
               "E", cl::desc("Alias for --preserve-environment"),
-              cl::aliasopt(PreserveEnvironment), cl::cat(JoveCategory)) {}
+              cl::aliasopt(PreserveEnvironment), cl::cat(JoveCategory)),
+
+          Dbg("dbg", cl::desc("Run program under gdb"), cl::cat(JoveCategory)),
+
+          DbgAlias("g", cl::desc("Alias for --dbg"), cl::aliasopt(Dbg),
+                   cl::cat(JoveCategory)) {}
   } opts;
 
   std::string jv_path;
@@ -349,6 +356,10 @@ int LoopTool::Run(void) {
     HumanOut() << llvm::formatv("sysroot {0} is not directory\n", sysroot);
     return 1;
   }
+
+  if (opts.Dbg)
+    fs::copy_file(locator().gdb(), fs::path(sysroot) / "usr" / "bin" / "gdb",
+                  fs::copy_option::overwrite_if_exists);
 
   if (!fs::exists(jv_path)) {
     HumanOut() << jv_path << " does not exist\n";
@@ -488,6 +499,10 @@ run:
             //
             // program + args
             //
+            if (opts.Dbg) {
+              Arg("/usr/bin/gdb");
+              Arg("--args");
+            }
             Arg(opts.Prog);
             if (!opts.Args.empty())
               Arg("--");
