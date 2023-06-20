@@ -1,5 +1,6 @@
 #include "tool.h"
 #include "elf.h"
+#include "triple.h"
 
 #include <llvm/Bitcode/BitcodeReader.h>
 #include <llvm/Support/CommandLine.h>
@@ -54,20 +55,20 @@ class DecompileTool : public TransformerTool_Bin<binary_state_t> {
     cl::opt<bool> FakeLineNumbers;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
-        : Prog(cl::Positional, cl::desc("prog"), cl::Required,
+        : Prog(cl::Positional, cl::desc("prog"),
                cl::value_desc("filename"), cl::cat(JoveCategory)),
-
-          Binary("binary", cl::desc("Operate on single given binary"),
-                 cl::value_desc("path"), cl::cat(JoveCategory)),
-
-          BinaryAlias("b", cl::desc("Alias for -binary."), cl::aliasopt(Binary),
-                      cl::cat(JoveCategory)),
 
           jv("jv", cl::desc("Jove jv"),
              cl::value_desc("filename"), cl::cat(JoveCategory)),
 
           jvAlias("d", cl::desc("Alias for -jv."), cl::aliasopt(jv),
                   cl::cat(JoveCategory)),
+
+          Binary("binary", cl::desc("Operate on single given binary"),
+                 cl::value_desc("path"), cl::cat(JoveCategory)),
+
+          BinaryAlias("b", cl::desc("Alias for -binary."), cl::aliasopt(Binary),
+                      cl::cat(JoveCategory)),
 
           Output("output", cl::desc("Output directory"), cl::Required,
                  cl::cat(JoveCategory)),
@@ -140,8 +141,13 @@ void DecompileTool::queue_binaries(void) {
 
 int DecompileTool::Run(void) {
   jvfp = opts.jv;
-  if (jvfp.empty())
+  if (jvfp.empty() && !opts.Prog.empty())
     jvfp = path_to_jv(opts.Prog.c_str());
+
+  if (jvfp.empty()) {
+    WithColor::error() << "must specify jv\n";
+    return 1;
+  }
 
   ReadJvFromFile(jvfp, jv);
   state.update();
@@ -219,6 +225,17 @@ int DecompileTool::Run(void) {
 
   fs::create_directories(opts.Output);
   fs::create_directories(fs::path(opts.Output) / ".obj");
+  fs::create_directories(fs::path(opts.Output) / ".lib");
+
+  if (RunToolToExit("extract", [&](auto Arg) {
+        Arg("-d");
+        Arg(jvfp);
+
+        Arg((fs::path(opts.Output) / ".lib").string());
+      })) {
+    WithColor::error() << "jove-extract failed to run\n";
+    return 1;
+  }
 
   if (!IsVerbose())
     WithColor::note() << llvm::formatv(
@@ -362,6 +379,12 @@ int DecompileTool::Run(void) {
   fs::copy_file(locator().builtins(),
                 fs::path(opts.Output) / ".obj" / "builtins.a",
                 fs::copy_option::overwrite_if_exists);
+  fs::copy_file(locator().softfloat_bitcode(),
+                fs::path(opts.Output) / ".obj" / "libfpu_softfloat.a",
+                fs::copy_option::overwrite_if_exists);
+  fs::create_directories(fs::path(opts.Output) / ".lib" / "lib");
+  fs::copy_file(locator().runtime(),
+                fs::path(opts.Output) / ".lib" / "lib" / "libjove_rt.so");
 
   //
   // compile jove starter bitcode
@@ -419,8 +442,10 @@ int DecompileTool::Run(void) {
       ofs << "\n";
     };
 
+    std::string target_arg = "--target=" + getTargetTriple().normalize();
     {
       std::vector<const char *> cflags = {
+        target_arg.c_str(),                        nullptr,
 //      "-nostdinc",                               nullptr,
 //      "-flto",                                   nullptr,
         "-O2",                                     nullptr,
@@ -444,6 +469,7 @@ int DecompileTool::Run(void) {
 
         "--push-state",
         "--as-needed", ".obj/builtins.a",
+                       ".obj/libfpu_softfloat.a",
         "--pop-state",                               nullptr,
 
         "--exclude-libs", "ALL",                     nullptr,
@@ -514,6 +540,15 @@ int DecompileTool::Run(void) {
         binary_t &needed_b = jv.Binaries.at((*it).second);
 
         const fs::path needed_path(needed_b.Path);
+        if (needed_path.filename() != needed) {
+          if (IsVerbose())
+            HumanOut() << llvm::formatv("creating symlink for {0}\n", needed);
+
+          fs::create_symlink(needed_path.filename(),
+                             fs::path(opts.Output) / ".lib" /
+                                 needed_path.parent_path() / needed);
+        }
+
         needed_lib_dirs.insert(needed_path.parent_path().string());
 
         needed_sonames.insert(needed);
@@ -521,7 +556,7 @@ int DecompileTool::Run(void) {
 
       for (const std::string &lib_dir : needed_lib_dirs) {
         ofs << " -L";
-        ofs << ' ' << lib_dir.c_str();
+        ofs << ' ' << fs::path(".lib") / lib_dir;
       }
 
       ofs << " -ljove_rt";
