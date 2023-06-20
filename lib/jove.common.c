@@ -124,9 +124,6 @@ void _jove_install_function_mappings(void) {
 }
 
 #if defined(__aarch64__) || defined(__mips__) || defined(__mips64)
-//
-// see definition of _jove_init in lib/arch/<arch>/jove.c
-//
 _HIDDEN void _jove_init(
                         #define __REG_ARG(n, i, data) BOOST_PP_COMMA_IF(i) uintptr_t reg##i
 
@@ -305,6 +302,10 @@ _HIDDEN void _jove__libc_early_init(
   _jove_free_callstack(new_callstack);
 }
 
+#else
+//
+// see definition of _jove_init and _jove__libc_early_init in lib/arch/<arch>/jove.c
+//
 #endif
 
 static _INL uintptr_t _parse_dynl_load_bias(char *maps, const unsigned n) {
