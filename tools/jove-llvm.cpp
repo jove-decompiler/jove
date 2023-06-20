@@ -8962,10 +8962,10 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
           set(insertThreadPointerInlineAsm(IRB), dst);
           return;
         case offsetof(CPUMIPSState, lladdr):
-          set(get(&jv_get_tcg_context()->temps[tcg_lladdr_index]), dst);
+          set(get(&s->temps[tcg_lladdr_index]), dst);
           return;
         case offsetof(CPUMIPSState, llval):
-          set(get(&jv_get_tcg_context()->temps[tcg_llval_index]), dst);
+          set(get(&s->temps[tcg_llval_index]), dst);
           return;
         case offsetof(CPUMIPSState, error_code):
           break;
@@ -8981,10 +8981,10 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
         switch (ofs) {
 #ifdef TARGET_MIPS32
         case offsetof(CPUMIPSState, lladdr):
-          set(get(input_arg(0)), &jv_get_tcg_context()->temps[tcg_lladdr_index]);
+          set(get(input_arg(0)), &s->temps[tcg_lladdr_index]);
           return;
         case offsetof(CPUMIPSState, llval):
-          set(get(input_arg(0)), &jv_get_tcg_context()->temps[tcg_llval_index]);
+          set(get(input_arg(0)), &s->temps[tcg_llval_index]);
           return;
         case offsetof(CPUMIPSState, error_code):
           break;
@@ -9010,11 +9010,10 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
     if (IsLoad) {
       llvm::LoadInst *LI = IRB.CreateLoad(ptr);
 
-      llvm::Value *Casted =
-          IRB.CreateIntCast(LI,
-                            IRB.getIntNTy(bitsOfTCGType(
-                                tcg_ctx->temps[temp_idx(output_arg(0))].type)),
-                            Signed);
+      llvm::Value *Casted = IRB.CreateIntCast(
+          LI,
+          IRB.getIntNTy(bitsOfTCGType(s->temps[temp_idx(output_arg(0))].type)),
+          Signed);
 
       set(Casted, output_arg(0));
     } else {
@@ -9095,7 +9094,7 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
     TCGTemp *dst = arg_temp(op->args[0]);
     unsigned idx = temp_idx(dst);
 
-    llvm::Type *Ty = IRB.getIntNTy(bitsOfTCGType(jv_get_tcg_context()->temps[idx].type));
+    llvm::Type *Ty = IRB.getIntNTy(bitsOfTCGType(s->temps[idx].type));
     //set(llvm::UndefValue::get(Ty), dst);
     set(llvm::Constant::getNullValue(Ty), dst);
 #endif
@@ -9539,14 +9538,14 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
     if (off == offsetof(CPUMIPSState, lladdr)) {                               \
       TCGTemp *dst = arg_temp(op->args[0]);                                    \
       assert(dst->type == TCG_TYPE_I32);                                       \
-      set(get(&jv_get_tcg_context()->temps[tcg_lladdr_index]), dst);                 \
+      set(get(&s->temps[tcg_lladdr_index]), dst);                              \
       break;                                                                   \
     }                                                                          \
                                                                                \
     if (off == offsetof(CPUMIPSState, llval)) {                                \
       TCGTemp *dst = arg_temp(op->args[0]);                                    \
       assert(dst->type == TCG_TYPE_I32);                                       \
-      set(get(&jv_get_tcg_context()->temps[tcg_llval_index]), dst);                  \
+      set(get(&s->temps[tcg_llval_index]), dst);                               \
       break;                                                                   \
     }                                                                          \
                                                                                \
@@ -9614,12 +9613,12 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
 #define __ARCH_ST_OP(off)                                                      \
   {                                                                            \
     if (off == offsetof(CPUMIPSState, lladdr)) {                               \
-      set(Val, &jv_get_tcg_context()->temps[tcg_lladdr_index]);                      \
+      set(Val, &s->temps[tcg_lladdr_index]);                                   \
       break;                                                                   \
     }                                                                          \
                                                                                \
     if (off == offsetof(CPUMIPSState, llval)) {                                \
-      set(Val, &jv_get_tcg_context()->temps[tcg_llval_index]);                       \
+      set(Val, &s->temps[tcg_llval_index]);                                    \
       break;                                                                   \
     }                                                                          \
                                                                                \
