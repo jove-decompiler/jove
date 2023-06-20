@@ -293,7 +293,10 @@ jove_thunk_return_t _jove_thunk4(uint32_t a0,
 #undef JOVE_THUNK_PROLOGUE
 #undef JOVE_THUNK_EPILOGUE
 
+#if 0
+
 asm(".text\n"
+    ".globl _jove_init"           "\n"
     "_jove_init: .ent _jove_init" "\n"
     ".set noreorder"              "\n"
     ".cpload $t9"                 "\n"
@@ -341,3 +344,58 @@ asm(".text\n"
 
     "jr $ra"          "\n"
     ".end _jove_init" "\n");
+
+//
+// XXX hack for glibc 2.32+
+//
+asm(".text\n"
+    ".globl _jove__libc_early_init"                       "\n"
+    "_jove__libc_early_init: .ent _jove__libc_early_init" "\n"
+    ".set noreorder"                                      "\n"
+    ".cpload $t9"                                         "\n"
+    ".set reorder"                                        "\n"
+
+    "subu $sp, $sp, 32" "\n" /* allocate stack memory */
+
+    "sw $a0,8($sp)"  "\n" /* save args */
+    "sw $a1,12($sp)" "\n"
+    "sw $a2,16($sp)" "\n"
+    "sw $a3,20($sp)" "\n"
+
+    "sw $ra,24($sp)" "\n" /* save ra */
+    "sw $gp,28($sp)" "\n" /* save gp */
+
+    "la $t9, _jove_do_call_rt_init" "\n"
+    "jalr $t9"                      "\n"
+
+    "lw $gp,28($sp)" "\n" /* gp could have been clobbered */
+
+    "la $t9, _jove_initialize" "\n"
+    "jalr $t9"                 "\n"
+
+    "lw $gp,28($sp)" "\n" /* gp could have been clobbered */
+
+    "la $t9, _jove_get_libc_early_init_fn_sect_ptr" "\n"
+    "jalr $t9"                                      "\n"
+
+    "move $t9, $v0"  "\n"
+    "jalr $t9"       "\n"
+
+    "lw $gp,28($sp)" "\n" /* gp could have been clobbered */
+
+    "lw $a0,8($sp)"  "\n" /* restore args */
+    "lw $a1,12($sp)" "\n"
+    "lw $a2,16($sp)" "\n"
+    "lw $a3,20($sp)" "\n"
+
+    "lw $ra,24($sp)"     "\n" /* restore ra */
+    "addiu $sp, $sp, 32" "\n" /* deallocate stack memory */
+
+    "jr $ra"                      "\n"
+    ".end _jove__libc_early_init" "\n");
+
+_HIDDEN void _jove_do_call_rt_init(void) {
+  _jove_rt_init();
+}
+
+#endif

@@ -38,6 +38,8 @@ static void _jove_install_function_mappings(void);
 
 static void _jove_make_sections_executable(void);
 
+extern void _jove_rt_init(void);
+
 _HIDDEN void _jove_initialize(void) {
   static bool _Done = false;
   if (_Done)
@@ -121,12 +123,10 @@ void _jove_install_function_mappings(void) {
   memory_barrier();
 }
 
-#if (defined(__x86_64__) || defined(__i386__)) || \
-    (!defined(__mips64) && defined(__mips__))
+#if defined(__aarch64__) || defined(__mips__) || defined(__mips64)
 //
 // see definition of _jove_init in lib/arch/<arch>/jove.c
 //
-#else
 _HIDDEN void _jove_init(
                         #define __REG_ARG(n, i, data) BOOST_PP_COMMA_IF(i) uintptr_t reg##i
 
@@ -212,21 +212,12 @@ _HIDDEN void _jove_init(
   _jove_free_callstack(new_callstack);
 }
 
-#endif
+typedef void (*_jove_rt_init_t)(void);
+static _jove_rt_init_t _jove_rt_init_clunk = &_jove_rt_init;
 
 //
 // XXX hack for glibc 2.32+
 //
-#if defined(__x86_64__) || defined(__i386__)
-//
-// see definition of _jove__libc_early_init in lib/arch/<arch>/jove.c
-//
-#else
-extern void _jove_rt_init(void);
-
-typedef void (*_jove_rt_init_t)(void);
-static _jove_rt_init_t _jove_rt_init_clunk = &_jove_rt_init;
-
 _HIDDEN void _jove__libc_early_init(
                                     #define __REG_ARG(n, i, data) BOOST_PP_COMMA_IF(i) uintptr_t reg##i
 
@@ -1211,7 +1202,7 @@ void __nodce(void **p) {
   *p++ = &__jove_callstack_clunk;
   *p++ = &__jove_callstack_begin_clunk;
   *p++ = &_jove_flush_trace_clunk;
-#if !(defined(__x86_64__) || defined(__i386__))
+#if defined(__aarch64__) || defined(__mips__) || defined(__mips64)
   *p++ = &_jove_rt_init_clunk;
 #endif
   *p++ = &__jove_function_tables_clunk;
