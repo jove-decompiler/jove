@@ -454,6 +454,7 @@ struct LLVMTool : public TransformerTool_BinFnBB<binary_state_t,
   llvm::Constant *__jove_fail_UnknownCallee;
 
   bool pcrel_flag = false; /* XXX this is ugly, but it works */
+  uint64_t lstaddr = 0;
 
 public:
   LLVMTool() : opts(JoveCategory), DL("") {}
@@ -8966,12 +8967,14 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
         case offsetof(CPUMIPSState, llval):
           set(get(&jv_get_tcg_context()->temps[tcg_llval_index]), dst);
           return;
+        case offsetof(CPUMIPSState, error_code):
+          break;
 #endif
 
         default:
           if (IsVerbose())
-            llvm::outs() << llvm::formatv("CURIOSITY: load(env+{0}) [{1}]\n",
-                                          ofs, name_of_global_for_offset(ofs));
+            llvm::outs() << llvm::formatv("CURIOSITY: load(env+{0}) [{1}] @ {2:x}\n",
+                                          ofs, name_of_global_for_offset(ofs), lstaddr);
           break;
         }
       } else {
@@ -8983,12 +8986,14 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
         case offsetof(CPUMIPSState, llval):
           set(get(input_arg(0)), &jv_get_tcg_context()->temps[tcg_llval_index]);
           return;
+        case offsetof(CPUMIPSState, error_code):
+          break;
 #endif
 
         default:
           if (IsVerbose())
-            llvm::outs() << llvm::formatv("CURIOSITY: store(env+{0}) [{1}]\n",
-                                          ofs, name_of_global_for_offset(ofs));
+            llvm::outs() << llvm::formatv("CURIOSITY: store(env+{0}) [{1}] @ {2:x}\n",
+                                          ofs, name_of_global_for_offset(ofs), lstaddr);
           break;
         }
       }
@@ -9058,10 +9063,7 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
 #endif
 
   switch (opc) {
-  case INDEX_op_insn_start: {
-    static uint64_t lstaddr = 0;
-    static unsigned NextLine = 0;
-
+  case INDEX_op_insn_start:
     if (const_arg(0) == JOVE_PCREL_MAGIC) {
       pcrel_flag = true;
 
@@ -9087,7 +9089,6 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
           *Context, Line, 0 /* Column */, TC.DebugInformation.Subprogram));
     }
     break;
-  }
 
   case INDEX_op_discard: {
 #if 0
