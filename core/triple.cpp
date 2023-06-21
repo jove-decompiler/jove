@@ -7,6 +7,7 @@ llvm::Triple getTargetTriple(void) {
 
   res.setObjectFormat(llvm::Triple::ELF);
   res.setOS(llvm::Triple::Linux);
+  res.setEnvironment(llvm::Triple::GNU);
   res.setArch(
 #if defined(TARGET_AARCH64)
       llvm::Triple::aarch64
