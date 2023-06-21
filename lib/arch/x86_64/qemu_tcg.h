@@ -2,6 +2,8 @@
 #error
 #endif
 
+#define CONFIG_USER_ONLY 1
+
 #define TARGET_X86_64 1
 
 #define QEMU_ALIGNED(X) __attribute__((aligned(X)))
@@ -654,8 +656,6 @@ typedef struct CPUArchState {
 
     unsigned nr_dies;
 } CPUX86State;
-
-#define CONFIG_USER_ONLY
 
 #define CONFIG_LINUX 1
 

@@ -1,4 +1,4 @@
-#define CONFIG_USER_ONLY
+#define CONFIG_USER_ONLY 1
 
 #define CONFIG_LINUX 1
 
