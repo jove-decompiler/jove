@@ -1011,6 +1011,7 @@ skip_run:
             if (fs::exists(dst))
               fs::remove(dst);
 
+            fs::remove(dst);
             fs::create_symlink(binary_filename, dst);
           }
         }
