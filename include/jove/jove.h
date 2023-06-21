@@ -1,6 +1,9 @@
 #pragma once
 #ifdef __cplusplus
 #include <cstdint>
+#include <stdexcept>
+#include <sstream>
+#include <iomanip>
 #include <vector>
 #include <map>
 #include <boost/graph/adjacency_list.hpp>
@@ -12,8 +15,6 @@
 #include <tuple>
 #include <boost/icl/split_interval_map.hpp>
 #endif /* __cplusplus */
-
-#if 1
 
 #if defined(TARGET_AARCH64)
 #include <jove/tcgconstants-aarch64.h>
@@ -31,8 +32,6 @@
 #error "unknown target"
 #endif
 
-#endif
-
 #ifndef likely
 #define likely(x) __builtin_expect(!!(x), 1)
 #endif
@@ -48,6 +47,13 @@
 #ifdef __cplusplus
 
 namespace jove {
+
+inline std::string taddr2str(tcg_uintptr_t x) {
+  std::stringstream stream;
+  stream << "0x" << std::setfill('0') << std::setw(sizeof(tcg_uintptr_t) * 2)
+         << std::hex << x;
+  return stream.str();
+}
 
 enum class TERMINATOR : uint8_t {
   UNKNOWN,
@@ -508,14 +514,14 @@ static inline binary_index_t binary_index_of_function(const function_t &f,
       return BIdx; /* found */
   }
 
-  abort();
+  throw std::runtime_error(std::string(__func__) + ": not found!");
 }
 
 static inline binary_index_t index_of_binary(const binary_t &b,
                                              const jv_t &jv) {
   if (!(&b >= &jv.Binaries[0] &&
         &b < &jv.Binaries[jv.Binaries.size()]))
-    abort();
+    throw std::runtime_error(std::string(__func__) + ": invalid binary!");
 
   return &b - &jv.Binaries[0];
 }
@@ -524,7 +530,7 @@ static inline function_index_t index_of_function_in_binary(const function_t &f,
                                                            const binary_t &b) {
   if (!(&f >= &b.Analysis.Functions[0] &&
         &f < &b.Analysis.Functions[b.Analysis.Functions.size()]))
-    abort();
+    throw std::runtime_error(std::string(__func__) + ": invalid function!");
 
   return &f - &b.Analysis.Functions[0];
 }
@@ -564,7 +570,7 @@ static inline void basic_blocks_of_function(const function_t &f,
   };
 
   if (!is_basic_block_index_valid(f.Entry))
-    abort();
+    throw std::runtime_error(std::string(__func__) + ": invalid entry block!");
 
   std::map<basic_block_t, boost::default_color_type> color;
   bb_visitor vis(out);
@@ -685,7 +691,8 @@ static inline basic_block_t index_of_basic_block_at_address(uint64_t Addr,
 
   auto it = bbmap.find(Addr);
   if (it == bbmap.end())
-    abort();
+    throw std::runtime_error(std::string(__func__) + ": no block for address " +
+                             taddr2str(Addr) + " in " + binary.Path + "!");
 
   return -1+(*it).second;
 }
@@ -721,9 +728,9 @@ static inline bool exists_indirect_jump_at_address(uint64_t Addr,
 }
 
 static inline uint64_t entry_address_of_function(const function_t &f,
-                                                      const binary_t &binary) {
+                                                 const binary_t &binary) {
   if (!is_basic_block_index_valid(f.Entry))
-    abort();
+    throw std::runtime_error(std::string(__func__) + ": invalid entry block!");
 
   const auto &ICFG = binary.Analysis.ICFG;
   return ICFG[basic_block_of_index(f.Entry, binary)].Addr;
