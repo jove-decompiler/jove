@@ -123,7 +123,10 @@ void _jove_install_function_mappings(void) {
   memory_barrier();
 }
 
-#if defined(__aarch64__) || defined(__mips__) || defined(__mips64)
+typedef void (*_jove_rt_init_t)(void);
+static _jove_rt_init_t _jove_rt_init_clunk = &_jove_rt_init;
+
+#if defined(__aarch64__)
 _HIDDEN void _jove_init(
                         #define __REG_ARG(n, i, data) BOOST_PP_COMMA_IF(i) uintptr_t reg##i
 
@@ -208,9 +211,6 @@ _HIDDEN void _jove_init(
   _jove_free_stack(new_emu_stack);
   _jove_free_callstack(new_callstack);
 }
-
-typedef void (*_jove_rt_init_t)(void);
-static _jove_rt_init_t _jove_rt_init_clunk = &_jove_rt_init;
 
 //
 // XXX hack for glibc 2.32+
@@ -1001,7 +1001,7 @@ jove_thunk_return_t _jove_call(
 
 #if defined(__mips64) || defined(__mips__)
   {
-    const uint32_t *const p = (const uint32_t *)pc + 5;
+    const uint32_t *const p = (const uint32_t *)pc + 10;
 
     //
     // 24000929        li      zero,2345
@@ -1203,9 +1203,7 @@ void __nodce(void **p) {
   *p++ = &__jove_callstack_clunk;
   *p++ = &__jove_callstack_begin_clunk;
   *p++ = &_jove_flush_trace_clunk;
-#if defined(__aarch64__) || defined(__mips__) || defined(__mips64)
   *p++ = &_jove_rt_init_clunk;
-#endif
   *p++ = &__jove_function_tables_clunk;
   *p++ = &__jove_sections_tables_clunk;
   *p++ = &__jove_env_clunk;

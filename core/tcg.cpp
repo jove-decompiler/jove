@@ -1153,6 +1153,18 @@ tiny_code_generator_t::translate(uint64_t pc, uint64_t pc_end) {
 
   tb_size = tb.size;
 
+#if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
+  if (jv_ti.Type == TERMINATOR::UNCONDITIONAL_JUMP ||
+      jv_ti.Type == TERMINATOR::CONDITIONAL_JUMP ||
+      jv_ti.Type == TERMINATOR::INDIRECT_CALL ||
+      jv_ti.Type == TERMINATOR::INDIRECT_JUMP ||
+      jv_ti.Type == TERMINATOR::CALL ||
+      jv_ti.Type == TERMINATOR::RETURN) {
+    assert(tb_size >= 2 * sizeof(uint32_t));
+    tb_size -= sizeof(uint32_t); /* XXX delay slot */
+  }
+#endif
+
 #if defined(TARGET_I386) || defined(TARGET_MIPS32)
   //
   // On architectures which lack an easy way to reference the program counter

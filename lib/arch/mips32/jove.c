@@ -293,8 +293,6 @@ jove_thunk_return_t _jove_thunk4(uint32_t a0,
 #undef JOVE_THUNK_PROLOGUE
 #undef JOVE_THUNK_EPILOGUE
 
-#if 0
-
 asm(".text\n"
     ".globl _jove_init"           "\n"
     "_jove_init: .ent _jove_init" "\n"
@@ -397,5 +395,3 @@ asm(".text\n"
 _HIDDEN void _jove_do_call_rt_init(void) {
   _jove_rt_init();
 }
-
-#endif
