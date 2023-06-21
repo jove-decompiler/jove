@@ -154,6 +154,78 @@ typedef struct IRQState *qemu_irq;
 
 #define DIV_ROUND_UP(n, d) (((n) + (d) - 1) / (d))
 
+typedef uint32_t float32;
+
+typedef uint64_t float64;
+
+typedef enum __attribute__((__packed__)) {
+    float_round_nearest_even = 0,
+    float_round_down         = 1,
+    float_round_up           = 2,
+    float_round_to_zero      = 3,
+    float_round_ties_away    = 4,
+    /* Not an IEEE rounding mode: round to closest odd, overflow to max */
+    float_round_to_odd       = 5,
+    /* Not an IEEE rounding mode: round to closest odd, overflow to inf */
+    float_round_to_odd_inf   = 6,
+} FloatRoundMode;
+
+typedef enum __attribute__((__packed__)) {
+    floatx80_precision_x,
+    floatx80_precision_d,
+    floatx80_precision_s,
+} FloatX80RoundPrec;
+
+typedef struct float_status {
+    uint16_t float_exception_flags;
+    FloatRoundMode float_rounding_mode;
+    FloatX80RoundPrec floatx80_rounding_precision;
+    bool tininess_before_rounding;
+    /* should denormalised results go to zero and set the inexact flag? */
+    bool flush_to_zero;
+    /* should denormalised inputs go to zero and set the input_denormal flag? */
+    bool flush_inputs_to_zero;
+    bool default_nan_mode;
+    /*
+     * The flags below are not used on all specializations and may
+     * constant fold away (see snan_bit_is_one()/no_signalling_nans() in
+     * softfloat-specialize.inc.c)
+     */
+    bool snan_bit_is_one;
+    bool use_first_nan;
+    bool no_signaling_nans;
+    /* should overflowed results subtract re_bias to its exponent? */
+    bool rebias_overflow;
+    /* should underflowed results add re_bias to its exponent? */
+    bool rebias_underflow;
+} float_status;
+
+static inline void set_float_rounding_mode(FloatRoundMode val,
+                                           float_status *status)
+{
+    status->float_rounding_mode = val;
+}
+
+static inline void set_float_exception_flags(int val, float_status *status)
+{
+    status->float_exception_flags = val;
+}
+
+static inline void set_flush_to_zero(bool val, float_status *status)
+{
+    status->flush_to_zero = val;
+}
+
+static inline void set_default_nan_mode(bool val, float_status *status)
+{
+    status->default_nan_mode = val;
+}
+
+static inline void set_snan_bit_is_one(bool val, float_status *status)
+{
+    status->snan_bit_is_one = val;
+}
+
 #define QLIST_HEAD(name, type)                                          \
 struct name {                                                           \
         struct type *lh_first;  /* first element */                     \
@@ -860,52 +932,6 @@ struct MIPSCPUClass {
 };
 
 typedef uint32_t target_ulong;
-
-typedef uint32_t float32;
-
-typedef uint64_t float64;
-
-typedef enum __attribute__((__packed__)) {
-    float_round_nearest_even = 0,
-    float_round_down         = 1,
-    float_round_up           = 2,
-    float_round_to_zero      = 3,
-    float_round_ties_away    = 4,
-    /* Not an IEEE rounding mode: round to closest odd, overflow to max */
-    float_round_to_odd       = 5,
-    /* Not an IEEE rounding mode: round to closest odd, overflow to inf */
-    float_round_to_odd_inf   = 6,
-} FloatRoundMode;
-
-typedef enum __attribute__((__packed__)) {
-    floatx80_precision_x,
-    floatx80_precision_d,
-    floatx80_precision_s,
-} FloatX80RoundPrec;
-
-typedef struct float_status {
-    uint16_t float_exception_flags;
-    FloatRoundMode float_rounding_mode;
-    FloatX80RoundPrec floatx80_rounding_precision;
-    bool tininess_before_rounding;
-    /* should denormalised results go to zero and set the inexact flag? */
-    bool flush_to_zero;
-    /* should denormalised inputs go to zero and set the input_denormal flag? */
-    bool flush_inputs_to_zero;
-    bool default_nan_mode;
-    /*
-     * The flags below are not used on all specializations and may
-     * constant fold away (see snan_bit_is_one()/no_signalling_nans() in
-     * softfloat-specialize.inc.c)
-     */
-    bool snan_bit_is_one;
-    bool use_first_nan;
-    bool no_signaling_nans;
-    /* should overflowed results subtract re_bias to its exponent? */
-    bool rebias_overflow;
-    /* should underflowed results add re_bias to its exponent? */
-    bool rebias_underflow;
-} float_status;
 
 #define ISA_MIPS4         0x0000000000000008ULL
 
@@ -1794,6 +1820,46 @@ static inline bool ase_msa_available(CPUMIPSState *env)
     return env->CP0_Config3 & (1 << CP0C3_MSAP);
 }
 
+extern const FloatRoundMode ieee_rm[4];
+
+static inline void restore_rounding_mode(CPUMIPSState *env)
+{
+    set_float_rounding_mode(ieee_rm[env->active_fpu.fcr31 & 3],
+                            &env->active_fpu.fp_status);
+}
+
+static inline void restore_flush_mode(CPUMIPSState *env)
+{
+    set_flush_to_zero((env->active_fpu.fcr31 & (1 << FCR31_FS)) != 0,
+                      &env->active_fpu.fp_status);
+}
+
+static inline void restore_snan_bit_mode(CPUMIPSState *env)
+{
+    bool nan2008 = env->active_fpu.fcr31 & (1 << FCR31_NAN2008);
+
+    /*
+     * With nan2008, SNaNs are silenced in the usual way.
+     * Before that, SNaNs are not silenced; default nans are produced.
+     */
+    set_snan_bit_is_one(!nan2008, &env->active_fpu.fp_status);
+    set_default_nan_mode(!nan2008, &env->active_fpu.fp_status);
+}
+
+static inline void restore_fp_status(CPUMIPSState *env)
+{
+    restore_rounding_mode(env);
+    restore_flush_mode(env);
+    restore_snan_bit_mode(env);
+}
+
+const FloatRoundMode ieee_rm[4] = {
+    float_round_nearest_even,
+    float_round_to_zero,
+    float_round_up,
+    float_round_down
+};
+
 # define TCG_TARGET_REG_BITS 32
 
 # define tcg_debug_assert(X) \
@@ -1969,65 +2035,6 @@ static inline void compute_hflags(CPUMIPSState *env)
 }
 
 # define GETPC() 0
-
-static inline void set_float_rounding_mode(FloatRoundMode val,
-                                           float_status *status)
-{
-    status->float_rounding_mode = val;
-}
-
-static inline void set_float_exception_flags(int val, float_status *status)
-{
-    status->float_exception_flags = val;
-}
-
-static inline void set_flush_to_zero(bool val, float_status *status)
-{
-    status->flush_to_zero = val;
-}
-
-static inline void set_default_nan_mode(bool val, float_status *status)
-{
-    status->default_nan_mode = val;
-}
-
-static inline void set_snan_bit_is_one(bool val, float_status *status)
-{
-    status->snan_bit_is_one = val;
-}
-
-extern const FloatRoundMode ieee_rm[4];
-
-static inline void restore_rounding_mode(CPUMIPSState *env)
-{
-    set_float_rounding_mode(ieee_rm[env->active_fpu.fcr31 & 3],
-                            &env->active_fpu.fp_status);
-}
-
-static inline void restore_flush_mode(CPUMIPSState *env)
-{
-    set_flush_to_zero((env->active_fpu.fcr31 & (1 << FCR31_FS)) != 0,
-                      &env->active_fpu.fp_status);
-}
-
-static inline void restore_snan_bit_mode(CPUMIPSState *env)
-{
-    bool nan2008 = env->active_fpu.fcr31 & (1 << FCR31_NAN2008);
-
-    /*
-     * With nan2008, SNaNs are silenced in the usual way.
-     * Before that, SNaNs are not silenced; default nans are produced.
-     */
-    set_snan_bit_is_one(!nan2008, &env->active_fpu.fp_status);
-    set_default_nan_mode(!nan2008, &env->active_fpu.fp_status);
-}
-
-static inline void restore_fp_status(CPUMIPSState *env)
-{
-    restore_rounding_mode(env);
-    restore_flush_mode(env);
-    restore_snan_bit_mode(env);
-}
 
 #define helper_raise_exception(x, y) do_raise_exception(x, y, GETPC())
 
