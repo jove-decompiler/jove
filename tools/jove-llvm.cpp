@@ -8737,6 +8737,16 @@ std::string LLVMTool::dyn_target_desc(dynamic_target_t IdxPair) {
 }
 
 static unsigned BitsOfMemOp(MemOp op) {
+  static_assert(MO_8 == 0);
+  static_assert(MO_16 == 1);
+  static_assert(MO_32 == 2);
+  static_assert(MO_64 == 3);
+  static_assert(MO_128 == 4);
+  static_assert(MO_256 == 5);
+  static_assert(MO_512 == 6);
+  static_assert(MO_1024 == 7);
+  static_assert(MO_SIZE == 0x07);
+
   static const unsigned lookup_table[] = {8, 16, 32, 64, 128, 256, 512, 1024};
 
   return lookup_table[op & MO_SIZE];
@@ -8929,7 +8939,6 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
     }
 
     Res = IRB.CreateIntCast(Res, IRB.getInt64Ty(), !!(mop & MO_SIGN));
-
     return Res;
   };
 
@@ -8939,12 +8948,23 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
     MemOp mop = get_memop(oi);
     assert(!(mop & MO_SIGN));
 
+    Val = IRB.CreateTrunc(Val, IRB.getIntNTy(BitsOfMemOp(mop)));
+
+    if (mop & MO_BSWAP) {
+      assert(BitsOfMemOp(mop) > 8);
+
+      llvm::Type *Tys[] = {IRB.getIntNTy(BitsOfMemOp(mop))};
+      llvm::Function *bswap =
+          llvm::Intrinsic::getDeclaration(Module.get(), llvm::Intrinsic::bswap,
+                                          llvm::ArrayRef<llvm::Type *>(Tys, 1));
+      Val = IRB.CreateCall(bswap, Val);
+    }
+
     Addr = IRB.CreateZExt(Addr, WordType());
     Addr = IRB.CreateIntToPtr(
         Addr, llvm::PointerType::get(IRB.getIntNTy(BitsOfMemOp(mop)), 0));
 
-    llvm::StoreInst *St = IRB.CreateStore(
-        IRB.CreateIntCast(Val, IRB.getIntNTy(BitsOfMemOp(mop)), false), Addr);
+    llvm::StoreInst *St = IRB.CreateStore(Val, Addr);
     St->setMetadata(llvm::LLVMContext::MD_noalias, AliasScopeMetadata);
   };
 
