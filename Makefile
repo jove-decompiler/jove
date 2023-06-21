@@ -862,6 +862,33 @@ mipsel-msa_ld_d_EXTRICATE_ARGS := cpu_ldq_le_data_ra
 mipsel-msa_st_d_EXTRICATE_ARGS := cpu_stq_le_data_ra
 mipsel-mulsh_i64_EXTRICATE_ARGS := muls64
 mipsel-muluh_i64_EXTRICATE_ARGS := mulu64
+mipsel-ctc1_EXTRICATE_ARGS := ieee_rm
+mipsel-float_round_l_s_EXTRICATE_ARGS := ieee_rm
+mipsel-float_round_l_d_EXTRICATE_ARGS := ieee_rm
+mipsel-float_round_w_s_EXTRICATE_ARGS := ieee_rm
+mipsel-float_round_w_d_EXTRICATE_ARGS := ieee_rm
+mipsel-float_ceil_l_s_EXTRICATE_ARGS := ieee_rm
+mipsel-float_ceil_w_s_EXTRICATE_ARGS := ieee_rm
+mipsel-float_ceil_l_d_EXTRICATE_ARGS := ieee_rm
+mipsel-float_ceil_w_d_EXTRICATE_ARGS := ieee_rm
+mipsel-float_floor_l_s_EXTRICATE_ARGS := ieee_rm
+mipsel-float_floor_l_d_EXTRICATE_ARGS := ieee_rm
+mipsel-float_floor_w_s_EXTRICATE_ARGS := ieee_rm
+mipsel-float_floor_w_d_EXTRICATE_ARGS := ieee_rm
+mipsel-float_round_2008_l_s_EXTRICATE_ARGS := ieee_rm
+mipsel-float_round_2008_l_d_EXTRICATE_ARGS := ieee_rm
+mipsel-float_round_2008_w_s_EXTRICATE_ARGS := ieee_rm
+mipsel-float_round_2008_w_d_EXTRICATE_ARGS := ieee_rm
+mipsel-float_ceil_2008_l_s_EXTRICATE_ARGS := ieee_rm
+mipsel-float_ceil_2008_l_d_EXTRICATE_ARGS := ieee_rm
+mipsel-float_ceil_2008_w_s_EXTRICATE_ARGS := ieee_rm
+mipsel-float_ceil_2008_w_d_EXTRICATE_ARGS := ieee_rm
+mipsel-float_floor_2008_l_s_EXTRICATE_ARGS := ieee_rm
+mipsel-float_floor_2008_l_d_EXTRICATE_ARGS := ieee_rm
+mipsel-float_floor_2008_w_s_EXTRICATE_ARGS := ieee_rm
+mipsel-float_floor_2008_w_d_EXTRICATE_ARGS := ieee_rm
+mipsel-msa_ctcmsa_EXTRICATE_ARGS := ieee_rm
+mipsel-msa_flog2_df_EXTRICATE_ARGS := ieee_rm
 
 
 #
