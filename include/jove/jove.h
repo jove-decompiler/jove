@@ -28,6 +28,7 @@
 #include <jove/tcgconstants-mipsel.h>
 #elif defined(TARGET_MIPS)
 #include <jove/tcgconstants-mips.h>
+#define TARGET_WORDS_BIGENDIAN 1
 #else
 #error "unknown target"
 #endif

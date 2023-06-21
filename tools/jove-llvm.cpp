@@ -8928,6 +8928,7 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
 
     llvm::Value *Res = LI;
 
+#if !defined(TARGET_WORDS_BIGENDIAN)
     if (mop & MO_BSWAP) {
       assert(BitsOfMemOp(mop) > 8);
 
@@ -8937,6 +8938,7 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
                                           llvm::ArrayRef<llvm::Type *>(Tys, 1));
       Res = IRB.CreateCall(bswap, Res);
     }
+#endif
 
     Res = IRB.CreateIntCast(Res, IRB.getInt64Ty(), !!(mop & MO_SIGN));
     return Res;
@@ -8950,6 +8952,7 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
 
     Val = IRB.CreateTrunc(Val, IRB.getIntNTy(BitsOfMemOp(mop)));
 
+#if !defined(TARGET_WORDS_BIGENDIAN)
     if (mop & MO_BSWAP) {
       assert(BitsOfMemOp(mop) > 8);
 
@@ -8959,6 +8962,7 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
                                           llvm::ArrayRef<llvm::Type *>(Tys, 1));
       Val = IRB.CreateCall(bswap, Val);
     }
+#endif
 
     Addr = IRB.CreateZExt(Addr, WordType());
     Addr = IRB.CreateIntToPtr(
