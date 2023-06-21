@@ -194,6 +194,7 @@ int TCGDumpTool::Run(void) {
       HumanOut() << llvm::formatv("{0} @ {1:x}\n",
                                   description_of_terminator(T.Type),
                                   T.Addr);
+      HumanOut() << llvm::formatv("BBSize: {0}\n", BBSize);
 
       switch (T.Type) {
       case jove::TERMINATOR::UNCONDITIONAL_JUMP:
