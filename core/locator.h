@@ -32,6 +32,8 @@ struct locator_t {
   std::string ida_scripts(void);
 
   std::string starter_bin(void);
+
+  std::string gdb(void);
 };
 
 }

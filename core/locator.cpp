@@ -109,4 +109,9 @@ std::string locator_t::softfloat_bitcode(void) {
                     ("libfpu_soft-" TARGET_ARCH_NAME "-linux-user.a"));
 }
 
+std::string locator_t::gdb(void) {
+  return must_exist(prebuilts_path() / "static_bin" /
+                    (TARGET_ARCH_NAME "-gdb"));
+}
+
 }
