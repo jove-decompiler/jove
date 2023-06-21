@@ -71,7 +71,7 @@ pid_t RunExecutable(const std::string &exe_path,
            const_cast<char **>(&env_vec[0]));
 
   int err = errno;
-  throw runtime_error(string("execve failed: ") + strerror(err));
+  throw runtime_error(string("execve of ") + exe_path + " failed: " + strerror(err));
 }
 
 int WaitForProcessToExit(pid_t pid) {
