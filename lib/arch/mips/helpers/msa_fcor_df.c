@@ -1,12 +1,4 @@
-#define HOST_WORDS_BIGENDIAN 1
-
-#define TARGET_MIPS 1
-
 #define CONFIG_USER_ONLY 1
-
-#define QEMU_NORETURN __attribute__ ((__noreturn__))
-
-#  define GCC_FMT_ATTR(n, m) __attribute__((format(printf, n, m)))
 
 #include <stddef.h>
 
@@ -14,15 +6,75 @@
 
 #include <stdint.h>
 
-#include <sys/types.h>
-
 #include <stdio.h>
 
 #include <limits.h>
 
-#include <assert.h>
+#define G_GNUC_PRINTF( format_idx, arg_idx )    \
+  __attribute__((__format__ (__printf__, format_idx, arg_idx)))
 
-#include <setjmp.h>
+#define G_GNUC_UNUSED \
+  __attribute__ ((__unused__))
+
+#define G_GNUC_BEGIN_IGNORE_DEPRECATIONS \
+  _Pragma("clang diagnostic push") \
+  _Pragma("clang diagnostic ignored \"-Wdeprecated-declarations\"")
+
+#define G_GNUC_END_IGNORE_DEPRECATIONS \
+  _Pragma("clang diagnostic pop")
+
+#define G_STRFUNC     ((const char*) (__func__))
+
+#define G_STMT_START  do
+
+#define G_STMT_END    while (0)
+
+# define G_NORETURN __attribute__ ((__noreturn__))
+
+#define _GLIB_EXTERN extern
+
+#define _GLIB_AUTOPTR_FUNC_NAME(TypeName) glib_autoptr_cleanup_##TypeName
+
+#define _GLIB_AUTOPTR_CLEAR_FUNC_NAME(TypeName) glib_autoptr_clear_##TypeName
+
+#define _GLIB_AUTOPTR_TYPENAME(TypeName)  TypeName##_autoptr
+
+#define _GLIB_AUTOPTR_LIST_FUNC_NAME(TypeName) glib_listautoptr_cleanup_##TypeName
+
+#define _GLIB_AUTOPTR_LIST_TYPENAME(TypeName)  TypeName##_listautoptr
+
+#define _GLIB_AUTOPTR_SLIST_FUNC_NAME(TypeName) glib_slistautoptr_cleanup_##TypeName
+
+#define _GLIB_AUTOPTR_SLIST_TYPENAME(TypeName)  TypeName##_slistautoptr
+
+#define _GLIB_AUTOPTR_QUEUE_FUNC_NAME(TypeName) glib_queueautoptr_cleanup_##TypeName
+
+#define _GLIB_AUTOPTR_QUEUE_TYPENAME(TypeName)  TypeName##_queueautoptr
+
+#define _GLIB_DEFINE_AUTOPTR_CLEANUP_FUNCS(TypeName, ParentName, cleanup) \
+  typedef TypeName *_GLIB_AUTOPTR_TYPENAME(TypeName);                                                           \
+  typedef GList *_GLIB_AUTOPTR_LIST_TYPENAME(TypeName);                                                         \
+  typedef GSList *_GLIB_AUTOPTR_SLIST_TYPENAME(TypeName);                                                       \
+  typedef GQueue *_GLIB_AUTOPTR_QUEUE_TYPENAME(TypeName);                                                       \
+  G_GNUC_BEGIN_IGNORE_DEPRECATIONS                                                                              \
+  static G_GNUC_UNUSED inline void _GLIB_AUTOPTR_CLEAR_FUNC_NAME(TypeName) (TypeName *_ptr)                     \
+    { if (_ptr) (cleanup) ((ParentName *) _ptr); }                                                              \
+  static G_GNUC_UNUSED inline void _GLIB_AUTOPTR_FUNC_NAME(TypeName) (TypeName **_ptr)                          \
+    { _GLIB_AUTOPTR_CLEAR_FUNC_NAME(TypeName) (*_ptr); }                                                        \
+  static G_GNUC_UNUSED inline void _GLIB_AUTOPTR_LIST_FUNC_NAME(TypeName) (GList **_l)                          \
+    { g_list_free_full (*_l, (GDestroyNotify) (void(*)(void)) cleanup); }                                       \
+  static G_GNUC_UNUSED inline void _GLIB_AUTOPTR_SLIST_FUNC_NAME(TypeName) (GSList **_l)                        \
+    { g_slist_free_full (*_l, (GDestroyNotify) (void(*)(void)) cleanup); }                                      \
+  static G_GNUC_UNUSED inline void _GLIB_AUTOPTR_QUEUE_FUNC_NAME(TypeName) (GQueue **_q)                        \
+    { if (*_q) g_queue_free_full (*_q, (GDestroyNotify) (void(*)(void)) cleanup); }                             \
+  G_GNUC_END_IGNORE_DEPRECATIONS
+
+#define G_DEFINE_AUTOPTR_CLEANUP_FUNC(TypeName, func) \
+  _GLIB_DEFINE_AUTOPTR_CLEANUP_FUNCS(TypeName, TypeName, func)
+
+typedef unsigned char guint8;
+
+#define GLIB_AVAILABLE_IN_ALL                   _GLIB_EXTERN
 
 typedef char   gchar;
 
@@ -30,13 +82,28 @@ typedef unsigned int    guint;
 
 typedef void* gpointer;
 
-typedef struct _GArray		GArray;
+typedef void            (*GDestroyNotify)       (gpointer       data);
 
-struct _GArray
+typedef struct _GByteArray	GByteArray;
+
+struct _GByteArray
 {
-  gchar *data;
-  guint len;
+  guint8 *data;
+  guint	  len;
 };
+
+typedef struct _GList GList;
+
+struct _GList
+{
+  gpointer data;
+  GList *next;
+  GList *prev;
+};
+
+GLIB_AVAILABLE_IN_ALL
+void     g_list_free_full               (GList            *list,
+					 GDestroyNotify    free_func);
 
 typedef struct _GHashTable  GHashTable;
 
@@ -48,11 +115,40 @@ struct _GSList
   GSList *next;
 };
 
-typedef struct AddressSpace AddressSpace;
+GLIB_AVAILABLE_IN_ALL
+void     g_slist_free_full               (GSList           *list,
+					  GDestroyNotify    free_func);
+
+#define G_LOG_DOMAIN    ((gchar*) 0)
+
+typedef struct _GQueue GQueue;
+
+struct _GQueue
+{
+  GList *head;
+  GList *tail;
+  guint  length;
+};
+
+GLIB_AVAILABLE_IN_ALL
+void     g_queue_free_full      (GQueue           *queue,
+				GDestroyNotify    free_func);
+
+#define g_assert_not_reached()          G_STMT_START { g_assertion_message_expr (G_LOG_DOMAIN, __FILE__, __LINE__, G_STRFUNC, NULL); } G_STMT_END
+
+GLIB_AVAILABLE_IN_ALL
+G_NORETURN
+void    g_assertion_message_expr        (const char     *domain,
+                                         const char     *file,
+                                         int             line,
+                                         const char     *func,
+                                         const char     *expr);
 
 typedef struct BusState BusState;
 
-typedef struct CPUAddressSpace CPUAddressSpace;
+typedef struct Clock Clock;
+
+typedef struct CpuInfoFast CpuInfoFast;
 
 typedef struct CPUState CPUState;
 
@@ -60,17 +156,13 @@ typedef struct DeviceState DeviceState;
 
 typedef struct Error Error;
 
-typedef struct MemoryMappingList MemoryMappingList;
-
-typedef struct MemoryRegion MemoryRegion;
+typedef struct Object Object;
 
 typedef struct ObjectClass ObjectClass;
 
 typedef struct Property Property;
 
-typedef struct QemuMutex QemuMutex;
-
-typedef struct QemuOpts QemuOpts;
+typedef struct QDict QDict;
 
 typedef struct QEMUTimer QEMUTimer;
 
@@ -79,444 +171,6 @@ typedef struct VMStateDescription VMStateDescription;
 typedef struct IRQState *qemu_irq;
 
 #define DIV_ROUND_UP(n, d) (((n) + (d) - 1) / (d))
-
-typedef uint8_t flag;
-
-typedef uint32_t float32;
-
-#define float32_val(x) (x)
-
-#define float64_val(x) (x)
-
-#define make_float32(x) (x)
-
-#define make_float64(x) (x)
-
-typedef uint64_t float64;
-
-enum {
-    float_flag_invalid   =  1,
-    float_flag_divbyzero =  4,
-    float_flag_overflow  =  8,
-    float_flag_underflow = 16,
-    float_flag_inexact   = 32,
-    float_flag_input_denormal = 64,
-    float_flag_output_denormal = 128
-};
-
-typedef struct float_status {
-    signed char float_detect_tininess;
-    signed char float_rounding_mode;
-    uint8_t     float_exception_flags;
-    signed char floatx80_rounding_precision;
-    /* should denormalised results go to zero and set the inexact flag? */
-    flag flush_to_zero;
-    /* should denormalised inputs go to zero and set the input_denormal flag? */
-    flag flush_inputs_to_zero;
-    flag default_nan_mode;
-    /* not always used -- see snan_bit_is_one() in softfloat-specialize.h */
-    flag snan_bit_is_one;
-} float_status;
-
-#define BITS_PER_BYTE           CHAR_BIT
-
-#define BITS_TO_LONGS(nr)       DIV_ROUND_UP(nr, BITS_PER_BYTE * sizeof(long))
-
-static inline uint64_t extract64(uint64_t value, int start, int length)
-{
-    assert(start >= 0 && length > 0 && length <= 64 - start);
-    return (value >> start) & (~0ULL >> (64 - length));
-}
-
-static inline uint64_t deposit64(uint64_t value, int start, int length,
-                                 uint64_t fieldval)
-{
-    uint64_t mask;
-    assert(start >= 0 && length > 0 && length <= 64 - start);
-    mask = (~0ULL >> (64 - length)) << start;
-    return (value & ~mask) | ((fieldval << start) & mask);
-}
-
-static inline void set_float_exception_flags(int val, float_status *status)
-{
-    status->float_exception_flags = val;
-}
-
-static inline int get_float_exception_flags(float_status *status)
-{
-    return status->float_exception_flags;
-}
-
-int float32_le(float32, float32, float_status *status);
-
-int float32_le_quiet(float32, float32, float_status *status);
-
-#define float32_zero make_float32(0)
-
-static inline float32 float32_set_sign(float32 a, int sign)
-{
-    return make_float32((float32_val(a) & 0x7fffffff) | (sign << 31));
-}
-
-float32 float32_default_nan(float_status *status);
-
-int float64_le(float64, float64, float_status *status);
-
-int float64_le_quiet(float64, float64, float_status *status);
-
-#define float64_zero make_float64(0)
-
-static inline float64 float64_set_sign(float64 a, int sign)
-{
-    return make_float64((float64_val(a) & 0x7fffffffffffffffULL)
-                        | ((int64_t)sign << 63));
-}
-
-float64 float64_default_nan(float_status *status);
-
-static inline uint32_t extractFloat32Frac(float32 a)
-{
-    return float32_val(a) & 0x007FFFFF;
-}
-
-static inline int extractFloat32Exp(float32 a)
-{
-    return (float32_val(a) >> 23) & 0xFF;
-}
-
-static inline flag extractFloat32Sign(float32 a)
-{
-    return float32_val(a) >> 31;
-}
-
-static inline uint64_t extractFloat64Frac(float64 a)
-{
-    return float64_val(a) & UINT64_C(0x000FFFFFFFFFFFFF);
-}
-
-static inline int extractFloat64Exp(float64 a)
-{
-    return (float64_val(a) >> 52) & 0x7FF;
-}
-
-static inline flag extractFloat64Sign(float64 a)
-{
-    return float64_val(a) >> 63;
-}
-
-typedef enum __attribute__ ((__packed__)) {
-    float_class_unclassified,
-    float_class_zero,
-    float_class_normal,
-    float_class_inf,
-    float_class_qnan,  /* all NaNs from here */
-    float_class_snan,
-} FloatClass;
-
-#define DECOMPOSED_BINARY_POINT    (64 - 2)
-
-typedef struct {
-    uint64_t frac;
-    int32_t  exp;
-    FloatClass cls;
-    bool sign;
-} FloatParts;
-
-#define FLOAT_PARAMS(E, F)                                           \
-    .exp_size       = E,                                             \
-    .exp_bias       = ((1 << E) - 1) >> 1,                           \
-    .exp_max        = (1 << E) - 1,                                  \
-    .frac_size      = F,                                             \
-    .frac_shift     = DECOMPOSED_BINARY_POINT - F,                   \
-    .frac_lsb       = 1ull << (DECOMPOSED_BINARY_POINT - F),         \
-    .frac_lsbm1     = 1ull << ((DECOMPOSED_BINARY_POINT - F) - 1),   \
-    .round_mask     = (1ull << (DECOMPOSED_BINARY_POINT - F)) - 1,   \
-    .roundeven_mask = (2ull << (DECOMPOSED_BINARY_POINT - F)) - 1
-
-typedef struct {
-    int exp_size;
-    int exp_bias;
-    int exp_max;
-    int frac_size;
-    int frac_shift;
-    uint64_t frac_lsb;
-    uint64_t frac_lsbm1;
-    uint64_t round_mask;
-    uint64_t roundeven_mask;
-    bool arm_althp;
-} FloatFmt;
-
-static const FloatFmt float32_params = {
-    FLOAT_PARAMS(8, 23)
-};
-
-static const FloatFmt float64_params = {
-    FLOAT_PARAMS(11, 52)
-};
-
-static inline FloatParts unpack_raw(FloatFmt fmt, uint64_t raw)
-{
-    const int sign_pos = fmt.frac_size + fmt.exp_size;
-
-    return (FloatParts) {
-        .cls = float_class_unclassified,
-        .sign = extract64(raw, sign_pos, 1),
-        .exp = extract64(raw, fmt.frac_size, fmt.exp_size),
-        .frac = extract64(raw, 0, fmt.frac_size),
-    };
-}
-
-static inline FloatParts float32_unpack_raw(float32 f)
-{
-    return unpack_raw(float32_params, f);
-}
-
-static inline FloatParts float64_unpack_raw(float64 f)
-{
-    return unpack_raw(float64_params, f);
-}
-
-static inline uint64_t pack_raw(FloatFmt fmt, FloatParts p)
-{
-    const int sign_pos = fmt.frac_size + fmt.exp_size;
-    uint64_t ret = deposit64(p.frac, fmt.frac_size, fmt.exp_size, p.exp);
-    return deposit64(ret, sign_pos, 1, p.sign);
-}
-
-static inline float32 float32_pack_raw(FloatParts p)
-{
-    return make_float32(pack_raw(float32_params, p));
-}
-
-static inline float64 float64_pack_raw(FloatParts p)
-{
-    return make_float64(pack_raw(float64_params, p));
-}
-
-static inline flag snan_bit_is_one(float_status *status)
-{
-#if defined(TARGET_MIPS)
-    return status->snan_bit_is_one;
-#elif defined(TARGET_HPPA) || defined(TARGET_UNICORE32) || defined(TARGET_SH4)
-    return 1;
-#else
-    return 0;
-#endif
-}
-
-static FloatParts parts_default_nan(float_status *status)
-{
-    bool sign = 0;
-    uint64_t frac;
-
-#if defined(TARGET_SPARC) || defined(TARGET_M68K)
-    /* !snan_bit_is_one, set all bits */
-    frac = (1ULL << DECOMPOSED_BINARY_POINT) - 1;
-#elif defined(TARGET_I386) || defined(TARGET_X86_64) \
-    || defined(TARGET_MICROBLAZE)
-    /* !snan_bit_is_one, set sign and msb */
-    frac = 1ULL << (DECOMPOSED_BINARY_POINT - 1);
-    sign = 1;
-#elif defined(TARGET_HPPA)
-    /* snan_bit_is_one, set msb-1.  */
-    frac = 1ULL << (DECOMPOSED_BINARY_POINT - 2);
-#else
-    /* This case is true for Alpha, ARM, MIPS, OpenRISC, PPC, RISC-V,
-     * S390, SH4, TriCore, and Xtensa.  I cannot find documentation
-     * for Unicore32; the choice from the original commit is unchanged.
-     * Our other supported targets, CRIS, LM32, Moxie, Nios2, and Tile,
-     * do not have floating-point.
-     */
-    if (snan_bit_is_one(status)) {
-        /* set all bits other than msb */
-        frac = (1ULL << (DECOMPOSED_BINARY_POINT - 1)) - 1;
-    } else {
-        /* set msb */
-        frac = 1ULL << (DECOMPOSED_BINARY_POINT - 1);
-    }
-#endif
-
-    return (FloatParts) {
-        .cls = float_class_qnan,
-        .sign = sign,
-        .exp = INT_MAX,
-        .frac = frac
-    };
-}
-
-void float_raise(uint8_t flags, float_status *status)
-{
-    status->float_exception_flags |= flags;
-}
-
-int float32_is_signaling_nan(float32 a_, float_status *status)
-{
-#ifdef NO_SIGNALING_NANS
-    return 0;
-#else
-    uint32_t a = float32_val(a_);
-    if (snan_bit_is_one(status)) {
-        return ((uint32_t)(a << 1) >= 0xFF800000);
-    } else {
-        return (((a >> 22) & 0x1FF) == 0x1FE) && (a & 0x003FFFFF);
-    }
-#endif
-}
-
-int float64_is_signaling_nan(float64 a_, float_status *status)
-{
-#ifdef NO_SIGNALING_NANS
-    return 0;
-#else
-    uint64_t a = float64_val(a_);
-    if (snan_bit_is_one(status)) {
-        return ((a << 1) >= 0xFFF0000000000000ULL);
-    } else {
-        return (((a >> 51) & 0xFFF) == 0xFFE)
-            && (a & UINT64_C(0x0007FFFFFFFFFFFF));
-    }
-#endif
-}
-
-float32 float32_default_nan(float_status *status)
-{
-    FloatParts p = parts_default_nan(status);
-    p.frac >>= float32_params.frac_shift;
-    return float32_pack_raw(p);
-}
-
-float64 float64_default_nan(float_status *status)
-{
-    FloatParts p = parts_default_nan(status);
-    p.frac >>= float64_params.frac_shift;
-    return float64_pack_raw(p);
-}
-
-static bool parts_squash_denormal(FloatParts p, float_status *status)
-{
-    if (p.exp == 0 && p.frac != 0) {
-        float_raise(float_flag_input_denormal, status);
-        return true;
-    }
-
-    return false;
-}
-
-float32 float32_squash_input_denormal(float32 a, float_status *status)
-{
-    if (status->flush_inputs_to_zero) {
-        FloatParts p = float32_unpack_raw(a);
-        if (parts_squash_denormal(p, status)) {
-            return float32_set_sign(float32_zero, p.sign);
-        }
-    }
-    return a;
-}
-
-float64 float64_squash_input_denormal(float64 a, float_status *status)
-{
-    if (status->flush_inputs_to_zero) {
-        FloatParts p = float64_unpack_raw(a);
-        if (parts_squash_denormal(p, status)) {
-            return float64_set_sign(float64_zero, p.sign);
-        }
-    }
-    return a;
-}
-
-int float32_le(float32 a, float32 b, float_status *status)
-{
-    flag aSign, bSign;
-    uint32_t av, bv;
-    a = float32_squash_input_denormal(a, status);
-    b = float32_squash_input_denormal(b, status);
-
-    if (    ( ( extractFloat32Exp( a ) == 0xFF ) && extractFloat32Frac( a ) )
-         || ( ( extractFloat32Exp( b ) == 0xFF ) && extractFloat32Frac( b ) )
-       ) {
-        float_raise(float_flag_invalid, status);
-        return 0;
-    }
-    aSign = extractFloat32Sign( a );
-    bSign = extractFloat32Sign( b );
-    av = float32_val(a);
-    bv = float32_val(b);
-    if ( aSign != bSign ) return aSign || ( (uint32_t) ( ( av | bv )<<1 ) == 0 );
-    return ( av == bv ) || ( aSign ^ ( av < bv ) );
-
-}
-
-int float32_le_quiet(float32 a, float32 b, float_status *status)
-{
-    flag aSign, bSign;
-    uint32_t av, bv;
-    a = float32_squash_input_denormal(a, status);
-    b = float32_squash_input_denormal(b, status);
-
-    if (    ( ( extractFloat32Exp( a ) == 0xFF ) && extractFloat32Frac( a ) )
-         || ( ( extractFloat32Exp( b ) == 0xFF ) && extractFloat32Frac( b ) )
-       ) {
-        if (float32_is_signaling_nan(a, status)
-         || float32_is_signaling_nan(b, status)) {
-            float_raise(float_flag_invalid, status);
-        }
-        return 0;
-    }
-    aSign = extractFloat32Sign( a );
-    bSign = extractFloat32Sign( b );
-    av = float32_val(a);
-    bv = float32_val(b);
-    if ( aSign != bSign ) return aSign || ( (uint32_t) ( ( av | bv )<<1 ) == 0 );
-    return ( av == bv ) || ( aSign ^ ( av < bv ) );
-
-}
-
-int float64_le(float64 a, float64 b, float_status *status)
-{
-    flag aSign, bSign;
-    uint64_t av, bv;
-    a = float64_squash_input_denormal(a, status);
-    b = float64_squash_input_denormal(b, status);
-
-    if (    ( ( extractFloat64Exp( a ) == 0x7FF ) && extractFloat64Frac( a ) )
-         || ( ( extractFloat64Exp( b ) == 0x7FF ) && extractFloat64Frac( b ) )
-       ) {
-        float_raise(float_flag_invalid, status);
-        return 0;
-    }
-    aSign = extractFloat64Sign( a );
-    bSign = extractFloat64Sign( b );
-    av = float64_val(a);
-    bv = float64_val(b);
-    if ( aSign != bSign ) return aSign || ( (uint64_t) ( ( av | bv )<<1 ) == 0 );
-    return ( av == bv ) || ( aSign ^ ( av < bv ) );
-
-}
-
-int float64_le_quiet(float64 a, float64 b, float_status *status)
-{
-    flag aSign, bSign;
-    uint64_t av, bv;
-    a = float64_squash_input_denormal(a, status);
-    b = float64_squash_input_denormal(b, status);
-
-    if (    ( ( extractFloat64Exp( a ) == 0x7FF ) && extractFloat64Frac( a ) )
-         || ( ( extractFloat64Exp( b ) == 0x7FF ) && extractFloat64Frac( b ) )
-       ) {
-        if (float64_is_signaling_nan(a, status)
-         || float64_is_signaling_nan(b, status)) {
-            float_raise(float_flag_invalid, status);
-        }
-        return 0;
-    }
-    aSign = extractFloat64Sign( a );
-    bSign = extractFloat64Sign( b );
-    av = float64_val(a);
-    bv = float64_val(b);
-    if ( aSign != bSign ) return aSign || ( (uint64_t) ( ( av | bv )<<1 ) == 0 );
-    return ( av == bv ) || ( aSign ^ ( av < bv ) );
-
-}
 
 #define QLIST_HEAD(name, type)                                          \
 struct name {                                                           \
@@ -529,22 +183,9 @@ struct {                                                                \
         struct type **le_prev;  /* address of previous next element */  \
 }
 
-#define QTAILQ_HEAD(name, type)                                         \
-union name {                                                            \
-        struct type *tqh_first;       /* first element */               \
-        QTailQLink tqh_circ;          /* link for circular backwards list */ \
-}
+#define BITS_PER_BYTE           CHAR_BIT
 
-#define QTAILQ_ENTRY(type)                                              \
-union {                                                                 \
-        struct type *tqe_next;        /* next element */                \
-        QTailQLink tqe_circ;          /* link for circular backwards list */ \
-}
-
-typedef struct QTailQLink {
-    void *tql_next;
-    struct QTailQLink *tql_prev;
-} QTailQLink;
+#define BITS_TO_LONGS(nr)       DIV_ROUND_UP(nr, BITS_PER_BYTE * sizeof(long))
 
 #define DECLARE_BITMAP(name,bits)                  \
         unsigned long name[BITS_TO_LONGS(bits)]
@@ -552,8 +193,6 @@ typedef struct QTailQLink {
 struct TypeImpl;
 
 typedef struct TypeImpl *Type;
-
-typedef struct Object Object;
 
 typedef void (ObjectUnparent)(Object *obj);
 
@@ -563,7 +202,7 @@ typedef void (ObjectFree)(void *obj);
 
 struct ObjectClass
 {
-    /*< private >*/
+    /* private: */
     Type type;
     GSList *interfaces;
 
@@ -575,15 +214,100 @@ struct ObjectClass
     GHashTable *properties;
 };
 
+#define DECLARE_INSTANCE_CHECKER(InstanceType, OBJ_NAME, TYPENAME) \
+    static inline G_GNUC_UNUSED InstanceType * \
+    OBJ_NAME(const void *obj) \
+    { return OBJECT_CHECK(InstanceType, obj, TYPENAME); }
+
+#define DECLARE_CLASS_CHECKERS(ClassType, OBJ_NAME, TYPENAME) \
+    static inline G_GNUC_UNUSED ClassType * \
+    OBJ_NAME##_GET_CLASS(const void *obj) \
+    { return OBJECT_GET_CLASS(ClassType, obj, TYPENAME); } \
+    \
+    static inline G_GNUC_UNUSED ClassType * \
+    OBJ_NAME##_CLASS(const void *klass) \
+    { return OBJECT_CLASS_CHECK(ClassType, klass, TYPENAME); }
+
+#define DECLARE_OBJ_CHECKERS(InstanceType, ClassType, OBJ_NAME, TYPENAME) \
+    DECLARE_INSTANCE_CHECKER(InstanceType, OBJ_NAME, TYPENAME) \
+    \
+    DECLARE_CLASS_CHECKERS(ClassType, OBJ_NAME, TYPENAME)
+
+#define OBJECT_DECLARE_TYPE(InstanceType, ClassType, MODULE_OBJ_NAME) \
+    typedef struct InstanceType InstanceType; \
+    typedef struct ClassType ClassType; \
+    \
+    G_DEFINE_AUTOPTR_CLEANUP_FUNC(InstanceType, object_unref) \
+    \
+    DECLARE_OBJ_CHECKERS(InstanceType, ClassType, \
+                         MODULE_OBJ_NAME, TYPE_##MODULE_OBJ_NAME)
+
 struct Object
 {
-    /*< private >*/
-    ObjectClass *class;
+    /* private: */
+    ObjectClass *clazz;
     ObjectFree *free;
     GHashTable *properties;
     uint32_t ref;
     Object *parent;
 };
+
+#define OBJECT(obj) \
+    ((Object *)(obj))
+
+#define OBJECT_CLASS(class) \
+    ((ObjectClass *)(class))
+
+#define OBJECT_CHECK(type, obj, name) \
+    ((type *)object_dynamic_cast_assert(OBJECT(obj), (name), \
+                                        __FILE__, __LINE__, __func__))
+
+#define OBJECT_CLASS_CHECK(class_type, class, name) \
+    ((class_type *)object_class_dynamic_cast_assert(OBJECT_CLASS(class), (name), \
+                                               __FILE__, __LINE__, __func__))
+
+#define OBJECT_GET_CLASS(class, obj, name) \
+    OBJECT_CLASS_CHECK(class, object_get_class(OBJECT(obj)), name)
+
+Object *object_dynamic_cast_assert(Object *obj, const char *,
+                                   const char *file, int line, const char *func);
+
+ObjectClass *object_get_class(Object *obj);
+
+ObjectClass *object_class_dynamic_cast_assert(ObjectClass *klass,
+                                              const char *,
+                                              const char *file, int line,
+                                              const char *func);
+
+void object_unref(void *obj);
+
+typedef struct ResettableState ResettableState;
+
+typedef enum ResetType {
+    RESET_TYPE_COLD,
+} ResetType;
+
+typedef void (*ResettableEnterPhase)(Object *obj, ResetType type);
+
+typedef void (*ResettableHoldPhase)(Object *obj);
+
+typedef void (*ResettableExitPhase)(Object *obj);
+
+typedef struct ResettablePhases {
+    ResettableEnterPhase enter;
+    ResettableHoldPhase hold;
+    ResettableExitPhase exit;
+} ResettablePhases;
+
+struct ResettableState {
+    unsigned count;
+    bool hold_phase_pending;
+    bool exit_phase_in_progress;
+};
+
+#define TYPE_DEVICE "device"
+
+OBJECT_DECLARE_TYPE(DeviceState, DeviceClass, DEVICE)
 
 typedef enum DeviceCategory {
     DEVICE_CATEGORY_BRIDGE,
@@ -595,16 +319,17 @@ typedef enum DeviceCategory {
     DEVICE_CATEGORY_SOUND,
     DEVICE_CATEGORY_MISC,
     DEVICE_CATEGORY_CPU,
+    DEVICE_CATEGORY_WATCHDOG,
     DEVICE_CATEGORY_MAX
 } DeviceCategory;
 
 typedef void (*DeviceRealize)(DeviceState *dev, Error **errp);
 
-typedef void (*DeviceUnrealize)(DeviceState *dev, Error **errp);
+typedef void (*DeviceUnrealize)(DeviceState *dev);
 
 typedef void (*DeviceReset)(DeviceState *dev);
 
-typedef struct DeviceClass {
+struct DeviceClass {
     /*< private >*/
     ObjectClass parent_class;
     /*< public >*/
@@ -612,7 +337,12 @@ typedef struct DeviceClass {
     DECLARE_BITMAP(categories, DEVICE_CATEGORY_MAX);
     const char *fw_name;
     const char *desc;
-    Property *props;
+
+    /*
+     * The underscore at the end ensures a compile-time error if someone
+     * assigns to dc->props instead of using device_class_set_props.
+     */
+    Property *props_;
 
     /*
      * Can this device be instantiated with -device / device_add?
@@ -629,6 +359,11 @@ typedef struct DeviceClass {
     bool hotpluggable;
 
     /* callbacks */
+    /*
+     * Reset method here is deprecated and replaced by methods in the
+     * resettable class interface to implement a multi-phase reset.
+     * TODO: remove once every reset callback is unused
+     */
     DeviceReset reset;
     DeviceRealize realize;
     DeviceUnrealize unrealize;
@@ -638,7 +373,7 @@ typedef struct DeviceClass {
 
     /* Private to qdev / bus.  */
     const char *bus_type;
-} DeviceClass;
+};
 
 struct NamedGPIOList {
     char *name;
@@ -648,24 +383,45 @@ struct NamedGPIOList {
     QLIST_ENTRY(NamedGPIOList) node;
 };
 
+typedef struct Clock Clock;
+
+struct NamedClockList {
+    char *name;
+    Clock *clock;
+    bool output;
+    bool alias;
+    QLIST_ENTRY(NamedClockList) node;
+};
+
+typedef struct {
+    bool engaged_in_io;
+} MemReentrancyGuard;
+
 struct DeviceState {
     /*< private >*/
     Object parent_obj;
     /*< public >*/
 
-    const char *id;
+    char *id;
     char *canonical_path;
     bool realized;
     bool pending_deleted_event;
-    QemuOpts *opts;
+    int64_t pending_deleted_expires_ms;
+    QDict *opts;
     int hotplugged;
     bool allow_unplug_during_migration;
     BusState *parent_bus;
     QLIST_HEAD(, NamedGPIOList) gpios;
+    QLIST_HEAD(, NamedClockList) clocks;
     QLIST_HEAD(, BusState) child_bus;
     int num_child_bus;
     int instance_id_alias;
     int alias_required_for_version;
+    ResettableState reset;
+    GSList *unplug_blockers;
+
+    /* Is the device currently in mmio/pio/dma? Used to prevent re-entrancy */
+    MemReentrancyGuard mem_reentrancy_guard;
 };
 
 typedef void *PTR;
@@ -842,20 +598,20 @@ enum bfd_architecture
 #define bfd_mach_alpha_ev5  0x20
 #define bfd_mach_alpha_ev6  0x30
   bfd_arch_arm,        /* Advanced Risc Machines ARM */
-#define bfd_mach_arm_unknown	0
-#define bfd_mach_arm_2		1
-#define bfd_mach_arm_2a		2
-#define bfd_mach_arm_3		3
-#define bfd_mach_arm_3M 	4
-#define bfd_mach_arm_4 		5
-#define bfd_mach_arm_4T 	6
-#define bfd_mach_arm_5 		7
-#define bfd_mach_arm_5T		8
-#define bfd_mach_arm_5TE	9
-#define bfd_mach_arm_XScale	10
-#define bfd_mach_arm_ep9312	11
-#define bfd_mach_arm_iWMMXt	12
-#define bfd_mach_arm_iWMMXt2	13
+#define bfd_mach_arm_unknown  0
+#define bfd_mach_arm_2        1
+#define bfd_mach_arm_2a       2
+#define bfd_mach_arm_3        3
+#define bfd_mach_arm_3M       4
+#define bfd_mach_arm_4        5
+#define bfd_mach_arm_4T       6
+#define bfd_mach_arm_5        7
+#define bfd_mach_arm_5T       8
+#define bfd_mach_arm_5TE      9
+#define bfd_mach_arm_XScale   10
+#define bfd_mach_arm_ep9312   11
+#define bfd_mach_arm_iWMMXt   12
+#define bfd_mach_arm_iWMMXt2  13
   bfd_arch_ns32k,      /* National Semiconductors ns32000 */
   bfd_arch_w65,        /* WDC 65816 */
   bfd_arch_tic30,      /* Texas Instruments TMS320C30 */
@@ -867,6 +623,25 @@ enum bfd_architecture
 #define bfd_mach_m32r          0  /* backwards compatibility */
   bfd_arch_mn10200,    /* Matsushita MN10200 */
   bfd_arch_mn10300,    /* Matsushita MN10300 */
+  bfd_arch_avr,        /* AVR microcontrollers */
+#define bfd_mach_avr1       1
+#define bfd_mach_avr2       2
+#define bfd_mach_avr25      25
+#define bfd_mach_avr3       3
+#define bfd_mach_avr31      31
+#define bfd_mach_avr35      35
+#define bfd_mach_avr4       4
+#define bfd_mach_avr5       5
+#define bfd_mach_avr51      51
+#define bfd_mach_avr6       6
+#define bfd_mach_avrtiny    100
+#define bfd_mach_avrxmega1  101
+#define bfd_mach_avrxmega2  102
+#define bfd_mach_avrxmega3  103
+#define bfd_mach_avrxmega4  104
+#define bfd_mach_avrxmega5  105
+#define bfd_mach_avrxmega6  106
+#define bfd_mach_avrxmega7  107
   bfd_arch_cris,       /* Axis CRIS */
 #define bfd_mach_cris_v0_v10   255
 #define bfd_mach_cris_v32      32
@@ -876,12 +651,15 @@ enum bfd_architecture
   bfd_arch_ia64,      /* HP/Intel ia64 */
 #define bfd_mach_ia64_elf64    64
 #define bfd_mach_ia64_elf32    32
-  bfd_arch_nios2,	/* Nios II */
+  bfd_arch_nios2,      /* Nios II */
 #define bfd_mach_nios2          0
 #define bfd_mach_nios2r1        1
 #define bfd_mach_nios2r2        2
-  bfd_arch_lm32,       /* Lattice Mico32 */
-#define bfd_mach_lm32 1
+  bfd_arch_rx,       /* Renesas RX */
+#define bfd_mach_rx            0x75
+#define bfd_mach_rx_v2         0x76
+#define bfd_mach_rx_v3         0x77
+  bfd_arch_loongarch,
   bfd_arch_last
   };
 
@@ -896,17 +674,17 @@ typedef struct symbol_cache_entry
 } asymbol;
 
 typedef int (*fprintf_function)(FILE *f, const char *fmt, ...)
-    GCC_FMT_ATTR(2, 3);
+    G_GNUC_PRINTF(2, 3);
 
 enum dis_insn_type {
-  dis_noninsn,			/* Not a valid instruction */
-  dis_nonbranch,		/* Not a branch instruction */
-  dis_branch,			/* Unconditional branch */
-  dis_condbranch,		/* Conditional branch */
-  dis_jsr,			/* Jump to subroutine */
-  dis_condjsr,			/* Conditional jump to subroutine */
-  dis_dref,			/* Data reference instruction */
-  dis_dref2			/* Two data references in instruction */
+  dis_noninsn,          /* Not a valid instruction */
+  dis_nonbranch,        /* Not a branch instruction */
+  dis_branch,           /* Unconditional branch */
+  dis_condbranch,       /* Conditional branch */
+  dis_jsr,              /* Jump to subroutine */
+  dis_condjsr,          /* Conditional jump to subroutine */
+  dis_dref,             /* Data reference instruction */
+  dis_dref2             /* Two data references in instruction */
 };
 
 typedef struct disassemble_info {
@@ -939,8 +717,8 @@ typedef struct disassemble_info {
      The top 16 bits are reserved for public use (and are documented here).
      The bottom 16 bits are for the internal use of the disassembler.  */
   unsigned long flags;
-#define INSN_HAS_RELOC	0x80000000
-#define INSN_ARM_BE32	0x00010000
+#define INSN_HAS_RELOC  0x80000000
+#define INSN_ARM_BE32   0x00010000
   PTR private_data;
 
   /* Function used to get bytes to disassemble.  MEMADDR is the
@@ -950,7 +728,7 @@ typedef struct disassemble_info {
      Returns an errno value or 0 for success.  */
   int (*read_memory_func)
     (bfd_vma memaddr, bfd_byte *myaddr, int length,
-	     struct disassemble_info *info);
+        struct disassemble_info *info);
 
   /* Function which should be called if we get an error that we can't
      recover from.  STATUS is the errno value from read_memory_func and
@@ -979,7 +757,7 @@ typedef struct disassemble_info {
     (bfd_vma addr, struct disassemble_info * info);
 
   /* These are for buffer_read_memory.  */
-  bfd_byte *buffer;
+  const bfd_byte *buffer;
   bfd_vma buffer_vma;
   int buffer_length;
 
@@ -1004,17 +782,20 @@ typedef struct disassemble_info {
      To determine whether this decoder supports this information, set
      insn_info_valid to 0, decode an instruction, then check it.  */
 
-  char insn_info_valid;		/* Branch info has been set. */
-  char branch_delay_insns;	/* How many sequential insn's will run before
-				   a branch takes effect.  (0 = normal) */
-  char data_size;		/* Size of data reference in insn, in bytes */
-  enum dis_insn_type insn_type;	/* Type of instruction */
-  bfd_vma target;		/* Target address of branch or dref, if known;
-				   zero if unknown.  */
-  bfd_vma target2;		/* Second target address for dref2 */
+  char insn_info_valid;         /* Branch info has been set. */
+  char branch_delay_insns;      /* How many sequential insn's will run before
+                                   a branch takes effect.  (0 = normal) */
+  char data_size;               /* Size of data reference in insn, in bytes */
+  enum dis_insn_type insn_type; /* Type of instruction */
+  bfd_vma target;               /* Target address of branch or dref, if known;
+                                   zero if unknown.  */
+  bfd_vma target2;              /* Second target address for dref2 */
 
   /* Command line options specific to the target disassembler.  */
   char * disassembler_options;
+
+  /* Field intended to be used by targets in any way they deem suitable.  */
+  int64_t target_info;
 
   /* Options for Capstone disassembly.  */
   int cap_arch;
@@ -1024,352 +805,142 @@ typedef struct disassemble_info {
 
 } disassemble_info;
 
-typedef uint64_t hwaddr;
-
-typedef struct MemTxAttrs {
-    /* Bus masters which don't specify any attributes will get this
-     * (via the MEMTXATTRS_UNSPECIFIED constant), so that we can
-     * distinguish "all attributes deliberately clear" from
-     * "didn't specify" if necessary.
-     */
-    unsigned int unspecified:1;
-    /* ARM/AMBA: TrustZone Secure access
-     * x86: System Management Mode access
-     */
-    unsigned int secure:1;
-    /* Memory access is usermode (unprivileged) */
-    unsigned int user:1;
-    /* Requester ID (for MSI for example) */
-    unsigned int requester_id:16;
-    /* Invert endianness for this page */
-    unsigned int byte_swap:1;
-    /*
-     * The following are target-specific page-table bits.  These are not
-     * related to actual memory transactions at all.  However, this structure
-     * is part of the tlb_fill interface, cached in the cputlb structure,
-     * and has unused bits.  These fields will be read by target-specific
-     * helpers using env->iotlb[mmu_idx][tlb_index()].attrs.target_tlb_bitN.
-     */
-    unsigned int target_tlb_bit0 : 1;
-    unsigned int target_tlb_bit1 : 1;
-    unsigned int target_tlb_bit2 : 1;
-} MemTxAttrs;
-
-typedef uint32_t MemTxResult;
-
-typedef enum GuestPanicInformationType {
-    GUEST_PANIC_INFORMATION_TYPE_HYPER_V,
-    GUEST_PANIC_INFORMATION_TYPE_S390,
-    GUEST_PANIC_INFORMATION_TYPE__MAX,
-} GuestPanicInformationType;
-
-typedef struct GuestPanicInformation GuestPanicInformation;
-
-typedef struct GuestPanicInformationHyperV GuestPanicInformationHyperV;
-
-typedef enum S390CrashReason {
-    S390_CRASH_REASON_UNKNOWN,
-    S390_CRASH_REASON_DISABLED_WAIT,
-    S390_CRASH_REASON_EXTINT_LOOP,
-    S390_CRASH_REASON_PGMINT_LOOP,
-    S390_CRASH_REASON_OPINT_LOOP,
-    S390_CRASH_REASON__MAX,
-} S390CrashReason;
-
-typedef struct GuestPanicInformationS390 GuestPanicInformationS390;
-
-struct GuestPanicInformationHyperV {
-    uint64_t arg1;
-    uint64_t arg2;
-    uint64_t arg3;
-    uint64_t arg4;
-    uint64_t arg5;
-};
-
-struct GuestPanicInformationS390 {
-    uint32_t core;
-    uint64_t psw_mask;
-    uint64_t psw_addr;
-    S390CrashReason reason;
-};
-
-struct GuestPanicInformation {
-    GuestPanicInformationType type;
-    union { /* union tag is @type */
-        GuestPanicInformationHyperV hyper_v;
-        GuestPanicInformationS390 s390;
-    } u;
-};
-
-struct QemuMutex {
-    pthread_mutex_t lock;
-#ifdef CONFIG_DEBUG_MUTEX
-    const char *file;
-    int line;
-#endif
-    bool initialized;
-};
-
-struct QemuCond {
-    pthread_cond_t cond;
-    bool initialized;
-};
-
-struct QemuThread {
-    pthread_t thread;
-};
-
-enum qemu_plugin_event {
-    QEMU_PLUGIN_EV_VCPU_INIT,
-    QEMU_PLUGIN_EV_VCPU_EXIT,
-    QEMU_PLUGIN_EV_VCPU_TB_TRANS,
-    QEMU_PLUGIN_EV_VCPU_IDLE,
-    QEMU_PLUGIN_EV_VCPU_RESUME,
-    QEMU_PLUGIN_EV_VCPU_SYSCALL,
-    QEMU_PLUGIN_EV_VCPU_SYSCALL_RET,
-    QEMU_PLUGIN_EV_FLUSH,
-    QEMU_PLUGIN_EV_ATEXIT,
-    QEMU_PLUGIN_EV_MAX, /* total number of plugin events we support */
-};
-
-typedef int (*WriteCoreDumpFunction)(const void *buf, size_t size,
-                                     void *opaque);
-
 typedef uint64_t vaddr;
 
-typedef enum MMUAccessType {
-    MMU_DATA_LOAD  = 0,
-    MMU_DATA_STORE = 1,
-    MMU_INST_FETCH = 2
-} MMUAccessType;
+typedef struct CPUClass CPUClass;
 
-typedef struct CPUWatchpoint CPUWatchpoint;
+struct TCGCPUOps;
 
-struct TranslationBlock;
+struct AccelCPUClass;
 
-typedef struct CPUClass {
+struct SysemuCPUOps;
+
+struct CPUClass {
     /*< private >*/
     DeviceClass parent_class;
     /*< public >*/
 
     ObjectClass *(*class_by_name)(const char *cpu_model);
-    void (*parse_features)(const char *typename, char *str, Error **errp);
+    void (*parse_features)(const char *, char *str, Error **errp);
 
-    void (*reset)(CPUState *cpu);
-    int reset_dump_flags;
     bool (*has_work)(CPUState *cpu);
-    void (*do_interrupt)(CPUState *cpu);
-    void (*do_unaligned_access)(CPUState *cpu, vaddr addr,
-                                MMUAccessType access_type,
-                                int mmu_idx, uintptr_t retaddr);
-    void (*do_transaction_failed)(CPUState *cpu, hwaddr physaddr, vaddr addr,
-                                  unsigned size, MMUAccessType access_type,
-                                  int mmu_idx, MemTxAttrs attrs,
-                                  MemTxResult response, uintptr_t retaddr);
-    bool (*virtio_is_big_endian)(CPUState *cpu);
     int (*memory_rw_debug)(CPUState *cpu, vaddr addr,
                            uint8_t *buf, int len, bool is_write);
     void (*dump_state)(CPUState *cpu, FILE *, int flags);
-    GuestPanicInformation* (*get_crash_info)(CPUState *cpu);
-    void (*dump_statistics)(CPUState *cpu, int flags);
+    void (*query_cpu_fast)(CPUState *cpu, CpuInfoFast *value);
     int64_t (*get_arch_id)(CPUState *cpu);
-    bool (*get_paging_enabled)(const CPUState *cpu);
-    void (*get_memory_mapping)(CPUState *cpu, MemoryMappingList *list,
-                               Error **errp);
     void (*set_pc)(CPUState *cpu, vaddr value);
-    void (*synchronize_from_tb)(CPUState *cpu, struct TranslationBlock *tb);
-    bool (*tlb_fill)(CPUState *cpu, vaddr address, int size,
-                     MMUAccessType access_type, int mmu_idx,
-                     bool probe, uintptr_t retaddr);
-    hwaddr (*get_phys_page_debug)(CPUState *cpu, vaddr addr);
-    hwaddr (*get_phys_page_attrs_debug)(CPUState *cpu, vaddr addr,
-                                        MemTxAttrs *attrs);
-    int (*asidx_from_attrs)(CPUState *cpu, MemTxAttrs attrs);
-    int (*gdb_read_register)(CPUState *cpu, uint8_t *buf, int reg);
+    vaddr (*get_pc)(CPUState *cpu);
+    int (*gdb_read_register)(CPUState *cpu, GByteArray *buf, int reg);
     int (*gdb_write_register)(CPUState *cpu, uint8_t *buf, int reg);
-    bool (*debug_check_watchpoint)(CPUState *cpu, CPUWatchpoint *wp);
-    void (*debug_excp_handler)(CPUState *cpu);
+    vaddr (*gdb_adjust_breakpoint)(CPUState *cpu, vaddr addr);
 
-    int (*write_elf64_note)(WriteCoreDumpFunction f, CPUState *cpu,
-                            int cpuid, void *opaque);
-    int (*write_elf64_qemunote)(WriteCoreDumpFunction f, CPUState *cpu,
-                                void *opaque);
-    int (*write_elf32_note)(WriteCoreDumpFunction f, CPUState *cpu,
-                            int cpuid, void *opaque);
-    int (*write_elf32_qemunote)(WriteCoreDumpFunction f, CPUState *cpu,
-                                void *opaque);
-
-    const VMStateDescription *vmsd;
     const char *gdb_core_xml_file;
     gchar * (*gdb_arch_name)(CPUState *cpu);
     const char * (*gdb_get_dynamic_xml)(CPUState *cpu, const char *xmlname);
-    void (*cpu_exec_enter)(CPUState *cpu);
-    void (*cpu_exec_exit)(CPUState *cpu);
-    bool (*cpu_exec_interrupt)(CPUState *cpu, int interrupt_request);
 
     void (*disas_set_info)(CPUState *cpu, disassemble_info *info);
-    vaddr (*adjust_watchpoint_address)(CPUState *cpu, vaddr addr, int len);
-    void (*tcg_initialize)(void);
 
-    /* Keep non-pointer data at the end to minimize holes.  */
+    const char *deprecation_note;
+    struct AccelCPUClass *accel_cpu;
+
+    /* when system emulation is not available, this pointer is NULL */
+    const struct SysemuCPUOps *sysemu_ops;
+
+    /* when TCG is not available, this pointer is NULL */
+    const struct TCGCPUOps *tcg_ops;
+
+    /*
+     * if not NULL, this is called in order for the CPUClass to initialize
+     * class data that depends on the accelerator, see accel/accel-common.c.
+     */
+    void (*init_accel_cpu)(struct AccelCPUClass *accel_cpu, CPUClass *cc);
+
+    /*
+     * Keep non-pointer data at the end to minimize holes.
+     */
+    int reset_dump_flags;
     int gdb_num_core_regs;
     bool gdb_stop_before_watchpoint;
-} CPUClass;
-
-typedef union IcountDecr {
-    uint32_t u32;
-    struct {
-#ifdef HOST_WORDS_BIGENDIAN
-        uint16_t high;
-        uint16_t low;
-#else
-        uint16_t low;
-        uint16_t high;
-#endif
-    } u16;
-} IcountDecr;
-
-typedef struct CPUBreakpoint {
-    vaddr pc;
-    int flags; /* BP_* */
-    QTAILQ_ENTRY(CPUBreakpoint) entry;
-} CPUBreakpoint;
-
-struct CPUWatchpoint {
-    vaddr vaddr;
-    vaddr len;
-    vaddr hitaddr;
-    MemTxAttrs hitattrs;
-    int flags; /* BP_* */
-    QTAILQ_ENTRY(CPUWatchpoint) entry;
 };
 
-struct KVMState;
-
-struct kvm_run;
-
-#define TB_JMP_CACHE_BITS 12
-
-#define TB_JMP_CACHE_SIZE (1 << TB_JMP_CACHE_BITS)
-
-struct hax_vcpu_state;
-
-#define CPU_TRACE_DSTATE_MAX_EVENTS 32
-
-struct qemu_work_item;
-
-struct CPUState {
-    /*< private >*/
-    DeviceState parent_obj;
-    /*< public >*/
-
-    int nr_cores;
-    int nr_threads;
-
-    struct QemuThread *thread;
-#ifdef _WIN32
-    HANDLE hThread;
-#endif
-    int thread_id;
-    bool running, has_waiter;
-    struct QemuCond *halt_cond;
-    bool thread_kicked;
-    bool created;
-    bool stop;
-    bool stopped;
-    bool unplug;
-    bool crash_occurred;
-    bool exit_request;
-    bool in_exclusive_context;
-    uint32_t cflags_next_tb;
-    /* updates protected by BQL */
-    uint32_t interrupt_request;
-    int singlestep_enabled;
-    int64_t icount_budget;
-    int64_t icount_extra;
-    uint64_t random_seed;
-    sigjmp_buf jmp_env;
-
-    QemuMutex work_mutex;
-    struct qemu_work_item *queued_work_first, *queued_work_last;
-
-    CPUAddressSpace *cpu_ases;
-    int num_ases;
-    AddressSpace *as;
-    MemoryRegion *memory;
-
-    void *env_ptr; /* CPUArchState */
-    IcountDecr *icount_decr_ptr;
-
-    /* Accessed in parallel; all accesses must be atomic */
-    struct TranslationBlock *tb_jmp_cache[TB_JMP_CACHE_SIZE];
-
-    struct GDBRegisterState *gdb_regs;
-    int gdb_num_regs;
-    int gdb_num_g_regs;
-    QTAILQ_ENTRY(CPUState) node;
-
-    /* ice debug support */
-    QTAILQ_HEAD(, CPUBreakpoint) breakpoints;
-
-    QTAILQ_HEAD(, CPUWatchpoint) watchpoints;
-    CPUWatchpoint *watchpoint_hit;
-
-    void *opaque;
-
-    /* In order to avoid passing too many arguments to the MMIO helpers,
-     * we store some rarely used information in the CPU context.
-     */
-    uintptr_t mem_io_pc;
-
-    int kvm_fd;
-    struct KVMState *kvm_state;
-    struct kvm_run *kvm_run;
-
-    /* Used for events with 'vcpu' and *without* the 'disabled' properties */
-    DECLARE_BITMAP(trace_dstate_delayed, CPU_TRACE_DSTATE_MAX_EVENTS);
-    DECLARE_BITMAP(trace_dstate, CPU_TRACE_DSTATE_MAX_EVENTS);
-
-    DECLARE_BITMAP(plugin_mask, QEMU_PLUGIN_EV_MAX);
-
-    GArray *plugin_mem_cbs;
-
-    /* TODO Move common fields from CPUArchState here. */
-    int cpu_index;
-    int cluster_index;
-    uint32_t halted;
-    uint32_t can_do_io;
-    int32_t exception_index;
-
-    /* shared by kvm, hax and hvf */
-    bool vcpu_dirty;
-
-    /* Used to keep track of an outstanding cpu throttle thread for migration
-     * autoconverge
-     */
-    bool throttle_thread_scheduled;
-
-    bool ignore_memory_transaction_failures;
-
-    struct hax_vcpu_state *hax_vcpu;
-
-    int hvf_fd;
-
-    /* track IOMMUs whose translations we've cached in the TCG TLB */
-    GArray *iommu_notifiers;
-};
-
-typedef struct MIPSCPUClass {
+struct MIPSCPUClass {
     /*< private >*/
     CPUClass parent_class;
     /*< public >*/
 
     DeviceRealize parent_realize;
-    void (*parent_reset)(CPUState *cpu);
+    ResettablePhases parent_phases;
     const struct mips_def_t *cpu_def;
-} MIPSCPUClass;
+
+    /* Used for the jazz board to modify mips_cpu_do_transaction_failed. */
+    bool no_data_aborts;
+};
 
 typedef uint32_t target_ulong;
+
+typedef uint32_t float32;
+
+typedef uint64_t float64;
+
+typedef enum __attribute__((__packed__)) {
+    float_round_nearest_even = 0,
+    float_round_down         = 1,
+    float_round_up           = 2,
+    float_round_to_zero      = 3,
+    float_round_ties_away    = 4,
+    /* Not an IEEE rounding mode: round to closest odd, overflow to max */
+    float_round_to_odd       = 5,
+    /* Not an IEEE rounding mode: round to closest odd, overflow to inf */
+    float_round_to_odd_inf   = 6,
+} FloatRoundMode;
+
+enum {
+    float_flag_invalid         = 0x0001,
+    float_flag_divbyzero       = 0x0002,
+    float_flag_overflow        = 0x0004,
+    float_flag_underflow       = 0x0008,
+    float_flag_inexact         = 0x0010,
+    float_flag_input_denormal  = 0x0020,
+    float_flag_output_denormal = 0x0040,
+    float_flag_invalid_isi     = 0x0080,  /* inf - inf */
+    float_flag_invalid_imz     = 0x0100,  /* inf * 0 */
+    float_flag_invalid_idi     = 0x0200,  /* inf / inf */
+    float_flag_invalid_zdz     = 0x0400,  /* 0 / 0 */
+    float_flag_invalid_sqrt    = 0x0800,  /* sqrt(-x) */
+    float_flag_invalid_cvti    = 0x1000,  /* non-nan to integer */
+    float_flag_invalid_snan    = 0x2000,  /* any operand was snan */
+};
+
+typedef enum __attribute__((__packed__)) {
+    floatx80_precision_x,
+    floatx80_precision_d,
+    floatx80_precision_s,
+} FloatX80RoundPrec;
+
+typedef struct float_status {
+    uint16_t float_exception_flags;
+    FloatRoundMode float_rounding_mode;
+    FloatX80RoundPrec floatx80_rounding_precision;
+    bool tininess_before_rounding;
+    /* should denormalised results go to zero and set the inexact flag? */
+    bool flush_to_zero;
+    /* should denormalised inputs go to zero and set the input_denormal flag? */
+    bool flush_inputs_to_zero;
+    bool default_nan_mode;
+    /*
+     * The flags below are not used on all specializations and may
+     * constant fold away (see snan_bit_is_one()/no_signalling_nans() in
+     * softfloat-specialize.inc.c)
+     */
+    bool snan_bit_is_one;
+    bool use_first_nan;
+    bool no_signaling_nans;
+    /* should overflowed results subtract re_bias to its exponent? */
+    bool rebias_overflow;
+    /* should underflowed results add re_bias to its exponent? */
+    bool rebias_underflow;
+} float_status;
 
 #define MSA_WRLEN (128)
 
@@ -1491,6 +1062,13 @@ typedef struct TCState TCState;
 
 struct TCState {
     target_ulong gpr[32];
+#if defined(TARGET_MIPS64)
+    /*
+     * For CPUs using 128-bit GPR registers, we put the lower halves in gpr[])
+     * and the upper halves in gpr_hi[].
+     */
+    uint64_t gpr_hi[32];
+#endif /* TARGET_MIPS64 */
     target_ulong PC;
     target_ulong HI[MIPS_DSP_ACC];
     target_ulong LO[MIPS_DSP_ACC];
@@ -1536,9 +1114,6 @@ struct TCState {
 
     float_status msa_fp_status;
 
-    /* Upper 64-bit MMRs (multimedia registers); the lower 64-bit are GPRs */
-    uint64_t mmr[32];
-
 #define NUMBER_OF_MXU_REGISTERS 16
     target_ulong mxu_gpr[NUMBER_OF_MXU_REGISTERS - 1];
     target_ulong mxu_cr;
@@ -1550,25 +1125,7 @@ struct TCState {
 
 };
 
-struct MIPSITUState;
-
-typedef struct CPUMIPSState CPUMIPSState;
-
-typedef struct QEMUTimerList QEMUTimerList;
-
-typedef void QEMUTimerCB(void *opaque);
-
-struct QEMUTimer {
-    int64_t expire_time;        /* in nanoseconds */
-    QEMUTimerList *timer_list;
-    QEMUTimerCB *cb;
-    void *opaque;
-    QEMUTimer *next;
-    int attributes;
-    int scale;
-};
-
-struct CPUMIPSState {
+typedef struct CPUArchState {
     TCState active_tc;
     CPUMIPSFPUContext active_fpu;
 
@@ -1666,6 +1223,7 @@ struct CPUMIPSState {
  * CP0 Register 5
  */
     int32_t CP0_PageMask;
+#define CP0PM_MASK 13
     int32_t CP0_PageGrain_rw_bitmask;
     int32_t CP0_PageGrain;
 #define CP0PG_RIE 31
@@ -1874,7 +1432,7 @@ struct CPUMIPSState {
 #define CP0EBase_WG 11
     target_ulong CP0_CMGCRBase;
 /*
- * CP0 Register 16
+ * CP0 Register 16 (after Release 1)
  */
     int32_t CP0_Config0;
 #define CP0C0_M    31
@@ -1890,6 +1448,15 @@ struct CPUMIPSState {
 #define CP0C0_MT   7     /*  9..7  */
 #define CP0C0_VI   3
 #define CP0C0_K0   0     /*  2..0  */
+#define CP0C0_AR_LENGTH 3
+/*
+ * CP0 Register 16 (before Release 1)
+ */
+#define CP0C0_Impl 16    /* 24..16 */
+#define CP0C0_IC   9     /* 11..9 */
+#define CP0C0_DC   6     /*  8..6 */
+#define CP0C0_IB   5
+#define CP0C0_DB   4
     int32_t CP0_Config1;
 #define CP0C1_M    31
 #define CP0C1_MMU  25    /* 30..25 */
@@ -1988,7 +1555,36 @@ struct CPUMIPSState {
 #define CP0C5_UFR          2
 #define CP0C5_NFExists     0
     int32_t CP0_Config6;
+    int32_t CP0_Config6_rw_bitmask;
+#define CP0C6_BPPASS          31
+#define CP0C6_KPOS            24
+#define CP0C6_KE              23
+#define CP0C6_VTLBONLY        22
+#define CP0C6_LASX            21
+#define CP0C6_SSEN            20
+#define CP0C6_DISDRTIME       19
+#define CP0C6_PIXNUEN         18
+#define CP0C6_SCRAND          17
+#define CP0C6_LLEXCEN         16
+#define CP0C6_DISVC           15
+#define CP0C6_VCLRU           14
+#define CP0C6_DCLRU           13
+#define CP0C6_PIXUEN          12
+#define CP0C6_DISBLKLYEN      11
+#define CP0C6_UMEMUALEN       10
+#define CP0C6_SFBEN           8
+#define CP0C6_FLTINT          7
+#define CP0C6_VLTINT          6
+#define CP0C6_DISBTB          5
+#define CP0C6_STPREFCTL       2
+#define CP0C6_INSTPREF        1
+#define CP0C6_DATAPREF        0
     int32_t CP0_Config7;
+    int64_t CP0_Config7_rw_bitmask;
+#define CP0C7_WII          31
+#define CP0C7_NAPCGEN       2
+#define CP0C7_UNIMUEN       1
+#define CP0C7_VFPUCGEN      0
     uint64_t CP0_LLAddr;
     uint64_t CP0_MAAR[MIPS_MAAR_MAX];
     int32_t CP0_MAARI;
@@ -2009,8 +1605,9 @@ struct CPUMIPSState {
 /*
  * CP0 Register 19
  */
-    int32_t CP0_WatchHi[8];
+    uint64_t CP0_WatchHi[8];
 #define CP0WH_ASID 16
+#define CP0WH_M    31
 /*
  * CP0 Register 20
  */
@@ -2082,7 +1679,7 @@ struct CPUMIPSState {
 #define EXCP_INST_NOTAVAIL 0x2 /* No valid instruction word for BadInstr */
     uint32_t hflags;    /* CPU State */
     /* TMASK defines different execution modes */
-#define MIPS_HFLAG_TMASK  0x1F5807FF
+#define MIPS_HFLAG_TMASK  0x3F5807FF
 #define MIPS_HFLAG_MODE   0x00007 /* execution modes                    */
     /*
      * The KSU flags must be the lowest bits in hflags. The flag order
@@ -2157,15 +1754,16 @@ struct CPUMIPSState {
     CPUMIPSMVPContext *mvp;
 #if !defined(CONFIG_USER_ONLY)
     CPUMIPSTLBContext *tlb;
+    void *irq[8];
+    struct MIPSITUState *itu;
+    MemoryRegion *itc_tag; /* ITC Configuration Tags */
 #endif
 
     const mips_def_t *cpu_model;
-    void *irq[8];
     QEMUTimer *timer; /* Internal timer */
-    struct MIPSITUState *itu;
-    MemoryRegion *itc_tag; /* ITC Configuration Tags */
     target_ulong exception_base; /* ExceptionBase input to the core */
-};
+    uint64_t cp0_count_ns; /* CP0_Count clock period (in nanoseconds) */
+} CPUMIPSState;
 
 enum {
     EXCP_NONE          = -1,
@@ -2207,9 +1805,117 @@ enum {
     EXCP_MSAFPE,
     EXCP_TLBXI,
     EXCP_TLBRI,
+    EXCP_SEMIHOST,
 
-    EXCP_LAST = EXCP_TLBRI,
+    EXCP_LAST = EXCP_SEMIHOST,
 };
+
+# define TCG_TARGET_REG_BITS 32
+
+# define tcg_debug_assert(X) \
+    do { if (!(X)) { __builtin_unreachable(); } } while (0)
+
+typedef enum TCGType {
+    TCG_TYPE_I32,
+    TCG_TYPE_I64,
+    TCG_TYPE_I128,
+
+    TCG_TYPE_V64,
+    TCG_TYPE_V128,
+    TCG_TYPE_V256,
+
+    /* Number of different types (integer not enum) */
+#define TCG_TYPE_COUNT  (TCG_TYPE_V256 + 1)
+
+    /* An alias for the size of the host register.  */
+#if TCG_TARGET_REG_BITS == 32
+    TCG_TYPE_REG = TCG_TYPE_I32,
+#else
+    TCG_TYPE_REG = TCG_TYPE_I64,
+#endif
+
+    /* An alias for the size of the native pointer.  */
+#if UINTPTR_MAX == UINT32_MAX
+    TCG_TYPE_PTR = TCG_TYPE_I32,
+#else
+    TCG_TYPE_PTR = TCG_TYPE_I64,
+#endif
+} TCGType;
+
+static inline int tcg_type_size(TCGType t)
+{
+    unsigned i = t;
+    if (i >= TCG_TYPE_V64) {
+        tcg_debug_assert(i < TCG_TYPE_COUNT);
+        i -= TCG_TYPE_V64 - 1;
+    }
+    return 4 << i;
+}
+
+G_NORETURN static inline void do_raise_exception_err(CPUMIPSState *env, uint32_t exception,
+                                       int error_code, uintptr_t pc) {
+  __builtin_trap();
+  __builtin_unreachable();
+}
+
+static inline G_NORETURN
+void do_raise_exception(CPUMIPSState *env,
+                        uint32_t exception,
+                        uintptr_t pc)
+{
+    do_raise_exception_err(env, exception, 0, pc);
+}
+
+# define GETPC() 0
+
+typedef enum {
+    float_relation_less      = -1,
+    float_relation_equal     =  0,
+    float_relation_greater   =  1,
+    float_relation_unordered =  2
+} FloatRelation;
+
+static inline void set_float_exception_flags(int val, float_status *status)
+{
+    status->float_exception_flags = val;
+}
+
+static inline int get_float_exception_flags(float_status *status)
+{
+    return status->float_exception_flags;
+}
+
+FloatRelation float32_compare(float32, float32, float_status *status);
+
+FloatRelation float32_compare_quiet(float32, float32, float_status *status);
+
+static inline bool float32_le(float32 a, float32 b, float_status *s)
+{
+    return float32_compare(a, b, s) <= float_relation_equal;
+}
+
+static inline bool float32_le_quiet(float32 a, float32 b, float_status *s)
+{
+    return float32_compare_quiet(a, b, s) <= float_relation_equal;
+}
+
+float32 float32_default_nan(float_status *status);
+
+FloatRelation float64_compare(float64, float64, float_status *status);
+
+FloatRelation float64_compare_quiet(float64, float64, float_status *status);
+
+static inline bool float64_le(float64 a, float64 b, float_status *s)
+{
+    return float64_compare(a, b, s) <= float_relation_equal;
+}
+
+static inline bool float64_le_quiet(float64 a, float64 b, float_status *s)
+{
+    return float64_compare_quiet(a, b, s) <= float_relation_equal;
+}
+
+float64 float64_default_nan(float_status *status);
 
 enum CPUMIPSMSADataFormat {
     DF_BYTE = 0,
@@ -2217,22 +1923,6 @@ enum CPUMIPSMSADataFormat {
     DF_WORD,
     DF_DOUBLE
 };
-
-int ieee_ex_to_mips(int xcpt);
-
-void QEMU_NORETURN do_raise_exception_err(CPUMIPSState *env, uint32_t exception,
-                                          int error_code, uintptr_t pc) { __builtin_trap(); __builtin_unreachable(); }
-
-static inline void QEMU_NORETURN do_raise_exception(CPUMIPSState *env,
-                                                    uint32_t exception,
-                                                    uintptr_t pc)
-{
-    do_raise_exception_err(env, exception, 0, pc);
-}
-
-# define GETPC() tci_tb_ptr
-
-static uintptr_t tci_tb_ptr;
 
 #define DF_BITS(df) (1 << ((df) + 3))
 
@@ -2272,54 +1962,80 @@ static inline void check_msacsr_cause(CPUMIPSState *env, uintptr_t retaddr)
     }
 }
 
+static inline int ieee_to_mips_xcpt_msa(int ieee_xcpt)
+{
+    int mips_xcpt = 0;
+
+    if (ieee_xcpt & float_flag_invalid) {
+        mips_xcpt |= FP_INVALID;
+    }
+    if (ieee_xcpt & float_flag_overflow) {
+        mips_xcpt |= FP_OVERFLOW;
+    }
+    if (ieee_xcpt & float_flag_underflow) {
+        mips_xcpt |= FP_UNDERFLOW;
+    }
+    if (ieee_xcpt & float_flag_divbyzero) {
+        mips_xcpt |= FP_DIV0;
+    }
+    if (ieee_xcpt & float_flag_inexact) {
+        mips_xcpt |= FP_INEXACT;
+    }
+
+    return mips_xcpt;
+}
+
 static inline int update_msacsr(CPUMIPSState *env, int action, int denormal)
 {
-    int ieee_ex;
-
-    int c;
+    int ieee_exception_flags;
+    int mips_exception_flags = 0;
     int cause;
     int enable;
 
-    ieee_ex = get_float_exception_flags(&env->active_tc.msa_fp_status);
+    ieee_exception_flags = get_float_exception_flags(
+                               &env->active_tc.msa_fp_status);
 
     /* QEMU softfloat does not signal all underflow cases */
     if (denormal) {
-        ieee_ex |= float_flag_underflow;
+        ieee_exception_flags |= float_flag_underflow;
     }
-
-    c = ieee_ex_to_mips(ieee_ex);
+    if (ieee_exception_flags) {
+        mips_exception_flags = ieee_to_mips_xcpt_msa(ieee_exception_flags);
+    }
     enable = GET_FP_ENABLE(env->active_tc.msacsr) | FP_UNIMPLEMENTED;
 
     /* Set Inexact (I) when flushing inputs to zero */
-    if ((ieee_ex & float_flag_input_denormal) &&
+    if ((ieee_exception_flags & float_flag_input_denormal) &&
             (env->active_tc.msacsr & MSACSR_FS_MASK) != 0) {
         if (action & CLEAR_IS_INEXACT) {
-            c &= ~FP_INEXACT;
+            mips_exception_flags &= ~FP_INEXACT;
         } else {
-            c |=  FP_INEXACT;
+            mips_exception_flags |= FP_INEXACT;
         }
     }
 
     /* Set Inexact (I) and Underflow (U) when flushing outputs to zero */
-    if ((ieee_ex & float_flag_output_denormal) &&
+    if ((ieee_exception_flags & float_flag_output_denormal) &&
             (env->active_tc.msacsr & MSACSR_FS_MASK) != 0) {
-        c |= FP_INEXACT;
+        mips_exception_flags |= FP_INEXACT;
         if (action & CLEAR_FS_UNDERFLOW) {
-            c &= ~FP_UNDERFLOW;
+            mips_exception_flags &= ~FP_UNDERFLOW;
         } else {
-            c |=  FP_UNDERFLOW;
+            mips_exception_flags |= FP_UNDERFLOW;
         }
     }
 
     /* Set Inexact (I) when Overflow (O) is not enabled */
-    if ((c & FP_OVERFLOW) != 0 && (enable & FP_OVERFLOW) == 0) {
-        c |= FP_INEXACT;
+    if ((mips_exception_flags & FP_OVERFLOW) != 0 &&
+           (enable & FP_OVERFLOW) == 0) {
+        mips_exception_flags |= FP_INEXACT;
     }
 
     /* Clear Exact Underflow when Underflow (U) is not enabled */
-    if ((c & FP_UNDERFLOW) != 0 && (enable & FP_UNDERFLOW) == 0 &&
-            (c & FP_INEXACT) == 0) {
-        c &= ~FP_UNDERFLOW;
+    if ((mips_exception_flags & FP_UNDERFLOW) != 0 &&
+           (enable & FP_UNDERFLOW) == 0 &&
+           (mips_exception_flags & FP_INEXACT) == 0) {
+        mips_exception_flags &= ~FP_UNDERFLOW;
     }
 
     /*
@@ -2327,11 +2043,11 @@ static inline int update_msacsr(CPUMIPSState *env, int action, int denormal)
      * divide by zero
      */
     if ((action & RECIPROCAL_INEXACT) &&
-            (c & (FP_INVALID | FP_DIV0)) == 0) {
-        c = FP_INEXACT;
+            (mips_exception_flags & (FP_INVALID | FP_DIV0)) == 0) {
+        mips_exception_flags = FP_INEXACT;
     }
 
-    cause = c & enable;    /* all current enabled exceptions */
+    cause = mips_exception_flags & enable; /* all current enabled exceptions */
 
     if (cause == 0) {
         /*
@@ -2339,7 +2055,7 @@ static inline int update_msacsr(CPUMIPSState *env, int action, int denormal)
          * with all current exceptions
          */
         SET_FP_CAUSE(env->active_tc.msacsr,
-                (GET_FP_CAUSE(env->active_tc.msacsr) | c));
+            (GET_FP_CAUSE(env->active_tc.msacsr) | mips_exception_flags));
     } else {
         /* Current exceptions are enabled */
         if ((env->active_tc.msacsr & MSACSR_NX_MASK) == 0) {
@@ -2348,11 +2064,11 @@ static inline int update_msacsr(CPUMIPSState *env, int action, int denormal)
              * with all enabled exceptions
              */
             SET_FP_CAUSE(env->active_tc.msacsr,
-                    (GET_FP_CAUSE(env->active_tc.msacsr) | c));
+                (GET_FP_CAUSE(env->active_tc.msacsr) | mips_exception_flags));
         }
     }
 
-    return c;
+    return mips_exception_flags;
 }
 
 static inline int get_enabled_exceptions(const CPUMIPSState *env, int c)
@@ -2409,7 +2125,7 @@ static inline void compare_or(CPUMIPSState *env, wr_t *pwd, wr_t *pws,
         }
         break;
     default:
-        assert(0);
+        g_assert_not_reached();
     }
 
     check_msacsr_cause(env, retaddr);
@@ -2424,28 +2140,5 @@ void helper_msa_fcor_df(CPUMIPSState *env, uint32_t df, uint32_t wd,
     wr_t *pws = &(env->active_fpu.fpr[ws].wr);
     wr_t *pwt = &(env->active_fpu.fpr[wt].wr);
     compare_or(env, pwd, pws, pwt, df, 1, GETPC());
-}
-
-int ieee_ex_to_mips(int xcpt)
-{
-    int ret = 0;
-    if (xcpt) {
-        if (xcpt & float_flag_invalid) {
-            ret |= FP_INVALID;
-        }
-        if (xcpt & float_flag_overflow) {
-            ret |= FP_OVERFLOW;
-        }
-        if (xcpt & float_flag_underflow) {
-            ret |= FP_UNDERFLOW;
-        }
-        if (xcpt & float_flag_divbyzero) {
-            ret |= FP_DIV0;
-        }
-        if (xcpt & float_flag_inexact) {
-            ret |= FP_INEXACT;
-        }
-    }
-    return ret;
 }
 

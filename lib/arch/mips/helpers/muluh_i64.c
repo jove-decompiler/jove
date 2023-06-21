@@ -1,4 +1,4 @@
-#define HOST_WORDS_BIGENDIAN 1
+#define HOST_BIG_ENDIAN (__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__)
 
 #define xglue(x, y) x ## y
 
@@ -6,7 +6,7 @@
 
 #include <stdint.h>
 
-void mulu64(uint64_t *phigh, uint64_t *plow, uint64_t a, uint64_t b);
+void mulu64(uint64_t *plow, uint64_t *phigh, uint64_t a, uint64_t b);
 
 static inline void mul64(uint64_t *plow, uint64_t *phigh,
                          uint64_t a, uint64_t b)
@@ -14,7 +14,7 @@ static inline void mul64(uint64_t *plow, uint64_t *phigh,
     typedef union {
         uint64_t ll;
         struct {
-#ifdef HOST_WORDS_BIGENDIAN
+#if HOST_BIG_ENDIAN
             uint32_t high, low;
 #else
             uint32_t low, high;

@@ -4,6 +4,11 @@
 
 #include <stdint.h>
 
+static inline int clz8(uint8_t val)
+{
+    return val ? __builtin_clz(val) - 24 : 8;
+}
+
 static inline int clz32(uint32_t val)
 {
     return val ? __builtin_clz(val) : 32;
