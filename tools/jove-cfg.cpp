@@ -47,18 +47,22 @@ struct binary_state_t {
 
 class CFGTool : public TransformerTool_Bin<binary_state_t> {
   struct Cmdline {
+    cl::opt<std::string> Prog;
     cl::opt<std::string> jv;
     cl::alias jvAlias;
     cl::opt<std::string> Binary;
     cl::alias BinaryAlias;
     cl::opt<std::string> FunctionAddress;
+    cl::alias FunctionAddressAlias;
     cl::opt<bool> PrintTerminatorType;
     cl::opt<std::string> LocalGotoAddress;
     cl::alias LocalGotoAddressAlias;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
-        : jv("jv", cl::desc("Jove jv"), cl::Required,
-             cl::cat(JoveCategory)),
+        : Prog(cl::Positional, cl::desc("prog"), cl::value_desc("filename"),
+               cl::cat(JoveCategory)),
+
+          jv("jv", cl::desc("Jove jv"), cl::cat(JoveCategory)),
 
           jvAlias("d", cl::desc("Alias for --jv."), cl::aliasopt(jv),
                   cl::cat(JoveCategory)),
@@ -69,16 +73,19 @@ class CFGTool : public TransformerTool_Bin<binary_state_t> {
           BinaryAlias("b", cl::desc("Alias for --binary."),
                       cl::aliasopt(Binary), cl::cat(JoveCategory)),
 
-          FunctionAddress(cl::Positional, cl::desc("<address>"), cl::Required,
+          FunctionAddress("addr", cl::desc("<address>"), cl::Required,
                           cl::cat(JoveCategory)),
+
+          FunctionAddressAlias("a", cl::desc("Alias for --addr."),
+                               cl::aliasopt(FunctionAddress),
+                               cl::cat(JoveCategory)),
 
           PrintTerminatorType("terminator-type",
                               cl::desc("Print terminator type at end of BB"),
                               cl::cat(JoveCategory)),
 
           LocalGotoAddress(
-              "indjmp",
-              cl::desc("Only print given local goto and its targets"),
+              "indjmp", cl::desc("Only print given local goto and its targets"),
               cl::cat(JoveCategory)),
 
           LocalGotoAddressAlias("j", cl::desc("Alias for --indjmp."),
@@ -87,6 +94,8 @@ class CFGTool : public TransformerTool_Bin<binary_state_t> {
 
     {}
   } opts;
+
+  std::string jvfp;
 
   binary_index_t BinaryIndex = invalid_binary_index;
 
@@ -289,12 +298,16 @@ typedef boost::filtered_graph<
 typedef control_flow_graph_t cfg_t;
 
 int CFGTool::Run(void) {
-  if (!fs::exists(opts.jv)) {
-    WithColor::error() << "can't find jv.jv\n";
+  jvfp = opts.jv;
+  if (jvfp.empty() && !opts.Prog.empty())
+    jvfp = path_to_jv(opts.Prog.c_str());
+
+  if (jvfp.empty()) {
+    WithColor::error() << "must specify jv\n";
     return 1;
   }
 
-  ReadJvFromFile(opts.jv, jv);
+  ReadJvFromFile(jvfp, jv);
   state.update();
 
   assert(!opts.FunctionAddress.empty());
