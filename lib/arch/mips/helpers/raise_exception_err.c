@@ -1730,57 +1730,368 @@ typedef struct CPUArchState {
     uint64_t cp0_count_ns; /* CP0_Count clock period (in nanoseconds) */
 } CPUMIPSState;
 
-# define TCG_TARGET_REG_BITS 32
+#include <sys/mman.h>
+#include <errno.h>
+#include <fcntl.h>
 
-# define tcg_debug_assert(X) \
-    do { if (!(X)) { __builtin_unreachable(); } } while (0)
+#include "jove.macros.h"
+#include "jove.constants.h"
 
-typedef enum TCGType {
-    TCG_TYPE_I32,
-    TCG_TYPE_I64,
-    TCG_TYPE_I128,
+#define JOVE_SYS_ATTR _INL _UNUSED
+#include "jove_sys.h" /* for __SYSCALL_CLOBBERS */
 
-    TCG_TYPE_V64,
-    TCG_TYPE_V128,
-    TCG_TYPE_V256,
+#ifdef JOVE_DFSAN
 
-    /* Number of different types (integer not enum) */
-#define TCG_TYPE_COUNT  (TCG_TYPE_V256 + 1)
+#define SYSEXIT(nm) __dfs_sys_exit_##nm
+#define SYSENTR(nm) __dfs_sys_entr_##nm
 
-    /* An alias for the size of the host register.  */
-#if TCG_TARGET_REG_BITS == 32
-    TCG_TYPE_REG = TCG_TYPE_I32,
-#else
-    TCG_TYPE_REG = TCG_TYPE_I64,
-#endif
+//
+// declare dfsan syscall hooks
+//
+#define ___SYSCALL0(nr, nm)                                                    \
+  void SYSEXIT(nm)(long sysret);                                               \
+  _HIDDEN typeof(SYSEXIT(nm)) *SYSEXIT(nm##_clunk) = SYSEXIT(nm);
 
-    /* An alias for the size of the native pointer.  */
-#if UINTPTR_MAX == UINT32_MAX
-    TCG_TYPE_PTR = TCG_TYPE_I32,
-#else
-    TCG_TYPE_PTR = TCG_TYPE_I64,
-#endif
-} TCGType;
+#define ___SYSCALL1(nr, nm, t1, a1)                                            \
+  void SYSEXIT(nm)(long sysret, t1 a1);                                        \
+  _HIDDEN typeof(SYSEXIT(nm)) *SYSEXIT(nm##_clunk) = SYSEXIT(nm);
 
-static inline int tcg_type_size(TCGType t)
-{
-    unsigned i = t;
-    if (i >= TCG_TYPE_V64) {
-        tcg_debug_assert(i < TCG_TYPE_COUNT);
-        i -= TCG_TYPE_V64 - 1;
-    }
-    return 4 << i;
-}
+#define ___SYSCALL2(nr, nm, t1, a1, t2, a2)                                    \
+  void SYSEXIT(nm)(long sysret, t1 a1, t2 a2);                                 \
+  _HIDDEN typeof(SYSEXIT(nm)) *SYSEXIT(nm##_clunk) = SYSEXIT(nm);
 
-G_NORETURN static inline void do_raise_exception_err(CPUMIPSState *env, uint32_t exception,
-                                       int error_code, uintptr_t pc) {
-  __builtin_trap();
-  __builtin_unreachable();
-}
+#define ___SYSCALL3(nr, nm, t1, a1, t2, a2, t3, a3)                            \
+  void SYSEXIT(nm)(long sysret, t1 a1, t2 a2, t3 a3);                          \
+  _HIDDEN typeof(SYSEXIT(nm)) *SYSEXIT(nm##_clunk) = SYSEXIT(nm);
+
+#define ___SYSCALL4(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4)                    \
+  void SYSEXIT(nm)(long sysret, t1 a1, t2 a2, t3 a3, t4 a4);                   \
+  _HIDDEN typeof(SYSEXIT(nm)) *SYSEXIT(nm##_clunk) = SYSEXIT(nm);
+
+#define ___SYSCALL5(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5)            \
+  void SYSEXIT(nm)(long sysret, t1 a1, t2 a2, t3 a3, t4 a4, t5 a5);            \
+  _HIDDEN typeof(SYSEXIT(nm)) *SYSEXIT(nm##_clunk) = SYSEXIT(nm);
+
+#define ___SYSCALL6(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5, t6, a6)    \
+  void SYSEXIT(nm)(long sysret, t1 a1, t2 a2, t3 a3, t4 a4, t5 a5, t6 a6);     \
+  _HIDDEN typeof(SYSEXIT(nm)) *SYSEXIT(nm##_clunk) = SYSEXIT(nm);
+
+#define ___DFSAN
+#define ___DFSAN_SYSEXITS
+#include "syscalls.inc.h"
+#undef ___DFSAN_SYSEXITS
+#undef ___DFSAN
+
+#define ___SYSCALL0(nr, nm)                                                    \
+  void SYSENTR(nm)();                                                          \
+  _HIDDEN typeof(SYSENTR(nm)) *SYSENTR(nm##_clunk) = SYSENTR(nm);
+
+#define ___SYSCALL1(nr, nm, t1, a1)                                            \
+  void SYSENTR(nm)(t1 a1);                                                     \
+  _HIDDEN typeof(SYSENTR(nm)) *SYSENTR(nm##_clunk) = SYSENTR(nm);
+
+#define ___SYSCALL2(nr, nm, t1, a1, t2, a2)                                    \
+  void SYSENTR(nm)(t1 a1, t2 a2);                                              \
+  _HIDDEN typeof(SYSENTR(nm)) *SYSENTR(nm##_clunk) = SYSENTR(nm);
+
+#define ___SYSCALL3(nr, nm, t1, a1, t2, a2, t3, a3)                            \
+  void SYSENTR(nm)(t1 a1, t2 a2, t3 a3);                                       \
+  _HIDDEN typeof(SYSENTR(nm)) *SYSENTR(nm##_clunk) = SYSENTR(nm);
+
+#define ___SYSCALL4(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4)                    \
+  void SYSENTR(nm)(t1 a1, t2 a2, t3 a3, t4 a4);                                \
+  _HIDDEN typeof(SYSENTR(nm)) *SYSENTR(nm##_clunk) = SYSENTR(nm);
+
+#define ___SYSCALL5(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5)            \
+  void SYSENTR(nm)(t1 a1, t2 a2, t3 a3, t4 a4, t5 a5);                         \
+  _HIDDEN typeof(SYSENTR(nm)) *SYSENTR(nm##_clunk) = SYSENTR(nm);
+
+#define ___SYSCALL6(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5, t6, a6)    \
+  void SYSENTR(nm)(t1 a1, t2 a2, t3 a3, t4 a4, t5 a5, t6 a6);                  \
+  _HIDDEN typeof(SYSENTR(nm)) *SYSENTR(nm##_clunk) = SYSENTR(nm);
+
+#define ___DFSAN
+#define ___DFSAN_SYSENTRS
+#include "syscalls.inc.h"
+#undef ___DFSAN_SYSENTRS
+#undef ___DFSAN
+
+#endif /* JOVE_DFSAN */
 
 void helper_raise_exception_err(CPUMIPSState *env, uint32_t exception,
                                 int error_code)
 {
-    do_raise_exception_err(env, exception, error_code, 0);
-}
+    if (exception != 17 /* EXCP_SYSCALL */) {
+      __builtin_trap();
+      __builtin_unreachable();
+    }
 
+    //
+    // this is a system call
+    //
+    unsigned long sysnum = env->active_tc.gpr[2];
+
+#define env_sp env->active_tc.gpr[29]
+
+#define env_a1 env->active_tc.gpr[4]
+#define env_a2 env->active_tc.gpr[5]
+#define env_a3 env->active_tc.gpr[6]
+#define env_a4 env->active_tc.gpr[7]
+#define env_a5 (*((uint32_t *)(env_sp + 16)))
+#define env_a6 (*((uint32_t *)(env_sp + 20)))
+
+  long _a1 = env_a1;
+  long _a2 = env_a2;
+  long _a3 = env_a3;
+  long _a4 = env_a4;
+  long _a5 = env_a5;
+  long _a6 = env_a6;
+
+#undef env_a1
+#undef env_a2
+#undef env_a3
+#undef env_a4
+#undef env_a5
+#undef env_a6
+
+#ifdef JOVE_DFSAN
+  //
+  // call sysenter procedure
+  //
+  switch (sysnum) {
+#define ___SYSCALL0(nr, nm)                                                    \
+  case nr:                                                                     \
+    SYSENTR(nm##_clunk)();                                                     \
+    break;
+#define ___SYSCALL1(nr, nm, t1, a1)                                            \
+  case nr:                                                                     \
+    SYSENTR(nm##_clunk)((t1)_a1);                                              \
+    break;
+#define ___SYSCALL2(nr, nm, t1, a1, t2, a2)                                    \
+  case nr:                                                                     \
+    SYSENTR(nm##_clunk)((t1)_a1, (t2)_a2);                                     \
+    break;
+#define ___SYSCALL3(nr, nm, t1, a1, t2, a2, t3, a3)                            \
+  case nr:                                                                     \
+    SYSENTR(nm##_clunk)((t1)_a1, (t2)_a2, (t3)_a3);                            \
+    break;
+#define ___SYSCALL4(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4)                    \
+  case nr:                                                                     \
+    SYSENTR(nm##_clunk)((t1)_a1, (t2)_a2, (t3)_a3, (t4)_a4);                   \
+    break;
+#define ___SYSCALL5(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5)            \
+  case nr:                                                                     \
+    SYSENTR(nm##_clunk)((t1)_a1, (t2)_a2, (t3)_a3, (t4)_a4, (t5)_a5);          \
+    break;
+#define ___SYSCALL6(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5, t6, a6)    \
+  case nr:                                                                     \
+    SYSENTR(nm##_clunk)((t1)_a1, (t2)_a2, (t3)_a3, (t4)_a4, (t5)_a5, (t6)_a6); \
+    break;
+
+#define ___DFSAN
+#define ___DFSAN_SYSENTRS
+#include "syscalls.inc.h"
+#undef ___DFSAN_SYSENTRS
+#undef ___DFSAN
+
+  default:
+    break;
+  }
+
+#endif
+
+  //
+  // perform the call
+  //
+
+  /* For historic reasons the pipe(2) syscall on MIPS returns results in
+   * registers $v0 and $v1 */
+  if (sysnum == 4042 /* sysm_pipe */) {
+    register long r7 asm("$7");
+    register long r2 asm("$2");
+    register long r3 asm("$3");
+    asm volatile("addu $2,$0,%3 ; syscall"
+                 : "=&r"(r2), "=r"(r7), "=r"(r3)
+                 : "ir"(4042), "0"(r2)
+                 : __SYSCALL_CLOBBERS, "$8", "$9", "$10");
+    env->active_tc.gpr[7] = r7;
+    env->active_tc.gpr[2] = r2;
+    env->active_tc.gpr[3] = r3;
+    return;
+  }
+
+  switch (sysnum) {
+#define ___SYSCALL0(nr, nm)                                                    \
+  case nr: {                                                                   \
+    register long r7 asm("$7");                                                \
+    register long r2 asm("$2");                                                \
+    asm volatile("addu $2,$0,%2 ; syscall"                                     \
+                 : "=&r"(r2), "=r"(r7)                                         \
+                 : "ir"(nr), "0"(r2)                                           \
+                 : __SYSCALL_CLOBBERS, "$8", "$9", "$10");                     \
+    env->active_tc.gpr[7] = r7;                                                \
+    env->active_tc.gpr[2] = r2;                                                \
+    break;                                                                     \
+  }
+
+#define ___SYSCALL1(nr, nm, t1, a1)                                            \
+  case nr: {                                                                   \
+    register long r4 asm("$4") = _a1;                                          \
+    register long r7 asm("$7");                                                \
+    register long r2 asm("$2");                                                \
+    asm volatile("addu $2,$0,%2 ; syscall"                                     \
+                 : "=&r"(r2), "=r"(r7)                                         \
+                 : "ir"(nr), "0"(r2), "r"(r4)                                  \
+                 : __SYSCALL_CLOBBERS, "$8", "$9", "$10");                     \
+    env->active_tc.gpr[7] = r7;                                                \
+    env->active_tc.gpr[2] = r2;                                                \
+    break;                                                                     \
+  }
+
+#define ___SYSCALL2(nr, nm, t1, a1, t2, a2)                                    \
+  case nr: {                                                                   \
+    register long r4 asm("$4") = _a1;                                          \
+    register long r5 asm("$5") = _a2;                                          \
+    register long r7 asm("$7");                                                \
+    register long r2 asm("$2");                                                \
+    asm volatile("addu $2,$0,%2 ; syscall"                                     \
+                 : "=&r"(r2), "=r"(r7)                                         \
+                 : "ir"(nr), "0"(r2), "r"(r4), "r"(r5)                         \
+                 : __SYSCALL_CLOBBERS, "$8", "$9", "$10");                     \
+    env->active_tc.gpr[7] = r7;                                                \
+    env->active_tc.gpr[2] = r2;                                                \
+    break;                                                                     \
+  }
+
+#define ___SYSCALL3(nr, nm, t1, a1, t2, a2, t3, a3)                            \
+  case nr: {                                                                   \
+    register long r4 asm("$4") = _a1;                                          \
+    register long r5 asm("$5") = _a2;                                          \
+    register long r6 asm("$6") = _a3;                                          \
+    register long r7 asm("$7");                                                \
+    register long r2 asm("$2");                                                \
+    asm volatile("addu $2,$0,%2 ; syscall"                                     \
+                 : "=&r"(r2), "=r"(r7)                                         \
+                 : "ir"(nr), "0"(r2), "r"(r4), "r"(r5), "r"(r6)                \
+                 : __SYSCALL_CLOBBERS, "$8", "$9", "$10");                     \
+    env->active_tc.gpr[7] = r7;                                                \
+    env->active_tc.gpr[2] = r2;                                                \
+    break;                                                                     \
+  }
+
+#define ___SYSCALL4(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4)                    \
+  case nr: {                                                                   \
+    register long r4 asm("$4") = _a1;                                          \
+    register long r5 asm("$5") = _a2;                                          \
+    register long r6 asm("$6") = _a3;                                          \
+    register long r7 asm("$7") = _a4;                                          \
+    register long r2 asm("$2");                                                \
+    asm volatile("addu $2,$0,%2 ; syscall"                                     \
+                 : "=&r"(r2), "+r"(r7)                                         \
+                 : "ir"(nr), "0"(r2), "r"(r4), "r"(r5), "r"(r6)                \
+                 : __SYSCALL_CLOBBERS, "$8", "$9", "$10");                     \
+    env->active_tc.gpr[7] = r7;                                                \
+    env->active_tc.gpr[2] = r2;                                                \
+    break;                                                                     \
+  }
+
+#define ___SYSCALL5(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5)            \
+  case nr: {                                                                   \
+    register long r4 asm("$4") = _a1;                                          \
+    register long r5 asm("$5") = _a2;                                          \
+    register long r6 asm("$6") = _a3;                                          \
+    register long r7 asm("$7") = _a4;                                          \
+    register long r8 asm("$8") = _a5;                                          \
+    register long r2 asm("$2");                                                \
+    asm volatile("subu $sp,$sp,32 ; sw $8,16($sp) ; "                          \
+                 "addu $2,$0,%3 ; syscall ;"                                   \
+                 "addu $sp,$sp,32"                                             \
+                 : "=&r"(r2), "+r"(r7), "+r"(r8)                               \
+                 : "ir"(nr), "0"(r2), "r"(r4), "r"(r5), "r"(r6)                \
+                 : __SYSCALL_CLOBBERS, "$9", "$10");                           \
+    env->active_tc.gpr[7] = r7;                                                \
+    env->active_tc.gpr[2] = r2;                                                \
+    break;                                                                     \
+  }
+
+#define ___SYSCALL6(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5, t6, a6)    \
+  case nr: {                                                                   \
+    register long r4 asm("$4") = _a1;                                          \
+    register long r5 asm("$5") = _a2;                                          \
+    register long r6 asm("$6") = _a3;                                          \
+    register long r7 asm("$7") = _a4;                                          \
+    register long r8 asm("$8") = _a5;                                          \
+    register long r9 asm("$9") = _a6;                                          \
+    register long r2 asm("$2");                                                \
+    asm volatile("subu $sp,$sp,32 ; sw $8,16($sp) ; sw $9,20($sp) ; "          \
+                 "addu $2,$0,%4 ; syscall ;"                                   \
+                 "addu $sp,$sp,32"                                             \
+                 : "=&r"(r2), "+r"(r7), "+r"(r8), "+r"(r9)                     \
+                 : "ir"(nr), "0"(r2), "r"(r4), "r"(r5), "r"(r6)                \
+                 : __SYSCALL_CLOBBERS, "$10");                                 \
+    env->active_tc.gpr[7] = r7;                                                \
+    env->active_tc.gpr[2] = r2;                                                \
+    break;                                                                     \
+  }
+
+#include "syscalls.inc.h"
+
+  default:
+    __builtin_trap();
+    __builtin_unreachable();
+  }
+
+#ifdef JOVE_DFSAN
+  long sysret;
+  {
+    long r7 = env->active_tc.gpr[7];
+    long r2 = env->active_tc.gpr[2];
+
+    sysret = r7 && r2 > 0 ? -r2 : r2;
+  }
+
+  //
+  // call sysexit procedures
+  //
+  switch (sysnum) {
+#define ___SYSCALL0(nr, nm)                                                    \
+  case nr:                                                                     \
+    SYSEXIT(nm##_clunk)(sysret);                                               \
+    break;
+#define ___SYSCALL1(nr, nm, t1, a1)                                            \
+  case nr:                                                                     \
+    SYSEXIT(nm##_clunk)(sysret, (t1)_a1);                                      \
+    break;
+#define ___SYSCALL2(nr, nm, t1, a1, t2, a2)                                    \
+  case nr:                                                                     \
+    SYSEXIT(nm##_clunk)(sysret, (t1)_a1, (t2)_a2);                             \
+    break;
+#define ___SYSCALL3(nr, nm, t1, a1, t2, a2, t3, a3)                            \
+  case nr:                                                                     \
+    SYSEXIT(nm##_clunk)(sysret, (t1)_a1, (t2)_a2, (t3)_a3);                    \
+    break;
+#define ___SYSCALL4(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4)                    \
+  case nr:                                                                     \
+    SYSEXIT(nm##_clunk)(sysret, (t1)_a1, (t2)_a2, (t3)_a3, (t4)_a4);           \
+    break;
+#define ___SYSCALL5(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5)            \
+  case nr:                                                                     \
+    SYSEXIT(nm##_clunk)(sysret, (t1)_a1, (t2)_a2, (t3)_a3, (t4)_a4, (t5)_a5);  \
+    break;
+#define ___SYSCALL6(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5, t6, a6)    \
+  case nr:                                                                     \
+    SYSEXIT(nm##_clunk)(sysret, (t1)_a1, (t2)_a2, (t3)_a3, (t4)_a4, (t5)_a5, (t6)_a6); \
+    break;
+
+#define ___DFSAN
+#define ___DFSAN_SYSEXITS
+#include "syscalls.inc.h"
+#undef ___DFSAN_SYSEXITS
+#undef ___DFSAN
+
+  default:
+    break;
+  }
+
+#endif /* JOVE_DFSAN */
+}
