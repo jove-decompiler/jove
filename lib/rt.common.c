@@ -48,9 +48,8 @@ unsigned __jove_dfsan_sig_handle = 0;
 
 #if defined(__mips64)
 
-// FIXME copied from mips32
 # define _NSIG		128
-# define _NSIG_BPW	32
+# define _NSIG_BPW	64
 # define __ARCH_HAS_IRIX_SIGACTION
 
 #elif defined(__mips__)
