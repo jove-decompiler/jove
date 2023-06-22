@@ -724,6 +724,17 @@ public:
     assert(ts->kind == TEMP_GLOBAL);
     return ts->name;
   }
+
+  llvm::Function *bswap_i(unsigned bits) {
+    assert(bits > 8);
+
+    llvm::Type *Tys[] = {llvm::Type::getIntNTy(*Context, bits)};
+
+    llvm::Function *bswap =
+        llvm::Intrinsic::getDeclaration(Module.get(), llvm::Intrinsic::bswap,
+                                        llvm::ArrayRef<llvm::Type *>(Tys, 1));
+    return bswap;
+  }
 };
 
 JOVE_REGISTER_TOOL("llvm", LLVMTool);
@@ -8928,16 +8939,9 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
 
     llvm::Value *Res = LI;
 
-#if !defined(TARGET_WORDS_BIGENDIAN)
-    if (mop & MO_BSWAP) {
-      assert(BitsOfMemOp(mop) > 8);
-
-      llvm::Type *Tys[] = {IRB.getIntNTy(BitsOfMemOp(mop))};
-      llvm::Function *bswap =
-          llvm::Intrinsic::getDeclaration(Module.get(), llvm::Intrinsic::bswap,
-                                          llvm::ArrayRef<llvm::Type *>(Tys, 1));
-      Res = IRB.CreateCall(bswap, Res);
-    }
+#ifndef TARGET_WORDS_BIGENDIAN /* XXX */
+    if (mop & MO_BSWAP)
+      Res = IRB.CreateCall(bswap_i(BitsOfMemOp(mop)), Res);
 #endif
 
     Res = IRB.CreateIntCast(Res, IRB.getInt64Ty(), !!(mop & MO_SIGN));
@@ -8952,16 +8956,9 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
 
     Val = IRB.CreateTrunc(Val, IRB.getIntNTy(BitsOfMemOp(mop)));
 
-#if !defined(TARGET_WORDS_BIGENDIAN)
-    if (mop & MO_BSWAP) {
-      assert(BitsOfMemOp(mop) > 8);
-
-      llvm::Type *Tys[] = {IRB.getIntNTy(BitsOfMemOp(mop))};
-      llvm::Function *bswap =
-          llvm::Intrinsic::getDeclaration(Module.get(), llvm::Intrinsic::bswap,
-                                          llvm::ArrayRef<llvm::Type *>(Tys, 1));
-      Val = IRB.CreateCall(bswap, Val);
-    }
+#ifndef TARGET_WORDS_BIGENDIAN /* XXX */
+    if (mop & MO_BSWAP)
+      Val = IRB.CreateCall(bswap_i(BitsOfMemOp(mop)), Val);
 #endif
 
     Addr = IRB.CreateZExt(Addr, WordType());
