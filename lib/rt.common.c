@@ -36,77 +36,7 @@ struct shadow_t __df32_shadow_mem[65536];
 void (*__jove_dfsan_flush)(void) = NULL; /* XXX */
 unsigned __jove_dfsan_sig_handle = 0;
 
-//
-// declare sigaction struct from the kernel
-//
-#undef sa_handler
-#undef sa_restorer
-#undef sa_flags
-#undef _NSIG
-#undef _NSIG_BPW
-#undef _NSIG_WORDS
-
-#if defined(__mips64)
-
-# define _NSIG		128
-# define _NSIG_BPW	64
-# define __ARCH_HAS_IRIX_SIGACTION
-
-#elif defined(__mips__)
-
-# define _NSIG		128
-# define _NSIG_BPW	32
-# define __ARCH_HAS_IRIX_SIGACTION
-
-#elif defined(__x86_64__)
-
-# define _NSIG		64
-# define _NSIG_BPW	64
-# define __ARCH_HAS_SA_RESTORER
-
-#elif defined(__i386__)
-
-# define _NSIG		64
-# define _NSIG_BPW	32
-# define __ARCH_HAS_SA_RESTORER
-
-#elif defined(__aarch64__)
-
-#define _NSIG		64
-#define _NSIG_BPW	64
-#define __ARCH_HAS_SA_RESTORER
-
-#else
-#error
-#endif
-
-#define _NSIG_WORDS	(_NSIG / _NSIG_BPW)
-
-typedef struct {
-	unsigned long sig[_NSIG_WORDS];
-} kernel_sigset_t;
-
-typedef void __signalfn_t(int);
-
-typedef __signalfn_t *__sighandler_t;
-
-typedef void __restorefn_t(void);
-
-typedef __restorefn_t *__sigrestore_t;
-
-struct kernel_sigaction {
-#ifndef __ARCH_HAS_IRIX_SIGACTION
-	__sighandler_t	sa_handler;
-	unsigned long	sa_flags;
-#else
-	unsigned int	sa_flags;
-	__sighandler_t	sa_handler;
-#endif
-#ifdef __ARCH_HAS_SA_RESTORER
-	__sigrestore_t sa_restorer;
-#endif
-	kernel_sigset_t	sa_mask;	/* mask last for extensibility */
-};
+#include "kernel_sigaction.h"
 
 static void _jove_rt_signal_handler(int, siginfo_t *, ucontext_t *);
 
@@ -127,17 +57,17 @@ void _jove_rt_init(void) {
   struct kernel_sigaction sa;
   _memset(&sa, 0, sizeof(sa));
 
-  sa.sa_handler = _jove_rt_signal_handler;
-  sa.sa_flags = SA_SIGINFO | SA_ONSTACK | SA_NODEFER;
+  sa.k_sa_handler = _jove_rt_signal_handler;
+  sa.k_sa_flags = SA_SIGINFO | SA_ONSTACK | SA_NODEFER;
 
 #if defined(__x86_64__)
 #ifndef SA_RESTORER
 #define SA_RESTORER 0x04000000
 #endif
-  sa.sa_flags |= SA_RESTORER;
-  sa.sa_restorer = restore_rt; // _jove_do_rt_sigreturn
+  sa.k_sa_flags |= SA_RESTORER;
+  sa.k_sa_restorer = restore_rt; // _jove_do_rt_sigreturn
 #elif defined(__i386__)
-  sa.sa_restorer = _jove_do_rt_sigreturn;
+  sa.k_sa_restorer = _jove_do_rt_sigreturn;
 #endif
 
   if (_jove_sys_rt_sigaction(SIGSEGV, &sa, NULL, sizeof(kernel_sigset_t)) < 0)
