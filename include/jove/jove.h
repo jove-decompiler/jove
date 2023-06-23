@@ -23,7 +23,7 @@
 #elif defined(TARGET_I386)
 #include <jove/tcgconstants-i386.h>
 #elif defined(TARGET_MIPS64)
-#include <jove/tcgconstants-mips64.h>
+#include <jove/tcgconstants-mips64el.h>
 #elif defined(TARGET_MIPSEL)
 #include <jove/tcgconstants-mipsel.h>
 #elif defined(TARGET_MIPS)
