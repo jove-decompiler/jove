@@ -1,23 +1,27 @@
 #!/bin/bash
 set -x
 
-# --sysroot=/usr/mips64el-linux-gnuabi64
-# --gcc-toolchain=/usr/lib/gcc-cross/mips64el-linux-gnuabi64/12
+# --sysroot=/usr/mipsel-linux-gnu
+# --gcc-toolchain=/usr/lib/gcc-cross/mipsel-linux-gnu/12
 # -fuse-ld=lld
 
+TRIPLE="mips64el-linux-gnuabi64"
+
 OURCFLAGS=\
-"--target=mips64el-linux-gnuabi64"
+"--target=$TRIPLE"\
+" -gdwarf-4"\
+" -g1"
 
 cmake -G Ninja \
-  -D CMAKE_BUILD_TYPE=Release \
+  -D CMAKE_BUILD_TYPE=RelWithDebInfo \
   -D "CMAKE_INSTALL_PREFIX=$(pwd)/../cross_install" \
   -D CMAKE_SYSTEM_NAME=Linux \
   -D CMAKE_CROSSCOMPILING=True \
   -D LLVM_TARGET_ARCH=mips64el \
-  -D LLVM_DEFAULT_TARGET_TRIPLE=mips64el-linux-gnuabi64 \
-  -D LLVM_HOST_TRIPLE=mips64el-linux-gnuabi64 \
-  -D CMAKE_C_COMPILER=$(which clang) \
-  -D CMAKE_CXX_COMPILER=$(which clang++) \
+  -D LLVM_DEFAULT_TARGET_TRIPLE=$TRIPLE \
+  -D LLVM_HOST_TRIPLE=$TRIPLE \
+  -D CMAKE_C_COMPILER=$(which clang-15) \
+  -D CMAKE_CXX_COMPILER=$(which clang++-15) \
   -D "CMAKE_C_FLAGS=$OURCFLAGS" \
   -D "CMAKE_CXX_FLAGS=$OURCFLAGS" \
   -D "LLVM_TARGETS_TO_BUILD=Mips" \

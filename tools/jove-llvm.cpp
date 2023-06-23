@@ -4936,8 +4936,8 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
             R_T = type_of_expression_for_relocation(R);
           } catch (const unhandled_relocation_exception &) {
             WithColor::error() << llvm::formatv(
-                "type_of_expression_for_relocation: unhandled relocation {0}\n",
-                E.getRelocationTypeName(R.Type));
+                "type_of_expression_for_relocation: unhandled relocation {0} ({1:x})\n",
+                E.getRelocationTypeName(R.Type), R.Type);
             abort();
           }
 

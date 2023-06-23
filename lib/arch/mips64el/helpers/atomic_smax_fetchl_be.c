@@ -1,26 +1,22 @@
-#define TARGET_MIPS64 1
+#define CONFIG_JOVE_HELPERS
 
-#define TARGET_ALIGNED_ONLY 1
+#define CONFIG_LINUX 1
 
 #define CONFIG_USER_ONLY 1
 
-#define QEMU_NORETURN __attribute__ ((__noreturn__))
+#define TARGET_MIPS64 1
+
+#define HOST_BIG_ENDIAN (__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__)
 
 #define xglue(x, y) x ## y
 
 #define glue(x, y) xglue(x, y)
 
-#define unlikely(x)   __builtin_expect(!!(x), 0)
-
 #define container_of(ptr, type, member) ({                      \
         const typeof(((type *) 0)->member) *__mptr = (ptr);     \
         (type *) ((char *) __mptr - offsetof(type, member));})
 
-#define QEMU_BUILD_BUG_MSG(x, msg) _Static_assert(!(x), msg)
-
-#define QEMU_BUILD_BUG_ON(x) QEMU_BUILD_BUG_MSG(x, "not expecting: " #x)
-
-#  define GCC_FMT_ATTR(n, m) __attribute__((format(printf, n, m)))
+# define QEMU_ERROR(X) __attribute__((error(X)))
 
 #include <stddef.h>
 
@@ -36,7 +32,65 @@
 
 #include <setjmp.h>
 
-#define MAX(a, b)  (((a) > (b)) ? (a) : (b))
+#define G_GNUC_PRINTF( format_idx, arg_idx )    \
+  __attribute__((__format__ (__printf__, format_idx, arg_idx)))
+
+#define G_GNUC_UNUSED \
+  __attribute__ ((__unused__))
+
+#define G_GNUC_BEGIN_IGNORE_DEPRECATIONS \
+  _Pragma("clang diagnostic push") \
+  _Pragma("clang diagnostic ignored \"-Wdeprecated-declarations\"")
+
+#define G_GNUC_END_IGNORE_DEPRECATIONS \
+  _Pragma("clang diagnostic pop")
+
+# define G_NORETURN __attribute__ ((__noreturn__))
+
+#define _GLIB_EXTERN extern
+
+#define _GLIB_AUTOPTR_FUNC_NAME(TypeName) glib_autoptr_cleanup_##TypeName
+
+#define _GLIB_AUTOPTR_CLEAR_FUNC_NAME(TypeName) glib_autoptr_clear_##TypeName
+
+#define _GLIB_AUTOPTR_TYPENAME(TypeName)  TypeName##_autoptr
+
+#define _GLIB_AUTOPTR_LIST_FUNC_NAME(TypeName) glib_listautoptr_cleanup_##TypeName
+
+#define _GLIB_AUTOPTR_LIST_TYPENAME(TypeName)  TypeName##_listautoptr
+
+#define _GLIB_AUTOPTR_SLIST_FUNC_NAME(TypeName) glib_slistautoptr_cleanup_##TypeName
+
+#define _GLIB_AUTOPTR_SLIST_TYPENAME(TypeName)  TypeName##_slistautoptr
+
+#define _GLIB_AUTOPTR_QUEUE_FUNC_NAME(TypeName) glib_queueautoptr_cleanup_##TypeName
+
+#define _GLIB_AUTOPTR_QUEUE_TYPENAME(TypeName)  TypeName##_queueautoptr
+
+#define _GLIB_DEFINE_AUTOPTR_CLEANUP_FUNCS(TypeName, ParentName, cleanup) \
+  typedef TypeName *_GLIB_AUTOPTR_TYPENAME(TypeName);                                                           \
+  typedef GList *_GLIB_AUTOPTR_LIST_TYPENAME(TypeName);                                                         \
+  typedef GSList *_GLIB_AUTOPTR_SLIST_TYPENAME(TypeName);                                                       \
+  typedef GQueue *_GLIB_AUTOPTR_QUEUE_TYPENAME(TypeName);                                                       \
+  G_GNUC_BEGIN_IGNORE_DEPRECATIONS                                                                              \
+  static G_GNUC_UNUSED inline void _GLIB_AUTOPTR_CLEAR_FUNC_NAME(TypeName) (TypeName *_ptr)                     \
+    { if (_ptr) (cleanup) ((ParentName *) _ptr); }                                                              \
+  static G_GNUC_UNUSED inline void _GLIB_AUTOPTR_FUNC_NAME(TypeName) (TypeName **_ptr)                          \
+    { _GLIB_AUTOPTR_CLEAR_FUNC_NAME(TypeName) (*_ptr); }                                                        \
+  static G_GNUC_UNUSED inline void _GLIB_AUTOPTR_LIST_FUNC_NAME(TypeName) (GList **_l)                          \
+    { g_list_free_full (*_l, (GDestroyNotify) (void(*)(void)) cleanup); }                                       \
+  static G_GNUC_UNUSED inline void _GLIB_AUTOPTR_SLIST_FUNC_NAME(TypeName) (GSList **_l)                        \
+    { g_slist_free_full (*_l, (GDestroyNotify) (void(*)(void)) cleanup); }                                      \
+  static G_GNUC_UNUSED inline void _GLIB_AUTOPTR_QUEUE_FUNC_NAME(TypeName) (GQueue **_q)                        \
+    { if (*_q) g_queue_free_full (*_q, (GDestroyNotify) (void(*)(void)) cleanup); }                             \
+  G_GNUC_END_IGNORE_DEPRECATIONS
+
+#define G_DEFINE_AUTOPTR_CLEANUP_FUNC(TypeName, func) \
+  _GLIB_DEFINE_AUTOPTR_CLEANUP_FUNCS(TypeName, TypeName, func)
+
+typedef unsigned char guint8;
+
+#define GLIB_AVAILABLE_IN_ALL                   _GLIB_EXTERN
 
 typedef char   gchar;
 
@@ -44,13 +98,36 @@ typedef unsigned int    guint;
 
 typedef void* gpointer;
 
+typedef void            (*GDestroyNotify)       (gpointer       data);
+
 typedef struct _GArray		GArray;
+
+typedef struct _GByteArray	GByteArray;
 
 struct _GArray
 {
   gchar *data;
   guint len;
 };
+
+struct _GByteArray
+{
+  guint8 *data;
+  guint	  len;
+};
+
+typedef struct _GList GList;
+
+struct _GList
+{
+  gpointer data;
+  GList *next;
+  GList *prev;
+};
+
+GLIB_AVAILABLE_IN_ALL
+void     g_list_free_full               (GList            *list,
+					 GDestroyNotify    free_func);
 
 typedef struct _GHashTable  GHashTable;
 
@@ -62,11 +139,38 @@ struct _GSList
   GSList *next;
 };
 
+GLIB_AVAILABLE_IN_ALL
+void     g_slist_free_full               (GSList           *list,
+					  GDestroyNotify    free_func);
+
+typedef struct _GQueue GQueue;
+
+struct _GQueue
+{
+  GList *head;
+  GList *tail;
+  guint  length;
+};
+
+GLIB_AVAILABLE_IN_ALL
+void     g_queue_free_full      (GQueue           *queue,
+				GDestroyNotify    free_func);
+
 typedef struct AddressSpace AddressSpace;
+
+typedef struct ArchCPU ArchCPU;
 
 typedef struct BusState BusState;
 
+typedef struct Clock Clock;
+
 typedef struct CPUAddressSpace CPUAddressSpace;
+
+typedef struct CPUArchState CPUArchState;
+
+typedef struct CpuInfoFast CpuInfoFast;
+
+typedef struct CPUJumpCache CPUJumpCache;
 
 typedef struct CPUState CPUState;
 
@@ -74,17 +178,17 @@ typedef struct DeviceState DeviceState;
 
 typedef struct Error Error;
 
-typedef struct MemoryMappingList MemoryMappingList;
-
 typedef struct MemoryRegion MemoryRegion;
+
+typedef struct Object Object;
 
 typedef struct ObjectClass ObjectClass;
 
 typedef struct Property Property;
 
-typedef struct QemuMutex QemuMutex;
+typedef struct QDict QDict;
 
-typedef struct QemuOpts QemuOpts;
+typedef struct QemuMutex QemuMutex;
 
 typedef struct QEMUTimer QEMUTimer;
 
@@ -92,62 +196,21 @@ typedef struct VMStateDescription VMStateDescription;
 
 typedef struct IRQState *qemu_irq;
 
+#define qemu_build_not_reached()  qemu_build_not_reached_always()
+
+#define qemu_build_assert(test)  while (!(test)) qemu_build_not_reached()
+
+#define MAX(a, b)                                       \
+    ({                                                  \
+        typeof(1 ? (a) : (b)) _a = (a), _b = (b);       \
+        _a > _b ? _a : _b;                              \
+    })
+
 #define DIV_ROUND_UP(n, d) (((n) + (d) - 1) / (d))
 
-#define QLIST_HEAD(name, type)                                          \
-struct name {                                                           \
-        struct type *lh_first;  /* first element */                     \
-}
-
-#define QLIST_ENTRY(type)                                               \
-struct {                                                                \
-        struct type *le_next;   /* next element */                      \
-        struct type **le_prev;  /* address of previous next element */  \
-}
-
-#define QTAILQ_HEAD(name, type)                                         \
-union name {                                                            \
-        struct type *tqh_first;       /* first element */               \
-        QTailQLink tqh_circ;          /* link for circular backwards list */ \
-}
-
-#define QTAILQ_ENTRY(type)                                              \
-union {                                                                 \
-        struct type *tqe_next;        /* next element */                \
-        QTailQLink tqe_circ;          /* link for circular backwards list */ \
-}
-
-typedef struct QTailQLink {
-    void *tql_next;
-    struct QTailQLink *tql_prev;
-} QTailQLink;
-
-typedef uint8_t flag;
-
-typedef uint32_t float32;
-
-typedef uint64_t float64;
-
-#include <byteswap.h>
-
-typedef struct float_status {
-    signed char float_detect_tininess;
-    signed char float_rounding_mode;
-    uint8_t     float_exception_flags;
-    signed char floatx80_rounding_precision;
-    /* should denormalised results go to zero and set the inexact flag? */
-    flag flush_to_zero;
-    /* should denormalised inputs go to zero and set the input_denormal flag? */
-    flag flush_inputs_to_zero;
-    flag default_nan_mode;
-    /* not always used -- see snan_bit_is_one() in softfloat-specialize.h */
-    flag snan_bit_is_one;
-} float_status;
-
-static inline uint32_t bswap32(uint32_t x)
-{
-    return bswap_32(x);
-}
+G_NORETURN extern
+void QEMU_ERROR("code path is reachable")
+    qemu_build_not_reached_always(void);
 
 #define barrier()   ({ asm volatile("" ::: "memory"); (void)0; })
 
@@ -187,55 +250,192 @@ static inline uint32_t bswap32(uint32_t x)
 
 #define smp_mb()                     ({ barrier(); __atomic_thread_fence(__ATOMIC_SEQ_CST); })
 
-#define signal_barrier()    __atomic_signal_fence(__ATOMIC_SEQ_CST)
-
 # define ATOMIC_REG_SIZE  8
 
-#define atomic_read__nocheck(ptr) \
+#define qatomic_read__nocheck(ptr) \
     __atomic_load_n(ptr, __ATOMIC_RELAXED)
 
-#define atomic_read(ptr)                              \
-    ({                                                \
-    QEMU_BUILD_BUG_ON(sizeof(*ptr) > ATOMIC_REG_SIZE); \
-    atomic_read__nocheck(ptr);                        \
+#define qatomic_read(ptr)                              \
+    ({                                                 \
+    qemu_build_assert(sizeof(*ptr) <= ATOMIC_REG_SIZE); \
+    qatomic_read__nocheck(ptr);                        \
     })
 
-#define atomic_set__nocheck(ptr, i) \
+#define qatomic_set__nocheck(ptr, i) \
     __atomic_store_n(ptr, i, __ATOMIC_RELAXED)
 
-#define atomic_set(ptr, i)  do {                      \
-    QEMU_BUILD_BUG_ON(sizeof(*ptr) > ATOMIC_REG_SIZE); \
-    atomic_set__nocheck(ptr, i);                      \
+#define qatomic_set(ptr, i)  do {                      \
+    qemu_build_assert(sizeof(*ptr) <= ATOMIC_REG_SIZE); \
+    qatomic_set__nocheck(ptr, i);                      \
 } while(0)
 
-#define atomic_cmpxchg__nocheck(ptr, old, new)    ({                    \
+#define qatomic_cmpxchg__nocheck(ptr, old, new)    ({                   \
     typeof_strip_qual(*ptr) _old = (old);                               \
     (void)__atomic_compare_exchange_n(ptr, &_old, new, false,           \
                               __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);      \
     _old;                                                               \
 })
 
+typedef int64_t aligned_int64_t __attribute__((aligned(8)));
+
+typedef uint64_t aligned_uint64_t __attribute__((aligned(8)));
+
+#define QLIST_HEAD(name, type)                                          \
+struct name {                                                           \
+        struct type *lh_first;  /* first element */                     \
+}
+
+#define QLIST_ENTRY(type)                                               \
+struct {                                                                \
+        struct type *le_next;   /* next element */                      \
+        struct type **le_prev;  /* address of previous next element */  \
+}
+
+#define QSIMPLEQ_HEAD(name, type)                                       \
+struct name {                                                           \
+    struct type *sqh_first;    /* first element */                      \
+    struct type **sqh_last;    /* addr of last next element */          \
+}
+
+#define QTAILQ_HEAD(name, type)                                         \
+union name {                                                            \
+        struct type *tqh_first;       /* first element */               \
+        QTailQLink tqh_circ;          /* link for circular backwards list */ \
+}
+
+#define QTAILQ_ENTRY(type)                                              \
+union {                                                                 \
+        struct type *tqe_next;        /* next element */                \
+        QTailQLink tqe_circ;          /* link for circular backwards list */ \
+}
+
+#define bswap16(_x) __builtin_bswap16(_x)
+
+#define bswap32(_x) __builtin_bswap32(_x)
+
+#define bswap64(_x) __builtin_bswap64(_x)
+
+typedef struct QTailQLink {
+    void *tql_next;
+    struct QTailQLink *tql_prev;
+} QTailQLink;
+
+static inline void bswap16s(uint16_t *s)
+{
+    *s = __builtin_bswap16(*s);
+}
+
+static inline void bswap32s(uint32_t *s)
+{
+    *s = __builtin_bswap32(*s);
+}
+
+static inline void bswap64s(uint64_t *s)
+{
+    *s = __builtin_bswap64(*s);
+}
+
 #define BITS_PER_BYTE           CHAR_BIT
 
-#define BITS_PER_LONG           (sizeof (unsigned long) * BITS_PER_BYTE)
-
-#define BIT_WORD(nr)            ((nr) / BITS_PER_LONG)
-
 #define BITS_TO_LONGS(nr)       DIV_ROUND_UP(nr, BITS_PER_BYTE * sizeof(long))
-
-static inline int test_bit(long nr, const unsigned long *addr)
-{
-    return 1UL & (addr[BIT_WORD(nr)] >> (nr & (BITS_PER_LONG-1)));
-}
 
 #define DECLARE_BITMAP(name,bits)                  \
         unsigned long name[BITS_TO_LONGS(bits)]
 
+typedef struct QemuLockCnt QemuLockCnt;
+
+struct QemuMutex {
+    pthread_mutex_t lock;
+#ifdef CONFIG_DEBUG_MUTEX
+    const char *file;
+    int line;
+#endif
+    bool initialized;
+};
+
+struct QemuCond {
+    pthread_cond_t cond;
+    bool initialized;
+};
+
+struct QemuThread {
+    pthread_t thread;
+};
+
+struct Notifier;
+
+struct QemuLockCnt {
+#ifndef CONFIG_LINUX
+    QemuMutex mutex;
+#endif
+    unsigned count;
+};
+
+typedef struct Notifier Notifier;
+
+struct Notifier
+{
+    void (*notify)(Notifier *notifier, void *data);
+    QLIST_ENTRY(Notifier) node;
+};
+
+typedef struct NotifierList
+{
+    QLIST_HEAD(, Notifier) notifiers;
+} NotifierList;
+
+#define smp_mb_placeholder()       smp_mb()
+
+#define QEMU_DECLARE_CO_TLS(type, var)                                       \
+    __attribute__((noinline)) type get_##var(void);                          \
+    __attribute__((noinline)) void set_##var(type v);                        \
+    __attribute__((noinline)) type *get_ptr_##var(void);
+
+extern unsigned long rcu_gp_ctr;
+
+struct rcu_reader_data {
+    /* Data used by both reader and synchronize_rcu() */
+    unsigned long ctr;
+    bool waiting;
+
+    /* Data used by reader only */
+    unsigned depth;
+
+    /* Data used for registry, protected by rcu_registry_lock */
+    QLIST_ENTRY(rcu_reader_data) node;
+
+    /*
+     * NotifierList used to force an RCU grace period.  Accessed under
+     * rcu_registry_lock.  Note that the notifier is called _outside_
+     * the thread!
+     */
+    NotifierList force_rcu;
+};
+
+QEMU_DECLARE_CO_TLS(struct rcu_reader_data, rcu_reader)
+
+static inline void rcu_read_lock(void)
+{
+    struct rcu_reader_data *p_rcu_reader = get_ptr_rcu_reader();
+    unsigned ctr;
+
+    if (p_rcu_reader->depth++ > 0) {
+        return;
+    }
+
+    ctr = qatomic_read(&rcu_gp_ctr);
+    qatomic_set(&p_rcu_reader->ctr, ctr);
+
+    /*
+     * Read rcu_gp_ptr and write p_rcu_reader->ctr before reading
+     * RCU-protected pointers.
+     */
+    smp_mb_placeholder();
+}
+
 struct TypeImpl;
 
 typedef struct TypeImpl *Type;
-
-typedef struct Object Object;
 
 typedef void (ObjectUnparent)(Object *obj);
 
@@ -245,7 +445,7 @@ typedef void (ObjectFree)(void *obj);
 
 struct ObjectClass
 {
-    /*< private >*/
+    /* private: */
     Type type;
     GSList *interfaces;
 
@@ -257,15 +457,107 @@ struct ObjectClass
     GHashTable *properties;
 };
 
+#define DECLARE_INSTANCE_CHECKER(InstanceType, OBJ_NAME, TYPENAME) \
+    static inline G_GNUC_UNUSED InstanceType * \
+    OBJ_NAME(const void *obj) \
+    { return OBJECT_CHECK(InstanceType, obj, TYPENAME); }
+
+#define DECLARE_CLASS_CHECKERS(ClassType, OBJ_NAME, TYPENAME) \
+    static inline G_GNUC_UNUSED ClassType * \
+    OBJ_NAME##_GET_CLASS(const void *obj) \
+    { return OBJECT_GET_CLASS(ClassType, obj, TYPENAME); } \
+    \
+    static inline G_GNUC_UNUSED ClassType * \
+    OBJ_NAME##_CLASS(const void *klass) \
+    { return OBJECT_CLASS_CHECK(ClassType, klass, TYPENAME); }
+
+#define DECLARE_OBJ_CHECKERS(InstanceType, ClassType, OBJ_NAME, TYPENAME) \
+    DECLARE_INSTANCE_CHECKER(InstanceType, OBJ_NAME, TYPENAME) \
+    \
+    DECLARE_CLASS_CHECKERS(ClassType, OBJ_NAME, TYPENAME)
+
+#define OBJECT_DECLARE_TYPE(InstanceType, ClassType, MODULE_OBJ_NAME) \
+    typedef struct InstanceType InstanceType; \
+    typedef struct ClassType ClassType; \
+    \
+    G_DEFINE_AUTOPTR_CLEANUP_FUNC(InstanceType, object_unref) \
+    \
+    DECLARE_OBJ_CHECKERS(InstanceType, ClassType, \
+                         MODULE_OBJ_NAME, TYPE_##MODULE_OBJ_NAME)
+
+#define OBJECT_DECLARE_SIMPLE_TYPE(InstanceType, MODULE_OBJ_NAME) \
+    typedef struct InstanceType InstanceType; \
+    \
+    G_DEFINE_AUTOPTR_CLEANUP_FUNC(InstanceType, object_unref) \
+    \
+    DECLARE_INSTANCE_CHECKER(InstanceType, MODULE_OBJ_NAME, TYPE_##MODULE_OBJ_NAME)
+
 struct Object
 {
-    /*< private >*/
-    ObjectClass *class;
+    /* private: */
+    ObjectClass *clazz;
     ObjectFree *free;
     GHashTable *properties;
     uint32_t ref;
     Object *parent;
 };
+
+#define OBJECT(obj) \
+    ((Object *)(obj))
+
+#define OBJECT_CLASS(class) \
+    ((ObjectClass *)(class))
+
+#define OBJECT_CHECK(type, obj, name) \
+    ((type *)object_dynamic_cast_assert(OBJECT(obj), (name), \
+                                        __FILE__, __LINE__, __func__))
+
+#define OBJECT_CLASS_CHECK(class_type, class, name) \
+    ((class_type *)object_class_dynamic_cast_assert(OBJECT_CLASS(class), (name), \
+                                               __FILE__, __LINE__, __func__))
+
+#define OBJECT_GET_CLASS(class, obj, name) \
+    OBJECT_CLASS_CHECK(class, object_get_class(OBJECT(obj)), name)
+
+Object *object_dynamic_cast_assert(Object *obj, const char *,
+                                   const char *file, int line, const char *func);
+
+ObjectClass *object_get_class(Object *obj);
+
+ObjectClass *object_class_dynamic_cast_assert(ObjectClass *klass,
+                                              const char *,
+                                              const char *file, int line,
+                                              const char *func);
+
+void object_unref(void *obj);
+
+typedef struct ResettableState ResettableState;
+
+typedef enum ResetType {
+    RESET_TYPE_COLD,
+} ResetType;
+
+typedef void (*ResettableEnterPhase)(Object *obj, ResetType type);
+
+typedef void (*ResettableHoldPhase)(Object *obj);
+
+typedef void (*ResettableExitPhase)(Object *obj);
+
+typedef struct ResettablePhases {
+    ResettableEnterPhase enter;
+    ResettableHoldPhase hold;
+    ResettableExitPhase exit;
+} ResettablePhases;
+
+struct ResettableState {
+    unsigned count;
+    bool hold_phase_pending;
+    bool exit_phase_in_progress;
+};
+
+#define TYPE_DEVICE "device"
+
+OBJECT_DECLARE_TYPE(DeviceState, DeviceClass, DEVICE)
 
 typedef enum DeviceCategory {
     DEVICE_CATEGORY_BRIDGE,
@@ -277,16 +569,17 @@ typedef enum DeviceCategory {
     DEVICE_CATEGORY_SOUND,
     DEVICE_CATEGORY_MISC,
     DEVICE_CATEGORY_CPU,
+    DEVICE_CATEGORY_WATCHDOG,
     DEVICE_CATEGORY_MAX
 } DeviceCategory;
 
 typedef void (*DeviceRealize)(DeviceState *dev, Error **errp);
 
-typedef void (*DeviceUnrealize)(DeviceState *dev, Error **errp);
+typedef void (*DeviceUnrealize)(DeviceState *dev);
 
 typedef void (*DeviceReset)(DeviceState *dev);
 
-typedef struct DeviceClass {
+struct DeviceClass {
     /*< private >*/
     ObjectClass parent_class;
     /*< public >*/
@@ -294,7 +587,12 @@ typedef struct DeviceClass {
     DECLARE_BITMAP(categories, DEVICE_CATEGORY_MAX);
     const char *fw_name;
     const char *desc;
-    Property *props;
+
+    /*
+     * The underscore at the end ensures a compile-time error if someone
+     * assigns to dc->props instead of using device_class_set_props.
+     */
+    Property *props_;
 
     /*
      * Can this device be instantiated with -device / device_add?
@@ -311,6 +609,11 @@ typedef struct DeviceClass {
     bool hotpluggable;
 
     /* callbacks */
+    /*
+     * Reset method here is deprecated and replaced by methods in the
+     * resettable class interface to implement a multi-phase reset.
+     * TODO: remove once every reset callback is unused
+     */
     DeviceReset reset;
     DeviceRealize realize;
     DeviceUnrealize unrealize;
@@ -320,7 +623,7 @@ typedef struct DeviceClass {
 
     /* Private to qdev / bus.  */
     const char *bus_type;
-} DeviceClass;
+};
 
 struct NamedGPIOList {
     char *name;
@@ -330,24 +633,45 @@ struct NamedGPIOList {
     QLIST_ENTRY(NamedGPIOList) node;
 };
 
+typedef struct Clock Clock;
+
+struct NamedClockList {
+    char *name;
+    Clock *clock;
+    bool output;
+    bool alias;
+    QLIST_ENTRY(NamedClockList) node;
+};
+
+typedef struct {
+    bool engaged_in_io;
+} MemReentrancyGuard;
+
 struct DeviceState {
     /*< private >*/
     Object parent_obj;
     /*< public >*/
 
-    const char *id;
+    char *id;
     char *canonical_path;
     bool realized;
     bool pending_deleted_event;
-    QemuOpts *opts;
+    int64_t pending_deleted_expires_ms;
+    QDict *opts;
     int hotplugged;
     bool allow_unplug_during_migration;
     BusState *parent_bus;
     QLIST_HEAD(, NamedGPIOList) gpios;
+    QLIST_HEAD(, NamedClockList) clocks;
     QLIST_HEAD(, BusState) child_bus;
     int num_child_bus;
     int instance_id_alias;
     int alias_required_for_version;
+    ResettableState reset;
+    GSList *unplug_blockers;
+
+    /* Is the device currently in mmio/pio/dma? Used to prevent re-entrancy */
+    MemReentrancyGuard mem_reentrancy_guard;
 };
 
 typedef void *PTR;
@@ -524,20 +848,20 @@ enum bfd_architecture
 #define bfd_mach_alpha_ev5  0x20
 #define bfd_mach_alpha_ev6  0x30
   bfd_arch_arm,        /* Advanced Risc Machines ARM */
-#define bfd_mach_arm_unknown	0
-#define bfd_mach_arm_2		1
-#define bfd_mach_arm_2a		2
-#define bfd_mach_arm_3		3
-#define bfd_mach_arm_3M 	4
-#define bfd_mach_arm_4 		5
-#define bfd_mach_arm_4T 	6
-#define bfd_mach_arm_5 		7
-#define bfd_mach_arm_5T		8
-#define bfd_mach_arm_5TE	9
-#define bfd_mach_arm_XScale	10
-#define bfd_mach_arm_ep9312	11
-#define bfd_mach_arm_iWMMXt	12
-#define bfd_mach_arm_iWMMXt2	13
+#define bfd_mach_arm_unknown  0
+#define bfd_mach_arm_2        1
+#define bfd_mach_arm_2a       2
+#define bfd_mach_arm_3        3
+#define bfd_mach_arm_3M       4
+#define bfd_mach_arm_4        5
+#define bfd_mach_arm_4T       6
+#define bfd_mach_arm_5        7
+#define bfd_mach_arm_5T       8
+#define bfd_mach_arm_5TE      9
+#define bfd_mach_arm_XScale   10
+#define bfd_mach_arm_ep9312   11
+#define bfd_mach_arm_iWMMXt   12
+#define bfd_mach_arm_iWMMXt2  13
   bfd_arch_ns32k,      /* National Semiconductors ns32000 */
   bfd_arch_w65,        /* WDC 65816 */
   bfd_arch_tic30,      /* Texas Instruments TMS320C30 */
@@ -549,6 +873,25 @@ enum bfd_architecture
 #define bfd_mach_m32r          0  /* backwards compatibility */
   bfd_arch_mn10200,    /* Matsushita MN10200 */
   bfd_arch_mn10300,    /* Matsushita MN10300 */
+  bfd_arch_avr,        /* AVR microcontrollers */
+#define bfd_mach_avr1       1
+#define bfd_mach_avr2       2
+#define bfd_mach_avr25      25
+#define bfd_mach_avr3       3
+#define bfd_mach_avr31      31
+#define bfd_mach_avr35      35
+#define bfd_mach_avr4       4
+#define bfd_mach_avr5       5
+#define bfd_mach_avr51      51
+#define bfd_mach_avr6       6
+#define bfd_mach_avrtiny    100
+#define bfd_mach_avrxmega1  101
+#define bfd_mach_avrxmega2  102
+#define bfd_mach_avrxmega3  103
+#define bfd_mach_avrxmega4  104
+#define bfd_mach_avrxmega5  105
+#define bfd_mach_avrxmega6  106
+#define bfd_mach_avrxmega7  107
   bfd_arch_cris,       /* Axis CRIS */
 #define bfd_mach_cris_v0_v10   255
 #define bfd_mach_cris_v32      32
@@ -558,12 +901,15 @@ enum bfd_architecture
   bfd_arch_ia64,      /* HP/Intel ia64 */
 #define bfd_mach_ia64_elf64    64
 #define bfd_mach_ia64_elf32    32
-  bfd_arch_nios2,	/* Nios II */
+  bfd_arch_nios2,      /* Nios II */
 #define bfd_mach_nios2          0
 #define bfd_mach_nios2r1        1
 #define bfd_mach_nios2r2        2
-  bfd_arch_lm32,       /* Lattice Mico32 */
-#define bfd_mach_lm32 1
+  bfd_arch_rx,       /* Renesas RX */
+#define bfd_mach_rx            0x75
+#define bfd_mach_rx_v2         0x76
+#define bfd_mach_rx_v3         0x77
+  bfd_arch_loongarch,
   bfd_arch_last
   };
 
@@ -578,17 +924,17 @@ typedef struct symbol_cache_entry
 } asymbol;
 
 typedef int (*fprintf_function)(FILE *f, const char *fmt, ...)
-    GCC_FMT_ATTR(2, 3);
+    G_GNUC_PRINTF(2, 3);
 
 enum dis_insn_type {
-  dis_noninsn,			/* Not a valid instruction */
-  dis_nonbranch,		/* Not a branch instruction */
-  dis_branch,			/* Unconditional branch */
-  dis_condbranch,		/* Conditional branch */
-  dis_jsr,			/* Jump to subroutine */
-  dis_condjsr,			/* Conditional jump to subroutine */
-  dis_dref,			/* Data reference instruction */
-  dis_dref2			/* Two data references in instruction */
+  dis_noninsn,          /* Not a valid instruction */
+  dis_nonbranch,        /* Not a branch instruction */
+  dis_branch,           /* Unconditional branch */
+  dis_condbranch,       /* Conditional branch */
+  dis_jsr,              /* Jump to subroutine */
+  dis_condjsr,          /* Conditional jump to subroutine */
+  dis_dref,             /* Data reference instruction */
+  dis_dref2             /* Two data references in instruction */
 };
 
 typedef struct disassemble_info {
@@ -621,8 +967,8 @@ typedef struct disassemble_info {
      The top 16 bits are reserved for public use (and are documented here).
      The bottom 16 bits are for the internal use of the disassembler.  */
   unsigned long flags;
-#define INSN_HAS_RELOC	0x80000000
-#define INSN_ARM_BE32	0x00010000
+#define INSN_HAS_RELOC  0x80000000
+#define INSN_ARM_BE32   0x00010000
   PTR private_data;
 
   /* Function used to get bytes to disassemble.  MEMADDR is the
@@ -632,7 +978,7 @@ typedef struct disassemble_info {
      Returns an errno value or 0 for success.  */
   int (*read_memory_func)
     (bfd_vma memaddr, bfd_byte *myaddr, int length,
-	     struct disassemble_info *info);
+        struct disassemble_info *info);
 
   /* Function which should be called if we get an error that we can't
      recover from.  STATUS is the errno value from read_memory_func and
@@ -661,7 +1007,7 @@ typedef struct disassemble_info {
     (bfd_vma addr, struct disassemble_info * info);
 
   /* These are for buffer_read_memory.  */
-  bfd_byte *buffer;
+  const bfd_byte *buffer;
   bfd_vma buffer_vma;
   int buffer_length;
 
@@ -686,17 +1032,20 @@ typedef struct disassemble_info {
      To determine whether this decoder supports this information, set
      insn_info_valid to 0, decode an instruction, then check it.  */
 
-  char insn_info_valid;		/* Branch info has been set. */
-  char branch_delay_insns;	/* How many sequential insn's will run before
-				   a branch takes effect.  (0 = normal) */
-  char data_size;		/* Size of data reference in insn, in bytes */
-  enum dis_insn_type insn_type;	/* Type of instruction */
-  bfd_vma target;		/* Target address of branch or dref, if known;
-				   zero if unknown.  */
-  bfd_vma target2;		/* Second target address for dref2 */
+  char insn_info_valid;         /* Branch info has been set. */
+  char branch_delay_insns;      /* How many sequential insn's will run before
+                                   a branch takes effect.  (0 = normal) */
+  char data_size;               /* Size of data reference in insn, in bytes */
+  enum dis_insn_type insn_type; /* Type of instruction */
+  bfd_vma target;               /* Target address of branch or dref, if known;
+                                   zero if unknown.  */
+  bfd_vma target2;              /* Second target address for dref2 */
 
   /* Command line options specific to the target disassembler.  */
   char * disassembler_options;
+
+  /* Field intended to be used by targets in any way they deem suitable.  */
+  int64_t target_info;
 
   /* Options for Capstone disassembly.  */
   int cap_arch;
@@ -706,7 +1055,7 @@ typedef struct disassemble_info {
 
 } disassemble_info;
 
-typedef uint64_t hwaddr;
+typedef uint64_t vaddr;
 
 typedef struct MemTxAttrs {
     /* Bus masters which don't specify any attributes will get this
@@ -721,6 +1070,14 @@ typedef struct MemTxAttrs {
     unsigned int secure:1;
     /* Memory access is usermode (unprivileged) */
     unsigned int user:1;
+    /*
+     * Bus interconnect and peripherals can access anything (memories,
+     * devices) by default. By setting the 'memory' bit, bus transaction
+     * are restricted to "normal" memories (per the AMBA documentation)
+     * versus devices. Access to devices will be logged and rejected
+     * (see MEMTX_ACCESS_ERROR).
+     */
+    unsigned int memory:1;
     /* Requester ID (for MSI for example) */
     unsigned int requester_id:16;
     /* Invert endianness for this page */
@@ -737,70 +1094,6 @@ typedef struct MemTxAttrs {
     unsigned int target_tlb_bit2 : 1;
 } MemTxAttrs;
 
-typedef uint32_t MemTxResult;
-
-typedef enum GuestPanicInformationType {
-    GUEST_PANIC_INFORMATION_TYPE_HYPER_V,
-    GUEST_PANIC_INFORMATION_TYPE_S390,
-    GUEST_PANIC_INFORMATION_TYPE__MAX,
-} GuestPanicInformationType;
-
-typedef struct GuestPanicInformation GuestPanicInformation;
-
-typedef struct GuestPanicInformationHyperV GuestPanicInformationHyperV;
-
-typedef enum S390CrashReason {
-    S390_CRASH_REASON_UNKNOWN,
-    S390_CRASH_REASON_DISABLED_WAIT,
-    S390_CRASH_REASON_EXTINT_LOOP,
-    S390_CRASH_REASON_PGMINT_LOOP,
-    S390_CRASH_REASON_OPINT_LOOP,
-    S390_CRASH_REASON__MAX,
-} S390CrashReason;
-
-typedef struct GuestPanicInformationS390 GuestPanicInformationS390;
-
-struct GuestPanicInformationHyperV {
-    uint64_t arg1;
-    uint64_t arg2;
-    uint64_t arg3;
-    uint64_t arg4;
-    uint64_t arg5;
-};
-
-struct GuestPanicInformationS390 {
-    uint32_t core;
-    uint64_t psw_mask;
-    uint64_t psw_addr;
-    S390CrashReason reason;
-};
-
-struct GuestPanicInformation {
-    GuestPanicInformationType type;
-    union { /* union tag is @type */
-        GuestPanicInformationHyperV hyper_v;
-        GuestPanicInformationS390 s390;
-    } u;
-};
-
-struct QemuMutex {
-    pthread_mutex_t lock;
-#ifdef CONFIG_DEBUG_MUTEX
-    const char *file;
-    int line;
-#endif
-    bool initialized;
-};
-
-struct QemuCond {
-    pthread_cond_t cond;
-    bool initialized;
-};
-
-struct QemuThread {
-    pthread_t thread;
-};
-
 enum qemu_plugin_event {
     QEMU_PLUGIN_EV_VCPU_INIT,
     QEMU_PLUGIN_EV_VCPU_EXIT,
@@ -814,98 +1107,73 @@ enum qemu_plugin_event {
     QEMU_PLUGIN_EV_MAX, /* total number of plugin events we support */
 };
 
-static inline void qemu_plugin_vcpu_mem_cb(CPUState *cpu, uint64_t vaddr,
-                                           uint32_t meminfo)
-{ }
+typedef struct CPUClass CPUClass;
 
-typedef int (*WriteCoreDumpFunction)(const void *buf, size_t size,
-                                     void *opaque);
-
-typedef uint64_t vaddr;
-
-typedef enum MMUAccessType {
-    MMU_DATA_LOAD  = 0,
-    MMU_DATA_STORE = 1,
-    MMU_INST_FETCH = 2
-} MMUAccessType;
+#define OBJECT_DECLARE_CPU_TYPE(CpuInstanceType, CpuClassType, CPU_MODULE_OBJ_NAME) \
+    typedef struct ArchCPU CpuInstanceType; \
+    OBJECT_DECLARE_TYPE(ArchCPU, CpuClassType, CPU_MODULE_OBJ_NAME);
 
 typedef struct CPUWatchpoint CPUWatchpoint;
 
-struct TranslationBlock;
+struct TCGCPUOps;
 
-typedef struct CPUClass {
+struct AccelCPUClass;
+
+struct SysemuCPUOps;
+
+struct CPUClass {
     /*< private >*/
     DeviceClass parent_class;
     /*< public >*/
 
     ObjectClass *(*class_by_name)(const char *cpu_model);
-    void (*parse_features)(const char *typename, char *str, Error **errp);
+    void (*parse_features)(const char *, char *str, Error **errp);
 
-    void (*reset)(CPUState *cpu);
-    int reset_dump_flags;
     bool (*has_work)(CPUState *cpu);
-    void (*do_interrupt)(CPUState *cpu);
-    void (*do_unaligned_access)(CPUState *cpu, vaddr addr,
-                                MMUAccessType access_type,
-                                int mmu_idx, uintptr_t retaddr);
-    void (*do_transaction_failed)(CPUState *cpu, hwaddr physaddr, vaddr addr,
-                                  unsigned size, MMUAccessType access_type,
-                                  int mmu_idx, MemTxAttrs attrs,
-                                  MemTxResult response, uintptr_t retaddr);
-    bool (*virtio_is_big_endian)(CPUState *cpu);
     int (*memory_rw_debug)(CPUState *cpu, vaddr addr,
                            uint8_t *buf, int len, bool is_write);
     void (*dump_state)(CPUState *cpu, FILE *, int flags);
-    GuestPanicInformation* (*get_crash_info)(CPUState *cpu);
-    void (*dump_statistics)(CPUState *cpu, int flags);
+    void (*query_cpu_fast)(CPUState *cpu, CpuInfoFast *value);
     int64_t (*get_arch_id)(CPUState *cpu);
-    bool (*get_paging_enabled)(const CPUState *cpu);
-    void (*get_memory_mapping)(CPUState *cpu, MemoryMappingList *list,
-                               Error **errp);
     void (*set_pc)(CPUState *cpu, vaddr value);
-    void (*synchronize_from_tb)(CPUState *cpu, struct TranslationBlock *tb);
-    bool (*tlb_fill)(CPUState *cpu, vaddr address, int size,
-                     MMUAccessType access_type, int mmu_idx,
-                     bool probe, uintptr_t retaddr);
-    hwaddr (*get_phys_page_debug)(CPUState *cpu, vaddr addr);
-    hwaddr (*get_phys_page_attrs_debug)(CPUState *cpu, vaddr addr,
-                                        MemTxAttrs *attrs);
-    int (*asidx_from_attrs)(CPUState *cpu, MemTxAttrs attrs);
-    int (*gdb_read_register)(CPUState *cpu, uint8_t *buf, int reg);
+    vaddr (*get_pc)(CPUState *cpu);
+    int (*gdb_read_register)(CPUState *cpu, GByteArray *buf, int reg);
     int (*gdb_write_register)(CPUState *cpu, uint8_t *buf, int reg);
-    bool (*debug_check_watchpoint)(CPUState *cpu, CPUWatchpoint *wp);
-    void (*debug_excp_handler)(CPUState *cpu);
+    vaddr (*gdb_adjust_breakpoint)(CPUState *cpu, vaddr addr);
 
-    int (*write_elf64_note)(WriteCoreDumpFunction f, CPUState *cpu,
-                            int cpuid, void *opaque);
-    int (*write_elf64_qemunote)(WriteCoreDumpFunction f, CPUState *cpu,
-                                void *opaque);
-    int (*write_elf32_note)(WriteCoreDumpFunction f, CPUState *cpu,
-                            int cpuid, void *opaque);
-    int (*write_elf32_qemunote)(WriteCoreDumpFunction f, CPUState *cpu,
-                                void *opaque);
-
-    const VMStateDescription *vmsd;
     const char *gdb_core_xml_file;
     gchar * (*gdb_arch_name)(CPUState *cpu);
     const char * (*gdb_get_dynamic_xml)(CPUState *cpu, const char *xmlname);
-    void (*cpu_exec_enter)(CPUState *cpu);
-    void (*cpu_exec_exit)(CPUState *cpu);
-    bool (*cpu_exec_interrupt)(CPUState *cpu, int interrupt_request);
 
     void (*disas_set_info)(CPUState *cpu, disassemble_info *info);
-    vaddr (*adjust_watchpoint_address)(CPUState *cpu, vaddr addr, int len);
-    void (*tcg_initialize)(void);
 
-    /* Keep non-pointer data at the end to minimize holes.  */
+    const char *deprecation_note;
+    struct AccelCPUClass *accel_cpu;
+
+    /* when system emulation is not available, this pointer is NULL */
+    const struct SysemuCPUOps *sysemu_ops;
+
+    /* when TCG is not available, this pointer is NULL */
+    const struct TCGCPUOps *tcg_ops;
+
+    /*
+     * if not NULL, this is called in order for the CPUClass to initialize
+     * class data that depends on the accelerator, see accel/accel-common.c.
+     */
+    void (*init_accel_cpu)(struct AccelCPUClass *accel_cpu, CPUClass *cc);
+
+    /*
+     * Keep non-pointer data at the end to minimize holes.
+     */
+    int reset_dump_flags;
     int gdb_num_core_regs;
     bool gdb_stop_before_watchpoint;
-} CPUClass;
+};
 
 typedef union IcountDecr {
     uint32_t u32;
     struct {
-#ifdef HOST_WORDS_BIGENDIAN
+#if HOST_BIG_ENDIAN
         uint16_t high;
         uint16_t low;
 #else
@@ -922,7 +1190,7 @@ typedef struct CPUBreakpoint {
 } CPUBreakpoint;
 
 struct CPUWatchpoint {
-    vaddr vaddr;
+    vaddr _vaddr;
     vaddr len;
     vaddr hitaddr;
     MemTxAttrs hitattrs;
@@ -934,19 +1202,17 @@ struct KVMState;
 
 struct kvm_run;
 
-#define TB_JMP_CACHE_BITS 12
-
-#define TB_JMP_CACHE_SIZE (1 << TB_JMP_CACHE_BITS)
-
 struct hax_vcpu_state;
 
-#define CPU_TRACE_DSTATE_MAX_EVENTS 32
+struct hvf_vcpu_state;
 
 struct qemu_work_item;
 
 struct CPUState {
     /*< private >*/
     DeviceState parent_obj;
+    /* cache to avoid expensive CPU_GET_CLASS */
+    CPUClass *cc;
     /*< public >*/
 
     int nr_cores;
@@ -955,6 +1221,7 @@ struct CPUState {
     struct QemuThread *thread;
 #ifdef _WIN32
     HANDLE hThread;
+    QemuSemaphore sem;
 #endif
     int thread_id;
     bool running, has_waiter;
@@ -963,10 +1230,14 @@ struct CPUState {
     bool created;
     bool stop;
     bool stopped;
+
+    /* Should CPU start in powered-off state? */
+    bool start_powered_off;
+
     bool unplug;
     bool crash_occurred;
     bool exit_request;
-    bool in_exclusive_context;
+    int exclusive_context_count;
     uint32_t cflags_next_tb;
     /* updates protected by BQL */
     uint32_t interrupt_request;
@@ -977,18 +1248,17 @@ struct CPUState {
     sigjmp_buf jmp_env;
 
     QemuMutex work_mutex;
-    struct qemu_work_item *queued_work_first, *queued_work_last;
+    QSIMPLEQ_HEAD(, qemu_work_item) work_list;
 
     CPUAddressSpace *cpu_ases;
     int num_ases;
     AddressSpace *as;
     MemoryRegion *memory;
 
-    void *env_ptr; /* CPUArchState */
+    CPUArchState *env_ptr;
     IcountDecr *icount_decr_ptr;
 
-    /* Accessed in parallel; all accesses must be atomic */
-    struct TranslationBlock *tb_jmp_cache[TB_JMP_CACHE_SIZE];
+    CPUJumpCache *tb_jmp_cache;
 
     struct GDBRegisterState *gdb_regs;
     int gdb_num_regs;
@@ -1008,21 +1278,29 @@ struct CPUState {
      */
     uintptr_t mem_io_pc;
 
+    /* Only used in KVM */
     int kvm_fd;
     struct KVMState *kvm_state;
     struct kvm_run *kvm_run;
+    struct kvm_dirty_gfn *kvm_dirty_gfns;
+    uint32_t kvm_fetch_index;
+    uint64_t dirty_pages;
 
-    /* Used for events with 'vcpu' and *without* the 'disabled' properties */
-    DECLARE_BITMAP(trace_dstate_delayed, CPU_TRACE_DSTATE_MAX_EVENTS);
-    DECLARE_BITMAP(trace_dstate, CPU_TRACE_DSTATE_MAX_EVENTS);
+    /* Use by accel-block: CPU is executing an ioctl() */
+    QemuLockCnt in_ioctl_lock;
 
     DECLARE_BITMAP(plugin_mask, QEMU_PLUGIN_EV_MAX);
 
+#ifdef CONFIG_PLUGIN
     GArray *plugin_mem_cbs;
+    /* saved iotlb data from io_writex */
+    SavedIOTLB saved_iotlb;
+#endif
 
     /* TODO Move common fields from CPUArchState here. */
     int cpu_index;
     int cluster_index;
+    uint32_t tcg_cflags;
     uint32_t halted;
     uint32_t can_do_io;
     int32_t exception_index;
@@ -1035,27 +1313,41 @@ struct CPUState {
      */
     bool throttle_thread_scheduled;
 
+    /*
+     * Sleep throttle_us_per_full microseconds once dirty ring is full
+     * if dirty page rate limit is enabled.
+     */
+    int64_t throttle_us_per_full;
+
     bool ignore_memory_transaction_failures;
+
+    /* Used for user-only emulation of prctl(PR_SET_UNALIGN). */
+    bool prctl_unalign_sigbus;
 
     struct hax_vcpu_state *hax_vcpu;
 
-    int hvf_fd;
+    struct hvf_vcpu_state *hvf;
 
     /* track IOMMUs whose translations we've cached in the TCG TLB */
     GArray *iommu_notifiers;
 };
 
-typedef struct MIPSCPUClass {
+#define TYPE_MIPS_CPU "mips64-cpu"
+
+OBJECT_DECLARE_CPU_TYPE(MIPSCPU, MIPSCPUClass, MIPS_CPU)
+
+struct MIPSCPUClass {
     /*< private >*/
     CPUClass parent_class;
     /*< public >*/
 
     DeviceRealize parent_realize;
-    void (*parent_reset)(CPUState *cpu);
+    ResettablePhases parent_phases;
     const struct mips_def_t *cpu_def;
-} MIPSCPUClass;
 
-typedef struct MIPSCPU MIPSCPU;
+    /* Used for the jazz board to modify mips_cpu_do_transaction_failed. */
+    bool no_data_aborts;
+};
 
 typedef uint64_t target_ulong;
 
@@ -1065,6 +1357,86 @@ typedef struct CPUNegativeOffsetState {
     CPUTLB tlb;
     IcountDecr icount_decr;
 } CPUNegativeOffsetState;
+
+typedef uint32_t float32;
+
+typedef uint64_t float64;
+
+typedef enum __attribute__((__packed__)) {
+    float_round_nearest_even = 0,
+    float_round_down         = 1,
+    float_round_up           = 2,
+    float_round_to_zero      = 3,
+    float_round_ties_away    = 4,
+    /* Not an IEEE rounding mode: round to closest odd, overflow to max */
+    float_round_to_odd       = 5,
+    /* Not an IEEE rounding mode: round to closest odd, overflow to inf */
+    float_round_to_odd_inf   = 6,
+} FloatRoundMode;
+
+typedef enum __attribute__((__packed__)) {
+    floatx80_precision_x,
+    floatx80_precision_d,
+    floatx80_precision_s,
+} FloatX80RoundPrec;
+
+#define TYPE_CLOCK "clock"
+
+OBJECT_DECLARE_SIMPLE_TYPE(Clock, CLOCK)
+
+typedef struct float_status {
+    uint16_t float_exception_flags;
+    FloatRoundMode float_rounding_mode;
+    FloatX80RoundPrec floatx80_rounding_precision;
+    bool tininess_before_rounding;
+    /* should denormalised results go to zero and set the inexact flag? */
+    bool flush_to_zero;
+    /* should denormalised inputs go to zero and set the input_denormal flag? */
+    bool flush_inputs_to_zero;
+    bool default_nan_mode;
+    /*
+     * The flags below are not used on all specializations and may
+     * constant fold away (see snan_bit_is_one()/no_signalling_nans() in
+     * softfloat-specialize.inc.c)
+     */
+    bool snan_bit_is_one;
+    bool use_first_nan;
+    bool no_signaling_nans;
+    /* should overflowed results subtract re_bias to its exponent? */
+    bool rebias_overflow;
+    /* should underflowed results add re_bias to its exponent? */
+    bool rebias_underflow;
+} float_status;
+
+typedef enum ClockEvent {
+    ClockUpdate = 1, /* Clock period has just updated */
+    ClockPreUpdate = 2, /* Clock period is about to update */
+} ClockEvent;
+
+typedef void ClockCallback(void *opaque, ClockEvent event);
+
+struct Clock {
+    /*< private >*/
+    Object parent_obj;
+
+    /* all fields are private and should not be modified directly */
+
+    /* fields */
+    uint64_t period;
+    char *canonical_path;
+    ClockCallback *callback;
+    void *callback_opaque;
+    unsigned int callback_events;
+
+    /* Ratio of the parent clock to run the child clocks at */
+    uint32_t multiplier;
+    uint32_t divider;
+
+    /* Clocks are organized in a clock tree */
+    Clock *source;
+    QLIST_HEAD(, Clock) children;
+    QLIST_ENTRY(Clock) sibling;
+};
 
 #define MSA_WRLEN (128)
 
@@ -1186,6 +1558,13 @@ typedef struct TCState TCState;
 
 struct TCState {
     target_ulong gpr[32];
+#if defined(TARGET_MIPS64)
+    /*
+     * For CPUs using 128-bit GPR registers, we put the lower halves in gpr[])
+     * and the upper halves in gpr_hi[].
+     */
+    uint64_t gpr_hi[32];
+#endif /* TARGET_MIPS64 */
     target_ulong PC;
     target_ulong HI[MIPS_DSP_ACC];
     target_ulong LO[MIPS_DSP_ACC];
@@ -1231,9 +1610,6 @@ struct TCState {
 
     float_status msa_fp_status;
 
-    /* Upper 64-bit MMRs (multimedia registers); the lower 64-bit are GPRs */
-    uint64_t mmr[32];
-
 #define NUMBER_OF_MXU_REGISTERS 16
     target_ulong mxu_gpr[NUMBER_OF_MXU_REGISTERS - 1];
     target_ulong mxu_cr;
@@ -1245,11 +1621,7 @@ struct TCState {
 
 };
 
-struct MIPSITUState;
-
-typedef struct CPUMIPSState CPUMIPSState;
-
-struct CPUMIPSState {
+typedef struct CPUArchState {
     TCState active_tc;
     CPUMIPSFPUContext active_fpu;
 
@@ -1347,6 +1719,7 @@ struct CPUMIPSState {
  * CP0 Register 5
  */
     int32_t CP0_PageMask;
+#define CP0PM_MASK 13
     int32_t CP0_PageGrain_rw_bitmask;
     int32_t CP0_PageGrain;
 #define CP0PG_RIE 31
@@ -1555,7 +1928,7 @@ struct CPUMIPSState {
 #define CP0EBase_WG 11
     target_ulong CP0_CMGCRBase;
 /*
- * CP0 Register 16
+ * CP0 Register 16 (after Release 1)
  */
     int32_t CP0_Config0;
 #define CP0C0_M    31
@@ -1571,6 +1944,15 @@ struct CPUMIPSState {
 #define CP0C0_MT   7     /*  9..7  */
 #define CP0C0_VI   3
 #define CP0C0_K0   0     /*  2..0  */
+#define CP0C0_AR_LENGTH 3
+/*
+ * CP0 Register 16 (before Release 1)
+ */
+#define CP0C0_Impl 16    /* 24..16 */
+#define CP0C0_IC   9     /* 11..9 */
+#define CP0C0_DC   6     /*  8..6 */
+#define CP0C0_IB   5
+#define CP0C0_DB   4
     int32_t CP0_Config1;
 #define CP0C1_M    31
 #define CP0C1_MMU  25    /* 30..25 */
@@ -1669,7 +2051,36 @@ struct CPUMIPSState {
 #define CP0C5_UFR          2
 #define CP0C5_NFExists     0
     int32_t CP0_Config6;
+    int32_t CP0_Config6_rw_bitmask;
+#define CP0C6_BPPASS          31
+#define CP0C6_KPOS            24
+#define CP0C6_KE              23
+#define CP0C6_VTLBONLY        22
+#define CP0C6_LASX            21
+#define CP0C6_SSEN            20
+#define CP0C6_DISDRTIME       19
+#define CP0C6_PIXNUEN         18
+#define CP0C6_SCRAND          17
+#define CP0C6_LLEXCEN         16
+#define CP0C6_DISVC           15
+#define CP0C6_VCLRU           14
+#define CP0C6_DCLRU           13
+#define CP0C6_PIXUEN          12
+#define CP0C6_DISBLKLYEN      11
+#define CP0C6_UMEMUALEN       10
+#define CP0C6_SFBEN           8
+#define CP0C6_FLTINT          7
+#define CP0C6_VLTINT          6
+#define CP0C6_DISBTB          5
+#define CP0C6_STPREFCTL       2
+#define CP0C6_INSTPREF        1
+#define CP0C6_DATAPREF        0
     int32_t CP0_Config7;
+    int64_t CP0_Config7_rw_bitmask;
+#define CP0C7_WII          31
+#define CP0C7_NAPCGEN       2
+#define CP0C7_UNIMUEN       1
+#define CP0C7_VFPUCGEN      0
     uint64_t CP0_LLAddr;
     uint64_t CP0_MAAR[MIPS_MAAR_MAX];
     int32_t CP0_MAARI;
@@ -1690,8 +2101,9 @@ struct CPUMIPSState {
 /*
  * CP0 Register 19
  */
-    int32_t CP0_WatchHi[8];
+    uint64_t CP0_WatchHi[8];
 #define CP0WH_ASID 16
+#define CP0WH_M    31
 /*
  * CP0 Register 20
  */
@@ -1763,7 +2175,7 @@ struct CPUMIPSState {
 #define EXCP_INST_NOTAVAIL 0x2 /* No valid instruction word for BadInstr */
     uint32_t hflags;    /* CPU State */
     /* TMASK defines different execution modes */
-#define MIPS_HFLAG_TMASK  0x1F5807FF
+#define MIPS_HFLAG_TMASK  0x3F5807FF
 #define MIPS_HFLAG_MODE   0x00007 /* execution modes                    */
     /*
      * The KSU flags must be the lowest bits in hflags. The flag order
@@ -1838,66 +2250,26 @@ struct CPUMIPSState {
     CPUMIPSMVPContext *mvp;
 #if !defined(CONFIG_USER_ONLY)
     CPUMIPSTLBContext *tlb;
+    void *irq[8];
+    struct MIPSITUState *itu;
+    MemoryRegion *itc_tag; /* ITC Configuration Tags */
 #endif
 
     const mips_def_t *cpu_model;
-    void *irq[8];
     QEMUTimer *timer; /* Internal timer */
-    struct MIPSITUState *itu;
-    MemoryRegion *itc_tag; /* ITC Configuration Tags */
     target_ulong exception_base; /* ExceptionBase input to the core */
-};
+    uint64_t cp0_count_ns; /* CP0_Count clock period (in nanoseconds) */
+} CPUMIPSState;
 
-struct MIPSCPU {
+struct ArchCPU {
     /*< private >*/
     CPUState parent_obj;
     /*< public >*/
 
+    Clock *clock;
     CPUNegativeOffsetState neg;
     CPUMIPSState env;
 };
-
-#define MMU_USER_IDX 2
-
-typedef CPUMIPSState CPUArchState;
-
-typedef MIPSCPU ArchCPU;
-
-#define smp_mb_placeholder()       smp_mb()
-
-extern unsigned long rcu_gp_ctr;
-
-struct rcu_reader_data {
-    /* Data used by both reader and synchronize_rcu() */
-    unsigned long ctr;
-    bool waiting;
-
-    /* Data used by reader only */
-    unsigned depth;
-
-    /* Data used for registry, protected by rcu_registry_lock */
-    QLIST_ENTRY(rcu_reader_data) node;
-};
-
-extern __thread struct rcu_reader_data rcu_reader;
-
-static inline void rcu_read_lock(void)
-{
-    struct rcu_reader_data *p_rcu_reader = &rcu_reader;
-    unsigned ctr;
-
-    if (p_rcu_reader->depth++ > 0) {
-        return;
-    }
-
-    ctr = atomic_read(&rcu_gp_ctr);
-    atomic_set(&p_rcu_reader->ctr, ctr);
-
-    /* Write p_rcu_reader->ctr before reading RCU-protected pointers.  */
-    smp_mb_placeholder();
-}
-
-extern unsigned long guest_base;
 
 static inline ArchCPU *env_archcpu(CPUArchState *env)
 {
@@ -1909,263 +2281,193 @@ static inline CPUState *env_cpu(CPUArchState *env)
     return &env_archcpu(env)->parent_obj;
 }
 
-#define g2h(x) ((void *)((unsigned long)(abi_ptr)(x) + guest_base))
+typedef uint32_t MemOpIdx;
 
 typedef uint64_t abi_ptr;
 
-extern __thread uintptr_t helper_retaddr;
-
-static inline void set_helper_retaddr(uintptr_t ra)
+static inline abi_ptr cpu_untagged_addr(CPUState *cs, abi_ptr x)
 {
-    helper_retaddr = ra;
-    /*
-     * Ensure that this write is visible to the SIGSEGV handler that
-     * may be invoked due to a subsequent invalid memory operation.
-     */
-    signal_barrier();
+    return x;
 }
 
-static inline void clear_helper_retaddr(void)
+static inline void *g2h_untagged(abi_ptr x)
 {
-    /*
-     * Ensure that previous memory operations have succeeded before
-     * removing the data visible to the signal handler.
-     */
-    signal_barrier();
-    helper_retaddr = 0;
+    return (void *)((uintptr_t)(x));
 }
 
-typedef struct TraceEvent {
-    uint32_t id;
-    uint32_t vcpu_id;
-    const char * name;
-    const bool sstate;
-    uint16_t *dstate;
-} TraceEvent;
-
-extern int trace_events_enabled_count;
-
-#define trace_event_get_vcpu_state(vcpu, id)                            \
-    ((id ##_ENABLED) &&                                                 \
-     trace_event_get_vcpu_state_dynamic_by_vcpu_id(                     \
-         vcpu, _ ## id ## _EVENT.vcpu_id))
-
-static inline bool
-trace_event_get_vcpu_state_dynamic_by_vcpu_id(CPUState *vcpu,
-                                              uint32_t vcpu_id)
+static inline void *g2h(CPUState *cs, abi_ptr x)
 {
-    /* it's on fast path, avoid consistency checks (asserts) */
-    if (unlikely(trace_events_enabled_count)) {
-        return test_bit(vcpu_id, vcpu->trace_dstate);
-    } else {
-        return false;
-    }
+    return g2h_untagged(cpu_untagged_addr(cs, x));
 }
 
-extern TraceEvent _TRACE_GUEST_MEM_BEFORE_EXEC_EVENT;
+#define GEN_ATOMIC_HELPER(NAME, TYPE, SUFFIX)         \
+TYPE cpu_atomic_ ## NAME ## SUFFIX ## _mmu            \
+    (CPUArchState *env, target_ulong addr, TYPE val,  \
+     MemOpIdx oi, uintptr_t retaddr);
 
-#define TRACE_GUEST_MEM_BEFORE_EXEC_ENABLED 1
+#define GEN_ATOMIC_HELPER_ALL(NAME)          \
+    GEN_ATOMIC_HELPER(NAME, uint32_t, b)     \
+    GEN_ATOMIC_HELPER(NAME, uint32_t, w_le)  \
+    GEN_ATOMIC_HELPER(NAME, uint32_t, w_be)  \
+    GEN_ATOMIC_HELPER(NAME, uint32_t, l_le)  \
+    GEN_ATOMIC_HELPER(NAME, uint32_t, l_be)  \
+    GEN_ATOMIC_HELPER(NAME, uint64_t, q_le)  \
+    GEN_ATOMIC_HELPER(NAME, uint64_t, q_be)
 
-static inline void _nocheck__trace_guest_mem_before_exec(CPUState * __cpu, uint64_t vaddr, uint16_t info)
-{
-}
+GEN_ATOMIC_HELPER_ALL(smax_fetch)
 
-static inline void trace_guest_mem_before_exec(CPUState * __cpu, uint64_t vaddr, uint16_t info)
-{
-    if (trace_event_get_vcpu_state(__cpu, TRACE_GUEST_MEM_BEFORE_EXEC)) {
-        _nocheck__trace_guest_mem_before_exec(__cpu, vaddr, info);
-    }
-}
+static inline void set_helper_retaddr(uintptr_t ra) {}
 
-typedef enum MemOp {
-    MO_8     = 0,
-    MO_16    = 1,
-    MO_32    = 2,
-    MO_64    = 3,
-    MO_SIZE  = 3,   /* Mask for the above.  */
+static inline void clear_helper_retaddr(void) {}
 
-    MO_SIGN  = 4,   /* Sign-extended, otherwise zero-extended.  */
+# define GETPC() 0
 
-    MO_BSWAP = 8,   /* Host reverse endian.  */
-#ifdef HOST_WORDS_BIGENDIAN
-    MO_LE    = MO_BSWAP,
-    MO_BE    = 0,
-#else
-    MO_LE    = 0,
-    MO_BE    = MO_BSWAP,
-#endif
-#ifdef NEED_CPU_H
-#ifdef TARGET_WORDS_BIGENDIAN
-    MO_TE    = MO_BE,
-#else
-    MO_TE    = MO_LE,
-#endif
-#endif
+enum qemu_plugin_mem_rw {
+    QEMU_PLUGIN_MEM_R = 1,
+    QEMU_PLUGIN_MEM_W,
+    QEMU_PLUGIN_MEM_RW,
+};
 
-    /*
-     * MO_UNALN accesses are never checked for alignment.
-     * MO_ALIGN accesses will result in a call to the CPU's
-     * do_unaligned_access hook if the guest address is not aligned.
-     * The default depends on whether the target CPU defines
-     * TARGET_ALIGNED_ONLY.
-     *
-     * Some architectures (e.g. ARMv8) need the address which is aligned
-     * to a size more than the size of the memory access.
-     * Some architectures (e.g. SPARCv9) need an address which is aligned,
-     * but less strictly than the natural alignment.
-     *
-     * MO_ALIGN supposes the alignment size is the size of a memory access.
-     *
-     * There are three options:
-     * - unaligned access permitted (MO_UNALN).
-     * - an alignment to the size of an access (MO_ALIGN);
-     * - an alignment to a specified size, which may be more or less than
-     *   the access size (MO_ALIGN_x where 'x' is a size in bytes);
-     */
-    MO_ASHIFT = 4,
-    MO_AMASK = 7 << MO_ASHIFT,
-#ifdef NEED_CPU_H
-#ifdef TARGET_ALIGNED_ONLY
-    MO_ALIGN = 0,
-    MO_UNALN = MO_AMASK,
-#else
-    MO_ALIGN = MO_AMASK,
-    MO_UNALN = 0,
-#endif
-#endif
-    MO_ALIGN_2  = 1 << MO_ASHIFT,
-    MO_ALIGN_4  = 2 << MO_ASHIFT,
-    MO_ALIGN_8  = 3 << MO_ASHIFT,
-    MO_ALIGN_16 = 4 << MO_ASHIFT,
-    MO_ALIGN_32 = 5 << MO_ASHIFT,
-    MO_ALIGN_64 = 6 << MO_ASHIFT,
-
-    /* Combinations of the above, for ease of use.  */
-    MO_UB    = MO_8,
-    MO_UW    = MO_16,
-    MO_UL    = MO_32,
-    MO_SB    = MO_SIGN | MO_8,
-    MO_SW    = MO_SIGN | MO_16,
-    MO_SL    = MO_SIGN | MO_32,
-    MO_Q     = MO_64,
-
-    MO_LEUW  = MO_LE | MO_UW,
-    MO_LEUL  = MO_LE | MO_UL,
-    MO_LESW  = MO_LE | MO_SW,
-    MO_LESL  = MO_LE | MO_SL,
-    MO_LEQ   = MO_LE | MO_Q,
-
-    MO_BEUW  = MO_BE | MO_UW,
-    MO_BEUL  = MO_BE | MO_UL,
-    MO_BESW  = MO_BE | MO_SW,
-    MO_BESL  = MO_BE | MO_SL,
-    MO_BEQ   = MO_BE | MO_Q,
-
-#ifdef NEED_CPU_H
-    MO_TEUW  = MO_TE | MO_UW,
-    MO_TEUL  = MO_TE | MO_UL,
-    MO_TESW  = MO_TE | MO_SW,
-    MO_TESL  = MO_TE | MO_SL,
-    MO_TEQ   = MO_TE | MO_Q,
-#endif
-
-    MO_SSIZE = MO_SIZE | MO_SIGN,
-} MemOp;
-
-typedef uint32_t TCGMemOpIdx;
-
-static inline unsigned get_mmuidx(TCGMemOpIdx oi)
-{
-    return oi & 15;
-}
-
-#define TRACE_MEM_SZ_SHIFT_MASK 0xf
-
-#define TRACE_MEM_SE (1ULL << 4)
-
-#define TRACE_MEM_BE (1ULL << 5)
-
-#define TRACE_MEM_ST (1ULL << 6)
-
-static inline uint16_t trace_mem_build_info(
-    int size_shift, bool sign_extend, MemOp endianness,
-    bool store, unsigned int mmu_idx)
-{
-    uint16_t res;
-
-    res = size_shift & TRACE_MEM_SZ_SHIFT_MASK;
-    if (sign_extend) {
-        res |= TRACE_MEM_SE;
-    }
-    if (endianness == MO_BE) {
-        res |= TRACE_MEM_BE;
-    }
-    if (store) {
-        res |= TRACE_MEM_ST;
-    }
-#ifdef CONFIG_SOFTMMU
-    res |= mmu_idx << TRACE_MEM_MMU_SHIFT;
-#endif
-    return res;
-}
-
-static inline
-uint16_t trace_mem_build_info_no_se_be(int size_shift, bool store,
-                                       TCGMemOpIdx oi)
-{
-    return trace_mem_build_info(size_shift, false, MO_BE, store,
-                                get_mmuidx(oi));
-}
-
-void QEMU_NORETURN cpu_loop_exit_atomic(CPUState *cpu, uintptr_t pc);
-
-# define GETPC() tci_tb_ptr
-
-extern uintptr_t tci_tb_ptr;
+static inline void qemu_plugin_vcpu_mem_cb(CPUState *cpu, uint64_t vaddr,
+                                           MemOpIdx oi,
+                                           enum qemu_plugin_mem_rw rw)
+{ }
 
 #define HELPER(name) glue(helper_, name)
 
-__thread uintptr_t helper_retaddr;
-
-#define ATOMIC_MMU_DECLS do {} while (0)
-
-#define ATOMIC_MMU_LOOKUP  atomic_mmu_lookup(env, addr, DATA_SIZE, GETPC())
-
-#define ATOMIC_MMU_CLEANUP do { clear_helper_retaddr(); } while (0)
-
-#define ATOMIC_MMU_IDX MMU_USER_IDX
-
-#define ATOMIC_NAME(X)   HELPER(glue(glue(atomic_ ## X, SUFFIX), END))
-
-#define EXTRA_ARGS
-
 static void *atomic_mmu_lookup(CPUArchState *env, target_ulong addr,
-                               int size, uintptr_t retaddr)
+                               MemOpIdx oi, int size, uintptr_t retaddr)
 {
+#ifdef CONFIG_JOVE_HELPERS
+    void *ret;
+#else
+    MemOp mop = get_memop(oi);
+    int a_bits = get_alignment_bits(mop);
+    void *ret;
+
+    /* Enforce guest required alignment.  */
+    if (unlikely(addr & ((1 << a_bits) - 1))) {
+        cpu_loop_exit_sigbus(env_cpu(env), addr, MMU_DATA_STORE, retaddr);
+    }
+
     /* Enforce qemu required alignment.  */
     if (unlikely(addr & (size - 1))) {
         cpu_loop_exit_atomic(env_cpu(env), retaddr);
     }
-    void *ret = g2h(addr);
+#endif
+
+    ret = g2h(env_cpu(env), addr);
     set_helper_retaddr(retaddr);
     return ret;
 }
 
-static inline
-void atomic_trace_rmw_pre(CPUArchState *env, target_ulong addr, uint16_t info)
+static void atomic_trace_rmw_post(CPUArchState *env, uint64_t addr,
+                                  MemOpIdx oi)
 {
-    CPUState *cpu = env_cpu(env);
-
-    trace_guest_mem_before_exec(cpu, addr, info);
-    trace_guest_mem_before_exec(cpu, addr, info | TRACE_MEM_ST);
+    qemu_plugin_vcpu_mem_cb(env_cpu(env), addr, oi, QEMU_PLUGIN_MEM_RW);
 }
 
-static inline void
-atomic_trace_rmw_post(CPUArchState *env, target_ulong addr, uint16_t info)
-{
-    qemu_plugin_vcpu_mem_cb(env_cpu(env), addr, info);
-    qemu_plugin_vcpu_mem_cb(env_cpu(env), addr, info | TRACE_MEM_ST);
+#define ATOMIC_HELPER(OP, TYPE) \
+    TYPE HELPER(glue(atomic_,OP))(CPUArchState *env, uint64_t addr,  \
+                                  TYPE val, uint32_t oi)                 \
+    { return glue(glue(cpu_atomic_,OP),_mmu)(env, addr, val, oi, GETPC()); }
+
+#define GEN_ATOMIC_HELPERS(OP)              \
+    ATOMIC_HELPER(glue(OP,b), uint32_t)     \
+    ATOMIC_HELPER(glue(OP,w_be), uint32_t)  \
+    ATOMIC_HELPER(glue(OP,w_le), uint32_t)  \
+    ATOMIC_HELPER(glue(OP,l_be), uint32_t)  \
+    ATOMIC_HELPER(glue(OP,l_le), uint32_t)  \
+    ATOMIC_HELPER(glue(OP,q_be), uint64_t)  \
+    ATOMIC_HELPER(glue(OP,q_le), uint64_t)
+
+GEN_ATOMIC_HELPERS(smax_fetch)
+
+#define ATOMIC_NAME(X) \
+    glue(glue(glue(cpu_atomic_ ## X, SUFFIX), END), _mmu)
+
+#define ATOMIC_MMU_CLEANUP do { clear_helper_retaddr(); } while (0)
+
+#define DATA_SIZE 1
+
+# define SUFFIX     b
+
+# define SDATA_TYPE int8_t
+
+# define ABI_TYPE  uint32_t
+
+# define END
+
+#define GEN_ATOMIC_HELPER_FN(X, FN, XDATA_TYPE, RET)                \
+ABI_TYPE ATOMIC_NAME(X)(CPUArchState *env, target_ulong addr,       \
+                        ABI_TYPE xval, MemOpIdx oi, uintptr_t retaddr) \
+{                                                                   \
+    XDATA_TYPE *haddr, cmp, old, new, val = xval;                   \
+    haddr = atomic_mmu_lookup(env, addr, oi, DATA_SIZE, retaddr);   \
+    smp_mb();                                                       \
+    cmp = qatomic_read__nocheck(haddr);                             \
+    do {                                                            \
+        old = cmp; new = FN(old, val);                              \
+        cmp = qatomic_cmpxchg__nocheck(haddr, old, new);            \
+    } while (cmp != old);                                           \
+    ATOMIC_MMU_CLEANUP;                                             \
+    atomic_trace_rmw_post(env, addr, oi);                           \
+    return RET;                                                     \
 }
+
+GEN_ATOMIC_HELPER_FN(smax_fetch, MAX, SDATA_TYPE, new)
+
+#define DATA_SIZE 2
+
+# define SUFFIX     w
+
+# define SDATA_TYPE int16_t
+
+# define BSWAP      bswap16
+
+# define ABI_TYPE  uint32_t
+
+# define END  _le
+
+#define GEN_ATOMIC_HELPER_FN(X, FN, XDATA_TYPE, RET)                \
+ABI_TYPE ATOMIC_NAME(X)(CPUArchState *env, target_ulong addr,       \
+                        ABI_TYPE xval, MemOpIdx oi, uintptr_t retaddr) \
+{                                                                   \
+    XDATA_TYPE *haddr, cmp, old, new, val = xval;                   \
+    haddr = atomic_mmu_lookup(env, addr, oi, DATA_SIZE, retaddr);   \
+    smp_mb();                                                       \
+    cmp = qatomic_read__nocheck(haddr);                             \
+    do {                                                            \
+        old = cmp; new = FN(old, val);                              \
+        cmp = qatomic_cmpxchg__nocheck(haddr, old, new);            \
+    } while (cmp != old);                                           \
+    ATOMIC_MMU_CLEANUP;                                             \
+    atomic_trace_rmw_post(env, addr, oi);                           \
+    return RET;                                                     \
+}
+
+GEN_ATOMIC_HELPER_FN(smax_fetch, MAX, SDATA_TYPE, new)
+
+# define END  _be
+
+#define GEN_ATOMIC_HELPER_FN(X, FN, XDATA_TYPE, RET)                \
+ABI_TYPE ATOMIC_NAME(X)(CPUArchState *env, target_ulong addr,       \
+                        ABI_TYPE xval, MemOpIdx oi, uintptr_t retaddr) \
+{                                                                   \
+    XDATA_TYPE *haddr, ldo, ldn, old, new, val = xval;              \
+    haddr = atomic_mmu_lookup(env, addr, oi, DATA_SIZE, retaddr);   \
+    smp_mb();                                                       \
+    ldn = qatomic_read__nocheck(haddr);                             \
+    do {                                                            \
+        ldo = ldn; old = BSWAP(ldo); new = FN(old, val);            \
+        ldn = qatomic_cmpxchg__nocheck(haddr, ldo, BSWAP(new));     \
+    } while (ldo != ldn);                                           \
+    ATOMIC_MMU_CLEANUP;                                             \
+    atomic_trace_rmw_post(env, addr, oi);                           \
+    return RET;                                                     \
+}
+
+GEN_ATOMIC_HELPER_FN(smax_fetch, MAX, SDATA_TYPE, new)
 
 #define DATA_SIZE 4
 
@@ -2177,34 +2479,99 @@ atomic_trace_rmw_post(CPUArchState *env, target_ulong addr, uint16_t info)
 
 # define BSWAP      bswap32
 
-# define SHIFT      2
-
 # define ABI_TYPE  DATA_TYPE
 
-# define END  _be
-
-# define MEND _be
+# define END  _le
 
 #define GEN_ATOMIC_HELPER_FN(X, FN, XDATA_TYPE, RET)                \
 ABI_TYPE ATOMIC_NAME(X)(CPUArchState *env, target_ulong addr,       \
-                        ABI_TYPE xval EXTRA_ARGS)                   \
+                        ABI_TYPE xval, MemOpIdx oi, uintptr_t retaddr) \
 {                                                                   \
-    ATOMIC_MMU_DECLS;                                               \
-    XDATA_TYPE *haddr = ATOMIC_MMU_LOOKUP;                          \
-    XDATA_TYPE ldo, ldn, old, new, val = xval;                      \
-    uint16_t info = glue(trace_mem_build_info_no_se, MEND)(SHIFT,   \
-                                                           false,   \
-                                                           ATOMIC_MMU_IDX); \
-                                                                    \
-    atomic_trace_rmw_pre(env, addr, info);                          \
+    XDATA_TYPE *haddr, cmp, old, new, val = xval;                   \
+    haddr = atomic_mmu_lookup(env, addr, oi, DATA_SIZE, retaddr);   \
     smp_mb();                                                       \
-    ldn = atomic_read__nocheck(haddr);                              \
+    cmp = qatomic_read__nocheck(haddr);                             \
+    do {                                                            \
+        old = cmp; new = FN(old, val);                              \
+        cmp = qatomic_cmpxchg__nocheck(haddr, old, new);            \
+    } while (cmp != old);                                           \
+    ATOMIC_MMU_CLEANUP;                                             \
+    atomic_trace_rmw_post(env, addr, oi);                           \
+    return RET;                                                     \
+}
+
+GEN_ATOMIC_HELPER_FN(smax_fetch, MAX, SDATA_TYPE, new)
+
+# define END  _be
+
+#define GEN_ATOMIC_HELPER_FN(X, FN, XDATA_TYPE, RET)                \
+ABI_TYPE ATOMIC_NAME(X)(CPUArchState *env, target_ulong addr,       \
+                        ABI_TYPE xval, MemOpIdx oi, uintptr_t retaddr) \
+{                                                                   \
+    XDATA_TYPE *haddr, ldo, ldn, old, new, val = xval;              \
+    haddr = atomic_mmu_lookup(env, addr, oi, DATA_SIZE, retaddr);   \
+    smp_mb();                                                       \
+    ldn = qatomic_read__nocheck(haddr);                             \
     do {                                                            \
         ldo = ldn; old = BSWAP(ldo); new = FN(old, val);            \
-        ldn = atomic_cmpxchg__nocheck(haddr, ldo, BSWAP(new));      \
+        ldn = qatomic_cmpxchg__nocheck(haddr, ldo, BSWAP(new));     \
     } while (ldo != ldn);                                           \
     ATOMIC_MMU_CLEANUP;                                             \
-    atomic_trace_rmw_post(env, addr, info);                         \
+    atomic_trace_rmw_post(env, addr, oi);                           \
+    return RET;                                                     \
+}
+
+GEN_ATOMIC_HELPER_FN(smax_fetch, MAX, SDATA_TYPE, new)
+
+#define DATA_SIZE 8
+
+# define SUFFIX     q
+
+# define DATA_TYPE  aligned_uint64_t
+
+# define SDATA_TYPE aligned_int64_t
+
+# define BSWAP      bswap64
+
+# define ABI_TYPE  DATA_TYPE
+
+# define END  _le
+
+#define GEN_ATOMIC_HELPER_FN(X, FN, XDATA_TYPE, RET)                \
+ABI_TYPE ATOMIC_NAME(X)(CPUArchState *env, target_ulong addr,       \
+                        ABI_TYPE xval, MemOpIdx oi, uintptr_t retaddr) \
+{                                                                   \
+    XDATA_TYPE *haddr, cmp, old, new, val = xval;                   \
+    haddr = atomic_mmu_lookup(env, addr, oi, DATA_SIZE, retaddr);   \
+    smp_mb();                                                       \
+    cmp = qatomic_read__nocheck(haddr);                             \
+    do {                                                            \
+        old = cmp; new = FN(old, val);                              \
+        cmp = qatomic_cmpxchg__nocheck(haddr, old, new);            \
+    } while (cmp != old);                                           \
+    ATOMIC_MMU_CLEANUP;                                             \
+    atomic_trace_rmw_post(env, addr, oi);                           \
+    return RET;                                                     \
+}
+
+GEN_ATOMIC_HELPER_FN(smax_fetch, MAX, SDATA_TYPE, new)
+
+# define END  _be
+
+#define GEN_ATOMIC_HELPER_FN(X, FN, XDATA_TYPE, RET)                \
+ABI_TYPE ATOMIC_NAME(X)(CPUArchState *env, target_ulong addr,       \
+                        ABI_TYPE xval, MemOpIdx oi, uintptr_t retaddr) \
+{                                                                   \
+    XDATA_TYPE *haddr, ldo, ldn, old, new, val = xval;              \
+    haddr = atomic_mmu_lookup(env, addr, oi, DATA_SIZE, retaddr);   \
+    smp_mb();                                                       \
+    ldn = qatomic_read__nocheck(haddr);                             \
+    do {                                                            \
+        ldo = ldn; old = BSWAP(ldo); new = FN(old, val);            \
+        ldn = qatomic_cmpxchg__nocheck(haddr, ldo, BSWAP(new));     \
+    } while (ldo != ldn);                                           \
+    ATOMIC_MMU_CLEANUP;                                             \
+    atomic_trace_rmw_post(env, addr, oi);                           \
     return RET;                                                     \
 }
 

@@ -1,7 +1,7 @@
 #include "cpu_state.h"
 #include <stddef.h>
 
-/* __thread */ struct CPUMIPSState __jove_env;
+/* __thread */ CPUMIPSState __jove_env;
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -30,15 +30,15 @@
 // FIXME taken from mips32, stack offsets are wrong...
 //
 void _jove_inverse_thunk(void) {
-  asm volatile("sw $v0,48($sp)" "\n"
-               "sw $v1,52($sp)" "\n" /* preserve return registers */
+  asm volatile("sd $v0,96($sp)"  "\n"
+               "sd $v1,104($sp)" "\n" /* preserve return registers */
 
                //
                // free the callstack we allocated in sighandler
                //
-               "lw $a0,32($sp)" "\n"
-               "lw $a0,0($a0)"  "\n"
-               "lw $t9,44($sp)" "\n"
+               "ld $a0,64($sp)" "\n"
+               "ld $a0,0($a0)"  "\n"
+               "ld $t9,88($sp)" "\n"
                ".set noreorder" "\n"
                "jalr $t9"       "\n" // _jove_free_callstack(__jove_callstack_begin)
                "nop"            "\n"
@@ -47,22 +47,22 @@ void _jove_inverse_thunk(void) {
                //
                // restore __jove_callstack
                //
-               "lw $a0,60($sp)" "\n"
-               "lw $a1,16($sp)" "\n"
-               "sw $a1,0($a0)"  "\n" // __jove_callstack = saved_callstack
+               "ld $a0,120($sp)" "\n"
+               "ld $a1,32($sp)"  "\n"
+               "sd $a1,0($a0)"   "\n" // __jove_callstack = saved_callstack
 
                //
                // restore __jove_callstack_begin
                //
-               "lw $a0,56($sp)" "\n"
-               "lw $a1,20($sp)" "\n"
-               "sw $a1,0($a0)"  "\n" // __jove_callstack_begin = saved_callstack_begin
+               "ld $a0,112($sp)" "\n"
+               "ld $a1,40($sp)"  "\n"
+               "sd $a1,0($a0)"   "\n" // __jove_callstack_begin = saved_callstack_begin
 
                //
                // mark newstack as to be freed
                //
-               "lw $a0,24($sp)" "\n"
-               "lw $t9,40($sp)" "\n"
+               "ld $a0,48($sp)" "\n"
+               "ld $t9,80($sp)" "\n"
                ".set noreorder" "\n"
                "jalr $t9"       "\n" // _jove_free_stack_later(newstack)
                "nop"            "\n"
@@ -71,29 +71,29 @@ void _jove_inverse_thunk(void) {
                //
                // signal handling
                //
-               "lw $a0,64($sp)" "\n"
-               "lw $a1,72($sp)" "\n"
-               "lw $t9,68($sp)" "\n"
-               ".set noreorder" "\n"
-               "jalr $t9"       "\n" // _jove_handle_signal_delivery(...)
-               "nop"            "\n"
-               ".set reorder"   "\n"
+               "ld $a0,128($sp)" "\n"
+               "ld $a1,144($sp)" "\n"
+               "ld $t9,136($sp)" "\n"
+               ".set noreorder"  "\n"
+               "jalr $t9"        "\n" // _jove_handle_signal_delivery(...)
+               "nop"             "\n"
+               ".set reorder"    "\n"
 
-               "move $a3, $v0"  "\n"
+               "move $a3, $v0"   "\n"
 
-               "lw $v0,48($sp)" "\n"
-               "lw $v1,52($sp)" "\n" /* preserve return registers */
+               "ld $v0,96($sp)"  "\n"
+               "ld $v1,104($sp)" "\n" /* preserve return registers */
 
                //
                // restore emulated stack pointer
                //
-               "lw $a0,28($sp)" "\n" // a0 = &emusp
-               //"lw $a3,0($a0)"  "\n" // a3 = emusp
+               "ld $a0,56($sp)" "\n" // a0 = &emusp
+               //"ld $a3,0($a0)"  "\n" // a3 = emusp
 
-               "lw $a1,12($sp)" "\n" // saved_emusp in $a1
-               "sw $a1,0($a0)"  "\n" // restore emusp
+               "ld $a1,24($sp)" "\n" // saved_emusp in $a1
+               "sd $a1,0($a0)"  "\n" // restore emusp
 
-               "lw $a2,4($sp)"  "\n" // saved_retaddr in $a2
+               "ld $a2,8($sp)"  "\n" // saved_retaddr in $a2
 
                ".set noreorder" "\n"
                "jr $a2"         "\n" // pc = saved_retaddr

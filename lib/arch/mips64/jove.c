@@ -1,8 +1,8 @@
 #include "cpu_state.h"
 #include <stddef.h>
 
-extern /* __thread */ struct CPUMIPSState __jove_env;
-static /* __thread */ struct CPUMIPSState *__jove_env_clunk = &__jove_env;
+extern /* __thread */ CPUMIPSState __jove_env;
+static /* __thread */ CPUMIPSState *__jove_env_clunk = &__jove_env;
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -62,28 +62,62 @@ _NAKED jove_thunk_return_t _jove_thunk4(uint64_t a0,
 #include "jove.common.c"
 #include "jove.recover.c"
 
-_HIDDEN
-_NAKED void _jove_start(void);
-static void _jove_begin(uint64_t a0,
-                        uint64_t a1,
-                        uint64_t v0,     /* formerly a2 */
-                        uint64_t sp_addr /* formerly a3 */);
+_HIDDEN void _jove_begin(uint64_t a0,
+                         uint64_t a1,
+                         uint64_t v0,     /* formerly a2 */
+                         uint64_t sp_addr /* formerly a3 */);
 
-void _jove_start(void) {
-  asm volatile(/* The return address register is set to zero so that programs that search backword through stack frames recognize the last stack frame. */
-               "move $31, $0\n"
+#define __STRING(x)	#x
+#define __CONCAT(x,y)	x ## y
+#define STRINGXP(X) __STRING(X)
+#define STRINGXV(X) STRINGV_(X)
+#define STRINGV_(...) # __VA_ARGS__
 
-               "move $6, $2\n"  /* a2=v0 */
-               "move $7, $29\n" /* a3=sp */
+# define _ASM_FN_PROLOGUE(entry)					\
+	".globl\t" __STRING(entry) "\n\t"				\
+	".ent\t" __STRING(entry) "\n\t"					\
+	".type\t" __STRING(entry) ", @function\n"			\
+	__STRING(entry) ":\n\t"
 
-               "jalr %P0\n"
-               "hlt: b hlt\n" /* Crash if somehow it does return. */
+# define _ASM_FN_EPILOGUE(entry)					\
+	".end\t" __STRING(entry) "\n\t"					\
+	".size\t" __STRING(entry) ", . - " __STRING(entry) "\n\t"
 
-               : /* OutputOperands */
-               : /* InputOperands */
-               "i"(_jove_begin)
-               : /* Clobbers */);
-}
+# define SETUP_GPX64(cp_reg, ra_save)			\
+		move ra_save, $31; /* Save old ra.  */	\
+		.set noreorder;				\
+		bal 10f; /* Find addr of .cpsetup.  */	\
+		nop;					\
+10:							\
+		.set reorder;				\
+		.cpsetup $31, cp_reg, 10b;		\
+		move $31, ra_save
+
+/* when we can rely on t9 being set */
+# define SETUP_GP64(gpoffset, proc) \
+		.cpsetup $25, gpoffset, proc
+
+asm(".text\n"
+    _ASM_FN_PROLOGUE(_jove_start) "\n"
+
+    STRINGXV(SETUP_GPX64($0,$0))  "\n"
+
+    /* The return address register is set to zero so that programs
+       that search backword through stack frames recognize the last
+       stack frame. */
+    "move $ra, $0"                "\n"
+
+    "move $a2, $v0"               "\n"
+    "move $a3, $sp"               "\n"
+
+    "dla $t9, _jove_begin"        "\n"
+    "jalr $t9"                    "\n"
+    "nop"                         "\n"
+
+    "break"                       "\n"
+
+    _ASM_FN_EPILOGUE(_jove_start) "\n"
+    ".previous");
 
 void _jove_begin(uint64_t a0,
                  uint64_t a1,
@@ -117,23 +151,23 @@ void _jove_begin(uint64_t a0,
 #define JOVE_THUNK_PROLOGUE                                                    \
   ".set noreorder\n"                                                           \
                                                                                \
-  "addiu $sp,$sp,-32\n"                                                        \
-  "sw $ra, 8($sp)\n"                                                           \
-  "sw $s0, 16($sp)\n"                                                          \
-  "sw $s1, 24($sp)\n"                                                          \
+  "daddiu $sp,$sp,-64\n"                                                       \
+  "sd $ra, 8($sp)\n"                                                           \
+  "sd $s0, 16($sp)\n"                                                          \
+  "sd $s1, 24($sp)\n"                                                          \
                                                                                \
   "move $s0, $sp\n" /* save sp in $s0 */
 
 #define JOVE_THUNK_EPILOGUE                                                    \
-  "sw $sp, 0($s1)\n" /* store modified emusp */                                \
+  "sd $sp, 0($s1)\n" /* store modified emusp */                                \
   "move $sp, $s0\n"  /* restore stack pointer */                               \
                                                                                \
-  "lw $ra, 8($sp)\n"                                                           \
-  "lw $s0, 16($sp)\n"                                                          \
-  "lw $s1, 24($sp)\n"                                                          \
+  "ld $ra, 8($sp)\n"                                                           \
+  "ld $s0, 16($sp)\n"                                                          \
+  "ld $s1, 24($sp)\n"                                                          \
                                                                                \
   "jr $ra\n"                                                                   \
-  "addiu $sp,$sp,32\n"                                                         \
+  "daddiu $sp,$sp,64\n"                                                        \
                                                                                \
   ".set reorder\n"
 
@@ -143,14 +177,14 @@ void _jove_begin(uint64_t a0,
 // offsetof(CPUMIPSState, active_tc.gpr[29]);
 //
 
-jove_thunk_return_t _jove_thunk0(uint64_t dstpc,
-                                 uint64_t *emuspp) {
+jove_thunk_return_t _jove_thunk0(uint64_t dstpc,  /* a0 */
+                                 uint64_t *emuspp /* a1 */) {
   asm volatile(JOVE_THUNK_PROLOGUE
 
                "move $s1, $a1\n" // emuspp in $s1
 
-               "lw $sp, 0($a1)\n" // sp=*emuspp
-               "sw $zero, 0($a1)\n" // *emuspp=NULL
+               "ld $sp, 0($a1)\n" // sp=*emuspp
+               "sd $zero, 0($a1)\n" // *emuspp=NULL
 
                /* args: nothing to do */
 
@@ -164,14 +198,14 @@ jove_thunk_return_t _jove_thunk0(uint64_t dstpc,
 }
 
 jove_thunk_return_t _jove_thunk1(uint64_t a0,
-                                 uint64_t dstpc,
-                                 uint64_t *emuspp) {
+                                 uint64_t dstpc,  /* a1 */
+                                 uint64_t *emuspp /* a2 */) {
   asm volatile(JOVE_THUNK_PROLOGUE
 
                "move $s1, $a2\n" // emuspp in $s1
 
-               "lw $sp, 0($a2)\n" // sp=*emuspp
-               "sw $zero, 0($a2)\n" // *emuspp=NULL
+               "ld $sp, 0($a2)\n" // sp=*emuspp
+               "sd $zero, 0($a2)\n" // *emuspp=NULL
 
                /* args: nothing to do */
 
@@ -186,14 +220,14 @@ jove_thunk_return_t _jove_thunk1(uint64_t a0,
 
 jove_thunk_return_t _jove_thunk2(uint64_t a0,
                                  uint64_t a1,
-                                 uint64_t dstpc,
-                                 uint64_t *emuspp) {
+                                 uint64_t dstpc,  /* a2 */
+                                 uint64_t *emuspp /* a3 */) {
   asm volatile(JOVE_THUNK_PROLOGUE
 
                "move $s1, $a3\n" // emuspp in $s1
 
-               "lw $sp, 0($a3)\n" // sp=*emuspp
-               "sw $zero, 0($a3)\n" // *emuspp=NULL
+               "ld $sp, 0($a3)\n" // sp=*emuspp
+               "sd $zero, 0($a3)\n" // *emuspp=NULL
 
                /* args: nothing to do */
 
@@ -209,14 +243,14 @@ jove_thunk_return_t _jove_thunk2(uint64_t a0,
 jove_thunk_return_t _jove_thunk3(uint64_t a0,
                                  uint64_t a1,
                                  uint64_t a2,
-                                 uint64_t dstpc,
-                                 uint64_t *emuspp) {
+                                 uint64_t dstpc,  /* a3 */
+                                 uint64_t *emuspp /* $8 */) {
   asm volatile(JOVE_THUNK_PROLOGUE
 
-               "lw $s1, 48($sp)\n" // emuspp in $s1
+               "move $s1, $8\n" // emuspp in $s1
 
-               "lw $sp, 0($s1)\n" // sp=*emuspp
-               "sw $zero, 0($s1)\n" // *emuspp=NULL
+               "ld $sp, 0($s1)\n" // sp=*emuspp
+               "sd $zero, 0($s1)\n" // *emuspp=NULL
 
                /* args: nothing to do */
 
@@ -233,21 +267,19 @@ jove_thunk_return_t _jove_thunk4(uint64_t a0,
                                  uint64_t a1,
                                  uint64_t a2,
                                  uint64_t a3,
-                                 uint64_t dstpc,
-                                 uint64_t *emuspp) {
+                                 uint64_t dstpc,  /* $8 */
+                                 uint64_t *emuspp /* $9 */) {
   asm volatile(JOVE_THUNK_PROLOGUE
 
-               "lw $s1, 52($sp)\n" // emuspp in $s1
+               "move $s1, $9\n" // emuspp in $s1
 
                /* args: nothing to do */
 
-               "lw $t9, 48($sp)\n" /* do this now before sp is clobbered */
+               "ld $sp, 0($s1)\n" // sp=*emuspp
+               "sd $zero, 0($s1)\n" // *emuspp=NULL
 
-               "lw $sp, 0($s1)\n" // sp=*emuspp
-               "sw $zero, 0($s1)\n" // *emuspp=NULL
-
-               "jalr $t9\n"      // call dstpc
-               "nop\n"
+               "jalr $8\n"      // call dstpc
+               "move $t9, $8\n" // [delay slot] set t9
 
                JOVE_THUNK_EPILOGUE
                : /* OutputOperands */
@@ -257,3 +289,102 @@ jove_thunk_return_t _jove_thunk4(uint64_t a0,
 
 #undef JOVE_THUNK_PROLOGUE
 #undef JOVE_THUNK_EPILOGUE
+
+asm(".text\n"
+    _ASM_FN_PROLOGUE(_jove_init)         "\n"
+    STRINGXV(SETUP_GP64($0,_jove_init))  "\n"
+
+    "daddiu $sp, $sp, -64" "\n" /* allocate stack memory */
+
+    "sd $a0,8($sp)"  "\n" /* save args */
+    "sd $a1,16($sp)" "\n"
+    "sd $a2,24($sp)" "\n"
+    "sd $a3,32($sp)" "\n"
+
+    "sd $ra,40($sp)" "\n" /* save ra */
+    "sd $gp,48($sp)" "\n" /* save gp */
+
+    /* XXX MAGIC INSTRUCTION BYTES XXX */
+    "li $zero, 2345"  "\n" /* nop */
+    "li $zero, 345"   "\n" /* nop */
+    "li $zero, 45"    "\n" /* nop */
+    "li $zero, 5"     "\n" /* nop */
+    "li $zero, 54"    "\n" /* nop */
+    "li $zero, 543"   "\n" /* nop */
+    "li $zero, 5432"  "\n" /* nop */
+
+    "dla $t9, _jove_initialize" "\n"
+    "jalr $t9"                 "\n"
+
+    "ld $gp,48($sp)" "\n" /* gp could have been clobbered */
+
+    "dla $t9, _jove_get_init_fn_sect_ptr" "\n"
+    "jalr $t9"                           "\n"
+
+    "beqz $v0, 10f" "\n" /* does DT_INIT function exist? */
+
+    "ld $a0,8($sp)"  "\n" /* restore args */
+    "ld $a1,16($sp)" "\n"
+    "ld $a2,24($sp)" "\n"
+    "ld $a3,32($sp)" "\n"
+
+    "move $t9, $v0" "\n"
+    "jalr $t9"      "\n" /* call DT_INIT function */
+
+"10: ld $ra,40($sp)"      "\n" /* restore ra */
+    "daddiu $sp, $sp, 64" "\n" /* deallocate stack memory */
+
+    "jr $ra"                     "\n"
+    _ASM_FN_EPILOGUE(_jove_init) "\n"
+    ".previous");
+
+//
+// XXX hack for glibc 2.32+
+//
+asm(".text\n"
+    _ASM_FN_PROLOGUE(_jove__libc_early_init)        "\n"
+    STRINGXV(SETUP_GP64($0,_jove__libc_early_init)) "\n"
+
+    "daddiu $sp, $sp, -64" "\n" /* allocate stack memory */
+
+    "sd $a0,8($sp)"  "\n" /* save args */
+    "sd $a1,16($sp)" "\n"
+    "sd $a2,24($sp)" "\n"
+    "sd $a3,32($sp)" "\n"
+
+    "sd $ra,40($sp)" "\n" /* save ra */
+    "sd $gp,48($sp)" "\n" /* save gp */
+
+    "dla $t9, _jove_do_call_rt_init" "\n"
+    "jalr $t9"                      "\n"
+
+    "ld $gp,48($sp)" "\n" /* gp could have been clobbered */
+
+    "dla $t9, _jove_initialize" "\n"
+    "jalr $t9"                 "\n"
+
+    "ld $gp,48($sp)" "\n" /* gp could have been clobbered */
+
+    "dla $t9, _jove_get_libc_early_init_fn_sect_ptr" "\n"
+    "jalr $t9"                                      "\n"
+
+    "move $t9, $v0"  "\n"
+    "jalr $t9"       "\n"
+
+    "ld $gp,48($sp)" "\n" /* gp could have been clobbered */
+
+    "ld $a0,8($sp)"  "\n" /* restore args */
+    "ld $a1,16($sp)" "\n"
+    "ld $a2,24($sp)" "\n"
+    "ld $a3,32($sp)" "\n"
+
+    "ld $ra,40($sp)"      "\n" /* restore ra */
+    "daddiu $sp, $sp, 64" "\n" /* deallocate stack memory */
+
+    "jr $ra"                                 "\n"
+    _ASM_FN_EPILOGUE(_jove__libc_early_init) "\n"
+    ".previous");
+
+_HIDDEN void _jove_do_call_rt_init(void) {
+  _jove_rt_init();
+}

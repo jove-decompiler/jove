@@ -20,27 +20,26 @@ static inline uint32_t extract32(uint32_t value, int start, int length)
 
 #define HELPER(name) glue(helper_, name)
 
-#define SIMD_OPRSZ_SHIFT   0
+#define SIMD_MAXSZ_SHIFT   0
 
-#define SIMD_OPRSZ_BITS    5
+#define SIMD_MAXSZ_BITS    8
 
-#define SIMD_MAXSZ_SHIFT   (SIMD_OPRSZ_SHIFT + SIMD_OPRSZ_BITS)
+#define SIMD_OPRSZ_SHIFT   (SIMD_MAXSZ_SHIFT + SIMD_MAXSZ_BITS)
 
-#define SIMD_MAXSZ_BITS    5
-
-static inline intptr_t simd_oprsz(uint32_t desc)
-{
-    return (extract32(desc, SIMD_OPRSZ_SHIFT, SIMD_OPRSZ_BITS) + 1) * 8;
-}
+#define SIMD_OPRSZ_BITS    2
 
 static inline intptr_t simd_maxsz(uint32_t desc)
 {
-    return (extract32(desc, SIMD_MAXSZ_SHIFT, SIMD_MAXSZ_BITS) + 1) * 8;
+    return extract32(desc, SIMD_MAXSZ_SHIFT, SIMD_MAXSZ_BITS) * 8 + 8;
 }
 
-typedef uint32_t vec32 __attribute__((vector_size(16)));
-
-#define DUP4(X)   { X, X, X, X }
+static inline intptr_t simd_oprsz(uint32_t desc)
+{
+    uint32_t f = extract32(desc, SIMD_OPRSZ_SHIFT, SIMD_OPRSZ_BITS);
+    intptr_t o = f * 8 + 8;
+    intptr_t m = simd_maxsz(desc);
+    return f == 2 ? m : o;
+}
 
 static inline void clear_high(void *d, intptr_t oprsz, uint32_t desc)
 {
@@ -57,11 +56,10 @@ static inline void clear_high(void *d, intptr_t oprsz, uint32_t desc)
 void HELPER(gvec_muls32)(void *d, void *a, uint64_t b, uint32_t desc)
 {
     intptr_t oprsz = simd_oprsz(desc);
-    vec32 vecb = (vec32)DUP4(b);
     intptr_t i;
 
-    for (i = 0; i < oprsz; i += sizeof(vec32)) {
-        *(vec32 *)(d + i) = *(vec32 *)(a + i) * vecb;
+    for (i = 0; i < oprsz; i += sizeof(uint32_t)) {
+        *(uint32_t *)(d + i) = *(uint32_t *)(a + i) * (uint32_t)b;
     }
     clear_high(d, oprsz, desc);
 }
