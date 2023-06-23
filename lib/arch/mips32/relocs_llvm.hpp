@@ -1,6 +1,7 @@
 llvm::Type *LLVMTool::type_of_expression_for_relocation(const Relocation &R) {
   switch (R.Type) {
   case llvm::ELF::R_MIPS_REL32:
+//case llvm::ELF::R_MIPS_GLOB_DAT:
   case llvm::ELF::R_MIPS_JUMP_SLOT:
   case llvm::ELF::R_MIPS_TLS_TPREL32:
   case llvm::ELF::R_MIPS_TLS_DTPMOD32:
@@ -32,6 +33,7 @@ llvm::Constant *LLVMTool::expression_for_relocation(const Relocation &R,
       return SectionPointer(ExtractWordAtAddress(R.Offset));
     }
 
+//case llvm::ELF::R_MIPS_GLOB_DAT:
   case llvm::ELF::R_MIPS_JUMP_SLOT:
     return SymbolAddress(RelSym);
 
@@ -73,6 +75,7 @@ bool LLVMTool::is_constant_relocation(const Relocation &R) {
   switch (R.Type) {
   case llvm::ELF::R_MIPS_REL32:
   case llvm::ELF::R_MIPS_JUMP_SLOT:
+//case llvm::ELF::R_MIPS_GLOB_DAT:
     return true;
 
   default:
