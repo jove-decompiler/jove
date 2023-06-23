@@ -26,9 +26,6 @@
 #include "rt.util.c"
 #include "rt.common.c"
 
-//
-// FIXME taken from mips32, stack offsets are wrong...
-//
 void _jove_inverse_thunk(void) {
   asm volatile("sd $v0,96($sp)"  "\n"
                "sd $v1,104($sp)" "\n" /* preserve return registers */
