@@ -1,13 +1,13 @@
 llvm::Type *LLVMTool::type_of_expression_for_relocation(const Relocation &R) {
   switch (R.Type) {
   case (llvm::ELF::R_MIPS_64 << 8) | llvm::ELF::R_MIPS_REL32:
-  //case (llvm::ELF::R_MIPS_64 << 8) | llvm::ELF::R_MIPS_GLOB_DAT:
+//case (llvm::ELF::R_MIPS_64 << 8) | llvm::ELF::R_MIPS_GLOB_DAT:
   case llvm::ELF::R_MIPS_TLS_TPREL64:
   case llvm::ELF::R_MIPS_TLS_DTPMOD64:
   case llvm::ELF::R_MIPS_JUMP_SLOT:
     return WordType();
 
-  case llvm::ELF::R_MIPS_64:
+  case llvm::ELF::R_MIPS_64: /* we ignore such _64 dummy relocations */
   case llvm::ELF::R_MIPS_COPY:
   case llvm::ELF::R_MIPS_NONE:
     return VoidType();
@@ -34,7 +34,7 @@ llvm::Constant *LLVMTool::expression_for_relocation(const Relocation &R,
       return SectionPointer(ExtractWordAtAddress(R.Offset));
     }
 
-  //case (llvm::ELF::R_MIPS_64 << 8) | llvm::ELF::R_MIPS_GLOB_DAT:
+//case (llvm::ELF::R_MIPS_64 << 8) | llvm::ELF::R_MIPS_GLOB_DAT:
   case llvm::ELF::R_MIPS_JUMP_SLOT:
     return SymbolAddress(RelSym);
 
@@ -50,6 +50,7 @@ llvm::Constant *LLVMTool::expression_for_relocation(const Relocation &R,
 bool LLVMTool::is_manual_relocation(const Relocation &R) {
   switch (R.Type) {
   case llvm::ELF::R_MIPS_TLS_TPREL64:
+//case llvm::ELF::R_MIPS_TLS_DTPMOD64:
     return true;
 
   default:
@@ -71,9 +72,9 @@ void LLVMTool::compute_manual_relocation(llvm::IRBuilderTy &IRB,
 
 bool LLVMTool::is_constant_relocation(const Relocation &R) {
   switch (R.Type) {
-  case llvm::ELF::R_MIPS_64:
+  case (llvm::ELF::R_MIPS_64 << 8) | llvm::ELF::R_MIPS_REL32:
   case llvm::ELF::R_MIPS_JUMP_SLOT:
-  //case (llvm::ELF::R_MIPS_64 << 8) | llvm::ELF::R_MIPS_GLOB_DAT:
+//case (llvm::ELF::R_MIPS_64 << 8) | llvm::ELF::R_MIPS_GLOB_DAT:
     return true;
 
   default:
