@@ -343,7 +343,14 @@ int AddTool::Run(void) {
           }
         }
       }
+    } else {
+      if (IsVerbose())
+        WithColor::note() << llvm::formatv("build ID is {0}, no split debug found at {1}\n",
+                                           llvm::toHex(BuildID, /*LowerCase=*/true), splitDbgInfo.string());
     }
+  } else {
+    if (IsVerbose())
+      WithColor::note() << "no build ID\n";
   }
 
   llvm::StringRef DynamicStringTable;
