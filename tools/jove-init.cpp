@@ -719,7 +719,7 @@ void InitTool::worker(void) {
     fs::create_directories(fs::path(jvfp).parent_path());
 
     std::string path_to_stdout = temporary_dir() + path + ".add.stdout.txt";
-    std::string path_to_stderr = temporary_dir() + path + ".add.stderr.txt";
+    //std::string path_to_stderr = temporary_dir() + path + ".add.stderr.txt";
 
     int rc = RunToolToExit(
         "add",
@@ -729,13 +729,10 @@ void InitTool::worker(void) {
           Arg("-i");
           Arg(path);
         },
-        path_to_stdout,
-        path_to_stderr);
+        path_to_stdout);
 
     if (rc)
-      WithColor::error() << llvm::formatv(
-          "jove add failed!\n{0}\n",
-          read_file_into_string(path_to_stderr.c_str()));
+      WithColor::error() << llvm::formatv("adding binary {0} failed!\n", path);
   }
 }
 
