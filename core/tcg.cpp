@@ -970,7 +970,7 @@ void tiny_code_generator_t::print_shit(void) {
   };
 #endif
 
-#if defined(TARGET_MIPS32)
+#if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
   auto t9_index = [&](void) -> int {
     return tcg_index_of_named_global("t9");
   };
@@ -1044,7 +1044,7 @@ void tiny_code_generator_t::print_shit(void) {
   __TCG_CONST(tpidr_el0_env_offset);
 #endif
 
-#if defined(TARGET_MIPS32)
+#if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
   __TCG_CONST(t9_index);
   __TCG_CONST(ra_index);
   __TCG_CONST(gp_index);

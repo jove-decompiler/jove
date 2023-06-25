@@ -497,8 +497,10 @@ asm(".text\n"
 // XXX hack for glibc 2.32+
 //
 asm(".text\n"
-    _ASM_FN_PROLOGUE(_jove__libc_early_init)        "\n"
-    STRINGXV(SETUP_GP64($0,_jove__libc_early_init)) "\n"
+    _ASM_FN_PROLOGUE(_jove__libc_early_init)         "\n"
+    STRINGXV(SETUP_GP64($24,_jove__libc_early_init)) "\n"
+
+    ".set noreorder\n"
 
     "daddiu $sp, $sp, -64" "\n" /* allocate stack memory */
 
@@ -508,35 +510,42 @@ asm(".text\n"
     "sd $a3,32($sp)" "\n"
 
     "sd $ra,40($sp)" "\n" /* save ra */
-    "sd $gp,48($sp)" "\n" /* save gp */
+    "sd $gp,48($sp)" "\n" /* save ouur gp */
+    "sd $24,56($sp)" "\n" /* save original gp */
 
     "dla $t9, _jove_do_call_rt_init" "\n"
-    "jalr $t9"                      "\n"
+    "jalr $t9"                       "\n"
+    "nop"                            "\n"
 
-    "ld $gp,48($sp)" "\n" /* gp could have been clobbered */
+    "ld $gp,48($sp)" "\n" /* our gp could have been clobbered */
 
     "dla $t9, _jove_initialize" "\n"
-    "jalr $t9"                 "\n"
+    "jalr $t9"                  "\n"
+    "nop"                       "\n"
 
-    "ld $gp,48($sp)" "\n" /* gp could have been clobbered */
+    "ld $gp,48($sp)" "\n" /* our gp could have been clobbered */
 
     "dla $t9, _jove_get_libc_early_init_fn_sect_ptr" "\n"
-    "jalr $t9"                                      "\n"
-
-    "move $t9, $v0"  "\n"
-    "jalr $t9"       "\n"
-
-    "ld $gp,48($sp)" "\n" /* gp could have been clobbered */
+    "jalr $t9"                                       "\n"
+    "nop"                                            "\n"
 
     "ld $a0,8($sp)"  "\n" /* restore args */
     "ld $a1,16($sp)" "\n"
     "ld $a2,24($sp)" "\n"
     "ld $a3,32($sp)" "\n"
 
+    "move $t9, $v0" "\n"
+    "jalr $t9"      "\n" /* call the (recompiled) __libc_early_init */
+    "nop"           "\n"
+
     "ld $ra,40($sp)"      "\n" /* restore ra */
+    "ld $gp,56($sp)"      "\n" /* restore original gp */
     "daddiu $sp, $sp, 64" "\n" /* deallocate stack memory */
 
-    "jr $ra"                                 "\n"
+    "jr $ra" "\n"
+    "nop"    "\n"
+
+    ".set reorder\n"
     _ASM_FN_EPILOGUE(_jove__libc_early_init) "\n"
     ".previous");
 

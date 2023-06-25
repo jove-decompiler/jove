@@ -1727,7 +1727,7 @@ llvm::Constant *LLVMTool::BigWord(void) {
   // we want a constant integer sufficiently large to cause a SIGSEGV if
   // dereferenced or otherwise used as a pointer value.
   //
-  return llvm::ConstantInt::get(WordType(), llvm::APSInt::getMaxValue(WordBits(), false));
+  return llvm::ConstantInt::get(WordType(), 0xdeadbeef);
 }
 
 template <class T>
@@ -7956,7 +7956,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
       store_stack_pointer();
       save_callstack_pointers();
 
-#if defined(TARGET_MIPS32)
+#if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
       store_global_to_global_cpu_state(tcg_t9_index);
       store_global_to_global_cpu_state(tcg_ra_index);
 #endif
@@ -8978,7 +8978,7 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
         TCGTemp *dst = output_arg(0);
 
         switch (ofs) {
-#ifdef TARGET_MIPS32
+#if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
         case offsetof(CPUMIPSState, active_tc.CP0_UserLocal):
           set(insertThreadPointerInlineAsm(IRB), dst);
           return;
@@ -9000,7 +9000,7 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
         }
       } else {
         switch (ofs) {
-#ifdef TARGET_MIPS32
+#if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
         case offsetof(CPUMIPSState, lladdr):
           set(get(input_arg(0)), &s->temps[tcg_lladdr_index]);
           return;
