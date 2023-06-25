@@ -176,9 +176,9 @@ constexpr int tcg_syscall_arg6_index = 10;
 typedef std::bitset<tcg_num_globals> tcg_global_set_t;
 static const tcg_global_set_t NotArgs("0000000000000000100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000011");
 static const tcg_global_set_t NotRets("0000000000000000100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000011");
-constexpr tcg_global_set_t CallConvArgs(480);
-typedef std::array<unsigned, 4> CallConvArgArrayTy;
-static const CallConvArgArrayTy CallConvArgArray{5, 6, 7, 8};
+constexpr tcg_global_set_t CallConvArgs(8160);
+typedef std::array<unsigned, 8> CallConvArgArrayTy;
+static const CallConvArgArrayTy CallConvArgArray{5, 6, 7, 8, 9, 10, 11, 12};
 constexpr tcg_global_set_t CallConvRets(24);
 typedef std::array<unsigned, 2> CallConvRetArrayTy;
 static const CallConvRetArrayTy CallConvRetArray{3, 4};
@@ -500,9 +500,9 @@ constexpr int tcg_syscall_arg6_index = 10;
 typedef std::bitset<tcg_num_globals> tcg_global_set_t;
 static const tcg_global_set_t NotArgs("0000000000000000100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000011");
 static const tcg_global_set_t NotRets("0000000000000000100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000011");
-constexpr tcg_global_set_t CallConvArgs(480);
-typedef std::array<unsigned, 4> CallConvArgArrayTy;
-static const CallConvArgArrayTy CallConvArgArray{5, 6, 7, 8};
+constexpr tcg_global_set_t CallConvArgs(8160);
+typedef std::array<unsigned, 8> CallConvArgArrayTy;
+static const CallConvArgArrayTy CallConvArgArray{5, 6, 7, 8, 9, 10, 11, 12};
 constexpr tcg_global_set_t CallConvRets(24);
 typedef std::array<unsigned, 2> CallConvRetArrayTy;
 static const CallConvRetArrayTy CallConvRetArray{3, 4};
@@ -660,4 +660,4 @@ constexpr tcg_global_set_t PinnedEnvGlbs(0);
 }
 #endif /* __cplusplus */
 
-#define TARGET_NUM_REG_ARGS 4
+#define TARGET_NUM_REG_ARGS 8

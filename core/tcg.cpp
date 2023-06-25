@@ -188,7 +188,10 @@ void tiny_code_generator_t::print_shit(void) {
 #elif defined(TARGET_AARCH64)
     const std::array<const char *, 8> arg_regs = {"x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7"};
     const std::array<const char *, 8> ret_regs = {"x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7"};
-#elif defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
+#elif defined(TARGET_MIPS64)
+    const std::array<const char *, 8> arg_regs = {"a0", "a1", "a2", "a3", "t0", "t1", "t2", "t3"};
+    const std::array<const char *, 2> ret_regs = {"v0", "v1"};
+#elif defined(TARGET_MIPS32)
     const std::array<const char *, 4> arg_regs = {"a0", "a1", "a2", "a3"};
     const std::array<const char *, 2> ret_regs = {"v0", "v1"};
 #else
@@ -1126,7 +1129,7 @@ tiny_code_generator_t::translate(uint64_t pc, uint64_t pc_end) {
   jv_ti.Type = TERMINATOR::UNKNOWN;
   jv_ti.Addr = 0;
 
-  int max_insns = 64;
+  int max_insns = 128;
   TranslationBlock tb = {0};
   tb.flags = jv_hflags_of_cpu_env(jv_cpu);
   tb.cflags = jv_cpu->tcg_cflags | CF_NOIRQ;

@@ -1000,8 +1000,17 @@ jove_thunk_return_t _jove_call(
   bool IsJoveInit = false;
 
 #if defined(__mips64) || defined(__mips__)
+
+#  if defined(__mips64)
+#    define PC_OFF_IN_WORDS 12
+#  else /* defined(__mips__) */
+#    define PC_OFF_IN_WORDS 10
+#  endif
+
   {
-    const uint32_t *const p = (const uint32_t *)pc + 10;
+    const uint32_t *const p = (const uint32_t *)pc + PC_OFF_IN_WORDS;
+
+#  undef PC_OFF_IN_WORDS
 
     //
     // 24000929        li      zero,2345
