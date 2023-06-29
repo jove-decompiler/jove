@@ -163,8 +163,8 @@ int Trace2LinesTool::Run(void) {
     //
     // parse the existing jv file
     //
-    jv_t jv;
     ReadJvFromFile(opts.jv, jv);
+    state.update();
 
     //
     // compute the set of verts for each function
