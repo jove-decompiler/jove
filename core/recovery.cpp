@@ -68,6 +68,7 @@ std::string CodeRecovery::RecoverDynamicTarget(uint32_t CallerBIdx,
   binary_t &CalleeBinary = jv.Binaries.at(CalleeBIdx);
 
   function_t &callee = CalleeBinary.Analysis.Functions.at(CalleeFIdx);
+  assert(is_basic_block_index_valid(callee.Entry));
 
   auto &ICFG = CallerBinary.Analysis.ICFG;
 
