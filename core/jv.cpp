@@ -22,6 +22,8 @@ void ReadJvFromFile(const std::string &path, jv_t &out) {
     throw std::runtime_error(errstr);
 
   try {
+    out.Binaries.clear();
+
     boost::archive::text_iarchive ia(ifs);
     ia >> out;
   } catch (...) {
