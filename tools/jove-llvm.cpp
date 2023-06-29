@@ -6055,13 +6055,25 @@ int LLVMTool::TranslateFunction(function_t &f) {
         assert(arg_it != F->arg_end());
         llvm::Argument *Val = &*arg_it++;
 
-        llvm::AllocaInst *Ptr = CreateAllocaForGlobal(TC, IRB, glb, false);
-        GlobalAllocaArr[glb] = Ptr;
+        llvm::AllocaInst *AI = GlobalAllocaArr[glb] =
+            CreateAllocaForGlobal(TC, IRB, glb, false);
 
-        llvm::StoreInst *SI = IRB.CreateStore(Val, Ptr);
+        llvm::StoreInst *SI = IRB.CreateStore(Val, AI);
         SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
       }
     }
+
+#if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
+    if (opts.ForCBE && f.IsABI) {
+      unsigned glb = tcg_t9_index;
+
+      llvm::AllocaInst *AI = GlobalAllocaArr[glb] =
+          CreateAllocaForGlobal(TC, IRB, glb, false);
+
+      llvm::StoreInst *SI = IRB.CreateStore(SectionPointer(ICFG[entry_bb].Addr), AI);
+      SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
+    }
+#endif
 
     if (opts.DFSan) {
       llvm::AllocaInst *&SPAlloca = GlobalAllocaArr[tcg_stack_pointer_index];
