@@ -114,4 +114,8 @@ std::string locator_t::gdb(void) {
                     (TARGET_ARCH_NAME "-gdb"));
 }
 
+std::string locator_t::gdbserver(void) {
+  return must_exist(prebuilts_path() / "static_bin" /
+                    (TARGET_ARCH_NAME "-gdbserver"));
+}
 }

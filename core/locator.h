@@ -34,6 +34,7 @@ struct locator_t {
   std::string starter_bin(void);
 
   std::string gdb(void);
+  std::string gdbserver(void);
 };
 
 }
