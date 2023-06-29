@@ -169,6 +169,7 @@ int TraceTool::Run(void) {
   }
 
   ReadJvFromFile(opts.jv, jv);
+  state.update();
   InitStateForBinaries(jv);
 
   //
