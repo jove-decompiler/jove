@@ -6254,6 +6254,7 @@ int LLVMTool::TranslateFunctions(void) {
   // Promote allocas to registers.
   FPM.add(llvm::createPromoteMemoryToRegisterPass());
   // Do simple "peephole" optimizations and bit-twiddling optzns.
+  if (!opts.DumpPreOpt1) {
   FPM.add(llvm::createInstructionCombiningPass());
 #if 0
   // Reassociate expressions.
@@ -6264,6 +6265,7 @@ int LLVMTool::TranslateFunctions(void) {
   FPM.add(llvm::createDeadStoreEliminationPass());
   // Simplify the control flow graph (deleting unreachable blocks, etc).
   FPM.add(llvm::createCFGSimplificationPass());
+  }
 
   FPM.doInitialization();
 
@@ -6273,10 +6275,8 @@ int LLVMTool::TranslateFunctions(void) {
     if (unlikely(ret))
       return ret;
 
-#if 1
     if (likely(state.for_function(f).F))
       FPM.run(*state.for_function(f).F);
-#endif
   }
 
   llvm::DIBuilder &DIB = *DIBuilder;
