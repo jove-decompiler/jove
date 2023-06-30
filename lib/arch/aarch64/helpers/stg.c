@@ -2203,9 +2203,13 @@ static inline int cpu_mmu_index(CPUARMState *env, bool ifetch)
 
 #define TAG_GRANULE      (1 << LOG2_TAG_GRANULE)
 
-G_NORETURN void arm_cpu_do_unaligned_access(CPUState *cs, vaddr vaddr,
-                                            MMUAccessType access_type,
-                                            int mmu_idx, uintptr_t retaddr);
+G_NORETURN static inline void arm_cpu_do_unaligned_access(CPUState *cs, vaddr vaddr,
+                                                          MMUAccessType access_type,
+                                                          int mmu_idx, uintptr_t retaddr)
+{
+    __builtin_trap();
+    __builtin_unreachable();
+}
 
 static inline int allocation_tag_from_addr(uint64_t ptr)
 {

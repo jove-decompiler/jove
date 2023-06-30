@@ -951,6 +951,12 @@ enum qemu_plugin_event {
 
 typedef struct CPUClass CPUClass;
 
+typedef enum MMUAccessType {
+    MMU_DATA_LOAD  = 0,
+    MMU_DATA_STORE = 1,
+    MMU_INST_FETCH = 2
+} MMUAccessType;
+
 typedef struct CPUWatchpoint CPUWatchpoint;
 
 struct TCGCPUOps;
@@ -1774,13 +1780,23 @@ typedef struct CPUArchState {
 
 #define HELPER(name) glue(helper_, name)
 
-G_NORETURN static inline void cpu_loop_exit_noexc(CPUState *cpu) {
-  __builtin_trap();
-  __builtin_unreachable();
+G_NORETURN static inline void arm_cpu_do_unaligned_access(CPUState *cs, vaddr vaddr,
+                                                          MMUAccessType access_type,
+                                                          int mmu_idx, uintptr_t retaddr)
+{
+    __builtin_trap();
+    __builtin_unreachable();
 }
 
 uint64_t HELPER(get_cp_reg64)(CPUARMState *env, const void *rip)
 {
+    uint32_t key = (uint32_t)((uintptr_t)rip);
+    if (key == 0x1013d807) {
+        uint64_t res;
+        asm volatile("mrs %0, dczid_el0" : "=r"(res));
+        return res;
+    }
+
     __builtin_trap();
     __builtin_unreachable();
 }

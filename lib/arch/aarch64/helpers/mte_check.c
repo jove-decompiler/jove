@@ -2491,9 +2491,13 @@ static inline ARMMMUIdx core_to_aa64_mmu_idx(int mmu_idx)
     return mmu_idx | ARM_MMU_IDX_A;
 }
 
-G_NORETURN void arm_cpu_do_unaligned_access(CPUState *cs, vaddr vaddr,
-                                            MMUAccessType access_type,
-                                            int mmu_idx, uintptr_t retaddr);
+G_NORETURN static inline void arm_cpu_do_unaligned_access(CPUState *cs, vaddr vaddr,
+                                                          MMUAccessType access_type,
+                                                          int mmu_idx, uintptr_t retaddr)
+{
+    __builtin_trap();
+    __builtin_unreachable();
+}
 
 static inline bool regime_has_2_ranges(ARMMMUIdx mmu_idx)
 {

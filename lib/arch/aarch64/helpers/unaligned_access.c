@@ -2106,9 +2106,13 @@ static inline CPUState *env_cpu(CPUArchState *env)
 
 #define HELPER(name) glue(helper_, name)
 
-G_NORETURN void arm_cpu_do_unaligned_access(CPUState *cs, vaddr vaddr,
-                                            MMUAccessType access_type,
-                                            int mmu_idx, uintptr_t retaddr);
+G_NORETURN static inline void arm_cpu_do_unaligned_access(CPUState *cs, vaddr vaddr,
+                                                          MMUAccessType access_type,
+                                                          int mmu_idx, uintptr_t retaddr)
+{
+    __builtin_trap();
+    __builtin_unreachable();
+}
 
 # define GETPC() 0
 

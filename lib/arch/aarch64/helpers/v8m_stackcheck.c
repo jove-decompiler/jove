@@ -988,6 +988,12 @@ typedef struct CPUClass CPUClass;
     typedef struct ArchCPU CpuInstanceType; \
     OBJECT_DECLARE_TYPE(ArchCPU, CpuClassType, CPU_MODULE_OBJ_NAME);
 
+typedef enum MMUAccessType {
+    MMU_DATA_LOAD  = 0,
+    MMU_DATA_STORE = 1,
+    MMU_INST_FETCH = 2
+} MMUAccessType;
+
 typedef struct CPUWatchpoint CPUWatchpoint;
 
 struct TCGCPUOps;
@@ -2226,6 +2232,14 @@ static inline bool excp_is_internal(int excp)
 
 FIELD(V7M_CONTROL, SPSEL, 1, 1)
 
+G_NORETURN static inline void arm_cpu_do_unaligned_access(CPUState *cs, vaddr vaddr,
+                                                          MMUAccessType access_type,
+                                                          int mmu_idx, uintptr_t retaddr)
+{
+    __builtin_trap();
+    __builtin_unreachable();
+}
+
 static inline bool v7m_using_psp(CPUARMState *env)
 {
     /* Handler mode always uses the main stack; for thread mode
@@ -2247,11 +2261,6 @@ static inline uint32_t v7m_sp_limit(CPUARMState *env)
 }
 
 bool cpu_restore_state(CPUState *cpu, uintptr_t host_pc);
-
-G_NORETURN static inline void cpu_loop_exit_noexc(CPUState *cpu) {
-  __builtin_trap();
-  __builtin_unreachable();
-}
 
 G_NORETURN static inline void cpu_loop_exit(CPUState *cpu) {
   __builtin_trap();

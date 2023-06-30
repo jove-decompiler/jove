@@ -974,6 +974,12 @@ enum qemu_plugin_event {
 
 typedef struct CPUClass CPUClass;
 
+typedef enum MMUAccessType {
+    MMU_DATA_LOAD  = 0,
+    MMU_DATA_STORE = 1,
+    MMU_INST_FETCH = 2
+} MMUAccessType;
+
 typedef struct CPUWatchpoint CPUWatchpoint;
 
 struct TCGCPUOps;
@@ -1201,14 +1207,17 @@ typedef struct ARMPredicateReg {
 
 extern const uint64_t pred_esz_masks[5];
 
+G_NORETURN static inline void arm_cpu_do_unaligned_access(CPUState *cs, vaddr vaddr,
+                                                          MMUAccessType access_type,
+                                                          int mmu_idx, uintptr_t retaddr)
+{
+    __builtin_trap();
+    __builtin_unreachable();
+}
+
 FIELD(PREDDESC, OPRSZ, 0, 6)
 
 FIELD(PREDDESC, ESZ, 6, 2)
-
-G_NORETURN static inline void cpu_loop_exit_noexc(CPUState *cpu) {
-  __builtin_trap();
-  __builtin_unreachable();
-}
 
 #define HELPER(name) glue(helper_, name)
 

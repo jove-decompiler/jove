@@ -253,15 +253,6 @@ static inline uint32_t extract32(uint32_t value, int start, int length)
     return (value >> start) & (~0U >> (32 - length));
 }
 
-static inline int64_t sextract64(uint64_t value, int start, int length)
-{
-    assert(start >= 0 && length > 0 && length <= 64 - start);
-    /* Note that this implementation relies on right shift of signed
-     * integers being an arithmetic shift.
-     */
-    return ((int64_t)(value << (64 - length - start))) >> (64 - length);
-}
-
 #define FIELD(reg, field, shift, length)                                  \
     enum { R_ ## reg ## _ ## field ## _SHIFT = (shift)};                  \
     enum { R_ ## reg ## _ ## field ## _LENGTH = (length)};                \
@@ -2145,14 +2136,6 @@ static inline int cpu_mmu_index(CPUARMState *env, bool ifetch)
 
 static inline target_ulong cpu_untagged_addr(CPUState *cs, target_ulong x)
 {
-    ARMCPU *cpu = ARM_CPU(cs);
-    if (cpu->env.tagged_addr_enable) {
-        /*
-         * TBI is enabled for userspace but not kernelspace addresses.
-         * Only clear the tag if bit 55 is clear.
-         */
-        x &= sextract64(x, 0, 56);
-    }
     return x;
 }
 

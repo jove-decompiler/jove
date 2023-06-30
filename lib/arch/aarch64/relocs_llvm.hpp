@@ -5,6 +5,8 @@ llvm::Type *LLVMTool::type_of_expression_for_relocation(const Relocation &R) {
   case llvm::ELF::R_AARCH64_JUMP_SLOT:
   case llvm::ELF::R_AARCH64_ABS64:
   case llvm::ELF::R_AARCH64_IRELATIVE:
+  case llvm::ELF::R_AARCH64_TLS_TPREL64:
+  case llvm::ELF::R_AARCH64_TLSDESC:
     return WordType();
 
   case llvm::ELF::R_AARCH64_COPY:
@@ -38,6 +40,7 @@ llvm::Constant *LLVMTool::expression_for_relocation(const Relocation &R,
 
   case llvm::ELF::R_AARCH64_IRELATIVE:
   case llvm::ELF::R_AARCH64_TLS_TPREL64:
+  case llvm::ELF::R_AARCH64_TLSDESC:
     return BigWord();
 
   default:
@@ -49,6 +52,7 @@ bool LLVMTool::is_manual_relocation(const Relocation &R) {
   switch (R.Type) {
   case llvm::ELF::R_AARCH64_IRELATIVE:
   case llvm::ELF::R_AARCH64_TLS_TPREL64:
+//case llvm::ELF::R_AARCH64_TLSDESC:
     return true;
 
   default:
@@ -82,6 +86,6 @@ bool LLVMTool::is_constant_relocation(const Relocation &R) {
     return true;
 
   default:
-    throw false;
+    return false;
   }
 }

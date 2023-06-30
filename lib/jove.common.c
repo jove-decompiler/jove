@@ -134,6 +134,31 @@ _HIDDEN void _jove_init(
 
                         #undef __REG_ARG
                        ) {
+  //
+  // magic sequence of NOP instructions...
+  //
+#if defined(__aarch64__)
+  asm("mov xzr, x0\n"
+      "mov xzr, x1\n"
+      "mov xzr, x2\n"
+      "mov xzr, x3\n"
+      "mov xzr, x4\n"
+      "mov xzr, x5\n"
+      "mov xzr, x6\n"
+      "mov xzr, x7\n"
+      "mov xzr, x8\n"
+      "mov xzr, x7\n"
+      "mov xzr, x6\n"
+      "mov xzr, x5\n"
+      "mov xzr, x4\n"
+      "mov xzr, x3\n"
+      "mov xzr, x2\n"
+      "mov xzr, x1\n"
+      "mov xzr, x0\n");
+#else
+#error
+#endif
+
   _jove_initialize();
 
   const uintptr_t initfn = _jove_get_init_fn();
@@ -1066,6 +1091,33 @@ jove_thunk_return_t _jove_call(
                  p[3*2+0] == 0x87 && p[3*2+1] == 0xf6 &&
                  p[4*2+0] == 0x87 && p[4*2+1] == 0xff;
   }
+#elif defined(__aarch64__)
+  {
+    static const uint32_t magic_insns[] = {
+      0xaa0003ff,  // mov xzr, x0
+      0xaa0103ff,  // mov xzr, x1
+      0xaa0203ff,  // mov xzr, x2
+      0xaa0303ff,  // mov xzr, x3
+      0xaa0403ff,  // mov xzr, x4
+      0xaa0503ff,  // mov xzr, x5
+      0xaa0603ff,  // mov xzr, x6
+      0xaa0703ff,  // mov xzr, x7
+      0xaa0803ff,  // mov xzr, x8
+      0xaa0703ff,  // mov xzr, x7
+      0xaa0603ff,  // mov xzr, x6
+      0xaa0503ff,  // mov xzr, x5
+      0xaa0403ff,  // mov xzr, x4
+      0xaa0303ff,  // mov xzr, x3
+      0xaa0203ff,  // mov xzr, x2
+      0xaa0103ff,  // mov xzr, x1
+      0xaa0003ff,  // mov xzr, x0
+    };
+
+    IsJoveInit = !!_memmem((const uint8_t *)pc, 2 * sizeof(magic_insns),
+                           &magic_insns[0], sizeof(magic_insns));
+  }
+#else
+#error
 #endif
 
   if (unlikely(IsJoveInit))

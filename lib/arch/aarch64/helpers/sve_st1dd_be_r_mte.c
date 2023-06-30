@@ -1992,6 +1992,14 @@ static inline int32_t simd_data(uint32_t desc)
     return sextract32(desc, SIMD_DATA_SHIFT, SIMD_DATA_BITS);
 }
 
+G_NORETURN static inline void arm_cpu_do_unaligned_access(CPUState *cs, vaddr vaddr,
+                                                          MMUAccessType access_type,
+                                                          int mmu_idx, uintptr_t retaddr)
+{
+    __builtin_trap();
+    __builtin_unreachable();
+}
+
 #define SVE_MTEDESC_SHIFT 5
 
 FIELD(MTEDESC, TBI,   4, 2)
@@ -2171,11 +2179,6 @@ void cpu_stq_be_data_ra(CPUArchState *env, abi_ptr ptr,
 
 void cpu_stq_le_data_ra(CPUArchState *env, abi_ptr ptr,
                         uint64_t val, uintptr_t ra);
-
-G_NORETURN static inline void cpu_loop_exit_noexc(CPUState *cpu) {
-  __builtin_trap();
-  __builtin_unreachable();
-}
 
 int probe_access_flags(CPUArchState *env, target_ulong addr, int size,
                        MMUAccessType access_type, int mmu_idx,

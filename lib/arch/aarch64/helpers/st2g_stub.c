@@ -2168,9 +2168,13 @@ static inline int cpu_mmu_index(CPUARMState *env, bool ifetch)
 
 #define TAG_GRANULE      (1 << LOG2_TAG_GRANULE)
 
-G_NORETURN void arm_cpu_do_unaligned_access(CPUState *cs, vaddr vaddr,
-                                            MMUAccessType access_type,
-                                            int mmu_idx, uintptr_t retaddr);
+G_NORETURN static inline void arm_cpu_do_unaligned_access(CPUState *cs, vaddr vaddr,
+                                                          MMUAccessType access_type,
+                                                          int mmu_idx, uintptr_t retaddr)
+{
+    __builtin_trap();
+    __builtin_unreachable();
+}
 
 void *probe_access(CPUArchState *env, target_ulong addr, int size,
                    MMUAccessType access_type, int mmu_idx, uintptr_t retaddr);
@@ -2196,6 +2200,7 @@ static void check_tag_aligned(CPUARMState *env, uint64_t ptr, uintptr_t ra)
 
 void HELPER(st2g_stub)(CPUARMState *env, uint64_t ptr)
 {
+#if 0
     int mmu_idx = cpu_mmu_index(env, false);
     uintptr_t ra = GETPC();
     int in_page = -(ptr | TARGET_PAGE_MASK);
@@ -2208,5 +2213,6 @@ void HELPER(st2g_stub)(CPUARMState *env, uint64_t ptr)
         probe_write(env, ptr, TAG_GRANULE, mmu_idx, ra);
         probe_write(env, ptr + TAG_GRANULE, TAG_GRANULE, mmu_idx, ra);
     }
+#endif
 }
 

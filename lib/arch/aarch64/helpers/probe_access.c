@@ -754,6 +754,7 @@ void HELPER(probe_access)(CPUARMState *env, target_ulong ptr,
                           uint32_t access_type, uint32_t mmu_idx,
                           uint32_t size)
 {
+#if 0
     uint32_t in_page = -((uint32_t)ptr | TARGET_PAGE_SIZE);
     uintptr_t ra = GETPC();
 
@@ -764,5 +765,6 @@ void HELPER(probe_access)(CPUARMState *env, target_ulong ptr,
         probe_access(env, ptr + in_page, size - in_page,
                      access_type, mmu_idx, ra);
     }
+#endif
 }
 
