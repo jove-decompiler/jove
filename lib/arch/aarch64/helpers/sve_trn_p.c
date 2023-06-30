@@ -2,13 +2,14 @@
 
 #define glue(x, y) xglue(x, y)
 
-#include <stdbool.h>
-
 #include <stdint.h>
 
 #include <assert.h>
 
 #define DIV_ROUND_UP(n, d) (((n) + (d) - 1) / (d))
+
+#define MAKE_64BIT_MASK(shift, length) \
+    (((~0ULL) >> (64 - (length))) << (shift))
 
 static inline uint32_t extract32(uint32_t value, int start, int length)
 {
@@ -16,17 +17,23 @@ static inline uint32_t extract32(uint32_t value, int start, int length)
     return (value >> start) & (~0U >> (32 - length));
 }
 
+#define FIELD(reg, field, shift, length)                                  \
+    enum { R_ ## reg ## _ ## field ## _SHIFT = (shift)};                  \
+    enum { R_ ## reg ## _ ## field ## _LENGTH = (length)};                \
+    enum { R_ ## reg ## _ ## field ## _MASK =                             \
+                                        MAKE_64BIT_MASK(shift, length)};
+
+#define FIELD_EX32(storage, reg, field)                                   \
+    extract32((storage), R_ ## reg ## _ ## field ## _SHIFT,               \
+              R_ ## reg ## _ ## field ## _LENGTH)
+
+FIELD(PREDDESC, OPRSZ, 0, 6)
+
+FIELD(PREDDESC, ESZ, 6, 2)
+
+FIELD(PREDDESC, DATA, 8, 24)
+
 #define HELPER(name) glue(helper_, name)
-
-#define SIMD_OPRSZ_SHIFT   0
-
-#define SIMD_OPRSZ_BITS    5
-
-#define SIMD_MAXSZ_SHIFT   (SIMD_OPRSZ_SHIFT + SIMD_OPRSZ_BITS)
-
-#define SIMD_MAXSZ_BITS    5
-
-#define SIMD_DATA_SHIFT    (SIMD_MAXSZ_SHIFT + SIMD_MAXSZ_BITS)
 
 static const uint64_t even_bit_esz_masks[5] = {
     0x5555555555555555ull,
@@ -38,9 +45,9 @@ static const uint64_t even_bit_esz_masks[5] = {
 
 void HELPER(sve_trn_p)(void *vd, void *vn, void *vm, uint32_t pred_desc)
 {
-    intptr_t oprsz = extract32(pred_desc, 0, SIMD_OPRSZ_BITS) + 2;
-    uintptr_t esz = extract32(pred_desc, SIMD_DATA_SHIFT, 2);
-    bool odd = extract32(pred_desc, SIMD_DATA_SHIFT + 2, 1);
+    intptr_t oprsz = FIELD_EX32(pred_desc, PREDDESC, OPRSZ);
+    int esz = FIELD_EX32(pred_desc, PREDDESC, ESZ);
+    int odd = FIELD_EX32(pred_desc, PREDDESC, DATA);
     uint64_t *d = vd, *n = vn, *m = vm;
     uint64_t mask;
     int shr, shl;

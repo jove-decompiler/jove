@@ -12,7 +12,7 @@
     RESULT(sum, n, 16); \
     if (sum >= 0) \
         ge |= 3 << (n * 2); \
-    } while(0)
+    } while (0)
 
 #define ADD16(a, b, n) SARITH16(a, b, n, +)
 

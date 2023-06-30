@@ -21,10 +21,11 @@
 
 static inline uint8_t sub8_usat(uint8_t a, uint8_t b)
 {
-    if (a > b)
+    if (a > b) {
         return a - b;
-    else
+    } else {
         return 0;
+    }
 }
 
 uint32_t HELPER(glue(PFX,sub8))(uint32_t a, uint32_t b GE_ARG)

@@ -21,29 +21,37 @@ static inline int32_t sextract32(uint32_t value, int start, int length)
     return ((int32_t)(value << (32 - length - start))) >> (32 - length);
 }
 
-#define HELPER(name) glue(helper_, name)
+#define SIMD_MAXSZ_SHIFT   0
 
-#define SIMD_OPRSZ_SHIFT   0
+#define SIMD_MAXSZ_BITS    8
 
-#define SIMD_OPRSZ_BITS    5
+#define SIMD_OPRSZ_SHIFT   (SIMD_MAXSZ_SHIFT + SIMD_MAXSZ_BITS)
 
-#define SIMD_MAXSZ_SHIFT   (SIMD_OPRSZ_SHIFT + SIMD_OPRSZ_BITS)
+#define SIMD_OPRSZ_BITS    2
 
-#define SIMD_MAXSZ_BITS    5
-
-#define SIMD_DATA_SHIFT    (SIMD_MAXSZ_SHIFT + SIMD_MAXSZ_BITS)
+#define SIMD_DATA_SHIFT    (SIMD_OPRSZ_SHIFT + SIMD_OPRSZ_BITS)
 
 #define SIMD_DATA_BITS     (32 - SIMD_DATA_SHIFT)
 
+static inline intptr_t simd_maxsz(uint32_t desc)
+{
+    return extract32(desc, SIMD_MAXSZ_SHIFT, SIMD_MAXSZ_BITS) * 8 + 8;
+}
+
 static inline intptr_t simd_oprsz(uint32_t desc)
 {
-    return (extract32(desc, SIMD_OPRSZ_SHIFT, SIMD_OPRSZ_BITS) + 1) * 8;
+    uint32_t f = extract32(desc, SIMD_OPRSZ_SHIFT, SIMD_OPRSZ_BITS);
+    intptr_t o = f * 8 + 8;
+    intptr_t m = simd_maxsz(desc);
+    return f == 2 ? m : o;
 }
 
 static inline int32_t simd_data(uint32_t desc)
 {
     return sextract32(desc, SIMD_DATA_SHIFT, SIMD_DATA_BITS);
 }
+
+#define HELPER(name) glue(helper_, name)
 
 void HELPER(sve_adr_p32)(void *vd, void *vn, void *vm, uint32_t desc)
 {

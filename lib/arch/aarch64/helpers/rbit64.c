@@ -4,17 +4,11 @@
 
 #include <stdint.h>
 
-#include <sys/types.h>
-
-#include <byteswap.h>
-
-static inline uint64_t bswap64(uint64_t x)
-{
-    return bswap_64(x);
-}
-
 static inline uint64_t revbit64(uint64_t x)
 {
+#if __has_builtin(__builtin_bitreverse64)
+    return __builtin_bitreverse64(x);
+#else
     /* Assign the correct byte position.  */
     x = bswap64(x);
     /* Assign the correct nibble position.  */
@@ -26,6 +20,7 @@ static inline uint64_t revbit64(uint64_t x)
       | ((x & 0x2222222222222222ull) << 1)
       | ((x & 0x1111111111111111ull) << 3);
     return x;
+#endif
 }
 
 #define HELPER(name) glue(helper_, name)

@@ -8,10 +8,11 @@
 
 static inline uint16_t sub16_usat(uint16_t a, uint16_t b)
 {
-    if (a > b)
+    if (a > b) {
         return a - b;
-    else
+    } else {
         return 0;
+    }
 }
 
 #define SUB16(a, b, n) RESULT(sub16_usat(a, b), n, 16);

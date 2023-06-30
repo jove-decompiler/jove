@@ -6,11 +6,18 @@
 
 #include <stddef.h>
 
+#include <stdbool.h>
+
 #include <stdint.h>
 
 #include <stdio.h>
 
 #include <assert.h>
+
+static inline bool sadd32_overflow(int32_t x, int32_t y, int32_t *ret)
+{
+    return __builtin_add_overflow(x, y, ret);
+}
 
 static inline uint32_t extract32(uint32_t value, int start, int length)
 {
@@ -20,22 +27,25 @@ static inline uint32_t extract32(uint32_t value, int start, int length)
 
 #define HELPER(name) glue(helper_, name)
 
-#define SIMD_OPRSZ_SHIFT   0
+#define SIMD_MAXSZ_SHIFT   0
 
-#define SIMD_OPRSZ_BITS    5
+#define SIMD_MAXSZ_BITS    8
 
-#define SIMD_MAXSZ_SHIFT   (SIMD_OPRSZ_SHIFT + SIMD_OPRSZ_BITS)
+#define SIMD_OPRSZ_SHIFT   (SIMD_MAXSZ_SHIFT + SIMD_MAXSZ_BITS)
 
-#define SIMD_MAXSZ_BITS    5
-
-static inline intptr_t simd_oprsz(uint32_t desc)
-{
-    return (extract32(desc, SIMD_OPRSZ_SHIFT, SIMD_OPRSZ_BITS) + 1) * 8;
-}
+#define SIMD_OPRSZ_BITS    2
 
 static inline intptr_t simd_maxsz(uint32_t desc)
 {
-    return (extract32(desc, SIMD_MAXSZ_SHIFT, SIMD_MAXSZ_BITS) + 1) * 8;
+    return extract32(desc, SIMD_MAXSZ_SHIFT, SIMD_MAXSZ_BITS) * 8 + 8;
+}
+
+static inline intptr_t simd_oprsz(uint32_t desc)
+{
+    uint32_t f = extract32(desc, SIMD_OPRSZ_SHIFT, SIMD_OPRSZ_BITS);
+    intptr_t o = f * 8 + 8;
+    intptr_t m = simd_maxsz(desc);
+    return f == 2 ? m : o;
 }
 
 static inline void clear_high(void *d, intptr_t oprsz, uint32_t desc)
@@ -58,9 +68,8 @@ void HELPER(gvec_ssadd32)(void *d, void *a, void *b, uint32_t desc)
     for (i = 0; i < oprsz; i += sizeof(int32_t)) {
         int32_t ai = *(int32_t *)(a + i);
         int32_t bi = *(int32_t *)(b + i);
-        int32_t di = ai + bi;
-        if (((di ^ ai) &~ (ai ^ bi)) < 0) {
-            /* Signed overflow.  */
+        int32_t di;
+        if (sadd32_overflow(ai, bi, &di)) {
             di = (di < 0 ? INT32_MAX : INT32_MIN);
         }
         *(int32_t *)(d + i) = di;

@@ -6,7 +6,6 @@
 
 #define HELPER(name) glue(helper_, name)
 
-__attribute__((always_inline))
 uint64_t HELPER(udiv64)(uint64_t num, uint64_t den)
 {
     if (den == 0) {

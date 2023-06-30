@@ -2,36 +2,71 @@
 
 #define glue(x, y) xglue(x, y)
 
+#include <stdbool.h>
+
 #include <stdint.h>
 
 #include <assert.h>
 
-typedef uint8_t flag;
-
 typedef uint64_t float64;
 
+typedef enum __attribute__((__packed__)) {
+    float_round_nearest_even = 0,
+    float_round_down         = 1,
+    float_round_up           = 2,
+    float_round_to_zero      = 3,
+    float_round_ties_away    = 4,
+    /* Not an IEEE rounding mode: round to closest odd, overflow to max */
+    float_round_to_odd       = 5,
+    /* Not an IEEE rounding mode: round to closest odd, overflow to inf */
+    float_round_to_odd_inf   = 6,
+} FloatRoundMode;
+
 enum {
-    float_flag_invalid   =  1,
-    float_flag_divbyzero =  4,
-    float_flag_overflow  =  8,
-    float_flag_underflow = 16,
-    float_flag_inexact   = 32,
-    float_flag_input_denormal = 64,
-    float_flag_output_denormal = 128
+    float_flag_invalid         = 0x0001,
+    float_flag_divbyzero       = 0x0002,
+    float_flag_overflow        = 0x0004,
+    float_flag_underflow       = 0x0008,
+    float_flag_inexact         = 0x0010,
+    float_flag_input_denormal  = 0x0020,
+    float_flag_output_denormal = 0x0040,
+    float_flag_invalid_isi     = 0x0080,  /* inf - inf */
+    float_flag_invalid_imz     = 0x0100,  /* inf * 0 */
+    float_flag_invalid_idi     = 0x0200,  /* inf / inf */
+    float_flag_invalid_zdz     = 0x0400,  /* 0 / 0 */
+    float_flag_invalid_sqrt    = 0x0800,  /* sqrt(-x) */
+    float_flag_invalid_cvti    = 0x1000,  /* non-nan to integer */
+    float_flag_invalid_snan    = 0x2000,  /* any operand was snan */
 };
 
+typedef enum __attribute__((__packed__)) {
+    floatx80_precision_x,
+    floatx80_precision_d,
+    floatx80_precision_s,
+} FloatX80RoundPrec;
+
 typedef struct float_status {
-    signed char float_detect_tininess;
-    signed char float_rounding_mode;
-    uint8_t     float_exception_flags;
-    signed char floatx80_rounding_precision;
+    uint16_t float_exception_flags;
+    FloatRoundMode float_rounding_mode;
+    FloatX80RoundPrec floatx80_rounding_precision;
+    bool tininess_before_rounding;
     /* should denormalised results go to zero and set the inexact flag? */
-    flag flush_to_zero;
+    bool flush_to_zero;
     /* should denormalised inputs go to zero and set the input_denormal flag? */
-    flag flush_inputs_to_zero;
-    flag default_nan_mode;
-    /* not always used -- see snan_bit_is_one() in softfloat-specialize.h */
-    flag snan_bit_is_one;
+    bool flush_inputs_to_zero;
+    bool default_nan_mode;
+    /*
+     * The flags below are not used on all specializations and may
+     * constant fold away (see snan_bit_is_one()/no_signalling_nans() in
+     * softfloat-specialize.inc.c)
+     */
+    bool snan_bit_is_one;
+    bool use_first_nan;
+    bool no_signaling_nans;
+    /* should overflowed results subtract re_bias to its exponent? */
+    bool rebias_overflow;
+    /* should underflowed results add re_bias to its exponent? */
+    bool rebias_underflow;
 } float_status;
 
 static inline uint64_t extract64(uint64_t value, int start, int length)
@@ -49,14 +84,12 @@ static inline uint64_t deposit64(uint64_t value, int start, int length,
     return (value & ~mask) | ((fieldval << start) & mask);
 }
 
-void float_raise(uint8_t flags, float_status *status);
+#define HELPER(name) glue(helper_, name)
 
-void float_raise(uint8_t flags, float_status *status)
+static inline void float_raise(uint16_t flags, float_status *status)
 {
     status->float_exception_flags |= flags;
 }
-
-#define HELPER(name) glue(helper_, name)
 
 uint64_t HELPER(fjcvtzs)(float64 value, void *vstatus)
 {

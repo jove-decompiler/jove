@@ -2,30 +2,44 @@
 
 #define glue(x, y) xglue(x, y)
 
+#include <stdbool.h>
+
 #include <stdint.h>
+
+#include <stddef.h>
 
 #define HELPER(name) glue(helper_, name)
 
-uint64_t HELPER(neon_rshl_s64)(uint64_t valop, uint64_t shiftop)
+static inline int64_t do_sqrshl_d(int64_t src, int64_t shift,
+                                  bool round, uint32_t *sat)
 {
-    int8_t shift = (int8_t)shiftop;
-    int64_t val = valop;
-    if ((shift >= 64) || (shift <= -64)) {
-        val = 0;
-    } else if (shift < 0) {
-        val >>= (-shift - 1);
-        if (val == INT64_MAX) {
-            /* In this case, it means that the rounding constant is 1,
-             * and the addition would overflow. Return the actual
-             * result directly.  */
-            val = 0x4000000000000000LL;
-        } else {
-            val++;
-            val >>= 1;
+    if (shift <= -64) {
+        /* Rounding the sign bit always produces 0. */
+        if (round) {
+            return 0;
         }
-    } else {
-        val <<= shift;
+        return src >> 63;
+    } else if (shift < 0) {
+        if (round) {
+            src >>= -shift - 1;
+            return (src >> 1) + (src & 1);
+        }
+        return src >> -shift;
+    } else if (shift < 64) {
+        int64_t val = src << shift;
+        if (!sat || val >> shift == src) {
+            return val;
+        }
+    } else if (!sat || src == 0) {
+        return 0;
     }
-    return val;
+
+    *sat = 1;
+    return src < 0 ? INT64_MIN : INT64_MAX;
+}
+
+uint64_t HELPER(neon_rshl_s64)(uint64_t val, uint64_t shift)
+{
+    return do_sqrshl_d(val, (int8_t)shift, true, NULL);
 }
 

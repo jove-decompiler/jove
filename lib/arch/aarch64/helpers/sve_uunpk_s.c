@@ -28,16 +28,28 @@ typedef struct ARMVectorReg {
     uint64_t d[2 * ARM_MAX_VQ] QEMU_ALIGNED(16);
 } ARMVectorReg;
 
-#define HELPER(name) glue(helper_, name)
+#define SIMD_MAXSZ_SHIFT   0
 
-#define SIMD_OPRSZ_SHIFT   0
+#define SIMD_MAXSZ_BITS    8
 
-#define SIMD_OPRSZ_BITS    5
+#define SIMD_OPRSZ_SHIFT   (SIMD_MAXSZ_SHIFT + SIMD_MAXSZ_BITS)
+
+#define SIMD_OPRSZ_BITS    2
+
+static inline intptr_t simd_maxsz(uint32_t desc)
+{
+    return extract32(desc, SIMD_MAXSZ_SHIFT, SIMD_MAXSZ_BITS) * 8 + 8;
+}
 
 static inline intptr_t simd_oprsz(uint32_t desc)
 {
-    return (extract32(desc, SIMD_OPRSZ_SHIFT, SIMD_OPRSZ_BITS) + 1) * 8;
+    uint32_t f = extract32(desc, SIMD_OPRSZ_SHIFT, SIMD_OPRSZ_BITS);
+    intptr_t o = f * 8 + 8;
+    intptr_t m = simd_maxsz(desc);
+    return f == 2 ? m : o;
 }
+
+#define HELPER(name) glue(helper_, name)
 
 #define H2(x)   (x)
 
@@ -51,7 +63,7 @@ void HELPER(NAME)(void *vd, void *vn, uint32_t desc)           \
     TYPES *n = vn;                                             \
     ARMVectorReg tmp;                                          \
     if (unlikely(vn - vd < opr_sz)) {                          \
-        n = __builtin_memcpy(&tmp, n, opr_sz / 2);                       \
+        n = memcpy(&tmp, n, opr_sz / 2);                       \
     }                                                          \
     for (i = 0; i < opr_sz / sizeof(TYPED); i++) {             \
         d[HD(i)] = n[HS(i)];                                   \

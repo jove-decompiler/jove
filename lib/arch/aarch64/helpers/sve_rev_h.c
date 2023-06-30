@@ -8,24 +8,7 @@
 
 static inline uint64_t rol64(uint64_t word, unsigned int shift)
 {
-    return (word << shift) | (word >> ((64 - shift) & 63));
-}
-
-static inline uint32_t extract32(uint32_t value, int start, int length)
-{
-    assert(start >= 0 && length > 0 && length <= 32 - start);
-    return (value >> start) & (~0U >> (32 - length));
-}
-
-#define HELPER(name) glue(helper_, name)
-
-#define SIMD_OPRSZ_SHIFT   0
-
-#define SIMD_OPRSZ_BITS    5
-
-static inline intptr_t simd_oprsz(uint32_t desc)
-{
-    return (extract32(desc, SIMD_OPRSZ_SHIFT, SIMD_OPRSZ_BITS) + 1) * 8;
+    return (word << (shift & 63)) | (word >> (-shift & 63));
 }
 
 static inline uint64_t hswap64(uint64_t h)
@@ -34,6 +17,35 @@ static inline uint64_t hswap64(uint64_t h)
     h = rol64(h, 32);
     return ((h & m) << 16) | ((h >> 16) & m);
 }
+
+static inline uint32_t extract32(uint32_t value, int start, int length)
+{
+    assert(start >= 0 && length > 0 && length <= 32 - start);
+    return (value >> start) & (~0U >> (32 - length));
+}
+
+#define SIMD_MAXSZ_SHIFT   0
+
+#define SIMD_MAXSZ_BITS    8
+
+#define SIMD_OPRSZ_SHIFT   (SIMD_MAXSZ_SHIFT + SIMD_MAXSZ_BITS)
+
+#define SIMD_OPRSZ_BITS    2
+
+static inline intptr_t simd_maxsz(uint32_t desc)
+{
+    return extract32(desc, SIMD_MAXSZ_SHIFT, SIMD_MAXSZ_BITS) * 8 + 8;
+}
+
+static inline intptr_t simd_oprsz(uint32_t desc)
+{
+    uint32_t f = extract32(desc, SIMD_OPRSZ_SHIFT, SIMD_OPRSZ_BITS);
+    intptr_t o = f * 8 + 8;
+    intptr_t m = simd_maxsz(desc);
+    return f == 2 ? m : o;
+}
+
+#define HELPER(name) glue(helper_, name)
 
 void HELPER(sve_rev_h)(void *vd, void *vn, uint32_t desc)
 {

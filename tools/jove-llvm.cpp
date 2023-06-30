@@ -7998,12 +7998,18 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
       assert(Ret->getType()->isIntegerTy(64));
       set(Ret, CallConvRetArray.front());
 #elif defined(TARGET_AARCH64)
-      assert(Ret->getType()->isStructTy());
+      assert(Ret->getType()->isIntegerTy(128));
+      {
+        llvm::Value *X =
+            IRB.CreateTrunc(Ret, IRB.getInt64Ty(),
+                            jv_get_tcg_context()->temps[CallConvRetArray.at(0)].name + std::string("_"));
 
-      for (unsigned j = 0; j < CallConvRetArray.size(); ++j) {
-        llvm::Value *X = IRB.CreateExtractValue(
-            Ret, j, jv_get_tcg_context()->temps[CallConvRetArray.at(j)].name + std::string("_"));
-        set(X, CallConvRetArray.at(j));
+        llvm::Value *Y = IRB.CreateTrunc(
+            IRB.CreateLShr(Ret, IRB.getIntN(128, 64)), IRB.getInt64Ty(),
+            jv_get_tcg_context()->temps[CallConvRetArray.at(1)].name + std::string("_"));
+
+        set(X, CallConvRetArray.at(0));
+        set(Y, CallConvRetArray.at(1));
       }
 #elif defined(TARGET_MIPS32) || defined(TARGET_I386)
       assert(Ret->getType()->isIntegerTy(64));
@@ -8795,6 +8801,9 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
 
     unsigned idx = temp_idx(ts);
     assert(idx != tcg_env_index);
+
+    if (V->getType()->isPointerTy())
+      V = IRB.CreatePtrToInt(V, WordType());
 
     V = IRB.CreateIntCast(V, IRB.getIntNTy(bitsOfTCGType(ts->type)), false);
 

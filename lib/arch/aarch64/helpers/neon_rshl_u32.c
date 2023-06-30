@@ -2,24 +2,58 @@
 
 #define glue(x, y) xglue(x, y)
 
+#include <stdbool.h>
+
 #include <stdint.h>
+
+#include <assert.h>
+
+#include <stddef.h>
+
+#define MAKE_64BIT_MASK(shift, length) \
+    (((~0ULL) >> (64 - (length))) << (shift))
+
+static inline uint32_t extract32(uint32_t value, int start, int length)
+{
+    assert(start >= 0 && length > 0 && length <= 32 - start);
+    return (value >> start) & (~0U >> (32 - length));
+}
 
 #define HELPER(name) glue(helper_, name)
 
-uint32_t HELPER(neon_rshl_u32)(uint32_t val, uint32_t shiftop)
+static inline uint32_t do_uqrshl_bhs(uint32_t src, int32_t shift, int bits,
+                                     bool round, uint32_t *sat)
 {
-    uint32_t dest;
-    int8_t shift = (int8_t)shiftop;
-    if (shift >= 32 || shift < -32) {
-        dest = 0;
-    } else if (shift == -32) {
-        dest = val >> 31;
+    if (shift <= -(bits + round)) {
+        return 0;
     } else if (shift < 0) {
-        uint64_t big_dest = ((uint64_t)val + (1 << (-1 - shift)));
-        dest = big_dest >> -shift;
-    } else {
-        dest = val << shift;
+        if (round) {
+            src >>= -shift - 1;
+            return (src >> 1) + (src & 1);
+        }
+        return src >> -shift;
+    } else if (shift < bits) {
+        uint32_t val = src << shift;
+        if (bits == 32) {
+            if (!sat || val >> shift == src) {
+                return val;
+            }
+        } else {
+            uint32_t extval = extract32(val, 0, bits);
+            if (!sat || val == extval) {
+                return extval;
+            }
+        }
+    } else if (!sat || src == 0) {
+        return 0;
     }
-    return dest;
+
+    *sat = 1;
+    return MAKE_64BIT_MASK(0, bits);
+}
+
+uint32_t HELPER(neon_rshl_u32)(uint32_t val, uint32_t shift)
+{
+    return do_uqrshl_bhs(val, (int8_t)shift, 32, true, NULL);
 }
 

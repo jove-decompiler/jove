@@ -1,3 +1,5 @@
+#define HOST_BIG_ENDIAN (__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__)
+
 #define QEMU_ALIGNED(X) __attribute__((aligned(X)))
 
 #define xglue(x, y) x ## y
@@ -33,29 +35,37 @@ typedef struct ARMVectorReg {
     uint64_t d[2 * ARM_MAX_VQ] QEMU_ALIGNED(16);
 } ARMVectorReg;
 
-#define HELPER(name) glue(helper_, name)
+#define SIMD_MAXSZ_SHIFT   0
 
-#define SIMD_OPRSZ_SHIFT   0
+#define SIMD_MAXSZ_BITS    8
 
-#define SIMD_OPRSZ_BITS    5
+#define SIMD_OPRSZ_SHIFT   (SIMD_MAXSZ_SHIFT + SIMD_MAXSZ_BITS)
 
-#define SIMD_MAXSZ_SHIFT   (SIMD_OPRSZ_SHIFT + SIMD_OPRSZ_BITS)
+#define SIMD_OPRSZ_BITS    2
 
-#define SIMD_MAXSZ_BITS    5
-
-#define SIMD_DATA_SHIFT    (SIMD_MAXSZ_SHIFT + SIMD_MAXSZ_BITS)
+#define SIMD_DATA_SHIFT    (SIMD_OPRSZ_SHIFT + SIMD_OPRSZ_BITS)
 
 #define SIMD_DATA_BITS     (32 - SIMD_DATA_SHIFT)
 
+static inline intptr_t simd_maxsz(uint32_t desc)
+{
+    return extract32(desc, SIMD_MAXSZ_SHIFT, SIMD_MAXSZ_BITS) * 8 + 8;
+}
+
 static inline intptr_t simd_oprsz(uint32_t desc)
 {
-    return (extract32(desc, SIMD_OPRSZ_SHIFT, SIMD_OPRSZ_BITS) + 1) * 8;
+    uint32_t f = extract32(desc, SIMD_OPRSZ_SHIFT, SIMD_OPRSZ_BITS);
+    intptr_t o = f * 8 + 8;
+    intptr_t m = simd_maxsz(desc);
+    return f == 2 ? m : o;
 }
 
 static inline int32_t simd_data(uint32_t desc)
 {
     return sextract32(desc, SIMD_DATA_SHIFT, SIMD_DATA_BITS);
 }
+
+#define HELPER(name) glue(helper_, name)
 
 #define H1(x)   (x)
 
@@ -70,12 +80,12 @@ static void swap_memmove(void *vd, void *vs, size_t n)
     uintptr_t o = (d | s | n) & 7;
     size_t i;
 
-#ifndef HOST_WORDS_BIGENDIAN
+#if !HOST_BIG_ENDIAN
     o = 0;
 #endif
     switch (o) {
     case 0:
-        __builtin_memmove(vd, vs, n);
+        memmove(vd, vs, n);
         break;
 
     case 4:
@@ -137,7 +147,7 @@ void HELPER(sve_ext)(void *vd, void *vn, void *vm, uint32_t desc)
         ARMVectorReg tmp;
         swap_memmove(&tmp, vm, n_ofs);
         swap_memmove(vd, vd + n_ofs, n_siz);
-        __builtin_memcpy(vd + n_siz, &tmp, n_ofs);
+        memcpy(vd + n_siz, &tmp, n_ofs);
     }
 }
 

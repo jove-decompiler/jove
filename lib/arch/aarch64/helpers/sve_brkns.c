@@ -1,3 +1,5 @@
+#define HOST_BIG_ENDIAN (__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__)
+
 #define QEMU_ALIGNED(X) __attribute__((aligned(X)))
 
 #define xglue(x, y) x ## y
@@ -24,6 +26,27 @@
 
 #define DIV_ROUND_UP(n, d) (((n) + (d) - 1) / (d))
 
+typedef struct Int128 Int128;
+
+struct Int128 {
+#if HOST_BIG_ENDIAN
+    int64_t hi;
+    uint64_t lo;
+#else
+    uint64_t lo;
+    int64_t hi;
+#endif
+};
+
+static inline int clz128(Int128 a)
+{
+    if (a.hi) {
+        return __builtin_clzll(a.hi);
+    } else {
+        return (a.lo) ? __builtin_clzll(a.lo) + 64 : 128;
+    }
+}
+
 static inline int clz64(uint64_t val)
 {
     return val ? __builtin_clzll(val) : 64;
@@ -37,6 +60,9 @@ static inline uint64_t pow2floor(uint64_t value)
     }
     return 0x8000000000000000ull >> clz64(value);
 }
+
+#define MAKE_64BIT_MASK(shift, length) \
+    (((~0ULL) >> (64 - (length))) << (shift))
 
 static inline uint32_t extract32(uint32_t value, int start, int length)
 {
@@ -53,15 +79,25 @@ static inline uint32_t deposit32(uint32_t value, int start, int length,
     return (value & ~mask) | ((fieldval << start) & mask);
 }
 
+#define FIELD(reg, field, shift, length)                                  \
+    enum { R_ ## reg ## _ ## field ## _SHIFT = (shift)};                  \
+    enum { R_ ## reg ## _ ## field ## _LENGTH = (length)};                \
+    enum { R_ ## reg ## _ ## field ## _MASK =                             \
+                                        MAKE_64BIT_MASK(shift, length)};
+
+#define FIELD_EX32(storage, reg, field)                                   \
+    extract32((storage), R_ ## reg ## _ ## field ## _SHIFT,               \
+              R_ ## reg ## _ ## field ## _LENGTH)
+
 # define ARM_MAX_VQ    16
 
 typedef struct ARMPredicateReg {
     uint64_t p[DIV_ROUND_UP(2 * ARM_MAX_VQ, 8)] QEMU_ALIGNED(16);
 } ARMPredicateReg;
 
-#define HELPER(name) glue(helper_, name)
+FIELD(PREDDESC, OPRSZ, 0, 6)
 
-#define SIMD_OPRSZ_BITS    5
+#define HELPER(name) glue(helper_, name)
 
 #define PREDTEST_INIT  1
 
@@ -102,7 +138,7 @@ static uint32_t do_zero(ARMPredicateReg *d, intptr_t oprsz)
     /* It is quicker to zero the whole predicate than loop on OPRSZ.
      * The compiler should turn this into 4 64-bit integer stores.
      */
-    __builtin_memset(d, 0, sizeof(ARMPredicateReg));
+    memset(d, 0, sizeof(ARMPredicateReg));
     return PREDTEST_INIT;
 }
 
@@ -124,8 +160,7 @@ static uint32_t predtest_ones(ARMPredicateReg *d, intptr_t oprsz,
 
 uint32_t HELPER(sve_brkns)(void *vd, void *vn, void *vg, uint32_t pred_desc)
 {
-    intptr_t oprsz = extract32(pred_desc, 0, SIMD_OPRSZ_BITS) + 2;
-
+    intptr_t oprsz = FIELD_EX32(pred_desc, PREDDESC, OPRSZ);
     if (last_active_pred(vn, vg, oprsz)) {
         return predtest_ones(vd, oprsz, -1);
     } else {

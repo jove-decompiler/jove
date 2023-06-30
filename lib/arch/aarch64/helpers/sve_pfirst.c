@@ -1,3 +1,5 @@
+#define HOST_BIG_ENDIAN (__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__)
+
 #define xglue(x, y) x ## y
 
 #define glue(x, y) xglue(x, y)
@@ -11,6 +13,29 @@
 #include <stdio.h>
 
 #include <assert.h>
+
+#define DIV_ROUND_UP(n, d) (((n) + (d) - 1) / (d))
+
+typedef struct Int128 Int128;
+
+struct Int128 {
+#if HOST_BIG_ENDIAN
+    int64_t hi;
+    uint64_t lo;
+#else
+    uint64_t lo;
+    int64_t hi;
+#endif
+};
+
+static inline int clz128(Int128 a)
+{
+    if (a.hi) {
+        return __builtin_clzll(a.hi);
+    } else {
+        return (a.lo) ? __builtin_clzll(a.lo) + 64 : 128;
+    }
+}
 
 static inline int clz64(uint64_t val)
 {
@@ -26,6 +51,15 @@ static inline uint64_t pow2floor(uint64_t value)
     return 0x8000000000000000ull >> clz64(value);
 }
 
+#define MAKE_64BIT_MASK(shift, length) \
+    (((~0ULL) >> (64 - (length))) << (shift))
+
+static inline uint32_t extract32(uint32_t value, int start, int length)
+{
+    assert(start >= 0 && length > 0 && length <= 32 - start);
+    return (value >> start) & (~0U >> (32 - length));
+}
+
 static inline uint32_t deposit32(uint32_t value, int start, int length,
                                  uint32_t fieldval)
 {
@@ -34,6 +68,18 @@ static inline uint32_t deposit32(uint32_t value, int start, int length,
     mask = (~0U >> (32 - length)) << start;
     return (value & ~mask) | ((fieldval << start) & mask);
 }
+
+#define FIELD(reg, field, shift, length)                                  \
+    enum { R_ ## reg ## _ ## field ## _SHIFT = (shift)};                  \
+    enum { R_ ## reg ## _ ## field ## _LENGTH = (length)};                \
+    enum { R_ ## reg ## _ ## field ## _MASK =                             \
+                                        MAKE_64BIT_MASK(shift, length)};
+
+#define FIELD_EX32(storage, reg, field)                                   \
+    extract32((storage), R_ ## reg ## _ ## field ## _SHIFT,               \
+              R_ ## reg ## _ ## field ## _LENGTH)
+
+FIELD(PREDDESC, OPRSZ, 0, 6)
 
 #define HELPER(name) glue(helper_, name)
 
@@ -58,8 +104,9 @@ static uint32_t iter_predtest_fwd(uint64_t d, uint64_t g, uint32_t flags)
     return flags;
 }
 
-uint32_t HELPER(sve_pfirst)(void *vd, void *vg, uint32_t words)
+uint32_t HELPER(sve_pfirst)(void *vd, void *vg, uint32_t pred_desc)
 {
+    intptr_t words = DIV_ROUND_UP(FIELD_EX32(pred_desc, PREDDESC, OPRSZ), 8);
     uint32_t flags = PREDTEST_INIT;
     uint64_t *d = vd, *g = vg;
     intptr_t i = 0;

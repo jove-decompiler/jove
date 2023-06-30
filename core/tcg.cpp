@@ -187,7 +187,7 @@ void tiny_code_generator_t::print_shit(void) {
     const std::array<const char *, 2> ret_regs{"eax", "edx"};
 #elif defined(TARGET_AARCH64)
     const std::array<const char *, 8> arg_regs = {"x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7"};
-    const std::array<const char *, 8> ret_regs = {"x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7"};
+    const std::array<const char *, 2> ret_regs = {"x0", "x1"};
 #elif defined(TARGET_MIPS64)
     const std::array<const char *, 8> arg_regs = {"a0", "a1", "a2", "a3", "t0", "t1", "t2", "t3"};
     const std::array<const char *, 2> ret_regs = {"v0", "v1"};
@@ -768,10 +768,12 @@ void tiny_code_generator_t::print_shit(void) {
     return tcg_index_of_named_global("rip");
 #elif defined(TARGET_I386)
     return tcg_index_of_named_global("eip");
-#elif defined(TARGET_MIPS64) || defined(TARGET_MIPS32) || defined(TARGET_AARCH64)
+#elif defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
     return tcg_index_of_named_global("PC");
+#elif defined(TARGET_AARCH64)
+    return tcg_index_of_named_global("PC"); /* made uppercase to distinguish */
 #else
-    return tcg_index_of_named_global("pc");
+#error
 #endif
   };
   auto stack_pointer_index = [&](void) -> int {

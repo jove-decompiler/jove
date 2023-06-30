@@ -52,6 +52,11 @@ disas_t::disas_t() {
     //Features.AddFeature("pic");
   }
 
+#ifdef TARGET_AARCH64
+  Features.AddFeature("mte");
+  Features.AddFeature("sve");
+#endif
+
   std::string ArchName;
   std::string Error;
 

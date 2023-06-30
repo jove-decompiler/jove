@@ -12,7 +12,7 @@
     RESULT(sum, n, 8); \
     if (sum >= 0) \
         ge |= 1 << n; \
-    } while(0)
+    } while (0)
 
 #define ADD8(a, b, n)  SARITH8(a, b, n, +)
 

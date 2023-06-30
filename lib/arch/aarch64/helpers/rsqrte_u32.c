@@ -44,7 +44,7 @@ static int do_recip_sqrt_estimate(int a)
     return estimate;
 }
 
-uint32_t HELPER(rsqrte_u32)(uint32_t a, void *fpstp)
+uint32_t HELPER(rsqrte_u32)(uint32_t a)
 {
     int estimate;
 

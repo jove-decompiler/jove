@@ -1,6 +1,8 @@
+#define CONFIG_USER_ONLY 1
+
 #define TARGET_AARCH64 1
 
-#define CONFIG_USER_ONLY 1
+#define HOST_BIG_ENDIAN (__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__)
 
 #define QEMU_ALIGNED(X) __attribute__((aligned(X)))
 
@@ -8,30 +10,19 @@
 
 #define glue(x, y) xglue(x, y)
 
-#define likely(x)   __builtin_expect(!!(x), 1)
-
-#define unlikely(x)   __builtin_expect(!!(x), 0)
-
-# define QEMU_FLATTEN __attribute__((flatten))
-
-#include <stddef.h>
-
 #include <stdbool.h>
 
 #include <stdint.h>
 
-#include <stdio.h>
-
 #include <assert.h>
-
-#define G_GNUC_NORETURN                         \
-  __attribute__((__noreturn__))
 
 #define G_STRFUNC     ((const char*) (__func__))
 
 #define G_STMT_START  do
 
 #define G_STMT_END    while (0)
+
+# define G_NORETURN __attribute__ ((__noreturn__))
 
 #define _GLIB_EXTERN extern
 
@@ -44,64 +35,60 @@ typedef char   gchar;
 #define g_assert_not_reached()          G_STMT_START { g_assertion_message_expr (G_LOG_DOMAIN, __FILE__, __LINE__, G_STRFUNC, NULL); } G_STMT_END
 
 GLIB_AVAILABLE_IN_ALL
+G_NORETURN
 void    g_assertion_message_expr        (const char     *domain,
                                          const char     *file,
                                          int             line,
                                          const char     *func,
-                                         const char     *expr) G_GNUC_NORETURN;
+                                         const char     *expr);
+
+#include <stddef.h>
 
 #define DIV_ROUND_UP(n, d) (((n) + (d) - 1) / (d))
 
-#include <math.h>
-
-typedef uint8_t flag;
-
-typedef uint32_t float32;
-
-#define float32_val(x) (x)
-
-#define float64_val(x) (x)
-
-#define make_float32(x) (x)
-
-#define make_float64(x) (x)
-
 typedef uint64_t float64;
 
-enum {
-    float_flag_invalid   =  1,
-    float_flag_divbyzero =  4,
-    float_flag_overflow  =  8,
-    float_flag_underflow = 16,
-    float_flag_inexact   = 32,
-    float_flag_input_denormal = 64,
-    float_flag_output_denormal = 128
-};
+typedef enum __attribute__((__packed__)) {
+    float_round_nearest_even = 0,
+    float_round_down         = 1,
+    float_round_up           = 2,
+    float_round_to_zero      = 3,
+    float_round_ties_away    = 4,
+    /* Not an IEEE rounding mode: round to closest odd, overflow to max */
+    float_round_to_odd       = 5,
+    /* Not an IEEE rounding mode: round to closest odd, overflow to inf */
+    float_round_to_odd_inf   = 6,
+} FloatRoundMode;
+
+typedef enum __attribute__((__packed__)) {
+    floatx80_precision_x,
+    floatx80_precision_d,
+    floatx80_precision_s,
+} FloatX80RoundPrec;
 
 typedef struct float_status {
-    signed char float_detect_tininess;
-    signed char float_rounding_mode;
-    uint8_t     float_exception_flags;
-    signed char floatx80_rounding_precision;
+    uint16_t float_exception_flags;
+    FloatRoundMode float_rounding_mode;
+    FloatX80RoundPrec floatx80_rounding_precision;
+    bool tininess_before_rounding;
     /* should denormalised results go to zero and set the inexact flag? */
-    flag flush_to_zero;
+    bool flush_to_zero;
     /* should denormalised inputs go to zero and set the input_denormal flag? */
-    flag flush_inputs_to_zero;
-    flag default_nan_mode;
-    /* not always used -- see snan_bit_is_one() in softfloat-specialize.h */
-    flag snan_bit_is_one;
+    bool flush_inputs_to_zero;
+    bool default_nan_mode;
+    /*
+     * The flags below are not used on all specializations and may
+     * constant fold away (see snan_bit_is_one()/no_signalling_nans() in
+     * softfloat-specialize.inc.c)
+     */
+    bool snan_bit_is_one;
+    bool use_first_nan;
+    bool no_signaling_nans;
+    /* should overflowed results subtract re_bias to its exponent? */
+    bool rebias_overflow;
+    /* should underflowed results add re_bias to its exponent? */
+    bool rebias_underflow;
 } float_status;
-
-static inline int clz64(uint64_t val)
-{
-    return val ? __builtin_clzll(val) : 64;
-}
-
-static inline uint64_t extract64(uint64_t value, int start, int length)
-{
-    assert(start >= 0 && length > 0 && length <= 64 - start);
-    return (value >> start) & (~0ULL >> (64 - length));
-}
 
 static inline uint32_t deposit32(uint32_t value, int start, int length,
                                  uint32_t fieldval)
@@ -110,399 +97,6 @@ static inline uint32_t deposit32(uint32_t value, int start, int length,
     assert(start >= 0 && length > 0 && length <= 32 - start);
     mask = (~0U >> (32 - length)) << start;
     return (value & ~mask) | ((fieldval << start) & mask);
-}
-
-enum {
-    float_relation_less      = -1,
-    float_relation_equal     =  0,
-    float_relation_greater   =  1,
-    float_relation_unordered =  2
-};
-
-static inline int float32_is_neg(float32 a)
-{
-    return float32_val(a) >> 31;
-}
-
-static inline int float32_is_zero(float32 a)
-{
-    return (float32_val(a) & 0x7fffffff) == 0;
-}
-
-static inline int float32_is_zero_or_denormal(float32 a)
-{
-    return (float32_val(a) & 0x7f800000) == 0;
-}
-
-static inline bool float32_is_denormal(float32 a)
-{
-    return float32_is_zero_or_denormal(a) && !float32_is_zero(a);
-}
-
-#define float32_zero make_float32(0)
-
-static inline float32 float32_set_sign(float32 a, int sign)
-{
-    return make_float32((float32_val(a) & 0x7fffffff) | (sign << 31));
-}
-
-int float64_compare(float64, float64, float_status *status);
-
-int float64_compare_quiet(float64, float64, float_status *status);
-
-static inline int float64_is_neg(float64 a)
-{
-    return float64_val(a) >> 63;
-}
-
-static inline int float64_is_zero(float64 a)
-{
-    return (float64_val(a) & 0x7fffffffffffffffLL) == 0;
-}
-
-static inline int float64_is_zero_or_denormal(float64 a)
-{
-    return (float64_val(a) & 0x7ff0000000000000LL) == 0;
-}
-
-static inline bool float64_is_denormal(float64 a)
-{
-    return float64_is_zero_or_denormal(a) && !float64_is_zero(a);
-}
-
-#define float64_zero make_float64(0)
-
-static inline float64 float64_set_sign(float64 a, int sign)
-{
-    return make_float64((float64_val(a) & 0x7fffffffffffffffULL)
-                        | ((int64_t)sign << 63));
-}
-
-#define GEN_INPUT_FLUSH__NOCHECK(name, soft_t)                          \
-    static inline void name(soft_t *a, float_status *s)                 \
-    {                                                                   \
-        if (unlikely(soft_t ## _is_denormal(*a))) {                     \
-            *a = soft_t ## _set_sign(soft_t ## _zero,                   \
-                                     soft_t ## _is_neg(*a));            \
-            s->float_exception_flags |= float_flag_input_denormal;      \
-        }                                                               \
-    }
-
-GEN_INPUT_FLUSH__NOCHECK(float32_input_flush__nocheck, float32)
-
-GEN_INPUT_FLUSH__NOCHECK(float64_input_flush__nocheck, float64)
-
-#define GEN_INPUT_FLUSH2(name, soft_t)                                  \
-    static inline void name(soft_t *a, soft_t *b, float_status *s)      \
-    {                                                                   \
-        if (likely(!s->flush_inputs_to_zero)) {                         \
-            return;                                                     \
-        }                                                               \
-        soft_t ## _input_flush__nocheck(a, s);                          \
-        soft_t ## _input_flush__nocheck(b, s);                          \
-    }
-
-GEN_INPUT_FLUSH2(float32_input_flush2, float32)
-
-GEN_INPUT_FLUSH2(float64_input_flush2, float64)
-
-# define QEMU_NO_HARDFLOAT 0
-
-# define QEMU_SOFTFLOAT_ATTR QEMU_FLATTEN __attribute__((noinline))
-
-typedef union {
-    float32 s;
-    float h;
-} union_float32;
-
-typedef union {
-    float64 s;
-    double h;
-} union_float64;
-
-typedef enum __attribute__ ((__packed__)) {
-    float_class_unclassified,
-    float_class_zero,
-    float_class_normal,
-    float_class_inf,
-    float_class_qnan,  /* all NaNs from here */
-    float_class_snan,
-} FloatClass;
-
-static inline __attribute__((unused)) bool is_nan(FloatClass c)
-{
-    return unlikely(c >= float_class_qnan);
-}
-
-#define DECOMPOSED_BINARY_POINT    (64 - 2)
-
-#define DECOMPOSED_IMPLICIT_BIT    (1ull << DECOMPOSED_BINARY_POINT)
-
-typedef struct {
-    uint64_t frac;
-    int32_t  exp;
-    FloatClass cls;
-    bool sign;
-} FloatParts;
-
-#define FLOAT_PARAMS(E, F)                                           \
-    .exp_size       = E,                                             \
-    .exp_bias       = ((1 << E) - 1) >> 1,                           \
-    .exp_max        = (1 << E) - 1,                                  \
-    .frac_size      = F,                                             \
-    .frac_shift     = DECOMPOSED_BINARY_POINT - F,                   \
-    .frac_lsb       = 1ull << (DECOMPOSED_BINARY_POINT - F),         \
-    .frac_lsbm1     = 1ull << ((DECOMPOSED_BINARY_POINT - F) - 1),   \
-    .round_mask     = (1ull << (DECOMPOSED_BINARY_POINT - F)) - 1,   \
-    .roundeven_mask = (2ull << (DECOMPOSED_BINARY_POINT - F)) - 1
-
-typedef struct {
-    int exp_size;
-    int exp_bias;
-    int exp_max;
-    int frac_size;
-    int frac_shift;
-    uint64_t frac_lsb;
-    uint64_t frac_lsbm1;
-    uint64_t round_mask;
-    uint64_t roundeven_mask;
-    bool arm_althp;
-} FloatFmt;
-
-static const FloatFmt float32_params = {
-    FLOAT_PARAMS(8, 23)
-};
-
-static const FloatFmt float64_params = {
-    FLOAT_PARAMS(11, 52)
-};
-
-static inline FloatParts unpack_raw(FloatFmt fmt, uint64_t raw)
-{
-    const int sign_pos = fmt.frac_size + fmt.exp_size;
-
-    return (FloatParts) {
-        .cls = float_class_unclassified,
-        .sign = extract64(raw, sign_pos, 1),
-        .exp = extract64(raw, fmt.frac_size, fmt.exp_size),
-        .frac = extract64(raw, 0, fmt.frac_size),
-    };
-}
-
-static inline FloatParts float32_unpack_raw(float32 f)
-{
-    return unpack_raw(float32_params, f);
-}
-
-static inline FloatParts float64_unpack_raw(float64 f)
-{
-    return unpack_raw(float64_params, f);
-}
-
-static inline flag snan_bit_is_one(float_status *status)
-{
-#if defined(TARGET_MIPS)
-    return status->snan_bit_is_one;
-#elif defined(TARGET_HPPA) || defined(TARGET_UNICORE32) || defined(TARGET_SH4)
-    return 1;
-#else
-    return 0;
-#endif
-}
-
-static bool parts_is_snan_frac(uint64_t frac, float_status *status)
-{
-#ifdef NO_SIGNALING_NANS
-    return false;
-#else
-    flag msb = extract64(frac, DECOMPOSED_BINARY_POINT - 1, 1);
-    return msb == snan_bit_is_one(status);
-#endif
-}
-
-void float_raise(uint8_t flags, float_status *status)
-{
-    status->float_exception_flags |= flags;
-}
-
-static FloatParts sf_canonicalize(FloatParts part, const FloatFmt *parm,
-                                  float_status *status)
-{
-    if (part.exp == parm->exp_max && !parm->arm_althp) {
-        if (part.frac == 0) {
-            part.cls = float_class_inf;
-        } else {
-            part.frac <<= parm->frac_shift;
-            part.cls = (parts_is_snan_frac(part.frac, status)
-                        ? float_class_snan : float_class_qnan);
-        }
-    } else if (part.exp == 0) {
-        if (likely(part.frac == 0)) {
-            part.cls = float_class_zero;
-        } else if (status->flush_inputs_to_zero) {
-            float_raise(float_flag_input_denormal, status);
-            part.cls = float_class_zero;
-            part.frac = 0;
-        } else {
-            int shift = clz64(part.frac) - 1;
-            part.cls = float_class_normal;
-            part.exp = parm->frac_shift - parm->exp_bias - shift + 1;
-            part.frac <<= shift;
-        }
-    } else {
-        part.cls = float_class_normal;
-        part.exp -= parm->exp_bias;
-        part.frac = DECOMPOSED_IMPLICIT_BIT + (part.frac << parm->frac_shift);
-    }
-    return part;
-}
-
-static FloatParts float32_unpack_canonical(float32 f, float_status *s)
-{
-    return sf_canonicalize(float32_unpack_raw(f), &float32_params, s);
-}
-
-static FloatParts float64_unpack_canonical(float64 f, float_status *s)
-{
-    return sf_canonicalize(float64_unpack_raw(f), &float64_params, s);
-}
-
-#define COMPARE(name, attr, sz)                                         \
-static int attr                                                         \
-name(float ## sz a, float ## sz b, bool is_quiet, float_status *s)      \
-{                                                                       \
-    FloatParts pa = float ## sz ## _unpack_canonical(a, s);             \
-    FloatParts pb = float ## sz ## _unpack_canonical(b, s);             \
-    return compare_floats(pa, pb, is_quiet, s);                         \
-}
-
-static int compare_floats(FloatParts a, FloatParts b, bool is_quiet,
-                          float_status *s)
-{
-    if (is_nan(a.cls) || is_nan(b.cls)) {
-        if (!is_quiet ||
-            a.cls == float_class_snan ||
-            b.cls == float_class_snan) {
-            s->float_exception_flags |= float_flag_invalid;
-        }
-        return float_relation_unordered;
-    }
-
-    if (a.cls == float_class_zero) {
-        if (b.cls == float_class_zero) {
-            return float_relation_equal;
-        }
-        return b.sign ? float_relation_greater : float_relation_less;
-    } else if (b.cls == float_class_zero) {
-        return a.sign ? float_relation_less : float_relation_greater;
-    }
-
-    /* The only really important thing about infinity is its sign. If
-     * both are infinities the sign marks the smallest of the two.
-     */
-    if (a.cls == float_class_inf) {
-        if ((b.cls == float_class_inf) && (a.sign == b.sign)) {
-            return float_relation_equal;
-        }
-        return a.sign ? float_relation_less : float_relation_greater;
-    } else if (b.cls == float_class_inf) {
-        return b.sign ? float_relation_greater : float_relation_less;
-    }
-
-    if (a.sign != b.sign) {
-        return a.sign ? float_relation_less : float_relation_greater;
-    }
-
-    if (a.exp == b.exp) {
-        if (a.frac == b.frac) {
-            return float_relation_equal;
-        }
-        if (a.sign) {
-            return a.frac > b.frac ?
-                float_relation_less : float_relation_greater;
-        } else {
-            return a.frac > b.frac ?
-                float_relation_greater : float_relation_less;
-        }
-    } else {
-        if (a.sign) {
-            return a.exp > b.exp ? float_relation_less : float_relation_greater;
-        } else {
-            return a.exp > b.exp ? float_relation_greater : float_relation_less;
-        }
-    }
-}
-
-COMPARE(soft_f32_compare, QEMU_SOFTFLOAT_ATTR, 32)
-
-COMPARE(soft_f64_compare, QEMU_SOFTFLOAT_ATTR, 64)
-
-static int QEMU_FLATTEN
-f32_compare(float32 xa, float32 xb, bool is_quiet, float_status *s)
-{
-    union_float32 ua, ub;
-
-    ua.s = xa;
-    ub.s = xb;
-
-    if (QEMU_NO_HARDFLOAT) {
-        goto soft;
-    }
-
-    float32_input_flush2(&ua.s, &ub.s, s);
-    if (isgreaterequal(ua.h, ub.h)) {
-        if (isgreater(ua.h, ub.h)) {
-            return float_relation_greater;
-        }
-        return float_relation_equal;
-    }
-    if (likely(isless(ua.h, ub.h))) {
-        return float_relation_less;
-    }
-    /* The only condition remaining is unordered.
-     * Fall through to set flags.
-     */
- soft:
-    return soft_f32_compare(ua.s, ub.s, is_quiet, s);
-}
-
-static int QEMU_FLATTEN
-f64_compare(float64 xa, float64 xb, bool is_quiet, float_status *s)
-{
-    union_float64 ua, ub;
-
-    ua.s = xa;
-    ub.s = xb;
-
-    if (QEMU_NO_HARDFLOAT) {
-        goto soft;
-    }
-
-    float64_input_flush2(&ua.s, &ub.s, s);
-    if (isgreaterequal(ua.h, ub.h)) {
-        if (isgreater(ua.h, ub.h)) {
-            return float_relation_greater;
-        }
-        return float_relation_equal;
-    }
-    if (likely(isless(ua.h, ub.h))) {
-        return float_relation_less;
-    }
-    /* The only condition remaining is unordered.
-     * Fall through to set flags.
-     */
- soft:
-    return soft_f64_compare(ua.s, ub.s, is_quiet, s);
-}
-
-int float64_compare(float64 a, float64 b, float_status *s)
-{
-    return f64_compare(a, b, false, s);
-}
-
-int float64_compare_quiet(float64 a, float64 b, float_status *s)
-{
-    return f64_compare(a, b, true, s);
 }
 
 #define QTAILQ_ENTRY(type)                                              \
@@ -515,6 +109,8 @@ typedef struct QTailQLink {
     void *tql_next;
     struct QTailQLink *tql_prev;
 } QTailQLink;
+
+typedef uint64_t vaddr;
 
 typedef struct MemTxAttrs {
     /* Bus masters which don't specify any attributes will get this
@@ -529,6 +125,14 @@ typedef struct MemTxAttrs {
     unsigned int secure:1;
     /* Memory access is usermode (unprivileged) */
     unsigned int user:1;
+    /*
+     * Bus interconnect and peripherals can access anything (memories,
+     * devices) by default. By setting the 'memory' bit, bus transaction
+     * are restricted to "normal" memories (per the AMBA documentation)
+     * versus devices. Access to devices will be logged and rejected
+     * (see MEMTX_ACCESS_ERROR).
+     */
+    unsigned int memory:1;
     /* Requester ID (for MSI for example) */
     unsigned int requester_id:16;
     /* Invert endianness for this page */
@@ -545,8 +149,6 @@ typedef struct MemTxAttrs {
     unsigned int target_tlb_bit2 : 1;
 } MemTxAttrs;
 
-typedef uint64_t vaddr;
-
 typedef struct CPUBreakpoint {
     vaddr pc;
     int flags; /* BP_* */
@@ -554,7 +156,7 @@ typedef struct CPUBreakpoint {
 } CPUBreakpoint;
 
 struct CPUWatchpoint {
-    vaddr vaddr;
+    vaddr _vaddr;
     vaddr len;
     vaddr hitaddr;
     MemTxAttrs hitattrs;
@@ -562,7 +164,9 @@ struct CPUWatchpoint {
     QTAILQ_ENTRY(CPUWatchpoint) entry;
 };
 
-struct arm_boot_info;
+#  define TARGET_TAGGED_ADDRESSES
+
+typedef uint64_t target_ulong;
 
 enum {
     M_REG_NS = 0,
@@ -570,20 +174,14 @@ enum {
     M_REG_NUM_BANKS = 2,
 };
 
-#define NUM_GTIMERS 4
+#define NUM_GTIMERS     5
+
+# define ARM_MAX_VQ    16
 
 typedef struct ARMGenericTimer {
     uint64_t cval; /* Timer CompareValue register */
     uint64_t ctl; /* Timer Control register */
 } ARMGenericTimer;
-
-# define ARM_MAX_VQ    16
-
-typedef struct {
-    uint64_t raw_tcr;
-    uint32_t mask;
-    uint32_t base_mask;
-} TCR;
 
 typedef struct ARMVectorReg {
     uint64_t d[2 * ARM_MAX_VQ] QEMU_ALIGNED(16);
@@ -597,7 +195,14 @@ typedef struct ARMPACKey {
     uint64_t lo, hi;
 } ARMPACKey;
 
-typedef struct CPUARMState {
+typedef struct CPUARMTBFlags {
+    uint32_t flags;
+    target_ulong flags2;
+} CPUARMTBFlags;
+
+typedef struct ARMMMUFaultInfo ARMMMUFaultInfo;
+
+typedef struct CPUArchState {
     /* Regs for current mode.  */
     uint32_t regs[16];
 
@@ -618,13 +223,15 @@ typedef struct CPUARMState {
      *  nRW (also known as M[4]) is kept, inverted, in env->aarch64
      *  DAIF (exception masks) are kept in env->daif
      *  BTYPE is kept in env->btype
+     *  SM and ZA are kept in env->svcr
      *  all other bits are stored in their correct places in env->pstate
      */
     uint32_t pstate;
-    uint32_t aarch64; /* 1 if CPU is in aarch64 state; inverse of PSTATE.nRW */
+    bool aarch64; /* True if CPU is in aarch64 state; inverse of PSTATE.nRW */
+    bool thumb;   /* True if CPU is in thumb mode; cpsr[5] */
 
     /* Cached TBFLAGS state.  See below for which bits are included.  */
-    uint32_t hflags;
+    CPUARMTBFlags hflags;
 
     /* Frequently accessed CPSR bits are stored separately for efficiency.
        This contains all the other bits.  Use cpsr_{read,write} to access
@@ -648,10 +255,10 @@ typedef struct CPUARMState {
     uint32_t ZF; /* Z set if zero.  */
     uint32_t QF; /* 0 or 1 */
     uint32_t GE; /* cpsr[19:16] */
-    uint32_t thumb; /* cpsr[5]. 0 = arm mode, 1 = thumb mode. */
     uint32_t condexec_bits; /* IT bits.  cpsr[15:10,26:25].  */
     uint32_t btype;  /* BTI branch type.  spsr[11:10].  */
     uint64_t daif; /* exception masks, in the bits they are in PSTATE */
+    uint64_t svcr; /* PSTATE.{SM,ZA} in the bits they are in SVCR */
 
     uint64_t elr_el[4]; /* AArch64 exception link regs  */
     uint64_t sp_el[4]; /* AArch64 banked stack pointers */
@@ -677,6 +284,7 @@ typedef struct CPUARMState {
             };
             uint64_t sctlr_el[4];
         };
+        uint64_t vsctlr; /* Virtualization System control register. */
         uint64_t cpacr_el1; /* Architectural feature access control register */
         uint64_t cptr_el[4];  /* ARMv8 feature trap registers */
         uint32_t c1_xscaleauxcr; /* XScale auxiliary control register.  */
@@ -701,9 +309,11 @@ typedef struct CPUARMState {
             uint64_t ttbr1_el[4];
         };
         uint64_t vttbr_el2; /* Virtualization Translation Table Base.  */
+        uint64_t vsttbr_el2; /* Secure Virtualization Translation Table. */
         /* MMU translation table base control. */
-        TCR tcr_el[4];
-        TCR vtcr_el2; /* Virtualization Translation Control.  */
+        uint64_t tcr_el[4];
+        uint64_t vtcr_el2; /* Virtualization Translation Control.  */
+        uint64_t vstcr_el2; /* Secure Virtualization Translation Control. */
         uint32_t c2_data; /* MPU data cacheable bits.  */
         uint32_t c2_insn; /* MPU instruction cacheable bits.  */
         union { /* MMU domain access control register
@@ -720,6 +330,7 @@ typedef struct CPUARMState {
         uint32_t pmsav5_data_ap; /* PMSAv5 MPU data access permissions */
         uint32_t pmsav5_insn_ap; /* PMSAv5 MPU insn access permissions */
         uint64_t hcr_el2; /* Hypervisor configuration register */
+        uint64_t hcrx_el2; /* Extended Hypervisor configuration register */
         uint64_t scr_el3; /* Secure configuration register.  */
         union { /* Fault status registers.  */
             struct {
@@ -743,7 +354,7 @@ typedef struct CPUARMState {
         union { /* Fault address registers. */
             struct {
                 uint64_t _unused_far0;
-#ifdef HOST_WORDS_BIGENDIAN
+#if HOST_BIG_ENDIAN
                 uint32_t ifar_ns;
                 uint32_t dfar_ns;
                 uint32_t ifar_s;
@@ -780,7 +391,7 @@ typedef struct CPUARMState {
         uint64_t c9_pminten; /* perf monitor interrupt enables */
         union { /* Memory attribute redirection */
             struct {
-#ifdef HOST_WORDS_BIGENDIAN
+#if HOST_BIG_ENDIAN
                 uint64_t _unused_mair_0;
                 uint32_t mair1_ns;
                 uint32_t mair0_ns;
@@ -808,6 +419,7 @@ typedef struct CPUARMState {
             uint64_t vbar_el[4];
         };
         uint32_t mvbar; /* (monitor) vector base address register */
+        uint64_t rvbar; /* rvbar sampled from rvbar property at reset */
         struct { /* FCSE PID. */
             uint32_t fcseidr_ns;
             uint32_t fcseidr_s;
@@ -830,6 +442,7 @@ typedef struct CPUARMState {
             };
             uint64_t tpidr_el[4];
         };
+        uint64_t tpidr2_el0;
         /* The secure banks of these registers don't map anywhere */
         uint64_t tpidrurw_s;
         uint64_t tpidrprw_s;
@@ -841,7 +454,7 @@ typedef struct CPUARMState {
         };
         uint64_t c14_cntfrq; /* Counter Frequency register */
         uint64_t c14_cntkctl; /* Timer Control register */
-        uint32_t cnthctl_el2; /* Counter/Timer Hyp Control register */
+        uint64_t cnthctl_el2; /* Counter/Timer Hyp Control register */
         uint64_t cntvoff_el2; /* Counter Virtual Offset register */
         ARMGenericTimer c14_timer[NUM_GTIMERS];
         uint32_t c15_cpar; /* XScale Coprocessor Access Register */
@@ -857,8 +470,10 @@ typedef struct CPUARMState {
         uint64_t dbgbcr[16]; /* breakpoint control registers */
         uint64_t dbgwvr[16]; /* watchpoint value registers */
         uint64_t dbgwcr[16]; /* watchpoint control registers */
+        uint64_t dbgclaim;   /* DBGCLAIM bits */
         uint64_t mdscr_el1;
         uint64_t oslsr_el1; /* OS Lock Status */
+        uint64_t osdlr_el1; /* OS DoubleLock status */
         uint64_t mdcr_el2;
         uint64_t mdcr_el3;
         /* Stores the architectural value of the counter *the last time it was
@@ -881,6 +496,24 @@ typedef struct CPUARMState {
         uint64_t pmccfiltr_el0; /* Performance Monitor Filter Register */
         uint64_t vpidr_el2; /* Virtualization Processor ID Register */
         uint64_t vmpidr_el2; /* Virtualization Multiprocessor ID Register */
+        uint64_t tfsr_el[4]; /* tfsre0_el1 is index 0.  */
+        uint64_t gcr_el1;
+        uint64_t rgsr_el1;
+
+        /* Minimal RAS registers */
+        uint64_t disr_el1;
+        uint64_t vdisr_el2;
+        uint64_t vsesr_el2;
+
+        /*
+         * Fine-Grained Trap registers. We store these as arrays so the
+         * access checking code doesn't have to manually select
+         * HFGRTR_EL2 vs HFDFGRTR_EL2 etc when looking up the bit to test.
+         * FEAT_FGT2 will add more elements to these arrays.
+         */
+        uint64_t fgt_read[2]; /* HFGRTR, HDFGRTR */
+        uint64_t fgt_write[2]; /* HFGWTR, HDFGWTR */
+        uint64_t fgt_exec[1]; /* HFGITR */
     } cp15;
 
     struct {
@@ -924,6 +557,8 @@ typedef struct CPUARMState {
         uint32_t fpdscr[M_REG_NUM_BANKS];
         uint32_t cpacr[M_REG_NUM_BANKS];
         uint32_t nsacr;
+        uint32_t ltpsize;
+        uint32_t vpr;
     } v7m;
 
     /* Information associated with an exception about to be taken:
@@ -948,6 +583,8 @@ typedef struct CPUARMState {
         uint8_t has_esr;
         uint64_t esr;
     } serror;
+
+    uint8_t ext_dabt_raised; /* Tracking/verifying injection of ext DABT */
 
     /* State of our input IRQ/FIQ/VIRQ/VFIQ lines */
     uint32_t irq_line_state;
@@ -983,6 +620,8 @@ typedef struct CPUARMState {
          *  fp_status: is the "normal" fp status.
          *  fp_status_fp16: used for half-precision calculations
          *  standard_fp_status : the ARM "Standard FPSCR Value"
+         *  standard_fp_status_fp16 : used for half-precision
+         *       calculations with the ARM "Standard FPSCR Value"
          *
          * Half-precision operations are governed by a separate
          * flush-to-zero control bit in FPSCR:FZ16. We pass a separate
@@ -993,21 +632,34 @@ typedef struct CPUARMState {
          * Neon) which the architecture defines as controlled by the
          * standard FPSCR value rather than the FPSCR.
          *
+         * The "standard FPSCR but for fp16 ops" is needed because
+         * the "standard FPSCR" tracks the FPSCR.FZ16 bit rather than
+         * using a fixed value for it.
+         *
          * To avoid having to transfer exception bits around, we simply
          * say that the FPSCR cumulative exception flags are the logical
-         * OR of the flags in the three fp statuses. This relies on the
+         * OR of the flags in the four fp statuses. This relies on the
          * only thing which needs to read the exception flags being
          * an explicit FPSCR read.
          */
         float_status fp_status;
         float_status fp_status_f16;
         float_status standard_fp_status;
+        float_status standard_fp_status_f16;
 
-        /* ZCR_EL[1-3] */
-        uint64_t zcr_el[4];
+        uint64_t zcr_el[4];   /* ZCR_EL[1-3] */
+        uint64_t smcr_el[4];  /* SMCR_EL[1-3] */
     } vfp;
+
     uint64_t exclusive_addr;
     uint64_t exclusive_val;
+    /*
+     * Contains the 'val' for the second 64-bit register of LDXP, which comes
+     * from the higher address, not the high part of a complete 128-bit value.
+     * In some ways it might be more convenient to record the exclusive value
+     * as the low and high halves of a 128 bit data value, but the current
+     * semantics of these fields are baked into the migration format.
+     */
     uint64_t exclusive_high;
 
     /* iwMMXt coprocessor state.  */
@@ -1026,15 +678,37 @@ typedef struct CPUARMState {
         ARMPACKey apdb;
         ARMPACKey apga;
     } keys;
-#endif
 
-#if defined(CONFIG_USER_ONLY)
-    /* For usermode syscall translation.  */
-    int eabi;
+    uint64_t scxtnum_el[4];
+
+    /*
+     * SME ZA storage -- 256 x 256 byte array, with bytes in host word order,
+     * as we do with vfp.zregs[].  This corresponds to the architectural ZA
+     * array, where ZA[N] is in the least-significant bytes of env->zarray[N].
+     * When SVL is less than the architectural maximum, the accessible
+     * storage is restricted, such that if the SVL is X bytes the guest can
+     * see only the bottom X elements of zarray[], and only the least
+     * significant X bytes of each element of the array. (In other words,
+     * the observable part is always square.)
+     *
+     * The ZA storage can also be considered as a set of square tiles of
+     * elements of different sizes. The mapping from tiles to the ZA array
+     * is architecturally defined, such that for tiles of elements of esz
+     * bytes, the Nth row (or "horizontal slice") of tile T is in
+     * ZA[T + N * esz]. Note that this means that each tile is not contiguous
+     * in the ZA storage, because its rows are striped through the ZA array.
+     *
+     * Because this is so large, keep this toward the end of the reset area,
+     * to keep the offsets into the rest of the structure smaller.
+     */
+    ARMVectorReg zarray[ARM_MAX_VQ * 16];
 #endif
 
     struct CPUBreakpoint *cpu_breakpoint[16];
     struct CPUWatchpoint *cpu_watchpoint[16];
+
+    /* Optional fault info across tlb lookup. */
+    ARMMMUFaultInfo *tlb_fi;
 
     /* Fields up to this point are cleared by a CPU reset */
     struct {} end_reset_fields;
@@ -1061,8 +735,11 @@ typedef struct CPUARMState {
          */
         uint32_t *rbar[M_REG_NUM_BANKS];
         uint32_t *rlar[M_REG_NUM_BANKS];
+        uint32_t *hprbar;
+        uint32_t *hprlar;
         uint32_t mair0[M_REG_NUM_BANKS];
         uint32_t mair1[M_REG_NUM_BANKS];
+        uint32_t hprselr;
     } pmsav8;
 
     /* v8M SAU */
@@ -1073,31 +750,52 @@ typedef struct CPUARMState {
         uint32_t ctrl;
     } sau;
 
-    void *nvic;
+#if !defined(CONFIG_USER_ONLY)
+    NVICState *nvic;
     const struct arm_boot_info *boot_info;
     /* Store GICv3CPUState to access from this struct */
     void *gicv3state;
+#else /* CONFIG_USER_ONLY */
+    /* For usermode syscall translation.  */
+    bool eabi;
+#endif /* CONFIG_USER_ONLY */
+
+#ifdef TARGET_TAGGED_ADDRESSES
+    /* Linux syscall tagged address support */
+    bool tagged_addr_enable;
+#endif
 } CPUARMState;
 
 #define ARM_VFP_FPSCR   1
 
 #define HELPER(name) glue(helper_, name)
 
+typedef enum {
+    float_relation_less      = -1,
+    float_relation_equal     =  0,
+    float_relation_greater   =  1,
+    float_relation_unordered =  2
+} FloatRelation;
+
+FloatRelation float64_compare(float64, float64, float_status *status);
+
+FloatRelation float64_compare_quiet(float64, float64, float_status *status);
+
 #define VFP_HELPER(name, p) HELPER(glue(glue(vfp_,name),p))
 
-#define DO_VFP_cmp(p, type) \
-void VFP_HELPER(cmp, p)(type a, type b, CPUARMState *env)  \
+#define DO_VFP_cmp(P, FLOATTYPE, ARGTYPE, FPST) \
+void VFP_HELPER(cmp, P)(ARGTYPE a, ARGTYPE b, CPUARMState *env)  \
 { \
     softfloat_to_vfp_compare(env, \
-        type ## _compare_quiet(a, b, &env->vfp.fp_status)); \
+        FLOATTYPE ## _compare_quiet(a, b, &env->vfp.FPST)); \
 } \
-void VFP_HELPER(cmpe, p)(type a, type b, CPUARMState *env) \
+void VFP_HELPER(cmpe, P)(ARGTYPE a, ARGTYPE b, CPUARMState *env) \
 { \
     softfloat_to_vfp_compare(env, \
-        type ## _compare(a, b, &env->vfp.fp_status)); \
+        FLOATTYPE ## _compare(a, b, &env->vfp.FPST)); \
 }
 
-static void softfloat_to_vfp_compare(CPUARMState *env, int cmp)
+static void softfloat_to_vfp_compare(CPUARMState *env, FloatRelation cmp)
 {
     uint32_t flags;
     switch (cmp) {
@@ -1114,11 +812,11 @@ static void softfloat_to_vfp_compare(CPUARMState *env, int cmp)
         flags = 0x3;
         break;
     default:
-        __builtin_trap();__builtin_unreachable();
+        g_assert_not_reached();
     }
     env->vfp.xregs[ARM_VFP_FPSCR] =
         deposit32(env->vfp.xregs[ARM_VFP_FPSCR], 28, 4, flags);
 }
 
-DO_VFP_cmp(d, float64)
+DO_VFP_cmp(d, float64, float64, fp_status)
 

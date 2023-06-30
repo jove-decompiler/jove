@@ -34,9 +34,8 @@ static int recip_estimate(int input)
     return r;
 }
 
-uint32_t HELPER(recpe_u32)(uint32_t a, void *fpstp)
+uint32_t HELPER(recpe_u32)(uint32_t a)
 {
-    /* float_status *s = fpstp; */
     int input, estimate;
 
     if ((a & 0x80000000) == 0) {

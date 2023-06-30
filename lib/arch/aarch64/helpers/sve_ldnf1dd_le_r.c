@@ -1,6 +1,12 @@
-#define TARGET_AARCH64 1
+#define CONFIG_LINUX 1
 
 #define CONFIG_USER_ONLY 1
+
+#define TARGET_AARCH64 1
+
+#define TARGET_BIG_ENDIAN 0
+
+#define HOST_BIG_ENDIAN (__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__)
 
 #define QEMU_ALIGNED(X) __attribute__((aligned(X)))
 
@@ -11,6 +17,12 @@
 #define likely(x)   __builtin_expect(!!(x), 1)
 
 #define unlikely(x)   __builtin_expect(!!(x), 0)
+
+#define container_of(ptr, type, member) ({                      \
+        const typeof(((type *) 0)->member) *__mptr = (ptr);     \
+        (type *) ((char *) __mptr - offsetof(type, member));})
+
+#define QEMU_ALWAYS_INLINE  __attribute__((always_inline))
 
 #include <stddef.h>
 
@@ -30,7 +42,85 @@
 
 #include <setjmp.h>
 
-#define MIN(a, b)  (((a) < (b)) ? (a) : (b))
+#define G_GNUC_EXTENSION __extension__
+
+#define G_GNUC_PRINTF( format_idx, arg_idx )    \
+  __attribute__((__format__ (__printf__, format_idx, arg_idx)))
+
+#define G_GNUC_UNUSED \
+  __attribute__ ((__unused__))
+
+#define G_GNUC_BEGIN_IGNORE_DEPRECATIONS \
+  _Pragma("clang diagnostic push") \
+  _Pragma("clang diagnostic ignored \"-Wdeprecated-declarations\"")
+
+#define G_GNUC_END_IGNORE_DEPRECATIONS \
+  _Pragma("clang diagnostic pop")
+
+#define G_STRFUNC     ((const char*) (__func__))
+
+#define G_STMT_START  do
+
+#define G_STMT_END    while (0)
+
+# define G_NORETURN __attribute__ ((__noreturn__))
+
+#define _G_BOOLEAN_EXPR(expr)                   \
+ G_GNUC_EXTENSION ({                            \
+   int _g_boolean_var_;                         \
+   if (expr)                                    \
+      _g_boolean_var_ = 1;                      \
+   else                                         \
+      _g_boolean_var_ = 0;                      \
+   _g_boolean_var_;                             \
+})
+
+#define G_LIKELY(expr) (__builtin_expect (_G_BOOLEAN_EXPR(expr), 1))
+
+#define _GLIB_EXTERN extern
+
+#define _GLIB_AUTOPTR_FUNC_NAME(TypeName) glib_autoptr_cleanup_##TypeName
+
+#define _GLIB_AUTOPTR_CLEAR_FUNC_NAME(TypeName) glib_autoptr_clear_##TypeName
+
+#define _GLIB_AUTOPTR_TYPENAME(TypeName)  TypeName##_autoptr
+
+#define _GLIB_AUTOPTR_LIST_FUNC_NAME(TypeName) glib_listautoptr_cleanup_##TypeName
+
+#define _GLIB_AUTOPTR_LIST_TYPENAME(TypeName)  TypeName##_listautoptr
+
+#define _GLIB_AUTOPTR_SLIST_FUNC_NAME(TypeName) glib_slistautoptr_cleanup_##TypeName
+
+#define _GLIB_AUTOPTR_SLIST_TYPENAME(TypeName)  TypeName##_slistautoptr
+
+#define _GLIB_AUTOPTR_QUEUE_FUNC_NAME(TypeName) glib_queueautoptr_cleanup_##TypeName
+
+#define _GLIB_AUTOPTR_QUEUE_TYPENAME(TypeName)  TypeName##_queueautoptr
+
+#define _GLIB_DEFINE_AUTOPTR_CLEANUP_FUNCS(TypeName, ParentName, cleanup) \
+  typedef TypeName *_GLIB_AUTOPTR_TYPENAME(TypeName);                                                           \
+  typedef GList *_GLIB_AUTOPTR_LIST_TYPENAME(TypeName);                                                         \
+  typedef GSList *_GLIB_AUTOPTR_SLIST_TYPENAME(TypeName);                                                       \
+  typedef GQueue *_GLIB_AUTOPTR_QUEUE_TYPENAME(TypeName);                                                       \
+  G_GNUC_BEGIN_IGNORE_DEPRECATIONS                                                                              \
+  static G_GNUC_UNUSED inline void _GLIB_AUTOPTR_CLEAR_FUNC_NAME(TypeName) (TypeName *_ptr)                     \
+    { if (_ptr) (cleanup) ((ParentName *) _ptr); }                                                              \
+  static G_GNUC_UNUSED inline void _GLIB_AUTOPTR_FUNC_NAME(TypeName) (TypeName **_ptr)                          \
+    { _GLIB_AUTOPTR_CLEAR_FUNC_NAME(TypeName) (*_ptr); }                                                        \
+  static G_GNUC_UNUSED inline void _GLIB_AUTOPTR_LIST_FUNC_NAME(TypeName) (GList **_l)                          \
+    { g_list_free_full (*_l, (GDestroyNotify) (void(*)(void)) cleanup); }                                       \
+  static G_GNUC_UNUSED inline void _GLIB_AUTOPTR_SLIST_FUNC_NAME(TypeName) (GSList **_l)                        \
+    { g_slist_free_full (*_l, (GDestroyNotify) (void(*)(void)) cleanup); }                                      \
+  static G_GNUC_UNUSED inline void _GLIB_AUTOPTR_QUEUE_FUNC_NAME(TypeName) (GQueue **_q)                        \
+    { if (*_q) g_queue_free_full (*_q, (GDestroyNotify) (void(*)(void)) cleanup); }                             \
+  G_GNUC_END_IGNORE_DEPRECATIONS
+
+#define G_DEFINE_AUTOPTR_CLEANUP_FUNC(TypeName, func) \
+  _GLIB_DEFINE_AUTOPTR_CLEANUP_FUNCS(TypeName, TypeName, func)
+
+typedef unsigned char guint8;
+
+#define GLIB_AVAILABLE_IN_ALL                   _GLIB_EXTERN
 
 typedef char   gchar;
 
@@ -38,13 +128,36 @@ typedef unsigned int    guint;
 
 typedef void* gpointer;
 
+typedef void            (*GDestroyNotify)       (gpointer       data);
+
 typedef struct _GArray		GArray;
+
+typedef struct _GByteArray	GByteArray;
 
 struct _GArray
 {
   gchar *data;
   guint len;
 };
+
+struct _GByteArray
+{
+  guint8 *data;
+  guint	  len;
+};
+
+typedef struct _GList GList;
+
+struct _GList
+{
+  gpointer data;
+  GList *next;
+  GList *prev;
+};
+
+GLIB_AVAILABLE_IN_ALL
+void     g_list_free_full               (GList            *list,
+					 GDestroyNotify    free_func);
 
 typedef struct _GHashTable  GHashTable;
 
@@ -56,60 +169,134 @@ struct _GSList
   GSList *next;
 };
 
+GLIB_AVAILABLE_IN_ALL
+void     g_slist_free_full               (GSList           *list,
+					  GDestroyNotify    free_func);
+
+#define G_LOG_DOMAIN    ((gchar*) 0)
+
+typedef struct _GQueue GQueue;
+
+struct _GQueue
+{
+  GList *head;
+  GList *tail;
+  guint  length;
+};
+
+GLIB_AVAILABLE_IN_ALL
+void     g_queue_free_full      (GQueue           *queue,
+				GDestroyNotify    free_func);
+
+#define g_assert(expr)                  G_STMT_START { \
+                                             if G_LIKELY (expr) ; else \
+                                               g_assertion_message_expr (G_LOG_DOMAIN, __FILE__, __LINE__, G_STRFUNC, \
+                                                                         #expr); \
+                                        } G_STMT_END
+
+GLIB_AVAILABLE_IN_ALL
+G_NORETURN
+void    g_assertion_message_expr        (const char     *domain,
+                                         const char     *file,
+                                         int             line,
+                                         const char     *func,
+                                         const char     *expr);
+
 typedef struct AddressSpace AddressSpace;
+
+typedef struct ArchCPU ArchCPU;
 
 typedef struct BusState BusState;
 
+typedef struct Clock Clock;
+
 typedef struct CPUAddressSpace CPUAddressSpace;
+
+typedef struct CPUArchState CPUArchState;
+
+typedef struct CpuInfoFast CpuInfoFast;
+
+typedef struct CPUJumpCache CPUJumpCache;
 
 typedef struct CPUState CPUState;
 
 typedef struct DeviceState DeviceState;
 
+typedef struct Error Error;
+
 typedef struct MemoryRegion MemoryRegion;
+
+typedef struct Object Object;
 
 typedef struct ObjectClass ObjectClass;
 
+typedef struct Property Property;
+
+typedef struct QDict QDict;
+
 typedef struct QemuMutex QemuMutex;
 
-typedef struct QemuOpts QemuOpts;
+typedef struct QEMUTimer QEMUTimer;
+
+typedef struct VMStateDescription VMStateDescription;
 
 typedef struct IRQState *qemu_irq;
 
-#define ROUND_UP(n, d) (((n) + (d) - 1) & -(0 ? (n) : (d)))
+#define ROUND_DOWN(n, d) ((n) & -(0 ? (n) : (d)))
+
+#define ROUND_UP(n, d) ROUND_DOWN((n) + (d) - 1, (d))
 
 #define DIV_ROUND_UP(n, d) (((n) + (d) - 1) / (d))
 
-typedef uint8_t flag;
+typedef enum __attribute__((__packed__)) {
+    float_round_nearest_even = 0,
+    float_round_down         = 1,
+    float_round_up           = 2,
+    float_round_to_zero      = 3,
+    float_round_ties_away    = 4,
+    /* Not an IEEE rounding mode: round to closest odd, overflow to max */
+    float_round_to_odd       = 5,
+    /* Not an IEEE rounding mode: round to closest odd, overflow to inf */
+    float_round_to_odd_inf   = 6,
+} FloatRoundMode;
 
-#include <byteswap.h>
+typedef enum __attribute__((__packed__)) {
+    floatx80_precision_x,
+    floatx80_precision_d,
+    floatx80_precision_s,
+} FloatX80RoundPrec;
 
 typedef struct float_status {
-    signed char float_detect_tininess;
-    signed char float_rounding_mode;
-    uint8_t     float_exception_flags;
-    signed char floatx80_rounding_precision;
+    uint16_t float_exception_flags;
+    FloatRoundMode float_rounding_mode;
+    FloatX80RoundPrec floatx80_rounding_precision;
+    bool tininess_before_rounding;
     /* should denormalised results go to zero and set the inexact flag? */
-    flag flush_to_zero;
+    bool flush_to_zero;
     /* should denormalised inputs go to zero and set the input_denormal flag? */
-    flag flush_inputs_to_zero;
-    flag default_nan_mode;
-    /* not always used -- see snan_bit_is_one() in softfloat-specialize.h */
-    flag snan_bit_is_one;
+    bool flush_inputs_to_zero;
+    bool default_nan_mode;
+    /*
+     * The flags below are not used on all specializations and may
+     * constant fold away (see snan_bit_is_one()/no_signalling_nans() in
+     * softfloat-specialize.inc.c)
+     */
+    bool snan_bit_is_one;
+    bool use_first_nan;
+    bool no_signaling_nans;
+    /* should overflowed results subtract re_bias to its exponent? */
+    bool rebias_overflow;
+    /* should underflowed results add re_bias to its exponent? */
+    bool rebias_underflow;
 } float_status;
-
-static inline uint64_t bswap64(uint64_t x)
-{
-    return bswap_64(x);
-}
 
 #define le_bswap(v, size) (v)
 
-#define be_bswap(v, size) glue(bswap, size)(v)
+#define be_bswap(v, size) glue(__builtin_bswap, size)(v)
 
-static inline int ldub_p(const void *ptr)
+static inline void bswap64s(uint64_t *s)
 {
-    return *(uint8_t *)ptr;
+    *s = __builtin_bswap64(*s);
 }
 
 static inline int lduw_he_p(const void *ptr)
@@ -136,12 +323,36 @@ static inline uint64_t ldq_be_p(const void *ptr)
     return be_bswap(ldq_he_p(ptr), 64);
 }
 
+typedef struct Int128 Int128;
+
+struct Int128 {
+#if HOST_BIG_ENDIAN
+    int64_t hi;
+    uint64_t lo;
+#else
+    uint64_t lo;
+    int64_t hi;
+#endif
+};
+
+static inline int clz128(Int128 a)
+{
+    if (a.hi) {
+        return __builtin_clzll(a.hi);
+    } else {
+        return (a.lo) ? __builtin_clzll(a.lo) + 64 : 128;
+    }
+}
+
+static inline int clz64(uint64_t val)
+{
+    return val ? __builtin_clzll(val) : 64;
+}
+
 static inline int ctz64(uint64_t val)
 {
     return val ? __builtin_ctzll(val) : 64;
 }
-
-#define signal_barrier() do {} while (0)
 
 #define BITS_PER_BYTE           CHAR_BIT
 
@@ -155,6 +366,40 @@ static inline uint32_t extract32(uint32_t value, int start, int length)
     assert(start >= 0 && length > 0 && length <= 32 - start);
     return (value >> start) & (~0U >> (32 - length));
 }
+
+static inline uint64_t extract64(uint64_t value, int start, int length)
+{
+    assert(start >= 0 && length > 0 && length <= 64 - start);
+    return (value >> start) & (~0ULL >> (64 - length));
+}
+
+static inline int32_t sextract32(uint32_t value, int start, int length)
+{
+    assert(start >= 0 && length > 0 && length <= 32 - start);
+    /* Note that this implementation relies on right shift of signed
+     * integers being an arithmetic shift.
+     */
+    return ((int32_t)(value << (32 - length - start))) >> (32 - length);
+}
+
+static inline int64_t sextract64(uint64_t value, int start, int length)
+{
+    assert(start >= 0 && length > 0 && length <= 64 - start);
+    /* Note that this implementation relies on right shift of signed
+     * integers being an arithmetic shift.
+     */
+    return ((int64_t)(value << (64 - length - start))) >> (64 - length);
+}
+
+#define FIELD(reg, field, shift, length)                                  \
+    enum { R_ ## reg ## _ ## field ## _SHIFT = (shift)};                  \
+    enum { R_ ## reg ## _ ## field ## _LENGTH = (length)};                \
+    enum { R_ ## reg ## _ ## field ## _MASK =                             \
+                                        MAKE_64BIT_MASK(shift, length)};
+
+#define FIELD_EX32(storage, reg, field)                                   \
+    extract32((storage), R_ ## reg ## _ ## field ## _SHIFT,               \
+              R_ ## reg ## _ ## field ## _LENGTH)
 
 #define QLIST_HEAD(name, type)                                          \
 struct name {                                                           \
@@ -171,11 +416,6 @@ struct {                                                                \
 struct name {                                                           \
     struct type *sqh_first;    /* first element */                      \
     struct type **sqh_last;    /* addr of last next element */          \
-}
-
-#define QSIMPLEQ_ENTRY(type)                                            \
-struct {                                                                \
-    struct type *sqe_next;    /* next element */                        \
 }
 
 #define QTAILQ_HEAD(name, type)                                         \
@@ -198,98 +438,7 @@ typedef struct QTailQLink {
     struct QTailQLink *tql_prev;
 } QTailQLink;
 
-struct TypeImpl;
-
-typedef struct TypeImpl *Type;
-
-typedef struct Object Object;
-
-typedef void (ObjectUnparent)(Object *obj);
-
-#define OBJECT_CLASS_CAST_CACHE 4
-
-typedef void (ObjectFree)(void *obj);
-
-struct ObjectClass
-{
-    /*< private >*/
-    Type type;
-    GSList *interfaces;
-
-    const char *object_cast_cache[OBJECT_CLASS_CAST_CACHE];
-    const char *class_cast_cache[OBJECT_CLASS_CAST_CACHE];
-
-    ObjectUnparent *unparent;
-
-    GHashTable *properties;
-};
-
-struct Object
-{
-    /*< private >*/
-    ObjectClass *klass;
-    ObjectFree *free;
-    GHashTable *properties;
-    uint32_t ref;
-    Object *parent;
-};
-
-struct NamedGPIOList {
-    char *name;
-    qemu_irq *in;
-    int num_in;
-    int num_out;
-    QLIST_ENTRY(NamedGPIOList) node;
-};
-
-struct DeviceState {
-    /*< private >*/
-    Object parent_obj;
-    /*< public >*/
-
-    const char *id;
-    char *canonical_path;
-    bool realized;
-    bool pending_deleted_event;
-    QemuOpts *opts;
-    int hotplugged;
-    bool allow_unplug_during_migration;
-    BusState *parent_bus;
-    QLIST_HEAD(, NamedGPIOList) gpios;
-    QLIST_HEAD(, BusState) child_bus;
-    int num_child_bus;
-    int instance_id_alias;
-    int alias_required_for_version;
-};
-
-typedef struct MemTxAttrs {
-    /* Bus masters which don't specify any attributes will get this
-     * (via the MEMTXATTRS_UNSPECIFIED constant), so that we can
-     * distinguish "all attributes deliberately clear" from
-     * "didn't specify" if necessary.
-     */
-    unsigned int unspecified:1;
-    /* ARM/AMBA: TrustZone Secure access
-     * x86: System Management Mode access
-     */
-    unsigned int secure:1;
-    /* Memory access is usermode (unprivileged) */
-    unsigned int user:1;
-    /* Requester ID (for MSI for example) */
-    unsigned int requester_id:16;
-    /* Invert endianness for this page */
-    unsigned int byte_swap:1;
-    /*
-     * The following are target-specific page-table bits.  These are not
-     * related to actual memory transactions at all.  However, this structure
-     * is part of the tlb_fill interface, cached in the cputlb structure,
-     * and has unused bits.  These fields will be read by target-specific
-     * helpers using env->iotlb[mmu_idx][tlb_index()].attrs.target_tlb_bitN.
-     */
-    unsigned int target_tlb_bit0 : 1;
-    unsigned int target_tlb_bit1 : 1;
-    unsigned int target_tlb_bit2 : 1;
-} MemTxAttrs;
+typedef struct QemuLockCnt QemuLockCnt;
 
 struct QemuMutex {
     pthread_mutex_t lock;
@@ -309,6 +458,651 @@ struct QemuThread {
     pthread_t thread;
 };
 
+struct QemuLockCnt {
+#ifndef CONFIG_LINUX
+    QemuMutex mutex;
+#endif
+    unsigned count;
+};
+
+struct TypeImpl;
+
+typedef struct TypeImpl *Type;
+
+typedef void (ObjectUnparent)(Object *obj);
+
+#define OBJECT_CLASS_CAST_CACHE 4
+
+typedef void (ObjectFree)(void *obj);
+
+struct ObjectClass
+{
+    /* private: */
+    Type type;
+    GSList *interfaces;
+
+    const char *object_cast_cache[OBJECT_CLASS_CAST_CACHE];
+    const char *class_cast_cache[OBJECT_CLASS_CAST_CACHE];
+
+    ObjectUnparent *unparent;
+
+    GHashTable *properties;
+};
+
+#define DECLARE_INSTANCE_CHECKER(InstanceType, OBJ_NAME, TYPENAME) \
+    static inline G_GNUC_UNUSED InstanceType * \
+    OBJ_NAME(const void *obj) \
+    { return OBJECT_CHECK(InstanceType, obj, TYPENAME); }
+
+#define DECLARE_CLASS_CHECKERS(ClassType, OBJ_NAME, TYPENAME) \
+    static inline G_GNUC_UNUSED ClassType * \
+    OBJ_NAME##_GET_CLASS(const void *obj) \
+    { return OBJECT_GET_CLASS(ClassType, obj, TYPENAME); } \
+    \
+    static inline G_GNUC_UNUSED ClassType * \
+    OBJ_NAME##_CLASS(const void *klass) \
+    { return OBJECT_CLASS_CHECK(ClassType, klass, TYPENAME); }
+
+#define DECLARE_OBJ_CHECKERS(InstanceType, ClassType, OBJ_NAME, TYPENAME) \
+    DECLARE_INSTANCE_CHECKER(InstanceType, OBJ_NAME, TYPENAME) \
+    \
+    DECLARE_CLASS_CHECKERS(ClassType, OBJ_NAME, TYPENAME)
+
+#define OBJECT_DECLARE_TYPE(InstanceType, ClassType, MODULE_OBJ_NAME) \
+    typedef struct InstanceType InstanceType; \
+    typedef struct ClassType ClassType; \
+    \
+    G_DEFINE_AUTOPTR_CLEANUP_FUNC(InstanceType, object_unref) \
+    \
+    DECLARE_OBJ_CHECKERS(InstanceType, ClassType, \
+                         MODULE_OBJ_NAME, TYPE_##MODULE_OBJ_NAME)
+
+struct Object
+{
+    /* private: */
+    ObjectClass *clazz;
+    ObjectFree *free;
+    GHashTable *properties;
+    uint32_t ref;
+    Object *parent;
+};
+
+#define OBJECT(obj) \
+    ((Object *)(obj))
+
+#define OBJECT_CLASS(class) \
+    ((ObjectClass *)(class))
+
+#define OBJECT_CHECK(type, obj, name) \
+    ((type *)object_dynamic_cast_assert(OBJECT(obj), (name), \
+                                        __FILE__, __LINE__, __func__))
+
+#define OBJECT_CLASS_CHECK(class_type, class, name) \
+    ((class_type *)object_class_dynamic_cast_assert(OBJECT_CLASS(class), (name), \
+                                               __FILE__, __LINE__, __func__))
+
+#define OBJECT_GET_CLASS(class, obj, name) \
+    OBJECT_CLASS_CHECK(class, object_get_class(OBJECT(obj)), name)
+
+Object *object_dynamic_cast_assert(Object *obj, const char *,
+                                   const char *file, int line, const char *func);
+
+ObjectClass *object_get_class(Object *obj);
+
+ObjectClass *object_class_dynamic_cast_assert(ObjectClass *klass,
+                                              const char *,
+                                              const char *file, int line,
+                                              const char *func);
+
+void object_unref(void *obj);
+
+typedef struct ResettableState ResettableState;
+
+struct ResettableState {
+    unsigned count;
+    bool hold_phase_pending;
+    bool exit_phase_in_progress;
+};
+
+#define TYPE_DEVICE "device"
+
+OBJECT_DECLARE_TYPE(DeviceState, DeviceClass, DEVICE)
+
+typedef enum DeviceCategory {
+    DEVICE_CATEGORY_BRIDGE,
+    DEVICE_CATEGORY_USB,
+    DEVICE_CATEGORY_STORAGE,
+    DEVICE_CATEGORY_NETWORK,
+    DEVICE_CATEGORY_INPUT,
+    DEVICE_CATEGORY_DISPLAY,
+    DEVICE_CATEGORY_SOUND,
+    DEVICE_CATEGORY_MISC,
+    DEVICE_CATEGORY_CPU,
+    DEVICE_CATEGORY_WATCHDOG,
+    DEVICE_CATEGORY_MAX
+} DeviceCategory;
+
+typedef void (*DeviceRealize)(DeviceState *dev, Error **errp);
+
+typedef void (*DeviceUnrealize)(DeviceState *dev);
+
+typedef void (*DeviceReset)(DeviceState *dev);
+
+struct DeviceClass {
+    /*< private >*/
+    ObjectClass parent_class;
+    /*< public >*/
+
+    DECLARE_BITMAP(categories, DEVICE_CATEGORY_MAX);
+    const char *fw_name;
+    const char *desc;
+
+    /*
+     * The underscore at the end ensures a compile-time error if someone
+     * assigns to dc->props instead of using device_class_set_props.
+     */
+    Property *props_;
+
+    /*
+     * Can this device be instantiated with -device / device_add?
+     * All devices should support instantiation with device_add, and
+     * this flag should not exist.  But we're not there, yet.  Some
+     * devices fail to instantiate with cryptic error messages.
+     * Others instantiate, but don't work.  Exposing users to such
+     * behavior would be cruel; clearing this flag will protect them.
+     * It should never be cleared without a comment explaining why it
+     * is cleared.
+     * TODO remove once we're there
+     */
+    bool user_creatable;
+    bool hotpluggable;
+
+    /* callbacks */
+    /*
+     * Reset method here is deprecated and replaced by methods in the
+     * resettable class interface to implement a multi-phase reset.
+     * TODO: remove once every reset callback is unused
+     */
+    DeviceReset reset;
+    DeviceRealize realize;
+    DeviceUnrealize unrealize;
+
+    /* device state */
+    const VMStateDescription *vmsd;
+
+    /* Private to qdev / bus.  */
+    const char *bus_type;
+};
+
+struct NamedGPIOList {
+    char *name;
+    qemu_irq *in;
+    int num_in;
+    int num_out;
+    QLIST_ENTRY(NamedGPIOList) node;
+};
+
+typedef struct Clock Clock;
+
+struct NamedClockList {
+    char *name;
+    Clock *clock;
+    bool output;
+    bool alias;
+    QLIST_ENTRY(NamedClockList) node;
+};
+
+typedef struct {
+    bool engaged_in_io;
+} MemReentrancyGuard;
+
+struct DeviceState {
+    /*< private >*/
+    Object parent_obj;
+    /*< public >*/
+
+    char *id;
+    char *canonical_path;
+    bool realized;
+    bool pending_deleted_event;
+    int64_t pending_deleted_expires_ms;
+    QDict *opts;
+    int hotplugged;
+    bool allow_unplug_during_migration;
+    BusState *parent_bus;
+    QLIST_HEAD(, NamedGPIOList) gpios;
+    QLIST_HEAD(, NamedClockList) clocks;
+    QLIST_HEAD(, BusState) child_bus;
+    int num_child_bus;
+    int instance_id_alias;
+    int alias_required_for_version;
+    ResettableState reset;
+    GSList *unplug_blockers;
+
+    /* Is the device currently in mmio/pio/dma? Used to prevent re-entrancy */
+    MemReentrancyGuard mem_reentrancy_guard;
+};
+
+typedef void *PTR;
+
+typedef uint64_t bfd_vma;
+
+typedef uint8_t bfd_byte;
+
+enum bfd_flavour {
+  bfd_target_unknown_flavour,
+  bfd_target_aout_flavour,
+  bfd_target_coff_flavour,
+  bfd_target_ecoff_flavour,
+  bfd_target_elf_flavour,
+  bfd_target_ieee_flavour,
+  bfd_target_nlm_flavour,
+  bfd_target_oasys_flavour,
+  bfd_target_tekhex_flavour,
+  bfd_target_srec_flavour,
+  bfd_target_ihex_flavour,
+  bfd_target_som_flavour,
+  bfd_target_os9k_flavour,
+  bfd_target_versados_flavour,
+  bfd_target_msdos_flavour,
+  bfd_target_evax_flavour
+};
+
+enum bfd_endian { BFD_ENDIAN_BIG, BFD_ENDIAN_LITTLE, BFD_ENDIAN_UNKNOWN };
+
+enum bfd_architecture
+{
+  bfd_arch_unknown,    /* File arch not known */
+  bfd_arch_obscure,    /* Arch known, not one of these */
+  bfd_arch_m68k,       /* Motorola 68xxx */
+#define bfd_mach_m68000 1
+#define bfd_mach_m68008 2
+#define bfd_mach_m68010 3
+#define bfd_mach_m68020 4
+#define bfd_mach_m68030 5
+#define bfd_mach_m68040 6
+#define bfd_mach_m68060 7
+#define bfd_mach_cpu32  8
+#define bfd_mach_mcf5200  9
+#define bfd_mach_mcf5206e 10
+#define bfd_mach_mcf5307  11
+#define bfd_mach_mcf5407  12
+#define bfd_mach_mcf528x  13
+#define bfd_mach_mcfv4e   14
+#define bfd_mach_mcf521x   15
+#define bfd_mach_mcf5249   16
+#define bfd_mach_mcf547x   17
+#define bfd_mach_mcf548x   18
+  bfd_arch_vax,        /* DEC Vax */
+  bfd_arch_i960,       /* Intel 960 */
+     /* The order of the following is important.
+       lower number indicates a machine type that
+       only accepts a subset of the instructions
+       available to machines with higher numbers.
+       The exception is the "ca", which is
+       incompatible with all other machines except
+       "core". */
+
+#define bfd_mach_i960_core      1
+#define bfd_mach_i960_ka_sa     2
+#define bfd_mach_i960_kb_sb     3
+#define bfd_mach_i960_mc        4
+#define bfd_mach_i960_xa        5
+#define bfd_mach_i960_ca        6
+#define bfd_mach_i960_jx        7
+#define bfd_mach_i960_hx        8
+
+  bfd_arch_a29k,       /* AMD 29000 */
+  bfd_arch_sparc,      /* SPARC */
+#define bfd_mach_sparc                 1
+/* The difference between v8plus and v9 is that v9 is a true 64 bit env.  */
+#define bfd_mach_sparc_sparclet        2
+#define bfd_mach_sparc_sparclite       3
+#define bfd_mach_sparc_v8plus          4
+#define bfd_mach_sparc_v8plusa         5 /* with ultrasparc add'ns.  */
+#define bfd_mach_sparc_sparclite_le    6
+#define bfd_mach_sparc_v9              7
+#define bfd_mach_sparc_v9a             8 /* with ultrasparc add'ns.  */
+#define bfd_mach_sparc_v8plusb         9 /* with cheetah add'ns.  */
+#define bfd_mach_sparc_v9b             10 /* with cheetah add'ns.  */
+/* Nonzero if MACH has the v9 instruction set.  */
+#define bfd_mach_sparc_v9_p(mach) \
+  ((mach) >= bfd_mach_sparc_v8plus && (mach) <= bfd_mach_sparc_v9b \
+   && (mach) != bfd_mach_sparc_sparclite_le)
+  bfd_arch_mips,       /* MIPS Rxxxx */
+#define bfd_mach_mips3000              3000
+#define bfd_mach_mips3900              3900
+#define bfd_mach_mips4000              4000
+#define bfd_mach_mips4010              4010
+#define bfd_mach_mips4100              4100
+#define bfd_mach_mips4300              4300
+#define bfd_mach_mips4400              4400
+#define bfd_mach_mips4600              4600
+#define bfd_mach_mips4650              4650
+#define bfd_mach_mips5000              5000
+#define bfd_mach_mips6000              6000
+#define bfd_mach_mips8000              8000
+#define bfd_mach_mips10000             10000
+#define bfd_mach_mips16                16
+  bfd_arch_i386,       /* Intel 386 */
+#define bfd_mach_i386_i386 0
+#define bfd_mach_i386_i8086 1
+#define bfd_mach_i386_i386_intel_syntax 2
+#define bfd_mach_x86_64 3
+#define bfd_mach_x86_64_intel_syntax 4
+  bfd_arch_we32k,      /* AT&T WE32xxx */
+  bfd_arch_tahoe,      /* CCI/Harris Tahoe */
+  bfd_arch_i860,       /* Intel 860 */
+  bfd_arch_romp,       /* IBM ROMP PC/RT */
+  bfd_arch_alliant,    /* Alliant */
+  bfd_arch_convex,     /* Convex */
+  bfd_arch_m88k,       /* Motorola 88xxx */
+  bfd_arch_pyramid,    /* Pyramid Technology */
+  bfd_arch_h8300,      /* Hitachi H8/300 */
+#define bfd_mach_h8300   1
+#define bfd_mach_h8300h  2
+#define bfd_mach_h8300s  3
+  bfd_arch_powerpc,    /* PowerPC */
+#define bfd_mach_ppc           0
+#define bfd_mach_ppc64         1
+#define bfd_mach_ppc_403       403
+#define bfd_mach_ppc_403gc     4030
+#define bfd_mach_ppc_e500      500
+#define bfd_mach_ppc_505       505
+#define bfd_mach_ppc_601       601
+#define bfd_mach_ppc_602       602
+#define bfd_mach_ppc_603       603
+#define bfd_mach_ppc_ec603e    6031
+#define bfd_mach_ppc_604       604
+#define bfd_mach_ppc_620       620
+#define bfd_mach_ppc_630       630
+#define bfd_mach_ppc_750       750
+#define bfd_mach_ppc_860       860
+#define bfd_mach_ppc_a35       35
+#define bfd_mach_ppc_rs64ii    642
+#define bfd_mach_ppc_rs64iii   643
+#define bfd_mach_ppc_7400      7400
+  bfd_arch_rs6000,     /* IBM RS/6000 */
+  bfd_arch_hppa,       /* HP PA RISC */
+#define bfd_mach_hppa10        10
+#define bfd_mach_hppa11        11
+#define bfd_mach_hppa20        20
+#define bfd_mach_hppa20w       25
+  bfd_arch_d10v,       /* Mitsubishi D10V */
+  bfd_arch_z8k,        /* Zilog Z8000 */
+#define bfd_mach_z8001         1
+#define bfd_mach_z8002         2
+  bfd_arch_h8500,      /* Hitachi H8/500 */
+  bfd_arch_sh,         /* Hitachi SH */
+#define bfd_mach_sh            1
+#define bfd_mach_sh2        0x20
+#define bfd_mach_sh_dsp     0x2d
+#define bfd_mach_sh2a       0x2a
+#define bfd_mach_sh2a_nofpu 0x2b
+#define bfd_mach_sh2e       0x2e
+#define bfd_mach_sh3        0x30
+#define bfd_mach_sh3_nommu  0x31
+#define bfd_mach_sh3_dsp    0x3d
+#define bfd_mach_sh3e       0x3e
+#define bfd_mach_sh4        0x40
+#define bfd_mach_sh4_nofpu  0x41
+#define bfd_mach_sh4_nommu_nofpu  0x42
+#define bfd_mach_sh4a       0x4a
+#define bfd_mach_sh4a_nofpu 0x4b
+#define bfd_mach_sh4al_dsp  0x4d
+#define bfd_mach_sh5        0x50
+  bfd_arch_alpha,      /* Dec Alpha */
+#define bfd_mach_alpha 1
+#define bfd_mach_alpha_ev4  0x10
+#define bfd_mach_alpha_ev5  0x20
+#define bfd_mach_alpha_ev6  0x30
+  bfd_arch_arm,        /* Advanced Risc Machines ARM */
+#define bfd_mach_arm_unknown  0
+#define bfd_mach_arm_2        1
+#define bfd_mach_arm_2a       2
+#define bfd_mach_arm_3        3
+#define bfd_mach_arm_3M       4
+#define bfd_mach_arm_4        5
+#define bfd_mach_arm_4T       6
+#define bfd_mach_arm_5        7
+#define bfd_mach_arm_5T       8
+#define bfd_mach_arm_5TE      9
+#define bfd_mach_arm_XScale   10
+#define bfd_mach_arm_ep9312   11
+#define bfd_mach_arm_iWMMXt   12
+#define bfd_mach_arm_iWMMXt2  13
+  bfd_arch_ns32k,      /* National Semiconductors ns32000 */
+  bfd_arch_w65,        /* WDC 65816 */
+  bfd_arch_tic30,      /* Texas Instruments TMS320C30 */
+  bfd_arch_v850,       /* NEC V850 */
+#define bfd_mach_v850          0
+  bfd_arch_arc,        /* Argonaut RISC Core */
+#define bfd_mach_arc_base 0
+  bfd_arch_m32r,       /* Mitsubishi M32R/D */
+#define bfd_mach_m32r          0  /* backwards compatibility */
+  bfd_arch_mn10200,    /* Matsushita MN10200 */
+  bfd_arch_mn10300,    /* Matsushita MN10300 */
+  bfd_arch_avr,        /* AVR microcontrollers */
+#define bfd_mach_avr1       1
+#define bfd_mach_avr2       2
+#define bfd_mach_avr25      25
+#define bfd_mach_avr3       3
+#define bfd_mach_avr31      31
+#define bfd_mach_avr35      35
+#define bfd_mach_avr4       4
+#define bfd_mach_avr5       5
+#define bfd_mach_avr51      51
+#define bfd_mach_avr6       6
+#define bfd_mach_avrtiny    100
+#define bfd_mach_avrxmega1  101
+#define bfd_mach_avrxmega2  102
+#define bfd_mach_avrxmega3  103
+#define bfd_mach_avrxmega4  104
+#define bfd_mach_avrxmega5  105
+#define bfd_mach_avrxmega6  106
+#define bfd_mach_avrxmega7  107
+  bfd_arch_cris,       /* Axis CRIS */
+#define bfd_mach_cris_v0_v10   255
+#define bfd_mach_cris_v32      32
+#define bfd_mach_cris_v10_v32  1032
+  bfd_arch_microblaze, /* Xilinx MicroBlaze.  */
+  bfd_arch_moxie,      /* The Moxie core.  */
+  bfd_arch_ia64,      /* HP/Intel ia64 */
+#define bfd_mach_ia64_elf64    64
+#define bfd_mach_ia64_elf32    32
+  bfd_arch_nios2,      /* Nios II */
+#define bfd_mach_nios2          0
+#define bfd_mach_nios2r1        1
+#define bfd_mach_nios2r2        2
+  bfd_arch_rx,       /* Renesas RX */
+#define bfd_mach_rx            0x75
+#define bfd_mach_rx_v2         0x76
+#define bfd_mach_rx_v3         0x77
+  bfd_arch_loongarch,
+  bfd_arch_last
+  };
+
+typedef struct symbol_cache_entry
+{
+    const char *name;
+    union
+    {
+        PTR p;
+        bfd_vma i;
+    } udata;
+} asymbol;
+
+typedef int (*fprintf_function)(FILE *f, const char *fmt, ...)
+    G_GNUC_PRINTF(2, 3);
+
+enum dis_insn_type {
+  dis_noninsn,          /* Not a valid instruction */
+  dis_nonbranch,        /* Not a branch instruction */
+  dis_branch,           /* Unconditional branch */
+  dis_condbranch,       /* Conditional branch */
+  dis_jsr,              /* Jump to subroutine */
+  dis_condjsr,          /* Conditional jump to subroutine */
+  dis_dref,             /* Data reference instruction */
+  dis_dref2             /* Two data references in instruction */
+};
+
+typedef struct disassemble_info {
+  fprintf_function fprintf_func;
+  FILE *stream;
+  PTR application_data;
+
+  /* Target description.  We could replace this with a pointer to the bfd,
+     but that would require one.  There currently isn't any such requirement
+     so to avoid introducing one we record these explicitly.  */
+  /* The bfd_flavour.  This can be bfd_target_unknown_flavour.  */
+  enum bfd_flavour flavour;
+  /* The bfd_arch value.  */
+  enum bfd_architecture arch;
+  /* The bfd_mach value.  */
+  unsigned long mach;
+  /* Endianness (for bi-endian cpus).  Mono-endian cpus can ignore this.  */
+  enum bfd_endian endian;
+
+  /* An array of pointers to symbols either at the location being disassembled
+     or at the start of the function being disassembled.  The array is sorted
+     so that the first symbol is intended to be the one used.  The others are
+     present for any misc. purposes.  This is not set reliably, but if it is
+     not NULL, it is correct.  */
+  asymbol **symbols;
+  /* Number of symbols in array.  */
+  int num_symbols;
+
+  /* For use by the disassembler.
+     The top 16 bits are reserved for public use (and are documented here).
+     The bottom 16 bits are for the internal use of the disassembler.  */
+  unsigned long flags;
+#define INSN_HAS_RELOC  0x80000000
+#define INSN_ARM_BE32   0x00010000
+  PTR private_data;
+
+  /* Function used to get bytes to disassemble.  MEMADDR is the
+     address of the stuff to be disassembled, MYADDR is the address to
+     put the bytes in, and LENGTH is the number of bytes to read.
+     INFO is a pointer to this struct.
+     Returns an errno value or 0 for success.  */
+  int (*read_memory_func)
+    (bfd_vma memaddr, bfd_byte *myaddr, int length,
+        struct disassemble_info *info);
+
+  /* Function which should be called if we get an error that we can't
+     recover from.  STATUS is the errno value from read_memory_func and
+     MEMADDR is the address that we were trying to read.  INFO is a
+     pointer to this struct.  */
+  void (*memory_error_func)
+    (int status, bfd_vma memaddr, struct disassemble_info *info);
+
+  /* Function called to print ADDR.  */
+  void (*print_address_func)
+    (bfd_vma addr, struct disassemble_info *info);
+
+    /* Function called to print an instruction. The function is architecture
+     * specific.
+     */
+    int (*print_insn)(bfd_vma addr, struct disassemble_info *info);
+
+  /* Function called to determine if there is a symbol at the given ADDR.
+     If there is, the function returns 1, otherwise it returns 0.
+     This is used by ports which support an overlay manager where
+     the overlay number is held in the top part of an address.  In
+     some circumstances we want to include the overlay number in the
+     address, (normally because there is a symbol associated with
+     that address), but sometimes we want to mask out the overlay bits.  */
+  int (* symbol_at_address_func)
+    (bfd_vma addr, struct disassemble_info * info);
+
+  /* These are for buffer_read_memory.  */
+  const bfd_byte *buffer;
+  bfd_vma buffer_vma;
+  int buffer_length;
+
+  /* This variable may be set by the instruction decoder.  It suggests
+      the number of bytes objdump should display on a single line.  If
+      the instruction decoder sets this, it should always set it to
+      the same value in order to get reasonable looking output.  */
+  int bytes_per_line;
+
+  /* the next two variables control the way objdump displays the raw data */
+  /* For example, if bytes_per_line is 8 and bytes_per_chunk is 4, the */
+  /* output will look like this:
+     00:   00000000 00000000
+     with the chunks displayed according to "display_endian". */
+  int bytes_per_chunk;
+  enum bfd_endian display_endian;
+
+  /* Results from instruction decoders.  Not all decoders yet support
+     this information.  This info is set each time an instruction is
+     decoded, and is only valid for the last such instruction.
+
+     To determine whether this decoder supports this information, set
+     insn_info_valid to 0, decode an instruction, then check it.  */
+
+  char insn_info_valid;         /* Branch info has been set. */
+  char branch_delay_insns;      /* How many sequential insn's will run before
+                                   a branch takes effect.  (0 = normal) */
+  char data_size;               /* Size of data reference in insn, in bytes */
+  enum dis_insn_type insn_type; /* Type of instruction */
+  bfd_vma target;               /* Target address of branch or dref, if known;
+                                   zero if unknown.  */
+  bfd_vma target2;              /* Second target address for dref2 */
+
+  /* Command line options specific to the target disassembler.  */
+  char * disassembler_options;
+
+  /* Field intended to be used by targets in any way they deem suitable.  */
+  int64_t target_info;
+
+  /* Options for Capstone disassembly.  */
+  int cap_arch;
+  int cap_mode;
+  int cap_insn_unit;
+  int cap_insn_split;
+
+} disassemble_info;
+
+typedef uint64_t vaddr;
+
+typedef struct MemTxAttrs {
+    /* Bus masters which don't specify any attributes will get this
+     * (via the MEMTXATTRS_UNSPECIFIED constant), so that we can
+     * distinguish "all attributes deliberately clear" from
+     * "didn't specify" if necessary.
+     */
+    unsigned int unspecified:1;
+    /* ARM/AMBA: TrustZone Secure access
+     * x86: System Management Mode access
+     */
+    unsigned int secure:1;
+    /* Memory access is usermode (unprivileged) */
+    unsigned int user:1;
+    /*
+     * Bus interconnect and peripherals can access anything (memories,
+     * devices) by default. By setting the 'memory' bit, bus transaction
+     * are restricted to "normal" memories (per the AMBA documentation)
+     * versus devices. Access to devices will be logged and rejected
+     * (see MEMTX_ACCESS_ERROR).
+     */
+    unsigned int memory:1;
+    /* Requester ID (for MSI for example) */
+    unsigned int requester_id:16;
+    /* Invert endianness for this page */
+    unsigned int byte_swap:1;
+    /*
+     * The following are target-specific page-table bits.  These are not
+     * related to actual memory transactions at all.  However, this structure
+     * is part of the tlb_fill interface, cached in the cputlb structure,
+     * and has unused bits.  These fields will be read by target-specific
+     * helpers using env->iotlb[mmu_idx][tlb_index()].attrs.target_tlb_bitN.
+     */
+    unsigned int target_tlb_bit0 : 1;
+    unsigned int target_tlb_bit1 : 1;
+    unsigned int target_tlb_bit2 : 1;
+} MemTxAttrs;
+
 enum qemu_plugin_event {
     QEMU_PLUGIN_EV_VCPU_INIT,
     QEMU_PLUGIN_EV_VCPU_EXIT,
@@ -322,7 +1116,11 @@ enum qemu_plugin_event {
     QEMU_PLUGIN_EV_MAX, /* total number of plugin events we support */
 };
 
-typedef uint64_t vaddr;
+typedef struct CPUClass CPUClass;
+
+#define OBJECT_DECLARE_CPU_TYPE(CpuInstanceType, CpuClassType, CPU_MODULE_OBJ_NAME) \
+    typedef struct ArchCPU CpuInstanceType; \
+    OBJECT_DECLARE_TYPE(ArchCPU, CpuClassType, CPU_MODULE_OBJ_NAME);
 
 typedef enum MMUAccessType {
     MMU_DATA_LOAD  = 0,
@@ -332,12 +1130,65 @@ typedef enum MMUAccessType {
 
 typedef struct CPUWatchpoint CPUWatchpoint;
 
-struct TranslationBlock;
+struct TCGCPUOps;
+
+struct AccelCPUClass;
+
+struct SysemuCPUOps;
+
+struct CPUClass {
+    /*< private >*/
+    DeviceClass parent_class;
+    /*< public >*/
+
+    ObjectClass *(*class_by_name)(const char *cpu_model);
+    void (*parse_features)(const char *, char *str, Error **errp);
+
+    bool (*has_work)(CPUState *cpu);
+    int (*memory_rw_debug)(CPUState *cpu, vaddr addr,
+                           uint8_t *buf, int len, bool is_write);
+    void (*dump_state)(CPUState *cpu, FILE *, int flags);
+    void (*query_cpu_fast)(CPUState *cpu, CpuInfoFast *value);
+    int64_t (*get_arch_id)(CPUState *cpu);
+    void (*set_pc)(CPUState *cpu, vaddr value);
+    vaddr (*get_pc)(CPUState *cpu);
+    int (*gdb_read_register)(CPUState *cpu, GByteArray *buf, int reg);
+    int (*gdb_write_register)(CPUState *cpu, uint8_t *buf, int reg);
+    vaddr (*gdb_adjust_breakpoint)(CPUState *cpu, vaddr addr);
+
+    const char *gdb_core_xml_file;
+    gchar * (*gdb_arch_name)(CPUState *cpu);
+    const char * (*gdb_get_dynamic_xml)(CPUState *cpu, const char *xmlname);
+
+    void (*disas_set_info)(CPUState *cpu, disassemble_info *info);
+
+    const char *deprecation_note;
+    struct AccelCPUClass *accel_cpu;
+
+    /* when system emulation is not available, this pointer is NULL */
+    const struct SysemuCPUOps *sysemu_ops;
+
+    /* when TCG is not available, this pointer is NULL */
+    const struct TCGCPUOps *tcg_ops;
+
+    /*
+     * if not NULL, this is called in order for the CPUClass to initialize
+     * class data that depends on the accelerator, see accel/accel-common.c.
+     */
+    void (*init_accel_cpu)(struct AccelCPUClass *accel_cpu, CPUClass *cc);
+
+    /*
+     * Keep non-pointer data at the end to minimize holes.
+     */
+    int reset_dump_flags;
+    int gdb_num_core_regs;
+    bool gdb_stop_before_watchpoint;
+};
 
 typedef union IcountDecr {
     uint32_t u32;
     struct {
-#ifdef HOST_WORDS_BIGENDIAN
+#if HOST_BIG_ENDIAN
         uint16_t high;
         uint16_t low;
 #else
@@ -354,7 +1205,7 @@ typedef struct CPUBreakpoint {
 } CPUBreakpoint;
 
 struct CPUWatchpoint {
-    vaddr vaddr;
+    vaddr _vaddr;
     vaddr len;
     vaddr hitaddr;
     MemTxAttrs hitattrs;
@@ -366,19 +1217,17 @@ struct KVMState;
 
 struct kvm_run;
 
-#define TB_JMP_CACHE_BITS 12
-
-#define TB_JMP_CACHE_SIZE (1 << TB_JMP_CACHE_BITS)
-
 struct hax_vcpu_state;
 
-#define CPU_TRACE_DSTATE_MAX_EVENTS 32
+struct hvf_vcpu_state;
 
 struct qemu_work_item;
 
 struct CPUState {
     /*< private >*/
     DeviceState parent_obj;
+    /* cache to avoid expensive CPU_GET_CLASS */
+    CPUClass *cc;
     /*< public >*/
 
     int nr_cores;
@@ -387,6 +1236,7 @@ struct CPUState {
     struct QemuThread *thread;
 #ifdef _WIN32
     HANDLE hThread;
+    QemuSemaphore sem;
 #endif
     int thread_id;
     bool running, has_waiter;
@@ -395,10 +1245,14 @@ struct CPUState {
     bool created;
     bool stop;
     bool stopped;
+
+    /* Should CPU start in powered-off state? */
+    bool start_powered_off;
+
     bool unplug;
     bool crash_occurred;
     bool exit_request;
-    bool in_exclusive_context;
+    int exclusive_context_count;
     uint32_t cflags_next_tb;
     /* updates protected by BQL */
     uint32_t interrupt_request;
@@ -409,18 +1263,17 @@ struct CPUState {
     sigjmp_buf jmp_env;
 
     QemuMutex work_mutex;
-    struct qemu_work_item *queued_work_first, *queued_work_last;
+    QSIMPLEQ_HEAD(, qemu_work_item) work_list;
 
     CPUAddressSpace *cpu_ases;
     int num_ases;
     AddressSpace *as;
     MemoryRegion *memory;
 
-    void *env_ptr; /* CPUArchState */
+    CPUArchState *env_ptr;
     IcountDecr *icount_decr_ptr;
 
-    /* Accessed in parallel; all accesses must be atomic */
-    struct TranslationBlock *tb_jmp_cache[TB_JMP_CACHE_SIZE];
+    CPUJumpCache *tb_jmp_cache;
 
     struct GDBRegisterState *gdb_regs;
     int gdb_num_regs;
@@ -440,21 +1293,29 @@ struct CPUState {
      */
     uintptr_t mem_io_pc;
 
+    /* Only used in KVM */
     int kvm_fd;
     struct KVMState *kvm_state;
     struct kvm_run *kvm_run;
+    struct kvm_dirty_gfn *kvm_dirty_gfns;
+    uint32_t kvm_fetch_index;
+    uint64_t dirty_pages;
 
-    /* Used for events with 'vcpu' and *without* the 'disabled' properties */
-    DECLARE_BITMAP(trace_dstate_delayed, CPU_TRACE_DSTATE_MAX_EVENTS);
-    DECLARE_BITMAP(trace_dstate, CPU_TRACE_DSTATE_MAX_EVENTS);
+    /* Use by accel-block: CPU is executing an ioctl() */
+    QemuLockCnt in_ioctl_lock;
 
     DECLARE_BITMAP(plugin_mask, QEMU_PLUGIN_EV_MAX);
 
+#ifdef CONFIG_PLUGIN
     GArray *plugin_mem_cbs;
+    /* saved iotlb data from io_writex */
+    SavedIOTLB saved_iotlb;
+#endif
 
     /* TODO Move common fields from CPUArchState here. */
     int cpu_index;
     int cluster_index;
+    uint32_t tcg_cflags;
     uint32_t halted;
     uint32_t can_do_io;
     int32_t exception_index;
@@ -467,60 +1328,52 @@ struct CPUState {
      */
     bool throttle_thread_scheduled;
 
+    /*
+     * Sleep throttle_us_per_full microseconds once dirty ring is full
+     * if dirty page rate limit is enabled.
+     */
+    int64_t throttle_us_per_full;
+
     bool ignore_memory_transaction_failures;
+
+    /* Used for user-only emulation of prctl(PR_SET_UNALIGN). */
+    bool prctl_unalign_sigbus;
 
     struct hax_vcpu_state *hax_vcpu;
 
-    int hvf_fd;
+    struct hvf_vcpu_state *hvf;
 
     /* track IOMMUs whose translations we've cached in the TCG TLB */
     GArray *iommu_notifiers;
 };
 
-struct arm_boot_info;
+#define BP_MEM_READ           0x01
 
-#define TCG_TARGET_NB_REGS 64
+#define TYPE_ARM_CPU "arm-cpu"
 
-typedef enum {
-    TCG_REG_X0, TCG_REG_X1, TCG_REG_X2, TCG_REG_X3,
-    TCG_REG_X4, TCG_REG_X5, TCG_REG_X6, TCG_REG_X7,
-    TCG_REG_X8, TCG_REG_X9, TCG_REG_X10, TCG_REG_X11,
-    TCG_REG_X12, TCG_REG_X13, TCG_REG_X14, TCG_REG_X15,
-    TCG_REG_X16, TCG_REG_X17, TCG_REG_X18, TCG_REG_X19,
-    TCG_REG_X20, TCG_REG_X21, TCG_REG_X22, TCG_REG_X23,
-    TCG_REG_X24, TCG_REG_X25, TCG_REG_X26, TCG_REG_X27,
-    TCG_REG_X28, TCG_REG_X29, TCG_REG_X30,
-
-    /* X31 is either the stack pointer or zero, depending on context.  */
-    TCG_REG_SP = 31,
-    TCG_REG_XZR = 31,
-
-    TCG_REG_V0 = 32, TCG_REG_V1, TCG_REG_V2, TCG_REG_V3,
-    TCG_REG_V4, TCG_REG_V5, TCG_REG_V6, TCG_REG_V7,
-    TCG_REG_V8, TCG_REG_V9, TCG_REG_V10, TCG_REG_V11,
-    TCG_REG_V12, TCG_REG_V13, TCG_REG_V14, TCG_REG_V15,
-    TCG_REG_V16, TCG_REG_V17, TCG_REG_V18, TCG_REG_V19,
-    TCG_REG_V20, TCG_REG_V21, TCG_REG_V22, TCG_REG_V23,
-    TCG_REG_V24, TCG_REG_V25, TCG_REG_V26, TCG_REG_V27,
-    TCG_REG_V28, TCG_REG_V29, TCG_REG_V30, TCG_REG_V31,
-
-    /* Aliases.  */
-    TCG_REG_FP = TCG_REG_X29,
-    TCG_REG_LR = TCG_REG_X30,
-    TCG_AREG0  = TCG_REG_X19,
-} TCGReg;
-
-#define TCG_TARGET_NEED_POOL_LABELS
-
-# define TARGET_LONG_BITS             64
+OBJECT_DECLARE_CPU_TYPE(ARMCPU, ARMCPUClass, ARM_CPU)
 
 #define TARGET_PAGE_BITS 12
+
+#  define TARGET_TAGGED_ADDRESSES
 
 typedef int64_t target_long;
 
 typedef uint64_t target_ulong;
 
-#define TARGET_INSN_START_EXTRA_WORDS 2
+typedef struct CPUTLB { } CPUTLB;
+
+typedef struct CPUNegativeOffsetState {
+    CPUTLB tlb;
+    IcountDecr icount_decr;
+} CPUNegativeOffsetState;
+
+typedef enum OnOffAuto {
+    ON_OFF_AUTO_AUTO,
+    ON_OFF_AUTO_ON,
+    ON_OFF_AUTO_OFF,
+    ON_OFF_AUTO__MAX,
+} OnOffAuto;
 
 enum {
     M_REG_NS = 0,
@@ -528,20 +1381,24 @@ enum {
     M_REG_NUM_BANKS = 2,
 };
 
-#define NUM_GTIMERS 4
+typedef struct DynamicGDBXMLInfo {
+    char *desc;
+    int num;
+    union {
+        struct {
+            uint32_t *keys;
+        } cpregs;
+    } data;
+} DynamicGDBXMLInfo;
+
+#define NUM_GTIMERS     5
+
+# define ARM_MAX_VQ    16
 
 typedef struct ARMGenericTimer {
     uint64_t cval; /* Timer CompareValue register */
     uint64_t ctl; /* Timer Control register */
 } ARMGenericTimer;
-
-# define ARM_MAX_VQ    16
-
-typedef struct {
-    uint64_t raw_tcr;
-    uint32_t mask;
-    uint32_t base_mask;
-} TCR;
 
 typedef struct ARMVectorReg {
     uint64_t d[2 * ARM_MAX_VQ] QEMU_ALIGNED(16);
@@ -555,7 +1412,14 @@ typedef struct ARMPACKey {
     uint64_t lo, hi;
 } ARMPACKey;
 
-typedef struct CPUARMState {
+typedef struct CPUARMTBFlags {
+    uint32_t flags;
+    target_ulong flags2;
+} CPUARMTBFlags;
+
+typedef struct ARMMMUFaultInfo ARMMMUFaultInfo;
+
+typedef struct CPUArchState {
     /* Regs for current mode.  */
     uint32_t regs[16];
 
@@ -576,13 +1440,15 @@ typedef struct CPUARMState {
      *  nRW (also known as M[4]) is kept, inverted, in env->aarch64
      *  DAIF (exception masks) are kept in env->daif
      *  BTYPE is kept in env->btype
+     *  SM and ZA are kept in env->svcr
      *  all other bits are stored in their correct places in env->pstate
      */
     uint32_t pstate;
-    uint32_t aarch64; /* 1 if CPU is in aarch64 state; inverse of PSTATE.nRW */
+    bool aarch64; /* True if CPU is in aarch64 state; inverse of PSTATE.nRW */
+    bool thumb;   /* True if CPU is in thumb mode; cpsr[5] */
 
     /* Cached TBFLAGS state.  See below for which bits are included.  */
-    uint32_t hflags;
+    CPUARMTBFlags hflags;
 
     /* Frequently accessed CPSR bits are stored separately for efficiency.
        This contains all the other bits.  Use cpsr_{read,write} to access
@@ -606,10 +1472,10 @@ typedef struct CPUARMState {
     uint32_t ZF; /* Z set if zero.  */
     uint32_t QF; /* 0 or 1 */
     uint32_t GE; /* cpsr[19:16] */
-    uint32_t thumb; /* cpsr[5]. 0 = arm mode, 1 = thumb mode. */
     uint32_t condexec_bits; /* IT bits.  cpsr[15:10,26:25].  */
     uint32_t btype;  /* BTI branch type.  spsr[11:10].  */
     uint64_t daif; /* exception masks, in the bits they are in PSTATE */
+    uint64_t svcr; /* PSTATE.{SM,ZA} in the bits they are in SVCR */
 
     uint64_t elr_el[4]; /* AArch64 exception link regs  */
     uint64_t sp_el[4]; /* AArch64 banked stack pointers */
@@ -635,6 +1501,7 @@ typedef struct CPUARMState {
             };
             uint64_t sctlr_el[4];
         };
+        uint64_t vsctlr; /* Virtualization System control register. */
         uint64_t cpacr_el1; /* Architectural feature access control register */
         uint64_t cptr_el[4];  /* ARMv8 feature trap registers */
         uint32_t c1_xscaleauxcr; /* XScale auxiliary control register.  */
@@ -659,9 +1526,11 @@ typedef struct CPUARMState {
             uint64_t ttbr1_el[4];
         };
         uint64_t vttbr_el2; /* Virtualization Translation Table Base.  */
+        uint64_t vsttbr_el2; /* Secure Virtualization Translation Table. */
         /* MMU translation table base control. */
-        TCR tcr_el[4];
-        TCR vtcr_el2; /* Virtualization Translation Control.  */
+        uint64_t tcr_el[4];
+        uint64_t vtcr_el2; /* Virtualization Translation Control.  */
+        uint64_t vstcr_el2; /* Secure Virtualization Translation Control. */
         uint32_t c2_data; /* MPU data cacheable bits.  */
         uint32_t c2_insn; /* MPU instruction cacheable bits.  */
         union { /* MMU domain access control register
@@ -678,6 +1547,7 @@ typedef struct CPUARMState {
         uint32_t pmsav5_data_ap; /* PMSAv5 MPU data access permissions */
         uint32_t pmsav5_insn_ap; /* PMSAv5 MPU insn access permissions */
         uint64_t hcr_el2; /* Hypervisor configuration register */
+        uint64_t hcrx_el2; /* Extended Hypervisor configuration register */
         uint64_t scr_el3; /* Secure configuration register.  */
         union { /* Fault status registers.  */
             struct {
@@ -701,7 +1571,7 @@ typedef struct CPUARMState {
         union { /* Fault address registers. */
             struct {
                 uint64_t _unused_far0;
-#ifdef HOST_WORDS_BIGENDIAN
+#if HOST_BIG_ENDIAN
                 uint32_t ifar_ns;
                 uint32_t dfar_ns;
                 uint32_t ifar_s;
@@ -738,7 +1608,7 @@ typedef struct CPUARMState {
         uint64_t c9_pminten; /* perf monitor interrupt enables */
         union { /* Memory attribute redirection */
             struct {
-#ifdef HOST_WORDS_BIGENDIAN
+#if HOST_BIG_ENDIAN
                 uint64_t _unused_mair_0;
                 uint32_t mair1_ns;
                 uint32_t mair0_ns;
@@ -766,6 +1636,7 @@ typedef struct CPUARMState {
             uint64_t vbar_el[4];
         };
         uint32_t mvbar; /* (monitor) vector base address register */
+        uint64_t rvbar; /* rvbar sampled from rvbar property at reset */
         struct { /* FCSE PID. */
             uint32_t fcseidr_ns;
             uint32_t fcseidr_s;
@@ -788,6 +1659,7 @@ typedef struct CPUARMState {
             };
             uint64_t tpidr_el[4];
         };
+        uint64_t tpidr2_el0;
         /* The secure banks of these registers don't map anywhere */
         uint64_t tpidrurw_s;
         uint64_t tpidrprw_s;
@@ -799,7 +1671,7 @@ typedef struct CPUARMState {
         };
         uint64_t c14_cntfrq; /* Counter Frequency register */
         uint64_t c14_cntkctl; /* Timer Control register */
-        uint32_t cnthctl_el2; /* Counter/Timer Hyp Control register */
+        uint64_t cnthctl_el2; /* Counter/Timer Hyp Control register */
         uint64_t cntvoff_el2; /* Counter Virtual Offset register */
         ARMGenericTimer c14_timer[NUM_GTIMERS];
         uint32_t c15_cpar; /* XScale Coprocessor Access Register */
@@ -815,8 +1687,10 @@ typedef struct CPUARMState {
         uint64_t dbgbcr[16]; /* breakpoint control registers */
         uint64_t dbgwvr[16]; /* watchpoint value registers */
         uint64_t dbgwcr[16]; /* watchpoint control registers */
+        uint64_t dbgclaim;   /* DBGCLAIM bits */
         uint64_t mdscr_el1;
         uint64_t oslsr_el1; /* OS Lock Status */
+        uint64_t osdlr_el1; /* OS DoubleLock status */
         uint64_t mdcr_el2;
         uint64_t mdcr_el3;
         /* Stores the architectural value of the counter *the last time it was
@@ -839,6 +1713,24 @@ typedef struct CPUARMState {
         uint64_t pmccfiltr_el0; /* Performance Monitor Filter Register */
         uint64_t vpidr_el2; /* Virtualization Processor ID Register */
         uint64_t vmpidr_el2; /* Virtualization Multiprocessor ID Register */
+        uint64_t tfsr_el[4]; /* tfsre0_el1 is index 0.  */
+        uint64_t gcr_el1;
+        uint64_t rgsr_el1;
+
+        /* Minimal RAS registers */
+        uint64_t disr_el1;
+        uint64_t vdisr_el2;
+        uint64_t vsesr_el2;
+
+        /*
+         * Fine-Grained Trap registers. We store these as arrays so the
+         * access checking code doesn't have to manually select
+         * HFGRTR_EL2 vs HFDFGRTR_EL2 etc when looking up the bit to test.
+         * FEAT_FGT2 will add more elements to these arrays.
+         */
+        uint64_t fgt_read[2]; /* HFGRTR, HDFGRTR */
+        uint64_t fgt_write[2]; /* HFGWTR, HDFGWTR */
+        uint64_t fgt_exec[1]; /* HFGITR */
     } cp15;
 
     struct {
@@ -882,6 +1774,8 @@ typedef struct CPUARMState {
         uint32_t fpdscr[M_REG_NUM_BANKS];
         uint32_t cpacr[M_REG_NUM_BANKS];
         uint32_t nsacr;
+        uint32_t ltpsize;
+        uint32_t vpr;
     } v7m;
 
     /* Information associated with an exception about to be taken:
@@ -906,6 +1800,8 @@ typedef struct CPUARMState {
         uint8_t has_esr;
         uint64_t esr;
     } serror;
+
+    uint8_t ext_dabt_raised; /* Tracking/verifying injection of ext DABT */
 
     /* State of our input IRQ/FIQ/VIRQ/VFIQ lines */
     uint32_t irq_line_state;
@@ -941,6 +1837,8 @@ typedef struct CPUARMState {
          *  fp_status: is the "normal" fp status.
          *  fp_status_fp16: used for half-precision calculations
          *  standard_fp_status : the ARM "Standard FPSCR Value"
+         *  standard_fp_status_fp16 : used for half-precision
+         *       calculations with the ARM "Standard FPSCR Value"
          *
          * Half-precision operations are governed by a separate
          * flush-to-zero control bit in FPSCR:FZ16. We pass a separate
@@ -951,21 +1849,34 @@ typedef struct CPUARMState {
          * Neon) which the architecture defines as controlled by the
          * standard FPSCR value rather than the FPSCR.
          *
+         * The "standard FPSCR but for fp16 ops" is needed because
+         * the "standard FPSCR" tracks the FPSCR.FZ16 bit rather than
+         * using a fixed value for it.
+         *
          * To avoid having to transfer exception bits around, we simply
          * say that the FPSCR cumulative exception flags are the logical
-         * OR of the flags in the three fp statuses. This relies on the
+         * OR of the flags in the four fp statuses. This relies on the
          * only thing which needs to read the exception flags being
          * an explicit FPSCR read.
          */
         float_status fp_status;
         float_status fp_status_f16;
         float_status standard_fp_status;
+        float_status standard_fp_status_f16;
 
-        /* ZCR_EL[1-3] */
-        uint64_t zcr_el[4];
+        uint64_t zcr_el[4];   /* ZCR_EL[1-3] */
+        uint64_t smcr_el[4];  /* SMCR_EL[1-3] */
     } vfp;
+
     uint64_t exclusive_addr;
     uint64_t exclusive_val;
+    /*
+     * Contains the 'val' for the second 64-bit register of LDXP, which comes
+     * from the higher address, not the high part of a complete 128-bit value.
+     * In some ways it might be more convenient to record the exclusive value
+     * as the low and high halves of a 128 bit data value, but the current
+     * semantics of these fields are baked into the migration format.
+     */
     uint64_t exclusive_high;
 
     /* iwMMXt coprocessor state.  */
@@ -984,15 +1895,37 @@ typedef struct CPUARMState {
         ARMPACKey apdb;
         ARMPACKey apga;
     } keys;
-#endif
 
-#if defined(CONFIG_USER_ONLY)
-    /* For usermode syscall translation.  */
-    int eabi;
+    uint64_t scxtnum_el[4];
+
+    /*
+     * SME ZA storage -- 256 x 256 byte array, with bytes in host word order,
+     * as we do with vfp.zregs[].  This corresponds to the architectural ZA
+     * array, where ZA[N] is in the least-significant bytes of env->zarray[N].
+     * When SVL is less than the architectural maximum, the accessible
+     * storage is restricted, such that if the SVL is X bytes the guest can
+     * see only the bottom X elements of zarray[], and only the least
+     * significant X bytes of each element of the array. (In other words,
+     * the observable part is always square.)
+     *
+     * The ZA storage can also be considered as a set of square tiles of
+     * elements of different sizes. The mapping from tiles to the ZA array
+     * is architecturally defined, such that for tiles of elements of esz
+     * bytes, the Nth row (or "horizontal slice") of tile T is in
+     * ZA[T + N * esz]. Note that this means that each tile is not contiguous
+     * in the ZA storage, because its rows are striped through the ZA array.
+     *
+     * Because this is so large, keep this toward the end of the reset area,
+     * to keep the offsets into the rest of the structure smaller.
+     */
+    ARMVectorReg zarray[ARM_MAX_VQ * 16];
 #endif
 
     struct CPUBreakpoint *cpu_breakpoint[16];
     struct CPUWatchpoint *cpu_watchpoint[16];
+
+    /* Optional fault info across tlb lookup. */
+    ARMMMUFaultInfo *tlb_fi;
 
     /* Fields up to this point are cleared by a CPU reset */
     struct {} end_reset_fields;
@@ -1019,8 +1952,11 @@ typedef struct CPUARMState {
          */
         uint32_t *rbar[M_REG_NUM_BANKS];
         uint32_t *rlar[M_REG_NUM_BANKS];
+        uint32_t *hprbar;
+        uint32_t *hprlar;
         uint32_t mair0[M_REG_NUM_BANKS];
         uint32_t mair1[M_REG_NUM_BANKS];
+        uint32_t hprselr;
     } pmsav8;
 
     /* v8M SAU */
@@ -1031,650 +1967,646 @@ typedef struct CPUARMState {
         uint32_t ctrl;
     } sau;
 
-    void *nvic;
+#if !defined(CONFIG_USER_ONLY)
+    NVICState *nvic;
     const struct arm_boot_info *boot_info;
     /* Store GICv3CPUState to access from this struct */
     void *gicv3state;
+#else /* CONFIG_USER_ONLY */
+    /* For usermode syscall translation.  */
+    bool eabi;
+#endif /* CONFIG_USER_ONLY */
+
+#ifdef TARGET_TAGGED_ADDRESSES
+    /* Linux syscall tagged address support */
+    bool tagged_addr_enable;
+#endif
 } CPUARMState;
 
-int cpu_mmu_index(CPUARMState *env, bool ifetch);
+typedef void ARMELChangeHookFn(ARMCPU *cpu, void *opaque);
 
-typedef CPUARMState CPUArchState;
+struct ARMELChangeHook {
+    ARMELChangeHookFn *hook;
+    void *opaque;
+    QLIST_ENTRY(ARMELChangeHook) node;
+};
 
-extern unsigned long guest_base;
+typedef enum ARMPSCIState {
+    PSCI_ON = 0,
+    PSCI_OFF = 1,
+    PSCI_ON_PENDING = 2
+} ARMPSCIState;
+
+typedef struct {
+    uint32_t map, init, supported;
+} ARMVQMap;
+
+struct ArchCPU {
+    /*< private >*/
+    CPUState parent_obj;
+    /*< public >*/
+
+    CPUNegativeOffsetState neg;
+    CPUARMState env;
+
+    /* Coprocessor information */
+    GHashTable *cp_regs;
+    /* For marshalling (mostly coprocessor) register state between the
+     * kernel and QEMU (for KVM) and between two QEMUs (for migration),
+     * we use these arrays.
+     */
+    /* List of register indexes managed via these arrays; (full KVM style
+     * 64 bit indexes, not CPRegInfo 32 bit indexes)
+     */
+    uint64_t *cpreg_indexes;
+    /* Values of the registers (cpreg_indexes[i]'s value is cpreg_values[i]) */
+    uint64_t *cpreg_values;
+    /* Length of the indexes, values, reset_values arrays */
+    int32_t cpreg_array_len;
+    /* These are used only for migration: incoming data arrives in
+     * these fields and is sanity checked in post_load before copying
+     * to the working data structures above.
+     */
+    uint64_t *cpreg_vmstate_indexes;
+    uint64_t *cpreg_vmstate_values;
+    int32_t cpreg_vmstate_array_len;
+
+    DynamicGDBXMLInfo dyn_sysreg_xml;
+    DynamicGDBXMLInfo dyn_svereg_xml;
+    DynamicGDBXMLInfo dyn_m_systemreg_xml;
+    DynamicGDBXMLInfo dyn_m_secextreg_xml;
+
+    /* Timers used by the generic (architected) timer */
+    QEMUTimer *gt_timer[NUM_GTIMERS];
+    /*
+     * Timer used by the PMU. Its state is restored after migration by
+     * pmu_op_finish() - it does not need other handling during migration
+     */
+    QEMUTimer *pmu_timer;
+    /* GPIO outputs for generic timer */
+    qemu_irq gt_timer_outputs[NUM_GTIMERS];
+    /* GPIO output for GICv3 maintenance interrupt signal */
+    qemu_irq gicv3_maintenance_interrupt;
+    /* GPIO output for the PMU interrupt */
+    qemu_irq pmu_interrupt;
+
+    /* MemoryRegion to use for secure physical accesses */
+    MemoryRegion *secure_memory;
+
+    /* MemoryRegion to use for allocation tag accesses */
+    MemoryRegion *tag_memory;
+    MemoryRegion *secure_tag_memory;
+
+    /* For v8M, pointer to the IDAU interface provided by board/SoC */
+    Object *idau;
+
+    /* 'compatible' string for this CPU for Linux device trees */
+    const char *dtb_compatible;
+
+    /* PSCI version for this CPU
+     * Bits[31:16] = Major Version
+     * Bits[15:0] = Minor Version
+     */
+    uint32_t psci_version;
+
+    /* Current power state, access guarded by BQL */
+    ARMPSCIState power_state;
+
+    /* CPU has virtualization extension */
+    bool has_el2;
+    /* CPU has security extension */
+    bool has_el3;
+    /* CPU has PMU (Performance Monitor Unit) */
+    bool has_pmu;
+    /* CPU has VFP */
+    bool has_vfp;
+    /* CPU has Neon */
+    bool has_neon;
+    /* CPU has M-profile DSP extension */
+    bool has_dsp;
+
+    /* CPU has memory protection unit */
+    bool has_mpu;
+    /* PMSAv7 MPU number of supported regions */
+    uint32_t pmsav7_dregion;
+    /* PMSAv8 MPU number of supported hyp regions */
+    uint32_t pmsav8r_hdregion;
+    /* v8M SAU number of supported regions */
+    uint32_t sau_sregion;
+
+    /* PSCI conduit used to invoke PSCI methods
+     * 0 - disabled, 1 - smc, 2 - hvc
+     */
+    uint32_t psci_conduit;
+
+    /* For v8M, initial value of the Secure VTOR */
+    uint32_t init_svtor;
+    /* For v8M, initial value of the Non-secure VTOR */
+    uint32_t init_nsvtor;
+
+    /* [QEMU_]KVM_ARM_TARGET_* constant for this CPU, or
+     * QEMU_KVM_ARM_TARGET_NONE if the kernel doesn't support this CPU type.
+     */
+    uint32_t kvm_target;
+
+    /* KVM init features for this CPU */
+    uint32_t kvm_init_features[7];
+
+    /* KVM CPU state */
+
+    /* KVM virtual time adjustment */
+    bool kvm_adjvtime;
+    bool kvm_vtime_dirty;
+    uint64_t kvm_vtime;
+
+    /* KVM steal time */
+    OnOffAuto kvm_steal_time;
+
+    /* Uniprocessor system with MP extensions */
+    bool mp_is_up;
+
+    /* True if we tried kvm_arm_host_cpu_features() during CPU instance_init
+     * and the probe failed (so we need to report the error in realize)
+     */
+    bool host_cpu_probe_failed;
+
+    /* Specify the number of cores in this CPU cluster. Used for the L2CTLR
+     * register.
+     */
+    int32_t core_count;
+
+    /* The instance init functions for implementation-specific subclasses
+     * set these fields to specify the implementation-dependent values of
+     * various constant registers and reset values of non-constant
+     * registers.
+     * Some of these might become QOM properties eventually.
+     * Field names match the official register names as defined in the
+     * ARMv7AR ARM Architecture Reference Manual. A reset_ prefix
+     * is used for reset values of non-constant registers; no reset_
+     * prefix means a constant register.
+     * Some of these registers are split out into a substructure that
+     * is shared with the translators to control the ISA.
+     *
+     * Note that if you add an ID register to the ARMISARegisters struct
+     * you need to also update the 32-bit and 64-bit versions of the
+     * kvm_arm_get_host_cpu_features() function to correctly populate the
+     * field by reading the value from the KVM vCPU.
+     */
+    struct ARMISARegisters {
+        uint32_t id_isar0;
+        uint32_t id_isar1;
+        uint32_t id_isar2;
+        uint32_t id_isar3;
+        uint32_t id_isar4;
+        uint32_t id_isar5;
+        uint32_t id_isar6;
+        uint32_t id_mmfr0;
+        uint32_t id_mmfr1;
+        uint32_t id_mmfr2;
+        uint32_t id_mmfr3;
+        uint32_t id_mmfr4;
+        uint32_t id_mmfr5;
+        uint32_t id_pfr0;
+        uint32_t id_pfr1;
+        uint32_t id_pfr2;
+        uint32_t mvfr0;
+        uint32_t mvfr1;
+        uint32_t mvfr2;
+        uint32_t id_dfr0;
+        uint32_t id_dfr1;
+        uint32_t dbgdidr;
+        uint32_t dbgdevid;
+        uint32_t dbgdevid1;
+        uint64_t id_aa64isar0;
+        uint64_t id_aa64isar1;
+        uint64_t id_aa64pfr0;
+        uint64_t id_aa64pfr1;
+        uint64_t id_aa64mmfr0;
+        uint64_t id_aa64mmfr1;
+        uint64_t id_aa64mmfr2;
+        uint64_t id_aa64dfr0;
+        uint64_t id_aa64dfr1;
+        uint64_t id_aa64zfr0;
+        uint64_t id_aa64smfr0;
+        uint64_t reset_pmcr_el0;
+    } isar;
+    uint64_t midr;
+    uint32_t revidr;
+    uint32_t reset_fpsid;
+    uint64_t ctr;
+    uint32_t reset_sctlr;
+    uint64_t pmceid0;
+    uint64_t pmceid1;
+    uint32_t id_afr0;
+    uint64_t id_aa64afr0;
+    uint64_t id_aa64afr1;
+    uint64_t clidr;
+    uint64_t mp_affinity; /* MP ID without feature bits */
+    /* The elements of this array are the CCSIDR values for each cache,
+     * in the order L1DCache, L1ICache, L2DCache, L2ICache, etc.
+     */
+    uint64_t ccsidr[16];
+    uint64_t reset_cbar;
+    uint32_t reset_auxcr;
+    bool reset_hivecs;
+
+    /*
+     * Intermediate values used during property parsing.
+     * Once finalized, the values should be read from ID_AA64*.
+     */
+    bool prop_pauth;
+    bool prop_pauth_impdef;
+    bool prop_lpa2;
+
+    /* DCZ blocksize, in log_2(words), ie low 4 bits of DCZID_EL0 */
+    uint32_t dcz_blocksize;
+    uint64_t rvbar_prop; /* Property/input signals.  */
+
+    /* Configurable aspects of GIC cpu interface (which is part of the CPU) */
+    int gic_num_lrs; /* number of list registers */
+    int gic_vpribits; /* number of virtual priority bits */
+    int gic_vprebits; /* number of virtual preemption bits */
+    int gic_pribits; /* number of physical priority bits */
+
+    /* Whether the cfgend input is high (i.e. this CPU should reset into
+     * big-endian mode).  This setting isn't used directly: instead it modifies
+     * the reset_sctlr value to have SCTLR_B or SCTLR_EE set, depending on the
+     * architecture version.
+     */
+    bool cfgend;
+
+    QLIST_HEAD(, ARMELChangeHook) pre_el_change_hooks;
+    QLIST_HEAD(, ARMELChangeHook) el_change_hooks;
+
+    int32_t node_id; /* NUMA node this CPU belongs to */
+
+    /* Used to synchronize KVM and QEMU in-kernel device levels */
+    uint8_t device_irq_level;
+
+    /* Used to set the maximum vector length the cpu will support.  */
+    uint32_t sve_max_vq;
+
+#ifdef CONFIG_USER_ONLY
+    /* Used to set the default vector length at process start. */
+    uint32_t sve_default_vq;
+    uint32_t sme_default_vq;
+#endif
+
+    ARMVQMap sve_vq;
+    ARMVQMap sme_vq;
+
+    /* Generic timer counter frequency, in Hz */
+    uint64_t gt_cntfrq_hz;
+};
+
+#define TARGET_PAGE_BITS_MIN TARGET_PAGE_BITS
 
 #define TARGET_PAGE_MASK   ((target_long)-1 << TARGET_PAGE_BITS)
 
-#define PAGE_READ      0x0001
+#define PAGE_ANON      0x0080
 
-int page_check_range(target_ulong start, target_ulong len, int flags);
+#define PAGE_TARGET_2  0x0400
 
-extern const uint64_t pred_esz_masks[4];
+#define TLB_INVALID_MASK    (1 << (TARGET_PAGE_BITS_MIN - 1))
 
-#define MEMOPIDX_SHIFT  8
+#define TLB_MMIO            0
 
-#define g2h(x) ((void *)((unsigned long)(x)))
+#define TLB_WATCHPOINT      0
 
-typedef uint64_t abi_ptr;
-
-static uintptr_t helper_retaddr;
-
-static inline void set_helper_retaddr(uintptr_t ra)
+static inline ArchCPU *env_archcpu(CPUArchState *env)
 {
-    helper_retaddr = ra;
-    /*
-     * Ensure that this write is visible to the SIGSEGV handler that
-     * may be invoked due to a subsequent invalid memory operation.
-     */
-    signal_barrier();
+    return container_of(env, ArchCPU, env);
 }
 
-static inline void clear_helper_retaddr(void)
+static inline CPUState *env_cpu(CPUArchState *env)
 {
-    /*
-     * Ensure that previous memory operations have succeeded before
-     * removing the data visible to the signal handler.
-     */
-    signal_barrier();
-    helper_retaddr = 0;
+    return &env_archcpu(env)->parent_obj;
 }
 
-#define MAX_OPC_PARAM_PER_ARG 1
+FIELD(TBFLAG_ANY, MMUIDX, 4, 4)
 
-#define MAX_OPC_PARAM_IARGS 6
+#define EX_TBFLAG_ANY(IN, WHICH)   FIELD_EX32(IN.flags, TBFLAG_ANY, WHICH)
 
-#define MAX_OPC_PARAM_OARGS 1
-
-#define MAX_OPC_PARAM_ARGS (MAX_OPC_PARAM_IARGS + MAX_OPC_PARAM_OARGS)
-
-#define MAX_OPC_PARAM (4 + (MAX_OPC_PARAM_PER_ARG * MAX_OPC_PARAM_ARGS))
-
-#  define TCG_TARGET_REG_BITS 64
-
-typedef int64_t tcg_target_long;
-
-typedef uint64_t tcg_target_ulong;
-
-#define TCG_TARGET_MAYBE_vec            1
-
-# define TARGET_INSN_START_WORDS (1 + TARGET_INSN_START_EXTRA_WORDS)
-
-typedef uint64_t TCGRegSet;
-
-typedef enum TCGOpcode {
-#define DEF(name, oargs, iargs, cargs, flags) INDEX_op_ ## name,
-/*
- * Tiny Code Generator for QEMU
- *
- * Copyright (c) 2008 Fabrice Bellard
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy
- * of this software and associated documentation files (the "Software"), to deal
- * in the Software without restriction, including without limitation the rights
- * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the Software is
- * furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
- * THE SOFTWARE.
- */
-
-/*
- * DEF(name, oargs, iargs, cargs, flags)
- */
-
-/* predefined ops */
-DEF(discard, 1, 0, 0, TCG_OPF_NOT_PRESENT)
-DEF(set_label, 0, 0, 1, TCG_OPF_BB_END | TCG_OPF_NOT_PRESENT)
-
-/* variable number of parameters */
-DEF(call, 0, 0, 3, TCG_OPF_CALL_CLOBBER | TCG_OPF_NOT_PRESENT)
-
-DEF(br, 0, 0, 1, TCG_OPF_BB_END)
-
-#define IMPL(X) (__builtin_constant_p(X) && (X) <= 0 ? TCG_OPF_NOT_PRESENT : 0)
-#if TCG_TARGET_REG_BITS == 32
-# define IMPL64  TCG_OPF_64BIT | TCG_OPF_NOT_PRESENT
-#else
-# define IMPL64  TCG_OPF_64BIT
-#endif
-
-DEF(mb, 0, 0, 1, 0)
-
-DEF(mov_i32, 1, 1, 0, TCG_OPF_NOT_PRESENT)
-DEF(movi_i32, 1, 0, 1, TCG_OPF_NOT_PRESENT)
-DEF(setcond_i32, 1, 2, 1, 0)
-DEF(movcond_i32, 1, 4, 1, IMPL(TCG_TARGET_HAS_movcond_i32))
-/* load/store */
-DEF(ld8u_i32, 1, 1, 1, 0)
-DEF(ld8s_i32, 1, 1, 1, 0)
-DEF(ld16u_i32, 1, 1, 1, 0)
-DEF(ld16s_i32, 1, 1, 1, 0)
-DEF(ld_i32, 1, 1, 1, 0)
-DEF(st8_i32, 0, 2, 1, 0)
-DEF(st16_i32, 0, 2, 1, 0)
-DEF(st_i32, 0, 2, 1, 0)
-/* arith */
-DEF(add_i32, 1, 2, 0, 0)
-DEF(sub_i32, 1, 2, 0, 0)
-DEF(mul_i32, 1, 2, 0, 0)
-DEF(div_i32, 1, 2, 0, IMPL(TCG_TARGET_HAS_div_i32))
-DEF(divu_i32, 1, 2, 0, IMPL(TCG_TARGET_HAS_div_i32))
-DEF(rem_i32, 1, 2, 0, IMPL(TCG_TARGET_HAS_rem_i32))
-DEF(remu_i32, 1, 2, 0, IMPL(TCG_TARGET_HAS_rem_i32))
-DEF(div2_i32, 2, 3, 0, IMPL(TCG_TARGET_HAS_div2_i32))
-DEF(divu2_i32, 2, 3, 0, IMPL(TCG_TARGET_HAS_div2_i32))
-DEF(and_i32, 1, 2, 0, 0)
-DEF(or_i32, 1, 2, 0, 0)
-DEF(xor_i32, 1, 2, 0, 0)
-/* shifts/rotates */
-DEF(shl_i32, 1, 2, 0, 0)
-DEF(shr_i32, 1, 2, 0, 0)
-DEF(sar_i32, 1, 2, 0, 0)
-DEF(rotl_i32, 1, 2, 0, IMPL(TCG_TARGET_HAS_rot_i32))
-DEF(rotr_i32, 1, 2, 0, IMPL(TCG_TARGET_HAS_rot_i32))
-DEF(deposit_i32, 1, 2, 2, IMPL(TCG_TARGET_HAS_deposit_i32))
-DEF(extract_i32, 1, 1, 2, IMPL(TCG_TARGET_HAS_extract_i32))
-DEF(sextract_i32, 1, 1, 2, IMPL(TCG_TARGET_HAS_sextract_i32))
-DEF(extract2_i32, 1, 2, 1, IMPL(TCG_TARGET_HAS_extract2_i32))
-
-DEF(brcond_i32, 0, 2, 2, TCG_OPF_BB_END)
-
-DEF(add2_i32, 2, 4, 0, IMPL(TCG_TARGET_HAS_add2_i32))
-DEF(sub2_i32, 2, 4, 0, IMPL(TCG_TARGET_HAS_sub2_i32))
-DEF(mulu2_i32, 2, 2, 0, IMPL(TCG_TARGET_HAS_mulu2_i32))
-DEF(muls2_i32, 2, 2, 0, IMPL(TCG_TARGET_HAS_muls2_i32))
-DEF(muluh_i32, 1, 2, 0, IMPL(TCG_TARGET_HAS_muluh_i32))
-DEF(mulsh_i32, 1, 2, 0, IMPL(TCG_TARGET_HAS_mulsh_i32))
-DEF(brcond2_i32, 0, 4, 2, TCG_OPF_BB_END | IMPL(TCG_TARGET_REG_BITS == 32))
-DEF(setcond2_i32, 1, 4, 1, IMPL(TCG_TARGET_REG_BITS == 32))
-
-DEF(ext8s_i32, 1, 1, 0, IMPL(TCG_TARGET_HAS_ext8s_i32))
-DEF(ext16s_i32, 1, 1, 0, IMPL(TCG_TARGET_HAS_ext16s_i32))
-DEF(ext8u_i32, 1, 1, 0, IMPL(TCG_TARGET_HAS_ext8u_i32))
-DEF(ext16u_i32, 1, 1, 0, IMPL(TCG_TARGET_HAS_ext16u_i32))
-DEF(bswap16_i32, 1, 1, 0, IMPL(TCG_TARGET_HAS_bswap16_i32))
-DEF(bswap32_i32, 1, 1, 0, IMPL(TCG_TARGET_HAS_bswap32_i32))
-DEF(not_i32, 1, 1, 0, IMPL(TCG_TARGET_HAS_not_i32))
-DEF(neg_i32, 1, 1, 0, IMPL(TCG_TARGET_HAS_neg_i32))
-DEF(andc_i32, 1, 2, 0, IMPL(TCG_TARGET_HAS_andc_i32))
-DEF(orc_i32, 1, 2, 0, IMPL(TCG_TARGET_HAS_orc_i32))
-DEF(eqv_i32, 1, 2, 0, IMPL(TCG_TARGET_HAS_eqv_i32))
-DEF(nand_i32, 1, 2, 0, IMPL(TCG_TARGET_HAS_nand_i32))
-DEF(nor_i32, 1, 2, 0, IMPL(TCG_TARGET_HAS_nor_i32))
-DEF(clz_i32, 1, 2, 0, IMPL(TCG_TARGET_HAS_clz_i32))
-DEF(ctz_i32, 1, 2, 0, IMPL(TCG_TARGET_HAS_ctz_i32))
-DEF(ctpop_i32, 1, 1, 0, IMPL(TCG_TARGET_HAS_ctpop_i32))
-
-DEF(mov_i64, 1, 1, 0, TCG_OPF_64BIT | TCG_OPF_NOT_PRESENT)
-DEF(movi_i64, 1, 0, 1, TCG_OPF_64BIT | TCG_OPF_NOT_PRESENT)
-DEF(setcond_i64, 1, 2, 1, IMPL64)
-DEF(movcond_i64, 1, 4, 1, IMPL64 | IMPL(TCG_TARGET_HAS_movcond_i64))
-/* load/store */
-DEF(ld8u_i64, 1, 1, 1, IMPL64)
-DEF(ld8s_i64, 1, 1, 1, IMPL64)
-DEF(ld16u_i64, 1, 1, 1, IMPL64)
-DEF(ld16s_i64, 1, 1, 1, IMPL64)
-DEF(ld32u_i64, 1, 1, 1, IMPL64)
-DEF(ld32s_i64, 1, 1, 1, IMPL64)
-DEF(ld_i64, 1, 1, 1, IMPL64)
-DEF(st8_i64, 0, 2, 1, IMPL64)
-DEF(st16_i64, 0, 2, 1, IMPL64)
-DEF(st32_i64, 0, 2, 1, IMPL64)
-DEF(st_i64, 0, 2, 1, IMPL64)
-/* arith */
-DEF(add_i64, 1, 2, 0, IMPL64)
-DEF(sub_i64, 1, 2, 0, IMPL64)
-DEF(mul_i64, 1, 2, 0, IMPL64)
-DEF(div_i64, 1, 2, 0, IMPL64 | IMPL(TCG_TARGET_HAS_div_i64))
-DEF(divu_i64, 1, 2, 0, IMPL64 | IMPL(TCG_TARGET_HAS_div_i64))
-DEF(rem_i64, 1, 2, 0, IMPL64 | IMPL(TCG_TARGET_HAS_rem_i64))
-DEF(remu_i64, 1, 2, 0, IMPL64 | IMPL(TCG_TARGET_HAS_rem_i64))
-DEF(div2_i64, 2, 3, 0, IMPL64 | IMPL(TCG_TARGET_HAS_div2_i64))
-DEF(divu2_i64, 2, 3, 0, IMPL64 | IMPL(TCG_TARGET_HAS_div2_i64))
-DEF(and_i64, 1, 2, 0, IMPL64)
-DEF(or_i64, 1, 2, 0, IMPL64)
-DEF(xor_i64, 1, 2, 0, IMPL64)
-/* shifts/rotates */
-DEF(shl_i64, 1, 2, 0, IMPL64)
-DEF(shr_i64, 1, 2, 0, IMPL64)
-DEF(sar_i64, 1, 2, 0, IMPL64)
-DEF(rotl_i64, 1, 2, 0, IMPL64 | IMPL(TCG_TARGET_HAS_rot_i64))
-DEF(rotr_i64, 1, 2, 0, IMPL64 | IMPL(TCG_TARGET_HAS_rot_i64))
-DEF(deposit_i64, 1, 2, 2, IMPL64 | IMPL(TCG_TARGET_HAS_deposit_i64))
-DEF(extract_i64, 1, 1, 2, IMPL64 | IMPL(TCG_TARGET_HAS_extract_i64))
-DEF(sextract_i64, 1, 1, 2, IMPL64 | IMPL(TCG_TARGET_HAS_sextract_i64))
-DEF(extract2_i64, 1, 2, 1, IMPL64 | IMPL(TCG_TARGET_HAS_extract2_i64))
-
-/* size changing ops */
-DEF(ext_i32_i64, 1, 1, 0, IMPL64)
-DEF(extu_i32_i64, 1, 1, 0, IMPL64)
-DEF(extrl_i64_i32, 1, 1, 0,
-    IMPL(TCG_TARGET_HAS_extrl_i64_i32)
-    | (TCG_TARGET_REG_BITS == 32 ? TCG_OPF_NOT_PRESENT : 0))
-DEF(extrh_i64_i32, 1, 1, 0,
-    IMPL(TCG_TARGET_HAS_extrh_i64_i32)
-    | (TCG_TARGET_REG_BITS == 32 ? TCG_OPF_NOT_PRESENT : 0))
-
-DEF(brcond_i64, 0, 2, 2, TCG_OPF_BB_END | IMPL64)
-DEF(ext8s_i64, 1, 1, 0, IMPL64 | IMPL(TCG_TARGET_HAS_ext8s_i64))
-DEF(ext16s_i64, 1, 1, 0, IMPL64 | IMPL(TCG_TARGET_HAS_ext16s_i64))
-DEF(ext32s_i64, 1, 1, 0, IMPL64 | IMPL(TCG_TARGET_HAS_ext32s_i64))
-DEF(ext8u_i64, 1, 1, 0, IMPL64 | IMPL(TCG_TARGET_HAS_ext8u_i64))
-DEF(ext16u_i64, 1, 1, 0, IMPL64 | IMPL(TCG_TARGET_HAS_ext16u_i64))
-DEF(ext32u_i64, 1, 1, 0, IMPL64 | IMPL(TCG_TARGET_HAS_ext32u_i64))
-DEF(bswap16_i64, 1, 1, 0, IMPL64 | IMPL(TCG_TARGET_HAS_bswap16_i64))
-DEF(bswap32_i64, 1, 1, 0, IMPL64 | IMPL(TCG_TARGET_HAS_bswap32_i64))
-DEF(bswap64_i64, 1, 1, 0, IMPL64 | IMPL(TCG_TARGET_HAS_bswap64_i64))
-DEF(not_i64, 1, 1, 0, IMPL64 | IMPL(TCG_TARGET_HAS_not_i64))
-DEF(neg_i64, 1, 1, 0, IMPL64 | IMPL(TCG_TARGET_HAS_neg_i64))
-DEF(andc_i64, 1, 2, 0, IMPL64 | IMPL(TCG_TARGET_HAS_andc_i64))
-DEF(orc_i64, 1, 2, 0, IMPL64 | IMPL(TCG_TARGET_HAS_orc_i64))
-DEF(eqv_i64, 1, 2, 0, IMPL64 | IMPL(TCG_TARGET_HAS_eqv_i64))
-DEF(nand_i64, 1, 2, 0, IMPL64 | IMPL(TCG_TARGET_HAS_nand_i64))
-DEF(nor_i64, 1, 2, 0, IMPL64 | IMPL(TCG_TARGET_HAS_nor_i64))
-DEF(clz_i64, 1, 2, 0, IMPL64 | IMPL(TCG_TARGET_HAS_clz_i64))
-DEF(ctz_i64, 1, 2, 0, IMPL64 | IMPL(TCG_TARGET_HAS_ctz_i64))
-DEF(ctpop_i64, 1, 1, 0, IMPL64 | IMPL(TCG_TARGET_HAS_ctpop_i64))
-
-DEF(add2_i64, 2, 4, 0, IMPL64 | IMPL(TCG_TARGET_HAS_add2_i64))
-DEF(sub2_i64, 2, 4, 0, IMPL64 | IMPL(TCG_TARGET_HAS_sub2_i64))
-DEF(mulu2_i64, 2, 2, 0, IMPL64 | IMPL(TCG_TARGET_HAS_mulu2_i64))
-DEF(muls2_i64, 2, 2, 0, IMPL64 | IMPL(TCG_TARGET_HAS_muls2_i64))
-DEF(muluh_i64, 1, 2, 0, IMPL64 | IMPL(TCG_TARGET_HAS_muluh_i64))
-DEF(mulsh_i64, 1, 2, 0, IMPL64 | IMPL(TCG_TARGET_HAS_mulsh_i64))
-
-#define TLADDR_ARGS  (TARGET_LONG_BITS <= TCG_TARGET_REG_BITS ? 1 : 2)
-#define DATA64_ARGS  (TCG_TARGET_REG_BITS == 64 ? 1 : 2)
-
-/* QEMU specific */
-DEF(insn_start, 0, 0, TLADDR_ARGS * TARGET_INSN_START_WORDS,
-    TCG_OPF_NOT_PRESENT)
-DEF(exit_tb, 0, 0, 1, TCG_OPF_BB_EXIT | TCG_OPF_BB_END)
-DEF(goto_tb, 0, 0, 1, TCG_OPF_BB_EXIT | TCG_OPF_BB_END)
-DEF(goto_ptr, 0, 1, 0,
-    TCG_OPF_BB_EXIT | TCG_OPF_BB_END | IMPL(TCG_TARGET_HAS_goto_ptr))
-
-DEF(plugin_cb_start, 0, 0, 3, TCG_OPF_NOT_PRESENT)
-DEF(plugin_cb_end, 0, 0, 0, TCG_OPF_NOT_PRESENT)
-
-DEF(qemu_ld_i32, 1, TLADDR_ARGS, 1,
-    TCG_OPF_CALL_CLOBBER | TCG_OPF_SIDE_EFFECTS)
-DEF(qemu_st_i32, 0, TLADDR_ARGS + 1, 1,
-    TCG_OPF_CALL_CLOBBER | TCG_OPF_SIDE_EFFECTS)
-DEF(qemu_ld_i64, DATA64_ARGS, TLADDR_ARGS, 1,
-    TCG_OPF_CALL_CLOBBER | TCG_OPF_SIDE_EFFECTS | TCG_OPF_64BIT)
-DEF(qemu_st_i64, 0, TLADDR_ARGS + DATA64_ARGS, 1,
-    TCG_OPF_CALL_CLOBBER | TCG_OPF_SIDE_EFFECTS | TCG_OPF_64BIT)
-
-/* Host vector support.  */
-
-#define IMPLVEC  TCG_OPF_VECTOR | IMPL(TCG_TARGET_MAYBE_vec)
-
-DEF(mov_vec, 1, 1, 0, TCG_OPF_VECTOR | TCG_OPF_NOT_PRESENT)
-DEF(dupi_vec, 1, 0, 1, TCG_OPF_VECTOR | TCG_OPF_NOT_PRESENT)
-
-DEF(dup_vec, 1, 1, 0, IMPLVEC)
-DEF(dup2_vec, 1, 2, 0, IMPLVEC | IMPL(TCG_TARGET_REG_BITS == 32))
-
-DEF(ld_vec, 1, 1, 1, IMPLVEC)
-DEF(st_vec, 0, 2, 1, IMPLVEC)
-DEF(dupm_vec, 1, 1, 1, IMPLVEC)
-
-DEF(add_vec, 1, 2, 0, IMPLVEC)
-DEF(sub_vec, 1, 2, 0, IMPLVEC)
-DEF(mul_vec, 1, 2, 0, IMPLVEC | IMPL(TCG_TARGET_HAS_mul_vec))
-DEF(neg_vec, 1, 1, 0, IMPLVEC | IMPL(TCG_TARGET_HAS_neg_vec))
-DEF(abs_vec, 1, 1, 0, IMPLVEC | IMPL(TCG_TARGET_HAS_abs_vec))
-DEF(ssadd_vec, 1, 2, 0, IMPLVEC | IMPL(TCG_TARGET_HAS_sat_vec))
-DEF(usadd_vec, 1, 2, 0, IMPLVEC | IMPL(TCG_TARGET_HAS_sat_vec))
-DEF(sssub_vec, 1, 2, 0, IMPLVEC | IMPL(TCG_TARGET_HAS_sat_vec))
-DEF(ussub_vec, 1, 2, 0, IMPLVEC | IMPL(TCG_TARGET_HAS_sat_vec))
-DEF(smin_vec, 1, 2, 0, IMPLVEC | IMPL(TCG_TARGET_HAS_minmax_vec))
-DEF(umin_vec, 1, 2, 0, IMPLVEC | IMPL(TCG_TARGET_HAS_minmax_vec))
-DEF(smax_vec, 1, 2, 0, IMPLVEC | IMPL(TCG_TARGET_HAS_minmax_vec))
-DEF(umax_vec, 1, 2, 0, IMPLVEC | IMPL(TCG_TARGET_HAS_minmax_vec))
-
-DEF(and_vec, 1, 2, 0, IMPLVEC)
-DEF(or_vec, 1, 2, 0, IMPLVEC)
-DEF(xor_vec, 1, 2, 0, IMPLVEC)
-DEF(andc_vec, 1, 2, 0, IMPLVEC | IMPL(TCG_TARGET_HAS_andc_vec))
-DEF(orc_vec, 1, 2, 0, IMPLVEC | IMPL(TCG_TARGET_HAS_orc_vec))
-DEF(not_vec, 1, 1, 0, IMPLVEC | IMPL(TCG_TARGET_HAS_not_vec))
-
-DEF(shli_vec, 1, 1, 1, IMPLVEC | IMPL(TCG_TARGET_HAS_shi_vec))
-DEF(shri_vec, 1, 1, 1, IMPLVEC | IMPL(TCG_TARGET_HAS_shi_vec))
-DEF(sari_vec, 1, 1, 1, IMPLVEC | IMPL(TCG_TARGET_HAS_shi_vec))
-
-DEF(shls_vec, 1, 2, 0, IMPLVEC | IMPL(TCG_TARGET_HAS_shs_vec))
-DEF(shrs_vec, 1, 2, 0, IMPLVEC | IMPL(TCG_TARGET_HAS_shs_vec))
-DEF(sars_vec, 1, 2, 0, IMPLVEC | IMPL(TCG_TARGET_HAS_shs_vec))
-
-DEF(shlv_vec, 1, 2, 0, IMPLVEC | IMPL(TCG_TARGET_HAS_shv_vec))
-DEF(shrv_vec, 1, 2, 0, IMPLVEC | IMPL(TCG_TARGET_HAS_shv_vec))
-DEF(sarv_vec, 1, 2, 0, IMPLVEC | IMPL(TCG_TARGET_HAS_shv_vec))
-
-DEF(cmp_vec, 1, 2, 1, IMPLVEC)
-
-DEF(bitsel_vec, 1, 3, 0, IMPLVEC | IMPL(TCG_TARGET_HAS_bitsel_vec))
-DEF(cmpsel_vec, 1, 4, 1, IMPLVEC | IMPL(TCG_TARGET_HAS_cmpsel_vec))
-
-DEF(last_generic, 0, 0, 0, TCG_OPF_NOT_PRESENT)
-
-#if TCG_TARGET_MAYBE_vec
-/*
- * Copyright (c) 2019 Linaro
- *
- * This work is licensed under the terms of the GNU GPL, version 2 or
- * (at your option) any later version.
- *
- * See the COPYING file in the top-level directory for details.
- *
- * Target-specific opcodes for host vector expansion.  These will be
- * emitted by tcg_expand_vec_op.  For those familiar with GCC internals,
- * consider these to be UNSPEC with names.
- */
-
-DEF(aa64_sshl_vec, 1, 2, 0, IMPLVEC)
-#endif
-
-#undef TLADDR_ARGS
-#undef DATA64_ARGS
-#undef IMPL
-#undef IMPL64
-#undef IMPLVEC
-#undef DEF
-#undef DEF
-    NB_OPS,
-} TCGOpcode;
-
-# define tcg_debug_assert(X) \
-    do { if (!(X)) { __builtin_unreachable(); } } while (0)
-
-typedef uint32_t tcg_insn_unit;
-
-struct TCGRelocation {
-    QSIMPLEQ_ENTRY(TCGRelocation) next;
-    tcg_insn_unit *ptr;
-    intptr_t addend;
-    int type;
-};
-
-typedef struct TCGLabel TCGLabel;
-
-struct TCGLabel {
-    unsigned present : 1;
-    unsigned has_value : 1;
-    unsigned id : 14;
-    unsigned refs : 16;
-    union {
-        uintptr_t value;
-        tcg_insn_unit *value_ptr;
-    } u;
-    QSIMPLEQ_HEAD(, TCGRelocation) relocs;
-    QSIMPLEQ_ENTRY(TCGLabel) next;
-};
-
-#define TCG_MAX_TEMPS 512
-
-#define TCG_MAX_INSNS 512
-
-typedef struct TCGPool {
-    struct TCGPool *next;
-    int size;
-    uint8_t data[0] __attribute__ ((aligned));
-} TCGPool;
-
-typedef enum TCGType {
-    TCG_TYPE_I32,
-    TCG_TYPE_I64,
-
-    TCG_TYPE_V64,
-    TCG_TYPE_V128,
-    TCG_TYPE_V256,
-
-    TCG_TYPE_COUNT, /* number of different types */
-
-    /* An alias for the size of the host register.  */
-#if TCG_TARGET_REG_BITS == 32
-    TCG_TYPE_REG = TCG_TYPE_I32,
-#else
-    TCG_TYPE_REG = TCG_TYPE_I64,
-#endif
-
-    /* An alias for the size of the native pointer.  */
-#if UINTPTR_MAX == UINT32_MAX
-    TCG_TYPE_PTR = TCG_TYPE_I32,
-#else
-    TCG_TYPE_PTR = TCG_TYPE_I64,
-#endif
-
-    /* An alias for the size of the target "long", aka register.  */
-#if TARGET_LONG_BITS == 64
-    TCG_TYPE_TL = TCG_TYPE_I64,
-#else
-    TCG_TYPE_TL = TCG_TYPE_I32,
-#endif
-} TCGType;
-
-typedef tcg_target_ulong TCGArg;
-
-typedef enum TCGTempVal {
-    TEMP_VAL_DEAD,
-    TEMP_VAL_REG,
-    TEMP_VAL_MEM,
-    TEMP_VAL_CONST,
-} TCGTempVal;
-
-typedef struct TCGTemp {
-    TCGReg reg:8;
-    TCGTempVal val_type:8;
-    TCGType base_type:8;
-    TCGType type:8;
-    unsigned int fixed_reg:1;
-    unsigned int indirect_reg:1;
-    unsigned int indirect_base:1;
-    unsigned int mem_coherent:1;
-    unsigned int mem_allocated:1;
-    /* If true, the temp is saved across both basic blocks and
-       translation blocks.  */
-    unsigned int temp_global:1;
-    /* If true, the temp is saved across basic blocks but dead
-       at the end of translation blocks.  If false, the temp is
-       dead at the end of basic blocks.  */
-    unsigned int temp_local:1;
-    unsigned int temp_allocated:1;
-
-    tcg_target_long val;
-    struct TCGTemp *mem_base;
-    intptr_t mem_offset;
-    const char *name;
-
-    /* Pass-specific information that can be stored for a temporary.
-       One word worth of integer data, and one pointer to data
-       allocated separately.  */
-    uintptr_t state;
-    void *state_ptr;
-} TCGTemp;
-
-typedef struct TCGContext TCGContext;
-
-typedef struct TCGTempSet {
-    unsigned long l[BITS_TO_LONGS(TCG_MAX_TEMPS)];
-} TCGTempSet;
-
-typedef struct TCGOp {
-    TCGOpcode opc   : 8;        /*  8 */
-
-    /* Parameters for this opcode.  See below.  */
-    unsigned param1 : 4;        /* 12 */
-    unsigned param2 : 4;        /* 16 */
-
-    /* Lifetime data of the operands.  */
-    unsigned life   : 16;       /* 32 */
-
-    /* Next and previous opcodes.  */
-    QTAILQ_ENTRY(TCGOp) link;
-#ifdef CONFIG_PLUGIN
-    QSIMPLEQ_ENTRY(TCGOp) plugin_link;
-#endif
-
-    /* Arguments for the opcode.  */
-    TCGArg args[MAX_OPC_PARAM];
-
-    /* Register preferences for the output(s).  */
-    TCGRegSet output_pref[2];
-} TCGOp;
-
-struct TCGContext {
-    uint8_t *pool_cur, *pool_end;
-    TCGPool *pool_first, *pool_current, *pool_first_large;
-    int nb_labels;
-    int nb_globals;
-    int nb_temps;
-    int nb_indirects;
-    int nb_ops;
-
-    /* goto_tb support */
-    tcg_insn_unit *code_buf;
-    uint16_t *tb_jmp_reset_offset; /* tb->jmp_reset_offset */
-    uintptr_t *tb_jmp_insn_offset; /* tb->jmp_target_arg if direct_jump */
-    uintptr_t *tb_jmp_target_addr; /* tb->jmp_target_arg if !direct_jump */
-
-    TCGRegSet reserved_regs;
-    uint32_t tb_cflags; /* cflags of the current TB */
-    intptr_t current_frame_offset;
-    intptr_t frame_start;
-    intptr_t frame_end;
-    TCGTemp *frame_temp;
-
-    tcg_insn_unit *code_ptr;
-
-#ifdef CONFIG_PROFILER
-    TCGProfile prof;
-#endif
-
-#ifdef CONFIG_DEBUG_TCG
-    int temps_in_use;
-    int goto_tb_issue_mask;
-    const TCGOpcode *vecop_list;
-#endif
-
-    /* Code generation.  Note that we specifically do not use tcg_insn_unit
-       here, because there's too much arithmetic throughout that relies
-       on addition and subtraction working on bytes.  Rely on the GCC
-       extension that allows arithmetic on void*.  */
-    void *code_gen_prologue;
-    void *code_gen_epilogue;
-    void *code_gen_buffer;
-    size_t code_gen_buffer_size;
-    void *code_gen_ptr;
-    void *data_gen_ptr;
-
-    /* Threshold to flush the translated code buffer.  */
-    void *code_gen_highwater;
-
-    size_t tb_phys_invalidate_count;
-
-    /* Track which vCPU triggers events */
-    CPUState *cpu;                      /* *_trans */
-
-    /* These structures are private to tcg-target.inc.c.  */
-#ifdef TCG_TARGET_NEED_LDST_LABELS
-    QSIMPLEQ_HEAD(, TCGLabelQemuLdst) ldst_labels;
-#endif
-#ifdef TCG_TARGET_NEED_POOL_LABELS
-    struct TCGLabelPoolData *pool_labels;
-#endif
-
-    TCGLabel *exitreq_label;
-
-#ifdef CONFIG_PLUGIN
-    /*
-     * We keep one plugin_tb struct per TCGContext. Note that on every TB
-     * translation we clear but do not free its contents; this way we
-     * avoid a lot of malloc/free churn, since after a few TB's it's
-     * unlikely that we'll need to allocate either more instructions or more
-     * space for instructions (for variable-instruction-length ISAs).
-     */
-    struct qemu_plugin_tb *plugin_tb;
-
-    /* descriptor of the instruction being translated */
-    struct qemu_plugin_insn *plugin_insn;
-
-    /* list to quickly access the injected ops */
-    QSIMPLEQ_HEAD(, TCGOp) plugin_ops;
-#endif
-
-    TCGTempSet free_temps[TCG_TYPE_COUNT * 2];
-    TCGTemp temps[TCG_MAX_TEMPS]; /* globals first, temps after */
-
-    QTAILQ_HEAD(, TCGOp) ops, free_ops;
-    QSIMPLEQ_HEAD(, TCGLabel) labels;
-
-    /* Tells which temporary holds a given register.
-       It does not take into account fixed registers */
-    TCGTemp *reg_to_temp[TCG_TARGET_NB_REGS];
-
-    uint16_t gen_insn_end_off[TCG_MAX_INSNS];
-    target_ulong gen_insn_data[TCG_MAX_INSNS][TARGET_INSN_START_WORDS];
-};
-
-extern __thread TCGContext *tcg_ctx;
-
-static inline size_t temp_idx(TCGTemp *ts)
+static inline int cpu_mmu_index(CPUARMState *env, bool ifetch)
 {
-    ptrdiff_t n = ts - tcg_ctx->temps;
-    tcg_debug_assert(n >= 0 && n < tcg_ctx->nb_temps);
-    return n;
+    return EX_TBFLAG_ANY(env->hflags, MMUIDX);
 }
 
-typedef uint32_t TCGMemOpIdx;
+#define PAGE_MTE            PAGE_TARGET_2
 
-static inline unsigned get_mmuidx(TCGMemOpIdx oi)
+extern const uint64_t pred_esz_masks[5];
+
+#define SIMD_MAXSZ_SHIFT   0
+
+#define SIMD_MAXSZ_BITS    8
+
+#define SIMD_OPRSZ_SHIFT   (SIMD_MAXSZ_SHIFT + SIMD_MAXSZ_BITS)
+
+#define SIMD_OPRSZ_BITS    2
+
+#define SIMD_DATA_SHIFT    (SIMD_OPRSZ_SHIFT + SIMD_OPRSZ_BITS)
+
+#define SIMD_DATA_BITS     (32 - SIMD_DATA_SHIFT)
+
+static inline intptr_t simd_maxsz(uint32_t desc)
 {
-    return oi & 15;
+    return extract32(desc, SIMD_MAXSZ_SHIFT, SIMD_MAXSZ_BITS) * 8 + 8;
 }
-
-static inline void *tlb_vaddr_to_host(CPUArchState *env, abi_ptr addr,
-                                      MMUAccessType access_type, int mmu_idx)
-{
-    return g2h(addr);
-}
-
-# define GETPC() \
-    ((uintptr_t)__builtin_extract_return_addr(__builtin_return_address(0)))
-
-#define HELPER(name) glue(helper_, name)
-
-#define SIMD_OPRSZ_SHIFT   0
-
-#define SIMD_OPRSZ_BITS    5
-
-#define SIMD_MAXSZ_SHIFT   (SIMD_OPRSZ_SHIFT + SIMD_OPRSZ_BITS)
-
-#define SIMD_MAXSZ_BITS    5
-
-#define SIMD_DATA_SHIFT    (SIMD_MAXSZ_SHIFT + SIMD_MAXSZ_BITS)
 
 static inline intptr_t simd_oprsz(uint32_t desc)
 {
-    return (extract32(desc, SIMD_OPRSZ_SHIFT, SIMD_OPRSZ_BITS) + 1) * 8;
+    uint32_t f = extract32(desc, SIMD_OPRSZ_SHIFT, SIMD_OPRSZ_BITS);
+    intptr_t o = f * 8 + 8;
+    intptr_t m = simd_maxsz(desc);
+    return f == 2 ? m : o;
 }
+
+static inline int32_t simd_data(uint32_t desc)
+{
+    return sextract32(desc, SIMD_DATA_SHIFT, SIMD_DATA_BITS);
+}
+
+#define SVE_MTEDESC_SHIFT 5
+
+FIELD(MTEDESC, TBI,   4, 2)
+
+FIELD(MTEDESC, TCMA,  6, 2)
+
+bool mte_probe(CPUARMState *env, uint32_t desc, uint64_t ptr);
+
+uint64_t mte_check(CPUARMState *env, uint32_t desc, uint64_t ptr, uintptr_t ra);
+
+static inline int allocation_tag_from_addr(uint64_t ptr)
+{
+    return extract64(ptr, 56, 4);
+}
+
+static inline bool tbi_check(uint32_t desc, int bit55)
+{
+    return (desc >> (R_MTEDESC_TBI_SHIFT + bit55)) & 1;
+}
+
+static inline bool tcma_check(uint32_t desc, int bit55, int ptr_tag)
+{
+    /*
+     * We had extracted bit55 and ptr_tag for other reasons, so fold
+     * (ptr<59:55> == 00000 || ptr<59:55> == 11111) into a single test.
+     */
+    bool match = ((ptr_tag + bit55) & 0xf) == 0;
+    bool tcma = (desc >> (R_MTEDESC_TCMA_SHIFT + bit55)) & 1;
+    return tcma && match;
+}
+
+static inline uint64_t useronly_clean_ptr(uint64_t ptr)
+{
+#ifdef CONFIG_USER_ONLY
+    /* TBI0 is known to be enabled, while TBI1 is disabled. */
+    ptr &= sextract64(ptr, 0, 56);
+#endif
+    return ptr;
+}
+
+typedef enum MemOp {
+    MO_8     = 0,
+    MO_16    = 1,
+    MO_32    = 2,
+    MO_64    = 3,
+    MO_128   = 4,
+    MO_256   = 5,
+    MO_512   = 6,
+    MO_1024  = 7,
+    MO_SIZE  = 0x07,   /* Mask for the above.  */
+
+    MO_SIGN  = 0x08,   /* Sign-extended, otherwise zero-extended.  */
+
+    MO_BSWAP = 0x10,   /* Host reverse endian.  */
+#if HOST_BIG_ENDIAN
+    MO_LE    = MO_BSWAP,
+    MO_BE    = 0,
+#else
+    MO_LE    = 0,
+    MO_BE    = MO_BSWAP,
+#endif
+#ifdef NEED_CPU_H
+#if TARGET_BIG_ENDIAN
+    MO_TE    = MO_BE,
+#else
+    MO_TE    = MO_LE,
+#endif
+#endif
+
+    /*
+     * MO_UNALN accesses are never checked for alignment.
+     * MO_ALIGN accesses will result in a call to the CPU's
+     * do_unaligned_access hook if the guest address is not aligned.
+     *
+     * Some architectures (e.g. ARMv8) need the address which is aligned
+     * to a size more than the size of the memory access.
+     * Some architectures (e.g. SPARCv9) need an address which is aligned,
+     * but less strictly than the natural alignment.
+     *
+     * MO_ALIGN supposes the alignment size is the size of a memory access.
+     *
+     * There are three options:
+     * - unaligned access permitted (MO_UNALN).
+     * - an alignment to the size of an access (MO_ALIGN);
+     * - an alignment to a specified size, which may be more or less than
+     *   the access size (MO_ALIGN_x where 'x' is a size in bytes);
+     */
+    MO_ASHIFT = 5,
+    MO_AMASK = 0x7 << MO_ASHIFT,
+    MO_UNALN    = 0,
+    MO_ALIGN_2  = 1 << MO_ASHIFT,
+    MO_ALIGN_4  = 2 << MO_ASHIFT,
+    MO_ALIGN_8  = 3 << MO_ASHIFT,
+    MO_ALIGN_16 = 4 << MO_ASHIFT,
+    MO_ALIGN_32 = 5 << MO_ASHIFT,
+    MO_ALIGN_64 = 6 << MO_ASHIFT,
+    MO_ALIGN    = MO_AMASK,
+
+    /*
+     * MO_ATOM_* describes the atomicity requirements of the operation:
+     * MO_ATOM_IFALIGN: the operation must be single-copy atomic if it
+     *    is aligned; if unaligned there is no atomicity.
+     * MO_ATOM_IFALIGN_PAIR: the entire operation may be considered to
+     *    be a pair of half-sized operations which are packed together
+     *    for convenience, with single-copy atomicity on each half if
+     *    the half is aligned.
+     *    This is the atomicity e.g. of Arm pre-FEAT_LSE2 LDP.
+     * MO_ATOM_WITHIN16: the operation is single-copy atomic, even if it
+     *    is unaligned, so long as it does not cross a 16-byte boundary;
+     *    if it crosses a 16-byte boundary there is no atomicity.
+     *    This is the atomicity e.g. of Arm FEAT_LSE2 LDR.
+     * MO_ATOM_WITHIN16_PAIR: the entire operation is single-copy atomic,
+     *    if it happens to be within a 16-byte boundary, otherwise it
+     *    devolves to a pair of half-sized MO_ATOM_WITHIN16 operations.
+     *    Depending on alignment, one or both will be single-copy atomic.
+     *    This is the atomicity e.g. of Arm FEAT_LSE2 LDP.
+     * MO_ATOM_SUBALIGN: the operation is single-copy atomic by parts
+     *    by the alignment.  E.g. if the address is 0 mod 4, then each
+     *    4-byte subobject is single-copy atomic.
+     *    This is the atomicity e.g. of IBM Power.
+     * MO_ATOM_NONE: the operation has no atomicity requirements.
+     *
+     * Note the default (i.e. 0) value is single-copy atomic to the
+     * size of the operation, if aligned.  This retains the behaviour
+     * from before this field was introduced.
+     */
+    MO_ATOM_SHIFT         = 8,
+    MO_ATOM_IFALIGN       = 0 << MO_ATOM_SHIFT,
+    MO_ATOM_IFALIGN_PAIR  = 1 << MO_ATOM_SHIFT,
+    MO_ATOM_WITHIN16      = 2 << MO_ATOM_SHIFT,
+    MO_ATOM_WITHIN16_PAIR = 3 << MO_ATOM_SHIFT,
+    MO_ATOM_SUBALIGN      = 4 << MO_ATOM_SHIFT,
+    MO_ATOM_NONE          = 5 << MO_ATOM_SHIFT,
+    MO_ATOM_MASK          = 7 << MO_ATOM_SHIFT,
+
+    /* Combinations of the above, for ease of use.  */
+    MO_UB    = MO_8,
+    MO_UW    = MO_16,
+    MO_UL    = MO_32,
+    MO_UQ    = MO_64,
+    MO_UO    = MO_128,
+    MO_SB    = MO_SIGN | MO_8,
+    MO_SW    = MO_SIGN | MO_16,
+    MO_SL    = MO_SIGN | MO_32,
+    MO_SQ    = MO_SIGN | MO_64,
+    MO_SO    = MO_SIGN | MO_128,
+
+    MO_LEUW  = MO_LE | MO_UW,
+    MO_LEUL  = MO_LE | MO_UL,
+    MO_LEUQ  = MO_LE | MO_UQ,
+    MO_LESW  = MO_LE | MO_SW,
+    MO_LESL  = MO_LE | MO_SL,
+    MO_LESQ  = MO_LE | MO_SQ,
+
+    MO_BEUW  = MO_BE | MO_UW,
+    MO_BEUL  = MO_BE | MO_UL,
+    MO_BEUQ  = MO_BE | MO_UQ,
+    MO_BESW  = MO_BE | MO_SW,
+    MO_BESL  = MO_BE | MO_SL,
+    MO_BESQ  = MO_BE | MO_SQ,
+
+#ifdef NEED_CPU_H
+    MO_TEUW  = MO_TE | MO_UW,
+    MO_TEUL  = MO_TE | MO_UL,
+    MO_TEUQ  = MO_TE | MO_UQ,
+    MO_TEUO  = MO_TE | MO_UO,
+    MO_TESW  = MO_TE | MO_SW,
+    MO_TESL  = MO_TE | MO_SL,
+    MO_TESQ  = MO_TE | MO_SQ,
+#endif
+
+    MO_SSIZE = MO_SIZE | MO_SIGN,
+} MemOp;
+
+typedef uint64_t abi_ptr;
+
+uint64_t cpu_ldq_be_data_ra(CPUArchState *env, abi_ptr ptr, uintptr_t ra);
+
+uint64_t cpu_ldq_le_data_ra(CPUArchState *env, abi_ptr ptr, uintptr_t ra);
+
+G_NORETURN static inline void cpu_loop_exit_noexc(CPUState *cpu) {
+  __builtin_trap();
+  __builtin_unreachable();
+}
+
+int probe_access_flags(CPUArchState *env, target_ulong addr, int size,
+                       MMUAccessType access_type, int mmu_idx,
+                       bool nonfault, void **phost, uintptr_t retaddr);
+
+# define GETPC() 0
+
+#define HELPER(name) glue(helper_, name)
+
+# define tcg_debug_assert(X) \
+    do { if (!(X)) { __builtin_unreachable(); } } while (0)
 
 #define H1(x)   (x)
 
 #define H1_2(x) (x)
 
 #define H1_4(x) (x)
+
+#define H1_8(x) (x)
+
+typedef void sve_ldst1_host_fn(void *vd, intptr_t reg_off, void *host);
+
+#define DO_LD_HOST(NAME, H, TYPEE, TYPEM, HOST)                              \
+static inline void sve_##NAME##_host(void *vd, intptr_t reg_off, void *host) \
+{ TYPEM val = HOST(host); *(TYPEE *)(vd + H(reg_off)) = val; }
+
+#define DO_LD_TLB(NAME, H, TYPEE, TYPEM, TLB)                              \
+static inline void sve_##NAME##_tlb(CPUARMState *env, void *vd,            \
+                        intptr_t reg_off, target_ulong addr, uintptr_t ra) \
+{                                                                          \
+    TYPEM val = TLB(env, useronly_clean_ptr(addr), ra);                    \
+    *(TYPEE *)(vd + H(reg_off)) = val;                                     \
+}
+
+typedef void sve_ldst1_tlb_fn(CPUARMState *env, void *vd, intptr_t reg_off,
+                              target_ulong vaddr, uintptr_t retaddr);
+
+#define DO_LD_PRIM_2(NAME, H, TE, TM, LD) \
+    DO_LD_HOST(ld1##NAME##_be, H, TE, TM, LD##_be_p)    \
+    DO_LD_HOST(ld1##NAME##_le, H, TE, TM, LD##_le_p)    \
+    DO_LD_TLB(ld1##NAME##_be, H, TE, TM, cpu_##LD##_be_data_ra) \
+    DO_LD_TLB(ld1##NAME##_le, H, TE, TM, cpu_##LD##_le_data_ra)
+
+DO_LD_PRIM_2(dd, H1_8, uint64_t, uint64_t, ldq)
+
+typedef struct {
+    void *host;
+    int flags;
+    MemTxAttrs attrs;
+    bool tagged;
+} SVEHostPage;
+
+typedef enum {
+    FAULT_NO,
+    FAULT_FIRST,
+    FAULT_ALL,
+} SVEContFault;
+
+typedef struct {
+    /*
+     * First and last element wholly contained within the two pages.
+     * mem_off_first[0] and reg_off_first[0] are always set >= 0.
+     * reg_off_last[0] may be < 0 if the first element crosses pages.
+     * All of mem_off_first[1], reg_off_first[1] and reg_off_last[1]
+     * are set >= 0 only if there are complete elements on a second page.
+     *
+     * The reg_off_* offsets are relative to the internal vector register.
+     * The mem_off_first offset is relative to the memory address; the
+     * two offsets are different when a load operation extends, a store
+     * operation truncates, or for multi-register operations.
+     */
+    int16_t mem_off_first[2];
+    int16_t reg_off_first[2];
+    int16_t reg_off_last[2];
+
+    /*
+     * One element that is misaligned and spans both pages,
+     * or -1 if there is no such active element.
+     */
+    int16_t mem_off_split;
+    int16_t reg_off_split;
+
+    /*
+     * The byte offset at which the entire operation crosses a page boundary.
+     * Set >= 0 if and only if the entire operation spans two pages.
+     */
+    int16_t page_split;
+
+    /* TLB data for the two pages. */
+    SVEHostPage page[2];
+} SVEContLdSt;
+
+static inline int cpu_watchpoint_address_matches(CPUState *cpu,
+                                                 vaddr addr, vaddr len)
+{
+    return 0;
+}
 
 static void swap_memzero(void *vd, size_t n)
 {
@@ -1687,12 +2619,12 @@ static void swap_memzero(void *vd, size_t n)
         return;
     }
 
-#ifndef HOST_WORDS_BIGENDIAN
+#if !HOST_BIG_ENDIAN
     o = 0;
 #endif
     switch (o) {
     case 0:
-        __builtin_memset(vd, 0, n);
+        memset(vd, 0, n);
         break;
 
     case 4:
@@ -1715,52 +2647,6 @@ static void swap_memzero(void *vd, size_t n)
         break;
     }
 }
-
-typedef intptr_t sve_ld1_host_fn(void *vd, void *vg, void *host,
-                                 intptr_t mem_ofs, intptr_t mem_max);
-
-typedef void sve_ld1_tlb_fn(CPUARMState *env, void *vd, intptr_t reg_off,
-                            target_ulong vaddr, TCGMemOpIdx oi, uintptr_t ra);
-
-#define DO_LD_HOST(NAME, H, TYPEE, TYPEM, HOST) \
-static intptr_t sve_##NAME##_host(void *vd, void *vg, void *host,           \
-                                  intptr_t mem_off, const intptr_t mem_max) \
-{                                                                           \
-    intptr_t reg_off = mem_off * (sizeof(TYPEE) / sizeof(TYPEM));           \
-    uint64_t *pg = vg;                                                      \
-    while (mem_off + sizeof(TYPEM) <= mem_max) {                            \
-        TYPEM val = 0;                                                      \
-        if (likely((pg[reg_off >> 6] >> (reg_off & 63)) & 1)) {             \
-            val = HOST(host + mem_off);                                     \
-        }                                                                   \
-        *(TYPEE *)(vd + H(reg_off)) = val;                                  \
-        mem_off += sizeof(TYPEM), reg_off += sizeof(TYPEE);                 \
-    }                                                                       \
-    return mem_off;                                                         \
-}
-
-#define DO_LD_TLB(NAME, H, TYPEE, TYPEM, HOST, MOEND, TLB)                  \
-static void sve_##NAME##_tlb(CPUARMState *env, void *vd, intptr_t reg_off,  \
-                             target_ulong addr, TCGMemOpIdx oi, uintptr_t ra)  \
-{                                                                           \
-    TYPEM val = HOST(g2h(addr));                                            \
-    *(TYPEE *)(vd + H(reg_off)) = val;                                      \
-}
-
-#define DO_LD_PRIM_1(NAME, H, TE, TM)                   \
-    DO_LD_HOST(NAME, H, TE, TM, ldub_p)                 \
-    DO_LD_TLB(NAME, H, TE, TM, ldub_p, 0, helper_ret_ldub_mmu)
-
-DO_LD_PRIM_1(ld1bb,  H1,   uint8_t,  uint8_t)
-
-#define DO_LD_PRIM_2(NAME, end, MOEND, H, TE, TM, PH, PT)  \
-    DO_LD_HOST(NAME##_##end, H, TE, TM, PH##_##end##_p)    \
-    DO_LD_TLB(NAME##_##end, H, TE, TM, PH##_##end##_p,     \
-              MOEND, helper_##end##_##PT##_mmu)
-
-DO_LD_PRIM_2(ld1dd,  le, MO_LE,     , uint64_t, uint64_t, ldq, ldq)
-
-DO_LD_PRIM_2(ld1dd,  be, MO_BE,     , uint64_t, uint64_t, ldq, ldq)
 
 static intptr_t find_next_active(uint64_t *vg, intptr_t reg_off,
                                  intptr_t reg_max, int esz)
@@ -1791,127 +2677,198 @@ static intptr_t find_next_active(uint64_t *vg, intptr_t reg_off,
     return reg_off;
 }
 
-static intptr_t max_for_page(target_ulong base, intptr_t mem_off,
-                             intptr_t mem_max)
+bool sve_probe_page(SVEHostPage *info, bool nofault, CPUARMState *env,
+                    target_ulong addr, int mem_off, MMUAccessType access_type,
+                    int mmu_idx, uintptr_t retaddr)
 {
-    target_ulong addr = base + mem_off;
-    intptr_t split = -(intptr_t)(addr | TARGET_PAGE_MASK);
-    return MIN(split, mem_max - mem_off) + mem_off;
-}
+    int flags;
 
-static inline bool test_host_page(void *host)
-{
+    addr += mem_off;
+
+    /*
+     * User-only currently always issues with TBI.  See the comment
+     * above useronly_clean_ptr.  Usually we clean this top byte away
+     * during translation, but we can't do that for e.g. vector + imm
+     * addressing modes.
+     *
+     * We currently always enable TBI for user-only, and do not provide
+     * a way to turn it off.  So clean the pointer unconditionally here,
+     * rather than look it up here, or pass it down from above.
+     */
+    addr = useronly_clean_ptr(addr);
+
 #ifdef CONFIG_USER_ONLY
-    return true;
+    flags = probe_access_flags(env, addr, 0, access_type, mmu_idx, nofault,
+                               &info->host, retaddr);
 #else
-    return likely(host != NULL);
+    CPUTLBEntryFull *full;
+    flags = probe_access_full(env, addr, 0, access_type, mmu_idx, nofault,
+                              &info->host, &full, retaddr);
 #endif
-}
+    info->flags = flags;
 
-#define DO_LD1_1(NAME, ESZ) \
-void HELPER(sve_##NAME##_r)(CPUARMState *env, void *vg,        \
-                            target_ulong addr, uint32_t desc)  \
-{                                                              \
-    sve_ld1_r(env, vg, addr, desc, GETPC(), ESZ, 0,            \
-              sve_##NAME##_host, sve_##NAME##_tlb);            \
-}
-
-static void sve_ld1_r(CPUARMState *env, void *vg, const target_ulong addr,
-                      uint32_t desc, const uintptr_t retaddr,
-                      const int esz, const int msz,
-                      sve_ld1_host_fn *host_fn,
-                      sve_ld1_tlb_fn *tlb_fn)
-{
-    const TCGMemOpIdx oi = extract32(desc, SIMD_DATA_SHIFT, MEMOPIDX_SHIFT);
-    const int mmu_idx = get_mmuidx(oi);
-    const unsigned rd = extract32(desc, SIMD_DATA_SHIFT + MEMOPIDX_SHIFT, 5);
-    void *vd = &env->vfp.zregs[rd];
-    const int diffsz = esz - msz;
-    const intptr_t reg_max = simd_oprsz(desc);
-    const intptr_t mem_max = reg_max >> diffsz;
-    ARMVectorReg scratch;
-    void *host;
-    intptr_t split, reg_off, mem_off;
-
-    /* Find the first active element.  */
-    reg_off = find_next_active(vg, 0, reg_max, esz);
-    if (unlikely(reg_off == reg_max)) {
-        /* The entire predicate was false; no load occurs.  */
-        __builtin_memset(vd, 0, reg_max);
-        return;
-    }
-    mem_off = reg_off >> diffsz;
-    set_helper_retaddr(retaddr);
-
-    /*
-     * If the (remaining) load is entirely within a single page, then:
-     * For softmmu, and the tlb hits, then no faults will occur;
-     * For user-only, either the first load will fault or none will.
-     * We can thus perform the load directly to the destination and
-     * Vd will be unmodified on any exception path.
-     */
-    split = max_for_page(addr, mem_off, mem_max);
-    if (likely(split == mem_max)) {
-        host = tlb_vaddr_to_host(env, addr + mem_off, MMU_DATA_LOAD, mmu_idx);
-        if (test_host_page(host)) {
-            mem_off = host_fn(vd, vg, host - mem_off, mem_off, mem_max);
-            tcg_debug_assert(mem_off == mem_max);
-            clear_helper_retaddr();
-            /* After having taken any fault, zero leading inactive elements. */
-            swap_memzero(vd, reg_off);
-            return;
-        }
+    if (flags & TLB_INVALID_MASK) {
+        g_assert(nofault);
+        return false;
     }
 
-    /*
-     * Perform the predicated read into a temporary, thus ensuring
-     * if the load of the last element faults, Vd is not modified.
-     */
 #ifdef CONFIG_USER_ONLY
-    swap_memzero(&scratch, reg_off);
-    host_fn(&scratch, vg, g2h(addr), mem_off, mem_max);
+    memset(&info->attrs, 0, sizeof(info->attrs));
+    /* Require both ANON and MTE; see allocation_tag_mem(). */
+    info->tagged = (flags & PAGE_ANON) && (flags & PAGE_MTE);
 #else
-    __builtin_memset(&scratch, 0, reg_max);
-    goto start;
-    while (1) {
-        reg_off = find_next_active(vg, reg_off, reg_max, esz);
-        if (reg_off >= reg_max) {
-            break;
-        }
-        mem_off = reg_off >> diffsz;
-        split = max_for_page(addr, mem_off, mem_max);
+    info->attrs = full->attrs;
+    info->tagged = full->pte_attrs == 0xf0;
+#endif
 
-    start:
-        if (split - mem_off >= (1 << msz)) {
-            /* At least one whole element on this page.  */
-            host = tlb_vaddr_to_host(env, addr + mem_off,
-                                     MMU_DATA_LOAD, mmu_idx);
-            if (host) {
-                mem_off = host_fn(&scratch, vg, host - mem_off,
-                                  mem_off, split);
-                reg_off = mem_off << diffsz;
-                continue;
+    /* Ensure that info->host[] is relative to addr, not addr + mem_off. */
+    info->host -= mem_off;
+    return true;
+}
+
+bool sve_cont_ldst_elements(SVEContLdSt *info, target_ulong addr, uint64_t *vg,
+                            intptr_t reg_max, int esz, int msize)
+{
+    const int esize = 1 << esz;
+    const uint64_t pg_mask = pred_esz_masks[esz];
+    intptr_t reg_off_first = -1, reg_off_last = -1, reg_off_split;
+    intptr_t mem_off_last, mem_off_split;
+    intptr_t page_split, elt_split;
+    intptr_t i;
+
+    /* Set all of the element indices to -1, and the TLB data to 0. */
+    memset(info, -1, offsetof(SVEContLdSt, page));
+    memset(info->page, 0, sizeof(info->page));
+
+    /* Gross scan over the entire predicate to find bounds. */
+    i = 0;
+    do {
+        uint64_t pg = vg[i] & pg_mask;
+        if (pg) {
+            reg_off_last = i * 64 + 63 - clz64(pg);
+            if (reg_off_first < 0) {
+                reg_off_first = i * 64 + ctz64(pg);
             }
         }
+    } while (++i * 64 < reg_max);
 
-        /*
-         * Perform one normal read.  This may fault, longjmping out to the
-         * main loop in order to raise an exception.  It may succeed, and
-         * as a side-effect load the TLB entry for the next round.  Finally,
-         * in the extremely unlikely case we're performing this operation
-         * on I/O memory, it may succeed but not bring in the TLB entry.
-         * But even then we have still made forward progress.
-         */
-        tlb_fn(env, &scratch, reg_off, addr + mem_off, oi, retaddr);
-        reg_off += 1 << esz;
+    if (unlikely(reg_off_first < 0)) {
+        /* No active elements, no pages touched. */
+        return false;
     }
-#endif
+    tcg_debug_assert(reg_off_last >= 0 && reg_off_last < reg_max);
 
-    clear_helper_retaddr();
-    __builtin_memcpy(vd, &scratch, reg_max);
+    info->reg_off_first[0] = reg_off_first;
+    info->mem_off_first[0] = (reg_off_first >> esz) * msize;
+    mem_off_last = (reg_off_last >> esz) * msize;
+
+    page_split = -(addr | TARGET_PAGE_MASK);
+    if (likely(mem_off_last + msize <= page_split)) {
+        /* The entire operation fits within a single page. */
+        info->reg_off_last[0] = reg_off_last;
+        return true;
+    }
+
+    info->page_split = page_split;
+    elt_split = page_split / msize;
+    reg_off_split = elt_split << esz;
+    mem_off_split = elt_split * msize;
+
+    /*
+     * This is the last full element on the first page, but it is not
+     * necessarily active.  If there is no full element, i.e. the first
+     * active element is the one that's split, this value remains -1.
+     * It is useful as iteration bounds.
+     */
+    if (elt_split != 0) {
+        info->reg_off_last[0] = reg_off_split - esize;
+    }
+
+    /* Determine if an unaligned element spans the pages.  */
+    if (page_split % msize != 0) {
+        /* It is helpful to know if the split element is active. */
+        if ((vg[reg_off_split >> 6] >> (reg_off_split & 63)) & 1) {
+            info->reg_off_split = reg_off_split;
+            info->mem_off_split = mem_off_split;
+
+            if (reg_off_split == reg_off_last) {
+                /* The page crossing element is last. */
+                return true;
+            }
+        }
+        reg_off_split += esize;
+        mem_off_split += msize;
+    }
+
+    /*
+     * We do want the first active element on the second page, because
+     * this may affect the address reported in an exception.
+     */
+    reg_off_split = find_next_active(vg, reg_off_split, reg_max, esz);
+    tcg_debug_assert(reg_off_split <= reg_off_last);
+    info->reg_off_first[1] = reg_off_split;
+    info->mem_off_first[1] = (reg_off_split >> esz) * msize;
+    info->reg_off_last[1] = reg_off_last;
+    return true;
 }
 
-DO_LD1_1(ld1bb,  0)
+bool sve_cont_ldst_pages(SVEContLdSt *info, SVEContFault fault,
+                         CPUARMState *env, target_ulong addr,
+                         MMUAccessType access_type, uintptr_t retaddr)
+{
+    int mmu_idx = cpu_mmu_index(env, false);
+    int mem_off = info->mem_off_first[0];
+    bool nofault = fault == FAULT_NO;
+    bool have_work = true;
+
+    if (!sve_probe_page(&info->page[0], nofault, env, addr, mem_off,
+                        access_type, mmu_idx, retaddr)) {
+        /* No work to be done. */
+        return false;
+    }
+
+    if (likely(info->page_split < 0)) {
+        /* The entire operation was on the one page. */
+        return true;
+    }
+
+    /*
+     * If the second page is invalid, then we want the fault address to be
+     * the first byte on that page which is accessed.
+     */
+    if (info->mem_off_split >= 0) {
+        /*
+         * There is an element split across the pages.  The fault address
+         * should be the first byte of the second page.
+         */
+        mem_off = info->page_split;
+        /*
+         * If the split element is also the first active element
+         * of the vector, then:  For first-fault we should continue
+         * to generate faults for the second page.  For no-fault,
+         * we have work only if the second page is valid.
+         */
+        if (info->mem_off_first[0] < info->mem_off_split) {
+            nofault = FAULT_FIRST;
+            have_work = false;
+        }
+    } else {
+        /*
+         * There is no element split across the pages.  The fault address
+         * should be the first active element on the second page.
+         */
+        mem_off = info->mem_off_first[1];
+        /*
+         * There must have been one active element on the first page,
+         * so we're out of first-fault territory.
+         */
+        nofault = fault != FAULT_ALL;
+    }
+
+    have_work |= sve_probe_page(&info->page[1], nofault, env, addr, mem_off,
+                                access_type, mmu_idx, retaddr);
+    return have_work;
+}
 
 static void record_fault(CPUARMState *env, uintptr_t i, uintptr_t oprsz)
 {
@@ -1926,182 +2883,256 @@ static void record_fault(CPUARMState *env, uintptr_t i, uintptr_t oprsz)
     }
 }
 
-static void sve_ldff1_r(CPUARMState *env, void *vg, const target_ulong addr,
-                        uint32_t desc, const uintptr_t retaddr,
-                        const int esz, const int msz,
-                        sve_ld1_host_fn *host_fn,
-                        sve_ld1_tlb_fn *tlb_fn)
+static inline QEMU_ALWAYS_INLINE
+void sve_ldnfff1_r(CPUARMState *env, void *vg, const target_ulong addr,
+                   uint32_t desc, const uintptr_t retaddr, uint32_t mtedesc,
+                   const int esz, const int msz, const SVEContFault fault,
+                   sve_ldst1_host_fn *host_fn,
+                   sve_ldst1_tlb_fn *tlb_fn)
 {
-    const TCGMemOpIdx oi = extract32(desc, SIMD_DATA_SHIFT, MEMOPIDX_SHIFT);
-    const int mmu_idx = get_mmuidx(oi);
-    const unsigned rd = extract32(desc, SIMD_DATA_SHIFT + MEMOPIDX_SHIFT, 5);
+    const unsigned rd = simd_data(desc);
     void *vd = &env->vfp.zregs[rd];
-    const int diffsz = esz - msz;
     const intptr_t reg_max = simd_oprsz(desc);
-    const intptr_t mem_max = reg_max >> diffsz;
-    intptr_t split, reg_off, mem_off;
+    intptr_t reg_off, mem_off, reg_last;
+    SVEContLdSt info;
+    int flags;
     void *host;
 
-    /* Skip to the first active element.  */
-    reg_off = find_next_active(vg, 0, reg_max, esz);
-    if (unlikely(reg_off == reg_max)) {
+    /* Find the active elements.  */
+    if (!sve_cont_ldst_elements(&info, addr, vg, reg_max, esz, 1 << msz)) {
         /* The entire predicate was false; no load occurs.  */
-        __builtin_memset(vd, 0, reg_max);
+        memset(vd, 0, reg_max);
         return;
     }
-    mem_off = reg_off >> diffsz;
-    set_helper_retaddr(retaddr);
+    reg_off = info.reg_off_first[0];
+
+    /* Probe the page(s). */
+    if (!sve_cont_ldst_pages(&info, fault, env, addr, MMU_DATA_LOAD, retaddr)) {
+        /* Fault on first element. */
+        tcg_debug_assert(fault == FAULT_NO);
+        memset(vd, 0, reg_max);
+        goto do_fault;
+    }
+
+    mem_off = info.mem_off_first[0];
+    flags = info.page[0].flags;
 
     /*
-     * If the (remaining) load is entirely within a single page, then:
-     * For softmmu, and the tlb hits, then no faults will occur;
-     * For user-only, either the first load will fault or none will.
-     * We can thus perform the load directly to the destination and
-     * Vd will be unmodified on any exception path.
+     * Disable MTE checking if the Tagged bit is not set.  Since TBI must
+     * be set within MTEDESC for MTE, !mtedesc => !mte_active.
      */
-    split = max_for_page(addr, mem_off, mem_max);
-    if (likely(split == mem_max)) {
-        host = tlb_vaddr_to_host(env, addr + mem_off, MMU_DATA_LOAD, mmu_idx);
-        if (test_host_page(host)) {
-            mem_off = host_fn(vd, vg, host - mem_off, mem_off, mem_max);
-            tcg_debug_assert(mem_off == mem_max);
-            clear_helper_retaddr();
-            /* After any fault, zero any leading inactive elements.  */
+    if (!info.page[0].tagged) {
+        mtedesc = 0;
+    }
+
+    if (fault == FAULT_FIRST) {
+        /* Trapping mte check for the first-fault element.  */
+        if (mtedesc) {
+            mte_check(env, mtedesc, addr + mem_off, retaddr);
+        }
+
+        /*
+         * Special handling of the first active element,
+         * if it crosses a page boundary or is MMIO.
+         */
+        bool is_split = mem_off == info.mem_off_split;
+        if (unlikely(flags != 0) || unlikely(is_split)) {
+            /*
+             * Use the slow path for cross-page handling.
+             * Might trap for MMIO or watchpoints.
+             */
+            tlb_fn(env, vd, reg_off, addr + mem_off, retaddr);
+
+            /* After any fault, zero the other elements. */
             swap_memzero(vd, reg_off);
-            return;
+            reg_off += 1 << esz;
+            mem_off += 1 << msz;
+            swap_memzero(vd + reg_off, reg_max - reg_off);
+
+            if (is_split) {
+                goto second_page;
+            }
+        } else {
+            memset(vd, 0, reg_max);
+        }
+    } else {
+        memset(vd, 0, reg_max);
+        if (unlikely(mem_off == info.mem_off_split)) {
+            /* The first active element crosses a page boundary. */
+            flags |= info.page[1].flags;
+            if (unlikely(flags & TLB_MMIO)) {
+                /* Some page is MMIO, see below. */
+                goto do_fault;
+            }
+            if (unlikely(flags & TLB_WATCHPOINT) &&
+                (cpu_watchpoint_address_matches
+                 (env_cpu(env), addr + mem_off, 1 << msz)
+                 & BP_MEM_READ)) {
+                /* Watchpoint hit, see below. */
+                goto do_fault;
+            }
+            if (mtedesc && !mte_probe(env, mtedesc, addr + mem_off)) {
+                goto do_fault;
+            }
+            /*
+             * Use the slow path for cross-page handling.
+             * This is RAM, without a watchpoint, and will not trap.
+             */
+            tlb_fn(env, vd, reg_off, addr + mem_off, retaddr);
+            goto second_page;
         }
     }
 
-#ifdef CONFIG_USER_ONLY
     /*
-     * The page(s) containing this first element at ADDR+MEM_OFF must
-     * be valid.  Considering that this first element may be misaligned
-     * and cross a page boundary itself, take the rest of the page from
-     * the last byte of the element.
+     * From this point on, all memory operations are MemSingleNF.
+     *
+     * Per the MemSingleNF pseudocode, a no-fault load from Device memory
+     * must not actually hit the bus -- it returns (UNKNOWN, FAULT) instead.
+     *
+     * Unfortuately we do not have access to the memory attributes from the
+     * PTE to tell Device memory from Normal memory.  So we make a mostly
+     * correct check, and indicate (UNKNOWN, FAULT) for any MMIO.
+     * This gives the right answer for the common cases of "Normal memory,
+     * backed by host RAM" and "Device memory, backed by MMIO".
+     * The architecture allows us to suppress an NF load and return
+     * (UNKNOWN, FAULT) for any reason, so our behaviour for the corner
+     * case of "Normal memory, backed by MMIO" is permitted.  The case we
+     * get wrong is "Device memory, backed by host RAM", for which we
+     * should return (UNKNOWN, FAULT) for but do not.
+     *
+     * Similarly, CPU_BP breakpoints would raise exceptions, and so
+     * return (UNKNOWN, FAULT).  For simplicity, we consider gdb and
+     * architectural breakpoints the same.
      */
-    split = max_for_page(addr, mem_off + (1 << msz) - 1, mem_max);
-    mem_off = host_fn(vd, vg, g2h(addr), mem_off, split);
-
-    /* After any fault, zero any leading inactive elements.  */
-    swap_memzero(vd, reg_off);
-    reg_off = mem_off << diffsz;
-#else
-    /*
-     * Perform one normal read, which will fault or not.
-     * But it is likely to bring the page into the tlb.
-     */
-    tlb_fn(env, vd, reg_off, addr + mem_off, oi, retaddr);
-
-    /* After any fault, zero any leading predicated false elts.  */
-    swap_memzero(vd, reg_off);
-    mem_off += 1 << msz;
-    reg_off += 1 << esz;
-
-    /* Try again to read the balance of the page.  */
-    split = max_for_page(addr, mem_off - 1, mem_max);
-    if (split >= (1 << msz)) {
-        host = tlb_vaddr_to_host(env, addr + mem_off, MMU_DATA_LOAD, mmu_idx);
-        if (host) {
-            mem_off = host_fn(vd, vg, host - mem_off, mem_off, split);
-            reg_off = mem_off << diffsz;
-        }
+    if (unlikely(flags & TLB_MMIO)) {
+        goto do_fault;
     }
-#endif
 
-    clear_helper_retaddr();
+    reg_last = info.reg_off_last[0];
+    host = info.page[0].host;
+
+    do {
+        uint64_t pg = *(uint64_t *)(vg + (reg_off >> 3));
+        do {
+            if ((pg >> (reg_off & 63)) & 1) {
+                if (unlikely(flags & TLB_WATCHPOINT) &&
+                    (cpu_watchpoint_address_matches
+                     (env_cpu(env), addr + mem_off, 1 << msz)
+                     & BP_MEM_READ)) {
+                    goto do_fault;
+                }
+                if (mtedesc && !mte_probe(env, mtedesc, addr + mem_off)) {
+                    goto do_fault;
+                }
+                host_fn(vd, reg_off, host + mem_off);
+            }
+            reg_off += 1 << esz;
+            mem_off += 1 << msz;
+        } while (reg_off <= reg_last && (reg_off & 63));
+    } while (reg_off <= reg_last);
+
+    /*
+     * MemSingleNF is allowed to fail for any reason.  We have special
+     * code above to handle the first element crossing a page boundary.
+     * As an implementation choice, decline to handle a cross-page element
+     * in any other position.
+     */
+    reg_off = info.reg_off_split;
+    if (reg_off >= 0) {
+        goto do_fault;
+    }
+
+ second_page:
+    reg_off = info.reg_off_first[1];
+    if (likely(reg_off < 0)) {
+        /* No active elements on the second page.  All done. */
+        return;
+    }
+
+    /*
+     * MemSingleNF is allowed to fail for any reason.  As an implementation
+     * choice, decline to handle elements on the second page.  This should
+     * be low frequency as the guest walks through memory -- the next
+     * iteration of the guest's loop should be aligned on the page boundary,
+     * and then all following iterations will stay aligned.
+     */
+
+ do_fault:
     record_fault(env, reg_off, reg_max);
 }
 
-#define DO_LDFF1_LDNF1_2(PART, ESZ, MSZ) \
+#define DO_LDFF1_LDNF1_2(PART, ESZ, MSZ)                                \
 void HELPER(sve_ldff1##PART##_le_r)(CPUARMState *env, void *vg,         \
                                     target_ulong addr, uint32_t desc)   \
 {                                                                       \
-    sve_ldff1_r(env, vg, addr, desc, GETPC(), ESZ, MSZ,                 \
-                sve_ld1##PART##_le_host, sve_ld1##PART##_le_tlb);       \
+    sve_ldnfff1_r(env, vg, addr, desc, GETPC(), 0, ESZ, MSZ, FAULT_FIRST, \
+                  sve_ld1##PART##_le_host, sve_ld1##PART##_le_tlb);     \
 }                                                                       \
 void HELPER(sve_ldnf1##PART##_le_r)(CPUARMState *env, void *vg,         \
                                     target_ulong addr, uint32_t desc)   \
 {                                                                       \
-    sve_ldnf1_r(env, vg, addr, desc, ESZ, MSZ, sve_ld1##PART##_le_host); \
+    sve_ldnfff1_r(env, vg, addr, desc, GETPC(), 0, ESZ, MSZ, FAULT_NO,  \
+                  sve_ld1##PART##_le_host, sve_ld1##PART##_le_tlb);     \
 }                                                                       \
 void HELPER(sve_ldff1##PART##_be_r)(CPUARMState *env, void *vg,         \
                                     target_ulong addr, uint32_t desc)   \
 {                                                                       \
-    sve_ldff1_r(env, vg, addr, desc, GETPC(), ESZ, MSZ,                 \
-                sve_ld1##PART##_be_host, sve_ld1##PART##_be_tlb);       \
+    sve_ldnfff1_r(env, vg, addr, desc, GETPC(), 0, ESZ, MSZ, FAULT_FIRST, \
+                  sve_ld1##PART##_be_host, sve_ld1##PART##_be_tlb);     \
 }                                                                       \
 void HELPER(sve_ldnf1##PART##_be_r)(CPUARMState *env, void *vg,         \
                                     target_ulong addr, uint32_t desc)   \
 {                                                                       \
-    sve_ldnf1_r(env, vg, addr, desc, ESZ, MSZ, sve_ld1##PART##_be_host); \
+    sve_ldnfff1_r(env, vg, addr, desc, GETPC(), 0, ESZ, MSZ, FAULT_NO,  \
+                  sve_ld1##PART##_be_host, sve_ld1##PART##_be_tlb);     \
+}                                                                       \
+void HELPER(sve_ldff1##PART##_le_r_mte)(CPUARMState *env, void *vg,     \
+                                        target_ulong addr, uint32_t desc) \
+{                                                                       \
+    sve_ldnfff1_r_mte(env, vg, addr, desc, GETPC(), ESZ, MSZ, FAULT_FIRST, \
+                      sve_ld1##PART##_le_host, sve_ld1##PART##_le_tlb); \
+}                                                                       \
+void HELPER(sve_ldnf1##PART##_le_r_mte)(CPUARMState *env, void *vg,     \
+                                        target_ulong addr, uint32_t desc) \
+{                                                                       \
+    sve_ldnfff1_r_mte(env, vg, addr, desc, GETPC(), ESZ, MSZ, FAULT_NO, \
+                      sve_ld1##PART##_le_host, sve_ld1##PART##_le_tlb); \
+}                                                                       \
+void HELPER(sve_ldff1##PART##_be_r_mte)(CPUARMState *env, void *vg,     \
+                                        target_ulong addr, uint32_t desc) \
+{                                                                       \
+    sve_ldnfff1_r_mte(env, vg, addr, desc, GETPC(), ESZ, MSZ, FAULT_FIRST, \
+                      sve_ld1##PART##_be_host, sve_ld1##PART##_be_tlb); \
+}                                                                       \
+void HELPER(sve_ldnf1##PART##_be_r_mte)(CPUARMState *env, void *vg,     \
+                                        target_ulong addr, uint32_t desc) \
+{                                                                       \
+    sve_ldnfff1_r_mte(env, vg, addr, desc, GETPC(), ESZ, MSZ, FAULT_NO, \
+                      sve_ld1##PART##_be_host, sve_ld1##PART##_be_tlb); \
 }
 
-static void sve_ldnf1_r(CPUARMState *env, void *vg, const target_ulong addr,
-                        uint32_t desc, const int esz, const int msz,
-                        sve_ld1_host_fn *host_fn)
+static inline QEMU_ALWAYS_INLINE
+void sve_ldnfff1_r_mte(CPUARMState *env, void *vg, target_ulong addr,
+                       uint32_t desc, const uintptr_t retaddr,
+                       const int esz, const int msz, const SVEContFault fault,
+                       sve_ldst1_host_fn *host_fn,
+                       sve_ldst1_tlb_fn *tlb_fn)
 {
-    const unsigned rd = extract32(desc, SIMD_DATA_SHIFT + MEMOPIDX_SHIFT, 5);
-    void *vd = &env->vfp.zregs[rd];
-    const int diffsz = esz - msz;
-    const intptr_t reg_max = simd_oprsz(desc);
-    const intptr_t mem_max = reg_max >> diffsz;
-    const int mmu_idx = cpu_mmu_index(env, false);
-    intptr_t split, reg_off, mem_off;
-    void *host;
+    uint32_t mtedesc = desc >> (SIMD_DATA_SHIFT + SVE_MTEDESC_SHIFT);
+    int bit55 = extract64(addr, 55, 1);
 
-#ifdef CONFIG_USER_ONLY
-    host = tlb_vaddr_to_host(env, addr, MMU_DATA_LOAD, mmu_idx);
-    if (likely(page_check_range(addr, mem_max, PAGE_READ) == 0)) {
-        /* The entire operation is valid and will not fault.  */
-        host_fn(vd, vg, host, 0, mem_max);
-        return;
+    /* Remove mtedesc from the normal sve descriptor. */
+    desc = extract32(desc, 0, SIMD_DATA_SHIFT + SVE_MTEDESC_SHIFT);
+
+    /* Perform gross MTE suppression early. */
+    if (!tbi_check(desc, bit55) ||
+        tcma_check(desc, bit55, allocation_tag_from_addr(addr))) {
+        mtedesc = 0;
     }
-#endif
 
-    /* There will be no fault, so we may modify in advance.  */
-    __builtin_memset(vd, 0, reg_max);
-
-    /* Skip to the first active element.  */
-    reg_off = find_next_active(vg, 0, reg_max, esz);
-    if (unlikely(reg_off == reg_max)) {
-        /* The entire predicate was false; no load occurs.  */
-        return;
-    }
-    mem_off = reg_off >> diffsz;
-
-#ifdef CONFIG_USER_ONLY
-    if (page_check_range(addr + mem_off, 1 << msz, PAGE_READ) == 0) {
-        /* At least one load is valid; take the rest of the page.  */
-        split = max_for_page(addr, mem_off + (1 << msz) - 1, mem_max);
-        mem_off = host_fn(vd, vg, host, mem_off, split);
-        reg_off = mem_off << diffsz;
-    }
-#else
-    /*
-     * If the address is not in the TLB, we have no way to bring the
-     * entry into the TLB without also risking a fault.  Note that
-     * the corollary is that we never load from an address not in RAM.
-     *
-     * This last is out of spec, in a weird corner case.
-     * Per the MemNF/MemSingleNF pseudocode, a NF load from Device memory
-     * must not actually hit the bus -- it returns UNKNOWN data instead.
-     * But if you map non-RAM with Normal memory attributes and do a NF
-     * load then it should access the bus.  (Nobody ought actually do this
-     * in the real world, obviously.)
-     *
-     * Then there are the annoying special cases with watchpoints...
-     * TODO: Add a form of non-faulting loads using cc->tlb_fill(probe=true).
-     */
-    host = tlb_vaddr_to_host(env, addr + mem_off, MMU_DATA_LOAD, mmu_idx);
-    split = max_for_page(addr, mem_off, mem_max);
-    if (host && split >= (1 << msz)) {
-        mem_off = host_fn(vd, vg, host - mem_off, mem_off, split);
-        reg_off = mem_off << diffsz;
-    }
-#endif
-
-    record_fault(env, reg_off, reg_max);
+    sve_ldnfff1_r(env, vg, addr, desc, retaddr, mtedesc,
+                  esz, msz, fault, host_fn, tlb_fn);
 }
 
-DO_LDFF1_LDNF1_2(dd,  3, 3)
+DO_LDFF1_LDNF1_2(dd,  MO_64, MO_64)
 

@@ -2,20 +2,77 @@
 
 #define glue(x, y) xglue(x, y)
 
+#include <stdbool.h>
+
 #include <stdint.h>
 
 #include <assert.h>
 
 static inline uint32_t rol32(uint32_t word, unsigned int shift)
 {
-    return (word << shift) | (word >> ((32 - shift) & 31));
+    return (word << (shift & 31)) | (word >> (-shift & 31));
+}
+
+static inline uint32_t extract32(uint32_t value, int start, int length)
+{
+    assert(start >= 0 && length > 0 && length <= 32 - start);
+    return (value >> start) & (~0U >> (32 - length));
+}
+
+static inline int32_t sextract32(uint32_t value, int start, int length)
+{
+    assert(start >= 0 && length > 0 && length <= 32 - start);
+    /* Note that this implementation relies on right shift of signed
+     * integers being an arithmetic shift.
+     */
+    return ((int32_t)(value << (32 - length - start))) >> (32 - length);
 }
 
 #define HELPER(name) glue(helper_, name)
 
-#define CR_ST_BYTE(state, i)   (state.bytes[i])
+#define SIMD_MAXSZ_SHIFT   0
 
-#define CR_ST_WORD(state, i)   (state.words[i])
+#define SIMD_MAXSZ_BITS    8
+
+#define SIMD_OPRSZ_SHIFT   (SIMD_MAXSZ_SHIFT + SIMD_MAXSZ_BITS)
+
+#define SIMD_OPRSZ_BITS    2
+
+#define SIMD_DATA_SHIFT    (SIMD_OPRSZ_SHIFT + SIMD_OPRSZ_BITS)
+
+#define SIMD_DATA_BITS     (32 - SIMD_DATA_SHIFT)
+
+static inline intptr_t simd_maxsz(uint32_t desc)
+{
+    return extract32(desc, SIMD_MAXSZ_SHIFT, SIMD_MAXSZ_BITS) * 8 + 8;
+}
+
+static inline intptr_t simd_oprsz(uint32_t desc)
+{
+    uint32_t f = extract32(desc, SIMD_OPRSZ_SHIFT, SIMD_OPRSZ_BITS);
+    intptr_t o = f * 8 + 8;
+    intptr_t m = simd_maxsz(desc);
+    return f == 2 ? m : o;
+}
+
+static inline int32_t simd_data(uint32_t desc)
+{
+    return sextract32(desc, SIMD_DATA_SHIFT, SIMD_DATA_BITS);
+}
+
+static inline void clear_tail(void *vd, uintptr_t opr_sz, uintptr_t max_sz)
+{
+    uint64_t *d = vd + opr_sz;
+    uintptr_t i;
+
+    for (i = opr_sz; i < max_sz; i += 8) {
+        *d++ = 0;
+    }
+}
+
+#define CR_ST_BYTE(state, i)   ((state).bytes[i])
+
+#define CR_ST_WORD(state, i)   ((state).words[i])
 
 union CRYPTO_STATE {
     uint8_t    bytes[16];
@@ -23,7 +80,7 @@ union CRYPTO_STATE {
     uint64_t   l[2];
 };
 
-void HELPER(crypto_aesmc)(void *vd, void *vm, uint32_t decrypt)
+static void do_crypto_aesmc(uint64_t *rd, uint64_t *rm, bool decrypt)
 {
     static uint32_t const mc[][256] = { {
         /* MixColumns lookup table */
@@ -159,12 +216,8 @@ void HELPER(crypto_aesmc)(void *vd, void *vm, uint32_t decrypt)
         0xbe805d9f, 0xb58d5491, 0xa89a4f83, 0xa397468d,
     } };
 
-    uint64_t *rd = vd;
-    uint64_t *rm = vm;
     union CRYPTO_STATE st = { .l = { rm[0], rm[1] } };
     int i;
-
-    assert(decrypt < 2);
 
     for (i = 0; i < 16; i += 4) {
         CR_ST_WORD(st, i >> 2) =
@@ -176,5 +229,16 @@ void HELPER(crypto_aesmc)(void *vd, void *vm, uint32_t decrypt)
 
     rd[0] = st.l[0];
     rd[1] = st.l[1];
+}
+
+void HELPER(crypto_aesmc)(void *vd, void *vm, uint32_t desc)
+{
+    intptr_t i, opr_sz = simd_oprsz(desc);
+    bool decrypt = simd_data(desc);
+
+    for (i = 0; i < opr_sz; i += 16) {
+        do_crypto_aesmc(vd + i, vm + i, decrypt);
+    }
+    clear_tail(vd, opr_sz, simd_maxsz(desc));
 }
 

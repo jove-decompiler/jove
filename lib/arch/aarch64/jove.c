@@ -1,8 +1,8 @@
 #include "cpu_state.h"
 #include <stddef.h>
 
-extern /* __thread */ struct CPUARMState __jove_env;
-static /* __thread */ struct CPUARMState *__jove_env_clunk = &__jove_env;
+extern /* __thread */ CPUARMState __jove_env;
+static /* __thread */ CPUARMState *__jove_env_clunk = &__jove_env;
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -30,7 +30,7 @@ static /* __thread */ struct CPUARMState *__jove_env_clunk = &__jove_env;
 #define JOVE_SYS_ATTR _INL _UNUSED
 #include "jove_sys.h"
 
-typedef uint64_t jove_thunk_return_t;
+typedef unsigned __int128 jove_thunk_return_t;
 
 _NAKED jove_thunk_return_t _jove_thunk0(uint64_t dstpc,
                                         uint64_t *emuspp);

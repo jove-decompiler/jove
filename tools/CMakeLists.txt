@@ -494,6 +494,88 @@ set(JOVE_mips64el_qemu_objs
   ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-mips64el-linux-user.fa.p/linux-user_uname.c.o
 )
 
+set(JOVE_aarch64_qemu_objs
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libcommon.fa.p/hw_core_cpu-common.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libcommon.fa.p/hw_core_machine-smp.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libcommon.fa.p/gdbstub_syscalls.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libcommon.fa.p/cpus-common.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libcommon.fa.p/page-vary-common.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libcommon.fa.p/disas_disas.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libcommon.fa.p/accel_accel-user.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libcommon.fa.p/common-user_safe-syscall.S.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libcommon.fa.p/common-user_safe-syscall-error.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/linux-user_aarch64_signal.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/linux-user_aarch64_cpu_loop.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/target_arm_cpu.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/target_arm_debug_helper.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/target_arm_gdbstub.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/target_arm_helper.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/target_arm_vfp_helper.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/target_arm_kvm-stub.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/target_arm_cpu64.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/target_arm_gdbstub64.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/target_arm_tcg_cpu32.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/target_arm_tcg_translate.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/target_arm_tcg_translate-m-nocp.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/target_arm_tcg_translate-mve.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/target_arm_tcg_translate-neon.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/target_arm_tcg_translate-vfp.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/target_arm_tcg_crypto_helper.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/target_arm_tcg_hflags.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/target_arm_tcg_iwmmxt_helper.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/target_arm_tcg_m_helper.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/target_arm_tcg_mve_helper.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/target_arm_tcg_neon_helper.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/target_arm_tcg_op_helper.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/target_arm_tcg_tlb_helper.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/target_arm_tcg_vec_helper.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/target_arm_tcg_cpu64.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/target_arm_tcg_translate-a64.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/target_arm_tcg_translate-sve.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/target_arm_tcg_translate-sme.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/target_arm_tcg_helper-a64.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/target_arm_tcg_mte_helper.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/target_arm_tcg_pauth_helper.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/target_arm_tcg_sme_helper.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/target_arm_tcg_sve_helper.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/trace_control-target.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/gdbstub_user-target.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/cpu.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/page-vary.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/semihosting_guestfd.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/semihosting_syscalls.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/semihosting_arm-compat-semi.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/fpu_softfloat.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/accel_accel-common.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/accel_accel-blocker.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/accel_tcg_tcg-all.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/accel_tcg_cpu-exec-common.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/accel_tcg_cpu-exec.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/accel_tcg_tb-maint.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/accel_tcg_tcg-runtime-gvec.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/accel_tcg_tcg-runtime.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/accel_tcg_translate-all.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/accel_tcg_translator.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/accel_tcg_user-exec.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/accel_tcg_user-exec-stub.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/accel_tcg_perf.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/linux-user_elfload.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/linux-user_exit.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/linux-user_fd-trans.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/linux-user_linuxload.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/linux-user_main.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/linux-user_mmap.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/linux-user_signal.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/linux-user_strace.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/linux-user_syscall.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/linux-user_thunk.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/linux-user_uaccess.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/linux-user_uname.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/linux-user_flatload.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/linux-user_semihost.c.o
+  ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqemu-aarch64-linux-user.fa.p/meson-generated_.._aarch64-linux-user-gdbstub-xml.c.o
+)
+
 foreach(arch ${JOVE_TARGETS_TO_BUILD})
   tool_for_arch("${arch}" "${JOVE_${arch}_extra_cflags}" "${JOVE_${arch}_qemu_objs}")
 endforeach()

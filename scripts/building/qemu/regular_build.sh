@@ -2,7 +2,7 @@
 set -x
 
 ../configure \
-  --target-list=i386-linux-user,x86_64-linux-user,mipsel-linux-user,mips-linux-user,mips64el-linux-user \
+  --target-list=i386-linux-user,x86_64-linux-user,mipsel-linux-user,mips-linux-user,mips64el-linux-user,aarch64-linux-user \
   --cc=clang-15 \
   --host-cc=clang-15 \
   --cxx=clang++-15 \

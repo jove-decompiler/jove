@@ -10,15 +10,28 @@
 
 #define DIV_ROUND_UP(n, d) (((n) + (d) - 1) / (d))
 
+#define MAKE_64BIT_MASK(shift, length) \
+    (((~0ULL) >> (64 - (length))) << (shift))
+
 static inline uint32_t extract32(uint32_t value, int start, int length)
 {
     assert(start >= 0 && length > 0 && length <= 32 - start);
     return (value >> start) & (~0U >> (32 - length));
 }
 
-#define HELPER(name) glue(helper_, name)
+#define FIELD(reg, field, shift, length)                                  \
+    enum { R_ ## reg ## _ ## field ## _SHIFT = (shift)};                  \
+    enum { R_ ## reg ## _ ## field ## _LENGTH = (length)};                \
+    enum { R_ ## reg ## _ ## field ## _MASK =                             \
+                                        MAKE_64BIT_MASK(shift, length)};
 
-#define SIMD_OPRSZ_BITS    5
+#define FIELD_EX32(storage, reg, field)                                   \
+    extract32((storage), R_ ## reg ## _ ## field ## _SHIFT,               \
+              R_ ## reg ## _ ## field ## _LENGTH)
+
+FIELD(PREDDESC, OPRSZ, 0, 6)
+
+#define HELPER(name) glue(helper_, name)
 
 static bool compute_brk(uint64_t *retb, uint64_t n, uint64_t g,
                         bool brk, bool after)
@@ -62,7 +75,7 @@ static void compute_brk_m(uint64_t *d, uint64_t *n, uint64_t *g,
 
 void HELPER(sve_brka_m)(void *vd, void *vn, void *vg, uint32_t pred_desc)
 {
-    intptr_t oprsz = extract32(pred_desc, 0, SIMD_OPRSZ_BITS) + 2;
+    intptr_t oprsz = FIELD_EX32(pred_desc, PREDDESC, OPRSZ);
     compute_brk_m(vd, vn, vg, oprsz, true);
 }
 

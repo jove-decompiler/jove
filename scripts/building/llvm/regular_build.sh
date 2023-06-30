@@ -9,7 +9,7 @@ cmake -G Ninja \
       -D CMAKE_C_FLAGS="-gdwarf-4 -g1" \
       -D CMAKE_CXX_FLAGS="-gdwarf-4 -g1" \
       -D "LLVM_TARGETS_TO_BUILD=Mips;X86;AArch64" \
-      -D "JOVE_TARGETS_TO_BUILD=i386;x86_64;mipsel;mips;mips64el" \
+      -D "JOVE_TARGETS_TO_BUILD=all" \
       -D LLVM_BUILD_TESTS=OFF \
       -D LLVM_INCLUDE_TESTS=OFF \
       -D LLVM_ENABLE_BINDINGS=OFF \

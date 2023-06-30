@@ -1,3 +1,5 @@
+#define HOST_BIG_ENDIAN (__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__)
+
 #define xglue(x, y) x ## y
 
 #define glue(x, y) xglue(x, y)
@@ -11,6 +13,27 @@
 #include <stdio.h>
 
 #include <assert.h>
+
+typedef struct Int128 Int128;
+
+struct Int128 {
+#if HOST_BIG_ENDIAN
+    int64_t hi;
+    uint64_t lo;
+#else
+    uint64_t lo;
+    int64_t hi;
+#endif
+};
+
+static inline int clz128(Int128 a)
+{
+    if (a.hi) {
+        return __builtin_clzll(a.hi);
+    } else {
+        return (a.lo) ? __builtin_clzll(a.lo) + 64 : 128;
+    }
+}
 
 static inline int clz64(uint64_t val)
 {
@@ -41,16 +64,30 @@ static inline uint32_t deposit32(uint32_t value, int start, int length,
     return (value & ~mask) | ((fieldval << start) & mask);
 }
 
-#define HELPER(name) glue(helper_, name)
+#define SIMD_MAXSZ_SHIFT   0
 
-#define SIMD_OPRSZ_SHIFT   0
+#define SIMD_MAXSZ_BITS    8
 
-#define SIMD_OPRSZ_BITS    5
+#define SIMD_OPRSZ_SHIFT   (SIMD_MAXSZ_SHIFT + SIMD_MAXSZ_BITS)
+
+#define SIMD_OPRSZ_BITS    2
+
+static inline intptr_t simd_maxsz(uint32_t desc)
+{
+    return extract32(desc, SIMD_MAXSZ_SHIFT, SIMD_MAXSZ_BITS) * 8 + 8;
+}
 
 static inline intptr_t simd_oprsz(uint32_t desc)
 {
-    return (extract32(desc, SIMD_OPRSZ_SHIFT, SIMD_OPRSZ_BITS) + 1) * 8;
+    uint32_t f = extract32(desc, SIMD_OPRSZ_SHIFT, SIMD_OPRSZ_BITS);
+    intptr_t o = f * 8 + 8;
+    intptr_t m = simd_maxsz(desc);
+    return f == 2 ? m : o;
 }
+
+#define HELPER(name) glue(helper_, name)
+
+#define H1_8(x) (x)
 
 #define PREDTEST_INIT  1
 
@@ -96,7 +133,7 @@ uint32_t HELPER(NAME)(void *vd, void *vn, void *vm, void *vg, uint32_t desc) \
 }
 
 #define DO_CMP_PPZZ_D(NAME, TYPE, OP) \
-    DO_CMP_PPZZ(NAME, TYPE, OP,     , 0x0101010101010101ull)
+    DO_CMP_PPZZ(NAME, TYPE, OP, H1_8, 0x0101010101010101ull)
 
 DO_CMP_PPZZ_D(sve_cmpgt_ppzz_d, int64_t, >)
 
