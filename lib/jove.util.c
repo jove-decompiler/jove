@@ -43,6 +43,28 @@ static _INL _UNUSED int _memcmp(const void *s1, const void *s2, size_t n) {
   return (0);
 }
 
+void *_memmem(const void *l, size_t l_len, const void *s, size_t s_len) {
+  const char *cl = (const char *)l;
+  const char *cs = (const char *)s;
+
+  if (l_len == 0 || s_len == 0)
+    return NULL;
+
+  if (l_len < s_len)
+    return NULL;
+
+  if (s_len == 1)
+    return _memchr(l, (int)*cs, l_len);
+
+  char *const last = (char *)cl + l_len - s_len;
+
+  for (char *cur = (char *)cl; cur <= last; cur++)
+    if (cur[0] == cs[0] && _memcmp(cur, cs, s_len) == 0)
+      return cur;
+
+  return NULL;
+}
+
 static _INL _UNUSED size_t _strlen(const char *str) {
   const char *s;
 
