@@ -9192,9 +9192,9 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
         assert(hf.EnvArgNo == iarg_idx);
 
         if (hf.Analysis.Simple && opts.Optimize)
-          ArgVec.push_back(IRB.CreateAlloca(CPUStateType));
+          ArgVec.push_back(IRB.CreatePointerCast(IRB.CreateAlloca(CPUStateType), ParamTy));
         else
-          ArgVec.push_back(CPUStateGlobal);
+          ArgVec.push_back(IRB.CreatePointerCast(CPUStateGlobal, ParamTy));
 
         ++iarg_idx;
 
@@ -9282,6 +9282,13 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
         SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
       }
     }
+
+#if 0
+    llvm::errs() << "calling " << hf.F->getName() << " with ";
+    for (llvm::Value *Arg : ArgVec)
+      llvm::errs() << *Arg << ' ';
+    llvm::errs() << '\n';
+#endif
 
     llvm::CallInst *Ret = IRB.CreateCall(hf.F, ArgVec);
     if (!hf.Analysis.Simple)
