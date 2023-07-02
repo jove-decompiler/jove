@@ -1,4 +1,6 @@
 #!/bin/bash
+set -x
+trap 'exit' ERR
 
 build_scripts_path=$(cd "$(dirname -- "$0")"; pwd)
 jove_path=$build_scripts_path/../..
