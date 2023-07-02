@@ -6,8 +6,8 @@ on:
       - "main"
 
 env:
-  TEST_TAG: user/app:test
-  LATEST_TAG: user/app:latest
+  TEST_TAG: aleden22/jove:test
+  LATEST_TAG: aleden22/jove:latest
 
 jobs:
   docker:
