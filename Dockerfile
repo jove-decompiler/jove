@@ -57,7 +57,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       libglib2.0-dev:i386 \
                       zlib1g-dev:i386 && \
     eatmydata apt-get autoremove -y && \
-    eatmydata apt-get autoclean -y && \
+    eatmydata apt-get autoclean -y
 
 RUN export DEBIAN_FRONTEND=noninteractive && \
     dpkg --add-architecture mipsel && \
@@ -69,7 +69,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       libglib2.0-dev:mipsel \
                       zlib1g-dev:mipsel && \
     eatmydata apt-get autoremove -y && \
-    eatmydata apt-get autoclean -y && \
+    eatmydata apt-get autoclean -y
 
 RUN export DEBIAN_FRONTEND=noninteractive && \
     dpkg --add-architecture mips64el && \
@@ -81,7 +81,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       libglib2.0-dev:mips64el \
                       zlib1g-dev:mips64el && \
     eatmydata apt-get autoremove -y && \
-    eatmydata apt-get autoclean -y && \
+    eatmydata apt-get autoclean -y
 
 RUN export DEBIAN_FRONTEND=noninteractive && \
     dpkg --add-architecture arm64 && \
@@ -93,4 +93,4 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       libglib2.0-dev:arm64 \
                       zlib1g-dev:arm64 && \
     eatmydata apt-get autoremove -y && \
-    eatmydata apt-get autoclean -y && \
+    eatmydata apt-get autoclean -y
