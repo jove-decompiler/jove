@@ -17,6 +17,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       g++-multilib-mips-linux-gnu \
                       g++-multilib-mips64el-linux-gnuabi64 \
                       g++-multilib-mipsel-linux-gnu \
+                      gcc \
                       git \
                       gmsl \
                       graphviz \
