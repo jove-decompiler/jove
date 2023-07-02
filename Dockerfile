@@ -30,6 +30,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       libtool \
                       libxml2-dev \
                       libz3-dev \
+                      lld-15 \
                       llvm-15 \
                       locales \
                       make \
