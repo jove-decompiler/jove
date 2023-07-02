@@ -35,6 +35,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       meson \
                       ninja-build \
                       openssh-client \
+                      parted \
                       pkg-config \
                       pkgconf \
                       sed \
