@@ -4,12 +4,13 @@ TRIPLE="mips-linux-gnu"
 
 OURCFLAGS=\
 "--target=$TRIPLE"
-CONFFLAGS="--enable-jove"
+
+EXTRACONF="--enable-jove"
 
 if test "$#" = 1 ; then
   if test "$1" = "helpers" ; then
-    OURCFLAGS+=" -Xclang -load -Xclang $HOME/carbon-copy/build/collect/libcarbon-collect.so -Xclang -add-plugin -Xclang carbon-collect -Xclang -plugin-arg-carbon-collect -Xclang $(pwd)/.. -Xclang -plugin-arg-carbon-collect -Xclang $(pwd)"
-    CONFFLAGS="--enable-jove-helpers"
+    OURCFLAGS+=" -Xclang -load -Xclang $(pwd)/../../../carbon-copy/build/collect/libcarbon-collect.so -Xclang -add-plugin -Xclang carbon-collect -Xclang -plugin-arg-carbon-collect -Xclang $(pwd)/.. -Xclang -plugin-arg-carbon-collect -Xclang $(pwd)"
+    EXTRACONF="--enable-jove-helpers"
   fi
 fi
 
@@ -17,13 +18,13 @@ export PKG_CONFIG_LIBDIR=/usr/lib/mips-linux-gnu/pkgconfig
 
 set -x
 ../configure \
-  --cc=$(which clang-15) \
-  --host-cc=$(which clang-15) \
-  --cxx=$(which clang++-15) \
-  --objcc=$(which clang-15) \
+  --target-list=mips-linux-user \
+  --cc=clang-15 \
+  --host-cc=clang-15 \
+  --cxx=clang++-15 \
+  --objcc=clang-15 \
   --disable-werror \
   --extra-cflags="$OURCFLAGS" \
-  --target-list=mips-linux-user \
   --cross-prefix=mips-linux-gnu- \
   --cpu=mips \
   --enable-tcg-interpreter \
@@ -38,4 +39,4 @@ set -x
   --disable-plugins \
   --disable-stack-protector \
   --disable-capstone \
-  $CONFFLAGS
+  $EXTRACONF

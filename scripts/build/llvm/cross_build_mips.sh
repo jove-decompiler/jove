@@ -8,13 +8,12 @@ set -x
 TRIPLE="mips-linux-gnu"
 
 OURCFLAGS=\
-"--target=mips-linux-gnu"\
+"--target=$TRIPLE"\
 " -gdwarf-4"\
 " -g1"
 
 cmake -G Ninja \
   -D CMAKE_BUILD_TYPE=RelWithDebInfo \
-  -D "CMAKE_INSTALL_PREFIX=$(pwd)/../cross_install" \
   -D CMAKE_SYSTEM_NAME=Linux \
   -D CMAKE_CROSSCOMPILING=True \
   -D LLVM_TARGET_ARCH=mips \
@@ -26,7 +25,7 @@ cmake -G Ninja \
   -D "CMAKE_CXX_FLAGS=$OURCFLAGS" \
   -D "LLVM_TARGETS_TO_BUILD=Mips" \
   -D "JOVE_TARGETS_TO_BUILD=mips" \
-  -D "LLVM_TABLEGEN=$(pwd)/../install/bin/llvm-tblgen" \
+  -D "LLVM_TABLEGEN=$(pwd)/../build/bin/llvm-tblgen" \
   -D LLVM_BUILD_TESTS=OFF \
   -D LLVM_INCLUDE_TESTS=OFF \
   -D "LLVM_ENABLE_PROJECTS=llvm" \

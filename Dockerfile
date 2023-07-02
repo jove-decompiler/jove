@@ -95,3 +95,6 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       zlib1g-dev:arm64 && \
     eatmydata apt-get autoremove -y && \
     eatmydata apt-get autoclean -y
+
+ADD . /jove/
+RUN /jove/scripts/build/build.sh

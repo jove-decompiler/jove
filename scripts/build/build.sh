@@ -1,0 +1,35 @@
+#!/bin/bash
+
+build_scripts_path=$(cd "$(dirname -- "$0")"; pwd)
+jove_path=$build_scripts_path/../..
+
+qemu_path=$jove_path/qemu
+llvm_path=$jove_path/llvm-project
+
+cross_archs="i386 mipsel mips64el aarch64"
+
+pushd .
+
+cd $qemu_path
+mkdir build && cd build
+$build_scripts_path/qemu/regular_build.sh
+
+for arch in $cross_archs ; do
+  cd $qemu_path
+
+  mkdir ${arch}_build && cd ${arch}_build
+  $build_scripts_path/qemu/cross_build_${arch}.sh
+done
+
+cd $llvm_path
+mkdir build && cd build
+$build_scripts_path/llvm/regular_build.sh
+
+for arch in $cross_archs ; do
+  cd $llvm_path
+
+  mkdir ${arch}_build && cd ${arch}_build
+  $build_scripts_path/llvm/cross_build_${arch}.sh
+done
+
+popd

@@ -21,3 +21,5 @@ set -x
   --disable-capstone \
   --disable-stack-protector \
   --enable-jove
+
+make -j$(nproc)
