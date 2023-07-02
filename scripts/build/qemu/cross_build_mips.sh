@@ -39,4 +39,5 @@ set -x
   --disable-plugins \
   --disable-stack-protector \
   --disable-capstone \
+  --static \
   $EXTRACONF
