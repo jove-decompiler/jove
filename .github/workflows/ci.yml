@@ -14,19 +14,26 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       -
+        name: Clear docker data
+        shell: bash
+        run: |
+          sudo docker image prune --all --force
+      -
         name: Stop docker
         shell: bash
         run: |
           sudo service docker stop
       -
-        name: Clear docker data
+        name: Obliterate docker data
         shell: bash
         run: |
-          sudo rm -rf /var/lib/docker/*
-      -
-        name: Show docker data
-        shell: bash
-        run: |
+          echo "Before"
+          sudo ls -la /var/lib/docker
+
+          sudo rm -r /var/lib/docker
+          sudo mkdir /var/lib/docker
+
+          echo "After"
           sudo ls -la /var/lib/docker
       -
         name: Maximize build space
@@ -52,11 +59,11 @@ jobs:
         run: |
           sudo service docker start
       -
-        name: Show mounted file systems#2
+        name: Show docker data
         shell: bash
         run: |
-          echo "Mounted filesystems"
-          mount | column -t
+          echo "Docker data"
+          sudo ls -la /var/lib/docker
           exit 1
       -
         name: Checkout
