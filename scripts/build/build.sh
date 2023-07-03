@@ -9,7 +9,7 @@ qemu_path=$jove_path/qemu
 llvm_path=$jove_path/llvm-project
 
 ln -sf ../../.. $llvm_path/llvm/projects/jove
-ln -sf ../../../llvm-cbe $llvm_path/llvm/projects/jove
+ln -sf ../../../llvm-cbe $llvm_path/llvm/projects/llvm-cbe
 
 cross_archs="i386 mipsel mips64el aarch64"
 
