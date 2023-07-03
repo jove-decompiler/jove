@@ -32,6 +32,9 @@ jobs:
           echo "Mounted filesystems"
           mount | column -t
 
+          echo "Docker images"
+          sudo docker image ls
+
           exit 1
       -
         name: Checkout
