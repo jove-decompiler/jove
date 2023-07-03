@@ -14,6 +14,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       -
+        name: Show mounted file systems
+        shell: bash
+        run: |
+          echo "Current directory"
+          pwd
+          ls -la
+
+          echo "daemon.json"
+          cat /etc/docker/daemon.json
+
+          echo "github workspace"
+          echo ${GITHUB_WORKSPACE}
+
+          echo "docker info"
+          docker info
+
+	  ls -la /var/lib/docker
+      -
         name: Maximize build space
         uses: jove-decompiler/maximize-build-space@master
         with:
@@ -28,11 +46,25 @@ jobs:
         name: Show mounted file systems
         shell: bash
         run: |
-          echo "Current directory"
-          pwd
+	  ls -la /var/lib/docker
 
           echo "Mounted filesystems"
           mount | column -t
+
+          echo "Current directory"
+          pwd
+          ls -la
+
+          echo "daemon.json"
+          cat /etc/docker/daemon.json
+
+          echo "github workspace"
+          echo ${GITHUB_WORKSPACE}
+
+          echo "docker info"
+          docker info
+
+          exit 1
       -
         name: Checkout
         uses: actions/checkout@v3
