@@ -17,19 +17,9 @@ jobs:
         name: Show mounted file systems
         shell: bash
         run: |
-          echo "Current directory"
-          pwd
-          ls -la
-
-          echo "daemon.json"
-          cat /etc/docker/daemon.json
-
-          echo "github workspace"
-          echo ${GITHUB_WORKSPACE}
-
-          echo "docker info"
-          docker info
-
+          sudo ls -la /var/lib/docker
+          sudo service docker stop
+          sudo rm -rf /var/lib/docker/*
           sudo ls -la /var/lib/docker
       -
         name: Maximize build space
@@ -42,27 +32,17 @@ jobs:
           remove-haskell: 'true'
           remove-codeql: 'true'
           remove-docker-images: 'true'
+          build-mount-path: '/var/lib/docker'
       -
         name: Show mounted file systems
         shell: bash
         run: |
           sudo ls -la /var/lib/docker
+          sudo service docker start
+          sudo ls -la /var/lib/docker
 
           echo "Mounted filesystems"
           mount | column -t
-
-          echo "Current directory"
-          pwd
-          ls -la
-
-          echo "daemon.json"
-          cat /etc/docker/daemon.json
-
-          echo "github workspace"
-          echo ${GITHUB_WORKSPACE}
-
-          echo "docker info"
-          docker info
 
           exit 1
       -
