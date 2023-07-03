@@ -23,11 +23,14 @@ jobs:
           remove-android: 'true'
           remove-haskell: 'true'
           remove-codeql: 'true'
-          remove-docker-images: 'true'
+          remove-docker-images: 'false'
       -
         name: Show mounted file systems
         shell: bash
         run: |
+	  echo "Current directory"
+	  pwd
+
           echo "Mounted filesystems"
           mount | column -t
       -
