@@ -14,6 +14,26 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       -
+        name: Disk space report before modification
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Memory and swap:"
+          free
+          echo
+          swapon --show
+          echo
+
+          echo "Available storage:"
+          df -h
+          echo
+
+          echo "Mounted filesystems"
+          mount | column -t
+
+          exit 1
+      -
         name: Checkout
         uses: actions/checkout@v3
         with:
