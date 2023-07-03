@@ -41,4 +41,4 @@ cmake -G Ninja \
   -D LLVM_USE_LINKER=lld \
   ../llvm
 
-ninja
+ninja || ninja -j1

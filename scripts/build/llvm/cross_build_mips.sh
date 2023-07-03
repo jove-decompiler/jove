@@ -42,4 +42,4 @@ cmake -G Ninja \
   -D LLVM_BINUTILS_INCDIR=/usr/include \
   ../llvm
 
-ninja
+ninja || ninja -j1
