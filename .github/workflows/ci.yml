@@ -14,12 +14,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       -
-        name: Show mounted file systems
+        name: Stop docker
         shell: bash
         run: |
-          sudo ls -la /var/lib/docker
           sudo service docker stop
+      -
+        name: Clear docker data
+        shell: bash
+        run: |
           sudo rm -rf /var/lib/docker/*
+      -
+        name: Show docker data
+        shell: bash
+        run: |
           sudo ls -la /var/lib/docker
       -
         name: Maximize build space
@@ -27,23 +34,29 @@ jobs:
         with:
           root-reserve-mb: 8192
           swap-size-mb: 2048
-          remove-dotnet: 'true'
-          remove-android: 'true'
-          remove-haskell: 'true'
-          remove-codeql: 'true'
-          remove-docker-images: 'true'
+          remove-dotnet: true
+          remove-android: true
+          remove-haskell: true
+          remove-codeql: true
+          remove-docker-images: false # we did this ourselves
           build-mount-path: '/var/lib/docker'
       -
         name: Show mounted file systems
         shell: bash
         run: |
-          sudo ls -la /var/lib/docker
-          sudo service docker start
-          sudo ls -la /var/lib/docker
-
           echo "Mounted filesystems"
           mount | column -t
-
+      -
+        name: Start docker
+        shell: bash
+        run: |
+          sudo service docker start
+      -
+        name: Show mounted file systems#2
+        shell: bash
+        run: |
+          echo "Mounted filesystems"
+          mount | column -t
           exit 1
       -
         name: Checkout
