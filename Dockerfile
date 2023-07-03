@@ -59,6 +59,9 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
     eatmydata apt-get install --no-install-recommends -y \
                       libc6-dev:i386 \
                       libglib2.0-dev:i386 \
+                      libboost-system-dev:i386 \
+                      libboost-filesystem-dev:i386 \
+                      libboost-serialization-dev:i386 \
                       zlib1g-dev:i386 && \
     eatmydata apt-get autoremove -y && \
     eatmydata apt-get autoclean -y
@@ -71,6 +74,9 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
     eatmydata apt-get install --no-install-recommends -y \
                       libc6-dev:mipsel \
                       libglib2.0-dev:mipsel \
+                      libboost-system-dev:mipsel \
+                      libboost-filesystem-dev:mipsel \
+                      libboost-serialization-dev:mipsel \
                       zlib1g-dev:mipsel && \
     eatmydata apt-get autoremove -y && \
     eatmydata apt-get autoclean -y
@@ -83,6 +89,9 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
     eatmydata apt-get install --no-install-recommends -y \
                       libc6-dev:mips64el \
                       libglib2.0-dev:mips64el \
+                      libboost-system-dev:mips64el \
+                      libboost-filesystem-dev:mips64el \
+                      libboost-serialization-dev:mips64el \
                       zlib1g-dev:mips64el && \
     eatmydata apt-get autoremove -y && \
     eatmydata apt-get autoclean -y
@@ -95,6 +104,9 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
     eatmydata apt-get install --no-install-recommends -y \
                       libc6-dev:arm64 \
                       libglib2.0-dev:arm64 \
+                      libboost-system-dev:arm64 \
+                      libboost-filesystem-dev:arm64 \
+                      libboost-serialization-dev:arm64 \
                       zlib1g-dev:arm64 && \
     eatmydata apt-get autoremove -y && \
     eatmydata apt-get autoclean -y
