@@ -35,7 +35,16 @@ jobs:
           echo "Docker images"
           sudo docker image ls
 
+          echo -n "  Removing:     "
+          if [[ ${{ inputs.remove-dotnet }} == 'true' ]]; then
+            echo -n "dotnet "
+          fi
+
+          sudo apt-get install -y eatmydata
+
           exit 1
+        with:
+          remove-dotnet: true
       -
         name: Checkout
         uses: actions/checkout@v3
