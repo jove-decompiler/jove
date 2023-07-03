@@ -28,8 +28,8 @@ jobs:
         name: Show mounted file systems
         shell: bash
         run: |
-	  echo "Current directory"
-	  pwd
+          echo "Current directory"
+          pwd
 
           echo "Mounted filesystems"
           mount | column -t
