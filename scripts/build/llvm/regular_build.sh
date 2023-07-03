@@ -30,5 +30,7 @@ cmake -G Ninja \
       -D LLVM_USE_LINKER=lld \
       ../llvm
 
+ninja
+
 #  -DLLVM_USE_SANITIZER="Address;Undefined" \
 #  -DLLVM_ENABLE_LIBCXX=ON \

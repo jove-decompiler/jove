@@ -41,3 +41,5 @@ cmake -G Ninja \
   -D "CMAKE_EXE_LINKER_FLAGS=-static" \
   -D LLVM_BINUTILS_INCDIR=/usr/include \
   ../llvm
+
+ninja

@@ -40,3 +40,5 @@ cmake -G Ninja \
   -D LLVM_BINUTILS_INCDIR=/usr/include \
   -D LLVM_USE_LINKER=lld \
   ../llvm
+
+ninja
