@@ -23,7 +23,7 @@ jobs:
           remove-android: 'true'
           remove-haskell: 'true'
           remove-codeql: 'true'
-          remove-docker-images: 'false'
+          remove-docker-images: 'true'
       -
         name: Show mounted file systems
         shell: bash
