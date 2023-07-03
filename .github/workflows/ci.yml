@@ -25,7 +25,7 @@ jobs:
           remove-codeql: 'true'
           remove-docker-images: 'true'
       -
-        name: Mounted file systems after modification
+        name: Show mounted file systems
         shell: bash
         run: |
           echo "Mounted filesystems"
