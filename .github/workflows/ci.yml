@@ -30,7 +30,7 @@ jobs:
           echo "docker info"
           docker info
 
-	  ls -la /var/lib/docker
+          ls -la /var/lib/docker
       -
         name: Maximize build space
         uses: jove-decompiler/maximize-build-space@master
@@ -46,7 +46,7 @@ jobs:
         name: Show mounted file systems
         shell: bash
         run: |
-	  ls -la /var/lib/docker
+          ls -la /var/lib/docker
 
           echo "Mounted filesystems"
           mount | column -t
