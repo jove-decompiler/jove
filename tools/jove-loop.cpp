@@ -502,8 +502,13 @@ run:
             if (opts.Dbg) {
               Arg("/usr/bin/gdb");
               Arg("--args");
+              if (WillChroot)
+                Arg(opts.Prog);
+              else
+                Arg(sysroot + opts.Prog);
+            } else {
+              Arg(opts.Prog);
             }
-            Arg(opts.Prog);
             if (!opts.Args.empty())
               Arg("--");
             for (std::string &s : opts.Args)
