@@ -8,8 +8,6 @@
 #include <sstream>
 #include <string>
 #include <llvm/Support/raw_ostream.h>
-#include <boost/filesystem.hpp>
-#include <boost/dll/runtime_symbol_info.hpp>
 
 #include <sys/stat.h>
 
@@ -121,31 +119,7 @@ extern "C" void jv_set_end_pc(uint64_t EndPC) {
 
 extern CPUState *jv_cpu;
 
-namespace fs = boost::filesystem;
-
 namespace jove {
-
-static bool do_tcg_optimization = false;
-
-static fs::path tool_path(void) {
-  return boost::dll::program_location();
-}
-
-static fs::path jove_path(void) {
-  return tool_path()
-      .parent_path()
-      .parent_path()
-      .parent_path()
-      .parent_path();
-}
-
-static fs::path arch_bin_path(void) {
-  return jove_path() / "bin" / TARGET_ARCH_NAME;
-}
-
-static std::string starter_bin(void) {
-  return (arch_bin_path() / "qemu-starter").string();
-}
 
 static const char *cstr_of_tcg_type(TCGType x) {
 #define ___CASE(text)                                                          \
