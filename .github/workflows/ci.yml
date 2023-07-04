@@ -29,6 +29,8 @@ jobs:
         run: |
           echo "Buildx cache"
           sudo ls -la /var/lib/buildkit
+
+          exit 1
       -
         name: Obliterate docker data
         shell: bash
