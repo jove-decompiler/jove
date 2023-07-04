@@ -1011,10 +1011,25 @@ void for_each_dynamic_relocation(const ELFF &E,
     if (ExpectedRelrRelas) {
       auto &RelrRelasRelocs = *ExpectedRelrRelas;
 
-      std::for_each(RelrRelasRelocs.begin(),
-                    RelrRelasRelocs.end(),
-                    [&](const Elf_Rela &Rela) {
-                      proc(Relocation(Rela, IsMips64EL));
+      //
+      // well this is fucking stupid. In newer versions of LLVM,
+      // decode_relrs() returns Rel like it should, instead of Rela.
+      //
+      std::vector<Elf_Rel> RelrRelsRelocs;
+      RelrRelsRelocs.resize(RelrRelasRelocs.size());
+
+      std::transform(RelrRelasRelocs.begin(),
+                     RelrRelasRelocs.end(),
+                     RelrRelsRelocs.begin(),
+                     [&](const Elf_Rela &Rela) -> Elf_Rel {
+                       Elf_Rel res = Rela;
+                       return res;
+                     });
+
+      std::for_each(RelrRelsRelocs.begin(),
+                    RelrRelsRelocs.end(),
+                    [&](const Elf_Rel &Rel) {
+                      proc(Relocation(Rel, IsMips64EL));
                     });
     }
   }
