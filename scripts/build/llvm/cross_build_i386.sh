@@ -8,7 +8,9 @@ set -x
 TRIPLE="i686-linux-gnu"
 
 OURCFLAGS=\
-"--target=$TRIPLE"
+"--target=$TRIPLE"\
+" -gdwarf-4"\
+" -g1"
 
 cmake -G Ninja \
   -D CMAKE_BUILD_TYPE=RelWithDebInfo \
