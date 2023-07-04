@@ -7856,11 +7856,11 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
         llvm::Value *SP = get(tcg_stack_pointer_index);
 
         ArgVec.push_back(IRB.CreateLoad(IRB.CreateIntToPtr(
-            IRB.CreateAdd(SP, IRB.getIntN(WordBits(), 1 * sizeof(uint64_t))),
+            IRB.CreateAdd(SP, IRB.getIntN(WordBits(), 1 * sizeof(uint32_t))),
             WordType()->getPointerTo())));
 
         ArgVec.push_back(IRB.CreateLoad(IRB.CreateIntToPtr(
-            IRB.CreateAdd(SP, IRB.getIntN(WordBits(), 2 * sizeof(uint64_t))),
+            IRB.CreateAdd(SP, IRB.getIntN(WordBits(), 2 * sizeof(uint32_t))),
             WordType()->getPointerTo())));
 
 #if 0
