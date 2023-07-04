@@ -14,6 +14,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       -
+        name: List buildx cache dir
+        shell: bash
+        run: |
+          echo "Buildx cache"
+          sudo ls -la /var/lib/buildkit
+
+          exit 1
+      -
         name: Clear docker data
         shell: bash
         run: |
@@ -23,14 +31,6 @@ jobs:
         shell: bash
         run: |
           sudo service docker stop
-      -
-        name: List buildx cache dir
-        shell: bash
-        run: |
-          echo "Buildx cache"
-          sudo ls -la /var/lib/buildkit
-
-          exit 1
       -
         name: Obliterate docker data
         shell: bash
