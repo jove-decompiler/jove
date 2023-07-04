@@ -141,7 +141,7 @@ static fs::path arch_bin_path(void) {
 }
 
 static std::string starter_bin(void) {
-  return (arch_bin_path() / "harvest-vdso").string();
+  return (arch_bin_path() / "qemu-starter").string();
 }
 
 static const char *cstr_of_tcg_type(TCGType x) {

@@ -156,7 +156,7 @@ everything: \
      $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/jove.bc) \
      $(HELPERS_BITCODE) \
      $(HELPERS_ASSEMBLY) \
-     $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/harvest-vdso)
+     $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/qemu-starter)
 
 helpers: \
      $(HELPERS_BITCODE) \
@@ -200,9 +200,19 @@ $(foreach target,$(ALL_TARGETS),$(eval $(call gen_tcgconstants_template,$(target
 gen-tcgconstants: $(foreach target,$(ALL_TARGETS),gen-tcgconstants-$(target))
 
 define target_code_template
-$(BINDIR)/$(1)/harvest-vdso: lib/arch/$(1)/harvest-vdso.c
+$(BINDIR)/$(1)/qemu-starter: lib/arch/$(1)/qemu-starter.c
 	@echo CC $$<
-	$(_LLVM_CC) -o $$@ -Wl,-e,_start -fuse-ld=lld -nostdlib --sysroot $($(1)_sysroot) --target=$($(1)_TRIPLE) -Ofast -ffreestanding -fno-stack-protector -D TARGET_ARCH_NAME=\"$($(1)_ARCH_NAME)\" -fPIC -static -g -Wall -I lib -I lib/arch/$(1) $$<
+	$(_LLVM_CC) -o $$@ -Wall \
+	                   -I lib -I lib/arch/$(1) \
+	                   -nostdlib \
+	                   --sysroot $($(1)_sysroot) \
+	                   --target=$($(1)_TRIPLE) \
+	                   -Ofast -g0 \
+	                   -ffreestanding \
+	                   -fno-stack-protector \
+	                   -fuse-ld=lld \
+	                   -Wl,-e,_start \
+	                   -static $$<
 
 $(BINDIR)/$(1)/libjove_rt.so: lib/arch/$(1)/rt.c
 	@echo CC $$<
@@ -233,7 +243,7 @@ PACKAGE_FILE_LIST := $(TOOLBINS) \
                      $(HELPERS_DFSAN_BITCODE) \
                      $(HELPERS_DFSAN_ASSEMBLY) \
                      bin/dfsan_abilist.txt \
-                     $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/harvest-vdso) \
+                     $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/qemu-starter) \
                      llvm-project/static_install/bin/llc \
                      llvm-project/static_install/bin/opt \
                      llvm-project/static_install/bin/llvm-symbolizer \
