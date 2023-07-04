@@ -215,6 +215,9 @@ $(BINDIR)/$(1)/qemu-starter: lib/arch/$(1)/qemu-starter.c
 	                 -static $$<
 	@llvm-strip-15 $$@
 
+$(BINDIR)/$(1)/qemu-starter.inc: $(BINDIR)/$(1)/qemu-starter
+	@xxd -i < $$< > $$@
+
 $(BINDIR)/$(1)/libjove_rt.so: lib/arch/$(1)/rt.c
 	@echo CC $$<
 	$(_LLVM_CC) -o $$@ -MMD -shared -Wl,-soname=libjove_rt.so -Bsymbolic -fuse-ld=lld -nostdlib --sysroot $($(1)_sysroot) -I $($(1)_sysroot)/include -D TARGET_$(call uc,$(1)) --target=$($(1)_TRIPLE) -Ofast -ffreestanding -fno-stack-protector $($(1)_ARCH_CFLAGS) -D TARGET_ARCH_NAME=\"$($(1)_ARCH_NAME)\" -fPIC -g -Wall -I lib -I lib/arch/$(1) -Werror-implicit-function-declaration -Wl,-init,_jove_rt_init $$< -Wl,--push-state -Wl,--as-needed $($(1)_builtins_lib) -Wl,--pop-state -Wl,--exclude-libs,ALL

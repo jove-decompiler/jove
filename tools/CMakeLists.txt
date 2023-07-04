@@ -111,6 +111,7 @@ function(tool_for_arch arch arch_extra_cflags qemu_objs)
 
   target_include_directories(jove-${arch} PRIVATE
     ${JOVE_SRC_DIR}/lib/arch/${arch}
+    ${JOVE_SRC_DIR}/bin/${arch}
   )
 
   target_compile_options(jove-${arch} PRIVATE
