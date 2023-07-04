@@ -24,6 +24,12 @@ jobs:
         run: |
           sudo service docker stop
       -
+        name: List buildx cache dir
+        shell: bash
+        run: |
+          echo "Buildx cache"
+          sudo ls -la /var/lib/buildkit
+      -
         name: Obliterate docker data
         shell: bash
         run: |
