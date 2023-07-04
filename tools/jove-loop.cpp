@@ -70,8 +70,9 @@ class LoopTool : public Tool {
     cl::alias RunAsRootAlias;
     cl::opt<bool> PreserveEnvironment;
     cl::alias PreserveEnvironmentAlias;
-    cl::opt<bool> Dbg;
-    cl::alias DbgAlias;
+    cl::opt<bool> Gdb;
+    cl::alias GdbAlias;
+    cl::opt<bool> Gdbs;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : Prog(cl::Positional, cl::desc("prog"), cl::Required,
@@ -226,10 +227,13 @@ class LoopTool : public Tool {
               "E", cl::desc("Alias for --preserve-environment"),
               cl::aliasopt(PreserveEnvironment), cl::cat(JoveCategory)),
 
-          Dbg("dbg", cl::desc("Run program under gdb"), cl::cat(JoveCategory)),
+          Gdb("gdb", cl::desc("Run program under gdb"), cl::cat(JoveCategory)),
 
-          DbgAlias("g", cl::desc("Alias for --dbg"), cl::aliasopt(Dbg),
-                   cl::cat(JoveCategory)) {}
+          GdbAlias("g", cl::desc("Alias for --gdb"), cl::aliasopt(Gdb),
+                   cl::cat(JoveCategory)),
+
+          Gdbs("gdbs", cl::desc("Run program under gdbserver"),
+               cl::cat(JoveCategory)) {}
   } opts;
 
   std::string jv_path;
@@ -357,8 +361,13 @@ int LoopTool::Run(void) {
     return 1;
   }
 
-  if (opts.Dbg)
-    fs::copy_file(locator().gdb(), fs::path(sysroot) / "usr" / "bin" / "gdb",
+  if (opts.Gdb)
+    fs::copy_file(locator().gdb(),
+                  fs::path(sysroot) / "usr" / "bin" / "gdb",
+                  fs::copy_option::overwrite_if_exists);
+  else if (opts.Gdbs)
+    fs::copy_file(locator().gdbserver(),
+                  fs::path(sysroot) / "usr" / "bin" / "gdbserver",
                   fs::copy_option::overwrite_if_exists);
 
   if (!fs::exists(jv_path)) {
@@ -499,13 +508,18 @@ run:
             //
             // program + args
             //
-            if (opts.Dbg) {
+            if (opts.Gdb) {
               Arg("/usr/bin/gdb");
               Arg("--args");
               if (WillChroot)
                 Arg(opts.Prog);
               else
                 Arg(sysroot + opts.Prog);
+            } else if (opts.Gdbs) {
+              Arg("/usr/bin/gdbserver");
+              Arg("--multi");
+              Arg("*:2345");
+              return;
             } else {
               Arg(opts.Prog);
             }
