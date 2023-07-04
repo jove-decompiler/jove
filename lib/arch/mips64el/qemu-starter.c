@@ -1,1 +1,1 @@
-../mips64/qemu-starter.c
+../../qemu-starter.c
