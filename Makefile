@@ -202,17 +202,18 @@ gen-tcgconstants: $(foreach target,$(ALL_TARGETS),gen-tcgconstants-$(target))
 define target_code_template
 $(BINDIR)/$(1)/qemu-starter: lib/arch/$(1)/qemu-starter.c
 	@echo CC $$<
-	$(_LLVM_CC) -o $$@ -Wall \
-	                   -I lib -I lib/arch/$(1) \
-	                   -nostdlib \
-	                   --sysroot $($(1)_sysroot) \
-	                   --target=$($(1)_TRIPLE) \
-	                   -Ofast -g0 \
-	                   -ffreestanding \
-	                   -fno-stack-protector \
-	                   -fuse-ld=lld \
-	                   -Wl,-e,_start \
-	                   -static $$<
+	@clang-15 -o $$@ -Wall \
+	                 -I lib -I lib/arch/$(1) \
+	                 -nostdlib \
+	                 --sysroot $($(1)_sysroot) \
+	                 --target=$($(1)_TRIPLE) \
+	                 -Ofast -g0 \
+	                 -ffreestanding \
+	                 -fno-stack-protector \
+	                 -fuse-ld=lld \
+	                 -Wl,-e,_start \
+	                 -static $$<
+	@llvm-strip-15 $$@
 
 $(BINDIR)/$(1)/libjove_rt.so: lib/arch/$(1)/rt.c
 	@echo CC $$<
