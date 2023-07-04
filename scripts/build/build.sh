@@ -48,4 +48,6 @@ for arch in $cross_archs ; do
   $build_scripts_path/llvm/cross_build_${arch}.sh
 done
 
+df -h .
+
 popd
