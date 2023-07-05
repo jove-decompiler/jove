@@ -8,12 +8,10 @@ set -x
 TRIPLE="mipsel-linux-gnu"
 
 OURCFLAGS=\
-"--target=$TRIPLE"\
-" -gdwarf-4"\
-" -g1"
+"--target=$TRIPLE"
 
 cmake -G Ninja \
-  -D CMAKE_BUILD_TYPE=RelWithDebInfo \
+  -D CMAKE_BUILD_TYPE=Release \
   -D CMAKE_SYSTEM_NAME=Linux \
   -D CMAKE_CROSSCOMPILING=True \
   -D LLVM_TARGET_ARCH=mipsel \
