@@ -39,6 +39,7 @@ jobs:
           remove-haskell: true
           remove-codeql: true
           remove-docker-images: false # we did this ourselves
+          overprovision-lvm: true
           build-mount-path: '/x'
       -
         name: Fix up directories
