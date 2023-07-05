@@ -32,12 +32,13 @@ jobs:
         name: Maximize build space
         uses: jove-decompiler/maximize-build-space@master
         with:
-          root-reserve-mb: 2048
+          root-reserve-mb: 4096
           swap-size-mb: 2048
           remove-dotnet: true
           remove-android: true
           remove-haskell: true
           remove-codeql: true
+          overprovision-lvm: true
           remove-docker-images: false # we did this ourselves
           build-mount-path: '/x'
       -
