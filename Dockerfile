@@ -121,15 +121,16 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
     apt-get install -y eatmydata && \
     eatmydata apt-get dist-upgrade -y && \
     eatmydata apt-get install --no-install-recommends -y \
-                      libffi-dev \
-                      libboost-system-dev \
+                      libatomic1 \
                       libboost-filesystem-dev \
                       libboost-serialization-dev \
+                      libboost-system-dev \
+                      libffi-dev \
                       libglib2.0-dev \
-                      libatomic1 \
+                      libpcre2-dev \
                       libstdc++6 \
                       libtinfo-dev \
-                      libpcre2-dev \
+                      locales \
                       zlib1g-dev && \
     eatmydata apt-get autoremove -y && \
     eatmydata apt-get autoclean -y && \
