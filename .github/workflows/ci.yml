@@ -81,7 +81,6 @@ jobs:
         with:
           context: .
           no-cache: true
-          push: true
           tags: ${{ env.TEST_TAG }}
           outputs: type=docker,dest=/x/image.tar
       -
