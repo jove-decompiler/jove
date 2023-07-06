@@ -28,17 +28,16 @@ jobs:
         shell: bash
         run: |
           sudo mkdir /x
-      -
+
         name: Maximize build space
         uses: jove-decompiler/maximize-build-space@master
         with:
-          root-reserve-mb: 4096
+          root-reserve-mb: 2048
           swap-size-mb: 2048
           remove-dotnet: true
           remove-android: true
           remove-haskell: true
           remove-codeql: true
-          overprovision-lvm: true
           remove-docker-images: false # we did this ourselves
           build-mount-path: '/x'
       -
@@ -81,17 +80,13 @@ jobs:
         uses: docker/build-push-action@v4
         with:
           context: .
-          load: true
-          tags: ${{ env.TEST_TAG }}
-      -
-        name: Test
-        run: |
-          docker run --rm ${{ env.TEST_TAG }}
-      -
-        name: Build and push
-        uses: docker/build-push-action@v4
-        with:
-          context: .
-          platforms: linux/amd64
+          no-cache: true
           push: true
-          tags: ${{ env.LATEST_TAG }}
+          tags: ${{ env.TEST_TAG }}
+          outputs: type=docker,dest=/x/image.tar
+      -
+        name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: image
+          path: /x/myimage.tar

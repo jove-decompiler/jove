@@ -1,4 +1,4 @@
-FROM docker.io/library/debian:12-slim
+FROM docker.io/library/debian:12-slim AS builder
 
 RUN export DEBIAN_FRONTEND=noninteractive && \
     apt-get update && \
@@ -113,3 +113,38 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
 
 ADD . /jove/
 RUN /jove/scripts/build/build.sh
+
+FROM docker.io/library/debian:12-slim
+
+RUN export DEBIAN_FRONTEND=noninteractive && \
+    apt-get update && \
+    apt-get install -y eatmydata && \
+    eatmydata apt-get dist-upgrade -y && \
+    eatmydata apt-get install --no-install-recommends -y \
+                      libffi-dev \
+                      libboost-system-dev \
+                      libboost-filesystem-dev \
+                      libboost-serialization-dev \
+                      libglib2.0-dev \
+                      libatomic1 \
+                      libstdc++6 \
+                      libtinfo-dev \
+                      libpcre2-dev \
+                      zlib1g-dev && \
+    eatmydata apt-get autoremove -y && \
+    eatmydata apt-get autoclean -y && \
+    sed -Ei 's,^# (en_US\.UTF-8 .*)$,\1,' /etc/locale.gen && \
+    dpkg-reconfigure locales
+
+COPY --from=builder /jove/{scripts,prebuilts} /opt/jove/
+COPY --from=builder /jove/llvm-project/build/bin/jove-* /opt/jove/bin/
+COPY --from=builder /jove/llvm-project/build/bin/llc /opt/jove/bin/
+COPY --from=builder /jove/llvm-project/build/bin/opt /opt/jove/bin/
+COPY --from=builder /jove/llvm-project/build/bin/llvm-dis /opt/jove/bin/
+COPY --from=builder /jove/llvm-project/build/bin/ld* /opt/jove/bin/
+COPY --from=builder /jove/llvm-project/build/bin/lld /opt/jove/bin/
+COPY --from=builder /jove/llvm-project/build/bin/llvm-readobj /opt/jove/bin/
+COPY --from=builder /jove/llvm-project/i386_build/bin/jove-i386 /opt/jove/bin/cross/
+COPY --from=builder /jove/llvm-project/mipsel_build/bin/jove-mipsel /opt/jove/bin/cross/
+COPY --from=builder /jove/llvm-project/mips64el_build/bin/jove-mips64el /opt/jove/bin/cross/
+COPY --from=builder /jove/llvm-project/aarch64_build/bin/jove-aarch64 /opt/jove/bin/cross/
