@@ -14,16 +14,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       -
-        name: Clear docker data
-        shell: bash
-        run: |
-          sudo docker image prune --all --force
-      -
-        name: Stop docker
-        shell: bash
-        run: |
-          sudo service docker stop
-      -
         name: Create mount dir
         shell: bash
         run: |
@@ -38,8 +28,13 @@ jobs:
           remove-android: true
           remove-haskell: true
           remove-codeql: true
-          remove-docker-images: false # we did this ourselves
+          remove-docker-images: true
           build-mount-path: '/x'
+      -
+        name: Stop docker
+        shell: bash
+        run: |
+          sudo service docker stop
       -
         name: Fix up directories
         shell: bash
@@ -53,6 +48,7 @@ jobs:
           sudo mount --bind /x/buildkit /var/lib/buildkit
 
           mount | column -t
+          df -h
       -
         name: Start docker
         shell: bash
@@ -80,7 +76,6 @@ jobs:
         uses: docker/build-push-action@v4
         with:
           context: .
-          no-cache: true
           tags: ${{ env.TEST_TAG }}
           outputs: type=docker,dest=/x/image.tar
       -
