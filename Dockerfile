@@ -137,7 +137,8 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
     sed -Ei 's,^# (en_US\.UTF-8 .*)$,\1,' /etc/locale.gen && \
     dpkg-reconfigure locales
 
-COPY --from=builder /jove/{scripts,prebuilts} /opt/jove/
+COPY --from=builder /jove/scripts /opt/jove/
+COPY --from=builder /jove/prebuilts /opt/jove/
 COPY --from=builder /jove/llvm-project/build/bin/jove-* /opt/jove/bin/
 COPY --from=builder /jove/llvm-project/build/bin/llc /opt/jove/bin/
 COPY --from=builder /jove/llvm-project/build/bin/opt /opt/jove/bin/
@@ -145,6 +146,7 @@ COPY --from=builder /jove/llvm-project/build/bin/llvm-dis /opt/jove/bin/
 COPY --from=builder /jove/llvm-project/build/bin/ld* /opt/jove/bin/
 COPY --from=builder /jove/llvm-project/build/bin/lld /opt/jove/bin/
 COPY --from=builder /jove/llvm-project/build/bin/llvm-readobj /opt/jove/bin/
+COPY --from=builder /jove/llvm-project/build/bin/llvm-cbe /opt/jove/bin/
 COPY --from=builder /jove/llvm-project/i386_build/bin/jove-i386 /opt/jove/bin/cross/
 COPY --from=builder /jove/llvm-project/mipsel_build/bin/jove-mipsel /opt/jove/bin/cross/
 COPY --from=builder /jove/llvm-project/mips64el_build/bin/jove-mips64el /opt/jove/bin/cross/
