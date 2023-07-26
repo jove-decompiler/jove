@@ -14,47 +14,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       -
-        name: Create mount dir
-        shell: bash
-        run: |
-          sudo mkdir /x
-      -
-        name: Maximize build space
-        uses: jove-decompiler/maximize-build-space@master
-        with:
-          root-reserve-mb: 2048
-          swap-size-mb: 2048
-          remove-dotnet: true
-          remove-android: true
-          remove-haskell: true
-          remove-codeql: true
-          remove-docker-images: true
-          build-mount-path: '/x'
-      -
-        name: Stop docker
-        shell: bash
-        run: |
-          sudo service docker stop
-      -
-        name: Fix up directories
-        shell: bash
-        run: |
-          sudo mkdir /x/{docker,buildkit}
-          sudo chmod 0777 /x/{docker,buildkit}
-
-          sudo mkdir -p /var/lib/{docker,buildkit}
-
-          sudo mount --bind /x/docker /var/lib/docker
-          sudo mount --bind /x/buildkit /var/lib/buildkit
-
-          mount | column -t
-          df -h
-      -
-        name: Start docker
-        shell: bash
-        run: |
-          sudo service docker start
-      -
         name: Checkout
         uses: actions/checkout@v3
         with:
@@ -76,11 +35,17 @@ jobs:
         uses: docker/build-push-action@v4
         with:
           context: .
+          load: true
           tags: ${{ env.TEST_TAG }}
-          outputs: type=docker,dest=/x/image.tar
       -
-        name: Upload artifact
-        uses: actions/upload-artifact@v3
+        name: Test
+        run: |
+          docker run --rm ${{ env.TEST_TAG }}
+      -
+        name: Build and push
+        uses: docker/build-push-action@v4
         with:
-          name: image
-          path: /x/myimage.tar
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: ${{ env.LATEST_TAG }}
