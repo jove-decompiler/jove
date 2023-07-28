@@ -493,9 +493,6 @@ mips64el-msa_ld_d_EXTRICATE_ARGS := cpu_ldq_le_data_ra
 mips64el-msa_st_d_EXTRICATE_ARGS := cpu_stq_le_data_ra
 
 #
-# carbon-extract tcg/tcg-op.c:1243l tcg/optimize.c:599l tcg/tcg-common.c:33l accel/tcg/translate-all.c:1667l accel/tcg/translator.c:36l util/cutils.c:45l tcg/tcg.c:2634l tcg/tcg.c:2824l tcg/tcg.c:5714l gen_intermediate_code target/mips/translate.c:30971l > ../jove/lib/arch/mips64el/tcg.hpp
-
-#
 # TCG helpers
 #
 .PHONY: extract-helpers
