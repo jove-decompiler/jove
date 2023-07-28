@@ -27,50 +27,6 @@ LLVM_COMPONENTS := object \
 JOVE_GITVER := $(shell git log -n1 --format="%h")
 
 #
-# build flags for tools and utils
-#
-CXXFLAGS := -std=gnu++17 \
-            -Wall \
-            -Wno-macro-redefined \
-            -Wno-shift-count-negative \
-            -Wno-initializer-overrides \
-            -Wno-c99-designator \
-            -Werror-implicit-function-declaration \
-            -Werror-return-type \
-            -fno-omit-frame-pointer \
-            -fvisibility=hidden \
-            -fexceptions \
-            -fno-semantic-interposition \
-            -fwrapv \
-            -fno-common \
-            -Ofast \
-            -g \
-            -I include \
-            -I lib \
-            -I core \
-            -I $(_LLVM_INSTALL_DIR)/include \
-            -D _GNU_SOURCE \
-            -D BOOST_ICL_USE_STATIC_BOUNDED_INTERVALS \
-            -D JOVE_VERSION=\"$(JOVE_VER)\"\"-\"\"$(JOVE_GITVER)\"
-
-LDFLAGS := -Wl,--no-undefined \
-           $(shell $(_LLVM_CONFIG) --ldflags) \
-           -Wl,--push-state \
-           -Wl,--as-needed \
-           $(shell $(_LLVM_CONFIG) --libs $(LLVM_COMPONENTS)) \
-           -Wl,--pop-state, \
-           $(shell pkg-config --libs glib-2.0) \
-           -ldl \
-           -pthread \
-           -lm \
-           -lz \
-           -ltinfo \
-           -lboost_filesystem \
-           -lboost_system \
-           -lboost_serialization \
-           -fuse-ld=lld
-
-#
 # important directories
 #
 BINDIR := bin
@@ -105,15 +61,6 @@ mips64el_ARCH_CFLAGS    := -D TARGET_MIPS64
 # create build objects subdirectories
 #
 $(foreach target,$(ALL_TARGETS),$(shell mkdir -p $(BINDIR)/$(target)/helpers))
-
-#
-# find utils
-#
-UTILSRCDIR := utils
-UTILSRCS   := $(wildcard $(UTILSRCDIR)/*.cpp)
-ALL_UTILS  := $(patsubst $(UTILSRCDIR)/%.cpp,%,$(UTILSRCS))
-UTILBINS   := $(foreach target,$(ALL_TARGETS),$(foreach util,$(ALL_UTILS),$(BINDIR)/$(target)/$(util)))
-UTILDEPS   := $(foreach target,$(ALL_TARGETS),$(foreach util,$(ALL_UTILS),$(BINDIR)/$(target)/$(util).d))
 
 JOVE_C_BITCODE      := $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/jove.bc)
 JOVE_C_BITCODE_DEPS := $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/jove.d)
@@ -172,22 +119,6 @@ helpers: \
 runtime: $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/libjove_rt.so) \
          $(JOVE_C_BITCODE)
 
-define build_util_template
-$(BINDIR)/$(2)/$(1): $(UTILSRCDIR)/$(1).cpp
-	@echo CXX $$<
-	@$(_LLVM_CXX) -o $$@ \
-	              -MMD \
-	              $(CXXFLAGS) \
-	              $($(2)_ARCH_CFLAGS) \
-	              -I lib/arch/$(2) \
-	              -D TARGET_$(call uc,$(2)) \
-	              -D TARGET_ARCH_NAME=\"$($(2)_ARCH_NAME)\" \
-	              $(LDFLAGS) \
-	              $$< \
-	              -static
-endef
-$(foreach target,$(ALL_TARGETS),$(foreach util,$(ALL_UTILS),$(eval $(call build_util_template,$(util),$(target)))))
-
 define gen_tcgconstants_template
 .PHONY: gen-tcgconstants-$(1)
 gen-tcgconstants-$(1): $(BINDIR)/$(1)/gen-tcgconstants
@@ -235,7 +166,6 @@ $(foreach target,$(ALL_TARGETS),$(eval $(call target_code_template,$(target))))
 -include $(JOVE_RT_DEPS)
 -include $(JOVE_C_BITCODE_DEPS)
 -include $(JOVE_C_DFSAN_BITCODE_DEPS)
--include $(UTILDEPS)
 -include $(HELPERDEPS)
 
 PACKAGE_FILE_LIST := $(TOOLBINS) \
@@ -280,13 +210,11 @@ endif
 
 .PHONY: clean
 clean:
-	rm -rf $(UTILBINS) \
-	       $(JOVE_C_BITCODE) \
+	rm -rf $(JOVE_C_BITCODE) \
 	       $(JOVE_C_DFSAN_BITCODE) \
 	       $(JOVE_C_BITCODE_DEPS) \
 	       $(JOVE_C_DFSAN_BITCODE_DEPS) \
 	       $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/libjove_rt.so) \
-	       $(UTILDEPS) \
 	       $(HELPERDEPS) \
 	       $(HELPERS_BITCODE) \
 	       $(HELPERS_ASSEMBLY) \
