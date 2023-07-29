@@ -1,5 +1,10 @@
 tags
 /bin/*/*.bc
+/bin/*/*.ll
+/bin/*/*.d
 /bin/*/libjove_rt.so
-/bin/*/helpers/*
+/bin/*/helpers/*.bc
+/bin/*/helpers/*.bc.*
+/bin/*/helpers/*.ll
+/bin/*/helpers/*.d
 /bin/*/qemu-starter
