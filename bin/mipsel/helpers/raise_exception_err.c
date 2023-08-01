@@ -1793,6 +1793,7 @@ static const char *syscall_names[] = {
 #define JOVE_SYS_ATTR _INL _UNUSED
 #include "jove_sys.h" /* for __SYSCALL_CLOBBERS */
 
+#include "jove.arch.c"
 #include "jove.util.c"
 
 #ifdef JOVE_DFSAN
