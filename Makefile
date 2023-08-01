@@ -459,7 +459,7 @@ build-helpers: $(HELPERS_BITCODE) $(HELPERS_ASSEMBLY)
 define helper_template
 $(BINDIR)/$(2)/helpers/$(1).ll: $(BINDIR)/$(2)/helpers/$(1).bc
 	@echo DIS $$<
-	$(LLVM_OPT) -o $$@ -S --strip-debug $$<
+	@$(LLVM_OPT) -o $$@ -S --strip-debug $$<
 
 $(BINDIR)/$(2)/helpers/$(1).bc: $(BINDIR)/$(2)/helpers/$(1).c
 	@echo BC $$<
