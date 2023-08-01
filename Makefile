@@ -95,9 +95,6 @@ helpers: \
 runtime: $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/libjove_rt.so) \
          $(JOVE_C_BITCODE)
 
-.PHONY: gen-tcgconstants
-gen-tcgconstants: $(foreach target,$(ALL_TARGETS),gen-tcgconstants-$(target))
-
 define target_code_template
 $(BINDIR)/$(1)/qemu-starter: lib/arch/$(1)/qemu-starter.c
 	@echo CC $$<
@@ -509,3 +506,6 @@ $(foreach target,$(ALL_TARGETS),$(eval $(call target_template,$(target))))
 
 .PHONY: check-helpers
 check-helpers: $(foreach target,$(ALL_TARGETS),check-$(target))
+
+.PHONY: gen-tcgconstants
+gen-tcgconstants: $(foreach target,$(ALL_TARGETS),gen-tcgconstants-$(target))
