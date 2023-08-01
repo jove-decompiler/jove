@@ -61,9 +61,6 @@ $(foreach target,$(ALL_TARGETS),$(shell mkdir -p $(BINDIR)/$(target)/helpers))
 JOVE_C_BITCODE      := $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/jove.bc)
 JOVE_C_BITCODE_DEPS := $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/jove.d)
 
-JOVE_C_DFSAN_BITCODE      := $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/jove.dfsan.bc)
-JOVE_C_DFSAN_BITCODE_DEPS := $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/jove.dfsan.d)
-
 JOVE_RT_DEPS := $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/libjove_rt.so.d)
 
 #
@@ -84,11 +81,8 @@ mips32_HELPERS := div_i32 rem_i32 divu_i32 remu_i32 div_i64 rem_i64 divu_i64 rem
 mipsel_HELPERS := $(mips32_HELPERS)
 mips_HELPERS   := $(mips32_HELPERS)
 
-HELPERS_BITCODE       := $(foreach target,$(ALL_TARGETS),$(foreach helper,$($(target)_HELPERS),$(BINDIR)/$(target)/helpers/$(helper).bc))
-HELPERS_DFSAN_BITCODE := $(foreach target,$(ALL_TARGETS),$(foreach helper,$($(target)_HELPERS),$(BINDIR)/$(target)/helpers/$(helper).dfsan.bc))
-
-HELPERS_ASSEMBLY       := $(foreach target,$(ALL_TARGETS),$(foreach helper,$($(target)_HELPERS),$(BINDIR)/$(target)/helpers/$(helper).ll))
-HELPERS_DFSAN_ASSEMBLY := $(foreach target,$(ALL_TARGETS),$(foreach helper,$($(target)_HELPERS),$(BINDIR)/$(target)/helpers/$(helper).dfsan.ll))
+HELPERS_BITCODE  := $(foreach target,$(ALL_TARGETS),$(foreach helper,$($(target)_HELPERS),$(BINDIR)/$(target)/helpers/$(helper).bc))
+HELPERS_ASSEMBLY := $(foreach target,$(ALL_TARGETS),$(foreach helper,$($(target)_HELPERS),$(BINDIR)/$(target)/helpers/$(helper).ll))
 
 HELPERDEPS := $(foreach target,$(ALL_TARGETS),$(foreach helper,$($(target)_HELPERS),$(BINDIR)/$(target)/helpers/$(helper).d))
 
@@ -104,13 +98,6 @@ everything: \
 helpers: \
      $(HELPERS_BITCODE) \
      $(HELPERS_ASSEMBLY)
-
-#
-#     $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/jove.dfsan.bc) \
-#
-#     $(HELPERS_DFSAN_BITCODE) \
-#     $(HELPERS_DFSAN_ASSEMBLY) \
-#
 
 runtime: $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/libjove_rt.so) \
          $(JOVE_C_BITCODE)
@@ -187,30 +174,21 @@ $(BINDIR)/$(1)/jove.bc: lib/arch/$(1)/jove.c
 	                  -MMD \
 	                  -fPIC \
 	                  -c -emit-llvm $$<
-
-$(BINDIR)/$(1)/jove.dfsan.bc: lib/arch/$(1)/jove.c
-	@echo CC "(DFSAN)" $$<
-	$(LLVM_CC) -o $$@ -c -MMD -emit-llvm -I lib -I include -I boost-preprocessor/include -D TARGET_$(call uc,$(1)) --target=$($(1)_TRIPLE) -Ofast --sysroot $($(1)_sysroot) -ffreestanding -fno-stack-protector $($(1)_ARCH_CFLAGS) -D TARGET_ARCH_NAME=\"$($(1)_ARCH_NAME)\" -std=gnu99 -fPIC -g -Wall -Werror-implicit-function-declaration -DJOVE_DFSAN $$<
 endef
 $(foreach target,$(ALL_TARGETS),$(eval $(call target_code_template,$(target))))
 
 -include $(JOVE_RT_DEPS)
 -include $(JOVE_C_BITCODE_DEPS)
--include $(JOVE_C_DFSAN_BITCODE_DEPS)
 -include $(HELPERDEPS)
 
 .PHONY: clean
 clean:
 	rm -rf $(JOVE_C_BITCODE) \
-	       $(JOVE_C_DFSAN_BITCODE) \
 	       $(JOVE_C_BITCODE_DEPS) \
-	       $(JOVE_C_DFSAN_BITCODE_DEPS) \
 	       $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/libjove_rt.so) \
 	       $(HELPERDEPS) \
 	       $(HELPERS_BITCODE) \
-	       $(HELPERS_ASSEMBLY) \
-	       $(HELPERS_DFSAN_ASSEMBLY) \
-	       $(HELPERS_DFSAN_BITCODE)
+	       $(HELPERS_ASSEMBLY)
 
 .PHONY: distclean
 distclean: clean
@@ -222,9 +200,7 @@ clean-helpers:
 	rm -rf $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/helpers) \
 	       $(HELPERDEPS) \
 	       $(HELPERS_BITCODE) \
-	       $(HELPERS_ASSEMBLY) \
-	       $(HELPERS_DFSAN_ASSEMBLY) \
-	       $(HELPERS_DFSAN_BITCODE)
+	       $(HELPERS_ASSEMBLY)
 
 #
 # for extricating QEMU code
@@ -514,17 +490,6 @@ $(BINDIR)/$(2)/helpers/$(1).bc: bin/$(2)/helpers/$(1).c
 	@$(LLVM_OPT) -o $$@ -O3 $$@.2
 endef
 $(foreach target,$(ALL_TARGETS),$(foreach helper,$($(target)_HELPERS),$(eval $(call build_helper_template,$(helper),$(target)))))
-
-define build_helper_dfsan_template
-$(BINDIR)/$(2)/helpers/$(1).dfsan.ll: $(BINDIR)/$(2)/helpers/$(1).dfsan.bc
-	@echo DIS $$<
-	$(LLVM_OPT) -o $$@ -S --strip-debug $$<
-
-$(BINDIR)/$(2)/helpers/$(1).dfsan.bc: bin/$(2)/helpers/$(1).c
-	@echo BC "(DFSAN)" $$<
-	$(LLVM_CC) -o $$@ -c -MMD -I lib -I lib/arch/$(2) -emit-llvm -fPIC -g -O3 -ffreestanding -fno-stack-protector -Wall -Wno-macro-redefined -Wno-initializer-overrides -fno-strict-aliasing -fno-common -fwrapv -DNEED_CPU_H -DNDEBUG --sysroot $($(2)_sysroot) -DJOVE_DFSAN --target=$($(2)_TRIPLE) $($(2)_HELPER_CFLAGS) $$<
-endef
-$(foreach target,$(ALL_TARGETS),$(foreach helper,$($(target)_HELPERS),$(eval $(call build_helper_dfsan_template,$(helper),$(target)))))
 
 .PHONY: check-helpers
 check-helpers: $(foreach target,$(ALL_TARGETS),$(foreach helper,$($(target)_HELPERS),check-$(target)-$(helper)))
