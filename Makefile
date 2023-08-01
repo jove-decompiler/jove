@@ -13,13 +13,6 @@ LLVM_CC  := $(LLVM_BIN_DIR)/clang
 LLVM_CXX := $(LLVM_BIN_DIR)/clang++
 LLVM_OPT := $(LLVM_BIN_DIR)/opt
 
-LLVM_COMPONENTS := object \
-                   all-targets \
-                   passes \
-                   objcarcopts \
-                   coroutines \
-                   symbolize
-
 JOVE_GITVER := $(shell git log -n1 --format="%h")
 
 #
