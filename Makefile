@@ -469,7 +469,7 @@ $(BINDIR)/$(2)/helpers/$(1).bc: $(BINDIR)/$(2)/helpers/$(1).c
 	                     -Wno-initializer-overrides \
 	                     -I lib -I lib/arch/$(2) \
 	                     --sysroot $($(2)_sysroot) \
-	                     --target=$($(2)_TRIPLE) $($(2)_HELPER_CFLAGS) \
+	                     --target=$($(2)_TRIPLE) \
 	                     -O3 -g \
 	                     -std=gnu99 \
 	                     -DNEED_CPU_H \
