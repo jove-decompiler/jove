@@ -502,9 +502,6 @@ check-$(2)-$(1): $(BINDIR)/$(2)/helpers/$(1).bc
 endef
 $(foreach target,$(ALL_TARGETS),$(foreach helper,$($(target)_HELPERS),$(eval $(call helper_template,$(helper),$(target)))))
 
-.PHONY: check-helpers
-check-helpers: $(foreach target,$(ALL_TARGETS),$(foreach helper,$($(target)_HELPERS),check-$(target)-$(helper)))
-
 define target_template
 .PHONY: extract-helpers-$(1)
 extract-helpers-$(1): $(foreach helper,$($(1)_HELPERS),extract-$(1)-$(helper))
@@ -513,3 +510,6 @@ extract-helpers-$(1): $(foreach helper,$($(1)_HELPERS),extract-$(1)-$(helper))
 check-helpers-$(1): $(foreach helper,$($(1)_HELPERS),check-$(1)-$(helper))
 endef
 $(foreach target,$(ALL_TARGETS),$(eval $(call target_template,$(target))))
+
+.PHONY: check-helpers
+check-helpers: $(foreach target,$(ALL_TARGETS),check-$(target))
