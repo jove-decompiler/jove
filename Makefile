@@ -172,7 +172,21 @@ $(BINDIR)/$(1)/libjove_rt.so: lib/arch/$(1)/rt.c
 
 $(BINDIR)/$(1)/jove.bc: lib/arch/$(1)/jove.c
 	@echo CC $$<
-	$(LLVM_CC) -o $$@ -c -MMD -emit-llvm -I lib -I include -I boost-preprocessor/include -D TARGET_$(call uc,$(1)) --target=$($(1)_TRIPLE) -Ofast --sysroot $($(1)_sysroot) -ffreestanding -fno-stack-protector $($(1)_ARCH_CFLAGS) -D TARGET_ARCH_NAME=\"$($(1)_ARCH_NAME)\" -std=gnu99 -fPIC -g -Wall -Werror-implicit-function-declaration $$<
+	$(LLVM_CC) -o $$@ -Wall \
+	                  -Werror-implicit-function-declaration \
+	                  -I lib -I include -I boost-preprocessor/include \
+	                  --sysroot $($(1)_sysroot) \
+	                  --target=$($(1)_TRIPLE) \
+	                  -Ofast -g \
+	                  -D TARGET_$(call uc,$(1)) \
+	                  -D TARGET_ARCH_NAME=\"$($(1)_ARCH_NAME)\" \
+	                  $($(1)_ARCH_CFLAGS) \
+	                  -ffreestanding \
+	                  -fno-stack-protector \
+	                  -std=gnu99 \
+	                  -MMD \
+	                  -fPIC \
+	                  -c -emit-llvm $$<
 
 $(BINDIR)/$(1)/jove.dfsan.bc: lib/arch/$(1)/jove.c
 	@echo CC "(DFSAN)" $$<
