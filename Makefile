@@ -4,18 +4,12 @@ JOVE_ROOT_DIR := $(shell cd $(dir $(word $(words $(MAKEFILE_LIST)),$(MAKEFILE_LI
 include $(JOVE_ROOT_DIR)/version.mk
 include $(JOVE_ROOT_DIR)/config.mk
 
-HOST_ARCH := $(shell gcc -dumpmachine | tr '-' ' ' | cut -d " " -f1)
+LLVM_BIN_DIR := $(JOVE_ROOT_DIR)/llvm-project/build/bin
 
-include gmsl
-
-_LLVM_DIR         := $(JOVE_ROOT_DIR)/llvm-project
-_LLVM_INSTALL_DIR := $(_LLVM_DIR)/install
-
-_LLVM_CONFIG := $(_LLVM_INSTALL_DIR)/bin/llvm-config
-_LLVM_DIS    := $(_LLVM_INSTALL_DIR)/bin/llvm-dis
-_LLVM_CC     := $(_LLVM_INSTALL_DIR)/bin/clang
-_LLVM_CXX    := $(_LLVM_INSTALL_DIR)/bin/clang++
-_LLVM_OPT    := $(_LLVM_INSTALL_DIR)/bin/opt
+LLVM_DIS := $(LLVM_BIN_DIR)/llvm-dis
+LLVM_CC  := $(LLVM_BIN_DIR)/clang
+LLVM_CXX := $(LLVM_BIN_DIR)/clang++
+LLVM_OPT := $(LLVM_BIN_DIR)/opt
 
 LLVM_COMPONENTS := object \
                    all-targets \
@@ -151,15 +145,15 @@ $(BINDIR)/$(1)/qemu-starter.inc: $(BINDIR)/$(1)/qemu-starter
 
 $(BINDIR)/$(1)/libjove_rt.so: lib/arch/$(1)/rt.c
 	@echo CC $$<
-	$(_LLVM_CC) -o $$@ -MMD -shared -Wl,-soname=libjove_rt.so -Bsymbolic -fuse-ld=lld -nostdlib --sysroot $($(1)_sysroot) -I $($(1)_sysroot)/include -D TARGET_$(call uc,$(1)) --target=$($(1)_TRIPLE) -Ofast -ffreestanding -fno-stack-protector $($(1)_ARCH_CFLAGS) -D TARGET_ARCH_NAME=\"$($(1)_ARCH_NAME)\" -fPIC -g -Wall -I lib -I lib/arch/$(1) -Werror-implicit-function-declaration -Wl,-init,_jove_rt_init $$< -Wl,--push-state -Wl,--as-needed $($(1)_builtins_lib) -Wl,--pop-state -Wl,--exclude-libs,ALL
+	$(LLVM_CC) -o $$@ -MMD -shared -Wl,-soname=libjove_rt.so -Bsymbolic -fuse-ld=lld -nostdlib --sysroot $($(1)_sysroot) -I $($(1)_sysroot)/include -D TARGET_$(call uc,$(1)) --target=$($(1)_TRIPLE) -Ofast -ffreestanding -fno-stack-protector $($(1)_ARCH_CFLAGS) -D TARGET_ARCH_NAME=\"$($(1)_ARCH_NAME)\" -fPIC -g -Wall -I lib -I lib/arch/$(1) -Werror-implicit-function-declaration -Wl,-init,_jove_rt_init $$< -Wl,--push-state -Wl,--as-needed $($(1)_builtins_lib) -Wl,--pop-state -Wl,--exclude-libs,ALL
 
 $(BINDIR)/$(1)/jove.bc: lib/arch/$(1)/jove.c
 	@echo CC $$<
-	$(_LLVM_CC) -o $$@ -c -MMD -emit-llvm -I lib -I include -I boost-preprocessor/include -D TARGET_$(call uc,$(1)) --target=$($(1)_TRIPLE) -Ofast --sysroot $($(1)_sysroot) -ffreestanding -fno-stack-protector $($(1)_ARCH_CFLAGS) -D TARGET_ARCH_NAME=\"$($(1)_ARCH_NAME)\" -std=gnu99 -fPIC -g -Wall -Werror-implicit-function-declaration $$<
+	$(LLVM_CC) -o $$@ -c -MMD -emit-llvm -I lib -I include -I boost-preprocessor/include -D TARGET_$(call uc,$(1)) --target=$($(1)_TRIPLE) -Ofast --sysroot $($(1)_sysroot) -ffreestanding -fno-stack-protector $($(1)_ARCH_CFLAGS) -D TARGET_ARCH_NAME=\"$($(1)_ARCH_NAME)\" -std=gnu99 -fPIC -g -Wall -Werror-implicit-function-declaration $$<
 
 $(BINDIR)/$(1)/jove.dfsan.bc: lib/arch/$(1)/jove.c
 	@echo CC "(DFSAN)" $$<
-	$(_LLVM_CC) -o $$@ -c -MMD -emit-llvm -I lib -I include -I boost-preprocessor/include -D TARGET_$(call uc,$(1)) --target=$($(1)_TRIPLE) -Ofast --sysroot $($(1)_sysroot) -ffreestanding -fno-stack-protector $($(1)_ARCH_CFLAGS) -D TARGET_ARCH_NAME=\"$($(1)_ARCH_NAME)\" -std=gnu99 -fPIC -g -Wall -Werror-implicit-function-declaration -DJOVE_DFSAN $$<
+	$(LLVM_CC) -o $$@ -c -MMD -emit-llvm -I lib -I include -I boost-preprocessor/include -D TARGET_$(call uc,$(1)) --target=$($(1)_TRIPLE) -Ofast --sysroot $($(1)_sysroot) -ffreestanding -fno-stack-protector $($(1)_ARCH_CFLAGS) -D TARGET_ARCH_NAME=\"$($(1)_ARCH_NAME)\" -std=gnu99 -fPIC -g -Wall -Werror-implicit-function-declaration -DJOVE_DFSAN $$<
 endef
 $(foreach target,$(ALL_TARGETS),$(eval $(call target_code_template,$(target))))
 
@@ -167,46 +161,6 @@ $(foreach target,$(ALL_TARGETS),$(eval $(call target_code_template,$(target))))
 -include $(JOVE_C_BITCODE_DEPS)
 -include $(JOVE_C_DFSAN_BITCODE_DEPS)
 -include $(HELPERDEPS)
-
-PACKAGE_FILE_LIST := $(TOOLBINS) \
-                     $(JOVE_C_BITCODE) \
-                     $(JOVE_C_DFSAN_BITCODE) \
-                     $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/libjove_rt.so) \
-                     $(HELPERS_BITCODE) \
-                     $(HELPERS_ASSEMBLY) \
-                     $(HELPERS_DFSAN_BITCODE) \
-                     $(HELPERS_DFSAN_ASSEMBLY) \
-                     bin/dfsan_abilist.txt \
-                     $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/qemu-starter) \
-                     llvm-project/static_install/bin/llc \
-                     llvm-project/static_install/bin/opt \
-                     llvm-project/static_install/bin/llvm-symbolizer \
-                     llvm-project/static_install/bin/llvm-dis \
-                     llvm-project/static_install/bin/ld.lld \
-                     llvm-project/static_install/bin/lld \
-                     prebuilts/obj/libclang_rt.builtins-aarch64.a \
-                     prebuilts/obj/libclang_rt.builtins-i386.a \
-                     prebuilts/obj/libclang_rt.builtins-mips64el.a \
-                     prebuilts/obj/libclang_rt.builtins-mipsel.a \
-                     prebuilts/obj/libclang_rt.builtins-x86_64.a \
-                     prebuilts/lib/libclang_rt.dfsan.jove-aarch64.so \
-                     prebuilts/lib/libclang_rt.dfsan.jove-i386.so \
-                     prebuilts/lib/libclang_rt.dfsan.jove-mipsel.so \
-                     prebuilts/lib/libclang_rt.dfsan.jove-x86_64.so
-
-.PHONY: package
-package: $(PACKAGE_FILE_LIST)
-	@rm -f jove-$(JOVE_VER).$(HOST_ARCH).tar jove-$(JOVE_VER).$(HOST_ARCH).tar.xz
-	$(file >$@.tmp.txt,$^)
-	@file package.tmp.txt
-	@tr ' ' '\n' < package.tmp.txt > package.tmp.2.txt
-	@echo "Creating tarball"
-	@tar cvf jove-$(JOVE_VER).$(HOST_ARCH).tar -T package.tmp.2.txt
-ifndef PACKAGE_TARBALL
-	@echo "Compressing tarball"
-	@xz --threads=0 jove-$(JOVE_VER).$(HOST_ARCH).tar
-endif
-	@rm -f package.tmp.txt package.tmp.2.txt
 
 .PHONY: clean
 clean:
@@ -495,9 +449,6 @@ mips64el-msa_st_d_EXTRICATE_ARGS := cpu_stq_le_data_ra
 #
 # TCG helpers
 #
-.PHONY: extract-helpers
-extract-helpers: $(foreach helper,$($(HOST_ARCH)_HELPERS),extract-$(helper))
-
 .PHONY: build-helpers
 build-helpers: $(HELPERS_BITCODE) $(HELPERS_ASSEMBLY)
 
@@ -517,24 +468,24 @@ $(foreach target,$(ALL_TARGETS),$(foreach helper,$($(target)_HELPERS),$(eval $(c
 define build_helper_template
 $(BINDIR)/$(2)/helpers/$(1).ll: $(BINDIR)/$(2)/helpers/$(1).bc
 	@echo DIS $$<
-	$(_LLVM_OPT) -o $$@ -S --strip-debug $$<
+	$(LLVM_OPT) -o $$@ -S --strip-debug $$<
 
 $(BINDIR)/$(2)/helpers/$(1).bc: bin/$(2)/helpers/$(1).c
 	@echo BC $$<
-	$(_LLVM_CC) -o $$@.1 -c -MMD -I lib -I lib/arch/$(2) -emit-llvm -fPIC -g -O3 -ffreestanding -fno-stack-protector -Wall -Wno-macro-redefined -Wno-initializer-overrides -fno-strict-aliasing -fno-common -fwrapv -DNEED_CPU_H -DNDEBUG --sysroot $($(2)_sysroot) --target=$($(2)_TRIPLE) $($(2)_HELPER_CFLAGS) $$<
-	@$(_LLVM_OPT) -o $$@.2 $$@.1 -internalize -internalize-public-api-list=helper_$(1)
-	@$(_LLVM_OPT) -o $$@ -O3 $$@.2
+	$(LLVM_CC) -o $$@.1 -c -MMD -I lib -I lib/arch/$(2) -emit-llvm -fPIC -g -O3 -ffreestanding -fno-stack-protector -Wall -Wno-macro-redefined -Wno-initializer-overrides -fno-strict-aliasing -fno-common -fwrapv -DNEED_CPU_H -DNDEBUG --sysroot $($(2)_sysroot) --target=$($(2)_TRIPLE) $($(2)_HELPER_CFLAGS) $$<
+	@$(LLVM_OPT) -o $$@.2 $$@.1 -internalize -internalize-public-api-list=helper_$(1)
+	@$(LLVM_OPT) -o $$@ -O3 $$@.2
 endef
 $(foreach target,$(ALL_TARGETS),$(foreach helper,$($(target)_HELPERS),$(eval $(call build_helper_template,$(helper),$(target)))))
 
 define build_helper_dfsan_template
 $(BINDIR)/$(2)/helpers/$(1).dfsan.ll: $(BINDIR)/$(2)/helpers/$(1).dfsan.bc
 	@echo DIS $$<
-	$(_LLVM_OPT) -o $$@ -S --strip-debug $$<
+	$(LLVM_OPT) -o $$@ -S --strip-debug $$<
 
 $(BINDIR)/$(2)/helpers/$(1).dfsan.bc: bin/$(2)/helpers/$(1).c
 	@echo BC "(DFSAN)" $$<
-	$(_LLVM_CC) -o $$@ -c -MMD -I lib -I lib/arch/$(2) -emit-llvm -fPIC -g -O3 -ffreestanding -fno-stack-protector -Wall -Wno-macro-redefined -Wno-initializer-overrides -fno-strict-aliasing -fno-common -fwrapv -DNEED_CPU_H -DNDEBUG --sysroot $($(2)_sysroot) -DJOVE_DFSAN --target=$($(2)_TRIPLE) $($(2)_HELPER_CFLAGS) $$<
+	$(LLVM_CC) -o $$@ -c -MMD -I lib -I lib/arch/$(2) -emit-llvm -fPIC -g -O3 -ffreestanding -fno-stack-protector -Wall -Wno-macro-redefined -Wno-initializer-overrides -fno-strict-aliasing -fno-common -fwrapv -DNEED_CPU_H -DNDEBUG --sysroot $($(2)_sysroot) -DJOVE_DFSAN --target=$($(2)_TRIPLE) $($(2)_HELPER_CFLAGS) $$<
 endef
 $(foreach target,$(ALL_TARGETS),$(foreach helper,$($(target)_HELPERS),$(eval $(call build_helper_dfsan_template,$(helper),$(target)))))
 
@@ -550,6 +501,6 @@ $(foreach target,$(ALL_TARGETS),$(eval $(call check_helpers_template,$(target)))
 define check_helper_template
 .PHONY: check-$(2)-$(1)
 check-$(2)-$(1): $(BINDIR)/$(2)/helpers/$(1).bc
-	@$(_LLVM_DIR)/build/bin/jove-$(2) check-helper --vars $(1)
+	@$(LLVM_DIR)/build/bin/jove-$(2) check-helper --vars $(1)
 endef
 $(foreach target,$(ALL_TARGETS),$(foreach helper,$($(target)_HELPERS),$(eval $(call check_helper_template,$(helper),$(target)))))
