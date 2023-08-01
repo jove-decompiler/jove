@@ -27,13 +27,6 @@ mipsel_TRIPLE  := mipsel-linux-gnu
 mips_TRIPLE    := mips-linux-gnu
 mips64el_TRIPLE  := mips64el-linux-gnuabi64
 
-i386_ARCH_NAME    := i386
-x86_64_ARCH_NAME  := x86_64
-mipsel_ARCH_NAME  := mipsel
-mips_ARCH_NAME    := mips
-mips64el_ARCH_NAME  := mips64el
-aarch64_ARCH_NAME := aarch64
-
 aarch64_builtins_lib := $(JOVE_ROOT_DIR)/prebuilts/obj/libclang_rt.builtins-aarch64.a
 i386_builtins_lib    := $(JOVE_ROOT_DIR)/prebuilts/obj/libclang_rt.builtins-i386.a
 x86_64_builtins_lib  := $(JOVE_ROOT_DIR)/prebuilts/obj/libclang_rt.builtins-x86_64.a
@@ -126,7 +119,7 @@ $(BINDIR)/$(1)/libjove_rt.so: lib/arch/$(1)/rt.c
 	                   -Ofast -g \
 	                   -std=gnu99 \
 	                   -D TARGET_$(call uc,$(1)) \
-	                   -D TARGET_ARCH_NAME=\"$($(1)_ARCH_NAME)\" \
+	                   -D TARGET_ARCH_NAME=\"$(1)\" \
 	                   $($(1)_ARCH_CFLAGS) \
 	                   -ffreestanding \
 	                   -fno-stack-protector \
@@ -152,7 +145,7 @@ $(BINDIR)/$(1)/jove.bc: lib/arch/$(1)/jove.c
 	                   -Ofast -g \
 	                   -std=gnu99 \
 	                   -D TARGET_$(call uc,$(1)) \
-	                   -D TARGET_ARCH_NAME=\"$($(1)_ARCH_NAME)\" \
+	                   -D TARGET_ARCH_NAME=\"$(1)\" \
 	                   $($(1)_ARCH_CFLAGS) \
 	                   -ffreestanding \
 	                   -fno-stack-protector \
