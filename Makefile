@@ -474,7 +474,7 @@ $(foreach target,$(ALL_TARGETS),$(eval $(call extract_helpers_template,$(target)
 define extract_helper_template
 .PHONY: extract-$(2)-$(1)
 extract-$(2)-$(1):
-	$(CLANG_EXTRICATE)/extract/carbon-extract --src $(QEMU_SRC_DIR) --bin $(QEMU_BUILD_DIR) helper_$(1) $($(2)-$(1)_EXTRICATE_ARGS) > bin/$(2)/helpers/$(1).c
+	$(CLANG_EXTRICATE)/extract/carbon-extract --src $(QEMU_SRC_DIR) --bin $(QEMU_BUILD_DIR) helper_$(1) $($(2)-$(1)_EXTRICATE_ARGS) > $(BINDIR)/$(2)/helpers/$(1).c
 endef
 $(foreach target,$(ALL_TARGETS),$(foreach helper,$($(target)_HELPERS),$(eval $(call extract_helper_template,$(helper),$(target)))))
 
@@ -483,7 +483,7 @@ $(BINDIR)/$(2)/helpers/$(1).ll: $(BINDIR)/$(2)/helpers/$(1).bc
 	@echo DIS $$<
 	$(LLVM_OPT) -o $$@ -S --strip-debug $$<
 
-$(BINDIR)/$(2)/helpers/$(1).bc: bin/$(2)/helpers/$(1).c
+$(BINDIR)/$(2)/helpers/$(1).bc: $(BINDIR)/$(2)/helpers/$(1).c
 	@echo BC $$<
 	$(LLVM_CC) -o $$@.1 -c -MMD -I lib -I lib/arch/$(2) -emit-llvm -fPIC -g -O3 -ffreestanding -fno-stack-protector -Wall -Wno-macro-redefined -Wno-initializer-overrides -fno-strict-aliasing -fno-common -fwrapv -DNEED_CPU_H -DNDEBUG --sysroot $($(2)_sysroot) --target=$($(2)_TRIPLE) $($(2)_HELPER_CFLAGS) $$<
 	@$(LLVM_OPT) -o $$@.2 $$@.1 -internalize -internalize-public-api-list=helper_$(1)
