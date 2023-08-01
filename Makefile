@@ -134,46 +134,46 @@ $(BINDIR)/$(1)/qemu-starter.inc: $(BINDIR)/$(1)/qemu-starter
 
 $(BINDIR)/$(1)/libjove_rt.so: lib/arch/$(1)/rt.c
 	@echo CC $$<
-	$(LLVM_CC) -o $$@ -Wall \
-	                  -Werror-implicit-function-declaration \
-	                  -I lib -I lib/arch/$(1) -I $($(1)_sysroot)/include \
-	                  -nostdlib \
-	                  --sysroot $($(1)_sysroot) \
-	                  --target=$($(1)_TRIPLE) \
-	                  -Ofast -g \
-	                  -D TARGET_$(call uc,$(1)) \
-	                  -D TARGET_ARCH_NAME=\"$($(1)_ARCH_NAME)\" \
-	                  $($(1)_ARCH_CFLAGS) \
-	                  -ffreestanding \
-	                  -fno-stack-protector \
-	                  -Bsymbolic \
-	                  -MMD \
-	                  -fPIC \
-	                  -fuse-ld=lld \
-	                  -shared $$< \
-	                  -Wl,-soname=libjove_rt.so \
-	                  -Wl,-init,_jove_rt_init \
-	                  -Wl,--push-state \
-	                  -Wl,--as-needed $($(1)_builtins_lib) \
-	                  -Wl,--pop-state -Wl,--exclude-libs,ALL
+	@$(LLVM_CC) -o $$@ -Wall \
+	                   -Werror-implicit-function-declaration \
+	                   -I lib -I lib/arch/$(1) -I $($(1)_sysroot)/include \
+	                   -nostdlib \
+	                   --sysroot $($(1)_sysroot) \
+	                   --target=$($(1)_TRIPLE) \
+	                   -Ofast -g \
+	                   -D TARGET_$(call uc,$(1)) \
+	                   -D TARGET_ARCH_NAME=\"$($(1)_ARCH_NAME)\" \
+	                   $($(1)_ARCH_CFLAGS) \
+	                   -ffreestanding \
+	                   -fno-stack-protector \
+	                   -Bsymbolic \
+	                   -MMD \
+	                   -fPIC \
+	                   -fuse-ld=lld \
+	                   -shared $$< \
+	                   -Wl,-soname=libjove_rt.so \
+	                   -Wl,-init,_jove_rt_init \
+	                   -Wl,--push-state \
+	                   -Wl,--as-needed $($(1)_builtins_lib) \
+	                   -Wl,--pop-state -Wl,--exclude-libs,ALL
 
 $(BINDIR)/$(1)/jove.bc: lib/arch/$(1)/jove.c
 	@echo CC $$<
-	$(LLVM_CC) -o $$@ -Wall \
-	                  -Werror-implicit-function-declaration \
-	                  -I lib -I include -I boost-preprocessor/include \
-	                  --sysroot $($(1)_sysroot) \
-	                  --target=$($(1)_TRIPLE) \
-	                  -Ofast -g \
-	                  -D TARGET_$(call uc,$(1)) \
-	                  -D TARGET_ARCH_NAME=\"$($(1)_ARCH_NAME)\" \
-	                  $($(1)_ARCH_CFLAGS) \
-	                  -ffreestanding \
-	                  -fno-stack-protector \
-	                  -std=gnu99 \
-	                  -MMD \
-	                  -fPIC \
-	                  -c -emit-llvm $$<
+	@$(LLVM_CC) -o $$@ -Wall \
+	                   -Werror-implicit-function-declaration \
+	                   -I lib -I include -I boost-preprocessor/include \
+	                   --sysroot $($(1)_sysroot) \
+	                   --target=$($(1)_TRIPLE) \
+	                   -Ofast -g \
+	                   -D TARGET_$(call uc,$(1)) \
+	                   -D TARGET_ARCH_NAME=\"$($(1)_ARCH_NAME)\" \
+	                   $($(1)_ARCH_CFLAGS) \
+	                   -ffreestanding \
+	                   -fno-stack-protector \
+	                   -std=gnu99 \
+	                   -MMD \
+	                   -fPIC \
+	                   -c -emit-llvm $$<
 endef
 $(foreach target,$(ALL_TARGETS),$(eval $(call target_code_template,$(target))))
 
