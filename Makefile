@@ -133,6 +133,7 @@ $(BINDIR)/$(1)/libjove_rt.so: lib/arch/$(1)/rt.c
 	                   --sysroot $($(1)_sysroot) \
 	                   --target=$($(1)_TRIPLE) \
 	                   -Ofast -g \
+	                   -std=gnu99 \
 	                   -D TARGET_$(call uc,$(1)) \
 	                   -D TARGET_ARCH_NAME=\"$($(1)_ARCH_NAME)\" \
 	                   $($(1)_ARCH_CFLAGS) \
@@ -157,12 +158,12 @@ $(BINDIR)/$(1)/jove.bc: lib/arch/$(1)/jove.c
 	                   --sysroot $($(1)_sysroot) \
 	                   --target=$($(1)_TRIPLE) \
 	                   -Ofast -g \
+	                   -std=gnu99 \
 	                   -D TARGET_$(call uc,$(1)) \
 	                   -D TARGET_ARCH_NAME=\"$($(1)_ARCH_NAME)\" \
 	                   $($(1)_ARCH_CFLAGS) \
 	                   -ffreestanding \
 	                   -fno-stack-protector \
-	                   -std=gnu99 \
 	                   -MMD \
 	                   -fPIC \
 	                   -c -emit-llvm $$<
@@ -469,7 +470,25 @@ $(BINDIR)/$(2)/helpers/$(1).ll: $(BINDIR)/$(2)/helpers/$(1).bc
 
 $(BINDIR)/$(2)/helpers/$(1).bc: $(BINDIR)/$(2)/helpers/$(1).c
 	@echo BC $$<
-	$(LLVM_CC) -o $$@.1 -c -MMD -I lib -I lib/arch/$(2) -emit-llvm -fPIC -g -O3 -ffreestanding -fno-stack-protector -Wall -Wno-macro-redefined -Wno-initializer-overrides -fno-strict-aliasing -fno-common -fwrapv -DNEED_CPU_H -DNDEBUG --sysroot $($(2)_sysroot) --target=$($(2)_TRIPLE) $($(2)_HELPER_CFLAGS) $$<
+	@$(LLVM_CC) -o $$@.1 -Wall \
+	                     -Werror-implicit-function-declaration \
+	                     -Wno-macro-redefined \
+	                     -Wno-initializer-overrides \
+	                     -I lib -I lib/arch/$(2) \
+	                     --sysroot $($(2)_sysroot) \
+	                     --target=$($(2)_TRIPLE) $($(2)_HELPER_CFLAGS) \
+	                     -O3 -g \
+	                     -std=gnu99 \
+	                     -DNEED_CPU_H \
+	                     -DNDEBUG \
+	                     -ffreestanding \
+	                     -fno-stack-protector \
+	                     -fno-strict-aliasing \
+	                     -fno-common \
+	                     -fwrapv \
+	                     -MMD \
+	                     -fPIC \
+	                     -c -emit-llvm $$<
 	@$(LLVM_OPT) -o $$@.2 $$@.1 -internalize -internalize-public-api-list=helper_$(1)
 	@$(LLVM_OPT) -o $$@ -O3 $$@.2
 
