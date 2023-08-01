@@ -512,4 +512,4 @@ extract-helpers-$(1): $(foreach helper,$($(1)_HELPERS),extract-$(1)-$(helper))
 .PHONY: check-helpers-$(1)
 check-helpers-$(1): $(foreach helper,$($(1)_HELPERS),check-$(1)-$(helper))
 endef
-$(foreach target,$(ALL_TARGETS),$(eval $(call check_helpers_template,$(target))))
+$(foreach target,$(ALL_TARGETS),$(eval $(call target_template,$(target))))
