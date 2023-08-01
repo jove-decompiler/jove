@@ -158,7 +158,6 @@ $(BINDIR)/$(1)/jove.bc: lib/arch/$(1)/jove.c
 	                   -fno-stack-protector \
 	                   -fwrapv \
 	                   -MMD \
-	                   -fPIC \
 	                   -c -emit-llvm $$<
 
 .PHONY: gen-tcgconstants-$(1)
@@ -480,7 +479,6 @@ $(BINDIR)/$(2)/helpers/$(1).bc: $(BINDIR)/$(2)/helpers/$(1).c
 	                     -fno-common \
 	                     -fwrapv \
 	                     -MMD \
-	                     -fPIC \
 	                     -c -emit-llvm $$<
 	@$(LLVM_OPT) -o $$@.2 $$@.1 -internalize -internalize-public-api-list=helper_$(1)
 	@$(LLVM_OPT) -o $$@ -O3 $$@.2
