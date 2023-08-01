@@ -109,6 +109,7 @@ $(BINDIR)/$(1)/qemu-starter: lib/arch/$(1)/qemu-starter.c
 	                 -Ofast -g0 \
 	                 -ffreestanding \
 	                 -fno-stack-protector \
+	                 -fwrapv \
 	                 -fuse-ld=lld \
 	                 -Wl,-e,_start \
 	                 -static $$<
@@ -132,6 +133,7 @@ $(BINDIR)/$(1)/libjove_rt.so: lib/arch/$(1)/rt.c
 	                   $($(1)_ARCH_CFLAGS) \
 	                   -ffreestanding \
 	                   -fno-stack-protector \
+	                   -fwrapv \
 	                   -Bsymbolic \
 	                   -MMD \
 	                   -fPIC \
@@ -157,6 +159,7 @@ $(BINDIR)/$(1)/jove.bc: lib/arch/$(1)/jove.c
 	                   $($(1)_ARCH_CFLAGS) \
 	                   -ffreestanding \
 	                   -fno-stack-protector \
+	                   -fwrapv \
 	                   -MMD \
 	                   -fPIC \
 	                   -c -emit-llvm $$<
