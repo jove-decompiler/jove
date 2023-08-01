@@ -102,14 +102,6 @@ helpers: \
 runtime: $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/libjove_rt.so) \
          $(JOVE_C_BITCODE)
 
-define gen_tcgconstants_template
-.PHONY: gen-tcgconstants-$(1)
-gen-tcgconstants-$(1): $(BINDIR)/$(1)/gen-tcgconstants
-	@echo GEN $@
-	$(BINDIR)/$(1)/gen-tcgconstants > include/jove/tcgconstants-$(1).h
-endef
-$(foreach target,$(ALL_TARGETS),$(eval $(call gen_tcgconstants_template,$(target))))
-
 .PHONY: gen-tcgconstants
 gen-tcgconstants: $(foreach target,$(ALL_TARGETS),gen-tcgconstants-$(target))
 
@@ -174,6 +166,11 @@ $(BINDIR)/$(1)/jove.bc: lib/arch/$(1)/jove.c
 	                   -MMD \
 	                   -fPIC \
 	                   -c -emit-llvm $$<
+
+.PHONY: gen-tcgconstants-$(1)
+gen-tcgconstants-$(1): $(BINDIR)/$(1)/gen-tcgconstants
+	@echo GEN $@
+	@$(BINDIR)/$(1)/gen-tcgconstants > include/jove/tcgconstants-$(1).h
 endef
 $(foreach target,$(ALL_TARGETS),$(eval $(call target_code_template,$(target))))
 
