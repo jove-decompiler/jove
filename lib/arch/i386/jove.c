@@ -26,7 +26,7 @@ static /* __thread */ CPUX86State *__jove_env_clunk = &__jove_env;
 #include "jove.macros.h"
 #include "jove.types.h"
 
-#define JOVE_SYS_ATTR _NOINL _HIDDEN
+#define JOVE_SYS_ATTR _NOINL _HIDDEN _UNUSED
 #include "jove_sys.h"
 
 typedef uint64_t jove_thunk_return_t;
