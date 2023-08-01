@@ -462,20 +462,7 @@ mips64el-msa_st_d_EXTRICATE_ARGS := cpu_stq_le_data_ra
 .PHONY: build-helpers
 build-helpers: $(HELPERS_BITCODE) $(HELPERS_ASSEMBLY)
 
-define extract_helpers_template
-.PHONY: extract-helpers-$(1)
-extract-helpers-$(1): $(foreach helper,$($(1)_HELPERS),extract-$(1)-$(helper))
-endef
-$(foreach target,$(ALL_TARGETS),$(eval $(call extract_helpers_template,$(target))))
-
-define extract_helper_template
-.PHONY: extract-$(2)-$(1)
-extract-$(2)-$(1):
-	$(CLANG_EXTRICATE)/extract/carbon-extract --src $(QEMU_SRC_DIR) --bin $(QEMU_BUILD_DIR) helper_$(1) $($(2)-$(1)_EXTRICATE_ARGS) > $(BINDIR)/$(2)/helpers/$(1).c
-endef
-$(foreach target,$(ALL_TARGETS),$(foreach helper,$($(target)_HELPERS),$(eval $(call extract_helper_template,$(helper),$(target)))))
-
-define build_helper_template
+define helper_template
 $(BINDIR)/$(2)/helpers/$(1).ll: $(BINDIR)/$(2)/helpers/$(1).bc
 	@echo DIS $$<
 	$(LLVM_OPT) -o $$@ -S --strip-debug $$<
@@ -485,21 +472,25 @@ $(BINDIR)/$(2)/helpers/$(1).bc: $(BINDIR)/$(2)/helpers/$(1).c
 	$(LLVM_CC) -o $$@.1 -c -MMD -I lib -I lib/arch/$(2) -emit-llvm -fPIC -g -O3 -ffreestanding -fno-stack-protector -Wall -Wno-macro-redefined -Wno-initializer-overrides -fno-strict-aliasing -fno-common -fwrapv -DNEED_CPU_H -DNDEBUG --sysroot $($(2)_sysroot) --target=$($(2)_TRIPLE) $($(2)_HELPER_CFLAGS) $$<
 	@$(LLVM_OPT) -o $$@.2 $$@.1 -internalize -internalize-public-api-list=helper_$(1)
 	@$(LLVM_OPT) -o $$@ -O3 $$@.2
-endef
-$(foreach target,$(ALL_TARGETS),$(foreach helper,$($(target)_HELPERS),$(eval $(call build_helper_template,$(helper),$(target)))))
 
-.PHONY: check-helpers
-check-helpers: $(foreach target,$(ALL_TARGETS),$(foreach helper,$($(target)_HELPERS),check-$(target)-$(helper)))
+.PHONY: extract-$(2)-$(1)
+extract-$(2)-$(1):
+	$(CLANG_EXTRICATE)/extract/carbon-extract --src $(QEMU_SRC_DIR) --bin $(QEMU_BUILD_DIR) helper_$(1) $($(2)-$(1)_EXTRICATE_ARGS) > $(BINDIR)/$(2)/helpers/$(1).c
 
-define check_helpers_template
-.PHONY: check-helpers-$(1)
-check-helpers-$(1): $(foreach helper,$($(1)_HELPERS),check-$(1)-$(helper))
-endef
-$(foreach target,$(ALL_TARGETS),$(eval $(call check_helpers_template,$(target))))
-
-define check_helper_template
 .PHONY: check-$(2)-$(1)
 check-$(2)-$(1): $(BINDIR)/$(2)/helpers/$(1).bc
 	@$(LLVM_DIR)/build/bin/jove-$(2) check-helper --vars $(1)
 endef
-$(foreach target,$(ALL_TARGETS),$(foreach helper,$($(target)_HELPERS),$(eval $(call check_helper_template,$(helper),$(target)))))
+$(foreach target,$(ALL_TARGETS),$(foreach helper,$($(target)_HELPERS),$(eval $(call helper_template,$(helper),$(target)))))
+
+.PHONY: check-helpers
+check-helpers: $(foreach target,$(ALL_TARGETS),$(foreach helper,$($(target)_HELPERS),check-$(target)-$(helper)))
+
+define target_template
+.PHONY: extract-helpers-$(1)
+extract-helpers-$(1): $(foreach helper,$($(1)_HELPERS),extract-$(1)-$(helper))
+
+.PHONY: check-helpers-$(1)
+check-helpers-$(1): $(foreach helper,$($(1)_HELPERS),check-$(1)-$(helper))
+endef
+$(foreach target,$(ALL_TARGETS),$(eval $(call check_helpers_template,$(target))))
