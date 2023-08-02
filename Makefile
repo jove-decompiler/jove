@@ -29,9 +29,6 @@ mips64el_ARCH_CFLAGS := -D TARGET_MIPS64
 #
 $(foreach target,$(ALL_TARGETS),$(shell mkdir -p $(BINDIR)/$(target)/helpers))
 
-JOVE_C_BITCODE      := $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/jove.bc)
-JOVE_C_BITCODE_DEPS := $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/jove.d)
-
 #
 # TCG helpers (for each architecture)
 #
@@ -53,8 +50,6 @@ mips_HELPERS   := $(mips32_HELPERS)
 HELPERS_BITCODE  := $(foreach target,$(ALL_TARGETS),$(foreach helper,$($(target)_HELPERS),$(BINDIR)/$(target)/helpers/$(helper).bc))
 HELPERS_ASSEMBLY := $(foreach target,$(ALL_TARGETS),$(foreach helper,$($(target)_HELPERS),$(BINDIR)/$(target)/helpers/$(helper).ll))
 
-HELPERDEPS := $(foreach target,$(ALL_TARGETS),$(foreach helper,$($(target)_HELPERS),$(BINDIR)/$(target)/helpers/$(helper).d))
-
 all: helpers runtime
 
 everything: \
@@ -69,7 +64,7 @@ helpers: \
      $(HELPERS_ASSEMBLY)
 
 runtime: $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/libjove_rt.so) \
-         $(JOVE_C_BITCODE)
+         $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/jove.bc)
 
 define target_code_template
 $(BINDIR)/$(1)/qemu-starter: lib/arch/$(1)/qemu-starter.c
@@ -146,14 +141,12 @@ endef
 $(foreach target,$(ALL_TARGETS),$(eval $(call target_code_template,$(target))))
 
 -include $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/libjove_rt.d)
--include $(JOVE_C_BITCODE_DEPS)
--include $(HELPERDEPS)
+-include $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/jove.d)
+-include $(foreach target,$(ALL_TARGETS),$(foreach helper,$($(target)_HELPERS),$(BINDIR)/$(target)/helpers/$(helper).d))
 
 .PHONY: clean
 clean:
-	rm -rf $(JOVE_C_BITCODE) \
-	       $(JOVE_C_BITCODE_DEPS) \
-	       $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/libjove_rt.so) \
+	rm -rf $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/libjove_rt.so) \
 	       $(HELPERDEPS) \
 	       $(HELPERS_BITCODE) \
 	       $(HELPERS_ASSEMBLY)
@@ -440,26 +433,27 @@ $(BINDIR)/$(2)/helpers/$(1).ll: $(BINDIR)/$(2)/helpers/$(1).bc
 
 $(BINDIR)/$(2)/helpers/$(1).bc: $(BINDIR)/$(2)/helpers/$(1).c
 	@echo BC $$<
-	@$(LLVM_CC) -o $$@.1 -Wall \
-	                     -Werror-implicit-function-declaration \
-	                     -Wno-macro-redefined \
-	                     -Wno-initializer-overrides \
-	                     -I lib -I lib/arch/$(2) \
-	                     --sysroot $($(2)_sysroot) \
-	                     --target=$($(2)_TRIPLE) \
-	                     -O3 -g \
-	                     -std=gnu99 \
-	                     -DNEED_CPU_H \
-	                     -DNDEBUG \
-	                     -ffreestanding \
-	                     -fno-stack-protector \
-	                     -fno-strict-aliasing \
-	                     -fno-common \
-	                     -fwrapv \
-	                     -MMD \
-	                     -c -emit-llvm $$<
-	@$(LLVM_OPT) -o $$@.2 $$@.1 -internalize -internalize-public-api-list=helper_$(1)
-	@$(LLVM_OPT) -o $$@ -O3 $$@.2
+	@$(LLVM_CC) -o $$@ -Wall \
+	                   -Werror-implicit-function-declaration \
+	                   -Wno-macro-redefined \
+	                   -Wno-initializer-overrides \
+	                   -I lib -I lib/arch/$(2) \
+	                   --sysroot $($(2)_sysroot) \
+	                   --target=$($(2)_TRIPLE) \
+	                   -O3 -g \
+	                   -std=gnu99 \
+	                   -DNEED_CPU_H \
+	                   -DNDEBUG \
+	                   -ffreestanding \
+	                   -fno-stack-protector \
+	                   -fno-strict-aliasing \
+	                   -fno-common \
+	                   -fwrapv \
+	                   -MMD \
+	                   -c -emit-llvm $$<
+	@$(LLVM_OPT) -o $$@.tmp $$@ -internalize -internalize-public-api-list=helper_$(1)
+	@$(LLVM_OPT) -o $$@ -O3 $$@.tmp
+	@rm $$@.tmp
 
 .PHONY: extract-$(2)-$(1)
 extract-$(2)-$(1):
