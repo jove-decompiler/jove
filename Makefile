@@ -134,28 +134,27 @@ gen-tcgconstants-$(1): $(BINDIR)/$(1)/gen-tcgconstants
 endef
 $(foreach target,$(ALL_TARGETS),$(eval $(call target_code_template,$(target))))
 
--include $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/libjove_rt.d)
--include $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/jove.d)
--include $(foreach target,$(ALL_TARGETS),$(foreach helper,$($(target)_HELPERS),$(BINDIR)/$(target)/helpers/$(helper).d))
+-include $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/libjove_rt.d)
+-include $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/jove.d)
+-include $(foreach t,$(ALL_TARGETS),$(foreach helper,$($(t)_HELPERS),$(BINDIR)/$(t)/helpers/$(helper).d))
 
 .PHONY: clean
-clean:
-	rm -rf $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/libjove_rt.so) \
-	       $(HELPERDEPS) \
-	       $(HELPERS_BITCODE) \
-	       $(HELPERS_ASSEMBLY)
+clean: clean-helpers
+	rm -f $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/libjove_rt.so) \
+	      $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/qemu-starter) \
+	      $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/*.bc) \
+	      $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/*.d)
+
+.PHONY: clean-helpers
+clean-helpers:
+	rm -f $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/helpers/*.bc) \
+	      $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/helpers/*.d) \
+	      $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/helpers/*.ll)
 
 .PHONY: distclean
 distclean: clean
 	rm -f jove-v*.tar \
 	      jove-v*.tar.xz
-
-.PHONY: clean-helpers
-clean-helpers:
-	rm -rf $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/helpers) \
-	       $(HELPERDEPS) \
-	       $(HELPERS_BITCODE) \
-	       $(HELPERS_ASSEMBLY)
 
 #
 # for extricating QEMU code
