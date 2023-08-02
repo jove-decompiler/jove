@@ -6,10 +6,10 @@ include gmsl
 include $(JOVE_ROOT_DIR)/version.mk
 include $(JOVE_ROOT_DIR)/config.mk
 
-define include_template
+define include_target_helpers_template
 include $(JOVE_ROOT_DIR)/lib/arch/$(1)/helpers.mk
 endef
-$(foreach t,$(ALL_TARGETS),$(eval $(call include_template,$(t))))
+$(foreach t,$(ALL_TARGETS),$(eval $(call include_target_helpers_template,$(t))))
 
 LLVM_BIN_DIR := $(JOVE_ROOT_DIR)/llvm-project/build/bin
 
