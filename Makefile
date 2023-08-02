@@ -417,9 +417,6 @@ mips64el-msa_st_d_EXTRICATE_ARGS := cpu_stq_le_data_ra
 #
 # TCG helpers
 #
-.PHONY: build-helpers
-build-helpers: $(HELPERS_BITCODE) $(HELPERS_ASSEMBLY)
-
 define helper_template
 $(BINDIR)/$(2)/helpers/$(1).ll: $(BINDIR)/$(2)/helpers/$(1).bc
 	@echo DIS $$<
