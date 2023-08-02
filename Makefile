@@ -20,7 +20,7 @@ LLVM_OPT := $(LLVM_BIN_DIR)/opt
 
 JOVE_GITVER := $(shell git log -n1 --format="%h")
 
-BINDIR := bin
+BINDIR := $(JOVE_ROOT_DIR)/bin
 
 $(foreach t,$(ALL_TARGETS),$(shell mkdir -p $(BINDIR)/$(t)/helpers))
 
