@@ -32,8 +32,6 @@ $(foreach target,$(ALL_TARGETS),$(shell mkdir -p $(BINDIR)/$(target)/helpers))
 JOVE_C_BITCODE      := $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/jove.bc)
 JOVE_C_BITCODE_DEPS := $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/jove.d)
 
-JOVE_RT_DEPS := $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/libjove_rt.so.d)
-
 #
 # TCG helpers (for each architecture)
 #
@@ -147,7 +145,7 @@ gen-tcgconstants-$(1): $(BINDIR)/$(1)/gen-tcgconstants
 endef
 $(foreach target,$(ALL_TARGETS),$(eval $(call target_code_template,$(target))))
 
--include $(JOVE_RT_DEPS)
+-include $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/libjove_rt.d)
 -include $(JOVE_C_BITCODE_DEPS)
 -include $(HELPERDEPS)
 
