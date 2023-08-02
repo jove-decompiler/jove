@@ -136,7 +136,7 @@ $(foreach target,$(ALL_TARGETS),$(eval $(call target_code_template,$(target))))
 
 -include $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/libjove_rt.d)
 -include $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/jove.d)
--include $(foreach t,$(ALL_TARGETS),$(foreach helper,$($(t)_HELPERS),$(BINDIR)/$(t)/helpers/$(helper).d))
+-include $(foreach t,$(ALL_TARGETS),$(foreach h,$($(t)_HELPERS),$(BINDIR)/$(t)/helpers/$(h).d))
 
 .PHONY: clean
 clean: clean-helpers
