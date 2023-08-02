@@ -66,7 +66,7 @@ $(BINDIR)/$(1)/qemu-starter: lib/arch/$(1)/qemu-starter.c
 	@clang-15 -o $$@ -Wall \
 	                 -I lib -I lib/arch/$(1) \
 	                 -nostdlib \
-	                 --sysroot $($(1)_sysroot) \
+	                 --sysroot $($(1)_SYSROOT) \
 	                 --target=$($(1)_TRIPLE) \
 	                 -Ofast -g0 \
 	                 -std=gnu99 \
@@ -85,9 +85,9 @@ $(BINDIR)/$(1)/libjove_rt.so: lib/arch/$(1)/rt.c
 	@echo CC $$<
 	@$(LLVM_CC) -o $$@ -Wall \
 	                   -Werror-implicit-function-declaration \
-	                   -I lib -I lib/arch/$(1) -I $($(1)_sysroot)/include \
+	                   -I lib -I lib/arch/$(1) -I $($(1)_SYSROOT)/include \
 	                   -nostdlib \
-	                   --sysroot $($(1)_sysroot) \
+	                   --sysroot $($(1)_SYSROOT) \
 	                   --target=$($(1)_TRIPLE) \
 	                   -Ofast -g \
 	                   -std=gnu99 \
@@ -114,7 +114,7 @@ $(BINDIR)/$(1)/jove.bc: lib/arch/$(1)/jove.c
 	@$(LLVM_CC) -o $$@ -Wall \
 	                   -Werror-implicit-function-declaration \
 	                   -I lib -I include -I boost-preprocessor/include \
-	                   --sysroot $($(1)_sysroot) \
+	                   --sysroot $($(1)_SYSROOT) \
 	                   --target=$($(1)_TRIPLE) \
 	                   -Ofast -g \
 	                   -std=gnu99 \
@@ -428,7 +428,7 @@ $(BINDIR)/$(2)/helpers/$(1).bc: $(BINDIR)/$(2)/helpers/$(1).c
 	                   -Wno-macro-redefined \
 	                   -Wno-initializer-overrides \
 	                   -I lib -I lib/arch/$(2) \
-	                   --sysroot $($(2)_sysroot) \
+	                   --sysroot $($(2)_SYSROOT) \
 	                   --target=$($(2)_TRIPLE) \
 	                   -O3 -g \
 	                   -std=gnu99 \
