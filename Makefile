@@ -27,13 +27,6 @@ mipsel_TRIPLE  := mipsel-linux-gnu
 mips_TRIPLE    := mips-linux-gnu
 mips64el_TRIPLE  := mips64el-linux-gnuabi64
 
-aarch64_builtins_lib := $(JOVE_ROOT_DIR)/prebuilts/obj/libclang_rt.builtins-aarch64.a
-i386_builtins_lib    := $(JOVE_ROOT_DIR)/prebuilts/obj/libclang_rt.builtins-i386.a
-x86_64_builtins_lib  := $(JOVE_ROOT_DIR)/prebuilts/obj/libclang_rt.builtins-x86_64.a
-mipsel_builtins_lib  := $(JOVE_ROOT_DIR)/prebuilts/obj/libclang_rt.builtins-mipsel.a
-mips_builtins_lib    := $(JOVE_ROOT_DIR)/prebuilts/obj/libclang_rt.builtins-mips.a
-mips64el_builtins_lib  := $(JOVE_ROOT_DIR)/prebuilts/obj/libclang_rt.builtins-mips64el.a
-
 mipsel_ARCH_CFLAGS  := -D TARGET_MIPS32
 mips_ARCH_CFLAGS    := -D TARGET_MIPS32
 
@@ -132,8 +125,9 @@ $(BINDIR)/$(1)/libjove_rt.so: lib/arch/$(1)/rt.c
 	                   -Wl,-soname=libjove_rt.so \
 	                   -Wl,-init,_jove_rt_init \
 	                   -Wl,--push-state \
-	                   -Wl,--as-needed $($(1)_builtins_lib) \
-	                   -Wl,--pop-state -Wl,--exclude-libs,ALL
+	                   -Wl,--as-needed $(JOVE_ROOT_DIR)/prebuilts/obj/libclang_rt.builtins-$(1).a \
+	                   -Wl,--pop-state \
+	                   -Wl,--exclude-libs,ALL
 
 $(BINDIR)/$(1)/jove.bc: lib/arch/$(1)/jove.c
 	@echo CC $$<
