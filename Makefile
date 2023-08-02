@@ -47,24 +47,18 @@ mips32_HELPERS := div_i32 rem_i32 divu_i32 remu_i32 div_i64 rem_i64 divu_i64 rem
 mipsel_HELPERS := $(mips32_HELPERS)
 mips_HELPERS   := $(mips32_HELPERS)
 
-HELPERS_BITCODE  := $(foreach target,$(ALL_TARGETS),$(foreach helper,$($(target)_HELPERS),$(BINDIR)/$(target)/helpers/$(helper).bc))
-HELPERS_ASSEMBLY := $(foreach target,$(ALL_TARGETS),$(foreach helper,$($(target)_HELPERS),$(BINDIR)/$(target)/helpers/$(helper).ll))
+.PHONY: all
+all: helpers \
+     runtime \
+     $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/qemu-starter)
 
-all: helpers runtime
+.PHONY: helpers
+helpers: $(foreach t,$(ALL_TARGETS),$(foreach h,$($(t)_HELPERS),$(BINDIR)/$(t)/helpers/$(h).bc)) \
+         $(foreach t,$(ALL_TARGETS),$(foreach h,$($(t)_HELPERS),$(BINDIR)/$(t)/helpers/$(h).ll))
 
-everything: \
-     $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/libjove_rt.so) \
-     $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/jove.bc) \
-     $(HELPERS_BITCODE) \
-     $(HELPERS_ASSEMBLY) \
-     $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/qemu-starter)
-
-helpers: \
-     $(HELPERS_BITCODE) \
-     $(HELPERS_ASSEMBLY)
-
-runtime: $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/libjove_rt.so) \
-         $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/jove.bc)
+.PHONY: runtime
+runtime: $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/libjove_rt.so) \
+         $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/jove.bc)
 
 define target_code_template
 $(BINDIR)/$(1)/qemu-starter: lib/arch/$(1)/qemu-starter.c
