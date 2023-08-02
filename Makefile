@@ -90,6 +90,7 @@ $(BINDIR)/$(1)/qemu-starter: lib/arch/$(1)/qemu-starter.c
 	                 --sysroot $($(1)_sysroot) \
 	                 --target=$($(1)_TRIPLE) \
 	                 -Ofast -g0 \
+	                 -std=gnu99 \
 	                 -ffreestanding \
 	                 -fno-stack-protector \
 	                 -fwrapv \
