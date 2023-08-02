@@ -20,13 +20,6 @@ JOVE_GITVER := $(shell git log -n1 --format="%h")
 #
 BINDIR := bin
 
-aarch64_TRIPLE := aarch64-linux-gnu
-i386_TRIPLE    := i686-linux-gnu
-x86_64_TRIPLE  := x86_64-linux-gnu
-mipsel_TRIPLE  := mipsel-linux-gnu
-mips_TRIPLE    := mips-linux-gnu
-mips64el_TRIPLE  := mips64el-linux-gnuabi64
-
 mipsel_ARCH_CFLAGS  := -D TARGET_MIPS32
 mips_ARCH_CFLAGS    := -D TARGET_MIPS32
 
