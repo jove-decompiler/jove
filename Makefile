@@ -137,8 +137,12 @@ distclean: clean
 	rm -f jove-v*.tar \
 	      jove-v*.tar.xz
 
+.PHONY: check
+check:
+	$(MAKE) -C $(JOVE_ROOT_DIR)/tests
+
 #
-# TCG helpers
+# TCG
 #
 
 CLANG_EXTRICATE := ~/carbon-copy/build
@@ -198,7 +202,3 @@ check-helpers: $(foreach t,$(ALL_TARGETS),check-$(t))
 
 .PHONY: gen-tcgconstants
 gen-tcgconstants: $(foreach t,$(ALL_TARGETS),gen-tcgconstants-$(t))
-
-.PHONY: check
-check:
-	$(MAKE) -C $(JOVE_ROOT_DIR)/tests
