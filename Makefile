@@ -453,19 +453,19 @@ extract-$(2)-$(1):
 check-$(2)-$(1): $(BINDIR)/$(2)/helpers/$(1).bc
 	@$(LLVM_DIR)/build/bin/jove-$(2) check-helper --vars $(1)
 endef
-$(foreach target,$(ALL_TARGETS),$(foreach helper,$($(target)_HELPERS),$(eval $(call helper_template,$(helper),$(target)))))
+$(foreach t,$(ALL_TARGETS),$(foreach h,$($(t)_HELPERS),$(eval $(call helper_template,$(h),$(t)))))
 
 define target_template
 .PHONY: extract-helpers-$(1)
-extract-helpers-$(1): $(foreach helper,$($(1)_HELPERS),extract-$(1)-$(helper))
+extract-helpers-$(1): $(foreach h,$($(1)_HELPERS),extract-$(1)-$(h))
 
 .PHONY: check-helpers-$(1)
-check-helpers-$(1): $(foreach helper,$($(1)_HELPERS),check-$(1)-$(helper))
+check-helpers-$(1): $(foreach h,$($(1)_HELPERS),check-$(1)-$(h))
 endef
-$(foreach target,$(ALL_TARGETS),$(eval $(call target_template,$(target))))
+$(foreach t,$(ALL_TARGETS),$(eval $(call target_template,$(t))))
 
 .PHONY: check-helpers
-check-helpers: $(foreach target,$(ALL_TARGETS),check-$(target))
+check-helpers: $(foreach t,$(ALL_TARGETS),check-$(t))
 
 .PHONY: gen-tcgconstants
-gen-tcgconstants: $(foreach target,$(ALL_TARGETS),gen-tcgconstants-$(target))
+gen-tcgconstants: $(foreach t,$(ALL_TARGETS),gen-tcgconstants-$(t))
