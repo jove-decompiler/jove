@@ -20,10 +20,9 @@ JOVE_GITVER := $(shell git log -n1 --format="%h")
 #
 BINDIR := bin
 
-mipsel_ARCH_CFLAGS  := -D TARGET_MIPS32
-mips_ARCH_CFLAGS    := -D TARGET_MIPS32
-
-mips64el_ARCH_CFLAGS    := -D TARGET_MIPS64
+mipsel_ARCH_CFLAGS   := -D TARGET_MIPS32
+mips_ARCH_CFLAGS     := -D TARGET_MIPS32
+mips64el_ARCH_CFLAGS := -D TARGET_MIPS64
 
 #
 # create build objects subdirectories
