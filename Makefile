@@ -27,7 +27,7 @@ mips64el_ARCH_CFLAGS := -D TARGET_MIPS64
 #
 # create build objects subdirectories
 #
-$(foreach target,$(ALL_TARGETS),$(shell mkdir -p $(BINDIR)/$(target)/helpers))
+$(foreach t,$(ALL_TARGETS),$(shell mkdir -p $(BINDIR)/$(t)/helpers))
 
 #
 # TCG helpers (for each architecture)
@@ -132,7 +132,7 @@ gen-tcgconstants-$(1): $(BINDIR)/$(1)/gen-tcgconstants
 	@echo GEN $@
 	@$(BINDIR)/$(1)/gen-tcgconstants > include/jove/tcgconstants-$(1).h
 endef
-$(foreach target,$(ALL_TARGETS),$(eval $(call target_code_template,$(target))))
+$(foreach t,$(ALL_TARGETS),$(eval $(call target_code_template,$(t))))
 
 -include $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/libjove_rt.d)
 -include $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/jove.d)
