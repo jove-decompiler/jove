@@ -20,7 +20,7 @@ CFLAGS := -Wall \
           -O2 \
           -g
 
-LDFLAGS := -pthread -lm
+LDFLAGS = $(shell awk -v search="/// flags: " 'substr($$0, 1, length(search)) == search { print }' $< | cut -c 12-)
 
 #
 # important directories
@@ -41,10 +41,10 @@ check: $(foreach t,$(ALL_TARGETS),check-$(t))
 
 define target_template
 $(BINDIR)/$(1)/%.exe: $(SRCDIR)/%.c
-	clang-15 -o $$@ $(CFLAGS) --target=$($(1)_TRIPLE) $$< $(LDFLAGS) -fuse-ld=lld -no-pie
+	clang-15 -o $$@ $(CFLAGS) --target=$($(1)_TRIPLE) $$< -fuse-ld=lld -no-pie $$(LDFLAGS)
 
 $(BINDIR)/$(1)/%.pic: $(SRCDIR)/%.c
-	clang-15 -o $$@ $(CFLAGS) --target=$($(1)_TRIPLE) $$< $(LDFLAGS) -fuse-ld=lld -fPIE -pie
+	clang-15 -o $$@ $(CFLAGS) --target=$($(1)_TRIPLE) $$< -fuse-ld=lld -fPIE -pie $$(LDFLAGS)
 
 $(BINDIR)/$(1)/%.S: $(SRCDIR)/%.c
 	clang-15 -o $$@ $(CFLAGS) --target=$($(1)_TRIPLE) -S -fverbose-asm $$<

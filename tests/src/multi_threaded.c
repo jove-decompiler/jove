@@ -1,3 +1,5 @@
+/// flags: -pthread
+
 #include <pthread.h>
 #include <string.h>
 #include <stdio.h>
