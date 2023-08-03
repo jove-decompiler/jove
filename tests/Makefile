@@ -20,6 +20,8 @@ CFLAGS := -Wall \
           -O2 \
           -g
 
+LDFLAGS := -pthread -lm
+
 #
 # important directories
 #
@@ -37,22 +39,17 @@ TESTS := $(patsubst $(SRCDIR)/%.c,%,$(SRCS))
 .PHONY: check
 check: $(foreach t,$(ALL_TARGETS),check-$(t))
 
-multi_threaded_LDFLAGS := -pthread
-multi_threaded_simple_LDFLAGS := -pthread
-complex_num_f_LDFLAGS := -lm
-complex_num_d_LDFLAGS := -lm
+define target_template
+$(BINDIR)/$(1)/%.exe: $(SRCDIR)/%.c
+	clang-15 -o $$@ $(CFLAGS) --target=$($(1)_TRIPLE) $$< $(LDFLAGS) -fuse-ld=lld -no-pie
 
-define test_template
-$(BINDIR)/$(2)/$(1).exe: $(SRCDIR)/$(1).c
-	clang-15 -o $$@ $(CFLAGS) --target=$($(2)_TRIPLE) $$< $($(1)_LDFLAGS) -fuse-ld=lld -no-pie
+$(BINDIR)/$(1)/%.pic: $(SRCDIR)/%.c
+	clang-15 -o $$@ $(CFLAGS) --target=$($(1)_TRIPLE) $$< $(LDFLAGS) -fuse-ld=lld -fPIE -pie
 
-$(BINDIR)/$(2)/$(1).pic: $(SRCDIR)/$(1).c
-	clang-15 -o $$@ $(CFLAGS) --target=$($(2)_TRIPLE) $$< $($(1)_LDFLAGS) -fuse-ld=lld -fPIE -pie
-
-$(BINDIR)/$(2)/$(1).S: $(SRCDIR)/$(1).c
-	clang-15 -o $$@ $(CFLAGS) --target=$($(2)_TRIPLE) -S -fverbose-asm $$<
+$(BINDIR)/$(1)/%.S: $(SRCDIR)/%.c
+	clang-15 -o $$@ $(CFLAGS) --target=$($(1)_TRIPLE) -S -fverbose-asm $$<
 endef
-$(foreach t,$(ALL_TARGETS),$(foreach test,$(TESTS),$(eval $(call test_template,$(test),$(t)))))
+$(foreach t,$(ALL_TARGETS),$(eval $(call target_template,$(t))))
 
 define check_template
 .PHONY: check-$(1)
