@@ -43,29 +43,24 @@ complex_num_f_LDFLAGS := -lm
 complex_num_d_LDFLAGS := -lm
 
 define test_template
-$(BINDIR)/$(2)/$(1): $(SRCDIR)/$(1).c
+$(BINDIR)/$(2)/$(1).exe: $(SRCDIR)/$(1).c
 	@echo CC $(1)
-	clang-15 -o $$@ $(CFLAGS) --target=$($(2)_TRIPLE) $$< $($(1)_LDFLAGS) -fuse-ld=lld
+	clang-15 -o $$@ $(CFLAGS) --target=$($(2)_TRIPLE) $$< $($(1)_LDFLAGS) -fuse-ld=lld -no-pie
+
+$(BINDIR)/$(2)/$(1).pic: $(SRCDIR)/$(1).c
+	@echo CC $(1)
+	clang-15 -o $$@ $(CFLAGS) --target=$($(2)_TRIPLE) $$< $($(1)_LDFLAGS) -fuse-ld=lld -fPIE -pie
 
 $(BINDIR)/$(2)/$(1).S: $(SRCDIR)/$(1).c
 	@echo CC $(1)
-	clang-15 -o $$@ $(CFLAGS) --target=$($(2)_TRIPLE) -S $$<
-
-$(BINDIR)/$(2)/$(1).bc: $(SRCDIR)/$(1).c
-	@echo BC $(1)
-	clang-15 -o $$@ -c -emit-llvm $(CFLAGS) --target=$($(2)_TRIPLE) $$<
-
-$(BINDIR)/$(2)/$(1).ll: $(BINDIR)/$(2)/$(1).bc
-	@echo LL $(1)
-	llvm-dis-15 -o $$@ $$<
+	clang-15 -o $$@ $(CFLAGS) --target=$($(2)_TRIPLE) -S -fverbose-asm $$<
 endef
 $(foreach t,$(ALL_TARGETS),$(foreach test,$(TESTS),$(eval $(call test_template,$(test),$(t)))))
 
 define check_template
 .PHONY: check-$(1)
-check-$(1): $(foreach test,$(TESTS),$(BINDIR)/$(1)/$(test)) \
-            $(foreach test,$(TESTS),$(BINDIR)/$(1)/$(test).bc) \
-            $(foreach test,$(TESTS),$(BINDIR)/$(1)/$(test).ll) \
+check-$(1): $(foreach test,$(TESTS),$(BINDIR)/$(1)/$(test).exe) \
+            $(foreach test,$(TESTS),$(BINDIR)/$(1)/$(test).pic) \
             $(foreach test,$(TESTS),$(BINDIR)/$(1)/$(test).S)
 	@echo CHECK $(1)
 endef
