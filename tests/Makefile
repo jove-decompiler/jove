@@ -44,15 +44,12 @@ complex_num_d_LDFLAGS := -lm
 
 define test_template
 $(BINDIR)/$(2)/$(1).exe: $(SRCDIR)/$(1).c
-	@echo CC $(1)
 	clang-15 -o $$@ $(CFLAGS) --target=$($(2)_TRIPLE) $$< $($(1)_LDFLAGS) -fuse-ld=lld -no-pie
 
 $(BINDIR)/$(2)/$(1).pic: $(SRCDIR)/$(1).c
-	@echo CC $(1)
 	clang-15 -o $$@ $(CFLAGS) --target=$($(2)_TRIPLE) $$< $($(1)_LDFLAGS) -fuse-ld=lld -fPIE -pie
 
 $(BINDIR)/$(2)/$(1).S: $(SRCDIR)/$(1).c
-	@echo CC $(1)
 	clang-15 -o $$@ $(CFLAGS) --target=$($(2)_TRIPLE) -S -fverbose-asm $$<
 endef
 $(foreach t,$(ALL_TARGETS),$(foreach test,$(TESTS),$(eval $(call test_template,$(test),$(t)))))
