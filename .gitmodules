@@ -20,3 +20,6 @@
 [submodule "qemu"]
 	path = qemu
 	url = https://github.com/jove-decompiler/qemu.git
+[submodule "mk-deb-vm"]
+	path = mk-deb-vm
+	url = https://github.com/jove-decompiler/mk-deb-vm.git
