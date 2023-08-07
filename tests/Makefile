@@ -56,7 +56,7 @@ define check_template
 check-$(1): $(foreach test,$(TESTS),$(BINDIR)/$(1)/$(test).exe) \
             $(foreach test,$(TESTS),$(BINDIR)/$(1)/$(test).pic) \
             $(foreach test,$(TESTS),$(BINDIR)/$(1)/$(test).S)
-	@echo CHECK $(1)
+	$(ROOT_DIR)/run.py -a $(1) $(TESTS)
 endef
 $(foreach t,$(ALL_TARGETS),$(eval $(call check_template,$(t))))
 
