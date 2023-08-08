@@ -47,6 +47,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       sudo \
                       unzip \
                       vim-common \
+                      qemu-system \
                       tar && \
     eatmydata apt-get autoremove -y && \
     eatmydata apt-get autoclean -y && \
