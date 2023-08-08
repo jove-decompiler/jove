@@ -36,8 +36,23 @@ $(foreach t,$(ALL_TARGETS),$(shell mkdir -p $(BINDIR)/$(t)))
 SRCS  := $(wildcard $(SRCDIR)/*.c)
 TESTS := $(patsubst $(SRCDIR)/%.c,%,$(SRCS))
 
+.PHONY: build
+build: $(foreach t,$(ALL_TARGETS),build-$(t))
+
 .PHONY: check
 check: $(foreach t,$(ALL_TARGETS),check-$(t))
+
+define check_template
+.PHONY: build-$(1)
+build-$(1): $(foreach test,$(TESTS),$(BINDIR)/$(1)/$(test).exe) \
+            $(foreach test,$(TESTS),$(BINDIR)/$(1)/$(test).pic) \
+            $(foreach test,$(TESTS),$(BINDIR)/$(1)/$(test).S)
+
+.PHONY: check-$(1)
+check-$(1): build-$(1)
+	$(ROOT_DIR)/run.py -a $(1) $(TESTS)
+endef
+$(foreach t,$(ALL_TARGETS),$(eval $(call check_template,$(t))))
 
 define target_template
 $(BINDIR)/$(1)/%.exe: $(SRCDIR)/%.c
@@ -50,15 +65,6 @@ $(BINDIR)/$(1)/%.S: $(SRCDIR)/%.c
 	clang-15 -o $$@ $(CFLAGS) --target=$($(1)_TRIPLE) -S -fverbose-asm $$<
 endef
 $(foreach t,$(ALL_TARGETS),$(eval $(call target_template,$(t))))
-
-define check_template
-.PHONY: check-$(1)
-check-$(1): $(foreach test,$(TESTS),$(BINDIR)/$(1)/$(test).exe) \
-            $(foreach test,$(TESTS),$(BINDIR)/$(1)/$(test).pic) \
-            $(foreach test,$(TESTS),$(BINDIR)/$(1)/$(test).S)
-	$(ROOT_DIR)/run.py -a $(1) $(TESTS)
-endef
-$(foreach t,$(ALL_TARGETS),$(eval $(call check_template,$(t))))
 
 .PHONY: clean
 clean:
