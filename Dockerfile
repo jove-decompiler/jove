@@ -5,6 +5,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
     apt-get install -y eatmydata && \
     eatmydata apt-get dist-upgrade -y && \
     eatmydata apt-get install --no-install-recommends -y \
+                      arch-install-scripts \
                       autoconf \
                       automake \
                       bash \
@@ -12,6 +13,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       ca-certificates \
                       clang-15 \
                       cmake \
+                      debootstrap \
                       g++-aarch64-linux-gnu \
                       g++-multilib-i686-linux-gnu \
                       g++-multilib-mips-linux-gnu \
