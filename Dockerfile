@@ -43,6 +43,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       pkg-config \
                       pkgconf \
                       python3-venv \
+                      ssh \
                       sed \
                       sudo \
                       unzip \
