@@ -25,6 +25,9 @@ assert(Path(jove_server_path).is_file())
 jove_client_path = '%s/../llvm-project/%s_build/bin/jove-%s' % (tests_dir, args.arch, args.arch)
 assert(Path(jove_client_path).is_file())
 
+jove_rt_path = '%s/../bin/%s/libjove_rt.so' % (tests_dir, args.arch)
+assert(Path(jove_rt_path).is_file())
+
 td = tempfile.TemporaryDirectory()
 d = td.name
 
@@ -80,8 +83,8 @@ def serial_tail(n=1):
   completed_process = subprocess.run(['tail', '-n', str(n), '%s/stdout.txt' % d], capture_output=True, text=True)
   return strip_ansi_escape_sequences(completed_process.stdout)
 
-def ssh_command(command):
-  return subprocess.run(['ssh', '-o', 'UserKnownHostsFile=/dev/null', '-o', 'StrictHostKeyChecking=no', '-o', 'LogLevel=quiet', '-p', str(guest_ssh_port), 'root@localhost'] + command, capture_output=True, text=True)
+def ssh_command(command, text=True):
+  return subprocess.run(['ssh', '-o', 'UserKnownHostsFile=/dev/null', '-o', 'StrictHostKeyChecking=no', '-o', 'LogLevel=quiet', '-p', str(guest_ssh_port), 'root@localhost'] + command, capture_output=True, text=text)
 
 def ssh(command):
   return subprocess.run(['ssh', '-o', 'UserKnownHostsFile=/dev/null', '-o', 'StrictHostKeyChecking=no', '-o', 'LogLevel=quiet', '-p', str(guest_ssh_port), 'root@localhost'] + command)
@@ -122,6 +125,9 @@ jp = subprocess.Popen([jove_server_path, 'server', '-v', '--port=%d' % jove_serv
 # prepare to run jove under emulation
 #
 scp(jove_client_path, '/tmp/jove')
+scp(jove_rt_path, '/lib/')
+
+exit_code = 0
 
 #
 # copy tests
@@ -153,13 +159,25 @@ for test in args.tests:
 
       ssh(["/tmp/jove", "loop", "-x", "--connect", "%s:%d" % (iphost, jove_server_port), test_guest_path] + input_args)
 
+    for test_input in test_inputs:
+      input_args = test_input.split()
+
+      p1 = ssh_command([test_guest_path] + input_args, text=False)
+      p2 = ssh_command(["/tmp/jove", "loop", "-x", "--connect", "%s:%d" % (iphost, jove_server_port), test_guest_path] + input_args, text=False)
+
+      if (p1.stdout != p2.stdout or p1.stderr != p2.stderr):
+        exit_code = 1
+        print("FAILURE")
+
 #
 # power off system
 #
 print("powering off system...")
 
-ssh_command(['systemctl', 'poweroff'])
+ssh(['systemctl', 'poweroff'])
 
 qp.communicate()
 cp.communicate()
 jp.kill()
+
+sys.exit(exit_code)
