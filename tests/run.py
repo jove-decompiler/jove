@@ -3,11 +3,12 @@
 import tempfile
 import subprocess
 import sys
-import pathlib
 import argparse
 import os
 import time
 import re
+import atexit
+from pathlib import Path
 
 parser = argparse.ArgumentParser(description='Run tests.')
 parser.add_argument('tests', metavar='T', type=str, nargs='+', help='tests to execute')
@@ -16,20 +17,27 @@ parser.add_argument('--preexisting', dest='preexisting', type=str, help='specify
 
 args = parser.parse_args()
 
-tests_dir = pathlib.Path(__file__).parent.resolve()
+tests_dir = Path(__file__).parent.resolve()
+
+jove_server_path = '%s/../llvm-project/build/bin/jove-%s' % (tests_dir, args.arch)
+assert(Path(jove_server_path).is_file())
+
+jove_client_path = '%s/../llvm-project/%s_build/bin/jove-%s' % (tests_dir, args.arch, args.arch)
+assert(Path(jove_client_path).is_file())
 
 td = tempfile.TemporaryDirectory()
 d = td.name
 
-arch2port = dict()
-arch2port["i386"] = 10023
-arch2port["x86_64"] = 10024
-arch2port["aarch64"] = 10025
-arch2port["mipsel"] = 10026
-arch2port["mips"] = 10027
-arch2port["mips64el"] = 10028
+arch2ports = dict()
+arch2ports["i386"]     = 10023
+arch2ports["x86_64"]   = 10024
+arch2ports["aarch64"]  = 10025
+arch2ports["mipsel"]   = 10026
+arch2ports["mips"]     = 10027
+arch2ports["mips64el"] = 10028
 
-guest_ssh_port = arch2port[args.arch]
+guest_ssh_port = arch2ports[args.arch]
+jove_server_port = guest_ssh_port - 5000
 
 if args.preexisting is None:
   bringup_path = '%s/../mk-deb-vm/bringup.sh' % str(tests_dir)
@@ -46,6 +54,12 @@ cp = subprocess.Popen(['cat', '%s/x.out' % d], stdout=open('%s/stdout.txt' % d, 
 os.chdir(d)
 qp = subprocess.Popen(['%s/run.sh' % d], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
 
+def cleanup():
+  cp.kill()
+  qp.kill()
+
+atexit.register(cleanup)
+
 def serial_write(s, t=0.5):
   if qp.poll() != None or cp.poll() != None:
     return False
@@ -58,13 +72,28 @@ def serial_write(s, t=0.5):
 
   return True
 
+ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
 def strip_ansi_escape_sequences(s):
-  ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
   return ansi_escape.sub('', s)
 
 def serial_tail(n=1):
   completed_process = subprocess.run(['tail', '-n', str(n), '%s/stdout.txt' % d], capture_output=True, text=True)
   return strip_ansi_escape_sequences(completed_process.stdout)
+
+def ssh_command(command):
+  return subprocess.run(['ssh', '-o', 'UserKnownHostsFile=/dev/null', '-o', 'StrictHostKeyChecking=no', '-o', 'LogLevel=quiet', '-p', str(guest_ssh_port), 'root@localhost'] + command, capture_output=True, text=True)
+
+def ssh(command):
+  return subprocess.run(['ssh', '-o', 'UserKnownHostsFile=/dev/null', '-o', 'StrictHostKeyChecking=no', '-o', 'LogLevel=quiet', '-p', str(guest_ssh_port), 'root@localhost'] + command)
+
+def scp(src, dst):
+  return subprocess.run(['scp', '-o', 'UserKnownHostsFile=/dev/null', '-o', 'StrictHostKeyChecking=no', '-o', 'LogLevel=quiet', '-P', str(guest_ssh_port), src, 'root@localhost:' + dst])
+
+def inputs_for_test(test):
+  test_src = '%s/src/%s.c' % (tests_dir, test)
+  assert(Path(test_src).is_file())
+
+  return [""]
 
 #
 # wait for system to boot up
@@ -78,25 +107,59 @@ while not serial_tail().strip().endswith("login:"):
 
 print("system booted.")
 
-subprocess.run(['ssh', '-o', 'UserKnownHostsFile=/dev/null', '-o', 'StrictHostKeyChecking=no', '-o', 'LogLevel=quiet', '-p', str(guest_ssh_port), 'root@localhost', 'uname', '-a'])
+#
+# get IP of host seen by guest
+#
+iphost = ssh_command(['ip', 'route', 'show']).stdout.strip().split()[2]
+print("iphost: %s" % iphost)
 
 #
-# log in to system
+# start jove server
 #
-print("logging into system...")
+jp = subprocess.Popen([jove_server_path, 'server', '-v', '--port=%d' % jove_server_port], stdin=subprocess.DEVNULL, stderr=subprocess.STDOUT)
 
-assert(serial_write("root\n", 0.8) and serial_write("root\n"))
+#
+# prepare to run jove under emulation
+#
+scp(jove_client_path, '/tmp/jove')
 
-serial_write("ip route show\n")
-print('\n\"%s\"\n' % serial_tail(5).strip())
-print(serial_tail(5).strip().split()[2])
+#
+# copy tests
+#
+for test in args.tests:
+  test_inputs = inputs_for_test(test)
+  test_bin = '%s/bin/%s/%s' % (tests_dir, args.arch, test)
+
+  for variant in ["exe", "pic"]:
+    test_bin_path = '%s.%s' % (test_bin, variant);
+    test_bin_name = Path(test_bin_path).name
+
+    print("test_bin_name: %s" % test_bin_name)
+
+    assert(Path(test_bin_path).is_file())
+
+    scp(test_bin_path, '/tmp/')
+
+    test_guest_path = '/tmp/%s' % test_bin_name
+
+    ssh(["/tmp/jove", "init", test_guest_path])
+    for test_input in test_inputs:
+      input_args = test_input.split()
+
+      ssh(["/tmp/jove", "bootstrap", test_guest_path] + input_args)
+
+    for test_input in test_inputs:
+      input_args = test_input.split()
+
+      ssh(["/tmp/jove", "loop", "-x", "--connect", "%s:%d" % (iphost, jove_server_port), test_guest_path] + input_args)
 
 #
 # power off system
 #
 print("powering off system...")
 
-assert(serial_write("systemctl poweroff\n"))
+ssh_command(['systemctl', 'poweroff'])
 
 qp.communicate()
 cp.communicate()
+jp.kill()
