@@ -16,14 +16,25 @@ parser.add_argument('--preexisting', dest='preexisting', type=str, help='specify
 
 args = parser.parse_args()
 
+tests_dir = pathlib.Path(__file__).parent.resolve()
+
 td = tempfile.TemporaryDirectory()
 d = td.name
 
+arch2port = dict()
+arch2port["i386"] = 10023
+arch2port["x86_64"] = 10024
+arch2port["aarch64"] = 10025
+arch2port["mipsel"] = 10026
+arch2port["mips"] = 10027
+arch2port["mips64el"] = 10028
+
+guest_ssh_port = arch2port[args.arch]
+
 if args.preexisting is None:
-  tests_dir = pathlib.Path(__file__).parent.resolve()
   bringup_path = '%s/../mk-deb-vm/bringup.sh' % str(tests_dir)
 
-  subprocess.run(['sudo', bringup_path, '-a', args.arch, '-o', d, '-f'], check=True)
+  subprocess.run(['sudo', bringup_path, '-a', args.arch, '-o', d, '-p', str(guest_ssh_port), '-f'], check=True)
 else:
   d = args.preexisting
 
@@ -66,6 +77,8 @@ while not serial_tail().strip().endswith("login:"):
   assert(serial_write("\n"))
 
 print("system booted.")
+
+subprocess.run(['ssh', '-o', 'UserKnownHostsFile=/dev/null', '-o', 'StrictHostKeyChecking=no', '-o', 'LogLevel=quiet', '-p', str(guest_ssh_port), 'root@localhost', 'uname', '-a'])
 
 #
 # log in to system
