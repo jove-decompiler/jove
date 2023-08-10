@@ -14,7 +14,7 @@ rm -f $llvm_path/llvm/projects/llvm-cbe
 ln -sf ../../.. $llvm_path/llvm/projects/jove
 ln -sf ../../../llvm-cbe $llvm_path/llvm/projects/llvm-cbe
 
-archs="i386 mipsel mips64el aarch64"
+archs="i386 x86_64 mipsel mips64el aarch64"
 
 pushd .
 
@@ -22,7 +22,7 @@ df -h .
 
 cd $qemu_path
 mkdir build && cd build
-$build_scripts_path/qemu/regular_build.sh
+$build_scripts_path/qemu/build.sh
 
 for arch in $archs ; do
   cd $qemu_path
@@ -37,7 +37,7 @@ df -h .
 
 cd $llvm_path
 mkdir build && cd build
-$build_scripts_path/llvm/regular_build.sh
+$build_scripts_path/llvm/build.sh
 
 for arch in $archs ; do
   cd $llvm_path
