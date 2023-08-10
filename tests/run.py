@@ -127,41 +127,45 @@ jp = subprocess.Popen([jove_server_path, 'server', '-v', '--port=%d' % jove_serv
 scp(jove_client_path, '/tmp/jove')
 scp(jove_rt_path, '/lib/')
 
-exit_code = 0
+def run_tests():
+  for test in args.tests:
+    test_inputs = inputs_for_test(test)
+    test_bin = '%s/bin/%s/%s' % (tests_dir, args.arch, test)
 
-#
-# copy tests
-#
-for test in args.tests:
-  test_inputs = inputs_for_test(test)
-  test_bin = '%s/bin/%s/%s' % (tests_dir, args.arch, test)
+    for variant in ["exe", "pic"]:
+      test_bin_path = '%s.%s' % (test_bin, variant);
+      test_bin_name = Path(test_bin_path).name
 
-  for variant in ["exe", "pic"]:
-    test_bin_path = '%s.%s' % (test_bin, variant);
-    test_bin_name = Path(test_bin_path).name
+      print("test_bin_name: %s" % test_bin_name)
 
-    print("test_bin_name: %s" % test_bin_name)
+      assert(Path(test_bin_path).is_file())
 
-    assert(Path(test_bin_path).is_file())
+      scp(test_bin_path, '/tmp/')
 
-    scp(test_bin_path, '/tmp/')
+      test_guest_path = '/tmp/%s' % test_bin_name
 
-    test_guest_path = '/tmp/%s' % test_bin_name
+      ssh(["/tmp/jove", "init", test_guest_path])
+      for input_args in test_inputs:
+        ssh(["/tmp/jove", "bootstrap", test_guest_path] + input_args)
 
-    ssh(["/tmp/jove", "init", test_guest_path])
-    for input_args in test_inputs:
-      ssh(["/tmp/jove", "bootstrap", test_guest_path] + input_args)
+      for input_args in test_inputs:
+        ssh(["/tmp/jove", "loop", "-x", "--connect", "%s:%d" % (iphost, jove_server_port), test_guest_path] + input_args)
 
-    for input_args in test_inputs:
-      ssh(["/tmp/jove", "loop", "-x", "--connect", "%s:%d" % (iphost, jove_server_port), test_guest_path] + input_args)
+      for input_args in test_inputs:
+        p1 = ssh_command([test_guest_path] + input_args, text=False)
+        p2 = ssh_command(["/tmp/jove", "loop", "-x", "--connect", "%s:%d" % (iphost, jove_server_port), test_guest_path] + input_args, text=False)
 
-    for input_args in test_inputs:
-      p1 = ssh_command([test_guest_path] + input_args, text=False)
-      p2 = ssh_command(["/tmp/jove", "loop", "-x", "--connect", "%s:%d" % (iphost, jove_server_port), test_guest_path] + input_args, text=False)
+        if p2.returncode != 0 and p1.returncode == 0:
+          print("FAILURE")
+          return 1
 
-      if (p1.stdout != p2.stdout or p1.stderr != p2.stderr):
-        exit_code = 1
-        print("FAILURE")
+        if (p1.stdout != p2.stdout or p1.stderr != p2.stderr):
+          print("FAILURE")
+          return 1
+
+  return 0
+
+exit_code = run_tests()
 
 #
 # power off system
