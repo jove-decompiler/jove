@@ -1,4 +1,4 @@
-ALL_TARGETS := i386 x86_64 aarch64 mipsel mips mips64el
+ALL_TARGETS := i386 x86_64 aarch64 mipsel mips64el
 
 aarch64_SYSROOT  := /usr/aarch64-linux-gnu
 x86_64_SYSROOT   := /
