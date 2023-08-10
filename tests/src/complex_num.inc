@@ -1,7 +1,15 @@
+#ifndef COMPLEX_NUM_TYPE
+#error
+#endif
+
+#ifndef COMPLEX_NUM_FMT
+#error
+#endif
+
 #include <stdio.h>
 #include <stdlib.h>
 
-typedef long complex_part_t;
+typedef COMPLEX_NUM_TYPE complex_part_t;
 
 struct complex_t {
   complex_part_t real;
@@ -79,59 +87,6 @@ struct complex_t cn_div(struct complex_t a, struct complex_t b) {
   return c;
 }
 
-void ltos(char *out, long I) {
-  // First, check for a zero value and just short circuit the logic below.
-  if (I == 0) {
-    *out++ = '0';
-    *out++ = '\0';
-    return;
-  }
-
-  const unsigned Radix = 10;
-
-  static const char Digits[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-
-  char Buffer[65];
-  char *const BufPtrEnd = &Buffer[sizeof(Buffer)];
-  char *BufPtr = BufPtrEnd;
-
-  unsigned long N;
-  if (I >= 0) {
-    N = (unsigned long)I;
-  } else {
-    *out++ = '-';
-    N = -(unsigned long)I;
-  }
-
-  while (N) {
-    *--BufPtr = Digits[N % Radix];
-    N /= Radix;
-  }
-
-  for (char *p = BufPtr; p != BufPtrEnd; ++p)
-    *out++ = *p;
-
-  *out++ = '\0';
-}
-
 void print_complex(struct complex_t c) {
-  {
-    char buff[65];
-    ltos(buff, c.real);
-
-    fputs(buff, stdout);
-  }
-
-  putchar('+');
-
-  {
-    char buff[65];
-    ltos(buff, c.imag);
-
-    fputs(buff, stdout);
-  }
-
-  putchar('i');
-  putchar('\n');
-
+  printf("%" COMPLEX_NUM_FMT " + %" COMPLEX_NUM_FMT "i\n", c.real, c.imag);
 }

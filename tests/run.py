@@ -93,10 +93,10 @@ def scp(src, dst):
   return subprocess.run(['scp', '-o', 'UserKnownHostsFile=/dev/null', '-o', 'StrictHostKeyChecking=no', '-o', 'LogLevel=quiet', '-P', str(guest_ssh_port), src, 'root@localhost:' + dst])
 
 def inputs_for_test(test):
-  test_src = '%s/src/%s.c' % (tests_dir, test)
-  assert(Path(test_src).is_file())
+  inputs_path = '%s/inputs/%s.inputs' % (tests_dir, test)
+  assert(Path(inputs_path).is_file())
 
-  return [""]
+  return eval(open(inputs_path, 'r').read())
 
 #
 # wait for system to boot up
@@ -149,19 +149,13 @@ for test in args.tests:
     test_guest_path = '/tmp/%s' % test_bin_name
 
     ssh(["/tmp/jove", "init", test_guest_path])
-    for test_input in test_inputs:
-      input_args = test_input.split()
-
+    for input_args in test_inputs:
       ssh(["/tmp/jove", "bootstrap", test_guest_path] + input_args)
 
-    for test_input in test_inputs:
-      input_args = test_input.split()
-
+    for input_args in test_inputs:
       ssh(["/tmp/jove", "loop", "-x", "--connect", "%s:%d" % (iphost, jove_server_port), test_guest_path] + input_args)
 
-    for test_input in test_inputs:
-      input_args = test_input.split()
-
+    for input_args in test_inputs:
       p1 = ssh_command([test_guest_path] + input_args, text=False)
       p2 = ssh_command(["/tmp/jove", "loop", "-x", "--connect", "%s:%d" % (iphost, jove_server_port), test_guest_path] + input_args, text=False)
 
