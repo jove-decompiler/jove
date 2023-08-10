@@ -9126,7 +9126,6 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
       pcrel_flag = false;
 
       uint64_t Addr = op->args[0];
-      assert(Addr < UINT32_MAX);
 
 #if 0
       if (IsVerbose())
