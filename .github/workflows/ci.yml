@@ -40,7 +40,7 @@ jobs:
       -
         name: Test
         run: |
-          docker run --rm ${{ env.TEST_TAG }}
+          docker run --rm --privileged -v /dev:/dev ${{ env.TEST_TAG }} /jove/scripts/ci_check.sh
       -
         name: Build and push
         uses: docker/build-push-action@v4

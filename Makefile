@@ -139,7 +139,7 @@ distclean: clean
 
 .PHONY: check
 check:
-	$(MAKE) -C $(JOVE_ROOT_DIR)/tests
+	$(MAKE) -C $(JOVE_ROOT_DIR)/tests check
 
 #
 # TCG

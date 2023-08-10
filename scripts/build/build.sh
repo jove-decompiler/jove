@@ -5,6 +5,8 @@ trap 'exit' ERR
 build_scripts_path=$(cd "$(dirname -- "$0")"; pwd)
 jove_path=$build_scripts_path/../..
 
+make -C $jove_path -j$(nproc)
+
 qemu_path=$jove_path/qemu
 llvm_path=$jove_path/llvm-project
 
