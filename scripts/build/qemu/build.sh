@@ -21,6 +21,6 @@ set -x
   --disable-plugins \
   --disable-capstone \
   --disable-stack-protector \
-  --enable-jove
+  --enable-jove || cat config.log
 
 make -j$(nproc)
