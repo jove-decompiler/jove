@@ -132,8 +132,9 @@ _HIDDEN void _jove_begin(uint64_t a0,
 		move $31, ra_save
 
 /* when we can rely on t9 being set */
-# define SETUP_GP64(gpoffset, proc) \
-		.cpsetup $25, gpoffset, proc
+# define SETUP_GP64(gpreg, proc) \
+		move gpreg, $gp; \
+		.cpsetup $25, gpreg, proc
 
 asm(".text\n"
     _ASM_FN_PROLOGUE(_jove_start) "\n"
