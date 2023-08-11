@@ -7,6 +7,7 @@ set -x
   --host-cc=clang-15 \
   --cxx=clang++-15 \
   --objcc=clang-15 \
+  --cpu=x86_64 \
   --enable-tcg-interpreter \
   --disable-werror \
   --disable-docs \
