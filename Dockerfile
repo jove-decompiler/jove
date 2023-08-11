@@ -62,6 +62,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
     eatmydata apt-get install --no-install-recommends -y dpkg-dev && \
     eatmydata apt-get install --no-install-recommends -y \
                       libc6-dev:i386 \
+                      linux-libc-dev:i386 \
                       libglib2.0-dev:i386 \
                       libboost-system-dev:i386 \
                       libboost-filesystem-dev:i386 \
@@ -77,6 +78,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
     eatmydata apt-get install --no-install-recommends -y dpkg-dev && \
     eatmydata apt-get install --no-install-recommends -y \
                       libc6-dev:mipsel \
+                      linux-libc-dev:mipsel \
                       libglib2.0-dev:mipsel \
                       libboost-system-dev:mipsel \
                       libboost-filesystem-dev:mipsel \
@@ -92,6 +94,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
     eatmydata apt-get install --no-install-recommends -y dpkg-dev && \
     eatmydata apt-get install --no-install-recommends -y \
                       libc6-dev:mips64el \
+                      linux-libc-dev:mips64el \
                       libglib2.0-dev:mips64el \
                       libboost-system-dev:mips64el \
                       libboost-filesystem-dev:mips64el \
@@ -107,6 +110,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
     eatmydata apt-get install --no-install-recommends -y dpkg-dev && \
     eatmydata apt-get install --no-install-recommends -y \
                       libc6-dev:arm64 \
+                      linux-libc-dev:arm64 \
                       libglib2.0-dev:arm64 \
                       libboost-system-dev:arm64 \
                       libboost-filesystem-dev:arm64 \
