@@ -1024,75 +1024,34 @@ jove_thunk_return_t _jove_call(
   //
   bool IsJoveInit = false;
 
+  {
 #if defined(__mips64) || defined(__mips__)
-
-#  if defined(__mips64)
-#    define PC_OFF_IN_WORDS 12
-#  else /* defined(__mips__) */
-#    define PC_OFF_IN_WORDS 10
-#  endif
-
-  {
-    const uint32_t *const p = (const uint32_t *)pc + PC_OFF_IN_WORDS;
-
-#  undef PC_OFF_IN_WORDS
-
-    //
-    // 24000929        li      zero,2345
-    // 24000159        li      zero,345
-    // 2400002d        li      zero,45
-    // 24000005        li      zero,5
-    // 24000036        li      zero,54
-    // 2400021f        li      zero,543
-    // 24001538        li      zero,5432
-    //
-
-    IsJoveInit = p[0] == 0x24000929 &&
-                 p[1] == 0x24000159 &&
-                 p[2] == 0x2400002d &&
-                 p[3] == 0x24000005 &&
-                 p[4] == 0x24000036 &&
-                 p[5] == 0x2400021f &&
-                 p[6] == 0x24001538;
-  }
+    static const uint32_t magic_insns[] = {
+      0x24000929,  // li      zero,2345
+      0x24000159,  // li      zero,345
+      0x2400002d,  // li      zero,45
+      0x24000005,  // li      zero,5
+      0x24000036,  // li      zero,54
+      0x2400021f,  // li      zero,543
+      0x24001538   // li      zero,5432
+    };
 #elif defined(__x86_64__)
-  {
-    const uint8_t *const p = (const uint8_t *)pc;
-
-    //
-    // 4d 87 ff                xchg   %r15,%r15
-    // 4d 87 f6                xchg   %r14,%r14
-    // 4d 87 ed                xchg   %r13,%r13
-    // 4d 87 e4                xchg   %r12,%r12
-    // 4d 87 db                xchg   %r11,%r11
-    //
-
-    IsJoveInit = p[0*3+0] == 0x4d && p[0*3+1] == 0x87 && p[0*3+2] == 0xff &&
-                 p[1*3+0] == 0x4d && p[1*3+1] == 0x87 && p[1*3+2] == 0xf6 &&
-                 p[2*3+0] == 0x4d && p[2*3+1] == 0x87 && p[2*3+2] == 0xed &&
-                 p[3*3+0] == 0x4d && p[3*3+1] == 0x87 && p[3*3+2] == 0xe4 &&
-                 p[4*3+0] == 0x4d && p[4*3+1] == 0x87 && p[4*3+2] == 0xdb;
-  }
+    static const uint8_t magic_insns[] = {
+      0x4d, 0x87, 0xff,  // xchg   %r15,%r15
+      0x4d, 0x87, 0xf6,  // xchg   %r14,%r14
+      0x4d, 0x87, 0xed,  // xchg   %r13,%r13
+      0x4d, 0x87, 0xe4,  // xchg   %r12,%r12
+      0x4d, 0x87, 0xdb   // xchg   %r11,%r11
+    };
 #elif defined(__i386__)
-  {
-    const uint8_t *const p = (const uint8_t *)pc;
-
-    //
-    // 87 db                   xchg   %ebx,%ebx
-    // 87 c9                   xchg   %ecx,%ecx
-    // 87 d2                   xchg   %edx,%edx
-    // 87 f6                   xchg   %esi,%esi
-    // 87 ff                   xchg   %edi,%edi
-    //
-
-    IsJoveInit = p[0*2+0] == 0x87 && p[0*2+1] == 0xdb &&
-                 p[1*2+0] == 0x87 && p[1*2+1] == 0xc9 &&
-                 p[2*2+0] == 0x87 && p[2*2+1] == 0xd2 &&
-                 p[3*2+0] == 0x87 && p[3*2+1] == 0xf6 &&
-                 p[4*2+0] == 0x87 && p[4*2+1] == 0xff;
-  }
+    static const uint8_t magic_insns[] = {
+      0x87, 0xdb,  // xchg   %ebx,%ebx
+      0x87, 0xc9,  // xchg   %ecx,%ecx
+      0x87, 0xd2,  // xchg   %edx,%edx
+      0x87, 0xf6,  // xchg   %esi,%esi
+      0x87, 0xff   // xchg   %edi,%edi
+    };
 #elif defined(__aarch64__)
-  {
     static const uint32_t magic_insns[] = {
       0xaa0003ff,  // mov xzr, x0
       0xaa0103ff,  // mov xzr, x1
@@ -1112,13 +1071,13 @@ jove_thunk_return_t _jove_call(
       0xaa0103ff,  // mov xzr, x1
       0xaa0003ff,  // mov xzr, x0
     };
+#else
+#error
+#endif
 
     IsJoveInit = !!_memmem((const uint8_t *)pc, 2 * sizeof(magic_insns),
                            &magic_insns[0], sizeof(magic_insns));
   }
-#else
-#error
-#endif
 
   if (unlikely(IsJoveInit))
     return BOOST_PP_CAT(_jove_thunk,TARGET_NUM_REG_ARGS)(
