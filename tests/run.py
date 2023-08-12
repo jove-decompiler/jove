@@ -156,11 +156,11 @@ def run_tests():
         p2 = ssh_command(["/tmp/jove", "loop", "-x", "--connect", "%s:%d" % (iphost, jove_server_port), test_guest_path] + input_args, text=False)
 
         if p2.returncode != 0 and p1.returncode == 0:
-          print("TESTS FAILURE 1 (%s)" % args.arch)
+          print("TESTS FAILURE 1 %s [%s]" % (test_bin_path, args.arch))
           return 1
 
         if (p1.stdout != p2.stdout or p1.stderr != p2.stderr):
-          print("TESTS FAILURE 2 (%s)" % args.arch)
+          print("TESTS FAILURE 2 %s [%s]" % (test_bin_path, args.arch))
           return 1
 
   return 0
