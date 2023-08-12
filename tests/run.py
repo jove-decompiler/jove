@@ -45,7 +45,7 @@ jove_server_port = guest_ssh_port - 5000
 if args.preexisting is None:
   bringup_path = '%s/../mk-deb-vm/bringup.sh' % str(tests_dir)
 
-  subprocess.run(['sudo', bringup_path, '-a', args.arch, '-o', d, '-p', str(guest_ssh_port), '-f'], check=True)
+  subprocess.run(['sudo', bringup_path, '-a', args.arch, '-s', 'bookworm', '-o', d, '-p', str(guest_ssh_port), '-f'], check=True)
 else:
   d = args.preexisting
 
