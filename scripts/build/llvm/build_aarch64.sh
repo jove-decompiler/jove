@@ -1,12 +1,6 @@
 #!/bin/bash
 set -x
 
-# --sysroot=/usr/mipsel-linux-gnu
-# --gcc-toolchain=/usr/lib/gcc-cross/mipsel-linux-gnu/12
-# -fuse-ld=lld
-
-#  -D "CMAKE_EXE_LINKER_FLAGS=-static" \
-
 TRIPLE="aarch64-linux-gnu"
 
 OURCFLAGS=\
@@ -38,6 +32,7 @@ cmake -G Ninja \
   -D LLVM_ENABLE_EH=ON \
   -D LLVM_ENABLE_PIC=ON \
   -D LLVM_BUILD_DOCS=OFF \
+  -D "CMAKE_EXE_LINKER_FLAGS=-static" \
   -D LLVM_USE_LINKER=lld \
   -D LLVM_BINUTILS_INCDIR=/usr/include \
   ../llvm
