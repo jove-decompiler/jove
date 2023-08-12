@@ -18,7 +18,8 @@ LLVM_OPT := $(LLVM_BIN_DIR)/opt
 CFLAGS := -Wall \
           -fno-stack-protector \
           -O2 \
-          -g
+          -g \
+          -fwrapv
 
 EXTRAFLAGS = $(shell awk -v search="/// FLAGS: " 'substr($$0, 1, length(search)) == search { print }' $< | cut -c 12-)
 
