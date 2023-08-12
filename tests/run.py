@@ -136,7 +136,7 @@ def run_tests():
       test_bin_path = '%s.%s' % (test_bin, variant);
       test_bin_name = Path(test_bin_path).name
 
-      print("test_bin_name: %s" % test_bin_name)
+      print("test %s" % test_bin_path)
 
       assert(Path(test_bin_path).is_file())
 
