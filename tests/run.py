@@ -160,7 +160,7 @@ def run_tests():
           return 1
 
         if (p1.stdout != p2.stdout or p1.stderr != p2.stderr):
-          print("FAILURE")
+          print("TESTS FAILURE (%s)" % args.arch)
           return 1
 
   return 0
