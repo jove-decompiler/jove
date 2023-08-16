@@ -4,7 +4,7 @@ TRIPLE="aarch64-linux-gnu"
 
 OURCFLAGS=\
 "--target=$TRIPLE"\
-" -fPIC"
+" -flto"
 
 EXTRACONF="--enable-jove"
 

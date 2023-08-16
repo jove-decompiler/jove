@@ -4,12 +4,14 @@ set -x
 TRIPLE="aarch64-linux-gnu"
 
 OURCFLAGS=\
-"--target=$TRIPLE"
+"--target=$TRIPLE"\
+" -fPIC"
 
 cmake -G Ninja \
   -D CMAKE_BUILD_TYPE=Release \
   -D CMAKE_SYSTEM_NAME=Linux \
   -D CMAKE_CROSSCOMPILING=True \
+  -D CMAKE_SKIP_RPATH=TRUE \
   -D LLVM_TARGET_ARCH=aarch64 \
   -D LLVM_DEFAULT_TARGET_TRIPLE=$TRIPLE \
   -D LLVM_HOST_TRIPLE=$TRIPLE \
@@ -31,8 +33,9 @@ cmake -G Ninja \
   -D LLVM_ENABLE_BINDINGS=OFF \
   -D LLVM_ENABLE_EH=ON \
   -D LLVM_ENABLE_PIC=ON \
+  -D LLVM_ENABLE_LTO=ON \
   -D LLVM_BUILD_DOCS=OFF \
-  -D "CMAKE_EXE_LINKER_FLAGS=-static" \
+  -D "CMAKE_EXE_LINKER_FLAGS=-static-pie" \
   -D LLVM_USE_LINKER=lld \
   -D LLVM_BINUTILS_INCDIR=/usr/include \
   ../llvm
