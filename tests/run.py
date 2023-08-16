@@ -119,7 +119,7 @@ print("iphost: %s" % iphost)
 #
 # start jove server
 #
-jp = subprocess.Popen([jove_server_path, 'server', '-v', '--port=%d' % jove_server_port], stdin=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+jp = subprocess.Popen([jove_server_path, 'server', '-v', '--port=%d' % jove_server_port], stdin=subprocess.DEVNULL)
 
 #
 # prepare to run jove under emulation
