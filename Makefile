@@ -105,6 +105,7 @@ $(BINDIR)/$(1)/jove.bc: lib/arch/$(1)/jove.c
 	                   -ffreestanding \
 	                   -fno-stack-protector \
 	                   -fwrapv \
+	                   -fno-plt \
 	                   -MMD \
 	                   -c -emit-llvm $$<
 
