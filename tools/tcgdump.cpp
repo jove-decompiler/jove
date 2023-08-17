@@ -234,7 +234,7 @@ int TCGDumpTool::Run(void) {
   } StartingFrom;
 
   if (!opts.StartingFrom.empty())
-    StartingFrom.Addr = std::stoi(opts.StartingFrom.c_str(), 0, 16);
+    StartingFrom.Addr = std::stoll(opts.StartingFrom.c_str(), 0, 16);
 
   if (!opts.StartingFrom.empty()) {
     linear_scan_disassemble(StartingFrom.Addr);
