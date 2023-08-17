@@ -10044,23 +10044,23 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
   }
 
   case INDEX_op_deposit_i64: {
-    TCGTemp *dst = arg_temp(op->args[0]);
-    TCGTemp *src1 = arg_temp(op->args[1]);
-    TCGTemp *src2 = arg_temp(op->args[2]);
+    TCGTemp *dst = output_arg(0);
+    TCGTemp *src1 = input_arg(0);
+    TCGTemp *src2 = input_arg(1);
 
     llvm::Value *arg1 = get(src1);
     llvm::Value *arg2 = get(src2);
     arg2 = IRB.CreateTrunc(arg2, IRB.getInt64Ty());
 
-    uint32_t ofs = op->args[3];
-    uint32_t len = op->args[4];
+    TCGArg ofs = const_arg(0);
+    TCGArg len = const_arg(1);
 
     if (0 == ofs && 64 == len) {
       set(arg2, dst);
       break;
     }
 
-    uint64_t mask = (1u << len) - 1;
+    uint64_t mask = (UINT64_C(1) << len) - 1;
     llvm::Value *t1, *ret;
 
     if (ofs + len < 64) {
