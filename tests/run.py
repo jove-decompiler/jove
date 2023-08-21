@@ -148,8 +148,9 @@ def run_tests():
       for input_args in test_inputs:
         ssh(["/tmp/jove", "bootstrap", test_guest_path] + input_args)
 
-      for input_args in test_inputs:
-        ssh(["/tmp/jove", "loop", "-x", "--connect", "%s:%d" % (iphost, jove_server_port), test_guest_path] + input_args)
+      for i in range(0, 2):
+        for input_args in test_inputs:
+          ssh(["/tmp/jove", "loop", "-x", "--connect", "%s:%d" % (iphost, jove_server_port), test_guest_path] + input_args)
 
       for input_args in test_inputs:
         p1 = ssh_command([test_guest_path] + input_args, text=False)
