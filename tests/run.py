@@ -165,9 +165,9 @@ def run_tests():
         if stdout_neq or stderr_neq:
           print("TESTS FAILURE_2 %s [%s]" % (test_bin_path, args.arch))
           if stdout_neq:
-            print("STDOUT \"%s\" != \"%s\"" % (p1.stdout.hex(), p2.stdout.hex()))
+            print("STDOUT \"%s\" != \"%s\"" % (str(p1.stdout), str(p2.stdout)))
           if stderr_neq:
-            print("STDERR \"%s\" != \"%s\"" % (p1.stderr.hex(), p2.stderr.hex()))
+            print("STDERR \"%s\" != \"%s\"" % (str(p1.stderr), str(p2.stderr)))
           return 1
 
   return 0
