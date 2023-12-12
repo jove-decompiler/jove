@@ -77,6 +77,7 @@ $(BINDIR)/$(1)/libjove_rt.so: lib/arch/$(1)/rt.c
 	                   $($(1)_ARCH_CFLAGS) \
 	                   -ffreestanding \
 	                   -fno-stack-protector \
+	                   -fno-delete-null-pointer-checks \
 	                   -fwrapv \
 	                   -Bsymbolic \
 	                   -MMD \
@@ -104,6 +105,7 @@ $(BINDIR)/$(1)/jove.bc: lib/arch/$(1)/jove.c
 	                   $($(1)_ARCH_CFLAGS) \
 	                   -ffreestanding \
 	                   -fno-stack-protector \
+	                   -fno-delete-null-pointer-checks \
 	                   -fwrapv \
 	                   -fno-plt \
 	                   -MMD \
