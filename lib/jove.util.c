@@ -324,12 +324,66 @@ static _UNUSED uintptr_t _parse_stack_end_of_maps(char *maps, const unsigned n) 
   _UNREACHABLE();
 }
 
+static _UNUSED uintptr_t _does_readable_mapping_exist_at_address(
+    uintptr_t Addr, char *maps, const unsigned n) {
+  char *const beg = &maps[0];
+  char *const end = &maps[n];
+
+  char *eol;
+  for (char *line = beg; line != end; line = eol + 1) {
+    {
+      unsigned left = n - (line - beg);
+
+      //
+      // find the end of the current line
+      //
+      eol = _memchr(line, '\n', left);
+    }
+
+    unsigned left = eol - line;
+
+    struct {
+      uint64_t min, max;
+    } vm;
+
+    bool r;
+
+    {
+      char *dash = _memchr(line, '-', left);
+      vm.min = _u64ofhexstr(line, dash);
+
+      char *space = _memchr(line, ' ', left);
+      vm.max = _u64ofhexstr(dash + 1, space);
+
+      char *rp = space + 1;
+      r = *rp == 'r';
+    }
+
+    if (r && vm.min == Addr) {
+      return vm.max;
+    }
+  }
+
+  return 0;
+}
+
 static _INL _UNUSED uintptr_t _get_stack_end(void) {
   char buff[4096 * 32];
   unsigned n = _jove_read_pseudo_file("/proc/self/maps", buff, sizeof(buff));
   buff[n] = '\0';
 
   uintptr_t res = _parse_stack_end_of_maps(buff, n);
+
+  //
+  // if there is a contiguous sequence of readable maps directly after [stack], we will consider the end of such mappings to be the end of the stack.
+  //
+  uintptr_t newres;
+  do {
+    newres = _does_readable_mapping_exist_at_address(res, buff, n);
+    if (newres)
+      res = newres;
+  } while (newres);
+
   return res;
 }
 
