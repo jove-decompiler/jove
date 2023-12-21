@@ -4,7 +4,11 @@ uintptr_t _mmap_rw_anonymous_private_memory(size_t len) {
 }
 
 void _jove_sleep(void) {
-  _jove_sys_sched_yield(); /* XXX todo */
+  struct timespec t;
+  t.tv_sec = 10;
+  t.tv_nsec = 0;
+
+  _jove_sys_nanosleep((struct __kernel_timespec *)&t, NULL);
 }
 
 int _jove_open(const char *path, int flags, mode_t mode) {
