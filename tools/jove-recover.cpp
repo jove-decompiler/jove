@@ -32,7 +32,7 @@ using llvm::WithColor;
 
 namespace jove {
 
-class RecoverTool : public Tool {
+class RecoverTool : public JVTool {
   struct Cmdline {
     cl::opt<std::string> jv;
     cl::alias jvAlias;
@@ -133,14 +133,13 @@ int RecoverTool::Run(void) {
     }
   }
 
-  ReadJvFromFile(opts.jv, jv);
-
   IgnoreCtrlC();
 
   tiny_code_generator_t tcg;
   symbolizer_t symbolizer;
 
-  CodeRecovery Recovery(jv, disas, tcg, symbolizer);
+  explorer_t Explorer(disas, tcg, jv_file);
+  CodeRecovery Recovery(jv, Explorer, symbolizer);
 
   std::string msg;
 
@@ -232,7 +231,9 @@ int RecoverTool::Run(void) {
   HumanOut() << msg << '\n';
 
   jv.InvalidateFunctionAnalyses();
+#if 0
   WriteJvToFile(opts.jv, jv);
+#endif
 
   return 0;
 }

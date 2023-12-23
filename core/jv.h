@@ -5,7 +5,9 @@
 
 namespace jove {
 
-void ReadJvFromFile(const std::string &path, jv_t &out);
-void WriteJvToFile(const std::string &path, const jv_t &in);
+void UnserializeJVFromFile(jv_t &out, const char *path, bool text = true);
+void UnserializeJV(jv_t &out, std::istream &, bool text = true);
+void SerializeJV(const jv_t &in, std::ostream &, bool text = true);
+void SerializeJVToFile(const jv_t &in, const char *path, bool text = true);
 
 }

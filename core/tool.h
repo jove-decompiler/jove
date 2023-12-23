@@ -11,7 +11,10 @@
 #include <string>
 #include <vector>
 
+#include <boost/interprocess/managed_mapped_file.hpp>
 #include <llvm/Support/CommandLine.h>
+
+#define JV_DEFAULT_INITIAL_SIZE (1024 * 65536)
 
 namespace llvm {
 class raw_ostream;
@@ -40,8 +43,6 @@ private:
   locator_t loc;
 public:
   const char *_name = nullptr;
-
-  jv_t jv;
 
 public:
   Tool();
@@ -94,6 +95,13 @@ public:
       const std::string &stderr_path = std::string(),
       const RunToolExtraArgs &Extra = RunToolExtraArgs());
 
+  int RunTool(const char *tool_name,
+      compute_args_t compute_args,
+      compute_envs_t compute_envs,
+      const std::string &stdout_path = std::string(),
+      const std::string &stderr_path = std::string(),
+      const RunToolExtraArgs &Extra = RunToolExtraArgs());
+
   template <typename... Args>
   int RunExecutableToExit(Args &&...args) {
     pid_t pid = RunExecutable(std::forward<Args>(args)...);
@@ -117,7 +125,7 @@ public:
 
   static std::string home_dir(void);
   static std::string jove_dir(void);
-  static std::string path_to_jv(const char *exe_path);
+  static std::string path_to_jv(void);
   static std::string path_to_sysroot(const char *exe_path, bool ForeignLibs);
 
   const std::string &temporary_dir(void);
@@ -133,36 +141,51 @@ private:
 
 typedef Tool *(*ToolCreationProc)(void);
 
+struct JVTool : public Tool {
+  const std::string jv_path; /* defaults to $HOME/.jv */
+
+  jv_file_t jv_file;
+  ip_void_allocator_t Alloc;
+
+  jv_t &jv;
+
+  JVTool(const char *jv_path = nullptr);
+};
+
 template <typename BinaryStateT>
-struct TransformerTool_Bin : public Tool
+struct TransformerTool_Bin : public JVTool
 {
   jv_bin_state_t<BinaryStateT> state;
 
-  TransformerTool_Bin() : state(jv) {}
+  TransformerTool_Bin(const char *jv_path = nullptr)
+      : JVTool(jv_path), state(jv) {}
 };
 
 template <typename FunctionStateT>
-struct TransformerTool_Fn : public Tool
+struct TransformerTool_Fn : public JVTool
 {
   jv_fn_state_t<FunctionStateT> state;
 
-  TransformerTool_Fn() : state(jv) {}
+  TransformerTool_Fn(const char *jv_path = nullptr)
+      : JVTool(jv_path), state(jv) {}
 };
 
 template <typename BinaryStateT, typename FunctionStateT>
-struct TransformerTool_BinFn : public Tool
+struct TransformerTool_BinFn : public JVTool
 {
   jv_bin_fn_state_t<BinaryStateT, FunctionStateT> state;
 
-  TransformerTool_BinFn() : state(jv) {}
+  TransformerTool_BinFn(const char *jv_path = nullptr)
+      : JVTool(jv_path), state(jv) {}
 };
 
 template <typename BinaryStateT, typename FunctionStateT, typename BBStateT>
-struct TransformerTool_BinFnBB : public Tool
+struct TransformerTool_BinFnBB : public JVTool
 {
   jv_bin_fn_bb_state_t<BinaryStateT, FunctionStateT, BBStateT> state;
 
-  TransformerTool_BinFnBB() : state(jv) {}
+  TransformerTool_BinFnBB(const char *jv_path = nullptr)
+      : JVTool(jv_path), state(jv) {}
 };
 
 void RegisterTool(const char *name, ToolCreationProc Create);

@@ -30,7 +30,7 @@ using llvm::WithColor;
 
 namespace jove {
 
-class IDATool : public Tool {
+class IDATool : public JVTool {
   struct Cmdline {
     cl::opt<std::string> jv;
     cl::opt<std::string> Binary;
@@ -38,7 +38,6 @@ class IDATool : public Tool {
     cl::opt<bool> ImportFunctions;
     cl::opt<bool> ImportBlocks;
     cl::opt<bool> ImportLocalGotos;
-    cl::opt<bool> NoSave;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : jv(cl::Positional, cl::desc("<input jove decompilations>"),
@@ -58,11 +57,7 @@ class IDATool : public Tool {
 
           ImportLocalGotos("import-local-gotos",
                            cl::desc("Import control flow from indirect jumps"),
-                           cl::cat(JoveCategory)),
-
-          NoSave("no-save",
-                 cl::desc("Do not save jv before exiting"),
-                 cl::cat(JoveCategory)) {}
+                           cl::cat(JoveCategory)) {}
   } opts;
 
   binary_index_t SingleBinaryIndex = invalid_binary_index;
@@ -103,8 +98,6 @@ int IDATool::Run(void) {
     return 1;
   }
 
-  ReadJvFromFile(opts.jv, jv);
-
   //
   // operate on single binary? (cmdline)
   //
@@ -113,7 +106,7 @@ int IDATool::Run(void) {
 
     for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
       const binary_t &binary = jv.Binaries[BIdx];
-      if (binary.Path.find(opts.Binary) == std::string::npos)
+      if (binary.path_str().find(opts.Binary) == std::string::npos)
         continue;
 
       BinaryIndex = BIdx;
@@ -147,6 +140,7 @@ int IDATool::Run(void) {
 
   tiny_code_generator_t tcg;
   disas_t dis;
+  explorer_t E(dis, tcg, jv_file);
 
   symbolizer_t symbolizer;
 
@@ -154,14 +148,14 @@ int IDATool::Run(void) {
     std::unique_ptr<obj::Binary> Bin;
 
     try {
-      Bin = CreateBinary(binary.Data);
+      Bin = CreateBinary(binary.data());
     } catch (const std::exception &) {
       return;
     }
 
     binary_index_t BIdx = index_of_binary(binary, jv);
 
-    fs::path chrooted_path = tmp_dir / binary.Path;
+    fs::path chrooted_path = tmp_dir / binary.path_str();
     std::string log_path = chrooted_path.string() + ".log.txt";
 
     fs::path flowgraphs_dir = tmp_dir / std::to_string(BIdx);
@@ -176,12 +170,12 @@ int IDATool::Run(void) {
     }
 
     ELFO &O = *llvm::cast<ELFO>(Bin.get());
-    const ELFF &E = *O.getELFFile();
+    const ELFF &Elf = *O.getELFFile();
 
     bool DidWeHideSplitDebugInfoFromIDA = false;
 
     fs::path splitDbgInfo;
-    llvm::Optional<llvm::ArrayRef<uint8_t>> optionalBuildID = getBuildID(E);
+    llvm::Optional<llvm::ArrayRef<uint8_t>> optionalBuildID = getBuildID(Elf);
     if (optionalBuildID) {
       llvm::ArrayRef<uint8_t> BuildID = *optionalBuildID;
 
@@ -301,13 +295,13 @@ int IDATool::Run(void) {
         // import functions
         //
         try {
-          basic_block_index_t BBIdx = explore_basic_block(
-              binary, *Bin, tcg, dis, entry_addr, fnmap, bbmap);
+          basic_block_index_t BBIdx = E.explore_basic_block(
+              binary, *Bin, entry_addr, fnmap, bbmap);
 
           if (!is_basic_block_index_valid(BBIdx))
             throw std::runtime_error(std::string());
 
-          explore_function(binary, *Bin, tcg, dis, entry_addr, fnmap, bbmap);
+          E.explore_function(binary, *Bin, entry_addr, fnmap, bbmap);
         } catch (const std::exception &e) {
           if (IsVerbose())
             WithColor::warning()
@@ -339,8 +333,8 @@ int IDATool::Run(void) {
 
         uint64_t node_addr = flowgraph[node].start_ea;
         try {
-          basic_block_index_t BBIdx = explore_basic_block(
-              binary, *Bin, tcg, dis, node_addr, fnmap, bbmap);
+          basic_block_index_t BBIdx = E.explore_basic_block(
+              binary, *Bin, node_addr, fnmap, bbmap);
 
           if (!is_basic_block_index_valid(BBIdx))
             throw std::runtime_error(std::string());
@@ -575,11 +569,6 @@ int IDATool::Run(void) {
     process_binary(jv.Binaries.at(SingleBinaryIndex));
   else
     for_each_binary(jv, process_binary);
-
-  if (opts.NoSave)
-    return 0;
-
-  WriteJvToFile(opts.jv, jv);
 
   return 0;
 }

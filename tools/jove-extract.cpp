@@ -26,21 +26,13 @@ using llvm::WithColor;
 
 namespace jove {
 
-class ExtractTool : public Tool {
+class ExtractTool : public JVTool {
   struct Cmdline {
     cl::opt<std::string> OutDir;
-    cl::opt<std::string> jv;
-    cl::alias jvAlias;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : OutDir(cl::Positional, cl::desc("outdir"), cl::Required,
-                 cl::value_desc("filename"), cl::cat(JoveCategory)),
-
-          jv("jv", cl::desc("Jove jv"), cl::Required,
-             cl::value_desc("filename"), cl::cat(JoveCategory)),
-
-          jvAlias("d", cl::desc("Alias for -jv."), cl::aliasopt(jv),
-                  cl::cat(JoveCategory)) {}
+                 cl::value_desc("filename"), cl::cat(JoveCategory)) {}
   } opts;
 
 public:
@@ -54,13 +46,6 @@ JOVE_REGISTER_TOOL("extract", ExtractTool);
 typedef boost::format fmt;
 
 int ExtractTool::Run(void) {
-  if (!fs::exists(opts.jv)) {
-    WithColor::error() << "jv does not exist\n";
-    return 1;
-  }
-
-  ReadJvFromFile(opts.jv, jv);
-
   if (fs::exists(opts.OutDir))
     fs::remove_all(opts.OutDir);
 
@@ -76,7 +61,7 @@ int ExtractTool::Run(void) {
   for (binary_t &b : jv.Binaries) {
     assert(b.Path[0] == '/');
 
-    fs::path chrooted_path(std::string(opts.OutDir) + b.Path);
+    fs::path chrooted_path(std::string(opts.OutDir) + b.path_str());
     fs::create_directories(chrooted_path.parent_path());
 
     {

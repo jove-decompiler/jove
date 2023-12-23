@@ -120,4 +120,5 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
     eatmydata apt-get autoclean -y
 
 ADD . /jove/
+RUN patch -p1 -d /usr -i /jove/patches/boost-graph.diff
 RUN /jove/scripts/build/build.sh

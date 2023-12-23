@@ -168,8 +168,6 @@ int TraceTool::Run(void) {
     }
   }
 
-  ReadJvFromFile(opts.jv, jv);
-  state.update();
   InitStateForBinaries(jv);
 
   //
@@ -196,7 +194,7 @@ int TraceTool::Run(void) {
   // recreate sysroot as best we can TODO refactor
   //
   for (const binary_t &binary : jv.Binaries) {
-    fs::path chrooted_path(SysrootPath / binary.Path);
+    fs::path chrooted_path(SysrootPath / binary.path_str());
     fs::create_directories(chrooted_path.parent_path());
 
     {
@@ -278,7 +276,7 @@ open_events:
       if (opts.OnlyExecutable && !binary.IsExecutable)
         continue;
 
-      std::string binaryName = fs::path(binary.Path).filename().string();
+      std::string binaryName = fs::path(binary.path_str()).filename().string();
       if (!opts.Only.empty()) {
         if (std::find(opts.Only.begin(),
                       opts.Only.end(), binaryName) == opts.Only.end())
@@ -289,7 +287,7 @@ open_events:
           continue;
       }
 
-      fs::path chrooted_path(SysrootPath / binary.Path);
+      fs::path chrooted_path(SysrootPath / binary.path_str());
       if (!fs::exists(chrooted_path)) {
         WithColor::warning() << llvm::formatv(
             "{0} does not exist; not placing uprobe tracepoints\n",
@@ -466,8 +464,8 @@ skip_uprobe:
       std::vector<const char *> arg_vec;
 
       fs::path exe_path = opts.OutsideChroot
-                              ? SysrootPath / jv.Binaries[0].Path
-                              : jv.Binaries[0].Path;
+                              ? SysrootPath / jv.Binaries[0].path_str()
+                              : jv.Binaries[0].path_str();
 
       arg_vec.push_back(exe_path.c_str());
 
@@ -595,7 +593,7 @@ skip_uprobe:
 void TraceTool::InitStateForBinaries(jv_t &jv) {
   for_each_binary(jv, [&](binary_t &binary) {
     ignore_exception([&]() {
-      state.for_binary(binary).ObjectFile = CreateBinary(binary.Data);
+      state.for_binary(binary).ObjectFile = CreateBinary(binary.data());
     });
   });
 }

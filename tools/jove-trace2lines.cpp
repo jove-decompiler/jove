@@ -161,12 +161,6 @@ int Trace2LinesTool::Run(void) {
     }
 
     //
-    // parse the existing jv file
-    //
-    ReadJvFromFile(opts.jv, jv);
-    state.update();
-
-    //
     // compute the set of verts for each function
     //
     for (binary_t &b : jv.Binaries) {
@@ -230,7 +224,7 @@ int Trace2LinesTool::Run(void) {
       basic_block_t bb = boost::vertex(BBIdx, ICFG);
 
       auto ResOrErr = Symbolizer.symbolizeCode(
-          binary.Path,
+          binary.path_str(),
           {ICFG[bb].Addr, llvm::object::SectionedAddress::UndefSection});
       if (!ResOrErr)
         continue;
@@ -241,7 +235,7 @@ int Trace2LinesTool::Run(void) {
         continue;
 
       fs::path PrefixedFileName = fs::path("/usr/src/debug") /
-                                  fs::path(binary.Path).stem().c_str() /
+                                  fs::path(binary.path_str()).stem().c_str() /
                                   LnInfo.FileName;
 
       OutputStream << llvm::formatv("{0}:{1}:{2}:{3}+{4:x}\n",
@@ -249,7 +243,7 @@ int Trace2LinesTool::Run(void) {
                                         ? PrefixedFileName.c_str()
                                         : LnInfo.FileName.c_str(),
                                     LnInfo.Line, LnInfo.Column,
-                                    fs::path(binary.Path).filename().c_str(),
+                                    fs::path(binary.path_str()).filename().c_str(),
                                     ICFG[bb].Addr);
     }
   }

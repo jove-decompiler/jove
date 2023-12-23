@@ -14,17 +14,13 @@ using llvm::WithColor;
 
 namespace jove {
 
-class ScoreTool : public Tool {
+class ScoreTool : public JVTool {
   struct Cmdline {
-    cl::opt<std::string> jv;
     cl::opt<std::string> Binary;
     cl::alias BinaryAlias;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
-        : jv(cl::Positional, cl::desc("<input jove decompilations>"),
-             cl::Required, cl::cat(JoveCategory)),
-
-          Binary("binary", cl::desc("Operate on single given binary"),
+        : Binary("binary", cl::desc("Operate on single given binary"),
                  cl::value_desc("path"), cl::cat(JoveCategory)),
 
           BinaryAlias("b", cl::desc("Alias for -binary."), cl::aliasopt(Binary),
@@ -45,8 +41,6 @@ JOVE_REGISTER_TOOL("score", ScoreTool);
 typedef boost::format fmt;
 
 int ScoreTool::Run(void) {
-  ReadJvFromFile(opts.jv, jv);
-
   //
   // operate on single binary? (cmdline)
   //
@@ -55,7 +49,7 @@ int ScoreTool::Run(void) {
 
     for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
       const binary_t &binary = jv.Binaries[BIdx];
-      if (binary.Path.find(opts.Binary) == std::string::npos)
+      if (binary.path_str().find(opts.Binary) == std::string::npos)
         continue;
 
       BinaryIndex = BIdx;

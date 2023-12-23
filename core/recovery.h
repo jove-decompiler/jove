@@ -8,8 +8,10 @@ namespace jove {
 class CodeRecovery {
   jv_t &jv;
 
-  disas_t &disas;
-  tiny_code_generator_t &tcg;
+  explorer_t &E;
+
+  jv_file_t &jv_file;
+
   symbolizer_t &symbolizer;
 
   struct binary_state_t {
@@ -24,7 +26,7 @@ class CodeRecovery {
   jv_bin_state_t<binary_state_t> state;
 
 public:
-  CodeRecovery(jv_t &, disas_t &, tiny_code_generator_t &, symbolizer_t &);
+  CodeRecovery(jv_t &, explorer_t &E, symbolizer_t &);
   ~CodeRecovery();
 
   uint64_t AddressOfTerminatorAtBasicBlock(uint32_t BIdx, uint32_t BBIdx);

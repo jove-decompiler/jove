@@ -149,7 +149,12 @@ found_tool:
     for (const auto &x : jove::AllTools) {
       if (x.first == arg0) {
         name = x.first;
-        tool.reset(x.second()); /* instantiate */
+        try {
+          tool.reset(x.second()); /* instantiate */
+        } catch (const boost::interprocess::interprocess_exception &e) {
+          llvm::errs() << llvm::formatv("interprocess exception: {0}\n", e.what());
+          return 1;
+        }
         break;
       }
     }
@@ -208,7 +213,6 @@ Tool::Tool()
           "no-rm-temp-dir",
           llvm::cl::desc("Do not remove temporary directory on exit"),
           llvm::cl::cat(JoveCategory))
-
 {}
 
 Tool::~Tool() {
@@ -346,6 +350,53 @@ int Tool::RunTool(const char *tool_name,
       std::bind(&Tool::on_exec_tool, this, _1, _2));
 }
 
+int Tool::RunTool(const char *tool_name,
+                  compute_args_t compute_args,
+                  compute_envs_t compute_envs,
+                  const std::string &stdout_path,
+                  const std::string &stderr_path,
+                  const RunToolExtraArgs &Extra) {
+  using namespace std::placeholders;
+
+  if (Extra.sudo.On) {
+    const char *sudo_path = "/usr/bin/sudo";
+    std::string jove_path = path_to_jove();
+
+    return jove::RunExecutable(sudo_path,
+        [&](auto Arg) {
+          Arg(sudo_path);
+
+          if (Extra.sudo.PreserveEnvironment)
+            Arg("-E");
+
+          Arg(jove_path);
+          Arg(tool_name);
+
+          persist_tool_options(Arg);
+
+          compute_args(Arg);
+        },
+        compute_envs,
+        stdout_path,
+        stderr_path,
+        std::bind(&Tool::on_exec, this, _1, _2));
+  }
+
+  return jove::RunExecutable(
+      "/proc/self/exe",
+      [&](auto Arg) {
+        Arg(tool_name);
+
+        persist_tool_options(Arg);
+
+        compute_args(Arg);
+      },
+      compute_envs,
+      stdout_path,
+      stderr_path,
+      std::bind(&Tool::on_exec_tool, this, _1, _2));
+}
+
 std::string Tool::home_dir(void) {
   errno = 0;
   const char *homedir = getpwuid(getuid())->pw_dir;
@@ -361,6 +412,14 @@ std::string Tool::jove_dir(void) {
   return home_dir() + "/.jove";
 }
 
+std::string Tool::path_to_jv(void) {
+  if (char *var = getenv("JVPATH"))
+    return var;
+
+  return home_dir() + "/.jv";
+}
+
+#if 0
 std::string Tool::path_to_jv(const char *exe_path) {
   std::vector<uint8_t> exe_bytes;
   read_file_into_vector(exe_path, exe_bytes);
@@ -368,6 +427,7 @@ std::string Tool::path_to_jv(const char *exe_path) {
   return jove_dir() + "/" + crypto::hash(&exe_bytes[0], exe_bytes.size()) +
          ".jv";
 }
+#endif
 
 std::string Tool::path_to_sysroot(const char *exe_path, bool ForeignLibs) {
   std::vector<uint8_t> exe_bytes;
@@ -423,5 +483,12 @@ void Tool::cleanup_temp_dir(void) {
     fs::remove_all(_temp_dir);
   }
 }
+
+JVTool::JVTool(const char *_jv_path)
+    : jv_path(_jv_path ? std::string(_jv_path) : path_to_jv()),
+      jv_file(boost::interprocess::open_or_create, jv_path.c_str(), JV_DEFAULT_INITIAL_SIZE),
+      Alloc(jv_file.get_segment_manager()),
+      jv(*jv_file.find_or_construct<jv_t>("JV")(ip_void_allocator_t(jv_file.get_segment_manager())))
+{}
 
 }

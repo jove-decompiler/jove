@@ -204,15 +204,15 @@ struct vert_exists_in_set_t {
 
 template <typename Graph>
 struct graphviz_label_writer {
-  Tool &tool;
+  JVTool &tool;
   const Graph &g;
 
-  graphviz_label_writer(Tool &tool, const Graph &g) : tool(tool), g(g) {}
+  graphviz_label_writer(JVTool &tool, const Graph &g) : tool(tool), g(g) {}
 
   template <typename Vertex>
   void operator()(std::ostream &out, Vertex v) const {
     std::string name =
-        fs::path(tool.jv.Binaries.at(g[v].BIdx).Path).filename().string();
+        fs::path(tool.jv.Binaries.at(g[v].BIdx).path_str()).filename().string();
 
     boost::replace_all(name, "\\", "\\\\");
     boost::replace_all(name, "\r\n", "\\l");
@@ -345,9 +345,6 @@ int RecompileTool::Run(void) {
     }
   }
 
-  ReadJvFromFile(opts.jv, jv);
-  state.update();
-
   if (Cancel) {
     WithColor::note() << "Canceled.\n";
     return 1;
@@ -360,7 +357,7 @@ int RecompileTool::Run(void) {
     if (b.IsVDSO)
       continue;
 
-    auto Bin = CreateBinary(b.Data);
+    auto Bin = CreateBinary(b.data());
     if (!dynamic_linking_info_of_binary(*Bin, state.for_binary(b).dynl)) {
       WithColor::error() << llvm::formatv(
           "!dynamic_linking_info_of_binary({0})\n", b.Path.c_str());
@@ -398,7 +395,7 @@ int RecompileTool::Run(void) {
     //
     fs::path ldso_path = fs::path(temporary_dir()) / "ld.so";
 
-    fs::path chrooted_path(opts.Output + b.Path);
+    fs::path chrooted_path(opts.Output + b.path_str());
     fs::create_directories(chrooted_path.parent_path());
 
     {
@@ -423,7 +420,7 @@ int RecompileTool::Run(void) {
     if (!state.for_binary(b).dynl.soname.empty()) {
       rtld_soname = state.for_binary(b).dynl.soname;
 
-      std::string binary_filename = fs::path(b.Path).filename().string();
+      std::string binary_filename = fs::path(b.path_str()).filename().string();
 
       if (binary_filename != state.for_binary(b).dynl.soname) {
         fs::path dst = chrooted_path.parent_path() / state.for_binary(b).dynl.soname;
@@ -505,7 +502,7 @@ int RecompileTool::Run(void) {
           (fs::path(opts.Output.getValue()) / "jove" / "BinaryPathsTable.txt").c_str());
 
       for (const binary_t &binary : jv.Binaries)
-        ofs << binary.Path << '\n';
+        ofs << binary.path_str() << '\n';
     }
 
     fs::create_directories(fs::path(opts.Output.getValue()) / "jove" /
@@ -547,7 +544,7 @@ int RecompileTool::Run(void) {
     binary_t &b = jv.Binaries[BIdx];
 
     if (state.for_binary(b).dynl.soname.empty() && !b.IsExecutable) {
-      soname_map.insert({fs::path(b.Path).filename().string(), BIdx}); /* XXX */
+      soname_map.insert({fs::path(b.path_str()).filename().string(), BIdx}); /* XXX */
       continue;
     }
 
@@ -567,7 +564,7 @@ int RecompileTool::Run(void) {
       auto it = soname_map.find(sonm);
       if (it == soname_map.end()) {
         WithColor::warning() << llvm::formatv(
-            "unknown soname {0} needed by {1}\n", sonm, b.Path);
+            "unknown soname {0} needed by {1}\n", sonm, b.path_str());
         continue;
       }
 
@@ -765,7 +762,7 @@ int RecompileTool::Run(void) {
     // make sure the path is absolute
     assert(b.Path.at(0) == '/');
 
-    const fs::path chrooted_path = fs::path(opts.Output.getValue()) / a2r(b.Path);
+    const fs::path chrooted_path = fs::path(opts.Output.getValue()) / a2r(b.path_str());
     fs::create_directories(chrooted_path.parent_path());
 
     fs::remove(chrooted_path);
@@ -787,7 +784,7 @@ int RecompileTool::Run(void) {
                                    fs::perms::owner_exec);
 
     if (!state.for_binary(b).dynl.soname.empty()) {
-      std::string binary_filename = fs::path(b.Path).filename().string();
+      std::string binary_filename = fs::path(b.path_str()).filename().string();
 
       //
       // create symlink
@@ -823,9 +820,9 @@ int RecompileTool::Run(void) {
     // make sure the path is absolute
     assert(b.Path.at(0) == '/');
 
-    const fs::path chrooted_path = fs::path(opts.Output.getValue()) / a2r(b.Path);
+    const fs::path chrooted_path = fs::path(opts.Output.getValue()) / a2r(b.path_str());
 
-    std::string binary_filename = fs::path(b.Path).filename().string();
+    std::string binary_filename = fs::path(b.path_str()).filename().string();
 
     std::string objfp(chrooted_path.string() + ".o");
     std::string mapfp(chrooted_path.string() + ".map");
@@ -879,7 +876,7 @@ int RecompileTool::Run(void) {
           // Arg("-z");
           // Arg("nocopyreloc");
 
-          std::unique_ptr<obj::Binary> Bin = CreateBinary(b.Data);
+          std::unique_ptr<obj::Binary> Bin = CreateBinary(b.data());
 
           uint64_t Base, End;
           std::tie(Base, End) = bounds_of_binary(*Bin);
@@ -930,10 +927,10 @@ int RecompileTool::Run(void) {
 
         binary_t &needed_b = jv.Binaries.at((*it).second);
 #if 1
-        const fs::path needed_chrooted_path(opts.Output + needed_b.Path);
+        const fs::path needed_chrooted_path(opts.Output + needed_b.path_str());
         lib_dirs.insert(needed_chrooted_path.parent_path().string());
 #else
-        const fs::path needed_path(needed_b.Path);
+        const fs::path needed_path(needed_b.path_str());
         lib_dirs.insert(needed_path.parent_path().string());
 #endif
       }
@@ -1025,10 +1022,10 @@ void RecompileTool::worker(const dso_graph_t &dso_graph) {
     // make sure the path is absolute
     assert(b.Path.at(0) == '/');
 
-    const fs::path chrooted_path = fs::path(opts.Output.getValue()) / a2r(b.Path);
+    const fs::path chrooted_path = fs::path(opts.Output.getValue()) / a2r(b.path_str());
     fs::create_directories(chrooted_path.parent_path());
 
-    std::string binary_filename = fs::path(b.Path).filename().string();
+    std::string binary_filename = fs::path(b.path_str()).filename().string();
 
     std::string bcfp(chrooted_path.string() + ".bc");
     std::string llfp(chrooted_path.string() + ".ll");

@@ -10,10 +10,10 @@ typedef boost::format fmt;
 
 double compute_score(const jv_t &jv,
                      const binary_t &binary) {
-  auto Bin = CreateBinary(binary.Data);
+  auto Bin = CreateBinary(llvm::StringRef(binary.data()));
 
   if (!llvm::isa<ELFO>(Bin.get()))
-    throw std::runtime_error(binary.Path + " is not ELF of expected type\n");
+    throw std::runtime_error(binary.path_str() + " is not ELF of expected type\n");
 
   assert(llvm::isa<ELFO>(Bin.get()));
   const ELFO &O = *llvm::cast<ELFO>(Bin.get());
@@ -23,7 +23,7 @@ double compute_score(const jv_t &jv,
 
   auto ProgramHeadersOrError = E.program_headers();
   if (!ProgramHeadersOrError)
-    throw std::runtime_error("failed to to get program headers from " + binary.Path);
+    throw std::runtime_error("failed to to get program headers from " + binary.path_str());
 
   for (const Elf_Phdr &Phdr : *ProgramHeadersOrError)
     if (Phdr.p_type == llvm::ELF::PT_LOAD)

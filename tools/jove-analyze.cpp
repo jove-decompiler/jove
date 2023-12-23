@@ -89,16 +89,11 @@ int AnalyzeTool::Run(void) {
     return 1;
   }
 
-  ReadJvFromFile(
-      fs::is_directory(opts.jv) ? (opts.jv + "/jv.jv") : opts.jv,
-      jv);
-  state.update();
-
   identify_ABIs(jv);
 
   for_each_binary(jv, [&](binary_t &binary) {
     ignore_exception([&]() {
-      state.for_binary(binary).ObjectFile = CreateBinary(binary.Data);
+      state.for_binary(binary).ObjectFile = CreateBinary(binary.data());
     });
   });
 
@@ -132,8 +127,7 @@ int AnalyzeTool::Run(void) {
   TCG.reset(new tiny_code_generator_t);
 
   return AnalyzeBlocks()
-      || AnalyzeFunctions()
-      || WriteDecompilation();
+      || AnalyzeFunctions();
 }
 
 // defined in tools/llvm.cpp
@@ -326,15 +320,8 @@ void AnalyzeTool::worker2(std::atomic<dynamic_target_t *>& Q_ptr,
   for (dynamic_target_t *p = Q_ptr++; p < Q_end; p = Q_ptr++) {
     dynamic_target_t X = *p;
 
-    AnalyzeFunction(jv, *TCG, *Module, function_of_target(X, jv), [&](binary_t &b) -> llvm::object::Binary & { return *state.for_binary(b).ObjectFile; }, this);
+    AnalyzeFunction(jv, *TCG, *Module, function_of_target(X, jv), [&](binary_t &b) -> llvm::object::Binary & { return *state.for_binary(b).ObjectFile; }, false, false, this);
   }
-}
-
-int AnalyzeTool::WriteDecompilation(void) {
-  IgnoreCtrlC();
-
-  WriteJvToFile(opts.jv, jv);
-  return 0;
 }
 
 }

@@ -17,14 +17,12 @@ namespace jove {
 
 typedef boost::format fmt;
 
-function_index_t explore_function(binary_t &b,
-                                  llvm::object::Binary &B,
-                                  tiny_code_generator_t &tcg,
-                                  disas_t &disas,
-                                  const uint64_t Addr,
-                                  fnmap_t &fnmap,
-                                  bbmap_t &bbmap,
-                                  std::function<void(binary_t &, basic_block_t)> on_newbb_proc) {
+function_index_t explorer_t::explore_function(binary_t &b,
+                                              llvm::object::Binary &B,
+                                              const uint64_t Addr,
+                                              fnmap_t &fnmap,
+                                              bbmap_t &bbmap,
+                                              std::function<void(binary_t &, basic_block_t)> on_newbb_proc) {
 #if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
   assert((Addr & 1) == 0);
 #endif
@@ -41,7 +39,7 @@ function_index_t explore_function(binary_t &b,
   fnmap.insert({Addr, res});
 
   basic_block_index_t Entry =
-      explore_basic_block(b, B, tcg, disas, Addr, fnmap, bbmap, on_newbb_proc);
+      explore_basic_block(b, B, Addr, fnmap, bbmap, on_newbb_proc);
 
   if (!is_basic_block_index_valid(Entry))
     return invalid_function_index;
@@ -58,14 +56,12 @@ function_index_t explore_function(binary_t &b,
   return res;
 }
 
-basic_block_index_t explore_basic_block(binary_t &b,
-                                        llvm::object::Binary &B,
-                                        tiny_code_generator_t &tcg,
-                                        disas_t &disas,
-                                        const uint64_t Addr,
-                                        fnmap_t &fnmap,
-                                        bbmap_t &bbmap,
-                                        std::function<void(binary_t &, basic_block_t)> on_newbb_proc) {
+basic_block_index_t explorer_t::explore_basic_block(binary_t &b,
+                                                    llvm::object::Binary &B,
+                                                    const uint64_t Addr,
+                                                    fnmap_t &fnmap,
+                                                    bbmap_t &bbmap,
+                                                    std::function<void(binary_t &, basic_block_t)> on_newbb_proc) {
 #if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
   assert((Addr & 1) == 0);
 #endif
@@ -157,7 +153,7 @@ on_insn_boundary:
       boost::icl::interval<uint64_t>::type orig_intervl = (*it).first;
 
       const basic_block_index_t NewBBIdx = boost::num_vertices(ICFG);
-      basic_block_t newbb = boost::add_vertex(ICFG);
+      basic_block_t newbb = boost::add_vertex(ICFG, Alloc);
       {
         basic_block_properties_t &newbbprop = ICFG[newbb];
         newbbprop.Addr = beg;
@@ -290,7 +286,7 @@ on_insn_boundary:
   }
 
   const basic_block_index_t BBIdx = boost::num_vertices(ICFG);
-  basic_block_t bb = boost::add_vertex(ICFG);
+  basic_block_t bb = boost::add_vertex(ICFG, Alloc);
   {
     basic_block_properties_t &bbprop = ICFG[bb];
     bbprop.Addr = Addr;
@@ -326,7 +322,7 @@ on_insn_boundary:
 #endif
 
     basic_block_index_t SuccBBIdx =
-        explore_basic_block(b, B, tcg, disas, Target, fnmap, bbmap, on_newbb_proc);
+        explore_basic_block(b, B, Target, fnmap, bbmap, on_newbb_proc);
 
     if (!is_basic_block_index_valid(SuccBBIdx)) {
       llvm::WithColor::warning() << llvm::formatv(
@@ -359,7 +355,7 @@ on_insn_boundary:
     CalleeAddr &= ~1UL;
 #endif
 
-    function_index_t CalleeFIdx = explore_function(b, B, tcg, disas, CalleeAddr,
+    function_index_t CalleeFIdx = explore_function(b, B, CalleeAddr,
                                                    fnmap,
                                                    bbmap,
                                                    on_newbb_proc);
@@ -379,7 +375,7 @@ on_insn_boundary:
 
     if (!is_basic_block_index_valid(callee.Entry)) {
       llvm::WithColor::warning() << llvm::formatv(
-          "explore_basic_block: FIXME {0:x}\n", CalleeAddr);
+        "explore_basic_block: FIXME {0:x}\n", CalleeAddr);
       break;
     }
 

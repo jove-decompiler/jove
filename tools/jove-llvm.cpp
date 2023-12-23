@@ -936,13 +936,12 @@ static flow_vertex_t copy_function_cfg(jv_t &jv,
   for (basic_block_t bb : bbvec) {
     switch (ICFG[bb].Term.Type) {
     case TERMINATOR::INDIRECT_CALL: {
-      auto &DynTargets = ICFG[bb].DynTargets;
-      if (DynTargets.empty())
+      if (!ICFG[bb].hasDynTarget())
         continue;
 
       auto eit_pair = boost::out_edges(bb, ICFG);
 
-      for (dynamic_target_t DynTarget : DynTargets) {
+      for (dynamic_target_t DynTarget : ICFG[bb].dyn_targets()) {
         function_t &callee = function_of_target(DynTarget, jv);
 
         std::vector<exit_vertex_pair_t> calleeExitVertices;
@@ -1024,10 +1023,9 @@ static flow_vertex_t copy_function_cfg(jv_t &jv,
         exitVertices.erase(it);
       }
 
-      const auto &DynTargets = ICFG[bb].DynTargets;
-      assert(!DynTargets.empty());
+      assert(ICFG[bb].hasDynTarget());
 
-      for (dynamic_target_t DynTarget : DynTargets) {
+      for (dynamic_target_t DynTarget : ICFG[bb].dyn_targets()) {
         function_t &callee = function_of_target(DynTarget, jv);
 
         std::vector<exit_vertex_pair_t> calleeExitVertices;
@@ -1760,9 +1758,6 @@ int LLVMTool::Run(void) {
   opts.CallStack = opts.DFSan;
   opts.CheckEmulatedReturnAddress = opts.DFSan;
 
-  ReadJvFromFile(opts.jv, jv);
-  state.update();
-
   //
   // binary index (cmdline)
   //
@@ -1770,7 +1765,7 @@ int LLVMTool::Run(void) {
     for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
       binary_t &b = jv.Binaries[BIdx];
 
-      if (fs::path(b.Path).filename().string() == opts.Binary) {
+      if (fs::path(b.path_str()).filename().string() == opts.Binary) {
         if (b.IsDynamicLinker) {
           WithColor::error() << "given binary is dynamic linker\n";
           return 1;
@@ -2337,23 +2332,23 @@ int LLVMTool::InitStateForBinaries(void) {
       if (y.IsSj)
         llvm::outs() << llvm::formatv("setjmp found at {0:x} in {1}\n",
                                       ICFG[boost::vertex(f.Entry, ICFG)].Addr,
-                                      fs::path(binary.Path).filename().string());
+                                      fs::path(binary.path_str()).filename().string());
 
       if (y.IsLj)
         llvm::outs() << llvm::formatv("longjmp found at {0:x} in {1}\n",
                                       ICFG[boost::vertex(f.Entry, ICFG)].Addr,
-                                      fs::path(binary.Path).filename().string());
+                                      fs::path(binary.path_str()).filename().string());
     });
 
     ignore_exception([&]() {
-      x.ObjectFile = CreateBinary(binary.Data);
+      x.ObjectFile = CreateBinary(binary.data());
 
       auto &SectsStartAddr = x.SectsStartAddr;
       auto &SectsEndAddr   = x.SectsEndAddr;
       std::tie(SectsStartAddr, SectsEndAddr) = bounds_of_binary(*x.ObjectFile);
 
       WithColor::note() << llvm::formatv("SectsStartAddr for {0} is {1:x}\n",
-                                         binary.Path,
+                                         binary.path_str(),
                                          SectsStartAddr);
 
       assert(llvm::isa<ELFO>(x.ObjectFile.get()));
@@ -3293,8 +3288,8 @@ int LLVMTool::PrepareToTranslateCode(void) {
   llvm::DIBuilder &DIB = *DIBuilder;
 
   DebugInformation.File =
-      DIB.createFile(fs::path(Binary.Path).filename().string() + ".fake",
-                     fs::path(Binary.Path).parent_path().string());
+      DIB.createFile(fs::path(Binary.path_str()).filename().string() + ".fake",
+                     fs::path(Binary.path_str()).parent_path().string());
 
   DebugInformation.CompileUnit = DIB.createCompileUnit(
       /* Lang        */ llvm::dwarf::DW_LANG_C,
@@ -4828,7 +4823,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
       return DynSymRegion.getAsArrayRef<Elf_Sym>();
     };
 
-    MipsGOTParser Parser(E, Binary.Path);
+    MipsGOTParser Parser(E, Binary.path_str());
     if (llvm::Error Err = Parser.findGOT(dynamic_table(),
                                          dynamic_symbols())) {
       WithColor::warning() << llvm::formatv("Failed to find GOT: {0}\n", Err);
@@ -4966,7 +4961,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
         return DynSymRegion.getAsArrayRef<Elf_Sym>();
       };
 
-      MipsGOTParser Parser(E, Binary.Path);
+      MipsGOTParser Parser(E, Binary.path_str());
       if (llvm::Error Err = Parser.findGOT(dynamic_table(),
                                            dynamic_symbols())) {
         WithColor::warning() << llvm::formatv("Failed to find GOT: {0}\n", Err);
@@ -5068,7 +5063,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
         return DynSymRegion.getAsArrayRef<Elf_Sym>();
       };
 
-      MipsGOTParser Parser(E, Binary.Path);
+      MipsGOTParser Parser(E, Binary.path_str());
       if (llvm::Error Err = Parser.findGOT(dynamic_table(),
                                            dynamic_symbols())) {
         WithColor::warning() << llvm::formatv("Failed to find GOT: {0}\n", Err);
@@ -5637,7 +5632,7 @@ int LLVMTool::FixupHelperStubs(void) {
         std::string dynl_path;
         for (binary_t &binary : jv.Binaries) {
           if (binary.IsDynamicLinker) {
-            dynl_path = binary.Path;
+            dynl_path = binary.path_str();
             break;
           }
         }
@@ -5691,7 +5686,7 @@ int LLVMTool::FixupHelperStubs(void) {
   fillInFunctionBody(
       Module->getFunction("_jove_get_dynl_function_table"),
       [&](auto &IRB) {
-        binary_t &dynl_binary = jv.Binaries.at(1);
+        binary_t &dynl_binary = get_dynl(jv);
         assert(dynl_binary.IsDynamicLinker);
         auto &ICFG = dynl_binary.Analysis.ICFG;
 
@@ -5722,7 +5717,8 @@ int LLVMTool::FixupHelperStubs(void) {
   fillInFunctionBody(
       Module->getFunction("_jove_get_vdso_function_table"),
       [&](auto &IRB) {
-        binary_t &vdso_binary = jv.Binaries.at(2);
+        binary_t &vdso_binary = get_vdso(jv);
+        assert(vdso_binary.IsVDSO);
         auto &ICFG = vdso_binary.Analysis.ICFG;
 
         std::vector<llvm::Constant *> constantTable;
@@ -5788,7 +5784,7 @@ int LLVMTool::FixupHelperStubs(void) {
                     *Context, 0 /* Line */, 0 /* Column */, F->getSubprogram()));
 
                 CaseIRB.CreateRet(
-                    CaseIRB.CreateGlobalStringPtr(jv.Binaries[BIdx].Path));
+                    CaseIRB.CreateGlobalStringPtr(jv.Binaries[BIdx].path_str()));
               }
 
               SI->addCase(llvm::ConstantInt::get(IRB.getInt32Ty(), BIdx - 3),  CaseBB);
@@ -7421,7 +7417,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
               (fmt("doing %s (call) to %s @ %s+0x%x\n")
                % (Lj ? "longjmp" : "setjmp")
                % dyn_target_desc({BinaryIndex, FIdx})
-               % fs::path(Binary.Path).filename().string()
+               % fs::path(Binary.path_str()).filename().string()
                % ICFG[bb].Term.Addr).str();
 
           IRB.CreateCall(JoveLog2Func,
@@ -7456,7 +7452,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
             (fmt("doing %s (call) to %s @ %s+0x%x\n")
              % (Lj ? "longjmp" : "setjmp")
              % dyn_target_desc({BinaryIndex, FIdx})
-             % fs::path(Binary.Path).filename().string()
+             % fs::path(Binary.path_str()).filename().string()
              % ICFG[bb].Term.Addr).str();
         IRB.CreateCall(JoveLog1Func, {IRB.CreateGlobalStringPtr(message.c_str()), ArgVec.at(0)});
       }
@@ -7780,7 +7776,6 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
 
   case TERMINATOR::INDIRECT_CALL: {
     bool IsCall = T.Type == TERMINATOR::INDIRECT_CALL;
-    const auto &DynTargets = ICFG[bb].DynTargets;
     const bool &DynTargetsComplete = ICFG[bb].DynTargetsComplete;
 
     llvm::Value *PC = IRB.CreateLoad(TC.PCAlloca);
@@ -7789,14 +7784,14 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
 
       std::string message =
           (fmt("encountered longjmp @ %s+0x%x") %
-           fs::path(Binary.Path).filename().string() % ICFG[bb].Term.Addr)
+           fs::path(Binary.path_str()).filename().string() % ICFG[bb].Term.Addr)
               .str();
       IRB.CreateCall(JoveFail1Func, {PC, IRB.CreateGlobalStringPtr(message.c_str())})->setIsNoInline();
       IRB.CreateUnreachable();
       return 0;
     }
 
-    if (DynTargets.empty()) {
+    if (!ICFG[bb].hasDynTarget()) {
 #if 0
       if (IsVerbose())
         WithColor::warning() << llvm::formatv(
@@ -7819,13 +7814,13 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
     //
     // setjmp/longjmp
     //
-    const bool Lj = std::any_of(DynTargets.begin(),
-                                DynTargets.end(),
+    const bool Lj = std::any_of(ICFG[bb].dyn_targets_begin(),
+                                ICFG[bb].dyn_targets_end(),
                                 [&](dynamic_target_t X) -> bool {
                                   return state.for_function(function_of_target(X, jv)).IsLj;
                                 });
-    const bool Sj = std::any_of(DynTargets.begin(),
-                                DynTargets.end(),
+    const bool Sj = std::any_of(ICFG[bb].dyn_targets_begin(),
+                                ICFG[bb].dyn_targets_end(),
                                 [&](dynamic_target_t X) -> bool {
                                   return state.for_function(function_of_target(X, jv)).IsSj;
                                 });
@@ -7834,7 +7829,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
     if (unlikely(SjLj)) {
       assert(Lj ^ Sj);
 
-      dynamic_target_t X = *DynTargets.begin();
+      dynamic_target_t X = *ICFG[bb].dyn_targets_begin();
 
       function_t &callee = function_of_target(X, jv);
 
@@ -7870,7 +7865,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
                % (Lj ? "longjmp" : "setjmp")
                % (IsCall ? "indcall" : "indjmp")
                % dyn_target_desc(X)
-               % fs::path(Binary.Path).filename().string()
+               % fs::path(Binary.path_str()).filename().string()
                % ICFG[bb].Term.Addr).str();
 
           IRB.CreateCall(JoveLog2Func,
@@ -7906,7 +7901,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
              % (Lj ? "longjmp" : "setjmp")
              % (IsCall ? "indcall" : "indjmp")
              % dyn_target_desc(X)
-             % fs::path(Binary.Path).filename().string()
+             % fs::path(Binary.path_str()).filename().string()
              % ICFG[bb].Term.Addr).str();
         IRB.CreateCall(JoveLog1Func, {IRB.CreateGlobalStringPtr(message.c_str()), ArgVec.at(0)});
       }
@@ -7941,8 +7936,8 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
 
     assert(!SjLj);
 
-    bool IsABICall = std::all_of(DynTargets.begin(),
-                                 DynTargets.end(),
+    bool IsABICall = std::all_of(ICFG[bb].dyn_targets_begin(),
+                                 ICFG[bb].dyn_targets_end(),
                                  [&](dynamic_target_t X) -> bool {
                                    return function_of_target(X, jv).IsABI;
                                  });
@@ -8036,14 +8031,15 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
     }
     else
     {
-      assert(!DynTargets.empty());
+      assert(ICFG[bb].hasDynTarget());
 
       llvm::Value *PC = IRB.CreateLoad(TC.PCAlloca);
 
       llvm::BasicBlock *ThruB = llvm::BasicBlock::Create(*Context, "", state.for_function(f).F);
 
       std::vector<std::pair<binary_index_t, function_index_t>> DynTargetsVec(
-          DynTargets.begin(), DynTargets.end());
+          ICFG[bb].dyn_targets_begin(),
+          ICFG[bb].dyn_targets_end());
 
       std::vector<llvm::BasicBlock *> DynTargetsDoCallBVec;
       DynTargetsDoCallBVec.resize(DynTargetsVec.size());
@@ -8762,7 +8758,7 @@ std::string LLVMTool::dyn_target_desc(dynamic_target_t IdxPair) {
   uint64_t Addr =
       b.Analysis.ICFG[boost::vertex(f.Entry, b.Analysis.ICFG)].Addr;
 
-  return (fmt("%s+%#lx") % fs::path(b.Path).filename().string() % Addr).str();
+  return (fmt("%s+%#lx") % fs::path(b.path_str()).filename().string() % Addr).str();
 }
 
 static unsigned BitsOfMemOp(MemOp op) {

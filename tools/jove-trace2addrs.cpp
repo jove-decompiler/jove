@@ -12,7 +12,7 @@ using llvm::WithColor;
 
 namespace jove {
 
-class Trace2AddrsTool : public Tool {
+class Trace2AddrsTool : public JVTool {
   struct Cmdline {
     cl::opt<std::string> TracePath;
     cl::opt<std::string> jv;
@@ -103,8 +103,6 @@ int Trace2AddrsTool::Run(void) {
     }
   }
 
-  ReadJvFromFile(opts.jv, jv);
-
   //
   // for every block in the trace, print out its description.
   //
@@ -119,7 +117,7 @@ int Trace2AddrsTool::Run(void) {
     basic_block_t bb = boost::vertex(BBIdx, ICFG);
 
     OutputStream << llvm::formatv("{0}+0x{1:x}\n",
-                                  fs::path(binary.Path).filename().c_str(),
+                                  fs::path(binary.path_str()).filename().c_str(),
                                   ICFG[bb].Addr);
   }
 

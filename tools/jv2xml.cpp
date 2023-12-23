@@ -1,14 +1,9 @@
 #include "tool.h"
+#include "xml.h"
 
-#include <boost/archive/xml_oarchive.hpp>
 #include <boost/dynamic_bitset.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/format.hpp>
-#include <boost/graph/adj_list_serialize.hpp>
-#include <boost/serialization/bitset.hpp>
-#include <boost/serialization/map.hpp>
-#include <boost/serialization/set.hpp>
-#include <boost/serialization/vector.hpp>
 
 #include <llvm/Support/DataTypes.h>
 #include <llvm/Support/FormatVariadic.h>
@@ -16,7 +11,7 @@
 
 #include <fstream>
 #include <memory>
-#include <sstream>
+#include <algorithm>
 
 namespace fs = boost::filesystem;
 namespace cl = llvm::cl;
@@ -25,13 +20,13 @@ using llvm::WithColor;
 
 namespace jove {
 
-class jv2xmlTool : public Tool {
+struct jv2xmlTool : public JVTool {
   struct Cmdline {
-    cl::opt<std::string> jv;
+    cl::opt<std::string> InputFilename;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
-        : jv(cl::Positional, cl::desc("jv.jv"), cl::Required,
-             cl::value_desc("filename"), cl::cat(JoveCategory)) {}
+        : InputFilename(cl::Positional, cl::desc("<input jove database>"),
+                        cl::Required, cl::cat(JoveCategory)) {}
   } opts;
 
 public:
@@ -43,37 +38,32 @@ public:
 JOVE_REGISTER_TOOL("jv2xml", jv2xmlTool);
 
 int jv2xmlTool::Run(void) {
-  if (!fs::exists(opts.jv)) {
-    WithColor::error() << "jv does not exist\n";
+  jv_file_t jv_file(boost::interprocess::open_copy_on_write, opts.InputFilename.c_str());
+  std::pair<jv_t *, jv_file_t::size_type> search = jv_file.find<jv_t>("JV");
+
+  if (search.second == 0) {
+    llvm::errs() << "jv_t not found\n";
     return 1;
   }
 
-  jv_t jv;
-  ReadJvFromFile(opts.jv, jv);
+  if (search.second > 1) {
+    llvm::errs() << "multiple jv_t found\n";
+    return 1;
+  }
 
-  //
+  assert (search.second == 1);
+
+  jv_t &jv = *search.first;
+
   // destructively modify data so the output is printable
-  //
-  for (auto &binary : jv.Binaries) {
-    for (unsigned i = 0; i < binary.Data.size(); ++i) {
-      binary.Data[i] = ' ';
-    }
-  }
+  for_each_binary(jv, [&](binary_t &binary) {
+    std::fill(binary.Data.begin(), binary.Data.end(), ' ');
+  });
 
-  std::string res;
-  {
-    std::ostringstream oss;
+  std::ostringstream oss;
+  jv2xml(jv, oss);
 
-    {
-      boost::archive::xml_oarchive oa(oss);
-
-      oa << BOOST_SERIALIZATION_NVP(jv);
-    }
-
-    res = oss.str();
-  }
-
-  llvm::outs() << res;
+  llvm::outs() << oss.str() /* oss.view() */;
 
   return 0;
 }

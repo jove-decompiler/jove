@@ -31,7 +31,7 @@ using llvm::WithColor;
 
 namespace jove {
 
-class LoopTool : public Tool {
+class LoopTool : public JVTool {
   struct Cmdline {
     cl::opt<std::string> Prog;
     cl::list<std::string> Args;
@@ -236,8 +236,6 @@ class LoopTool : public Tool {
                cl::cat(JoveCategory)) {}
   } opts;
 
-  std::string jv_path;
-
 public:
   LoopTool() : opts(JoveCategory) {}
 
@@ -346,10 +344,6 @@ int LoopTool::Run(void) {
     return 1;
   }
 
-  jv_path = opts.jv;
-  if (jv_path.empty())
-    jv_path = path_to_jv(opts.Prog.c_str());
-
   std::string sysroot = opts.Sysroot;
   if (sysroot.empty())
     sysroot = path_to_sysroot(opts.Prog.c_str(), opts.ForeignLibs);
@@ -369,11 +363,6 @@ int LoopTool::Run(void) {
     fs::copy_file(locator().gdbserver(),
                   fs::path(sysroot) / "usr" / "bin" / "gdbserver",
                   fs::copy_option::overwrite_if_exists);
-
-  if (!fs::exists(jv_path)) {
-    HumanOut() << jv_path << " does not exist\n";
-    return 1;
-  }
 
   while (!Cancelled) {
     pid_t pid;
@@ -440,8 +429,6 @@ run:
 
             Arg("--sysroot");
             Arg(sysroot);
-            Arg("-d");
-            Arg(jv_path);
 
             if (!opts.HumanOutput.empty()) {
               Arg("--human-output");
@@ -527,6 +514,12 @@ run:
               Arg("--");
             for (std::string &s : opts.Args)
               Arg(s);
+          },
+          [&](auto Env) {
+            InitWithEnviron(Env);
+
+            if (char *e = getenv("JVPATH"))
+              Env(e);
           },
           std::string(),
           std::string(),
@@ -716,14 +709,18 @@ skip_run:
         }
       }
 
+      std::string tmpjv_path = temporary_dir() + "/serialized.jv";
+
       //
       // send the jv
       //
       {
-        if (IsVerbose())
-          HumanOut() << llvm::formatv("sending {0}\n", jv_path.c_str());
+        SerializeJVToFile(jv, tmpjv_path.c_str());
 
-        ssize_t ret = robust_sendfile_with_size(remote_fd, jv_path.c_str());
+        if (IsVerbose())
+          HumanOut() << llvm::formatv("sending {0}\n", tmpjv_path.c_str());
+
+        ssize_t ret = robust_sendfile_with_size(remote_fd, tmpjv_path.c_str());
 
         if (ret < 0) {
           HumanOut() << llvm::formatv(
@@ -733,24 +730,22 @@ skip_run:
         }
       }
 
-      ReadJvFromFile(jv_path, jv);
-
       //
       // ... the remote analyzes and recompiles and sends us a new jv
       //
       {
-        std::string tmpjv = "/tmp/tmpjv.jv";
-
         if (IsVerbose())
-          HumanOut() << llvm::formatv("receiving {0}\n", jv_path.c_str());
+          HumanOut() << llvm::formatv("receiving {0}\n", tmpjv_path.c_str());
 
-        ssize_t ret = robust_receive_file_with_size(remote_fd, jv_path.c_str(), 0666);
+        ssize_t ret = robust_receive_file_with_size(remote_fd, tmpjv_path.c_str(), 0666);
         if (ret < 0) {
           HumanOut() << llvm::formatv(
               "failed to receive jv from remote: {0}\n",
               strerror(-ret));
           break;
         }
+
+        UnserializeJVFromFile(jv, tmpjv_path.c_str()); /* is this necessary? */
       }
 
       for (const binary_t &binary : jv.Binaries) {
@@ -759,7 +754,7 @@ skip_run:
         if (binary.IsDynamicLinker)
           continue;
 
-        fs::path chrooted_path(fs::path(sysroot) / binary.Path);
+        fs::path chrooted_path(fs::path(sysroot) / binary.path_str());
 
         fs::create_directories(chrooted_path.parent_path());
 
@@ -1018,11 +1013,11 @@ skip_run:
           if (soname.empty())
             continue;
 
-          fs::path chrooted_path = fs::path(sysroot) / b.Path;
-          std::string binary_filename = fs::path(b.Path).filename().string();
+          fs::path chrooted_path = fs::path(sysroot) / b.path_str();
+          std::string binary_filename = fs::path(b.path_str()).filename().string();
 
           if (IsVerbose())
-            HumanOut() << llvm::formatv("{0}'s soname is {1}\n", b.Path, soname);
+            HumanOut() << llvm::formatv("{0}'s soname is {1}\n", b.path_str(), soname);
 
           if (binary_filename != soname) {
             fs::path dst = chrooted_path.parent_path() / soname;
@@ -1099,7 +1094,7 @@ skip_run:
 }
 
 std::string LoopTool::soname_of_binary(binary_t &b) {
-  auto Bin = CreateBinary(b.Data);
+  auto Bin = CreateBinary(b.data());
   if (!llvm::isa<ELFO>(Bin.get())) {
     HumanOut() << "is not ELF of expected type\n";
     return "";
@@ -1153,7 +1148,7 @@ std::string LoopTool::soname_of_binary(binary_t &b) {
     if (Off >= DynamicStringTable.size()) {
       if (IsVerbose())
         HumanOut() << llvm::formatv("[{0}] bad SONameOffset {1}\n",
-                                    b.Path, Off);
+                                    b.path_str(), Off);
     } else {
       const char *c_str = DynamicStringTable.data() + Off;
       return c_str;

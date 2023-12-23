@@ -95,8 +95,6 @@ class DecompileTool : public TransformerTool_Bin<binary_state_t> {
 
   } opts;
 
-  std::string jvfp;
-
   std::vector<binary_index_t> Q;
   std::mutex Q_mtx;
 
@@ -140,18 +138,6 @@ void DecompileTool::queue_binaries(void) {
 }
 
 int DecompileTool::Run(void) {
-  jvfp = opts.jv;
-  if (jvfp.empty() && !opts.Prog.empty())
-    jvfp = path_to_jv(opts.Prog.c_str());
-
-  if (jvfp.empty()) {
-    WithColor::error() << "must specify jv\n";
-    return 1;
-  }
-
-  ReadJvFromFile(jvfp, jv);
-  state.update();
-
   //
   // gather dynamic linking information
   //
@@ -159,7 +145,7 @@ int DecompileTool::Run(void) {
     ignore_exception([&]() {
       auto &x = state.for_binary(binary);
 
-      x.Bin = CreateBinary(binary.Data);
+      x.Bin = CreateBinary(binary.data());
 
       dynamic_linking_info_of_binary(*x.Bin, x.dynl);
     });
@@ -173,7 +159,7 @@ int DecompileTool::Run(void) {
 
     if (_state.dynl.soname.empty() && !binary.IsExecutable) {
       soname_map.insert(
-          {fs::path(binary.Path).filename().string(), BIdx}); /* XXX */
+          {fs::path(binary.path_str()).filename().string(), BIdx}); /* XXX */
       return;
     }
 
@@ -194,7 +180,7 @@ int DecompileTool::Run(void) {
 
     for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
       const binary_t &binary = jv.Binaries[BIdx];
-      if (binary.Path.find(opts.Binary) == std::string::npos)
+      if (binary.path_str().find(opts.Binary) == std::string::npos)
         continue;
 
       BinaryIndex = BIdx;
@@ -229,7 +215,7 @@ int DecompileTool::Run(void) {
 
   if (RunToolToExit("extract", [&](auto Arg) {
         Arg("-d");
-        Arg(jvfp);
+        Arg(jv_path);
 
         Arg((fs::path(opts.Output) / ".lib").string());
       })) {
@@ -282,7 +268,7 @@ int DecompileTool::Run(void) {
     if (!binary.IsExecutable)
       return; /* FIXME */
 
-    const fs::path chrooted_path = fs::path(temporary_dir()) / binary.Path;
+    const fs::path chrooted_path = fs::path(temporary_dir()) / binary.path_str();
     std::string bcfp(chrooted_path.string() + ".bc");
 
     assert(fs::exists(bcfp));
@@ -487,7 +473,7 @@ int DecompileTool::Run(void) {
 
       assert(binary.IsExecutable); /* FIXME */
 
-      std::string binary_filename = fs::path(binary.Path).filename().string();
+      std::string binary_filename = fs::path(binary.path_str()).filename().string();
 
       ofs << binary_filename << ": " << binary_filename << ".o";
       ofs << " $(wildcard .obj/*.o)";
@@ -539,7 +525,7 @@ int DecompileTool::Run(void) {
 
         binary_t &needed_b = jv.Binaries.at((*it).second);
 
-        const fs::path needed_path(needed_b.Path);
+        const fs::path needed_path(needed_b.path_str());
         if (needed_path.filename() != needed) {
           if (IsVerbose())
             HumanOut() << llvm::formatv("creating symlink for {0}\n", needed);
@@ -608,10 +594,10 @@ void DecompileTool::Worker(void) {
     // make sure the path is absolute
     assert(binary.Path.at(0) == '/');
 
-    const fs::path chrooted_path = fs::path(temporary_dir()) / binary.Path;
+    const fs::path chrooted_path = fs::path(temporary_dir()) / binary.path_str();
     fs::create_directories(chrooted_path.parent_path());
 
-    std::string binary_filename = fs::path(binary.Path).filename().string();
+    std::string binary_filename = fs::path(binary.path_str()).filename().string();
 
     std::string bcfp(chrooted_path.string() + ".bc");
     std::string mapfp = (fs::path(opts.Output) / (binary_filename + ".map")).string();
@@ -637,7 +623,7 @@ void DecompileTool::Worker(void) {
             Arg(std::to_string(BIdx));
 
             Arg("-d");
-            Arg(jvfp);
+            Arg(jv_path);
 
             Arg("--for-cbe");
 

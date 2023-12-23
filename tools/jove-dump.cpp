@@ -37,7 +37,7 @@ class DumpTool : public Tool {
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : InputFilenames(cl::Positional,
-                         cl::desc("<input jove decompilations>"), cl::OneOrMore,
+                         cl::desc("<input jove database>"), cl::Optional,
                          cl::cat(JoveCategory)),
 
           Compact("compact",
@@ -99,10 +99,6 @@ struct reached_visitor : public boost::default_bfs_visitor {
 };
 
 void DumpTool::dumpDecompilation(const jv_t& jv) {
-#if 0
-  tiny_code_generator_t tcg;
-#endif
-
   llvm::ScopedPrinter Writer(llvm::outs());
   llvm::ListScope _(Writer, (fmt("Binaries (%u)") % jv.Binaries.size()).str());
 
@@ -259,24 +255,25 @@ void DumpTool::dumpDecompilation(const jv_t& jv) {
 
         Writer.getOStream() << '\n';
 
-        if (!ICFG[bb].DynTargets.empty()) {
+        if (ICFG[bb].hasDynTarget()) {
           std::vector<std::string> descv;
-          descv.resize(ICFG[bb].DynTargets.size());
+          descv.resize(ICFG[bb].getNumDynTargets());
 
-          std::transform(ICFG[bb].DynTargets.begin(), ICFG[bb].DynTargets.end(),
-                         descv.begin(), [&](const auto &pair) -> std::string {
+          std::transform(ICFG[bb].dyn_targets_begin(),
+                         ICFG[bb].dyn_targets_end(), descv.begin(),
+                         [&](const auto &pair) -> std::string {
                            binary_index_t BIdx;
                            function_index_t FIdx;
                            std::tie(BIdx, FIdx) = pair;
 
-                           auto &b = jv.Binaries[BIdx];
+                           const binary_t &b = jv.Binaries.at(BIdx);
                            const auto &_ICFG = b.Analysis.ICFG;
-                           auto &callee = b.Analysis.Functions[FIdx];
-                           uintptr_t target_addr =
+                           const function_t &callee = b.Analysis.Functions[FIdx];
+                           uint64_t target_addr =
                                _ICFG[boost::vertex(callee.Entry, _ICFG)].Addr;
 
                            return (fmt("0x%lX @ %s") % target_addr %
-                                   fs::path(b.Path).filename().string())
+                                   fs::path(b.path_str()).filename().string())
                                .str();
                          });
 
@@ -392,7 +389,7 @@ void DumpTool::dumpDecompilation(const jv_t& jv) {
                                _ICFG[boost::vertex(callee.Entry, _ICFG)].Addr;
 
                            return (fmt("0x%lX @ %s") % target_addr %
-                                   fs::path(b.Path).filename().string())
+                                   fs::path(b.path_str()).filename().string())
                                .str();
                          });
 
@@ -425,7 +422,7 @@ void DumpTool::dumpDecompilation(const jv_t& jv) {
                                _ICFG[boost::vertex(callee.Entry, _ICFG)].Addr;
 
                            return (fmt("0x%lX @ %s") % target_addr %
-                                   fs::path(b.Path).filename().string())
+                                   fs::path(b.path_str()).filename().string())
                                .str();
                          });
 
@@ -440,7 +437,7 @@ void DumpTool::dumpDecompilation(const jv_t& jv) {
       for (const auto &pair : B.Analysis.SymDynTargets) {
         llvm::DictScope ____(Writer);
 
-        Writer.printString("Name", pair.first);
+        Writer.printString("Name", un_ips(pair.first));
         if (!pair.second.empty()) {
           std::vector<std::string> descv;
           descv.resize(pair.second.size());
@@ -458,7 +455,7 @@ void DumpTool::dumpDecompilation(const jv_t& jv) {
                                _ICFG[boost::vertex(callee.Entry, _ICFG)].Addr;
 
                            return (fmt("0x%lX @ %s") % target_addr %
-                                   fs::path(b.Path).filename().string())
+                                   fs::path(b.path_str()).filename().string())
                                .str();
                          });
 
@@ -471,25 +468,41 @@ void DumpTool::dumpDecompilation(const jv_t& jv) {
 
 
 int DumpTool::Run(void) {
-  for (const std::string &filename : opts.InputFilenames)
-    dumpInput(filename);
+  if (opts.InputFilenames.empty()) {
+    dumpInput(path_to_jv());
+  } else {
+    for (const std::string &filename : opts.InputFilenames)
+      dumpInput(filename);
+  }
 
   return 0;
 }
 
 void DumpTool::dumpInput(const std::string &Path) {
-  jv_t jv;
-  ReadJvFromFile(
-      fs::is_directory(Path) ? (Path + "/jv.jv") : Path,
-      jv);
+  jv_file_t jv_file(boost::interprocess::open_read_only, Path.c_str());
+  std::pair<jv_t *, jv_file_t::size_type> search = jv_file.find<jv_t>("JV");
+
+  if (search.second == 0) {
+    llvm::errs() << "jv_t not found\n";
+    return;
+  }
+
+  if (search.second > 1) {
+    llvm::errs() << "multiple jv_t found\n";
+    return;
+  }
+
+  assert (search.second == 1);
+
+  jv_t &jv = *search.first;
 
   if (opts.ListBinaries) {
     for (const auto &binary : jv.Binaries) {
-      llvm::outs() << binary.Path << '\n';
+      llvm::outs() << binary.path_str() << '\n';
     }
   } else if (opts.Statistics) {
     for (const binary_t &binary : jv.Binaries) {
-      llvm::outs() << llvm::formatv("Binary: {0}\n", binary.Path);
+      llvm::outs() << llvm::formatv("Binary: {0}\n", binary.path_str());
       llvm::outs() << llvm::formatv("  # of basic blocks: {0}\n",
                                     boost::num_vertices(binary.Analysis.ICFG));
       llvm::outs() << llvm::formatv("  # of functions: {0}\n",
@@ -499,7 +512,7 @@ void DumpTool::dumpInput(const std::string &Path) {
     for (unsigned BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
       const binary_t &binary = jv.Binaries[BIdx];
 
-      if (binary.Path.find(opts.ListFunctions) == std::string::npos)
+      if (binary.path_str().find(opts.ListFunctions) == std::string::npos)
         continue;
 
       const auto &ICFG = binary.Analysis.ICFG;
@@ -517,7 +530,7 @@ void DumpTool::dumpInput(const std::string &Path) {
     for (unsigned BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
       const binary_t &binary = jv.Binaries[BIdx];
 
-      if (fs::path(binary.Path).filename().string() != opts.ListFunctionBBs)
+      if (fs::path(binary.path_str()).filename().string() != opts.ListFunctionBBs)
         continue;
 
       auto &ICFG = binary.Analysis.ICFG;

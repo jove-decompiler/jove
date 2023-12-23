@@ -95,8 +95,6 @@ class CFGTool : public TransformerTool_Bin<binary_state_t> {
     {}
   } opts;
 
-  std::string jvfp;
-
   binary_index_t BinaryIndex = invalid_binary_index;
 
   disas_t disas;
@@ -298,18 +296,6 @@ typedef boost::filtered_graph<
 typedef control_flow_graph_t cfg_t;
 
 int CFGTool::Run(void) {
-  jvfp = opts.jv;
-  if (jvfp.empty() && !opts.Prog.empty())
-    jvfp = path_to_jv(opts.Prog.c_str());
-
-  if (jvfp.empty()) {
-    WithColor::error() << "must specify jv\n";
-    return 1;
-  }
-
-  ReadJvFromFile(jvfp, jv);
-  state.update();
-
   assert(!opts.FunctionAddress.empty());
 
   //
@@ -319,7 +305,7 @@ int CFGTool::Run(void) {
 
   for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
     const binary_t &binary = jv.Binaries[BIdx];
-    if (binary.Path.find(opts.Binary) == std::string::npos)
+    if (binary.path_str().find(opts.Binary) == std::string::npos)
       continue;
 
     BinaryIndex = BIdx;
@@ -337,7 +323,7 @@ int CFGTool::Run(void) {
   //
   // initialize state associated with binary
   //
-  state.for_binary(binary).ObjectFile = CreateBinary(binary.Data);
+  state.for_binary(binary).ObjectFile = CreateBinary(binary.data());
 
   obj::Binary *B = state.for_binary(binary).ObjectFile.get();
   if (!llvm::isa<ELFO>(B)) {
@@ -368,7 +354,7 @@ int CFGTool::Run(void) {
 
   WithColor::error() << llvm::formatv(
       "failed to find function with address 0x{0:x} in {1}\n", FuncAddr,
-      binary.Path);
+      binary.path_str());
   return 1;
 
 Found:

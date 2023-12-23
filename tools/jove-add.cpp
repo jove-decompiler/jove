@@ -94,32 +94,45 @@ int AddTool::Run(void) {
 
   tiny_code_generator_t tcg;
   disas_t disas;
+  explorer_t E(disas, tcg, jv_file);
 
-  binary_t &b = jv.Binaries.emplace_back();
-  state.update();
+  binary_index_t BIdx = invalid_binary_index;
+  {
+    boost::interprocess::scoped_lock<boost::interprocess::interprocess_mutex>
+        lck(jv.BinariesMutex);
 
-  read_file_into_a_string(opts.Input.c_str(), b.Data);
+    // FIXME
+    for (binary_t &b : jv.Binaries)
+      b.Analysis.ICFG.m_property.reset();
+
+    BIdx = jv.Binaries.size();
+    binary_t &b = jv.Binaries.emplace_back(Alloc);
+    state.update();
+
+    // FIXME
+    for (binary_t &b : jv.Binaries)
+      b.Analysis.ICFG.m_property.reset();
+  }
+  assert(is_binary_index_valid(BIdx));
+
+  binary_t &b = jv.Binaries[BIdx];
+
+  read_file_into_thing(opts.Input.c_str(), b.Data);
 
   try {
-    state.for_binary(b).ObjectFile = CreateBinary(b.Data);
+    state.for_binary(b).ObjectFile = CreateBinary(b.data());
   } catch (const std::exception &) {
     //
     // interpret as a raw stream of instructions
     //
-    {
-      b.IsDynamicLinker = false;
-      b.IsExecutable = false;
-      b.IsVDSO = false;
+    b.IsDynamicLinker = false;
+    b.IsExecutable = false;
+    b.IsVDSO = false;
 
-      b.IsPIC = true;
-      b.IsDynamicallyLoaded = false;
+    b.IsPIC = true;
+    b.IsDynamicallyLoaded = false;
 
-      b.Path = fs::canonical(opts.Input).string();
-    }
-
-    IgnoreCtrlC(); /* user probably doesn't want to interrupt the following */
-
-    WriteJvToFile(opts.Output, jv);
+    to_ips(b.Path, fs::canonical(opts.Input).string());
 
     return 0;
   }
@@ -138,11 +151,11 @@ int AddTool::Run(void) {
   b.IsPIC = true;
   b.IsDynamicallyLoaded = false;
 
-  b.Path = fs::canonical(opts.Input).string();
+  to_ips(b.Path, fs::canonical(opts.Input).string());
 
-  const ELFF &E = *O.getELFFile();
+  const ELFF &Elf = *O.getELFFile();
 
-  switch (E.getHeader()->e_type) {
+  switch (Elf.getHeader()->e_type) {
   case llvm::ELF::ET_NONE:
     WithColor::error() << "given binary has unknown type\n";
     return 1;
@@ -168,7 +181,7 @@ int AddTool::Run(void) {
   }
 
   DynRegionInfo DynamicTable(O.getFileName());
-  loadDynamicTable(&E, &O, DynamicTable);
+  loadDynamicTable(&Elf, &O, DynamicTable);
 
   //assert(DynamicTable.Addr);
 
@@ -218,7 +231,7 @@ int AddTool::Run(void) {
     }
   }
 
-  llvm::Expected<Elf_Phdr_Range> ExpectedPrgHdrs = E.program_headers();
+  llvm::Expected<Elf_Phdr_Range> ExpectedPrgHdrs = Elf.program_headers();
   if (!ExpectedPrgHdrs) {
     WithColor::error() << "no program headers in ELF. bug?\n";
     return 1;
@@ -228,21 +241,21 @@ int AddTool::Run(void) {
 
   //
   // if the ELF has a PT_INTERP program header, then we'll explore the entry
-  // point. if not, we'll only consider it if it's statically-linked (i.e. it's
+  // point. if not, we'll only consider it if it's statically-linked (i.Elf. it's
   // the dynamic linker)
   //
   bool HasInterpreter =
     std::any_of(PrgHdrs.begin(),
                 PrgHdrs.end(),
                 [](const Elf_Phdr &Phdr) -> bool{ return Phdr.p_type == llvm::ELF::PT_INTERP; });
-  uint64_t EntryAddr = E.getHeader()->e_entry;
+  uint64_t EntryAddr = Elf.getHeader()->e_entry;
   if (HasInterpreter && EntryAddr) {
     llvm::outs() << llvm::formatv("entry point @ {0:x}\n", EntryAddr);
 
     b.Analysis.EntryFunction =
-        explore_function(b, O, tcg, disas, EntryAddr,
-                         state.for_binary(b).fnmap,
-                         state.for_binary(b).bbmap);
+        E.explore_function(b, O, EntryAddr,
+                           state.for_binary(b).fnmap,
+                           state.for_binary(b).bbmap);
   } else {
     b.Analysis.EntryFunction = invalid_function_index;
   }
@@ -251,7 +264,7 @@ int AddTool::Run(void) {
   // search local symbols (if they exist)
   //
   {
-    llvm::Expected<Elf_Shdr_Range> ExpectedSections = E.sections();
+    llvm::Expected<Elf_Shdr_Range> ExpectedSections = Elf.sections();
 
     if (ExpectedSections) {
       const Elf_Shdr *SymTab = nullptr;
@@ -264,7 +277,7 @@ int AddTool::Run(void) {
       }
 
       if (SymTab) {
-        llvm::Expected<Elf_Sym_Range> ExpectedLocalSyms = E.symbols(SymTab);
+        llvm::Expected<Elf_Sym_Range> ExpectedLocalSyms = Elf.symbols(SymTab);
 
         if (ExpectedLocalSyms) {
           auto LocalSyms = *ExpectedLocalSyms;
@@ -286,7 +299,7 @@ int AddTool::Run(void) {
   //
   // look for split debug information
   //
-  llvm::Optional<llvm::ArrayRef<uint8_t>> optionalBuildID = getBuildID(E);
+  llvm::Optional<llvm::ArrayRef<uint8_t>> optionalBuildID = getBuildID(Elf);
   if (optionalBuildID) {
     llvm::ArrayRef<uint8_t> BuildID = *optionalBuildID;
 
@@ -360,7 +373,7 @@ int AddTool::Run(void) {
 
   if (DynamicTable.Addr)
     OptionalDynSymRegion =
-        loadDynamicSymbols(&E, &O,
+        loadDynamicSymbols(&Elf, &O,
                            DynamicTable,
                            DynamicStringTable,
                            SymbolVersionSection,
@@ -420,7 +433,7 @@ int AddTool::Run(void) {
 
             // Get the corresponding version index entry.
             llvm::Expected<const Elf_Versym *> ExpectedVersym =
-                E.getEntry<Elf_Versym>(SymbolVersionSection, EntryIndex);
+                Elf.getEntry<Elf_Versym>(SymbolVersionSection, EntryIndex);
 
             bool IsDefault;
             if (ExpectedVersym)
@@ -448,7 +461,7 @@ int AddTool::Run(void) {
   } FiniArray = {0u, 0u};
 
   {
-    llvm::Expected<Elf_Shdr_Range> ExpectedSections = E.sections();
+    llvm::Expected<Elf_Shdr_Range> ExpectedSections = Elf.sections();
 
     if (ExpectedSections) {
       for (const Elf_Shdr &Sect : *ExpectedSections) {
@@ -475,7 +488,7 @@ int AddTool::Run(void) {
   DynRegionInfo DynPLTRelRegion(O.getFileName());
 
   if (DynamicTable.Addr)
-    loadDynamicRelocations(&E, &O,
+    loadDynamicRelocations(&Elf, &O,
                            DynamicTable,
                            DynRelRegion,
                            DynRelaRegion,
@@ -494,7 +507,7 @@ int AddTool::Run(void) {
         uint64_t resolverAddr = R.Addend ? *R.Addend : 0;
 
         if (!resolverAddr) {
-          llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(R.Offset);
+          llvm::Expected<const uint8_t *> ExpectedPtr = Elf.toMappedAddr(R.Offset);
           if (ExpectedPtr)
             resolverAddr = extractAddress(*ExpectedPtr);
         }
@@ -504,7 +517,7 @@ int AddTool::Run(void) {
       }
     };
 
-    for_each_dynamic_relocation(E,
+    for_each_dynamic_relocation(Elf,
                                 DynRelRegion,
                                 DynRelaRegion,
                                 DynRelrRegion,
@@ -528,7 +541,7 @@ int AddTool::Run(void) {
       if (!is_relative_relocation(R)) {
         WithColor::warning() << llvm::formatv(
             "unrecognized relocation {0} in .init_array/.fini_array\n",
-            E.getRelocationTypeName(R.Type));
+            Elf.getRelocationTypeName(R.Type));
         return;
       }
 
@@ -537,7 +550,7 @@ int AddTool::Run(void) {
       //
       uint64_t Addr = R.Addend ? *R.Addend : 0;
       if (!Addr) {
-        llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(R.Offset);
+        llvm::Expected<const uint8_t *> ExpectedPtr = Elf.toMappedAddr(R.Offset);
 
         if (ExpectedPtr)
           Addr = extractAddress(*ExpectedPtr);
@@ -551,7 +564,7 @@ int AddTool::Run(void) {
         ABIAtAddress(Addr);
     };
 
-    for_each_dynamic_relocation(E,
+    for_each_dynamic_relocation(Elf,
                                 DynRelRegion,
                                 DynRelaRegion,
                                 DynRelrRegion,
@@ -567,9 +580,9 @@ int AddTool::Run(void) {
     Entrypoint &= ~1UL;
 #endif
 
-    explore_basic_block(b, O, tcg, disas, Entrypoint,
-                        state.for_binary(b).fnmap,
-                        state.for_binary(b).bbmap);
+    E.explore_basic_block(b, O, Entrypoint,
+                          state.for_binary(b).fnmap,
+                          state.for_binary(b).bbmap);
   }
 
   for (uint64_t Entrypoint : boost::adaptors::reverse(Known.FunctionEntrypoints)) {
@@ -577,9 +590,9 @@ int AddTool::Run(void) {
     Entrypoint &= ~1UL;
 #endif
 
-    function_index_t FIdx = explore_function(b, O, tcg, disas, Entrypoint,
-                                             state.for_binary(b).fnmap,
-                                             state.for_binary(b).bbmap);
+    function_index_t FIdx = E.explore_function(b, O, Entrypoint,
+                                               state.for_binary(b).fnmap,
+                                               state.for_binary(b).bbmap);
 
     if (!is_function_index_valid(FIdx))
       continue;
@@ -863,7 +876,7 @@ int AddTool::Run(void) {
   }
 #endif
 
-  auto ProgramHeadersOrError = E.program_headers();
+  auto ProgramHeadersOrError = Elf.program_headers();
   if (ProgramHeadersOrError) {
     llvm::SmallVector<const Elf_Phdr *, 4> LoadSegments;
 
@@ -873,7 +886,7 @@ int AddTool::Run(void) {
 
     for (const Elf_Phdr *P : LoadSegments) {
       llvm::StringRef SectionStr(
-          reinterpret_cast<const char *>(E.base() + P->p_offset), P->p_filesz);
+          reinterpret_cast<const char *>(Elf.base() + P->p_offset), P->p_filesz);
 
       for (llvm::StringRef pattern : LjPatterns) {
         size_t idx = SectionStr.find(pattern);
@@ -882,9 +895,9 @@ int AddTool::Run(void) {
 
         uint64_t A = P->p_vaddr + idx;
 
-        basic_block_index_t BBIdx = explore_basic_block(b, O, tcg, disas, A,
-                                                        state.for_binary(b).fnmap,
-                                                        state.for_binary(b).bbmap);
+        basic_block_index_t BBIdx = E.explore_basic_block(b, O, A,
+                                                          state.for_binary(b).fnmap,
+                                                          state.for_binary(b).bbmap);
         if (!is_basic_block_index_valid(BBIdx))
           continue;
 
@@ -931,9 +944,9 @@ int AddTool::Run(void) {
 
         uint64_t A = P->p_vaddr + idx;
 
-        basic_block_index_t BBIdx = explore_basic_block(b, O, tcg, disas, A,
-                                                        state.for_binary(b).fnmap,
-                                                        state.for_binary(b).bbmap);
+        basic_block_index_t BBIdx = E.explore_basic_block(b, O, A,
+                                                          state.for_binary(b).fnmap,
+                                                          state.for_binary(b).bbmap);
         if (!is_basic_block_index_valid(BBIdx))
           continue;
 
@@ -944,23 +957,6 @@ int AddTool::Run(void) {
         ICFG[boost::vertex(BBIdx, ICFG)].Sj = true;
       }
     }
-  }
-
-  IgnoreCtrlC(); /* user probably doesn't want to interrupt the following */
-
-  if (opts.jv.empty()) {
-    WriteJvToFile(opts.Output, jv);
-  } else {
-    //
-    // modify existing jv
-    //
-    jv_t working_decompilation;
-    ReadJvFromFile(opts.jv, working_decompilation);
-
-    working_decompilation.Binaries.emplace_back(std::move(jv.Binaries.front()))
-        .IsDynamicallyLoaded = true;
-
-    WriteJvToFile(opts.jv, working_decompilation);
   }
 
   return 0;

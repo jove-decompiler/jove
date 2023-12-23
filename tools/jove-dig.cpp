@@ -88,10 +88,14 @@ class CodeDigger : public TransformerTool_Bin<binary_state_t> {
   tiny_code_generator_t tcg;
   symbolizer_t symbolizer;
 
-  std::unique_ptr<CodeRecovery> Recovery;
+  explorer_t Explorer;
+  CodeRecovery Recovery;
 
 public:
-  CodeDigger() : opts(JoveCategory) {}
+  CodeDigger()
+      : opts(JoveCategory),
+        Explorer(disas, tcg, jv_file),
+        Recovery(jv, Explorer, symbolizer) {}
 
   int Run(void);
 
@@ -127,9 +131,6 @@ void CodeDigger::queue_binaries(void) {
 }
 
 int CodeDigger::Run(void) {
-  ReadJvFromFile(opts.jv, jv);
-  state.update();
-
   //
   // operate on single binary? (cmdline)
   //
@@ -138,7 +139,7 @@ int CodeDigger::Run(void) {
 
     for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
       const binary_t &binary = jv.Binaries[BIdx];
-      if (binary.Path.find(opts.Binary) == std::string::npos)
+      if (binary.path_str().find(opts.Binary) == std::string::npos)
         continue;
 
       BinaryIndex = BIdx;
@@ -156,7 +157,7 @@ int CodeDigger::Run(void) {
 
   for_each_binary(jv, [&](binary_t &binary) {
     ignore_exception([&]() {
-      auto Bin = CreateBinary(binary.Data);
+      auto Bin = CreateBinary(binary.data());
 
       assert(llvm::isa<ELFO>(Bin.get()));
 
@@ -167,8 +168,6 @@ int CodeDigger::Run(void) {
 
   if (opts.ListLocalGotos)
     return ListLocalGotos();
-
-  Recovery = std::make_unique<CodeRecovery>(jv, disas, tcg, symbolizer);
 
   int pipefd[2];
   if (::pipe(pipefd) < 0) {
@@ -232,8 +231,6 @@ int CodeDigger::Run(void) {
   if (IsVerbose())
     WithColor::note() << "writing jv...\n";
 
-  WriteJvToFile(opts.jv, jv);
-
   return 0;
 }
 
@@ -272,7 +269,7 @@ void CodeDigger::RecoverLoop(void) {
       bin_records.emplace(BBIdx, Off);
     }
 
-    uint64_t TermAddr = Recovery->AddressOfTerminatorAtBasicBlock(BIdx, BBIdx);
+    uint64_t TermAddr = Recovery.AddressOfTerminatorAtBasicBlock(BIdx, BBIdx);
 
     uint64_t SectsLen = state.for_binary(binary).SectsEndAddr -
                         state.for_binary(binary).SectsStartAddr;
@@ -292,7 +289,7 @@ void CodeDigger::RecoverLoop(void) {
 
     std::string recovery_msg;
     try {
-      recovery_msg = Recovery->RecoverBasicBlock(BIdx, BBIdx, DestAddr);
+      recovery_msg = Recovery.RecoverBasicBlock(BIdx, BBIdx, DestAddr);
     } catch (const std::exception &e) {
       WithColor::error() << llvm::formatv("{0} -> {1}: {2}\n",
                                           symbolizer.addr2desc(binary, TermAddr),
@@ -327,10 +324,10 @@ void CodeDigger::Worker(void) {
     // make sure the path is absolute
     assert(binary.Path.at(0) == '/');
 
-    const fs::path chrooted_path = fs::path(temporary_dir()) / binary.Path;
+    const fs::path chrooted_path = fs::path(temporary_dir()) / binary.path_str();
     fs::create_directories(chrooted_path.parent_path());
 
-    std::string binary_filename = fs::path(binary.Path).filename().string();
+    std::string binary_filename = fs::path(binary.path_str()).filename().string();
 
     std::string bcfp(chrooted_path.string() + ".bc");
     std::string mapfp(chrooted_path.string() + ".map"); /* XXX */
@@ -434,7 +431,7 @@ int CodeDigger::ListLocalGotos() {
     auto &ICFG = binary.Analysis.ICFG;
     if (ICFG[bb].Term.Type != TERMINATOR::INDIRECT_JUMP)
       return;
-    if (!ICFG[bb].DynTargets.empty())
+    if (ICFG[bb].hasDynTarget())
       return;
 
     HumanOut() << symbolizer.addr2desc(binary, ICFG[bb].Term.Addr)

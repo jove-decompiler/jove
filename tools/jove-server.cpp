@@ -268,16 +268,28 @@ void *ServerTool::ConnectionProc(void *arg) {
   options.debug_sjlj = headerBits.test(5);
   options.abi_calls = headerBits.test(6);
 
-  std::string tmpjv = (TemporaryDir / "jv.jv").string();
+  std::string jv_s_path = (TemporaryDir / "serialized.jv").string();
+  std::string tmpjv = (TemporaryDir / ".jv").string();
   {
-    ssize_t ret = robust_receive_file_with_size(data_socket, tmpjv.c_str(), 0666);
+    ssize_t ret = robust_receive_file_with_size(data_socket, jv_s_path.c_str(), 0666);
     if (ret < 0) {
       WithColor::error()
           << llvm::formatv("failed to receive file {0} from remote: {1}\n",
-                           tmpjv.c_str(), strerror(-ret));
+                           jv_s_path.c_str(), strerror(-ret));
       return nullptr;
     }
   }
+
+  jv_file_t jv_file(
+      boost::interprocess::create_only, tmpjv.c_str(), JV_DEFAULT_INITIAL_SIZE);
+  jv_t &jv(*jv_file.construct<jv_t>("JV")(
+      ip_void_allocator_t(jv_file.get_segment_manager())));
+
+  UnserializeJVFromFile(jv, jv_s_path.c_str());
+
+  /* FIXME */
+  for (binary_t &b : jv.Binaries)
+    b.Analysis.ICFG.m_property.reset();
 
   //
   // analyze
@@ -300,6 +312,11 @@ void *ServerTool::ConnectionProc(void *arg) {
       Arg(pinned_globals_arg);
     }
 #endif
+  },
+  [&](auto Env) {
+    InitWithEnviron(Env);
+
+    Env("JVPATH=" + tmpjv);
   });
 
   if (rc) {
@@ -348,6 +365,11 @@ void *ServerTool::ConnectionProc(void *arg) {
       Arg(pinned_globals_arg);
     }
 #endif
+  },
+  [&](auto Env) {
+    InitWithEnviron(Env);
+
+    Env("JVPATH=" + tmpjv);
   });
 
   if (rc) {
@@ -355,11 +377,12 @@ void *ServerTool::ConnectionProc(void *arg) {
     return nullptr;
   }
 
+  SerializeJVToFile(jv, jv_s_path.c_str());
   {
     //
     // send new jv
     //
-    ssize_t ret = robust_sendfile_with_size(data_socket, tmpjv.c_str());
+    ssize_t ret = robust_sendfile_with_size(data_socket, jv_s_path.c_str());
     if (ret < 0) {
       WithColor::error() << llvm::formatv(
           "robust_sendfile_with_size failed: {0}\n", strerror(-ret));
@@ -370,15 +393,13 @@ void *ServerTool::ConnectionProc(void *arg) {
   //
   // send the rest of the DSO's that were recompiled
   //
-  ReadJvFromFile(tmpjv, jv);
-
   for (const binary_t &binary : jv.Binaries) {
     if (binary.IsVDSO)
       continue;
     if (binary.IsDynamicLinker)
       continue;
 
-    fs::path chrooted_path(fs::path(sysroot_dir) / binary.Path);
+    fs::path chrooted_path(fs::path(sysroot_dir) / binary.path_str());
     if (!fs::exists(chrooted_path)) {
       WithColor::error() << llvm::formatv("{0} not found\n",
                                           chrooted_path.c_str());

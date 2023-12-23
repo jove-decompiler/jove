@@ -17,10 +17,8 @@ namespace jove {
 
 typedef boost::format fmt;
 
-CodeRecovery::CodeRecovery(jv_t &jv, disas_t &disas,
-                           tiny_code_generator_t &tcg, symbolizer_t &symbolizer)
-    : jv(jv), disas(disas), tcg(tcg),
-      symbolizer(symbolizer), state(jv) {
+CodeRecovery::CodeRecovery(jv_t &jv, explorer_t &E, symbolizer_t &symbolizer)
+    : jv(jv), E(E), jv_file(E.jv_file), symbolizer(symbolizer), state(jv) {
   state.update();
 
   for_each_binary(jv, [&](binary_t &binary) {
@@ -44,7 +42,7 @@ CodeRecovery::CodeRecovery(jv_t &jv, disas_t &disas,
     });
 
     ignore_exception([&]() {
-      binary_state.ObjectFile = CreateBinary(binary.Data);
+      binary_state.ObjectFile = CreateBinary(binary.data());
     });
   });
 }
@@ -77,8 +75,7 @@ std::string CodeRecovery::RecoverDynamicTarget(uint32_t CallerBIdx,
   basic_block_t bb = basic_block_at_address(
       TermAddr, CallerBinary, state.for_binary(CallerBinary).bbmap);
 
-  bool isNewTarget =
-      ICFG[bb].DynTargets.insert({CalleeBIdx, CalleeFIdx}).second;
+  bool isNewTarget = ICFG[bb].insertDynTarget({CalleeBIdx, CalleeFIdx}, jv_file);
 
   if (!isNewTarget)
     return std::string();
@@ -103,15 +100,15 @@ std::string CodeRecovery::RecoverDynamicTarget(uint32_t CallerBIdx,
       basic_block_t succ = boost::target(cf, ICFG);
 
       function_index_t FIdx =
-          explore_function(CallerBinary, *state.for_binary(CallerBinary).ObjectFile,
-                           tcg, disas, ICFG[succ].Addr,
-                           state.for_binary(CallerBinary).fnmap,
-                           state.for_binary(CallerBinary).bbmap);
+          E.explore_function(CallerBinary, *state.for_binary(CallerBinary).ObjectFile,
+                             ICFG[succ].Addr,
+                             state.for_binary(CallerBinary).fnmap,
+                             state.for_binary(CallerBinary).bbmap);
       assert(is_function_index_valid(FIdx));
 
       /* term bb may been split */
       bb = basic_block_at_address(TermAddr, CallerBinary, state.for_binary(CallerBinary).bbmap);
-      ICFG[bb].DynTargets.insert({CallerBIdx, FIdx});
+      ICFG[bb].insertDynTarget({CallerBIdx, FIdx}, jv_file);
     }
 
     boost::clear_out_edges(bb, ICFG);
@@ -123,10 +120,10 @@ std::string CodeRecovery::RecoverDynamicTarget(uint32_t CallerBIdx,
     // this call instruction will return, so explore the return block
     //
     basic_block_index_t NextBBIdx =
-        explore_basic_block(CallerBinary, *state.for_binary(CallerBinary).ObjectFile, tcg, disas,
-                            ICFG[bb].Addr + ICFG[bb].Size + (unsigned)IsMIPSTarget * 4,
-                            state.for_binary(CallerBinary).fnmap,
-                            state.for_binary(CallerBinary).bbmap);
+        E.explore_basic_block(CallerBinary, *state.for_binary(CallerBinary).ObjectFile,
+                              ICFG[bb].Addr + ICFG[bb].Size + (unsigned)IsMIPSTarget * 4,
+                              state.for_binary(CallerBinary).fnmap,
+                              state.for_binary(CallerBinary).bbmap);
 
     assert(is_basic_block_index_valid(NextBBIdx));
 
@@ -158,10 +155,10 @@ std::string CodeRecovery::RecoverBasicBlock(uint32_t IndBrBIdx,
 
   assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP);
   basic_block_index_t target_bb_idx =
-      explore_basic_block(indbr_binary, *state.for_binary(indbr_binary).ObjectFile,
-                          tcg, disas, Addr,
-                          state.for_binary(indbr_binary).fnmap,
-                          state.for_binary(indbr_binary).bbmap);
+      E.explore_basic_block(indbr_binary, *state.for_binary(indbr_binary).ObjectFile,
+                            Addr,
+                            state.for_binary(indbr_binary).fnmap,
+                            state.for_binary(indbr_binary).bbmap);
   if (!is_basic_block_index_valid(target_bb_idx)) {
     throw std::runtime_error(
         (fmt("failed to recover control flow to %#lx") % Addr).str());
@@ -200,10 +197,10 @@ std::string CodeRecovery::RecoverFunction(uint32_t IndCallBIdx,
       TermAddr, CallerBinary, state.for_binary(CallerBinary).bbmap);
 
   function_index_t CalleeFIdx =
-      explore_function(CalleeBinary, *state.for_binary(CalleeBinary).ObjectFile,
-                       tcg, disas, CalleeAddr,
-                       state.for_binary(CalleeBinary).fnmap,
-                       state.for_binary(CalleeBinary).bbmap);
+      E.explore_function(CalleeBinary, *state.for_binary(CalleeBinary).ObjectFile,
+                         CalleeAddr,
+                         state.for_binary(CalleeBinary).fnmap,
+                         state.for_binary(CalleeBinary).bbmap);
   if (!is_function_index_valid(CalleeFIdx)) {
     throw std::runtime_error(
         (fmt("failed to translate indirect call target %#lx") % CalleeAddr)
@@ -216,7 +213,7 @@ std::string CodeRecovery::RecoverFunction(uint32_t IndCallBIdx,
   bb = basic_block_at_address(TermAddr, CallerBinary,
                               state.for_binary(CallerBinary).bbmap);
 
-  bool isNewTarget = ICFG[bb].DynTargets.insert({CalleeBIdx, CalleeFIdx}).second;
+  bool isNewTarget = ICFG[bb].insertDynTarget({CalleeBIdx, CalleeFIdx}, jv_file);
   (void)isNewTarget; /* FIXME */
 
   if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP)
@@ -228,10 +225,10 @@ std::string CodeRecovery::RecoverFunction(uint32_t IndCallBIdx,
     // this call instruction will return, so explore the return block
     //
     basic_block_index_t NextBBIdx =
-        explore_basic_block(CallerBinary, *state.for_binary(CallerBinary).ObjectFile, tcg, disas,
-                            ICFG[bb].Addr + ICFG[bb].Size + (unsigned)IsMIPSTarget * 4,
-                            state.for_binary(CallerBinary).fnmap,
-                            state.for_binary(CallerBinary).bbmap);
+        E.explore_basic_block(CallerBinary, *state.for_binary(CallerBinary).ObjectFile,
+                              ICFG[bb].Addr + ICFG[bb].Size + (unsigned)IsMIPSTarget * 4,
+                              state.for_binary(CallerBinary).fnmap,
+                              state.for_binary(CallerBinary).bbmap);
 
     assert(is_basic_block_index_valid(NextBBIdx));
 
@@ -296,9 +293,9 @@ std::string CodeRecovery::Returns(uint32_t CallBIdx,
   }
 
   basic_block_index_t next_bb_idx =
-    explore_basic_block(CallBinary, *state.for_binary(CallBinary).ObjectFile, tcg, disas, NextAddr,
-                        state.for_binary(CallBinary).fnmap,
-                        state.for_binary(CallBinary).bbmap);
+    E.explore_basic_block(CallBinary, *state.for_binary(CallBinary).ObjectFile, NextAddr,
+                          state.for_binary(CallBinary).fnmap,
+                          state.for_binary(CallBinary).bbmap);
 
   /* term bb may been split */
   bb = basic_block_at_address(TermAddr, CallBinary, state.for_binary(CallBinary).bbmap);

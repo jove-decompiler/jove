@@ -31,7 +31,7 @@ using llvm::WithColor;
 
 namespace jove {
 
-class InitTool : public Tool {
+class InitTool : public JVTool {
   struct Cmdline {
     cl::opt<std::string> Prog;
     cl::opt<std::string> Output;
@@ -42,16 +42,15 @@ class InitTool : public Tool {
         : Prog(cl::Positional, cl::desc("prog"), cl::Required,
                cl::value_desc("filename"), cl::cat(JoveCategory)),
 
-          Output("output", cl::desc("Output"),
-                 cl::value_desc("filename"), cl::cat(JoveCategory)),
+          Output("output", cl::desc("Output"), cl::value_desc("filename"),
+                 cl::cat(JoveCategory)),
 
           OutputAlias("o", cl::desc("Alias for -output."), cl::aliasopt(Output),
                       cl::cat(JoveCategory)),
 
           Threads("num-threads", cl::desc("Number of CPU threads to use"),
-                  cl::init(num_cpus()), cl::value_desc("int"),
-                  cl::cat(JoveCategory))
-    {}
+                  cl::init(1 /* num_cpus() */ /* FIXME */),
+                  cl::value_desc("int"), cl::cat(JoveCategory)) {}
   } opts;
 
 public:
@@ -424,11 +423,7 @@ int InitTool::Run(void) {
     return 1;
   }
 
-  std::string jvfp = opts.Output;
-  if (jvfp.empty()) {
-    fs::create_directories(jove_dir());
-    jvfp = path_to_jv(opts.Prog.c_str());
-  }
+  fs::create_directories(jove_dir());
 
   IgnoreCtrlC();
 
@@ -616,45 +611,50 @@ Found:
   for (const std::string& path : binary_paths)
     Q.push(path);
 
-  spawn_workers();
-
-  //
-  // merge the intermediate jv files
-  //
-  jv_t final_decompilation;
-  final_decompilation.Binaries.reserve(binary_paths.size());
-
-  for (const std::string &path : binary_paths) {
-    std::string jvfp = temporary_dir() + path + ".jv";
-    if (!fs::exists(jvfp)) {
-      WithColor::error() << "intermediate result " << jvfp << " not found" << '\n';
-      return 1;
-    }
-
-    jv_t jv;
-    ReadJvFromFile(jvfp, jv);
-
-    if (jv.Binaries.size() != 1) {
-      WithColor::error() << "invalid intermediate result " << jvfp << '\n';
-      return 1;
-    }
-
-    //
-    // trivially combine decompilations
-    //
-    final_decompilation.Binaries.push_back(jv.Binaries.front());
+  {
+    boost::interprocess::scoped_lock<boost::interprocess::interprocess_mutex>
+        lck(jv.BinariesMutex);
+    jv.Binaries.clear();
+    jv.Binaries.reserve(binary_paths.size()); /* FIXME */
   }
 
-  final_decompilation.Binaries.at(0).IsExecutable = true;
-  final_decompilation.Binaries.at(1).IsDynamicLinker = true;
-  final_decompilation.Binaries.at(2).IsVDSO = true;
+  spawn_workers();
+
+  {
+    boost::interprocess::scoped_lock<boost::interprocess::interprocess_mutex>
+        lck(jv.BinariesMutex);
+  }
+
+  /* FIXME */
+  for_each_binary(jv, [&](binary_t &b) {
+                  if (b.path_str() == binary_paths.at(0)) {
+                  b.IsExecutable = true;
+                  llvm::errs() << "exe is " << index_of_binary(b, jv) << " (" << b.path_str() << ")\n";
+                  }
+                  });
+
+  /* FIXME */
+  for_each_binary(jv, [&](binary_t &b) {
+                  if (b.path_str() == rtld_path.string()) {
+                  b.IsDynamicLinker = true;
+                  llvm::errs() << "dynl is " << index_of_binary(b, jv) << " (" << b.path_str() << ")\n";
+                  }
+                  });
+
+  /* FIXME */
+  for_each_binary(jv, [&](binary_t &b) {
+                  if (b.path_str() == binary_paths.at(2)) {
+                  b.IsVDSO = true;
+                  llvm::errs() << "vdso is " << index_of_binary(b, jv) << " (" << b.path_str() << ")\n";
+                  }
+                  });
 
   //
   // firmadyne janky hack
   //
   if (firmadyne) {
-    for (binary_t &b : final_decompilation.Binaries) {
-      if (b.Path.find("firmadyne") != std::string::npos) {
+    for (binary_t &b : jv.Binaries) {
+      if (b.path_str().find("firmadyne") != std::string::npos) {
         b.IsDynamicallyLoaded = true;
         goto found;
       }
@@ -666,7 +666,9 @@ found:
     ;
   }
 
+#if 0
   WriteJvToFile(jvfp, final_decompilation);
+#endif
 
   return 0;
 }

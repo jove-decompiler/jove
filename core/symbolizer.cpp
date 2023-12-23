@@ -23,7 +23,7 @@ symbolizer_t::~symbolizer_t() {}
 
 std::string symbolizer_t::addr2line(const binary_t &binary, uint64_t Addr) {
   auto ResOrErr = Symbolizer->symbolizeCode(
-      binary.Path,
+      binary.path_str(),
       {Addr, llvm::object::SectionedAddress::UndefSection});
   if (!ResOrErr) {
     std::string Buf;
@@ -43,7 +43,7 @@ std::string symbolizer_t::addr2line(const binary_t &binary, uint64_t Addr) {
 
   if (fs::path(sourcePath).is_relative())
     sourcePath = fs::path("/usr/src/debug") /
-                 fs::path(binary.Path).stem() /
+                 fs::path(binary.path_str()).stem() /
                  LnInfo.FileName;
 
   if (fs::exists(sourcePath))
@@ -60,7 +60,7 @@ std::string symbolizer_t::addr2desc(const binary_t &binary, uint64_t Addr) {
 
   std::string desc =
     (fmt("%s+0x%08x")
-     % fs::path(binary.Path).filename().string()
+     % fs::path(binary.path_str()).filename().string()
      % Addr).str();
 
   std::string src_desc(addr2line(binary, Addr));

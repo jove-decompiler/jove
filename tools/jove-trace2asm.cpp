@@ -132,14 +132,12 @@ int Trace2AsmTool::Run(void) {
     }
   }
 
-  ReadJvFromFile(opts.jv, jv);
-
   //
   // init state for binaries
   //
   for_each_binary(jv, [&](binary_t &binary) {
     ignore_exception([&]() {
-      state.for_binary(binary).ObjectFile = CreateBinary(binary.Data);
+      state.for_binary(binary).ObjectFile = CreateBinary(binary.data());
     });
   });
 

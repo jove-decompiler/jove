@@ -35,10 +35,8 @@ using llvm::WithColor;
 
 namespace jove {
 
-struct RunTool : public Tool {
+struct RunTool : public JVTool {
   struct Cmdline {
-    cl::opt<std::string> jv;
-    cl::alias jvAlias;
     cl::opt<std::string> Prog;
     cl::list<std::string> Args;
     cl::list<std::string> Envs;
@@ -62,13 +60,7 @@ struct RunTool : public Tool {
     cl::opt<std::string> PIDFifo;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
-        : jv("jv", cl::desc("Jove jv"),
-             cl::value_desc("filename"), cl::cat(JoveCategory)),
-
-          jvAlias("d", cl::desc("Alias for -jv."), cl::aliasopt(jv),
-                  cl::cat(JoveCategory)),
-
-          Prog(cl::Positional, cl::desc("prog"), cl::Required,
+        : Prog(cl::Positional, cl::desc("prog"), cl::Required,
                cl::value_desc("filename"), cl::cat(JoveCategory)),
 
           Args("args", cl::CommaSeparated, cl::ConsumeAfter,
@@ -157,11 +149,11 @@ struct RunTool : public Tool {
   } opts;
 
   bool has_jv;
-  std::string jvfp;
 
   std::unique_ptr<disas_t> disas;
   std::unique_ptr<tiny_code_generator_t> tcg;
   std::unique_ptr<symbolizer_t> symbolizer;
+  std::unique_ptr<explorer_t> Explorer;
   std::unique_ptr<CodeRecovery> Recovery;
 
 public:
@@ -213,11 +205,7 @@ int RunTool::Run(void) {
   if (!opts.HumanOutput.empty())
     HumanOutToFile(opts.HumanOutput);
 
-  jvfp = opts.jv;
-  if (jvfp.empty())
-    jvfp = path_to_jv(opts.Prog.c_str());
-
-  has_jv = fs::exists(jvfp);
+  has_jv = true; // FIXME
 
   //
   // signal handlers
@@ -605,12 +593,11 @@ int RunTool::DoRun(void) {
   // parse jv
   //
   if (has_jv) {
-    ReadJvFromFile(jvfp, jv);
-
     disas = std::make_unique<disas_t>();
     tcg = std::make_unique<tiny_code_generator_t>();
     symbolizer = std::make_unique<symbolizer_t>();
-    Recovery = std::make_unique<CodeRecovery>(jv, *disas, *tcg, *symbolizer);
+    Explorer = std::make_unique<explorer_t>(*disas, *tcg, jv_file);
+    Recovery = std::make_unique<CodeRecovery>(jv, *Explorer, *symbolizer);
   }
 
   int rfd = -1;
@@ -647,11 +634,11 @@ int RunTool::DoRun(void) {
       if (binary.IsDynamicLinker)
         continue;
 
-      std::string sav_path = binary.Path + ".jove.sav";
+      std::string sav_path = binary.path_str() + ".jove.sav";
       if (::link(binary.Path.c_str(), sav_path.c_str()) < 0) {
         int err = errno;
         HumanOut() << llvm::formatv("failed to create hard link for {0}: {1}\n",
-                                    binary.Path, strerror(err));
+                                    binary.path_str(), strerror(err));
         return 1;
       }
     }
@@ -667,8 +654,8 @@ int RunTool::DoRun(void) {
       if (binary.IsDynamicLinker)
         continue;
 
-      fs::path chrooted_path = fs::path(opts.sysroot) / binary.Path;
-      std::string new_path = binary.Path + ".jove.new";
+      fs::path chrooted_path = fs::path(opts.sysroot) / binary.path_str();
+      std::string new_path = binary.path_str() + ".jove.new";
 
       if (::link(chrooted_path.c_str(), new_path.c_str()) < 0) {
         if (IsVerbose()) {
@@ -849,7 +836,7 @@ int RunTool::DoRun(void) {
               if (binary.IsDynamicLinker)
                 continue;
 
-              std::string new_path = binary.Path + ".jove.new";
+              std::string new_path = binary.path_str() + ".jove.new";
 
               if (::rename(new_path.c_str(), binary.Path.c_str()) < 0) {
                 int err = errno;
@@ -857,7 +844,7 @@ int RunTool::DoRun(void) {
                 HumanOut() << llvm::formatv(__ANSI_BOLD_RED
                     "rename of {0} to {1} failed: {2}\n" __ANSI_NORMAL_COLOR,
                     new_path.c_str(),
-                    binary.Path.c_str(),
+                    binary.path_str(),
                     strerror(err));
               }
             }
@@ -943,14 +930,14 @@ int RunTool::DoRun(void) {
         continue;
       }
 
-      std::string sav_path = binary.Path + ".jove.sav";
+      std::string sav_path = binary.path_str() + ".jove.sav";
 
       if (::rename(sav_path.c_str(), binary.Path.c_str()) < 0) {
         int err = errno;
         HumanOut() << llvm::formatv(__ANSI_BOLD_RED "rename of {0} to {1} failed: {2}\n"
                                     __ANSI_NORMAL_COLOR,
                                     sav_path.c_str(),
-                                    binary.Path.c_str(),
+                                    binary.path_str(),
                                     strerror(err));
       }
     }
@@ -972,13 +959,13 @@ int RunTool::DoRun(void) {
         if (!binary.IsDynamicallyLoaded)
           continue;
 
-        std::string sav_path = binary.Path + ".jove.sav";
+        std::string sav_path = binary.path_str() + ".jove.sav";
 
         if (::rename(sav_path.c_str(), binary.Path.c_str()) < 0) {
           int err = errno;
           HumanOut() << llvm::formatv(
               "rename of {0} to {1} failed: {2}\n",
-              sav_path.c_str(), binary.Path.c_str(), strerror(err));
+              sav_path.c_str(), binary.path_str(), strerror(err));
         }
       }
     }
@@ -1054,9 +1041,7 @@ int RunTool::DoRun(void) {
   drop_privileges();
 
   if (has_jv && WasDecompilationModified.load()) {
-    jv.InvalidateFunctionAnalyses();
-
-    WriteJvToFile(jvfp, jv);
+    jv.InvalidateFunctionAnalyses(); /* FIXME */
   }
 
   {

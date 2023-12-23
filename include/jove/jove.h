@@ -1,19 +1,29 @@
 #pragma once
 #ifdef __cplusplus
-#include <cstdint>
-#include <stdexcept>
-#include <sstream>
-#include <iomanip>
-#include <vector>
-#include <map>
 #include <boost/graph/adjacency_list.hpp>
 #include <boost/graph/depth_first_search.hpp>
-#include <boost/serialization/nvp.hpp>
-#include <numeric>
-#include <limits>
-#include <algorithm>
-#include <tuple>
 #include <boost/icl/split_interval_map.hpp>
+#include <boost/interprocess/containers/map.hpp>
+#include <boost/interprocess/containers/set.hpp>
+#include <boost/interprocess/containers/string.hpp>
+#include <boost/interprocess/containers/vector.hpp>
+#include <boost/interprocess/managed_mapped_file.hpp>
+#include <boost/interprocess/managed_shared_memory.hpp>
+#include <boost/interprocess/sync/scoped_lock.hpp>
+#include <boost/range/iterator_range.hpp>
+
+#include <algorithm>
+#include <cstdint>
+#include <functional>
+#include <iomanip>
+#include <limits>
+#include <map>
+#include <numeric>
+#include <sstream>
+#include <stdexcept>
+#include <string_view>
+#include <tuple>
+#include <vector>
 #endif /* __cplusplus */
 
 #if defined(TARGET_AARCH64)
@@ -127,6 +137,47 @@ static const char *TargetStaticLinkerEmulation =
 #endif
                   ;
 
+//typedef boost::interprocess::managed_shared_memory::segment_manager
+//    segment_manager_t;
+
+typedef boost::interprocess::managed_mapped_file jv_file_t;
+typedef jv_file_t::segment_manager segment_manager_t;
+
+typedef boost::interprocess::allocator<void, segment_manager_t>
+    ip_void_allocator_t;
+
+typedef boost::interprocess::allocator<char, segment_manager_t>
+    ip_char_allocator;
+typedef boost::interprocess::basic_string<char, std::char_traits<char>, ip_char_allocator>
+    ip_string;
+
+inline std::string un_ips(const ip_string &x) {
+  std::string res;
+  res.reserve(x.size());
+  std::copy(x.begin(), x.end(), std::back_inserter(res));
+  return res;
+}
+
+inline ip_string to_ips(ip_string &res, const std::string &x) {
+  res.clear();
+  res.reserve(x.size());
+  std::copy(x.begin(), x.end(), std::back_inserter(res));
+  return res;
+}
+
+#if 0
+typedef boost::interprocess::vector<dynamic_target_t,
+                                    boost::interprocess::allocator<dynamic_target_t, segment_manager_t>>
+    ip_dynamic_target_vector;
+#endif
+
+typedef boost::interprocess::set<
+    dynamic_target_t, std::less<dynamic_target_t>,
+    boost::interprocess::allocator<dynamic_target_t, segment_manager_t>>
+    ip_dynamic_target_set;
+
+typedef std::set<dynamic_target_t> dynamic_target_set;
+
 struct basic_block_properties_t {
   uint64_t Addr;
   uint32_t Size;
@@ -154,7 +205,7 @@ struct basic_block_properties_t {
     } _return;
   } Term;
 
-  std::set<dynamic_target_t> DynTargets;
+  boost::interprocess::offset_ptr<ip_dynamic_target_set> pDynTargets;
   bool DynTargetsComplete; // XXX
 
   bool Sj;
@@ -184,31 +235,51 @@ struct basic_block_properties_t {
     this->Analysis.Stale = true;
   }
 
-  template <class Archive>
-  void serialize(Archive &ar, const unsigned int) {
-    ar &BOOST_SERIALIZATION_NVP(Addr)
-       &BOOST_SERIALIZATION_NVP(Size)
-       &BOOST_SERIALIZATION_NVP(Term.Addr)
-       &BOOST_SERIALIZATION_NVP(Term.Type)
-       &BOOST_SERIALIZATION_NVP(Term._call.Target)
-       &BOOST_SERIALIZATION_NVP(Term._call.Returns)
-       &BOOST_SERIALIZATION_NVP(Term._indirect_jump.IsLj)
-       &BOOST_SERIALIZATION_NVP(Term._indirect_call.Returns)
-       &BOOST_SERIALIZATION_NVP(Term._return.Returns)
-       &BOOST_SERIALIZATION_NVP(DynTargets)
-       &BOOST_SERIALIZATION_NVP(DynTargetsComplete)
-       &BOOST_SERIALIZATION_NVP(Sj)
-       &BOOST_SERIALIZATION_NVP(Analysis.live.def)
-       &BOOST_SERIALIZATION_NVP(Analysis.live.use)
-       &BOOST_SERIALIZATION_NVP(Analysis.reach.def)
-       &BOOST_SERIALIZATION_NVP(Analysis.Stale);
+#if 0
+  basic_block_properties_t(const ip_void_allocator_t &Alloc) : DynTargets(Alloc) {}
+#endif
+
+  bool hasDynTarget(void) const {
+    if (!pDynTargets)
+      return false;
+
+    return !pDynTargets->empty();
+  }
+
+  bool insertDynTarget(dynamic_target_t X, jv_file_t &jv_file) {
+    if (!pDynTargets)
+      pDynTargets = jv_file.construct<ip_dynamic_target_set>(
+          boost::interprocess::anonymous_instance)(
+          ip_void_allocator_t(jv_file.get_segment_manager()));
+    return pDynTargets->insert(X).second;
+  }
+
+  unsigned getNumDynTargets(void) const {
+    return hasDynTarget() ? pDynTargets->size() : 0;
+  }
+
+  ip_dynamic_target_set::const_iterator dyn_targets_begin(void) const {
+    assert(hasDynTarget());
+    return pDynTargets->cbegin();
+  }
+
+  ip_dynamic_target_set::const_iterator dyn_targets_end(void) const {
+    assert(hasDynTarget());
+    return pDynTargets->cend();
+  }
+
+  boost::iterator_range<ip_dynamic_target_set::const_iterator> dyn_targets(void) const {
+    return boost::make_iterator_range(dyn_targets_begin(), dyn_targets_end());
   }
 };
 
-typedef boost::adjacency_list<boost::setS,             /* OutEdgeList */
-                              boost::vecS,             /* VertexList */
-                              boost::bidirectionalS,   /* Directed */
-                              basic_block_properties_t /* VertexProperties */>
+typedef boost::adjacency_list<boost::setS_ip,           /* OutEdgeList */
+                              boost::vecS_ip,           /* VertexList */
+                              boost::bidirectionalS,    /* Directed */
+                              basic_block_properties_t, /* VertexProperties */
+                              boost::no_property,       /* EdgeProperties */
+                              boost::no_property,       /* GraphProperties */
+                              boost::listS_ip>          /* EdgeList */
     interprocedural_control_flow_graph_t;
 
 typedef interprocedural_control_flow_graph_t icfg_t;
@@ -230,13 +301,13 @@ inline bool IsDefinitelyTailCall(const icfg_t &ICFG, basic_block_t bb) {
   WARN_ON(boost::out_degree(bb, ICFG) > 0);
 #endif
 
-  return !ICFG[bb].DynTargets.empty();
+  return ICFG[bb].hasDynTarget();
 }
 
 inline bool IsAmbiguousIndirectJump(const icfg_t &ICFG, basic_block_t bb) {
   assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP);
 
-  return !ICFG[bb].DynTargets.empty() && boost::out_degree(bb, ICFG) > 0;
+  return ICFG[bb].hasDynTarget() && boost::out_degree(bb, ICFG) > 0;
 }
 
 inline bool IsExitBlock(const icfg_t &ICFG, basic_block_t bb) {
@@ -262,22 +333,16 @@ struct function_t {
   void InvalidateAnalysis(void) {
     this->Analysis.Stale = true;
   }
-
-  template <class Archive>
-  void serialize(Archive &ar, const unsigned int) {
-    ar &BOOST_SERIALIZATION_NVP(Entry)
-       &BOOST_SERIALIZATION_NVP(Analysis.args)
-       &BOOST_SERIALIZATION_NVP(Analysis.rets)
-       &BOOST_SERIALIZATION_NVP(Analysis.Stale)
-       &BOOST_SERIALIZATION_NVP(IsABI)
-       &BOOST_SERIALIZATION_NVP(IsSignalHandler)
-       &BOOST_SERIALIZATION_NVP(Returns);
-  }
 };
 
+typedef boost::interprocess::allocator<function_t, segment_manager_t>
+    function_allocator;
+typedef boost::interprocess::vector<function_t, function_allocator>
+    function_vector;
+
 struct binary_t {
-  std::string Path;
-  std::string Data;
+  ip_string Path;
+  ip_string Data;
 
   bool IsDynamicLinker, IsExecutable, IsVDSO;
 
@@ -285,14 +350,71 @@ struct binary_t {
 
   bool IsDynamicallyLoaded;
 
-  struct {
+  struct Analysis_t {
     function_index_t EntryFunction;
-    std::vector<function_t> Functions;
+    function_vector Functions;
     interprocedural_control_flow_graph_t ICFG;
 
-    std::map<uint64_t, std::set<dynamic_target_t>> RelocDynTargets;
-    std::map<uint64_t, std::set<dynamic_target_t>> IFuncDynTargets;
-    std::map<std::string, std::set<dynamic_target_t>> SymDynTargets;
+    boost::interprocess::map<
+        uint64_t,
+        ip_dynamic_target_set,
+        std::less<uint64_t>,
+        boost::interprocess::allocator<
+            std::pair<const uint64_t, ip_dynamic_target_set>,
+            segment_manager_t>>
+        IFuncDynTargets;
+
+    boost::interprocess::map<
+        uint64_t,
+        ip_dynamic_target_set,
+        std::less<uint64_t>,
+        boost::interprocess::allocator<
+            std::pair<const uint64_t, ip_dynamic_target_set>,
+            segment_manager_t>>
+        RelocDynTargets;
+
+    boost::interprocess::map<
+        ip_string,
+        ip_dynamic_target_set,
+        std::less<ip_string>,
+        boost::interprocess::allocator<
+            std::pair<const ip_string, ip_dynamic_target_set>,
+            segment_manager_t>>
+        SymDynTargets;
+
+    Analysis_t(const ip_void_allocator_t &Alloc)
+        : Functions(Alloc), ICFG(icfg_t::graph_property_type(), Alloc),
+          IFuncDynTargets(Alloc), RelocDynTargets(Alloc), SymDynTargets(Alloc) {
+    }
+
+    Analysis_t() = delete;
+
+    void addSymDynTarget(const std::string &sym, dynamic_target_t X) {
+        ip_string ips(Functions.get_allocator());
+        to_ips(ips, sym);
+        typedef std::pair<const ip_string, ip_dynamic_target_set> map_value_type;
+        ip_dynamic_target_set Y(Functions.get_allocator());
+        Y.insert(X);
+        map_value_type z(ips, Y);
+
+        SymDynTargets.insert(z);
+    }
+
+    void addRelocDynTarget(uint64_t A, dynamic_target_t X) {
+        typedef std::pair<const uint64_t, ip_dynamic_target_set> map_value_type;
+        ip_dynamic_target_set Y(Functions.get_allocator());
+        Y.insert(X);
+        map_value_type z(A, Y);
+        RelocDynTargets.insert(z);
+    }
+
+    void addIFuncDynTarget(uint64_t A, dynamic_target_t X) {
+        typedef std::pair<const uint64_t, ip_dynamic_target_set> map_value_type;
+        ip_dynamic_target_set Y(Functions.get_allocator());
+        Y.insert(X);
+        map_value_type z(A, Y);
+        IFuncDynTargets.insert(z);
+    }
   } Analysis;
 
   void InvalidateBasicBlockAnalyses(void) {
@@ -301,26 +423,40 @@ struct binary_t {
       Analysis.ICFG[*it].InvalidateAnalysis();
   }
 
-  template <class Archive>
-  void serialize(Archive &ar, const unsigned int) {
-    ar &BOOST_SERIALIZATION_NVP(Path)
-       &BOOST_SERIALIZATION_NVP(Data)
-       &BOOST_SERIALIZATION_NVP(IsDynamicLinker)
-       &BOOST_SERIALIZATION_NVP(IsExecutable)
-       &BOOST_SERIALIZATION_NVP(IsVDSO)
-       &BOOST_SERIALIZATION_NVP(IsPIC)
-       &BOOST_SERIALIZATION_NVP(IsDynamicallyLoaded)
-       &BOOST_SERIALIZATION_NVP(Analysis.EntryFunction)
-       &BOOST_SERIALIZATION_NVP(Analysis.Functions)
-       &BOOST_SERIALIZATION_NVP(Analysis.ICFG)
-       &BOOST_SERIALIZATION_NVP(Analysis.RelocDynTargets)
-       &BOOST_SERIALIZATION_NVP(Analysis.IFuncDynTargets)
-       &BOOST_SERIALIZATION_NVP(Analysis.SymDynTargets);
+  std::string_view data(void) const {
+    return std::string_view(Data.data(), Data.size());
   }
+
+  std::string_view path(void) const {
+    return std::string_view(Path.c_str(), Path.size());
+  }
+
+  std::string path_str(void) const {
+    return un_ips(Path);
+  }
+
+  binary_t(const ip_void_allocator_t &Alloc)
+      : Path(Alloc), Data(Alloc), Analysis(Alloc) {}
+
+  binary_t() = delete;
 };
 
+typedef boost::interprocess::allocator<binary_t, segment_manager_t>
+    ip_binary_allocator;
+typedef boost::interprocess::vector<binary_t, ip_binary_allocator>
+    ip_binary_vector;
+
+typedef boost::interprocess::map<
+    ip_string, binary_index_t, std::less<ip_string>,
+    boost::interprocess::allocator<std::pair<const ip_string, binary_index_t>,
+                                   segment_manager_t>>
+    ip_bin_idx_map_type;
+
 struct jv_t {
-  std::vector<binary_t> Binaries;
+  ip_binary_vector Binaries;
+  ip_bin_idx_map_type BinariesMap;
+
+  boost::interprocess::interprocess_mutex BinariesMutex;
 
   void InvalidateFunctionAnalyses(void) {
     for (binary_t &b : Binaries)
@@ -328,10 +464,10 @@ struct jv_t {
         f.InvalidateAnalysis();
   }
 
-  template <class Archive>
-  void serialize(Archive &ar, const unsigned int) {
-    ar &BOOST_SERIALIZATION_NVP(Binaries);
-  }
+  jv_t(const ip_void_allocator_t &Alloc)
+      : Binaries(Alloc), BinariesMap(Alloc) {}
+
+  jv_t() = delete;
 };
 
 inline const char *string_of_terminator(TERMINATOR TermTy) {
@@ -511,7 +647,8 @@ static inline binary_index_t binary_index_of_function(const function_t &f,
   for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
     auto &fns = jv.Binaries[BIdx].Analysis.Functions;
 
-    if (&f >= &fns[0] && &f < &fns[fns.size()])
+    if (&f >= fns.data() &&
+        &f < &fns.data()[fns.size()])
       return BIdx; /* found */
   }
 
@@ -520,20 +657,20 @@ static inline binary_index_t binary_index_of_function(const function_t &f,
 
 static inline binary_index_t index_of_binary(const binary_t &b,
                                              const jv_t &jv) {
-  if (!(&b >= &jv.Binaries[0] &&
-        &b < &jv.Binaries[jv.Binaries.size()]))
+  if (!(&b >= jv.Binaries.data() &&
+        &b < &jv.Binaries.data()[jv.Binaries.size()]))
     throw std::runtime_error(std::string(__func__) + ": invalid binary!");
 
-  return &b - &jv.Binaries[0];
+  return &b - jv.Binaries.data();
 }
 
 static inline function_index_t index_of_function_in_binary(const function_t &f,
                                                            const binary_t &b) {
-  if (!(&f >= &b.Analysis.Functions[0] &&
-        &f < &b.Analysis.Functions[b.Analysis.Functions.size()]))
+  if (!(&f >= b.Analysis.Functions.data() &&
+        &f < &b.Analysis.Functions.data()[b.Analysis.Functions.size()]))
     throw std::runtime_error(std::string(__func__) + ": invalid function!");
 
-  return &f - &b.Analysis.Functions[0];
+  return &f - b.Analysis.Functions.data();
 }
 
 static inline binary_t &binary_of_function(const function_t &f,
@@ -693,7 +830,7 @@ static inline basic_block_t index_of_basic_block_at_address(uint64_t Addr,
   auto it = bbmap.find(Addr);
   if (it == bbmap.end())
     throw std::runtime_error(std::string(__func__) + ": no block for address " +
-                             taddr2str(Addr) + " in " + binary.Path + "!");
+                             taddr2str(Addr) + " in " + binary.path_str() + "!");
 
   return -1+(*it).second;
 }
@@ -721,7 +858,7 @@ static inline bool exists_indirect_jump_at_address(uint64_t Addr,
     const auto &ICFG = binary.Analysis.ICFG;
     basic_block_t bb = basic_block_at_address(Addr, binary, bbmap);
     if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP &&
-        ICFG[bb].DynTargets.empty())
+        !ICFG[bb].hasDynTarget())
       return true;
   }
 
@@ -778,8 +915,11 @@ static inline void identify_ABIs(jv_t &jv) {
   // If a function is called from a different binary, it is an ABI.
   //
   for_each_basic_block(jv, [&](binary_t &b, basic_block_t bb) {
-    auto &DynTargets = b.Analysis.ICFG[bb].DynTargets;
-    binary_index_t BIdx = &b - &jv.Binaries[0];
+    if (!b.Analysis.ICFG[bb].hasDynTarget())
+      return;
+
+    auto &DynTargets = *b.Analysis.ICFG[bb].pDynTargets;
+    binary_index_t BIdx = index_of_binary(b, jv);
 
     if (std::any_of(
             DynTargets.begin(),
@@ -807,6 +947,24 @@ static inline void identify_ABIs(jv_t &jv) {
               });
         });
   });
+}
+
+static inline binary_t &get_dynl(jv_t &jv) {
+  for (binary_t &binary : jv.Binaries) {
+    if (binary.IsDynamicLinker)
+      return binary;
+  }
+
+  throw std::runtime_error(std::string(__func__) + ": not found!");
+}
+
+static inline binary_t &get_vdso(jv_t &jv) {
+  for (binary_t &binary : jv.Binaries) {
+    if (binary.IsVDSO)
+      return binary;
+  }
+
+  throw std::runtime_error(std::string(__func__) + ": not found!");
 }
 
 template <typename BinaryStateTy>
