@@ -7,7 +7,7 @@ static bool is_irelative_relocation(const Relocation &R) {
 }
 
 static bool is_relative_relocation(const Relocation &R) {
-  return R.Type == (llvm::ELF::R_MIPS_64 << 8) | llvm::ELF::R_MIPS_REL32;
+  return R.Type == ((llvm::ELF::R_MIPS_64 << 8) | llvm::ELF::R_MIPS_REL32);
 }
 
 static bool is_addressof_relocation(const Relocation &R) {
