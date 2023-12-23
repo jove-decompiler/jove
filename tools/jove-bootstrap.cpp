@@ -3248,7 +3248,11 @@ void BootstrapTool::harvest_global_GOT_entries(pid_t child,
 
       llvm::StringRef SymName = *ExpectedSymName;
 
-      auto &SymDynTargets = b.Analysis.SymDynTargets[SymName.str()];
+      ip_string tmp(Alloc);
+      ip_dynamic_target_set &SymDynTargets =
+          (*b.Analysis.SymDynTargets
+                .insert(std::make_pair(to_ips(tmp, SymName.str()),
+                                       ip_dynamic_target_set(Alloc))).first).second;
       if (!SymDynTargets.empty())
         continue;
 
