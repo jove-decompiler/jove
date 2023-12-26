@@ -321,6 +321,10 @@ void SerializeJVToFile(const jv_t &in, const char *path, bool text) {
 }
 
 void UnserializeJV(jv_t &out, std::istream &is, bool text) {
+  /* FIXME */
+  for (binary_t &b : out.Binaries)
+    __builtin_memset(&b.Analysis.ICFG.m_property, 0, sizeof(b.Analysis.ICFG.m_property));
+
   pAlloc_hack.reset(new ip_void_allocator_t(out.Binaries.get_allocator()));
 
   out.Binaries.clear();
@@ -336,6 +340,10 @@ void UnserializeJV(jv_t &out, std::istream &is, bool text) {
   } catch (...) {
     throw std::runtime_error("UnserializeJV failed!");
   }
+
+  /* FIXME */
+  for (binary_t &b : out.Binaries)
+    __builtin_memset(&b.Analysis.ICFG.m_property, 0, sizeof(b.Analysis.ICFG.m_property));
 }
 
 void UnserializeJVFromFile(jv_t &out, const char *path, bool text) {

@@ -289,7 +289,7 @@ void *ServerTool::ConnectionProc(void *arg) {
 
   /* FIXME */
   for (binary_t &b : jv.Binaries)
-    b.Analysis.ICFG.m_property.reset();
+    __builtin_memset(&b.Analysis.ICFG.m_property, 0, sizeof(b.Analysis.ICFG.m_property));
 
   //
   // analyze

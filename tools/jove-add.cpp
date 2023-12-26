@@ -103,7 +103,7 @@ int AddTool::Run(void) {
 
     // FIXME
     for (binary_t &b : jv.Binaries)
-      b.Analysis.ICFG.m_property.reset();
+      __builtin_memset(&b.Analysis.ICFG.m_property, 0, sizeof(b.Analysis.ICFG.m_property));
 
     BIdx = jv.Binaries.size();
     binary_t &b = jv.Binaries.emplace_back(Alloc);
@@ -111,7 +111,7 @@ int AddTool::Run(void) {
 
     // FIXME
     for (binary_t &b : jv.Binaries)
-      b.Analysis.ICFG.m_property.reset();
+      __builtin_memset(&b.Analysis.ICFG.m_property, 0, sizeof(b.Analysis.ICFG.m_property));
   }
   assert(is_binary_index_valid(BIdx));
 

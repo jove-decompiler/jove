@@ -489,6 +489,11 @@ JVTool::JVTool(const char *_jv_path)
       jv_file(boost::interprocess::open_or_create, jv_path.c_str(), JV_DEFAULT_INITIAL_SIZE),
       Alloc(jv_file.get_segment_manager()),
       jv(*jv_file.find_or_construct<jv_t>("JV")(ip_void_allocator_t(jv_file.get_segment_manager())))
-{}
+{
+  /* FIXME */
+  for (binary_t &b : jv.Binaries)
+    __builtin_memset(&b.Analysis.ICFG.m_property, 0, sizeof(b.Analysis.ICFG.m_property));
+
+}
 
 }
