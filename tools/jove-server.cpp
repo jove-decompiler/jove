@@ -445,6 +445,8 @@ void *ServerTool::ConnectionProc(void *arg) {
     }
   }
 
+  boost::interprocess::file_mapping::remove(tmpjv.c_str());
+
   return nullptr;
 }
 
