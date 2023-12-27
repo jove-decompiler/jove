@@ -7,7 +7,7 @@ namespace jove {
 namespace crypto {
 
 std::string hash(const void *data, size_t len) {
-  llvm::SHA1 Hasher;
+  llvm::SHA1 Hasher; /* FIXME? */
   Hasher.update(llvm::StringRef((const char *)data, len));
   return llvm::toHex(Hasher.final(), true);
 }

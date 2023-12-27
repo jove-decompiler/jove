@@ -1,5 +1,7 @@
 #pragma once
 #ifdef __cplusplus
+#include "hash.h"
+
 #include <boost/graph/adjacency_list.hpp>
 #include <boost/graph/depth_first_search.hpp>
 #include <boost/icl/split_interval_map.hpp>
@@ -58,6 +60,8 @@
 #ifdef __cplusplus
 
 namespace jove {
+
+struct explorer_t;
 
 inline std::string taddr2str(tcg_uintptr_t x) {
   std::stringstream stream;
@@ -246,11 +250,11 @@ struct basic_block_properties_t {
     return !pDynTargets->empty();
   }
 
-  bool insertDynTarget(dynamic_target_t X, jv_file_t &jv_file) {
+  bool insertDynTarget(dynamic_target_t X, const ip_void_allocator_t &Alloc) {
     if (!pDynTargets)
-      pDynTargets = jv_file.construct<ip_dynamic_target_set>(
-          boost::interprocess::anonymous_instance)(
-          ip_void_allocator_t(jv_file.get_segment_manager()));
+      pDynTargets =
+          Alloc.get_segment_manager()->construct<ip_dynamic_target_set>(
+              boost::interprocess::anonymous_instance)(Alloc);
     return pDynTargets->insert(X).second;
   }
 
@@ -335,6 +339,10 @@ struct function_t {
   }
 };
 
+typedef boost::interprocess::interprocess_mutex ip_mutex;
+template <typename Mutex>
+using ip_scoped_lock = boost::interprocess::scoped_lock<Mutex>;
+
 typedef boost::interprocess::allocator<function_t, segment_manager_t>
     function_allocator;
 typedef boost::interprocess::vector<function_t, function_allocator>
@@ -343,6 +351,7 @@ typedef boost::interprocess::vector<function_t, function_allocator>
 struct binary_t {
   ip_string Path;
   ip_string Data;
+  hash_t Hash;
 
   bool IsDynamicLinker, IsExecutable, IsVDSO;
 
@@ -446,17 +455,38 @@ typedef boost::interprocess::allocator<binary_t, segment_manager_t>
 typedef boost::interprocess::vector<binary_t, ip_binary_allocator>
     ip_binary_vector;
 
+struct cached_hash_t {
+  hash_t h;
+
+  struct {
+    int64_t sec, nsec;
+  } mtime;
+
+  cached_hash_t() {}
+  cached_hash_t(hash_t h) : h(h), mtime({0, 0}) {}
+};
+
 typedef boost::interprocess::map<
-    ip_string, binary_index_t, std::less<ip_string>,
-    boost::interprocess::allocator<std::pair<const ip_string, binary_index_t>,
+    ip_string, cached_hash_t, std::less<ip_string>,
+    boost::interprocess::allocator<std::pair<const ip_string, cached_hash_t>,
                                    segment_manager_t>>
-    ip_bin_idx_map_type;
+    ip_cached_hashes_type;
+
+typedef boost::interprocess::map<
+    hash_t, binary_index_t, std::less<hash_t>,
+    boost::interprocess::allocator<std::pair<const hash_t, binary_index_t>,
+                                   segment_manager_t>>
+    ip_hash_to_binary_map_type;
 
 struct jv_t {
   ip_binary_vector Binaries;
-  ip_bin_idx_map_type BinariesMap;
 
-  boost::interprocess::interprocess_mutex BinariesMutex;
+  ip_hash_to_binary_map_type hash_to_binary;
+  ip_cached_hashes_type cached_hashes;
+
+  ip_mutex binaries_mtx;
+  ip_mutex hash_to_binary_mtx;
+  ip_mutex cached_hashes_mtx;
 
   void InvalidateFunctionAnalyses(void) {
     for (binary_t &b : Binaries)
@@ -465,9 +495,17 @@ struct jv_t {
   }
 
   jv_t(const ip_void_allocator_t &Alloc)
-      : Binaries(Alloc), BinariesMap(Alloc) {}
+      : Binaries(Alloc), hash_to_binary(Alloc), cached_hashes(Alloc) {}
 
   jv_t() = delete;
+
+  binary_index_t Lookup(const char *path);
+  binary_index_t Add(const char *path, explorer_t &);
+
+private:
+  hash_t LookupAndCacheHash(const std::string &path);
+  binary_index_t LookupWithHash(hash_t);
+  void UpdateCachedHash(cached_hash_t &, const char *path);
 };
 
 inline const char *string_of_terminator(TERMINATOR TermTy) {

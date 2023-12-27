@@ -2,6 +2,8 @@
 #include "recovery.h"
 #include "elf.h"
 #include "symbolizer.h"
+#include "tcg.h"
+#include "explore.h"
 
 #include <boost/filesystem.hpp>
 #include <llvm/Support/FormatVariadic.h>
@@ -94,7 +96,7 @@ class CodeDigger : public TransformerTool_Bin<binary_state_t> {
 public:
   CodeDigger()
       : opts(JoveCategory),
-        Explorer(disas, tcg, jv_file),
+        Explorer(jv, disas, tcg),
         Recovery(jv, Explorer, symbolizer) {}
 
   int Run(void);

@@ -1,16 +1,17 @@
 #pragma once
+#include "jove/jove.h"
 #include "disas.h"
-#include "explore.h"
+#include "elf.h"
 #include "symbolizer.h"
 
 namespace jove {
+
+struct explorer_t;
 
 class CodeRecovery {
   jv_t &jv;
 
   explorer_t &E;
-
-  jv_file_t &jv_file;
 
   symbolizer_t &symbolizer;
 

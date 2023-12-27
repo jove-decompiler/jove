@@ -1,6 +1,8 @@
 #include "tool.h"
 #include "elf.h"
 #include "recovery.h"
+#include "tcg.h"
+#include "explore.h"
 
 #include <boost/filesystem.hpp>
 
@@ -138,7 +140,7 @@ int RecoverTool::Run(void) {
   tiny_code_generator_t tcg;
   symbolizer_t symbolizer;
 
-  explorer_t Explorer(disas, tcg, jv_file);
+  explorer_t Explorer(jv, disas, tcg);
   CodeRecovery Recovery(jv, Explorer, symbolizer);
 
   std::string msg;

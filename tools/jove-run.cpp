@@ -2,6 +2,8 @@
 #include "recovery.h"
 #include "elf.h"
 #include "crypto.h"
+#include "tcg.h"
+#include "explore.h"
 
 #include <boost/filesystem.hpp>
 #include <boost/format.hpp>
@@ -596,7 +598,7 @@ int RunTool::DoRun(void) {
     disas = std::make_unique<disas_t>();
     tcg = std::make_unique<tiny_code_generator_t>();
     symbolizer = std::make_unique<symbolizer_t>();
-    Explorer = std::make_unique<explorer_t>(*disas, *tcg, jv_file);
+    Explorer = std::make_unique<explorer_t>(jv, *disas, *tcg);
     Recovery = std::make_unique<CodeRecovery>(jv, *Explorer, *symbolizer);
   }
 

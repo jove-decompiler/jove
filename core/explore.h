@@ -1,20 +1,25 @@
 #pragma once
+#include "jove/jove.h"
 #include "disas.h"
-#include "tcg.h"
-#include <llvm/Object/ELFObjectFile.h>
 #include <functional>
+
+namespace llvm {
+namespace object {
+class Binary;
+}
+}
 
 namespace jove {
 
+struct tiny_code_generator_t;
+
 struct explorer_t {
+  jv_t &jv;
   disas_t &disas;
   tiny_code_generator_t &tcg;
-  jv_file_t &jv_file;
-  ip_void_allocator_t Alloc;
 
-  explorer_t(disas_t &disas, tiny_code_generator_t &tcg, jv_file_t &jv_file)
-      : disas(disas), tcg(tcg), jv_file(jv_file),
-        Alloc(ip_void_allocator_t(jv_file.get_segment_manager())) {}
+  explorer_t(jv_t &jv, disas_t &disas, tiny_code_generator_t &tcg)
+      : jv(jv), disas(disas), tcg(tcg) {}
 
   basic_block_index_t explore_basic_block(binary_t &b,
                                           llvm::object::Binary &B,

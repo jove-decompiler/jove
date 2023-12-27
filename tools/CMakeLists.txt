@@ -39,11 +39,13 @@ function(tool_for_arch arch arch_extra_cflags qemu_objs)
   string(TOUPPER "${arch}" uc_arch)
 
   add_llvm_tool(jove-${arch}
+    ../core/add.cpp
     ../core/crypto.cpp
     ../core/disas.cpp
     ../core/elf.cpp
     ../core/explore.cpp
     ../core/fd.cpp
+    ../core/hash.cpp
     ../core/ida.cpp
     ../core/jv.cpp
     ../core/locator.cpp

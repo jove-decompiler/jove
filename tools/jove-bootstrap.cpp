@@ -342,7 +342,7 @@ struct BootstrapTool : public TransformerTool_Bin<binary_state_t> {
   bool ShowMeS = false;
 
 public:
-  BootstrapTool() : opts(JoveCategory), E(disas, tcg, jv_file) {}
+  BootstrapTool() : opts(JoveCategory), E(jv, disas, tcg) {}
 
   int Run(void);
 
@@ -1362,7 +1362,7 @@ int BootstrapTool::TracerLoop(pid_t child, tiny_code_generator_t &tcg) {
                   state.for_binary(b).bbmap,
                   std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2));
               assert(is_function_index_valid(FIdx));
-              ICFG[bb].insertDynTarget({BIdx, FIdx}, jv_file);
+              ICFG[bb].insertDynTarget({BIdx, FIdx}, Alloc);
 
               (void)brkpt_count;
             }
@@ -2798,7 +2798,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
       assert(is_function_index_valid(FIdx));
 
-      Target.isNew = ICFG[bb].insertDynTarget({Target.BIdx, FIdx}, jv_file);
+      Target.isNew = ICFG[bb].insertDynTarget({Target.BIdx, FIdx}, Alloc);
 
       /* term bb may been split */
       bb = basic_block_at_address(IndBrInfo.TermAddr, binary, bbmap);
@@ -2869,7 +2869,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
           bb = basic_block_at_address(IndBrInfo.TermAddr, binary, bbmap);
           assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP);
 
-          Target.isNew = ICFG[bb].insertDynTarget({Target.BIdx, FIdx}, jv_file);
+          Target.isNew = ICFG[bb].insertDynTarget({Target.BIdx, FIdx}, Alloc);
         } else {
           basic_block_index_t TargetBBIdx =
               E.explore_basic_block(TargetBinary, *state.for_binary(TargetBinary).ObjectFile,
@@ -4057,6 +4057,8 @@ void BootstrapTool::add_binary(pid_t child, tiny_code_generator_t &tcg,
                                const char *path) {
   std::string jvfp = temporary_dir() + path + ".jv";
   fs::create_directories(fs::path(jvfp).parent_path());
+
+  ip_scoped_lock<ip_mutex> lck(jv.binaries_mtx);
 
   binary_index_t BIdx = jv.Binaries.size();
 

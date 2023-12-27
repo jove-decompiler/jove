@@ -612,18 +612,15 @@ Found:
     Q.push(path);
 
   {
-    boost::interprocess::scoped_lock<boost::interprocess::interprocess_mutex>
-        lck(jv.BinariesMutex);
+    ip_scoped_lock<ip_mutex> lck(jv.binaries_mtx);
+
     jv.Binaries.clear();
     jv.Binaries.reserve(binary_paths.size()); /* FIXME */
   }
 
   spawn_workers();
 
-  {
-    boost::interprocess::scoped_lock<boost::interprocess::interprocess_mutex>
-        lck(jv.BinariesMutex);
-  }
+  { ip_scoped_lock<ip_mutex> lck(jv.binaries_mtx); }
 
   /* FIXME */
   for_each_binary(jv, [&](binary_t &b) {

@@ -1,6 +1,7 @@
 #include "tool.h"
 #include "elf.h"
 #include "explore.h"
+#include "tcg.h"
 
 #include <boost/filesystem.hpp>
 #include <boost/range/adaptor/reversed.hpp>
@@ -94,12 +95,11 @@ int AddTool::Run(void) {
 
   tiny_code_generator_t tcg;
   disas_t disas;
-  explorer_t E(disas, tcg, jv_file);
+  explorer_t E(jv, disas, tcg);
 
   binary_index_t BIdx = invalid_binary_index;
   {
-    boost::interprocess::scoped_lock<boost::interprocess::interprocess_mutex>
-        lck(jv.BinariesMutex);
+    ip_scoped_lock<ip_mutex> lck(jv.binaries_mtx);
 
     // FIXME
     for (binary_t &b : jv.Binaries)

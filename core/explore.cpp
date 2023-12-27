@@ -1,5 +1,6 @@
 #include "explore.h"
 #include "elf.h"
+#include "tcg.h"
 
 #include <boost/format.hpp>
 
@@ -153,7 +154,7 @@ on_insn_boundary:
       boost::icl::interval<uint64_t>::type orig_intervl = (*it).first;
 
       const basic_block_index_t NewBBIdx = boost::num_vertices(ICFG);
-      basic_block_t newbb = boost::add_vertex(ICFG, Alloc);
+      basic_block_t newbb = boost::add_vertex(ICFG, jv.Binaries.get_allocator());
       {
         basic_block_properties_t &newbbprop = ICFG[newbb];
         newbbprop.Addr = beg;
@@ -286,7 +287,7 @@ on_insn_boundary:
   }
 
   const basic_block_index_t BBIdx = boost::num_vertices(ICFG);
-  basic_block_t bb = boost::add_vertex(ICFG, Alloc);
+  basic_block_t bb = boost::add_vertex(ICFG, jv.Binaries.get_allocator());
   {
     basic_block_properties_t &bbprop = ICFG[bb];
     bbprop.Addr = Addr;

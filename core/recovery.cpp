@@ -1,5 +1,6 @@
 #include "recovery.h"
 #include "util.h"
+#include "explore.h"
 
 #include <stdexcept>
 
@@ -18,9 +19,7 @@ namespace jove {
 typedef boost::format fmt;
 
 CodeRecovery::CodeRecovery(jv_t &jv, explorer_t &E, symbolizer_t &symbolizer)
-    : jv(jv), E(E), jv_file(E.jv_file), symbolizer(symbolizer), state(jv) {
-  state.update();
-
+    : jv(jv), E(E), symbolizer(symbolizer), state(jv) {
   for_each_binary(jv, [&](binary_t &binary) {
     binary_state_t &binary_state = state.for_binary(binary);
 
@@ -75,7 +74,7 @@ std::string CodeRecovery::RecoverDynamicTarget(uint32_t CallerBIdx,
   basic_block_t bb = basic_block_at_address(
       TermAddr, CallerBinary, state.for_binary(CallerBinary).bbmap);
 
-  bool isNewTarget = ICFG[bb].insertDynTarget({CalleeBIdx, CalleeFIdx}, jv_file);
+  bool isNewTarget = ICFG[bb].insertDynTarget({CalleeBIdx, CalleeFIdx}, jv.Binaries.get_allocator());
 
   if (!isNewTarget)
     return std::string();
@@ -108,7 +107,7 @@ std::string CodeRecovery::RecoverDynamicTarget(uint32_t CallerBIdx,
 
       /* term bb may been split */
       bb = basic_block_at_address(TermAddr, CallerBinary, state.for_binary(CallerBinary).bbmap);
-      ICFG[bb].insertDynTarget({CallerBIdx, FIdx}, jv_file);
+      ICFG[bb].insertDynTarget({CallerBIdx, FIdx}, jv.Binaries.get_allocator());
     }
 
     boost::clear_out_edges(bb, ICFG);
@@ -213,7 +212,7 @@ std::string CodeRecovery::RecoverFunction(uint32_t IndCallBIdx,
   bb = basic_block_at_address(TermAddr, CallerBinary,
                               state.for_binary(CallerBinary).bbmap);
 
-  bool isNewTarget = ICFG[bb].insertDynTarget({CalleeBIdx, CalleeFIdx}, jv_file);
+  bool isNewTarget = ICFG[bb].insertDynTarget({CalleeBIdx, CalleeFIdx}, jv.Binaries.get_allocator());
   (void)isNewTarget; /* FIXME */
 
   if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP)

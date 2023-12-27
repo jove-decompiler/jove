@@ -3,6 +3,7 @@
 #include "ida.h"
 #include "explore.h"
 #include "symbolizer.h"
+#include "tcg.h"
 
 #include <llvm/Support/CommandLine.h>
 #include <llvm/Support/DataTypes.h>
@@ -140,7 +141,7 @@ int IDATool::Run(void) {
 
   tiny_code_generator_t tcg;
   disas_t dis;
-  explorer_t E(dis, tcg, jv_file);
+  explorer_t E(jv, dis, tcg);
 
   symbolizer_t symbolizer;
 
