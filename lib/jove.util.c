@@ -324,7 +324,7 @@ static _UNUSED uintptr_t _parse_stack_end_of_maps(char *maps, const unsigned n) 
   _UNREACHABLE();
 }
 
-static _UNUSED uintptr_t _does_readable_mapping_exist_at_address(
+static _UNUSED uintptr_t _does_readable_regular_mapping_exist_at_address(
     uintptr_t Addr, char *maps, const unsigned n) {
   char *const beg = &maps[0];
   char *const end = &maps[n];
@@ -338,6 +338,9 @@ static _UNUSED uintptr_t _does_readable_mapping_exist_at_address(
       // find the end of the current line
       //
       eol = _memchr(line, '\n', left);
+
+      if (eol[-1] == ']')
+        continue;
     }
 
     unsigned left = eol - line;
@@ -379,7 +382,7 @@ static _INL _UNUSED uintptr_t _get_stack_end(void) {
   //
   uintptr_t newres;
   do {
-    newres = _does_readable_mapping_exist_at_address(res, buff, n);
+    newres = _does_readable_regular_mapping_exist_at_address(res, buff, n);
     if (newres)
       res = newres;
   } while (newres);
