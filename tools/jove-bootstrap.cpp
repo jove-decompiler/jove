@@ -4059,33 +4059,7 @@ void BootstrapTool::add_binary(pid_t child, tiny_code_generator_t &tcg,
   std::string jvfp = temporary_dir() + path + ".jv";
   fs::create_directories(fs::path(jvfp).parent_path());
 
-  binary_index_t BIdx = jv.Binaries.size();
-
-  //
-  // run jove-add on the DSO
-  //
-  {
-    std::string path_to_stdout = temporary_dir() + path + ".add.stdout.txt";
-    std::string path_to_stderr = temporary_dir() + path + ".add.stderr.txt";
-
-    int rc = RunToolToExit("add",
-        [&](auto Arg) {
-          Arg("-o");
-          Arg(jvfp);
-          Arg("-i");
-          Arg(path);
-        },
-        path_to_stdout,
-        path_to_stderr);
-
-    if (rc) {
-      HumanOut() << llvm::formatv("jove add failed!\n{0}\n",
-                                  read_file_into_string(path_to_stderr.c_str()));
-      return;
-    }
-  }
-
-  assert(jv.Binaries.size() == BIdx + 1); /* FIXME */
+  binary_index_t BIdx = jv.Add(path, E);
   state.update();
 
   binary_t &binary = jv.Binaries[BIdx];
