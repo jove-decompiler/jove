@@ -609,8 +609,7 @@ Found:
   {
     ip_scoped_lock<ip_mutex> lck(jv.binaries_mtx);
 
-    jv.Binaries.clear();
-    jv.Binaries.reserve(binary_paths.size()); /* FIXME */
+    jv.clear();
   }
 
   spawn_workers();
