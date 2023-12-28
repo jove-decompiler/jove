@@ -506,6 +506,8 @@ private:
   hash_t LookupAndCacheHash(const std::string &path);
   binary_index_t LookupWithHash(hash_t);
   void UpdateCachedHash(cached_hash_t &, const char *path);
+
+  void DoAdd(binary_t &, explorer_t &);
 };
 
 inline const char *string_of_terminator(TERMINATOR TermTy) {
