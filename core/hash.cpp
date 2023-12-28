@@ -8,13 +8,11 @@
 
 namespace jove {
 
-static_assert(std::is_same_v<__uint128_t, hash_t>);
-
 hash_t hash_data(const void *data, size_t len) {
   std::array<uint8_t, 20> raw_hash =
       llvm::SHA1::hash(llvm::ArrayRef<uint8_t>((const uint8_t *)data, len));
 
-  return *((const __uint128_t *)raw_hash.data());
+  return *((const hash_t *)raw_hash.data());
 }
 
 hash_t hash_file(const char *path) {
