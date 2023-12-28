@@ -600,11 +600,6 @@ Found:
     }
   }
 
-  /* Line buffer to ensure lines are written atomically and immediately
-     so that processes running in parallel do not intersperse their output.  */
-  setvbuf(stdout, NULL, _IOLBF, 0);
-  setvbuf(stderr, NULL, _IOLBF, 0);
-
   //
   // process the binaries, concurrently
   //
@@ -662,10 +657,6 @@ Found:
 found:
     ;
   }
-
-#if 0
-  WriteJvToFile(jvfp, final_decompilation);
-#endif
 
   return 0;
 }
