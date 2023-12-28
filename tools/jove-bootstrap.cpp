@@ -4059,8 +4059,6 @@ void BootstrapTool::add_binary(pid_t child, tiny_code_generator_t &tcg,
   std::string jvfp = temporary_dir() + path + ".jv";
   fs::create_directories(fs::path(jvfp).parent_path());
 
-  ip_scoped_lock<ip_mutex> lck(jv.binaries_mtx);
-
   binary_index_t BIdx = jv.Binaries.size();
 
   //
