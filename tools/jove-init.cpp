@@ -3,6 +3,8 @@
 #include "crypto.h"
 #include "util.h"
 #include "vdso.h"
+#include "explore.h"
+#include "tcg.h"
 
 #include <boost/filesystem.hpp>
 #include <boost/format.hpp>
@@ -13,8 +15,6 @@
 #include <llvm/Support/FormatVariadic.h>
 #include <llvm/Support/WithColor.h>
 
-#include <mutex>
-#include <queue>
 #include <string>
 #include <thread>
 
@@ -57,13 +57,6 @@ public:
   InitTool() : opts(JoveCategory) {}
 
   int Run(void);
-
-  void worker(void);
-  void spawn_workers(void);
-
-  std::mutex mtx;
-  std::queue<std::string> Q;
-  int null_fd;
 };
 
 JOVE_REGISTER_TOOL("init", InitTool);
@@ -423,16 +416,7 @@ int InitTool::Run(void) {
     return 1;
   }
 
-  fs::create_directories(jove_dir());
-
   IgnoreCtrlC();
-
-  null_fd = ::open("/dev/null", O_WRONLY);
-  if (null_fd < 0) {
-    WithColor::error() << "could not open /dev/null : " << strerror(errno)
-                       << '\n';
-    return 1;
-  }
 
   const bool firmadyne = fs::exists("/firmadyne/libnvram.so"); /* XXX */
 
@@ -601,18 +585,23 @@ Found:
   }
 
   //
-  // process the binaries, concurrently
+  // point of no return
   //
-  for (const std::string& path : binary_paths)
-    Q.push(path);
-
   {
     ip_scoped_lock<ip_mutex> lck(jv.binaries_mtx);
 
     jv.clear();
   }
 
-  spawn_workers();
+  tiny_code_generator_t tcg;
+  disas_t disas;
+  explorer_t E(jv, disas, tcg);
+
+  //
+  // process the binaries
+  //
+  std::for_each(binary_paths.begin(), binary_paths.end(),
+                [&](const std::string &path) { jv.Add(path.c_str(), E); });
 
   { ip_scoped_lock<ip_mutex> lck(jv.binaries_mtx); }
 
@@ -685,55 +674,6 @@ std::string program_interpreter_of_executable(const char *exepath) {
   }
 
   return res;
-}
-
-void InitTool::worker(void) {
-  auto pop_path = [&](std::string &out) -> bool {
-    std::lock_guard<std::mutex> lck(mtx);
-
-    if (Q.empty()) {
-      return false;
-    } else {
-      out = Q.front();
-      Q.pop();
-      return true;
-    }
-  };
-
-  std::string path;
-  while (pop_path(path)) {
-    std::string jvfp = temporary_dir() + path + ".jv";
-    fs::create_directories(fs::path(jvfp).parent_path());
-
-    std::string path_to_stdout = temporary_dir() + path + ".add.stdout.txt";
-    //std::string path_to_stderr = temporary_dir() + path + ".add.stderr.txt";
-
-    int rc = RunToolToExit(
-        "add",
-        [&](auto Arg) {
-          Arg("-o");
-          Arg(jvfp);
-          Arg("-i");
-          Arg(path);
-        },
-        path_to_stdout);
-
-    if (rc)
-      WithColor::error() << llvm::formatv("adding binary {0} failed!\n", path);
-  }
-}
-
-void InitTool::spawn_workers(void) {
-  std::vector<std::thread> workers;
-
-  unsigned N = opts.Threads;
-
-  workers.reserve(N);
-  for (unsigned i = 0; i < N; ++i)
-    workers.push_back(std::thread(&InitTool::worker, this));
-
-  for (std::thread &t : workers)
-    t.join();
 }
 
 }
