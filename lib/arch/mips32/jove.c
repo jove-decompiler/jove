@@ -136,19 +136,12 @@ void _jove_begin(uint32_t a0,
   ".set noreorder\n"                                                           \
                                                                                \
   "addiu $sp,$sp,-32\n"                                                        \
-  "sw $ra, 20($sp)\n"                                                          \
+  "sw $ra, 20($sp)\n" /* callee-saved registers */                             \
   "sw $s0, 24($sp)\n"                                                          \
-  "sw $s1, 28($sp)\n"                                                          \
-                                                                               \
-  "move $s0, $sp\n" /* save sp in $s0 */
+  "sw $s1, 28($sp)\n"
 
 #define JOVE_THUNK_EPILOGUE                                                    \
-  "sdc1 $f0, 436($s1)\n" /* see NOTE below on magic offset */                  \
-                                                                               \
-  "sw $sp, 0($s1)\n" /* store modified emusp */                                \
-  "move $sp, $s0\n"  /* restore stack pointer */                               \
-                                                                               \
-  "lw $ra, 20($sp)\n"                                                          \
+  "lw $ra, 20($sp)\n" /* callee-saved registers */                             \
   "lw $s0, 24($sp)\n"                                                          \
   "lw $s1, 28($sp)\n"                                                          \
                                                                                \
@@ -157,54 +150,63 @@ void _jove_begin(uint32_t a0,
                                                                                \
   ".set reorder\n"
 
+#define JOVE_THUNK_EXTRA_ARGS                                                  \
+  "ldc1 $f12, 380($s1)\n" /* floating point arguments */                       \
+  "ldc1 $f13, 396($s1)\n"                                                      \
+  "ldc1 $f14, 412($s1)\n"
+
+#define JOVE_THUNK_EXTRA_RETS                                                  \
+  "sdc1 $f0, 188($s1)\n" /* floating point return values */                    \
+  "sdc1 $f1, 204($s1)\n"                                                       \
+  "sdc1 $f2, 220($s1)\n"                                                       \
+  "sdc1 $f3, 236($s1)\n"
+
+#define JOVE_THUNK_CORE                                                        \
+  JOVE_THUNK_EXTRA_ARGS                                                        \
+                                                                               \
+  "move $s0, $sp\n" /* save sp in $s0 */                                       \
+                                                                               \
+  "lw $sp, 0($s1)\n"   /* sp=*emuspp */                                        \
+  "sw $zero, 0($s1)\n" /* *emuspp=NULL */                                      \
+                                                                               \
+  "jalr $t9\n" /* call dstpc */                                                \
+  "nop\n"                                                                      \
+                                                                               \
+  "sw $sp, 0($s1)\n" /* store modified emusp */                                \
+  "move $sp, $s0\n"  /* restore stack pointer */                               \
+                                                                               \
+  JOVE_THUNK_EXTRA_RETS                                                        \
+                                                                               \
+  JOVE_THUNK_EPILOGUE
+
 //
 // NOTE: the magic offset is
 // offsetof(CPUMIPSState, active_fpu.fpr[0].d) -
 // offsetof(CPUMIPSState, active_tc.gpr[29]);
 //
 
-jove_thunk_return_t _jove_thunk0(uint32_t dstpc,
-                                 uint32_t *emuspp) {
+jove_thunk_return_t _jove_thunk0(uint32_t dstpc   /* a0 */,
+                                 uint32_t *emuspp /* a1 */) {
   asm volatile(JOVE_THUNK_PROLOGUE
 
-               "move $s1, $a1\n" // emuspp in $s1
+               "move $t9, $a0\n" // dstpc in t9
+               "move $s1, $a1\n" // emuspp in s1
 
-               "ldc1 $f12, 628($a1)\n" // floating point argument #1
-               "ldc1 $f14, 660($a1)\n" // floating point argument #2
-
-               "lw $sp, 0($a1)\n" // sp=*emuspp
-               "sw $zero, 0($a1)\n" // *emuspp=NULL
-
-               /* args: nothing to do */
-
-               "jalr $a0\n"      // call dstpc
-               "move $t9, $a0\n" // [delay slot] set t9
-
-               JOVE_THUNK_EPILOGUE
+               JOVE_THUNK_CORE
                : /* OutputOperands */
                : /* InputOperands */
                : /* Clobbers */);
 }
 
 jove_thunk_return_t _jove_thunk1(uint32_t a0,
-                                 uint32_t dstpc,
-                                 uint32_t *emuspp) {
+                                 uint32_t dstpc   /* a1 */,
+                                 uint32_t *emuspp /* a2 */) {
   asm volatile(JOVE_THUNK_PROLOGUE
 
-               "move $s1, $a2\n" // emuspp in $s1
+               "move $t9, $a1\n" // dstpc in t9
+               "move $s1, $a2\n" // emuspp in s1
 
-               "ldc1 $f12, 628($a2)\n" // floating point argument #1
-               "ldc1 $f14, 660($a2)\n" // floating point argument #2
-
-               "lw $sp, 0($a2)\n" // sp=*emuspp
-               "sw $zero, 0($a2)\n" // *emuspp=NULL
-
-               /* args: nothing to do */
-
-               "jalr $a1\n"      // call dstpc
-               "move $t9, $a1\n" // [delay slot] set t9
-
-               JOVE_THUNK_EPILOGUE
+               JOVE_THUNK_CORE
                : /* OutputOperands */
                : /* InputOperands */
                : /* Clobbers */);
@@ -212,24 +214,14 @@ jove_thunk_return_t _jove_thunk1(uint32_t a0,
 
 jove_thunk_return_t _jove_thunk2(uint32_t a0,
                                  uint32_t a1,
-                                 uint32_t dstpc,
-                                 uint32_t *emuspp) {
+                                 uint32_t dstpc   /* a2 */,
+                                 uint32_t *emuspp /* a3 */) {
   asm volatile(JOVE_THUNK_PROLOGUE
 
-               "move $s1, $a3\n" // emuspp in $s1
+               "move $t9, $a2\n" // dstpc in t9
+               "move $s1, $a3\n" // emuspp in s1
 
-               "ldc1 $f12, 628($a3)\n" // floating point argument #1
-               "ldc1 $f14, 660($a3)\n" // floating point argument #2
-
-               "lw $sp, 0($a3)\n" // sp=*emuspp
-               "sw $zero, 0($a3)\n" // *emuspp=NULL
-
-               /* args: nothing to do */
-
-               "jalr $a2\n"      // call dstpc
-               "move $t9, $a2\n" // [delay slot] set t9
-
-               JOVE_THUNK_EPILOGUE
+               JOVE_THUNK_CORE
                : /* OutputOperands */
                : /* InputOperands */
                : /* Clobbers */);
@@ -238,24 +230,14 @@ jove_thunk_return_t _jove_thunk2(uint32_t a0,
 jove_thunk_return_t _jove_thunk3(uint32_t a0,
                                  uint32_t a1,
                                  uint32_t a2,
-                                 uint32_t dstpc,
+                                 uint32_t dstpc /* a3 */,
                                  uint32_t *emuspp) {
   asm volatile(JOVE_THUNK_PROLOGUE
 
-               "lw $s1, 48($sp)\n" // emuspp in $s1
+               "move $t9, $a3\n"   // dstpc in t9
+               "lw $s1, 48($sp)\n" // emuspp in s1
 
-               "ldc1 $f12, 628($s1)\n" // floating point argument #1
-               "ldc1 $f14, 660($s1)\n" // floating point argument #2
-
-               "lw $sp, 0($s1)\n" // sp=*emuspp
-               "sw $zero, 0($s1)\n" // *emuspp=NULL
-
-               /* args: nothing to do */
-
-               "jalr $a3\n"      // call dstpc
-               "move $t9, $a3\n" // [delay slot] set t9
-
-               JOVE_THUNK_EPILOGUE
+               JOVE_THUNK_CORE
                : /* OutputOperands */
                : /* InputOperands */
                : /* Clobbers */);
@@ -269,22 +251,10 @@ jove_thunk_return_t _jove_thunk4(uint32_t a0,
                                  uint32_t *emuspp) {
   asm volatile(JOVE_THUNK_PROLOGUE
 
-               "lw $s1, 52($sp)\n" // emuspp in $s1
+               "lw $t9, 48($sp)\n" // dstpc in t9
+               "lw $s1, 52($sp)\n" // emuspp in s1
 
-               "ldc1 $f12, 628($s1)\n" // floating point argument #1
-               "ldc1 $f14, 660($s1)\n" // floating point argument #2
-
-               /* args: nothing to do */
-
-               "lw $t9, 48($sp)\n" /* do this now before sp is clobbered */
-
-               "lw $sp, 0($s1)\n" // sp=*emuspp
-               "sw $zero, 0($s1)\n" // *emuspp=NULL
-
-               "jalr $t9\n"      // call dstpc
-               "nop\n"
-
-               JOVE_THUNK_EPILOGUE
+               JOVE_THUNK_CORE
                : /* OutputOperands */
                : /* InputOperands */
                : /* Clobbers */);
