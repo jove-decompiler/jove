@@ -8,10 +8,12 @@ set -x
 TRIPLE="mipsel-linux-gnu"
 
 OURCFLAGS=\
-"--target=$TRIPLE"
+"--target=$TRIPLE"\
+" -gline-tables-only"\
+" -gdwarf-4"
 
 cmake -G Ninja \
-  -D CMAKE_BUILD_TYPE=RelWithDebInfo \
+  -D CMAKE_BUILD_TYPE=Release \
   -D CMAKE_SYSTEM_NAME=Linux \
   -D CMAKE_CROSSCOMPILING=True \
   -D LLVM_TARGET_ARCH=mipsel \
@@ -31,7 +33,7 @@ cmake -G Ninja \
   -D LLVM_ENABLE_LIBXML2=OFF \
   -D LLVM_ENABLE_TERMINFO=OFF \
   -D LLVM_ENABLE_Z3_SOLVER=OFF \
-  -D LLVM_ENABLE_ASSERTIONS=ON \
+  -D LLVM_ENABLE_ASSERTIONS=OFF \
   -D LLVM_ENABLE_BINDINGS=OFF \
   -D LLVM_ENABLE_EH=ON \
   -D LLVM_ENABLE_PIC=ON \
