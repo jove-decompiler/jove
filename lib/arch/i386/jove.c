@@ -171,11 +171,7 @@ jove_thunk_return_t _jove_thunk0(uint32_t dstpc,  /* eax */
                "movl %%eax, %%esi\n" /* dstpc in esi */
                "movl %%edx, %%edi\n" /* emuspp in edi */
 
-               JOVE_THUNK_CORE
-
-               : /* OutputOperands */
-               : /* InputOperands */
-               : /* Clobbers */);
+               JOVE_THUNK_CORE);
 }
 
 jove_thunk_return_t _jove_thunk1(uint32_t eax,
@@ -186,11 +182,7 @@ jove_thunk_return_t _jove_thunk1(uint32_t eax,
                "movl %%edx, %%esi\n" /* dstpc in esi */
                "movl %%ecx, %%edi\n" /* emuspp in edi */
 
-               JOVE_THUNK_CORE
-
-               : /* OutputOperands */
-               : /* InputOperands */
-               : /* Clobbers */);
+               JOVE_THUNK_CORE);
 }
 
 jove_thunk_return_t _jove_thunk2(uint32_t eax,
@@ -202,11 +194,7 @@ jove_thunk_return_t _jove_thunk2(uint32_t eax,
                "movl %%ecx, %%esi\n" /* dstpc in esi */
                "movl 16(%%esp), %%edi\n" /* emuspp in edi */
 
-               JOVE_THUNK_CORE
-
-               : /* OutputOperands */
-               : /* InputOperands */
-               : /* Clobbers */);
+               JOVE_THUNK_CORE);
 }
 
 jove_thunk_return_t _jove_thunk3(uint32_t eax,
