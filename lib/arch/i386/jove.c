@@ -137,6 +137,34 @@ void _jove_begin(target_ulong sp_addr) {
   return _jove_call_entry();
 }
 
+extern floatx80 float32_to_floatx80(float32, float_status *status);
+
+#define ST0    (env->fpregs[env->fpstt].d)
+
+_HIDDEN void _jove_thunk_handle_st0(uint32_t f32) {
+  CPUX86State *env = __jove_env_clunk;
+
+#if 0
+  helper_flds_ST0(env, f32);
+#else
+  env->fpstt = env->fpstt & 7;
+  env->fp_status.float_exception_flags = 0;
+  ST0 = float32_to_floatx80(f32, &env->fp_status);
+#endif
+}
+
+#define JOVE_THUNK_EXTRA_RETS                                                  \
+  "pushl %%eax\n" /* preserve */                                               \
+  "pushl %%edx\n" /* preserve */                                               \
+                                                                               \
+  "pushl %%eax\n"                                                              \
+  "fsts (%%esp)\n" /* get ST(0) as float */                                    \
+  "call _jove_thunk_handle_st0\n"                                              \
+  "popl %%eax\n"                                                               \
+                                                                               \
+  "popl %%edx\n"                                                               \
+  "popl %%eax\n"
+
 #define JOVE_THUNK_PROLOGUE                                                    \
   "pushl %%ebp\n" /* callee-saved registers */                                 \
   "pushl %%edi\n"                                                              \
@@ -155,6 +183,8 @@ void _jove_begin(target_ulong sp_addr) {
                                                                                \
   "movl %%esp, (%%edi)\n" /* store modified emusp */                           \
   "movl %%ebp, %%esp\n"   /* restore stack pointer */                          \
+                                                                               \
+  JOVE_THUNK_EXTRA_RETS                                                        \
                                                                                \
   JOVE_THUNK_EPILOGUE
 
