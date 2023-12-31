@@ -230,7 +230,10 @@ jove_thunk_return_t _jove_thunk0(uint64_t dstpc,  /* a0 */
                "jalr $a0\n"      // call dstpc
                "move $t9, $a0\n" // [delay slot] set t9
 
-               JOVE_THUNK_EPILOGUE);
+               JOVE_THUNK_EPILOGUE
+               : /* OutputOperands */
+               : /* InputOperands */
+               : /* Clobbers */);
 }
 
 jove_thunk_return_t _jove_thunk1(uint64_t a0,
@@ -248,7 +251,10 @@ jove_thunk_return_t _jove_thunk1(uint64_t a0,
                "jalr $a1\n"      // call dstpc
                "move $t9, $a1\n" // [delay slot] set t9
 
-               JOVE_THUNK_EPILOGUE);
+               JOVE_THUNK_EPILOGUE
+               : /* OutputOperands */
+               : /* InputOperands */
+               : /* Clobbers */);
 }
 
 jove_thunk_return_t _jove_thunk2(uint64_t a0,
@@ -267,7 +273,10 @@ jove_thunk_return_t _jove_thunk2(uint64_t a0,
                "jalr $a2\n"      // call dstpc
                "move $t9, $a2\n" // [delay slot] set t9
 
-               JOVE_THUNK_EPILOGUE);
+               JOVE_THUNK_EPILOGUE
+               : /* OutputOperands */
+               : /* InputOperands */
+               : /* Clobbers */);
 }
 
 jove_thunk_return_t _jove_thunk3(uint64_t a0,
@@ -287,7 +296,10 @@ jove_thunk_return_t _jove_thunk3(uint64_t a0,
                "jalr $a3\n"      // call dstpc
                "move $t9, $a3\n" // [delay slot] set t9
 
-               JOVE_THUNK_EPILOGUE);
+               JOVE_THUNK_EPILOGUE
+               : /* OutputOperands */
+               : /* InputOperands */
+               : /* Clobbers */);
 }
 
 jove_thunk_return_t _jove_thunk4(uint64_t a0,
@@ -308,7 +320,10 @@ jove_thunk_return_t _jove_thunk4(uint64_t a0,
                "jalr $8\n"      // call dstpc
                "move $t9, $8\n" // [delay slot] set t9
 
-               JOVE_THUNK_EPILOGUE);
+               JOVE_THUNK_EPILOGUE
+               : /* OutputOperands */
+               : /* InputOperands */
+               : /* Clobbers */);
 }
 
 jove_thunk_return_t _jove_thunk5(uint64_t a0,
@@ -330,7 +345,10 @@ jove_thunk_return_t _jove_thunk5(uint64_t a0,
                "jalr $9\n"      // call dstpc
                "move $t9, $9\n" // [delay slot] set t9
 
-               JOVE_THUNK_EPILOGUE);
+               JOVE_THUNK_EPILOGUE
+               : /* OutputOperands */
+               : /* InputOperands */
+               : /* Clobbers */);
 }
 
 jove_thunk_return_t _jove_thunk6(uint64_t a0,
@@ -353,7 +371,10 @@ jove_thunk_return_t _jove_thunk6(uint64_t a0,
                "jalr $10\n"      // call dstpc
                "move $t9, $10\n" // [delay slot] set t9
 
-               JOVE_THUNK_EPILOGUE);
+               JOVE_THUNK_EPILOGUE
+               : /* OutputOperands */
+               : /* InputOperands */
+               : /* Clobbers */);
 }
 
 jove_thunk_return_t _jove_thunk7(uint64_t a0,
@@ -377,7 +398,10 @@ jove_thunk_return_t _jove_thunk7(uint64_t a0,
                "jalr $11\n"      // call dstpc
                "move $t9, $11\n" // [delay slot] set t9
 
-               JOVE_THUNK_EPILOGUE);
+               JOVE_THUNK_EPILOGUE
+               : /* OutputOperands */
+               : /* InputOperands */
+               : /* Clobbers */);
 }
 
 jove_thunk_return_t _jove_thunk8(uint64_t a0,
@@ -403,7 +427,10 @@ jove_thunk_return_t _jove_thunk8(uint64_t a0,
                "jalr $t9\n"      // call dstpc
                "nop\n"
 
-               JOVE_THUNK_EPILOGUE);
+               JOVE_THUNK_EPILOGUE
+               : /* OutputOperands */
+               : /* InputOperands */
+               : /* Clobbers */);
 }
 
 #undef JOVE_THUNK_PROLOGUE
