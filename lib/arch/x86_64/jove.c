@@ -189,10 +189,10 @@ void _jove_begin(uint64_t rdi,
 
 #define JOVE_THUNK_PROLOGUE                                                    \
   "pushq %%r15\n" /* callee-saved registers */                                 \
-  "pushq %%r14\n"                                                              \
+  "pushq %%r14\n"
 
 #define JOVE_THUNK_EPILOGUE                                                    \
-  "popq %%r14\n"  /* callee-saved registers */                                 \
+  "popq %%r14\n" /* callee-saved registers */                                  \
   "popq %%r15\n"                                                               \
   "retq\n"
 
