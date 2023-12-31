@@ -313,7 +313,7 @@ on_insn_boundary:
   //
   // a new basic block has been created
   //
-  if (this->verbose)
+  if (unlikely(this->verbose))
     llvm::errs() << llvm::formatv("{0} {1}\n",
                                   description_of_block(ICFG[bb], false),
                                   description_of_terminator_info(T, false));
@@ -327,7 +327,7 @@ on_insn_boundary:
     Target &= ~1UL;
 #endif
 
-    if (this->verbose)
+    if (unlikely(this->verbose))
       llvm::errs() << llvm::formatv("  {0} -> {1}\n",
                                     description_of_block(ICFG[bb], false),
                                     taddr2str(Target, false));
