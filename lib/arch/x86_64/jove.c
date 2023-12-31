@@ -215,11 +215,7 @@ jove_thunk_return_t _jove_thunk0(uint64_t dstpc   /* rdi */,
                "addq $8, %%rsp\n" /* replace return address on the stack */
                "callq *%%rdi\n"   /* call dstpc */
 
-               JOVE_THUNK_EPILOGUE
-
-               : /* OutputOperands */
-               : /* InputOperands */
-               : /* Clobbers */);
+               JOVE_THUNK_EPILOGUE);
 }
 
 jove_thunk_return_t _jove_thunk1(uint64_t rdi,
@@ -237,11 +233,7 @@ jove_thunk_return_t _jove_thunk1(uint64_t rdi,
                "addq $8, %%rsp\n" /* replace return address on the stack */
                "callq *%%rsi\n"   /* call dstpc */
 
-               JOVE_THUNK_EPILOGUE
-
-               : /* OutputOperands */
-               : /* InputOperands */
-               : /* Clobbers */);
+               JOVE_THUNK_EPILOGUE);
 }
 
 jove_thunk_return_t _jove_thunk2(uint64_t rdi,
@@ -260,11 +252,7 @@ jove_thunk_return_t _jove_thunk2(uint64_t rdi,
                "addq $8, %%rsp\n" /* replace return address on the stack */
                "callq *%%rdx\n"   /* call dstpc */
 
-               JOVE_THUNK_EPILOGUE
-
-               : /* OutputOperands */
-               : /* InputOperands */
-               : /* Clobbers */);
+               JOVE_THUNK_EPILOGUE);
 }
 
 jove_thunk_return_t _jove_thunk3(uint64_t rdi,
@@ -284,11 +272,7 @@ jove_thunk_return_t _jove_thunk3(uint64_t rdi,
                "addq $8, %%rsp\n" /* replace return address on the stack */
                "callq *%%rcx\n"   /* call dstpc */
 
-               JOVE_THUNK_EPILOGUE
-
-               : /* OutputOperands */
-               : /* InputOperands */
-               : /* Clobbers */);
+               JOVE_THUNK_EPILOGUE);
 }
 
 jove_thunk_return_t _jove_thunk4(uint64_t rdi,
@@ -309,11 +293,7 @@ jove_thunk_return_t _jove_thunk4(uint64_t rdi,
                "addq $8, %%rsp\n" /* replace return address on the stack */
                "callq *%%r8\n"   /* call dstpc */
 
-               JOVE_THUNK_EPILOGUE
-
-               : /* OutputOperands */
-               : /* InputOperands */
-               : /* Clobbers */);
+               JOVE_THUNK_EPILOGUE);
 }
 
 jove_thunk_return_t _jove_thunk5(uint64_t rdi,
@@ -335,11 +315,7 @@ jove_thunk_return_t _jove_thunk5(uint64_t rdi,
                "addq $8, %%rsp\n" /* replace return address on the stack */
                "callq *%%r9\n"   /* call dstpc */
 
-               JOVE_THUNK_EPILOGUE
-
-               : /* OutputOperands */
-               : /* InputOperands */
-               : /* Clobbers */);
+               JOVE_THUNK_EPILOGUE);
 }
 
 jove_thunk_return_t _jove_thunk6(uint64_t rdi,
@@ -363,11 +339,7 @@ jove_thunk_return_t _jove_thunk6(uint64_t rdi,
                "addq $8, %%rsp\n" /* replace return address on the stack */
                "callq *%%r11\n"   /* call dstpc */
 
-               JOVE_THUNK_EPILOGUE
-
-               : /* OutputOperands */
-               : /* InputOperands */
-               : /* Clobbers */);
+               JOVE_THUNK_EPILOGUE);
 }
 
 #undef JOVE_THUNK_PROLOGUE
