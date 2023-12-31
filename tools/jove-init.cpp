@@ -595,7 +595,7 @@ Found:
 
   tiny_code_generator_t tcg;
   disas_t disas;
-  explorer_t E(jv, disas, tcg);
+  explorer_t E(jv, disas, tcg, IsVerbose());
 
   //
   // process the binaries

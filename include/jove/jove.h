@@ -63,10 +63,12 @@ namespace jove {
 
 struct explorer_t;
 
-inline std::string taddr2str(tcg_uintptr_t x) {
+inline std::string taddr2str(tcg_uintptr_t x, bool zero_padded = true) {
   std::stringstream stream;
-  stream << "0x" << std::setfill('0') << std::setw(sizeof(tcg_uintptr_t) * 2)
-         << std::hex << x;
+  stream << "0x";
+  if (zero_padded)
+    stream << std::setfill('0') << std::setw(sizeof(tcg_uintptr_t) * 2);
+  stream << std::hex << x;
   return stream.str();
 }
 
@@ -562,6 +564,20 @@ inline const char *description_of_terminator(TERMINATOR TermTy) {
   }
 }
 
+static inline std::string
+description_of_block(const basic_block_properties_t &bbprop,
+                     bool zero_padded = true) {
+  std::string res;
+
+  res += "[";
+  res += taddr2str(bbprop.Addr, zero_padded);
+  res += ", ";
+  res += taddr2str(bbprop.Addr + bbprop.Size, zero_padded);
+  res += ")";
+
+  return res;
+}
+
 struct terminator_info_t {
   TERMINATOR Type;
   uint64_t Addr;
@@ -602,6 +618,50 @@ struct terminator_info_t {
     } _none;
   };
 };
+
+static inline std::string
+description_of_terminator_info(const terminator_info_t &T,
+                               bool zero_padded = true) {
+  std::string res;
+  res += description_of_terminator(T.Type);
+  res += " @ ";
+  res += taddr2str(T.Addr, zero_padded);
+  res += " {";
+
+  switch (T.Type) {
+  case TERMINATOR::UNKNOWN:
+    break;
+  case TERMINATOR::UNCONDITIONAL_JUMP:
+    res += taddr2str(T._unconditional_jump.Target, zero_padded);
+    break;
+  case TERMINATOR::CONDITIONAL_JUMP:
+    res += taddr2str(T._conditional_jump.Target, zero_padded);
+    res += ", ";
+    res += taddr2str(T._conditional_jump.NextPC, zero_padded);
+    break;
+  case TERMINATOR::INDIRECT_CALL:
+    res += taddr2str(T._indirect_call.NextPC, zero_padded);
+    break;
+  case TERMINATOR::INDIRECT_JUMP:
+    break;
+  case TERMINATOR::CALL:
+    res += taddr2str(T._call.Target, zero_padded);
+    res += ", ";
+    res += taddr2str(T._call.NextPC, zero_padded);
+    break;
+  case TERMINATOR::RETURN:
+    break;
+  case TERMINATOR::UNREACHABLE:
+    break;
+  case TERMINATOR::NONE:
+    res += taddr2str(T._none.NextPC, zero_padded);
+    break;
+  }
+
+  res += "}";
+
+  return res;
+}
 
 template <typename Iter, typename Pred, typename Op>
 static inline void for_each_if(Iter first, Iter last, Pred p, Op op) {

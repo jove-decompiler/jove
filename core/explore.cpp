@@ -313,6 +313,11 @@ on_insn_boundary:
   //
   // a new basic block has been created
   //
+  if (this->verbose)
+    llvm::errs() << llvm::formatv("{0} {1}\n",
+                                  description_of_block(ICFG[bb], false),
+                                  description_of_terminator_info(T, false));
+
   on_newbb_proc(b, bb);
 
   auto control_flow_to = [&](uint64_t Target) -> void {
@@ -321,6 +326,11 @@ on_insn_boundary:
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
     Target &= ~1UL;
 #endif
+
+    if (this->verbose)
+      llvm::errs() << llvm::formatv("  {0} -> {1}\n",
+                                    description_of_block(ICFG[bb], false),
+                                    taddr2str(Target, false));
 
     basic_block_index_t SuccBBIdx =
         explore_basic_block(b, B, Target, fnmap, bbmap, on_newbb_proc);

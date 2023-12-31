@@ -17,9 +17,10 @@ struct explorer_t {
   jv_t &jv;
   disas_t &disas;
   tiny_code_generator_t &tcg;
+  const bool verbose;
 
-  explorer_t(jv_t &jv, disas_t &disas, tiny_code_generator_t &tcg)
-      : jv(jv), disas(disas), tcg(tcg) {}
+  explorer_t(jv_t &jv, disas_t &disas, tiny_code_generator_t &tcg, bool verbose = false)
+      : jv(jv), disas(disas), tcg(tcg), verbose(verbose) {}
 
   basic_block_index_t explore_basic_block(binary_t &b,
                                           llvm::object::Binary &B,

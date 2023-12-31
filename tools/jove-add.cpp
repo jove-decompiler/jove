@@ -65,7 +65,7 @@ int AddTool::Run(void) {
 
   tiny_code_generator_t tcg;
   disas_t disas;
-  explorer_t E(jv, disas, tcg);
+  explorer_t E(jv, disas, tcg, IsVerbose());
 
   jv.Add(opts.Input.c_str(), E);
 
