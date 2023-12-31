@@ -201,7 +201,10 @@ jove_thunk_return_t _jove_thunk0(uint64_t dstpc   /* x0 */,
                /* args: nothing to do */
                "blr x0\n" /* call dstpc */
 
-               JOVE_THUNK_EPILOGUE);
+               JOVE_THUNK_EPILOGUE
+               : /* OutputOperands */
+               : /* InputOperands */
+               : /* Clobbers */);
 }
 
 jove_thunk_return_t _jove_thunk1(uint64_t x0,
@@ -218,7 +221,10 @@ jove_thunk_return_t _jove_thunk1(uint64_t x0,
                /* args: nothing to do */
                "blr x1\n" /* call dstpc */
 
-               JOVE_THUNK_EPILOGUE);
+               JOVE_THUNK_EPILOGUE
+               : /* OutputOperands */
+               : /* InputOperands */
+               : /* Clobbers */);
 }
 
 jove_thunk_return_t _jove_thunk2(uint64_t x0,
@@ -236,7 +242,10 @@ jove_thunk_return_t _jove_thunk2(uint64_t x0,
                /* args: nothing to do */
                "blr x2\n" /* call dstpc */
 
-               JOVE_THUNK_EPILOGUE);
+               JOVE_THUNK_EPILOGUE
+               : /* OutputOperands */
+               : /* InputOperands */
+               : /* Clobbers */);
 }
 
 jove_thunk_return_t _jove_thunk3(uint64_t x0,
@@ -255,7 +264,10 @@ jove_thunk_return_t _jove_thunk3(uint64_t x0,
                /* args: nothing to do */
                "blr x3\n" /* call dstpc */
 
-               JOVE_THUNK_EPILOGUE);
+               JOVE_THUNK_EPILOGUE
+               : /* OutputOperands */
+               : /* InputOperands */
+               : /* Clobbers */);
 }
 
 jove_thunk_return_t _jove_thunk4(uint64_t x0,
@@ -275,7 +287,10 @@ jove_thunk_return_t _jove_thunk4(uint64_t x0,
                /* args: nothing to do */
                "blr x4\n" /* call dstpc */
 
-               JOVE_THUNK_EPILOGUE);
+               JOVE_THUNK_EPILOGUE
+               : /* OutputOperands */
+               : /* InputOperands */
+               : /* Clobbers */);
 }
 
 jove_thunk_return_t _jove_thunk5(uint64_t x0,
@@ -296,7 +311,10 @@ jove_thunk_return_t _jove_thunk5(uint64_t x0,
                /* args: nothing to do */
                "blr x5\n" /* call dstpc */
 
-               JOVE_THUNK_EPILOGUE);
+               JOVE_THUNK_EPILOGUE
+               : /* OutputOperands */
+               : /* InputOperands */
+               : /* Clobbers */);
 }
 
 jove_thunk_return_t _jove_thunk6(uint64_t x0,
@@ -318,7 +336,10 @@ jove_thunk_return_t _jove_thunk6(uint64_t x0,
                /* args: nothing to do */
                "blr x6\n" /* call dstpc */
 
-               JOVE_THUNK_EPILOGUE);
+               JOVE_THUNK_EPILOGUE
+               : /* OutputOperands */
+               : /* InputOperands */
+               : /* Clobbers */);
 }
 
 jove_thunk_return_t _jove_thunk7(uint64_t x0,
@@ -341,7 +362,10 @@ jove_thunk_return_t _jove_thunk7(uint64_t x0,
                /* args: nothing to do */
                "blr x7\n" /* call dstpc */
 
-               JOVE_THUNK_EPILOGUE);
+               JOVE_THUNK_EPILOGUE
+               : /* OutputOperands */
+               : /* InputOperands */
+               : /* Clobbers */);
 }
 
 jove_thunk_return_t _jove_thunk8(uint64_t x0,
@@ -366,7 +390,10 @@ jove_thunk_return_t _jove_thunk8(uint64_t x0,
                /* args: nothing to do */
                "blr x10\n" /* call dstpc */
 
-               JOVE_THUNK_EPILOGUE);
+               JOVE_THUNK_EPILOGUE
+               : /* OutputOperands */
+               : /* InputOperands */
+               : /* Clobbers */);
 }
 
 #undef JOVE_THUNK_PROLOGUE
