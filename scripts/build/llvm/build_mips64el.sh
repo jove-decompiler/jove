@@ -11,7 +11,7 @@ OURCFLAGS=\
 "--target=$TRIPLE"
 
 cmake -G Ninja \
-  -D CMAKE_BUILD_TYPE=Release \
+  -D CMAKE_BUILD_TYPE=RelWithDebInfo \
   -D CMAKE_SYSTEM_NAME=Linux \
   -D CMAKE_CROSSCOMPILING=True \
   -D LLVM_TARGET_ARCH=mips64el \

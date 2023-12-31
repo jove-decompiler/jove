@@ -8,7 +8,7 @@ OURCFLAGS=\
 " -fPIC"
 
 cmake -G Ninja \
-  -D CMAKE_BUILD_TYPE=Release \
+  -D CMAKE_BUILD_TYPE=RelWithDebInfo \
   -D CMAKE_SYSTEM_NAME=Linux \
   -D CMAKE_CROSSCOMPILING=True \
   -D CMAKE_SKIP_RPATH=TRUE \

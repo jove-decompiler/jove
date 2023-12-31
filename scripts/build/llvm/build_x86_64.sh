@@ -2,7 +2,7 @@
 set -x
 
 cmake -G Ninja \
-  -D CMAKE_BUILD_TYPE=Release \
+  -D CMAKE_BUILD_TYPE=RelWithDebInfo \
   -D LLVM_TARGET_ARCH=x86_64 \
   -D CMAKE_C_COMPILER=$(which clang-15) \
   -D CMAKE_CXX_COMPILER=$(which clang++-15) \
