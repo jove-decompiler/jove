@@ -137,29 +137,41 @@ void _jove_begin(target_ulong sp_addr) {
   return _jove_call_entry();
 }
 
+#define JOVE_THUNK_PROLOGUE                                                    \
+  "pushl %%ebp\n" /* callee-saved registers */                                 \
+  "pushl %%edi\n"                                                              \
+  "pushl %%esi\n"
+
+#define JOVE_THUNK_CORE                                                        \
+  "movl %%esp, %%ebp\n" /* save sp in ebp */                                   \
+                                                                               \
+  "movl (%%edi), %%esp\n" /* sp=*emusp */                                      \
+  "movl $0, (%%edi)\n"    /* *emusp=0x0 */                                     \
+                                                                               \
+  /* args: nothing to do */                                                    \
+                                                                               \
+  "addl $4, %%esp\n" /* replace return address on the stack */                 \
+  "call *%%esi\n"    /* call dstpc */                                          \
+                                                                               \
+  "movl %%esp, (%%edi)\n" /* store modified emusp */                           \
+  "movl %%ebp, %%esp\n"   /* restore stack pointer */                          \
+                                                                               \
+  JOVE_THUNK_EPILOGUE
+
+#define JOVE_THUNK_EPILOGUE                                                    \
+  "popl %%esi\n" /* callee-saved registers */                                  \
+  "popl %%edi\n"                                                               \
+  "popl %%ebp\n"                                                               \
+  "ret\n"
+
 jove_thunk_return_t _jove_thunk0(uint32_t dstpc,  /* eax */
                                  uint32_t *emuspp /* edx */) {
-  asm volatile("pushl %%ebp\n" /* callee-saved registers */
-               "pushl %%edi\n"
+  asm volatile(JOVE_THUNK_PROLOGUE
 
-               "movl %%esp, %%ebp\n" /* save sp in ebp */
-
+               "movl %%eax, %%esi\n" /* dstpc in esi */
                "movl %%edx, %%edi\n" /* emuspp in edi */
 
-               "movl (%%edx), %%esp\n" /* sp=*emusp */
-               "movl $0, (%%edx)\n" /* *emusp=0x0 */
-
-               /* args: nothing to do */
-
-               "addl $4, %%esp\n" /* replace return address on the stack */
-               "call *%%eax\n"   /* call dstpc */
-
-               "movl %%esp, (%%edi)\n" /* store modified emusp */
-               "movl %%ebp, %%esp\n"   /* restore stack pointer */
-
-               "popl %%edi\n" /* callee-saved registers */
-               "popl %%ebp\n"
-               "ret\n"
+               JOVE_THUNK_CORE
 
                : /* OutputOperands */
                : /* InputOperands */
@@ -169,27 +181,12 @@ jove_thunk_return_t _jove_thunk0(uint32_t dstpc,  /* eax */
 jove_thunk_return_t _jove_thunk1(uint32_t eax,
                                  uint32_t dstpc,  /* edx */
                                  uint32_t *emuspp /* ecx */) {
-  asm volatile("pushl %%ebp\n" /* callee-saved registers */
-               "pushl %%edi\n"
+  asm volatile(JOVE_THUNK_PROLOGUE
 
-               "movl %%esp, %%ebp\n" /* save sp in ebp */
-
+               "movl %%edx, %%esi\n" /* dstpc in esi */
                "movl %%ecx, %%edi\n" /* emuspp in edi */
 
-               "movl (%%ecx), %%esp\n" /* sp=*emusp */
-               "movl $0, (%%ecx)\n" /* *emusp=0x0 */
-
-               /* args: nothing to do */
-
-               "addl $4, %%esp\n" /* replace return address on the stack */
-               "call *%%edx\n"   /* call dstpc */
-
-               "movl %%esp, (%%edi)\n" /* store modified emusp */
-               "movl %%ebp, %%esp\n"   /* restore stack pointer */
-
-               "popl %%edi\n" /* callee-saved registers */
-               "popl %%ebp\n"
-               "ret\n"
+               JOVE_THUNK_CORE
 
                : /* OutputOperands */
                : /* InputOperands */
@@ -200,27 +197,12 @@ jove_thunk_return_t _jove_thunk2(uint32_t eax,
                                  uint32_t edx,
                                  uint32_t dstpc,  /* ecx */
                                  uint32_t *emuspp) {
-  asm volatile("pushl %%ebp\n" /* callee-saved registers */
-               "pushl %%edi\n"
+  asm volatile(JOVE_THUNK_PROLOGUE
 
-               "movl %%esp, %%ebp\n" /* save sp in ebp */
+               "movl %%ecx, %%esi\n" /* dstpc in esi */
+               "movl 16(%%esp), %%edi\n" /* emuspp in edi */
 
-               "movl 12(%%esp), %%edi\n" /* emuspp in edi */
-
-               "movl (%%edi), %%esp\n" /* sp=*emusp */
-               "movl $0, (%%edi)\n" /* *emusp=0x0 */
-
-               /* args: nothing to do */
-
-               "addl $4, %%esp\n" /* replace return address on the stack */
-               "call *%%ecx\n"   /* call dstpc */
-
-               "movl %%esp, (%%edi)\n" /* store modified emusp */
-               "movl %%ebp, %%esp\n"   /* restore stack pointer */
-
-               "popl %%edi\n" /* callee-saved registers */
-               "popl %%ebp\n"
-               "ret\n"
+               JOVE_THUNK_CORE
 
                : /* OutputOperands */
                : /* InputOperands */
@@ -232,30 +214,12 @@ jove_thunk_return_t _jove_thunk3(uint32_t eax,
                                  uint32_t ecx,
                                  uint32_t dstpc,
                                  uint32_t *emuspp) {
-  asm volatile("pushl %%ebp\n" /* callee-saved registers */
-               "pushl %%edi\n"
-               "pushl %%esi\n"
-
-               "movl %%esp, %%ebp\n" /* save sp in ebp */
+  asm volatile(JOVE_THUNK_PROLOGUE
 
                "movl 16(%%esp), %%esi\n" /* dstpc in esi */
                "movl 20(%%esp), %%edi\n" /* emuspp in edi */
 
-               "movl (%%edi), %%esp\n" /* sp=*emusp */
-               "movl $0, (%%edi)\n" /* *emusp=0x0 */
-
-               /* args: nothing to do */
-
-               "addl $4, %%esp\n" /* replace return address on the stack */
-               "call *%%esi\n"   /* call dstpc */
-
-               "movl %%esp, (%%edi)\n" /* store modified emusp */
-               "movl %%ebp, %%esp\n"   /* restore stack pointer */
-
-               "popl %%esi\n" /* callee-saved registers */
-               "popl %%edi\n"
-               "popl %%ebp\n"
-               "ret\n"
+               JOVE_THUNK_CORE
 
                : /* OutputOperands */
                : /* InputOperands */
