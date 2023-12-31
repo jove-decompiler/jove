@@ -153,6 +153,17 @@ _HIDDEN void _jove_thunk_handle_st0(uint32_t f32) {
 #endif
 }
 
+#define JOVE_THUNK_PROLOGUE                                                    \
+  "pushl %%ebp\n" /* callee-saved registers */                                 \
+  "pushl %%edi\n"                                                              \
+  "pushl %%esi\n"
+
+#define JOVE_THUNK_EPILOGUE                                                    \
+  "popl %%esi\n" /* callee-saved registers */                                  \
+  "popl %%edi\n"                                                               \
+  "popl %%ebp\n"                                                               \
+  "ret\n"
+
 #define JOVE_THUNK_EXTRA_RETS                                                  \
   "pushl %%eax\n" /* preserve */                                               \
   "pushl %%edx\n" /* preserve */                                               \
@@ -164,11 +175,6 @@ _HIDDEN void _jove_thunk_handle_st0(uint32_t f32) {
                                                                                \
   "popl %%edx\n"                                                               \
   "popl %%eax\n"
-
-#define JOVE_THUNK_PROLOGUE                                                    \
-  "pushl %%ebp\n" /* callee-saved registers */                                 \
-  "pushl %%edi\n"                                                              \
-  "pushl %%esi\n"
 
 #define JOVE_THUNK_CORE                                                        \
   "movl %%esp, %%ebp\n" /* save sp in ebp */                                   \
@@ -187,12 +193,6 @@ _HIDDEN void _jove_thunk_handle_st0(uint32_t f32) {
   JOVE_THUNK_EXTRA_RETS                                                        \
                                                                                \
   JOVE_THUNK_EPILOGUE
-
-#define JOVE_THUNK_EPILOGUE                                                    \
-  "popl %%esi\n" /* callee-saved registers */                                  \
-  "popl %%edi\n"                                                               \
-  "popl %%ebp\n"                                                               \
-  "ret\n"
 
 jove_thunk_return_t _jove_thunk0(uint32_t dstpc,  /* eax */
                                  uint32_t *emuspp /* edx */) {
