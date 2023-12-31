@@ -1170,10 +1170,11 @@ void RecompileTool::worker(const dso_graph_t &dso_graph) {
       }
 
 #if defined(TARGET_X86_64) || defined(TARGET_I386)
-      if (opts.DFSan) { /* XXX */
-        Arg("--stack-alignment=16");
-        Arg("--stackrealign");
-      }
+      //
+      // FIXME... how is the stack getting unaligned??
+      //
+      Arg("--stack-alignment=16");
+      Arg("--stackrealign");
 #endif
     });
 
