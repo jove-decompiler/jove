@@ -333,6 +333,8 @@ int LoopTool::Run(void) {
     }
   }
 
+  fs::create_directories(jove_dir());
+
   const bool WillChroot = !(opts.NoChroot || opts.ForeignLibs);
   const bool LivingDangerously = !WillChroot && !opts.ForeignLibs;
 
