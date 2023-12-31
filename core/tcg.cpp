@@ -1114,13 +1114,6 @@ tiny_code_generator_t::tiny_code_generator_t() {
   jv_init_libqemu(starter_bin_path.c_str());
 
   cleanup();
-
-  unsigned max_insns = jv_cpu->cflags_next_tb & CF_COUNT_MASK;
-
-  jv_cpu->cflags_next_tb &= ~CF_COUNT_MASK;
-
-  max_insns /= 2;
-  jv_cpu->cflags_next_tb |= max_insns;
 }
 
 tiny_code_generator_t::~tiny_code_generator_t() {}
@@ -1149,7 +1142,7 @@ tiny_code_generator_t::translate(uint64_t pc, uint64_t pc_end) {
   jv_ti.Type = TERMINATOR::UNKNOWN;
   jv_ti.Addr = 0;
 
-  int max_insns = 128;
+  int max_insns = 64;
   TranslationBlock tb = {0};
   tb.flags = jv_hflags_of_cpu_env(jv_cpu);
   tb.cflags = jv_cpu->tcg_cflags | CF_NOIRQ;
