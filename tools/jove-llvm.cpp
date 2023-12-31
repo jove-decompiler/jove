@@ -1527,7 +1527,7 @@ void AnalyzeFunction(jv_t &jv,
       }
     } while (likely(change));
 
-    f.Analysis.args = G[entryV].IN & ~(NotArgs | /* CmdlinePinnedEnvGlbs */ tcg_global_set_t());
+    f.Analysis.args = G[entryV].IN & ~(NotArgs | PinnedEnvGlbs);
 
     //
     // all non-ABI functions will be passed the stack pointer.
@@ -1584,7 +1584,7 @@ void AnalyzeFunction(jv_t &jv,
 
                 return res;
               }) &
-          ~(NotRets | /* CmdlinePinnedEnvGlbs */ tcg_global_set_t());
+          ~(NotRets | PinnedEnvGlbs);
 
       //
       // all non-ABI functions with an exit block will return the stack pointer.
@@ -6982,13 +6982,11 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
   auto set = [&](llvm::Value *V, unsigned glb) -> void {
     assert(glb != tcg_env_index);
 
-#if 0
-    if (unlikely(CmdlinePinnedEnvGlbs.test(glb))) {
+    if (unlikely(PinnedEnvGlbs.test(glb))) {
       llvm::StoreInst *SI = IRB.CreateStore(V, CPUStateGlobalPointer(glb, IRB));
       SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
       return;
     }
-#endif
 
     llvm::AllocaInst *&Ptr = GlobalAllocaArr.at(glb);
     if (!Ptr) {
@@ -7014,13 +7012,11 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
 #endif
     }
 
-#if 0
-    if (unlikely(CmdlinePinnedEnvGlbs.test(glb))) {
+    if (unlikely(PinnedEnvGlbs.test(glb))) {
       llvm::LoadInst *LI = IRB.CreateLoad(CPUStateGlobalPointer(glb, IRB));
       LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
       return LI;
     }
-#endif
 
     llvm::AllocaInst *&Ptr = GlobalAllocaArr.at(glb);
     if (!Ptr) {
@@ -8804,13 +8800,11 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
     V = IRB.CreateIntCast(V, IRB.getIntNTy(bitsOfTCGType(ts->type)), false);
 
     if (ts->kind == TEMP_GLOBAL) {
-#if 0
-      if (unlikely(CmdlinePinnedEnvGlbs.test(idx))) {
+      if (unlikely(PinnedEnvGlbs.test(idx))) {
         llvm::StoreInst *SI = IRB.CreateStore(V, CPUStateGlobalPointer(idx, IRB));
         SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
         return;
       }
-#endif
 
       llvm::AllocaInst *&Ptr = GlobalAllocaArr.at(idx);
       if (!Ptr) {
@@ -8862,13 +8856,11 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
     }
 
     if (ts->kind == TEMP_GLOBAL) {
-#if 0
-      if (unlikely(CmdlinePinnedEnvGlbs.test(idx))) {
+      if (unlikely(PinnedEnvGlbs.test(idx))) {
         llvm::LoadInst *LI = IRB.CreateLoad(CPUStateGlobalPointer(idx, IRB));
         LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
         return LI;
       }
-#endif
 
       llvm::AllocaInst *&Ptr = GlobalAllocaArr.at(idx);
       if (!Ptr) {
@@ -9282,7 +9274,7 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
       // store our globals to the (maybe local) env
       //
       std::vector<unsigned> glbv;
-      explode_tcg_global_set(glbv, (hf.Analysis.InGlbs | hf.Analysis.OutGlbs) & /* ~CmdlinePinnedEnvGlbs */ ~tcg_global_set_t());
+      explode_tcg_global_set(glbv, (hf.Analysis.InGlbs | hf.Analysis.OutGlbs) & ~PinnedEnvGlbs);
       for (unsigned glb : glbv) {
         llvm::StoreInst *SI = IRB.CreateStore(get(&s->temps[glb]), BuildCPUStatePointer(IRB, Env, glb));
         SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
@@ -9310,7 +9302,7 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
       // load the altered globals
       //
       std::vector<unsigned> glbv;
-      explode_tcg_global_set(glbv, hf.Analysis.OutGlbs & /* ~CmdlinePinnedEnvGlbs */ ~tcg_global_set_t());
+      explode_tcg_global_set(glbv, hf.Analysis.OutGlbs & ~PinnedEnvGlbs);
       for (unsigned glb : glbv) {
         llvm::LoadInst *LI = IRB.CreateLoad(BuildCPUStatePointer(IRB, Env, glb));
         LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
