@@ -1100,6 +1100,60 @@ void tiny_code_generator_t::print_shit(void) {
                    offsetof(CPUARMState, xregs[31]);
     printf("/* offset of d1 = %u */\n", off);
   }
+#elif defined(TARGET_X86_64)
+#define SEE_OFF(name)                                                          \
+  do {                                                                         \
+    printf("offsetof(CPUX86State, " #name ") = %u\n",                          \
+           (unsigned)offsetof(CPUX86State, name));                             \
+  } while (0)
+
+    SEE_OFF(regs);
+    SEE_OFF(eip);
+    SEE_OFF(eflags);
+    SEE_OFF(cc_dst);
+    SEE_OFF(cc_src);
+    SEE_OFF(cc_src2);
+    SEE_OFF(cc_op);
+    SEE_OFF(df);
+    SEE_OFF(hflags);
+    SEE_OFF(hflags2);
+    SEE_OFF(segs);
+    SEE_OFF(ldt);
+    SEE_OFF(tr);
+    SEE_OFF(gdt);
+    SEE_OFF(idt);
+    SEE_OFF(cr);
+    SEE_OFF(pdptrs_valid);
+    SEE_OFF(pdptrs);
+    SEE_OFF(a20_mask);
+    SEE_OFF(bnd_regs);
+    SEE_OFF(bndcs_regs);
+    SEE_OFF(msr_bndcfgs);
+    SEE_OFF(efer);
+    SEE_OFF(start_init_save);
+    SEE_OFF(fpstt);
+    SEE_OFF(fpus);
+    SEE_OFF(fpuc);
+    SEE_OFF(fptags);
+    SEE_OFF(fpregs);
+    SEE_OFF(fpop);
+    SEE_OFF(fpcs);
+    SEE_OFF(fpds);
+    SEE_OFF(fpip);
+    SEE_OFF(fpdp);
+    SEE_OFF(fp_status);
+    SEE_OFF(ft0);
+    SEE_OFF(mmx_status);
+    SEE_OFF(sse_status);
+    SEE_OFF(mxcsr);
+    SEE_OFF(xmm_regs);
+
+    printf("/* off is %u */\n", (unsigned)offsetof(CPUX86State, xmm_regs));
+
+    unsigned off = offsetof(CPUX86State, xmm_regs[0]._x_ZMMReg[0]) -
+                   offsetof(CPUX86State, regs[R_ESP]);
+    printf("/* magic offset1 is %u */\n", off);
+  }
 #endif
 #endif
 }
