@@ -8,6 +8,9 @@ set(JOVE_TOOL_FLAGS
   "-Wno-cast-qual"
   "-Wno-bitwise-instead-of-logical"
   "-Wno-sign-compare"
+  "-Wno-bit-int-extension"
+  "-Wno-gnu-case-range"
+  "-Wno-nested-anon-types"
   "-DBOOST_ICL_USE_STATIC_BOUNDED_INTERVALS"
 )
 
