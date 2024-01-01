@@ -147,8 +147,14 @@ void tiny_code_generator_t::print_shit(void) {
   auto max_temps = [&](void) -> int { return TCG_MAX_TEMPS; };
 
   auto tcg_index_of_named_global = [&](const char *nm) -> int {
+    assert(nm);
+
     for (int i = 0; i < tcg_ctx->nb_globals; i++) {
-      if (strcmp(tcg_ctx->temps[i].name, nm) == 0)
+      const char *name = tcg_ctx->temps[i].name;
+      if (!name)
+        continue;
+
+      if (strcmp(name, nm) == 0)
         return i;
     }
 
@@ -494,7 +500,7 @@ void tiny_code_generator_t::print_shit(void) {
     for (int i = 0; i < tcg_ctx->nb_globals; i++) {
       TCGTemp &ts = tcg_ctx->temps[i];
 
-      if (!ts.mem_base || strcmp(ts.mem_base->name, "env") != 0)
+      if (!ts.mem_base || (ts.mem_base->name && strcmp(ts.mem_base->name, "env") != 0))
         continue;
 
       // global index must fit in a uint8_t
@@ -668,6 +674,54 @@ void tiny_code_generator_t::print_shit(void) {
       "fcr31"
     };
 #endif
+#elif defined(TARGET_MIPS64)
+    const std::array<const char *, 45> pinned_env_glbs{
+      "f0",
+      "f1",
+      "f2",
+      "f3",
+      "f4",
+      "f5",
+      "f6",
+      "f7",
+      "f8",
+      "f9",
+      "f10",
+      "f11",
+      "f12",
+      "f13",
+      "f14",
+      "f15",
+      "f16",
+      "f17",
+      "f18",
+      "f19",
+      "f20",
+      "f21",
+      "f22",
+      "f23",
+      "f24",
+      "f25",
+      "f26",
+      "f27",
+      "f28",
+      "f29",
+      "f30",
+      "f31",
+      "w0.d1",
+      "w1.d1",
+      "w2.d1",
+      "w3.d1",
+      "w4.d1",
+      "w5.d1",
+      "w6.d1",
+      "w7.d1",
+      "w8.d1",
+      "w9.d1",
+      "hflags",
+      "fcr0",
+      "fcr31"
+    };
 #else
     const std::array<const char *, 0> pinned_env_glbs{};
 #endif
@@ -998,8 +1052,8 @@ void tiny_code_generator_t::print_shit(void) {
 
   printf("}\n");
 
-#if 1
-#if defined(TARGET_MIPS32)
+#if 0
+#if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
   {
     unsigned off = offsetof(CPUMIPSState, active_fpu.fpr[0].d) -
                    offsetof(CPUMIPSState, active_tc.gpr[29]);
