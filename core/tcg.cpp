@@ -1089,6 +1089,17 @@ void tiny_code_generator_t::print_shit(void) {
                    offsetof(CPUMIPSState, active_tc.gpr[29]);
     printf("/* offset of f14 = %u */\n", off);
   }
+#elif defined(TARGET_AARCH64)
+  {
+    unsigned off = offsetof(CPUARMState, vfp.zregs[0]) -
+                   offsetof(CPUARMState, xregs[31]);
+    printf("/* offset of d0 = %u */\n", off);
+  }
+  {
+    unsigned off = offsetof(CPUARMState, vfp.zregs[1]) -
+                   offsetof(CPUARMState, xregs[31]);
+    printf("/* offset of d1 = %u */\n", off);
+  }
 #endif
 #endif
 }
