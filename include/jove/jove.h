@@ -61,7 +61,7 @@
 
 namespace jove {
 
-struct explorer_t;
+class explorer_t;
 
 inline std::string taddr2str(tcg_uintptr_t x, bool zero_padded = true) {
   std::stringstream stream;
