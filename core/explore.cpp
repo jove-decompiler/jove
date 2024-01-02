@@ -18,12 +18,12 @@ namespace jove {
 
 typedef boost::format fmt;
 
-function_index_t explorer_t::explore_function(binary_t &b,
-                                              llvm::object::Binary &B,
-                                              const uint64_t Addr,
-                                              fnmap_t &fnmap,
-                                              bbmap_t &bbmap,
-                                              std::function<void(binary_t &, basic_block_t)> on_newbb_proc) {
+function_index_t explorer_t::_explore_function(binary_t &b,
+                                               llvm::object::Binary &B,
+                                               const uint64_t Addr,
+                                               fnmap_t &fnmap,
+                                               bbmap_t &bbmap,
+                                               std::vector<uint64_t> &calls_to_process) {
 #if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
   assert((Addr & 1) == 0);
 #endif
@@ -40,7 +40,7 @@ function_index_t explorer_t::explore_function(binary_t &b,
   fnmap.insert({Addr, res});
 
   basic_block_index_t Entry =
-      explore_basic_block(b, B, Addr, fnmap, bbmap, on_newbb_proc);
+      _explore_basic_block(b, B, Addr, fnmap, bbmap, calls_to_process);
 
   if (!is_basic_block_index_valid(Entry))
     return invalid_function_index;
@@ -57,12 +57,12 @@ function_index_t explorer_t::explore_function(binary_t &b,
   return res;
 }
 
-basic_block_index_t explorer_t::explore_basic_block(binary_t &b,
-                                                    llvm::object::Binary &B,
-                                                    const uint64_t Addr,
-                                                    fnmap_t &fnmap,
-                                                    bbmap_t &bbmap,
-                                                    std::function<void(binary_t &, basic_block_t)> on_newbb_proc) {
+basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
+                                                     llvm::object::Binary &B,
+                                                     const uint64_t Addr,
+                                                     fnmap_t &fnmap,
+                                                     bbmap_t &bbmap,
+                                                     std::vector<uint64_t> &calls_to_process) {
 #if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
   assert((Addr & 1) == 0);
 #endif
@@ -297,9 +297,11 @@ on_insn_boundary:
     bbprop.DynTargetsComplete = false;
     bbprop.Term._call.Target = invalid_function_index;
     bbprop.Term._call.Returns = false;
+    bbprop.Term._call.ReturnsOff = 0;
     bbprop.Term._indirect_jump.IsLj = false;
     bbprop.Sj = false;
     bbprop.Term._indirect_call.Returns = false;
+    bbprop.Term._indirect_call.ReturnsOff = 0;
     bbprop.Term._return.Returns = false;
     bbprop.InvalidateAnalysis();
 
@@ -318,35 +320,15 @@ on_insn_boundary:
                                   description_of_block(ICFG[bb], false),
                                   description_of_terminator_info(T, false));
 
-  on_newbb_proc(b, bb);
+  this->on_newbb_proc(b, bb);
 
   auto control_flow_to = [&](uint64_t Target) -> void {
-    assert(Target);
-
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
     Target &= ~1UL;
 #endif
 
-    if (unlikely(this->verbose))
-      llvm::errs() << llvm::formatv("  {0} -> {1}\n",
-                                    description_of_block(ICFG[bb], false),
-                                    taddr2str(Target, false));
-
-    basic_block_index_t SuccBBIdx =
-        explore_basic_block(b, B, Target, fnmap, bbmap, on_newbb_proc);
-
-    if (!is_basic_block_index_valid(SuccBBIdx)) {
-      llvm::WithColor::warning() << llvm::formatv(
-          "control_flow_to: invalid edge {0:x} -> {1:x}\n", T.Addr, Target);
-      return;
-    }
-
-    bb = basic_block_at_address(T.Addr ?: Addr, b, bbmap);
-    assert(T.Type == ICFG[bb].Term.Type);
-
-    bool isNewTarget =
-        boost::add_edge(bb, basic_block_of_index(SuccBBIdx, b), ICFG).second;
-    (void)isNewTarget;
+    _control_flow_to(b, B, fnmap, bbmap, bb, T.Addr ?: Addr, Target,
+                     calls_to_process);
   };
 
   switch (T.Type) {
@@ -360,16 +342,18 @@ on_insn_boundary:
     break;
 
   case TERMINATOR::CALL: {
+    ICFG[bb].Term._call.ReturnsOff = T._call.NextPC - T.Addr;
+
     uint64_t CalleeAddr = T._call.Target;
 
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
     CalleeAddr &= ~1UL;
 #endif
 
-    function_index_t CalleeFIdx = explore_function(b, B, CalleeAddr,
-                                                   fnmap,
-                                                   bbmap,
-                                                   on_newbb_proc);
+    function_index_t CalleeFIdx = _explore_function(b, B, CalleeAddr,
+                                                    fnmap,
+                                                    bbmap,
+                                                    calls_to_process);
 
     bb = basic_block_at_address(T.Addr, b, bbmap); /* bb may have been split */
     assert(ICFG[bb].Term.Type == TERMINATOR::CALL);
@@ -385,8 +369,7 @@ on_insn_boundary:
     function_t &callee = b.Analysis.Functions[CalleeFIdx];
 
     if (!is_basic_block_index_valid(callee.Entry)) {
-      llvm::WithColor::warning() << llvm::formatv(
-        "explore_basic_block: FIXME {0:x}\n", CalleeAddr);
+      calls_to_process.push_back(T.Addr);
       break;
     }
 
@@ -397,6 +380,8 @@ on_insn_boundary:
   }
 
   case TERMINATOR::INDIRECT_CALL:
+    ICFG[bb].Term._indirect_call.ReturnsOff = T._indirect_call.NextPC - T.Addr;
+
     //control_flow_to(T._indirect_call.NextPC);
     break;
 
@@ -415,6 +400,106 @@ on_insn_boundary:
   }
 
   return BBIdx;
+}
+
+void explorer_t::_control_flow_to(binary_t &b,
+                                  llvm::object::Binary &B,
+                                  fnmap_t &fnmap,
+                                  bbmap_t &bbmap,
+                                  basic_block_t bb,
+                                  const uint64_t TermAddr,
+                                  const uint64_t Target,
+                                  std::vector<uint64_t> &calls_to_process) {
+  auto &ICFG = b.Analysis.ICFG;
+
+  assert(Target);
+
+  if (unlikely(this->verbose))
+    llvm::errs() << llvm::formatv("  {0} -> {1}\n",
+                                  description_of_block(ICFG[bb], false),
+                                  taddr2str(Target, false));
+
+  basic_block_index_t SuccBBIdx =
+      _explore_basic_block(b, B, Target, fnmap, bbmap, calls_to_process);
+
+  if (!is_basic_block_index_valid(SuccBBIdx)) {
+    llvm::WithColor::warning() << llvm::formatv(
+        "control_flow_to: invalid edge {0:x} -> {1:x}\n", TermAddr, Target);
+    return;
+  }
+
+  bb = basic_block_at_address(TermAddr, b, bbmap);
+  //assert(T.Type == ICFG[bb].Term.Type);
+
+  bool isNewTarget =
+      boost::add_edge(bb, basic_block_of_index(SuccBBIdx, b), ICFG).second;
+  (void)isNewTarget;
+}
+
+
+void explorer_t::_explore_the_rest(binary_t &b,
+                                   llvm::object::Binary & B,
+                                   fnmap_t &fnmap,
+                                   bbmap_t &bbmap,
+                                   std::vector<uint64_t> &calls_to_process) {
+  auto &ICFG = b.Analysis.ICFG;
+
+  while (!calls_to_process.empty()) {
+    const uint64_t TermAddr = calls_to_process.back();
+    calls_to_process.resize(calls_to_process.size() - 1);
+
+    auto it = bbmap.find(TermAddr);
+    if (it == bbmap.end()) {
+      llvm::WithColor::warning() << llvm::formatv(
+          "explore_basic_block: BUG ({0:x})\n", TermAddr);
+      continue;
+    }
+
+    const basic_block_index_t BBIdx = -1+(*it).second;
+    assert(BBIdx < boost::num_vertices(ICFG));
+
+    basic_block_t bb = boost::vertex(BBIdx, ICFG);
+    assert(ICFG[bb].Term.Type == TERMINATOR::CALL);
+
+    function_index_t CalleeFIdx = ICFG[bb].Term._call.Target;
+    function_t &callee = b.Analysis.Functions.at(CalleeFIdx);
+
+    if (does_function_return(callee, b))
+      _control_flow_to(b, B, fnmap, bbmap, bb,
+                       TermAddr,
+                       TermAddr + ICFG[bb].Term._call.ReturnsOff,
+                       calls_to_process);
+  }
+}
+
+basic_block_index_t explorer_t::explore_basic_block(binary_t &b,
+                                                    llvm::object::Binary &B,
+                                                    const uint64_t Addr,
+                                                    fnmap_t &fnmap,
+                                                    bbmap_t &bbmap) {
+  std::vector<uint64_t> calls_to_process;
+
+  const basic_block_index_t res = _explore_basic_block(
+      b, B, Addr, fnmap, bbmap, calls_to_process);
+
+  _explore_the_rest(b, B, fnmap, bbmap, calls_to_process);
+
+  return res;
+}
+
+function_index_t explorer_t::explore_function(binary_t &b,
+                                              llvm::object::Binary &B,
+                                              const uint64_t Addr,
+                                              fnmap_t &fnmap,
+                                              bbmap_t &bbmap) {
+  std::vector<uint64_t> calls_to_process;
+
+  const function_index_t res = _explore_function(
+      b, B, Addr, fnmap, bbmap, calls_to_process);
+
+  _explore_the_rest(b, B, fnmap, bbmap, calls_to_process);
+
+  return res;
 }
 
 }

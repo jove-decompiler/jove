@@ -196,6 +196,7 @@ struct basic_block_properties_t {
       function_index_t Target;
 
       bool Returns;
+      uint8_t ReturnsOff;
     } _call;
 
     struct {
@@ -204,6 +205,7 @@ struct basic_block_properties_t {
 
     struct {
       bool Returns;
+      uint8_t ReturnsOff;
     } _indirect_call;
 
     struct {

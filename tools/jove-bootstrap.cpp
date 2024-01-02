@@ -345,7 +345,11 @@ struct BootstrapTool : public TransformerTool_Bin<binary_state_t> {
   bool ShowMeS = false;
 
 public:
-  BootstrapTool() : opts(JoveCategory), E(jv, disas, tcg) {}
+  BootstrapTool()
+      : opts(JoveCategory),
+        E(jv, disas, tcg, opts.VeryVerbose,
+          std::bind(&BootstrapTool::on_new_basic_block, this,
+                    std::placeholders::_1, std::placeholders::_2)) {}
 
   int Run(void);
 
@@ -1134,16 +1138,14 @@ int BootstrapTool::TracerLoop(pid_t child, tiny_code_generator_t &tcg) {
                           b, *state.for_binary(b).ObjectFile,
                           rva_of_va(handler, BIdx),
                           state.for_binary(b).fnmap,
-                          state.for_binary(b).bbmap,
-                          std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2));
+                          state.for_binary(b).bbmap);
 
                       if (is_basic_block_index_valid(entrybb_idx)) {
                         function_index_t FIdx = E.explore_function(
                             b, *state.for_binary(b).ObjectFile,
                             rva_of_va(handler, BIdx),
                             state.for_binary(b).fnmap,
-                            state.for_binary(b).bbmap,
-                            std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2));
+                            state.for_binary(b).bbmap);
 
                         if (is_function_index_valid(FIdx)) {
                           b.Analysis.Functions[FIdx].IsSignalHandler = true;
@@ -1363,8 +1365,7 @@ int BootstrapTool::TracerLoop(pid_t child, tiny_code_generator_t &tcg) {
                   b, *state.for_binary(b).ObjectFile,
                   ICFG[succ].Addr,
                   state.for_binary(b).fnmap,
-                  state.for_binary(b).bbmap,
-                  std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2));
+                  state.for_binary(b).bbmap);
               assert(is_function_index_valid(FIdx));
               ICFG[bb].insertDynTarget({BIdx, FIdx}, Alloc);
 
@@ -2797,8 +2798,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
                              *state.for_binary(TargetBinary).ObjectFile,
                              rva_of_va(Target.Addr, Target.BIdx),
                              state.for_binary(TargetBinary).fnmap,
-                             state.for_binary(TargetBinary).bbmap,
-                             std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2));
+                             state.for_binary(TargetBinary).bbmap);
 
       assert(is_function_index_valid(FIdx));
 
@@ -2818,8 +2818,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
             E.explore_basic_block(binary, *state.for_binary(binary).ObjectFile,
                                   IndBrInfo.TermAddr + IndBrInfo.InsnBytes.size(),
                                   state.for_binary(binary).fnmap,
-                                  state.for_binary(binary).bbmap,
-                                  std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2));
+                                  state.for_binary(binary).bbmap);
 
         assert(is_basic_block_index_valid(NextBBIdx));
 
@@ -2839,8 +2838,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
         E.explore_basic_block(TargetBinary, *state.for_binary(TargetBinary).ObjectFile,
                               rva_of_va(Target.Addr, Target.BIdx),
                               state.for_binary(TargetBinary).fnmap,
-                              state.for_binary(TargetBinary).bbmap,
-                              std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2));
+                              state.for_binary(TargetBinary).bbmap);
 
         ControlFlow.IsGoto = true;
         Target.isNew = opts.Longjmps;
@@ -2864,8 +2862,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
               E.explore_function(TargetBinary, *state.for_binary(TargetBinary).ObjectFile,
                                  rva_of_va(Target.Addr, Target.BIdx),
                                  state.for_binary(TargetBinary).fnmap,
-                                 state.for_binary(TargetBinary).bbmap,
-                                 std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2));
+                                 state.for_binary(TargetBinary).bbmap);
 
           assert(is_function_index_valid(FIdx));
 
@@ -2879,8 +2876,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
               E.explore_basic_block(TargetBinary, *state.for_binary(TargetBinary).ObjectFile,
                                     rva_of_va(Target.Addr, Target.BIdx),
                                     state.for_binary(TargetBinary).fnmap,
-                                    state.for_binary(TargetBinary).bbmap,
-                                    std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2));
+                                    state.for_binary(TargetBinary).bbmap);
 
           assert(is_basic_block_index_valid(TargetBBIdx));
           basic_block_t TargetBB = boost::vertex(TargetBBIdx, ICFG);
@@ -2966,8 +2962,7 @@ void BootstrapTool::harvest_irelative_reloc_targets(pid_t child,
         ResolvedBinary, *state.for_binary(ResolvedBinary).ObjectFile,
         rva_of_va(Resolved.Addr, Resolved.BIdx),
         state.for_binary(ResolvedBinary).fnmap,
-        state.for_binary(ResolvedBinary).bbmap,
-        std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2));
+        state.for_binary(ResolvedBinary).bbmap);
 
     if (is_function_index_valid(Resolved.FIdx)) {
       if (R.Addend)
@@ -3072,8 +3067,7 @@ void BootstrapTool::harvest_addressof_reloc_targets(pid_t child,
           ResolvedBinary, *state.for_binary(ResolvedBinary).ObjectFile,
           rva_of_va(Resolved.Addr, Resolved.BIdx),
           state.for_binary(ResolvedBinary).fnmap,
-          state.for_binary(ResolvedBinary).bbmap,
-          std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2));
+          state.for_binary(ResolvedBinary).bbmap);
 
       if (is_function_index_valid(Resolved.FIdx)) {
         b.Analysis.addSymDynTarget(RelSym.Name, {Resolved.BIdx, Resolved.FIdx});
@@ -3170,8 +3164,7 @@ void BootstrapTool::harvest_ctor_and_dtors(pid_t child,
                   Binary, *state.for_binary(Binary).ObjectFile,
                   rva_of_va(Proc, BIdx),
                   state.for_binary(Binary).fnmap,
-                  state.for_binary(Binary).bbmap,
-                  std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2));
+                  state.for_binary(Binary).bbmap);
 
               if (is_function_index_valid(FIdx))
                 Binary.Analysis.Functions[FIdx].IsABI = true; /* it is an ABI */
@@ -3301,8 +3294,7 @@ void BootstrapTool::harvest_global_GOT_entries(pid_t child,
           ResolvedBinary, *state.for_binary(ResolvedBinary).ObjectFile,
           rva_of_va(Resolved.Addr, Resolved.BIdx),
           state.for_binary(ResolvedBinary).fnmap,
-          state.for_binary(ResolvedBinary).bbmap,
-          std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2));
+          state.for_binary(ResolvedBinary).bbmap);
 
       if (!is_basic_block_index_valid(resolved_bbidx))
         continue;
@@ -3311,8 +3303,7 @@ void BootstrapTool::harvest_global_GOT_entries(pid_t child,
           ResolvedBinary, *state.for_binary(ResolvedBinary).ObjectFile,
           rva_of_va(Resolved.Addr, Resolved.BIdx),
           state.for_binary(ResolvedBinary).fnmap,
-          state.for_binary(ResolvedBinary).bbmap,
-          std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2));
+          state.for_binary(ResolvedBinary).bbmap);
       if (is_function_index_valid(Resolved.FIdx)) {
         SymDynTargets.insert({Resolved.BIdx, Resolved.FIdx});
       }
@@ -4343,8 +4334,7 @@ void BootstrapTool::on_return(pid_t child,
             E.explore_basic_block(binary, *state.for_binary(binary).ObjectFile,
                                   rva,
                                   state.for_binary(binary).fnmap,
-                                  state.for_binary(binary).bbmap,
-                                  std::bind(&BootstrapTool::on_new_basic_block, this, std::placeholders::_1, std::placeholders::_2));
+                                  state.for_binary(binary).bbmap);
         if (is_basic_block_index_valid(next_bb_idx)) {
           basic_block_t bb;
 
