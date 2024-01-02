@@ -12,6 +12,7 @@ set(JOVE_TOOL_FLAGS
   "-Wno-gnu-case-range"
   "-Wno-nested-anon-types"
   "-Wno-gnu-anonymous-struct"
+  "-Wno-gnu-designator"
   "-DBOOST_ICL_USE_STATIC_BOUNDED_INTERVALS"
 )
 
