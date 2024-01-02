@@ -128,7 +128,7 @@ jp = subprocess.Popen([jove_server_path, 'server', '-v', '--port=%d' % jove_serv
 #
 # prepare to run jove under emulation
 #
-scp(jove_client_path, '/tmp/jove')
+scp(jove_client_path, '/usr/local/bin/jove')
 scp(jove_rt_path, '/lib/')
 
 def run_tests():
@@ -148,17 +148,17 @@ def run_tests():
 
       test_guest_path = '/tmp/%s' % test_bin_name
 
-      ssh(["/tmp/jove", "init", test_guest_path])
+      ssh(["jove", "init", test_guest_path])
       for input_args in test_inputs:
-        ssh(["/tmp/jove", "bootstrap", test_guest_path] + input_args)
+        ssh(["jove", "bootstrap", test_guest_path] + input_args)
 
       for i in range(0, 2):
         for input_args in test_inputs:
-          ssh(["/tmp/jove", "loop", "-x", "--connect", "%s:%d" % (iphost, jove_server_port), test_guest_path] + input_args)
+          ssh(["jove", "loop", "-x", "--connect", "%s:%d" % (iphost, jove_server_port), test_guest_path] + input_args)
 
       for input_args in test_inputs:
-        p1 = ssh_command([test_guest_path] + input_args, text=False)
-        p2 = ssh_command(["/tmp/jove", "loop", "-x", "--connect", "%s:%d" % (iphost, jove_server_port), test_guest_path] + input_args, text=False)
+        p1 = ssh_command([test_guest_path] + input_args, text=True)
+        p2 = ssh_command(["jove", "loop", "-x", "--connect", "%s:%d" % (iphost, jove_server_port), test_guest_path] + input_args, text=True)
 
         if p2.returncode != 0 and p1.returncode == 0:
           print("TESTS FAILURE_1 %s [%s]" % (test_bin_path, args.arch))
@@ -167,11 +167,10 @@ def run_tests():
         stdout_neq = p1.stdout != p2.stdout
         stderr_neq = p1.stderr != p2.stderr
         if stdout_neq or stderr_neq:
-          print("TESTS FAILURE_2 %s [%s]" % (test_bin_path, args.arch))
           if stdout_neq:
-            print("STDOUT \"%s\" != \"%s\"" % (str(p1.stdout), str(p2.stdout)))
+            print("TESTS FAILURE_2 [%s] %s\n\n\"%s\"\n\n!=\n\n\"%s\"\n\n" % (args.arch, test_bin_path, p1.stdout, p2.stdout))
           if stderr_neq:
-            print("STDERR \"%s\" != \"%s\"" % (str(p1.stderr), str(p2.stderr)))
+            print("TESTS FAILURE_2 [%s] %s\n\n\"%s\"\n\n!=\n\n\"%s\"\n\n" % (args.arch, test_bin_path, p1.stderr, p2.stderr))
           return 1
 
   return 0
