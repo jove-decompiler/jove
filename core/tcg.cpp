@@ -1101,6 +1101,7 @@ void tiny_code_generator_t::print_shit(void) {
     printf("/* offset of d1 = %u */\n", off);
   }
 #elif defined(TARGET_X86_64)
+  {
 #define SEE_OFF(name)                                                          \
   do {                                                                         \
     printf("offsetof(CPUX86State, " #name ") = %u\n",                          \
