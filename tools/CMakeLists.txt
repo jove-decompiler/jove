@@ -13,6 +13,7 @@ set(JOVE_TOOL_FLAGS
   "-Wno-nested-anon-types"
   "-Wno-gnu-anonymous-struct"
   "-Wno-gnu-designator"
+  "-Wno-gnu-statement-expression-from-macro-expansion"
   "-DBOOST_ICL_USE_STATIC_BOUNDED_INTERVALS"
 )
 
