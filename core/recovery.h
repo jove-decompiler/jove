@@ -6,7 +6,7 @@
 
 namespace jove {
 
-struct explorer_t;
+class explorer_t;
 
 class CodeRecovery {
   jv_t &jv;
