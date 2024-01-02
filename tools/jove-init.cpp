@@ -34,6 +34,8 @@ namespace jove {
 class InitTool : public JVTool {
   struct Cmdline {
     cl::opt<std::string> Prog;
+    cl::opt<bool> VeryVerbose;
+    cl::alias VeryVerboseAlias;
     cl::opt<std::string> Output;
     cl::alias OutputAlias;
     cl::opt<unsigned> Threads;
@@ -41,6 +43,14 @@ class InitTool : public JVTool {
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : Prog(cl::Positional, cl::desc("prog"), cl::Required,
                cl::value_desc("filename"), cl::cat(JoveCategory)),
+
+          VeryVerbose(
+              "veryverbose",
+              cl::desc("Print extra information for debugging purposes"),
+              cl::cat(JoveCategory)),
+
+          VeryVerboseAlias("vv", cl::desc("Alias for -veryverbose."),
+                           cl::aliasopt(VeryVerbose), cl::cat(JoveCategory)),
 
           Output("output", cl::desc("Output"), cl::value_desc("filename"),
                  cl::cat(JoveCategory)),
@@ -595,13 +605,18 @@ Found:
 
   tiny_code_generator_t tcg;
   disas_t disas;
-  explorer_t E(jv, disas, tcg, IsVerbose());
+  explorer_t E(jv, disas, tcg, opts.VeryVerbose);
 
   //
   // process the binaries
   //
   std::for_each(binary_paths.begin(), binary_paths.end(),
-                [&](const std::string &path) { jv.Add(path.c_str(), E); });
+                [&](const std::string &path) {
+                  if (IsVerbose())
+                    llvm::errs() << std::string("adding \"" + path + "\"\n");
+
+                  jv.Add(path.c_str(), E);
+                });
 
   { ip_scoped_lock<ip_mutex> lck(jv.binaries_mtx); }
 
