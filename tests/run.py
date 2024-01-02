@@ -28,11 +28,12 @@ assert(Path(jove_client_path).is_file())
 jove_rt_path = '%s/../bin/%s/libjove_rt.so' % (tests_dir, args.arch)
 assert(Path(jove_rt_path).is_file())
 
-#td = tempfile.TemporaryDirectory()
-#d = td.name
-td_path = "/tmp/deb-vm-" + args.arch
-os.mkdir(td_path)
-d = td_path
+#td_path = "/root/deb-vm-" + args.arch
+#os.mkdir(td_path)
+#d = td_path
+
+td = tempfile.TemporaryDirectory()
+d = td.name
 
 arch2ports = dict()
 arch2ports["i386"]     = 10023
