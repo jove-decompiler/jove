@@ -13,11 +13,12 @@ namespace jove {
 
 struct tiny_code_generator_t;
 
-struct explorer_t {
+class explorer_t {
   jv_t &jv;
   disas_t &disas;
   tiny_code_generator_t &tcg;
   const bool verbose;
+public:
 
   explorer_t(jv_t &jv, disas_t &disas, tiny_code_generator_t &tcg, bool verbose = false)
       : jv(jv), disas(disas), tcg(tcg), verbose(verbose) {}
