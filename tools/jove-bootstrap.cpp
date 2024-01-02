@@ -1254,6 +1254,9 @@ int BootstrapTool::TracerLoop(pid_t child, tiny_code_generator_t &tcg) {
           } else {
             try {
               on_breakpoint(child, tcg);
+            } catch (const boost::interprocess::bad_alloc &) {
+              HumanOut() << "jv_t memory exhausted\n";
+              return 1;
             } catch (const std::exception &e) {
               /* TODO rate-limit */
               HumanOut() << llvm::formatv(
