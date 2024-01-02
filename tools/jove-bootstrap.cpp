@@ -1887,6 +1887,13 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
 #undef __REG_CASE
 
+    case llvm::AArch64::FP:
+      return gpr.regs[29];
+    case llvm::AArch64::LR:
+      return gpr.regs[30];
+    case llvm::AArch64::SP:
+      return gpr.sp;
+
 #elif defined(__mips64) || defined(__mips__)
 
     case llvm::Mips::ZERO: assert(gpr.regs[0] == 0); return gpr.regs[0];
@@ -2360,7 +2367,15 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
     pc = _ptrace_peekdata(child, gpr.esp);
     gpr.esp += sizeof(uint32_t);
 #elif defined(__aarch64__)
-    pc = gpr.regs[30] /* lr */;
+    if (Inst.getNumOperands() == 0) {
+      pc = gpr.regs[30] /* lr */;
+    } else {
+      assert(Inst.getNumOperands() == 1);
+      assert(Inst.getOperand(0).isReg());
+
+      unsigned r = Inst.getOperand(0).getReg();
+      pc = r == llvm::AArch64::NoRegister ? gpr.regs[30] : RegValue(r);
+    }
 #elif defined(__mips64) || defined(__mips__)
     assert(InsnBytes.size() == 2 * sizeof(uint32_t));
 
