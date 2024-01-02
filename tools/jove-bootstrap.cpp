@@ -1700,9 +1700,6 @@ void BootstrapTool::place_breakpoint_at_indirect_branch(pid_t child,
 
   // write the word back
   _ptrace_pokedata(child, Addr, word);
-
-  if (opts.VeryVerbose)
-    HumanOut() << (fmt("breakpoint placed @ %#lx") % Addr).str() << '\n';
 }
 
 void BootstrapTool::place_breakpoint(pid_t child, uintptr_t Addr,
@@ -1718,9 +1715,6 @@ void BootstrapTool::place_breakpoint(pid_t child, uintptr_t Addr,
 
   // write the word back
   _ptrace_pokedata(child, Addr, word);
-
-  if (opts.VeryVerbose)
-    HumanOut() << (fmt("breakpoint placed @ %#lx") % Addr).str() << '\n';
 }
 
 void BootstrapTool::place_breakpoint_at_return(pid_t child, uintptr_t Addr,
@@ -1748,9 +1742,6 @@ void BootstrapTool::place_breakpoint_at_return(pid_t child, uintptr_t Addr,
 
   // write the word back
   _ptrace_pokedata(child, Addr, word);
-
-  if (opts.VeryVerbose)
-    HumanOut() << (fmt("breakpoint placed @ %#lx") % Addr).str() << '\n';
 }
 
 struct ScopedCPUState {
