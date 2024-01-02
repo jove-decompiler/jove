@@ -164,9 +164,11 @@ on_insn_boundary:
         newbbprop.DynTargetsComplete = false;
         newbbprop.Term._call.Target = invalid_function_index;
         newbbprop.Term._call.Returns = false;
+        newbbprop.Term._call.ReturnsOff = 0;
         newbbprop.Term._indirect_jump.IsLj = false;
         newbbprop.Sj = false;
         newbbprop.Term._indirect_call.Returns = false;
+        newbbprop.Term._indirect_call.ReturnsOff = 0;
         newbbprop.Term._return.Returns = false;
         newbbprop.InvalidateAnalysis();
       }
