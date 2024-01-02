@@ -11,6 +11,7 @@
 #include "crypto.h"
 #include "util.h"
 #include "vdso.h"
+#include "symbolizer.h"
 
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/algorithm/string.hpp>
@@ -301,6 +302,8 @@ struct BootstrapTool : public TransformerTool_Bin<binary_state_t> {
   disas_t disas;
 
   explorer_t E;
+
+  symbolizer_t symbolizer;
 
   std::vector<struct proc_map_t> cached_proc_maps;
 
@@ -4516,6 +4519,13 @@ std::string BootstrapTool::description_of_program_counter(uintptr_t pc, bool Ver
           << ": inconsistency with (BinFoundVec, pmm, AddressSpace) (BUG)\n";
 
     uintptr_t rva = rva_of_va(pc, BIdx);
+
+    if (opts.VeryVerbose) {
+      std::string line = symbolizer.addr2line(jv.Binaries[BIdx], rva);
+      if (!line.empty())
+        return line;
+    }
+
     std::string str = fs::path(pm.nm).filename().string();
 
     return (fmt("%s+%#lx%s") % str % rva % extra).str();
