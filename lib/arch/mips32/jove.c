@@ -152,14 +152,11 @@ void _jove_begin(uint32_t a0,
 
 #define JOVE_THUNK_EXTRA_ARGS                                                  \
   "ldc1 $f12, 380($s1)\n" /* floating point arguments */                       \
-  "ldc1 $f13, 396($s1)\n"                                                      \
   "ldc1 $f14, 412($s1)\n"
 
 #define JOVE_THUNK_EXTRA_RETS                                                  \
   "sdc1 $f0, 188($s1)\n" /* floating point return values */                    \
-  "sdc1 $f1, 204($s1)\n"                                                       \
   "sdc1 $f2, 220($s1)\n"                                                       \
-  "sdc1 $f3, 236($s1)\n"
 
 #define JOVE_THUNK_CORE                                                        \
   JOVE_THUNK_EXTRA_ARGS                                                        \
