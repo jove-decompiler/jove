@@ -170,9 +170,9 @@ def run_tests():
         stderr_neq = p1.stderr != p2.stderr
         if stdout_neq or stderr_neq:
           if stdout_neq:
-            print("TESTS FAILURE_2 [%s] %s\n\n\"%s\"\n\n!=\n\n\"%s\"\n\n" % (args.arch, test_bin_path, p1.stdout, p2.stdout))
+            print("TESTS FAILURE_STDOUT [%s] %s\n\n\"%s\"\n\n!=\n\n\"%s\"\n\n" % (args.arch, test_bin_path, p1.stdout, p2.stdout))
           if stderr_neq:
-            print("TESTS FAILURE_2 [%s] %s\n\n\"%s\"\n\n!=\n\n\"%s\"\n\n" % (args.arch, test_bin_path, p1.stderr, p2.stderr))
+            print("TESTS FAILURE_STDERR [%s] %s\n\n\"%s\"\n\n!=\n\n\"%s\"\n\n" % (args.arch, test_bin_path, p1.stderr, p2.stderr))
           return 1
 
   return 0
