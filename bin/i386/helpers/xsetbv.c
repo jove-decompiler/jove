@@ -6,6 +6,10 @@
 
 #define QEMU_ALIGNED(X) __attribute__((aligned(X)))
 
+#define ___4116N_ QEMU_ALIGNED(16)
+
+#define ___4132N_ QEMU_ALIGNED(32)
+
 #define container_of(ptr, type, member) ({                      \
         const typeof(((type *) 0)->member) *__mptr = (ptr);     \
         (type *) ((char *) __mptr - offsetof(type, member));})
@@ -249,6 +253,10 @@ typedef struct IRQState *qemu_irq;
 
 #define ARRAY_SIZE(x) ((sizeof(x) / sizeof((x)[0])) + \
                        QEMU_BUILD_BUG_ON_ZERO(!QEMU_IS_ARRAY(x)))
+
+#define KiB     (INT64_C(1) << 10)
+
+#define MiB     (INT64_C(1) << 20)
 
 #define tcg_enabled() (tcg_allowed)
 
@@ -1801,10 +1809,10 @@ typedef struct CPUArchState {
     target_ulong cr[5]; /* NOTE: cr1 is unused */
 
     bool pdptrs_valid;
-    uint64_t pdptrs[4];
+    uint64_t pdptrs[4] ___4116N_;
     int32_t a20_mask;
 
-    BNDReg bnd_regs[4];
+    BNDReg bnd_regs[4] ___4116N_;
     BNDCSReg bndcs_regs;
     uint64_t msr_bndcfgs;
     uint64_t efer;
@@ -1829,7 +1837,7 @@ typedef struct CPUArchState {
     float_status fp_status;
     floatx80 ft0;
 
-    float_status mmx_status; /* for 3DNow! float ops */
+    float_status mmx_status ___4116N_; /* for 3DNow! float ops */
     float_status sse_status;
     uint32_t mxcsr;
     ZMMReg xmm_regs[CPU_NB_REGS == 8 ? 8 : 32] QEMU_ALIGNED(16);
@@ -1846,7 +1854,7 @@ typedef struct CPUArchState {
     uint32_t sysenter_cs;
     target_ulong sysenter_esp;
     target_ulong sysenter_eip;
-    uint64_t star;
+    uint64_t star ___4116N_;
 
     uint64_t vm_hsave;
 
@@ -1878,13 +1886,13 @@ typedef struct CPUArchState {
 
     uint64_t pat;
     uint32_t smbase;
-    uint64_t msr_smi_count;
+    uint64_t msr_smi_count ___4116N_;
 
     uint32_t pkru;
     uint32_t pkrs;
     uint32_t tsx_ctrl;
 
-    uint64_t spec_ctrl;
+    uint64_t spec_ctrl ___4116N_;
     uint64_t amd_tsc_scale_msr;
     uint64_t virt_ssbd;
 
@@ -1948,10 +1956,10 @@ typedef struct CPUArchState {
     union {
         struct CPUBreakpoint *cpu_breakpoint[4];
         struct CPUWatchpoint *cpu_watchpoint[4];
-    }; /* break/watchpoints for dr[0..3] */
+    } ___4132N_; /* break/watchpoints for dr[0..3] */
     int old_exception;  /* exception in flight */
 
-    uint64_t vm_vmcb;
+    uint64_t vm_vmcb ___4116N_;
     uint64_t tsc_offset;
     uint64_t intercept;
     uint16_t intercept_cr_read;
@@ -1959,7 +1967,7 @@ typedef struct CPUArchState {
     uint16_t intercept_dr_read;
     uint16_t intercept_dr_write;
     uint32_t intercept_exceptions;
-    uint64_t nested_cr3;
+    uint64_t nested_cr3 ___4116N_;
     uint32_t nested_pg_mode;
     uint8_t v_tpr;
     uint32_t int_ctl;
@@ -1971,7 +1979,7 @@ typedef struct CPUArchState {
     uintptr_t retaddr;
 
     /* Fields up to this point are cleared by a CPU reset */
-    struct {} end_reset_fields;
+    struct {} end_reset_fields ___4116N_;
 
     /* Fields after this point are preserved across CPU reset. */
 
@@ -1990,7 +1998,7 @@ typedef struct CPUArchState {
     uint32_t cpuid_vendor2;
     uint32_t cpuid_vendor3;
     uint32_t cpuid_version;
-    FeatureWordArray features;
+    FeatureWordArray features ___4116N_;
     /* Features that were explicitly enabled/disabled */
     FeatureWordArray user_features;
     uint32_t cpuid_model[12];
@@ -1998,10 +2006,10 @@ typedef struct CPUArchState {
      * on each CPUID leaf will be different, because we keep compatibility
      * with old QEMU versions.
      */
-    CPUCaches cache_info_cpuid2, cache_info_cpuid4, cache_info_amd;
+    CPUCaches cache_info_cpuid2 ___4132N_, cache_info_cpuid4 ___4132N_, cache_info_amd ___4132N_;
 
     /* MTRRs */
-    uint64_t mtrr_fixed[11];
+    uint64_t mtrr_fixed[11] ___4132N_;
     uint64_t mtrr_deftype;
     MTRRVar mtrr_var[MSR_MTRRcap_VCNT];
 
@@ -2014,7 +2022,7 @@ typedef struct CPUArchState {
     uint8_t exception_injected;
     uint8_t has_error_code;
     uint8_t exception_has_payload;
-    uint64_t exception_payload;
+    uint64_t exception_payload ___4116N_;
     uint8_t triple_fault_pending;
     uint32_t ins_len;
     uint32_t sipi_vector;
@@ -2239,60 +2247,6 @@ G_NORETURN static inline void cpu_loop_exit_noexc(CPUState *cpu) {
 
 # define GETPC() 0
 
-#define kvm_enabled()           (0)
-
-typedef struct KVMState KVMState;
-
-extern KVMState *kvm_state;
-
-uint32_t kvm_arch_get_supported_cpuid(KVMState *env, uint32_t function,
-                                      uint32_t index, int reg);
-
-void cpu_sync_avx_hflag(CPUX86State *env)
-{
-    if ((env->cr[4] & CR4_OSXSAVE_MASK)
-        && (env->xcr0 & (XSTATE_SSE_MASK | XSTATE_YMM_MASK))
-            == (XSTATE_SSE_MASK | XSTATE_YMM_MASK)) {
-        env->hflags |= HF_AVX_EN_MASK;
-    } else{
-        env->hflags &= ~HF_AVX_EN_MASK;
-    }
-}
-
-void cpu_sync_bndcs_hflags(CPUX86State *env)
-{
-    uint32_t hflags = env->hflags;
-    uint32_t hflags2 = env->hflags2;
-    uint32_t bndcsr;
-
-    if ((hflags & HF_CPL_MASK) == 3) {
-        bndcsr = env->bndcs_regs.cfgu;
-    } else {
-        bndcsr = env->msr_bndcfgs;
-    }
-
-    if ((env->cr[4] & CR4_OSXSAVE_MASK)
-        && (env->xcr0 & XSTATE_BNDCSR_MASK)
-        && (bndcsr & BNDCFG_ENABLE)) {
-        hflags |= HF_MPX_EN_MASK;
-    } else {
-        hflags &= ~HF_MPX_EN_MASK;
-    }
-
-    if (bndcsr & BNDCFG_BNDPRESERVE) {
-        hflags2 |= HF2_MPX_PR_MASK;
-    } else {
-        hflags2 &= ~HF2_MPX_PR_MASK;
-    }
-
-    env->hflags = hflags;
-    env->hflags2 = hflags2;
-}
-
-#define KiB     (INT64_C(1) << 10)
-
-#define MiB     (INT64_C(1) << 20)
-
 inline G_NORETURN void raise_exception_ra(CPUX86State *env, int exception_index,
                                           uintptr_t retaddr) {
   __builtin_trap();
@@ -2302,6 +2256,15 @@ inline G_NORETURN void raise_exception_ra(CPUX86State *env, int exception_index,
 #define hvf_enabled() 0
 
 #define hvf_get_supported_cpuid(func, idx, reg) 0
+
+#define kvm_enabled()           (0)
+
+typedef struct KVMState KVMState;
+
+extern KVMState *kvm_state;
+
+uint32_t kvm_arch_get_supported_cpuid(KVMState *env, uint32_t function,
+                                      uint32_t index, int reg);
 
 #define sev_enabled() 0
 
@@ -3623,6 +3586,47 @@ void cpu_x86_cpuid(CPUX86State *env, uint32_t index, uint32_t count,
         *edx = 0;
         break;
     }
+}
+
+void cpu_sync_avx_hflag(CPUX86State *env)
+{
+    if ((env->cr[4] & CR4_OSXSAVE_MASK)
+        && (env->xcr0 & (XSTATE_SSE_MASK | XSTATE_YMM_MASK))
+            == (XSTATE_SSE_MASK | XSTATE_YMM_MASK)) {
+        env->hflags |= HF_AVX_EN_MASK;
+    } else{
+        env->hflags &= ~HF_AVX_EN_MASK;
+    }
+}
+
+void cpu_sync_bndcs_hflags(CPUX86State *env)
+{
+    uint32_t hflags = env->hflags;
+    uint32_t hflags2 = env->hflags2;
+    uint32_t bndcsr;
+
+    if ((hflags & HF_CPL_MASK) == 3) {
+        bndcsr = env->bndcs_regs.cfgu;
+    } else {
+        bndcsr = env->msr_bndcfgs;
+    }
+
+    if ((env->cr[4] & CR4_OSXSAVE_MASK)
+        && (env->xcr0 & XSTATE_BNDCSR_MASK)
+        && (bndcsr & BNDCFG_ENABLE)) {
+        hflags |= HF_MPX_EN_MASK;
+    } else {
+        hflags &= ~HF_MPX_EN_MASK;
+    }
+
+    if (bndcsr & BNDCFG_BNDPRESERVE) {
+        hflags2 |= HF2_MPX_PR_MASK;
+    } else {
+        hflags2 &= ~HF2_MPX_PR_MASK;
+    }
+
+    env->hflags = hflags;
+    env->hflags2 = hflags2;
 }
 
 void helper_xsetbv(CPUX86State *env, uint32_t ecx, uint64_t mask)

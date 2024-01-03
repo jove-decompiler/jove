@@ -8,17 +8,13 @@
 
 #define QEMU_ALIGNED(X) __attribute__((aligned(X)))
 
-#define xglue(x, y) x ## y
+#define ___4116N_ QEMU_ALIGNED(16)
 
-#define glue(x, y) xglue(x, y)
-
-#define likely(x)   __builtin_expect(!!(x), 1)
+#define ___4132N_ QEMU_ALIGNED(32)
 
 #define container_of(ptr, type, member) ({                      \
         const typeof(((type *) 0)->member) *__mptr = (ptr);     \
         (type *) ((char *) __mptr - offsetof(type, member));})
-
-# define QEMU_ERROR(X) __attribute__((error(X)))
 
 #include <stddef.h>
 
@@ -48,12 +44,6 @@
 
 #define G_GNUC_END_IGNORE_DEPRECATIONS \
   _Pragma("clang diagnostic pop")
-
-#define G_STRFUNC     ((const char*) (__func__))
-
-#define G_STMT_START  do
-
-#define G_STMT_END    while (0)
 
 # define G_NORETURN __attribute__ ((__noreturn__))
 
@@ -153,8 +143,6 @@ GLIB_AVAILABLE_IN_ALL
 void     g_slist_free_full               (GSList           *list,
 					  GDestroyNotify    free_func);
 
-#define G_LOG_DOMAIN    ((gchar*) 0)
-
 typedef struct _GQueue GQueue;
 
 struct _GQueue
@@ -167,16 +155,6 @@ struct _GQueue
 GLIB_AVAILABLE_IN_ALL
 void     g_queue_free_full      (GQueue           *queue,
 				GDestroyNotify    free_func);
-
-#define g_assert_not_reached()          G_STMT_START { g_assertion_message_expr (G_LOG_DOMAIN, __FILE__, __LINE__, G_STRFUNC, NULL); } G_STMT_END
-
-GLIB_AVAILABLE_IN_ALL
-G_NORETURN
-void    g_assertion_message_expr        (const char     *domain,
-                                         const char     *file,
-                                         int             line,
-                                         const char     *func,
-                                         const char     *expr);
 
 typedef struct AddressSpace AddressSpace;
 
@@ -218,28 +196,7 @@ typedef struct VMStateDescription VMStateDescription;
 
 typedef struct IRQState *qemu_irq;
 
-#define qemu_build_not_reached()  qemu_build_not_reached_always()
-
-#define qemu_build_assert(test)  while (!(test)) qemu_build_not_reached()
-
 #define DIV_ROUND_UP(n, d) (((n) + (d) - 1) / (d))
-
-G_NORETURN extern
-void QEMU_ERROR("code path is reachable")
-    qemu_build_not_reached_always(void);
-
-# define ATOMIC_REG_SIZE  sizeof(void *)
-
-#define qatomic_read__nocheck(ptr) \
-    __atomic_load_n(ptr, __ATOMIC_RELAXED)
-
-#define qatomic_set__nocheck(ptr, i) \
-    __atomic_store_n(ptr, i, __ATOMIC_RELAXED)
-
-#define qatomic_set(ptr, i)  do {                      \
-    qemu_build_assert(sizeof(*ptr) <= ATOMIC_REG_SIZE); \
-    qatomic_set__nocheck(ptr, i);                      \
-} while(0)
 
 #define QLIST_HEAD(name, type)                                          \
 struct name {                                                           \
@@ -277,37 +234,10 @@ typedef struct QTailQLink {
     struct QTailQLink *tql_prev;
 } QTailQLink;
 
-#define le_bswap(v, size) (v)
-
-#define le_bswaps(v, size)
-
-#define CPU_CONVERT(endian, size, type)\
-static inline type endian ## size ## _to_cpu(type v)\
-{\
-    return glue(endian, _bswap)(v, size);\
-}\
-\
-static inline type cpu_to_ ## endian ## size(type v)\
-{\
-    return glue(endian, _bswap)(v, size);\
-}\
-\
-static inline void endian ## size ## _to_cpus(type *p)\
-{\
-    glue(endian, _bswaps)(p, size);\
-}\
-\
-static inline void cpu_to_ ## endian ## size ## s(type *p)\
-{\
-    glue(endian, _bswaps)(p, size);\
-}
-
 static inline void bswap64s(uint64_t *s)
 {
     *s = __builtin_bswap64(*s);
 }
-
-CPU_CONVERT(le, 64, uint64_t)
 
 static inline int lduw_he_p(const void *ptr)
 {
@@ -328,99 +258,9 @@ static inline void stq_he_p(void *ptr, uint64_t v)
     __builtin_memcpy(ptr, &v, sizeof(v));
 }
 
-typedef struct Int128 Int128;
-
-struct Int128 {
-#if HOST_BIG_ENDIAN
-    int64_t hi;
-    uint64_t lo;
-#else
-    uint64_t lo;
-    int64_t hi;
-#endif
-};
-
-static inline Int128 int128_make64(uint64_t a)
-{
-    return (Int128) { .lo = a, .hi = 0 };
-}
-
-static inline Int128 int128_make128(uint64_t lo, uint64_t hi)
-{
-    return (Int128) { .lo = lo, .hi = hi };
-}
-
-static inline uint64_t int128_getlo(Int128 a)
-{
-    return a.lo;
-}
-
-static inline int64_t int128_gethi(Int128 a)
-{
-    return a.hi;
-}
-
-static inline Int128 int128_not(Int128 a)
-{
-    return int128_make128(~a.lo, ~a.hi);
-}
-
-static inline Int128 int128_and(Int128 a, Int128 b)
-{
-    return int128_make128(a.lo & b.lo, a.hi & b.hi);
-}
-
-static inline Int128 int128_or(Int128 a, Int128 b)
-{
-    return int128_make128(a.lo | b.lo, a.hi | b.hi);
-}
-
-static inline Int128 int128_urshift(Int128 a, int n)
-{
-    uint64_t h = a.hi;
-    if (!n) {
-        return a;
-    }
-    h = h >> (n & 63);
-    if (n >= 64) {
-        return int128_make64(h);
-    } else {
-        return int128_make128((a.lo >> n) | ((uint64_t)a.hi << (64 - n)), h);
-    }
-}
-
-static inline Int128 int128_lshift(Int128 a, int n)
-{
-    uint64_t l = a.lo << (n & 63);
-    if (n >= 64) {
-        return int128_make128(0, l);
-    } else if (n > 0) {
-        return int128_make128(l, (a.hi << n) | (a.lo >> (64 - n)));
-    }
-    return a;
-}
-
-static inline bool int128_eq(Int128 a, Int128 b)
-{
-    return a.lo == b.lo && a.hi == b.hi;
-}
-
-static inline bool int128_ne(Int128 a, Int128 b)
-{
-    return !int128_eq(a, b);
-}
-
-static inline Int128 bswap128(Int128 a)
-{
-    return int128_make128(bswap64(a.hi), bswap64(a.lo));
-}
-
 #define BITS_PER_BYTE           CHAR_BIT
 
 #define BITS_TO_LONGS(nr)       DIV_ROUND_UP(nr, BITS_PER_BYTE * sizeof(long))
-
-#define MAKE_64BIT_MASK(shift, length) \
-    (((~0ULL) >> (64 - (length))) << (shift))
 
 static inline uint64_t extract64(uint64_t value, int start, int length)
 {
@@ -1663,10 +1503,10 @@ typedef struct CPUArchState {
     target_ulong cr[5]; /* NOTE: cr1 is unused */
 
     bool pdptrs_valid;
-    uint64_t pdptrs[4];
+    uint64_t pdptrs[4] ___4116N_;
     int32_t a20_mask;
 
-    BNDReg bnd_regs[4];
+    BNDReg bnd_regs[4] ___4116N_;
     BNDCSReg bndcs_regs;
     uint64_t msr_bndcfgs;
     uint64_t efer;
@@ -1691,7 +1531,7 @@ typedef struct CPUArchState {
     float_status fp_status;
     floatx80 ft0;
 
-    float_status mmx_status; /* for 3DNow! float ops */
+    float_status mmx_status ___4116N_; /* for 3DNow! float ops */
     float_status sse_status;
     uint32_t mxcsr;
     ZMMReg xmm_regs[CPU_NB_REGS == 8 ? 8 : 32] QEMU_ALIGNED(16);
@@ -1708,7 +1548,7 @@ typedef struct CPUArchState {
     uint32_t sysenter_cs;
     target_ulong sysenter_esp;
     target_ulong sysenter_eip;
-    uint64_t star;
+    uint64_t star ___4116N_;
 
     uint64_t vm_hsave;
 
@@ -1740,13 +1580,13 @@ typedef struct CPUArchState {
 
     uint64_t pat;
     uint32_t smbase;
-    uint64_t msr_smi_count;
+    uint64_t msr_smi_count ___4116N_;
 
     uint32_t pkru;
     uint32_t pkrs;
     uint32_t tsx_ctrl;
 
-    uint64_t spec_ctrl;
+    uint64_t spec_ctrl ___4116N_;
     uint64_t amd_tsc_scale_msr;
     uint64_t virt_ssbd;
 
@@ -1810,10 +1650,10 @@ typedef struct CPUArchState {
     union {
         struct CPUBreakpoint *cpu_breakpoint[4];
         struct CPUWatchpoint *cpu_watchpoint[4];
-    }; /* break/watchpoints for dr[0..3] */
+    } ___4132N_; /* break/watchpoints for dr[0..3] */
     int old_exception;  /* exception in flight */
 
-    uint64_t vm_vmcb;
+    uint64_t vm_vmcb ___4116N_;
     uint64_t tsc_offset;
     uint64_t intercept;
     uint16_t intercept_cr_read;
@@ -1821,7 +1661,7 @@ typedef struct CPUArchState {
     uint16_t intercept_dr_read;
     uint16_t intercept_dr_write;
     uint32_t intercept_exceptions;
-    uint64_t nested_cr3;
+    uint64_t nested_cr3 ___4116N_;
     uint32_t nested_pg_mode;
     uint8_t v_tpr;
     uint32_t int_ctl;
@@ -1833,7 +1673,7 @@ typedef struct CPUArchState {
     uintptr_t retaddr;
 
     /* Fields up to this point are cleared by a CPU reset */
-    struct {} end_reset_fields;
+    struct {} end_reset_fields ___4116N_;
 
     /* Fields after this point are preserved across CPU reset. */
 
@@ -1852,7 +1692,7 @@ typedef struct CPUArchState {
     uint32_t cpuid_vendor2;
     uint32_t cpuid_vendor3;
     uint32_t cpuid_version;
-    FeatureWordArray features;
+    FeatureWordArray features ___4116N_;
     /* Features that were explicitly enabled/disabled */
     FeatureWordArray user_features;
     uint32_t cpuid_model[12];
@@ -1860,10 +1700,10 @@ typedef struct CPUArchState {
      * on each CPUID leaf will be different, because we keep compatibility
      * with old QEMU versions.
      */
-    CPUCaches cache_info_cpuid2, cache_info_cpuid4, cache_info_amd;
+    CPUCaches cache_info_cpuid2 ___4132N_, cache_info_cpuid4 ___4132N_, cache_info_amd ___4132N_;
 
     /* MTRRs */
-    uint64_t mtrr_fixed[11];
+    uint64_t mtrr_fixed[11] ___4132N_;
     uint64_t mtrr_deftype;
     MTRRVar mtrr_var[MSR_MTRRcap_VCNT];
 
@@ -1876,7 +1716,7 @@ typedef struct CPUArchState {
     uint8_t exception_injected;
     uint8_t has_error_code;
     uint8_t exception_has_payload;
-    uint64_t exception_payload;
+    uint64_t exception_payload ___4116N_;
     uint8_t triple_fault_pending;
     uint32_t ins_len;
     uint32_t sipi_vector;
@@ -2283,11 +2123,6 @@ G_NORETURN static inline void cpu_loop_exit_noexc(CPUState *cpu) {
   __builtin_unreachable();
 }
 
-G_NORETURN static inline void cpu_loop_exit_atomic(CPUState *cpu, uintptr_t pc) {
-  __builtin_trap();
-  __builtin_unreachable();
-}
-
 # define GETPC() 0
 
 enum qemu_plugin_mem_rw {
@@ -2303,15 +2138,6 @@ static inline void qemu_plugin_vcpu_mem_cb(CPUState *cpu, uint64_t vaddr,
 
 # define tcg_debug_assert(X) \
     do { if (!(X)) { __builtin_unreachable(); } } while (0)
-
-# define ATTRIBUTE_ATOMIC128_OPT
-
-# define HAVE_ATOMIC128_RW 0
-
-Int128 QEMU_ERROR("unsupported atomic")
-    atomic16_cmpxchg(Int128 *ptr, Int128 cmp, Int128 new);
-
-Int128 QEMU_ERROR("unsupported atomic") atomic16_read_ro(const Int128 *ptr);
 
 static void *cpu_mmu_lookup(CPUArchState *env, abi_ptr addr,
                             MemOp mop, uintptr_t ra, MMUAccessType type)
@@ -2333,241 +2159,15 @@ static void *cpu_mmu_lookup(CPUArchState *env, abi_ptr addr,
     return ret;
 }
 
-static inline uint64_t ATTRIBUTE_ATOMIC128_OPT
-load_atom_extract_al16_or_al8(void *pv, int s)
-{
-    uintptr_t pi = (uintptr_t)pv;
-    int o = pi & 7;
-    int shr = (HOST_BIG_ENDIAN ? 16 - s - o : o) * 8;
-    Int128 r;
-
-    pv = (void *)(pi & ~7);
-    if (pi & 8) {
-        uint64_t *p8 = __builtin_assume_aligned(pv, 16, 8);
-        uint64_t a = qatomic_read__nocheck(p8);
-        uint64_t b = qatomic_read__nocheck(p8 + 1);
-
-        if (HOST_BIG_ENDIAN) {
-            r = int128_make128(b, a);
-        } else {
-            r = int128_make128(a, b);
-        }
-    } else {
-        r = atomic16_read_ro(pv);
-    }
-    return int128_getlo(int128_urshift(r, shr));
-}
-
-# define HAVE_al8          true
-
-static inline void ATTRIBUTE_ATOMIC128_OPT
-store_atom_insert_al16(Int128 *ps, Int128 val, Int128 msk)
-{
-#if defined(CONFIG_ATOMIC128)
-    __uint128_t *pu;
-    Int128Alias old, new;
-
-    /* With CONFIG_ATOMIC128, we can avoid the memory barriers. */
-    pu = __builtin_assume_aligned(ps, 16);
-    old.u = *pu;
-    msk = int128_not(msk);
-    do {
-        new.s = int128_and(old.s, msk);
-        new.s = int128_or(new.s, val);
-    } while (!__atomic_compare_exchange_n(pu, &old.u, new.u, true,
-                                          __ATOMIC_RELAXED, __ATOMIC_RELAXED));
-#else
-    Int128 old, new, cmp;
-
-    ps = __builtin_assume_aligned(ps, 16);
-    old = *ps;
-    msk = int128_not(msk);
-    do {
-        cmp = old;
-        new = int128_and(old, msk);
-        new = int128_or(new, val);
-        old = atomic16_cmpxchg(ps, cmp, new);
-    } while (int128_ne(cmp, old));
-#endif
-}
-
-static int required_atomicity(CPUArchState *env, uintptr_t p, MemOp memop)
-{
-    return MO_8;
-}
-
 static uint64_t load_atom_8(CPUArchState *env, uintptr_t ra,
                             void *pv, MemOp memop)
 {
     return ldq_he_p(pv);
 }
 
-static inline void store_atomic2(void *pv, uint16_t val)
-{
-    uint16_t *p = __builtin_assume_aligned(pv, 2);
-    qatomic_set(p, val);
-}
-
-static inline void store_atomic4(void *pv, uint32_t val)
-{
-    uint32_t *p = __builtin_assume_aligned(pv, 4);
-    qatomic_set(p, val);
-}
-
-static inline void store_atomic8(void *pv, uint64_t val)
-{
-    uint64_t *p = __builtin_assume_aligned(pv, 8);
-
-    qemu_build_assert(HAVE_al8);
-    qatomic_set__nocheck(p, val);
-}
-
-static inline void store_atom_4_by_2(void *pv, uint32_t val)
-{
-    store_atomic2(pv, val >> (HOST_BIG_ENDIAN ? 16 : 0));
-    store_atomic2(pv + 2, val >> (HOST_BIG_ENDIAN ? 0 : 16));
-}
-
-static inline void store_atom_8_by_2(void *pv, uint64_t val)
-{
-    store_atom_4_by_2(pv, val >> (HOST_BIG_ENDIAN ? 32 : 0));
-    store_atom_4_by_2(pv + 4, val >> (HOST_BIG_ENDIAN ? 0 : 32));
-}
-
-static inline void store_atom_8_by_4(void *pv, uint64_t val)
-{
-    store_atomic4(pv, val >> (HOST_BIG_ENDIAN ? 32 : 0));
-    store_atomic4(pv + 4, val >> (HOST_BIG_ENDIAN ? 0 : 32));
-}
-
-static void store_atom_insert_al8(uint64_t *p, uint64_t val, uint64_t msk)
-{
-    uint64_t old, new;
-
-    qemu_build_assert(HAVE_al8);
-    p = __builtin_assume_aligned(p, 8);
-    old = qatomic_read__nocheck(p);
-    do {
-        new = (old & ~msk) | val;
-    } while (!__atomic_compare_exchange_n(p, &old, new, true,
-                                          __ATOMIC_RELAXED, __ATOMIC_RELAXED));
-}
-
-static uint64_t store_bytes_leN(void *pv, int size, uint64_t val_le)
-{
-    uint8_t *p = pv;
-    for (int i = 0; i < size; i++, val_le >>= 8) {
-        p[i] = val_le;
-    }
-    return val_le;
-}
-
-static uint64_t store_whole_le8(void *pv, int size, uint64_t val_le)
-{
-    int sz = size * 8;
-    int o = (uintptr_t)pv & 7;
-    int sh = o * 8;
-    uint64_t m = MAKE_64BIT_MASK(0, sz);
-    uint64_t v;
-
-    qemu_build_assert(HAVE_al8);
-    if (HOST_BIG_ENDIAN) {
-        v = bswap64(val_le) >> sh;
-        m = bswap64(m) >> sh;
-    } else {
-        v = val_le << sh;
-        m <<= sh;
-    }
-    store_atom_insert_al8(pv - o, v, m);
-    return val_le >> sz;
-}
-
-static uint64_t store_whole_le16(void *pv, int size, Int128 val_le)
-{
-    int sz = size * 8;
-    int o = (uintptr_t)pv & 15;
-    int sh = o * 8;
-    Int128 m, v;
-
-    qemu_build_assert(HAVE_ATOMIC128_RW);
-
-    /* Like MAKE_64BIT_MASK(0, sz), but larger. */
-    if (sz <= 64) {
-        m = int128_make64(MAKE_64BIT_MASK(0, sz));
-    } else {
-        m = int128_make128(-1, MAKE_64BIT_MASK(0, sz - 64));
-    }
-
-    if (HOST_BIG_ENDIAN) {
-        v = int128_urshift(bswap128(val_le), sh);
-        m = int128_urshift(bswap128(m), sh);
-    } else {
-        v = int128_lshift(val_le, sh);
-        m = int128_lshift(m, sh);
-    }
-    store_atom_insert_al16(pv - o, v, m);
-
-    if (sz <= 64) {
-        return 0;
-    }
-    return int128_gethi(val_le) >> (sz - 64);
-}
-
 static void store_atom_8(CPUArchState *env, uintptr_t ra,
-                         void *pv, MemOp memop, uint64_t val)
-{
-    uintptr_t pi = (uintptr_t)pv;
-    int atmax;
-
-    if (HAVE_al8 && likely((pi & 7) == 0)) {
-        store_atomic8(pv, val);
-        return;
-    }
-
-    atmax = required_atomicity(env, pi, memop);
-    switch (atmax) {
-    case MO_8:
-        stq_he_p(pv, val);
-        return;
-    case MO_16:
-        store_atom_8_by_2(pv, val);
-        return;
-    case MO_32:
-        store_atom_8_by_4(pv, val);
-        return;
-    case -MO_32:
-        if (HAVE_al8) {
-            uint64_t val_le = cpu_to_le64(val);
-            int s2 = pi & 7;
-            int s1 = 8 - s2;
-
-            switch (s2) {
-            case 1 ... 3:
-                val_le = store_whole_le8(pv, s1, val_le);
-                store_bytes_leN(pv + s1, s2, val_le);
-                break;
-            case 5 ... 7:
-                val_le = store_bytes_leN(pv, s1, val_le);
-                store_whole_le8(pv + s1, s2, val_le);
-                break;
-            case 0: /* aligned */
-            case 4: /* atmax MO_32 */
-            default:
-                g_assert_not_reached();
-            }
-            return;
-        }
-        break;
-    case MO_64:
-        if (HAVE_ATOMIC128_RW) {
-            store_whole_le16(pv, 8, int128_make64(cpu_to_le64(val)));
-            return;
-        }
-        break;
-    default:
-        g_assert_not_reached();
-    }
-    cpu_loop_exit_atomic(env_cpu(env), ra);
+                         void *pv, MemOp memop, uint64_t val) {
+    stq_he_p(pv, val);
 }
 
 static uint64_t do_ld8_mmu(CPUArchState *env, abi_ptr addr,

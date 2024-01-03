@@ -8,6 +8,10 @@
 
 #define QEMU_ALIGNED(X) __attribute__((aligned(X)))
 
+#define ___4116N_ QEMU_ALIGNED(16)
+
+#define ___4132N_ QEMU_ALIGNED(32)
+
 #define xglue(x, y) x ## y
 
 #define glue(x, y) xglue(x, y)
@@ -342,8 +346,6 @@ static inline void bswap64s(uint64_t *s)
 }
 
 CPU_CONVERT(le, 32, uint32_t)
-
-CPU_CONVERT(le, 64, uint64_t)
 
 static inline int lduw_he_p(const void *ptr)
 {
@@ -1706,10 +1708,10 @@ typedef struct CPUArchState {
     target_ulong cr[5]; /* NOTE: cr1 is unused */
 
     bool pdptrs_valid;
-    uint64_t pdptrs[4];
+    uint64_t pdptrs[4] ___4116N_;
     int32_t a20_mask;
 
-    BNDReg bnd_regs[4];
+    BNDReg bnd_regs[4] ___4116N_;
     BNDCSReg bndcs_regs;
     uint64_t msr_bndcfgs;
     uint64_t efer;
@@ -1734,7 +1736,7 @@ typedef struct CPUArchState {
     float_status fp_status;
     floatx80 ft0;
 
-    float_status mmx_status; /* for 3DNow! float ops */
+    float_status mmx_status ___4116N_; /* for 3DNow! float ops */
     float_status sse_status;
     uint32_t mxcsr;
     ZMMReg xmm_regs[CPU_NB_REGS == 8 ? 8 : 32] QEMU_ALIGNED(16);
@@ -1751,7 +1753,7 @@ typedef struct CPUArchState {
     uint32_t sysenter_cs;
     target_ulong sysenter_esp;
     target_ulong sysenter_eip;
-    uint64_t star;
+    uint64_t star ___4116N_;
 
     uint64_t vm_hsave;
 
@@ -1783,13 +1785,13 @@ typedef struct CPUArchState {
 
     uint64_t pat;
     uint32_t smbase;
-    uint64_t msr_smi_count;
+    uint64_t msr_smi_count ___4116N_;
 
     uint32_t pkru;
     uint32_t pkrs;
     uint32_t tsx_ctrl;
 
-    uint64_t spec_ctrl;
+    uint64_t spec_ctrl ___4116N_;
     uint64_t amd_tsc_scale_msr;
     uint64_t virt_ssbd;
 
@@ -1853,10 +1855,10 @@ typedef struct CPUArchState {
     union {
         struct CPUBreakpoint *cpu_breakpoint[4];
         struct CPUWatchpoint *cpu_watchpoint[4];
-    }; /* break/watchpoints for dr[0..3] */
+    } ___4132N_; /* break/watchpoints for dr[0..3] */
     int old_exception;  /* exception in flight */
 
-    uint64_t vm_vmcb;
+    uint64_t vm_vmcb ___4116N_;
     uint64_t tsc_offset;
     uint64_t intercept;
     uint16_t intercept_cr_read;
@@ -1864,7 +1866,7 @@ typedef struct CPUArchState {
     uint16_t intercept_dr_read;
     uint16_t intercept_dr_write;
     uint32_t intercept_exceptions;
-    uint64_t nested_cr3;
+    uint64_t nested_cr3 ___4116N_;
     uint32_t nested_pg_mode;
     uint8_t v_tpr;
     uint32_t int_ctl;
@@ -1876,7 +1878,7 @@ typedef struct CPUArchState {
     uintptr_t retaddr;
 
     /* Fields up to this point are cleared by a CPU reset */
-    struct {} end_reset_fields;
+    struct {} end_reset_fields ___4116N_;
 
     /* Fields after this point are preserved across CPU reset. */
 
@@ -1895,7 +1897,7 @@ typedef struct CPUArchState {
     uint32_t cpuid_vendor2;
     uint32_t cpuid_vendor3;
     uint32_t cpuid_version;
-    FeatureWordArray features;
+    FeatureWordArray features ___4116N_;
     /* Features that were explicitly enabled/disabled */
     FeatureWordArray user_features;
     uint32_t cpuid_model[12];
@@ -1903,10 +1905,10 @@ typedef struct CPUArchState {
      * on each CPUID leaf will be different, because we keep compatibility
      * with old QEMU versions.
      */
-    CPUCaches cache_info_cpuid2, cache_info_cpuid4, cache_info_amd;
+    CPUCaches cache_info_cpuid2 ___4132N_, cache_info_cpuid4 ___4132N_, cache_info_amd ___4132N_;
 
     /* MTRRs */
-    uint64_t mtrr_fixed[11];
+    uint64_t mtrr_fixed[11] ___4132N_;
     uint64_t mtrr_deftype;
     MTRRVar mtrr_var[MSR_MTRRcap_VCNT];
 
@@ -1919,7 +1921,7 @@ typedef struct CPUArchState {
     uint8_t exception_injected;
     uint8_t has_error_code;
     uint8_t exception_has_payload;
-    uint64_t exception_payload;
+    uint64_t exception_payload ___4116N_;
     uint8_t triple_fault_pending;
     uint32_t ins_len;
     uint32_t sipi_vector;
@@ -2467,30 +2469,10 @@ static inline void store_atomic4(void *pv, uint32_t val)
     qatomic_set(p, val);
 }
 
-static inline void store_atomic8(void *pv, uint64_t val)
-{
-    uint64_t *p = __builtin_assume_aligned(pv, 8);
-
-    qemu_build_assert(HAVE_al8);
-    qatomic_set__nocheck(p, val);
-}
-
 static inline void store_atom_4_by_2(void *pv, uint32_t val)
 {
     store_atomic2(pv, val >> (HOST_BIG_ENDIAN ? 16 : 0));
     store_atomic2(pv + 2, val >> (HOST_BIG_ENDIAN ? 0 : 16));
-}
-
-static inline void store_atom_8_by_2(void *pv, uint64_t val)
-{
-    store_atom_4_by_2(pv, val >> (HOST_BIG_ENDIAN ? 32 : 0));
-    store_atom_4_by_2(pv + 4, val >> (HOST_BIG_ENDIAN ? 0 : 32));
-}
-
-static inline void store_atom_8_by_4(void *pv, uint64_t val)
-{
-    store_atomic4(pv, val >> (HOST_BIG_ENDIAN ? 32 : 0));
-    store_atomic4(pv + 4, val >> (HOST_BIG_ENDIAN ? 0 : 32));
 }
 
 static void store_atom_insert_al4(uint32_t *p, uint32_t val, uint32_t msk)
@@ -2516,15 +2498,6 @@ static void store_atom_insert_al8(uint64_t *p, uint64_t val, uint64_t msk)
         new = (old & ~msk) | val;
     } while (!__atomic_compare_exchange_n(p, &old, new, true,
                                           __ATOMIC_RELAXED, __ATOMIC_RELAXED));
-}
-
-static uint64_t store_bytes_leN(void *pv, int size, uint64_t val_le)
-{
-    uint8_t *p = pv;
-    for (int i = 0; i < size; i++, val_le >>= 8) {
-        p[i] = val_le;
-    }
-    return val_le;
 }
 
 static uint64_t store_whole_le4(void *pv, int size, uint64_t val_le)
@@ -2700,60 +2673,8 @@ static void store_atom_4(CPUArchState *env, uintptr_t ra,
 }
 
 static void store_atom_8(CPUArchState *env, uintptr_t ra,
-                         void *pv, MemOp memop, uint64_t val)
-{
-    uintptr_t pi = (uintptr_t)pv;
-    int atmax;
-
-    if (HAVE_al8 && likely((pi & 7) == 0)) {
-        store_atomic8(pv, val);
-        return;
-    }
-
-    atmax = required_atomicity(env, pi, memop);
-    switch (atmax) {
-    case MO_8:
-        stq_he_p(pv, val);
-        return;
-    case MO_16:
-        store_atom_8_by_2(pv, val);
-        return;
-    case MO_32:
-        store_atom_8_by_4(pv, val);
-        return;
-    case -MO_32:
-        if (HAVE_al8) {
-            uint64_t val_le = cpu_to_le64(val);
-            int s2 = pi & 7;
-            int s1 = 8 - s2;
-
-            switch (s2) {
-            case 1 ... 3:
-                val_le = store_whole_le8(pv, s1, val_le);
-                store_bytes_leN(pv + s1, s2, val_le);
-                break;
-            case 5 ... 7:
-                val_le = store_bytes_leN(pv, s1, val_le);
-                store_whole_le8(pv + s1, s2, val_le);
-                break;
-            case 0: /* aligned */
-            case 4: /* atmax MO_32 */
-            default:
-                g_assert_not_reached();
-            }
-            return;
-        }
-        break;
-    case MO_64:
-        if (HAVE_ATOMIC128_RW) {
-            store_whole_le16(pv, 8, int128_make64(cpu_to_le64(val)));
-            return;
-        }
-        break;
-    default:
-        g_assert_not_reached();
-    }
-    cpu_loop_exit_atomic(env_cpu(env), ra);
+                         void *pv, MemOp memop, uint64_t val) {
+    stq_he_p(pv, val);
 }
 
 static void do_st2_mmu(CPUArchState *env, abi_ptr addr, uint16_t val,
