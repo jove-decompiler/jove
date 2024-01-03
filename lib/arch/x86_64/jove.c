@@ -197,18 +197,18 @@ void _jove_begin(uint64_t rdi,
   "retq\n"
 
 #define JOVE_THUNK_EXTRA_ARGS                                                  \
-  "movsd 816(%%r14),%%xmm0\n"                                                  \
-  "movsd 880(%%r14),%%xmm1\n"                                                  \
-  "movsd 944(%%r14),%%xmm2\n"                                                  \
-  "movsd 1008(%%r14),%%xmm3\n"                                                 \
-  "movsd 1072(%%r14),%%xmm4\n"                                                 \
-  "movsd 1136(%%r14),%%xmm5\n"                                                 \
-  "movsd 1200(%%r14),%%xmm6\n"                                                 \
-  "movsd 1264(%%r14),%%xmm7\n"
+  "movsd 832(%%r14),%%xmm0\n"                                                  \
+  "movsd 896(%%r14),%%xmm1\n"                                                  \
+  "movsd 960(%%r14),%%xmm2\n"                                                  \
+  "movsd 1024(%%r14),%%xmm3\n"                                                 \
+  "movsd 1088(%%r14),%%xmm4\n"                                                 \
+  "movsd 1152(%%r14),%%xmm5\n"                                                 \
+  "movsd 1216(%%r14),%%xmm6\n"                                                 \
+  "movsd 1280(%%r14),%%xmm7\n"
 
 #define JOVE_THUNK_EXTRA_RETS                                                  \
-  "movsd %%xmm0,816(%%r14)\n"                                                  \
-  "movsd %%xmm1,880(%%r14)\n"
+  "movsd %%xmm0,832(%%r14)\n"                                                  \
+  "movsd %%xmm1,896(%%r14)\n"
 
 #define JOVE_THUNK_CORE                                                        \
   JOVE_THUNK_EXTRA_ARGS                                                        \
