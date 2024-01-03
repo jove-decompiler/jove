@@ -850,8 +850,6 @@ int RecompileTool::Run(void) {
       Arg(locator().softfloat_bitcode());
       if (fs::exists(locator().atomics()))
         Arg(locator().atomics());
-      else
-        Arg("/usr/lib/gcc/x86_64-linux-gnu/12/libatomic.a");
       Arg("--pop-state");
       Arg("--exclude-libs");
       Arg("ALL");
