@@ -24,8 +24,6 @@ struct function_state_t {
 class Trace2LinesTool : public TransformerTool_Fn<function_state_t> {
   struct Cmdline {
     cl::opt<std::string> TracePath;
-    cl::opt<std::string> jv;
-    cl::alias jvAlias;
     cl::list<unsigned> ExcludeFns;
     cl::list<unsigned> ExcludeBinaries;
     cl::opt<bool> SkipRepeated;
@@ -35,12 +33,6 @@ class Trace2LinesTool : public TransformerTool_Fn<function_state_t> {
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : TracePath(cl::Positional, cl::desc("trace.txt"), cl::Required,
                     cl::value_desc("filename"), cl::cat(JoveCategory)),
-
-          jv("jv", cl::desc("Jove jv"), cl::Required,
-             cl::value_desc("filename"), cl::cat(JoveCategory)),
-
-          jvAlias("d", cl::desc("Alias for -jv."), cl::aliasopt(jv),
-                  cl::cat(JoveCategory)),
 
           ExcludeFns("exclude-fns", cl::CommaSeparated,
                      cl::value_desc("bidx_1,fidx_1,...,bidx_n,fidx_n"),
@@ -78,11 +70,6 @@ JOVE_REGISTER_TOOL("trace2lines", Trace2LinesTool);
 int Trace2LinesTool::Run(void) {
   if (!fs::exists(opts.TracePath)) {
     WithColor::error() << "trace does not exist\n";
-    return 1;
-  }
-
-  if (!fs::exists(opts.jv)) {
-    WithColor::error() << "jv does not exist\n";
     return 1;
   }
 

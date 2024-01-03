@@ -43,8 +43,6 @@ struct binary_state_t {
 class DecompileTool : public TransformerTool_Bin<binary_state_t> {
   struct Cmdline {
     cl::opt<std::string> Prog;
-    cl::opt<std::string> jv;
-    cl::alias jvAlias;
     cl::opt<std::string> Binary;
     cl::alias BinaryAlias;
     cl::opt<std::string> Output;
@@ -57,12 +55,6 @@ class DecompileTool : public TransformerTool_Bin<binary_state_t> {
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : Prog(cl::Positional, cl::desc("prog"),
                cl::value_desc("filename"), cl::cat(JoveCategory)),
-
-          jv("jv", cl::desc("Jove jv"),
-             cl::value_desc("filename"), cl::cat(JoveCategory)),
-
-          jvAlias("d", cl::desc("Alias for -jv."), cl::aliasopt(jv),
-                  cl::cat(JoveCategory)),
 
           Binary("binary", cl::desc("Operate on single given binary"),
                  cl::value_desc("path"), cl::cat(JoveCategory)),
@@ -214,9 +206,6 @@ int DecompileTool::Run(void) {
   fs::create_directories(fs::path(opts.Output) / ".lib");
 
   if (RunToolToExit("extract", [&](auto Arg) {
-        Arg("-d");
-        Arg(jv_path);
-
         Arg((fs::path(opts.Output) / ".lib").string());
       })) {
     WithColor::error() << "jove-extract failed to run\n";
@@ -622,12 +611,9 @@ void DecompileTool::Worker(void) {
             Arg("--binary-index");
             Arg(std::to_string(BIdx));
 
-            Arg("-d");
-            Arg(jv_path);
-
             Arg("--for-cbe");
 
-            Arg("--foreign-libs"); /* TODO */
+            Arg("--foreign-libs"); /* FIXME */
           },
           path_to_stdout,
           path_to_stderr);

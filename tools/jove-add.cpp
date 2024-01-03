@@ -26,9 +26,6 @@ class AddTool : public JVTool {
     cl::opt<std::string> Output;
     cl::alias OutputAlias;
 
-    cl::opt<std::string> jv;
-    cl::alias jvAlias;
-
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : Input("input", cl::desc("Path to DSO"), cl::Required,
                 cl::value_desc("filename"), cl::cat(JoveCategory)),
@@ -40,13 +37,7 @@ class AddTool : public JVTool {
                  cl::value_desc("filename"), cl::cat(JoveCategory)),
 
           OutputAlias("o", cl::desc("Alias for -output."), cl::aliasopt(Output),
-                      cl::cat(JoveCategory)),
-
-          jv("jv", cl::desc("Jove jv"),
-             cl::value_desc("filename"), cl::cat(JoveCategory)),
-
-          jvAlias("d", cl::desc("Alias for -jv."), cl::aliasopt(jv),
-                  cl::cat(JoveCategory)) {}
+                      cl::cat(JoveCategory)) {}
   } opts;
 
 public:

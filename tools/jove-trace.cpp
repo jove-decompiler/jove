@@ -38,8 +38,6 @@ class TraceTool : public TransformerTool_Bin<binary_state_t> {
     cl::list<std::string> Args;
     cl::list<std::string> Envs;
     cl::opt<std::string> ExistingSysroot;
-    cl::opt<std::string> jv;
-    cl::alias jvAlias;
     cl::opt<std::string> Output;
     cl::alias OutputAlias;
     cl::opt<bool> SkipUProbe;
@@ -68,12 +66,6 @@ class TraceTool : public TransformerTool_Bin<binary_state_t> {
 
           ExistingSysroot("existing-sysroot", cl::desc("path to directory"),
                           cl::value_desc("filename"), cl::cat(JoveCategory)),
-
-          jv("jv", cl::desc("Jove jv"), cl::Required,
-             cl::value_desc("filename"), cl::cat(JoveCategory)),
-
-          jvAlias("d", cl::desc("Alias for -jv."), cl::aliasopt(jv),
-                  cl::cat(JoveCategory)),
 
           Output("output", cl::desc("Output trace txt file"), cl::Required,
                  cl::value_desc("filename"), cl::cat(JoveCategory)),
@@ -137,11 +129,6 @@ int TraceTool::Run(void) {
 
   if (!fs::exists(opts.Prog)) {
     WithColor::error() << "program does not exist\n";
-    return 1;
-  }
-
-  if (!fs::exists(opts.jv)) {
-    WithColor::error() << "jv does not exist\n";
     return 1;
   }
 

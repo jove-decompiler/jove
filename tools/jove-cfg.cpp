@@ -48,8 +48,6 @@ struct binary_state_t {
 class CFGTool : public TransformerTool_Bin<binary_state_t> {
   struct Cmdline {
     cl::opt<std::string> Prog;
-    cl::opt<std::string> jv;
-    cl::alias jvAlias;
     cl::opt<std::string> Binary;
     cl::alias BinaryAlias;
     cl::opt<std::string> FunctionAddress;
@@ -61,11 +59,6 @@ class CFGTool : public TransformerTool_Bin<binary_state_t> {
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : Prog(cl::Positional, cl::desc("prog"), cl::value_desc("filename"),
                cl::cat(JoveCategory)),
-
-          jv("jv", cl::desc("Jove jv"), cl::cat(JoveCategory)),
-
-          jvAlias("d", cl::desc("Alias for --jv."), cl::aliasopt(jv),
-                  cl::cat(JoveCategory)),
 
           Binary("binary", cl::desc("Binary of function"), cl::Required,
                  cl::cat(JoveCategory)),

@@ -15,19 +15,11 @@ namespace jove {
 class Trace2AddrsTool : public JVTool {
   struct Cmdline {
     cl::opt<std::string> TracePath;
-    cl::opt<std::string> jv;
-    cl::alias jvAlias;
     cl::opt<bool> SkipRepeated;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : TracePath(cl::Positional, cl::desc("trace.txt"), cl::Required,
                     cl::value_desc("filename"), cl::cat(JoveCategory)),
-
-          jv("jv", cl::desc("Jove jv"), cl::Required,
-             cl::value_desc("filename"), cl::cat(JoveCategory)),
-
-          jvAlias("d", cl::desc("Alias for -jv."), cl::aliasopt(jv),
-                  cl::cat(JoveCategory)),
 
           SkipRepeated("skip-repeated", cl::desc("Skip repeated blocks"),
                        cl::cat(JoveCategory)) {}
@@ -44,11 +36,6 @@ JOVE_REGISTER_TOOL("trace2addrs", Trace2AddrsTool);
 int Trace2AddrsTool::Run(void) {
   if (!fs::exists(opts.TracePath)) {
     WithColor::error() << "trace does not exist\n";
-    return 1;
-  }
-
-  if (!fs::exists(opts.jv)) {
-    WithColor::error() << "jv does not exist\n";
     return 1;
   }
 

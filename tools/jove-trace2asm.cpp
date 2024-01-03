@@ -37,20 +37,12 @@ struct binary_state_t {
 class Trace2AsmTool : public TransformerTool_Bin<binary_state_t> {
   struct Cmdline {
     cl::opt<std::string> TracePath;
-    cl::opt<std::string> jv;
-    cl::alias jvAlias;
     cl::list<unsigned> ExcludeBinaries;
     cl::opt<bool> SkipRepeated;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : TracePath(cl::Positional, cl::desc("trace.txt"), cl::Required,
                     cl::value_desc("filename"), cl::cat(JoveCategory)),
-
-          jv("jv", cl::desc("Jove jv"), cl::Required,
-             cl::value_desc("filename"), cl::cat(JoveCategory)),
-
-          jvAlias("d", cl::desc("Alias for -jv."), cl::aliasopt(jv),
-                  cl::cat(JoveCategory)),
 
           ExcludeBinaries("exclude-bins", cl::CommaSeparated,
                           cl::value_desc("bidx_1,bidx_2,...,bidx_n"),
@@ -74,11 +66,6 @@ typedef boost::format fmt;
 int Trace2AsmTool::Run(void) {
   if (!fs::exists(opts.TracePath)) {
     WithColor::error() << "trace does not exist\n";
-    return 1;
-  }
-
-  if (!fs::exists(opts.jv)) {
-    WithColor::error() << "jv does not exist\n";
     return 1;
   }
 

@@ -33,7 +33,6 @@ namespace jove {
 
 class IDATool : public JVTool {
   struct Cmdline {
-    cl::opt<std::string> jv;
     cl::opt<std::string> Binary;
     cl::alias BinaryAlias;
     cl::opt<bool> ImportFunctions;
@@ -41,10 +40,7 @@ class IDATool : public JVTool {
     cl::opt<bool> ImportLocalGotos;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
-        : jv(cl::Positional, cl::desc("<input jove decompilations>"),
-             cl::Required, cl::cat(JoveCategory)),
-
-          Binary("binary", cl::desc("Operate on single given binary"),
+        : Binary("binary", cl::desc("Operate on single given binary"),
                  cl::value_desc("path"), cl::cat(JoveCategory)),
 
           BinaryAlias("b", cl::desc("Alias for -binary."), cl::aliasopt(Binary),
@@ -129,12 +125,7 @@ int IDATool::Run(void) {
   //
   // run jove-extract
   //
-  if (RunToolToExit("extract", [&](auto Arg) {
-        Arg("-d");
-        Arg(opts.jv);
-
-        Arg(tmp_dir.string());
-      })) {
+  if (RunToolToExit("extract", [&](auto Arg) { Arg(tmp_dir.string()); })) {
     WithColor::error() << "jove-extract failed to run\n";
     return 1;
   }

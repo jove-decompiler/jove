@@ -193,8 +193,6 @@ struct BootstrapTool : public TransformerTool_Bin<binary_state_t> {
     cl::opt<std::string> Prog;
     cl::list<std::string> Args;
     cl::list<std::string> Envs;
-    cl::opt<std::string> jv;
-    cl::alias jvAlias;
     cl::opt<bool> VeryVerbose;
     cl::alias VeryVerboseAlias;
     cl::opt<bool> Quiet;
@@ -225,12 +223,6 @@ struct BootstrapTool : public TransformerTool_Bin<binary_state_t> {
           Envs("env", cl::CommaSeparated,
                cl::value_desc("KEY_1=VALUE_1,KEY_2=VALUE_2,...,KEY_n=VALUE_n"),
                cl::desc("Extra environment variables"), cl::cat(JoveCategory)),
-
-          jv("jv", cl::desc("Jove jv"), cl::value_desc("filename"),
-             cl::cat(JoveCategory)),
-
-          jvAlias("d", cl::desc("Alias for -jv."), cl::aliasopt(jv),
-                  cl::cat(JoveCategory)),
 
           VeryVerbose(
               "veryverbose",

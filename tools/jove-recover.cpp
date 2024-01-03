@@ -36,9 +36,6 @@ namespace jove {
 
 class RecoverTool : public JVTool {
   struct Cmdline {
-    cl::opt<std::string> jv;
-    cl::alias jvAlias;
-
     cl::list<std::string> DynTarget;
     cl::list<std::string> BasicBlock;
     cl::list<std::string> Returns;
@@ -49,13 +46,7 @@ class RecoverTool : public JVTool {
     cl::opt<bool> Silent;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
-        : jv("jv", cl::desc("Jove jv"), cl::Required,
-             cl::value_desc("filename"), cl::cat(JoveCategory)),
-
-          jvAlias("d", cl::desc("Alias for -jv."), cl::aliasopt(jv),
-                  cl::cat(JoveCategory)),
-
-          DynTarget(
+        : DynTarget(
               "dyn-target", cl::CommaSeparated,
               cl::value_desc("CallerBIdx,CallerBBIdx,CalleeBIdx,CalleeFIdx"),
               cl::desc("New target for indirect branch"),
@@ -104,11 +95,6 @@ public:
 JOVE_REGISTER_TOOL("recover", RecoverTool);
 
 int RecoverTool::Run(void) {
-  if (!fs::exists(opts.jv)) {
-    WithColor::error() << "jv does not exist\n";
-    return 1;
-  }
-
   if (opts.DynTarget.size() > 0 && opts.DynTarget.size() != 4) {
     WithColor::error() << "-dyn-target: invalid tuple\n";
     return 1;
@@ -232,10 +218,7 @@ int RecoverTool::Run(void) {
 
   HumanOut() << msg << '\n';
 
-  jv.InvalidateFunctionAnalyses();
-#if 0
-  WriteJvToFile(opts.jv, jv);
-#endif
+  jv.InvalidateFunctionAnalyses(); /* FIXME */
 
   return 0;
 }

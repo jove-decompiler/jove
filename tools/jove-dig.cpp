@@ -32,8 +32,6 @@ struct binary_state_t {
 
 class CodeDigger : public TransformerTool_Bin<binary_state_t> {
   struct Cmdline {
-    cl::opt<std::string> jv;
-    cl::alias jvAlias;
     cl::opt<unsigned> Threads;
     cl::opt<bool> NoSave;
     cl::opt<std::string> Binary;
@@ -43,13 +41,7 @@ class CodeDigger : public TransformerTool_Bin<binary_state_t> {
     cl::opt<std::string> SingleBBIdx;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
-        : jv("jv", cl::desc("Jove jv"), cl::Required,
-             cl::value_desc("filename"), cl::cat(JoveCategory)),
-
-          jvAlias("d", cl::desc("Alias for -jv."), cl::aliasopt(jv),
-                  cl::cat(JoveCategory)),
-
-          Threads("num-threads",
+        : Threads("num-threads",
                   cl::desc("Number of CPU threads to use (hack)"),
                   cl::init(num_cpus()), cl::cat(JoveCategory)),
 
@@ -354,9 +346,6 @@ void CodeDigger::Worker(void) {
 
             Arg("--binary-index");
             Arg(std::to_string(BIdx));
-
-            Arg("-d");
-            Arg(opts.jv);
 
             //Arg("--inline-helpers");
             //Arg("--optimize");
