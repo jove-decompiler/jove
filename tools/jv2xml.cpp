@@ -20,7 +20,7 @@ using llvm::WithColor;
 
 namespace jove {
 
-struct jv2xmlTool : public JVTool {
+struct jv2xmlTool : public Tool {
   struct Cmdline {
     cl::opt<std::string> InputFilename;
 
