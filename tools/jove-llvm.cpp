@@ -183,8 +183,6 @@ struct LLVMTool : public TransformerTool_BinFnBB<binary_state_t,
                                                  function_state_t,
                                                  basic_block_state_t> {
   struct Cmdline {
-    cl::opt<std::string> jv;
-    cl::alias jvAlias;
     cl::opt<std::string> Binary;
     cl::alias BinaryAlias;
     cl::opt<std::string> BinaryIndex;
@@ -216,13 +214,7 @@ struct LLVMTool : public TransformerTool_BinFnBB<binary_state_t,
     cl::opt<bool> ForCBE;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
-        : jv("jv", cl::desc("Jove jv"), cl::Required,
-             cl::value_desc("filename"), cl::cat(JoveCategory)),
-
-          jvAlias("d", cl::desc("Alias for -jv."), cl::aliasopt(jv),
-                  cl::cat(JoveCategory)),
-
-          Binary("binary", cl::desc("Binary to translate"),
+        : Binary("binary", cl::desc("Binary to translate"),
                  cl::value_desc("path"), cl::cat(JoveCategory)),
 
           BinaryAlias("b", cl::desc("Alias for -binary."), cl::aliasopt(Binary),
@@ -1749,11 +1741,6 @@ static bool is_builtin_sym(const std::string &);
 static int DoOptimize(void);
 
 int LLVMTool::Run(void) {
-  if (!fs::exists(opts.jv)) {
-    llvm::errs() << "jv does not exist\n";
-    return 1;
-  }
-
   //jove::cmdline.argv = argv;
   opts.CallStack = opts.DFSan;
   opts.CheckEmulatedReturnAddress = opts.DFSan;

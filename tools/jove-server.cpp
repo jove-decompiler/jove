@@ -295,8 +295,8 @@ void *ServerTool::ConnectionProc(void *arg) {
   // analyze
   //
   int rc = RunToolToExit("analyze", [&](auto Arg) {
-    Arg("-d");
-    Arg(tmpjv);
+    if (options.foreign_libs)
+      Arg("--exe");
 
 #if 0
     if (!PinnedGlobals.empty()) {
@@ -331,8 +331,6 @@ void *ServerTool::ConnectionProc(void *arg) {
   fs::create_directory(sysroot_dir);
 
   rc = RunToolToExit("recompile", [&](auto Arg) {
-    Arg("-d");
-    Arg(tmpjv);
     Arg("-o");
     Arg(sysroot_dir);
 

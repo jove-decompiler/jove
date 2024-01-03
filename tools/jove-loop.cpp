@@ -39,8 +39,6 @@ class LoopTool : public JVTool {
     cl::opt<std::string> EnvFromFile;
     cl::opt<std::string> ArgsFromFile;
     cl::list<std::string> BindMountDirs;
-    cl::opt<std::string> jv;
-    cl::alias jvAlias;
     cl::opt<std::string> Sysroot;
     cl::opt<bool> DFSan;
     cl::opt<bool> Optimize;
@@ -98,12 +96,6 @@ class LoopTool : public JVTool {
                             "/path/to/dir_1,/path/to/dir_2,...,/path/to/dir_n"),
                         cl::desc("List of directories to bind mount"),
                         cl::cat(JoveCategory)),
-
-          jv("jv", cl::desc("Jove jv"), cl::value_desc("filename"),
-             cl::cat(JoveCategory)),
-
-          jvAlias("d", cl::desc("Alias for -jv."), cl::aliasopt(jv),
-                  cl::cat(JoveCategory)),
 
           Sysroot("sysroot", cl::desc("Output directory"),
                   cl::cat(JoveCategory)),
@@ -1038,11 +1030,13 @@ skip_run:
       //
       rc = RunToolToExit("analyze",
         [&](auto Arg) {
-          Arg("-d");
-          Arg(jv_path);
-
           if (opts.ForeignLibs)
             Arg("--exe");
+        },
+        [&](auto Env) {
+          InitWithEnviron(Env);
+
+          Env("JVPATH=" + jv_path);
         });
 
       if (rc) {
@@ -1055,8 +1049,6 @@ skip_run:
       //
       rc = RunToolToExit("recompile",
         [&](auto Arg) {
-          Arg("-d");
-          Arg(jv_path);
           Arg("-o");
           Arg(sysroot);
 
@@ -1083,6 +1075,11 @@ skip_run:
 
           if (opts.InlineHelpers)
             Arg("--inline-helpers");
+        },
+        [&](auto Env) {
+          InitWithEnviron(Env);
+
+          Env("JVPATH=" + jv_path);
         });
 
       if (rc) {

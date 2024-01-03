@@ -63,8 +63,6 @@ typedef boost::format fmt;
 
 class RecompileTool : public TransformerTool_Bin<binary_state_t> {
   struct Cmdline {
-    cl::opt<std::string> jv;
-    cl::alias jvAlias;
     cl::opt<std::string> Output;
     cl::alias OutputAlias;
     cl::opt<unsigned> Threads;
@@ -82,13 +80,7 @@ class RecompileTool : public TransformerTool_Bin<binary_state_t> {
     cl::opt<bool> InlineHelpers;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
-        : jv("jv", cl::desc("Jove jv"), cl::Required,
-             cl::cat(JoveCategory)),
-
-          jvAlias("d", cl::desc("Alias for -jv."), cl::aliasopt(jv),
-                  cl::cat(JoveCategory)),
-
-          Output("output", cl::desc("Output directory"), cl::Required,
+        : Output("output", cl::desc("Output directory"), cl::Required,
                  cl::cat(JoveCategory)),
 
           OutputAlias("o", cl::desc("Alias for -output."), cl::aliasopt(Output),
@@ -315,18 +307,13 @@ int RecompileTool::Run(void) {
     }
   }
 
-  if (!fs::exists(opts.jv.getValue())) {
-    WithColor::error() << "can't find jv.jv\n";
-    return 1;
-  }
-
   //
   // create symlink back to jv
   //
   if (fs::exists(fs::path(opts.Output.getValue()) / ".jv")) // delete any stale symlinks
     fs::remove(fs::path(opts.Output.getValue()) / ".jv");
 
-  fs::create_symlink(fs::canonical(opts.jv.getValue()), fs::path(opts.Output.getValue()) / ".jv");
+  fs::create_symlink(fs::canonical(jv_path), fs::path(opts.Output.getValue()) / ".jv");
 
   //
   // install signal handler for Ctrl-C to gracefully cancel
@@ -1053,9 +1040,6 @@ void RecompileTool::worker(const dso_graph_t &dso_graph) {
           Arg("--binary-index");
           Arg(std::to_string(BIdx));
 
-          Arg("-d");
-          Arg(opts.jv);
-
           if (opts.Optimize)
             Arg("--optimize");
 
@@ -1078,6 +1062,11 @@ void RecompileTool::worker(const dso_graph_t &dso_graph) {
             Arg("--abi-calls=0");
           if (opts.InlineHelpers)
             Arg("--inline-helpers");
+        },
+        [&](auto Env) {
+          InitWithEnviron(Env);
+
+          Env("JVPATH=" + jv_path);
         },
         path_to_stdout,
         path_to_stderr);

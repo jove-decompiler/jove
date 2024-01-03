@@ -40,26 +40,10 @@ struct binary_state_t {
 
 class AnalyzeTool : public TransformerTool_BinFn<binary_state_t, function_state_t> {
   struct Cmdline {
-    cl::opt<std::string> jv;
-    cl::alias jvAlias;
-    cl::list<std::string> PinnedGlobals;
     cl::opt<bool> OnlyExecutable;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
-        : jv("jv", cl::desc("Jove jv"), cl::Required,
-             cl::value_desc("filename"), cl::cat(JoveCategory)),
-
-          jvAlias("d", cl::desc("Alias for -jv."), cl::aliasopt(jv),
-                  cl::cat(JoveCategory)),
-
-          PinnedGlobals(
-              "pinned-globals", cl::CommaSeparated,
-              cl::value_desc("glb_1,glb_2,...,glb_n"),
-              cl::desc(
-                  "force specified TCG globals to always go through CPUState"),
-              cl::cat(JoveCategory)),
-
-          OnlyExecutable("exe",
+        : OnlyExecutable("exe",
                          cl::desc("Only analyze functions in executable"),
                          cl::cat(JoveCategory)) {}
   } opts;
@@ -84,16 +68,12 @@ public:
 JOVE_REGISTER_TOOL("analyze", AnalyzeTool);
 
 int AnalyzeTool::Run(void) {
-  if (!fs::exists(opts.jv)) {
-    HumanOut() << "jv does not exist\n";
-    return 1;
-  }
-
   identify_ABIs(jv);
 
   for_each_binary(jv, [&](binary_t &binary) {
     ignore_exception([&]() {
       state.for_binary(binary).ObjectFile = CreateBinary(binary.data());
+      llvm::errs() << "bin ty = " << state.for_binary(binary).ObjectFile->getType() << '\n';
     });
   });
 

@@ -36,8 +36,6 @@ class InitTool : public JVTool {
     cl::opt<std::string> Prog;
     cl::opt<bool> VeryVerbose;
     cl::alias VeryVerboseAlias;
-    cl::opt<std::string> Output;
-    cl::alias OutputAlias;
     cl::opt<unsigned> Threads;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
@@ -51,12 +49,6 @@ class InitTool : public JVTool {
 
           VeryVerboseAlias("vv", cl::desc("Alias for -veryverbose."),
                            cl::aliasopt(VeryVerbose), cl::cat(JoveCategory)),
-
-          Output("output", cl::desc("Output"), cl::value_desc("filename"),
-                 cl::cat(JoveCategory)),
-
-          OutputAlias("o", cl::desc("Alias for -output."), cl::aliasopt(Output),
-                      cl::cat(JoveCategory)),
 
           Threads("num-threads", cl::desc("Number of CPU threads to use"),
                   cl::init(1 /* num_cpus() */ /* FIXME */),
