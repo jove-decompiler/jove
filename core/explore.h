@@ -73,6 +73,14 @@ public:
                                     const uint64_t Addr,
                                     fnmap_t &,
                                     bbmap_t &);
+
+  on_newbb_proc_t  get_newbb_proc(void) const {
+    return on_newbb_proc;
+  }
+
+  void set_newbb_proc(on_newbb_proc_t proc) {
+    on_newbb_proc = proc;
+  }
 };
 
 }

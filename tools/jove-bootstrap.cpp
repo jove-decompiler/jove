@@ -4062,8 +4062,13 @@ void BootstrapTool::add_binary(pid_t child, tiny_code_generator_t &tcg,
   std::string jvfp = temporary_dir() + path + ".jv";
   fs::create_directories(fs::path(jvfp).parent_path());
 
+  on_newbb_proc_t sav = E.get_newbb_proc();
+  E.set_newbb_proc([](binary_t &, basic_block_t) {});
+
   binary_index_t BIdx = jv.Add(path, E);
   state.update();
+
+  E.set_newbb_proc(sav);
 
   binary_t &binary = jv.Binaries[BIdx];
   binary.IsDynamicallyLoaded = true;
