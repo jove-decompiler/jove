@@ -105,6 +105,16 @@ void _jove_init_cpu_state(void) {
   __jove_env.hflags = 226;
 #elif defined(__x86_64__) || defined(__i386__)
   __jove_env.df = 1;
+
+  __jove_env.fpuc = 0x37f;
+  __jove_env.fptags[0] = 1;
+  __jove_env.fptags[1] = 1;
+  __jove_env.fptags[2] = 1;
+  __jove_env.fptags[3] = 1;
+  __jove_env.fptags[4] = 1;
+  __jove_env.fptags[5] = 1;
+  __jove_env.fptags[6] = 1;
+  __jove_env.fptags[7] = 1;
 #endif
 
 #if !defined(__x86_64__) && defined(__i386__)
