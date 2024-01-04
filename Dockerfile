@@ -25,6 +25,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       graphviz \
                       hostname \
                       libboost-all-dev \
+                      libclang-16-dev \
                       libglib2.0-dev \
                       libgraph-easy-perl \
                       libpcre2-dev \
@@ -43,12 +44,12 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       pkg-config \
                       pkgconf \
                       python3-venv \
-                      ssh \
+                      qemu-system \
                       sed \
+                      ssh \
                       sudo \
                       unzip \
                       vim-common \
-                      qemu-system \
                       tar && \
     eatmydata apt-get autoremove -y && \
     eatmydata apt-get autoclean -y && \
