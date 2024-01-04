@@ -17,10 +17,10 @@ fi
 set -x
 ../configure \
   --target-list=mips64el-linux-user \
-  --cc=clang-15 \
-  --host-cc=clang-15 \
-  --cxx=clang++-15 \
-  --objcc=clang-15 \
+  --cc=clang-16 \
+  --host-cc=clang-16 \
+  --cxx=clang++-16 \
+  --objcc=clang-16 \
   --disable-werror \
   --extra-cflags="$OURCFLAGS" \
   --cross-prefix=mips64el-linux-gnuabi64- \

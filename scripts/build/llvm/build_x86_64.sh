@@ -4,8 +4,8 @@ set -x
 cmake -G Ninja \
   -D CMAKE_BUILD_TYPE=RelWithDebInfo \
   -D LLVM_TARGET_ARCH=x86_64 \
-  -D CMAKE_C_COMPILER=$(which clang-15) \
-  -D CMAKE_CXX_COMPILER=$(which clang++-15) \
+  -D CMAKE_C_COMPILER=$(which clang-16) \
+  -D CMAKE_CXX_COMPILER=$(which clang++-16) \
   -D "LLVM_TARGETS_TO_BUILD=X86" \
   -D "JOVE_TARGETS_TO_BUILD=x86_64" \
   -D LLVM_BUILD_TESTS=OFF \

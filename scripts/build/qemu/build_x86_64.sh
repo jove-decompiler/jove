@@ -3,10 +3,10 @@ set -x
 
 ../configure \
   --target-list=x86_64-linux-user \
-  --cc=clang-15 \
-  --host-cc=clang-15 \
-  --cxx=clang++-15 \
-  --objcc=clang-15 \
+  --cc=clang-16 \
+  --host-cc=clang-16 \
+  --cxx=clang++-16 \
+  --objcc=clang-16 \
   --enable-tcg-interpreter \
   --disable-werror \
   --disable-docs \

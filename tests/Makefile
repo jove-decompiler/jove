@@ -7,10 +7,7 @@ include $(JOVE_ROOT_DIR)/config.mk
 
 LLVM_BIN_DIR := $(JOVE_ROOT_DIR)/llvm-project/build/bin
 
-LLVM_DIS := $(LLVM_BIN_DIR)/llvm-dis
-LLVM_CC  := $(LLVM_BIN_DIR)/clang
-LLVM_CXX := $(LLVM_BIN_DIR)/clang++
-LLVM_OPT := $(LLVM_BIN_DIR)/opt
+CC := clang-16
 
 #
 # build flags
@@ -57,13 +54,13 @@ $(foreach t,$(ALL_TARGETS),$(eval $(call check_template,$(t))))
 
 define target_template
 $(BINDIR)/$(1)/%.exe: $(SRCDIR)/%.c
-	clang-15 -o $$@ $(CFLAGS) --target=$($(1)_TRIPLE) $$< -no-pie $$(EXTRAFLAGS)
+	$(CC) -o $$@ $(CFLAGS) --target=$($(1)_TRIPLE) $$< -no-pie $$(EXTRAFLAGS)
 
 $(BINDIR)/$(1)/%.pic: $(SRCDIR)/%.c
-	clang-15 -o $$@ $(CFLAGS) --target=$($(1)_TRIPLE) $$< -fPIE -pie $$(EXTRAFLAGS)
+	$(CC) -o $$@ $(CFLAGS) --target=$($(1)_TRIPLE) $$< -fPIE -pie $$(EXTRAFLAGS)
 
 $(BINDIR)/$(1)/%.S: $(SRCDIR)/%.c
-	clang-15 -o $$@ $(CFLAGS) --target=$($(1)_TRIPLE) -S -fverbose-asm $$<
+	$(CC) -o $$@ $(CFLAGS) --target=$($(1)_TRIPLE) -S -fverbose-asm $$<
 endef
 $(foreach t,$(ALL_TARGETS),$(eval $(call target_template,$(t))))
 

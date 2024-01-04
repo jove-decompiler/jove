@@ -3,10 +3,10 @@ set -x
 
 ../configure \
   --target-list=i386-linux-user,x86_64-linux-user,mipsel-linux-user,mips-linux-user,mips64el-linux-user,aarch64-linux-user \
-  --cc=clang-15 \
-  --host-cc=clang-15 \
-  --cxx=clang++-15 \
-  --objcc=clang-15 \
+  --cc=clang-16 \
+  --host-cc=clang-16 \
+  --cxx=clang++-16 \
+  --objcc=clang-16 \
   --cpu=x86_64 \
   --enable-tcg-interpreter \
   --disable-werror \

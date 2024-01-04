@@ -38,10 +38,13 @@ def jove_unwind(debugger, command, result, dict):
 
                     path = path[:-len(suffix)]
 
-                    completedProcess = subprocess.run(["/usr/bin/llvm-symbolizer-15", "-print-address", "-inlining=0", "-pretty-print", "-print-source-context-lines=10"], input=('%s 0x%x' % (path, addr)), capture_output=True, text=True)
+                    completedProcess = subprocess.run(["llvm-symbolizer-16", "--print-address", "--output-style=GNU", "--pretty-print", "--obj=" + path, '0x%x' % addr], capture_output=True, text=True, stdin=subprocess.DEVNULL)
 
-                    print(completedProcess.stdout)
-                    print(completedProcess.stderr)
+                    if completedProcess.stdout.strip():
+                        print(completedProcess.stdout.strip())
+
+                    if completedProcess.stderr.strip():
+                        print(completedProcess.stderr.strip())
 
 
 def create_jove_unwind_options():

@@ -17,8 +17,8 @@ cmake -G Ninja \
   -D LLVM_TARGET_ARCH=aarch64 \
   -D LLVM_DEFAULT_TARGET_TRIPLE=$TRIPLE \
   -D LLVM_HOST_TRIPLE=$TRIPLE \
-  -D CMAKE_C_COMPILER=$(which clang-15) \
-  -D CMAKE_CXX_COMPILER=$(which clang++-15) \
+  -D CMAKE_C_COMPILER=$(which clang-16) \
+  -D CMAKE_CXX_COMPILER=$(which clang++-16) \
   -D "CMAKE_C_FLAGS=$OURCFLAGS" \
   -D "CMAKE_CXX_FLAGS=$OURCFLAGS" \
   -D "LLVM_TARGETS_TO_BUILD=AArch64" \

@@ -44,7 +44,7 @@ runtime: $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/libjove_rt.so) \
 define target_code_template
 $(BINDIR)/$(1)/qemu-starter: lib/arch/$(1)/qemu-starter.c
 	@echo CC $$<
-	@clang-15 -o $$@ -Wall \
+	@clang-16 -o $$@ -Wall \
 	                 -I lib -I lib/arch/$(1) \
 	                 -nostdlib \
 	                 --sysroot $($(1)_SYSROOT) \
@@ -57,7 +57,7 @@ $(BINDIR)/$(1)/qemu-starter: lib/arch/$(1)/qemu-starter.c
 	                 -fuse-ld=lld \
 	                 -Wl,-e,_start \
 	                 -static $$<
-	@llvm-strip-15 $$@
+	@llvm-strip-16 $$@
 
 $(BINDIR)/$(1)/qemu-starter.inc: $(BINDIR)/$(1)/qemu-starter
 	@xxd -i < $$< > $$@

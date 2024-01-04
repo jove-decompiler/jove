@@ -19,8 +19,8 @@ cmake -G Ninja \
   -D LLVM_TARGET_ARCH=mips \
   -D LLVM_DEFAULT_TARGET_TRIPLE=mips-linux-gnu \
   -D LLVM_HOST_TRIPLE=mips-linux-gnu \
-  -D CMAKE_C_COMPILER=$(which clang-15) \
-  -D CMAKE_CXX_COMPILER=$(which clang++-15) \
+  -D CMAKE_C_COMPILER=$(which clang-16) \
+  -D CMAKE_CXX_COMPILER=$(which clang++-16) \
   -D "CMAKE_C_FLAGS=$OURCFLAGS" \
   -D "CMAKE_CXX_FLAGS=$OURCFLAGS" \
   -D "LLVM_TARGETS_TO_BUILD=Mips" \

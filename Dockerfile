@@ -11,7 +11,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       bash \
                       binutils-dev \
                       ca-certificates \
-                      clang-15 \
+                      clang-16 \
                       cmake \
                       debootstrap \
                       g++-aarch64-linux-gnu \
@@ -32,8 +32,8 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       libtool \
                       libxml2-dev \
                       libz3-dev \
-                      lld-15 \
-                      llvm-15 \
+                      lld-16 \
+                      llvm-16 \
                       locales \
                       make \
                       meson \
