@@ -20,13 +20,16 @@ LLVM_OPT := $(LLVM_BIN_DIR)/opt
 
 JOVE_GITVER := $(shell git log -n1 --format="%h")
 
-BINDIR := $(JOVE_ROOT_DIR)/bin
+BINDIR := bin
 
 $(foreach t,$(ALL_TARGETS),$(shell mkdir -p $(BINDIR)/$(t)/helpers))
 
 mipsel_ARCH_CFLAGS   := -D TARGET_MIPS32
 mips_ARCH_CFLAGS     := -D TARGET_MIPS32
 mips64el_ARCH_CFLAGS := -D TARGET_MIPS64
+
+# disable built-in rules
+.SUFFIXES:
 
 .PHONY: all
 all: helpers \
@@ -148,24 +151,25 @@ check:
 # TCG
 #
 
-CLANG_EXTRICATE := ~/carbon-copy/build
-QEMU_SRC_DIR    := $(JOVE_ROOT_DIR)/qemu
-QEMU_BUILD_DIR  := $(JOVE_ROOT_DIR)/qemu/carbon_build
+CARBON_EXTRACT := $(JOVE_ROOT_DIR)/carbon-copy/build/extract/carbon-extract
 
-define helper_template
-$(BINDIR)/$(2)/helpers/$(1).ll: $(BINDIR)/$(2)/helpers/$(1).bc
+QEMU_DIR := $(JOVE_ROOT_DIR)/qemu
+qemu_carbon_build_dir = $(QEMU_DIR)/$(1)_carbon_build
+
+define target_template
+$(BINDIR)/$(1)/helpers/%.ll: $(BINDIR)/$(1)/helpers/%.bc
 	@echo DIS $$<
 	@$(LLVM_OPT) -o $$@ -S --strip-debug $$<
 
-$(BINDIR)/$(2)/helpers/$(1).bc: $(BINDIR)/$(2)/helpers/$(1).c
+$(BINDIR)/$(1)/helpers/%.bc: $(BINDIR)/$(1)/helpers/%.c
 	@echo BC $$<
 	@$(LLVM_CC) -o $$@ -Wall \
 	                   -Werror-implicit-function-declaration \
 	                   -Wno-macro-redefined \
 	                   -Wno-initializer-overrides \
-	                   -I lib -I lib/arch/$(2) \
-	                   --sysroot $($(2)_SYSROOT) \
-	                   --target=$($(2)_TRIPLE) \
+	                   -I lib -I lib/arch/$(1) \
+	                   --sysroot $($(1)_SYSROOT) \
+	                   --target=$($(1)_TRIPLE) \
 	                   -O3 -g \
 	                   -std=gnu99 \
 	                   -DNEED_CPU_H \
@@ -177,26 +181,26 @@ $(BINDIR)/$(2)/helpers/$(1).bc: $(BINDIR)/$(2)/helpers/$(1).c
 	                   -fwrapv \
 	                   -MMD \
 	                   -c -emit-llvm $$<
-	@$(LLVM_OPT) -o $$@.tmp $$@ -internalize -internalize-public-api-list=helper_$(1)
+	@$(LLVM_OPT) -o $$@.tmp $$@ -internalize -internalize-public-api-list=helper_$$*
 	@$(LLVM_OPT) -o $$@ -O3 $$@.tmp
 	@rm $$@.tmp
 
-.PHONY: extract-$(2)-$(1)
-extract-$(2)-$(1):
-	$(CLANG_EXTRICATE)/extract/carbon-extract --src $(QEMU_SRC_DIR) --bin $(QEMU_BUILD_DIR) helper_$(1) $($(2)-$(1)_EXTRICATE_ARGS) > $(BINDIR)/$(2)/helpers/$(1).c
+$(BINDIR)/$(1)/helpers/%.c:
+	$(CARBON_EXTRACT) --src $(QEMU_DIR) --bin $(call qemu_carbon_build_dir,$(1)) helper_$$* $$($(1)-$$*_EXTRICATE_ARGS) > $$@
 
-.PHONY: check-$(2)-$(1)
-check-$(2)-$(1): $(BINDIR)/$(2)/helpers/$(1).bc
-	@$(LLVM_DIR)/build/bin/jove-$(2) check-helper --vars $(1)
-endef
-$(foreach t,$(ALL_TARGETS),$(foreach h,$($(t)_HELPERS),$(eval $(call helper_template,$(h),$(t)))))
+.PHONY: check-helper-$(1)-%
+check-helper-$(1)-%: $(BINDIR)/$(1)/helpers/%.bc
+	$(LLVM_BIN_DIR)/jove-$(1) check-helper --vars $$*
 
-define target_template
 .PHONY: extract-helpers-$(1)
-extract-helpers-$(1): $(foreach h,$($(1)_HELPERS),extract-$(1)-$(h))
+extract-helpers-$(1): $(foreach h,$($(1)_HELPERS),$(BINDIR)/$(1)/helpers/$(h).c)
 
 .PHONY: check-helpers-$(1)
-check-helpers-$(1): $(foreach h,$($(1)_HELPERS),check-$(1)-$(h))
+check-helpers-$(1): $(foreach h,$($(1)_HELPERS),check-helper-$(1)-$(h))
+
+.PHONY: clean-helpers-$(1)
+clean-helpers-$(1):
+	rm -f $(foreach h,$($(1)_HELPERS),$(BINDIR)/$(1)/helpers/$(h).c)
 endef
 $(foreach t,$(ALL_TARGETS),$(eval $(call target_template,$(t))))
 
