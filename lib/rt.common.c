@@ -1,3 +1,5 @@
+/* __thread */ struct CPUArchState __jove_env __attribute__((aligned(64)));
+
 /* __thread */ uint64_t *__jove_trace       = NULL;
 /* __thread */ uint64_t *__jove_trace_begin = NULL;
 

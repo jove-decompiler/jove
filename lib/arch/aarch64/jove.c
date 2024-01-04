@@ -1,9 +1,6 @@
 #include "cpu_state.h"
 #include <stddef.h>
 
-extern /* __thread */ CPUARMState __jove_env;
-static /* __thread */ CPUARMState *__jove_env_clunk = &__jove_env;
-
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>

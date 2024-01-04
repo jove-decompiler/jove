@@ -1,8 +1,6 @@
 #include "cpu_state.h"
 #include <stddef.h>
 
-/* __thread */ CPUX86State __jove_env;
-
 #define _GNU_SOURCE /* for REG_EIP */
 #include <sys/types.h>
 #include <sys/stat.h>

@@ -5,8 +5,6 @@
 
 #include <stddef.h>
 
-/* __thread */ CPUMIPSState __jove_env;
-
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>

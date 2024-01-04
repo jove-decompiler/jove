@@ -2,8 +2,6 @@
 
 #include <stddef.h>
 
-/* __thread */ CPUX86State __jove_env;
-
 #define _GNU_SOURCE /* for REG_RIP */
 #include <sys/types.h>
 #include <sys/stat.h>

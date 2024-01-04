@@ -1,3 +1,7 @@
+extern /* __thread */ struct CPUArchState __jove_env __attribute__((aligned(64)));
+
+       static /* __thread */ struct CPUArchState *__jove_env_clunk = &__jove_env;
+
 extern /* __thread */ uint64_t *__jove_trace;
 extern /* __thread */ uint64_t *__jove_trace_begin;
 

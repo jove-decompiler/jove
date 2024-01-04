@@ -1,8 +1,6 @@
 #include "cpu_state.h"
 #include <stddef.h>
 
-/* __thread */ CPUARMState __jove_env;
-
 #define _GNU_SOURCE
 #include <sys/types.h>
 #include <sys/stat.h>
