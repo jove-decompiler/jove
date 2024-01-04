@@ -33,6 +33,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       libtool \
                       libxml2-dev \
                       libz3-dev \
+                      libzstd-dev \
                       lld-16 \
                       llvm-16-dev \
                       locales \
@@ -48,9 +49,9 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       sed \
                       ssh \
                       sudo \
+                      tar \
                       unzip \
-                      vim-common \
-                      tar && \
+                      vim-common && \
     eatmydata apt-get autoremove -y && \
     eatmydata apt-get autoclean -y && \
     sed -Ei 's,^# (en_US\.UTF-8 .*)$,\1,' /etc/locale.gen && \
