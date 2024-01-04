@@ -34,7 +34,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       libxml2-dev \
                       libz3-dev \
                       lld-16 \
-                      llvm-16 \
+                      llvm-16-dev \
                       locales \
                       make \
                       meson \
