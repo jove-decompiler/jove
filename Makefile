@@ -165,8 +165,12 @@ $(BINDIR)/$(1)/helpers/%.bc: $(BINDIR)/$(1)/helpers/%.c
 	@echo BC $$<
 	@$(LLVM_CC) -o $$@ -Wall \
 	                   -Werror-implicit-function-declaration \
-	                   -Wno-macro-redefined \
 	                   -Wno-initializer-overrides \
+	                   -Wno-macro-redefined \
+	                   -Wno-typedef-redefinition \
+	                   -Wno-unused-function \
+	                   -Wno-unknown-attributes \
+	                   -Wno-atomic-alignment \
 	                   -I lib -I lib/arch/$(1) \
 	                   --sysroot $($(1)_SYSROOT) \
 	                   --target=$($(1)_TRIPLE) \
