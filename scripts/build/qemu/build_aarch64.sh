@@ -1,4 +1,5 @@
 #!/bin/bash
+trap 'exit' ERR
 
 TRIPLE="aarch64-linux-gnu"
 

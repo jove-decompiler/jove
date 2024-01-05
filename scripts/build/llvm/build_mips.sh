@@ -1,4 +1,5 @@
 #!/bin/bash
+trap 'exit' ERR
 set -x
 
 # --sysroot=/usr/mips-linux-gnu

@@ -1,4 +1,5 @@
 #!/bin/bash
+trap 'exit' ERR
 
 TRIPLE="mips-linux-gnu"
 
