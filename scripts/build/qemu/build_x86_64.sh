@@ -1,8 +1,9 @@
 #!/bin/bash
+
 EXTRACONF="--enable-jove"
 
 if test "$#" = 1 ; then
-  if test "$1" = "helpers" ; then
+  if test "$1" = "_carbon" ; then
     EXTRACONF="--enable-jove-helpers"
   fi
 fi
