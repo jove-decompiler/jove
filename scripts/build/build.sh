@@ -16,7 +16,7 @@ ln -sf ../../../llvm-cbe $llvm_path/llvm/projects/llvm-cbe
 archs="x86_64 i386 mipsel mips64el aarch64"
 
 function build_all_variants() {
-  ln -s x86_64_build build
+  ln -s x86_64${2}_build build
 
   for arch in $archs ; do
     pushd .
