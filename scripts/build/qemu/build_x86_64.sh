@@ -2,11 +2,12 @@
 set -x
 
 ../configure \
-  --target-list=x86_64-linux-user \
+  --target-list=i386-linux-user,x86_64-linux-user,mipsel-linux-user,mips-linux-user,mips64el-linux-user,aarch64-linux-user \
   --cc=clang-16 \
   --host-cc=clang-16 \
   --cxx=clang++-16 \
   --objcc=clang-16 \
+  --cpu=x86_64 \
   --enable-tcg-interpreter \
   --disable-werror \
   --disable-docs \
@@ -20,6 +21,6 @@ set -x
   --disable-plugins \
   --disable-capstone \
   --disable-stack-protector \
-  --enable-jove
+  --enable-jove || cat config.log
 
 make -j$(nproc)
