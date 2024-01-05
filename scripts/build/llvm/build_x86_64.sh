@@ -3,7 +3,6 @@ set -x
 
 cmake -G Ninja \
       -D CMAKE_BUILD_TYPE=RelWithDebInfo \
-      -D "CMAKE_INSTALL_PREFIX=$(pwd)/../install" \
       -D CMAKE_C_COMPILER=$(which clang-16) \
       -D CMAKE_CXX_COMPILER=$(which clang++-16) \
       -D "LLVM_TARGETS_TO_BUILD=Mips;X86;AArch64" \
@@ -14,6 +13,8 @@ cmake -G Ninja \
       -D "LLVM_ENABLE_PROJECTS=clang;lld" \
       -D LLVM_ENABLE_PEDANTIC=OFF \
       -D LLVM_ENABLE_RTTI=ON \
+      -D LLVM_ENABLE_LIBXML2=OFF \
+      -D LLVM_ENABLE_TERMINFO=OFF \
       -D LLVM_ENABLE_ASSERTIONS=ON \
       -D LLVM_ENABLE_EH=ON \
       -D LLVM_BUILD_DOCS=OFF \
@@ -25,7 +26,4 @@ cmake -G Ninja \
       -D LLVM_USE_LINKER=lld \
       ../llvm
 
-ninja || ninja -j1
-
-#  -DLLVM_USE_SANITIZER="Address;Undefined" \
-#  -DLLVM_ENABLE_LIBCXX=ON \
+ninja
