@@ -1,0 +1,34 @@
+diff --git a/mesonbuild/compilers/mixins/clike.py b/mesonbuild/compilers/mixins/clike.py
+index 76c8e0413..c5e727579 100644
+--- a/mesonbuild/compilers/mixins/clike.py
++++ b/mesonbuild/compilers/mixins/clike.py
+@@ -70,21 +70,29 @@ class CLikeCompilerArgs(arglist.CompilerArgs):
+         if copy:
+             new = self.copy()
+         else:
+             new = self
+         # This covers all ld.bfd, ld.gold, ld.gold, and xild on Linux, which
+         # all act like (or are) gnu ld
+         # TODO: this could probably be added to the DynamicLinker instead
+         if isinstance(self.compiler.linker, (GnuLikeDynamicLinkerMixin, SolarisDynamicLinker, CompCertDynamicLinker)):
+             group_start = -1
+             group_end = -1
++            ignore = False
+             for i, each in enumerate(new):
++                if ignore:
++                    ignore = False
++                    continue
++                if each == "-Xclang":
++                    ignore = True
++                    continue
++
+                 if not GROUP_FLAGS.search(each):
+                     continue
+                 group_end = i
+                 if group_start < 0:
+                     # First occurrence of a library
+                     group_start = i
+             if group_start >= 0:
+                 # Last occurrence of a library
+                 new.insert(group_end + 1, '-Wl,--end-group')
+                 new.insert(group_start, '-Wl,--start-group')
