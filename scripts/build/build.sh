@@ -13,7 +13,7 @@ rm -f $llvm_path/llvm/projects/llvm-cbe
 ln -sf ../../.. $llvm_path/llvm/projects/jove
 ln -sf ../../../llvm-cbe $llvm_path/llvm/projects/llvm-cbe
 
-archs="i386 x86_64 mipsel mips64el aarch64"
+archs="x86_64 i386 mipsel mips64el aarch64"
 
 function build_all_variants() {
   ln -s build_x86_64 build
