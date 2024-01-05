@@ -1,5 +1,4 @@
 #!/bin/bash
-set -x
 trap 'exit' ERR
 
 build_scripts_path=$(cd "$(dirname -- "$0")"; pwd)
@@ -16,39 +15,26 @@ ln -sf ../../../llvm-cbe $llvm_path/llvm/projects/llvm-cbe
 
 archs="i386 x86_64 mipsel mips64el aarch64"
 
+function build_all_variants() {
+  ln -s build_x86_64 build
+
+  for arch in $archs ; do
+    pushd .
+
+    mkdir ${arch}_build && cd ${arch}_build
+    $build_scripts_path/$1/build_${arch}.sh
+
+    popd
+  done
+}
+
 pushd .
 
-df -h .
-
 cd $qemu_path
-mkdir build && cd build
-$build_scripts_path/qemu/build.sh
-
-for arch in $archs ; do
-  cd $qemu_path
-
-  df -h .
-
-  mkdir ${arch}_build && cd ${arch}_build
-  $build_scripts_path/qemu/build_${arch}.sh
-done
-
-df -h .
+build_all_variants "qemu"
 
 cd $llvm_path
-mkdir build && cd build
-$build_scripts_path/llvm/build.sh
-
-for arch in $archs ; do
-  cd $llvm_path
-
-  df -h .
-
-  mkdir ${arch}_build && cd ${arch}_build
-  $build_scripts_path/llvm/build_${arch}.sh
-done
-
-df -h .
+build_all_variants "llvm"
 
 popd
 
