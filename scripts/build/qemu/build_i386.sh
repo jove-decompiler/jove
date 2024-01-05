@@ -1,17 +1,15 @@
 #!/bin/bash
 
-OURCFLAGS=""
-
 EXTRACONF="--enable-jove"
 
 if test "$#" = 1 ; then
   if test "$1" = "helpers" ; then
-    OURCFLAGS+=" -Xclang -load -Xclang $(pwd)/../../carbon-copy/build/collect/libcarbon-collect.so -Xclang -add-plugin -Xclang carbon-collect -Xclang -plugin-arg-carbon-collect -Xclang $(pwd)/.. -Xclang -plugin-arg-carbon-collect -Xclang $(pwd)"
     EXTRACONF="--enable-jove-helpers"
   fi
 fi
 
 set -x
+
 ../configure \
   --target-list=i386-linux-user \
   --cc=clang-16 \
@@ -19,7 +17,6 @@ set -x
   --cxx=clang++-16 \
   --objcc=clang-16 \
   --disable-werror \
-  --extra-cflags="$OURCFLAGS" \
   --cross-prefix=i686-linux-gnu- \
   --cpu=i386 \
   --enable-tcg-interpreter \

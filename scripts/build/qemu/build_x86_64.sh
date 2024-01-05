@@ -1,4 +1,12 @@
 #!/bin/bash
+EXTRACONF="--enable-jove"
+
+if test "$#" = 1 ; then
+  if test "$1" = "helpers" ; then
+    EXTRACONF="--enable-jove-helpers"
+  fi
+fi
+
 set -x
 
 ../configure \
@@ -21,6 +29,7 @@ set -x
   --disable-plugins \
   --disable-capstone \
   --disable-stack-protector \
-  --enable-jove || cat config.log
+  --disable-capstone \
+  $EXTRACONF
 
 make -j$(nproc)

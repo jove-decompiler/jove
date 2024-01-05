@@ -21,8 +21,8 @@ function build_all_variants() {
   for arch in $archs ; do
     pushd .
 
-    mkdir ${arch}_build && cd ${arch}_build
-    $build_scripts_path/$1/build_${arch}.sh
+    mkdir ${arch}${2}_build && cd ${arch}${2}_build
+    $build_scripts_path/$1/build_${arch}.sh $2
 
     popd
   done
@@ -31,10 +31,13 @@ function build_all_variants() {
 pushd .
 
 cd $qemu_path
-build_all_variants "qemu"
+build_all_variants qemu
+
+cd $qemu_path
+build_all_variants qemu _carbon
 
 cd $llvm_path
-build_all_variants "llvm"
+build_all_variants llvm
 
 popd
 

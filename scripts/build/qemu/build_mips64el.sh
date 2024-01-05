@@ -9,12 +9,12 @@ EXTRACONF="--enable-jove"
 
 if test "$#" = 1 ; then
   if test "$1" = "helpers" ; then
-    OURCFLAGS+=" -Xclang -load -Xclang $(pwd)/../../../carbon-copy/build/collect/libcarbon-collect.so -Xclang -add-plugin -Xclang carbon-collect -Xclang -plugin-arg-carbon-collect -Xclang $(pwd)/.. -Xclang -plugin-arg-carbon-collect -Xclang $(pwd)"
     EXTRACONF="--enable-jove-helpers"
   fi
 fi
 
 set -x
+
 ../configure \
   --target-list=mips64el-linux-user \
   --cc=clang-16 \
