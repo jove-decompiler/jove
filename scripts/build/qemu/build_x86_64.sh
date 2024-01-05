@@ -1,17 +1,19 @@
 #!/bin/bash
 
 EXTRACONF="--enable-jove"
+TARGETLIST="i386-linux-user,x86_64-linux-user,mipsel-linux-user,mips-linux-user,mips64el-linux-user,aarch64-linux-user"
 
 if test "$#" = 1 ; then
   if test "$1" = "_carbon" ; then
     EXTRACONF="--enable-jove-helpers"
+    TARGETLIST="x86_64-linux-user"
   fi
 fi
 
 set -x
 
 ../configure \
-  --target-list=i386-linux-user,x86_64-linux-user,mipsel-linux-user,mips-linux-user,mips64el-linux-user,aarch64-linux-user \
+  --target-list=$TARGETLIST \
   --cc=clang-16 \
   --host-cc=clang-16 \
   --cxx=clang++-16 \
