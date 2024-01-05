@@ -27,4 +27,4 @@ cmake -G Ninja \
       -D LLVM_USE_LINKER=lld \
       ../llvm
 
-ninja
+ninja bin/{llvm-tblgen,llvm-dis,opt,llc,clang,clang-tblgen,lld,jove-x86_64,jove-i386,jove-aarch64,jove-mipsel,jove-mips64el}
