@@ -1,5 +1,6 @@
 #!/bin/bash
 trap 'exit' ERR
+set -x
 
 TRIPLE="mips-linux-gnu"
 
@@ -16,7 +17,7 @@ fi
 
 export PKG_CONFIG_LIBDIR=/usr/lib/mips-linux-gnu/pkgconfig
 
-set -x
+if [ ! -f build.ninja ]; then
 
 ../configure \
   --target-list=mips-linux-user \
@@ -41,3 +42,7 @@ set -x
   --disable-stack-protector \
   --disable-capstone \
   $EXTRACONF
+
+fi
+
+ninja

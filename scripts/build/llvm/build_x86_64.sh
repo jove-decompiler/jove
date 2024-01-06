@@ -2,6 +2,8 @@
 trap 'exit' ERR
 set -x
 
+if [ ! -f build.ninja ]; then
+
 cmake -G Ninja \
       -D CMAKE_BUILD_TYPE=RelWithDebInfo \
       -D CMAKE_C_COMPILER=$(which clang-16) \
@@ -26,5 +28,7 @@ cmake -G Ninja \
       -D "CMAKE_EXE_LINKER_FLAGS=-static" \
       -D LLVM_USE_LINKER=lld \
       ../llvm
+
+fi
 
 ninja bin/{llvm-tblgen,llvm-dis,opt,llc,clang,clang-tblgen,lld,jove-x86_64,jove-i386,jove-aarch64,jove-mipsel,jove-mips64el}

@@ -10,6 +10,8 @@ OURCFLAGS=\
 " -gline-tables-only"\
 " -gdwarf-4"
 
+if [ ! -f build.ninja ]; then
+
 cmake -G Ninja \
   -D CMAKE_BUILD_TYPE=Release \
   -D CMAKE_SYSTEM_NAME=Linux \
@@ -42,5 +44,7 @@ cmake -G Ninja \
   -D LLVM_USE_LINKER=lld \
   -D LLVM_BINUTILS_INCDIR=/usr/include \
   ../llvm
+
+fi
 
 ninja bin/jove-aarch64

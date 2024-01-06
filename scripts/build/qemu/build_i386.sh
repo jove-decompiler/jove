@@ -1,5 +1,6 @@
 #!/bin/bash
 trap 'exit' ERR
+set -x
 
 EXTRACONF="--enable-jove"
 
@@ -9,7 +10,7 @@ if test "$#" = 1 ; then
   fi
 fi
 
-set -x
+if [ ! -f build.ninja ]; then
 
 ../configure \
   --target-list=i386-linux-user \
@@ -33,5 +34,7 @@ set -x
   --disable-stack-protector \
   --disable-capstone \
   $EXTRACONF
+
+fi
 
 make -j$(nproc)

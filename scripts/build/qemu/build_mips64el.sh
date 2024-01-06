@@ -1,5 +1,6 @@
 #!/bin/bash
 trap 'exit' ERR
+set -x
 
 TRIPLE="mips64el-linux-gnuabi64"
 
@@ -14,7 +15,7 @@ if test "$#" = 1 ; then
   fi
 fi
 
-set -x
+if [ ! -f build.ninja ]; then
 
 ../configure \
   --target-list=mips64el-linux-user \
@@ -40,4 +41,6 @@ set -x
   --disable-capstone \
   $EXTRACONF
 
-make -j$(nproc)
+fi
+
+ninja

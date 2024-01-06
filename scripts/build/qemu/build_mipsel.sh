@@ -1,5 +1,6 @@
 #!/bin/bash
 trap 'exit' ERR
+set -x
 
 TRIPLE="mipsel-linux-gnu"
 
@@ -16,7 +17,7 @@ fi
 
 export PKG_CONFIG_LIBDIR=/usr/lib/mipsel-linux-gnu/pkgconfig 
 
-set -x
+if [ ! -f build.ninja ]; then
 
 ../configure \
   --target-list=mipsel-linux-user \
@@ -42,4 +43,6 @@ set -x
   --disable-capstone \
   $EXTRACONF
 
-make -j$(nproc)
+fi
+
+ninja

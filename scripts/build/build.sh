@@ -22,7 +22,7 @@ function build_all_variants() {
   for arch in $archs ; do
     pushd .
 
-    mkdir ${arch}${2}_build && cd ${arch}${2}_build
+    mkdir -p ${arch}${2}_build && cd ${arch}${2}_build
     $build_scripts_path/$1/build_${arch}.sh $2
 
     popd

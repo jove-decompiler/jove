@@ -1,5 +1,6 @@
 #!/bin/bash
 trap 'exit' ERR
+set -x
 
 EXTRACONF="--enable-jove"
 TARGETLIST="i386-linux-user,x86_64-linux-user,mipsel-linux-user,mips-linux-user,mips64el-linux-user,aarch64-linux-user"
@@ -11,7 +12,7 @@ if test "$#" = 1 ; then
   fi
 fi
 
-set -x
+if [ ! -f build.ninja ]; then
 
 ../configure \
   --target-list=$TARGETLIST \
@@ -36,4 +37,6 @@ set -x
   --disable-capstone \
   $EXTRACONF
 
-make -j$(nproc)
+fi
+
+ninja
