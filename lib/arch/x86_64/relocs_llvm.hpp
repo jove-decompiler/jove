@@ -22,8 +22,9 @@ llvm::Constant *LLVMTool::expression_for_relocation(const Relocation &R,
                                                     const RelSymbol &RelSym) {
   switch (R.Type) {
   case llvm::ELF::R_X86_64_RELATIVE: {
-    assert(R.Addend); /* XXX this will not be true forever because of DT_RELR */
-    tcg_uintptr_t Addr = *R.Addend;
+    //WARN_ON(!R.Addend);
+
+    tcg_uintptr_t Addr = R.Addend ? *R.Addend : 0;
     if (!Addr) /* XXX could happen if DT_RELR */
       Addr = ExtractWordAtAddress(R.Offset);
 
@@ -33,11 +34,14 @@ llvm::Constant *LLVMTool::expression_for_relocation(const Relocation &R,
   case llvm::ELF::R_X86_64_64:
   case llvm::ELF::R_X86_64_GLOB_DAT:
   case llvm::ELF::R_X86_64_JUMP_SLOT: {
-    assert(R.Addend);
+    //WARN_ON(!R.Addend);
 
     llvm::Constant *GlobalAddr = SymbolAddress(RelSym);
     if (!GlobalAddr)
       return nullptr;
+
+    if (!R.Addend)
+      return GlobalAddr;
 
     return llvm::ConstantExpr::getAdd(
         GlobalAddr, llvm::ConstantInt::get(WordType(), *R.Addend));
