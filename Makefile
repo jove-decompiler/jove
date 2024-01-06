@@ -191,6 +191,7 @@ $(BINDIR)/$(1)/helpers/%.bc: $(BINDIR)/$(1)/helpers/%.c
 	@rm $$@.tmp
 
 $(BINDIR)/$(1)/helpers/%.c:
+	@mkdir -p $(BINDIR)/$(1)/helpers
 	$(CARBON_EXTRACT) --src $(QEMU_DIR) --bin $(call qemu_carbon_build_dir,$(1)) helper_$$* $$($(1)-$$*_EXTRICATE_ARGS) > $$@
 
 .PHONY: check-helper-$(1)-%
