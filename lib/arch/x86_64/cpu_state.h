@@ -2,11 +2,13 @@
 
 #define QEMU_ALIGNED(X) __attribute__((aligned(X)))
 
+#define ___4116N_ QEMU_ALIGNED(16)
+
+#define ___4132N_ QEMU_ALIGNED(32)
+
 #include <stdbool.h>
 
 #include <stdint.h>
-
-# define G_NORETURN __attribute__ ((__noreturn__))
 
 #define QTAILQ_ENTRY(type)                                              \
 union {                                                                 \
@@ -220,8 +222,6 @@ typedef enum FeatureWord {
 
 typedef uint64_t FeatureWordArray[FEATURE_WORDS];
 
-#define EXCP00_DIVZ	0
-
 typedef struct SegmentCache {
     uint32_t selector;
     target_ulong base;
@@ -386,10 +386,10 @@ typedef struct CPUArchState {
     target_ulong cr[5]; /* NOTE: cr1 is unused */
 
     bool pdptrs_valid;
-    uint64_t pdptrs[4];
+    uint64_t pdptrs[4] ___4116N_;
     int32_t a20_mask;
 
-    BNDReg bnd_regs[4];
+    BNDReg bnd_regs[4] ___4116N_;
     BNDCSReg bndcs_regs;
     uint64_t msr_bndcfgs;
     uint64_t efer;
@@ -414,7 +414,7 @@ typedef struct CPUArchState {
     float_status fp_status;
     floatx80 ft0;
 
-    float_status mmx_status; /* for 3DNow! float ops */
+    float_status mmx_status ___4116N_; /* for 3DNow! float ops */
     float_status sse_status;
     uint32_t mxcsr;
     ZMMReg xmm_regs[CPU_NB_REGS == 8 ? 8 : 32] QEMU_ALIGNED(16);
@@ -431,7 +431,7 @@ typedef struct CPUArchState {
     uint32_t sysenter_cs;
     target_ulong sysenter_esp;
     target_ulong sysenter_eip;
-    uint64_t star;
+    uint64_t star ___4116N_;
 
     uint64_t vm_hsave;
 
@@ -463,13 +463,13 @@ typedef struct CPUArchState {
 
     uint64_t pat;
     uint32_t smbase;
-    uint64_t msr_smi_count;
+    uint64_t msr_smi_count ___4116N_;
 
     uint32_t pkru;
     uint32_t pkrs;
     uint32_t tsx_ctrl;
 
-    uint64_t spec_ctrl;
+    uint64_t spec_ctrl ___4116N_;
     uint64_t amd_tsc_scale_msr;
     uint64_t virt_ssbd;
 
@@ -533,10 +533,10 @@ typedef struct CPUArchState {
     union {
         struct CPUBreakpoint *cpu_breakpoint[4];
         struct CPUWatchpoint *cpu_watchpoint[4];
-    }; /* break/watchpoints for dr[0..3] */
+    } ___4132N_; /* break/watchpoints for dr[0..3] */
     int old_exception;  /* exception in flight */
 
-    uint64_t vm_vmcb;
+    uint64_t vm_vmcb ___4116N_;
     uint64_t tsc_offset;
     uint64_t intercept;
     uint16_t intercept_cr_read;
@@ -544,7 +544,7 @@ typedef struct CPUArchState {
     uint16_t intercept_dr_read;
     uint16_t intercept_dr_write;
     uint32_t intercept_exceptions;
-    uint64_t nested_cr3;
+    uint64_t nested_cr3 ___4116N_;
     uint32_t nested_pg_mode;
     uint8_t v_tpr;
     uint32_t int_ctl;
@@ -556,7 +556,7 @@ typedef struct CPUArchState {
     uintptr_t retaddr;
 
     /* Fields up to this point are cleared by a CPU reset */
-    struct {} end_reset_fields;
+    struct {} end_reset_fields ___4116N_;
 
     /* Fields after this point are preserved across CPU reset. */
 
@@ -575,7 +575,7 @@ typedef struct CPUArchState {
     uint32_t cpuid_vendor2;
     uint32_t cpuid_vendor3;
     uint32_t cpuid_version;
-    FeatureWordArray features;
+    FeatureWordArray features ___4116N_;
     /* Features that were explicitly enabled/disabled */
     FeatureWordArray user_features;
     uint32_t cpuid_model[12];
@@ -583,10 +583,10 @@ typedef struct CPUArchState {
      * on each CPUID leaf will be different, because we keep compatibility
      * with old QEMU versions.
      */
-    CPUCaches cache_info_cpuid2, cache_info_cpuid4, cache_info_amd;
+    CPUCaches cache_info_cpuid2 ___4132N_, cache_info_cpuid4 ___4132N_, cache_info_amd ___4132N_;
 
     /* MTRRs */
-    uint64_t mtrr_fixed[11];
+    uint64_t mtrr_fixed[11] ___4132N_;
     uint64_t mtrr_deftype;
     MTRRVar mtrr_var[MSR_MTRRcap_VCNT];
 
@@ -599,7 +599,7 @@ typedef struct CPUArchState {
     uint8_t exception_injected;
     uint8_t has_error_code;
     uint8_t exception_has_payload;
-    uint64_t exception_payload;
+    uint64_t exception_payload ___4116N_;
     uint8_t triple_fault_pending;
     uint32_t ins_len;
     uint32_t sipi_vector;

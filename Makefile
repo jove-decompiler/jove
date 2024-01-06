@@ -134,7 +134,8 @@ clean: clean-helpers
 
 .PHONY: clean-helpers
 clean-helpers:
-	rm -f $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/helpers/*.bc) \
+	rm -f $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/helpers/*.c) \
+	      $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/helpers/*.bc) \
 	      $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/helpers/*.d) \
 	      $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/helpers/*.ll)
 
