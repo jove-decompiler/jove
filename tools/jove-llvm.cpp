@@ -2457,6 +2457,14 @@ int LLVMTool::CreateModule(void) {
   std::unique_ptr<llvm::Module> &ModuleRef = moduleOr.get();
   Module = std::move(ModuleRef);
 
+  //
+  // removing dso_local (FIXME)
+  //
+  for (llvm::GlobalObject &GO : Module->global_objects()) {
+    if (GO.isDeclaration() && GO.isDSOLocal())
+      GO.setDSOLocal(false);
+  }
+
   DL = Module->getDataLayout();
 
   {
