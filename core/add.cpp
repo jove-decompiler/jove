@@ -306,7 +306,7 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
   //
   // look for split debug information
   //
-  llvm::Optional<llvm::ArrayRef<uint8_t>> optionalBuildID = getBuildID(Elf);
+  std::optional<llvm::ArrayRef<uint8_t>> optionalBuildID = getBuildID(Elf);
   if (optionalBuildID) {
     llvm::ArrayRef<uint8_t> BuildID = *optionalBuildID;
 
@@ -370,7 +370,7 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
   llvm::StringRef DynamicStringTable;
   const Elf_Shdr *SymbolVersionSection = nullptr;
   std::vector<VersionMapEntry> VersionMap;
-  llvm::Optional<DynRegionInfo> OptionalDynSymRegion;
+  std::optional<DynRegionInfo> OptionalDynSymRegion;
 
   if (DynamicTable.Addr)
     OptionalDynSymRegion =

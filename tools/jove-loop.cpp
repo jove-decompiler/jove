@@ -1116,7 +1116,7 @@ std::string LoopTool::soname_of_binary(binary_t &b) {
   llvm::StringRef DynamicStringTable;
   const Elf_Shdr *SymbolVersionSection;
   std::vector<VersionMapEntry> VersionMap;
-  llvm::Optional<DynRegionInfo> OptionalDynSymRegion =
+  std::optional<DynRegionInfo> OptionalDynSymRegion =
       loadDynamicSymbols(&E, &O,
                          DynamicTable,
                          DynamicStringTable,
@@ -1129,7 +1129,7 @@ std::string LoopTool::soname_of_binary(binary_t &b) {
   //
   // parse dynamic table
   //
-  llvm::Optional<uint64_t> SONameOffset;
+  std::optional<uint64_t> SONameOffset;
 
   for (const Elf_Dyn &Dyn : dynamic_table()) {
     if (unlikely(Dyn.d_tag == llvm::ELF::DT_NULL))

@@ -105,7 +105,7 @@ struct DynRegionInfo {
   }
 };
 
-llvm::Optional<llvm::ArrayRef<uint8_t>> getBuildID(const ELFF &Obj);
+std::optional<llvm::ArrayRef<uint8_t>> getBuildID(const ELFF &Obj);
 
 uintX_t loadDynamicTable(const ELFF *Obj,
                          const ELFO *ObjF,
@@ -132,7 +132,7 @@ public:
   }
 };
 
-llvm::Optional<DynRegionInfo> loadDynamicSymbols(const ELFF *Obj,
+std::optional<DynRegionInfo> loadDynamicSymbols(const ELFF *Obj,
                                                  const ELFO *ObjF,
                                                  const DynRegionInfo &DynamicTable,
                                                  llvm::StringRef &DynamicStringTable,
@@ -167,7 +167,7 @@ public:
   uint32_t Symbol;
   typename ELFT::uint Offset;
   typename ELFT::uint Info;
-  llvm::Optional<int64_t> Addend;
+  std::optional<int64_t> Addend;
 };
 
 struct RelSymbol {

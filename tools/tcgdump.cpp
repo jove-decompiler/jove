@@ -125,7 +125,7 @@ int TCGDumpTool::Run(void) {
   llvm::StringRef DynamicStringTable;
   const Elf_Shdr *SymbolVersionSection;
   std::vector<VersionMapEntry> VersionMap;
-  llvm::Optional<DynRegionInfo> OptionalDynSymRegion =
+  std::optional<DynRegionInfo> OptionalDynSymRegion =
       loadDynamicSymbols(&E, &O,
                          DynamicTable,
                          DynamicStringTable,

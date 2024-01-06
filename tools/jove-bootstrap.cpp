@@ -100,7 +100,7 @@ struct binary_state_t {
     llvm::StringRef DynamicStringTable;
     const Elf_Shdr *SymbolVersionSection;
     std::vector<VersionMapEntry> VersionMap;
-    llvm::Optional<DynRegionInfo> OptionalDynSymRegion;
+    std::optional<DynRegionInfo> OptionalDynSymRegion;
 
     DynRegionInfo DynRelRegion;
     DynRegionInfo DynRelaRegion;

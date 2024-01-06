@@ -46,7 +46,7 @@ static T unwrapOrError(llvm::Expected<T> ValOrErr) {
   throw std::runtime_error(ErrorStr);
 }
 
-llvm::Optional<llvm::ArrayRef<uint8_t>> getBuildID(const ELFF &Obj) {
+std::optional<llvm::ArrayRef<uint8_t>> getBuildID(const ELFF &Obj) {
   auto PhdrsOrErr = Obj.program_headers();
   if (!PhdrsOrErr) {
     return {};
@@ -233,13 +233,13 @@ findDynamic(const ELFO *ObjF, const ELFF *Obj) {
   return std::make_pair(DynamicPhdr, DynamicSec);
 }
 
-llvm::Optional<DynRegionInfo> loadDynamicSymbols(const ELFF *Obj,
+std::optional<DynRegionInfo> loadDynamicSymbols(const ELFF *Obj,
                                                  const ELFO *ObjF,
                                                  const DynRegionInfo &DynamicTable,
                                                  llvm::StringRef &DynamicStringTable,
                                                  const Elf_Shdr *&SymbolVersionSection,
                                                  std::vector<VersionMapEntry> &VersionMap) {
-  llvm::Optional<DynRegionInfo> DynSymRegion;
+  std::optional<DynRegionInfo> DynSymRegion;
   const Elf_Hash *HashTable = nullptr;
   const Elf_Shdr *DotDynsymSec = nullptr;
 
@@ -300,7 +300,7 @@ llvm::Optional<DynRegionInfo> loadDynamicSymbols(const ELFF *Obj,
   //
   const char *StringTableBegin = nullptr;
   uint64_t StringTableSize = 0;
-  llvm::Optional<DynRegionInfo> DynSymFromTable;
+  std::optional<DynRegionInfo> DynSymFromTable;
   for (const Elf_Dyn &Dyn : dynamic_table()) {
     if (Dyn.d_tag == llvm::ELF::DT_NULL)
       break; /* marks end of dynamic table. */
@@ -700,9 +700,9 @@ llvm::Error MipsGOTParser::findGOT(Elf_Dyn_Range DynTable,
   }
 
   // Lookup dynamic table tags which define the GOT layout.
-  llvm::Optional<uint64_t> DtPltGot;
-  llvm::Optional<uint64_t> DtLocalGotNum;
-  llvm::Optional<uint64_t> DtGotSym;
+  std::optional<uint64_t> DtPltGot;
+  std::optional<uint64_t> DtLocalGotNum;
+  std::optional<uint64_t> DtGotSym;
   for (const auto &Entry : DynTable) {
     if (Entry.getTag() == llvm::ELF::DT_NULL)
       break; /* marks end of dynamic table. */
@@ -766,8 +766,8 @@ llvm::Error MipsGOTParser::findGOT(Elf_Dyn_Range DynTable,
 
 llvm::Error MipsGOTParser::findPLT(Elf_Dyn_Range DynTable) {
   // Lookup dynamic table tags which define the PLT layout.
-  llvm::Optional<uint64_t> DtMipsPltGot;
-  llvm::Optional<uint64_t> DtJmpRel;
+  std::optional<uint64_t> DtMipsPltGot;
+  std::optional<uint64_t> DtJmpRel;
   for (const auto &Entry : DynTable) {
     switch (Entry.getTag()) {
     case llvm::ELF::DT_MIPS_PLTGOT:
@@ -1135,7 +1135,7 @@ bool dynamic_linking_info_of_binary(llvm::object::Binary &Bin,
   llvm::StringRef DynamicStringTable;
   const Elf_Shdr *SymbolVersionSection;
   std::vector<VersionMapEntry> VersionMap;
-  llvm::Optional<DynRegionInfo> OptionalDynSymRegion =
+  std::optional<DynRegionInfo> OptionalDynSymRegion =
       loadDynamicSymbols(&E, &O,
                          DynamicTable,
                          DynamicStringTable,
