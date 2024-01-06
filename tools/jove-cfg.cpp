@@ -55,6 +55,7 @@ class CFGTool : public TransformerTool_Bin<binary_state_t> {
     cl::opt<bool> PrintTerminatorType;
     cl::opt<std::string> LocalGotoAddress;
     cl::alias LocalGotoAddressAlias;
+    cl::opt<bool> PrintInsnBytes;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : Prog(cl::Positional, cl::desc("prog"), cl::value_desc("filename"),
@@ -83,7 +84,10 @@ class CFGTool : public TransformerTool_Bin<binary_state_t> {
 
           LocalGotoAddressAlias("j", cl::desc("Alias for --indjmp."),
                                 cl::aliasopt(LocalGotoAddress),
-                                cl::cat(JoveCategory))
+                                cl::cat(JoveCategory)),
+
+          PrintInsnBytes("insn-bytes", cl::desc("Print machine code bytes"),
+                         cl::cat(JoveCategory))
 
     {}
   } opts;
@@ -227,6 +231,14 @@ std::string CFGTool::disassemble_basic_block(const GraphTy &G,
     boost::trim(line);
 
     res.append((fmt("%x   ") % A).str());
+
+    if (opts.PrintInsnBytes) {
+      std::string s;
+      for (unsigned i = 0; i < InstLen; ++i)
+        s.append((fmt("%02x ") % (unsigned)Contents[i]).str());
+      res.append((fmt("%-18s ") % s).str());
+    }
+
     res.append(line);
     res.push_back('\n');
   }
