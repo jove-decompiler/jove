@@ -42,6 +42,8 @@ typedef unsigned long cap_user_header_t; /* XXX */
 typedef unsigned long key_serial_t; /* XXX */
 typedef unsigned int qid_t;
 typedef int rwf_t;
+typedef uint32_t u32;
+typedef uint64_t u64;
 
 #define ___SYSCALL0(nr, nm)                                                    \
   static JOVE_SYS_ATTR int64_t _jove_sys_##nm(void) {                          \
