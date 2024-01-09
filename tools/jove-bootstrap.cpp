@@ -4639,7 +4639,7 @@ void SignalHandler(int no) {
 namespace jove {
 
 struct BootstrapTool : public Tool {
-  int Run(void) {
+  int Run(void) override {
     HumanOut() << "bootstrap: host architecture != target\n";
     return 1;
   }
