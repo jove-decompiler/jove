@@ -108,13 +108,13 @@ bool is_sigreturn_insn_sequence(const void *insn_bytes) {
 }
 
 _HIDDEN uintptr_t _jove_emusp_location(void) {
-  return &__jove_env.xregs[31];
+  return (uintptr_t)&__jove_env.xregs[31];
 }
 
 _HIDDEN uintptr_t _jove_callstack_location(void) {
-  return &__jove_callstack;
+  return (uintptr_t)&__jove_callstack;
 }
 
 _HIDDEN uintptr_t _jove_callstack_begin_location(void) {
-  return &__jove_callstack_begin;
+  return (uintptr_t)&__jove_callstack_begin;
 }

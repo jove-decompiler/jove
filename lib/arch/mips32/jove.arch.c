@@ -15,7 +15,7 @@ void _jove_sleep(void) {
   t.tv_sec = 1;
   t.tv_nsec = 0;
 
-  _jove_sys_nanosleep_time32(&t, NULL);
+  _jove_sys_nanosleep_time32((void *)&t, NULL);
 }
 
 int _jove_open(const char *path, int flags, mode_t mode) {

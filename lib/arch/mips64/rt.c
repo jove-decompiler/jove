@@ -22,7 +22,7 @@
 
 static uintptr_t _jove_alloc_stack(void);
 static void _jove_free_stack(uintptr_t beg);
-static uintptr_t _jove_alloc_callstack(void) {
+static uintptr_t _jove_alloc_callstack(void);
 static void _jove_free_callstack(uintptr_t start);
 
 #include "rt.arch.c"
