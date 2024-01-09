@@ -42,7 +42,7 @@ class ServerTool : public Tool {
 public:
   ServerTool() : opts(JoveCategory) {}
 
-  int Run(void);
+  int Run(void) override;
 
   void *ConnectionProc(void *);
 };
