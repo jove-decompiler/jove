@@ -57,7 +57,7 @@ class Trace2LinesTool : public TransformerTool_Fn<function_state_t> {
 public:
   Trace2LinesTool() : opts(JoveCategory) {}
 
-  int Run(void);
+  int Run(void) override;
 
   fs::path path_to_vim;
   fs::path path_to_tmpfile;
