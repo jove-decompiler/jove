@@ -44,26 +44,23 @@ typedef unsigned int qid_t;
 typedef int rwf_t;
 
 #define ___SYSCALL0(nr, nm)                                                    \
-  static JOVE_SYS_ATTR long _jove_sys_##nm(void) {                             \
-    register long _ret asm("x0");                                              \
+  static JOVE_SYS_ATTR int64_t _jove_sys_##nm(void) {                          \
+    register int64_t _ret asm("x0");                                           \
                                                                                \
-    register unsigned long _nr asm("x8") = nr;                                 \
+    register uint64_t _nr asm("x8") = nr;                                      \
                                                                                \
-    asm volatile("svc 0\n\t"                                                   \
-                 : "=r"(_ret)                                                  \
-                 : "r"(_nr)                                                    \
-                 : "memory", "cc");                                            \
+    asm volatile("svc 0\n\t" : "=r"(_ret) : "r"(_nr) : "memory", "cc");        \
                                                                                \
     return _ret;                                                               \
   }
 
 #define ___SYSCALL1(nr, nm, t1, a1)                                            \
-  static JOVE_SYS_ATTR long _jove_sys_##nm(long a1) {                          \
-    register long _ret asm("x0");                                              \
+  static JOVE_SYS_ATTR int64_t _jove_sys_##nm(t1 a1) {                         \
+    register int64_t _ret asm("x0");                                           \
                                                                                \
-    register unsigned long _nr asm("x8") = nr;                                 \
+    register uint64_t _nr asm("x8") = nr;                                      \
                                                                                \
-    register long _a1 asm("x0") = a1;                                          \
+    register int64_t _a1 asm("x0") = (int64_t)a1;                              \
                                                                                \
     asm volatile("svc 0\n\t"                                                   \
                  : "=r"(_ret)                                                  \
@@ -74,13 +71,13 @@ typedef int rwf_t;
   }
 
 #define ___SYSCALL2(nr, nm, t1, a1, t2, a2)                                    \
-  static JOVE_SYS_ATTR long _jove_sys_##nm(long a1, long a2) {                 \
-    register long _ret asm("x0");                                              \
+  static JOVE_SYS_ATTR int64_t _jove_sys_##nm(t1 a1, t2 a2) {                  \
+    register int64_t _ret asm("x0");                                           \
                                                                                \
-    register unsigned long _nr asm("x8") = nr;                                 \
+    register uint64_t _nr asm("x8") = nr;                                      \
                                                                                \
-    register long _a1 asm("x0") = a1;                                          \
-    register long _a2 asm("x1") = a2;                                          \
+    register int64_t _a1 asm("x0") = (int64_t)a1;                              \
+    register int64_t _a2 asm("x1") = (int64_t)a2;                              \
                                                                                \
     asm volatile("svc 0\n\t"                                                   \
                  : "=r"(_ret)                                                  \
@@ -91,14 +88,14 @@ typedef int rwf_t;
   }
 
 #define ___SYSCALL3(nr, nm, t1, a1, t2, a2, t3, a3)                            \
-  static JOVE_SYS_ATTR long _jove_sys_##nm(long a1, long a2, long a3) {        \
-    register long _ret asm("x0");                                              \
+  static JOVE_SYS_ATTR int64_t _jove_sys_##nm(t1 a1, t2 a2, t3 a3) {           \
+    register int64_t _ret asm("x0");                                           \
                                                                                \
-    register unsigned long _nr asm("x8") = nr;                                 \
+    register uint64_t _nr asm("x8") = nr;                                      \
                                                                                \
-    register long _a1 asm("x0") = a1;                                          \
-    register long _a2 asm("x1") = a2;                                          \
-    register long _a3 asm("x2") = a3;                                          \
+    register int64_t _a1 asm("x0") = (int64_t)a1;                              \
+    register int64_t _a2 asm("x1") = (int64_t)a2;                              \
+    register int64_t _a3 asm("x2") = (int64_t)a3;                              \
                                                                                \
     asm volatile("svc 0\n\t"                                                   \
                  : "=r"(_ret)                                                  \
@@ -109,16 +106,15 @@ typedef int rwf_t;
   }
 
 #define ___SYSCALL4(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4)                    \
-  static JOVE_SYS_ATTR long _jove_sys_##nm(long a1, long a2, long a3,          \
-                                           long a4) {                          \
-    register long _ret asm("x0");                                              \
+  static JOVE_SYS_ATTR int64_t _jove_sys_##nm(t1 a1, t2 a2, t3 a3, t4 a4) {    \
+    register int64_t _ret asm("x0");                                           \
                                                                                \
-    register unsigned long _nr asm("x8") = nr;                                 \
+    register uint64_t _nr asm("x8") = nr;                                      \
                                                                                \
-    register long _a1 asm("x0") = a1;                                          \
-    register long _a2 asm("x1") = a2;                                          \
-    register long _a3 asm("x2") = a3;                                          \
-    register long _a4 asm("x3") = a4;                                          \
+    register int64_t _a1 asm("x0") = (int64_t)a1;                              \
+    register int64_t _a2 asm("x1") = (int64_t)a2;                              \
+    register int64_t _a3 asm("x2") = (int64_t)a3;                              \
+    register int64_t _a4 asm("x3") = (int64_t)a4;                              \
                                                                                \
     asm volatile("svc 0\n\t"                                                   \
                  : "=r"(_ret)                                                  \
@@ -129,17 +125,17 @@ typedef int rwf_t;
   }
 
 #define ___SYSCALL5(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5)            \
-  static JOVE_SYS_ATTR long _jove_sys_##nm(long a1, long a2, long a3, long a4, \
-                                           long a5) {                          \
-    register long _ret asm("x0");                                              \
+  static JOVE_SYS_ATTR int64_t _jove_sys_##nm(t1 a1, t2 a2, t3 a3, t4 a4,      \
+                                              t5 a5) {                         \
+    register int64_t _ret asm("x0");                                           \
                                                                                \
-    register unsigned long _nr asm("x8") = nr;                                 \
+    register uint64_t _nr asm("x8") = nr;                                      \
                                                                                \
-    register long _a1 asm("x0") = a1;                                          \
-    register long _a2 asm("x1") = a2;                                          \
-    register long _a3 asm("x2") = a3;                                          \
-    register long _a4 asm("x3") = a4;                                          \
-    register long _a5 asm("x4") = a5;                                          \
+    register int64_t _a1 asm("x0") = (int64_t)a1;                              \
+    register int64_t _a2 asm("x1") = (int64_t)a2;                              \
+    register int64_t _a3 asm("x2") = (int64_t)a3;                              \
+    register int64_t _a4 asm("x3") = (int64_t)a4;                              \
+    register int64_t _a5 asm("x4") = (int64_t)a5;                              \
                                                                                \
     asm volatile("svc 0\n\t"                                                   \
                  : "=r"(_ret)                                                  \
@@ -150,18 +146,18 @@ typedef int rwf_t;
   }
 
 #define ___SYSCALL6(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5, t6, a6)    \
-  static JOVE_SYS_ATTR long _jove_sys_##nm(long a1, long a2, long a3, long a4, \
-                                           long a5, long a6) {                 \
-    register long _ret asm("x0");                                              \
+  static JOVE_SYS_ATTR int64_t _jove_sys_##nm(t1 a1, t2 a2, t3 a3, t4 a4,      \
+                                              t5 a5, t6 a6) {                  \
+    register int64_t _ret asm("x0");                                           \
                                                                                \
-    register unsigned long _nr asm("x8") = nr;                                 \
+    register uint64_t _nr asm("x8") = nr;                                      \
                                                                                \
-    register long _a1 asm("x0") = a1;                                          \
-    register long _a2 asm("x1") = a2;                                          \
-    register long _a3 asm("x2") = a3;                                          \
-    register long _a4 asm("x3") = a4;                                          \
-    register long _a5 asm("x4") = a5;                                          \
-    register long _a6 asm("x5") = a6;                                          \
+    register int64_t _a1 asm("x0") = (int64_t)a1;                              \
+    register int64_t _a2 asm("x1") = (int64_t)a2;                              \
+    register int64_t _a3 asm("x2") = (int64_t)a3;                              \
+    register int64_t _a4 asm("x3") = (int64_t)a4;                              \
+    register int64_t _a5 asm("x4") = (int64_t)a5;                              \
+    register int64_t _a6 asm("x5") = (int64_t)a6;                              \
                                                                                \
     asm volatile("svc 0\n\t"                                                   \
                  : "=r"(_ret)                                                  \

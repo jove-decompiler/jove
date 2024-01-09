@@ -48,20 +48,20 @@ typedef unsigned long cap_user_header_t; /* XXX */
                       ".set\treorder"
 
 #define ___SYSCALL0(nr, nm)                                                    \
-  static JOVE_SYS_ATTR long _jove_sys_##nm(void) {                             \
-    register long __s0 asm("$16") __attribute__((unused)) = (0);               \
+  static JOVE_SYS_ATTR int64_t _jove_sys_##nm(void) {                          \
+    register uint64_t __s0 asm("$16") __attribute__((unused)) = (0);           \
                                                                                \
-    register long __v0 asm("$2");                                              \
-    register long __a3 asm("$7");                                              \
+    register int64_t __v0 asm("$2");                                           \
+    register int64_t __a3 asm("$7");                                           \
                                                                                \
     asm volatile(__SYSCALL_ASM                                                 \
                  : "=r"(__v0), "=r"(__a3)                                      \
                  : "IK"(nr)                                                    \
                  : __SYSCALL_CLOBBERS);                                        \
                                                                                \
-    long res = __v0;                                                           \
+    int64_t res = __v0;                                                        \
     {                                                                          \
-      long _sc_err = __a3;                                                     \
+      int64_t _sc_err = __a3;                                                  \
       if (_sc_err)                                                             \
         res = -res;                                                            \
     }                                                                          \
@@ -70,21 +70,21 @@ typedef unsigned long cap_user_header_t; /* XXX */
   }
 
 #define ___SYSCALL1(nr, nm, t1, a1)                                            \
-  static JOVE_SYS_ATTR long _jove_sys_##nm(t1 a1) {                            \
-    register long __s0 asm("$16") __attribute__((unused)) = (0);               \
+  static JOVE_SYS_ATTR int64_t _jove_sys_##nm(t1 a1) {                         \
+    register uint64_t __s0 asm("$16") __attribute__((unused)) = (0);           \
                                                                                \
-    register long __v0 asm("$2");                                              \
-    register long __a0 asm("$4") = (long)a1;                                   \
-    register long __a3 asm("$7");                                              \
+    register int64_t __v0 asm("$2");                                           \
+    register int64_t __a0 asm("$4") = (long)a1;                                \
+    register int64_t __a3 asm("$7");                                           \
                                                                                \
     asm volatile(__SYSCALL_ASM                                                 \
                  : "=r"(__v0), "=r"(__a3)                                      \
                  : "IK"(nr), "r"(__a0)                                         \
                  : __SYSCALL_CLOBBERS);                                        \
                                                                                \
-    long res = __v0;                                                           \
+    int64_t res = __v0;                                                        \
     {                                                                          \
-      long _sc_err = __a3;                                                     \
+      int64_t _sc_err = __a3;                                                  \
       if (_sc_err)                                                             \
         res = -res;                                                            \
     }                                                                          \
@@ -93,22 +93,22 @@ typedef unsigned long cap_user_header_t; /* XXX */
   }
 
 #define ___SYSCALL2(nr, nm, t1, a1, t2, a2)                                    \
-  static JOVE_SYS_ATTR long _jove_sys_##nm(t1 a1, t2 a2) {                     \
-    register long __s0 asm("$16") __attribute__((unused)) = (0);               \
+  static JOVE_SYS_ATTR int64_t _jove_sys_##nm(t1 a1, t2 a2) {                  \
+    register uint64_t __s0 asm("$16") __attribute__((unused)) = (0);           \
                                                                                \
-    register long __v0 asm("$2");                                              \
-    register long __a0 asm("$4") = (long)a1;                                   \
-    register long __a1 asm("$5") = (long)a2;                                   \
-    register long __a3 asm("$7");                                              \
+    register int64_t __v0 asm("$2");                                           \
+    register int64_t __a0 asm("$4") = (long)a1;                                \
+    register int64_t __a1 asm("$5") = (long)a2;                                \
+    register int64_t __a3 asm("$7");                                           \
                                                                                \
     asm volatile(__SYSCALL_ASM                                                 \
                  : "=r"(__v0), "=r"(__a3)                                      \
                  : "IK"(nr), "r"(__a0), "r"(__a1)                              \
                  : __SYSCALL_CLOBBERS);                                        \
                                                                                \
-    long res = __v0;                                                           \
+    int64_t res = __v0;                                                        \
     {                                                                          \
-      long _sc_err = __a3;                                                     \
+      int64_t _sc_err = __a3;                                                  \
       if (_sc_err)                                                             \
         res = -res;                                                            \
     }                                                                          \
@@ -117,23 +117,23 @@ typedef unsigned long cap_user_header_t; /* XXX */
   }
 
 #define ___SYSCALL3(nr, nm, t1, a1, t2, a2, t3, a3)                            \
-  static JOVE_SYS_ATTR long _jove_sys_##nm(t1 a1, t2 a2, t3 a3) {              \
-    register long __s0 asm("$16") __attribute__((unused)) = (0);               \
+  static JOVE_SYS_ATTR int64_t _jove_sys_##nm(t1 a1, t2 a2, t3 a3) {           \
+    register uint64_t __s0 asm("$16") __attribute__((unused)) = (0);           \
                                                                                \
-    register long __v0 asm("$2");                                              \
-    register long __a0 asm("$4") = (long)a1;                                   \
-    register long __a1 asm("$5") = (long)a2;                                   \
-    register long __a2 asm("$6") = (long)a3;                                   \
-    register long __a3 asm("$7");                                              \
+    register int64_t __v0 asm("$2");                                           \
+    register int64_t __a0 asm("$4") = (long)a1;                                \
+    register int64_t __a1 asm("$5") = (long)a2;                                \
+    register int64_t __a2 asm("$6") = (long)a3;                                \
+    register int64_t __a3 asm("$7");                                           \
                                                                                \
     asm volatile(__SYSCALL_ASM                                                 \
                  : "=r"(__v0), "=r"(__a3)                                      \
                  : "IK"(nr), "r"(__a0), "r"(__a1), "r"(__a2)                   \
                  : __SYSCALL_CLOBBERS);                                        \
                                                                                \
-    long res = __v0;                                                           \
+    int64_t res = __v0;                                                        \
     {                                                                          \
-      long _sc_err = __a3;                                                     \
+      int64_t _sc_err = __a3;                                                  \
       if (_sc_err)                                                             \
         res = -res;                                                            \
     }                                                                          \
@@ -142,23 +142,23 @@ typedef unsigned long cap_user_header_t; /* XXX */
   }
 
 #define ___SYSCALL4(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4)                    \
-  static JOVE_SYS_ATTR long _jove_sys_##nm(t1 a1, t2 a2, t3 a3, t4 a4) {       \
-    register long __s0 asm("$16") __attribute__((unused)) = (0);               \
+  static JOVE_SYS_ATTR int64_t _jove_sys_##nm(t1 a1, t2 a2, t3 a3, t4 a4) {    \
+    register uint64_t __s0 asm("$16") __attribute__((unused)) = (0);           \
                                                                                \
-    register long __v0 asm("$2");                                              \
-    register long __a0 asm("$4") = (long)a1;                                   \
-    register long __a1 asm("$5") = (long)a2;                                   \
-    register long __a2 asm("$6") = (long)a3;                                   \
-    register long __a3 asm("$7") = (long)a4;                                   \
+    register int64_t __v0 asm("$2");                                           \
+    register int64_t __a0 asm("$4") = (long)a1;                                \
+    register int64_t __a1 asm("$5") = (long)a2;                                \
+    register int64_t __a2 asm("$6") = (long)a3;                                \
+    register int64_t __a3 asm("$7") = (long)a4;                                \
                                                                                \
     asm volatile(__SYSCALL_ASM                                                 \
                  : "=r"(__v0), "+r"(__a3)                                      \
                  : "IK"(nr), "r"(__a0), "r"(__a1), "r"(__a2)                   \
                  : __SYSCALL_CLOBBERS);                                        \
                                                                                \
-    long res = __v0;                                                           \
+    int64_t res = __v0;                                                        \
     {                                                                          \
-      long _sc_err = __a3;                                                     \
+      int64_t _sc_err = __a3;                                                  \
       if (_sc_err)                                                             \
         res = -res;                                                            \
     }                                                                          \
@@ -167,25 +167,25 @@ typedef unsigned long cap_user_header_t; /* XXX */
   }
 
 #define ___SYSCALL5(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5)            \
-  static JOVE_SYS_ATTR long _jove_sys_##nm(t1 a1, t2 a2, t3 a3, t4 a4,         \
-                                           t5 a5) {                            \
-    register long __s0 asm("$16") __attribute__((unused)) = (0);               \
+  static JOVE_SYS_ATTR int64_t _jove_sys_##nm(t1 a1, t2 a2, t3 a3, t4 a4,      \
+                                              t5 a5) {                         \
+    register uint64_t __s0 asm("$16") __attribute__((unused)) = (0);           \
                                                                                \
-    register long __v0 asm("$2");                                              \
-    register long __a0 asm("$4") = (long)a1;                                   \
-    register long __a1 asm("$5") = (long)a2;                                   \
-    register long __a2 asm("$6") = (long)a3;                                   \
-    register long __a3 asm("$7") = (long)a4;                                   \
-    register long __a4 asm("$8") = (long)a5;                                   \
+    register int64_t __v0 asm("$2");                                           \
+    register int64_t __a0 asm("$4") = (long)a1;                                \
+    register int64_t __a1 asm("$5") = (long)a2;                                \
+    register int64_t __a2 asm("$6") = (long)a3;                                \
+    register int64_t __a3 asm("$7") = (long)a4;                                \
+    register int64_t __a4 asm("$8") = (long)a5;                                \
                                                                                \
     asm volatile(__SYSCALL_ASM                                                 \
                  : "=r"(__v0), "+r"(__a3)                                      \
                  : "IK"(nr), "r"(__a0), "r"(__a1), "r"(__a2), "r"(__a4)        \
                  : __SYSCALL_CLOBBERS);                                        \
                                                                                \
-    long res = __v0;                                                           \
+    int64_t res = __v0;                                                        \
     {                                                                          \
-      long _sc_err = __a3;                                                     \
+      int64_t _sc_err = __a3;                                                  \
       if (_sc_err)                                                             \
         res = -res;                                                            \
     }                                                                          \
@@ -194,17 +194,17 @@ typedef unsigned long cap_user_header_t; /* XXX */
   }
 
 #define ___SYSCALL6(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5, t6, a6)    \
-  static JOVE_SYS_ATTR long _jove_sys_##nm(t1 a1, t2 a2, t3 a3, t4 a4, t5 a5,  \
-                                           t6 a6) {                            \
-    register long __s0 asm("$16") __attribute__((unused)) = (0);               \
+  static JOVE_SYS_ATTR int64_t _jove_sys_##nm(t1 a1, t2 a2, t3 a3, t4 a4,      \
+                                              t5 a5, t6 a6) {                  \
+    register uint64_t __s0 asm("$16") __attribute__((unused)) = (0);           \
                                                                                \
-    register long __v0 asm("$2");                                              \
-    register long __a0 asm("$4") = (long)a1;                                   \
-    register long __a1 asm("$5") = (long)a2;                                   \
-    register long __a2 asm("$6") = (long)a3;                                   \
-    register long __a3 asm("$7") = (long)a4;                                   \
-    register long __a4 asm("$8") = (long)a5;                                   \
-    register long __a5 asm("$9") = (long)a6;                                   \
+    register int64_t __v0 asm("$2");                                           \
+    register int64_t __a0 asm("$4") = (long)a1;                                \
+    register int64_t __a1 asm("$5") = (long)a2;                                \
+    register int64_t __a2 asm("$6") = (long)a3;                                \
+    register int64_t __a3 asm("$7") = (long)a4;                                \
+    register int64_t __a4 asm("$8") = (long)a5;                                \
+    register int64_t __a5 asm("$9") = (long)a6;                                \
                                                                                \
     asm volatile(__SYSCALL_ASM                                                 \
                  : "=r"(__v0), "+r"(__a3)                                      \
@@ -212,9 +212,9 @@ typedef unsigned long cap_user_header_t; /* XXX */
                    "r"(__a5)                                                   \
                  : __SYSCALL_CLOBBERS);                                        \
                                                                                \
-    long res = __v0;                                                           \
+    int64_t res = __v0;                                                        \
     {                                                                          \
-      long _sc_err = __a3;                                                     \
+      int64_t _sc_err = __a3;                                                  \
       if (_sc_err)                                                             \
         res = -res;                                                            \
     }                                                                          \
