@@ -33,7 +33,7 @@ class ScoreTool : public JVTool {
 public:
   ScoreTool() : opts(JoveCategory) {}
 
-  int Run(void);
+  int Run(void) override;
 };
 
 JOVE_REGISTER_TOOL("score", ScoreTool);

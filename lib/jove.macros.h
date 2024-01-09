@@ -1,4 +1,5 @@
 #pragma once
+#include <asm-generic/errno-base.h>
 
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 #define _IOV_ENTRY(var) {.iov_base = &var, .iov_len = sizeof(var)}
@@ -49,7 +50,10 @@
         "JOVE UNREACHABLE: \"" __VA_ARGS__ "\" "                               \
         "(" _STRINGIZE(__FILE__) ":" _STRINGIZE(__LINE__) ")\n";               \
                                                                                \
-    _jove_sys_write(2 /* stderr */, (unsigned long)&__msg[0], sizeof(__msg));  \
+    long __rc;                                                                 \
+    do {                                                                       \
+      __rc = _jove_sys_write(2 /* stderr */, &__msg[0], sizeof(__msg));        \
+    } while (__rc == -EINTR);                                                  \
                                                                                \
     _jove_sys_exit_group(1);                                                   \
     __builtin_unreachable();                                                   \

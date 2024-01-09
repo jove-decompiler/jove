@@ -26,10 +26,11 @@
 
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
-#include <llvm/MC/MCInst.h>
-#include <llvm/MC/MCInstrInfo.h>
-#include <llvm/MC/MCInstPrinter.h>
 #include <llvm/MC/MCDisassembler/MCDisassembler.h>
+#include <llvm/MC/MCInst.h>
+#include <llvm/MC/MCInstPrinter.h>
+#include <llvm/MC/MCInstrInfo.h>
+#include <llvm/MC/TargetRegistry.h>
 #include <llvm/Support/DataTypes.h>
 #include <llvm/Support/Debug.h>
 #include <llvm/Support/Error.h>
@@ -37,7 +38,6 @@
 #include <llvm/Support/FormatVariadic.h>
 #include <llvm/Support/FormatVariadic.h>
 #include <llvm/Support/ScopedPrinter.h>
-#include <llvm/Support/TargetRegistry.h>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/WithColor.h>
 
@@ -343,7 +343,7 @@ public:
           std::bind(&BootstrapTool::on_new_basic_block, this,
                     std::placeholders::_1, std::placeholders::_2)) {}
 
-  int Run(void);
+  int Run(void) override;
 
   int ChildProc(int fd);
   int TracerLoop(pid_t child, tiny_code_generator_t &tcg);
@@ -475,9 +475,6 @@ int BootstrapTool::Run(void) {
     }
   }
 
-  llvm::Triple TheTriple;
-  llvm::SubtargetFeatures Features;
-
   //
   // initialize state associated with every binary
   //
@@ -509,27 +506,23 @@ int BootstrapTool::Run(void) {
       return;
     }
 
-    ELFO &O = *llvm::cast<ELFO>(x.ObjectFile.get());
-    const ELFF &Elf = *O.getELFFile();
+    ELFO &Obj = *llvm::cast<ELFO>(x.ObjectFile.get());
 
-    loadDynamicTable(&Elf, &O, x._elf.DynamicTable);
+    loadDynamicTable(Obj, x._elf.DynamicTable);
 
     x._elf.OptionalDynSymRegion =
-        loadDynamicSymbols(&Elf, &O,
+        loadDynamicSymbols(Obj,
                            x._elf.DynamicTable,
                            x._elf.DynamicStringTable,
                            x._elf.SymbolVersionSection,
                            x._elf.VersionMap);
 
-    loadDynamicRelocations(&Elf, &O,
+    loadDynamicRelocations(Obj,
                            x._elf.DynamicTable,
                            x._elf.DynRelRegion,
                            x._elf.DynRelaRegion,
                            x._elf.DynRelrRegion,
                            x._elf.DynPLTRelRegion);
-
-    TheTriple = O.makeTriple();
-    Features = O.getFeatures();
   });
 
   BinFoundVec.resize(jv.Binaries.size());
@@ -1420,7 +1413,7 @@ void BootstrapTool::on_new_basic_block(binary_t &b, basic_block_t bb) {
 #endif
 
     assert(state.for_binary(b).ObjectFile.get());
-    const ELFF &Elf = *llvm::cast<ELFO>(state.for_binary(b).ObjectFile.get())->getELFFile();
+    const ELFF &Elf = llvm::cast<ELFO>(state.for_binary(b).ObjectFile.get())->getELFFile();
 
     llvm::Expected<const uint8_t *> ExpectedPtr = Elf.toMappedAddr(bbprop.Term.Addr);
     if (!ExpectedPtr)
@@ -1478,7 +1471,7 @@ void BootstrapTool::on_new_basic_block(binary_t &b, basic_block_t bb) {
 #endif
 
     assert(state.for_binary(b).ObjectFile.get());
-    const ELFF &Elf = *llvm::cast<ELFO>(state.for_binary(b).ObjectFile.get())->getELFFile();
+    const ELFF &Elf = llvm::cast<ELFO>(state.for_binary(b).ObjectFile.get())->getELFFile();
 
     llvm::Expected<const uint8_t *> ExpectedPtr = Elf.toMappedAddr(bbprop.Term.Addr);
     if (!ExpectedPtr)
@@ -1672,7 +1665,6 @@ void BootstrapTool::place_breakpoint_at_indirect_branch(pid_t child,
 
   if (!is_opcode_handled(Inst.getOpcode())) {
     binary_t &Binary = jv.Binaries[indbr.BIdx];
-    const auto &ICFG = Binary.Analysis.ICFG;
     throw std::runtime_error(
       (fmt("could not place breakpoint @ %#lx\n"
            "%s BB %#lx\n"
@@ -2985,8 +2977,8 @@ void BootstrapTool::harvest_irelative_reloc_targets(pid_t child,
 
     assert(Bin.get());
     assert(llvm::isa<ELFO>(Bin.get()));
-    ELFO &O = *llvm::cast<ELFO>(Bin.get());
-    const ELFF &Elf = *O.getELFFile();
+    ELFO &Obj = *llvm::cast<ELFO>(Bin.get());
+    const ELFF &Elf = Obj.getELFFile();
 
     for_each_dynamic_relocation(Elf,
                                 state.for_binary(b)._elf.DynRelRegion,
@@ -3011,15 +3003,15 @@ void BootstrapTool::harvest_addressof_reloc_targets(pid_t child,
 
     assert(Bin.get());
     assert(llvm::isa<ELFO>(Bin.get()));
-    ELFO &O = *llvm::cast<ELFO>(Bin.get());
-    const ELFF &Elf = *O.getELFFile();
+    ELFO &Obj = *llvm::cast<ELFO>(Bin.get());
+    const ELFF &Elf = Obj.getELFFile();
 
     auto dynamic_symbols = [&](void) -> Elf_Sym_Range {
       return state.for_binary(b)._elf.OptionalDynSymRegion->getAsArrayRef<Elf_Sym>();
     };
 
-    RelSymbol RelSym =
-        getSymbolForReloc(O, dynamic_symbols(), state.for_binary(b)._elf.DynamicStringTable, R);
+    RelSymbol RelSym = getSymbolForReloc(
+        Obj, dynamic_symbols(), state.for_binary(b)._elf.DynamicStringTable, R);
 
     if (const Elf_Sym *Sym = RelSym.Sym) {
       if (Sym->getType() != llvm::ELF::STT_FUNC)
@@ -3092,8 +3084,8 @@ void BootstrapTool::harvest_addressof_reloc_targets(pid_t child,
 
     assert(Bin.get());
     assert(llvm::isa<ELFO>(Bin.get()));
-    ELFO &O = *llvm::cast<ELFO>(Bin.get());
-    const ELFF &Elf = *O.getELFFile();
+    ELFO &Obj = *llvm::cast<ELFO>(Bin.get());
+    const ELFF &Elf = Obj.getELFFile();
 
     for_each_dynamic_relocation(Elf,
                                 state.for_binary(b)._elf.DynRelRegion,
@@ -3122,8 +3114,8 @@ void BootstrapTool::harvest_ctor_and_dtors(pid_t child,
 
     assert(ObjectFile.get());
     assert(llvm::isa<ELFO>(ObjectFile.get()));
-    ELFO &O = *llvm::cast<ELFO>(ObjectFile.get());
-    const ELFF &Elf = *O.getELFFile();
+    ELFO &Obj = *llvm::cast<ELFO>(ObjectFile.get());
+    const ELFF &Elf = Obj.getELFFile();
 
     llvm::Expected<Elf_Shdr_Range> ExpectedSections = Elf.sections();
 
@@ -3489,7 +3481,7 @@ void BootstrapTool::on_binary_loaded(pid_t child,
 #endif
 
     assert(ObjectFile.get());
-    const ELFF &Elf = *llvm::cast<ELFO>(ObjectFile.get())->getELFFile();
+    const ELFF &Elf = llvm::cast<ELFO>(ObjectFile.get())->getELFFile();
 
     llvm::Expected<const uint8_t *> ExpectedPtr = Elf.toMappedAddr(bbprop.Term.Addr);
     if (!ExpectedPtr)
@@ -3558,7 +3550,7 @@ void BootstrapTool::on_binary_loaded(pid_t child,
 #endif
 
     assert(ObjectFile.get());
-    const ELFF &Elf = *llvm::cast<ELFO>(ObjectFile.get())->getELFFile();
+    const ELFF &Elf = llvm::cast<ELFO>(ObjectFile.get())->getELFFile();
 
     llvm::Expected<const uint8_t *> ExpectedPtr = Elf.toMappedAddr(bbprop.Term.Addr);
     if (!ExpectedPtr)
@@ -4087,19 +4079,18 @@ void BootstrapTool::add_binary(pid_t child, tiny_code_generator_t &tcg,
 
   assert(llvm::isa<ELFO>(state.for_binary(binary).ObjectFile.get()));
 
-  ELFO &O = *llvm::cast<ELFO>(state.for_binary(binary).ObjectFile.get());
-  const ELFF &Elf = *O.getELFFile();
+  ELFO &Obj = *llvm::cast<ELFO>(state.for_binary(binary).ObjectFile.get());
 
-  loadDynamicTable(&Elf, &O, state.for_binary(binary)._elf.DynamicTable);
+  loadDynamicTable(Obj, state.for_binary(binary)._elf.DynamicTable);
 
   state.for_binary(binary)._elf.OptionalDynSymRegion =
-      loadDynamicSymbols(&Elf, &O,
+      loadDynamicSymbols(Obj,
                          state.for_binary(binary)._elf.DynamicTable,
                          state.for_binary(binary)._elf.DynamicStringTable,
                          state.for_binary(binary)._elf.SymbolVersionSection,
                          state.for_binary(binary)._elf.VersionMap);
 
-  loadDynamicRelocations(&Elf, &O,
+  loadDynamicRelocations(Obj,
                          state.for_binary(binary)._elf.DynamicTable,
                          state.for_binary(binary)._elf.DynRelRegion,
                          state.for_binary(binary)._elf.DynRelaRegion,

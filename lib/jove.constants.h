@@ -10,6 +10,8 @@
 
 #define JOVE_PROC_MAPS_BUF_LEN (4096 * 32)
 
+#define MAX_PATH 32768
+
 //
 // DFSan
 //
@@ -23,4 +25,4 @@ struct shadow_t {
   uint16_t *X[JOVE_SHADOW_NUM_REGIONS];
 };
 
-#define JOVE_FUNCTION_MAP_HASH_BITS 22
+#define JOVE_FUNCTION_MAP_HASH_BITS 18

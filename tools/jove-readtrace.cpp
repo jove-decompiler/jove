@@ -27,7 +27,7 @@ class ReadTraceTool : public Tool {
 public:
   ReadTraceTool() : opts(JoveCategory) {}
 
-  int Run(void);
+  int Run(void) override;
 };
 
 JOVE_REGISTER_TOOL("readtrace", ReadTraceTool);

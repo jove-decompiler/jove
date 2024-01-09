@@ -69,8 +69,8 @@ constexpr int tcg_r13_index = 20;
 constexpr int tcg_r14_index = 21;
 constexpr int tcg_r15_index = 22;
 typedef std::bitset<tcg_num_globals> tcg_global_set_t;
-constexpr tcg_global_set_t NotArgs(137430564927);
-constexpr tcg_global_set_t NotRets(137430564927);
+constexpr tcg_global_set_t NotArgs(137430564991);
+constexpr tcg_global_set_t NotRets(137430564991);
 constexpr tcg_global_set_t CallConvArgs(123648);
 typedef std::array<unsigned, 6> CallConvArgArrayTy;
 static const CallConvArgArrayTy CallConvArgArray{14, 13, 9, 8, 15, 16};
@@ -78,8 +78,8 @@ constexpr tcg_global_set_t CallConvRets(640);
 typedef std::array<unsigned, 2> CallConvRetArrayTy;
 static const CallConvRetArrayTy CallConvRetArray{7, 9};
 constexpr tcg_global_set_t CalleeSavedRegs(7869440);
-static const uint8_t tcg_global_by_offset_lookup_table[569] = {
-[0 ... 568] = 0xff,
+static const uint8_t tcg_global_by_offset_lookup_table[585] = {
+[0 ... 584] = 0xff,
 [168] = 2,
 [144] = 3,
 [152] = 4,
@@ -107,14 +107,14 @@ static const uint8_t tcg_global_by_offset_lookup_table[569] = {
 [264] = 26,
 [288] = 27,
 [312] = 28,
-[512] = 29,
-[520] = 30,
-[528] = 31,
-[536] = 32,
-[544] = 33,
-[552] = 34,
-[560] = 35,
-[568] = 36,
+[528] = 29,
+[536] = 30,
+[544] = 31,
+[552] = 32,
+[560] = 33,
+[568] = 34,
+[576] = 35,
+[584] = 36,
 };
 constexpr tcg_global_set_t PinnedEnvGlbs(0);
 }

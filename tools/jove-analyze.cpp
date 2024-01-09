@@ -62,7 +62,7 @@ class AnalyzeTool : public TransformerTool_BinFn<binary_state_t, function_state_
 public:
   AnalyzeTool() : opts(JoveCategory) {}
 
-  int Run(void);
+  int Run(void) override;
 };
 
 JOVE_REGISTER_TOOL("analyze", AnalyzeTool);

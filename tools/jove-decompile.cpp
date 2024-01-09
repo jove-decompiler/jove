@@ -9,6 +9,8 @@
 #include <llvm/Support/FileSystem.h>
 #include <llvm/Support/FormatVariadic.h>
 #include <llvm/Support/WithColor.h>
+#include <llvm/IR/Module.h>
+#include <llvm/IR/Function.h>
 
 #include <algorithm>
 #include <boost/filesystem.hpp>
@@ -97,7 +99,7 @@ class DecompileTool : public TransformerTool_Bin<binary_state_t> {
 public:
   DecompileTool() : opts(JoveCategory) {}
 
-  int Run(void);
+  int Run(void) override;
 
   void Worker(void);
 

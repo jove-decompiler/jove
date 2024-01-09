@@ -176,7 +176,7 @@ found_tool:
   //
   // select tool
   //
-  llvm::cl::HideUnrelatedOptions({&tool->JoveCategory, &llvm::ColorCategory});
+  llvm::cl::HideUnrelatedOptions({&tool->JoveCategory, &llvm::getColorCategory()});
   llvm::cl::AddExtraVersionPrinter([](llvm::raw_ostream &OS) -> void {
     OS << "jove version " JOVE_VERSION "\n";
   });
@@ -221,8 +221,7 @@ Tool::~Tool() {
 
 void Tool::HumanOutToFile(const std::string &path) {
   std::error_code EC;
-  HumanOutputFileStream.reset(
-      new llvm::raw_fd_ostream(path, EC, llvm::sys::fs::OF_Text));
+  HumanOutputFileStream.reset(new llvm::raw_fd_ostream(path, EC));
 
   if (EC)
     throw std::runtime_error("HumanOutToFile: failed to open \"" + path + "\"");

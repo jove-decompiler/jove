@@ -26,8 +26,8 @@ pid_t RunExecutable(const std::string &exe_path,
   list<string> arg_str_list;
   list<string> env_str_list;
 
-  compute_args([&](const string &s) { arg_str_list.emplace_back(move(s)); });
-  compute_envs([&](const string &s) { env_str_list.emplace_back(move(s)); });
+  compute_args([&](const string &s) { arg_str_list.emplace_back(s); });
+  compute_envs([&](const string &s) { env_str_list.emplace_back(s); });
 
   vector<const char *> arg_vec;
   vector<const char *> env_vec;

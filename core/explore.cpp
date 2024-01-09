@@ -14,12 +14,14 @@
 
 #include <stdexcept>
 
+namespace obj = llvm::object;
+
 namespace jove {
 
 typedef boost::format fmt;
 
 function_index_t explorer_t::_explore_function(binary_t &b,
-                                               llvm::object::Binary &B,
+                                               obj::Binary &B,
                                                const uint64_t Addr,
                                                fnmap_t &fnmap,
                                                bbmap_t &bbmap,
@@ -58,7 +60,7 @@ function_index_t explorer_t::_explore_function(binary_t &b,
 }
 
 basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
-                                                     llvm::object::Binary &B,
+                                                     obj::Binary &Bin,
                                                      const uint64_t Addr,
                                                      fnmap_t &fnmap,
                                                      bbmap_t &bbmap,
@@ -68,7 +70,8 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
 #endif
 
   auto &ICFG = b.Analysis.ICFG;
-  auto &ObjectFile = B;
+
+  assert(llvm::isa<ELFO>(&Bin));
 
   //
   // does this new basic block start in the middle of a previously-created
@@ -95,7 +98,7 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
       // occur, then we will assume the control-flow is invalid
       //
       {
-        const ELFF &E = *llvm::cast<ELFO>(&ObjectFile)->getELFFile();
+        const ELFF &Elf = llvm::cast<ELFO>(&Bin)->getELFFile();
 
         uint64_t InstLen = 0;
         for (uint64_t A = beg; A < beg + ICFG[bb].Size; A += InstLen) {
@@ -106,7 +109,7 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
           {
             llvm::raw_string_ostream ErrorStrStream(errmsg);
 
-            llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(A);
+            llvm::Expected<const uint8_t *> ExpectedPtr = Elf.toMappedAddr(A);
             if (!ExpectedPtr)
               throw std::runtime_error((fmt("%s: invalid address 0x%lx") % __func__ % A).str());
 
@@ -227,7 +230,7 @@ on_insn_boundary:
     }
   }
 
-  tcg.set_binary(ObjectFile);
+  tcg.set_binary(Bin);
 
   unsigned Size = 0;
   jove::terminator_info_t T;
@@ -263,11 +266,11 @@ on_insn_boundary:
     llvm::WithColor::error()
         << (boost::format("%s: unknown terminator @ %#lx\n") % __func__ % Addr).str();
 
-    const ELFF &E = *llvm::cast<ELFO>(&ObjectFile)->getELFFile();
+    const ELFF &Elf = llvm::cast<ELFO>(&Bin)->getELFFile();
 
     uint64_t InstLen;
     for (uint64_t A = Addr; A < Addr + Size; A += InstLen) {
-      llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(A);
+      llvm::Expected<const uint8_t *> ExpectedPtr = Elf.toMappedAddr(A);
       if (!ExpectedPtr)
         throw std::runtime_error((fmt("%s: invalid address 0x%lx") % __func__ % A).str());
 
@@ -329,7 +332,7 @@ on_insn_boundary:
     Target &= ~1UL;
 #endif
 
-    _control_flow_to(b, B, fnmap, bbmap, bb, T.Addr ?: Addr, Target,
+    _control_flow_to(b, Bin, fnmap, bbmap, bb, T.Addr ?: Addr, Target,
                      calls_to_process);
   };
 
@@ -352,7 +355,7 @@ on_insn_boundary:
     CalleeAddr &= ~1UL;
 #endif
 
-    function_index_t CalleeFIdx = _explore_function(b, B, CalleeAddr,
+    function_index_t CalleeFIdx = _explore_function(b, Bin, CalleeAddr,
                                                     fnmap,
                                                     bbmap,
                                                     calls_to_process);
@@ -405,7 +408,7 @@ on_insn_boundary:
 }
 
 void explorer_t::_control_flow_to(binary_t &b,
-                                  llvm::object::Binary &B,
+                                  obj::Binary &Bin,
                                   fnmap_t &fnmap,
                                   bbmap_t &bbmap,
                                   basic_block_t bb,
@@ -422,7 +425,7 @@ void explorer_t::_control_flow_to(binary_t &b,
                                   taddr2str(Target, false));
 
   basic_block_index_t SuccBBIdx =
-      _explore_basic_block(b, B, Target, fnmap, bbmap, calls_to_process);
+      _explore_basic_block(b, Bin, Target, fnmap, bbmap, calls_to_process);
 
   if (!is_basic_block_index_valid(SuccBBIdx)) {
     llvm::WithColor::warning() << llvm::formatv(
@@ -440,7 +443,7 @@ void explorer_t::_control_flow_to(binary_t &b,
 
 
 void explorer_t::_explore_the_rest(binary_t &b,
-                                   llvm::object::Binary & B,
+                                   obj::Binary & B,
                                    fnmap_t &fnmap,
                                    bbmap_t &bbmap,
                                    std::vector<uint64_t> &calls_to_process) {
@@ -475,7 +478,7 @@ void explorer_t::_explore_the_rest(binary_t &b,
 }
 
 basic_block_index_t explorer_t::explore_basic_block(binary_t &b,
-                                                    llvm::object::Binary &B,
+                                                    obj::Binary &B,
                                                     const uint64_t Addr,
                                                     fnmap_t &fnmap,
                                                     bbmap_t &bbmap) {
@@ -490,7 +493,7 @@ basic_block_index_t explorer_t::explore_basic_block(binary_t &b,
 }
 
 function_index_t explorer_t::explore_function(binary_t &b,
-                                              llvm::object::Binary &B,
+                                              obj::Binary &B,
                                               const uint64_t Addr,
                                               fnmap_t &fnmap,
                                               bbmap_t &bbmap) {

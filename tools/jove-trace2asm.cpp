@@ -56,7 +56,7 @@ class Trace2AsmTool : public TransformerTool_Bin<binary_state_t> {
 public:
   Trace2AsmTool() : opts(JoveCategory) {}
 
-  int Run(void);
+  int Run(void) override;
 };
 
 JOVE_REGISTER_TOOL("trace2asm", Trace2AsmTool);
@@ -136,7 +136,7 @@ int Trace2AsmTool::Run(void) {
     auto &ICFG = binary.Analysis.ICFG;
     basic_block_t bb = boost::vertex(BBIdx, ICFG);
 
-    const ELFF &E = *llvm::cast<ELFO>(state.for_binary(binary).ObjectFile.get())->getELFFile();
+    const ELFF &Elf = llvm::cast<ELFO>(state.for_binary(binary).ObjectFile.get())->getELFFile();
 
     uint64_t Addr = ICFG[bb].Addr;
     unsigned Size = ICFG[bb].Size;
@@ -153,7 +153,7 @@ int Trace2AsmTool::Run(void) {
 
     uint64_t InstLen = 0;
     for (uintptr_t A = Addr; A < End; A += InstLen) {
-      llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(A);
+      llvm::Expected<const uint8_t *> ExpectedPtr = Elf.toMappedAddr(A);
       if (!ExpectedPtr)
         abort();
 

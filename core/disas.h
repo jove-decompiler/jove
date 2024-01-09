@@ -24,7 +24,7 @@ struct disas_t {
   disas_t();
   ~disas_t();
 
-  const llvm::Target *TheTarget;
+  const llvm::Target *TheTarget = nullptr;
   std::unique_ptr<const llvm::MCRegisterInfo> MRI;
   std::unique_ptr<const llvm::MCAsmInfo> AsmInfo;
   std::unique_ptr<const llvm::MCSubtargetInfo> STI;

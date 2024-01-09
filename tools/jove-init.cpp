@@ -58,7 +58,7 @@ class InitTool : public JVTool {
 public:
   InitTool() : opts(JoveCategory) {}
 
-  int Run(void);
+  int Run(void) override;
 };
 
 JOVE_REGISTER_TOOL("init", InitTool);
@@ -661,20 +661,19 @@ std::string program_interpreter_of_executable(const char *exepath) {
 
   auto BinPair = CreateBinaryFromFile(exepath);
 
-  obj::Binary *B = BinPair.getBinary();
-  if (!llvm::isa<ELFO>(B)) {
+  obj::Binary *Bin = BinPair.getBinary();
+  if (!llvm::isa<ELFO>(Bin)) {
     WithColor::error() << llvm::formatv("{0}: invalid binary\n", __func__);
     return res;
   }
 
-  const ELFO &O = *llvm::cast<ELFO>(B);
-  const ELFF &E = *O.getELFFile();
+  const ELFF &Elf = llvm::cast<ELFO>(Bin)->getELFFile();
 
-  auto ExpectedHeaders = E.program_headers();
+  auto ExpectedHeaders = Elf.program_headers();
   if (ExpectedHeaders) {
     for (const Elf_Phdr &Phdr : *ExpectedHeaders) {
       if (Phdr.p_type == llvm::ELF::PT_INTERP) {
-        res = std::string(reinterpret_cast<const char *>(E.base() + Phdr.p_offset));
+        res = std::string(reinterpret_cast<const char *>(Elf.base() + Phdr.p_offset));
         break;
       }
     }

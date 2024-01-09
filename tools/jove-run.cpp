@@ -10,7 +10,7 @@
 
 #include <llvm/Support/FormatVariadic.h>
 #include <llvm/MC/MCInstrInfo.h>
-#include <llvm/Support/TargetRegistry.h>
+#include <llvm/MC/TargetRegistry.h>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/WithColor.h>
 
@@ -161,7 +161,7 @@ struct RunTool : public JVTool {
 public:
   RunTool() : opts(JoveCategory) {}
 
-  int Run(void);
+  int Run(void) override;
 
   template <bool WillChroot>
   int DoRun(void);

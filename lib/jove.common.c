@@ -590,7 +590,7 @@ _NORET void _jove_fail1(uintptr_t a0, const char *reason) {
   maps[n] = '\0';
 
   {
-    char s[JOVE_PROC_MAPS_BUF_LEN];
+    char s[2 * JOVE_PROC_MAPS_BUF_LEN];
     s[0] = '\0';
 
     _strcat(s, "_jove_fail1: ");
@@ -603,7 +603,7 @@ _NORET void _jove_fail1(uintptr_t a0, const char *reason) {
       _strcat(s, buff);
     }
     {
-      char buff[65];
+      char buff[MAX_PATH];
       _description_of_address_for_maps(buff, a0, maps, n);
       _strcat(s, " <");
       _strcat(s, buff);
@@ -621,7 +621,7 @@ _NORET void _jove_fail1(uintptr_t a0, const char *reason) {
     _strcat(s, maps);
 
     //
-    // dump message for user
+    // show message to user
     //
     _jove_robust_write(2 /* stderr */, s, _strlen(s));
   }
@@ -645,7 +645,7 @@ _NORET void _jove_fail2(uintptr_t a0,
   maps[n] = '\0';
 
   {
-    char s[JOVE_PROC_MAPS_BUF_LEN];
+    char s[2 * JOVE_PROC_MAPS_BUF_LEN];
     s[0] = '\0';
 
     _strcat(s, "_jove_fail2: 0x");
@@ -656,7 +656,7 @@ _NORET void _jove_fail2(uintptr_t a0,
       _strcat(s, buff);
     }
     {
-      char buff[65];
+      char buff[MAX_PATH];
       _description_of_address_for_maps(buff, a0, maps, n);
       _strcat(s, " <");
       _strcat(s, buff);
@@ -670,7 +670,7 @@ _NORET void _jove_fail2(uintptr_t a0,
       _strcat(s, buff);
     }
     {
-      char buff[65];
+      char buff[MAX_PATH];
       _description_of_address_for_maps(buff, a1, maps, n);
       _strcat(s, " <");
       _strcat(s, buff);
@@ -684,7 +684,7 @@ _NORET void _jove_fail2(uintptr_t a0,
       _strcat(s, buff);
     }
 
-    _strcat(s, "]\n");
+    _strcat(s, "]\n\n");
     _strcat(s, maps);
 
     //

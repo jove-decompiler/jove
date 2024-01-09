@@ -70,20 +70,21 @@ CreateBinaryFromFile(const char *path);
 /// the size, entity size and virtual address are different entries in arbitrary
 /// order (DT_REL, DT_RELSZ, DT_RELENT for example).
 struct DynRegionInfo {
-  DynRegionInfo() {}
-  DynRegionInfo(llvm::StringRef ObjName) : FileName(ObjName) {}
-  DynRegionInfo(const void *A, uint64_t S, uint64_t ES, llvm::StringRef ObjName)
-      : Addr(A), Size(S), EntSize(ES), FileName(ObjName) {}
+  DynRegionInfo() : Obj(nullptr) {}
+  DynRegionInfo(const ELFO &Owner) : Obj(&Owner) {}
+  DynRegionInfo(const ELFO &Owner, const uint8_t *A,
+                uint64_t S, uint64_t ES)
+      : Addr(A), Size(S), EntSize(ES), Obj(&Owner) {}
 
   /// Address in current address space.
-  const void *Addr = nullptr;
+  const uint8_t *Addr = nullptr;
   /// Size in bytes of the region.
   uint64_t Size = 0;
   /// Size of each entity in the region.
   uint64_t EntSize = 0;
 
-  /// Name of the file. Used for error reporting.
-  llvm::StringRef FileName;
+  /// Owner object. Used for error reporting.
+  const ELFO *Obj;
 
   template <typename Type> llvm::ArrayRef<Type> getAsArrayRef() const {
     const Type *Start = reinterpret_cast<const Type *>(Addr);
@@ -107,9 +108,7 @@ struct DynRegionInfo {
 
 std::optional<llvm::ArrayRef<uint8_t>> getBuildID(const ELFF &Obj);
 
-uintX_t loadDynamicTable(const ELFF *Obj,
-                         const ELFO *ObjF,
-                         DynRegionInfo &DynamicTable);
+uintX_t loadDynamicTable(const ELFO &, DynRegionInfo &DynamicTable);
 
 class VersionMapEntry : public llvm::PointerIntPair<const void *, 1> {
 public:
@@ -132,20 +131,18 @@ public:
   }
 };
 
-std::optional<DynRegionInfo> loadDynamicSymbols(const ELFF *Obj,
-                                                 const ELFO *ObjF,
-                                                 const DynRegionInfo &DynamicTable,
-                                                 llvm::StringRef &DynamicStringTable,
-                                                 const Elf_Shdr *&SymbolVersionSection,
-                                                 std::vector<VersionMapEntry> &VersionMap);
+std::optional<DynRegionInfo> loadDynamicSymbols(const ELFO &,
+                                                const DynRegionInfo &DynamicTable,
+                                                llvm::StringRef &DynamicStringTable,
+                                                const Elf_Shdr *&SymbolVersionSection,
+                                                std::vector<VersionMapEntry> &VersionMap);
 
 llvm::StringRef getSymbolVersionByIndex(std::vector<VersionMapEntry> &VersionMap,
                                         llvm::StringRef StrTab,
                                         uint32_t SymbolVersionIndex,
                                         bool &IsDefault);
 
-void loadDynamicRelocations(const ELFF *Obj,
-                            const ELFO *ObjF,
+void loadDynamicRelocations(const ELFO &,
                             const DynRegionInfo &DynamicTable,
                             DynRegionInfo &DynRelRegion,
                             DynRegionInfo &DynRelaRegion,
@@ -179,12 +176,12 @@ struct RelSymbol {
   bool IsVersionDefault;
 };
 
-RelSymbol getSymbolForReloc(ELFO &ObjF,
+RelSymbol getSymbolForReloc(const ELFO &,
                             Elf_Sym_Range dynamic_symbols,
                             llvm::StringRef DynamicStringTable,
                             const Relocation &Reloc);
 
-void for_each_dynamic_relocation(const ELFF &E,
+void for_each_dynamic_relocation(const ELFF &,
                                  DynRegionInfo &DynRelRegion,
                                  DynRegionInfo &DynRelaRegion,
                                  DynRegionInfo &DynRelrRegion,
@@ -192,14 +189,14 @@ void for_each_dynamic_relocation(const ELFF &E,
                                  std::function<void(const Relocation &)> proc);
 
 inline
-void for_each_dynamic_relocation_if(const ELFF &E,
+void for_each_dynamic_relocation_if(const ELFF &Elf,
                                     DynRegionInfo &DynRelRegion,
                                     DynRegionInfo &DynRelaRegion,
                                     DynRegionInfo &DynRelrRegion,
                                     DynRegionInfo &DynPLTRelRegion,
                                     std::function<bool(const Relocation &)> pred,
                                     std::function<void(const Relocation &)> proc) {
-  for_each_dynamic_relocation(E,
+  for_each_dynamic_relocation(Elf,
                               DynRelRegion,
                               DynRelaRegion,
                               DynRelrRegion,

@@ -1,7 +1,7 @@
 [submodule "llvm-project"]
 	path = llvm-project
 	url = https://github.com/jove-decompiler/llvm-project.git
-	branch = main
+	branch = jove16
 [submodule "carbon-copy"]
 	path = carbon-copy
 	url = https://github.com/aleden/carbon-copy.git

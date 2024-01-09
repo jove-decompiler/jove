@@ -71,8 +71,10 @@ _NAKED jove_thunk_return_t _jove_thunk6(uint64_t rdi,
                                         uint64_t dstpc,
                                         uint64_t *emuspp);
 
-_HIDDEN uintptr_t _jove_alloc_stack(void);
-_HIDDEN void _jove_free_stack(uintptr_t);
+static uintptr_t _jove_alloc_stack(void);
+static void _jove_free_stack(uintptr_t beg);
+static uintptr_t _jove_alloc_callstack(void);
+static void _jove_free_callstack(uintptr_t start);
 
 #include "jove.llvm.c"
 #include "jove.arch.c"
@@ -101,12 +103,12 @@ _NAKED _HIDDEN void _jove_init(uint64_t rdi,
 //
 // XXX hack for glibc 2.32+
 //
-_NAKED _HIDDEN void _jove__libc_early_init(uint64_t rdi,
-                                           uint64_t rsi,
-                                           uint64_t rdx,
-                                           uint64_t rcx,
-                                           uint64_t r8,
-                                           uint64_t r9);
+_NAKED void _jove__libc_early_init(uint64_t rdi,
+                                   uint64_t rsi,
+                                   uint64_t rdx,
+                                   uint64_t rcx,
+                                   uint64_t r8,
+                                   uint64_t r9);
 
 void _jove_start(void) {
   asm volatile(/* Clearing frame pointer is insufficient, use CFI.  */
@@ -432,4 +434,7 @@ extern void _jove_rt_init(void);
 
 _HIDDEN void _jove_do_call_rt_init(void) {
   _jove_rt_init();
+
+  _jove_do_manual_relocations();
+  _jove_do_emulate_copy_relocations();
 }

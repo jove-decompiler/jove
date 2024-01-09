@@ -11,7 +11,7 @@
 #include <llvm/Support/FileSystem.h>
 #include <llvm/Support/FormatVariadic.h>
 #include <llvm/Support/ScopedPrinter.h>
-#include <llvm/Support/TargetRegistry.h>
+#include <llvm/MC/TargetRegistry.h>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/WithColor.h>
 
@@ -66,7 +66,7 @@ class IDATool : public JVTool {
 public:
   IDATool() : opts(JoveCategory) {}
 
-  int Run(void);
+  int Run(void) override;
 };
 
 JOVE_REGISTER_TOOL("ida", IDATool);
@@ -161,8 +161,8 @@ int IDATool::Run(void) {
       return;
     }
 
-    ELFO &O = *llvm::cast<ELFO>(Bin.get());
-    const ELFF &Elf = *O.getELFFile();
+    ELFO &Obj = *llvm::cast<ELFO>(Bin.get());
+    const ELFF &Elf = Obj.getELFFile();
 
     bool DidWeHideSplitDebugInfoFromIDA = false;
 

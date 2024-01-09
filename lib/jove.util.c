@@ -415,7 +415,7 @@ static _INL _UNUSED char *_getenv(const char *name) {
 
     {
       const char *s1 = name;
-      const char *s2 = env;
+      char *s2 = env;
       for (;;) {
         char ch1 = *s1++;
         char ch2 = *s2++;
@@ -450,7 +450,7 @@ static _UNUSED ssize_t _jove_robust_write(int fd, void *const buf, const size_t 
   do {
     unsigned left = count - n;
 
-    ssize_t ret = _jove_sys_write(fd, &_buf[n], left);
+    ssize_t ret = _jove_sys_write(fd, (const void *)&_buf[n], left);
 
     if (ret == 0)
       return -EIO;

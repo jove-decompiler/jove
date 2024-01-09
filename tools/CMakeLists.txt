@@ -115,6 +115,7 @@ function(tool_for_arch arch arch_extra_cflags qemu_objs)
     boost_serialization
     glib-2.0
     atomic
+    z
   )
 
   target_include_directories(jove-${arch} PRIVATE

@@ -100,7 +100,7 @@ class CFGTool : public TransformerTool_Bin<binary_state_t> {
 public:
   CFGTool() : opts(JoveCategory) {}
 
-  int Run(void);
+  int Run(void) override;
 
   template <typename GraphTy>
   std::string disassemble_basic_block(const GraphTy &,
@@ -181,7 +181,7 @@ std::string CFGTool::disassemble_basic_block(const GraphTy &G,
 
   TCG.set_binary(*state.for_binary(binary).ObjectFile);
 
-  const ELFF &E = *llvm::cast<ELFO>(state.for_binary(binary).ObjectFile.get())->getELFFile();
+  const ELFF &Elf = llvm::cast<ELFO>(state.for_binary(binary).ObjectFile.get())->getELFFile();
 
   uint64_t End = G[V].Addr + G[V].Size;
 
@@ -196,7 +196,7 @@ std::string CFGTool::disassemble_basic_block(const GraphTy &G,
   for (uintptr_t A = G[V].Addr; A < End; A += InstLen) {
     llvm::MCInst Inst;
 
-    llvm::Expected<const uint8_t *> ExpectedContents = E.toMappedAddr(A);
+    llvm::Expected<const uint8_t *> ExpectedContents = Elf.toMappedAddr(A);
     if (!ExpectedContents)
       break;
 

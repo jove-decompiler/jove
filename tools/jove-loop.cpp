@@ -231,7 +231,7 @@ class LoopTool : public JVTool {
 public:
   LoopTool() : opts(JoveCategory) {}
 
-  int Run(void);
+  int Run(void) override;
 
   std::string soname_of_binary(binary_t &b);
 
@@ -1099,12 +1099,10 @@ std::string LoopTool::soname_of_binary(binary_t &b) {
     return "";
   }
 
-  ELFO &O = *llvm::cast<ELFO>(Bin.get());
+  const ELFO &Obj = *llvm::cast<ELFO>(Bin.get());
 
-  const ELFF &E = *O.getELFFile();
-
-  DynRegionInfo DynamicTable(O.getFileName());
-  loadDynamicTable(&E, &O, DynamicTable);
+  DynRegionInfo DynamicTable(Obj);
+  loadDynamicTable(Obj, DynamicTable);
 
   auto dynamic_table = [&](void) -> Elf_Dyn_Range {
     return DynamicTable.getAsArrayRef<Elf_Dyn>();
@@ -1117,7 +1115,7 @@ std::string LoopTool::soname_of_binary(binary_t &b) {
   const Elf_Shdr *SymbolVersionSection;
   std::vector<VersionMapEntry> VersionMap;
   std::optional<DynRegionInfo> OptionalDynSymRegion =
-      loadDynamicSymbols(&E, &O,
+      loadDynamicSymbols(Obj,
                          DynamicTable,
                          DynamicStringTable,
                          SymbolVersionSection,

@@ -116,7 +116,7 @@ class TraceTool : public TransformerTool_Bin<binary_state_t> {
 public:
   TraceTool() : opts(JoveCategory) {}
 
-  int Run(void);
+  int Run(void) override;
 
   void InitStateForBinaries(jv_t &);
 };
@@ -284,8 +284,8 @@ open_events:
 
       assert(state.for_binary(binary).ObjectFile.get() != nullptr);
       assert(llvm::isa<ELFO>(state.for_binary(binary).ObjectFile.get()));
-      ELFO &O = *llvm::cast<ELFO>(state.for_binary(binary).ObjectFile.get());
-      const ELFF &E = *O.getELFFile();
+      ELFO &Obj = *llvm::cast<ELFO>(state.for_binary(binary).ObjectFile.get());
+      const ELFF &Elf = Obj.getELFFile();
 
       const auto &ICFG = binary.Analysis.ICFG;
 
@@ -311,7 +311,7 @@ open_events:
           // instead of a virtual address, we need to provide an offset from the
           // start of the file.
           //
-          llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(ICFG[bb].Addr);
+          llvm::Expected<const uint8_t *> ExpectedPtr = Elf.toMappedAddr(ICFG[bb].Addr);
           if (!ExpectedPtr) {
             //WARN();
             continue;
@@ -319,7 +319,7 @@ open_events:
 
           const uint8_t *Ptr = *ExpectedPtr;
 
-          Off = (uintptr_t)Ptr - (uintptr_t)E.base();
+          Off = (uintptr_t)Ptr - (uintptr_t)Elf.base();
         }
 
         char buff[0x100];

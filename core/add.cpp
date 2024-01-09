@@ -156,7 +156,7 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
   if (!llvm::isa<ELFO>(state.for_binary(b).ObjectFile.get()))
     throw std::runtime_error("not ELF of expected type");
 
-  ELFO &O = *llvm::cast<ELFO>(state.for_binary(b).ObjectFile.get());
+  ELFO &Obj = *llvm::cast<ELFO>(state.for_binary(b).ObjectFile.get());
 
   b.IsDynamicLinker = false;
   b.IsExecutable = false;
@@ -165,9 +165,9 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
   b.IsPIC = true;
   b.IsDynamicallyLoaded = false;
 
-  const ELFF &Elf = *O.getELFFile();
+  const ELFF &Elf = Obj.getELFFile();
 
-  switch (Elf.getHeader()->e_type) {
+  switch (Elf.getHeader().e_type) {
   case llvm::ELF::ET_NONE:
     throw std::runtime_error("given binary has unknown type");
 
@@ -189,8 +189,8 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
     break;
   }
 
-  DynRegionInfo DynamicTable(O.getFileName());
-  loadDynamicTable(&Elf, &O, DynamicTable);
+  DynRegionInfo DynamicTable(Obj);
+  loadDynamicTable(Obj, DynamicTable);
 
   //assert(DynamicTable.Addr);
 
@@ -255,12 +255,12 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
     std::any_of(PrgHdrs.begin(),
                 PrgHdrs.end(),
                 [](const Elf_Phdr &Phdr) -> bool{ return Phdr.p_type == llvm::ELF::PT_INTERP; });
-  uint64_t EntryAddr = Elf.getHeader()->e_entry;
+  uint64_t EntryAddr = Elf.getHeader().e_entry;
   if (HasInterpreter && EntryAddr) {
     llvm::outs() << llvm::formatv("entry point @ {0:x}\n", EntryAddr);
 
     b.Analysis.EntryFunction =
-        E.explore_function(b, O, EntryAddr,
+        E.explore_function(b, Obj, EntryAddr,
                            state.for_binary(b).fnmap,
                            state.for_binary(b).bbmap);
   } else {
@@ -325,13 +325,13 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
 
       assert(llvm::isa<ELFO>(splitB));
 
-      ELFO &split_O = *llvm::cast<ELFO>(splitB);
-      const ELFF &split_E = *split_O.getELFFile();
+      ELFO &split_Obj = *llvm::cast<ELFO>(splitB);
+      const ELFF &split_Elf = split_Obj.getELFFile();
 
       //
       // examine local symbols (if they exist)
       //
-      llvm::Expected<Elf_Shdr_Range> ExpectedSections = split_E.sections();
+      llvm::Expected<Elf_Shdr_Range> ExpectedSections = split_Elf.sections();
       if (ExpectedSections && !(*ExpectedSections).empty()) {
         const Elf_Shdr *SymTab = nullptr;
 
@@ -343,7 +343,8 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
         }
 
         if (SymTab) {
-          llvm::Expected<Elf_Sym_Range> ExpectedLocalSyms = split_E.symbols(SymTab);
+          llvm::Expected<Elf_Sym_Range> ExpectedLocalSyms =
+              split_Elf.symbols(SymTab);
 
           if (ExpectedLocalSyms) {
             auto LocalSyms = *ExpectedLocalSyms;
@@ -374,7 +375,7 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
 
   if (DynamicTable.Addr)
     OptionalDynSymRegion =
-        loadDynamicSymbols(&Elf, &O,
+        loadDynamicSymbols(Obj,
                            DynamicTable,
                            DynamicStringTable,
                            SymbolVersionSection,
@@ -434,7 +435,7 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
 
             // Get the corresponding version index entry.
             llvm::Expected<const Elf_Versym *> ExpectedVersym =
-                Elf.getEntry<Elf_Versym>(SymbolVersionSection, EntryIndex);
+                Elf.getEntry<Elf_Versym>(*SymbolVersionSection, EntryIndex);
 
             bool IsDefault;
             if (ExpectedVersym)
@@ -483,13 +484,13 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
   //
   // examine relocations
   //
-  DynRegionInfo DynRelRegion(O.getFileName());
-  DynRegionInfo DynRelaRegion(O.getFileName());
-  DynRegionInfo DynRelrRegion(O.getFileName());
-  DynRegionInfo DynPLTRelRegion(O.getFileName());
+  DynRegionInfo DynRelRegion(Obj);
+  DynRegionInfo DynRelaRegion(Obj);
+  DynRegionInfo DynRelrRegion(Obj);
+  DynRegionInfo DynPLTRelRegion(Obj);
 
   if (DynamicTable.Addr)
-    loadDynamicRelocations(&Elf, &O,
+    loadDynamicRelocations(Obj,
                            DynamicTable,
                            DynRelRegion,
                            DynRelaRegion,
@@ -583,7 +584,7 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
     Entrypoint &= ~1UL;
 #endif
 
-    E.explore_basic_block(b, O, Entrypoint,
+    E.explore_basic_block(b, Obj, Entrypoint,
                           state.for_binary(b).fnmap,
                           state.for_binary(b).bbmap);
   }
@@ -593,7 +594,7 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
     Entrypoint &= ~1UL;
 #endif
 
-    function_index_t FIdx = E.explore_function(b, O, Entrypoint,
+    function_index_t FIdx = E.explore_function(b, Obj, Entrypoint,
                                                state.for_binary(b).fnmap,
                                                state.for_binary(b).bbmap);
 
@@ -898,7 +899,7 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
 
         uint64_t A = P->p_vaddr + idx;
 
-        basic_block_index_t BBIdx = E.explore_basic_block(b, O, A,
+        basic_block_index_t BBIdx = E.explore_basic_block(b, Obj, A,
                                                           state.for_binary(b).fnmap,
                                                           state.for_binary(b).bbmap);
         if (!is_basic_block_index_valid(BBIdx))
@@ -947,7 +948,7 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
 
         uint64_t A = P->p_vaddr + idx;
 
-        basic_block_index_t BBIdx = E.explore_basic_block(b, O, A,
+        basic_block_index_t BBIdx = E.explore_basic_block(b, Obj, A,
                                                           state.for_binary(b).fnmap,
                                                           state.for_binary(b).bbmap);
         if (!is_basic_block_index_valid(BBIdx))

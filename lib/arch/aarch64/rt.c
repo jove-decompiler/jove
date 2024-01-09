@@ -25,6 +25,9 @@ _HIDDEN void _jove_free_callstack(target_ulong);
 _HIDDEN void _jove_free_stack(target_ulong);
 _HIDDEN void _jove_free_stack_later(uintptr_t);
 
+static uintptr_t _jove_alloc_stack(void);
+static uintptr_t _jove_alloc_callstack(void);
+
 #include "rt.arch.c"
 #include "rt.util.c"
 #include "rt.common.c"

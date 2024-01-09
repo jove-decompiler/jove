@@ -10,7 +10,7 @@
 #include <llvm/MC/MCObjectFileInfo.h>
 #include <llvm/MC/MCRegisterInfo.h>
 #include <llvm/MC/MCSubtargetInfo.h>
-#include <llvm/Support/TargetRegistry.h>
+#include <llvm/MC/TargetRegistry.h>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Target/TargetMachine.h>
 #include <llvm/Target/TargetOptions.h>
@@ -86,18 +86,17 @@ disas_t::disas_t() {
   if (!MII)
     throw std::runtime_error("no instruction info");
 
-  MOFI = std::make_unique<llvm::MCObjectFileInfo>();
-  MCCtx = std::make_unique<llvm::MCContext>(AsmInfo.get(), MRI.get(), MOFI.get());
+  MCCtx = std::make_unique<llvm::MCContext>(llvm::Triple(TripleName), AsmInfo.get(), MRI.get(), STI.get());
 
-  // FIXME: for now initialize MCObjectFileInfo with default values
-  MOFI->InitMCObjectFileInfo(llvm::Triple(TripleName), false, *MCCtx);
+  MOFI.reset(TheTarget->createMCObjectFileInfo(*MCCtx, /*PIC=*/false));
+  MCCtx->setObjectFileInfo(MOFI.get());
 
   DisAsm.reset(TheTarget->createMCDisassembler(*STI, *MCCtx));
   if (!DisAsm)
     throw std::runtime_error("no disassembler for target");
 
   IP.reset(TheTarget->createMCInstPrinter(
-      TheTriple,
+      llvm::Triple(TripleName),
       BOOST_PP_IIF(BOOST_PP_OR(BOOST_VMD_IS_EMPTY(TARGET_X86_64),
                                BOOST_VMD_IS_EMPTY(TARGET_I386)),
                    1 /* Intel */, AsmInfo->getAssemblerDialect()),
@@ -108,9 +107,9 @@ disas_t::disas_t() {
 
   {
     llvm::TargetOptions Options;
-    TM.reset(TheTarget->createTargetMachine(TripleName, MCPU,
+    TM.reset(TheTarget->createTargetMachine(TheTriple.getTriple(), MCPU,
                                             Features.getString(), Options,
-                                            llvm::None));
+                                            std::optional<llvm::Reloc::Model>()));
   }
 }
 

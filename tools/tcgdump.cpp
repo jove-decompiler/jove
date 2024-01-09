@@ -11,7 +11,7 @@
 #include <llvm/MC/MCInstPrinter.h>
 #include <llvm/MC/MCInstrInfo.h>
 #include <llvm/Support/FormatVariadic.h>
-#include <llvm/Support/TargetRegistry.h>
+#include <llvm/MC/TargetRegistry.h>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/WithColor.h>
 
@@ -70,7 +70,7 @@ class TCGDumpTool : public TransformerTool_Bin<binary_state_t> {
 public:
   TCGDumpTool() : opts(JoveCategory) {}
 
-  int Run(void);
+  int Run(void) override;
 };
 
 JOVE_REGISTER_TOOL("tcgdump", TCGDumpTool);
@@ -103,19 +103,19 @@ int TCGDumpTool::Run(void) {
 
   auto BinPair = CreateBinaryFromFile(opts.Binary.c_str());
 
-  obj::Binary *B = BinPair.getBinary();
-  if (!llvm::isa<ELFO>(B)) {
+  obj::Binary *Bin = BinPair.getBinary();
+  if (!llvm::isa<ELFO>(Bin)) {
     HumanOut() << "invalid binary\n";
     return 1;
   }
 
-  tcg.set_binary(*B);
+  tcg.set_binary(*Bin);
 
-  const ELFO &O = *llvm::cast<ELFO>(B);
-  const ELFF &E = *O.getELFFile();
+  const ELFO &Obj = *llvm::cast<ELFO>(Bin);
+  const ELFF &Elf = Obj.getELFFile();
 
-  DynRegionInfo DynamicTable(O.getFileName());
-  loadDynamicTable(&E, &O, DynamicTable);
+  DynRegionInfo DynamicTable(Obj);
+  loadDynamicTable(Obj, DynamicTable);
 
   if (!DynamicTable.Addr) {
     HumanOut() << "no dynamic table for given binary\n";
@@ -126,7 +126,7 @@ int TCGDumpTool::Run(void) {
   const Elf_Shdr *SymbolVersionSection;
   std::vector<VersionMapEntry> VersionMap;
   std::optional<DynRegionInfo> OptionalDynSymRegion =
-      loadDynamicSymbols(&E, &O,
+      loadDynamicSymbols(Obj,
                          DynamicTable,
                          DynamicStringTable,
                          SymbolVersionSection,
@@ -154,7 +154,7 @@ int TCGDumpTool::Run(void) {
       //
       uint64_t InstLen;
       for (uint64_t _A = A; _A < A + BBSize; _A += InstLen) {
-        llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(_A);
+        llvm::Expected<const uint8_t *> ExpectedPtr = Elf.toMappedAddr(_A);
         if (!ExpectedPtr) {
           WithColor::error()
               << llvm::formatv("failed to get binary contents for {0:x}\n", A);

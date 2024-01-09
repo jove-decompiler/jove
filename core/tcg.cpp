@@ -254,7 +254,7 @@ void tiny_code_generator_t::print_shit(void) {
 
   auto print_not_sets = [&](void) -> void {
 #if defined(TARGET_X86_64)
-    const std::array<const char *, 20> not_arg_or_ret_regs{
+    const std::array<const char *, 21> not_arg_or_ret_regs{
       "_frame",
       "env",
       "es_base",
@@ -275,6 +275,7 @@ void tiny_code_generator_t::print_shit(void) {
       "cc_dst",
       "cc_src",
       "cc_src2",
+      "rip",
     };
 
     const auto &not_ret_regs = not_arg_or_ret_regs;
@@ -1210,8 +1211,7 @@ tiny_code_generator_t::~tiny_code_generator_t() {}
 
 void tiny_code_generator_t::set_binary(llvm::object::Binary &Bin) {
   assert(llvm::isa<ELFO>(&Bin));
-  const ELFF *E = llvm::cast<ELFO>(&Bin)->getELFFile();
-  ::jv_E = E;
+  ::jv_E = &llvm::cast<ELFO>(&Bin)->getELFFile();
 }
 
 void tiny_code_generator_t::dump_operations(void) {

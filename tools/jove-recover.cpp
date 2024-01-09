@@ -86,7 +86,7 @@ class RecoverTool : public JVTool {
 public:
   RecoverTool() : opts(JoveCategory) {}
 
-  int Run(void);
+  int Run(void) override;
 
   std::string DescribeFunction(binary_index_t, function_index_t);
   std::string DescribeBasicBlock(binary_index_t, basic_block_index_t);

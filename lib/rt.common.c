@@ -59,7 +59,7 @@ void _jove_rt_init(void) {
   struct kernel_sigaction sa;
   _memset(&sa, 0, sizeof(sa));
 
-  sa.k_sa_handler = _jove_rt_signal_handler;
+  sa.k_sa_handler = (void *)_jove_rt_signal_handler;
   sa.k_sa_flags = SA_SIGINFO | SA_ONSTACK | SA_NODEFER;
 
 #if defined(__x86_64__)
@@ -89,7 +89,7 @@ void _jove_rt_init(void) {
   {
     uintptr_t newstack = _jove_alloc_stack();
 
-    stack_t uss = {.ss_sp = newstack + JOVE_PAGE_SIZE,
+    stack_t uss = {.ss_sp = (void *)(newstack + JOVE_PAGE_SIZE),
                    .ss_flags = 0,
                    .ss_size = JOVE_STACK_SIZE - 2 * JOVE_PAGE_SIZE};
 
@@ -561,7 +561,7 @@ not_found:
     const unsigned maps_n = _jove_read_pseudo_file("/proc/self/maps", maps, sizeof(maps));
     maps[maps_n] = '\0';
 
-    char s[JOVE_PROC_MAPS_BUF_LEN];
+    char s[2 * JOVE_PROC_MAPS_BUF_LEN];
     s[0] = '\0';
 
     _strcat(s, "*** crash (jove) *** [");
@@ -574,26 +574,26 @@ not_found:
     _strcat(s, "]\n");
 
 #define _FIELD(name, init)                                                     \
-    do {                                                                         \
-      _strcat(s, name " 0x");                                                    \
-                                                                                 \
-      {                                                                          \
-        char _buff[65];                                                          \
-        _uint_to_string((uintptr_t)init, _buff, 0x10);                           \
-                                                                                 \
-        _strcat(s, _buff);                                                       \
-      }                                                                          \
-      {                                                                          \
-        char _buff[256];                                                         \
+    do {                                                                       \
+      _strcat(s, name " 0x");                                                  \
+                                                                               \
+      {                                                                        \
+        char _buff[65];                                                        \
+        _uint_to_string((uintptr_t)init, _buff, 0x10);                         \
+                                                                               \
+        _strcat(s, _buff);                                                     \
+      }                                                                        \
+      {                                                                        \
+        char _buff[MAX_PATH];                                                  \
         _description_of_address_for_maps(_buff, (uintptr_t)(init), maps, maps_n);\
-        if (_strlen(_buff) != 0) {                                               \
-          _strcat(s, " <");                                                      \
-          _strcat(s, _buff);                                                     \
-          _strcat(s, ">");                                                       \
-        }                                                                        \
-      }                                                                          \
-                                                                                 \
-      _strcat(s, "\n");                                                          \
+        if (_strlen(_buff) != 0) {                                             \
+          _strcat(s, " <");                                                    \
+          _strcat(s, _buff);                                                   \
+          _strcat(s, ">");                                                     \
+        }                                                                      \
+      }                                                                        \
+                                                                               \
+      _strcat(s, "\n");                                                        \
     } while (false)
 
     if (si)

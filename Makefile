@@ -37,14 +37,19 @@ all: helpers \
      $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/qemu-starter)
 
 .PHONY: helpers
-helpers: $(foreach t,$(ALL_TARGETS),$(foreach h,$($(t)_HELPERS),$(BINDIR)/$(t)/helpers/$(h).bc)) \
-         $(foreach t,$(ALL_TARGETS),$(foreach h,$($(t)_HELPERS),$(BINDIR)/$(t)/helpers/$(h).ll))
+helpers: $(foreach t,$(ALL_TARGETS),helpers-$(t))
 
 .PHONY: runtime
-runtime: $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/libjove_rt.so) \
-         $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/jove.bc)
+runtime: $(foreach t,$(ALL_TARGETS),runtime-$(t))
 
 define target_code_template
+.PHONY: helpers-$(1)
+helpers-$(1): $(foreach h,$($(t)_HELPERS),$(BINDIR)/$(1)/helpers/$(h).ll)
+
+.PHONY: runtime-$(1)
+runtime-$(1): $(BINDIR)/$(1)/libjove_rt.so \
+              $(BINDIR)/$(1)/jove.ll
+
 $(BINDIR)/$(1)/qemu-starter: lib/arch/$(1)/qemu-starter.c
 	@echo CC $$<
 	@clang-16 -o $$@ -Wall \
@@ -69,11 +74,13 @@ $(BINDIR)/$(1)/libjove_rt.so: lib/arch/$(1)/rt.c
 	@echo CC $$<
 	@$(LLVM_CC) -o $$@ -Wall \
 	                   -Werror-implicit-function-declaration \
+	                   -Wno-visibility \
 	                   -I lib -I lib/arch/$(1) -I $($(1)_SYSROOT)/include \
 	                   -nostdlib \
 	                   --sysroot $($(1)_SYSROOT) \
 	                   --target=$($(1)_TRIPLE) \
 	                   -Ofast -g \
+	                   -gdwarf-4 \
 	                   -std=gnu99 \
 	                   -D TARGET_$(call uc,$(1)) \
 	                   -D TARGET_ARCH_NAME=\"$(1)\" \
@@ -98,10 +105,14 @@ $(BINDIR)/$(1)/jove.bc: lib/arch/$(1)/jove.c
 	@echo CC $$<
 	@$(LLVM_CC) -o $$@ -Wall \
 	                   -Werror-implicit-function-declaration \
+	                   -Wno-visibility \
 	                   -I lib -I include -I boost-preprocessor/include \
 	                   --sysroot $($(1)_SYSROOT) \
 	                   --target=$($(1)_TRIPLE) \
-	                   -Ofast -g \
+	                   -Ofast \
+	                   -gline-tables-only \
+	                   -gdwarf-4 \
+	                   -fPIC \
 	                   -std=gnu99 \
 	                   -D TARGET_$(call uc,$(1)) \
 	                   -D TARGET_ARCH_NAME=\"$(1)\" \
@@ -114,6 +125,10 @@ $(BINDIR)/$(1)/jove.bc: lib/arch/$(1)/jove.c
 	                   -MMD \
 	                   -c -emit-llvm $$<
 
+$(BINDIR)/$(1)/jove.ll: $(BINDIR)/$(1)/jove.bc
+	@echo DIS $$<
+	@$(LLVM_OPT) -o $$@ -S --strip-debug $$<
+
 .PHONY: gen-tcgconstants-$(1)
 gen-tcgconstants-$(1): $(BINDIR)/$(1)/gen-tcgconstants
 	@echo GEN $@
@@ -125,19 +140,11 @@ $(foreach t,$(ALL_TARGETS),$(eval $(call target_code_template,$(t))))
 -include $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/jove.d)
 -include $(foreach t,$(ALL_TARGETS),$(foreach h,$($(t)_HELPERS),$(BINDIR)/$(t)/helpers/$(h).d))
 
-.PHONY: clean
-clean: clean-helpers
-	rm -f $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/libjove_rt.so) \
-	      $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/qemu-starter) \
-	      $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/*.bc) \
-	      $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/*.d)
-
 .PHONY: clean-helpers
-clean-helpers:
-	rm -f $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/helpers/*.c) \
-	      $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/helpers/*.bc) \
-	      $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/helpers/*.d) \
-	      $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/helpers/*.ll)
+clean-helpers: $(foreach t,$(ALL_TARGETS),clean-helpers-$(t))
+
+.PHONY: clean-bitcode
+clean-bitcode: $(foreach t,$(ALL_TARGETS),clean-bitcode-$(t))
 
 .PHONY: distclean
 distclean: clean
@@ -172,21 +179,25 @@ $(BINDIR)/$(1)/helpers/%.bc: $(BINDIR)/$(1)/helpers/%.c
 	                   -Wno-unused-function \
 	                   -Wno-unknown-attributes \
 	                   -Wno-atomic-alignment \
+	                   -Wno-visibility \
 	                   -I lib -I lib/arch/$(1) \
 	                   --sysroot $($(1)_SYSROOT) \
 	                   --target=$($(1)_TRIPLE) \
 	                   -O3 -g \
+	                   -gdwarf-4 \
 	                   -std=gnu99 \
 	                   -DNEED_CPU_H \
 	                   -DNDEBUG \
+	                   -fPIC \
 	                   -ffreestanding \
 	                   -fno-stack-protector \
 	                   -fno-strict-aliasing \
 	                   -fno-common \
 	                   -fwrapv \
+	                   -fno-plt \
 	                   -MMD \
 	                   -c -emit-llvm $$<
-	@$(LLVM_OPT) -o $$@.tmp $$@ -internalize -internalize-public-api-list=helper_$$*
+	@$(LLVM_OPT) -o $$@.tmp $$@ -passes=internalize --internalize-public-api-list=helper_$$*
 	@$(LLVM_OPT) -o $$@ -O3 $$@.tmp
 	@rm $$@.tmp
 
@@ -207,6 +218,13 @@ check-helpers-$(1): $(foreach h,$($(1)_HELPERS),check-helper-$(1)-$(h))
 .PHONY: clean-helpers-$(1)
 clean-helpers-$(1):
 	rm -f $(foreach h,$($(1)_HELPERS),$(BINDIR)/$(1)/helpers/$(h).c)
+
+.PHONY: clean-bitcode-$(1)
+clean-bitcode-$(1):
+	rm -f $(BINDIR)/$(1)/*.bc \
+	      $(BINDIR)/$(1)/*.ll \
+	      $(BINDIR)/$(1)/helpers/*.bc \
+	      $(BINDIR)/$(1)/helpers/*.ll
 endef
 $(foreach t,$(ALL_TARGETS),$(eval $(call target_template,$(t))))
 

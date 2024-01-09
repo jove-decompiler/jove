@@ -92,8 +92,10 @@ _NAKED jove_thunk_return_t _jove_thunk8(uint64_t x0,
                                         uint64_t dstpc,
                                         uint64_t *emuspp);
 
-_HIDDEN uintptr_t _jove_alloc_stack(void);
-_HIDDEN void _jove_free_stack(uintptr_t);
+static uintptr_t _jove_alloc_stack(void);
+static void _jove_free_stack(uintptr_t beg);
+static uintptr_t _jove_alloc_callstack(void);
+static void _jove_free_callstack(uintptr_t start);
 
 #include "jove.llvm.c"
 #include "jove.arch.c"

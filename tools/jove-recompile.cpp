@@ -154,7 +154,7 @@ class RecompileTool : public TransformerTool_Bin<binary_state_t> {
 public:
   RecompileTool() : opts(JoveCategory) {}
 
-  int Run(void);
+  int Run(void) override;
 
   void worker(const dso_graph_t &dso_graph);
 
@@ -427,11 +427,11 @@ int RecompileTool::Run(void) {
   //
   {
     fs::path chrooted_path =
-	fs::path(opts.Output.getValue()) / "usr" / "lib" / "libjove_rt.so";
+        fs::path(opts.Output.getValue()) / "usr" / "lib" / "libjove_rt.so";
 
     fs::create_directories(chrooted_path.parent_path());
     fs::copy_file(locator().runtime(), chrooted_path,
-		  fs::copy_options::overwrite_existing);
+                  fs::copy_options::overwrite_existing);
 
     //
     // /lib could just be a symlink to usr/lib, in which case we don't want
@@ -874,10 +874,13 @@ int RecompileTool::Run(void) {
         Arg("-shared");
       }
 
-#if 0
+#if 1
       Arg("-z");
       Arg("now");
 #endif
+
+      Arg("-z");
+      Arg("relro");
 
       // XXX assuming lld
       Arg("--allow-shlib-undefined");
@@ -1156,11 +1159,13 @@ void RecompileTool::worker(const dso_graph_t &dso_graph) {
         Arg("--relocation-model=static");
       }
 
+      Arg("--dwarf-version=4");
+      Arg("--debugger-tune=gdb");
+
 #if defined(TARGET_X86_64) || defined(TARGET_I386)
       //
       // FIXME... how is the stack getting unaligned??
       //
-      Arg("--stack-alignment=16");
       Arg("--stackrealign");
 #endif
     });

@@ -28,7 +28,7 @@ class Trace2AddrsTool : public JVTool {
 public:
   Trace2AddrsTool() : opts(JoveCategory) {}
 
-  int Run(void);
+  int Run(void) override;
 };
 
 JOVE_REGISTER_TOOL("trace2addrs", Trace2AddrsTool);

@@ -5,6 +5,8 @@
 #include <llvm/Support/WithColor.h>
 #include <llvm/Support/FormatVariadic.h>
 
+namespace obj = llvm::object;
+
 namespace jove {
 
 std::unique_ptr<llvm::object::Binary> CreateBinary(llvm::StringRef Data) {
@@ -64,53 +66,53 @@ std::optional<llvm::ArrayRef<uint8_t>> getBuildID(const ELFF &Obj) {
 }
 
 static std::pair<const typename ELFT::Phdr *, const typename ELFT::Shdr *>
-findDynamic(const ELFO *, const ELFF *);
+findDynamic(const ELFO &);
 
-static DynRegionInfo checkDRI(DynRegionInfo DRI, const ELFO *ObjF) {
-  const ELFF *Obj = ObjF->getELFFile();
-  if (DRI.Addr < Obj->base() ||
+static DynRegionInfo checkDRI(DynRegionInfo DRI) {
+  const ELFF &Elf = DRI.Obj->getELFFile();
+  if (DRI.Addr < Elf.base() ||
       reinterpret_cast<const uint8_t *>(DRI.Addr) + DRI.Size >
-          Obj->base() + Obj->getBufSize()) {
+          Elf.base() + Elf.getBufSize()) {
     llvm::WithColor::error() << llvm::formatv("{0}: check failed. bug?\n", __func__);
   }
   return DRI;
 }
 
-static DynRegionInfo createDRIFrom(const Elf_Phdr *P, uintX_t EntSize, const ELFO *ObjF) {
-  return checkDRI({ObjF->getELFFile()->base() + P->p_offset, P->p_filesz,
-                   EntSize, ObjF->getFileName()}, ObjF);
+static DynRegionInfo createDRIFrom(const Elf_Phdr *P, uintX_t EntSize,
+                                   const ELFO &Obj) {
+  return checkDRI(DynRegionInfo(Obj, Obj.getELFFile().base() + P->p_offset,
+                                P->p_filesz, EntSize));
 }
 
-static DynRegionInfo createDRIFrom(const Elf_Shdr *S, const ELFO *ObjF) {
-  return checkDRI({ObjF->getELFFile()->base() + S->sh_offset, S->sh_size,
-                   S->sh_entsize, ObjF->getFileName()}, ObjF);
+static DynRegionInfo createDRIFrom(const Elf_Shdr *S, const ELFO &Obj) {
+  return checkDRI(DynRegionInfo(Obj, Obj.getELFFile().base() + S->sh_offset,
+                                S->sh_size, S->sh_entsize));
 }
 
 static llvm::Expected<DynRegionInfo>
-createDRI(const ELFO *ObjF, uint64_t Offset, uint64_t Size, uint64_t EntSize) {
-  const ELFF *Obj = ObjF->getELFFile();
+createDRI(const ELFO &Obj, uint64_t Offset, uint64_t Size, uint64_t EntSize) {
+  const ELFF &Elf = Obj.getELFFile();
 
-  if (Offset + Size < Offset || Offset + Size > Obj->getBufSize())
-    return llvm::object::createError("offset greater than file size");
+  if (Offset + Size < Offset || Offset + Size > Elf.getBufSize())
+    return obj::createError("offset greater than file size");
 
-  return DynRegionInfo(Obj->base() + Offset, Size, EntSize, ObjF->getFileName());
+  return DynRegionInfo(Obj, Elf.base() + Offset, Size, EntSize);
 }
 
-uintX_t loadDynamicTable(const ELFF *Obj,
-                         const ELFO *ObjF,
+uintX_t loadDynamicTable(const ELFO &Obj,
                          DynRegionInfo &DynamicTable) {
   const Elf_Phdr *DynamicPhdr;
   const Elf_Shdr *DynamicSec;
-  std::tie(DynamicPhdr, DynamicSec) = findDynamic(ObjF, Obj);
+  std::tie(DynamicPhdr, DynamicSec) = findDynamic(Obj);
   if (!DynamicPhdr && !DynamicSec)
     return 0;
 
   uintptr_t res = 0;
 
-  DynRegionInfo FromPhdr(ObjF->getFileName());
+  DynRegionInfo FromPhdr(Obj);
   bool IsPhdrTableValid = false;
   if (DynamicPhdr) {
-    FromPhdr = createDRIFrom(DynamicPhdr, sizeof(Elf_Dyn), ObjF);
+    FromPhdr = createDRIFrom(DynamicPhdr, sizeof(Elf_Dyn), Obj);
     IsPhdrTableValid = !FromPhdr.getAsArrayRef<Elf_Dyn>().empty();
 
     res = DynamicPhdr->p_vaddr;
@@ -120,12 +122,12 @@ uintX_t loadDynamicTable(const ELFF *Obj,
   // Ignore sh_entsize and use the expected value for entry size explicitly.
   // This allows us to dump dynamic sections with a broken sh_entsize
   // field.
-  DynRegionInfo FromSec(ObjF->getFileName());
+  DynRegionInfo FromSec(Obj);
   bool IsSecTableValid = false;
   if (DynamicSec) {
-    FromSec =
-        checkDRI({ObjF->getELFFile()->base() + DynamicSec->sh_offset,
-                  DynamicSec->sh_size, sizeof(Elf_Dyn), ObjF->getFileName()}, ObjF);
+    FromSec = checkDRI(
+        DynRegionInfo(Obj, Obj.getELFFile().base() + DynamicSec->sh_offset,
+                      DynamicSec->sh_size, sizeof(Elf_Dyn)));
     IsSecTableValid = !FromSec.getAsArrayRef<Elf_Dyn>().empty();
 
     res = DynamicSec->sh_addr;
@@ -139,7 +141,7 @@ uintX_t loadDynamicTable(const ELFF *Obj,
     } else {
 #ifdef WARN
       llvm::WithColor::warning() << llvm::formatv(
-          "no valid dynamic table was found for {0}\n", ObjF->getFileName());
+          "no valid dynamic table was found for {0}\n", Obj.getFileName());
 #endif
     }
     return res;
@@ -153,12 +155,12 @@ uintX_t loadDynamicTable(const ELFF *Obj,
     llvm::WithColor::warning() << llvm::formatv("SHT_DYNAMIC section header and PT_DYNAMIC "
                                           "program header disagree about "
                                           "the location of the dynamic table for {0}\n",
-                                          ObjF->getFileName());
+                                          Obj.getFileName());
   }
 
   if (!IsPhdrTableValid && !IsSecTableValid) {
     llvm::WithColor::warning() << llvm::formatv("no valid dynamic table was found for {0}\n",
-                                          ObjF->getFileName());
+                                          Obj.getFileName());
     return res;
   }
 
@@ -170,7 +172,7 @@ uintX_t loadDynamicTable(const ELFF *Obj,
       llvm::WithColor::warning()
           << llvm::formatv("SHT_DYNAMIC dynamic table is invalid: PT_DYNAMIC "
                            "will be used for {0}\n",
-                           ObjF->getFileName());
+                           Obj.getFileName());
 #endif
     }
 
@@ -179,7 +181,7 @@ uintX_t loadDynamicTable(const ELFF *Obj,
 #ifdef WARN
     llvm::WithColor::warning() <<
       llvm::formatv("PT_DYNAMIC dynamic table is invalid: SHT_DYNAMIC will be used for {0}\n",
-                    ObjF->getFileName());
+                    Obj.getFileName());
 #endif
 
     DynamicTable = FromSec;
@@ -189,10 +191,12 @@ uintX_t loadDynamicTable(const ELFF *Obj,
 }
 
 std::pair<const typename ELFT::Phdr *, const typename ELFT::Shdr *>
-findDynamic(const ELFO *ObjF, const ELFF *Obj) {
+findDynamic(const ELFO &Obj) {
+  const ELFF &Elf = Obj.getELFFile();
+
   // Try to locate the PT_DYNAMIC header.
   const Elf_Phdr *DynamicPhdr = nullptr;
-  for (const Elf_Phdr &Phdr : unwrapOrError(Obj->program_headers())) {
+  for (const Elf_Phdr &Phdr : unwrapOrError(Elf.program_headers())) {
     if (Phdr.p_type != llvm::ELF::PT_DYNAMIC)
       continue;
     DynamicPhdr = &Phdr;
@@ -201,7 +205,7 @@ findDynamic(const ELFO *ObjF, const ELFF *Obj) {
 
   // Try to locate the .dynamic section in the sections header table.
   const Elf_Shdr *DynamicSec = nullptr;
-  for (const Elf_Shdr &Sec : unwrapOrError(Obj->sections())) {
+  for (const Elf_Shdr &Sec : unwrapOrError(Elf.sections())) {
     if (Sec.sh_type != llvm::ELF::SHT_DYNAMIC)
       continue;
     DynamicSec = &Sec;
@@ -209,7 +213,7 @@ findDynamic(const ELFO *ObjF, const ELFF *Obj) {
   }
 
   if (DynamicPhdr && DynamicPhdr->p_offset + DynamicPhdr->p_filesz >
-                         ObjF->getMemoryBufferRef().getBufferSize()) {
+                         Obj.getMemoryBufferRef().getBufferSize()) {
     llvm::WithColor::warning() <<
       llvm::formatv("{0}: PT_DYNAMIC segment offset + size exceeds the size of the file\n", __func__);
 
@@ -218,7 +222,7 @@ findDynamic(const ELFO *ObjF, const ELFF *Obj) {
   }
 
   if (DynamicPhdr && DynamicSec) {
-    llvm::StringRef Name = unwrapOrError(Obj->getSectionName(DynamicSec));
+    llvm::StringRef Name = unwrapOrError(Elf.getSectionName(*DynamicSec));
     if (DynamicSec->sh_addr + DynamicSec->sh_size >
             DynamicPhdr->p_vaddr + DynamicPhdr->p_memsz ||
         DynamicSec->sh_addr < DynamicPhdr->p_vaddr)
@@ -233,12 +237,12 @@ findDynamic(const ELFO *ObjF, const ELFF *Obj) {
   return std::make_pair(DynamicPhdr, DynamicSec);
 }
 
-std::optional<DynRegionInfo> loadDynamicSymbols(const ELFF *Obj,
-                                                 const ELFO *ObjF,
-                                                 const DynRegionInfo &DynamicTable,
-                                                 llvm::StringRef &DynamicStringTable,
-                                                 const Elf_Shdr *&SymbolVersionSection,
-                                                 std::vector<VersionMapEntry> &VersionMap) {
+std::optional<DynRegionInfo> loadDynamicSymbols(
+    const ELFO &Obj, const DynRegionInfo &DynamicTable,
+    llvm::StringRef &DynamicStringTable, const Elf_Shdr *&SymbolVersionSection,
+    std::vector<VersionMapEntry> &VersionMap) {
+  const ELFF &Elf = Obj.getELFFile();
+
   std::optional<DynRegionInfo> DynSymRegion;
   const Elf_Hash *HashTable = nullptr;
   const Elf_Shdr *DotDynsymSec = nullptr;
@@ -254,7 +258,7 @@ std::optional<DynRegionInfo> loadDynamicSymbols(const ELFF *Obj,
   //
   // examine the sections
   //
-  llvm::Expected<Elf_Shdr_Range> ExpectedSections = Obj->sections();
+  llvm::Expected<Elf_Shdr_Range> ExpectedSections = Elf.sections();
   if (ExpectedSections && !(*ExpectedSections).empty()) {
     for (const Elf_Shdr &Sec : *ExpectedSections) {
       switch (Sec.sh_type) {
@@ -264,11 +268,11 @@ std::optional<DynRegionInfo> loadDynamicSymbols(const ELFF *Obj,
 
         if (!DynSymRegion) {
           llvm::Expected<DynRegionInfo> RegOrErr =
-              createDRI(ObjF, Sec.sh_offset, Sec.sh_size, Sec.sh_entsize);
+              createDRI(Obj, Sec.sh_offset, Sec.sh_size, Sec.sh_entsize);
           if (RegOrErr) {
             DynSymRegion = *RegOrErr;
 
-            if (llvm::Expected<llvm::StringRef> E = Obj->getStringTableForSymtab(Sec))
+            if (llvm::Expected<llvm::StringRef> E = Elf.getStringTableForSymtab(Sec))
               DynamicStringTable = *E;
             else
               llvm::WithColor::warning()
@@ -307,15 +311,15 @@ std::optional<DynRegionInfo> loadDynamicSymbols(const ELFF *Obj,
 
     switch (Dyn.d_tag) {
     case llvm::ELF::DT_STRTAB:
-      if (llvm::Expected<const uint8_t *> ExpectedPtr = Obj->toMappedAddr(Dyn.getPtr()))
+      if (llvm::Expected<const uint8_t *> ExpectedPtr = Elf.toMappedAddr(Dyn.getPtr()))
         StringTableBegin = reinterpret_cast<const char *>(*ExpectedPtr);
       break;
     case llvm::ELF::DT_STRSZ:
       StringTableSize = Dyn.getVal();
       break;
     case llvm::ELF::DT_SYMTAB:
-      if (llvm::Expected<const uint8_t *> ExpectedPtr = Obj->toMappedAddr(Dyn.getPtr())) {
-        DynSymFromTable.emplace(ObjF->getFileName());
+      if (llvm::Expected<const uint8_t *> ExpectedPtr = Elf.toMappedAddr(Dyn.getPtr())) {
+        DynSymFromTable.emplace(Obj);
         DynSymFromTable->Addr = *ExpectedPtr;
         DynSymFromTable->EntSize = sizeof(Elf_Sym);
       }
@@ -329,7 +333,7 @@ std::optional<DynRegionInfo> loadDynamicSymbols(const ELFF *Obj,
       break;
     }
     case llvm::ELF::DT_HASH:
-      if (llvm::Expected<const uint8_t *> ExpectedHashTable = Obj->toMappedAddr(Dyn.getPtr()))
+      if (llvm::Expected<const uint8_t *> ExpectedHashTable = Elf.toMappedAddr(Dyn.getPtr()))
         HashTable = reinterpret_cast<const Elf_Hash *>(*ExpectedHashTable);
       break;
 
@@ -339,8 +343,8 @@ std::optional<DynRegionInfo> loadDynamicSymbols(const ELFF *Obj,
   }
 
   if (StringTableBegin) {
-    const uint64_t FileSize = Obj->getBufSize();
-    const uint64_t Offset = (const uint8_t *)StringTableBegin - Obj->base();
+    const uint64_t FileSize = Elf.getBufSize();
+    const uint64_t Offset = (const uint8_t *)StringTableBegin - Elf.base();
     if (StringTableSize > FileSize - Offset) {
 #ifdef WARN
       WARN();
@@ -353,8 +357,8 @@ std::optional<DynRegionInfo> loadDynamicSymbols(const ELFF *Obj,
   auto getHashTableEntSize = [&](void) -> unsigned {
     // EM_S390 and ELF::EM_ALPHA platforms use 8-bytes entries in SHT_HASH
     // sections. This violates the ELF specification.
-    if (Obj->getHeader()->e_machine == llvm::ELF::EM_S390 ||
-        Obj->getHeader()->e_machine == llvm::ELF::EM_ALPHA)
+    if (Elf.getHeader().e_machine == llvm::ELF::EM_S390 ||
+        Elf.getHeader().e_machine == llvm::ELF::EM_ALPHA)
       return 8;
     return 4;
   };
@@ -399,10 +403,10 @@ std::optional<DynRegionInfo> loadDynamicSymbols(const ELFF *Obj,
   // Derive the dynamic symbol table size from the DT_HASH hash table, if
   // present.
   if (HashTable && IsHashTableSupported && DynSymRegion) {
-    const uint64_t FileSize = Obj->getBufSize();
+    const uint64_t FileSize = Elf.getBufSize();
     const uint64_t DerivedSize =
         (uint64_t)HashTable->nchain * DynSymRegion->EntSize;
-    const uint64_t Offset = (const uint8_t *)DynSymRegion->Addr - Obj->base();
+    const uint64_t Offset = (const uint8_t *)DynSymRegion->Addr - Elf.base();
     if (DerivedSize > FileSize - Offset)
       llvm::WithColor::warning() << llvm::formatv(
           "the size ({0:x}) of the dynamic symbol table at {1:x}, derived from "
@@ -420,7 +424,7 @@ std::optional<DynRegionInfo> loadDynamicSymbols(const ELFF *Obj,
     unsigned VerdefSize = Sec->sh_size;    // Size of section in bytes
     unsigned VerdefEntries = Sec->sh_info; // Number of Verdef entries
     const uint8_t *VerdefStart =
-        reinterpret_cast<const uint8_t *>(Obj->base() + Sec->sh_offset);
+        reinterpret_cast<const uint8_t *>(Elf.base() + Sec->sh_offset);
     const uint8_t *VerdefEnd = VerdefStart + VerdefSize;
     // The first Verdef entry is at the start of the section.
     const uint8_t *VerdefBuf = VerdefStart;
@@ -456,7 +460,7 @@ std::optional<DynRegionInfo> loadDynamicSymbols(const ELFF *Obj,
     unsigned VerneedSize = Sec->sh_size;    // Size of section in bytes
     unsigned VerneedEntries = Sec->sh_info; // Number of Verneed entries
     const uint8_t *VerneedStart =
-        reinterpret_cast<const uint8_t *>(Obj->base() + Sec->sh_offset);
+        reinterpret_cast<const uint8_t *>(Elf.base() + Sec->sh_offset);
     const uint8_t *VerneedEnd = VerneedStart + VerneedSize;
     // The first Verneed entry is at the start of the section.
     const uint8_t *VerneedBuf = VerneedStart;
@@ -563,52 +567,14 @@ llvm::StringRef getSymbolVersionByIndex(std::vector<VersionMapEntry> &VersionMap
   return StrTab.data() + NameOffset;
 };
 
-static const typename ELFT::Shdr *
-findSectionByName(const ELFF &Obj, llvm::StringRef Name) {
-  for (const Elf_Shdr &Shdr : llvm::cantFail(Obj.sections())) {
-    if (llvm::Expected<llvm::StringRef> NameOrErr = Obj.getSectionName(&Shdr)) {
-      if (*NameOrErr == Name)
-        return &Shdr;
-    } else {
-      llvm::WithColor::warning() << llvm::formatv(
-          "unable to read the name of section: {0}\n",
-          llvm::toString(NameOrErr.takeError()));
-    }
-  }
-  return nullptr;
-}
-
-static const typename ELFO::Elf_Shdr *
-findNotEmptySectionByAddress(const ELFF &Obj, llvm::StringRef FileName,
-                             uint64_t Addr) {
-  for (const typename ELFO::Elf_Shdr &Shdr : llvm::cantFail(Obj.sections()))
-    if (Shdr.sh_addr == Addr && Shdr.sh_size > 0)
-      return &Shdr;
-  return nullptr;
-}
-
-static std::string describe(const ELFF &Obj, const typename ELFT::Shdr &Sec) {
-  unsigned SecNdx = &Sec - &llvm::cantFail(Obj.sections()).front();
-  std::string SecTyNm = llvm::object::getELFSectionTypeName(
-      Obj.getHeader()->e_machine, Sec.sh_type).str();
-
-  char buff[256];
-  snprintf(buff,
-           sizeof(buff),
-           "%s section with index %u",
-           SecTyNm.c_str(),
-           SecNdx);
-
-  return std::string(buff);
-}
-
-void loadDynamicRelocations(const ELFF *Obj,
-                            const ELFO *ObjF,
+void loadDynamicRelocations(const ELFO &Obj,
                             const DynRegionInfo &DynamicTable,
                             DynRegionInfo &DynRelRegion,
                             DynRegionInfo &DynRelaRegion,
                             DynRegionInfo &DynRelrRegion,
                             DynRegionInfo &DynPLTRelRegion) {
+  const ELFF &Elf = Obj.getELFFile();
+
   auto dynamic_table = [&](void) -> Elf_Dyn_Range {
     return DynamicTable.getAsArrayRef<Elf_Dyn>();
   };
@@ -619,7 +585,7 @@ void loadDynamicRelocations(const ELFF *Obj,
 
     switch (Dyn.d_tag) {
     case llvm::ELF::DT_RELA:
-      if (llvm::Expected<const uint8_t *> ExpectedPtr = Obj->toMappedAddr(Dyn.getPtr()))
+      if (llvm::Expected<const uint8_t *> ExpectedPtr = Elf.toMappedAddr(Dyn.getPtr()))
         DynRelaRegion.Addr = *ExpectedPtr;
       break;
     case llvm::ELF::DT_RELASZ:
@@ -629,7 +595,7 @@ void loadDynamicRelocations(const ELFF *Obj,
       DynRelaRegion.EntSize = Dyn.getVal();
       break;
     case llvm::ELF::DT_REL:
-      if (llvm::Expected<const uint8_t *> ExpectedPtr = Obj->toMappedAddr(Dyn.getPtr()))
+      if (llvm::Expected<const uint8_t *> ExpectedPtr = Elf.toMappedAddr(Dyn.getPtr()))
         DynRelRegion.Addr = *ExpectedPtr;
       break;
     case llvm::ELF::DT_RELSZ:
@@ -640,7 +606,7 @@ void loadDynamicRelocations(const ELFF *Obj,
       break;
     case llvm::ELF::DT_RELR:
     case llvm::ELF::DT_ANDROID_RELR:
-      if (llvm::Expected<const uint8_t *> ExpectedPtr = Obj->toMappedAddr(Dyn.getPtr()))
+      if (llvm::Expected<const uint8_t *> ExpectedPtr = Elf.toMappedAddr(Dyn.getPtr()))
         DynRelrRegion.Addr = *ExpectedPtr;
       break;
     case llvm::ELF::DT_RELRSZ:
@@ -661,7 +627,7 @@ void loadDynamicRelocations(const ELFF *Obj,
                                        llvm::Twine((uint64_t)Dyn.getVal()));
       break;
     case llvm::ELF::DT_JMPREL:
-      if (llvm::Expected<const uint8_t *> ExpectedPtr = Obj->toMappedAddr(Dyn.getPtr()))
+      if (llvm::Expected<const uint8_t *> ExpectedPtr = Elf.toMappedAddr(Dyn.getPtr()))
         DynPLTRelRegion.Addr = *ExpectedPtr;
       break;
     case llvm::ELF::DT_PLTRELSZ:
@@ -672,6 +638,32 @@ void loadDynamicRelocations(const ELFF *Obj,
 }
 
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
+
+static const typename ELFT::Shdr *
+findSectionByName(const ELFF &Obj, llvm::StringRef Name) {
+  for (const Elf_Shdr &Shdr : llvm::cantFail(Obj.sections())) {
+    if (llvm::Expected<llvm::StringRef> NameOrErr = Obj.getSectionName(Shdr)) {
+      if (*NameOrErr == Name)
+        return &Shdr;
+    } else {
+      llvm::WithColor::warning() << llvm::formatv(
+          "unable to read the name of section: {0}\n",
+          llvm::toString(NameOrErr.takeError()));
+    }
+  }
+
+  return nullptr;
+}
+
+static const typename ELFO::Elf_Shdr *
+findNotEmptySectionByAddress(const ELFF &Obj, llvm::StringRef FileName,
+                             uint64_t Addr) {
+  for (const typename ELFO::Elf_Shdr &Shdr : llvm::cantFail(Obj.sections()))
+    if (Shdr.sh_addr == Addr && Shdr.sh_size > 0)
+      return &Shdr;
+
+  return nullptr;
+}
 
 MipsGOTParser::MipsGOTParser(const ELFF &Obj, llvm::StringRef FileName)
     : IsStatic(false /* XXX */), Obj(Obj),
@@ -692,7 +684,7 @@ llvm::Error MipsGOTParser::findGOT(Elf_Dyn_Range DynTable,
       return llvm::Error::success();
 
     llvm::ArrayRef<uint8_t> Content =
-        unwrapOrError(Obj.getSectionContents(GotSec));
+        unwrapOrError(Obj.getSectionContents(*GotSec));
     GotEntries = Entries(reinterpret_cast<const Entry *>(Content.data()),
                          Content.size() / sizeof(Entry));
     LocalNum = GotEntries.size();
@@ -742,7 +734,7 @@ llvm::Error MipsGOTParser::findGOT(Elf_Dyn_Range DynTable,
   GotSec = findNotEmptySectionByAddress(Obj, FileName, *DtPltGot);
   if (GotSec) {
     llvm::ArrayRef<uint8_t> Content =
-        unwrapOrError(Obj.getSectionContents(GotSec));
+        unwrapOrError(Obj.getSectionContents(*GotSec));
     GotEntries = Entries(reinterpret_cast<const Entry *>(Content.data()),
                          Content.size() / sizeof(Entry));
   } else {
@@ -920,17 +912,17 @@ uint64_t MipsGOTParser::getPltAddress(const Entry *E) const {
 const Elf_Sym *MipsGOTParser::getPltSym(const Entry *E) const {
   int64_t Offset = std::distance(getPltEntries().data(), E);
   if (PltRelSec->sh_type == llvm::ELF::SHT_REL) {
-    Elf_Rel_Range Rels = unwrapOrError(Obj.rels(PltRelSec));
-    return unwrapOrError(Obj.getRelocationSymbol(&Rels[Offset], PltSymTable));
+    Elf_Rel_Range Rels = unwrapOrError(Obj.rels(*PltRelSec));
+    return unwrapOrError(Obj.getRelocationSymbol(Rels[Offset], PltSymTable));
   } else {
-    Elf_Rela_Range Rels = unwrapOrError(Obj.relas(PltRelSec));
-    return unwrapOrError(Obj.getRelocationSymbol(&Rels[Offset], PltSymTable));
+    Elf_Rela_Range Rels = unwrapOrError(Obj.relas(*PltRelSec));
+    return unwrapOrError(Obj.getRelocationSymbol(Rels[Offset], PltSymTable));
   }
 }
 
 #endif
 
-RelSymbol getSymbolForReloc(ELFO &ObjF,
+RelSymbol getSymbolForReloc(const ELFO &Obj,
                             Elf_Sym_Range dynamic_symbols,
                             llvm::StringRef DynamicStringTable,
                             const Relocation &Reloc) {
@@ -956,9 +948,9 @@ RelSymbol getSymbolForReloc(ELFO &ObjF,
         "index is greater than or equal to the number of dynamic symbols (" +
             llvm::Twine(Symbols.size()) + ")");
 
-  const ELFF *Obj = ObjF.getELFFile();
-  const uint64_t FileSize = Obj->getBufSize();
-  const uint64_t SymOffset = ((const uint8_t *)FirstSym - Obj->base()) +
+  const ELFF &Elf = Obj.getELFFile();
+  const uint64_t FileSize = Elf.getBufSize();
+  const uint64_t SymOffset = ((const uint8_t *)FirstSym - Elf.base()) +
                              (uint64_t)Reloc.Symbol * sizeof(Elf_Sym);
   if (SymOffset + sizeof(Elf_Sym) > FileSize)
     return WarnAndReturn(nullptr, "symbol at 0x" +
@@ -1007,31 +999,13 @@ void for_each_dynamic_relocation(const ELFF &E,
 
   if (DynRelrRegion.Size > 0) {
     Elf_Relr_Range Relrs = DynRelrRegion.getAsArrayRef<Elf_Relr>();
-    llvm::Expected<std::vector<Elf_Rela>> ExpectedRelrRelas = E.decode_relrs(Relrs);
-    if (ExpectedRelrRelas) {
-      auto &RelrRelasRelocs = *ExpectedRelrRelas;
+    std::vector<Elf_Rel> RelrRelsRelocs = E.decode_relrs(Relrs);
 
-      //
-      // well this is fucking stupid. In newer versions of LLVM,
-      // decode_relrs() returns Rel like it should, instead of Rela.
-      //
-      std::vector<Elf_Rel> RelrRelsRelocs;
-      RelrRelsRelocs.resize(RelrRelasRelocs.size());
-
-      std::transform(RelrRelasRelocs.begin(),
-                     RelrRelasRelocs.end(),
-                     RelrRelsRelocs.begin(),
-                     [&](const Elf_Rela &Rela) -> Elf_Rel {
-                       Elf_Rel res = Rela;
-                       return res;
-                     });
-
-      std::for_each(RelrRelsRelocs.begin(),
-                    RelrRelsRelocs.end(),
-                    [&](const Elf_Rel &Rel) {
-                      proc(Relocation(Rel, IsMips64EL));
-                    });
-    }
+    std::for_each(RelrRelsRelocs.begin(),
+                  RelrRelsRelocs.end(),
+                  [&](const Elf_Rel &Rel) {
+                    proc(Relocation(Rel, IsMips64EL));
+                  });
   }
 
   if (DynPLTRelRegion.Size > 0) {
@@ -1057,20 +1031,18 @@ void for_each_dynamic_relocation(const ELFF &E,
 
 std::pair<uint64_t, uint64_t> bounds_of_binary(llvm::object::Binary &Bin) {
   assert(llvm::isa<ELFO>(&Bin));
-  ELFO &O = *llvm::cast<ELFO>(&Bin);
-
-  const ELFF &E = *O.getELFFile();
+  const ELFF &Elf = llvm::cast<ELFO>(&Bin)->getELFFile();
 
   uint64_t SectsStartAddr = std::numeric_limits<uint64_t>::max();
   uint64_t SectsEndAddr = 0;
 
-  llvm::Expected<Elf_Shdr_Range> ExpectedSections = E.sections();
+  llvm::Expected<Elf_Shdr_Range> ExpectedSections = Elf.sections();
   if (ExpectedSections && !(*ExpectedSections).empty()) {
     for (const Elf_Shdr &Sec : *ExpectedSections) {
       if (!(Sec.sh_flags & llvm::ELF::SHF_ALLOC))
         continue;
 
-      llvm::Expected<llvm::StringRef> ExpectedName = E.getSectionName(&Sec);
+      llvm::Expected<llvm::StringRef> ExpectedName = Elf.getSectionName(Sec);
 
       if (!ExpectedName)
         continue;
@@ -1088,7 +1060,7 @@ std::pair<uint64_t, uint64_t> bounds_of_binary(llvm::object::Binary &Bin) {
   } else {
     llvm::SmallVector<const Elf_Phdr *, 4> LoadSegments;
 
-    auto ProgramHeadersOrError = E.program_headers();
+    auto ProgramHeadersOrError = Elf.program_headers();
     if (!ProgramHeadersOrError)
       abort();
 
@@ -1118,12 +1090,12 @@ std::pair<uint64_t, uint64_t> bounds_of_binary(llvm::object::Binary &Bin) {
 bool dynamic_linking_info_of_binary(llvm::object::Binary &Bin,
                                     struct dynamic_linking_info_t &out) {
   assert(llvm::isa<ELFO>(&Bin));
-  ELFO &O = *llvm::cast<ELFO>(&Bin);
+  ELFO &Obj = *llvm::cast<ELFO>(&Bin);
 
-  const ELFF &E = *O.getELFFile();
+  const ELFF &Elf = Obj.getELFFile();
 
-  DynRegionInfo DynamicTable(O.getFileName());
-  loadDynamicTable(&E, &O, DynamicTable);
+  DynRegionInfo DynamicTable(Obj);
+  loadDynamicTable(Obj, DynamicTable);
 
   if (!DynamicTable.Addr)
     return false;
@@ -1135,12 +1107,11 @@ bool dynamic_linking_info_of_binary(llvm::object::Binary &Bin,
   llvm::StringRef DynamicStringTable;
   const Elf_Shdr *SymbolVersionSection;
   std::vector<VersionMapEntry> VersionMap;
-  std::optional<DynRegionInfo> OptionalDynSymRegion =
-      loadDynamicSymbols(&E, &O,
-                         DynamicTable,
-                         DynamicStringTable,
-                         SymbolVersionSection,
-                         VersionMap);
+  loadDynamicSymbols(Obj,
+                     DynamicTable,
+                     DynamicStringTable,
+                     SymbolVersionSection,
+                     VersionMap);
 
   std::vector<uint64_t> needed_offsets;
   struct {
@@ -1190,11 +1161,11 @@ bool dynamic_linking_info_of_binary(llvm::object::Binary &Bin,
     out.needed.emplace_back(needed_cstr);
   }
 
-  llvm::Expected<Elf_Phdr_Range> ExpectedPrgHdrs = E.program_headers();
+  llvm::Expected<Elf_Phdr_Range> ExpectedPrgHdrs = Elf.program_headers();
   if (ExpectedPrgHdrs) {
     for (const Elf_Phdr &Phdr : *ExpectedPrgHdrs) {
       if (Phdr.p_type == llvm::ELF::PT_INTERP) {
-        out.interp = std::string(reinterpret_cast<const char *>(E.base()) +
+        out.interp = std::string(reinterpret_cast<const char *>(Elf.base()) +
                                  Phdr.p_offset);
         break;
       }

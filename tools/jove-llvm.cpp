@@ -19,6 +19,48 @@
 #include <boost/preprocessor/repetition/repeat.hpp>
 #include <boost/range/adaptor/reversed.hpp>
 
+#include "llvm/ADT/Triple.h"
+#include "llvm/Analysis/CallGraph.h"
+#include "llvm/Analysis/CallGraphSCCPass.h"
+#include "llvm/Analysis/LoopPass.h"
+#include "llvm/Analysis/RegionPass.h"
+#include "llvm/Analysis/TargetLibraryInfo.h"
+#include "llvm/Analysis/TargetTransformInfo.h"
+#include "llvm/AsmParser/Parser.h"
+#include "llvm/CodeGen/CommandFlags.h"
+#include "llvm/CodeGen/TargetPassConfig.h"
+#include "llvm/Config/llvm-config.h"
+#include "llvm/IR/DataLayout.h"
+#include "llvm/IR/DebugInfo.h"
+#include "llvm/IR/LLVMContext.h"
+#include "llvm/IR/LLVMRemarkStreamer.h"
+#include "llvm/IR/LegacyPassManager.h"
+#include "llvm/IR/LegacyPassNameParser.h"
+#include "llvm/IR/Module.h"
+#include "llvm/IR/ModuleSummaryIndex.h"
+#include "llvm/IR/Verifier.h"
+#include "llvm/IRReader/IRReader.h"
+#include "llvm/InitializePasses.h"
+#include "llvm/LinkAllIR.h"
+#include "llvm/LinkAllPasses.h"
+#include "llvm/MC/SubtargetFeature.h"
+#include "llvm/MC/TargetRegistry.h"
+#include "llvm/Passes/PassPlugin.h"
+#include "llvm/Remarks/HotnessThresholdParser.h"
+#include "llvm/Support/Debug.h"
+#include "llvm/Support/FileSystem.h"
+#include "llvm/Support/Host.h"
+#include "llvm/Support/InitLLVM.h"
+#include "llvm/Support/PluginLoader.h"
+#include "llvm/Support/SourceMgr.h"
+#include "llvm/Support/SystemUtils.h"
+#include "llvm/Support/TargetSelect.h"
+#include "llvm/Support/ToolOutputFile.h"
+#include "llvm/Support/YAMLTraits.h"
+#include "llvm/Target/TargetMachine.h"
+#include "llvm/Transforms/IPO/WholeProgramDevirt.h"
+#include "llvm/Transforms/Utils/Cloning.h"
+#include "llvm/Transforms/Utils/Debugify.h"
 #include <llvm/Analysis/Passes.h>
 #include <llvm/Analysis/TargetTransformInfo.h>
 #include <llvm/Bitcode/BitcodeReader.h>
@@ -40,9 +82,14 @@
 #include <llvm/IR/PatternMatch.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/InitializePasses.h>
+#include <llvm/InitializePasses.h>
+#include <llvm/LinkAllIR.h>
+#include <llvm/LinkAllPasses.h>
 #include <llvm/LinkAllPasses.h>
 #include <llvm/Linker/Linker.h>
 #include <llvm/MC/MCInstPrinter.h>
+#include <llvm/Passes/PassBuilder.h>
+#include <llvm/Passes/StandardInstrumentations.h>
 #include <llvm/Support/DataTypes.h>
 #include <llvm/Support/Debug.h>
 #include <llvm/Support/Error.h>
@@ -50,13 +97,16 @@
 #include <llvm/Support/FormatVariadic.h>
 #include <llvm/Support/Host.h>
 #include <llvm/Support/ScopedPrinter.h>
+#include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/ToolOutputFile.h>
 #include <llvm/Support/WithColor.h>
 #include <llvm/Target/TargetMachine.h>
 #include <llvm/Transforms/IPO/PassManagerBuilder.h>
+#include <llvm/Transforms/Instrumentation/DataFlowSanitizer.h>
+#include <llvm/Transforms/Utils/Cloning.h>
+#include <llvm/Transforms/Utils/Debugify.h>
 #include <llvm/Transforms/Utils/LowerMemIntrinsics.h>
 #include <llvm/Transforms/Utils/ModuleUtils.h>
-#include <llvm/Transforms/Utils/Cloning.h>
 
 #include <cctype>
 #include <random>
@@ -149,6 +199,7 @@ struct binary_state_t {
     DynRegionInfo DynRelrRegion;
     DynRegionInfo DynPLTRelRegion;
   } _elf;
+  llvm::GlobalVariable *FunctionsTable = nullptr;
   llvm::GlobalVariable *FunctionsTableClunk = nullptr;
   llvm::Function *SectsF = nullptr;
   uint64_t SectsStartAddr = 0;
@@ -337,32 +388,34 @@ struct LLVMTool : public TransformerTool_BinFnBB<binary_state_t,
 
   llvm::DataLayout DL;
 
-  llvm::GlobalVariable *SectsGlobal;
-  llvm::GlobalVariable *ConstSectsGlobal;
+  std::string SectsGlobalName, ConstSectsGlobalName;
+
+  llvm::GlobalVariable *SectsGlobal = nullptr;
+  llvm::GlobalVariable *ConstSectsGlobal = nullptr;
 
   std::unordered_map<std::string, std::set<dynamic_target_t>> ExportedFunctions;
 
   disas_t disas;
 
   std::unordered_set<uint64_t> ConstantRelocationLocs;
-  uint64_t libcEarlyInitAddr;
+  uint64_t libcEarlyInitAddr = 0;
 
-  llvm::GlobalVariable *CPUStateGlobal;
-  llvm::Type *CPUStateType;
+  llvm::GlobalVariable *CPUStateGlobal = nullptr;
+  llvm::Type *CPUStateType = nullptr;
 
-  llvm::GlobalVariable *TraceGlobal;
-  llvm::GlobalVariable *CallStackGlobal;
-  llvm::GlobalVariable *CallStackBeginGlobal;
+  llvm::GlobalVariable *TraceGlobal = nullptr;
+  llvm::GlobalVariable *CallStackGlobal = nullptr;
+  llvm::GlobalVariable *CallStackBeginGlobal = nullptr;
 
-  llvm::GlobalVariable *JoveFunctionTablesGlobalClunk;
-  llvm::GlobalVariable *JoveForeignFunctionTablesGlobal;
-  llvm::Function *JoveRecoverDynTargetFunc;
-  llvm::Function *JoveRecoverBasicBlockFunc;
-  llvm::Function *JoveRecoverReturnedFunc;
-  llvm::Function *JoveRecoverABIFunc;
-  llvm::Function *JoveRecoverFunctionFunc;
+  llvm::GlobalVariable *JoveFunctionTablesGlobalClunk = nullptr;
+  llvm::GlobalVariable *JoveForeignFunctionTablesGlobal = nullptr;
+  llvm::Function *JoveRecoverDynTargetFunc = nullptr;
+  llvm::Function *JoveRecoverBasicBlockFunc = nullptr;
+  llvm::Function *JoveRecoverReturnedFunc = nullptr;
+  llvm::Function *JoveRecoverABIFunc = nullptr;
+  llvm::Function *JoveRecoverFunctionFunc = nullptr;
 
-  llvm::Function *JoveInstallForeignFunctionTables;
+  llvm::Function *JoveInstallForeignFunctionTables = nullptr;
 
 #define __THUNK(n, i, data) llvm::Function *JoveThunk##i##Func;
 
@@ -370,29 +423,29 @@ struct LLVMTool : public TransformerTool_BinFnBB<binary_state_t,
 
 #undef __THUNK
 
-  llvm::Function *JoveFail1Func;
-  llvm::Function *JoveLog1Func;
-  llvm::Function *JoveLog2Func;
+  llvm::Function *JoveFail1Func = nullptr;
+  llvm::Function *JoveLog1Func = nullptr;
+  llvm::Function *JoveLog2Func = nullptr;
 
-  llvm::Function *JoveAllocStackFunc;
-  llvm::Function *JoveFreeStackFunc;
-  llvm::Function *JoveNoDCEFunc;
-  llvm::Function *JoveCallFunc;
+  llvm::Function *JoveAllocStackFunc = nullptr;
+  llvm::Function *JoveFreeStackFunc = nullptr;
+  llvm::Function *JoveNoDCEFunc = nullptr;
+  llvm::Function *JoveCallFunc = nullptr;
 
   //
   // DFSan
   //
-  llvm::Function *JoveCheckReturnAddrFunc;
-  llvm::Function *JoveLogFunctionStart;
-  llvm::GlobalVariable *JoveLogFunctionStartClunk;
-  llvm::Function *DFSanFiniFunc;
-  llvm::GlobalVariable *DFSanFiniClunk;
+  llvm::Function *JoveCheckReturnAddrFunc = nullptr;
+  llvm::Function *JoveLogFunctionStart = nullptr;
+  llvm::GlobalVariable *JoveLogFunctionStartClunk = nullptr;
+  llvm::Function *DFSanFiniFunc = nullptr;
+  llvm::GlobalVariable *DFSanFiniClunk = nullptr;
 
-  llvm::GlobalVariable *TLSSectsGlobal;
+  llvm::GlobalVariable *TLSSectsGlobal = nullptr;
 
-  llvm::GlobalVariable *TLSModGlobal;
+  llvm::GlobalVariable *TLSModGlobal = nullptr;
 
-  llvm::MDNode *AliasScopeMetadata;
+  llvm::MDNode *AliasScopeMetadata = nullptr;
 
   std::unique_ptr<llvm::DIBuilder> DIBuilder;
 
@@ -451,7 +504,7 @@ struct LLVMTool : public TransformerTool_BinFnBB<binary_state_t,
 public:
   LLVMTool() : opts(JoveCategory), DL("") {}
 
-  int Run(void);
+  int Run(void) override;
 
   int TranslateFunction(function_t &f);
   int TranslateBasicBlock(TranslateContext *);
@@ -500,8 +553,11 @@ public:
   llvm::Type *VoidFunctionPointer(void);
   llvm::Constant *BigWord(void);
 
-  llvm::Value *CPUStateGlobalPointer(unsigned glb, llvm::IRBuilderTy &);
-  llvm::Value *BuildCPUStatePointer(llvm::IRBuilderTy &, llvm::Value *Env, unsigned glb);
+  llvm::Constant *CPUStateGlobalPointer(llvm::IRBuilderTy &, unsigned glb);
+
+  llvm::Value *BuildCPUStatePointer(llvm::IRBuilderTy &,
+                                    llvm::Value *Env,
+                                    unsigned glb);
 
   llvm::Constant *SectionPointer(uint64_t Addr) {
     auto &Binary = jv.Binaries[BinaryIndex];
@@ -551,25 +607,37 @@ public:
     }
 
     if (DynTargetNeedsThunkPred(IdxPair)) {
-      llvm::Value *FnsTbl = IRB.CreateLoad(IRB.CreateConstInBoundsGEP2_64(
-          JoveForeignFunctionTablesGlobal, 0, DynTarget.BIdx));
-      return IRB.CreateLoad(IRB.CreateConstGEP1_64(FnsTbl, DynTarget.FIdx));
+      llvm::Value *FnsTbl = IRB.CreateLoad(
+          IRB.getPtrTy(),
+          IRB.CreateConstInBoundsGEP2_64(
+              JoveForeignFunctionTablesGlobal->getValueType(),
+              JoveForeignFunctionTablesGlobal, 0, DynTarget.BIdx));
+      return IRB.CreateLoad(WordType(),
+                            IRB.CreateConstGEP1_64(WordType()->getPointerTo(),
+                                                   FnsTbl, DynTarget.FIdx));
     }
 
     if (!binary.IsDynamicallyLoaded) {
-      llvm::Value *FnsTbl = IRB.CreateLoad(state.for_binary(jv.Binaries[DynTarget.BIdx]).FunctionsTableClunk);
+      llvm::Value *FnsTbl = IRB.CreateLoad(
+          IRB.getPtrTy(),
+          state.for_binary(jv.Binaries[DynTarget.BIdx]).FunctionsTableClunk);
       assert(FnsTbl);
 
-      return IRB.CreateLoad(IRB.CreateConstGEP2_64(
-          FnsTbl, 0, 3 * DynTarget.FIdx + (Callable ? 1 : 0)));
+      return IRB.CreateLoad(WordType(),
+          IRB.CreateConstGEP2_64(state.for_binary(jv.Binaries[DynTarget.BIdx]).FunctionsTable->getValueType(),
+                                 FnsTbl, 0, 3 * DynTarget.FIdx + (Callable ? 1 : 0)));
     }
 
     //
     // check if the functions table pointer is NULL. this can happen if a DSO
     // hasn't been loaded yet
     //
-    llvm::Value *FnsTbl = IRB.CreateLoad(IRB.CreateConstInBoundsGEP1_64(
-        nullptr, IRB.CreateLoad(JoveFunctionTablesGlobalClunk), DynTarget.BIdx));
+    llvm::Value *FnsTbl = IRB.CreateLoad(
+        IRB.getPtrTy(),
+        IRB.CreateConstInBoundsGEP1_64(
+            IRB.getPtrTy()->getPointerTo(),
+            IRB.CreateLoad(IRB.getPtrTy(), JoveFunctionTablesGlobalClunk),
+            DynTarget.BIdx));
     if (FailBlock) {
       assert(IRB.GetInsertBlock()->getParent());
       llvm::BasicBlock *fallthroughB = llvm::BasicBlock::Create(
@@ -583,8 +651,15 @@ public:
     }
 
     return IRB.CreateLoad(
-        IRB.CreateConstGEP1_64(FnsTbl, 3 * DynTarget.FIdx + (Callable ? 1 : 0)));
+        WordType(),
+        IRB.CreateConstGEP1_64(IRB.getPtrTy(), FnsTbl,
+                               3 * DynTarget.FIdx + (Callable ? 1 : 0)));
   }
+
+  llvm::AllocaInst *CreateAllocaForGlobal(TranslateContext &,
+                                          llvm::IRBuilderTy &,
+                                          unsigned glb,
+                                          bool InitializeFromEnv = true);
 
   void ReferenceInNoDCEFunc(llvm::Value *V) {
     assert(JoveNoDCEFunc);
@@ -600,14 +675,10 @@ public:
     {
       llvm::IRBuilderTy IRB(&JoveNoDCEFunc->getEntryBlock().front());
 
-      llvm::Value *Ptr = IRB.CreateConstInBoundsGEP1_32(nullptr, OutArg, Idx++);
-      llvm::Type *PtrTy = Ptr->getType();
-      assert(llvm::isa<llvm::PointerType>(PtrTy));
+      llvm::Value *Ptr = IRB.CreateConstInBoundsGEP1_32(
+          IRB.getPtrTy()->getPointerTo(), OutArg, Idx++);
 
-      IRB.CreateStore(
-          IRB.CreateBitCast(
-              V, llvm::cast<llvm::PointerType>(PtrTy)->getElementType()),
-          Ptr);
+      IRB.CreateStore(V, Ptr);
     }
   }
 
@@ -726,6 +797,28 @@ public:
         llvm::Intrinsic::getDeclaration(Module.get(), llvm::Intrinsic::bswap,
                                         llvm::ArrayRef<llvm::Type *>(Tys, 1));
     return bswap;
+  }
+
+  unsigned bitsOfTCGType(TCGType ty) {
+    static_assert(TCG_TYPE_I32 == 0);
+    static_assert(TCG_TYPE_I64 == 1);
+    static_assert(TCG_TYPE_I128 == 2);
+
+    if (unlikely(ty > 2))
+      throw std::runtime_error("unhandled: vector TCGType");
+
+    static const unsigned lookup_table[] = {32, 64, 128};
+    return lookup_table[ty];
+  }
+
+  llvm::IntegerType *TypeOfTCGGlobal(unsigned glb) {
+    TCGContext *s = jv_get_tcg_context();
+
+    return TypeOfTCGType(s->temps[glb].type);
+  }
+
+  llvm::IntegerType *TypeOfTCGType(TCGType ty) {
+    return llvm::Type::getIntNTy(*Context, bitsOfTCGType(ty));
   }
 };
 
@@ -1104,6 +1197,24 @@ static bool AnalyzeHelper(helper_function_t &hf) {
           res = false;
         }
       }
+    } else if (llvm::isa<llvm::LoadInst>(EnvU)) {
+      assert(llvm::cast<llvm::LoadInst>(EnvU)->getPointerOperand() == &A);
+
+      unsigned off = 0;
+      assert(sizeof(tcg_global_by_offset_lookup_table) >= sizeof(target_ulong));
+      if (tcg_global_by_offset_lookup_table[off] == 0xff)
+        continue;
+
+      hf.Analysis.InGlbs.set(tcg_global_by_offset_lookup_table[off]);
+    } else if (llvm::isa<llvm::StoreInst>(EnvU)) {
+      assert(llvm::cast<llvm::StoreInst>(EnvU)->getPointerOperand() == &A);
+
+      unsigned off = 0;
+      assert(sizeof(tcg_global_by_offset_lookup_table) >= sizeof(target_ulong));
+      if (tcg_global_by_offset_lookup_table[off] == 0xff)
+        continue;
+
+      hf.Analysis.OutGlbs.set(tcg_global_by_offset_lookup_table[off]);
     } else {
       WithColor::warning() << llvm::formatv(
           "{0}: unknown env user {1}\n", __func__, *EnvU);
@@ -1738,8 +1849,6 @@ static T unwrapOrError(llvm::Expected<T> EO) {
 
 static bool is_builtin_sym(const std::string &);
 
-static int DoOptimize(void);
-
 int LLVMTool::Run(void) {
   //jove::cmdline.argv = argv;
   opts.CallStack = opts.DFSan;
@@ -1784,6 +1893,12 @@ int LLVMTool::Run(void) {
     WithColor::error() << "must specify binary\n";
     return 1;
   }
+
+  SectsGlobalName =
+      (fmt("__jove_sections_%u") % static_cast<unsigned>(BinaryIndex)).str();
+  ConstSectsGlobalName =
+      (fmt("__jove_sections_const_%u") % static_cast<unsigned>(BinaryIndex)).str();
+
   if (opts.DumpTCG) {
     if (opts.ForAddr.empty()) {
       WithColor::error() << "if --dump-tcg is passed, --for-addr must also be passed\n";
@@ -1952,10 +2067,11 @@ int LLVMTool::Run(void) {
                                 state.for_binary(Binary)._elf.OptionalDynSymRegion->Addr)) /
                            sizeof(Elf_Sym);
 
-          auto &E = *llvm::cast<ELFO>(state.for_binary(Binary).ObjectFile.get())->getELFFile();
+          auto &Elf = llvm::cast<ELFO>(state.for_binary(Binary).ObjectFile.get())->getELFFile();
 
-          const Elf_Versym *Versym = unwrapOrError(
-              E.template getEntry<Elf_Versym>(state.for_binary(Binary)._elf.SymbolVersionSection, SymNo));
+          const Elf_Versym *Versym =
+              unwrapOrError(Elf.template getEntry<Elf_Versym>(
+                  *state.for_binary(Binary)._elf.SymbolVersionSection, SymNo));
 
           SymVers = getSymbolVersionByIndex(state.for_binary(Binary)._elf.VersionMap,
                                             state.for_binary(Binary)._elf.DynamicStringTable,
@@ -1994,10 +2110,10 @@ int LLVMTool::Run(void) {
           Module->appendModuleInlineAsm(
               (fmt(".globl %s\n"
                    ".type  %s,@function\n"
-                   ".set   %s, __jove_sections + %u")
+                   ".set   %s, %s + %u")
                % SymName.str()
                % SymName.str()
-               % SymName.str() % SectsOff).str());
+               % SymName.str() % SectsGlobalName % SectsOff).str());
         } else {
            // make sure version node is defined
           VersionScript.Table[SymVers.str()];
@@ -2006,13 +2122,13 @@ int LLVMTool::Run(void) {
 
           Module->appendModuleInlineAsm(
               (fmt(".globl %s\n"
-                   ".hidden %s\n"
+//                 ".hidden %s\n"
                    ".type  %s,@function\n"
-                   ".set   %s, __jove_sections + %u")
+                   ".set   %s, %s + %u")
                % dummy_name
+//             % dummy_name
                % dummy_name
-               % dummy_name
-               % dummy_name % SectsOff).str());
+               % dummy_name % SectsGlobalName % SectsOff).str());
 
           Module->appendModuleInlineAsm(
               (llvm::Twine(".symver ") + dummy_name + "," + SymName +
@@ -2094,10 +2210,11 @@ int LLVMTool::Run(void) {
                                 state.for_binary(Binary)._elf.OptionalDynSymRegion->Addr)) /
                            sizeof(Elf_Sym);
 
-          auto &E = *llvm::cast<ELFO>(state.for_binary(Binary).ObjectFile.get())->getELFFile();
+          auto &Elf = llvm::cast<ELFO>(state.for_binary(Binary).ObjectFile.get())->getELFFile();
 
-          const Elf_Versym *Versym = unwrapOrError(
-              E.template getEntry<Elf_Versym>(state.for_binary(Binary)._elf.SymbolVersionSection, SymNo));
+          const Elf_Versym *Versym =
+              unwrapOrError(Elf.template getEntry<Elf_Versym>(
+                  *state.for_binary(Binary)._elf.SymbolVersionSection, SymNo));
 
           SymVers = getSymbolVersionByIndex(state.for_binary(Binary)._elf.VersionMap,
                                             state.for_binary(Binary)._elf.DynamicStringTable,
@@ -2157,10 +2274,11 @@ int LLVMTool::Run(void) {
                                   state.for_binary(Binary)._elf.OptionalDynSymRegion->Addr)) /
                              sizeof(Elf_Sym);
 
-            auto &E = *llvm::cast<ELFO>(state.for_binary(Binary).ObjectFile.get())->getELFFile();
+            auto &Elf = llvm::cast<ELFO>(state.for_binary(Binary).ObjectFile.get())->getELFFile();
 
-            const Elf_Versym *Versym = unwrapOrError(
-                E.template getEntry<Elf_Versym>(state.for_binary(Binary)._elf.SymbolVersionSection, SymNo));
+            const Elf_Versym *Versym =
+                unwrapOrError(Elf.template getEntry<Elf_Versym>(
+                    *state.for_binary(Binary)._elf.SymbolVersionSection, SymNo));
 
             SymVers = getSymbolVersionByIndex(state.for_binary(Binary)._elf.VersionMap,
                                               state.for_binary(Binary)._elf.DynamicStringTable,
@@ -2180,11 +2298,11 @@ int LLVMTool::Run(void) {
                   (fmt(".globl %s\n"
                        ".type  %s,@object\n"
                        ".size  %s, %u\n"
-                       ".set   %s, __jove_sections + %u")
+                       ".set   %s, %s + %u")
                    % SymName.str()
                    % SymName.str()
                    % SymName.str() % Size
-                   % SymName.str() % SectsOff).str());
+                   % SymName.str() % SectsGlobalName % SectsOff).str());
             } else {
               if (gdefs.find({Addr, Size}) == gdefs.end()) {
                 Module->appendModuleInlineAsm(
@@ -2192,12 +2310,12 @@ int LLVMTool::Run(void) {
                          ".globl  g%lx_%u\n"
                          ".type   g%lx_%u,@object\n"
                          ".size   g%lx_%u, %u\n"
-                         ".set    g%lx_%u, __jove_sections + %u")
+                         ".set    g%lx_%u, %s + %u")
 //                   % Addr % Size
                      % Addr % Size
                      % Addr % Size
                      % Addr % Size % Size
-                     % Addr % Size % SectsOff).str());
+                     % Addr % Size % SectsGlobalName % SectsOff).str());
 
                 gdefs.insert({Addr, Size});
               }
@@ -2240,9 +2358,9 @@ int LLVMTool::Run(void) {
       || InternalizeSections()
       || (opts.InlineHelpers ? InlineHelpers() : 0)
       || (opts.ForCBE ? PrepareForCBE() : 0)
-      || (opts.DumpPreOpt1 ? (RenameFunctionLocals(), DumpModule("pre.opt1"), 1) : 0)
+      || (opts.DumpPreOpt1 ? (RenameFunctionLocals(), DumpModule("pre.opt"), 1) : 0)
       || ((opts.Optimize || opts.ForCBE) ? DoOptimize() : 0)
-      || (opts.DumpPostOpt1 ? (RenameFunctionLocals(), DumpModule("post.opt1"), 1) : 0)
+      || (opts.DumpPostOpt1 ? (RenameFunctionLocals(), DumpModule("post.opt"), 1) : 0)
       || (!opts.ForCBE ? ExpandMemoryIntrinsicCalls() : 0)
       || ReplaceAllRemainingUsesOfConstSections()
       || (opts.DFSan ? DFSanInstrument() : 0)
@@ -2281,7 +2399,7 @@ void LLVMTool::DumpModule(const char *suffix) {
                                        dumpOutputPath.c_str(), suffix);
 
     std::error_code EC;
-    llvm::ToolOutputFile Out(dumpOutputPath.c_str(), EC, llvm::sys::fs::F_None);
+    llvm::ToolOutputFile Out(dumpOutputPath.c_str(), EC, llvm::sys::fs::OF_None);
     if (EC) {
       WithColor::error() << EC.message() << '\n';
       return;
@@ -2339,22 +2457,20 @@ int LLVMTool::InitStateForBinaries(void) {
                                          SectsStartAddr);
 
       assert(llvm::isa<ELFO>(x.ObjectFile.get()));
-      ELFO &O = *llvm::cast<ELFO>(x.ObjectFile.get());
+      ELFO &Obj = *llvm::cast<ELFO>(x.ObjectFile.get());
 
-      const ELFF &E = *O.getELFFile();
-
-      loadDynamicTable(&E, &O, x._elf.DynamicTable);
+      loadDynamicTable(Obj, x._elf.DynamicTable);
 
       if (x._elf.DynamicTable.Addr) {
         x._elf.OptionalDynSymRegion =
-            loadDynamicSymbols(&E, &O,
+            loadDynamicSymbols(Obj,
                                x._elf.DynamicTable,
                                x._elf.DynamicStringTable,
                                x._elf.SymbolVersionSection,
                                x._elf.VersionMap);
 
         if (index_of_binary(binary, jv) == BinaryIndex)
-          loadDynamicRelocations(&E, &O,
+          loadDynamicRelocations(Obj,
                                  x._elf.DynamicTable,
                                  x._elf.DynRelRegion,
                                  x._elf.DynRelaRegion,
@@ -2391,7 +2507,7 @@ void LLVMTool::fillInFunctionBody(llvm::Function *F,
     SubProgFlags |= llvm::DISubprogram::SPFlagLocalToUnit;
 
   llvm::DISubroutineType *SubProgType =
-      DIB.createSubroutineType(DIB.getOrCreateTypeArray(llvm::None));
+      DIB.createSubroutineType(DIB.getOrCreateTypeArray(std::nullopt));
 
   llvm::DISubprogram *DbgSubprogram = DIB.createFunction(
       /* Scope       */ DebugInformation.CompileUnit,
@@ -2457,6 +2573,8 @@ int LLVMTool::CreateModule(void) {
   std::unique_ptr<llvm::Module> &ModuleRef = moduleOr.get();
   Module = std::move(ModuleRef);
 
+  Module->setSemanticInterposition(false);
+
   //
   // removing dso_local (FIXME)
   //
@@ -2471,7 +2589,7 @@ int LLVMTool::CreateModule(void) {
     CPUStateGlobal = Module->getGlobalVariable("__jove_env", true);
     assert(CPUStateGlobal);
 
-    CPUStateType = CPUStateGlobal->getType()->getElementType();
+    CPUStateType = CPUStateGlobal->getValueType();
   }
 
   llvm::GlobalVariable *CPUStateGlobalClunk =
@@ -2886,8 +3004,8 @@ int LLVMTool::ProcessBinaryTLSSymbols(void) {
 
   assert(state.for_binary(b).ObjectFile);
   assert(llvm::isa<ELFO>(state.for_binary(b).ObjectFile.get()));
-  ELFO &O = *llvm::cast<ELFO>(state.for_binary(b).ObjectFile.get());
-  const ELFF &E = *O.getELFFile();
+  const ELFO &Obj = *llvm::cast<ELFO>(state.for_binary(b).ObjectFile.get());
+  const ELFF &Elf = Obj.getELFFile();
 
   //
   // To set up the memory for the thread-local storage the dynamic linker gets
@@ -2895,7 +3013,7 @@ int LLVMTool::ProcessBinaryTLSSymbols(void) {
   // the PT TLS program header entry
   //
   const Elf_Phdr *tlsPhdr = nullptr;
-  for (const Elf_Phdr &Phdr : unwrapOrError(E.program_headers())) {
+  for (const Elf_Phdr &Phdr : unwrapOrError(Elf.program_headers())) {
     if (Phdr.p_type == llvm::ELF::PT_TLS) {
       tlsPhdr = &Phdr;
       break;
@@ -2926,19 +3044,19 @@ int LLVMTool::ProcessBinaryTLSSymbols(void) {
     const Elf_Shdr *SymTab = nullptr;
     llvm::ArrayRef<Elf_Word> ShndxTable;
 
-    for (const Elf_Shdr &Sect : unwrapOrError(E.sections())) {
+    for (const Elf_Shdr &Sect : unwrapOrError(Elf.sections())) {
       if (Sect.sh_type == llvm::ELF::SHT_SYMTAB) {
         assert(!SymTab);
         SymTab = &Sect;
       } else if (Sect.sh_type == llvm::ELF::SHT_SYMTAB_SHNDX) {
-        ShndxTable = unwrapOrError(E.getSHNDXTable(Sect));
+        ShndxTable = unwrapOrError(Elf.getSHNDXTable(Sect));
       }
     }
 
     if (SymTab) {
-      llvm::StringRef StrTable = unwrapOrError(E.getStringTableForSymtab(*SymTab));
+      llvm::StringRef StrTable = unwrapOrError(Elf.getStringTableForSymtab(*SymTab));
 
-      for (const Elf_Sym &Sym : unwrapOrError(E.symbols(SymTab))) {
+      for (const Elf_Sym &Sym : unwrapOrError(Elf.symbols(SymTab))) {
         if (Sym.getType() != llvm::ELF::STT_TLS)
           continue;
 
@@ -3036,7 +3154,7 @@ llvm::GlobalIFunc *LLVMTool::buildGlobalIFunc(function_t &f,
       llvm::GlobalValue::ExternalLinkage,
       std::string(state.for_function(f).F->getName()) + "_ifunc", Module.get());
 
-  fillInFunctionBody(F, [&](auto &IRB) {
+  fillInFunctionBody(F, [&](auto &IRB) -> void {
     if (is_dynamic_target_valid(IdxPair) && IdxPair.first == BinaryIndex) {
       function_t &f = function_of_target(IdxPair, jv);
 
@@ -3064,9 +3182,10 @@ llvm::GlobalIFunc *LLVMTool::buildGlobalIFunc(function_t &f,
     } else {
       IRB.CreateCall(JoveInstallForeignFunctionTables)->setIsNoInline();
 
-      llvm::Value *SPPtr = CPUStateGlobalPointer(tcg_stack_pointer_index, IRB);
+      llvm::Value *SPPtr =
+          BuildCPUStatePointer(IRB, CPUStateGlobal, tcg_stack_pointer_index);
 
-      llvm::Value *SavedSP = IRB.CreateLoad(SPPtr);
+      llvm::Value *SavedSP = IRB.CreateLoad(WordType(), SPPtr);
       SavedSP->setName("saved_sp");
 
       llvm::Value *TemporaryStack = nullptr;
@@ -3092,7 +3211,7 @@ llvm::GlobalIFunc *LLVMTool::buildGlobalIFunc(function_t &f,
 
       llvm::Value *SavedTraceP = nullptr;
       if (opts.Trace) {
-        SavedTraceP = IRB.CreateLoad(TraceGlobal);
+        SavedTraceP = IRB.CreateLoad(IRB.getPtrTy(), TraceGlobal);
         SavedTraceP->setName("saved_tracep");
 
         {
@@ -3101,8 +3220,8 @@ llvm::GlobalIFunc *LLVMTool::buildGlobalIFunc(function_t &f,
           llvm::AllocaInst *TraceAlloca = IRB.CreateAlloca(
               llvm::ArrayType::get(IRB.getInt64Ty(), TraceAllocaSize));
 
-          llvm::Value *NewTraceP =
-              IRB.CreateConstInBoundsGEP2_64(TraceAlloca, 0, 0);
+          llvm::Value *NewTraceP = IRB.CreateConstInBoundsGEP2_64(
+              TraceAlloca->getType(), TraceAlloca, 0, 0);
 
           IRB.CreateStore(NewTraceP, TraceGlobal);
         }
@@ -3168,17 +3287,17 @@ int LLVMTool::ProcessCOPYRelocations(void) {
   };
 
   assert(llvm::isa<ELFO>(state.for_binary(Binary).ObjectFile.get()));
-  auto &O = *llvm::cast<ELFO>(state.for_binary(Binary).ObjectFile.get());
-  const auto &E = *O.getELFFile();
+  const ELFO &Obj = *llvm::cast<ELFO>(state.for_binary(Binary).ObjectFile.get());
+  const ELFF &Elf = Obj.getELFFile();
 
-  for_each_dynamic_relocation_if(E,
+  for_each_dynamic_relocation_if(Elf,
       state.for_binary(Binary)._elf.DynRelRegion,
       state.for_binary(Binary)._elf.DynRelaRegion,
       state.for_binary(Binary)._elf.DynRelrRegion,
       state.for_binary(Binary)._elf.DynPLTRelRegion,
       is_copy_relocation,
       [&](const Relocation &R) {
-        RelSymbol RelSym = getSymbolForReloc(O, dynamic_symbols(),
+        RelSymbol RelSym = getSymbolForReloc(Obj, dynamic_symbols(),
                                              state.for_binary(Binary)._elf.DynamicStringTable, R);
 
         assert(RelSym.Sym);
@@ -3195,7 +3314,7 @@ int LLVMTool::ProcessCOPYRelocations(void) {
 
           // Get the corresponding version index entry.
           llvm::Expected<const Elf_Versym *> ExpectedVersym =
-              E.getEntry<Elf_Versym>(state.for_binary(Binary)._elf.SymbolVersionSection, EntryIndex);
+              Elf.getEntry<Elf_Versym>(*state.for_binary(Binary)._elf.SymbolVersionSection, EntryIndex);
 
           if (ExpectedVersym) {
             RelSym.Vers = getSymbolVersionByIndex(state.for_binary(Binary)._elf.VersionMap,
@@ -3304,7 +3423,7 @@ int LLVMTool::PrepareToTranslateCode(void) {
                                         StrConstant, #var, nullptr,            \
                                         llvm::GlobalVariable::NotThreadLocal); \
     GV->setUnnamedAddr(llvm::GlobalValue::UnnamedAddr::Global);                \
-    GV->setAlignment(llvm::Align::None());                                     \
+    GV->setAlignment(llvm::Align(1));                                          \
     llvm::Constant *Zero =                                                     \
         llvm::ConstantInt::get(llvm::Type::getInt32Ty(*Context), 0);           \
     llvm::Constant *Indices[] = {Zero, Zero};                                  \
@@ -3470,18 +3589,6 @@ void LLVMTool::ExplodeFunctionRets(function_t &f, std::vector<unsigned> &glbv) {
   sort_tcg_global_rets(glbv);
 }
 
-static unsigned bitsOfTCGType(TCGType ty) {
-  static_assert(TCG_TYPE_I32 == 0);
-  static_assert(TCG_TYPE_I64 == 1);
-  static_assert(TCG_TYPE_I128 == 2);
-
-  if (unlikely(ty > 2))
-    throw std::runtime_error("unhandled: vector TCGType");
-
-  static const unsigned lookup_table[] = {32, 64, 128};
-  return lookup_table[ty];
-}
-
 llvm::FunctionType *LLVMTool::FunctionTypeOfArgsAndRets(tcg_global_set_t args,
                                                         tcg_global_set_t rets) {
   std::vector<llvm::Type *> argTypes;
@@ -3561,6 +3668,7 @@ int LLVMTool::CreateFunctions(void) {
                                f.IsABI ? llvm::GlobalValue::ExternalLinkage
                                        : llvm::GlobalValue::InternalLinkage,
                                jove_name, Module.get());
+    state.for_function(f).F->addFnAttr(llvm::Attribute::NonLazyBind);
 
     if (f.IsABI)
       state.for_function(f).F->setVisibility(llvm::GlobalValue::HiddenVisibility);
@@ -3610,6 +3718,8 @@ int LLVMTool::CreateFunctions(void) {
           llvm::GlobalValue::ExternalLinkage,
           (fmt("Jj%lx") % Addr).str(), Module.get());
 
+      state.for_function(f).adapterF->addFnAttr(llvm::Attribute::NonLazyBind);
+
       //
       // assign names to the arguments, the registers they represent
       //
@@ -3646,7 +3756,7 @@ int LLVMTool::CreateFunctionTables(void) {
     if (BIdx == BinaryIndex)
       continue;
 
-    llvm::GlobalVariable *FunctionsTable = new llvm::GlobalVariable(
+    state.for_binary(binary).FunctionsTable = new llvm::GlobalVariable(
         *Module,
         llvm::ArrayType::get(WordType(),
                              3 * binary.Analysis.Functions.size() + 1),
@@ -3655,8 +3765,9 @@ int LLVMTool::CreateFunctionTables(void) {
 
     state.for_binary(binary).FunctionsTableClunk = new llvm::GlobalVariable(
         *Module,
-        FunctionsTable->getType(),
-        false, llvm::GlobalValue::InternalLinkage, FunctionsTable,
+        llvm::PointerType::get(*Context, 0),
+        false, llvm::GlobalValue::InternalLinkage,
+        state.for_binary(binary).FunctionsTable,
         (fmt("__jove_b%u_clunk") % BIdx).str());
 
     ReferenceInNoDCEFunc(state.for_binary(binary).FunctionsTableClunk);
@@ -3717,10 +3828,13 @@ int LLVMTool::CreateFunctionTable(void) {
       (fmt("__jove_internal_b%u") % BinaryIndex).str());
 
   fillInFunctionBody(
-      Module->getFunction("_jove_get_function_table"), [&](auto &IRB) {
-        IRB.CreateRet(
-            IRB.CreateConstInBoundsGEP2_64(ConstantTableInternalGV, 0, 0));
-      }, !opts.ForCBE);
+      Module->getFunction("_jove_get_function_table"),
+      [&](auto &IRB) {
+        IRB.CreateRet(IRB.CreateConstInBoundsGEP2_64(
+            ConstantTableInternalGV->getValueType(),
+            ConstantTableInternalGV, 0, 0));
+      },
+      !opts.ForCBE);
 
   fillInFunctionBody(
       Module->getFunction("_jove_function_count"), [&](auto &IRB) {
@@ -3755,20 +3869,13 @@ int LLVMTool::CreateFunctionTable(void) {
 
 namespace llvm {
 
-/// Get a natural GEP from a base pointer to a particular offset and
-/// resulting in a particular type.
-///
-/// The goal is to produce a "natural" looking GEP that works with the existing
-/// composite types to arrive at the appropriate offset and element type for
-/// a pointer. TargetTy is the element type the returned GEP should point-to if
-/// possible. We recurse by decreasing Offset, adding the appropriate index to
-/// Indices, and setting Ty to the result subtype.
-///
-/// If no natural GEP can be constructed, this function returns null.
-static Value *getNaturalGEPWithOffset(IRBuilderTy &IRB, const DataLayout &DL,
-                                      Value *Ptr, APInt Offset, Type *TargetTy,
+static Value *getNaturalGEPWithOffset(IRBuilderTy &,
+                                      const DataLayout &,
+                                      std::pair<Value *, Type *> Ptr,
+                                      APInt Offset,
+                                      Type *TargetTy,
                                       SmallVectorImpl<Value *> &Indices,
-                                      Twine NamePrefix);
+                                      const Twine &NamePrefix);
 } // namespace llvm
 
 namespace jove {
@@ -3848,6 +3955,8 @@ llvm::Constant *LLVMTool::SymbolAddress(const RelSymbol &RelSym) {
                                      ? llvm::GlobalValue::ExternalWeakLinkage
                                      : llvm::GlobalValue::ExternalLinkage,
                                  RelSym.Name, Module.get());
+      F->addFnAttr(llvm::Attribute::NonLazyBind);
+
       if (!RelSym.Vers.empty()) {
         Module->appendModuleInlineAsm(
             (llvm::Twine(".symver ") + RelSym.Name + "," + RelSym.Name +
@@ -3893,6 +4002,7 @@ llvm::Constant *LLVMTool::SymbolAddress(const RelSymbol &RelSym) {
                                    nullptr, RelSym.Name, nullptr,
                                    IsTLS ? llvm::GlobalValue::GeneralDynamicTLSModel :
                                            llvm::GlobalValue::NotThreadLocal);
+      GV->setAlignment(llvm::Align(2 * WordBytes()));
 
       if (!RelSym.Vers.empty()) {
         Module->appendModuleInlineAsm(
@@ -3911,7 +4021,8 @@ void LLVMTool::compute_irelative_relocation(llvm::IRBuilderTy &IRB,
                                             uint64_t resolverAddr) {
   llvm::Value *TemporaryStack = IRB.CreateCall(JoveAllocStackFunc);
 
-  llvm::Value *SPPtr = CPUStateGlobalPointer(tcg_stack_pointer_index, IRB);
+  llvm::Value *SPPtr =
+      BuildCPUStatePointer(IRB, CPUStateGlobal, tcg_stack_pointer_index);
   {
     llvm::Value *NewSP = IRB.CreateAdd(
         TemporaryStack,
@@ -3988,9 +4099,33 @@ void LLVMTool::compute_tpoff_relocation(llvm::IRBuilderTy &IRB,
     }
   }
 
+#if 0 // good intention behind this, but the offset here can be < 0!
+  llvm::BasicBlock *Fail =
+      llvm::BasicBlock::Create(*Context, "fail", IRB.GetInsertBlock()->getParent());
+  llvm::BasicBlock *Good =
+      llvm::BasicBlock::Create(*Context, "succ", IRB.GetInsertBlock()->getParent());
+
   llvm::Value *TP = insertThreadPointerInlineAsm(IRB);
 
+  IRB.CreateCondBr(IRB.CreateICmpUGE(TLSAddr, TP), Good, Fail);
+
+  {
+    IRB.SetInsertPoint(Fail);
+
+    IRB.CreateCall(llvm::Intrinsic::getDeclaration(
+        Module.get(), llvm::Intrinsic::trap)); /* FIXME */
+    IRB.CreateUnreachable();
+  }
+
+  {
+    IRB.SetInsertPoint(Good);
+
+    IRB.CreateRet(IRB.CreateSub(TLSAddr, TP));
+  }
+#else
+  llvm::Value *TP = insertThreadPointerInlineAsm(IRB);
   IRB.CreateRet(IRB.CreateSub(TLSAddr, TP));
+#endif
 }
 
 uint64_t LLVMTool::ExtractWordAtAddress(uint64_t Addr) {
@@ -3999,11 +4134,9 @@ uint64_t LLVMTool::ExtractWordAtAddress(uint64_t Addr) {
   auto &ObjectFile = state.for_binary(Binary).ObjectFile;
 
   assert(llvm::isa<ELFO>(ObjectFile.get()));
-  ELFO &O = *llvm::cast<ELFO>(ObjectFile.get());
+  const ELFF &Elf = llvm::cast<ELFO>(ObjectFile.get())->getELFFile();
 
-  const ELFF &E = *O.getELFFile();
-
-  llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Addr);
+  llvm::Expected<const uint8_t *> ExpectedPtr = Elf.toMappedAddr(Addr);
   if (ExpectedPtr)
     return extractAddress(*ExpectedPtr);
 
@@ -4020,9 +4153,8 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
   auto &fnmap = state.for_binary(Binary).fnmap;
 
   assert(llvm::isa<ELFO>(ObjectFile.get()));
-  ELFO &O = *llvm::cast<ELFO>(ObjectFile.get());
-
-  const ELFF &E = *O.getELFFile();
+  ELFO &Obj = *llvm::cast<ELFO>(ObjectFile.get());
+  const ELFF &Elf = Obj.getELFFile();
 
   struct PatchContents {
     LLVMTool &tool;
@@ -4124,9 +4256,9 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
       auto &Binary = tool.jv.Binaries[BinaryIndex];
       auto &ObjectFile = tool.state.for_binary(Binary).ObjectFile;
 
-      const ELFF &E = *llvm::cast<ELFO>(ObjectFile.get())->getELFFile();
+      const ELFF &Elf = llvm::cast<ELFO>(ObjectFile.get())->getELFFile();
 
-      llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Addr);
+      llvm::Expected<const uint8_t *> ExpectedPtr = Elf.toMappedAddr(Addr);
 
       if (!ExpectedPtr) {
         WithColor::warning() << llvm::formatv(
@@ -4151,7 +4283,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
   const uint64_t SectsStartAddr = state.for_binary(Binary).SectsStartAddr;
   const uint64_t SectsEndAddr = state.for_binary(Binary).SectsEndAddr;
 
-  llvm::Expected<Elf_Shdr_Range> ExpectedSections = E.sections();
+  llvm::Expected<Elf_Shdr_Range> ExpectedSections = Elf.sections();
   if (ExpectedSections && !(*ExpectedSections).empty()) {
     //
     // build section map
@@ -4160,7 +4292,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
       if (!(Sec.sh_flags & llvm::ELF::SHF_ALLOC))
         continue;
 
-      llvm::Expected<llvm::StringRef> name = E.getSectionName(&Sec);
+      llvm::Expected<llvm::StringRef> name = Elf.getSectionName(Sec);
 
       if (!name)
         continue;
@@ -4179,7 +4311,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
         sectprop.contents = llvm::ArrayRef<uint8_t>();
       } else {
         llvm::Expected<llvm::ArrayRef<uint8_t>> contents =
-            E.getSectionContents(&Sec);
+            Elf.getSectionContents(Sec);
         assert(contents);
         sectprop.contents = *contents;
       }
@@ -4231,7 +4363,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
   } else {
     llvm::SmallVector<const Elf_Phdr *, 4> LoadSegments;
 
-    auto ProgramHeadersOrError = E.program_headers();
+    auto ProgramHeadersOrError = Elf.program_headers();
     if (!ProgramHeadersOrError)
       abort();
 
@@ -4261,7 +4393,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
       std::vector<uint8_t> &vec = SegContents[i];
       vec.resize(LoadSegments[i]->p_memsz);
       memset(&vec[0], 0, vec.size());
-      memcpy(&vec[0], E.base() + LoadSegments[i]->p_offset, LoadSegments[i]->p_filesz);
+      memcpy(&vec[0], Elf.base() + LoadSegments[i]->p_offset, LoadSegments[i]->p_filesz);
 
       boost::icl::interval<uint64_t>::type intervl =
           boost::icl::interval<uint64_t>::right_open(
@@ -4399,18 +4531,22 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
       Old.ConstSectsGlobal->setName("");
     }
 
-    SectsGlobal = new llvm::GlobalVariable(*Module, SectsGlobalTy, false,
-                                           llvm::GlobalValue::ExternalLinkage,
-                                           nullptr, "__jove_sections");
+    SectsGlobal = new llvm::GlobalVariable(*Module,
+        SectsGlobalTy, false, llvm::GlobalValue::ExternalLinkage, nullptr,
+        SectsGlobalName);
 
     ConstSectsGlobal = new llvm::GlobalVariable(
         *Module, SectsGlobalTy, false, llvm::GlobalValue::ExternalLinkage,
-        nullptr, "__jove_sections_const");
+        nullptr, ConstSectsGlobalName);
 
-    if (jv.Binaries[BinaryIndex].IsExecutable &&
-        !jv.Binaries[BinaryIndex].IsPIC) {
-      SectsGlobal->setAlignment(llvm::MaybeAlign(1));
-      ConstSectsGlobal->setAlignment(llvm::MaybeAlign(1));
+    if (!jv.Binaries[BinaryIndex].IsPIC) {
+      assert(jv.Binaries[BinaryIndex].IsExecutable);
+
+      SectsGlobal->setAlignment(llvm::Align(1));
+      ConstSectsGlobal->setAlignment(llvm::Align(1));
+    } else {
+      SectsGlobal->setAlignment(llvm::Align(2 * WordBytes()));
+      ConstSectsGlobal->setAlignment(llvm::Align(2 * WordBytes()));
     }
 
     if (!Old.SectsGlobal || !Old.ConstSectsGlobal)
@@ -4707,12 +4843,8 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
                          GVFieldInits.cend(),
                          [](llvm::Constant *C) -> bool { return C != nullptr; }));
 
-      assert(llvm::isa<llvm::PointerType>(GV->getType()));
-
-      llvm::Type *Ty =
-          llvm::cast<llvm::PointerType>(GV->getType())->getElementType();
-
-      assert(llvm::isa<llvm::StructType>(Ty));
+      llvm::Type *Ty = GV->getValueType();
+      assert(Ty->isStructTy());
 
       GV->setInitializer(llvm::ConstantStruct::get(
           llvm::cast<llvm::StructType>(Ty), GVFieldInits));
@@ -4746,7 +4878,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
   //
   // print relocations
   //
-  for_each_dynamic_relocation(E,
+  for_each_dynamic_relocation(Elf,
       state.for_binary(Binary)._elf.DynRelRegion,
       state.for_binary(Binary)._elf.DynRelaRegion,
       state.for_binary(Binary)._elf.DynRelrRegion,
@@ -4759,7 +4891,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
         if (state.for_binary(Binary)._elf.OptionalDynSymRegion) {
           const DynRegionInfo &DynSymRegion = *state.for_binary(Binary)._elf.OptionalDynSymRegion;
 
-          RelSym = getSymbolForReloc(O, DynSymRegion.getAsArrayRef<Elf_Sym>(),
+          RelSym = getSymbolForReloc(Obj, DynSymRegion.getAsArrayRef<Elf_Sym>(),
                                      state.for_binary(Binary)._elf.DynamicStringTable, R);
 
           //
@@ -4773,8 +4905,9 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
 
             // Get the corresponding version index entry.
             llvm::Expected<const Elf_Versym *> ExpectedVersym =
-                E.getEntry<Elf_Versym>(state.for_binary(Binary)._elf.SymbolVersionSection,
-                                       EntryIndex);
+                Elf.getEntry<Elf_Versym>(
+                    *state.for_binary(Binary)._elf.SymbolVersionSection,
+                    EntryIndex);
 
             if (ExpectedVersym) {
               RelSym.Vers = getSymbolVersionByIndex(
@@ -4786,11 +4919,11 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
         }
 
         llvm::outs() <<
-          (fmt("%-18s @ %-8x") % E.getRelocationTypeName(R.Type).str()
+          (fmt("%-18s @ %-8x") % Elf.getRelocationTypeName(R.Type).str()
                                % R.Offset).str();
 
         if (R.Addend)
-          llvm::outs() << (fmt(" +%-8x") % *R.Addend).str();
+          llvm::outs() << (fmt(" +%-8u") % *R.Addend).str();
 
         if (const Elf_Sym *Sym = RelSym.Sym) {
           llvm::outs() <<
@@ -4818,7 +4951,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
       return DynSymRegion.getAsArrayRef<Elf_Sym>();
     };
 
-    MipsGOTParser Parser(E, Binary.path_str());
+    MipsGOTParser Parser(Elf, Binary.path_str());
     if (llvm::Error Err = Parser.findGOT(dynamic_table(),
                                          dynamic_symbols())) {
       WithColor::warning() << llvm::formatv("Failed to find GOT: {0}\n", Err);
@@ -4860,8 +4993,9 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
 
         // Get the corresponding version index entry.
         llvm::Expected<const Elf_Versym *> ExpectedVersym =
-            E.getEntry<Elf_Versym>(state.for_binary(Binary)._elf.SymbolVersionSection,
-                                   EntryIndex);
+            Elf.getEntry<Elf_Versym>(
+                *state.for_binary(Binary)._elf.SymbolVersionSection,
+                EntryIndex);
 
         if (ExpectedVersym)
           SymVers = getSymbolVersionByIndex(state.for_binary(Binary)._elf.VersionMap,
@@ -4914,7 +5048,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
 
     clear_section_stuff();
 
-    for_each_dynamic_relocation(E,
+    for_each_dynamic_relocation(Elf,
         state.for_binary(Binary)._elf.DynRelRegion,
         state.for_binary(Binary)._elf.DynRelaRegion,
         state.for_binary(Binary)._elf.DynRelrRegion,
@@ -4927,7 +5061,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
           } catch (const unhandled_relocation_exception &) {
             WithColor::error() << llvm::formatv(
                 "type_of_expression_for_relocation: unhandled relocation {0} ({1:x})\n",
-                E.getRelocationTypeName(R.Type), R.Type);
+                Elf.getRelocationTypeName(R.Type), R.Type);
             abort();
           }
 
@@ -4956,7 +5090,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
         return DynSymRegion.getAsArrayRef<Elf_Sym>();
       };
 
-      MipsGOTParser Parser(E, Binary.path_str());
+      MipsGOTParser Parser(Elf, Binary.path_str());
       if (llvm::Error Err = Parser.findGOT(dynamic_table(),
                                            dynamic_symbols())) {
         WithColor::warning() << llvm::formatv("Failed to find GOT: {0}\n", Err);
@@ -4979,7 +5113,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
 
     declare_sections();
 
-    for_each_dynamic_relocation(E,
+    for_each_dynamic_relocation(Elf,
         state.for_binary(Binary)._elf.DynRelRegion,
         state.for_binary(Binary)._elf.DynRelaRegion,
         state.for_binary(Binary)._elf.DynRelrRegion,
@@ -5002,7 +5136,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
               return DynSymRegion.getAsArrayRef<Elf_Sym>();
             };
 
-            RelSym = getSymbolForReloc(O, dynamic_symbols(),
+            RelSym = getSymbolForReloc(Obj, dynamic_symbols(),
                                        state.for_binary(Binary)._elf.DynamicStringTable, R);
 
             //
@@ -5017,8 +5151,9 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
 
               // Get the corresponding version index entry.
               llvm::Expected<const Elf_Versym *> ExpectedVersym =
-                  E.getEntry<Elf_Versym>(state.for_binary(Binary)._elf.SymbolVersionSection,
-                                         EntryIndex);
+                  Elf.getEntry<Elf_Versym>(
+                      *state.for_binary(Binary)._elf.SymbolVersionSection,
+                      EntryIndex);
 
               if (ExpectedVersym)
                 RelSym.Vers = getSymbolVersionByIndex(state.for_binary(Binary)._elf.VersionMap,
@@ -5034,7 +5169,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
           } catch (const unhandled_relocation_exception &) {
             WithColor::error() << llvm::formatv(
                 "expression_for_relocation: unhandled relocation {0}\n",
-                E.getRelocationTypeName(R.Type));
+                Elf.getRelocationTypeName(R.Type));
             abort();
           }
 
@@ -5058,7 +5193,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
         return DynSymRegion.getAsArrayRef<Elf_Sym>();
       };
 
-      MipsGOTParser Parser(E, Binary.path_str());
+      MipsGOTParser Parser(Elf, Binary.path_str());
       if (llvm::Error Err = Parser.findGOT(dynamic_table(),
                                            dynamic_symbols())) {
         WithColor::warning() << llvm::formatv("Failed to find GOT: {0}\n", Err);
@@ -5103,8 +5238,9 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
 
           // Get the corresponding version index entry.
           llvm::Expected<const Elf_Versym *> ExpectedVersym =
-              E.getEntry<Elf_Versym>(state.for_binary(Binary)._elf.SymbolVersionSection,
-                                     EntryIndex);
+              Elf.getEntry<Elf_Versym>(
+                  *state.for_binary(Binary)._elf.SymbolVersionSection,
+                  EntryIndex);
 
           if (ExpectedVersym)
             SymVers = getSymbolVersionByIndex(state.for_binary(Binary)._elf.VersionMap,
@@ -5157,6 +5293,8 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
                                  TLSObjects.find(Addr) != TLSObjects.end()
                                      ? llvm::GlobalValue::GeneralDynamicTLSModel
                                      : llvm::GlobalValue::NotThreadLocal);
+      if (GV)
+	GV->setAlignment(llvm::Align(2 * WordBytes()));
 
       if (!GV) {
         done = false;
@@ -5195,8 +5333,10 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
     }
   } while (!done);
 
-  if (TLSSectsGlobal)
+  if (TLSSectsGlobal) {
+    TLSSectsGlobal->setAlignment(llvm::Align(2 * WordBytes()));
     TLSSectsGlobal->setLinkage(llvm::GlobalValue::InternalLinkage);
+  }
 
   //
   // Binary DT_INIT
@@ -5204,10 +5344,6 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
   // XXX this should go somewhere else
   {
     auto &binary = jv.Binaries[BinaryIndex];
-
-    assert(llvm::isa<ELFO>(state.for_binary(binary).ObjectFile.get()));
-    ELFO &O = *llvm::cast<ELFO>(state.for_binary(binary).ObjectFile.get());
-    const ELFF &E = *O.getELFFile();
 
     //
     // parse dynamic table
@@ -5379,8 +5515,8 @@ LLVMTool::decipher_copy_relocation(const RelSymbol &S) {
       continue;
 
     assert(llvm::isa<ELFO>(state.for_binary(b).ObjectFile.get()));
-    ELFO &O = *llvm::cast<ELFO>(state.for_binary(b).ObjectFile.get());
-    const ELFF &E = *O.getELFFile();
+    const ELFF &Elf =
+        llvm::cast<ELFO>(state.for_binary(b).ObjectFile.get())->getELFFile();
 
     if (!state.for_binary(b)._elf.OptionalDynSymRegion)
       continue; /* no dynamic symbols */
@@ -5409,8 +5545,8 @@ LLVMTool::decipher_copy_relocation(const RelSymbol &S) {
       // symbol versioning
       //
       if (state.for_binary(b)._elf.SymbolVersionSection) {
-        const Elf_Versym *Versym = unwrapOrError(
-            E.getEntry<Elf_Versym>(state.for_binary(b)._elf.SymbolVersionSection, SymNo));
+        const Elf_Versym *Versym = unwrapOrError(Elf.getEntry<Elf_Versym>(
+            *state.for_binary(b)._elf.SymbolVersionSection, SymNo));
 
         SymVers = getSymbolVersionByIndex(state.for_binary(b)._elf.VersionMap,
                                           state.for_binary(b)._elf.DynamicStringTable,
@@ -5451,19 +5587,19 @@ int LLVMTool::ProcessManualRelocations(void) {
   };
 
   assert(llvm::isa<ELFO>(state.for_binary(Binary).ObjectFile.get()));
-  auto &O = *llvm::cast<ELFO>(state.for_binary(Binary).ObjectFile.get());
-  const auto &E = *O.getELFFile();
+  const ELFO &Obj = *llvm::cast<ELFO>(state.for_binary(Binary).ObjectFile.get());
+  const ELFF &Elf = Obj.getELFFile();
 
   std::map<uint64_t, llvm::Function *> ManualRelocs;
 
-  for_each_dynamic_relocation_if(E,
+  for_each_dynamic_relocation_if(Elf,
       state.for_binary(Binary)._elf.DynRelRegion,
       state.for_binary(Binary)._elf.DynRelaRegion,
       state.for_binary(Binary)._elf.DynRelrRegion,
       state.for_binary(Binary)._elf.DynPLTRelRegion,
       [&](const Relocation &R) -> bool { return is_manual_relocation(R); },
       [&](const Relocation &R) {
-        RelSymbol RelSym = getSymbolForReloc(O, dynamic_symbols(),
+        RelSymbol RelSym = getSymbolForReloc(Obj, dynamic_symbols(),
                                              state.for_binary(Binary)._elf.DynamicStringTable, R);
 
         llvm::Function *F = llvm::Function::Create(
@@ -5478,7 +5614,7 @@ int LLVMTool::ProcessManualRelocations(void) {
           } catch (const unhandled_relocation_exception &) {
             WithColor::error()
                 << llvm::formatv("{0}: unhandled relocation {1}", __func__,
-                                 E.getRelocationTypeName(R.Type));
+                                 Elf.getRelocationTypeName(R.Type));
             abort();
           }
         }, true);
@@ -5499,8 +5635,9 @@ int LLVMTool::ProcessManualRelocations(void) {
 
               llvm::SmallVector<llvm::Value *, 4> Indices;
               llvm::Value *SectGEP = llvm::getNaturalGEPWithOffset(
-                  IRB, DL, SectsGlobal, llvm::APInt(64, off), nullptr, Indices,
-                  "");
+                  IRB, DL,
+                  std::make_pair(SectsGlobal, SectsGlobal->getValueType()),
+                  llvm::APInt(64, off), WordType(), Indices, "");
 
               IRB.CreateStore(Computation, SectGEP, true /* Volatile */);
             });
@@ -5514,7 +5651,7 @@ int LLVMTool::ProcessManualRelocations(void) {
 int LLVMTool::CreateCopyRelocationHack(void) {
   fillInFunctionBody(
       Module->getFunction("_jove_do_emulate_copy_relocations"),
-      [&](auto &IRB) {
+      [&](auto &IRB) -> void {
         binary_t &Binary = jv.Binaries[BinaryIndex];
 
         if (!Binary.IsExecutable) {
@@ -5528,7 +5665,7 @@ int LLVMTool::CreateCopyRelocationHack(void) {
           WARN_ON(pair.second.first < 3);
 
           if (state.for_binary(BinaryFrom).SectsF) {
-            IRB.CreateMemCpy(
+            IRB.CreateMemCpyInline(
                 IRB.CreateIntToPtr(SectionPointer(pair.first.first),
                                    IRB.getInt8PtrTy()),
                 llvm::MaybeAlign(),
@@ -5537,7 +5674,8 @@ int LLVMTool::CreateCopyRelocationHack(void) {
                         IRB.CreateCall(state.for_binary(BinaryFrom).SectsF),
                         IRB.getIntN(WordBits(), pair.second.second.second)),
                     IRB.getInt8PtrTy()),
-                llvm::MaybeAlign(), pair.first.second, true /* Volatile */);
+                llvm::MaybeAlign(),
+		IRB.getInt32(pair.first.second), true /* Volatile */);
           } else {
             assert(opts.ForeignLibs);
 
@@ -5548,10 +5686,13 @@ int LLVMTool::CreateCopyRelocationHack(void) {
             //
             // get the load address
             //
-            llvm::Value *FnsTbl = IRB.CreateLoad(IRB.CreateConstInBoundsGEP2_64(
-                JoveForeignFunctionTablesGlobal, 0, BIdxFrom));
+            llvm::Value *FnsTbl = IRB.CreateLoad(
+                IRB.getPtrTy(),
+                IRB.CreateConstInBoundsGEP2_64(
+                    JoveForeignFunctionTablesGlobal->getValueType(),
+                    JoveForeignFunctionTablesGlobal, 0, BIdxFrom));
 
-            llvm::Value *FirstEntry = IRB.CreateLoad(FnsTbl);
+            llvm::Value *FirstEntry = IRB.CreateLoad(WordType(), FnsTbl);
 
             llvm::Value *LoadBias = IRB.CreateSub(
                 FirstEntry,
@@ -5564,7 +5705,7 @@ int LLVMTool::CreateCopyRelocationHack(void) {
             llvm::errs() << llvm::formatv("FnsTbl: {0} Type: {1}\n", *FnsTbl,
                                           *FnsTbl->getType());
 
-            IRB.CreateMemCpy(
+            IRB.CreateMemCpyInline(
                 IRB.CreateIntToPtr(SectionPointer(pair.first.first),
                                    IRB.getInt8PtrTy()),
                 llvm::MaybeAlign(),
@@ -5573,7 +5714,8 @@ int LLVMTool::CreateCopyRelocationHack(void) {
                         LoadBias,
                         IRB.getIntN(WordBits(), pair.second.second.first)),
                     IRB.getInt8PtrTy()),
-                llvm::MaybeAlign(), pair.first.second, true /* Volatile */);
+                llvm::MaybeAlign(),
+		IRB.getInt32(pair.first.second), true /* Volatile */);
           }
 
           if (IsVerbose())
@@ -5653,7 +5795,7 @@ int LLVMTool::FixupHelperStubs(void) {
 
   fillInFunctionBody(
       Module->getFunction("_jove_call_entry"),
-      [&](auto &IRB) {
+      [&](auto &IRB) -> void {
         if (is_function_index_valid(Binary.Analysis.EntryFunction)) {
           function_t &f = Binary.Analysis.Functions[Binary.Analysis.EntryFunction];
 
@@ -5663,11 +5805,14 @@ int LLVMTool::FixupHelperStubs(void) {
             ExplodeFunctionArgs(f, glbv);
 
             ArgVec.resize(glbv.size());
-            std::transform(glbv.begin(),
-                           glbv.end(), ArgVec.begin(),
-                           [&](unsigned glb) -> llvm::Value * {
-                             return IRB.CreateLoad(CPUStateGlobalPointer(glb, IRB));
-                           });
+            std::transform(
+                glbv.begin(),
+                glbv.end(), ArgVec.begin(),
+                [&](unsigned glb) -> llvm::Value * {
+                  return IRB.CreateLoad(
+                      TypeOfTCGGlobal(glb),
+                      BuildCPUStatePointer(IRB, CPUStateGlobal, glb));
+                });
           }
 
           IRB.CreateCall(state.for_function(f).F, ArgVec)->setIsNoInline();
@@ -5680,7 +5825,7 @@ int LLVMTool::FixupHelperStubs(void) {
 
   fillInFunctionBody(
       Module->getFunction("_jove_get_dynl_function_table"),
-      [&](auto &IRB) {
+      [&](auto &IRB) -> void {
         binary_t &dynl_binary = get_dynl(jv);
         assert(dynl_binary.IsDynamicLinker);
         auto &ICFG = dynl_binary.Analysis.ICFG;
@@ -5706,12 +5851,13 @@ int LLVMTool::FixupHelperStubs(void) {
             *Module, T, false, llvm::GlobalValue::InternalLinkage, Init,
             "__jove_dynl_function_table");
 
-        IRB.CreateRet(IRB.CreateConstInBoundsGEP2_64(ConstantTableGV, 0, 0));
+        IRB.CreateRet(IRB.CreateConstInBoundsGEP2_64(
+            ConstantTableGV->getValueType(), ConstantTableGV, 0, 0));
       }, !opts.ForCBE);
 
   fillInFunctionBody(
       Module->getFunction("_jove_get_vdso_function_table"),
-      [&](auto &IRB) {
+      [&](auto &IRB) -> void {
         binary_t &vdso_binary = get_vdso(jv);
         assert(vdso_binary.IsVDSO);
         auto &ICFG = vdso_binary.Analysis.ICFG;
@@ -5734,7 +5880,8 @@ int LLVMTool::FixupHelperStubs(void) {
         llvm::GlobalVariable *ConstantTableGV = new llvm::GlobalVariable(
             *Module, T, false, llvm::GlobalValue::InternalLinkage, Init,
             "__jove_vdso_function_table");
-        IRB.CreateRet(IRB.CreateConstInBoundsGEP2_64(ConstantTableGV, 0, 0));
+        IRB.CreateRet(IRB.CreateConstInBoundsGEP2_64(
+            ConstantTableGV->getValueType(), ConstantTableGV, 0, 0));
       }, !opts.ForCBE);
 
   fillInFunctionBody(
@@ -5843,8 +5990,8 @@ int LLVMTool::FixupHelperStubs(void) {
                 CaseIRB.SetCurrentDebugLocation(llvm::DILocation::get(
                     *Context, 0 /* Line */, 0 /* Column */, F->getSubprogram()));
 
-                CaseIRB.CreateRet(
-                    CaseIRB.CreateConstInBoundsGEP2_64(ConstantTableGV, 0, 0));
+                CaseIRB.CreateRet(CaseIRB.CreateConstInBoundsGEP2_64(
+                    ConstantTableGV->getValueType(), ConstantTableGV, 0, 0));
               }
 
               SI->addCase(llvm::ConstantInt::get(IRB.getInt32Ty(), BIdx - 3),  CaseBB);
@@ -5890,52 +6037,56 @@ struct TranslateContext {
   }
 };
 
-static llvm::AllocaInst *CreateAllocaForGlobal(TranslateContext &TC,
-                                               llvm::IRBuilderTy &IRB,
-                                               unsigned glb,
-                                               bool InitializeFromEnv = true) {
-  llvm::AllocaInst *res = IRB.CreateAlloca(
-      IRB.getIntNTy(bitsOfTCGType(jv_get_tcg_context()->temps[glb].type)), nullptr,
-      std::string(jv_get_tcg_context()->temps[glb].name));
+llvm::AllocaInst *
+LLVMTool::CreateAllocaForGlobal(TranslateContext &TC,
+                                llvm::IRBuilderTy &IRB,
+                                unsigned glb,
+                                bool InitializeFromEnv) {
+  llvm::AllocaInst *res =
+      IRB.CreateAlloca(TypeOfTCGGlobal(glb), nullptr,
+                       std::string(jv_get_tcg_context()->temps[glb].name));
 
   if (InitializeFromEnv) {
-    llvm::MDNode *AliasScopeMetadata = TC.tool.AliasScopeMetadata;
+    llvm::MDNode *Metadata = AliasScopeMetadata;
 
-    llvm::LoadInst *LI = IRB.CreateLoad(TC.tool.CPUStateGlobalPointer(glb, IRB));
-    LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
+    llvm::LoadInst *LI = IRB.CreateLoad(
+        TypeOfTCGGlobal(glb), BuildCPUStatePointer(IRB, CPUStateGlobal, glb));
+    LI->setMetadata(llvm::LLVMContext::MD_alias_scope, Metadata);
 
     llvm::StoreInst *SI = IRB.CreateStore(LI, res);
-    SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
+    SI->setMetadata(llvm::LLVMContext::MD_alias_scope, Metadata);
   }
 
   return res;
 }
 
-llvm::Value *LLVMTool::CPUStateGlobalPointer(unsigned glb, llvm::IRBuilderTy &IRB) {
+llvm::Constant *LLVMTool::CPUStateGlobalPointer(llvm::IRBuilderTy &IRB,
+                                                unsigned glb) {
   assert(glb < tcg_num_globals);
   assert(glb != tcg_env_index);
 
-  unsigned bits = bitsOfTCGType(jv_get_tcg_context()->temps[glb].type);
-  llvm::Type *GlbTy = llvm::IntegerType::get(*Context, bits);
+  llvm::IntegerType *GlbTy = TypeOfTCGGlobal(glb);
 
   struct TCGTemp *base_tmp = jv_get_tcg_context()->temps[glb].mem_base;
   if (unlikely(!base_tmp || temp_idx(base_tmp) != tcg_env_index))
     return nullptr;
 
-  unsigned off = jv_get_tcg_context()->temps[glb].mem_offset;
+  unsigned Off = jv_get_tcg_context()->temps[glb].mem_offset;
 
   llvm::SmallVector<llvm::Value *, 4> Indices;
   llvm::Value *res = llvm::getNaturalGEPWithOffset(
-      IRB, DL, CPUStateGlobal, llvm::APInt(64, off), GlbTy,
-      Indices, "");
+      IRB, DL, std::make_pair(CPUStateGlobal, CPUStateType),
+      llvm::APInt(64, Off), GlbTy, Indices, "");
 
-  if (res)
-    return IRB.CreatePointerCast(res, GlbTy->getPointerTo());
+  if (res) {
+    assert(llvm::isa<llvm::Constant>(res));
+    return llvm::cast<llvm::Constant>(res);
+  }
 
-  // fallback
-  return IRB.CreateIntToPtr(
-      IRB.CreateAdd(IRB.CreatePtrToInt(CPUStateGlobal, WordType()),
-                    llvm::ConstantInt::get(WordType(), off)),
+  return llvm::ConstantExpr::getIntToPtr(
+      llvm::ConstantExpr::getAdd(
+          llvm::ConstantExpr::getPtrToInt(CPUStateGlobal, WordType()),
+          llvm::ConstantInt::get(WordType(), Off)),
       GlbTy->getPointerTo());
 }
 
@@ -5945,27 +6096,24 @@ llvm::Value *LLVMTool::BuildCPUStatePointer(llvm::IRBuilderTy &IRB,
   assert(glb < tcg_num_globals);
   assert(glb != tcg_env_index);
 
-  unsigned bits = bitsOfTCGType(jv_get_tcg_context()->temps[glb].type);
-  llvm::Type *GlbTy = llvm::IntegerType::get(*Context, bits);
+  llvm::IntegerType *GlbTy = TypeOfTCGGlobal(glb);
 
   struct TCGTemp *base_tmp = jv_get_tcg_context()->temps[glb].mem_base;
   if (unlikely(!base_tmp || temp_idx(base_tmp) != tcg_env_index))
     return nullptr;
 
-  unsigned off = jv_get_tcg_context()->temps[glb].mem_offset;
+  unsigned Off = jv_get_tcg_context()->temps[glb].mem_offset;
 
   llvm::SmallVector<llvm::Value *, 4> Indices;
-  llvm::Value *res = llvm::getNaturalGEPWithOffset(
-      IRB, DL, Env, llvm::APInt(64, off), GlbTy, Indices, "");
-
-  if (res)
-    return IRB.CreatePointerCast(res, llvm::PointerType::get(GlbTy, 0));
+  if (llvm::Value *res = llvm::getNaturalGEPWithOffset(
+          IRB, DL, std::make_pair(Env, CPUStateType), llvm::APInt(64, Off),
+          GlbTy, Indices, ""))
+    return res;
 
   // fallback
-  return IRB.CreateIntToPtr(
-      IRB.CreateAdd(IRB.CreatePtrToInt(Env, WordType()),
-                    llvm::ConstantInt::get(WordType(), off)),
-      llvm::PointerType::get(GlbTy, 0));
+  return IRB.CreateIntToPtr(IRB.CreateAdd(IRB.CreatePtrToInt(Env, WordType()),
+                                          IRB.getIntN(WordBits(), Off)),
+                            GlbTy->getPointerTo());
 }
 
 int LLVMTool::TranslateFunction(function_t &f) {
@@ -5995,7 +6143,7 @@ int LLVMTool::TranslateFunction(function_t &f) {
     SubProgFlags |= llvm::DISubprogram::SPFlagLocalToUnit;
 
   llvm::DISubroutineType *SubProgType =
-      DIB.createSubroutineType(DIB.getOrCreateTypeArray(llvm::None));
+      DIB.createSubroutineType(DIB.getOrCreateTypeArray(std::nullopt));
 
   TC.DebugInformation.Subprogram = DIB.createFunction(
       /* Scope       */ DebugInformation.CompileUnit,
@@ -6072,15 +6220,14 @@ int LLVMTool::TranslateFunction(function_t &f) {
       if (!SPAlloca)
         SPAlloca = CreateAllocaForGlobal(TC, IRB, tcg_stack_pointer_index, true);
 
-      llvm::LoadInst *LI = IRB.CreateLoad(SPAlloca);
+      llvm::LoadInst *LI = IRB.CreateLoad(WordType(), SPAlloca);
       LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
 
-      IRB.CreateCall(
-          JoveLogFunctionStart->getFunctionType(),
-          IRB.CreateIntToPtr(
-              IRB.CreateLoad(JoveLogFunctionStartClunk),
-              JoveLogFunctionStart->getType()),
-          {IRB.CreateIntCast(LI, IRB.getInt64Ty(), false)});
+      IRB.CreateCall(JoveLogFunctionStart->getFunctionType(),
+                     IRB.CreateIntToPtr(
+                         IRB.CreateLoad(WordType(), JoveLogFunctionStartClunk),
+                         JoveLogFunctionStart->getType()),
+                     {IRB.CreateIntCast(LI, IRB.getInt64Ty(), false)});
     }
 
     IRB.CreateBr(state.for_basic_block(Binary, entry_bb).B);
@@ -6145,7 +6292,9 @@ int LLVMTool::TranslateFunction(function_t &f) {
                                          CallConvArgArray.end(), glb));
                            return F->getArg(Idx);
                          } else {
-                           llvm::LoadInst *LI = IRB.CreateLoad(CPUStateGlobalPointer(glb, IRB));
+                           llvm::LoadInst *LI = IRB.CreateLoad(
+                               TypeOfTCGGlobal(glb),
+                               BuildCPUStatePointer(IRB, CPUStateGlobal, glb));
                            LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
                            return LI;
                          }
@@ -6168,8 +6317,7 @@ int LLVMTool::TranslateFunction(function_t &f) {
         } else {
           std::vector<llvm::Value *> RetValues(
               CallConvRetArray.size(),
-              llvm::UndefValue::get(llvm::Type::getIntNTy(*Context,
-                  bitsOfTCGType(jv_get_tcg_context()->temps[CallConvRetArray.at(0)].type))));
+              llvm::UndefValue::get(TypeOfTCGGlobal(CallConvRetArray.at(0))));
 
           if (Ret->getType()->isIntegerTy(WordBits())) {
             assert(glbv.size() == 1);
@@ -6177,7 +6325,7 @@ int LLVMTool::TranslateFunction(function_t &f) {
             unsigned glb = glbv.front();
             assert(glb == tcg_stack_pointer_index);
 
-            llvm::StoreInst *SI = IRB.CreateStore(Ret, CPUStateGlobalPointer(glb, IRB));
+            llvm::StoreInst *SI = IRB.CreateStore(Ret, BuildCPUStatePointer(IRB, CPUStateGlobal, glb));
             SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
           } else {
             assert(glbv.size() > 1);
@@ -6191,8 +6339,8 @@ int LLVMTool::TranslateFunction(function_t &f) {
                     Ret, llvm::ArrayRef<unsigned>(i),
                     jv_get_tcg_context()->temps[glb].name + std::string("_"));
 
-                llvm::StoreInst *SI = IRB.CreateStore(ReturnedSP,
-                                                      CPUStateGlobalPointer(glb, IRB));
+                llvm::StoreInst *SI = IRB.CreateStore(
+                    ReturnedSP, BuildCPUStatePointer(IRB, CPUStateGlobal, glb));
                 SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
               } else if (CallConvRets.test(glb)) {
                  unsigned Idx = std::distance(
@@ -6293,27 +6441,26 @@ int LLVMTool::TranslateFunctions(void) {
 int LLVMTool::PrepareToOptimize(void) {
   // Initialize passes
   llvm::PassRegistry &Registry = *llvm::PassRegistry::getPassRegistry();
-  llvm::initializeCore(Registry);
-  llvm::initializeCoroutines(Registry);
-  llvm::initializeScalarOpts(Registry);
-  llvm::initializeObjCARCOpts(Registry);
-  llvm::initializeVectorization(Registry);
-  llvm::initializeIPO(Registry);
-  llvm::initializeAnalysis(Registry);
-  llvm::initializeTransformUtils(Registry);
-  llvm::initializeInstCombine(Registry);
-  llvm::initializeAggressiveInstCombine(Registry);
-  llvm::initializeInstrumentation(Registry);
-  llvm::initializeTarget(Registry);
+  initializeCore(Registry);
+  initializeScalarOpts(Registry);
+  initializeVectorization(Registry);
+  initializeIPO(Registry);
+  initializeAnalysis(Registry);
+  initializeTransformUtils(Registry);
+  initializeInstCombine(Registry);
+  initializeTarget(Registry);
   // For codegen passes, only passes that do IR to IR transformation are
   // supported.
+  initializeExpandLargeDivRemLegacyPassPass(Registry);
+  initializeExpandLargeFpConvertLegacyPassPass(Registry);
   initializeExpandMemCmpPassPass(Registry);
-  initializeScalarizeMaskedMemIntrinPass(Registry);
+  initializeScalarizeMaskedMemIntrinLegacyPassPass(Registry);
+  initializeSelectOptimizePass(Registry);
   initializeCodeGenPreparePass(Registry);
   initializeAtomicExpandPass(Registry);
   initializeRewriteSymbolsLegacyPassPass(Registry);
   initializeWinEHPreparePass(Registry);
-  initializeDwarfEHPreparePass(Registry);
+  initializeDwarfEHPrepareLegacyPassPass(Registry);
   initializeSafeStackLegacyPassPass(Registry);
   initializeSjLjEHPreparePass(Registry);
   initializePreISelIntrinsicLoweringLegacyPassPass(Registry);
@@ -6321,80 +6468,175 @@ int LLVMTool::PrepareToOptimize(void) {
   initializeIndirectBrExpandPassPass(Registry);
   initializeInterleavedLoadCombinePass(Registry);
   initializeInterleavedAccessPass(Registry);
-  initializeEntryExitInstrumenterPass(Registry);
-  initializePostInlineEntryExitInstrumenterPass(Registry);
   initializeUnreachableBlockElimLegacyPassPass(Registry);
   initializeExpandReductionsPass(Registry);
+  initializeExpandVectorPredicationPass(Registry);
   initializeWasmEHPreparePass(Registry);
   initializeWriteBitcodePassPass(Registry);
   initializeHardwareLoopsPass(Registry);
-  initializeTypePromotionPass(Registry);
+  initializeReplaceWithVeclibLegacyPass(Registry);
+  initializeJMCInstrumenterPass(Registry);
 
   return 0;
 }
 
 void LLVMTool::ReloadGlobalVariables(void) {
-  SectsGlobal      = Module->getGlobalVariable("__jove_sections",       true);
-  ConstSectsGlobal = Module->getGlobalVariable("__jove_sections_const", true);
+  SectsGlobal      = Module->getGlobalVariable(SectsGlobalName, true);
+  ConstSectsGlobal = Module->getGlobalVariable(ConstSectsGlobalName, true);
 }
 
 int LLVMTool::DoOptimize(void) {
-  int rc = PrepareToOptimize();
-  assert(rc == 0);
+  PrepareToOptimize();
 
-  if (llvm::verifyModule(*Module, &llvm::errs())) {
+  const bool DoVerify = true;
+
+  // Immediately run the verifier to catch any problems before starting up the
+  // pass pipelines.  Otherwise we can crash on broken code during
+  // doInitialization().
+  if (DoVerify && llvm::verifyModule(*Module, &llvm::errs())) {
     WithColor::error() << "DoOptimize: [pre] failed to verify module\n";
-
-    WithColor::error() << "Dumping module...\n";
-    DumpModule("pre.opt1.fail");
-
-    // llvm::errs() << *Module << '\n';
+    DumpModule("pre.opt.fail");
     return 1;
   }
 
-  constexpr unsigned OptLevel = 3;
-  constexpr unsigned SizeLevel = 2;
+  std::string VerifyDIPreserveExport("");
+  std::optional<llvm::PGOOptions> P;
 
-  llvm::legacy::PassManager MPM;
-  llvm::legacy::FunctionPassManager FPM(Module.get());
-
-  // Add an appropriate TargetLibraryInfo pass for the module's triple.
   llvm::Triple ModuleTriple(Module->getTargetTriple());
-
   llvm::TargetLibraryInfoImpl TLII(ModuleTriple);
-
-  // The -disable-simplify-libcalls flag actually disables all builtin optzns.
   if (true /* DisableSimplifyLibCalls */)
     TLII.disableAllFunctions();
-  MPM.add(new llvm::TargetLibraryInfoWrapperPass(TLII));
 
-  // Add internal analysis passes from the target machine.
-  MPM.add(llvm::createTargetTransformInfoWrapperPass(disas.TM->getTargetIRAnalysis()));
-  FPM.add(llvm::createTargetTransformInfoWrapperPass(disas.TM->getTargetIRAnalysis()));
+  llvm::LoopAnalysisManager LAM;
+  llvm::FunctionAnalysisManager FAM;
+  llvm::CGSCCAnalysisManager CGAM;
+  llvm::ModuleAnalysisManager MAM;
 
-  llvm::PassManagerBuilder Builder;
-  Builder.OptLevel = OptLevel;
-  Builder.SizeLevel = SizeLevel;
+  llvm::PassInstrumentationCallbacks PIC;
 
-  Builder.Inliner =
-      llvm::createFunctionInliningPass(OptLevel, SizeLevel, false);
+#if 0
+  llvm::PrintPassOptions PrintPassOpts;
 
-  disas.TM->adjustPassManager(Builder);
+  PrintPassOpts.Verbose = IsVerbose();
+  PrintPassOpts.SkipAnalyses = true; // quiet
 
-  Builder.populateFunctionPassManager(FPM);
-  Builder.populateModulePassManager(MPM);
+  llvm::StandardInstrumentations SI(*Context,
+                                    false /* DebugLogging */,
+                                    false /* VerifyEachPass */,
+                                    PrintPassOpts);
+  SI.registerCallbacks(PIC, &FAM);
+#endif
 
-  FPM.doInitialization();
-  for (llvm::Function &F : *Module)
-    FPM.run(F);
-  FPM.doFinalization();
+#if 0
+  llvm::DebugifyEachInstrumentation Debugify;
+  DebugifyStatsMap DIStatsMap;
+  DebugInfoPerPass DebugInfoBeforePass;
+  if (false /* DebugifyEach */) {
+    Debugify.setDIStatsMap(DIStatsMap);
+    Debugify.setDebugifyMode(DebugifyMode::SyntheticDebugInfo);
+    Debugify.registerCallbacks(PIC);
+  } else if (false /* VerifyEachDebugInfoPreserve */) {
+    Debugify.setDebugInfoBeforePass(DebugInfoBeforePass);
+    Debugify.setDebugifyMode(DebugifyMode::OriginalDebugInfo);
+    Debugify.setOrigDIVerifyBugsReportFilePath(VerifyDIPreserveExport);
+    Debugify.registerCallbacks(PIC);
+  }
+#endif
 
-  MPM.run(*Module);
+  llvm::PipelineTuningOptions PTO;
+  PTO.LoopUnrolling = false;
 
-  if (llvm::verifyModule(*Module, &llvm::errs())) {
+  llvm::PassBuilder PB(disas.TM.get(), PTO, P, &PIC);
+
+  const std::string AAPipeline("default");
+
+  // Specially handle the alias analysis manager so that we can register
+  // a custom pipeline of AA passes with it.
+  llvm::AAManager AA;
+  if (auto Err = PB.parseAAPipeline(AA, AAPipeline)) {
+    WithColor::error() << llvm::toString(std::move(Err)) << "\n";
+    return 1;
+  }
+
+  // Register the AA manager first so that our version is the one used.
+  FAM.registerPass([&] { return std::move(AA); });
+  // Register our TargetLibraryInfoImpl.
+  FAM.registerPass([&] { return llvm::TargetLibraryAnalysis(TLII); });
+
+  // Register all the basic analyses with the managers.
+  PB.registerModuleAnalyses(MAM);
+  PB.registerCGSCCAnalyses(CGAM);
+  PB.registerFunctionAnalyses(FAM);
+  PB.registerLoopAnalyses(LAM);
+  PB.crossRegisterProxies(LAM, FAM, CGAM, MAM);
+
+  llvm::ModulePassManager MPM;
+
+#if 0
+  const bool EnableDebugify = false;
+  const bool VerifyDIPreserve = false;
+
+  if (EnableDebugify)
+    MPM.addPass(NewPMDebugifyPass());
+  if (VerifyDIPreserve)
+    MPM.addPass(NewPMDebugifyPass(DebugifyMode::OriginalDebugInfo, "",
+                                  &DebugInfoBeforePass));
+#endif
+
+  const llvm::StringRef PassPipeline = "default<Oz>";
+  if (auto Err = PB.parsePassPipeline(MPM, PassPipeline)) {
+    WithColor::error() << llvm::toString(std::move(Err)) << "\n";
+    return false;
+  }
+
+  //MPM.addPass(llvm::VerifierPass());
+
+#if 0
+  if (EnableDebugify)
+    MPM.addPass(NewPMCheckDebugifyPass(false, "", &DIStatsMap));
+  if (VerifyDIPreserve)
+    MPM.addPass(NewPMCheckDebugifyPass(
+        false, "", nullptr, DebugifyMode::OriginalDebugInfo,
+        &DebugInfoBeforePass, VerifyDIPreserveExport));
+#endif
+
+  // Print a textual, '-passes=' compatible, representation of pipeline if
+  // requested.
+  if (false /* IsVeryVerbose() */) {
+    std::string Pipeline;
+    llvm::raw_string_ostream SOS(Pipeline);
+    MPM.printPipeline(SOS, [&PIC](llvm::StringRef ClassName) {
+      auto PassName = PIC.getPassNameForClassName(ClassName);
+      return PassName.empty() ? ClassName : PassName;
+    });
+    llvm::outs() << Pipeline;
+    llvm::outs() << "\n";
+
+    const bool DisablePipelineVerification = false;
+    if (!DisablePipelineVerification) {
+      // Check that we can parse the returned pipeline string as an actual
+      // pipeline.
+      llvm::ModulePassManager TempPM;
+      if (auto Err = PB.parsePassPipeline(TempPM, Pipeline)) {
+        WithColor::error() << "Could not parse dumped pass pipeline: "
+                           << llvm::toString(std::move(Err)) << "\n";
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  // Now that we have all of the passes ready, run them.
+  MPM.run(*Module, MAM);
+
+  if (DoVerify && llvm::verifyModule(*Module, &llvm::errs())) {
     WithColor::error() << "DoOptimize: [post] failed to verify module\n";
 
-    DumpModule("post.opt1.fail");
+    WithColor::error() << "Dumping module...\n";
+    DumpModule("post.opt.fail");
+
+    // llvm::errs() << *Module << '\n';
     return 1;
   }
 
@@ -6408,6 +6650,8 @@ int LLVMTool::DoOptimize(void) {
 }
 
 int LLVMTool::ConstifyRelocationSectionPointers(void) {
+  return 0;
+
   binary_t &Binary = jv.Binaries[BinaryIndex];
 
   assert(SectsGlobal && ConstSectsGlobal);
@@ -6448,7 +6692,10 @@ int LLVMTool::ConstifyRelocationSectionPointers(void) {
           llvm::IRBuilderTy IRB(*Context);
           llvm::SmallVector<llvm::Value *, 4> Indices;
           llvm::Value *SectionGEP = llvm::getNaturalGEPWithOffset(
-              IRB, DL, ConstSectsGlobal, llvm::APInt(64, off), nullptr, Indices, "");
+              IRB, DL,
+              std::make_pair(ConstSectsGlobal,
+                             ConstSectsGlobal->getValueType()),
+              llvm::APInt(64, off), nullptr, Indices, "");
 
           if (llvm::isa<llvm::Constant>(SectionGEP))
             ToReplace.push_back(
@@ -6525,6 +6772,8 @@ int LLVMTool::ExpandMemoryIntrinsicCalls(void) {
 }
 
 int LLVMTool::ReplaceAllRemainingUsesOfConstSections(void) {
+  return 0;
+
   if (!ConstSectsGlobal)
     return 0;
 
@@ -6619,28 +6868,26 @@ int LLVMTool::DFSanInstrument(void) {
   }
 #endif
 
-#if 1
-  llvm::legacy::PassManager MPM;
-#else
-  llvm::legacy::FunctionPassManager FPM(Module.get());
-#endif
+  llvm::ModulePassManager MPM;
 
   // Add an appropriate TargetLibraryInfo pass for the module's triple.
   llvm::Triple ModuleTriple(Module->getTargetTriple());
-#if 1
   llvm::TargetLibraryInfoImpl TLII(ModuleTriple);
 
   // The -disable-simplify-libcalls flag actually disables all builtin optzns.
   if (true /* DisableSimplifyLibCalls */)
     TLII.disableAllFunctions();
-  MPM.add(new llvm::TargetLibraryInfoWrapperPass(TLII));
+
+#if 0
+  MPM.addPass(new llvm::TargetLibraryInfoWrapperPass(TLII));
 
   // Add internal analysis passes from the target machine.
-  MPM.add(llvm::createTargetTransformInfoWrapperPass(disas.TM->getTargetIRAnalysis()));
+  MPM.addPass(llvm::createTargetTransformInfoWrapperPass(disas.TM->getTargetIRAnalysis()));
+#endif
 
   std::vector<std::string> ABIList = {locator().dfsan_abilist()};
 
-  MPM.add(llvm::createDataFlowSanitizerPass(ABIList, nullptr, nullptr));
+  MPM.addPass(llvm::DataFlowSanitizerPass(ABIList));
 
   {
     llvm::StringMap<llvm::cl::Option*> &OptionMap = llvm::cl::getRegisteredOptions();
@@ -6656,20 +6903,24 @@ int LLVMTool::DFSanInstrument(void) {
     }
   }
 
-  MPM.run(*Module);
-#else
-  std::vector<std::string> ABIList;
-  FPM.add(llvm::createTargetTransformInfoWrapperPass(TM->getTargetIRAnalysis()));
-  FPM.add(llvm::createDataFlowSanitizerPass(ABIList, nullptr, nullptr));
+  llvm::ModuleAnalysisManager MAM;
+  llvm::CGSCCAnalysisManager CGAM;
+  llvm::FunctionAnalysisManager FAM;
+  llvm::LoopAnalysisManager LAM;
 
-  FPM.doInitialization();
-  for (function_t &f : jv.Binaries[BinaryIndex].Analysis.Functions) {
-    assert(f.F);
+  llvm::PipelineTuningOptions PTO;
+  llvm::PassInstrumentationCallbacks PIC;
+  std::optional<llvm::PGOOptions> P;
+  llvm::PassBuilder PB(disas.TM.get(), PTO, P, &PIC);
 
-    FPM.run(*f.F);
-  }
-  FPM.doFinalization();
-#endif
+  // Register all the basic analyses with the managers.
+  PB.registerModuleAnalyses(MAM);
+  PB.registerCGSCCAnalyses(CGAM);
+  PB.registerFunctionAnalyses(FAM);
+  PB.registerLoopAnalyses(LAM);
+  PB.crossRegisterProxies(LAM, FAM, CGAM, MAM);
+
+  MPM.run(*Module, MAM);
 
 #if 0
   if (llvm::verifyModule(*Module, &llvm::errs())) {
@@ -6765,7 +7016,7 @@ int LLVMTool::WriteModule(void) {
   }
 
   std::error_code EC;
-  llvm::ToolOutputFile Out(opts.Output, EC, llvm::sys::fs::F_None);
+  llvm::ToolOutputFile Out(opts.Output, EC, llvm::sys::fs::OF_None);
   if (EC) {
     WithColor::error() << EC.message() << '\n';
     return 1;
@@ -6787,21 +7038,28 @@ namespace llvm {
 ///
 /// This will return the BasePtr if that is valid, or build a new GEP
 /// instruction using the IRBuilder if GEP-ing is needed.
-static Value *buildGEP(IRBuilderTy &IRB, Value *BasePtr,
-                       SmallVectorImpl<Value *> &Indices, Twine NamePrefix) {
+static Value *buildGEP(IRBuilderTy &IRB, std::pair<Value *, Type *> BasePtr,
+                       SmallVectorImpl<Value *> &Indices,
+                       const Twine &NamePrefix) {
   if (Indices.empty())
-    return BasePtr;
+    return BasePtr.first;
 
   // A single zero index is a no-op, so check for this and avoid building a GEP
   // in that case.
   if (Indices.size() == 1 && cast<ConstantInt>(Indices.back())->isZero())
-    return BasePtr;
+    return BasePtr.first;
 
-  if (isa<Constant>(BasePtr))
-    return ConstantExpr::getInBoundsGetElementPtr(
-        nullptr, cast<Constant>(BasePtr), Indices);
+  Type *ElementTy = BasePtr.first->getType()->isOpaquePointerTy()
+                        ? BasePtr.second
+                        : BasePtr.first->getType()->getNonOpaquePointerElementType();
+
+  // buildGEP() is only called for non-opaque pointers.
+  if (isa<Constant>(BasePtr.first))
+    return llvm::ConstantExpr::getInBoundsGetElementPtr(
+        ElementTy, cast<Constant>(BasePtr.first), Indices);
   else
-    return IRB.CreateInBoundsGEP(nullptr, BasePtr, Indices, NamePrefix);
+    return IRB.CreateInBoundsGEP(ElementTy, BasePtr.first, Indices,
+                                 NamePrefix + "sroa_idx");
 }
 
 /// Get a natural GEP off of the BasePtr walking through Ty toward
@@ -6814,14 +7072,15 @@ static Value *buildGEP(IRBuilderTy &IRB, Value *BasePtr,
 /// one with the same size. If none of that works, we just produce the GEP as
 /// indicated by Indices to have the correct offset.
 static Value *getNaturalGEPWithType(IRBuilderTy &IRB, const DataLayout &DL,
-                                    Value *BasePtr, Type *Ty, Type *TargetTy,
+                                    std::pair<Value *, Type *> BasePtr,
+                                    Type *Ty, Type *TargetTy,
                                     SmallVectorImpl<Value *> &Indices,
-                                    Twine NamePrefix) {
+                                    const Twine &NamePrefix) {
   if (Ty == TargetTy)
     return buildGEP(IRB, BasePtr, Indices, NamePrefix);
 
-  // Pointer size to use for the indices.
-  unsigned PtrSize = DL.getPointerTypeSizeInBits(BasePtr->getType());
+  // Offset size to use for the indices.
+  unsigned OffsetSize = DL.getIndexTypeSizeInBits(BasePtr.first->getType());
 
   // See if we can descend into a struct and locate a field with the correct
   // type.
@@ -6833,7 +7092,7 @@ static Value *getNaturalGEPWithType(IRBuilderTy &IRB, const DataLayout &DL,
 
     if (ArrayType *ArrayTy = dyn_cast<ArrayType>(ElementTy)) {
       ElementTy = ArrayTy->getElementType();
-      Indices.push_back(IRB.getIntN(PtrSize, 0));
+      Indices.push_back(IRB.getIntN(OffsetSize, 0));
     } else if (VectorType *VectorTy = dyn_cast<VectorType>(ElementTy)) {
       ElementTy = VectorTy->getElementType();
       Indices.push_back(IRB.getInt32(0));
@@ -6847,103 +7106,49 @@ static Value *getNaturalGEPWithType(IRBuilderTy &IRB, const DataLayout &DL,
     }
     ++NumLayers;
   } while (ElementTy != TargetTy);
-  if (TargetTy && ElementTy != TargetTy)
+  if (ElementTy != TargetTy)
     Indices.erase(Indices.end() - NumLayers, Indices.end());
 
   return buildGEP(IRB, BasePtr, Indices, NamePrefix);
 }
 
-/// Recursively compute indices for a natural GEP.
+/// Get a natural GEP from a base pointer to a particular offset and
+/// resulting in a particular type.
 ///
-/// This is the recursive step for getNaturalGEPWithOffset that walks down the
-/// element types adding appropriate indices for the GEP.
-static Value *getNaturalGEPRecursively(IRBuilderTy &IRB, const DataLayout &DL,
-                                       Value *Ptr, Type *Ty, APInt &Offset,
-                                       Type *TargetTy,
-                                       SmallVectorImpl<Value *> &Indices,
-                                       Twine NamePrefix) {
-  if (Offset == 0)
-    return getNaturalGEPWithType(IRB, DL, Ptr, Ty, TargetTy, Indices,
-                                 NamePrefix);
-
-  // We can't recurse through pointer types.
-  if (Ty->isPointerTy())
-    return nullptr;
-
-  // We try to analyze GEPs over vectors here, but note that these GEPs are
-  // extremely poorly defined currently. The long-term goal is to remove GEPing
-  // over a vector from the IR completely.
-  if (VectorType *VecTy = dyn_cast<VectorType>(Ty)) {
-    unsigned ElementSizeInBits = DL.getTypeSizeInBits(VecTy->getScalarType());
-    if (ElementSizeInBits % 8 != 0) {
-      // GEPs over non-multiple of 8 size vector elements are invalid.
-      return nullptr;
-    }
-    APInt ElementSize(Offset.getBitWidth(), ElementSizeInBits / 8);
-    APInt NumSkippedElements = Offset.sdiv(ElementSize);
-    if (NumSkippedElements.ugt(VecTy->getNumElements()))
-      return nullptr;
-    Offset -= NumSkippedElements * ElementSize;
-    Indices.push_back(IRB.getInt(NumSkippedElements));
-    return getNaturalGEPRecursively(IRB, DL, Ptr, VecTy->getElementType(),
-                                    Offset, TargetTy, Indices, NamePrefix);
-  }
-
-  if (ArrayType *ArrTy = dyn_cast<ArrayType>(Ty)) {
-    Type *ElementTy = ArrTy->getElementType();
-    APInt ElementSize(Offset.getBitWidth(), DL.getTypeAllocSize(ElementTy));
-    APInt NumSkippedElements = Offset.sdiv(ElementSize);
-    if (NumSkippedElements.ugt(ArrTy->getNumElements()))
-      return nullptr;
-
-    Offset -= NumSkippedElements * ElementSize;
-    Indices.push_back(IRB.getInt(NumSkippedElements));
-    return getNaturalGEPRecursively(IRB, DL, Ptr, ElementTy, Offset, TargetTy,
-                                    Indices, NamePrefix);
-  }
-
-  StructType *STy = dyn_cast<StructType>(Ty);
-  if (!STy)
-    return nullptr;
-
-  const StructLayout *SL = DL.getStructLayout(STy);
-  uint64_t StructOffset = Offset.getZExtValue();
-  if (StructOffset >= SL->getSizeInBytes())
-    return nullptr;
-  unsigned Index = SL->getElementContainingOffset(StructOffset);
-  Offset -= APInt(Offset.getBitWidth(), SL->getElementOffset(Index));
-  Type *ElementTy = STy->getElementType(Index);
-  if (Offset.uge(DL.getTypeAllocSize(ElementTy)))
-    return nullptr; // The offset points into alignment padding.
-
-  Indices.push_back(IRB.getInt32(Index));
-  return getNaturalGEPRecursively(IRB, DL, Ptr, ElementTy, Offset, TargetTy,
-                                  Indices, NamePrefix);
-}
-
-Value *getNaturalGEPWithOffset(IRBuilderTy &IRB, const DataLayout &DL,
-                               Value *Ptr, APInt Offset, Type *TargetTy,
-                               SmallVectorImpl<Value *> &Indices,
-                               Twine NamePrefix) {
-  PointerType *Ty = cast<PointerType>(Ptr->getType());
+/// The goal is to produce a "natural" looking GEP that works with the existing
+/// composite types to arrive at the appropriate offset and element type for
+/// a pointer. TargetTy is the element type the returned GEP should point-to if
+/// possible. We recurse by decreasing Offset, adding the appropriate index to
+/// Indices, and setting Ty to the result subtype.
+///
+/// If no natural GEP can be constructed, this function returns null.
+static Value *getNaturalGEPWithOffset(IRBuilderTy &IRB, const DataLayout &DL,
+                                      std::pair<Value *, Type *> Ptr,
+                                      APInt Offset, Type *TargetTy,
+                                      SmallVectorImpl<Value *> &Indices,
+                                      const Twine &NamePrefix) {
+  assert(isa<PointerType>(Ptr.first->getType()));
+  PointerType *Ty = cast<PointerType>(Ptr.first->getType());
 
   // Don't consider any GEPs through an i8* as natural unless the TargetTy is
   // an i8.
   if (Ty == IRB.getInt8PtrTy(Ty->getAddressSpace()) && TargetTy->isIntegerTy(8))
     return nullptr;
 
-  Type *ElementTy = Ty->getElementType();
-  if (!ElementTy->isSized())
+  Type *ElementTy = Ty->isOpaquePointerTy()
+                        ? Ptr.second
+                        : Ty->getNonOpaquePointerElementType();
+  if (!ElementTy || !ElementTy->isSized())
     return nullptr; // We can't GEP through an unsized element.
-  APInt ElementSize(Offset.getBitWidth(), DL.getTypeAllocSize(ElementTy));
-  if (ElementSize == 0)
-    return nullptr; // Zero-length arrays can't help us build a natural GEP.
-  APInt NumSkippedElements = Offset.sdiv(ElementSize);
 
-  Offset -= NumSkippedElements * ElementSize;
-  Indices.push_back(IRB.getInt(NumSkippedElements));
-  return getNaturalGEPRecursively(IRB, DL, Ptr, ElementTy, Offset, TargetTy,
-                                  Indices, NamePrefix);
+  SmallVector<APInt> IntIndices = DL.getGEPIndicesForOffset(ElementTy, Offset);
+  if (Offset != 0)
+    return nullptr;
+
+  for (const APInt &Index : IntIndices)
+    Indices.push_back(IRB.getInt(Index));
+  return getNaturalGEPWithType(IRB, DL, Ptr, ElementTy, TargetTy, Indices,
+                               NamePrefix);
 }
 
 } // namespace llvm
@@ -6971,6 +7176,8 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
   const auto &ICFG = Binary.Analysis.ICFG;
   llvm::IRBuilderTy IRB(state.for_basic_block(Binary, bb).B);
 
+  TCGContext *s = jv_get_tcg_context();
+
   //
   // helper functions for GlobalAllocaArr
   //
@@ -6978,7 +7185,8 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
     assert(glb != tcg_env_index);
 
     if (unlikely(PinnedEnvGlbs.test(glb))) {
-      llvm::StoreInst *SI = IRB.CreateStore(V, CPUStateGlobalPointer(glb, IRB));
+      llvm::StoreInst *SI =
+          IRB.CreateStore(V, BuildCPUStatePointer(IRB, CPUStateGlobal, glb));
       SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
       return;
     }
@@ -7008,7 +7216,8 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
     }
 
     if (unlikely(PinnedEnvGlbs.test(glb))) {
-      llvm::LoadInst *LI = IRB.CreateLoad(CPUStateGlobalPointer(glb, IRB));
+      llvm::LoadInst *LI = IRB.CreateLoad(
+          TypeOfTCGGlobal(glb), BuildCPUStatePointer(IRB, CPUStateGlobal, glb));
       LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
       return LI;
     }
@@ -7020,7 +7229,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
       Ptr = CreateAllocaForGlobal(TC, tmpIRB, glb);
     }
 
-    llvm::LoadInst *LI = IRB.CreateLoad(Ptr);
+    llvm::LoadInst *LI = IRB.CreateLoad(TypeOfTCGGlobal(glb), Ptr);
     LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
     return LI;
   };
@@ -7038,8 +7247,8 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
     uint64_t comb =
         (static_cast<uint64_t>(BIdx) << 32) | static_cast<uint64_t>(BBIdx);
 
-    llvm::LoadInst *PtrLoad = IRB.CreateLoad(TraceGlobal, true /* Volatile */);
-    llvm::Value *PtrInc = IRB.CreateConstGEP1_64(PtrLoad, 1);
+    llvm::LoadInst *PtrLoad = IRB.CreateLoad(IRB.getPtrTy(), TraceGlobal, true /* Volatile */);
+    llvm::Value *PtrInc = IRB.CreateConstGEP1_64(IRB.getInt64Ty(), PtrLoad, 1);
 
     PtrLoad->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
 
@@ -7061,8 +7270,6 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
   TCG->set_binary(*state.for_binary(Binary).ObjectFile);
 
   llvm::BasicBlock *ExitBB = nullptr;
-
-  TCGContext *s = jv_get_tcg_context();
 
   unsigned size = 0;
   jove::terminator_info_t T;
@@ -7273,7 +7480,8 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
   }
 
   auto store_global_to_global_cpu_state = [&](unsigned glb) -> void {
-    llvm::StoreInst *SI = IRB.CreateStore(get(glb), CPUStateGlobalPointer(glb, IRB));
+    llvm::StoreInst *SI = IRB.CreateStore(
+        get(glb), BuildCPUStatePointer(IRB, CPUStateGlobal, glb));
     SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
   };
 
@@ -7282,7 +7490,8 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
   };
 
   auto reload_global_from_global_cpu_state = [&](unsigned glb) -> void {
-    llvm::LoadInst *LI = IRB.CreateLoad(CPUStateGlobalPointer(glb, IRB));
+    llvm::LoadInst *LI = IRB.CreateLoad(
+        TypeOfTCGGlobal(glb), BuildCPUStatePointer(IRB, CPUStateGlobal, glb));
     LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
 
     set(LI, glb);
@@ -7302,9 +7511,10 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
   if (opts.CallStack) {
     switch (T.Type) {
     case TERMINATOR::RETURN:
-      IRB.CreateStore(
-          IRB.CreateConstGEP1_64(IRB.CreateLoad(CallStackGlobal), -1),
-          CallStackGlobal);
+      IRB.CreateStore(IRB.CreateConstGEP1_64(
+                          IRB.getPtrTy(),
+                          IRB.CreateLoad(IRB.getPtrTy(), CallStackGlobal), -1),
+                      CallStackGlobal);
       break;
 
     case TERMINATOR::CALL:
@@ -7318,10 +7528,10 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
       uint64_t comb =
           (static_cast<uint64_t>(BIdx) << 32) | static_cast<uint64_t>(BBIdx);
 
-      llvm::LoadInst *Ptr = IRB.CreateLoad(CallStackGlobal);
+      llvm::LoadInst *Ptr = IRB.CreateLoad(IRB.getPtrTy(), CallStackGlobal);
       IRB.CreateStore(IRB.getInt64(comb), Ptr);
 
-      IRB.CreateStore(IRB.CreateConstGEP1_64(Ptr, 1), CallStackGlobal);
+      IRB.CreateStore(IRB.CreateConstGEP1_64(IRB.getPtrTy(), Ptr, 1), CallStackGlobal);
       break;
     }
 
@@ -7341,8 +7551,8 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
     assert(!SavedCallStackP);
     assert(!SavedCallStackBegin);
 
-    SavedCallStackP = IRB.CreateLoad(CallStackGlobal);
-    SavedCallStackBegin = IRB.CreateLoad(CallStackBeginGlobal);
+    SavedCallStackP = IRB.CreateLoad(IRB.getPtrTy(), CallStackGlobal);
+    SavedCallStackBegin = IRB.CreateLoad(IRB.getPtrTy(), CallStackBeginGlobal);
 
     assert(SavedCallStackP);
     assert(SavedCallStackBegin);
@@ -7394,11 +7604,11 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
       {
         llvm::Value *SP = get(tcg_stack_pointer_index);
 
-        ArgVec.push_back(IRB.CreateLoad(IRB.CreateIntToPtr(
+        ArgVec.push_back(IRB.CreateLoad(WordType(), IRB.CreateIntToPtr(
             IRB.CreateAdd(SP, IRB.getIntN(WordBits(), 1 * WordBytes())),
             WordType()->getPointerTo())));
 
-        ArgVec.push_back(IRB.CreateLoad(IRB.CreateIntToPtr(
+        ArgVec.push_back(IRB.CreateLoad(WordType(), IRB.CreateIntToPtr(
             IRB.CreateAdd(SP, IRB.getIntN(WordBits(), 2 * WordBytes())),
             WordType()->getPointerTo())));
 
@@ -7500,7 +7710,11 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
                        });
         IRB.CreateCall(
             state.for_function(callee).PreHook->getFunctionType(),
-            IRB.CreateIntToPtr(IRB.CreateLoad(state.for_function(callee).PreHookClunk), state.for_function(callee).PreHook->getType()), ArgVec);
+            IRB.CreateIntToPtr(
+                IRB.CreateLoad(WordType(),
+                               state.for_function(callee).PreHookClunk),
+                state.for_function(callee).PreHook->getType()),
+            ArgVec);
       }
     }
 
@@ -7546,7 +7760,8 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
       explode_tcg_global_set(glbv, glbs);
 
       for (unsigned glb : glbv) {
-        llvm::StoreInst *SI = IRB.CreateStore(get(glb), CPUStateGlobalPointer(glb, IRB));
+        llvm::StoreInst *SI = IRB.CreateStore(
+            get(glb), BuildCPUStatePointer(IRB, CPUStateGlobal, glb));
         SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
       }
 
@@ -7569,7 +7784,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
       //
       // on i386 ABIs have first three registers
       //
-      for (unsigned j = 0; j < std::min<unsigned>(3, Ret->getNumArgOperands()); ++j)
+      for (unsigned j = 0; j < std::min<unsigned>(3, Ret->getNumOperands() - 1); ++j)
         Ret->addParamAttr(j, llvm::Attribute::InReg);
 #endif
 
@@ -7634,9 +7849,11 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
             //
             llvm::Value *SP = get(tcg_stack_pointer_index);
 
-            ArgVal = IRB.CreateLoad(IRB.CreateIntToPtr(
-                IRB.CreateAdd(SP, IRB.getIntN(WordBits(), SPAddend)),
-                llvm::PointerType::get(IRB.getIntNTy(info.Size * 8), 0)));
+            ArgVal = IRB.CreateLoad(
+                IRB.getIntNTy(info.Size * 8),
+                IRB.CreateIntToPtr(
+                    IRB.CreateAdd(SP, IRB.getIntN(WordBits(), SPAddend)),
+                    IRB.getIntNTy(info.Size * 8)->getPointerTo()));
 
             SPAddend += info.Size;
 #else
@@ -7707,7 +7924,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
       //
       llvm::CallInst *PostHookRet = IRB.CreateCall(
           state.for_function(callee).PostHook->getFunctionType(),
-          IRB.CreateIntToPtr(IRB.CreateLoad(state.for_function(callee).PostHookClunk),
+          IRB.CreateIntToPtr(IRB.CreateLoad(WordType(), state.for_function(callee).PostHookClunk),
                              state.for_function(callee).PostHook->getType()),
           HookArgVec);
 
@@ -7734,7 +7951,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
           llvm::BasicBlock::Create(*Context, (fmt("l%lx_recover") % Addr).str(),
                                    state.for_function(f).F);
 
-      llvm::Value *PC = IRB.CreateLoad(TC.PCAlloca);
+      llvm::Value *PC = IRB.CreateLoad(WordType(), TC.PCAlloca);
 
       llvm::Value *SectsGlobalOff = IRB.CreateSub(
           PC, llvm::ConstantExpr::getPtrToInt(SectsGlobal, WordType()));
@@ -7769,7 +7986,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
     bool IsCall = T.Type == TERMINATOR::INDIRECT_CALL;
     const bool &DynTargetsComplete = ICFG[bb].DynTargetsComplete;
 
-    llvm::Value *PC = IRB.CreateLoad(TC.PCAlloca);
+    llvm::Value *PC = IRB.CreateLoad(WordType(), TC.PCAlloca);
     if (!IsCall && ICFG[bb].Term._indirect_jump.IsLj) {
       llvm::outs() << llvm::formatv("longjmp at {0:x}\n", ICFG[bb].Addr);
 
@@ -7841,11 +8058,11 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
       {
         llvm::Value *SP = get(tcg_stack_pointer_index);
 
-        ArgVec.push_back(IRB.CreateLoad(IRB.CreateIntToPtr(
+        ArgVec.push_back(IRB.CreateLoad(WordType(), IRB.CreateIntToPtr(
             IRB.CreateAdd(SP, IRB.getIntN(WordBits(), 1 * sizeof(uint32_t))),
             WordType()->getPointerTo())));
 
-        ArgVec.push_back(IRB.CreateLoad(IRB.CreateIntToPtr(
+        ArgVec.push_back(IRB.CreateLoad(WordType(), IRB.CreateIntToPtr(
             IRB.CreateAdd(SP, IRB.getIntN(WordBits(), 2 * sizeof(uint32_t))),
             WordType()->getPointerTo())));
 
@@ -7934,7 +8151,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
                                  });
     if (opts.ABICalls && IsABICall)
     {
-      llvm::Value *PC = IRB.CreateLoad(TC.PCAlloca);
+      llvm::Value *PC = IRB.CreateLoad(WordType(), TC.PCAlloca);
 
       std::vector<llvm::Type *> argTypes(CallConvArgArray.size()+1, WordType());
 
@@ -7966,7 +8183,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
       reload_stack_pointer();
 
 #if defined(TARGET_I386)
-      for (unsigned j = 0; j < std::min<unsigned>(3, Ret->getNumArgOperands()); ++j)
+      for (unsigned j = 0; j < std::min<unsigned>(3, Ret->getNumOperands() - 1); ++j)
         Ret->addParamAttr(j, llvm::Attribute::InReg);
 #endif
 
@@ -8024,7 +8241,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
     {
       assert(ICFG[bb].hasDynTarget());
 
-      llvm::Value *PC = IRB.CreateLoad(TC.PCAlloca);
+      llvm::Value *PC = IRB.CreateLoad(WordType(), TC.PCAlloca);
 
       llvm::BasicBlock *ThruB = llvm::BasicBlock::Create(*Context, "", state.for_function(f).F);
 
@@ -8174,9 +8391,11 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
                     //
                     llvm::Value *SP = get(tcg_stack_pointer_index);
 
-                    ArgVal = IRB.CreateLoad(IRB.CreateIntToPtr(
-                        IRB.CreateAdd(SP, IRB.getIntN(WordBits(), SPAddend)),
-                        llvm::PointerType::get(IRB.getIntNTy(info.Size * 8), 0)));
+                    ArgVal = IRB.CreateLoad(
+                        IRB.getIntNTy(info.Size * 8),
+                        IRB.CreateIntToPtr(
+                            IRB.CreateAdd(SP, IRB.getIntN(WordBits(), SPAddend)),
+                            IRB.getIntNTy(info.Size * 8)->getPointerTo()));
 
                     SPAddend += info.Size;
 #else
@@ -8210,7 +8429,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
               //
               IRB.CreateCall(
                   state.for_function(callee).PreHook->getFunctionType(),
-                  IRB.CreateIntToPtr(IRB.CreateLoad(state.for_function(callee).PreHookClunk),
+                  IRB.CreateIntToPtr(IRB.CreateLoad(WordType(), state.for_function(callee).PreHookClunk),
                                      state.for_function(callee).PreHook->getType()),
                   HookArgVec);
             }
@@ -8240,7 +8459,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
                              });
 
               ArgVec.push_back(GetDynTargetAddress<true>(IRB, DynTargetsVec[i]));
-              ArgVec.push_back(CPUStateGlobalPointer(tcg_stack_pointer_index, IRB));
+              ArgVec.push_back(BuildCPUStatePointer(IRB, CPUStateGlobal, tcg_stack_pointer_index));
 
               llvm::Function *const JoveThunkFuncArray[] = {
 #define __THUNK(n, i, data) JoveThunk##i##Func,
@@ -8284,7 +8503,7 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
             }
 
 #if defined(TARGET_I386)
-            for (unsigned j = 0; j < std::min<unsigned>(3, Ret->getNumArgOperands()); ++j)
+            for (unsigned j = 0; j < std::min<unsigned>(3, Ret->getNumOperands() - 1); ++j)
               Ret->addParamAttr(j, llvm::Attribute::InReg);
 #endif
 
@@ -8296,7 +8515,8 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
 
             if (opts.CallStack)
               IRB.CreateStore(
-                  IRB.CreateConstGEP1_64(IRB.CreateLoad(CallStackGlobal), -1),
+                  IRB.CreateConstGEP1_64(IRB.getPtrTy(),
+                                         IRB.CreateLoad(IRB.getPtrTy(), CallStackGlobal), -1),
                   CallStackGlobal);
           } else {
             std::vector<llvm::Value *> ArgVec;
@@ -8322,7 +8542,7 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
               explode_tcg_global_set(glbv, glbs);
 
               for (unsigned glb : glbv) {
-                llvm::StoreInst *SI = IRB.CreateStore(get(glb), CPUStateGlobalPointer(glb, IRB));
+                llvm::StoreInst *SI = IRB.CreateStore(get(glb), BuildCPUStatePointer(IRB, CPUStateGlobal, glb));
                 SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
               }
 
@@ -8341,7 +8561,7 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
               //
               // on i386 ABIs have first three registers
               //
-              for (unsigned j = 0; j < std::min<unsigned>(3, Ret->getNumArgOperands()); ++j)
+              for (unsigned j = 0; j < std::min<unsigned>(3, Ret->getNumOperands() - 1); ++j)
                 Ret->addParamAttr(j, llvm::Attribute::InReg);
 #endif
 
@@ -8474,10 +8694,11 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
                   //
                   llvm::Value *SP = get(tcg_stack_pointer_index);
 
-                  ArgVal = IRB.CreateLoad(IRB.CreateIntToPtr(
-                      IRB.CreateAdd(SP, IRB.getIntN(WordBits(), SPAddend)),
-                      llvm::PointerType::get(IRB.getIntNTy(info.Size * 8),
-                                             0)));
+                  ArgVal = IRB.CreateLoad(
+                      IRB.getIntNTy(info.Size * 8),
+                      IRB.CreateIntToPtr(
+                          IRB.CreateAdd(SP, IRB.getIntN(WordBits(), SPAddend)),
+                          IRB.getIntNTy(info.Size * 8)->getPointerTo()));
 
                   SPAddend += info.Size;
 #else
@@ -8552,8 +8773,10 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
             //
             IRB.CreateCall(
                 state.for_function(callee).PostHook->getFunctionType(),
-                IRB.CreateIntToPtr(IRB.CreateLoad(state.for_function(callee).PostHookClunk),
-                                   state.for_function(callee).PostHook->getType()),
+                IRB.CreateIntToPtr(
+                    IRB.CreateLoad(WordType(),
+                                   state.for_function(callee).PostHookClunk),
+                    state.for_function(callee).PostHook->getType()),
                 HookArgVec);
           }
 
@@ -8580,7 +8803,7 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
                        IRB.getInt32(0));
 
 #if defined(TARGET_X86_64) || defined(TARGET_I386)
-    llvm::Value *Args[] = {IRB.CreateLoad(TC.PCAlloca),
+    llvm::Value *Args[] = {IRB.CreateLoad(WordType(), TC.PCAlloca),
                            IRB.CreatePtrToInt(NativeRetAddr, WordType())};
 
     IRB.CreateCall(JoveCheckReturnAddrFunc, Args);
@@ -8609,7 +8832,7 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
     basic_block_t succ1 = boost::target(cf1, ICFG);
     basic_block_t succ2 = boost::target(cf2, ICFG);
 
-    llvm::Value *PC = IRB.CreateLoad(TC.PCAlloca);
+    llvm::Value *PC = IRB.CreateLoad(WordType(), TC.PCAlloca);
     llvm::Value *EQV = IRB.CreateICmpEQ(
         PC, IRB.getIntN(WordBits(), ICFG[succ1].Addr));
     IRB.CreateCondBr(EQV,
@@ -8647,7 +8870,8 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
     if (opts.DFSan && false /* opts.Paranoid */)
       IRB.CreateCall(
           DFSanFiniFunc->getFunctionType(),
-          IRB.CreateIntToPtr(IRB.CreateLoad(DFSanFiniClunk), DFSanFiniFunc->getType()));
+          IRB.CreateIntToPtr(IRB.CreateLoad(IRB.getPtrTy(), DFSanFiniClunk),
+                             DFSanFiniFunc->getType()));
 
     if (f.IsABI)
       store_stack_pointer();
@@ -8796,7 +9020,8 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
 
     if (ts->kind == TEMP_GLOBAL) {
       if (unlikely(PinnedEnvGlbs.test(idx))) {
-        llvm::StoreInst *SI = IRB.CreateStore(V, CPUStateGlobalPointer(idx, IRB));
+        llvm::StoreInst *SI =
+            IRB.CreateStore(V, BuildCPUStatePointer(IRB, CPUStateGlobal, idx));
         SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
         return;
       }
@@ -8852,7 +9077,9 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
 
     if (ts->kind == TEMP_GLOBAL) {
       if (unlikely(PinnedEnvGlbs.test(idx))) {
-        llvm::LoadInst *LI = IRB.CreateLoad(CPUStateGlobalPointer(idx, IRB));
+        llvm::LoadInst *LI =
+            IRB.CreateLoad(TypeOfTCGType(ts->type),
+                           BuildCPUStatePointer(IRB, CPUStateGlobal, idx));
         LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
         return LI;
       }
@@ -8864,14 +9091,14 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
         Ptr = CreateAllocaForGlobal(TC, tmpIRB, idx);
       }
 
-      llvm::LoadInst *LI = IRB.CreateLoad(Ptr);
+      llvm::LoadInst *LI = IRB.CreateLoad(TypeOfTCGType(ts->type), Ptr);
       LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
       return LI;
     } else {
       llvm::AllocaInst *Ptr = TempAllocaVec.at(idx);
       assert(Ptr);
 
-      llvm::LoadInst *LI = IRB.CreateLoad(Ptr);
+      llvm::LoadInst *LI = IRB.CreateLoad(TypeOfTCGType(ts->type), Ptr);
       LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
       return LI;
     }
@@ -8938,7 +9165,7 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
     Addr = IRB.CreateIntToPtr(                                             
         Addr, llvm::PointerType::get(IRB.getIntNTy(BitsOfMemOp(mop)), 0));
 
-    llvm::LoadInst *LI = IRB.CreateLoad(Addr);                  
+    llvm::LoadInst *LI = IRB.CreateLoad(IRB.getIntNTy(BitsOfMemOp(mop)), Addr);
     LI->setMetadata(llvm::LLVMContext::MD_noalias, AliasScopeMetadata);
 
     llvm::Value *Res = LI;
@@ -9044,7 +9271,7 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
         ptr, llvm::PointerType::get(IRB.getIntNTy(bits), 0));
 
     if (IsLoad) {
-      llvm::LoadInst *LI = IRB.CreateLoad(ptr);
+      llvm::LoadInst *LI = IRB.CreateLoad(IRB.getIntNTy(bits), ptr);
 
       llvm::Value *Casted = IRB.CreateIntCast(
           LI,
@@ -9125,6 +9352,7 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
     break;
 
   case INDEX_op_discard: {
+    // FIXME
 #if 0
     TCGTemp *dst = arg_temp(op->args[0]);
     unsigned idx = temp_idx(dst);
@@ -9299,7 +9527,8 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
       std::vector<unsigned> glbv;
       explode_tcg_global_set(glbv, hf.Analysis.OutGlbs & ~PinnedEnvGlbs);
       for (unsigned glb : glbv) {
-        llvm::LoadInst *LI = IRB.CreateLoad(BuildCPUStatePointer(IRB, Env, glb));
+        llvm::LoadInst *LI = IRB.CreateLoad(
+            TypeOfTCGGlobal(glb), BuildCPUStatePointer(IRB, Env, glb));
         LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
 
         set(LI, &s->temps[glb]);

@@ -27,7 +27,7 @@ class StubTool : public JVTool {
 public:
   StubTool() : opts(JoveCategory) {}
 
-  int Run(void);
+  int Run(void) override;
 };
 
 JOVE_REGISTER_TOOL("stub", StubTool);

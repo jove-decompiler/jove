@@ -39,10 +39,10 @@ typedef unsigned long key_serial_t;
 #define __SYSCALL_CLOBBERS "memory", "cc", "r11", "rcx"
 
 #define ___SYSCALL0(nr, nm)                                                    \
-  static JOVE_SYS_ATTR long _jove_sys_##nm(void) {                             \
-    long _ret;                                                                 \
+  static JOVE_SYS_ATTR int64_t _jove_sys_##nm(void) {                          \
+    int64_t _ret;                                                              \
                                                                                \
-    unsigned long _nr = nr;                                                    \
+    uint64_t _nr = nr;                                                         \
                                                                                \
     asm volatile("syscall\n"                                                   \
                  : "=a"(_ret)                                                  \
@@ -53,94 +53,120 @@ typedef unsigned long key_serial_t;
   }
 
 #define ___SYSCALL1(nr, nm, t1, a1)                                            \
-  static JOVE_SYS_ATTR long _jove_sys_##nm(long a1) {                          \
-    long _ret;                                                                 \
+  static JOVE_SYS_ATTR int64_t _jove_sys_##nm(t1 a1) {                         \
+    int64_t _ret;                                                              \
                                                                                \
-    unsigned long _nr = nr;                                                    \
+    uint64_t _nr = nr;                                                         \
+                                                                               \
+    int64_t _a1 = (int64_t)a1;                                                 \
                                                                                \
     asm volatile("syscall\n"                                                   \
                  : "=a"(_ret)                                                  \
-                 : "a"(_nr), "D"(a1)                                           \
+                 : "a"(_nr), "D"(_a1)                                          \
                  : __SYSCALL_CLOBBERS);                                        \
                                                                                \
     return _ret;                                                               \
   }
 
 #define ___SYSCALL2(nr, nm, t1, a1, t2, a2)                                    \
-  static JOVE_SYS_ATTR long _jove_sys_##nm(long a1, long a2) {                 \
-    long _ret;                                                                 \
+  static JOVE_SYS_ATTR int64_t _jove_sys_##nm(t1 a1, t2 a2) {                  \
+    int64_t _ret;                                                              \
                                                                                \
-    unsigned long _nr = nr;                                                    \
+    uint64_t _nr = nr;                                                         \
+                                                                               \
+    int64_t _a1 = (int64_t)a1;                                                 \
+    int64_t _a2 = (int64_t)a2;                                                 \
                                                                                \
     asm volatile("syscall\n"                                                   \
                  : "=a"(_ret)                                                  \
-                 : "a"(_nr), "D"(a1), "S"(a2)                                  \
+                 : "a"(_nr), "D"(_a1), "S"(_a2)                                \
                  : __SYSCALL_CLOBBERS);                                        \
                                                                                \
     return _ret;                                                               \
   }
 
 #define ___SYSCALL3(nr, nm, t1, a1, t2, a2, t3, a3)                            \
-  static JOVE_SYS_ATTR long _jove_sys_##nm(long a1, long a2, long a3) {        \
-    long _ret;                                                                 \
+  static JOVE_SYS_ATTR int64_t _jove_sys_##nm(t1 a1, t2 a2, t3 a3) {           \
+    int64_t _ret;                                                              \
                                                                                \
-    unsigned long _nr = nr;                                                    \
+    uint64_t _nr = nr;                                                         \
+                                                                               \
+    int64_t _a1 = (int64_t)a1;                                                 \
+    int64_t _a2 = (int64_t)a2;                                                 \
+    int64_t _a3 = (int64_t)a3;                                                 \
                                                                                \
     asm volatile("syscall\n"                                                   \
                  : "=a"(_ret)                                                  \
-                 : "a"(_nr), "D"(a1), "S"(a2), "d"(a3)                         \
+                 : "a"(_nr), "D"(_a1), "S"(_a2), "d"(_a3)                      \
                  : __SYSCALL_CLOBBERS);                                        \
                                                                                \
     return _ret;                                                               \
   }
 
 #define ___SYSCALL4(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4)                    \
-  static JOVE_SYS_ATTR long _jove_sys_##nm(long a1, long a2, long a3,          \
-                                           long a4) {                          \
-    long _ret;                                                                 \
+  static JOVE_SYS_ATTR int64_t _jove_sys_##nm(t1 a1, t2 a2, t3 a3, t4 a4) {    \
+    int64_t _ret;                                                              \
                                                                                \
-    unsigned long _nr = nr;                                                    \
+    uint64_t _nr = nr;                                                         \
+                                                                               \
+    int64_t _a1 = (int64_t)a1;                                                 \
+    int64_t _a2 = (int64_t)a2;                                                 \
+    int64_t _a3 = (int64_t)a3;                                                 \
+    int64_t _a4 = (int64_t)a4;                                                 \
                                                                                \
     asm volatile("movq %5, %%r10\n"                                            \
                  "syscall\n"                                                   \
                  : "=a"(_ret)                                                  \
-                 : "a"(_nr), "D"(a1), "S"(a2), "d"(a3), "r"(a4)                \
+                 : "a"(_nr), "D"(_a1), "S"(_a2), "d"(_a3), "r"(_a4)            \
                  : __SYSCALL_CLOBBERS, "r10");                                 \
                                                                                \
     return _ret;                                                               \
   }
 
 #define ___SYSCALL5(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5)            \
-  static JOVE_SYS_ATTR long _jove_sys_##nm(long a1, long a2, long a3, long a4, \
-                                           long a5) {                          \
-    long _ret;                                                                 \
+  static JOVE_SYS_ATTR int64_t _jove_sys_##nm(t1 a1, t2 a2, t3 a3, t4 a4,      \
+                                              t5 a5) {                         \
+    int64_t _ret;                                                              \
                                                                                \
-    unsigned long _nr = nr;                                                    \
+    uint64_t _nr = nr;                                                         \
+                                                                               \
+    int64_t _a1 = (int64_t)a1;                                                 \
+    int64_t _a2 = (int64_t)a2;                                                 \
+    int64_t _a3 = (int64_t)a3;                                                 \
+    int64_t _a4 = (int64_t)a4;                                                 \
+    int64_t _a5 = (int64_t)a5;                                                 \
                                                                                \
     asm volatile("movq %5, %%r10\n"                                            \
                  "movq %6, %%r8\n"                                             \
                  "syscall\n"                                                   \
                  : "=a"(_ret)                                                  \
-                 : "a"(_nr), "D"(a1), "S"(a2), "d"(a3), "r"(a4), "r"(a5)       \
+                 : "a"(_nr), "D"(_a1), "S"(_a2), "d"(_a3), "r"(_a4), "r"(_a5)  \
                  : __SYSCALL_CLOBBERS, "r10", "r8");                           \
                                                                                \
     return _ret;                                                               \
   }
 
 #define ___SYSCALL6(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5, t6, a6)    \
-  static JOVE_SYS_ATTR long _jove_sys_##nm(long a1, long a2, long a3, long a4, \
-                                           long a5, long a6) {                 \
-    long _ret;                                                                 \
+  static JOVE_SYS_ATTR int64_t _jove_sys_##nm(t1 a1, t2 a2, t3 a3, t4 a4,      \
+                                              t5 a5, t6 a6) {                  \
+    int64_t _ret;                                                              \
                                                                                \
-    unsigned long _nr = nr;                                                    \
+    uint64_t _nr = nr;                                                         \
+                                                                               \
+    int64_t _a1 = (int64_t)a1;                                                 \
+    int64_t _a2 = (int64_t)a2;                                                 \
+    int64_t _a3 = (int64_t)a3;                                                 \
+    int64_t _a4 = (int64_t)a4;                                                 \
+    int64_t _a5 = (int64_t)a5;                                                 \
+    int64_t _a6 = (int64_t)a6;                                                 \
                                                                                \
     asm volatile("movq %5, %%r10\n"                                            \
                  "movq %6, %%r8\n"                                             \
                  "movq %7, %%r9\n"                                             \
                  "syscall\n"                                                   \
                  : "=a"(_ret)                                                  \
-                 : "a"(_nr), "D"(a1), "S"(a2), "d"(a3), "r"(a4), "r"(a5),      \
-                   "r"(a6)                                                     \
+                 : "a"(_nr), "D"(_a1), "S"(_a2), "d"(_a3), "r"(_a4), "r"(_a5), \
+                   "r"(_a6)                                                    \
                  : __SYSCALL_CLOBBERS, "r10", "r8", "r9");                     \
                                                                                \
     return _ret;                                                               \

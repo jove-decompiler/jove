@@ -91,7 +91,7 @@ public:
         Explorer(jv, disas, tcg),
         Recovery(jv, Explorer, symbolizer) {}
 
-  int Run(void);
+  int Run(void) override;
 
   int ListLocalGotos(void);
 

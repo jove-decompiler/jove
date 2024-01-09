@@ -36,7 +36,7 @@ class CheckHelpersTool : public Tool {
 public:
   CheckHelpersTool() : opts(JoveCategory) {}
 
-  int Run(void);
+  int Run(void) override;
 
   void checkHelper(const std::string &helper_nm);
 };

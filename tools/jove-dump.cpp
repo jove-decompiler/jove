@@ -77,7 +77,7 @@ class DumpTool : public Tool {
 public:
   DumpTool() : opts(JoveCategory) {}
 
-  int Run(void);
+  int Run(void) override;
 
   void dumpDecompilation(const jv_t &);
   void dumpInput(const std::string &Path);

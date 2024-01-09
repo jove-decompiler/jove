@@ -16,12 +16,12 @@ double compute_score(const jv_t &jv,
     throw std::runtime_error(binary.path_str() + " is not ELF of expected type\n");
 
   assert(llvm::isa<ELFO>(Bin.get()));
-  const ELFO &O = *llvm::cast<ELFO>(Bin.get());
-  const ELFF &E = *O.getELFFile();
+  const ELFO &Obj = *llvm::cast<ELFO>(Bin.get());
+  const ELFF &Elf = Obj.getELFFile();
 
   llvm::SmallVector<const Elf_Phdr *, 4> LoadSegments;
 
-  auto ProgramHeadersOrError = E.program_headers();
+  auto ProgramHeadersOrError = Elf.program_headers();
   if (!ProgramHeadersOrError)
     throw std::runtime_error("failed to to get program headers from " + binary.path_str());
 
@@ -64,4 +64,5 @@ double compute_score(const jv_t &jv,
   //
   return static_cast<double>(M) / static_cast<double>(N);
 }
+
 }

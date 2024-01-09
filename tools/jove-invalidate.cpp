@@ -13,7 +13,7 @@ using llvm::WithColor;
 namespace jove {
 
 struct InvalidateTool : public JVTool {
-  int Run(void);
+  int Run(void) override;
 
   void invalidateInput(const std::string &path);
 };
