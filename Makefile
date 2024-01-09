@@ -34,13 +34,16 @@ mips64el_ARCH_CFLAGS := -D TARGET_MIPS64
 .PHONY: all
 all: helpers \
      runtime \
-     $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/qemu-starter)
+     qemu-starters
 
 .PHONY: helpers
 helpers: $(foreach t,$(ALL_TARGETS),helpers-$(t))
 
 .PHONY: runtime
 runtime: $(foreach t,$(ALL_TARGETS),runtime-$(t))
+
+.PHONY: qemu-starters
+qemu-starters: $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/qemu-starter)
 
 define target_code_template
 .PHONY: helpers-$(1)
@@ -143,6 +146,9 @@ $(foreach t,$(ALL_TARGETS),$(eval $(call target_code_template,$(t))))
 .PHONY: clean-helpers
 clean-helpers: $(foreach t,$(ALL_TARGETS),clean-helpers-$(t))
 
+.PHONY: clean-runtime
+clean-runtime: $(foreach t,$(ALL_TARGETS),clean-runtime-$(t))
+
 .PHONY: clean-bitcode
 clean-bitcode: $(foreach t,$(ALL_TARGETS),clean-bitcode-$(t))
 
@@ -218,6 +224,12 @@ check-helpers-$(1): $(foreach h,$($(1)_HELPERS),check-helper-$(1)-$(h))
 .PHONY: clean-helpers-$(1)
 clean-helpers-$(1):
 	rm -f $(foreach h,$($(1)_HELPERS),$(BINDIR)/$(1)/helpers/$(h).c)
+
+.PHONY: clean-runtime-$(1)
+clean-runtime-$(1):
+	rm -f $(BINDIR)/$(1)/jove.ll \
+	      $(BINDIR)/$(1)/jove.bc \
+	      $(BINDIR)/$(1)/libjove_rt.so \
 
 .PHONY: clean-bitcode-$(1)
 clean-bitcode-$(1):
