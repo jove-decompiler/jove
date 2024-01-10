@@ -34,25 +34,10 @@ namespace jove {
 class InitTool : public JVTool {
   struct Cmdline {
     cl::opt<std::string> Prog;
-    cl::opt<bool> VeryVerbose;
-    cl::alias VeryVerboseAlias;
-    cl::opt<unsigned> Threads;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : Prog(cl::Positional, cl::desc("prog"), cl::Required,
-               cl::value_desc("filename"), cl::cat(JoveCategory)),
-
-          VeryVerbose(
-              "veryverbose",
-              cl::desc("Print extra information for debugging purposes"),
-              cl::cat(JoveCategory)),
-
-          VeryVerboseAlias("vv", cl::desc("Alias for -veryverbose."),
-                           cl::aliasopt(VeryVerbose), cl::cat(JoveCategory)),
-
-          Threads("num-threads", cl::desc("Number of CPU threads to use"),
-                  cl::init(1 /* num_cpus() */ /* FIXME */),
-                  cl::value_desc("int"), cl::cat(JoveCategory)) {}
+               cl::value_desc("filename"), cl::cat(JoveCategory)) {}
   } opts;
 
 public:
@@ -602,7 +587,7 @@ Found:
 
   tiny_code_generator_t tcg;
   disas_t disas;
-  explorer_t E(jv, disas, tcg, opts.VeryVerbose);
+  explorer_t E(jv, disas, tcg, IsVeryVerbose());
 
   //
   // process the binaries

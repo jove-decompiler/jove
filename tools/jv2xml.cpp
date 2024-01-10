@@ -32,7 +32,7 @@ struct jv2xmlTool : public Tool {
 public:
   jv2xmlTool() : opts(JoveCategory) {}
 
-  int Run(void);
+  int Run(void) override;
 };
 
 JOVE_REGISTER_TOOL("jv2xml", jv2xmlTool);

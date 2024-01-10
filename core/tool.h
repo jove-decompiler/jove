@@ -33,6 +33,8 @@ public:
 private:
   llvm::cl::opt<bool> opt_Verbose;
   llvm::cl::alias opt_VerboseAlias;
+  llvm::cl::opt<bool> opt_VeryVerbose;
+  llvm::cl::alias opt_VeryVerboseAlias;
   llvm::cl::opt<std::string> opt_TemporaryDir;
   llvm::cl::opt<bool> opt_NoDeleteTemporaryDir;
 
@@ -59,7 +61,11 @@ public:
   }
 
   inline bool IsVerbose(void) {
-    return unlikely(opt_Verbose);
+    return unlikely(opt_Verbose || opt_VeryVerbose);
+  }
+
+  inline bool IsVeryVerbose(void) {
+    return unlikely(opt_VeryVerbose);
   }
 
   std::vector<char *> dashdash_args;

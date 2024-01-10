@@ -197,14 +197,20 @@ Tool::Tool()
 
       JoveCategory("Specific Options"),
 
-      opt_Verbose(
-          "verbose",
-          llvm::cl::desc("Print extra information for debugging purposes"),
-          llvm::cl::cat(JoveCategory)),
+      opt_Verbose("verbose", llvm::cl::desc("Print debugging messages"),
+                  llvm::cl::cat(JoveCategory)),
 
       opt_VerboseAlias("v", llvm::cl::desc("Alias for -verbose."),
                        llvm::cl::aliasopt(opt_Verbose),
                        llvm::cl::cat(JoveCategory)),
+
+      opt_VeryVerbose("very-verbose",
+                      llvm::cl::desc("Print debugging messages"),
+                      llvm::cl::cat(JoveCategory)),
+
+      opt_VeryVerboseAlias("vv", llvm::cl::desc("Alias for -verbose."),
+                           llvm::cl::aliasopt(opt_VeryVerbose),
+                           llvm::cl::cat(JoveCategory)),
 
       opt_TemporaryDir("temp-dir", llvm::cl::value_desc("directory"),
                        llvm::cl::cat(JoveCategory)),
@@ -212,8 +218,7 @@ Tool::Tool()
       opt_NoDeleteTemporaryDir(
           "no-rm-temp-dir",
           llvm::cl::desc("Do not remove temporary directory on exit"),
-          llvm::cl::cat(JoveCategory))
-{}
+          llvm::cl::cat(JoveCategory)) {}
 
 Tool::~Tool() {
   cleanup_temp_dir();

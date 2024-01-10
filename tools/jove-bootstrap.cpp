@@ -174,7 +174,7 @@ struct breakpoint_t {
   llvm::MCInst DelaySlotInst;
 #endif
 
-  std::function<void(pid_t, tiny_code_generator_t &, disas_t &)> callback;
+  std::function<void(pid_t)> callback;
 };
 
 struct child_syscall_state_t {
@@ -192,8 +192,6 @@ struct BootstrapTool : public TransformerTool_Bin<binary_state_t> {
     cl::opt<std::string> Prog;
     cl::list<std::string> Args;
     cl::list<std::string> Envs;
-    cl::opt<bool> VeryVerbose;
-    cl::alias VeryVerboseAlias;
     cl::opt<bool> Quiet;
     cl::alias QuietAlias;
     cl::opt<std::string> HumanOutput;
@@ -222,14 +220,6 @@ struct BootstrapTool : public TransformerTool_Bin<binary_state_t> {
           Envs("env", cl::CommaSeparated,
                cl::value_desc("KEY_1=VALUE_1,KEY_2=VALUE_2,...,KEY_n=VALUE_n"),
                cl::desc("Extra environment variables"), cl::cat(JoveCategory)),
-
-          VeryVerbose(
-              "veryverbose",
-              cl::desc("Print extra information for debugging purposes"),
-              cl::cat(JoveCategory)),
-
-          VeryVerboseAlias("vv", cl::desc("Alias for -veryverbose."),
-                           cl::aliasopt(VeryVerbose), cl::cat(JoveCategory)),
 
           Quiet("quiet", cl::desc("Suppress non-error messages"),
                 cl::cat(JoveCategory), cl::init(false)),
@@ -289,12 +279,10 @@ struct BootstrapTool : public TransformerTool_Bin<binary_state_t> {
 
   std::string jvfp;
 
-  tiny_code_generator_t tcg;
-  disas_t disas;
-
-  explorer_t E;
-
-  symbolizer_t symbolizer;
+  std::unique_ptr<tiny_code_generator_t> tcg;
+  std::unique_ptr<disas_t> disas;
+  std::unique_ptr<symbolizer_t> symbolizer;
+  std::unique_ptr<explorer_t> E;
 
   std::vector<struct proc_map_t> cached_proc_maps;
 
@@ -336,18 +324,14 @@ struct BootstrapTool : public TransformerTool_Bin<binary_state_t> {
   bool ShowMeS = false;
 
 public:
-  BootstrapTool()
-      : opts(JoveCategory),
-        E(jv, disas, tcg, opts.VeryVerbose,
-          std::bind(&BootstrapTool::on_new_basic_block, this,
-                    std::placeholders::_1, std::placeholders::_2)) {}
+  BootstrapTool() : opts(JoveCategory) {}
 
   int Run(void) override;
 
   int ChildProc(int fd);
-  int TracerLoop(pid_t child, tiny_code_generator_t &tcg);
+  int TracerLoop(pid_t child);
 
-  void add_binary(pid_t, tiny_code_generator_t &, const char *path);
+  void add_binary(pid_t, const char *path);
 
   void on_new_basic_block(binary_t &, basic_block_t);
 
@@ -361,20 +345,19 @@ public:
   void on_dynamic_linker_loaded(pid_t, binary_index_t, const proc_map_t &);
 
   void place_breakpoint(pid_t, uintptr_t Addr, breakpoint_t &);
-  void on_breakpoint(pid_t, tiny_code_generator_t &);
-  void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr,
-                 tiny_code_generator_t &);
+  void on_breakpoint(pid_t);
+  void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr);
 
-  void harvest_reloc_targets(pid_t, tiny_code_generator_t &);
+  void harvest_reloc_targets(pid_t);
   void rendezvous_with_dynamic_linker(pid_t);
-  void scan_rtld_link_map(pid_t, tiny_code_generator_t &);
+  void scan_rtld_link_map(pid_t);
 
-  void harvest_irelative_reloc_targets(pid_t child, tiny_code_generator_t &);
-  void harvest_addressof_reloc_targets(pid_t child, tiny_code_generator_t &);
-  void harvest_ctor_and_dtors(pid_t child, tiny_code_generator_t &tcg);
+  void harvest_irelative_reloc_targets(pid_t child);
+  void harvest_addressof_reloc_targets(pid_t child);
+  void harvest_ctor_and_dtors(pid_t child);
 
 #if defined(__mips64) || defined(__mips__)
-  void harvest_global_GOT_entries(pid_t child, tiny_code_generator_t &tcg);
+  void harvest_global_GOT_entries(pid_t child);
 #endif
 
   bool update_view_of_virtual_memory(pid_t);
@@ -383,6 +366,7 @@ public:
   uintptr_t rva_of_va(uintptr_t Addr, binary_index_t BIdx);
 
   std::string description_of_program_counter(uintptr_t, bool Verbose = false);
+  std::string StringOfMCInst(llvm::MCInst &);
 
   pid_t saved_child;
   std::atomic<bool> ToggleTurbo = false;
@@ -596,7 +580,7 @@ int BootstrapTool::Run(void) {
       }
     }
 
-    return TracerLoop(child, tcg);
+    return TracerLoop(child);
   } else {
     //
     // mode 2: create new process
@@ -698,7 +682,7 @@ int BootstrapTool::Run(void) {
       ::close(rfd);
     }
 
-    return TracerLoop(-1, tcg);
+    return TracerLoop(-1);
   }
 }
 
@@ -768,7 +752,15 @@ static constexpr auto &pc_of_cpu_state(cpu_state_t &cpu_state) {
       ;
 }
 
-int BootstrapTool::TracerLoop(pid_t child, tiny_code_generator_t &tcg) {
+int BootstrapTool::TracerLoop(pid_t child) {
+  disas = std::make_unique<disas_t>();
+  tcg = std::make_unique<tiny_code_generator_t>();
+  symbolizer = std::make_unique<symbolizer_t>();
+  E = std::make_unique<explorer_t>(jv, *disas, *tcg, IsVeryVerbose(),
+                                   std::bind(&BootstrapTool::on_new_basic_block,
+                                             this, std::placeholders::_1,
+                                             std::placeholders::_2));
+
   siginfo_t si;
   long sig = 0;
 
@@ -1034,7 +1026,7 @@ int BootstrapTool::TracerLoop(pid_t child, tiny_code_generator_t &tcg) {
               case __NR_exit_group:
                 if (IsVerbose())
                   HumanOut() << "Observed program exit.\n";
-                harvest_reloc_targets(child, tcg);
+                harvest_reloc_targets(child);
                 break;
 
               default:
@@ -1118,14 +1110,14 @@ int BootstrapTool::TracerLoop(pid_t child, tiny_code_generator_t &tcg) {
 
                       unsigned brkpt_count = 0;
 
-                      basic_block_index_t entrybb_idx = E.explore_basic_block(
+                      basic_block_index_t entrybb_idx = E->explore_basic_block(
                           b, *state.for_binary(b).ObjectFile,
                           rva_of_va(handler, BIdx),
                           state.for_binary(b).fnmap,
                           state.for_binary(b).bbmap);
 
                       if (is_basic_block_index_valid(entrybb_idx)) {
-                        function_index_t FIdx = E.explore_function(
+                        function_index_t FIdx = E->explore_function(
                             b, *state.for_binary(b).ObjectFile,
                             rva_of_va(handler, BIdx),
                             state.for_binary(b).fnmap,
@@ -1170,7 +1162,7 @@ int BootstrapTool::TracerLoop(pid_t child, tiny_code_generator_t &tcg) {
           syscall_state.dir = dir;
 
           if (unlikely(opts.PrintLinkMap))
-            scan_rtld_link_map(child, tcg);
+            scan_rtld_link_map(child);
 
           if (unlikely(!BinFoundVec.all()))
             update_view_of_virtual_memory(child);
@@ -1221,7 +1213,7 @@ int BootstrapTool::TracerLoop(pid_t child, tiny_code_generator_t &tcg) {
               if (child == saved_child) {
                 if (IsVerbose())
                   HumanOut() << "Observed program exit.\n";
-                harvest_reloc_targets(child, tcg);
+                harvest_reloc_targets(child);
               }
               break;
             case PTRACE_EVENT_STOP:
@@ -1237,7 +1229,7 @@ int BootstrapTool::TracerLoop(pid_t child, tiny_code_generator_t &tcg) {
             }
           } else {
             try {
-              on_breakpoint(child, tcg);
+              on_breakpoint(child);
             } catch (const boost::interprocess::bad_alloc &) {
               HumanOut() << "jv_t memory exhausted\n";
               return 1;
@@ -1288,7 +1280,7 @@ int BootstrapTool::TracerLoop(pid_t child, tiny_code_generator_t &tcg) {
 
               sig = 0; /* suppress */
 
-              on_return(child, 0 /* XXX */, RetAddr, tcg);
+              on_return(child, 0 /* XXX */, RetAddr);
             }
           }
 #endif
@@ -1301,7 +1293,7 @@ int BootstrapTool::TracerLoop(pid_t child, tiny_code_generator_t &tcg) {
         //
         // the child terminated
         //
-        if (opts.VeryVerbose)
+        if (IsVeryVerbose())
           HumanOut() << "child " << child << " terminated\n";
 
         child = -1;
@@ -1348,7 +1340,7 @@ int BootstrapTool::TracerLoop(pid_t child, tiny_code_generator_t &tcg) {
               basic_block_t succ = boost::target(cf, ICFG);
 
               unsigned brkpt_count = 0;
-              function_index_t FIdx = E.explore_function(
+              function_index_t FIdx = E->explore_function(
                   b, *state.for_binary(b).ObjectFile,
                   ICFG[succ].Addr,
                   state.for_binary(b).fnmap,
@@ -1427,7 +1419,7 @@ void BootstrapTool::on_new_basic_block(binary_t &b, basic_block_t bb) {
 
     {
       uint64_t InstLen;
-      bool Disassembled = disas.DisAsm->getInstruction(
+      bool Disassembled = disas->DisAsm->getInstruction(
           Inst, InstLen, indbr.InsnBytes, bbprop.Term.Addr, llvm::nulls());
       assert(Disassembled);
     }
@@ -1435,7 +1427,7 @@ void BootstrapTool::on_new_basic_block(binary_t &b, basic_block_t bb) {
 #if defined(__mips64) || defined(__mips__)
     {
       uint64_t InstLen;
-      bool Disassembled = disas.DisAsm->getInstruction(
+      bool Disassembled = disas->DisAsm->getInstruction(
           indbr.DelaySlotInst, InstLen,
           llvm::ArrayRef<uint8_t>(indbr.InsnBytes).slice(4),
           bbprop.Term.Addr + 4, llvm::nulls());
@@ -1481,7 +1473,7 @@ void BootstrapTool::on_new_basic_block(binary_t &b, basic_block_t bb) {
     {
       uint64_t InstLen;
       bool Disassembled =
-          disas.DisAsm->getInstruction(RetInfo.Inst, InstLen, RetInfo.InsnBytes,
+          disas->DisAsm->getInstruction(RetInfo.Inst, InstLen, RetInfo.InsnBytes,
                                        bbprop.Term.Addr, llvm::nulls());
       assert(Disassembled);
     }
@@ -1492,7 +1484,7 @@ void BootstrapTool::on_new_basic_block(binary_t &b, basic_block_t bb) {
     //
     {
       uint64_t InstLen;
-      bool Disassembled = disas.DisAsm->getInstruction(
+      bool Disassembled = disas->DisAsm->getInstruction(
           RetInfo.DelaySlotInst, InstLen,
           llvm::ArrayRef<uint8_t>(RetInfo.InsnBytes).slice(4),
           bbprop.Term.Addr + 4, llvm::nulls());
@@ -1507,8 +1499,6 @@ void BootstrapTool::on_new_basic_block(binary_t &b, basic_block_t bb) {
     }
   }
 }
-
-static std::string StringOfMCInst(llvm::MCInst &, disas_t &);
 
 #if defined(__mips64) || defined(__mips__)
 unsigned reg_of_idx(unsigned idx) {
@@ -1671,7 +1661,7 @@ void BootstrapTool::place_breakpoint_at_indirect_branch(pid_t child,
        % Addr
        % Binary.path_str()
        % indbr.TermAddr
-       % StringOfMCInst(Inst, disas)).str());
+       % StringOfMCInst(Inst)).str());
   }
 
   // read a word of the branch instruction
@@ -1738,7 +1728,7 @@ struct ScopedCPUState {
   ~ScopedCPUState()                          { _ptrace_set_cpu_state(child, gpr); }
 };
 
-void BootstrapTool::on_breakpoint(pid_t child, tiny_code_generator_t &tcg) {
+void BootstrapTool::on_breakpoint(pid_t child) {
   ScopedCPUState  _scoped_cpu_state(child);
 
   auto &gpr = _scoped_cpu_state.gpr;
@@ -2416,7 +2406,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
       assert(it != BrkMap.end());
       breakpoint_t &brk = (*it).second;
 
-      brk.callback(child, tcg, disas);
+      brk.callback(child);
 
       try {
         emulate_return(brk.Inst,
@@ -2450,7 +2440,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
       }
 
       try {
-        on_return(child, saved_pc, pc, tcg);
+        on_return(child, saved_pc, pc);
       } catch (const std::exception &e) {
         HumanOut() << llvm::formatv("{0} failed: {1}\n", __func__, e.what());
       }
@@ -2465,7 +2455,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
     auto it = BrkMap.find(saved_pc);
     if (it != BrkMap.end()) {
       breakpoint_t &brk = (*it).second;
-      brk.callback(child, tcg, disas);
+      brk.callback(child);
 
       if (IsVerbose())
         HumanOut() << llvm::formatv("one-shot breakpoint hit @ {0}\n",
@@ -2786,7 +2776,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
   try {
     if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL) {
       function_index_t FIdx =
-          E.explore_function(TargetBinary,
+          E->explore_function(TargetBinary,
                              *state.for_binary(TargetBinary).ObjectFile,
                              rva_of_va(Target.Addr, Target.BIdx),
                              state.for_binary(TargetBinary).fnmap,
@@ -2807,7 +2797,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
         // this call instruction will return, so explore the return block
         //
         basic_block_index_t NextBBIdx =
-            E.explore_basic_block(binary, *state.for_binary(binary).ObjectFile,
+            E->explore_basic_block(binary, *state.for_binary(binary).ObjectFile,
                                   IndBrInfo.TermAddr + IndBrInfo.InsnBytes.size(),
                                   state.for_binary(binary).fnmap,
                                   state.for_binary(binary).bbmap);
@@ -2827,7 +2817,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
         //
         // non-local goto (aka "long jump")
         //
-        E.explore_basic_block(TargetBinary, *state.for_binary(TargetBinary).ObjectFile,
+        E->explore_basic_block(TargetBinary, *state.for_binary(TargetBinary).ObjectFile,
                               rva_of_va(Target.Addr, Target.BIdx),
                               state.for_binary(TargetBinary).fnmap,
                               state.for_binary(TargetBinary).bbmap);
@@ -2851,7 +2841,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
         if (isTailCall) {
           function_index_t FIdx =
-              E.explore_function(TargetBinary, *state.for_binary(TargetBinary).ObjectFile,
+              E->explore_function(TargetBinary, *state.for_binary(TargetBinary).ObjectFile,
                                  rva_of_va(Target.Addr, Target.BIdx),
                                  state.for_binary(TargetBinary).fnmap,
                                  state.for_binary(TargetBinary).bbmap);
@@ -2865,7 +2855,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
           Target.isNew = ICFG[bb].insertDynTarget({Target.BIdx, FIdx}, Alloc);
         } else {
           basic_block_index_t TargetBBIdx =
-              E.explore_basic_block(TargetBinary, *state.for_binary(TargetBinary).ObjectFile,
+              E->explore_basic_block(TargetBinary, *state.for_binary(TargetBinary).ObjectFile,
                                     rva_of_va(Target.Addr, Target.BIdx),
                                     state.for_binary(TargetBinary).fnmap,
                                     state.for_binary(TargetBinary).bbmap);
@@ -2905,8 +2895,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
 #include "relocs_common.hpp"
 
-void BootstrapTool::harvest_irelative_reloc_targets(pid_t child,
-                                                    tiny_code_generator_t &tcg) {
+void BootstrapTool::harvest_irelative_reloc_targets(pid_t child) {
   auto processDynamicReloc = [&](binary_t &b, const Relocation &R) -> void {
     binary_index_t BIdx = index_of_binary(b, jv);
 
@@ -2950,7 +2939,7 @@ void BootstrapTool::harvest_irelative_reloc_targets(pid_t child,
 
     binary_t &ResolvedBinary = jv.Binaries[Resolved.BIdx];
 
-    Resolved.FIdx = E.explore_function(
+    Resolved.FIdx = E->explore_function(
         ResolvedBinary, *state.for_binary(ResolvedBinary).ObjectFile,
         rva_of_va(Resolved.Addr, Resolved.BIdx),
         state.for_binary(ResolvedBinary).fnmap,
@@ -2990,8 +2979,7 @@ void BootstrapTool::harvest_irelative_reloc_targets(pid_t child,
   }
 }
 
-void BootstrapTool::harvest_addressof_reloc_targets(pid_t child,
-                                                    tiny_code_generator_t &tcg) {
+void BootstrapTool::harvest_addressof_reloc_targets(pid_t child) {
   auto processDynamicReloc = [&](binary_t &b, const Relocation &R) -> void {
     binary_index_t BIdx = index_of_binary(b, jv);
 
@@ -3055,7 +3043,7 @@ void BootstrapTool::harvest_addressof_reloc_targets(pid_t child,
       binary_t &ResolvedBinary = jv.Binaries[Resolved.BIdx];
 
       unsigned brkpt_count = 0;
-      Resolved.FIdx = E.explore_function(
+      Resolved.FIdx = E->explore_function(
           ResolvedBinary, *state.for_binary(ResolvedBinary).ObjectFile,
           rva_of_va(Resolved.Addr, Resolved.BIdx),
           state.for_binary(ResolvedBinary).fnmap,
@@ -3097,8 +3085,7 @@ void BootstrapTool::harvest_addressof_reloc_targets(pid_t child,
   }
 }
 
-void BootstrapTool::harvest_ctor_and_dtors(pid_t child,
-                                           tiny_code_generator_t &tcg) {
+void BootstrapTool::harvest_ctor_and_dtors(pid_t child) {
   for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
     auto &Binary = jv.Binaries[BIdx];
     if (Binary.IsVDSO)
@@ -3152,7 +3139,7 @@ void BootstrapTool::harvest_ctor_and_dtors(pid_t child,
             auto it = AddressSpace.find(Proc);
             if (it != AddressSpace.end() &&
                 -1+(*it).second == BIdx) {
-              function_index_t FIdx = E.explore_function(
+              function_index_t FIdx = E->explore_function(
                   Binary, *state.for_binary(Binary).ObjectFile,
                   rva_of_va(Proc, BIdx),
                   state.for_binary(Binary).fnmap,
@@ -3180,8 +3167,7 @@ void BootstrapTool::harvest_ctor_and_dtors(pid_t child,
 }
 
 #if defined(__mips64) || defined(__mips__)
-void BootstrapTool::harvest_global_GOT_entries(pid_t child,
-                                               tiny_code_generator_t &tcg) {
+void BootstrapTool::harvest_global_GOT_entries(pid_t child) {
   for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
     auto &b = jv.Binaries[BIdx];
     if (b.IsVDSO)
@@ -3282,7 +3268,7 @@ void BootstrapTool::harvest_global_GOT_entries(pid_t child,
       binary_t &ResolvedBinary = jv.Binaries.at(Resolved.BIdx);
 
       unsigned brkpt_count = 0;
-      basic_block_index_t resolved_bbidx = E.explore_basic_block(
+      basic_block_index_t resolved_bbidx = E->explore_basic_block(
           ResolvedBinary, *state.for_binary(ResolvedBinary).ObjectFile,
           rva_of_va(Resolved.Addr, Resolved.BIdx),
           state.for_binary(ResolvedBinary).fnmap,
@@ -3291,7 +3277,7 @@ void BootstrapTool::harvest_global_GOT_entries(pid_t child,
       if (!is_basic_block_index_valid(resolved_bbidx))
         continue;
 
-      Resolved.FIdx = E.explore_function(
+      Resolved.FIdx = E->explore_function(
           ResolvedBinary, *state.for_binary(ResolvedBinary).ObjectFile,
           rva_of_va(Resolved.Addr, Resolved.BIdx),
           state.for_binary(ResolvedBinary).fnmap,
@@ -3305,14 +3291,13 @@ void BootstrapTool::harvest_global_GOT_entries(pid_t child,
 
 #endif
 
-void BootstrapTool::harvest_reloc_targets(pid_t child,
-                                          tiny_code_generator_t &tcg) {
-  harvest_irelative_reloc_targets(child, tcg);
-  harvest_addressof_reloc_targets(child, tcg);
-  harvest_ctor_and_dtors(child, tcg);
+void BootstrapTool::harvest_reloc_targets(pid_t child) {
+  harvest_irelative_reloc_targets(child);
+  harvest_addressof_reloc_targets(child);
+  harvest_ctor_and_dtors(child);
 
 #if defined(__mips64) || defined(__mips__)
-  harvest_global_GOT_entries(child, tcg);
+  harvest_global_GOT_entries(child);
 #endif
 }
 
@@ -3408,7 +3393,7 @@ void BootstrapTool::on_binary_loaded(pid_t child,
     uintptr_t Addr = va_of_rva(entry_rva, BIdx);
 
     breakpoint_t &brk = BrkMap[Addr];
-    brk.callback = std::bind(&BootstrapTool::harvest_reloc_targets, this, std::placeholders::_1, std::placeholders::_2);
+    brk.callback = std::bind(&BootstrapTool::harvest_reloc_targets, this, std::placeholders::_1);
 
     try {
       place_breakpoint(child, Addr, brk);
@@ -3495,7 +3480,7 @@ void BootstrapTool::on_binary_loaded(pid_t child,
 
     {
       uint64_t InstLen;
-      bool Disassembled = disas.DisAsm->getInstruction(
+      bool Disassembled = disas->DisAsm->getInstruction(
           Inst, InstLen, IndBrInfo.InsnBytes, bbprop.Term.Addr, llvm::nulls());
       assert(Disassembled);
     }
@@ -3503,7 +3488,7 @@ void BootstrapTool::on_binary_loaded(pid_t child,
 #if defined(__mips64) || defined(__mips__)
     {
       uint64_t InstLen;
-      bool Disassembled = disas.DisAsm->getInstruction(
+      bool Disassembled = disas->DisAsm->getInstruction(
           IndBrInfo.DelaySlotInst, InstLen,
           llvm::ArrayRef<uint8_t>(IndBrInfo.InsnBytes).slice(4),
           bbprop.Term.Addr + 4, llvm::errs());
@@ -3560,7 +3545,7 @@ void BootstrapTool::on_binary_loaded(pid_t child,
     {
       uint64_t InstLen;
       bool Disassembled =
-          disas.DisAsm->getInstruction(RetInfo.Inst, InstLen, RetInfo.InsnBytes,
+          disas->DisAsm->getInstruction(RetInfo.Inst, InstLen, RetInfo.InsnBytes,
                                        bbprop.Term.Addr, llvm::nulls());
       assert(Disassembled);
       assert(InstLen <= RetInfo.InsnBytes.size());
@@ -3569,7 +3554,7 @@ void BootstrapTool::on_binary_loaded(pid_t child,
 #if defined(__mips64) || defined(__mips__)
     {
       uint64_t InstLen;
-      bool Disassembled = disas.DisAsm->getInstruction(
+      bool Disassembled = disas->DisAsm->getInstruction(
           RetInfo.DelaySlotInst, InstLen,
           llvm::ArrayRef<uint8_t>(RetInfo.InsnBytes).slice(4),
           bbprop.Term.Addr + 4, llvm::nulls());
@@ -3931,7 +3916,7 @@ struct r_debug {
 
 static ssize_t _ptrace_memcpy(pid_t, void *dest, const void *src, size_t n);
 
-void BootstrapTool::scan_rtld_link_map(pid_t child, tiny_code_generator_t &tcg) {
+void BootstrapTool::scan_rtld_link_map(pid_t child) {
   if (!_r_debug.Addr)
     return;
 
@@ -4027,7 +4012,7 @@ void BootstrapTool::scan_rtld_link_map(pid_t child, tiny_code_generator_t &tcg) 
       if (it == BinPathToIdxMap.end()) {
         HumanOut() << llvm::formatv("adding \"{0}\" to jv\n",
                                     path.c_str());
-        add_binary(child, tcg, path.c_str());
+        add_binary(child, path.c_str());
 
         newbin = true;
       }
@@ -4040,18 +4025,17 @@ void BootstrapTool::scan_rtld_link_map(pid_t child, tiny_code_generator_t &tcg) 
     update_view_of_virtual_memory(child);
 }
 
-void BootstrapTool::add_binary(pid_t child, tiny_code_generator_t &tcg,
-                               const char *path) {
+void BootstrapTool::add_binary(pid_t child, const char *path) {
   std::string jvfp = temporary_dir() + path + ".jv";
   fs::create_directories(fs::path(jvfp).parent_path());
 
-  on_newbb_proc_t sav = E.get_newbb_proc();
-  E.set_newbb_proc([](binary_t &, basic_block_t) {});
+  on_newbb_proc_t sav = E->get_newbb_proc();
+  E->set_newbb_proc([](binary_t &, basic_block_t) {});
 
-  binary_index_t BIdx = jv.Add(path, E);
+  binary_index_t BIdx = jv.Add(path, *E);
   state.update();
 
-  E.set_newbb_proc(sav);
+  E->set_newbb_proc(sav);
 
   binary_t &binary = jv.Binaries[BIdx];
   binary.IsDynamicallyLoaded = true;
@@ -4180,13 +4164,13 @@ void BootstrapTool::rendezvous_with_dynamic_linker(pid_t child) {
     if (unlikely(BrkMap.find(_r_debug.r_brk) == BrkMap.end()) && opts.RtldDbgBrk) {
       try {
         breakpoint_t brk;
-        brk.callback = std::bind(&BootstrapTool::scan_rtld_link_map, this, std::placeholders::_1, std::placeholders::_2);
+        brk.callback = std::bind(&BootstrapTool::scan_rtld_link_map, this, std::placeholders::_1);
         brk.InsnBytes.resize(2 * sizeof(uint32_t));
         _ptrace_memcpy(child, &brk.InsnBytes[0], (void *)_r_debug.r_brk, brk.InsnBytes.size());
 
         {
           uint64_t InstLen = 0;
-          bool Disassembled = disas.DisAsm->getInstruction(
+          bool Disassembled = disas->DisAsm->getInstruction(
               brk.Inst,
               InstLen,
               brk.InsnBytes,
@@ -4205,7 +4189,7 @@ void BootstrapTool::rendezvous_with_dynamic_linker(pid_t child) {
         {
           uint64_t InstLen = 0;
           bool Disassembled =
-              disas.DisAsm->getInstruction(brk.DelaySlotInst,
+              disas->DisAsm->getInstruction(brk.DelaySlotInst,
                                            InstLen,
                                            llvm::ArrayRef<uint8_t>(brk.InsnBytes).slice(4),
                                            4 /* should not matter */,
@@ -4230,8 +4214,7 @@ void BootstrapTool::rendezvous_with_dynamic_linker(pid_t child) {
 
 void BootstrapTool::on_return(pid_t child,
                               uintptr_t AddrOfRet,
-                              uintptr_t RetAddr,
-                              tiny_code_generator_t &tcg) {
+                              uintptr_t RetAddr) {
   if (unlikely(!opts.Quiet && !ShowMeN && ShowMeA))
     HumanOut() << llvm::formatv(__ANSI_YELLOW "(ret) {0} <-- {1}" __ANSI_NORMAL_COLOR "\n",
                                   description_of_program_counter(RetAddr),
@@ -4327,7 +4310,7 @@ void BootstrapTool::on_return(pid_t child,
 
         unsigned brkpt_count = 0;
         basic_block_index_t next_bb_idx =
-            E.explore_basic_block(binary, *state.for_binary(binary).ObjectFile,
+            E->explore_basic_block(binary, *state.for_binary(binary).ObjectFile,
                                   rva,
                                   state.for_binary(binary).fnmap,
                                   state.for_binary(binary).bbmap);
@@ -4424,13 +4407,13 @@ std::string _ptrace_read_string(pid_t child, uintptr_t Addr) {
   return res;
 }
 
-std::string StringOfMCInst(llvm::MCInst &Inst, disas_t &disas) {
+std::string BootstrapTool::StringOfMCInst(llvm::MCInst &Inst) {
   std::string res;
 
   {
     llvm::raw_string_ostream ss(res);
 
-    disas.IP->printInst(&Inst, 0x0 /* XXX */, "", *disas.STI, ss);
+    disas->IP->printInst(&Inst, 0x0 /* XXX */, "", *disas->STI, ss);
 
 #if 0
     ss << '\n';
@@ -4477,8 +4460,7 @@ std::string BootstrapTool::description_of_program_counter(uintptr_t pc, bool Ver
   if (pm_it == pmm.end()) {
     return simple_desc;
   } else {
-    std::string extra =
-        Verbose || opts.VeryVerbose ? (" (" + simple_desc + ")") : "";
+    std::string extra = IsVerbose() ? (" (" + simple_desc + ")") : "";
 
     const proc_map_set_t &pms = (*pm_it).second;
     assert(pms.size() == 1);
@@ -4506,8 +4488,8 @@ std::string BootstrapTool::description_of_program_counter(uintptr_t pc, bool Ver
 
     uintptr_t rva = rva_of_va(pc, BIdx);
 
-    if (opts.VeryVerbose) {
-      std::string line = symbolizer.addr2line(jv.Binaries[BIdx], rva);
+    if (IsVeryVerbose()) {
+      std::string line = symbolizer->addr2line(jv.Binaries[BIdx], rva);
       if (!line.empty())
         return line;
     }
