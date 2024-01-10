@@ -39,6 +39,14 @@ unsigned num_cpus(void) {
   return CPU_COUNT(&cpu_mask);
 }
 
+void read_file_into_vector(const char *path, std::vector<uint8_t> &out) {
+  read_file_into_thing<std::vector<uint8_t>>(path, out);
+}
+
+void read_file_into_a_string(const char *path, std::string &out) {
+  read_file_into_thing<std::string>(path, out);
+}
+
 std::string read_file_into_string(char const *infile) {
   std::ifstream instream(infile);
   if (!instream.is_open())

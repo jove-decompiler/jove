@@ -118,4 +118,9 @@ std::string locator_t::gdbserver(void) {
   return must_exist(prebuilts_path() / "static_bin" /
                     (TARGET_ARCH_NAME "-gdbserver"));
 }
+
+std::string locator_t::perf(void) {
+  return must_exist("/usr/bin/perf");
+}
+
 }
