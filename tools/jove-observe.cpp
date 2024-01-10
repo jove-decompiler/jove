@@ -192,10 +192,12 @@ int ObserveTool::Run(void) {
     binary_index_t dst_BIdx = invalid_binary_index;
 
     std::string src_addr_s;
-    std::string src_dso;
-    std::string src_off_s;
     std::string dst_addr_s;
+
+    std::string src_dso;
     std::string dst_dso;
+
+    std::string src_off_s;
     std::string dst_off_s;
 
     uint64_t src_off = UINT64_MAX;
