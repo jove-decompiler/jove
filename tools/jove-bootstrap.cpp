@@ -36,7 +36,6 @@
 #include <llvm/Support/Error.h>
 #include <llvm/Support/FileSystem.h>
 #include <llvm/Support/FormatVariadic.h>
-#include <llvm/Support/FormatVariadic.h>
 #include <llvm/Support/ScopedPrinter.h>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/WithColor.h>
