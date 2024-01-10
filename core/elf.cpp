@@ -1010,10 +1010,10 @@ void for_each_dynamic_relocation(const ELFF &E,
 
   if (DynPLTRelRegion.Size > 0) {
     if (DynPLTRelRegion.EntSize == sizeof(Elf_Rela)) {
-      auto DynPLTRelRelocs = DynPLTRelRegion.getAsArrayRef<Elf_Rela>();
+      auto DynPLTRelaRelocs = DynPLTRelRegion.getAsArrayRef<Elf_Rela>();
 
-      std::for_each(DynPLTRelRelocs.begin(),
-                    DynPLTRelRelocs.end(),
+      std::for_each(DynPLTRelaRelocs.begin(),
+                    DynPLTRelaRelocs.end(),
                     [&](const Elf_Rela &Rela) {
                       proc(Relocation(Rela, IsMips64EL));
                     });
