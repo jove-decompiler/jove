@@ -19,48 +19,6 @@
 #include <boost/preprocessor/repetition/repeat.hpp>
 #include <boost/range/adaptor/reversed.hpp>
 
-#include "llvm/ADT/Triple.h"
-#include "llvm/Analysis/CallGraph.h"
-#include "llvm/Analysis/CallGraphSCCPass.h"
-#include "llvm/Analysis/LoopPass.h"
-#include "llvm/Analysis/RegionPass.h"
-#include "llvm/Analysis/TargetLibraryInfo.h"
-#include "llvm/Analysis/TargetTransformInfo.h"
-#include "llvm/AsmParser/Parser.h"
-#include "llvm/CodeGen/CommandFlags.h"
-#include "llvm/CodeGen/TargetPassConfig.h"
-#include "llvm/Config/llvm-config.h"
-#include "llvm/IR/DataLayout.h"
-#include "llvm/IR/DebugInfo.h"
-#include "llvm/IR/LLVMContext.h"
-#include "llvm/IR/LLVMRemarkStreamer.h"
-#include "llvm/IR/LegacyPassManager.h"
-#include "llvm/IR/LegacyPassNameParser.h"
-#include "llvm/IR/Module.h"
-#include "llvm/IR/ModuleSummaryIndex.h"
-#include "llvm/IR/Verifier.h"
-#include "llvm/IRReader/IRReader.h"
-#include "llvm/InitializePasses.h"
-#include "llvm/LinkAllIR.h"
-#include "llvm/LinkAllPasses.h"
-#include "llvm/MC/SubtargetFeature.h"
-#include "llvm/MC/TargetRegistry.h"
-#include "llvm/Passes/PassPlugin.h"
-#include "llvm/Remarks/HotnessThresholdParser.h"
-#include "llvm/Support/Debug.h"
-#include "llvm/Support/FileSystem.h"
-#include "llvm/Support/Host.h"
-#include "llvm/Support/InitLLVM.h"
-#include "llvm/Support/PluginLoader.h"
-#include "llvm/Support/SourceMgr.h"
-#include "llvm/Support/SystemUtils.h"
-#include "llvm/Support/TargetSelect.h"
-#include "llvm/Support/ToolOutputFile.h"
-#include "llvm/Support/YAMLTraits.h"
-#include "llvm/Target/TargetMachine.h"
-#include "llvm/Transforms/IPO/WholeProgramDevirt.h"
-#include "llvm/Transforms/Utils/Cloning.h"
-#include "llvm/Transforms/Utils/Debugify.h"
 #include <llvm/Analysis/Passes.h>
 #include <llvm/Analysis/TargetTransformInfo.h>
 #include <llvm/Bitcode/BitcodeReader.h>
@@ -84,7 +42,6 @@
 #include <llvm/InitializePasses.h>
 #include <llvm/InitializePasses.h>
 #include <llvm/LinkAllIR.h>
-#include <llvm/LinkAllPasses.h>
 #include <llvm/LinkAllPasses.h>
 #include <llvm/Linker/Linker.h>
 #include <llvm/MC/MCInstPrinter.h>
@@ -6391,20 +6348,9 @@ int LLVMTool::TranslateFunction(function_t &f) {
 int LLVMTool::TranslateFunctions(void) {
   llvm::legacy::FunctionPassManager FPM(Module.get());
 
-  llvm::Triple ModuleTriple(Module->getTargetTriple());
-  llvm::TargetLibraryInfoImpl TLII(ModuleTriple);
-  if (true /* DisableSimplifyLibCalls */)
-    TLII.disableAllFunctions();
-
-  FPM.add(new llvm::TargetLibraryInfoWrapperPass(TLII));
-  FPM.add(llvm::createTargetTransformInfoWrapperPass(disas.TM->getTargetIRAnalysis()));
-
   FPM.add(llvm::createScopedNoAliasAAWrapperPass());
   FPM.add(llvm::createBasicAAWrapperPass());
-
-  // Promote allocas to registers.
   FPM.add(llvm::createPromoteMemoryToRegisterPass());
-  // Do simple "peephole" optimizations and bit-twiddling optzns.
   if (!opts.DumpPreOpt1) {
   FPM.add(llvm::createInstructionCombiningPass());
 #if 0
