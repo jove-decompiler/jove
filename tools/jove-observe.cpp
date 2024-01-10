@@ -244,6 +244,56 @@ int ObserveTool::Run(void) {
 
     if (is_binary_index_valid(src_BIdx)) src_BBIdx = E.explore_basic_block(src_bin(), *state.for_binary(src_bin()).ObjectFile, src_off, state.for_binary(src_bin()).fnmap, state.for_binary(src_bin()).bbmap);
     if (is_binary_index_valid(dst_BIdx)) dst_BBIdx = E.explore_basic_block(dst_bin(), *state.for_binary(dst_bin()).ObjectFile, dst_off, state.for_binary(dst_bin()).fnmap, state.for_binary(dst_bin()).bbmap);
+
+    if (!is_basic_block_index_valid(src_BBIdx) ||
+        !is_basic_block_index_valid(dst_BBIdx))
+      continue;
+
+    auto &src_ICFG = src_bin().Analysis.ICFG;
+    auto &dst_ICFG = dst_bin().Analysis.ICFG;
+
+    basic_block_t src = basic_block_of_index(src_BBIdx, src_ICFG);
+    basic_block_t dst = basic_block_of_index(dst_BBIdx, dst_ICFG);
+
+    uint64_t TermAddr = src_ICFG[src].Term.Addr;
+
+    switch (src_ICFG[src].Term.Type) {
+    case TERMINATOR::RETURN:
+      src_ICFG[src].Term._return.Returns = true;
+      break;
+
+    case TERMINATOR::INDIRECT_CALL:
+      src_ICFG[src].insertDynTarget(std::make_pair(dst_BIdx, dst_BBIdx), Alloc);
+      break;
+
+    case TERMINATOR::INDIRECT_JUMP:
+      if (src_ICFG[src].Term._indirect_jump.IsLj)
+        break;
+
+      if (IsDefinitelyTailCall(src_ICFG, src) || src_BIdx != dst_BIdx) {
+        function_index_t FIdx =
+            E.explore_function(dst_bin(), *state.for_binary(dst_bin()).ObjectFile,
+                               dst_off,
+                               state.for_binary(dst_bin()).fnmap,
+                               state.for_binary(dst_bin()).bbmap);
+
+        if (is_function_index_valid(FIdx)) {
+          /* term bb may been split */
+          src = basic_block_at_address(TermAddr, src_bin(), state.for_binary(src_bin()).bbmap);
+          assert(src_ICFG[src].Term.Type == TERMINATOR::INDIRECT_JUMP);
+
+          src_ICFG[src].insertDynTarget({dst_BIdx, FIdx}, Alloc);
+        }
+      } else {
+        assert(src_BIdx == dst_BIdx);
+
+        boost::add_edge(src, dst, src_ICFG);
+      }
+      break;
+
+    default:
+      break;
+    }
   }
 
   return 0;
