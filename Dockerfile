@@ -51,7 +51,8 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       sudo \
                       tar \
                       unzip \
-                      vim-common && \
+                      vim-common \
+                      zlib1g-dev && \
     eatmydata apt-get autoremove -y && \
     eatmydata apt-get autoclean -y && \
     sed -Ei 's,^# (en_US\.UTF-8 .*)$,\1,' /etc/locale.gen && \
