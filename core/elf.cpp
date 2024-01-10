@@ -1175,4 +1175,22 @@ bool dynamic_linking_info_of_binary(llvm::object::Binary &Bin,
   return true;
 }
 
+std::string program_interpreter_of_elf(const ELFO &Obj) {
+  std::string res;
+
+  const ELFF &Elf = Obj.getELFFile();
+
+  auto ExpectedHeaders = Elf.program_headers();
+  if (ExpectedHeaders) {
+    for (const Elf_Phdr &Phdr : *ExpectedHeaders) {
+      if (Phdr.p_type == llvm::ELF::PT_INTERP) {
+        res = std::string(reinterpret_cast<const char *>(Elf.base() + Phdr.p_offset));
+        break;
+      }
+    }
+  }
+
+  return res;
+}
+
 }

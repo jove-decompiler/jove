@@ -63,8 +63,6 @@ public:
 
 JOVE_REGISTER_TOOL("init", InitTool);
 
-static std::string program_interpreter_of_executable(const char *exepath);
-
 #if defined(TARGET_MIPS32)
 static const uint8_t a_vdso[] = {
   0x17, 0x10, 0x02, 0x24, 0x0c, 0x00, 0x00, 0x00, 0x61, 0x10, 0x02, 0x24,
@@ -545,7 +543,14 @@ int InitTool::Run(void) {
   //
   // get the path to the dynamic linker (i.e. program interpreter)
   //
-  fs::path rtld_path = fs::canonical(program_interpreter_of_executable(opts.Prog.c_str()));
+  fs::path rtld_path;
+  {
+    auto ProgBinPair = CreateBinaryFromFile(opts.Prog.c_str());
+    obj::Binary *ProgBin = ProgBinPair.getBinary();
+    assert(llvm::isa<ELFO>(ProgBin));
+
+    rtld_path = fs::canonical(program_interpreter_of_elf(*llvm::cast<ELFO>(ProgBin)));
+  }
 
   if (IsVerbose())
     WithColor::note() << llvm::formatv("rtld_path={0}\n", rtld_path.c_str());
@@ -654,32 +659,6 @@ found:
   }
 
   return 0;
-}
-
-std::string program_interpreter_of_executable(const char *exepath) {
-  std::string res;
-
-  auto BinPair = CreateBinaryFromFile(exepath);
-
-  obj::Binary *Bin = BinPair.getBinary();
-  if (!llvm::isa<ELFO>(Bin)) {
-    WithColor::error() << llvm::formatv("{0}: invalid binary\n", __func__);
-    return res;
-  }
-
-  const ELFF &Elf = llvm::cast<ELFO>(Bin)->getELFFile();
-
-  auto ExpectedHeaders = Elf.program_headers();
-  if (ExpectedHeaders) {
-    for (const Elf_Phdr &Phdr : *ExpectedHeaders) {
-      if (Phdr.p_type == llvm::ELF::PT_INTERP) {
-        res = std::string(reinterpret_cast<const char *>(Elf.base() + Phdr.p_offset));
-        break;
-      }
-    }
-  }
-
-  return res;
 }
 
 }

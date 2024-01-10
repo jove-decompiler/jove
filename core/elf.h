@@ -62,6 +62,7 @@ typedef typename ELFT::Word Elf_Word;
 typedef typename ELFT::uint uintX_t;
 
 std::unique_ptr<llvm::object::Binary> CreateBinary(llvm::StringRef Data);
+
 llvm::object::OwningBinary<llvm::object::Binary>
 CreateBinaryFromFile(const char *path);
 
@@ -290,5 +291,8 @@ struct dynamic_linking_info_t {
 
 bool dynamic_linking_info_of_binary(llvm::object::Binary &,
                                     struct dynamic_linking_info_t &out);
+
+
+std::string program_interpreter_of_elf(const ELFO &);
 
 }
