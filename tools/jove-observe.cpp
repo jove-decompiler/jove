@@ -132,68 +132,118 @@ int ObserveTool::Run(void) {
      7f65c6213a29 (/usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2+0x1ba29) =>     7f65c6212040 (/usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2+0x1a040)
 */
 
-  const std::regex line_regex("\\s*"
-                              "(" ADDRSTR ")"
-                              "\\s+"
-                        "\\(" "(" DSOSTR ")\\+0x(" OFFSTR ")" "\\)"
-                              "\\s+"
-                              "=>"
-                              "\\s+"
-                              "(" ADDRSTR ")"
-                              "\\s+"
-                        "\\(" "(" DSOSTR ")\\+0x(" OFFSTR ")" "\\)"
+  const std::regex line_regex_ab("\\s*"
+                                 "(" ADDRSTR ")"
+                                 "\\s+"
+                           "\\(" "(" DSOSTR ")\\+0x(" OFFSTR ")" "\\)"
+                                 "\\s+"
+                                 "=>"
+                                 "\\s+"
+                                 "(" ADDRSTR ")"
+                                 "\\s+"
+                           "\\(" "(" DSOSTR ")\\+0x(" OFFSTR ")" "\\)"
+  );
+
+  const std::regex line_regex_a("\\s*"
+                                "(" ADDRSTR ")"
+                                "\\s+"
+                          "\\(" "(" DSOSTR ")\\+0x(" OFFSTR ")" "\\)"
+                                "\\s+"
+                                "=>"
+                                "\\s+"
+                                "0"
+                                "\\s+"
+                          "\\(" "\\[unknown\\]" "\\)"
+  );
+
+  const std::regex line_regex_b("\\s*"
+                                "0"
+                                "\\s+"
+                          "\\(" "\\[unknown\\]" "\\)"
+                                "\\s+"
+                                "=>"
+                                "\\s+"
+                                "(" ADDRSTR ")"
+                                "\\s+"
+                          "\\(" "(" DSOSTR ")\\+0x(" OFFSTR ")" "\\)"
   );
 
   std::string line;
   while (std::getline(ifs, line)) {
-    std::smatch line_match;
+    std::smatch line_match_ab;
+    bool ab = std::regex_match(line, line_match_ab, line_regex_ab);
 
-    if (!std::regex_match(line, line_match, line_regex))
-      continue;
-    if (line_match.size() != 7) {
+    std::smatch line_match_a;
+    bool a = std::regex_match(line, line_match_a, line_regex_a);
+
+    std::smatch line_match_b;
+    bool b = std::regex_match(line, line_match_b, line_regex_b);
+
+    if (!ab && !a && !b) {
       WithColor::warning() << llvm::formatv(
-          "unrecognized perf script output ({1}): \"{0}\"\n", line,
-          line_match.size());
-
-      for (unsigned i = 0; i < line_match.size(); ++i) {
-        llvm::errs() << "\"" << line_match[i] << "\"\n";
-      }
+          "unrecognized perf script output: \"{0}\"\n", line);
       return 1;
-      //continue;
     }
 
-    std::string src_addr_s = line_match[1].str();
-    std::string src_dso    = line_match[2].str();
-    std::string src_off_s  = line_match[3].str();
-    std::string dst_addr_s = line_match[4].str();
-    std::string dst_dso    = line_match[5].str();
-    std::string dst_off_s  = line_match[6].str();
+    bool onlyOneTrue = (a && !b && !ab) || (!a && b && !ab) || (!a && !b && ab);
+    assert(onlyOneTrue);
 
-    llvm::errs() << llvm::formatv("{0} {1} {2} {3} {4} {5}\n",
+    binary_index_t src_BIdx = invalid_binary_index;
+    binary_index_t dst_BIdx = invalid_binary_index;
+
+    std::string src_addr_s;
+    std::string src_dso;
+    std::string src_off_s;
+    std::string dst_addr_s;
+    std::string dst_dso;
+    std::string dst_off_s;
+
+    uint64_t src_off = UINT64_MAX;
+    uint64_t dst_off = UINT64_MAX;
+
+    if (ab) {
+      assert(line_match_ab.size() == 7);
+
+      src_addr_s = line_match_ab[1].str();
+      src_dso    = line_match_ab[2].str();
+      src_off_s  = line_match_ab[3].str();
+      dst_addr_s = line_match_ab[4].str();
+      dst_dso    = line_match_ab[5].str();
+      dst_off_s  = line_match_ab[6].str();
+    } else if (a) {
+      assert(line_match_a.size() == 4);
+
+      src_addr_s = line_match_a[1].str();
+      src_dso    = line_match_a[2].str();
+      src_off_s  = line_match_a[3].str();
+    } else {
+      assert(line_match_b.size() == 4);
+
+      dst_addr_s = line_match_b[1].str();
+      dst_dso    = line_match_b[2].str();
+      dst_off_s  = line_match_b[3].str();
+    }
+
+#if 0
+    llvm::errs() << llvm::formatv("src_addr_s={0} src_dso={1} src_off_s={2} dst_addr_s={3} dst_dso={4} dst_off_s{5}\n",
                                   src_addr_s, src_dso, src_off_s,
                                   dst_addr_s, dst_dso, dst_off_s);
+#endif
 
-    binary_index_t src_BIdx = jv.Lookup(src_dso.c_str());
-    binary_index_t dst_BIdx = jv.Lookup(dst_dso.c_str());
+    if (!src_dso.empty()) src_BIdx = jv.Lookup(src_dso.c_str());
+    if (!dst_dso.empty()) dst_BIdx = jv.Lookup(dst_dso.c_str());
 
-    if (!is_binary_index_valid(src_BIdx))
-      continue;
-    if (!is_binary_index_valid(dst_BIdx))
-      continue;
+    if (!src_off_s.empty()) src_off = strtol(src_off_s.c_str(), nullptr, 16);
+    if (!dst_off_s.empty()) dst_off = strtol(dst_off_s.c_str(), nullptr, 16);
 
-    binary_t &src = jv.Binaries[src_BIdx];
-    binary_t &dst = jv.Binaries[dst_BIdx];
+    basic_block_index_t src_BBIdx = invalid_basic_block_index;
+    basic_block_index_t dst_BBIdx = invalid_basic_block_index;
 
-    uint64_t src_off = strtol(src_off_s.c_str(), nullptr, 16);
-    uint64_t dst_off = strtol(dst_off_s.c_str(), nullptr, 16);
+    auto src_bin = [&](void) -> binary_t & { return jv.Binaries.at(src_BIdx); };
+    auto dst_bin = [&](void) -> binary_t & { return jv.Binaries.at(dst_BIdx); };
 
-    E.explore_basic_block(src, *state.for_binary(src).ObjectFile, src_off,
-                          state.for_binary(src).fnmap,
-                          state.for_binary(src).bbmap);
-
-    E.explore_basic_block(dst, *state.for_binary(dst).ObjectFile, dst_off,
-                          state.for_binary(dst).fnmap,
-                          state.for_binary(dst).bbmap);
+    if (is_binary_index_valid(src_BIdx)) src_BBIdx = E.explore_basic_block(src_bin(), *state.for_binary(src_bin()).ObjectFile, src_off, state.for_binary(src_bin()).fnmap, state.for_binary(src_bin()).bbmap);
+    if (is_binary_index_valid(dst_BIdx)) dst_BBIdx = E.explore_basic_block(dst_bin(), *state.for_binary(dst_bin()).ObjectFile, dst_off, state.for_binary(dst_bin()).fnmap, state.for_binary(dst_bin()).bbmap);
   }
 
   return 0;
