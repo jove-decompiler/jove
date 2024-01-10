@@ -115,7 +115,7 @@ int ObserveTool::Run(void) {
         Arg(perf_path);
 
         Arg("script");
-        Arg("--itrace=c");
+        Arg("--itrace=bcr");
         Arg("-F");
         Arg("ip,addr,dso,dsoff");
       },
