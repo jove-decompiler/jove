@@ -2,10 +2,6 @@
 trap 'exit' ERR
 set -x
 
-# --sysroot=/usr/mipsel-linux-gnu
-# --gcc-toolchain=/usr/lib/gcc-cross/mipsel-linux-gnu/12
-# -fuse-ld=lld
-
 TRIPLE="i686-linux-gnu"
 
 OURCFLAGS=\

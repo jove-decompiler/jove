@@ -2,10 +2,6 @@
 trap 'exit' ERR
 set -x
 
-# --sysroot=/usr/mips-linux-gnu
-# --gcc-toolchain=/usr/lib/gcc-cross/mips-linux-gnu/12
-# -fuse-ld=lld
-
 TRIPLE="mips-linux-gnu"
 
 OURCFLAGS=\
