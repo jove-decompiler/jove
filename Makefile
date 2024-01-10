@@ -47,10 +47,12 @@ qemu-starters: $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/qemu-starter)
 
 define target_code_template
 .PHONY: helpers-$(1)
-helpers-$(1): $(foreach h,$($(t)_HELPERS),$(BINDIR)/$(1)/helpers/$(h).ll)
+helpers-$(1): $(foreach h,$($(t)_HELPERS),$(BINDIR)/$(1)/helpers/$(h).ll) \
+              $(foreach h,$($(t)_HELPERS),$(BINDIR)/$(1)/helpers/$(h).bc)
 
 .PHONY: runtime-$(1)
 runtime-$(1): $(BINDIR)/$(1)/libjove_rt.so \
+              $(BINDIR)/$(1)/jove.bc \
               $(BINDIR)/$(1)/jove.ll
 
 $(BINDIR)/$(1)/qemu-starter: lib/arch/$(1)/qemu-starter.c
