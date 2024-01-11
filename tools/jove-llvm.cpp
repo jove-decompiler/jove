@@ -757,15 +757,14 @@ public:
   }
 
   unsigned bitsOfTCGType(TCGType ty) {
+    if (unlikely(ty > 2))
+      die("bitsOfTCGType: unhandled vector TCGType");
+
     static_assert(TCG_TYPE_I32 == 0);
     static_assert(TCG_TYPE_I64 == 1);
     static_assert(TCG_TYPE_I128 == 2);
 
-    if (unlikely(ty > 2))
-      die("bitsOfTCGType: unhandled vector TCGType");
-
-    static const unsigned lookup_table[] = {32, 64, 128};
-    return lookup_table[ty];
+    return 1u << (static_cast<unsigned>(ty) + 5);
   }
 
   llvm::IntegerType *TypeOfTCGGlobal(unsigned glb) {
