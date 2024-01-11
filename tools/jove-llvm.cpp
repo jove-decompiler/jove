@@ -762,7 +762,7 @@ public:
     static_assert(TCG_TYPE_I128 == 2);
 
     if (unlikely(ty > 2))
-      throw std::runtime_error("unhandled: vector TCGType");
+      die("bitsOfTCGType: unhandled vector TCGType");
 
     static const unsigned lookup_table[] = {32, 64, 128};
     return lookup_table[ty];
@@ -9998,7 +9998,7 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
       __OP_SETCOND_COND(TCG_COND_LEU, ULE)                                     \
       __OP_SETCOND_COND(TCG_COND_GTU, UGT)                                     \
     default:                                                                   \
-      assert(false);                                                           \
+      die("unrecognized TCG_COND");                                            \
     }                                                                          \
     set(IRB.CreateZExt(Val, IRB.getIntNTy(bits)), arg_temp(op->args[0]));      \
   } break;
@@ -10030,7 +10030,7 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
       __OP_MOVCOND_COND(TCG_COND_LEU, ULE)                                     \
       __OP_MOVCOND_COND(TCG_COND_GTU, UGT)                                     \
     default:                                                                   \
-      assert(false);                                                           \
+      die("unrecognized TCG_COND");                                            \
     }                                                                          \
     llvm::Value *SelV = IRB.CreateSelect(CondV,                                \
                                          get(arg_temp(op->args[3])),           \
@@ -10403,8 +10403,7 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
   }
 
   default:
-    throw std::runtime_error(std::string("unhandled TCGOpcode: ") +
-                             jv_tcgopc_name_in_def(opc));
+    die(std::string("unhandled TCGOpcode: ") + jv_tcgopc_name_in_def(opc));
   }
 
   return 0;

@@ -234,6 +234,10 @@ void Tool::HumanOutToFile(const std::string &path) {
   HumanOutputStreamPtr = HumanOutputFileStream.get();
 }
 
+[[noreturn]] void Tool::die(const std::string &reason) {
+  throw std::runtime_error(reason);
+}
+
 void Tool::print_command(const char **argv) {
   for (const char **argp = argv; *argp; ++argp) {
     HumanOut() << *argp;

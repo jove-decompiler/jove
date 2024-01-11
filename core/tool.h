@@ -55,6 +55,8 @@ public:
 protected:
   void HumanOutToFile(const std::string &path);
 
+  [[noreturn]] void die(const std::string &reason);
+
 public:
   llvm::raw_ostream &HumanOut(void) {
     return *HumanOutputStreamPtr;
