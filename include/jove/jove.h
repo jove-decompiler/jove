@@ -992,7 +992,7 @@ static inline void construct_bbmap(jv_t &jv,
 
     boost::icl::interval<uint64_t>::type intervl =
         boost::icl::interval<uint64_t>::right_open(bbprop.Addr,
-                                                        bbprop.Addr + bbprop.Size);
+                                                   bbprop.Addr + bbprop.Size);
     assert(out.find(intervl) == out.end());
 
     out.add({intervl, 1+index_of_basic_block(ICFG, bb)});
