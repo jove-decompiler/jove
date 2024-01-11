@@ -2808,7 +2808,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
         bb = basic_block_at_address(IndBrInfo.TermAddr, binary, bbmap);
         assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL);
 
-        boost::add_edge(bb, boost::vertex(NextBBIdx, ICFG), ICFG);
+        boost::add_edge(bb, basic_block_of_index(NextBBIdx, ICFG), ICFG);
       }
     } else {
       assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP);
@@ -2861,7 +2861,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
                                     state.for_binary(TargetBinary).bbmap);
 
           assert(is_basic_block_index_valid(TargetBBIdx));
-          basic_block_t TargetBB = boost::vertex(TargetBBIdx, ICFG);
+          basic_block_t TargetBB = basic_block_of_index(TargetBBIdx, ICFG);
 
           /* term bb may been split */
           bb = basic_block_at_address(IndBrInfo.TermAddr, binary, bbmap);
@@ -3386,7 +3386,7 @@ void BootstrapTool::on_binary_loaded(pid_t child,
   //
   if (binary.IsExecutable &&
       is_function_index_valid(binary.Analysis.EntryFunction)) {
-    basic_block_t entry_bb = boost::vertex(
+    basic_block_t entry_bb = basic_block_of_index(
         binary.Analysis.Functions[binary.Analysis.EntryFunction].Entry,
         binary.Analysis.ICFG);
     uintptr_t entry_rva = binary.Analysis.ICFG[entry_bb].Addr;
@@ -3443,7 +3443,7 @@ void BootstrapTool::on_binary_loaded(pid_t child,
   //
   for (basic_block_index_t bbidx = 0;
        bbidx < boost::num_vertices(binary.Analysis.ICFG); ++bbidx) {
-    basic_block_t bb = boost::vertex(bbidx, binary.Analysis.ICFG);
+    basic_block_t bb = basic_block_of_index(bbidx, binary.Analysis.ICFG);
 
     basic_block_properties_t &bbprop = binary.Analysis.ICFG[bb];
     if (bbprop.Term.Type != TERMINATOR::INDIRECT_JUMP &&
@@ -3513,7 +3513,7 @@ void BootstrapTool::on_binary_loaded(pid_t child,
   //
   for (basic_block_index_t bbidx = 0;
        bbidx < boost::num_vertices(binary.Analysis.ICFG); ++bbidx) {
-    basic_block_t bb = boost::vertex(bbidx, binary.Analysis.ICFG);
+    basic_block_t bb = basic_block_of_index(bbidx, binary.Analysis.ICFG);
 
     basic_block_properties_t &bbprop = binary.Analysis.ICFG[bb];
     if (bbprop.Term.Type != TERMINATOR::RETURN)
@@ -4257,7 +4257,7 @@ void BootstrapTool::on_return(pid_t child,
         auto it = bbmap.find(rva);
         assert(it != bbmap.end());
         basic_block_index_t bbidx = (*it).second - 1;
-        basic_block_t bb = boost::vertex(bbidx, ICFG);
+        basic_block_t bb = basic_block_of_index(bbidx, ICFG);
 
         assert(ICFG[bb].Term.Type == TERMINATOR::RETURN);
         ICFG[bb].Term._return.Returns = true;
@@ -4339,7 +4339,7 @@ void BootstrapTool::on_return(pid_t child,
             }
 
             basic_block_index_t bbidx = (*it).second - 1;
-            bb = boost::vertex(bbidx, ICFG);
+            bb = basic_block_of_index(bbidx, ICFG);
           }
 
           bool isCall = ICFG[bb].Term.Type == TERMINATOR::CALL;
@@ -4367,7 +4367,7 @@ void BootstrapTool::on_return(pid_t child,
           if (isIndirectCall)
             ICFG[bb].Term._indirect_call.Returns = true;
 
-          basic_block_t next_bb = boost::vertex(next_bb_idx, ICFG);
+          basic_block_t next_bb = basic_block_of_index(next_bb_idx, ICFG);
           if (boost::add_edge(bb, next_bb, ICFG).second)
             invalidateAnalyses = true;
         }

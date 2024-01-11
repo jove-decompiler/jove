@@ -559,7 +559,7 @@ public:
         return llvm::ConstantExpr::getPtrToInt(state.for_function(f).F, WordType());
       } else {
         auto &ICFG = binary.Analysis.ICFG;
-        return SectionPointer(ICFG[boost::vertex(f.Entry, ICFG)].Addr);
+        return SectionPointer(ICFG[basic_block_of_index(f.Entry, ICFG)].Addr);
       }
     }
 
@@ -2393,12 +2393,12 @@ int LLVMTool::InitStateForBinaries(void) {
 
       if (y.IsSj)
         llvm::outs() << llvm::formatv("setjmp found at {0:x} in {1}\n",
-                                      ICFG[boost::vertex(f.Entry, ICFG)].Addr,
+                                      ICFG[basic_block_of_index(f.Entry, ICFG)].Addr,
                                       fs::path(binary.path_str()).filename().string());
 
       if (y.IsLj)
         llvm::outs() << llvm::formatv("longjmp found at {0:x} in {1}\n",
-                                      ICFG[boost::vertex(f.Entry, ICFG)].Addr,
+                                      ICFG[basic_block_of_index(f.Entry, ICFG)].Addr,
                                       fs::path(binary.path_str()).filename().string());
     });
 
@@ -3118,7 +3118,7 @@ llvm::GlobalIFunc *LLVMTool::buildGlobalIFunc(function_t &f,
       auto &Binary = jv.Binaries[BinaryIndex];
       auto &ICFG = Binary.Analysis.ICFG;
 
-      uint64_t Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
+      uint64_t Addr = ICFG[basic_block_of_index(f.Entry, ICFG)].Addr;
 
       IRB.CreateRet(IRB.CreateIntToPtr(
           SectionPointer(Addr), F->getFunctionType()->getReturnType()));
@@ -3616,7 +3616,7 @@ int LLVMTool::CreateFunctions(void) {
     if (unlikely(!is_basic_block_index_valid(f.Entry)))
       return;
 
-    const uint64_t Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
+    const uint64_t Addr = ICFG[basic_block_of_index(f.Entry, ICFG)].Addr;
 
     std::string jove_name = (fmt("%c%lx") % (f.IsABI ? 'J' : 'j') % Addr).str();
 
@@ -3664,7 +3664,7 @@ int LLVMTool::CreateFunctions(void) {
     if (unlikely(!is_basic_block_index_valid(f.Entry)))
       return;
 
-    const uint64_t Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
+    const uint64_t Addr = ICFG[basic_block_of_index(f.Entry, ICFG)].Addr;
 
     if (!f.IsABI) {
       //
@@ -3765,7 +3765,7 @@ int LLVMTool::CreateFunctionTable(void) {
     if (!f.IsABI)
       assert(state.for_function(f).adapterF);
 
-    C1 = SectionPointer(ICFG[boost::vertex(f.Entry, ICFG)].Addr);
+    C1 = SectionPointer(ICFG[basic_block_of_index(f.Entry, ICFG)].Addr);
     C2 = llvm::ConstantExpr::getPtrToInt(state.for_function(f).F, WordType());
     C3 = state.for_function(f).adapterF
              ? llvm::ConstantExpr::getPtrToInt(state.for_function(f).adapterF, WordType())
@@ -4130,7 +4130,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
         if (!is_basic_block_index_valid(f.Entry))
           continue;
 
-        uint64_t Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
+        uint64_t Addr = ICFG[basic_block_of_index(f.Entry, ICFG)].Addr;
 
         uint32_t &insn = *((uint32_t *)binary_data_ptr_of_addr(Addr));
 
@@ -4149,7 +4149,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
             tool.state.for_function(f).IsSj)
           continue;
 
-        uint64_t Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
+        uint64_t Addr = ICFG[basic_block_of_index(f.Entry, ICFG)].Addr;
 
 #if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
         uint8_t *insnp = ((uint8_t *)binary_data_ptr_of_addr(Addr));
@@ -4201,7 +4201,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
             tool.state.for_function(f).IsSj)
           continue;
 
-        uint64_t Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
+        uint64_t Addr = ICFG[basic_block_of_index(f.Entry, ICFG)].Addr;
 
         uint32_t &insn = *((uint32_t *)binary_data_ptr_of_addr(Addr));
 
@@ -5655,7 +5655,7 @@ int LLVMTool::CreateCopyRelocationHack(void) {
                 FirstEntry,
                 IRB.getIntN(
                     WordBits(),
-                    ICFG[boost::vertex(BinaryFrom.Analysis.Functions[0].Entry,
+                    ICFG[basic_block_of_index(BinaryFrom.Analysis.Functions[0].Entry,
                                        ICFG)]
                         .Addr));
 
@@ -5794,7 +5794,7 @@ int LLVMTool::FixupHelperStubs(void) {
             dynl_binary.Analysis.Functions.begin(),
             dynl_binary.Analysis.Functions.end(), constantTable.begin(),
             [&](const function_t &f) -> llvm::Constant * {
-              uintptr_t Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
+              uintptr_t Addr = ICFG[basic_block_of_index(f.Entry, ICFG)].Addr;
               return llvm::ConstantInt::get(WordType(), Addr);
             });
 
@@ -5825,7 +5825,7 @@ int LLVMTool::FixupHelperStubs(void) {
         std::transform(vdso_binary.Analysis.Functions.begin(),
                        vdso_binary.Analysis.Functions.end(), constantTable.begin(),
                        [&](const function_t &f) -> llvm::Constant * {
-                         uintptr_t Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
+                         uintptr_t Addr = ICFG[basic_block_of_index(f.Entry, ICFG)].Addr;
                          return llvm::ConstantInt::get(WordType(), Addr);
                        });
 
@@ -5929,7 +5929,7 @@ int LLVMTool::FixupHelperStubs(void) {
                 function_t &f = binary.Analysis.Functions[FIdx];
 
                 constantTable[FIdx] = llvm::ConstantInt::get(
-                    WordType(), ICFG[boost::vertex(f.Entry, ICFG)].Addr);
+                    WordType(), ICFG[basic_block_of_index(f.Entry, ICFG)].Addr);
               }
 
               constantTable.back() = llvm::Constant::getNullValue(WordType());
@@ -7379,7 +7379,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
   } while (size < Size);
 
   if (T.Type != ICFG[bb].Term.Type) {
-    uintptr_t FuncAddr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
+    uintptr_t FuncAddr = ICFG[basic_block_of_index(f.Entry, ICFG)].Addr;
 
     WithColor::error() << llvm::formatv(
         "{0}:{1} @ {2:x} (try jove-init'ing over again? this can happen when "
@@ -7535,14 +7535,14 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
       assert(Lj ^ Sj);
       llvm::outs() << llvm::formatv("calling {0} {1:x} from {2:x} (call)\n",
                                     Lj ? "longjmp" : "setjmp",
-                                    ICFG[boost::vertex(callee.Entry, ICFG)].Addr,
+                                    ICFG[basic_block_of_index(callee.Entry, ICFG)].Addr,
                                     ICFG[bb].Term.Addr);
 
 #if defined(TARGET_I386)
       std::vector<llvm::Type *> argTypes(2, WordType());
 
       llvm::Value *CastedPtr = IRB.CreateIntToPtr(
-          SectionPointer(ICFG[boost::vertex(callee.Entry, ICFG)].Addr),
+          SectionPointer(ICFG[basic_block_of_index(callee.Entry, ICFG)].Addr),
           llvm::FunctionType::get(WordType(), argTypes, false)->getPointerTo());
 
       std::vector<llvm::Value *> ArgVec;
@@ -7580,7 +7580,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
       std::vector<llvm::Type *> argTypes(CallConvArgArray.size(), WordType());
 
       llvm::Value *CastedPtr = IRB.CreateIntToPtr(
-          SectionPointer(ICFG[boost::vertex(callee.Entry, ICFG)].Addr),
+          SectionPointer(ICFG[basic_block_of_index(callee.Entry, ICFG)].Addr),
           llvm::FunctionType::get(WordType(), argTypes, false)->getPointerTo());
 
       std::vector<llvm::Value *> ArgVec;
@@ -8917,7 +8917,7 @@ std::string LLVMTool::dyn_target_desc(dynamic_target_t IdxPair) {
   function_t &f = b.Analysis.Functions[DynTarget.FIdx];
 
   uint64_t Addr =
-      b.Analysis.ICFG[boost::vertex(f.Entry, b.Analysis.ICFG)].Addr;
+      b.Analysis.ICFG[basic_block_of_index(f.Entry, b.Analysis.ICFG)].Addr;
 
   return (fmt("%s+%#lx") % fs::path(b.path_str()).filename().string() % Addr).str();
 }

@@ -163,7 +163,7 @@ int AnalyzeTool::AnalyzeBlocks(void) {
       [](function_t &f) { return f.IsABI; },
       [](function_t &f, binary_t &b) {
         auto &ICFG = b.Analysis.ICFG;
-        ICFG[boost::vertex(f.Entry, ICFG)].Analysis.live.use |= CallConvArgs;
+        ICFG[basic_block_of_index(f.Entry, ICFG)].Analysis.live.use |= CallConvArgs;
       });
 
   return 0;

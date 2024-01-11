@@ -290,7 +290,7 @@ open_events:
       const auto &ICFG = binary.Analysis.ICFG;
 
       for (basic_block_index_t BBIdx = 0; BBIdx < boost::num_vertices(ICFG); ++BBIdx) {
-        basic_block_t bb = boost::vertex(BBIdx, ICFG);
+        basic_block_t bb = basic_block_of_index(BBIdx, ICFG);
 
         //
         // e.g.

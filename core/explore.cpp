@@ -81,7 +81,7 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
     auto it = bbmap.find(Addr);
     if (it != bbmap.end()) {
       const basic_block_index_t BBIdx = -1+(*it).second;
-      basic_block_t bb = boost::vertex(BBIdx, ICFG);
+      basic_block_t bb = basic_block_of_index(BBIdx, ICFG);
 
       assert(BBIdx < boost::num_vertices(ICFG));
 
@@ -463,7 +463,7 @@ void explorer_t::_explore_the_rest(binary_t &b,
     const basic_block_index_t BBIdx = -1+(*it).second;
     assert(BBIdx < boost::num_vertices(ICFG));
 
-    basic_block_t bb = boost::vertex(BBIdx, ICFG);
+    basic_block_t bb = basic_block_of_index(BBIdx, ICFG);
     assert(ICFG[bb].Term.Type == TERMINATOR::CALL);
 
     function_index_t CalleeFIdx = ICFG[bb].Term._call.Target;

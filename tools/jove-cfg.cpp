@@ -349,7 +349,7 @@ int CFGTool::Run(void) {
   for (function_index_t FIdx = 0; FIdx < binary.Analysis.Functions.size(); ++FIdx) {
     const function_t &f = binary.Analysis.Functions[FIdx];
 
-    uintptr_t EntryAddr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
+    uintptr_t EntryAddr = ICFG[basic_block_of_index(f.Entry, ICFG)].Addr;
     if (EntryAddr != FuncAddr)
       continue;
 

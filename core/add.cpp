@@ -922,7 +922,7 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
 
         bb_visitor vis(bbvec);
         depth_first_visit(
-            ICFG, boost::vertex(BBIdx, ICFG), vis,
+            ICFG, basic_block_of_index(BBIdx, ICFG), vis,
             boost::associative_property_map<
                 std::map<basic_block_t, boost::default_color_type>>(color));
 
@@ -958,7 +958,7 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
 
         WithColor::note() << llvm::formatv("found setjmp @ {0:x}\n", A);
 
-        ICFG[boost::vertex(BBIdx, ICFG)].Sj = true;
+        ICFG[basic_block_of_index(BBIdx, ICFG)].Sj = true;
       }
     }
   }

@@ -117,7 +117,7 @@ void DumpTool::dumpDecompilation(const jv_t& jv) {
         B.Analysis.EntryFunction < B.Analysis.Functions.size()) {
       const function_t &entryFunc =
           B.Analysis.Functions.at(B.Analysis.EntryFunction);
-      Writer.printHex("Entry", ICFG[boost::vertex(entryFunc.Entry, ICFG)].Addr);
+      Writer.printHex("Entry", ICFG[basic_block_of_index(entryFunc.Entry, ICFG)].Addr);
     }
 
     {
@@ -160,7 +160,7 @@ void DumpTool::dumpDecompilation(const jv_t& jv) {
             Writer.printBoolean("Returns", ICFG[bb].Term._call.Returns);
 
             const function_t &f = B.Analysis.Functions.at(ICFG[bb].Term._call.Target);
-            Writer.printString("Target", (fmt("0x%lX") % ICFG[boost::vertex(f.Entry, ICFG)].Addr).str());
+            Writer.printString("Target", (fmt("0x%lX") % ICFG[basic_block_of_index(f.Entry, ICFG)].Addr).str());
           }
 
           if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP)
@@ -270,7 +270,7 @@ void DumpTool::dumpDecompilation(const jv_t& jv) {
                            const auto &_ICFG = b.Analysis.ICFG;
                            const function_t &callee = b.Analysis.Functions[FIdx];
                            uint64_t target_addr =
-                               _ICFG[boost::vertex(callee.Entry, _ICFG)].Addr;
+                               _ICFG[basic_block_of_index(callee.Entry, _ICFG)].Addr;
 
                            return (fmt("0x%lX @ %s") % target_addr %
                                    fs::path(b.path_str()).filename().string())
@@ -303,9 +303,9 @@ void DumpTool::dumpDecompilation(const jv_t& jv) {
       llvm::ListScope ___(Writer, (fmt("Functions (%u)") % B.Analysis.Functions.size()).str());
 
       for (const function_t &f : B.Analysis.Functions) {
-        llvm::DictScope ____(Writer, (fmt("Func @ 0x%lX") % ICFG[boost::vertex(f.Entry, ICFG)].Addr).str());
+        llvm::DictScope ____(Writer, (fmt("Func @ 0x%lX") % ICFG[basic_block_of_index(f.Entry, ICFG)].Addr).str());
 
-        //Writer.printHex("Address", ICFG[boost::vertex(f.Entry, ICFG)].Addr);
+        //Writer.printHex("Address", ICFG[basic_block_of_index(f.Entry, ICFG)].Addr);
 
 #if 0
         if (!(f.Analysis.Stale &&
@@ -386,7 +386,7 @@ void DumpTool::dumpDecompilation(const jv_t& jv) {
                            const auto &_ICFG = b.Analysis.ICFG;
                            auto &callee = b.Analysis.Functions[FIdx];
                            uintptr_t target_addr =
-                               _ICFG[boost::vertex(callee.Entry, _ICFG)].Addr;
+                               _ICFG[basic_block_of_index(callee.Entry, _ICFG)].Addr;
 
                            return (fmt("0x%lX @ %s") % target_addr %
                                    fs::path(b.path_str()).filename().string())
@@ -419,7 +419,7 @@ void DumpTool::dumpDecompilation(const jv_t& jv) {
                            const auto &_ICFG = b.Analysis.ICFG;
                            auto &callee = b.Analysis.Functions[FIdx];
                            uintptr_t target_addr =
-                               _ICFG[boost::vertex(callee.Entry, _ICFG)].Addr;
+                               _ICFG[basic_block_of_index(callee.Entry, _ICFG)].Addr;
 
                            return (fmt("0x%lX @ %s") % target_addr %
                                    fs::path(b.path_str()).filename().string())
@@ -452,7 +452,7 @@ void DumpTool::dumpDecompilation(const jv_t& jv) {
                            const auto &_ICFG = b.Analysis.ICFG;
                            auto &callee = b.Analysis.Functions[FIdx];
                            uintptr_t target_addr =
-                               _ICFG[boost::vertex(callee.Entry, _ICFG)].Addr;
+                               _ICFG[basic_block_of_index(callee.Entry, _ICFG)].Addr;
 
                            return (fmt("0x%lX @ %s") % target_addr %
                                    fs::path(b.path_str()).filename().string())
@@ -519,7 +519,7 @@ void DumpTool::dumpInput(const std::string &Path) {
 
       for (unsigned FIdx = 0; FIdx < binary.Analysis.Functions.size(); ++FIdx) {
         const function_t &function = binary.Analysis.Functions[FIdx];
-        uintptr_t Addr = ICFG[boost::vertex(function.Entry, ICFG)].Addr;
+        uintptr_t Addr = ICFG[basic_block_of_index(function.Entry, ICFG)].Addr;
 
         llvm::outs() << llvm::formatv("{0:x}\n", Addr);
       }
@@ -536,7 +536,7 @@ void DumpTool::dumpInput(const std::string &Path) {
       auto &ICFG = binary.Analysis.ICFG;
 
       for (const function_t &f : binary.Analysis.Functions) {
-        basic_block_t entry = boost::vertex(f.Entry, ICFG);
+        basic_block_t entry = basic_block_of_index(f.Entry, ICFG);
 
         std::vector<basic_block_t> blocks;
         blocks.reserve(boost::num_vertices(ICFG));

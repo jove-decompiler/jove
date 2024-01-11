@@ -101,7 +101,7 @@ int Trace2AddrsTool::Run(void) {
 
     const auto &binary = jv.Binaries.at(BIdx);
     const auto &ICFG = binary.Analysis.ICFG;
-    basic_block_t bb = boost::vertex(BBIdx, ICFG);
+    basic_block_t bb = basic_block_of_index(BBIdx, ICFG);
 
     OutputStream << llvm::formatv("{0}+0x{1:x}\n",
                                   fs::path(binary.path_str()).filename().c_str(),
