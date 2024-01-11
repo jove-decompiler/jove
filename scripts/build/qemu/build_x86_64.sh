@@ -1,5 +1,6 @@
 #!/bin/bash
-trap 'exit' ERR
+set -e 
+set -o pipefail
 set -x
 
 EXTRACONF="--enable-jove"

@@ -1,5 +1,6 @@
 #!/bin/bash
-trap 'exit' ERR
+set -e 
+set -o pipefail
 set -x
 
 TRIPLE="mipsel-linux-gnu"

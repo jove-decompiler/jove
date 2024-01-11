@@ -1,5 +1,6 @@
 #!/bin/bash
-trap 'exit' ERR
+set -e 
+set -o pipefail
 
 build_scripts_path=$(cd "$(dirname -- "$0")"; pwd)
 jove_path=$build_scripts_path/../..
