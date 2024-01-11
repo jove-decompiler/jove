@@ -63,7 +63,7 @@ namespace jove {
 
 class explorer_t;
 
-inline std::string taddr2str(tcg_uintptr_t x, bool zero_padded = true) {
+static inline std::string taddr2str(tcg_uintptr_t x, bool zero_padded = true) {
   std::stringstream stream;
   stream << "0x";
   if (zero_padded)
@@ -157,14 +157,14 @@ typedef boost::interprocess::allocator<char, segment_manager_t>
 typedef boost::interprocess::basic_string<char, std::char_traits<char>, ip_char_allocator>
     ip_string;
 
-inline std::string un_ips(const ip_string &x) {
+static inline std::string un_ips(const ip_string &x) {
   std::string res;
   res.reserve(x.size());
   std::copy(x.begin(), x.end(), std::back_inserter(res));
   return res;
 }
 
-inline ip_string to_ips(ip_string &res, const std::string &x) {
+static inline ip_string to_ips(ip_string &res, const std::string &x) {
   res.clear();
   res.reserve(x.size());
   std::copy(x.begin(), x.end(), std::back_inserter(res));
@@ -297,12 +297,12 @@ typedef interprocedural_control_flow_graph_t::edge_descriptor control_flow_t;
 
 typedef std::vector<basic_block_t> basic_block_vec_t;
 
-inline basic_block_t NullBasicBlock(void) {
+static inline basic_block_t NullBasicBlock(void) {
   return boost::graph_traits<
       interprocedural_control_flow_graph_t>::null_vertex();
 }
 
-inline bool IsDefinitelyTailCall(const icfg_t &ICFG, basic_block_t bb) {
+static inline bool IsDefinitelyTailCall(const icfg_t &ICFG, basic_block_t bb) {
   assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP);
 
 #ifdef WARN_ON
@@ -312,13 +312,13 @@ inline bool IsDefinitelyTailCall(const icfg_t &ICFG, basic_block_t bb) {
   return ICFG[bb].hasDynTarget();
 }
 
-inline bool IsAmbiguousIndirectJump(const icfg_t &ICFG, basic_block_t bb) {
+static inline bool IsAmbiguousIndirectJump(const icfg_t &ICFG, basic_block_t bb) {
   assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP);
 
   return ICFG[bb].hasDynTarget() && boost::out_degree(bb, ICFG) > 0;
 }
 
-inline bool IsExitBlock(const icfg_t &ICFG, basic_block_t bb) {
+static inline bool IsExitBlock(const icfg_t &ICFG, basic_block_t bb) {
   auto T = ICFG[bb].Term.Type;
 
   return T == TERMINATOR::RETURN ||
@@ -520,7 +520,7 @@ private:
   void DoAdd(binary_t &, explorer_t &);
 };
 
-inline const char *string_of_terminator(TERMINATOR TermTy) {
+static inline const char *string_of_terminator(TERMINATOR TermTy) {
   switch (TermTy) {
   case TERMINATOR::UNKNOWN:
     return "UNKNOWN";
@@ -543,7 +543,7 @@ inline const char *string_of_terminator(TERMINATOR TermTy) {
   }
 }
 
-inline const char *description_of_terminator(TERMINATOR TermTy) {
+static inline const char *description_of_terminator(TERMINATOR TermTy) {
   switch (TermTy) {
   case TERMINATOR::UNKNOWN:
     return "<?>";
@@ -840,8 +840,8 @@ static inline void exit_basic_blocks_of_function(const function_t &f,
                [&](basic_block_t bb) -> bool { return IsExitBlock(ICFG, bb); });
 }
 
-inline bool does_function_return_fast(const icfg_t &ICFG,
-                                      const basic_block_vec_t &bbvec) {
+static inline bool does_function_return_fast(const icfg_t &ICFG,
+                                             const basic_block_vec_t &bbvec) {
   return std::any_of(bbvec.begin(),
                      bbvec.end(),
                      [&](basic_block_t bb) -> bool {
@@ -849,8 +849,8 @@ inline bool does_function_return_fast(const icfg_t &ICFG,
                      });
 }
 
-inline bool does_function_return(const function_t &f,
-                                 const binary_t &b) {
+static inline bool does_function_return(const function_t &f,
+                                        const binary_t &b) {
   basic_block_vec_t bbvec;
   basic_blocks_of_function(f, b, bbvec);
 
@@ -863,9 +863,9 @@ inline bool does_function_return(const function_t &f,
                      });
 }
 
-inline bool IsLeafFunction(const function_t &f,
-                           const binary_t &b,
-                           const basic_block_vec_t &bbvec) {
+static inline bool IsLeafFunction(const function_t &f,
+                                  const binary_t &b,
+                                  const basic_block_vec_t &bbvec) {
   const auto &ICFG = b.Analysis.ICFG;
 
   if (!std::none_of(bbvec.begin(),
@@ -893,9 +893,9 @@ inline bool IsLeafFunction(const function_t &f,
   }
 }
 
-inline bool IsFunctionSetjmp(const function_t &f,
-                             const binary_t &b,
-                             const basic_block_vec_t &bbvec) {
+static inline bool IsFunctionSetjmp(const function_t &f,
+                                    const binary_t &b,
+                                    const basic_block_vec_t &bbvec) {
   const auto &ICFG = b.Analysis.ICFG;
 
   return std::any_of(bbvec.begin(),
@@ -905,9 +905,9 @@ inline bool IsFunctionSetjmp(const function_t &f,
                      });
 }
 
-inline bool IsFunctionLongjmp(const function_t &f,
-                              const binary_t &b,
-                              const basic_block_vec_t &bbvec) {
+static inline bool IsFunctionLongjmp(const function_t &f,
+                                     const binary_t &b,
+                                     const basic_block_vec_t &bbvec) {
   const auto &ICFG = b.Analysis.ICFG;
 
   return std::any_of(bbvec.begin(),
