@@ -277,8 +277,6 @@ struct BootstrapTool : public TransformerTool_Bin<binary_state_t> {
                  cl::cat(JoveCategory)) {}
   } opts;
 
-  std::string jvfp;
-
   std::unique_ptr<tiny_code_generator_t> tcg;
   std::unique_ptr<disas_t> disas;
   std::unique_ptr<symbolizer_t> symbolizer;
