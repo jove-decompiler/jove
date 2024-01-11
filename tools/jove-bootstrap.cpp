@@ -1926,7 +1926,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
     default: { /* fallback to code cave XXX */
       if (IsVerbose())
         HumanOut() << llvm::formatv("delayslot: {0} ({1})\n", I,
-                                    StringOfMCInst(I, disas));
+                                    StringOfMCInst(I));
 
       assert(ExecutableRegionAddress);
 
@@ -2314,9 +2314,9 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
       break;
     }
 
-    if (opts.VeryVerbose)
+    if (IsVeryVerbose())
       HumanOut() << llvm::formatv("emudelayslot: {0} ({1})\n", I,
-                                  StringOfMCInst(I, disas));
+                                  StringOfMCInst(I));
 
     uintptr_t target = RegValue(reg);
 
@@ -2359,7 +2359,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
           Inst.getOperand(0).getReg() == llvm::Mips::RA)) {
       HumanOut() << llvm::formatv(
           "emulate_return: expected jr $ra, instead {0} {1} @ {2}\n",
-          Inst, StringOfMCInst(Inst, disas),
+          Inst, StringOfMCInst(Inst),
           description_of_program_counter(saved_pc, true));
     }
 
@@ -3184,7 +3184,7 @@ void BootstrapTool::harvest_global_GOT_entries(pid_t child) {
     assert(ObjectFile.get());
     assert(llvm::isa<ELFO>(ObjectFile.get()));
     ELFO &O = *llvm::cast<ELFO>(ObjectFile.get());
-    const ELFF &Elf = *O.getELFFile();
+    const ELFF &Elf = O.getELFFile();
 
     auto dynamic_table = [&](void) -> Elf_Dyn_Range {
       return state.for_binary(b)._elf.DynamicTable.getAsArrayRef<Elf_Dyn>();
