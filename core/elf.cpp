@@ -567,7 +567,7 @@ llvm::StringRef getSymbolVersionByIndex(std::vector<VersionMapEntry> &VersionMap
   }
 
   return StrTab.data() + NameOffset;
-};
+}
 
 void loadDynamicRelocations(const ELFO &Obj,
                             const DynRegionInfo &DynamicTable,
