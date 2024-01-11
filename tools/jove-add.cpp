@@ -20,24 +20,11 @@ namespace jove {
 
 class AddTool : public JVTool {
   struct Cmdline {
-    cl::opt<std::string> Input;
-    cl::alias InputAlias;
-
-    cl::opt<std::string> Output;
-    cl::alias OutputAlias;
+    cl::opt<std::string> DSO;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
-        : Input("input", cl::desc("Path to DSO"), cl::Required,
-                cl::value_desc("filename"), cl::cat(JoveCategory)),
-
-          InputAlias("i", cl::desc("Alias for -input."), cl::aliasopt(Input),
-                     cl::cat(JoveCategory)),
-
-          Output("output", cl::desc("Jove jv"),
-                 cl::value_desc("filename"), cl::cat(JoveCategory)),
-
-          OutputAlias("o", cl::desc("Alias for -output."), cl::aliasopt(Output),
-                      cl::cat(JoveCategory)) {}
+        : DSO(cl::Positional, cl::desc("DSO"), cl::Required,
+              cl::value_desc("filename"), cl::cat(JoveCategory)) {}
   } opts;
 
 public:
@@ -49,8 +36,8 @@ public:
 JOVE_REGISTER_TOOL("add", AddTool);
 
 int AddTool::Run(void) {
-  if (!fs::exists(opts.Input)) {
-    WithColor::error() << "input binary does not exist\n";
+  if (!fs::exists(opts.DSO)) {
+    WithColor::error() << "binary does not exist\n";
     return 1;
   }
 
@@ -58,9 +45,9 @@ int AddTool::Run(void) {
   disas_t disas;
   explorer_t E(jv, disas, tcg, IsVerbose());
 
-  jv.Add(opts.Input.c_str(), E);
+  jv.Add(opts.DSO.c_str(), E);
 
   return 0;
 }
 
-} // namespace jove
+}
