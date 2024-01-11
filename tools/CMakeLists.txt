@@ -80,6 +80,7 @@ function(tool_for_arch arch arch_extra_cflags qemu_objs)
     jove-invalidate.cpp
     jove-llvm.cpp
     jove-loop.cpp
+    jove-numbers.cpp
     jove-observe.cpp
     jove-readtrace.cpp
     jove-recompile.cpp
