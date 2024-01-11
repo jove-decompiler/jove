@@ -9134,14 +9134,14 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
   };
 
   auto do_ld_or_store = [&](bool IsLoad, unsigned bits, bool Signed) -> void {
-    TCGArg ofs = const_arg(0);
+    TCGArg off = const_arg(0);
     TCGTemp *ptr_tmp = input_arg(IsLoad ? 0 : 1);
 
     if (temp_idx(ptr_tmp) == tcg_env_index) {
       if (IsLoad) {
         TCGTemp *dst = output_arg(0);
 
-        switch (ofs) {
+        switch (off) {
 #if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
         case offsetof(CPUMIPSState, active_tc.CP0_UserLocal):
           set(insertThreadPointerInlineAsm(IRB), dst);
@@ -9164,12 +9164,12 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
 
         default:
           if (IsVerbose())
-            llvm::outs() << llvm::formatv("CURIOSITY: load(env+{0}) [{1}] @ {2:x}\n",
-                                          ofs, name_of_global_for_offset(ofs), lstaddr);
+            curiosity("load(env+" + std::to_string(off) + ") @ " +
+                      taddr2str(lstaddr, false));
           break;
         }
       } else {
-        switch (ofs) {
+        switch (off) {
 #if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
         case offsetof(CPUMIPSState, lladdr):
           set(get(input_arg(0)), &s->temps[tcg_lladdr_index]);
@@ -9188,8 +9188,8 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
 
         default:
           if (IsVerbose())
-            llvm::outs() << llvm::formatv("CURIOSITY: store(env+{0}) [{1}] @ {2:x}\n",
-                                          ofs, name_of_global_for_offset(ofs), lstaddr);
+            curiosity("store(env+" + std::to_string(off) + ") @ " +
+                      taddr2str(lstaddr, false));
           break;
         }
       }
@@ -9198,7 +9198,7 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
     llvm::Value *ptr = get(ptr_tmp);
 
     ptr = IRB.CreateZExt(ptr, WordType());
-    ptr = IRB.CreateAdd(ptr, IRB.getIntN(WordBits(), ofs));
+    ptr = IRB.CreateAdd(ptr, IRB.getIntN(WordBits(), off));
 
     ptr = IRB.CreateIntToPtr(
         ptr, llvm::PointerType::get(IRB.getIntNTy(bits), 0));
@@ -9753,7 +9753,7 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
       break;                                                                   \
     }                                                                          \
                                                                                \
-    { llvm::errs() << llvm::formatv("CURIOSITY: load(env+{0})\n", off); }      \
+    { curiosity("load(env+" + std::to_string(off) + ")"); }                    \
   }
 #else
 #define __ARCH_LD_OP(off)                                                      \
@@ -9826,7 +9826,7 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
       break;                                                                   \
     }                                                                          \
                                                                                \
-    { llvm::errs() << llvm::formatv("CURIOSITY: store(env+{0})\n", off); }     \
+    { curiosity("store(env+" + std::to_string(off) + ")"); }                   \
   }
 #else
 #define __ARCH_ST_OP(off)                                                      \

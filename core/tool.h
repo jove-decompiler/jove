@@ -56,6 +56,7 @@ protected:
   void HumanOutToFile(const std::string &path);
 
   [[noreturn]] void die(const std::string &reason);
+  void curiosity(const std::string &message);
 
 public:
   llvm::raw_ostream &HumanOut(void) {

@@ -238,6 +238,13 @@ void Tool::HumanOutToFile(const std::string &path) {
   throw std::runtime_error(reason);
 }
 
+void Tool::curiosity(const std::string &message) {
+  if (!IsVerbose())
+    return;
+
+  HumanOut() << llvm::formatv("CURIOSITY: {0}\n", message);
+}
+
 void Tool::print_command(const char **argv) {
   for (const char **argp = argv; *argp; ++argp) {
     HumanOut() << *argp;
