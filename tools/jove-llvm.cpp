@@ -1094,89 +1094,77 @@ static flow_vertex_t copy_function_cfg(jv_t &jv,
   return res;
 }
 
-static bool AnalyzeHelper(helper_function_t &hf) {
+static bool AnalyzeHelper(helper_function_t &hf, Tool &tool) {
   if (hf.EnvArgNo < 0)
     return true; /* doesn't take CPUState* parameter */
 
   bool res = true;
+
+  auto NotSimple = [&](llvm::Value *V = nullptr) -> void {
+    res = false;
+
+    if (!V)
+      return;
+
+    if (tool.IsVeryVerbose())
+      llvm::errs() << llvm::formatv("[AnalyzeHelper] unknown use of env: {0}\n", *V);
+  };
+
+  auto EnvMemAccess = [&](unsigned off, bool store) -> void {
+    tcg_global_set_t &bits = store ? hf.Analysis.OutGlbs :
+                                     hf.Analysis.InGlbs;
+
+    if (off >= sizeof(tcg_global_by_offset_lookup_table) ||
+        tcg_global_by_offset_lookup_table[off] == 0xff) {
+      NotSimple();
+      return;
+    }
+
+    bits.set(tcg_global_by_offset_lookup_table[off]);
+  };
 
   llvm::Function::arg_iterator arg_it = hf.F->arg_begin();
   std::advance(arg_it, hf.EnvArgNo);
   llvm::Argument &A = *arg_it;
 
   for (llvm::User *EnvU : A.users()) {
-    if (llvm::isa<llvm::GetElementPtrInst>(EnvU)) {
-      llvm::GetElementPtrInst *EnvGEP =
-          llvm::cast<llvm::GetElementPtrInst>(EnvU);
-
+    if (auto *EnvGEP = llvm::dyn_cast<llvm::GetElementPtrInst>(EnvU)) {
       if (!llvm::cast<llvm::GEPOperator>(EnvGEP)->hasAllConstantIndices()) {
-        res = false;
+        NotSimple(EnvGEP);
         continue;
       }
 
-      llvm::DataLayout DL("");
+      //
+      // get byte offset of GEP
+      //
       assert(hf.F);
-      DL = hf.F->getParent()->getDataLayout();
-
+      llvm::DataLayout DL = hf.F->getParent()->getDataLayout();
       llvm::APInt Off(DL.getIndexSizeInBits(EnvGEP->getPointerAddressSpace()), 0);
       llvm::cast<llvm::GEPOperator>(EnvGEP)->accumulateConstantOffset(DL, Off);
-      unsigned off = Off.getZExtValue();
-
-      if (!(off < sizeof(tcg_global_by_offset_lookup_table)) ||
-          tcg_global_by_offset_lookup_table[off] == 0xff) {
-
-#if 0
-        if (opts::Verbose)
-          WithColor::warning() << llvm::formatv("{0}: off={1} EnvGEP={2}\n",
-                                                __func__, off, *EnvGEP);
-#endif
-
-        res = false;
-        continue;
-      }
-
-      unsigned glb =
-          static_cast<unsigned>(tcg_global_by_offset_lookup_table[off]);
 
       for (llvm::User *GEPU : EnvGEP->users()) {
-        if (llvm::isa<llvm::LoadInst>(GEPU)) {
-          hf.Analysis.InGlbs.set(glb);
-        } else if (llvm::isa<llvm::StoreInst>(GEPU)) {
-          hf.Analysis.OutGlbs.set(glb);
-        } else {
-          assert(llvm::isa<llvm::Instruction>(GEPU));
-          if (!llvm::Instruction::isCast(
-                  llvm::cast<llvm::Instruction>(GEPU)->getOpcode())) {
-            WithColor::warning() << llvm::formatv(
-                "{0}: unknown global GEP user {1}\n", __func__, *GEPU);
-          }
+        if (auto *LI = llvm::dyn_cast<llvm::LoadInst>(GEPU)) {
+          assert(LI->getPointerOperand() == EnvGEP);
 
-          res = false;
+          EnvMemAccess(Off.getZExtValue(), false);
+        } else if (auto *SI = llvm::dyn_cast<llvm::StoreInst>(GEPU)) {
+          assert(SI->getPointerOperand() == EnvGEP);
+
+          EnvMemAccess(Off.getZExtValue(), true);
+        } else {
+          NotSimple(GEPU);
         }
       }
-    } else if (llvm::isa<llvm::LoadInst>(EnvU)) {
-      assert(llvm::cast<llvm::LoadInst>(EnvU)->getPointerOperand() == &A);
+    } else if (auto *LI = llvm::dyn_cast<llvm::LoadInst>(EnvU)) {
+      assert(LI->getPointerOperand() == &A);
 
-      unsigned off = 0;
-      assert(sizeof(tcg_global_by_offset_lookup_table) >= sizeof(target_ulong));
-      if (tcg_global_by_offset_lookup_table[off] == 0xff)
-        continue;
+      EnvMemAccess(0, false);
+    } else if (auto *SI = llvm::dyn_cast<llvm::StoreInst>(EnvU)) {
+      assert(SI->getPointerOperand() == &A);
 
-      hf.Analysis.InGlbs.set(tcg_global_by_offset_lookup_table[off]);
-    } else if (llvm::isa<llvm::StoreInst>(EnvU)) {
-      assert(llvm::cast<llvm::StoreInst>(EnvU)->getPointerOperand() == &A);
-
-      unsigned off = 0;
-      assert(sizeof(tcg_global_by_offset_lookup_table) >= sizeof(target_ulong));
-      if (tcg_global_by_offset_lookup_table[off] == 0xff)
-        continue;
-
-      hf.Analysis.OutGlbs.set(tcg_global_by_offset_lookup_table[off]);
+      EnvMemAccess(0, true);
     } else {
-      WithColor::warning() << llvm::formatv(
-          "{0}: unknown env user {1}\n", __func__, *EnvU);
-
-      res = false;
+      NotSimple(EnvU);
     }
   }
 
@@ -1293,7 +1281,7 @@ const helper_function_t &LookupHelper(llvm::Module &M, tiny_code_generator_t &TC
   }
 
   hf.EnvArgNo = EnvArgNo;
-  hf.Analysis.Simple = AnalyzeHelper(hf); /* may modify hf.Analysis.InGlbs */
+  hf.Analysis.Simple = AnalyzeHelper(hf, tool);
 
   //
   // is this a system call?
