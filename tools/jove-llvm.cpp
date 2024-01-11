@@ -758,13 +758,27 @@ public:
 
   unsigned bitsOfTCGType(TCGType ty) {
     if (unlikely(ty > 2))
-      die("bitsOfTCGType: unhandled vector TCGType");
+      die("bitsOfTCGType: unhandled");
 
     static_assert(TCG_TYPE_I32 == 0);
     static_assert(TCG_TYPE_I64 == 1);
     static_assert(TCG_TYPE_I128 == 2);
 
     return 1u << (static_cast<unsigned>(ty) + 5);
+  }
+
+  unsigned BitsOfMemOp(MemOp op) {
+    static_assert(MO_8 == 0);
+    static_assert(MO_16 == 1);
+    static_assert(MO_32 == 2);
+    static_assert(MO_64 == 3);
+    static_assert(MO_128 == 4);
+    static_assert(MO_256 == 5);
+    static_assert(MO_512 == 6);
+    static_assert(MO_1024 == 7);
+    static_assert(MO_SIZE == 0x07);
+
+    return 1u << ((static_cast<unsigned>(op) & MO_SIZE) + 3);
   }
 
   llvm::IntegerType *TypeOfTCGGlobal(unsigned glb) {
@@ -8907,22 +8921,6 @@ std::string LLVMTool::dyn_target_desc(dynamic_target_t IdxPair) {
       b.Analysis.ICFG[basic_block_of_index(f.Entry, b.Analysis.ICFG)].Addr;
 
   return (fmt("%s+%#lx") % fs::path(b.path_str()).filename().string() % Addr).str();
-}
-
-static unsigned BitsOfMemOp(MemOp op) {
-  static_assert(MO_8 == 0);
-  static_assert(MO_16 == 1);
-  static_assert(MO_32 == 2);
-  static_assert(MO_64 == 3);
-  static_assert(MO_128 == 4);
-  static_assert(MO_256 == 5);
-  static_assert(MO_512 == 6);
-  static_assert(MO_1024 == 7);
-  static_assert(MO_SIZE == 0x07);
-
-  static const unsigned lookup_table[] = {8, 16, 32, 64, 128, 256, 512, 1024};
-
-  return lookup_table[op & MO_SIZE];
 }
 
 int LLVMTool::TranslateTCGOp(TCGOp *op,
