@@ -20,16 +20,18 @@ std::unique_ptr<llvm::object::Binary> CreateBinary(llvm::StringRef Data) {
   return std::move(*BinOrErr);
 }
 
-llvm::object::OwningBinary<llvm::object::Binary>
+llvm::object::OwningBinary<obj::Binary>
 CreateBinaryFromFile(const char *path) {
-  llvm::Expected<llvm::object::OwningBinary<llvm::object::Binary>> BinOrErr =
-      llvm::object::createBinary(path);
-
+  auto BinOrErr = llvm::object::createBinary(path);
   if (!BinOrErr)
     throw std::runtime_error("CreateBinaryFromFile failed: " +
                              llvm::toString(BinOrErr.takeError()));
 
-  return std::move(*BinOrErr);
+  obj::OwningBinary<obj::Binary> &res = *BinOrErr;
+  if (!llvm::isa<ELFO>(res.getBinary()))
+    throw std::runtime_error("CreateBinaryFromFile: unknown architecture");
+
+  return std::move(res);
 }
 
 template <typename T>
@@ -1175,8 +1177,8 @@ bool dynamic_linking_info_of_binary(llvm::object::Binary &Bin,
   return true;
 }
 
-std::string program_interpreter_of_elf(const ELFO &Obj) {
-  std::string res;
+std::optional<std::string> program_interpreter_of_elf(const ELFO &Obj) {
+  std::optional<std::string> res;
 
   const ELFF &Elf = Obj.getELFFile();
 
@@ -1184,7 +1186,7 @@ std::string program_interpreter_of_elf(const ELFO &Obj) {
   if (ExpectedHeaders) {
     for (const Elf_Phdr &Phdr : *ExpectedHeaders) {
       if (Phdr.p_type == llvm::ELF::PT_INTERP) {
-        res = std::string(reinterpret_cast<const char *>(Elf.base() + Phdr.p_offset));
+        res.emplace(reinterpret_cast<const char *>(Elf.base() + Phdr.p_offset));
         break;
       }
     }

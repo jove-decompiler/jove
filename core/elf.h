@@ -293,6 +293,6 @@ bool dynamic_linking_info_of_binary(llvm::object::Binary &,
                                     struct dynamic_linking_info_t &out);
 
 
-std::string program_interpreter_of_elf(const ELFO &);
+std::optional<std::string> program_interpreter_of_elf(const ELFO &);
 
 }
