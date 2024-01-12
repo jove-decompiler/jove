@@ -245,6 +245,11 @@ void Tool::curiosity(const std::string &message) {
   HumanOut() << llvm::formatv("CURIOSITY: {0}\n", message);
 }
 
+bool Tool::ShouldSleepOnCrash(void) const {
+  const char *const s = std::getenv("JOVE_SLEEP_ON_CRASH");
+  return s && s[0] == '1';
+}
+
 void Tool::print_command(const char **argv) {
   for (const char **argp = argv; *argp; ++argp) {
     HumanOut() << *argp;

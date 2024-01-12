@@ -58,6 +58,8 @@ protected:
   [[noreturn]] void die(const std::string &reason);
   void curiosity(const std::string &message);
 
+  bool ShouldSleepOnCrash(void) const;
+
 public:
   llvm::raw_ostream &HumanOut(void) {
     return *HumanOutputStreamPtr;
