@@ -401,14 +401,15 @@ int BootstrapTool::Run(void) {
     return 1;
   }
 
-#if 0
+#if 1
   //
   // OMG. this hack is awful. it is here because if a binary is dynamically
   // added to the jv, the std::vector will resize if necessary- and
   // if such an event occurs, pointers to the section data will be invalidated
   // because the binary_t::Data will be recopied. TODO
   //
-  jv.Binaries.reserve(2 * jv.Binaries.size());
+  unsigned EstimatedNumBins = std::max<unsigned>(2 * jv.Binaries.size(), 20);
+  jv.Binaries.reserve(EstimatedNumBins);
 #endif
 
   for (binary_t &b : jv.Binaries)
@@ -1378,6 +1379,11 @@ int BootstrapTool::TracerLoop(pid_t child) {
 
 void BootstrapTool::on_new_basic_block(binary_t &b, basic_block_t bb) {
   binary_index_t BIdx = index_of_binary(b, jv);
+
+  if (BIdx >= BinFoundVec.size() ||
+      !BinFoundVec[BIdx])
+    return;
+
   auto &ICFG = b.Analysis.ICFG;
   const basic_block_properties_t &bbprop = ICFG[bb];
 
@@ -2486,7 +2492,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
   //
   indirect_branch_t &IndBrInfo = indirect_branch_of_address(saved_pc);
   binary_t &binary = jv.Binaries[IndBrInfo.BIdx];
-  auto &bbmap = state.for_binary(binary).bbmap;
+  std::reference_wrapper<bbmap_t> bbmap = state.for_binary(binary).bbmap;
   auto &ICFG = binary.Analysis.ICFG;
   basic_block_t bb = basic_block_at_address(IndBrInfo.TermAddr, binary, bbmap);
 
@@ -2686,22 +2692,6 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
   Target.Addr &= ~1UL;
 #endif
 
-  {
-    auto it = AddressSpace.find(Target.Addr);
-    if (it == AddressSpace.end()) {
-      if (IsVerbose()) {
-        update_view_of_virtual_memory(child);
-
-        HumanOut() << llvm::formatv("{0} -> {1} (unknown binary)\n",
-                                    description_of_program_counter(saved_pc, true),
-                                    description_of_program_counter(Target.Addr, true));
-      }
-      return;
-    }
-
-    Target.BIdx = -1+(*it).second;
-  }
-
   //
   // if the instruction is a call, we need to emulate whatever happens to the
   // return address
@@ -2760,6 +2750,54 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
     HumanOut() << llvm::formatv("failed to emulate delay slot: {0}\n", e.what());
   }
 #endif
+
+  {
+    auto a_it = AddressSpace.find(Target.Addr);
+    if (a_it == AddressSpace.end()) {
+      auto pm_it = pmm.find(Target.Addr);
+
+      if (pm_it == pmm.end())
+        update_view_of_virtual_memory(child);
+
+      pm_it = pmm.find(Target.Addr);
+      if (pm_it == pmm.end()) {
+        if (IsVerbose())
+          HumanOut() << llvm::formatv(
+              "{0} -> {1} (unknown binary)\n",
+              description_of_program_counter(saved_pc, true),
+              description_of_program_counter(Target.Addr, true));
+
+        return;
+      } else {
+        const proc_map_set_t &pms = (*pm_it).second;
+	assert(pms.size() == 1);
+	const proc_map_t &pm = *pms.begin();
+
+	//WARN_ON(!pm.x);
+	std::string nm = pm.nm;
+
+	try {
+	  add_binary(child, nm.c_str());
+
+	  update_view_of_virtual_memory(child);
+
+	  bbmap = state.for_binary(binary).bbmap;
+	} catch (const std::exception &e) {
+	  if (IsVerbose())
+            HumanOut() << llvm::formatv("failed to add {0}: {1}\n", nm,
+                                        e.what());
+
+          return;
+        }
+
+	a_it = AddressSpace.find(Target.Addr);
+        if (a_it == AddressSpace.end())
+          die("added " + nm + " but AddressSpace unchanged");
+      }
+    }
+
+    Target.BIdx = -1 + (*a_it).second;
+  }
 
   //
   // update the jv based on the target
@@ -4027,13 +4065,8 @@ void BootstrapTool::add_binary(pid_t child, const char *path) {
   std::string jvfp = temporary_dir() + path + ".jv";
   fs::create_directories(fs::path(jvfp).parent_path());
 
-  on_newbb_proc_t sav = E->get_newbb_proc();
-  E->set_newbb_proc([](binary_t &, basic_block_t) {});
-
   binary_index_t BIdx = jv.Add(path, *E);
   state.update();
-
-  E->set_newbb_proc(sav);
 
   binary_t &binary = jv.Binaries[BIdx];
   binary.IsDynamicallyLoaded = true;
