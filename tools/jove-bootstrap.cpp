@@ -4039,7 +4039,7 @@ void BootstrapTool::scan_rtld_link_map(pid_t child) {
       // the following may throw an exception if the current working directory
       // has been deleted
       //
-      try { path = fs::canonical(s); } catch (...) {}
+      ignore_exception([&]() { path = fs::canonical(s); });
 
       auto it = BinPathToIdxMap.find(path.c_str());
       if (it == BinPathToIdxMap.end()) {
