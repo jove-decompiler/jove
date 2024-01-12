@@ -412,9 +412,6 @@ int BootstrapTool::Run(void) {
   jv.Binaries.reserve(EstimatedNumBins);
 #endif
 
-  for (binary_t &b : jv.Binaries)
-    b.Analysis.ICFG.m_property.reset();
-
   //
   // verify that the binaries on-disk are those found in the jv.
   //
