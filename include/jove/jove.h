@@ -1081,7 +1081,11 @@ struct jv_bin_state_t {
 
   std::vector<BinaryStateTy> stuff;
 
-  jv_bin_state_t(const jv_t &jv) : jv(jv) { update(); }
+  jv_bin_state_t(const jv_t &jv) : jv(jv) {
+    stuff.reserve(jv.Binaries.capacity());
+
+    update();
+  }
 
   BinaryStateTy &for_binary(const binary_t &binary) {
     return stuff.at(index_of_binary(binary, jv));
@@ -1096,7 +1100,11 @@ struct jv_fn_state_t {
 
   std::vector<std::vector<FunctionStateTy>> stuff;
 
-  jv_fn_state_t(const jv_t &jv) : jv(jv) { update(); }
+  jv_fn_state_t(const jv_t &jv) : jv(jv) {
+    stuff.reserve(jv.Binaries.capacity());
+
+    update();
+  }
 
   FunctionStateTy &for_function(const function_t &function) {
     binary_index_t BIdx = binary_index_of_function(function, jv);
@@ -1124,7 +1132,11 @@ struct jv_bin_fn_state_t {
 
   std::vector<std::pair<BinaryStateTy, std::vector<FunctionStateTy>>> stuff;
 
-  jv_bin_fn_state_t(const jv_t &jv) : jv(jv) { update(); }
+  jv_bin_fn_state_t(const jv_t &jv) : jv(jv) {
+    stuff.reserve(jv.Binaries.capacity());
+
+    update();
+  }
 
   BinaryStateTy &for_binary(const binary_t &binary) {
     return stuff.at(index_of_binary(binary, jv)).first;
@@ -1159,7 +1171,11 @@ struct jv_bin_fn_bb_state_t {
                          std::vector<BasicBlockStateTy>>>
       stuff;
 
-  jv_bin_fn_bb_state_t(const jv_t &jv) : jv(jv) { update(); }
+  jv_bin_fn_bb_state_t(const jv_t &jv) : jv(jv) {
+    stuff.reserve(jv.Binaries.capacity());
+
+    update();
+  }
 
   BinaryStateTy &for_binary(const binary_t &binary) {
     return std::get<0>(stuff.at(index_of_binary(binary, jv)));
