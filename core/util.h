@@ -16,6 +16,16 @@ inline void ignore_exception(std::function<void(void)> f) {
   }
 }
 
+// assigns x to y, returns x != y (before the assignment)
+template <typename T> static inline bool updateValue(T &x, const T &y) {
+  if (x != y) {
+    x = y;
+    return true;
+  }
+
+  return false;
+}
+
 template <typename T>
 inline void read_file_into_thing(const char *path, T &out) {
   std::ifstream ifs(path);
@@ -26,6 +36,9 @@ inline void read_file_into_thing(const char *path, T &out) {
   ifs.seekg(0, std::ios::end);
   out.resize(ifs.tellg());
   ifs.seekg(0);
+
+  if (out.empty())
+    return;
 
   ifs.read(reinterpret_cast<char *>(&out[0]), out.size());
 }
