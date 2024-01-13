@@ -522,8 +522,10 @@ int BootstrapTool::Run(void) {
 
   INSTALL_SIG(SIGUSR1);
   INSTALL_SIG(SIGUSR2);
-  INSTALL_SIG(SIGSEGV);
-  INSTALL_SIG(SIGABRT);
+  if (ShouldSleepOnCrash()) {
+    INSTALL_SIG(SIGSEGV);
+    INSTALL_SIG(SIGABRT);
+  }
 
   //
   // bootstrap has two modes of execution.
