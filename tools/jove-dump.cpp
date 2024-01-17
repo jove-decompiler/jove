@@ -479,84 +479,93 @@ int DumpTool::Run(void) {
 }
 
 void DumpTool::dumpInput(const std::string &Path) {
-  jv_file_t jv_file(boost::interprocess::open_read_only, Path.c_str());
-  std::pair<jv_t *, jv_file_t::size_type> search = jv_file.find<jv_t>("JV");
+  try {
+    jv_file_t jv_file(boost::interprocess::open_read_only, Path.c_str());
+    std::pair<jv_t *, jv_file_t::size_type> search = jv_file.find<jv_t>("JV");
 
-  if (search.second == 0) {
-    llvm::errs() << "jv_t not found\n";
-    return;
-  }
-
-  if (search.second > 1) {
-    llvm::errs() << "multiple jv_t found\n";
-    return;
-  }
-
-  assert (search.second == 1);
-
-  jv_t &jv = *search.first;
-
-  if (opts.ListBinaries) {
-    for (const auto &binary : jv.Binaries) {
-      llvm::outs() << binary.path_str() << '\n';
+    if (search.second == 0) {
+      llvm::errs() << "jv_t not found\n";
+      return;
     }
-  } else if (opts.Statistics) {
-    for (const binary_t &binary : jv.Binaries) {
-      llvm::outs() << llvm::formatv("Binary: {0}\n", binary.path_str());
-      llvm::outs() << llvm::formatv("  # of basic blocks: {0}\n",
-                                    boost::num_vertices(binary.Analysis.ICFG));
-      llvm::outs() << llvm::formatv("  # of functions: {0}\n",
-                                    binary.Analysis.Functions.size());
+
+    if (search.second > 1) {
+      llvm::errs() << "multiple jv_t found\n";
+      return;
     }
-  } else if (!opts.ListFunctions.empty()) {
-    for (unsigned BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
-      const binary_t &binary = jv.Binaries[BIdx];
 
-      if (binary.path_str().find(opts.ListFunctions) == std::string::npos)
-        continue;
+    assert(search.second == 1);
 
-      const auto &ICFG = binary.Analysis.ICFG;
+    jv_t &jv = *search.first;
 
-      for (unsigned FIdx = 0; FIdx < binary.Analysis.Functions.size(); ++FIdx) {
-        const function_t &function = binary.Analysis.Functions[FIdx];
-        uintptr_t Addr = ICFG[basic_block_of_index(function.Entry, ICFG)].Addr;
-
-        llvm::outs() << llvm::formatv("{0:x}\n", Addr);
+    if (opts.ListBinaries) {
+      for (const auto &binary : jv.Binaries) {
+        llvm::outs() << binary.path_str() << '\n';
       }
-    }
-  } else if (!opts.ListFunctionBBs.empty()) {
-    llvm::ScopedPrinter Writer(llvm::outs());
-
-    for (unsigned BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
-      const binary_t &binary = jv.Binaries[BIdx];
-
-      if (fs::path(binary.path_str()).filename().string() != opts.ListFunctionBBs)
-        continue;
-
-      auto &ICFG = binary.Analysis.ICFG;
-
-      for (const function_t &f : binary.Analysis.Functions) {
-        basic_block_t entry = basic_block_of_index(f.Entry, ICFG);
-
-        std::vector<basic_block_t> blocks;
-        blocks.reserve(boost::num_vertices(ICFG));
-
-        reached_visitor vis(blocks);
-        boost::breadth_first_search(ICFG, entry, boost::visitor(vis));
-
-        std::vector<uintptr_t> addrs;
-        addrs.resize(blocks.size());
-
-        std::transform(
-            blocks.begin(), blocks.end(), addrs.begin(),
-            [&](basic_block_t bb) -> uintptr_t { return ICFG[bb].Addr; });
-
-        Writer.printHexList("Fn", addrs);
+    } else if (opts.Statistics) {
+      for (const binary_t &binary : jv.Binaries) {
+        llvm::outs() << llvm::formatv("Binary: {0}\n", binary.path_str());
+        llvm::outs() << llvm::formatv(
+            "  # of basic blocks: {0}\n",
+            boost::num_vertices(binary.Analysis.ICFG));
+        llvm::outs() << llvm::formatv("  # of functions: {0}\n",
+                                      binary.Analysis.Functions.size());
       }
+    } else if (!opts.ListFunctions.empty()) {
+      for (unsigned BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
+        const binary_t &binary = jv.Binaries[BIdx];
+
+        if (binary.path_str().find(opts.ListFunctions) == std::string::npos)
+          continue;
+
+        const auto &ICFG = binary.Analysis.ICFG;
+
+        for (unsigned FIdx = 0; FIdx < binary.Analysis.Functions.size();
+             ++FIdx) {
+          const function_t &function = binary.Analysis.Functions[FIdx];
+          uintptr_t Addr =
+              ICFG[basic_block_of_index(function.Entry, ICFG)].Addr;
+
+          llvm::outs() << llvm::formatv("{0:x}\n", Addr);
+        }
+      }
+    } else if (!opts.ListFunctionBBs.empty()) {
+      llvm::ScopedPrinter Writer(llvm::outs());
+
+      for (unsigned BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
+        const binary_t &binary = jv.Binaries[BIdx];
+
+        if (fs::path(binary.path_str()).filename().string() !=
+            opts.ListFunctionBBs)
+          continue;
+
+        auto &ICFG = binary.Analysis.ICFG;
+
+        for (const function_t &f : binary.Analysis.Functions) {
+          basic_block_t entry = basic_block_of_index(f.Entry, ICFG);
+
+          std::vector<basic_block_t> blocks;
+          blocks.reserve(boost::num_vertices(ICFG));
+
+          reached_visitor vis(blocks);
+          boost::breadth_first_search(ICFG, entry, boost::visitor(vis));
+
+          std::vector<uintptr_t> addrs;
+          addrs.resize(blocks.size());
+
+          std::transform(
+              blocks.begin(), blocks.end(), addrs.begin(),
+              [&](basic_block_t bb) -> uintptr_t { return ICFG[bb].Addr; });
+
+          Writer.printHexList("Fn", addrs);
+        }
+      }
+    } else {
+      dumpDecompilation(jv);
     }
-  } else {
-    dumpDecompilation(jv);
+
+  } catch (const std::exception &e) {
+    WithColor::error() << llvm::formatv("failed to dump {0}: {1}\n", Path,
+                                        e.what());
   }
 }
-
 }
