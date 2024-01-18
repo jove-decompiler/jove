@@ -454,6 +454,18 @@ struct binary_t {
     return un_ips(Path);
   }
 
+  bool is_file(void) const {
+    return !Path.empty() && Path.front() == '/';
+  }
+
+  bool is_anonymous_mapping(void) const {
+    return Path.empty();
+  }
+
+  bool is_special_mapping(void) const {
+    return Path.empty() && Path.front() == '[' && Path.back() == ']';
+  }
+
   binary_t(const ip_void_allocator_t &Alloc)
       : Path(Alloc), Data(Alloc), Analysis(Alloc) {}
 

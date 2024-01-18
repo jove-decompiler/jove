@@ -175,17 +175,14 @@ int InitTool::add_loaded_objects(const fs::path &prog, const fs::path &rtld) {
     binary_paths.erase(it);
   }
 
-  fs::path vdso = temporary_dir() + "/linux-vdso.so";
-
-  {
-    std::ofstream ofs(vdso.c_str());
-
-    auto VDSOPair = GetVDSO();
-    if (VDSOPair.first)
-      ofs.write((const char *)VDSOPair.first, VDSOPair.second);
-    else
-      ofs.write((const char *)VDSOStandIn(), VDSOStandInLen());
-  }
+  //
+  // [vdso]
+  //
+  auto VDSOPair = GetVDSO();
+  std::string_view vdso_sv =
+      VDSOPair.first
+          ? std::string_view((const char *)VDSOPair.first, VDSOPair.second)
+          : std::string_view((const char *)VDSOStandIn(), VDSOStandInLen());
 
   //
   // prepare to explore binaries
@@ -199,7 +196,7 @@ int InitTool::add_loaded_objects(const fs::path &prog, const fs::path &rtld) {
   //
   jv.AddFromPath(E, prog.c_str()); /* prog first */
   jv.AddFromPath(E, rtld.c_str()); /* rtld second */
-  jv.AddFromPath(E, vdso.c_str()); /* vdso third */
+  jv.AddFromData(E, vdso_sv, "[vdso]"); /* vdso third */
 
   jv.Binaries.at(0).IsExecutable = true;
   jv.Binaries.at(1).IsDynamicLinker = true;

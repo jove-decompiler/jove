@@ -746,8 +746,8 @@ int RecompileTool::Run(void) {
 
     binary_t &b = jv.Binaries.at(BIdx);
 
-    // make sure the path is absolute
-    assert(b.Path.at(0) == '/');
+    if (!b.is_file())
+      continue;
 
     const fs::path chrooted_path = fs::path(opts.Output.getValue()) / a2r(b.path_str());
     fs::create_directories(chrooted_path.parent_path());
