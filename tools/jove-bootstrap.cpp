@@ -794,11 +794,12 @@ int BootstrapTool::TracerLoop(pid_t child) {
             cpu_state_t cpu_state;
             _ptrace_get_cpu_state(child, cpu_state);
 
-            llvm::errs() << llvm::formatv(
-                "block at {0}\n", description_of_program_counter(
-                                      pc_of_cpu_state(cpu_state), true));
-
             block_at_program_counter(child, pc_of_cpu_state(cpu_state));
+
+            if (IsVeryVerbose())
+              llvm::errs() << llvm::formatv(
+                  "block at {0}\n", description_of_program_counter(
+                                        pc_of_cpu_state(cpu_state), true));
           }
 
           //
