@@ -790,7 +790,7 @@ int BootstrapTool::TracerLoop(pid_t child) {
           //
           // most likely entry point of rtld
           //
-          {
+          if (opts.PID) {
             cpu_state_t cpu_state;
             _ptrace_get_cpu_state(child, cpu_state);
 
