@@ -514,9 +514,10 @@ struct jv_t {
   }
 
   void clear(void) {
-    cached_hashes.clear();
+    name_to_binaries.clear();
     hash_to_binary.clear();
     Binaries.clear();
+    cached_hashes.clear();
   }
 
   jv_t(const ip_void_allocator_t &A)
