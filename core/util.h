@@ -17,7 +17,7 @@ inline void ignore_exception(std::function<void(void)> f) {
 }
 
 // assigns x to y, returns x != y (before the assignment)
-template <typename T> static inline bool updateValue(T &x, const T &y) {
+template <typename T> static inline bool updateVariable(T &x, const T &y) {
   if (x != y) {
     x = y;
     return true;

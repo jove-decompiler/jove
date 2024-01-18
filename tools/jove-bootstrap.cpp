@@ -3376,8 +3376,8 @@ void BootstrapTool::ScanAddressSpace(pid_t child, bool VMUpdate) {
     else
       AddressSpace.add({intervl, 1+BIdx});
 
-    if (updateValue(state.for_binary(b).LoadAddr,
-                    std::min(state.for_binary(b).LoadAddr, pm.beg)))
+    if (updateVariable(state.for_binary(b).LoadAddr,
+                       std::min(state.for_binary(b).LoadAddr, pm.beg)))
       state.for_binary(b).LoadOffset = pm.off;
 
     if (!pm.x)
