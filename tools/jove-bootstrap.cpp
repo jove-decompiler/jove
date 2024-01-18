@@ -497,24 +497,6 @@ int BootstrapTool::Run(void) {
     return 1;
   }
 
-#if 1
-  //
-  // OMG. this hack is awful. it is here because if a binary is dynamically
-  // added to the jv, the std::vector will resize if necessary- and
-  // if such an event occurs, pointers to the section data will be invalidated
-  // because the binary_t::Data will be recopied. TODO
-  //
-  unsigned EstimatedNumBins = std::max<unsigned>(2 * jv.Binaries.size(), 20);
-  jv.Binaries.reserve(EstimatedNumBins);
-#endif
-
-  //
-  // initialize state associated with every binary
-  //
-  for_each_binary(jv, [&](binary_t &b) { init_state_for_binary(b); });
-
-  BinFoundVec.resize(jv.Binaries.size());
-
 #define INSTALL_SIG(sig)                                                       \
   do {                                                                         \
     struct sigaction sa;                                                       \
@@ -535,6 +517,24 @@ int BootstrapTool::Run(void) {
     INSTALL_SIG(SIGSEGV);
     INSTALL_SIG(SIGABRT);
   }
+
+#if 1
+  //
+  // OMG. this hack is awful. it is here because if a binary is dynamically
+  // added to the jv, the std::vector will resize if necessary- and
+  // if such an event occurs, pointers to the section data will be invalidated
+  // because the binary_t::Data will be recopied. TODO
+  //
+  unsigned EstimatedNumBins = std::max<unsigned>(2 * jv.Binaries.size(), 20);
+  jv.Binaries.reserve(EstimatedNumBins);
+#endif
+
+  //
+  // initialize state associated with every binary
+  //
+  for_each_binary(jv, [&](binary_t &b) { init_state_for_binary(b); });
+
+  BinFoundVec.resize(jv.Binaries.size());
 
   //
   // bootstrap has two modes of execution.
@@ -736,8 +736,7 @@ int BootstrapTool::TracerLoop(pid_t child) {
   long sig = 0;
 
   bool FirstTime = true;
-
-  try {
+  {
     for (;;) {
       if (likely(!(child < 0))) {
 #if 0
@@ -1293,9 +1292,6 @@ int BootstrapTool::TracerLoop(pid_t child) {
         child = -1;
       }
     }
-  } catch (const std::exception &e) {
-    std::string what(e.what());
-    HumanOut() << llvm::formatv("exception! {0}\n", what);
   }
 
   IgnoreCtrlC(); /* user probably doesn't want to interrupt the following */
@@ -3351,12 +3347,16 @@ void BootstrapTool::ScanAddressSpace(pid_t child, bool VMUpdate) {
         const ip_binary_index_set &BIdxSet = *MaybeBIdxSet;
 
         assert(!BIdxSet.empty());
+#if 0
         if (BIdxSet.size() > 1 && IsVerbose())
           HumanOut() << llvm::formatv("ScanAddressSpace: \"{0}\" maps to more "
                                       "than one distinct binary!\n", nm);
+#endif
 
-        BIdx = *BIdxSet.begin();
+        BIdx = *BIdxSet.rbegin(); /* most recent (XXX?) */
         assert(is_binary_index_valid(BIdx));
+      } else {
+        continue;
       }
     } else {
       ignore_exception([&]() { BIdx = BinaryFromPath(child, nm.c_str()); });
