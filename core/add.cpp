@@ -18,7 +18,9 @@ namespace obj = llvm::object;
 
 namespace jove {
 
-void jv_t::UpdateCachedHash(cached_hash_t &cache, const char *path) {
+void jv_t::UpdateCachedHash(cached_hash_t &cache,
+                            const char *path,
+                            std::string &file_contents) {
   struct stat st;
   if (stat(path, &st) < 0) {
     int err = errno;
@@ -33,12 +35,15 @@ void jv_t::UpdateCachedHash(cached_hash_t &cache, const char *path) {
   //
   // otherwise
   //
-  cache.h = hash_file(path);
+
+  read_file_into_thing(path, file_contents);
+  cache.h = hash_data(file_contents);
   cache.mtime.sec = st.st_mtim.tv_sec;
   cache.mtime.nsec = st.st_mtim.tv_nsec;
 }
 
-hash_t jv_t::LookupAndCacheHash(const std::string &path) {
+hash_t jv_t::LookupAndCacheHash(const std::string &path,
+                                std::string &file_contents) {
   ip_string tmp(Binaries.get_allocator());
   to_ips(tmp, path);
 
@@ -50,10 +55,25 @@ hash_t jv_t::LookupAndCacheHash(const std::string &path) {
       it = cached_hashes.insert(std::make_pair(tmp, cached_hash_t(0))).first;
 
     cached_hash_t &cache = (*it).second;
-    UpdateCachedHash(cache, path.c_str());
+    UpdateCachedHash(cache, path.c_str(), file_contents);
 
     return cache.h;
   }
+}
+
+binary_index_t jv_t::Lookup(const char *path) {
+  fs::path the_path;
+  try {
+    the_path = fs::canonical(path);
+  } catch (...) {
+    return invalid_binary_index;
+  }
+
+  std::string file_contents;
+  hash_t h = LookupAndCacheHash(the_path.string(), file_contents);
+  (void)file_contents;
+
+  return LookupWithHash(h);
 }
 
 binary_index_t jv_t::LookupWithHash(hash_t h) {
@@ -66,30 +86,30 @@ binary_index_t jv_t::LookupWithHash(hash_t h) {
   return (*it).second;
 }
 
-binary_index_t jv_t::Lookup(const char *path) {
-  fs::path the_path;
-  try {
-    the_path = fs::canonical(path);
-  } catch (...) {
-    return invalid_binary_index;
-  }
+std::pair<binary_index_t, bool> jv_t::AddFromPath(explorer_t &E, const char *path) {
+  fs::path the_path = fs::canonical(path);
 
-  hash_t h = LookupAndCacheHash(the_path.string());
+  std::string file_contents;
+  hash_t h = LookupAndCacheHash(the_path.string(), file_contents);
 
-  {
-    ip_scoped_lock<ip_mutex> lck(this->hash_to_binary_mtx);
+  if (file_contents.empty())
+    read_file_into_thing(path, file_contents);
 
-    auto it = this->hash_to_binary.find(h);
-    if (it == this->hash_to_binary.end())
-      return invalid_binary_index;
-
-    return (*it).second;
-  }
+  return AddFromDataWithHash(E, file_contents, h, the_path.c_str());
 }
 
-binary_index_t jv_t::Add(const char *path, explorer_t &E) {
-  fs::path the_path = fs::canonical(path);
-  hash_t h = LookupAndCacheHash(the_path.string());
+std::pair<binary_index_t, bool> jv_t::AddFromData(explorer_t &E,
+                                                  std::string_view data,
+                                                  const char *name) {
+  return AddFromDataWithHash(E, data, hash_data(data), name);
+}
+
+std::pair<binary_index_t, bool> jv_t::AddFromDataWithHash(explorer_t &E,
+                                                          std::string_view data,
+                                                          hash_t h,
+                                                          const char *name) {
+  if (data.empty())
+    throw std::runtime_error("AddFromDataWithHash: empty data");
 
   {
     ip_scoped_lock<ip_mutex> lck(this->binaries_mtx);
@@ -97,20 +117,21 @@ binary_index_t jv_t::Add(const char *path, explorer_t &E) {
     binary_index_t BIdx = LookupWithHash(h);
 
     if (is_binary_index_valid(BIdx))
-      return BIdx;
+      return std::make_pair(BIdx, false);
 
     BIdx = Binaries.size();
     binary_t &b = Binaries.emplace_back(Binaries.get_allocator());
     b.Hash = h;
 
-    to_ips(b.Path, the_path.string());
+    b.Data.resize(data.size());
+    memcpy(&b.Data[0], data.data(), data.size());
 
-    read_file_into_thing(path, b.Data);
-
-    if (b.Data.empty())
-      throw std::runtime_error("given file \"" + std::string(path) + "\" is empty");
-
-    DoAdd(b, E);
+    try {
+      DoAdd(b, E);
+    } catch (...) {
+      Binaries.pop_back(); /* OOPS */
+      throw;
+    }
 
     {
       ip_scoped_lock<ip_mutex> lck(this->hash_to_binary_mtx);
@@ -118,15 +139,28 @@ binary_index_t jv_t::Add(const char *path, explorer_t &E) {
       this->hash_to_binary.insert(std::make_pair(h, BIdx));
     }
 
-    return BIdx;
+    if (name) {
+      to_ips(b.Path, name);
+
+      ip_scoped_lock<ip_mutex> lck(this->name_to_binary_mtx);
+
+      auto it = this->name_to_binaries.find(b.Path);
+      if (it == this->name_to_binaries.end()) {
+        ip_binary_index_set set(Binaries.get_allocator());
+        set.insert(BIdx);
+        this->name_to_binaries.insert(std::make_pair(b.Path, set));
+      } else {
+        (*it).second.insert(BIdx);
+      }
+    }
+
+    return std::make_pair(BIdx, true);
   }
 }
 
 struct binary_state_t {
   bbmap_t bbmap;
   fnmap_t fnmap;
-
-  std::unique_ptr<llvm::object::Binary> ObjectFile;
 };
 
 #include "relocs_common.hpp"
@@ -137,26 +171,12 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
 
   jv_bin_state_t<binary_state_t> state(*this);
 
-  try {
-    state.for_binary(b).ObjectFile = CreateBinary(b.data());
-  } catch (const std::exception &) {
-    //
-    // interpret as a raw stream of instructions
-    //
-    b.IsDynamicLinker = false;
-    b.IsExecutable = false;
-    b.IsVDSO = false;
+  std::unique_ptr<llvm::object::Binary> ObjectFile = CreateBinary(b.data());
 
-    b.IsPIC = true;
-    b.IsDynamicallyLoaded = false;
-
-    return;
-  }
-
-  if (!llvm::isa<ELFO>(state.for_binary(b).ObjectFile.get()))
+  if (!llvm::isa<ELFO>(ObjectFile.get()))
     throw std::runtime_error("not ELF of expected type");
 
-  ELFO &Obj = *llvm::cast<ELFO>(state.for_binary(b).ObjectFile.get());
+  ELFO &Obj = *llvm::cast<ELFO>(ObjectFile.get());
 
   b.IsDynamicLinker = false;
   b.IsExecutable = false;

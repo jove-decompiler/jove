@@ -45,7 +45,7 @@ int AddTool::Run(void) {
   disas_t disas;
   explorer_t E(jv, disas, tcg, IsVerbose());
 
-  jv.Add(opts.DSO.c_str(), E);
+  jv.AddFromPath(E, opts.DSO.c_str());
 
   return 0;
 }

@@ -289,7 +289,6 @@ struct BootstrapTool : public TransformerTool_Bin<binary_state_t> {
   boost::icl::split_interval_map<uintptr_t, unsigned> AddressSpace;
 
   boost::dynamic_bitset<> BinFoundVec;
-  std::unordered_map<std::string, binary_index_t> BinPathToIdxMap;
 
   unsigned TurboToggle = 0;
 
@@ -329,7 +328,10 @@ public:
   int ChildProc(int fd);
   int TracerLoop(pid_t child);
 
-  void add_binary(pid_t, const char *path);
+  // breakpoints aren't placed until on_binary_loaded()
+  binary_index_t BinaryFromPath(pid_t, const char *path);
+  binary_index_t BinaryFromData(pid_t, std::string_view data,
+                                const char *name = nullptr);
 
   void on_new_basic_block(binary_t &, basic_block_t);
 
@@ -358,10 +360,14 @@ public:
   void harvest_global_GOT_entries(pid_t child);
 #endif
 
-  bool update_view_of_virtual_memory(pid_t);
+  bool UpdateVM(pid_t);
+  void ScanAddressSpace(pid_t child, bool VMUpdate = true);
 
   uintptr_t va_of_rva(uintptr_t Addr, binary_index_t BIdx);
   uintptr_t rva_of_va(uintptr_t Addr, binary_index_t BIdx);
+
+  basic_block_index_t block_at_program_counter(pid_t, uintptr_t valid_pc);
+  binary_index_t binary_at_program_counter(pid_t, uintptr_t valid_pc);
 
   std::string description_of_program_counter(uintptr_t, bool Verbose = false);
   std::string StringOfMCInst(llvm::MCInst &);
@@ -371,6 +377,44 @@ public:
 };
 
 JOVE_REGISTER_TOOL("bootstrap", BootstrapTool);
+
+#if !defined(__x86_64__) && defined(__i386__)
+static uintptr_t segment_address_of_selector(pid_t, unsigned segsel);
+#endif
+
+#if defined(__mips64) || defined(__mips__) || defined(__arm__)
+typedef struct pt_regs cpu_state_t;
+#else
+typedef struct user_regs_struct cpu_state_t;
+#endif
+
+static void _ptrace_get_cpu_state(pid_t, cpu_state_t &out);
+static void _ptrace_set_cpu_state(pid_t, const cpu_state_t &in);
+
+static std::string _ptrace_read_string(pid_t, uintptr_t addr);
+
+static unsigned long _ptrace_peekdata(pid_t, uintptr_t addr);
+static void _ptrace_pokedata(pid_t, uintptr_t addr, unsigned long data);
+
+static ssize_t _ptrace_memcpy(pid_t, void *dest, const void *src, size_t n);
+
+static constexpr auto &pc_of_cpu_state(cpu_state_t &cpu_state) {
+  return cpu_state.
+#if defined(__x86_64__)
+      rip
+#elif defined(__i386__)
+      eip
+#elif defined(__aarch64__)
+      pc
+#elif defined(__arm__)
+      uregs[15]
+#elif defined(__mips64) || defined(__mips__)
+      cp0_epc
+#else
+#error
+#endif
+      ;
+}
 
 typedef boost::format fmt;
 
@@ -413,59 +457,9 @@ int BootstrapTool::Run(void) {
 #endif
 
   //
-  // verify that the binaries on-disk are those found in the jv.
-  //
-  for (binary_t &binary : jv.Binaries) {
-    if (binary.IsExecutable)
-      continue;
-
-    if (binary.IsVDSO) {
-      //
-      // check that the VDSO hasn't changed
-      //
-      void *vdso;
-      unsigned n;
-
-      std::tie(vdso, n) = GetVDSO();
-
-      if (vdso && n > 0) {
-        if (binary.Data.size() != n ||
-            memcmp(&binary.Data[0], vdso, binary.Data.size())) {
-          HumanOut() << "[vdso] has changed\n";
-          return 1;
-        }
-      }
-    } else {
-      llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> FileOrErr =
-          llvm::MemoryBuffer::getFileOrSTDIN(binary.path_str());
-
-      if (std::error_code EC = FileOrErr.getError()) {
-        HumanOut() << llvm::formatv("failed to open binary {0}\n", binary.path_str());
-        return 1;
-      }
-
-      std::unique_ptr<llvm::MemoryBuffer> &Buffer = FileOrErr.get();
-      if (binary.Data.size() != Buffer->getBufferSize() ||
-          memcmp(&binary.Data[0], Buffer->getBufferStart(), binary.Data.size())) {
-        HumanOut() << llvm::formatv(
-            "binary {0} has changed ; re-run jove-init?\n", binary.path_str());
-        return 1;
-      }
-    }
-  }
-
-  //
   // initialize state associated with every binary
   //
   for_each_binary(jv, [&](binary_t &binary) {
-    binary_index_t BIdx = index_of_binary(binary, jv);
-
-    // add to path -> index map
-    if (binary.IsVDSO)
-      BinPathToIdxMap["[vdso]"] = BIdx;
-    else
-      BinPathToIdxMap[binary.path_str()] = BIdx;
-
     binary_state_t &x = state.for_binary(binary);
 
     construct_fnmap(jv, binary, x.fnmap);
@@ -714,42 +708,6 @@ uintptr_t BootstrapTool::rva_of_va(uintptr_t Addr, binary_index_t BIdx) {
   return Addr - (state.for_binary(binary).LoadAddr - state.for_binary(binary).LoadOffset);
 }
 
-#if !defined(__x86_64__) && defined(__i386__)
-static uintptr_t segment_address_of_selector(pid_t, unsigned segsel);
-#endif
-
-#if defined(__mips64) || defined(__mips__) || defined(__arm__)
-typedef struct pt_regs cpu_state_t;
-#else
-typedef struct user_regs_struct cpu_state_t;
-#endif
-
-static void _ptrace_get_cpu_state(pid_t, cpu_state_t &out);
-static void _ptrace_set_cpu_state(pid_t, const cpu_state_t &in);
-
-static std::string _ptrace_read_string(pid_t, uintptr_t addr);
-
-static unsigned long _ptrace_peekdata(pid_t, uintptr_t addr);
-static void _ptrace_pokedata(pid_t, uintptr_t addr, unsigned long data);
-
-static constexpr auto &pc_of_cpu_state(cpu_state_t &cpu_state) {
-  return cpu_state.
-#if defined(__x86_64__)
-      rip
-#elif defined(__i386__)
-      eip
-#elif defined(__aarch64__)
-      pc
-#elif defined(__arm__)
-      uregs[15]
-#elif defined(__mips64) || defined(__mips__)
-      cp0_epc
-#else
-#error
-#endif
-      ;
-}
-
 int BootstrapTool::TracerLoop(pid_t child) {
   disas = std::make_unique<disas_t>();
   tcg = std::make_unique<tiny_code_generator_t>();
@@ -767,6 +725,15 @@ int BootstrapTool::TracerLoop(pid_t child) {
   try {
     for (;;) {
       if (likely(!(child < 0))) {
+#if 0
+        _child = child;
+        cpu_state_t cpu_state;
+        _ptrace_get_cpu_state(child, cpu_state);
+        llvm::errs() << llvm::formatv(
+            "FOO: {0}\n",
+            description_of_program_counter(pc_of_cpu_state(cpu_state), true));
+#endif
+
         if (unlikely(::ptrace(opts.Syscalls || unlikely(!BinFoundVec.all())
                                 ? PTRACE_SYSCALL
                                 : PTRACE_CONT,
@@ -802,9 +769,22 @@ int BootstrapTool::TracerLoop(pid_t child) {
         //
         // this is an opportunity to examine the state of the tracee
         //
-
         if (unlikely(FirstTime)) { /* is this the first ptrace-stop? */
           FirstTime = false;
+
+          //
+          // most likely entry point of rtld
+          //
+          {
+            cpu_state_t cpu_state;
+            _ptrace_get_cpu_state(child, cpu_state);
+
+            llvm::errs() << llvm::formatv(
+                "block at {0}\n", description_of_program_counter(
+                                      pc_of_cpu_state(cpu_state), true));
+
+            block_at_program_counter(child, pc_of_cpu_state(cpu_state));
+          }
 
           //
           // do *not* have ptrace option PTRACE_O_TRACEEXEC set
@@ -1099,7 +1079,7 @@ int BootstrapTool::TracerLoop(pid_t child) {
                     handler &= ~1UL;
 #endif
 
-                    update_view_of_virtual_memory(child);
+                    ScanAddressSpace(child);
 
                     auto it = AddressSpace.find(handler);
                     if (it != AddressSpace.end()) {
@@ -1163,7 +1143,7 @@ int BootstrapTool::TracerLoop(pid_t child) {
             scan_rtld_link_map(child);
 
           if (unlikely(!BinFoundVec.all()))
-            update_view_of_virtual_memory(child);
+            ScanAddressSpace(child);
         } else if (stopsig == SIGTRAP) {
           const unsigned int event = (unsigned int)status >> 16;
 
@@ -2476,12 +2456,9 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
   auto indirect_branch_of_address = [&](uintptr_t addr) -> indirect_branch_t & {
     auto it = IndBrMap.find(addr);
-    if (it == IndBrMap.end()) {
-      update_view_of_virtual_memory(child);
-
+    if (it == IndBrMap.end())
       throw std::runtime_error("unknown breakpoint @ " +
                                description_of_program_counter(addr, true));
-    }
 
     return (*it).second;
   };
@@ -2750,58 +2727,21 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
   }
 #endif
 
-  {
-    auto a_it = AddressSpace.find(Target.Addr);
-    if (a_it == AddressSpace.end()) {
-      auto pm_it = pmm.find(Target.Addr);
-
-      if (pm_it == pmm.end())
-        update_view_of_virtual_memory(child);
-
-      pm_it = pmm.find(Target.Addr);
-      if (pm_it == pmm.end()) {
-        if (IsVerbose())
-          HumanOut() << llvm::formatv(
-              "{0} -> {1} (unknown binary)\n",
-              description_of_program_counter(saved_pc, true),
-              description_of_program_counter(Target.Addr, true));
-
-        return;
-      } else {
-        const proc_map_set_t &pms = (*pm_it).second;
-	assert(pms.size() == 1);
-	const proc_map_t &pm = *pms.begin();
-
-	//WARN_ON(!pm.x);
-	std::string nm = pm.nm;
-
-	try {
-	  add_binary(child, nm.c_str());
-
-	  update_view_of_virtual_memory(child);
-
-	  bbmap = state.for_binary(binary).bbmap;
-	} catch (const std::exception &e) {
-	  if (IsVerbose())
-            HumanOut() << llvm::formatv("failed to add {0}: {1}\n", nm,
-                                        e.what());
-
-          return;
-        }
-
-	a_it = AddressSpace.find(Target.Addr);
-        if (a_it == AddressSpace.end())
-          die("added " + nm + " but AddressSpace unchanged");
-      }
-    }
-
-    Target.BIdx = -1 + (*a_it).second;
+  Target.BIdx = binary_at_program_counter(child, Target.Addr);
+  if (unlikely(!is_binary_index_valid(Target.BIdx))) {
+    if (IsVerbose())
+      HumanOut() << llvm::formatv(
+          "{0} -> {1} (unknown binary)\n",
+          description_of_program_counter(saved_pc, true),
+          description_of_program_counter(Target.Addr, true));
+    return;
   }
+
+  bbmap = state.for_binary(binary).bbmap;
 
   //
   // update the jv based on the target
   //
-
   binary_t &TargetBinary = jv.Binaries[Target.BIdx];
 
   struct {
@@ -3338,82 +3278,131 @@ void BootstrapTool::harvest_reloc_targets(pid_t child) {
 
 static bool load_proc_maps(pid_t child, std::vector<struct proc_map_t> &out);
 
-bool BootstrapTool::update_view_of_virtual_memory(pid_t child) {
-  if (!load_proc_maps(child, cached_proc_maps))
+bool BootstrapTool::UpdateVM(pid_t child) {
+  if (unlikely(!load_proc_maps(child, cached_proc_maps)))
     return false;
 
   pmm.clear();
-  AddressSpace.clear();
-  for_each_binary(jv, [&](binary_t &b) {
-    state.for_binary(b).LoadAddr = state.for_binary(b).LoadOffset = std::numeric_limits<uintptr_t>::max(); /* reset */
-  });
 
-  for (const auto &proc_map : cached_proc_maps) {
+  for (const auto &pm : cached_proc_maps) {
     boost::icl::interval<uintptr_t>::type intervl =
-        boost::icl::interval<uintptr_t>::right_open(proc_map.beg,
-                                                    proc_map.end);
+        boost::icl::interval<uintptr_t>::right_open(pm.beg, pm.end);
 
     if (WARN_ON(pmm.find(intervl) != pmm.end()))
         ;
     else
-      pmm.add({intervl, {proc_map}});
-
-    auto it = BinPathToIdxMap.find(proc_map.nm);
-    if (it == BinPathToIdxMap.end()) {
-      if (IsVerbose())
-        HumanOut() << llvm::formatv("{0}: what is this? \"{1}\"\n",
-                                    __func__, proc_map.nm);
-      continue;
-    }
-
-    {
-      binary_index_t BIdx = (*it).second;
-
-      if (WARN_ON(AddressSpace.find(intervl) != AddressSpace.end()))
-        ;
-      else
-        AddressSpace.add({intervl, 1+BIdx});
-
-      auto &b = jv.Binaries[BIdx];
-
-      uintptr_t SavedLoadAddr = state.for_binary(b).LoadAddr;
-      state.for_binary(b).LoadAddr = std::min(state.for_binary(b).LoadAddr, proc_map.beg);
-      bool Changed = state.for_binary(b).LoadAddr != SavedLoadAddr;
-
-      if (Changed) {
-        state.for_binary(b).LoadOffset = proc_map.off;
-
-        if (IsVerbose())
-          HumanOut() << llvm::formatv("LoadAddr for {0} is {1:x} (was {2:x})\n",
-                                      b.path_str(), state.for_binary(b).LoadAddr, SavedLoadAddr);
-      }
-
-      if (!proc_map.x)
-        continue;
-
-      if (!BinFoundVec.test(BIdx)) {
-        BinFoundVec.set(BIdx);
-
-        on_binary_loaded(child, BIdx, proc_map);
-      }
-    }
+      pmm.add({intervl, {pm}});
   }
 
   return true;
 }
 
+void BootstrapTool::ScanAddressSpace(pid_t child, bool VMUpdate) {
+  if (VMUpdate) {
+    if (unlikely(!UpdateVM(child)))
+      return;
+  }
+
+  //
+  // forget what we think we know
+  //
+  AddressSpace.clear();
+  for_each_binary(jv, [&](binary_t &b) {
+    state.for_binary(b).LoadAddr =
+    state.for_binary(b).LoadOffset =
+        std::numeric_limits<uintptr_t>::max(); /* reset */
+  });
+
+  for (const proc_map_t &pm : cached_proc_maps) {
+    boost::icl::interval<uintptr_t>::type intervl =
+        boost::icl::interval<uintptr_t>::right_open(pm.beg, pm.end);
+
+    if (pm.nm.empty())
+      continue;
+
+    binary_index_t BIdx = invalid_binary_index;
+    bool IsVDSO = false; /* XXX */
+
+    const std::string &nm = pm.nm;
+    if (nm[0] != '/') {
+      //
+      // [vdso], [vsyscall], ...
+      //
+      if (nm[0] != '[')
+        die("unrecognized mapping \"" + nm + "\"");
+
+      //ignore_exception([&]() { BIdx = BinaryFromSpecialMapping(child, nm.c_str()); });
+
+      IsVDSO = nm == "[vdso]";
+
+      std::string_view sv;
+      std::string _buff;
+      if (IsVDSO) { /* FIXME? */
+        void *vdso_p;
+        unsigned vdso_len;
+        std::tie(vdso_p, vdso_len) = GetVDSO();
+        assert(vdso_p);
+
+        sv = std::string_view((const char *)vdso_p, vdso_len);
+      } else {
+        _buff.resize(pm.end - pm.beg);
+
+        try {
+          _ptrace_memcpy(child, &_buff[0], (const void *)pm.beg, _buff.size());
+        } catch (const std::exception &e) {
+          if (IsVeryVerbose())
+            HumanOut() << llvm::formatv("failed to read {0} in tracee\n", nm);
+          continue;
+        }
+
+        sv = std::string_view(_buff);
+      }
+
+      ignore_exception([&]() { BIdx = BinaryFromData(child, sv, nm.c_str()); });
+    } else {
+      ignore_exception([&]() { BIdx = BinaryFromPath(child, nm.c_str()); });
+    }
+
+    if (!is_binary_index_valid(BIdx))
+      continue;
+
+    binary_t &b = jv.Binaries.at(BIdx);
+
+    if (IsVDSO)
+      b.IsVDSO = true;
+
+    if (unlikely(AddressSpace.find(intervl) != AddressSpace.end()))
+      die("(BUG) AddressSpace");
+    else
+      AddressSpace.add({intervl, 1+BIdx});
+
+    if (updateValue(state.for_binary(b).LoadAddr,
+                    std::min(state.for_binary(b).LoadAddr, pm.beg)))
+      state.for_binary(b).LoadOffset = pm.off;
+
+    if (!pm.x)
+      continue;
+
+    if (!BinFoundVec.test(BIdx)) {
+      BinFoundVec.set(BIdx);
+
+      on_binary_loaded(child, BIdx, pm);
+    }
+  }
+}
+
 void BootstrapTool::on_binary_loaded(pid_t child,
                                      binary_index_t BIdx,
-                                     const proc_map_t &proc_map) {
+                                     const proc_map_t &pm) {
   binary_t &binary = jv.Binaries[BIdx];
 
   auto &ObjectFile = state.for_binary(binary).ObjectFile;
 
   if (IsVerbose())
     HumanOut() << (fmt("found binary %s @ [%#lx, %#lx)")
-                   % proc_map.nm
-                   % proc_map.beg
-                   % proc_map.end).str()
+                   % pm.nm
+                   % pm.beg
+                   % pm.end).str()
                << '\n';
 
   //
@@ -3444,7 +3433,7 @@ void BootstrapTool::on_binary_loaded(pid_t child,
   // mapping change is complete.
   //
   if (binary.IsDynamicLinker)
-    on_dynamic_linker_loaded(child, BIdx, proc_map);
+    on_dynamic_linker_loaded(child, BIdx, pm);
 
 #if defined(__mips64) || defined(__mips__)
   if (binary.IsVDSO) {
@@ -3455,7 +3444,7 @@ void BootstrapTool::on_binary_loaded(pid_t child,
     //
     // find a code cave that can hold 2*num_trampolines instructions
     //
-    ExecutableRegionAddress = proc_map.end - num_trampolines * (2 * sizeof(uint32_t));
+    ExecutableRegionAddress = pm.end - num_trampolines * (2 * sizeof(uint32_t));
 
     //
     // "initialize" code cave
@@ -3949,8 +3938,6 @@ struct r_debug {
   unsigned long r_ldbase; /* Base address the linker is loaded at.  */
 };
 
-static ssize_t _ptrace_memcpy(pid_t, void *dest, const void *src, size_t n);
-
 void BootstrapTool::scan_rtld_link_map(pid_t child) {
   if (!_r_debug.Addr)
     return;
@@ -3996,7 +3983,7 @@ void BootstrapTool::scan_rtld_link_map(pid_t child) {
   if (!r_dbg.r_map)
     return;
 
-  bool newbin = false;
+  const unsigned SavedNumBinaries = jv.NumBinaries();
 
   struct link_map *lmp = r_dbg.r_map;
   do {
@@ -4035,50 +4022,37 @@ void BootstrapTool::scan_rtld_link_map(pid_t child) {
                                   (void *)lm.l_ld);
 
     if (!s.empty() && s.front() == '/' && fs::exists(s)) {
-      fs::path path = s;
-
-      //
-      // the following may throw an exception if the current working directory
-      // has been deleted
-      //
-      ignore_exception([&]() { path = fs::canonical(s); });
-
-      auto it = BinPathToIdxMap.find(path.c_str());
-      if (it == BinPathToIdxMap.end()) {
-        HumanOut() << llvm::formatv("adding \"{0}\" to jv\n",
-                                    path.c_str());
-        add_binary(child, path.c_str());
-
-        newbin = true;
-      }
+      ignore_exception([&]() { BinaryFromPath(child, s.c_str()); });
     }
 
     lmp = lm.l_next;
   } while (lmp && lmp != r_dbg.r_map);
 
-  if (newbin)
-    update_view_of_virtual_memory(child);
+  if (jv.NumBinaries() > SavedNumBinaries)
+    ScanAddressSpace(child);
 }
 
-void BootstrapTool::add_binary(pid_t child, const char *path) {
-  std::string jvfp = temporary_dir() + path + ".jv";
-  fs::create_directories(fs::path(jvfp).parent_path());
+binary_index_t BootstrapTool::BinaryFromPath(pid_t child, const char *path) {
+  bool IsNew;
+  binary_index_t BIdx;
 
-  binary_index_t BIdx = jv.Add(path, *E);
+  std::tie(BIdx, IsNew) = jv.AddFromPath(*E, path);
+  if (!is_binary_index_valid(BIdx) || !IsNew)
+    return BIdx;
+
+  if (IsVerbose())
+    HumanOut() << llvm::formatv("BinaryFromPath: {0}\n", path);
+
   state.update();
 
   binary_t &binary = jv.Binaries[BIdx];
   binary.IsDynamicallyLoaded = true;
 
   BinFoundVec.resize(BinFoundVec.size() + 1, false);
-  BinPathToIdxMap[binary.path_str()] = BIdx;
 
   //
   // initialize state associated with every binary FIXME
   //
-  assert(!binary.IsVDSO);
-  BinPathToIdxMap[binary.path_str()] = BIdx;
-
   construct_fnmap(jv, binary, state.for_binary(binary).fnmap);
   construct_bbmap(jv, binary, state.for_binary(binary).bbmap);
 
@@ -4087,7 +4061,7 @@ void BootstrapTool::add_binary(pid_t child, const char *path) {
   } catch (const std::exception &) {
     HumanOut() << llvm::formatv(
         "{0}: failed to create binary from {1}\n", __func__, binary.path_str());
-    return;
+    return BIdx;
   }
 
   assert(llvm::isa<ELFO>(state.for_binary(binary).ObjectFile.get()));
@@ -4109,6 +4083,64 @@ void BootstrapTool::add_binary(pid_t child, const char *path) {
                          state.for_binary(binary)._elf.DynRelaRegion,
                          state.for_binary(binary)._elf.DynRelrRegion,
                          state.for_binary(binary)._elf.DynPLTRelRegion);
+
+  return BIdx;
+}
+
+binary_index_t BootstrapTool::BinaryFromData(pid_t child, std::string_view sv,
+                                             const char *name) {
+  bool IsNew;
+  binary_index_t BIdx;
+
+  std::tie(BIdx, IsNew) = jv.AddFromData(*E, sv, name);
+  if (!is_binary_index_valid(BIdx) || !IsNew)
+    return BIdx;
+
+  if (IsVerbose())
+    HumanOut() << llvm::formatv("BinaryFromData: {0}\n", name);
+
+  state.update();
+
+  binary_t &binary = jv.Binaries[BIdx];
+  binary.IsDynamicallyLoaded = true;
+
+  BinFoundVec.resize(BinFoundVec.size() + 1, false);
+
+  //
+  // initialize state associated with every binary FIXME
+  //
+  construct_fnmap(jv, binary, state.for_binary(binary).fnmap);
+  construct_bbmap(jv, binary, state.for_binary(binary).bbmap);
+
+  try {
+    state.for_binary(binary).ObjectFile = CreateBinary(binary.data());
+  } catch (const std::exception &) {
+    HumanOut() << llvm::formatv(
+        "{0}: failed to create binary from {1}\n", __func__, binary.path_str());
+    return BIdx;
+  }
+
+  assert(llvm::isa<ELFO>(state.for_binary(binary).ObjectFile.get()));
+
+  ELFO &Obj = *llvm::cast<ELFO>(state.for_binary(binary).ObjectFile.get());
+
+  loadDynamicTable(Obj, state.for_binary(binary)._elf.DynamicTable);
+
+  state.for_binary(binary)._elf.OptionalDynSymRegion =
+      loadDynamicSymbols(Obj,
+                         state.for_binary(binary)._elf.DynamicTable,
+                         state.for_binary(binary)._elf.DynamicStringTable,
+                         state.for_binary(binary)._elf.SymbolVersionSection,
+                         state.for_binary(binary)._elf.VersionMap);
+
+  loadDynamicRelocations(Obj,
+                         state.for_binary(binary)._elf.DynamicTable,
+                         state.for_binary(binary)._elf.DynRelRegion,
+                         state.for_binary(binary)._elf.DynRelaRegion,
+                         state.for_binary(binary)._elf.DynRelrRegion,
+                         state.for_binary(binary)._elf.DynPLTRelRegion);
+
+  return BIdx;
 }
 
 void BootstrapTool::on_dynamic_linker_loaded(pid_t child,
@@ -4264,7 +4296,7 @@ void BootstrapTool::on_return(pid_t child,
     {
       auto it = AddressSpace.find(pc);
       if (it == AddressSpace.end()) {
-        update_view_of_virtual_memory(child);
+        ScanAddressSpace(child);
         it = AddressSpace.find(pc);
       }
 
@@ -4310,7 +4342,7 @@ void BootstrapTool::on_return(pid_t child,
     {
       auto it = AddressSpace.find(pc);
       if (it == AddressSpace.end()) {
-        update_view_of_virtual_memory(child);
+        ScanAddressSpace(child);
         it = AddressSpace.find(pc);
       }
 
@@ -4475,6 +4507,119 @@ std::string BootstrapTool::StringOfMCInst(llvm::MCInst &Inst) {
   return res;
 }
 
+binary_index_t BootstrapTool::binary_at_program_counter(pid_t child,
+                                                        uintptr_t pc) {
+  {
+    auto it = AddressSpace.find(pc);
+    if (likely(it != AddressSpace.end()))
+      return -1+(*it).second;
+  }
+
+  //
+  // we haven't added this binary yet. where is it in memory?
+  //
+  auto pm_it = pmm.find(pc);
+  if (pm_it == pmm.end()) {
+    UpdateVM(child);
+
+    pm_it = pmm.find(pc);
+    if (pm_it == pmm.end()) {
+      HumanOut() << llvm::formatv(
+          "binary_at_program_counter: unknown code @ {0}\n",
+          description_of_program_counter(pc, true));
+      return invalid_binary_index;
+    }
+  }
+
+  const proc_map_set_t &pms = (*pm_it).second;
+  assert(pms.size() == 1);
+  const proc_map_t &pm = *pms.begin();
+
+  // WARN_ON(!pm.x);
+  const std::string &nm = pm.nm;
+  assert(!nm.empty());
+
+  binary_index_t BIdx = invalid_binary_index;
+
+  bool IsVDSO = false; /* FIXME */
+  if (nm[0] != '/') {
+    //
+    // [vdso], [vsyscall], ...
+    //
+    if (nm[0] != '[')
+      die("unrecognized mapping \"" + nm + "\"");
+
+    //ignore_exception([&]() { BIdx = BinaryFromSpecialMapping(child, nm.c_str()); });
+
+    IsVDSO = nm == "[vdso]";
+
+    std::string_view sv;
+    std::string _buff;
+    if (IsVDSO) { /* FIXME? */
+      void *vdso_p;
+      unsigned vdso_len;
+      std::tie(vdso_p, vdso_len) = GetVDSO();
+      assert(vdso_p);
+
+      sv = std::string_view((const char *)vdso_p, vdso_len);
+    } else {
+      _buff.resize(pm.end - pm.beg);
+
+      try {
+        _ptrace_memcpy(child, &_buff[0], (const void *)pm.beg, _buff.size());
+      } catch (const std::exception &e) {
+        if (IsVeryVerbose())
+          HumanOut() << llvm::formatv("failed to read {0} in tracee\n", nm);
+        return invalid_binary_index;
+      }
+
+      sv = std::string_view(_buff);
+    }
+
+    ignore_exception([&]() { BIdx = BinaryFromData(child, sv, nm.c_str()); });
+  } else {
+    ignore_exception([&]() { BIdx = BinaryFromPath(child, nm.c_str()); });
+  }
+
+  if (!is_binary_index_valid(BIdx)) {
+    if (IsVerbose())
+      HumanOut() << llvm::formatv("failed to add binary at {0}\n", nm);
+
+    return invalid_binary_index;
+  }
+
+  assert(is_binary_index_valid(BIdx));
+
+  jv.Binaries.at(BIdx).IsVDSO = IsVDSO; /* FIXME */
+
+  //
+  // rescan address space (XXX can this be optimized further?)
+  //
+  ScanAddressSpace(child, false);
+
+  {
+    auto it = AddressSpace.find(pc);
+    if (it == AddressSpace.end())
+      die("added " + nm + " but AddressSpace unchanged");
+
+    return -1+(*it).second;
+  }
+}
+
+basic_block_index_t BootstrapTool::block_at_program_counter(pid_t child,
+                                                            uintptr_t pc) {
+  binary_index_t BIdx = binary_at_program_counter(child, pc);
+  if (!is_binary_index_valid(BIdx))
+    return invalid_basic_block_index;
+
+  binary_t &binary = jv.Binaries.at(BIdx);
+  return E->explore_basic_block(binary,
+                                *state.for_binary(binary).ObjectFile,
+                                rva_of_va(pc, BIdx),
+                                state.for_binary(binary).fnmap,
+                                state.for_binary(binary).bbmap);
+}
+
 std::string BootstrapTool::description_of_program_counter(uintptr_t pc, bool Verbose) {
 #if 0 /* defined(__mips64) || defined(__mips__) */
   if (ExecutableRegionAddress &&
@@ -4484,9 +4629,15 @@ std::string BootstrapTool::description_of_program_counter(uintptr_t pc, bool Ver
     return (fmt("[exeregion]+%#lx") % off).str();
   }
 #endif
-  std::string simple_desc = (fmt("%#lx") % pc).str();
+
+  const std::string simple_desc = (fmt("%#lx") % pc).str();
 
   auto pm_it = pmm.find(pc);
+  if (pm_it == pmm.end() && _child) {
+    UpdateVM(_child);
+    pm_it = pmm.find(pc);
+  }
+
   if (pm_it == pmm.end()) {
     return simple_desc;
   } else {
@@ -4500,33 +4651,29 @@ std::string BootstrapTool::description_of_program_counter(uintptr_t pc, bool Ver
     if (pm.nm.empty())
       return (fmt("%#lx+%#lx%s") % pm.beg % (pc - pm.beg) % extra).str();
 
-    auto b_it = BinPathToIdxMap.find(pm.nm);
-    if (b_it == BinPathToIdxMap.end())
-      return (fmt("%s+%#lx%s") % pm.nm % (pc - (pm.beg - pm.off)) % extra).str();
+    auto it = AddressSpace.find(pc);
+    if (it != AddressSpace.end()) {
+      binary_index_t BIdx = -1+(*it).second;
 
-    binary_index_t BIdx = (*b_it).second;
-    if (!BinFoundVec.test(BIdx))
-      HumanOut()
-          << __func__
-          << ": inconsistency with (BinFoundVec, pmm) (BUG)\n";
+      if (BinFoundVec.test(BIdx)) {
+        //
+        // pc is in binary that's been "loaded"
+        //
+        uintptr_t rva = rva_of_va(pc, BIdx);
 
-    auto as_it = AddressSpace.find(pc);
-    if (as_it == AddressSpace.end() || -1+(*as_it).second != BIdx)
-      HumanOut()
-          << __func__
-          << ": inconsistency with (BinFoundVec, pmm, AddressSpace) (BUG)\n";
+        if (IsVeryVerbose()) {
+          std::string line = symbolizer->addr2line(jv.Binaries[BIdx], rva);
+          if (!line.empty())
+            return line;
+        }
 
-    uintptr_t rva = rva_of_va(pc, BIdx);
+        std::string str = fs::path(pm.nm).filename().string();
 
-    if (IsVeryVerbose()) {
-      std::string line = symbolizer->addr2line(jv.Binaries[BIdx], rva);
-      if (!line.empty())
-        return line;
+        return (fmt("%s+%#lx%s") % str % rva % extra).str();
+      }
     }
 
-    std::string str = fs::path(pm.nm).filename().string();
-
-    return (fmt("%s+%#lx%s") % str % rva % extra).str();
+    return (fmt("%s+%#lx%s") % pm.nm % (pc - (pm.beg - pm.off)) % extra).str();
   }
 }
 

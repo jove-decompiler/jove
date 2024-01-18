@@ -182,6 +182,11 @@ typedef boost::interprocess::set<
     boost::interprocess::allocator<dynamic_target_t, segment_manager_t>>
     ip_dynamic_target_set;
 
+typedef boost::interprocess::set<
+    binary_index_t, std::less<binary_index_t>,
+    boost::interprocess::allocator<binary_index_t, segment_manager_t>>
+    ip_binary_index_set;
+
 typedef std::set<dynamic_target_t> dynamic_target_set;
 
 struct basic_block_properties_t {
@@ -482,15 +487,24 @@ typedef boost::interprocess::map<
                                    segment_manager_t>>
     ip_hash_to_binary_map_type;
 
+typedef boost::interprocess::map<
+    ip_string, ip_binary_index_set, std::less<ip_string>,
+    boost::interprocess::allocator<
+        std::pair<const ip_string, ip_binary_index_set>, segment_manager_t>>
+    ip_name_to_binaries_map_type;
+
 struct jv_t {
   ip_binary_vector Binaries;
 
   ip_hash_to_binary_map_type hash_to_binary;
   ip_cached_hashes_type cached_hashes;
 
+  ip_name_to_binaries_map_type name_to_binaries;
+
   ip_mutex binaries_mtx;
   ip_mutex hash_to_binary_mtx;
   ip_mutex cached_hashes_mtx;
+  ip_mutex name_to_binary_mtx;
 
   void InvalidateFunctionAnalyses(void) {
     for (binary_t &b : Binaries)
@@ -504,19 +518,32 @@ struct jv_t {
     Binaries.clear();
   }
 
-  jv_t(const ip_void_allocator_t &Alloc)
-      : Binaries(Alloc), hash_to_binary(Alloc), cached_hashes(Alloc) {}
+  jv_t(const ip_void_allocator_t &A)
+      : Binaries(A), hash_to_binary(A), cached_hashes(A), name_to_binaries(A) {}
 
   jv_t() = delete;
 
   binary_index_t Lookup(const char *path);
-  binary_index_t Add(const char *path, explorer_t &);
+
+  std::pair<binary_index_t, bool> AddFromPath(explorer_t &, const char *path);
+  std::pair<binary_index_t, bool> AddFromData(explorer_t &, std::string_view data,
+                                              const char *name = nullptr);
+
+  unsigned NumBinaries(void) {
+    return Binaries.size();
+  }
 
 private:
-  hash_t LookupAndCacheHash(const std::string &path);
   binary_index_t LookupWithHash(hash_t);
-  void UpdateCachedHash(cached_hash_t &, const char *path);
+  hash_t LookupAndCacheHash(const std::string &path,
+                            std::string &file_contents);
+  void UpdateCachedHash(cached_hash_t &, const char *path,
+                        std::string &file_contents);
 
+  std::pair<binary_index_t, bool> AddFromDataWithHash(explorer_t &E,
+                                                      std::string_view data,
+                                                      hash_t h,
+                                                      const char *name);
   void DoAdd(binary_t &, explorer_t &);
 };
 

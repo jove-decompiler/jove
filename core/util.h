@@ -28,6 +28,8 @@ template <typename T> static inline bool updateValue(T &x, const T &y) {
 
 template <typename T>
 inline void read_file_into_thing(const char *path, T &out) {
+  out.clear();
+
   std::ifstream ifs(path);
   if (!ifs.is_open())
     throw std::runtime_error("read_file_into_thing: failed to open " +

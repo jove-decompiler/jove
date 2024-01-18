@@ -197,18 +197,19 @@ int InitTool::add_loaded_objects(const fs::path &prog, const fs::path &rtld) {
   //
   // add them
   //
-  jv.Add(prog.c_str(), E); /* prog first */
-  jv.Add(rtld.c_str(), E); /* rtld second */
-  jv.Add(vdso.c_str(), E); /* vdso third */
+  jv.AddFromPath(E, prog.c_str()); /* prog first */
+  jv.AddFromPath(E, rtld.c_str()); /* rtld second */
+  jv.AddFromPath(E, vdso.c_str()); /* vdso third */
 
   jv.Binaries.at(0).IsExecutable = true;
   jv.Binaries.at(1).IsDynamicLinker = true;
   jv.Binaries.at(2).IsVDSO = true;
 
   /* add the rest */
-  std::for_each(binary_paths.begin(),
-                binary_paths.end(),
-                [&](const std::string &path_s) { jv.Add(path_s.c_str(), E); });
+  std::for_each(
+      binary_paths.begin(),
+      binary_paths.end(),
+      [&](const std::string &path_s) { jv.AddFromPath(E, path_s.c_str()); });
 
   return 0;
 }
