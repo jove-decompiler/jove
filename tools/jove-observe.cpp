@@ -232,8 +232,8 @@ int ObserveTool::Run(void) {
                                   dst_addr_s, dst_dso, dst_off_s);
 #endif
 
-    if (!src_dso.empty()) src_BIdx = jv.Lookup(src_dso.c_str());
-    if (!dst_dso.empty()) dst_BIdx = jv.Lookup(dst_dso.c_str());
+    if (!src_dso.empty() && src_dso[0] == '/') src_BIdx = jv.AddFromPath(E, src_dso.c_str()).first; /* TODO [vdso] */
+    if (!dst_dso.empty() && dst_dso[0] == '/') dst_BIdx = jv.AddFromPath(E, dst_dso.c_str()).first; /* TODO [vdso] */
 
     if (!src_off_s.empty()) src_off = strtol(src_off_s.c_str(), nullptr, 16);
     if (!dst_off_s.empty()) dst_off = strtol(dst_off_s.c_str(), nullptr, 16);
