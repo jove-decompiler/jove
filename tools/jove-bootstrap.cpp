@@ -4529,8 +4529,6 @@ binary_index_t BootstrapTool::binary_at_program_counter(pid_t child,
     if (nm[0] != '[')
       die("unrecognized mapping \"" + nm + "\"");
 
-    //ignore_exception([&]() { BIdx = BinaryFromSpecialMapping(child, nm.c_str()); });
-
     IsVDSO = nm == "[vdso]";
 
     std::string_view sv;
@@ -4548,7 +4546,7 @@ binary_index_t BootstrapTool::binary_at_program_counter(pid_t child,
       try {
         _ptrace_memcpy(child, &_buff[0], (const void *)pm.beg, _buff.size());
       } catch (const std::exception &e) {
-        if (IsVeryVerbose())
+        if (IsVerbose())
           HumanOut() << llvm::formatv("failed to read {0} in tracee\n", nm);
         return invalid_binary_index;
       }
