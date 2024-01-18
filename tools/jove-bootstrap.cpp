@@ -320,6 +320,58 @@ struct BootstrapTool : public TransformerTool_Bin<binary_state_t> {
   bool ShowMeA = false;
   bool ShowMeS = false;
 
+  void init_state_for_binary(binary_t &b) {
+    binary_state_t &x = state.for_binary(b);
+
+    construct_fnmap(jv, b, x.fnmap);
+    construct_bbmap(jv, b, x.bbmap);
+
+    try {
+      x.ObjectFile = CreateBinary(b.data());
+    } catch (const std::exception &) {
+      if (!b.IsVDSO)
+        HumanOut() << llvm::formatv("failed to create binary for {0}\n",
+                                    b.path_str());
+      return;
+    }
+
+    if (!llvm::isa<ELFO>(x.ObjectFile.get())) {
+      HumanOut() << b.path_str() << " is not ELF of expected type\n";
+      return;
+    }
+
+    ELFO &Obj = *llvm::cast<ELFO>(x.ObjectFile.get());
+
+    loadDynamicTable(Obj, x._elf.DynamicTable);
+
+    x._elf.OptionalDynSymRegion =
+        loadDynamicSymbols(Obj,
+                           x._elf.DynamicTable,
+                           x._elf.DynamicStringTable,
+                           x._elf.SymbolVersionSection,
+                           x._elf.VersionMap);
+
+    loadDynamicRelocations(Obj,
+                           x._elf.DynamicTable,
+                           x._elf.DynRelRegion,
+                           x._elf.DynRelaRegion,
+                           x._elf.DynRelrRegion,
+                           x._elf.DynPLTRelRegion);
+  }
+
+  void on_new_binary(binary_index_t BIdx) {
+    assert(is_binary_index_valid(BIdx));
+    state.update();
+
+    binary_t &b = jv.Binaries.at(BIdx);
+    b.IsDynamicallyLoaded = true;
+
+    BinFoundVec.resize(BinFoundVec.size() + 1, false);
+    assert(BinFoundVec.size() == jv.NumBinaries());
+
+    init_state_for_binary(b);
+  }
+
 public:
   BootstrapTool() : opts(JoveCategory) {}
 
@@ -459,44 +511,7 @@ int BootstrapTool::Run(void) {
   //
   // initialize state associated with every binary
   //
-  for_each_binary(jv, [&](binary_t &binary) {
-    binary_state_t &x = state.for_binary(binary);
-
-    construct_fnmap(jv, binary, x.fnmap);
-    construct_bbmap(jv, binary, x.bbmap);
-
-    try {
-      x.ObjectFile = CreateBinary(binary.data());
-    } catch (const std::exception &) {
-      if (!binary.IsVDSO)
-        HumanOut() << llvm::formatv("failed to create binary for {0}\n",
-                                    binary.path_str());
-      return;
-    }
-
-    if (!llvm::isa<ELFO>(x.ObjectFile.get())) {
-      HumanOut() << binary.path_str() << " is not ELF of expected type\n";
-      return;
-    }
-
-    ELFO &Obj = *llvm::cast<ELFO>(x.ObjectFile.get());
-
-    loadDynamicTable(Obj, x._elf.DynamicTable);
-
-    x._elf.OptionalDynSymRegion =
-        loadDynamicSymbols(Obj,
-                           x._elf.DynamicTable,
-                           x._elf.DynamicStringTable,
-                           x._elf.SymbolVersionSection,
-                           x._elf.VersionMap);
-
-    loadDynamicRelocations(Obj,
-                           x._elf.DynamicTable,
-                           x._elf.DynRelRegion,
-                           x._elf.DynRelaRegion,
-                           x._elf.DynRelrRegion,
-                           x._elf.DynPLTRelRegion);
-  });
+  for_each_binary(jv, [&](binary_t &b) { init_state_for_binary(b); });
 
   BinFoundVec.resize(jv.Binaries.size());
 
@@ -4023,47 +4038,7 @@ binary_index_t BootstrapTool::BinaryFromPath(pid_t child, const char *path) {
   if (IsVerbose())
     HumanOut() << llvm::formatv("BinaryFromPath: {0}\n", path);
 
-  state.update();
-
-  binary_t &binary = jv.Binaries[BIdx];
-  binary.IsDynamicallyLoaded = true;
-
-  BinFoundVec.resize(BinFoundVec.size() + 1, false);
-
-  //
-  // initialize state associated with every binary FIXME
-  //
-  construct_fnmap(jv, binary, state.for_binary(binary).fnmap);
-  construct_bbmap(jv, binary, state.for_binary(binary).bbmap);
-
-  try {
-    state.for_binary(binary).ObjectFile = CreateBinary(binary.data());
-  } catch (const std::exception &) {
-    HumanOut() << llvm::formatv(
-        "{0}: failed to create binary from {1}\n", __func__, binary.path_str());
-    return BIdx;
-  }
-
-  assert(llvm::isa<ELFO>(state.for_binary(binary).ObjectFile.get()));
-
-  ELFO &Obj = *llvm::cast<ELFO>(state.for_binary(binary).ObjectFile.get());
-
-  loadDynamicTable(Obj, state.for_binary(binary)._elf.DynamicTable);
-
-  state.for_binary(binary)._elf.OptionalDynSymRegion =
-      loadDynamicSymbols(Obj,
-                         state.for_binary(binary)._elf.DynamicTable,
-                         state.for_binary(binary)._elf.DynamicStringTable,
-                         state.for_binary(binary)._elf.SymbolVersionSection,
-                         state.for_binary(binary)._elf.VersionMap);
-
-  loadDynamicRelocations(Obj,
-                         state.for_binary(binary)._elf.DynamicTable,
-                         state.for_binary(binary)._elf.DynRelRegion,
-                         state.for_binary(binary)._elf.DynRelaRegion,
-                         state.for_binary(binary)._elf.DynRelrRegion,
-                         state.for_binary(binary)._elf.DynPLTRelRegion);
-
+  on_new_binary(BIdx);
   return BIdx;
 }
 
@@ -4079,47 +4054,7 @@ binary_index_t BootstrapTool::BinaryFromData(pid_t child, std::string_view sv,
   if (IsVerbose())
     HumanOut() << llvm::formatv("BinaryFromData: {0}\n", name);
 
-  state.update();
-
-  binary_t &binary = jv.Binaries[BIdx];
-  binary.IsDynamicallyLoaded = true;
-
-  BinFoundVec.resize(BinFoundVec.size() + 1, false);
-
-  //
-  // initialize state associated with every binary FIXME
-  //
-  construct_fnmap(jv, binary, state.for_binary(binary).fnmap);
-  construct_bbmap(jv, binary, state.for_binary(binary).bbmap);
-
-  try {
-    state.for_binary(binary).ObjectFile = CreateBinary(binary.data());
-  } catch (const std::exception &) {
-    HumanOut() << llvm::formatv(
-        "{0}: failed to create binary from {1}\n", __func__, binary.path_str());
-    return BIdx;
-  }
-
-  assert(llvm::isa<ELFO>(state.for_binary(binary).ObjectFile.get()));
-
-  ELFO &Obj = *llvm::cast<ELFO>(state.for_binary(binary).ObjectFile.get());
-
-  loadDynamicTable(Obj, state.for_binary(binary)._elf.DynamicTable);
-
-  state.for_binary(binary)._elf.OptionalDynSymRegion =
-      loadDynamicSymbols(Obj,
-                         state.for_binary(binary)._elf.DynamicTable,
-                         state.for_binary(binary)._elf.DynamicStringTable,
-                         state.for_binary(binary)._elf.SymbolVersionSection,
-                         state.for_binary(binary)._elf.VersionMap);
-
-  loadDynamicRelocations(Obj,
-                         state.for_binary(binary)._elf.DynamicTable,
-                         state.for_binary(binary)._elf.DynRelRegion,
-                         state.for_binary(binary)._elf.DynRelaRegion,
-                         state.for_binary(binary)._elf.DynRelrRegion,
-                         state.for_binary(binary)._elf.DynPLTRelRegion);
-
+  on_new_binary(BIdx);
   return BIdx;
 }
 
