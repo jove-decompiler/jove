@@ -499,6 +499,9 @@ void DumpTool::dumpInput(const std::string &Path) {
 
     if (opts.ListBinaries) {
       for (const auto &binary : jv.Binaries) {
+        if (IsVerbose())
+          llvm::outs() << str_of_hash(binary.Hash) << ' ';
+
         llvm::outs() << binary.path_str() << '\n';
       }
     } else if (opts.Statistics) {
