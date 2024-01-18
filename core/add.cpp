@@ -61,19 +61,20 @@ hash_t jv_t::LookupAndCacheHash(const std::string &path,
   }
 }
 
-binary_index_t jv_t::Lookup(const char *path) {
-  fs::path the_path;
-  try {
-    the_path = fs::canonical(path);
-  } catch (...) {
-    return invalid_binary_index;
+boost::optional<const ip_binary_index_set &> jv_t::Lookup(const char *name) {
+  assert(name);
+
+  ip_scoped_lock<ip_mutex> lck(this->name_to_binaries_mtx);
+
+  ip_string s(Binaries.get_allocator());
+  to_ips(s, name);
+
+  auto it = this->name_to_binaries.find(s);
+  if (it == this->name_to_binaries.end()) {
+    return boost::optional<const ip_binary_index_set &>();
+  } else {
+    return (*it).second;
   }
-
-  std::string file_contents;
-  hash_t h = LookupAndCacheHash(the_path.string(), file_contents);
-  (void)file_contents;
-
-  return LookupWithHash(h);
 }
 
 binary_index_t jv_t::LookupWithHash(hash_t h) {

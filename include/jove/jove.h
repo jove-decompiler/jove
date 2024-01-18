@@ -13,6 +13,7 @@
 #include <boost/interprocess/managed_shared_memory.hpp>
 #include <boost/interprocess/sync/scoped_lock.hpp>
 #include <boost/range/iterator_range.hpp>
+#include <boost/optional.hpp>
 
 #include <algorithm>
 #include <cstdint>
@@ -523,7 +524,7 @@ struct jv_t {
 
   jv_t() = delete;
 
-  binary_index_t Lookup(const char *path);
+  boost::optional<const ip_binary_index_set &> Lookup(const char *name);
 
   std::pair<binary_index_t, bool> AddFromPath(explorer_t &, const char *path);
   std::pair<binary_index_t, bool> AddFromData(explorer_t &, std::string_view data,

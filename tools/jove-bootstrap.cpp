@@ -3321,44 +3321,27 @@ void BootstrapTool::ScanAddressSpace(pid_t child, bool VMUpdate) {
       continue;
 
     binary_index_t BIdx = invalid_binary_index;
-    bool IsVDSO = false; /* XXX */
 
     const std::string &nm = pm.nm;
     if (nm[0] != '/') {
-      //
-      // [vdso], [vsyscall], ...
-      //
       if (nm[0] != '[')
         die("unrecognized mapping \"" + nm + "\"");
 
-      //ignore_exception([&]() { BIdx = BinaryFromSpecialMapping(child, nm.c_str()); });
+      //
+      // [vdso], [vsyscall], ...
+      //
+      auto MaybeBIdxSet = jv.Lookup(nm.c_str());
+      if (MaybeBIdxSet) {
+        const ip_binary_index_set &BIdxSet = *MaybeBIdxSet;
 
-      IsVDSO = nm == "[vdso]";
+        assert(!BIdxSet.empty());
+        if (BIdxSet.size() > 1 && IsVerbose())
+          HumanOut() << llvm::formatv("ScanAddressSpace: \"{0}\" maps to more "
+                                      "than one distinct binary!\n", nm);
 
-      std::string_view sv;
-      std::string _buff;
-      if (IsVDSO) { /* FIXME? */
-        void *vdso_p;
-        unsigned vdso_len;
-        std::tie(vdso_p, vdso_len) = GetVDSO();
-        assert(vdso_p);
-
-        sv = std::string_view((const char *)vdso_p, vdso_len);
-      } else {
-        _buff.resize(pm.end - pm.beg);
-
-        try {
-          _ptrace_memcpy(child, &_buff[0], (const void *)pm.beg, _buff.size());
-        } catch (const std::exception &e) {
-          if (IsVeryVerbose())
-            HumanOut() << llvm::formatv("failed to read {0} in tracee\n", nm);
-          continue;
-        }
-
-        sv = std::string_view(_buff);
+        BIdx = *BIdxSet.begin();
+        assert(is_binary_index_valid(BIdx));
       }
-
-      ignore_exception([&]() { BIdx = BinaryFromData(child, sv, nm.c_str()); });
     } else {
       ignore_exception([&]() { BIdx = BinaryFromPath(child, nm.c_str()); });
     }
@@ -3367,9 +3350,6 @@ void BootstrapTool::ScanAddressSpace(pid_t child, bool VMUpdate) {
       continue;
 
     binary_t &b = jv.Binaries.at(BIdx);
-
-    if (IsVDSO)
-      b.IsVDSO = true;
 
     if (unlikely(AddressSpace.find(intervl) != AddressSpace.end()))
       die("(BUG) AddressSpace");
