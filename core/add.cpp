@@ -142,7 +142,7 @@ std::pair<binary_index_t, bool> jv_t::AddFromDataWithHash(explorer_t &E,
     if (name) {
       to_ips(b.Path, name);
 
-      ip_scoped_lock<ip_mutex> lck(this->name_to_binary_mtx);
+      ip_scoped_lock<ip_mutex> lck(this->name_to_binaries_mtx);
 
       auto it = this->name_to_binaries.find(b.Path);
       if (it == this->name_to_binaries.end()) {
