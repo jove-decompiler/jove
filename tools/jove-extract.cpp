@@ -59,7 +59,8 @@ int ExtractTool::Run(void) {
                                      opts.OutDir.c_str());
 
   for (binary_t &b : jv.Binaries) {
-    assert(b.Path[0] == '/');
+    if (!b.is_file())
+      continue;
 
     fs::path chrooted_path(std::string(opts.OutDir) + b.path_str());
     fs::create_directories(chrooted_path.parent_path());
