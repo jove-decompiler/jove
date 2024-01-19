@@ -17,6 +17,7 @@
 [submodule "llvm-cbe"]
 	path = llvm-cbe
 	url = https://github.com/jove-decompiler/llvm-cbe.git
+	branch = jove16
 [submodule "qemu"]
 	path = qemu
 	url = https://github.com/jove-decompiler/qemu.git

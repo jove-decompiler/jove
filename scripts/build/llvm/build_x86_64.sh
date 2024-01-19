@@ -34,4 +34,4 @@ cmake -G Ninja \
 
 fi
 
-ninja bin/{llvm-tblgen,llvm-dis,opt,llc,clang,clang-tblgen,lld,jove-x86_64,jove-i386,jove-aarch64,jove-mipsel,jove-mips64el}
+ninja bin/{llvm-tblgen,llvm-dis,llvm-cbe,opt,llc,clang,clang-tblgen,lld,jove-x86_64,jove-i386,jove-aarch64,jove-mipsel,jove-mips64el}
