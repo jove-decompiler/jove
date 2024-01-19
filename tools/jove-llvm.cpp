@@ -2319,7 +2319,7 @@ int LLVMTool::Run(void) {
       || (opts.DumpPreOpt1 ? (RenameFunctionLocals(), DumpModule("pre.opt"), 1) : 0)
       || ((opts.Optimize || opts.ForCBE) ? DoOptimize() : 0)
       || (opts.DumpPostOpt1 ? (RenameFunctionLocals(), DumpModule("post.opt"), 1) : 0)
-      || (!opts.ForCBE ? ExpandMemoryIntrinsicCalls() : 0)
+      || ExpandMemoryIntrinsicCalls()
       || ReplaceAllRemainingUsesOfConstSections()
       || (opts.DFSan ? DFSanInstrument() : 0)
       || RenameFunctionLocals()
@@ -3394,64 +3394,6 @@ int LLVMTool::PrepareToTranslateCode(void) {
   CONST_STRING(__jove_fail_UnknownCallee, "unknown callee");
 
   return 0;
-}
-
-bool LLVMTool::shouldExpandOperationWithSize(llvm::Value *Size) {
-  if (opts.DFSan) /* erase all notions of contiguous memory */
-    return true;
-
-  constexpr unsigned MaxStaticSize = 32;
-
-  llvm::ConstantInt *CI = llvm::dyn_cast<llvm::ConstantInt>(Size);
-  return !CI || (CI->getZExtValue() > MaxStaticSize);
-}
-
-// from AMDGPULowerIntrinsics.cpp
-void LLVMTool::expandMemIntrinsicUses(llvm::Function &F) {
-  llvm::Intrinsic::ID ID = F.getIntrinsicID();
-
-  for (llvm::User *U : llvm::make_early_inc_range(F.users())) {
-    llvm::Instruction *Inst = cast<llvm::Instruction>(U);
-
-    switch (ID) {
-    case llvm::Intrinsic::memcpy: {
-      auto *Memcpy = llvm::cast<llvm::MemCpyInst>(Inst);
-      if (shouldExpandOperationWithSize(Memcpy->getLength())) {
-#if 0
-        llvm::Function *ParentFunc = Memcpy->getParent()->getParent();
-        const TargetTransformInfo &TTI =
-            getAnalysis<llvm::TargetTransformInfoWrapperPass>().getTTI(*ParentFunc);
-#else
-        llvm::TargetTransformInfo TTI(DL);
-#endif
-        llvm::expandMemCpyAsLoop(Memcpy, TTI);
-        Memcpy->eraseFromParent();
-      }
-
-      break;
-    }
-    case llvm::Intrinsic::memmove: {
-      auto *Memmove = llvm::cast<llvm::MemMoveInst>(Inst);
-      if (shouldExpandOperationWithSize(Memmove->getLength())) {
-        llvm::expandMemMoveAsLoop(Memmove);
-        Memmove->eraseFromParent();
-      }
-
-      break;
-    }
-    case llvm::Intrinsic::memset: {
-      auto *Memset = llvm::cast<llvm::MemSetInst>(Inst);
-      if (shouldExpandOperationWithSize(Memset->getLength())) {
-        llvm::expandMemSetAsLoop(Memset);
-        Memset->eraseFromParent();
-      }
-
-      break;
-    }
-    default:
-      break;
-    }
-  }
 }
 
 tcg_global_set_t LLVMTool::DetermineFunctionArgs(function_t &f) {
@@ -6692,9 +6634,19 @@ int LLVMTool::PrepareForCBE(void) {
   return ConstifyRelocationSectionPointers();
 }
 
-int LLVMTool::ExpandMemoryIntrinsicCalls(void) {
-  assert(!opts.ForCBE);
+bool LLVMTool::shouldExpandOperationWithSize(llvm::Value *Size) {
+  if (opts.ForCBE)
+    return true;
+  if (opts.DFSan) /* erase all notions of contiguous memory */
+    return true;
 
+  constexpr unsigned MaxStaticSize = 32;
+
+  llvm::ConstantInt *CI = llvm::dyn_cast<llvm::ConstantInt>(Size);
+  return !CI || (CI->getZExtValue() > MaxStaticSize);
+}
+
+int LLVMTool::ExpandMemoryIntrinsicCalls(void) {
   //
   // lower memory intrinsics (memcpy, memset, memmove)
   //
@@ -6702,15 +6654,48 @@ int LLVMTool::ExpandMemoryIntrinsicCalls(void) {
     if (!F.isDeclaration())
       continue;
 
+    llvm::TargetTransformInfo TTI(DL);
+
+    auto DoExpandMemcpy = [&](llvm::MemTransferInst *MemTrans) -> void {
+      llvm::expandMemCpyAsLoop(llvm::cast<llvm::MemCpyInst>(MemTrans), TTI);
+    };
+
+    auto DoExpandMemmove = [&](llvm::MemTransferInst *MemTrans) -> void {
+      llvm::expandMemMoveAsLoop(llvm::cast<llvm::MemMoveInst>(MemTrans));
+    };
+
+    auto DoExpandMemset = [&](llvm::MemTransferInst *MemTrans) -> void {
+      llvm::expandMemSetAsLoop(llvm::cast<llvm::MemSetInst>(MemTrans));
+    };
+
+    std::function<void(llvm::MemTransferInst *)> ExpandMemTransFunc;
+
     switch (F.getIntrinsicID()) {
     case llvm::Intrinsic::memcpy:
+    case llvm::Intrinsic::memcpy_inline:
+      ExpandMemTransFunc = DoExpandMemcpy;
+      break;
     case llvm::Intrinsic::memmove:
+      ExpandMemTransFunc = DoExpandMemmove;
+      break;
     case llvm::Intrinsic::memset:
-      expandMemIntrinsicUses(F);
+    case llvm::Intrinsic::memset_inline:
+      ExpandMemTransFunc = DoExpandMemset;
       break;
 
     default:
-      break;
+      continue;
+    }
+
+    for (llvm::User *U : llvm::make_early_inc_range(F.users())) {
+      assert(llvm::isa<llvm::MemTransferInst>(U));
+      auto *MemTrans = llvm::cast<llvm::MemTransferInst>(U);
+
+      if (!shouldExpandOperationWithSize(MemTrans->getLength()))
+        continue;
+
+      ExpandMemTransFunc(MemTrans);
+      MemTrans->eraseFromParent();
     }
   }
 
