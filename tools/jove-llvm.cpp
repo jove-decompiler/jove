@@ -3410,9 +3410,8 @@ bool LLVMTool::shouldExpandOperationWithSize(llvm::Value *Size) {
 void LLVMTool::expandMemIntrinsicUses(llvm::Function &F) {
   llvm::Intrinsic::ID ID = F.getIntrinsicID();
 
-  for (auto I = F.user_begin(), E = F.user_end(); I != E;) {
-    llvm::Instruction *Inst = llvm::cast<llvm::Instruction>(*I);
-    ++I;
+  for (llvm::User *U : llvm::make_early_inc_range(F.users())) {
+    llvm::Instruction *Inst = cast<llvm::Instruction>(U);
 
     switch (ID) {
     case llvm::Intrinsic::memcpy: {
