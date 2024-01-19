@@ -55,11 +55,11 @@ class DecompileTool : public TransformerTool_Bin<binary_state_t> {
     cl::opt<bool> FakeLineNumbers;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
-        : Prog(cl::Positional, cl::desc("prog"),
-               cl::value_desc("filename"), cl::cat(JoveCategory)),
+        : Prog(cl::Positional, cl::desc("prog"), cl::value_desc("filename"),
+               cl::cat(JoveCategory)),
 
           Binary("binary", cl::desc("Operate on single given binary"),
-                 cl::value_desc("path"), cl::cat(JoveCategory)),
+                 cl::value_desc("path"), cl::cat(JoveCategory), cl::Required),
 
           BinaryAlias("b", cl::desc("Alias for -binary."), cl::aliasopt(Binary),
                       cl::cat(JoveCategory)),
