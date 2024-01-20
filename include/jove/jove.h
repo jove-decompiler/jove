@@ -118,11 +118,11 @@ constexpr bool is_dynamic_target_valid(dynamic_target_t X) {
          is_function_index_valid(X.second);
 }
 
-constexpr bool IsMIPSTarget =
+constexpr unsigned IsMIPSTarget =
 #if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
-    true
+    1
 #else
-    false
+    0
 #endif
     ;
 

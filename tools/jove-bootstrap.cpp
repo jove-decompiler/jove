@@ -3,6 +3,15 @@
     (defined(__aarch64__) && defined(TARGET_AARCH64)) || \
     (defined(__mips64)    && defined(TARGET_MIPS64))  || \
     (defined(__mips__)    && defined(TARGET_MIPS32))
+
+static constexpr bool IsI386 =
+#if !defined(__x86_64__) && defined(__i386__)
+    true
+#else
+    false
+#endif
+    ;
+
 #include "tool.h"
 #include "elf.h"
 #include "tcg.h"
@@ -258,7 +267,7 @@ struct BootstrapTool : public TransformerTool_Bin<binary_state_t> {
                            cl::aliasopt(PrintLinkMap), cl::cat(JoveCategory)),
 
           PID("attach", cl::desc("attach to existing process PID"),
-              cl::cat(JoveCategory)),
+              cl::cat(JoveCategory), cl::init(0)),
 
           PIDAlias("p", cl::desc("Alias for -attach."), cl::aliasopt(PID),
                    cl::cat(JoveCategory)),
@@ -418,14 +427,21 @@ public:
   uintptr_t va_of_rva(uintptr_t Addr, binary_index_t BIdx);
   uintptr_t rva_of_va(uintptr_t Addr, binary_index_t BIdx);
 
-  basic_block_index_t block_at_program_counter(pid_t, uintptr_t valid_pc);
   binary_index_t binary_at_program_counter(pid_t, uintptr_t valid_pc);
+  std::pair<binary_index_t, basic_block_index_t> block_at_program_counter(pid_t, uintptr_t valid_pc);
+  std::pair<binary_index_t, function_index_t> function_at_program_counter(pid_t, uintptr_t valid_pc);
+
+  std::pair<binary_index_t, basic_block_index_t> existing_block_at_program_counter(pid_t child, uintptr_t pc);
 
   std::string description_of_program_counter(uintptr_t, bool Verbose = false);
   std::string StringOfMCInst(llvm::MCInst &);
 
   pid_t saved_child;
   std::atomic<bool> ToggleTurbo = false;
+
+  bool DidAttach(void) {
+    return opts.PID != 0;
+  }
 };
 
 JOVE_REGISTER_TOOL("bootstrap", BootstrapTool);
@@ -786,19 +802,19 @@ int BootstrapTool::TracerLoop(pid_t child) {
         if (unlikely(FirstTime)) { /* is this the first ptrace-stop? */
           FirstTime = false;
 
-          //
-          // most likely entry point of rtld
-          //
-          if (!opts.PID) {
+          if (!DidAttach()) {
+            //
+            // we should be at the entry point of the dynamic linker
+            //
             cpu_state_t cpu_state;
             _ptrace_get_cpu_state(child, cpu_state);
 
-            block_at_program_counter(child, pc_of_cpu_state(cpu_state));
-
             if (IsVeryVerbose())
               llvm::errs() << llvm::formatv(
-                  "block at {0}\n", description_of_program_counter(
-                                        pc_of_cpu_state(cpu_state), true));
+                  "first ptrace-stop @ {0}\n",
+                  description_of_program_counter(pc_of_cpu_state(cpu_state), true));
+
+            function_at_program_counter(child, pc_of_cpu_state(cpu_state));
           }
 
           //
@@ -1094,41 +1110,17 @@ int BootstrapTool::TracerLoop(pid_t child) {
                     handler &= ~1UL;
 #endif
 
-                    ScanAddressSpace(child);
-
-                    auto it = AddressSpace.find(handler);
-                    if (it != AddressSpace.end()) {
-                      binary_index_t BIdx = -1+(*it).second;
-                      binary_t &b = jv.Binaries[BIdx];
-
-                      unsigned brkpt_count = 0;
-
-                      basic_block_index_t entrybb_idx = E->explore_basic_block(
-                          b, *state.for_binary(b).ObjectFile,
-                          rva_of_va(handler, BIdx),
-                          state.for_binary(b).fnmap,
-                          state.for_binary(b).bbmap);
-
-                      if (is_basic_block_index_valid(entrybb_idx)) {
-                        function_index_t FIdx = E->explore_function(
-                            b, *state.for_binary(b).ObjectFile,
-                            rva_of_va(handler, BIdx),
-                            state.for_binary(b).fnmap,
-                            state.for_binary(b).bbmap);
-
-                        if (is_function_index_valid(FIdx)) {
-                          b.Analysis.Functions[FIdx].IsSignalHandler = true;
-                          b.Analysis.Functions[FIdx].IsABI = true;
-                        } else {
-                          HumanOut() << llvm::formatv(
-                              "on rt_sigaction(): failed to translate handler {0}\n",
-                              description_of_program_counter(handler));
-                        }
-                      }
+                    binary_index_t BIdx;
+                    function_index_t FIdx;
+                    std::tie(BIdx, FIdx) = function_at_program_counter(child, handler);
+                    if (likely(is_function_index_valid(FIdx))) {
+                      function_t &f = jv.Binaries.at(BIdx).Analysis.Functions.at(FIdx);
+                      f.IsSignalHandler = true;
+                      f.IsABI = true;
                     } else {
                       HumanOut() << llvm::formatv(
-                          "on rt_sigaction(): handler {0} in unknown binary\n",
-                          description_of_program_counter(handler, true));
+                          "on rt_sigaction(): failed to translate handler {0}\n",
+                          description_of_program_counter(handler), true);
                     }
                   }
                 }
@@ -4208,39 +4200,25 @@ void BootstrapTool::on_return(pid_t child,
     pc &= ~1UL;
 #endif
 
-    binary_index_t BIdx = invalid_binary_index;
-    {
-      auto it = AddressSpace.find(pc);
-      if (it == AddressSpace.end()) {
-        ScanAddressSpace(child);
-        it = AddressSpace.find(pc);
-      }
-
-      if (it == AddressSpace.end()) {
-        HumanOut()
-            << llvm::formatv("{0}: (1) unknown binary for {1}\n", __func__,
-                             description_of_program_counter(pc, true));
-
-        if (IsVerbose())
-          HumanOut() << ProcMapsForPid(child);
-      } else {
-        BIdx = -1+(*it).second;
-
-        binary_t &binary = jv.Binaries.at(BIdx);
-        auto &bbmap = state.for_binary(binary).bbmap;
-        auto &ICFG = binary.Analysis.ICFG;
-
-        uintptr_t rva = rva_of_va(pc, BIdx);
-
-        auto it = bbmap.find(rva);
-        assert(it != bbmap.end());
-        basic_block_index_t bbidx = (*it).second - 1;
-        basic_block_t bb = basic_block_of_index(bbidx, ICFG);
-
-        assert(ICFG[bb].Term.Type == TERMINATOR::RETURN);
-        ICFG[bb].Term._return.Returns = true;
-      }
+    binary_index_t BIdx;
+    basic_block_index_t BBIdx;
+    std::tie(BIdx, BBIdx) = existing_block_at_program_counter(child, pc);
+    if (unlikely(!is_basic_block_index_valid(BBIdx))) {
+      if (IsVerbose())
+        HumanOut() << llvm::formatv("on_return: unknown AddrOfRet @ {0}",
+                                    description_of_program_counter(pc, true));
+      return;
     }
+
+    binary_t &b = jv.Binaries.at(BIdx);
+    auto &ICFG = b.Analysis.ICFG;
+    basic_block_t bb = basic_block_of_index(BBIdx, ICFG);
+
+    if (unlikely(ICFG[bb].Term.Type != TERMINATOR::RETURN))
+      die("on_return: block @ " + description_of_program_counter(pc, true) +
+          " does not return!");
+
+    ICFG[bb].Term._return.Returns = true; /* witnessed */
   }
 
   //
@@ -4254,115 +4232,75 @@ void BootstrapTool::on_return(pid_t child,
     pc &= ~1UL;
 #endif
 
-    binary_index_t BIdx = invalid_binary_index;
-    {
-      auto it = AddressSpace.find(pc);
-      if (it == AddressSpace.end()) {
-        ScanAddressSpace(child);
-        it = AddressSpace.find(pc);
-      }
+    binary_index_t BIdx;
+    basic_block_index_t BBIdx;
+    std::tie(BIdx, BBIdx) = block_at_program_counter(child, pc);
 
-      if (it == AddressSpace.end()) {
-        HumanOut()
-            << llvm::formatv("{0}: (2) unknown binary for {1}\n", __func__,
-                             description_of_program_counter(pc, true));
-        if (IsVerbose())
-          HumanOut() << ProcMapsForPid(child);
-      } else {
-        BIdx = -1+(*it).second;
+    if (unlikely(!is_basic_block_index_valid(BBIdx)))
+      die("on_return: returned to unknown @ " +
+          description_of_program_counter(pc, true));
 
-        try {
-        binary_t &binary = jv.Binaries.at(BIdx);
-        auto &bbmap = state.for_binary(binary).bbmap;
-        auto &ICFG = binary.Analysis.ICFG;
+    //
+    // what came before?
+    //
+    uintptr_t before_pc = pc - 1 - IsMIPSTarget * 4;
 
-        if (!state.for_binary(binary).ObjectFile.get()) {
-          if (!binary.IsVDSO)
-            HumanOut()
-                << llvm::formatv("{0}: (3) unknown RetAddr {1}\n", __func__,
-                                 description_of_program_counter(pc, true));
-          return;
-        }
+    binary_index_t Before_BIdx;
+    basic_block_index_t Before_BBIdx;
+    std::tie(Before_BIdx, Before_BBIdx) = existing_block_at_program_counter(child, before_pc);
 
-        uintptr_t rva = rva_of_va(pc, BIdx);
-
-        unsigned brkpt_count = 0;
-        basic_block_index_t next_bb_idx =
-            E->explore_basic_block(binary, *state.for_binary(binary).ObjectFile,
-                                  rva,
-                                  state.for_binary(binary).fnmap,
-                                  state.for_binary(binary).bbmap);
-        if (is_basic_block_index_valid(next_bb_idx)) {
-          basic_block_t bb;
-
-          {
-            constexpr unsigned delay_slot =
-#if defined(__mips64) || defined(__mips__)
-                4
-#else
-                0
-#endif
-                ;
-
-            auto it = bbmap.find(rva - delay_slot - 1);
-            if (it == bbmap.end()) {
-              //
-              // we have no preceeding call
-              //
-              if (IsVerbose())
-                HumanOut() << llvm::formatv(
-                    "{0}: could not find preceeding call @ {1:x}\n", __func__,
-                    rva);
-              return;
-            }
-
-            basic_block_index_t bbidx = (*it).second - 1;
-            bb = basic_block_of_index(bbidx, ICFG);
-          }
-
-          bool isCall = ICFG[bb].Term.Type == TERMINATOR::CALL;
-          bool isIndirectCall = ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL;
-
-          if (!isCall && !isIndirectCall) { /* this can occur on i386 because of
-                                               hack in tcg.hpp */
-            if (IsVerbose())
-              HumanOut() << llvm::formatv("on_return: unexpected terminator {0}\n",
-                                          description_of_terminator(ICFG[bb].Term.Type));
-            return;
-          }
-
-          assert(isCall || isIndirectCall);
-          assert(boost::out_degree(bb, ICFG) == 0 ||
-                 boost::out_degree(bb, ICFG) == 1);
-
-          if (isCall) {
-            ICFG[bb].Term._call.Returns = true;
-            if (is_function_index_valid(ICFG[bb].Term._call.Target))
-              binary.Analysis.Functions.at(ICFG[bb].Term._call.Target).Returns =
-                  true;
-          }
-
-          if (isIndirectCall)
-            ICFG[bb].Term._indirect_call.Returns = true;
-
-          basic_block_t next_bb = basic_block_of_index(next_bb_idx, ICFG);
-          if (boost::add_edge(bb, next_bb, ICFG).second)
-            invalidateAnalyses = true;
-        }
-
-        if (brkpt_count > 0)
-          HumanOut() << llvm::formatv("placed {0} breakpoint{1} in {2}\n",
-                                      brkpt_count,
-                                      brkpt_count > 1 ? "s" : "",
-                                      binary.path_str());
-        } catch (const std::exception &e) {
-          std::string s = fs::path(jv.Binaries[BIdx].path_str()).filename().string();
-          HumanOut()
-              << llvm::formatv("{0} failed: {1} [RetAddr: {2}+{3:x} ({4:x})]\n",
-                               __func__, e.what(), s, rva_of_va(pc, BIdx), pc);
-        }
-      }
+    if (unlikely(!is_basic_block_index_valid(Before_BBIdx))) {
+      if (IsVerbose())
+        HumanOut() << llvm::formatv("on_return: unknown block before @ {0}",
+                                    description_of_program_counter(before_pc, true));
+      return;
     }
+
+    if (unlikely(BIdx != Before_BIdx)) {
+      if (IsVeryVerbose())
+        HumanOut() << llvm::formatv(
+            "on_return: unexpected crossing of boundary @ {0}",
+            description_of_program_counter(before_pc, true));
+      return;
+    }
+
+    binary_t &b = jv.Binaries.at(BIdx);
+    auto &ICFG = b.Analysis.ICFG;
+    basic_block_t before_bb = basic_block_of_index(Before_BBIdx, ICFG);
+
+    auto &before_Term = ICFG[before_bb].Term;
+
+    bool isCall = before_Term.Type == TERMINATOR::CALL;
+    bool isIndirectCall = before_Term.Type == TERMINATOR::INDIRECT_CALL;
+
+    if (!isCall && !isIndirectCall) {
+      if (!IsI386 || IsVeryVerbose()) /* hack in qemu/target/i386/tcg/translate.c */
+        HumanOut() << llvm::formatv("on_return: unexpected term {0} @ {1}\n",
+                                    description_of_terminator(before_Term.Type),
+                                    description_of_program_counter(before_pc, true));
+      return;
+    }
+
+    assert(boost::out_degree(before_bb, ICFG) == 0 ||
+           boost::out_degree(before_bb, ICFG) == 1);
+
+    if (isCall) {
+      before_Term._call.Returns = true; /* witnessed */
+
+      if (likely(is_function_index_valid(before_Term._call.Target)))
+        b.Analysis.Functions.at(before_Term._call.Target).Returns = true;
+    } else {
+      assert(isIndirectCall);
+
+      before_Term._indirect_call.Returns = true; /* witnessed */
+    }
+
+    basic_block_t bb = basic_block_of_index(BBIdx, ICFG);
+    boost::add_edge(before_bb, bb, ICFG); /* connect */
+
+    assert(boost::out_degree(before_bb, ICFG) == 0 ||
+           boost::out_degree(before_bb, ICFG) == 1);
+
   }
 }
 
@@ -4520,18 +4458,65 @@ binary_index_t BootstrapTool::binary_at_program_counter(pid_t child,
   }
 }
 
-basic_block_index_t BootstrapTool::block_at_program_counter(pid_t child,
-                                                            uintptr_t pc) {
+std::pair<binary_index_t, function_index_t>
+BootstrapTool::function_at_program_counter(pid_t child, uintptr_t pc) {
   binary_index_t BIdx = binary_at_program_counter(child, pc);
   if (!is_binary_index_valid(BIdx))
-    return invalid_basic_block_index;
+    return std::make_pair(invalid_binary_index, invalid_function_index);
 
   binary_t &binary = jv.Binaries.at(BIdx);
-  return E->explore_basic_block(binary,
-                                *state.for_binary(binary).ObjectFile,
-                                rva_of_va(pc, BIdx),
-                                state.for_binary(binary).fnmap,
-                                state.for_binary(binary).bbmap);
+  basic_block_index_t BBIdx = E->explore_basic_block(binary,
+                                                     *state.for_binary(binary).ObjectFile,
+                                                     rva_of_va(pc, BIdx),
+                                                     state.for_binary(binary).fnmap,
+                                                     state.for_binary(binary).bbmap);
+  if (!is_basic_block_index_valid(BBIdx))
+    return std::make_pair(BIdx, invalid_function_index);
+
+  function_index_t FIdx = E->explore_function(
+      binary,
+      *state.for_binary(binary).ObjectFile,
+      rva_of_va(pc, BIdx),
+      state.for_binary(binary).fnmap,
+      state.for_binary(binary).bbmap);
+
+  return std::make_pair(BIdx, FIdx);
+}
+
+std::pair<binary_index_t, basic_block_index_t>
+BootstrapTool::block_at_program_counter(pid_t child, uintptr_t pc) {
+  binary_index_t BIdx = binary_at_program_counter(child, pc);
+  if (!is_binary_index_valid(BIdx))
+    return std::make_pair(invalid_binary_index, invalid_basic_block_index);
+
+  binary_t &binary = jv.Binaries.at(BIdx);
+  basic_block_index_t BBIdx = E->explore_basic_block(
+      binary,
+      *state.for_binary(binary).ObjectFile,
+      rva_of_va(pc, BIdx),
+      state.for_binary(binary).fnmap,
+      state.for_binary(binary).bbmap);
+
+  return std::make_pair(BIdx, BBIdx);
+}
+
+std::pair<binary_index_t, basic_block_index_t>
+BootstrapTool::existing_block_at_program_counter(pid_t child, uintptr_t pc) {
+  binary_index_t BIdx = binary_at_program_counter(child, pc);
+  if (!is_binary_index_valid(BIdx))
+    return std::make_pair(invalid_binary_index, invalid_basic_block_index);
+
+  binary_t &binary = jv.Binaries.at(BIdx);
+  auto &bbmap = state.for_binary(binary).bbmap;
+  uintptr_t rva = rva_of_va(pc, BIdx);
+
+  auto it = bbmap.find(rva);
+  if (it == bbmap.end())
+    return std::make_pair(BIdx, invalid_basic_block_index);
+
+  basic_block_index_t BBIdx = -1+(*it).second;
+
+  return std::make_pair(BIdx, BBIdx);
 }
 
 std::string BootstrapTool::description_of_program_counter(uintptr_t pc, bool Verbose) {
