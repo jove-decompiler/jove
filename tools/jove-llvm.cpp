@@ -6650,23 +6650,23 @@ int LLVMTool::ExpandMemoryIntrinsicCalls(void) {
   //
   // lower memory intrinsics (memcpy, memset, memmove)
   //
+  llvm::TargetTransformInfo TTI(DL);
+
+  auto DoExpandMemcpy = [&](llvm::MemTransferInst *MemTrans) -> void {
+    llvm::expandMemCpyAsLoop(llvm::cast<llvm::MemCpyInst>(MemTrans), TTI);
+  };
+
+  auto DoExpandMemmove = [&](llvm::MemTransferInst *MemTrans) -> void {
+    llvm::expandMemMoveAsLoop(llvm::cast<llvm::MemMoveInst>(MemTrans));
+  };
+
+  auto DoExpandMemset = [&](llvm::MemTransferInst *MemTrans) -> void {
+    llvm::expandMemSetAsLoop(llvm::cast<llvm::MemSetInst>(MemTrans));
+  };
+
   for (llvm::Function &F : Module->functions()) {
     if (!F.isDeclaration())
       continue;
-
-    llvm::TargetTransformInfo TTI(DL);
-
-    auto DoExpandMemcpy = [&](llvm::MemTransferInst *MemTrans) -> void {
-      llvm::expandMemCpyAsLoop(llvm::cast<llvm::MemCpyInst>(MemTrans), TTI);
-    };
-
-    auto DoExpandMemmove = [&](llvm::MemTransferInst *MemTrans) -> void {
-      llvm::expandMemMoveAsLoop(llvm::cast<llvm::MemMoveInst>(MemTrans));
-    };
-
-    auto DoExpandMemset = [&](llvm::MemTransferInst *MemTrans) -> void {
-      llvm::expandMemSetAsLoop(llvm::cast<llvm::MemSetInst>(MemTrans));
-    };
 
     std::function<void(llvm::MemTransferInst *)> ExpandMemTransFunc;
 
