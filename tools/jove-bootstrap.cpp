@@ -4286,8 +4286,7 @@ void BootstrapTool::on_return(pid_t child,
       return;
     }
 
-    assert(boost::out_degree(before_bb, ICFG) == 0 ||
-           boost::out_degree(before_bb, ICFG) == 1);
+    assert(boost::out_degree(before_bb, ICFG) <= 1);
 
     if (isCall) {
       before_Term._call.Returns = true; /* witnessed */
@@ -4303,8 +4302,7 @@ void BootstrapTool::on_return(pid_t child,
     basic_block_t bb = basic_block_of_index(BBIdx, ICFG);
     boost::add_edge(before_bb, bb, ICFG); /* connect */
 
-    assert(boost::out_degree(before_bb, ICFG) == 0 ||
-           boost::out_degree(before_bb, ICFG) == 1);
+    assert(boost::out_degree(before_bb, ICFG) <= 1);
 
   }
 }
