@@ -165,7 +165,7 @@ static inline std::string un_ips(const ip_string &x) {
   return res;
 }
 
-static inline ip_string to_ips(ip_string &res, const std::string &x) {
+static inline ip_string &to_ips(ip_string &res, const std::string &x) {
   res.clear();
   res.reserve(x.size());
   std::copy(x.begin(), x.end(), std::back_inserter(res));
