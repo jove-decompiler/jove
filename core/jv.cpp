@@ -40,7 +40,7 @@ namespace serialization {
 //
 
 template <class Archive, class Allocator>
-inline void
+static inline void
 save(Archive &ar,
      const boost::container::basic_string<char, std::char_traits<char>, Allocator> &x,
      const unsigned int file_version) {
@@ -51,7 +51,7 @@ save(Archive &ar,
 }
 
 template <class Archive, class Allocator>
-inline void
+static inline void
 load(Archive &ar,
      boost::container::basic_string<char, std::char_traits<char>, Allocator> &x,
      const unsigned int file_version) {
@@ -63,7 +63,7 @@ load(Archive &ar,
 }
 
 template <class Archive, class Allocator>
-inline void
+static inline void
 serialize(Archive &ar,
           boost::container::basic_string<char, std::char_traits<char>, Allocator> &t,
           const unsigned int file_version) {
@@ -75,7 +75,7 @@ serialize(Archive &ar,
 //
 
 template <class Archive, class T, class Allocator>
-inline void
+static inline void
 save(Archive &ar,
      const boost::container::vector<T, Allocator> &x,
      const unsigned int file_version) {
@@ -83,7 +83,7 @@ save(Archive &ar,
 }
 
 template <class Archive, class T, class Allocator>
-inline void load(Archive &ar,
+static inline void load(Archive &ar,
                  boost::container::vector<T, Allocator> &x,
                  const unsigned int file_version) {
   const boost::serialization::library_version_type library_version(
@@ -100,7 +100,7 @@ inline void load(Archive &ar,
 }
 
 template <class Archive, class T, class Allocator>
-inline void
+static inline void
 serialize(Archive &ar,
           boost::container::vector<T, Allocator> &x,
           const unsigned int file_version) {
@@ -112,7 +112,7 @@ serialize(Archive &ar,
 //
 
 template <class Archive, class Type, class Key, class Compare, class Allocator>
-inline void save(Archive &ar,
+static inline void save(Archive &ar,
                  const boost::container::map<Key, Type, Compare, Allocator> &t,
                  const unsigned int file_version) {
   stl::save_collection<Archive,
@@ -120,14 +120,14 @@ inline void save(Archive &ar,
 }
 
 template <class Archive, class Type, class Key, class Compare, class Allocator>
-inline void load(Archive &ar,
+static inline void load(Archive &ar,
                  boost::container::map<Key, Type, Compare, Allocator> &t,
                  const unsigned int file_version) {
   boost::serialization::load_map_collection(ar, t);
 }
 
 template <class Archive, class Type, class Key, class Compare, class Allocator>
-inline void
+static inline void
 serialize(Archive &ar,
           boost::container::map<Key, Type, Compare, Allocator> &x,
           const unsigned int file_version) {
@@ -139,22 +139,23 @@ serialize(Archive &ar,
 //
 
 template <class Archive, class Key, class Compare, class Allocator>
-inline void save(Archive &ar,
-                 const boost::container::set<Key, Compare, Allocator> &t,
-                 const unsigned int file_version) {
+static inline void save(Archive &ar,
+                        const boost::container::set<Key, Compare, Allocator> &t,
+                        const unsigned int file_version) {
   stl::save_collection<Archive, boost::container::set<Key, Compare, Allocator>>(ar, t);
 }
 
 template <class Archive, class Key, class Compare, class Allocator>
-inline void load(Archive &ar, boost::container::set<Key, Compare, Allocator> &t,
-                 const unsigned int file_version) {
+static inline void load(Archive &ar,
+                        boost::container::set<Key, Compare, Allocator> &t,
+                        const unsigned int file_version) {
   boost::serialization::load_set_collection(ar, t);
 }
 
 template <class Archive, class Key, class Compare, class Allocator>
-inline void serialize(Archive &ar,
-                      boost::container::set<Key, Compare, Allocator> &t,
-                      const unsigned int file_version) {
+static inline void serialize(Archive &ar,
+                             boost::container::set<Key, Compare, Allocator> &t,
+                             const unsigned int file_version) {
   boost::serialization::split_free(ar, t, file_version);
 }
 
@@ -257,39 +258,41 @@ namespace boost {
 namespace serialization {
 
 template <class Archive>
-inline void load_construct_data(Archive &ar, jove::binary_t *t,
-                                const unsigned int file_version) {
+static inline void load_construct_data(Archive &ar, jove::binary_t *t,
+                                       const unsigned int file_version) {
   assert(jove::pAlloc_hack);
   ::new (t)jove::binary_t(*jove::pAlloc_hack);
 }
 
 template <class Archive>
-inline void load_construct_data(Archive &ar, jove::ip_dynamic_target_set *t,
-                                const unsigned int file_version) {
+static inline void load_construct_data(Archive &ar,
+                                       jove::ip_dynamic_target_set *t,
+                                       const unsigned int file_version) {
   assert(jove::pAlloc_hack);
   ::new (t)jove::ip_dynamic_target_set(*jove::pAlloc_hack);
 }
 
 template <class Archive>
-inline void load_construct_data(Archive &ar, jove::ip_string *t,
-                                const unsigned int file_version) {
+static inline void load_construct_data(Archive &ar, jove::ip_string *t,
+                                       const unsigned int file_version) {
   assert(jove::pAlloc_hack);
   ::new (t)jove::ip_string(*jove::pAlloc_hack);
 }
 
-
-
 template <class Archive>
-inline void load_construct_data(Archive &ar, std::pair<const jove::ip_string, jove::ip_dynamic_target_set> *t,
-                                const unsigned int file_version) {
+static inline void load_construct_data(
+    Archive &ar,
+    std::pair<const jove::ip_string, jove::ip_dynamic_target_set> *t,
+    const unsigned int file_version) {
   assert(jove::pAlloc_hack);
   ::new (t)std::pair<const jove::ip_string, jove::ip_dynamic_target_set>(*jove::pAlloc_hack, *jove::pAlloc_hack);
 }
 
-
 template <class Archive>
-inline void load_construct_data(Archive &ar, std::pair<const uint64_t, jove::ip_dynamic_target_set> *t,
-                                const unsigned int file_version) {
+static inline void
+load_construct_data(Archive &ar,
+                    std::pair<const uint64_t, jove::ip_dynamic_target_set> *t,
+                    const unsigned int file_version) {
   assert(jove::pAlloc_hack);
   ::new (t)std::pair<const uint64_t, jove::ip_dynamic_target_set>(0, *jove::pAlloc_hack);
 }
