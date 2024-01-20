@@ -637,7 +637,7 @@ int RunTool::DoRun(void) {
         continue;
 
       std::string sav_path = binary.path_str() + ".jove.sav";
-      if (::link(binary.Path.c_str(), sav_path.c_str()) < 0) {
+      if (::link(binary.path(), sav_path.c_str()) < 0) {
         int err = errno;
         HumanOut() << llvm::formatv("failed to create hard link for {0}: {1}\n",
                                     binary.path_str(), strerror(err));
@@ -840,7 +840,7 @@ int RunTool::DoRun(void) {
 
               std::string new_path = binary.path_str() + ".jove.new";
 
-              if (::rename(new_path.c_str(), binary.Path.c_str()) < 0) {
+              if (::rename(new_path.c_str(), binary.path()) < 0) {
                 int err = errno;
 
                 HumanOut() << llvm::formatv(__ANSI_BOLD_RED
@@ -934,7 +934,7 @@ int RunTool::DoRun(void) {
 
       std::string sav_path = binary.path_str() + ".jove.sav";
 
-      if (::rename(sav_path.c_str(), binary.Path.c_str()) < 0) {
+      if (::rename(sav_path.c_str(), binary.path()) < 0) {
         int err = errno;
         HumanOut() << llvm::formatv(__ANSI_BOLD_RED "rename of {0} to {1} failed: {2}\n"
                                     __ANSI_NORMAL_COLOR,
@@ -963,7 +963,7 @@ int RunTool::DoRun(void) {
 
         std::string sav_path = binary.path_str() + ".jove.sav";
 
-        if (::rename(sav_path.c_str(), binary.Path.c_str()) < 0) {
+        if (::rename(sav_path.c_str(), binary.path()) < 0) {
           int err = errno;
           HumanOut() << llvm::formatv(
               "rename of {0} to {1} failed: {2}\n",

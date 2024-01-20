@@ -141,15 +141,15 @@ std::pair<binary_index_t, bool> jv_t::AddFromDataWithHash(explorer_t &E,
     }
 
     if (name) {
-      to_ips(b.Path, name);
+      to_ips(b.Name, name);
 
       ip_scoped_lock<ip_mutex> lck(this->name_to_binaries_mtx);
 
-      auto it = this->name_to_binaries.find(b.Path);
+      auto it = this->name_to_binaries.find(b.Name);
       if (it == this->name_to_binaries.end()) {
         ip_binary_index_set set(Binaries.get_allocator());
         set.insert(BIdx);
-        this->name_to_binaries.insert(std::make_pair(b.Path, set));
+        this->name_to_binaries.insert(std::make_pair(b.Name, set));
       } else {
         (*it).second.insert(BIdx);
       }

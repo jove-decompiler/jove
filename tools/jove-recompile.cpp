@@ -347,7 +347,7 @@ int RecompileTool::Run(void) {
     auto Bin = CreateBinary(b.data());
     if (!dynamic_linking_info_of_binary(*Bin, state.for_binary(b).dynl)) {
       WithColor::error() << llvm::formatv(
-          "!dynamic_linking_info_of_binary({0})\n", b.Path.c_str());
+          "!dynamic_linking_info_of_binary({0})\n", b.Name.c_str());
       return 1;
     }
   }
@@ -804,8 +804,7 @@ int RecompileTool::Run(void) {
     if (b.IsVDSO)
       continue;
 
-    // make sure the path is absolute
-    assert(b.Path.at(0) == '/');
+    assert(b.is_file());
 
     const fs::path chrooted_path = fs::path(opts.Output.getValue()) / a2r(b.path_str());
 
@@ -936,7 +935,7 @@ int RecompileTool::Run(void) {
       if (!state.for_binary(b).dynl.interp.empty()) {
         for (binary_t &b : jv.Binaries) {
           if (b.IsDynamicLinker) {
-            rtld_path = b.Path.c_str();
+            rtld_path = b.path();
             break;
           }
         }
@@ -1007,8 +1006,7 @@ void RecompileTool::worker(const dso_graph_t &dso_graph) {
     if (b.IsVDSO)
       continue;
 
-    // make sure the path is absolute
-    assert(b.Path.at(0) == '/');
+    assert(b.is_file());
 
     const fs::path chrooted_path = fs::path(opts.Output.getValue()) / a2r(b.path_str());
     fs::create_directories(chrooted_path.parent_path());

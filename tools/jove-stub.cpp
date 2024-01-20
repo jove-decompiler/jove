@@ -36,7 +36,7 @@ int StubTool::Run(void) {
   binary_t &binary = jv.Binaries.at(0);
   assert(binary.IsExecutable);
 
-  const char *const binary_path = binary.Path.c_str();
+  const char *const binary_path = binary.path();
   //
   // before replacing the executable, make sure it is what we expect it to be
   //

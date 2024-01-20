@@ -359,7 +359,7 @@ typedef boost::interprocess::vector<function_t, function_allocator>
     function_vector;
 
 struct binary_t {
-  ip_string Path;
+  ip_string Name;
   ip_string Data;
   hash_t Hash;
 
@@ -446,29 +446,31 @@ struct binary_t {
     return std::string_view(Data.data(), Data.size());
   }
 
-  std::string_view path(void) const {
-    return std::string_view(Path.c_str(), Path.size());
+  const char *path(void) const {
+    assert(is_file());
+
+    return Name.c_str();
   }
 
   std::string path_str(void) const {
-    return un_ips(Path);
+    assert(is_file());
+
+    return un_ips(Name);
   }
 
   bool is_file(void) const {
-    return !Path.empty() && Path.front() == '/';
+    return !Name.empty() && Name.front() == '/';
   }
 
   bool is_anonymous_mapping(void) const {
-    return Path.empty();
+    return Name.empty();
   }
 
   bool is_special_mapping(void) const {
-    return !Path.empty() && Path.front() == '[' && Path.back() == ']';
+    return !Name.empty() && Name.front() == '[' && Name.back() == ']';
   }
 
-  binary_t(const ip_void_allocator_t &Alloc)
-      : Path(Alloc), Data(Alloc), Analysis(Alloc) {}
-
+  binary_t(const ip_void_allocator_t &A) : Name(A), Data(A), Analysis(A) {}
   binary_t() = delete;
 };
 

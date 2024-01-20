@@ -315,8 +315,7 @@ void CodeDigger::Worker(void) {
   while (pop_binary(BIdx)) {
     binary_t &binary = jv.Binaries.at(BIdx);
 
-    // make sure the path is absolute
-    assert(binary.Path.at(0) == '/');
+    assert(binary.is_file());
 
     const fs::path chrooted_path = fs::path(temporary_dir()) / binary.path_str();
     fs::create_directories(chrooted_path.parent_path());

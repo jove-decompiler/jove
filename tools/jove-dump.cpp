@@ -103,7 +103,7 @@ void DumpTool::dumpDecompilation(const jv_t& jv) {
   llvm::ListScope _(Writer, (fmt("Binaries (%u)") % jv.Binaries.size()).str());
 
   for (const auto &B : jv.Binaries) {
-    llvm::DictScope __(Writer, B.Path.c_str());
+    llvm::DictScope __(Writer, B.Name.c_str());
 
     Writer.printBoolean("IsDynamicLinker",     B.IsDynamicLinker);
     Writer.printBoolean("IsExecutable",        B.IsExecutable);

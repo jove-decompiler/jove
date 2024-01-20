@@ -786,7 +786,7 @@ skip_run:
           std::ofstream ofs((fs::path(sysroot) / "jove" / "BinaryPathsTable.txt").c_str());
 
           for (const binary_t &binary : jv.Binaries)
-            ofs << binary.Path << '\n';
+            ofs << binary.Name << '\n';
         }
 
         for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
@@ -928,7 +928,7 @@ skip_run:
               (fs::path(Prefix) / "jove" / "BinaryPathsTable.txt").c_str());
 
           for (const binary_t &binary : jv.Binaries)
-            ofs << binary.Path << '\n';
+            ofs << binary.Name << '\n';
         }
 
         fs::create_directories(fs::path(Prefix) / "jove" /

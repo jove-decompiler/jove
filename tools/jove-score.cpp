@@ -76,7 +76,7 @@ int ScoreTool::Run(void) {
 
       HumanOut() << (fmt("%.3f %s\n")
                      % compute_score(jv, binary)
-                     % binary.Path).str();
+                     % binary.Name).str();
     });
   }
 
