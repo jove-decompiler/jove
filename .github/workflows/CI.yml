@@ -12,6 +12,7 @@ env:
 jobs:
   docker:
     runs-on: self-hosted
+    timeout-minutes: 600
     steps:
       -
         name: Checkout
