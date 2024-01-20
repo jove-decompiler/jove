@@ -3297,8 +3297,8 @@ bool BootstrapTool::UpdateVM(pid_t child) {
     boost::icl::interval<uintptr_t>::type intervl =
         boost::icl::interval<uintptr_t>::right_open(pm.beg, pm.end);
 
-    if (WARN_ON(pmm.find(intervl) != pmm.end()))
-        ;
+    if (unlikely(pmm.find(intervl) != pmm.end()))
+      die("(BUG) pmm");
     else
       pmm.add({intervl, {pm}});
   }
