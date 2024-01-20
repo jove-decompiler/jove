@@ -463,7 +463,7 @@ struct binary_t {
   }
 
   bool is_special_mapping(void) const {
-    return Path.empty() && Path.front() == '[' && Path.back() == ']';
+    return !Path.empty() && Path.front() == '[' && Path.back() == ']';
   }
 
   binary_t(const ip_void_allocator_t &Alloc)
