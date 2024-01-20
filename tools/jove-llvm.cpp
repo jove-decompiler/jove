@@ -6652,23 +6652,23 @@ int LLVMTool::ExpandMemoryIntrinsicCalls(void) {
   //
   llvm::TargetTransformInfo TTI(DL);
 
-  auto DoExpandMemcpy = [&](llvm::MemTransferInst *MemTrans) -> void {
-    llvm::expandMemCpyAsLoop(llvm::cast<llvm::MemCpyInst>(MemTrans), TTI);
+  auto DoExpandMemcpy = [&](llvm::Instruction *Inst) -> void {
+    llvm::expandMemCpyAsLoop(llvm::cast<llvm::MemCpyInst>(Inst), TTI);
   };
 
-  auto DoExpandMemmove = [&](llvm::MemTransferInst *MemTrans) -> void {
-    llvm::expandMemMoveAsLoop(llvm::cast<llvm::MemMoveInst>(MemTrans));
+  auto DoExpandMemmove = [&](llvm::Instruction *Inst) -> void {
+    llvm::expandMemMoveAsLoop(llvm::cast<llvm::MemMoveInst>(Inst));
   };
 
-  auto DoExpandMemset = [&](llvm::MemTransferInst *MemTrans) -> void {
-    llvm::expandMemSetAsLoop(llvm::cast<llvm::MemSetInst>(MemTrans));
+  auto DoExpandMemset = [&](llvm::Instruction *Inst) -> void {
+    llvm::expandMemSetAsLoop(llvm::cast<llvm::MemSetInst>(Inst));
   };
 
   for (llvm::Function &F : Module->functions()) {
     if (!F.isDeclaration())
       continue;
 
-    std::function<void(llvm::MemTransferInst *)> ExpandMemTransFunc;
+    std::function<void(llvm::Instruction *)> ExpandMemTransFunc;
 
     switch (F.getIntrinsicID()) {
     case llvm::Intrinsic::memcpy:
@@ -6688,14 +6688,15 @@ int LLVMTool::ExpandMemoryIntrinsicCalls(void) {
     }
 
     for (llvm::User *U : llvm::make_early_inc_range(F.users())) {
-      assert(llvm::isa<llvm::MemTransferInst>(U));
-      auto *MemTrans = llvm::cast<llvm::MemTransferInst>(U);
+      assert(llvm::isa<llvm::Instruction>(U));
+      llvm::Instruction *Inst = llvm::cast<llvm::Instruction>(U);
 
-      if (!shouldExpandOperationWithSize(MemTrans->getLength()))
+      auto *MemTrans = llvm::dyn_cast<llvm::MemTransferInst>(Inst);
+      if (MemTrans && !shouldExpandOperationWithSize(MemTrans->getLength()))
         continue;
 
-      ExpandMemTransFunc(MemTrans);
-      MemTrans->eraseFromParent();
+      ExpandMemTransFunc(Inst);
+      Inst->eraseFromParent();
     }
   }
 
