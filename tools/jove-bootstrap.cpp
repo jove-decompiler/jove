@@ -810,11 +810,16 @@ int BootstrapTool::TracerLoop(pid_t child) {
             _ptrace_get_cpu_state(child, cpu_state);
 
             if (IsVeryVerbose())
-              llvm::errs() << llvm::formatv(
+              HumanOut() << llvm::formatv(
                   "first ptrace-stop @ {0}\n",
                   description_of_program_counter(pc_of_cpu_state(cpu_state), true));
 
-            function_at_program_counter(child, pc_of_cpu_state(cpu_state));
+            auto BBPair = block_at_program_counter(child, pc_of_cpu_state(cpu_state));
+
+            if (unlikely(!is_basic_block_index_valid(BBPair.second)))
+              HumanOut() << llvm::formatv(
+                  "failed to translate block at first ptrace-stop @ {0}\n",
+                  description_of_program_counter(pc_of_cpu_state(cpu_state), true));
           }
 
           //
