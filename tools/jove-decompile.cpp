@@ -314,7 +314,7 @@ int DecompileTool::Run(void) {
       Arg("-o");
       Arg(tmpbc_fp);
 
-      Arg("--internalize");
+      Arg("-passes=internalize");
       Arg("--internalize-public-api-list=helper_" + helper_nm);
 
       Arg(helper_bc_fp);
@@ -428,6 +428,7 @@ int DecompileTool::Run(void) {
         "-O2",                                     nullptr,
         "-g",                                      nullptr,
         "-Wno-incompatible-library-redeclaration", nullptr,
+        "-Wno-incompatible-pointer-types-discards-qualifiers", nullptr,
         "-Werror-implicit-function-declaration",   nullptr,
         "-Wno-builtin-requires-header",            nullptr,
         "-Wno-parentheses-equality"
@@ -650,8 +651,6 @@ void DecompileTool::Worker(void) {
 
             Arg("-o");
             Arg(cfp);
-
-            Arg("--cbe-jove");
 
             if (opts.FakeLineNumbers)
               Arg("--cbe-print-debug-locs");
