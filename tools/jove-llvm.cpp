@@ -6668,19 +6668,19 @@ int LLVMTool::ExpandMemoryIntrinsicCalls(void) {
     if (!F.isDeclaration())
       continue;
 
-    std::function<void(llvm::Instruction *)> ExpandMemTransFunc;
+    std::function<void(llvm::Instruction *)> ExpandFunc;
 
     switch (F.getIntrinsicID()) {
     case llvm::Intrinsic::memcpy:
     case llvm::Intrinsic::memcpy_inline:
-      ExpandMemTransFunc = DoExpandMemcpy;
+      ExpandFunc = DoExpandMemcpy;
       break;
     case llvm::Intrinsic::memmove:
-      ExpandMemTransFunc = DoExpandMemmove;
+      ExpandFunc = DoExpandMemmove;
       break;
     case llvm::Intrinsic::memset:
     case llvm::Intrinsic::memset_inline:
-      ExpandMemTransFunc = DoExpandMemset;
+      ExpandFunc = DoExpandMemset;
       break;
 
     default:
@@ -6695,7 +6695,7 @@ int LLVMTool::ExpandMemoryIntrinsicCalls(void) {
       if (MemTrans && !shouldExpandOperationWithSize(MemTrans->getLength()))
         continue;
 
-      ExpandMemTransFunc(Inst);
+      ExpandFunc(Inst);
       Inst->eraseFromParent();
     }
   }
