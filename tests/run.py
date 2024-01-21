@@ -148,8 +148,6 @@ def run_tests():
 
       test_guest_path = '/tmp/%s' % test_bin_name
 
-      ssh(["rm", "-f", "/root/.jv"]) # FIXME
-
       ssh(["jove", "init", test_guest_path])
       for input_args in test_inputs:
         ssh(["jove", "bootstrap", test_guest_path] + input_args)
