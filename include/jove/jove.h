@@ -495,8 +495,7 @@ struct jv_t {
 
 private:
   binary_index_t LookupWithHash(hash_t);
-  hash_t LookupAndCacheHash(const std::string &path,
-                            std::string &file_contents);
+  hash_t LookupAndCacheHash(const char *path, std::string &file_contents);
   void UpdateCachedHash(cached_hash_t &, const char *path,
                         std::string &file_contents);
 

@@ -32,20 +32,19 @@ void jv_t::UpdateCachedHash(cached_hash_t &cache,
   cache.mtime.nsec = st.st_mtim.tv_nsec;
 }
 
-hash_t jv_t::LookupAndCacheHash(const std::string &path,
+hash_t jv_t::LookupAndCacheHash(const char *path,
                                 std::string &file_contents) {
-  ip_string tmp(Binaries.get_allocator());
-  to_ips(tmp, path);
+  ip_string s(path, Binaries.get_allocator());
 
   {
     ip_scoped_lock<ip_mutex> lck(this->cached_hashes_mtx);
 
-    auto it = cached_hashes.find(tmp);
+    auto it = cached_hashes.find(s);
     if (it == cached_hashes.end())
-      it = cached_hashes.insert(std::make_pair(tmp, cached_hash_t(0))).first;
+      it = cached_hashes.insert(std::make_pair(s, cached_hash_t(0))).first;
 
     cached_hash_t &cache = (*it).second;
-    UpdateCachedHash(cache, path.c_str(), file_contents);
+    UpdateCachedHash(cache, path, file_contents);
 
     return cache.h;
   }
@@ -54,16 +53,18 @@ hash_t jv_t::LookupAndCacheHash(const std::string &path,
 boost::optional<const ip_binary_index_set &> jv_t::Lookup(const char *name) {
   assert(name);
 
-  ip_scoped_lock<ip_mutex> lck(this->name_to_binaries_mtx);
-
   ip_string s(Binaries.get_allocator());
   to_ips(s, name);
 
-  auto it = this->name_to_binaries.find(s);
-  if (it == this->name_to_binaries.end()) {
-    return boost::optional<const ip_binary_index_set &>();
-  } else {
-    return (*it).second;
+  {
+    ip_scoped_lock<ip_mutex> lck(this->name_to_binaries_mtx);
+
+    auto it = this->name_to_binaries.find(s);
+    if (it == this->name_to_binaries.end()) {
+      return boost::optional<const ip_binary_index_set &>();
+    } else {
+      return (*it).second;
+    }
   }
 }
 
@@ -78,10 +79,12 @@ binary_index_t jv_t::LookupWithHash(hash_t h) {
 }
 
 std::pair<binary_index_t, bool> jv_t::AddFromPath(explorer_t &E, const char *path) {
+  assert(path);
+
   fs::path the_path = fs::canonical(path);
 
   std::string file_contents;
-  hash_t h = LookupAndCacheHash(the_path.string(), file_contents);
+  hash_t h = LookupAndCacheHash(the_path.c_str(), file_contents);
 
   if (file_contents.empty())
     read_file_into_thing(path, file_contents);
