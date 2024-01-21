@@ -235,10 +235,6 @@ struct basic_block_properties_t {
     this->Analysis.Stale = true;
   }
 
-#if 0
-  basic_block_properties_t(const ip_void_allocator_t &Alloc) : DynTargets(Alloc) {}
-#endif
-
   bool hasDynTarget(void) const {
     if (!pDynTargets)
       return false;
