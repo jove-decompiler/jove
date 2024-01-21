@@ -151,7 +151,6 @@ helper_cflags = $(call runtime_cflags,$(1)) \
                 -Wno-unused-function \
                 -Wno-unknown-attributes \
                 -Wno-atomic-alignment \
-                -Wno-visibility \
                 -DNEED_CPU_H \
                 -DNDEBUG
 
