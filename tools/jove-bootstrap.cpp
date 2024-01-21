@@ -3168,6 +3168,8 @@ void BootstrapTool::harvest_global_GOT_entries(pid_t child) {
       if (!ExpectedSymName)
         continue;
 
+      llvm::StringRef SymName = *ExpectedSymName;
+
       if (IsVerbose())
         HumanOut() << llvm::formatv("{0}: GlobalEntry: {1}\n", __func__, SymName);
 
@@ -3202,7 +3204,6 @@ void BootstrapTool::harvest_global_GOT_entries(pid_t child) {
         continue;
       }
 
-      llvm::StringRef SymName = *ExpectedSymName;
       if (is_function_index_valid(Resolved.FIdx))
         b.Analysis.addSymDynTarget(SymName.str(), std::make_pair(Resolved.BIdx, Resolved.FIdx));
     }
