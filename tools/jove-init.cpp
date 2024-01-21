@@ -65,19 +65,17 @@ int InitTool::Run(void) {
 
   Bin = CreateBinaryFromFile(opts.Prog.c_str());
 
-  std::optional<std::string> maybe_rtld =
+  std::optional<std::string> OptionalPathToRTLD =
       program_interpreter_of_elf(*llvm::cast<ELFO>(Bin.getBinary()));
-  if (!maybe_rtld) {
+  if (!OptionalPathToRTLD) {
     WithColor::error() << "binary is not dynamically linked\n";
     return 1;
   }
 
-  fs::path rtld = fs::canonical(*maybe_rtld);
+  fs::path rtld = fs::canonical(*OptionalPathToRTLD);
   fs::path prog = fs::canonical(opts.Prog);
 
   return add_loaded_objects(opts.Prog, rtld);
-
-  return 0;
 }
 
 int InitTool::rtld_trace_loaded_objects(const char *prog, std::string &out) {
