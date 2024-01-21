@@ -138,7 +138,7 @@ unsigned long _jove_thread_init(unsigned long clone_newsp) {
   //
   // initialize CPUState
   //
-  __jove_env_clunk->df = 1;
+  __jove_env.df = 1;
 
   //
   // setup the emulated stack
@@ -159,11 +159,11 @@ void _jove_begin(uint64_t rdi,
                  uint64_t rcx,
                  uint64_t r8,
                  uint64_t sp_addr /* formerly r9 */) {
-  __jove_env_clunk->regs[R_EDI] = rdi;
-  __jove_env_clunk->regs[R_ESI] = rsi;
-  __jove_env_clunk->regs[R_EDX] = rdx;
-  __jove_env_clunk->regs[R_ECX] = rcx;
-  __jove_env_clunk->regs[R_R8] = r8;
+  __jove_env.regs[R_EDI] = rdi;
+  __jove_env.regs[R_ESI] = rsi;
+  __jove_env.regs[R_EDX] = rdx;
+  __jove_env.regs[R_ECX] = rcx;
+  __jove_env.regs[R_R8] = r8;
 
   //
   // setup the stack
@@ -178,7 +178,7 @@ void _jove_begin(uint64_t rdi,
 
     _memcpy(env_sp, (void *)sp_addr, len);
 
-    __jove_env_clunk->regs[R_ESP] = (target_ulong)env_sp;
+    __jove_env.regs[R_ESP] = (target_ulong)env_sp;
   }
 
   _jove_initialize();

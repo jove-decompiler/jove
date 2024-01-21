@@ -101,9 +101,9 @@ void _jove_begin(uint32_t a0,
                  uint32_t a1,
                  uint32_t v0,     /* formerly a2 */
                  uint32_t sp_addr /* formerly a3 */) {
-  __jove_env_clunk->active_tc.gpr[4] = a0;
-  __jove_env_clunk->active_tc.gpr[5] = a1;
-  __jove_env_clunk->active_tc.gpr[2] = v0;
+  __jove_env.active_tc.gpr[4] = a0;
+  __jove_env.active_tc.gpr[5] = a1;
+  __jove_env.active_tc.gpr[2] = v0;
 
   //
   // setup the stack
@@ -118,7 +118,7 @@ void _jove_begin(uint32_t a0,
 
     _memcpy(env_sp, (void *)sp_addr, len);
 
-    __jove_env_clunk->active_tc.gpr[29] = (target_ulong)env_sp;
+    __jove_env.active_tc.gpr[29] = (target_ulong)env_sp;
   }
 
   //

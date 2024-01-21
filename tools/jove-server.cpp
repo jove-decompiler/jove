@@ -256,7 +256,7 @@ void *ServerTool::ConnectionProc(void *arg) {
   // parse the header
   //
   struct {
-    bool dfsan, foreign_libs, trace, optimize, skip_copy_reloc_hack, debug_sjlj, abi_calls;
+    bool dfsan, foreign_libs, trace, optimize, skip_copy_reloc_hack, debug_sjlj, abi_calls, mt;
   } options;
 
   std::bitset<8> headerBits(header);
@@ -268,6 +268,7 @@ void *ServerTool::ConnectionProc(void *arg) {
   options.skip_copy_reloc_hack = headerBits.test(4);
   options.debug_sjlj = headerBits.test(5);
   options.abi_calls = headerBits.test(6);
+  options.mt = headerBits.test(7);
 
   std::string jv_s_path = (TemporaryDir / "serialized.jv").string();
   std::string tmpjv = (TemporaryDir / ".jv").string();
@@ -349,6 +350,8 @@ void *ServerTool::ConnectionProc(void *arg) {
       Arg("--debug-sjlj");
     if (!options.abi_calls)
       Arg("--abi-calls=0");
+    if (options.mt)
+      Arg("--mt");
 
 #if 0
     if (!PinnedGlobals.empty()) {
@@ -421,7 +424,7 @@ void *ServerTool::ConnectionProc(void *arg) {
     if (IsVerbose())
       llvm::errs() << "sending jove runtime\n";
 
-    ssize_t ret = robust_sendfile_with_size(data_socket, locator().runtime().c_str());
+    ssize_t ret = robust_sendfile_with_size(data_socket, locator().runtime(options.mt).c_str());
 
     if (ret < 0) {
       WithColor::error() << llvm::formatv(

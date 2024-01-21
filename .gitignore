@@ -2,7 +2,7 @@ tags
 /bin/*/*.bc
 /bin/*/*.ll
 /bin/*/*.d
-/bin/*/libjove_rt.so
+/bin/*/*.so
 /bin/*/helpers/*.c
 /bin/*/helpers/*.bc
 /bin/*/helpers/*.bc.*

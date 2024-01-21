@@ -220,6 +220,7 @@ struct LLVMTool : public TransformerTool_BinFnBB<binary_state_t,
     cl::opt<bool> ABICalls;
     cl::opt<bool> InlineHelpers;
     cl::opt<bool> ForCBE;
+    cl::opt<bool> MT;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : Binary("binary", cl::desc("Binary to translate"),
@@ -331,7 +332,9 @@ struct LLVMTool : public TransformerTool_BinFnBB<binary_state_t,
                         cl::cat(JoveCategory)),
 
           ForCBE("for-cbe", cl::desc("Generate LLVM for C backend"),
-                 cl::cat(JoveCategory)) {}
+                 cl::cat(JoveCategory)),
+
+          MT("mt", cl::desc("Thread model (multi)"), cl::cat(JoveCategory)) {}
 
   } opts;
 
@@ -364,7 +367,7 @@ struct LLVMTool : public TransformerTool_BinFnBB<binary_state_t,
   llvm::GlobalVariable *CallStackGlobal = nullptr;
   llvm::GlobalVariable *CallStackBeginGlobal = nullptr;
 
-  llvm::GlobalVariable *JoveFunctionTablesGlobalClunk = nullptr;
+  llvm::GlobalVariable *JoveFunctionTablesGlobal = nullptr;
   llvm::GlobalVariable *JoveForeignFunctionTablesGlobal = nullptr;
   llvm::Function *JoveRecoverDynTargetFunc = nullptr;
   llvm::Function *JoveRecoverBasicBlockFunc = nullptr;
@@ -593,7 +596,7 @@ public:
         IRB.getPtrTy(),
         IRB.CreateConstInBoundsGEP1_64(
             IRB.getPtrTy()->getPointerTo(),
-            IRB.CreateLoad(IRB.getPtrTy(), JoveFunctionTablesGlobalClunk),
+            IRB.CreateLoad(IRB.getPtrTy(), JoveFunctionTablesGlobal),
             DynTarget.BIdx));
     if (FailBlock) {
       assert(IRB.GetInsertBlock()->getParent());
@@ -2513,10 +2516,11 @@ int LLVMTool::CreateModule(void) {
   const char *bootstrap_mod_name = opts.DFSan ? "jove.dfsan" : "jove";
 
   llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> BufferOr =
-      llvm::MemoryBuffer::getFile(locator().starter_bitcode());
+      llvm::MemoryBuffer::getFile(locator().starter_bitcode(opts.MT));
   if (!BufferOr) {
-    WithColor::error() << "failed to open bitcode " << locator().starter_bitcode()
-                       << ": " << BufferOr.getError().message() << '\n';
+    WithColor::error() << "failed to open bitcode "
+                       << locator().starter_bitcode(opts.MT) << ": "
+                       << BufferOr.getError().message() << '\n';
     return 1;
   }
 
@@ -2549,10 +2553,6 @@ int LLVMTool::CreateModule(void) {
 
     CPUStateType = CPUStateGlobal->getValueType();
   }
-
-  llvm::GlobalVariable *CPUStateGlobalClunk =
-      Module->getGlobalVariable("__jove_env_clunk", true);
-  assert(CPUStateGlobalClunk);
 
   TraceGlobal = Module->getGlobalVariable("__jove_trace", true);
   assert(TraceGlobal);
@@ -2589,9 +2589,9 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
   assert(JoveLog2Func && !JoveLog2Func->empty());
   JoveLog2Func->setLinkage(llvm::GlobalValue::InternalLinkage);
 
-  JoveFunctionTablesGlobalClunk =
-      Module->getGlobalVariable("__jove_function_tables_clunk", true);
-  assert(JoveFunctionTablesGlobalClunk);
+  JoveFunctionTablesGlobal =
+      Module->getGlobalVariable("__jove_function_tables", true);
+  assert(JoveFunctionTablesGlobal);
 
   JoveForeignFunctionTablesGlobal =
       Module->getGlobalVariable("__jove_foreign_function_tables", true);

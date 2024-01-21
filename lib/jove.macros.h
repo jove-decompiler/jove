@@ -12,6 +12,12 @@
 
 #define memory_barrier() do { __sync_synchronize(); } while(0)
 
+#ifdef JOVE_MT
+#define __JTHREAD __thread
+#else
+#define __JTHREAD
+#endif
+
 #define _CTOR   __attribute__((constructor(0)))
 #define _INL    __attribute__((always_inline))
 #define _NAKED  __attribute__((naked))

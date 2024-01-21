@@ -102,7 +102,7 @@ unsigned long _jove_thread_init(unsigned long clone_newsp) {
   //
   // initialize CPUState
   //
-  __jove_env_clunk->df = 1;
+  __jove_env.df = 1;
 
   //
   // setup the emulated stack
@@ -131,7 +131,7 @@ void _jove_begin(target_ulong sp_addr) {
 
     _memcpy(env_sp, (void *)sp_addr, len);
 
-    __jove_env_clunk->regs[R_ESP] = (target_ulong)env_sp;
+    __jove_env.regs[R_ESP] = (target_ulong)env_sp;
   }
 
   _jove_initialize();
@@ -144,7 +144,7 @@ extern floatx80 float32_to_floatx80(float32, float_status *status);
 #define ST0    (env->fpregs[env->fpstt].d)
 
 _HIDDEN void _jove_thunk_handle_st0(uint32_t f32) {
-  CPUX86State *env = __jove_env_clunk;
+  CPUX86State *env = &__jove_env;
 
 #if 0
   helper_flds_ST0(env, f32);

@@ -78,6 +78,7 @@ class RecompileTool : public TransformerTool_Bin<binary_state_t> {
     cl::list<std::string> PinnedGlobals;
     cl::opt<bool> ABICalls;
     cl::opt<bool> InlineHelpers;
+    cl::opt<bool> MT;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : Output("output", cl::desc("Output directory"), cl::Required,
@@ -144,7 +145,9 @@ class RecompileTool : public TransformerTool_Bin<binary_state_t> {
 
           InlineHelpers("inline-helpers",
                         cl::desc("Try to inline all helper function calls"),
-                        cl::cat(JoveCategory)) {}
+                        cl::cat(JoveCategory)),
+
+          MT("mt", cl::desc("Thread model (multi)"), cl::cat(JoveCategory)) {}
   } opts;
 
   inline fs::path a2r(const std::string &ap) {
@@ -435,7 +438,7 @@ int RecompileTool::Run(void) {
         fs::path(opts.Output.getValue()) / "usr" / "lib" / "libjove_rt.so";
 
     fs::create_directories(chrooted_path.parent_path());
-    fs::copy_file(locator().runtime(), chrooted_path,
+    fs::copy_file(locator().runtime(opts.MT), chrooted_path,
                   fs::copy_options::overwrite_existing);
 
     //
@@ -448,7 +451,7 @@ int RecompileTool::Run(void) {
 
       try {
         // XXX some dynamic linkers only look in /lib
-        fs::copy_file(locator().runtime(),
+        fs::copy_file(locator().runtime(opts.MT),
                       fs::path(opts.Output.getValue()) / "lib" / "libjove_rt.so",
                       fs::copy_options::overwrite_existing);
       } catch (...) {
@@ -1069,6 +1072,8 @@ void RecompileTool::worker(const dso_graph_t &dso_graph) {
             Arg("--abi-calls=0");
           if (opts.InlineHelpers)
             Arg("--inline-helpers");
+          if (opts.MT)
+            Arg("--mt");
         },
         [&](auto Env) {
           InitWithEnviron(Env);

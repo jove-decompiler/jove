@@ -53,6 +53,7 @@ class DecompileTool : public TransformerTool_Bin<binary_state_t> {
     cl::alias ClearOutputDirAlias;
     cl::opt<unsigned> Threads;
     cl::opt<bool> FakeLineNumbers;
+    cl::opt<bool> MT;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : Prog(cl::Positional, cl::desc("prog"), cl::value_desc("filename"),
@@ -85,8 +86,9 @@ class DecompileTool : public TransformerTool_Bin<binary_state_t> {
           FakeLineNumbers(
               "fake-line-numbers",
               cl::desc("Preserve \"debugging information\" from LLVM IR"),
-              cl::cat(JoveCategory)) {}
+              cl::cat(JoveCategory)),
 
+          MT("mt", cl::desc("Thread model (multi)"), cl::cat(JoveCategory)) {}
   } opts;
 
   std::vector<binary_index_t> Q;
@@ -360,7 +362,7 @@ int DecompileTool::Run(void) {
                 fs::path(opts.Output) / ".obj" / "libfpu_softfloat.a",
                 fs::copy_option::overwrite_if_exists);
   fs::create_directories(fs::path(opts.Output) / ".lib" / "lib");
-  fs::copy_file(locator().runtime(),
+  fs::copy_file(locator().runtime(opts.MT),
                 fs::path(opts.Output) / ".lib" / "lib" / "libjove_rt.so");
 
   //
@@ -372,7 +374,7 @@ int DecompileTool::Run(void) {
 
     Arg("-o");
     Arg(jove_o_fp);
-    Arg(locator().starter_bitcode());
+    Arg(locator().starter_bitcode(opts.MT));
 
     Arg("--filetype=obj");
 

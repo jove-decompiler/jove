@@ -1,33 +1,23 @@
-extern /* __thread */ struct CPUArchState __jove_env __attribute__((aligned(64)));
+extern __JTHREAD struct CPUArchState __jove_env __attribute__((aligned(64)));
 
-       static /* __thread */ struct CPUArchState *__jove_env_clunk = &__jove_env;
+#ifndef JOVE_MT
+static /* __thread */ struct CPUArchState *__jove_env_clunk = &__jove_env;
+#endif
 
-extern /* __thread */ uint64_t *__jove_trace;
-extern /* __thread */ uint64_t *__jove_trace_begin;
+extern __JTHREAD uint64_t *__jove_trace;
+extern __JTHREAD uint64_t *__jove_trace_begin;
 
-       static uint64_t **__jove_trace_clunk = &__jove_trace;
-       static uint64_t **__jove_trace_begin_clunk = &__jove_trace_begin;
-
-extern /* __thread */ uint64_t *__jove_callstack;
-extern /* __thread */ uint64_t *__jove_callstack_begin;
-
-       static uint64_t **__jove_callstack_clunk = &__jove_callstack;
-       static uint64_t **__jove_callstack_begin_clunk = &__jove_callstack_begin;
+extern __JTHREAD uint64_t *__jove_callstack;
+extern __JTHREAD uint64_t *__jove_callstack_begin;
 
 extern uintptr_t *__jove_function_tables[_JOVE_MAX_BINARIES];
 extern uintptr_t *__jove_sections_tables[_JOVE_MAX_BINARIES];
-
-       static uintptr_t **__jove_function_tables_clunk = &__jove_function_tables;
-       static uintptr_t **__jove_sections_tables_clunk = &__jove_sections_tables;
 
 extern uintptr_t *__jove_foreign_function_tables[_JOVE_MAX_BINARIES];
 
 extern DECLARE_HASHTABLE(__jove_function_map, JOVE_FUNCTION_MAP_HASH_BITS);
 
 extern void _jove_flush_trace(void);
-
-typedef void (*__jove_flush_trace_t)(void);
-static __jove_flush_trace_t _jove_flush_trace_clunk = &_jove_flush_trace;
 
 _HIDDEN void _jove_install_foreign_function_tables(void);
 
@@ -44,11 +34,23 @@ static void _jove_make_sections_executable(void);
 
 extern void _jove_rt_init(void);
 
+#ifdef JOVE_MT
+extern int _jove_needs_multi_threaded_runtime(void);
+#else
+extern int _jove_needs_single_threaded_runtime(void);
+#endif
+
 _HIDDEN void _jove_initialize(void) {
   static bool _Done = false;
   if (_Done)
     return;
   _Done = true;
+
+#ifdef JOVE_MT
+  _jove_needs_multi_threaded_runtime();
+#else
+  _jove_needs_single_threaded_runtime();
+#endif
 
   _jove_install_foreign_function_tables();
 
@@ -68,7 +70,7 @@ _HIDDEN void _jove_initialize(void) {
 }
 
 void _jove_install_function_table(void) {
-  __jove_function_tables_clunk[_jove_binary_index()] = _jove_get_function_table();
+  __jove_function_tables[_jove_binary_index()] = _jove_get_function_table();
 }
 
 void _jove_install_sections_table(void) {
@@ -78,7 +80,7 @@ void _jove_install_sections_table(void) {
   _Entry[1] = _jove_sections_global_end_addr();
   _Entry[2] = _jove_sections_start_file_addr();
 
-  __jove_sections_tables_clunk[_jove_binary_index()] = &_Entry[0];
+  __jove_sections_tables[_jove_binary_index()] = &_Entry[0];
 }
 
 void _jove_make_sections_executable(void) {
@@ -169,21 +171,21 @@ _HIDDEN void _jove_init(
   if (!initfn)
     return;
 
-  target_ulong *const emusp_ptr = emulated_stack_pointer_of_cpu_state(__jove_env_clunk);
+  target_ulong *const emusp_ptr = emulated_stack_pointer_of_cpu_state(&__jove_env);
 
   //
   // save things
   //
   const uintptr_t saved_emusp = *emusp_ptr;
 
-  uint64_t *const saved_callstack_begin = *__jove_callstack_begin_clunk;
-  uint64_t *const saved_callstack = *__jove_callstack_clunk;
+  uint64_t *const saved_callstack_begin = __jove_callstack_begin;
+  uint64_t *const saved_callstack = __jove_callstack;
 
   //
   // setup new callstack and emulated-stack
   //
   const uintptr_t new_callstack = _jove_alloc_callstack() + JOVE_PAGE_SIZE;
-  *__jove_callstack_begin_clunk = *__jove_callstack_clunk = (uint64_t *)new_callstack;
+  __jove_callstack_begin = __jove_callstack = (uint64_t *)new_callstack;
 
   const uintptr_t new_emu_stack = _jove_alloc_stack();
 
@@ -209,7 +211,7 @@ _HIDDEN void _jove_init(
   //
   // (mips) set t9
   //
-  __jove_env_clunk->active_tc.gpr[25] = _jove_get_init_fn_sect_ptr();
+  __jove_env.active_tc.gpr[25] = _jove_get_init_fn_sect_ptr();
 #endif
 
   //
@@ -234,8 +236,8 @@ _HIDDEN void _jove_init(
   //
   *emusp_ptr = saved_emusp;
 
-  *__jove_callstack_begin_clunk = saved_callstack_begin;
-  *__jove_callstack_clunk = saved_callstack;
+  __jove_callstack_begin = saved_callstack_begin;
+  __jove_callstack = saved_callstack;
 
   _jove_free_stack(new_emu_stack);
   _jove_free_callstack(new_callstack);
@@ -259,21 +261,21 @@ _HIDDEN void _jove__libc_early_init(
 
   _jove_initialize();
 
-  target_ulong *const emusp_ptr = emulated_stack_pointer_of_cpu_state(__jove_env_clunk);
+  target_ulong *const emusp_ptr = emulated_stack_pointer_of_cpu_state(&__jove_env);
 
   //
   // save things
   //
   const uintptr_t saved_emusp = *emusp_ptr;
 
-  uint64_t *const saved_callstack_begin = *__jove_callstack_begin_clunk;
-  uint64_t *const saved_callstack = *__jove_callstack_clunk;
+  uint64_t *const saved_callstack_begin = __jove_callstack_begin;
+  uint64_t *const saved_callstack = __jove_callstack;
 
   //
   // setup new callstack and emulated-stack
   //
   const uintptr_t new_callstack = _jove_alloc_callstack() + JOVE_PAGE_SIZE;
-  *__jove_callstack_begin_clunk = *__jove_callstack_clunk = (uint64_t *)new_callstack;
+  __jove_callstack_begin = __jove_callstack = (uint64_t *)new_callstack;
 
   const uintptr_t new_emu_stack = _jove_alloc_stack();
 
@@ -299,7 +301,7 @@ _HIDDEN void _jove__libc_early_init(
   //
   // (mips) set t9
   //
-  __jove_env_clunk->active_tc.gpr[25] = _jove_get_libc_early_init_fn_sect_ptr();
+  __jove_env.active_tc.gpr[25] = _jove_get_libc_early_init_fn_sect_ptr();
 #endif
 
   //
@@ -324,8 +326,8 @@ _HIDDEN void _jove__libc_early_init(
   //
   *emusp_ptr = saved_emusp;
 
-  *__jove_callstack_begin_clunk = saved_callstack_begin;
-  *__jove_callstack_clunk = saved_callstack;
+  __jove_callstack_begin = saved_callstack_begin;
+  __jove_callstack = saved_callstack;
 
   _jove_free_stack(new_emu_stack);
   _jove_free_callstack(new_callstack);
@@ -626,7 +628,7 @@ _NORET void _jove_fail1(uintptr_t a0, const char *reason) {
     _jove_robust_write(2 /* stderr */, s, _strlen(s));
   }
 
-  _jove_flush_trace_clunk();
+  _jove_flush_trace();
 
 #if 1
   for (;;)
@@ -785,8 +787,8 @@ jove_thunk_return_t _jove_call(
   // lookup in __jove_function_map failed, now try brute force search
   //
   for (unsigned BIdx = 0; BIdx < _JOVE_MAX_BINARIES ; ++BIdx) {
-    uintptr_t *fns = __jove_function_tables_clunk
-                         ? __jove_function_tables_clunk[BIdx]
+    uintptr_t *fns = __jove_function_tables
+                         ? __jove_function_tables[BIdx]
                          : NULL;
     if (!fns) {
       if (BIdx == 1 ||
@@ -1090,7 +1092,7 @@ jove_thunk_return_t _jove_call(
                         BOOST_PP_REPEAT(TARGET_NUM_REG_ARGS, __REG_ARG, void)
 
                         #undef __REG_ARG
-                        pc, emulated_stack_pointer_of_cpu_state(__jove_env_clunk));
+                        pc, emulated_stack_pointer_of_cpu_state(&__jove_env));
 
   //
   // we found new code?
@@ -1105,7 +1107,14 @@ jove_thunk_return_t _jove_call(
 
 found:
   if (Callee.IsForeign) {
-    if (unlikely(!__jove_env_clunk)) {
+    const bool in_ifunc =
+#ifdef JOVE_MT
+        false
+#else
+        __jove_env_clunk == NULL
+#endif
+        ;
+    if (unlikely(in_ifunc)) {
       //
       // when might __jove_env_clunk be NULL? in an ifunc resolver, that's when
       //
@@ -1130,7 +1139,7 @@ found:
 
       return res;
     } else {
-      target_ulong *const emusp_ptr = emulated_stack_pointer_of_cpu_state(__jove_env_clunk);
+      target_ulong *const emusp_ptr = emulated_stack_pointer_of_cpu_state(&__jove_env);
 
       return BOOST_PP_CAT(_jove_thunk,TARGET_NUM_REG_ARGS)(
                           #define __REG_ARG(n, i, data) reg##i,
@@ -1185,7 +1194,6 @@ void _jove_check_return_address(uintptr_t RetAddr,
 // 32-bit DFSan
 //
 extern struct shadow_t __df32_shadow_mem[65536];
-static struct shadow_t *__df32_shadow_mem_clunk = &__df32_shadow_mem[0];
 
 static dfsan_label *__df32_shadow_for(uint32_t A) {
   const uint16_t AddrUpperBits = A >> 16;
@@ -1194,7 +1202,7 @@ static dfsan_label *__df32_shadow_for(uint32_t A) {
   unsigned Region = AddrLowerBits / JOVE_SHADOW_REGION_SIZE;
   unsigned Offset = AddrLowerBits % JOVE_SHADOW_REGION_SIZE;
 
-  dfsan_label **shadowp = &__df32_shadow_mem_clunk[AddrUpperBits].X[Region];
+  dfsan_label **shadowp = &__df32_shadow_mem[AddrUpperBits].X[Region];
 
   dfsan_label *shadow = *shadowp;
   if (unlikely(!shadow)) {
@@ -1217,20 +1225,18 @@ static dfsan_label *__df32_shadow_for(uint32_t A) {
 #endif
 
 void __nodce(void **p) {
-  *p++ = &__jove_trace_clunk;
-  *p++ = &__jove_trace_begin_clunk;
   *p++ = &_jove_trace_enabled;
   *p++ = &_jove_dfsan_enabled;
   *p++ = &_jove_get_init_fn_sect_ptr;
   *p++ = &_jove_get_libc_early_init_fn;
   *p++ = &_jove_get_libc_early_init_fn_sect_ptr;
-  *p++ = &__jove_callstack_clunk;
-  *p++ = &__jove_callstack_begin_clunk;
-  *p++ = &_jove_flush_trace_clunk;
-  *p++ = &_jove_rt_init_clunk;
-  *p++ = &__jove_function_tables_clunk;
-  *p++ = &__jove_sections_tables_clunk;
+  *p++ = &__jove_trace;
+  *p++ = &__jove_trace_begin;
+  *p++ = &__jove_callstack;
+  *p++ = &__jove_callstack_begin;
+#ifndef JOVE_MT
   *p++ = &__jove_env_clunk;
+#endif
   *p++ = &_jove_alloc_stack;
   *p++ = &_jove_free_stack;
   *p++ = &_jove_alloc_callstack;
@@ -1240,7 +1246,6 @@ void __nodce(void **p) {
 #if (defined(__mips__) && !defined(__mips64)) || \
     (defined(__i386__) && !defined(__x86_64__))
   *p++ = &__df32_shadow_for;
-  *p++ = &__df32_shadow_mem_clunk;
 #endif
 #endif
 }

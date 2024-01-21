@@ -63,6 +63,7 @@ class LoopTool : public JVTool {
     cl::opt<std::string> ChangeDirectory;
     cl::opt<bool> ABICalls;
     cl::opt<bool> InlineHelpers;
+    cl::opt<bool> MT;
     cl::opt<std::string> HumanOutput;
     cl::opt<bool> Silent;
     cl::opt<bool> RunAsRoot;
@@ -194,6 +195,8 @@ class LoopTool : public JVTool {
           InlineHelpers("inline-helpers",
                         cl::desc("Try to inline all helper function calls"),
                         cl::cat(JoveCategory)),
+
+          MT("mt", cl::desc("Thread model (multi)"), cl::cat(JoveCategory)),
 
           HumanOutput("human-output",
                       cl::desc("Print messages to the given file path"),
@@ -660,6 +663,7 @@ skip_run:
         headerBits.set(4, opts.SkipCopyRelocHack);
         headerBits.set(5, opts.DebugSjlj);
         headerBits.set(6, opts.ABICalls);
+        headerBits.set(7, opts.MT);
 
         uint8_t header = headerBits.to_ullong();
 
@@ -1076,6 +1080,9 @@ skip_run:
 
           if (opts.InlineHelpers)
             Arg("--inline-helpers");
+
+          if (opts.MT)
+            Arg("--mt");
         },
         [&](auto Env) {
           InitWithEnviron(Env);

@@ -6,8 +6,8 @@ namespace jove {
 struct locator_t {
   std::string tool();
 
-  std::string runtime(void); // libjove_rt.so
-  std::string starter_bitcode(void); // jove.bc
+  std::string runtime(bool mt); // libjove_rt.so
+  std::string starter_bitcode(bool mt); // jove.bc
   std::string helper_bitcode(const std::string &name);
 
   std::string softfloat_bitcode(void);

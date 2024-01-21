@@ -82,10 +82,10 @@ int AnalyzeTool::Run(void) {
   Context.reset(new llvm::LLVMContext);
 
   llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> BufferOr =
-      llvm::MemoryBuffer::getFile(locator().starter_bitcode());
+      llvm::MemoryBuffer::getFile(locator().starter_bitcode(false));
   if (!BufferOr) {
     WithColor::error() << llvm::formatv("failed to open bitcode {0}: {1}\n",
-                                        locator().starter_bitcode(),
+                                        locator().starter_bitcode(false),
                                         BufferOr.getError().message());
     return 1;
   }

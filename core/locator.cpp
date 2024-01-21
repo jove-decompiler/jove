@@ -37,12 +37,14 @@ static fs::path arch_bin_path(void) {
 
 static fs::path prebuilts_path(void) { return jove_path() / "prebuilts"; }
 
-std::string locator_t::runtime(void) {
-  return must_exist(arch_bin_path() / "libjove_rt.so");
+std::string locator_t::runtime(bool mt) {
+  const char *fnm = mt ? "libjove_rt.mt.so" : "libjove_rt.st.so";
+  return must_exist(arch_bin_path() / fnm);
 }
 
-std::string locator_t::starter_bitcode(void) {
-  return must_exist(arch_bin_path() / "jove.bc");
+std::string locator_t::starter_bitcode(bool mt) {
+  const char *fnm = mt ? "jove.mt.bc" : "jove.st.bc";
+  return must_exist(arch_bin_path() / fnm);
 }
 
 std::string locator_t::helper_bitcode(const std::string &name) {

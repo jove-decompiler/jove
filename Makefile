@@ -93,9 +93,12 @@ helpers-$(1): $(foreach h,$($(t)_HELPERS),$(BINDIR)/$(1)/helpers/$(h).ll) \
               $(foreach h,$($(t)_HELPERS),$(BINDIR)/$(1)/helpers/$(h).bc)
 
 .PHONY: runtime-$(1)
-runtime-$(1): $(BINDIR)/$(1)/libjove_rt.so \
-              $(BINDIR)/$(1)/jove.bc \
-              $(BINDIR)/$(1)/jove.ll
+runtime-$(1): $(BINDIR)/$(1)/libjove_rt.st.so \
+              $(BINDIR)/$(1)/libjove_rt.mt.so \
+              $(BINDIR)/$(1)/jove.st.bc \
+              $(BINDIR)/$(1)/jove.mt.bc \
+              $(BINDIR)/$(1)/jove.st.ll \
+              $(BINDIR)/$(1)/jove.mt.ll
 
 $(BINDIR)/$(1)/qemu-starter: lib/arch/$(1)/qemu-starter.c
 	clang-16 -o $$@ $(call runtime_cflags,$(1)) $(STARTER_LDFLAGS) $$<
@@ -104,13 +107,19 @@ $(BINDIR)/$(1)/qemu-starter: lib/arch/$(1)/qemu-starter.c
 $(BINDIR)/$(1)/qemu-starter.inc: $(BINDIR)/$(1)/qemu-starter
 	xxd -i < $$< > $$@
 
-$(BINDIR)/$(1)/libjove_rt.so: lib/arch/$(1)/rt.c
+$(BINDIR)/$(1)/libjove_rt.st.so: lib/arch/$(1)/rt.c
 	$(LLVM_CC) -o $$@ $(call runtime_cflags,$(1)) $(call runtime_ldflags,$(1)) -MMD $$<
 
-$(BINDIR)/$(1)/jove.bc: lib/arch/$(1)/jove.c
+$(BINDIR)/$(1)/libjove_rt.mt.so: lib/arch/$(1)/rt.c
+	$(LLVM_CC) -o $$@ $(call runtime_cflags,$(1)) $(call runtime_ldflags,$(1)) -D JOVE_MT -MMD $$<
+
+$(BINDIR)/$(1)/jove.st.bc: lib/arch/$(1)/jove.c
 	$(LLVM_CC) -o $$@ $(call runtime_cflags,$(1)) -MMD -c -emit-llvm $$<
 
-$(BINDIR)/$(1)/jove.ll: $(BINDIR)/$(1)/jove.bc
+$(BINDIR)/$(1)/jove.mt.bc: lib/arch/$(1)/jove.c
+	$(LLVM_CC) -o $$@ $(call runtime_cflags,$(1)) -D JOVE_MT -MMD -c -emit-llvm $$<
+
+$(BINDIR)/$(1)/jove.%.ll: $(BINDIR)/$(1)/jove.%.bc
 	$(LLVM_OPT) -o $$@ -S --strip-debug $$<
 
 .PHONY: gen-tcgconstants-$(1)
@@ -119,8 +128,10 @@ gen-tcgconstants-$(1): $(BINDIR)/$(1)/gen-tcgconstants
 endef
 $(foreach t,$(ALL_TARGETS),$(eval $(call target_code_template,$(t))))
 
--include $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/libjove_rt.d)
--include $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/jove.d)
+-include $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/libjove_rt.st.d)
+-include $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/libjove_rt.mt.d)
+-include $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/jove.st.d)
+-include $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/jove.mt.d)
 -include $(foreach t,$(ALL_TARGETS),$(foreach h,$($(t)_HELPERS),$(BINDIR)/$(t)/helpers/$(h).d))
 
 .PHONY: clean-helpers
@@ -190,9 +201,12 @@ clean-helpers-$(1):
 
 .PHONY: clean-runtime-$(1)
 clean-runtime-$(1):
-	rm -f $(BINDIR)/$(1)/jove.ll \
-	      $(BINDIR)/$(1)/jove.bc \
-	      $(BINDIR)/$(1)/libjove_rt.so \
+	rm -f $(BINDIR)/$(1)/jove.st.ll \
+	      $(BINDIR)/$(1)/jove.mt.ll \
+	      $(BINDIR)/$(1)/jove.st.bc \
+	      $(BINDIR)/$(1)/jove.mt.bc \
+	      $(BINDIR)/$(1)/libjove_rt.st.so \
+	      $(BINDIR)/$(1)/libjove_rt.mt.so
 
 .PHONY: clean-bitcode-$(1)
 clean-bitcode-$(1):

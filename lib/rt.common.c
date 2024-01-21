@@ -1,10 +1,12 @@
-/* __thread */ struct CPUArchState __jove_env __attribute__((aligned(64)));
+__JTHREAD struct CPUArchState __jove_env __attribute__((aligned(64)));
 
-/* __thread */ uint64_t *__jove_trace       = NULL;
-/* __thread */ uint64_t *__jove_trace_begin = NULL;
+__JTHREAD bool __jove_initialized_env = false;
 
-/* __thread */ uint64_t *__jove_callstack       = NULL;
-/* __thread */ uint64_t *__jove_callstack_begin = NULL;
+__JTHREAD uint64_t *__jove_trace       = NULL;
+__JTHREAD uint64_t *__jove_trace_begin = NULL;
+
+__JTHREAD uint64_t *__jove_callstack       = NULL;
+__JTHREAD uint64_t *__jove_callstack_begin = NULL;
 
 uintptr_t *__jove_function_tables[_JOVE_MAX_BINARIES] = {
   [0 ... _JOVE_MAX_BINARIES - 1] = NULL
@@ -45,6 +47,12 @@ static void _jove_rt_signal_handler(int, siginfo_t *, ucontext_t *);
 static void _jove_init_cpu_state(void);
 static void _jove_callstack_init(void);
 static void _jove_trace_init(void);
+
+#ifdef JOVE_MT
+int _jove_needs_multi_threaded_runtime(void) { return 1; }
+#else
+int _jove_needs_single_threaded_runtime(void) { return 1; }
+#endif
 
 #if defined(__x86_64__)
 extern void restore_rt (void) asm ("__restore_rt") __attribute__ ((visibility ("hidden")));
@@ -103,6 +111,10 @@ void _jove_rt_init(void) {
 }
 
 void _jove_init_cpu_state(void) {
+  if (__jove_initialized_env)
+    return;
+  __jove_initialized_env = true;
+
 #if defined(__mips64) || defined(__mips__)
   __jove_env.hflags = 226;
 #elif defined(__x86_64__) || defined(__i386__)
@@ -549,6 +561,8 @@ found:
     *emusp_ptr = saved_sp; /* native stack becomes emulated stack */
 
     *pc_ptr = FuncPtr;
+
+    _jove_init_cpu_state();
     return;
   }
 
