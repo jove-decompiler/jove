@@ -481,7 +481,8 @@ struct jv_t {
   boost::optional<const ip_binary_index_set &> Lookup(const char *name);
 
   std::pair<binary_index_t, bool> AddFromPath(explorer_t &, const char *path);
-  std::pair<binary_index_t, bool> AddFromData(explorer_t &, std::string_view data,
+  std::pair<binary_index_t, bool> AddFromData(explorer_t &,
+                                              std::string_view data,
                                               const char *name = nullptr);
 
   unsigned NumBinaries(void) {
@@ -490,14 +491,16 @@ struct jv_t {
 
 private:
   binary_index_t LookupWithHash(hash_t);
-  hash_t LookupAndCacheHash(const char *path, std::string &file_contents);
-  void UpdateCachedHash(cached_hash_t &, const char *path,
+  hash_t LookupAndCacheHash(const char *path,
+                            std::string &file_contents);
+  void UpdateCachedHash(cached_hash_t &,
+                        const char *path,
                         std::string &file_contents);
 
-  std::pair<binary_index_t, bool> AddFromDataWithHash(explorer_t &E,
-                                                      std::string_view data,
-                                                      hash_t h,
-                                                      const char *name);
+  typedef std::function<void(ip_string &)> get_data_t;
+
+  std::pair<binary_index_t, bool>
+  AddFromDataWithHash(explorer_t &E, get_data_t, hash_t h, const char *name);
   void DoAdd(binary_t &, explorer_t &);
 };
 

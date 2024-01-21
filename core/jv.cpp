@@ -86,25 +86,34 @@ std::pair<binary_index_t, bool> jv_t::AddFromPath(explorer_t &E, const char *pat
   std::string file_contents;
   hash_t h = LookupAndCacheHash(the_path.c_str(), file_contents);
 
+  get_data_t get_data;
   if (file_contents.empty())
-    read_file_into_thing(path, file_contents);
+    get_data = [&](ip_string &out) -> void { read_file_into_thing(path, out); };
+  else
+    get_data = [&](ip_string &out) -> void {
+      out.resize(file_contents.size());
+      memcpy(&out[0], file_contents.data(), out.size());
+    };
 
-  return AddFromDataWithHash(E, file_contents, h, the_path.c_str());
+  return AddFromDataWithHash(E, get_data, h, the_path.c_str());
 }
 
 std::pair<binary_index_t, bool> jv_t::AddFromData(explorer_t &E,
-                                                  std::string_view data,
+                                                  std::string_view x,
                                                   const char *name) {
-  return AddFromDataWithHash(E, data, hash_data(data), name);
+  return AddFromDataWithHash(
+      E,
+      [&](ip_string &out) -> void {
+        out.resize(x.size());
+        memcpy(&out[0], x.data(), out.size());
+      },
+      hash_data(x), name);
 }
 
 std::pair<binary_index_t, bool> jv_t::AddFromDataWithHash(explorer_t &E,
-                                                          std::string_view data,
+                                                          get_data_t get_data,
                                                           hash_t h,
                                                           const char *name) {
-  if (data.empty())
-    throw std::runtime_error("AddFromDataWithHash: empty data");
-
   {
     ip_scoped_lock<ip_mutex> lck(this->binaries_mtx);
 
@@ -117,10 +126,12 @@ std::pair<binary_index_t, bool> jv_t::AddFromDataWithHash(explorer_t &E,
     binary_t &b = Binaries.emplace_back(Binaries.get_allocator());
     b.Hash = h;
 
-    b.Data.resize(data.size());
-    memcpy(&b.Data[0], data.data(), data.size());
+    get_data(b.Data);
 
     try {
+      if (b.Data.empty())
+        throw std::runtime_error("AddFromDataWithHash: empty data");
+
       DoAdd(b, E);
     } catch (...) {
       Binaries.pop_back(); /* OOPS */
