@@ -297,8 +297,8 @@ void *ServerTool::ConnectionProc(void *arg) {
   // analyze
   //
   int rc = RunToolToExit("analyze", [&](auto Arg) {
-    if (options.foreign_libs)
-      Arg("--exe");
+    if (!options.foreign_libs)
+      Arg("--x=0");
 
 #if 0
     if (!PinnedGlobals.empty()) {
@@ -338,8 +338,8 @@ void *ServerTool::ConnectionProc(void *arg) {
 
     if (options.dfsan)
       Arg("--dfsan");
-    if (options.foreign_libs)
-      Arg("--foreign-libs");
+    if (!options.foreign_libs)
+      Arg("--x=0");
     if (options.trace)
       Arg("--trace");
     if (options.optimize)

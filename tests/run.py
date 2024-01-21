@@ -156,11 +156,11 @@ def run_tests():
 
       for i in range(0, 2):
         for input_args in test_inputs:
-          ssh(["jove", "loop", "-x", "--optimize", "--connect", "%s:%d" % (iphost, jove_server_port), test_guest_path] + input_args)
+          ssh(["jove", "loop", "--optimize", "--connect", "%s:%d" % (iphost, jove_server_port), test_guest_path] + input_args)
 
       for input_args in test_inputs:
         p1 = ssh_command([test_guest_path] + input_args, text=True)
-        p2 = ssh_command(["jove", "loop", "-x", "--optimize", "--connect", "%s:%d" % (iphost, jove_server_port), test_guest_path] + input_args, text=True)
+        p2 = ssh_command(["jove", "loop", "--optimize", "--connect", "%s:%d" % (iphost, jove_server_port), test_guest_path] + input_args, text=True)
 
         if p2.returncode != 0 and p1.returncode == 0:
           print("TESTS FAILURE_1 %s [%s]" % (test_bin_path, args.arch))

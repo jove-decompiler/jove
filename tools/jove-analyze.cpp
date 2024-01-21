@@ -40,12 +40,16 @@ struct binary_state_t {
 
 class AnalyzeTool : public TransformerTool_BinFn<binary_state_t, function_state_t> {
   struct Cmdline {
-    cl::opt<bool> OnlyExecutable;
+    cl::opt<bool> ForeignLibs;
+    cl::alias ForeignLibsAlias;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
-        : OnlyExecutable("exe",
-                         cl::desc("Only analyze functions in executable"),
-                         cl::cat(JoveCategory)) {}
+        : ForeignLibs("foreign-libs",
+                      cl::desc("only analyze the executable itself"),
+                      cl::cat(JoveCategory), cl::init(true)),
+
+          ForeignLibsAlias("x", cl::desc("Exe only. Alias for --foreign-libs."),
+                           cl::aliasopt(ForeignLibs), cl::cat(JoveCategory)) {}
   } opts;
 
   std::unique_ptr<tiny_code_generator_t> TCG;
@@ -228,7 +232,7 @@ int AnalyzeTool::AnalyzeFunctions(void) {
     //
     for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
       binary_t &binary = jv.Binaries[BIdx];
-      if (opts.OnlyExecutable && !binary.IsExecutable)
+      if (opts.ForeignLibs && !binary.IsExecutable)
         continue;
 
       for (function_index_t FIdx = 0; FIdx < binary.Analysis.Functions.size(); ++FIdx) {

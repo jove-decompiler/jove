@@ -166,7 +166,7 @@ class LoopTool : public JVTool {
               cl::desc("only recompile the executable itself; "
                        "treat all other binaries as \"foreign\". Implies "
                        "--no-chroot"),
-              cl::cat(JoveCategory)),
+              cl::cat(JoveCategory), cl::init(true)),
 
           ForeignLibsAlias("x", cl::desc("Exe only. Alias for --foreign-libs."),
                            cl::aliasopt(ForeignLibs), cl::cat(JoveCategory)),
@@ -434,8 +434,8 @@ run:
               Arg(opts.HumanOutput);
             }
 
-            if (opts.ForeignLibs)
-              Arg("--foreign-libs");
+            if (!opts.ForeignLibs)
+              Arg("--x=0");
 
             if (opts.NoChroot || opts.ForeignLibs)
               Arg("--no-chroot");
@@ -1036,8 +1036,8 @@ skip_run:
       //
       rc = RunToolToExit("analyze",
         [&](auto Arg) {
-          if (opts.ForeignLibs)
-            Arg("--exe");
+          if (!opts.ForeignLibs)
+            Arg("--x=0");
         },
         [&](auto Env) {
           InitWithEnviron(Env);
@@ -1073,8 +1073,8 @@ skip_run:
           if (opts.DebugSjlj)
             Arg("--debug-sjlj");
 
-          if (opts.ForeignLibs)
-            Arg("--foreign-libs");
+          if (!opts.ForeignLibs)
+            Arg("--x=0");
 
           if (!opts.ABICalls)
             Arg("--abi-calls=0");

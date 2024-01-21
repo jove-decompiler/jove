@@ -75,6 +75,7 @@ class RecompileTool : public TransformerTool_Bin<binary_state_t> {
     cl::opt<bool> CheckEmulatedStackReturnAddress;
     cl::opt<bool> SkipLLVM;
     cl::opt<bool> ForeignLibs;
+    cl::alias ForeignLibsAlias;
     cl::list<std::string> PinnedGlobals;
     cl::opt<bool> ABICalls;
     cl::opt<bool> InlineHelpers;
@@ -130,7 +131,10 @@ class RecompileTool : public TransformerTool_Bin<binary_state_t> {
           ForeignLibs("foreign-libs",
                       cl::desc("only recompile the executable itself; "
                                "treat all other binaries as \"foreign\""),
-                      cl::cat(JoveCategory)),
+                      cl::cat(JoveCategory), cl::init(true)),
+
+          ForeignLibsAlias("x", cl::desc("Exe only. Alias for --foreign-libs."),
+                           cl::aliasopt(ForeignLibs), cl::cat(JoveCategory)),
 
           PinnedGlobals(
               "pinned-globals", cl::CommaSeparated,
@@ -1065,8 +1069,8 @@ void RecompileTool::worker(const dso_graph_t &dso_graph) {
             Arg("--check-emulated-stack-return-address");
           if (opts.Trace)
             Arg("--trace");
-          if (opts.ForeignLibs)
-            Arg("--foreign-libs");
+          if (!opts.ForeignLibs)
+            Arg("--x=0");
           if (opts.DebugSjlj)
             Arg("--debug-sjlj");
           if (!opts.ABICalls)

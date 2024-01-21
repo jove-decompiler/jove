@@ -119,7 +119,7 @@ struct RunTool : public JVTool {
               cl::desc("only recompile the executable itself; "
                        "treat all other binaries as \"foreign\". Implies "
                        "--no-chroot"),
-              cl::cat(JoveCategory)),
+              cl::cat(JoveCategory), cl::init(true)),
 
           ForeignLibsAlias("x", cl::desc("Exe only. Alias for --foreign-libs."),
                            cl::aliasopt(ForeignLibs), cl::cat(JoveCategory)),
