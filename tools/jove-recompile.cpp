@@ -147,7 +147,8 @@ class RecompileTool : public TransformerTool_Bin<binary_state_t> {
                         cl::desc("Try to inline all helper function calls"),
                         cl::cat(JoveCategory)),
 
-          MT("mt", cl::desc("Thread model (multi)"), cl::cat(JoveCategory)) {}
+          MT("mt", cl::desc("Thread model (multi)"), cl::cat(JoveCategory),
+             cl::init(true)) {}
   } opts;
 
   inline fs::path a2r(const std::string &ap) {
@@ -1072,8 +1073,8 @@ void RecompileTool::worker(const dso_graph_t &dso_graph) {
             Arg("--abi-calls=0");
           if (opts.InlineHelpers)
             Arg("--inline-helpers");
-          if (opts.MT)
-            Arg("--mt");
+          if (!opts.MT)
+            Arg("--mt=0");
         },
         [&](auto Env) {
           InitWithEnviron(Env);

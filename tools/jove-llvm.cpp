@@ -334,7 +334,8 @@ struct LLVMTool : public TransformerTool_BinFnBB<binary_state_t,
           ForCBE("for-cbe", cl::desc("Generate LLVM for C backend"),
                  cl::cat(JoveCategory)),
 
-          MT("mt", cl::desc("Thread model (multi)"), cl::cat(JoveCategory)) {}
+          MT("mt", cl::desc("Thread model (multi)"), cl::cat(JoveCategory),
+             cl::init(true)) {}
 
   } opts;
 

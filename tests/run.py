@@ -25,7 +25,7 @@ assert(Path(jove_server_path).is_file())
 jove_client_path = '%s/../llvm-project/%s_build/bin/jove-%s' % (tests_dir, args.arch, args.arch)
 assert(Path(jove_client_path).is_file())
 
-jove_rt_path = '%s/../bin/%s/libjove_rt.so' % (tests_dir, args.arch)
+jove_rt_path = '%s/../bin/%s/libjove_rt.mt.so' % (tests_dir, args.arch)
 assert(Path(jove_rt_path).is_file())
 
 #td_path = "/root/deb-vm-" + args.arch
@@ -129,7 +129,7 @@ jp = subprocess.Popen([jove_server_path, 'server', '-v', '--port=%d' % jove_serv
 # prepare to run jove under emulation
 #
 scp(jove_client_path, '/usr/local/bin/jove')
-scp(jove_rt_path, '/lib/')
+scp(jove_rt_path, '/lib/libjove_rt.so')
 
 def run_tests():
   for test in args.tests:

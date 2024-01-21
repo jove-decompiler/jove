@@ -88,7 +88,8 @@ class DecompileTool : public TransformerTool_Bin<binary_state_t> {
               cl::desc("Preserve \"debugging information\" from LLVM IR"),
               cl::cat(JoveCategory)),
 
-          MT("mt", cl::desc("Thread model (multi)"), cl::cat(JoveCategory)) {}
+          MT("mt", cl::desc("Thread model (multi)"), cl::cat(JoveCategory),
+             cl::init(true)) {}
   } opts;
 
   std::vector<binary_index_t> Q;

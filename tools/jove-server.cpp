@@ -350,8 +350,8 @@ void *ServerTool::ConnectionProc(void *arg) {
       Arg("--debug-sjlj");
     if (!options.abi_calls)
       Arg("--abi-calls=0");
-    if (options.mt)
-      Arg("--mt");
+    if (!options.mt)
+      Arg("--mt=0");
 
 #if 0
     if (!PinnedGlobals.empty()) {

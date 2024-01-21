@@ -196,7 +196,8 @@ class LoopTool : public JVTool {
                         cl::desc("Try to inline all helper function calls"),
                         cl::cat(JoveCategory)),
 
-          MT("mt", cl::desc("Thread model (multi)"), cl::cat(JoveCategory)),
+          MT("mt", cl::desc("Thread model (multi)"), cl::cat(JoveCategory),
+             cl::init(true)),
 
           HumanOutput("human-output",
                       cl::desc("Print messages to the given file path"),
@@ -1081,8 +1082,8 @@ skip_run:
           if (opts.InlineHelpers)
             Arg("--inline-helpers");
 
-          if (opts.MT)
-            Arg("--mt");
+          if (!opts.MT)
+            Arg("--mt=0");
         },
         [&](auto Env) {
           InitWithEnviron(Env);
