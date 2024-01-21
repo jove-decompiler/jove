@@ -2411,7 +2411,7 @@ int LLVMTool::InitStateForBinaries(void) {
       std::tie(SectsStartAddr, SectsEndAddr) = bounds_of_binary(*x.ObjectFile);
 
       WithColor::note() << llvm::formatv("SectsStartAddr for {0} is {1:x}\n",
-                                         binary.path_str(),
+                                         binary.Name.c_str(),
                                          SectsStartAddr);
 
       assert(llvm::isa<ELFO>(x.ObjectFile.get()));

@@ -530,6 +530,9 @@ int RecompileTool::Run(void) {
   for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
     binary_t &b = jv.Binaries[BIdx];
 
+    if (!b.is_file())
+      continue;
+
     if (state.for_binary(b).dynl.soname.empty() && !b.IsExecutable) {
       soname_map.insert({fs::path(b.path_str()).filename().string(), BIdx}); /* XXX */
       continue;
