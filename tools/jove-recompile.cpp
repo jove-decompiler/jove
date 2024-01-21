@@ -203,8 +203,13 @@ struct graphviz_label_writer {
 
   template <typename Vertex>
   void operator()(std::ostream &out, Vertex v) const {
-    std::string name =
-        fs::path(tool.jv.Binaries.at(g[v].BIdx).path_str()).filename().string();
+    binary_t &b = tool.jv.Binaries.at(g[v].BIdx);
+
+    std::string name;
+    if (b.is_file())
+      name = fs::path(b.path()).filename().string();
+    else
+      name = b.Name;
 
     boost::replace_all(name, "\\", "\\\\");
     boost::replace_all(name, "\r\n", "\\l");
