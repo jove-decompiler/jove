@@ -1,7 +1,6 @@
 #include "jove/jove.h"
 #include "elf.h"
 #include "hash.h"
-#include "util.h"
 #include "explore.h"
 
 #include <boost/filesystem.hpp>
