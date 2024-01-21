@@ -24,7 +24,7 @@ llvm::Constant *LLVMTool::expression_for_relocation(const Relocation &R,
   case llvm::ELF::R_X86_64_RELATIVE: {
     //WARN_ON(!R.Addend);
 
-    tcg_uintptr_t Addr = R.Addend ? *R.Addend : 0;
+    taddr_t Addr = R.Addend ? *R.Addend : 0;
     if (!Addr) /* XXX could happen if DT_RELR */
       Addr = ExtractWordAtAddress(R.Offset);
 

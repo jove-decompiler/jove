@@ -155,7 +155,7 @@ namespace jove {
 // I64 llval
 //
 
-typedef uint64_t tcg_uintptr_t;
+typedef uint64_t taddr_t;
 constexpr int tcg_num_globals = 145;
 constexpr int tcg_max_temps = 512;
 constexpr int tcg_env_index = 1;

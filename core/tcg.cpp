@@ -1000,7 +1000,7 @@ void tiny_code_generator_t::print_shit(void) {
 
 #define __TCG_CONST(NM) printf("constexpr int tcg_" #NM " = %d;\n", NM())
 
-  printf("typedef uint%u_t tcg_uintptr_t;\n", static_cast<unsigned>(8 * sizeof(target_ulong)));
+  printf("typedef uint%u_t taddr_t;\n", static_cast<unsigned>(8 * sizeof(target_ulong)));
 
   __TCG_CONST(num_globals);
   //__TCG_CONST(num_helpers);

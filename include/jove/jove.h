@@ -50,11 +50,11 @@ namespace jove {
 
 class explorer_t;
 
-static inline std::string taddr2str(tcg_uintptr_t x, bool zero_padded = true) {
+static inline std::string taddr2str(taddr_t x, bool zero_padded = true) {
   std::stringstream stream;
   stream << "0x";
   if (zero_padded)
-    stream << std::setfill('0') << std::setw(sizeof(tcg_uintptr_t) * 2);
+    stream << std::setfill('0') << std::setw(sizeof(taddr_t) * 2);
   stream << std::hex << x;
   return stream.str();
 }

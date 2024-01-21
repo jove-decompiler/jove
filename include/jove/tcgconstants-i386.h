@@ -41,7 +41,7 @@ namespace jove {
 // I64 bnd3_ub
 //
 
-typedef uint32_t tcg_uintptr_t;
+typedef uint32_t taddr_t;
 constexpr int tcg_num_globals = 29;
 constexpr int tcg_max_temps = 512;
 constexpr int tcg_env_index = 1;
@@ -142,7 +142,7 @@ constexpr tcg_global_set_t PinnedEnvGlbs(0);
 // I32 bnd3_ub_1
 //
 
-typedef uint32_t tcg_uintptr_t;
+typedef uint32_t taddr_t;
 constexpr int tcg_num_globals = 37;
 constexpr int tcg_max_temps = 512;
 constexpr int tcg_env_index = 1;
