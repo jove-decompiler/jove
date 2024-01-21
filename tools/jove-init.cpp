@@ -153,8 +153,7 @@ int InitTool::add_loaded_objects(const fs::path &prog, const fs::path &rtld) {
   std::vector<std::string> binary_paths;
   parse_loaded_objects(rtld_stdout, binary_paths);
 
-  /* point of no return */
-  { ip_scoped_lock<ip_mutex> lck(jv.binaries_mtx); jv.clear(); }
+  jv.clear(); /* point of no return */
 
   //
   // make sure the rtld was found
