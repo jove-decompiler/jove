@@ -2,6 +2,7 @@
 #include "elf.h"
 #include "crypto.h"
 #include "fd.h"
+#include "serialize.h"
 
 #include <boost/filesystem.hpp>
 #include <boost/algorithm/string/predicate.hpp>

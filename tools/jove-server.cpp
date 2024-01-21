@@ -1,4 +1,5 @@
 #include "tool.h"
+#include "serialize.h"
 
 #include <boost/filesystem.hpp>
 

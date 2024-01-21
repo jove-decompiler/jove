@@ -21,6 +21,7 @@ static constexpr bool IsI386 =
 #include "util.h"
 #include "vdso.h"
 #include "symbolizer.h"
+#include "serialize.h"
 
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/algorithm/string.hpp>
