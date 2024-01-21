@@ -72,8 +72,8 @@ int InitTool::Run(void) {
     return 1;
   }
 
-  fs::path prog = fs::canonical(opts.Prog);
   fs::path rtld = fs::canonical(*maybe_rtld);
+  fs::path prog = fs::canonical(opts.Prog);
 
   return add_loaded_objects(opts.Prog, rtld);
 
