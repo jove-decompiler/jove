@@ -471,12 +471,7 @@ struct jv_t {
         f.InvalidateAnalysis();
   }
 
-  void clear(void) {
-    name_to_binaries.clear();
-    hash_to_binary.clear();
-    Binaries.clear();
-    cached_hashes.clear();
-  }
+  void clear(bool everything = false);
 
   jv_t(const ip_void_allocator_t &A)
       : Binaries(A), hash_to_binary(A), cached_hashes(A), name_to_binaries(A) {}

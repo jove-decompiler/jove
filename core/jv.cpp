@@ -152,4 +152,27 @@ std::pair<binary_index_t, bool> jv_t::AddFromDataWithHash(explorer_t &E,
   }
 }
 
+void jv_t::clear(bool everything) {
+  {
+    ip_scoped_lock<ip_mutex> lck(this->name_to_binaries_mtx);
+    name_to_binaries.clear();
+  }
+
+  {
+    ip_scoped_lock<ip_mutex> lck(this->hash_to_binary_mtx);
+    hash_to_binary.clear();
+  }
+
+  {
+    ip_scoped_lock<ip_mutex> lck(this->binaries_mtx);
+    Binaries.clear();
+  }
+
+  if (everything) {
+    ip_scoped_lock<ip_mutex> lck(this->cached_hashes_mtx);
+
+    cached_hashes.clear();
+  }
+}
+
 }
