@@ -12,28 +12,28 @@ void binary_t::Analysis_t::addSymDynTarget(const std::string &sym,
                                            dynamic_target_t X) {
   ip_string ips(Functions.get_allocator());
   to_ips(ips, sym);
-  typedef std::pair<const ip_string, ip_dynamic_target_set> map_value_type;
-  ip_dynamic_target_set Y(Functions.get_allocator());
-  Y.insert(X);
-  map_value_type z(ips, Y);
 
-  SymDynTargets.insert(z);
+  auto it = SymDynTargets.find(ips);
+  if (it == SymDynTargets.end())
+    it = SymDynTargets.emplace(ips, ip_dynamic_target_set(Functions.get_allocator())).first;
+
+  (*it).second.insert(X);
 }
 
 void binary_t::Analysis_t::addRelocDynTarget(uint64_t A, dynamic_target_t X) {
-  typedef std::pair<const uint64_t, ip_dynamic_target_set> map_value_type;
-  ip_dynamic_target_set Y(Functions.get_allocator());
-  Y.insert(X);
-  map_value_type z(A, Y);
-  RelocDynTargets.insert(z);
+  auto it = RelocDynTargets.find(A);
+  if (it == RelocDynTargets.end())
+    it = RelocDynTargets.emplace(A, ip_dynamic_target_set(Functions.get_allocator())).first;
+
+  (*it).second.insert(X);
 }
 
 void binary_t::Analysis_t::addIFuncDynTarget(uint64_t A, dynamic_target_t X) {
-  typedef std::pair<const uint64_t, ip_dynamic_target_set> map_value_type;
-  ip_dynamic_target_set Y(Functions.get_allocator());
-  Y.insert(X);
-  map_value_type z(A, Y);
-  IFuncDynTargets.insert(z);
+  auto it = IFuncDynTargets.find(A);
+  if (it == IFuncDynTargets.end())
+    it = IFuncDynTargets.emplace(A, ip_dynamic_target_set(Functions.get_allocator())).first;
+
+  (*it).second.insert(X);
 }
 
 }

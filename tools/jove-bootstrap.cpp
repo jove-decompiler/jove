@@ -3206,16 +3206,6 @@ void BootstrapTool::harvest_global_GOT_entries(pid_t child) {
       if (!ExpectedSymName)
         continue;
 
-      llvm::StringRef SymName = *ExpectedSymName;
-
-      ip_string tmp(Alloc);
-      ip_dynamic_target_set &SymDynTargets =
-          (*b.Analysis.SymDynTargets
-                .insert(std::make_pair(to_ips(tmp, SymName.str()),
-                                       ip_dynamic_target_set(Alloc))).first).second;
-      if (!SymDynTargets.empty())
-        continue;
-
       if (IsVerbose())
         HumanOut() << llvm::formatv("{0}: GlobalEntry: {1}\n", __func__, SymName);
 
@@ -3239,8 +3229,9 @@ void BootstrapTool::harvest_global_GOT_entries(pid_t child) {
       Resolved.Addr &= ~1UL;
 #endif
 
-      auto it = AddressSpace.find(Resolved.Addr);
-      if (it == AddressSpace.end()) {
+      std::tie(Resolved.BIdx, Resolved.FIdx) = function_at_program_counter(child, Resolved.Addr);
+
+      if (!is_function_index_valid(Resolved.FIdx)) {
         if (IsVerbose())
           HumanOut()
               << llvm::formatv("{0}: unknown binary for {1}\n", __func__,
@@ -3249,27 +3240,9 @@ void BootstrapTool::harvest_global_GOT_entries(pid_t child) {
         continue;
       }
 
-      Resolved.BIdx = -1+(*it).second;
-      binary_t &ResolvedBinary = jv.Binaries.at(Resolved.BIdx);
-
-      unsigned brkpt_count = 0;
-      basic_block_index_t resolved_bbidx = E->explore_basic_block(
-          ResolvedBinary, *state.for_binary(ResolvedBinary).ObjectFile,
-          rva_of_va(Resolved.Addr, Resolved.BIdx),
-          state.for_binary(ResolvedBinary).fnmap,
-          state.for_binary(ResolvedBinary).bbmap);
-
-      if (!is_basic_block_index_valid(resolved_bbidx))
-        continue;
-
-      Resolved.FIdx = E->explore_function(
-          ResolvedBinary, *state.for_binary(ResolvedBinary).ObjectFile,
-          rva_of_va(Resolved.Addr, Resolved.BIdx),
-          state.for_binary(ResolvedBinary).fnmap,
-          state.for_binary(ResolvedBinary).bbmap);
-      if (is_function_index_valid(Resolved.FIdx)) {
-        SymDynTargets.insert({Resolved.BIdx, Resolved.FIdx});
-      }
+      llvm::StringRef SymName = *ExpectedSymName;
+      if (is_function_index_valid(Resolved.FIdx))
+        b.Analysis.addSymDynTarget(SymName.str(), std::make_pair(Resolved.BIdx, Resolved.FIdx));
     }
   }
 }
