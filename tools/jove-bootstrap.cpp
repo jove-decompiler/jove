@@ -1327,7 +1327,6 @@ int BootstrapTool::TracerLoop(pid_t child) {
 
               basic_block_t succ = boost::target(cf, ICFG);
 
-              unsigned brkpt_count = 0;
               function_index_t FIdx = E->explore_function(
                   b, *state.for_binary(b).ObjectFile,
                   ICFG[succ].Addr,
@@ -1335,8 +1334,6 @@ int BootstrapTool::TracerLoop(pid_t child) {
                   state.for_binary(b).bbmap);
               assert(is_function_index_valid(FIdx));
               ICFG[bb].insertDynTarget({BIdx, FIdx}, Alloc);
-
-              (void)brkpt_count;
             }
 
             boost::clear_out_edges(bb, ICFG);
@@ -2904,31 +2901,19 @@ void BootstrapTool::harvest_irelative_reloc_targets(pid_t child) {
       return;
     }
 
-    auto it = AddressSpace.find(Resolved.Addr);
-    if (it == AddressSpace.end()) {
-      if (IsVerbose())
-        HumanOut()
-            << llvm::formatv("{0}: unknown binary for {1}: R.Offset={2:x}\n",
-                             "harvest_irelative_reloc_targets",
-                             description_of_program_counter(Resolved.Addr, true),
-                             R.Offset);
-      return;
-    }
+#if defined(__mips64) || defined(__mips__)
+    Resolved.Addr &= ~1UL;
+#endif
 
-    Resolved.BIdx = -1+(*it).second;
+    if (!Resolved.Addr)
+      return;
+
+    std::tie(Resolved.BIdx, Resolved.FIdx) = function_at_program_counter(child, Resolved.Addr);
 
     if (IsVerbose())
       HumanOut() << llvm::formatv("IFunc dyn target: {0:x} [R.Offset={1:x}]\n",
                                   rva_of_va(Resolved.Addr, Resolved.BIdx),
                                   R.Offset);
-
-    binary_t &ResolvedBinary = jv.Binaries[Resolved.BIdx];
-
-    Resolved.FIdx = E->explore_function(
-        ResolvedBinary, *state.for_binary(ResolvedBinary).ObjectFile,
-        rva_of_va(Resolved.Addr, Resolved.BIdx),
-        state.for_binary(ResolvedBinary).fnmap,
-        state.for_binary(ResolvedBinary).bbmap);
 
     if (is_function_index_valid(Resolved.FIdx)) {
       if (R.Addend)
@@ -3009,30 +2994,17 @@ void BootstrapTool::harvest_addressof_reloc_targets(pid_t child) {
         return;
       }
 
-      auto it = AddressSpace.find(Resolved.Addr);
-      if (it == AddressSpace.end()) {
-        if (IsVerbose())
-          HumanOut()
-              << llvm::formatv("{0}: unknown binary for {1}\n",
-                               "harvest_addressof_reloc_targets",
-                               description_of_program_counter(Resolved.Addr, true));
+#if defined(__mips64) || defined(__mips__)
+      Resolved.Addr &= ~1UL;
+#endif
 
-        return;
-      }
-
-      Resolved.BIdx = -1+(*it).second;
-
-      if (Resolved.BIdx == BIdx) /* _dl_fixup... */
+      if (!Resolved.Addr)
         return;
 
-      binary_t &ResolvedBinary = jv.Binaries[Resolved.BIdx];
+      std::tie(Resolved.BIdx, Resolved.FIdx) = function_at_program_counter(child, Resolved.Addr);
 
-      unsigned brkpt_count = 0;
-      Resolved.FIdx = E->explore_function(
-          ResolvedBinary, *state.for_binary(ResolvedBinary).ObjectFile,
-          rva_of_va(Resolved.Addr, Resolved.BIdx),
-          state.for_binary(ResolvedBinary).fnmap,
-          state.for_binary(ResolvedBinary).bbmap);
+      if (Resolved.BIdx == BIdx) /* FIXME? _dl_fixup... */
+        return;
 
       if (is_function_index_valid(Resolved.FIdx)) {
         b.Analysis.addSymDynTarget(RelSym.Name, {Resolved.BIdx, Resolved.FIdx});
@@ -3079,8 +3051,6 @@ void BootstrapTool::harvest_ctor_and_dtors(pid_t child) {
     if (!BinFoundVec[BIdx])
       continue;
 
-    unsigned brkpt_count = 0;
-
     std::unique_ptr<obj::Binary> &ObjectFile = state.for_binary(Binary).ObjectFile;
 
     assert(ObjectFile.get());
@@ -3121,18 +3091,19 @@ void BootstrapTool::harvest_ctor_and_dtors(pid_t child) {
 
             uintptr_t Proc = _ptrace_peekdata(child, va_of_rva(rva, BIdx));
 
-            auto it = AddressSpace.find(Proc);
-            if (it != AddressSpace.end() &&
-                -1+(*it).second == BIdx) {
-              function_index_t FIdx = E->explore_function(
-                  Binary, *state.for_binary(Binary).ObjectFile,
-                  rva_of_va(Proc, BIdx),
-                  state.for_binary(Binary).fnmap,
-                  state.for_binary(Binary).bbmap);
+#if defined(__mips64) || defined(__mips__)
+            Proc &= ~1UL;
+#endif
 
-              if (is_function_index_valid(FIdx))
-                Binary.Analysis.Functions[FIdx].IsABI = true; /* it is an ABI */
-            }
+            if (!Proc)
+              continue;
+
+            binary_index_t _BIdx;
+            function_index_t FIdx;
+            std::tie(_BIdx, FIdx) = function_at_program_counter(child, Proc);
+
+            if (is_function_index_valid(FIdx))
+              jv.Binaries.at(_BIdx).Analysis.Functions.at(FIdx).IsABI = true;
           } catch (const std::exception &e) {
             if (IsVerbose())
               HumanOut()
@@ -3140,13 +3111,6 @@ void BootstrapTool::harvest_ctor_and_dtors(pid_t child) {
           }
         }
       }
-    }
-
-    if (brkpt_count > 0) {
-      HumanOut() << llvm::formatv("placed {0} breakpoint{1} in {2}\n",
-                                  brkpt_count,
-                                  brkpt_count > 1 ? "s" : "",
-                                  Binary.path_str());
     }
   }
 }
@@ -3163,8 +3127,6 @@ void BootstrapTool::harvest_global_GOT_entries(pid_t child) {
 
     if (!state.for_binary(b)._elf.OptionalDynSymRegion)
       continue;
-
-    unsigned brkpt_count = 0;
 
     std::unique_ptr<obj::Binary> &ObjectFile = state.for_binary(b).ObjectFile;
 
