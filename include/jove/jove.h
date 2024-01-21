@@ -344,6 +344,13 @@ typedef boost::interprocess::allocator<function_t, segment_manager_t>
 typedef boost::interprocess::vector<function_t, function_allocator>
     function_vector;
 
+#define DEFINE_INTERPROCESS_MAP(name, key, value)                              \
+  boost::interprocess::map<                                                    \
+      key, value, std::less<key>,                                              \
+      boost::interprocess::allocator<std::pair<const key, value>,              \
+                                     segment_manager_t>>                       \
+      name
+
 struct binary_t {
   ip_string Name;
   ip_string Data;
@@ -360,73 +367,22 @@ struct binary_t {
     function_vector Functions;
     interprocedural_control_flow_graph_t ICFG;
 
-    boost::interprocess::map<
-        uint64_t,
-        ip_dynamic_target_set,
-        std::less<uint64_t>,
-        boost::interprocess::allocator<
-            std::pair<const uint64_t, ip_dynamic_target_set>,
-            segment_manager_t>>
-        IFuncDynTargets;
+    DEFINE_INTERPROCESS_MAP(IFuncDynTargets, uint64_t, ip_dynamic_target_set);
+    DEFINE_INTERPROCESS_MAP(RelocDynTargets, uint64_t, ip_dynamic_target_set);
+    DEFINE_INTERPROCESS_MAP(SymDynTargets, ip_string, ip_dynamic_target_set);
 
-    boost::interprocess::map<
-        uint64_t,
-        ip_dynamic_target_set,
-        std::less<uint64_t>,
-        boost::interprocess::allocator<
-            std::pair<const uint64_t, ip_dynamic_target_set>,
-            segment_manager_t>>
-        RelocDynTargets;
-
-    boost::interprocess::map<
-        ip_string,
-        ip_dynamic_target_set,
-        std::less<ip_string>,
-        boost::interprocess::allocator<
-            std::pair<const ip_string, ip_dynamic_target_set>,
-            segment_manager_t>>
-        SymDynTargets;
-
-    Analysis_t(const ip_void_allocator_t &Alloc)
-        : Functions(Alloc), ICFG(icfg_t::graph_property_type(), Alloc),
-          IFuncDynTargets(Alloc), RelocDynTargets(Alloc), SymDynTargets(Alloc) {
-    }
+    Analysis_t(const ip_void_allocator_t &A)
+        : Functions(A), ICFG(icfg_t::graph_property_type(), A),
+          IFuncDynTargets(A), RelocDynTargets(A), SymDynTargets(A) {}
 
     Analysis_t() = delete;
 
-    void addSymDynTarget(const std::string &sym, dynamic_target_t X) {
-        ip_string ips(Functions.get_allocator());
-        to_ips(ips, sym);
-        typedef std::pair<const ip_string, ip_dynamic_target_set> map_value_type;
-        ip_dynamic_target_set Y(Functions.get_allocator());
-        Y.insert(X);
-        map_value_type z(ips, Y);
-
-        SymDynTargets.insert(z);
-    }
-
-    void addRelocDynTarget(uint64_t A, dynamic_target_t X) {
-        typedef std::pair<const uint64_t, ip_dynamic_target_set> map_value_type;
-        ip_dynamic_target_set Y(Functions.get_allocator());
-        Y.insert(X);
-        map_value_type z(A, Y);
-        RelocDynTargets.insert(z);
-    }
-
-    void addIFuncDynTarget(uint64_t A, dynamic_target_t X) {
-        typedef std::pair<const uint64_t, ip_dynamic_target_set> map_value_type;
-        ip_dynamic_target_set Y(Functions.get_allocator());
-        Y.insert(X);
-        map_value_type z(A, Y);
-        IFuncDynTargets.insert(z);
-    }
+    void addSymDynTarget(const std::string &sym, dynamic_target_t X);
+    void addRelocDynTarget(uint64_t A, dynamic_target_t X);
+    void addIFuncDynTarget(uint64_t A, dynamic_target_t X);
   } Analysis;
 
-  void InvalidateBasicBlockAnalyses(void) {
-    auto it_pair = boost::vertices(Analysis.ICFG);
-    for (auto it = it_pair.first; it != it_pair.second; ++it)
-      Analysis.ICFG[*it].InvalidateAnalysis();
-  }
+  void InvalidateBasicBlockAnalyses(void);
 
   std::string_view data(void) const {
     return std::string_view(Data.data(), Data.size());
@@ -459,6 +415,8 @@ struct binary_t {
   binary_t(const ip_void_allocator_t &A) : Name(A), Data(A), Analysis(A) {}
   binary_t() = delete;
 };
+
+#undef DEFINE_INTERPROCESS_MAP
 
 typedef boost::interprocess::allocator<binary_t, segment_manager_t>
     ip_binary_allocator;

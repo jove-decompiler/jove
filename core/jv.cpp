@@ -149,5 +149,4 @@ std::pair<binary_index_t, bool> jv_t::AddFromDataWithHash(explorer_t &E,
   }
 }
 
-
 }
