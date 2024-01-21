@@ -54,6 +54,7 @@ function(tool_for_arch arch arch_extra_cflags qemu_objs)
     ../core/fd.cpp
     ../core/hash.cpp
     ../core/ida.cpp
+    ../core/jv.cpp
     ../core/locator.cpp
     ../core/process.cpp
     ../core/recovery.cpp
