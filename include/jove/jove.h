@@ -1,4 +1,21 @@
 #pragma once
+#if defined(TARGET_AARCH64)
+#include <jove/tcgconstants-aarch64.h>
+#elif defined(TARGET_X86_64)
+#include <jove/tcgconstants-x86_64.h>
+#elif defined(TARGET_I386)
+#include <jove/tcgconstants-i386.h>
+#elif defined(TARGET_MIPS64)
+#include <jove/tcgconstants-mips64el.h>
+#elif defined(TARGET_MIPSEL)
+#include <jove/tcgconstants-mipsel.h>
+#elif defined(TARGET_MIPS)
+#include <jove/tcgconstants-mips.h>
+#define TARGET_WORDS_BIGENDIAN
+#else
+#error "unknown target"
+#endif
+
 #ifdef __cplusplus
 #include "jove/macros.h"
 #include "jove/types.h"
@@ -28,26 +45,6 @@
 #include <string_view>
 #include <tuple>
 #include <vector>
-#endif /* __cplusplus */
-
-#if defined(TARGET_AARCH64)
-#include <jove/tcgconstants-aarch64.h>
-#elif defined(TARGET_X86_64)
-#include <jove/tcgconstants-x86_64.h>
-#elif defined(TARGET_I386)
-#include <jove/tcgconstants-i386.h>
-#elif defined(TARGET_MIPS64)
-#include <jove/tcgconstants-mips64el.h>
-#elif defined(TARGET_MIPSEL)
-#include <jove/tcgconstants-mipsel.h>
-#elif defined(TARGET_MIPS)
-#include <jove/tcgconstants-mips.h>
-#define TARGET_WORDS_BIGENDIAN
-#else
-#error "unknown target"
-#endif
-
-#ifdef __cplusplus
 
 namespace jove {
 
