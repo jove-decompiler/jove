@@ -1,4 +1,5 @@
 #include "tool.h"
+#include "hash.h"
 
 #include <llvm/Support/CommandLine.h>
 #include <llvm/Support/DataTypes.h>

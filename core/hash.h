@@ -1,4 +1,6 @@
 #pragma once
+#include "jove/types.h"
+
 #include <string>
 #include <string_view>
 
