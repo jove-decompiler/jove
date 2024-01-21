@@ -570,6 +570,8 @@ static inline const char *string_of_terminator(TERMINATOR TermTy) {
   case TERMINATOR::NONE:
     return "NONE";
   }
+
+  return "";
 }
 
 static inline const char *description_of_terminator(TERMINATOR TermTy) {
@@ -593,6 +595,8 @@ static inline const char *description_of_terminator(TERMINATOR TermTy) {
   case TERMINATOR::NONE:
     return "<none>";
   }
+
+  return "";
 }
 
 static inline std::string
