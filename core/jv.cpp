@@ -78,7 +78,8 @@ binary_index_t jv_t::LookupWithHash(hash_t h) {
   return (*it).second;
 }
 
-std::pair<binary_index_t, bool> jv_t::AddFromPath(explorer_t &E, const char *path) {
+std::pair<binary_index_t, bool> jv_t::AddFromPath(explorer_t &E,
+                                                  const char *path) {
   assert(path);
 
   fs::path the_path = fs::canonical(path);
