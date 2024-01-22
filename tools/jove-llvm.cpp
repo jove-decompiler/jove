@@ -6476,7 +6476,7 @@ int LLVMTool::DoOptimize(void) {
                                   &DebugInfoBeforePass));
 #endif
 
-  const llvm::StringRef PassPipeline = "default<Oz>";
+  const llvm::StringRef PassPipeline = "default<O3>";
   if (auto Err = PB.parsePassPipeline(MPM, PassPipeline)) {
     WithColor::error() << llvm::toString(std::move(Err)) << "\n";
     return false;
