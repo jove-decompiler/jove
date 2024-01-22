@@ -6920,6 +6920,10 @@ int LLVMTool::WriteVersionScript(void) {
 }
 
 int LLVMTool::InlineHelpers(void) {
+  //
+  // TODO forcefully inline helpers to get rid of 'alloca %struct.CPUArchState'
+  // wherever necessary
+  //
   if (!opts.InlineHelpers)
     return 0;
 
