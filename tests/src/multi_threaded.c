@@ -32,8 +32,10 @@ static void *thread_start(void *arg) {
   struct thread_info *tinfo = arg;
   char *uargv;
 
+#if 0
   printf("Thread %d: top of stack near %p; argv_string=%s\n", tinfo->thread_num,
          (void *)&tinfo, tinfo->argv_string);
+#endif
 
   uargv = strdup(tinfo->argv_string);
   if (uargv == NULL)
