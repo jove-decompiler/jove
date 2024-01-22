@@ -2320,7 +2320,7 @@ int LLVMTool::Run(void) {
       || CreateCopyRelocationHack()
       || TranslateFunctions()
       || InternalizeSections()
-      || (opts.InlineHelpers ? InlineHelpers() : 0)
+      || InlineHelpers()
       || (opts.ForCBE ? PrepareForCBE() : 0)
       || (opts.DumpPreOpt1 ? (RenameFunctionLocals(), DumpModule("pre.opt"), 1) : 0)
       || ((opts.Optimize || opts.ForCBE) ? DoOptimize() : 0)
@@ -6916,27 +6916,23 @@ int LLVMTool::WriteVersionScript(void) {
 }
 
 int LLVMTool::InlineHelpers(void) {
-  //
-  // TODO forcefully inline helpers to get rid of 'alloca %struct.CPUArchState'
-  // wherever necessary
-  //
-  if (!opts.InlineHelpers)
+  if (!opts.Optimize && !opts.InlineHelpers)
     return 0;
 
-  std::set<llvm::CallInst *> calls;
-
   for (const auto &pair : HelperFuncMap) {
+    const helper_function_t &hf = pair.second;
+    if (hf.EnvArgNo < 0 || !hf.Analysis.Simple)
+      continue;
+
     llvm::Function *F = pair.second.F;
 
-    for (llvm::User *HelperFU : F->users()) {
-      if (llvm::CallInst *CI = llvm::dyn_cast<llvm::CallInst>(HelperFU))
-        calls.insert(CI);
-    }
-  }
+    for (llvm::User *HelperFU : llvm::make_early_inc_range(F->users())) {
+      if (!llvm::isa<llvm::CallInst>(HelperFU))
+        continue;
 
-  for (llvm::CallInst *CI : calls) {
-    llvm::InlineFunctionInfo IFI;
-    llvm::InlineFunction(*CI, IFI);
+      llvm::InlineFunctionInfo IFI;
+      llvm::InlineFunction(*llvm::cast<llvm::CallInst>(HelperFU), IFI);
+    }
   }
 
   return 0;
