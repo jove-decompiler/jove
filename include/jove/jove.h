@@ -80,8 +80,18 @@ typedef std::pair<binary_index_t, function_index_t> dynamic_target_t;
 typedef std::pair<taddr_t, unsigned> addr_intvl; /* right open interval */
 
 struct addr_intvl_cmp {
+  typedef void is_transparent;
+
   bool operator()(const addr_intvl &lhs, const addr_intvl &rhs) const {
     return lhs.first < rhs.first;
+  }
+
+  bool operator()(const addr_intvl &lhs, taddr_t rhs) const {
+    return lhs.first < rhs;
+  }
+
+  bool operator()(taddr_t lhs, const addr_intvl &rhs) const {
+    return lhs < rhs.first;
   }
 };
 
@@ -707,7 +717,7 @@ static inline bool addr_intvl_disjoint(addr_intvl x, addr_intvl y) {
     if (unlikely(bbmap.empty()))                                               \
       return bbmap.end();                                                      \
                                                                                \
-    bbmap_t::iterator_or_const_iterator it = bbmap.upper_bound(intvl);         \
+    bbmap_t::iterator_or_const_iterator it = bbmap.upper_bound(intvl.first);   \
                                                                                \
     if (it != bbmap.end() && addr_intvl_intersects((*it).first, intvl))        \
       return it;                                                               \
