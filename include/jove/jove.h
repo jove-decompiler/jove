@@ -77,7 +77,15 @@ typedef uint32_t basic_block_index_t;
 
 typedef std::pair<binary_index_t, function_index_t> dynamic_target_t;
 
-typedef boost::icl::split_interval_map<uint64_t, basic_block_index_t> bbmap_t;
+typedef std::pair<taddr_t, unsigned> addr_intvl; /* right open interval */
+
+struct addr_intvl_cmp {
+  bool operator()(const addr_intvl &lhs, const addr_intvl &rhs) const {
+    return lhs.first < rhs.first;
+  }
+};
+
+typedef boost::container::map<addr_intvl, basic_block_index_t, addr_intvl_cmp> bbmap_t;
 typedef std::unordered_map<uint64_t, function_index_t> fnmap_t;
 
 constexpr binary_index_t
@@ -658,6 +666,88 @@ static inline void for_each_if(Iter first, Iter last, Pred p, Op op) {
   }
 }
 
+static inline std::string addr_intvl2str(addr_intvl intvl) {
+  return "[" + taddr2str(intvl.first, false) + ", " + taddr2str(intvl.first + intvl.second, false) + ")";
+}
+
+static inline addr_intvl right_open_addr_intvl(taddr_t Addr, taddr_t End) {
+  assert(End > Addr);
+  return addr_intvl(Addr, End - Addr);
+}
+
+static inline taddr_t addr_intvl_lower(addr_intvl intvl) {
+  return intvl.first;
+}
+
+static inline taddr_t addr_intvl_upper(addr_intvl intvl) {
+  return intvl.first + intvl.second;
+}
+
+static inline bool addr_intvl_contains(addr_intvl &intvl, taddr_t Addr) {
+  return Addr >= intvl.first && Addr < intvl.first + intvl.second;
+}
+
+static inline bool addr_intvl_intersects(addr_intvl x, addr_intvl y) {
+  taddr_t a = addr_intvl_lower(x), b = addr_intvl_upper(x);
+  taddr_t c = addr_intvl_lower(y), d = addr_intvl_upper(y);
+
+  if (b <= c || d <= a)
+    return false;
+
+  return true;
+}
+
+static inline bool addr_intvl_disjoint(addr_intvl x, addr_intvl y) {
+  return !addr_intvl_intersects(x, y);
+}
+
+#define DEFINE_bbmap_find(const_or_empty, iterator_or_const_iterator)          \
+  static inline bbmap_t::iterator_or_const_iterator bbmap_find(                \
+      const_or_empty bbmap_t &bbmap, addr_intvl intvl) {                       \
+    if (unlikely(bbmap.empty()))                                               \
+      return bbmap.end();                                                      \
+                                                                               \
+    bbmap_t::iterator_or_const_iterator it = bbmap.upper_bound(intvl);         \
+                                                                               \
+    if (it != bbmap.end() && addr_intvl_intersects((*it).first, intvl))        \
+      return it;                                                               \
+                                                                               \
+    --it;                                                                      \
+                                                                               \
+    if (it != bbmap.end() && addr_intvl_intersects((*it).first, intvl))        \
+      return it;                                                               \
+                                                                               \
+    return bbmap.end();                                                        \
+  }                                                                            \
+                                                                               \
+  static inline bbmap_t::iterator_or_const_iterator bbmap_find(                \
+      const_or_empty bbmap_t &bbmap, taddr_t Addr) {                           \
+    return bbmap_find(bbmap, addr_intvl(Addr, 1u));                            \
+  }
+
+DEFINE_bbmap_find(,iterator)
+DEFINE_bbmap_find(const,const_iterator)
+
+static inline bool bbmap_contains(const bbmap_t &bbmap, addr_intvl intvl) {
+  return bbmap_find(bbmap, intvl) != bbmap.end();
+}
+
+static inline bool bbmap_contains(const bbmap_t &bbmap, taddr_t Addr) {
+  return bbmap_contains(bbmap, addr_intvl(Addr, 1u));
+}
+
+static inline bbmap_t::iterator bbmap_add(bbmap_t &bbmap,
+                                          addr_intvl intvl,
+                                          binary_index_t BIdx) {
+  bbmap_t::iterator it;
+  bool success;
+  std::tie(it, success) = bbmap.emplace(intvl, BIdx);
+
+  assert(success);
+
+  return it;
+}
+
 static inline void for_each_binary(jv_t &jv,
                                    std::function<void(binary_t &)> proc) {
   std::for_each(jv.Binaries.begin(),
@@ -919,12 +1009,12 @@ static inline basic_block_t index_of_basic_block_at_address(uint64_t Addr,
                                                             const bbmap_t &bbmap) {
   assert(Addr);
 
-  auto it = bbmap.find(Addr);
+  auto it = bbmap_find(bbmap, Addr);
   if (it == bbmap.end())
     throw std::runtime_error(std::string(__func__) + ": no block for address " +
                              taddr2str(Addr) + " in " + binary.path_str() + "!");
 
-  return -1+(*it).second;
+  return (*it).second;
 }
 
 static inline basic_block_t basic_block_at_address(uint64_t Addr,
@@ -938,7 +1028,7 @@ static inline bool exists_basic_block_at_address(uint64_t Addr,
                                                  const bbmap_t &bbmap) {
   assert(Addr);
 
-  return bbmap.find(Addr) != bbmap.end();
+  return bbmap_contains(bbmap, Addr);
 }
 
 // NOTE: this function excludes tail calls.
@@ -974,12 +1064,8 @@ static inline void construct_bbmap(jv_t &jv,
   for_each_basic_block_in_binary(jv, binary, [&](basic_block_t bb) {
     const auto &bbprop = ICFG[bb];
 
-    boost::icl::interval<uint64_t>::type intervl =
-        boost::icl::interval<uint64_t>::right_open(bbprop.Addr,
-                                                   bbprop.Addr + bbprop.Size);
-    assert(out.find(intervl) == out.end());
-
-    out.add({intervl, 1+index_of_basic_block(ICFG, bb)});
+    bbmap_add(out, addr_intvl(bbprop.Addr, bbprop.Size),
+              index_of_basic_block(ICFG, bb));
   });
 }
 

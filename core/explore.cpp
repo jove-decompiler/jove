@@ -78,9 +78,9 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
   // basic block?
   //
   {
-    auto it = bbmap.find(Addr);
+    auto it = bbmap_find(bbmap, Addr);
     if (it != bbmap.end()) {
-      const basic_block_index_t BBIdx = -1+(*it).second;
+      const basic_block_index_t BBIdx = (*it).second;
       basic_block_t bb = basic_block_of_index(BBIdx, ICFG);
 
       assert(BBIdx < boost::num_vertices(ICFG));
@@ -88,7 +88,7 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
       uintptr_t beg = ICFG[bb].Addr;
 
       if (Addr == beg) {
-        assert(ICFG[bb].Addr == (*it).first.lower());
+        assert(ICFG[bb].Addr == addr_intvl_lower((*it).first));
         return BBIdx;
       }
 
@@ -154,7 +154,7 @@ on_insn_boundary:
       ptrdiff_t off = Addr - beg;
       assert(off > 0);
 
-      boost::icl::interval<uint64_t>::type orig_intervl = (*it).first;
+      addr_intvl orig_intervl = (*it).first;
 
       const basic_block_index_t NewBBIdx = boost::num_vertices(ICFG);
       basic_block_t newbb = boost::add_vertex(ICFG, jv.Binaries.get_allocator());
@@ -182,7 +182,7 @@ on_insn_boundary:
       ICFG[newbb].Addr = Addr;
       ICFG[newbb].Size -= off;
 
-      assert(ICFG[newbb].Addr + ICFG[newbb].Size == orig_intervl.upper());
+      assert(ICFG[newbb].Addr + ICFG[newbb].Size == addr_intvl_upper(orig_intervl));
 
       boost::clear_out_edges(bb, ICFG);
       boost::add_edge(bb, newbb, ICFG);
@@ -194,36 +194,31 @@ on_insn_boundary:
       assert(ICFG[bb].Term.Type == TERMINATOR::NONE);
       assert(boost::out_degree(bb, ICFG) == 1);
 
-      boost::icl::interval<uint64_t>::type intervl1 =
-          boost::icl::interval<uint64_t>::right_open(
-              ICFG[bb].Addr, ICFG[bb].Addr + ICFG[bb].Size);
+      addr_intvl intervl1(ICFG[bb].Addr, ICFG[bb].Size);
+      addr_intvl intervl2(ICFG[newbb].Addr, ICFG[newbb].Size);
 
-      boost::icl::interval<uint64_t>::type intervl2 =
-          boost::icl::interval<uint64_t>::right_open(
-              ICFG[newbb].Addr, ICFG[newbb].Addr + ICFG[newbb].Size);
+      assert(addr_intvl_disjoint(intervl1, intervl2));
 
-      assert(boost::icl::disjoint(intervl1, intervl2));
+      const unsigned sav_bbmap_size = bbmap.size();
+      bbmap.erase(it);
+      assert(bbmap.size() == sav_bbmap_size - 1);
 
-      unsigned n = bbmap.iterative_size();
-      bbmap.erase((*it).first);
-      assert(bbmap.iterative_size() == n - 1);
+      assert(bbmap_find(bbmap, intervl1) == bbmap.end());
+      assert(bbmap_find(bbmap, intervl2) == bbmap.end());
 
-      assert(bbmap.find(intervl1) == bbmap.end());
-      assert(bbmap.find(intervl2) == bbmap.end());
-
-      bbmap.add({intervl1, 1+BBIdx});
-      bbmap.add({intervl2, 1+NewBBIdx});
+      bbmap_add(bbmap, intervl1, BBIdx);
+      bbmap_add(bbmap, intervl2, NewBBIdx);
 
       {
-        auto _it = bbmap.find(intervl1);
+        auto _it = bbmap_find(bbmap, intervl1);
         assert(_it != bbmap.end());
-        assert((*_it).second == 1+BBIdx);
+        assert((*_it).second == BBIdx);
       }
 
       {
-        auto _it = bbmap.find(intervl2);
+        auto _it = bbmap_find(bbmap, intervl2);
         assert(_it != bbmap.end());
-        assert((*_it).second == 1+NewBBIdx);
+        assert((*_it).second == NewBBIdx);
       }
 
       return NewBBIdx;
@@ -241,22 +236,21 @@ on_insn_boundary:
     Size += size;
 
     {
-      boost::icl::interval<uint64_t>::type intervl =
-          boost::icl::interval<uint64_t>::right_open(Addr, Addr + Size);
-      auto it = bbmap.find(intervl);
+      addr_intvl intervl(Addr, Size);
+      auto it = bbmap_find(bbmap, intervl);
       if (it != bbmap.end()) {
-        const boost::icl::interval<uint64_t>::type &_intervl = (*it).first;
+        addr_intvl _intervl = (*it).first;
 
-        assert(intervl.lower() < _intervl.lower());
+        assert(addr_intvl_lower(intervl) < addr_intvl_lower(_intervl));
 
         //
         // solution here is to prematurely end the basic block with a NONE
         // terminator, and with a next_insn address of _intervl.lower()
         //
-        Size = _intervl.lower() - intervl.lower();
+        Size = addr_intvl_lower(_intervl) - addr_intvl_lower(intervl);
         T.Type = TERMINATOR::NONE;
         T.Addr = 0; /* XXX? */
-        T._none.NextPC = _intervl.lower();
+        T._none.NextPC = addr_intvl_lower(_intervl);
         break;
       }
     }
@@ -310,11 +304,9 @@ on_insn_boundary:
     bbprop.Term._return.Returns = false;
     bbprop.InvalidateAnalysis();
 
-    boost::icl::interval<uint64_t>::type intervl =
-        boost::icl::interval<uint64_t>::right_open(bbprop.Addr,
-                                                   bbprop.Addr + bbprop.Size);
-    assert(bbmap.find(intervl) == bbmap.end());
-    bbmap.add({intervl, 1+BBIdx});
+    addr_intvl intervl(bbprop.Addr, bbprop.Size);
+    assert(bbmap_find(bbmap, intervl) == bbmap.end());
+    bbmap_add(bbmap, intervl, BBIdx);
   }
 
   //
@@ -453,14 +445,14 @@ void explorer_t::_explore_the_rest(binary_t &b,
     const uint64_t TermAddr = calls_to_process.back();
     calls_to_process.resize(calls_to_process.size() - 1);
 
-    auto it = bbmap.find(TermAddr);
+    auto it = bbmap_find(bbmap, TermAddr);
     if (it == bbmap.end()) {
       llvm::WithColor::warning() << llvm::formatv(
           "explore_basic_block: BUG ({0:x})\n", TermAddr);
       continue;
     }
 
-    const basic_block_index_t BBIdx = -1+(*it).second;
+    const basic_block_index_t BBIdx = (*it).second;
     assert(BBIdx < boost::num_vertices(ICFG));
 
     basic_block_t bb = basic_block_of_index(BBIdx, ICFG);

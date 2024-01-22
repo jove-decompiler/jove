@@ -4339,7 +4339,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
     auto it = SectIdxMap.find(Addr);
     assert(it != SectIdxMap.end());
 
-    section_t &Sect = SectTable[(*it).second - 1];
+    section_t &Sect = SectTable[-1+(*it).second];
     unsigned Off = Addr - Sect.Addr;
 
     Sect.Stuff.Intervals.insert(boost::icl::interval<uint64_t>::right_open(
@@ -4351,7 +4351,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
     auto it = SectIdxMap.find(Addr);
     assert(it != SectIdxMap.end());
 
-    section_t &Sect = SectTable[(*it).second - 1];
+    section_t &Sect = SectTable[-1+(*it).second];
     unsigned Off = Addr - Sect.Addr;
 
 #if 0

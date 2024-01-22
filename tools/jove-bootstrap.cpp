@@ -4450,11 +4450,11 @@ BootstrapTool::existing_block_at_program_counter(pid_t child, uintptr_t pc) {
   auto &bbmap = state.for_binary(binary).bbmap;
   uintptr_t rva = rva_of_va(pc, BIdx);
 
-  auto it = bbmap.find(rva);
+  auto it = bbmap_find(bbmap, rva);
   if (it == bbmap.end())
     return std::make_pair(BIdx, invalid_basic_block_index);
 
-  basic_block_index_t BBIdx = -1+(*it).second;
+  basic_block_index_t BBIdx = (*it).second;
 
   return std::make_pair(BIdx, BBIdx);
 }
