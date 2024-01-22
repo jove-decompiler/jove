@@ -17,23 +17,9 @@ namespace obj = llvm::object;
 
 namespace jove {
 
-namespace {
-
-struct binary_state_t {
-  bbmap_t bbmap;
-  fnmap_t fnmap;
-};
-
-}
-
 #include "relocs_common.hpp"
 
 void jv_t::DoAdd(binary_t &b, explorer_t &E) {
-  bbmap_t bbmap;
-  fnmap_t fnmap;
-
-  jv_bin_state_t<binary_state_t> state(*this);
-
   std::unique_ptr<llvm::object::Binary> ObjectFile = CreateBinary(b.data());
 
   if (!llvm::isa<ELFO>(ObjectFile.get()))
@@ -142,10 +128,7 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
   if (HasInterpreter && EntryAddr) {
     llvm::outs() << llvm::formatv("entry point @ {0:x}\n", EntryAddr);
 
-    b.Analysis.EntryFunction =
-        E.explore_function(b, Obj, EntryAddr,
-                           state.for_binary(b).fnmap,
-                           state.for_binary(b).bbmap);
+    b.Analysis.EntryFunction = E.explore_function(b, Obj, EntryAddr);
   } else {
     b.Analysis.EntryFunction = invalid_function_index;
   }
@@ -467,9 +450,7 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
     Entrypoint &= ~1UL;
 #endif
 
-    E.explore_basic_block(b, Obj, Entrypoint,
-                          state.for_binary(b).fnmap,
-                          state.for_binary(b).bbmap);
+    E.explore_basic_block(b, Obj, Entrypoint);
   }
 
   for (uint64_t Entrypoint : boost::adaptors::reverse(Known.FunctionEntrypoints)) {
@@ -477,9 +458,7 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
     Entrypoint &= ~1UL;
 #endif
 
-    function_index_t FIdx = E.explore_function(b, Obj, Entrypoint,
-                                               state.for_binary(b).fnmap,
-                                               state.for_binary(b).bbmap);
+    function_index_t FIdx = E.explore_function(b, Obj, Entrypoint);
 
     if (!is_function_index_valid(FIdx))
       continue;
@@ -782,9 +761,7 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
 
         uint64_t A = P->p_vaddr + idx;
 
-        basic_block_index_t BBIdx = E.explore_basic_block(b, Obj, A,
-                                                          state.for_binary(b).fnmap,
-                                                          state.for_binary(b).bbmap);
+        basic_block_index_t BBIdx = E.explore_basic_block(b, Obj, A);
         if (!is_basic_block_index_valid(BBIdx))
           continue;
 
@@ -831,9 +808,7 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
 
         uint64_t A = P->p_vaddr + idx;
 
-        basic_block_index_t BBIdx = E.explore_basic_block(b, Obj, A,
-                                                          state.for_binary(b).fnmap,
-                                                          state.for_binary(b).bbmap);
+        basic_block_index_t BBIdx = E.explore_basic_block(b, Obj, A);
         if (!is_basic_block_index_valid(BBIdx))
           continue;
 
@@ -847,4 +822,4 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
   }
 }
 
-} // namespace jove
+}

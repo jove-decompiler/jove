@@ -77,27 +77,6 @@ typedef uint32_t basic_block_index_t;
 
 typedef std::pair<binary_index_t, function_index_t> dynamic_target_t;
 
-typedef std::pair<taddr_t, unsigned> addr_intvl; /* right open interval */
-
-struct addr_intvl_cmp {
-  typedef void is_transparent;
-
-  bool operator()(const addr_intvl &lhs, const addr_intvl &rhs) const {
-    return lhs.first < rhs.first;
-  }
-
-  bool operator()(const addr_intvl &lhs, taddr_t rhs) const {
-    return lhs.first < rhs;
-  }
-
-  bool operator()(taddr_t lhs, const addr_intvl &rhs) const {
-    return lhs < rhs.first;
-  }
-};
-
-typedef boost::container::map<addr_intvl, basic_block_index_t, addr_intvl_cmp> bbmap_t;
-typedef std::unordered_map<uint64_t, function_index_t> fnmap_t;
-
 constexpr binary_index_t
     invalid_binary_index = std::numeric_limits<binary_index_t>::max();
 constexpr function_index_t
@@ -193,6 +172,36 @@ typedef boost::interprocess::set<
     ip_binary_index_set;
 
 typedef std::set<dynamic_target_t> dynamic_target_set;
+
+typedef std::pair<taddr_t, unsigned> addr_intvl; /* right open interval */
+
+struct addr_intvl_cmp {
+  typedef void is_transparent;
+
+  bool operator()(const addr_intvl &lhs, const addr_intvl &rhs) const {
+    return lhs.first < rhs.first;
+  }
+
+  bool operator()(const addr_intvl &lhs, taddr_t rhs) const {
+    return lhs.first < rhs;
+  }
+
+  bool operator()(taddr_t lhs, const addr_intvl &rhs) const {
+    return lhs < rhs.first;
+  }
+};
+
+typedef boost::interprocess::map<
+    addr_intvl, basic_block_index_t, addr_intvl_cmp,
+    boost::interprocess::allocator<
+        std::pair<const addr_intvl, basic_block_index_t>, segment_manager_t>>
+    bbmap_t;
+
+typedef boost::interprocess::map<
+    taddr_t, function_index_t, std::less<taddr_t>,
+    boost::interprocess::allocator<std::pair<const taddr_t, function_index_t>,
+                                   segment_manager_t>>
+    fnmap_t;
 
 struct basic_block_properties_t {
   uint64_t Addr;
@@ -366,6 +375,9 @@ typedef boost::interprocess::vector<function_t, function_allocator>
       name
 
 struct binary_t {
+  bbmap_t bbmap;
+  fnmap_t fnmap;
+
   ip_string Name;
   ip_string Data;
   hash_t Hash;
@@ -426,7 +438,8 @@ struct binary_t {
     return !Name.empty() && Name.front() == '[' && Name.back() == ']';
   }
 
-  binary_t(const ip_void_allocator_t &A) : Name(A), Data(A), Analysis(A) {}
+  binary_t(const ip_void_allocator_t &A)
+      : bbmap(A), fnmap(A), Name(A), Data(A), Analysis(A) {}
   binary_t() = delete;
 };
 
@@ -1015,9 +1028,10 @@ static inline basic_block_t basic_block_of_index(basic_block_index_t BBIdx,
 }
 
 static inline basic_block_t index_of_basic_block_at_address(uint64_t Addr,
-                                                            const binary_t &binary,
-                                                            const bbmap_t &bbmap) {
+                                                            const binary_t &binary) {
   assert(Addr);
+
+  auto &bbmap = binary.bbmap;
 
   auto it = bbmap_find(bbmap, Addr);
   if (it == bbmap.end())
@@ -1028,27 +1042,24 @@ static inline basic_block_t index_of_basic_block_at_address(uint64_t Addr,
 }
 
 static inline basic_block_t basic_block_at_address(uint64_t Addr,
-                                                   const binary_t &b,
-                                                   const bbmap_t &bbmap) {
-  return basic_block_of_index(index_of_basic_block_at_address(Addr, b, bbmap), b);
+                                                   const binary_t &b) {
+  return basic_block_of_index(index_of_basic_block_at_address(Addr, b), b);
 }
 
 static inline bool exists_basic_block_at_address(uint64_t Addr,
-                                                 const binary_t &binary,
-                                                 const bbmap_t &bbmap) {
+                                                 const binary_t &binary) {
   assert(Addr);
 
-  return bbmap_contains(bbmap, Addr);
+  return bbmap_contains(binary.bbmap, Addr);
 }
 
 // NOTE: this function excludes tail calls.
 static inline bool exists_indirect_jump_at_address(uint64_t Addr,
-                                                   const binary_t &binary,
-                                                   const bbmap_t &bbmap) {
+                                                   const binary_t &binary) {
   assert(Addr);
-  if (exists_basic_block_at_address(Addr, binary, bbmap)) {
+  if (exists_basic_block_at_address(Addr, binary)) {
     const auto &ICFG = binary.Analysis.ICFG;
-    basic_block_t bb = basic_block_at_address(Addr, binary, bbmap);
+    basic_block_t bb = basic_block_at_address(Addr, binary);
     if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP &&
         !ICFG[bb].hasDynTarget())
       return true;
@@ -1089,12 +1100,13 @@ static inline void construct_fnmap(jv_t &jv,
     auto &ICFG = binary.Analysis.ICFG;
 
     uint64_t Addr = ICFG[basic_block_of_index(f.Entry, ICFG)].Addr;
-
-    assert(out.find(Addr) == out.end());
-
     function_index_t FIdx = index_of_function_in_binary(f, binary);
 
-    out.insert({Addr, FIdx});
+    fnmap_t::iterator it;
+    bool success;
+    std::tie(it, success) = out.emplace(Addr, FIdx);
+
+    assert(success);
   });
 }
 

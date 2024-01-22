@@ -27,9 +27,6 @@ namespace jove {
 namespace {
 
 struct binary_state_t {
-  fnmap_t fnmap;
-  bbmap_t bbmap;
-
   uintptr_t LoadAddr = std::numeric_limits<uintptr_t>::max();
   uintptr_t LoadOffset = std::numeric_limits<uintptr_t>::max();
 
@@ -83,9 +80,6 @@ int ObserveTool::Run(void) {
     ignore_exception([&]() {
       state.for_binary(binary).ObjectFile = CreateBinary(binary.data());
     });
-
-    construct_fnmap(jv, binary, state.for_binary(binary).fnmap);
-    construct_bbmap(jv, binary, state.for_binary(binary).bbmap);
   });
 
   RunExecutableToExit(
@@ -244,8 +238,8 @@ int ObserveTool::Run(void) {
     auto src_bin = [&](void) -> binary_t & { return jv.Binaries.at(src_BIdx); };
     auto dst_bin = [&](void) -> binary_t & { return jv.Binaries.at(dst_BIdx); };
 
-    if (is_binary_index_valid(src_BIdx)) src_BBIdx = E.explore_basic_block(src_bin(), *state.for_binary(src_bin()).ObjectFile, src_off, state.for_binary(src_bin()).fnmap, state.for_binary(src_bin()).bbmap);
-    if (is_binary_index_valid(dst_BIdx)) dst_BBIdx = E.explore_basic_block(dst_bin(), *state.for_binary(dst_bin()).ObjectFile, dst_off, state.for_binary(dst_bin()).fnmap, state.for_binary(dst_bin()).bbmap);
+    if (is_binary_index_valid(src_BIdx)) src_BBIdx = E.explore_basic_block(src_bin(), *state.for_binary(src_bin()).ObjectFile, src_off);
+    if (is_binary_index_valid(dst_BIdx)) dst_BBIdx = E.explore_basic_block(dst_bin(), *state.for_binary(dst_bin()).ObjectFile, dst_off);
 
     if (!is_basic_block_index_valid(src_BBIdx) ||
         !is_basic_block_index_valid(dst_BBIdx))
@@ -275,13 +269,11 @@ int ObserveTool::Run(void) {
       if (IsDefinitelyTailCall(src_ICFG, src) || src_BIdx != dst_BIdx) {
         function_index_t FIdx =
             E.explore_function(dst_bin(), *state.for_binary(dst_bin()).ObjectFile,
-                               dst_off,
-                               state.for_binary(dst_bin()).fnmap,
-                               state.for_binary(dst_bin()).bbmap);
+                               dst_off);
 
         if (is_function_index_valid(FIdx)) {
           /* term bb may been split */
-          src = basic_block_at_address(TermAddr, src_bin(), state.for_binary(src_bin()).bbmap);
+          src = basic_block_at_address(TermAddr, src_bin());
           assert(src_ICFG[src].Term.Type == TERMINATOR::INDIRECT_JUMP);
 
           src_ICFG[src].insertDynTarget({dst_BIdx, FIdx}, Alloc);

@@ -97,9 +97,6 @@ namespace jove {
 namespace {
 
 struct binary_state_t {
-  fnmap_t fnmap;
-  bbmap_t bbmap;
-
   uintptr_t LoadAddr = std::numeric_limits<uintptr_t>::max();
   uintptr_t LoadOffset = std::numeric_limits<uintptr_t>::max();
 
@@ -332,9 +329,6 @@ struct BootstrapTool : public TransformerTool_Bin<binary_state_t> {
 
   void init_state_for_binary(binary_t &b) {
     binary_state_t &x = state.for_binary(b);
-
-    construct_fnmap(jv, b, x.fnmap);
-    construct_bbmap(jv, b, x.bbmap);
 
     try {
       x.ObjectFile = CreateBinary(b.data());
@@ -1329,9 +1323,7 @@ int BootstrapTool::TracerLoop(pid_t child) {
 
               function_index_t FIdx = E->explore_function(
                   b, *state.for_binary(b).ObjectFile,
-                  ICFG[succ].Addr,
-                  state.for_binary(b).fnmap,
-                  state.for_binary(b).bbmap);
+                  ICFG[succ].Addr);
               assert(is_function_index_valid(FIdx));
               ICFG[bb].insertDynTarget({BIdx, FIdx}, Alloc);
             }
@@ -2475,9 +2467,8 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
   //
   indirect_branch_t &IndBrInfo = indirect_branch_of_address(saved_pc);
   binary_t &binary = jv.Binaries[IndBrInfo.BIdx];
-  std::reference_wrapper<bbmap_t> bbmap = state.for_binary(binary).bbmap;
   auto &ICFG = binary.Analysis.ICFG;
-  basic_block_t bb = basic_block_at_address(IndBrInfo.TermAddr, binary, bbmap);
+  basic_block_t bb = basic_block_at_address(IndBrInfo.TermAddr, binary);
 
   llvm::MCInst &Inst = IndBrInfo.Inst;
 
@@ -2744,8 +2735,6 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
     return;
   }
 
-  bbmap = state.for_binary(binary).bbmap;
-
   //
   // update the jv based on the target
   //
@@ -2760,16 +2749,14 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
       function_index_t FIdx =
           E->explore_function(TargetBinary,
                              *state.for_binary(TargetBinary).ObjectFile,
-                             rva_of_va(Target.Addr, Target.BIdx),
-                             state.for_binary(TargetBinary).fnmap,
-                             state.for_binary(TargetBinary).bbmap);
+                             rva_of_va(Target.Addr, Target.BIdx));
 
       assert(is_function_index_valid(FIdx));
 
       Target.isNew = ICFG[bb].insertDynTarget({Target.BIdx, FIdx}, Alloc);
 
       /* term bb may been split */
-      bb = basic_block_at_address(IndBrInfo.TermAddr, binary, bbmap);
+      bb = basic_block_at_address(IndBrInfo.TermAddr, binary);
       assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL);
 
       if (Target.isNew &&
@@ -2780,14 +2767,12 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
         //
         basic_block_index_t NextBBIdx =
             E->explore_basic_block(binary, *state.for_binary(binary).ObjectFile,
-                                  IndBrInfo.TermAddr + IndBrInfo.InsnBytes.size(),
-                                  state.for_binary(binary).fnmap,
-                                  state.for_binary(binary).bbmap);
+                                  IndBrInfo.TermAddr + IndBrInfo.InsnBytes.size());
 
         assert(is_basic_block_index_valid(NextBBIdx));
 
         /* term bb may been split */
-        bb = basic_block_at_address(IndBrInfo.TermAddr, binary, bbmap);
+        bb = basic_block_at_address(IndBrInfo.TermAddr, binary);
         assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL);
 
         boost::add_edge(bb, basic_block_of_index(NextBBIdx, ICFG), ICFG);
@@ -2800,9 +2785,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
         // non-local goto (aka "long jump")
         //
         E->explore_basic_block(TargetBinary, *state.for_binary(TargetBinary).ObjectFile,
-                              rva_of_va(Target.Addr, Target.BIdx),
-                              state.for_binary(TargetBinary).fnmap,
-                              state.for_binary(TargetBinary).bbmap);
+                              rva_of_va(Target.Addr, Target.BIdx));
 
         ControlFlow.IsGoto = true;
         Target.isNew = opts.Longjmps;
@@ -2819,34 +2802,30 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
             IsDefinitelyTailCall(ICFG, bb) ||
             IndBrInfo.BIdx != Target.BIdx ||
             (boost::out_degree(bb, ICFG) == 0 &&
-             state.for_binary(TargetBinary).fnmap.count(rva_of_va(Target.Addr, Target.BIdx)));
+             TargetBinary.fnmap.count(rva_of_va(Target.Addr, Target.BIdx)));
 
         if (isTailCall) {
           function_index_t FIdx =
               E->explore_function(TargetBinary, *state.for_binary(TargetBinary).ObjectFile,
-                                 rva_of_va(Target.Addr, Target.BIdx),
-                                 state.for_binary(TargetBinary).fnmap,
-                                 state.for_binary(TargetBinary).bbmap);
+                                 rva_of_va(Target.Addr, Target.BIdx));
 
           assert(is_function_index_valid(FIdx));
 
           /* term bb may been split */
-          bb = basic_block_at_address(IndBrInfo.TermAddr, binary, bbmap);
+          bb = basic_block_at_address(IndBrInfo.TermAddr, binary);
           assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP);
 
           Target.isNew = ICFG[bb].insertDynTarget({Target.BIdx, FIdx}, Alloc);
         } else {
           basic_block_index_t TargetBBIdx =
               E->explore_basic_block(TargetBinary, *state.for_binary(TargetBinary).ObjectFile,
-                                    rva_of_va(Target.Addr, Target.BIdx),
-                                    state.for_binary(TargetBinary).fnmap,
-                                    state.for_binary(TargetBinary).bbmap);
+                                    rva_of_va(Target.Addr, Target.BIdx));
 
           assert(is_basic_block_index_valid(TargetBBIdx));
           basic_block_t TargetBB = basic_block_of_index(TargetBBIdx, ICFG);
 
           /* term bb may been split */
-          bb = basic_block_at_address(IndBrInfo.TermAddr, binary, bbmap);
+          bb = basic_block_at_address(IndBrInfo.TermAddr, binary);
           assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP);
 
           Target.isNew = boost::add_edge(bb, TargetBB, ICFG).second;
@@ -4407,18 +4386,14 @@ BootstrapTool::function_at_program_counter(pid_t child, uintptr_t pc) {
   binary_t &binary = jv.Binaries.at(BIdx);
   basic_block_index_t BBIdx = E->explore_basic_block(binary,
                                                      *state.for_binary(binary).ObjectFile,
-                                                     rva_of_va(pc, BIdx),
-                                                     state.for_binary(binary).fnmap,
-                                                     state.for_binary(binary).bbmap);
+                                                     rva_of_va(pc, BIdx));
   if (!is_basic_block_index_valid(BBIdx))
     return std::make_pair(BIdx, invalid_function_index);
 
   function_index_t FIdx = E->explore_function(
       binary,
       *state.for_binary(binary).ObjectFile,
-      rva_of_va(pc, BIdx),
-      state.for_binary(binary).fnmap,
-      state.for_binary(binary).bbmap);
+      rva_of_va(pc, BIdx));
 
   return std::make_pair(BIdx, FIdx);
 }
@@ -4433,9 +4408,7 @@ BootstrapTool::block_at_program_counter(pid_t child, uintptr_t pc) {
   basic_block_index_t BBIdx = E->explore_basic_block(
       binary,
       *state.for_binary(binary).ObjectFile,
-      rva_of_va(pc, BIdx),
-      state.for_binary(binary).fnmap,
-      state.for_binary(binary).bbmap);
+      rva_of_va(pc, BIdx));
 
   return std::make_pair(BIdx, BBIdx);
 }
@@ -4447,7 +4420,7 @@ BootstrapTool::existing_block_at_program_counter(pid_t child, uintptr_t pc) {
     return std::make_pair(invalid_binary_index, invalid_basic_block_index);
 
   binary_t &binary = jv.Binaries.at(BIdx);
-  auto &bbmap = state.for_binary(binary).bbmap;
+  auto &bbmap = binary.bbmap;
   uintptr_t rva = rva_of_va(pc, BIdx);
 
   auto it = bbmap_find(bbmap, rva);

@@ -18,9 +18,6 @@ class CodeRecovery {
   struct binary_state_t {
     std::vector<uint64_t> block_term_addr_vec;
 
-    bbmap_t bbmap;
-    fnmap_t fnmap;
-
     std::unique_ptr<llvm::object::Binary> ObjectFile;
   };
 

@@ -23,12 +23,12 @@ typedef boost::format fmt;
 function_index_t explorer_t::_explore_function(binary_t &b,
                                                obj::Binary &B,
                                                const uint64_t Addr,
-                                               fnmap_t &fnmap,
-                                               bbmap_t &bbmap,
                                                std::vector<uint64_t> &calls_to_process) {
 #if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
   assert((Addr & 1) == 0);
 #endif
+
+  auto &fnmap = b.fnmap;
 
   {
     auto it = fnmap.find(Addr);
@@ -39,10 +39,10 @@ function_index_t explorer_t::_explore_function(binary_t &b,
   const function_index_t res = b.Analysis.Functions.size();
   b.Analysis.Functions.emplace_back().Entry = invalid_basic_block_index;
 
-  fnmap.insert({Addr, res});
+  fnmap.emplace(Addr, res);
 
   basic_block_index_t Entry =
-      _explore_basic_block(b, B, Addr, fnmap, bbmap, calls_to_process);
+      _explore_basic_block(b, B, Addr, calls_to_process);
 
   if (!is_basic_block_index_valid(Entry))
     return invalid_function_index;
@@ -62,13 +62,12 @@ function_index_t explorer_t::_explore_function(binary_t &b,
 basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
                                                      obj::Binary &Bin,
                                                      const uint64_t Addr,
-                                                     fnmap_t &fnmap,
-                                                     bbmap_t &bbmap,
                                                      std::vector<uint64_t> &calls_to_process) {
 #if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
   assert((Addr & 1) == 0);
 #endif
 
+  auto &bbmap = b.bbmap;
   auto &ICFG = b.Analysis.ICFG;
 
   assert(llvm::isa<ELFO>(&Bin));
@@ -324,8 +323,7 @@ on_insn_boundary:
     Target &= ~1UL;
 #endif
 
-    _control_flow_to(b, Bin, fnmap, bbmap, bb, T.Addr ?: Addr, Target,
-                     calls_to_process);
+    _control_flow_to(b, Bin, bb, T.Addr ?: Addr, Target, calls_to_process);
   };
 
   switch (T.Type) {
@@ -348,11 +346,9 @@ on_insn_boundary:
 #endif
 
     function_index_t CalleeFIdx = _explore_function(b, Bin, CalleeAddr,
-                                                    fnmap,
-                                                    bbmap,
                                                     calls_to_process);
 
-    bb = basic_block_at_address(T.Addr, b, bbmap); /* bb may have been split */
+    bb = basic_block_at_address(T.Addr, b); /* bb may have been split */
     assert(ICFG[bb].Term.Type == TERMINATOR::CALL);
 
     ICFG[bb].Term._call.Target = CalleeFIdx;
@@ -401,8 +397,6 @@ on_insn_boundary:
 
 void explorer_t::_control_flow_to(binary_t &b,
                                   obj::Binary &Bin,
-                                  fnmap_t &fnmap,
-                                  bbmap_t &bbmap,
                                   basic_block_t bb,
                                   const uint64_t TermAddr,
                                   const uint64_t Target,
@@ -417,7 +411,7 @@ void explorer_t::_control_flow_to(binary_t &b,
                                   taddr2str(Target, false));
 
   basic_block_index_t SuccBBIdx =
-      _explore_basic_block(b, Bin, Target, fnmap, bbmap, calls_to_process);
+      _explore_basic_block(b, Bin, Target, calls_to_process);
 
   if (!is_basic_block_index_valid(SuccBBIdx)) {
     llvm::WithColor::warning() << llvm::formatv(
@@ -425,7 +419,7 @@ void explorer_t::_control_flow_to(binary_t &b,
     return;
   }
 
-  bb = basic_block_at_address(TermAddr, b, bbmap);
+  bb = basic_block_at_address(TermAddr, b);
   //assert(T.Type == ICFG[bb].Term.Type);
 
   bool isNewTarget =
@@ -436,9 +430,8 @@ void explorer_t::_control_flow_to(binary_t &b,
 
 void explorer_t::_explore_the_rest(binary_t &b,
                                    obj::Binary & B,
-                                   fnmap_t &fnmap,
-                                   bbmap_t &bbmap,
                                    std::vector<uint64_t> &calls_to_process) {
+  auto &bbmap = b.bbmap;
   auto &ICFG = b.Analysis.ICFG;
 
   while (!calls_to_process.empty()) {
@@ -462,7 +455,7 @@ void explorer_t::_explore_the_rest(binary_t &b,
     function_t &callee = b.Analysis.Functions.at(CalleeFIdx);
 
     if (does_function_return(callee, b))
-      _control_flow_to(b, B, fnmap, bbmap, bb,
+      _control_flow_to(b, B, bb,
                        TermAddr,
                        TermAddr + ICFG[bb].Term._call.ReturnsOff,
                        calls_to_process);
@@ -471,30 +464,26 @@ void explorer_t::_explore_the_rest(binary_t &b,
 
 basic_block_index_t explorer_t::explore_basic_block(binary_t &b,
                                                     obj::Binary &B,
-                                                    const uint64_t Addr,
-                                                    fnmap_t &fnmap,
-                                                    bbmap_t &bbmap) {
+                                                    const uint64_t Addr) {
   std::vector<uint64_t> calls_to_process;
 
   const basic_block_index_t res = _explore_basic_block(
-      b, B, Addr, fnmap, bbmap, calls_to_process);
+      b, B, Addr, calls_to_process);
 
-  _explore_the_rest(b, B, fnmap, bbmap, calls_to_process);
+  _explore_the_rest(b, B, calls_to_process);
 
   return res;
 }
 
 function_index_t explorer_t::explore_function(binary_t &b,
                                               obj::Binary &B,
-                                              const uint64_t Addr,
-                                              fnmap_t &fnmap,
-                                              bbmap_t &bbmap) {
+                                              const uint64_t Addr) {
   std::vector<uint64_t> calls_to_process;
 
   const function_index_t res = _explore_function(
-      b, B, Addr, fnmap, bbmap, calls_to_process);
+      b, B, Addr, calls_to_process);
 
-  _explore_the_rest(b, B, fnmap, bbmap, calls_to_process);
+  _explore_the_rest(b, B, calls_to_process);
 
   return res;
 }

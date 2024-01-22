@@ -141,8 +141,6 @@ struct function_state_t {
 };
 
 struct binary_state_t {
-  fnmap_t fnmap;
-
   std::unique_ptr<llvm::object::Binary> ObjectFile;
   struct {
     DynRegionInfo DynamicTable;
@@ -1938,8 +1936,8 @@ int LLVMTool::Run(void) {
 
                 function_index_t FIdx;
                 {
-                  auto it = state.for_binary(b).fnmap.find(Sym.st_value);
-                  assert(it != state.for_binary(b).fnmap.end());
+                  auto it = b.fnmap.find(Sym.st_value);
+                  assert(it != b.fnmap.end());
 
                   FIdx = (*it).second;
                 }
@@ -2068,7 +2066,7 @@ int LLVMTool::Run(void) {
         }
 
         // jove-add should have explored this
-        assert(state.for_binary(Binary).fnmap.find(Addr) != state.for_binary(Binary).fnmap.end());
+        assert(Binary.fnmap.find(Addr) != Binary.fnmap.end());
 
         const unsigned SectsOff = Addr - state.for_binary(Binary).SectsStartAddr;
 
@@ -2188,8 +2186,8 @@ int LLVMTool::Run(void) {
                                             VisibilityIsDefault);
         }
 
-        auto it = state.for_binary(Binary).fnmap.find(Sym.st_value);
-        assert(it != state.for_binary(Binary).fnmap.end());
+        auto it = Binary.fnmap.find(Sym.st_value);
+        assert(it != Binary.fnmap.end());
 
         function_t &f = Binary.Analysis.Functions[((*it).second)];
 
@@ -2381,8 +2379,6 @@ void LLVMTool::DumpModule(const char *suffix) {
 int LLVMTool::InitStateForBinaries(void) {
   for_each_binary(jv, [&](binary_t &binary) {
     binary_state_t &x = state.for_binary(binary);
-
-    construct_fnmap(jv, binary, x.fnmap);
 
     auto &ICFG = binary.Analysis.ICFG;
 
@@ -3945,7 +3941,7 @@ void LLVMTool::compute_irelative_relocation(llvm::IRBuilderTy &IRB,
   }
 
   binary_t &Binary = jv.Binaries[BinaryIndex];
-  auto &fnmap = state.for_binary(Binary).fnmap;
+  auto &fnmap = Binary.fnmap;
 
   auto it = fnmap.find(resolverAddr);
   assert(it != fnmap.end() && "resolver function not found!");
@@ -4054,7 +4050,7 @@ struct unhandled_relocation_exception {};
 int LLVMTool::CreateSectionGlobalVariables(void) {
   binary_t &Binary = jv.Binaries[BinaryIndex];
   auto &ObjectFile = state.for_binary(Binary).ObjectFile;
-  auto &fnmap = state.for_binary(Binary).fnmap;
+  auto &fnmap = Binary.fnmap;
 
   assert(llvm::isa<ELFO>(ObjectFile.get()));
   ELFO &Obj = *llvm::cast<ELFO>(ObjectFile.get());
@@ -5357,7 +5353,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
         uintptr_t FileAddr = off + SectsStartAddr;
 
         binary_t &Binary = jv.Binaries[BinaryIndex];
-        auto &fnmap = state.for_binary(Binary).fnmap;
+        auto &fnmap = Binary.fnmap;
         auto it = fnmap.find(FileAddr);
         assert(it != fnmap.end());
         function_t &f = Binary.Analysis.Functions[(*it).second];

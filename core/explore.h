@@ -28,27 +28,19 @@ class explorer_t {
   basic_block_index_t _explore_basic_block(binary_t &,
                                            llvm::object::Binary &,
                                            const uint64_t Addr,
-                                           fnmap_t &,
-                                           bbmap_t &,
                                            std::vector<uint64_t> &calls_to_process);
 
   function_index_t _explore_function(binary_t &,
                                      llvm::object::Binary &,
                                      const uint64_t Addr,
-                                     fnmap_t &,
-                                     bbmap_t &,
                                      std::vector<uint64_t> &calls_to_process);
 
   void _explore_the_rest(binary_t &,
                          llvm::object::Binary &,
-                         fnmap_t &,
-                         bbmap_t &,
                          std::vector<uint64_t> &calls_to_process);
 
   void _control_flow_to(binary_t &,
                         llvm::object::Binary &,
-                        fnmap_t &,
-                        bbmap_t &,
                         basic_block_t,
                         const uint64_t TermAddr,
                         const uint64_t Target,
@@ -64,15 +56,11 @@ public:
 
   basic_block_index_t explore_basic_block(binary_t &,
                                           llvm::object::Binary &,
-                                          const uint64_t Addr,
-                                          fnmap_t &,
-                                          bbmap_t &);
+                                          const uint64_t Addr);
 
   function_index_t explore_function(binary_t &,
                                     llvm::object::Binary &,
-                                    const uint64_t Addr,
-                                    fnmap_t &,
-                                    bbmap_t &);
+                                    const uint64_t Addr);
 
   on_newbb_proc_t  get_newbb_proc(void) const {
     return on_newbb_proc;

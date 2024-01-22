@@ -265,12 +265,6 @@ int IDATool::Run(void) {
 
     auto &ICFG = binary.Analysis.ICFG;
 
-    fnmap_t fnmap;
-    bbmap_t bbmap;
-
-    construct_fnmap(jv, binary, fnmap);
-    construct_bbmap(jv, binary, bbmap);
-
     auto process_flowgraph = [&](binary_t &binary,
                                  const ida_flowgraph_t &flowgraph) -> void {
       ida_flowgraph_node_t entry_node = boost::vertex(0, flowgraph);
@@ -287,13 +281,13 @@ int IDATool::Run(void) {
         // import functions
         //
         try {
-          basic_block_index_t BBIdx = E.explore_basic_block(
-              binary, *Bin, entry_addr, fnmap, bbmap);
+          basic_block_index_t BBIdx =
+              E.explore_basic_block(binary, *Bin, entry_addr);
 
           if (!is_basic_block_index_valid(BBIdx))
             throw std::runtime_error(std::string());
 
-          E.explore_function(binary, *Bin, entry_addr, fnmap, bbmap);
+          E.explore_function(binary, *Bin, entry_addr);
         } catch (const std::exception &e) {
           if (IsVerbose())
             WithColor::warning()
@@ -325,8 +319,8 @@ int IDATool::Run(void) {
 
         uint64_t node_addr = flowgraph[node].start_ea;
         try {
-          basic_block_index_t BBIdx = E.explore_basic_block(
-              binary, *Bin, node_addr, fnmap, bbmap);
+          basic_block_index_t BBIdx =
+              E.explore_basic_block(binary, *Bin, node_addr);
 
           if (!is_basic_block_index_valid(BBIdx))
             throw std::runtime_error(std::string());
@@ -349,12 +343,11 @@ int IDATool::Run(void) {
             return boost::out_degree(node, flowgraph) > 0 &&
                    flowgraph[node].HasKnownAddress() &&
                    exists_indirect_jump_at_address(flowgraph[node].start_ea,
-                                                   binary, bbmap);
+                                                   binary);
           },
           [&](ida_flowgraph_node_t node) {
             uint64_t node_addr = flowgraph[node].start_ea;
-            basic_block_t indjmp_bb =
-                basic_block_at_address(node_addr, binary, bbmap);
+            basic_block_t indjmp_bb = basic_block_at_address(node_addr, binary);
             uint64_t indjmp_addr = ICFG[indjmp_bb].Term.Addr;
 
             assert(ICFG[indjmp_bb].Term.Type == TERMINATOR::INDIRECT_JUMP);
@@ -517,12 +510,11 @@ int IDATool::Run(void) {
               for_each_if(
                   v.begin(), v.end(),
                   [&](uint64_t start_ea) -> bool {
-                    return exists_basic_block_at_address(start_ea, binary,
-                                                         bbmap);
+                    return exists_basic_block_at_address(start_ea, binary);
                   },
                   [&](uint64_t start_ea) {
                     basic_block_t succ_bb =
-                        basic_block_at_address(start_ea, binary, bbmap);
+                        basic_block_at_address(start_ea, binary);
                     boost::add_edge(indjmp_bb, succ_bb, ICFG);
                   });
             }
