@@ -9,12 +9,8 @@
 namespace jove {
 
 hash_t hash_data(std::string_view sv) {
-  std::array<uint8_t, 20> raw_hash = llvm::SHA1::hash(
-      llvm::ArrayRef<uint8_t>((const uint8_t *)sv.data(), sv.size()));
-
-  static_assert(sizeof(hash_t) <= 20);
-
-  return *((const hash_t *)raw_hash.data());
+  return llvm::SHA1::hash(llvm::ArrayRef<uint8_t>((const uint8_t *)sv.data(),
+                                                  sv.size()));
 }
 
 hash_t hash_file(const char *path) {
@@ -24,9 +20,6 @@ hash_t hash_file(const char *path) {
   return hash_data(buff);
 }
 
-std::string str_of_hash(hash_t h) {
-  return llvm::toHex(llvm::ArrayRef<uint8_t>((const uint8_t *)&h, sizeof(h)),
-                     true);
-}
+std::string str_of_hash(const hash_t &h) { return llvm::toHex(h, true); }
 
 } // namespace jove

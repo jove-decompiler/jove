@@ -454,11 +454,8 @@ struct cached_hash_t {
   hash_t h;
 
   struct {
-    int64_t sec, nsec;
+    int64_t sec = 0, nsec = 0;
   } mtime;
-
-  cached_hash_t() {}
-  cached_hash_t(hash_t h) : h(h), mtime({0, 0}) {}
 };
 
 typedef boost::interprocess::map<
@@ -483,7 +480,7 @@ struct jv_t {
   ip_binary_vector Binaries;
 
   ip_hash_to_binary_map_type hash_to_binary;
-  ip_cached_hashes_type cached_hashes;
+  ip_cached_hashes_type cached_hashes; /* NOT serialized */
 
   ip_name_to_binaries_map_type name_to_binaries;
 
@@ -517,7 +514,7 @@ struct jv_t {
   }
 
 private:
-  binary_index_t LookupWithHash(hash_t);
+  binary_index_t LookupWithHash(const hash_t &h);
   hash_t LookupAndCacheHash(const char *path,
                             std::string &file_contents);
   void UpdateCachedHash(cached_hash_t &,
@@ -527,7 +524,7 @@ private:
   typedef std::function<void(ip_string &)> get_data_t;
 
   std::pair<binary_index_t, bool>
-  AddFromDataWithHash(explorer_t &E, get_data_t, hash_t h, const char *name);
+  AddFromDataWithHash(explorer_t &E, get_data_t, const hash_t &h, const char *name);
   void DoAdd(binary_t &, explorer_t &);
 };
 

@@ -1,7 +1,9 @@
 #pragma once
+#include <array>
+#include <cstdint>
 
 namespace jove {
 
-typedef unsigned _BitInt(128) hash_t;
+typedef std::array<uint8_t, 20> hash_t;
 
 }

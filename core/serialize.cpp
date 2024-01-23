@@ -14,6 +14,7 @@
 #include <boost/interprocess/containers/string.hpp>
 #include <boost/interprocess/containers/vector.hpp>
 #include <boost/serialization/bitset.hpp>
+#include <boost/serialization/array.hpp>
 #include <boost/serialization/collections_load_imp.hpp>
 #include <boost/serialization/collections_save_imp.hpp>
 #include <boost/serialization/item_version_type.hpp>
@@ -174,6 +175,7 @@ static void serialize(Archive &ar, jove::binary_t &b, const unsigned int version
      &BOOST_SERIALIZATION_NVP(b.fnmap)
      &BOOST_SERIALIZATION_NVP(b.Name)
      &BOOST_SERIALIZATION_NVP(b.Data)
+     &BOOST_SERIALIZATION_NVP(b.Hash)
      &BOOST_SERIALIZATION_NVP(b.IsDynamicLinker)
      &BOOST_SERIALIZATION_NVP(b.IsExecutable)
      &BOOST_SERIALIZATION_NVP(b.IsVDSO)
@@ -250,7 +252,9 @@ static void serialize(Archive &ar, jove::basic_block_properties_t &bbprop,
 
 template <class Archive>
 static void serialize(Archive &ar, jove::jv_t &jv, const unsigned int) {
-  ar &BOOST_SERIALIZATION_NVP(jv.Binaries);
+  ar &BOOST_SERIALIZATION_NVP(jv.Binaries)
+     &BOOST_SERIALIZATION_NVP(jv.hash_to_binary)
+     &BOOST_SERIALIZATION_NVP(jv.name_to_binaries);
 }
 
 } // namespace serialization
@@ -264,14 +268,6 @@ static inline void load_construct_data(Archive &ar, jove::binary_t *t,
                                        const unsigned int file_version) {
   assert(jove::pAlloc_hack);
   ::new (t)jove::binary_t(*jove::pAlloc_hack);
-}
-
-template <class Archive>
-static inline void load_construct_data(Archive &ar,
-                                       jove::ip_dynamic_target_set *t,
-                                       const unsigned int file_version) {
-  assert(jove::pAlloc_hack);
-  ::new (t)jove::ip_dynamic_target_set(*jove::pAlloc_hack);
 }
 
 template <class Archive>
@@ -297,6 +293,15 @@ load_construct_data(Archive &ar,
                     const unsigned int file_version) {
   assert(jove::pAlloc_hack);
   ::new (t)std::pair<const uint64_t, jove::ip_dynamic_target_set>(0, *jove::pAlloc_hack);
+}
+
+template <class Archive>
+static inline void load_construct_data(
+    Archive &ar,
+    std::pair<const jove::ip_string, jove::ip_binary_index_set> *t,
+    const unsigned int file_version) {
+  assert(jove::pAlloc_hack);
+  ::new (t)std::pair<const jove::ip_string, jove::ip_binary_index_set>(*jove::pAlloc_hack, *jove::pAlloc_hack);
 }
 
 } // namespace serialization

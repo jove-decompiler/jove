@@ -41,7 +41,7 @@ hash_t jv_t::LookupAndCacheHash(const char *path,
 
     auto it = cached_hashes.find(s);
     if (it == cached_hashes.end())
-      it = cached_hashes.insert(std::make_pair(s, cached_hash_t(0))).first;
+      it = cached_hashes.emplace(s, cached_hash_t{}).first;
 
     cached_hash_t &cache = (*it).second;
     UpdateCachedHash(cache, path, file_contents);
@@ -68,7 +68,7 @@ boost::optional<const ip_binary_index_set &> jv_t::Lookup(const char *name) {
   }
 }
 
-binary_index_t jv_t::LookupWithHash(hash_t h) {
+binary_index_t jv_t::LookupWithHash(const hash_t &h) {
   ip_scoped_lock<ip_mutex> lck(this->hash_to_binary_mtx);
 
   auto it = this->hash_to_binary.find(h);
@@ -113,7 +113,7 @@ std::pair<binary_index_t, bool> jv_t::AddFromData(explorer_t &E,
 
 std::pair<binary_index_t, bool> jv_t::AddFromDataWithHash(explorer_t &E,
                                                           get_data_t get_data,
-                                                          hash_t h,
+                                                          const hash_t &h,
                                                           const char *name) {
   {
     ip_scoped_lock<ip_mutex> lck(this->binaries_mtx);
