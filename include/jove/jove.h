@@ -24,6 +24,7 @@
 #include <boost/graph/depth_first_search.hpp>
 #include <boost/icl/split_interval_map.hpp>
 #include <boost/interprocess/containers/map.hpp>
+#include <boost/interprocess/containers/flat_map.hpp>
 #include <boost/interprocess/containers/set.hpp>
 #include <boost/interprocess/containers/string.hpp>
 #include <boost/interprocess/containers/vector.hpp>
@@ -191,15 +192,15 @@ struct addr_intvl_cmp {
   }
 };
 
-typedef boost::interprocess::map<
+typedef boost::interprocess::flat_map<
     addr_intvl, basic_block_index_t, addr_intvl_cmp,
-    boost::interprocess::allocator<
-        std::pair<const addr_intvl, basic_block_index_t>, segment_manager_t>>
+    boost::interprocess::allocator<std::pair<addr_intvl, basic_block_index_t>,
+                                   segment_manager_t>>
     bbmap_t;
 
-typedef boost::interprocess::map<
+typedef boost::interprocess::flat_map<
     taddr_t, function_index_t, std::less<taddr_t>,
-    boost::interprocess::allocator<std::pair<const taddr_t, function_index_t>,
+    boost::interprocess::allocator<std::pair<taddr_t, function_index_t>,
                                    segment_manager_t>>
     fnmap_t;
 
@@ -732,9 +733,12 @@ static inline bool addr_intvl_disjoint(addr_intvl x, addr_intvl y) {
     if (it != bbmap.end() && addr_intvl_intersects((*it).first, intvl))        \
       return it;                                                               \
                                                                                \
+    if (it == bbmap.begin())                                                   \
+      return bbmap.end();                                                      \
+                                                                               \
     --it;                                                                      \
                                                                                \
-    if (it != bbmap.end() && addr_intvl_intersects((*it).first, intvl))        \
+    if (addr_intvl_intersects((*it).first, intvl))                             \
       return it;                                                               \
                                                                                \
     return bbmap.end();                                                        \

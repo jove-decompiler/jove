@@ -136,6 +136,33 @@ serialize(Archive &ar,
 }
 
 //
+// interprocess flat_map
+//
+
+template <class Archive, class Type, class Key, class Compare, class Allocator>
+static inline void save(Archive &ar,
+                 const boost::container::flat_map<Key, Type, Compare, Allocator> &t,
+                 const unsigned int file_version) {
+  stl::save_collection<Archive,
+                       boost::container::flat_map<Key, Type, Compare, Allocator>>(ar, t);
+}
+
+template <class Archive, class Type, class Key, class Compare, class Allocator>
+static inline void load(Archive &ar,
+                 boost::container::flat_map<Key, Type, Compare, Allocator> &t,
+                 const unsigned int file_version) {
+  boost::serialization::load_map_collection(ar, t);
+}
+
+template <class Archive, class Type, class Key, class Compare, class Allocator>
+static inline void
+serialize(Archive &ar,
+          boost::container::flat_map<Key, Type, Compare, Allocator> &x,
+          const unsigned int file_version) {
+  boost::serialization::split_free(ar, x, file_version);
+}
+
+//
 // interprocess set
 //
 
