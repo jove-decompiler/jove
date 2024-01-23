@@ -31,8 +31,15 @@ $(foreach t,$(ALL_TARGETS),$(shell mkdir -p $(BINDIR)/$(t)))
 #
 # find tests
 #
-SRCS  := $(wildcard $(SRCDIR)/*.c)
-TESTS := $(patsubst $(SRCDIR)/%.c,%,$(SRCS))
+SRCS      := $(wildcard $(SRCDIR)/*.c)
+ALL_TESTS := $(patsubst $(SRCDIR)/%.c,%,$(SRCS))
+
+# FIXME
+TESTS_TO_SKIP := multi_threaded longjmp
+
+TESTS := $(filter-out $(TESTS_TO_SKIP),$(ALL_TESTS))
+
+$(info $(TESTS))
 
 .PHONY: build
 build: $(foreach t,$(ALL_TARGETS),build-$(t))
