@@ -3172,6 +3172,9 @@ void BootstrapTool::harvest_global_GOT_entries(pid_t child) {
       Resolved.Addr &= ~1UL;
 #endif
 
+      if (!Resolved.Addr)
+        continue;
+
       std::tie(Resolved.BIdx, Resolved.FIdx) = function_at_program_counter(child, Resolved.Addr);
 
       if (!is_function_index_valid(Resolved.FIdx)) {
