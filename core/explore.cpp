@@ -20,6 +20,16 @@ namespace jove {
 
 typedef boost::format fmt;
 
+#if 0
+static void dump_bbmap(const bbmap_t &bbmap) {
+  llvm::errs() << "==<BBMAP>==\n";
+  for (const auto &x : bbmap) {
+    llvm::errs() << addr_intvl2str(x.first) << " : " << x.second << '\n';
+  }
+  llvm::errs() << "==</BBMAP>==\n";
+}
+#endif
+
 function_index_t explorer_t::_explore_function(binary_t &b,
                                                obj::Binary &B,
                                                const uint64_t Addr,
@@ -82,6 +92,13 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
       const basic_block_index_t BBIdx = (*it).second;
       basic_block_t bb = basic_block_of_index(BBIdx, ICFG);
 
+#if 0
+      if (!(BBIdx < boost::num_vertices(ICFG))) {
+        llvm::errs() << "   " << taddr2str(Addr) << " " << addr_intvl2str((*it).first) << " BBIdx=" << BBIdx << " N=" << boost::num_vertices(ICFG)
+                     << '\n';
+        dump_bbmap(bbmap);
+      }
+#endif
       assert(BBIdx < boost::num_vertices(ICFG));
 
       uintptr_t beg = ICFG[bb].Addr;
@@ -208,6 +225,12 @@ on_insn_boundary:
       bbmap_add(bbmap, intervl1, BBIdx);
       bbmap_add(bbmap, intervl2, NewBBIdx);
 
+#if 0
+      llvm::errs() << "         BBIdx=" << BBIdx << " NewBBIdx=" << NewBBIdx
+                   << " intervl1 = " << addr_intvl2str(intervl1)
+		   << " intervl2 = " << addr_intvl2str(intervl2) << '\n';
+#endif
+
       {
         auto _it = bbmap_find(bbmap, intervl1);
         assert(_it != bbmap.end());
@@ -304,8 +327,12 @@ on_insn_boundary:
     bbprop.InvalidateAnalysis();
 
     addr_intvl intervl(bbprop.Addr, bbprop.Size);
-    assert(bbmap_find(bbmap, intervl) == bbmap.end());
     bbmap_add(bbmap, intervl, BBIdx);
+
+#if 0
+    llvm::errs() << "         BBIdx=" << BBIdx
+                 << " intervl=" << addr_intvl2str(intervl) << '\n';
+#endif
   }
 
   //
@@ -406,8 +433,7 @@ void explorer_t::_control_flow_to(binary_t &b,
   assert(Target);
 
   if (unlikely(this->verbose))
-    llvm::errs() << llvm::formatv("  {0} -> {1}\n",
-                                  description_of_block(ICFG[bb], false),
+    llvm::errs() << llvm::formatv("  -> {0}\n",
                                   taddr2str(Target, false));
 
   basic_block_index_t SuccBBIdx =
