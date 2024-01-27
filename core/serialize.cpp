@@ -20,6 +20,7 @@
 #include <boost/serialization/item_version_type.hpp>
 #include <boost/serialization/library_version_type.hpp>
 #include <boost/serialization/map.hpp>
+#include <boost/serialization/boost_unordered_map.hpp>
 #include <boost/serialization/nvp.hpp>
 #include <boost/serialization/set.hpp>
 #include <boost/serialization/split_free.hpp>

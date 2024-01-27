@@ -23,6 +23,7 @@
 #include <boost/graph/adjacency_list.hpp>
 #include <boost/graph/depth_first_search.hpp>
 #include <boost/icl/split_interval_map.hpp>
+#include <boost/unordered/unordered_map.hpp>
 #include <boost/interprocess/containers/map.hpp>
 #include <boost/interprocess/containers/flat_map.hpp>
 #include <boost/interprocess/containers/set.hpp>
@@ -198,9 +199,9 @@ typedef boost::interprocess::flat_map<
                                    segment_manager_t>>
     bbmap_t;
 
-typedef boost::interprocess::flat_map<
-    taddr_t, function_index_t, std::less<taddr_t>,
-    boost::interprocess::allocator<std::pair<taddr_t, function_index_t>,
+typedef boost::unordered_map<
+    taddr_t, function_index_t, boost::hash<taddr_t>, std::equal_to<taddr_t>,
+    boost::interprocess::allocator<std::pair<const taddr_t, function_index_t>,
                                    segment_manager_t>>
     fnmap_t;
 
@@ -459,20 +460,21 @@ struct cached_hash_t {
   } mtime;
 };
 
-typedef boost::interprocess::map<
-    ip_string, cached_hash_t, std::less<ip_string>,
+typedef boost::unordered_map<
+    ip_string, cached_hash_t, boost::hash<ip_string>, std::equal_to<ip_string>,
     boost::interprocess::allocator<std::pair<const ip_string, cached_hash_t>,
                                    segment_manager_t>>
     ip_cached_hashes_type;
 
-typedef boost::interprocess::map<
-    hash_t, binary_index_t, std::less<hash_t>,
+typedef boost::unordered_map<
+    hash_t, binary_index_t, boost::hash<hash_t>, std::equal_to<hash_t>,
     boost::interprocess::allocator<std::pair<const hash_t, binary_index_t>,
                                    segment_manager_t>>
     ip_hash_to_binary_map_type;
 
-typedef boost::interprocess::map<
-    ip_string, ip_binary_index_set, std::less<ip_string>,
+typedef boost::unordered_map<
+    ip_string, ip_binary_index_set, boost::hash<ip_string>,
+    std::equal_to<ip_string>,
     boost::interprocess::allocator<
         std::pair<const ip_string, ip_binary_index_set>, segment_manager_t>>
     ip_name_to_binaries_map_type;
