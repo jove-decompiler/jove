@@ -1,1 +1,1 @@
-See [docker/Dockerfile](/docker/Dockerfile)
+See [Dockerfile](/Dockerfile)
