@@ -503,7 +503,7 @@ void DumpTool::dumpInput(const std::string &Path) {
         if (IsVerbose())
           llvm::outs() << str_of_hash(binary.Hash) << ' ';
 
-        llvm::outs() << binary.path_str() << '\n';
+        llvm::outs() << binary.Name.c_str() << '\n';
       }
     } else if (opts.Statistics) {
       for (const binary_t &binary : jv.Binaries) {
