@@ -24,3 +24,6 @@
 [submodule "mk-deb-vm"]
 	path = mk-deb-vm
 	url = https://github.com/jove-decompiler/mk-deb-vm.git
+[submodule "oneTBB"]
+	path = oneTBB
+	url = https://github.com/oneapi-src/oneTBB.git

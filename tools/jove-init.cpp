@@ -18,6 +18,7 @@
 #include <string>
 #include <thread>
 #include <functional>
+#include <execution>
 
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -201,6 +202,7 @@ int InitTool::add_loaded_objects(const fs::path &prog, const fs::path &rtld) {
 
   /* add the rest */
   std::for_each(
+      std::execution::par_unseq,
       binary_paths.begin(),
       binary_paths.end(),
       [&](const std::string &path_s) { jv.AddFromPath(E, path_s.c_str()); });

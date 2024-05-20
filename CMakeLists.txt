@@ -8,6 +8,29 @@ elseif (LLVM_VERSION_MAJOR LESS 10)
   message(WARNING "Building with LLVM < 10.0.0 is at your own risk.")
 endif()
 
+# Find TBB. TBB (OneTBB or Intel TBB) is a high-level threading library.
+#
+# By default, we build a bundled one and statically-link the library
+# to jove. If you want to link to the system's libtbb2.so, pass
+# -DJOVE_USE_SYSTEM_TBB=ON.
+option(JOVE_USE_SYSTEM_TBB "Use system or vendored TBB" OFF)
+if(JOVE_USE_SYSTEM_TBB)
+  find_package(TBB REQUIRED)
+else()
+  function(jove_add_tbb)
+    # this is so tbb/src/tbb/semaphore.h doesn't include itself...
+    set(CMAKE_INCLUDE_CURRENT_DIR OFF)
+
+    set(BUILD_SHARED_LIBS OFF)
+    set(TBB_TEST OFF CACHE INTERNAL "")
+    set(TBB_STRICT OFF CACHE INTERNAL "")
+    add_subdirectory(oneTBB EXCLUDE_FROM_ALL)
+    target_compile_definitions(tbb PRIVATE __TBB_DYNAMIC_LOAD_ENABLED=0)
+  endfunction()
+
+  jove_add_tbb()
+endif()
+
 set(JOVE_SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 
 add_subdirectory(tools)

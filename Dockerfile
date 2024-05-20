@@ -29,6 +29,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       libglib2.0-dev \
                       libgraph-easy-perl \
                       libpcre2-dev \
+                      libtbb-dev \
                       libtinfo-dev \
                       libtool \
                       libxml2-dev \
