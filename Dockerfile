@@ -71,6 +71,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       libboost-system-dev:i386 \
                       libboost-filesystem-dev:i386 \
                       libboost-serialization-dev:i386 \
+                      libtbb-dev:i386 \
                       zlib1g-dev:i386 && \
     eatmydata apt-get autoremove -y && \
     eatmydata apt-get autoclean -y
@@ -87,6 +88,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       libboost-system-dev:mipsel \
                       libboost-filesystem-dev:mipsel \
                       libboost-serialization-dev:mipsel \
+                      libtbb-dev:mipsel \
                       zlib1g-dev:mipsel && \
     eatmydata apt-get autoremove -y && \
     eatmydata apt-get autoclean -y
@@ -103,6 +105,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       libboost-system-dev:mips64el \
                       libboost-filesystem-dev:mips64el \
                       libboost-serialization-dev:mips64el \
+                      libtbb-dev:mips64el \
                       zlib1g-dev:mips64el && \
     eatmydata apt-get autoremove -y && \
     eatmydata apt-get autoclean -y
@@ -119,6 +122,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       libboost-system-dev:arm64 \
                       libboost-filesystem-dev:arm64 \
                       libboost-serialization-dev:arm64 \
+                      libtbb-dev:arm64 \
                       zlib1g-dev:arm64 && \
     eatmydata apt-get autoremove -y && \
     eatmydata apt-get autoclean -y
