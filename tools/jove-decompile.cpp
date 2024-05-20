@@ -16,6 +16,7 @@
 #include <boost/filesystem.hpp>
 #include <boost/format.hpp>
 #include <boost/algorithm/string.hpp>
+#include <execution>
 #include <fstream>
 #include <thread>
 #include <stdexcept>
@@ -104,10 +105,7 @@ public:
 
   int Run(void) override;
 
-  void Worker(void);
-
   void queue_binaries(void);
-  bool pop_binary(binary_index_t &out);
 };
 
 JOVE_REGISTER_TOOL("decompile", DecompileTool);
@@ -224,38 +222,130 @@ int DecompileTool::Run(void) {
         !opts.Binary.empty() ? "binary" : "binaries");
 
   queue_binaries();
-  {
-    auto t1 = std::chrono::high_resolution_clock::now();
 
-    {
-      std::vector<std::thread> workers;
+  auto t1 = std::chrono::high_resolution_clock::now();
 
-      unsigned N = opts.Threads;
+  std::for_each(
+    std::execution::par_unseq,
+    Q.begin(),
+    Q.end(),
+    [&](binary_index_t BIdx) {
+      binary_t &binary = jv.Binaries.at(BIdx);
 
-      workers.reserve(N);
-      for (unsigned i = 0; i < N; ++i)
-        workers.push_back(std::thread(&DecompileTool::Worker, this));
+      assert(binary.is_file());
 
-      for (std::thread &t : workers)
-        t.join();
-    }
+      const fs::path chrooted_path = fs::path(temporary_dir()) / binary.path_str();
+      fs::create_directories(chrooted_path.parent_path());
 
-    auto t2 = std::chrono::high_resolution_clock::now();
+      std::string binary_filename = fs::path(binary.path_str()).filename().string();
 
-    std::chrono::duration<double> s_double = t2 - t1;
+      std::string bcfp(chrooted_path.string() + ".bc");
+      std::string mapfp = (fs::path(opts.Output) / (binary_filename + ".map")).string();
+      std::string cfp = (fs::path(opts.Output) / (binary_filename + ".c")).string();
 
-    bool Failed = worker_failed.load();
-    if (Failed)
-      return 1;
+      //
+      // run jove-llvm
+      //
+      {
+        std::string path_to_stdout = bcfp + ".stdout.llvm.txt";
+        std::string path_to_stderr = bcfp + ".stderr.llvm.txt";
 
-    if (!IsVerbose())
-      llvm::errs() << llvm::formatv(" {0} s\n", s_double.count());
-  }
+        int rc = RunToolToExit(
+            "llvm",
+            [&](auto Arg) {
+              Arg("-o");
+              Arg(bcfp);
+
+              Arg("--version-script");
+              Arg(mapfp);
+
+              Arg("--binary-index");
+              Arg(std::to_string(BIdx));
+
+              Arg("--for-cbe");
+
+              Arg("--foreign-libs"); /* FIXME */
+
+              Arg("--mt=" + std::to_string((unsigned)opts.MT));
+            },
+            path_to_stdout,
+            path_to_stderr);
+
+        //
+        // check exit code
+        //
+        if (rc) {
+          worker_failed.store(true);
+
+          WithColor::error() << llvm::formatv(
+              "jove llvm failed on {0}: see {1}\n", binary_filename,
+              path_to_stderr);
+
+          return;
+        }
+      }
+
+      assert(fs::exists(bcfp));
+
+      //
+      // run llvm-cbe
+      //
+      {
+        std::string path_to_stdout = bcfp + ".stdout.cbe.txt";
+        std::string path_to_stderr = bcfp + ".stderr.cbe.txt";
+
+        int rc = RunExecutableToExit(
+            locator().cbe(),
+            [&](auto Arg) {
+              Arg(locator().cbe());
+
+              Arg("-o");
+              Arg(cfp);
+
+              if (opts.FakeLineNumbers)
+                Arg("--cbe-print-debug-locs");
+
+              Arg(bcfp);
+            },
+            path_to_stdout,
+            path_to_stderr);
+
+        //
+        // check exit code
+        //
+        if (rc) {
+          worker_failed.store(true);
+          WithColor::error() << llvm::formatv("llvm-cbe failed on {0}: see {1}\n",
+                                              binary_filename, path_to_stderr);
+        }
+      }
+    });
+
+  auto t2 = std::chrono::high_resolution_clock::now();
+
+  std::chrono::duration<double> s_double = t2 - t1;
+
+  bool Failed = worker_failed.load();
+  if (Failed)
+    return 1;
+
+  if (!IsVerbose())
+    llvm::errs() << llvm::formatv(" {0} s\n", s_double.count());
 
   //
   // examine the bitcode to figure out which helpers are used
   //
-  std::unordered_set<std::string> helper_nms;
+  std::vector<std::string> helper_nms;
+
+  auto insertSorted = [&](std::vector<std::string> &vec,
+                          const std::string &str) -> void {
+    // Use binary search to check if the string is already in the vector
+    if (!std::binary_search(vec.begin(), vec.end(), str)) {
+      // Find the correct position to insert the string
+      auto it = std::lower_bound(vec.begin(), vec.end(), str);
+      vec.insert(it, str);
+    }
+  };
 
   auto Context = std::make_unique<llvm::LLVMContext>();
   for_each_binary(jv, [&](binary_t &binary) {
@@ -296,65 +386,69 @@ int DecompileTool::Run(void) {
           return false;
         },
         [&](llvm::Function &F) {
-          helper_nms.insert(F.getName().str().substr(sizeof("helper_") - 1));
+          insertSorted(helper_nms, F.getName().str().substr(sizeof("helper_") - 1));
         });
   });
 
-  for (const std::string &helper_nm : helper_nms) {
-    std::string helper_bc_fp = locator().helper_bitcode(helper_nm);
+  std::for_each(
+    std::execution::par_unseq,
+    helper_nms.begin(),
+    helper_nms.end(),
+    [&](const std::string &helper_nm) {
+      std::string helper_bc_fp = locator().helper_bitcode(helper_nm);
 
-    std::string tmpbc_fp = (fs::path(temporary_dir()) / helper_nm).string() + ".bc";
-    std::string o_fp = (fs::path(opts.Output) / ".obj" / helper_nm).string() + ".o";
+      std::string tmpbc_fp = (fs::path(temporary_dir()) / helper_nm).string() + ".bc";
+      std::string o_fp = (fs::path(opts.Output) / ".obj" / helper_nm).string() + ".o";
 
-    int rc;
+      int rc;
 
-    //
-    // run opt to internalize things
-    //
-    rc = RunExecutableToExit(locator().opt(), [&](auto Arg) {
-      Arg(locator().opt());
+      //
+      // run opt to internalize things
+      //
+      rc = RunExecutableToExit(locator().opt(), [&](auto Arg) {
+        Arg(locator().opt());
 
-      Arg("-o");
-      Arg(tmpbc_fp);
+        Arg("-o");
+        Arg(tmpbc_fp);
 
-      Arg("-passes=internalize");
-      Arg("--internalize-public-api-list=helper_" + helper_nm);
+        Arg("-passes=internalize");
+        Arg("--internalize-public-api-list=helper_" + helper_nm);
 
-      Arg(helper_bc_fp);
+        Arg(helper_bc_fp);
+      });
+
+      if (rc) {
+        WithColor::error() << "failed to run opt on helper\n";
+        return;
+      }
+
+      assert(fs::exists(tmpbc_fp));
+
+      //
+      // run llc on helper bitcode
+      //
+      rc = RunExecutableToExit(locator().llc(), [&](auto Arg) {
+        Arg(locator().llc());
+
+        Arg("-o");
+        Arg(o_fp);
+
+        Arg(tmpbc_fp);
+
+        Arg("--filetype=obj");
+
+        Arg("--disable-simplify-libcalls");
+
+        Arg(IsPIC ? "--relocation-model=pic" : "--relocation-model=static");
+      });
+
+      if (rc) {
+        WithColor::error() << "failed to run llc on helper bitcode\n";
+        return;
+      }
+
+      assert(fs::exists(o_fp));
     });
-
-    if (rc) {
-      WithColor::error() << "failed to run opt on helper\n";
-      return 1;
-    }
-
-    assert(fs::exists(tmpbc_fp));
-
-    //
-    // run llc on helper bitcode
-    //
-    rc = RunExecutableToExit(locator().llc(), [&](auto Arg) {
-      Arg(locator().llc());
-
-      Arg("-o");
-      Arg(o_fp);
-
-      Arg(tmpbc_fp);
-
-      Arg("--filetype=obj");
-
-      Arg("--disable-simplify-libcalls");
-
-      Arg(IsPIC ? "--relocation-model=pic" : "--relocation-model=static");
-    });
-
-    if (rc) {
-      WithColor::error() << "failed to run llc on helper bitcode\n";
-      return 1;
-    }
-
-    assert(fs::exists(o_fp));
-  }
 
   fs::copy_file(locator().builtins(),
                 fs::path(opts.Output) / ".obj" / "builtins.a",
@@ -567,113 +661,6 @@ int DecompileTool::Run(void) {
   }
 
   return 0;
-}
-
-bool DecompileTool::pop_binary(binary_index_t &out) {
-  std::lock_guard<std::mutex> lck(Q_mtx);
-
-  if (Q.empty()) {
-    return false;
-  } else {
-    out = Q.back();
-    Q.resize(Q.size() - 1);
-    return true;
-  }
-}
-
-void DecompileTool::Worker(void) {
-  binary_index_t BIdx = invalid_binary_index;
-  while (pop_binary(BIdx)) {
-    binary_t &binary = jv.Binaries.at(BIdx);
-
-    assert(binary.is_file());
-
-    const fs::path chrooted_path = fs::path(temporary_dir()) / binary.path_str();
-    fs::create_directories(chrooted_path.parent_path());
-
-    std::string binary_filename = fs::path(binary.path_str()).filename().string();
-
-    std::string bcfp(chrooted_path.string() + ".bc");
-    std::string mapfp = (fs::path(opts.Output) / (binary_filename + ".map")).string();
-    std::string cfp = (fs::path(opts.Output) / (binary_filename + ".c")).string();
-
-    //
-    // run jove-llvm
-    //
-    {
-      std::string path_to_stdout = bcfp + ".stdout.llvm.txt";
-      std::string path_to_stderr = bcfp + ".stderr.llvm.txt";
-
-      int rc = RunToolToExit(
-          "llvm",
-          [&](auto Arg) {
-            Arg("-o");
-            Arg(bcfp);
-
-            Arg("--version-script");
-            Arg(mapfp);
-
-            Arg("--binary-index");
-            Arg(std::to_string(BIdx));
-
-            Arg("--for-cbe");
-
-            Arg("--foreign-libs"); /* FIXME */
-
-            Arg("--mt=" + std::to_string((unsigned)opts.MT));
-          },
-          path_to_stdout,
-          path_to_stderr);
-
-      //
-      // check exit code
-      //
-      if (rc) {
-        worker_failed.store(true);
-
-        WithColor::error() << llvm::formatv(
-            "jove llvm failed on {0}: see {1}\n", binary_filename,
-            path_to_stderr);
-
-        continue;
-      }
-    }
-
-    assert(fs::exists(bcfp));
-
-    //
-    // run llvm-cbe
-    //
-    {
-      std::string path_to_stdout = bcfp + ".stdout.cbe.txt";
-      std::string path_to_stderr = bcfp + ".stderr.cbe.txt";
-
-      int rc = RunExecutableToExit(
-          locator().cbe(),
-          [&](auto Arg) {
-            Arg(locator().cbe());
-
-            Arg("-o");
-            Arg(cfp);
-
-            if (opts.FakeLineNumbers)
-              Arg("--cbe-print-debug-locs");
-
-            Arg(bcfp);
-          },
-          path_to_stdout,
-          path_to_stderr);
-
-      //
-      // check exit code
-      //
-      if (rc) {
-        worker_failed.store(true);
-        WithColor::error() << llvm::formatv("llvm-cbe failed on {0}: see {1}\n",
-                                            binary_filename, path_to_stderr);
-      }
-    }
-  }
 }
 
 }
