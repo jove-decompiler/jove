@@ -12,6 +12,7 @@
 #include <llvm/Support/WithColor.h>
 
 #include <chrono>
+#include <execution>
 #include <thread>
 #include <unordered_set>
 
@@ -59,9 +60,6 @@ class AnalyzeTool : public TransformerTool_BinFn<binary_state_t, function_state_
   int AnalyzeBlocks(void);
   int AnalyzeFunctions(void);
   int WriteDecompilation(void);
-
-  void worker1(std::atomic<dynamic_target_t *> &Q_ptr, dynamic_target_t *const Q_end);
-  void worker2(std::atomic<dynamic_target_t *>& Q_ptr, dynamic_target_t *const Q_end);
 
 public:
   AnalyzeTool() : opts(JoveCategory) {}
@@ -173,13 +171,6 @@ int AnalyzeTool::AnalyzeBlocks(void) {
   return 0;
 }
 
-#if 0
-static void worker1(std::atomic<dynamic_target_t *> &Q_ptr,
-                    dynamic_target_t *const Q_end);
-static void worker2(std::atomic<dynamic_target_t *> &Q_ptr,
-                    dynamic_target_t *const Q_end);
-#endif
-
 int AnalyzeTool::AnalyzeFunctions(void) {
   // let N be the count of all functions (in all binaries)
   unsigned N = std::accumulate(
@@ -188,40 +179,6 @@ int AnalyzeTool::AnalyzeFunctions(void) {
       [&](unsigned res, const binary_t &binary) -> unsigned {
         return res + binary.Analysis.Functions.size();
       });
-
-  {
-    std::vector<dynamic_target_t> Q;
-    Q.reserve(N);
-
-    //
-    // Build queue with all function pairs (b, f)
-    //
-    for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx)
-      for (function_index_t FIdx = 0; FIdx < jv.Binaries[BIdx].Analysis.Functions.size(); ++FIdx)
-        Q.emplace_back(BIdx, FIdx);
-
-    if (!Q.empty()) {
-      std::atomic<dynamic_target_t *> Q_ptr(Q.data());
-
-      {
-        std::vector<std::thread> workers;
-
-        unsigned NumThreads = num_cpus();
-
-        workers.reserve(NumThreads);
-        for (unsigned i = 0; i < NumThreads; ++i)
-          workers.emplace_back(&AnalyzeTool::worker1,
-                               this,
-                               std::ref(Q_ptr),
-                               Q.data() + Q.size());
-
-        for (std::thread &t : workers)
-          t.join();
-      }
-
-      assert(Q_ptr.load() >= Q.data() + Q.size()); /* consumed all */
-    }
-  }
 
   {
     std::vector<dynamic_target_t> Q;
@@ -242,69 +199,55 @@ int AnalyzeTool::AnalyzeFunctions(void) {
       }
     }
 
-    if (!Q.empty()) {
+    if (Q.empty())
+      return 0;
+
+    {
+      std::vector<dynamic_target_t> Q;
+      Q.reserve(N);
+
       //
-      // Analyze every function
+      // Build queue with all function pairs (b, f)
       //
-      std::atomic<dynamic_target_t *> Q_ptr(Q.data());
+      for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx)
+        for (function_index_t FIdx = 0; FIdx < jv.Binaries[BIdx].Analysis.Functions.size(); ++FIdx)
+          Q.emplace_back(BIdx, FIdx);
 
-      WithColor::note() << llvm::formatv("Analyzing {0} functions...", Q.size());
+      std::for_each(
+          std::execution::par_unseq,
+          Q.begin(),
+          Q.end(),
+          [&](dynamic_target_t X) {
+            binary_t &b = jv.Binaries.at(X.first);
+            function_t &f = function_of_target(X, jv);
 
-      auto t1 = std::chrono::high_resolution_clock::now();
+            basic_blocks_of_function(f, b, state.for_function(f).bbvec);
+            exit_basic_blocks_of_function(f, b, state.for_function(f).bbvec,
+                                          state.for_function(f).exit_bbvec);
 
-      {
-        std::vector<std::thread> workers;
-
-        unsigned NumThreads = num_cpus();
-
-        workers.reserve(NumThreads);
-        for (unsigned i = 0; i < NumThreads; ++i)
-          workers.emplace_back(&AnalyzeTool::worker2,
-                               this,
-                               std::ref(Q_ptr),
-                               Q.data() + Q.size());
-
-        for (std::thread &t : workers)
-          t.join();
-      }
-
-      assert(Q_ptr.load() >= Q.data() + Q.size()); /* consumed all */
-
-      auto t2 = std::chrono::high_resolution_clock::now();
-
-      std::chrono::duration<double> s_double = t2 - t1;
-
-      HumanOut() << llvm::formatv(" {0} s\n", s_double.count());
+            state.for_function(f).IsLeaf =
+                IsLeafFunction(f, b, state.for_function(f).bbvec);
+          });
     }
+
+    WithColor::note() << llvm::formatv("Analyzing {0} functions...", Q.size());
+    auto t1 = std::chrono::high_resolution_clock::now();
+
+    std::for_each(
+        std::execution::par_unseq,
+        Q.begin(),
+        Q.end(),
+        [&](dynamic_target_t X) {
+          AnalyzeFunction(jv, *TCG, *Module, function_of_target(X, jv), [&](binary_t &b) -> llvm::object::Binary & { return *state.for_binary(b).ObjectFile; }, false, false, this);
+        });
+
+    auto t2 = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> s_double = t2 - t1;
+
+    HumanOut() << llvm::formatv(" {0} s\n", s_double.count());
   }
 
   return 0;
-}
-
-void AnalyzeTool::worker1(std::atomic<dynamic_target_t *> &Q_ptr,
-                          dynamic_target_t *const Q_end) {
-  for (dynamic_target_t *p = Q_ptr++; p < Q_end; p = Q_ptr++) {
-    dynamic_target_t X = *p;
-
-    binary_t &b = jv.Binaries.at(X.first);
-    function_t &f = function_of_target(X, jv);
-
-    basic_blocks_of_function(f, b, state.for_function(f).bbvec);
-    exit_basic_blocks_of_function(f, b, state.for_function(f).bbvec,
-                                  state.for_function(f).exit_bbvec);
-
-    state.for_function(f).IsLeaf =
-        IsLeafFunction(f, b, state.for_function(f).bbvec);
-  }
-}
-
-void AnalyzeTool::worker2(std::atomic<dynamic_target_t *>& Q_ptr,
-                          dynamic_target_t *const Q_end) {
-  for (dynamic_target_t *p = Q_ptr++; p < Q_end; p = Q_ptr++) {
-    dynamic_target_t X = *p;
-
-    AnalyzeFunction(jv, *TCG, *Module, function_of_target(X, jv), [&](binary_t &b) -> llvm::object::Binary & { return *state.for_binary(b).ObjectFile; }, false, false, this);
-  }
 }
 
 }
