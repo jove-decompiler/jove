@@ -619,6 +619,8 @@ void DecompileTool::Worker(void) {
             Arg("--for-cbe");
 
             Arg("--foreign-libs"); /* FIXME */
+
+            Arg("--mt=" + std::to_string((unsigned)opts.MT));
           },
           path_to_stdout,
           path_to_stderr);
