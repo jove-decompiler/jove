@@ -15,6 +15,7 @@
 
 #include <chrono>
 #include <mutex>
+#include <execution>
 #include <queue>
 #include <sstream>
 #include <string>
@@ -164,12 +165,13 @@ public:
 
   int Run(void) override;
 
-  void worker(const dso_graph_t &dso_graph);
+  void worker(dso_t);
 
   void write_dso_graphviz(std::ostream &out, const dso_graph_t &);
 
   bool pop_dso(dso_t &out);
 
+  dso_graph_t dso_graph;
   std::vector<dso_t> Q;
   std::mutex Q_mtx;
 
@@ -530,7 +532,6 @@ int RecompileTool::Run(void) {
   //
   // build dynamic linking graph
   //
-  dso_graph_t dso_graph;
   for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
     binary_t &b = jv.Binaries[BIdx];
 
@@ -728,18 +729,11 @@ int RecompileTool::Run(void) {
   //
   // run jove-llvm and llc on all DSOs
   //
-  {
-    std::vector<std::thread> workers;
-
-    unsigned N = opts.Threads;
-
-    workers.reserve(N);
-    for (unsigned i = 0; i < N; ++i)
-      workers.push_back(std::thread(&RecompileTool::worker, this, std::cref(dso_graph)));
-
-    for (std::thread &t : workers)
-      t.join();
-  }
+  std::for_each(
+    std::execution::par_unseq,
+    Q.begin(),
+    Q.end(),
+    std::bind(&RecompileTool::worker, this, std::placeholders::_1));
 
   auto t2 = std::chrono::high_resolution_clock::now();
 
@@ -1008,198 +1002,197 @@ int RecompileTool::Run(void) {
   return 0;
 }
 
-void RecompileTool::worker(const dso_graph_t &dso_graph) {
+void RecompileTool::worker(dso_t dso) {
   int rc;
 
-  dso_t dso;
-  while (pop_dso(dso)) {
-    binary_index_t BIdx = dso_graph[dso].BIdx;
+  binary_index_t BIdx = dso_graph[dso].BIdx;
 
-    binary_t &b = jv.Binaries.at(BIdx);
+  binary_t &b = jv.Binaries.at(BIdx);
 
-    if (b.IsDynamicLinker)
-      continue;
-    if (b.IsVDSO)
-      continue;
+  if (b.IsDynamicLinker)
+    return;
+  if (b.IsVDSO)
+    return;
 
-    assert(b.is_file());
+  assert(b.is_file());
 
-    const fs::path chrooted_path = fs::path(opts.Output.getValue()) / a2r(b.path_str());
-    fs::create_directories(chrooted_path.parent_path());
+  const fs::path chrooted_path =
+      fs::path(opts.Output.getValue()) / a2r(b.path_str());
+  fs::create_directories(chrooted_path.parent_path());
 
-    std::string binary_filename = fs::path(b.path_str()).filename().string();
+  std::string binary_filename = fs::path(b.path_str()).filename().string();
 
-    std::string bcfp(chrooted_path.string() + ".bc");
-    std::string llfp(chrooted_path.string() + ".ll");
-    std::string ll_strip_fp(chrooted_path.string() + ".strip.ll");
-    std::string objfp(chrooted_path.string() + ".o");
-    std::string mapfp(chrooted_path.string() + ".map");
-    std::string dfsan_modid_fp(chrooted_path.string() + ".modid");
+  std::string bcfp(chrooted_path.string() + ".bc");
+  std::string llfp(chrooted_path.string() + ".ll");
+  std::string ll_strip_fp(chrooted_path.string() + ".strip.ll");
+  std::string objfp(chrooted_path.string() + ".o");
+  std::string mapfp(chrooted_path.string() + ".map");
+  std::string dfsan_modid_fp(chrooted_path.string() + ".modid");
 
-    std::string bytecode_loc = (fs::path(opts.Output.getValue()) / "dfsan").string();
+  std::string bytecode_loc =
+      (fs::path(opts.Output.getValue()) / "dfsan").string();
 
-    //
-    // run jove-llvm
-    //
-    std::string path_to_stdout = bcfp + ".llvm.stdout.txt";
-    std::string path_to_stderr = bcfp + ".llvm.stderr.txt";
-    rc = RunToolToExit(
-        "llvm",
-        [&](auto Arg) {
-          Arg("-o");
-          Arg(bcfp);
-
-          Arg("--version-script");
-          Arg(mapfp);
-
-          Arg("--binary-index");
-          Arg(std::to_string(BIdx));
-
-          if (opts.Optimize)
-            Arg("--optimize");
-
-          if (opts.DFSan) {
-            Arg("--dfsan");
-            Arg("--dfsan-output-module-id=" + dfsan_modid_fp);
-            Arg("--dfsan-bytecode-loc=" + bytecode_loc);
-            Arg("--dfsan-no-loop-starts");
-          }
-
-          if (opts.CheckEmulatedStackReturnAddress)
-            Arg("--check-emulated-stack-return-address");
-          if (opts.Trace)
-            Arg("--trace");
-          if (!opts.ForeignLibs)
-            Arg("--x=0");
-          if (opts.DebugSjlj)
-            Arg("--debug-sjlj");
-          if (!opts.ABICalls)
-            Arg("--abi-calls=0");
-          if (opts.InlineHelpers)
-            Arg("--inline-helpers");
-          if (!opts.MT)
-            Arg("--mt=0");
-        },
-        [&](auto Env) {
-          InitWithEnviron(Env);
-
-          Env("JVPATH=" + jv_path);
-        },
-        path_to_stdout,
-        path_to_stderr);
-
-    //
-    // check exit code
-    //
-    if (rc) {
-      worker_failed.store(true);
-      WithColor::error() << llvm::formatv("jove llvm failed! see {0}\n",
-                                          path_to_stderr);
-      continue;
-    }
-
-    if (opts.DFSan) {
-      std::ifstream ifs(dfsan_modid_fp);
-      std::string dfsan_modid((std::istreambuf_iterator<char>(ifs)),
-                              std::istreambuf_iterator<char>());
-
-      WithColor::note() << llvm::formatv("ModuleID for {0} is {1}\n", bcfp,
-                                         dfsan_modid);
-
-      fs::copy_file(bcfp, opts.Output + "/dfsan/" + dfsan_modid,
-                    fs::copy_options::overwrite_existing);
-    }
-
-    //
-    // run llvm-dis on bitcode
-    //
-    std::thread t1([&](void) -> void {
-      RunExecutableToExit(locator().dis(), [&](auto Arg) {
-        nice(10);
-
-        Arg(locator().dis());
+  //
+  // run jove-llvm
+  //
+  std::string path_to_stdout = bcfp + ".llvm.stdout.txt";
+  std::string path_to_stderr = bcfp + ".llvm.stderr.txt";
+  rc = RunToolToExit(
+      "llvm",
+      [&](auto Arg) {
         Arg("-o");
-        Arg(llfp);
         Arg(bcfp);
-      });
-    });
 
-    //
-    // run opt on bitcode to generate stripped ll
-    //
-    std::thread t2([&](void) -> void {
-      RunExecutableToExit(locator().opt(), [&](auto Arg) {
-        nice(10);
+        Arg("--version-script");
+        Arg(mapfp);
 
-        Arg(locator().opt());
-        Arg("-o");
-        Arg(ll_strip_fp);
-        Arg("-S");
-        Arg("--strip-debug");
-        Arg(bcfp);
-      });
-    });
+        Arg("--binary-index");
+        Arg(std::to_string(BIdx));
 
-    //
-    // run llc
-    //
-    rc = RunExecutableToExit(locator().llc(),
-                             [&](auto Arg) {
-      Arg(locator().llc());
+        if (opts.Optimize)
+          Arg("--optimize");
 
+        if (opts.DFSan) {
+          Arg("--dfsan");
+          Arg("--dfsan-output-module-id=" + dfsan_modid_fp);
+          Arg("--dfsan-bytecode-loc=" + bytecode_loc);
+          Arg("--dfsan-no-loop-starts");
+        }
+
+        if (opts.CheckEmulatedStackReturnAddress)
+          Arg("--check-emulated-stack-return-address");
+        if (opts.Trace)
+          Arg("--trace");
+        if (!opts.ForeignLibs)
+          Arg("--x=0");
+        if (opts.DebugSjlj)
+          Arg("--debug-sjlj");
+        if (!opts.ABICalls)
+          Arg("--abi-calls=0");
+        if (opts.InlineHelpers)
+          Arg("--inline-helpers");
+        if (!opts.MT)
+          Arg("--mt=0");
+      },
+      [&](auto Env) {
+        InitWithEnviron(Env);
+
+        Env("JVPATH=" + jv_path);
+      },
+      path_to_stdout, path_to_stderr);
+
+  //
+  // check exit code
+  //
+  if (rc) {
+    worker_failed.store(true);
+    WithColor::error() << llvm::formatv("jove llvm failed! see {0}\n",
+                                        path_to_stderr);
+    return;
+  }
+
+  if (opts.DFSan) {
+    std::ifstream ifs(dfsan_modid_fp);
+    std::string dfsan_modid((std::istreambuf_iterator<char>(ifs)),
+                            std::istreambuf_iterator<char>());
+
+    WithColor::note() << llvm::formatv("ModuleID for {0} is {1}\n", bcfp,
+                                       dfsan_modid);
+
+    fs::copy_file(bcfp, opts.Output + "/dfsan/" + dfsan_modid,
+                  fs::copy_options::overwrite_existing);
+  }
+
+  //
+  // run llvm-dis on bitcode
+  //
+  std::thread t1([&](void) -> void {
+    RunExecutableToExit(locator().dis(), [&](auto Arg) {
+      nice(10);
+
+      Arg(locator().dis());
       Arg("-o");
-      Arg(objfp);
+      Arg(llfp);
       Arg(bcfp);
+    });
+  });
 
-      Arg("--filetype=obj");
+  //
+  // run opt on bitcode to generate stripped ll
+  //
+  std::thread t2([&](void) -> void {
+    RunExecutableToExit(locator().opt(), [&](auto Arg) {
+      nice(10);
 
-      Arg("--disable-simplify-libcalls");
+      Arg(locator().opt());
+      Arg("-o");
+      Arg(ll_strip_fp);
+      Arg("-S");
+      Arg("--strip-debug");
+      Arg(bcfp);
+    });
+  });
 
-      if (!opts.Optimize || opts.DFSan) {
-        Arg("--fast-isel");
-        Arg("-O0");
-      }
+  //
+  // run llc
+  //
+  rc = RunExecutableToExit(locator().llc(), [&](auto Arg) {
+    Arg(locator().llc());
 
-      if (!opts.Optimize) {
-        Arg("--frame-pointer=all");
+    Arg("-o");
+    Arg(objfp);
+    Arg(bcfp);
+
+    Arg("--filetype=obj");
+
+    Arg("--disable-simplify-libcalls");
+
+    if (!opts.Optimize || opts.DFSan) {
+      Arg("--fast-isel");
+      Arg("-O0");
+    }
+
+    if (!opts.Optimize) {
+      Arg("--frame-pointer=all");
 
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
-        Arg("--disable-mips-delay-filler"); /* make our life easier */
+      Arg("--disable-mips-delay-filler"); /* make our life easier */
 #endif
-      }
-
-      if (b.IsPIC) {
-        Arg("--relocation-model=pic");
-      } else {
-        assert(b.IsExecutable);
-        Arg("--relocation-model=static");
-      }
-
-      Arg("--dwarf-version=4");
-      Arg("--debugger-tune=gdb");
-
-#if defined(TARGET_X86_64) || defined(TARGET_I386)
-      //
-      // FIXME... how is the stack getting unaligned??
-      //
-      Arg("--stackrealign");
-#endif
-    });
-
-    //
-    // check exit code
-    //
-    if (rc) {
-      worker_failed = true;
-      WithColor::error() << llvm::formatv("llc failed for {0}\n",
-                                          binary_filename);
-
-      t1.join(); t2.join();
-      continue;
     }
 
-    t1.join(); t2.join();
+    if (b.IsPIC) {
+      Arg("--relocation-model=pic");
+    } else {
+      assert(b.IsExecutable);
+      Arg("--relocation-model=static");
+    }
+
+    Arg("--dwarf-version=4");
+    Arg("--debugger-tune=gdb");
+
+#if defined(TARGET_X86_64) || defined(TARGET_I386)
+    //
+    // FIXME... how is the stack getting unaligned??
+    //
+    Arg("--stackrealign");
+#endif
+  });
+
+  //
+  // check exit code
+  //
+  if (rc) {
+    worker_failed = true;
+    WithColor::error() << llvm::formatv("llc failed for {0}\n",
+                                        binary_filename);
+
+    t1.join();
+    t2.join();
+    return;
   }
+
+  t1.join();
+  t2.join();
 }
 
 bool RecompileTool::pop_dso(dso_t &out) {
