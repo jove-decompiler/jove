@@ -210,7 +210,7 @@ int CodeDigger::Run(void) {
   if (opts.NoSave)
     return 0;
 
-  for_each_function(jv,
+  for_each_function(std::execution::par_unseq, jv,
                     [](function_t &f, binary_t &b) { f.InvalidateAnalysis(); });
 
   if (IsVerbose())
