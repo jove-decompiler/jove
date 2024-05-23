@@ -131,32 +131,26 @@ void AnalyzeFunction(jv_t &jv,
                      Tool *tool = nullptr);
 
 int AnalyzeTool::AnalyzeBlocks(void) {
-  unsigned cnt = 0;
+  unsigned count = 0;
 
-  auto t1 = std::chrono::high_resolution_clock::now();
+  for_each_binary(jv, [&](binary_t &b) {
+    auto &ICFG = b.Analysis.ICFG;
 
-  for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
-    auto &binary = jv.Binaries[BIdx];
-    auto &ICFG = binary.Analysis.ICFG;
-
-    icfg_t::vertex_iterator vi, vi_end;
-    for (std::tie(vi, vi_end) = boost::vertices(ICFG); vi != vi_end; ++vi) {
-      basic_block_t bb = *vi;
-
+    for_each_basic_block_in_binary(jv, b, [&](basic_block_t bb) {
       if (ICFG[bb].Analysis.Stale)
-        ++cnt;
+        ++count;
 
-      AnalyzeBasicBlock(*TCG, *Module, binary, *state.for_binary(binary).ObjectFile, bb, false, false, this);
+      AnalyzeBasicBlock(*TCG, *Module, b,
+                        *state.for_binary(b).ObjectFile, bb, false, false,
+                        this);
 
       assert(!ICFG[bb].Analysis.Stale);
-    }
-  }
+    });
+  });
 
-  auto t2 = std::chrono::high_resolution_clock::now();
-
-  if (cnt)
-    WithColor::note() << llvm::formatv("Analyzed {0} basic block{1}.\n", cnt,
-                                       cnt == 1 ? "" : "s");
+  if (count)
+    WithColor::note() << llvm::formatv("Analyzed {0} basic block{1}.\n", count,
+                                       count == 1 ? "" : "s");
 
   //
   // XXX hack for _jove_call
@@ -172,82 +166,47 @@ int AnalyzeTool::AnalyzeBlocks(void) {
 }
 
 int AnalyzeTool::AnalyzeFunctions(void) {
-  // let N be the count of all functions (in all binaries)
-  unsigned N = std::accumulate(
-      jv.Binaries.begin(),
-      jv.Binaries.end(), 0u,
-      [&](unsigned res, const binary_t &binary) -> unsigned {
-        return res + binary.Analysis.Functions.size();
+  /* FIXME only necessary */
+  for_each_function(
+      std::execution::par_unseq, jv,
+      [&](function_t &f, binary_t &b) {
+        basic_blocks_of_function(f, b, state.for_function(f).bbvec);
+        exit_basic_blocks_of_function(f, b, state.for_function(f).bbvec,
+                                      state.for_function(f).exit_bbvec);
+
+        state.for_function(f).IsLeaf =
+            IsLeafFunction(f, b, state.for_function(f).bbvec);
       });
 
-  {
-    std::vector<dynamic_target_t> Q;
-    Q.reserve(N);
+  WithColor::note() << "Analyzing functions...";
+  auto t1 = std::chrono::high_resolution_clock::now();
 
-    //
-    // Build queue with functions having stale analyses in Q2.
-    //
-    for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
-      binary_t &binary = jv.Binaries[BIdx];
-      if (opts.ForeignLibs && !binary.IsExecutable)
-        continue;
+  for_each_binary(std::execution::par_unseq, jv, [&](binary_t &binary) {
+    if (opts.ForeignLibs && !binary.IsExecutable)
+      return;
 
-      for (function_index_t FIdx = 0; FIdx < binary.Analysis.Functions.size(); ++FIdx) {
-        function_t &f = binary.Analysis.Functions[FIdx];
-        if (f.Analysis.Stale)
-          Q.emplace_back(BIdx, FIdx);
-      }
-    }
+    for_each_function_in_binary(
+        std::execution::par_unseq, binary,
+        [&](function_t &f) {
+          if (!f.Analysis.Stale)
+            return;
 
-    if (Q.empty())
-      return 0;
+          AnalyzeFunction(
+              jv, *TCG, *Module, f,
+              [&](binary_t &b) -> llvm::object::Binary & {
+                return *state.for_binary(b).ObjectFile;
+              },
+              false, false, this);
 
-    {
-      std::vector<dynamic_target_t> Q;
-      Q.reserve(N);
-
-      //
-      // Build queue with all function pairs (b, f)
-      //
-      for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx)
-        for (function_index_t FIdx = 0; FIdx < jv.Binaries[BIdx].Analysis.Functions.size(); ++FIdx)
-          Q.emplace_back(BIdx, FIdx);
-
-      std::for_each(
-          std::execution::par_unseq,
-          Q.begin(),
-          Q.end(),
-          [&](dynamic_target_t X) {
-            binary_t &b = jv.Binaries.at(X.first);
-            function_t &f = function_of_target(X, jv);
-
-            basic_blocks_of_function(f, b, state.for_function(f).bbvec);
-            exit_basic_blocks_of_function(f, b, state.for_function(f).bbvec,
-                                          state.for_function(f).exit_bbvec);
-
-            state.for_function(f).IsLeaf =
-                IsLeafFunction(f, b, state.for_function(f).bbvec);
-          });
-    }
-
-    WithColor::note() << llvm::formatv("Analyzing {0} functions...", Q.size());
-    auto t1 = std::chrono::high_resolution_clock::now();
-
-    std::for_each(
-        std::execution::par_unseq,
-        Q.begin(),
-        Q.end(),
-        [&](dynamic_target_t X) {
-          AnalyzeFunction(jv, *TCG, *Module, function_of_target(X, jv), [&](binary_t &b) -> llvm::object::Binary & { return *state.for_binary(b).ObjectFile; }, false, false, this);
+          assert(!f.Analysis.Stale);
         });
+  });
 
-    auto t2 = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double> s_double = t2 - t1;
+  auto t2 = std::chrono::high_resolution_clock::now();
+  std::chrono::duration<double> s_double = t2 - t1;
 
-    HumanOut() << llvm::formatv(" {0} s\n", s_double.count());
-  }
+  HumanOut() << llvm::formatv(" {0} s\n", s_double.count());
 
   return 0;
 }
-
 }
