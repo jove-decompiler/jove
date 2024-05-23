@@ -161,7 +161,7 @@ int AnalyzeTool::AnalyzeBlocks(void) {
   //
   // XXX hack for _jove_call
   //
-  for_each_function_if(jv,
+  for_each_function_if(std::execution::par_unseq, jv,
       [](function_t &f) { return f.IsABI; },
       [](function_t &f, binary_t &b) {
         auto &ICFG = b.Analysis.ICFG;

@@ -21,9 +21,13 @@ struct InvalidateTool : public JVTool {
 JOVE_REGISTER_TOOL("invalidate", InvalidateTool);
 
 int InvalidateTool::Run(void) {
-  jv.InvalidateFunctionAnalyses();
-  for_each_binary(jv, [&](binary_t &binary) {
-    binary.InvalidateBasicBlockAnalyses();
+  for_each_binary(std::execution::par_unseq, jv, [&](binary_t &b) {
+    for_each_function_in_binary(std::execution::par_unseq, b,
+                                [&](function_t &f) { f.InvalidateAnalysis(); });
+
+    for_each_basic_block_in_binary(
+        std::execution::par_unseq, jv, b,
+        [&](basic_block_t bb) { b.Analysis.ICFG[bb].InvalidateAnalysis(); });
   });
 
   return 0;

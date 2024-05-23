@@ -187,4 +187,11 @@ void jv_t::clear(bool everything) {
   }
 }
 
+void jv_t::InvalidateFunctionAnalyses(void) {
+  for_each_binary(std::execution::par_unseq, *this, [&](binary_t &b) {
+    for_each_function_in_binary(std::execution::par_unseq, b,
+                                [&](function_t &f) { f.InvalidateAnalysis(); });
+  });
+}
+
 }

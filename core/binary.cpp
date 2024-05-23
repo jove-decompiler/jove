@@ -3,9 +3,8 @@
 namespace jove {
 
 void binary_t::InvalidateBasicBlockAnalyses(void) {
-  auto it_pair = boost::vertices(Analysis.ICFG);
-  for (auto it = it_pair.first; it != it_pair.second; ++it)
-    Analysis.ICFG[*it].InvalidateAnalysis();
+  for_each_function_in_binary(std::execution::par_unseq, *this,
+                              [&](function_t &f) { f.InvalidateAnalysis(); });
 }
 
 void binary_t::Analysis_t::addSymDynTarget(const std::string &sym,
