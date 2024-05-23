@@ -38,6 +38,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <functional>
+#include <execution>
 #include <iomanip>
 #include <limits>
 #include <map>
@@ -680,13 +681,21 @@ description_of_terminator_info(const terminator_info_t &T,
   return res;
 }
 
-template <typename Iter, typename Pred, typename Op>
-static inline void for_each_if(Iter first, Iter last, Pred p, Op op) {
-  while (first != last) {
-    if (p(*first))
-      op(*first);
-    ++first;
-  }
+template <typename _ExecutionPolicy, typename Iter, typename Pred, typename Proc>
+constexpr
+void for_each_if(_ExecutionPolicy &&__exec, Iter first, Iter last, Pred pred, Proc proc) {
+  std::for_each(std::forward<_ExecutionPolicy>(__exec), first, last,
+                [pred, proc](auto &elem) {
+                  if (pred(elem)) {
+                    proc(elem);
+                  }
+                });
+}
+
+template <typename Iter, typename Pred, typename Proc>
+constexpr
+void for_each_if(Iter first, Iter last, Pred pred, Proc proc) {
+  for_each_if(std::execution::seq, first, last, pred, proc);
 }
 
 static inline std::string addr_intvl2str(addr_intvl intvl) {
@@ -774,73 +783,145 @@ static inline bbmap_t::iterator bbmap_add(bbmap_t &bbmap,
   return it;
 }
 
-static inline void for_each_binary(jv_t &jv,
-                                   std::function<void(binary_t &)> proc) {
-  std::for_each(jv.Binaries.begin(),
+template <class _ExecutionPolicy, class T, class Proc>
+constexpr
+void for_each_binary(_ExecutionPolicy &&__exec,
+                     T &&jv,
+                     Proc proc) {
+  std::for_each(std::forward<_ExecutionPolicy>(__exec),
+                jv.Binaries.begin(),
                 jv.Binaries.end(),
                 proc);
 }
 
-static inline void for_each_binary(const jv_t &jv,
-                                   std::function<void(const binary_t &)> proc) {
-  std::for_each(jv.Binaries.begin(),
-                jv.Binaries.end(),
-                proc);
+template <class T, class Proc>
+constexpr
+void for_each_binary(T &&jv, Proc proc) {
+  for_each_binary(std::execution::seq, std::forward<T>(jv), proc);
 }
 
-static inline void for_each_binary_if(jv_t &jv,
-                                      std::function<bool(binary_t &)> pred,
-                                      std::function<void(binary_t &)> proc) {
-  for_each_if(jv.Binaries.begin(),
+template <class _ExecutionPolicy, class T, class Pred, class Proc>
+constexpr
+void for_each_binary_if(_ExecutionPolicy &&__exec,
+                        T &&jv,
+                        Pred pred,
+                        Proc proc) {
+  for_each_if(std::forward<_ExecutionPolicy>(__exec),
+              jv.Binaries.begin(),
               jv.Binaries.end(),
               pred, proc);
 }
 
-static inline void for_each_function(jv_t &jv,
-                                     std::function<void(function_t &, binary_t &)> proc) {
-  for_each_binary(jv, [&](binary_t &binary) {
-    std::for_each(binary.Analysis.Functions.begin(),
-                  binary.Analysis.Functions.end(),
-                  [&](function_t &f) { proc(f, binary); });
+template <class T, class Pred, class Proc>
+constexpr
+void for_each_binary_if(T &&jv, Pred pred, Proc proc) {
+  return for_each_binary_if(std::execution::seq, std::forward<T>(jv), pred, proc);
+}
+
+template <class _ExecutionPolicy, class T, class Proc>
+constexpr
+void for_each_function(_ExecutionPolicy &&__exec,
+                       T &&jv,
+                       Proc proc) {
+  for_each_binary(std::forward<_ExecutionPolicy>(__exec),
+                  std::forward<T>(jv),
+                  [&__exec, proc](auto &b) {
+    std::for_each(std::forward<_ExecutionPolicy>(__exec),
+                  b.Analysis.Functions.begin(),
+                  b.Analysis.Functions.end(),
+                  [&b, proc](auto &f) { proc(f, b); });
   });
 }
 
-static inline void for_each_function_in_binary(binary_t &binary,
-                                               std::function<void(function_t &)> proc) {
-  std::for_each(binary.Analysis.Functions.begin(),
-                binary.Analysis.Functions.end(), proc);
+template <class T, class Proc>
+constexpr
+void for_each_function(T &&jv, Proc proc) {
+  for_each_function(std::execution::seq, std::forward<T>(jv), proc);
 }
 
-static inline void for_each_function_if(jv_t &jv,
-                                        std::function<bool(function_t &)> pred,
-                                        std::function<void(function_t &, binary_t &)> proc) {
-  for_each_binary(jv, [&](binary_t &b) {
-    for_each_if(b.Analysis.Functions.begin(),
+template <class _ExecutionPolicy, class Proc>
+constexpr
+void for_each_function_in_binary(_ExecutionPolicy &&__exec,
+                                 binary_t &b,
+                                 Proc proc) {
+  std::for_each(std::forward<_ExecutionPolicy>(__exec),
+                b.Analysis.Functions.begin(),
+                b.Analysis.Functions.end(), proc);
+}
+
+template <class Proc>
+constexpr
+void for_each_function_in_binary(binary_t &b,
+                                 Proc proc) {
+  for_each_function_in_binary(std::execution::seq, b, proc);
+}
+
+template <class _ExecutionPolicy, class T, class Pred, class Proc>
+constexpr
+void for_each_function_if(_ExecutionPolicy &&__exec,
+                          T &&jv,
+                          Pred pred,
+                          Proc proc) {
+  for_each_binary(std::forward<_ExecutionPolicy>(__exec),
+                  std::forward<T>(jv),
+                  [&__exec, pred, proc](auto &b) {
+    for_each_if(std::forward<_ExecutionPolicy>(__exec),
+                b.Analysis.Functions.begin(),
                 b.Analysis.Functions.end(),
-                pred, [&](function_t &f) { proc(f, b); });
+                pred, [&b, proc](auto &f) { proc(f, b); });
   });
 }
 
-static inline void for_each_basic_block(jv_t &jv,
-                                        std::function<void(binary_t &, basic_block_t)> proc) {
-  for_each_binary(jv, [&](binary_t &binary) {
+template <class T, class Pred, class Proc>
+constexpr
+void for_each_function_if(T &&jv,
+                          Pred pred,
+                          Proc proc) {
+  for_each_function_if(std::execution::seq, std::forward<T>(jv), pred, proc);
+}
+
+template <class _ExecutionPolicy, class T, class Proc>
+constexpr
+void for_each_basic_block(_ExecutionPolicy &&__exec,
+                          T &&jv,
+                          Proc proc) {
+  for_each_binary(std::forward<_ExecutionPolicy>(__exec),
+                  std::forward<T>(jv),
+                  [&__exec, proc](auto &b) {
     icfg_t::vertex_iterator it, it_end;
-    std::tie(it, it_end) = boost::vertices(binary.Analysis.ICFG);
+    std::tie(it, it_end) = boost::vertices(b.Analysis.ICFG);
 
-    std::for_each(it, it_end,
-                  [&](basic_block_t bb) { proc(binary, bb); });
+    std::for_each(std::forward<_ExecutionPolicy>(__exec),
+                  it, it_end,
+                  [&b, proc](basic_block_t bb) { proc(b, bb); });
   });
 }
 
-static inline void for_each_basic_block_in_binary(jv_t &jv,
-                                                  binary_t &binary,
-                                                  std::function<void(basic_block_t)> proc) {
-  auto &ICFG = binary.Analysis.ICFG;
+template <class T, class Proc>
+constexpr
+void for_each_basic_block(T &&jv, Proc proc) {
+  for_each_basic_block(std::execution::seq, std::forward<T>(jv), proc);
+}
 
+template <class _ExecutionPolicy, class T, class Proc>
+static inline
+void for_each_basic_block_in_binary(_ExecutionPolicy &&__exec,
+                                    T &&jv,
+                                    binary_t &b,
+                                    Proc proc) {
   icfg_t::vertex_iterator it, it_end;
-  std::tie(it, it_end) = boost::vertices(ICFG);
+  std::tie(it, it_end) = boost::vertices(b.Analysis.ICFG);
 
-  std::for_each(it, it_end, [&](basic_block_t bb) { proc(bb); });
+  std::for_each(std::forward<_ExecutionPolicy>(__exec),
+               it, it_end, [proc](basic_block_t bb) { proc(bb); });
+}
+
+template <class T, class Proc>
+constexpr
+void for_each_basic_block_in_binary(T &&jv,
+                                    binary_t &b,
+                                    Proc proc) {
+  for_each_basic_block_in_binary(std::execution::seq, std::forward<T>(jv), b, proc);
 }
 
 static inline basic_block_index_t index_of_basic_block(const icfg_t &ICFG, basic_block_t bb) {
