@@ -10,6 +10,7 @@
 #include <llvm/Support/WithColor.h>
 
 #include <atomic>
+#include <execution>
 #include <mutex>
 #include <thread>
 #include <fcntl.h>
@@ -95,7 +96,7 @@ public:
 
   int ListLocalGotos(void);
 
-  void Worker(void);
+  void Worker(binary_index_t);
   void RecoverLoop(void);
 
   void queue_binaries(void);
@@ -187,21 +188,11 @@ int CodeDigger::Run(void) {
   {
     auto t1 = std::chrono::high_resolution_clock::now();
 
-    //
-    // run jove-llvm on all DSOs
-    //
-    {
-      std::vector<std::thread> workers;
-
-      unsigned N = opts.Threads;
-
-      workers.reserve(N);
-      for (unsigned i = 0; i < N; ++i)
-        workers.push_back(std::thread(&CodeDigger::Worker, this));
-
-      for (std::thread &t : workers)
-        t.join();
-    }
+    std::for_each(
+      std::execution::par_unseq,
+      Q.begin(),
+      Q.end(),
+      std::bind(&CodeDigger::Worker, this, std::placeholders::_1));
 
     auto t2 = std::chrono::high_resolution_clock::now();
 
@@ -310,108 +301,105 @@ bool CodeDigger::pop_binary(binary_index_t &out) {
   }
 }
 
-void CodeDigger::Worker(void) {
-  binary_index_t BIdx = invalid_binary_index;
-  while (pop_binary(BIdx)) {
-    binary_t &binary = jv.Binaries.at(BIdx);
+void CodeDigger::Worker(binary_index_t BIdx) {
+  binary_t &binary = jv.Binaries.at(BIdx);
 
-    assert(binary.is_file());
+  assert(binary.is_file());
 
-    const fs::path chrooted_path = fs::path(temporary_dir()) / binary.path_str();
-    fs::create_directories(chrooted_path.parent_path());
+  const fs::path chrooted_path = fs::path(temporary_dir()) / binary.path_str();
+  fs::create_directories(chrooted_path.parent_path());
 
-    std::string binary_filename = fs::path(binary.path_str()).filename().string();
+  std::string binary_filename = fs::path(binary.path_str()).filename().string();
 
-    std::string bcfp(chrooted_path.string() + ".bc");
-    std::string mapfp(chrooted_path.string() + ".map"); /* XXX */
+  std::string bcfp(chrooted_path.string() + ".bc");
+  std::string mapfp(chrooted_path.string() + ".map"); /* XXX */
+
+  //
+  // run jove-llvm
+  //
+  {
+    std::string path_to_stdout = bcfp + ".stdout.llvm.txt";
+    std::string path_to_stderr = bcfp + ".stderr.llvm.txt";
+
+    int rc = RunToolToExit(
+        "llvm",
+        [&](auto Arg) {
+          ::close(pipe_rdfd);
+          ::close(pipe_wrfd);
+
+          Arg("-o");
+          Arg(bcfp);
+          Arg("--version-script");
+          Arg(mapfp);
+
+          Arg("--binary-index");
+          Arg(std::to_string(BIdx));
+
+          //Arg("--inline-helpers");
+          //Arg("--optimize");
+        },
+        path_to_stdout,
+        path_to_stderr);
 
     //
-    // run jove-llvm
+    // check exit code
     //
-    {
-      std::string path_to_stdout = bcfp + ".stdout.llvm.txt";
-      std::string path_to_stderr = bcfp + ".stderr.llvm.txt";
-
-      int rc = RunToolToExit(
-          "llvm",
-          [&](auto Arg) {
-            ::close(pipe_rdfd);
-            ::close(pipe_wrfd);
-
-            Arg("-o");
-            Arg(bcfp);
-            Arg("--version-script");
-            Arg(mapfp);
-
-            Arg("--binary-index");
-            Arg(std::to_string(BIdx));
-
-            //Arg("--inline-helpers");
-            //Arg("--optimize");
-          },
-          path_to_stdout,
+    if (rc) {
+      worker_failed.store(true);
+      WithColor::error() << llvm::formatv(
+          "jove llvm failed on {0}: see {1}\n", binary_filename,
           path_to_stderr);
-
-      //
-      // check exit code
-      //
-      if (rc) {
-        worker_failed.store(true);
-        WithColor::error() << llvm::formatv(
-            "jove llvm failed on {0}: see {1}\n", binary_filename,
-            path_to_stderr);
-        continue;
-      }
+      return;
     }
+  }
 
-    assert(fs::exists(bcfp));
+  assert(fs::exists(bcfp));
+
+  //
+  // run klee
+  //
+  {
+    std::string path_to_stdout = bcfp + ".stdout.klee.txt";
+    std::string path_to_stderr = bcfp + ".stderr.klee.txt";
+
+    int rc = RunExecutableToExit(
+        locator().klee(),
+        [&](auto Arg) {
+          ::close(pipe_rdfd);
+
+          Arg(locator().klee());
+
+          Arg("--entry-point=_jove_begin");
+          Arg("--solver-backend=stp");
+          Arg("--write-no-tests");
+          Arg("--output-stats=0");
+          Arg("--output-istats=0");
+          Arg("--check-div-zero=0");
+          Arg("--check-overshift=0");
+          Arg("--max-memory=0");
+          Arg("--max-memory-inhibit=0");
+          Arg("--use-forked-solver=0");
+
+          Arg("--jove-output-dir=" + temporary_dir());
+          Arg("--jove-pipefd=" + std::to_string(pipe_wrfd));
+          Arg("--jove-binary-index=" + std::to_string(BIdx));
+          Arg("--jove-sects-start-addr=" + std::to_string(state.for_binary(binary).SectsStartAddr));
+          Arg("--jove-sects-end-addr=" + std::to_string(state.for_binary(binary).SectsEndAddr));
+          Arg("--jove-path-length=" + std::to_string(opts.PathLength));
+          if (!opts.SingleBBIdx.empty())
+            Arg("--jove-single-bbidx=" + opts.SingleBBIdx);
+          Arg(bcfp);
+        },
+        path_to_stdout,
+        path_to_stderr);
 
     //
-    // run klee
+    // check exit code
     //
-    {
-      std::string path_to_stdout = bcfp + ".stdout.klee.txt";
-      std::string path_to_stderr = bcfp + ".stderr.klee.txt";
-
-      int rc = RunExecutableToExit(
-          locator().klee(),
-          [&](auto Arg) {
-            ::close(pipe_rdfd);
-
-            Arg(locator().klee());
-
-            Arg("--entry-point=_jove_begin");
-            Arg("--solver-backend=stp");
-            Arg("--write-no-tests");
-            Arg("--output-stats=0");
-            Arg("--output-istats=0");
-            Arg("--check-div-zero=0");
-            Arg("--check-overshift=0");
-            Arg("--max-memory=0");
-            Arg("--max-memory-inhibit=0");
-            Arg("--use-forked-solver=0");
-
-            Arg("--jove-output-dir=" + temporary_dir());
-            Arg("--jove-pipefd=" + std::to_string(pipe_wrfd));
-            Arg("--jove-binary-index=" + std::to_string(BIdx));
-            Arg("--jove-sects-start-addr=" + std::to_string(state.for_binary(binary).SectsStartAddr));
-            Arg("--jove-sects-end-addr=" + std::to_string(state.for_binary(binary).SectsEndAddr));
-            Arg("--jove-path-length=" + std::to_string(opts.PathLength));
-            if (!opts.SingleBBIdx.empty())
-              Arg("--jove-single-bbidx=" + opts.SingleBBIdx);
-            Arg(bcfp);
-          },
-          path_to_stdout,
-          path_to_stderr);
-
-      //
-      // check exit code
-      //
-      if (rc) {
-        worker_failed.store(true);
-        WithColor::error() << llvm::formatv("klee failed on {0}: see {1}\n",
-                                            binary_filename, path_to_stderr);
-      }
+    if (rc) {
+      worker_failed.store(true);
+      WithColor::error() << llvm::formatv("klee failed on {0}: see {1}\n",
+                                          binary_filename, path_to_stderr);
     }
   }
 }
