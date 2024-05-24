@@ -22,6 +22,9 @@ symbolizer_t::symbolizer_t() {
 symbolizer_t::~symbolizer_t() {}
 
 std::string symbolizer_t::addr2line(const binary_t &binary, uint64_t Addr) {
+  if (!binary.is_file())
+    return std::string();
+
   auto ResOrErr = Symbolizer->symbolizeCode(
       binary.path_str(),
       {Addr, llvm::object::SectionedAddress::UndefSection});
