@@ -14,8 +14,6 @@
 #include <boost/interprocess/managed_mapped_file.hpp>
 #include <llvm/Support/CommandLine.h>
 
-#define JV_DEFAULT_INITIAL_SIZE (2 * 1024 * 65536)
-
 namespace llvm {
 class raw_ostream;
 class raw_fd_ostream;

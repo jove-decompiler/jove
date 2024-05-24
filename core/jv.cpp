@@ -8,6 +8,10 @@ namespace fs = boost::filesystem;
 
 namespace jove {
 
+size_t jvDefaultInitialSize(void) {
+  return (sizeof(void *) == 8 ? 128UL : 1UL) * 2UL * 1024UL * 65536UL;
+}
+
 void jv_t::UpdateCachedHash(cached_hash_t &cache,
                             const char *path,
                             std::string &file_contents) {

@@ -31,6 +31,8 @@ using llvm::WithColor;
 
 namespace jove {
 
+size_t jvDefaultInitialSize(void);
+
 class ServerTool : public Tool {
   struct Cmdline {
     cl::opt<unsigned> Port;
@@ -283,7 +285,7 @@ void *ServerTool::ConnectionProc(void *arg) {
   }
 
   jv_file_t jv_file(
-      boost::interprocess::create_only, tmpjv.c_str(), JV_DEFAULT_INITIAL_SIZE);
+      boost::interprocess::create_only, tmpjv.c_str(), jvDefaultInitialSize());
   jv_t &jv(*jv_file.construct<jv_t>("JV")(
       ip_void_allocator_t(jv_file.get_segment_manager())));
 
