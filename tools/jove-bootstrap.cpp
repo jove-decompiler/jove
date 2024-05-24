@@ -2802,7 +2802,8 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
             IsDefinitelyTailCall(ICFG, bb) ||
             IndBrInfo.BIdx != Target.BIdx ||
             (boost::out_degree(bb, ICFG) == 0 &&
-             TargetBinary.fnmap.count(rva_of_va(Target.Addr, Target.BIdx)));
+	     ({ ip_scoped_lock<ip_mutex> lck(TargetBinary.fnmap_mtx());
+                TargetBinary.fnmap.count(rva_of_va(Target.Addr, Target.BIdx)) > 0; }));
 
         if (isTailCall) {
           function_index_t FIdx =
@@ -3945,6 +3946,9 @@ void BootstrapTool::scan_rtld_link_map(pid_t child) {
 }
 
 binary_index_t BootstrapTool::BinaryFromPath(pid_t child, const char *path) {
+  if (IsVeryVerbose())
+    HumanOut() << llvm::formatv("BinaryFromPath: {0}\n", path);
+
   bool IsNew;
   binary_index_t BIdx;
 
@@ -3961,6 +3965,9 @@ binary_index_t BootstrapTool::BinaryFromPath(pid_t child, const char *path) {
 
 binary_index_t BootstrapTool::BinaryFromData(pid_t child, std::string_view sv,
                                              const char *name) {
+  if (IsVeryVerbose())
+    HumanOut() << llvm::formatv("BinaryFromData: {0}\n", name);
+
   bool IsNew;
   binary_index_t BIdx;
 
@@ -4423,14 +4430,19 @@ BootstrapTool::existing_block_at_program_counter(pid_t child, uintptr_t pc) {
     return std::make_pair(invalid_binary_index, invalid_basic_block_index);
 
   binary_t &binary = jv.Binaries.at(BIdx);
-  auto &bbmap = binary.bbmap;
   uintptr_t rva = rva_of_va(pc, BIdx);
 
-  auto it = bbmap_find(bbmap, rva);
-  if (it == bbmap.end())
-    return std::make_pair(BIdx, invalid_basic_block_index);
+  basic_block_index_t BBIdx = ({
+    ip_scoped_lock<ip_mutex> lck(binary.bbmap_mtx());
 
-  basic_block_index_t BBIdx = (*it).second;
+    auto &bbmap = binary.bbmap;
+
+    auto it = bbmap_find(bbmap, rva);
+    if (it == bbmap.end())
+      return std::make_pair(BIdx, invalid_basic_block_index);
+
+    (*it).second;
+  });
 
   return std::make_pair(BIdx, BBIdx);
 }

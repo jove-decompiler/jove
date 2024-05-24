@@ -119,29 +119,19 @@ std::pair<binary_index_t, bool> jv_t::AddFromDataWithHash(explorer_t &E,
                                                           get_data_t get_data,
                                                           const hash_t &h,
                                                           const char *name) {
+  binary_index_t BIdx = LookupWithHash(h);
+
+  if (is_binary_index_valid(BIdx))
+    return std::make_pair(BIdx, false);
+
   {
     ip_scoped_lock<ip_mutex> lck(this->binaries_mtx);
 
-    binary_index_t BIdx = LookupWithHash(h);
-
-    if (is_binary_index_valid(BIdx))
-      return std::make_pair(BIdx, false);
-
     BIdx = Binaries.size();
     binary_t &b = Binaries.emplace_back(Binaries.get_allocator());
+    b.bbmap_mtx(); /* XXX */
+    b.fnmap_mtx(); /* XXX */
     b.Hash = h;
-
-    get_data(b.Data);
-
-    try {
-      if (b.Data.empty())
-        throw std::runtime_error("AddFromDataWithHash: empty data");
-
-      DoAdd(b, E);
-    } catch (...) {
-      Binaries.pop_back(); /* OOPS */
-      throw;
-    }
 
     {
       ip_scoped_lock<ip_mutex> lck(this->hash_to_binary_mtx);
@@ -163,9 +153,20 @@ std::pair<binary_index_t, bool> jv_t::AddFromDataWithHash(explorer_t &E,
         (*it).second.insert(BIdx);
       }
     }
-
-    return std::make_pair(BIdx, true);
   }
+
+  assert(is_binary_index_valid(BIdx));
+
+  binary_t &b = Binaries.at(BIdx);
+
+  get_data(b.Data);
+
+  if (b.Data.empty())
+    throw std::runtime_error("AddFromDataWithHash: empty data"); /* uh oh... */
+
+  DoAdd(b, E);
+
+  return std::make_pair(BIdx, true);
 }
 
 void jv_t::clear(bool everything) {

@@ -152,8 +152,6 @@ int InitTool::add_loaded_objects(const fs::path &prog, const fs::path &rtld) {
   std::vector<std::string> binary_paths;
   parse_loaded_objects(rtld_stdout, binary_paths);
 
-  jv.clear(); /* point of no return */
-
   //
   // make sure the rtld was found
   //
@@ -189,6 +187,9 @@ int InitTool::add_loaded_objects(const fs::path &prog, const fs::path &rtld) {
   disas_t disas;
   explorer_t E(jv, disas, tcg, IsVeryVerbose());
 
+  jv.clear(); /* point of no return */
+  jv.Binaries.reserve(2 * (3 + binary_paths.size()));
+
   //
   // add them
   //
@@ -205,7 +206,17 @@ int InitTool::add_loaded_objects(const fs::path &prog, const fs::path &rtld) {
       std::execution::par_unseq,
       binary_paths.begin(),
       binary_paths.end(),
-      [&](const std::string &path_s) { jv.AddFromPath(E, path_s.c_str()); });
+      [&](const std::string &path_s) {
+	if (IsVerbose())
+	  llvm::errs() << llvm::formatv("adding {0}\n", path_s);
+
+	try {
+	  jv.AddFromPath(E, path_s.c_str());
+	} catch (const std::exception &e) {
+	  llvm::errs() << llvm::formatv("failed on {0}: {1}\n", path_s, e.what());
+	  exit(1);
+	}
+      });
 
   return 0;
 }

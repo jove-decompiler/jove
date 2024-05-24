@@ -391,6 +391,9 @@ struct binary_t {
 
   bool IsDynamicallyLoaded;
 
+  boost::interprocess::offset_ptr<ip_mutex> p_bbmap_mtx;
+  boost::interprocess::offset_ptr<ip_mutex> p_fnmap_mtx;
+
   struct Analysis_t {
     function_index_t EntryFunction;
     function_vector Functions;
@@ -410,6 +413,9 @@ struct binary_t {
     void addRelocDynTarget(uint64_t A, dynamic_target_t X);
     void addIFuncDynTarget(uint64_t A, dynamic_target_t X);
   } Analysis;
+
+  ip_mutex &bbmap_mtx(void);
+  ip_mutex &fnmap_mtx(void);
 
   void InvalidateBasicBlockAnalyses(void);
 

@@ -17,10 +17,12 @@ extern "C" void gen_intermediate_code(CPUState *cpu, TranslationBlock *tb,
                                       void *host_pc);
 extern "C" void tcg_register_thread(void);
 
-static const jove::ELFF *jv_E;
-static uint64_t jv_end_pc;
+static thread_local const jove::ELFF *jv_E;
+static thread_local uint64_t jv_end_pc;
 
-static jove::terminator_info_t jv_ti;
+static thread_local jove::terminator_info_t jv_ti;
+
+static thread_local unsigned has_register_thread;
 
 extern "C" const void *_jv_g2h(uint64_t Addr) {
   if (!jv_E)
@@ -1222,7 +1224,10 @@ void tiny_code_generator_t::dump_operations(void) {
 
 std::pair<unsigned, terminator_info_t>
 tiny_code_generator_t::translate(uint64_t pc, uint64_t pc_end) {
-  tcg_register_thread(); /* XXX */
+  if (!has_register_thread) {
+    has_register_thread = 1;
+    tcg_register_thread();
+  }
 
   TCGContext *s = tcg_ctx;
   assert(s);

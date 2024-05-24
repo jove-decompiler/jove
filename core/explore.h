@@ -41,7 +41,6 @@ class explorer_t {
 
   void _control_flow_to(binary_t &,
                         llvm::object::Binary &,
-                        basic_block_t,
                         const uint64_t TermAddr,
                         const uint64_t Target,
                         std::vector<uint64_t> &calls_to_process);
