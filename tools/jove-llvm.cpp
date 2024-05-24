@@ -1398,13 +1398,13 @@ void AnalyzeBasicBlock(tiny_code_generator_t &TCG,
   bbprop.Analysis.live.def.reset();
   bbprop.Analysis.reach.def.reset();
 
-  TCGContext *s = jv_get_tcg_context();
-
   unsigned size = 0;
   jove::terminator_info_t T;
   do {
     unsigned len;
     std::tie(len, T) = TCG.translate(Addr + size, Addr + Size);
+
+    TCGContext *s = jv_get_tcg_context();
 
     TCGOp *op;
     QTAILQ_FOREACH(op, &s->ops, link) {
@@ -7109,8 +7109,6 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
   const auto &ICFG = Binary.Analysis.ICFG;
   llvm::IRBuilderTy IRB(state.for_basic_block(Binary, bb).B);
 
-  TCGContext *s = jv_get_tcg_context();
-
   //
   // helper functions for GlobalAllocaArr
   //
@@ -7222,6 +7220,8 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
 
     if (unlikely(ForAddrMatch))
       TCG->dump_operations();
+
+    TCGContext *s = jv_get_tcg_context();
 
     TempAllocaVec.resize(s->nb_temps);
     LabelVec.resize(s->nb_labels);
