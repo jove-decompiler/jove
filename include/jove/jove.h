@@ -1122,7 +1122,7 @@ static inline basic_block_t index_of_basic_block_at_address(uint64_t Addr,
   auto it = bbmap_find(bbmap, Addr);
   if (it == bbmap.end())
     throw std::runtime_error(std::string(__func__) + ": no block for address " +
-                             taddr2str(Addr) + " in " + binary.path_str() + "!");
+                             taddr2str(Addr) + " in " + binary.Name.c_str());
 
   return (*it).second;
 }
