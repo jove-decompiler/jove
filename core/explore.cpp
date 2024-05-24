@@ -383,8 +383,12 @@ on_insn_boundary:
     break;
 
   case TERMINATOR::CALL: {
-    basic_block_t bb = basic_block_at_address(T.Addr, b);
-    ICFG[bb].Term._call.ReturnsOff = T._call.NextPC - T.Addr;
+    {
+      ip_scoped_lock<ip_mutex> lck(b.bbmap_mtx());
+
+      basic_block_t bb = basic_block_at_address(T.Addr, b);
+      ICFG[bb].Term._call.ReturnsOff = T._call.NextPC - T.Addr;
+    }
 
     uint64_t CalleeAddr = T._call.Target;
 
@@ -394,11 +398,14 @@ on_insn_boundary:
 
     function_index_t CalleeFIdx = _explore_function(b, Bin, CalleeAddr,
                                                     calls_to_process);
+    {
+      ip_scoped_lock<ip_mutex> lck(b.bbmap_mtx());
 
-    bb = basic_block_at_address(T.Addr, b);
-    assert(ICFG[bb].Term.Type == TERMINATOR::CALL);
+      basic_block_t bb = basic_block_at_address(T.Addr, b);
+      assert(ICFG[bb].Term.Type == TERMINATOR::CALL);
 
-    ICFG[bb].Term._call.Target = CalleeFIdx;
+      ICFG[bb].Term._call.Target = CalleeFIdx;
+    }
 
     if (!is_function_index_valid(CalleeFIdx)) {
       llvm::WithColor::warning() << llvm::formatv(
@@ -420,6 +427,8 @@ on_insn_boundary:
   }
 
   case TERMINATOR::INDIRECT_CALL: {
+    ip_scoped_lock<ip_mutex> lck(b.bbmap_mtx());
+
     basic_block_t bb = basic_block_at_address(T.Addr, b);
     ICFG[bb].Term._indirect_call.ReturnsOff = T._indirect_call.NextPC - T.Addr;
 
