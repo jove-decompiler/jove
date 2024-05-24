@@ -3249,6 +3249,9 @@ void BootstrapTool::ScanAddressSpace(pid_t child, bool VMUpdate) {
     if (pm.nm.empty())
       continue;
 
+    if (!pm.x)
+      continue;
+
     binary_index_t BIdx = invalid_binary_index;
 
     const std::string &nm = pm.nm;
