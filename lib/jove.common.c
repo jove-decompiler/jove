@@ -1021,6 +1021,9 @@ jove_thunk_return_t _jove_call(
     }
   }
 
+  if (unlikely(pc == 0x0))
+    _UNREACHABLE("_jove_call passed NULL");
+
   //
   // check for the possibility that _jove_init is our given pc, which may happen
   // if the code (usually in the dynamic linker) that calls the init functions
