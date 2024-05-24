@@ -7107,7 +7107,14 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
 
   binary_t &Binary = jv.Binaries[BinaryIndex];
   const auto &ICFG = Binary.Analysis.ICFG;
+
+  const uint64_t Addr = ICFG[bb].Addr;
+  const unsigned Size = ICFG[bb].Size;
+
   llvm::IRBuilderTy IRB(state.for_basic_block(Binary, bb).B);
+
+  IRB.SetCurrentDebugLocation(llvm::DILocation::get(
+      *Context, Addr, 0 /* Column */, TC.DebugInformation.Subprogram));
 
   //
   // helper functions for GlobalAllocaArr
@@ -7164,9 +7171,6 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
     LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
     return LI;
   };
-
-  const uintptr_t Addr = ICFG[bb].Addr;
-  const unsigned Size = ICFG[bb].Size;
 
   if (opts.Trace) {
     binary_index_t BIdx = BinaryIndex;
