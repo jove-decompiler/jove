@@ -207,15 +207,15 @@ int InitTool::add_loaded_objects(const fs::path &prog, const fs::path &rtld) {
       binary_paths.begin(),
       binary_paths.end(),
       [&](const std::string &path_s) {
-	if (IsVerbose())
-	  llvm::errs() << llvm::formatv("adding {0}\n", path_s);
+        if (IsVerbose())
+          llvm::errs() << llvm::formatv("adding {0}\n", path_s);
 
-	try {
-	  jv.AddFromPath(E, path_s.c_str());
-	} catch (const std::exception &e) {
-	  llvm::errs() << llvm::formatv("failed on {0}: {1}\n", path_s, e.what());
-	  exit(1);
-	}
+        try {
+          jv.AddFromPath(E, path_s.c_str());
+        } catch (const std::exception &e) {
+          llvm::errs() << llvm::formatv("failed on {0}: {1}\n", path_s, e.what());
+          exit(1);
+        }
       });
 
   return 0;
