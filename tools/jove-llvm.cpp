@@ -6705,8 +6705,6 @@ int LLVMTool::ExpandMemoryIntrinsicCalls(void) {
 }
 
 int LLVMTool::ReplaceAllRemainingUsesOfConstSections(void) {
-  return 0;
-
   if (!ConstSectsGlobal)
     return 0;
 
