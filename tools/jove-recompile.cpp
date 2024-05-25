@@ -867,6 +867,8 @@ int RecompileTool::Run(void) {
         if (b.IsPIC) {
           Arg("-pie");
         } else {
+          Arg("-no-pie");
+
           // Arg("-z");
           // Arg("nocopyreloc");
 
@@ -1160,7 +1162,7 @@ void RecompileTool::worker(dso_t dso) {
 #endif
     }
 
-    if (b.IsPIC) {
+    if (true /* b.IsPIC */) {
       Arg("--relocation-model=pic");
     } else {
       assert(b.IsExecutable);
