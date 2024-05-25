@@ -630,12 +630,19 @@ _NORET void _jove_fail1(uintptr_t a0, const char *reason) {
 
   _jove_flush_trace();
 
-#if 1
-  for (;;)
-    _jove_sleep();
-#else
-  _jove_sys_exit_group(0x77);
-#endif
+  {
+    char envs[4096 * 8];
+    const unsigned envs_n = _jove_read_pseudo_file("/proc/self/environ", envs, sizeof(envs));
+    envs[envs_n] = '\0';
+
+    if (_should_sleep_on_crash(envs, envs_n)) {
+      for (;;)
+        _jove_sleep();
+    } else {
+      _jove_sys_exit_group(0x77);
+      __builtin_trap();
+    }
+  }
 
   __builtin_unreachable();
 }
@@ -695,8 +702,21 @@ _NORET void _jove_fail2(uintptr_t a0,
     _jove_robust_write(2 /* stderr */, s, _strlen(s));
   }
 
-  for (;;)
-    _jove_sleep();
+  _jove_flush_trace();
+
+  {
+    char envs[4096 * 8];
+    const unsigned envs_n = _jove_read_pseudo_file("/proc/self/environ", envs, sizeof(envs));
+    envs[envs_n] = '\0';
+
+    if (_should_sleep_on_crash(envs, envs_n)) {
+      for (;;)
+        _jove_sleep();
+    } else {
+      _jove_sys_exit_group(0x77);
+      __builtin_trap();
+    }
+  }
 
   __builtin_unreachable();
 }
