@@ -1162,6 +1162,12 @@ void RecompileTool::worker(dso_t dso) {
 #endif
     }
 
+    //
+    // XXX (On mips)
+    // "The dynamic linker will use an undefined function symbol table entry
+    // with STO_MIPS_PLT set to resolve all references to that symbol in
+    // preference to the actual definition of that symbol"
+    //
     if (true /* b.IsPIC */) {
       Arg("--relocation-model=pic");
     } else {
