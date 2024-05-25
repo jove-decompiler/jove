@@ -6569,7 +6569,7 @@ int LLVMTool::ConstifyRelocationSectionPointers(void) {
         continue;
 
       if (llvm::cast<llvm::ConstantInt>(Addend)->getValue().isStrictlyPositive()) {
-        uintptr_t off =
+        uint64_t off =
             llvm::cast<llvm::ConstantInt>(Addend)->getValue().getZExtValue();
 
         uintptr_t FileAddr = off + state.for_binary(Binary).SectsStartAddr;
