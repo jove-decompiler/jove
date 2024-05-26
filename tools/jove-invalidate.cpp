@@ -26,7 +26,7 @@ int InvalidateTool::Run(void) {
                                 [&](function_t &f) { f.InvalidateAnalysis(); });
 
     for_each_basic_block_in_binary(
-        std::execution::par_unseq, jv, b,
+        std::execution::par_unseq, b,
         [&](basic_block_t bb) { b.Analysis.ICFG[bb].InvalidateAnalysis(); });
   });
 

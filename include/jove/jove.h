@@ -926,10 +926,9 @@ void for_each_basic_block(T &&jv, Proc proc) {
   for_each_basic_block(std::execution::seq, std::forward<T>(jv), proc);
 }
 
-template <class _ExecutionPolicy, class T, class Proc>
+template <class _ExecutionPolicy, class Proc>
 static inline
 void for_each_basic_block_in_binary(_ExecutionPolicy &&__exec,
-                                    T &&jv,
                                     binary_t &b,
                                     Proc proc) {
   icfg_t::vertex_iterator it, it_end;
@@ -939,12 +938,10 @@ void for_each_basic_block_in_binary(_ExecutionPolicy &&__exec,
                it, it_end, [proc](basic_block_t bb) { proc(bb); });
 }
 
-template <class T, class Proc>
+template <class Proc>
 constexpr
-void for_each_basic_block_in_binary(T &&jv,
-                                    binary_t &b,
-                                    Proc proc) {
-  for_each_basic_block_in_binary(std::execution::seq, std::forward<T>(jv), b, proc);
+void for_each_basic_block_in_binary(binary_t &b, Proc proc) {
+  for_each_basic_block_in_binary(std::execution::seq, b, proc);
 }
 
 static inline basic_block_index_t index_of_basic_block(const icfg_t &ICFG, basic_block_t bb) {
@@ -1177,7 +1174,7 @@ static inline void construct_bbmap(jv_t &jv,
                                    bbmap_t &out) {
   auto &ICFG = binary.Analysis.ICFG;
 
-  for_each_basic_block_in_binary(jv, binary, [&](basic_block_t bb) {
+  for_each_basic_block_in_binary(binary, [&](basic_block_t bb) {
     const auto &bbprop = ICFG[bb];
 
     bbmap_add(out, addr_intvl(bbprop.Addr, bbprop.Size),

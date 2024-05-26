@@ -33,7 +33,7 @@ CodeRecovery::CodeRecovery(jv_t &jv, explorer_t &E, symbolizer_t &symbolizer)
     // jove.recover.c is hard-coded against the version of the jv
     // that existed when jove-recompile was run.
     //
-    for_each_basic_block_in_binary(jv, binary, [&](basic_block_t bb) {
+    for_each_basic_block_in_binary(binary, [&](basic_block_t bb) {
       binary_state.block_term_addr_vec.at(index_of_basic_block(ICFG, bb)) = ICFG[bb].Term.Addr;
     });
 

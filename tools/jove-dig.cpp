@@ -419,8 +419,7 @@ int CodeDigger::ListLocalGotos() {
   if (is_binary_index_valid(SingleBinaryIndex)) {
     binary_t &binary = jv.Binaries.at(SingleBinaryIndex);
     for_each_basic_block_in_binary(
-        jv, binary,
-        [&](basic_block_t bb) { process_basic_block(binary, bb); });
+        binary, [&](basic_block_t bb) { process_basic_block(binary, bb); });
   } else {
     for_each_basic_block(jv, process_basic_block);
   }
