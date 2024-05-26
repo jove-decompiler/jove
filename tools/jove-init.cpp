@@ -170,15 +170,6 @@ int InitTool::add_loaded_objects(const fs::path &prog, const fs::path &rtld) {
   }
 
   //
-  // [vdso]
-  //
-  auto VDSOPair = GetVDSO();
-  std::string_view vdso_sv =
-      VDSOPair.first
-          ? std::string_view((const char *)VDSOPair.first, VDSOPair.second)
-          : std::string_view((const char *)VDSOStandIn(), VDSOStandInLen());
-
-  //
   // prepare to explore binaries
   //
   tiny_code_generator_t tcg;
@@ -218,6 +209,11 @@ int InitTool::add_loaded_objects(const fs::path &prog, const fs::path &rtld) {
         } else if (i == 1) {
           add_from_path(rtld.c_str(), 1);
         } else if (i == 2) {
+          auto VDSOPair = GetVDSO();
+          std::string_view vdso_sv =
+              VDSOPair.first
+                  ? std::string_view((const char *)VDSOPair.first, VDSOPair.second)
+                  : std::string_view((const char *)VDSOStandIn(), VDSOStandInLen());
           try {
             jv.AddFromData(E, vdso_sv, "[vdso]", 2);
           } catch (const std::exception &e) {
