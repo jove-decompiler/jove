@@ -1,6 +1,7 @@
 #include "tool.h"
 #include "elf.h"
 #include "triple.h"
+#include "util.h"
 
 #include <llvm/Bitcode/BitcodeReader.h>
 #include <llvm/Support/CommandLine.h>
@@ -337,16 +338,6 @@ int DecompileTool::Run(void) {
   //
   std::vector<std::string> helper_nms;
 
-  auto insertSorted = [&](std::vector<std::string> &vec,
-                          const std::string &str) -> void {
-    // Use binary search to check if the string is already in the vector
-    if (!std::binary_search(vec.begin(), vec.end(), str)) {
-      // Find the correct position to insert the string
-      auto it = std::lower_bound(vec.begin(), vec.end(), str);
-      vec.insert(it, str);
-    }
-  };
-
   auto Context = std::make_unique<llvm::LLVMContext>();
   for_each_binary(jv, [&](binary_t &binary) {
     if (!binary.IsExecutable)
@@ -380,13 +371,12 @@ int DecompileTool::Run(void) {
           if (!F.empty())
             return false;
 
-          if (boost::algorithm::starts_with(F.getName(), "helper_"))
-            return true;
-
-          return false;
+          return boost::algorithm::starts_with(F.getName(), "helper_");
         },
         [&](llvm::Function &F) {
-          insertSorted(helper_nms, F.getName().str().substr(sizeof("helper_") - 1));
+          std::string nm = F.getName().str().substr(sizeof("helper_") - 1);
+
+          helper_nms.push_back(nm);
         });
   });
 
