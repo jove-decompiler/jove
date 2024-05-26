@@ -133,10 +133,10 @@ void AnalyzeFunction(jv_t &jv,
 int AnalyzeTool::AnalyzeBlocks(void) {
   unsigned count = 0;
 
-  for_each_binary(jv, [&](binary_t &b) {
+  for_each_binary(std::execution::par_unseq, jv, [&](binary_t &b) {
     auto &ICFG = b.Analysis.ICFG;
 
-    for_each_basic_block_in_binary(jv, b, [&](basic_block_t bb) {
+    for_each_basic_block_in_binary(std::execution::par_unseq, jv, b, [&](basic_block_t bb) {
       if (ICFG[bb].Analysis.Stale)
         ++count;
 
