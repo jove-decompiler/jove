@@ -83,7 +83,8 @@ binary_index_t jv_t::LookupWithHash(const hash_t &h) {
 }
 
 std::pair<binary_index_t, bool> jv_t::AddFromPath(explorer_t &E,
-                                                  const char *path) {
+                                                  const char *path,
+                                                  binary_index_t TargetIdx) {
   assert(path);
 
   fs::path the_path = fs::canonical(path);
@@ -100,25 +101,27 @@ std::pair<binary_index_t, bool> jv_t::AddFromPath(explorer_t &E,
       memcpy(&out[0], file_contents.data(), out.size());
     };
 
-  return AddFromDataWithHash(E, get_data, h, the_path.c_str());
+  return AddFromDataWithHash(E, get_data, h, the_path.c_str(), TargetIdx);
 }
 
 std::pair<binary_index_t, bool> jv_t::AddFromData(explorer_t &E,
                                                   std::string_view x,
-                                                  const char *name) {
+                                                  const char *name,
+                                                  binary_index_t TargetIdx) {
   return AddFromDataWithHash(
       E,
       [&](ip_string &out) -> void {
         out.resize(x.size());
         memcpy(&out[0], x.data(), out.size());
       },
-      hash_data(x), name);
+      hash_data(x), name, TargetIdx);
 }
 
 std::pair<binary_index_t, bool> jv_t::AddFromDataWithHash(explorer_t &E,
                                                           get_data_t get_data,
                                                           const hash_t &h,
-                                                          const char *name) {
+                                                          const char *name,
+                                                          binary_index_t TargetIdx) {
   binary_index_t BIdx = LookupWithHash(h);
 
   if (is_binary_index_valid(BIdx))
@@ -127,8 +130,14 @@ std::pair<binary_index_t, bool> jv_t::AddFromDataWithHash(explorer_t &E,
   {
     ip_scoped_lock<ip_mutex> lck(this->binaries_mtx);
 
-    BIdx = Binaries.size();
-    binary_t &b = Binaries.emplace_back(Binaries.get_allocator());
+    if (is_binary_index_valid(TargetIdx)) {
+      BIdx = TargetIdx;
+    } else {
+      BIdx = Binaries.size();
+      Binaries.emplace_back(Binaries.get_allocator());
+    }
+
+    binary_t &b = Binaries.at(BIdx);
     b.bbmap_mtx(); /* XXX */
     b.fnmap_mtx(); /* XXX */
     b.Hash = h;

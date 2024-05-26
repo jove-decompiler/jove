@@ -19,6 +19,7 @@
 #include <thread>
 #include <functional>
 #include <execution>
+#include <numeric>
 
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -185,35 +186,53 @@ int InitTool::add_loaded_objects(const fs::path &prog, const fs::path &rtld) {
   explorer_t E(jv, disas, tcg, IsVeryVerbose());
 
   jv.clear(); /* point of no return */
-  jv.Binaries.reserve(2 * (3 + binary_paths.size()));
+
+  unsigned N = binary_paths.size() + 3;
+  jv.Binaries.reserve(2*N);
+  for (unsigned i = 0; i < N; ++i)
+    jv.Binaries.emplace_back(jv.Binaries.get_allocator());
 
   //
   // add them
   //
-  jv.AddFromPath(E, prog.c_str()); /* prog first */
-  jv.AddFromPath(E, rtld.c_str()); /* rtld second */
-  jv.AddFromData(E, vdso_sv, "[vdso]"); /* vdso third */
+  auto add_from_path = [&](const char *p, binary_index_t BIdx) -> void {
+    try {
+      jv.AddFromPath(E, p, BIdx);
+    } catch (const std::exception &e) {
+      llvm::errs() << llvm::formatv("failed on {0}: {1}\n", p, e.what());
+      exit(1);
+    }
+  };
+
+  std::vector<unsigned> idx_range;
+  idx_range.resize(N);
+  std::iota(idx_range.begin(), idx_range.end(), 0);
+
+  std::for_each(
+      std::execution::par_unseq,
+      idx_range.begin(),
+      idx_range.end(),
+      [&](unsigned i) {
+        if (i == 0) {
+          add_from_path(prog.c_str(), 0);
+        } else if (i == 1) {
+          add_from_path(rtld.c_str(), 1);
+        } else if (i == 2) {
+          try {
+            jv.AddFromData(E, vdso_sv, "[vdso]", 2);
+          } catch (const std::exception &e) {
+            llvm::errs() << llvm::formatv("failed on [vdso]: {0}\n", e.what());
+            exit(1);
+          }
+        } else {
+          assert(i >= 3);
+          add_from_path(binary_paths.at(i - 3).c_str(), i);
+        }
+      });
 
   jv.Binaries.at(0).IsExecutable = true;
   jv.Binaries.at(1).IsDynamicLinker = true;
   jv.Binaries.at(2).IsVDSO = true;
-
-  /* add the rest */
-  std::for_each(
-      std::execution::par_unseq,
-      binary_paths.begin(),
-      binary_paths.end(),
-      [&](const std::string &path_s) {
-        if (IsVerbose())
-          llvm::errs() << llvm::formatv("adding {0}\n", path_s);
-
-        try {
-          jv.AddFromPath(E, path_s.c_str());
-        } catch (const std::exception &e) {
-          llvm::errs() << llvm::formatv("failed on {0}: {1}\n", path_s, e.what());
-          exit(1);
-        }
-      });
 
   return 0;
 }
