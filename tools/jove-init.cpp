@@ -204,11 +204,14 @@ int InitTool::add_loaded_objects(const fs::path &prog, const fs::path &rtld) {
       idx_range.begin(),
       idx_range.end(),
       [&](unsigned i) {
-        if (i == 0) {
-          add_from_path(prog.c_str(), 0);
-        } else if (i == 1) {
-          add_from_path(rtld.c_str(), 1);
-        } else if (i == 2) {
+        switch (i) {
+        case 0:
+          return add_from_path(prog.c_str(), 0);
+
+        case 1:
+          return add_from_path(rtld.c_str(), 1);
+
+        case 2: {
           auto VDSOPair = GetVDSO();
           std::string_view vdso_sv =
               VDSOPair.first
@@ -220,9 +223,12 @@ int InitTool::add_loaded_objects(const fs::path &prog, const fs::path &rtld) {
             llvm::errs() << llvm::formatv("failed on [vdso]: {0}\n", e.what());
             exit(1);
           }
-        } else {
+          return;
+        }
+
+        default:
           assert(i >= 3);
-          add_from_path(binary_paths.at(i - 3).c_str(), i);
+          return add_from_path(binary_paths.at(i - 3).c_str(), i);
         }
       });
 
