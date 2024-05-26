@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include <functional>
+#include <algorithm>
 #include <fstream>
 
 namespace jove {
@@ -44,6 +45,16 @@ inline void read_file_into_thing(const char *path, T &out) {
 
   ifs.read(reinterpret_cast<char *>(&out[0]), out.size());
 }
+
+template <typename T>
+static inline void insertSortedVec(std::vector<T> &vec, const T &x) {
+  // Find the correct position to insert the string
+  auto it = std::lower_bound(vec.begin(), vec.end(), x);
+  // Insert only if the string is not already in the vector
+  if (it == vec.end() || *it != x) {
+    vec.insert(it, x);
+  }
+};
 
 void read_file_into_vector(const char *path, std::vector<uint8_t> &out);
 void read_file_into_a_string(const char *path, std::string &out);

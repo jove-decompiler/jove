@@ -126,10 +126,7 @@ void InitTool::parse_loaded_objects(const std::string &rtld_stdout,
     if (IsVeryVerbose())
       llvm::errs() << llvm::formatv("path = {0} bin_path = {1}\n", path, bin_path);
 
-    if (std::find(out.begin(), out.end(), bin_path) != out.end())
-      continue; /* duplicate */
-
-    out.push_back(bin_path);
+    insertSortedVec(out, bin_path);
   }
 }
 
