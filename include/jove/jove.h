@@ -22,7 +22,6 @@
 
 #include <boost/graph/adjacency_list.hpp>
 #include <boost/graph/depth_first_search.hpp>
-#include <boost/icl/split_interval_map.hpp>
 #include <boost/unordered/unordered_map.hpp>
 #include <boost/interprocess/containers/map.hpp>
 #include <boost/interprocess/containers/flat_map.hpp>

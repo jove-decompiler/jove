@@ -18,6 +18,7 @@
 #include <boost/preprocessor/punctuation/comma_if.hpp>
 #include <boost/preprocessor/repetition/repeat.hpp>
 #include <boost/range/adaptor/reversed.hpp>
+#include <boost/icl/split_interval_map.hpp>
 
 #include <llvm/Analysis/Passes.h>
 #include <llvm/Analysis/TargetTransformInfo.h>
