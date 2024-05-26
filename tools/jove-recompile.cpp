@@ -1105,86 +1105,101 @@ void RecompileTool::worker(dso_t dso) {
                   fs::copy_options::overwrite_existing);
   }
 
-  //
-  // run llvm-dis on bitcode
-  //
-  std::thread t1([&](void) -> void {
-    RunExecutableToExit(locator().dis(), [&](auto Arg) {
-      nice(10);
+  static constexpr std::array<unsigned, 3> arr3{{0, 1, 2}};
 
-      Arg(locator().dis());
-      Arg("-o");
-      Arg(llfp);
-      Arg(bcfp);
-    });
-  });
+  std::for_each(
+      std::execution::par_unseq,
+      arr3.begin(),
+      arr3.end(),
+      [&](unsigned i) {
+        switch (i) {
+        case 0:
+          //
+          // run llvm-dis on bitcode
+          //
+          RunExecutableToExit(locator().dis(), [&](auto Arg) {
+            nice(10);
 
-  //
-  // run opt on bitcode to generate stripped ll
-  //
-  std::thread t2([&](void) -> void {
-    RunExecutableToExit(locator().opt(), [&](auto Arg) {
-      nice(10);
+            Arg(locator().dis());
+            Arg("-o");
+            Arg(llfp);
+            Arg(bcfp);
+          });
+          break;
 
-      Arg(locator().opt());
-      Arg("-o");
-      Arg(ll_strip_fp);
-      Arg("-S");
-      Arg("--strip-debug");
-      Arg(bcfp);
-    });
-  });
+        case 1:
+          //
+          // run opt on bitcode to generate stripped ll
+          //
+          RunExecutableToExit(locator().opt(), [&](auto Arg) {
+            nice(10);
 
-  //
-  // run llc
-  //
-  rc = RunExecutableToExit(locator().llc(), [&](auto Arg) {
-    Arg(locator().llc());
+            Arg(locator().opt());
+            Arg("-o");
+            Arg(ll_strip_fp);
+            Arg("-S");
+            Arg("--strip-debug");
+            Arg(bcfp);
+          });
+          break;
 
-    Arg("-o");
-    Arg(objfp);
-    Arg(bcfp);
+        case 2:
+          //
+          // run llc
+          //
+          rc = RunExecutableToExit(locator().llc(), [&](auto Arg) {
+            Arg(locator().llc());
 
-    Arg("--filetype=obj");
+            Arg("-o");
+            Arg(objfp);
+            Arg(bcfp);
 
-    Arg("--disable-simplify-libcalls");
+            Arg("--filetype=obj");
 
-    if (!opts.Optimize || opts.DFSan) {
-      Arg("--fast-isel");
-      Arg("-O0");
-    }
+            Arg("--disable-simplify-libcalls");
 
-    if (!opts.Optimize) {
-      Arg("--frame-pointer=all");
+            if (!opts.Optimize || opts.DFSan) {
+              Arg("--fast-isel");
+              Arg("-O0");
+            }
+
+            if (!opts.Optimize) {
+              Arg("--frame-pointer=all");
 
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
-      Arg("--disable-mips-delay-filler"); /* make our life easier */
+              Arg("--disable-mips-delay-filler"); /* make our life easier */
 #endif
-    }
+            }
 
-    //
-    // XXX (On mips)
-    // "The dynamic linker will use an undefined function symbol table entry
-    // with STO_MIPS_PLT set to resolve all references to that symbol in
-    // preference to the actual definition of that symbol"
-    //
-    if (true /* b.IsPIC */) {
-      Arg("--relocation-model=pic");
-    } else {
-      assert(b.IsExecutable);
-      Arg("--relocation-model=static");
-    }
+            //
+            // XXX (On mips)
+            // "The dynamic linker will use an undefined function symbol table entry
+            // with STO_MIPS_PLT set to resolve all references to that symbol in
+            // preference to the actual definition of that symbol"
+            //
+            if (true /* b.IsPIC */) {
+              Arg("--relocation-model=pic");
+            } else {
+              assert(b.IsExecutable);
+              Arg("--relocation-model=static");
+            }
 
-    Arg("--dwarf-version=4");
-    Arg("--debugger-tune=gdb");
+            Arg("--dwarf-version=4");
+            Arg("--debugger-tune=gdb");
 
 #if defined(TARGET_X86_64) || defined(TARGET_I386)
-    //
-    // FIXME... how is the stack getting unaligned??
-    //
-    Arg("--stackrealign");
+            //
+            // FIXME... how is the stack getting unaligned??
+            //
+            Arg("--stackrealign");
 #endif
-  });
+          });
+          break;
+
+        default:
+          die("");
+        }
+      });
 
   //
   // check exit code
@@ -1194,13 +1209,8 @@ void RecompileTool::worker(dso_t dso) {
     WithColor::error() << llvm::formatv("llc failed for {0}\n",
                                         binary_filename);
 
-    t1.join();
-    t2.join();
     return;
   }
-
-  t1.join();
-  t2.join();
 }
 
 bool RecompileTool::pop_dso(dso_t &out) {
