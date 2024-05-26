@@ -146,6 +146,14 @@ int TCGDumpTool::Run(void) {
         }
       }
 
+      {
+        llvm::Expected<const uint8_t *> ExpectedPtr = Elf.toMappedAddr(A);
+        if (!ExpectedPtr) {
+          llvm::consumeError(ExpectedPtr.takeError());
+          return true;
+        }
+      }
+
       jove::terminator_info_t T;
       std::tie(BBSize, T) = tcg.translate(A);
 
@@ -158,7 +166,7 @@ int TCGDumpTool::Run(void) {
         if (!ExpectedPtr) {
           WithColor::error()
               << llvm::formatv("failed to get binary contents for {0:x}\n", A);
-          return invalid_basic_block_index;
+          return true;
         }
 
         llvm::MCInst Inst;
