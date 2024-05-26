@@ -413,14 +413,24 @@ on_insn_boundary:
       break;
     }
 
-    function_t &callee = b.Analysis.Functions[CalleeFIdx];
+    basic_block_index_t CalleeIdx = ({
+      ip_scoped_lock<ip_mutex> lck(b.fnmap_mtx());
 
-    if (!is_basic_block_index_valid(callee.Entry)) {
+      b.Analysis.Functions.at(CalleeFIdx).Entry;
+    });
+
+    if (!is_basic_block_index_valid(CalleeIdx)) {
       calls_to_process.push_back(T.Addr);
       break;
     }
 
-    if (does_function_return(callee, b))
+    bool DoesRet = ({
+      ip_scoped_lock<ip_mutex> lck(b.bbmap_mtx());
+
+      does_function_at_block_return(basic_block_of_index(CalleeIdx, ICFG), b);
+    });
+
+    if (DoesRet)
       control_flow_to(T._call.NextPC);
 
     break;
@@ -496,7 +506,7 @@ void explorer_t::_explore_the_rest(binary_t &b,
     unsigned ReturnsOff = 0;
     calls_to_process.resize(calls_to_process.size() - 1);
 
-    function_index_t CalleeFIdx = ({
+    bool DoesRet = ({
       ip_scoped_lock<ip_mutex> lck(b.bbmap_mtx());
 
       auto &ICFG = b.Analysis.ICFG;
@@ -518,15 +528,15 @@ void explorer_t::_explore_the_rest(binary_t &b,
       ReturnsOff = ICFG[bb].Term._call.ReturnsOff;
       assert(ReturnsOff > 0);
 
-      ICFG[bb].Term._call.Target;
-    });
+      function_index_t CalleeFIdx = ICFG[bb].Term._call.Target;
 
-    bool DoesRet = ({
-      ip_scoped_lock<ip_mutex> lck(b.fnmap_mtx());
+      basic_block_index_t CalleeIdx = ({
+        ip_scoped_lock<ip_mutex> lck(b.fnmap_mtx());
 
-      function_t &callee = b.Analysis.Functions.at(CalleeFIdx);
+        b.Analysis.Functions.at(CalleeFIdx).Entry;
+      });
 
-      does_function_return(callee, b);
+      does_function_at_block_return(basic_block_of_index(CalleeIdx, ICFG), b);
     });
 
     if (DoesRet)

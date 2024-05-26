@@ -689,6 +689,20 @@ description_of_terminator_info(const terminator_info_t &T,
   return res;
 }
 
+static inline basic_block_t basic_block_of_index(basic_block_index_t BBIdx,
+                                                 const icfg_t &ICFG) {
+  if (unlikely(!is_basic_block_index_valid(BBIdx)))
+    throw std::runtime_error(std::string(__func__) + ": invalid entry block!");
+
+  return boost::vertex(BBIdx, ICFG);
+}
+
+static inline basic_block_t basic_block_of_index(basic_block_index_t BBIdx,
+                                                 const binary_t &binary) {
+  const auto &ICFG = binary.Analysis.ICFG;
+  return basic_block_of_index(BBIdx, ICFG);
+}
+
 template <typename _ExecutionPolicy, typename Iter, typename Pred, typename Proc>
 constexpr
 void for_each_if(_ExecutionPolicy &&__exec, Iter first, Iter last, Pred pred, Proc proc) {
@@ -989,9 +1003,9 @@ static inline function_t &function_of_target(dynamic_target_t X,
   return jv.Binaries.at(BIdx).Analysis.Functions.at(FIdx);
 }
 
-static inline void basic_blocks_of_function(const function_t &f,
-                                            const binary_t &b,
-                                            basic_block_vec_t &out) {
+static inline void basic_blocks_of_function_at_block(basic_block_t entry,
+                                                     const binary_t &b,
+                                                     basic_block_vec_t &out) {
   const auto &ICFG = b.Analysis.ICFG;
 
   struct bb_visitor : public boost::default_dfs_visitor {
@@ -1004,15 +1018,21 @@ static inline void basic_blocks_of_function(const function_t &f,
     }
   };
 
-  if (!is_basic_block_index_valid(f.Entry))
-    throw std::runtime_error(std::string(__func__) + ": invalid entry block!");
-
   std::map<basic_block_t, boost::default_color_type> color;
   bb_visitor vis(out);
   depth_first_visit(
-      ICFG, boost::vertex(f.Entry, ICFG), vis,
+      ICFG, entry, vis,
       boost::associative_property_map<
           std::map<basic_block_t, boost::default_color_type>>(color));
+}
+
+static inline void basic_blocks_of_function(const function_t &f,
+                                            const binary_t &b,
+                                            basic_block_vec_t &out) {
+
+  const auto &ICFG = b.Analysis.ICFG;
+
+  basic_blocks_of_function_at_block(basic_block_of_index(f.Entry, ICFG), b, out);
 }
 
 static inline void exit_basic_blocks_of_function(const function_t &f,
@@ -1038,10 +1058,10 @@ static inline bool does_function_return_fast(const icfg_t &ICFG,
                      });
 }
 
-static inline bool does_function_return(const function_t &f,
-                                        const binary_t &b) {
+static inline bool does_function_at_block_return(basic_block_t entry,
+                                                 const binary_t &b) {
   basic_block_vec_t bbvec;
-  basic_blocks_of_function(f, b, bbvec);
+  basic_blocks_of_function_at_block(entry, b, bbvec);
 
   const auto &ICFG = b.Analysis.ICFG;
 
@@ -1050,6 +1070,11 @@ static inline bool does_function_return(const function_t &f,
                      [&](basic_block_t bb) -> bool {
                        return IsExitBlock(ICFG, bb);
                      });
+}
+
+static inline bool does_function_return(const function_t &f,
+                                        const binary_t &b) {
+  return does_function_at_block_return(basic_block_of_index(f.Entry, b), b);
 }
 
 static inline bool IsLeafFunction(const function_t &f,
@@ -1108,17 +1133,6 @@ static inline bool IsFunctionLongjmp(const function_t &f,
                      });
 }
 
-static inline basic_block_t basic_block_of_index(basic_block_index_t BBIdx,
-                                                 const icfg_t &ICFG) {
-  return boost::vertex(BBIdx, ICFG);
-}
-
-static inline basic_block_t basic_block_of_index(basic_block_index_t BBIdx,
-                                                 const binary_t &binary) {
-  const auto &ICFG = binary.Analysis.ICFG;
-  return basic_block_of_index(BBIdx, ICFG);
-}
-
 static inline basic_block_t index_of_basic_block_at_address(uint64_t Addr,
                                                             const binary_t &binary) {
   assert(Addr);
@@ -1162,9 +1176,6 @@ static inline bool exists_indirect_jump_at_address(uint64_t Addr,
 
 static inline uint64_t entry_address_of_function(const function_t &f,
                                                  const binary_t &binary) {
-  if (!is_basic_block_index_valid(f.Entry))
-    throw std::runtime_error(std::string(__func__) + ": invalid entry block!");
-
   const auto &ICFG = binary.Analysis.ICFG;
   return ICFG[basic_block_of_index(f.Entry, binary)].Addr;
 }
@@ -1186,7 +1197,7 @@ static inline void construct_fnmap(jv_t &jv,
                                    binary_t &binary,
                                    fnmap_t &out) {
   for_each_function_in_binary(binary, [&](function_t &f) {
-    if (!is_basic_block_index_valid(f.Entry))
+    if (unlikely(!is_basic_block_index_valid(f.Entry)))
       return;
 
     auto &ICFG = binary.Analysis.ICFG;
