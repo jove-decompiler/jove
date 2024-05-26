@@ -222,7 +222,8 @@ static void serialize(Archive &ar, jove::binary_t &b, const unsigned int version
 //
 template <class Archive>
 static void serialize(Archive &ar, jove::function_t &f, const unsigned int version) {
-  ar &BOOST_SERIALIZATION_NVP(f.Entry)
+  ar &BOOST_SERIALIZATION_NVP(f.BIdx)
+     &BOOST_SERIALIZATION_NVP(f.Entry)
      &BOOST_SERIALIZATION_NVP(f.Analysis.args)
      &BOOST_SERIALIZATION_NVP(f.Analysis.rets)
      &BOOST_SERIALIZATION_NVP(f.Analysis.Stale)

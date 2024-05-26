@@ -51,7 +51,13 @@ function_index_t explorer_t::_explore_function(binary_t &b,
     }
 
     res = b.Analysis.Functions.size();
-    b.Analysis.Functions.emplace_back().Entry = invalid_basic_block_index;
+
+    {
+      function_t &f = b.Analysis.Functions.emplace_back();
+
+      f.BIdx = index_of_binary(b, jv);
+      f.Entry = invalid_basic_block_index;
+    }
 
     fnmap.emplace(Addr, res);
   }
@@ -63,6 +69,8 @@ function_index_t explorer_t::_explore_function(binary_t &b,
     return invalid_function_index;
 
   {
+    ip_scoped_lock<ip_mutex> lck(b.fnmap_mtx());
+
     function_t &f = b.Analysis.Functions[res];
 
     f.Analysis.Stale = true;

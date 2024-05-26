@@ -344,6 +344,7 @@ static inline bool IsExitBlock(const icfg_t &ICFG, basic_block_t bb) {
 }
 
 struct function_t {
+  binary_index_t BIdx;
   basic_block_index_t Entry;
 
   struct {
@@ -952,18 +953,9 @@ static inline basic_block_index_t index_of_basic_block(const icfg_t &ICFG, basic
   return bb2idx[bb];
 }
 
-/* XXX this is O(n)... */
 static inline binary_index_t binary_index_of_function(const function_t &f,
                                                       const jv_t &jv) {
-  for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
-    auto &fns = jv.Binaries[BIdx].Analysis.Functions;
-
-    if (&f >= fns.data() &&
-        &f < &fns.data()[fns.size()])
-      return BIdx; /* found */
-  }
-
-  throw std::runtime_error(std::string(__func__) + ": not found!");
+  return f.BIdx;
 }
 
 static inline binary_index_t index_of_binary(const binary_t &b,
