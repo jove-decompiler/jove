@@ -248,10 +248,7 @@ void DumpTool::dumpDecompilation(const jv_t& jv) {
             }
           }
 
-#if 0
-          if (ICFG[bb].Analysis.Stale)
-            Writer.printBoolean("Stale", true);
-#endif
+          Writer.printBoolean("Stale", true);
         }
 
         Writer.getOStream() << '\n';
@@ -354,10 +351,7 @@ void DumpTool::dumpDecompilation(const jv_t& jv) {
 #endif
           }
 
-#if 0
-          if (f.Analysis.Stale)
-            Writer.printBoolean("Stale", true);
-#endif
+          Writer.printBoolean("Stale", true);
         }
 
         Writer.printBoolean("IsABI", f.IsABI);
