@@ -50,8 +50,7 @@ check: $(foreach t,$(ALL_TARGETS),check-$(t))
 define check_template
 .PHONY: build-$(1)
 build-$(1): $(foreach test,$(TESTS),$(BINDIR)/$(1)/$(test).exe) \
-            $(foreach test,$(TESTS),$(BINDIR)/$(1)/$(test).pic) \
-            $(foreach test,$(TESTS),$(BINDIR)/$(1)/$(test).S)
+            $(foreach test,$(TESTS),$(BINDIR)/$(1)/$(test).pic)
 
 .PHONY: check-$(1)
 check-$(1): build-$(1)
@@ -61,13 +60,10 @@ $(foreach t,$(ALL_TARGETS),$(eval $(call check_template,$(t))))
 
 define target_template
 $(BINDIR)/$(1)/%.exe: $(SRCDIR)/%.c
-	$(CC) -o $$@ $(CFLAGS) --target=$($(1)_TRIPLE) $$< -no-pie $$(EXTRAFLAGS)
+	$(CC) -o $$@ $(CFLAGS) --target=$($(1)_TRIPLE) $$< -fno-pic -no-pie $$(EXTRAFLAGS)
 
 $(BINDIR)/$(1)/%.pic: $(SRCDIR)/%.c
-	$(CC) -o $$@ $(CFLAGS) --target=$($(1)_TRIPLE) $$< -fPIE -pie $$(EXTRAFLAGS)
-
-$(BINDIR)/$(1)/%.S: $(SRCDIR)/%.c
-	$(CC) -o $$@ $(CFLAGS) --target=$($(1)_TRIPLE) -S -fverbose-asm $$<
+	$(CC) -o $$@ $(CFLAGS) --target=$($(1)_TRIPLE) $$< -fpie -pie $$(EXTRAFLAGS)
 endef
 $(foreach t,$(ALL_TARGETS),$(eval $(call target_template,$(t))))
 
