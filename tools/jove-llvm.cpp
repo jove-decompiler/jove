@@ -4716,8 +4716,15 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
         Left -= WordBytes();
       }
 
-      if (!T || !C)
+      // C might be NULL if the global variable needs to be initialized with the
+      // address of itself
+      if (!T) {
+        if (IsVerbose())
+          llvm::errs() << llvm::formatv(
+              "!create_global_variable for {0} @ {1:x}\n", SymName,
+              Sect.Addr + lower);
         return nullptr;
+      }
 
       GVFieldTys.push_back(T);
       GVFieldInits.push_back(C);
