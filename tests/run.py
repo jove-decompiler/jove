@@ -53,13 +53,22 @@ if args.preexisting is None:
 else:
   d = args.preexisting
 
-os.mkfifo('%s/x.in' % d)
-os.mkfifo('%s/x.out' % d)
+ififo_path = '%s/x.in' % d
+ofifo_path = '%s/x.out' % d
+
+if os.path.exists(ififo_path):
+  os.remove(ififo_path)
+
+if os.path.exists(ofifo_path):
+  os.remove(ofifo_path)
+
+os.mkfifo(ififo_path)
+os.mkfifo(ofifo_path)
 
 cp = subprocess.Popen(['cat', '%s/x.out' % d], stdout=open('%s/stdout.txt' % d, 'wb', buffering=0), stdin=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 os.chdir(d)
-qp = subprocess.Popen(['%s/run.sh' % d], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+qp = subprocess.Popen(['%s/run.sh' % d, '-serial', 'pipe:x'], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
 
 def cleanup():
   cp.kill()
@@ -98,8 +107,8 @@ def scp(src, dst):
 
 def inputs_for_test(test):
   inputs_path = '%s/inputs/%s.inputs' % (tests_dir, test)
-  assert(Path(inputs_path).is_file())
 
+  assert(os.path.exists(inputs_path))
   return eval(open(inputs_path, 'r').read())
 
 #
@@ -191,5 +200,11 @@ ssh(['systemctl', 'poweroff'])
 qp.communicate()
 cp.communicate()
 jp.kill()
+
+if os.path.exists(ififo_path):
+  os.remove(ififo_path)
+
+if os.path.exists(ofifo_path):
+  os.remove(ofifo_path)
 
 sys.exit(exit_code)
