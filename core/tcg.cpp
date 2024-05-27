@@ -17,7 +17,7 @@ extern "C" void gen_intermediate_code(CPUState *cpu, TranslationBlock *tb,
                                       void *host_pc);
 extern "C" void tcg_register_thread(void);
 
-static thread_local const jove::ELFF *jv_E;
+static thread_local const jove::ELFO *jv_O;
 static thread_local uint64_t jv_end_pc;
 
 static thread_local jove::terminator_info_t jv_ti;
@@ -25,10 +25,12 @@ static thread_local jove::terminator_info_t jv_ti;
 static thread_local unsigned has_register_thread;
 
 extern "C" const void *_jv_g2h(uint64_t Addr) {
-  if (!jv_E)
+  if (!jv_O)
     return NULL;
 
-  llvm::Expected<const uint8_t *> ExpectedPtr = jv_E->toMappedAddr(Addr);
+  const jove::ELFF &jv_E = jv_O->getELFFile();
+
+  llvm::Expected<const uint8_t *> ExpectedPtr = jv_E.toMappedAddr(Addr);
   if (!ExpectedPtr) {
     std::string ErrorBuf;
     {
@@ -1213,7 +1215,7 @@ tiny_code_generator_t::~tiny_code_generator_t() {}
 
 void tiny_code_generator_t::set_binary(llvm::object::Binary &Bin) {
   assert(llvm::isa<ELFO>(&Bin));
-  ::jv_E = &llvm::cast<ELFO>(&Bin)->getELFFile();
+  ::jv_O = llvm::cast<ELFO>(&Bin);
 }
 
 void tiny_code_generator_t::dump_operations(void) {
