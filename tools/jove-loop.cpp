@@ -576,19 +576,16 @@ run:
         // XXX currently the only way to know that jove-recover was run is by
         // looking at the exit status
         //
-        if (ret != 'b' &&
-            ret != 'f' &&
-            ret != 'F' &&
-            ret != 'r')
-          break;
+        if ((ret != 'b' &&
+             ret != 'f' &&
+             ret != 'F' &&
+             ret != 'r') || opts.JustRun)
+          return ret;
       }
 
       run_pid.store(0); /* reset */
       app_pid.store(0); /* reset */
     }
-
-    if (opts.JustRun)
-      break;
 
 skip_run:
     if (!opts.Connect.empty()) { /* remote */
@@ -647,7 +644,7 @@ skip_run:
         if (ret < 0) {
           HumanOut() << llvm::formatv(
               "failed to send magic bytes: {0}\n", strerror(-ret));
-          break;
+          return 1;
         }
       }
 
@@ -674,7 +671,7 @@ skip_run:
           HumanOut() << llvm::formatv(
               "failed to send header to remote: {0}\n", strerror(-ret));
 
-          break;
+          return 1;
         }
       }
 
@@ -691,7 +688,7 @@ skip_run:
               "failed to send NPinnedGlobals to remote: {0}\n",
               strerror(-ret));
 
-          break;
+          return 1;
         }
 
         for (const std::string &PinnedGlobalStr : opts.PinnedGlobals) {
@@ -726,7 +723,7 @@ skip_run:
           HumanOut() << llvm::formatv(
               "failed to send jv: {0}\n", strerror(-ret));
 
-          break;
+          return 1;
         }
       }
 
@@ -742,7 +739,7 @@ skip_run:
           HumanOut() << llvm::formatv(
               "failed to receive jv from remote: {0}\n",
               strerror(-ret));
-          break;
+          return 1;
         }
 
         UnserializeJVFromFile(jv, tmpjv_path.c_str()); /* is this necessary? */
@@ -1098,7 +1095,8 @@ skip_run:
     }
   }
 
-  return 0;
+  assert(Cancelled);
+  return 1;
 }
 
 std::string LoopTool::soname_of_binary(binary_t &b) {
