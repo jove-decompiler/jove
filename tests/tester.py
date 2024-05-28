@@ -15,6 +15,12 @@ class JoveTester:
     'mips64el': 10028
   }
 
+  WINDOWS = [
+    'qemu',
+    'server',
+    'ssh'
+  ]
+
   def __init__(self, tests_dir, tests, arch, unattended=False):
     self.tests_dir = tests_dir
     self.tests = tests
@@ -55,11 +61,8 @@ class JoveTester:
 
   def find_or_create_tmux_session(self):
     self.sess = None
-    self.wins = [None, None, None]
-
-    create_qemu = False
-    create_serv = False
-    create_ssh = False
+    self.wins = [None for _ in JoveTester.WINDOWS]
+    res = [False for _ in self.wins]
 
     for sess in self.tmux.sessions:
       if sess.name == self.session_name():
@@ -69,32 +72,23 @@ class JoveTester:
     if self.sess is None:
       print('creating tmux session "%s"' % self.session_name())
 
-      self.sess = self.tmux.new_session(session_name=self.session_name(), window_name="qemu")
-      create_qemu = True
+      self.sess = self.tmux.new_session(session_name=self.session_name(), window_name=JoveTester.WINDOWS[0])
+      res[0] = True
 
-      assert self.sess.windows[0].name == "qemu"
+      assert self.sess.windows[0].name == JoveTester.WINDOWS[0]
 
     for win in self.sess.windows:
-      if win.name == "qemu":
-        self.wins[0] = win
-      elif win.name == "server":
-        self.wins[1] = win
-      elif win.name == "ssh":
-        self.wins[2] = win
+      try:
+        self.wins[JoveTester.WINDOWS.index(win.name)] = win
+      except ValueError:
+        continue
 
-    if self.wins[0] is None:
-      create_qemu = True
-      self.wins[0] = self.sess.new_window(window_name="qemu")
+    for idx in range(0, len(self.wins)):
+      if self.wins[idx] is None:
+        res[idx] = True
+        self.wins[idx] = self.sess.new_window(window_name=JoveTester.WINDOWS[idx])
 
-    if self.wins[1] is None:
-      create_serv = True
-      self.wins[1] = self.sess.new_window(window_name="server")
-
-    if self.wins[2] is None:
-      create_ssh = True
-      self.wins[2] = self.sess.new_window(window_name="ssh")
-
-    return (create_qemu, create_serv, create_ssh)
+    return res
 
   def vm_run_path(self):
     return self.vm_dir + "/run.sh"
@@ -198,7 +192,7 @@ class JoveTester:
 
         test_guest_path = '/tmp/%s' % test_bin_name
 
-        self.ssh(["rm", "-f", "/root/.jv"]) # FIXME
+        self.ssh(["rm", "-rf", "/root/.jv", "/root/.jove"]) # FIXME
 
         self.ssh(["jove", "init", test_guest_path])
         for input_args in test_inputs:
@@ -236,7 +230,8 @@ class JoveTester:
     return 0
 
   def run(self):
-    create_qemu, create_serv, create_ssh = self.find_or_create_tmux_session()
+    create_list = self.find_or_create_tmux_session()
+    create_qemu, create_serv, create_ssh = tuple(create_list)
 
     if create_qemu:
       if not self.exists_vm():
@@ -268,10 +263,11 @@ class JoveTester:
     if self.unattended:
       if create_qemu:
         ssh(['systemctl', 'poweroff'])
-        self.sess.kill_window("qemu")
       if create_serv:
-        self.sess.kill_window("server")
-      if create_ssh:
-        self.sess.kill_window("ssh")
+        self.server_pane().send_keys("C-c", literal=False, enter=False)
+
+      for i in range(0, len(create_list)):
+        if create_list[i]:
+          self.sess.kill_window(JoveTester.WINDOWS[i])
 
     return rc
