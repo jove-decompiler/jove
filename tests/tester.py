@@ -262,7 +262,7 @@ class JoveTester:
 
     if self.unattended:
       if create_qemu:
-        ssh(['systemctl', 'poweroff'])
+        self.ssh(['systemctl', 'poweroff'])
       if create_serv:
         self.server_pane().send_keys("C-c", literal=False, enter=False)
 
