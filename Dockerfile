@@ -45,12 +45,14 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       parted \
                       pkg-config \
                       pkgconf \
+                      python3-libtmux \
                       python3-venv \
                       qemu-system \
                       sed \
                       ssh \
                       sudo \
                       tar \
+                      tmux \
                       unzip \
                       vim-common \
                       zlib1g-dev && \
