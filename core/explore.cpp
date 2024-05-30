@@ -545,11 +545,7 @@ void explorer_t::_explore_the_rest(binary_t &b,
       auto &bbmap = b.bbmap;
 
       auto it = bbmap_find(bbmap, TermAddr);
-      if (it == bbmap.end()) {
-        llvm::WithColor::warning()
-            << llvm::formatv("explore_basic_block: BUG ({0:x})\n", TermAddr);
-        continue;
-      }
+      assert(it != bbmap.end());
 
       const basic_block_index_t BBIdx = (*it).second;
       assert(BBIdx < boost::num_vertices(ICFG));
