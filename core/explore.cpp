@@ -171,6 +171,8 @@ on_insn_boundary:
         ;
       }
 
+      ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
+
       //
       // "Split" the block, i.e.
       //
@@ -255,8 +257,6 @@ on_insn_boundary:
       addr_intvl intervl2(ICFG[newbb].Addr, ICFG[newbb].Size);
 
       assert(addr_intvl_disjoint(intervl1, intervl2));
-
-      ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
 
       const unsigned sav_bbmap_size = bbmap.size();
       bbmap.erase(it);
