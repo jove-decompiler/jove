@@ -28,22 +28,22 @@ class explorer_t {
   basic_block_index_t _explore_basic_block(binary_t &,
                                            llvm::object::Binary &,
                                            const uint64_t Addr,
-                                           std::vector<uint64_t> &calls_to_process);
+                                           std::vector<std::pair<uint64_t, uint64_t>> &calls_to_process);
 
   function_index_t _explore_function(binary_t &,
                                      llvm::object::Binary &,
                                      const uint64_t Addr,
-                                     std::vector<uint64_t> &calls_to_process);
+                                     std::vector<std::pair<uint64_t, uint64_t>> &calls_to_process);
 
   void _explore_the_rest(binary_t &,
                          llvm::object::Binary &,
-                         std::vector<uint64_t> &calls_to_process);
+                         std::vector<std::pair<uint64_t, uint64_t>> &calls_to_process);
 
   void _control_flow_to(binary_t &,
                         llvm::object::Binary &,
                         const uint64_t TermAddr,
                         const uint64_t Target,
-                        std::vector<uint64_t> &calls_to_process);
+                        std::vector<std::pair<uint64_t, uint64_t>> &calls_to_process);
 
 public:
   explorer_t(

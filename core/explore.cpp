@@ -33,7 +33,7 @@ static void dump_bbmap(const bbmap_t &bbmap) {
 function_index_t explorer_t::_explore_function(binary_t &b,
                                                obj::Binary &B,
                                                const uint64_t Addr,
-                                               std::vector<uint64_t> &calls_to_process) {
+                                               std::vector<std::pair<uint64_t, uint64_t>> &calls_to_process) {
 #if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
   assert((Addr & 1) == 0);
 #endif
@@ -46,8 +46,12 @@ function_index_t explorer_t::_explore_function(binary_t &b,
 
     {
       auto it = fnmap.find(Addr);
-      if (it != fnmap.end())
-        return (*it).second;
+      if (it != fnmap.end()) {
+        res = (*it).second;
+
+        assert(is_function_index_valid(res));
+        return res;
+      }
     }
 
     ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
@@ -65,13 +69,12 @@ function_index_t explorer_t::_explore_function(binary_t &b,
     fnmap.emplace(Addr, res);
   }
 
-  basic_block_index_t Entry =
+  const basic_block_index_t Entry =
       _explore_basic_block(b, B, Addr, calls_to_process);
 
-  if (!is_basic_block_index_valid(Entry))
-    return invalid_function_index;
+  assert(is_basic_block_index_valid(Entry));
 
-  function_t &f = b.Analysis.Functions[res];
+  function_t &f = b.Analysis.Functions.at(res);
 
   f.Analysis.Stale = true;
   f.IsABI = false;
@@ -84,7 +87,7 @@ function_index_t explorer_t::_explore_function(binary_t &b,
 basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
                                                      obj::Binary &Bin,
                                                      const uint64_t Addr,
-                                                     std::vector<uint64_t> &calls_to_process) {
+                                                     std::vector<std::pair<uint64_t, uint64_t>> &calls_to_process) {
 #if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
   assert((Addr & 1) == 0);
 #endif
@@ -95,16 +98,18 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
 
   ip_upgradable_lock<ip_upgradable_mutex> u_lck(b.bbmap_mtx);
 
+  auto &bbmap = b.bbmap;
+
   //
   // does this new basic block start in the middle of a previously-created
   // basic block?
   //
   {
-    auto &bbmap = b.bbmap;
-
     auto it = bbmap_find(bbmap, Addr);
     if (it != bbmap.end()) {
       const basic_block_index_t BBIdx = (*it).second;
+
+      assert(is_basic_block_index_valid(BBIdx));
       basic_block_t bb = basic_block_of_index(BBIdx, ICFG);
 
 #if 0
@@ -303,8 +308,6 @@ on_insn_boundary:
     Size += size;
 
     {
-      auto &bbmap = b.bbmap;
-
       addr_intvl intervl(Addr, Size);
       auto it = bbmap_find(bbmap, intervl);
       if (it != bbmap.end()) {
@@ -356,7 +359,6 @@ on_insn_boundary:
 
   basic_block_index_t BBIdx = invalid_basic_block_index;
   {
-
     ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
 
     BBIdx = boost::num_vertices(ICFG);
@@ -377,8 +379,6 @@ on_insn_boundary:
       bbprop.Term._indirect_call.ReturnsOff = 0;
       bbprop.Term._return.Returns = false;
       bbprop.InvalidateAnalysis();
-
-      auto &bbmap = b.bbmap;
 
       addr_intvl intervl(bbprop.Addr, bbprop.Size);
       bbmap_add(bbmap, intervl, BBIdx);
@@ -452,7 +452,7 @@ on_insn_boundary:
     basic_block_index_t CalleeIdx = b.Analysis.Functions.at(CalleeFIdx).Entry;
 
     if (!is_basic_block_index_valid(CalleeIdx)) {
-      calls_to_process.push_back(T.Addr);
+      calls_to_process.emplace_back(T.Addr, CalleeAddr);
       break;
     }
 
@@ -499,7 +499,7 @@ void explorer_t::_control_flow_to(binary_t &b,
                                   obj::Binary &Bin,
                                   const uint64_t TermAddr,
                                   const uint64_t Target,
-                                  std::vector<uint64_t> &calls_to_process) {
+                                  std::vector<std::pair<uint64_t, uint64_t>> &calls_to_process) {
   assert(Target);
 
   if (unlikely(this->verbose))
@@ -529,14 +529,27 @@ void explorer_t::_control_flow_to(binary_t &b,
   }
 }
 
-
 void explorer_t::_explore_the_rest(binary_t &b,
                                    obj::Binary & B,
-                                   std::vector<uint64_t> &calls_to_process) {
+                                   std::vector<std::pair<uint64_t, uint64_t>> &calls_to_process) {
   while (!calls_to_process.empty()) {
-    const uint64_t TermAddr = calls_to_process.back();
-    unsigned ReturnsOff = 0;
+    uint64_t TermAddr;
+    uint64_t CalleeAddr;
+    std::tie(TermAddr, CalleeAddr) = calls_to_process.back();
+
     calls_to_process.resize(calls_to_process.size() - 1);
+
+    const function_index_t CalleeFIdx =
+        _explore_function(b, B, CalleeAddr, calls_to_process);
+    assert(is_function_index_valid(CalleeFIdx));
+
+    basic_block_index_t &CalleeIdx = b.Analysis.Functions.at(CalleeFIdx).Entry;
+    if (unlikely(!is_basic_block_index_valid(CalleeIdx))) { /* XXX how? */
+      CalleeIdx = _explore_function(b, B, CalleeAddr, calls_to_process);
+      assert(is_basic_block_index_valid(CalleeIdx));
+    }
+
+    unsigned ReturnsOff = 0;
 
     bool DoesRet = ({
       ip_sharable_lock<ip_upgradable_mutex> lck(b.bbmap_mtx);
@@ -556,11 +569,7 @@ void explorer_t::_explore_the_rest(binary_t &b,
       ReturnsOff = ICFG[bb].Term._call.ReturnsOff;
       assert(ReturnsOff > 0);
 
-      function_index_t CalleeFIdx = ICFG[bb].Term._call.Target;
-
-      basic_block_index_t CalleeIdx = b.Analysis.Functions.at(CalleeFIdx).Entry;
-      if (!is_basic_block_index_valid(CalleeIdx))
-        continue; /* FIXME */
+      assert(ICFG[bb].Term._call.Target == CalleeFIdx);
 
       does_function_at_block_return(basic_block_of_index(CalleeIdx, ICFG), b);
     });
@@ -580,7 +589,7 @@ basic_block_index_t explorer_t::explore_basic_block(binary_t &b,
   Addr &= ~1UL;
 #endif
 
-  std::vector<uint64_t> calls_to_process;
+  std::vector<std::pair<uint64_t, uint64_t>> calls_to_process;
 
   const basic_block_index_t res = _explore_basic_block(
       b, B, Addr, calls_to_process);
@@ -597,7 +606,7 @@ function_index_t explorer_t::explore_function(binary_t &b,
   Addr &= ~1UL;
 #endif
 
-  std::vector<uint64_t> calls_to_process;
+  std::vector<std::pair<uint64_t, uint64_t>> calls_to_process;
 
   const function_index_t res = _explore_function(
       b, B, Addr, calls_to_process);
