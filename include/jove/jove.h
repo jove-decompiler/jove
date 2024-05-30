@@ -437,6 +437,10 @@ struct binary_t {
     return std::string_view(Data.data(), Data.size());
   }
 
+  std::string name_str(void) const {
+    return un_ips(Name);
+  }
+
   const char *path(void) const {
     assert(is_file());
 

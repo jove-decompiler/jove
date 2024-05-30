@@ -512,7 +512,7 @@ void DumpTool::dumpInput(const std::string &Path) {
       for (unsigned BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
         const binary_t &binary = jv.Binaries[BIdx];
 
-        if (binary.path_str().find(opts.ListFunctions) == std::string::npos)
+        if (binary.name_str().find(opts.ListFunctions) == std::string::npos)
           continue;
 
         const auto &ICFG = binary.Analysis.ICFG;
