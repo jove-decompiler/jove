@@ -55,11 +55,11 @@ public:
 
   basic_block_index_t explore_basic_block(binary_t &,
                                           llvm::object::Binary &,
-                                          const uint64_t Addr);
+                                          uint64_t Addr);
 
   function_index_t explore_function(binary_t &,
                                     llvm::object::Binary &,
-                                    const uint64_t Addr);
+                                    uint64_t Addr);
 
   on_newbb_proc_t  get_newbb_proc(void) const {
     return on_newbb_proc;

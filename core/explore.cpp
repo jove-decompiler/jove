@@ -557,7 +557,11 @@ void explorer_t::_explore_the_rest(binary_t &b,
 
 basic_block_index_t explorer_t::explore_basic_block(binary_t &b,
                                                     obj::Binary &B,
-                                                    const uint64_t Addr) {
+                                                    uint64_t Addr) {
+#if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
+  Addr &= ~1UL;
+#endif
+
   std::vector<uint64_t> calls_to_process;
 
   const basic_block_index_t res = _explore_basic_block(
@@ -570,7 +574,11 @@ basic_block_index_t explorer_t::explore_basic_block(binary_t &b,
 
 function_index_t explorer_t::explore_function(binary_t &b,
                                               obj::Binary &B,
-                                              const uint64_t Addr) {
+                                              uint64_t Addr) {
+#if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
+  Addr &= ~1UL;
+#endif
+
   std::vector<uint64_t> calls_to_process;
 
   const function_index_t res = _explore_function(

@@ -446,18 +446,10 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
   // explore known code
   //
   for (uint64_t Entrypoint : boost::adaptors::reverse(Known.BasicBlockAddresses)) {
-#if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
-    Entrypoint &= ~1UL;
-#endif
-
     E.explore_basic_block(b, Obj, Entrypoint);
   }
 
   for (uint64_t Entrypoint : boost::adaptors::reverse(Known.FunctionEntrypoints)) {
-#if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
-    Entrypoint &= ~1UL;
-#endif
-
     function_index_t FIdx = E.explore_function(b, Obj, Entrypoint);
 
     if (!is_function_index_valid(FIdx))
