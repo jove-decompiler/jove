@@ -509,19 +509,17 @@ void explorer_t::_control_flow_to(binary_t &b,
   basic_block_index_t SuccBBIdx =
       _explore_basic_block(b, Bin, Target, calls_to_process);
 
-  if (!is_basic_block_index_valid(SuccBBIdx)) {
-    llvm::WithColor::warning() << llvm::formatv(
-        "control_flow_to: invalid edge {0:x} -> {1:x}\n", TermAddr, Target);
-    return;
-  }
+  assert(is_basic_block_index_valid(SuccBBIdx));
 
   {
-    ip_scoped_lock<ip_upgradable_mutex> e_lck(b.bbmap_mtx);
+    ip_upgradable_lock<ip_upgradable_mutex> u_lck(b.bbmap_mtx);
 
     auto &ICFG = b.Analysis.ICFG;
 
     basic_block_t bb = basic_block_at_address(TermAddr, b);
     // assert(T.Type == ICFG[bb].Term.Type);
+
+    ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
 
     bool isNewTarget =
         boost::add_edge(bb, basic_block_of_index(SuccBBIdx, b), ICFG).second;
@@ -549,27 +547,14 @@ void explorer_t::_explore_the_rest(binary_t &b,
       assert(is_basic_block_index_valid(CalleeIdx));
     }
 
-    unsigned ReturnsOff = 0;
+    unsigned ReturnsOff;
 
+    auto &ICFG = b.Analysis.ICFG;
     bool DoesRet = ({
-      ip_sharable_lock<ip_upgradable_mutex> lck(b.bbmap_mtx);
+      ip_sharable_lock<ip_upgradable_mutex> s_lck(b.bbmap_mtx);
 
-      auto &ICFG = b.Analysis.ICFG;
-      auto &bbmap = b.bbmap;
-
-      auto it = bbmap_find(bbmap, TermAddr);
-      assert(it != bbmap.end());
-
-      const basic_block_index_t BBIdx = (*it).second;
-      assert(BBIdx < boost::num_vertices(ICFG));
-
-      basic_block_t bb = basic_block_of_index(BBIdx, ICFG);
-      assert(ICFG[bb].Term.Type == TERMINATOR::CALL);
-
-      ReturnsOff = ICFG[bb].Term._call.ReturnsOff;
-      assert(ReturnsOff > 0);
-
-      assert(ICFG[bb].Term._call.Target == CalleeFIdx);
+      ReturnsOff =
+          ICFG[basic_block_at_address(TermAddr, b)].Term._call.ReturnsOff;
 
       does_function_at_block_return(basic_block_of_index(CalleeIdx, ICFG), b);
     });
