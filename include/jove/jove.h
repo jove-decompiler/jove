@@ -750,8 +750,7 @@ description_of_terminator_info(const terminator_info_t &T,
 
 static inline basic_block_t basic_block_of_index(basic_block_index_t BBIdx,
                                                  const icfg_t &ICFG) {
-  if (unlikely(!is_basic_block_index_valid(BBIdx)))
-    throw std::runtime_error(std::string(__func__) + ": invalid entry block!");
+  assert(is_basic_block_index_valid(BBIdx));
 
   return boost::vertex(BBIdx, ICFG);
 }
