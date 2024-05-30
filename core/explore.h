@@ -26,7 +26,7 @@ class explorer_t {
   on_newbb_proc_t on_newbb_proc;
 
   typedef std::pair<uint64_t, uint64_t> later_item_t;
-  typedef std::function<void(const later_item_t &)> process_later_t;
+  typedef std::function<void(later_item_t &&)> process_later_t;
 
   basic_block_index_t _explore_basic_block(binary_t &,
                                            llvm::object::Binary &,

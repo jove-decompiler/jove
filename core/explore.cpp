@@ -534,8 +534,8 @@ void explorer_t::_explore_the_rest(binary_t &b,
                                    const std::vector<later_item_t> &calls_to_process) {
   auto DoBody = [&](const later_item_t &x,
                     oneapi::tbb::feeder<later_item_t> &feeder) {
-    auto process_later = [&](const later_item_t &later) -> void {
-      feeder.add(later);
+    auto process_later = [&](later_item_t &&later) -> void {
+      feeder.add(std::move(later));
     };
 
     uint64_t TermAddr;
@@ -583,8 +583,10 @@ basic_block_index_t explorer_t::explore_basic_block(binary_t &b,
 
   std::vector<later_item_t> calls_to_process;
 
-  const basic_block_index_t res = _explore_basic_block(
-      b, B, Addr, [&](later_item_t item) { calls_to_process.push_back(item); });
+  const basic_block_index_t res =
+      _explore_basic_block(b, B, Addr, [&](later_item_t &&item) {
+        calls_to_process.push_back(std::move(item));
+      });
 
   _explore_the_rest(b, B, calls_to_process);
 
@@ -600,8 +602,10 @@ function_index_t explorer_t::explore_function(binary_t &b,
 
   std::vector<later_item_t> calls_to_process;
 
-  const function_index_t res = _explore_function(
-      b, B, Addr, [&](later_item_t item) { calls_to_process.push_back(item); });
+  const function_index_t res =
+      _explore_function(b, B, Addr, [&](later_item_t &&item) {
+        calls_to_process.push_back(std::move(item));
+      });
 
   _explore_the_rest(b, B, calls_to_process);
 
