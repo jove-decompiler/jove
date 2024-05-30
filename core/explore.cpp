@@ -14,6 +14,8 @@
 
 #include <stdexcept>
 
+#include <oneapi/tbb/parallel_for_each.h>
+
 namespace obj = llvm::object;
 
 namespace jove {
@@ -33,7 +35,7 @@ static void dump_bbmap(const bbmap_t &bbmap) {
 function_index_t explorer_t::_explore_function(binary_t &b,
                                                obj::Binary &B,
                                                const uint64_t Addr,
-                                               std::vector<std::pair<uint64_t, uint64_t>> &calls_to_process) {
+                                               process_later_t process_later) {
 #if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
   assert((Addr & 1) == 0);
 #endif
@@ -70,7 +72,7 @@ function_index_t explorer_t::_explore_function(binary_t &b,
   }
 
   const basic_block_index_t Entry =
-      _explore_basic_block(b, B, Addr, calls_to_process);
+      _explore_basic_block(b, B, Addr, process_later);
 
   assert(is_basic_block_index_valid(Entry));
 
@@ -87,7 +89,7 @@ function_index_t explorer_t::_explore_function(binary_t &b,
 basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
                                                      obj::Binary &Bin,
                                                      const uint64_t Addr,
-                                                     std::vector<std::pair<uint64_t, uint64_t>> &calls_to_process) {
+                                                     process_later_t process_later) {
 #if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
   assert((Addr & 1) == 0);
 #endif
@@ -405,7 +407,7 @@ on_insn_boundary:
     Target &= ~1UL;
 #endif
 
-    _control_flow_to(b, Bin, T.Addr ?: Addr, Target, calls_to_process);
+    _control_flow_to(b, Bin, T.Addr ?: Addr, Target, process_later);
   };
 
   switch (T.Type) {
@@ -433,7 +435,7 @@ on_insn_boundary:
 #endif
 
     function_index_t CalleeFIdx = _explore_function(b, Bin, CalleeAddr,
-                                                    calls_to_process);
+                                                    process_later);
     {
       ip_sharable_lock<ip_upgradable_mutex> s_lck(b.bbmap_mtx);
 
@@ -452,7 +454,7 @@ on_insn_boundary:
     basic_block_index_t CalleeIdx = b.Analysis.Functions.at(CalleeFIdx).Entry;
 
     if (!is_basic_block_index_valid(CalleeIdx)) {
-      calls_to_process.emplace_back(T.Addr, CalleeAddr);
+      process_later(later_item_t(T.Addr, CalleeAddr));
       break;
     }
 
@@ -499,7 +501,7 @@ void explorer_t::_control_flow_to(binary_t &b,
                                   obj::Binary &Bin,
                                   const uint64_t TermAddr,
                                   const uint64_t Target,
-                                  std::vector<std::pair<uint64_t, uint64_t>> &calls_to_process) {
+                                  process_later_t process_later) {
   assert(Target);
 
   if (unlikely(this->verbose))
@@ -507,7 +509,7 @@ void explorer_t::_control_flow_to(binary_t &b,
                                   taddr2str(Target, false));
 
   basic_block_index_t SuccBBIdx =
-      _explore_basic_block(b, Bin, Target, calls_to_process);
+      _explore_basic_block(b, Bin, Target, process_later);
 
   assert(is_basic_block_index_valid(SuccBBIdx));
 
@@ -529,21 +531,24 @@ void explorer_t::_control_flow_to(binary_t &b,
 
 void explorer_t::_explore_the_rest(binary_t &b,
                                    obj::Binary & B,
-                                   std::vector<std::pair<uint64_t, uint64_t>> &calls_to_process) {
-  while (!calls_to_process.empty()) {
+                                   const std::vector<later_item_t> &calls_to_process) {
+  auto DoBody = [&](const later_item_t &x,
+                    oneapi::tbb::feeder<later_item_t> &feeder) {
+    auto process_later = [&](const later_item_t &later) -> void {
+      feeder.add(later);
+    };
+
     uint64_t TermAddr;
     uint64_t CalleeAddr;
-    std::tie(TermAddr, CalleeAddr) = calls_to_process.back();
-
-    calls_to_process.resize(calls_to_process.size() - 1);
+    std::tie(TermAddr, CalleeAddr) = x;
 
     const function_index_t CalleeFIdx =
-        _explore_function(b, B, CalleeAddr, calls_to_process);
+        _explore_function(b, B, CalleeAddr, process_later);
     assert(is_function_index_valid(CalleeFIdx));
 
     basic_block_index_t &CalleeIdx = b.Analysis.Functions.at(CalleeFIdx).Entry;
     if (unlikely(!is_basic_block_index_valid(CalleeIdx))) { /* XXX how? */
-      CalleeIdx = _explore_function(b, B, CalleeAddr, calls_to_process);
+      CalleeIdx = _explore_basic_block(b, B, CalleeAddr, process_later);
       assert(is_basic_block_index_valid(CalleeIdx));
     }
 
@@ -562,8 +567,11 @@ void explorer_t::_explore_the_rest(binary_t &b,
       _control_flow_to(b, B,
                        TermAddr,
                        TermAddr + RetOff,
-                       calls_to_process);
-  }
+                       process_later);
+  };
+
+  oneapi::tbb::parallel_for_each(calls_to_process.begin(),
+                                 calls_to_process.end(), DoBody);
 }
 
 basic_block_index_t explorer_t::explore_basic_block(binary_t &b,
@@ -573,10 +581,10 @@ basic_block_index_t explorer_t::explore_basic_block(binary_t &b,
   Addr &= ~1UL;
 #endif
 
-  std::vector<std::pair<uint64_t, uint64_t>> calls_to_process;
+  std::vector<later_item_t> calls_to_process;
 
   const basic_block_index_t res = _explore_basic_block(
-      b, B, Addr, calls_to_process);
+      b, B, Addr, [&](later_item_t item) { calls_to_process.push_back(item); });
 
   _explore_the_rest(b, B, calls_to_process);
 
@@ -590,10 +598,10 @@ function_index_t explorer_t::explore_function(binary_t &b,
   Addr &= ~1UL;
 #endif
 
-  std::vector<std::pair<uint64_t, uint64_t>> calls_to_process;
+  std::vector<later_item_t> calls_to_process;
 
   const function_index_t res = _explore_function(
-      b, B, Addr, calls_to_process);
+      b, B, Addr, [&](later_item_t item) { calls_to_process.push_back(item); });
 
   _explore_the_rest(b, B, calls_to_process);
 

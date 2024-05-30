@@ -25,25 +25,28 @@ class explorer_t {
 
   on_newbb_proc_t on_newbb_proc;
 
+  typedef std::pair<uint64_t, uint64_t> later_item_t;
+  typedef std::function<void(const later_item_t &)> process_later_t;
+
   basic_block_index_t _explore_basic_block(binary_t &,
                                            llvm::object::Binary &,
                                            const uint64_t Addr,
-                                           std::vector<std::pair<uint64_t, uint64_t>> &calls_to_process);
+                                           process_later_t process_later);
 
   function_index_t _explore_function(binary_t &,
                                      llvm::object::Binary &,
                                      const uint64_t Addr,
-                                     std::vector<std::pair<uint64_t, uint64_t>> &calls_to_process);
+                                     process_later_t process_later);
 
   void _explore_the_rest(binary_t &,
                          llvm::object::Binary &,
-                         std::vector<std::pair<uint64_t, uint64_t>> &calls_to_process);
+                         const std::vector<later_item_t> &calls_to_process);
 
   void _control_flow_to(binary_t &,
                         llvm::object::Binary &,
                         const uint64_t TermAddr,
                         const uint64_t Target,
-                        std::vector<std::pair<uint64_t, uint64_t>> &calls_to_process);
+                        process_later_t process_later);
 
 public:
   explorer_t(
