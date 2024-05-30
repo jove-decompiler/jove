@@ -28,6 +28,7 @@
 #include <boost/interprocess/containers/set.hpp>
 #include <boost/interprocess/containers/string.hpp>
 #include <boost/interprocess/containers/vector.hpp>
+#include <boost/interprocess/containers/deque.hpp>
 #include <boost/interprocess/managed_mapped_file.hpp>
 #include <boost/interprocess/managed_shared_memory.hpp>
 #include <boost/interprocess/sync/scoped_lock.hpp>
@@ -344,7 +345,9 @@ static inline bool IsExitBlock(const icfg_t &ICFG, basic_block_t bb) {
 }
 
 struct function_t {
+  binary_index_t Idx;
   binary_index_t BIdx;
+
   basic_block_index_t Entry;
 
   struct {
@@ -367,8 +370,8 @@ using ip_scoped_lock = boost::interprocess::scoped_lock<Mutex>;
 
 typedef boost::interprocess::allocator<function_t, segment_manager_t>
     function_allocator;
-typedef boost::interprocess::vector<function_t, function_allocator>
-    function_vector;
+typedef boost::interprocess::deque<function_t, function_allocator>
+    function_deque;
 
 #define DEFINE_INTERPROCESS_MAP(name, key, value)                              \
   boost::interprocess::map<                                                    \
@@ -378,6 +381,8 @@ typedef boost::interprocess::vector<function_t, function_allocator>
       name
 
 struct binary_t {
+  binary_index_t Idx;
+
   bbmap_t bbmap;
   fnmap_t fnmap;
 
@@ -396,7 +401,7 @@ struct binary_t {
 
   struct Analysis_t {
     function_index_t EntryFunction;
-    function_vector Functions;
+    function_deque Functions;
     interprocedural_control_flow_graph_t ICFG;
 
     DEFINE_INTERPROCESS_MAP(IFuncDynTargets, uint64_t, ip_dynamic_target_set);
@@ -456,8 +461,8 @@ struct binary_t {
 
 typedef boost::interprocess::allocator<binary_t, segment_manager_t>
     ip_binary_allocator;
-typedef boost::interprocess::vector<binary_t, ip_binary_allocator>
-    ip_binary_vector;
+typedef boost::interprocess::deque<binary_t, ip_binary_allocator>
+    ip_binary_deque;
 
 struct cached_hash_t {
   hash_t h;
@@ -487,7 +492,7 @@ typedef boost::unordered_map<
     ip_name_to_binaries_map_type;
 
 struct jv_t {
-  ip_binary_vector Binaries;
+  ip_binary_deque Binaries;
 
   ip_hash_to_binary_map_type hash_to_binary;
   ip_cached_hashes_type cached_hashes; /* NOT serialized */
@@ -957,20 +962,12 @@ static inline binary_index_t binary_index_of_function(const function_t &f,
 
 static inline binary_index_t index_of_binary(const binary_t &b,
                                              const jv_t &jv) {
-  if (!(&b >= jv.Binaries.data() &&
-        &b < &jv.Binaries.data()[jv.Binaries.size()]))
-    throw std::runtime_error(std::string(__func__) + ": invalid binary!");
-
-  return &b - jv.Binaries.data();
+  return b.Idx;
 }
 
 static inline function_index_t index_of_function_in_binary(const function_t &f,
                                                            const binary_t &b) {
-  if (!(&f >= b.Analysis.Functions.data() &&
-        &f < &b.Analysis.Functions.data()[b.Analysis.Functions.size()]))
-    throw std::runtime_error(std::string(__func__) + ": invalid function!");
-
-  return &f - b.Analysis.Functions.data();
+  return f.Idx;
 }
 
 static inline binary_t &binary_of_function(const function_t &f,
@@ -1266,8 +1263,6 @@ struct jv_bin_state_t {
   std::vector<BinaryStateTy> stuff;
 
   jv_bin_state_t(const jv_t &jv) : jv(jv) {
-    stuff.reserve(jv.Binaries.capacity());
-
     update();
   }
 
@@ -1285,8 +1280,6 @@ struct jv_fn_state_t {
   std::vector<std::vector<FunctionStateTy>> stuff;
 
   jv_fn_state_t(const jv_t &jv) : jv(jv) {
-    stuff.reserve(jv.Binaries.capacity());
-
     update();
   }
 
@@ -1317,8 +1310,6 @@ struct jv_bin_fn_state_t {
   std::vector<std::pair<BinaryStateTy, std::vector<FunctionStateTy>>> stuff;
 
   jv_bin_fn_state_t(const jv_t &jv) : jv(jv) {
-    stuff.reserve(jv.Binaries.capacity());
-
     update();
   }
 
@@ -1356,8 +1347,6 @@ struct jv_bin_fn_bb_state_t {
       stuff;
 
   jv_bin_fn_bb_state_t(const jv_t &jv) : jv(jv) {
-    stuff.reserve(jv.Binaries.capacity());
-
     update();
   }
 

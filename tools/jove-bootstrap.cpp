@@ -529,17 +529,6 @@ int BootstrapTool::Run(void) {
     INSTALL_SIG(SIGABRT);
   }
 
-#if 1
-  //
-  // OMG. this hack is awful. it is here because if a binary is dynamically
-  // added to the jv, the std::vector will resize if necessary- and
-  // if such an event occurs, pointers to the section data will be invalidated
-  // because the binary_t::Data will be recopied. TODO
-  //
-  unsigned EstimatedNumBins = std::max<unsigned>(2 * jv.Binaries.size(), 20);
-  jv.Binaries.reserve(EstimatedNumBins);
-#endif
-
   //
   // initialize state associated with every binary
   //

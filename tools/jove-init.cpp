@@ -179,7 +179,6 @@ int InitTool::add_loaded_objects(const fs::path &prog, const fs::path &rtld) {
   jv.clear(); /* point of no return */
 
   unsigned N = binary_paths.size() + 3;
-  jv.Binaries.reserve(2*N);
   for (unsigned i = 0; i < N; ++i)
     jv.Binaries.emplace_back(jv.Binaries.get_allocator());
 

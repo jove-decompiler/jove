@@ -55,6 +55,7 @@ function_index_t explorer_t::_explore_function(binary_t &b,
     {
       function_t &f = b.Analysis.Functions.emplace_back();
 
+      f.Idx = res;
       f.BIdx = index_of_binary(b, jv);
       f.Entry = invalid_basic_block_index;
     }
@@ -68,16 +69,14 @@ function_index_t explorer_t::_explore_function(binary_t &b,
   if (!is_basic_block_index_valid(Entry))
     return invalid_function_index;
 
-  {
-    ip_scoped_lock<ip_mutex> lck(b.fnmap_mtx());
+  ip_scoped_lock<ip_mutex> lck(b.fnmap_mtx());
 
-    function_t &f = b.Analysis.Functions[res];
+  function_t &f = b.Analysis.Functions[res];
 
-    f.Analysis.Stale = true;
-    f.IsABI = false;
-    f.IsSignalHandler = false;
-    f.Entry = Entry;
-  }
+  f.Analysis.Stale = true;
+  f.IsABI = false;
+  f.IsSignalHandler = false;
+  f.Entry = Entry;
 
   return res;
 }
@@ -421,11 +420,7 @@ on_insn_boundary:
       break;
     }
 
-    basic_block_index_t CalleeIdx = ({
-      ip_scoped_lock<ip_mutex> lck(b.fnmap_mtx());
-
-      b.Analysis.Functions.at(CalleeFIdx).Entry;
-    });
+    basic_block_index_t CalleeIdx = b.Analysis.Functions.at(CalleeFIdx).Entry;
 
     if (!is_basic_block_index_valid(CalleeIdx)) {
       calls_to_process.push_back(T.Addr);
@@ -538,11 +533,7 @@ void explorer_t::_explore_the_rest(binary_t &b,
 
       function_index_t CalleeFIdx = ICFG[bb].Term._call.Target;
 
-      basic_block_index_t CalleeIdx = ({
-        ip_scoped_lock<ip_mutex> lck(b.fnmap_mtx());
-
-        b.Analysis.Functions.at(CalleeFIdx).Entry;
-      });
+      basic_block_index_t CalleeIdx = b.Analysis.Functions.at(CalleeFIdx).Entry;
 
       does_function_at_block_return(basic_block_of_index(CalleeIdx, ICFG), b);
     });

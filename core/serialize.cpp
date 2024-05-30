@@ -110,6 +110,42 @@ serialize(Archive &ar,
 }
 
 //
+// interprocess deque
+//
+
+template <class Archive, class T, class Allocator>
+static inline void
+save(Archive &ar,
+     const boost::container::deque<T, Allocator> &x,
+     const unsigned int file_version) {
+  stl::save_collection<Archive, boost::container::deque<T, Allocator>>(ar, x);
+}
+
+template <class Archive, class T, class Allocator>
+static inline void load(Archive &ar,
+                 boost::container::deque<T, Allocator> &x,
+                 const unsigned int file_version) {
+  const boost::serialization::library_version_type library_version(
+      ar.get_library_version());
+  // retrieve number of elements
+  item_version_type item_version(0);
+  collection_size_type count;
+  ar >> BOOST_SERIALIZATION_NVP(count);
+  if (boost::serialization::library_version_type(3) < library_version) {
+    ar >> BOOST_SERIALIZATION_NVP(item_version);
+  }
+  stl::collection_load_impl(ar, x, count, item_version);
+}
+
+template <class Archive, class T, class Allocator>
+static inline void
+serialize(Archive &ar,
+          boost::container::deque<T, Allocator> &x,
+          const unsigned int file_version) {
+  boost::serialization::split_free(ar, x, file_version);
+}
+
+//
 // interprocess map
 //
 
@@ -199,7 +235,8 @@ namespace serialization {
 //
 template <class Archive>
 static void serialize(Archive &ar, jove::binary_t &b, const unsigned int version) {
-  ar &BOOST_SERIALIZATION_NVP(b.bbmap)
+  ar &BOOST_SERIALIZATION_NVP(b.Idx)
+     &BOOST_SERIALIZATION_NVP(b.bbmap)
      &BOOST_SERIALIZATION_NVP(b.fnmap)
      &BOOST_SERIALIZATION_NVP(b.Name)
      &BOOST_SERIALIZATION_NVP(b.Data)
@@ -222,7 +259,8 @@ static void serialize(Archive &ar, jove::binary_t &b, const unsigned int version
 //
 template <class Archive>
 static void serialize(Archive &ar, jove::function_t &f, const unsigned int version) {
-  ar &BOOST_SERIALIZATION_NVP(f.BIdx)
+  ar &BOOST_SERIALIZATION_NVP(f.Idx)
+     &BOOST_SERIALIZATION_NVP(f.BIdx)
      &BOOST_SERIALIZATION_NVP(f.Entry)
      &BOOST_SERIALIZATION_NVP(f.Analysis.args)
      &BOOST_SERIALIZATION_NVP(f.Analysis.rets)
