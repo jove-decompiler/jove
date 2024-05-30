@@ -31,7 +31,12 @@
 #include <boost/interprocess/containers/deque.hpp>
 #include <boost/interprocess/managed_mapped_file.hpp>
 #include <boost/interprocess/managed_shared_memory.hpp>
+#include <boost/interprocess/sync/interprocess_mutex.hpp>
+#include <boost/interprocess/sync/interprocess_sharable_mutex.hpp>
+#include <boost/interprocess/sync/interprocess_upgradable_mutex.hpp>
 #include <boost/interprocess/sync/scoped_lock.hpp>
+#include <boost/interprocess/sync/sharable_lock.hpp>
+#include <boost/interprocess/sync/upgradable_lock.hpp>
 #include <boost/range/iterator_range.hpp>
 #include <boost/optional.hpp>
 
@@ -365,8 +370,15 @@ struct function_t {
 };
 
 typedef boost::interprocess::interprocess_mutex ip_mutex;
+typedef boost::interprocess::interprocess_sharable_mutex ip_sharable_mutex;
+typedef boost::interprocess::interprocess_upgradable_mutex ip_upgradable_mutex;
+
 template <typename Mutex>
 using ip_scoped_lock = boost::interprocess::scoped_lock<Mutex>;
+template <typename Mutex>
+using ip_sharable_lock = boost::interprocess::sharable_lock<Mutex>;
+template <typename Mutex>
+using ip_upgradable_lock = boost::interprocess::upgradable_lock<Mutex>;
 
 typedef boost::interprocess::allocator<function_t, segment_manager_t>
     function_allocator;
@@ -396,8 +408,8 @@ struct binary_t {
 
   bool IsDynamicallyLoaded;
 
-  ip_mutex bbmap_mtx;
-  ip_mutex fnmap_mtx;
+  ip_upgradable_mutex bbmap_mtx;
+  ip_upgradable_mutex fnmap_mtx;
 
   struct Analysis_t {
     function_index_t EntryFunction;

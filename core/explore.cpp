@@ -40,7 +40,7 @@ function_index_t explorer_t::_explore_function(binary_t &b,
 
   function_index_t res = invalid_function_index;
   {
-    ip_scoped_lock<ip_mutex> lck(b.fnmap_mtx);
+    ip_upgradable_lock<ip_upgradable_mutex> u_lck(b.fnmap_mtx);
 
     auto &fnmap = b.fnmap;
 
@@ -49,6 +49,8 @@ function_index_t explorer_t::_explore_function(binary_t &b,
       if (it != fnmap.end())
         return (*it).second;
     }
+
+    ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
 
     res = b.Analysis.Functions.size();
 
@@ -68,8 +70,6 @@ function_index_t explorer_t::_explore_function(binary_t &b,
 
   if (!is_basic_block_index_valid(Entry))
     return invalid_function_index;
-
-  ip_scoped_lock<ip_mutex> lck(b.fnmap_mtx);
 
   function_t &f = b.Analysis.Functions[res];
 
@@ -93,13 +93,13 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
 
   assert(llvm::isa<ELFO>(&Bin));
 
+  ip_upgradable_lock<ip_upgradable_mutex> u_lck(b.bbmap_mtx);
+
   //
   // does this new basic block start in the middle of a previously-created
   // basic block?
   //
   {
-    ip_scoped_lock<ip_mutex> lck(b.bbmap_mtx);
-
     auto &bbmap = b.bbmap;
 
     auto it = bbmap_find(bbmap, Addr);
@@ -171,6 +171,32 @@ on_insn_boundary:
         ;
       }
 
+      //
+      // "Split" the block, i.e.
+      //
+      // ____________________
+      // |                  |
+      // |                  |
+      // |                  |
+      // |       bb_1       |  <---------------------
+      // |                  |
+      // |                  |
+      // |                  |
+      // --------CALL--------
+      //
+      // becomes
+      //
+      // _____________________
+      // |                   |
+      // |       bb_1        |
+      // |                   |
+      // |-------NONE--------|  <---------------------
+      // |                   |
+      // |       bb_2        |
+      // |                   |
+      // --------CALL---------
+      //
+      //
       std::vector<basic_block_t> out_verts;
       {
         icfg_t::out_edge_iterator e_it, e_it_end;
@@ -230,6 +256,8 @@ on_insn_boundary:
 
       assert(addr_intvl_disjoint(intervl1, intervl2));
 
+      ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
+
       const unsigned sav_bbmap_size = bbmap.size();
       bbmap.erase(it);
       assert(bbmap.size() == sav_bbmap_size - 1);
@@ -245,6 +273,8 @@ on_insn_boundary:
                    << " intervl1 = " << addr_intvl2str(intervl1)
                    << " intervl2 = " << addr_intvl2str(intervl2) << '\n';
 #endif
+
+      ip_sharable_lock<ip_upgradable_mutex> s_lck(boost::move(e_lck));
 
       {
         auto _it = bbmap_find(bbmap, intervl1);
@@ -273,8 +303,6 @@ on_insn_boundary:
     Size += size;
 
     {
-      ip_scoped_lock<ip_mutex> lck(b.bbmap_mtx);
-
       auto &bbmap = b.bbmap;
 
       addr_intvl intervl(Addr, Size);
@@ -328,7 +356,8 @@ on_insn_boundary:
 
   basic_block_index_t BBIdx = invalid_basic_block_index;
   {
-    ip_scoped_lock<ip_mutex> lck(b.bbmap_mtx);
+
+    ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
 
     BBIdx = boost::num_vertices(ICFG);
     basic_block_t bb = boost::add_vertex(ICFG, jv.Binaries.get_allocator());
@@ -391,7 +420,7 @@ on_insn_boundary:
 
   case TERMINATOR::CALL: {
     {
-      ip_scoped_lock<ip_mutex> lck(b.bbmap_mtx);
+      ip_sharable_lock<ip_upgradable_mutex> s_lck(b.bbmap_mtx);
 
       basic_block_t bb = basic_block_at_address(T.Addr, b);
       ICFG[bb].Term._call.ReturnsOff = T._call.NextPC - T.Addr;
@@ -406,7 +435,7 @@ on_insn_boundary:
     function_index_t CalleeFIdx = _explore_function(b, Bin, CalleeAddr,
                                                     calls_to_process);
     {
-      ip_scoped_lock<ip_mutex> lck(b.bbmap_mtx);
+      ip_sharable_lock<ip_upgradable_mutex> s_lck(b.bbmap_mtx);
 
       basic_block_t bb = basic_block_at_address(T.Addr, b);
       assert(ICFG[bb].Term.Type == TERMINATOR::CALL);
@@ -428,7 +457,7 @@ on_insn_boundary:
     }
 
     bool DoesRet = ({
-      ip_scoped_lock<ip_mutex> lck(b.bbmap_mtx);
+      ip_sharable_lock<ip_upgradable_mutex> s_lck(b.bbmap_mtx);
 
       does_function_at_block_return(basic_block_of_index(CalleeIdx, ICFG), b);
     });
@@ -440,7 +469,7 @@ on_insn_boundary:
   }
 
   case TERMINATOR::INDIRECT_CALL: {
-    ip_scoped_lock<ip_mutex> lck(b.bbmap_mtx);
+    ip_sharable_lock<ip_upgradable_mutex> u_lck(b.bbmap_mtx);
 
     basic_block_t bb = basic_block_at_address(T.Addr, b);
     ICFG[bb].Term._indirect_call.ReturnsOff = T._indirect_call.NextPC - T.Addr;
@@ -487,7 +516,7 @@ void explorer_t::_control_flow_to(binary_t &b,
   }
 
   {
-    ip_scoped_lock<ip_mutex> lck(b.bbmap_mtx);
+    ip_scoped_lock<ip_upgradable_mutex> e_lck(b.bbmap_mtx);
 
     auto &ICFG = b.Analysis.ICFG;
 
@@ -510,7 +539,7 @@ void explorer_t::_explore_the_rest(binary_t &b,
     calls_to_process.resize(calls_to_process.size() - 1);
 
     bool DoesRet = ({
-      ip_scoped_lock<ip_mutex> lck(b.bbmap_mtx);
+      ip_sharable_lock<ip_upgradable_mutex> lck(b.bbmap_mtx);
 
       auto &ICFG = b.Analysis.ICFG;
       auto &bbmap = b.bbmap;

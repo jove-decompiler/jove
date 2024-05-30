@@ -2791,7 +2791,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
             IsDefinitelyTailCall(ICFG, bb) ||
             IndBrInfo.BIdx != Target.BIdx ||
             (boost::out_degree(bb, ICFG) == 0 &&
-	     ({ ip_scoped_lock<ip_mutex> lck(TargetBinary.fnmap_mtx);
+	     ({ ip_sharable_lock<ip_upgradable_mutex> s_lck(TargetBinary.fnmap_mtx);
                 TargetBinary.fnmap.count(rva_of_va(Target.Addr, Target.BIdx)) > 0; }));
 
         if (isTailCall) {
@@ -4425,7 +4425,7 @@ BootstrapTool::existing_block_at_program_counter(pid_t child, uintptr_t pc) {
   uintptr_t rva = rva_of_va(pc, BIdx);
 
   basic_block_index_t BBIdx = ({
-    ip_scoped_lock<ip_mutex> lck(binary.bbmap_mtx);
+    ip_sharable_lock<ip_upgradable_mutex> s_lck(binary.bbmap_mtx);
 
     auto &bbmap = binary.bbmap;
 

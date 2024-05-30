@@ -445,19 +445,27 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
   //
   // explore known code
   //
-  for (uint64_t Entrypoint : boost::adaptors::reverse(Known.BasicBlockAddresses)) {
+  std::for_each(
+    std::execution::par_unseq,
+    Known.BasicBlockAddresses.rbegin(),
+    Known.BasicBlockAddresses.rend(),
+    [&](uint64_t Entrypoint) {
     E.explore_basic_block(b, Obj, Entrypoint);
-  }
+    });
 
-  for (uint64_t Entrypoint : boost::adaptors::reverse(Known.FunctionEntrypoints)) {
+  std::for_each(
+    std::execution::par_unseq,
+    Known.FunctionEntrypoints.rbegin(),
+    Known.FunctionEntrypoints.rend(),
+    [&](uint64_t Entrypoint) {
     function_index_t FIdx = E.explore_function(b, Obj, Entrypoint);
 
     if (!is_function_index_valid(FIdx))
-      continue;
+      return;
 
     if (Known.ABIs.find(Entrypoint) != Known.ABIs.end())
       b.Analysis.Functions[FIdx].IsABI = true;
-  }
+    });
 
   //
   // setjmp/longjmp hunting
