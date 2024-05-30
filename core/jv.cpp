@@ -139,8 +139,6 @@ std::pair<binary_index_t, bool> jv_t::AddFromDataWithHash(explorer_t &E,
 
     binary_t &b = Binaries.at(BIdx);
     b.Idx = BIdx;
-    b.bbmap_mtx(); /* XXX */
-    b.fnmap_mtx(); /* XXX */
     b.Hash = h;
 
     {

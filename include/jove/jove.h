@@ -396,8 +396,8 @@ struct binary_t {
 
   bool IsDynamicallyLoaded;
 
-  boost::interprocess::offset_ptr<ip_mutex> p_bbmap_mtx;
-  boost::interprocess::offset_ptr<ip_mutex> p_fnmap_mtx;
+  ip_mutex bbmap_mtx;
+  ip_mutex fnmap_mtx;
 
   struct Analysis_t {
     function_index_t EntryFunction;
@@ -418,9 +418,6 @@ struct binary_t {
     void addRelocDynTarget(uint64_t A, dynamic_target_t X);
     void addIFuncDynTarget(uint64_t A, dynamic_target_t X);
   } Analysis;
-
-  ip_mutex &bbmap_mtx(void);
-  ip_mutex &fnmap_mtx(void);
 
   void InvalidateBasicBlockAnalyses(void);
 
@@ -454,6 +451,50 @@ struct binary_t {
 
   binary_t(const ip_void_allocator_t &A)
       : bbmap(A), fnmap(A), Name(A), Data(A), Analysis(A) {}
+
+  binary_t(binary_t &&other)
+      : Idx(other.Idx),
+
+        bbmap(std::move(other.bbmap)),
+        fnmap(std::move(other.fnmap)),
+
+        Name(std::move(other.Name)),
+        Data(std::move(other.Data)),
+        Hash(std::move(other.Hash)),
+
+        IsDynamicLinker(other.IsDynamicLinker),
+        IsExecutable(other.IsExecutable),
+        IsVDSO(other.IsVDSO),
+        IsPIC(other.IsPIC),
+        IsDynamicallyLoaded(other.IsDynamicallyLoaded),
+
+        Analysis(std::move(other.Analysis)) {}
+
+  binary_t &operator=(const binary_t &other) {
+    if (this == &other) {
+      return *this;
+    }
+
+    Idx = other.Idx;
+
+    bbmap = other.bbmap;
+    fnmap = other.fnmap;
+
+    Name = other.Name;
+    Data = other.Data;
+    Hash = other.Hash;
+
+    IsDynamicLinker = other.IsDynamicLinker;
+    IsExecutable = other.IsExecutable;
+    IsVDSO = other.IsVDSO;
+    IsPIC = other.IsPIC;
+    IsDynamicallyLoaded = other.IsDynamicallyLoaded;
+
+    Analysis = other.Analysis;
+
+    return *this;
+  }
+
   binary_t() = delete;
 };
 
