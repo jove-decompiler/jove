@@ -74,20 +74,19 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
   bool IsStaticallyLinked = true;
 #endif
 
-  struct {
-    std::set<uint64_t> FunctionEntrypoints, ABIs;
-    std::set<uint64_t> BasicBlockAddresses;
-  } Known;
+  auto BasicBlockAtAddress = [&](uint64_t Entrypoint) -> void {
+    E.explore_basic_block(b, Obj, Entrypoint);
+  };
+  auto FunctionAtAddress = [&](uint64_t Entrypoint) -> function_index_t {
+    return E.explore_function(b, Obj, Entrypoint);
+  };
+  auto ABIAtAddress = [&](uint64_t Entrypoint) -> void {
+    function_index_t FIdx = FunctionAtAddress(Entrypoint);
 
-  auto BasicBlockAtAddress = [&](uint64_t A) -> void {
-    Known.BasicBlockAddresses.insert(A);
-  };
-  auto FunctionAtAddress = [&](uint64_t A) -> void {
-    Known.FunctionEntrypoints.insert(A);
-  };
-  auto ABIAtAddress = [&](uint64_t A) -> void {
-    Known.FunctionEntrypoints.insert(A);
-    Known.ABIs.insert(A);
+    if (unlikely(!is_function_index_valid(FIdx)))
+      return;
+
+    b.Analysis.Functions[FIdx].IsABI = true;
   };
 
   //
@@ -155,7 +154,8 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
         if (ExpectedLocalSyms) {
           auto LocalSyms = *ExpectedLocalSyms;
 
-          for_each_if(LocalSyms.begin(),
+          for_each_if(std::execution::par_unseq,
+                      LocalSyms.begin(),
                       LocalSyms.end(),
                       [](const Elf_Sym &Sym) -> bool {
                         return !Sym.isUndefined() &&
@@ -215,7 +215,8 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
           if (ExpectedLocalSyms) {
             auto LocalSyms = *ExpectedLocalSyms;
 
-            for_each_if(LocalSyms.begin(),
+            for_each_if(std::execution::par_unseq,
+                        LocalSyms.begin(),
                         LocalSyms.end(),
                         [](const Elf_Sym &Sym) -> bool {
                           return !Sym.isUndefined() &&
@@ -253,7 +254,8 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
   if (OptionalDynSymRegion) {
     auto DynSyms = OptionalDynSymRegion->getAsArrayRef<Elf_Sym>();
 
-    for_each_if(DynSyms.begin(),
+    for_each_if(std::execution::par_unseq,
+                DynSyms.begin(),
                 DynSyms.end(),
                 [](const Elf_Sym &Sym) -> bool {
                   return !Sym.isUndefined() &&
@@ -263,7 +265,8 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
                   FunctionAtAddress(Sym.st_value);
                 });
 
-    for_each_if(DynSyms.begin(),
+    for_each_if(std::execution::par_unseq,
+                DynSyms.begin(),
                 DynSyms.end(),
                 [](const Elf_Sym &Sym) -> bool {
                   return !Sym.isUndefined() &&
@@ -278,6 +281,7 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
     //
     if (SymbolVersionSection) {
       for_each_if(
+          std::execution::par_unseq,
           DynSyms.begin(),
           DynSyms.end(),
           [](const Elf_Sym &Sym) -> bool {
@@ -441,31 +445,6 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
                                 DynPLTRelRegion,
                                 processDynamicReloc);
   }
-
-  //
-  // explore known code
-  //
-  std::for_each(
-    std::execution::par_unseq,
-    Known.BasicBlockAddresses.rbegin(),
-    Known.BasicBlockAddresses.rend(),
-    [&](uint64_t Entrypoint) {
-    E.explore_basic_block(b, Obj, Entrypoint);
-    });
-
-  std::for_each(
-    std::execution::par_unseq,
-    Known.FunctionEntrypoints.rbegin(),
-    Known.FunctionEntrypoints.rend(),
-    [&](uint64_t Entrypoint) {
-    function_index_t FIdx = E.explore_function(b, Obj, Entrypoint);
-
-    if (!is_function_index_valid(FIdx))
-      return;
-
-    if (Known.ABIs.find(Entrypoint) != Known.ABIs.end())
-      b.Analysis.Functions[FIdx].IsABI = true;
-    });
 
   //
   // setjmp/longjmp hunting
