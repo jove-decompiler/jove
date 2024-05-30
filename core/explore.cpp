@@ -559,6 +559,8 @@ void explorer_t::_explore_the_rest(binary_t &b,
       function_index_t CalleeFIdx = ICFG[bb].Term._call.Target;
 
       basic_block_index_t CalleeIdx = b.Analysis.Functions.at(CalleeFIdx).Entry;
+      if (!is_basic_block_index_valid(CalleeIdx))
+        continue; /* FIXME */
 
       does_function_at_block_return(basic_block_of_index(CalleeIdx, ICFG), b);
     });
