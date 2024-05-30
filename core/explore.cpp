@@ -547,14 +547,13 @@ void explorer_t::_explore_the_rest(binary_t &b,
       assert(is_basic_block_index_valid(CalleeIdx));
     }
 
-    unsigned ReturnsOff;
+    unsigned RetOff;
 
     auto &ICFG = b.Analysis.ICFG;
     bool DoesRet = ({
       ip_sharable_lock<ip_upgradable_mutex> s_lck(b.bbmap_mtx);
 
-      ReturnsOff =
-          ICFG[basic_block_at_address(TermAddr, b)].Term._call.ReturnsOff;
+      RetOff = ICFG[basic_block_at_address(TermAddr, b)].Term._call.ReturnsOff;
 
       does_function_at_block_return(basic_block_of_index(CalleeIdx, ICFG), b);
     });
@@ -562,7 +561,7 @@ void explorer_t::_explore_the_rest(binary_t &b,
     if (DoesRet)
       _control_flow_to(b, B,
                        TermAddr,
-                       TermAddr + ReturnsOff,
+                       TermAddr + RetOff,
                        calls_to_process);
   }
 }
