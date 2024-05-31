@@ -26,3 +26,6 @@
 [submodule "oneTBB"]
 	path = oneTBB
 	url = https://github.com/oneapi-src/oneTBB.git
+[submodule "boost"]
+	path = boost
+	url = https://github.com/boostorg/boost.git
