@@ -305,7 +305,7 @@ struct basic_block_properties_t {
 };
 
 typedef boost::adjacency_list<boost::setS_ip,           /* OutEdgeList */
-                              boost::vecS_ip,           /* VertexList */
+                              boost::dequeS_ip,         /* VertexList */
                               boost::bidirectionalS,    /* Directed */
                               basic_block_properties_t, /* VertexProperties */
                               boost::no_property,       /* EdgeProperties */
