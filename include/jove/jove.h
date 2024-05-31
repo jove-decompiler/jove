@@ -1259,7 +1259,8 @@ static inline void identify_ABIs(jv_t &jv) {
   //
   // If a function is called from a different binary, it is an ABI.
   //
-  for_each_basic_block(jv, [&](binary_t &b, basic_block_t bb) {
+  for_each_basic_block(std::execution::par_unseq,
+                       jv, [&](binary_t &b, basic_block_t bb) {
     if (!b.Analysis.ICFG[bb].hasDynTarget())
       return;
 
@@ -1270,7 +1271,8 @@ static inline void identify_ABIs(jv_t &jv) {
             DynTargets.begin(),
             DynTargets.end(),
             [&](dynamic_target_t X) -> bool { return X.first != BIdx; }))
-      std::for_each(DynTargets.begin(),
+      std::for_each(std::execution::par_unseq,
+                    DynTargets.begin(),
                     DynTargets.end(),
                     [&](dynamic_target_t X) {
                       function_of_target(X, jv).IsABI = true;
@@ -1282,6 +1284,7 @@ static inline void identify_ABIs(jv_t &jv) {
     auto &IFuncDynTargets = binary.Analysis.IFuncDynTargets;
 
     std::for_each(
+        std::execution::par_unseq,
         IFuncDynTargets.begin(),
         IFuncDynTargets.end(),
         [&](const auto &pair) {
