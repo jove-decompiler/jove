@@ -200,6 +200,12 @@ struct addr_intvl_cmp {
   }
 };
 
+typedef boost::concurrent_flat_map<
+    taddr_t, basic_block_index_t, boost::hash<taddr_t>, std::equal_to<taddr_t>,
+    boost::interprocess::allocator<std::pair<const taddr_t, basic_block_index_t>,
+                                   segment_manager_t>>
+    bbbmap_t;
+
 typedef boost::interprocess::flat_map<
     addr_intvl, basic_block_index_t, addr_intvl_cmp,
     boost::interprocess::allocator<std::pair<addr_intvl, basic_block_index_t>,
@@ -396,6 +402,8 @@ typedef boost::interprocess::deque<function_t, function_allocator>
 struct binary_t {
   binary_index_t Idx;
 
+  bbbmap_t bbbmap;
+
   bbmap_t bbmap;
   fnmap_t fnmap;
 
@@ -467,11 +475,12 @@ struct binary_t {
   }
 
   binary_t(const ip_void_allocator_t &A)
-      : bbmap(A), fnmap(A), Name(A), Data(A), Analysis(A) {}
+      : bbbmap(A), bbmap(A), fnmap(A), Name(A), Data(A), Analysis(A) {}
 
   binary_t(binary_t &&other)
       : Idx(other.Idx),
 
+        bbbmap(std::move(other.bbbmap)),
         bbmap(std::move(other.bbmap)),
         fnmap(std::move(other.fnmap)),
 
@@ -494,6 +503,7 @@ struct binary_t {
 
     Idx = other.Idx;
 
+    bbbmap = other.bbbmap;
     bbmap = other.bbmap;
     fnmap = other.fnmap;
 
@@ -1176,18 +1186,25 @@ static inline bool IsFunctionLongjmp(const function_t &f,
                      });
 }
 
-static inline basic_block_t index_of_basic_block_at_address(uint64_t Addr,
-                                                            const binary_t &binary) {
-  assert(Addr);
-
-  auto &bbmap = binary.bbmap;
+static inline basic_block_index_t
+index_of_basic_block_at_address(uint64_t Addr, const binary_t &b) {
+  auto &bbmap = b.bbmap;
 
   auto it = bbmap_find(bbmap, Addr);
   if (it == bbmap.end())
     throw std::runtime_error(std::string(__func__) + ": no block for address " +
-                             taddr2str(Addr) + " in " + binary.Name.c_str());
+                             taddr2str(Addr) + " in " + b.Name.c_str());
 
   return (*it).second;
+}
+
+static inline basic_block_index_t
+index_of_basic_block_starting_at_address(uint64_t Addr, const binary_t &b) {
+  basic_block_index_t res = invalid_basic_block_index;
+  bool found = b.bbbmap.cvisit(Addr, [&](const auto &x) { res = x.second; });
+
+  assert(found);
+  return res;
 }
 
 static inline basic_block_t basic_block_at_address(uint64_t Addr,
@@ -1196,16 +1213,19 @@ static inline basic_block_t basic_block_at_address(uint64_t Addr,
 }
 
 static inline bool exists_basic_block_at_address(uint64_t Addr,
-                                                 const binary_t &binary) {
-  assert(Addr);
+                                                 const binary_t &b) {
+  return bbmap_contains(b.bbmap, Addr);
+}
 
-  return bbmap_contains(binary.bbmap, Addr);
+static inline bool exists_basic_block_starting_at_address(uint64_t Addr,
+                                                          const binary_t &b) {
+  return b.bbbmap.contains(Addr);
 }
 
 static inline function_index_t index_of_function_at_address(const binary_t &b,
                                                             uint64_t Addr) {
   function_index_t FIdx = invalid_function_index;
-  bool found = b.fnmap.visit(Addr, [&](const auto &x) { FIdx = x.second; });
+  bool found = b.fnmap.cvisit(Addr, [&](const auto &x) { FIdx = x.second; });
   assert(found);
 
   return FIdx;
@@ -1220,14 +1240,13 @@ static inline function_t &function_at_address(binary_t &b, uint64_t Addr) {
   return b.Analysis.Functions.at(index_of_function_at_address(b, Addr));
 }
 
-static bool is_function_at_address(const binary_t &b, uint64_t Addr) {
+static inline bool exists_function_at_address(const binary_t &b, uint64_t Addr) {
   return b.fnmap.contains(Addr);
 }
 
 // NOTE: this function excludes tail calls.
 static inline bool exists_indirect_jump_at_address(uint64_t Addr,
                                                    const binary_t &binary) {
-  assert(Addr);
   if (exists_basic_block_at_address(Addr, binary)) {
     const auto &ICFG = binary.Analysis.ICFG;
     basic_block_t bb = basic_block_at_address(Addr, binary);

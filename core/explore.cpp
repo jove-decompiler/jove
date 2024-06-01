@@ -102,6 +102,19 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
 
   assert(llvm::isa<ELFO>(&Bin));
 
+  //
+  // fast path
+  //
+  {
+    basic_block_index_t BBIdx = invalid_basic_block_index;
+
+    bool found = b.bbbmap.cvisit(Addr, [&](const auto &x) { BBIdx = x.second; });
+    if (likely(found)) {
+      assert(is_basic_block_index_valid(BBIdx));
+      return BBIdx;
+    }
+  }
+
   ip_upgradable_lock<ip_upgradable_mutex> u_lck(b.bbmap_mtx);
 
   auto &bbmap = b.bbmap;
@@ -285,6 +298,11 @@ on_insn_boundary:
                    << " intervl2 = " << addr_intvl2str(intervl2) << '\n';
 #endif
 
+      {
+        bool success = b.bbbmap.emplace(Addr, NewBBIdx);
+        assert(success);
+      }
+
       ip_sharable_lock<ip_upgradable_mutex> s_lck(boost::move(e_lck));
 
       {
@@ -389,6 +407,10 @@ on_insn_boundary:
       addr_intvl intervl(bbprop.Addr, bbprop.Size);
       bbmap_add(bbmap, intervl, BBIdx);
 
+      {
+        bool success = b.bbbmap.emplace(Addr, BBIdx);
+        assert(success);
+      }
 #if 0
       llvm::errs() << "         BBIdx=" << BBIdx
 		   << " intervl=" << addr_intvl2str(intervl) << '\n';

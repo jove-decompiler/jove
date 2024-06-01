@@ -235,6 +235,7 @@ namespace serialization {
 template <class Archive>
 static void serialize(Archive &ar, jove::binary_t &b, const unsigned int version) {
   ar &BOOST_SERIALIZATION_NVP(b.Idx)
+     &BOOST_SERIALIZATION_NVP(b.bbbmap)
      &BOOST_SERIALIZATION_NVP(b.bbmap)
      &BOOST_SERIALIZATION_NVP(b.fnmap)
      &BOOST_SERIALIZATION_NVP(b.Name)

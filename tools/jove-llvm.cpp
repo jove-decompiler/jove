@@ -2065,7 +2065,7 @@ int LLVMTool::Run(void) {
         }
 
         // jove-add should have explored this
-        assert(is_function_at_address(Binary, Addr));
+        assert(exists_function_at_address(Binary, Addr));
 
         const unsigned SectsOff = Addr - state.for_binary(Binary).SectsStartAddr;
 

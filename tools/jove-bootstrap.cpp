@@ -2791,7 +2791,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
             IsDefinitelyTailCall(ICFG, bb) ||
             IndBrInfo.BIdx != Target.BIdx ||
             (boost::out_degree(bb, ICFG) == 0 &&
-	     is_function_at_address(TargetBinary, rva_of_va(Target.Addr, Target.BIdx)));
+	     exists_function_at_address(TargetBinary, rva_of_va(Target.Addr, Target.BIdx)));
 
         if (isTailCall) {
           function_index_t FIdx =
