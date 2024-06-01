@@ -46,14 +46,10 @@ function_index_t explorer_t::_explore_function(binary_t &b,
 
     auto &fnmap = b.fnmap;
 
-    {
-      auto it = fnmap.find(Addr);
-      if (it != fnmap.end()) {
-        res = (*it).second;
-
-        assert(is_function_index_valid(res));
-        return res;
-      }
+    bool found = fnmap.visit(Addr, [&](const auto &x) { res = x.second; });
+    if (likely(found)) {
+      assert(is_function_index_valid(res));
+      return res;
     }
 
     ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
@@ -68,7 +64,8 @@ function_index_t explorer_t::_explore_function(binary_t &b,
       f.Entry = invalid_basic_block_index;
     }
 
-    fnmap.emplace(Addr, res);
+    bool succeeded = fnmap.emplace(Addr, res);
+    assert(succeeded);
   }
 
   const basic_block_index_t Entry =

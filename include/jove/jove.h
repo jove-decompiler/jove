@@ -23,6 +23,7 @@
 #include <boost/graph/adjacency_list.hpp>
 #include <boost/graph/depth_first_search.hpp>
 #include <boost/unordered/unordered_map.hpp>
+#include <boost/unordered/concurrent_flat_map.hpp>
 #include <boost/interprocess/containers/map.hpp>
 #include <boost/interprocess/containers/flat_map.hpp>
 #include <boost/interprocess/containers/set.hpp>
@@ -205,7 +206,7 @@ typedef boost::interprocess::flat_map<
                                    segment_manager_t>>
     bbmap_t;
 
-typedef boost::unordered_map<
+typedef boost::concurrent_flat_map<
     taddr_t, function_index_t, boost::hash<taddr_t>, std::equal_to<taddr_t>,
     boost::interprocess::allocator<std::pair<const taddr_t, function_index_t>,
                                    segment_manager_t>>
@@ -1201,6 +1202,28 @@ static inline bool exists_basic_block_at_address(uint64_t Addr,
   return bbmap_contains(binary.bbmap, Addr);
 }
 
+static inline function_index_t index_of_function_at_address(const binary_t &b,
+                                                            uint64_t Addr) {
+  function_index_t FIdx = invalid_function_index;
+  bool found = b.fnmap.visit(Addr, [&](const auto &x) { FIdx = x.second; });
+  assert(found);
+
+  return FIdx;
+}
+
+static inline const function_t &function_at_address(const binary_t &b,
+                                                    uint64_t Addr) {
+  return b.Analysis.Functions.at(index_of_function_at_address(b, Addr));
+}
+
+static inline function_t &function_at_address(binary_t &b, uint64_t Addr) {
+  return b.Analysis.Functions.at(index_of_function_at_address(b, Addr));
+}
+
+static bool is_function_at_address(const binary_t &b, uint64_t Addr) {
+  return b.fnmap.contains(Addr);
+}
+
 // NOTE: this function excludes tail calls.
 static inline bool exists_indirect_jump_at_address(uint64_t Addr,
                                                    const binary_t &binary) {
@@ -1247,9 +1270,7 @@ static inline void construct_fnmap(jv_t &jv,
     uint64_t Addr = ICFG[basic_block_of_index(f.Entry, ICFG)].Addr;
     function_index_t FIdx = index_of_function_in_binary(f, binary);
 
-    fnmap_t::iterator it;
-    bool success;
-    std::tie(it, success) = out.emplace(Addr, FIdx);
+    bool success = out.emplace(Addr, FIdx);
 
     assert(success);
   });

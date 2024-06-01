@@ -1938,13 +1938,8 @@ int LLVMTool::Run(void) {
                 if (!ExpectedSymName)
                   return;
 
-                function_index_t FIdx;
-                {
-                  auto it = b.fnmap.find(Sym.st_value);
-                  assert(it != b.fnmap.end());
-
-                  FIdx = (*it).second;
-                }
+                function_index_t FIdx = index_of_function_at_address(b, Sym.st_value);
+                assert(is_function_index_valid(FIdx));
 
                 llvm::StringRef SymName = *ExpectedSymName;
 
@@ -2070,7 +2065,7 @@ int LLVMTool::Run(void) {
         }
 
         // jove-add should have explored this
-        assert(Binary.fnmap.find(Addr) != Binary.fnmap.end());
+        assert(is_function_at_address(Binary, Addr));
 
         const unsigned SectsOff = Addr - state.for_binary(Binary).SectsStartAddr;
 
@@ -2190,10 +2185,7 @@ int LLVMTool::Run(void) {
                                             VisibilityIsDefault);
         }
 
-        auto it = Binary.fnmap.find(Sym.st_value);
-        assert(it != Binary.fnmap.end());
-
-        function_t &f = Binary.Analysis.Functions[((*it).second)];
+        function_t &f = function_at_address(Binary, Sym.st_value);
 
         if (state.for_function(f)._resolver.IFunc) { /* aliased? */
           llvm::FunctionType *FTy = llvm::FunctionType::get(VoidType(), false);
@@ -3945,12 +3937,8 @@ void LLVMTool::compute_irelative_relocation(llvm::IRBuilderTy &IRB,
   }
 
   binary_t &Binary = jv.Binaries[BinaryIndex];
-  auto &fnmap = Binary.fnmap;
 
-  auto it = fnmap.find(resolverAddr);
-  assert(it != fnmap.end() && "resolver function not found!");
-
-  function_t &resolver_f = Binary.Analysis.Functions[(*it).second];
+  function_t &resolver_f = function_at_address(Binary, resolverAddr);
   assert(resolver_f.IsABI && "resolver function should be ABI!");
 
   llvm::Function *resolverF = state.for_function(resolver_f).F;
@@ -4054,7 +4042,6 @@ struct unhandled_relocation_exception {};
 int LLVMTool::CreateSectionGlobalVariables(void) {
   binary_t &Binary = jv.Binaries[BinaryIndex];
   auto &ObjectFile = state.for_binary(Binary).ObjectFile;
-  auto &fnmap = Binary.fnmap;
 
   assert(llvm::isa<ELFO>(ObjectFile.get()));
   ELFO &Obj = *llvm::cast<ELFO>(ObjectFile.get());
@@ -5283,12 +5270,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
           [&](auto &IRB) {
             llvm::Value *Ret = nullptr;
             if (initFunctionAddr) {
-              auto it = fnmap.find(initFunctionAddr);
-
-              assert(it != fnmap.end());
-
-              function_t &initfn_f = jv.Binaries[BinaryIndex]
-                                         .Analysis.Functions[(*it).second];
+              function_t &initfn_f = function_at_address(Binary, initFunctionAddr);
 
               Ret = llvm::ConstantExpr::getPtrToInt(state.for_function(initfn_f).F, WordType());
             } else {
@@ -5313,12 +5295,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
         [&](auto &IRB) {
           llvm::Value *Ret = nullptr;
           if (libcEarlyInitAddr) {
-            auto it = fnmap.find(libcEarlyInitAddr);
-
-            assert(it != fnmap.end());
-
-            function_t &f = jv.Binaries[BinaryIndex]
-                                .Analysis.Functions[(*it).second];
+            function_t &f = function_at_address(Binary, libcEarlyInitAddr);
 
             Ret = llvm::ConstantExpr::getPtrToInt(state.for_function(f).F, WordType());
           } else {
@@ -5364,10 +5341,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
         uintptr_t FileAddr = off + SectsStartAddr;
 
         binary_t &Binary = jv.Binaries[BinaryIndex];
-        auto &fnmap = Binary.fnmap;
-        auto it = fnmap.find(FileAddr);
-        assert(it != fnmap.end());
-        function_t &f = Binary.Analysis.Functions[(*it).second];
+        function_t &f = function_at_address(Binary, FileAddr);
 
         if (!f.IsABI) {
           WithColor::error() << llvm::formatv(
