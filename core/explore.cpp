@@ -120,17 +120,39 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
     }
   }
 
-  ip_upgradable_lock<ip_upgradable_mutex> u_lck(b.bbmap_mtx);
-
   auto &bbmap = b.bbmap;
+
+top:
+  const bool Exists = ({
+    ip_sharable_lock<ip_upgradable_mutex> s_lck(b.bbmap_mtx);
+
+    auto it = bbmap_find(bbmap, Addr);
+
+    bool res = it != bbmap.end();
+    if (res && Addr == addr_intvl_lower((*it).first))
+      return (*it).second;
+
+    res;
+  });
+
+  if (!Exists && b.bbmap_na.test_and_set()) {
+    ip_scoped_lock<ip_mutex> e_lck(b.na_bbmap_mtx);
+
+    b.na_cond.wait(e_lck);
+    goto top;
+  }
 
   //
   // does this new basic block start in the middle of a previously-created
   // basic block?
   //
+  if (Exists)
   {
+    ip_upgradable_lock<ip_upgradable_mutex> u_lck(b.bbmap_mtx);
+
     auto it = bbmap_find(bbmap, Addr);
-    if (it != bbmap.end()) {
+    assert (it != bbmap.end());
+
       const basic_block_index_t BBIdx = (*it).second;
 
       assert(is_basic_block_index_valid(BBIdx));
@@ -323,8 +345,12 @@ on_insn_boundary:
       }
 
       return NewBBIdx;
-    }
   }
+
+  //
+  // !Exists.
+  //
+  assert(b.bbmap_na.test_and_set());
 
   tcg.set_binary(Bin);
 
@@ -337,6 +363,8 @@ on_insn_boundary:
     Size += size;
 
     {
+      ip_sharable_lock<ip_upgradable_mutex> s_lck(b.bbmap_mtx);
+
       addr_intvl intervl(Addr, Size);
       auto it = bbmap_find(bbmap, intervl);
       if (it != bbmap.end()) {
@@ -388,7 +416,7 @@ on_insn_boundary:
 
   basic_block_index_t BBIdx = invalid_basic_block_index;
   {
-    ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
+    ip_scoped_lock<ip_upgradable_mutex> e_lck(b.bbmap_mtx);
 
     BBIdx = boost::num_vertices(ICFG);
     basic_block_t bb = boost::add_vertex(ICFG, jv.Binaries.get_allocator());
@@ -431,6 +459,13 @@ on_insn_boundary:
 				    description_of_terminator_info(T, false));
 
     this->on_newbb_proc(b, bb);
+  }
+
+  {
+    ip_scoped_lock<ip_mutex> e_lck(b.na_bbmap_mtx);
+
+    b.bbmap_na.clear();
+    b.na_cond.notify_one();
   }
 
   auto control_flow_to = [&](uint64_t Target) -> void {
@@ -502,9 +537,12 @@ on_insn_boundary:
   }
 
   case TERMINATOR::INDIRECT_CALL: {
-    ip_sharable_lock<ip_upgradable_mutex> u_lck(b.bbmap_mtx);
+    basic_block_t bb = ({
+      ip_sharable_lock<ip_upgradable_mutex> s_lck(b.bbmap_mtx);
 
-    basic_block_t bb = basic_block_at_address(T.Addr, b);
+      basic_block_at_address(T.Addr, b);
+    });
+
     ICFG[bb].Term._indirect_call.ReturnsOff = T._indirect_call.NextPC - T.Addr;
 
     //control_flow_to(T._indirect_call.NextPC);

@@ -38,9 +38,11 @@
 #include <boost/interprocess/sync/scoped_lock.hpp>
 #include <boost/interprocess/sync/sharable_lock.hpp>
 #include <boost/interprocess/sync/upgradable_lock.hpp>
+#include <boost/interprocess/sync/interprocess_condition.hpp>
 #include <boost/range/iterator_range.hpp>
 #include <boost/optional.hpp>
 
+#include <atomic>
 #include <algorithm>
 #include <cstdint>
 #include <functional>
@@ -387,6 +389,8 @@ using ip_sharable_lock = boost::interprocess::sharable_lock<Mutex>;
 template <typename Mutex>
 using ip_upgradable_lock = boost::interprocess::upgradable_lock<Mutex>;
 
+typedef boost::interprocess::interprocess_condition ip_condition;
+
 typedef boost::interprocess::allocator<function_t, segment_manager_t>
     function_allocator;
 typedef boost::interprocess::deque<function_t, function_allocator>
@@ -419,6 +423,10 @@ struct binary_t {
 
   ip_upgradable_mutex bbmap_mtx;
   ip_upgradable_mutex fnmap_mtx;
+
+  std::atomic_flag bbmap_na = ATOMIC_FLAG_INIT;
+  ip_mutex na_bbmap_mtx;
+  ip_condition na_cond;
 
   struct Analysis_t {
     function_index_t EntryFunction;
