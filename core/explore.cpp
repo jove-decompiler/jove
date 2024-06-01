@@ -40,13 +40,20 @@ function_index_t explorer_t::_explore_function(binary_t &b,
   assert((Addr & 1) == 0);
 #endif
 
+  auto &fnmap = b.fnmap;
+
   function_index_t res = invalid_function_index;
+
+  bool found = fnmap.cvisit(Addr, [&](const auto &x) { res = x.second; });
+  if (likely(found)) {
+    assert(is_function_index_valid(res));
+    return res;
+  }
+
   {
     ip_upgradable_lock<ip_upgradable_mutex> u_lck(b.fnmap_mtx);
 
-    auto &fnmap = b.fnmap;
-
-    bool found = fnmap.visit(Addr, [&](const auto &x) { res = x.second; });
+    bool found = fnmap.cvisit(Addr, [&](const auto &x) { res = x.second; });
     if (likely(found)) {
       assert(is_function_index_valid(res));
       return res;
