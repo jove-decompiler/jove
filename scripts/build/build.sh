@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e 
+set -e
 set -o pipefail
 
 build_scripts_path=$(cd "$(dirname -- "$0")"; pwd)
