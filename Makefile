@@ -165,7 +165,7 @@ helper_cflags = $(call runtime_cflags,$(1)) \
                 -DNEED_CPU_H \
                 -DNDEBUG
 
-CARBON_EXTRACT := $(JOVE_ROOT_DIR)/carbon-copy/build/extract/carbon-extract
+CARBON_EXTRACT := /usr/local/bin/carbon-extract
 
 QEMU_DIR := $(JOVE_ROOT_DIR)/qemu
 qemu_carbon_build_dir = $(QEMU_DIR)/$(1)_carbon_build
