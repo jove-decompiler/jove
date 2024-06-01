@@ -56,6 +56,12 @@ public:
       : jv(jv), disas(disas), tcg(tcg), verbose(verbose),
         on_newbb_proc(on_newbb_proc) {}
 
+  //
+  // the objective is to translate all the code we can up until indirect
+  // control-flow instructions. this is precisely what jove-bootstrap needs to
+  // do when it sees new code before it can allow the tracee to continue
+  // executing.
+  //
   basic_block_index_t explore_basic_block(binary_t &,
                                           llvm::object::Binary &,
                                           uint64_t Addr);
