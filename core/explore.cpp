@@ -414,12 +414,13 @@ on_insn_boundary:
     return invalid_basic_block_index;
   }
 
-  basic_block_index_t BBIdx = invalid_basic_block_index;
+  basic_block_index_t BBIdx;
+  basic_block_t bb;
   {
     ip_scoped_lock<ip_upgradable_mutex> e_lck(b.bbmap_mtx);
 
     BBIdx = boost::num_vertices(ICFG);
-    basic_block_t bb = boost::add_vertex(ICFG, jv.Binaries.get_allocator());
+    bb = boost::add_vertex(ICFG, jv.Binaries.get_allocator());
     {
       basic_block_properties_t &bbprop = ICFG[bb];
       bbprop.Addr = Addr;
@@ -449,7 +450,9 @@ on_insn_boundary:
 		   << " intervl=" << addr_intvl2str(intervl) << '\n';
 #endif
     }
+  }
 
+  {
     //
     // a new basic block has been created
     //
