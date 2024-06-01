@@ -133,21 +133,18 @@ void AnalyzeFunction(jv_t &jv,
 int AnalyzeTool::AnalyzeBlocks(void) {
   unsigned count = 0;
 
-  for_each_binary(std::execution::par_unseq, jv, [&](binary_t &b) {
-    auto &ICFG = b.Analysis.ICFG;
+  for_each_basic_block(
+      std::execution::par_unseq,
+      jv, [&](binary_t &b, basic_block_t bb) {
+        const auto &ICFG = b.Analysis.ICFG;
+        if (ICFG[bb].Analysis.Stale)
+          ++count;
 
-    for_each_basic_block_in_binary(std::execution::par_unseq,
-                                   b, [&](basic_block_t bb) {
-      if (ICFG[bb].Analysis.Stale)
-        ++count;
+        AnalyzeBasicBlock(*TCG, *Module, b, *state.for_binary(b).ObjectFile, bb,
+                          false, false, this);
 
-      AnalyzeBasicBlock(*TCG, *Module, b,
-                        *state.for_binary(b).ObjectFile, bb, false, false,
-                        this);
-
-      assert(!ICFG[bb].Analysis.Stale);
-    });
-  });
+        assert(!ICFG[bb].Analysis.Stale);
+      });
 
   if (count)
     WithColor::note() << llvm::formatv("Analyzed {0} basic block{1}.\n", count,
