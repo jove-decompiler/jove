@@ -167,12 +167,9 @@ top:
 #endif
       assert(BBIdx < boost::num_vertices(ICFG));
 
-      uintptr_t beg = ICFG[bb].Addr;
+      const uint64_t beg = ICFG[bb].Addr;
 
-      if (Addr == beg) {
-        assert(ICFG[bb].Addr == addr_intvl_lower((*it).first));
-        return BBIdx;
-      }
+      assert(Addr != beg);
 
       //
       // before splitting the basic block, let's check to make sure that the
@@ -261,10 +258,10 @@ on_insn_boundary:
       // if we get here, we know that beg != Addr
       assert(Addr > beg);
 
-      ptrdiff_t off = Addr - beg;
+      const unsigned off = Addr - beg;
       assert(off > 0);
 
-      addr_intvl orig_intervl = (*it).first;
+      const addr_intvl orig_intervl = (*it).first;
 
       const basic_block_index_t NewBBIdx = boost::num_vertices(ICFG);
       basic_block_t newbb = boost::add_vertex(ICFG, jv.Binaries.get_allocator());
