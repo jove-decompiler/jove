@@ -28,7 +28,6 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       libglib2.0-dev \
                       libgraph-easy-perl \
                       libpcre2-dev \
-                      libtbb-dev \
                       libtinfo-dev \
                       libtool \
                       libxml2-dev \
@@ -69,7 +68,6 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       libc6-dev:i386 \
                       linux-libc-dev:i386 \
                       libglib2.0-dev:i386 \
-                      libtbb-dev:i386 \
                       zlib1g-dev:i386 && \
     eatmydata apt-get autoremove -y && \
     eatmydata apt-get autoclean -y
@@ -83,7 +81,6 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       libc6-dev:mipsel \
                       linux-libc-dev:mipsel \
                       libglib2.0-dev:mipsel \
-                      libtbb-dev:mipsel \
                       zlib1g-dev:mipsel && \
     eatmydata apt-get autoremove -y && \
     eatmydata apt-get autoclean -y
@@ -97,7 +94,6 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       libc6-dev:mips64el \
                       linux-libc-dev:mips64el \
                       libglib2.0-dev:mips64el \
-                      libtbb-dev:mips64el \
                       zlib1g-dev:mips64el && \
     eatmydata apt-get autoremove -y && \
     eatmydata apt-get autoclean -y
@@ -111,7 +107,6 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       libc6-dev:arm64 \
                       linux-libc-dev:arm64 \
                       libglib2.0-dev:arm64 \
-                      libtbb-dev:arm64 \
                       zlib1g-dev:arm64 && \
     eatmydata apt-get autoremove -y && \
     eatmydata apt-get autoclean -y
