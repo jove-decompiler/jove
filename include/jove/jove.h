@@ -944,9 +944,26 @@ void for_each_function_in_binary(_ExecutionPolicy &&__exec,
                 b.Analysis.Functions.end(), proc);
 }
 
+template <class _ExecutionPolicy, class Proc>
+constexpr
+void for_each_function_in_binary(_ExecutionPolicy &&__exec,
+                                 const binary_t &b,
+                                 Proc proc) {
+  std::for_each(std::forward<_ExecutionPolicy>(__exec),
+                b.Analysis.Functions.begin(),
+                b.Analysis.Functions.end(), proc);
+}
+
 template <class Proc>
 constexpr
 void for_each_function_in_binary(binary_t &b,
+                                 Proc proc) {
+  for_each_function_in_binary(std::execution::seq, b, proc);
+}
+
+template <class Proc>
+constexpr
+void for_each_function_in_binary(const binary_t &b,
                                  Proc proc) {
   for_each_function_in_binary(std::execution::seq, b, proc);
 }
@@ -1010,9 +1027,27 @@ void for_each_basic_block_in_binary(_ExecutionPolicy &&__exec,
                it, it_end, [proc](basic_block_t bb) { proc(bb); });
 }
 
+template <class _ExecutionPolicy, class Proc>
+static inline
+void for_each_basic_block_in_binary(_ExecutionPolicy &&__exec,
+                                    const binary_t &b,
+                                    Proc proc) {
+  icfg_t::vertex_iterator it, it_end;
+  std::tie(it, it_end) = boost::vertices(b.Analysis.ICFG);
+
+  std::for_each(std::forward<_ExecutionPolicy>(__exec),
+               it, it_end, [proc](basic_block_t bb) { proc(bb); });
+}
+
 template <class Proc>
 constexpr
 void for_each_basic_block_in_binary(binary_t &b, Proc proc) {
+  for_each_basic_block_in_binary(std::execution::seq, b, proc);
+}
+
+template <class Proc>
+constexpr
+void for_each_basic_block_in_binary(const binary_t &b, Proc proc) {
   for_each_basic_block_in_binary(std::execution::seq, b, proc);
 }
 
@@ -1264,8 +1299,21 @@ static inline uint64_t entry_address_of_function(const function_t &f,
   return ICFG[basic_block_of_index(f.Entry, binary)].Addr;
 }
 
-static inline void construct_bbmap(jv_t &jv,
-                                   binary_t &binary,
+static inline void construct_bbbmap(const jv_t &jv,
+                                    const binary_t &binary,
+                                    bbbmap_t &out) {
+  auto &ICFG = binary.Analysis.ICFG;
+
+  for_each_basic_block_in_binary(binary, [&](basic_block_t bb) {
+    const auto &bbprop = ICFG[bb];
+
+    bool success = out.emplace(bbprop.Addr, index_of_basic_block(ICFG, bb));
+    assert(success);
+  });
+}
+
+static inline void construct_bbmap(const jv_t &jv,
+                                   const binary_t &binary,
                                    bbmap_t &out) {
   auto &ICFG = binary.Analysis.ICFG;
 
@@ -1277,10 +1325,10 @@ static inline void construct_bbmap(jv_t &jv,
   });
 }
 
-static inline void construct_fnmap(jv_t &jv,
-                                   binary_t &binary,
+static inline void construct_fnmap(const jv_t &jv,
+                                   const binary_t &binary,
                                    fnmap_t &out) {
-  for_each_function_in_binary(binary, [&](function_t &f) {
+  for_each_function_in_binary(binary, [&](const function_t &f) {
     if (unlikely(!is_basic_block_index_valid(f.Entry)))
       return;
 
@@ -1290,7 +1338,6 @@ static inline void construct_fnmap(jv_t &jv,
     function_index_t FIdx = index_of_function_in_binary(f, binary);
 
     bool success = out.emplace(Addr, FIdx);
-
     assert(success);
   });
 }
