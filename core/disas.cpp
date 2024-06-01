@@ -15,10 +15,6 @@
 #include <llvm/Target/TargetMachine.h>
 #include <llvm/Target/TargetOptions.h>
 
-#include <boost/vmd/is_empty.hpp>
-#include <boost/preprocessor/logical/or.hpp>
-#include <boost/preprocessor/control/iif.hpp>
-
 #include <stdexcept>
 
 namespace jove {
@@ -95,12 +91,14 @@ disas_t::disas_t() {
   if (!DisAsm)
     throw std::runtime_error("no disassembler for target");
 
-  IP.reset(TheTarget->createMCInstPrinter(
-      llvm::Triple(TripleName),
-      BOOST_PP_IIF(BOOST_PP_OR(BOOST_VMD_IS_EMPTY(TARGET_X86_64),
-                               BOOST_VMD_IS_EMPTY(TARGET_I386)),
-                   1 /* Intel */, AsmInfo->getAssemblerDialect()),
-      *AsmInfo, *MII, *MRI));
+#if defined(TARGET_X86_64) || defined(TARGET_I386)
+  unsigned SyntaxVariant = 1; /* intel */
+#else
+  unsigned SyntaxVariant = AsmInfo->getAssemblerDialect();
+#endif
+
+  IP.reset(TheTarget->createMCInstPrinter(llvm::Triple(TripleName),
+                                          SyntaxVariant, *AsmInfo, *MII, *MRI));
 
   if (!IP)
     throw std::runtime_error("no instruction printer for target");

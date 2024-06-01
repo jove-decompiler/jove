@@ -357,11 +357,11 @@ int LoopTool::Run(void) {
   if (opts.Gdb)
     fs::copy_file(locator().gdb(),
                   fs::path(sysroot) / "usr" / "bin" / "gdb",
-                  fs::copy_option::overwrite_if_exists);
+                  fs::copy_options::overwrite_existing);
   else if (opts.Gdbs)
     fs::copy_file(locator().gdbserver(),
                   fs::path(sysroot) / "usr" / "bin" / "gdbserver",
-                  fs::copy_option::overwrite_if_exists);
+                  fs::copy_options::overwrite_existing);
 
   while (!Cancelled) {
     pid_t pid;
@@ -850,7 +850,7 @@ skip_run:
 
         fs::create_directories(chrooted_path.parent_path());
         fs::copy_file(locator().runtime(), chrooted_path,
-                      fs::copy_option::overwrite_if_exists);
+                      fs::copy_options::overwrite_existing);
 
         //
         // /lib could just be a symlink to usr/lib, in which case we don't want
@@ -864,7 +864,7 @@ skip_run:
             // XXX some dynamic linkers only look in /lib
             fs::copy_file(locator().runtime(),
                           fs::path(Prefix) / "lib" / "libjove_rt.so",
-                          fs::copy_option::overwrite_if_exists);
+                          fs::copy_options::overwrite_existing);
           } catch (...) {
             ;
           }
@@ -911,7 +911,7 @@ skip_run:
             // XXX some dynamic linkers only look in /lib
             fs::copy_file(rt_path,
                           fs::path(Prefix) / "lib" / "libjove_rt.so",
-                          fs::copy_option::overwrite_if_exists);
+                          fs::copy_options::overwrite_existing);
           } catch (...) {
             ;
           }
@@ -990,7 +990,7 @@ skip_run:
             // XXX some dynamic linkers only look in /lib
             fs::copy_file(dfsan_rt_path,
                           fs::path(Prefix) / "lib" / dfsan_rt_filename,
-                          fs::copy_option::overwrite_if_exists);
+                          fs::copy_options::overwrite_existing);
           } catch (...) {
             ;
           }

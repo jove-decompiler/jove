@@ -116,13 +116,19 @@ function(tool_for_arch arch arch_extra_cflags qemu_objs)
     ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/libqom.fa
     ${JOVE_SRC_DIR}/qemu/${JOVE_QEMU_BUILD_DIR_NAME}/gdbstub/libgdb_user.fa
     ffi
-    boost_system
-    boost_filesystem
-    boost_serialization
     glib-2.0
     atomic
     z
   )
+
+  target_link_libraries(jove-${arch} PRIVATE Boost::system)
+  target_link_libraries(jove-${arch} PRIVATE Boost::filesystem)
+  target_link_libraries(jove-${arch} PRIVATE Boost::serialization)
+  target_link_libraries(jove-${arch} PRIVATE Boost::interprocess)
+  target_link_libraries(jove-${arch} PRIVATE Boost::dll)
+  target_link_libraries(jove-${arch} PRIVATE Boost::graph)
+  target_link_libraries(jove-${arch} PRIVATE Boost::format)
+  target_link_libraries(jove-${arch} PRIVATE Boost::icl)
 
   target_link_libraries(jove-${arch} PRIVATE TBB::tbb)
 

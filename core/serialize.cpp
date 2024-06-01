@@ -20,7 +20,6 @@
 #include <boost/serialization/item_version_type.hpp>
 #include <boost/serialization/library_version_type.hpp>
 #include <boost/serialization/map.hpp>
-#include <boost/serialization/boost_unordered_map.hpp>
 #include <boost/serialization/nvp.hpp>
 #include <boost/serialization/set.hpp>
 #include <boost/serialization/split_free.hpp>
@@ -369,6 +368,15 @@ static inline void load_construct_data(
     const unsigned int file_version) {
   assert(jove::pAlloc_hack);
   ::new (t)std::pair<const jove::ip_string, jove::ip_binary_index_set>(*jove::pAlloc_hack, *jove::pAlloc_hack);
+}
+
+template <class Archive>
+static inline void load_construct_data(
+    Archive &ar,
+    jove::ip_binary_index_set *t,
+    const unsigned int file_version) {
+  assert(jove::pAlloc_hack);
+  ::new (t)jove::ip_binary_index_set(*jove::pAlloc_hack);
 }
 
 } // namespace serialization

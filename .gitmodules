@@ -4,9 +4,6 @@
 [submodule "carbon-copy"]
 	path = carbon-copy
 	url = https://github.com/aleden/carbon-copy.git
-[submodule "boost-preprocessor"]
-	path = boost-preprocessor
-	url = https://github.com/boostorg/preprocessor.git
 [submodule "prebuilts"]
 	path = prebuilts
 	url = https://github.com/jove-decompiler/prebuilts.git

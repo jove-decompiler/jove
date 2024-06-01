@@ -35,7 +35,7 @@ runtime_cflags = -std=gnu99 \
                  -I lib \
                  -I lib/arch/$(1) \
                  -I $($(1)_SYSROOT)/include \
-                 -I boost-preprocessor/include \
+                 -I boost/libs/preprocessor/include/ \
                  -D TARGET_$(call uc,$(1)) \
                  -D TARGET_ARCH_NAME=\"$(1)\" \
                  $($(1)_ARCH_CFLAGS) \

@@ -24,7 +24,6 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       gmsl \
                       graphviz \
                       hostname \
-                      libboost-all-dev \
                       libclang-16-dev \
                       libglib2.0-dev \
                       libgraph-easy-perl \
@@ -70,9 +69,6 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       libc6-dev:i386 \
                       linux-libc-dev:i386 \
                       libglib2.0-dev:i386 \
-                      libboost-system-dev:i386 \
-                      libboost-filesystem-dev:i386 \
-                      libboost-serialization-dev:i386 \
                       libtbb-dev:i386 \
                       zlib1g-dev:i386 && \
     eatmydata apt-get autoremove -y && \
@@ -87,9 +83,6 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       libc6-dev:mipsel \
                       linux-libc-dev:mipsel \
                       libglib2.0-dev:mipsel \
-                      libboost-system-dev:mipsel \
-                      libboost-filesystem-dev:mipsel \
-                      libboost-serialization-dev:mipsel \
                       libtbb-dev:mipsel \
                       zlib1g-dev:mipsel && \
     eatmydata apt-get autoremove -y && \
@@ -104,9 +97,6 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       libc6-dev:mips64el \
                       linux-libc-dev:mips64el \
                       libglib2.0-dev:mips64el \
-                      libboost-system-dev:mips64el \
-                      libboost-filesystem-dev:mips64el \
-                      libboost-serialization-dev:mips64el \
                       libtbb-dev:mips64el \
                       zlib1g-dev:mips64el && \
     eatmydata apt-get autoremove -y && \
@@ -121,9 +111,6 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       libc6-dev:arm64 \
                       linux-libc-dev:arm64 \
                       libglib2.0-dev:arm64 \
-                      libboost-system-dev:arm64 \
-                      libboost-filesystem-dev:arm64 \
-                      libboost-serialization-dev:arm64 \
                       libtbb-dev:arm64 \
                       zlib1g-dev:arm64 && \
     eatmydata apt-get autoremove -y && \
@@ -132,5 +119,5 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
 ADD . /jove/
 RUN /jove/scripts/build/build-carbon-copy.sh
 RUN patch -p1 -d /usr/lib/python3/dist-packages -i /jove/patches/meson.diff
-RUN patch -p1 -d /usr -i /jove/patches/boost-graph.diff
+RUN patch -p1 -d /jove/boost/libs/graph -i /jove/patches/boost-graph.diff
 RUN /jove/scripts/build/build.sh

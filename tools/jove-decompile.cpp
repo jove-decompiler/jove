@@ -442,10 +442,10 @@ int DecompileTool::Run(void) {
 
   fs::copy_file(locator().builtins(),
                 fs::path(opts.Output) / ".obj" / "builtins.a",
-                fs::copy_option::overwrite_if_exists);
+                fs::copy_options::overwrite_existing);
   fs::copy_file(locator().softfloat_bitcode(),
                 fs::path(opts.Output) / ".obj" / "libfpu_softfloat.a",
-                fs::copy_option::overwrite_if_exists);
+                fs::copy_options::overwrite_existing);
   fs::create_directories(fs::path(opts.Output) / ".lib" / "lib");
   fs::copy_file(locator().runtime(opts.MT),
                 fs::path(opts.Output) / ".lib" / "lib" / "libjove_rt.so");
