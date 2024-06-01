@@ -44,10 +44,15 @@ function_index_t explorer_t::_explore_function(binary_t &b,
 
   function_index_t res = invalid_function_index;
 
-  bool found = fnmap.cvisit(Addr, [&](const auto &x) { res = x.second; });
-  if (likely(found)) {
-    assert(is_function_index_valid(res));
-    return res;
+  //
+  // fast path
+  //
+  {
+    bool found = fnmap.cvisit(Addr, [&](const auto &x) { res = x.second; });
+    if (likely(found)) {
+      assert(is_function_index_valid(res));
+      return res;
+    }
   }
 
   {
