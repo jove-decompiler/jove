@@ -424,7 +424,7 @@ struct binary_t {
   ip_upgradable_mutex bbmap_mtx;
   ip_upgradable_mutex fnmap_mtx;
 
-  bool bbmap_na = false;
+  std::atomic_flag bbmap_na = ATOMIC_FLAG_INIT;
   ip_mutex na_bbmap_mtx;
   ip_condition na_cond;
 

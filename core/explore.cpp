@@ -140,13 +140,11 @@ top:
   });
 
   if (!gonna_split) {
-    ip_scoped_lock<ip_mutex> e_lck(b.na_bbmap_mtx);
+    if (b.bbmap_na.test_and_set()) {
+      ip_scoped_lock<ip_mutex> e_lck(b.na_bbmap_mtx);
 
-    if (b.bbmap_na) {
-      b.na_cond.wait(e_lck, [&](void) -> bool { return !b.bbmap_na; });
+      b.na_cond.wait(e_lck);
       goto top;
-    } else {
-      b.bbmap_na = true;
     }
   } else {
     ip_upgradable_lock<ip_upgradable_mutex> u_lck(b.bbmap_mtx);
@@ -317,6 +315,8 @@ top:
   //
   // !gonna_split
   //
+  assert(b.bbmap_na.test_and_set());
+
   tcg.set_binary(Bin);
 
   unsigned Size = 0;
@@ -432,7 +432,7 @@ top:
   {
     ip_scoped_lock<ip_mutex> e_lck(b.na_bbmap_mtx);
 
-    b.bbmap_na = false;
+    b.bbmap_na.clear();
     b.na_cond.notify_one();
   }
 
