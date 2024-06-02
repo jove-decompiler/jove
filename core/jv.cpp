@@ -122,57 +122,69 @@ std::pair<binary_index_t, bool> jv_t::AddFromDataWithHash(explorer_t &E,
                                                           const hash_t &h,
                                                           const char *name,
                                                           binary_index_t TargetIdx) {
-  binary_index_t BIdx = LookupWithHash(h);
+  {
+    binary_index_t BIdx = LookupWithHash(h);
 
-  if (is_binary_index_valid(BIdx))
-    return std::make_pair(BIdx, false);
+    if (is_binary_index_valid(BIdx))
+      return std::make_pair(BIdx, false);
+  }
+
+  bool Target = is_binary_index_valid(TargetIdx);
+
+  binary_t _b(Binaries.get_allocator());
 
   {
-    ip_scoped_lock<ip_mutex> lck(this->binaries_mtx);
+    binary_t &b = Target ? Binaries.at(TargetIdx) : _b;
 
-    if (is_binary_index_valid(TargetIdx)) {
-      BIdx = TargetIdx;
-    } else {
-      BIdx = Binaries.size();
-      Binaries.emplace_back(Binaries.get_allocator());
-    }
+    get_data(b.Data);
 
-    binary_t &b = Binaries.at(BIdx);
-    b.Idx = BIdx;
-    b.Hash = h;
+    if (b.Data.empty())
+      throw std::runtime_error(
+          "AddFromDataWithHash: empty data"); /* uh oh... */
 
-    {
-      ip_scoped_lock<ip_mutex> lck(this->hash_to_binary_mtx);
-
-      this->hash_to_binary.insert(std::make_pair(h, BIdx));
-    }
-
-    if (name) {
-      to_ips(b.Name, name);
-
-      ip_scoped_lock<ip_mutex> lck(this->name_to_binaries_mtx);
-
-      auto it = this->name_to_binaries.find(b.Name);
-      if (it == this->name_to_binaries.end()) {
-        ip_binary_index_set set(Binaries.get_allocator());
-        set.insert(BIdx);
-        this->name_to_binaries.insert(std::make_pair(b.Name, set));
-      } else {
-        (*it).second.insert(BIdx);
-      }
+    try {
+      DoAdd(b, E);
+    } catch (const std::exception &e) {
+      return std::make_pair(invalid_binary_index, false);
     }
   }
 
-  assert(is_binary_index_valid(BIdx));
+  //
+  // success
+  //
+  binary_index_t BIdx = TargetIdx;
+
+  ip_scoped_lock<ip_mutex> lck(this->binaries_mtx);
+
+  if (!Target) {
+    BIdx = Binaries.size();
+    Binaries.push_back(std::move(_b));
+  }
 
   binary_t &b = Binaries.at(BIdx);
+  b.Idx = BIdx;
+  b.Hash = h;
 
-  get_data(b.Data);
+  {
+    ip_scoped_lock<ip_mutex> lck(this->hash_to_binary_mtx);
 
-  if (b.Data.empty())
-    throw std::runtime_error("AddFromDataWithHash: empty data"); /* uh oh... */
+    this->hash_to_binary.insert(std::make_pair(h, BIdx));
+  }
 
-  DoAdd(b, E);
+  if (name) {
+    to_ips(b.Name, name);
+
+    ip_scoped_lock<ip_mutex> lck(this->name_to_binaries_mtx);
+
+    auto it = this->name_to_binaries.find(b.Name);
+    if (it == this->name_to_binaries.end()) {
+      ip_binary_index_set set(Binaries.get_allocator());
+      set.insert(BIdx);
+      this->name_to_binaries.insert(std::make_pair(b.Name, set));
+    } else {
+      (*it).second.insert(BIdx);
+    }
+  }
 
   return std::make_pair(BIdx, true);
 }
