@@ -122,230 +122,198 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
 
   auto &bbmap = b.bbmap;
 
+  //
+  // does this new basic block start in the middle of a previously-created
+  // basic block?
+  //
 top:
-  const bool Exists = ({
+  const bool gonna_split = ({
     ip_sharable_lock<ip_upgradable_mutex> s_lck(b.bbmap_mtx);
 
     auto it = bbmap_find(bbmap, Addr);
 
     bool res = it != bbmap.end();
     if (res && Addr == addr_intvl_lower((*it).first))
-      return (*it).second;
+      return (*it).second; /* the same */
 
     res;
   });
 
-  if (!Exists && b.bbmap_na.test_and_set()) {
-    ip_scoped_lock<ip_mutex> e_lck(b.na_bbmap_mtx);
+  if (!gonna_split) {
+    if (b.bbmap_na.test_and_set()) {
+      ip_scoped_lock<ip_mutex> e_lck(b.na_bbmap_mtx);
 
-    b.na_cond.wait(e_lck);
-    goto top;
-  }
-
-  //
-  // does this new basic block start in the middle of a previously-created
-  // basic block?
-  //
-  if (Exists)
-  {
+      b.na_cond.wait(e_lck);
+      goto top;
+    }
+  } else {
     ip_upgradable_lock<ip_upgradable_mutex> u_lck(b.bbmap_mtx);
 
     auto it = bbmap_find(bbmap, Addr);
-    assert (it != bbmap.end());
+    assert(it != bbmap.end());
 
-      const basic_block_index_t BBIdx = (*it).second;
+    const addr_intvl intvl = (*it).first;
+    const basic_block_index_t BBIdx = (*it).second;
 
-      assert(is_basic_block_index_valid(BBIdx));
-      basic_block_t bb = basic_block_of_index(BBIdx, ICFG);
+    const auto &beg = intvl.first;
+    const auto &len = intvl.second;
 
-#if 0
-      if (!(BBIdx < boost::num_vertices(ICFG))) {
-        llvm::errs() << "   " << taddr2str(Addr) << " " << addr_intvl2str((*it).first) << " BBIdx=" << BBIdx << " N=" << boost::num_vertices(ICFG)
-                     << '\n';
-        dump_bbmap(bbmap);
-      }
-#endif
-      assert(BBIdx < boost::num_vertices(ICFG));
+    assert(Addr > beg);
 
-      const uint64_t beg = ICFG[bb].Addr;
+    //
+    // before splitting the basic block, let's check to make sure that the
+    // new block doesn't start in the middle of an instruction. if that would
+    // occur, then we will assume the control-flow is invalid
+    //
+    {
+      const ELFF &Elf = llvm::cast<ELFO>(&Bin)->getELFFile();
 
-      assert(Addr != beg);
+      uint64_t InstLen = 0;
+      for (uint64_t A = beg; A < beg + len; A += InstLen) {
+        llvm::MCInst Inst;
 
-      //
-      // before splitting the basic block, let's check to make sure that the
-      // new block doesn't start in the middle of an instruction. if that would
-      // occur, then we will assume the control-flow is invalid
-      //
-      {
-        const ELFF &Elf = llvm::cast<ELFO>(&Bin)->getELFFile();
+        std::string errmsg;
+        bool Disassembled;
+        {
+          llvm::raw_string_ostream ErrorStrStream(errmsg);
 
-        uint64_t InstLen = 0;
-        for (uint64_t A = beg; A < beg + ICFG[bb].Size; A += InstLen) {
-          llvm::MCInst Inst;
-
-          std::string errmsg;
-          bool Disassembled;
-          {
-            llvm::raw_string_ostream ErrorStrStream(errmsg);
-
-            llvm::Expected<const uint8_t *> ExpectedPtr = Elf.toMappedAddr(A);
-            if (!ExpectedPtr)
-              throw std::runtime_error((fmt("%s: invalid address 0x%lx") % __func__ % A).str());
-
-            Disassembled = disas.DisAsm->getInstruction(
-                Inst, InstLen,
-                llvm::ArrayRef<uint8_t>(*ExpectedPtr, ICFG[bb].Size), A,
-                ErrorStrStream);
-          }
-
-          if (!Disassembled)
+          llvm::Expected<const uint8_t *> ExpectedPtr = Elf.toMappedAddr(A);
+          if (!ExpectedPtr)
             throw std::runtime_error(
-              (fmt("%s: failed to disassemble 0x%lx%s%s")
-               % __func__
-               % A
-               % (errmsg.empty() ? "" : ": ")
-               % errmsg).str());
+                (fmt("%s: invalid address 0x%lx") % __func__ % A).str());
 
-          if (A == Addr)
-            goto on_insn_boundary;
+          Disassembled = disas.DisAsm->getInstruction(
+              Inst, InstLen, llvm::ArrayRef<uint8_t>(*ExpectedPtr, len), A,
+              ErrorStrStream);
         }
 
-        throw std::runtime_error((fmt("%s: control flow to 0x%lx doesn't lie on instruction boundary") % __func__ % Addr).str());
+        if (!Disassembled)
+          throw std::runtime_error(
+              (fmt("%s: failed to disassemble 0x%lx%s%s") % __func__ % A %
+               (errmsg.empty() ? "" : ": ") % errmsg).str());
 
-on_insn_boundary:
+        if (A == Addr)
+          goto on_insn_boundary;
+      }
+
+      throw std::runtime_error((fmt("%s: control flow to 0x%lx doesn't lie on "
+                                    "instruction boundary") % __func__ % Addr).str());
+
+    on_insn_boundary:
         //
         // proceed.
         //
         ;
-      }
+    }
 
-      ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
+    //
+    // "Split" the block, i.e.
+    //
+    // ____________________
+    // |                  |
+    // |                  |
+    // |                  |
+    // |       bb_1       |  <---------------------
+    // |                  |
+    // |                  |
+    // |                  |
+    // --------CALL--------
+    //
+    // becomes
+    //
+    // _____________________
+    // |                   |
+    // |       bb_1        |
+    // |                   |
+    // |-------NONE--------|  <---------------------
+    // |                   |
+    // |       bb_2        |
+    // |                   |
+    // --------CALL---------
+    //
+    //
 
-      //
-      // "Split" the block, i.e.
-      //
-      // ____________________
-      // |                  |
-      // |                  |
-      // |                  |
-      // |       bb_1       |  <---------------------
-      // |                  |
-      // |                  |
-      // |                  |
-      // --------CALL--------
-      //
-      // becomes
-      //
-      // _____________________
-      // |                   |
-      // |       bb_1        |
-      // |                   |
-      // |-------NONE--------|  <---------------------
-      // |                   |
-      // |       bb_2        |
-      // |                   |
-      // --------CALL---------
-      //
-      //
-      std::vector<basic_block_t> out_verts;
-      {
-        icfg_t::out_edge_iterator e_it, e_it_end;
-        for (std::tie(e_it, e_it_end) = boost::out_edges(bb, ICFG);
-             e_it != e_it_end; ++e_it)
-          out_verts.push_back(boost::target(*e_it, ICFG));
-      }
+    const unsigned off = Addr - beg;
 
-      // if we get here, we know that beg != Addr
-      assert(Addr > beg);
+    const addr_intvl intvl_1(beg, off);
+    const addr_intvl intvl_2(addr_intvl_upper(intvl_1),
+                             addr_intvl_upper(intvl) - Addr);
 
-      const unsigned off = Addr - beg;
-      assert(off > 0);
+    basic_block_t bb_1 = basic_block_of_index(BBIdx, ICFG);
 
-      const addr_intvl orig_intervl = (*it).first;
+    //
+    // gather up bb_1 edges
+    //
+    std::vector<basic_block_t> to_bb_vec;
+    to_bb_vec.reserve(boost::out_degree(bb_1, ICFG));
+    {
+      icfg_t::adjacency_iterator succ_it, succ_it_end;
+      std::tie(succ_it, succ_it_end) = boost::adjacent_vertices(bb_1, ICFG);
 
-      const basic_block_index_t NewBBIdx = boost::num_vertices(ICFG);
-      basic_block_t newbb = boost::add_vertex(ICFG, jv.Binaries.get_allocator());
-      {
-        basic_block_properties_t &newbbprop = ICFG[newbb];
-        newbbprop.Addr = beg;
-        newbbprop.Size = off;
-        newbbprop.Term.Type = TERMINATOR::NONE;
-        newbbprop.Term.Addr = 0; /* XXX? */
-        newbbprop.DynTargetsComplete = false;
-        newbbprop.Term._call.Target = invalid_function_index;
-        newbbprop.Term._call.Returns = false;
-        newbbprop.Term._call.ReturnsOff = 0;
-        newbbprop.Term._indirect_jump.IsLj = false;
-        newbbprop.Sj = false;
-        newbbprop.Term._indirect_call.Returns = false;
-        newbbprop.Term._indirect_call.ReturnsOff = 0;
-        newbbprop.Term._return.Returns = false;
-        newbbprop.InvalidateAnalysis();
-      }
+      std::copy(succ_it, succ_it_end, std::back_inserter(to_bb_vec));
+    }
 
-      ICFG[bb].InvalidateAnalysis();
+    basic_block_properties_t &bbprop_1 = ICFG[bb_1];
 
-      std::swap(ICFG[bb], ICFG[newbb]);
-      ICFG[newbb].Addr = Addr;
-      ICFG[newbb].Size -= off;
+    ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
 
-      assert(ICFG[newbb].Addr + ICFG[newbb].Size == addr_intvl_upper(orig_intervl));
+    //
+    // create bb_2
+    //
+    basic_block_t bb_2 = boost::add_vertex(ICFG, jv.Binaries.get_allocator());
+    const basic_block_index_t NewBBIdx = index_of_basic_block(ICFG, bb_2);
+    basic_block_properties_t &bbprop_2 = ICFG[bb_2];
 
-      boost::clear_out_edges(bb, ICFG);
-      boost::add_edge(bb, newbb, ICFG);
+    bbprop_2.Addr = addr_intvl_lower(intvl_2);
+    bbprop_2.Size = intvl_2.second;
+    bbprop_2.Sj = false;
+    bbprop_2.Term = bbprop_1.Term; /* terminator stolen from bb_1 */
+    bbprop_2.DynTargetsComplete = bbprop_1.DynTargetsComplete;
+    bbprop_2.InvalidateAnalysis();
 
-      for (basic_block_t out_vert : out_verts) {
-        boost::add_edge(newbb, out_vert, ICFG);
-      }
+    //
+    // update bb_1
+    //
+    bbprop_1.Size = off;
+    bbprop_1.Term.Type = TERMINATOR::NONE;
+    bbprop_1.Term.Addr = 0;
+    bbprop_1.Sj = false;
+    bbprop_1.pDynTargets =
+        boost::interprocess::offset_ptr<ip_dynamic_target_set>();
+    bbprop_1.DynTargetsComplete = false;
+    bbprop_1.InvalidateAnalysis();
 
-      assert(ICFG[bb].Term.Type == TERMINATOR::NONE);
-      assert(boost::out_degree(bb, ICFG) == 1);
+    //
+    // edges from bb_1 now point from bb_2
+    //
+    {
+      boost::clear_out_edges(bb_1, ICFG);
+      boost::add_edge(bb_1, bb_2, ICFG);
 
-      addr_intvl intervl1(ICFG[bb].Addr, ICFG[bb].Size);
-      addr_intvl intervl2(ICFG[newbb].Addr, ICFG[newbb].Size);
+      for (basic_block_t bb : to_bb_vec)
+        boost::add_edge(bb_2, bb, ICFG);
+    }
 
-      assert(addr_intvl_disjoint(intervl1, intervl2));
+    //
+    // update bbmap
+    //
+    bbmap.erase(it);
+    bbmap_add(bbmap, intvl_1, BBIdx);
+    bbmap_add(bbmap, intvl_2, NewBBIdx);
 
-      const unsigned sav_bbmap_size = bbmap.size();
-      bbmap.erase(it);
-      assert(bbmap.size() == sav_bbmap_size - 1);
+    //
+    // update bbbmap
+    //
+    {
+      bool success = b.bbbmap.emplace(Addr, NewBBIdx);
+      assert(success);
+    }
 
-      assert(bbmap_find(bbmap, intervl1) == bbmap.end());
-      assert(bbmap_find(bbmap, intervl2) == bbmap.end());
-
-      bbmap_add(bbmap, intervl1, BBIdx);
-      bbmap_add(bbmap, intervl2, NewBBIdx);
-
-#if 0
-      llvm::errs() << "         BBIdx=" << BBIdx << " NewBBIdx=" << NewBBIdx
-                   << " intervl1 = " << addr_intvl2str(intervl1)
-                   << " intervl2 = " << addr_intvl2str(intervl2) << '\n';
-#endif
-
-      {
-        bool success = b.bbbmap.emplace(Addr, NewBBIdx);
-        assert(success);
-      }
-
-      ip_sharable_lock<ip_upgradable_mutex> s_lck(boost::move(e_lck));
-
-      {
-        auto _it = bbmap_find(bbmap, intervl1);
-        assert(_it != bbmap.end());
-        assert((*_it).second == BBIdx);
-      }
-
-      {
-        auto _it = bbmap_find(bbmap, intervl2);
-        assert(_it != bbmap.end());
-        assert((*_it).second == NewBBIdx);
-      }
-
-      return NewBBIdx;
+    return NewBBIdx;
   }
 
   //
-  // !Exists.
+  // !gonna_split
   //
   assert(b.bbmap_na.test_and_set());
 
