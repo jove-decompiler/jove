@@ -33,6 +33,7 @@ static constexpr bool IsI386 =
 #include <boost/preprocessor/cat.hpp>
 #include <boost/preprocessor/repetition/repeat.hpp>
 #include <boost/preprocessor/repetition/repeat_from_to.hpp>
+#include <boost/lockfree/queue.hpp>
 
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
@@ -377,7 +378,7 @@ struct BootstrapTool : public TransformerTool_Bin<binary_state_t> {
   }
 
 public:
-  BootstrapTool() : opts(JoveCategory) {}
+  BootstrapTool() : opts(JoveCategory), bb_brk_lckfree_q(8) {}
 
   int Run(void) override;
 
@@ -400,6 +401,8 @@ public:
 
   void on_dynamic_linker_loaded(pid_t, binary_index_t, const proc_map_t &);
 
+  void place_breakpoints_in_new_blocks(void);
+  void place_breakpoints_in_block(binary_t &b, basic_block_t bb);
   void place_breakpoint(pid_t, uintptr_t Addr, breakpoint_t &);
   void on_breakpoint(pid_t);
   void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr);
@@ -433,6 +436,11 @@ public:
 
   pid_t saved_child;
   std::atomic<bool> ToggleTurbo = false;
+
+  static_assert(sizeof(binary_index_t) + sizeof(basic_block_index_t) == 8);
+
+  boost::lockfree::queue<uint64_t, boost::lockfree::fixed_sized<false>>
+      bb_brk_lckfree_q;
 
   bool DidAttach(void) {
     return opts.PID != 0;
@@ -1346,11 +1354,31 @@ int BootstrapTool::TracerLoop(pid_t child) {
 }
 
 void BootstrapTool::on_new_basic_block(binary_t &b, basic_block_t bb) {
-  binary_index_t BIdx = index_of_binary(b, jv);
+  uint64_t x = static_cast<uint64_t>(index_of_binary(b, jv)) << 32 |
+               static_cast<uint64_t>(index_of_basic_block(b.Analysis.ICFG, bb));
 
-  if (BIdx >= BinFoundVec.size() ||
-      !BinFoundVec[BIdx])
-    return;
+  bool success = bb_brk_lckfree_q.push(x);
+  assert(success);
+}
+
+void BootstrapTool::place_breakpoints_in_new_blocks(void) {
+  uint64_t x;
+  while (bb_brk_lckfree_q.pop(x)) {
+    binary_index_t      BIdx  = static_cast<binary_index_t>(x >> 32);
+    basic_block_index_t BBIdx = static_cast<basic_block_index_t>(x);
+
+    binary_t &b = jv.Binaries.at(BIdx);
+    basic_block_t bb = basic_block_of_index(BBIdx, b.Analysis.ICFG);
+
+    place_breakpoints_in_block(b, bb);
+  }
+}
+
+void BootstrapTool::place_breakpoints_in_block(binary_t &b, basic_block_t bb) {
+  const binary_index_t BIdx = index_of_binary(b, jv);
+
+  assert(BIdx < BinFoundVec.size());
+  assert(BinFoundVec.at(BIdx));
 
   auto &ICFG = b.Analysis.ICFG;
   const basic_block_properties_t &bbprop = ICFG[bb];
@@ -2733,6 +2761,13 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
   struct {
     bool IsGoto = false;
   } ControlFlow;
+
+  struct PlaceNewBreakpoints {
+    BootstrapTool &tool;
+
+    PlaceNewBreakpoints(BootstrapTool &tool) : tool(tool) {}
+    ~PlaceNewBreakpoints() { tool.place_breakpoints_in_new_blocks(); }
+  } __PlaceNewBreakpoints(*this);
 
   try {
     if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL) {

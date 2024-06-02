@@ -129,6 +129,7 @@ function(tool_for_arch arch arch_extra_cflags qemu_objs)
   target_link_libraries(jove-${arch} PRIVATE Boost::graph)
   target_link_libraries(jove-${arch} PRIVATE Boost::format)
   target_link_libraries(jove-${arch} PRIVATE Boost::icl)
+  target_link_libraries(jove-${arch} PRIVATE Boost::lockfree)
 
   target_link_libraries(jove-${arch} PRIVATE TBB::tbb)
 
