@@ -921,6 +921,7 @@ static flow_vertex_t copy_function_cfg(jv_t &jv,
                                        flow_graph_t &G,
                                        function_t &f,
                                        std::function<llvm::object::Binary &(binary_t &)> GetBinary,
+                                       std::function<std::pair<basic_block_vec_t &, basic_block_vec_t &>(function_t &)> GetBlocks,
                                        bool DFSan,
                                        bool ForCBE,
                                        std::vector<exit_vertex_pair_t> &exitVertices,
@@ -930,11 +931,10 @@ static flow_vertex_t copy_function_cfg(jv_t &jv,
   auto &b = jv.Binaries.at(BIdx);
   auto &ICFG = b.Analysis.ICFG;
 
-  basic_block_vec_t bbvec;
-  basic_blocks_of_function(f, b, bbvec);
+  auto BlocksPair = GetBlocks(f);
 
-  basic_block_vec_t exit_bbvec;
-  exit_basic_blocks_of_function(f, b, bbvec, exit_bbvec);
+  basic_block_vec_t &bbvec = BlocksPair.first;
+  basic_block_vec_t &exit_bbvec = BlocksPair.second;
 
   //
   // make sure basic blocks have been analyzed
@@ -1009,7 +1009,8 @@ static flow_vertex_t copy_function_cfg(jv_t &jv,
 
         std::vector<exit_vertex_pair_t> calleeExitVertices;
         flow_vertex_t calleeEntryV =
-            copy_function_cfg(jv, TCG, M, G, callee, GetBinary, DFSan, ForCBE, calleeExitVertices, memoize, tool);
+            copy_function_cfg(jv, TCG, M, G, callee, GetBinary, GetBlocks,
+                              DFSan, ForCBE, calleeExitVertices, memoize, tool);
         boost::add_edge(Orig2CopyMap[bb], calleeEntryV, G);
 
         if (eit_pair.first != eit_pair.second) {
@@ -1044,7 +1045,7 @@ static flow_vertex_t copy_function_cfg(jv_t &jv,
 
       std::vector<exit_vertex_pair_t> calleeExitVertices;
       flow_vertex_t calleeEntryV =
-          copy_function_cfg(jv, TCG, M, G, callee, GetBinary, DFSan, ForCBE, calleeExitVertices, memoize, tool);
+          copy_function_cfg(jv, TCG, M, G, callee, GetBinary, GetBlocks, DFSan, ForCBE, calleeExitVertices, memoize, tool);
 
       boost::add_edge(Orig2CopyMap[bb], calleeEntryV, G);
 
@@ -1093,7 +1094,7 @@ static flow_vertex_t copy_function_cfg(jv_t &jv,
 
         std::vector<exit_vertex_pair_t> calleeExitVertices;
         flow_vertex_t calleeEntryV =
-            copy_function_cfg(jv, TCG, M, G, callee, GetBinary, DFSan, ForCBE, calleeExitVertices, memoize, tool);
+            copy_function_cfg(jv, TCG, M, G, callee, GetBinary, GetBlocks, DFSan, ForCBE, calleeExitVertices, memoize, tool);
         boost::add_edge(Orig2CopyMap[bb], calleeEntryV, G);
 
         for (const auto &calleeExitVertPair : calleeExitVertices) {
@@ -1521,6 +1522,7 @@ void AnalyzeFunction(jv_t &jv,
                      llvm::Module &M,
                      function_t &f,
                      std::function<llvm::object::Binary &(binary_t &)> GetBinary,
+                     std::function<std::pair<basic_block_vec_t &, basic_block_vec_t &>(function_t &)> GetBlocks,
                      bool DFSan,
                      bool ForCBE,
                      Tool *tool) {
@@ -1536,7 +1538,7 @@ void AnalyzeFunction(jv_t &jv,
         memoize;
 
     std::vector<exit_vertex_pair_t> exitVertices;
-    flow_vertex_t entryV = copy_function_cfg(jv, TCG, M, G, f, GetBinary, DFSan, ForCBE, exitVertices, memoize, *tool);
+    flow_vertex_t entryV = copy_function_cfg(jv, TCG, M, G, f, GetBinary, GetBlocks, DFSan, ForCBE, exitVertices, memoize, *tool);
 
     //
     // build vector of vertices in DFS order
@@ -3394,13 +3396,31 @@ int LLVMTool::PrepareToTranslateCode(void) {
 }
 
 tcg_global_set_t LLVMTool::DetermineFunctionArgs(function_t &f) {
-  AnalyzeFunction(jv, *TCG, *Module, f, [&](binary_t &b) -> llvm::object::Binary & { return *state.for_binary(b).ObjectFile; }, opts.DFSan, opts.ForCBE, this);
+  AnalyzeFunction(
+      jv, *TCG, *Module, f,
+      [&](binary_t &b) -> llvm::object::Binary & {
+        return *state.for_binary(b).ObjectFile;
+      },
+      [&](function_t &f) -> std::pair<basic_block_vec_t &, basic_block_vec_t &> {
+        function_state_t &x = state.for_function(f);
+        return std::pair<basic_block_vec_t &, basic_block_vec_t &>(x.bbvec, x.exit_bbvec);
+      },
+      opts.DFSan, opts.ForCBE, this);
 
   return f.Analysis.args;
 }
 
 tcg_global_set_t LLVMTool::DetermineFunctionRets(function_t &f) {
-  AnalyzeFunction(jv, *TCG, *Module, f, [&](binary_t &b) -> llvm::object::Binary & { return *state.for_binary(b).ObjectFile; }, opts.DFSan, opts.ForCBE, this);
+  AnalyzeFunction(
+      jv, *TCG, *Module, f,
+      [&](binary_t &b) -> llvm::object::Binary & {
+        return *state.for_binary(b).ObjectFile;
+      },
+      [&](function_t &f) -> std::pair<basic_block_vec_t &, basic_block_vec_t &> {
+        function_state_t &x = state.for_function(f);
+        return std::pair<basic_block_vec_t &, basic_block_vec_t &>(x.bbvec, x.exit_bbvec);
+      },
+      opts.DFSan, opts.ForCBE, this);
 
   return f.Analysis.rets;
 }

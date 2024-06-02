@@ -126,6 +126,7 @@ void AnalyzeFunction(jv_t &jv,
                      llvm::Module &M,
                      function_t &f,
                      std::function<llvm::object::Binary &(binary_t &)> GetBinary,
+                     std::function<std::pair<basic_block_vec_t &, basic_block_vec_t &>(function_t &)> GetBlocks,
                      bool DFSan = false,
                      bool ForCBE = false,
                      Tool *tool = nullptr);
@@ -168,12 +169,12 @@ int AnalyzeTool::AnalyzeFunctions(void) {
   for_each_function(
       std::execution::par_unseq, jv,
       [&](function_t &f, binary_t &b) {
-        basic_blocks_of_function(f, b, state.for_function(f).bbvec);
-        exit_basic_blocks_of_function(f, b, state.for_function(f).bbvec,
-                                      state.for_function(f).exit_bbvec);
+        function_state_t &x = state.for_function(f);
 
-        state.for_function(f).IsLeaf =
-            IsLeafFunction(f, b, state.for_function(f).bbvec);
+        basic_blocks_of_function(f, b, x.bbvec);
+        exit_basic_blocks_of_function(f, b, x.bbvec, x.exit_bbvec);
+
+        x.IsLeaf = IsLeafFunction(f, b, x.bbvec);
       });
 
   WithColor::note() << "Analyzing functions...";
@@ -193,6 +194,10 @@ int AnalyzeTool::AnalyzeFunctions(void) {
               jv, *TCG, *Module, f,
               [&](binary_t &b) -> llvm::object::Binary & {
                 return *state.for_binary(b).ObjectFile;
+              },
+              [&](function_t &f) -> std::pair<basic_block_vec_t &, basic_block_vec_t &> {
+                function_state_t &x = state.for_function(f);
+                return std::pair<basic_block_vec_t &, basic_block_vec_t &>(x.bbvec, x.exit_bbvec);
               },
               false, false, this);
 
