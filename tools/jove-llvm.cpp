@@ -2375,12 +2375,13 @@ void LLVMTool::DumpModule(const char *suffix) {
 }
 
 int LLVMTool::InitStateForBinaries(void) {
-  for_each_binary(jv, [&](binary_t &binary) {
+  for_each_binary(std::execution::par_unseq, jv, [&](binary_t &binary) {
     binary_state_t &x = state.for_binary(binary);
 
     auto &ICFG = binary.Analysis.ICFG;
 
-    for_each_function_in_binary(binary, [&](function_t &f) {
+    for_each_function_in_binary(std::execution::par_unseq, binary,
+                                [&](function_t &f) {
       if (!is_basic_block_index_valid(f.Entry))
         return;
 

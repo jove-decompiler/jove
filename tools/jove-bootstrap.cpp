@@ -532,7 +532,8 @@ int BootstrapTool::Run(void) {
   //
   // initialize state associated with every binary
   //
-  for_each_binary(jv, [&](binary_t &b) { init_state_for_binary(b); });
+  for_each_binary(std::execution::par_unseq, jv,
+                  [&](binary_t &b) { init_state_for_binary(b); });
 
   BinFoundVec.resize(jv.Binaries.size());
 
