@@ -20,6 +20,8 @@ namespace obj = llvm::object;
 
 namespace jove {
 
+using boost::interprocess::usduration_from_milliseconds;
+
 typedef boost::format fmt;
 
 #if 0
@@ -127,9 +129,10 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
   // basic block?
   //
 top:
-  const bool gonna_split = ({
-    ip_sharable_lock<ip_upgradable_mutex> s_lck(b.bbmap_mtx);
+  std::unique_ptr<ip_upgradable_lock<ip_upgradable_mutex>> u_lck =
+      std::make_unique<ip_upgradable_lock<ip_upgradable_mutex>>(b.bbmap_mtx);
 
+  const bool gonna_split = ({
     auto it = bbmap_find(bbmap, Addr);
 
     bool res = it != bbmap.end();
@@ -140,15 +143,34 @@ top:
   });
 
   if (!gonna_split) {
-    if (b.bbmap_na.test_and_set()) {
-      ip_scoped_lock<ip_mutex> e_lck(b.na_bbmap_mtx);
+    u_lck.reset();
 
-      b.na_cond.wait(e_lck);
-      goto top;
+try_again:
+    if (b.bbmap_na.exchange(true)) {
+      {
+        ip_scoped_lock<ip_mutex> e_lck(b.na_bbmap_mtx);
+
+        b.na_cond.wait_for(e_lck, usduration_from_milliseconds(100),
+                           [&](void) -> bool { return !b.bbmap_na.load(); });
+      }
+
+      const bool _gonna_split = ({
+        ip_sharable_lock<ip_upgradable_mutex> s_lck(b.bbmap_mtx);
+
+        auto it = bbmap_find(bbmap, Addr);
+        bool res = it != bbmap.end();
+        if (res && Addr == addr_intvl_lower((*it).first))
+          return (*it).second; /* the same */
+
+        res;
+      });
+
+      if (_gonna_split)
+        goto top;
+
+      goto try_again;
     }
   } else {
-    ip_upgradable_lock<ip_upgradable_mutex> u_lck(b.bbmap_mtx);
-
     auto it = bbmap_find(bbmap, Addr);
     assert(it != bbmap.end());
 
@@ -255,7 +277,7 @@ top:
 
     basic_block_properties_t &bbprop_1 = ICFG[bb_1];
 
-    ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
+    ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(*u_lck.get()));
 
     //
     // create bb_2
@@ -315,7 +337,7 @@ top:
   //
   // !gonna_split
   //
-  assert(b.bbmap_na.test_and_set());
+  assert(b.bbmap_na.load());
 
   tcg.set_binary(Bin);
 
@@ -432,7 +454,9 @@ top:
   {
     ip_scoped_lock<ip_mutex> e_lck(b.na_bbmap_mtx);
 
-    b.bbmap_na.clear();
+    b.bbmap_na.store(false);
+
+    e_lck.unlock();
     b.na_cond.notify_one();
   }
 
@@ -449,10 +473,17 @@ top:
     control_flow_to(T._unconditional_jump.Target);
     break;
 
-  case TERMINATOR::CONDITIONAL_JUMP:
-    control_flow_to(T._conditional_jump.Target);
-    control_flow_to(T._conditional_jump.NextPC);
+  case TERMINATOR::CONDITIONAL_JUMP: {
+    std::array<uint64_t, 2> Targets{{T._conditional_jump.Target,
+                                     T._conditional_jump.NextPC}};
+    std::for_each(std::execution::par_unseq,
+                  Targets.begin(),
+                  Targets.end(),
+                  [&](uint64_t Target) {
+                    control_flow_to(Target);
+                  });
     break;
+  }
 
   case TERMINATOR::CALL: {
     {
