@@ -193,7 +193,7 @@ namespace fs = boost::filesystem;
 namespace jove {
 
 Tool::Tool()
-    : HumanOutputStreamPtr(&llvm::outs()),
+    : HumanOutputStreamPtr(&llvm::errs()),
 
       JoveCategory("Specific Options"),
 
