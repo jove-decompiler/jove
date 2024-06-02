@@ -740,21 +740,26 @@ description_of_terminator_info(const terminator_info_t &T,
   case TERMINATOR::UNKNOWN:
     break;
   case TERMINATOR::UNCONDITIONAL_JUMP:
+    res += " -> ";
     res += taddr2str(T._unconditional_jump.Target, zero_padded);
     break;
   case TERMINATOR::CONDITIONAL_JUMP:
+    res += " -> ";
     res += taddr2str(T._conditional_jump.Target, zero_padded);
     res += ", ";
     res += taddr2str(T._conditional_jump.NextPC, zero_padded);
     break;
   case TERMINATOR::INDIRECT_CALL:
+    res += " ->_ ";
     res += taddr2str(T._indirect_call.NextPC, zero_padded);
     break;
   case TERMINATOR::INDIRECT_JUMP:
     break;
   case TERMINATOR::CALL:
+    res += " -> ";
     res += taddr2str(T._call.Target, zero_padded);
     res += ", ";
+    res += " ->_ ";
     res += taddr2str(T._call.NextPC, zero_padded);
     break;
   case TERMINATOR::RETURN:
@@ -762,6 +767,7 @@ description_of_terminator_info(const terminator_info_t &T,
   case TERMINATOR::UNREACHABLE:
     break;
   case TERMINATOR::NONE:
+    res += " _->_ ";
     res += taddr2str(T._none.NextPC, zero_padded);
     break;
   }
