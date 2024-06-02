@@ -32,17 +32,9 @@ extern "C" const void *_jv_g2h(uint64_t Addr) {
 
   llvm::Expected<const uint8_t *> ExpectedPtr = jv_E.toMappedAddr(Addr);
   if (!ExpectedPtr) {
-    std::string ErrorBuf;
-    {
-      llvm::raw_string_ostream OS(ErrorBuf);
-      llvm::logAllUnhandledErrors(ExpectedPtr.takeError(), OS, "");
-    }
+    llvm::consumeError(ExpectedPtr.takeError());
 
-    std::stringstream stream;
-    stream << std::hex << Addr;
-    std::string AddrHexString(stream.str());
-    throw std::runtime_error("_jove_g2h() failed [0x" + AddrHexString +
-                             "]: " + ErrorBuf);
+    throw jove::g2h_exception(Addr);
   }
 
   const uint8_t *Ptr = *ExpectedPtr;
