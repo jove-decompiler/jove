@@ -271,7 +271,7 @@ void DumpTool::dumpDecompilation(const jv_t& jv) {
                                _ICFG[basic_block_of_index(callee.Entry, _ICFG)].Addr;
 
                            return (fmt("0x%lX @ %s") % target_addr %
-                                   fs::path(b.path_str()).filename().string())
+                                   b.Name.c_str())
                                .str();
                          });
 
@@ -384,7 +384,7 @@ void DumpTool::dumpDecompilation(const jv_t& jv) {
                                _ICFG[basic_block_of_index(callee.Entry, _ICFG)].Addr;
 
                            return (fmt("0x%lX @ %s") % target_addr %
-                                   fs::path(b.path_str()).filename().string())
+                                   b.Name.c_str())
                                .str();
                          });
 
@@ -417,7 +417,7 @@ void DumpTool::dumpDecompilation(const jv_t& jv) {
                                _ICFG[basic_block_of_index(callee.Entry, _ICFG)].Addr;
 
                            return (fmt("0x%lX @ %s") % target_addr %
-                                   fs::path(b.path_str()).filename().string())
+                                   b.Name.c_str())
                                .str();
                          });
 
@@ -450,7 +450,7 @@ void DumpTool::dumpDecompilation(const jv_t& jv) {
                                _ICFG[basic_block_of_index(callee.Entry, _ICFG)].Addr;
 
                            return (fmt("0x%lX @ %s") % target_addr %
-                                   fs::path(b.path_str()).filename().string())
+                                   b.Name.c_str())
                                .str();
                          });
 
@@ -501,7 +501,7 @@ void DumpTool::dumpInput(const std::string &Path) {
       }
     } else if (opts.Statistics) {
       for (const binary_t &binary : jv.Binaries) {
-        llvm::outs() << llvm::formatv("Binary: {0}\n", binary.path_str());
+        llvm::outs() << llvm::formatv("Binary: {0}\n", binary.Name.c_str());
         llvm::outs() << llvm::formatv(
             "  # of basic blocks: {0}\n",
             boost::num_vertices(binary.Analysis.ICFG));
@@ -531,6 +531,9 @@ void DumpTool::dumpInput(const std::string &Path) {
 
       for (unsigned BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
         const binary_t &binary = jv.Binaries[BIdx];
+
+        if (!binary.is_file())
+          continue;
 
         if (fs::path(binary.path_str()).filename().string() !=
             opts.ListFunctionBBs)
