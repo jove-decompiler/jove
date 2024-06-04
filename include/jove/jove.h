@@ -581,9 +581,9 @@ struct jv_t {
   ip_name_to_binaries_map_type name_to_binaries;
 
   ip_mutex binaries_mtx;
-  ip_mutex hash_to_binary_mtx;
+  ip_upgradable_mutex hash_to_binary_mtx;
   ip_mutex cached_hashes_mtx;
-  ip_mutex name_to_binaries_mtx;
+  ip_sharable_mutex name_to_binaries_mtx;
 
   void InvalidateFunctionAnalyses(void);
 

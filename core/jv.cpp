@@ -61,7 +61,7 @@ boost::optional<const ip_binary_index_set &> jv_t::Lookup(const char *name) {
   to_ips(s, name);
 
   {
-    ip_scoped_lock<ip_mutex> lck(this->name_to_binaries_mtx);
+    ip_sharable_lock<ip_sharable_mutex> s_lck(this->name_to_binaries_mtx);
 
     auto it = this->name_to_binaries.find(s);
     if (it == this->name_to_binaries.end()) {
@@ -73,8 +73,6 @@ boost::optional<const ip_binary_index_set &> jv_t::Lookup(const char *name) {
 }
 
 binary_index_t jv_t::LookupWithHash(const hash_t &h) {
-  ip_scoped_lock<ip_mutex> lck(this->hash_to_binary_mtx);
-
   auto it = this->hash_to_binary.find(h);
   if (it == this->hash_to_binary.end())
     return invalid_binary_index;
@@ -122,6 +120,8 @@ std::pair<binary_index_t, bool> jv_t::AddFromDataWithHash(explorer_t &E,
                                                           const hash_t &h,
                                                           const char *name,
                                                           binary_index_t TargetIdx) {
+  ip_upgradable_lock<ip_upgradable_mutex> u_h2b_lck(this->hash_to_binary_mtx);
+
   {
     binary_index_t BIdx = LookupWithHash(h);
 
@@ -152,7 +152,7 @@ std::pair<binary_index_t, bool> jv_t::AddFromDataWithHash(explorer_t &E,
   //
   // success
   //
-  ip_scoped_lock<ip_mutex> lck(this->binaries_mtx);
+  ip_scoped_lock<ip_mutex> e_lck(this->binaries_mtx);
 
   const binary_index_t BIdx = HasTargetIdx ? TargetIdx : Binaries.size();
 
@@ -164,7 +164,7 @@ std::pair<binary_index_t, bool> jv_t::AddFromDataWithHash(explorer_t &E,
   b.Hash = h;
 
   {
-    ip_scoped_lock<ip_mutex> lck(this->hash_to_binary_mtx);
+    ip_scoped_lock<ip_upgradable_mutex> e_h2b_lck(boost::move(u_h2b_lck));
 
     this->hash_to_binary.insert(std::make_pair(h, BIdx));
   }
@@ -172,7 +172,7 @@ std::pair<binary_index_t, bool> jv_t::AddFromDataWithHash(explorer_t &E,
   if (name) {
     to_ips(b.Name, name);
 
-    ip_scoped_lock<ip_mutex> lck(this->name_to_binaries_mtx);
+    ip_scoped_lock<ip_sharable_mutex> n2b_e_lck(this->name_to_binaries_mtx);
 
     auto it = this->name_to_binaries.find(b.Name);
     if (it == this->name_to_binaries.end()) {
@@ -189,22 +189,25 @@ std::pair<binary_index_t, bool> jv_t::AddFromDataWithHash(explorer_t &E,
 
 void jv_t::clear(bool everything) {
   {
-    ip_scoped_lock<ip_mutex> lck(this->name_to_binaries_mtx);
+    ip_scoped_lock<ip_sharable_mutex> e_lck(this->name_to_binaries_mtx);
+
     name_to_binaries.clear();
   }
 
   {
-    ip_scoped_lock<ip_mutex> lck(this->hash_to_binary_mtx);
+    ip_scoped_lock<ip_upgradable_mutex> e_lck(this->hash_to_binary_mtx);
+
     hash_to_binary.clear();
   }
 
   {
-    ip_scoped_lock<ip_mutex> lck(this->binaries_mtx);
+    ip_scoped_lock<ip_mutex> e_lck(this->binaries_mtx);
+
     Binaries.clear();
   }
 
   if (everything) {
-    ip_scoped_lock<ip_mutex> lck(this->cached_hashes_mtx);
+    ip_scoped_lock<ip_mutex> e_lck(this->cached_hashes_mtx);
 
     cached_hashes.clear();
   }
