@@ -423,7 +423,10 @@ public:
   void place_breakpoints_in_block(binary_t &b, basic_block_t bb);
   void place_breakpoint(pid_t, uintptr_t Addr, breakpoint_t &);
   void on_breakpoint(pid_t);
-  void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr);
+  void on_return(pid_t child,
+                 binary_index_t RetBIdx,
+                 uintptr_t AddrOfRet,
+                 uintptr_t RetAddr);
 
   void harvest_reloc_targets(pid_t);
   void rendezvous_with_dynamic_linker(pid_t);
@@ -1305,7 +1308,7 @@ int BootstrapTool::TracerLoop(pid_t child) {
 
               sig = 0; /* suppress */
 
-              on_return(child, 0 /* XXX */, RetAddr);
+              on_return(child, invalid_binary_index, 0 /* XXX */, RetAddr);
             }
           }
 #endif
@@ -2626,7 +2629,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
     //llvm::errs() << "<RET>\n";
       try {
-        on_return(child, AddrOfRet, RetAddr);
+        on_return(child, ret.BIdx, AddrOfRet, RetAddr);
       } catch (const std::exception &e) {
         HumanOut() << llvm::formatv("{0} failed: {1}\n", __func__, e.what());
       }
@@ -4551,12 +4554,14 @@ void BootstrapTool::rendezvous_with_dynamic_linker(pid_t child) {
 }
 
 void BootstrapTool::on_return(pid_t child,
+                              binary_index_t RetBIdx,
                               uintptr_t AddrOfRet,
                               uintptr_t RetAddr) {
   if (unlikely(!opts.Quiet && !ShowMeN && ShowMeA))
     HumanOut() << llvm::formatv(__ANSI_YELLOW "(ret) {0} <-- {1}" __ANSI_NORMAL_COLOR "\n",
                                   description_of_program_counter(RetAddr),
                                   description_of_program_counter(AddrOfRet));
+
   //
   // examine AddrOfRet
   //
@@ -4566,6 +4571,12 @@ void BootstrapTool::on_return(pid_t child,
 
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
     pc &= ~1UL;
+#endif
+
+    binary_t &b = jv.Binaries.at(RetBIdx);
+
+#ifdef BOOTSTRAP_MULTI_THREADED
+    ip_sharable_lock<ip_upgradable_mutex> s_lck(b.bbmap_mtx);
 #endif
 
     binary_index_t BIdx;
@@ -4578,11 +4589,7 @@ void BootstrapTool::on_return(pid_t child,
       return;
     }
 
-    binary_t &b = jv.Binaries.at(BIdx);
-
-#ifdef BOOTSTRAP_MULTI_THREADED
-    ip_scoped_lock<ip_upgradable_mutex> e_lck(b.bbmap_mtx);
-#endif
+    assert(BIdx == RetBIdx);
 
     auto &ICFG = b.Analysis.ICFG;
     basic_block_t bb = basic_block_of_index(BBIdx, ICFG);
@@ -4599,10 +4606,17 @@ void BootstrapTool::on_return(pid_t child,
   //
   if (RetAddr)
   {
+    binary_index_t ToBIdx = binary_at_program_counter(child, RetAddr);
+    binary_t &to_b = jv.Binaries.at(ToBIdx);
+
     uintptr_t pc = RetAddr;
 
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
     pc &= ~1UL;
+#endif
+
+#ifdef BOOTSTRAP_MULTI_THREADED
+    ip_upgradable_lock<ip_upgradable_mutex> u_lck(to_b.bbmap_mtx);
 #endif
 
     binary_index_t BIdx;
@@ -4620,7 +4634,8 @@ void BootstrapTool::on_return(pid_t child,
 
     binary_index_t Before_BIdx;
     basic_block_index_t Before_BBIdx;
-    std::tie(Before_BIdx, Before_BBIdx) = existing_block_at_program_counter(child, before_pc);
+    std::tie(Before_BIdx, Before_BBIdx) =
+        existing_block_at_program_counter(child, before_pc);
 
     if (unlikely(!is_basic_block_index_valid(Before_BBIdx))) {
       if (IsVerbose())
@@ -4638,11 +4653,6 @@ void BootstrapTool::on_return(pid_t child,
     }
 
     binary_t &b = jv.Binaries.at(BIdx);
-
-  {
-#ifdef BOOTSTRAP_MULTI_THREADED
-    ip_upgradable_lock<ip_upgradable_mutex> u_lck(b.bbmap_mtx);
-#endif
 
     auto &ICFG = b.Analysis.ICFG;
     basic_block_t before_bb = basic_block_of_index(Before_BBIdx, ICFG);
@@ -4662,9 +4672,6 @@ void BootstrapTool::on_return(pid_t child,
 
     assert(boost::out_degree(before_bb, ICFG) <= 1);
 
-#ifdef BOOTSTRAP_MULTI_THREADED
-  ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
-#endif
     if (isCall) {
       before_Term._call.Returns = true; /* witnessed */
 
@@ -4677,11 +4684,12 @@ void BootstrapTool::on_return(pid_t child,
     }
 
     basic_block_t bb = basic_block_of_index(BBIdx, ICFG);
+
+#ifdef BOOTSTRAP_MULTI_THREADED
+    ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
+#endif
+
     boost::add_edge(before_bb, bb, ICFG); /* connect */
-
-    assert(boost::out_degree(before_bb, ICFG) <= 1);
-
-  }
   }
 }
 
