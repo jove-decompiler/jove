@@ -359,10 +359,10 @@ static inline bool IsExitBlock(const icfg_t &ICFG, basic_block_t bb) {
 }
 
 struct function_t {
-  binary_index_t Idx;
-  binary_index_t BIdx;
+  function_index_t Idx = invalid_function_index;
+  binary_index_t BIdx = invalid_binary_index;
 
-  basic_block_index_t Entry;
+  basic_block_index_t Entry = invalid_basic_block_index;
 
   struct {
     tcg_global_set_t args;
@@ -376,6 +376,11 @@ struct function_t {
   void InvalidateAnalysis(void) {
     this->Analysis.Stale = true;
   }
+
+  function_t(function_index_t Idx, binary_index_t BIdx)
+      : Idx(Idx), BIdx(BIdx) {}
+
+  function_t() = default;
 };
 
 typedef boost::interprocess::interprocess_mutex ip_mutex;
@@ -404,7 +409,7 @@ typedef boost::interprocess::deque<function_t, function_allocator>
       name
 
 struct binary_t {
-  binary_index_t Idx;
+  binary_index_t Idx = invalid_binary_index;
 
   bbbmap_t bbbmap;
 
@@ -690,7 +695,7 @@ struct terminator_info_t {
   TERMINATOR Type;
   uint64_t Addr;
 
-  union {
+  struct {
     struct {
       uint64_t Target;
     } _unconditional_jump;
@@ -1477,12 +1482,24 @@ struct jv_bin_fn_state_t {
     return stuff.at(index_of_binary(binary, jv)).first;
   }
 
-  FunctionStateTy &for_function(const function_t &function) {
-    binary_index_t BIdx = binary_index_of_function(function, jv);
+  FunctionStateTy &for_function(function_t &f) {
+    binary_index_t BIdx = binary_index_of_function(f, jv);
     std::vector<FunctionStateTy> &function_state_vec = stuff.at(BIdx).second;
 
-    const binary_t &binary = jv.Binaries.at(BIdx);
-    function_index_t FIdx = index_of_function_in_binary(function, binary);
+    const binary_t &b = jv.Binaries.at(BIdx);
+    function_index_t FIdx = index_of_function_in_binary(f, b);
+
+    return function_state_vec.at(FIdx);
+  }
+
+  FunctionStateTy &for_function(binary_index_t BIdx, function_index_t FIdx) {
+    if (unlikely(BIdx >= stuff.size()))
+      stuff.resize(BIdx + 1);
+
+    std::vector<FunctionStateTy> &function_state_vec = stuff.at(BIdx).second;
+
+    if (unlikely(FIdx >= function_state_vec.size()))
+      function_state_vec.resize(FIdx + 1);
 
     return function_state_vec.at(FIdx);
   }

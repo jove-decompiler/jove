@@ -53,6 +53,10 @@ static constexpr bool IsI386 =
 
 #include <array>
 #include <cinttypes>
+#include <mutex>
+#include <condition_variable>
+
+#include <tbb/task_group.h>
 
 #include <asm/auxvec.h>
 #include <asm/unistd.h>
@@ -85,6 +89,7 @@ static constexpr bool IsI386 =
 #define GET_REGINFO_ENUM
 #include "LLVMGenRegisterInfo.hpp"
 
+#define BOOTSTRAP_MULTI_THREADED
 //#define JOVE_HAVE_MEMFD
 
 namespace fs = boost::filesystem;
@@ -98,6 +103,8 @@ namespace jove {
 namespace {
 
 struct binary_state_t {
+  basic_block_vec_t bbvec;
+
   uintptr_t LoadAddr = std::numeric_limits<uintptr_t>::max();
   uintptr_t LoadOffset = std::numeric_limits<uintptr_t>::max();
 
@@ -114,6 +121,10 @@ struct binary_state_t {
     DynRegionInfo DynRelrRegion;
     DynRegionInfo DynPLTRelRegion;
   } _elf;
+};
+
+struct function_state_t {
+  basic_block_vec_t bbvec;
 };
 
 }
@@ -195,7 +206,7 @@ struct child_syscall_state_t {
   child_syscall_state_t() : dir(0), pc(0) {}
 };
 
-struct BootstrapTool : public TransformerTool_Bin<binary_state_t> {
+struct BootstrapTool : public TransformerTool_BinFn<binary_state_t, function_state_t> {
   struct Cmdline {
     cl::opt<std::string> Prog;
     cl::list<std::string> Args;
@@ -378,7 +389,13 @@ struct BootstrapTool : public TransformerTool_Bin<binary_state_t> {
   }
 
 public:
-  BootstrapTool() : opts(JoveCategory), bb_brk_lckfree_q(8) {}
+  BootstrapTool()
+      : opts(JoveCategory)
+#ifdef BOOTSTRAP_MULTI_THREADED
+        ,
+        bb_brk_lckfree_q(8)
+#endif
+  {}
 
   int Run(void) override;
 
@@ -391,6 +408,7 @@ public:
                                 const char *name = nullptr);
 
   void on_new_basic_block(binary_t &, basic_block_t);
+  void on_new_function(binary_t &, function_t &);
 
   void place_breakpoint_at_indirect_branch(pid_t, uintptr_t Addr,
                                            indirect_branch_t &);
@@ -434,13 +452,28 @@ public:
   std::string description_of_program_counter(uintptr_t, bool Verbose = false);
   std::string StringOfMCInst(llvm::MCInst &);
 
+  basic_block_vec_t &basic_blocks_for_function(binary_index_t BIdx,
+                                               function_index_t FIdx);
+
   pid_t saved_child;
   std::atomic<bool> ToggleTurbo = false;
 
   static_assert(sizeof(binary_index_t) + sizeof(basic_block_index_t) == 8);
 
+#ifdef BOOTSTRAP_MULTI_THREADED
   boost::lockfree::queue<uint64_t, boost::lockfree::fixed_sized<false>>
       bb_brk_lckfree_q;
+  //std::mutex q_mtx;
+
+  struct {
+    std::mutex mtx;
+    std::condition_variable cv;
+
+    std::atomic<bool> done = false;
+  } _bb_brk;
+#else
+  std::vector<std::pair<binary_index_t, basic_block_index_t>> bb_brk_vec;
+#endif
 
   bool DidAttach(void) {
     return opts.PID != 0;
@@ -739,6 +772,9 @@ int BootstrapTool::TracerLoop(pid_t child) {
   E = std::make_unique<explorer_t>(jv, *disas, *tcg, IsVeryVerbose(),
                                    std::bind(&BootstrapTool::on_new_basic_block,
                                              this, std::placeholders::_1,
+                                             std::placeholders::_2),
+                                   std::bind(&BootstrapTool::on_new_function,
+                                             this, std::placeholders::_1,
                                              std::placeholders::_2));
 
   siginfo_t si;
@@ -802,7 +838,7 @@ int BootstrapTool::TracerLoop(pid_t child) {
             cpu_state_t cpu_state;
             _ptrace_get_cpu_state(child, cpu_state);
 
-            if (IsVeryVerbose())
+            if (IsVerbose())
               HumanOut() << llvm::formatv(
                   "first ptrace-stop @ {0}\n",
                   description_of_program_counter(pc_of_cpu_state(cpu_state), true));
@@ -813,6 +849,8 @@ int BootstrapTool::TracerLoop(pid_t child) {
               HumanOut() << llvm::formatv(
                   "failed to translate block at first ptrace-stop @ {0}\n",
                   description_of_program_counter(pc_of_cpu_state(cpu_state), true));
+
+            ScanAddressSpace(saved_child);
           }
 
           //
@@ -1216,11 +1254,15 @@ int BootstrapTool::TracerLoop(pid_t child) {
             } catch (const boost::interprocess::bad_alloc &) {
               HumanOut() << "jv_t memory exhausted\n";
               return 1;
+#if 0
             } catch (const std::exception &e) {
               /* TODO rate-limit */
               HumanOut() << llvm::formatv(
                   "{0}: on_breakpoint failed: {1}\n", __func__, e.what());
             }
+#else
+            }
+#endif
           }
         } else if (::ptrace(PTRACE_GETSIGINFO, child, 0UL, &si) < 0) {
           //
@@ -1354,34 +1396,141 @@ int BootstrapTool::TracerLoop(pid_t child) {
 }
 
 void BootstrapTool::on_new_basic_block(binary_t &b, basic_block_t bb) {
-  uint64_t x = static_cast<uint64_t>(index_of_binary(b, jv)) << 32 |
-               static_cast<uint64_t>(index_of_basic_block(b.Analysis.ICFG, bb));
+#ifdef BOOTSTRAP_MULTI_THREADED
+  //std::atomic_thread_fence(std::memory_order_release);
+
+  binary_index_t BIdx = index_of_binary(b, jv);
+  basic_block_t BBIdx = index_of_basic_block(b.Analysis.ICFG, bb);
+
+  uint64_t x = (static_cast<uint64_t>(BIdx) << 32) |
+                static_cast<uint64_t>(BBIdx);
+
+  {
+  //std::lock_guard<std::mutex> lck(q_mtx);
 
   bool success = bb_brk_lckfree_q.push(x);
   assert(success);
+  }
+
+  {
+    std::lock_guard<std::mutex> lock(_bb_brk.mtx);
+    _bb_brk.cv.notify_all();
+  }
+#else
+  auto &ICFG = b.Analysis.ICFG;
+
+#if 0
+  auto &bbprop = ICFG[bb];
+
+  if (bbprop.Term.Addr)
+    llvm::errs() << llvm::formatv(
+        "{0} @ {1}\t\t\t\t\t{2}\n",
+        string_of_terminator(bbprop.Term.Type),
+        taddr2str(bbprop.Term.Addr, false),
+        b.Name.c_str());
+
+  if (IsVeryVerbose())
+    llvm::errs() << llvm::formatv(
+        "NEWBB [{0}, {1})\t\t\t\t\t{2}\n",
+        taddr2str(ICFG[bb].Addr, false),
+        taddr2str(ICFG[bb].Addr + ICFG[bb].Size, false),
+        b.Name.c_str());
+#endif
+
+  bb_brk_vec.emplace_back(index_of_binary(b, jv),
+                          index_of_basic_block(ICFG, bb));
+#endif
+}
+
+void BootstrapTool::on_new_function(binary_t &b, function_t &f) {
+  state.update();
+}
+
+basic_block_vec_t &
+BootstrapTool::basic_blocks_for_function(binary_index_t BIdx,
+                                         function_index_t FIdx) {
+  function_state_t &x = state.for_function(BIdx, FIdx);
+
+  if (!x.bbvec.empty())
+    return x.bbvec;
+
+  binary_t &b = jv.Binaries.at(BIdx);
+
+  ip_sharable_lock<ip_upgradable_mutex> s_lck(b.bbmap_mtx);
+
+  basic_blocks_of_function(b.Analysis.Functions.at(FIdx), b, x.bbvec);
+
+  return x.bbvec;
 }
 
 void BootstrapTool::place_breakpoints_in_new_blocks(void) {
-  uint64_t x;
-  while (bb_brk_lckfree_q.pop(x)) {
-    binary_index_t      BIdx  = static_cast<binary_index_t>(x >> 32);
+#ifdef BOOTSTRAP_MULTI_THREADED
+  auto do_place = [&](uint64_t x) -> void {
+    binary_index_t BIdx = static_cast<binary_index_t>(x >> 32);
     basic_block_index_t BBIdx = static_cast<basic_block_index_t>(x);
+
+    assert(BIdx < jv.Binaries.size());
+
+    binary_t &b = jv.Binaries.at(BIdx);
+    basic_block_t bb = basic_block_of_index(BBIdx, b.Analysis.ICFG);
+
+    place_breakpoints_in_block(b, bb);
+  };
+
+  uint64_t x;
+  bool have = false;
+  while (true) {
+    have = bb_brk_lckfree_q.pop(x);
+    if (have) {
+      do_place(x);
+      continue;
+    }
+
+    if (_bb_brk.done.load())
+      break;
+
+    std::unique_lock<std::mutex> lock(_bb_brk.mtx);
+
+    _bb_brk.cv.wait_for(lock, std::chrono::seconds(1),
+                        [&] { return _bb_brk.done.load(); });
+  }
+#else
+  while (!bb_brk_vec.empty()) {
+    binary_index_t BIdx;
+    basic_block_index_t BBIdx;
+
+    std::tie(BIdx, BBIdx) = bb_brk_vec.back();
+    bb_brk_vec.resize(bb_brk_vec.size() - 1);
 
     binary_t &b = jv.Binaries.at(BIdx);
     basic_block_t bb = basic_block_of_index(BBIdx, b.Analysis.ICFG);
 
     place_breakpoints_in_block(b, bb);
   }
+#endif
 }
 
 void BootstrapTool::place_breakpoints_in_block(binary_t &b, basic_block_t bb) {
+#ifdef BOOTSTRAP_MULTI_THREADED
+  ip_sharable_lock<ip_upgradable_mutex> s_lck(b.bbmap_mtx);
+#endif
+
+  auto &ICFG = b.Analysis.ICFG;
+
   const binary_index_t BIdx = index_of_binary(b, jv);
+  const basic_block_index_t BBIdx = index_of_basic_block(ICFG, bb);
 
   assert(BIdx < BinFoundVec.size());
   assert(BinFoundVec.at(BIdx));
 
-  auto &ICFG = b.Analysis.ICFG;
   const basic_block_properties_t &bbprop = ICFG[bb];
+
+#if 0
+  if (IsVeryVerbose())
+    HumanOut() << llvm::formatv("place_breakpoints_in_block: {0}/{1} {2}\n",
+                                BIdx, BBIdx,
+                                string_of_terminator(bbprop.Term.Type));
+#endif
 
   //
   // if it's an indirect branch, we need to (1) add it to the indirect branch
@@ -1390,6 +1539,14 @@ void BootstrapTool::place_breakpoints_in_block(binary_t &b, basic_block_t bb) {
   if (bbprop.Term.Type == TERMINATOR::INDIRECT_CALL ||
       bbprop.Term.Type == TERMINATOR::INDIRECT_JUMP) {
     uintptr_t termpc = va_of_rva(bbprop.Term.Addr, BIdx);
+
+#if 0
+    if (IsVeryVerbose())
+      llvm::errs() << llvm::formatv("IndBr2 {0} {1}\tTERM @ {2}\n",
+                                    description_of_program_counter(termpc),
+                                    taddr2str(bbprop.Addr, false),
+                                    taddr2str(bbprop.Term.Addr, false));
+#endif
 
     assert(IndBrMap.find(termpc) == IndBrMap.end());
 
@@ -1436,6 +1593,11 @@ void BootstrapTool::place_breakpoints_in_block(binary_t &b, basic_block_t bb) {
 #endif
 
     try {
+#if 0
+      if (IsVeryVerbose())
+        HumanOut() << llvm::formatv("placing2 @ {0}\n",
+                                    description_of_program_counter(termpc));
+#endif
       place_breakpoint_at_indirect_branch(_child, termpc, indbr);
     } catch (const std::exception &e) {
       HumanOut() << llvm::formatv("failed to place breakpoint: {0}\n", e.what());
@@ -1472,9 +1634,9 @@ void BootstrapTool::place_breakpoints_in_block(binary_t &b, basic_block_t bb) {
 
     {
       uint64_t InstLen;
-      bool Disassembled =
-          disas->DisAsm->getInstruction(RetInfo.Inst, InstLen, RetInfo.InsnBytes,
-                                       bbprop.Term.Addr, llvm::nulls());
+      bool Disassembled = disas->DisAsm->getInstruction(
+          RetInfo.Inst, InstLen, RetInfo.InsnBytes, bbprop.Term.Addr,
+          llvm::nulls());
       assert(Disassembled);
     }
 
@@ -1493,6 +1655,12 @@ void BootstrapTool::place_breakpoints_in_block(binary_t &b, basic_block_t bb) {
 #endif
 
     try {
+#if 0
+      if (IsVeryVerbose())
+        HumanOut() << llvm::formatv("rplacing2 @ {0}\n",
+                                    description_of_program_counter(termpc));
+#endif
+
       place_breakpoint_at_return(_child, termpc, RetInfo);
     } catch (const std::exception &e) {
       HumanOut() << llvm::formatv("failed to place breakpoint at return: {0}\n", e.what());
@@ -2439,14 +2607,100 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
         HumanOut() << llvm::formatv("failed to emulate return: {0}\n", e.what());
       }
 
+      const uintptr_t AddrOfRet = saved_pc;
+      const uintptr_t RetAddr = pc;
+
+      struct {
+        std::mutex mtx;
+        std::condition_variable cond;
+      } _do_ret;
+
+  std::atomic<bool> do_ret_ran = false;
+
+    auto do_ret = [&](void) -> void {
+      do_ret_ran.store(true);
+      {
+      std::lock_guard<std::mutex> _lck(_do_ret.mtx);
+      _do_ret.cond.notify_one();
+      }
+
+    //llvm::errs() << "<RET>\n";
       try {
-        on_return(child, saved_pc, pc);
+        on_return(child, AddrOfRet, RetAddr);
       } catch (const std::exception &e) {
         HumanOut() << llvm::formatv("{0} failed: {1}\n", __func__, e.what());
       }
-      return;
+
+#ifdef BOOTSTRAP_MULTI_THREADED
+    //llvm::errs() << "</RET>\n";
+    _bb_brk.done.store(true);
+
+    {
+      std::lock_guard<std::mutex> lock(_bb_brk.mtx);
+    _bb_brk.cv.notify_all(); // work is done
     }
+#endif
+    return;
+    };
+
+#ifdef BOOTSTRAP_MULTI_THREADED
+  {
+  //std::lock_guard<std::mutex> lck(q_mtx);
+    uint64_t x;
+    assert(!bb_brk_lckfree_q.pop(x));
   }
+
+  assert(!_bb_brk.done.load());
+  {
+    std::unique_ptr<tbb::task_group> tg;
+
+    bool timed_out = false;
+    do {
+      if (tg)
+        tg->wait();
+    tg = std::make_unique<tbb::task_group>();
+
+    {
+      std::unique_lock<std::mutex> _lck(_do_ret.mtx);
+
+    //llvm::errs() << "<THE_RET>\n";
+  tg->run(do_ret);
+    //llvm::errs() << "</THE_RET>\n";
+      timed_out = _do_ret.cond.wait_for(_lck, std::chrono::seconds(1)) == std::cv_status::timeout;
+
+      }
+    } while (timed_out);
+
+  assert(do_ret_ran.load());
+
+  // Main thread will act as the consumer
+  place_breakpoints_in_new_blocks();
+
+  tg->wait();
+  }
+
+  assert(_bb_brk.done.load());
+  _bb_brk.done.store(false);
+  {
+  //std::lock_guard<std::mutex> lck(q_mtx);
+    uint64_t x;
+    assert(!bb_brk_lckfree_q.pop(x));
+  }
+#else
+  struct PlaceNewBreakpoints {
+    BootstrapTool &tool;
+
+    PlaceNewBreakpoints(BootstrapTool &tool) : tool(tool) {}
+    ~PlaceNewBreakpoints() { tool.place_breakpoints_in_new_blocks(); }
+  } __PlaceNewBreakpoints(*this);
+
+  do_ret();
+#endif
+
+      return;
+  }
+  }
+
 
   //
   // is it a one-shot breakpoint?
@@ -2459,7 +2713,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
       if (IsVerbose())
         HumanOut() << llvm::formatv("one-shot breakpoint hit @ {0}\n",
-                                      description_of_program_counter(saved_pc));
+                                    description_of_program_counter(saved_pc));
 
       try {
         _ptrace_pokedata(child, saved_pc, brk.words[0]);
@@ -2486,7 +2740,24 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
   indirect_branch_t &IndBrInfo = indirect_branch_of_address(saved_pc);
   binary_t &binary = jv.Binaries[IndBrInfo.BIdx];
   auto &ICFG = binary.Analysis.ICFG;
-  basic_block_t bb = basic_block_at_address(IndBrInfo.TermAddr, binary);
+  bool IsLj = false;
+  unsigned out_deg;
+  bool HasDynTarget = false;
+  const TERMINATOR TermType = ({
+#ifdef BOOTSTRAP_MULTI_THREADED
+    ip_sharable_lock<ip_upgradable_mutex> s_lck(binary.bbmap_mtx);
+#endif
+
+    basic_block_t bb = basic_block_at_address(IndBrInfo.TermAddr, binary);
+    out_deg = boost::out_degree(bb, ICFG);
+
+    const basic_block_properties_t &bbprop = ICFG[bb];
+
+    HasDynTarget = bbprop.hasDynTarget();
+    IsLj = bbprop.Term._indirect_jump.IsLj;
+
+    bbprop.Term.Type;
+  });
 
   llvm::MCInst &Inst = IndBrInfo.Inst;
 
@@ -2688,7 +2959,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
   // if the instruction is a call, we need to emulate whatever happens to the
   // return address
   //
-  if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL) {
+  if (TermType == TERMINATOR::INDIRECT_CALL) {
 #if defined(__x86_64__)
     gpr.rsp -= sizeof(uintptr_t);
     _ptrace_pokedata(child, gpr.rsp, pc);
@@ -2753,24 +3024,49 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
     return;
   }
 
+  assert(BinFoundVec.at(Target.BIdx)); /* XXX this is important */
+
   //
   // update the jv based on the target
   //
-  binary_t &TargetBinary = jv.Binaries[Target.BIdx];
+  binary_t &TargetBinary = jv.Binaries.at(Target.BIdx);
+  icfg_t &TargetICFG = TargetBinary.Analysis.ICFG;
 
   struct {
     bool IsGoto = false;
   } ControlFlow;
 
+#ifndef BOOTSTRAP_MULTI_THREADED
   struct PlaceNewBreakpoints {
     BootstrapTool &tool;
 
     PlaceNewBreakpoints(BootstrapTool &tool) : tool(tool) {}
     ~PlaceNewBreakpoints() { tool.place_breakpoints_in_new_blocks(); }
   } __PlaceNewBreakpoints(*this);
+#endif
+
+  struct {
+    std::mutex mtx;
+    std::condition_variable cond;
+  } _producer;
+
+  std::atomic<bool> producer_ran = false;
+
+  state.update();
+  auto producer = [&](void) -> void {
+    producer_ran.store(true);
+      {
+      std::lock_guard<std::mutex> _lck(_producer.mtx);
+      _producer.cond.notify_one();
+      }
+
+    //llvm::errs() << "<PRODUCER>\n";
+#if 0
+    llvm::errs() << "<producer> " << TargetBinary.Analysis.Functions.size() << ',' << binary.Analysis.Functions.size() << '\n';
+#endif
 
   try {
-    if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL) {
+    if (TermType == TERMINATOR::INDIRECT_CALL) {
       function_index_t FIdx =
           E->explore_function(TargetBinary,
                              *state.for_binary(TargetBinary).ObjectFile,
@@ -2778,15 +3074,28 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
       assert(is_function_index_valid(FIdx));
 
-      Target.isNew = ICFG[bb].insertDynTarget({Target.BIdx, FIdx}, Alloc);
+#ifdef BOOTSTRAP_MULTI_THREADED
+  {
+  ip_upgradable_lock<ip_upgradable_mutex> u_lck(binary.bbmap_mtx);
+#endif
 
-      /* term bb may been split */
-      bb = basic_block_at_address(IndBrInfo.TermAddr, binary);
-      assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL);
+      basic_block_t bb = basic_block_at_address(IndBrInfo.TermAddr, binary);
+      basic_block_properties_t &bbprop = ICFG[bb];
 
+      assert(bbprop.Term.Type == TERMINATOR::INDIRECT_CALL);
+
+#ifdef BOOTSTRAP_MULTI_THREADED
+  ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
+      Target.isNew = bbprop.insertDynTarget({Target.BIdx, FIdx}, Alloc);
+
+    out_deg = boost::out_degree(bb, ICFG);
+  }
+#endif
+
+#if 1
       if (Target.isNew &&
-          boost::out_degree(bb, ICFG) == 0 &&
-          does_function_return(TargetBinary.Analysis.Functions[FIdx], TargetBinary)) {
+          out_deg == 0 &&
+          ({does_function_return_fast(TargetICFG, basic_blocks_for_function(Target.BIdx, FIdx)); })) {
         //
         // this call instruction will return, so explore the return block
         //
@@ -2796,16 +3105,22 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
         assert(is_basic_block_index_valid(NextBBIdx));
 
-        /* term bb may been split */
-        bb = basic_block_at_address(IndBrInfo.TermAddr, binary);
-        assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL);
+  {
+  ip_upgradable_lock<ip_upgradable_mutex> u_lck(binary.bbmap_mtx);
+        basic_block_t bb = basic_block_at_address(IndBrInfo.TermAddr, binary);
+        const basic_block_properties_t &bbprop = ICFG[bb];
 
+        assert(bbprop.Term.Type == TERMINATOR::INDIRECT_CALL);
+
+  ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
         boost::add_edge(bb, basic_block_of_index(NextBBIdx, ICFG), ICFG);
+  }
       }
+#endif
     } else {
-      assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP);
+      assert(TermType == TERMINATOR::INDIRECT_JUMP);
 
-      if (unlikely(ICFG[bb].Term._indirect_jump.IsLj)) {
+      if (unlikely(IsLj)) {
         //
         // non-local goto (aka "long jump")
         //
@@ -2824,10 +3139,10 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
         // (2) transfers control to a function (i.e. calling a function pointer)
         //
         bool isTailCall =
-            IsDefinitelyTailCall(ICFG, bb) ||
+            HasDynTarget /* IsDefinitelyTailCall(ICFG, bb) */ ||
             IndBrInfo.BIdx != Target.BIdx ||
-            (boost::out_degree(bb, ICFG) == 0 &&
-	     exists_function_at_address(TargetBinary, rva_of_va(Target.Addr, Target.BIdx)));
+            (out_deg == 0 &&
+             exists_function_at_address(TargetBinary, rva_of_va(Target.Addr, Target.BIdx)));
 
         if (isTailCall) {
           function_index_t FIdx =
@@ -2836,26 +3151,46 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
           assert(is_function_index_valid(FIdx));
 
-          /* term bb may been split */
-          bb = basic_block_at_address(IndBrInfo.TermAddr, binary);
-          assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP);
+  Target.isNew = ({
+#ifdef BOOTSTRAP_MULTI_THREADED
+  ip_upgradable_lock<ip_upgradable_mutex> u_lck(binary.bbmap_mtx);
+#endif
+          basic_block_t bb = basic_block_at_address(IndBrInfo.TermAddr, binary);
+          basic_block_properties_t &bbprop = ICFG[bb];
 
-          Target.isNew = ICFG[bb].insertDynTarget({Target.BIdx, FIdx}, Alloc);
+          assert(bbprop.Term.Type == TERMINATOR::INDIRECT_JUMP);
+
+#ifdef BOOTSTRAP_MULTI_THREADED
+  ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
+#endif
+          bbprop.insertDynTarget({Target.BIdx, FIdx}, Alloc);
+  });
         } else {
-          basic_block_index_t TargetBBIdx =
+          const basic_block_index_t TargetBBIdx =
               E->explore_basic_block(TargetBinary, *state.for_binary(TargetBinary).ObjectFile,
                                     rva_of_va(Target.Addr, Target.BIdx));
 
           assert(is_basic_block_index_valid(TargetBBIdx));
           basic_block_t TargetBB = basic_block_of_index(TargetBBIdx, ICFG);
 
-          /* term bb may been split */
-          bb = basic_block_at_address(IndBrInfo.TermAddr, binary);
-          assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP);
+  {
+#ifdef BOOTSTRAP_MULTI_THREADED
+  ip_upgradable_lock<ip_upgradable_mutex> u_lck(binary.bbmap_mtx);
+#endif
 
+          basic_block_t bb = basic_block_at_address(IndBrInfo.TermAddr, binary);
+          basic_block_properties_t &bbprop = ICFG[bb];
+
+          assert(bbprop.Term.Type == TERMINATOR::INDIRECT_JUMP);
+
+#ifdef BOOTSTRAP_MULTI_THREADED
+  ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
+#endif
           Target.isNew = boost::add_edge(bb, TargetBB, ICFG).second;
+
           if (Target.isNew)
-            ICFG[bb].InvalidateAnalysis();
+            bbprop.InvalidateAnalysis();
+  }
 
           ControlFlow.IsGoto = true;
         }
@@ -2864,19 +3199,88 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
     if (unlikely(!opts.Quiet && !ShowMeN && (ShowMeA || (ShowMeS && Target.isNew))))
       HumanOut() << llvm::formatv("{3}({0}) {1} -> {2}" __ANSI_NORMAL_COLOR "\n",
-                                  ControlFlow.IsGoto ? (ICFG[bb].Term._indirect_jump.IsLj ? "longjmp" : "goto") : "call",
+                                  ControlFlow.IsGoto ? (IsLj ? "longjmp" : "goto") : "call",
                                   description_of_program_counter(saved_pc),
                                   description_of_program_counter(Target.Addr),
-                                  ControlFlow.IsGoto ? (ICFG[bb].Term._indirect_jump.IsLj ? __ANSI_MAGENTA : __ANSI_GREEN) : __ANSI_CYAN);
-  } catch (const std::exception &e) { /* _jove_g2h probably threw an exception */
+                                  ControlFlow.IsGoto ? (IsLj ? __ANSI_MAGENTA : __ANSI_GREEN) : __ANSI_CYAN);
+  } catch (const g2h_exception &e) {
+    const std::string what = "_jove_g2h() failed [" + taddr2str(e.pc) + "]";
+
     HumanOut() << llvm::formatv(
         "on_breakpoint failed: {0} [target: {1}+{2:x} ({3:x}) binary.LoadAddr: {4:x}]\n",
-        e.what(), fs::path(TargetBinary.path_str()).filename().string(),
+        what, fs::path(TargetBinary.path_str()).filename().string(),
         rva_of_va(Target.Addr, Target.BIdx), Target.Addr,
         state.for_binary(TargetBinary).LoadAddr);
 
-    HumanOut() << ProcMapsForPid(child);
+    if (IsVerbose())
+      HumanOut() << ProcMapsForPid(child);
   }
+#if 0
+    llvm::errs() << "</producer> " << TargetBinary.Analysis.Functions.size() << '\n';
+#endif
+
+
+#ifdef BOOTSTRAP_MULTI_THREADED
+    //llvm::errs() << "</PRODUCER>\n";
+    _bb_brk.done.store(true);
+
+    {
+      std::lock_guard<std::mutex> lock(_bb_brk.mtx);
+    _bb_brk.cv.notify_all(); // work is done
+    }
+#endif
+    return;
+  };
+
+#ifdef BOOTSTRAP_MULTI_THREADED
+  {
+  //std::lock_guard<std::mutex> lck(q_mtx);
+    uint64_t x;
+    assert(!bb_brk_lckfree_q.pop(x));
+  }
+  assert(!_bb_brk.done.load());
+
+  {
+    std::unique_ptr<tbb::task_group> tg;
+
+
+    bool timed_out = false;
+    do {
+      if (tg)
+        tg->wait();
+    tg = std::make_unique<tbb::task_group>();
+
+      {
+      std::unique_lock<std::mutex> _lck(_producer.mtx);
+
+  // Run the producer in a separate task
+    //llvm::errs() << "<THE_PRODUCER>\n";
+  tg->run(producer);
+    //llvm::errs() << "</THE_PRODUCER>\n";
+
+    timed_out = _producer.cond.wait_for(_lck, std::chrono::seconds(1)) == std::cv_status::timeout;
+      }
+    } while (timed_out);
+
+
+  assert(producer_ran.load());
+
+  // Main thread will act as the consumer
+  place_breakpoints_in_new_blocks();
+
+  tg->wait(); // Wait for the producer task to complete
+  }
+
+  assert(_bb_brk.done.load());
+  _bb_brk.done.store(false);
+  {
+  //std::lock_guard<std::mutex> lck(q_mtx);
+    uint64_t x;
+    assert(!bb_brk_lckfree_q.pop(x));
+  }
+#else
+  producer();
+#endif
 }
 
 #include "relocs_common.hpp"
@@ -2914,7 +3318,7 @@ void BootstrapTool::harvest_irelative_reloc_targets(pid_t child) {
 
     std::tie(Resolved.BIdx, Resolved.FIdx) = function_at_program_counter(child, Resolved.Addr);
 
-    if (IsVerbose())
+    if (IsVeryVerbose())
       HumanOut() << llvm::formatv("IFunc dyn target: {0:x} [R.Offset={1:x}]\n",
                                   rva_of_va(Resolved.Addr, Resolved.BIdx),
                                   R.Offset);
@@ -3273,7 +3677,7 @@ void BootstrapTool::ScanAddressSpace(pid_t child, bool VMUpdate) {
     if (pm.nm.empty())
       continue;
 
-    if (!pm.x)
+    if (!pm.x) /* XXX this is important, but why? */
       continue;
 
     binary_index_t BIdx = invalid_binary_index;
@@ -3303,7 +3707,7 @@ void BootstrapTool::ScanAddressSpace(pid_t child, bool VMUpdate) {
         continue;
       }
     } else {
-      ignore_exception([&]() { BIdx = BinaryFromPath(child, nm.c_str()); });
+      BIdx = BinaryFromPath(child, nm.c_str());
     }
 
     if (!is_binary_index_valid(BIdx))
@@ -3319,9 +3723,6 @@ void BootstrapTool::ScanAddressSpace(pid_t child, bool VMUpdate) {
     if (updateVariable(state.for_binary(b).LoadAddr,
                        std::min(state.for_binary(b).LoadAddr, pm.beg)))
       state.for_binary(b).LoadOffset = pm.off;
-
-    if (!pm.x)
-      continue;
 
     if (!BinFoundVec.test(BIdx)) {
       BinFoundVec.set(BIdx);
@@ -3418,6 +3819,15 @@ void BootstrapTool::on_binary_loaded(pid_t child,
 
     assert(IndBrMap.find(Addr) == IndBrMap.end());
 
+#if 0
+    if (IsVeryVerbose())
+      llvm::errs() << llvm::formatv(
+          "IndBr1 {0} {1}\tTERM @ {2}\n",
+          description_of_program_counter(Addr),
+          taddr2str(bbprop.Addr, false),
+          taddr2str(bbprop.Term.Addr, false));
+#endif
+
     indirect_branch_t &IndBrInfo = IndBrMap[Addr];
     IndBrInfo.IsCall = bbprop.Term.Type == TERMINATOR::INDIRECT_CALL;
     IndBrInfo.BIdx = BIdx;
@@ -3464,6 +3874,10 @@ void BootstrapTool::on_binary_loaded(pid_t child,
       if (opts.Fast && bbprop.hasDynTarget()) {
         ;
       } else {
+#if 0
+        if (IsVeryVerbose())
+    HumanOut() << llvm::formatv("placing1 @ {0}\n", description_of_program_counter(Addr));
+#endif
         place_breakpoint_at_indirect_branch(child, Addr, IndBrInfo);
       }
     } catch (const std::exception &e) {
@@ -3732,6 +4146,8 @@ int BootstrapTool::ChildProc(int pipefd) {
   std::string exe_path = arg_vec[0];
 #endif
 
+  /* "If the current program is being ptraced, a SIGTRAP signal is sent to it
+   * after a successful execve()" */
   ::execve(exe_path.c_str(),
            const_cast<char **>(&arg_vec[0]),
            const_cast<char **>(&env_vec[0]));
@@ -3973,9 +4389,6 @@ void BootstrapTool::scan_rtld_link_map(pid_t child) {
 }
 
 binary_index_t BootstrapTool::BinaryFromPath(pid_t child, const char *path) {
-  if (IsVeryVerbose())
-    HumanOut() << llvm::formatv("BinaryFromPath: {0}\n", path);
-
   bool IsNew;
   binary_index_t BIdx;
 
@@ -3984,7 +4397,7 @@ binary_index_t BootstrapTool::BinaryFromPath(pid_t child, const char *path) {
     return BIdx;
 
   if (IsVerbose())
-    HumanOut() << llvm::formatv("BinaryFromPath: {0}\n", path);
+    HumanOut() << llvm::formatv("BinaryFromPath({0})\n", path);
 
   on_new_binary(BIdx);
   return BIdx;
@@ -3992,9 +4405,6 @@ binary_index_t BootstrapTool::BinaryFromPath(pid_t child, const char *path) {
 
 binary_index_t BootstrapTool::BinaryFromData(pid_t child, std::string_view sv,
                                              const char *name) {
-  if (IsVeryVerbose())
-    HumanOut() << llvm::formatv("BinaryFromData: {0}\n", name);
-
   bool IsNew;
   binary_index_t BIdx;
 
@@ -4003,7 +4413,7 @@ binary_index_t BootstrapTool::BinaryFromData(pid_t child, std::string_view sv,
     return BIdx;
 
   if (IsVerbose())
-    HumanOut() << llvm::formatv("BinaryFromData: {0}\n", name);
+    HumanOut() << llvm::formatv("BinaryFromData({0})\n", name);
 
   on_new_binary(BIdx);
   return BIdx;
@@ -4169,6 +4579,11 @@ void BootstrapTool::on_return(pid_t child,
     }
 
     binary_t &b = jv.Binaries.at(BIdx);
+
+#ifdef BOOTSTRAP_MULTI_THREADED
+    ip_scoped_lock<ip_upgradable_mutex> e_lck(b.bbmap_mtx);
+#endif
+
     auto &ICFG = b.Analysis.ICFG;
     basic_block_t bb = basic_block_of_index(BBIdx, ICFG);
 
@@ -4209,8 +4624,8 @@ void BootstrapTool::on_return(pid_t child,
 
     if (unlikely(!is_basic_block_index_valid(Before_BBIdx))) {
       if (IsVerbose())
-        HumanOut() << llvm::formatv("on_return: unknown block before @ {0}",
-                                    description_of_program_counter(before_pc, true));
+        HumanOut() << llvm::formatv("on_return: unknown block before @ {0}\n",
+                                    description_of_program_counter(pc, true));
       return;
     }
 
@@ -4223,6 +4638,12 @@ void BootstrapTool::on_return(pid_t child,
     }
 
     binary_t &b = jv.Binaries.at(BIdx);
+
+  {
+#ifdef BOOTSTRAP_MULTI_THREADED
+    ip_upgradable_lock<ip_upgradable_mutex> u_lck(b.bbmap_mtx);
+#endif
+
     auto &ICFG = b.Analysis.ICFG;
     basic_block_t before_bb = basic_block_of_index(Before_BBIdx, ICFG);
 
@@ -4241,6 +4662,9 @@ void BootstrapTool::on_return(pid_t child,
 
     assert(boost::out_degree(before_bb, ICFG) <= 1);
 
+#ifdef BOOTSTRAP_MULTI_THREADED
+  ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
+#endif
     if (isCall) {
       before_Term._call.Returns = true; /* witnessed */
 
@@ -4257,6 +4681,7 @@ void BootstrapTool::on_return(pid_t child,
 
     assert(boost::out_degree(before_bb, ICFG) <= 1);
 
+  }
   }
 }
 
@@ -4384,9 +4809,9 @@ binary_index_t BootstrapTool::binary_at_program_counter(pid_t child,
       sv = std::string_view(_buff);
     }
 
-    ignore_exception([&]() { BIdx = BinaryFromData(child, sv, nm.c_str()); });
+    BIdx = BinaryFromData(child, sv, nm.c_str());
   } else {
-    ignore_exception([&]() { BIdx = BinaryFromPath(child, nm.c_str()); });
+    BIdx = BinaryFromPath(child, nm.c_str());
   }
 
   if (!is_binary_index_valid(BIdx)) {
@@ -4420,6 +4845,8 @@ BootstrapTool::function_at_program_counter(pid_t child, uintptr_t pc) {
   if (!is_binary_index_valid(BIdx))
     return std::make_pair(invalid_binary_index, invalid_function_index);
 
+  assert(BinFoundVec.test(BIdx));
+
   binary_t &binary = jv.Binaries.at(BIdx);
   basic_block_index_t BBIdx = E->explore_basic_block(binary,
                                                      *state.for_binary(binary).ObjectFile,
@@ -4441,6 +4868,8 @@ BootstrapTool::block_at_program_counter(pid_t child, uintptr_t pc) {
   if (!is_binary_index_valid(BIdx))
     return std::make_pair(invalid_binary_index, invalid_basic_block_index);
 
+  assert(BinFoundVec.test(BIdx));
+
   binary_t &binary = jv.Binaries.at(BIdx);
   basic_block_index_t BBIdx = E->explore_basic_block(
       binary,
@@ -4460,7 +4889,9 @@ BootstrapTool::existing_block_at_program_counter(pid_t child, uintptr_t pc) {
   uintptr_t rva = rva_of_va(pc, BIdx);
 
   basic_block_index_t BBIdx = ({
+#ifdef BOOTSTRAP_MULTI_THREADED
     ip_sharable_lock<ip_upgradable_mutex> s_lck(binary.bbmap_mtx);
+#endif
 
     auto &bbmap = binary.bbmap;
 
@@ -4495,7 +4926,7 @@ std::string BootstrapTool::description_of_program_counter(uintptr_t pc, bool Ver
   if (pm_it == pmm.end()) {
     return simple_desc;
   } else {
-    std::string extra = IsVerbose() ? (" (" + simple_desc + ")") : "";
+    std::string extra = Verbose ? (" (" + simple_desc + ")") : "";
 
     const proc_map_set_t &pms = (*pm_it).second;
     assert(pms.size() == 1);

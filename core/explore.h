@@ -16,6 +16,7 @@ namespace jove {
 struct tiny_code_generator_t;
 
 typedef std::function<void(binary_t &, basic_block_t)> on_newbb_proc_t;
+typedef std::function<void(binary_t &, function_t &)> on_newfn_proc_t;
 
 class explorer_t {
   jv_t &jv;
@@ -24,6 +25,7 @@ class explorer_t {
   const bool verbose;
 
   on_newbb_proc_t on_newbb_proc;
+  on_newfn_proc_t on_newfn_proc;
 
   typedef std::pair<uint64_t, uint64_t> later_item_t;
   typedef std::function<void(later_item_t &&)> process_later_t;
@@ -52,9 +54,11 @@ public:
   explorer_t(
       jv_t &jv, disas_t &disas, tiny_code_generator_t &tcg,
       bool verbose = false,
-      on_newbb_proc_t on_newbb_proc = [](binary_t &, basic_block_t) {})
+      on_newbb_proc_t on_newbb_proc = [](binary_t &, basic_block_t) {},
+      on_newfn_proc_t on_newfn_proc = [](binary_t &, function_t &) {})
       : jv(jv), disas(disas), tcg(tcg), verbose(verbose),
-        on_newbb_proc(on_newbb_proc) {}
+        on_newbb_proc(on_newbb_proc),
+        on_newfn_proc(on_newfn_proc) {}
 
   //
   // the objective is to translate all the code we can up until indirect
@@ -70,12 +74,22 @@ public:
                                     llvm::object::Binary &,
                                     uint64_t Addr);
 
-  on_newbb_proc_t  get_newbb_proc(void) const {
+  on_newbb_proc_t get_newbb_proc(void) const {
     return on_newbb_proc;
   }
 
   void set_newbb_proc(on_newbb_proc_t proc) {
     on_newbb_proc = proc;
+  }
+
+  on_newfn_proc_t get_newfn_proc(void) const {
+    return on_newfn_proc;
+  }
+
+  // NOTE: the new function will initially posses an invalid basic block index
+  // for Entry
+  void set_newfn_proc(on_newfn_proc_t proc) {
+    on_newfn_proc = proc;
   }
 };
 

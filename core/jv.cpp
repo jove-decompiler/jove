@@ -129,12 +129,12 @@ std::pair<binary_index_t, bool> jv_t::AddFromDataWithHash(explorer_t &E,
       return std::make_pair(BIdx, false);
   }
 
-  bool Target = is_binary_index_valid(TargetIdx);
+  const bool HasTargetIdx = is_binary_index_valid(TargetIdx);
 
   binary_t _b(Binaries.get_allocator());
 
   {
-    binary_t &b = Target ? Binaries.at(TargetIdx) : _b;
+    binary_t &b = HasTargetIdx ? Binaries.at(TargetIdx) : _b;
 
     get_data(b.Data);
 
@@ -152,14 +152,12 @@ std::pair<binary_index_t, bool> jv_t::AddFromDataWithHash(explorer_t &E,
   //
   // success
   //
-  binary_index_t BIdx = TargetIdx;
-
   ip_scoped_lock<ip_mutex> lck(this->binaries_mtx);
 
-  if (!Target) {
-    BIdx = Binaries.size();
+  const binary_index_t BIdx = HasTargetIdx ? TargetIdx : Binaries.size();
+
+  if (!HasTargetIdx)
     Binaries.push_back(std::move(_b));
-  }
 
   binary_t &b = Binaries.at(BIdx);
   b.Idx = BIdx;

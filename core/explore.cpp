@@ -70,24 +70,20 @@ function_index_t explorer_t::_explore_function(binary_t &b,
 
     res = b.Analysis.Functions.size();
 
-    {
-      function_t &f = b.Analysis.Functions.emplace_back();
-
-      f.Idx = res;
-      f.BIdx = index_of_binary(b, jv);
-      f.Entry = invalid_basic_block_index;
-    }
+    b.Analysis.Functions.emplace_back(res, index_of_binary(b, jv));
 
     bool succeeded = fnmap.emplace(Addr, res);
     assert(succeeded);
   }
 
+  function_t &f = b.Analysis.Functions.at(res);
+
+  this->on_newfn_proc(b, f);
+
   const basic_block_index_t Entry =
       _explore_basic_block(b, B, Addr, process_later);
 
   assert(is_basic_block_index_valid(Entry));
-
-  function_t &f = b.Analysis.Functions.at(res);
 
   f.Analysis.Stale = true;
   f.IsABI = false;
@@ -255,6 +251,7 @@ try_again:
     //
     //
 
+    const basic_block_index_t NewBBIdx = ({
     const unsigned off = Addr - beg;
 
     const addr_intvl intvl_1(beg, off);
@@ -293,6 +290,8 @@ try_again:
     bbprop_2.DynTargetsComplete = bbprop_1.DynTargetsComplete;
     bbprop_2.InvalidateAnalysis();
 
+    assert(bbprop_2.Addr + bbprop_2.Size == addr_intvl_upper(intvl));
+
     //
     // update bb_1
     //
@@ -319,7 +318,18 @@ try_again:
     //
     // update bbmap
     //
+    assert(addr_intvl(bbprop_1.Addr, bbprop_1.Size) == intvl_1);
+    assert(addr_intvl(bbprop_2.Addr, bbprop_2.Size) == intvl_2);
+
+    assert(addr_intvl_disjoint(intvl_1, intvl_2));
+
+    const unsigned sav_bbmap_size = bbmap.size();
     bbmap.erase(it);
+    assert(bbmap.size() == sav_bbmap_size - 1);
+
+    assert(bbmap_find(bbmap, intvl_1) == bbmap.end());
+    assert(bbmap_find(bbmap, intvl_2) == bbmap.end());
+
     bbmap_add(bbmap, intvl_1, BBIdx);
     bbmap_add(bbmap, intvl_2, NewBBIdx);
 
@@ -331,6 +341,31 @@ try_again:
       assert(success);
     }
 
+    ip_sharable_lock<ip_upgradable_mutex> s_lck(boost::move(e_lck));
+
+      {
+        auto _it = bbmap_find(bbmap, intvl_1);
+        assert(_it != bbmap.end());
+        assert((*_it).second == BBIdx);
+      }
+
+      {
+        auto _it = bbmap_find(bbmap, intvl_2);
+        assert(_it != bbmap.end());
+        assert((*_it).second == NewBBIdx);
+      }
+
+#if 0
+    if (unlikely(this->verbose))
+      llvm::errs() << llvm::formatv("{0} | {1}\n",
+                                    description_of_block(bbprop_1, false),
+                                    description_of_block(bbprop_2, false));
+#endif
+
+    index_of_basic_block(ICFG, bb_2);
+    });
+
+    //this->on_newbb_proc(b, basic_block_of_index(NewBBIdx, ICFG));
     return NewBBIdx;
   }
 
@@ -357,6 +392,19 @@ try_again:
       if (it != bbmap.end()) {
         addr_intvl _intervl = (*it).first;
 
+#if 0
+        if (addr_intvl_lower(intervl) == addr_intvl_lower(_intervl)) {
+          {
+            ip_scoped_lock<ip_mutex> e_lck(b.na_bbmap_mtx);
+
+            b.bbmap_na.store(false);
+
+            e_lck.unlock();
+            b.na_cond.notify_one();
+          }
+          return (*it).second;
+        }
+#endif
         assert(addr_intvl_lower(intervl) < addr_intvl_lower(_intervl));
 
         //
@@ -367,6 +415,21 @@ try_again:
         T.Type = TERMINATOR::NONE;
         T.Addr = 0; /* XXX? */
         T._none.NextPC = addr_intvl_lower(_intervl);
+
+
+#if 1
+    basic_block_index_t _BBIdx = (*it).second;
+    basic_block_t _bb = basic_block_of_index(_BBIdx, ICFG);
+
+    if (unlikely(this->verbose))
+      llvm::errs() << llvm::formatv("OKAY {0} so {1} has size {2} TERM: {3}\t\t\t\t\t\t{4}\n",
+                                    description_of_block(ICFG[_bb], false),
+                                    addr_intvl2str(intervl),
+                                    Size,
+                                    description_of_terminator_info(T, false),
+                                    b.Name.c_str());
+#endif
+
         break;
       }
     }
@@ -423,6 +486,8 @@ try_again:
       bbprop.Term._indirect_call.Returns = false;
       bbprop.Term._indirect_call.ReturnsOff = 0;
       bbprop.Term._return.Returns = false;
+      bbprop.Term._call.ReturnsOff = T._call.NextPC - T.Addr;
+      bbprop.Term._indirect_call.ReturnsOff = T._indirect_call.NextPC - T.Addr;
       bbprop.InvalidateAnalysis();
 
       addr_intvl intervl(bbprop.Addr, bbprop.Size);
@@ -434,7 +499,7 @@ try_again:
       }
 #if 0
       llvm::errs() << "         BBIdx=" << BBIdx
-		   << " intervl=" << addr_intvl2str(intervl) << '\n';
+                   << " intervl=" << addr_intvl2str(intervl) << '\n';
 #endif
     }
   }
@@ -443,10 +508,13 @@ try_again:
     //
     // a new basic block has been created
     //
+#if 1
     if (unlikely(this->verbose))
-      llvm::errs() << llvm::formatv("{0} {1}\n",
-				    description_of_block(ICFG[bb], false),
-				    description_of_terminator_info(T, false));
+      llvm::errs() << llvm::formatv("{0} {1}\t\t\t\t\t\t{2}\n",
+                                    description_of_block(ICFG[bb], false),
+                                    description_of_terminator_info(T, false),
+                                    b.Name.c_str());
+#endif
 
     this->on_newbb_proc(b, bb);
   }
@@ -474,6 +542,11 @@ try_again:
     break;
 
   case TERMINATOR::CONDITIONAL_JUMP: {
+    //
+    // XXX there are indications of a slow-down, so the following has been
+    // ifdef'd out
+    //
+#if 0
     std::array<uint64_t, 2> Targets{{T._conditional_jump.Target,
                                      T._conditional_jump.NextPC}};
     std::for_each(std::execution::par_unseq,
@@ -482,17 +555,14 @@ try_again:
                   [&](uint64_t Target) {
                     control_flow_to(Target);
                   });
+#else
+    control_flow_to(T._conditional_jump.Target);
+    control_flow_to(T._conditional_jump.NextPC);
+#endif
     break;
   }
 
   case TERMINATOR::CALL: {
-    {
-      ip_sharable_lock<ip_upgradable_mutex> s_lck(b.bbmap_mtx);
-
-      basic_block_t bb = basic_block_at_address(T.Addr, b);
-      ICFG[bb].Term._call.ReturnsOff = T._call.NextPC - T.Addr;
-    }
-
     uint64_t CalleeAddr = T._call.Target;
 
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
@@ -502,18 +572,14 @@ try_again:
     function_index_t CalleeFIdx = _explore_function(b, Bin, CalleeAddr,
                                                     process_later);
     {
-      ip_sharable_lock<ip_upgradable_mutex> s_lck(b.bbmap_mtx);
+      ip_upgradable_lock<ip_upgradable_mutex> u_lck(b.bbmap_mtx);
 
       basic_block_t bb = basic_block_at_address(T.Addr, b);
       assert(ICFG[bb].Term.Type == TERMINATOR::CALL);
 
-      ICFG[bb].Term._call.Target = CalleeFIdx;
-    }
+      ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
 
-    if (!is_function_index_valid(CalleeFIdx)) {
-      llvm::WithColor::warning() << llvm::formatv(
-          "explore_basic_block: invalid call @ {0:x}\n", T.Addr);
-      break;
+      ICFG[bb].Term._call.Target = CalleeFIdx;
     }
 
     basic_block_index_t CalleeIdx = b.Analysis.Functions.at(CalleeFIdx).Entry;
@@ -529,24 +595,20 @@ try_again:
       does_function_at_block_return(basic_block_of_index(CalleeIdx, ICFG), b);
     });
 
+#if 0
+    if (this->verbose)
+    llvm::errs() << llvm::formatv("{0} DID_RET: {1}\n", taddr2str(CalleeAddr, false), DoesRet);
+#endif
+
     if (DoesRet)
       control_flow_to(T._call.NextPC);
 
     break;
   }
 
-  case TERMINATOR::INDIRECT_CALL: {
-    basic_block_t bb = ({
-      ip_sharable_lock<ip_upgradable_mutex> s_lck(b.bbmap_mtx);
-
-      basic_block_at_address(T.Addr, b);
-    });
-
-    ICFG[bb].Term._indirect_call.ReturnsOff = T._indirect_call.NextPC - T.Addr;
-
+  case TERMINATOR::INDIRECT_CALL:
     //control_flow_to(T._indirect_call.NextPC);
     break;
-  }
 
   case TERMINATOR::INDIRECT_JUMP:
   case TERMINATOR::RETURN:
@@ -572,9 +634,11 @@ void explorer_t::_control_flow_to(binary_t &b,
                                   process_later_t process_later) {
   assert(Target);
 
+#if 0
   if (unlikely(this->verbose))
     llvm::errs() << llvm::formatv("  -> {0}\n",
                                   taddr2str(Target, false));
+#endif
 
   basic_block_index_t SuccBBIdx =
       _explore_basic_block(b, Bin, Target, process_later);
@@ -656,7 +720,9 @@ basic_block_index_t explorer_t::explore_basic_block(binary_t &b,
         calls_to_process.push_back(std::move(item));
       });
 
+#if 1
   _explore_the_rest(b, B, calls_to_process);
+#endif
 
   return res;
 }
@@ -675,7 +741,9 @@ function_index_t explorer_t::explore_function(binary_t &b,
         calls_to_process.push_back(std::move(item));
       });
 
+#if 1
   _explore_the_rest(b, B, calls_to_process);
+#endif
 
   return res;
 }
