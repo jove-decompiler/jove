@@ -4615,10 +4615,6 @@ void BootstrapTool::on_return(pid_t child,
     pc &= ~1UL;
 #endif
 
-#ifdef BOOTSTRAP_MULTI_THREADED
-    ip_upgradable_lock<ip_upgradable_mutex> u_lck(to_b.bbmap_mtx);
-#endif
-
     binary_index_t BIdx;
     basic_block_index_t BBIdx;
     std::tie(BIdx, BBIdx) = block_at_program_counter(child, pc);
@@ -4626,6 +4622,8 @@ void BootstrapTool::on_return(pid_t child,
     if (unlikely(!is_basic_block_index_valid(BBIdx)))
       die("on_return: returned to unknown @ " +
           description_of_program_counter(pc, true));
+
+    assert(ToBIdx == BIdx);
 
     //
     // what came before?
@@ -4651,6 +4649,10 @@ void BootstrapTool::on_return(pid_t child,
             description_of_program_counter(before_pc, true));
       return;
     }
+
+#ifdef BOOTSTRAP_MULTI_THREADED
+    ip_upgradable_lock<ip_upgradable_mutex> u_lck(to_b.bbmap_mtx);
+#endif
 
     binary_t &b = jv.Binaries.at(BIdx);
 
