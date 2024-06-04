@@ -124,7 +124,7 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
                 PrgHdrs.end(),
                 [](const Elf_Phdr &Phdr) -> bool{ return Phdr.p_type == llvm::ELF::PT_INTERP; });
   uint64_t EntryAddr = Elf.getHeader().e_entry;
-  if (HasInterpreter && EntryAddr) {
+  if (EntryAddr) {
     llvm::outs() << llvm::formatv("entry point @ {0:x}\n", EntryAddr);
 
     b.Analysis.EntryFunction = E.explore_function(b, Obj, EntryAddr);
