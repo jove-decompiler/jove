@@ -120,9 +120,12 @@ std::pair<binary_index_t, bool> jv_t::AddFromDataWithHash(explorer_t &E,
                                                           const hash_t &h,
                                                           const char *name,
                                                           binary_index_t TargetIdx) {
-  ip_upgradable_lock<ip_upgradable_mutex> u_h2b_lck(this->hash_to_binary_mtx);
-
+  //
+  // check if exists (fast path)
+  //
   {
+    ip_sharable_lock<ip_upgradable_mutex> s_h2b_lck(this->hash_to_binary_mtx);
+
     binary_index_t BIdx = LookupWithHash(h);
 
     if (is_binary_index_valid(BIdx))
@@ -149,8 +152,20 @@ std::pair<binary_index_t, bool> jv_t::AddFromDataWithHash(explorer_t &E,
     }
   }
 
+  ip_upgradable_lock<ip_upgradable_mutex> u_h2b_lck(this->hash_to_binary_mtx);
+
   //
-  // success
+  // check if exists
+  //
+  {
+    binary_index_t BIdx = LookupWithHash(h);
+
+    if (is_binary_index_valid(BIdx))
+      return std::make_pair(BIdx, false);
+  }
+
+  //
+  // nope!
   //
   ip_scoped_lock<ip_mutex> e_lck(this->binaries_mtx);
 
