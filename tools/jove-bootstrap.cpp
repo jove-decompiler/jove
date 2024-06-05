@@ -411,7 +411,9 @@ public:
   binary_index_t BinaryFromData(pid_t, std::string_view data,
                                 const char *name = nullptr);
 
+#ifdef BOOTSTRAP_MULTI_THREADED
   void on_new_basic_block_place_later(binary_t &, basic_block_t);
+#endif
   void on_new_basic_block(binary_t &, basic_block_t);
 
   void on_new_function(binary_t &, function_t &);
@@ -425,7 +427,9 @@ public:
 
   void on_dynamic_linker_loaded(pid_t, binary_index_t, const proc_map_t &);
 
+#ifdef BOOTSTRAP_MULTI_THREADED
   void place_breakpoints_in_new_blocks(void);
+#endif
   void place_breakpoints_in_block(binary_t &b, basic_block_t bb);
   void place_breakpoint(pid_t, uintptr_t Addr, breakpoint_t &);
   void on_breakpoint(pid_t);
@@ -482,8 +486,6 @@ public:
 
     std::atomic<bool> done = false;
   } _bb_brk;
-#else
-  std::vector<std::pair<binary_index_t, basic_block_index_t>> bb_brk_vec;
 #endif
 
   bool DidAttach(void) {
@@ -1410,8 +1412,8 @@ void BootstrapTool::on_new_basic_block(binary_t &b, basic_block_t bb) {
   place_breakpoints_in_block(b, bb);
 }
 
-void BootstrapTool::on_new_basic_block_place_later(binary_t &b, basic_block_t bb) {
 #ifdef BOOTSTRAP_MULTI_THREADED
+void BootstrapTool::on_new_basic_block_place_later(binary_t &b, basic_block_t bb) {
   //std::atomic_thread_fence(std::memory_order_release);
 
   binary_index_t BIdx = index_of_binary(b, jv);
@@ -1431,31 +1433,8 @@ void BootstrapTool::on_new_basic_block_place_later(binary_t &b, basic_block_t bb
     std::lock_guard<std::mutex> lock(_bb_brk.mtx);
     _bb_brk.cv.notify_one();
   }
-#else
-  auto &ICFG = b.Analysis.ICFG;
-
-#if 0
-  auto &bbprop = ICFG[bb];
-
-  if (bbprop.Term.Addr)
-    llvm::errs() << llvm::formatv(
-        "{0} @ {1}\t\t\t\t\t{2}\n",
-        string_of_terminator(bbprop.Term.Type),
-        taddr2str(bbprop.Term.Addr, false),
-        b.Name.c_str());
-
-  if (IsVeryVerbose())
-    llvm::errs() << llvm::formatv(
-        "NEWBB [{0}, {1})\t\t\t\t\t{2}\n",
-        taddr2str(ICFG[bb].Addr, false),
-        taddr2str(ICFG[bb].Addr + ICFG[bb].Size, false),
-        b.Name.c_str());
-#endif
-
-  bb_brk_vec.emplace_back(index_of_binary(b, jv),
-                          index_of_basic_block(ICFG, bb));
-#endif
 }
+#endif
 
 void BootstrapTool::on_new_function(binary_t &b, function_t &f) {
   state.update();
@@ -1478,8 +1457,8 @@ BootstrapTool::basic_blocks_for_function(binary_index_t BIdx,
   return x.bbvec;
 }
 
-void BootstrapTool::place_breakpoints_in_new_blocks(void) {
 #ifdef BOOTSTRAP_MULTI_THREADED
+void BootstrapTool::place_breakpoints_in_new_blocks(void) {
   auto do_place = [&](uint64_t x) -> void {
     binary_index_t BIdx = static_cast<binary_index_t>(x >> 32);
     basic_block_index_t BBIdx = static_cast<basic_block_index_t>(x);
@@ -1493,21 +1472,8 @@ void BootstrapTool::place_breakpoints_in_new_blocks(void) {
   };
 
   bb_brk_lckfree_q.consume_all(do_place);
-#else
-  while (!bb_brk_vec.empty()) {
-    binary_index_t BIdx;
-    basic_block_index_t BBIdx;
-
-    std::tie(BIdx, BBIdx) = bb_brk_vec.back();
-    bb_brk_vec.resize(bb_brk_vec.size() - 1);
-
-    binary_t &b = jv.Binaries.at(BIdx);
-    basic_block_t bb = basic_block_of_index(BBIdx, b.Analysis.ICFG);
-
-    place_breakpoints_in_block(b, bb);
-  }
-#endif
 }
+#endif
 
 void BootstrapTool::place_breakpoints_in_block(binary_t &b, basic_block_t bb) {
 #ifdef BOOTSTRAP_MULTI_THREADED
@@ -2716,13 +2682,6 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
     assert(!bb_brk_lckfree_q.pop(x));
   }
 #else
-  struct PlaceNewBreakpoints {
-    BootstrapTool &tool;
-
-    PlaceNewBreakpoints(BootstrapTool &tool) : tool(tool) {}
-    ~PlaceNewBreakpoints() { tool.place_breakpoints_in_new_blocks(); }
-  } __PlaceNewBreakpoints(*this);
-
   do_ret();
 #endif
 
@@ -3327,13 +3286,6 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
     assert(!bb_brk_lckfree_q.pop(x));
   }
 #else
-  struct PlaceNewBreakpoints {
-    BootstrapTool &tool;
-
-    PlaceNewBreakpoints(BootstrapTool &tool) : tool(tool) {}
-    ~PlaceNewBreakpoints() { tool.place_breakpoints_in_new_blocks(); }
-  } __PlaceNewBreakpoints(*this);
-
   producer();
 #endif
 }
