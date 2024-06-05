@@ -571,6 +571,9 @@ try_again:
 
     function_index_t CalleeFIdx = _explore_function(b, Bin, CalleeAddr,
                                                     process_later);
+
+    assert(is_function_index_valid(CalleeFIdx));
+
     {
       ip_upgradable_lock<ip_upgradable_mutex> u_lck(b.bbmap_mtx);
 
@@ -581,6 +584,8 @@ try_again:
 
       ICFG[bb].Term._call.Target = CalleeFIdx;
     }
+
+    break;
 
     basic_block_index_t CalleeIdx = b.Analysis.Functions.at(CalleeFIdx).Entry;
 
