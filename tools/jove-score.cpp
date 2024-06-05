@@ -48,7 +48,7 @@ int ScoreTool::Run(void) {
     binary_index_t BinaryIndex = invalid_binary_index;
 
     for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
-      const binary_t &binary = jv.Binaries[BIdx];
+      const binary_t &binary = jv.Binaries.at(BIdx);
       if (binary.path_str().find(opts.Binary) == std::string::npos)
         continue;
 

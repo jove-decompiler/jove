@@ -70,7 +70,7 @@ std::string CodeRecovery::RecoverDynamicTarget(uint32_t CallerBIdx,
   assert(TermAddr);
   basic_block_t bb = basic_block_at_address(TermAddr, CallerBinary);
 
-  bool isNewTarget = ICFG[bb].insertDynTarget({CalleeBIdx, CalleeFIdx}, jv.Binaries.get_allocator());
+  bool isNewTarget = ICFG[bb].insertDynTarget({CalleeBIdx, CalleeFIdx}, jv.get_allocator());
 
   if (!isNewTarget)
     return std::string();
@@ -101,7 +101,7 @@ std::string CodeRecovery::RecoverDynamicTarget(uint32_t CallerBIdx,
 
       /* term bb may been split */
       bb = basic_block_at_address(TermAddr, CallerBinary);
-      ICFG[bb].insertDynTarget({CallerBIdx, FIdx}, jv.Binaries.get_allocator());
+      ICFG[bb].insertDynTarget({CallerBIdx, FIdx}, jv.get_allocator());
     }
 
     boost::clear_out_edges(bb, ICFG);
@@ -195,7 +195,7 @@ std::string CodeRecovery::RecoverFunction(uint32_t IndCallBIdx,
   /* term bb may been split */
   bb = basic_block_at_address(TermAddr, CallerBinary);
 
-  bool isNewTarget = ICFG[bb].insertDynTarget({CalleeBIdx, CalleeFIdx}, jv.Binaries.get_allocator());
+  bool isNewTarget = ICFG[bb].insertDynTarget({CalleeBIdx, CalleeFIdx}, jv.get_allocator());
   (void)isNewTarget; /* FIXME */
 
   if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP)

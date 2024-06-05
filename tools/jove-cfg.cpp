@@ -177,7 +177,7 @@ std::string CFGTool::disassemble_basic_block(const GraphTy &G,
                                              typename GraphTy::vertex_descriptor V) {
   assert(BinaryIndex != invalid_binary_index);
 
-  binary_t &binary = jv.Binaries[BinaryIndex];
+  binary_t &binary = jv.Binaries.at(BinaryIndex);
 
   TCG.set_binary(*state.for_binary(binary).ObjectFile);
 
@@ -309,7 +309,7 @@ int CFGTool::Run(void) {
   BinaryIndex = invalid_binary_index;
 
   for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
-    const binary_t &binary = jv.Binaries[BIdx];
+    const binary_t &binary = jv.Binaries.at(BIdx);
     if (binary.path_str().find(opts.Binary) == std::string::npos)
       continue;
 
@@ -323,7 +323,7 @@ int CFGTool::Run(void) {
     return 1;
   }
 
-  binary_t &binary = jv.Binaries[BinaryIndex];
+  binary_t &binary = jv.Binaries.at(BinaryIndex);
 
   //
   // initialize state associated with binary

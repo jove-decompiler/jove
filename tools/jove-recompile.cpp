@@ -511,7 +511,7 @@ int RecompileTool::Run(void) {
                            "BinaryBlockAddrTables");
 
     for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
-      binary_t &binary = jv.Binaries[BIdx];
+      binary_t &binary = jv.Binaries.at(BIdx);
       auto &ICFG = binary.Analysis.ICFG;
 
       {
@@ -533,7 +533,7 @@ int RecompileTool::Run(void) {
   // build dynamic linking graph
   //
   for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
-    binary_t &b = jv.Binaries[BIdx];
+    binary_t &b = jv.Binaries.at(BIdx);
 
     state.for_binary(b).dso = boost::add_vertex(dso_graph);
     dso_graph[state.for_binary(b).dso].BIdx = BIdx;
@@ -542,7 +542,7 @@ int RecompileTool::Run(void) {
   std::unordered_map<std::string, binary_index_t> soname_map;
 
   for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
-    binary_t &b = jv.Binaries[BIdx];
+    binary_t &b = jv.Binaries.at(BIdx);
 
     if (!b.is_file())
       continue;
@@ -562,7 +562,7 @@ int RecompileTool::Run(void) {
   }
 
   for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
-    binary_t &b = jv.Binaries[BIdx];
+    binary_t &b = jv.Binaries.at(BIdx);
 
     for (const std::string &sonm : state.for_binary(b).dynl.needed) {
       auto it = soname_map.find(sonm);
@@ -574,7 +574,7 @@ int RecompileTool::Run(void) {
 
       boost::add_edge(
           state.for_binary(b).dso,
-          state.for_binary(jv.Binaries[(*it).second]).dso,
+          state.for_binary(jv.Binaries.at((*it).second)).dso,
           dso_graph);
     }
   }
@@ -712,7 +712,7 @@ int RecompileTool::Run(void) {
   Q.reserve(top_sorted.size());
   for (dso_t dso : boost::adaptors::reverse(top_sorted)) {
     binary_index_t BIdx = dso_graph[dso].BIdx;
-    if (opts.ForeignLibs && !jv.Binaries[BIdx].IsExecutable)
+    if (opts.ForeignLibs && !jv.Binaries.at(BIdx).IsExecutable)
       continue;
 
     Q.push_back(dso);

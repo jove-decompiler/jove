@@ -132,7 +132,7 @@ int Trace2AsmTool::Run(void) {
 
   auto disassemble_basic_block = [&](binary_index_t BIdx,
                                      basic_block_index_t BBIdx) -> std::string {
-    auto &binary = jv.Binaries[BIdx];
+    auto &binary = jv.Binaries.at(BIdx);
     auto &ICFG = binary.Analysis.ICFG;
     basic_block_t bb = basic_block_of_index(BBIdx, ICFG);
 

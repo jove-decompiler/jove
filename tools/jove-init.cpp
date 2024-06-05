@@ -179,8 +179,13 @@ int InitTool::add_loaded_objects(const fs::path &prog, const fs::path &rtld) {
   jv.clear(); /* point of no return */
 
   unsigned N = binary_paths.size() + 3;
-  for (unsigned i = 0; i < N; ++i)
-    jv.Binaries.emplace_back(jv.Binaries.get_allocator());
+
+  {
+    ip_scoped_lock<ip_upgradable_mutex> e_lck(jv.Binaries._mtx);
+
+    for (unsigned i = 0; i < N; ++i)
+      jv.Binaries._deque.emplace_back(jv.get_allocator());
+  }
 
   //
   // add them

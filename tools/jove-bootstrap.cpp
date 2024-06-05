@@ -1349,7 +1349,7 @@ int BootstrapTool::TracerLoop(pid_t child) {
     unsigned NumChanged = 0;
 
     for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
-      auto &b = jv.Binaries[BIdx];
+      auto &b = jv.Binaries.at(BIdx);
       auto &ICFG = b.Analysis.ICFG;
 
       auto fix_ambiguous_indirect_jumps = [&](void) -> bool {
@@ -1786,7 +1786,7 @@ void BootstrapTool::place_breakpoint_at_indirect_branch(pid_t child,
   };
 
   if (!is_opcode_handled(Inst.getOpcode())) {
-    binary_t &Binary = jv.Binaries[indbr.BIdx];
+    binary_t &Binary = jv.Binaries.at(indbr.BIdx);
     throw std::runtime_error(
       (fmt("could not place breakpoint @ %#lx\n"
            "%s BB %#lx\n"
@@ -2727,7 +2727,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
   // it's an indirect branch.
   //
   indirect_branch_t &IndBrInfo = indirect_branch_of_address(saved_pc);
-  binary_t &binary = jv.Binaries[IndBrInfo.BIdx];
+  binary_t &binary = jv.Binaries.at(IndBrInfo.BIdx);
   auto &ICFG = binary.Analysis.ICFG;
   bool IsLj = false;
   unsigned out_deg;
@@ -3341,7 +3341,7 @@ void BootstrapTool::harvest_irelative_reloc_targets(pid_t child) {
   };
 
   for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
-    auto &b = jv.Binaries[BIdx];
+    auto &b = jv.Binaries.at(BIdx);
     if (b.IsVDSO)
       continue;
 
@@ -3431,7 +3431,7 @@ void BootstrapTool::harvest_addressof_reloc_targets(pid_t child) {
   };
 
   for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
-    auto &b = jv.Binaries[BIdx];
+    auto &b = jv.Binaries.at(BIdx);
     if (b.IsVDSO)
       continue;
 
@@ -3461,7 +3461,7 @@ void BootstrapTool::harvest_addressof_reloc_targets(pid_t child) {
 
 void BootstrapTool::harvest_ctor_and_dtors(pid_t child) {
   for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
-    auto &Binary = jv.Binaries[BIdx];
+    auto &Binary = jv.Binaries.at(BIdx);
     if (Binary.IsVDSO)
       continue;
 
@@ -3535,7 +3535,7 @@ void BootstrapTool::harvest_ctor_and_dtors(pid_t child) {
 #if defined(__mips64) || defined(__mips__)
 void BootstrapTool::harvest_global_GOT_entries(pid_t child) {
   for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
-    auto &b = jv.Binaries[BIdx];
+    auto &b = jv.Binaries.at(BIdx);
     if (b.IsVDSO)
       continue;
 
@@ -3734,7 +3734,7 @@ void BootstrapTool::ScanAddressSpace(pid_t child, bool VMUpdate) {
 void BootstrapTool::on_binary_loaded(pid_t child,
                                      binary_index_t BIdx,
                                      const proc_map_t &pm) {
-  binary_t &binary = jv.Binaries[BIdx];
+  binary_t &binary = jv.Binaries.at(BIdx);
 
   auto &ObjectFile = state.for_binary(binary).ObjectFile;
 
@@ -4445,7 +4445,7 @@ binary_index_t BootstrapTool::BinaryFromData(pid_t child, std::string_view sv,
 void BootstrapTool::on_dynamic_linker_loaded(pid_t child,
                                              binary_index_t BIdx,
                                              const proc_map_t &proc_map) {
-  binary_t &b = jv.Binaries[BIdx];
+  binary_t &b = jv.Binaries.at(BIdx);
 
   if (state.for_binary(b)._elf.OptionalDynSymRegion) {
     auto DynSyms = state.for_binary(b)._elf.OptionalDynSymRegion->getAsArrayRef<Elf_Sym>();
@@ -4963,7 +4963,7 @@ std::string BootstrapTool::description_of_program_counter(uintptr_t pc, bool Ver
         uintptr_t rva = rva_of_va(pc, BIdx);
 
         if (IsVeryVerbose()) {
-          std::string line = symbolizer->addr2line(jv.Binaries[BIdx], rva);
+          std::string line = symbolizer->addr2line(jv.Binaries.at(BIdx), rva);
           if (!line.empty())
             return line;
         }

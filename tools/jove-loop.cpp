@@ -793,7 +793,7 @@ skip_run:
         }
 
         for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
-          binary_t &binary = jv.Binaries[BIdx];
+          binary_t &binary = jv.Binaries.at(BIdx);
           auto &ICFG = binary.Analysis.ICFG;
 
           {
@@ -938,7 +938,7 @@ skip_run:
                                "BinaryBlockAddrTables");
 
         for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
-          binary_t &binary = jv.Binaries[BIdx];
+          binary_t &binary = jv.Binaries.at(BIdx);
           auto &ICFG = binary.Analysis.ICFG;
 
           {

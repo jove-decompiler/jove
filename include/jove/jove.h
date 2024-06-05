@@ -578,7 +578,44 @@ typedef boost::unordered_map<
     ip_name_to_binaries_map_type;
 
 struct jv_t {
-  ip_binary_deque Binaries;
+  struct _Binaries {
+    ip_binary_deque _deque;
+    mutable ip_upgradable_mutex _mtx;
+
+    _Binaries(const ip_void_allocator_t &A) : _deque(A) {}
+
+    //
+    // references to binaries can be relied upon
+    //
+    binary_t &at(unsigned idx) {
+      ip_sharable_lock<ip_upgradable_mutex> s_lck(_mtx);
+      return _deque.at(idx);
+    }
+
+    const binary_t &at(unsigned idx) const {
+      ip_sharable_lock<ip_upgradable_mutex> s_lck(_mtx);
+      return _deque.at(idx);
+    }
+
+    unsigned size(void) const {
+      ip_sharable_lock<ip_upgradable_mutex> s_lck(_mtx);
+      return _deque.size();
+    }
+
+    //
+    // with iterators we don't even take the shared lock because they would be
+    // invalidated anyways even if a modification to _deque took place between
+    // the locking.
+    //
+    ip_binary_deque::const_iterator cbegin(void) const { return _deque.cbegin(); }
+    ip_binary_deque::const_iterator cend(void) const { return _deque.cend(); }
+
+    ip_binary_deque::const_iterator begin(void) const { return cbegin(); }
+    ip_binary_deque::const_iterator end(void) const { return cend(); }
+
+    ip_binary_deque::iterator begin(void) { return _deque.begin(); }
+    ip_binary_deque::iterator end(void) { return _deque.end(); }
+  } Binaries;
 
   ip_hash_to_binary_map_type hash_to_binary;
   ip_cached_hashes_type cached_hashes; /* NOT serialized */
@@ -593,6 +630,10 @@ struct jv_t {
   void InvalidateFunctionAnalyses(void);
 
   void clear(bool everything = false);
+
+  ip_void_allocator_t get_allocator(void) {
+    return Binaries._deque.get_allocator();
+  }
 
   jv_t(const ip_void_allocator_t &A)
       : Binaries(A), hash_to_binary(A), cached_hashes(A), name_to_binaries(A) {}
@@ -1106,17 +1147,23 @@ static inline basic_block_index_t index_of_basic_block(const icfg_t &ICFG, basic
 
 static inline binary_index_t binary_index_of_function(const function_t &f,
                                                       const jv_t &jv) {
-  return f.BIdx;
+  binary_index_t res = f.BIdx;
+  assert(is_binary_index_valid(res));
+  return res;
 }
 
 static inline binary_index_t index_of_binary(const binary_t &b,
                                              const jv_t &jv) {
-  return b.Idx;
+  binary_index_t res = b.Idx;
+  assert(is_binary_index_valid(res));
+  return res;
 }
 
 static inline function_index_t index_of_function_in_binary(const function_t &f,
                                                            const binary_t &b) {
-  return f.Idx;
+  function_index_t res = f.Idx;
+  assert(is_function_index_valid(res));
+  return res;
 }
 
 static inline binary_t &binary_of_function(const function_t &f,

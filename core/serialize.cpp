@@ -314,6 +314,15 @@ static void serialize(Archive &ar, jove::basic_block_properties_t &bbprop,
 }
 
 //
+// jv_t::_Binaries
+//
+
+template <class Archive>
+static void serialize(Archive &ar, jove::jv_t::_Binaries &B, const unsigned int) {
+  ar &BOOST_SERIALIZATION_NVP(B._deque);
+}
+
+//
 // jv_t
 //
 
@@ -413,9 +422,9 @@ void UnserializeJV(jv_t &out, std::istream &is, bool text) {
   for (binary_t &b : out.Binaries)
     __builtin_memset(&b.Analysis.ICFG.m_property, 0, sizeof(b.Analysis.ICFG.m_property));
 
-  pAlloc_hack.reset(new ip_void_allocator_t(out.Binaries.get_allocator()));
+  pAlloc_hack.reset(new ip_void_allocator_t(out.get_allocator()));
 
-  out.Binaries.clear();
+  out.clear();
 
   try {
     if (text) {

@@ -377,7 +377,7 @@ void DumpTool::dumpDecompilation(const jv_t& jv) {
                            function_index_t FIdx;
                            std::tie(BIdx, FIdx) = pair;
 
-                           auto &b = jv.Binaries[BIdx];
+                           auto &b = jv.Binaries.at(BIdx);
                            const auto &_ICFG = b.Analysis.ICFG;
                            auto &callee = b.Analysis.Functions[FIdx];
                            uintptr_t target_addr =
@@ -410,7 +410,7 @@ void DumpTool::dumpDecompilation(const jv_t& jv) {
                            function_index_t FIdx;
                            std::tie(BIdx, FIdx) = pair;
 
-                           auto &b = jv.Binaries[BIdx];
+                           auto &b = jv.Binaries.at(BIdx);
                            const auto &_ICFG = b.Analysis.ICFG;
                            auto &callee = b.Analysis.Functions[FIdx];
                            uintptr_t target_addr =
@@ -443,7 +443,7 @@ void DumpTool::dumpDecompilation(const jv_t& jv) {
                            function_index_t FIdx;
                            std::tie(BIdx, FIdx) = pair;
 
-                           auto &b = jv.Binaries[BIdx];
+                           auto &b = jv.Binaries.at(BIdx);
                            const auto &_ICFG = b.Analysis.ICFG;
                            auto &callee = b.Analysis.Functions[FIdx];
                            uintptr_t target_addr =
@@ -510,7 +510,7 @@ void DumpTool::dumpInput(const std::string &Path) {
       }
     } else if (!opts.ListFunctions.empty()) {
       for (unsigned BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
-        const binary_t &binary = jv.Binaries[BIdx];
+        const binary_t &binary = jv.Binaries.at(BIdx);
 
         if (binary.name_str().find(opts.ListFunctions) == std::string::npos)
           continue;
@@ -530,7 +530,7 @@ void DumpTool::dumpInput(const std::string &Path) {
       llvm::ScopedPrinter Writer(llvm::outs());
 
       for (unsigned BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
-        const binary_t &binary = jv.Binaries[BIdx];
+        const binary_t &binary = jv.Binaries.at(BIdx);
 
         if (!binary.is_file())
           continue;

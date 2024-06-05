@@ -254,7 +254,7 @@ open_events:
     // register uprobes
     //
     for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
-      const binary_t &binary = jv.Binaries[BIdx];
+      const binary_t &binary = jv.Binaries.at(BIdx);
 
       if (binary.IsDynamicLinker)
         continue;
@@ -451,8 +451,8 @@ skip_uprobe:
       std::vector<const char *> arg_vec;
 
       fs::path exe_path = opts.OutsideChroot
-                              ? SysrootPath / jv.Binaries[0].path_str()
-                              : jv.Binaries[0].path_str();
+                              ? SysrootPath / jv.Binaries.at(0).path_str()
+                              : jv.Binaries.at(0).path_str();
 
       arg_vec.push_back(exe_path.c_str());
 

@@ -279,7 +279,7 @@ try_again:
     //
     // create bb_2
     //
-    basic_block_t bb_2 = boost::add_vertex(ICFG, jv.Binaries.get_allocator());
+    basic_block_t bb_2 = boost::add_vertex(ICFG, jv.get_allocator());
     const basic_block_index_t NewBBIdx = index_of_basic_block(ICFG, bb_2);
     basic_block_properties_t &bbprop_2 = ICFG[bb_2];
 
@@ -470,7 +470,7 @@ try_again:
     ip_scoped_lock<ip_upgradable_mutex> e_lck(b.bbmap_mtx);
 
     BBIdx = boost::num_vertices(ICFG);
-    bb = boost::add_vertex(ICFG, jv.Binaries.get_allocator());
+    bb = boost::add_vertex(ICFG, jv.get_allocator());
     {
       basic_block_properties_t &bbprop = ICFG[bb];
       bbprop.Addr = Addr;

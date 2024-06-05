@@ -38,7 +38,7 @@ void jv_t::UpdateCachedHash(cached_hash_t &cache,
 
 hash_t jv_t::LookupAndCacheHash(const char *path,
                                 std::string &file_contents) {
-  ip_string s(path, Binaries.get_allocator());
+  ip_string s(path, get_allocator());
 
   {
     ip_scoped_lock<ip_mutex> lck(this->cached_hashes_mtx);
@@ -57,7 +57,7 @@ hash_t jv_t::LookupAndCacheHash(const char *path,
 boost::optional<const ip_binary_index_set &> jv_t::Lookup(const char *name) {
   assert(name);
 
-  ip_string s(Binaries.get_allocator());
+  ip_string s(get_allocator());
   to_ips(s, name);
 
   {
@@ -136,7 +136,7 @@ std::pair<binary_index_t, bool> jv_t::AddFromDataWithHash(explorer_t &E,
 
   const bool HasTargetIdx = is_binary_index_valid(TargetIdx);
 
-  binary_t _b(Binaries.get_allocator());
+  binary_t _b(get_allocator());
 
   {
     binary_t &b = HasTargetIdx ? Binaries.at(TargetIdx) : _b;
@@ -168,14 +168,14 @@ std::pair<binary_index_t, bool> jv_t::AddFromDataWithHash(explorer_t &E,
   //
   // nope!
   //
-  ip_scoped_lock<ip_mutex> e_lck(this->binaries_mtx);
+  ip_scoped_lock<ip_upgradable_mutex> e_lck(this->Binaries._mtx);
 
-  const binary_index_t BIdx = HasTargetIdx ? TargetIdx : Binaries.size();
+  const binary_index_t BIdx = HasTargetIdx ? TargetIdx : Binaries._deque.size();
 
   if (!HasTargetIdx)
-    Binaries.push_back(std::move(_b));
+    Binaries._deque.push_back(std::move(_b));
 
-  binary_t &b = Binaries.at(BIdx);
+  binary_t &b = Binaries._deque.at(BIdx);
   b.Idx = BIdx;
   b.Hash = h;
 
@@ -192,7 +192,7 @@ std::pair<binary_index_t, bool> jv_t::AddFromDataWithHash(explorer_t &E,
 
     auto it = this->name_to_binaries.find(b.Name);
     if (it == this->name_to_binaries.end()) {
-      ip_binary_index_set set(Binaries.get_allocator());
+      ip_binary_index_set set(get_allocator());
       set.insert(BIdx);
       this->name_to_binaries.insert(std::make_pair(b.Name, set));
     } else {
@@ -217,9 +217,9 @@ void jv_t::clear(bool everything) {
   }
 
   {
-    ip_scoped_lock<ip_mutex> e_lck(this->binaries_mtx);
+    ip_scoped_lock<ip_upgradable_mutex> e_lck(this->Binaries._mtx);
 
-    Binaries.clear();
+    this->Binaries._deque.clear();
   }
 
   if (everything) {
