@@ -1,3 +1,48 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 0e294eb5..bfd287bd 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -42,39 +42,40 @@ target_link_libraries(boost_graph
+     Boost::parameter
+     Boost::preprocessor
+     Boost::property_map
+     Boost::property_tree
+     Boost::random
+     Boost::range
+     Boost::serialization
+     Boost::smart_ptr
+     Boost::spirit
+     Boost::static_assert
+     Boost::throw_exception
+     Boost::tti
+     Boost::tuple
+     Boost::type_traits
+     Boost::typeof
+     Boost::unordered
+     Boost::utility
+     Boost::xpressive
+   PRIVATE
+     Boost::regex
++    Boost::interprocess
+ )
+ 
+ target_compile_definitions(boost_graph
+   PUBLIC BOOST_GRAPH_NO_LIB
+   # Source files already define BOOST_GRAPH_SOURCE
+   # PRIVATE BOOST_GRAPH_SOURCE
+ )
+ 
+ if(BUILD_SHARED_LIBS)
+   target_compile_definitions(boost_graph PUBLIC BOOST_GRAPH_DYN_LINK)
+ else()
+   target_compile_definitions(boost_graph PUBLIC BOOST_GRAPH_STATIC_LINK)
+ endif()
+ 
+ if(BUILD_TESTING AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/test/CMakeLists.txt")
+ 
+   add_subdirectory(test)
+ 
+ endif()
 diff --git a/include/boost/graph/adj_list_serialize.hpp b/include/boost/graph/adj_list_serialize.hpp
 index 85f7e2ed..9d2ceda7 100644
 --- a/include/boost/graph/adj_list_serialize.hpp
@@ -87,10 +132,10 @@ index 85f7e2ed..9d2ceda7 100644
  
  #endif // BOOST_GRAPH_ADJ_LIST_SERIALIZE_HPP
 diff --git a/include/boost/graph/adjacency_list.hpp b/include/boost/graph/adjacency_list.hpp
-index e5050b5b..d1a44d79 100644
+index e5050b5b..a37142aa 100644
 --- a/include/boost/graph/adjacency_list.hpp
 +++ b/include/boost/graph/adjacency_list.hpp
-@@ -18,153 +18,215 @@
+@@ -18,153 +18,216 @@
  #include <set>
  
  #include <boost/unordered_set.hpp>
@@ -111,6 +156,7 @@ index e5050b5b..d1a44d79 100644
  #include <boost/graph/properties.hpp>
  #include <boost/graph/named_graph.hpp>
  
++#include <boost/interprocess/allocators/allocator.hpp>
 +#include <boost/interprocess/managed_shared_memory.hpp>
 +#include <boost/interprocess/containers/vector.hpp>
 +#include <boost/interprocess/containers/deque.hpp>
@@ -306,7 +352,7 @@ index e5050b5b..d1a44d79 100644
  {
      typedef disallow_parallel_edge_tag type;
  };
-@@ -180,40 +242,56 @@ template <> struct parallel_edge_traits< hash_multimapS >
+@@ -180,40 +243,56 @@ template <> struct parallel_edge_traits< hash_multimapS >
  };
  
  namespace detail
@@ -363,7 +409,7 @@ index e5050b5b..d1a44d79 100644
  {
      typedef
          typename detail::is_random_access< VertexListS >::type is_rand_access;
-@@ -295,59 +373,66 @@ public:
+@@ -295,59 +374,66 @@ public:
          edge_bundled;
  
  private:
@@ -435,10 +481,10 @@ index e5050b5b..d1a44d79 100644
      }
  
 diff --git a/include/boost/graph/detail/adjacency_list.hpp b/include/boost/graph/detail/adjacency_list.hpp
-index 4b11fa51..40702625 100644
+index 7fb2c493..b37bc5bd 100644
 --- a/include/boost/graph/detail/adjacency_list.hpp
 +++ b/include/boost/graph/detail/adjacency_list.hpp
-@@ -1789,41 +1789,42 @@ class adj_list_impl : public adj_list_helper< Config, Base >
+@@ -1790,41 +1790,42 @@ class adj_list_impl : public adj_list_helper< Config, Base >
      typedef typename Config::OutEdgeList OutEdgeList;
      typedef typename Config::InEdgeList InEdgeList;
      typedef typename Config::StoredVertexList StoredVertexList;
@@ -482,7 +528,7 @@ index 4b11fa51..40702625 100644
      {
          for (vertices_size_type i = 0; i < num_vertices; ++i)
              add_vertex(static_cast< Derived& >(*this));
-@@ -1899,47 +1900,47 @@ public:
+@@ -1900,47 +1901,47 @@ public:
          // Copy the edges by adding each edge and copying its
          // property object.
          edge_iterator ei, ei_end;
@@ -533,7 +579,7 @@ index 4b11fa51..40702625 100644
          return *v;
  
      typedef typename Config::stored_vertex stored_vertex;
-@@ -2097,41 +2098,45 @@ public:
+@@ -2103,41 +2104,45 @@ public:
      typedef typename Config::edge_descriptor edge_descriptor;
      typedef typename Config::out_edge_iterator out_edge_iterator;
      typedef typename Config::edge_iterator edge_iterator;
@@ -580,7 +626,7 @@ index 4b11fa51..40702625 100644
      template < class EdgeIterator >
      inline vec_adj_list_impl(
          vertices_size_type num_vertices, EdgeIterator first, EdgeIterator last)
-@@ -2161,115 +2166,117 @@ public:
+@@ -2167,115 +2172,117 @@ public:
      //    protected:
      inline boost::integer_range< vertex_descriptor > vertex_set() const
      {
@@ -705,7 +751,7 @@ index 4b11fa51..40702625 100644
      typedef typename Config::directed_category Cat;
      Graph& g = static_cast< Graph& >(g_);
      g.removing_vertex(
-@@ -2409,75 +2416,78 @@ namespace detail
+@@ -2415,75 +2422,78 @@ namespace detail
              typedef adj_list_edge_iterator< vertex_iterator, out_edge_iterator,
                  graph_type >
                  DirectedEdgeIter;
