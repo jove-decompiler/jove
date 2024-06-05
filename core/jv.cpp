@@ -72,12 +72,15 @@ boost::optional<const ip_binary_index_set &> jv_t::Lookup(const char *name) {
   }
 }
 
-binary_index_t jv_t::LookupWithHash(const hash_t &h) {
-  auto it = this->hash_to_binary.find(h);
-  if (it == this->hash_to_binary.end())
-    return invalid_binary_index;
+boost::optional<binary_index_t> jv_t::LookupByHash(const hash_t &h) {
+  ip_sharable_lock<ip_upgradable_mutex> s_lck(this->hash_to_binary_mtx);
 
-  return (*it).second;
+  auto it = this->hash_to_binary.find(h);
+  if (it == this->hash_to_binary.end()) {
+    return boost::optional<binary_index_t>();
+  } else {
+    return (*it).second;
+  }
 }
 
 std::pair<binary_index_t, bool> jv_t::AddFromPath(explorer_t &E,
@@ -124,12 +127,11 @@ std::pair<binary_index_t, bool> jv_t::AddFromDataWithHash(explorer_t &E,
   // check if exists (fast path)
   //
   {
-    ip_sharable_lock<ip_upgradable_mutex> s_h2b_lck(this->hash_to_binary_mtx);
+    ip_sharable_lock<ip_upgradable_mutex> s_lck(this->hash_to_binary_mtx);
 
-    binary_index_t BIdx = LookupWithHash(h);
-
-    if (is_binary_index_valid(BIdx))
-      return std::make_pair(BIdx, false);
+    auto it = this->hash_to_binary.find(h);
+    if (it != this->hash_to_binary.end())
+      return std::make_pair((*it).second, false);
   }
 
   const bool HasTargetIdx = is_binary_index_valid(TargetIdx);
@@ -158,10 +160,9 @@ std::pair<binary_index_t, bool> jv_t::AddFromDataWithHash(explorer_t &E,
   // check if exists
   //
   {
-    binary_index_t BIdx = LookupWithHash(h);
-
-    if (is_binary_index_valid(BIdx))
-      return std::make_pair(BIdx, false);
+    auto it = this->hash_to_binary.find(h);
+    if (it != this->hash_to_binary.end())
+      return std::make_pair((*it).second, false);
   }
 
   //

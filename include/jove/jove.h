@@ -599,6 +599,7 @@ struct jv_t {
 
   jv_t() = delete;
 
+  boost::optional<binary_index_t> LookupByHash(const hash_t &h);
   boost::optional<const ip_binary_index_set &> Lookup(const char *name);
 
   std::pair<binary_index_t, bool>
@@ -616,7 +617,6 @@ struct jv_t {
   }
 
 private:
-  binary_index_t LookupWithHash(const hash_t &h);
   hash_t LookupAndCacheHash(const char *path,
                             std::string &file_contents);
   void UpdateCachedHash(cached_hash_t &,
