@@ -2609,19 +2609,23 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
       const uintptr_t AddrOfRet = saved_pc;
       const uintptr_t RetAddr = pc;
 
+#ifdef BOOTSTRAP_MULTI_THREADED
       struct {
         std::mutex mtx;
         std::condition_variable cond;
       } _do_ret;
 
   std::atomic<bool> do_ret_ran = false;
+#endif
 
     auto do_ret = [&](void) -> void {
+#ifdef BOOTSTRAP_MULTI_THREADED
       do_ret_ran.store(true);
       {
       std::lock_guard<std::mutex> _lck(_do_ret.mtx);
       _do_ret.cond.notify_one();
       }
+#endif
 
     //llvm::errs() << "<RET>\n";
       try {
