@@ -1429,7 +1429,7 @@ void BootstrapTool::on_new_basic_block_place_later(binary_t &b, basic_block_t bb
 
   {
     std::lock_guard<std::mutex> lock(_bb_brk.mtx);
-    _bb_brk.cv.notify_all();
+    _bb_brk.cv.notify_one();
   }
 #else
   auto &ICFG = b.Analysis.ICFG;
@@ -2636,7 +2636,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
     {
       std::lock_guard<std::mutex> lock(_bb_brk.mtx);
-    _bb_brk.cv.notify_all(); // work is done
+    _bb_brk.cv.notify_one(); // work is done
     }
 #endif
     return;
@@ -3244,7 +3244,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
     {
       std::lock_guard<std::mutex> lock(_bb_brk.mtx);
-    _bb_brk.cv.notify_all(); // work is done
+    _bb_brk.cv.notify_one(); // work is done
     }
 #endif
     return;
