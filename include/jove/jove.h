@@ -202,6 +202,11 @@ struct addr_intvl_cmp {
   }
 };
 
+constexpr addr_intvl make_addr_intvl(taddr_t lower, taddr_t upper) {
+  assert(upper > lower);
+  return addr_intvl(lower, upper - lower);
+}
+
 typedef boost::concurrent_flat_map<
     taddr_t, basic_block_index_t, boost::hash<taddr_t>, std::equal_to<taddr_t>,
     boost::interprocess::allocator<std::pair<const taddr_t, basic_block_index_t>,
@@ -847,54 +852,77 @@ static inline bool addr_intvl_disjoint(addr_intvl x, addr_intvl y) {
   return !addr_intvl_intersects(x, y);
 }
 
-#define DEFINE_bbmap_find(const_or_empty, iterator_or_const_iterator)          \
-  static inline bbmap_t::iterator_or_const_iterator bbmap_find(                \
-      const_or_empty bbmap_t &bbmap, addr_intvl intvl) {                       \
-    if (unlikely(bbmap.empty()))                                               \
-      return bbmap.end();                                                      \
-                                                                               \
-    bbmap_t::iterator_or_const_iterator it = bbmap.upper_bound(intvl.first);   \
-                                                                               \
-    if (it != bbmap.end() && addr_intvl_intersects((*it).first, intvl))        \
-      return it;                                                               \
-                                                                               \
-    if (it == bbmap.begin())                                                   \
-      return bbmap.end();                                                      \
-                                                                               \
-    --it;                                                                      \
-                                                                               \
-    if (addr_intvl_intersects((*it).first, intvl))                             \
-      return it;                                                               \
-                                                                               \
-    return bbmap.end();                                                        \
-  }                                                                            \
-                                                                               \
-  static inline bbmap_t::iterator_or_const_iterator bbmap_find(                \
-      const_or_empty bbmap_t &bbmap, taddr_t Addr) {                           \
-    return bbmap_find(bbmap, addr_intvl(Addr, 1u));                            \
-  }
+template <typename OrderedIntvlMap>
+constexpr auto intvl_map_find(OrderedIntvlMap &map, addr_intvl intvl) {
+  if (unlikely(map.empty()))
+    return map.end();
 
-DEFINE_bbmap_find(,iterator)
-DEFINE_bbmap_find(const,const_iterator)
+  auto it = map.upper_bound(intvl.first);
 
-static inline bool bbmap_contains(const bbmap_t &bbmap, addr_intvl intvl) {
-  return bbmap_find(bbmap, intvl) != bbmap.end();
+  if (it != map.end() && addr_intvl_intersects((*it).first, intvl))
+    return it;
+
+  if (it == map.begin())
+    return map.end();
+
+  --it;
+
+  if (addr_intvl_intersects((*it).first, intvl))
+    return it;
+
+  return map.end();
 }
 
-static inline bool bbmap_contains(const bbmap_t &bbmap, taddr_t Addr) {
-  return bbmap_contains(bbmap, addr_intvl(Addr, 1u));
+template <typename OrderedIntvlMap>
+constexpr auto intvl_map_find(OrderedIntvlMap &map, taddr_t Addr) {
+  return intvl_map_find(map, addr_intvl(Addr, 1u));
 }
 
-static inline bbmap_t::iterator bbmap_add(bbmap_t &bbmap,
-                                          addr_intvl intvl,
-                                          binary_index_t BIdx) {
-  bbmap_t::iterator it;
-  bool success;
-  std::tie(it, success) = bbmap.emplace(intvl, BIdx);
+template <typename OrderedIntvlMap>
+constexpr bool intvl_map_contains(OrderedIntvlMap &map, addr_intvl intvl) {
+  return intvl_map_find(map, intvl) != map.end();
+}
 
-  assert(success);
+template <typename OrderedIntvlMap>
+constexpr bool intvl_map_contains(OrderedIntvlMap &map, taddr_t Addr) {
+  return intvl_map_contains(map, addr_intvl(Addr, 1u));
+}
 
-  return it;
+template <typename OrderedIntvlMap, typename Value>
+constexpr auto intvl_map_add(OrderedIntvlMap &map,
+                             addr_intvl intvl,
+                             Value &&val) {
+  auto x = map.insert(typename OrderedIntvlMap::value_type(intvl, std::move(val)));
+
+  assert(x.second);
+  return x.first;
+}
+
+template <typename BBMap>
+constexpr auto bbmap_find(BBMap &bbmap, addr_intvl intvl) {
+  return intvl_map_find(bbmap, intvl);
+}
+
+template <typename BBMap>
+constexpr auto bbmap_find(BBMap &bbmap, taddr_t Addr) {
+  return intvl_map_find(bbmap, Addr);
+}
+
+template <typename BBMap>
+constexpr bool bbmap_contains(BBMap &bbmap, addr_intvl intvl) {
+  return intvl_map_contains(bbmap, intvl);
+}
+
+template <typename BBMap>
+constexpr bool bbmap_contains(BBMap &bbmap, taddr_t Addr) {
+  return intvl_map_contains(bbmap, Addr);
+}
+
+template <typename BBMap, typename Value>
+constexpr auto bbmap_add(BBMap &bbmap,
+                         addr_intvl intvl,
+                         Value &&val) {
+  return intvl_map_add(bbmap, intvl, std::move(val));
 }
 
 template <class _ExecutionPolicy, class T, class Proc>
