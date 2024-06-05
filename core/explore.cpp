@@ -70,7 +70,7 @@ function_index_t explorer_t::_explore_function(binary_t &b,
 
     res = b.Analysis.Functions.size();
 
-    b.Analysis.Functions.emplace_back(res, index_of_binary(b, jv));
+    b.Analysis.Functions.emplace_back(b, res);
 
     bool succeeded = fnmap.emplace(Addr, res);
     assert(succeeded);

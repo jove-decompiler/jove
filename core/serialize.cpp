@@ -252,6 +252,11 @@ static void serialize(Archive &ar, jove::binary_t &b, const unsigned int version
      &BOOST_SERIALIZATION_NVP(b.Analysis.RelocDynTargets)
      &BOOST_SERIALIZATION_NVP(b.Analysis.IFuncDynTargets)
      &BOOST_SERIALIZATION_NVP(b.Analysis.SymDynTargets);
+
+  for (jove::function_t &f : b.Analysis.Functions) { /* XXX */
+    if (!f.b)
+      f.b = &b;
+  }
 }
 
 //
@@ -260,7 +265,6 @@ static void serialize(Archive &ar, jove::binary_t &b, const unsigned int version
 template <class Archive>
 static void serialize(Archive &ar, jove::function_t &f, const unsigned int version) {
   ar &BOOST_SERIALIZATION_NVP(f.Idx)
-     &BOOST_SERIALIZATION_NVP(f.BIdx)
      &BOOST_SERIALIZATION_NVP(f.Entry)
      &BOOST_SERIALIZATION_NVP(f.Analysis.args)
      &BOOST_SERIALIZATION_NVP(f.Analysis.rets)
@@ -422,7 +426,7 @@ void UnserializeJV(jv_t &out, std::istream &is, bool text) {
   for (binary_t &b : out.Binaries)
     __builtin_memset(&b.Analysis.ICFG.m_property, 0, sizeof(b.Analysis.ICFG.m_property));
 
-  pAlloc_hack.reset(new ip_void_allocator_t(out.get_allocator()));
+  pAlloc_hack.reset(new ip_void_allocator_t(out.get_allocator())); /* XXX */
 
   out.clear();
 

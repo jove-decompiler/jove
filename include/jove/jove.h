@@ -363,9 +363,12 @@ static inline bool IsExitBlock(const icfg_t &ICFG, basic_block_t bb) {
          IsDefinitelyTailCall(ICFG, bb));
 }
 
+struct binary_t;
+
 struct function_t {
+  boost::interprocess::offset_ptr<binary_t> b;
+
   function_index_t Idx = invalid_function_index;
-  binary_index_t BIdx = invalid_binary_index;
 
   basic_block_index_t Entry = invalid_basic_block_index;
 
@@ -382,8 +385,7 @@ struct function_t {
     this->Analysis.Stale = true;
   }
 
-  function_t(function_index_t Idx, binary_index_t BIdx)
-      : Idx(Idx), BIdx(BIdx) {}
+  function_t(binary_t &b, function_index_t Idx) : b(&b), Idx(Idx) {}
 
   function_t() = default;
 };
@@ -1147,7 +1149,7 @@ static inline basic_block_index_t index_of_basic_block(const icfg_t &ICFG, basic
 
 static inline binary_index_t binary_index_of_function(const function_t &f,
                                                       const jv_t &jv) {
-  binary_index_t res = f.BIdx;
+  binary_index_t res = f.b->Idx;
   assert(is_binary_index_valid(res));
   return res;
 }
