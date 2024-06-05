@@ -411,7 +411,9 @@ public:
   binary_index_t BinaryFromData(pid_t, std::string_view data,
                                 const char *name = nullptr);
 
+  void on_new_basic_block_place_later(binary_t &, basic_block_t);
   void on_new_basic_block(binary_t &, basic_block_t);
+
   void on_new_function(binary_t &, function_t &);
 
   void place_breakpoint_at_indirect_branch(pid_t, uintptr_t Addr,
@@ -451,8 +453,10 @@ public:
   uintptr_t rva_of_va(uintptr_t Addr, binary_index_t BIdx);
 
   binary_index_t binary_at_program_counter(pid_t, uintptr_t valid_pc);
-  std::pair<binary_index_t, basic_block_index_t> block_at_program_counter(pid_t, uintptr_t valid_pc);
-  std::pair<binary_index_t, function_index_t> function_at_program_counter(pid_t, uintptr_t valid_pc);
+  std::pair<binary_index_t, basic_block_index_t>
+  block_at_program_counter(pid_t, uintptr_t valid_pc);
+  std::pair<binary_index_t, function_index_t>
+  function_at_program_counter(pid_t, uintptr_t valid_pc);
 
   std::pair<binary_index_t, basic_block_index_t> existing_block_at_program_counter(pid_t child, uintptr_t pc);
 
@@ -838,6 +842,8 @@ int BootstrapTool::TracerLoop(pid_t child) {
         if (unlikely(FirstTime)) { /* is this the first ptrace-stop? */
           FirstTime = false;
 
+          ScanAddressSpace(saved_child);
+
           if (!DidAttach()) {
             //
             // we should be at the entry point of the dynamic linker
@@ -856,8 +862,6 @@ int BootstrapTool::TracerLoop(pid_t child) {
               HumanOut() << llvm::formatv(
                   "failed to translate block at first ptrace-stop @ {0}\n",
                   description_of_program_counter(pc_of_cpu_state(cpu_state), true));
-
-            ScanAddressSpace(saved_child);
           }
 
           //
@@ -1403,6 +1407,10 @@ int BootstrapTool::TracerLoop(pid_t child) {
 }
 
 void BootstrapTool::on_new_basic_block(binary_t &b, basic_block_t bb) {
+  place_breakpoints_in_block(b, bb);
+}
+
+void BootstrapTool::on_new_basic_block_place_later(binary_t &b, basic_block_t bb) {
 #ifdef BOOTSTRAP_MULTI_THREADED
   //std::atomic_thread_fence(std::memory_order_release);
 
@@ -1484,23 +1492,7 @@ void BootstrapTool::place_breakpoints_in_new_blocks(void) {
     place_breakpoints_in_block(b, bb);
   };
 
-  uint64_t x;
-  bool have = false;
-  while (true) {
-    have = bb_brk_lckfree_q.pop(x);
-    if (have) {
-      do_place(x);
-      continue;
-    }
-
-    if (_bb_brk.done.load())
-      break;
-
-    std::unique_lock<std::mutex> lock(_bb_brk.mtx);
-
-    _bb_brk.cv.wait_for(lock, std::chrono::seconds(1),
-                        [&] { return _bb_brk.done.load(); });
-  }
+  bb_brk_lckfree_q.consume_all(do_place);
 #else
   while (!bb_brk_vec.empty()) {
     binary_index_t BIdx;
@@ -2651,6 +2643,22 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
     };
 
 #ifdef BOOTSTRAP_MULTI_THREADED
+  struct NewBasicBlockProcSetter {
+    BootstrapTool &tool;
+    on_newbb_proc_t sav_proc;
+
+    NewBasicBlockProcSetter(BootstrapTool &tool)
+        : tool(tool), sav_proc(tool.E->get_newbb_proc()) {
+      tool.E->set_newbb_proc(std::bind(&BootstrapTool::on_new_basic_block_place_later, &tool,
+                                       std::placeholders::_1,
+                                       std::placeholders::_2));
+    }
+
+    ~NewBasicBlockProcSetter() {
+      tool.E->set_newbb_proc(sav_proc);
+    }
+  } __NewBasicBlockProcSetter(*this);
+
   {
   //std::lock_guard<std::mutex> lck(q_mtx);
     uint64_t x;
@@ -2681,7 +2689,17 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
   assert(do_ret_ran.load());
 
   // Main thread will act as the consumer
-  place_breakpoints_in_new_blocks();
+  while (true) {
+    place_breakpoints_in_new_blocks();
+
+    if (_bb_brk.done.load())
+      break;
+
+    std::unique_lock<std::mutex> lock(_bb_brk.mtx);
+
+    _bb_brk.cv.wait_for(lock, std::chrono::seconds(1),
+                        [&] { return _bb_brk.done.load(); });
+  }
 
   tg->wait();
   }
@@ -3043,29 +3061,23 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
     bool IsGoto = false;
   } ControlFlow;
 
-#ifndef BOOTSTRAP_MULTI_THREADED
-  struct PlaceNewBreakpoints {
-    BootstrapTool &tool;
-
-    PlaceNewBreakpoints(BootstrapTool &tool) : tool(tool) {}
-    ~PlaceNewBreakpoints() { tool.place_breakpoints_in_new_blocks(); }
-  } __PlaceNewBreakpoints(*this);
-#endif
-
+#ifdef BOOTSTRAP_MULTI_THREADED
   struct {
     std::mutex mtx;
     std::condition_variable cond;
   } _producer;
 
   std::atomic<bool> producer_ran = false;
+#endif
 
-  state.update();
   auto producer = [&](void) -> void {
+#ifdef BOOTSTRAP_MULTI_THREADED
     producer_ran.store(true);
       {
       std::lock_guard<std::mutex> _lck(_producer.mtx);
       _producer.cond.notify_one();
       }
+#endif
 
     //llvm::errs() << "<PRODUCER>\n";
 #if 0
@@ -3226,7 +3238,6 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
     llvm::errs() << "</producer> " << TargetBinary.Analysis.Functions.size() << '\n';
 #endif
 
-
 #ifdef BOOTSTRAP_MULTI_THREADED
     //llvm::errs() << "</PRODUCER>\n";
     _bb_brk.done.store(true);
@@ -3240,6 +3251,22 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
   };
 
 #ifdef BOOTSTRAP_MULTI_THREADED
+  struct NewBasicBlockProcSetter {
+    BootstrapTool &tool;
+    on_newbb_proc_t sav_proc;
+
+    NewBasicBlockProcSetter(BootstrapTool &tool)
+        : tool(tool), sav_proc(tool.E->get_newbb_proc()) {
+      tool.E->set_newbb_proc(std::bind(&BootstrapTool::on_new_basic_block_place_later, &tool,
+                                       std::placeholders::_1,
+                                       std::placeholders::_2));
+    }
+
+    ~NewBasicBlockProcSetter() {
+      tool.E->set_newbb_proc(sav_proc);
+    }
+  } __NewBasicBlockProcSetter(*this);
+
   {
   //std::lock_guard<std::mutex> lck(q_mtx);
     uint64_t x;
@@ -3273,7 +3300,17 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
   assert(producer_ran.load());
 
   // Main thread will act as the consumer
-  place_breakpoints_in_new_blocks();
+  while (true) {
+    place_breakpoints_in_new_blocks();
+
+    if (_bb_brk.done.load())
+      break;
+
+    std::unique_lock<std::mutex> lock(_bb_brk.mtx);
+
+    _bb_brk.cv.wait_for(lock, std::chrono::seconds(1),
+                        [&] { return _bb_brk.done.load(); });
+  }
 
   tg->wait(); // Wait for the producer task to complete
   }
@@ -3286,6 +3323,13 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
     assert(!bb_brk_lckfree_q.pop(x));
   }
 #else
+  struct PlaceNewBreakpoints {
+    BootstrapTool &tool;
+
+    PlaceNewBreakpoints(BootstrapTool &tool) : tool(tool) {}
+    ~PlaceNewBreakpoints() { tool.place_breakpoints_in_new_blocks(); }
+  } __PlaceNewBreakpoints(*this);
+
   producer();
 #endif
 }
@@ -4386,6 +4430,18 @@ void BootstrapTool::scan_rtld_link_map(pid_t child) {
 }
 
 binary_index_t BootstrapTool::BinaryFromPath(pid_t child, const char *path) {
+  struct EmptyBasicBlockProcSetter {
+    BootstrapTool &tool;
+    on_newbb_proc_t sav_proc;
+
+    EmptyBasicBlockProcSetter(BootstrapTool &tool)
+        : tool(tool), sav_proc(tool.E->get_newbb_proc()) {
+      tool.E->set_newbb_proc([](binary_t &, basic_block_t) -> void {});
+    }
+
+    ~EmptyBasicBlockProcSetter() { tool.E->set_newbb_proc(sav_proc); }
+  } __EmptyBasicBlockProcSetter(*this); /* on_binary_loaded will place brkpts */
+
   bool IsNew;
   binary_index_t BIdx;
 
@@ -4402,6 +4458,18 @@ binary_index_t BootstrapTool::BinaryFromPath(pid_t child, const char *path) {
 
 binary_index_t BootstrapTool::BinaryFromData(pid_t child, std::string_view sv,
                                              const char *name) {
+  struct EmptyBasicBlockProcSetter {
+    BootstrapTool &tool;
+    on_newbb_proc_t sav_proc;
+
+    EmptyBasicBlockProcSetter(BootstrapTool &tool)
+        : tool(tool), sav_proc(tool.E->get_newbb_proc()) {
+      tool.E->set_newbb_proc([](binary_t &, basic_block_t) -> void {});
+    }
+
+    ~EmptyBasicBlockProcSetter() { tool.E->set_newbb_proc(sav_proc); }
+  } __EmptyBasicBlockProcSetter(*this); /* on_binary_loaded will place brkpts */
+
   bool IsNew;
   binary_index_t BIdx;
 
