@@ -2588,7 +2588,8 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 #ifdef BOOTSTRAP_MULTI_THREADED
       do_ret_ran.store(true);
       {
-      std::lock_guard<std::mutex> _lck(_do_ret.mtx);
+      std::unique_lock<std::mutex> _lck(_do_ret.mtx);
+      _lck.unlock();
       _do_ret.cond.notify_one();
       }
 #endif
@@ -3037,7 +3038,8 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 #ifdef BOOTSTRAP_MULTI_THREADED
     producer_ran.store(true);
       {
-      std::lock_guard<std::mutex> _lck(_producer.mtx);
+      std::unique_lock<std::mutex> _lck(_producer.mtx);
+      _lck.unlock();
       _producer.cond.notify_one();
       }
 #endif
