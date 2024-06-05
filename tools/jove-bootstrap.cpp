@@ -28,8 +28,6 @@ static constexpr bool IsI386 =
 #include <boost/dynamic_bitset.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/format.hpp>
-#include <boost/icl/interval_set.hpp>
-#include <boost/icl/split_interval_map.hpp>
 #include <boost/preprocessor/cat.hpp>
 #include <boost/preprocessor/repetition/repeat.hpp>
 #include <boost/preprocessor/repetition/repeat_from_to.hpp>
@@ -303,9 +301,15 @@ struct BootstrapTool : public TransformerTool_BinFn<binary_state_t, function_sta
 
   std::vector<struct proc_map_t> cached_proc_maps;
 
-  boost::icl::split_interval_map<uintptr_t, proc_map_set_t> pmm;
+  typedef boost::container::flat_map<addr_intvl, unsigned, addr_intvl_cmp>
+      pmm_t;
 
-  boost::icl::split_interval_map<uintptr_t, unsigned> AddressSpace;
+  pmm_t pmm;
+
+  typedef boost::container::flat_map<addr_intvl, binary_index_t, addr_intvl_cmp>
+      address_space_t;
+
+  address_space_t AddressSpace;
 
   boost::dynamic_bitset<> BinFoundVec;
 
@@ -3644,14 +3648,10 @@ bool BootstrapTool::UpdateVM(pid_t child) {
 
   pmm.clear();
 
-  for (const auto &pm : cached_proc_maps) {
-    boost::icl::interval<uintptr_t>::type intervl =
-        boost::icl::interval<uintptr_t>::right_open(pm.beg, pm.end);
+  for (unsigned i = 0; i < cached_proc_maps.size(); ++i) {
+    const proc_map_t &pm = cached_proc_maps[i];
 
-    if (unlikely(pmm.find(intervl) != pmm.end()))
-      die("(BUG) pmm");
-    else
-      pmm.add({intervl, {pm}});
+    intvl_map_add(pmm, make_addr_intvl(pm.beg, pm.end), i);
   }
 
   return true;
@@ -3674,9 +3674,6 @@ void BootstrapTool::ScanAddressSpace(pid_t child, bool VMUpdate) {
   });
 
   for (const proc_map_t &pm : cached_proc_maps) {
-    boost::icl::interval<uintptr_t>::type intervl =
-        boost::icl::interval<uintptr_t>::right_open(pm.beg, pm.end);
-
     if (pm.nm.empty())
       continue;
 
@@ -3718,10 +3715,7 @@ void BootstrapTool::ScanAddressSpace(pid_t child, bool VMUpdate) {
 
     binary_t &b = jv.Binaries.at(BIdx);
 
-    if (unlikely(AddressSpace.find(intervl) != AddressSpace.end()))
-      die("(BUG) AddressSpace");
-    else
-      AddressSpace.add({intervl, 1+BIdx});
+    intvl_map_add(AddressSpace, make_addr_intvl(pm.beg, pm.end), BIdx);
 
     if (updateVariable(state.for_binary(b).LoadAddr,
                        std::min(state.for_binary(b).LoadAddr, pm.beg)))
@@ -4200,7 +4194,7 @@ bool load_proc_maps(pid_t child, std::vector<struct proc_map_t> &out) {
     llvm::errs() << line << '\n';
 #endif
 
-    struct proc_map_t &proc_map = out.emplace_back();
+    proc_map_t &proc_map = out.emplace_back();
 
     char *const dash = (char *)memchr(line, '-', left);
     assert(dash);
@@ -4755,19 +4749,19 @@ std::string BootstrapTool::StringOfMCInst(llvm::MCInst &Inst) {
 binary_index_t BootstrapTool::binary_at_program_counter(pid_t child,
                                                         uintptr_t pc) {
   {
-    auto it = AddressSpace.find(pc);
+    auto it = intvl_map_find(AddressSpace, pc);
     if (likely(it != AddressSpace.end()))
-      return -1+(*it).second;
+      return (*it).second;
   }
 
   //
   // we haven't added this binary yet. where is it in memory?
   //
-  auto pm_it = pmm.find(pc);
+  auto pm_it = intvl_map_find(pmm, pc);
   if (pm_it == pmm.end()) {
     UpdateVM(child);
 
-    pm_it = pmm.find(pc);
+    pm_it = intvl_map_find(pmm, pc);
     if (pm_it == pmm.end()) {
       HumanOut() << llvm::formatv(
           "binary_at_program_counter: unknown code @ {0}\n",
@@ -4776,9 +4770,7 @@ binary_index_t BootstrapTool::binary_at_program_counter(pid_t child,
     }
   }
 
-  const proc_map_set_t &pms = (*pm_it).second;
-  assert(pms.size() == 1);
-  const proc_map_t &pm = *pms.begin();
+  const proc_map_t &pm = cached_proc_maps.at((*pm_it).second);
 
   // WARN_ON(!pm.x);
   const std::string &nm = pm.nm;
@@ -4841,11 +4833,11 @@ binary_index_t BootstrapTool::binary_at_program_counter(pid_t child,
   ScanAddressSpace(child, false);
 
   {
-    auto it = AddressSpace.find(pc);
+    auto it = intvl_map_find(AddressSpace, pc);
     if (it == AddressSpace.end())
       die("added " + nm + " but AddressSpace unchanged");
 
-    return -1+(*it).second;
+    return (*it).second;
   }
 }
 
@@ -4927,10 +4919,10 @@ std::string BootstrapTool::description_of_program_counter(uintptr_t pc, bool Ver
 
   const std::string simple_desc = (fmt("%#lx") % pc).str();
 
-  auto pm_it = pmm.find(pc);
+  auto pm_it = intvl_map_find(pmm, pc);
   if (pm_it == pmm.end() && _child) {
     UpdateVM(_child);
-    pm_it = pmm.find(pc);
+    pm_it = intvl_map_find(pmm, pc);
   }
 
   if (pm_it == pmm.end()) {
@@ -4938,17 +4930,14 @@ std::string BootstrapTool::description_of_program_counter(uintptr_t pc, bool Ver
   } else {
     std::string extra = Verbose ? (" (" + simple_desc + ")") : "";
 
-    const proc_map_set_t &pms = (*pm_it).second;
-    assert(pms.size() == 1);
-
-    const proc_map_t &pm = *pms.begin();
+    const proc_map_t &pm = cached_proc_maps.at((*pm_it).second);
 
     if (pm.nm.empty())
       return (fmt("%#lx+%#lx%s") % pm.beg % (pc - pm.beg) % extra).str();
 
-    auto it = AddressSpace.find(pc);
+    auto it = intvl_map_find(AddressSpace, pc);
     if (it != AddressSpace.end()) {
-      binary_index_t BIdx = -1+(*it).second;
+      binary_index_t BIdx = (*it).second;
 
       if (BinFoundVec.test(BIdx)) {
         //
