@@ -4672,9 +4672,6 @@ void BootstrapTool::on_return(pid_t child,
   //
   if (RetAddr)
   {
-    binary_index_t ToBIdx = binary_at_program_counter(child, RetAddr);
-    binary_t &to_b = jv.Binaries.at(ToBIdx);
-
     uintptr_t pc = RetAddr;
 
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
@@ -4689,7 +4686,11 @@ void BootstrapTool::on_return(pid_t child,
       die("on_return: returned to unknown @ " +
           description_of_program_counter(pc, true));
 
-    assert(ToBIdx == BIdx);
+    binary_t &b = jv.Binaries.at(BIdx);
+
+#ifdef BOOTSTRAP_MULTI_THREADED
+    ip_upgradable_lock<ip_upgradable_mutex> u_lck(b.bbmap_mtx);
+#endif
 
     //
     // what came before?
@@ -4715,12 +4716,6 @@ void BootstrapTool::on_return(pid_t child,
             description_of_program_counter(before_pc, true));
       return;
     }
-
-#ifdef BOOTSTRAP_MULTI_THREADED
-    ip_upgradable_lock<ip_upgradable_mutex> u_lck(to_b.bbmap_mtx);
-#endif
-
-    binary_t &b = jv.Binaries.at(BIdx);
 
     auto &ICFG = b.Analysis.ICFG;
     basic_block_t before_bb = basic_block_of_index(Before_BBIdx, ICFG);
@@ -4963,10 +4958,6 @@ BootstrapTool::existing_block_at_program_counter(pid_t child, uintptr_t pc) {
   uintptr_t rva = rva_of_va(pc, BIdx);
 
   basic_block_index_t BBIdx = ({
-#ifdef BOOTSTRAP_MULTI_THREADED
-    ip_sharable_lock<ip_upgradable_mutex> s_lck(binary.bbmap_mtx);
-#endif
-
     auto &bbmap = binary.bbmap;
 
     auto it = bbmap_find(bbmap, rva);
