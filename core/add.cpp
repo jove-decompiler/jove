@@ -86,7 +86,7 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
     if (unlikely(!is_function_index_valid(FIdx)))
       return;
 
-    b.Analysis.Functions[FIdx].IsABI = true;
+    b.Analysis.Functions.at(FIdx).IsABI = true;
   };
 
   //

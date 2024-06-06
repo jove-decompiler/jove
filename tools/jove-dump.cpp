@@ -266,7 +266,7 @@ void DumpTool::dumpDecompilation(const jv_t& jv) {
 
                            const binary_t &b = jv.Binaries.at(BIdx);
                            const auto &_ICFG = b.Analysis.ICFG;
-                           const function_t &callee = b.Analysis.Functions[FIdx];
+                           const function_t &callee = b.Analysis.Functions.at(FIdx);
                            uint64_t target_addr =
                                _ICFG[basic_block_of_index(callee.Entry, _ICFG)].Addr;
 
@@ -379,7 +379,7 @@ void DumpTool::dumpDecompilation(const jv_t& jv) {
 
                            auto &b = jv.Binaries.at(BIdx);
                            const auto &_ICFG = b.Analysis.ICFG;
-                           auto &callee = b.Analysis.Functions[FIdx];
+                           auto &callee = b.Analysis.Functions.at(FIdx);
                            uintptr_t target_addr =
                                _ICFG[basic_block_of_index(callee.Entry, _ICFG)].Addr;
 
@@ -412,7 +412,7 @@ void DumpTool::dumpDecompilation(const jv_t& jv) {
 
                            auto &b = jv.Binaries.at(BIdx);
                            const auto &_ICFG = b.Analysis.ICFG;
-                           auto &callee = b.Analysis.Functions[FIdx];
+                           auto &callee = b.Analysis.Functions.at(FIdx);
                            uintptr_t target_addr =
                                _ICFG[basic_block_of_index(callee.Entry, _ICFG)].Addr;
 
@@ -445,7 +445,7 @@ void DumpTool::dumpDecompilation(const jv_t& jv) {
 
                            auto &b = jv.Binaries.at(BIdx);
                            const auto &_ICFG = b.Analysis.ICFG;
-                           auto &callee = b.Analysis.Functions[FIdx];
+                           auto &callee = b.Analysis.Functions.at(FIdx);
                            uintptr_t target_addr =
                                _ICFG[basic_block_of_index(callee.Entry, _ICFG)].Addr;
 
@@ -519,7 +519,7 @@ void DumpTool::dumpInput(const std::string &Path) {
 
         for (unsigned FIdx = 0; FIdx < binary.Analysis.Functions.size();
              ++FIdx) {
-          const function_t &function = binary.Analysis.Functions[FIdx];
+          const function_t &function = binary.Analysis.Functions.at(FIdx);
           uintptr_t Addr =
               ICFG[basic_block_of_index(function.Entry, ICFG)].Addr;
 

@@ -58,7 +58,7 @@ function_index_t explorer_t::_explore_function(binary_t &b,
   }
 
   {
-    ip_upgradable_lock<ip_upgradable_mutex> u_lck(b.fnmap_mtx);
+    ip_upgradable_lock<ip_upgradable_mutex> u_lck(b.Analysis.Functions._mtx);
 
     bool found = fnmap.cvisit(Addr, [&](const auto &x) { res = x.second; });
     if (likely(found)) {
@@ -68,9 +68,8 @@ function_index_t explorer_t::_explore_function(binary_t &b,
 
     ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
 
-    res = b.Analysis.Functions.size();
-
-    b.Analysis.Functions.emplace_back(b, res);
+    res = b.Analysis.Functions._deque.size();
+    b.Analysis.Functions._deque.emplace_back(b, res);
 
     bool succeeded = fnmap.emplace(Addr, res);
     assert(succeeded);

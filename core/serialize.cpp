@@ -230,10 +230,34 @@ namespace boost {
 namespace serialization {
 
 //
+// binary_t::Analysis_t::_Functions
+//
+template <class Archive>
+static void serialize(Archive &ar, jove::binary_t::Analysis_t::_Functions &X,
+                      const unsigned int) {
+  ar &BOOST_SERIALIZATION_NVP(X._deque);
+}
+
+//
+// binary_t::Analysis_t
+//
+template <class Archive>
+static void serialize(Archive &ar, jove::binary_t::Analysis_t &A,
+                      const unsigned int version) {
+  ar &BOOST_SERIALIZATION_NVP(A.EntryFunction)
+     &BOOST_SERIALIZATION_NVP(A.Functions)
+     &BOOST_SERIALIZATION_NVP(A.ICFG)
+     &BOOST_SERIALIZATION_NVP(A.RelocDynTargets)
+     &BOOST_SERIALIZATION_NVP(A.IFuncDynTargets)
+     &BOOST_SERIALIZATION_NVP(A.SymDynTargets);
+}
+
+//
 // binary_t
 //
 template <class Archive>
-static void serialize(Archive &ar, jove::binary_t &b, const unsigned int version) {
+static void serialize(Archive &ar, jove::binary_t &b,
+                      const unsigned int version) {
   ar &BOOST_SERIALIZATION_NVP(b.Idx)
      &BOOST_SERIALIZATION_NVP(b.bbbmap)
      &BOOST_SERIALIZATION_NVP(b.bbmap)
@@ -246,17 +270,23 @@ static void serialize(Archive &ar, jove::binary_t &b, const unsigned int version
      &BOOST_SERIALIZATION_NVP(b.IsVDSO)
      &BOOST_SERIALIZATION_NVP(b.IsPIC)
      &BOOST_SERIALIZATION_NVP(b.IsDynamicallyLoaded)
-     &BOOST_SERIALIZATION_NVP(b.Analysis.EntryFunction)
-     &BOOST_SERIALIZATION_NVP(b.Analysis.Functions)
-     &BOOST_SERIALIZATION_NVP(b.Analysis.ICFG)
-     &BOOST_SERIALIZATION_NVP(b.Analysis.RelocDynTargets)
-     &BOOST_SERIALIZATION_NVP(b.Analysis.IFuncDynTargets)
-     &BOOST_SERIALIZATION_NVP(b.Analysis.SymDynTargets);
+     &BOOST_SERIALIZATION_NVP(b.Analysis);
 
   for (jove::function_t &f : b.Analysis.Functions) { /* XXX */
     if (!f.b)
       f.b = &b;
   }
+}
+
+//
+// function_t::Analysis_t
+//
+template <class Archive>
+static void serialize(Archive &ar, jove::function_t::Analysis_t &A,
+                      const unsigned int version) {
+  ar &BOOST_SERIALIZATION_NVP(A.args)
+     &BOOST_SERIALIZATION_NVP(A.rets)
+     &BOOST_SERIALIZATION_NVP(A.Stale);
 }
 
 //
@@ -266,9 +296,7 @@ template <class Archive>
 static void serialize(Archive &ar, jove::function_t &f, const unsigned int version) {
   ar &BOOST_SERIALIZATION_NVP(f.Idx)
      &BOOST_SERIALIZATION_NVP(f.Entry)
-     &BOOST_SERIALIZATION_NVP(f.Analysis.args)
-     &BOOST_SERIALIZATION_NVP(f.Analysis.rets)
-     &BOOST_SERIALIZATION_NVP(f.Analysis.Stale)
+     &BOOST_SERIALIZATION_NVP(f.Analysis)
      &BOOST_SERIALIZATION_NVP(f.IsABI)
      &BOOST_SERIALIZATION_NVP(f.IsSignalHandler)
      &BOOST_SERIALIZATION_NVP(f.Returns);

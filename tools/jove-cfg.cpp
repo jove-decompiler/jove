@@ -347,7 +347,7 @@ int CFGTool::Run(void) {
   const auto &ICFG = binary.Analysis.ICFG;
 
   for (function_index_t FIdx = 0; FIdx < binary.Analysis.Functions.size(); ++FIdx) {
-    const function_t &f = binary.Analysis.Functions[FIdx];
+    const function_t &f = binary.Analysis.Functions.at(FIdx);
 
     uintptr_t EntryAddr = ICFG[basic_block_of_index(f.Entry, ICFG)].Addr;
     if (EntryAddr != FuncAddr)
@@ -363,7 +363,7 @@ int CFGTool::Run(void) {
   return 1;
 
 Found:
-  const function_t &f = binary.Analysis.Functions[FunctionIndex];
+  const function_t &f = binary.Analysis.Functions.at(FunctionIndex);
   assert(is_basic_block_index_valid(f.Entry));
 
   std::string dot_path = (fs::path(temporary_dir()) / "cfg.dot").string();

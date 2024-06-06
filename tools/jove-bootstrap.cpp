@@ -3751,7 +3751,7 @@ void BootstrapTool::on_binary_loaded(pid_t child,
   if (binary.IsExecutable &&
       is_function_index_valid(binary.Analysis.EntryFunction)) {
     basic_block_t entry_bb = basic_block_of_index(
-        binary.Analysis.Functions[binary.Analysis.EntryFunction].Entry,
+        binary.Analysis.Functions.at(binary.Analysis.EntryFunction).Entry,
         binary.Analysis.ICFG);
     uintptr_t entry_rva = binary.Analysis.ICFG[entry_bb].Addr;
     uintptr_t Addr = va_of_rva(entry_rva, BIdx);

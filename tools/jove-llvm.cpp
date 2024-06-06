@@ -560,7 +560,7 @@ public:
     binary_t &binary = jv.Binaries.at(DynTarget.BIdx);
 
     if (DynTarget.BIdx == BinaryIndex) {
-      const function_t &f = binary.Analysis.Functions[DynTarget.FIdx];
+      const function_t &f = binary.Analysis.Functions.at(DynTarget.FIdx);
       if (Callable) {
         assert(state.for_function(f).F);
         return llvm::ConstantExpr::getPtrToInt(state.for_function(f).F, WordType());
@@ -1945,7 +1945,7 @@ int LLVMTool::Run(void) {
 
                 llvm::StringRef SymName = *ExpectedSymName;
 
-                ExportedFunctions[SymName.str()].insert({BIdx, FIdx});
+                ExportedFunctions.at(SymName.str()).insert({BIdx, FIdx});
               });
         });
   }
@@ -3707,7 +3707,7 @@ int LLVMTool::CreateFunctionTable(void) {
   constantTable.resize(3 * Binary.Analysis.Functions.size());
 
   for (unsigned i = 0; i < Binary.Analysis.Functions.size(); ++i) {
-    const function_t &f = Binary.Analysis.Functions[i];
+    const function_t &f = Binary.Analysis.Functions.at(i);
 
     llvm::Constant *&C1 = constantTable[3 * i + 0];
     llvm::Constant *&C2 = constantTable[3 * i + 1];
@@ -4079,7 +4079,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
       FunctionOrigInsnTable.resize(Binary.Analysis.Functions.size());
 
       for (function_index_t FIdx = 0; FIdx <  Binary.Analysis.Functions.size(); ++FIdx) {
-        function_t &f = Binary.Analysis.Functions[FIdx];
+        function_t &f = Binary.Analysis.Functions.at(FIdx);
         if (!is_basic_block_index_valid(f.Entry))
           continue;
 
@@ -4091,7 +4091,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
       }
 
       for (function_index_t FIdx = 0; FIdx <  Binary.Analysis.Functions.size(); ++FIdx) {
-        function_t &f = Binary.Analysis.Functions[FIdx];
+        function_t &f = Binary.Analysis.Functions.at(FIdx);
         if (!is_basic_block_index_valid(f.Entry))
           continue;
 
@@ -4143,7 +4143,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
       // restore original insns
       //
       for (function_index_t FIdx = 0; FIdx <  Binary.Analysis.Functions.size(); ++FIdx) {
-        function_t &f = Binary.Analysis.Functions[FIdx];
+        function_t &f = Binary.Analysis.Functions.at(FIdx);
         if (!is_basic_block_index_valid(f.Entry))
           continue;
 
@@ -5602,7 +5602,7 @@ int LLVMTool::CreateCopyRelocationHack(void) {
                 FirstEntry,
                 IRB.getIntN(
                     WordBits(),
-                    ICFG[basic_block_of_index(BinaryFrom.Analysis.Functions[0].Entry,
+                    ICFG[basic_block_of_index(BinaryFrom.Analysis.Functions.at(0).Entry,
                                        ICFG)]
                         .Addr));
 
@@ -5701,7 +5701,7 @@ int LLVMTool::FixupHelperStubs(void) {
       Module->getFunction("_jove_call_entry"),
       [&](auto &IRB) -> void {
         if (is_function_index_valid(Binary.Analysis.EntryFunction)) {
-          function_t &f = Binary.Analysis.Functions[Binary.Analysis.EntryFunction];
+          function_t &f = Binary.Analysis.Functions.at(Binary.Analysis.EntryFunction);
 
           std::vector<llvm::Value *> ArgVec;
           {
@@ -5873,7 +5873,7 @@ int LLVMTool::FixupHelperStubs(void) {
               constantTable.resize(binary.Analysis.Functions.size() + 1);
 
               for (function_index_t FIdx = 0; FIdx < binary.Analysis.Functions.size(); ++FIdx) {
-                function_t &f = binary.Analysis.Functions[FIdx];
+                function_t &f = binary.Analysis.Functions.at(FIdx);
 
                 constantTable[FIdx] = llvm::ConstantInt::get(
                     WordType(), ICFG[basic_block_of_index(f.Entry, ICFG)].Addr);
@@ -8907,7 +8907,7 @@ std::string LLVMTool::dyn_target_desc(dynamic_target_t IdxPair) {
   std::tie(DynTarget.BIdx, DynTarget.FIdx) = IdxPair;
 
   binary_t &b = jv.Binaries.at(DynTarget.BIdx);
-  function_t &f = b.Analysis.Functions[DynTarget.FIdx];
+  function_t &f = b.Analysis.Functions.at(DynTarget.FIdx);
 
   uint64_t Addr =
       b.Analysis.ICFG[basic_block_of_index(f.Entry, b.Analysis.ICFG)].Addr;
