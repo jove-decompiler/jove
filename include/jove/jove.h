@@ -1444,27 +1444,30 @@ static inline void identify_ABIs(jv_t &jv) {
   //
   for_each_basic_block(std::execution::par_unseq,
                        jv, [&](binary_t &b, basic_block_t bb) {
-    if (!b.Analysis.ICFG[bb].hasDynTarget())
+    auto &bbprop = b.Analysis.ICFG[bb];
+    if (!bbprop.hasDynTarget())
       return;
 
-    auto &DynTargets = *b.Analysis.ICFG[bb].pDynTargets;
-    binary_index_t BIdx = index_of_binary(b, jv);
+    const binary_index_t BIdx = index_of_binary(b, jv);
+
+    auto dyn_targ_beg = bbprop.dyn_targets_begin();
+    auto dyn_targ_end = bbprop.dyn_targets_end();
 
     if (std::any_of(
-            DynTargets.begin(),
-            DynTargets.end(),
+            dyn_targ_beg,
+            dyn_targ_end,
             [&](dynamic_target_t X) -> bool { return X.first != BIdx; }))
       std::for_each(std::execution::par_unseq,
-                    DynTargets.begin(),
-                    DynTargets.end(),
+                    dyn_targ_beg,
+                    dyn_targ_end,
                     [&](dynamic_target_t X) {
                       function_of_target(X, jv).IsABI = true;
                     });
   });
 
   // XXX unnecessary?
-  for_each_binary(jv, [&](auto &binary) {
-    auto &IFuncDynTargets = binary.Analysis.IFuncDynTargets;
+  for_each_binary(jv, [&](auto &b) {
+    auto &IFuncDynTargets = b.Analysis.IFuncDynTargets;
 
     std::for_each(
         std::execution::par_unseq,
