@@ -3452,8 +3452,7 @@ static void sort_tcg_global_args(std::vector<unsigned> &glbv) {
     if (!A && !B)
       return a < b;
 
-    __builtin_trap();
-    __builtin_unreachable();
+    __compiletime_unreachable();
   });
 }
 
@@ -3481,8 +3480,7 @@ static void sort_tcg_global_rets(std::vector<unsigned> &glbv) {
     if (!A && !B)
       return a < b;
 
-    __builtin_trap();
-    __builtin_unreachable();
+    __compiletime_unreachable();
   });
 }
 
