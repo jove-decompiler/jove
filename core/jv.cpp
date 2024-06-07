@@ -239,6 +239,9 @@ void jv_t::InvalidateFunctionAnalyses(void) {
 function_t::function_t(binary_t &b, function_index_t Idx)
     : b(&b), Idx(Idx), Callers(b.get_allocator()) {}
 
+function_t::function_t(const ip_void_allocator_t &A)
+    : Callers(A) {}
+
 void basic_block_properties_t::AddParent(function_index_t FIdx, jv_t &jv) {
   ip_func_index_set Idxs(jv.get_allocator());
 

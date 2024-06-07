@@ -436,6 +436,7 @@ struct function_t {
   }
 
   function_t(binary_t &, function_index_t);
+  function_t(const ip_void_allocator_t &); /* XXX */
   function_t() = delete;
 };
 

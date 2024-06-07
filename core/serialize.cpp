@@ -272,7 +272,13 @@ static void serialize(Archive &ar, jove::binary_t &b,
      &BOOST_SERIALIZATION_NVP(b.IsDynamicallyLoaded)
      &BOOST_SERIALIZATION_NVP(b.Analysis);
 
-  for (jove::function_t &f : b.Analysis.Functions) { /* XXX */
+  /* XXX */
+  for (unsigned FIdx = 0; FIdx < b.Analysis.Functions._deque.size(); ++FIdx) {
+    jove::function_t &f = b.Analysis.Functions._deque[FIdx];
+
+    if (!jove::is_function_index_valid(f.Idx))
+      f.Idx = FIdx;
+
     if (!f.b)
       f.b = &b;
   }
@@ -382,7 +388,7 @@ template <class Archive>
 static inline void load_construct_data(Archive &ar, jove::function_t *t,
                                        const unsigned int file_version) {
   assert(jove::pAlloc_hack);
-  ::new (t)jove::binary_t(*jove::pAlloc_hack);
+  ::new (t)jove::function_t(*jove::pAlloc_hack);
 }
 
 template <class Archive>

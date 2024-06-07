@@ -90,12 +90,14 @@ function(tool_for_arch arch arch_extra_cflags qemu_objs)
     jove-recover.cpp
     jove-run.cpp
     jove-score.cpp
+    jove-serialize.cpp
     jove-server.cpp
     jove-stub.cpp
     jove-trace.cpp
     jove-trace2addrs.cpp
     jove-trace2asm.cpp
     jove-trace2lines.cpp
+    jove-unserialize.cpp
     jove-unstub.cpp
     jv2xml.cpp
     tcgdump.cpp
