@@ -151,8 +151,15 @@ class JoveTester:
     pane.send_keys("C-c", literal=False, enter=False)
     pane.send_keys(" ".join(command), enter=False)
 
+  def fake_run_command_for_user(self, command):
+    pane = self.ssh_pane()
+    pane.send_keys("true || " + " ".join(command), enter=True)
+
   def set_up_ssh_command_for_user(self, command):
     self.set_up_command_for_user(["ssh", '-p', str(self.guest_ssh_port), 'root@localhost'] + command)
+
+  def fake_run_ssh_command_for_user(self, command):
+    self.fake_run_command_for_user(["ssh", '-p', str(self.guest_ssh_port), 'root@localhost'] + command)
 
   def ssh_command(self, command, text=True):
     return subprocess.run(['ssh', '-o', 'UserKnownHostsFile=/dev/null', '-o', 'StrictHostKeyChecking=no', '-o', 'LogLevel=quiet', '-p', str(self.guest_ssh_port), 'root@localhost'] + command, capture_output=True, text=text)
@@ -202,6 +209,9 @@ class JoveTester:
           self.ssh(["jove", "bootstrap", test_guest_path] + input_args)
 
         jove_loop_args = ["jove", "loop", "--mt=0", "--optimize", "--connect", "%s:%d" % (self.iphost, self.jove_server_port), test_guest_path]
+
+        if not self.unattended:
+          self.fake_run_ssh_command_for_user(jove_loop_args + input_args)
 
         for i in range(0, 2):
           for input_args in test_inputs:
