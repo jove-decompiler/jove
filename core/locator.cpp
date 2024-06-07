@@ -125,4 +125,8 @@ std::string locator_t::perf(void) {
   return must_exist("/usr/bin/perf");
 }
 
+std::string locator_t::sudo(void) {
+  return must_exist("/usr/bin/sudo");
+}
+
 }

@@ -37,6 +37,8 @@ struct locator_t {
   std::string gdbserver(void);
 
   std::string perf(void);
+
+  std::string sudo(void);
 };
 
 }
