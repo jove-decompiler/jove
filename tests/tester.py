@@ -151,6 +151,9 @@ class JoveTester:
     pane.send_keys("C-c", literal=False, enter=False)
     pane.send_keys(" ".join(command), enter=False)
 
+  def set_up_ssh_command_for_user(self, command):
+    self.set_up_command_for_user(["ssh", '-p', str(self.guest_ssh_port), 'root@localhost'] + command)
+
   def ssh_command(self, command, text=True):
     return subprocess.run(['ssh', '-o', 'UserKnownHostsFile=/dev/null', '-o', 'StrictHostKeyChecking=no', '-o', 'LogLevel=quiet', '-p', str(self.guest_ssh_port), 'root@localhost'] + command, capture_output=True, text=text)
 
@@ -223,7 +226,7 @@ class JoveTester:
               print('<STDERR>\n"%s"\n\n!=\n\n"%s"\n' % (p1.stderr, p2.stderr))
 
             if not self.unattended:
-              self.set_up_command_for_user(["ssh"] + jove_loop_args)
+              self.set_up_ssh_command_for_user(jove_loop_args)
 
             return 1
 
