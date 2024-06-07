@@ -23,7 +23,10 @@
 #include <boost/graph/adjacency_list.hpp>
 #include <boost/graph/depth_first_search.hpp>
 #include <boost/unordered/unordered_map.hpp>
+#include <boost/unordered/unordered_node_set.hpp>
+#include <boost/unordered/unordered_flat_set.hpp>
 #include <boost/unordered/concurrent_flat_map.hpp>
+#include <boost/unordered/concurrent_flat_set.hpp>
 #include <boost/interprocess/containers/map.hpp>
 #include <boost/interprocess/containers/flat_map.hpp>
 #include <boost/interprocess/containers/set.hpp>
@@ -166,12 +169,6 @@ static inline ip_string &to_ips(ip_string &res, const std::string &x) {
   return res;
 }
 
-#if 0
-typedef boost::interprocess::vector<dynamic_target_t,
-                                    boost::interprocess::allocator<dynamic_target_t, segment_manager_t>>
-    ip_dynamic_target_vector;
-#endif
-
 typedef boost::interprocess::set<
     dynamic_target_t, std::less<dynamic_target_t>,
     boost::interprocess::allocator<dynamic_target_t, segment_manager_t>>
@@ -224,6 +221,20 @@ typedef boost::concurrent_flat_map<
     boost::interprocess::allocator<std::pair<const taddr_t, function_index_t>,
                                    segment_manager_t>>
     fnmap_t;
+
+typedef boost::unordered::unordered_flat_set<
+    function_index_t, boost::hash<function_index_t>,
+    std::equal_to<function_index_t>,
+    boost::interprocess::allocator<function_index_t, segment_manager_t>>
+    ip_func_index_set;
+
+typedef boost::unordered_node_set<
+    ip_func_index_set, boost::hash<ip_func_index_set>,
+    std::equal_to<ip_func_index_set>,
+    boost::interprocess::allocator<function_index_t, segment_manager_t>>
+    ip_func_index_sets;
+
+struct jv_t;
 
 struct basic_block_properties_t {
   uint64_t Addr;
@@ -278,6 +289,17 @@ struct basic_block_properties_t {
     bool Stale;
   } Analysis;
 
+  boost::interprocess::offset_ptr<const ip_func_index_set> Parents;
+
+  bool HasParent(function_index_t FIdx) const {
+    if (!Parents)
+      return false;
+
+    return Parents->contains(FIdx);
+  }
+
+  void AddParent(function_index_t, jv_t &);
+
   bool IsSingleInstruction(void) const { return Addr == Term.Addr; }
 
   void InvalidateAnalysis(void) {
@@ -291,13 +313,7 @@ struct basic_block_properties_t {
     return !pDynTargets->empty();
   }
 
-  bool insertDynTarget(dynamic_target_t X, const ip_void_allocator_t &Alloc) {
-    if (!pDynTargets)
-      pDynTargets =
-          Alloc.get_segment_manager()->construct<ip_dynamic_target_set>(
-              boost::interprocess::anonymous_instance)(Alloc);
-    return pDynTargets->insert(X).second;
-  }
+  bool insertDynTarget(dynamic_target_t, jv_t &);
 
   unsigned getNumDynTargets(void) const {
     return hasDynTarget() ? pDynTargets->size() : 0;
@@ -363,6 +379,38 @@ static inline bool IsExitBlock(const icfg_t &ICFG, basic_block_t bb) {
          IsDefinitelyTailCall(ICFG, bb));
 }
 
+//
+// encounter new basic block retbb that RETURNS:
+//   for each f s.t. retbb \in f:
+//     => f returns
+//     for each caller of f:
+//       if tail:
+//         => is exit block
+//         for each _f s.t. caller \in _f:
+//           => _f returns
+//           ...
+//       else:
+//         => caller returns
+//           => new code
+//           ...
+//
+// encounter dynamic target that returns
+//   if tail:
+//     => is exit block
+//     for each _f s.t. caller \in _f:
+//       => _f returns
+//       ...
+//   else:
+//     => caller returns
+//       => new code
+//       ...
+//
+typedef std::pair<binary_index_t, taddr_t> caller_t;
+typedef boost::concurrent_flat_set<
+    caller_t, boost::hash<caller_t>, std::equal_to<caller_t>,
+    boost::interprocess::allocator<caller_t, segment_manager_t>>
+    ip_callers;
+
 struct binary_t;
 
 struct function_t {
@@ -371,6 +419,8 @@ struct function_t {
   function_index_t Idx = invalid_function_index;
 
   basic_block_index_t Entry = invalid_basic_block_index;
+
+  ip_callers Callers;
 
   struct Analysis_t {
     tcg_global_set_t args;
@@ -385,9 +435,8 @@ struct function_t {
     this->Analysis.Stale = true;
   }
 
-  function_t(binary_t &b, function_index_t Idx) : b(&b), Idx(Idx) {}
-
-  function_t() = default;
+  function_t(binary_t &, function_index_t);
+  function_t() = delete;
 };
 
 typedef boost::interprocess::interprocess_mutex ip_mutex;
@@ -404,8 +453,8 @@ using ip_upgradable_lock = boost::interprocess::upgradable_lock<Mutex>;
 typedef boost::interprocess::interprocess_condition ip_condition;
 
 typedef boost::interprocess::allocator<function_t, segment_manager_t>
-    function_allocator;
-typedef boost::interprocess::deque<function_t, function_allocator>
+    ip_function_allocator;
+typedef boost::interprocess::deque<function_t, ip_function_allocator>
     ip_function_deque;
 
 #define DEFINE_INTERPROCESS_MAP(name, key, value)                              \
@@ -444,32 +493,32 @@ struct binary_t {
 
     struct _Functions {
       ip_function_deque _deque;
-      mutable ip_upgradable_mutex _mtx;
+      mutable ip_sharable_mutex _mtx;
 
       //
-      // references to function_t can be relied upon
+      // references to function_t will never be invalidated.
       //
       function_t &at(unsigned idx) {
-        ip_sharable_lock<ip_upgradable_mutex> s_lck(_mtx);
+        ip_sharable_lock<ip_sharable_mutex> s_lck(_mtx);
         return _deque.at(idx);
       }
 
       const function_t &at(unsigned idx) const {
-        ip_sharable_lock<ip_upgradable_mutex> s_lck(_mtx);
+        ip_sharable_lock<ip_sharable_mutex> s_lck(_mtx);
         return _deque.at(idx);
       }
 
       unsigned size(void) const {
-        ip_sharable_lock<ip_upgradable_mutex> s_lck(_mtx);
+        ip_sharable_lock<ip_sharable_mutex> s_lck(_mtx);
         return _deque.size();
       }
 
       bool empty(void) const { return size() == 0; }
 
       //
-      // with iterators we don't even take the shared lock because they would be
-      // invalidated anyways even if a modification to _deque took place between
-      // the locking.
+      // with iterators we don't even bother taking the shared lock; they would be
+      // invalidated anyways if a modification to _deque took place in between the
+      // locking.
       //
       ip_function_deque::const_iterator cbegin(void) const { return _deque.cbegin(); }
       ip_function_deque::const_iterator cend(void) const { return _deque.cend(); }
@@ -542,6 +591,10 @@ struct binary_t {
 
   bool is_special_mapping(void) const {
     return !Name.empty() && Name.front() == '[' && Name.back() == ']';
+  }
+
+  ip_void_allocator_t get_allocator(void) {
+    return Analysis.Functions._deque.get_allocator();
   }
 
   binary_t(const ip_void_allocator_t &A)
@@ -632,34 +685,34 @@ typedef boost::unordered_map<
 struct jv_t {
   struct _Binaries {
     ip_binary_deque _deque;
-    mutable ip_upgradable_mutex _mtx;
+    mutable ip_sharable_mutex _mtx;
 
     _Binaries(const ip_void_allocator_t &A) : _deque(A) {}
 
     //
-    // references to binary_t can be relied upon
+    // references to binary_t will never be invalidated.
     //
     binary_t &at(unsigned idx) {
-      ip_sharable_lock<ip_upgradable_mutex> s_lck(_mtx);
+      ip_sharable_lock<ip_sharable_mutex> s_lck(_mtx);
       return _deque.at(idx);
     }
 
     const binary_t &at(unsigned idx) const {
-      ip_sharable_lock<ip_upgradable_mutex> s_lck(_mtx);
+      ip_sharable_lock<ip_sharable_mutex> s_lck(_mtx);
       return _deque.at(idx);
     }
 
     unsigned size(void) const {
-      ip_sharable_lock<ip_upgradable_mutex> s_lck(_mtx);
+      ip_sharable_lock<ip_sharable_mutex> s_lck(_mtx);
       return _deque.size();
     }
 
     bool empty(void) const { return size() == 0; }
 
     //
-    // with iterators we don't even take the shared lock because they would be
-    // invalidated anyways even if a modification to _deque took place between
-    // the locking.
+    // with iterators we don't even bother taking the shared lock; they would be
+    // invalidated anyways if a modification to _deque took place in between the
+    // locking.
     //
     ip_binary_deque::const_iterator cbegin(void) const { return _deque.cbegin(); }
     ip_binary_deque::const_iterator cend(void) const { return _deque.cend(); }
@@ -670,6 +723,9 @@ struct jv_t {
     ip_binary_deque::iterator begin(void) { return _deque.begin(); }
     ip_binary_deque::iterator end(void) { return _deque.end(); }
   } Binaries;
+
+  ip_func_index_sets FIdxSets;
+  ip_sharable_mutex FIdxSetsMtx;
 
   ip_hash_to_binary_map_type hash_to_binary;
   ip_cached_hashes_type cached_hashes; /* NOT serialized */
@@ -690,7 +746,8 @@ struct jv_t {
   }
 
   jv_t(const ip_void_allocator_t &A)
-      : Binaries(A), hash_to_binary(A), cached_hashes(A), name_to_binaries(A) {}
+      : Binaries(A), FIdxSets(A), hash_to_binary(A), cached_hashes(A),
+        name_to_binaries(A) {}
 
   jv_t() = delete;
 
@@ -882,16 +939,16 @@ description_of_terminator_info(const terminator_info_t &T,
   return res;
 }
 
-static inline basic_block_t basic_block_of_index(basic_block_index_t BBIdx,
-                                                 const icfg_t &ICFG) {
+constexpr basic_block_t basic_block_of_index(basic_block_index_t BBIdx,
+                                             const icfg_t &ICFG) {
   assert(is_basic_block_index_valid(BBIdx));
 
   return boost::vertex(BBIdx, ICFG);
 }
 
-static inline basic_block_t basic_block_of_index(basic_block_index_t BBIdx,
-                                                 const binary_t &binary) {
-  const auto &ICFG = binary.Analysis.ICFG;
+constexpr basic_block_t basic_block_of_index(basic_block_index_t BBIdx,
+                                             const binary_t &b) {
+  const auto &ICFG = b.Analysis.ICFG;
   return basic_block_of_index(BBIdx, ICFG);
 }
 
@@ -913,27 +970,29 @@ void for_each_if(Iter first, Iter last, Pred pred, Proc proc) {
 }
 
 static inline std::string addr_intvl2str(addr_intvl intvl) {
-  return "[" + taddr2str(intvl.first, false) + ", " + taddr2str(intvl.first + intvl.second, false) + ")";
+  return "[" +
+         taddr2str(intvl.first, false) + ", " +
+         taddr2str(intvl.first + intvl.second, false) + ")";
 }
 
-static inline addr_intvl right_open_addr_intvl(taddr_t Addr, taddr_t End) {
+constexpr addr_intvl right_open_addr_intvl(taddr_t Addr, taddr_t End) {
   assert(End > Addr);
   return addr_intvl(Addr, End - Addr);
 }
 
-static inline taddr_t addr_intvl_lower(addr_intvl intvl) {
+constexpr taddr_t addr_intvl_lower(addr_intvl intvl) {
   return intvl.first;
 }
 
-static inline taddr_t addr_intvl_upper(addr_intvl intvl) {
+constexpr taddr_t addr_intvl_upper(addr_intvl intvl) {
   return intvl.first + intvl.second;
 }
 
-static inline bool addr_intvl_contains(addr_intvl &intvl, taddr_t Addr) {
+constexpr bool addr_intvl_contains(addr_intvl &intvl, taddr_t Addr) {
   return Addr >= intvl.first && Addr < intvl.first + intvl.second;
 }
 
-static inline bool addr_intvl_intersects(addr_intvl x, addr_intvl y) {
+constexpr bool addr_intvl_intersects(addr_intvl x, addr_intvl y) {
   taddr_t a = addr_intvl_lower(x), b = addr_intvl_upper(x);
   taddr_t c = addr_intvl_lower(y), d = addr_intvl_upper(y);
 
@@ -943,7 +1002,7 @@ static inline bool addr_intvl_intersects(addr_intvl x, addr_intvl y) {
   return true;
 }
 
-static inline bool addr_intvl_disjoint(addr_intvl x, addr_intvl y) {
+constexpr bool addr_intvl_disjoint(addr_intvl x, addr_intvl y) {
   return !addr_intvl_intersects(x, y);
 }
 
@@ -1193,50 +1252,44 @@ void for_each_basic_block_in_binary(const binary_t &b, Proc proc) {
   for_each_basic_block_in_binary(std::execution::seq, b, proc);
 }
 
-static inline basic_block_index_t index_of_basic_block(const icfg_t &ICFG, basic_block_t bb) {
+static inline basic_block_index_t index_of_basic_block(const icfg_t &ICFG,
+                                                       basic_block_t bb) {
   boost::property_map<icfg_t, boost::vertex_index_t>::type bb2idx =
       boost::get(boost::vertex_index, ICFG);
   return bb2idx[bb];
 }
 
-static inline binary_index_t binary_index_of_function(const function_t &f,
-                                                      const jv_t &jv) {
+constexpr binary_index_t binary_index_of_function(const function_t &f,
+                                                  const jv_t &jv) {
   binary_index_t res = f.b->Idx;
   assert(is_binary_index_valid(res));
   return res;
 }
 
-static inline binary_index_t index_of_binary(const binary_t &b,
-                                             const jv_t &jv) {
+constexpr binary_index_t index_of_binary(const binary_t &b, const jv_t &jv) {
   binary_index_t res = b.Idx;
   assert(is_binary_index_valid(res));
   return res;
 }
 
-static inline function_index_t index_of_function_in_binary(const function_t &f,
-                                                           const binary_t &b) {
+constexpr function_index_t index_of_function_in_binary(const function_t &f,
+                                                       const binary_t &b) {
   function_index_t res = f.Idx;
   assert(is_function_index_valid(res));
   return res;
 }
 
-static inline binary_t &binary_of_function(const function_t &f,
-                                           jv_t &jv) {
+constexpr binary_t &binary_of_function(const function_t &f, jv_t &jv) {
   return jv.Binaries.at(binary_index_of_function(f, jv));
 }
 
-static inline const binary_t &binary_of_function(const function_t &f,
-                                                 const jv_t &jv) {
+constexpr const binary_t &binary_of_function(const function_t &f,
+                                             const jv_t &jv) {
   return jv.Binaries.at(binary_index_of_function(f, jv));
 }
 
-static inline function_t &function_of_target(dynamic_target_t X,
-                                             jv_t &jv) {
-  binary_index_t BIdx;
-  function_index_t FIdx;
-  std::tie(BIdx, FIdx) = X;
-
-  return jv.Binaries.at(BIdx).Analysis.Functions.at(FIdx);
+constexpr function_t &function_of_target(dynamic_target_t X, jv_t &jv) {
+  return jv.Binaries.at(X.first).Analysis.Functions.at(X.second);
 }
 
 static inline void basic_blocks_of_function_at_block(basic_block_t entry,

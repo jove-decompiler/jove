@@ -132,7 +132,7 @@ void AnalyzeFunction(jv_t &jv,
                      Tool *tool = nullptr);
 
 int AnalyzeTool::AnalyzeBlocks(void) {
-  unsigned count = 0;
+  std::atomic<unsigned> count = 0;
 
   for_each_basic_block(
       std::execution::par_unseq,
@@ -147,9 +147,9 @@ int AnalyzeTool::AnalyzeBlocks(void) {
         assert(!ICFG[bb].Analysis.Stale);
       });
 
-  if (count)
-    WithColor::note() << llvm::formatv("Analyzed {0} basic block{1}.\n", count,
-                                       count == 1 ? "" : "s");
+  if (unsigned c = count.load())
+    WithColor::note() << llvm::formatv("Analyzed {0} basic block{1}.\n", c,
+                                       c == 1 ? "" : "s");
 
   //
   // XXX hack for _jove_call

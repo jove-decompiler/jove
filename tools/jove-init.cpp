@@ -181,7 +181,7 @@ int InitTool::add_loaded_objects(const fs::path &prog, const fs::path &rtld) {
   unsigned N = binary_paths.size() + 3;
 
   {
-    ip_scoped_lock<ip_upgradable_mutex> e_lck(jv.Binaries._mtx);
+    ip_scoped_lock<ip_sharable_mutex> e_lck(jv.Binaries._mtx);
 
     for (unsigned i = 0; i < N; ++i)
       jv.Binaries._deque.emplace_back(jv.get_allocator());
@@ -191,12 +191,7 @@ int InitTool::add_loaded_objects(const fs::path &prog, const fs::path &rtld) {
   // add them
   //
   auto add_from_path = [&](const char *p, binary_index_t BIdx) -> void {
-    try {
-      jv.AddFromPath(E, p, BIdx);
-    } catch (const std::exception &e) {
-      llvm::errs() << llvm::formatv("failed on {0}: {1}\n", p, e.what());
-      exit(1);
-    }
+    jv.AddFromPath(E, p, BIdx);
   };
 
   std::vector<unsigned> idx_range;

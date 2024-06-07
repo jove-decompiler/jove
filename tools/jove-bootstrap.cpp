@@ -1378,7 +1378,7 @@ int BootstrapTool::TracerLoop(pid_t child) {
                   b, *state.for_binary(b).ObjectFile,
                   ICFG[succ].Addr);
               assert(is_function_index_valid(FIdx));
-              ICFG[bb].insertDynTarget({BIdx, FIdx}, Alloc);
+              ICFG[bb].insertDynTarget({BIdx, FIdx}, jv);
             }
 
             boost::clear_out_edges(bb, ICFG);
@@ -3058,6 +3058,9 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
       assert(is_function_index_valid(FIdx));
 
+      function_t &callee = TargetBinary.Analysis.Functions.at(FIdx);
+      callee.Callers.emplace(IndBrInfo.BIdx, IndBrInfo.TermAddr);
+
 #ifdef BOOTSTRAP_MULTI_THREADED
   {
   ip_upgradable_lock<ip_upgradable_mutex> u_lck(binary.bbmap_mtx);
@@ -3070,7 +3073,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
 #ifdef BOOTSTRAP_MULTI_THREADED
   ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
-      Target.isNew = bbprop.insertDynTarget({Target.BIdx, FIdx}, Alloc);
+      Target.isNew = bbprop.insertDynTarget({Target.BIdx, FIdx}, jv);
 
     out_deg = boost::out_degree(bb, ICFG);
   }
@@ -3135,6 +3138,9 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
           assert(is_function_index_valid(FIdx));
 
+          function_t &callee = TargetBinary.Analysis.Functions.at(FIdx);
+          callee.Callers.emplace(IndBrInfo.BIdx, IndBrInfo.TermAddr);
+
   Target.isNew = ({
 #ifdef BOOTSTRAP_MULTI_THREADED
   ip_upgradable_lock<ip_upgradable_mutex> u_lck(binary.bbmap_mtx);
@@ -3147,7 +3153,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 #ifdef BOOTSTRAP_MULTI_THREADED
   ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
 #endif
-          bbprop.insertDynTarget({Target.BIdx, FIdx}, Alloc);
+          bbprop.insertDynTarget({Target.BIdx, FIdx}, jv);
   });
         } else {
           const basic_block_index_t TargetBBIdx =

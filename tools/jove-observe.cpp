@@ -259,7 +259,7 @@ int ObserveTool::Run(void) {
       break;
 
     case TERMINATOR::INDIRECT_CALL:
-      src_ICFG[src].insertDynTarget(std::make_pair(dst_BIdx, dst_BBIdx), Alloc);
+      src_ICFG[src].insertDynTarget(std::make_pair(dst_BIdx, dst_BBIdx), jv);
       break;
 
     case TERMINATOR::INDIRECT_JUMP:
@@ -276,7 +276,7 @@ int ObserveTool::Run(void) {
           src = basic_block_at_address(TermAddr, src_bin());
           assert(src_ICFG[src].Term.Type == TERMINATOR::INDIRECT_JUMP);
 
-          src_ICFG[src].insertDynTarget({dst_BIdx, FIdx}, Alloc);
+          src_ICFG[src].insertDynTarget({dst_BIdx, FIdx}, jv);
         }
       } else {
         assert(src_BIdx == dst_BIdx);

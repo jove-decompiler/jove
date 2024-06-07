@@ -168,7 +168,7 @@ std::pair<binary_index_t, bool> jv_t::AddFromDataWithHash(explorer_t &E,
   //
   // nope!
   //
-  ip_scoped_lock<ip_upgradable_mutex> e_lck(this->Binaries._mtx);
+  ip_scoped_lock<ip_sharable_mutex> e_lck(this->Binaries._mtx);
 
   const binary_index_t BIdx = HasTargetIdx ? TargetIdx : Binaries._deque.size();
 
@@ -217,7 +217,7 @@ void jv_t::clear(bool everything) {
   }
 
   {
-    ip_scoped_lock<ip_upgradable_mutex> e_lck(this->Binaries._mtx);
+    ip_scoped_lock<ip_sharable_mutex> e_lck(this->Binaries._mtx);
 
     this->Binaries._deque.clear();
   }
@@ -234,6 +234,47 @@ void jv_t::InvalidateFunctionAnalyses(void) {
     for_each_function_in_binary(std::execution::par_unseq, b,
                                 [&](function_t &f) { f.InvalidateAnalysis(); });
   });
+}
+
+function_t::function_t(binary_t &b, function_index_t Idx)
+    : b(&b), Idx(Idx), Callers(b.get_allocator()) {}
+
+void basic_block_properties_t::AddParent(function_index_t FIdx, jv_t &jv) {
+  ip_func_index_set Idxs(jv.get_allocator());
+
+  {
+    if (this->Parents)
+      Idxs = *this->Parents;
+  }
+
+  {
+    bool success = Idxs.insert(FIdx).second;
+    assert(success);
+  }
+
+  {
+    ip_sharable_lock<ip_sharable_mutex> s_lck(jv.FIdxSetsMtx);
+
+    auto it = jv.FIdxSets.find(Idxs);
+    if (it != jv.FIdxSets.end()) {
+      this->Parents = &(*it);
+      return;
+    }
+  }
+
+  ip_scoped_lock<ip_sharable_mutex> e_lck(jv.FIdxSetsMtx);
+
+  this->Parents = &(*jv.FIdxSets.insert(boost::move(Idxs)).first);
+}
+
+bool basic_block_properties_t::insertDynTarget(dynamic_target_t X, jv_t &jv) {
+  ip_void_allocator_t Alloc = jv.get_allocator();
+
+  if (!pDynTargets)
+    pDynTargets =
+        Alloc.get_segment_manager()->construct<ip_dynamic_target_set>(
+            boost::interprocess::anonymous_instance)(Alloc);
+  return pDynTargets->insert(X).second;
 }
 
 }

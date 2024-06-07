@@ -294,6 +294,25 @@ void DumpTool::dumpDecompilation(const jv_t& jv) {
 
           Writer.printHexList("Successors", succs);
         }
+
+        if (ICFG[bb].Parents)
+        {
+          const ip_func_index_set &_Parents = *ICFG[bb].Parents;
+
+          std::vector<taddr_t> avec;
+          avec.resize(_Parents.size());
+
+          std::transform(_Parents.cbegin(),
+                         _Parents.cend(),
+                         avec.begin(),
+                         [&](function_index_t FIdx) -> uintptr_t {
+                           basic_block_index_t EntryIdx = B.Analysis.Functions._deque.at(FIdx).Entry;
+                           basic_block_t Entry = basic_block_of_index(EntryIdx, ICFG);
+                           return ICFG[Entry].Addr;
+                         });
+
+          Writer.printHexList("Parents", avec);
+        }
       }
     }
 
@@ -357,6 +376,35 @@ void DumpTool::dumpDecompilation(const jv_t& jv) {
         Writer.printBoolean("IsABI", f.IsABI);
         Writer.printBoolean("IsSignalHandler", f.IsSignalHandler);
         Writer.printBoolean("Returns", f.Returns);
+
+        if (!f.Callers.empty())
+        {
+          std::vector<caller_t> Callers;
+          Callers.reserve(f.Callers.size());
+
+          f.Callers.visit_all([&](const caller_t &x) -> void {
+            Callers.push_back(x);
+          });
+
+          std::vector<std::string> descv;
+          descv.resize(Callers.size());
+
+          std::transform(Callers.begin(),
+                         Callers.end(), descv.begin(),
+                         [&](const caller_t &x) -> std::string {
+                           binary_index_t BIdx;
+                           taddr_t TermAddr;
+                           std::tie(BIdx, TermAddr) = x;
+                           if (!is_binary_index_valid(BIdx))
+                             BIdx = index_of_binary(B, jv);
+
+                           const binary_t &b = jv.Binaries.at(BIdx);
+
+                           return (fmt("%s+0x%lX") % b.Name.c_str() % TermAddr).str();
+                         });
+
+          Writer.printList("Callers", descv);
+        }
       }
     }
 
@@ -475,7 +523,7 @@ int DumpTool::Run(void) {
 
 void DumpTool::dumpInput(const std::string &Path) {
   try {
-    jv_file_t jv_file(boost::interprocess::open_read_only, Path.c_str());
+    jv_file_t jv_file(boost::interprocess::open_only, Path.c_str());
     std::pair<jv_t *, jv_file_t::size_type> search = jv_file.find<jv_t>("JV");
 
     if (search.second == 0) {

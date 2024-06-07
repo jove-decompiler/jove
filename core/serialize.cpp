@@ -379,6 +379,13 @@ static inline void load_construct_data(Archive &ar, jove::binary_t *t,
 }
 
 template <class Archive>
+static inline void load_construct_data(Archive &ar, jove::function_t *t,
+                                       const unsigned int file_version) {
+  assert(jove::pAlloc_hack);
+  ::new (t)jove::binary_t(*jove::pAlloc_hack);
+}
+
+template <class Archive>
 static inline void load_construct_data(Archive &ar, jove::ip_string *t,
                                        const unsigned int file_version) {
   assert(jove::pAlloc_hack);

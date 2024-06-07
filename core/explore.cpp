@@ -58,15 +58,13 @@ function_index_t explorer_t::_explore_function(binary_t &b,
   }
 
   {
-    ip_upgradable_lock<ip_upgradable_mutex> u_lck(b.Analysis.Functions._mtx);
+    ip_scoped_lock<ip_sharable_mutex> e_lck(b.Analysis.Functions._mtx);
 
     bool found = fnmap.cvisit(Addr, [&](const auto &x) { res = x.second; });
     if (likely(found)) {
       assert(is_function_index_valid(res));
       return res;
     }
-
-    ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
 
     res = b.Analysis.Functions._deque.size();
     b.Analysis.Functions._deque.emplace_back(b, res);
@@ -79,15 +77,47 @@ function_index_t explorer_t::_explore_function(binary_t &b,
 
   this->on_newfn_proc(b, f);
 
-  const basic_block_index_t Entry =
+  const basic_block_index_t EntryIdx =
       _explore_basic_block(b, B, Addr, process_later);
 
-  assert(is_basic_block_index_valid(Entry));
+  assert(is_basic_block_index_valid(EntryIdx));
 
   f.Analysis.Stale = true;
   f.IsABI = false;
   f.IsSignalHandler = false;
-  f.Entry = Entry;
+  f.Returns = false;
+  f.Entry = EntryIdx;
+
+  //
+  // all blocks reachable from Entry now have f as a parent
+  //
+  ip_sharable_lock<ip_upgradable_mutex> s_lck(b.bbmap_mtx);
+
+  auto &ICFG = b.Analysis.ICFG;
+  basic_block_t Entry = basic_block_of_index(EntryIdx, ICFG);
+
+  std::function<void(basic_block_t bb)> rec = [&](basic_block_t bb) -> void {
+    ICFG[bb].AddParent(res, jv);
+
+    icfg_t::adjacency_iterator succ_it, succ_it_end;
+    for (std::tie(succ_it, succ_it_end) = boost::adjacent_vertices(bb, ICFG);
+         succ_it != succ_it_end; ++succ_it) {
+      basic_block_t succ = *succ_it;
+
+      // TODO: if succ has no other predecessors we can reuse new set
+
+      //
+      // if a successor already has this function marked as a parent, then we
+      // can assume everything reachable from it is already too
+      //
+      if (ICFG[succ].HasParent(res))
+        continue;
+
+      rec(succ);
+    }
+  };
+
+  rec(Entry);
 
   return res;
 }
@@ -573,6 +603,9 @@ try_again:
 
     assert(is_function_index_valid(CalleeFIdx));
 
+    function_t &callee = b.Analysis.Functions.at(CalleeFIdx);
+    callee.Callers.emplace(invalid_binary_index /* index_of_binary(b, jv) */, T.Addr);
+
     {
       ip_upgradable_lock<ip_upgradable_mutex> u_lck(b.bbmap_mtx);
 
@@ -586,7 +619,7 @@ try_again:
 
     break;
 
-    basic_block_index_t CalleeIdx = b.Analysis.Functions.at(CalleeFIdx).Entry;
+    basic_block_index_t CalleeIdx = callee.Entry;
 
     if (!is_basic_block_index_valid(CalleeIdx)) {
       process_later(later_item_t(T.Addr, CalleeAddr));
