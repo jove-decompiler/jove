@@ -1,5 +1,6 @@
 #include "tool.h"
 #include "crypto.h"
+#include "locator.h"
 
 #include <stdexcept>
 #include <fstream>
@@ -250,6 +251,18 @@ bool Tool::ShouldSleepOnCrash(void) const {
   return s && s[0] == '1';
 }
 
+void Tool::print_command_environment(const char **envp) {
+  for (const char **env = envp; *env; ++env) {
+    std::string e(*env);
+
+    if (!boost::algorithm::starts_with(e, "JVPATH="))
+      continue; /* ignore everything irrelevant FIXME */
+
+    HumanOut() << e << ' ';
+    break;
+  }
+}
+
 void Tool::print_command(const char **argv) {
   for (const char **argp = argv; *argp; ++argp) {
     HumanOut() << *argp;
@@ -265,6 +278,7 @@ void Tool::on_exec(const char **argv, const char **envp) {
   if (!IsVerbose())
     return;
 
+  print_command_environment(envp);
   print_command(argv);
 }
 
@@ -272,8 +286,8 @@ void Tool::on_exec_tool(const char **argv, const char **envp) {
   if (!IsVerbose())
     return;
 
+  print_command_environment(envp);
   HumanOut() << path_to_jove() << ' ';
-
   print_command(argv);
 }
 
@@ -334,7 +348,7 @@ int Tool::RunTool(const char *tool_name,
   using namespace std::placeholders;
 
   if (Extra.sudo.On) {
-    const char *sudo_path = "/usr/bin/sudo";
+    std::string sudo_path = locator().sudo();
     std::string jove_path = path_to_jove();
 
     return jove::RunExecutable(sudo_path,
@@ -379,7 +393,7 @@ int Tool::RunTool(const char *tool_name,
   using namespace std::placeholders;
 
   if (Extra.sudo.On) {
-    const char *sudo_path = "/usr/bin/sudo";
+    std::string sudo_path = locator().sudo();
     std::string jove_path = path_to_jove();
 
     return jove::RunExecutable(sudo_path,

@@ -123,6 +123,7 @@ public:
     return WaitForProcessToExit(pid);
   }
 
+  void print_command_environment(const char **envp);
   void print_command(const char** cstr_p);
   void print_tool_command(const char *name,
                           const std::vector<const char *> &_arg_vec) {
