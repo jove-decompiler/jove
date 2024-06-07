@@ -291,10 +291,6 @@ void *ServerTool::ConnectionProc(void *arg) {
 
   UnserializeJVFromFile(jv, jv_s_path.c_str());
 
-  /* FIXME */
-  for (binary_t &b : jv.Binaries)
-    __builtin_memset(&b.Analysis.ICFG.m_property, 0, sizeof(b.Analysis.ICFG.m_property));
-
   //
   // analyze
   //
