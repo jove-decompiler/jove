@@ -87,7 +87,10 @@ static constexpr bool IsI386 =
 #define GET_REGINFO_ENUM
 #include "LLVMGenRegisterInfo.hpp"
 
+#if !defined(__mips__)
 #define BOOTSTRAP_MULTI_THREADED
+#endif
+
 //#define JOVE_HAVE_MEMFD
 
 namespace fs = boost::filesystem;
