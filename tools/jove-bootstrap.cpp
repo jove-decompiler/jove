@@ -104,8 +104,6 @@ namespace jove {
 namespace {
 
 struct binary_state_t {
-  basic_block_vec_t bbvec;
-
   uintptr_t LoadAddr = std::numeric_limits<uintptr_t>::max();
   uintptr_t LoadOffset = std::numeric_limits<uintptr_t>::max();
 
@@ -122,10 +120,6 @@ struct binary_state_t {
     DynRegionInfo DynRelrRegion;
     DynRegionInfo DynPLTRelRegion;
   } _elf;
-};
-
-struct function_state_t {
-  basic_block_vec_t bbvec;
 };
 
 }
@@ -207,7 +201,7 @@ struct child_syscall_state_t {
   child_syscall_state_t() : dir(0), pc(0) {}
 };
 
-struct BootstrapTool : public TransformerTool_BinFn<binary_state_t, function_state_t> {
+struct BootstrapTool : public TransformerTool_Bin<binary_state_t> {
   struct Cmdline {
     cl::opt<std::string> Prog;
     cl::list<std::string> Args;
@@ -470,8 +464,10 @@ public:
   std::string description_of_program_counter(uintptr_t, bool Verbose = false);
   std::string StringOfMCInst(llvm::MCInst &);
 
+#if 0
   basic_block_vec_t &basic_blocks_for_function(binary_index_t BIdx,
                                                function_index_t FIdx);
+#endif
 
   pid_t saved_child;
   std::atomic<bool> ToggleTurbo = false;
@@ -1443,6 +1439,7 @@ void BootstrapTool::on_new_function(binary_t &b, function_t &f) {
   state.update();
 }
 
+#if 0
 basic_block_vec_t &
 BootstrapTool::basic_blocks_for_function(binary_index_t BIdx,
                                          function_index_t FIdx) {
@@ -1459,6 +1456,7 @@ BootstrapTool::basic_blocks_for_function(binary_index_t BIdx,
 
   return x.bbvec;
 }
+#endif
 
 #ifdef BOOTSTRAP_MULTI_THREADED
 void BootstrapTool::place_breakpoints_in_new_blocks(void) {
@@ -3078,7 +3076,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
   }
 
 
-#if 1
+#if 0
       if (Target.isNew &&
           out_deg == 0 &&
           ({does_function_return_fast(TargetICFG, basic_blocks_for_function(Target.BIdx, FIdx)); })) {
