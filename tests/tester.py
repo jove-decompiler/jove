@@ -41,6 +41,7 @@ class JoveTester:
     else:
       assert os.path.isdir(self.vm_dir), "VM path not directory"
 
+    self.wins = [None for _ in JoveTester.WINDOWS]
     self.tmux = libtmux.Server()
 
   def find_things(self):
@@ -59,10 +60,17 @@ class JoveTester:
   def session_name(self):
     return "jove_" + self.arch
 
+  def find_windows(self):
+    self.wins = [None for _ in JoveTester.WINDOWS]
+    for win in self.sess.windows:
+      try:
+        self.wins[JoveTester.WINDOWS.index(win.name)] = win
+      except ValueError:
+        continue
+
   def find_or_create_tmux_session(self):
     self.sess = None
-    self.wins = [None for _ in JoveTester.WINDOWS]
-    res = [False for _ in self.wins]
+    res = [False for _ in JoveTester.WINDOWS]
 
     for sess in self.tmux.sessions:
       if sess.name == self.session_name():
@@ -73,15 +81,13 @@ class JoveTester:
       print('creating tmux session "%s"' % self.session_name())
 
       self.sess = self.tmux.new_session(session_name=self.session_name(), window_name=JoveTester.WINDOWS[0])
-      res[0] = True
 
       assert self.sess.windows[0].name == JoveTester.WINDOWS[0]
 
-    for win in self.sess.windows:
-      try:
-        self.wins[JoveTester.WINDOWS.index(win.name)] = win
-      except ValueError:
-        continue
+      self.wins[0] = self.sess.windows[0]
+      res[0] = True
+    else:
+      self.find_windows()
 
     for idx in range(0, len(self.wins)):
       if self.wins[idx] is None:
@@ -103,12 +109,15 @@ class JoveTester:
     subprocess.run(['sudo', self.bringup_path, '-a', self.arch, '-s', 'bookworm', '-o', self.vm_dir, '-p', str(self.guest_ssh_port)], check=True)
 
   def qemu_pane(self):
+    self.find_windows()
     return self.wins[0].attached_pane
 
   def server_pane(self):
+    self.find_windows()
     return self.wins[1].attached_pane
 
   def ssh_pane(self):
+    self.find_windows()
     return self.wins[2].attached_pane
 
   def start_vm(self):
