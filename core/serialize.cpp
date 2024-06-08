@@ -271,17 +271,6 @@ static void serialize(Archive &ar, jove::binary_t &b,
      &BOOST_SERIALIZATION_NVP(b.IsPIC)
      &BOOST_SERIALIZATION_NVP(b.IsDynamicallyLoaded)
      &BOOST_SERIALIZATION_NVP(b.Analysis);
-
-  /* XXX */
-  for (unsigned FIdx = 0; FIdx < b.Analysis.Functions._deque.size(); ++FIdx) {
-    jove::function_t &f = b.Analysis.Functions._deque[FIdx];
-
-    if (!jove::is_function_index_valid(f.Idx))
-      f.Idx = FIdx;
-
-    if (!f.b)
-      f.b = &b;
-  }
 }
 
 //
@@ -486,6 +475,19 @@ void UnserializeJV(jv_t &out, std::istream &is, bool text) {
   /* FIXME */
   for (binary_t &b : out.Binaries)
     __builtin_memset(&b.Analysis.ICFG.m_property, 0, sizeof(b.Analysis.ICFG.m_property));
+
+  /* XXX */
+  for (unsigned BIdx = 0; BIdx < out.Binaries._deque.size(); ++BIdx) {
+    binary_t &b = out.Binaries._deque[BIdx];
+    b.Idx = BIdx;
+
+    for (unsigned FIdx = 0; FIdx < b.Analysis.Functions._deque.size(); ++FIdx) {
+      jove::function_t &f = b.Analysis.Functions._deque[FIdx];
+
+      f.Idx = FIdx;
+      f.b = &b;
+    }
+  }
 }
 
 void UnserializeJVFromFile(jv_t &out, const char *path, bool text) {
