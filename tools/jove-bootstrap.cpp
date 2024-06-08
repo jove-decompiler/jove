@@ -477,7 +477,6 @@ public:
 #ifdef BOOTSTRAP_MULTI_THREADED
   boost::lockfree::queue<uint64_t, boost::lockfree::fixed_sized<false>>
       bb_brk_lckfree_q;
-  //std::mutex q_mtx;
 
   struct {
     std::mutex mtx;
@@ -1422,8 +1421,6 @@ void BootstrapTool::on_new_basic_block_place_later(binary_t &b, basic_block_t bb
                 static_cast<uint64_t>(BBIdx);
 
   {
-  //std::lock_guard<std::mutex> lck(q_mtx);
-
   bool success = bb_brk_lckfree_q.push(x);
   assert(success);
   }
@@ -2630,7 +2627,6 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
   } __NewBasicBlockProcSetter(*this);
 
   {
-  //std::lock_guard<std::mutex> lck(q_mtx);
     uint64_t x;
     assert(!bb_brk_lckfree_q.pop(x));
   }
@@ -2677,7 +2673,6 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
   assert(_bb_brk.done.load());
   _bb_brk.done.store(false);
   {
-  //std::lock_guard<std::mutex> lck(q_mtx);
     uint64_t x;
     assert(!bb_brk_lckfree_q.pop(x));
   }
@@ -3236,7 +3231,6 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
   } __NewBasicBlockProcSetter(*this);
 
   {
-  //std::lock_guard<std::mutex> lck(q_mtx);
     uint64_t x;
     assert(!bb_brk_lckfree_q.pop(x));
   }
@@ -3286,7 +3280,6 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
   assert(_bb_brk.done.load());
   _bb_brk.done.store(false);
   {
-  //std::lock_guard<std::mutex> lck(q_mtx);
     uint64_t x;
     assert(!bb_brk_lckfree_q.pop(x));
   }
