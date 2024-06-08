@@ -88,7 +88,7 @@ static constexpr bool IsI386 =
 #include "LLVMGenRegisterInfo.hpp"
 
 #if !defined(__mips__)
-#define BOOTSTRAP_MULTI_THREADED
+//#define BOOTSTRAP_MULTI_THREADED
 #endif
 
 //#define JOVE_HAVE_MEMFD
@@ -1479,9 +1479,7 @@ void BootstrapTool::place_breakpoints_in_new_blocks(void) {
 #endif
 
 void BootstrapTool::place_breakpoints_in_block(binary_t &b, basic_block_t bb) {
-#ifdef BOOTSTRAP_MULTI_THREADED
   ip_sharable_lock<ip_upgradable_mutex> s_lck(b.bbmap_mtx);
-#endif
 
   auto &ICFG = b.Analysis.ICFG;
 
@@ -2736,9 +2734,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
   unsigned out_deg;
   bool HasDynTarget = false;
   const TERMINATOR TermType = ({
-#ifdef BOOTSTRAP_MULTI_THREADED
     ip_sharable_lock<ip_upgradable_mutex> s_lck(binary.bbmap_mtx);
-#endif
 
     basic_block_t bb = basic_block_at_address(IndBrInfo.TermAddr, binary);
     out_deg = boost::out_degree(bb, ICFG);
@@ -3064,23 +3060,23 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
       function_t &callee = TargetBinary.Analysis.Functions.at(FIdx);
       callee.Callers.emplace(IndBrInfo.BIdx, IndBrInfo.TermAddr);
 
-#ifdef BOOTSTRAP_MULTI_THREADED
+
   {
   ip_upgradable_lock<ip_upgradable_mutex> u_lck(binary.bbmap_mtx);
-#endif
+
 
       basic_block_t bb = basic_block_at_address(IndBrInfo.TermAddr, binary);
       basic_block_properties_t &bbprop = ICFG[bb];
 
       assert(bbprop.Term.Type == TERMINATOR::INDIRECT_CALL);
 
-#ifdef BOOTSTRAP_MULTI_THREADED
+
   ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
       Target.isNew = bbprop.insertDynTarget({Target.BIdx, FIdx}, jv);
 
     out_deg = boost::out_degree(bb, ICFG);
   }
-#endif
+
 
 #if 1
       if (Target.isNew &&
@@ -3145,17 +3141,17 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
           callee.Callers.emplace(IndBrInfo.BIdx, IndBrInfo.TermAddr);
 
   Target.isNew = ({
-#ifdef BOOTSTRAP_MULTI_THREADED
+
   ip_upgradable_lock<ip_upgradable_mutex> u_lck(binary.bbmap_mtx);
-#endif
+
           basic_block_t bb = basic_block_at_address(IndBrInfo.TermAddr, binary);
           basic_block_properties_t &bbprop = ICFG[bb];
 
           assert(bbprop.Term.Type == TERMINATOR::INDIRECT_JUMP);
 
-#ifdef BOOTSTRAP_MULTI_THREADED
+
   ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
-#endif
+
           bbprop.insertDynTarget({Target.BIdx, FIdx}, jv);
   });
         } else {
@@ -3167,18 +3163,18 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
           basic_block_t TargetBB = basic_block_of_index(TargetBBIdx, ICFG);
 
   {
-#ifdef BOOTSTRAP_MULTI_THREADED
+
   ip_upgradable_lock<ip_upgradable_mutex> u_lck(binary.bbmap_mtx);
-#endif
+
 
           basic_block_t bb = basic_block_at_address(IndBrInfo.TermAddr, binary);
           basic_block_properties_t &bbprop = ICFG[bb];
 
           assert(bbprop.Term.Type == TERMINATOR::INDIRECT_JUMP);
 
-#ifdef BOOTSTRAP_MULTI_THREADED
+
   ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
-#endif
+
           Target.isNew = boost::add_edge(bb, TargetBB, ICFG).second;
 
           if (Target.isNew)
