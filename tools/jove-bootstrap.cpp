@@ -4791,7 +4791,7 @@ binary_index_t BootstrapTool::binary_at_program_counter(pid_t child,
 
   // WARN_ON(!pm.x);
   const std::string &nm = pm.nm;
-  assert(!nm.empty());
+  //assert(!nm.empty());
 
   binary_index_t BIdx = invalid_binary_index;
 
