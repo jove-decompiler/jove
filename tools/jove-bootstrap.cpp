@@ -2472,7 +2472,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
     pc = _ptrace_peekdata(child, gpr.esp);
     gpr.esp += sizeof(uint32_t);
 #elif defined(__aarch64__)
-    if (Inst.getNumOperands() == 0) {
+    if (Inst.getNumOperands() == 0 || Inst.getOpcode() == llvm::AArch64::BRK) {
       pc = gpr.regs[30] /* lr */;
     } else {
       assert(Inst.getNumOperands() == 1);
