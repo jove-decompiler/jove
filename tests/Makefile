@@ -54,7 +54,7 @@ build-$(1): $(foreach test,$(TESTS),$(BINDIR)/$(1)/$(test).exe) \
 
 .PHONY: check-$(1)
 check-$(1): build-$(1)
-	$(ROOT_DIR)/run.py -a $(1) --unattended $(TESTS)
+	$(ROOT_DIR)/run.py -a $(1) $(TESTS)
 endef
 $(foreach t,$(ALL_TARGETS),$(eval $(call check_template,$(t))))
 

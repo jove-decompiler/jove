@@ -1,5 +1,6 @@
 #!/usr/bin/python3
 
+import os
 import argparse
 import sys
 from pathlib import Path
@@ -18,7 +19,13 @@ def main():
 
   tests_dir = str(Path(__file__).parent.resolve())
 
-  tester = JoveTester(tests_dir, args.tests, args.arch, args.unattended)
+  unattended = args.unattended
+
+  unattended_env = os.getenv("JOVE_RUN_TESTS_UNATTENDED")
+  if not (unattended_env is None) and unattended_env == "1":
+    unattended = True
+
+  tester = JoveTester(tests_dir, args.tests, args.arch, unattended)
   return tester.run()
 
 if __name__ == "__main__":
