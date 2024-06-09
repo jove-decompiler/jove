@@ -123,6 +123,14 @@ constexpr unsigned IsMIPSTarget =
 #endif
     ;
 
+constexpr unsigned IsX86Target =
+#if defined(TARGET_I386) || defined(TARGET_X86_64)
+    1
+#else
+    0
+#endif
+    ;
+
 static const char *TargetStaticLinkerEmulation =
 #if defined(TARGET_X86_64)
                       "elf_x86_64"
