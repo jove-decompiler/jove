@@ -297,6 +297,7 @@ class JoveTester:
       if create_serv:
         self.server_pane().send_keys("C-c", literal=False, enter=False)
 
+      self.find_windows()
       for i in range(0, len(create_list)):
         if create_list[i]:
           self.sess.kill_window(JoveTester.WINDOWS[i])
