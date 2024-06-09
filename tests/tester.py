@@ -61,7 +61,16 @@ class JoveTester:
     return "jove_" + self.arch
 
   def find_windows(self):
+    self.sess = None
     self.wins = [None for _ in JoveTester.WINDOWS]
+
+    for sess in self.tmux.sessions:
+      if sess.name == self.session_name():
+        self.sess = sess
+        break
+
+    assert not (self.sess is None)
+
     for win in self.sess.windows:
       try:
         self.wins[JoveTester.WINDOWS.index(win.name)] = win
