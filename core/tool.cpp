@@ -274,27 +274,30 @@ void Tool::print_command(const char **argv) {
   HumanOut() << '\n';
 }
 
-void Tool::on_exec(const char **argv, const char **envp) {
-  if (!IsVerbose())
-    return;
+void Tool::on_exec(before_exec_t before_exec, const char **argv, const char **envp) {
+  if (IsVerbose()) {
+    print_command_environment(envp);
+    print_command(argv);
+  }
 
-  print_command_environment(envp);
-  print_command(argv);
+  before_exec(argv, envp);
 }
 
-void Tool::on_exec_tool(const char **argv, const char **envp) {
-  if (!IsVerbose())
-    return;
+void Tool::on_exec_tool(before_exec_t before_exec, const char **argv, const char **envp) {
+  if (IsVerbose()) {
+    print_command_environment(envp);
+    HumanOut() << path_to_jove() << ' ';
+    print_command(argv);
+  }
 
-  print_command_environment(envp);
-  HumanOut() << path_to_jove() << ' ';
-  print_command(argv);
+  before_exec(argv, envp);
 }
 
 pid_t Tool::RunExecutable(const std::string &exe_path,
                           compute_args_t compute_args,
                           const std::string &stdout_path,
-                          const std::string &stderr_path) {
+                          const std::string &stderr_path,
+                          before_exec_t before_exec) {
   using namespace std::placeholders;
 
   return jove::RunExecutable(
@@ -302,14 +305,15 @@ pid_t Tool::RunExecutable(const std::string &exe_path,
       compute_args,
       stdout_path,
       stderr_path,
-      std::bind(&Tool::on_exec, this, _1, _2));
+      std::bind(&Tool::on_exec, this, before_exec, _1, _2));
 }
 
 pid_t Tool::RunExecutable(const std::string &exe_path,
                           compute_args_t compute_args,
                           compute_envs_t compute_envs,
                           const std::string &stdout_path,
-                          const std::string &stderr_path) {
+                          const std::string &stderr_path,
+                          before_exec_t before_exec) {
   using namespace std::placeholders;
 
   return jove::RunExecutable(
@@ -318,7 +322,7 @@ pid_t Tool::RunExecutable(const std::string &exe_path,
       compute_envs,
       stdout_path,
       stderr_path,
-      std::bind(&Tool::on_exec, this, _1, _2));
+      std::bind(&Tool::on_exec, this, before_exec, _1, _2));
 }
 
 void Tool::persist_tool_options(std::function<void(const std::string &)> Arg) {
@@ -344,7 +348,8 @@ int Tool::RunTool(const char *tool_name,
                   compute_args_t compute_args,
                   const std::string &stdout_path,
                   const std::string &stderr_path,
-                  const RunToolExtraArgs &Extra) {
+                  const RunToolExtraArgs &Extra,
+                  before_exec_t before_exec) {
   using namespace std::placeholders;
 
   if (Extra.sudo.On) {
@@ -367,7 +372,7 @@ int Tool::RunTool(const char *tool_name,
         },
         stdout_path,
         stderr_path,
-        std::bind(&Tool::on_exec, this, _1, _2));
+        std::bind(&Tool::on_exec, this, before_exec, _1, _2));
   }
 
   return jove::RunExecutable(
@@ -381,7 +386,7 @@ int Tool::RunTool(const char *tool_name,
       },
       stdout_path,
       stderr_path,
-      std::bind(&Tool::on_exec_tool, this, _1, _2));
+      std::bind(&Tool::on_exec_tool, this, before_exec, _1, _2));
 }
 
 int Tool::RunTool(const char *tool_name,
@@ -389,7 +394,8 @@ int Tool::RunTool(const char *tool_name,
                   compute_envs_t compute_envs,
                   const std::string &stdout_path,
                   const std::string &stderr_path,
-                  const RunToolExtraArgs &Extra) {
+                  const RunToolExtraArgs &Extra,
+                  before_exec_t before_exec) {
   using namespace std::placeholders;
 
   if (Extra.sudo.On) {
@@ -413,7 +419,7 @@ int Tool::RunTool(const char *tool_name,
         compute_envs,
         stdout_path,
         stderr_path,
-        std::bind(&Tool::on_exec, this, _1, _2));
+        std::bind(&Tool::on_exec, this, before_exec, _1, _2));
   }
 
   return jove::RunExecutable(
@@ -428,7 +434,7 @@ int Tool::RunTool(const char *tool_name,
       compute_envs,
       stdout_path,
       stderr_path,
-      std::bind(&Tool::on_exec_tool, this, _1, _2));
+      std::bind(&Tool::on_exec_tool, this, before_exec, _1, _2));
 }
 
 std::string Tool::home_dir(void) {

@@ -79,13 +79,15 @@ public:
   pid_t RunExecutable(const std::string &exe_path,
       compute_args_t compute_args,
       const std::string &stdout_path = std::string(),
-      const std::string &stderr_path = std::string());
+      const std::string &stderr_path = std::string(),
+      before_exec_t before_exec = [](const char **, const char **) -> void {});
 
   pid_t RunExecutable(const std::string &exe_path,
       compute_args_t compute_args,
       compute_envs_t compute_envs,
       const std::string &stdout_path = std::string(),
-      const std::string &stderr_path = std::string());
+      const std::string &stderr_path = std::string(),
+      before_exec_t before_exec = [](const char **, const char **) -> void {});
 
   struct RunToolExtraArgs {
     struct {
@@ -102,14 +104,16 @@ public:
       compute_args_t compute_args,
       const std::string &stdout_path = std::string(),
       const std::string &stderr_path = std::string(),
-      const RunToolExtraArgs &Extra = RunToolExtraArgs());
+      const RunToolExtraArgs &Extra = RunToolExtraArgs(),
+      before_exec_t before_exec = [](const char **, const char **) {});
 
   int RunTool(const char *tool_name,
       compute_args_t compute_args,
       compute_envs_t compute_envs,
       const std::string &stdout_path = std::string(),
       const std::string &stderr_path = std::string(),
-      const RunToolExtraArgs &Extra = RunToolExtraArgs());
+      const RunToolExtraArgs &Extra = RunToolExtraArgs(),
+      before_exec_t before_exec = [](const char **, const char **) {});
 
   template <typename... Args>
   int RunExecutableToExit(Args &&...args) {
@@ -143,8 +147,8 @@ public:
   locator_t &locator() { return loc; }
 
 private:
-  void on_exec(const char **argv, const char **envp);
-  void on_exec_tool(const char **argv, const char **envp);
+  void on_exec(before_exec_t before_exec, const char **argv, const char **envp);
+  void on_exec_tool(before_exec_t before_exec, const char **argv, const char **envp);
   void persist_tool_options(std::function<void(const std::string &)> Arg);
   std::string path_to_jove(void);
 };

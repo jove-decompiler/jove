@@ -690,7 +690,7 @@ int RunTool::DoRun(void) {
 
   pid_t pid = -1;
   try {
-    pid = jove::RunExecutable(
+    pid = RunExecutable(
         prog_path.c_str(),
         [&](auto Arg) {
           if (!opts.ArgsFromFile.empty()) {
@@ -859,9 +859,6 @@ int RunTool::DoRun(void) {
           }
 
           drop_privileges();
-
-	  if (IsVerbose())
-	    print_command(_argv);
         });
   } catch (const std::exception &e) {
 #if 0
