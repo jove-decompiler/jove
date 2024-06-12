@@ -1270,6 +1270,7 @@ static inline basic_block_index_t index_of_basic_block(const icfg_t &ICFG,
 
 constexpr binary_index_t binary_index_of_function(const function_t &f,
                                                   const jv_t &jv) {
+  assert(f.b);
   binary_index_t res = f.b->Idx;
   assert(is_binary_index_valid(res));
   return res;
