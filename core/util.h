@@ -37,11 +37,13 @@ inline void read_file_into_thing(const char *path, T &out) {
                              std::string(path));
 
   ifs.seekg(0, std::ios::end);
-  out.resize(ifs.tellg());
-  ifs.seekg(0);
 
-  if (out.empty())
+  std::streampos pos = ifs.tellg();
+  if (pos == 0)
     return;
+
+  out.resize(pos);
+  ifs.seekg(0);
 
   ifs.read(reinterpret_cast<char *>(&out[0]), out.size());
 }
