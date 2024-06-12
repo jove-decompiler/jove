@@ -43,6 +43,7 @@ hash_t jv_t::LookupAndCacheHash(const char *path,
   {
     ip_scoped_lock<ip_mutex> lck(this->cached_hashes_mtx);
 
+    // FIXME handle empty file
     auto it = cached_hashes.find(s);
     if (it == cached_hashes.end())
       it = cached_hashes.emplace(s, cached_hash_t{}).first;
@@ -178,6 +179,10 @@ std::pair<binary_index_t, bool> jv_t::AddFromDataWithHash(explorer_t &E,
   binary_t &b = Binaries._deque.at(BIdx);
   b.Idx = BIdx;
   b.Hash = h;
+
+  /* FIXME? */
+  for (function_t &f : b.Analysis.Functions)
+    f.b = &b;
 
   {
     ip_scoped_lock<ip_upgradable_mutex> e_h2b_lck(boost::move(u_h2b_lck));
