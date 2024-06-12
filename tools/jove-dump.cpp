@@ -320,7 +320,15 @@ void DumpTool::dumpDecompilation(const jv_t& jv) {
       llvm::ListScope ___(Writer, (fmt("Functions (%u)") % B.Analysis.Functions.size()).str());
 
       for (const function_t &f : B.Analysis.Functions) {
-        llvm::DictScope ____(Writer, (fmt("Func @ 0x%lX") % ICFG[basic_block_of_index(f.Entry, ICFG)].Addr).str());
+        const taddr_t Addr = ICFG[basic_block_of_index(f.Entry, ICFG)].Addr;
+
+        llvm::DictScope ____(Writer, (fmt("Func @ 0x%lX") % Addr).str());
+
+        if (!f.b || f.b.get() != &B) {
+          llvm::errs() << llvm::formatv("invalid function @ {0}, skipping\n",
+                                        taddr2str(Addr, false));
+          continue;
+        }
 
         //Writer.printHex("Address", ICFG[basic_block_of_index(f.Entry, ICFG)].Addr);
 
