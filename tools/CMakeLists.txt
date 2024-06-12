@@ -148,6 +148,10 @@ function(tool_for_arch arch arch_extra_cflags qemu_objs)
     ${arch_extra_cflags}
   )
 
+  if (JOVE_HAVE_MEMFD)
+    target_compile_options(jove-${arch} PRIVATE -DJOVE_HAVE_MEMFD)
+  endif()
+
 endfunction()
 
 #

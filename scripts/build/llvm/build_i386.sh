@@ -26,6 +26,7 @@ cmake -G Ninja \
   -D "CMAKE_CXX_FLAGS=$OURCFLAGS" \
   -D "LLVM_TARGETS_TO_BUILD=X86" \
   -D "JOVE_TARGETS_TO_BUILD=i386" \
+  -D JOVE_HAVE_MEMFD=ON \
   -D "LLVM_TABLEGEN=$(pwd)/../build/bin/llvm-tblgen" \
   -D LLVM_BUILD_TESTS=OFF \
   -D LLVM_INCLUDE_TESTS=OFF \
