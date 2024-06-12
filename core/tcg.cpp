@@ -1190,8 +1190,10 @@ tiny_code_generator_t::tiny_code_generator_t() {
   }
 
   if (robust_write(fd, &starter_bin_bytes[0], sizeof(starter_bin_bytes)) < 0) {
+    int err = errno;
     cleanup();
-    throw std::runtime_error("failed to write to qemu-starter fd");
+    throw std::runtime_error("failed to write to qemu-starter fd: " +
+                             std::string(strerror(err)));
   }
 
 #ifndef JOVE_HAVE_MEMFD
