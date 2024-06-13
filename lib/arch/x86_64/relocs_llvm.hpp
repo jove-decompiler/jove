@@ -7,6 +7,7 @@ llvm::Type *LLVMTool::type_of_expression_for_relocation(const Relocation &R) {
   case llvm::ELF::R_X86_64_IRELATIVE:
   case llvm::ELF::R_X86_64_TPOFF64:
   case llvm::ELF::R_X86_64_DTPMOD64:
+  case llvm::ELF::R_X86_64_DTPOFF64:
     return WordType();
 
   case llvm::ELF::R_X86_64_COPY:
@@ -50,6 +51,7 @@ llvm::Constant *LLVMTool::expression_for_relocation(const Relocation &R,
   case llvm::ELF::R_X86_64_IRELATIVE:
   case llvm::ELF::R_X86_64_TPOFF64:
   case llvm::ELF::R_X86_64_DTPMOD64:
+  case llvm::ELF::R_X86_64_DTPOFF64:
     return BigWord();
 
   default:
@@ -61,6 +63,7 @@ bool LLVMTool::is_manual_relocation(const Relocation &R) {
   switch (R.Type) {
   case llvm::ELF::R_X86_64_IRELATIVE:
   case llvm::ELF::R_X86_64_TPOFF64:
+  case llvm::ELF::R_X86_64_DTPOFF64:
 //case llvm::ELF::R_X86_64_DTPMOD64:
 
     return true;
@@ -81,6 +84,21 @@ void LLVMTool::compute_manual_relocation(llvm::IRBuilderTy &IRB,
   case llvm::ELF::R_X86_64_TPOFF64:
     assert(R.Addend);
     return compute_tpoff_relocation(IRB, RelSym, *R.Addend);
+
+  case llvm::ELF::R_X86_64_DTPOFF64: {
+    assert(R.Addend);
+    llvm::Constant *GlobalAddr = SymbolAddress(RelSym);
+    assert(GlobalAddr);
+
+    if (!R.Addend || *R.Addend == 0) {
+      IRB.CreateRet(GlobalAddr);
+      return;
+    }
+
+    IRB.CreateRet(llvm::ConstantExpr::getAdd(
+        GlobalAddr, llvm::ConstantInt::get(WordType(), *R.Addend)));
+    return;
+  }
 
 //case llvm::ELF::R_X86_64_DTPMOD64:
 
