@@ -551,6 +551,10 @@ top:
                   [&](uint64_t Target) {
                     control_flow_to(Target);
                   });
+#elif 0
+    oneapi::tbb::parallel_invoke(
+        [&](void) -> void { control_flow_to(T._conditional_jump.Target); },
+        [&](void) -> void { control_flow_to(T._conditional_jump.NextPC); });
 #else
     control_flow_to(T._conditional_jump.Target);
     control_flow_to(T._conditional_jump.NextPC);
