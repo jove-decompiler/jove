@@ -42,7 +42,6 @@ class JoveTester:
       assert os.path.isdir(self.vm_dir), "VM path not directory"
 
     self.wins = [None for _ in JoveTester.WINDOWS]
-    self.tmux = libtmux.Server()
 
   def find_things(self):
     self.jove_server_path = '%s/../llvm-project/build/bin/jove-%s' % (self.tests_dir, self.arch)
@@ -63,8 +62,9 @@ class JoveTester:
   def find_windows(self):
     self.sess = None
     self.wins = [None for _ in JoveTester.WINDOWS]
+    tmux = libtmux.Server()
 
-    for sess in self.tmux.sessions:
+    for sess in tmux.sessions:
       if sess.name == self.session_name():
         self.sess = sess
         break
@@ -80,8 +80,9 @@ class JoveTester:
   def find_or_create_tmux_session(self):
     self.sess = None
     res = [False for _ in JoveTester.WINDOWS]
+    tmux = libtmux.Server()
 
-    for sess in self.tmux.sessions:
+    for sess in tmux.sessions:
       if sess.name == self.session_name():
         self.sess = sess
         break
@@ -89,7 +90,7 @@ class JoveTester:
     if self.sess is None:
       print('creating tmux session "%s"' % self.session_name())
 
-      self.sess = self.tmux.new_session(session_name=self.session_name(), window_name=JoveTester.WINDOWS[0])
+      self.sess = tmux.new_session(session_name=self.session_name(), window_name=JoveTester.WINDOWS[0])
 
       assert self.sess.windows[0].name == JoveTester.WINDOWS[0]
 
