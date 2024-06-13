@@ -1623,17 +1623,25 @@ template <typename BinaryStateTy>
 struct jv_bin_state_t {
   const jv_t &jv;
 
-  std::vector<BinaryStateTy> stuff;
+  mutable std::shared_mutex _mtx;
+
+  std::deque<BinaryStateTy> stuff;
 
   jv_bin_state_t(const jv_t &jv) : jv(jv) {
     update();
   }
 
   BinaryStateTy &for_binary(const binary_t &binary) {
+    std::shared_lock<std::shared_mutex> s_lck(_mtx);
+
     return stuff.at(index_of_binary(binary, jv));
   }
 
-  void update(void) { stuff.resize(jv.Binaries.size()); }
+  void update(void) {
+    std::unique_lock<std::shared_mutex> e_lck(_mtx);
+
+    stuff.resize(jv.Binaries.size());
+  }
 };
 
 template <typename FunctionStateTy>
