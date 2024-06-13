@@ -134,12 +134,12 @@ void DumpTool::dumpDecompilation(const jv_t& jv) {
         {
           auto inv_adj_it_pair = boost::inv_adjacent_vertices(bb, ICFG);
 
-          std::vector<uintptr_t> preds;
+          std::vector<taddr_t> preds;
           preds.resize(
               std::distance(inv_adj_it_pair.first, inv_adj_it_pair.second));
 
           std::transform(inv_adj_it_pair.first, inv_adj_it_pair.second,
-                         preds.begin(), [&](basic_block_t target) -> uintptr_t {
+                         preds.begin(), [&](basic_block_t target) -> taddr_t {
                            return ICFG[target].Addr;
                          });
 
@@ -284,11 +284,11 @@ void DumpTool::dumpDecompilation(const jv_t& jv) {
         {
           auto adj_it_pair = boost::adjacent_vertices(bb, ICFG);
 
-          std::vector<uintptr_t> succs;
+          std::vector<taddr_t> succs;
           succs.resize(std::distance(adj_it_pair.first, adj_it_pair.second));
 
           std::transform(adj_it_pair.first, adj_it_pair.second, succs.begin(),
-                         [&](basic_block_t target) -> uintptr_t {
+                         [&](basic_block_t target) -> taddr_t {
                            return ICFG[target].Addr;
                          });
 
@@ -305,8 +305,8 @@ void DumpTool::dumpDecompilation(const jv_t& jv) {
           std::transform(_Parents.cbegin(),
                          _Parents.cend(),
                          avec.begin(),
-                         [&](function_index_t FIdx) -> uintptr_t {
-                           basic_block_index_t EntryIdx = B.Analysis.Functions._deque.at(FIdx).Entry;
+                         [&](function_index_t FIdx) -> taddr_t {
+                           basic_block_index_t EntryIdx = B.Analysis.Functions.at(FIdx).Entry;
                            basic_block_t Entry = basic_block_of_index(EntryIdx, ICFG);
                            return ICFG[Entry].Addr;
                          });
@@ -436,7 +436,7 @@ void DumpTool::dumpDecompilation(const jv_t& jv) {
                            auto &b = jv.Binaries.at(BIdx);
                            const auto &_ICFG = b.Analysis.ICFG;
                            auto &callee = b.Analysis.Functions.at(FIdx);
-                           uintptr_t target_addr =
+                           taddr_t target_addr =
                                _ICFG[basic_block_of_index(callee.Entry, _ICFG)].Addr;
 
                            return (fmt("0x%lX @ %s") % target_addr %
@@ -469,7 +469,7 @@ void DumpTool::dumpDecompilation(const jv_t& jv) {
                            auto &b = jv.Binaries.at(BIdx);
                            const auto &_ICFG = b.Analysis.ICFG;
                            auto &callee = b.Analysis.Functions.at(FIdx);
-                           uintptr_t target_addr =
+                           taddr_t target_addr =
                                _ICFG[basic_block_of_index(callee.Entry, _ICFG)].Addr;
 
                            return (fmt("0x%lX @ %s") % target_addr %
@@ -502,7 +502,7 @@ void DumpTool::dumpDecompilation(const jv_t& jv) {
                            auto &b = jv.Binaries.at(BIdx);
                            const auto &_ICFG = b.Analysis.ICFG;
                            auto &callee = b.Analysis.Functions.at(FIdx);
-                           uintptr_t target_addr =
+                           taddr_t target_addr =
                                _ICFG[basic_block_of_index(callee.Entry, _ICFG)].Addr;
 
                            return (fmt("0x%lX @ %s") % target_addr %
@@ -530,7 +530,9 @@ int DumpTool::Run(void) {
 }
 
 void DumpTool::dumpInput(const std::string &Path) {
+#if 0
   try {
+#endif
     jv_file_t jv_file(boost::interprocess::open_only, Path.c_str());
     std::pair<jv_t *, jv_file_t::size_type> search = jv_file.find<jv_t>("JV");
 
@@ -576,7 +578,7 @@ void DumpTool::dumpInput(const std::string &Path) {
         for (unsigned FIdx = 0; FIdx < binary.Analysis.Functions.size();
              ++FIdx) {
           const function_t &function = binary.Analysis.Functions.at(FIdx);
-          uintptr_t Addr =
+          taddr_t Addr =
               ICFG[basic_block_of_index(function.Entry, ICFG)].Addr;
 
           llvm::outs() << llvm::formatv("{0:x}\n", Addr);
@@ -606,12 +608,12 @@ void DumpTool::dumpInput(const std::string &Path) {
           reached_visitor vis(blocks);
           boost::breadth_first_search(ICFG, entry, boost::visitor(vis));
 
-          std::vector<uintptr_t> addrs;
+          std::vector<taddr_t> addrs;
           addrs.resize(blocks.size());
 
           std::transform(
               blocks.begin(), blocks.end(), addrs.begin(),
-              [&](basic_block_t bb) -> uintptr_t { return ICFG[bb].Addr; });
+              [&](basic_block_t bb) -> taddr_t { return ICFG[bb].Addr; });
 
           Writer.printHexList("Fn", addrs);
         }
@@ -620,9 +622,11 @@ void DumpTool::dumpInput(const std::string &Path) {
       dumpDecompilation(jv);
     }
 
+#if 0
   } catch (const std::exception &e) {
     WithColor::error() << llvm::formatv("failed to dump {0}: {1}\n", Path,
                                         e.what());
   }
+#endif
 }
 }
