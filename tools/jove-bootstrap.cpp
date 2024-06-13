@@ -1344,59 +1344,92 @@ int BootstrapTool::TracerLoop(pid_t child) {
     // fix ambiguous indirect jumps. why do we do this here? because this
     // process involves removing edges from the graph, which can be messy.
     //
-    unsigned NumChanged = 0;
+    std::atomic<unsigned> NumChanged = 0;
 
-    for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
-      auto &b = jv.Binaries.at(BIdx);
+    auto fix_ambiguous_indirect_jump = [&](binary_t &b,
+                                           taddr_t TermAddr) -> bool {
+      //
+      // we thought this was a goto, but now we know it's definitely a tail
+      // call. translate all sucessors as functions, then store them into the
+      // dynamic targets set for this bb. afterwards, delete the edges in the
+      // ICFG that would originate from this basic block.
+      //
+      std::vector<taddr_t> succ_addr_vec;
+
+      auto &ICFG = b.Analysis.ICFG;
+      {
+        ip_upgradable_lock<ip_upgradable_mutex> u_lck(b.bbmap_mtx);
+
+        basic_block_t bb = basic_block_at_address(TermAddr, b);
+
+        succ_addr_vec.reserve(boost::out_degree(bb, ICFG));
+
+        icfg_t::adjacency_iterator succ_it, succ_it_end;
+        for (std::tie(succ_it, succ_it_end) =
+                 boost::adjacent_vertices(bb, ICFG);
+             succ_it != succ_it_end; ++succ_it)
+          succ_addr_vec.push_back(ICFG[*succ_it].Addr);
+
+        ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
+
+        boost::clear_out_edges(bb, ICFG);
+      }
+
+      for (const taddr_t &addr : succ_addr_vec) {
+        function_index_t FIdx =
+            E->explore_function(b, *state.for_binary(b).ObjectFile, addr);
+
+        assert(is_function_index_valid(FIdx));
+
+        {
+          ip_upgradable_lock<ip_upgradable_mutex> u_lck(b.bbmap_mtx);
+
+          basic_block_t bb = basic_block_at_address(TermAddr, b);
+
+          ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
+
+          ICFG[bb].insertDynTarget({index_of_binary(b, jv), FIdx}, jv);
+        }
+      }
+    };
+
+    for_each_binary(std::execution::par_unseq, jv, [&](binary_t &b) {
       auto &ICFG = b.Analysis.ICFG;
 
-      auto fix_ambiguous_indirect_jumps = [&](void) -> bool {
-        icfg_t::vertex_iterator vi, vi_end;
-        for (std::tie(vi, vi_end) = boost::vertices(ICFG); vi != vi_end; ++vi) {
-          basic_block_t bb = *vi;
+      for (;;) {
+        taddr_t TermAddr = 0;
 
-          if (ICFG[bb].Term.Type != TERMINATOR::INDIRECT_JUMP)
-            continue;
+        {
+          ip_sharable_lock<ip_upgradable_mutex> s_lck(b.bbmap_mtx);
 
-          if (IsAmbiguousIndirectJump(ICFG, bb)) {
-            //
-            // we thought this was a goto, but now we know it's definitely a tail call.
-            // translate all sucessors as functions, then store them into the dynamic
-            // targets set for this bb. afterwards, delete the edges in the ICFG that
-            // would originate from this basic block.
-            //
-            icfg_t::out_edge_iterator e_it, e_it_end;
-            for (std::tie(e_it, e_it_end) = boost::out_edges(bb, ICFG);
-                 e_it != e_it_end; ++e_it) {
-              control_flow_t cf(*e_it);
+          icfg_t::vertex_iterator vi, vi_end;
+          for (std::tie(vi, vi_end) = boost::vertices(ICFG); vi != vi_end;
+               ++vi) {
+            basic_block_t bb = *vi;
 
-              basic_block_t succ = boost::target(cf, ICFG);
+            if (ICFG[bb].Term.Type != TERMINATOR::INDIRECT_JUMP)
+              continue;
 
-              function_index_t FIdx = E->explore_function(
-                  b, *state.for_binary(b).ObjectFile,
-                  ICFG[succ].Addr);
-              assert(is_function_index_valid(FIdx));
-              ICFG[bb].insertDynTarget({BIdx, FIdx}, jv);
+            if (IsAmbiguousIndirectJump(ICFG, bb)) {
+              TermAddr = ICFG[bb].Term.Addr;
+              break;
             }
-
-            boost::clear_out_edges(bb, ICFG);
-            return true;
           }
         }
 
-        return false;
-      };
+        if (!TermAddr)
+          break;
 
-      while (fix_ambiguous_indirect_jumps())
+        fix_ambiguous_indirect_jump(b, TermAddr);
         ++NumChanged;
-    }
+      }
+    });
 
-    if (unlikely(NumChanged)) {
+    if (unsigned c = NumChanged.load()) {
       jv.InvalidateFunctionAnalyses();
 
-      HumanOut() << llvm::formatv(
-          "fixed {0} ambiguous indirect jump{1}\n", NumChanged,
-          NumChanged > 1 ? "s" : "");
+      HumanOut() << llvm::formatv("fixed {0} ambiguous indirect jump{1}\n",
+                                  c, c > 1 ? "s" : "");
     }
   }
 
