@@ -837,9 +837,7 @@ int RecompileTool::Run(void) {
     //
     // run ld
     //
-    int rc = RunExecutableToExit(locator().lld(), [&](auto Arg) {
-      Arg(locator().lld());
-
+    auto linker_args = [&](auto Arg) {
       Arg("-o");
       Arg(chrooted_path.string());
 
@@ -989,7 +987,20 @@ int RecompileTool::Run(void) {
 
       if (opts.SkipCopyRelocHack)
         Arg("--skip-copy-reloc-hack");
-    });
+    };
+
+    auto run_linker = [&](const char *linker_path) -> int {
+      return RunExecutableToExit(linker_path, [&](auto Arg) {
+        Arg(linker_path);
+        linker_args(Arg);
+      });
+    };
+
+    int rc;
+
+    if (22) rc = run_linker(locator().lld().c_str());
+    if (rc) rc = run_linker(locator().ld_gold().c_str()); /* ridiculous... */
+    if (rc) rc = run_linker(locator().ld_bfd().c_str());  /* lol... */
 
     //
     // check exit code

@@ -88,6 +88,9 @@ std::string locator_t::klee(void) {
   return must_exist(jove_path() / "klee" / "build" / "bin" / "klee");
 }
 
+std::string locator_t::ld_gold(void) { return must_exist("/usr/bin/ld.gold"); }
+std::string locator_t::ld_bfd(void) { return must_exist("/usr/bin/ld.bfd"); }
+
 std::string locator_t::graph_easy(void) {
   return fs::exists("/usr/bin/vendor_perl/graph-easy")
              ? "/usr/bin/vendor_perl/graph-easy"
