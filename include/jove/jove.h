@@ -59,6 +59,8 @@
 #include <string_view>
 #include <tuple>
 #include <vector>
+#include <shared_mutex>
+#include <deque>
 
 namespace jove {
 
@@ -492,10 +494,7 @@ struct binary_t {
   bool IsDynamicallyLoaded;
 
   ip_upgradable_mutex bbmap_mtx;
-
-  std::atomic<bool> bbmap_na = false;
   ip_mutex na_bbmap_mtx;
-  ip_condition na_cond;
 
   struct Analysis_t {
     function_index_t EntryFunction;
@@ -691,6 +690,8 @@ typedef boost::unordered_map<
         std::pair<const ip_string, ip_binary_index_set>, segment_manager_t>>
     ip_name_to_binaries_map_type;
 
+typedef std::function<void(binary_t &)> on_newbin_proc_t;
+
 struct jv_t {
   struct _Binaries {
     ip_binary_deque _deque;
@@ -741,8 +742,7 @@ struct jv_t {
 
   ip_name_to_binaries_map_type name_to_binaries;
 
-  ip_mutex binaries_mtx;
-  ip_upgradable_mutex hash_to_binary_mtx;
+  ip_sharable_mutex hash_to_binary_mtx;
   ip_mutex cached_hashes_mtx;
   ip_sharable_mutex name_to_binaries_mtx;
 
@@ -766,12 +766,14 @@ struct jv_t {
   std::pair<binary_index_t, bool>
   AddFromPath(explorer_t &,
               const char *path,
-              binary_index_t TargetIdx = invalid_binary_index);
+              binary_index_t TargetIdx = invalid_binary_index,
+              on_newbin_proc_t on_newbin = [](binary_t &) {});
   std::pair<binary_index_t, bool>
   AddFromData(explorer_t &,
               std::string_view data,
               const char *name = nullptr,
-              binary_index_t TargetIdx = invalid_binary_index);
+              binary_index_t TargetIdx = invalid_binary_index,
+              on_newbin_proc_t on_newbin = [](binary_t &) {});
 
   unsigned NumBinaries(void) {
     return Binaries.size();
@@ -789,7 +791,8 @@ private:
   std::pair<binary_index_t, bool> AddFromDataWithHash(explorer_t &E, get_data_t,
                                                       const hash_t &h,
                                                       const char *name,
-                                                      binary_index_t TargetIdx);
+                                                      binary_index_t TargetIdx,
+                                                      on_newbin_proc_t on_newbin);
   void DoAdd(binary_t &, explorer_t &);
 };
 

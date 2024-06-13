@@ -156,10 +156,11 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
 top:
   std::unique_ptr<ip_upgradable_lock<ip_upgradable_mutex>> u_lck =
       std::make_unique<ip_upgradable_lock<ip_upgradable_mutex>>(b.bbmap_mtx);
+  std::unique_ptr<ip_scoped_lock<ip_mutex>> e_na_lck;
+
+  auto it = bbmap_find(bbmap, Addr);
 
   const bool gonna_split = ({
-    auto it = bbmap_find(bbmap, Addr);
-
     bool res = it != bbmap.end();
     if (res && Addr == addr_intvl_lower((*it).first))
       return (*it).second; /* the same */
@@ -170,14 +171,7 @@ top:
   if (!gonna_split) {
     u_lck.reset();
 
-try_again:
-    if (b.bbmap_na.exchange(true)) {
-      {
-        ip_scoped_lock<ip_mutex> e_lck(b.na_bbmap_mtx);
-
-        b.na_cond.wait_for(e_lck, usduration_from_milliseconds(100),
-                           [&](void) -> bool { return !b.bbmap_na.load(); });
-      }
+    e_na_lck = std::make_unique<ip_scoped_lock<ip_mutex>>(b.na_bbmap_mtx);
 
       const bool _gonna_split = ({
         ip_sharable_lock<ip_upgradable_mutex> s_lck(b.bbmap_mtx);
@@ -190,15 +184,11 @@ try_again:
         res;
       });
 
-      if (_gonna_split)
+      if (_gonna_split) {
+        e_na_lck.reset();
         goto top;
-
-      goto try_again;
-    }
+      }
   } else {
-    auto it = bbmap_find(bbmap, Addr);
-    assert(it != bbmap.end());
-
     const addr_intvl intvl = (*it).first;
     const basic_block_index_t BBIdx = (*it).second;
 
@@ -243,8 +233,7 @@ try_again:
           goto on_insn_boundary;
       }
 
-      throw std::runtime_error((fmt("%s: control flow to 0x%lx doesn't lie on "
-                                    "instruction boundary") % __func__ % Addr).str());
+      throw invalid_control_flow_exception(Addr);
 
     on_insn_boundary:
         //
@@ -401,8 +390,6 @@ try_again:
   //
   // !gonna_split
   //
-  assert(b.bbmap_na.load());
-
   tcg.set_binary(Bin);
 
   unsigned Size = 0;
@@ -417,23 +404,10 @@ try_again:
       ip_sharable_lock<ip_upgradable_mutex> s_lck(b.bbmap_mtx);
 
       addr_intvl intervl(Addr, Size);
-      auto it = bbmap_find(bbmap, intervl);
-      if (it != bbmap.end()) {
-        addr_intvl _intervl = (*it).first;
+      auto _it = bbmap_find(bbmap, intervl);
+      if (_it != bbmap.end()) {
+        addr_intvl _intervl = (*_it).first;
 
-#if 0
-        if (addr_intvl_lower(intervl) == addr_intvl_lower(_intervl)) {
-          {
-            ip_scoped_lock<ip_mutex> e_lck(b.na_bbmap_mtx);
-
-            b.bbmap_na.store(false);
-
-            e_lck.unlock();
-            b.na_cond.notify_one();
-          }
-          return (*it).second;
-        }
-#endif
         assert(addr_intvl_lower(intervl) < addr_intvl_lower(_intervl));
 
         //
@@ -446,8 +420,8 @@ try_again:
         T._none.NextPC = addr_intvl_lower(_intervl);
 
 
-#if 1
-    basic_block_index_t _BBIdx = (*it).second;
+#if 0
+    basic_block_index_t _BBIdx = (*_it).second;
     basic_block_t _bb = basic_block_of_index(_BBIdx, ICFG);
 
     if (unlikely(this->verbose))
@@ -548,14 +522,7 @@ try_again:
     this->on_newbb_proc(b, bb);
   }
 
-  {
-    ip_scoped_lock<ip_mutex> e_lck(b.na_bbmap_mtx);
-
-    b.bbmap_na.store(false);
-
-    e_lck.unlock();
-    b.na_cond.notify_one();
-  }
+  e_na_lck.reset();
 
   auto control_flow_to = [&](uint64_t Target) -> void {
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)

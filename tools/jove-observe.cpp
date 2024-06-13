@@ -12,6 +12,8 @@
 
 #include <boost/filesystem.hpp>
 
+#include <oneapi/tbb/parallel_pipeline.h>
+
 #include <llvm/Support/FormatVariadic.h>
 
 #include <regex>
@@ -27,9 +29,6 @@ namespace jove {
 namespace {
 
 struct binary_state_t {
-  uintptr_t LoadAddr = std::numeric_limits<uintptr_t>::max();
-  uintptr_t LoadOffset = std::numeric_limits<uintptr_t>::max();
-
   std::unique_ptr<llvm::object::Binary> ObjectFile;
 };
 
@@ -59,16 +58,76 @@ struct ObserveTool : public TransformerTool_Bin<binary_state_t> {
   explorer_t E;
   symbolizer_t symbolizer;
 
+  std::string buffer;
+  std::regex line_regex_ab;
+  std::regex line_regex_a;
+  std::regex line_regex_b;
+
 public:
   ObserveTool()
       : opts(JoveCategory), E(jv, disas, tcg, false /* opts.VeryVerbose */) {}
 
   int Run(void) override;
+
+  binary_index_t BinaryFromName(const char *name);
+  std::string GetLine(int rfd, tbb::flow_control &);
+  void ProcessLine(const std::string &line);
+  void on_new_binary(binary_t &);
+  void init_state_for_binary(binary_t &);
 };
 
 JOVE_REGISTER_TOOL("observe", ObserveTool);
 
+void ObserveTool::init_state_for_binary(binary_t &b) {
+  binary_state_t &x = state.for_binary(b);
+
+  x.ObjectFile = CreateBinary(b.data());
+
+  if (!x.ObjectFile)
+    die("failed to parse binary " + b.path_str() + "\n");
+  if (!llvm::isa<ELFO>(x.ObjectFile.get()))
+    die(b.path_str() + " is not ELF of expected type\n");
+}
+
+void ObserveTool::on_new_binary(binary_t &b) {
+  state.update();
+
+  b.IsDynamicallyLoaded = true;
+
+  init_state_for_binary(b);
+}
+
+binary_index_t ObserveTool::BinaryFromName(const char *name) {
+  using namespace std::placeholders;
+
+  auto MaybeBIdxSet = jv.Lookup(name);
+  if (MaybeBIdxSet) {
+    const ip_binary_index_set &BIdxSet = *MaybeBIdxSet;
+
+    assert(!BIdxSet.empty());
+
+    binary_index_t BIdx = *BIdxSet.rbegin(); /* most recent (XXX?) */
+    assert(is_binary_index_valid(BIdx));
+
+    return BIdx;
+  }
+
+  if (IsVerbose())
+    llvm::errs() << "adding from path " << name << '\n';
+
+  bool IsNew;
+  binary_index_t BIdx;
+
+  std::tie(BIdx, IsNew) =
+      jv.AddFromPath(E, name, invalid_binary_index,
+                     std::bind(&ObserveTool::on_new_binary, this, _1));
+
+  return BIdx;
+}
+
 int ObserveTool::Run(void) {
+  using namespace std::placeholders;
+
   if (fs::exists("perf.data"))
     fs::remove("perf.data");
 
@@ -76,11 +135,8 @@ int ObserveTool::Run(void) {
   const std::string prog_path = fs::canonical(opts.Prog).string();
   const std::string stdout_path = temporary_dir() + "/perf.stdout.txt";
 
-  for_each_binary(jv, [&](binary_t &binary) {
-    ignore_exception([&]() {
-      state.for_binary(binary).ObjectFile = CreateBinary(binary.data());
-    });
-  });
+  for_each_binary(std::execution::par_unseq, jv,
+                  [&](binary_t &b) { init_state_for_binary(b); });
 
   RunExecutableToExit(
       perf_path,
@@ -103,30 +159,38 @@ int ObserveTool::Run(void) {
           Env(s);
       });
 
-  RunExecutableToExit(
+  int pipefd[2];
+  if (::pipe(pipefd) < 0) { /* first, create a pipe */
+    int err = errno;
+    die("pipe(2) failed: " + std::string(strerror(err)));
+  }
+
+  int rfd = pipefd[0];
+  int wfd = pipefd[1];
+
+  pid_t pid = jove::RunExecutable(
       perf_path,
       [&](auto Arg) {
         Arg(perf_path);
 
         Arg("script");
-        Arg("--itrace=bcr");
+        Arg("--itrace=cr");
         Arg("-F");
         Arg("ip,addr,dso,dsoff");
-      },
-      stdout_path);
-
-  std::ifstream ifs(stdout_path.c_str());
+      }, "", "",
+      [&](const char **argv, const char **envp) {
+        ::close(rfd);
+        ::dup2(wfd, STDOUT_FILENO);
+        ::close(wfd);
+      });
+  ::close(wfd);
 
 //#define DSOSTR "[/a-zA-Z0-9.]+"
 #define DSOSTR ".*?"
 #define OFFSTR "[0-9a-f]+"
 #define ADDRSTR OFFSTR
 
-/*
-     7f65c6213a29 (/usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2+0x1ba29) =>     7f65c6212040 (/usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2+0x1a040)
-*/
-
-  const std::regex line_regex_ab("\\s*"
+  line_regex_ab = std::regex(    "\\s*"
                                  "(" ADDRSTR ")"
                                  "\\s+"
                            "\\(" "(" DSOSTR ")\\+0x(" OFFSTR ")" "\\)"
@@ -138,7 +202,7 @@ int ObserveTool::Run(void) {
                            "\\(" "(" DSOSTR ")\\+0x(" OFFSTR ")" "\\)"
   );
 
-  const std::regex line_regex_a("\\s*"
+  line_regex_a = std::regex(    "\\s*"
                                 "(" ADDRSTR ")"
                                 "\\s+"
                           "\\(" "(" DSOSTR ")\\+0x(" OFFSTR ")" "\\)"
@@ -150,7 +214,7 @@ int ObserveTool::Run(void) {
                           "\\(" "\\[unknown\\]" "\\)"
   );
 
-  const std::regex line_regex_b("\\s*"
+  line_regex_b = std::regex(    "\\s*"
                                 "0"
                                 "\\s+"
                           "\\(" "\\[unknown\\]" "\\)"
@@ -162,8 +226,75 @@ int ObserveTool::Run(void) {
                           "\\(" "(" DSOSTR ")\\+0x(" OFFSTR ")" "\\)"
   );
 
-  std::string line;
-  while (std::getline(ifs, line)) {
+  tbb::parallel_pipeline(
+      128, tbb::make_filter<void, std::string>(
+               tbb::filter_mode::serial_in_order,
+               std::bind(&ObserveTool::GetLine, this, rfd, _1)) &
+               tbb::make_filter<std::string, void>(
+                   tbb::filter_mode::parallel,
+                   std::bind(&ObserveTool::ProcessLine, this, _1)));
+
+  //
+  // wait for process to exit
+  //
+  int ret_val = WaitForProcessToExit(pid);
+
+  ::close(rfd);
+
+  return ret_val;
+}
+
+std::string ObserveTool::GetLine(int rfd, tbb::flow_control &fc) {
+  //
+  // is there already a line ready to process?
+  //
+  size_t pos;
+  while ((pos = buffer.find('\n')) != std::string::npos) {
+    std::string line = buffer.substr(0, pos);
+    buffer.erase(0, pos + 1);
+    return line;
+  }
+
+  char temp_buffer[256];
+  while (true) {
+    ssize_t count = read(rfd, temp_buffer, sizeof(temp_buffer) - 1);
+    if (count < 0) {
+      int err = errno;
+      die("read of pipe failed: " + std::string(strerror(err)));
+    }
+
+    if (count == 0) {
+      std::string result = buffer;
+      buffer.clear();
+
+      llvm::errs() << "STOPPPING\n";
+      fc.stop();
+      return result;
+    } else {
+      temp_buffer[count] = '\0';
+      buffer.append(temp_buffer, count);
+
+      while ((pos = buffer.find('\n')) != std::string::npos) {
+        std::string line = buffer.substr(0, pos);
+        buffer.erase(0, pos + 1);
+        return line;
+      }
+    }
+  }
+}
+
+void ObserveTool::ProcessLine(const std::string &line) {
+  if (line.empty())
+    return;
+
+  if (IsVeryVerbose())
+    llvm::errs() << line << '\n';
+
+/*
+     7f65c6213a29 (/usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2+0x1ba29) =>     7f65c6212040 (/usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2+0x1a040)
+*/
+
+  {
     std::smatch line_match_ab;
     bool ab = std::regex_match(line, line_match_ab, line_regex_ab);
 
@@ -176,7 +307,7 @@ int ObserveTool::Run(void) {
     if (!ab && !a && !b) {
       WithColor::warning() << llvm::formatv(
           "unrecognized perf script output: \"{0}\"\n", line);
-      return 1;
+      return;
     }
 
     bool onlyOneTrue = (a && !b && !ab) || (!a && b && !ab) || (!a && !b && ab);
@@ -226,8 +357,8 @@ int ObserveTool::Run(void) {
                                   dst_addr_s, dst_dso, dst_off_s);
 #endif
 
-    if (!src_dso.empty() && src_dso[0] == '/') src_BIdx = jv.AddFromPath(E, src_dso.c_str()).first; /* TODO [vdso] */
-    if (!dst_dso.empty() && dst_dso[0] == '/') dst_BIdx = jv.AddFromPath(E, dst_dso.c_str()).first; /* TODO [vdso] */
+    if (!src_dso.empty() && src_dso[0] == '/') src_BIdx = BinaryFromName(src_dso.c_str());
+    if (!dst_dso.empty() && dst_dso[0] == '/') dst_BIdx = BinaryFromName(dst_dso.c_str());
 
     if (!src_off_s.empty()) src_off = strtol(src_off_s.c_str(), nullptr, 16);
     if (!dst_off_s.empty()) dst_off = strtol(dst_off_s.c_str(), nullptr, 16);
@@ -235,51 +366,81 @@ int ObserveTool::Run(void) {
     basic_block_index_t src_BBIdx = invalid_basic_block_index;
     basic_block_index_t dst_BBIdx = invalid_basic_block_index;
 
-    auto src_bin = [&](void) -> binary_t & { return jv.Binaries.at(src_BIdx); };
-    auto dst_bin = [&](void) -> binary_t & { return jv.Binaries.at(dst_BIdx); };
+    auto _src_bin = [&](void) -> binary_t & { return jv.Binaries.at(src_BIdx); };
+    auto _dst_bin = [&](void) -> binary_t & { return jv.Binaries.at(dst_BIdx); };
 
-    if (is_binary_index_valid(src_BIdx)) src_BBIdx = E.explore_basic_block(src_bin(), *state.for_binary(src_bin()).ObjectFile, src_off);
-    if (is_binary_index_valid(dst_BIdx)) dst_BBIdx = E.explore_basic_block(dst_bin(), *state.for_binary(dst_bin()).ObjectFile, dst_off);
+    try {
+      if (is_binary_index_valid(src_BIdx)) { binary_t &src_bin = _src_bin(); src_BBIdx = E.explore_basic_block(src_bin, *state.for_binary(src_bin).ObjectFile, src_off); }
+      if (is_binary_index_valid(dst_BIdx)) { binary_t &dst_bin = _dst_bin(); dst_BBIdx = E.explore_basic_block(dst_bin, *state.for_binary(dst_bin).ObjectFile, dst_off); }
+    } catch (const g2h_exception &e) {
+      if (IsVeryVerbose()) llvm::errs() << llvm::formatv("invalid address {0}\n", taddr2str(e.pc, false));
+      return;
+    } catch (const invalid_control_flow_exception &invalid_cf) {
+      if (IsVeryVerbose()) llvm::errs() << llvm::formatv("invalid control-flow to {0}\n", taddr2str(invalid_cf.pc, false));
+      return;
+    }
 
     if (!is_basic_block_index_valid(src_BBIdx) ||
         !is_basic_block_index_valid(dst_BBIdx))
-      continue;
+      return;
 
-    auto &src_ICFG = src_bin().Analysis.ICFG;
-    auto &dst_ICFG = dst_bin().Analysis.ICFG;
+    binary_t &src_bin = _src_bin();
+    binary_t &dst_bin = _dst_bin();
+
+    auto &src_ICFG = src_bin.Analysis.ICFG;
+    auto &dst_ICFG = dst_bin.Analysis.ICFG;
 
     basic_block_t src = basic_block_of_index(src_BBIdx, src_ICFG);
     basic_block_t dst = basic_block_of_index(dst_BBIdx, dst_ICFG);
 
-    uint64_t TermAddr = src_ICFG[src].Term.Addr;
+    auto bbprop = [&](binary_t &b, basic_block_t bb) -> basic_block_properties_t & {
+      icfg_t &ICFG = b.Analysis.ICFG;
 
-    switch (src_ICFG[src].Term.Type) {
+      ip_sharable_lock<ip_upgradable_mutex> s_lck(b.bbmap_mtx);
+
+      return ICFG[bb];
+    };
+
+    const taddr_t TermAddr = bbprop(src_bin, src).Term.Addr;
+
+    auto handle_indirect_call = [&](void) -> void {
+      function_index_t FIdx = E.explore_function(
+          dst_bin, *state.for_binary(dst_bin).ObjectFile, dst_off);
+
+      if (!is_function_index_valid(FIdx))
+        return;
+
+      ip_upgradable_lock<ip_upgradable_mutex> u_lck(src_bin.bbmap_mtx);
+
+      src = basic_block_at_address(TermAddr, src_bin);
+      basic_block_properties_t &src_bbprop = bbprop(src_bin, src);
+
+      ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
+
+      src_bbprop.insertDynTarget(std::make_pair(dst_BIdx, FIdx), jv);
+    };
+
+    basic_block_properties_t &src_bbprop = bbprop(src_bin, src);
+
+    switch (src_bbprop.Term.Type) {
     case TERMINATOR::RETURN:
-      src_ICFG[src].Term._return.Returns = true;
+      src_bbprop.Term._return.Returns = true;
       break;
 
     case TERMINATOR::INDIRECT_CALL:
-      src_ICFG[src].insertDynTarget(std::make_pair(dst_BIdx, dst_BBIdx), jv);
+      handle_indirect_call();
       break;
 
     case TERMINATOR::INDIRECT_JUMP:
-      if (src_ICFG[src].Term._indirect_jump.IsLj)
+      if (src_bbprop.Term._indirect_jump.IsLj)
         break;
 
       if (IsDefinitelyTailCall(src_ICFG, src) || src_BIdx != dst_BIdx) {
-        function_index_t FIdx =
-            E.explore_function(dst_bin(), *state.for_binary(dst_bin()).ObjectFile,
-                               dst_off);
-
-        if (is_function_index_valid(FIdx)) {
-          /* term bb may been split */
-          src = basic_block_at_address(TermAddr, src_bin());
-          assert(src_ICFG[src].Term.Type == TERMINATOR::INDIRECT_JUMP);
-
-          src_ICFG[src].insertDynTarget({dst_BIdx, FIdx}, jv);
-        }
+        handle_indirect_call();
       } else {
         assert(src_BIdx == dst_BIdx);
+
+        ip_scoped_lock<ip_upgradable_mutex> e_lck(src_bin.bbmap_mtx);
 
         boost::add_edge(src, dst, src_ICFG);
       }
@@ -289,8 +450,6 @@ int ObserveTool::Run(void) {
       break;
     }
   }
-
-  return 0;
 }
 
 }

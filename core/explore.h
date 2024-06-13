@@ -13,6 +13,12 @@ class Binary;
 
 namespace jove {
 
+struct invalid_control_flow_exception {
+  uint64_t pc;
+
+  invalid_control_flow_exception(uint64_t pc) : pc(pc) {}
+};
+
 struct tiny_code_generator_t;
 
 typedef std::function<void(binary_t &, basic_block_t)> on_newbb_proc_t;
