@@ -217,6 +217,7 @@ class LoopTool : public JVTool {
 
           PreserveEnvironment(
               "preserve-environment",
+              cl::init(true),
               cl::desc("Preserve environment variables when running as root"),
               cl::cat(JoveCategory)),
 
@@ -517,8 +518,7 @@ run:
           [&](auto Env) {
             InitWithEnviron(Env);
 
-            if (char *e = getenv("JVPATH"))
-              Env(e);
+            Env("JVPATH=" + jv_path);
           },
           std::string(),
           std::string(),
