@@ -1806,7 +1806,7 @@ llvm::Constant *LLVMTool::BigWord(void) {
   // we want a constant integer sufficiently large to cause a SIGSEGV if
   // dereferenced or otherwise used as a pointer value.
   //
-  return llvm::ConstantInt::get(WordType(), 0xdeadbeef);
+  return llvm::Constant::getAllOnesValue(WordType());
 }
 
 template <class T>
