@@ -1201,6 +1201,13 @@ void *recover_proc(const char *fifo_path) {
           assert(ret == sizeof(uint32_t));
         }
 
+        if (tool.IsVerbose())
+          tool.HumanOut() << llvm::formatv("RecoverDynamicTarget({0}, {1}, {2}, {3})\n",
+                                           Caller.BIdx,
+                                           Caller.BBIdx,
+                                           Callee.BIdx,
+                                           Callee.FIdx);
+
         return tool.Recovery->RecoverDynamicTarget(Caller.BIdx,
                                                    Caller.BBIdx,
                                                    Callee.BIdx,
@@ -1225,6 +1232,12 @@ void *recover_proc(const char *fifo_path) {
           ret = robust_read(recover_fd, &Addr, sizeof(uintptr_t));
           assert(ret == sizeof(uintptr_t));
         }
+
+        if (tool.IsVerbose())
+          tool.HumanOut() << llvm::formatv("RecoverBasicBlock({0}, {1}, {2})\n",
+                                           IndBr.BIdx,
+                                           IndBr.BBIdx,
+                                           taddr2str(Addr, false));
 
         return tool.Recovery->RecoverBasicBlock(IndBr.BIdx,
                                                 IndBr.BBIdx,
@@ -1256,6 +1269,13 @@ void *recover_proc(const char *fifo_path) {
           assert(ret == sizeof(uintptr_t));
         }
 
+        if (tool.IsVerbose())
+          tool.HumanOut() << llvm::formatv("RecoverFunction({0}, {1}, {2}, {3})\n",
+                                           IndCall.BIdx,
+                                           IndCall.BBIdx,
+                                           Callee.BIdx,
+                                           Callee.Addr);
+
         return tool.Recovery->RecoverFunction(IndCall.BIdx,
                                               IndCall.BBIdx,
                                               Callee.BIdx,
@@ -1276,6 +1296,11 @@ void *recover_proc(const char *fifo_path) {
           assert(ret == sizeof(uint32_t));
         }
 
+        if (tool.IsVerbose())
+          tool.HumanOut() << llvm::formatv("RecoverABI({0}, {1})\n",
+                                           NewABI.BIdx,
+                                           NewABI.FIdx);
+
         return tool.Recovery->RecoverABI(NewABI.BIdx,
                                          NewABI.FIdx);
       } else if (ch == 'r') {
@@ -1293,6 +1318,11 @@ void *recover_proc(const char *fifo_path) {
           ret = robust_read(recover_fd, &Call.BBIdx, sizeof(uint32_t));
           assert(ret == sizeof(uint32_t));
         }
+
+        if (tool.IsVerbose())
+          tool.HumanOut() << llvm::formatv("Returns({0}, {1})\n",
+                                           Call.BIdx,
+                                           Call.BBIdx);
 
         return tool.Recovery->Returns(Call.BIdx,
                                       Call.BBIdx);
