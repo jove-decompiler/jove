@@ -416,6 +416,11 @@ struct LLVMTool : public TransformerTool_BinFnBB<binary_state_t,
   std::map<uint64_t, llvm::Constant *> TPOFFHack;
 
   struct {
+    llvm::ArrayType *T = nullptr;
+    llvm::GlobalVariable *GV = nullptr;
+  } TLSDescHack;
+
+  struct {
     struct {
       // in memory, the .tbss section is allocated directly following the .tdata
       // section, with the aligment obeyed
@@ -712,6 +717,9 @@ public:
 
   llvm::Constant *expression_for_relocation(const Relocation &,
                                             const RelSymbol &);
+
+  llvm::ArrayType *TLSDescType(void);
+  llvm::GlobalVariable *TLSDescGV(void);
 
   bool is_manual_relocation(const Relocation &);
   bool is_constant_relocation(const Relocation &);
@@ -3804,6 +3812,38 @@ int LLVMTool::CreateTLSModGlobal(void) {
   return 0;
 }
 
+llvm::ArrayType *LLVMTool::TLSDescType(void) {
+  llvm::ArrayType *&T = TLSDescHack.T;
+
+  if (!T)
+    T = llvm::ArrayType::get(WordType(), 2);
+
+  return TLSDescHack.T;
+}
+
+llvm::GlobalVariable *LLVMTool::TLSDescGV(void) {
+  assert(IsX86Target); /* FIXME? */
+
+  llvm::GlobalVariable *&GV = TLSDescHack.GV;
+
+  if (!GV) {
+    llvm::ArrayType *T = TLSDescType();
+
+    std::vector<llvm::Constant *> constantTable(
+        2, llvm::Constant::getAllOnesValue(WordType()));
+    llvm::Constant *Init = llvm::ConstantArray::get(T, constantTable);
+
+    GV = new llvm::GlobalVariable(*Module, T, false,
+                                  llvm::GlobalValue::ExternalLinkage,
+                                  Init, "__jove_td");
+    GV->setVisibility(llvm::GlobalValue::HiddenVisibility);
+
+    Module->appendModuleInlineAsm(".reloc __jove_td, R_X86_64_TLSDESC");
+  }
+
+  return GV;
+}
+
 llvm::Constant *LLVMTool::SymbolAddress(const RelSymbol &RelSym) {
   assert(RelSym.Sym);
 
@@ -4351,7 +4391,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
     unsigned Off = Addr - Sect.Addr;
 
     Sect.Stuff.Intervals.insert(boost::icl::interval<uint64_t>::right_open(
-        Off, Off + WordBytes()));
+        Off, Off + DL.getTypeAllocSize(T)));
     Sect.Stuff.Types[Off] = T;
   };
 
@@ -5505,11 +5545,13 @@ int LLVMTool::ProcessManualRelocations(void) {
       state.for_binary(Binary)._elf.DynPLTRelRegion,
       [&](const Relocation &R) -> bool { return is_manual_relocation(R); },
       [&](const Relocation &R) {
+        llvm::Type *R_T = type_of_expression_for_relocation(R);
+
         RelSymbol RelSym = getSymbolForReloc(Obj, dynamic_symbols(),
                                              state.for_binary(Binary)._elf.DynamicStringTable, R);
 
         llvm::Function *F = llvm::Function::Create(
-            llvm::FunctionType::get(WordType(), false),
+            llvm::FunctionType::get(R_T, false),
             llvm::GlobalValue::InternalLinkage,
             std::string("_jove_compute_relocation_") + (fmt("%lx") % R.Offset).str(),
             Module.get());
@@ -5535,17 +5577,23 @@ int LLVMTool::ProcessManualRelocations(void) {
             ManualRelocs.begin(),
             ManualRelocs.end(), [&](const auto &pair) {
               llvm::Value *Computation = IRB.CreateCall(pair.second);
-              assert(Computation->getType()->isIntegerTy(WordBits()));
 
               uintptr_t off = pair.first - state.for_binary(Binary).SectsStartAddr;
 
               llvm::SmallVector<llvm::Value *, 4> Indices;
-              llvm::Value *SectGEP = llvm::getNaturalGEPWithOffset(
+              llvm::Value *Ptr = llvm::getNaturalGEPWithOffset(
                   IRB, DL,
                   std::make_pair(SectsGlobal, SectsGlobal->getValueType()),
-                  llvm::APInt(64, off), WordType(), Indices, "");
+                  llvm::APInt(64, off), Computation->getType(), Indices, "");
 
-              IRB.CreateStore(Computation, SectGEP, true /* Volatile */);
+              if (!Ptr)
+                Ptr = IRB.CreateIntToPtr(
+                    IRB.CreateAdd(
+                        IRB.CreatePtrToInt(SectsGlobal, WordType()),
+                        IRB.getIntN(WordBits(), off)),
+                    llvm::PointerType::get(Computation->getType(), 0));
+
+              IRB.CreateStore(Computation, Ptr, true /* Volatile */);
             });
 
         IRB.CreateRetVoid();
