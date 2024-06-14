@@ -95,6 +95,9 @@ void ObserveTool::on_new_binary(binary_t &b) {
   b.IsDynamicallyLoaded = true;
 
   init_state_for_binary(b);
+
+  if (IsVerbose())
+    llvm::errs() << llvm::formatv("added {0}\n", b.Name.c_str());
 }
 
 binary_index_t ObserveTool::BinaryFromName(const char *name) {
@@ -111,9 +114,6 @@ binary_index_t ObserveTool::BinaryFromName(const char *name) {
 
     return BIdx;
   }
-
-  if (IsVerbose())
-    llvm::errs() << "adding from path " << name << '\n';
 
   bool IsNew;
   binary_index_t BIdx;
