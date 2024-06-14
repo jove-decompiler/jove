@@ -59,17 +59,31 @@ class JoveTester:
   def session_name(self):
     return "jove_" + self.arch
 
-  def find_windows(self):
-    self.sess = None
-    self.wins = [None for _ in JoveTester.WINDOWS]
+  def find_session(self):
     tmux = libtmux.Server()
+    fresh_sess = None
 
     for sess in tmux.sessions:
       if sess.name == self.session_name():
-        self.sess = sess
+        fresh_sess = sess
         break
 
+    if fresh_sess is None:
+      print("could not find our session!")
+      print("  sessions: " + str(tmux.sessions))
+      for sess in tmux.sessions:
+        print("    windows: " + str(sess.windows))
+    else:
+      self.sess = fresh_sess
+
     assert not (self.sess is None)
+
+  def find_windows(self, find_sess=True):
+    if find_sess:
+      self.find_session()
+
+    tmux = libtmux.Server()
+    self.wins = [None for _ in JoveTester.WINDOWS]
 
     for win in self.sess.windows:
       try:
@@ -78,9 +92,9 @@ class JoveTester:
         continue
 
   def find_or_create_tmux_session(self):
+    tmux = libtmux.Server()
     self.sess = None
     res = [False for _ in JoveTester.WINDOWS]
-    tmux = libtmux.Server()
 
     for sess in tmux.sessions:
       if sess.name == self.session_name():
@@ -97,7 +111,7 @@ class JoveTester:
       self.wins[0] = self.sess.windows[0]
       res[0] = True
     else:
-      self.find_windows()
+      self.find_windows(find_sess=False)
 
     for idx in range(0, len(self.wins)):
       if self.wins[idx] is None:
@@ -118,22 +132,14 @@ class JoveTester:
 
     subprocess.run(['sudo', self.bringup_path, '-a', self.arch, '-s', 'bookworm', '-o', self.vm_dir, '-p', str(self.guest_ssh_port)], check=True)
 
-  def qemu_pane(self):
+  def pane(self, name):
     self.find_windows()
-    return self.wins[0].attached_pane
-
-  def server_pane(self):
-    self.find_windows()
-    return self.wins[1].attached_pane
-
-  def ssh_pane(self):
-    self.find_windows()
-    return self.wins[2].attached_pane
+    return self.wins[JoveTester.WINDOWS.index(name)].attached_pane
 
   def start_vm(self):
     print("starting VM...")
 
-    qp = self.qemu_pane()
+    qp = self.pane("qemu")
 
     qp.send_keys('clear')
     qp.send_keys('cd "%s"' % self.vm_dir)
@@ -144,16 +150,16 @@ class JoveTester:
 
     command = [self.jove_server_path, 'server', '-v', '--port=%d' % self.jove_server_port]
 
-    pane = self.server_pane()
-    pane.send_keys(" ".join(command))
+    p = self.pane("server")
+    p.send_keys(" ".join(command))
 
   def is_vm_ready(self):
-    qp = self.qemu_pane()
+    qp = self.pane("qemu")
 
     return any("login:" in row for row in qp.capture_pane())
 
   def wait_for_vm_ready(self, t=1.5):
-    qp = self.qemu_pane()
+    qp = self.pane("qemu")
 
     while not self.is_vm_ready():
       print("waiting for VM...")
@@ -166,13 +172,13 @@ class JoveTester:
   def set_up_command_for_user(self, command):
     self.sess.select_window("ssh")
 
-    pane = self.ssh_pane()
-    pane.send_keys("C-c", literal=False, enter=False)
-    pane.send_keys(" ".join(command), enter=False)
+    p = self.pane("ssh")
+    p.send_keys("C-c", literal=False, enter=False)
+    p.send_keys(" ".join(command), enter=False)
 
   def fake_run_command_for_user(self, command):
-    pane = self.ssh_pane()
-    pane.send_keys("true || " + " ".join(command), enter=True)
+    p = self.pane("ssh")
+    p.send_keys("true || " + " ".join(command), enter=True)
 
   def set_up_ssh_command_for_user(self, command):
     self.set_up_command_for_user(["ssh", '-p', str(self.guest_ssh_port), 'root@localhost'] + command)
@@ -295,10 +301,11 @@ class JoveTester:
     if self.unattended:
       if create_qemu:
         self.ssh(['systemctl', 'poweroff'])
-      if create_serv:
-        self.server_pane().send_keys("C-c", literal=False, enter=False)
 
       self.find_windows()
+      if create_serv:
+        self.pane("server").send_keys("C-c", literal=False, enter=False)
+
       for i in range(0, len(create_list)):
         if create_list[i]:
           self.sess.kill_window(JoveTester.WINDOWS[i])
