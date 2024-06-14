@@ -1333,7 +1333,9 @@ void *recover_proc(const char *fifo_path) {
       }
     };
 
+#if 0
     try {
+#endif
       std::string msg = do_recover();
 
       if (!msg.empty()) {
@@ -1341,11 +1343,13 @@ void *recover_proc(const char *fifo_path) {
 
         tool.HumanOut() << msg << '\n';
       }
+#if 0
     } catch (const std::exception &e) {
       tool.HumanOut() << llvm::formatv(
           __ANSI_RED "failed to recover: {0}" __ANSI_NORMAL_COLOR "\n",
           e.what());
     }
+#endif
 
     if (pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, nullptr) != 0)
       tool.HumanOut() << "pthread_setcancelstate failed\n";
