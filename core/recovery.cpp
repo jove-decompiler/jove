@@ -20,36 +20,33 @@ typedef boost::format fmt;
 
 CodeRecovery::CodeRecovery(jv_t &jv, explorer_t &E, symbolizer_t &symbolizer)
     : jv(jv), E(E), symbolizer(symbolizer), state(jv) {
-  for_each_binary(jv, [&](binary_t &binary) {
-    binary_state_t &binary_state = state.for_binary(binary);
+  for_each_binary(std::execution::par_unseq, jv, [&](binary_t &binary) {
+    binary_state_t &x = state.for_binary(binary);
 
     auto &ICFG = binary.Analysis.ICFG;
-
-    binary_state.block_term_addr_vec.resize(boost::num_vertices(ICFG));
+    x.block_term_addr_vec.resize(boost::num_vertices(ICFG));
 
     //
-    // we need to record the addresses of terminator instructions at each
+    // FIXME we need to record the addresses of terminator instructions at each
     // basic block, before the indices are messed with, since the code in
     // jove.recover.c is hard-coded against the version of the jv
     // that existed when jove-recompile was run.
     //
-    for_each_basic_block_in_binary(binary, [&](basic_block_t bb) {
-      binary_state.block_term_addr_vec.at(index_of_basic_block(ICFG, bb)) = ICFG[bb].Term.Addr;
+    for_each_basic_block_in_binary(std::execution::par_unseq,
+                                   binary, [&](basic_block_t bb) {
+      x.block_term_addr_vec.at(index_of_basic_block(ICFG, bb)) = ICFG[bb].Term.Addr;
     });
 
-    ignore_exception([&]() {
-      binary_state.ObjectFile = CreateBinary(binary.data());
-    });
+    x.ObjectFile = CreateBinary(binary.data());
   });
 }
 
 CodeRecovery::~CodeRecovery() {}
 
 uint64_t CodeRecovery::AddressOfTerminatorAtBasicBlock(uint32_t BIdx,
-                                                            uint32_t BBIdx) {
+                                                       uint32_t BBIdx) {
   binary_t &binary = jv.Binaries.at(BIdx);
-  uint64_t TermAddr =
-      state.for_binary(binary).block_term_addr_vec.at(BBIdx);
+  uint64_t TermAddr = state.for_binary(binary).block_term_addr_vec.at(BBIdx);
   assert(TermAddr);
   return TermAddr;
 }
@@ -66,45 +63,72 @@ std::string CodeRecovery::RecoverDynamicTarget(uint32_t CallerBIdx,
 
   auto &ICFG = CallerBinary.Analysis.ICFG;
 
-  uint64_t TermAddr = state.for_binary(CallerBinary).block_term_addr_vec.at(CallerBBIdx);
+  uint64_t TermAddr = AddressOfTerminatorAtBasicBlock(CallerBIdx, CallerBBIdx);
   assert(TermAddr);
-  basic_block_t bb = basic_block_at_address(TermAddr, CallerBinary);
 
-  bool isNewTarget = ICFG[bb].insertDynTarget({CalleeBIdx, CalleeFIdx}, jv);
+  bool Ambig = ({
+    ip_upgradable_lock<ip_upgradable_mutex> u_lck(CallerBinary.bbmap_mtx);
 
-  if (!isNewTarget)
-    return std::string();
+    basic_block_t bb = basic_block_at_address(TermAddr, CallerBinary);
+
+    ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
+
+    bool isNewTarget = ICFG[bb].insertDynTarget({CalleeBIdx, CalleeFIdx}, jv);
+    if (!isNewTarget)
+      return std::string();
+
+    ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP &&
+    IsDefinitelyTailCall(ICFG, bb) &&
+    boost::out_degree(bb, ICFG) > 0;
+  });
 
   //
   // check to see if this is an ambiguous indirect jump XXX duplicated code with jove-bootstrap
   //
-  if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP &&
-      IsDefinitelyTailCall(ICFG, bb) &&
-      boost::out_degree(bb, ICFG) > 0) {
+  if (Ambig) {
     //
     // we thought this was a goto, but now we know it's definitely a tail call.
     // translate all sucessors as functions, then store them into the dynamic
     // targets set for this bb. afterwards, delete the edges in the ICFG that
     // would originate from this basic block.
     //
-    icfg_t::out_edge_iterator e_it, e_it_end;
-    for (std::tie(e_it, e_it_end) = boost::out_edges(bb, ICFG);
-         e_it != e_it_end; ++e_it) {
-      control_flow_t cf(*e_it);
+    std::vector<taddr_t> succ_addr_vec;
 
-      basic_block_t succ = boost::target(cf, ICFG);
+    {
+      ip_upgradable_lock<ip_upgradable_mutex> u_lck(CallerBinary.bbmap_mtx);
 
-      function_index_t FIdx =
-          E.explore_function(CallerBinary, *state.for_binary(CallerBinary).ObjectFile,
-                             ICFG[succ].Addr);
-      assert(is_function_index_valid(FIdx));
+      basic_block_t bb = basic_block_at_address(TermAddr, CallerBinary);
 
-      /* term bb may been split */
-      bb = basic_block_at_address(TermAddr, CallerBinary);
-      ICFG[bb].insertDynTarget({CallerBIdx, FIdx}, jv);
+      succ_addr_vec.reserve(boost::out_degree(bb, ICFG));
+
+      icfg_t::adjacency_iterator succ_it, succ_it_end;
+      for (std::tie(succ_it, succ_it_end) = boost::adjacent_vertices(bb, ICFG);
+           succ_it != succ_it_end; ++succ_it)
+        succ_addr_vec.push_back(ICFG[*succ_it].Addr);
+
+      ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
+
+      boost::clear_out_edges(bb, ICFG);
     }
 
-    boost::clear_out_edges(bb, ICFG);
+    for (const taddr_t &addr : succ_addr_vec) {
+      function_index_t FIdx = E.explore_function(
+          CallerBinary, *state.for_binary(CallerBinary).ObjectFile, addr);
+
+      assert(is_function_index_valid(FIdx));
+
+      {
+        ip_upgradable_lock<ip_upgradable_mutex> u_lck(CallerBinary.bbmap_mtx);
+
+        basic_block_t bb = basic_block_at_address(TermAddr, CallerBinary);
+
+        ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
+
+        ICFG[bb].insertDynTarget({CallerBIdx, FIdx}, jv);
+      }
+    }
+
+#if 0
   } else if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL &&
              isNewTarget &&
              boost::out_degree(bb, ICFG) == 0 &&
@@ -124,6 +148,9 @@ std::string CodeRecovery::RecoverDynamicTarget(uint32_t CallerBIdx,
 
     boost::add_edge(bb, basic_block_of_index(NextBBIdx, ICFG), ICFG);
   }
+#else
+  }
+#endif
 
   return (fmt(__ANSI_CYAN "(call) %s -> %s" __ANSI_NORMAL_COLOR)
           % symbolizer.addr2desc(CallerBinary, TermAddr)
@@ -134,37 +161,36 @@ std::string CodeRecovery::RecoverDynamicTarget(uint32_t CallerBIdx,
 std::string CodeRecovery::RecoverBasicBlock(uint32_t IndBrBIdx,
                                             uint32_t IndBrBBIdx,
                                             uint64_t Addr) {
-  binary_t &indbr_binary = jv.Binaries.at(IndBrBIdx);
-  auto &ICFG = indbr_binary.Analysis.ICFG;
+  binary_t &b = jv.Binaries.at(IndBrBIdx);
+  auto &ICFG = b.Analysis.ICFG;
 
-  uint64_t TermAddr =
-      state.for_binary(indbr_binary).block_term_addr_vec.at(IndBrBBIdx);
-  assert(TermAddr);
-
-  basic_block_t bb = basic_block_at_address(TermAddr, indbr_binary);
-
-  assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP);
-  basic_block_index_t target_bb_idx = E.explore_basic_block(
-      indbr_binary, *state.for_binary(indbr_binary).ObjectFile, Addr);
-  if (!is_basic_block_index_valid(target_bb_idx)) {
+  basic_block_index_t TargetBBIdx =
+      E.explore_basic_block(b, *state.for_binary(b).ObjectFile, Addr);
+  if (!is_basic_block_index_valid(TargetBBIdx)) {
     throw std::runtime_error(
         (fmt("failed to recover control flow to %#lx") % Addr).str());
   }
 
-  basic_block_t target_bb = basic_block_of_index(target_bb_idx, ICFG);
+  uint64_t TermAddr = AddressOfTerminatorAtBasicBlock(IndBrBIdx, IndBrBBIdx);
 
-  /* term bb may been split */
-  bb = basic_block_at_address(TermAddr, indbr_binary);
+  bool isNewTarget = ({
+    ip_upgradable_lock<ip_upgradable_mutex> u_lck(b.bbmap_mtx);
 
-  assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP);
+    basic_block_t bb = basic_block_at_address(TermAddr, b);
+    assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP);
 
-  bool isNewTarget = boost::add_edge(bb, target_bb, ICFG).second;
+    ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
+
+    basic_block_t target_bb = basic_block_of_index(TargetBBIdx, ICFG);
+    boost::add_edge(bb, target_bb, ICFG).second;
+  });
+
   if (!isNewTarget)
     return std::string();
 
   return (fmt(__ANSI_GREEN "(goto) %s -> %s" __ANSI_NORMAL_COLOR)
-          % symbolizer.addr2desc(indbr_binary, TermAddr)
-          % symbolizer.addr2desc(indbr_binary, Addr))
+          % symbolizer.addr2desc(b, TermAddr)
+          % symbolizer.addr2desc(b, Addr))
       .str();
 }
 
@@ -173,34 +199,35 @@ std::string CodeRecovery::RecoverFunction(uint32_t IndCallBIdx,
                                           uint32_t CalleeBIdx,
                                           uint64_t CalleeAddr) {
   binary_t &CalleeBinary = jv.Binaries.at(CalleeBIdx);
-  binary_t &CallerBinary = jv.Binaries.at(IndCallBIdx);
-
-  auto &ICFG = CallerBinary.Analysis.ICFG;
-  uint64_t TermAddr =
-      state.for_binary(CallerBinary).block_term_addr_vec.at(IndCallBBIdx);
-  assert(TermAddr);
-
-  basic_block_t bb = basic_block_at_address(TermAddr, CallerBinary);
 
   function_index_t CalleeFIdx = E.explore_function(
       CalleeBinary, *state.for_binary(CalleeBinary).ObjectFile, CalleeAddr);
-  if (!is_function_index_valid(CalleeFIdx)) {
-    throw std::runtime_error(
-        (fmt("failed to translate indirect call target %#lx") % CalleeAddr)
-            .str());
-  }
+  if (!is_function_index_valid(CalleeFIdx))
+    throw std::runtime_error((fmt("failed to translate indirect call target %#lx") % CalleeAddr).str());
+
+  binary_t &CallerBinary = jv.Binaries.at(IndCallBIdx);
+  uint64_t TermAddr = AddressOfTerminatorAtBasicBlock(IndCallBIdx, IndCallBBIdx);
 
   function_t &callee = CalleeBinary.Analysis.Functions.at(CalleeFIdx);
 
-  /* term bb may been split */
-  bb = basic_block_at_address(TermAddr, CallerBinary);
+  auto &ICFG = CallerBinary.Analysis.ICFG;
 
-  bool isNewTarget = ICFG[bb].insertDynTarget({CalleeBIdx, CalleeFIdx}, jv);
+  bool isNewTarget = ({
+    ip_upgradable_lock<ip_upgradable_mutex> u_lck(CallerBinary.bbmap_mtx);
+
+    basic_block_t bb = basic_block_at_address(TermAddr, CallerBinary);
+
+    if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP)
+      assert(boost::out_degree(bb, ICFG) == 0);
+
+    ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
+
+    ICFG[bb].insertDynTarget({CalleeBIdx, CalleeFIdx}, jv);
+  });
+
   (void)isNewTarget; /* FIXME */
 
-  if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP)
-    assert(boost::out_degree(bb, ICFG) == 0);
-
+#if 0
   if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL &&
       does_function_return(callee, CalleeBinary)) {
     //
@@ -218,6 +245,7 @@ std::string CodeRecovery::RecoverFunction(uint32_t IndCallBIdx,
 
     boost::add_edge(bb, basic_block_of_index(NextBBIdx, ICFG), ICFG);
   }
+#endif
 
   return (fmt(__ANSI_CYAN "(call*) %s -> %s" __ANSI_NORMAL_COLOR)
           % symbolizer.addr2desc(CallerBinary, TermAddr)
@@ -243,54 +271,58 @@ std::string CodeRecovery::RecoverABI(uint32_t BIdx,
 
 std::string CodeRecovery::Returns(uint32_t CallBIdx,
                                   uint32_t CallBBIdx) {
-  binary_t &CallBinary = jv.Binaries.at(CallBIdx);
-  auto &ICFG = CallBinary.Analysis.ICFG;
+  binary_t &b = jv.Binaries.at(CallBIdx);
+  auto &ICFG = b.Analysis.ICFG;
 
-  uint64_t TermAddr = state.for_binary(CallBinary).block_term_addr_vec.at(CallBBIdx);
-  assert(TermAddr);
+  uint64_t TermAddr = AddressOfTerminatorAtBasicBlock(CallBIdx, CallBBIdx);
 
-  basic_block_t bb = basic_block_at_address(TermAddr, CallBinary);
+  uint64_t NextAddr = ({
+    ip_sharable_lock<ip_upgradable_mutex> s_lck(b.bbmap_mtx);
 
-  uint64_t NextAddr = ICFG[bb].Addr + ICFG[bb].Size + (unsigned)IsMIPSTarget * 4;
+    basic_block_t bb = basic_block_at_address(TermAddr, b);
 
-  bool isCall =
-    ICFG[bb].Term.Type == TERMINATOR::CALL;
-  bool isIndirectCall =
-    ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL;
+    ICFG[bb].Addr + ICFG[bb].Size + (unsigned)IsMIPSTarget * 4;
+  });
 
-  assert(isCall || isIndirectCall);
-  assert(TermAddr);
+  basic_block_index_t NextBBIdx =
+    E.explore_basic_block(b, *state.for_binary(b).ObjectFile, NextAddr);
+  assert(is_basic_block_index_valid(NextBBIdx));
 
-  if (isCall)
-    ICFG[bb].Term._call.Returns = true;
-  if (isIndirectCall)
-    ICFG[bb].Term._indirect_call.Returns = true;
+  bool isNewTarget = ({
+    ip_upgradable_lock<ip_upgradable_mutex> u_lck(b.bbmap_mtx);
 
-  unsigned deg = boost::out_degree(bb, ICFG);
-  if (deg != 0) {
-    return std::string();
-  }
+    basic_block_t bb = basic_block_at_address(TermAddr, b);
 
-  basic_block_index_t next_bb_idx =
-    E.explore_basic_block(CallBinary, *state.for_binary(CallBinary).ObjectFile, NextAddr);
+    bool isCall = ICFG[bb].Term.Type == TERMINATOR::CALL;
+    bool isIndirectCall = ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL;
 
-  /* term bb may been split */
-  bb = basic_block_at_address(TermAddr, CallBinary);
+    assert(isCall || isIndirectCall);
+    assert(TermAddr);
 
-  if (ICFG[bb].Term.Type == TERMINATOR::CALL &&
-      is_function_index_valid(ICFG[bb].Term._call.Target)) {
-    function_t &f = CallBinary.Analysis.Functions.at(ICFG[bb].Term._call.Target);
-    f.Returns = true;
-  }
+    if (isCall)
+      ICFG[bb].Term._call.Returns = true;
+    if (isIndirectCall)
+      ICFG[bb].Term._indirect_call.Returns = true;
 
-  assert(is_basic_block_index_valid(next_bb_idx));
-  basic_block_t next_bb = basic_block_of_index(next_bb_idx, ICFG);
+    if (ICFG[bb].Term.Type == TERMINATOR::CALL &&
+        is_function_index_valid(ICFG[bb].Term._call.Target)) {
+      function_t &f = b.Analysis.Functions.at(ICFG[bb].Term._call.Target);
+      f.Returns = true;
+    }
 
-  bool isNewTarget = boost::add_edge(bb, next_bb, ICFG).second;
+    ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
+
+    unsigned deg = boost::out_degree(bb, ICFG);
+    if (deg > 0)
+      return std::string();
+
+    boost::add_edge(bb, basic_block_of_index(NextBBIdx, ICFG), ICFG).second;
+  });
+
   (void)isNewTarget; /* FIXME */
 
   return (fmt(__ANSI_YELLOW "(returned) %s" __ANSI_NORMAL_COLOR)
-          % symbolizer.addr2desc(CallBinary, NextAddr))
+          % symbolizer.addr2desc(b, NextAddr))
       .str();
 }
 
