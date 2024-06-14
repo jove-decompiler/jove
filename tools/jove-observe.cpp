@@ -227,12 +227,12 @@ int ObserveTool::Run(void) {
   );
 
   tbb::parallel_pipeline(
-      128, tbb::make_filter<void, std::string>(
-               tbb::filter_mode::serial_in_order,
-               std::bind(&ObserveTool::GetLine, this, rfd, _1)) &
-               tbb::make_filter<std::string, void>(
-                   tbb::filter_mode::parallel,
-                   std::bind(&ObserveTool::ProcessLine, this, _1)));
+      1024, tbb::make_filter<void, std::string>(
+                tbb::filter_mode::serial_in_order,
+                std::bind(&ObserveTool::GetLine, this, rfd, _1)) &
+                tbb::make_filter<std::string, void>(
+                    tbb::filter_mode::parallel,
+                    std::bind(&ObserveTool::ProcessLine, this, _1)));
 
   //
   // wait for process to exit
