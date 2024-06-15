@@ -1,5 +1,5 @@
 #include "tool.h"
-#include "elf.h"
+#include "B.h"
 #include "tcg.h"
 #include "disas.h"
 #include "explore.h"

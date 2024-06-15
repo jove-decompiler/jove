@@ -1,5 +1,5 @@
 #include "tool.h"
-#include "elf.h"
+#include "B.h"
 #include "ida.h"
 #include "explore.h"
 #include "symbolizer.h"

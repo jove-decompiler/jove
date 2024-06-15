@@ -3,7 +3,7 @@
 
 #include "tcg.h"
 #include "tool.h"
-#include "elf.h"
+#include "B.h"
 #include "disas.h"
 
 #include <boost/algorithm/string/replace.hpp>

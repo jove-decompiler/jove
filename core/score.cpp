@@ -1,5 +1,5 @@
 #include "score.h"
-#include "elf.h"
+#include "B.h"
 #include <boost/format.hpp>
 
 namespace obj = llvm::object;

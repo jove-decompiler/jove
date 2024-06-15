@@ -1,6 +1,4 @@
 #pragma once
-#include "binary.h"
-
 #include <llvm/Object/ELFObjectFile.h>
 #include <llvm/Support/DataExtractor.h>
 #include <llvm/ADT/PointerIntPair.h>

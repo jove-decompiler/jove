@@ -1,7 +1,7 @@
 #pragma once
 #include "jove/jove.h"
 #include "disas.h"
-#include "elf.h"
+#include "B.h"
 #include "symbolizer.h"
 
 namespace jove {

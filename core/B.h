@@ -1,6 +1,8 @@
 #pragma once
 #include <llvm/Object/Binary.h>
 
+#include "elf.h"
+
 namespace jove {
 namespace B {
 

@@ -1,6 +1,6 @@
 #include "tool.h"
 #include "recovery.h"
-#include "elf.h"
+#include "B.h"
 #include "symbolizer.h"
 #include "tcg.h"
 #include "explore.h"

@@ -1,5 +1,4 @@
-#include "binary.h"
-#include "elf.h"
+#include "B.h"
 
 namespace obj = llvm::object;
 

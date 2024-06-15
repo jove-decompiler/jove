@@ -1,5 +1,5 @@
 #include "tool.h"
-#include "elf.h"
+#include "B.h"
 #include "crypto.h"
 #include "util.h"
 #include "vdso.h"

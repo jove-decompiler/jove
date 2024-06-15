@@ -1,6 +1,6 @@
 #include "tool.h"
 #include "tcg.h"
-#include "elf.h"
+#include "B.h"
 #include "disas.h"
 
 #include <boost/filesystem.hpp>
