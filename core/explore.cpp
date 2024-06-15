@@ -575,7 +575,7 @@ top:
     assert(is_function_index_valid(CalleeFIdx));
 
     function_t &callee = b.Analysis.Functions.at(CalleeFIdx);
-    callee.Callers.emplace(invalid_binary_index /* index_of_binary(b, jv) */, T.Addr);
+    callee.Callers.emplace(b.Idx /* may =invalid */, T.Addr);
 
     {
       ip_upgradable_lock<ip_upgradable_mutex> u_lck(b.bbmap_mtx);
