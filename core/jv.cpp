@@ -86,7 +86,7 @@ boost::optional<binary_index_t> jv_t::LookupByHash(const hash_t &h) {
 
 std::pair<binary_index_t, bool> jv_t::AddFromPath(explorer_t &E,
                                                   const char *path,
-                                                  binary_index_t TargetIdx,
+                                                  const binary_index_t TargetIdx,
                                                   on_newbin_proc_t on_newbin) {
   assert(path);
 
@@ -113,7 +113,7 @@ std::pair<binary_index_t, bool> jv_t::AddFromPath(explorer_t &E,
 std::pair<binary_index_t, bool> jv_t::AddFromData(explorer_t &E,
                                                   std::string_view x,
                                                   const char *name,
-                                                  binary_index_t TargetIdx,
+                                                  const binary_index_t TargetIdx,
                                                   on_newbin_proc_t on_newbin) {
   return AddFromDataWithHash(
       E,
@@ -128,7 +128,7 @@ std::pair<binary_index_t, bool> jv_t::AddFromDataWithHash(explorer_t &E,
                                                           get_data_t get_data,
                                                           const hash_t &h,
                                                           const char *name,
-                                                          binary_index_t TargetIdx,
+                                                          const binary_index_t TargetIdx,
                                                           on_newbin_proc_t on_newbin) {
   const bool HasTargetIdx = is_binary_index_valid(TargetIdx);
 
@@ -145,10 +145,12 @@ std::pair<binary_index_t, bool> jv_t::AddFromDataWithHash(explorer_t &E,
     }
   }
 
-  binary_t _b(get_allocator());
+  std::unique_ptr<binary_t> _b;
+  if (!HasTargetIdx)
+    _b = std::make_unique<binary_t>(get_allocator());
 
   {
-    binary_t &b = HasTargetIdx ? Binaries.at(TargetIdx) : _b;
+    binary_t &b = _b ? *_b : Binaries.at(TargetIdx);
 
     get_data(b.Data);
 
@@ -179,25 +181,23 @@ std::pair<binary_index_t, bool> jv_t::AddFromDataWithHash(explorer_t &E,
   //
   // nope!
   //
-  binary_index_t BIdx;
-  if (HasTargetIdx) {
-    BIdx = TargetIdx;
-  } else {
+  binary_index_t BIdx = TargetIdx;
+  if (!is_binary_index_valid(BIdx)) {
+    assert(!HasTargetIdx);
+
     ip_scoped_lock<ip_sharable_mutex> e_b_lck(this->Binaries._mtx);
 
     BIdx = Binaries._deque.size();
-    Binaries._deque.push_back(std::move(_b));
+    Binaries._deque.push_back(std::move(*_b));
   }
 
   binary_t &b = Binaries.at(BIdx);
   b.Idx = BIdx;
   b.Hash = h;
 
-  if (!HasTargetIdx) {
-    /* XXX */
+  if (!HasTargetIdx)
     for (function_t &f : b.Analysis.Functions)
-      f.b = &b;
-  }
+      f.b = &b; /* XXX */
 
   this->hash_to_binary.insert(std::make_pair(h, BIdx));
 

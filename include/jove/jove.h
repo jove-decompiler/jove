@@ -605,8 +605,8 @@ struct binary_t {
     return Analysis.Functions._deque.get_allocator();
   }
 
-  binary_t(const ip_void_allocator_t &A)
-      : bbbmap(A), bbmap(A), fnmap(A), Name(A), Data(A), Analysis(A) {}
+  binary_t(const ip_void_allocator_t &A, binary_index_t Idx = invalid_binary_index)
+      : Idx(Idx), bbbmap(A), bbmap(A), fnmap(A), Name(A), Data(A), Analysis(A) {}
 
   binary_t(binary_t &&other)
       : Idx(other.Idx),
@@ -766,13 +766,13 @@ struct jv_t {
   std::pair<binary_index_t, bool>
   AddFromPath(explorer_t &,
               const char *path,
-              binary_index_t TargetIdx = invalid_binary_index,
+              const binary_index_t TargetIdx = invalid_binary_index,
               on_newbin_proc_t on_newbin = [](binary_t &) {});
   std::pair<binary_index_t, bool>
   AddFromData(explorer_t &,
               std::string_view data,
               const char *name = nullptr,
-              binary_index_t TargetIdx = invalid_binary_index,
+              const binary_index_t TargetIdx = invalid_binary_index,
               on_newbin_proc_t on_newbin = [](binary_t &) {});
 
   unsigned NumBinaries(void) {
@@ -791,7 +791,7 @@ private:
   std::pair<binary_index_t, bool> AddFromDataWithHash(explorer_t &E, get_data_t,
                                                       const hash_t &h,
                                                       const char *name,
-                                                      binary_index_t TargetIdx,
+                                                      const binary_index_t TargetIdx,
                                                       on_newbin_proc_t on_newbin);
   void DoAdd(binary_t &, explorer_t &);
 };
