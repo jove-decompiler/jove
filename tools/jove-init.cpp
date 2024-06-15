@@ -184,7 +184,8 @@ int InitTool::add_loaded_objects(const fs::path &prog, const fs::path &rtld) {
     ip_scoped_lock<ip_sharable_mutex> e_lck(jv.Binaries._mtx);
 
     for (unsigned i = 0; i < N; ++i)
-      jv.Binaries._deque.emplace_back(jv.get_allocator());
+      jv.Binaries._deque.emplace_back(jv.get_allocator(),
+                                      static_cast<binary_index_t>(i));
   }
 
   //
