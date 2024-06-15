@@ -3838,7 +3838,7 @@ llvm::GlobalVariable *LLVMTool::TLSDescGV(void) {
                                   Init, "__jove_td");
     GV->setVisibility(llvm::GlobalValue::HiddenVisibility);
 
-    Module->appendModuleInlineAsm(".reloc __jove_td, R_X86_64_TLSDESC");
+    //Module->appendModuleInlineAsm(".reloc __jove_td, R_X86_64_TLSDESC");
   }
 
   return GV;
