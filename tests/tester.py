@@ -59,42 +59,13 @@ class JoveTester:
   def session_name(self):
     return "jove_" + self.arch
 
-  def find_session(self):
+  def establish_tmux_session(self):
     tmux = libtmux.Server()
-    fresh_sess = None
 
-    for sess in tmux.sessions:
-      if sess.name == self.session_name():
-        fresh_sess = sess
-        break
-
-    if fresh_sess is None:
-      print("could not find our session!")
-      print("  sessions: " + str(tmux.sessions))
-      for sess in tmux.sessions:
-        print("    windows: " + str(sess.windows))
-    else:
-      self.sess = fresh_sess
-
-    assert not (self.sess is None)
-
-  def find_windows(self, find_sess=True):
-    if find_sess:
-      self.find_session()
-
-    tmux = libtmux.Server()
-    self.wins = [None for _ in JoveTester.WINDOWS]
-
-    for win in self.sess.windows:
-      try:
-        self.wins[JoveTester.WINDOWS.index(win.name)] = win
-      except ValueError:
-        continue
-
-  def find_or_create_tmux_session(self):
-    tmux = libtmux.Server()
-    self.sess = None
     res = [False for _ in JoveTester.WINDOWS]
+
+    self.sess = None
+    self.wins = [None for _ in JoveTester.WINDOWS]
 
     for sess in tmux.sessions:
       if sess.name == self.session_name():
@@ -102,21 +73,25 @@ class JoveTester:
         break
 
     if self.sess is None:
-      print('creating tmux session "%s"' % self.session_name())
-
       self.sess = tmux.new_session(session_name=self.session_name(), window_name=JoveTester.WINDOWS[0])
+      print('created tmux session ' + str(self.sess))
 
       assert self.sess.windows[0].name == JoveTester.WINDOWS[0]
 
       self.wins[0] = self.sess.windows[0]
       res[0] = True
     else:
-      self.find_windows(find_sess=False)
+      for win in self.sess.windows:
+        try:
+          self.wins[JoveTester.WINDOWS.index(win.name)] = win
+        except ValueError:
+          continue
 
     for idx in range(0, len(self.wins)):
       if self.wins[idx] is None:
         res[idx] = True
         self.wins[idx] = self.sess.new_window(window_name=JoveTester.WINDOWS[idx])
+        print('created tmux window ' + str(self.wins[idx]))
 
     return res
 
@@ -133,7 +108,7 @@ class JoveTester:
     subprocess.run(['sudo', self.bringup_path, '-a', self.arch, '-s', 'bookworm', '-o', self.vm_dir, '-p', str(self.guest_ssh_port)], check=True)
 
   def pane(self, name):
-    self.find_windows()
+    self.establish_tmux_session()
     return self.wins[JoveTester.WINDOWS.index(name)].attached_pane
 
   def start_vm(self):
@@ -170,11 +145,11 @@ class JoveTester:
     print("VM ready.")
 
   def set_up_command_for_user(self, command):
-    self.sess.select_window("ssh")
-
     p = self.pane("ssh")
     p.send_keys("C-c", literal=False, enter=False)
     p.send_keys(" ".join(command), enter=False)
+
+    self.sess.select_window("ssh")
 
   def fake_run_command_for_user(self, command):
     p = self.pane("ssh")
@@ -268,7 +243,7 @@ class JoveTester:
     return 0
 
   def run(self):
-    create_list = self.find_or_create_tmux_session()
+    create_list = self.establish_tmux_session()
     create_qemu, create_serv, create_ssh = tuple(create_list)
 
     if create_qemu:
@@ -302,7 +277,6 @@ class JoveTester:
       if create_qemu:
         self.ssh(['systemctl', 'poweroff'])
 
-      self.find_windows()
       if create_serv:
         self.pane("server").send_keys("C-c", literal=False, enter=False)
 
