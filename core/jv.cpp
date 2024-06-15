@@ -193,9 +193,11 @@ std::pair<binary_index_t, bool> jv_t::AddFromDataWithHash(explorer_t &E,
   b.Idx = BIdx;
   b.Hash = h;
 
-  /* FIXME? */
-  for (function_t &f : b.Analysis.Functions)
-    f.b = &b;
+  if (!HasTargetIdx) {
+    /* XXX */
+    for (function_t &f : b.Analysis.Functions)
+      f.b = &b;
+  }
 
   this->hash_to_binary.insert(std::make_pair(h, BIdx));
 
