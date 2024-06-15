@@ -1,4 +1,6 @@
 #pragma once
+#include "binary.h"
+
 #include <llvm/Object/ELFObjectFile.h>
 #include <llvm/Support/DataExtractor.h>
 #include <llvm/ADT/PointerIntPair.h>
@@ -60,11 +62,6 @@ typedef typename ELFT::Verneed Elf_Verneed;
 typedef typename ELFT::Versym Elf_Versym;
 typedef typename ELFT::Word Elf_Word;
 typedef typename ELFT::uint uintX_t;
-
-std::unique_ptr<llvm::object::Binary> CreateBinary(llvm::StringRef Data);
-
-llvm::object::OwningBinary<llvm::object::Binary>
-CreateBinaryFromFile(const char *path);
 
 /// Represents a contiguous uniform range in the file. We cannot just create a
 /// range directly because when creating one of these from the .dynamic table
