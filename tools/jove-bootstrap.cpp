@@ -344,7 +344,7 @@ struct BootstrapTool : public TransformerTool_Bin<binary_state_t> {
     binary_state_t &x = state.for_binary(b);
 
     try {
-      x.ObjectFile = CreateBinary(b.data());
+      x.ObjectFile = B::Create(b.data());
     } catch (const std::exception &) {
       if (!b.IsVDSO)
         HumanOut() << llvm::formatv("failed to create binary for {0}\n",

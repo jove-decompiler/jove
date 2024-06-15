@@ -1100,7 +1100,7 @@ skip_run:
 }
 
 std::string LoopTool::soname_of_binary(binary_t &b) {
-  auto Bin = CreateBinary(b.data());
+  auto Bin = B::Create(b.data());
   if (!llvm::isa<ELFO>(Bin.get())) {
     HumanOut() << "is not ELF of expected type\n";
     return "";

@@ -328,7 +328,7 @@ int CFGTool::Run(void) {
   //
   // initialize state associated with binary
   //
-  state.for_binary(binary).ObjectFile = CreateBinary(binary.data());
+  state.for_binary(binary).ObjectFile = B::Create(binary.data());
 
   obj::Binary *B = state.for_binary(binary).ObjectFile.get();
   if (!llvm::isa<ELFO>(B)) {

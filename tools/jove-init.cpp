@@ -65,7 +65,7 @@ int InitTool::Run(void) {
     return 1;
   }
 
-  Bin = CreateBinaryFromFile(opts.Prog.c_str());
+  Bin = B::CreateFromFile(opts.Prog.c_str());
 
   std::optional<std::string> OptionalPathToRTLD =
       program_interpreter_of_elf(*llvm::cast<ELFO>(Bin.getBinary()));

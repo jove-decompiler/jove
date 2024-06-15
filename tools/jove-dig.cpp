@@ -152,7 +152,7 @@ int CodeDigger::Run(void) {
 
   for_each_binary(jv, [&](binary_t &binary) {
     ignore_exception([&]() {
-      auto Bin = CreateBinary(binary.data());
+      auto Bin = B::Create(binary.data());
 
       assert(llvm::isa<ELFO>(Bin.get()));
 

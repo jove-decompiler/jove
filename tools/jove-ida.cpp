@@ -140,7 +140,7 @@ int IDATool::Run(void) {
     std::unique_ptr<obj::Binary> Bin;
 
     try {
-      Bin = CreateBinary(binary.data());
+      Bin = B::Create(binary.data());
     } catch (const std::exception &) {
       return;
     }

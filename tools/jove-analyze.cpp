@@ -74,7 +74,7 @@ int AnalyzeTool::Run(void) {
 
   for_each_binary(jv, [&](binary_t &binary) {
     ignore_exception([&]() {
-      state.for_binary(binary).ObjectFile = CreateBinary(binary.data());
+      state.for_binary(binary).ObjectFile = B::Create(binary.data());
     });
   });
 

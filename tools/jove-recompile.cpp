@@ -359,7 +359,7 @@ int RecompileTool::Run(void) {
     if (b.IsVDSO)
       continue;
 
-    auto Bin = CreateBinary(b.data());
+    auto Bin = B::Create(b.data());
     if (!dynamic_linking_info_of_binary(*Bin, state.for_binary(b).dynl)) {
       WithColor::error() << llvm::formatv(
           "!dynamic_linking_info_of_binary({0})\n", b.Name.c_str());
@@ -870,7 +870,7 @@ int RecompileTool::Run(void) {
           // Arg("-z");
           // Arg("nocopyreloc");
 
-          std::unique_ptr<obj::Binary> Bin = CreateBinary(b.data());
+          std::unique_ptr<obj::Binary> Bin = B::Create(b.data());
 
           uint64_t Base, End;
           std::tie(Base, End) = bounds_of_binary(*Bin);

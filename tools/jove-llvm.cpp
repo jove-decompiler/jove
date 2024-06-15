@@ -2415,7 +2415,7 @@ int LLVMTool::InitStateForBinaries(void) {
     });
 
     ignore_exception([&]() {
-      x.ObjectFile = CreateBinary(binary.data());
+      x.ObjectFile = B::Create(binary.data());
 
       auto &SectsStartAddr = x.SectsStartAddr;
       auto &SectsEndAddr   = x.SectsEndAddr;

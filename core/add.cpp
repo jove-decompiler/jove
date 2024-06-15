@@ -20,7 +20,7 @@ namespace jove {
 #include "relocs_common.hpp"
 
 void jv_t::DoAdd(binary_t &b, explorer_t &E) {
-  std::unique_ptr<llvm::object::Binary> ObjectFile = CreateBinary(b.data());
+  std::unique_ptr<llvm::object::Binary> ObjectFile = B::Create(b.data());
 
   if (!llvm::isa<ELFO>(ObjectFile.get()))
     throw std::runtime_error("not ELF of expected type");
@@ -185,7 +185,7 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
       WithColor::note() << llvm::formatv("found split debug info file {0}\n",
                                          splitDbgInfo.c_str());
 
-      auto splitBinPair = CreateBinaryFromFile(splitDbgInfo.c_str());
+      auto splitBinPair = B::CreateFromFile(splitDbgInfo.c_str());
 
       obj::Binary *splitB = splitBinPair.getBinary();
 

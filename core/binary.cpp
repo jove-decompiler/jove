@@ -4,8 +4,9 @@
 namespace obj = llvm::object;
 
 namespace jove {
+namespace B {
 
-std::unique_ptr<llvm::object::Binary> CreateBinary(llvm::StringRef Data) {
+std::unique_ptr<llvm::object::Binary> Create(llvm::StringRef Data) {
   llvm::Expected<std::unique_ptr<llvm::object::Binary>> BinOrErr =
       llvm::object::createBinary(llvm::MemoryBufferRef(Data, ""));
 
@@ -17,7 +18,7 @@ std::unique_ptr<llvm::object::Binary> CreateBinary(llvm::StringRef Data) {
 }
 
 llvm::object::OwningBinary<obj::Binary>
-CreateBinaryFromFile(const char *path) {
+CreateFromFile(const char *path) {
   auto BinOrErr = llvm::object::createBinary(path);
   if (!BinOrErr)
     throw std::runtime_error("CreateBinaryFromFile failed: " +
@@ -30,4 +31,5 @@ CreateBinaryFromFile(const char *path) {
   return std::move(res);
 }
 
+}
 }

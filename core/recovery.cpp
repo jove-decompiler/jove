@@ -37,7 +37,7 @@ CodeRecovery::CodeRecovery(jv_t &jv, explorer_t &E, symbolizer_t &symbolizer)
       x.block_term_addr_vec.at(index_of_basic_block(ICFG, bb)) = ICFG[bb].Term.Addr;
     });
 
-    x.ObjectFile = CreateBinary(binary.data());
+    x.ObjectFile = B::Create(binary.data());
   });
 }
 

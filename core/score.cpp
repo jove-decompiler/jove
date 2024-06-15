@@ -10,7 +10,7 @@ typedef boost::format fmt;
 
 double compute_score(const jv_t &jv,
                      const binary_t &binary) {
-  auto Bin = CreateBinary(llvm::StringRef(binary.data()));
+  auto Bin = B::Create(llvm::StringRef(binary.data()));
 
   if (!llvm::isa<ELFO>(Bin.get()))
     throw std::runtime_error(binary.path_str() + " is not ELF of expected type\n");

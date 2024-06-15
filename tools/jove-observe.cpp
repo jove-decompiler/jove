@@ -81,7 +81,7 @@ JOVE_REGISTER_TOOL("observe", ObserveTool);
 void ObserveTool::init_state_for_binary(binary_t &b) {
   binary_state_t &x = state.for_binary(b);
 
-  x.ObjectFile = CreateBinary(b.data());
+  x.ObjectFile = B::Create(b.data());
 
   if (!x.ObjectFile)
     die("failed to parse binary " + b.path_str() + "\n");

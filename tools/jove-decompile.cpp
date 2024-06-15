@@ -141,7 +141,7 @@ int DecompileTool::Run(void) {
     ignore_exception([&]() {
       auto &x = state.for_binary(binary);
 
-      x.Bin = CreateBinary(binary.data());
+      x.Bin = B::Create(binary.data());
 
       dynamic_linking_info_of_binary(*x.Bin, x.dynl);
     });

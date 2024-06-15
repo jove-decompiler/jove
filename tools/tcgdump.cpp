@@ -101,7 +101,7 @@ int TCGDumpTool::Run(void) {
   jove::tiny_code_generator_t tcg;
   disas_t disas;
 
-  auto BinPair = CreateBinaryFromFile(opts.Binary.c_str());
+  auto BinPair = B::CreateFromFile(opts.Binary.c_str());
 
   obj::Binary *Bin = BinPair.getBinary();
   if (!llvm::isa<ELFO>(Bin)) {
