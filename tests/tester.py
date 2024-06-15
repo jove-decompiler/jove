@@ -80,6 +80,8 @@ class JoveTester:
 
       self.wins[0] = self.sess.windows[0]
       res[0] = True
+
+      print('created tmux window ' + str(self.wins[0]))
     else:
       for win in self.sess.windows:
         try:
