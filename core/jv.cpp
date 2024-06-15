@@ -260,6 +260,39 @@ function_t::function_t(binary_t &b, function_index_t Idx)
 function_t::function_t(const ip_void_allocator_t &A)
     : Callers(A) {}
 
+void binary_t::InvalidateBasicBlockAnalyses(void) {
+  for_each_function_in_binary(std::execution::par_unseq, *this,
+                              [&](function_t &f) { f.InvalidateAnalysis(); });
+}
+
+void binary_t::Analysis_t::addSymDynTarget(const std::string &sym,
+                                           dynamic_target_t X) {
+  ip_string ips(Functions._deque.get_allocator());
+  to_ips(ips, sym);
+
+  auto it = SymDynTargets.find(ips);
+  if (it == SymDynTargets.end())
+    it = SymDynTargets.emplace(ips, ip_dynamic_target_set(Functions._deque.get_allocator())).first;
+
+  (*it).second.insert(X);
+}
+
+void binary_t::Analysis_t::addRelocDynTarget(uint64_t A, dynamic_target_t X) {
+  auto it = RelocDynTargets.find(A);
+  if (it == RelocDynTargets.end())
+    it = RelocDynTargets.emplace(A, ip_dynamic_target_set(Functions._deque.get_allocator())).first;
+
+  (*it).second.insert(X);
+}
+
+void binary_t::Analysis_t::addIFuncDynTarget(uint64_t A, dynamic_target_t X) {
+  auto it = IFuncDynTargets.find(A);
+  if (it == IFuncDynTargets.end())
+    it = IFuncDynTargets.emplace(A, ip_dynamic_target_set(Functions._deque.get_allocator())).first;
+
+  (*it).second.insert(X);
+}
+
 void basic_block_properties_t::AddParent(function_index_t FIdx, jv_t &jv) {
   ip_func_index_set Idxs(jv.get_allocator());
 
