@@ -29,7 +29,7 @@ namespace jove {
 namespace {
 
 struct binary_state_t {
-  std::unique_ptr<llvm::object::Binary> ObjectFile;
+  std::unique_ptr<llvm::object::Binary> O;
 };
 
 }
@@ -81,12 +81,7 @@ JOVE_REGISTER_TOOL("observe", ObserveTool);
 void ObserveTool::init_state_for_binary(binary_t &b) {
   binary_state_t &x = state.for_binary(b);
 
-  x.ObjectFile = B::Create(b.data());
-
-  if (!x.ObjectFile)
-    die("failed to parse binary " + b.path_str() + "\n");
-  if (!llvm::isa<ELFO>(x.ObjectFile.get()))
-    die(b.path_str() + " is not ELF of expected type\n");
+  x.O = B::Create(b.data());
 }
 
 void ObserveTool::on_new_binary(binary_t &b) {
@@ -357,11 +352,11 @@ void ObserveTool::ProcessLine(const std::string &line) {
                                   dst_addr_s, dst_dso, dst_off_s);
 #endif
 
-    if (!src_dso.empty() && src_dso[0] == '/') src_BIdx = BinaryFromName(src_dso.c_str());
-    if (!dst_dso.empty() && dst_dso[0] == '/') dst_BIdx = BinaryFromName(dst_dso.c_str());
-
     if (!src_off_s.empty()) src_off = strtol(src_off_s.c_str(), nullptr, 16);
     if (!dst_off_s.empty()) dst_off = strtol(dst_off_s.c_str(), nullptr, 16);
+
+    if (!src_dso.empty() && src_off != 0x0 && src_dso[0] == '/') src_BIdx = BinaryFromName(src_dso.c_str());
+    if (!dst_dso.empty() && dst_off != 0x0 && dst_dso[0] == '/') dst_BIdx = BinaryFromName(dst_dso.c_str());
 
     basic_block_index_t src_BBIdx = invalid_basic_block_index;
     basic_block_index_t dst_BBIdx = invalid_basic_block_index;
@@ -370,8 +365,8 @@ void ObserveTool::ProcessLine(const std::string &line) {
     auto _dst_bin = [&](void) -> binary_t & { return jv.Binaries.at(dst_BIdx); };
 
     try {
-      if (is_binary_index_valid(src_BIdx)) { binary_t &src_bin = _src_bin(); src_BBIdx = E.explore_basic_block(src_bin, *state.for_binary(src_bin).ObjectFile, src_off); }
-      if (is_binary_index_valid(dst_BIdx)) { binary_t &dst_bin = _dst_bin(); dst_BBIdx = E.explore_basic_block(dst_bin, *state.for_binary(dst_bin).ObjectFile, dst_off); }
+      if (is_binary_index_valid(src_BIdx)) { binary_t &src_bin = _src_bin(); src_BBIdx = E.explore_basic_block(src_bin, *state.for_binary(src_bin).O, src_off); }
+      if (is_binary_index_valid(dst_BIdx)) { binary_t &dst_bin = _dst_bin(); dst_BBIdx = E.explore_basic_block(dst_bin, *state.for_binary(dst_bin).O, dst_off); }
     } catch (const g2h_exception &e) {
       if (IsVeryVerbose()) llvm::errs() << llvm::formatv("invalid address {0}\n", taddr2str(e.pc, false));
       return;
@@ -405,7 +400,7 @@ void ObserveTool::ProcessLine(const std::string &line) {
 
     auto handle_indirect_call = [&](void) -> void {
       function_index_t FIdx = E.explore_function(
-          dst_bin, *state.for_binary(dst_bin).ObjectFile, dst_off);
+          dst_bin, *state.for_binary(dst_bin).O, dst_off);
 
       if (!is_function_index_valid(FIdx))
         return;
