@@ -29,7 +29,7 @@ namespace jove {
 namespace {
 
 struct binary_state_t {
-  std::unique_ptr<llvm::object::Binary> O;
+  std::unique_ptr<llvm::object::Binary> Bin;
 };
 
 }
@@ -81,7 +81,7 @@ JOVE_REGISTER_TOOL("observe", ObserveTool);
 void ObserveTool::init_state_for_binary(binary_t &b) {
   binary_state_t &x = state.for_binary(b);
 
-  x.O = B::Create(b.data());
+  x.Bin = B::Create(b.data());
 }
 
 void ObserveTool::on_new_binary(binary_t &b) {
@@ -226,7 +226,7 @@ int ObserveTool::Run(void) {
                 tbb::filter_mode::serial_in_order,
                 std::bind(&ObserveTool::GetLine, this, rfd, _1)) &
                 tbb::make_filter<std::string, void>(
-                    tbb::filter_mode::parallel,
+                    tbb::filter_mode::serial_in_order,
                     std::bind(&ObserveTool::ProcessLine, this, _1)));
 
   //
@@ -300,8 +300,9 @@ void ObserveTool::ProcessLine(const std::string &line) {
     bool b = std::regex_match(line, line_match_b, line_regex_b);
 
     if (!ab && !a && !b) {
-      WithColor::warning() << llvm::formatv(
-          "unrecognized perf script output: \"{0}\"\n", line);
+      if (IsVeryVerbose())
+        WithColor::warning() << llvm::formatv(
+            "unrecognized perf script output: \"{0}\"\n", line);
       return;
     }
 
@@ -320,8 +321,8 @@ void ObserveTool::ProcessLine(const std::string &line) {
     std::string src_off_s;
     std::string dst_off_s;
 
-    uint64_t src_off = UINT64_MAX;
-    uint64_t dst_off = UINT64_MAX;
+    uint64_t src_off = 0;
+    uint64_t dst_off = 0;
 
     if (ab) {
       assert(line_match_ab.size() == 7);
@@ -364,9 +365,19 @@ void ObserveTool::ProcessLine(const std::string &line) {
     auto _src_bin = [&](void) -> binary_t & { return jv.Binaries.at(src_BIdx); };
     auto _dst_bin = [&](void) -> binary_t & { return jv.Binaries.at(dst_BIdx); };
 
+    auto explore = [&](binary_t &b, llvm::object::Binary &Bin, uint64_t off) -> void {
+      if (llvm::isa<COFFO>(&Bin)) {
+        COFFO &O = *llvm::cast<COFFO>(&Bin);
+
+        off += O.getImageBase();
+      }
+
+      E.explore_basic_block(b, Bin, off);
+    };
+
     try {
-      if (is_binary_index_valid(src_BIdx)) { binary_t &src_bin = _src_bin(); src_BBIdx = E.explore_basic_block(src_bin, *state.for_binary(src_bin).O, src_off); }
-      if (is_binary_index_valid(dst_BIdx)) { binary_t &dst_bin = _dst_bin(); dst_BBIdx = E.explore_basic_block(dst_bin, *state.for_binary(dst_bin).O, dst_off); }
+      if (is_binary_index_valid(src_BIdx)) { binary_t &src_bin = _src_bin(); explore(src_bin, *state.for_binary(src_bin).Bin, src_off); }
+      if (is_binary_index_valid(dst_BIdx)) { binary_t &dst_bin = _dst_bin(); explore(dst_bin, *state.for_binary(dst_bin).Bin, dst_off); }
     } catch (const g2h_exception &e) {
       if (IsVeryVerbose()) llvm::errs() << llvm::formatv("invalid address {0}\n", taddr2str(e.pc, false));
       return;
@@ -400,7 +411,7 @@ void ObserveTool::ProcessLine(const std::string &line) {
 
     auto handle_indirect_call = [&](void) -> void {
       function_index_t FIdx = E.explore_function(
-          dst_bin, *state.for_binary(dst_bin).O, dst_off);
+          dst_bin, *state.for_binary(dst_bin).Bin, dst_off);
 
       if (!is_function_index_valid(FIdx))
         return;
