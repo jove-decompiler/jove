@@ -185,13 +185,12 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
       WithColor::note() << llvm::formatv("found split debug info file {0}\n",
                                          splitDbgInfo.c_str());
 
-      auto splitBinPair = B::CreateFromFile(splitDbgInfo.c_str());
+      std::vector<uint8_t> SplitBinBytes;
+      auto SplitBin = B::CreateFromFile(splitDbgInfo.c_str(), SplitBinBytes);
 
-      obj::Binary *splitB = splitBinPair.getBinary();
+      assert(llvm::isa<ELFO>(SplitBin.get()));
 
-      assert(llvm::isa<ELFO>(splitB));
-
-      ELFO &split_Obj = *llvm::cast<ELFO>(splitB);
+      ELFO &split_Obj = *llvm::cast<ELFO>(SplitBin.get());
       const ELFF &split_Elf = split_Obj.getELFFile();
 
       //

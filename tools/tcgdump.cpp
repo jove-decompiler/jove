@@ -101,17 +101,12 @@ int TCGDumpTool::Run(void) {
   jove::tiny_code_generator_t tcg;
   disas_t disas;
 
-  auto BinPair = B::CreateFromFile(opts.Binary.c_str());
-
-  obj::Binary *Bin = BinPair.getBinary();
-  if (!llvm::isa<ELFO>(Bin)) {
-    HumanOut() << "invalid binary\n";
-    return 1;
-  }
+  std::vector<uint8_t> BinBytes;
+  auto Bin = B::CreateFromFile(opts.Binary.c_str(), BinBytes);
 
   tcg.set_binary(*Bin);
 
-  const ELFO &Obj = *llvm::cast<ELFO>(Bin);
+  const ELFO &Obj = *llvm::cast<ELFO>(Bin.get());
   const ELFF &Elf = Obj.getELFFile();
 
   DynRegionInfo DynamicTable(Obj);
