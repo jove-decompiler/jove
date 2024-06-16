@@ -5,21 +5,21 @@ namespace jove {
 
 typedef llvm::object::COFFObjectFile COFFO;
 
-constexpr bool isCode(COFFO &O, uint64_t RVA) {
-  uint64_t BaseOfCode = 0, SizeOfCode = 0;
+static inline bool isCode(COFFO &O, uint64_t RVA) {
+  for (const llvm::object::SectionRef &S : O.sections()) {
+    const llvm::object::coff_section *Section = O.getCOFFSection(S);
+    uint32_t SectionStart = Section->VirtualAddress;
+    uint32_t SectionEnd = Section->VirtualAddress + Section->VirtualSize;
+    if (SectionStart <= RVA && RVA < SectionEnd) {
+      if (Section->SizeOfRawData < Section->VirtualSize &&
+          RVA >= SectionStart + Section->SizeOfRawData)
+        return false;
 
-  if (const llvm::object::pe32plus_header *PEPlusHeader = O.getPE32PlusHeader()) {
-    BaseOfCode = PEPlusHeader->BaseOfCode;
-    SizeOfCode = PEPlusHeader->SizeOfCode;
-  } else if (const llvm::object::pe32_header *PEHeader = O.getPE32Header()) {
-    BaseOfCode = PEHeader->BaseOfCode;
-    SizeOfCode = PEHeader->SizeOfCode;
+      return Section->Characteristics & llvm::COFF::IMAGE_SCN_MEM_EXECUTE;
+    }
   }
 
-  if (!BaseOfCode || !SizeOfCode)
-    return false;
-
-  return RVA >= BaseOfCode && RVA < BaseOfCode + SizeOfCode;
+  return false;
 }
 
 }
