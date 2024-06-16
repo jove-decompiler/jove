@@ -247,9 +247,7 @@ int TCGDumpTool::Run(void) {
 
               HumanOut() << (fmt("//\n"
                                  "// %s\n"
-                                 "//\n") %
-                             (*ExpectedSymName).data())
-                                .str();
+                                 "//\n") % (*ExpectedSymName).data()).str();
               linear_scan_disassemble(Addr, Addr + Sym.st_size);
             });
       } else {
@@ -286,7 +284,9 @@ int TCGDumpTool::Run(void) {
                       iserr = llvm::errorToBool(Exp.getSymbolName(Name));
                       assert(!iserr);
 
-                      HumanOut() << Name << '\n';
+                      HumanOut() << (fmt("//\n"
+                                         "// %s\n"
+                                         "//\n") % Name.data()).str();
 
                       uint32_t RVA;
                       iserr = llvm::errorToBool(Exp.getExportRVA(RVA));
