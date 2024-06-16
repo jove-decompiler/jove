@@ -17,7 +17,7 @@ extern "C" void gen_intermediate_code(CPUState *cpu, TranslationBlock *tb,
                                       void *host_pc);
 extern "C" void tcg_register_thread(void);
 
-static thread_local const jove::ELFO *jv_O;
+static thread_local llvm::object::Binary *jv_Bin;
 static thread_local uint64_t jv_end_pc;
 
 static thread_local jove::terminator_info_t jv_ti;
@@ -25,20 +25,33 @@ static thread_local jove::terminator_info_t jv_ti;
 static thread_local unsigned has_register_thread;
 
 extern "C" const void *_jv_g2h(uint64_t Addr) {
-  if (!jv_O)
+  if (!jv_Bin)
     return NULL;
 
-  const jove::ELFF &jv_E = jv_O->getELFFile();
+  return jove::B::_X(
+      *jv_Bin,
 
-  llvm::Expected<const uint8_t *> ExpectedPtr = jv_E.toMappedAddr(Addr);
-  if (!ExpectedPtr) {
-    llvm::consumeError(ExpectedPtr.takeError());
+      [&](jove::ELFO &O) -> const void * {
+        const jove::ELFF &Elf = O.getELFFile();
 
-    throw jove::g2h_exception(Addr);
-  }
+        llvm::Expected<const uint8_t *> ExpectedPtr = Elf.toMappedAddr(Addr);
+        if (!ExpectedPtr) {
+          llvm::consumeError(ExpectedPtr.takeError());
 
-  const uint8_t *Ptr = *ExpectedPtr;
-  return Ptr;
+          throw jove::g2h_exception(Addr);
+        }
+
+        return *ExpectedPtr;
+      },
+
+      [&](jove::COFFO &O) -> const void * {
+        uintptr_t UIntPtr = ~0UL;
+
+        if (llvm::errorToBool(O.getVaPtr(Addr, UIntPtr)))
+          throw jove::g2h_exception(Addr);
+
+        return reinterpret_cast<const void *>(UIntPtr);
+      });
 }
 
 extern "C" void jv_term_is_cond_jump(uint64_t Target, uint64_t NextPC) {
@@ -1208,8 +1221,7 @@ tiny_code_generator_t::tiny_code_generator_t() {
 tiny_code_generator_t::~tiny_code_generator_t() {}
 
 void tiny_code_generator_t::set_binary(llvm::object::Binary &Bin) {
-  assert(llvm::isa<ELFO>(&Bin));
-  ::jv_O = llvm::cast<ELFO>(&Bin);
+  ::jv_Bin = &Bin;
 }
 
 void tiny_code_generator_t::dump_operations(void) {

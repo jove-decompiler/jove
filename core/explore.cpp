@@ -132,8 +132,6 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
 
   auto &ICFG = b.Analysis.ICFG;
 
-  assert(llvm::isa<ELFO>(&Bin));
-
   //
   // fast path
   //
@@ -203,8 +201,6 @@ top:
     // occur, then we will assume the control-flow is invalid
     //
     {
-      const ELFF &Elf = llvm::cast<ELFO>(&Bin)->getELFFile();
-
       uint64_t InstLen = 0;
       for (uint64_t A = beg; A < beg + len; A += InstLen) {
         llvm::MCInst Inst;
@@ -214,13 +210,11 @@ top:
         {
           llvm::raw_string_ostream ErrorStrStream(errmsg);
 
-          llvm::Expected<const uint8_t *> ExpectedPtr = Elf.toMappedAddr(A);
-          if (!ExpectedPtr)
-            throw std::runtime_error(
-                (fmt("%s: invalid address 0x%lx") % __func__ % A).str());
+          const uint8_t *Ptr =
+              reinterpret_cast<const uint8_t *>(B::toMappedAddr(Bin, A));
 
           Disassembled = disas.DisAsm->getInstruction(
-              Inst, InstLen, llvm::ArrayRef<uint8_t>(*ExpectedPtr, len), A,
+              Inst, InstLen, llvm::ArrayRef<uint8_t>(Ptr, len), A,
               ErrorStrStream);
         }
 

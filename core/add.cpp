@@ -20,12 +20,7 @@ namespace jove {
 #include "relocs_common.hpp"
 
 void jv_t::DoAdd(binary_t &b, explorer_t &E) {
-  std::unique_ptr<llvm::object::Binary> ObjectFile = B::Create(b.data());
-
-  if (!llvm::isa<ELFO>(ObjectFile.get()))
-    throw std::runtime_error("not ELF of expected type");
-
-  ELFO &Obj = *llvm::cast<ELFO>(ObjectFile.get());
+  std::unique_ptr<obj::Binary> Bin = B::Create(b.data());
 
   b.IsDynamicLinker = false;
   b.IsExecutable = false;
@@ -34,7 +29,9 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
   b.IsPIC = true;
   b.IsDynamicallyLoaded = false;
 
-  const ELFF &Elf = Obj.getELFFile();
+  return B::_X(*Bin,
+    [&](ELFO &O) {
+  const ELFF &Elf = O.getELFFile();
 
   switch (Elf.getHeader().e_type) {
   case llvm::ELF::ET_NONE:
@@ -58,8 +55,8 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
     break;
   }
 
-  DynRegionInfo DynamicTable(Obj);
-  loadDynamicTable(Obj, DynamicTable);
+  DynRegionInfo DynamicTable(O);
+  loadDynamicTable(O, DynamicTable);
 
   //assert(DynamicTable.Addr);
 
@@ -75,10 +72,10 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
 #endif
 
   auto BasicBlockAtAddress = [&](uint64_t Entrypoint) -> void {
-    E.explore_basic_block(b, Obj, Entrypoint);
+    E.explore_basic_block(b, O, Entrypoint);
   };
   auto FunctionAtAddress = [&](uint64_t Entrypoint) -> function_index_t {
-    return E.explore_function(b, Obj, Entrypoint);
+    return E.explore_function(b, O, Entrypoint);
   };
   auto ABIAtAddress = [&](uint64_t Entrypoint) -> void {
     function_index_t FIdx = FunctionAtAddress(Entrypoint);
@@ -127,7 +124,7 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
   if (EntryAddr) {
     llvm::outs() << llvm::formatv("entry point @ {0:x}\n", EntryAddr);
 
-    b.Analysis.EntryFunction = E.explore_function(b, Obj, EntryAddr);
+    b.Analysis.EntryFunction = E.explore_function(b, O, EntryAddr);
   } else {
     b.Analysis.EntryFunction = invalid_function_index;
   }
@@ -241,7 +238,7 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
 
   if (DynamicTable.Addr)
     OptionalDynSymRegion =
-        loadDynamicSymbols(Obj,
+        loadDynamicSymbols(O,
                            DynamicTable,
                            DynamicStringTable,
                            SymbolVersionSection,
@@ -353,13 +350,13 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
   //
   // examine relocations
   //
-  DynRegionInfo DynRelRegion(Obj);
-  DynRegionInfo DynRelaRegion(Obj);
-  DynRegionInfo DynRelrRegion(Obj);
-  DynRegionInfo DynPLTRelRegion(Obj);
+  DynRegionInfo DynRelRegion(O);
+  DynRegionInfo DynRelaRegion(O);
+  DynRegionInfo DynRelrRegion(O);
+  DynRegionInfo DynPLTRelRegion(O);
 
   if (DynamicTable.Addr)
-    loadDynamicRelocations(Obj,
+    loadDynamicRelocations(O,
                            DynamicTable,
                            DynRelRegion,
                            DynRelaRegion,
@@ -739,7 +736,7 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
 
         uint64_t A = P->p_vaddr + idx;
 
-        basic_block_index_t BBIdx = E.explore_basic_block(b, Obj, A);
+        basic_block_index_t BBIdx = E.explore_basic_block(b, O, A);
         if (!is_basic_block_index_valid(BBIdx))
           continue;
 
@@ -786,7 +783,7 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
 
         uint64_t A = P->p_vaddr + idx;
 
-        basic_block_index_t BBIdx = E.explore_basic_block(b, Obj, A);
+        basic_block_index_t BBIdx = E.explore_basic_block(b, O, A);
         if (!is_basic_block_index_valid(BBIdx))
           continue;
 
@@ -798,6 +795,48 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
       }
     }
   }
+    },
+
+    [&](COFFO &O) {
+      auto rvaToVa = [&](uint64_t rva) -> uint64_t {
+        return rva + O.getImageBase();
+      };
+
+      uint64_t entryRVA = 0;
+      if (const obj::pe32plus_header *PEPlusHeader = O.getPE32PlusHeader())
+        entryRVA = PEPlusHeader->AddressOfEntryPoint;
+      else if (const obj::pe32_header *PEHeader = O.getPE32Header())
+        entryRVA = PEHeader->AddressOfEntryPoint;
+
+      if (entryRVA)
+        E.explore_function(b, O, rvaToVa(entryRVA));
+
+      auto exp_itr = O.export_directories();
+      for_each_if(std::execution::par_unseq,
+                  exp_itr.begin(),
+                  exp_itr.end(),
+                  [&](const obj::ExportDirectoryEntryRef &Exp) -> bool {
+                    llvm::StringRef Name;
+                    uint32_t Ordinal;
+                    bool IsForwarder;
+                    uint32_t RVA;
+
+                    return !llvm::errorToBool(Exp.getSymbolName(Name)) &&
+                           !llvm::errorToBool(Exp.getOrdinal(Ordinal)) &&
+                           !llvm::errorToBool(Exp.isForwarder(IsForwarder)) &&
+                           !IsForwarder &&
+                           !llvm::errorToBool(Exp.getExportRVA(RVA)) &&
+                           isCode(O, RVA);
+                  },
+                  [&](const obj::ExportDirectoryEntryRef &Exp) -> void {
+                      uint32_t RVA;
+                      bool iserr = llvm::errorToBool(Exp.getExportRVA(RVA));
+                      assert(!iserr);
+
+                      E.explore_function(b, O, rvaToVa(RVA));
+                  });
+    }
+  );
 }
 
 }

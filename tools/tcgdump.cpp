@@ -106,27 +106,6 @@ int TCGDumpTool::Run(void) {
 
   tcg.set_binary(*Bin);
 
-  const ELFO &Obj = *llvm::cast<ELFO>(Bin.get());
-  const ELFF &Elf = Obj.getELFFile();
-
-  DynRegionInfo DynamicTable(Obj);
-  loadDynamicTable(Obj, DynamicTable);
-
-  if (!DynamicTable.Addr) {
-    HumanOut() << "no dynamic table for given binary\n";
-    return 1;
-  }
-
-  llvm::StringRef DynamicStringTable;
-  const Elf_Shdr *SymbolVersionSection;
-  std::vector<VersionMapEntry> VersionMap;
-  std::optional<DynRegionInfo> OptionalDynSymRegion =
-      loadDynamicSymbols(Obj,
-                         DynamicTable,
-                         DynamicStringTable,
-                         SymbolVersionSection,
-                         VersionMap);
-
   auto linear_scan_disassemble = [&](uint64_t Addr, uint64_t End = 0) -> bool {
     if (!End)
       End = Addr + 32;
@@ -141,14 +120,6 @@ int TCGDumpTool::Run(void) {
         }
       }
 
-      {
-        llvm::Expected<const uint8_t *> ExpectedPtr = Elf.toMappedAddr(A);
-        if (!ExpectedPtr) {
-          llvm::consumeError(ExpectedPtr.takeError());
-          return true;
-        }
-      }
-
       jove::terminator_info_t T;
       std::tie(BBSize, T) = tcg.translate(A);
 
@@ -157,17 +128,13 @@ int TCGDumpTool::Run(void) {
       //
       uint64_t InstLen;
       for (uint64_t _A = A; _A < A + BBSize; _A += InstLen) {
-        llvm::Expected<const uint8_t *> ExpectedPtr = Elf.toMappedAddr(_A);
-        if (!ExpectedPtr) {
-          WithColor::error()
-              << llvm::formatv("failed to get binary contents for {0:x}\n", A);
-          return true;
-        }
+        const uint8_t *Ptr =
+            reinterpret_cast<const uint8_t *>(B::toMappedAddr(*Bin, _A));
 
         llvm::MCInst Inst;
 
         bool Disassembled = disas.DisAsm->getInstruction(
-            Inst, InstLen, llvm::ArrayRef<uint8_t>(*ExpectedPtr, BBSize), _A,
+            Inst, InstLen, llvm::ArrayRef<uint8_t>(Ptr, BBSize), _A,
             llvm::nulls());
         if (!Disassembled) {
           HumanOut() << llvm::formatv("failed to disassemble {0:x}\n", _A);
@@ -241,31 +208,93 @@ int TCGDumpTool::Run(void) {
 
   if (!opts.StartingFrom.empty()) {
     linear_scan_disassemble(StartingFrom.Addr);
-  } else if (OptionalDynSymRegion) {
-    auto DynSyms = OptionalDynSymRegion->getAsArrayRef<Elf_Sym>();
-
-    for_each_if(DynSyms.begin(),
-                DynSyms.end(),
-                [](const Elf_Sym &Sym) -> bool {
-                  return !Sym.isUndefined() &&
-                          Sym.getType() == llvm::ELF::STT_FUNC &&
-                          Sym.st_size > 0;
-                },
-                [&](const Elf_Sym &Sym) {
-                  auto ExpectedSymName = Sym.getName(DynamicStringTable);
-                  if (!ExpectedSymName)
-                    return;
-
-                  uintptr_t Addr = Sym.st_value;
-
-                  HumanOut() << (fmt("//\n"
-                                     "// %s\n"
-                                     "//\n") % (*ExpectedSymName).data()).str();
-                  linear_scan_disassemble(Addr, Addr + Sym.st_size);
-                });
   } else {
-    HumanOut() << "no dynamic symbols for given binary\n";
-    return 1;
+    B::_elf(*Bin, [&](ELFO &O) {
+      const ELFF &Elf = O.getELFFile();
+
+      DynRegionInfo DynamicTable(O);
+      loadDynamicTable(O, DynamicTable);
+
+      if (!DynamicTable.Addr) {
+        HumanOut() << "no dynamic table for given binary\n";
+        return;
+      }
+
+      llvm::StringRef DynamicStringTable;
+      const Elf_Shdr *SymbolVersionSection;
+      std::vector<VersionMapEntry> VersionMap;
+      std::optional<DynRegionInfo> OptionalDynSymRegion =
+          loadDynamicSymbols(O, DynamicTable, DynamicStringTable,
+                             SymbolVersionSection, VersionMap);
+
+      if (OptionalDynSymRegion) {
+        auto DynSyms = OptionalDynSymRegion->getAsArrayRef<Elf_Sym>();
+
+        for_each_if(
+            DynSyms.begin(),
+            DynSyms.end(),
+            [](const Elf_Sym &Sym) -> bool {
+              return !Sym.isUndefined() &&
+                     Sym.getType() == llvm::ELF::STT_FUNC &&
+                     Sym.st_size > 0;
+            },
+            [&](const Elf_Sym &Sym) {
+              auto ExpectedSymName = Sym.getName(DynamicStringTable);
+              if (!ExpectedSymName)
+                return;
+
+              uintptr_t Addr = Sym.st_value;
+
+              HumanOut() << (fmt("//\n"
+                                 "// %s\n"
+                                 "//\n") %
+                             (*ExpectedSymName).data())
+                                .str();
+              linear_scan_disassemble(Addr, Addr + Sym.st_size);
+            });
+      } else {
+        HumanOut() << "no dynamic symbols for given binary\n";
+        return;
+      }
+    });
+
+    B::_coff(*Bin, [&](COFFO &O) {
+      auto rvaToVa = [&](uint64_t rva) -> uint64_t {
+        return rva + O.getImageBase();
+      };
+
+      auto exp_itr = O.export_directories();
+      for_each_if(exp_itr.begin(),
+                  exp_itr.end(),
+                  [&](const obj::ExportDirectoryEntryRef &Exp) -> bool {
+                    llvm::StringRef Name;
+                    uint32_t Ordinal;
+                    bool IsForwarder;
+                    uint32_t RVA;
+
+                    return !llvm::errorToBool(Exp.getSymbolName(Name)) &&
+                           !llvm::errorToBool(Exp.getOrdinal(Ordinal)) &&
+                           !llvm::errorToBool(Exp.isForwarder(IsForwarder)) &&
+                           !IsForwarder &&
+                           !llvm::errorToBool(Exp.getExportRVA(RVA)) &&
+                           isCode(O, RVA);
+                  },
+                  [&](const obj::ExportDirectoryEntryRef &Exp) -> void {
+                      bool iserr;
+
+                      llvm::StringRef Name;
+                      iserr = llvm::errorToBool(Exp.getSymbolName(Name));
+                      assert(!iserr);
+
+                      HumanOut() << Name << '\n';
+
+                      uint32_t RVA;
+                      iserr = llvm::errorToBool(Exp.getExportRVA(RVA));
+                      assert(!iserr);
+
+                      linear_scan_disassemble(rvaToVa(RVA));
+                  });
+    });
   }
 
   return 0;

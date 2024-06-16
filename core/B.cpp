@@ -11,6 +11,11 @@ std::unique_ptr<llvm::object::Binary> Create(llvm::StringRef Data) {
     throw std::runtime_error("failed to create binary: " +
                              llvm::toString(BinOrErr.takeError()));
 
+  std::unique_ptr<llvm::object::Binary> &Bin = BinOrErr.get();
+  if (!llvm::isa<ELFO>(Bin.get()) &&
+      !llvm::isa<COFFO>(Bin.get()))
+    throw std::runtime_error("unexpected binary type");
+
   return std::move(*BinOrErr);
 }
 

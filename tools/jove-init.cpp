@@ -43,7 +43,9 @@ class InitTool : public JVTool {
                cl::value_desc("filename"), cl::cat(JoveCategory)) {}
   } opts;
 
-  obj::OwningBinary<obj::Binary> Bin;
+  tiny_code_generator_t tcg;
+  disas_t disas;
+  explorer_t E;
 
   int rtld_trace_loaded_objects(const char *prog, std::string &out);
   void parse_loaded_objects(const std::string &rtld_stdout,
@@ -51,7 +53,7 @@ class InitTool : public JVTool {
   int add_loaded_objects(const fs::path &prog, const fs::path &rtld);
 
 public:
-  InitTool() : opts(JoveCategory) {}
+  InitTool() : opts(JoveCategory), E(jv, disas, tcg, IsVeryVerbose()) {}
 
   int Run(void) override;
 };
@@ -65,20 +67,31 @@ int InitTool::Run(void) {
     return 1;
   }
 
+  fs::path prog = fs::canonical(opts.Prog);
+
   std::vector<uint8_t> BinBytes;
   auto Bin = B::CreateFromFile(opts.Prog.c_str(), BinBytes);
 
-  std::optional<std::string> OptionalPathToRTLD =
-      program_interpreter_of_elf(*llvm::cast<ELFO>(Bin.get()));
-  if (!OptionalPathToRTLD) {
-    WithColor::error() << "binary is not dynamically linked\n";
-    return 1;
-  }
+  return B::_X(*Bin,
+    [&](ELFO &O) {
+      std::optional<std::string> OptionalPathToRTLD =
+          program_interpreter_of_elf(O);
+      if (!OptionalPathToRTLD) {
+        WithColor::error() << "binary is not dynamically linked\n";
+        return 1;
+      }
 
-  fs::path rtld = fs::canonical(*OptionalPathToRTLD);
-  fs::path prog = fs::canonical(opts.Prog);
+      fs::path rtld = fs::canonical(*OptionalPathToRTLD);
 
-  return add_loaded_objects(opts.Prog, rtld);
+      return add_loaded_objects(prog, rtld);
+    },
+
+    [&](COFFO &O) {
+      jv.AddFromPath(E, prog.c_str());
+
+      return 0;
+    }
+  );
 }
 
 int InitTool::rtld_trace_loaded_objects(const char *prog, std::string &out) {
@@ -169,13 +182,6 @@ int InitTool::add_loaded_objects(const fs::path &prog, const fs::path &rtld) {
 
     binary_paths.erase(it);
   }
-
-  //
-  // prepare to explore binaries
-  //
-  tiny_code_generator_t tcg;
-  disas_t disas;
-  explorer_t E(jv, disas, tcg, IsVeryVerbose());
 
   jv.clear(); /* point of no return */
 
