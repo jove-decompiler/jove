@@ -219,9 +219,7 @@ top:
         }
 
         if (!Disassembled)
-          throw std::runtime_error(
-              (fmt("%s: failed to disassemble 0x%lx%s%s") % __func__ % A %
-               (errmsg.empty() ? "" : ": ") % errmsg).str());
+          throw invalid_control_flow_exception(A);
 
         if (A == Addr)
           goto on_insn_boundary;
