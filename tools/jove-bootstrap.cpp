@@ -1347,7 +1347,7 @@ int BootstrapTool::TracerLoop(pid_t child) {
     std::atomic<unsigned> NumChanged = 0;
 
     auto fix_ambiguous_indirect_jump = [&](binary_t &b,
-                                           taddr_t TermAddr) -> bool {
+                                           taddr_t TermAddr) -> void {
       //
       // we thought this was a goto, but now we know it's definitely a tail
       // call. translate all sucessors as functions, then store them into the
