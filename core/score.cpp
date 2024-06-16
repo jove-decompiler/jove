@@ -12,12 +12,12 @@ double compute_score(const jv_t &jv,
                      const binary_t &binary) {
   auto Bin = B::Create(llvm::StringRef(binary.data()));
 
-  if (!llvm::isa<ELFO>(Bin.get()))
-    throw std::runtime_error(binary.path_str() + " is not ELF of expected type\n");
+  size_t N = B::_X(
+    *Bin,
 
-  assert(llvm::isa<ELFO>(Bin.get()));
-  const ELFO &Obj = *llvm::cast<ELFO>(Bin.get());
-  const ELFF &Elf = Obj.getELFFile();
+    [&](ELFO &O) -> size_t {
+
+  const ELFF &Elf = O.getELFFile();
 
   llvm::SmallVector<const Elf_Phdr *, 4> LoadSegments;
 
@@ -32,7 +32,7 @@ double compute_score(const jv_t &jv,
   //
   // count the total number of executable bytes (N)
   //
-  size_t N =
+      return
       std::accumulate(LoadSegments.begin(),
                       LoadSegments.end(), 0,
                       [&](size_t res, const Elf_Phdr *LoadSeg) -> size_t {
@@ -42,6 +42,23 @@ double compute_score(const jv_t &jv,
                                           ? Phdr.p_filesz
                                           : 0);
                       });
+    },
+
+    [&](COFFO &O) -> size_t {
+      auto sects_itr = O.sections();
+      return
+      std::accumulate(sects_itr.begin(),
+                      sects_itr.end(), 0,
+                      [&](size_t res, const llvm::object::SectionRef &S) -> size_t {
+                        const llvm::object::coff_section *Sect = O.getCOFFSection(S);
+
+                        return res +
+                               (Sect->Characteristics & llvm::COFF::IMAGE_SCN_MEM_EXECUTE
+                                 ? Sect->SizeOfRawData
+                                 : 0);
+                      });
+    }
+  );
   assert(N > 0);
 
   //
