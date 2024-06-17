@@ -152,6 +152,9 @@ std::pair<binary_index_t, bool> jv_t::AddFromDataWithHash(explorer_t &E,
   {
     binary_t &b = _b ? *_b : Binaries.at(TargetIdx);
 
+    if (HasTargetIdx)
+      b.Idx = TargetIdx;
+
     get_data(b.Data);
 
     if (b.Data.empty())
@@ -182,24 +185,27 @@ std::pair<binary_index_t, bool> jv_t::AddFromDataWithHash(explorer_t &E,
   // nope!
   //
   binary_index_t BIdx = TargetIdx;
-  if (!is_binary_index_valid(BIdx)) {
-    assert(!HasTargetIdx);
+  if (!HasTargetIdx) {
+    assert(!is_binary_index_valid(BIdx));
 
     ip_scoped_lock<ip_sharable_mutex> e_b_lck(this->Binaries._mtx);
 
     BIdx = Binaries._deque.size();
+    _b->Idx = BIdx;
     Binaries._deque.push_back(std::move(*_b));
   }
 
   binary_t &b = Binaries.at(BIdx);
-  b.Idx = BIdx;
   b.Hash = h;
+
+  assert(b.Idx == BIdx);
 
   if (!HasTargetIdx)
     for (function_t &f : b.Analysis.Functions)
       f.b = &b; /* XXX */
 
-  this->hash_to_binary.emplace(h, BIdx);
+  bool success = this->hash_to_binary.emplace(h, BIdx).second;
+  assert(success);
 
   if (name) {
     to_ips(b.Name, name);
