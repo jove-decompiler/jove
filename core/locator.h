@@ -41,6 +41,9 @@ struct locator_t {
   std::string perf(void);
 
   std::string sudo(void);
+
+  /* NOT the preloader- the exe the preloader loads */
+  std::string wine(bool Is32);
 };
 
 }

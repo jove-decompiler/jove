@@ -132,4 +132,12 @@ std::string locator_t::sudo(void) {
   return must_exist("/usr/bin/sudo");
 }
 
+std::string locator_t::wine(bool Is32) {
+  try {
+    return must_exist("/usr/bin/wine" + std::string(Is32 ? "" : "64"));
+  } catch (...) {
+    return must_exist("/usr/lib/wine/wine" + std::string(Is32 ? "" : "64"));
+  }
+}
+
 }
