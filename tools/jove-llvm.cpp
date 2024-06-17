@@ -142,7 +142,7 @@ struct function_state_t {
 };
 
 struct binary_state_t {
-  std::unique_ptr<llvm::object::Binary> ObjectFile;
+  std::unique_ptr<llvm::object::Binary> Bin;
   struct {
     DynRegionInfo DynamicTable;
     llvm::StringRef DynamicStringTable;
@@ -1925,7 +1925,7 @@ int LLVMTool::Run(void) {
     for_each_binary_if(
         jv,
         [&](binary_t &b) -> bool {
-          return state.for_binary(b).ObjectFile.get() != nullptr &&
+          return state.for_binary(b).Bin.get() != nullptr &&
                  state.for_binary(b)._elf.OptionalDynSymRegion;
         },
         [&](binary_t &b) {
@@ -1964,7 +1964,7 @@ int LLVMTool::Run(void) {
   for_each_binary_if(
       jv,
       [&](binary_t &b) -> bool {
-        return state.for_binary(b).ObjectFile.get() != nullptr &&
+        return state.for_binary(b).Bin.get() != nullptr &&
                state.for_binary(b)._elf.OptionalDynSymRegion;
       },
       [&](binary_t &b) {
@@ -2006,7 +2006,7 @@ int LLVMTool::Run(void) {
       });
 
   binary_t &Binary = jv.Binaries.at(BinaryIndex);
-  assert(state.for_binary(Binary).ObjectFile.get());
+  assert(state.for_binary(Binary).Bin.get());
 
   llvm::ArrayRef<Elf_Sym> BinaryDynSyms = {};
   if (state.for_binary(Binary)._elf.OptionalDynSymRegion)
@@ -2040,7 +2040,7 @@ int LLVMTool::Run(void) {
                                 state.for_binary(Binary)._elf.OptionalDynSymRegion->Addr)) /
                            sizeof(Elf_Sym);
 
-          auto &Elf = llvm::cast<ELFO>(state.for_binary(Binary).ObjectFile.get())->getELFFile();
+          auto &Elf = llvm::cast<ELFO>(state.for_binary(Binary).Bin.get())->getELFFile();
 
           const Elf_Versym *Versym =
               unwrapOrError(Elf.template getEntry<Elf_Versym>(
@@ -2183,7 +2183,7 @@ int LLVMTool::Run(void) {
                                 state.for_binary(Binary)._elf.OptionalDynSymRegion->Addr)) /
                            sizeof(Elf_Sym);
 
-          auto &Elf = llvm::cast<ELFO>(state.for_binary(Binary).ObjectFile.get())->getELFFile();
+          auto &Elf = llvm::cast<ELFO>(state.for_binary(Binary).Bin.get())->getELFFile();
 
           const Elf_Versym *Versym =
               unwrapOrError(Elf.template getEntry<Elf_Versym>(
@@ -2244,7 +2244,7 @@ int LLVMTool::Run(void) {
                                   state.for_binary(Binary)._elf.OptionalDynSymRegion->Addr)) /
                              sizeof(Elf_Sym);
 
-            auto &Elf = llvm::cast<ELFO>(state.for_binary(Binary).ObjectFile.get())->getELFFile();
+            auto &Elf = llvm::cast<ELFO>(state.for_binary(Binary).Bin.get())->getELFFile();
 
             const Elf_Versym *Versym =
                 unwrapOrError(Elf.template getEntry<Elf_Versym>(
@@ -2415,18 +2415,18 @@ int LLVMTool::InitStateForBinaries(void) {
     });
 
     ignore_exception([&]() {
-      x.ObjectFile = B::Create(binary.data());
+      x.Bin = B::Create(binary.data());
 
       auto &SectsStartAddr = x.SectsStartAddr;
       auto &SectsEndAddr   = x.SectsEndAddr;
-      std::tie(SectsStartAddr, SectsEndAddr) = B::bounds_of_binary(*x.ObjectFile);
+      std::tie(SectsStartAddr, SectsEndAddr) = B::bounds_of_binary(*x.Bin);
 
       WithColor::note() << llvm::formatv("SectsStartAddr for {0} is {1:x}\n",
                                          binary.Name.c_str(),
                                          SectsStartAddr);
 
-      assert(llvm::isa<ELFO>(x.ObjectFile.get()));
-      ELFO &Obj = *llvm::cast<ELFO>(x.ObjectFile.get());
+      assert(llvm::isa<ELFO>(x.Bin.get()));
+      ELFO &Obj = *llvm::cast<ELFO>(x.Bin.get());
 
       loadDynamicTable(Obj, x._elf.DynamicTable);
 
@@ -2968,9 +2968,9 @@ int LLVMTool::LocateHooks(void) {
 int LLVMTool::ProcessBinaryTLSSymbols(void) {
   binary_t &b = jv.Binaries.at(BinaryIndex);
 
-  assert(state.for_binary(b).ObjectFile);
-  assert(llvm::isa<ELFO>(state.for_binary(b).ObjectFile.get()));
-  const ELFO &Obj = *llvm::cast<ELFO>(state.for_binary(b).ObjectFile.get());
+  assert(state.for_binary(b).Bin);
+  assert(llvm::isa<ELFO>(state.for_binary(b).Bin.get()));
+  const ELFO &Obj = *llvm::cast<ELFO>(state.for_binary(b).Bin.get());
   const ELFF &Elf = Obj.getELFFile();
 
   //
@@ -3252,8 +3252,8 @@ int LLVMTool::ProcessCOPYRelocations(void) {
     return DynSymRegion.getAsArrayRef<Elf_Sym>();
   };
 
-  assert(llvm::isa<ELFO>(state.for_binary(Binary).ObjectFile.get()));
-  const ELFO &Obj = *llvm::cast<ELFO>(state.for_binary(Binary).ObjectFile.get());
+  assert(llvm::isa<ELFO>(state.for_binary(Binary).Bin.get()));
+  const ELFO &Obj = *llvm::cast<ELFO>(state.for_binary(Binary).Bin.get());
   const ELFF &Elf = Obj.getELFFile();
 
   for_each_dynamic_relocation_if(Elf,
@@ -3408,7 +3408,7 @@ tcg_global_set_t LLVMTool::DetermineFunctionArgs(function_t &f) {
   AnalyzeFunction(
       jv, *TCG, *Module, f,
       [&](binary_t &b) -> llvm::object::Binary & {
-        return *state.for_binary(b).ObjectFile;
+        return *state.for_binary(b).Bin;
       },
       [&](function_t &f) -> std::pair<basic_block_vec_t &, basic_block_vec_t &> {
         function_state_t &x = state.for_function(f);
@@ -3423,7 +3423,7 @@ tcg_global_set_t LLVMTool::DetermineFunctionRets(function_t &f) {
   AnalyzeFunction(
       jv, *TCG, *Module, f,
       [&](binary_t &b) -> llvm::object::Binary & {
-        return *state.for_binary(b).ObjectFile;
+        return *state.for_binary(b).Bin;
       },
       [&](function_t &f) -> std::pair<basic_block_vec_t &, basic_block_vec_t &> {
         function_state_t &x = state.for_function(f);
@@ -4084,10 +4084,10 @@ void LLVMTool::compute_tpoff_relocation(llvm::IRBuilderTy &IRB,
 uint64_t LLVMTool::ExtractWordAtAddress(uint64_t Addr) {
   auto &Binary = jv.Binaries.at(BinaryIndex);
 
-  auto &ObjectFile = state.for_binary(Binary).ObjectFile;
+  auto &Bin = state.for_binary(Binary).Bin;
 
-  assert(llvm::isa<ELFO>(ObjectFile.get()));
-  const ELFF &Elf = llvm::cast<ELFO>(ObjectFile.get())->getELFFile();
+  assert(llvm::isa<ELFO>(Bin.get()));
+  const ELFF &Elf = llvm::cast<ELFO>(Bin.get())->getELFFile();
 
   llvm::Expected<const uint8_t *> ExpectedPtr = Elf.toMappedAddr(Addr);
   if (ExpectedPtr)
@@ -4102,10 +4102,10 @@ struct unhandled_relocation_exception {};
 
 int LLVMTool::CreateSectionGlobalVariables(void) {
   binary_t &Binary = jv.Binaries.at(BinaryIndex);
-  auto &ObjectFile = state.for_binary(Binary).ObjectFile;
+  auto &Bin = state.for_binary(Binary).Bin;
 
-  assert(llvm::isa<ELFO>(ObjectFile.get()));
-  ELFO &Obj = *llvm::cast<ELFO>(ObjectFile.get());
+  assert(llvm::isa<ELFO>(Bin.get()));
+  ELFO &Obj = *llvm::cast<ELFO>(Bin.get());
   const ELFF &Elf = Obj.getELFFile();
 
   struct PatchContents {
@@ -4206,9 +4206,9 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
 
     void *binary_data_ptr_of_addr(uint64_t Addr) {
       auto &Binary = tool.jv.Binaries.at(BinaryIndex);
-      auto &ObjectFile = tool.state.for_binary(Binary).ObjectFile;
+      auto &Bin = tool.state.for_binary(Binary).Bin;
 
-      const ELFF &Elf = llvm::cast<ELFO>(ObjectFile.get())->getELFFile();
+      const ELFF &Elf = llvm::cast<ELFO>(Bin.get())->getELFFile();
 
       llvm::Expected<const uint8_t *> ExpectedPtr = Elf.toMappedAddr(Addr);
 
@@ -5457,12 +5457,12 @@ LLVMTool::decipher_copy_relocation(const RelSymbol &S) {
     if (b.IsDynamicLinker)
       continue;
 
-    if (!state.for_binary(b).ObjectFile)
+    if (!state.for_binary(b).Bin)
       continue;
 
-    assert(llvm::isa<ELFO>(state.for_binary(b).ObjectFile.get()));
+    assert(llvm::isa<ELFO>(state.for_binary(b).Bin.get()));
     const ELFF &Elf =
-        llvm::cast<ELFO>(state.for_binary(b).ObjectFile.get())->getELFFile();
+        llvm::cast<ELFO>(state.for_binary(b).Bin.get())->getELFFile();
 
     if (!state.for_binary(b)._elf.OptionalDynSymRegion)
       continue; /* no dynamic symbols */
@@ -5532,8 +5532,8 @@ int LLVMTool::ProcessManualRelocations(void) {
     return DynSymRegion.getAsArrayRef<Elf_Sym>();
   };
 
-  assert(llvm::isa<ELFO>(state.for_binary(Binary).ObjectFile.get()));
-  const ELFO &Obj = *llvm::cast<ELFO>(state.for_binary(Binary).ObjectFile.get());
+  assert(llvm::isa<ELFO>(state.for_binary(Binary).Bin.get()));
+  const ELFO &Obj = *llvm::cast<ELFO>(state.for_binary(Binary).Bin.get());
   const ELFF &Elf = Obj.getELFFile();
 
   std::map<uint64_t, llvm::Function *> ManualRelocs;
@@ -7254,7 +7254,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
     }
   }
 
-  TCG->set_binary(*state.for_binary(Binary).ObjectFile);
+  TCG->set_binary(*state.for_binary(Binary).Bin);
 
   llvm::BasicBlock *ExitBB = nullptr;
 
