@@ -376,17 +376,21 @@ struct BootstrapTool : public TransformerTool_Bin<binary_state_t> {
                            x._elf.DynPLTRelRegion);
   }
 
-  void on_new_binary(binary_index_t BIdx) {
+  void on_new_binary(binary_t &b) {
+    const binary_index_t BIdx = index_of_binary(b, jv);
+
     assert(is_binary_index_valid(BIdx));
     state.update();
 
-    binary_t &b = jv.Binaries.at(BIdx);
     b.IsDynamicallyLoaded = true;
 
     BinFoundVec.resize(BinFoundVec.size() + 1, false);
     assert(BinFoundVec.size() == jv.NumBinaries());
 
     init_state_for_binary(b);
+
+    if (IsVerbose())
+      HumanOut() << llvm::formatv("added {0}\n", b.Name.c_str());
   }
 
 public:
@@ -4429,18 +4433,10 @@ binary_index_t BootstrapTool::BinaryFromPath(pid_t child, const char *path) {
     ~EmptyBasicBlockProcSetter() { tool.E->set_newbb_proc(sav_proc); }
   } __EmptyBasicBlockProcSetter(*this); /* on_binary_loaded will place brkpts */
 
-  bool IsNew;
-  binary_index_t BIdx;
+  using namespace std::placeholders;
 
-  std::tie(BIdx, IsNew) = jv.AddFromPath(*E, path);
-  if (!is_binary_index_valid(BIdx) || !IsNew)
-    return BIdx;
-
-  if (IsVerbose())
-    HumanOut() << llvm::formatv("BinaryFromPath({0})\n", path);
-
-  on_new_binary(BIdx);
-  return BIdx;
+  return jv.AddFromPath(*E, path, invalid_binary_index,
+                        std::bind(&BootstrapTool::on_new_binary, this, _1)).first;
 }
 
 binary_index_t BootstrapTool::BinaryFromData(pid_t child, std::string_view sv,
@@ -4457,18 +4453,10 @@ binary_index_t BootstrapTool::BinaryFromData(pid_t child, std::string_view sv,
     ~EmptyBasicBlockProcSetter() { tool.E->set_newbb_proc(sav_proc); }
   } __EmptyBasicBlockProcSetter(*this); /* on_binary_loaded will place brkpts */
 
-  bool IsNew;
-  binary_index_t BIdx;
+  using namespace std::placeholders;
 
-  std::tie(BIdx, IsNew) = jv.AddFromData(*E, sv, name);
-  if (!is_binary_index_valid(BIdx) || !IsNew)
-    return BIdx;
-
-  if (IsVerbose())
-    HumanOut() << llvm::formatv("BinaryFromData({0})\n", name);
-
-  on_new_binary(BIdx);
-  return BIdx;
+  return jv.AddFromData(*E, sv, name, invalid_binary_index,
+                        std::bind(&BootstrapTool::on_new_binary, this, _1)).first;
 }
 
 void BootstrapTool::on_dynamic_linker_loaded(pid_t child,
