@@ -70,6 +70,7 @@
 #include <random>
 #include <set>
 #include <unordered_set>
+#include <shared_mutex>
 
 #include "jove_macros.h"
 #include "jove_constants.h"
@@ -842,7 +843,7 @@ struct helper_function_t {
 const helper_function_t &LookupHelper(llvm::Module &M, tiny_code_generator_t &TCG, TCGOp *op, bool DFSan, bool ForCBE, Tool &tool);
 
 static std::unordered_map<uintptr_t, helper_function_t> HelperFuncMap;
-static std::mutex helper_mtx;
+static std::shared_mutex helper_mtx;
 
 static void explode_tcg_global_set(std::vector<unsigned> &out,
                                    tcg_global_set_t glbs) {
@@ -1202,12 +1203,20 @@ static bool AnalyzeHelper(helper_function_t &hf, Tool &tool) {
 }
 
 const helper_function_t &LookupHelper(llvm::Module &M, tiny_code_generator_t &TCG, TCGOp *op, bool DFSan, bool ForCBE, Tool &tool) {
-  std::lock_guard<std::mutex> lck(helper_mtx);
-
   int nb_oargs = TCGOP_CALLO(op);
   int nb_iargs = TCGOP_CALLI(op);
 
   TCGArg helper_addr = op->args[nb_oargs + nb_iargs];
+
+  {
+    std::shared_lock<std::shared_mutex> s_lck(helper_mtx);
+
+    auto it = HelperFuncMap.find(helper_addr);
+    if (it != HelperFuncMap.end())
+      return (*it).second;
+  }
+
+  std::unique_lock<std::shared_mutex> e_lck(helper_mtx);
 
   {
     auto it = HelperFuncMap.find(helper_addr);
