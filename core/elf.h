@@ -283,6 +283,16 @@ uint64_t va_of_offset(ELFO &, uint64_t off);
 typedef std::pair<uint64_t, uint64_t> addr_pair;
 addr_pair bounds_of_binary(ELFO &);
 
+static inline const void *toMappedAddr(ELFO &O, uint64_t Addr) {
+  const ELFF &Elf = O.getELFFile();
+
+  llvm::Expected<const uint8_t *> ExpectedPtr = Elf.toMappedAddr(Addr);
+  if (!ExpectedPtr)
+    throw std::runtime_error(llvm::toString(ExpectedPtr.takeError()));
+
+  return *ExpectedPtr;
+}
+
 std::optional<std::string> program_interpreter_of_elf(const ELFO &);
 
 }

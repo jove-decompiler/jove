@@ -79,31 +79,6 @@ constexpr auto _X(llvm::object::Binary &Bin,
   __builtin_unreachable();
 }
 
-constexpr const void *toMappedAddr(llvm::object::Binary &Bin,
-                                   uint64_t Addr) {
-  return _X(
-      Bin,
-
-      [&](ELFO &O) -> const void * {
-        const ELFF &Elf = O.getELFFile();
-
-        llvm::Expected<const uint8_t *> ExpectedPtr = Elf.toMappedAddr(Addr);
-        if (!ExpectedPtr)
-          throw std::runtime_error(llvm::toString(ExpectedPtr.takeError()));
-
-        return *ExpectedPtr;
-      },
-
-      [&](COFFO &O) -> const void * {
-        uintptr_t UIntPtr = ~0UL;
-
-        if (llvm::Error E = O.getVaPtr(Addr, UIntPtr))
-          throw std::runtime_error(llvm::toString(std::move(E)));
-
-        return reinterpret_cast<const void *>(UIntPtr);
-      });
-}
-
 #define BFUNCTION_2(rett, name)                                                \
   constexpr rett name(llvm::object::Binary &Bin) {                             \
     return _X(Bin,                                                             \
@@ -125,6 +100,7 @@ typedef std::pair<uint64_t, uint64_t> addr_pair;
 
 BFUNCTION(addr_pair, bounds_of_binary)
 BFUNCTION(uint64_t, va_of_offset, uint64_t, off)
+BFUNCTION(const void *, toMappedAddr, uint64_t, Addr)
 
 }
 }
