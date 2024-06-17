@@ -4744,6 +4744,8 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
           {
             const uint8_t *const bytes = Sect.Contents.begin() + Off;
 
+            /* FIXME this algorithm sucks. can't we do better than this? */
+
 #define __APINT_BYTE(n, byte, data)                                            \
   do {                                                                         \
     std::bitset<8> bits(static_cast<unsigned long>(bytes[byte]));              \
