@@ -798,7 +798,7 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
     },
 
     [&](COFFO &O) {
-      b.IsExecutable = O.getCharacteristics() & llvm::COFF::IMAGE_FILE_DLL;
+      //b.IsExecutable = O.getCharacteristics() & llvm::COFF::IMAGE_FILE_DLL;
 
       uint64_t entryRVA = 0;
       if (const obj::pe32plus_header *PEPlusHeader = O.getPE32PlusHeader()) {
