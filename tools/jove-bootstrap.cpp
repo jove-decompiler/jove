@@ -4624,9 +4624,7 @@ void BootstrapTool::on_return(pid_t child,
 
     binary_t &b = jv.Binaries.at(RetBIdx);
 
-#ifdef BOOTSTRAP_MULTI_THREADED
     ip_sharable_lock<ip_upgradable_mutex> s_lck(b.bbmap_mtx);
-#endif
 
     binary_index_t BIdx;
     basic_block_index_t BBIdx;
@@ -4671,9 +4669,7 @@ void BootstrapTool::on_return(pid_t child,
 
     binary_t &b = jv.Binaries.at(BIdx);
 
-#ifdef BOOTSTRAP_MULTI_THREADED
     ip_upgradable_lock<ip_upgradable_mutex> u_lck(b.bbmap_mtx);
-#endif
 
     //
     // what came before?
@@ -4731,9 +4727,7 @@ void BootstrapTool::on_return(pid_t child,
 
     basic_block_t bb = basic_block_of_index(BBIdx, ICFG);
 
-#ifdef BOOTSTRAP_MULTI_THREADED
     ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
-#endif
 
     boost::add_edge(before_bb, bb, ICFG); /* connect */
   }
