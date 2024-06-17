@@ -199,7 +199,7 @@ std::pair<binary_index_t, bool> jv_t::AddFromDataWithHash(explorer_t &E,
     for (function_t &f : b.Analysis.Functions)
       f.b = &b; /* XXX */
 
-  this->hash_to_binary.insert(std::make_pair(h, BIdx));
+  this->hash_to_binary.emplace(h, BIdx);
 
   if (name) {
     to_ips(b.Name, name);
