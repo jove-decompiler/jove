@@ -163,7 +163,7 @@ int ObserveTool::Run(void) {
   int rfd = pipefd[0];
   int wfd = pipefd[1];
 
-  pid_t pid = jove::RunExecutable(
+  pid_t pid = RunExecutable(
       perf_path,
       [&](auto Arg) {
         Arg(perf_path);
