@@ -133,6 +133,8 @@ constexpr unsigned IsX86Target =
 #endif
     ;
 
+constexpr bool IsTarget32 = sizeof(taddr_t) == 4;
+
 static const char *TargetStaticLinkerEmulation =
 #if defined(TARGET_X86_64)
                       "elf_x86_64"
