@@ -50,7 +50,6 @@ class InitTool : public JVTool {
   int rtld_trace_loaded_objects(const char *prog, std::string &out);
   void parse_loaded_objects(const std::string &rtld_stdout,
                             std::vector<std::string> &out);
-  int add_loaded_objects(const fs::path &prog, const fs::path &rtld);
 
 public:
   InitTool() : opts(JoveCategory), E(jv, disas, tcg, IsVeryVerbose()) {}
@@ -59,40 +58,6 @@ public:
 };
 
 JOVE_REGISTER_TOOL("init", InitTool);
-
-
-int InitTool::Run(void) {
-  if (!fs::exists(opts.Prog)) {
-    WithColor::error() << "binary does not exist\n";
-    return 1;
-  }
-
-  fs::path prog = fs::canonical(opts.Prog);
-
-  std::vector<uint8_t> BinBytes;
-  auto Bin = B::CreateFromFile(opts.Prog.c_str(), BinBytes);
-
-  return B::_X(*Bin,
-    [&](ELFO &O) {
-      std::optional<std::string> OptionalPathToRTLD =
-          program_interpreter_of_elf(O);
-      if (!OptionalPathToRTLD) {
-        WithColor::error() << "binary is not dynamically linked\n";
-        return 1;
-      }
-
-      fs::path rtld = fs::canonical(*OptionalPathToRTLD);
-
-      return add_loaded_objects(prog, rtld);
-    },
-
-    [&](COFFO &O) {
-      jv.AddFromPath(E, prog.c_str());
-
-      return 0;
-    }
-  );
-}
 
 int InitTool::rtld_trace_loaded_objects(const char *prog, std::string &out) {
   std::string path_to_stdout = temporary_dir() + "/trace_loaded_objects.stdout.txt";
@@ -145,43 +110,79 @@ void InitTool::parse_loaded_objects(const std::string &rtld_stdout,
   }
 }
 
-int InitTool::add_loaded_objects(const fs::path &prog, const fs::path &rtld) {
-  //
-  // run program with LD_TRACE_LOADED_OBJECTS=1 and no arguments. capture the
-  // standard output, which will tell us what binaries are needed by prog.
-  //
-  std::string rtld_stdout;
-  if (int rc = rtld_trace_loaded_objects(prog.c_str(), rtld_stdout)) {
-    WithColor::error() << llvm::formatv(
-        "failed to run {0} with LD_TRACE_LOADED_OBJECTS=1. can you run {0}?",
-        opts.Prog);
-
-    return rc;
+int InitTool::Run(void) {
+  if (!fs::exists(opts.Prog)) {
+    WithColor::error() << "binary does not exist\n";
+    return 1;
   }
 
-  assert(!rtld_stdout.empty());
+  fs::path prog = fs::canonical(opts.Prog);
 
-  std::vector<std::string> binary_paths;
-  parse_loaded_objects(rtld_stdout, binary_paths);
+  std::vector<uint8_t> BinBytes;
+  auto Bin = B::CreateFromFile(opts.Prog.c_str(), BinBytes);
 
-  //
-  // make sure the rtld was found
-  //
-  {
-    auto it = std::find_if(binary_paths.begin(),
-                           binary_paths.end(),
-                           [&](const std::string &path_s) -> bool {
-                             return fs::equivalent(path_s, rtld);
-                           });
-    if (it == binary_paths.end()) {
-      WithColor::error()
-          << "dynamic linker not found in LD_TRACE_LOADED_OBJECTS=1 output\n";
+  std::vector<std::string> binary_paths; /* remains empty if COFF */
 
-      return 1;
+  std::string rtld = fs::canonical(B::_X(
+    *Bin,
+
+    [&](ELFO &O) -> std::string {
+      //
+      // run program with LD_TRACE_LOADED_OBJECTS=1 and no arguments. capture the
+      // standard output, which will tell us what binaries are needed by prog.
+      //
+      std::string rtld_stdout;
+      if (int rc = rtld_trace_loaded_objects(prog.c_str(), rtld_stdout)) {
+        WithColor::error() << llvm::formatv(
+            "failed to run {0} with LD_TRACE_LOADED_OBJECTS=1. can you run {0}?",
+            opts.Prog);
+
+        exit(rc);
+      }
+
+      assert(!rtld_stdout.empty());
+
+      parse_loaded_objects(rtld_stdout, binary_paths);
+
+      // look at "program interpreter" (i.e. dynamic linker)
+      std::optional<std::string> MaybeRTLD = elf::program_interpreter_of_elf(O);
+      if (!MaybeRTLD)
+        die("binary is not dynamically linked");
+
+      std::string res = *MaybeRTLD;
+
+      {
+        auto it = std::find_if(binary_paths.begin(),
+                               binary_paths.end(),
+                               [&](const std::string &bin_path) -> bool {
+                                 return fs::equivalent(bin_path, res);
+                               });
+
+        if (it == binary_paths.end())
+          die("dynamic linker not found in LD_TRACE_LOADED_OBJECTS=1 output");
+
+        binary_paths.erase(it);
+      }
+
+      return res;
+    },
+
+    [&](COFFO &O) -> std::string {
+      //
+      // look at the program interpreter for the wine executable (which is elf)
+      //
+      std::vector<uint8_t> WineBytes;
+      auto WineBin = B::CreateFromFile(locator().wine(IsTarget32).c_str(), WineBytes);
+
+      std::optional<std::string> MaybeRTLD =
+          B::_must_be_elf(*WineBin, elf::program_interpreter_of_elf);
+
+      if (!MaybeRTLD)
+        die("wine (not the preloader) is expected to be dynamically linked");
+
+      return *MaybeRTLD;
     }
-
-    binary_paths.erase(it);
-  }
+  )).string();
 
   jv.clear(); /* point of no return */
 
@@ -198,10 +199,6 @@ int InitTool::add_loaded_objects(const fs::path &prog, const fs::path &rtld) {
   //
   // add them
   //
-  auto add_from_path = [&](const char *p, binary_index_t BIdx) -> void {
-    jv.AddFromPath(E, p, BIdx);
-  };
-
   std::vector<unsigned> idx_range;
   idx_range.resize(N);
   std::iota(idx_range.begin(), idx_range.end(), 0);
@@ -212,12 +209,8 @@ int InitTool::add_loaded_objects(const fs::path &prog, const fs::path &rtld) {
       idx_range.end(),
       [&](unsigned i) {
         switch (i) {
-        case 0:
-          return add_from_path(prog.c_str(), 0);
-
-        case 1:
-          return add_from_path(rtld.c_str(), 1);
-
+        case 0: jv.AddFromPath(E, prog.c_str(), static_cast<binary_index_t>(0)); return;
+        case 1: jv.AddFromPath(E, rtld.c_str(), static_cast<binary_index_t>(1)); return;
         case 2: {
           auto VDSOPair = GetVDSO();
           std::string_view vdso_sv =
@@ -225,7 +218,7 @@ int InitTool::add_loaded_objects(const fs::path &prog, const fs::path &rtld) {
                   ? std::string_view((const char *)VDSOPair.first, VDSOPair.second)
                   : std::string_view((const char *)VDSOStandIn(), VDSOStandInLen());
           try {
-            jv.AddFromData(E, vdso_sv, "[vdso]", 2);
+            jv.AddFromData(E, vdso_sv, "[vdso]", static_cast<binary_index_t>(2));
           } catch (const std::exception &e) {
             llvm::errs() << llvm::formatv("failed on [vdso]: {0}\n", e.what());
             exit(1);
@@ -235,7 +228,9 @@ int InitTool::add_loaded_objects(const fs::path &prog, const fs::path &rtld) {
 
         default:
           assert(i >= 3);
-          return add_from_path(binary_paths.at(i - 3).c_str(), i);
+          jv.AddFromPath(E, binary_paths.at(i - 3).c_str(),
+                         static_cast<binary_index_t>(i));
+          return;
         }
       });
 

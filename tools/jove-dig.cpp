@@ -150,14 +150,14 @@ int CodeDigger::Run(void) {
     SingleBinaryIndex = BinaryIndex;
   }
 
-  for_each_binary(jv, [&](binary_t &binary) {
+  for_each_binary(jv, [&](binary_t &b) {
     ignore_exception([&]() {
-      auto Bin = B::Create(binary.data());
+      auto Bin = B::Create(b.data());
 
       assert(llvm::isa<ELFO>(Bin.get()));
 
-      std::tie(state.for_binary(binary).SectsStartAddr,
-               state.for_binary(binary).SectsEndAddr) = bounds_of_binary(*Bin);
+      std::tie(state.for_binary(b).SectsStartAddr,
+               state.for_binary(b).SectsEndAddr) = B::bounds_of_binary(*Bin);
     });
   });
 

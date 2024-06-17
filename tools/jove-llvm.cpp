@@ -2419,7 +2419,7 @@ int LLVMTool::InitStateForBinaries(void) {
 
       auto &SectsStartAddr = x.SectsStartAddr;
       auto &SectsEndAddr   = x.SectsEndAddr;
-      std::tie(SectsStartAddr, SectsEndAddr) = bounds_of_binary(*x.ObjectFile);
+      std::tie(SectsStartAddr, SectsEndAddr) = B::bounds_of_binary(*x.ObjectFile);
 
       WithColor::note() << llvm::formatv("SectsStartAddr for {0} is {1:x}\n",
                                          binary.Name.c_str(),

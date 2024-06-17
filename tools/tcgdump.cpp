@@ -257,10 +257,6 @@ int TCGDumpTool::Run(void) {
     });
 
     B::_coff(*Bin, [&](COFFO &O) {
-      auto rvaToVa = [&](uint64_t rva) -> uint64_t {
-        return rva + O.getImageBase();
-      };
-
       auto exp_itr = O.export_directories();
       for_each_if(exp_itr.begin(),
                   exp_itr.end(),
@@ -275,7 +271,7 @@ int TCGDumpTool::Run(void) {
                            !llvm::errorToBool(Exp.isForwarder(IsForwarder)) &&
                            !IsForwarder &&
                            !llvm::errorToBool(Exp.getExportRVA(RVA)) &&
-                           isCode(O, RVA);
+                           coff::isCode(O, RVA);
                   },
                   [&](const obj::ExportDirectoryEntryRef &Exp) -> void {
                       bool iserr;
@@ -292,7 +288,7 @@ int TCGDumpTool::Run(void) {
                       iserr = llvm::errorToBool(Exp.getExportRVA(RVA));
                       assert(!iserr);
 
-                      linear_scan_disassemble(rvaToVa(RVA));
+                      linear_scan_disassemble(coff::va_of_rva(O, RVA));
                   });
     });
   }

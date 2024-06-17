@@ -360,11 +360,13 @@ int RecompileTool::Run(void) {
       continue;
 
     auto Bin = B::Create(b.data());
-    if (!dynamic_linking_info_of_binary(*Bin, state.for_binary(b).dynl)) {
-      WithColor::error() << llvm::formatv(
-          "!dynamic_linking_info_of_binary({0})\n", b.Name.c_str());
-      return 1;
-    }
+    B::_elf(*Bin, [&](ELFO &O) {
+      if (!dynamic_linking_info_of_binary(O, state.for_binary(b).dynl)) {
+        WithColor::error() << llvm::formatv(
+            "!dynamic_linking_info_of_binary({0})\n", b.Name.c_str());
+        return;
+      }
+    });
   }
 
   //
@@ -873,7 +875,7 @@ int RecompileTool::Run(void) {
           std::unique_ptr<obj::Binary> Bin = B::Create(b.data());
 
           uint64_t Base, End;
-          std::tie(Base, End) = bounds_of_binary(*Bin);
+          std::tie(Base, End) = B::bounds_of_binary(*Bin);
 
           Arg("--section-start");
           Arg((fmt(".jove=0x%lx") % Base).str());

@@ -8,6 +8,29 @@
 namespace obj = llvm::object;
 
 namespace jove {
+namespace elf {
+
+uint64_t va_of_offset(ELFO &O, uint64_t off) {
+  const ELFF &Elf = O.getELFFile();
+
+  if (Elf.getHeader().e_type == llvm::ELF::ET_EXEC) {
+    auto PhdrsOrError = Elf.program_headers();
+    if (!PhdrsOrError)
+      throw std::runtime_error("va_of_offset: no program headers: " +
+                               llvm::toString(PhdrsOrError.takeError()));
+
+    /* assumes they are sorted TODO verify? */
+    for (const Elf_Phdr &Phdr : *PhdrsOrError)
+      if (Phdr.p_type == llvm::ELF::PT_LOAD)
+        return off + Phdr.p_vaddr;
+
+    throw std::runtime_error("va_of_offset: no PT_LOAD segment");
+  }
+
+  return off;
+}
+
+}
 
 template <typename T>
 static T unwrapOrError(llvm::Expected<T> ValOrErr) {
@@ -1006,9 +1029,10 @@ void for_each_dynamic_relocation(const ELFF &E,
   }
 }
 
-std::pair<uint64_t, uint64_t> bounds_of_binary(llvm::object::Binary &Bin) {
-  assert(llvm::isa<ELFO>(&Bin));
-  const ELFF &Elf = llvm::cast<ELFO>(&Bin)->getELFFile();
+namespace elf {
+
+addr_pair bounds_of_binary(ELFO &O) {
+  const ELFF &Elf = O.getELFFile();
 
   uint64_t SectsStartAddr = std::numeric_limits<uint64_t>::max();
   uint64_t SectsEndAddr = 0;
@@ -1064,15 +1088,14 @@ std::pair<uint64_t, uint64_t> bounds_of_binary(llvm::object::Binary &Bin) {
   return {SectsStartAddr, SectsEndAddr};
 }
 
-bool dynamic_linking_info_of_binary(llvm::object::Binary &Bin,
+}
+
+bool dynamic_linking_info_of_binary(ELFO &O,
                                     struct dynamic_linking_info_t &out) {
-  assert(llvm::isa<ELFO>(&Bin));
-  ELFO &Obj = *llvm::cast<ELFO>(&Bin);
+  const ELFF &Elf = O.getELFFile();
 
-  const ELFF &Elf = Obj.getELFFile();
-
-  DynRegionInfo DynamicTable(Obj);
-  loadDynamicTable(Obj, DynamicTable);
+  DynRegionInfo DynamicTable(O);
+  loadDynamicTable(O, DynamicTable);
 
   if (!DynamicTable.Addr)
     return false;
@@ -1084,7 +1107,7 @@ bool dynamic_linking_info_of_binary(llvm::object::Binary &Bin,
   llvm::StringRef DynamicStringTable;
   const Elf_Shdr *SymbolVersionSection;
   std::vector<VersionMapEntry> VersionMap;
-  loadDynamicSymbols(Obj,
+  loadDynamicSymbols(O,
                      DynamicTable,
                      DynamicStringTable,
                      SymbolVersionSection,
@@ -1152,10 +1175,12 @@ bool dynamic_linking_info_of_binary(llvm::object::Binary &Bin,
   return true;
 }
 
-std::optional<std::string> program_interpreter_of_elf(const ELFO &Obj) {
+namespace elf {
+
+std::optional<std::string> program_interpreter_of_elf(const ELFO &O) {
   std::optional<std::string> res;
 
-  const ELFF &Elf = Obj.getELFFile();
+  const ELFF &Elf = O.getELFFile();
 
   auto ExpectedHeaders = Elf.program_headers();
   if (ExpectedHeaders) {
@@ -1168,6 +1193,8 @@ std::optional<std::string> program_interpreter_of_elf(const ELFO &Obj) {
   }
 
   return res;
+}
+
 }
 
 }

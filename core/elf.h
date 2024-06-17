@@ -276,7 +276,16 @@ private:
 };
 #endif
 
-std::pair<uint64_t, uint64_t> bounds_of_binary(llvm::object::Binary &);
+namespace elf {
+
+uint64_t va_of_offset(ELFO &, uint64_t off);
+
+typedef std::pair<uint64_t, uint64_t> addr_pair;
+addr_pair bounds_of_binary(ELFO &);
+
+std::optional<std::string> program_interpreter_of_elf(const ELFO &);
+
+}
 
 struct dynamic_linking_info_t {
   std::string soname;
@@ -284,10 +293,7 @@ struct dynamic_linking_info_t {
   std::string interp;
 };
 
-bool dynamic_linking_info_of_binary(llvm::object::Binary &,
+bool dynamic_linking_info_of_binary(ELFO &,
                                     struct dynamic_linking_info_t &out);
-
-
-std::optional<std::string> program_interpreter_of_elf(const ELFO &);
 
 }

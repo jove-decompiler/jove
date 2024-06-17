@@ -143,7 +143,9 @@ int DecompileTool::Run(void) {
 
       x.Bin = B::Create(binary.data());
 
-      dynamic_linking_info_of_binary(*x.Bin, x.dynl);
+      B::_elf(*x.Bin, [&](ELFO &O) {
+        dynamic_linking_info_of_binary(O, x.dynl);
+      });
     });
   });
 
@@ -568,7 +570,7 @@ int DecompileTool::Run(void) {
           // the following has only been tested to work with the lld linker.
           //
           uint64_t Base, End;
-          std::tie(Base, End) = bounds_of_binary(*state.for_binary(binary).Bin);
+          std::tie(Base, End) = B::bounds_of_binary(*state.for_binary(binary).Bin);
 
           ofs << " --section-start " << (fmt(".jove=0x%lx") % Base).str();
         }

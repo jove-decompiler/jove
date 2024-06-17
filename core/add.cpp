@@ -798,18 +798,21 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
     },
 
     [&](COFFO &O) {
-      auto rvaToVa = [&](uint64_t rva) -> uint64_t {
-        return rva + O.getImageBase();
-      };
+      b.IsExecutable = O.getCharacteristics() & llvm::COFF::IMAGE_FILE_DLL;
 
       uint64_t entryRVA = 0;
-      if (const obj::pe32plus_header *PEPlusHeader = O.getPE32PlusHeader())
+      if (const obj::pe32plus_header *PEPlusHeader = O.getPE32PlusHeader()) {
         entryRVA = PEPlusHeader->AddressOfEntryPoint;
-      else if (const obj::pe32_header *PEHeader = O.getPE32Header())
+        b.IsPIC = PEPlusHeader->DLLCharacteristics &
+                  llvm::COFF::IMAGE_DLL_CHARACTERISTICS_DYNAMIC_BASE;
+      } else if (const obj::pe32_header *PEHeader = O.getPE32Header()) {
         entryRVA = PEHeader->AddressOfEntryPoint;
+        b.IsPIC = PEHeader->DLLCharacteristics &
+                  llvm::COFF::IMAGE_DLL_CHARACTERISTICS_DYNAMIC_BASE;
+      }
 
       if (entryRVA)
-        E.explore_function(b, O, rvaToVa(entryRVA));
+        E.explore_function(b, O, coff::va_of_rva(O, entryRVA));
 
       auto exp_itr = O.export_directories();
       for_each_if(std::execution::par_unseq,
@@ -826,14 +829,14 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
                            !llvm::errorToBool(Exp.isForwarder(IsForwarder)) &&
                            !IsForwarder &&
                            !llvm::errorToBool(Exp.getExportRVA(RVA)) &&
-                           isCode(O, RVA);
+                           coff::isCode(O, RVA);
                   },
                   [&](const obj::ExportDirectoryEntryRef &Exp) -> void {
                       uint32_t RVA;
                       bool iserr = llvm::errorToBool(Exp.getExportRVA(RVA));
                       assert(!iserr);
 
-                      E.explore_function(b, O, rvaToVa(RVA));
+                      E.explore_function(b, O, coff::va_of_rva(O, RVA));
                   });
     }
   );

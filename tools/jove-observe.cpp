@@ -366,13 +366,7 @@ void ObserveTool::ProcessLine(const std::string &line) {
     auto _dst_bin = [&](void) -> binary_t & { return jv.Binaries.at(dst_BIdx); };
 
     auto explore = [&](binary_t &b, llvm::object::Binary &Bin, uint64_t off) -> void {
-      if (llvm::isa<COFFO>(&Bin)) {
-        COFFO &O = *llvm::cast<COFFO>(&Bin);
-
-        off += O.getImageBase();
-      }
-
-      E.explore_basic_block(b, Bin, off);
+      E.explore_basic_block(b, Bin, B::va_of_offset(Bin, off));
     };
 
     try {

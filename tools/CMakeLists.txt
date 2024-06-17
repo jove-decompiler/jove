@@ -49,6 +49,7 @@ function(tool_for_arch arch arch_extra_cflags qemu_objs)
   add_llvm_tool(jove-${arch}
     ../core/B.cpp
     ../core/add.cpp
+    ../core/coff.cpp
     ../core/crypto.cpp
     ../core/disas.cpp
     ../core/elf.cpp
