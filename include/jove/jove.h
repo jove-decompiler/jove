@@ -135,6 +135,14 @@ constexpr unsigned IsX86Target =
 
 constexpr bool IsTarget32 = sizeof(taddr_t) == 4;
 
+constexpr bool IsTargetLittleEndian =
+#if defined(TARGET_MIPS32) && defined(TARGET_MIPS)
+    false
+#else
+    true
+#endif
+    ;
+
 static const char *TargetStaticLinkerEmulation =
 #if defined(TARGET_X86_64)
                       "elf_x86_64"
