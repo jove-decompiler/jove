@@ -169,11 +169,7 @@ public:
 
   void write_dso_graphviz(std::ostream &out, const dso_graph_t &);
 
-  bool pop_dso(dso_t &out);
-
   dso_graph_t dso_graph;
-  std::vector<dso_t> Q;
-  std::mutex Q_mtx;
 
   std::atomic<bool> worker_failed = false;
 };
@@ -711,6 +707,8 @@ int RecompileTool::Run(void) {
     }
   }
 
+  std::vector<dso_t> Q;
+
   Q.reserve(top_sorted.size());
   for (dso_t dso : boost::adaptors::reverse(top_sorted)) {
     binary_index_t BIdx = dso_graph[dso].BIdx;
@@ -1223,18 +1221,6 @@ void RecompileTool::worker(dso_t dso) {
                                         binary_filename);
 
     return;
-  }
-}
-
-bool RecompileTool::pop_dso(dso_t &out) {
-  std::lock_guard<std::mutex> lck(Q_mtx);
-
-  if (Q.empty()) {
-    return false;
-  } else {
-    out = Q.back();
-    Q.resize(Q.size() - 1);
-    return true;
   }
 }
 
