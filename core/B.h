@@ -4,6 +4,7 @@
 #include "util.h"
 
 #include <llvm/Object/Binary.h>
+#include <llvm/Support/DataExtractor.h>
 #include <boost/preprocessor/variadic/size.hpp>
 
 #include <functional>
@@ -101,6 +102,7 @@ typedef std::pair<uint64_t, uint64_t> addr_pair;
 BFUNCTION(addr_pair, bounds_of_binary)
 BFUNCTION(uint64_t, va_of_offset, uint64_t, off)
 BFUNCTION(const void *, toMappedAddr, uint64_t, Addr)
+BFUNCTION(uint64_t, extractAddress, const void *, ptr)
 
 }
 }

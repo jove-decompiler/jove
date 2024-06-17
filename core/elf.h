@@ -61,6 +61,8 @@ typedef typename ELFT::Versym Elf_Versym;
 typedef typename ELFT::Word Elf_Word;
 typedef typename ELFT::uint uintX_t;
 
+namespace elf {
+
 /// Represents a contiguous uniform range in the file. We cannot just create a
 /// range directly because when creating one of these from the .dynamic table
 /// the size, entity size and virtual address are different entries in arbitrary
@@ -203,7 +205,7 @@ void for_each_dynamic_relocation_if(const ELFF &Elf,
                               });
 }
 
-inline uint64_t extractAddress(const void *ptr) {
+static inline uint64_t extractAddress(ELFO &O, const void *ptr) {
   constexpr unsigned TargetArchWordSize = ELFT::Is64Bits ? 8 : 4;
 
   uint64_t Offset = 0;
@@ -275,8 +277,6 @@ private:
   Entries PltEntries;
 };
 #endif
-
-namespace elf {
 
 uint64_t va_of_offset(ELFO &, uint64_t off);
 

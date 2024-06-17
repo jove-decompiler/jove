@@ -1108,8 +1108,8 @@ std::string LoopTool::soname_of_binary(binary_t &b) {
 
   const ELFO &Obj = *llvm::cast<ELFO>(Bin.get());
 
-  DynRegionInfo DynamicTable(Obj);
-  loadDynamicTable(Obj, DynamicTable);
+  elf::DynRegionInfo DynamicTable(Obj);
+  elf::loadDynamicTable(Obj, DynamicTable);
 
   auto dynamic_table = [&](void) -> Elf_Dyn_Range {
     return DynamicTable.getAsArrayRef<Elf_Dyn>();
@@ -1120,8 +1120,8 @@ std::string LoopTool::soname_of_binary(binary_t &b) {
 
   llvm::StringRef DynamicStringTable;
   const Elf_Shdr *SymbolVersionSection;
-  std::vector<VersionMapEntry> VersionMap;
-  std::optional<DynRegionInfo> OptionalDynSymRegion =
+  std::vector<elf::VersionMapEntry> VersionMap;
+  std::optional<elf::DynRegionInfo> OptionalDynSymRegion =
       loadDynamicSymbols(Obj,
                          DynamicTable,
                          DynamicStringTable,

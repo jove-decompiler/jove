@@ -144,16 +144,16 @@ struct function_state_t {
 struct binary_state_t {
   std::unique_ptr<llvm::object::Binary> Bin;
   struct {
-    DynRegionInfo DynamicTable;
+    elf::DynRegionInfo DynamicTable;
     llvm::StringRef DynamicStringTable;
     const Elf_Shdr *SymbolVersionSection;
-    std::vector<VersionMapEntry> VersionMap;
-    std::optional<DynRegionInfo> OptionalDynSymRegion;
+    std::vector<elf::VersionMapEntry> VersionMap;
+    std::optional<elf::DynRegionInfo> OptionalDynSymRegion;
 
-    DynRegionInfo DynRelRegion;
-    DynRegionInfo DynRelaRegion;
-    DynRegionInfo DynRelrRegion;
-    DynRegionInfo DynPLTRelRegion;
+    elf::DynRegionInfo DynRelRegion;
+    elf::DynRegionInfo DynRelaRegion;
+    elf::DynRegionInfo DynRelrRegion;
+    elf::DynRegionInfo DynPLTRelRegion;
   } _elf;
   llvm::GlobalVariable *FunctionsTable = nullptr;
   llvm::GlobalVariable *FunctionsTableClunk = nullptr;
@@ -713,34 +713,34 @@ public:
     return DetermineFunctionType(X);
   }
 
-  llvm::Type *type_of_expression_for_relocation(const Relocation &);
+  llvm::Type *type_of_expression_for_relocation(const elf::Relocation &);
 
-  llvm::Constant *expression_for_relocation(const Relocation &,
-                                            const RelSymbol &);
+  llvm::Constant *expression_for_relocation(const elf::Relocation &,
+                                            const elf::RelSymbol &);
 
   llvm::ArrayType *TLSDescType(void);
   llvm::GlobalVariable *TLSDescGV(void);
 
-  bool is_manual_relocation(const Relocation &);
-  bool is_constant_relocation(const Relocation &);
+  bool is_manual_relocation(const elf::Relocation &);
+  bool is_constant_relocation(const elf::Relocation &);
 
   void compute_manual_relocation(llvm::IRBuilderTy &,
-                                 const Relocation &,
-                                 const RelSymbol &);
+                                 const elf::Relocation &,
+                                 const elf::RelSymbol &);
 
   void compute_tpoff_relocation(llvm::IRBuilderTy &,
-                                const RelSymbol &,
+                                const elf::RelSymbol &,
                                 unsigned Offset);
 
   void compute_irelative_relocation(llvm::IRBuilderTy &,
                                     uint64_t resolverAddr);
 
-  llvm::Constant *SymbolAddress(const RelSymbol &);
+  llvm::Constant *SymbolAddress(const elf::RelSymbol &);
 
   uint64_t ExtractWordAtAddress(uint64_t Addr);
 
   std::pair<binary_index_t, std::pair<uint64_t, unsigned>>
-  decipher_copy_relocation(const RelSymbol &S);
+  decipher_copy_relocation(const elf::RelSymbol &S);
 
   llvm::Value *insertThreadPointerInlineAsm(llvm::IRBuilderTy &);
 
@@ -816,8 +816,11 @@ struct section_properties_t {
   llvm::ArrayRef<uint8_t> contents;
 
   bool w, x;
-  bool initArray;
-  bool finiArray;
+
+  struct {
+    bool initArray = false;
+    bool finiArray = false;
+  } _elf;
 
   bool operator==(const section_properties_t &sect) const {
     return name == sect.name;
@@ -1745,8 +1748,10 @@ struct section_t {
   uint64_t Addr;
   unsigned Size;
 
-  bool initArray;
-  bool finiArray;
+  struct {
+    bool initArray = false;
+    bool finiArray = false;
+  } _elf;
 
   struct {
     boost::icl::split_interval_set<uint64_t> Intervals;
@@ -2009,6 +2014,11 @@ int LLVMTool::Run(void) {
   assert(state.for_binary(Binary).Bin.get());
 
   llvm::ArrayRef<Elf_Sym> BinaryDynSyms = {};
+
+  B::_elf(*state.for_binary(Binary).Bin, [&](ELFO &O) {
+
+  const ELFF &Elf = O.getELFFile();
+
   if (state.for_binary(Binary)._elf.OptionalDynSymRegion)
     BinaryDynSyms = state.for_binary(Binary)._elf.OptionalDynSymRegion->template getAsArrayRef<Elf_Sym>();
 
@@ -2039,8 +2049,6 @@ int LLVMTool::Run(void) {
                             reinterpret_cast<uintptr_t>(
                                 state.for_binary(Binary)._elf.OptionalDynSymRegion->Addr)) /
                            sizeof(Elf_Sym);
-
-          auto &Elf = llvm::cast<ELFO>(state.for_binary(Binary).Bin.get())->getELFFile();
 
           const Elf_Versym *Versym =
               unwrapOrError(Elf.template getEntry<Elf_Versym>(
@@ -2146,6 +2154,8 @@ int LLVMTool::Run(void) {
         }
       });
 
+  });
+
   if ((rc = ProcessCOPYRelocations()) ||
       (rc = CreateFunctions()) ||
       (rc = CreateFunctionTables()) ||
@@ -2154,6 +2164,10 @@ int LLVMTool::Run(void) {
       (rc = CreateTLSModGlobal()) ||
       (rc = CreateSectionGlobalVariables()))
     return rc;
+
+  B::_elf(*state.for_binary(Binary).Bin, [&](ELFO &O) {
+
+  const ELFF &Elf = O.getELFFile();
 
   //
   // process binary IFunc symbols
@@ -2182,8 +2196,6 @@ int LLVMTool::Run(void) {
                             reinterpret_cast<uintptr_t>(
                                 state.for_binary(Binary)._elf.OptionalDynSymRegion->Addr)) /
                            sizeof(Elf_Sym);
-
-          auto &Elf = llvm::cast<ELFO>(state.for_binary(Binary).Bin.get())->getELFFile();
 
           const Elf_Versym *Versym =
               unwrapOrError(Elf.template getEntry<Elf_Versym>(
@@ -2243,8 +2255,6 @@ int LLVMTool::Run(void) {
                               reinterpret_cast<uintptr_t>(
                                   state.for_binary(Binary)._elf.OptionalDynSymRegion->Addr)) /
                              sizeof(Elf_Sym);
-
-            auto &Elf = llvm::cast<ELFO>(state.for_binary(Binary).Bin.get())->getELFFile();
 
             const Elf_Versym *Versym =
                 unwrapOrError(Elf.template getEntry<Elf_Versym>(
@@ -2318,6 +2328,7 @@ int LLVMTool::Run(void) {
           }
         });
   }
+  });
 
   return CreateFunctionTable()
       || FixupHelperStubs()
@@ -2425,27 +2436,27 @@ int LLVMTool::InitStateForBinaries(void) {
                                          binary.Name.c_str(),
                                          SectsStartAddr);
 
-      assert(llvm::isa<ELFO>(x.Bin.get()));
-      ELFO &Obj = *llvm::cast<ELFO>(x.Bin.get());
+      B::_elf(*x.Bin, [&](ELFO &O) {
 
-      loadDynamicTable(Obj, x._elf.DynamicTable);
+      elf::loadDynamicTable(O, x._elf.DynamicTable);
 
       if (x._elf.DynamicTable.Addr) {
         x._elf.OptionalDynSymRegion =
-            loadDynamicSymbols(Obj,
+            loadDynamicSymbols(O,
                                x._elf.DynamicTable,
                                x._elf.DynamicStringTable,
                                x._elf.SymbolVersionSection,
                                x._elf.VersionMap);
 
         if (index_of_binary(binary, jv) == BinaryIndex)
-          loadDynamicRelocations(Obj,
+          loadDynamicRelocations(O,
                                  x._elf.DynamicTable,
                                  x._elf.DynRelRegion,
                                  x._elf.DynRelaRegion,
                                  x._elf.DynRelrRegion,
                                  x._elf.DynPLTRelRegion);
       }
+      });
     });
   });
 
@@ -2968,10 +2979,9 @@ int LLVMTool::LocateHooks(void) {
 int LLVMTool::ProcessBinaryTLSSymbols(void) {
   binary_t &b = jv.Binaries.at(BinaryIndex);
 
-  assert(state.for_binary(b).Bin);
-  assert(llvm::isa<ELFO>(state.for_binary(b).Bin.get()));
-  const ELFO &Obj = *llvm::cast<ELFO>(state.for_binary(b).Bin.get());
-  const ELFF &Elf = Obj.getELFFile();
+  B::_elf(*state.for_binary(b).Bin, [&](ELFO &O) {
+
+  const ELFF &Elf = O.getELFFile();
 
   //
   // To set up the memory for the thread-local storage the dynamic linker gets
@@ -2991,7 +3001,7 @@ int LLVMTool::ProcessBinaryTLSSymbols(void) {
 
     WithColor::note() << llvm::formatv("{0}: No thread local storage\n",
                                        __func__);
-    return 0;
+    return;
   }
 
   ThreadLocalStorage.Present = true;
@@ -3057,9 +3067,9 @@ int LLVMTool::ProcessBinaryTLSSymbols(void) {
   //
   auto OptionalDynSymRegion = state.for_binary(b)._elf.OptionalDynSymRegion;
   if (!OptionalDynSymRegion)
-    return 0; /* no dynamic symbols */
+    return; /* no dynamic symbols */
 
-  const DynRegionInfo &DynSymRegion = *OptionalDynSymRegion;
+  const elf::DynRegionInfo &DynSymRegion = *OptionalDynSymRegion;
 
   auto dynamic_symbols = [&](void) -> Elf_Sym_Range {
     return DynSymRegion.getAsArrayRef<Elf_Sym>();
@@ -3098,6 +3108,7 @@ int LLVMTool::ProcessBinaryTLSSymbols(void) {
   // files, are not important. Instead the linker will treat all sections of
   // type SHT PROGBITS with the SHF TLS flags set as .tdata sections, and all
   // sections of type SHT NOBITS with SHF TLS set as .tbss sections.
+  });
 
   return 0;
 }
@@ -3241,20 +3252,20 @@ llvm::GlobalIFunc *LLVMTool::buildGlobalIFunc(function_t &f,
 int LLVMTool::ProcessCOPYRelocations(void) {
   binary_t &Binary = jv.Binaries.at(BinaryIndex);
 
+  B::_elf(*state.for_binary(Binary).Bin, [&](ELFO &O) {
+
+  const ELFF &Elf = O.getELFFile();
+
   auto OptionalDynSymRegion = state.for_binary(Binary)._elf.OptionalDynSymRegion;
 
   if (!OptionalDynSymRegion)
-    return 0; /* no dynamic symbols */
+    return; /* no dynamic symbols */
 
-  const DynRegionInfo &DynSymRegion = *OptionalDynSymRegion;
+  const elf::DynRegionInfo &DynSymRegion = *OptionalDynSymRegion;
 
   auto dynamic_symbols = [&](void) -> Elf_Sym_Range {
     return DynSymRegion.getAsArrayRef<Elf_Sym>();
   };
-
-  assert(llvm::isa<ELFO>(state.for_binary(Binary).Bin.get()));
-  const ELFO &Obj = *llvm::cast<ELFO>(state.for_binary(Binary).Bin.get());
-  const ELFF &Elf = Obj.getELFFile();
 
   for_each_dynamic_relocation_if(Elf,
       state.for_binary(Binary)._elf.DynRelRegion,
@@ -3262,9 +3273,9 @@ int LLVMTool::ProcessCOPYRelocations(void) {
       state.for_binary(Binary)._elf.DynRelrRegion,
       state.for_binary(Binary)._elf.DynPLTRelRegion,
       is_copy_relocation,
-      [&](const Relocation &R) {
-        RelSymbol RelSym = getSymbolForReloc(Obj, dynamic_symbols(),
-                                             state.for_binary(Binary)._elf.DynamicStringTable, R);
+      [&](const elf::Relocation &R) {
+        elf::RelSymbol RelSym = elf::getSymbolForReloc(O, dynamic_symbols(),
+                                                       state.for_binary(Binary)._elf.DynamicStringTable, R);
 
         assert(RelSym.Sym);
 
@@ -3354,6 +3365,7 @@ int LLVMTool::ProcessCOPYRelocations(void) {
                                    CopyFrom.BIdx, CopyFrom.OffsetPair));
 
       });
+  });
 
   return 0;
 }
@@ -3844,7 +3856,7 @@ llvm::GlobalVariable *LLVMTool::TLSDescGV(void) {
   return GV;
 }
 
-llvm::Constant *LLVMTool::SymbolAddress(const RelSymbol &RelSym) {
+llvm::Constant *LLVMTool::SymbolAddress(const elf::RelSymbol &RelSym) {
   assert(RelSym.Sym);
 
   bool IsDefined = !RelSym.Sym->isUndefined() &&
@@ -4026,7 +4038,7 @@ void LLVMTool::compute_irelative_relocation(llvm::IRBuilderTy &IRB,
 }
 
 void LLVMTool::compute_tpoff_relocation(llvm::IRBuilderTy &IRB,
-                                        const RelSymbol &RelSym,
+                                        const elf::RelSymbol &RelSym,
                                         unsigned Offset) {
   llvm::Value *TLSAddr = nullptr;
   if (RelSym.Sym) {
@@ -4086,14 +4098,8 @@ uint64_t LLVMTool::ExtractWordAtAddress(uint64_t Addr) {
 
   auto &Bin = state.for_binary(Binary).Bin;
 
-  assert(llvm::isa<ELFO>(Bin.get()));
-  const ELFF &Elf = llvm::cast<ELFO>(Bin.get())->getELFFile();
-
-  llvm::Expected<const uint8_t *> ExpectedPtr = Elf.toMappedAddr(Addr);
-  if (ExpectedPtr)
-    return extractAddress(*ExpectedPtr);
-
-  abort();
+  const void *Ptr = B::toMappedAddr(*Bin, Addr);
+  return B::extractAddress(*Bin, Ptr);
 }
 
 struct unhandled_relocation_exception {};
@@ -4103,10 +4109,6 @@ struct unhandled_relocation_exception {};
 int LLVMTool::CreateSectionGlobalVariables(void) {
   binary_t &Binary = jv.Binaries.at(BinaryIndex);
   auto &Bin = state.for_binary(Binary).Bin;
-
-  assert(llvm::isa<ELFO>(Bin.get()));
-  ELFO &Obj = *llvm::cast<ELFO>(Bin.get());
-  const ELFF &Elf = Obj.getELFFile();
 
   struct PatchContents {
     LLVMTool &tool;
@@ -4208,20 +4210,12 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
       auto &Binary = tool.jv.Binaries.at(BinaryIndex);
       auto &Bin = tool.state.for_binary(Binary).Bin;
 
-      const ELFF &Elf = llvm::cast<ELFO>(Bin.get())->getELFFile();
-
-      llvm::Expected<const uint8_t *> ExpectedPtr = Elf.toMappedAddr(Addr);
-
-      if (!ExpectedPtr) {
-        WithColor::warning() << llvm::formatv(
-            "{0}: Could not get binary contents for {1:x}\n", __func__, Addr);
-        return nullptr;
-      }
+      const void *Ptr = B::toMappedAddr(*Bin, Addr);
 
       //
       // the data resides in a std::string; it is writeable memory
       //
-      return const_cast<uint8_t *>(*ExpectedPtr);
+      return const_cast<void *>(Ptr);
     }
   } __PatchContents(*this, BinaryIndex);
 
@@ -4234,6 +4228,10 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
 
   const uint64_t SectsStartAddr = state.for_binary(Binary).SectsStartAddr;
   const uint64_t SectsEndAddr = state.for_binary(Binary).SectsEndAddr;
+
+  B::_elf(*Bin, [&](ELFO &O) {
+
+  const ELFF &Elf = O.getELFFile();
 
   llvm::Expected<Elf_Shdr_Range> ExpectedSections = Elf.sections();
   if (ExpectedSections && !(*ExpectedSections).empty()) {
@@ -4271,8 +4269,8 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
       sectprop.w = !!(Sec.sh_flags & llvm::ELF::SHF_WRITE);
       sectprop.x = !!(Sec.sh_flags & llvm::ELF::SHF_EXECINSTR);
 
-      sectprop.initArray = Sec.sh_type == llvm::ELF::SHT_INIT_ARRAY;
-      sectprop.finiArray = Sec.sh_type == llvm::ELF::SHT_FINI_ARRAY;
+      sectprop._elf.initArray = Sec.sh_type == llvm::ELF::SHT_INIT_ARRAY;
+      sectprop._elf.finiArray = Sec.sh_type == llvm::ELF::SHT_FINI_ARRAY;
 
       boost::icl::interval<uint64_t>::type intervl =
           boost::icl::interval<uint64_t>::right_open(
@@ -4284,7 +4282,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
           WithColor::error() << "the following sections intersect: "
                              << (*(*it).second.begin()).name << " and "
                              << sectprop.name << '\n';
-          return 1;
+          exit(1);
         }
       }
 
@@ -4307,8 +4305,8 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
       Sect.Contents = prop.contents;
       Sect.Stuff.Intervals.insert(
           boost::icl::interval<uint64_t>::right_open(0, Sect.Size));
-      Sect.initArray = prop.initArray;
-      Sect.finiArray = prop.finiArray;
+      Sect._elf.initArray = prop._elf.initArray;
+      Sect._elf.finiArray = prop._elf.finiArray;
 
       ++i;
     }
@@ -4361,8 +4359,8 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
         sectprop.contents = vec;
         sectprop.w = true;
         sectprop.x = false;
-        sectprop.initArray = false;
-        sectprop.finiArray = false;
+        sectprop._elf.initArray = false;
+        sectprop._elf.finiArray = false;
 
         SectMap.add({intervl, {sectprop}});
       }
@@ -4376,12 +4374,78 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
         s.Contents = vec;
         s.Stuff.Intervals.insert(
             boost::icl::interval<uint64_t>::right_open(0, s.Size));
-        s.initArray = false;
-        s.finiArray = false;
+        s._elf.initArray = false;
+        s._elf.finiArray = false;
         s.T = nullptr;
       }
     }
   }
+
+  });
+
+  B::_coff(*Bin, [&](COFFO &O) {
+    for (const llvm::object::SectionRef &S : O.sections()) {
+      const llvm::object::coff_section *pSect = O.getCOFFSection(S);
+      assert(pSect);
+      const llvm::object::coff_section &Sect = *pSect;
+
+      if (!Sect.VirtualSize)
+        continue;
+
+      section_properties_t sectprop;
+      sectprop.name = Sect.Name;
+
+      if (!Sect.SizeOfRawData) {
+        sectprop.contents = llvm::ArrayRef<uint8_t>();
+      } else {
+        if (llvm::errorToBool(O.getSectionContents(&Sect, sectprop.contents)))
+          WithColor::warning() << "failed to get contents of section "
+                             << sectprop.name << '\n';
+      }
+
+      sectprop.x = Sect.Characteristics & llvm::COFF::IMAGE_SCN_MEM_EXECUTE;
+      sectprop.w = Sect.Characteristics & llvm::COFF::IMAGE_SCN_MEM_WRITE;
+
+      boost::icl::interval<uint64_t>::type intervl =
+          boost::icl::interval<uint64_t>::right_open(
+              Sect.VirtualAddress, Sect.VirtualAddress + Sect.VirtualSize);
+
+      {
+        auto it = SectMap.find(intervl);
+        if (it != SectMap.end()) {
+          WithColor::error() << "the following sections intersect: "
+                             << (*(*it).second.begin()).name << " and "
+                             << sectprop.name << '\n';
+          exit(1);
+        }
+      }
+
+      SectMap.add({intervl, {sectprop}});
+    }
+
+    NumSections = O.getNumberOfSections();
+    assert(NumSections == SectMap.iterative_size());
+    SectTable.resize(NumSections);
+
+    unsigned i = 0;
+    for (const auto &pair : SectMap) {
+      section_t &_Sect = SectTable[i];
+
+      SectIdxMap.add({pair.first, 1+i});
+
+      const section_properties_t &prop = *pair.second.begin();
+      _Sect.Addr = pair.first.lower();
+      _Sect.Size = pair.first.upper() - pair.first.lower();
+      _Sect.Name = prop.name;
+      _Sect.Contents = prop.contents;
+      _Sect.Stuff.Intervals.insert(
+          boost::icl::interval<uint64_t>::right_open(0, _Sect.Size));
+      _Sect._elf.initArray = prop._elf.initArray;
+      _Sect._elf.finiArray = prop._elf.finiArray;
+
+      ++i;
+    }
+  });
 
   auto type_at_address = [&](uint64_t Addr, llvm::Type *T) -> void {
     auto it = SectIdxMap.find(Addr);
@@ -4834,6 +4898,10 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
     }
   };
 
+  B::_elf(*Bin, [&](ELFO &O) {
+
+  const ELFF &Elf = O.getELFFile();
+
   //
   // print relocations
   //
@@ -4842,16 +4910,16 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
       state.for_binary(Binary)._elf.DynRelaRegion,
       state.for_binary(Binary)._elf.DynRelrRegion,
       state.for_binary(Binary)._elf.DynPLTRelRegion,
-      [&](const Relocation &R) {
+      [&](const elf::Relocation &R) {
         //
         // determine symbol (if present)
         //
-        RelSymbol RelSym(nullptr, "");
+        elf::RelSymbol RelSym(nullptr, "");
         if (state.for_binary(Binary)._elf.OptionalDynSymRegion) {
-          const DynRegionInfo &DynSymRegion = *state.for_binary(Binary)._elf.OptionalDynSymRegion;
+          const elf::DynRegionInfo &DynSymRegion = *state.for_binary(Binary)._elf.OptionalDynSymRegion;
 
-          RelSym = getSymbolForReloc(Obj, DynSymRegion.getAsArrayRef<Elf_Sym>(),
-                                     state.for_binary(Binary)._elf.DynamicStringTable, R);
+          RelSym = elf::getSymbolForReloc(O, DynSymRegion.getAsArrayRef<Elf_Sym>(),
+                                          state.for_binary(Binary)._elf.DynamicStringTable, R);
 
           //
           // determine symbol version (if present)
@@ -4901,7 +4969,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
   // print arch-specific relocations
   //
   if (state.for_binary(Binary)._elf.OptionalDynSymRegion) {
-    const DynRegionInfo &DynSymRegion = *state.for_binary(Binary)._elf.OptionalDynSymRegion;
+    const elf::DynRegionInfo &DynSymRegion = *state.for_binary(Binary)._elf.OptionalDynSymRegion;
 
     auto dynamic_table = [&](void) -> Elf_Dyn_Range {
       return state.for_binary(Binary)._elf.DynamicTable.getAsArrayRef<Elf_Dyn>();
@@ -4910,20 +4978,20 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
       return DynSymRegion.getAsArrayRef<Elf_Sym>();
     };
 
-    MipsGOTParser Parser(Elf, Binary.path_str());
+    elf::MipsGOTParser Parser(Elf, Binary.path_str());
     if (llvm::Error Err = Parser.findGOT(dynamic_table(),
                                          dynamic_symbols())) {
       WithColor::warning() << llvm::formatv("Failed to find GOT: {0}\n", Err);
-      return 1;
+      return;
     }
 
-    for (const MipsGOTParser::Entry &Ent : Parser.getLocalEntries()) {
+    for (const elf::MipsGOTParser::Entry &Ent : Parser.getLocalEntries()) {
       const uint64_t Addr = Parser.getGotAddress(&Ent);
 
       llvm::outs() << (fmt("%-18s @ %-8x\n") % "R_MIPS_32" % Addr).str();
     }
 
-    for (const MipsGOTParser::Entry &Ent : Parser.getGlobalEntries()) {
+    for (const elf::MipsGOTParser::Entry &Ent : Parser.getGlobalEntries()) {
       const uint64_t Offset = Parser.getGotAddress(&Ent);
 
       const Elf_Sym *Sym = Parser.getGotSym(&Ent);
@@ -4997,6 +5065,8 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
   }
 #endif
 
+  });
+
   ConstSectsGlobal = nullptr;
   SectsGlobal = nullptr;
 
@@ -5007,12 +5077,17 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
 
     clear_section_stuff();
 
+
+    B::_elf(*Bin, [&](ELFO &O) {
+
+    const ELFF &Elf = O.getELFFile();
+
     for_each_dynamic_relocation(Elf,
         state.for_binary(Binary)._elf.DynRelRegion,
         state.for_binary(Binary)._elf.DynRelaRegion,
         state.for_binary(Binary)._elf.DynRelrRegion,
         state.for_binary(Binary)._elf.DynPLTRelRegion,
-        [&](const Relocation &R) {
+        [&](const elf::Relocation &R) {
           llvm::Type *R_T = nullptr;
 
           try {
@@ -5040,7 +5115,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
     // arch-specific relocations
     //
     if (state.for_binary(Binary)._elf.OptionalDynSymRegion) {
-      const DynRegionInfo &DynSymRegion = *state.for_binary(Binary)._elf.OptionalDynSymRegion;
+      const elf::DynRegionInfo &DynSymRegion = *state.for_binary(Binary)._elf.OptionalDynSymRegion;
 
       auto dynamic_table = [&](void) -> Elf_Dyn_Range {
         return state.for_binary(Binary)._elf.DynamicTable.getAsArrayRef<Elf_Dyn>();
@@ -5049,35 +5124,41 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
         return DynSymRegion.getAsArrayRef<Elf_Sym>();
       };
 
-      MipsGOTParser Parser(Elf, Binary.path_str());
+      elf::MipsGOTParser Parser(Elf, Binary.path_str());
       if (llvm::Error Err = Parser.findGOT(dynamic_table(),
                                            dynamic_symbols())) {
         WithColor::warning() << llvm::formatv("Failed to find GOT: {0}\n", Err);
-        return 1;
+        return;
       }
 
-      for (const MipsGOTParser::Entry &Ent : Parser.getLocalEntries())
+      for (const elf::MipsGOTParser::Entry &Ent : Parser.getLocalEntries())
         type_at_address(Parser.getGotAddress(&Ent), WordType());
 
-      for (const MipsGOTParser::Entry &Ent : Parser.getGlobalEntries())
+      for (const elf::MipsGOTParser::Entry &Ent : Parser.getGlobalEntries())
         type_at_address(Parser.getGotAddress(&Ent), WordType());
 
-      for (const MipsGOTParser::Entry &Ent : Parser.getLocalEntries())
+      for (const elf::MipsGOTParser::Entry &Ent : Parser.getLocalEntries())
         ConstantRelocationLocs.insert(Parser.getGotAddress(&Ent));
 
-      for (const MipsGOTParser::Entry &Ent : Parser.getGlobalEntries())
+      for (const elf::MipsGOTParser::Entry &Ent : Parser.getGlobalEntries())
         ConstantRelocationLocs.insert(Parser.getGotAddress(&Ent));
     }
 #endif
 
+    });
+
     declare_sections();
+
+    B::_elf(*Bin, [&](ELFO &O) {
+
+    const ELFF &Elf = O.getELFFile();
 
     for_each_dynamic_relocation(Elf,
         state.for_binary(Binary)._elf.DynRelRegion,
         state.for_binary(Binary)._elf.DynRelaRegion,
         state.for_binary(Binary)._elf.DynRelrRegion,
         state.for_binary(Binary)._elf.DynPLTRelRegion,
-        [&](const Relocation &R) {
+        [&](const elf::Relocation &R) {
           llvm::Type *R_T = type_of_expression_for_relocation(R);
           assert(R_T);
 
@@ -5087,16 +5168,16 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
           //
           // determine symbol (if present)
           //
-          RelSymbol RelSym(nullptr, "");
+          elf::RelSymbol RelSym(nullptr, "");
           if (state.for_binary(Binary)._elf.OptionalDynSymRegion) {
-            const DynRegionInfo &DynSymRegion = *state.for_binary(Binary)._elf.OptionalDynSymRegion;
+            const elf::DynRegionInfo &DynSymRegion = *state.for_binary(Binary)._elf.OptionalDynSymRegion;
 
             auto dynamic_symbols = [&](void) -> Elf_Sym_Range {
               return DynSymRegion.getAsArrayRef<Elf_Sym>();
             };
 
-            RelSym = getSymbolForReloc(Obj, dynamic_symbols(),
-                                       state.for_binary(Binary)._elf.DynamicStringTable, R);
+            RelSym = elf::getSymbolForReloc(O, dynamic_symbols(),
+                                            state.for_binary(Binary)._elf.DynamicStringTable, R);
 
             //
             // determine symbol version (if present)
@@ -5143,7 +5224,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
     // arch-specific relocations
     //
     if (state.for_binary(Binary)._elf.OptionalDynSymRegion) {
-      const DynRegionInfo &DynSymRegion = *state.for_binary(Binary)._elf.OptionalDynSymRegion;
+      const elf::DynRegionInfo &DynSymRegion = *state.for_binary(Binary)._elf.OptionalDynSymRegion;
 
       auto dynamic_table = [&](void) -> Elf_Dyn_Range {
         return state.for_binary(Binary)._elf.DynamicTable.getAsArrayRef<Elf_Dyn>();
@@ -5152,14 +5233,14 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
         return DynSymRegion.getAsArrayRef<Elf_Sym>();
       };
 
-      MipsGOTParser Parser(Elf, Binary.path_str());
+      elf::MipsGOTParser Parser(Elf, Binary.path_str());
       if (llvm::Error Err = Parser.findGOT(dynamic_table(),
                                            dynamic_symbols())) {
         WithColor::warning() << llvm::formatv("Failed to find GOT: {0}\n", Err);
-        return 1;
+        return;
       }
 
-      for (const MipsGOTParser::Entry &Ent : Parser.getLocalEntries()) {
+      for (const elf::MipsGOTParser::Entry &Ent : Parser.getLocalEntries()) {
         const uint64_t Offset = Parser.getGotAddress(&Ent);
 
         llvm::Constant *R_C = SectionPointer(ExtractWordAtAddress(Offset));
@@ -5168,7 +5249,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
         constant_at_address(Offset, R_C);
       }
 
-      for (const MipsGOTParser::Entry &Ent : Parser.getGlobalEntries()) {
+      for (const elf::MipsGOTParser::Entry &Ent : Parser.getGlobalEntries()) {
         const uint64_t Offset = Parser.getGotAddress(&Ent);
 
         const Elf_Sym *Sym = Parser.getGotSym(&Ent);
@@ -5208,7 +5289,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
                                               IsVersionDefault);
         }
 
-        RelSymbol RelSym(Sym, "");
+        elf::RelSymbol RelSym(Sym, "");
         RelSym.Name = SymName.str();
         RelSym.Vers = SymVers.str();
         RelSym.IsVersionDefault = IsVersionDefault;
@@ -5219,6 +5300,8 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
       }
     }
 #endif
+
+    });
 
     define_sections();
 
@@ -5382,10 +5465,10 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
   //
   // XXX this should go somewhere else
   for (section_t &Sect : SectTable) {
-    if (!Sect.initArray && !Sect.finiArray)
+    if (!Sect._elf.initArray && !Sect._elf.finiArray)
       continue;
 
-    assert(!(Sect.initArray && Sect.finiArray));
+    assert(!(Sect._elf.initArray && Sect._elf.finiArray));
 
     for (const auto &pair : Sect.Stuff.Constants) {
       llvm::Constant *C = pair.second;
@@ -5413,7 +5496,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
 
         // casting to a llvm::Function* is a complete hack here.
         // https://reviews.llvm.org/D64962
-        if (Sect.initArray)
+        if (Sect._elf.initArray)
           llvm::appendToGlobalCtors(
               *Module,
               (llvm::Function *)llvm::ConstantExpr::getIntToPtr(
@@ -5444,7 +5527,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
 }
 
 std::pair<binary_index_t, std::pair<uint64_t, unsigned>>
-LLVMTool::decipher_copy_relocation(const RelSymbol &S) {
+LLVMTool::decipher_copy_relocation(const elf::RelSymbol &S) {
   assert(jv.Binaries.at(BinaryIndex).IsExecutable);
 
   for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
@@ -5526,7 +5609,7 @@ int LLVMTool::ProcessManualRelocations(void) {
   if (!OptionalDynSymRegion)
     return 0; /* no dynamic symbols */
 
-  const DynRegionInfo &DynSymRegion = *OptionalDynSymRegion;
+  const elf::DynRegionInfo &DynSymRegion = *OptionalDynSymRegion;
 
   auto dynamic_symbols = [&](void) -> Elf_Sym_Range {
     return DynSymRegion.getAsArrayRef<Elf_Sym>();
@@ -5543,12 +5626,12 @@ int LLVMTool::ProcessManualRelocations(void) {
       state.for_binary(Binary)._elf.DynRelaRegion,
       state.for_binary(Binary)._elf.DynRelrRegion,
       state.for_binary(Binary)._elf.DynPLTRelRegion,
-      [&](const Relocation &R) -> bool { return is_manual_relocation(R); },
-      [&](const Relocation &R) {
+      [&](const elf::Relocation &R) -> bool { return is_manual_relocation(R); },
+      [&](const elf::Relocation &R) {
         llvm::Type *R_T = type_of_expression_for_relocation(R);
 
-        RelSymbol RelSym = getSymbolForReloc(Obj, dynamic_symbols(),
-                                             state.for_binary(Binary)._elf.DynamicStringTable, R);
+        elf::RelSymbol RelSym = elf::getSymbolForReloc(Obj, dynamic_symbols(),
+                                                       state.for_binary(Binary)._elf.DynamicStringTable, R);
 
         llvm::Function *F = llvm::Function::Create(
             llvm::FunctionType::get(R_T, false),

@@ -167,7 +167,7 @@ int IDATool::Run(void) {
     bool DidWeHideSplitDebugInfoFromIDA = false;
 
     fs::path splitDbgInfo;
-    std::optional<llvm::ArrayRef<uint8_t>> optionalBuildID = getBuildID(Elf);
+    std::optional<llvm::ArrayRef<uint8_t>> optionalBuildID = elf::getBuildID(Elf);
     if (optionalBuildID) {
       llvm::ArrayRef<uint8_t> BuildID = *optionalBuildID;
 

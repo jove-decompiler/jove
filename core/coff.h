@@ -1,5 +1,6 @@
 #pragma once
 #include <llvm/Object/COFF.h>
+#include <llvm/Support/DataExtractor.h>
 
 namespace jove {
 
@@ -25,6 +26,18 @@ static inline const void *toMappedAddr(COFFO &O, uint64_t Addr) {
     throw std::runtime_error(llvm::toString(std::move(E)));
 
   return reinterpret_cast<const void *>(UIntPtr);
+}
+
+static inline uint64_t extractAddress(COFFO &O, const void *ptr) {
+  const unsigned AddrBytes = O.getBytesInAddress();
+
+  uint64_t Offset = 0;
+  llvm::DataExtractor DE(
+      llvm::ArrayRef<uint8_t>(reinterpret_cast<const uint8_t *>(ptr),
+                              2 * AddrBytes),
+      true /* little endian */, AddrBytes);
+
+  return DE.getAddress(&Offset);
 }
 
 bool isCode(COFFO &O, uint64_t RVA);

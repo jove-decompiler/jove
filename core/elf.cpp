@@ -30,8 +30,6 @@ uint64_t va_of_offset(ELFO &O, uint64_t off) {
   return off;
 }
 
-}
-
 template <typename T>
 static T unwrapOrError(llvm::Expected<T> ValOrErr) {
   if (ValOrErr)
@@ -925,9 +923,9 @@ const Elf_Sym *MipsGOTParser::getPltSym(const Entry *E) const {
 RelSymbol getSymbolForReloc(const ELFO &Obj,
                             Elf_Sym_Range dynamic_symbols,
                             llvm::StringRef DynamicStringTable,
-                            const Relocation &Reloc) {
+                            const elf::Relocation &Reloc) {
   auto WarnAndReturn = [&](const Elf_Sym *Sym,
-                           const llvm::Twine &Reason) -> RelSymbol {
+                           const llvm::Twine &Reason) -> elf::RelSymbol {
     llvm::WithColor::warning() << llvm::formatv(
         "unable to get name of the dynamic symbol with index {0}: {1}\n",
         llvm::Twine(Reloc.Symbol), Reason);
@@ -967,11 +965,11 @@ RelSymbol getSymbolForReloc(const ELFO &Obj,
 }
 
 void for_each_dynamic_relocation(const ELFF &E,
-                                 DynRegionInfo &DynRelRegion,
-                                 DynRegionInfo &DynRelaRegion,
-                                 DynRegionInfo &DynRelrRegion,
-                                 DynRegionInfo &DynPLTRelRegion,
-                                 std::function<void(const Relocation &)> proc) {
+                                 elf::DynRegionInfo &DynRelRegion,
+                                 elf::DynRegionInfo &DynRelaRegion,
+                                 elf::DynRegionInfo &DynRelrRegion,
+                                 elf::DynRegionInfo &DynPLTRelRegion,
+                                 std::function<void(const elf::Relocation &)> proc) {
   const bool IsMips64EL = E.isMips64EL();
 
   //
@@ -1028,8 +1026,6 @@ void for_each_dynamic_relocation(const ELFF &E,
     }
   }
 }
-
-namespace elf {
 
 addr_pair bounds_of_binary(ELFO &O) {
   const ELFF &Elf = O.getELFFile();
@@ -1092,6 +1088,8 @@ addr_pair bounds_of_binary(ELFO &O) {
 
 bool dynamic_linking_info_of_binary(ELFO &O,
                                     struct dynamic_linking_info_t &out) {
+  using namespace elf;
+
   const ELFF &Elf = O.getELFFile();
 
   DynRegionInfo DynamicTable(O);

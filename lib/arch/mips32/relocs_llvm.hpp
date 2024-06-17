@@ -1,4 +1,4 @@
-llvm::Type *LLVMTool::type_of_expression_for_relocation(const Relocation &R) {
+llvm::Type *LLVMTool::type_of_expression_for_relocation(const elf::Relocation &R) {
   switch (R.Type) {
   case llvm::ELF::R_MIPS_REL32:
 //case llvm::ELF::R_MIPS_GLOB_DAT:
@@ -16,8 +16,8 @@ llvm::Type *LLVMTool::type_of_expression_for_relocation(const Relocation &R) {
   }
 }
 
-llvm::Constant *LLVMTool::expression_for_relocation(const Relocation &R,
-                                                    const RelSymbol &RelSym) {
+llvm::Constant *LLVMTool::expression_for_relocation(const elf::Relocation &R,
+                                                    const elf::RelSymbol &RelSym) {
   switch (R.Type) {
   case llvm::ELF::R_MIPS_REL32:
     if (const Elf_Sym *Sym = RelSym.Sym) {
@@ -46,7 +46,7 @@ llvm::Constant *LLVMTool::expression_for_relocation(const Relocation &R,
   }
 }
 
-bool LLVMTool::is_manual_relocation(const Relocation &R) {
+bool LLVMTool::is_manual_relocation(const elf::Relocation &R) {
   switch (R.Type) {
   case llvm::ELF::R_MIPS_TLS_TPREL32:
 //case llvm::ELF::R_MIPS_TLS_DTPMOD32:
@@ -58,8 +58,8 @@ bool LLVMTool::is_manual_relocation(const Relocation &R) {
 }
 
 void LLVMTool::compute_manual_relocation(llvm::IRBuilderTy &IRB,
-                                         const Relocation &R,
-                                         const RelSymbol &RelSym) {
+                                         const elf::Relocation &R,
+                                         const elf::RelSymbol &RelSym) {
   switch (R.Type) {
   case llvm::ELF::R_MIPS_TLS_TPREL32:
     return compute_tpoff_relocation(IRB, RelSym, ExtractWordAtAddress(R.Offset));
@@ -71,7 +71,7 @@ void LLVMTool::compute_manual_relocation(llvm::IRBuilderTy &IRB,
   }
 }
 
-bool LLVMTool::is_constant_relocation(const Relocation &R) {
+bool LLVMTool::is_constant_relocation(const elf::Relocation &R) {
   switch (R.Type) {
   case llvm::ELF::R_MIPS_REL32:
   case llvm::ELF::R_MIPS_JUMP_SLOT:

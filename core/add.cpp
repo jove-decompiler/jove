@@ -55,8 +55,8 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
     break;
   }
 
-  DynRegionInfo DynamicTable(O);
-  loadDynamicTable(O, DynamicTable);
+  elf::DynRegionInfo DynamicTable(O);
+  elf::loadDynamicTable(O, DynamicTable);
 
   //assert(DynamicTable.Addr);
 
@@ -169,7 +169,7 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
   //
   // look for split debug information
   //
-  std::optional<llvm::ArrayRef<uint8_t>> optionalBuildID = getBuildID(Elf);
+  std::optional<llvm::ArrayRef<uint8_t>> optionalBuildID = elf::getBuildID(Elf);
   if (optionalBuildID) {
     llvm::ArrayRef<uint8_t> BuildID = *optionalBuildID;
 
@@ -233,8 +233,8 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
 
   llvm::StringRef DynamicStringTable;
   const Elf_Shdr *SymbolVersionSection = nullptr;
-  std::vector<VersionMapEntry> VersionMap;
-  std::optional<DynRegionInfo> OptionalDynSymRegion;
+  std::vector<elf::VersionMapEntry> VersionMap;
+  std::optional<elf::DynRegionInfo> OptionalDynSymRegion;
 
   if (DynamicTable.Addr)
     OptionalDynSymRegion =
@@ -350,10 +350,10 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
   //
   // examine relocations
   //
-  DynRegionInfo DynRelRegion(O);
-  DynRegionInfo DynRelaRegion(O);
-  DynRegionInfo DynRelrRegion(O);
-  DynRegionInfo DynPLTRelRegion(O);
+  elf::DynRegionInfo DynRelRegion(O);
+  elf::DynRegionInfo DynRelaRegion(O);
+  elf::DynRegionInfo DynRelrRegion(O);
+  elf::DynRegionInfo DynPLTRelRegion(O);
 
   if (DynamicTable.Addr)
     loadDynamicRelocations(O,
@@ -367,7 +367,7 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
   // Search for IFunc relocations and make their resolver functions be ABIs
   //
   {
-    auto processDynamicReloc = [&](const Relocation &R) -> void {
+    auto processDynamicReloc = [&](const elf::Relocation &R) -> void {
       //
       // ifunc resolvers are ABIs
       //
@@ -377,7 +377,7 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
         if (!resolverAddr) {
           llvm::Expected<const uint8_t *> ExpectedPtr = Elf.toMappedAddr(R.Offset);
           if (ExpectedPtr)
-            resolverAddr = extractAddress(*ExpectedPtr);
+            resolverAddr = B::extractAddress(*Bin, *ExpectedPtr);
         }
 
         if (resolverAddr)
@@ -398,7 +398,7 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
   // constructor/deconstructor functions be ABIs
   //
   {
-    auto processDynamicReloc = [&](const Relocation &R) -> void {
+    auto processDynamicReloc = [&](const elf::Relocation &R) -> void {
       bool Contained = (R.Offset >= InitArray.Beg &&
                         R.Offset < InitArray.End) ||
                        (R.Offset >= FiniArray.Beg &&
@@ -421,7 +421,7 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
         llvm::Expected<const uint8_t *> ExpectedPtr = Elf.toMappedAddr(R.Offset);
 
         if (ExpectedPtr)
-          Addr = extractAddress(*ExpectedPtr);
+          Addr = B::extractAddress(*Bin, *ExpectedPtr);
       }
 
 #if 0

@@ -212,8 +212,8 @@ int TCGDumpTool::Run(void) {
     B::_elf(*Bin, [&](ELFO &O) {
       const ELFF &Elf = O.getELFFile();
 
-      DynRegionInfo DynamicTable(O);
-      loadDynamicTable(O, DynamicTable);
+      elf::DynRegionInfo DynamicTable(O);
+      elf::loadDynamicTable(O, DynamicTable);
 
       if (!DynamicTable.Addr) {
         HumanOut() << "no dynamic table for given binary\n";
@@ -222,8 +222,8 @@ int TCGDumpTool::Run(void) {
 
       llvm::StringRef DynamicStringTable;
       const Elf_Shdr *SymbolVersionSection;
-      std::vector<VersionMapEntry> VersionMap;
-      std::optional<DynRegionInfo> OptionalDynSymRegion =
+      std::vector<elf::VersionMapEntry> VersionMap;
+      std::optional<elf::DynRegionInfo> OptionalDynSymRegion =
           loadDynamicSymbols(O, DynamicTable, DynamicStringTable,
                              SymbolVersionSection, VersionMap);
 

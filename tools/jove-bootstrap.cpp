@@ -109,16 +109,16 @@ struct binary_state_t {
 
   std::unique_ptr<llvm::object::Binary> ObjectFile;
   struct {
-    DynRegionInfo DynamicTable;
+    elf::DynRegionInfo DynamicTable;
     llvm::StringRef DynamicStringTable;
     const Elf_Shdr *SymbolVersionSection;
-    std::vector<VersionMapEntry> VersionMap;
-    std::optional<DynRegionInfo> OptionalDynSymRegion;
+    std::vector<elf::VersionMapEntry> VersionMap;
+    std::optional<elf::DynRegionInfo> OptionalDynSymRegion;
 
-    DynRegionInfo DynRelRegion;
-    DynRegionInfo DynRelaRegion;
-    DynRegionInfo DynRelrRegion;
-    DynRegionInfo DynPLTRelRegion;
+    elf::DynRegionInfo DynRelRegion;
+    elf::DynRegionInfo DynRelaRegion;
+    elf::DynRegionInfo DynRelrRegion;
+    elf::DynRegionInfo DynPLTRelRegion;
   } _elf;
 };
 
@@ -359,7 +359,7 @@ struct BootstrapTool : public TransformerTool_Bin<binary_state_t> {
 
     ELFO &Obj = *llvm::cast<ELFO>(x.ObjectFile.get());
 
-    loadDynamicTable(Obj, x._elf.DynamicTable);
+    elf::loadDynamicTable(Obj, x._elf.DynamicTable);
 
     x._elf.OptionalDynSymRegion =
         loadDynamicSymbols(Obj,
@@ -3328,7 +3328,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 #include "relocs_common.hpp"
 
 void BootstrapTool::harvest_irelative_reloc_targets(pid_t child) {
-  auto processDynamicReloc = [&](binary_t &b, const Relocation &R) -> void {
+  auto processDynamicReloc = [&](binary_t &b, const elf::Relocation &R) -> void {
     binary_index_t BIdx = index_of_binary(b, jv);
 
     if (!is_irelative_relocation(R))
@@ -3393,14 +3393,14 @@ void BootstrapTool::harvest_irelative_reloc_targets(pid_t child) {
                                 state.for_binary(b)._elf.DynRelaRegion,
                                 state.for_binary(b)._elf.DynRelrRegion,
                                 state.for_binary(b)._elf.DynPLTRelRegion,
-                                [&](const Relocation &R) {
+                                [&](const elf::Relocation &R) {
                                   processDynamicReloc(b, R);
                                 });
   }
 }
 
 void BootstrapTool::harvest_addressof_reloc_targets(pid_t child) {
-  auto processDynamicReloc = [&](binary_t &b, const Relocation &R) -> void {
+  auto processDynamicReloc = [&](binary_t &b, const elf::Relocation &R) -> void {
     binary_index_t BIdx = index_of_binary(b, jv);
 
     if (!is_addressof_relocation(R))
@@ -3417,7 +3417,7 @@ void BootstrapTool::harvest_addressof_reloc_targets(pid_t child) {
       return state.for_binary(b)._elf.OptionalDynSymRegion->getAsArrayRef<Elf_Sym>();
     };
 
-    RelSymbol RelSym = getSymbolForReloc(
+    elf::RelSymbol RelSym = getSymbolForReloc(
         Obj, dynamic_symbols(), state.for_binary(b)._elf.DynamicStringTable, R);
 
     if (const Elf_Sym *Sym = RelSym.Sym) {
@@ -3486,7 +3486,7 @@ void BootstrapTool::harvest_addressof_reloc_targets(pid_t child) {
                                 state.for_binary(b)._elf.DynRelaRegion,
                                 state.for_binary(b)._elf.DynRelrRegion,
                                 state.for_binary(b)._elf.DynPLTRelRegion,
-                                [&](const Relocation &R) {
+                                [&](const elf::Relocation &R) {
                                   processDynamicReloc(b, R);
                                 });
   }
