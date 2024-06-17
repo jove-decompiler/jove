@@ -365,13 +365,32 @@ void ObserveTool::ProcessLine(const std::string &line) {
     auto _src_bin = [&](void) -> binary_t & { return jv.Binaries.at(src_BIdx); };
     auto _dst_bin = [&](void) -> binary_t & { return jv.Binaries.at(dst_BIdx); };
 
-    auto explore = [&](binary_t &b, llvm::object::Binary &Bin, uint64_t off) -> void {
-      E.explore_basic_block(b, Bin, B::va_of_offset(Bin, off));
-    };
-
+    taddr_t dst_va, src_va;
     try {
-      if (is_binary_index_valid(src_BIdx)) { binary_t &src_bin = _src_bin(); explore(src_bin, *state.for_binary(src_bin).Bin, src_off); }
-      if (is_binary_index_valid(dst_BIdx)) { binary_t &dst_bin = _dst_bin(); explore(dst_bin, *state.for_binary(dst_bin).Bin, dst_off); }
+      /* we know dst is the start of a block */
+      if (is_binary_index_valid(dst_BIdx)) {
+        binary_t &dst_bin = _dst_bin();
+        auto &Bin = *state.for_binary(dst_bin).Bin;
+        dst_va = B::va_of_offset(Bin, dst_off);
+
+        E.explore_basic_block(dst_bin, Bin, dst_va);
+      }
+
+      /* if there isn't a block at src we'll start one. */
+      if (is_binary_index_valid(src_BIdx)) {
+        binary_t &src_bin = _src_bin();
+        auto &Bin = *state.for_binary(src_bin).Bin;
+        src_va = B::va_of_offset(Bin, src_off);
+
+        bool ExistsBlock = ({
+          ip_sharable_lock<ip_upgradable_mutex> s_lck(src_bin.bbmap_mtx);
+
+          exists_basic_block_at_address(src_va, src_bin);
+        });
+
+        if (!ExistsBlock)
+          E.explore_basic_block(src_bin, Bin, src_va);
+      }
     } catch (const g2h_exception &e) {
       if (IsVeryVerbose()) llvm::errs() << llvm::formatv("invalid address {0}\n", taddr2str(e.pc, false));
       return;
@@ -390,18 +409,13 @@ void ObserveTool::ProcessLine(const std::string &line) {
     auto &src_ICFG = src_bin.Analysis.ICFG;
     auto &dst_ICFG = dst_bin.Analysis.ICFG;
 
-    basic_block_t src = basic_block_of_index(src_BBIdx, src_ICFG);
     basic_block_t dst = basic_block_of_index(dst_BBIdx, dst_ICFG);
 
-    auto bbprop = [&](binary_t &b, basic_block_t bb) -> basic_block_properties_t & {
-      icfg_t &ICFG = b.Analysis.ICFG;
+    const auto Term = ({
+      ip_sharable_lock<ip_upgradable_mutex> s_lck(src_bin.bbmap_mtx);
 
-      ip_sharable_lock<ip_upgradable_mutex> s_lck(b.bbmap_mtx);
-
-      return ICFG[bb];
-    };
-
-    const taddr_t TermAddr = bbprop(src_bin, src).Term.Addr;
+      src_ICFG[basic_block_at_address(src_va, src_bin)].Term;
+    });
 
     auto handle_indirect_call = [&](void) -> void {
       function_index_t FIdx = E.explore_function(
@@ -412,39 +426,79 @@ void ObserveTool::ProcessLine(const std::string &line) {
 
       ip_upgradable_lock<ip_upgradable_mutex> u_lck(src_bin.bbmap_mtx);
 
-      src = basic_block_at_address(TermAddr, src_bin);
-      basic_block_properties_t &src_bbprop = bbprop(src_bin, src);
+      basic_block_t src = basic_block_at_address(Term.Addr, src_bin);
+      basic_block_properties_t &src_bbprop = src_ICFG[src];
 
       ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
 
       src_bbprop.insertDynTarget(std::make_pair(dst_BIdx, FIdx), jv);
     };
 
-    basic_block_properties_t &src_bbprop = bbprop(src_bin, src);
+    switch (Term.Type) {
+    case TERMINATOR::RETURN: {
+      {
+        ip_sharable_lock<ip_upgradable_mutex> s_lck(src_bin.bbmap_mtx);
 
-    switch (src_bbprop.Term.Type) {
-    case TERMINATOR::RETURN:
-      src_bbprop.Term._return.Returns = true;
+        src_ICFG[basic_block_at_address(src_va, src_bin)].Term._return.Returns = true;
+      }
+
+      const taddr_t before_pc = dst_va - 1 - IsMIPSTarget * 4;
+
+      ip_upgradable_lock<ip_upgradable_mutex> u_lck(dst_bin.bbmap_mtx);
+
+      basic_block_t before_bb = basic_block_at_address(before_pc, dst_bin);
+      basic_block_properties_t &before_bbprop = dst_ICFG[before_bb];
+      auto &before_Term = before_bbprop.Term;
+
+      bool isCall = before_Term.Type == TERMINATOR::CALL;
+      bool isIndirectCall = before_Term.Type == TERMINATOR::INDIRECT_CALL;
+      if (isCall || isIndirectCall) {
+        assert(boost::out_degree(before_bb, dst_ICFG) <= 1);
+
+        if (isCall) {
+          before_Term._call.Returns = true; /* witnessed */
+
+          if (likely(is_function_index_valid(before_Term._call.Target)))
+            dst_bin.Analysis.Functions.at(before_Term._call.Target).Returns = true;
+        } else {
+          assert(isIndirectCall);
+
+          before_Term._indirect_call.Returns = true; /* witnessed */
+        }
+
+        ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
+
+        boost::add_edge(before_bb, dst, dst_ICFG); /* connect */
+      }
+
       break;
+    }
 
     case TERMINATOR::INDIRECT_CALL:
       handle_indirect_call();
       break;
 
-    case TERMINATOR::INDIRECT_JUMP:
-      if (src_bbprop.Term._indirect_jump.IsLj)
+    case TERMINATOR::INDIRECT_JUMP: {
+      if (Term._indirect_jump.IsLj)
         break;
 
-      if (IsDefinitelyTailCall(src_ICFG, src) || src_BIdx != dst_BIdx) {
+      const bool TailCall = ({
+        ip_sharable_lock<ip_upgradable_mutex> s_lck(src_bin.bbmap_mtx);
+
+        IsDefinitelyTailCall(src_ICFG, basic_block_at_address(src_va, src_bin));
+      });
+
+      if (TailCall || src_BIdx != dst_BIdx) {
         handle_indirect_call();
       } else {
         assert(src_BIdx == dst_BIdx);
 
         ip_scoped_lock<ip_upgradable_mutex> e_lck(src_bin.bbmap_mtx);
 
-        boost::add_edge(src, dst, src_ICFG);
+        boost::add_edge(basic_block_at_address(src_va, src_bin), dst, src_ICFG);
       }
       break;
+    }
 
     default:
       break;
