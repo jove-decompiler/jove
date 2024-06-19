@@ -21,7 +21,20 @@ bool isCode(COFFO &O, uint64_t RVA) {
 }
 
 addr_pair bounds_of_binary(COFFO &O) {
-  return std::make_pair(0, 0);
+  uint64_t SectsStartAddr = std::numeric_limits<uint64_t>::max();
+  uint64_t SectsEndAddr = 0;
+
+  for (const llvm::object::SectionRef &S : O.sections()) {
+    const llvm::object::coff_section *Section = O.getCOFFSection(S);
+    assert(Section);
+
+    SectsStartAddr = std::min<uint64_t>(SectsStartAddr,
+        O.getImageBase() + Section->VirtualAddress);
+    SectsEndAddr   = std::max<uint64_t>(SectsEndAddr,
+        O.getImageBase() + Section->VirtualAddress + Section->VirtualSize);
+  }
+
+  return {SectsStartAddr, SectsEndAddr};
 }
 
 }
