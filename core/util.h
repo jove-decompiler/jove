@@ -56,7 +56,7 @@ static inline void insertSortedVec(std::vector<T> &vec, const T &x) {
   if (it == vec.end() || *it != x) {
     vec.insert(it, x);
   }
-};
+}
 
 void read_file_into_vector(const char *path, std::vector<uint8_t> &out);
 void read_file_into_a_string(const char *path, std::string &out);
