@@ -3593,7 +3593,7 @@ void BootstrapTool::harvest_global_GOT_entries(pid_t child) {
       return state.for_binary(b)._elf.OptionalDynSymRegion->getAsArrayRef<Elf_Sym>();
     };
 
-    MipsGOTParser Parser(Elf, b.path_str());
+    elf::MipsGOTParser Parser(Elf, b.path_str());
 
     if (llvm::Error Err = Parser.findGOT(dynamic_table(),
                                          dynamic_symbols())) {
@@ -3601,7 +3601,7 @@ void BootstrapTool::harvest_global_GOT_entries(pid_t child) {
       continue;
     }
 
-    for (const MipsGOTParser::Entry &Ent : Parser.getGlobalEntries()) {
+    for (const elf::MipsGOTParser::Entry &Ent : Parser.getGlobalEntries()) {
       const uint64_t Addr = Parser.getGotAddress(&Ent);
 
       const Elf_Sym *Sym = Parser.getGotSym(&Ent);
