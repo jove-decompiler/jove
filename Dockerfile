@@ -27,6 +27,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       libclang-16-dev \
                       libglib2.0-dev \
                       libgraph-easy-perl \
+                      libkeyutils-dev \
                       libpcre2-dev \
                       libtinfo-dev \
                       libtool \
