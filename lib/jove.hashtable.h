@@ -230,3 +230,8 @@ static inline void hash_del(struct hlist_node *node)
 
 #define hash_for_each_possible(name, obj, member, key)			\
 	hlist_for_each_entry(obj, &name[hash_min(key, HASH_BITS(name))], member)
+
+#define hash_for_each(name, bkt, obj, member)                           \
+        for ((bkt) = 0, obj = NULL; obj == NULL && (bkt) < HASH_SIZE(name);\
+                        (bkt)++)\
+                hlist_for_each_entry(obj, &name[bkt], member)
