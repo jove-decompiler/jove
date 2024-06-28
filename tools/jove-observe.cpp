@@ -110,6 +110,9 @@ binary_index_t ObserveTool::BinaryFromName(const char *name) {
     return BIdx;
   }
 
+  if (IsVeryVerbose())
+    HumanOut() << llvm::formatv("adding {0}\n", name);
+
   bool IsNew;
   binary_index_t BIdx;
 
@@ -392,10 +395,14 @@ void ObserveTool::ProcessLine(const std::string &line) {
           E.explore_basic_block(src_bin, Bin, src_va);
       }
     } catch (const g2h_exception &e) {
-      if (IsVeryVerbose()) llvm::errs() << llvm::formatv("invalid address {0}\n", taddr2str(e.pc, false));
+      if (IsVerbose())
+        llvm::errs() << llvm::formatv("invalid pc {0}\n",
+                                      taddr2str(e.pc, false));
       return;
     } catch (const invalid_control_flow_exception &invalid_cf) {
-      if (IsVeryVerbose()) llvm::errs() << llvm::formatv("invalid control-flow to {0}\n", taddr2str(invalid_cf.pc, false));
+      if (IsVerbose())
+        llvm::errs() << llvm::formatv("invalid control-flow to {0}\n",
+                                      taddr2str(invalid_cf.pc, false));
       return;
     }
 
@@ -418,8 +425,21 @@ void ObserveTool::ProcessLine(const std::string &line) {
     });
 
     auto handle_indirect_call = [&](void) -> void {
-      function_index_t FIdx = E.explore_function(
-          dst_bin, *state.for_binary(dst_bin).Bin, dst_off);
+      function_index_t FIdx;
+      try {
+        FIdx = E.explore_function(dst_bin, *state.for_binary(dst_bin).Bin,
+                                  dst_off);
+      } catch (const g2h_exception &e) {
+        if (IsVerbose())
+          llvm::errs() << llvm::formatv("invalid pc {0}\n",
+                                        taddr2str(e.pc, false));
+        return;
+      } catch (const invalid_control_flow_exception &invalid_cf) {
+        if (IsVerbose())
+          llvm::errs() << llvm::formatv("invalid control-flow to {0}\n",
+                                        taddr2str(invalid_cf.pc, false));
+        return;
+      }
 
       if (!is_function_index_valid(FIdx))
         return;
