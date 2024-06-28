@@ -179,9 +179,8 @@ std::string CFGTool::disassemble_basic_block(const GraphTy &G,
 
   binary_t &binary = jv.Binaries.at(BinaryIndex);
 
-  TCG.set_binary(*state.for_binary(binary).ObjectFile);
-
-  const ELFF &Elf = llvm::cast<ELFO>(state.for_binary(binary).ObjectFile.get())->getELFFile();
+  llvm::object::Binary &Bin = *state.for_binary(binary).ObjectFile;
+  TCG.set_binary(Bin);
 
   uint64_t End = G[V].Addr + G[V].Size;
 
@@ -193,28 +192,29 @@ std::string CFGTool::disassemble_basic_block(const GraphTy &G,
   std::string res;
 
   uint64_t InstLen = 0;
-  for (uintptr_t A = G[V].Addr; A < End; A += InstLen) {
+  for (uint64_t A = G[V].Addr; A < End; A += InstLen) {
     llvm::MCInst Inst;
 
-    llvm::Expected<const uint8_t *> ExpectedContents = Elf.toMappedAddr(A);
+    const void *ExpectedContents = B::toMappedAddr(Bin, A);
     if (!ExpectedContents)
       break;
 
-    const uint8_t *Contents = *ExpectedContents;
+    const uint8_t *Contents = (uint8_t *)ExpectedContents;
 
     std::string errmsg;
     bool Disassembled;
     {
       llvm::raw_string_ostream ErrorStrStream(errmsg);
 
-      llvm::ArrayRef<uint8_t> ContentsRef(Contents, G[V].Size);
+      llvm::ArrayRef<uint8_t> ContentsRef(Contents, UINT32_MAX);
 
       Disassembled = disas.DisAsm->getInstruction(Inst, InstLen, ContentsRef, A,
                                                   ErrorStrStream);
     }
 
     if (!Disassembled) {
-      res.append("failed to disassemble");
+      res.append("failed to disassemble ");
+      res.append(taddr2str(A));
       if (!errmsg.empty()) {
         res.append(": ");
         res.append(errmsg);
@@ -330,26 +330,20 @@ int CFGTool::Run(void) {
   //
   state.for_binary(binary).ObjectFile = B::Create(binary.data());
 
-  obj::Binary *B = state.for_binary(binary).ObjectFile.get();
-  if (!llvm::isa<ELFO>(B)) {
-    fprintf(stderr, "invalid binary\n");
-    return 1;
-  }
-
   //
   // find the function of interest
   //
   function_index_t FunctionIndex = invalid_function_index;
 
   assert(!opts.FunctionAddress.empty());
-  uintptr_t FuncAddr = strtoull(opts.FunctionAddress.c_str(), nullptr, 0x10);
+  uint64_t FuncAddr = strtoull(opts.FunctionAddress.c_str(), nullptr, 0x10);
 
   const auto &ICFG = binary.Analysis.ICFG;
 
   for (function_index_t FIdx = 0; FIdx < binary.Analysis.Functions.size(); ++FIdx) {
     const function_t &f = binary.Analysis.Functions.at(FIdx);
 
-    uintptr_t EntryAddr = ICFG[basic_block_of_index(f.Entry, ICFG)].Addr;
+    uint64_t EntryAddr = ICFG[basic_block_of_index(f.Entry, ICFG)].Addr;
     if (EntryAddr != FuncAddr)
       continue;
 
