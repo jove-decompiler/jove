@@ -4,6 +4,6 @@
 
 namespace jove {
 
-llvm::Triple getTargetTriple(void);
+llvm::Triple getTargetTriple(bool IsCOFF = false);
 
 }

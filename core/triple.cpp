@@ -2,11 +2,11 @@
 
 namespace jove {
 
-llvm::Triple getTargetTriple(void) {
+llvm::Triple getTargetTriple(bool IsCOFF) {
   llvm::Triple res;
 
-  res.setObjectFormat(llvm::Triple::ELF);
-  res.setOS(llvm::Triple::Linux);
+  res.setObjectFormat(IsCOFF ? llvm::Triple::COFF : llvm::Triple::ELF);
+  res.setOS(IsCOFF ? llvm::Triple::Win32 : llvm::Triple::Linux);
   res.setEnvironment(
 #if defined(TARGET_MIPS64)
       llvm::Triple::GNUABI64
