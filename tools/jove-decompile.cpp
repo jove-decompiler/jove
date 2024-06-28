@@ -37,9 +37,14 @@ namespace jove {
 namespace {
 
 struct binary_state_t {
-  dynamic_linking_info_t dynl;
-
   std::unique_ptr<llvm::object::Binary> Bin;
+
+  struct {
+    std::optional<std::string> interp;
+  } _elf;
+
+  std::vector<std::string> needed;
+  std::string soname;
 };
 
 }
@@ -101,6 +106,8 @@ class DecompileTool : public TransformerTool_Bin<binary_state_t> {
 
   std::atomic<bool> worker_failed = false;
 
+  bool IsCOFF = false;
+
 public:
   DecompileTool() : opts(JoveCategory) {}
 
@@ -137,17 +144,30 @@ int DecompileTool::Run(void) {
   //
   // gather dynamic linking information
   //
-  for_each_binary(jv, [&](binary_t &binary) {
+  for_each_binary(jv, [&](binary_t &b) {
     ignore_exception([&]() {
-      auto &x = state.for_binary(binary);
+      auto &x = state.for_binary(b);
 
-      x.Bin = B::Create(binary.data());
+      x.Bin = B::Create(b.data());
 
       B::_elf(*x.Bin, [&](ELFO &O) {
-        dynamic_linking_info_of_binary(O, x.dynl);
+	x._elf.interp = elf::program_interpreter_of_elf(O);
+        if (auto MaybeSoName = elf::soname_of_elf(O))
+          x.soname = *MaybeSoName;
       });
+
+#if 0
+      B::_coff(*x.Bin, [&](COFFO &O) {
+        if (b.is_file())
+          x.soname = fs::path(b.path_str()).filename().string();
+      });
+#endif
+
+      B::needed_libs(*x.Bin, x.needed);
     });
   });
+
+  IsCOFF = B::is_coff(*state.for_binary(jv.Binaries.at(0)).Bin);
 
   std::unordered_map<std::string, binary_index_t> soname_map;
 
@@ -155,19 +175,21 @@ int DecompileTool::Run(void) {
     binary_index_t BIdx = index_of_binary(binary, jv);
     auto &_state = state.for_binary(binary);
 
-    if (_state.dynl.soname.empty() && !binary.IsExecutable) {
-      soname_map.insert(
-          {fs::path(binary.path_str()).filename().string(), BIdx}); /* XXX */
+    if (!binary.is_file())
+      return;
+
+    if (_state.soname.empty() && !binary.IsExecutable) {
+      soname_map.insert({fs::path(binary.path_str()).filename().string(), BIdx});
       return;
     }
 
-    if (soname_map.find(_state.dynl.soname) != soname_map.end()) {
+    if (soname_map.find(_state.soname) != soname_map.end()) {
       WithColor::error() << llvm::formatv(
-          "same soname {0} occurs more than once\n", _state.dynl.soname);
+          "same soname {0} occurs more than once\n", _state.soname);
       return;
     }
 
-    soname_map.insert({_state.dynl.soname, BIdx});
+    soname_map.insert({_state.soname, BIdx});
   });
 
   //
@@ -449,8 +471,13 @@ int DecompileTool::Run(void) {
                 fs::path(opts.Output) / ".obj" / "libfpu_softfloat.a",
                 fs::copy_options::overwrite_existing);
   fs::create_directories(fs::path(opts.Output) / ".lib" / "lib");
-  fs::copy_file(locator().runtime(opts.MT),
+  if (IsCOFF) {
+  fs::copy_file(locator().runtime_dll(opts.MT),
+                fs::path(opts.Output) / ".lib" / "lib" / "libjove_rt.dll");
+  } else {
+  fs::copy_file(locator().runtime_so(opts.MT),
                 fs::path(opts.Output) / ".lib" / "lib" / "libjove_rt.so");
+  }
 
   //
   // compile jove starter bitcode
@@ -508,7 +535,9 @@ int DecompileTool::Run(void) {
       ofs << "\n";
     };
 
-    std::string target_arg = "--target=" + getTargetTriple().normalize();
+    const bool IsCOFF = B::is_coff(*state.for_binary(jv.Binaries.at(0)).Bin);
+
+    std::string target_arg = "--target=" + getTargetTriple(IsCOFF).normalize();
     {
       std::vector<const char *> cflags = {
         target_arg.c_str(),                        nullptr,
@@ -530,7 +559,7 @@ int DecompileTool::Run(void) {
 
     {
       std::vector<const char *> ldflags = {
-        "-m", TargetStaticLinkerEmulation,           nullptr,
+        "-m", TargetStaticLinkerEmulation(IsCOFF),   nullptr,
 
         "-nostdlib",                                 nullptr,
 
@@ -554,6 +583,8 @@ int DecompileTool::Run(void) {
 
       assert(binary.IsExecutable); /* FIXME */
 
+      binary_state_t &x = state.for_binary(binary);
+
       std::string binary_filename = fs::path(binary.path_str()).filename().string();
 
       ofs << binary_filename << ": " << binary_filename << ".o";
@@ -570,7 +601,7 @@ int DecompileTool::Run(void) {
           // the following has only been tested to work with the lld linker.
           //
           uint64_t Base, End;
-          std::tie(Base, End) = B::bounds_of_binary(*state.for_binary(binary).Bin);
+          std::tie(Base, End) = B::bounds_of_binary(*x.Bin);
 
           ofs << " --section-start " << (fmt(".jove=0x%lx") % Base).str();
         }
@@ -596,7 +627,7 @@ int DecompileTool::Run(void) {
       //
       std::unordered_set<std::string> needed_lib_dirs = {"/lib"};
       std::unordered_set<std::string> needed_sonames;
-      for (std::string &needed : state.for_binary(binary).dynl.needed) {
+      for (std::string &needed : x.needed) {
         auto it = soname_map.find(needed);
         if (it == soname_map.end()) {
           WithColor::warning()
@@ -628,19 +659,20 @@ int DecompileTool::Run(void) {
 
       ofs << " -ljove_rt";
 
-      if (!state.for_binary(binary).dynl.soname.empty())
-        ofs << " -soname=" << state.for_binary(binary).dynl.soname;
-
       std::vector<std::string> needed_arg_vec;
 
       for (const std::string &needed : needed_sonames) {
         ofs << " -l :" << needed;
       }
 
-      if (!state.for_binary(binary).dynl.interp.empty()) {
-        ofs << " -dynamic-linker "
-            << fs::canonical(state.for_binary(binary).dynl.interp).string();
-      }
+      B::_elf(*x.Bin, [&](ELFO &O) {
+	if (!x.soname.empty())
+	  ofs << " -soname=" << x.soname;
+
+        if (x._elf.interp) {
+          ofs << " -dynamic-linker " << fs::canonical(*x._elf.interp).string();
+        }
+      });
 
       ofs << "\n\n";
 

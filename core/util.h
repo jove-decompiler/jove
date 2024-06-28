@@ -8,6 +8,28 @@
 
 namespace jove {
 
+constexpr void lower_string(std::string &s) {
+  std::transform(s.cbegin(), s.cend(), s.begin(),
+                 [](auto ch) -> auto { return std::tolower(ch); });
+}
+
+static inline std::string lowered_string(const std::string &s) {
+  std::string res(s);
+  lower_string(res);
+  return res;
+}
+
+constexpr void upper_string(std::string &s) {
+  std::transform(s.cbegin(), s.cend(), s.begin(),
+                 [](auto ch) -> auto { return std::toupper(ch); });
+}
+
+static inline std::string uppered_string(const std::string &s) {
+  std::string res(s);
+  upper_string(res);
+  return res;
+}
+
 // when using this function carefully consider whether it is the right choice.
 inline void ignore_exception(std::function<void(void)> f) {
   try {

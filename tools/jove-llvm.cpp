@@ -343,6 +343,7 @@ struct LLVMTool : public TransformerTool_BinFnBB<binary_state_t,
   } opts;
 
   binary_index_t BinaryIndex = invalid_binary_index;
+  bool IsCOFF = false;
 
   uint64_t ForAddr = 0;
 
@@ -464,6 +465,8 @@ struct LLVMTool : public TransformerTool_BinFnBB<binary_state_t,
            std::pair<binary_index_t, std::pair<uint64_t, unsigned>>>
       CopyRelocMap;
 
+  std::vector<uint64_t> possible_stubs_vec;
+
   llvm::Constant *__jove_fail_UnknownBranchTarget;
   llvm::Constant *__jove_fail_UnknownCallee;
 
@@ -492,6 +495,7 @@ public:
   int LocateHooks(void);
   int CreateTLSModGlobal(void);
   int CreateSectionGlobalVariables(void);
+  int CreatePossibleStubs(void);
   int CreateFunctionTable(void);
   int FixupHelperStubs(void);
   int CreateNoAliasMetadata(void);
@@ -508,6 +512,7 @@ public:
   int RenameFunctionLocals(void);
   int WriteVersionScript(void);
   int InlineHelpers(void);
+  int ForceCallConv(void);
   int WriteModule(void);
 
   void DumpModule(const char *);
@@ -713,29 +718,36 @@ public:
     return DetermineFunctionType(X);
   }
 
-  llvm::Type *type_of_expression_for_relocation(const elf::Relocation &);
+  llvm::Type *elf_type_of_expression_for_relocation(const elf::Relocation &);
 
-  llvm::Constant *expression_for_relocation(const elf::Relocation &,
-                                            const elf::RelSymbol &);
+  llvm::Constant *elf_expression_for_relocation(const elf::Relocation &,
+                                                const elf::RelSymbol &);
 
   llvm::ArrayType *TLSDescType(void);
   llvm::GlobalVariable *TLSDescGV(void);
 
-  bool is_manual_relocation(const elf::Relocation &);
-  bool is_constant_relocation(const elf::Relocation &);
+  bool elf_is_manual_relocation(const elf::Relocation &);
+  bool elf_is_constant_relocation(const elf::Relocation &);
 
-  void compute_manual_relocation(llvm::IRBuilderTy &,
-                                 const elf::Relocation &,
-                                 const elf::RelSymbol &);
+  void elf_compute_manual_relocation(llvm::IRBuilderTy &,
+                                     const elf::Relocation &,
+                                     const elf::RelSymbol &);
 
-  void compute_tpoff_relocation(llvm::IRBuilderTy &,
-                                const elf::RelSymbol &,
-                                unsigned Offset);
+  void elf_compute_tpoff_relocation(llvm::IRBuilderTy &,
+                                    const elf::RelSymbol &,
+                                    unsigned Offset);
 
-  void compute_irelative_relocation(llvm::IRBuilderTy &,
-                                    uint64_t resolverAddr);
+  void elf_compute_irelative_relocation(llvm::IRBuilderTy &,
+                                        uint64_t resolverAddr);
+
+  llvm::Type *coff_type_of_expression_for_relocation(uint8_t RelocType);
+  llvm::Constant *coff_expression_for_relocation(uint8_t RelocType, uint64_t Offset);
+
+  bool coff_is_constant_relocation(uint8_t RelocType);
 
   llvm::Constant *SymbolAddress(const elf::RelSymbol &);
+  llvm::Constant *ImportFunction(llvm::StringRef Name, uint64_t Addr);
+  llvm::Constant *ImportedFunctionAddress(llvm::StringRef Name, uint64_t Addr);
 
   uint64_t ExtractWordAtAddress(uint64_t Addr);
 
@@ -2162,7 +2174,8 @@ int LLVMTool::Run(void) {
       (rc = ProcessBinaryTLSSymbols()) ||
       (rc = (opts.DFSan ? LocateHooks() : 0)) ||
       (rc = CreateTLSModGlobal()) ||
-      (rc = CreateSectionGlobalVariables()))
+      (rc = CreateSectionGlobalVariables()) ||
+      (rc = CreatePossibleStubs()))
     return rc;
 
   B::_elf(*state.for_binary(Binary).Bin, [&](ELFO &O) {
@@ -2342,6 +2355,7 @@ int LLVMTool::Run(void) {
       || (opts.DumpPreOpt1 ? (RenameFunctionLocals(), DumpModule("pre.opt"), 1) : 0)
       || ((opts.Optimize || opts.ForCBE) ? DoOptimize() : 0)
       || (opts.DumpPostOpt1 ? (RenameFunctionLocals(), DumpModule("post.opt"), 1) : 0)
+      || ForceCallConv()
       || ExpandMemoryIntrinsicCalls()
       || ReplaceAllRemainingUsesOfConstSections()
       || (opts.DFSan ? DFSanInstrument() : 0)
@@ -2459,6 +2473,11 @@ int LLVMTool::InitStateForBinaries(void) {
       });
     });
   });
+
+  auto &Binary = jv.Binaries.at(BinaryIndex);
+  IsCOFF = B::_X(*state.for_binary(Binary).Bin,
+      [&](ELFO &O) -> bool { return false; },
+      [&](COFFO &O) -> bool { return true; });
 
   return 0;
 }
@@ -2590,7 +2609,8 @@ int LLVMTool::CreateModule(void) {
   JoveThunk##i##Func = Module->getFunction("_jove_thunk" #i);                  \
   assert(JoveThunk##i##Func);                                                  \
   assert(!JoveThunk##i##Func->empty());                                        \
-  JoveThunk##i##Func->setLinkage(llvm::GlobalValue::InternalLinkage);
+  JoveThunk##i##Func->setLinkage(llvm::GlobalValue::InternalLinkage);          \
+  JoveThunk##i##Func->setCallingConv(llvm::CallingConv::X86_64_SysV );
 
 BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
 
@@ -3272,7 +3292,7 @@ int LLVMTool::ProcessCOPYRelocations(void) {
       state.for_binary(Binary)._elf.DynRelaRegion,
       state.for_binary(Binary)._elf.DynRelrRegion,
       state.for_binary(Binary)._elf.DynPLTRelRegion,
-      is_copy_relocation,
+      elf_is_copy_relocation,
       [&](const elf::Relocation &R) {
         elf::RelSymbol RelSym = elf::getSymbolForReloc(O, dynamic_symbols(),
                                                        state.for_binary(Binary)._elf.DynamicStringTable, R);
@@ -3986,7 +4006,29 @@ llvm::Constant *LLVMTool::SymbolAddress(const elf::RelSymbol &RelSym) {
   }
 }
 
-void LLVMTool::compute_irelative_relocation(llvm::IRBuilderTy &IRB,
+llvm::Constant *LLVMTool::ImportFunction(llvm::StringRef Name, uint64_t Addr) {
+  llvm::FunctionType *FTy =
+      llvm::FunctionType::get(VoidType(), false); /* FIXME? */
+  llvm::Function *F = llvm::Function::Create(
+      FTy, llvm::GlobalValue::ExternalLinkage, Name, Module.get());
+  F->setDLLStorageClass(llvm::GlobalValue::DLLImportStorageClass);
+  F->addFnAttr(llvm::Attribute::NonLazyBind);
+
+  possible_stubs_vec.push_back(Addr);
+
+  return F;
+}
+
+llvm::Constant *LLVMTool::ImportedFunctionAddress(llvm::StringRef Name, uint64_t Addr) {
+  if (auto *F = Module->getFunction(Name)) {
+    assert(F->empty());
+    return llvm::ConstantExpr::getPtrToInt(F, WordType());
+  }
+
+  return llvm::ConstantExpr::getPtrToInt(ImportFunction(Name, Addr), WordType());
+}
+
+void LLVMTool::elf_compute_irelative_relocation(llvm::IRBuilderTy &IRB,
                                             uint64_t resolverAddr) {
   llvm::Value *TemporaryStack = IRB.CreateCall(JoveAllocStackFunc);
 
@@ -4037,7 +4079,7 @@ void LLVMTool::compute_irelative_relocation(llvm::IRBuilderTy &IRB,
   IRB.CreateRet(Res);
 }
 
-void LLVMTool::compute_tpoff_relocation(llvm::IRBuilderTy &IRB,
+void LLVMTool::elf_compute_tpoff_relocation(llvm::IRBuilderTy &IRB,
                                         const elf::RelSymbol &RelSym,
                                         unsigned Offset) {
   llvm::Value *TLSAddr = nullptr;
@@ -4340,7 +4382,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
     for (unsigned i = 0; i < NumSections; ++i) {
       assert(LoadSegments[i]->p_filesz <= LoadSegments[i]->p_memsz);
 
-      std::vector<uint8_t> &vec = SegContents[i];
+      std::vector<uint8_t> &vec = SegContents.at(i);
       vec.resize(LoadSegments[i]->p_memsz);
       memset(&vec[0], 0, vec.size());
       memcpy(&vec[0], Elf.base() + LoadSegments[i]->p_offset, LoadSegments[i]->p_filesz);
@@ -4384,23 +4426,46 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
   });
 
   B::_coff(*Bin, [&](COFFO &O) {
-    for (const llvm::object::SectionRef &S : O.sections()) {
+    NumSections = O.getNumberOfSections();
+    SectTable.resize(NumSections);
+    SegContents.resize(NumSections);
+
+    unsigned i = 0;
+    auto sect_itr = O.sections();
+    for (auto it = sect_itr.begin(); it != sect_itr.end(); ++it, ++i) {
+      const obj::SectionRef &S = *it;
+
       const llvm::object::coff_section *pSect = O.getCOFFSection(S);
       assert(pSect);
       const llvm::object::coff_section &Sect = *pSect;
 
-      if (!Sect.VirtualSize)
-        continue;
-
       section_properties_t sectprop;
       sectprop.name = Sect.Name;
 
-      if (!Sect.SizeOfRawData) {
-        sectprop.contents = llvm::ArrayRef<uint8_t>();
-      } else {
-        if (llvm::errorToBool(O.getSectionContents(&Sect, sectprop.contents)))
+      if (Sect.PointerToRawData) {
+        llvm::ArrayRef<uint8_t> contents;
+        if (llvm::errorToBool(O.getSectionContents(&Sect, contents))) {
           WithColor::warning() << "failed to get contents of section "
-                             << sectprop.name << '\n';
+                             << Sect.Name << '\n';
+        } else {
+          assert(contents.size() <= Sect.SizeOfRawData);
+
+          if (IsVerbose())
+            llvm::errs() << llvm::formatv(
+                "section {0} is {1} bytes (have {2}) (should have {3})\n",
+                Sect.Name,
+                Sect.VirtualSize,
+                contents.size(),
+                Sect.SizeOfRawData);
+
+          std::vector<uint8_t> &vec = SegContents.at(i);
+
+          vec.resize(Sect.VirtualSize);
+          memset(&vec[0], 0, vec.size());
+          memcpy(&vec[0], contents.data(), std::min(vec.size(), contents.size()));
+
+          sectprop.contents = vec;
+        }
       }
 
       sectprop.x = Sect.Characteristics & llvm::COFF::IMAGE_SCN_MEM_EXECUTE;
@@ -4408,14 +4473,15 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
 
       boost::icl::interval<uint64_t>::type intervl =
           boost::icl::interval<uint64_t>::right_open(
-              Sect.VirtualAddress, Sect.VirtualAddress + Sect.VirtualSize);
+              coff::va_of_rva(O, Sect.VirtualAddress),
+              coff::va_of_rva(O, Sect.VirtualAddress) + Sect.VirtualSize);
 
       {
-        auto it = SectMap.find(intervl);
-        if (it != SectMap.end()) {
+        auto _it = SectMap.find(intervl);
+        if (_it != SectMap.end()) {
           WithColor::error() << "the following sections intersect: "
-                             << (*(*it).second.begin()).name << " and "
-                             << sectprop.name << '\n';
+                             << (*(*_it).second.begin()).name << " and "
+                             << Sect.Name << '\n';
           exit(1);
         }
       }
@@ -4423,25 +4489,23 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
       SectMap.add({intervl, {sectprop}});
     }
 
-    NumSections = O.getNumberOfSections();
-    assert(NumSections == SectMap.iterative_size());
-    SectTable.resize(NumSections);
+    assert(SectMap.iterative_size() == NumSections);
 
-    unsigned i = 0;
+    i = 0;
     for (const auto &pair : SectMap) {
-      section_t &_Sect = SectTable[i];
+      section_t &Sect = SectTable.at(i);
 
       SectIdxMap.add({pair.first, 1+i});
 
       const section_properties_t &prop = *pair.second.begin();
-      _Sect.Addr = pair.first.lower();
-      _Sect.Size = pair.first.upper() - pair.first.lower();
-      _Sect.Name = prop.name;
-      _Sect.Contents = prop.contents;
-      _Sect.Stuff.Intervals.insert(
-          boost::icl::interval<uint64_t>::right_open(0, _Sect.Size));
-      _Sect._elf.initArray = prop._elf.initArray;
-      _Sect._elf.finiArray = prop._elf.finiArray;
+      Sect.Addr = pair.first.lower();
+      Sect.Size = pair.first.upper() - pair.first.lower();
+      Sect.Name = prop.name;
+      Sect.Contents = prop.contents;
+      Sect.Stuff.Intervals.insert(
+          boost::icl::interval<uint64_t>::right_open(0, Sect.Size));
+      Sect._elf.initArray = prop._elf.initArray;
+      Sect._elf.finiArray = prop._elf.finiArray;
 
       ++i;
     }
@@ -5069,6 +5133,52 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
 
   });
 
+  B::_coff(*Bin, [&](COFFO &O) {
+
+  auto printImportedSymbols = [&](uint32_t RVA,
+      llvm::iterator_range<llvm::object::imported_symbol_iterator> Range,
+      bool IAT) -> void {
+    unsigned i = 0;
+    for (auto it = Range.begin(); it != Range.end(); ++it, ++i) {
+      const llvm::object::ImportedSymbolRef &I = *it;
+
+      llvm::StringRef SymName;
+      if (llvm::errorToBool(I.getSymbolName(SymName)))
+        ;
+      uint16_t Ordinal = UINT16_MAX;
+      if (llvm::errorToBool(I.getOrdinal(Ordinal)))
+        ;
+
+      llvm::outs() <<
+        (fmt("[%s] %-15s (%u) @ %x\n")
+         % (IAT ? "IAT" : "ILT")
+         % SymName.str()
+         % Ordinal
+         % (coff::va_of_rva(O, RVA + i*WordBytes()))).str();
+    }
+  };
+
+  // Regular imports
+  for (const llvm::object::ImportDirectoryEntryRef &I : O.import_directories()) {
+#if 0
+    llvm::StringRef Name;
+    if (llvm::errorToBool(I.getName(Name)))
+      continue;
+#endif
+
+    uint32_t ILTAddr;
+    uint32_t IATAddr;
+
+    // The import lookup table can be missing with certain older linkers
+    if (!llvm::errorToBool(I.getImportLookupTableRVA(ILTAddr)) && ILTAddr)
+      printImportedSymbols(ILTAddr, I.lookup_table_symbols(), false);
+
+    if (!llvm::errorToBool(I.getImportAddressTableRVA(IATAddr)) && IATAddr)
+      printImportedSymbols(IATAddr, I.imported_symbols(), true);
+  }
+
+  });
+
   ConstSectsGlobal = nullptr;
   SectsGlobal = nullptr;
 
@@ -5093,10 +5203,10 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
           llvm::Type *R_T = nullptr;
 
           try {
-            R_T = type_of_expression_for_relocation(R);
+            R_T = elf_type_of_expression_for_relocation(R);
           } catch (const unhandled_relocation_exception &) {
             WithColor::error() << llvm::formatv(
-                "type_of_expression_for_relocation: unhandled relocation {0} ({1:x})\n",
+                "elf_type_of_expression_for_relocation: unhandled relocation {0} ({1:x})\n",
                 Elf.getRelocationTypeName(R.Type), R.Type);
             abort();
           }
@@ -5108,7 +5218,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
 
           type_at_address(R.Offset, R_T);
 
-          if (is_constant_relocation(R))
+          if (elf_is_constant_relocation(R))
             ConstantRelocationLocs.insert(R.Offset);
         });
 
@@ -5149,6 +5259,39 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
 
     });
 
+    B::_coff(*Bin, [&](COFFO &O) {
+      coff::for_each_base_relocation(
+          O, [&](uint8_t RelocType, uint64_t RVA) {
+            uint64_t Offset = coff::va_of_rva(O, RVA);
+
+            llvm::Type *R_T = nullptr;
+
+            try {
+              R_T = coff_type_of_expression_for_relocation(RelocType);
+            } catch (const unhandled_relocation_exception &) {
+              WithColor::error() << llvm::formatv(
+                  "coff_type_of_expression_for_relocation: unhandled relocation {0:x}\n",
+                  RelocType);
+              abort();
+            }
+
+            assert(R_T);
+
+            if (R_T->isVoidTy())
+              return;
+
+            type_at_address(Offset, R_T);
+
+            if (coff_is_constant_relocation(RelocType))
+              ConstantRelocationLocs.insert(Offset);
+          });
+
+      coff::for_each_imported_function(
+          O, [&](llvm::StringRef DLL, llvm::StringRef Name, uint64_t RVA) {
+            type_at_address(coff::va_of_rva(O, RVA), WordType());
+          });
+    });
+
     declare_sections();
 
     B::_elf(*Bin, [&](ELFO &O) {
@@ -5161,7 +5304,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
         state.for_binary(Binary)._elf.DynRelrRegion,
         state.for_binary(Binary)._elf.DynPLTRelRegion,
         [&](const elf::Relocation &R) {
-          llvm::Type *R_T = type_of_expression_for_relocation(R);
+          llvm::Type *R_T = elf_type_of_expression_for_relocation(R);
           assert(R_T);
 
           if (R_T->isVoidTy())
@@ -5207,10 +5350,10 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
 
           llvm::Constant *R_C = nullptr;
           try {
-            R_C = expression_for_relocation(R, RelSym);
+            R_C = elf_expression_for_relocation(R, RelSym);
           } catch (const unhandled_relocation_exception &) {
             WithColor::error() << llvm::formatv(
-                "expression_for_relocation: unhandled relocation {0}\n",
+                "elf_expression_for_relocation: unhandled relocation {0}\n",
                 Elf.getRelocationTypeName(R.Type));
             abort();
           }
@@ -5303,6 +5446,40 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
     }
 #endif
 
+    });
+
+    B::_coff(*Bin, [&](COFFO &O) {
+      coff::for_each_base_relocation(
+          O, [&](uint8_t RelocType, uint64_t RVA) {
+            uint64_t Offset = coff::va_of_rva(O, RVA);
+
+            llvm::Constant *R_C = nullptr;
+            try {
+              R_C = coff_expression_for_relocation(RelocType, Offset);
+            } catch (const unhandled_relocation_exception &) {
+              WithColor::error() << llvm::formatv(
+                  "coff_expression_for_relocation: unhandled relocation {0:x}\n",
+                  RelocType);
+              abort();
+            }
+
+            if (!R_C)
+              done = false;
+
+            constant_at_address(Offset, R_C); /* n.b. R_C may be NULL */
+          });
+
+      coff::for_each_imported_function(
+          O, [&](llvm::StringRef DLL, llvm::StringRef Name, uint64_t RVA) {
+            uint64_t Offset = coff::va_of_rva(O, RVA);
+
+            llvm::Constant *R_C = ImportedFunctionAddress(Name, Offset);
+
+            if (!R_C)
+              done = false;
+
+            constant_at_address(Offset, R_C);
+          });
     });
 
     define_sections();
@@ -5528,6 +5705,45 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
   return 0;
 }
 
+int LLVMTool::CreatePossibleStubs(void) {
+  if (IsVerbose())
+    llvm::errs() << llvm::formatv("# of possible stubs: {0}\n",
+                                  possible_stubs_vec.size());
+
+  std::vector<llvm::Constant *> constantTable;
+  constantTable.reserve(possible_stubs_vec.size());
+
+  for (uint64_t poss : possible_stubs_vec)
+    constantTable.push_back(SectionPointer(poss));
+
+  constantTable.push_back(llvm::Constant::getNullValue(WordType()));
+
+  llvm::ArrayType *T = llvm::ArrayType::get(WordType(), constantTable.size());
+  llvm::Constant *Init = llvm::ConstantArray::get(T, constantTable);
+
+  llvm::GlobalVariable *PossibleStubsGV = new llvm::GlobalVariable(
+      *Module, T, true, llvm::GlobalValue::InternalLinkage, Init,
+      (fmt("__jove_poss_stubs%u") % BinaryIndex).str());
+
+  fillInFunctionBody(
+      Module->getFunction("_jove_possible_stubs"),
+      [&](auto &IRB) {
+        IRB.CreateRet(IRB.CreateConstInBoundsGEP2_64(
+            PossibleStubsGV->getValueType(),
+            PossibleStubsGV, 0, 0));
+      },
+      !opts.ForCBE);
+
+  fillInFunctionBody(
+      Module->getFunction("_jove_num_possible_stubs"),
+      [&](auto &IRB) {
+        IRB.CreateRet(IRB.getInt32(possible_stubs_vec.size()));
+      },
+      !opts.ForCBE);
+
+  return 0;
+}
+
 std::pair<binary_index_t, std::pair<uint64_t, unsigned>>
 LLVMTool::decipher_copy_relocation(const elf::RelSymbol &S) {
   assert(jv.Binaries.at(BinaryIndex).IsExecutable);
@@ -5606,10 +5822,15 @@ LLVMTool::decipher_copy_relocation(const elf::RelSymbol &S) {
 int LLVMTool::ProcessManualRelocations(void) {
   binary_t &Binary = jv.Binaries.at(BinaryIndex);
 
+  std::map<uint64_t, llvm::Function *> ManualRelocs;
+
+  B::_elf(*state.for_binary(Binary).Bin, [&](ELFO &O) {
+  const ELFF &Elf = O.getELFFile();
+
   auto OptionalDynSymRegion = state.for_binary(Binary)._elf.OptionalDynSymRegion;
 
   if (!OptionalDynSymRegion)
-    return 0; /* no dynamic symbols */
+    return; /* no dynamic symbols */
 
   const elf::DynRegionInfo &DynSymRegion = *OptionalDynSymRegion;
 
@@ -5617,22 +5838,16 @@ int LLVMTool::ProcessManualRelocations(void) {
     return DynSymRegion.getAsArrayRef<Elf_Sym>();
   };
 
-  assert(llvm::isa<ELFO>(state.for_binary(Binary).Bin.get()));
-  const ELFO &Obj = *llvm::cast<ELFO>(state.for_binary(Binary).Bin.get());
-  const ELFF &Elf = Obj.getELFFile();
-
-  std::map<uint64_t, llvm::Function *> ManualRelocs;
-
   for_each_dynamic_relocation_if(Elf,
       state.for_binary(Binary)._elf.DynRelRegion,
       state.for_binary(Binary)._elf.DynRelaRegion,
       state.for_binary(Binary)._elf.DynRelrRegion,
       state.for_binary(Binary)._elf.DynPLTRelRegion,
-      [&](const elf::Relocation &R) -> bool { return is_manual_relocation(R); },
+      [&](const elf::Relocation &R) -> bool { return elf_is_manual_relocation(R); },
       [&](const elf::Relocation &R) {
-        llvm::Type *R_T = type_of_expression_for_relocation(R);
+        llvm::Type *R_T = elf_type_of_expression_for_relocation(R);
 
-        elf::RelSymbol RelSym = elf::getSymbolForReloc(Obj, dynamic_symbols(),
+        elf::RelSymbol RelSym = elf::getSymbolForReloc(O, dynamic_symbols(),
                                                        state.for_binary(Binary)._elf.DynamicStringTable, R);
 
         llvm::Function *F = llvm::Function::Create(
@@ -5643,7 +5858,7 @@ int LLVMTool::ProcessManualRelocations(void) {
 
         fillInFunctionBody(F, [&](auto &IRB) {
           try {
-            compute_manual_relocation(IRB, R, RelSym);
+            elf_compute_manual_relocation(IRB, R, RelSym);
           } catch (const unhandled_relocation_exception &) {
             WithColor::error()
                 << llvm::formatv("{0}: unhandled relocation {1}", __func__,
@@ -5654,6 +5869,7 @@ int LLVMTool::ProcessManualRelocations(void) {
 
         ManualRelocs.emplace(R.Offset, F);
       });
+  });
 
   fillInFunctionBody(
       Module->getFunction("_jove_do_manual_relocations"),
@@ -6000,6 +6216,8 @@ int LLVMTool::FixupHelperStubs(void) {
               binary_t &binary = jv.Binaries.at(BIdx);
               auto &ICFG = binary.Analysis.ICFG;
 
+              auto &Bin = state.for_binary(binary).Bin;
+
               llvm::ArrayType *TblTy =
                 llvm::ArrayType::get(WordType(),
                                      binary.Analysis.Functions.size() + 1);
@@ -6010,8 +6228,8 @@ int LLVMTool::FixupHelperStubs(void) {
               for (function_index_t FIdx = 0; FIdx < binary.Analysis.Functions.size(); ++FIdx) {
                 function_t &f = binary.Analysis.Functions.at(FIdx);
 
-                constantTable[FIdx] = llvm::ConstantInt::get(
-                    WordType(), ICFG[basic_block_of_index(f.Entry, ICFG)].Addr);
+                constantTable[FIdx] = llvm::ConstantInt::get(WordType(),
+                  B::offset_of_va(*Bin, ICFG[basic_block_of_index(f.Entry, ICFG)].Addr));
               }
 
               constantTable.back() = llvm::Constant::getNullValue(WordType());
@@ -7070,6 +7288,50 @@ int LLVMTool::InlineHelpers(void) {
       llvm::InlineFunctionInfo IFI;
       llvm::InlineFunction(*llvm::cast<llvm::CallInst>(HelperFU), IFI);
     }
+  }
+
+  return 0;
+}
+
+int LLVMTool::ForceCallConv(void) {
+  if (!IsCOFF)
+    return 0;
+
+  auto force_callconv = [&](llvm::Function *F) -> void {
+    F->setCallingConv(llvm::CallingConv::X86_64_SysV);
+
+    for (llvm::User *FU : llvm::make_early_inc_range(F->users())) {
+      if (!llvm::isa<llvm::CallInst>(FU))
+        continue;
+
+      llvm::CallInst *CI = llvm::cast<llvm::CallInst>(FU);
+      if (CI->getCalledFunction() != F)
+        continue;
+
+      CI->setCallingConv(llvm::CallingConv::X86_64_SysV);
+    }
+  };
+
+  //
+  // force callconv for ABI functions and _jove_thunk_*
+  //
+#define __THUNK(n, i, data) \
+  JoveThunk##i##Func = Module->getFunction("_jove_thunk" #i);                  \
+  assert(JoveThunk##i##Func);                                                  \
+  assert(!JoveThunk##i##Func->empty());                                        \
+  force_callconv(JoveThunk##i##Func);
+
+  BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
+
+#undef __THUNK
+
+  binary_t &Binary = jv.Binaries.at(BinaryIndex);
+  for (function_t &f : Binary.Analysis.Functions) {
+    if (!f.IsABI)
+      continue;
+
+    if (llvm::Function *F = state.for_function(f).F)
+      force_callconv(F);
   }
 
   return 0;
@@ -8994,7 +9256,8 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
 }
 
 llvm::Value *LLVMTool::insertThreadPointerInlineAsm(llvm::IRBuilderTy &IRB) {
-  if (opts.ForCBE) {
+  const bool UseTPIntrinsic = /* IsELF || */ opts.ForCBE;
+  if (UseTPIntrinsic) {
     llvm::Function *TPIntrinsic = llvm::Intrinsic::getDeclaration(
         Module.get(), llvm::Intrinsic::thread_pointer);
     assert(TPIntrinsic);
@@ -9009,8 +9272,10 @@ llvm::Value *LLVMTool::insertThreadPointerInlineAsm(llvm::IRBuilderTy &IRB) {
     llvm::StringRef AsmText;
     llvm::StringRef Constraints;
 
-    // TODO replace with thread pointer intrinsic
 #if defined(TARGET_X86_64)
+    if (IsCOFF)
+      AsmText = "movq \%gs:0x30,$0";
+    else
     AsmText = "movq \%fs:0x0,$0";
     Constraints = "=r";
 #elif defined(TARGET_I386)
@@ -9126,11 +9391,11 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
       return IRB.CreatePtrToInt(CPUStateGlobal, WordType());
 #if defined(TARGET_X86_64)
     case tcg_fs_base_index:
-      return insertThreadPointerInlineAsm(IRB);
-#elif defined(TARGET_I386)
-    case tcg_gs_base_index:
-      return insertThreadPointerInlineAsm(IRB);
 #endif
+#if defined(TARGET_X86_64) || defined(TARGET_I386)
+    case tcg_gs_base_index:
+#endif
+      return insertThreadPointerInlineAsm(IRB);
     }
 
     if (ts->kind == TEMP_GLOBAL) {

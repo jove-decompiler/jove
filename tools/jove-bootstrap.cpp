@@ -3331,7 +3331,7 @@ void BootstrapTool::harvest_irelative_reloc_targets(pid_t child) {
   auto processDynamicReloc = [&](binary_t &b, const elf::Relocation &R) -> void {
     binary_index_t BIdx = index_of_binary(b, jv);
 
-    if (!is_irelative_relocation(R))
+    if (!elf_is_irelative_relocation(R))
       return;
 
     struct {
@@ -3403,7 +3403,7 @@ void BootstrapTool::harvest_addressof_reloc_targets(pid_t child) {
   auto processDynamicReloc = [&](binary_t &b, const elf::Relocation &R) -> void {
     binary_index_t BIdx = index_of_binary(b, jv);
 
-    if (!is_addressof_relocation(R))
+    if (!elf_is_addressof_relocation(R))
       return;
 
     std::unique_ptr<obj::Binary> &Bin = state.for_binary(b).ObjectFile;

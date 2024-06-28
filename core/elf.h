@@ -279,6 +279,7 @@ private:
 #endif
 
 uint64_t va_of_offset(ELFO &, uint64_t off);
+uint64_t offset_of_va(ELFO &, uint64_t va);
 
 typedef std::pair<uint64_t, uint64_t> addr_pair;
 addr_pair bounds_of_binary(ELFO &);
@@ -294,16 +295,10 @@ static inline const void *toMappedAddr(ELFO &O, uint64_t Addr) {
 }
 
 std::optional<std::string> program_interpreter_of_elf(const ELFO &);
+std::optional<std::string> soname_of_elf(const ELFO &);
+
+bool needed_libs(ELFO &, std::vector<std::string> &out);
 
 }
-
-struct dynamic_linking_info_t {
-  std::string soname;
-  std::vector<std::string> needed;
-  std::string interp;
-};
-
-bool dynamic_linking_info_of_binary(ELFO &,
-                                    struct dynamic_linking_info_t &out);
 
 }

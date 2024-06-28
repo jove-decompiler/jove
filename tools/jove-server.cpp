@@ -1,5 +1,6 @@
 #include "tool.h"
 #include "serialize.h"
+#include "B.h"
 
 #include <boost/filesystem.hpp>
 
@@ -291,6 +292,12 @@ void *ServerTool::ConnectionProc(void *arg) {
 
   UnserializeJVFromFile(jv, jv_s_path.c_str());
 
+  bool IsCOFF = ({
+    binary_t &b = jv.Binaries.at(0);
+    auto Bin = B::Create(b.data());
+    B::is_coff(*Bin);
+  });
+
   //
   // analyze
   //
@@ -422,7 +429,9 @@ void *ServerTool::ConnectionProc(void *arg) {
     if (IsVerbose())
       llvm::errs() << "sending jove runtime\n";
 
-    ssize_t ret = robust_sendfile_with_size(data_socket, locator().runtime(options.mt).c_str());
+    ssize_t ret = robust_sendfile_with_size(
+        data_socket, IsCOFF ? locator().runtime_dll(options.mt).c_str()
+                            : locator().runtime_so(options.mt).c_str());
 
     if (ret < 0) {
       WithColor::error() << llvm::formatv(

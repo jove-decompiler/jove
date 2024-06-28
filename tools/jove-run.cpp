@@ -685,8 +685,9 @@ int RunTool::DoRun(void) {
   //
   // now actually exec the given executable
   //
-  fs::path prog_path =
-      WillChroot ? opts.Prog : fs::path(opts.sysroot) / opts.Prog;
+  fs::path prog_path = opts.Prog;
+  if (!WillChroot && fs::equivalent(opts.Prog, jv.Binaries.at(0).path_str()))
+    prog_path = fs::path(opts.sysroot) / opts.Prog;
 
   pid_t pid = -1;
   try {

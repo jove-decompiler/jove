@@ -1,4 +1,10 @@
-#include "coff.h"
+#include "B.h"
+#include "win.h"
+#include "util.h"
+
+#include <unordered_set>
+
+namespace obj = llvm::object;
 
 namespace jove {
 namespace coff {
@@ -35,6 +41,79 @@ addr_pair bounds_of_binary(COFFO &O) {
   }
 
   return {SectsStartAddr, SectsEndAddr};
+}
+
+bool needed_libs(COFFO &O, std::vector<std::string> &out) {
+  std::unordered_set<std::string> needed_set;
+
+  for (const obj::ImportDirectoryEntryRef &DirRef : O.import_directories()) {
+    llvm::StringRef Needed;
+    if (llvm::errorToBool(DirRef.getName(Needed)))
+      continue;
+
+    std::string needed(Needed.str());
+    if (const char *dll = win::dll_of_apiset(needed.c_str()))
+      needed_set.insert(dll);
+    else
+      needed_set.insert(lowered_string(needed));
+  }
+
+  out.clear();
+  for (const std::string &needed : needed_set)
+    out.push_back(needed);
+
+  return true;
+}
+
+void for_each_imported_function(COFFO &O,
+    std::function<void(llvm::StringRef DLL, llvm::StringRef Name, uint64_t RVA)> proc)
+{
+  auto processImportedSymbols = [&](llvm::StringRef DLL, uint64_t RVA,
+      llvm::iterator_range<llvm::object::imported_symbol_iterator> Range) -> void {
+    unsigned i = 0;
+    for (auto it = Range.begin(); it != Range.end(); ++it, ++i) {
+      const llvm::object::ImportedSymbolRef &I = *it;
+
+      llvm::StringRef SymName;
+      if (llvm::errorToBool(I.getSymbolName(SymName)) || SymName.empty())
+        continue;
+      uint16_t Ordinal;
+      if (llvm::errorToBool(I.getOrdinal(Ordinal)))
+        continue;
+
+      proc(DLL, SymName, RVA + i*O.getBytesInAddress());
+    }
+  };
+
+  for (const llvm::object::ImportDirectoryEntryRef &I : O.import_directories()) {
+    llvm::StringRef Name;
+    if (llvm::errorToBool(I.getName(Name)))
+      continue;
+
+    uint32_t ILTAddr;
+    uint32_t IATAddr;
+
+    if (false && !llvm::errorToBool(I.getImportLookupTableRVA(ILTAddr)) && ILTAddr)
+      processImportedSymbols(Name, ILTAddr, I.lookup_table_symbols());
+
+    if (!llvm::errorToBool(I.getImportAddressTableRVA(IATAddr)) && IATAddr)
+      processImportedSymbols(Name, IATAddr, I.imported_symbols());
+  }
+}
+
+void for_each_base_relocation(COFFO &O,
+  std::function<void(uint8_t Type, uint64_t RVA)> proc) {
+  for (const obj::BaseRelocRef &I : O.base_relocs()) {
+    uint8_t RelocType;
+    uint32_t RVA;
+
+    if (llvm::errorToBool(I.getRVA(RVA)))
+      continue;
+    if (llvm::errorToBool(I.getType(RelocType)))
+      continue;
+
+    proc(RelocType, RVA);
+  }
 }
 
 }

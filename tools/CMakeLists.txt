@@ -69,6 +69,7 @@ function(tool_for_arch arch arch_extra_cflags qemu_objs)
     ../core/triple.cpp
     ../core/util.cpp
     ../core/vdso.cpp
+    ../core/win.cpp
     check-helper.cpp
     gen-tcgconstants.cpp
     jove-add.cpp

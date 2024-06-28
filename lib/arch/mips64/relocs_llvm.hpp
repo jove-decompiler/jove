@@ -1,4 +1,4 @@
-llvm::Type *LLVMTool::type_of_expression_for_relocation(const elf::Relocation &R) {
+llvm::Type *LLVMTool::elf_type_of_expression_for_relocation(const elf::Relocation &R) {
   switch (R.Type) {
   case (llvm::ELF::R_MIPS_64 << 8) | llvm::ELF::R_MIPS_REL32:
 //case (llvm::ELF::R_MIPS_64 << 8) | llvm::ELF::R_MIPS_GLOB_DAT:
@@ -17,7 +17,7 @@ llvm::Type *LLVMTool::type_of_expression_for_relocation(const elf::Relocation &R
   }
 }
 
-llvm::Constant *LLVMTool::expression_for_relocation(const elf::Relocation &R,
+llvm::Constant *LLVMTool::elf_expression_for_relocation(const elf::Relocation &R,
                                                     const elf::RelSymbol &RelSym) {
   switch (R.Type) {
   case (llvm::ELF::R_MIPS_64 << 8) | llvm::ELF::R_MIPS_REL32:
@@ -47,7 +47,7 @@ llvm::Constant *LLVMTool::expression_for_relocation(const elf::Relocation &R,
   }
 }
 
-bool LLVMTool::is_manual_relocation(const elf::Relocation &R) {
+bool LLVMTool::elf_is_manual_relocation(const elf::Relocation &R) {
   switch (R.Type) {
   case llvm::ELF::R_MIPS_TLS_TPREL64:
 //case llvm::ELF::R_MIPS_TLS_DTPMOD64:
@@ -58,19 +58,19 @@ bool LLVMTool::is_manual_relocation(const elf::Relocation &R) {
   }
 }
 
-void LLVMTool::compute_manual_relocation(llvm::IRBuilderTy &IRB,
+void LLVMTool::elf_compute_manual_relocation(llvm::IRBuilderTy &IRB,
                                          const elf::Relocation &R,
                                          const elf::RelSymbol &RelSym) {
   switch (R.Type) {
   case llvm::ELF::R_MIPS_TLS_TPREL64:
-    return compute_tpoff_relocation(IRB, RelSym, ExtractWordAtAddress(R.Offset));
+    return elf_compute_tpoff_relocation(IRB, RelSym, ExtractWordAtAddress(R.Offset));
 
   default:
     throw unhandled_relocation_exception();
   }
 }
 
-bool LLVMTool::is_constant_relocation(const elf::Relocation &R) {
+bool LLVMTool::elf_is_constant_relocation(const elf::Relocation &R) {
   switch (R.Type) {
   case (llvm::ELF::R_MIPS_64 << 8) | llvm::ELF::R_MIPS_REL32:
   case llvm::ELF::R_MIPS_JUMP_SLOT:
@@ -80,4 +80,19 @@ bool LLVMTool::is_constant_relocation(const elf::Relocation &R) {
   default:
     return false;
   }
+}
+
+llvm::Type *LLVMTool::coff_type_of_expression_for_relocation(uint8_t RelocType) {
+  return WordType();
+}
+
+llvm::Constant *LLVMTool::coff_expression_for_relocation(uint8_t RelocType, uint64_t Offset) {
+  switch (RelocType) {
+  default:
+    throw unhandled_relocation_exception();
+  }
+}
+
+bool LLVMTool::coff_is_constant_relocation(uint8_t RelocType) {
+  return true;
 }

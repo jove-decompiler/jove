@@ -6,7 +6,8 @@ namespace jove {
 struct locator_t {
   std::string tool();
 
-  std::string runtime(bool mt); // libjove_rt.so
+  std::string runtime_so(bool mt); // libjove_rt.so
+  std::string runtime_dll(bool mt); // libjove_rt.dll
   std::string starter_bitcode(bool mt); // jove.bc
   std::string helper_bitcode(const std::string &name);
 
@@ -44,6 +45,7 @@ struct locator_t {
 
   /* NOT the preloader- the exe the preloader loads */
   std::string wine(bool Is32);
+  std::string wine_dll(bool Is32, const std::string &name);
 };
 
 }

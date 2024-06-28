@@ -37,8 +37,13 @@ static fs::path arch_bin_path(void) {
 
 static fs::path prebuilts_path(void) { return jove_path() / "prebuilts"; }
 
-std::string locator_t::runtime(bool mt) {
+std::string locator_t::runtime_so(bool mt) {
   const char *fnm = mt ? "libjove_rt.mt.so" : "libjove_rt.st.so";
+  return must_exist(arch_bin_path() / fnm);
+}
+
+std::string locator_t::runtime_dll(bool mt) {
+  const char *fnm = mt ? "libjove_rt.mt.dll" : "libjove_rt.st.dll";
   return must_exist(arch_bin_path() / fnm);
 }
 
@@ -138,6 +143,12 @@ std::string locator_t::wine(bool Is32) {
   } catch (...) {
     return must_exist("/usr/lib/wine/wine" + std::string(Is32 ? "" : "64"));
   }
+}
+
+std::string locator_t::wine_dll(bool Is32, const std::string &name) {
+  const char *dir = Is32 ? "/usr/lib32/wine/i386-windows/" :
+                           "/usr/lib/wine/x86_64-windows/";
+  return must_exist(dir + name);
 }
 
 }

@@ -15,6 +15,8 @@ LLVM_BIN_DIR := $(JOVE_ROOT_DIR)/llvm-project/build/bin
 
 LLVM_DIS := $(LLVM_BIN_DIR)/llvm-dis
 LLVM_CC  := $(LLVM_BIN_DIR)/clang
+LLVM_LLD := $(LLVM_BIN_DIR)/ld.lld
+LLVM_LLC := $(LLVM_BIN_DIR)/llc
 LLVM_CXX := $(LLVM_BIN_DIR)/clang++
 LLVM_OPT := $(LLVM_BIN_DIR)/opt
 
@@ -29,12 +31,10 @@ mips_ARCH_CFLAGS     := -D TARGET_MIPS32
 mips64el_ARCH_CFLAGS := -D TARGET_MIPS64
 
 runtime_cflags = -std=gnu99 \
-                 --sysroot $($(1)_SYSROOT) \
                  --target=$($(1)_TRIPLE) \
                  -I include \
                  -I lib \
                  -I lib/arch/$(1) \
-                 -I $($(1)_SYSROOT)/include \
                  -I boost/libs/preprocessor/include/ \
                  -D TARGET_$(call uc,$(1)) \
                  -D TARGET_ARCH_NAME=\"$(1)\" \
@@ -53,22 +53,24 @@ runtime_cflags = -std=gnu99 \
                  -fno-plt \
                  -fPIC
 
-COMMON_LDFLAGS := -fuse-ld=lld \
-                  -nostdlib \
-                  -Bsymbolic
-
-STARTER_LDFLAGS := $(COMMON_LDFLAGS) \
+STARTER_LDFLAGS := -fuse-ld=lld \
+                   -nostdlib \
+                   -Bsymbolic \
                    -Wl,-e,_start \
                    -static
 
-runtime_ldflags = $(COMMON_LDFLAGS) \
-                  -Wl,-soname=libjove_rt.so \
-                  -Wl,-init,_jove_rt_init \
-                  -Wl,--push-state \
-                  -Wl,--as-needed $(JOVE_ROOT_DIR)/prebuilts/obj/libclang_rt.builtins-$(1).a \
-                  -Wl,--pop-state \
-                  -Wl,--exclude-libs,ALL \
-                  -shared
+runtime_so_ldflags = -nostdlib \
+                     -Bsymbolic \
+                     -soname=libjove_rt.so \
+                     -init _jove_rt_init \
+                     --push-state \
+                     --as-needed $(JOVE_ROOT_DIR)/prebuilts/obj/libclang_rt.builtins-$(1).a \
+                     --pop-state \
+                     --exclude-libs ALL \
+                     -shared
+
+runtime_dll_ldflags = --as-needed $(JOVE_ROOT_DIR)/prebuilts/obj/libclang_rt.builtins-$(1).a \
+                      -shared
 
 # disable built-in rules
 .SUFFIXES:
@@ -87,6 +89,12 @@ runtime: $(foreach t,$(ALL_TARGETS),runtime-$(t))
 .PHONY: qemu-starters
 qemu-starters: $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/qemu-starter)
 
+runtime_dlls = $(BINDIR)/$(1)/libjove_rt.st.dll
+#               $(BINDIR)/$(1)/libjove_rt.mt.dll
+
+_DLLS_x86_64 := $(call runtime_dlls,x86_64)
+#_DLLS_i386   := $(call runtime_dlls,i386)
+
 define target_code_template
 .PHONY: helpers-$(1)
 helpers-$(1): $(foreach h,$($(t)_HELPERS),$(BINDIR)/$(1)/helpers/$(h).ll) \
@@ -98,7 +106,8 @@ runtime-$(1): $(BINDIR)/$(1)/libjove_rt.st.so \
               $(BINDIR)/$(1)/jove.st.bc \
               $(BINDIR)/$(1)/jove.mt.bc \
               $(BINDIR)/$(1)/jove.st.ll \
-              $(BINDIR)/$(1)/jove.mt.ll
+              $(BINDIR)/$(1)/jove.mt.ll \
+              $(_DLLS_$(1))
 
 $(BINDIR)/$(1)/qemu-starter: lib/arch/$(1)/qemu-starter.c
 	clang-16 -o $$@ $(call runtime_cflags,$(1)) $(STARTER_LDFLAGS) $$<
@@ -107,20 +116,56 @@ $(BINDIR)/$(1)/qemu-starter: lib/arch/$(1)/qemu-starter.c
 $(BINDIR)/$(1)/qemu-starter.inc: $(BINDIR)/$(1)/qemu-starter
 	xxd -i < $$< > $$@
 
-$(BINDIR)/$(1)/libjove_rt.st.so: lib/arch/$(1)/rt.c
-	$(LLVM_CC) -o $$@ $(call runtime_cflags,$(1)) $(call runtime_ldflags,$(1)) -MMD $$<
-
-$(BINDIR)/$(1)/libjove_rt.mt.so: lib/arch/$(1)/rt.c
-	$(LLVM_CC) -o $$@ $(call runtime_cflags,$(1)) $(call runtime_ldflags,$(1)) -D JOVE_MT -MMD $$<
-
+#
+# starter bitcode
+#
 $(BINDIR)/$(1)/jove.st.bc: lib/arch/$(1)/jove.c
-	$(LLVM_CC) -o $$@ $(call runtime_cflags,$(1)) -MMD -c -emit-llvm $$<
+	$(LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -MMD $$<
 
 $(BINDIR)/$(1)/jove.mt.bc: lib/arch/$(1)/jove.c
-	$(LLVM_CC) -o $$@ $(call runtime_cflags,$(1)) -D JOVE_MT -MMD -c -emit-llvm $$<
+	$(LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -D JOVE_MT -MMD $$<
 
 $(BINDIR)/$(1)/jove.%.ll: $(BINDIR)/$(1)/jove.%.bc
 	$(LLVM_OPT) -o $$@ -S --strip-debug $$<
+
+#
+# runtime bitcode
+#
+$(BINDIR)/$(1)/libjove_rt.st.bc: lib/arch/$(1)/rt.c
+	$(LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -MMD $$<
+
+$(BINDIR)/$(1)/libjove_rt.mt.bc: lib/arch/$(1)/rt.c
+	$(LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -D JOVE_MT -MMD $$<
+
+#
+# runtime shared libraries
+#
+$(BINDIR)/$(1)/libjove_rt.%.so.o: $(BINDIR)/$(1)/libjove_rt.%.bc
+	$(LLVM_LLC) -o $$@ --filetype=obj --relocation-model=pic $$<
+
+$(BINDIR)/$(1)/libjove_rt.%.so: $(BINDIR)/$(1)/libjove_rt.%.so.o
+	$(LLVM_LLD) -o $$@ -m $($(1)_LD_EMU) $(call runtime_so_ldflags,$(1)) $$<
+
+#
+# runtime DLLs
+#
+$(BINDIR)/$(1)/libjove_rt.%.dll.o: $(BINDIR)/$(1)/libjove_rt.%.bc
+	$(LLVM_DIS) -o $$<.dll.ll $$<
+	sed -i -e 's/void @_jove_rt_signal_handler(/x86_64_sysvcc void @_jove_rt_signal_handler(/g' $$<.dll.ll
+	sed -i -e 's/i64 @_jove_emusp_location(/x86_64_sysvcc i64 @_jove_emusp_location(/g' $$<.dll.ll
+	sed -i -e 's/i32 @_jove_emusp_location(/x86_64_sysvcc i32 @_jove_emusp_location(/g' $$<.dll.ll
+	sed -i -e 's/i64 @_jove_callstack_location(/x86_64_sysvcc i64 @_jove_callstack_location(/g' $$<.dll.ll
+	sed -i -e 's/i32 @_jove_callstack_location(/x86_64_sysvcc i32 @_jove_callstack_location(/g' $$<.dll.ll
+	sed -i -e 's/i64 @_jove_callstack_begin_location(/x86_64_sysvcc i64 @_jove_callstack_begin_location(/g' $$<.dll.ll
+	sed -i -e 's/i32 @_jove_callstack_begin_location(/x86_64_sysvcc i32 @_jove_callstack_begin_location(/g' $$<.dll.ll
+	sed -i -e 's/void @_jove_free_callstack(/x86_64_sysvcc void @_jove_free_callstack(/g' $$<.dll.ll
+	sed -i -e 's/void @_jove_free_stack_later(/x86_64_sysvcc void @_jove_free_stack_later(/g' $$<.dll.ll
+	sed -i -e 's/i64 @_jove_handle_signal_delivery(/x86_64_sysvcc i64 @_jove_handle_signal_delivery(/g' $$<.dll.ll
+	sed -i -e 's/i32 @_jove_handle_signal_delivery(/x86_64_sysvcc i32 @_jove_handle_signal_delivery(/g' $$<.dll.ll
+	$(LLVM_LLC) -o $$@ --filetype=obj --relocation-model=pic --mtriple=$($(1)_COFF_TRIPLE) $$<.dll.ll
+
+$(BINDIR)/$(1)/libjove_rt.%.dll: $(BINDIR)/$(1)/libjove_rt.%.dll.o
+	$(LLVM_LLD) -o $$@ -m $($(1)_COFF_LD_EMU) $(call runtime_dll_ldflags,$(1)) $$<
 
 .PHONY: gen-tcgconstants-$(1)
 gen-tcgconstants-$(1): $(BINDIR)/$(1)/gen-tcgconstants

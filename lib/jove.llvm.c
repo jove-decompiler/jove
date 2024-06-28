@@ -26,3 +26,5 @@ extern uintptr_t _jove_get_init_fn(void);
 extern uintptr_t _jove_get_init_fn_sect_ptr(void);
 extern uintptr_t _jove_get_libc_early_init_fn(void);
 extern uintptr_t _jove_get_libc_early_init_fn_sect_ptr(void);
+extern uintptr_t *_jove_possible_stubs(void);
+extern uint32_t _jove_num_possible_stubs(void);

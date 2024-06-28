@@ -5,6 +5,7 @@
 #include "vdso.h"
 #include "explore.h"
 #include "tcg.h"
+#include "win.h"
 
 #include <boost/filesystem.hpp>
 #include <boost/format.hpp>
@@ -180,9 +181,28 @@ int InitTool::Run(void) {
       if (!MaybeRTLD)
         die("wine (not the preloader) is expected to be dynamically linked");
 
+      //
+      // find them the stupid way
+      //
+      std::vector<std::string> needed_vec;
+      if (coff::needed_libs(O, needed_vec)) {
+        for (const std::string &needed : needed_vec) {
+          try {
+            binary_paths.push_back(locator().wine_dll(IsTarget32, needed));
+          } catch (const std::exception &e) {
+            WithColor::warning() << llvm::formatv("can't locate wine dll \"{0}\"\n", needed);
+          }
+        }
+      }
+
       return *MaybeRTLD;
     }
   )).string();
+
+  if (IsVerbose()) {
+    for (const std::string &binary_path : binary_paths)
+      llvm::errs() << "binary path: " << binary_path << '\n';
+  }
 
   jv.clear(); /* point of no return */
 

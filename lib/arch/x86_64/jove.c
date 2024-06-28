@@ -75,6 +75,10 @@ static uintptr_t _jove_alloc_stack(void);
 static void _jove_free_stack(uintptr_t beg);
 static uintptr_t _jove_alloc_callstack(void);
 static void _jove_free_callstack(uintptr_t start);
+static uintptr_t _jove_alloc_large_buffer(void);
+static void _jove_free_large_buffer(uintptr_t start);
+
+static bool _jove_see_through_stub(const void *ptr, uintptr_t *out);
 
 #include "jove.llvm.c"
 #include "jove.arch.c"
@@ -110,10 +114,31 @@ _NAKED void _jove__libc_early_init(uint64_t rdi,
                                    uint64_t r8,
                                    uint64_t r9);
 
-void _jove_start(void) {
-  asm volatile(/* Clearing frame pointer is insufficient, use CFI.  */
-               ".cfi_undefined %%rip\n"
+void __cdecl mainCRTStartup() {
+  //
+  // TODO: __getmainargs()
+  //
+  {
+    //unsigned len = _get_stack_end() - sp_addr;
+    unsigned len = JOVE_PAGE_SIZE; /* FIXME */
 
+    uintptr_t env_stack_beg = _jove_alloc_stack();
+    uintptr_t env_stack_end = env_stack_beg + JOVE_STACK_SIZE;
+
+    uintptr_t emu_sp = env_stack_end - JOVE_PAGE_SIZE - len;
+
+    emu_sp &= ~15UL;
+
+    __jove_env.regs[R_ESP] = emu_sp;
+  }
+
+  _jove_initialize();
+
+  return _jove_call_entry();
+}
+
+void _jove_start(void) {
+  asm volatile(
                /* Clear the frame pointer.  The ABI suggests this be done, to
                  mark the outermost frame obviously.  */
                "xorq %%rbp, %%rbp\n"
@@ -437,4 +462,20 @@ _HIDDEN void _jove_do_call_rt_init(void) {
 
   _jove_do_manual_relocations();
   _jove_do_emulate_copy_relocations();
+}
+
+bool _jove_see_through_stub(const void *ptr, uintptr_t *out) {
+  const uint8_t *const u8p = (const uint8_t *)ptr;
+  if (!(u8p[0] == 0xff &&
+        u8p[1] == 0x25)) /* see importThunkX86 in lld/COFF/Chunks.h */
+    return false;
+
+  //
+  // 140006ab0: ff 25 ba 7c 00 00            jmpq    *0x7cba(%rip)           # 0x14000e770 <__imp__configure_narrow_argv>
+  //
+  const unsigned sizeof_jmp = 6;
+  uint32_t pc_off = *((const uint32_t *)&u8p[2]);
+
+  *out = *((uint64_t *)(u8p + pc_off + sizeof_jmp));
+  return true;
 }

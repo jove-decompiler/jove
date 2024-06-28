@@ -73,6 +73,7 @@ class LoopTool : public JVTool {
     cl::opt<bool> Gdb;
     cl::alias GdbAlias;
     cl::opt<bool> Gdbs;
+    cl::opt<bool> WineDdb;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : Prog(cl::Positional, cl::desc("prog"), cl::Required,
@@ -231,7 +232,9 @@ class LoopTool : public JVTool {
                    cl::cat(JoveCategory)),
 
           Gdbs("gdbs", cl::desc("Run program under gdbserver"),
-               cl::cat(JoveCategory)) {}
+               cl::cat(JoveCategory)),
+
+          WineDdb("winedbg", cl::desc("Run program under winedbg")) {}
   } opts;
 
 public:
@@ -377,7 +380,7 @@ int LoopTool::Run(void) {
 
     {
       fs::path chrooted_path(sysroot);
-      chrooted_path /= opts.Prog;
+      chrooted_path /= jv.Binaries.at(0).path_str();
 
       if (!fs::exists(chrooted_path)) {
         HumanOut() << llvm::formatv(
@@ -494,19 +497,26 @@ run:
 
             //
             // program + args
-            //
+            // FIXME locator
             if (opts.Gdb) {
               Arg("/usr/bin/gdb");
               Arg("--args");
               if (WillChroot)
                 Arg(opts.Prog);
               else
-                Arg(sysroot + opts.Prog);
+                Arg(sysroot + "/" + opts.Prog);
             } else if (opts.Gdbs) {
               Arg("/usr/bin/gdbserver");
               Arg("--multi");
               Arg("*:2345");
               return;
+            } else if (opts.WineDdb) {
+              Arg("/usr/bin/winedbg");
+              Arg("--gdb");
+              if (WillChroot)
+                Arg(opts.Prog);
+              else
+                Arg(sysroot + "/" + opts.Prog);
             } else {
               Arg(opts.Prog);
             }

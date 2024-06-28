@@ -588,3 +588,18 @@ void _jove_free_callstack(uintptr_t start) {
   if (_jove_sys_munmap(start - JOVE_PAGE_SIZE, JOVE_CALLSTACK_SIZE) < 0)
     _UNREACHABLE("failed to deallocate callstack");
 }
+
+uintptr_t _jove_alloc_large_buff(void) {
+  unsigned long ret = _mmap_rw_anonymous_private_memory(JOVE_LARGE_BUFF_SIZE);
+  if (ret < 0 && ret > -4096)
+    _UNREACHABLE("failed to allocate large buffer");
+
+  return ret;
+}
+
+void _jove_free_large_buffer(uintptr_t start) {
+  if (_jove_sys_munmap(start, JOVE_LARGE_BUFF_SIZE))
+    _UNREACHABLE("failed to deallocate large buffer");
+}
+
+static void _jove_free_large_buffp(uintptr_t *p) { _jove_free_large_buffer(*p); }

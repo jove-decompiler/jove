@@ -42,7 +42,7 @@ unsigned __jove_dfsan_sig_handle = 0;
 
 #include "kernel_sigaction.h"
 
-static void _jove_rt_signal_handler(int, siginfo_t *, ucontext_t *);
+static __cdecl __attribute__((sysv_abi)) void _jove_rt_signal_handler(int, siginfo_t *, ucontext_t *);
 
 static void _jove_init_cpu_state(void);
 static void _jove_callstack_init(void);
@@ -55,7 +55,9 @@ int _jove_needs_single_threaded_runtime(void) { return 1; }
 #endif
 
 #if defined(__x86_64__)
+#if 0
 extern void restore_rt (void) asm ("__restore_rt") __attribute__ ((visibility ("hidden")));
+#endif
 #endif
 
 void _jove_rt_init(void) {
@@ -75,7 +77,7 @@ void _jove_rt_init(void) {
 #define SA_RESTORER 0x04000000
 #endif
   sa.k_sa_flags |= SA_RESTORER;
-  sa.k_sa_restorer = restore_rt; // _jove_do_rt_sigreturn
+  sa.k_sa_restorer = _jove_do_rt_sigreturn; // restore_rt
 #elif defined(__i386__)
   sa.k_sa_restorer = _jove_do_rt_sigreturn;
 #endif
@@ -110,6 +112,37 @@ void _jove_rt_init(void) {
   _jove_trace_init();
 }
 
+BOOL DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved)
+{
+
+    switch (ul_reason_for_call)
+    {
+    case 1: // DLL_PROCESS_ATTACH
+        // Code to run when the DLL is loaded
+        _jove_rt_init();
+        break;
+    case 2: // DLL_THREAD_ATTACH
+        // Code to run when a thread is created within the DLL
+        break;
+    case 3: // DLL_THREAD_DETACH
+        // Code to run when a thread within the DLL terminates
+        break;
+    case 0: // DLL_PROCESS_DETACH
+        // Code to run when the DLL is unloaded
+        break;
+    }
+    return TRUE;  // Successful DLL_PROCESS_ATTACH
+}
+
+BOOL WINAPI _DllMainCRTStartup(HMODULE hModule,
+                               DWORD ul_reason_for_call,
+                               LPVOID lpReserved)
+{
+    return DllMain(hModule, ul_reason_for_call, lpReserved);
+}
+
+void ___chkstk_ms() {}
+
 void _jove_init_cpu_state(void) {
   if (__jove_initialized_env)
     return;
@@ -131,10 +164,14 @@ void _jove_init_cpu_state(void) {
   __jove_env.fptags[7] = 1;
 #endif
 
-#if !defined(__x86_64__) && defined(__i386__)
+#if defined(__x86_64__) || defined(__i386__)
 #define CPUID_XSAVE_XGETBV1    (1U << 2)
 
   __jove_env.features[FEAT_XSAVE] |= CPUID_XSAVE_XGETBV1;
+
+#define CR4_OSXSAVE_MASK (1U << 18)
+
+  __jove_env.cr[4] |= CR4_OSXSAVE_MASK;
 #endif
 }
 
@@ -213,9 +250,7 @@ void _jove_flush_trace(void) {
 
 static bool is_sigreturn_insn_sequence(const void *insn_bytes);
 
-#if !defined(__x86_64__) && defined(__i386__)
 _REGPARM
-#endif
 _HIDDEN uintptr_t _jove_handle_signal_delivery(uintptr_t SignalDelivery,
                                                void *SavedState);
 
@@ -571,11 +606,15 @@ not_found:
     //
     // if we get here we'll assume it's a crash.
     //
-    char maps[JOVE_PROC_MAPS_BUF_LEN];
-    const unsigned maps_n = _jove_read_pseudo_file("/proc/self/maps", maps, sizeof(maps));
+    uintptr_t _m _CLEANUP(_jove_free_large_buffp) = _jove_alloc_large_buff();
+    char *const maps = (char *)_m;
+
+    const unsigned maps_n = _jove_read_pseudo_file("/proc/self/maps", maps, JOVE_LARGE_BUFF_SIZE);
     maps[maps_n] = '\0';
 
-    char s[2 * JOVE_PROC_MAPS_BUF_LEN];
+    uintptr_t _s _CLEANUP(_jove_free_large_buffp) = _jove_alloc_large_buff();
+    char *const s = (char *)_s;
+
     s[0] = '\0';
 
     _strcat(s, "*** crash (jove) *** [");

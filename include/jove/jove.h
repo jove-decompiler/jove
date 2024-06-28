@@ -143,23 +143,37 @@ constexpr bool IsTargetLittleEndian =
 #endif
     ;
 
-static const char *TargetStaticLinkerEmulation =
+constexpr const char *TargetStaticLinkerEmulation(bool IsCOFF) {
+  if (IsCOFF) {
+    return
 #if defined(TARGET_X86_64)
-                      "elf_x86_64"
+        "i386pep"
 #elif defined(TARGET_I386)
-                      "elf_i386"
+        "i386pe"
+#else
+        ""
+#endif
+        ;
+  } else {
+    return
+#if defined(TARGET_X86_64)
+        "elf_x86_64"
+#elif defined(TARGET_I386)
+        "elf_i386"
 #elif defined(TARGET_AARCH64)
-                      "aarch64linux"
+        "aarch64linux"
 #elif defined(TARGET_MIPS64)
-                      "elf64ltsmip"
+        "elf64ltsmip"
 #elif defined(TARGET_MIPS32) && defined(TARGET_MIPSEL)
-                      "elf32ltsmip"
+        "elf32ltsmip"
 #elif defined(TARGET_MIPS32) && defined(TARGET_MIPS)
-                      "elf32btsmip"
+        "elf32btsmip"
 #else
 #error
 #endif
-                  ;
+        ;
+  }
+}
 
 //typedef boost::interprocess::managed_shared_memory::segment_manager
 //    segment_manager_t;

@@ -101,8 +101,10 @@ typedef std::pair<uint64_t, uint64_t> addr_pair;
 
 BFUNCTION(addr_pair, bounds_of_binary)
 BFUNCTION(uint64_t, va_of_offset, uint64_t, off)
+BFUNCTION(uint64_t, offset_of_va, uint64_t, va)
 BFUNCTION(const void *, toMappedAddr, uint64_t, Addr)
 BFUNCTION(uint64_t, extractAddress, const void *, ptr)
+BFUNCTION(bool, needed_libs, std::vector<std::string> &, out);
 
 }
 }

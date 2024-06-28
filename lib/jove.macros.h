@@ -1,5 +1,4 @@
 #pragma once
-#include <asm-generic/errno-base.h>
 
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 #define _IOV_ENTRY(var) {.iov_base = &var, .iov_len = sizeof(var)}
@@ -29,9 +28,16 @@
 #define QEMU_ALIGN_DOWN(n, m) ((n) / (m) * (m))
 #define QEMU_ALIGN_UP(n, m) QEMU_ALIGN_DOWN((n) + (m) - 1, (m))
 
-#ifdef __i386__
+#if !defined(__x86_64__) && defined(__i386__)
 #define _REGPARM __attribute__((regparm(3)))
+#define WINAPI __attribute__((stdcall))
+#else
+#define _REGPARM
+#define WINAPI
 #endif
+
+#define TRUE 1
+#define FALSE 0
 
 #define __ANSI_COLOR_PREFIX "\033["
 #define __ANSI_COLOR_SUFFIX "m"
@@ -64,3 +70,5 @@
     _jove_sys_exit_group(1);                                                   \
     __builtin_unreachable();                                                   \
   } while (false)
+
+#define _CLEANUP(x) __attribute__((cleanup(x)))

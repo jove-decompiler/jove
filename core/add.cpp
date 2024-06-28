@@ -29,6 +29,21 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
   b.IsPIC = true;
   b.IsDynamicallyLoaded = false;
 
+  auto BasicBlockAtAddress = [&](uint64_t Entrypoint) -> void {
+    E.explore_basic_block(b, *Bin, Entrypoint);
+  };
+  auto FunctionAtAddress = [&](uint64_t Entrypoint) -> function_index_t {
+    return E.explore_function(b, *Bin, Entrypoint);
+  };
+  auto ABIAtAddress = [&](uint64_t Entrypoint) -> void {
+    function_index_t FIdx = FunctionAtAddress(Entrypoint);
+
+    if (unlikely(!is_function_index_valid(FIdx)))
+      return;
+
+    b.Analysis.Functions.at(FIdx).IsABI = true;
+  };
+
   return B::_X(*Bin,
     [&](ELFO &O) {
   const ELFF &Elf = O.getELFFile();
@@ -70,21 +85,6 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
 #if 0
   bool IsStaticallyLinked = true;
 #endif
-
-  auto BasicBlockAtAddress = [&](uint64_t Entrypoint) -> void {
-    E.explore_basic_block(b, O, Entrypoint);
-  };
-  auto FunctionAtAddress = [&](uint64_t Entrypoint) -> function_index_t {
-    return E.explore_function(b, O, Entrypoint);
-  };
-  auto ABIAtAddress = [&](uint64_t Entrypoint) -> void {
-    function_index_t FIdx = FunctionAtAddress(Entrypoint);
-
-    if (unlikely(!is_function_index_valid(FIdx)))
-      return;
-
-    b.Analysis.Functions.at(FIdx).IsABI = true;
-  };
 
   //
   // examine dynamic table
@@ -371,7 +371,7 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
       //
       // ifunc resolvers are ABIs
       //
-      if (is_irelative_relocation(R)) {
+      if (elf_is_irelative_relocation(R)) {
         uint64_t resolverAddr = R.Addend ? *R.Addend : 0;
 
         if (!resolverAddr) {
@@ -406,7 +406,7 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
       if (!Contained)
         return;
 
-      if (!is_relative_relocation(R)) {
+      if (!elf_is_relative_relocation(R)) {
         WithColor::warning() << llvm::formatv(
             "unrecognized relocation {0} in .init_array/.fini_array\n",
             Elf.getRelocationTypeName(R.Type));
@@ -836,8 +836,73 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
                       bool iserr = llvm::errorToBool(Exp.getExportRVA(RVA));
                       assert(!iserr);
 
-                      E.explore_function(b, O, coff::va_of_rva(O, RVA));
+                      ABIAtAddress(coff::va_of_rva(O, RVA));
                   });
+
+      for_each_if(std::execution::par_unseq,
+                  O.symbol_begin(),
+                  O.symbol_end(),
+                  [&](obj::SymbolRef SymbolRef) -> bool {
+                    llvm::Expected<uint64_t> AddrOrErr = SymbolRef.getAddress();
+                    if (!AddrOrErr) {
+                      llvm::consumeError(AddrOrErr.takeError());
+                      return false;
+                    }
+
+                    obj::COFFSymbolRef Symbol = O.getCOFFSymbol(SymbolRef);
+
+                    if (Symbol.getNumberOfAuxSymbols() > 0)
+                      return false;
+
+                    llvm::Expected<llvm::StringRef> NameOrErr = O.getSymbolName(Symbol);
+                    if (!NameOrErr) {
+                      llvm::consumeError(NameOrErr.takeError());
+                      return false;
+                    }
+
+                    llvm::Expected<obj::section_iterator> ItOrErr = SymbolRef.getSection();
+
+                    if (!ItOrErr) {
+                      llvm::consumeError(ItOrErr.takeError());
+                      return false;
+                    }
+
+                    obj::section_iterator it = *ItOrErr;
+                    if (it == O.section_end())
+                      return false;
+
+                    const obj::coff_section *Section = O.getCOFFSection(*it);
+                    return Section && Section->Characteristics & llvm::COFF::IMAGE_SCN_MEM_EXECUTE;
+                  },
+                  [&](obj::SymbolRef SymbolRef) -> void {
+                    obj::COFFSymbolRef Symbol = O.getCOFFSymbol(SymbolRef);
+
+#if 0
+                    llvm::Expected<llvm::StringRef> NameOrErr = O.getSymbolName(Symbol);
+                    assert(NameOrErr);
+
+                    llvm::errs() << "exploring " << *NameOrErr << ' ' << Symbol.getValue() <<  " @ " << taddr2str(coff::va_of_rva(O, Symbol.getValue())) << '\n';
+#endif
+
+                    auto AddrOrErr = SymbolRef.getAddress();
+                    assert(AddrOrErr);
+
+                    ABIAtAddress(*AddrOrErr);
+                  });
+
+      coff::for_each_base_relocation(O,
+                                    [&](uint8_t RelocType, uint64_t RVA) -> void {
+                                    if (!coff_is_dir_relocation(RelocType))
+                                    return;
+
+                                    const void *Ptr = coff::toMappedAddr(
+                                        O, coff::va_of_rva(O, RVA));
+                                    if (!Ptr)
+                                      return;
+                                    uint64_t Addr = B::extractAddress(O, Ptr);
+                                    if (coff::isCode(O, coff::offset_of_va(O, Addr)))
+                                      ABIAtAddress(Addr);
+                                    });
     }
   );
 }

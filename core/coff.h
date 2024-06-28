@@ -2,6 +2,8 @@
 #include <llvm/Object/COFF.h>
 #include <llvm/Support/DataExtractor.h>
 
+#include <functional>
+
 namespace jove {
 
 typedef llvm::object::COFFObjectFile COFFO;
@@ -14,6 +16,10 @@ constexpr uint64_t va_of_rva(COFFO &O, uint64_t rva) {
 
 constexpr uint64_t va_of_offset(COFFO &O, uint64_t off) {
   return va_of_rva(O, off);
+}
+
+constexpr uint64_t offset_of_va(COFFO &O, uint64_t va) {
+  return va - O.getImageBase();
 }
 
 typedef std::pair<uint64_t, uint64_t> addr_pair;
@@ -41,6 +47,14 @@ static inline uint64_t extractAddress(COFFO &O, const void *ptr) {
 }
 
 bool isCode(COFFO &O, uint64_t RVA);
+
+bool needed_libs(COFFO &, std::vector<std::string> &out);
+
+void for_each_imported_function(COFFO &,
+  std::function<void(llvm::StringRef DLL, llvm::StringRef Name, uint64_t RVA)> proc);
+
+void for_each_base_relocation(COFFO &,
+  std::function<void(uint8_t Type, uint64_t RVA)> proc);
 
 }
 

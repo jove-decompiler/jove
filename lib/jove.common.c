@@ -32,6 +32,8 @@ static void _jove_install_function_mappings(void);
 
 static void _jove_make_sections_executable(void);
 
+static void _jove_see_through_stubs(struct _jove_function_info_t *);
+
 extern void _jove_rt_init(void);
 
 #ifdef JOVE_MT
@@ -97,8 +99,9 @@ void _jove_install_function_mappings(void) {
   // allocate memory for function_info_t structures
   //
   uintptr_t fninfo_arr_addr = _mmap_rw_anonymous_private_memory(
-      QEMU_ALIGN_UP(_jove_function_count() * sizeof(struct _jove_function_info_t),
-      JOVE_PAGE_SIZE));
+      QEMU_ALIGN_UP(sizeof(struct _jove_function_info_t) *
+                        (_jove_function_count() + _jove_num_possible_stubs()),
+                    JOVE_PAGE_SIZE));
 
   if (IS_ERR_VALUE(fninfo_arr_addr))
     _UNREACHABLE("failed to allocate memory for function_info_t array");
@@ -125,8 +128,80 @@ void _jove_install_function_mappings(void) {
 
       ++fninfo_p;
     }
+
+    _jove_see_through_stubs(fninfo_p);
   }
+
   memory_barrier();
+}
+
+void _jove_see_through_stubs(struct _jove_function_info_t *fninfo_p) {
+  for (uintptr_t *pp = _jove_possible_stubs(); *pp; ++pp) {
+    const uintptr_t poss = *((uintptr_t *)(*pp));
+
+    uintptr_t pc = ~0UL;
+    if (!_jove_see_through_stub((const void *)poss, &pc))
+      pc = *((uintptr_t *)poss);
+
+    {
+      struct _jove_function_info_t *finfo;
+
+      hash_for_each_possible(__jove_function_map, finfo, hlist, pc) {
+        if (finfo->pc != pc) {
+          continue;
+        } else {
+          *fninfo_p = *finfo;
+          goto found;
+        }
+      }
+    }
+
+    continue;
+
+found:
+#if 0
+    {
+      char s[1024];
+      s[0] = '\0';
+
+      _strcat(s, "_jove_see_through_stubs: 0x");
+      {
+        char buff[65];
+        _uint_to_string(poss, buff, 0x10);
+
+        _strcat(s, buff);
+      }
+      _strcat(s, " -> 0x");
+      {
+        char buff[65];
+        _uint_to_string((uintptr_t)pc, buff, 0x10);
+
+        _strcat(s, buff);
+      }
+      _strcat(s, " (");
+      {
+        char buff[65];
+        _uint_to_string(fninfo_p->BIdx, buff, 10);
+
+        _strcat(s, buff);
+      }
+      _strcat(s, ", ");
+      {
+        char buff[65];
+        _uint_to_string(fninfo_p->FIdx, buff, 10);
+
+        _strcat(s, buff);
+      }
+      _strcat(s, ")\n");
+
+      _jove_robust_write(2 /* stderr */, s, _strlen(s));
+    }
+    //for (;;);
+#endif
+    fninfo_p->pc = poss;
+    hash_add(__jove_function_map, &fninfo_p->hlist, poss /* key */);
+    ++fninfo_p;
+  }
 }
 
 typedef void (*_jove_rt_init_t)(void);
@@ -448,8 +523,10 @@ void _jove_install_foreign_function_tables(void) {
 
   /* we need to get the load addresses for the dynamic linker and VDSO by
    * parsing /proc/self/maps */
-  char maps[JOVE_PROC_MAPS_BUF_LEN];
-  unsigned n = _jove_read_pseudo_file("/proc/self/maps", maps, sizeof(maps));
+  uintptr_t _m _CLEANUP(_jove_free_large_buffp) = _jove_alloc_large_buff();
+  char *const maps = (char *)_m;
+
+  unsigned n = _jove_read_pseudo_file("/proc/self/maps", maps, JOVE_LARGE_BUFF_SIZE);
   maps[n] = '\0';
 
   uintptr_t dynl_load_bias = _parse_dynl_load_bias(maps, n);
@@ -587,12 +664,16 @@ void _jove_install_foreign_function_tables(void) {
 }
 
 _NORET void _jove_fail1(uintptr_t a0, const char *reason) {
-  char maps[JOVE_PROC_MAPS_BUF_LEN];
-  const unsigned n = _jove_read_pseudo_file("/proc/self/maps", maps, sizeof(maps));
+  uintptr_t _m _CLEANUP(_jove_free_large_buffp) = _jove_alloc_large_buff();
+  char *const maps = (char *)_m;
+
+  const unsigned n = _jove_read_pseudo_file("/proc/self/maps", maps, JOVE_LARGE_BUFF_SIZE);
   maps[n] = '\0';
 
   {
-    char s[2 * JOVE_PROC_MAPS_BUF_LEN];
+    uintptr_t _s _CLEANUP(_jove_free_large_buffp) = _jove_alloc_large_buff();
+    char *const s = (char *)_s;
+
     s[0] = '\0';
 
     _strcat(s, "_jove_fail1: ");
@@ -649,12 +730,16 @@ _NORET void _jove_fail1(uintptr_t a0, const char *reason) {
 
 _NORET void _jove_fail2(uintptr_t a0,
                         uintptr_t a1) {
-  char maps[JOVE_PROC_MAPS_BUF_LEN];
-  const unsigned n = _jove_read_pseudo_file("/proc/self/maps", maps, sizeof(maps));
+  uintptr_t _m _CLEANUP(_jove_free_large_buffp) = _jove_alloc_large_buff();
+  char *const maps = (char *)_m;
+
+  const unsigned n = _jove_read_pseudo_file("/proc/self/maps", maps, JOVE_LARGE_BUFF_SIZE);
   maps[n] = '\0';
 
   {
-    char s[2 * JOVE_PROC_MAPS_BUF_LEN];
+    uintptr_t _s _CLEANUP(_jove_free_large_buffp) = _jove_alloc_large_buff();
+    char *const s = (char *)_s;
+
     s[0] = '\0';
 
     _strcat(s, "_jove_fail2: 0x");
@@ -771,9 +856,7 @@ _HIDDEN void _jove_recover_function(uint32_t IndCallBBIdx,
                                     uintptr_t FuncAddr);
 
 _HIDDEN
-#if !defined(__x86_64__) && defined(__i386__)
 _REGPARM
-#endif
 jove_thunk_return_t _jove_call(
                                #define __REG_ARG(n, i, data) uintptr_t reg##i,
 
@@ -864,8 +947,10 @@ jove_thunk_return_t _jove_call(
   }
 
   if (!FoundAll) {
-    char maps[JOVE_PROC_MAPS_BUF_LEN];
-    unsigned n = _jove_read_pseudo_file("/proc/self/maps", maps, sizeof(maps));
+    uintptr_t _m _CLEANUP(_jove_free_large_buffp) = _jove_alloc_large_buff();
+    char *const maps = (char *)_m;
+
+    unsigned n = _jove_read_pseudo_file("/proc/self/maps", maps, JOVE_LARGE_BUFF_SIZE);
     maps[n] = '\0';
 
     char *const beg = &maps[0];
@@ -950,8 +1035,10 @@ jove_thunk_return_t _jove_call(
     //
     // see if this is a function in a foreign DSO
     //
-    char maps[JOVE_PROC_MAPS_BUF_LEN];
-    unsigned n = _jove_read_pseudo_file("/proc/self/maps", maps, sizeof(maps));
+    uintptr_t _m _CLEANUP(_jove_free_large_buffp) = _jove_alloc_large_buff();
+    char *const maps = (char *)_m;
+
+    unsigned n = _jove_read_pseudo_file("/proc/self/maps", maps, JOVE_LARGE_BUFF_SIZE);
     maps[n] = '\0';
 
     char *const beg = &maps[0];
@@ -1137,6 +1224,8 @@ found:
         __jove_env_clunk == NULL
 #endif
         ;
+
+    uintptr_t RealEntry = __jove_foreign_function_tables[Callee.BIdx][Callee.FIdx];
     if (unlikely(in_ifunc)) {
       //
       // when might __jove_env_clunk be NULL? in an ifunc resolver, that's when
@@ -1156,7 +1245,7 @@ found:
                           BOOST_PP_REPEAT(TARGET_NUM_REG_ARGS, __REG_ARG, void)
 
                           #undef __REG_ARG
-                          pc, emusp_ptr);
+                          RealEntry, emusp_ptr);
 
       _jove_free_stack(dummy_stack);
 
@@ -1170,14 +1259,10 @@ found:
                           BOOST_PP_REPEAT(TARGET_NUM_REG_ARGS, __REG_ARG, void)
 
                           #undef __REG_ARG
-                          pc, emusp_ptr);
+                          RealEntry, emusp_ptr);
     }
   } else {
-#if !defined(__x86_64__) && defined(__i386__)
 #define CALLCONV_ATTR _REGPARM
-#else
-#define CALLCONV_ATTR
-#endif
 
     return ((CALLCONV_ATTR jove_thunk_return_t (*)(
                          #define __REG_ARG(n, i, data) BOOST_PP_COMMA_IF(i) uintptr_t

@@ -13,6 +13,72 @@ _HIDDEN void _jove_recover_dyn_target(uint32_t CallerBBIdx,
     uint32_t FIdx;
   } Callee;
 
+  //
+  // lookup in __jove_function_map
+  //
+#if 0
+  memory_barrier();
+
+  {
+    char s[1024];
+    s[0] = '\0';
+
+    _strcat(s, "dumping __jove_function_map...\n");
+    _jove_robust_write(2 /* stderr */, s, _strlen(s));
+  }
+
+  {
+    int bkt;
+    struct _jove_function_info_t *x;
+
+    hash_for_each(__jove_function_map, bkt, x, hlist) {
+      {
+        char s[1024];
+        s[0] = '\0';
+
+        _strcat(s, "0x");
+        {
+          char buff[65];
+          _uint_to_string(x->pc, buff, 0x10);
+
+          _strcat(s, buff);
+        }
+        _strcat(s, " (");
+        {
+          char buff[65];
+          _uint_to_string(x->BIdx, buff, 10);
+
+          _strcat(s, buff);
+        }
+        _strcat(s, ", ");
+        {
+          char buff[65];
+          _uint_to_string(x->FIdx, buff, 10);
+
+          _strcat(s, buff);
+        }
+        _strcat(s, ")\n");
+
+        _jove_robust_write(2 /* stderr */, s, _strlen(s));
+      }
+    }
+  }
+#endif
+  {
+    struct _jove_function_info_t *finfo;
+
+    hash_for_each_possible(__jove_function_map, finfo, hlist, CalleeAddr) {
+      if (finfo->pc != CalleeAddr) {
+        continue;
+      } else {
+        Callee.BIdx = finfo->BIdx;
+        Callee.FIdx = finfo->FIdx;
+
+        goto found;
+      }
+    }
+  }
+
   for (unsigned BIdx = 0; BIdx < _JOVE_MAX_BINARIES ; ++BIdx) {
     uintptr_t *fns = __jove_function_tables[BIdx];
     if (!fns) {
@@ -57,8 +123,10 @@ _HIDDEN void _jove_recover_dyn_target(uint32_t CallerBBIdx,
   }
 
   if (!FoundAll) {
-    char maps[JOVE_PROC_MAPS_BUF_LEN];
-    unsigned n = _jove_read_pseudo_file("/proc/self/maps", maps, sizeof(maps));
+    uintptr_t _m _CLEANUP(_jove_free_large_buffp) = _jove_alloc_large_buff();
+    char *const maps = (char *)_m;
+
+    unsigned n = _jove_read_pseudo_file("/proc/self/maps", maps, JOVE_LARGE_BUFF_SIZE);
     maps[n] = '\0';
 
     char *const beg = &maps[0];
@@ -143,8 +211,10 @@ _HIDDEN void _jove_recover_dyn_target(uint32_t CallerBBIdx,
     //
     // see if this is a function in a foreign DSO
     //
-    char maps[JOVE_PROC_MAPS_BUF_LEN];
-    unsigned n = _jove_read_pseudo_file("/proc/self/maps", maps, sizeof(maps));
+    uintptr_t _m _CLEANUP(_jove_free_large_buffp) = _jove_alloc_large_buff();
+    char *const maps = (char *)_m;
+
+    unsigned n = _jove_read_pseudo_file("/proc/self/maps", maps, JOVE_LARGE_BUFF_SIZE);
     maps[n] = '\0';
 
     char *const beg = &maps[0];

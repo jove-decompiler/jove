@@ -68,6 +68,7 @@ constexpr int tcg_r12_index = 19;
 constexpr int tcg_r13_index = 20;
 constexpr int tcg_r14_index = 21;
 constexpr int tcg_r15_index = 22;
+constexpr int tcg_gs_base_index = 28;
 typedef std::bitset<tcg_num_globals> tcg_global_set_t;
 constexpr tcg_global_set_t NotArgs(137430564991);
 constexpr tcg_global_set_t NotRets(137430564991);

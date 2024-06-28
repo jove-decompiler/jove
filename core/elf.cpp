@@ -1,4 +1,4 @@
-#include "elf.h"
+#include "B.h"
 
 #include <stdexcept>
 
@@ -28,6 +28,26 @@ uint64_t va_of_offset(ELFO &O, uint64_t off) {
   }
 
   return off;
+}
+
+uint64_t offset_of_va(ELFO &O, uint64_t va) {
+  const ELFF &Elf = O.getELFFile();
+
+  if (Elf.getHeader().e_type == llvm::ELF::ET_EXEC) {
+    auto PhdrsOrError = Elf.program_headers();
+    if (!PhdrsOrError)
+      throw std::runtime_error("va_of_offset: no program headers: " +
+                               llvm::toString(PhdrsOrError.takeError()));
+
+    /* assumes they are sorted TODO verify? */
+    for (const Elf_Phdr &Phdr : *PhdrsOrError)
+      if (Phdr.p_type == llvm::ELF::PT_LOAD)
+        return va - Phdr.p_vaddr;
+
+    throw std::runtime_error("va_of_offset: no PT_LOAD segment");
+  }
+
+  return va;
 }
 
 template <typename T>
@@ -1084,12 +1104,7 @@ addr_pair bounds_of_binary(ELFO &O) {
   return {SectsStartAddr, SectsEndAddr};
 }
 
-}
-
-bool dynamic_linking_info_of_binary(ELFO &O,
-                                    struct dynamic_linking_info_t &out) {
-  using namespace elf;
-
+bool needed_libs(ELFO &O, std::vector<std::string> &out) {
   const ELFF &Elf = O.getELFFile();
 
   DynRegionInfo DynamicTable(O);
@@ -1097,6 +1112,76 @@ bool dynamic_linking_info_of_binary(ELFO &O,
 
   if (!DynamicTable.Addr)
     return false;
+
+  auto dynamic_table = [&DynamicTable](void) -> Elf_Dyn_Range {
+    return DynamicTable.getAsArrayRef<Elf_Dyn>();
+  };
+
+  llvm::StringRef DynamicStringTable;
+  const Elf_Shdr *SymbolVersionSection;
+  std::vector<VersionMapEntry> VersionMap;
+  loadDynamicSymbols(O,
+                     DynamicTable,
+                     DynamicStringTable,
+                     SymbolVersionSection,
+                     VersionMap);
+
+  std::vector<uint64_t> needed_offsets;
+
+  for (const Elf_Dyn &Dyn : dynamic_table()) {
+    if (Dyn.d_tag == llvm::ELF::DT_NULL)
+      break; /* marks end of dynamic table. */
+
+    switch (Dyn.d_tag) {
+    case llvm::ELF::DT_NEEDED:
+      uint64_t needed_offset = Dyn.getVal();
+
+      if (needed_offset >= DynamicStringTable.size())
+        break; /* ignore */
+
+      needed_offsets.push_back(needed_offset);
+      break;
+    }
+  }
+
+  for (uint64_t off : needed_offsets) {
+    if (off >= DynamicStringTable.size()) {
+      /* ignore */
+      continue;
+    }
+
+    const char *needed_cstr = DynamicStringTable.data() + off;
+
+    out.emplace_back(needed_cstr);
+  }
+
+  return true;
+}
+
+std::optional<std::string> program_interpreter_of_elf(const ELFO &O) {
+  std::optional<std::string> res;
+
+  const ELFF &Elf = O.getELFFile();
+
+  auto ExpectedHeaders = Elf.program_headers();
+  if (ExpectedHeaders) {
+    for (const Elf_Phdr &Phdr : *ExpectedHeaders) {
+      if (Phdr.p_type == llvm::ELF::PT_INTERP) {
+        res.emplace(reinterpret_cast<const char *>(Elf.base() + Phdr.p_offset));
+        break;
+      }
+    }
+  }
+
+  return res;
+}
+
+std::optional<std::string> soname_of_elf(const ELFO &O) {
+  DynRegionInfo DynamicTable(O);
+  loadDynamicTable(O, DynamicTable);
+
+  if (!DynamicTable.Addr)
+    return std::nullopt;
 
   auto dynamic_table = [&DynamicTable](void) -> Elf_Dyn_Range {
     return DynamicTable.getAsArrayRef<Elf_Dyn>();
@@ -1126,71 +1211,13 @@ bool dynamic_linking_info_of_binary(ELFO &O,
       SOName.Offset = Dyn.getVal();
       SOName.Found = true;
       break;
-
-    case llvm::ELF::DT_NEEDED:
-      uint64_t needed_offset = Dyn.getVal();
-
-      if (needed_offset >= DynamicStringTable.size())
-        break; /* ignore */
-
-      needed_offsets.push_back(needed_offset);
-      break;
     }
   }
 
-  if (SOName.Found) {
-    if (SOName.Offset >= DynamicStringTable.size()) {
-      // ignore
-    } else {
-      const char *soname_cstr = DynamicStringTable.data() + SOName.Offset;
+  if (!SOName.Found || SOName.Offset >= DynamicStringTable.size())
+      return std::nullopt;
 
-      out.soname = soname_cstr;
-    }
-  }
-
-  for (uint64_t off : needed_offsets) {
-    if (off >= DynamicStringTable.size()) {
-      /* ignore */
-      continue;
-    }
-
-    const char *needed_cstr = DynamicStringTable.data() + off;
-
-    out.needed.emplace_back(needed_cstr);
-  }
-
-  llvm::Expected<Elf_Phdr_Range> ExpectedPrgHdrs = Elf.program_headers();
-  if (ExpectedPrgHdrs) {
-    for (const Elf_Phdr &Phdr : *ExpectedPrgHdrs) {
-      if (Phdr.p_type == llvm::ELF::PT_INTERP) {
-        out.interp = std::string(reinterpret_cast<const char *>(Elf.base()) +
-                                 Phdr.p_offset);
-        break;
-      }
-    }
-  }
-
-  return true;
-}
-
-namespace elf {
-
-std::optional<std::string> program_interpreter_of_elf(const ELFO &O) {
-  std::optional<std::string> res;
-
-  const ELFF &Elf = O.getELFFile();
-
-  auto ExpectedHeaders = Elf.program_headers();
-  if (ExpectedHeaders) {
-    for (const Elf_Phdr &Phdr : *ExpectedHeaders) {
-      if (Phdr.p_type == llvm::ELF::PT_INTERP) {
-        res.emplace(reinterpret_cast<const char *>(Elf.base() + Phdr.p_offset));
-        break;
-      }
-    }
-  }
-
-  return res;
+  return DynamicStringTable.data() + SOName.Offset;;
 }
 
 }

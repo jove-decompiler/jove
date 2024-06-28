@@ -24,3 +24,8 @@ struct _jove_function_info_t {
 
   struct hlist_node hlist;
 };
+
+typedef void* HMODULE;
+typedef unsigned long DWORD;
+typedef void* LPVOID;
+typedef int BOOL;

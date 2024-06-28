@@ -1,5 +1,6 @@
 #include "tool.h"
 #include "B.h"
+#include "triple.h"
 
 #include <boost/algorithm/string.hpp>
 #include <boost/format.hpp>
@@ -54,7 +55,16 @@ typedef dso_graph_t::vertex_descriptor dso_t;
 namespace {
 
 struct binary_state_t {
-  dynamic_linking_info_t dynl;
+  std::unique_ptr<llvm::object::Binary> Bin;
+
+  uint64_t Base = 0, End = 0;
+
+  struct {
+    std::optional<std::string> interp;
+  } _elf;
+
+  std::vector<std::string> needed_vec;
+  std::string soname;
   dso_t dso;
 };
 
@@ -155,6 +165,8 @@ class RecompileTool : public TransformerTool_Bin<binary_state_t> {
           MT("mt", cl::desc("Thread model (multi)"), cl::cat(JoveCategory),
              cl::init(true)) {}
   } opts;
+
+  bool IsCOFF = false;
 
   inline fs::path a2r(const std::string &ap) {
     return fs::relative(ap, "/");
@@ -348,22 +360,52 @@ int RecompileTool::Run(void) {
     return 1;
   }
 
+  for (binary_t &b : jv.Binaries) {
+    binary_state_t &x = state.for_binary(b);
+    x.Bin = B::Create(b.data());
+
+    std::tie(x.Base, x.End) = B::bounds_of_binary(*x.Bin);
+  }
+
+  if (B::is_coff(*state.for_binary(jv.Binaries.at(0)).Bin)) {
+    if (!opts.ForeignLibs)
+      die("COFF is only supported in executable-only mode");
+
+    IsCOFF = true;
+  }
+
   //
   // gather dynamic linking information
   //
-  for (binary_t &b : jv.Binaries) {
+  for_each_binary(std::execution::par_unseq, jv, [&](binary_t &b) {
     if (b.IsVDSO)
-      continue;
+      return;
 
-    auto Bin = B::Create(b.data());
-    B::_elf(*Bin, [&](ELFO &O) {
-      if (!dynamic_linking_info_of_binary(O, state.for_binary(b).dynl)) {
-        WithColor::error() << llvm::formatv(
-            "!dynamic_linking_info_of_binary({0})\n", b.Name.c_str());
-        return;
-      }
+    binary_state_t &x = state.for_binary(b);
+
+    //
+    // what is this binary called as far as dynamic linking goes?
+    //
+    B::_elf(*x.Bin, [&](ELFO &O) {
+      x._elf.interp = elf::program_interpreter_of_elf(O);
+      if (auto MaybeSoName = elf::soname_of_elf(O))
+        x.soname = *MaybeSoName;
     });
-  }
+
+    if (x.soname.empty() && b.is_file() && !b.IsExecutable) {
+      //
+      // if we don't have one, make an "soname" from the filename of the binary
+      //
+      x.soname = fs::path(b.path_str()).filename().string();
+    }
+
+    //
+    // what does this binary need?
+    //
+    if (!B::needed_libs(*x.Bin, x.needed_vec))
+      WithColor::warning() << llvm::formatv(
+          "failed to get libraries needed by {0}\n", b.Name.c_str());
+  });
 
   //
   // create basic directories for sysroot
@@ -417,13 +459,13 @@ int RecompileTool::Run(void) {
                                    fs::perms::owner_write |
                                    fs::perms::owner_exec);
 
-    if (!state.for_binary(b).dynl.soname.empty()) {
-      rtld_soname = state.for_binary(b).dynl.soname;
+    if (!state.for_binary(b).soname.empty()) {
+      rtld_soname = state.for_binary(b).soname;
 
       std::string binary_filename = fs::path(b.path_str()).filename().string();
 
-      if (binary_filename != state.for_binary(b).dynl.soname) {
-        fs::path dst = chrooted_path.parent_path() / state.for_binary(b).dynl.soname;
+      if (binary_filename != state.for_binary(b).soname) {
+        fs::path dst = chrooted_path.parent_path() / state.for_binary(b).soname;
 
         if (fs::exists(dst))
           fs::remove(dst);
@@ -438,12 +480,21 @@ int RecompileTool::Run(void) {
   //
   // copy jove runtime
   //
+  if (IsCOFF) {
+    fs::path chrooted_path =
+        fs::path(opts.Output.getValue()) / "usr" / "lib" / "libjove_rt.dll";
+
+    fs::create_directories(chrooted_path.parent_path());
+    fs::copy_file(locator().runtime_dll(opts.MT), chrooted_path,
+                  fs::copy_options::overwrite_existing);
+  }
+  else
   {
     fs::path chrooted_path =
         fs::path(opts.Output.getValue()) / "usr" / "lib" / "libjove_rt.so";
 
     fs::create_directories(chrooted_path.parent_path());
-    fs::copy_file(locator().runtime(opts.MT), chrooted_path,
+    fs::copy_file(locator().runtime_so(opts.MT), chrooted_path,
                   fs::copy_options::overwrite_existing);
 
     //
@@ -456,7 +507,7 @@ int RecompileTool::Run(void) {
 
       try {
         // XXX some dynamic linkers only look in /lib
-        fs::copy_file(locator().runtime(opts.MT),
+        fs::copy_file(locator().runtime_so(opts.MT),
                       fs::path(opts.Output.getValue()) / "lib" / "libjove_rt.so",
                       fs::copy_options::overwrite_existing);
       } catch (...) {
@@ -528,55 +579,55 @@ int RecompileTool::Run(void) {
   }
 
   //
+  // create mapping from "soname" to binary
+  //
+  std::unordered_map<std::string, binary_index_t> soname_map;
+  for_each_binary(jv, [&](binary_t &b) {
+    binary_state_t &x = state.for_binary(b);
+
+    const std::string &soname = x.soname;
+    if (soname.empty())
+      return;
+
+    bool success = soname_map.emplace(soname, index_of_binary(b, jv)).second;
+    if (!success)
+      die("same soname \"" + soname + "\" occurs more than once");
+  });
+
+  //
+  // initialize dynamic linking graph
+  //
+  for_each_binary(jv, [&](binary_t &b) {
+    binary_state_t &x = state.for_binary(b);
+    binary_index_t BIdx = index_of_binary(b, jv);
+
+    x.dso = boost::add_vertex(dso_graph);
+    dso_graph[x.dso].BIdx = BIdx;
+  });
+
+  //
   // build dynamic linking graph
   //
-  for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
-    binary_t &b = jv.Binaries.at(BIdx);
-
-    state.for_binary(b).dso = boost::add_vertex(dso_graph);
-    dso_graph[state.for_binary(b).dso].BIdx = BIdx;
-  }
-
-  std::unordered_map<std::string, binary_index_t> soname_map;
-
-  for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
-    binary_t &b = jv.Binaries.at(BIdx);
-
+  for_each_binary(jv, [&](binary_t &b) {
     if (!b.is_file())
-      continue;
+      return;
 
-    if (state.for_binary(b).dynl.soname.empty() && !b.IsExecutable) {
-      soname_map.insert({fs::path(b.path_str()).filename().string(), BIdx}); /* XXX */
-      continue;
-    }
+    binary_state_t &x = state.for_binary(b);
 
-    if (soname_map.find(state.for_binary(b).dynl.soname) != soname_map.end()) {
-      WithColor::error() << llvm::formatv(
-          "same soname {0} occurs more than once\n", state.for_binary(b).dynl.soname);
-      continue;
-    }
-
-    soname_map[state.for_binary(b).dynl.soname] = BIdx;
-  }
-
-  for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
-    binary_t &b = jv.Binaries.at(BIdx);
-
-    for (const std::string &sonm : state.for_binary(b).dynl.needed) {
-      auto it = soname_map.find(sonm);
+    for (const std::string &needed : x.needed_vec) {
+      auto it = soname_map.find(needed);
       if (it == soname_map.end()) {
-        WithColor::warning() << llvm::formatv(
-            "unknown soname {0} needed by {1}\n", sonm, b.path_str());
-        continue;
+        WithColor::warning() << llvm::formatv("unknown \"{0}\" needed by {1}\n",
+                                              needed, b.path_str());
+        return;
       }
 
-      boost::add_edge(
-          state.for_binary(b).dso,
-          state.for_binary(jv.Binaries.at((*it).second)).dso,
-          dso_graph);
-    }
-  }
+      binary_t &needed_b = jv.Binaries.at((*it).second);
+      binary_state_t &y = state.for_binary(needed_b);
 
+      boost::add_edge(x.dso, y.dso, dso_graph);
+    }
+  });
 
   if (IsVerbose() && fs::exists(locator().graph_easy())) {
     //
@@ -780,14 +831,14 @@ int RecompileTool::Run(void) {
                                    fs::perms::owner_write |
                                    fs::perms::owner_exec);
 
-    if (!state.for_binary(b).dynl.soname.empty()) {
+    if (!state.for_binary(b).soname.empty()) {
       std::string binary_filename = fs::path(b.path_str()).filename().string();
 
       //
       // create symlink
       //
-      if (binary_filename != state.for_binary(b).dynl.soname) {
-        fs::path dst = chrooted_path.parent_path() / state.for_binary(b).dynl.soname;
+      if (binary_filename != state.for_binary(b).soname) {
+        fs::path dst = chrooted_path.parent_path() / state.for_binary(b).soname;
         if (fs::exists(dst))
           fs::remove(dst);
 
@@ -815,6 +866,8 @@ int RecompileTool::Run(void) {
       continue;
 
     assert(b.is_file());
+
+    binary_state_t &x = state.for_binary(b);
 
     const fs::path chrooted_path = fs::path(opts.Output.getValue()) / a2r(b.path_str());
 
@@ -844,23 +897,28 @@ int RecompileTool::Run(void) {
       Arg(objfp);
 
       Arg("-m");
-      Arg(TargetStaticLinkerEmulation);
+      Arg(TargetStaticLinkerEmulation(IsCOFF));
 
+      if (!IsCOFF) {
       Arg("-nostdlib");
 
       Arg("-init");
       Arg("_jove_init");
 
       Arg("--push-state");
+      }
       Arg("--as-needed");
       Arg(locator().builtins());
       Arg(locator().softfloat_bitcode());
       if (fs::exists(locator().atomics()))
         Arg(locator().atomics());
+      if (!IsCOFF) {
       Arg("--pop-state");
       Arg("--exclude-libs");
       Arg("ALL");
+      }
 
+      if (!IsCOFF) {
       if (b.IsExecutable) {
         if (b.IsPIC) {
           Arg("-pie");
@@ -906,6 +964,7 @@ int RecompileTool::Run(void) {
         Arg("-e");
         Arg("_jove_start");
       }
+      }
 
       // include lib directories
 #if 1
@@ -914,7 +973,7 @@ int RecompileTool::Run(void) {
       std::unordered_set<std::string> lib_dirs({jove_bin_path, "/usr/lib"});
 #endif
 
-      for (std::string &needed : state.for_binary(b).dynl.needed) {
+      for (const std::string &needed : x.needed_vec) {
         auto it = soname_map.find(needed);
         if (it == soname_map.end()) {
           WithColor::warning()
@@ -923,6 +982,7 @@ int RecompileTool::Run(void) {
         }
 
         binary_t &needed_b = jv.Binaries.at((*it).second);
+
 #if 1
         const fs::path needed_chrooted_path(opts.Output + needed_b.path_str());
         lib_dirs.insert(needed_chrooted_path.parent_path().string());
@@ -937,26 +997,29 @@ int RecompileTool::Run(void) {
         Arg(lib_dir);
       }
 
+      //Arg("-ljove_rt" + std::string(opts.MT ? ".m" : ".s") + "t");
       Arg("-ljove_rt");
       if (opts.DFSan)
         Arg("-lclang_rt.dfsan.jove-" TARGET_ARCH_NAME);
 
       const char *rtld_path = nullptr;
-      if (!state.for_binary(b).dynl.interp.empty()) {
-        for (binary_t &b : jv.Binaries) {
-          if (b.IsDynamicLinker) {
-            rtld_path = b.path();
-            break;
+      B::_elf(*x.Bin, [&](ELFO &O) {
+        if (x._elf.interp) {
+          for (binary_t &b : jv.Binaries) {
+            if (b.IsDynamicLinker) {
+              rtld_path = b.path();
+              break;
+            }
           }
+          assert(rtld_path);
+
+          Arg("-dynamic-linker");
+          Arg(rtld_path);
         }
-        assert(rtld_path);
 
-        Arg("-dynamic-linker");
-        Arg(rtld_path);
-      }
-
-      if (!state.for_binary(b).dynl.soname.empty())
-        Arg(std::string("-soname=") + state.for_binary(b).dynl.soname);
+        if (!state.for_binary(b).soname.empty())
+          Arg(std::string("-soname=") + state.for_binary(b).soname);
+      });
 
 #if 0
       if (!rtld_soname.empty()) {
@@ -965,7 +1028,7 @@ int RecompileTool::Run(void) {
       }
 #endif
 
-      for (const std::string &needed : state.for_binary(b).dynl.needed) {
+      for (const std::string &needed : x.needed_vec) {
 #if 0
         if (needed == rtld_soname)
           continue;
@@ -1195,15 +1258,18 @@ void RecompileTool::worker(dso_t dso) {
               Arg("--relocation-model=static");
             }
 
+            if (IsCOFF)
+              Arg("--mtriple=" + getTargetTriple(true).normalize()); /* force */
+
             Arg("--dwarf-version=4");
             Arg("--debugger-tune=gdb");
 
-#if defined(TARGET_X86_64) || defined(TARGET_I386)
+	    if (IsX86Target) {
             //
             // FIXME... how is the stack getting unaligned??
             //
             Arg("--stackrealign");
-#endif
+	    }
           });
           break;
 
