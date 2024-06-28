@@ -8,4 +8,6 @@ tags
 /bin/*/helpers/*.bc.*
 /bin/*/helpers/*.ll
 /bin/*/helpers/*.d
+/bin/*/*.o
+/bin/*/*.dll
 /bin/*/qemu-starter
