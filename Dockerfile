@@ -38,6 +38,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       locales \
                       make \
                       meson \
+                      mingw-w64 \
                       ninja-build \
                       openssh-client \
                       parted \
