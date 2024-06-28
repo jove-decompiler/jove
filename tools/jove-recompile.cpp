@@ -629,7 +629,7 @@ int RecompileTool::Run(void) {
     }
   });
 
-  if (IsVerbose() && fs::exists(locator().graph_easy())) {
+  if (IsVeryVerbose() && fs::exists(locator().graph_easy())) {
     //
     // graphviz
     //
