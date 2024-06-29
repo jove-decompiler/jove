@@ -219,7 +219,7 @@ top:
         }
 
         if (!Disassembled)
-          throw invalid_control_flow_exception(A);
+          throw std::runtime_error("failed to disassemble at " + taddr2str(A));
 
         if (A == Addr)
           goto on_insn_boundary;
