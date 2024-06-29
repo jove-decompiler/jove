@@ -909,7 +909,7 @@ int RecompileTool::Run(void) {
       }
       Arg("--as-needed");
       Arg(locator().builtins());
-      Arg(locator().softfloat_bitcode());
+      Arg(locator().softfloat_bitcode(IsCOFF));
       if (fs::exists(locator().atomics()))
         Arg(locator().atomics());
       if (!IsCOFF) {

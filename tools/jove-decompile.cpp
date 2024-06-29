@@ -467,7 +467,7 @@ int DecompileTool::Run(void) {
   fs::copy_file(locator().builtins(),
                 fs::path(opts.Output) / ".obj" / "builtins.a",
                 fs::copy_options::overwrite_existing);
-  fs::copy_file(locator().softfloat_bitcode(),
+  fs::copy_file(locator().softfloat_bitcode(IsCOFF),
                 fs::path(opts.Output) / ".obj" / "libfpu_softfloat.a",
                 fs::copy_options::overwrite_existing);
   fs::create_directories(fs::path(opts.Output) / ".lib" / "lib");

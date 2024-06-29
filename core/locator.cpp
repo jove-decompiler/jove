@@ -114,9 +114,15 @@ std::string locator_t::ida_scripts(void) {
   return must_exist(scripts_path()  / "ida" / "_");
 }
 
-std::string locator_t::softfloat_bitcode(void) {
-  return must_exist(prebuilts_path() / "lib" /
-                    ("libfpu_soft-" TARGET_ARCH_NAME "-linux-user.a"));
+std::string locator_t::softfloat_bitcode(bool IsCOFF) {
+  fs::path p = prebuilts_path();
+
+  p /= "lib";
+  if (IsCOFF)
+    p /= "coff";
+  p /= "libfpu_soft-" TARGET_ARCH_NAME "-linux-user.a";
+
+  return must_exist(p);
 }
 
 std::string locator_t::gdb(void) {
