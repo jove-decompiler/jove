@@ -9823,7 +9823,7 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
       if (temp_idx(ts) == tcg_env_index) {
         assert(hf.EnvArgNo == iarg_idx);
 
-        if (hf.Analysis.Simple && opts.Optimize)
+        if (hf.Analysis.Simple && opts.Optimize && opts.InlineHelpers)
           ArgVec.push_back(IRB.CreatePointerCast(IRB.CreateAlloca(CPUStateType), ParamTy));
         else
           ArgVec.push_back(IRB.CreatePointerCast(CPUStateGlobal, ParamTy));
