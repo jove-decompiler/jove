@@ -467,6 +467,8 @@ struct LLVMTool : public TransformerTool_BinFnBB<binary_state_t,
 
   std::vector<uint64_t> possible_stubs_vec;
 
+  std::unordered_map<std::string, std::set<unsigned>> ordinal_imports;
+
   llvm::Constant *__jove_fail_UnknownBranchTarget;
   llvm::Constant *__jove_fail_UnknownCallee;
 
@@ -511,6 +513,7 @@ public:
   int DFSanInstrument(void);
   int RenameFunctionLocals(void);
   int WriteVersionScript(void);
+  int WriteDefsForOrdinalImports(void);
   int InlineHelpers(void);
   int ForceCallConv(void);
   int WriteModule(void);
@@ -746,8 +749,10 @@ public:
   bool coff_is_constant_relocation(uint8_t RelocType);
 
   llvm::Constant *SymbolAddress(const elf::RelSymbol &);
-  llvm::Constant *ImportFunction(llvm::StringRef Name, uint64_t Addr);
-  llvm::Constant *ImportedFunctionAddress(llvm::StringRef Name, uint64_t Addr);
+  llvm::Constant *ImportFunction(llvm::StringRef Name);
+  llvm::Constant *ImportFunctionByOrdinal(llvm::StringRef DLL, uint16_t Ordinal);
+  llvm::Constant *ImportedFunctionAddress(llvm::StringRef DLL, uint16_t Ordinal,
+                                          llvm::StringRef Name, uint64_t Addr);
 
   uint64_t ExtractWordAtAddress(uint64_t Addr);
 
@@ -2361,6 +2366,7 @@ int LLVMTool::Run(void) {
       || (opts.DFSan ? DFSanInstrument() : 0)
       || RenameFunctionLocals()
       || (!opts.VersionScript.empty() ? WriteVersionScript() : 0)
+      || (IsCOFF ? WriteDefsForOrdinalImports() : 0)
       || WriteModule();
 }
 
@@ -4006,7 +4012,7 @@ llvm::Constant *LLVMTool::SymbolAddress(const elf::RelSymbol &RelSym) {
   }
 }
 
-llvm::Constant *LLVMTool::ImportFunction(llvm::StringRef Name, uint64_t Addr) {
+llvm::Constant *LLVMTool::ImportFunction(llvm::StringRef Name) {
   llvm::FunctionType *FTy =
       llvm::FunctionType::get(VoidType(), false); /* FIXME? */
   llvm::Function *F = llvm::Function::Create(
@@ -4014,18 +4020,67 @@ llvm::Constant *LLVMTool::ImportFunction(llvm::StringRef Name, uint64_t Addr) {
   F->setDLLStorageClass(llvm::GlobalValue::DLLImportStorageClass);
   F->addFnAttr(llvm::Attribute::NonLazyBind);
 
-  possible_stubs_vec.push_back(Addr);
+  return F;
+}
+
+static std::string llname_for_imported_function_by_ordinal(llvm::StringRef DLL,
+                                                           uint16_t Ordinal) {
+  std::string res("_");
+  res.append(DLL.str());
+
+  std::replace_if(
+      res.begin(), res.end(),
+      [](char c) { return !std::isalnum(static_cast<unsigned char>(c)); }, '_');
+
+  res.append("_");
+  res.append(std::to_string(Ordinal));
+
+  return res;
+}
+
+llvm::Constant *LLVMTool::ImportFunctionByOrdinal(llvm::StringRef DLL,
+                                                  uint16_t Ordinal) {
+  std::string nm(llname_for_imported_function_by_ordinal(DLL, Ordinal));
+
+  llvm::errs() << "creating " << nm << '\n';
+
+  llvm::FunctionType *FTy =
+      llvm::FunctionType::get(VoidType(), false); /* FIXME? */
+  llvm::Function *F = llvm::Function::Create(
+      FTy, llvm::GlobalValue::ExternalLinkage, nm, Module.get());
+  F->setDLLStorageClass(llvm::GlobalValue::DLLImportStorageClass);
+  F->addFnAttr(llvm::Attribute::NonLazyBind);
+
+  bool success = ordinal_imports[DLL.str()].insert(Ordinal).second;
+  assert(success);
 
   return F;
 }
 
-llvm::Constant *LLVMTool::ImportedFunctionAddress(llvm::StringRef Name, uint64_t Addr) {
-  if (auto *F = Module->getFunction(Name)) {
+llvm::Constant *LLVMTool::ImportedFunctionAddress(llvm::StringRef DLL,
+                                                  uint16_t Ordinal,
+                                                  llvm::StringRef Name,
+                                                  uint64_t Addr) {
+  const bool ByOrdinal = Name.empty();
+
+  std::string nm = ByOrdinal
+                       ? llname_for_imported_function_by_ordinal(DLL, Ordinal)
+                       : Name.str();
+
+  if (auto *F = Module->getFunction(nm)) {
     assert(F->empty());
     return llvm::ConstantExpr::getPtrToInt(F, WordType());
   }
 
-  return llvm::ConstantExpr::getPtrToInt(ImportFunction(Name, Addr), WordType());
+  //
+  // this is new to us
+  //
+  possible_stubs_vec.push_back(Addr);
+  if (ByOrdinal) {
+    return llvm::ConstantExpr::getPtrToInt(ImportFunctionByOrdinal(DLL, Ordinal), WordType());
+  } else {
+    return llvm::ConstantExpr::getPtrToInt(ImportFunction(Name), WordType());
+  }
 }
 
 void LLVMTool::elf_compute_irelative_relocation(llvm::IRBuilderTy &IRB,
@@ -5135,9 +5190,10 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
 
   B::_coff(*Bin, [&](COFFO &O) {
 
-  auto printImportedSymbols = [&](uint32_t RVA,
-      llvm::iterator_range<llvm::object::imported_symbol_iterator> Range,
-      bool IAT) -> void {
+  auto printImportedSymbols =
+      [&](llvm::StringRef DLL, uint32_t RVA,
+          llvm::iterator_range<llvm::object::imported_symbol_iterator> Range,
+          bool IAT) -> void {
     unsigned i = 0;
     for (auto it = Range.begin(); it != Range.end(); ++it, ++i) {
       const llvm::object::ImportedSymbolRef &I = *it;
@@ -5150,31 +5206,30 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
         ;
 
       llvm::outs() <<
-        (fmt("[%s] %-15s (%u) @ %x\n")
+        (fmt("[%s] %-15s (%u) @ %x <%s>\n")
          % (IAT ? "IAT" : "ILT")
          % SymName.str()
          % Ordinal
-         % (coff::va_of_rva(O, RVA + i*WordBytes()))).str();
+         % (coff::va_of_rva(O, RVA + i*WordBytes()))
+         % DLL.str()).str();
     }
   };
 
   // Regular imports
   for (const llvm::object::ImportDirectoryEntryRef &I : O.import_directories()) {
-#if 0
-    llvm::StringRef Name;
-    if (llvm::errorToBool(I.getName(Name)))
+    llvm::StringRef DLL;
+    if (llvm::errorToBool(I.getName(DLL)))
       continue;
-#endif
 
     uint32_t ILTAddr;
     uint32_t IATAddr;
 
     // The import lookup table can be missing with certain older linkers
     if (!llvm::errorToBool(I.getImportLookupTableRVA(ILTAddr)) && ILTAddr)
-      printImportedSymbols(ILTAddr, I.lookup_table_symbols(), false);
+      printImportedSymbols(DLL, ILTAddr, I.lookup_table_symbols(), false);
 
     if (!llvm::errorToBool(I.getImportAddressTableRVA(IATAddr)) && IATAddr)
-      printImportedSymbols(IATAddr, I.imported_symbols(), true);
+      printImportedSymbols(DLL, IATAddr, I.imported_symbols(), true);
   }
 
   });
@@ -5287,7 +5342,10 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
           });
 
       coff::for_each_imported_function(
-          O, [&](llvm::StringRef DLL, llvm::StringRef Name, uint64_t RVA) {
+          O, [&](llvm::StringRef DLL,
+                 uint16_t Ordinal,
+                 llvm::StringRef Name,
+                 uint64_t RVA) {
             type_at_address(coff::va_of_rva(O, RVA), WordType());
           });
     });
@@ -5470,10 +5528,14 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
           });
 
       coff::for_each_imported_function(
-          O, [&](llvm::StringRef DLL, llvm::StringRef Name, uint64_t RVA) {
+          O, [&](llvm::StringRef DLL,
+                 uint16_t Ordinal,
+                 llvm::StringRef Name,
+                 uint64_t RVA) {
             uint64_t Offset = coff::va_of_rva(O, RVA);
 
-            llvm::Constant *R_C = ImportedFunctionAddress(Name, Offset);
+            llvm::Constant *R_C =
+                ImportedFunctionAddress(DLL, Ordinal, Name, Offset);
 
             if (!R_C)
               done = false;
@@ -7265,6 +7327,32 @@ int LLVMTool::WriteVersionScript(void) {
       ofs << VersionedSymbol << ";\n";
 
     ofs << "};\n";
+  }
+
+  return 0;
+}
+
+int LLVMTool::WriteDefsForOrdinalImports(void) {
+  assert(IsCOFF);
+
+  for (const auto &pair : ordinal_imports) {
+    const std::string &DLL = pair.first;
+    const auto &Ords = pair.second;
+
+    assert(!Ords.empty());
+
+    fs::path dumpOutputPath = fs::path(opts.Output).parent_path() /
+                              (fs::path(DLL).replace_extension("def"));
+    if (IsVerbose())
+      HumanOut() << llvm::formatv("writing {0}\n", dumpOutputPath.string());
+
+    std::ofstream ofs(dumpOutputPath);
+    ofs << "LIBRARY \"" << DLL << "\"\n\nIMPORTS\n";
+
+    for (uint16_t Ordinal : Ords) {
+      std::string nm(llname_for_imported_function_by_ordinal(DLL, Ordinal));
+      ofs << "    " << nm << "=ordinal:" << Ordinal << '\n';
+    }
   }
 
   return 0;

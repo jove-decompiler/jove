@@ -65,39 +65,38 @@ bool needed_libs(COFFO &O, std::vector<std::string> &out) {
   return true;
 }
 
-void for_each_imported_function(COFFO &O,
-    std::function<void(llvm::StringRef DLL, llvm::StringRef Name, uint64_t RVA)> proc)
-{
-  auto processImportedSymbols = [&](llvm::StringRef DLL, uint64_t RVA,
-      llvm::iterator_range<llvm::object::imported_symbol_iterator> Range) -> void {
-    unsigned i = 0;
-    for (auto it = Range.begin(); it != Range.end(); ++it, ++i) {
-      const llvm::object::ImportedSymbolRef &I = *it;
-
-      llvm::StringRef SymName;
-      if (llvm::errorToBool(I.getSymbolName(SymName)) || SymName.empty())
-        continue;
-      uint16_t Ordinal;
-      if (llvm::errorToBool(I.getOrdinal(Ordinal)))
-        continue;
-
-      proc(DLL, SymName, RVA + i*O.getBytesInAddress());
-    }
-  };
-
+void for_each_imported_function(
+    COFFO &O, std::function<void(llvm::StringRef DLL, uint16_t Ordinal,
+                                 llvm::StringRef Name, uint64_t RVA)> proc) {
   for (const llvm::object::ImportDirectoryEntryRef &I : O.import_directories()) {
-    llvm::StringRef Name;
-    if (llvm::errorToBool(I.getName(Name)))
+    llvm::StringRef DLL;
+    if (llvm::errorToBool(I.getName(DLL)))
       continue;
 
-    uint32_t ILTAddr;
-    uint32_t IATAddr;
+    auto processImportedSymbols = [&](uint64_t RVA,
+        llvm::iterator_range<llvm::object::imported_symbol_iterator> Range) -> void {
+      unsigned i = 0;
+      for (auto it = Range.begin(); it != Range.end(); ++it, ++i) {
+        const llvm::object::ImportedSymbolRef &I = *it;
 
+        llvm::StringRef SymName;
+        (void)llvm::errorToBool(I.getSymbolName(SymName));
+
+        uint16_t Ordinal = UINT16_MAX;
+        if (llvm::errorToBool(I.getOrdinal(Ordinal)))
+          continue;
+
+        proc(DLL, Ordinal, SymName, RVA + i*O.getBytesInAddress());
+      }
+    };
+
+    uint32_t ILTAddr = 0;
     if (false && !llvm::errorToBool(I.getImportLookupTableRVA(ILTAddr)) && ILTAddr)
-      processImportedSymbols(Name, ILTAddr, I.lookup_table_symbols());
+      processImportedSymbols(ILTAddr, I.lookup_table_symbols());
 
+    uint32_t IATAddr = 0;
     if (!llvm::errorToBool(I.getImportAddressTableRVA(IATAddr)) && IATAddr)
-      processImportedSymbols(Name, IATAddr, I.imported_symbols());
+      processImportedSymbols(IATAddr, I.imported_symbols());
   }
 }
 

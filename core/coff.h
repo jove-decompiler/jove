@@ -50,8 +50,9 @@ bool isCode(COFFO &O, uint64_t RVA);
 
 bool needed_libs(COFFO &, std::vector<std::string> &out);
 
-void for_each_imported_function(COFFO &,
-  std::function<void(llvm::StringRef DLL, llvm::StringRef Name, uint64_t RVA)> proc);
+void for_each_imported_function(
+    COFFO &, std::function<void(llvm::StringRef DLL, uint16_t Ordinal,
+                                llvm::StringRef Name, uint64_t RVA)> proc);
 
 void for_each_base_relocation(COFFO &,
   std::function<void(uint8_t Type, uint64_t RVA)> proc);
