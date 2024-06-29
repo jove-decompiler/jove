@@ -3,6 +3,7 @@ set(JOVE_VERSION "v0.8")
 set(JOVE_TOOL_FLAGS
   "-fwrapv"
   "-ftemplate-backtrace-limit=0"
+  "-Werror=return-type"
   "-Wno-initializer-overrides"
   "-Wno-c99-designator"
   "-Wno-deprecated-declarations"

@@ -41,6 +41,7 @@ runtime_cflags = -std=gnu99 \
                  $($(1)_ARCH_CFLAGS) \
                  -Wall \
                  -Werror-implicit-function-declaration \
+                 -Werror=return-type \
                  -Wno-visibility \
                  -Ofast \
                  -gline-tables-only \
