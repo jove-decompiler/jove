@@ -91,6 +91,7 @@ class RecompileTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, 
     cl::opt<bool> ABICalls;
     cl::opt<bool> InlineHelpers;
     cl::opt<bool> MT;
+    cl::opt<bool> BreakBeforeUnreachables;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : Output("output", cl::desc("Output directory"), cl::Required,
@@ -163,7 +164,11 @@ class RecompileTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, 
                         cl::cat(JoveCategory)),
 
           MT("mt", cl::desc("Thread model (multi)"), cl::cat(JoveCategory),
-             cl::init(true)) {}
+             cl::init(true)),
+
+          BreakBeforeUnreachables("break-before-unreachables",
+                                  cl::desc("Debugging purposes only"),
+                                  cl::cat(JoveCategory)) {}
   } opts;
 
   bool IsCOFF = false;
@@ -1149,6 +1154,8 @@ void RecompileTool::worker(dso_t dso) {
           Arg("--inline-helpers");
         if (!opts.MT)
           Arg("--mt=0");
+        if (opts.BreakBeforeUnreachables)
+          Arg("--break-before-unreachables");
       },
       [&](auto Env) {
         InitWithEnviron(Env);

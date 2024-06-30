@@ -74,6 +74,7 @@ class LoopTool : public JVTool<ToolKind::Standard> {
     cl::alias GdbAlias;
     cl::opt<bool> Gdbs;
     cl::opt<bool> WineDdb;
+    cl::opt<bool> BreakBeforeUnreachables;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : Prog(cl::Positional, cl::desc("prog"), cl::Required,
@@ -234,7 +235,11 @@ class LoopTool : public JVTool<ToolKind::Standard> {
           Gdbs("gdbs", cl::desc("Run program under gdbserver"),
                cl::cat(JoveCategory)),
 
-          WineDdb("winedbg", cl::desc("Run program under winedbg")) {}
+          WineDdb("winedbg", cl::desc("Run program under winedbg")),
+
+          BreakBeforeUnreachables("break-before-unreachables",
+                                  cl::desc("Debugging purposes only"),
+                                  cl::cat(JoveCategory)) {}
   } opts;
 
 public:
@@ -1091,6 +1096,9 @@ skip_run:
 
           if (!opts.MT)
             Arg("--mt=0");
+
+          if (opts.BreakBeforeUnreachables)
+            Arg("--break-before-unreachables");
         },
         [&](auto Env) {
           InitWithEnviron(Env);
