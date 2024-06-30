@@ -221,6 +221,7 @@ struct LLVMTool : public TransformerTool_BinFnBB<binary_state_t,
     cl::opt<bool> InlineHelpers;
     cl::opt<bool> ForCBE;
     cl::opt<bool> MT;
+    cl::opt<bool> BreakBeforeUnreachables;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : Binary("binary", cl::desc("Binary to translate"),
@@ -338,7 +339,11 @@ struct LLVMTool : public TransformerTool_BinFnBB<binary_state_t,
                  cl::cat(JoveCategory)),
 
           MT("mt", cl::desc("Thread model (multi)"), cl::cat(JoveCategory),
-             cl::init(true)) {}
+             cl::init(true)),
+
+          BreakBeforeUnreachables("break-before-unreachables",
+                                  cl::desc("Debugging purposes only"),
+                                  cl::cat(JoveCategory)) {}
 
   } opts;
 
@@ -515,6 +520,7 @@ public:
   int WriteVersionScript(void);
   int WriteDefsForOrdinalImports(void);
   int InlineHelpers(void);
+  int BreakBeforeUnreachables(void);
   int ForceCallConv(void);
   int WriteModule(void);
 
@@ -2367,6 +2373,7 @@ int LLVMTool::Run(void) {
       || RenameFunctionLocals()
       || (!opts.VersionScript.empty() ? WriteVersionScript() : 0)
       || (IsCOFF ? WriteDefsForOrdinalImports() : 0)
+      || (opts.BreakBeforeUnreachables ? BreakBeforeUnreachables() : 0)
       || WriteModule();
 }
 
@@ -3806,6 +3813,7 @@ int LLVMTool::CreateFunctionTable(void) {
 
   fillInFunctionBody(
       Module->getFunction("_jove_foreign_functions_count"), [&](auto &IRB) {
+#if 0
         unsigned N_1 =
             std::accumulate(std::next(jv.Binaries.begin(), 1),
                             std::next(jv.Binaries.begin(), 3), 0u,
@@ -3823,6 +3831,15 @@ int LLVMTool::CreateFunctionTable(void) {
         unsigned M = N_1 + (opts.ForeignLibs ? N_2 : 0);
 
         IRB.CreateRet(IRB.getInt32(M));
+#else
+        unsigned N =
+            std::accumulate(jv.Binaries.begin(),
+                            jv.Binaries.end(), 0u,
+                            [&](unsigned res, const binary_t &b) -> unsigned {
+                              return res + b.Analysis.Functions.size();
+                            });
+        IRB.CreateRet(IRB.getInt32(N));
+#endif
       }, !opts.ForCBE);
 
   return 0;
@@ -7354,6 +7371,26 @@ int LLVMTool::WriteDefsForOrdinalImports(void) {
       ofs << "    " << nm << "=ordinal:" << Ordinal << '\n';
     }
   }
+
+  return 0;
+}
+
+int LLVMTool::BreakBeforeUnreachables(void) {
+  //
+  // Why would we go to the trouble of doing this? Because LLVM optimizers
+  // can get "carried away" from just a touch of undefined behavior. This is a
+  // countermeasure that is intended to prevent impossible-to-debug situations.
+  //
+  llvm::Module &M = *Module;
+
+  for (llvm::Function &F : M)
+    for (llvm::BasicBlock &BB : F)
+      for (llvm::Instruction &I : llvm::make_early_inc_range(BB))
+        if (llvm::isa<llvm::UnreachableInst>(I)) {
+          llvm::IRBuilderTy IRB(&I);
+
+          IRB.CreateCall(llvm::Intrinsic::getDeclaration(Module.get(), llvm::Intrinsic::trap));
+        }
 
   return 0;
 }
