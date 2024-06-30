@@ -39,10 +39,16 @@ runtime_cflags = -std=gnu99 \
                  -D TARGET_$(call uc,$(1)) \
                  -D TARGET_ARCH_NAME=\"$(1)\" \
                  $($(1)_ARCH_CFLAGS) \
-                 -Wall \
+                 -Weverything \
                  -Werror-implicit-function-declaration \
                  -Werror=return-type \
+                 -Wno-declaration-after-statement \
+                 -Wno-unsafe-buffer-usage \
+                 -Wno-reserved-macro-identifier \
+                 -Wno-used-but-marked-unused \
+                 -Wno-reserved-identifier \
                  -Wno-visibility \
+                 -Wno-unused-function \
                  -Ofast \
                  -gline-tables-only \
                  -gdwarf-4 \
