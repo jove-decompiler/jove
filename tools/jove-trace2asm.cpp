@@ -34,7 +34,7 @@ struct binary_state_t {
 
 }
 
-class Trace2AsmTool : public TransformerTool_Bin<ToolKind::Standard, binary_state_t> {
+class Trace2AsmTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void, void> {
   struct Cmdline {
     cl::opt<std::string> TracePath;
     cl::list<unsigned> ExcludeBinaries;

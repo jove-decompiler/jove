@@ -186,7 +186,7 @@ struct hook_t {
 
 struct TranslateContext;
 
-struct LLVMTool : public TransformerTool_BinFnBB<ToolKind::CopyOnWrite,
+struct LLVMTool : public StatefulJVTool<ToolKind::CopyOnWrite,
                                                  binary_state_t,
                                                  function_state_t,
                                                  basic_block_state_t> {

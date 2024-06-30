@@ -41,7 +41,7 @@ struct binary_state_t {
 
 }
 
-class TCGDumpTool : public TransformerTool_Bin<ToolKind::Standard, binary_state_t> {
+class TCGDumpTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void, void > {
   struct Cmdline {
     cl::opt<std::string> Binary;
     cl::opt<bool> DoTCGOpt;

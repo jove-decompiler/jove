@@ -39,7 +39,7 @@ struct binary_state_t {
 
 }
 
-class AnalyzeTool : public TransformerTool_BinFn<ToolKind::Standard, binary_state_t, function_state_t> {
+class AnalyzeTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, function_state_t, void> {
   struct Cmdline {
     cl::opt<bool> ForeignLibs;
     cl::alias ForeignLibsAlias;

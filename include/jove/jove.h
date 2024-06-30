@@ -45,22 +45,26 @@
 #include <boost/range/iterator_range.hpp>
 #include <boost/optional.hpp>
 
-#include <atomic>
 #include <algorithm>
+#include <atomic>
 #include <cstdint>
-#include <functional>
+#include <deque>
 #include <execution>
+#include <functional>
 #include <iomanip>
 #include <limits>
 #include <map>
 #include <numeric>
+#include <shared_mutex>
 #include <sstream>
 #include <stdexcept>
 #include <string_view>
 #include <tuple>
+#include <tuple>
+#include <type_traits>
+#include <utility>
+#include <variant>
 #include <vector>
-#include <shared_mutex>
-#include <deque>
 
 namespace jove {
 
@@ -1644,136 +1648,52 @@ static inline binary_t &get_vdso(jv_t &jv) {
 }
 
 template <typename BinaryStateTy>
-struct jv_bin_state_t {
-  const jv_t &jv;
-
-  mutable std::shared_mutex _mtx;
-
-  std::deque<BinaryStateTy> stuff;
-
-  jv_bin_state_t(const jv_t &jv) : jv(jv) {
-    update();
-  }
-
-  BinaryStateTy &for_binary(const binary_t &binary) {
-    std::shared_lock<std::shared_mutex> s_lck(_mtx);
-
-    return stuff.at(index_of_binary(binary, jv));
-  }
-
-  void update(void) {
-    std::unique_lock<std::shared_mutex> e_lck(_mtx);
-
-    stuff.resize(jv.Binaries.size());
-  }
-};
+using bn_state_t = std::vector<BinaryStateTy>;
 
 template <typename FunctionStateTy>
-struct jv_fn_state_t {
-  const jv_t &jv;
-
-  std::vector<std::vector<FunctionStateTy>> stuff;
-
-  jv_fn_state_t(const jv_t &jv) : jv(jv) {
-    update();
-  }
-
-  FunctionStateTy &for_function(const function_t &function) {
-    binary_index_t BIdx = binary_index_of_function(function, jv);
-    std::vector<FunctionStateTy> &function_state_vec = stuff.at(BIdx);
-
-    const binary_t &binary = jv.Binaries.at(BIdx);
-    function_index_t FIdx = index_of_function_in_binary(function, binary);
-
-    return function_state_vec.at(FIdx);
-  }
-
-  void update(void) {
-    stuff.resize(jv.Binaries.size());
-
-    for_each_binary(jv, [&](const binary_t &binary) {
-      stuff.at(index_of_binary(binary, jv))
-          .resize(binary.Analysis.Functions.size());
-    });
-  }
-};
+using fn_state_t = std::vector<std::vector<FunctionStateTy>>;
 
 template <typename BinaryStateTy, typename FunctionStateTy>
-struct jv_bin_fn_state_t {
-  const jv_t &jv;
+using bn_fn_state_t =
+    std::vector<std::pair<BinaryStateTy,
+                          std::vector<FunctionStateTy>>>;
 
-  std::vector<std::pair<BinaryStateTy, std::vector<FunctionStateTy>>> stuff;
-
-  jv_bin_fn_state_t(const jv_t &jv) : jv(jv) {
-    update();
-  }
-
-  BinaryStateTy &for_binary(const binary_t &binary) {
-    return stuff.at(index_of_binary(binary, jv)).first;
-  }
-
-  FunctionStateTy &for_function(function_t &f) {
-    binary_index_t BIdx = binary_index_of_function(f, jv);
-    std::vector<FunctionStateTy> &function_state_vec = stuff.at(BIdx).second;
-
-    const binary_t &b = jv.Binaries.at(BIdx);
-    function_index_t FIdx = index_of_function_in_binary(f, b);
-
-    return function_state_vec.at(FIdx);
-  }
-
-  FunctionStateTy &for_function(binary_index_t BIdx, function_index_t FIdx) {
-    if (unlikely(BIdx >= stuff.size()))
-      stuff.resize(BIdx + 1);
-
-    std::vector<FunctionStateTy> &function_state_vec = stuff.at(BIdx).second;
-
-    if (unlikely(FIdx >= function_state_vec.size()))
-      function_state_vec.resize(FIdx + 1);
-
-    return function_state_vec.at(FIdx);
-  }
-
-  void update(void) {
-    stuff.resize(jv.Binaries.size());
-
-    for_each_binary(jv, [&](const binary_t &binary) {
-      stuff.at(index_of_binary(binary, jv))
-          .second.resize(binary.Analysis.Functions.size());
-    });
-  }
-};
+template <typename BinaryStateTy, typename FunctionStateTy,
+          typename BasicBlockStateTy>
+using bn_fn_bb_state_t =
+    std::vector<std::tuple<BinaryStateTy,
+                           std::vector<FunctionStateTy>,
+                           std::vector<BasicBlockStateTy>>>;
 
 template <typename BinaryStateTy, typename FunctionStateTy, typename BasicBlockStateTy>
-struct jv_bin_fn_bb_state_t {
+struct jv_state_t {
   const jv_t &jv;
 
-  std::vector<std::tuple<BinaryStateTy,
-                         std::vector<FunctionStateTy>,
-                         std::vector<BasicBlockStateTy>>>
-      stuff;
+  static_assert(!std::is_void_v<BinaryStateTy> &&
+                !std::is_void_v<FunctionStateTy> &&
+                !std::is_void_v<BasicBlockStateTy>);
 
-  jv_bin_fn_bb_state_t(const jv_t &jv) : jv(jv) {
-    update();
+  bn_fn_bb_state_t<BinaryStateTy, FunctionStateTy, BasicBlockStateTy> bn_fn_bb_state;
+
+  jv_state_t(const jv_t &jv) : jv(jv) { update(); }
+
+  BinaryStateTy &for_binary(const binary_t &b) {
+    return std::get<0>(bn_fn_bb_state.at(index_of_binary(b, jv)));
   }
 
-  BinaryStateTy &for_binary(const binary_t &binary) {
-    return std::get<0>(stuff.at(index_of_binary(binary, jv)));
-  }
-
-  FunctionStateTy &for_function(const function_t &function) {
-    binary_index_t BIdx = binary_index_of_function(function, jv);
-    std::vector<FunctionStateTy> &function_state_vec = std::get<1>(stuff.at(BIdx));
+  FunctionStateTy &for_function(const function_t &f) {
+    binary_index_t BIdx = binary_index_of_function(f, jv);
+    std::vector<FunctionStateTy> &function_state_vec = std::get<1>(bn_fn_bb_state.at(BIdx));
 
     const binary_t &binary = jv.Binaries.at(BIdx);
-    function_index_t FIdx = index_of_function_in_binary(function, binary);
+    function_index_t FIdx = index_of_function_in_binary(f, binary);
 
     return function_state_vec.at(FIdx);
   }
 
   BasicBlockStateTy &for_basic_block(const binary_t &binary, basic_block_t bb) {
     binary_index_t BIdx = index_of_binary(binary, jv);
-    std::vector<BasicBlockStateTy> &bb_state_vec = std::get<2>(stuff.at(BIdx));
+    std::vector<BasicBlockStateTy> &bb_state_vec = std::get<2>(bn_fn_bb_state.at(BIdx));
 
     basic_block_index_t BBIdx = index_of_basic_block(binary.Analysis.ICFG, bb);
 
@@ -1781,14 +1701,98 @@ struct jv_bin_fn_bb_state_t {
   }
 
   void update(void) {
-    stuff.resize(jv.Binaries.size());
+    bn_fn_bb_state.resize(jv.Binaries.size());
 
     for_each_binary(jv, [&](const binary_t &binary) {
-      auto &bin_stuff = stuff.at(index_of_binary(binary, jv));
+      auto &bin_stuff = bn_fn_bb_state.at(index_of_binary(binary, jv));
 
       std::get<1>(bin_stuff).resize(binary.Analysis.Functions.size());
       std::get<2>(bin_stuff).resize(boost::num_vertices(binary.Analysis.ICFG));
     });
+  }
+};
+
+template <typename BinaryStateTy, typename FunctionStateTy>
+struct jv_state_t<BinaryStateTy, FunctionStateTy, void> {
+  const jv_t &jv;
+
+  static_assert(!std::is_void_v<BinaryStateTy> ||
+                !std::is_void_v<FunctionStateTy>);
+
+  bn_fn_state_t<BinaryStateTy, FunctionStateTy> bn_fn_state;
+
+  jv_state_t(const jv_t &jv) : jv(jv) { update(); }
+
+  BinaryStateTy &for_binary(const binary_t &b) {
+    return bn_fn_state.at(index_of_binary(b, jv)).first;
+  }
+
+  FunctionStateTy &for_function(const function_t &f) {
+    binary_index_t BIdx = binary_index_of_function(f, jv);
+    std::vector<FunctionStateTy> &function_state_vec = bn_fn_state.at(BIdx).second;
+
+    const binary_t &b = jv.Binaries.at(BIdx);
+    function_index_t FIdx = index_of_function_in_binary(f, b);
+
+    return function_state_vec.at(FIdx);
+  }
+
+  void update(void) {
+    bn_fn_state.resize(jv.Binaries.size());
+
+    for_each_binary(jv, [&](const binary_t &binary) {
+      bn_fn_state.at(index_of_binary(binary, jv))
+	  .second.resize(binary.Analysis.Functions.size());
+    });
+  }
+};
+
+template <typename FunctionStateTy>
+struct jv_state_t<void, FunctionStateTy, void> {
+  const jv_t &jv;
+
+  static_assert(!std::is_void_v<FunctionStateTy>);
+
+  fn_state_t<FunctionStateTy> fn_state;
+
+  jv_state_t(const jv_t &jv) : jv(jv) { update(); }
+
+  FunctionStateTy &for_function(const function_t &f) {
+    binary_index_t BIdx = binary_index_of_function(f, jv);
+    std::vector<FunctionStateTy> &function_state_vec = fn_state.at(BIdx);
+
+    const binary_t &binary = jv.Binaries.at(BIdx);
+    function_index_t FIdx = index_of_function_in_binary(f, binary);
+
+    return function_state_vec.at(FIdx);
+  }
+
+  void update(void) {
+    fn_state.resize(jv.Binaries.size());
+
+    for_each_binary(jv, [&](const binary_t &binary) {
+      fn_state.at(index_of_binary(binary, jv))
+	  .resize(binary.Analysis.Functions.size());
+    });
+  }
+};
+
+template <typename BinaryStateTy>
+struct jv_state_t<BinaryStateTy, void, void> {
+  const jv_t &jv;
+
+  static_assert(!std::is_void_v<BinaryStateTy>);
+
+  bn_state_t<BinaryStateTy> bn_state;
+
+  jv_state_t(const jv_t &jv) : jv(jv) { update(); }
+
+  BinaryStateTy &for_binary(const binary_t &b) {
+    return bn_state.at(index_of_binary(b, jv));
+  }
+
+  void update(void) {
+    bn_state.resize(jv.Binaries.size());
   }
 };
 

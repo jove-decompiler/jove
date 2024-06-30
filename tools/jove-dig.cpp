@@ -31,7 +31,7 @@ struct binary_state_t {
 
 }
 
-class CodeDigger : public TransformerTool_Bin<ToolKind::Standard, binary_state_t> {
+class CodeDigger : public StatefulJVTool<ToolKind::Standard, binary_state_t, void, void> {
   struct Cmdline {
     cl::opt<unsigned> Threads;
     cl::opt<bool> NoSave;

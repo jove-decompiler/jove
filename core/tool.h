@@ -195,43 +195,15 @@ struct JVTool<ToolKind::CopyOnWrite> : public BaseJVTool  {
                    path_to_jv().c_str()) {}
 };
 
-template <ToolKind Kind, typename BinaryStateT>
-struct TransformerTool_Bin : public JVTool<Kind>
-{
-  jv_bin_state_t<BinaryStateT> state;
+template <ToolKind Kind,
+          typename BinaryStateT,
+          typename FunctionStateT,
+          typename BBStateT>
+struct StatefulJVTool : public JVTool<Kind> {
+  jv_state_t<BinaryStateT, FunctionStateT, BBStateT> state;
 
   template <typename... Args>
-  TransformerTool_Bin(Args &&...args)
-      : JVTool<Kind>(std::forward<Args>(args)...), state(BaseJVTool::jv) {}
-};
-
-template <ToolKind Kind, typename FunctionStateT>
-struct TransformerTool_Fn : public JVTool<Kind>
-{
-  jv_fn_state_t<FunctionStateT> state;
-
-  template <typename... Args>
-  TransformerTool_Fn(Args &&...args)
-      : JVTool<Kind>(std::forward<Args>(args)...), state(BaseJVTool::jv) {}
-};
-
-template <ToolKind Kind, typename BinaryStateT, typename FunctionStateT>
-struct TransformerTool_BinFn : public JVTool<Kind>
-{
-  jv_bin_fn_state_t<BinaryStateT, FunctionStateT> state;
-
-  template <typename... Args>
-  TransformerTool_BinFn(Args &&...args)
-      : JVTool<Kind>(std::forward<Args>(args)...), state(BaseJVTool::jv) {}
-};
-
-template <ToolKind Kind, typename BinaryStateT, typename FunctionStateT, typename BBStateT>
-struct TransformerTool_BinFnBB : public JVTool<Kind>
-{
-  jv_bin_fn_bb_state_t<BinaryStateT, FunctionStateT, BBStateT> state;
-
-  template <typename... Args>
-  TransformerTool_BinFnBB(Args &&...args)
+  StatefulJVTool(Args &&...args)
       : JVTool<Kind>(std::forward<Args>(args)...), state(BaseJVTool::jv) {}
 };
 

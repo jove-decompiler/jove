@@ -34,7 +34,7 @@ struct binary_state_t {
 
 }
 
-struct ObserveTool : public TransformerTool_Bin<ToolKind::Standard, binary_state_t> {
+struct ObserveTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void, void> {
   struct Cmdline {
     cl::opt<std::string> Prog;
     cl::list<std::string> Args;

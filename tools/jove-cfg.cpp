@@ -45,7 +45,7 @@ struct binary_state_t {
 
 }
 
-class CFGTool : public TransformerTool_Bin<ToolKind::Standard, binary_state_t> {
+class CFGTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void, void> {
   struct Cmdline {
     cl::opt<std::string> Prog;
     cl::opt<std::string> Binary;

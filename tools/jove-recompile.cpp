@@ -72,7 +72,7 @@ struct binary_state_t {
 
 typedef boost::format fmt;
 
-class RecompileTool : public TransformerTool_Bin<ToolKind::Standard, binary_state_t> {
+class RecompileTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void, void> {
   struct Cmdline {
     cl::opt<std::string> Output;
     cl::alias OutputAlias;
