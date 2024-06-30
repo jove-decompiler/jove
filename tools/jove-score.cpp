@@ -14,7 +14,7 @@ using llvm::WithColor;
 
 namespace jove {
 
-class ScoreTool : public JVTool {
+class ScoreTool : public JVTool<ToolKind::Standard> {
   struct Cmdline {
     cl::opt<std::string> Binary;
     cl::alias BinaryAlias;

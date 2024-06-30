@@ -15,7 +15,7 @@ using llvm::WithColor;
 
 namespace jove {
 
-class StubTool : public JVTool {
+class StubTool : public JVTool<ToolKind::Standard> {
   struct Cmdline {
     cl::opt<std::string> Prog;
 

@@ -12,7 +12,7 @@ using llvm::WithColor;
 
 namespace jove {
 
-class Trace2AddrsTool : public JVTool {
+class Trace2AddrsTool : public JVTool<ToolKind::Standard> {
   struct Cmdline {
     cl::opt<std::string> TracePath;
     cl::opt<bool> SkipRepeated;

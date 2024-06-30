@@ -186,7 +186,8 @@ struct hook_t {
 
 struct TranslateContext;
 
-struct LLVMTool : public TransformerTool_BinFnBB<binary_state_t,
+struct LLVMTool : public TransformerTool_BinFnBB<ToolKind::CopyOnWrite,
+                                                 binary_state_t,
                                                  function_state_t,
                                                  basic_block_state_t> {
   struct Cmdline {

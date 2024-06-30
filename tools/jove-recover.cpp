@@ -34,7 +34,7 @@ using llvm::WithColor;
 
 namespace jove {
 
-class RecoverTool : public JVTool {
+class RecoverTool : public JVTool<ToolKind::Standard> {
   struct Cmdline {
     cl::list<std::string> DynTarget;
     cl::list<std::string> BasicBlock;

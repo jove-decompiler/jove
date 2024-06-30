@@ -155,51 +155,84 @@ private:
 
 typedef Tool *(*ToolCreationProc)(void);
 
-struct JVTool : public Tool {
-  const std::string jv_path; /* defaults to $HOME/.jv */
+size_t jvDefaultInitialSize(void);
 
+struct BaseJVTool : public Tool {
   jv_file_t jv_file;
   ip_void_allocator_t Alloc;
 
   jv_t &jv;
 
-  JVTool(const char *jv_path = nullptr);
+  template <typename... Args>
+  BaseJVTool(Args &&...args)
+      : jv_file(std::forward<Args>(args)...),
+        Alloc(jv_file.get_segment_manager()),
+        jv(*jv_file.find_or_construct<jv_t>("JV")(
+            ip_void_allocator_t(jv_file.get_segment_manager()))) {
+    /* FIXME */
+    for (binary_t &b : jv.Binaries)
+      __builtin_memset(&b.Analysis.ICFG.m_property, 0, sizeof(b.Analysis.ICFG.m_property));
+  }
 };
 
-template <typename BinaryStateT>
-struct TransformerTool_Bin : public JVTool
+enum class ToolKind { Standard, CopyOnWrite };
+
+template <ToolKind Kind>
+struct JVTool : public BaseJVTool {
+};
+
+template <>
+struct JVTool<ToolKind::Standard> : public BaseJVTool {
+  JVTool()
+      : BaseJVTool(boost::interprocess::open_or_create, path_to_jv().c_str(),
+                   jvDefaultInitialSize()) {}
+};
+
+template <>
+struct JVTool<ToolKind::CopyOnWrite> : public BaseJVTool  {
+  JVTool()
+      : BaseJVTool(boost::interprocess::open_copy_on_write,
+                   path_to_jv().c_str()) {}
+};
+
+template <ToolKind Kind, typename BinaryStateT>
+struct TransformerTool_Bin : public JVTool<Kind>
 {
   jv_bin_state_t<BinaryStateT> state;
 
-  TransformerTool_Bin(const char *jv_path = nullptr)
-      : JVTool(jv_path), state(jv) {}
+  template <typename... Args>
+  TransformerTool_Bin(Args &&...args)
+      : JVTool<Kind>(std::forward<Args>(args)...), state(BaseJVTool::jv) {}
 };
 
-template <typename FunctionStateT>
-struct TransformerTool_Fn : public JVTool
+template <ToolKind Kind, typename FunctionStateT>
+struct TransformerTool_Fn : public JVTool<Kind>
 {
   jv_fn_state_t<FunctionStateT> state;
 
-  TransformerTool_Fn(const char *jv_path = nullptr)
-      : JVTool(jv_path), state(jv) {}
+  template <typename... Args>
+  TransformerTool_Fn(Args &&...args)
+      : JVTool<Kind>(std::forward<Args>(args)...), state(BaseJVTool::jv) {}
 };
 
-template <typename BinaryStateT, typename FunctionStateT>
-struct TransformerTool_BinFn : public JVTool
+template <ToolKind Kind, typename BinaryStateT, typename FunctionStateT>
+struct TransformerTool_BinFn : public JVTool<Kind>
 {
   jv_bin_fn_state_t<BinaryStateT, FunctionStateT> state;
 
-  TransformerTool_BinFn(const char *jv_path = nullptr)
-      : JVTool(jv_path), state(jv) {}
+  template <typename... Args>
+  TransformerTool_BinFn(Args &&...args)
+      : JVTool<Kind>(std::forward<Args>(args)...), state(BaseJVTool::jv) {}
 };
 
-template <typename BinaryStateT, typename FunctionStateT, typename BBStateT>
-struct TransformerTool_BinFnBB : public JVTool
+template <ToolKind Kind, typename BinaryStateT, typename FunctionStateT, typename BBStateT>
+struct TransformerTool_BinFnBB : public JVTool<Kind>
 {
   jv_bin_fn_bb_state_t<BinaryStateT, FunctionStateT, BBStateT> state;
 
-  TransformerTool_BinFnBB(const char *jv_path = nullptr)
-      : JVTool(jv_path), state(jv) {}
+  template <typename... Args>
+  TransformerTool_BinFnBB(Args &&...args)
+      : JVTool<Kind>(std::forward<Args>(args)...), state(BaseJVTool::jv) {}
 };
 
 void RegisterTool(const char *name, ToolCreationProc Create);

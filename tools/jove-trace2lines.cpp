@@ -21,7 +21,7 @@ struct function_state_t {
 
 }
 
-class Trace2LinesTool : public TransformerTool_Fn<function_state_t> {
+class Trace2LinesTool : public TransformerTool_Fn<ToolKind::Standard, function_state_t> {
   struct Cmdline {
     cl::opt<std::string> TracePath;
     cl::list<unsigned> ExcludeFns;

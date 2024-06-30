@@ -31,7 +31,7 @@ struct binary_state_t {
 
 }
 
-class CodeDigger : public TransformerTool_Bin<binary_state_t> {
+class CodeDigger : public TransformerTool_Bin<ToolKind::Standard, binary_state_t> {
   struct Cmdline {
     cl::opt<unsigned> Threads;
     cl::opt<bool> NoSave;

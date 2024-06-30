@@ -6,7 +6,7 @@ namespace cl = llvm::cl;
 
 namespace jove {
 
-class UnserializeTool : public JVTool {
+class UnserializeTool : public JVTool<ToolKind::Standard> {
   struct Cmdline {
     cl::opt<bool> Text;
     cl::opt<std::string> Path;

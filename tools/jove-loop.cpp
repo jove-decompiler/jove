@@ -32,7 +32,7 @@ using llvm::WithColor;
 
 namespace jove {
 
-class LoopTool : public JVTool {
+class LoopTool : public JVTool<ToolKind::Standard> {
   struct Cmdline {
     cl::opt<std::string> Prog;
     cl::list<std::string> Args;
@@ -528,7 +528,7 @@ run:
           [&](auto Env) {
             InitWithEnviron(Env);
 
-            Env("JVPATH=" + jv_path);
+            Env("JVPATH=" + path_to_jv());
           },
           std::string(),
           std::string(),
@@ -831,7 +831,7 @@ skip_run:
       if (fs::exists(fs::path(sysroot) / ".jv")) // delete any stale symlinks
         fs::remove(fs::path(sysroot) / ".jv");
 
-      fs::create_symlink(fs::canonical(jv_path), fs::path(sysroot) / ".jv");
+      fs::create_symlink(fs::canonical(path_to_jv()), fs::path(sysroot) / ".jv");
 
       //
       // create basic directories (for chroot) XXX duplicated code from recompile
@@ -1049,7 +1049,7 @@ skip_run:
         [&](auto Env) {
           InitWithEnviron(Env);
 
-          Env("JVPATH=" + jv_path);
+          Env("JVPATH=" + path_to_jv());
         });
 
       if (rc) {
@@ -1095,7 +1095,7 @@ skip_run:
         [&](auto Env) {
           InitWithEnviron(Env);
 
-          Env("JVPATH=" + jv_path);
+          Env("JVPATH=" + path_to_jv());
         });
 
       if (rc) {

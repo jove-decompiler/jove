@@ -18,7 +18,7 @@ using llvm::WithColor;
 
 namespace jove {
 
-class AddTool : public JVTool {
+class AddTool : public JVTool<ToolKind::Standard> {
   struct Cmdline {
     cl::opt<std::string> DSO;
 

@@ -49,7 +49,7 @@ struct binary_state_t {
 
 }
 
-class DecompileTool : public TransformerTool_Bin<binary_state_t> {
+class DecompileTool : public TransformerTool_Bin<ToolKind::Standard, binary_state_t> {
   struct Cmdline {
     cl::opt<std::string> Prog;
     cl::opt<std::string> Binary;

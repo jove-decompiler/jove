@@ -524,18 +524,4 @@ void Tool::cleanup_temp_dir(void) {
   }
 }
 
-size_t jvDefaultInitialSize(void);
-
-JVTool::JVTool(const char *_jv_path)
-    : jv_path(_jv_path ? std::string(_jv_path) : path_to_jv()),
-      jv_file(boost::interprocess::open_or_create, jv_path.c_str(), jvDefaultInitialSize()),
-      Alloc(jv_file.get_segment_manager()),
-      jv(*jv_file.find_or_construct<jv_t>("JV")(ip_void_allocator_t(jv_file.get_segment_manager())))
-{
-  /* FIXME */
-  for (binary_t &b : jv.Binaries)
-    __builtin_memset(&b.Analysis.ICFG.m_property, 0, sizeof(b.Analysis.ICFG.m_property));
-
-}
-
 }

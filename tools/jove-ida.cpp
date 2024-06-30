@@ -31,7 +31,7 @@ using llvm::WithColor;
 
 namespace jove {
 
-class IDATool : public JVTool {
+class IDATool : public JVTool<ToolKind::Standard> {
   struct Cmdline {
     cl::opt<std::string> Binary;
     cl::alias BinaryAlias;

@@ -72,7 +72,7 @@ struct binary_state_t {
 
 typedef boost::format fmt;
 
-class RecompileTool : public TransformerTool_Bin<binary_state_t> {
+class RecompileTool : public TransformerTool_Bin<ToolKind::Standard, binary_state_t> {
   struct Cmdline {
     cl::opt<std::string> Output;
     cl::alias OutputAlias;
@@ -214,10 +214,10 @@ struct vert_exists_in_set_t {
 
 template <typename Graph>
 struct graphviz_label_writer {
-  JVTool &tool;
+  JVTool<ToolKind::Standard> &tool;
   const Graph &g;
 
-  graphviz_label_writer(JVTool &tool, const Graph &g) : tool(tool), g(g) {}
+  graphviz_label_writer(JVTool<ToolKind::Standard> &tool, const Graph &g) : tool(tool), g(g) {}
 
   template <typename Vertex>
   void operator()(std::ostream &out, Vertex v) const {
@@ -336,7 +336,7 @@ int RecompileTool::Run(void) {
   if (fs::exists(fs::path(opts.Output.getValue()) / ".jv")) // delete any stale symlinks
     fs::remove(fs::path(opts.Output.getValue()) / ".jv");
 
-  fs::create_symlink(fs::canonical(jv_path), fs::path(opts.Output.getValue()) / ".jv");
+  fs::create_symlink(fs::canonical(path_to_jv()), fs::path(opts.Output.getValue()) / ".jv");
 
   //
   // install signal handler for Ctrl-C to gracefully cancel
@@ -1153,7 +1153,7 @@ void RecompileTool::worker(dso_t dso) {
       [&](auto Env) {
         InitWithEnviron(Env);
 
-        Env("JVPATH=" + jv_path);
+        Env("JVPATH=" + path_to_jv());
       },
       path_to_stdout, path_to_stderr);
 

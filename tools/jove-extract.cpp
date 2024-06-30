@@ -26,7 +26,7 @@ using llvm::WithColor;
 
 namespace jove {
 
-class ExtractTool : public JVTool {
+class ExtractTool : public JVTool<ToolKind::Standard> {
   struct Cmdline {
     cl::opt<std::string> OutDir;
 
