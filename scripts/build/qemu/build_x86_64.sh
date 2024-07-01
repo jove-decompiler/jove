@@ -3,12 +3,6 @@ set -e
 set -o pipefail
 set -x
 
-TRIPLE="x86_64-pc-linux-gnu"
-
-OURCFLAGS=\
-"--target=$TRIPLE"\
-" -flto"
-
 EXTRACONF="--enable-jove"
 TARGETLIST="i386-linux-user,x86_64-linux-user,mipsel-linux-user,mips-linux-user,mips64el-linux-user,aarch64-linux-user"
 
@@ -29,7 +23,6 @@ if [ ! -f build.ninja ]; then
   --objcc=clang-16 \
   --cpu=x86_64 \
   --enable-tcg-interpreter \
-  --extra-cflags="$OURCFLAGS" \
   --disable-werror \
   --disable-docs \
   --disable-install-blobs \
