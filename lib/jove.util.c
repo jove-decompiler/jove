@@ -443,29 +443,28 @@ static _INL _UNUSED size_t _sum_iovec_lengths(const struct iovec *iov, unsigned 
   return expected;
 }
 
-static _UNUSED ssize_t _jove_robust_write(int fd, void *const buf, const size_t count) {
-  uint8_t *const _buf = (uint8_t *)buf;
+static _UNUSED ssize_t _jove_robust_write(int fd, const void *buf,
+                                          size_t count) {
+  ssize_t ret = 0;
+  ssize_t total = 0;
 
-  unsigned n = 0;
-  do {
-    unsigned left = count - n;
-
-    ssize_t ret = _jove_sys_write(fd, (const void *)&_buf[n], left);
+  while (count) {
+    ret = _jove_sys_write(fd, buf, count);
+    if (ret < 0) {
+      if (ret == -EINTR)
+        continue;
+      break;
+    }
 
     if (ret == 0)
       return -EIO;
 
-    if (ret < 0) {
-      if (ret == -EINTR)
-        continue;
+    count -= ret;
+    buf += ret;
+    total += ret;
+  }
 
-      return ret;
-    }
-
-    n += ret;
-  } while (n != count);
-
-  return n;
+  return total;
 }
 
 static _UNUSED bool _should_sleep_on_crash(char *envs, const unsigned n) {
