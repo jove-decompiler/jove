@@ -210,7 +210,7 @@ class JoveTester:
         for input_args in test_inputs:
           self.ssh(["jove", "bootstrap", test_guest_path] + input_args)
 
-        jove_loop_args = ["jove", "loop", "--mt=0", "--optimize", "--connect", "%s:%d" % (self.iphost, self.jove_server_port), test_guest_path]
+        jove_loop_args = ["jove", "loop", "--mt=0", "--connect", "%s:%d" % (self.iphost, self.jove_server_port), test_guest_path]
 
         if not self.unattended:
           self.fake_run_ssh_command_for_user(jove_loop_args + input_args)
