@@ -36,8 +36,8 @@
 #define __SYSCALL_CLOBBERS "memory", "cc", "r11", "rcx"
 
 #define ___SYSCALL0(nr, nm)                                                    \
-  static JOVE_SYS_ATTR int64_t _jove_sys_##nm(void) {                          \
-    int64_t _ret;                                                              \
+  static JOVE_SYS_ATTR uint64_t _jove_sys_##nm(void) {                         \
+    uint64_t _ret;                                                             \
                                                                                \
     uint64_t _nr = nr;                                                         \
                                                                                \
@@ -50,12 +50,12 @@
   }
 
 #define ___SYSCALL1(nr, nm, t1, a1)                                            \
-  static JOVE_SYS_ATTR int64_t _jove_sys_##nm(t1 a1) {                         \
-    int64_t _ret;                                                              \
+  static JOVE_SYS_ATTR uint64_t _jove_sys_##nm(t1 a1) {                        \
+    uint64_t _ret;                                                             \
                                                                                \
     uint64_t _nr = nr;                                                         \
                                                                                \
-    int64_t _a1 = (int64_t)a1;                                                 \
+    uint64_t _a1 = (uint64_t)a1;                                               \
                                                                                \
     asm volatile("syscall\n"                                                   \
                  : "=a"(_ret)                                                  \
@@ -66,13 +66,13 @@
   }
 
 #define ___SYSCALL2(nr, nm, t1, a1, t2, a2)                                    \
-  static JOVE_SYS_ATTR int64_t _jove_sys_##nm(t1 a1, t2 a2) {                  \
-    int64_t _ret;                                                              \
+  static JOVE_SYS_ATTR uint64_t _jove_sys_##nm(t1 a1, t2 a2) {                 \
+    uint64_t _ret;                                                             \
                                                                                \
     uint64_t _nr = nr;                                                         \
                                                                                \
-    int64_t _a1 = (int64_t)a1;                                                 \
-    int64_t _a2 = (int64_t)a2;                                                 \
+    uint64_t _a1 = (uint64_t)a1;                                               \
+    uint64_t _a2 = (uint64_t)a2;                                               \
                                                                                \
     asm volatile("syscall\n"                                                   \
                  : "=a"(_ret)                                                  \
@@ -83,14 +83,14 @@
   }
 
 #define ___SYSCALL3(nr, nm, t1, a1, t2, a2, t3, a3)                            \
-  static JOVE_SYS_ATTR int64_t _jove_sys_##nm(t1 a1, t2 a2, t3 a3) {           \
-    int64_t _ret;                                                              \
+  static JOVE_SYS_ATTR uint64_t _jove_sys_##nm(t1 a1, t2 a2, t3 a3) {          \
+    uint64_t _ret;                                                             \
                                                                                \
     uint64_t _nr = nr;                                                         \
                                                                                \
-    int64_t _a1 = (int64_t)a1;                                                 \
-    int64_t _a2 = (int64_t)a2;                                                 \
-    int64_t _a3 = (int64_t)a3;                                                 \
+    uint64_t _a1 = (uint64_t)a1;                                               \
+    uint64_t _a2 = (uint64_t)a2;                                               \
+    uint64_t _a3 = (uint64_t)a3;                                               \
                                                                                \
     asm volatile("syscall\n"                                                   \
                  : "=a"(_ret)                                                  \
@@ -101,15 +101,15 @@
   }
 
 #define ___SYSCALL4(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4)                    \
-  static JOVE_SYS_ATTR int64_t _jove_sys_##nm(t1 a1, t2 a2, t3 a3, t4 a4) {    \
-    int64_t _ret;                                                              \
+  static JOVE_SYS_ATTR uint64_t _jove_sys_##nm(t1 a1, t2 a2, t3 a3, t4 a4) {   \
+    uint64_t _ret;                                                             \
                                                                                \
     uint64_t _nr = nr;                                                         \
                                                                                \
-    int64_t _a1 = (int64_t)a1;                                                 \
-    int64_t _a2 = (int64_t)a2;                                                 \
-    int64_t _a3 = (int64_t)a3;                                                 \
-    int64_t _a4 = (int64_t)a4;                                                 \
+    uint64_t _a1 = (uint64_t)a1;                                               \
+    uint64_t _a2 = (uint64_t)a2;                                               \
+    uint64_t _a3 = (uint64_t)a3;                                               \
+    uint64_t _a4 = (uint64_t)a4;                                               \
                                                                                \
     asm volatile("movq %5, %%r10\n"                                            \
                  "syscall\n"                                                   \
@@ -121,17 +121,17 @@
   }
 
 #define ___SYSCALL5(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5)            \
-  static JOVE_SYS_ATTR int64_t _jove_sys_##nm(t1 a1, t2 a2, t3 a3, t4 a4,      \
+  static JOVE_SYS_ATTR uint64_t _jove_sys_##nm(t1 a1, t2 a2, t3 a3, t4 a4,     \
                                               t5 a5) {                         \
-    int64_t _ret;                                                              \
+    uint64_t _ret;                                                             \
                                                                                \
     uint64_t _nr = nr;                                                         \
                                                                                \
-    int64_t _a1 = (int64_t)a1;                                                 \
-    int64_t _a2 = (int64_t)a2;                                                 \
-    int64_t _a3 = (int64_t)a3;                                                 \
-    int64_t _a4 = (int64_t)a4;                                                 \
-    int64_t _a5 = (int64_t)a5;                                                 \
+    uint64_t _a1 = (uint64_t)a1;                                               \
+    uint64_t _a2 = (uint64_t)a2;                                               \
+    uint64_t _a3 = (uint64_t)a3;                                               \
+    uint64_t _a4 = (uint64_t)a4;                                               \
+    uint64_t _a5 = (uint64_t)a5;                                               \
                                                                                \
     asm volatile("movq %5, %%r10\n"                                            \
                  "movq %6, %%r8\n"                                             \
@@ -144,18 +144,18 @@
   }
 
 #define ___SYSCALL6(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5, t6, a6)    \
-  static JOVE_SYS_ATTR int64_t _jove_sys_##nm(t1 a1, t2 a2, t3 a3, t4 a4,      \
+  static JOVE_SYS_ATTR uint64_t _jove_sys_##nm(t1 a1, t2 a2, t3 a3, t4 a4,     \
                                               t5 a5, t6 a6) {                  \
-    int64_t _ret;                                                              \
+    uint64_t _ret;                                                             \
                                                                                \
     uint64_t _nr = nr;                                                         \
                                                                                \
-    int64_t _a1 = (int64_t)a1;                                                 \
-    int64_t _a2 = (int64_t)a2;                                                 \
-    int64_t _a3 = (int64_t)a3;                                                 \
-    int64_t _a4 = (int64_t)a4;                                                 \
-    int64_t _a5 = (int64_t)a5;                                                 \
-    int64_t _a6 = (int64_t)a6;                                                 \
+    uint64_t _a1 = (uint64_t)a1;                                               \
+    uint64_t _a2 = (uint64_t)a2;                                               \
+    uint64_t _a3 = (uint64_t)a3;                                               \
+    uint64_t _a4 = (uint64_t)a4;                                               \
+    uint64_t _a5 = (uint64_t)a5;                                               \
+    uint64_t _a6 = (uint64_t)a6;                                               \
                                                                                \
     asm volatile("movq %5, %%r10\n"                                            \
                  "movq %6, %%r8\n"                                             \
