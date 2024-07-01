@@ -59,7 +59,7 @@ void _jove_inverse_thunk(void) {
 
 #if 0
                "movq (%%rax), %%rdx\n"   // rdx = emusp
-#else
+#else /* FIXME */
                "movq 32(%%rsp), %%rdx\n"  // read saved_sp off the stack
                "addq $8, %%rdx\n"         // simulate pop of return addr
 #endif
