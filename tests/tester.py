@@ -238,7 +238,7 @@ class JoveTester:
               print('<STDERR>\n"%s"\n\n!=\n\n"%s"\n' % (p1.stderr, p2.stderr))
 
             if not self.unattended:
-              self.set_up_ssh_command_for_user(jove_loop_args)
+              self.set_up_ssh_command_for_user(jove_loop_args + input_args)
 
             return 1
 
