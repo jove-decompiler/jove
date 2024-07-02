@@ -32,6 +32,15 @@ void _jove_free_stack_later(uintptr_t stack) {
   _UNREACHABLE();
 }
 
+static struct {
+  struct {
+    bool Signals;
+    bool Thunks;
+  } Debug;
+
+  bool ShouldSleepOnCrash;
+} Opts;
+
 //
 // for DFSan
 //
@@ -60,11 +69,15 @@ extern void restore_rt (void) asm ("__restore_rt") __attribute__ ((visibility ("
 #endif
 #endif
 
+static void _jove_parse_environment(void);
+
 void _jove_rt_init(void) {
   static bool _Done = false;
   if (_Done)
     return;
   _Done = true;
+
+  _jove_parse_environment();
 
   struct kernel_sigaction sa;
   _memset(&sa, 0, sizeof(sa));
@@ -110,6 +123,14 @@ void _jove_rt_init(void) {
   _jove_init_cpu_state();
   _jove_callstack_init();
   _jove_trace_init();
+}
+
+void _jove_parse_environment(void) {
+  char envs[4096 * 8];
+  const unsigned envs_n = _jove_read_pseudo_file("/proc/self/environ", envs, sizeof(envs));
+  envs[envs_n] = '\0';
+
+  Opts.ShouldSleepOnCrash = _should_sleep_on_crash(envs, envs_n);
 }
 
 BOOL DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved)
@@ -445,38 +466,73 @@ found:
     // determine whether the kernel has just delivered a signal XXX
     //
     bool SignalDelivery = is_sigreturn_insn_sequence((void *)saved_retaddr);
-
     if (SignalDelivery) {
       ++__jove_dfsan_sig_handle;
-    }
-#if 0
-    if (SignalDelivery) {
-      //
-      // print number of signal and description of program counter
-      //
 
-      char s[4096 * 16];
+      if (unlikely(Opts.Debug.Signals)) {
+        //
+        // print number of signal and description of program counter
+        //
+
+        char s[4096 * 16];
+        s[0] = '\0';
+
+        _strcat(s, __ANSI_BOLD_BLUE "[signal ");
+
+        int signo =
+#if defined(__mips64) || defined(__mips__)
+            uctx->uc_mcontext.gregs[4]
+#else
+            0
+#endif
+            ;
+
+        {
+          char buff[65];
+          _uint_to_string(signo, buff, 10);
+
+          _strcat(s, buff);
+        }
+
+        _strcat(s, "] @ 0x");
+
+        {
+          char buff[65];
+          _uint_to_string(saved_pc, buff, 0x10);
+
+          _strcat(s, buff);
+        }
+
+        {
+          uintptr_t _m _CLEANUP(_jove_free_large_buffp) = _jove_alloc_large_buff();
+          char *const maps = (char *)_m;
+
+          const unsigned maps_n = _jove_read_pseudo_file("/proc/self/maps", maps, JOVE_LARGE_BUFF_SIZE);
+          maps[maps_n] = '\0';
+
+          char buff[256];
+          _description_of_address_for_maps(buff, saved_pc, maps, maps_n);
+          if (_strlen(buff) != 0) {
+            _strcat(s, " <");
+            _strcat(s, buff);
+            _strcat(s, ">");
+          }
+        }
+
+        _strcat(s, "\n" __ANSI_NORMAL_COLOR);
+
+        _jove_robust_write(2 /* stderr */, s, _strlen(s));
+      }
+    }
+
+    if (unlikely(Opts.Debug.Thunks)) {
+      //
+      // print information about call taking place
+      //
+      char s[2048];
       s[0] = '\0';
 
-      _strcat(s, __ANSI_BOLD_BLUE "[signal ");
-
-      int signo =
-#if defined(__mips64) || defined(__mips__)
-          uctx->uc_mcontext.gregs[4]
-#else
-          0
-#endif
-          ;
-
-      {
-        char buff[65];
-        _uint_to_string(signo, buff, 10);
-
-        _strcat(s, buff);
-      }
-
-      _strcat(s, "] @ 0x");
-
+      _strcat(s, "_jove_rt_sig: -> 0x");
       {
         char buff[65];
         _uint_to_string(saved_pc, buff, 0x10);
@@ -484,25 +540,34 @@ found:
         _strcat(s, buff);
       }
 
+      _strcat(s, " ->_ 0x");
       {
-        char maps[JOVE_PROC_MAPS_BUF_LEN];
-        const unsigned maps_n = _jove_read_pseudo_file("/proc/self/maps", maps, sizeof(maps));
-        maps[maps_n] = '\0';
+        char buff[65];
+        _uint_to_string(saved_retaddr, buff, 0x10);
 
-        char buff[256];
-        _description_of_address_for_maps(buff, saved_pc, maps, maps_n);
-        if (_strlen(buff) != 0) {
-          _strcat(s, " <");
-          _strcat(s, buff);
-          _strcat(s, ">");
-        }
+        _strcat(s, buff);
+      }
+      _strcat(s, " <0x");
+      {
+        char buff[65];
+        _uint_to_string(saved_sp, buff, 0x10);
+
+        _strcat(s, buff);
       }
 
-      _strcat(s, "\n" __ANSI_NORMAL_COLOR);
+      _strcat(s, "> [");
+
+      {
+        char buff[65];
+        _uint_to_string(sig, buff, 10);
+
+        _strcat(s, buff);
+      }
+
+      _strcat(s, "]\n");
 
       _jove_sys_write(2 /* stderr */, s, _strlen(s));
     }
-#endif
 
     //
     // setup emulated stack
@@ -534,7 +599,7 @@ found:
         uintptr_t *p = (uintptr_t *)newsp;
 
 #if defined(__x86_64__) || defined(__i386__)
-        *p++ = (uintptr_t)_jove_inverse_thunk;
+        *p++ = (uintptr_t)_jove_inverse_thunk; /* return address */
         *p++ = saved_retaddr;
         *p++ = saved_sp;
         *p++ = saved_emusp;
@@ -782,26 +847,19 @@ not_found:
       dfsan_flush_ptr();
     }
 
-    {
-      char envs[4096 * 8];
-      const unsigned envs_n = _jove_read_pseudo_file("/proc/self/environ", envs, sizeof(envs));
-      envs[envs_n] = '\0';
+    if (unlikely(Opts.ShouldSleepOnCrash)) {
+      char buff[256];
+      buff[0] = '\0';
 
-      if (_should_sleep_on_crash(envs, envs_n)) {
-        {
-          char buff[256];
-          buff[0] = '\0';
+      _strcat(buff, __ANSI_BOLD_BLUE "sleeping...\n" __ANSI_NORMAL_COLOR);
 
-          _strcat(buff, __ANSI_BOLD_BLUE "sleeping...\n" __ANSI_NORMAL_COLOR);
+      _jove_robust_write(2 /* stderr */, buff, _strlen(buff));
 
-          _jove_sys_write(2 /* stderr */, buff, _strlen(buff));
-        }
-
-        for (;;) _jove_sleep();
-      } else {
-        _jove_sys_exit_group(0x77);
-        __builtin_trap();
-      }
+      for (;;)
+        _jove_sleep();
+    } else {
+      _jove_sys_exit_group(0x77);
+      __builtin_trap();
     }
 
     __builtin_unreachable();
