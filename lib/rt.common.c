@@ -645,6 +645,15 @@ found:
           _memcpy(p, &__jove_env, sizeof(__jove_env));
       }
 
+#if defined(__x86_64__) || defined(__i386__)
+      //
+      // "(%rsp + 8) is always a multiple of 16 (32) when control is transferred
+      // to the function entry point."
+      //
+      if (((newsp + 8) % 32) != 0)
+        _UNREACHABLE("misaligned stack");
+#endif
+
       *sp_ptr = newsp;
     }
 
