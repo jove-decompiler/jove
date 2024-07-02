@@ -43,7 +43,7 @@ static _INL _UNUSED int _memcmp(const void *s1, const void *s2, size_t n) {
   return (0);
 }
 
-void *_memmem(const void *l, size_t l_len, const void *s, size_t s_len) {
+static _UNUSED void *_memmem(const void *l, size_t l_len, const void *s, size_t s_len) {
   const char *cl = (const char *)l;
   const char *cs = (const char *)s;
 
