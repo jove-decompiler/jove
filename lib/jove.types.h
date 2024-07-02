@@ -11,6 +11,7 @@ struct jove_opts_t {
     bool Calls;
   } Debug;
 
+  bool DumpOpts;
   bool ShouldSleepOnCrash;
 };
 

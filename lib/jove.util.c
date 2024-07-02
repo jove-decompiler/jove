@@ -1,3 +1,7 @@
+//
+// short stdlib
+//
+
 static _INL _UNUSED void *_memcpy(void *dest, const void *src, size_t n) {
   unsigned char *d = dest;
   const unsigned char *s = src;
@@ -221,6 +225,18 @@ static _UNUSED uint64_t _u64ofhexstr(char *str_begin, char *str_end) {
 
   return res;
 }
+
+#define for_each_str_delim_know_end(s, delim, str, n)                          \
+  for ((s) = &str[0]; (s) != &str[n];                                          \
+       (s) = (char *)_memchr((s), delim, (n) - ((s) - &str[0])) + 1)
+
+/* iterating over /proc/pid/maps */
+#define for_each_in_proc_maps(map, maps, n)                                    \
+  for_each_str_delim_know_end(map, '\n', maps, n)
+
+/* iterating over /proc/pid/environ */
+#define for_each_in_environ(env, environ, n)                                   \
+  for_each_str_delim_know_end(env, '\0', environ, n)
 
 static _UNUSED void _description_of_address_for_maps(char *out, uintptr_t Addr, char *maps, const unsigned n) {
   out[0] = '\0'; /* empty */
@@ -468,18 +484,8 @@ static _UNUSED ssize_t _jove_robust_write(int fd, const void *buf,
 }
 
 static _UNUSED bool _should_sleep_on_crash(char *envs, const unsigned n) {
-  char *const beg = &envs[0];
-  char *const end = &envs[n];
-
-  char *eoe;
-  for (char *env = beg; env != end; env = eoe + 1) {
-    unsigned left = n - (env - beg);
-
-    //
-    // find the end of the current entry
-    //
-    eoe = _memchr(env, '\0', left);
-
+  char *env;
+  for_each_in_environ(env, envs, n) {
     if (env[0] == 'J' &&
         env[1] == 'O' &&
         env[2] == 'V' &&
@@ -499,13 +505,41 @@ static _UNUSED bool _should_sleep_on_crash(char *envs, const unsigned n) {
         env[16] == 'A' &&
         env[17] == 'S' &&
         env[18] == 'H' &&
-        env[19] == '=') {
+        env[19] == '=' &&
+        env[20] == '1') {
       return true;
     }
   }
 
   return false;
 }
+
+static _UNUSED bool _should_dump_opts(char *envs, const unsigned n) {
+  char *env;
+  for_each_in_environ(env, envs, n) {
+    if (env[0] == 'J' &&
+        env[1] == 'O' &&
+        env[2] == 'V' &&
+        env[3] == 'E' &&
+        env[4] == '_' &&
+        env[5] == 'D' &&
+        env[6] == 'U' &&
+        env[7] == 'M' &&
+        env[8] == 'P' &&
+        env[9] == '_' &&
+        env[10] == 'O' &&
+        env[11] == 'P' &&
+        env[12] == 'T' &&
+        env[13] == 'S' &&
+        env[14] == '=' &&
+        env[15] == '1') {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 
 static _UNUSED bool _jove_is_readable_mem(uintptr_t Addr) {
   pid_t pid;

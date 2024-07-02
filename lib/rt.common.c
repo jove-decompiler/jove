@@ -118,15 +118,46 @@ void _jove_rt_init(void) {
   _jove_trace_init();
 }
 
+static void _jove_dump_opts(void);
+
 //
 // options
 //
 void _jove_parse_opts(void) {
-  char envs[4096 * 8];
-  const unsigned envs_n = _jove_read_pseudo_file("/proc/self/environ", envs, sizeof(envs));
-  envs[envs_n] = '\0';
+  JOVE_BUFF(envs, ARG_MAX);
+  unsigned n = _jove_read_pseudo_file("/proc/self/environ", _envs.ptr, _envs.len);
 
-  Opts.ShouldSleepOnCrash = _should_sleep_on_crash(envs, envs_n);
+  Opts.ShouldSleepOnCrash = _should_sleep_on_crash(envs, n);
+  Opts.DumpOpts = _should_dump_opts(envs, n);
+
+  if (Opts.DumpOpts)
+    _jove_dump_opts();
+}
+
+void _jove_dump_opts(void) {
+  char s[1024];
+  s[0] = '\0';
+
+#define BOOL_OPT(opt)                                                          \
+  do {                                                                         \
+    _strcat(s, #opt " = ");                                                    \
+    {                                                                          \
+      char buff[8];                                                            \
+      _uint_to_string((unsigned)Opts.opt, buff, 10);                           \
+                                                                               \
+      _strcat(s, buff);                                                        \
+    }                                                                          \
+    _strcat(s, "\n");                                                          \
+  } while (0)
+
+  BOOL_OPT(Debug.Signals);
+  BOOL_OPT(Debug.Thunks);
+  BOOL_OPT(Debug.Stubs);
+  BOOL_OPT(Debug.Calls);
+  BOOL_OPT(DumpOpts);
+  BOOL_OPT(ShouldSleepOnCrash);
+
+  _jove_robust_write(2 /* stderr */, s, _strlen(s));
 }
 
 BOOL DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved)
