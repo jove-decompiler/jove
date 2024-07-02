@@ -829,7 +829,7 @@ void _jove_log2(const char *msg,
 _HIDDEN void _jove_recover_function(uint32_t IndCallBBIdx,
                                     uintptr_t FuncAddr);
 
-__attribute__((optnone))
+__attribute__((optnone)) /* FIXME */
 _HIDDEN
 _REGPARM
 jove_thunk_return_t _jove_call(
