@@ -123,11 +123,9 @@ _HIDDEN void _jove_recover_dyn_target(uint32_t CallerBBIdx,
   }
 
   if (!FoundAll) {
-    uintptr_t _m _CLEANUP(_jove_free_large_buffp) = _jove_alloc_large_buff();
-    char *const maps = (char *)_m;
+    JOVE_BUFF(maps, JOVE_MAX_PROC_MAPS);
 
-    unsigned n = _jove_read_pseudo_file("/proc/self/maps", maps, JOVE_LARGE_BUFF_SIZE);
-    maps[n] = '\0';
+    unsigned n = _jove_read_pseudo_file("/proc/self/maps", _maps.ptr, _maps.len);
 
     char *const beg = &maps[0];
     char *const end = &maps[n];
@@ -211,11 +209,9 @@ _HIDDEN void _jove_recover_dyn_target(uint32_t CallerBBIdx,
     //
     // see if this is a function in a foreign DSO
     //
-    uintptr_t _m _CLEANUP(_jove_free_large_buffp) = _jove_alloc_large_buff();
-    char *const maps = (char *)_m;
+    JOVE_BUFF(maps, JOVE_MAX_PROC_MAPS);
 
-    unsigned n = _jove_read_pseudo_file("/proc/self/maps", maps, JOVE_LARGE_BUFF_SIZE);
-    maps[n] = '\0';
+    unsigned n = _jove_read_pseudo_file("/proc/self/maps", _maps.ptr, _maps.len);
 
     char *const beg = &maps[0];
     char *const end = &maps[n];

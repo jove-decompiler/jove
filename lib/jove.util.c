@@ -537,7 +537,7 @@ static _UNUSED bool _jove_is_readable_mem(uintptr_t Addr) {
 }
 
 uintptr_t _jove_alloc_stack(void) {
-  unsigned long ret = _mmap_rw_anonymous_private_memory(JOVE_STACK_SIZE);
+  uintptr_t ret = _mmap_rw_anonymous_private_memory(JOVE_STACK_SIZE);
   if (IS_ERR_VALUE(ret))
     _UNREACHABLE("failed to allocate stack");
 
@@ -562,8 +562,8 @@ void _jove_free_stack(uintptr_t beg) {
 }
 
 uintptr_t _jove_alloc_callstack(void) {
-  long ret = _mmap_rw_anonymous_private_memory(JOVE_CALLSTACK_SIZE);
-  if (ret < 0 && ret > -4096)
+  uintptr_t ret = _mmap_rw_anonymous_private_memory(JOVE_CALLSTACK_SIZE);
+  if (IS_ERR_VALUE(ret))
     _UNREACHABLE("failed to allocate callstack");
 
   unsigned long uret = (unsigned long)ret;
@@ -588,17 +588,37 @@ void _jove_free_callstack(uintptr_t start) {
     _UNREACHABLE("failed to deallocate callstack");
 }
 
-uintptr_t _jove_alloc_large_buff(void) {
-  unsigned long ret = _mmap_rw_anonymous_private_memory(JOVE_LARGE_BUFF_SIZE);
-  if (ret < 0 && ret > -4096)
-    _UNREACHABLE("failed to allocate large buffer");
+//
+// buffer management
+//
 
-  return ret;
+typedef struct jove_buffer_t {
+  void *ptr;
+  unsigned len;
+} jove_buffer_t;
+
+static jove_buffer_t _jove_alloc_buffer(size_t len) {
+  jove_buffer_t buff;
+
+  if (len % JOVE_PAGE_SIZE != 0)
+    _UNREACHABLE("buffer size must be multiple of page size");
+
+  uintptr_t ret = _mmap_rw_anonymous_private_memory(len);
+  if (IS_ERR_VALUE(ret))
+    _UNREACHABLE("failed to allocate buffer");
+
+  buff.ptr = (void *)ret;
+  buff.len = len;
+
+  return buff;
 }
 
-void _jove_free_large_buffer(uintptr_t start) {
-  if (_jove_sys_munmap(start, JOVE_LARGE_BUFF_SIZE))
-    _UNREACHABLE("failed to deallocate large buffer");
+static void _jove_free_buffer(const jove_buffer_t *buff) {
+  if (_jove_sys_munmap((uintptr_t)buff->ptr, buff->len) < 0)
+    _UNREACHABLE("failed to deallocate buffer");
 }
 
-static void _jove_free_large_buffp(uintptr_t *p) { _jove_free_large_buffer(*p); }
+#define JOVE_BUFF(name, len)                                                   \
+  const jove_buffer_t _##name _CLEANUP(_jove_free_buffer) =                    \
+      _jove_alloc_buffer(len);                                                 \
+  char *const name = (char *)_##name.ptr;

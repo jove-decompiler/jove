@@ -500,14 +500,11 @@ found:
         }
 
         {
-          uintptr_t _m _CLEANUP(_jove_free_large_buffp) = _jove_alloc_large_buff();
-          char *const maps = (char *)_m;
-
-          const unsigned maps_n = _jove_read_pseudo_file("/proc/self/maps", maps, JOVE_LARGE_BUFF_SIZE);
-          maps[maps_n] = '\0';
+          JOVE_BUFF(maps, JOVE_MAX_PROC_MAPS);
+          unsigned n = _jove_read_pseudo_file("/proc/self/maps", _maps.ptr, _maps.len);
 
           char buff[256];
-          _description_of_address_for_maps(buff, saved_pc, maps, maps_n);
+          _description_of_address_for_maps(buff, saved_pc, maps, n);
           if (_strlen(buff) != 0) {
             _strcat(s, " <");
             _strcat(s, buff);
@@ -676,15 +673,10 @@ not_found:
     //
     // if we get here we'll assume it's a crash.
     //
-    uintptr_t _m _CLEANUP(_jove_free_large_buffp) = _jove_alloc_large_buff();
-    char *const maps = (char *)_m;
+    JOVE_BUFF(maps, JOVE_MAX_PROC_MAPS);
+    unsigned maps_n = _jove_read_pseudo_file("/proc/self/maps", _maps.ptr, _maps.len);
 
-    const unsigned maps_n = _jove_read_pseudo_file("/proc/self/maps", maps, JOVE_LARGE_BUFF_SIZE);
-    maps[maps_n] = '\0';
-
-    uintptr_t _s _CLEANUP(_jove_free_large_buffp) = _jove_alloc_large_buff();
-    char *const s = (char *)_s;
-
+    JOVE_BUFF(s, JOVE_LARGE_BUFF_SIZE);
     s[0] = '\0';
 
     _strcat(s, "*** crash (jove) *** [");
@@ -707,7 +699,7 @@ not_found:
         _strcat(s, _buff);                                                     \
       }                                                                        \
       {                                                                        \
-        char _buff[MAX_PATH];                                                  \
+        char _buff[PATH_MAX];                                                  \
         _description_of_address_for_maps(_buff, (uintptr_t)(init), maps, maps_n);\
         if (_strlen(_buff) != 0) {                                             \
           _strcat(s, " <");                                                    \
