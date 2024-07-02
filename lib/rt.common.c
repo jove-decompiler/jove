@@ -51,7 +51,7 @@ unsigned __jove_dfsan_sig_handle = 0;
 
 #include "kernel_sigaction.h"
 
-static __cdecl __attribute__((sysv_abi)) void _jove_rt_signal_handler(int, siginfo_t *, ucontext_t *);
+static void _jove_rt_signal_handler(int, siginfo_t *, ucontext_t *);
 
 static void _jove_init_cpu_state(void);
 static void _jove_callstack_init(void);
