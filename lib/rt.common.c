@@ -32,15 +32,6 @@ void _jove_free_stack_later(uintptr_t stack) {
   _UNREACHABLE();
 }
 
-static struct {
-  struct {
-    bool Signals;
-    bool Thunks;
-  } Debug;
-
-  bool ShouldSleepOnCrash;
-} Opts;
-
 //
 // for DFSan
 //
@@ -69,7 +60,9 @@ extern void restore_rt (void) asm ("__restore_rt") __attribute__ ((visibility ("
 #endif
 #endif
 
-static void _jove_parse_environment(void);
+static struct jove_opts_t Opts;
+struct jove_opts_t *_jove_opts(void) { return &Opts; }
+static void _jove_parse_opts(void);
 
 void _jove_rt_init(void) {
   static bool _Done = false;
@@ -77,7 +70,7 @@ void _jove_rt_init(void) {
     return;
   _Done = true;
 
-  _jove_parse_environment();
+  _jove_parse_opts();
 
   struct kernel_sigaction sa;
   _memset(&sa, 0, sizeof(sa));
@@ -125,7 +118,10 @@ void _jove_rt_init(void) {
   _jove_trace_init();
 }
 
-void _jove_parse_environment(void) {
+//
+// options
+//
+void _jove_parse_opts(void) {
   char envs[4096 * 8];
   const unsigned envs_n = _jove_read_pseudo_file("/proc/self/environ", envs, sizeof(envs));
   envs[envs_n] = '\0';

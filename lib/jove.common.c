@@ -35,6 +35,9 @@ static void _jove_make_sections_executable(void);
 static void _jove_see_through_stubs(struct _jove_function_info_t *);
 
 extern void _jove_rt_init(void);
+extern struct jove_opts_t *_jove_opts(void);
+
+static struct jove_opts_t *pOpts;
 
 #ifdef JOVE_MT
 extern int _jove_needs_multi_threaded_runtime(void);
@@ -47,6 +50,9 @@ _HIDDEN void _jove_initialize(void) {
   if (_Done)
     return;
   _Done = true;
+
+  _jove_rt_init();
+  pOpts = _jove_opts();
 
 #ifdef JOVE_MT
   _jove_needs_multi_threaded_runtime();
@@ -159,7 +165,7 @@ void _jove_see_through_stubs(struct _jove_function_info_t *fninfo_p) {
     continue;
 
 found:
-#if 0
+    if (unlikely(pOpts->Debug.Stubs))
     {
       char s[1024];
       s[0] = '\0';
@@ -196,16 +202,12 @@ found:
 
       _jove_robust_write(2 /* stderr */, s, _strlen(s));
     }
-    //for (;;);
-#endif
+
     fninfo_p->pc = poss;
     hash_add(__jove_function_map, &fninfo_p->hlist, poss /* key */);
     ++fninfo_p;
   }
 }
-
-typedef void (*_jove_rt_init_t)(void);
-static _jove_rt_init_t _jove_rt_init_clunk = &_jove_rt_init;
 
 #if defined(__aarch64__)
 _HIDDEN void _jove_init(
@@ -328,7 +330,7 @@ _HIDDEN void _jove__libc_early_init(
 
                                     #undef __REG_ARG
                                    ) {
-  _jove_rt_init_clunk();
+  _jove_rt_init();
 
   const uintptr_t fn = _jove_get_libc_early_init_fn();
   if (!fn)
@@ -711,21 +713,13 @@ _NORET void _jove_fail1(uintptr_t a0, const char *reason) {
 
   _jove_flush_trace();
 
-  {
-    char envs[4096 * 8];
-    const unsigned envs_n = _jove_read_pseudo_file("/proc/self/environ", envs, sizeof(envs));
-    envs[envs_n] = '\0';
-
-    if (_should_sleep_on_crash(envs, envs_n)) {
-      for (;;)
-        _jove_sleep();
-    } else {
-      _jove_sys_exit_group(0x77);
-      __builtin_trap();
-    }
+  if (pOpts->ShouldSleepOnCrash) {
+    for (;;)
+      _jove_sleep();
   }
 
-  __builtin_unreachable();
+  _jove_sys_exit_group(0x77);
+  _VERY_UNREACHABLE();
 }
 
 _NORET void _jove_fail2(uintptr_t a0,
@@ -789,21 +783,13 @@ _NORET void _jove_fail2(uintptr_t a0,
 
   _jove_flush_trace();
 
-  {
-    char envs[4096 * 8];
-    const unsigned envs_n = _jove_read_pseudo_file("/proc/self/environ", envs, sizeof(envs));
-    envs[envs_n] = '\0';
-
-    if (_should_sleep_on_crash(envs, envs_n)) {
-      for (;;)
-        _jove_sleep();
-    } else {
-      _jove_sys_exit_group(0x77);
-      __builtin_trap();
-    }
+  if (pOpts->ShouldSleepOnCrash) {
+    for (;;)
+      _jove_sleep();
   }
 
-  __builtin_unreachable();
+  _jove_sys_exit_group(0x77);
+  _VERY_UNREACHABLE();
 }
 
 void _jove_log1(const char *msg,
@@ -855,6 +841,7 @@ void _jove_log2(const char *msg,
 _HIDDEN void _jove_recover_function(uint32_t IndCallBBIdx,
                                     uintptr_t FuncAddr);
 
+__attribute__((optnone))
 _HIDDEN
 _REGPARM
 jove_thunk_return_t _jove_call(
@@ -865,6 +852,32 @@ jove_thunk_return_t _jove_call(
                                #undef __REG_ARG
 
                                uintptr_t pc, uint32_t BBIdx) {
+  if (unlikely(pOpts->Debug.Calls))
+  {
+    uintptr_t emusp = *emulated_stack_pointer_of_cpu_state(&__jove_env);
+
+    char s[1024];
+    s[0] = '\0';
+
+    _strcat(s, "_jove_call: -> 0x");
+    {
+      char buff[65];
+      _uint_to_string(pc, buff, 0x10);
+
+      _strcat(s, buff);
+    }
+    _strcat(s, " <0x");
+    {
+      char buff[65];
+      _uint_to_string(emusp, buff, 0x10);
+
+      _strcat(s, buff);
+    }
+    _strcat(s, ">\n");
+
+    _jove_robust_write(2 /* stderr */, s, _strlen(s));
+  }
+
   _jove_install_foreign_function_tables();
 
   struct _jove_function_info_t Callee;
@@ -1253,13 +1266,34 @@ found:
     } else {
       target_ulong *const emusp_ptr = emulated_stack_pointer_of_cpu_state(&__jove_env);
 
-      return BOOST_PP_CAT(_jove_thunk,TARGET_NUM_REG_ARGS)(
+      jove_thunk_return_t res = BOOST_PP_CAT(_jove_thunk,TARGET_NUM_REG_ARGS)(
                           #define __REG_ARG(n, i, data) reg##i,
 
                           BOOST_PP_REPEAT(TARGET_NUM_REG_ARGS, __REG_ARG, void)
 
                           #undef __REG_ARG
                           RealEntry, emusp_ptr);
+
+      if (unlikely(pOpts->Debug.Calls))
+      {
+        uintptr_t emusp = *emulated_stack_pointer_of_cpu_state(&__jove_env);
+
+        char s[1024];
+        s[0] = '\0';
+
+        _strcat(s, "\t<0x");
+        {
+          char buff[65];
+          _uint_to_string(emusp, buff, 0x10);
+
+          _strcat(s, buff);
+        }
+        _strcat(s, ">\n");
+
+        _jove_robust_write(2 /* stderr */, s, _strlen(s));
+      }
+
+      return res;
     }
   } else {
 #define CALLCONV_ATTR _REGPARM

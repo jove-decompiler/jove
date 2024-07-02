@@ -128,8 +128,7 @@ void _jove_begin(uint32_t a0,
   // to the entry function before calling the ctors of libjove_rt (ae: i have
   // witnessed this happnening)
   //
-  if (_jove_rt_init_clunk)
-    _jove_rt_init_clunk();
+  _jove_rt_init();
 
   _jove_initialize();
 

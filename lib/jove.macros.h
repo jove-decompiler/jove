@@ -71,4 +71,10 @@
     __builtin_unreachable();                                                   \
   } while (false)
 
+#define _VERY_UNREACHABLE(...)                                                 \
+  do {                                                                         \
+    __builtin_trap();                                                          \
+    __builtin_unreachable();                                                   \
+  } while (false)
+
 #define _CLEANUP(x) __attribute__((cleanup(x)))

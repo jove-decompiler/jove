@@ -2,6 +2,17 @@
 #include <stdint.h>
 #include "jove.hashtable.h"
 
+struct jove_opts_t {
+  struct {
+    bool Signals;
+    bool Thunks;
+    bool Stubs;
+    bool Calls;
+  } Debug;
+
+  bool ShouldSleepOnCrash;
+};
+
 struct _jove_function_info_t {
   uint32_t BIdx;
   uint32_t FIdx;
