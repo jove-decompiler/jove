@@ -600,10 +600,9 @@ typedef struct jove_buffer_t {
 static jove_buffer_t _jove_alloc_buffer(size_t len) {
   jove_buffer_t buff;
 
-  if (len % JOVE_PAGE_SIZE != 0)
-    _UNREACHABLE("buffer size must be multiple of page size");
+  buff.len = QEMU_ALIGN_UP(len, JOVE_PAGE_SIZE);
 
-  uintptr_t ret = _mmap_rw_anonymous_private_memory(len);
+  uintptr_t ret = _mmap_rw_anonymous_private_memory(buff.len);
   if (IS_ERR_VALUE(ret))
     _UNREACHABLE("failed to allocate buffer");
 
