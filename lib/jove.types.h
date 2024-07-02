@@ -1,5 +1,6 @@
 #pragma once
 #include <stdint.h>
+#include <linux/limits.h>
 #include "jove.hashtable.h"
 
 struct jove_opts_t {
