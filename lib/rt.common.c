@@ -389,13 +389,13 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
 
   const uintptr_t saved_pc = *pc_ptr;
 
-  struct _jove_function_info_t Callee;
+  struct jove_function_info_t Callee;
 
   //
   // lookup in __jove_function_map
   //
   {
-    struct _jove_function_info_t *finfo;
+    struct jove_function_info_t *finfo;
 
     hash_for_each_possible(__jove_function_map, finfo, hlist, saved_pc) {
       if (finfo->pc != saved_pc) {

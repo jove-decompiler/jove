@@ -14,7 +14,7 @@ struct jove_opts_t {
   bool ShouldSleepOnCrash;
 };
 
-struct _jove_function_info_t {
+struct jove_function_info_t {
   uint32_t BIdx;
   uint32_t FIdx;
 

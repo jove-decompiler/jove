@@ -32,7 +32,7 @@ static void _jove_install_function_mappings(void);
 
 static void _jove_make_sections_executable(void);
 
-static void _jove_see_through_stubs(struct _jove_function_info_t *);
+static void _jove_see_through_stubs(struct jove_function_info_t *);
 
 extern void _jove_rt_init(void);
 extern struct jove_opts_t *_jove_opts(void);
@@ -105,7 +105,7 @@ void _jove_install_function_mappings(void) {
   // allocate memory for function_info_t structures
   //
   uintptr_t fninfo_arr_addr = _mmap_rw_anonymous_private_memory(
-      QEMU_ALIGN_UP(sizeof(struct _jove_function_info_t) *
+      QEMU_ALIGN_UP(sizeof(struct jove_function_info_t) *
                         (_jove_function_count() + _jove_num_possible_stubs()),
                     JOVE_PAGE_SIZE));
 
@@ -117,8 +117,8 @@ void _jove_install_function_mappings(void) {
   //
   memory_barrier();
   {
-    struct _jove_function_info_t *fninfo_p =
-        (struct _jove_function_info_t *)fninfo_arr_addr;
+    struct jove_function_info_t *fninfo_p =
+        (struct jove_function_info_t *)fninfo_arr_addr;
 
     unsigned FIdx = 0;
     for (uintptr_t *fn_p = _jove_get_function_table(); fn_p[0]; fn_p += 3) {
@@ -141,7 +141,7 @@ void _jove_install_function_mappings(void) {
   memory_barrier();
 }
 
-void _jove_see_through_stubs(struct _jove_function_info_t *fninfo_p) {
+void _jove_see_through_stubs(struct jove_function_info_t *fninfo_p) {
   for (uintptr_t *pp = _jove_possible_stubs(); *pp; ++pp) {
     const uintptr_t poss = *((uintptr_t *)(*pp));
 
@@ -150,7 +150,7 @@ void _jove_see_through_stubs(struct _jove_function_info_t *fninfo_p) {
       pc = *((uintptr_t *)poss);
 
     {
-      struct _jove_function_info_t *finfo;
+      struct jove_function_info_t *finfo;
 
       hash_for_each_possible(__jove_function_map, finfo, hlist, pc) {
         if (finfo->pc != pc) {
@@ -629,7 +629,7 @@ void _jove_install_foreign_function_tables(void) {
   // allocate memory for function_info_t structures
   //
   uintptr_t fninfo_arr_addr = _mmap_rw_anonymous_private_memory(
-      QEMU_ALIGN_UP(_jove_foreign_functions_count() * sizeof(struct _jove_function_info_t),
+      QEMU_ALIGN_UP(_jove_foreign_functions_count() * sizeof(struct jove_function_info_t),
       JOVE_PAGE_SIZE));
 
   if (IS_ERR_VALUE(fninfo_arr_addr))
@@ -640,8 +640,8 @@ void _jove_install_foreign_function_tables(void) {
   //
   memory_barrier();
   {
-    struct _jove_function_info_t *fninfo_p =
-        (struct _jove_function_info_t *)fninfo_arr_addr;
+    struct jove_function_info_t *fninfo_p =
+        (struct jove_function_info_t *)fninfo_arr_addr;
 
     for (unsigned BIdx = 1; BIdx < 3 + N; ++BIdx) {
       uintptr_t *fns = __jove_foreign_function_tables[BIdx];
@@ -880,13 +880,13 @@ jove_thunk_return_t _jove_call(
 
   _jove_install_foreign_function_tables();
 
-  struct _jove_function_info_t Callee;
+  struct jove_function_info_t Callee;
 
   //
   // lookup in __jove_function_map
   //
   {
-    struct _jove_function_info_t *finfo;
+    struct jove_function_info_t *finfo;
 
     hash_for_each_possible(__jove_function_map, finfo, hlist, pc) {
       if (finfo->pc != pc) {

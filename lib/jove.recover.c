@@ -29,7 +29,7 @@ _HIDDEN void _jove_recover_dyn_target(uint32_t CallerBBIdx,
 
   {
     int bkt;
-    struct _jove_function_info_t *x;
+    struct jove_function_info_t *x;
 
     hash_for_each(__jove_function_map, bkt, x, hlist) {
       {
@@ -65,7 +65,7 @@ _HIDDEN void _jove_recover_dyn_target(uint32_t CallerBBIdx,
   }
 #endif
   {
-    struct _jove_function_info_t *finfo;
+    struct jove_function_info_t *finfo;
 
     hash_for_each_possible(__jove_function_map, finfo, hlist, CalleeAddr) {
       if (finfo->pc != CalleeAddr) {
