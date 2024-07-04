@@ -683,7 +683,6 @@ static jove_saved_char_t _jove_save_and_set_char(char *const p, const char ch) {
   jove_saved_char_t sav;
 
   _ASSERT(p);
-  sav.p = p;
 
   /* save */
   sav.ch = *p;
@@ -691,6 +690,7 @@ static jove_saved_char_t _jove_save_and_set_char(char *const p, const char ch) {
   /* set */
   *p = ch;
 
+  sav.p = p;
   return sav;
 }
 
