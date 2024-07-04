@@ -707,7 +707,7 @@ found:
         ++p;
 
         if (SignalDelivery)
-          _memcpy(p, &__jove_env, sizeof(__jove_env));
+          __builtin_memcpy_inline(p, &__jove_env, sizeof(__jove_env));
       }
 
 #if defined(__x86_64__) || defined(__i386__)
@@ -953,7 +953,7 @@ uintptr_t _jove_handle_signal_delivery(uintptr_t SignalDelivery,
       ;
 
   if (SignalDelivery) {
-    _memcpy(&__jove_env, SavedState, sizeof(__jove_env));
+    __builtin_memcpy_inline(&__jove_env, SavedState, sizeof(__jove_env));
 
     __jove_dfsan_sig_handle = 0;
   }
