@@ -38,7 +38,19 @@ struct jove_function_info_t {
   struct hlist_node hlist;
 };
 
+//
+// windows
+//
 typedef void* HMODULE;
 typedef unsigned long DWORD;
 typedef void* LPVOID;
 typedef int BOOL;
+
+//
+// DFSan
+//
+typedef uint16_t dfsan_label;
+
+struct shadow_t {
+  uint16_t *X[JOVE_SHADOW_NUM_REGIONS];
+};

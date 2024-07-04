@@ -11,17 +11,11 @@
 #define JOVE_MAX_PROC_MAPS (4 * 512 * JOVE_PAGE_SIZE)
 #define JOVE_LARGE_BUFF_SIZE JOVE_STACK_SIZE
 
+#define JOVE_FUNCTION_MAP_HASH_BITS 19
+
 //
 // DFSan
 //
-typedef uint16_t dfsan_label;
-
 #define JOVE_SHADOW_NUM_REGIONS 32
 #define JOVE_SHADOW_REGION_SIZE (0x10000 / JOVE_SHADOW_NUM_REGIONS)
 #define JOVE_SHADOW_SIZE (sizeof(dfsan_label) * JOVE_SHADOW_REGION_SIZE + 2 * JOVE_PAGE_SIZE)
-
-struct shadow_t {
-  uint16_t *X[JOVE_SHADOW_NUM_REGIONS];
-};
-
-#define JOVE_FUNCTION_MAP_HASH_BITS 19
