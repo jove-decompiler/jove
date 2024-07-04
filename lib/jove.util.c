@@ -698,7 +698,7 @@ static jove_saved_char_t _jove_save_and_set_char(char *const p, const char ch) {
 static jove_saved_char_t _jove_save_and_set_char_safe(char *const p,
                                                       const char ch,
                                                       const char expected) {
-  _ASSERT(*(p) == expected);
+  _ASSERT(*p == expected);
   return _jove_save_and_set_char(p, ch);
 }
 
