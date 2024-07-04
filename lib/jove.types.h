@@ -9,6 +9,7 @@ struct jove_opts_t {
     bool Thunks;
     bool Stubs;
     bool Calls;
+    bool Stack;
   } Debug;
 
   bool DumpOpts;

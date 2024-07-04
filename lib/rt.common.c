@@ -153,6 +153,7 @@ static const struct debug_option_pair debug_opt_tbl[] = {
   {"thunks", &Opts.Debug.Thunks},
   {"stubs", &Opts.Debug.Stubs},
   {"calls", &Opts.Debug.Calls},
+  {"stack", &Opts.Debug.Stack},
 };
 
 void _jove_parse_debug_string(char *const s) {
@@ -179,24 +180,20 @@ void _jove_dump_opts(void) {
   char s[1024];
   s[0] = '\0';
 
-#define BOOL_OPT(opt)                                                          \
-  do {                                                                         \
-    _strcat(s, #opt " = ");                                                    \
-    {                                                                          \
-      char buff[8];                                                            \
-      _uint_to_string((unsigned)Opts.opt, buff, 10);                           \
-                                                                               \
-      _strcat(s, buff);                                                        \
-    }                                                                          \
-    _strcat(s, "\n");                                                          \
-  } while (0)
+  struct debug_option_pair *pairp;
+  array_for_each_p(pairp, debug_opt_tbl) {
+    const unsigned val = (unsigned)*pairp->opt_ptr;
 
-  BOOL_OPT(Debug.Signals);
-  BOOL_OPT(Debug.Thunks);
-  BOOL_OPT(Debug.Stubs);
-  BOOL_OPT(Debug.Calls);
-  BOOL_OPT(DumpOpts);
-  BOOL_OPT(ShouldSleepOnCrash);
+    _strcat(s, pairp->name);
+    _strcat(s, "=");
+    {
+      char buff[64];
+      _uint_to_string(val, buff, 10);
+
+      _strcat(s, buff);
+    }
+    _strcat(s, "\n");
+  }
 
   _jove_robust_write(2 /* stderr */, s, _strlen(s));
 }

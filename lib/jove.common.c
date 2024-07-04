@@ -842,8 +842,6 @@ jove_thunk_return_t _jove_call(
                                uintptr_t pc, uint32_t BBIdx) {
   if (unlikely(pOpts->Debug.Calls))
   {
-    uintptr_t emusp = *emulated_stack_pointer_of_cpu_state(&__jove_env);
-
     char s[1024];
     s[0] = '\0';
 
@@ -854,14 +852,19 @@ jove_thunk_return_t _jove_call(
 
       _strcat(s, buff);
     }
-    _strcat(s, " <0x");
-    {
-      char buff[65];
-      _uint_to_string(emusp, buff, 0x10);
+    if (pOpts->Debug.Stack) {
+      _strcat(s, " <0x");
+      {
+        uintptr_t emusp = *emulated_stack_pointer_of_cpu_state(&__jove_env);
 
-      _strcat(s, buff);
+        char buff[65];
+        _uint_to_string(emusp, buff, 0x10);
+
+        _strcat(s, buff);
+      }
+      _strcat(s, ">");
     }
-    _strcat(s, ">\n");
+    _strcat(s, "\n");
 
     _jove_robust_write(2 /* stderr */, s, _strlen(s));
   }
@@ -1258,7 +1261,7 @@ found:
                           #undef __REG_ARG
                           RealEntry, emusp_ptr);
 
-      if (unlikely(pOpts->Debug.Calls))
+      if (unlikely(pOpts->Debug.Calls && pOpts->Debug.Stack))
       {
         uintptr_t emusp = *emulated_stack_pointer_of_cpu_state(&__jove_env);
 
