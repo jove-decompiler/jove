@@ -593,8 +593,8 @@ uintptr_t _jove_alloc_stack(void) {
   //
   // create guard pages on both sides
   //
-  unsigned long beg = ret;
-  unsigned long end = beg + JOVE_STACK_SIZE;
+  uintptr_t beg = ret;
+  uintptr_t end = beg + JOVE_STACK_SIZE;
 
   if (_jove_sys_mprotect(beg, JOVE_PAGE_SIZE, PROT_NONE) < 0)
     _UNREACHABLE("failed to create guard page #1");
@@ -615,13 +615,11 @@ uintptr_t _jove_alloc_callstack(void) {
   if (IS_ERR_VALUE(ret))
     _UNREACHABLE("failed to allocate callstack");
 
-  unsigned long uret = (unsigned long)ret;
-
   //
   // create guard pages on both sides
   //
-  unsigned long beg = uret;
-  unsigned long end = beg + JOVE_CALLSTACK_SIZE;
+  uintptr_t beg = ret;
+  uintptr_t end = beg + JOVE_CALLSTACK_SIZE;
 
   if (_jove_sys_mprotect(beg, JOVE_PAGE_SIZE, PROT_NONE) < 0)
     _UNREACHABLE("failed to create guard page #1");
