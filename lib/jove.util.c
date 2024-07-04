@@ -238,9 +238,8 @@ static _UNUSED uint64_t _u64ofhexstr(char *str_begin, char *str_end) {
   return res;
 }
 
-#define array_for_each_p(i, elemp, arr)                                        \
-  for ((i) = 0, (elemp) = &arr[0]; (i) < ARRAY_SIZE(arr);                      \
-       ++(i), (elemp) = &arr[i])
+#define array_for_each_p(elemp, arr)                                           \
+  for ((elemp) = &arr[0]; ((elemp) - &arr[0]) < ARRAY_SIZE(arr); ++(elemp))
 
 #define for_each_str_delim_know_end(s, delim, str, n)                          \
   for ((s) = &str[0]; (s) != &str[n];                                          \

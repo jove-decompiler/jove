@@ -149,6 +149,8 @@ struct debug_option_pair {
 };
 
 static const struct debug_option_pair debug_opt_tbl[] = {
+  {"signals", &Opts.Debug.Signals},
+  {"thunks", &Opts.Debug.Thunks},
   {"stubs", &Opts.Debug.Stubs},
   {"calls", &Opts.Debug.Calls},
 };
@@ -163,9 +165,8 @@ void _jove_parse_debug_string(char *const s) {
     /* null-terminate */
     save_and_swap_back_char_safe(_memchr(opt, ',', n), '\0', ',');
 
-    unsigned i;
     struct debug_option_pair *pairp;
-    array_for_each_p(i, pairp, debug_opt_tbl) {
+    array_for_each_p(pairp, debug_opt_tbl) {
       if (!_strcmp(pairp->name, opt)) {
         *pairp->opt_ptr = true;
         break;
