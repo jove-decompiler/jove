@@ -1,4 +1,5 @@
 #pragma once
+#include <boost/preprocessor/stringize.hpp>
 
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 #define _IOV_ENTRY(var) {.iov_base = &var, .iov_len = sizeof(var)}
@@ -53,14 +54,14 @@
 #define __ANSI_BOLD_YELLOW    __ANSI_COLOR_PREFIX "1;33" __ANSI_COLOR_SUFFIX
 #define __ANSI_NORMAL_COLOR   __ANSI_COLOR_PREFIX "0" __ANSI_COLOR_SUFFIX
 
-#define _STRINGIZE_DETAIL(x) #x
-#define _STRINGIZE(x) _STRINGIZE_DETAIL(x)
+#define UNIQUE_VAR_NAME(base) base##__COUNTER__
 
 #define _UNREACHABLE(...)                                                      \
   do {                                                                         \
     static const char __msg[] =                                                \
         "JOVE UNREACHABLE: \"" __VA_ARGS__ "\" "                               \
-        "(" _STRINGIZE(__FILE__) ":" _STRINGIZE(__LINE__) ")\n";               \
+        "(" BOOST_PP_STRINGIZE(__FILE__) ":"                                   \
+            BOOST_PP_STRINGIZE(__LINE__) ")\n";                                \
                                                                                \
     long __rc;                                                                 \
     do {                                                                       \
@@ -69,6 +70,12 @@
                                                                                \
     _jove_sys_exit_group(1);                                                   \
     __builtin_unreachable();                                                   \
+  } while (false)
+
+#define _ASSERT(cond)                                                          \
+  do {                                                                         \
+    if (unlikely(!(cond)))                                                     \
+      _UNREACHABLE("assertion " BOOST_PP_STRINGIZE(cond) " failed");           \
   } while (false)
 
 #define _VERY_UNREACHABLE(...)                                                 \

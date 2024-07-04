@@ -102,6 +102,18 @@ static _INL _UNUSED int _strcmp(const char *s1, const char *s2) {
   return (*(unsigned char *)s1 - *(unsigned char *)--s2);
 }
 
+static _INL _UNUSED int _strncmp(const char *s1, const char *s2, size_t n) {
+  if (n == 0)
+    return (0);
+  do {
+    if (*s1 != *s2++)
+      return (*(unsigned char *)s1 - *(unsigned char *)--s2);
+    if (*s1++ == 0)
+      break;
+  } while (--n != 0);
+  return (0);
+}
+
 static _INL _UNUSED void _uint_to_string(uint64_t x, char *Str, unsigned Radix) {
   // First, check for a zero value and just short circuit the logic below.
   if (x == 0) {
@@ -225,6 +237,10 @@ static _UNUSED uint64_t _u64ofhexstr(char *str_begin, char *str_end) {
 
   return res;
 }
+
+#define array_for_each_p(i, elemp, arr)                                        \
+  for ((i) = 0, (elemp) = &arr[0]; (i) < ARRAY_SIZE(arr);                      \
+       ++(i), (elemp) = &arr[i])
 
 #define for_each_str_delim_know_end(s, delim, str, n)                          \
   for ((s) = &str[0]; (s) != &str[n];                                          \
@@ -654,3 +670,47 @@ static void _jove_free_buffer(const jove_buffer_t *buff) {
   const jove_buffer_t _##name _CLEANUP(_jove_free_buffer) =                    \
       _jove_alloc_buffer(len);                                                 \
   char *const name = (char *)_##name.ptr;
+
+//
+// string management
+//
+
+typedef struct jove_saved_char_t {
+  char *p;
+  char ch;
+} jove_saved_char_t;
+
+static jove_saved_char_t _jove_save_and_set_char(char *const p, const char ch) {
+  jove_saved_char_t sav;
+
+  _ASSERT(p);
+  sav.p = p;
+
+  /* save */
+  sav.ch = *p;
+
+  /* set */
+  *p = ch;
+
+  return sav;
+}
+
+static jove_saved_char_t _jove_save_and_set_char_safe(char *const p,
+                                                      const char ch,
+                                                      const char expected) {
+  _ASSERT(*(p) == expected);
+  return _jove_save_and_set_char(p, ch);
+}
+
+static void _jove_set_char(const jove_saved_char_t *sav) {
+  *sav->p = sav->ch;
+}
+
+#define save_and_swap_back_char_safe(p, ch, expected)                          \
+  const jove_saved_char_t UNIQUE_VAR_NAME(__save_and_swap_back)                \
+      _CLEANUP(_jove_set_char) =                                               \
+          _jove_save_and_set_char_safe(p, ch, expected);
+
+#define save_and_swap_back_char(p, ch)                                         \
+  const jove_saved_char_t UNIQUE_VAR_NAME(__save_and_swap_back)                \
+      _CLEANUP(_jove_set_char) = _jove_save_and_set_char(p, ch);

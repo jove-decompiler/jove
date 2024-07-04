@@ -119,19 +119,59 @@ void _jove_rt_init(void) {
 }
 
 static void _jove_dump_opts(void);
+static void _jove_parse_debug_string(char *const);
 
 //
 // options
 //
 void _jove_parse_opts(void) {
   JOVE_BUFF(envs, ARG_MAX);
-  unsigned n = _jove_read_pseudo_file("/proc/self/environ", _envs.ptr, _envs.len);
+  const unsigned n =
+      _jove_read_pseudo_file("/proc/self/environ", _envs.ptr, _envs.len);
 
-  Opts.ShouldSleepOnCrash = _should_sleep_on_crash(envs, n);
-  Opts.DumpOpts = _should_dump_opts(envs, n);
+  char *env;
+  for_each_in_environ(env, envs, n) {
+    if (!_strcmp(env, "JOVE_SLEEP_ON_CRASH=1"))
+      Opts.ShouldSleepOnCrash = true;
+    if (!_strcmp(env, "JOVE_DUMP_OPTS=1"))
+      Opts.DumpOpts = true;
+    if (!_strncmp(env, "JOVEDEBUG=", sizeof("JOVEDEBUG=")-1))
+      _jove_parse_debug_string(env + sizeof("JOVEDEBUG=")-1);
+  }
 
   if (Opts.DumpOpts)
     _jove_dump_opts();
+}
+
+struct debug_option_pair {
+  const char *name;
+  bool *opt_ptr;
+};
+
+static const struct debug_option_pair debug_opt_tbl[] = {
+  {"stubs", &Opts.Debug.Stubs},
+  {"calls", &Opts.Debug.Calls},
+};
+
+void _jove_parse_debug_string(char *const s) {
+  const unsigned n = _strlen(s)+1;
+
+  save_and_swap_back_char_safe(&s[n - 1], ',', '\0'); /* comma-terminate */
+
+  char *opt;
+  for_each_str_delim_know_end(opt, ',', s, n) {
+    /* null-terminate */
+    save_and_swap_back_char_safe(_memchr(opt, ',', n), '\0', ',');
+
+    unsigned i;
+    struct debug_option_pair *pairp;
+    array_for_each_p(i, pairp, debug_opt_tbl) {
+      if (!_strcmp(pairp->name, opt)) {
+        *pairp->opt_ptr = true;
+        break;
+      }
+    }
+  }
 }
 
 void _jove_dump_opts(void) {
