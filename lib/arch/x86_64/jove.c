@@ -127,7 +127,8 @@ void __stdcall mainCRTStartup() {
 
     uintptr_t emu_sp = env_stack_end - JOVE_PAGE_SIZE - len;
 
-    emu_sp &= ~15UL;
+    emu_sp &= ~31UL;
+    emu_sp -= 8;
 
     __jove_env.regs[R_ESP] = emu_sp;
   }
