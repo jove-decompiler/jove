@@ -18,6 +18,7 @@ struct locator_t {
   std::string llc(void);
   std::string opt(void);
   std::string lld(void);
+  std::string lld_link(void);
   std::string ld_gold(void);
   std::string ld_bfd(void);
   std::string clang(void);

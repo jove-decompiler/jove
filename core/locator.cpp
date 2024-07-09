@@ -65,6 +65,7 @@ JUST_IN_PARENT_DIR(cbe, "llvm-cbe")
 JUST_IN_PARENT_DIR(dis, "llvm-dis")
 JUST_IN_PARENT_DIR(clang, "clang")
 JUST_IN_PARENT_DIR(lld, "ld.lld")
+JUST_IN_PARENT_DIR(lld_link, "lld-link")
 JUST_IN_PARENT_DIR(llc, "llc")
 JUST_IN_PARENT_DIR(opt, "opt")
 

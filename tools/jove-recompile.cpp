@@ -892,6 +892,31 @@ int RecompileTool::Run(void) {
 
     fs::remove(chrooted_path);
 
+#if 1
+    std::unordered_set<std::string> lib_dirs({opts.Output + "/usr/lib"});
+#else
+    std::unordered_set<std::string> lib_dirs({jove_bin_path, "/usr/lib"});
+#endif
+
+    for (const std::string &needed : x.needed_vec) {
+      auto it = soname_map.find(needed);
+      if (it == soname_map.end()) {
+        WithColor::warning()
+            << llvm::formatv("no entry in soname_map for {0}\n", needed);
+        continue;
+      }
+
+      binary_t &needed_b = jv.Binaries.at((*it).second);
+
+#if 1
+      const fs::path needed_chrooted_path(opts.Output + needed_b.path_str());
+      lib_dirs.insert(needed_chrooted_path.parent_path().string());
+#else
+      const fs::path needed_path(needed_b.path_str());
+      lib_dirs.insert(needed_path.parent_path().string());
+#endif
+    }
+
     //
     // run ld
     //
@@ -972,31 +997,6 @@ int RecompileTool::Run(void) {
       }
 
       // include lib directories
-#if 1
-      std::unordered_set<std::string> lib_dirs({opts.Output + "/usr/lib"});
-#else
-      std::unordered_set<std::string> lib_dirs({jove_bin_path, "/usr/lib"});
-#endif
-
-      for (const std::string &needed : x.needed_vec) {
-        auto it = soname_map.find(needed);
-        if (it == soname_map.end()) {
-          WithColor::warning()
-              << llvm::formatv("no entry in soname_map for {0}\n", needed);
-          continue;
-        }
-
-        binary_t &needed_b = jv.Binaries.at((*it).second);
-
-#if 1
-        const fs::path needed_chrooted_path(opts.Output + needed_b.path_str());
-        lib_dirs.insert(needed_chrooted_path.parent_path().string());
-#else
-        const fs::path needed_path(needed_b.path_str());
-        lib_dirs.insert(needed_path.parent_path().string());
-#endif
-      }
-
       for (const std::string &lib_dir : lib_dirs) {
         Arg("-L");
         Arg(lib_dir);
@@ -1057,6 +1057,66 @@ int RecompileTool::Run(void) {
         Arg("--skip-copy-reloc-hack");
     };
 
+    int rc;
+    if (IsCOFF) {
+      assert(IsX86Target);
+
+      rc = RunExecutableToExit(locator().lld_link(), [&](auto Arg) {
+        Arg(locator().lld_link());
+
+        Arg("-lldmingw");
+        Arg("-out:" + chrooted_path.string());
+        Arg("-debug:dwarf");
+        Arg("-WX:no");
+        //Arg("-verbose");
+        Arg("-opt:noref");
+        Arg("-demangle");
+        Arg("-auto-import");
+        Arg("-runtime-pseudo-reloc");
+        Arg("-opt:noicf");
+        Arg("-noseh"); /* FIXME */
+        Arg(std::string("-machine:") + (IsTarget32 ? "x86" : "x64"));
+        Arg("-alternatename:__image_base__=__ImageBase");
+        for (const std::string &lib_dir : lib_dirs) {
+          Arg("-libpath:" + lib_dir);
+        }
+        Arg(objfp);
+
+        Arg(locator().builtins());
+        Arg(locator().softfloat_bitcode(IsCOFF));
+        Arg(locator().runtime_dll(opts.MT));
+
+#if 0
+        for (const std::string &needed : x.needed_vec)
+          Arg(locator().wine_dll(IsTarget32, needed));
+#else
+        for (const std::string &needed : x.needed_vec) {
+          auto it = soname_map.find(needed);
+          if (it == soname_map.end()) {
+            WithColor::warning()
+                << llvm::formatv("no entry in soname_map for {0}\n", needed);
+            continue;
+          }
+
+          binary_t &needed_b = jv.Binaries.at((*it).second);
+
+#if 1
+          const fs::path needed_chrooted_path(opts.Output + needed_b.path_str());
+          Arg(needed_chrooted_path.string());
+#else
+          const fs::path needed_path(needed_b.path_str());
+          Arg(needed_path.parent_path().string());
+#endif
+        }
+#endif
+
+        std::vector<std::string> def_files;
+        for (auto &entry : fs::directory_iterator(chrooted_path.parent_path())) {
+          if (fs::is_regular_file(entry) && entry.path().extension() == ".def")
+            Arg("-def:" + entry.path().string());
+        }
+      });
+    } else {
     auto run_linker = [&](const char *linker_path) -> int {
       return RunExecutableToExit(linker_path, [&](auto Arg) {
         Arg(linker_path);
@@ -1064,11 +1124,10 @@ int RecompileTool::Run(void) {
       });
     };
 
-    int rc;
-
     if (22) rc = run_linker(locator().lld().c_str());
     if (rc) rc = run_linker(locator().ld_gold().c_str()); /* ridiculous... */
     if (rc) rc = run_linker(locator().ld_bfd().c_str());  /* lol... */
+    }
 
     //
     // check exit code
@@ -1271,12 +1330,13 @@ void RecompileTool::worker(dso_t dso) {
             Arg("--dwarf-version=4");
             Arg("--debugger-tune=gdb");
 
-	    if (IsX86Target) {
-            //
-            // FIXME... how is the stack getting unaligned??
-            //
-            Arg("--stackrealign");
-	    }
+            if (IsX86Target) {
+              //
+              // FIXME... how is the stack getting unaligned??
+              //
+
+              Arg("--stackrealign");
+            }
           });
           break;
 
