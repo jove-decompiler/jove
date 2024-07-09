@@ -169,13 +169,18 @@ void _jove_parse_debug_string(char *const s) {
     /* null-terminate */
     save_and_swap_back_char_safe(_memchr(opt, ',', n), '\0', ',');
 
+    bool found_opt = false;
+
     struct debug_option_pair *pairp;
     array_for_each_p(pairp, debug_opt_tbl) {
       if (!_strcmp(pairp->name, opt)) {
+        found_opt = true;
         *pairp->opt_ptr = true;
         break;
       }
     }
+
+    _ASSERT(found_opt);
   }
 }
 
