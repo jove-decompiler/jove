@@ -120,6 +120,7 @@ void _jove_rt_init(void) {
 
 static void _jove_dump_opts(void);
 static void _jove_parse_debug_string(char *const);
+static void _jove_parse_crash_string(char *const);
 
 //
 // options
@@ -131,10 +132,12 @@ void _jove_parse_opts(void) {
 
   char *env;
   for_each_in_environ(env, envs, n) {
-    if (!_strcmp(env, "JOVE_SLEEP_ON_CRASH=1"))
-      Opts.ShouldSleepOnCrash = true;
     if (!_strcmp(env, "JOVE_DUMP_OPTS=1"))
       Opts.DumpOpts = true;
+
+    if (!_strncmp(env, "JOVECRASH=", sizeof("JOVECRASH=")-1))
+      _jove_parse_crash_string(env + sizeof("JOVECRASH=")-1);
+
     if (!_strncmp(env, "JOVEDEBUG=", sizeof("JOVEDEBUG=")-1))
       _jove_parse_debug_string(env + sizeof("JOVEDEBUG=")-1);
   }
@@ -176,6 +179,21 @@ void _jove_parse_debug_string(char *const s) {
   }
 }
 
+void _jove_parse_crash_string(char *const s) {
+  char ch = s[0];
+
+  switch (ch) {
+  case 'a':
+  case 's':
+    break;
+
+  default:
+    _UNREACHABLE("invalid JOVECRASH environment variable");
+  }
+
+  Opts.OnCrash = ch;
+}
+
 void _jove_dump_opts(void) {
   char s[1024];
   s[0] = '\0';
@@ -189,6 +207,19 @@ void _jove_dump_opts(void) {
     {
       char buff[64];
       _uint_to_string(val, buff, 10);
+
+      _strcat(s, buff);
+    }
+    _strcat(s, "\n");
+  }
+
+  if (Opts.OnCrash != '\0') {
+    _strcat(s, "OnCrash=");
+
+    {
+      char buff[2];
+      buff[0] = Opts.OnCrash;
+      buff[1] = '\0';
 
       _strcat(s, buff);
     }
@@ -628,7 +659,7 @@ found:
 
       _strcat(s, "]\n");
 
-      _jove_sys_write(2 /* stderr */, s, _strlen(s));
+      _jove_robust_write(2 /* stderr */, s, _strlen(s));
     }
 
     //
@@ -912,24 +943,10 @@ not_found:
 
       dfsan_flush_ptr();
     }
-
-    if (unlikely(Opts.ShouldSleepOnCrash)) {
-      char buff[256];
-      buff[0] = '\0';
-
-      _strcat(buff, __ANSI_BOLD_BLUE "sleeping...\n" __ANSI_NORMAL_COLOR);
-
-      _jove_robust_write(2 /* stderr */, buff, _strlen(buff));
-
-      for (;;)
-        _jove_sleep();
-    } else {
-      _jove_sys_exit_group(0x77);
-      __builtin_trap();
-    }
-
-    __builtin_unreachable();
   }
+
+  _jove_on_crash(Opts.OnCrash);
+  _VERY_UNREACHABLE();
 }
 
 uintptr_t _jove_handle_signal_delivery(uintptr_t SignalDelivery,

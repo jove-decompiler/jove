@@ -706,12 +706,7 @@ _NORET void _jove_fail1(uintptr_t a0, const char *reason) {
 
   _jove_flush_trace();
 
-  if (pOpts->ShouldSleepOnCrash) {
-    for (;;)
-      _jove_sleep();
-  }
-
-  _jove_sys_exit_group(0x77);
+  _jove_on_crash(pOpts->OnCrash);
   _VERY_UNREACHABLE();
 }
 
@@ -771,12 +766,7 @@ _NORET void _jove_fail2(uintptr_t a0,
 
   _jove_flush_trace();
 
-  if (pOpts->ShouldSleepOnCrash) {
-    for (;;)
-      _jove_sleep();
-  }
-
-  _jove_sys_exit_group(0x77);
+  _jove_on_crash(pOpts->OnCrash);
   _VERY_UNREACHABLE();
 }
 

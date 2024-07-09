@@ -238,6 +238,30 @@ static _UNUSED uint64_t _u64ofhexstr(char *str_begin, char *str_end) {
   return res;
 }
 
+_NORET
+static void _jove_on_crash(char mode) {
+  switch (mode) {
+  case 's': { /* sleep */
+    for (;;)
+      _jove_sleep();
+    break;
+  }
+
+  case 'a': /* abort */
+    _jove_sys_kill(_jove_sys_getpid(), SIGABRT);
+    /* fallthrough */
+  case '\0':
+    _jove_sys_exit_group(0x77);
+    _VERY_UNREACHABLE();
+
+  default: /* interpret as exit status */
+    _jove_sys_exit_group((int)mode);
+    _VERY_UNREACHABLE();
+  }
+
+  _UNREACHABLE();
+}
+
 #define array_for_each_p(elemp, arr)                                           \
   for ((elemp) = &arr[0]; ((elemp) - &arr[0]) < ARRAY_SIZE(arr); ++(elemp))
 

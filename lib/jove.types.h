@@ -13,7 +13,7 @@ struct jove_opts_t {
   } Debug;
 
   bool DumpOpts;
-  bool ShouldSleepOnCrash;
+  char OnCrash; /* a=abort, s=sleep */
 };
 
 struct jove_function_info_t {
