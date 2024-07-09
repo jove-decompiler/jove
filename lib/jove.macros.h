@@ -59,7 +59,7 @@
 #define _UNREACHABLE(...)                                                      \
   do {                                                                         \
     static const char __msg[] =                                                \
-        "JOVE UNREACHABLE: \"" __VA_ARGS__ "\" "                               \
+        "JOVE UNREACHABLE: " __VA_ARGS__ " "                                   \
         "(" BOOST_PP_STRINGIZE(__FILE__) ":"                                   \
             BOOST_PP_STRINGIZE(__LINE__) ")\n";                                \
                                                                                \
@@ -75,7 +75,7 @@
 #define _ASSERT(cond)                                                          \
   do {                                                                         \
     if (unlikely(!(cond)))                                                     \
-      _UNREACHABLE("assertion " BOOST_PP_STRINGIZE(cond) " failed");           \
+      _UNREACHABLE("!(" BOOST_PP_STRINGIZE(cond) ")");                         \
   } while (false)
 
 #define _VERY_UNREACHABLE(...)                                                 \
