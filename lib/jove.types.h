@@ -11,6 +11,7 @@ struct jove_opts_t {
     bool Stubs;
     bool Calls;
     bool Stack;
+    bool Inits;
   } Debug;
 
   bool DumpOpts;

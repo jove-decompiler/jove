@@ -72,6 +72,8 @@ void _jove_rt_init(void) {
 
   _jove_parse_opts();
 
+  if (unlikely(Opts.Debug.Inits)) _DUMP_FUNC();
+
   struct kernel_sigaction sa;
   _memset(&sa, 0, sizeof(sa));
 
@@ -157,6 +159,7 @@ static const struct debug_option_pair debug_opt_tbl[] = {
   {"stubs", &Opts.Debug.Stubs},
   {"calls", &Opts.Debug.Calls},
   {"stack", &Opts.Debug.Stack},
+  {"inits", &Opts.Debug.Inits},
 };
 
 void _jove_parse_debug_string(char *const s) {

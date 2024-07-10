@@ -52,6 +52,8 @@ _HIDDEN void _jove_initialize(void) {
   _jove_rt_init();
   pOpts = _jove_opts();
 
+  if (unlikely(pOpts->Debug.Inits)) _DUMP_FUNC();
+
 #ifdef JOVE_MT
   _jove_needs_multi_threaded_runtime();
 #else
