@@ -60,7 +60,6 @@ extern void restore_rt (void) asm ("__restore_rt") __attribute__ ((visibility ("
 #endif
 #endif
 
-static struct jove_opts_t Opts;
 struct jove_opts_t *_jove_opts(void) { return &Opts; }
 static void _jove_parse_opts(void);
 
