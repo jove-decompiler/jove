@@ -207,36 +207,33 @@ static _UNUSED ssize_t _jove_robust_write(int fd, const void *buf,
 // utilities
 //
 
-static _UNUSED unsigned _jove_read_pseudo_file(const char *path, char *out, size_t len) {
-  unsigned n;
+static _UNUSED unsigned _jove_read_pseudo_file(const char *path,
+                                               char *out,
+                                               size_t len) {
+  int fd = _jove_open(path, O_RDONLY, S_IRWXU);
+  if (fd < 0)
+    _UNREACHABLE("could not open file from procfs. is it mounted?");
 
-  {
-    int fd = _jove_open(path, O_RDONLY, S_IRWXU);
-    if (fd < 0)
-      _UNREACHABLE("could not open file from procfs. is it mounted?");
+  unsigned n = 0;
 
-    // let n denote the number of characters read
-    n = 0;
+  do {
+    ssize_t ret = _jove_sys_read(fd, &out[n], len - n);
 
-    for (;;) {
-      ssize_t ret = _jove_sys_read(fd, &out[n], len - n);
+    if (ret == 0)
+      break;
 
-      if (ret == 0)
-        break;
+    if (ret < 0) {
+      if (ret == -EINTR)
+        continue;
 
-      if (ret < 0) {
-        if (ret == -EINTR)
-          continue;
-
-        _UNREACHABLE();
-      }
-
-      n += ret;
+      _UNREACHABLE();
     }
 
-    if (_jove_sys_close(fd) < 0)
-      _UNREACHABLE();
-  }
+    n += ret;
+  } while (len > n);
+
+  if (_jove_sys_close(fd) < 0)
+    _UNREACHABLE();
 
   return n;
 }
