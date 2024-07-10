@@ -21,11 +21,9 @@ static const char *syscall_names[] = {
 #include "jove.constants.h"
 
 #define JOVE_SYS_ATTR _INL _UNUSED
-#include "jove_sys.h"
 
 #define _UNREACHABLE(...) _UNREACHABLE_X(2, 'a', __VA_ARGS__)
 
-#include "jove.arch.c"
 #include "jove.util.c"
 
 #ifdef JOVE_DFSAN

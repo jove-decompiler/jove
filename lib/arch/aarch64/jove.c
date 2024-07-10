@@ -26,7 +26,6 @@
 #include "jove.common.h"
 
 #define JOVE_SYS_ATTR _INL _UNUSED
-#include "jove_sys.h"
 
 typedef unsigned __int128 jove_thunk_return_t;
 
@@ -101,7 +100,6 @@ static void _jove_free_callstack(uintptr_t start);
 static bool _jove_see_through_stub(const void *ptr, uintptr_t *out);
 
 #include "jove.llvm.c"
-#include "jove.arch.c"
 #include "jove.util.c"
 #include "jove.common.c"
 #include "jove.recover.c"

@@ -1,9 +1,9 @@
-#if !defined(JOVE_ARCH_H)
-#error "need jove.arch.c
-#endif
+#include "jove.types.h"
+#include "jove.macros.h"
+#include "jove.arch.c"
 
 #if !defined(_UNREACHABLE)
-#error
+#error "must define _UNREACHABLE"
 #endif
 
 //

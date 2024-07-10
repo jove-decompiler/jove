@@ -21,7 +21,6 @@
 #include "rt.common.h"
 
 #define JOVE_SYS_ATTR _INL _UNUSED
-#include "jove_sys.h"
 
 _HIDDEN void _jove_free_stack(uintptr_t);
 _HIDDEN void _jove_free_callstack(uintptr_t);
@@ -35,7 +34,6 @@ static uintptr_t _jove_alloc_callstack(void);
 static uintptr_t _jove_alloc_large_buffer(void);
 static void _jove_free_large_buffer(uintptr_t start);
 
-#include "rt.arch.c"
 #include "rt.util.c"
 #include "rt.common.c"
 
