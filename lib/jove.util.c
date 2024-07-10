@@ -1,6 +1,6 @@
 #include "jove.types.h"
 #include "jove.macros.h"
-#include "jove.arch.c"
+#include "jove.sys.h"
 
 #if !defined(_UNREACHABLE)
 #error "must define _UNREACHABLE"
