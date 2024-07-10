@@ -63,6 +63,11 @@
     __builtin_unreachable();                                                   \
   } while (false)
 
+#define _DUMP_X(fd, str)                                                       \
+  do {                                                                         \
+    _jove_robust_write(fd, str, _strlen(str));                                 \
+  } while (false)
+
 #define _UNREACHABLE_X(fd, crash_mode, ...)                                    \
   do {                                                                         \
     static const char __msg[] =                                                \

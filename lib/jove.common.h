@@ -5,3 +5,4 @@
 static struct jove_opts_t *pOpts;
 
 #define _UNREACHABLE(...) _UNREACHABLE_X(2, pOpts->OnCrash, __VA_ARGS__)
+#define _DUMP(...) _DUMP_X(2, __VA_ARGS__)
