@@ -1379,6 +1379,9 @@ void __nodce(void **p) {
   *p++ = &_jove_alloc_callstack;
   *p++ = &_jove_free_callstack;
   *p++ = &_jove_call;
+#ifdef JOVE_MT
+  *p++ = &__jove_local_env;
+#endif
 #ifdef JOVE_DFSAN
 #if (defined(__mips__) && !defined(__mips64)) || \
     (defined(__i386__) && !defined(__x86_64__))
