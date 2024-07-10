@@ -1115,6 +1115,8 @@ jove_thunk_return_t _jove_call(
           }
         }
       }
+
+      _UNREACHABLE("found vm mapping for address but no foreign binary match");
     }
   }
 
