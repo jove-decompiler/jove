@@ -4,4 +4,4 @@
 
 static struct jove_opts_t *pOpts;
 
-#define _UNREACHABLE(...) _UNREACHABLE_X(2, pOpts->OnCrash)
+#define _UNREACHABLE(...) _UNREACHABLE_X(2, pOpts->OnCrash, __VA_ARGS__)
