@@ -535,64 +535,6 @@ static _UNUSED size_t _sum_iovec_lengths(const struct iovec *iov, unsigned n) {
   return expected;
 }
 
-static _UNUSED bool _should_sleep_on_crash(char *envs, const unsigned n) {
-  char *env;
-  for_each_in_environ(env, envs, n) {
-    if (env[0] == 'J' &&
-        env[1] == 'O' &&
-        env[2] == 'V' &&
-        env[3] == 'E' &&
-        env[4] == '_' &&
-        env[5] == 'S' &&
-        env[6] == 'L' &&
-        env[7] == 'E' &&
-        env[8] == 'E' &&
-        env[9] == 'P' &&
-        env[10] == '_' &&
-        env[11] == 'O' &&
-        env[12] == 'N' &&
-        env[13] == '_' &&
-        env[14] == 'C' &&
-        env[15] == 'R' &&
-        env[16] == 'A' &&
-        env[17] == 'S' &&
-        env[18] == 'H' &&
-        env[19] == '=' &&
-        env[20] == '1') {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-static _UNUSED bool _should_dump_opts(char *envs, const unsigned n) {
-  char *env;
-  for_each_in_environ(env, envs, n) {
-    if (env[0] == 'J' &&
-        env[1] == 'O' &&
-        env[2] == 'V' &&
-        env[3] == 'E' &&
-        env[4] == '_' &&
-        env[5] == 'D' &&
-        env[6] == 'U' &&
-        env[7] == 'M' &&
-        env[8] == 'P' &&
-        env[9] == '_' &&
-        env[10] == 'O' &&
-        env[11] == 'P' &&
-        env[12] == 'T' &&
-        env[13] == 'S' &&
-        env[14] == '=' &&
-        env[15] == '1') {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-
 static _UNUSED bool _jove_is_readable_mem(uintptr_t Addr) {
   pid_t pid;
   {
