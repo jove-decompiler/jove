@@ -19,6 +19,10 @@
 #define __JTHREAD
 #endif
 
+#define UNIQUE_VAR_NAME(base) base##__COUNTER__
+
+#define _CLEANUP(x) __attribute__((cleanup(x)))
+
 #define _CTOR   __attribute__((constructor(0)))
 #define _INL    __attribute__((always_inline))
 #define _NAKED  __attribute__((naked))
@@ -55,18 +59,38 @@
 #define __ANSI_BOLD_YELLOW    __ANSI_COLOR_PREFIX "1;33" __ANSI_COLOR_SUFFIX
 #define __ANSI_NORMAL_COLOR   __ANSI_COLOR_PREFIX "0" __ANSI_COLOR_SUFFIX
 
-#define UNIQUE_VAR_NAME(base) base##__COUNTER__
-
 #define __UNREACHABLE()                                                        \
   do {                                                                         \
     __builtin_trap();                                                          \
     __builtin_unreachable();                                                   \
   } while (false)
 
+/*
+ * requires _DUMP()
+ */
+
 #define _DUMP_X(fd, str)                                                       \
   do {                                                                         \
     _jove_robust_write(fd, str, _strlen(str));                                 \
   } while (false)
+
+#define _DUMP_FUNC()                                                           \
+  do {                                                                         \
+    char _buff[sizeof(__func__) + 3];                                          \
+                                                                               \
+    __builtin_memcpy_inline(_buff, __func__, sizeof(__func__) - 1);            \
+                                                                               \
+    _buff[sizeof(__func__) - 1] = '(';                                         \
+    _buff[sizeof(__func__) + 0] = ')';                                         \
+    _buff[sizeof(__func__) + 1] = '\n';                                        \
+    _buff[sizeof(__func__) + 2] = '\0';                                        \
+                                                                               \
+    _DUMP(_buff);                                                              \
+  } while (false)
+
+/*
+ * requires _UNREACHABLE()
+ */
 
 #define _UNREACHABLE_X(fd, crash_mode, ...)                                    \
   do {                                                                         \
@@ -85,7 +109,5 @@
     if (unlikely(!(cond)))                                                     \
       _UNREACHABLE("!(" BOOST_PP_STRINGIZE(cond) ")");                         \
   } while (false)
-
-#define _CLEANUP(x) __attribute__((cleanup(x)))
 
 #endif /* JOVE_MACROS_H */
