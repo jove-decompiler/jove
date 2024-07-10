@@ -64,12 +64,10 @@ runtime_cflags = -std=gnu99 \
 
 STARTER_LDFLAGS := -fuse-ld=lld \
                    -nostdlib \
-                   -Bsymbolic \
                    -Wl,-e,_start \
                    -static
 
 runtime_so_ldflags = -nostdlib \
-                     -Bsymbolic \
                      -soname=libjove_rt.so \
                      -init _jove_rt_init \
                      --push-state \
