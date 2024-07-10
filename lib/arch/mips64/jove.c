@@ -516,7 +516,8 @@ asm(".text\n"
     ".previous");
 
 _HIDDEN void _jove_do_call_rt_init(void) {
-  _jove_rt_init();
+  if (_jove_rt_init_clunk)
+    _jove_rt_init_clunk();
 }
 
 bool _jove_see_through_stub(const void *ptr, uintptr_t *out) {

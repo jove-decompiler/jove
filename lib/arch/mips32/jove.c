@@ -122,13 +122,6 @@ void _jove_begin(uint32_t a0,
     __jove_env.active_tc.gpr[29] = (target_ulong)env_sp;
   }
 
-  //
-  // we call _jove_rt_init here in case the dynamic linker transfers control
-  // to the entry function before calling the ctors of libjove_rt (ae: i have
-  // witnessed this happnening)
-  //
-  _jove_rt_init();
-
   _jove_initialize();
 
   return _jove_call_entry();

@@ -1,8 +1,16 @@
 extern __JTHREAD struct CPUArchState __jove_env __attribute__((aligned(64)));
 
-#ifndef JOVE_MT
-static /* __thread */ struct CPUArchState *__jove_env_clunk = &__jove_env;
+#ifdef JOVE_MT
+static /* __thread */ struct CPUArchState __jove_local_env;
 #endif
+
+static /* __thread */ struct CPUArchState *__jove_env_clunk =
+#ifdef JOVE_MT
+    &__jove_local_env
+#else
+    &__jove_env
+#endif
+    ;
 
 extern __JTHREAD uint64_t *__jove_trace;
 extern __JTHREAD uint64_t *__jove_trace_begin;
@@ -35,13 +43,21 @@ static void _jove_make_sections_executable(void);
 static void _jove_see_through_stubs(struct jove_function_info_t *);
 
 extern void _jove_rt_init(void);
-extern struct jove_opts_t *_jove_opts(void);
 
-#ifdef JOVE_MT
-extern int _jove_needs_multi_threaded_runtime(void);
-#else
+typedef void (*_jove_rt_init_t)(void);
+static _jove_rt_init_t _jove_rt_init_clunk = &_jove_rt_init;
+
 extern int _jove_needs_single_threaded_runtime(void);
+extern int _jove_needs_multi_threaded_runtime(void);
+
+typedef int (*_jove_needs_runtime_t)(void);
+static _jove_needs_runtime_t _jove_needs_runtime =
+#ifdef JOVE_MT
+    &_jove_needs_multi_threaded_runtime
+#else
+    &_jove_needs_single_threaded_runtime
 #endif
+    ;
 
 _HIDDEN void _jove_initialize(void) {
   static bool _Done = false;
@@ -49,16 +65,22 @@ _HIDDEN void _jove_initialize(void) {
     return;
   _Done = true;
 
-  _jove_rt_init();
-  pOpts = _jove_opts();
+  /* it's possible to get here before the dynamic linker has processed funcs */
+  {
+    _jove_rt_init_t rt_init = _jove_rt_init_clunk;
 
-  if (unlikely(pOpts->Debug.Inits)) _DUMP_FUNC();
+    if (rt_init)
+      rt_init();
+  }
 
-#ifdef JOVE_MT
-  _jove_needs_multi_threaded_runtime();
-#else
-  _jove_needs_single_threaded_runtime();
-#endif
+  if (unlikely(__jove_opts.Debug.Inits)) _DUMP_FUNC();
+
+  /* we made it */
+  {
+    _jove_needs_runtime_t needs_runtime = _jove_needs_runtime;
+    if (needs_runtime)
+      needs_runtime();
+  }
 
   _jove_install_foreign_function_tables();
 
@@ -165,7 +187,7 @@ void _jove_see_through_stubs(struct jove_function_info_t *fninfo_p) {
     continue;
 
 found:
-    if (unlikely(pOpts->Debug.Stubs))
+    if (unlikely(__jove_opts.Debug.Stubs))
     {
       char s[1024];
       s[0] = '\0';
@@ -706,7 +728,7 @@ _NORET void _jove_fail1(uintptr_t a0, const char *reason) {
 
   _jove_flush_trace();
 
-  _jove_on_crash(pOpts->OnCrash);
+  _jove_on_crash(__jove_opts.OnCrash);
   __UNREACHABLE();
 }
 
@@ -766,7 +788,7 @@ _NORET void _jove_fail2(uintptr_t a0,
 
   _jove_flush_trace();
 
-  _jove_on_crash(pOpts->OnCrash);
+  _jove_on_crash(__jove_opts.OnCrash);
   __UNREACHABLE();
 }
 
@@ -830,7 +852,7 @@ jove_thunk_return_t _jove_call(
                                #undef __REG_ARG
 
                                uintptr_t pc, uint32_t BBIdx) {
-  if (unlikely(pOpts->Debug.Calls))
+  if (unlikely(__jove_opts.Debug.Calls))
   {
     char s[1024];
     s[0] = '\0';
@@ -842,7 +864,7 @@ jove_thunk_return_t _jove_call(
 
       _strcat(s, buff);
     }
-    if (pOpts->Debug.Stack) {
+    if (__jove_opts.Debug.Stack) {
       _strcat(s, " <0x");
       {
         uintptr_t emusp = *emulated_stack_pointer_of_cpu_state(&__jove_env);
@@ -1209,13 +1231,7 @@ jove_thunk_return_t _jove_call(
 
 found:
   if (Callee.IsForeign) {
-    const bool in_ifunc =
-#ifdef JOVE_MT
-        false
-#else
-        __jove_env_clunk == NULL
-#endif
-        ;
+    const bool in_ifunc = __jove_env_clunk == NULL;
 
     uintptr_t RealEntry = __jove_foreign_function_tables[Callee.BIdx][Callee.FIdx];
     if (unlikely(in_ifunc)) {
@@ -1253,7 +1269,7 @@ found:
                           #undef __REG_ARG
                           RealEntry, emusp_ptr);
 
-      if (unlikely(pOpts->Debug.Calls && pOpts->Debug.Stack))
+      if (unlikely(__jove_opts.Debug.Calls && __jove_opts.Debug.Stack))
       {
         uintptr_t emusp = *emulated_stack_pointer_of_cpu_state(&__jove_env);
 
@@ -1351,13 +1367,13 @@ void __nodce(void **p) {
   *p++ = &_jove_get_init_fn_sect_ptr;
   *p++ = &_jove_get_libc_early_init_fn;
   *p++ = &_jove_get_libc_early_init_fn_sect_ptr;
+  *p++ = &_jove_rt_init_clunk;
+  *p++ = &_jove_needs_runtime;
   *p++ = &__jove_trace;
   *p++ = &__jove_trace_begin;
   *p++ = &__jove_callstack;
   *p++ = &__jove_callstack_begin;
-#ifndef JOVE_MT
   *p++ = &__jove_env_clunk;
-#endif
   *p++ = &_jove_alloc_stack;
   *p++ = &_jove_free_stack;
   *p++ = &_jove_alloc_callstack;

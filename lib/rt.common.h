@@ -2,7 +2,7 @@
 #error
 #endif
 
-static struct jove_opts_t Opts;
+struct jove_opts_t __jove_opts;
 
-#define _UNREACHABLE(...) _UNREACHABLE_X(2, Opts.OnCrash, __VA_ARGS__)
+#define _UNREACHABLE(...) _UNREACHABLE_X(2, __jove_opts.OnCrash, __VA_ARGS__)
 #define _DUMP(...) _DUMP_X(2, __VA_ARGS__)

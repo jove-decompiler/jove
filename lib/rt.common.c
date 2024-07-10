@@ -60,7 +60,6 @@ extern void restore_rt (void) asm ("__restore_rt") __attribute__ ((visibility ("
 #endif
 #endif
 
-struct jove_opts_t *_jove_opts(void) { return &Opts; }
 static void _jove_parse_opts(void);
 
 void _jove_rt_init(void) {
@@ -71,7 +70,7 @@ void _jove_rt_init(void) {
 
   _jove_parse_opts();
 
-  if (unlikely(Opts.Debug.Inits)) _DUMP_FUNC();
+  if (unlikely(__jove_opts.Debug.Inits)) _DUMP_FUNC();
 
   struct kernel_sigaction sa;
   _memset(&sa, 0, sizeof(sa));
@@ -134,7 +133,7 @@ void _jove_parse_opts(void) {
   char *env;
   for_each_in_environ(env, envs, n) {
     if (!_strcmp(env, "JOVE_DUMP_OPTS=1"))
-      Opts.DumpOpts = true;
+      __jove_opts.DumpOpts = true;
 
     if (!_strncmp(env, "JOVECRASH=", sizeof("JOVECRASH=")-1))
       _jove_parse_crash_string(env + sizeof("JOVECRASH=")-1);
@@ -143,7 +142,7 @@ void _jove_parse_opts(void) {
       _jove_parse_debug_string(env + sizeof("JOVEDEBUG=")-1);
   }
 
-  if (Opts.DumpOpts)
+  if (__jove_opts.DumpOpts)
     _jove_dump_opts();
 }
 
@@ -153,13 +152,13 @@ struct debug_option_pair {
 };
 
 static const struct debug_option_pair debug_opt_tbl[] = {
-  {"signals", &Opts.Debug.Signals},
-  {"thunks", &Opts.Debug.Thunks},
-  {"stubs", &Opts.Debug.Stubs},
-  {"calls", &Opts.Debug.Calls},
-  {"stack", &Opts.Debug.Stack},
-  {"inits", &Opts.Debug.Inits},
-  {"verbose", &Opts.Debug.Verbose},
+  {"signals", &__jove_opts.Debug.Signals},
+  {"thunks",  &__jove_opts.Debug.Thunks},
+  {"stubs",   &__jove_opts.Debug.Stubs},
+  {"calls",   &__jove_opts.Debug.Calls},
+  {"stack",   &__jove_opts.Debug.Stack},
+  {"inits",   &__jove_opts.Debug.Inits},
+  {"verbose", &__jove_opts.Debug.Verbose},
 };
 
 void _jove_parse_debug_string(char *const s) {
@@ -199,7 +198,7 @@ void _jove_parse_crash_string(char *const s) {
     _UNREACHABLE("invalid JOVECRASH environment variable");
   }
 
-  Opts.OnCrash = ch;
+  __jove_opts.OnCrash = ch;
 }
 
 void _jove_dump_opts(void) {
@@ -221,12 +220,12 @@ void _jove_dump_opts(void) {
     _strcat(s, "\n");
   }
 
-  if (Opts.OnCrash != '\0') {
+  if (__jove_opts.OnCrash != '\0') {
     _strcat(s, "OnCrash=");
 
     {
       char buff[2];
-      buff[0] = Opts.OnCrash;
+      buff[0] = __jove_opts.OnCrash;
       buff[1] = '\0';
 
       _strcat(s, buff);
@@ -573,7 +572,7 @@ found:
     if (SignalDelivery) {
       ++__jove_dfsan_sig_handle;
 
-      if (unlikely(Opts.Debug.Signals)) {
+      if (unlikely(__jove_opts.Debug.Signals)) {
         //
         // print number of signal and description of program counter
         //
@@ -626,7 +625,7 @@ found:
       }
     }
 
-    if (unlikely(Opts.Debug.Thunks)) {
+    if (unlikely(__jove_opts.Debug.Thunks)) {
       //
       // print information about call taking place
       //
@@ -953,7 +952,7 @@ not_found:
     }
   }
 
-  _jove_on_crash(Opts.OnCrash);
+  _jove_on_crash(__jove_opts.OnCrash);
   __UNREACHABLE();
 }
 
