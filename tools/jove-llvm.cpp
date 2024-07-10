@@ -2589,8 +2589,18 @@ int LLVMTool::CreateModule(void) {
 
   Module->setSemanticInterposition(false);
 
+#if 0
   //
-  // removing dso_local (FIXME)
+  // nonlazybind (FIXME?)
+  //
+  for (llvm::Function &F : *Module) {
+    if (F.empty())
+      F.addFnAttr(llvm::Attribute::NonLazyBind);
+  }
+#endif
+
+  //
+  // removing dso_local (FIXME?)
   //
   for (llvm::GlobalObject &GO : Module->global_objects()) {
     if (GO.isDeclaration() && GO.isDSOLocal())
