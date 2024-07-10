@@ -10,7 +10,7 @@
 // short stdlib
 //
 
-static _INL _UNUSED void *_memcpy(void *dest, const void *src, size_t n) {
+static _UNUSED void *_memcpy(void *dest, const void *src, size_t n) {
   unsigned char *d = dest;
   const unsigned char *s = src;
 
@@ -20,7 +20,7 @@ static _INL _UNUSED void *_memcpy(void *dest, const void *src, size_t n) {
   return dest;
 }
 
-static _INL _UNUSED void *_memset(void *dst, int c, size_t n) {
+static _UNUSED void *_memset(void *dst, int c, size_t n) {
   if (n != 0) {
     unsigned char *d = dst;
 
@@ -31,7 +31,7 @@ static _INL _UNUSED void *_memset(void *dst, int c, size_t n) {
   return (dst);
 }
 
-static _INL _UNUSED void *_memchr(const void *s, int c, size_t n) {
+static _UNUSED void *_memchr(const void *s, int c, size_t n) {
   if (n != 0) {
     const unsigned char *p = s;
 
@@ -43,7 +43,7 @@ static _INL _UNUSED void *_memchr(const void *s, int c, size_t n) {
   return (NULL);
 }
 
-static _INL _UNUSED int _memcmp(const void *s1, const void *s2, size_t n) {
+static _UNUSED int _memcmp(const void *s1, const void *s2, size_t n) {
   if (n != 0) {
     const unsigned char *p1 = s1, *p2 = s2;
 
@@ -55,7 +55,7 @@ static _INL _UNUSED int _memcmp(const void *s1, const void *s2, size_t n) {
   return (0);
 }
 
-static _UNUSED void *_memmem(const void *l, size_t l_len, const void *s, size_t s_len) {
+static void *_memmem(const void *l, size_t l_len, const void *s, size_t s_len) {
   const char *cl = (const char *)l;
   const char *cs = (const char *)s;
 
@@ -77,7 +77,7 @@ static _UNUSED void *_memmem(const void *l, size_t l_len, const void *s, size_t 
   return NULL;
 }
 
-static _INL _UNUSED size_t _strlen(const char *str) {
+static _UNUSED size_t _strlen(const char *str) {
   const char *s;
 
   for (s = str; *s; ++s)
@@ -85,7 +85,7 @@ static _INL _UNUSED size_t _strlen(const char *str) {
   return (s - str);
 }
 
-static _INL _UNUSED char *_strcat(char *s, const char *append) {
+static _UNUSED char *_strcat(char *s, const char *append) {
   char *save = s;
 
   for (; *s; ++s)
@@ -95,7 +95,7 @@ static _INL _UNUSED char *_strcat(char *s, const char *append) {
   return (save);
 }
 
-static _INL _UNUSED char *_strcpy(char *to, const char *from) {
+static _UNUSED char *_strcpy(char *to, const char *from) {
   char *save = to;
 
   for (; (*to = *from) != '\0'; ++from, ++to)
@@ -103,14 +103,14 @@ static _INL _UNUSED char *_strcpy(char *to, const char *from) {
   return (save);
 }
 
-static _INL _UNUSED int _strcmp(const char *s1, const char *s2) {
+static _UNUSED int _strcmp(const char *s1, const char *s2) {
   while (*s1 == *s2++)
     if (*s1++ == 0)
       return (0);
   return (*(unsigned char *)s1 - *(unsigned char *)--s2);
 }
 
-static _INL _UNUSED int _strncmp(const char *s1, const char *s2, size_t n) {
+static _UNUSED int _strncmp(const char *s1, const char *s2, size_t n) {
   if (n == 0)
     return (0);
   do {
@@ -122,7 +122,7 @@ static _INL _UNUSED int _strncmp(const char *s1, const char *s2, size_t n) {
   return (0);
 }
 
-static _INL _UNUSED void _uint_to_string(uint64_t x, char *Str, unsigned Radix) {
+static _UNUSED void _uint_to_string(uint64_t x, char *Str, unsigned Radix) {
   // First, check for a zero value and just short circuit the logic below.
   if (x == 0) {
     *Str++ = '0';
@@ -465,7 +465,7 @@ static _UNUSED uintptr_t _does_readable_regular_mapping_exist_at_address(
   return 0;
 }
 
-static _INL _UNUSED uintptr_t _get_stack_end(void) {
+static _UNUSED uintptr_t _get_stack_end(void) {
   char buff[4096 * 32];
   unsigned n = _jove_read_pseudo_file("/proc/self/maps", buff, sizeof(buff));
   buff[n] = '\0';
@@ -485,7 +485,7 @@ static _INL _UNUSED uintptr_t _get_stack_end(void) {
   return res;
 }
 
-static _INL _UNUSED char *_getenv(const char *name) {
+static _UNUSED char *_getenv(const char *name) {
   static char envs[4096 * 32];
   static unsigned envs_n = 0;
 
@@ -531,7 +531,7 @@ static _INL _UNUSED char *_getenv(const char *name) {
   return NULL;
 }
 
-static _INL _UNUSED size_t _sum_iovec_lengths(const struct iovec *iov, unsigned n) {
+static _UNUSED size_t _sum_iovec_lengths(const struct iovec *iov, unsigned n) {
   size_t expected = 0;
   for (unsigned i = 0; i < n; ++i)
     expected += iov[i].iov_len;
