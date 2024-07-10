@@ -159,6 +159,7 @@ static const struct debug_option_pair debug_opt_tbl[] = {
   {"calls", &Opts.Debug.Calls},
   {"stack", &Opts.Debug.Stack},
   {"inits", &Opts.Debug.Inits},
+  {"verbose", &Opts.Debug.Verbose},
 };
 
 void _jove_parse_debug_string(char *const s) {
