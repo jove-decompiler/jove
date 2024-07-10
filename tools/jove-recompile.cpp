@@ -1312,12 +1312,12 @@ void RecompileTool::worker(dso_t dso) {
             }
 
             //
-            // XXX (On mips)
+            // On mips...
             // "The dynamic linker will use an undefined function symbol table entry
             // with STO_MIPS_PLT set to resolve all references to that symbol in
-            // preference to the actual definition of that symbol"
+            // preference to the actual definition of that symbol" TODO
             //
-            if (true /* b.IsPIC */) {
+            if (b.IsPIC) {
               Arg("--relocation-model=pic");
             } else {
               assert(b.IsExecutable);
