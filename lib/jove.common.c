@@ -37,8 +37,6 @@ static void _jove_see_through_stubs(struct jove_function_info_t *);
 extern void _jove_rt_init(void);
 extern struct jove_opts_t *_jove_opts(void);
 
-static struct jove_opts_t *pOpts;
-
 #ifdef JOVE_MT
 extern int _jove_needs_multi_threaded_runtime(void);
 #else
@@ -707,7 +705,7 @@ _NORET void _jove_fail1(uintptr_t a0, const char *reason) {
   _jove_flush_trace();
 
   _jove_on_crash(pOpts->OnCrash);
-  _VERY_UNREACHABLE();
+  __UNREACHABLE();
 }
 
 _NORET void _jove_fail2(uintptr_t a0,
@@ -767,7 +765,7 @@ _NORET void _jove_fail2(uintptr_t a0,
   _jove_flush_trace();
 
   _jove_on_crash(pOpts->OnCrash);
-  _VERY_UNREACHABLE();
+  __UNREACHABLE();
 }
 
 void _jove_log1(const char *msg,

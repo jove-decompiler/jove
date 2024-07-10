@@ -1,4 +1,7 @@
-#ifndef JOVE_SYS_ATTR
+#ifndef JOVE_SYS_H
+#define JOVE_SYS_H
+
+#if !defined(JOVE_SYS_ATTR)
 #error
 #endif
 
@@ -225,3 +228,4 @@ typedef unsigned long cap_user_header_t; /* XXX */
 #include "syscalls.inc.h"
 
 #undef JOVE_SYS_ATTR
+#endif /* JOVE_SYS_H */

@@ -1,4 +1,5 @@
-#pragma once
+#ifndef JOVE_MACROS_H
+#define JOVE_MACROS_H
 #include <boost/preprocessor/stringize.hpp>
 
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
@@ -56,20 +57,22 @@
 
 #define UNIQUE_VAR_NAME(base) base##__COUNTER__
 
-#define _UNREACHABLE(...)                                                      \
+#define __UNREACHABLE()                                                        \
+  do {                                                                         \
+    __builtin_trap();                                                          \
+    __builtin_unreachable();                                                   \
+  } while (false)
+
+#define _UNREACHABLE_X(fd, crash_mode, ...)                                    \
   do {                                                                         \
     static const char __msg[] =                                                \
         "JOVE UNREACHABLE: " __VA_ARGS__ " "                                   \
         "(" BOOST_PP_STRINGIZE(__FILE__) ":"                                   \
             BOOST_PP_STRINGIZE(__LINE__) ")\n";                                \
                                                                                \
-    long __rc;                                                                 \
-    do {                                                                       \
-      __rc = _jove_sys_write(2 /* stderr */, &__msg[0], sizeof(__msg));        \
-    } while (__rc == -EINTR);                                                  \
-                                                                               \
-    _jove_sys_exit_group(1);                                                   \
-    __builtin_unreachable();                                                   \
+    _jove_robust_write(fd, &__msg[0], sizeof(__msg));                          \
+    _jove_on_crash(crash_mode);                                                \
+    __UNREACHABLE();                                                           \
   } while (false)
 
 #define _ASSERT(cond)                                                          \
@@ -78,10 +81,6 @@
       _UNREACHABLE("!(" BOOST_PP_STRINGIZE(cond) ")");                         \
   } while (false)
 
-#define _VERY_UNREACHABLE(...)                                                 \
-  do {                                                                         \
-    __builtin_trap();                                                          \
-    __builtin_unreachable();                                                   \
-  } while (false)
-
 #define _CLEANUP(x) __attribute__((cleanup(x)))
+
+#endif /* JOVE_MACROS_H */

@@ -21,6 +21,7 @@
 #include "rt.constants.h"
 #include "rt.macros.h"
 #include "rt.types.h"
+#include "rt.common.h"
 
 #define JOVE_SYS_ATTR _HIDDEN _UNUSED
 #include "jove_sys.h"

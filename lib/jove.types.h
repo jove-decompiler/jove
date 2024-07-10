@@ -1,6 +1,7 @@
-#pragma once
+#ifndef JOVE_TYPES_H
+#define JOVE_TYPES_H
 #include <stdint.h>
-#include <linux/limits.h>
+#include <linux/limits.h> /* ARG_MAX and PATH_MAX */
 #include "jove.hashtable.h"
 
 struct jove_opts_t {
@@ -55,3 +56,5 @@ typedef uint16_t dfsan_label;
 struct shadow_t {
   uint16_t *X[JOVE_SHADOW_NUM_REGIONS];
 };
+
+#endif /* JOVE_TYPES_H */

@@ -1,3 +1,11 @@
+#if !defined(JOVE_ARCH_H)
+#error "need jove.arch.c
+#endif
+
+#if !defined(_UNREACHABLE)
+#error
+#endif
+
 //
 // short stdlib
 //
@@ -143,6 +151,62 @@ static _INL _UNUSED void _uint_to_string(uint64_t x, char *Str, unsigned Radix) 
   *Str = '\0';
 }
 
+//
+// essential stuff
+//
+
+_NORET
+static void _jove_on_crash(char mode) {
+  switch (mode) {
+  case 's': { /* sleep */
+    for (;;)
+      _jove_sleep();
+    break;
+  }
+
+  case 'a': /* abort */
+    _jove_sys_kill(_jove_sys_getpid(), SIGABRT);
+    /* fallthrough */
+  case '\0':
+    _jove_sys_exit_group(0x77);
+    __UNREACHABLE();
+
+  default: /* interpret as exit status */
+    _jove_sys_exit_group((int)mode);
+    __UNREACHABLE();
+  }
+
+  __UNREACHABLE();
+}
+
+static _UNUSED ssize_t _jove_robust_write(int fd, const void *buf,
+                                          size_t count) {
+  ssize_t ret = 0;
+  ssize_t total = 0;
+
+  while (count) {
+    ret = _jove_sys_write(fd, buf, count);
+    if (ret < 0) {
+      if (ret == -EINTR)
+        continue;
+      break;
+    }
+
+    if (ret == 0)
+      return -EIO;
+
+    count -= ret;
+    buf += ret;
+    total += ret;
+  }
+
+  return total;
+}
+
+//
+// utilities
+//
+
 static _UNUSED unsigned _jove_read_pseudo_file(const char *path, char *out, size_t len) {
   unsigned n;
 
@@ -236,30 +300,6 @@ static _UNUSED uint64_t _u64ofhexstr(char *str_begin, char *str_end) {
   }
 
   return res;
-}
-
-_NORET
-static void _jove_on_crash(char mode) {
-  switch (mode) {
-  case 's': { /* sleep */
-    for (;;)
-      _jove_sleep();
-    break;
-  }
-
-  case 'a': /* abort */
-    _jove_sys_kill(_jove_sys_getpid(), SIGABRT);
-    /* fallthrough */
-  case '\0':
-    _jove_sys_exit_group(0x77);
-    _VERY_UNREACHABLE();
-
-  default: /* interpret as exit status */
-    _jove_sys_exit_group((int)mode);
-    _VERY_UNREACHABLE();
-  }
-
-  _UNREACHABLE();
 }
 
 #define array_for_each_p(elemp, arr)                                           \
@@ -496,30 +536,6 @@ static _INL _UNUSED size_t _sum_iovec_lengths(const struct iovec *iov, unsigned 
   for (unsigned i = 0; i < n; ++i)
     expected += iov[i].iov_len;
   return expected;
-}
-
-static _UNUSED ssize_t _jove_robust_write(int fd, const void *buf,
-                                          size_t count) {
-  ssize_t ret = 0;
-  ssize_t total = 0;
-
-  while (count) {
-    ret = _jove_sys_write(fd, buf, count);
-    if (ret < 0) {
-      if (ret == -EINTR)
-        continue;
-      break;
-    }
-
-    if (ret == 0)
-      return -EIO;
-
-    count -= ret;
-    buf += ret;
-    total += ret;
-  }
-
-  return total;
 }
 
 static _UNUSED bool _should_sleep_on_crash(char *envs, const unsigned n) {

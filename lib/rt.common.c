@@ -951,7 +951,7 @@ not_found:
   }
 
   _jove_on_crash(Opts.OnCrash);
-  _VERY_UNREACHABLE();
+  __UNREACHABLE();
 }
 
 uintptr_t _jove_handle_signal_delivery(uintptr_t SignalDelivery,

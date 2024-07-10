@@ -22,6 +22,7 @@
 #include "jove.constants.h"
 #include "jove.macros.h"
 #include "jove.types.h"
+#include "jove.common.h"
 
 #define JOVE_SYS_ATTR _INL _UNUSED
 #include "jove_sys.h"
