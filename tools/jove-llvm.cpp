@@ -7450,11 +7450,12 @@ int LLVMTool::ForceCallConv(void) {
   //
   // force callconv for ABI functions and _jove_thunk_*
   //
-#define __THUNK(n, i, data) \
+#define __THUNK(n, i, data)                                                    \
   JoveThunk##i##Func = Module->getFunction("_jove_thunk" #i);                  \
-  assert(JoveThunk##i##Func);                                                  \
-  assert(!JoveThunk##i##Func->empty());                                        \
-  force_callconv(JoveThunk##i##Func);
+  if (JoveThunk##i##Func) {                                                    \
+    assert(!JoveThunk##i##Func->empty());                                      \
+    force_callconv(JoveThunk##i##Func);                                        \
+  }
 
   BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
 
