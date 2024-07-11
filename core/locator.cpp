@@ -153,9 +153,15 @@ std::string locator_t::wine(bool Is32) {
 }
 
 std::string locator_t::wine_dll(bool Is32, const std::string &name) {
-  const char *dir = Is32 ? "/usr/lib32/wine/i386-windows/" :
-                           "/usr/lib/wine/x86_64-windows/";
-  return must_exist(dir + name);
+  try {
+    const char *dir = Is32 ? "/usr/lib32/wine/i386-windows/"
+                           : "/usr/lib/wine/x86_64-windows/";
+    return must_exist(dir + name);
+  } catch (...) {
+    const char *dir = Is32 ? "/usr/lib/i386-linux-gnu/wine/i386-windows/"
+                           : "/usr/lib/x86_64-linux-gnu/wine/x86_64-windows/";
+    return must_exist(dir + name);
+  }
 }
 
 }
