@@ -2633,8 +2633,7 @@ int LLVMTool::CreateModule(void) {
   JoveThunk##i##Func = Module->getFunction("_jove_thunk" #i);                  \
   assert(JoveThunk##i##Func);                                                  \
   assert(!JoveThunk##i##Func->empty());                                        \
-  JoveThunk##i##Func->setLinkage(llvm::GlobalValue::InternalLinkage);          \
-  JoveThunk##i##Func->setCallingConv(llvm::CallingConv::X86_64_SysV );
+  JoveThunk##i##Func->setLinkage(llvm::GlobalValue::InternalLinkage);
 
 BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
 
