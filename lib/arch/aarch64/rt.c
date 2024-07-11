@@ -32,13 +32,14 @@ static uintptr_t _jove_alloc_callstack(void);
 #include "rt.common.c"
 
 void _jove_inverse_thunk(void) {
-  asm volatile("stp x0, x1, [sp, #-16]\n" /* preserve return registers */
-               "stp x2, x3, [sp, #-32]\n"
-               "stp x4, x5, [sp, #-48]\n"
-               "stp x6, x7, [sp, #-64]\n"
+  asm volatile("sub sp, sp, #128\n"
+               "stp x0, x1, [sp, #16]\n" /* preserve return registers */
+               "stp x2, x3, [sp, #32]\n"
+               "stp x4, x5, [sp, #48]\n"
+               "stp x6, x7, [sp, #64]\n"
 
-               "stp x19, x20, [sp, #-80]\n" /* callee-saved registers */
-               "stp x21, x22, [sp, #-96]\n"
+               "stp x19, x20, [sp, #80]\n" /* callee-saved registers */
+               "stp x21, x22, [sp, #96]\n"
 
                //
                // restore emulated stack pointer
@@ -47,7 +48,7 @@ void _jove_inverse_thunk(void) {
 
                "ldr x19, [x0]\n" // save emusp, we'll need it at the end of this function
 
-               "ldr x1, [sp, #24]\n"  // read saved_emusp off the stack
+               "ldr x1, [sp, #152]\n"  // read saved_emusp off the stack
                "str x1, [x0]\n" // restore emusp
 
                //
@@ -61,33 +62,33 @@ void _jove_inverse_thunk(void) {
                // restore __jove_callstack
                //
                "bl _jove_callstack_location\n"
-               "ldr x1, [sp, #32]\n" // x1 = saved_callstack
+               "ldr x1, [sp, #160]\n" // x1 = saved_callstack
                "str x1, [x0]\n" // restore callstack
 
                //
                // restore __jove_callstack_begin
                //
                "bl _jove_callstack_begin_location\n"
-               "ldr x1, [sp, #40]\n" // x1 = saved_callstack_begin
+               "ldr x1, [sp, #168]\n" // x1 = saved_callstack_begin
                "str x1, [x0]\n" // restore callstack_begin
 
                //
                // mark newstack as to be freed
                //
-               "ldr x0, [sp, #48]\n" // x0 = newstack
+               "ldr x0, [sp, #176]\n" // x0 = newstack
                "bl _jove_free_stack_later\n"
 
                "mov x8, x19\n" /* emusp in scratch reg x8 */
 
-               "ldp x19, x20, [sp, #-80]\n" /* callee-saved registers */
-               "ldp x21, x22, [sp, #-96]\n"
+               "ldp x19, x20, [sp, #80]\n" /* callee-saved registers */
+               "ldp x21, x22, [sp, #96]\n"
 
-               "ldp x0, x1, [sp, #-16]\n" /* return registers */
-               "ldp x2, x3, [sp, #-32]\n"
-               "ldp x4, x5, [sp, #-48]\n"
-               "ldp x6, x7, [sp, #-64]\n"
+               "ldp x0, x1, [sp, #16]\n" /* return registers */
+               "ldp x2, x3, [sp, #32]\n"
+               "ldp x4, x5, [sp, #48]\n"
+               "ldp x6, x7, [sp, #64]\n"
 
-               "ldr x9, [sp, #8]\n" /* read saved_retaddr into x9 */
+               "ldr x9, [sp, #136]\n" /* read saved_retaddr into x9 */
 
                "mov sp, x8\n" /* sp = emusp */
                "br x9\n" /* pc = saved_retaddr */
