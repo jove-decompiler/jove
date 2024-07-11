@@ -635,7 +635,7 @@ found:
       _strcat(s, "_jove_rt_sig: -> 0x");
       {
         char buff[65];
-        _uint_to_string(saved_pc, buff, 0x10);
+        _uint_to_string(FuncPtr, buff, 0x10);
 
         _strcat(s, buff);
       }
@@ -647,16 +647,20 @@ found:
 
         _strcat(s, buff);
       }
-      _strcat(s, " <0x");
-      {
-        char buff[65];
-        _uint_to_string(saved_sp, buff, 0x10);
 
-        _strcat(s, buff);
+      if (__jove_opts.Debug.Stack) {
+        _strcat(s, " <0x");
+        {
+          char buff[65];
+          _uint_to_string(saved_sp, buff, 0x10);
+
+          _strcat(s, buff);
+        }
+
+        _strcat(s, ">");
       }
 
-      _strcat(s, "> [");
-
+      _strcat(s, " [");
       {
         char buff[65];
         _uint_to_string(sig, buff, 10);
