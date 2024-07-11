@@ -24,9 +24,8 @@ using llvm::WithColor;
 
 namespace jove {
 
-class DumpTool : public Tool {
+class DumpTool : public JVTool<ToolKind::CopyOnWrite> {
   struct Cmdline {
-    cl::list<std::string> InputFilenames;
     cl::opt<bool> Compact;
     cl::opt<bool> Graphviz;
     cl::opt<bool> Statistics;
@@ -37,11 +36,7 @@ class DumpTool : public Tool {
     cl::opt<std::string> ListFunctionBBs;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
-        : InputFilenames(cl::Positional,
-                         cl::desc("<input jove database>"), cl::Optional,
-                         cl::cat(JoveCategory)),
-
-          Compact("compact",
+        : Compact("compact",
                   cl::desc("Print functions as list of basic-blocks addresses"),
                   cl::cat(JoveCategory)),
 
@@ -519,37 +514,6 @@ void DumpTool::dumpDecompilation(const jv_t& jv) {
 
 
 int DumpTool::Run(void) {
-  if (opts.InputFilenames.empty()) {
-    dumpInput(path_to_jv());
-  } else {
-    for (const std::string &filename : opts.InputFilenames)
-      dumpInput(filename);
-  }
-
-  return 0;
-}
-
-void DumpTool::dumpInput(const std::string &Path) {
-#if 0
-  try {
-#endif
-    jv_file_t jv_file(boost::interprocess::open_only, Path.c_str());
-    std::pair<jv_t *, jv_file_t::size_type> search = jv_file.find<jv_t>("JV");
-
-    if (search.second == 0) {
-      llvm::errs() << "jv_t not found\n";
-      return;
-    }
-
-    if (search.second > 1) {
-      llvm::errs() << "multiple jv_t found\n";
-      return;
-    }
-
-    assert(search.second == 1);
-
-    jv_t &jv = *search.first;
-
     if (opts.ListBinaries) {
       for (const auto &binary : jv.Binaries) {
         if (IsVerbose())
@@ -622,11 +586,7 @@ void DumpTool::dumpInput(const std::string &Path) {
       dumpDecompilation(jv);
     }
 
-#if 0
-  } catch (const std::exception &e) {
-    WithColor::error() << llvm::formatv("failed to dump {0}: {1}\n", Path,
-                                        e.what());
-  }
-#endif
+  return 0;
 }
+
 }
