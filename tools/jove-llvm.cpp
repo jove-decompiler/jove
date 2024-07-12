@@ -9649,6 +9649,9 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
           return;
         case offsetof(CPUMIPSState, error_code):
           break;
+#elif defined(TARGET_X86_64)
+        case offsetof(CPUX86State, df):
+          break;
 #elif defined(TARGET_AARCH64)
         case offsetof(CPUARMState, vfp.zregs[0])...offsetof(CPUARMState, vfp.zregs[32]) - 1:
           break;
@@ -9673,6 +9676,9 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
           set(get(input_arg(0)), &s->temps[tcg_llval_index]);
           return;
         case offsetof(CPUMIPSState, error_code):
+          break;
+#elif defined(TARGET_X86_64)
+        case offsetof(CPUX86State, df):
           break;
 #elif defined(TARGET_AARCH64)
         case offsetof(CPUARMState, vfp.zregs[0])...offsetof(CPUARMState, vfp.zregs[32]) - 1:
