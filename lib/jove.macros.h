@@ -1,5 +1,6 @@
 #ifndef JOVE_MACROS_H
 #define JOVE_MACROS_H
+#include "jove.barrier.h"
 #include <boost/preprocessor/stringize.hpp>
 
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))

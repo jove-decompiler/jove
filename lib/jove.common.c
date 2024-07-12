@@ -137,7 +137,7 @@ void _jove_install_function_mappings(void) {
   //
   // add the mappings
   //
-  memory_barrier();
+  mb();
   {
     struct jove_function_info_t *fninfo_p =
         (struct jove_function_info_t *)fninfo_arr_addr;
@@ -160,7 +160,7 @@ void _jove_install_function_mappings(void) {
     _jove_see_through_stubs(fninfo_p);
   }
 
-  memory_barrier();
+  mb();
 }
 
 void _jove_see_through_stubs(struct jove_function_info_t *fninfo_p) {
@@ -658,7 +658,7 @@ void _jove_install_foreign_function_tables(void) {
   //
   // install function mappings
   //
-  memory_barrier();
+  mb();
   {
     struct jove_function_info_t *fninfo_p =
         (struct jove_function_info_t *)fninfo_arr_addr;
@@ -682,7 +682,7 @@ void _jove_install_foreign_function_tables(void) {
       }
     }
   }
-  memory_barrier();
+  mb();
 }
 
 _NORET void _jove_fail1(uintptr_t a0, const char *reason) {
