@@ -186,13 +186,13 @@ static _UNUSED ssize_t _jove_robust_write(int fd, const void *buf,
 
   while (count) {
     ret = _jove_sys_write(fd, buf, count);
-    if (ret < 0) {
+    if (unlikely(ret < 0)) {
       if (ret == -EINTR)
         continue;
       break;
     }
 
-    if (ret == 0)
+    if (unlikely(ret == 0))
       return -EIO;
 
     count -= ret;
