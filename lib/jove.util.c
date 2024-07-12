@@ -2,10 +2,6 @@
 #include "jove.macros.h"
 #include "jove.sys.h"
 
-#if !defined(_UNREACHABLE)
-#error "must define _UNREACHABLE"
-#endif
-
 //
 // short stdlib
 //
@@ -201,6 +197,12 @@ static _UNUSED ssize_t _jove_robust_write(int fd, const void *buf,
   }
 
   return total;
+}
+
+static _UNUSED void _jove_dump_on_crash(const char *str, unsigned len) {
+  _DUMP_WITH_LEN(str, len);
+  _jove_on_crash(JOVE_CRASH_MODE);
+  __UNREACHABLE();
 }
 
 //

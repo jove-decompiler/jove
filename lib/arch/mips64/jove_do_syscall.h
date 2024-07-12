@@ -17,12 +17,12 @@ static const char *syscall_names[] = {
 #include "syscalls.inc.h"
 };
 
+#define JOVE_CRASH_MODE 'a'
+
 #include "jove.macros.h"
 #include "jove.constants.h"
 
 #define JOVE_SYS_ATTR _INL _UNUSED
-
-#define _UNREACHABLE(...) _UNREACHABLE_X(2, 'a', __VA_ARGS__)
 
 #include "jove.util.c"
 

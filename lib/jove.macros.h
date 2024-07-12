@@ -59,48 +59,52 @@
 #define __ANSI_BOLD_YELLOW    __ANSI_COLOR_PREFIX "1;33" __ANSI_COLOR_SUFFIX
 #define __ANSI_NORMAL_COLOR   __ANSI_COLOR_PREFIX "0" __ANSI_COLOR_SUFFIX
 
+#define strlen(str) ({                          \
+        __builtin_constant_p((str)) ?           \
+                __builtin_strlen((str)) :       \
+                _strlen((str));                 \
+})
+
 #define __UNREACHABLE()                                                        \
   do {                                                                         \
     __builtin_trap();                                                          \
     __builtin_unreachable();                                                   \
   } while (false)
 
-/*
- * requires _DUMP()
- */
+/* defaults to STDERR_FILENO */
+#ifndef JOVE_DUMP_FD
+#define JOVE_DUMP_FD 2
+#endif
 
-#define _DUMP_X(fd, str)                                                       \
-  do {                                                                         \
-    _jove_robust_write(fd, str, _strlen(str));                                 \
-  } while (false)
-
+#define _DUMP_WITH_LEN(str, len) _jove_robust_write(JOVE_DUMP_FD, str, len)
+#define _DUMP(str) _DUMP_WITH_LEN(str, strlen(str))
 #define _DUMP_FUNC()                                                           \
   do {                                                                         \
-    char _buff[sizeof(__func__) + 3];                                          \
+    char __buff[sizeof(__func__) + 3];                                         \
                                                                                \
-    __builtin_memcpy_inline(_buff, __func__, sizeof(__func__) - 1);            \
+    __builtin_memcpy_inline(__buff, __func__, sizeof(__func__) - 1);           \
                                                                                \
-    _buff[sizeof(__func__) - 1] = '(';                                         \
-    _buff[sizeof(__func__) + 0] = ')';                                         \
-    _buff[sizeof(__func__) + 1] = '\n';                                        \
-    _buff[sizeof(__func__) + 2] = '\0';                                        \
+    __buff[sizeof(__func__) - 1] = '(';                                        \
+    __buff[sizeof(__func__) + 0] = ')';                                        \
+    __buff[sizeof(__func__) + 1] = '\n';                                       \
+    __buff[sizeof(__func__) + 2] = '\0';                                       \
                                                                                \
-    _DUMP(_buff);                                                              \
+    _DUMP_WITH_LEN(__buff, sizeof(__buff) - 1);                                \
   } while (false)
 
-/*
- * requires _UNREACHABLE()
- */
+/* if __jove_opts isn't available, define this before including this file */
+#ifndef JOVE_CRASH_MODE
+#define JOVE_CRASH_MODE __jove_opts.OnCrash
+#endif
 
-#define _UNREACHABLE_X(fd, crash_mode, ...)                                    \
+#define _UNREACHABLE(...)                                                      \
   do {                                                                         \
     static const char __msg[] =                                                \
         "JOVE UNREACHABLE: " __VA_ARGS__ " "                                   \
         "(" BOOST_PP_STRINGIZE(__FILE__) ":"                                   \
             BOOST_PP_STRINGIZE(__LINE__) ")\n";                                \
                                                                                \
-    _jove_robust_write(fd, &__msg[0], sizeof(__msg));                          \
-    _jove_on_crash(crash_mode);                                                \
+    _jove_dump_on_crash(__msg, sizeof(__msg) - 1);                             \
     __UNREACHABLE();                                                           \
   } while (false)
 
