@@ -35,4 +35,4 @@ cmake -G Ninja \
 
 fi
 
-ninja include/llvm/IR/Attributes.inc && ninja bin/{llvm-tblgen,llvm-dis,llvm-cbe,opt,llc,clang,clang-tblgen,lld,jove-x86_64,jove-i386,jove-aarch64,jove-mipsel,jove-mips64el}
+ninja include/llvm/IR/Attributes.inc && ninja bin/{llvm-tblgen,llvm-dis,llvm-dlltool,llvm-cbe,opt,llc,clang,clang-tblgen,lld,jove-x86_64,jove-i386,jove-aarch64,jove-mipsel,jove-mips64el}

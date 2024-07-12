@@ -365,20 +365,6 @@ int RecompileTool::Run(void) {
     return 1;
   }
 
-  for (binary_t &b : jv.Binaries) {
-    binary_state_t &x = state.for_binary(b);
-    x.Bin = B::Create(b.data());
-
-    std::tie(x.Base, x.End) = B::bounds_of_binary(*x.Bin);
-  }
-
-  if (B::is_coff(*state.for_binary(jv.Binaries.at(0)).Bin)) {
-    if (!opts.ForeignLibs)
-      die("COFF is only supported in executable-only mode");
-
-    IsCOFF = true;
-  }
-
   //
   // gather dynamic linking information
   //
@@ -388,12 +374,15 @@ int RecompileTool::Run(void) {
 
     binary_state_t &x = state.for_binary(b);
 
+    x.Bin = B::Create(b.data());
+    std::tie(x.Base, x.End) = B::bounds_of_binary(*x.Bin);
+
     //
     // what is this binary called as far as dynamic linking goes?
     //
     B::_elf(*x.Bin, [&](ELFO &O) {
-      x._elf.interp = elf::program_interpreter_of_elf(O);
-      if (auto MaybeSoName = elf::soname_of_elf(O))
+      x._elf.interp = elf::program_interpreter(O);
+      if (auto MaybeSoName = elf::soname(O))
         x.soname = *MaybeSoName;
     });
 
@@ -411,6 +400,13 @@ int RecompileTool::Run(void) {
       WithColor::warning() << llvm::formatv(
           "failed to get libraries needed by {0}\n", b.Name.c_str());
   });
+
+  if (B::is_coff(*state.for_binary(jv.Binaries.at(0)).Bin)) {
+    if (!opts.ForeignLibs)
+      die("COFF is only supported in executable-only mode");
+
+    IsCOFF = true;
+  }
 
   //
   // create basic directories for sysroot
@@ -807,13 +803,12 @@ int RecompileTool::Run(void) {
   // linker to produce each recompiled DSO, this solves "unable to find library"
   // errors XXX
   //
-  for (dso_t dso : top_sorted) {
-    binary_index_t BIdx = dso_graph[dso].BIdx;
-
-    binary_t &b = jv.Binaries.at(BIdx);
-
+  for_each_binary(std::execution::par_unseq, jv, [&](binary_t &b) {
     if (!b.is_file())
-      continue;
+      return;
+
+    if (b.IsExecutable)
+      return;
 
     const fs::path chrooted_path = fs::path(opts.Output.getValue()) / a2r(b.path_str());
     fs::create_directories(chrooted_path.parent_path());
@@ -836,14 +831,18 @@ int RecompileTool::Run(void) {
                                    fs::perms::owner_write |
                                    fs::perms::owner_exec);
 
-    if (!state.for_binary(b).soname.empty()) {
+    binary_state_t &x = state.for_binary(b);
+
+    B::_elf(*x.Bin, [&](ELFO &O) {
+
+    if (!x.soname.empty()) {
       std::string binary_filename = fs::path(b.path_str()).filename().string();
 
       //
       // create symlink
       //
-      if (binary_filename != state.for_binary(b).soname) {
-        fs::path dst = chrooted_path.parent_path() / state.for_binary(b).soname;
+      if (binary_filename != x.soname) {
+        fs::path dst = chrooted_path.parent_path() / x.soname;
         if (fs::exists(dst))
           fs::remove(dst);
 
@@ -855,7 +854,31 @@ int RecompileTool::Run(void) {
         }
       }
     }
-  }
+
+    });
+
+    B::_coff(*x.Bin, [&](COFFO &O) {
+      std::string def_path =
+          fs::path(chrooted_path).replace_extension("def").string();
+      {
+        std::ofstream ofs(def_path);
+
+        coff::gen_module_definition(O, x.soname, ofs);
+      }
+
+      std::string imp_lib_path =
+          fs::path(chrooted_path).replace_extension("lib").string();
+
+      if (unlikely(RunExecutableToExit(locator().dlltool(), [&](auto Arg) {
+            Arg(locator().dlltool());
+            Arg("-d");
+            Arg(def_path);
+            Arg("-l");
+            Arg(imp_lib_path);
+          })))
+        die("failed to run llvm-dlltool");
+    });
+  });
 
   //
   // run ld on all the object files
@@ -958,10 +981,8 @@ int RecompileTool::Run(void) {
           // Arg("-z");
           // Arg("nocopyreloc");
 
-          std::unique_ptr<obj::Binary> Bin = B::Create(b.data());
-
           uint64_t Base, End;
-          std::tie(Base, End) = B::bounds_of_binary(*Bin);
+          std::tie(Base, End) = B::bounds_of_binary(*x.Bin);
 
           Arg("--section-start");
           Arg((fmt(".jove=0x%lx") % Base).str());
@@ -1074,8 +1095,16 @@ int RecompileTool::Run(void) {
         Arg("-auto-import");
         Arg("-runtime-pseudo-reloc");
         Arg("-opt:noicf");
-        Arg("-noseh"); /* FIXME */
+        Arg("-noseh"); /* FIXME? */
         Arg(std::string("-machine:") + (IsTarget32 ? "x86" : "x64"));
+
+        if (b.IsExecutable && !b.IsPIC) {
+          uint64_t Base, End;
+          std::tie(Base, End) = B::bounds_of_binary(*x.Bin);
+
+          Arg((fmt("/section:.jove,RWE,%lx") % Base).str());
+        }
+
         Arg("-alternatename:__image_base__=__ImageBase");
         for (const std::string &lib_dir : lib_dirs) {
           Arg("-libpath:" + lib_dir);
@@ -1086,10 +1115,6 @@ int RecompileTool::Run(void) {
         Arg(locator().softfloat_bitcode(IsCOFF));
         Arg(locator().runtime_dll(opts.MT));
 
-#if 0
-        for (const std::string &needed : x.needed_vec)
-          Arg(locator().wine_dll(IsTarget32, needed));
-#else
         for (const std::string &needed : x.needed_vec) {
           auto it = soname_map.find(needed);
           if (it == soname_map.end()) {
@@ -1100,15 +1125,9 @@ int RecompileTool::Run(void) {
 
           binary_t &needed_b = jv.Binaries.at((*it).second);
 
-#if 1
-          const fs::path needed_chrooted_path(opts.Output + needed_b.path_str());
-          Arg(needed_chrooted_path.string());
-#else
-          const fs::path needed_path(needed_b.path_str());
-          Arg(needed_path.parent_path().string());
-#endif
+          fs::path needed_chrooted_path(opts.Output + needed_b.path_str());
+          Arg(needed_chrooted_path.replace_extension("lib").string());
         }
-#endif
 
         std::vector<std::string> def_files;
         for (auto &entry : fs::directory_iterator(chrooted_path.parent_path())) {

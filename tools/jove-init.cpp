@@ -146,7 +146,7 @@ int InitTool::Run(void) {
       parse_loaded_objects(rtld_stdout, binary_paths);
 
       // look at "program interpreter" (i.e. dynamic linker)
-      std::optional<std::string> MaybeRTLD = elf::program_interpreter_of_elf(O);
+      std::optional<std::string> MaybeRTLD = elf::program_interpreter(O);
       if (!MaybeRTLD)
         die("binary is not dynamically linked");
 
@@ -176,7 +176,7 @@ int InitTool::Run(void) {
       auto WineBin = B::CreateFromFile(locator().wine(IsTarget32).c_str(), WineBytes);
 
       std::optional<std::string> MaybeRTLD =
-          B::_must_be_elf(*WineBin, elf::program_interpreter_of_elf);
+          B::_must_be_elf(*WineBin, elf::program_interpreter);
 
       if (!MaybeRTLD)
         die("wine (not the preloader) is expected to be dynamically linked");

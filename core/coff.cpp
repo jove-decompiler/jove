@@ -66,7 +66,7 @@ bool needed_libs(COFFO &O, std::vector<std::string> &out) {
 }
 
 void for_each_imported_function(
-    COFFO &O, std::function<void(llvm::StringRef DLL, uint16_t Ordinal,
+    COFFO &O, std::function<void(llvm::StringRef DLL, uint32_t Ordinal,
                                  llvm::StringRef Name, uint64_t RVA)> proc) {
   for (const llvm::object::ImportDirectoryEntryRef &I : O.import_directories()) {
     llvm::StringRef DLL;
@@ -115,5 +115,71 @@ void for_each_base_relocation(COFFO &O,
   }
 }
 
+void for_each_exported_function(
+    COFFO &O, std::function<void(uint32_t Ordinal,
+                                 llvm::StringRef Name, uint64_t RVA)> proc) {
+  for (const llvm::object::ExportDirectoryEntryRef &Exp : O.export_directories()) {
+    uint32_t RVA = 0x0;
+    uint32_t Ordinal = UINT32_MAX;
+    llvm::StringRef Name("");
+    bool IsForwarder;
+
+    if (llvm::errorToBool(Exp.getOrdinal(Ordinal)) ||
+        llvm::errorToBool(Exp.isForwarder(IsForwarder)) || IsForwarder ||
+        llvm::errorToBool(Exp.getSymbolName(Name)) ||
+        llvm::errorToBool(Exp.getExportRVA(RVA)))
+      continue;
+
+    proc(Ordinal, Name, RVA);
+  }
+}
+
+void gen_module_definition(COFFO &O, llvm::StringRef DLL, std::ostream &out) {
+  out << "NAME " << DLL.str() << '\n';
+  out << "EXPORTS\n";
+
+  //
+  // named exports
+  //
+  for (const llvm::object::ExportDirectoryEntryRef &Exp : O.export_directories()) {
+    uint32_t Ordinal = UINT32_MAX;
+    llvm::StringRef Name("");
+
+    if (llvm::errorToBool(Exp.getOrdinal(Ordinal)) ||
+        llvm::errorToBool(Exp.getSymbolName(Name)) ||
+        Name.empty())
+      continue;
+
+    out << "    " << Name.str() << " @" << Ordinal << '\n';
+  }
+
+  //
+  // provide a way to call any exported function given its ordinal
+  //
+  for (const llvm::object::ExportDirectoryEntryRef &Exp : O.export_directories()) {
+    uint32_t Ordinal = UINT32_MAX;
+
+    if (llvm::errorToBool(Exp.getOrdinal(Ordinal)))
+      continue;
+
+    out << "    " << unique_symbol_for_ordinal_in_dll(DLL, Ordinal) << " @"
+        << Ordinal << " NONAME" << '\n';
+  }
+}
+
+std::string unique_symbol_for_ordinal_in_dll(llvm::StringRef DLL,
+                                             uint16_t Ordinal) {
+  std::string res("jjvv_");
+  res.append(DLL.str());
+
+  std::replace_if(
+      res.begin(), res.end(),
+      [](char c) { return !std::isalnum(static_cast<unsigned char>(c)); }, '_');
+
+  res.append("_");
+  res.append(std::to_string(Ordinal));
+
+  return res;
+}
 }
 }

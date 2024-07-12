@@ -151,8 +151,8 @@ int DecompileTool::Run(void) {
       x.Bin = B::Create(b.data());
 
       B::_elf(*x.Bin, [&](ELFO &O) {
-	x._elf.interp = elf::program_interpreter_of_elf(O);
-        if (auto MaybeSoName = elf::soname_of_elf(O))
+	x._elf.interp = elf::program_interpreter(O);
+        if (auto MaybeSoName = elf::soname(O))
           x.soname = *MaybeSoName;
       });
 

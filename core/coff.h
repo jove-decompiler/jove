@@ -51,12 +51,19 @@ bool isCode(COFFO &O, uint64_t RVA);
 bool needed_libs(COFFO &, std::vector<std::string> &out);
 
 void for_each_imported_function(
-    COFFO &, std::function<void(llvm::StringRef DLL, uint16_t Ordinal,
+    COFFO &, std::function<void(llvm::StringRef DLL, uint32_t Ordinal,
+                                llvm::StringRef Name, uint64_t RVA)> proc);
+
+void for_each_exported_function(
+    COFFO &, std::function<void(uint32_t Ordinal,
                                 llvm::StringRef Name, uint64_t RVA)> proc);
 
 void for_each_base_relocation(COFFO &,
   std::function<void(uint8_t Type, uint64_t RVA)> proc);
 
-}
+void gen_module_definition(COFFO &, llvm::StringRef DLL, std::ostream &);
 
+std::string unique_symbol_for_ordinal_in_dll(llvm::StringRef DLL,
+                                             uint16_t Ordinal);
+}
 }

@@ -15,6 +15,7 @@ struct locator_t {
 
   std::string cbe(void); // llvm-cbe
   std::string dis(void); // llvm-dis
+  std::string dlltool(void); // llvm-dlltool
   std::string llc(void);
   std::string opt(void);
   std::string lld(void);

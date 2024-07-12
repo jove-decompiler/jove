@@ -63,6 +63,7 @@ std::string locator_t::helper_bitcode(const std::string &name) {
 
 JUST_IN_PARENT_DIR(cbe, "llvm-cbe")
 JUST_IN_PARENT_DIR(dis, "llvm-dis")
+JUST_IN_PARENT_DIR(dlltool, "llvm-dlltool")
 JUST_IN_PARENT_DIR(clang, "clang")
 JUST_IN_PARENT_DIR(lld, "ld.lld")
 JUST_IN_PARENT_DIR(lld_link, "lld-link")

@@ -294,8 +294,8 @@ static inline const void *toMappedAddr(ELFO &O, uint64_t Addr) {
   return *ExpectedPtr;
 }
 
-std::optional<std::string> program_interpreter_of_elf(const ELFO &);
-std::optional<std::string> soname_of_elf(const ELFO &);
+std::optional<std::string> program_interpreter(const ELFO &);
+std::optional<std::string> soname(const ELFO &);
 
 bool needed_libs(ELFO &, std::vector<std::string> &out);
 

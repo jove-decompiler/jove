@@ -519,7 +519,6 @@ public:
   int DFSanInstrument(void);
   int RenameFunctionLocals(void);
   int WriteVersionScript(void);
-  int WriteDefsForOrdinalImports(void);
   int InlineHelpers(void);
   int BreakBeforeUnreachables(void);
   int ForceCallConv(void);
@@ -757,8 +756,8 @@ public:
 
   llvm::Constant *SymbolAddress(const elf::RelSymbol &);
   llvm::Constant *ImportFunction(llvm::StringRef Name);
-  llvm::Constant *ImportFunctionByOrdinal(llvm::StringRef DLL, uint16_t Ordinal);
-  llvm::Constant *ImportedFunctionAddress(llvm::StringRef DLL, uint16_t Ordinal,
+  llvm::Constant *ImportFunctionByOrdinal(llvm::StringRef DLL, uint32_t Ordinal);
+  llvm::Constant *ImportedFunctionAddress(llvm::StringRef DLL, uint32_t Ordinal,
                                           llvm::StringRef Name, uint64_t Addr);
 
   uint64_t ExtractWordAtAddress(uint64_t Addr);
@@ -2373,7 +2372,6 @@ int LLVMTool::Run(void) {
       || (opts.DFSan ? DFSanInstrument() : 0)
       || RenameFunctionLocals()
       || (!opts.VersionScript.empty() ? WriteVersionScript() : 0)
-      || (IsCOFF ? WriteDefsForOrdinalImports() : 0)
       || (opts.BreakBeforeUnreachables ? BreakBeforeUnreachables() : 0)
       || WriteModule();
 }
@@ -4050,24 +4048,9 @@ llvm::Constant *LLVMTool::ImportFunction(llvm::StringRef Name) {
   return F;
 }
 
-static std::string llname_for_imported_function_by_ordinal(llvm::StringRef DLL,
-                                                           uint16_t Ordinal) {
-  std::string res("_");
-  res.append(DLL.str());
-
-  std::replace_if(
-      res.begin(), res.end(),
-      [](char c) { return !std::isalnum(static_cast<unsigned char>(c)); }, '_');
-
-  res.append("_");
-  res.append(std::to_string(Ordinal));
-
-  return res;
-}
-
 llvm::Constant *LLVMTool::ImportFunctionByOrdinal(llvm::StringRef DLL,
-                                                  uint16_t Ordinal) {
-  std::string nm(llname_for_imported_function_by_ordinal(DLL, Ordinal));
+                                                  uint32_t Ordinal) {
+  std::string nm(coff::unique_symbol_for_ordinal_in_dll(DLL, Ordinal));
 
   llvm::errs() << "creating " << nm << '\n';
 
@@ -4085,13 +4068,13 @@ llvm::Constant *LLVMTool::ImportFunctionByOrdinal(llvm::StringRef DLL,
 }
 
 llvm::Constant *LLVMTool::ImportedFunctionAddress(llvm::StringRef DLL,
-                                                  uint16_t Ordinal,
+                                                  uint32_t Ordinal,
                                                   llvm::StringRef Name,
                                                   uint64_t Addr) {
   const bool ByOrdinal = Name.empty();
 
   std::string nm = ByOrdinal
-                       ? llname_for_imported_function_by_ordinal(DLL, Ordinal)
+                       ? coff::unique_symbol_for_ordinal_in_dll(DLL, Ordinal)
                        : Name.str();
 
   if (auto *F = Module->getFunction(nm)) {
@@ -4809,6 +4792,16 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
         SectFieldInits.push_back(C);
       }
 
+      if (IsCOFF && Sect.Name == ".rsrc" &&
+          !Module->getGlobalVariable("__jove_rsrc", true)) {
+        llvm::GlobalVariable *rsrcSectGV = new llvm::GlobalVariable(
+            *Module, SectTable[i].T, false, llvm::GlobalValue::InternalLinkage,
+            nullptr, "__jove_rsrc");
+        rsrcSectGV->setInitializer(
+            llvm::ConstantStruct::get(SectTable[i].T, SectFieldInits));
+        rsrcSectGV->setSection(".rsrc");
+      }
+
       SectsGlobalFieldInits.push_back(
           llvm::ConstantStruct::get(SectTable[i].T, SectFieldInits));
     }
@@ -5370,7 +5363,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
 
       coff::for_each_imported_function(
           O, [&](llvm::StringRef DLL,
-                 uint16_t Ordinal,
+                 uint32_t Ordinal,
                  llvm::StringRef Name,
                  uint64_t RVA) {
             type_at_address(coff::va_of_rva(O, RVA), WordType());
@@ -5556,7 +5549,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
 
       coff::for_each_imported_function(
           O, [&](llvm::StringRef DLL,
-                 uint16_t Ordinal,
+                 uint32_t Ordinal,
                  llvm::StringRef Name,
                  uint64_t RVA) {
             uint64_t Offset = coff::va_of_rva(O, RVA);
@@ -7359,33 +7352,9 @@ int LLVMTool::WriteVersionScript(void) {
   return 0;
 }
 
-int LLVMTool::WriteDefsForOrdinalImports(void) {
-  assert(IsCOFF);
-
-  for (const auto &pair : ordinal_imports) {
-    const std::string &DLL = pair.first;
-    const auto &Ords = pair.second;
-
-    assert(!Ords.empty());
-
-    fs::path dumpOutputPath = fs::path(opts.Output).parent_path() /
-                              (fs::path(DLL).replace_extension("def"));
-    if (IsVerbose())
-      HumanOut() << llvm::formatv("writing {0}\n", dumpOutputPath.string());
-
-    std::ofstream ofs(dumpOutputPath);
-    ofs << "LIBRARY \"" << DLL << "\"\n\nIMPORTS\n";
-
-    for (uint16_t Ordinal : Ords) {
-      std::string nm(llname_for_imported_function_by_ordinal(DLL, Ordinal));
-      ofs << "    " << nm << "=ordinal:" << Ordinal << '\n';
-    }
-  }
-
-  return 0;
-}
-
 int LLVMTool::BreakBeforeUnreachables(void) {
+  assert(opts.BreakBeforeUnreachables);
+
   //
   // Why would we go to the trouble of doing this? Because LLVM optimizers
   // can get "carried away" from just a touch of undefined behavior. This is a
@@ -9805,6 +9774,8 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
 
       unsigned Line = Addr;
 
+      /* FIXME line and column numbers are 32 bits each; on 64-bit encode VA
+       * as one half line, one half column */
       IRB.SetCurrentDebugLocation(llvm::DILocation::get(
           *Context, Line, 0 /* Column */, TC.DebugInformation.Subprogram));
     }
