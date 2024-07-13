@@ -5694,7 +5694,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
   }
 
   if (opts.LayOutSections) {
-    std::string CurrSectName = ".jove_pr";
+    std::string CurrSectName = IsCOFF ? ".jove_pr" : ".jove";
 
     unsigned j = 0;
     for (unsigned i = 0; i < NumSections; ++i) {
