@@ -38,6 +38,7 @@ static void _jove_install_sections_table(void);
 
 static void _jove_install_function_mappings(void);
 
+static void _jove_check_sections_laid_out(void);
 static void _jove_make_sections_executable(void);
 
 static void _jove_see_through_stubs(struct jove_function_info_t *);
@@ -96,6 +97,8 @@ _HIDDEN void _jove_initialize(void) {
   __dfsan_log_global_buffers();
 #endif
 
+  _jove_check_sections_laid_out();
+
   _jove_make_sections_executable();
 }
 
@@ -112,6 +115,119 @@ void _jove_install_sections_table(void) {
 
   __jove_sections_tables[_jove_binary_index()] = &_Entry[0];
 }
+
+static uintptr_t actual_addr_of_laid_out(unsigned i) {
+  _ASSERT(i < _jove_num_laid_out_sections());
+
+  uintptr_t res = _jove_laid_out_sections()[2 * i];
+  _ASSERT(res);
+
+  return res;
+}
+
+static uintptr_t expected_size_of_laid_out(unsigned i) {
+  _ASSERT(i < _jove_num_laid_out_sections());
+
+  uintptr_t res = _jove_laid_out_sections()[2 * i + 1];
+  _ASSERT(res);
+
+  return res;
+}
+
+void _jove_check_sections_laid_out(void) {
+  if (_jove_num_laid_out_sections() == 0)
+    return;
+
+  uintptr_t **p = _jove_laid_out_sections();
+  _ASSERT((*p)[0] != 0);
+
+  const uintptr_t top = actual_addr_of_laid_out(0);
+
+  uintptr_t cursor = top;
+  for (unsigned i = 1; i < _jove_num_laid_out_sections(); ++i) {
+    const uintptr_t expect_addr_before = cursor;
+    const uintptr_t expect_size_before =
+        expected_size_of_laid_out(i - 1);
+
+    cursor += expect_size_before;
+
+    const uintptr_t expect_addr = cursor;
+    const uintptr_t actual_addr = actual_addr_of_laid_out(i);
+
+    /* does it match? */
+    if (unlikely(actual_addr != expect_addr)) {
+      const uintptr_t actual_addr_before =
+          actual_addr_of_laid_out(i - 1);
+
+      _ASSERT(actual_addr > actual_addr_before);
+
+      const uintptr_t actual_size_before =
+          actual_addr_of_laid_out(i) -
+          actual_addr_of_laid_out(i - 1);
+
+      _ASSERT(actual_addr_before + actual_size_before == actual_addr);
+      _ASSERT(expect_addr_before + expect_size_before == expect_addr);
+
+      char s[1024];
+      s[0] = '\0';
+
+      _strcat(s, "(FATAL) _jove_check_sections_laid_out: [");
+      {
+        char buff[65];
+        _uint_to_string(i - 1, buff, 10);
+
+        _strcat(s, buff);
+      }
+      _strcat(s, "] 0x");
+      {
+        char buff[65];
+        _uint_to_string(actual_addr_before, buff, 0x10);
+
+        _strcat(s, buff);
+      }
+      _strcat(s, " + ");
+      {
+        char buff[65];
+        _uint_to_string(actual_size_before, buff, 10);
+
+        _strcat(s, buff);
+      }
+      _strcat(s, " (0x");
+      {
+        char buff[65];
+        _uint_to_string(actual_addr, buff, 0x10);
+
+        _strcat(s, buff);
+      }
+      _strcat(s, ") != 0x");
+      {
+        char buff[65];
+        _uint_to_string(expect_addr_before, buff, 0x10);
+
+        _strcat(s, buff);
+      }
+      _strcat(s, " + ");
+      {
+        char buff[65];
+        _uint_to_string(expect_size_before, buff, 10);
+
+        _strcat(s, buff);
+      }
+      _strcat(s, " (0x");
+      {
+        char buff[65];
+        _uint_to_string(expect_addr, buff, 0x10);
+
+        _strcat(s, buff);
+      }
+      _strcat(s, ")\n");
+
+      _jove_dump_on_crash(s, strlen(s));
+      __UNREACHABLE();
+    }
+  }
+}
+
 
 void _jove_make_sections_executable(void) {
   const unsigned n = QEMU_ALIGN_UP(_jove_sections_global_end_addr() -

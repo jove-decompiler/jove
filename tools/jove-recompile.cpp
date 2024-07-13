@@ -92,6 +92,7 @@ class RecompileTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, 
     cl::opt<bool> InlineHelpers;
     cl::opt<bool> MT;
     cl::opt<bool> BreakBeforeUnreachables;
+    cl::opt<bool> LayOutSections;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : Output("output", cl::desc("Output directory"), cl::Required,
@@ -168,7 +169,16 @@ class RecompileTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, 
 
           BreakBeforeUnreachables("break-before-unreachables",
                                   cl::desc("Debugging purposes only"),
-                                  cl::cat(JoveCategory)) {}
+                                  cl::cat(JoveCategory)),
+
+          LayOutSections(
+              "lay-out-sections",
+              cl::desc("experimental mode where each section becomes a "
+                       "distinct global variable. we check in "
+                       "_jove_check_sections_laid_out() at runtime to make "
+                       "sure that those aforementioned global variables exist "
+                       "side-by-side in memory in the way we expect them to"),
+              cl::cat(JoveCategory)) {}
   } opts;
 
   bool IsCOFF = false;
@@ -1234,6 +1244,8 @@ void RecompileTool::worker(dso_t dso) {
           Arg("--mt=0");
         if (opts.BreakBeforeUnreachables)
           Arg("--break-before-unreachables");
+        if (opts.LayOutSections)
+          Arg("--lay-out-sections");
       },
       [&](auto Env) {
         InitWithEnviron(Env);

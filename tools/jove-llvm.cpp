@@ -223,6 +223,7 @@ struct LLVMTool : public StatefulJVTool<ToolKind::CopyOnWrite,
     cl::opt<bool> ForCBE;
     cl::opt<bool> MT;
     cl::opt<bool> BreakBeforeUnreachables;
+    cl::opt<bool> LayOutSections;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : Binary("binary", cl::desc("Binary to translate"),
@@ -242,8 +243,7 @@ struct LLVMTool : public StatefulJVTool<ToolKind::CopyOnWrite,
 
           VersionScript("version-script",
                         cl::desc("Output version script file for use with ld"),
-                        cl::Required, cl::value_desc("filename"),
-                        cl::cat(JoveCategory)),
+                        cl::value_desc("filename"), cl::cat(JoveCategory)),
 
           Trace(
               "trace",
@@ -344,7 +344,16 @@ struct LLVMTool : public StatefulJVTool<ToolKind::CopyOnWrite,
 
           BreakBeforeUnreachables("break-before-unreachables",
                                   cl::desc("Debugging purposes only"),
-                                  cl::cat(JoveCategory)) {}
+                                  cl::cat(JoveCategory)),
+
+          LayOutSections(
+              "lay-out-sections",
+              cl::desc("experimental mode where each section becomes a "
+                       "distinct global variable. we check in "
+                       "_jove_check_sections_laid_out() at runtime to make "
+                       "sure that those aforementioned global variables exist "
+                       "side-by-side in memory in the way we expect them to"),
+              cl::cat(JoveCategory)) {}
 
   } opts;
 
@@ -444,6 +453,13 @@ struct LLVMTool : public StatefulJVTool<ToolKind::CopyOnWrite,
     llvm::DICompileUnit *CompileUnit;
   } DebugInformation;
 
+  bool AreSectionsLaidOut = false;
+
+  struct {
+    llvm::GlobalVariable *HeadGV = nullptr;
+    std::vector<std::pair<llvm::GlobalVariable *, unsigned>> GVVec;
+  } LaidOut;
+
   std::unordered_map<std::string, unsigned> GlobalSymbolDefinedSizeMap;
 
   std::unordered_map<uint64_t, std::set<llvm::StringRef>>
@@ -542,6 +558,21 @@ public:
                                     llvm::Value *Env,
                                     unsigned glb);
 
+  std::string SectionsTopName(void) {
+    if (LaidOut.HeadGV)
+      return LaidOut.HeadGV->getName().str();
+
+    return SectsGlobalName;
+  }
+
+  llvm::GlobalVariable *SectionsTop(void) {
+    if (LaidOut.HeadGV)
+      return LaidOut.HeadGV;
+
+    assert(SectsGlobal);
+    return SectsGlobal;
+  }
+
   llvm::Constant *SectionPointer(uint64_t Addr) {
     auto &Binary = jv.Binaries.at(BinaryIndex);
 
@@ -550,7 +581,7 @@ public:
         static_cast<int64_t>(state.for_binary(Binary).SectsStartAddr);
 
     return llvm::ConstantExpr::getAdd(
-        llvm::ConstantExpr::getPtrToInt(SectsGlobal, WordType()),
+        llvm::ConstantExpr::getPtrToInt(SectionsTop(), WordType()),
         llvm::ConstantInt::getSigned(WordType(), off));
   }
 
@@ -1782,7 +1813,8 @@ struct section_t {
     std::map<unsigned, llvm::Type *> Types;
   } Stuff;
 
-  llvm::StructType *T;
+  llvm::StructType *T = nullptr;
+  llvm::Constant *C = nullptr;
 };
 
 #if 0
@@ -2117,7 +2149,7 @@ int LLVMTool::Run(void) {
                    ".set   %s, %s + %u")
                % SymName.str()
                % SymName.str()
-               % SymName.str() % SectsGlobalName % SectsOff).str());
+               % SymName.str() % SectionsTopName() % SectsOff).str());
         } else {
            // make sure version node is defined
           VersionScript.Table[SymVers.str()];
@@ -2132,7 +2164,7 @@ int LLVMTool::Run(void) {
                % dummy_name
 //             % dummy_name
                % dummy_name
-               % dummy_name % SectsGlobalName % SectsOff).str());
+               % dummy_name % SectionsTopName() % SectsOff).str());
 
           Module->appendModuleInlineAsm(
               (llvm::Twine(".symver ") + dummy_name + "," + SymName +
@@ -2306,7 +2338,7 @@ int LLVMTool::Run(void) {
                    % SymName.str()
                    % SymName.str()
                    % SymName.str() % Size
-                   % SymName.str() % SectsGlobalName % SectsOff).str());
+                   % SymName.str() % SectionsTopName() % SectsOff).str());
             } else {
               if (gdefs.find({Addr, Size}) == gdefs.end()) {
                 Module->appendModuleInlineAsm(
@@ -2319,7 +2351,7 @@ int LLVMTool::Run(void) {
                      % Addr % Size
                      % Addr % Size
                      % Addr % Size % Size
-                     % Addr % Size % SectsGlobalName % SectsOff).str());
+                     % Addr % Size % SectionsTopName() % SectsOff).str());
 
                 gdefs.insert({Addr, Size});
               }
@@ -3760,7 +3792,7 @@ int LLVMTool::CreateFunctionTable(void) {
 
   if (llvm::Function *F = state.for_binary(Binary).SectsF) {
     fillInFunctionBody(F, [&](auto &IRB) {
-      IRB.CreateRet(llvm::ConstantExpr::getPtrToInt(SectsGlobal, WordType()));
+      IRB.CreateRet(llvm::ConstantExpr::getPtrToInt(SectionsTop(), WordType()));
     }, false /* internalize */);
 
     F->setVisibility(llvm::GlobalValue::DefaultVisibility);
@@ -4490,6 +4522,8 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
 
   });
 
+  AreSectionsLaidOut = opts.LayOutSections;
+
   B::_coff(*Bin, [&](COFFO &O) {
     NumSections = O.getNumberOfSections();
     SectTable.resize(NumSections);
@@ -4574,6 +4608,8 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
 
       ++i;
     }
+
+    AreSectionsLaidOut = true; /* XXX */
   });
 
   auto type_at_address = [&](uint64_t Addr, llvm::Type *T) -> void {
@@ -4792,7 +4828,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
         SectFieldInits.push_back(C);
       }
 
-      if (IsCOFF && Sect.Name == ".rsrc" &&
+      if (!AreSectionsLaidOut && IsCOFF && Sect.Name == ".rsrc" &&
           !Module->getGlobalVariable("__jove_rsrc", true)) {
         llvm::GlobalVariable *rsrcSectGV = new llvm::GlobalVariable(
             *Module, SectTable[i].T, false, llvm::GlobalValue::InternalLinkage,
@@ -4802,8 +4838,9 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
         rsrcSectGV->setSection(".rsrc");
       }
 
-      SectsGlobalFieldInits.push_back(
-          llvm::ConstantStruct::get(SectTable[i].T, SectFieldInits));
+      SectTable[i].C = llvm::ConstantStruct::get(SectTable[i].T, SectFieldInits);
+
+      SectsGlobalFieldInits.push_back(SectTable[i].C);
     }
 
     SectsGlobal->setInitializer(
@@ -5641,6 +5678,98 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
     TLSSectsGlobal->setLinkage(llvm::GlobalValue::InternalLinkage);
   }
 
+  if (AreSectionsLaidOut) {
+    unsigned j = 0;
+    for (unsigned i = 0; i < NumSections; ++i) {
+      section_t &Sect = SectTable[i];
+
+      //
+      // check if there's space between the start of this section and the
+      // previous
+      //
+      if (i > 0) {
+        section_t &PrevSect = SectTable[i - 1];
+        ptrdiff_t space = Sect.Addr - (PrevSect.Addr + PrevSect.Size);
+        if (space > 0) {
+          // zero padding between sections
+
+          auto *T = llvm::ArrayType::get(llvm::Type::getInt8Ty(*Context), space);
+#if 0
+          auto *C = llvm::Constant::getNullValue(
+                  llvm::ArrayType::get(llvm::Type::getInt8Ty(*Context), space));
+#else /* force out of .bss */
+          std::vector<llvm::Constant *> constantTable;
+          constantTable.resize(space);
+
+          std::fill(constantTable.begin(),
+                    constantTable.end(),
+                    llvm::Constant::getNullValue(llvm::Type::getIntNTy(*Context, 8)));
+
+          constantTable.at(constantTable.size() / 2) =
+              llvm::Constant::getAllOnesValue(llvm::Type::getIntNTy(*Context, 8));
+
+          auto *C = llvm::ConstantArray::get(T, constantTable);
+#endif
+
+          auto *GV = new llvm::GlobalVariable(
+              *Module, T, false, llvm::GlobalValue::InternalLinkage, C,
+              "__jove_space_" + std::to_string(j));
+          ++j;
+
+          LaidOut.GVVec.emplace_back(GV, space);
+        }
+      }
+
+      if (IsVerbose())
+        llvm::errs() << llvm::formatv("Laying out section {0}\n", Sect.Name);
+
+      auto *T = SectTable[i].T;
+      auto *C = SectTable[i].C;
+
+      assert(T);
+      assert(C);
+
+      std::string suffix = Sect.Name;
+      std::replace_if(
+          suffix.begin(), suffix.end(),
+          [](char c) { return !std::isalnum(static_cast<unsigned char>(c)); }, '_');
+
+      auto *GV = new llvm::GlobalVariable(*Module, T, false,
+                                          llvm::GlobalValue::InternalLinkage,
+                                          C, "__jove_section_" + suffix);
+      ++j;
+
+#if 0
+      GV->setSection(".jove");
+#endif
+
+      if (!LaidOut.HeadGV) {
+        GV->setAlignment(llvm::Align(WordBytes()));
+        LaidOut.HeadGV = GV;
+      } else {
+        GV->setAlignment(llvm::Align(1));
+      }
+        GV->setAlignment(llvm::Align(1));
+
+      LaidOut.GVVec.emplace_back(GV, Sect.Size);
+    }
+
+    SectsGlobal->replaceAllUsesWith(llvm::ConstantExpr::getPointerCast(
+        LaidOut.HeadGV, SectsGlobal->getType()));
+
+    ConstSectsGlobal->replaceAllUsesWith(llvm::ConstantExpr::getPointerCast(
+        LaidOut.HeadGV, ConstSectsGlobal->getType()));
+
+    assert(SectsGlobal->use_empty());
+    assert(ConstSectsGlobal->use_empty());
+
+    SectsGlobal->eraseFromParent();
+    ConstSectsGlobal->eraseFromParent();
+
+    SectsGlobal = nullptr;
+    ConstSectsGlobal = nullptr;
+  }
+
   //
   // Binary DT_INIT
   //
@@ -5963,16 +6092,19 @@ int LLVMTool::ProcessManualRelocations(void) {
 
               uintptr_t off = pair.first - state.for_binary(Binary).SectsStartAddr;
 
-              llvm::SmallVector<llvm::Value *, 4> Indices;
-              llvm::Value *Ptr = llvm::getNaturalGEPWithOffset(
-                  IRB, DL,
-                  std::make_pair(SectsGlobal, SectsGlobal->getValueType()),
-                  llvm::APInt(64, off), Computation->getType(), Indices, "");
+              llvm::Value *Ptr = nullptr;
+              if (!AreSectionsLaidOut) {
+                llvm::SmallVector<llvm::Value *, 4> Indices;
+                Ptr = llvm::getNaturalGEPWithOffset(
+                    IRB, DL,
+                    std::make_pair(SectsGlobal, SectsGlobal->getValueType()),
+                    llvm::APInt(64, off), Computation->getType(), Indices, "");
+              }
 
               if (!Ptr)
                 Ptr = IRB.CreateIntToPtr(
                     IRB.CreateAdd(
-                        IRB.CreatePtrToInt(SectsGlobal, WordType()),
+                        IRB.CreatePtrToInt(SectionsTop(), WordType()),
                         IRB.getIntN(WordBits(), off)),
                     llvm::PointerType::get(Computation->getType(), 0));
 
@@ -6080,7 +6212,7 @@ int LLVMTool::FixupHelperStubs(void) {
   fillInFunctionBody(
       Module->getFunction("_jove_sections_global_beg_addr"),
       [&](auto &IRB) {
-        IRB.CreateRet(llvm::ConstantExpr::getPtrToInt(SectsGlobal, WordType()));
+        IRB.CreateRet(llvm::ConstantExpr::getPtrToInt(SectionsTop(), WordType()));
       }, !opts.ForCBE);
 
   fillInFunctionBody(
@@ -6090,7 +6222,7 @@ int LLVMTool::FixupHelperStubs(void) {
         uint64_t SectsGlobalSize = state.for_binary(Binary).SectsEndAddr - state.for_binary(Binary).SectsStartAddr;
 
         IRB.CreateRet(llvm::ConstantExpr::getAdd(
-            llvm::ConstantExpr::getPtrToInt(SectsGlobal, WordType()),
+            llvm::ConstantExpr::getPtrToInt(SectionsTop(), WordType()),
             llvm::ConstantInt::get(WordType(), SectsGlobalSize)));
       }, !opts.ForCBE);
 
@@ -6337,6 +6469,50 @@ int LLVMTool::FixupHelperStubs(void) {
             }
           }
         }
+      }, !opts.ForCBE);
+
+  fillInFunctionBody(
+      Module->getFunction("_jove_laid_out_sections"),
+      [&](auto &IRB) -> void {
+        binary_t &dynl_binary = get_dynl(jv);
+        assert(dynl_binary.IsDynamicLinker);
+        auto &ICFG = dynl_binary.Analysis.ICFG;
+
+        llvm::ArrayType *ElemTy = llvm::ArrayType::get(WordType(), 2);
+
+        std::vector<llvm::Constant *> constantTable;
+        constantTable.resize(LaidOut.GVVec.size());
+
+        std::transform(
+            LaidOut.GVVec.begin(),
+            LaidOut.GVVec.end(), constantTable.begin(),
+            [&](const auto &pair) -> llvm::Constant * {
+              llvm::GlobalVariable *GV;
+              unsigned ExpectedSize;
+
+              std::tie(GV, ExpectedSize) = pair;
+
+              std::array<llvm::Constant *, 2> _constantTable = {
+                  {llvm::ConstantExpr::getPtrToInt(GV, WordType()),
+                   IRB.getIntN(WordBits(), ExpectedSize)}};
+
+              return llvm::ConstantArray::get(ElemTy, _constantTable);
+            });
+
+        llvm::ArrayType *T = llvm::ArrayType::get(ElemTy, constantTable.size());
+
+        llvm::GlobalVariable *ConstantTableGV = new llvm::GlobalVariable(
+            *Module, T, false, llvm::GlobalValue::InternalLinkage,
+            llvm::ConstantArray::get(T, constantTable),
+            "__jove_laid_out_sections");
+
+        IRB.CreateRet(ConstantTableGV);
+      }, !opts.ForCBE);
+
+  fillInFunctionBody(
+      Module->getFunction("_jove_num_laid_out_sections"),
+      [&](auto &IRB) {
+        IRB.CreateRet(IRB.getInt32(LaidOut.GVVec.size()));
       }, !opts.ForCBE);
 
   return 0;
@@ -6980,6 +7156,9 @@ int LLVMTool::DoOptimize(void) {
 int LLVMTool::ConstifyRelocationSectionPointers(void) {
   return 0;
 
+  if (AreSectionsLaidOut)
+    return 0;
+
   binary_t &Binary = jv.Binaries.at(BinaryIndex);
 
   assert(SectsGlobal && ConstSectsGlobal);
@@ -7333,6 +7512,8 @@ int LLVMTool::DFSanInstrument(void) {
 }
 
 int LLVMTool::WriteVersionScript(void) {
+  assert(!opts.VersionScript.empty());
+
   std::ofstream ofs(opts.VersionScript);
 
   for (const auto &entry : VersionScript.Table) {
@@ -8395,7 +8576,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
       llvm::Value *PC = IRB.CreateLoad(WordType(), TC.PCAlloca);
 
       llvm::Value *SectsGlobalOff = IRB.CreateSub(
-          PC, llvm::ConstantExpr::getPtrToInt(SectsGlobal, WordType()));
+          PC, llvm::ConstantExpr::getPtrToInt(SectionsTop(), WordType()));
 
       auto it_pair = boost::adjacent_vertices(bb, ICFG);
 
@@ -9480,7 +9661,7 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
     assert(bits == WordBits());
 
     return llvm::ConstantExpr::getAdd(
-        llvm::ConstantExpr::getPtrToInt(SectsGlobal, WordType()),
+        llvm::ConstantExpr::getPtrToInt(SectionsTop(), WordType()),
         llvm::ConstantExpr::getSub(
             llvm::ConstantInt::get(WordType(), A),
             llvm::ConstantInt::get(WordType(), state.for_binary(Binary).SectsStartAddr)));
