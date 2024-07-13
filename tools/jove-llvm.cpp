@@ -459,8 +459,6 @@ struct LLVMTool : public StatefulJVTool<ToolKind::CopyOnWrite,
     llvm::DICompileUnit *CompileUnit;
   } DebugInformation;
 
-  bool AreSectionsLaidOut = false;
-
   struct {
     llvm::GlobalVariable *HeadGV = nullptr;
     std::vector<std::pair<llvm::GlobalVariable *, unsigned>> GVVec;
@@ -4534,8 +4532,6 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
 
   });
 
-  AreSectionsLaidOut = opts.LayOutSections;
-
   B::_coff(*Bin, [&](COFFO &O) {
     NumSections = O.getNumberOfSections();
     SectTable.resize(NumSections);
@@ -4848,7 +4844,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
       // XXX the following assumes .rsrc is just pure bytes, and it assumes the
       // section can basically just be anywhere relative to the other sections
       // XXX wasteful, consider --lay-out-sections
-      if (!AreSectionsLaidOut && IsCOFF && Sect.Name == ".rsrc" &&
+      if (!opts.LayOutSections && IsCOFF && Sect.Name == ".rsrc" &&
           !Module->getGlobalVariable("__jove_rsrc", true)) {
         llvm::GlobalVariable *rsrcSectGV = new llvm::GlobalVariable(
             *Module, SectTable[i].T, false, llvm::GlobalValue::InternalLinkage,
@@ -5697,7 +5693,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
     TLSSectsGlobal->setLinkage(llvm::GlobalValue::InternalLinkage);
   }
 
-  if (AreSectionsLaidOut) {
+  if (opts.LayOutSections) {
     std::string CurrSectName = ".jove_pr";
 
     unsigned j = 0;
@@ -6107,7 +6103,7 @@ int LLVMTool::ProcessManualRelocations(void) {
               uintptr_t off = pair.first - state.for_binary(Binary).SectsStartAddr;
 
               llvm::Value *Ptr = nullptr;
-              if (!AreSectionsLaidOut) {
+              if (!opts.LayOutSections) {
                 llvm::SmallVector<llvm::Value *, 4> Indices;
                 Ptr = llvm::getNaturalGEPWithOffset(
                     IRB, DL,
@@ -7170,7 +7166,7 @@ int LLVMTool::DoOptimize(void) {
 int LLVMTool::ConstifyRelocationSectionPointers(void) {
   return 0;
 
-  if (AreSectionsLaidOut)
+  if (opts.LayOutSections)
     return 0;
 
   binary_t &Binary = jv.Binaries.at(BinaryIndex);
@@ -7558,7 +7554,7 @@ int LLVMTool::WriteLinkerScript(void) {
   std::ofstream ofs(opts.LinkerScript);
 
   if (IsCOFF) {
-    if (!AreSectionsLaidOut)
+    if (!opts.LayOutSections)
       return 0;
 
 #if 0
