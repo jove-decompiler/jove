@@ -111,7 +111,7 @@
 
 #define _ASSERT(cond)                                                          \
   do {                                                                         \
-    if (unlikely(!(cond)))                                                     \
+    if (!likely(cond))                                                         \
       _UNREACHABLE("!(" BOOST_PP_STRINGIZE(cond) ")");                         \
   } while (false)
 
