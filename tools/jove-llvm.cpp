@@ -5698,12 +5698,9 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
           auto *C = llvm::Constant::getNullValue(
                   llvm::ArrayType::get(llvm::Type::getInt8Ty(*Context), space));
 #else /* force out of .bss */
-          std::vector<llvm::Constant *> constantTable;
-          constantTable.resize(space);
-
-          std::fill(constantTable.begin(),
-                    constantTable.end(),
-                    llvm::Constant::getNullValue(llvm::Type::getIntNTy(*Context, 8)));
+          std::vector<llvm::Constant *> constantTable(
+              space,
+              llvm::Constant::getNullValue(llvm::Type::getIntNTy(*Context, 8)));
 
           constantTable.at(constantTable.size() / 2) =
               llvm::Constant::getAllOnesValue(llvm::Type::getIntNTy(*Context, 8));
