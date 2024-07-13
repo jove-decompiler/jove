@@ -1802,10 +1802,6 @@ struct section_t {
   uint64_t Addr;
   unsigned Size;
 
-#if 0
-  bool bss = false;
-#endif
-
   struct {
     bool initArray = false;
     bool finiArray = false;
@@ -4614,13 +4610,6 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
     }
 
     AreSectionsLaidOut = true; /* XXX */
-
-#if 0
-    for (section_t &Sect : SectTable)
-      Sect.bss = std::all_of(Sect.Contents.begin(),
-                             Sect.Contents.end(),
-                             [](uint8_t value) { return value == 0; });
-#endif
   });
 
   auto type_at_address = [&](uint64_t Addr, llvm::Type *T) -> void {
@@ -5701,23 +5690,10 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
       if (i > 0) {
         section_t &PrevSect = SectTable[i - 1];
         ptrdiff_t space = Sect.Addr - (PrevSect.Addr + PrevSect.Size);
-        if (space > 0) {
-          // zero padding between sections
-
+        if (space > 0) { // zero padding between sections
           auto *T = llvm::ArrayType::get(llvm::Type::getInt8Ty(*Context), space);
-#if 1
           auto *C = llvm::Constant::getNullValue(
                   llvm::ArrayType::get(llvm::Type::getInt8Ty(*Context), space));
-#else /* force out of .bss */
-          std::vector<llvm::Constant *> constantTable(
-              space,
-              llvm::Constant::getNullValue(llvm::Type::getIntNTy(*Context, 8)));
-
-          constantTable.at(constantTable.size() / 2) =
-              llvm::Constant::getAllOnesValue(llvm::Type::getIntNTy(*Context, 8));
-
-          auto *C = llvm::ConstantArray::get(T, constantTable);
-#endif
 
           auto *GV = new llvm::GlobalVariable(
               *Module, T, false, llvm::GlobalValue::InternalLinkage, C,
