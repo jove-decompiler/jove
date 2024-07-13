@@ -1802,6 +1802,10 @@ struct section_t {
   uint64_t Addr;
   unsigned Size;
 
+#if 0
+  bool bss = false;
+#endif
+
   struct {
     bool initArray = false;
     bool finiArray = false;
@@ -4610,6 +4614,13 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
     }
 
     AreSectionsLaidOut = true; /* XXX */
+
+#if 0
+    for (section_t &Sect : SectTable)
+      Sect.bss = std::all_of(Sect.Contents.begin(),
+                             Sect.Contents.end(),
+                             [](uint8_t value) { return value == 0; });
+#endif
   });
 
   auto type_at_address = [&](uint64_t Addr, llvm::Type *T) -> void {
@@ -5694,7 +5705,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
           // zero padding between sections
 
           auto *T = llvm::ArrayType::get(llvm::Type::getInt8Ty(*Context), space);
-#if 0
+#if 1
           auto *C = llvm::Constant::getNullValue(
                   llvm::ArrayType::get(llvm::Type::getInt8Ty(*Context), space));
 #else /* force out of .bss */
@@ -5712,6 +5723,9 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
               *Module, T, false, llvm::GlobalValue::InternalLinkage, C,
               "__jove_space_" + std::to_string(j));
           ++j;
+
+          GV->setAlignment(llvm::Align(1));
+          GV->setSection(".jove");
 
           LaidOut.GVVec.emplace_back(GV, space);
         }
@@ -5736,17 +5750,14 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
                                           C, "__jove_section_" + suffix);
       ++j;
 
-#if 0
-      GV->setSection(".jove");
-#endif
-
       if (!LaidOut.HeadGV) {
         GV->setAlignment(llvm::Align(WordBytes()));
         LaidOut.HeadGV = GV;
       } else {
         GV->setAlignment(llvm::Align(1));
       }
-        GV->setAlignment(llvm::Align(1));
+
+      GV->setSection(".jove");
 
       LaidOut.GVVec.emplace_back(GV, Sect.Size);
     }
