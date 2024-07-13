@@ -5718,7 +5718,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
           ++j;
 
           GV->setAlignment(llvm::Align(1));
-          GV->setSection(CurrSectName);
+          GV->setSection(CurrSectName); /* no .bss */
 
           LaidOut.GVVec.emplace_back(GV, space);
         }
