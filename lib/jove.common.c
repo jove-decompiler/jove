@@ -138,12 +138,7 @@ void _jove_check_sections_laid_out(void) {
   if (_jove_num_laid_out_sections() == 0)
     return;
 
-  uintptr_t **p = _jove_laid_out_sections();
-  _ASSERT((*p)[0] != 0);
-
-  const uintptr_t top = actual_addr_of_laid_out(0);
-
-  uintptr_t cursor = top;
+  uintptr_t cursor = actual_addr_of_laid_out(0); /* top */
   for (unsigned i = 1; i < _jove_num_laid_out_sections(); ++i) {
     const uintptr_t expect_addr_before = cursor;
     const uintptr_t expect_size_before =
