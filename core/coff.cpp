@@ -134,7 +134,7 @@ void for_each_exported_function(
   }
 }
 
-void gen_module_definition(COFFO &O, llvm::StringRef DLL, std::ostream &out) {
+void gen_module_definition_for_dll(COFFO &O, llvm::StringRef DLL, std::ostream &out) {
   out << "NAME " << DLL.str() << '\n';
   out << "EXPORTS\n";
 

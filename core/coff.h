@@ -61,7 +61,7 @@ void for_each_exported_function(
 void for_each_base_relocation(COFFO &,
   std::function<void(uint8_t Type, uint64_t RVA)> proc);
 
-void gen_module_definition(COFFO &, llvm::StringRef DLL, std::ostream &);
+void gen_module_definition_for_dll(COFFO &, llvm::StringRef DLL, std::ostream &);
 
 std::string unique_symbol_for_ordinal_in_dll(llvm::StringRef DLL,
                                              uint16_t Ordinal);

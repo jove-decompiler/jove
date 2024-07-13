@@ -173,7 +173,7 @@ class RecompileTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, 
 
           LayOutSections(
               "lay-out-sections",
-              cl::desc("experimental mode where each section becomes a "
+              cl::desc("mode where each section becomes a "
                        "distinct global variable. we check in "
                        "_jove_check_sections_laid_out() at runtime to make "
                        "sure that those aforementioned global variables exist "
@@ -873,7 +873,7 @@ int RecompileTool::Run(void) {
       {
         std::ofstream ofs(def_path);
 
-        coff::gen_module_definition(O, x.soname, ofs);
+        coff::gen_module_definition_for_dll(O, x.soname, ofs);
       }
 
       std::string imp_lib_path =
@@ -913,6 +913,7 @@ int RecompileTool::Run(void) {
 
     std::string objfp(chrooted_path.string() + ".o");
     std::string mapfp(chrooted_path.string() + ".map");
+    std::string ldfp(chrooted_path.string() + ".ld");
 
     if (opts.ForeignLibs && !b.IsExecutable)
       continue;
@@ -1099,7 +1100,8 @@ int RecompileTool::Run(void) {
         Arg("-out:" + chrooted_path.string());
         Arg("-debug:dwarf");
         Arg("-WX:no");
-        //Arg("-verbose");
+        if (IsVeryVerbose())
+          Arg("-verbose");
         Arg("-opt:noref");
         Arg("-demangle");
         Arg("-auto-import");
@@ -1108,12 +1110,23 @@ int RecompileTool::Run(void) {
         Arg("-noseh"); /* FIXME? */
         Arg(std::string("-machine:") + (IsTarget32 ? "x86" : "x64"));
 
-        if (b.IsExecutable && !b.IsPIC) {
+        if (b.IsExecutable && !b.IsPIC) { /* do we need to set base address? */
           uint64_t Base, End;
           std::tie(Base, End) = B::bounds_of_binary(*x.Bin);
 
-          Arg((fmt("/section:.jove,RWE,%lx") % Base).str());
+          std::string TopSectName = !fs::is_empty(ldfp) ? ".jove.pr" : ".jove";
+
+          Arg((fmt("/section:%s,RW,%lx") % TopSectName % Base).str());
+          if (!fs::is_empty(ldfp)) {
+            Arg("/section:.rsrc,RW");
+            Arg("/section:.jove.po,RW");
+          }
         }
+
+#if 0
+        if (!fs::is_empty(ldfp))
+          Arg("/order:@" + ldfp);
+#endif
 
         Arg("-alternatename:__image_base__=__ImageBase");
         for (const std::string &lib_dir : lib_dirs) {
@@ -1137,12 +1150,6 @@ int RecompileTool::Run(void) {
 
           fs::path needed_chrooted_path(opts.Output + needed_b.path_str());
           Arg(needed_chrooted_path.replace_extension("lib").string());
-        }
-
-        std::vector<std::string> def_files;
-        for (auto &entry : fs::directory_iterator(chrooted_path.parent_path())) {
-          if (fs::is_regular_file(entry) && entry.path().extension() == ".def")
-            Arg("-def:" + entry.path().string());
         }
       });
     } else {
@@ -1196,6 +1203,7 @@ void RecompileTool::worker(dso_t dso) {
   std::string ll_strip_fp(chrooted_path.string() + ".strip.ll");
   std::string objfp(chrooted_path.string() + ".o");
   std::string mapfp(chrooted_path.string() + ".map");
+  std::string ldfp(chrooted_path.string() + ".ld");
   std::string dfsan_modid_fp(chrooted_path.string() + ".modid");
 
   std::string bytecode_loc =
@@ -1211,6 +1219,13 @@ void RecompileTool::worker(dso_t dso) {
       [&](auto Arg) {
         Arg("-o");
         Arg(bcfp);
+
+        if (b.IsExecutable) {
+          if (IsCOFF) {
+            Arg("--linker-script");
+            Arg(ldfp);
+          }
+        }
 
         Arg("--version-script");
         Arg(mapfp);

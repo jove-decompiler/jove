@@ -219,8 +219,7 @@ class LoopTool : public JVTool<ToolKind::Standard> {
                          cl::aliasopt(RunAsRoot), cl::cat(JoveCategory)),
 
           PreserveEnvironment(
-              "preserve-environment",
-              cl::init(true),
+              "preserve-environment", cl::init(true),
               cl::desc("Preserve environment variables when running as root"),
               cl::cat(JoveCategory)),
 
@@ -242,8 +241,14 @@ class LoopTool : public JVTool<ToolKind::Standard> {
                                   cl::desc("Debugging purposes only"),
                                   cl::cat(JoveCategory)),
 
-          LayOutSections("lay-out-sections", cl::desc("TODO"),
-                         cl::cat(JoveCategory)) {}
+          LayOutSections(
+              "lay-out-sections",
+              cl::desc("mode where each section becomes a "
+                       "distinct global variable. we check in "
+                       "_jove_check_sections_laid_out() at runtime to make "
+                       "sure that those aforementioned global variables exist "
+                       "side-by-side in memory in the way we expect them to"),
+              cl::cat(JoveCategory)) {}
   } opts;
 
 public:

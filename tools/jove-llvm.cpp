@@ -197,6 +197,7 @@ struct LLVMTool : public StatefulJVTool<ToolKind::CopyOnWrite,
     cl::opt<std::string> Output;
     cl::alias OutputAlias;
     cl::opt<std::string> VersionScript;
+    cl::opt<std::string> LinkerScript;
     cl::opt<bool> Trace;
     cl::opt<bool> NoFixupFSBase;
     cl::opt<bool> PrintPCRel;
@@ -243,7 +244,12 @@ struct LLVMTool : public StatefulJVTool<ToolKind::CopyOnWrite,
 
           VersionScript("version-script",
                         cl::desc("Output version script file for use with ld"),
-                        cl::value_desc("filename"), cl::cat(JoveCategory)),
+                        cl::value_desc("filename"),
+                        cl::cat(JoveCategory)),
+
+          LinkerScript("linker-script",
+                       cl::desc("Output linker script file for use with ld"),
+                       cl::value_desc("filename"), cl::cat(JoveCategory)),
 
           Trace(
               "trace",
@@ -348,7 +354,7 @@ struct LLVMTool : public StatefulJVTool<ToolKind::CopyOnWrite,
 
           LayOutSections(
               "lay-out-sections",
-              cl::desc("experimental mode where each section becomes a "
+              cl::desc("mode where each section becomes a "
                        "distinct global variable. we check in "
                        "_jove_check_sections_laid_out() at runtime to make "
                        "sure that those aforementioned global variables exist "
@@ -535,6 +541,7 @@ public:
   int DFSanInstrument(void);
   int RenameFunctionLocals(void);
   int WriteVersionScript(void);
+  int WriteLinkerScript(void);
   int InlineHelpers(void);
   int BreakBeforeUnreachables(void);
   int ForceCallConv(void);
@@ -2404,6 +2411,7 @@ int LLVMTool::Run(void) {
       || (opts.DFSan ? DFSanInstrument() : 0)
       || RenameFunctionLocals()
       || (!opts.VersionScript.empty() ? WriteVersionScript() : 0)
+      || (!opts.LinkerScript.empty() ? WriteLinkerScript() : 0)
       || (opts.BreakBeforeUnreachables ? BreakBeforeUnreachables() : 0)
       || WriteModule();
 }
@@ -4368,6 +4376,10 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
   const uint64_t SectsStartAddr = state.for_binary(Binary).SectsStartAddr;
   const uint64_t SectsEndAddr = state.for_binary(Binary).SectsEndAddr;
 
+  struct {
+    int rsrcSectIdx = -1;
+  } _coff;
+
   B::_elf(*Bin, [&](ELFO &O) {
 
   const ELFF &Elf = O.getELFFile();
@@ -4606,13 +4618,15 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
       Sect._elf.initArray = prop._elf.initArray;
       Sect._elf.finiArray = prop._elf.finiArray;
 
+      if (Sect.Name == ".rsrc") {
+        if (_coff.rsrcSectIdx >= 0)
+          die("multiple .rsrc sections in PE file?");
+
+        _coff.rsrcSectIdx = i;
+      }
+
       ++i;
     }
-
-    /* FIXME following is needed for .rsrc? */
-#if 0
-    AreSectionsLaidOut = true;
-#endif
   });
 
   auto type_at_address = [&](uint64_t Addr, llvm::Type *T) -> void {
@@ -4831,13 +4845,15 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
         SectFieldInits.push_back(C);
       }
 
+      // XXX the following assumes .rsrc is just pure bytes, and it assumes the
+      // section can basically just be anywhere relative to the other sections
+      // XXX wasteful, consider --lay-out-sections
       if (!AreSectionsLaidOut && IsCOFF && Sect.Name == ".rsrc" &&
           !Module->getGlobalVariable("__jove_rsrc", true)) {
         llvm::GlobalVariable *rsrcSectGV = new llvm::GlobalVariable(
             *Module, SectTable[i].T, false, llvm::GlobalValue::InternalLinkage,
-            nullptr, "__jove_rsrc");
-        rsrcSectGV->setInitializer(
-            llvm::ConstantStruct::get(SectTable[i].T, SectFieldInits));
+            llvm::ConstantStruct::get(SectTable[i].T, SectFieldInits),
+            "__jove_rsrc");
         rsrcSectGV->setSection(".rsrc");
       }
 
@@ -5682,6 +5698,8 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
   }
 
   if (AreSectionsLaidOut) {
+    std::string CurrSectName = ".jove_pr";
+
     unsigned j = 0;
     for (unsigned i = 0; i < NumSections; ++i) {
       section_t &Sect = SectTable[i];
@@ -5704,7 +5722,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
           ++j;
 
           GV->setAlignment(llvm::Align(1));
-          GV->setSection(".jove");
+          GV->setSection(CurrSectName);
 
           LaidOut.GVVec.emplace_back(GV, space);
         }
@@ -5712,6 +5730,15 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
 
       if (IsVerbose())
         llvm::errs() << llvm::formatv("Laying out section {0}\n", Sect.Name);
+
+      if (IsCOFF && _coff.rsrcSectIdx >= 0) {
+        if (i < _coff.rsrcSectIdx)
+          CurrSectName = ".jove_pr";
+        else if (i > _coff.rsrcSectIdx)
+          CurrSectName = ".jove_po";
+        else
+          CurrSectName = ".rsrc";
+      }
 
       auto *T = SectTable[i].T;
       auto *C = SectTable[i].C;
@@ -5736,7 +5763,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
         GV->setAlignment(llvm::Align(1));
       }
 
-      GV->setSection(".jove");
+      GV->setSection(CurrSectName);
 
       LaidOut.GVVec.emplace_back(GV, Sect.Size);
     }
@@ -7515,6 +7542,52 @@ int LLVMTool::WriteVersionScript(void) {
       ofs << VersionedSymbol << ";\n";
 
     ofs << "};\n";
+  }
+
+  return 0;
+}
+
+int LLVMTool::WriteLinkerScript(void) {
+  assert(!opts.LinkerScript.empty());
+
+  binary_t &Binary = jv.Binaries.at(BinaryIndex);
+  assert(Binary.IsExecutable);
+
+  binary_state_t &x = state.for_binary(Binary);
+
+  std::ofstream ofs(opts.LinkerScript);
+
+  if (IsCOFF) {
+    if (!AreSectionsLaidOut)
+      return 0;
+
+#if 0
+    //out << "NAME " << DLL.str() << '\n';
+    ofs << "SECTIONS\n";
+    ofs << ".jove.pre READ WRITE";
+    ofs << ".rsrc READ WRITE";
+    ofs << ".jove.post READ WRITE";
+#elif 1
+    /* currently, the linker script being nonempty tells jove-recompile that
+     * the sections are laid out. */
+
+    ofs << ".jove.pr\n";
+    ofs << ".rsrc\n";
+    ofs << ".jove.po\n";
+#endif
+  } else {
+    return 0; /* TODO? */
+
+    ofs <<
+      (fmt(
+      "SECTIONS"                               "\n"
+      "{"                                      "\n"
+      "  .text : { *(.text) }"                 "\n"
+      "  .data : { *(.data) }"                 "\n"
+      "  .bss  : { *(.bss) }"                  "\n"
+      ""                                       "\n"
+      "}")).str();
+    ;
   }
 
   return 0;
