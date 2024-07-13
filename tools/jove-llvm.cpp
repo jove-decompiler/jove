@@ -4609,7 +4609,10 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
       ++i;
     }
 
-    AreSectionsLaidOut = true; /* XXX */
+    /* FIXME following is needed for .rsrc? */
+#if 0
+    AreSectionsLaidOut = true;
+#endif
   });
 
   auto type_at_address = [&](uint64_t Addr, llvm::Type *T) -> void {
