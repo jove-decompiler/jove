@@ -1220,15 +1220,15 @@ void RecompileTool::worker(dso_t dso) {
         Arg("-o");
         Arg(bcfp);
 
-        if (b.IsExecutable) {
-          if (IsCOFF) {
+        if (IsCOFF) {
+          if (b.IsExecutable) {
             Arg("--linker-script");
             Arg(ldfp);
           }
+        } else {
+          Arg("--version-script");
+          Arg(mapfp);
         }
-
-        Arg("--version-script");
-        Arg(mapfp);
 
         Arg("--binary-index");
         Arg(std::to_string(BIdx));
