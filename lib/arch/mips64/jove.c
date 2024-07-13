@@ -96,7 +96,7 @@ static void _jove_free_stack(uintptr_t beg);
 static uintptr_t _jove_alloc_callstack(void);
 static void _jove_free_callstack(uintptr_t start);
 
-static bool _jove_see_through_stub(const void *ptr, uintptr_t *out);
+static bool _jove_see_through_tramp(const void *ptr, uintptr_t *out);
 
 #include "jove.llvm.c"
 #include "jove.util.c"
@@ -520,6 +520,6 @@ _HIDDEN void _jove_do_call_rt_init(void) {
     _jove_rt_init_clunk();
 }
 
-bool _jove_see_through_stub(const void *ptr, uintptr_t *out) {
+bool _jove_see_through_tramp(const void *ptr, uintptr_t *out) {
   return false;
 }

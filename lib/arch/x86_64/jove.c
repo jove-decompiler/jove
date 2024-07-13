@@ -78,7 +78,7 @@ static void _jove_free_callstack(uintptr_t start);
 static uintptr_t _jove_alloc_large_buffer(void);
 static void _jove_free_large_buffer(uintptr_t start);
 
-static bool _jove_see_through_stub(const void *ptr, uintptr_t *out);
+static bool _jove_see_through_tramp(const void *ptr, uintptr_t *out);
 
 #include "jove.llvm.c"
 #include "jove.util.c"
@@ -467,7 +467,7 @@ _HIDDEN void _jove_do_call_rt_init(void) {
   _jove_do_emulate_copy_relocations();
 }
 
-bool _jove_see_through_stub(const void *ptr, uintptr_t *out) {
+bool _jove_see_through_tramp(const void *ptr, uintptr_t *out) {
   const uint8_t *const u8p = (const uint8_t *)ptr;
   if (!(u8p[0] == 0xff &&
         u8p[1] == 0x25)) /* see importThunkX86 in lld/COFF/Chunks.h */

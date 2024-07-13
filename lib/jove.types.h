@@ -8,7 +8,7 @@ struct jove_opts_t {
   struct {
     bool Signals;
     bool Thunks;
-    bool Stubs;
+    bool Tramps;
     bool Calls;
     bool Stack;
     bool Inits;

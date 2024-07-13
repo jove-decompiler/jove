@@ -154,7 +154,7 @@ struct debug_option_pair {
 static const struct debug_option_pair debug_opt_tbl[] = {
   {"signals", &__jove_opts.Debug.Signals},
   {"thunks",  &__jove_opts.Debug.Thunks},
-  {"stubs",   &__jove_opts.Debug.Stubs},
+  {"tramps",  &__jove_opts.Debug.Tramps},
   {"calls",   &__jove_opts.Debug.Calls},
   {"stack",   &__jove_opts.Debug.Stack},
   {"inits",   &__jove_opts.Debug.Inits},

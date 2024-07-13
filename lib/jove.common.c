@@ -41,7 +41,7 @@ static void _jove_install_function_mappings(void);
 static void _jove_check_sections_laid_out(void);
 static void _jove_make_sections_executable(void);
 
-static void _jove_see_through_stubs(struct jove_function_info_t *);
+static void _jove_see_through_tramps(struct jove_function_info_t *);
 
 extern void _jove_rt_init(void);
 
@@ -239,7 +239,7 @@ void _jove_install_function_mappings(void) {
   //
   uintptr_t fninfo_arr_addr = _mmap_rw_anonymous_private_memory(
       QEMU_ALIGN_UP(sizeof(struct jove_function_info_t) *
-                        (_jove_function_count() + _jove_num_possible_stubs()),
+                        (_jove_function_count() + _jove_num_possible_tramps()),
                     JOVE_PAGE_SIZE));
 
   if (IS_ERR_VALUE(fninfo_arr_addr))
@@ -268,18 +268,18 @@ void _jove_install_function_mappings(void) {
       ++fninfo_p;
     }
 
-    _jove_see_through_stubs(fninfo_p);
+    _jove_see_through_tramps(fninfo_p);
   }
 
   mb();
 }
 
-void _jove_see_through_stubs(struct jove_function_info_t *fninfo_p) {
-  for (uintptr_t *pp = _jove_possible_stubs(); *pp; ++pp) {
+void _jove_see_through_tramps(struct jove_function_info_t *fninfo_p) {
+  for (uintptr_t *pp = _jove_possible_tramps(); *pp; ++pp) {
     const uintptr_t poss = *((uintptr_t *)(*pp));
 
     uintptr_t pc = ~0UL;
-    if (!_jove_see_through_stub((const void *)poss, &pc))
+    if (!_jove_see_through_tramp((const void *)poss, &pc))
       pc = *((uintptr_t *)poss);
 
     {
@@ -298,12 +298,12 @@ void _jove_see_through_stubs(struct jove_function_info_t *fninfo_p) {
     continue;
 
 found:
-    if (unlikely(__jove_opts.Debug.Stubs))
+    if (unlikely(__jove_opts.Debug.Tramps))
     {
       char s[1024];
       s[0] = '\0';
 
-      _strcat(s, "_jove_see_through_stubs: 0x");
+      _strcat(s, "_jove_see_through_tramps: 0x");
       {
         char buff[65];
         _uint_to_string(poss, buff, 0x10);

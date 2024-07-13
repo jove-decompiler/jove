@@ -491,7 +491,7 @@ struct LLVMTool : public StatefulJVTool<ToolKind::CopyOnWrite,
            std::pair<binary_index_t, std::pair<uint64_t, unsigned>>>
       CopyRelocMap;
 
-  std::vector<uint64_t> possible_stubs_vec;
+  std::vector<uint64_t> possible_tramps_vec;
 
   std::unordered_map<std::string, std::set<unsigned>> ordinal_imports;
 
@@ -523,7 +523,7 @@ public:
   int LocateHooks(void);
   int CreateTLSModGlobal(void);
   int CreateSectionGlobalVariables(void);
-  int CreatePossibleStubs(void);
+  int CreatePossibleTramps(void);
   int CreateFunctionTable(void);
   int FixupHelperStubs(void);
   int CreateNoAliasMetadata(void);
@@ -2223,7 +2223,7 @@ int LLVMTool::Run(void) {
       (rc = (opts.DFSan ? LocateHooks() : 0)) ||
       (rc = CreateTLSModGlobal()) ||
       (rc = CreateSectionGlobalVariables()) ||
-      (rc = CreatePossibleStubs()))
+      (rc = CreatePossibleTramps()))
     return rc;
 
   B::_elf(*state.for_binary(Binary).Bin, [&](ELFO &O) {
@@ -4123,7 +4123,7 @@ llvm::Constant *LLVMTool::ImportedFunctionAddress(llvm::StringRef DLL,
   //
   // this is new to us
   //
-  possible_stubs_vec.push_back(Addr);
+  possible_tramps_vec.push_back(Addr);
   if (ByOrdinal) {
     return llvm::ConstantExpr::getPtrToInt(ImportFunctionByOrdinal(DLL, Ordinal), WordType());
   } else {
@@ -5926,15 +5926,15 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
   return 0;
 }
 
-int LLVMTool::CreatePossibleStubs(void) {
+int LLVMTool::CreatePossibleTramps(void) {
   if (IsVerbose())
-    llvm::errs() << llvm::formatv("# of possible stubs: {0}\n",
-                                  possible_stubs_vec.size());
+    llvm::errs() << llvm::formatv("# of possible tramps: {0}\n",
+                                  possible_tramps_vec.size());
 
   std::vector<llvm::Constant *> constantTable;
-  constantTable.reserve(possible_stubs_vec.size());
+  constantTable.reserve(possible_tramps_vec.size());
 
-  for (uint64_t poss : possible_stubs_vec)
+  for (uint64_t poss : possible_tramps_vec)
     constantTable.push_back(SectionPointer(poss));
 
   constantTable.push_back(llvm::Constant::getNullValue(WordType()));
@@ -5942,23 +5942,23 @@ int LLVMTool::CreatePossibleStubs(void) {
   llvm::ArrayType *T = llvm::ArrayType::get(WordType(), constantTable.size());
   llvm::Constant *Init = llvm::ConstantArray::get(T, constantTable);
 
-  llvm::GlobalVariable *PossibleStubsGV = new llvm::GlobalVariable(
+  llvm::GlobalVariable *PossibleTrampsGV = new llvm::GlobalVariable(
       *Module, T, true, llvm::GlobalValue::InternalLinkage, Init,
-      (fmt("__jove_poss_stubs%u") % BinaryIndex).str());
+      (fmt("__jove_poss_tramps%u") % BinaryIndex).str());
 
   fillInFunctionBody(
-      Module->getFunction("_jove_possible_stubs"),
+      Module->getFunction("_jove_possible_tramps"),
       [&](auto &IRB) {
         IRB.CreateRet(IRB.CreateConstInBoundsGEP2_64(
-            PossibleStubsGV->getValueType(),
-            PossibleStubsGV, 0, 0));
+            PossibleTrampsGV->getValueType(),
+            PossibleTrampsGV, 0, 0));
       },
       !opts.ForCBE);
 
   fillInFunctionBody(
-      Module->getFunction("_jove_num_possible_stubs"),
+      Module->getFunction("_jove_num_possible_tramps"),
       [&](auto &IRB) {
-        IRB.CreateRet(IRB.getInt32(possible_stubs_vec.size()));
+        IRB.CreateRet(IRB.getInt32(possible_tramps_vec.size()));
       },
       !opts.ForCBE);
 
