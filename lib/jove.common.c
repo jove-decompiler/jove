@@ -280,7 +280,7 @@ void _jove_see_through_tramps(struct jove_function_info_t *fninfo_p) {
 
     uintptr_t pc = ~0UL;
     if (!_jove_see_through_tramp((const void *)poss, &pc))
-      pc = *((uintptr_t *)poss);
+      pc = *((uintptr_t *)poss); /* XXX wtf? */
 
     {
       struct jove_function_info_t *finfo;
