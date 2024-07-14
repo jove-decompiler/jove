@@ -685,15 +685,10 @@ found:
       if (SignalDelivery)
         newsp -= sizeof(__jove_env);
 
-      {
-        //
-        // align the stack
-        //
-        const uintptr_t align_val = 15;
-        const uintptr_t align_mask = ~align_val;
-
-        newsp &= align_mask;
-      }
+      //
+      // align the stack
+      //
+      newsp &= ~31UL;
 
 #if defined(__x86_64__) || defined(__i386__)
       newsp -= sizeof(uintptr_t); /* account for return address on the stack */
