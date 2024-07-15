@@ -1371,6 +1371,14 @@ found:
     } else {
       target_ulong *const emusp_ptr = emulated_stack_pointer_of_cpu_state(&__jove_env);
 
+      if (unlikely(__jove_opts.Debug.Stack)) {
+        const uintptr_t emusp = *emusp_ptr;
+
+#if defined(__x86_64__) || defined(__i386__)
+        _ASSERT((emusp + sizeof(uintptr_t)) % 16 == 0); /* per the ABI */
+#endif
+      }
+
       jove_thunk_return_t res = BOOST_PP_CAT(_jove_thunk,TARGET_NUM_REG_ARGS)(
                           #define __REG_ARG(n, i, data) reg##i,
 
@@ -1379,23 +1387,28 @@ found:
                           #undef __REG_ARG
                           RealEntry, emusp_ptr);
 
-      if (unlikely(__jove_opts.Debug.Calls && __jove_opts.Debug.Stack))
-      {
-        uintptr_t emusp = *emulated_stack_pointer_of_cpu_state(&__jove_env);
+      if (unlikely(__jove_opts.Debug.Stack)) {
+        const uintptr_t emusp = *emusp_ptr;
 
-        char s[1024];
-        s[0] = '\0';
+#if defined(__x86_64__) || defined(__i386__)
+        _ASSERT(emusp % 16 == 0);
+#endif
 
-        _strcat(s, "\t<0x");
-        {
-          char buff[65];
-          _uint_to_string(emusp, buff, 0x10);
+        if (__jove_opts.Debug.Calls) {
+          char s[1024];
+          s[0] = '\0';
 
-          _strcat(s, buff);
+          _strcat(s, "\t<0x");
+          {
+            char buff[65];
+            _uint_to_string(emusp, buff, 0x10);
+
+            _strcat(s, buff);
+          }
+          _strcat(s, ">\n");
+
+          _DUMP(s);
         }
-        _strcat(s, ">\n");
-
-        _jove_robust_write(2 /* stderr */, s, _strlen(s));
       }
 
       return res;
