@@ -117,7 +117,7 @@ void _jove_install_sections_table(void) {
 }
 
 static uintptr_t actual_addr_of_laid_out(unsigned i) {
-  _ASSERT(i < _jove_num_laid_out_sections());
+  _ASSERT(i < _jove_laid_out_sections_count());
 
   uintptr_t res = _jove_laid_out_sections()[2 * i];
   _ASSERT(res);
@@ -126,7 +126,7 @@ static uintptr_t actual_addr_of_laid_out(unsigned i) {
 }
 
 static uintptr_t expected_size_of_laid_out(unsigned i) {
-  _ASSERT(i < _jove_num_laid_out_sections());
+  _ASSERT(i < _jove_laid_out_sections_count());
 
   uintptr_t res = _jove_laid_out_sections()[2 * i + 1];
   _ASSERT(res);
@@ -135,11 +135,11 @@ static uintptr_t expected_size_of_laid_out(unsigned i) {
 }
 
 void _jove_check_sections_laid_out(void) {
-  if (_jove_num_laid_out_sections() == 0)
+  if (_jove_laid_out_sections_count() == 0)
     return;
 
   uintptr_t cursor = actual_addr_of_laid_out(0); /* top */
-  for (unsigned i = 1; i < _jove_num_laid_out_sections(); ++i) {
+  for (unsigned i = 1; i < _jove_laid_out_sections_count(); ++i) {
     const uintptr_t expect_addr_before = cursor;
     const uintptr_t expect_size_before =
         expected_size_of_laid_out(i - 1);
@@ -239,7 +239,7 @@ void _jove_install_function_mappings(void) {
   //
   uintptr_t fninfo_arr_addr = _mmap_rw_anonymous_private_memory(
       QEMU_ALIGN_UP(sizeof(struct jove_function_info_t) *
-                        (_jove_function_count() + _jove_num_possible_tramps()),
+                        (_jove_function_count() + _jove_possible_tramps_count()),
                     JOVE_PAGE_SIZE));
 
   if (IS_ERR_VALUE(fninfo_arr_addr))
@@ -268,7 +268,7 @@ void _jove_install_function_mappings(void) {
       ++fninfo_p;
     }
 
-    if (_jove_num_possible_tramps() > 0)
+    if (_jove_possible_tramps_count() > 0)
       _jove_see_through_tramps(fninfo_p);
   }
 
@@ -276,7 +276,7 @@ void _jove_install_function_mappings(void) {
 }
 
 void _jove_see_through_tramps(struct jove_function_info_t *fninfo_p) {
-  for (unsigned i = 0; i < _jove_num_possible_tramps(); ++i) {
+  for (unsigned i = 0; i < _jove_possible_tramps_count(); ++i) {
     const uintptr_t poss = *((uintptr_t *)(_jove_possible_tramps()[i]));
 
     uintptr_t pc = ~0UL;

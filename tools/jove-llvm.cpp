@@ -5968,7 +5968,7 @@ int LLVMTool::CreatePossibleTramps(void) {
       !opts.ForCBE);
 
   fillInFunctionBody(
-      Module->getFunction("_jove_num_possible_tramps"),
+      Module->getFunction("_jove_possible_tramps_count"),
       [&](auto &IRB) {
         IRB.CreateRet(IRB.getInt32(possible_tramps_vec.size()));
       },
@@ -6532,7 +6532,7 @@ int LLVMTool::FixupHelperStubs(void) {
       }, !opts.ForCBE);
 
   fillInFunctionBody(
-      Module->getFunction("_jove_num_laid_out_sections"),
+      Module->getFunction("_jove_laid_out_sections_count"),
       [&](auto &IRB) {
         IRB.CreateRet(IRB.getInt32(LaidOut.GVVec.size()));
       }, !opts.ForCBE);
