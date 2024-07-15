@@ -976,6 +976,8 @@ struct edge_copier {
 
 typedef std::pair<flow_vertex_t, bool> exit_vertex_pair_t;
 
+static basic_block_properties_t dummy_bbprop;
+
 void AnalyzeBasicBlock(tiny_code_generator_t &TCG,
                        llvm::Module &M,
                        binary_t &binary,
@@ -1174,6 +1176,18 @@ static flow_vertex_t copy_function_cfg(jv_t &jv,
     default:
       continue;
     }
+  }
+
+  //
+  // does f return even if we don't know how?
+  //
+  if (f.Returns && exitVertices.empty()) {
+    flow_vertex_t dummyV = boost::add_vertex(G);
+
+    dummy_bbprop.Analysis.reach.def = CallConvRets;
+    G[dummyV].bbprop = &dummy_bbprop;
+
+    exitVertices.emplace_back(dummyV, true);
   }
 
   return res;
@@ -1698,6 +1712,9 @@ void AnalyzeFunction(jv_t &jv,
         change = change || _OUT != G[V].OUT;
       }
     } while (likely(change));
+
+    if (f.Returns)
+      assert(!exitVertices.empty());
 
     if (exitVertices.empty()) {
       f.Analysis.rets.reset();
