@@ -5888,7 +5888,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
       if (llvm::PatternMatch::match(
               C, llvm::PatternMatch::m_Add(
                      llvm::PatternMatch::m_PtrToInt(
-                         llvm::PatternMatch::m_Specific(SectsGlobal)),
+                         llvm::PatternMatch::m_Specific(SectionsTop())),
                      llvm::PatternMatch::m_ConstantInt(matched_Addend)))) {
         assert(matched_Addend);
         uintptr_t off = matched_Addend->getValue().getZExtValue();
@@ -5927,7 +5927,8 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
     }
   }
 
-  if (jv.Binaries.at(BinaryIndex).IsExecutable &&
+  if (SectsGlobal &&
+      jv.Binaries.at(BinaryIndex).IsExecutable &&
       !jv.Binaries.at(BinaryIndex).IsPIC)
     SectsGlobal->setSection(".jove"); /* we will refer to this later with ld,
                                        * placing the section at the executable's
