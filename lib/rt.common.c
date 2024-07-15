@@ -233,7 +233,7 @@ void _jove_dump_opts(void) {
     _strcat(s, "\n");
   }
 
-  _jove_robust_write(2 /* stderr */, s, _strlen(s));
+  _DUMP(s);
 }
 
 BOOL DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved)
@@ -621,7 +621,7 @@ found:
 
         _strcat(s, "\n" __ANSI_NORMAL_COLOR);
 
-        _jove_robust_write(2 /* stderr */, s, _strlen(s));
+        _DUMP(s);
       }
     }
 
@@ -670,7 +670,7 @@ found:
 
       _strcat(s, "]\n");
 
-      _jove_robust_write(2 /* stderr */, s, _strlen(s));
+      _DUMP(s);
     }
 
     //
@@ -911,10 +911,7 @@ not_found:
     _strcat(s, "\n");
     _strcat(s, maps);
 
-    //
-    // dump message for user
-    //
-    _jove_robust_write(2 /* stderr */, s, _strlen(s));
+    _DUMP(s);
 
 #if 0
     {

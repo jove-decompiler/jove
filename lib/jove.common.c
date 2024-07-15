@@ -334,7 +334,7 @@ found:
       }
       _strcat(s, ")\n");
 
-      _jove_robust_write(2 /* stderr */, s, _strlen(s));
+      _DUMP(s);
     }
 
     fninfo_p->pc = poss;
@@ -832,10 +832,7 @@ _NORET void _jove_fail1(uintptr_t a0, const char *reason) {
     _strcat(s, "]\n\n");
     _strcat(s, maps);
 
-    //
-    // show message to user
-    //
-    _jove_robust_write(2 /* stderr */, s, _strlen(s));
+    _DUMP(s);
   }
 
   _jove_flush_trace();
@@ -892,10 +889,7 @@ _NORET void _jove_fail2(uintptr_t a0,
     _strcat(s, "]\n\n");
     _strcat(s, maps);
 
-    //
-    // dump message for user
-    //
-    _jove_robust_write(2 /* stderr */, s, _strlen(s));
+    _DUMP(s);
   }
 
   _jove_flush_trace();
@@ -920,7 +914,7 @@ void _jove_log1(const char *msg,
   }
   _strcat(s, ")\n");
 
-  _jove_robust_write(2 /* stderr */, s, _strlen(s));
+  _DUMP(s);
 }
 
 void _jove_log2(const char *msg,
@@ -947,7 +941,7 @@ void _jove_log2(const char *msg,
   }
   _strcat(s, ")\n");
 
-  _jove_robust_write(2 /* stderr */, s, _strlen(s));
+  _DUMP(s);
 }
 
 _HIDDEN void _jove_recover_function(uint32_t IndCallBBIdx,
@@ -989,7 +983,7 @@ jove_thunk_return_t _jove_call(
     }
     _strcat(s, "\n");
 
-    _jove_robust_write(2 /* stderr */, s, _strlen(s));
+    _DUMP(s);
   }
 
   _jove_install_foreign_function_tables();
