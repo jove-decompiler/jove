@@ -1043,21 +1043,14 @@ static flow_vertex_t copy_function_cfg(jv_t &jv,
             .edge_copy(ec));
   }
 
-  flow_vertex_t res;
-  {
-    auto it = Orig2CopyMap.find(bbvec.front());
-    assert(it != Orig2CopyMap.end());
-    res = (*it).second;
-  }
+  flow_vertex_t res = Orig2CopyMap.at(bbvec.front());
 
   exitVertices.resize(exit_bbvec.size());
   std::transform(exit_bbvec.begin(),
                  exit_bbvec.end(),
                  exitVertices.begin(),
                  [&](basic_block_t bb) -> exit_vertex_pair_t {
-                   auto it = Orig2CopyMap.find(bb);
-                   assert(it != Orig2CopyMap.end());
-                   return exit_vertex_pair_t((*it).second, false);
+                   return exit_vertex_pair_t(Orig2CopyMap.at(bb), false);
                  });
 
   memoize.insert({&f, {res, exitVertices}});
@@ -1081,10 +1074,10 @@ static flow_vertex_t copy_function_cfg(jv_t &jv,
         flow_vertex_t calleeEntryV =
             copy_function_cfg(jv, TCG, M, G, callee, GetBinary, GetBlocks,
                               DFSan, ForCBE, calleeExitVertices, memoize, tool);
-        boost::add_edge(Orig2CopyMap[bb], calleeEntryV, G);
+        boost::add_edge(Orig2CopyMap.at(bb), calleeEntryV, G);
 
         if (eit_pair.first != eit_pair.second) {
-          flow_vertex_t succV = Orig2CopyMap[boost::target(*eit_pair.first, ICFG)];
+          flow_vertex_t succV = Orig2CopyMap.at(boost::target(*eit_pair.first, ICFG));
 
           for (const auto &calleeExitVertPair : calleeExitVertices) {
             flow_vertex_t exitV;
@@ -1103,9 +1096,9 @@ static flow_vertex_t copy_function_cfg(jv_t &jv,
       if (eit_pair.first != eit_pair.second) {
         assert(std::next(eit_pair.first) == eit_pair.second);
 
-        flow_vertex_t succV = Orig2CopyMap[boost::target(*eit_pair.first, ICFG)];
+        flow_vertex_t succV = Orig2CopyMap.at(boost::target(*eit_pair.first, ICFG));
 
-        boost::remove_edge(Orig2CopyMap[bb], succV, G);
+        boost::remove_edge(Orig2CopyMap.at(bb), succV, G);
       }
       break;
     }
@@ -1117,7 +1110,7 @@ static flow_vertex_t copy_function_cfg(jv_t &jv,
       flow_vertex_t calleeEntryV =
           copy_function_cfg(jv, TCG, M, G, callee, GetBinary, GetBlocks, DFSan, ForCBE, calleeExitVertices, memoize, tool);
 
-      boost::add_edge(Orig2CopyMap[bb], calleeEntryV, G);
+      boost::add_edge(Orig2CopyMap.at(bb), calleeEntryV, G);
 
       auto eit_pair = boost::out_edges(bb, ICFG);
       if (eit_pair.first == eit_pair.second)
@@ -1126,9 +1119,9 @@ static flow_vertex_t copy_function_cfg(jv_t &jv,
       assert(eit_pair.first != eit_pair.second &&
              std::next(eit_pair.first) == eit_pair.second);
 
-      flow_vertex_t succV = Orig2CopyMap[boost::target(*eit_pair.first, ICFG)];
+      flow_vertex_t succV = Orig2CopyMap.at(boost::target(*eit_pair.first, ICFG));
 
-      boost::remove_edge(Orig2CopyMap[bb], succV, G);
+      boost::remove_edge(Orig2CopyMap.at(bb), succV, G);
 
       for (const auto &calleeExitVertPair : calleeExitVertices) {
         flow_vertex_t exitV;
@@ -1146,7 +1139,7 @@ static flow_vertex_t copy_function_cfg(jv_t &jv,
 
     case TERMINATOR::INDIRECT_JUMP: {
       {
-        flow_vertex_t flowVert = Orig2CopyMap[bb];
+        flow_vertex_t flowVert = Orig2CopyMap.at(bb);
         auto it = std::find_if(exitVertices.begin(),
                                exitVertices.end(),
                                [&](exit_vertex_pair_t pair) -> bool {
@@ -1165,7 +1158,7 @@ static flow_vertex_t copy_function_cfg(jv_t &jv,
         std::vector<exit_vertex_pair_t> calleeExitVertices;
         flow_vertex_t calleeEntryV =
             copy_function_cfg(jv, TCG, M, G, callee, GetBinary, GetBlocks, DFSan, ForCBE, calleeExitVertices, memoize, tool);
-        boost::add_edge(Orig2CopyMap[bb], calleeEntryV, G);
+        boost::add_edge(Orig2CopyMap.at(bb), calleeEntryV, G);
 
         for (const auto &calleeExitVertPair : calleeExitVertices) {
           flow_vertex_t V;
