@@ -310,7 +310,7 @@ int CFGTool::Run(void) {
 
   for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
     const binary_t &binary = jv.Binaries.at(BIdx);
-    if (binary.path_str().find(opts.Binary) == std::string::npos)
+    if (!strstr(binary.Name.c_str(), opts.Binary.c_str()))
       continue;
 
     BinaryIndex = BIdx;
