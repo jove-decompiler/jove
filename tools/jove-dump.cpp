@@ -243,7 +243,7 @@ void DumpTool::dumpDecompilation(const jv_t& jv) {
             }
           }
 
-          Writer.printBoolean("Stale", true);
+          Writer.printBoolean("Stale", ICFG[bb].Analysis.Stale);
         }
 
         Writer.getOStream() << '\n';
@@ -373,7 +373,7 @@ void DumpTool::dumpDecompilation(const jv_t& jv) {
 #endif
           }
 
-          Writer.printBoolean("Stale", true);
+          Writer.printBoolean("Stale", f.Analysis.Stale);
         }
 
         Writer.printBoolean("IsABI", f.IsABI);
