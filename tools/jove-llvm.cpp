@@ -5942,27 +5942,28 @@ int LLVMTool::CreatePossibleTramps(void) {
     llvm::errs() << llvm::formatv("# of possible tramps: {0}\n",
                                   possible_tramps_vec.size());
 
-  std::vector<llvm::Constant *> constantTable;
-  constantTable.reserve(possible_tramps_vec.size());
-
-  for (uint64_t poss : possible_tramps_vec)
-    constantTable.push_back(SectionPointer(poss));
-
-  constantTable.push_back(llvm::Constant::getNullValue(WordType()));
-
-  llvm::ArrayType *T = llvm::ArrayType::get(WordType(), constantTable.size());
-  llvm::Constant *Init = llvm::ConstantArray::get(T, constantTable);
-
-  llvm::GlobalVariable *PossibleTrampsGV = new llvm::GlobalVariable(
-      *Module, T, true, llvm::GlobalValue::InternalLinkage, Init,
-      (fmt("__jove_poss_tramps%u") % BinaryIndex).str());
-
   fillInFunctionBody(
       Module->getFunction("_jove_possible_tramps"),
       [&](auto &IRB) {
-        IRB.CreateRet(IRB.CreateConstInBoundsGEP2_64(
-            PossibleTrampsGV->getValueType(),
-            PossibleTrampsGV, 0, 0));
+        if (possible_tramps_vec.empty()) {
+          IRB.CreateRet(llvm::Constant::getNullValue(WordType()));
+          return;
+        }
+
+        std::vector<llvm::Constant *> constantTable;
+        constantTable.reserve(possible_tramps_vec.size());
+        for (uint64_t poss : possible_tramps_vec)
+          constantTable.push_back(SectionPointer(poss));
+
+        auto *T = llvm::ArrayType::get(WordType(), constantTable.size());
+        auto *C = llvm::ConstantArray::get(T, constantTable);
+
+        auto *GV = new llvm::GlobalVariable(
+            *Module, T, true, llvm::GlobalValue::InternalLinkage, C,
+            (fmt("__jove_poss_tramps%u") % BinaryIndex).str());
+
+        IRB.CreateRet(
+            IRB.CreateConstInBoundsGEP2_64(GV->getValueType(), GV, 0, 0));
       },
       !opts.ForCBE);
 

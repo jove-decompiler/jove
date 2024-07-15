@@ -268,15 +268,16 @@ void _jove_install_function_mappings(void) {
       ++fninfo_p;
     }
 
-    _jove_see_through_tramps(fninfo_p);
+    if (_jove_num_possible_tramps() > 0)
+      _jove_see_through_tramps(fninfo_p);
   }
 
   mb();
 }
 
 void _jove_see_through_tramps(struct jove_function_info_t *fninfo_p) {
-  for (uintptr_t *pp = _jove_possible_tramps(); *pp; ++pp) {
-    const uintptr_t poss = *((uintptr_t *)(*pp));
+  for (unsigned i = 0; i < _jove_num_possible_tramps(); ++i) {
+    const uintptr_t poss = *((uintptr_t *)(_jove_possible_tramps()[i]));
 
     uintptr_t pc = ~0UL;
     if (!_jove_see_through_tramp((const void *)poss, &pc))
