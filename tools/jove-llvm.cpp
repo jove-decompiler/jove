@@ -5904,8 +5904,8 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
           abort();
         }
 
-        // casting to a llvm::Function* is a complete hack here.
-        // https://reviews.llvm.org/D64962
+        // FIXME casting to a llvm::Function* is a complete hack here. it's only
+        // ever used as a llvm::Constant* in llvm/lib/Transforms/Utils/ModuleUtils.cpp
         if (Sect._elf.initArray)
           llvm::appendToGlobalCtors(
               *Module,
