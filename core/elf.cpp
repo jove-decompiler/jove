@@ -13,41 +13,40 @@ namespace elf {
 uint64_t va_of_offset(ELFO &O, uint64_t off) {
   const ELFF &Elf = O.getELFFile();
 
-  if (Elf.getHeader().e_type == llvm::ELF::ET_EXEC) {
-    auto PhdrsOrError = Elf.program_headers();
-    if (!PhdrsOrError)
-      throw std::runtime_error("va_of_offset: no program headers: " +
-                               llvm::toString(PhdrsOrError.takeError()));
+  auto PhdrsOrError = Elf.program_headers();
+  if (!PhdrsOrError)
+    throw std::runtime_error("va_of_offset: no program headers: " +
+                             llvm::toString(PhdrsOrError.takeError()));
 
-    /* assumes they are sorted TODO verify? */
-    for (const Elf_Phdr &Phdr : *PhdrsOrError)
-      if (Phdr.p_type == llvm::ELF::PT_LOAD)
-        return off + Phdr.p_vaddr;
+  for (const auto &Phdr : *PhdrsOrError) {
+    if (Phdr.p_type != llvm::ELF::PT_LOAD)
+      continue;
 
-    throw std::runtime_error("va_of_offset: no PT_LOAD segment");
+    uint64_t FileStart = Phdr.p_offset;
+    uint64_t FileEnd = Phdr.p_offset + Phdr.p_filesz;
+
+    if (off >= FileStart && off < FileEnd) {
+      uint64_t VAStart = Phdr.p_vaddr;
+      uint64_t VAddr = VAStart + (off - FileStart);
+      return VAddr;
+    }
   }
 
-  return off;
+  throw std::runtime_error("va_of_offset: no segment for given offset (" +
+                           std::to_string(off) + ")");
 }
 
 uint64_t offset_of_va(ELFO &O, uint64_t va) {
   const ELFF &Elf = O.getELFFile();
 
-  if (Elf.getHeader().e_type == llvm::ELF::ET_EXEC) {
-    auto PhdrsOrError = Elf.program_headers();
-    if (!PhdrsOrError)
-      throw std::runtime_error("va_of_offset: no program headers: " +
-                               llvm::toString(PhdrsOrError.takeError()));
+  llvm::Expected<const uint8_t *> ExpectedPtr = Elf.toMappedAddr(va);
+  if (!ExpectedPtr)
+    throw std::runtime_error("offset_of_va: " +
+			     llvm::toString(ExpectedPtr.takeError()));
 
-    /* assumes they are sorted TODO verify? */
-    for (const Elf_Phdr &Phdr : *PhdrsOrError)
-      if (Phdr.p_type == llvm::ELF::PT_LOAD)
-        return va - Phdr.p_vaddr;
+  const uint8_t *const Ptr = *ExpectedPtr;
 
-    throw std::runtime_error("va_of_offset: no PT_LOAD segment");
-  }
-
-  return va;
+  return Ptr - Elf.base();
 }
 
 template <typename T>
