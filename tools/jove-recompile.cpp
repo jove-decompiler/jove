@@ -1093,50 +1093,61 @@ int RecompileTool::Run(void) {
     if (IsCOFF) {
       assert(IsX86Target);
 
+      std::string subsystem;
+
+      if (b.IsExecutable)
+        subsystem = B::_must_be_coff(*x.Bin, coff::link_subsystem);
+
       rc = RunExecutableToExit(locator().lld_link(), [&](auto Arg) {
         Arg(locator().lld_link());
 
-        Arg("-lldmingw");
-        Arg("-out:" + chrooted_path.string());
-        Arg("-debug:dwarf");
-        Arg("-WX:no");
+        //Arg("-lldmingw");
+        Arg("/out:" + chrooted_path.string());
+
         if (IsVeryVerbose())
-          Arg("-verbose");
-        Arg("-opt:noref");
-        Arg("-demangle");
-        Arg("-auto-import");
-        Arg("-runtime-pseudo-reloc");
-        Arg("-opt:noicf");
-        Arg("-noseh"); /* FIXME? */
-        Arg(std::string("-machine:") + (IsTarget32 ? "x86" : "x64"));
+          Arg("/verbose");
+
+        Arg(std::string("/machine:") + (IsTarget32 ? "x86" : "x64"));
+
+        if (!subsystem.empty())
+          Arg("/subsystem:" + subsystem);
+
+        Arg("/entry:JoveWinMain");
+
+        Arg("/debug:dwarf");
+        Arg("/largeaddressaware");
+        Arg("/nodefaultlib");
+        Arg("/opt:noref");
+        Arg("/opt:noicf");
+        Arg("/safeseh:no");
+
+        //Arg("/auto-import");
+        //Arg("/force:unresolved");
+        //Arg("/opt:noref");
+        //Arg("/demangle");
+        //Arg("-runtime-pseudo-reloc:no");
+        //Arg("-alternatename:__image_base__=__ImageBase");
 
         if (b.IsExecutable && !b.IsPIC) { /* do we need to set base address? */
           uint64_t Base, End;
           std::tie(Base, End) = B::bounds_of_binary(*x.Bin);
 
-          std::string TopSectName = !fs::is_empty(ldfp) ? ".jove.pr" : ".jove";
+          Arg("/dynamicbase:no");
+          Arg("/fixed");
 
-          Arg((fmt("/section:%s,RW,%lx") % TopSectName % Base).str());
-          if (!fs::is_empty(ldfp)) {
-            Arg("/section:.rsrc,RW");
-            Arg("/section:.jove.po,RW");
-          }
+          Arg((fmt("/base:0x%lx") % (Base - 0x1000)).str());
+        } else {
+          Arg("/dynamicbase");
         }
 
-#if 0
-        if (!fs::is_empty(ldfp))
-          Arg("/order:@" + ldfp);
-#endif
-
-        Arg("-alternatename:__image_base__=__ImageBase");
         for (const std::string &lib_dir : lib_dirs) {
-          Arg("-libpath:" + lib_dir);
+          Arg("/libpath:" + lib_dir);
         }
         Arg(objfp);
 
         Arg(locator().builtins());
         Arg(locator().softfloat_bitcode(IsCOFF));
-        Arg(locator().runtime_dll(opts.MT));
+        Arg(locator().runtime_implib(opts.MT));
 
         for (const std::string &needed : x.needed_vec) {
           auto it = soname_map.find(needed);
@@ -1161,8 +1172,8 @@ int RecompileTool::Run(void) {
     };
 
     if (22) rc = run_linker(locator().lld().c_str());
-    if (rc) rc = run_linker(locator().ld_gold().c_str()); /* ridiculous... */
-    if (rc) rc = run_linker(locator().ld_bfd().c_str());  /* lol... */
+    if (rc) rc = run_linker(locator().ld_gold().c_str()); /* XXX >_< */
+    if (rc) rc = run_linker(locator().ld_bfd().c_str());  /* XXX O_O */
     }
 
     //
@@ -1367,7 +1378,8 @@ void RecompileTool::worker(dso_t dso) {
               Arg("--relocation-model=pic");
             } else {
               assert(b.IsExecutable);
-              Arg("--relocation-model=static");
+              Arg(IsCOFF ? "--relocation-model=dynamic-no-pic"
+                         : "--relocation-model=static");
             }
 
             if (IsCOFF)

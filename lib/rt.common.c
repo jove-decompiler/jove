@@ -266,6 +266,7 @@ BOOL WINAPI _DllMainCRTStartup(HMODULE hModule,
 }
 
 void ___chkstk_ms() {}
+void __chkstk() {}
 
 void _jove_init_cpu_state(void) {
   if (__jove_initialized_env)

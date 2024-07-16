@@ -19,6 +19,7 @@ LLVM_LLD := $(LLVM_BIN_DIR)/ld.lld
 LLVM_LLC := $(LLVM_BIN_DIR)/llc
 LLVM_CXX := $(LLVM_BIN_DIR)/clang++
 LLVM_OPT := $(LLVM_BIN_DIR)/opt
+LLVM_LLD_LINK := $(LLVM_BIN_DIR)/lld-link
 
 JOVE_GITVER := $(shell git log -n1 --format="%h")
 
@@ -76,8 +77,15 @@ runtime_so_ldflags = -nostdlib \
                      --exclude-libs ALL \
                      -shared
 
-runtime_dll_ldflags = --as-needed $(JOVE_ROOT_DIR)/prebuilts/obj/libclang_rt.builtins-$(1).a \
-                      -shared
+runtime_dll_ldflags = /dll \
+                      /machine:$($(1)_COFF_MACHINE) \
+                      /nodefaultlib \
+                      /debug:dwarf \
+                      /WX:no \
+                      /largeaddressaware \
+                      /opt:noref \
+                      /opt:noicf \
+                      /machine:x64
 
 # disable built-in rules
 .SUFFIXES:
@@ -110,10 +118,14 @@ helpers-$(1): $(foreach h,$($(t)_HELPERS),$(BINDIR)/$(1)/helpers/$(h).ll) \
 .PHONY: runtime-$(1)
 runtime-$(1): $(BINDIR)/$(1)/libjove_rt.st.so \
               $(BINDIR)/$(1)/libjove_rt.mt.so \
-              $(BINDIR)/$(1)/jove.st.bc \
-              $(BINDIR)/$(1)/jove.mt.bc \
-              $(BINDIR)/$(1)/jove.st.ll \
-              $(BINDIR)/$(1)/jove.mt.ll \
+              $(BINDIR)/$(1)/jove.elf.st.bc \
+              $(BINDIR)/$(1)/jove.elf.mt.bc \
+              $(BINDIR)/$(1)/jove.elf.st.ll \
+              $(BINDIR)/$(1)/jove.elf.mt.ll \
+              $(BINDIR)/$(1)/jove.coff.st.bc \
+              $(BINDIR)/$(1)/jove.coff.mt.bc \
+              $(BINDIR)/$(1)/jove.coff.st.ll \
+              $(BINDIR)/$(1)/jove.coff.mt.ll \
               $(_DLLS_$(1))
 
 $(BINDIR)/$(1)/qemu-starter: lib/arch/$(1)/qemu-starter.c
@@ -126,11 +138,17 @@ $(BINDIR)/$(1)/qemu-starter.inc: $(BINDIR)/$(1)/qemu-starter
 #
 # starter bitcode
 #
-$(BINDIR)/$(1)/jove.st.bc: lib/arch/$(1)/jove.c
+$(BINDIR)/$(1)/jove.elf.st.bc: lib/arch/$(1)/jove.c
 	$(LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -MMD $$<
 
-$(BINDIR)/$(1)/jove.mt.bc: lib/arch/$(1)/jove.c
+$(BINDIR)/$(1)/jove.elf.mt.bc: lib/arch/$(1)/jove.c
 	$(LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -D JOVE_MT -MMD $$<
+
+$(BINDIR)/$(1)/jove.coff.st.bc: lib/arch/$(1)/jove.c
+	$(LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -D JOVE_COFF -MMD $$<
+
+$(BINDIR)/$(1)/jove.coff.mt.bc: lib/arch/$(1)/jove.c
+	$(LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -D JOVE_COFF -D JOVE_MT -MMD $$<
 
 $(BINDIR)/$(1)/jove.%.ll: $(BINDIR)/$(1)/jove.%.bc
 	$(LLVM_OPT) -o $$@ -S --strip-debug $$<
@@ -169,10 +187,24 @@ $(BINDIR)/$(1)/libjove_rt.%.dll.o: $(BINDIR)/$(1)/libjove_rt.%.bc
 	sed -i -e 's/void @_jove_free_stack_later(/x86_64_sysvcc void @_jove_free_stack_later(/g' $$<.dll.ll
 	sed -i -e 's/i64 @_jove_handle_signal_delivery(/x86_64_sysvcc i64 @_jove_handle_signal_delivery(/g' $$<.dll.ll
 	sed -i -e 's/i32 @_jove_handle_signal_delivery(/x86_64_sysvcc i32 @_jove_handle_signal_delivery(/g' $$<.dll.ll
+	sed -i -e 's/@__jove_env = global %struct.CPUArchState zeroinitializer/@__jove_env = dllexport global %struct.CPUArchState zeroinitializer/g' $$<.dll.ll
+	sed -i -e 's/@__jove_callstack = global ptr null/@__jove_callstack = dllexport global ptr null/g' $$<.dll.ll
+	sed -i -e 's/@__jove_callstack_begin = global ptr null/@__jove_callstack_begin = dllexport global ptr null/g' $$<.dll.ll
+	sed -i -e 's/@__jove_function_map = global /@__jove_function_map = dllexport global /g' $$<.dll.ll
+	sed -i -e 's/@__jove_function_tables = global /@__jove_function_tables = dllexport global /g' $$<.dll.ll
+	sed -i -e 's/@__jove_sections_tables = global /@__jove_sections_tables = dllexport global /g' $$<.dll.ll
+	sed -i -e 's/@__jove_opts = global /@__jove_opts = dllexport global /g' $$<.dll.ll
+	sed -i -e 's/@__jove_trace = global /@__jove_trace = dllexport global /g' $$<.dll.ll
+	sed -i -e 's/@__jove_trace_begin = global /@__jove_trace_begin = dllexport global /g' $$<.dll.ll
+	sed -i -e 's/define void @___chkstk/define dllexport void @___chkstk/g' $$<.dll.ll
+	sed -i -e 's/define void @_jove_flush_trace/define dllexport void @_jove_flush_trace/g' $$<.dll.ll
+	sed -i -e 's/define void @_jove_rt_init/define dllexport void @_jove_rt_init/g' $$<.dll.ll
+	sed -i -e 's/define i32 @_jove_needs_single_threaded_runtime/define dllexport i32 @_jove_needs_single_threaded_runtime/g' $$<.dll.ll
+	sed -i -e 's/define i32 @_jove_needs_multi_threaded_runtime/define dllexport i32 @_jove_needs_multi_threaded_runtime/g' $$<.dll.ll
 	$(LLVM_LLC) -o $$@ --filetype=obj --relocation-model=pic --mtriple=$($(1)_COFF_TRIPLE) $$<.dll.ll
 
 $(BINDIR)/$(1)/libjove_rt.%.dll: $(BINDIR)/$(1)/libjove_rt.%.dll.o
-	$(LLVM_LLD) -o $$@ -m $($(1)_COFF_LD_EMU) $(call runtime_dll_ldflags,$(1)) $$<
+	$(LLVM_LLD_LINK) /out:$$@ $(call runtime_dll_ldflags,$(1)) $$<
 
 .PHONY: gen-tcgconstants-$(1)
 gen-tcgconstants-$(1): $(BINDIR)/$(1)/gen-tcgconstants
@@ -182,8 +214,10 @@ $(foreach t,$(ALL_TARGETS),$(eval $(call target_code_template,$(t))))
 
 -include $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/libjove_rt.st.d)
 -include $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/libjove_rt.mt.d)
--include $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/jove.st.d)
--include $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/jove.mt.d)
+-include $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/jove.elf.st.d)
+-include $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/jove.elf.mt.d)
+-include $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/jove.coff.st.d)
+-include $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/jove.coff.mt.d)
 -include $(foreach t,$(ALL_TARGETS),$(foreach h,$($(t)_HELPERS),$(BINDIR)/$(t)/helpers/$(h).d))
 
 .PHONY: clean-helpers
@@ -253,12 +287,15 @@ clean-helpers-$(1):
 
 .PHONY: clean-runtime-$(1)
 clean-runtime-$(1):
-	rm -f $(BINDIR)/$(1)/jove.st.ll \
-	      $(BINDIR)/$(1)/jove.mt.ll \
-	      $(BINDIR)/$(1)/jove.st.bc \
-	      $(BINDIR)/$(1)/jove.mt.bc \
-	      $(BINDIR)/$(1)/libjove_rt.st.so \
-	      $(BINDIR)/$(1)/libjove_rt.mt.so
+	rm -f $(BINDIR)/$(1)/jove.*.ll        \
+	      $(BINDIR)/$(1)/jove.*.bc        \
+	      $(BINDIR)/$(1)/jove.*.d         \
+	      $(BINDIR)/$(1)/libjove_rt.*.d   \
+	      $(BINDIR)/$(1)/libjove_rt.*.ll  \
+	      $(BINDIR)/$(1)/libjove_rt.*.bc  \
+	      $(BINDIR)/$(1)/libjove_rt.*.so  \
+	      $(BINDIR)/$(1)/libjove_rt.*.dll \
+	      $(BINDIR)/$(1)/libjove_rt.*.lib
 
 .PHONY: clean-bitcode-$(1)
 clean-bitcode-$(1):

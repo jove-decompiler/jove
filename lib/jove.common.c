@@ -4,6 +4,11 @@ extern __JTHREAD struct CPUArchState __jove_env __attribute__((aligned(64)));
 static /* __thread */ struct CPUArchState __jove_local_env;
 #endif
 
+#ifndef JOVE_COFF
+#define JOVE_CLUNK
+#endif
+
+#ifdef JOVE_CLUNK
 static /* __thread */ struct CPUArchState *__jove_env_clunk =
 #ifdef JOVE_MT
     &__jove_local_env
@@ -11,6 +16,7 @@ static /* __thread */ struct CPUArchState *__jove_env_clunk =
     &__jove_env
 #endif
     ;
+#endif
 
 extern __JTHREAD uint64_t *__jove_trace;
 extern __JTHREAD uint64_t *__jove_trace_begin;
@@ -1336,7 +1342,13 @@ jove_thunk_return_t _jove_call(
 
 found:
   if (Callee.IsForeign) {
-    const bool in_ifunc = __jove_env_clunk == NULL;
+    const bool in_ifunc =
+#ifdef JOVE_CLUNK
+        __jove_env_clunk == NULL
+#else
+        false
+#endif
+        ;
 
     uintptr_t RealEntry = __jove_foreign_function_tables[Callee.BIdx][Callee.FIdx];
     if (unlikely(in_ifunc)) {
@@ -1491,7 +1503,9 @@ void __nodce(void **p) {
   *p++ = &__jove_trace_begin;
   *p++ = &__jove_callstack;
   *p++ = &__jove_callstack_begin;
+#ifdef JOVE_CLUNK
   *p++ = &__jove_env_clunk;
+#endif
   *p++ = &_jove_alloc_stack;
   *p++ = &_jove_free_stack;
   *p++ = &_jove_alloc_callstack;

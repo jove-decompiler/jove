@@ -47,8 +47,18 @@ std::string locator_t::runtime_dll(bool mt) {
   return must_exist(arch_bin_path() / fnm);
 }
 
-std::string locator_t::starter_bitcode(bool mt) {
-  const char *fnm = mt ? "jove.mt.bc" : "jove.st.bc";
+std::string locator_t::runtime_implib(bool mt) {
+  const char *fnm = mt ? "libjove_rt.mt.lib" : "libjove_rt.st.lib";
+  return must_exist(arch_bin_path() / fnm);
+}
+
+std::string locator_t::starter_bitcode(bool mt, bool IsCOFF) {
+  std::string fnm("jove.");
+  fnm.append(IsCOFF ? "coff" : "elf");
+  fnm.push_back('.');
+  fnm.append(mt ? "mt" : "st");
+  fnm.append(".bc");
+
   return must_exist(arch_bin_path() / fnm);
 }
 

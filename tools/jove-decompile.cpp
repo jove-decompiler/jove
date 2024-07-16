@@ -488,7 +488,7 @@ int DecompileTool::Run(void) {
 
     Arg("-o");
     Arg(jove_o_fp);
-    Arg(locator().starter_bitcode(opts.MT));
+    Arg(locator().starter_bitcode(opts.MT, IsCOFF));
 
     Arg("--filetype=obj");
 

@@ -21,8 +21,11 @@ mipsel_LD_EMU   := elf32ltsmip
 mips_LD_EMU     := elf32btsmip
 mips64el_LD_EMU := elf64ltsmip
 
-i386_COFF_TRIPLE   := i686-windows-gnu
-x86_64_COFF_TRIPLE := x86_64-windows-gnu
+i386_COFF_TRIPLE   := i686-windows-msvc
+x86_64_COFF_TRIPLE := x86_64-windows-msvc
 
 i386_COFF_LD_EMU   := i386pe
 x86_64_COFF_LD_EMU := i386pep
+
+i386_COFF_MACHINE   := x86
+x86_64_COFF_MACHINE := x64

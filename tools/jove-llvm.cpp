@@ -498,8 +498,8 @@ struct LLVMTool : public StatefulJVTool<ToolKind::CopyOnWrite,
   llvm::Constant *__jove_fail_UnknownBranchTarget;
   llvm::Constant *__jove_fail_UnknownCallee;
 
-  bool pcrel_flag = false; /* XXX this is ugly, but it works */
-  uint64_t lstaddr = 0;
+  bool pcrel_flag = false; /* FIXME? !MT-safe */
+  uint64_t lstaddr = 0;    /* FIXME? !MT-safe */
 
 public:
   LLVMTool() : opts(JoveCategory), DL("") {}
@@ -2611,14 +2611,14 @@ void LLVMTool::fillInFunctionBody(llvm::Function *F,
 int LLVMTool::CreateModule(void) {
   Context.reset(new llvm::LLVMContext);
 
-  const char *bootstrap_mod_name = opts.DFSan ? "jove.dfsan" : "jove";
+  std::string path_to_bitcode = locator().starter_bitcode(opts.MT, IsCOFF);
 
   llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> BufferOr =
-      llvm::MemoryBuffer::getFile(locator().starter_bitcode(opts.MT));
+      llvm::MemoryBuffer::getFile(path_to_bitcode);
   if (!BufferOr) {
-    WithColor::error() << "failed to open bitcode "
-                       << locator().starter_bitcode(opts.MT) << ": "
-                       << BufferOr.getError().message() << '\n';
+    WithColor::error() << llvm::formatv("failed to open {0}: {1}\n",
+                                        path_to_bitcode,
+                                        BufferOr.getError().message());
     return 1;
   }
 
@@ -2655,12 +2655,10 @@ int LLVMTool::CreateModule(void) {
 
   DL = Module->getDataLayout();
 
-  {
-    CPUStateGlobal = Module->getGlobalVariable("__jove_env", true);
-    assert(CPUStateGlobal);
+  CPUStateGlobal = Module->getGlobalVariable("__jove_env");
+  assert(CPUStateGlobal);
 
-    CPUStateType = CPUStateGlobal->getValueType();
-  }
+  CPUStateType = CPUStateGlobal->getValueType();
 
   TraceGlobal = Module->getGlobalVariable("__jove_trace", true);
   assert(TraceGlobal);
@@ -2806,6 +2804,49 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
       F.setVisibility(llvm::GlobalValue::DefaultVisibility);
       F.deleteBody();
     });
+  }
+
+  if (IsCOFF) {
+    CPUStateGlobal->setDLLStorageClass(llvm::GlobalValue::DLLImportStorageClass);
+    TraceGlobal->setDLLStorageClass(llvm::GlobalValue::DLLImportStorageClass);
+    CallStackGlobal->setDLLStorageClass(llvm::GlobalValue::DLLImportStorageClass);
+    CallStackBeginGlobal->setDLLStorageClass(llvm::GlobalValue::DLLImportStorageClass);
+    JoveFunctionTablesGlobal->setDLLStorageClass(llvm::GlobalValue::DLLImportStorageClass);
+
+    {
+      auto *GV = Module->getGlobalVariable("__jove_function_map", true);
+      assert(GV);
+      assert(!GV->hasInitializer());
+      GV->setDLLStorageClass(llvm::GlobalValue::DLLImportStorageClass);
+    }
+
+    {
+      auto *GV = Module->getGlobalVariable("__jove_opts", true);
+      assert(GV);
+      assert(!GV->hasInitializer());
+      GV->setDLLStorageClass(llvm::GlobalValue::DLLImportStorageClass);
+    }
+
+    {
+      auto *GV = Module->getGlobalVariable("__jove_opts", true);
+      assert(GV);
+      assert(!GV->hasInitializer());
+      GV->setDLLStorageClass(llvm::GlobalValue::DLLImportStorageClass);
+    }
+
+    {
+      auto *GV = Module->getGlobalVariable("__jove_sections_tables", true);
+      assert(GV);
+      assert(!GV->hasInitializer());
+      GV->setDLLStorageClass(llvm::GlobalValue::DLLImportStorageClass);
+    }
+
+    {
+      auto *GV = Module->getGlobalVariable("__jove_trace_begin", true);
+      assert(GV);
+      assert(!GV->hasInitializer());
+      GV->setDLLStorageClass(llvm::GlobalValue::DLLImportStorageClass);
+    }
   }
 
   return 0;
@@ -5704,7 +5745,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
   }
 
   if (opts.LayOutSections) {
-    std::string CurrSectName = IsCOFF ? ".jove_pr" : ".jove";
+    std::string CurrSectName = ".jove";
 
     unsigned j = 0;
     for (unsigned i = 0; i < NumSections; ++i) {
@@ -5739,7 +5780,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
 
       if (IsCOFF && _coff.rsrcSectIdx >= 0) {
         if (i < _coff.rsrcSectIdx)
-          CurrSectName = ".jove_pr";
+          ;
         else if (i > _coff.rsrcSectIdx)
           CurrSectName = ".jove_po";
         else
@@ -5927,12 +5968,9 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
     }
   }
 
-  if (SectsGlobal &&
-      jv.Binaries.at(BinaryIndex).IsExecutable &&
-      !jv.Binaries.at(BinaryIndex).IsPIC)
-    SectsGlobal->setSection(".jove"); /* we will refer to this later with ld,
-                                       * placing the section at the executable's
-                                       * original base address in memory */
+  if (SectsGlobal && (IsCOFF || (jv.Binaries.at(BinaryIndex).IsExecutable &&
+                                 !jv.Binaries.at(BinaryIndex).IsPIC)))
+    SectsGlobal->setSection(".jove");
 
   return 0;
 }
@@ -10018,21 +10056,27 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
     } else {
       pcrel_flag = false;
 
-      uint64_t Addr = op->args[0];
+      const uint64_t Addr = op->args[0];
+      lstaddr = Addr;
 
 #if 0
       if (IsVerbose())
         HumanOut() << llvm::formatv("insn @ {0:x}\n", Addr);
 #endif
 
-      lstaddr = Addr;
+      static_assert(sizeof(unsigned) == sizeof(uint32_t));
 
-      unsigned Line = Addr;
+      uint32_t Line = Addr;
+      uint32_t Column = 0;
 
-      /* FIXME line and column numbers are 32 bits each; on 64-bit encode VA
-       * as one half line, one half column */
+      /* on 64-bit split VA into two halves and store them in line & column */
+      if (sizeof(taddr_t) == 8) {
+        Line   = static_cast<uint32_t>(Addr & 0xFFFFFFFF);
+        Column = static_cast<uint32_t>(Addr >> 32);
+      }
+
       IRB.SetCurrentDebugLocation(llvm::DILocation::get(
-          *Context, Line, 0 /* Column */, TC.DebugInformation.Subprogram));
+          *Context, Line, Column, TC.DebugInformation.Subprogram));
     }
     break;
 

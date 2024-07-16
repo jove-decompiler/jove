@@ -34,7 +34,7 @@ struct function_state_t {
 };
 
 struct binary_state_t {
-  std::unique_ptr<llvm::object::Binary> ObjectFile;
+  std::unique_ptr<llvm::object::Binary> Bin;
 };
 
 }
@@ -73,21 +73,24 @@ int AnalyzeTool::Run(void) {
   identify_ABIs(jv);
 
   for_each_binary(jv, [&](binary_t &binary) {
-    ignore_exception([&]() {
-      state.for_binary(binary).ObjectFile = B::Create(binary.data());
-    });
+      state.for_binary(binary).Bin = B::Create(binary.data());
   });
 
+  bool IsCOFF = B::_X(*state.for_binary(jv.Binaries.at(0)).Bin,
+      [&](ELFO &O) -> bool { return false; },
+      [&](COFFO &O) -> bool { return true; });
   //
   // create LLVM module (necessary to analyze helpers)
   //
   Context.reset(new llvm::LLVMContext);
 
+  std::string path_to_bitcode = locator().starter_bitcode(false, IsCOFF);
+
   llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> BufferOr =
-      llvm::MemoryBuffer::getFile(locator().starter_bitcode(false));
+      llvm::MemoryBuffer::getFile(path_to_bitcode);
   if (!BufferOr) {
-    WithColor::error() << llvm::formatv("failed to open bitcode {0}: {1}\n",
-                                        locator().starter_bitcode(false),
+    WithColor::error() << llvm::formatv("failed to open {0}: {1}\n",
+                                        path_to_bitcode,
                                         BufferOr.getError().message());
     return 1;
   }
@@ -141,7 +144,7 @@ int AnalyzeTool::AnalyzeBlocks(void) {
         if (ICFG[bb].Analysis.Stale)
           ++count;
 
-        AnalyzeBasicBlock(*TCG, *Module, b, *state.for_binary(b).ObjectFile, bb,
+        AnalyzeBasicBlock(*TCG, *Module, b, *state.for_binary(b).Bin, bb,
                           false, false, this);
 
         assert(!ICFG[bb].Analysis.Stale);
@@ -193,7 +196,7 @@ int AnalyzeTool::AnalyzeFunctions(void) {
           AnalyzeFunction(
               jv, *TCG, *Module, f,
               [&](binary_t &b) -> llvm::object::Binary & {
-                return *state.for_binary(b).ObjectFile;
+                return *state.for_binary(b).Bin;
               },
               [&](function_t &f) -> std::pair<basic_block_vec_t &, basic_block_vec_t &> {
                 function_state_t &x = state.for_function(f);

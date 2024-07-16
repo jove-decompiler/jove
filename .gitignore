@@ -10,4 +10,5 @@ tags
 /bin/*/helpers/*.d
 /bin/*/*.o
 /bin/*/*.dll
+/bin/*/*.lib
 /bin/*/qemu-starter

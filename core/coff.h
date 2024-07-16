@@ -58,5 +58,8 @@ void gen_module_definition_for_dll(COFFO &, llvm::StringRef DLL, std::ostream &)
 
 std::string unique_symbol_for_ordinal_in_dll(llvm::StringRef DLL,
                                              uint16_t Ordinal);
+
+std::string link_subsystem(COFFO &);
+
 }
 }

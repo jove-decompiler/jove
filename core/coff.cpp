@@ -200,5 +200,27 @@ std::string unique_symbol_for_ordinal_in_dll(llvm::StringRef DLL,
 
   return res;
 }
+
+static std::string link_subsystem_of_image_subsystem(unsigned sub) {
+  switch (sub) {
+  case llvm::COFF::IMAGE_SUBSYSTEM_WINDOWS_GUI:
+    return "windows";
+  case llvm::COFF::IMAGE_SUBSYSTEM_WINDOWS_CUI:
+    return "console";
+  }
+
+  throw std::runtime_error("msvc_subsystem_of_image_subsystem: unimplemented");
+}
+
+std::string link_subsystem(COFFO &O) {
+  if (const obj::pe32plus_header *PEPlusHeader = O.getPE32PlusHeader())
+    return link_subsystem_of_image_subsystem(PEPlusHeader->Subsystem);
+
+  if (const obj::pe32_header *PEHeader = O.getPE32Header())
+    return link_subsystem_of_image_subsystem(PEHeader->Subsystem);
+
+  return "";
+}
+
 }
 }

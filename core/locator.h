@@ -8,7 +8,8 @@ struct locator_t {
 
   std::string runtime_so(bool mt); // libjove_rt.so
   std::string runtime_dll(bool mt); // libjove_rt.dll
-  std::string starter_bitcode(bool mt); // jove.bc
+  std::string runtime_implib(bool mt); // libjove_rt.lib
+  std::string starter_bitcode(bool mt, bool IsCOFF); // jove.bc
   std::string helper_bitcode(const std::string &name);
 
   std::string softfloat_bitcode(bool IsCOFF);
