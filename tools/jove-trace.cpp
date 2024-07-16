@@ -2,6 +2,7 @@
 #include "B.h"
 
 #include <boost/filesystem.hpp>
+#include <boost/format.hpp>
 
 #include <llvm/Support/CommandLine.h>
 #include <llvm/Support/DataExtractor.h>
@@ -27,12 +28,12 @@ namespace jove {
 namespace {
 
 struct binary_state_t {
-  std::unique_ptr<llvm::object::Binary> ObjectFile;
+  std::unique_ptr<llvm::object::Binary> Bin;
 };
 
 }
 
-class TraceTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void, void> {
+class TraceTool : public StatefulJVTool<ToolKind::CopyOnWrite, binary_state_t, void, void> {
   struct Cmdline {
     cl::opt<std::string> Prog;
     cl::list<std::string> Args;
@@ -117,11 +118,11 @@ public:
   TraceTool() : opts(JoveCategory) {}
 
   int Run(void) override;
-
-  void InitStateForBinaries(jv_t &);
 };
 
 JOVE_REGISTER_TOOL("trace", TraceTool);
+
+typedef boost::format fmt;
 
 int TraceTool::Run(void) {
   for (char *dashdash_arg : dashdash_args)
@@ -155,7 +156,9 @@ int TraceTool::Run(void) {
     }
   }
 
-  InitStateForBinaries(jv);
+  for_each_binary(jv, [&](binary_t &b) {
+    state.for_binary(b).Bin = B::Create(b.data());
+  });
 
   //
   // establish temporary directory that may or may not be used as a sysroot
@@ -180,13 +183,16 @@ int TraceTool::Run(void) {
   //
   // recreate sysroot as best we can TODO refactor
   //
-  for (const binary_t &binary : jv.Binaries) {
-    fs::path chrooted_path(SysrootPath / binary.path_str());
+  for_each_binary(jv, [&](binary_t &b) {
+    if (!b.is_file())
+      return;
+
+    fs::path chrooted_path(SysrootPath / b.path_str());
     fs::create_directories(chrooted_path.parent_path());
 
     {
       std::ofstream ofs(chrooted_path.c_str());
-      ofs.write(&binary.Data[0], binary.Data.size());
+      ofs.write(&b.Data[0], b.Data.size());
     }
 
     fs::permissions(chrooted_path, fs::others_read
@@ -196,7 +202,7 @@ int TraceTool::Run(void) {
                                  | fs::owner_read
                                  | fs::owner_write
                                  | fs::owner_exe);
-  }
+  });
 
   if (opts.SkipUProbe)
     goto skip_uprobe;
@@ -232,11 +238,14 @@ open_events:
         if (fd < 0) {
           ;
         } else {
-          ssize_t ret = ::write(fd, "0\n", sizeof("0\n"));
+          ssize_t ret;
+          do
+            ret = ::write(fd, "0\n", sizeof("0\n") - 1);
+          while (ret < 0 && errno == EINTR);
 
           (void)::close(fd);
 
-          if (ret == sizeof("0\n")) {
+          if (ret == sizeof("0\n") - 1) {
             //
             // if all that succeeded, start over again
             //
@@ -282,10 +291,7 @@ open_events:
         continue;
       }
 
-      assert(state.for_binary(binary).ObjectFile.get() != nullptr);
-      assert(llvm::isa<ELFO>(state.for_binary(binary).ObjectFile.get()));
-      ELFO &Obj = *llvm::cast<ELFO>(state.for_binary(binary).ObjectFile.get());
-      const ELFF &Elf = Obj.getELFFile();
+      binary_state_t &x = state.for_binary(binary);
 
       const auto &ICFG = binary.Analysis.ICFG;
 
@@ -301,36 +307,25 @@ open_events:
         // p:jove/JV_0_1 /tmp/XdoHpm/usr/bin/ls:0x0000000000005aee
         //
 
-        uintptr_t Off;
-        if (binary.IsPIC) {
-          Off = ICFG[bb].Addr;
-        } else {
-          assert(binary.IsExecutable);
+        const uint64_t Off = B::offset_of_va(*x.Bin, ICFG[bb].Addr);
 
-          //
-          // instead of a virtual address, we need to provide an offset from the
-          // start of the file.
-          //
-          llvm::Expected<const uint8_t *> ExpectedPtr = Elf.toMappedAddr(ICFG[bb].Addr);
-          if (!ExpectedPtr) {
-            //WARN();
-            continue;
-          }
+        std::string buff =
+          (fmt("p:jove/JV_%" PRIu32 "_%" PRIu32 " %s:0x%" PRIx64 "\n")
+           % BIdx
+           % BBIdx
+           % chrooted_path.string()
+           % Off).str();
 
-          const uint8_t *Ptr = *ExpectedPtr;
+        if (IsVeryVerbose())
+          HumanOut() << buff;
 
-          Off = (uintptr_t)Ptr - (uintptr_t)Elf.base();
-        }
+        const unsigned N = buff.size();
 
-        char buff[0x100];
-        unsigned N = snprintf(buff, sizeof(buff),
-                 "p:jove/JV_%" PRIu32 "_%" PRIu32 " %s:0x%" PRIx64 "\n",
-                 BIdx,
-                 BBIdx,
-                 chrooted_path.c_str(),
-                 static_cast<uint64_t>(Off));
+        ssize_t ret;
+        do
+          ret = ::write(events_fd, buff.c_str(), N);
+        while (ret < 0 && errno == EINTR);
 
-        ssize_t ret = ::write(events_fd, buff, N);
         if (ret < 0) {
           int err = errno;
 
@@ -378,11 +373,15 @@ enable_uprobe:
       return 1;
     }
 
-  constexpr unsigned MAX_RETRIES = 10;
-  unsigned c = 0;
+    constexpr unsigned MAX_RETRIES = 10;
+    unsigned c = 0;
 
 do_enable_uprobe:
-    ssize_t ret = ::write(fd, "1\n", sizeof("1\n"));
+    ssize_t ret;
+    do
+      ret = ::write(fd, "1\n", sizeof("1\n") - 1);
+    while (ret < 0 && errno == EINTR);
+
     if (ret < 0) {
       int err = errno;
       if (err == EINVAL && ++c < MAX_RETRIES) {
@@ -401,7 +400,7 @@ do_enable_uprobe:
 
     (void)::close(fd);
 
-    if (ret != sizeof("1\n")) {
+    if (ret != sizeof("1\n") - 1) {
       WithColor::error() << llvm::formatv(
           "only wrote {0} bytes to uprobe_events enable\n", ret);
 
@@ -577,11 +576,4 @@ skip_uprobe:
   return 0;
 }
 
-void TraceTool::InitStateForBinaries(jv_t &jv) {
-  for_each_binary(jv, [&](binary_t &binary) {
-    ignore_exception([&]() {
-      state.for_binary(binary).ObjectFile = B::Create(binary.data());
-    });
-  });
-}
 }
