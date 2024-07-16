@@ -1,6 +1,6 @@
 __JTHREAD struct CPUArchState __jove_env __attribute__((aligned(64)));
 
-__JTHREAD bool __jove_initialized_env = false;
+static __JTHREAD bool __jove_initialized_env = false;
 
 __JTHREAD uint64_t *__jove_trace       = NULL;
 __JTHREAD uint64_t *__jove_trace_begin = NULL;
@@ -975,8 +975,13 @@ uintptr_t _jove_handle_signal_delivery(uintptr_t SignalDelivery,
 }
 
 void __nodce(void **p) {
-  *p++ = __jove_trace;
-  *p++ = __jove_trace_begin;
-  *p++ = __jove_callstack;
-  *p++ = __jove_callstack_begin;
+  *p++ = &__jove_trace;
+  *p++ = &__jove_trace_begin;
+  *p++ = &__jove_callstack;
+  *p++ = &__jove_callstack_begin;
+  *p++ = &__jove_function_tables;
+  *p++ = &__jove_sections_tables;
+  *p++ = &__jove_function_map;
+  *p++ = &__jove_dfsan_flush;
+  *p++ = &__jove_dfsan_sig_handle;
 }
