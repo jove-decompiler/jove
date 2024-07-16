@@ -1,7 +1,5 @@
 #include "tool.h"
 #include "B.h"
-#include "crypto.h"
-#include "fd.h"
 #include "serialize.h"
 
 #include <boost/filesystem.hpp>
