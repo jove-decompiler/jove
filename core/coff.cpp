@@ -26,16 +26,6 @@ uint64_t va_of_offset(COFFO &O, uint64_t off) {
                            std::to_string(off) + ")");
 }
 
-uint64_t offset_of_va(COFFO &O, uint64_t va) {
-  uintptr_t UIntPtr = ~0UL;
-
-  if (llvm::Error E = O.getVaPtr(va, UIntPtr))
-    throw std::runtime_error(llvm::toString(std::move(E)));
-
-  return reinterpret_cast<const uint8_t *>(UIntPtr) -
-         reinterpret_cast<const uint8_t *>(O.getMemoryBufferRef().getBufferStart());
-}
-
 bool isCode(COFFO &O, uint64_t va) {
   uint64_t RVA = rva_of_va(O, va);
 

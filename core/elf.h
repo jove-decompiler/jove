@@ -279,7 +279,6 @@ private:
 #endif
 
 uint64_t va_of_offset(ELFO &, uint64_t off);
-uint64_t offset_of_va(ELFO &, uint64_t va);
 
 typedef std::pair<uint64_t, uint64_t> addr_pair;
 addr_pair bounds_of_binary(ELFO &);

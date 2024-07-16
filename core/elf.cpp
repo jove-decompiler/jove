@@ -36,19 +36,6 @@ uint64_t va_of_offset(ELFO &O, uint64_t off) {
                            std::to_string(off) + ")");
 }
 
-uint64_t offset_of_va(ELFO &O, uint64_t va) {
-  const ELFF &Elf = O.getELFFile();
-
-  llvm::Expected<const uint8_t *> ExpectedPtr = Elf.toMappedAddr(va);
-  if (!ExpectedPtr)
-    throw std::runtime_error("offset_of_va: " +
-			     llvm::toString(ExpectedPtr.takeError()));
-
-  const uint8_t *const Ptr = *ExpectedPtr;
-
-  return Ptr - Elf.base();
-}
-
 template <typename T>
 static T unwrapOrError(llvm::Expected<T> ValOrErr) {
   if (ValOrErr)
