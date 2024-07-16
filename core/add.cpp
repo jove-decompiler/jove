@@ -890,19 +890,18 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
                     ABIAtAddress(*AddrOrErr);
                   });
 
-      coff::for_each_base_relocation(O,
-                                    [&](uint8_t RelocType, uint64_t RVA) -> void {
-                                    if (!coff_is_dir_relocation(RelocType))
-                                    return;
+      coff::for_each_base_relocation(
+          O, [&](uint8_t RelocType, uint64_t RVA) -> void {
+            if (!coff_is_dir_relocation(RelocType))
+              return;
 
-                                    const void *Ptr = coff::toMappedAddr(
-                                        O, coff::va_of_rva(O, RVA));
-                                    if (!Ptr)
-                                      return;
-                                    uint64_t Addr = B::extractAddress(O, Ptr);
-                                    if (coff::isCode(O, coff::offset_of_va(O, Addr)))
-                                      ABIAtAddress(Addr);
-                                    });
+            const void *Ptr = coff::toMappedAddr(O, coff::va_of_rva(O, RVA));
+            if (!Ptr)
+              return;
+            uint64_t Addr = B::extractAddress(O, Ptr);
+            if (coff::isCode(O, coff::offset_of_va(O, Addr)))
+              ABIAtAddress(Addr);
+          });
     }
   );
 }
