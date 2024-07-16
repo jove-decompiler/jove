@@ -829,7 +829,7 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
                            !llvm::errorToBool(Exp.isForwarder(IsForwarder)) &&
                            !IsForwarder &&
                            !llvm::errorToBool(Exp.getExportRVA(RVA)) &&
-                           coff::isCode(O, RVA);
+                           coff::isCode(O, coff::va_of_rva(O, RVA));
                   },
                   [&](const obj::ExportDirectoryEntryRef &Exp) -> void {
                       uint32_t RVA;
@@ -899,7 +899,7 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
             if (!Ptr)
               return;
             uint64_t Addr = B::extractAddress(O, Ptr);
-            if (coff::isCode(O, coff::offset_of_va(O, Addr)))
+            if (coff::isCode(O, Addr))
               ABIAtAddress(Addr);
           });
     }

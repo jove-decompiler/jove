@@ -10,17 +10,11 @@ typedef llvm::object::COFFObjectFile COFFO;
 
 namespace coff {
 
-constexpr uint64_t va_of_rva(COFFO &O, uint64_t rva) {
-  return rva + O.getImageBase();
-}
+constexpr uint64_t va_of_rva(COFFO &O, uint64_t rva) { return rva + O.getImageBase(); }
+constexpr uint64_t rva_of_va(COFFO &O, uint64_t rva) { return rva - O.getImageBase(); }
 
-constexpr uint64_t va_of_offset(COFFO &O, uint64_t off) {
-  return va_of_rva(O, off);
-}
-
-constexpr uint64_t offset_of_va(COFFO &O, uint64_t va) {
-  return va - O.getImageBase();
-}
+uint64_t va_of_offset(COFFO &, uint64_t off);
+uint64_t offset_of_va(COFFO &, uint64_t va);
 
 typedef std::pair<uint64_t, uint64_t> addr_pair;
 addr_pair bounds_of_binary(COFFO &);
@@ -46,7 +40,7 @@ static inline uint64_t extractAddress(COFFO &O, const void *ptr) {
   return DE.getAddress(&Offset);
 }
 
-bool isCode(COFFO &O, uint64_t RVA);
+bool isCode(COFFO &, uint64_t va);
 
 bool needed_libs(COFFO &, std::vector<std::string> &out);
 

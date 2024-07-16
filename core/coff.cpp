@@ -9,9 +9,38 @@ namespace obj = llvm::object;
 namespace jove {
 namespace coff {
 
-bool isCode(COFFO &O, uint64_t RVA) {
-  for (const llvm::object::SectionRef &S : O.sections()) {
-    const llvm::object::coff_section *Section = O.getCOFFSection(S);
+uint64_t va_of_offset(COFFO &O, uint64_t off) {
+  for (const llvm::object::SectionRef &Section : O.sections()) {
+    const llvm::object::coff_section *Sec = O.getCOFFSection(Section);
+
+    uint64_t SectionOffset = Sec->PointerToRawData;
+    uint64_t SectionSize = Sec->SizeOfRawData;
+
+    if (off >= SectionOffset && off < SectionOffset + SectionSize) {
+      uint64_t RVA = Sec->VirtualAddress + (off - SectionOffset);
+      return va_of_rva(O, RVA);
+    }
+  }
+
+  throw std::runtime_error("va_of_offset: no section for given offset (" +
+                           std::to_string(off) + ")");
+}
+
+uint64_t offset_of_va(COFFO &O, uint64_t va) {
+  uintptr_t UIntPtr = ~0UL;
+
+  if (llvm::Error E = O.getVaPtr(va, UIntPtr))
+    throw std::runtime_error(llvm::toString(std::move(E)));
+
+  return reinterpret_cast<const uint8_t *>(UIntPtr) -
+         reinterpret_cast<const uint8_t *>(O.getMemoryBufferRef().getBufferStart());
+}
+
+bool isCode(COFFO &O, uint64_t va) {
+  uint64_t RVA = rva_of_va(O, va);
+
+  for (const obj::SectionRef &S : O.sections()) {
+    const obj::coff_section *Section = O.getCOFFSection(S);
     uint32_t SectionStart = Section->VirtualAddress;
     uint32_t SectionEnd = Section->VirtualAddress + Section->VirtualSize;
     if (SectionStart <= RVA && RVA < SectionEnd) {
