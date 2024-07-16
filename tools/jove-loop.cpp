@@ -256,8 +256,6 @@ public:
 
   int Run(void) override;
 
-  std::string soname_of_binary(binary_t &b);
-
   std::atomic<bool> Cancelled = false;
   std::atomic<pid_t> app_pid, run_pid;
 };
@@ -1025,14 +1023,21 @@ skip_run:
       // create symlinks as necessary
       //
       if (!opts.NoChroot) {
-        for (binary_t &b : jv.Binaries) {
+        for_each_binary(std::execution::par_unseq, jv, [&](binary_t &b) {
           if (b.IsVDSO)
-            continue;
+            return;
 
-          std::string soname = soname_of_binary(b);
+          auto Bin = B::Create(b.data());
 
+          B::_elf(*Bin, [&](ELFO &O) {
+
+          auto _soname = elf::soname(O);
+          if (!_soname)
+            return;
+
+          const std::string &soname = *_soname;
           if (soname.empty())
-            continue;
+            return;
 
           fs::path chrooted_path = fs::path(sysroot) / b.path_str();
           std::string binary_filename = fs::path(b.path_str()).filename().string();
@@ -1049,7 +1054,9 @@ skip_run:
             fs::remove(dst);
             fs::create_symlink(binary_filename, dst);
           }
-        }
+
+          });
+        });
       }
     } else { /* local */
       //
@@ -1129,67 +1136,4 @@ skip_run:
   return 1;
 }
 
-std::string LoopTool::soname_of_binary(binary_t &b) {
-  auto Bin = B::Create(b.data());
-  if (!llvm::isa<ELFO>(Bin.get())) {
-    HumanOut() << "is not ELF of expected type\n";
-    return "";
-  }
-
-  const ELFO &Obj = *llvm::cast<ELFO>(Bin.get());
-
-  elf::DynRegionInfo DynamicTable(Obj);
-  elf::loadDynamicTable(Obj, DynamicTable);
-
-  auto dynamic_table = [&](void) -> Elf_Dyn_Range {
-    return DynamicTable.getAsArrayRef<Elf_Dyn>();
-  };
-
-  if (!DynamicTable.Addr)
-    return "";
-
-  llvm::StringRef DynamicStringTable;
-  const Elf_Shdr *SymbolVersionSection;
-  std::vector<elf::VersionMapEntry> VersionMap;
-  std::optional<elf::DynRegionInfo> OptionalDynSymRegion =
-      loadDynamicSymbols(Obj,
-                         DynamicTable,
-                         DynamicStringTable,
-                         SymbolVersionSection,
-                         VersionMap);
-
-  if (!DynamicStringTable.data())
-    return "";
-
-  //
-  // parse dynamic table
-  //
-  std::optional<uint64_t> SONameOffset;
-
-  for (const Elf_Dyn &Dyn : dynamic_table()) {
-    if (unlikely(Dyn.d_tag == llvm::ELF::DT_NULL))
-      break; /* marks end of dynamic table. */
-
-    switch (Dyn.d_tag) {
-    case llvm::ELF::DT_SONAME:
-      SONameOffset.emplace(Dyn.getVal());
-      break;
-    }
-  }
-
-  if (SONameOffset) {
-    uint64_t Off = *SONameOffset;
-    if (Off >= DynamicStringTable.size()) {
-      if (IsVerbose())
-        HumanOut() << llvm::formatv("[{0}] bad SONameOffset {1}\n",
-                                    b.path_str(), Off);
-    } else {
-      const char *c_str = DynamicStringTable.data() + Off;
-      return c_str;
-    }
-  }
-
-  return "";
 }
-
-} // namespace jove
