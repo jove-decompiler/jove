@@ -14,7 +14,6 @@ constexpr uint64_t va_of_rva(COFFO &O, uint64_t rva) { return rva + O.getImageBa
 constexpr uint64_t rva_of_va(COFFO &O, uint64_t rva) { return rva - O.getImageBase(); }
 
 uint64_t va_of_offset(COFFO &, uint64_t off);
-uint64_t offset_of_va(COFFO &, uint64_t va);
 
 typedef std::pair<uint64_t, uint64_t> addr_pair;
 addr_pair bounds_of_binary(COFFO &);
