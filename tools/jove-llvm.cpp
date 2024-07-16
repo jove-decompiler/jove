@@ -5946,7 +5946,7 @@ int LLVMTool::CreatePossibleTramps(void) {
       Module->getFunction("_jove_possible_tramps"),
       [&](auto &IRB) {
         if (possible_tramps_vec.empty()) {
-          IRB.CreateRet(llvm::Constant::getNullValue(WordType()));
+          IRB.CreateRet(llvm::Constant::getNullValue(PointerToWordType()));
           return;
         }
 
