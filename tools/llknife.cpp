@@ -171,8 +171,7 @@ int KnifeTool::Run(void) {
     llvm::GlobalValue *G = M.getNamedValue(Nm);
     if (!G) {
       if (IsVerbose())
-        WithColor::warning()
-            << llvm::formatv("global value \"{0}\" not found in module\n", Nm);
+        WithColor::warning() << llvm::formatv("{0} not found in module\n", Nm);
       continue;
     }
 
