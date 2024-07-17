@@ -53,6 +53,7 @@ runtime_cflags = -std=gnu99 \
                  -Wno-unused-function \
                  -Wno-unused-macros \
                  -Wno-language-extension-token \
+                 -Wno-missing-prototypes \
                  -Ofast \
                  -gline-tables-only \
                  -gdwarf-4 \
