@@ -70,25 +70,6 @@ void _jove_start(void) {
                : /* Clobbers */);
 }
 
-unsigned long _jove_thread_init(unsigned long clone_newsp) {
-  //
-  // initialize CPUState
-  //
-  __jove_env.df = 1;
-
-  //
-  // setup the emulated stack
-  //
-  unsigned long env_stack_beg = _jove_alloc_stack();
-  unsigned long env_stack_end = env_stack_beg + JOVE_STACK_SIZE;
-
-  unsigned long env_sp = env_stack_end - JOVE_PAGE_SIZE - 16;
-
-  _memcpy((void *)env_sp , (void *)clone_newsp, 16);
-
-  return env_sp;
-}
-
 void _jove_begin(uint32_t init_sp) {
   _jove_initialize();
 

@@ -62,8 +62,6 @@ static void _jove_begin(uint64_t rdi,
                         uint64_t r8,
                         uint64_t init_sp /* formerly r9 */);
 
-_HIDDEN unsigned long _jove_thread_init(unsigned long clone_newsp);
-
 _NAKED _HIDDEN void _jove_init(uint64_t rdi,
                                uint64_t rsi,
                                uint64_t rdx,
@@ -122,28 +120,6 @@ void _jove_start(void) {
                : /* InputOperands */
                "i"(_jove_begin)
                : /* Clobbers */);
-}
-
-//_HIDDEN uintptr_t _jove_alloc_callstack(void);
-//_HIDDEN void _jove_free_callstack(uintptr_t);
-
-unsigned long _jove_thread_init(unsigned long clone_newsp) {
-  //
-  // initialize CPUState
-  //
-  __jove_env.df = 1;
-
-  //
-  // setup the emulated stack
-  //
-  unsigned long env_stack_beg = _jove_alloc_stack();
-  unsigned long env_stack_end = env_stack_beg + JOVE_STACK_SIZE;
-
-  unsigned long env_sp = env_stack_end - JOVE_PAGE_SIZE - 16;
-
-  _memcpy((void *)env_sp , (void *)clone_newsp, 16);
-
-  return env_sp;
 }
 
 void _jove_begin(uint64_t rdi,
