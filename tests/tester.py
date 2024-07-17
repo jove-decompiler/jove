@@ -294,6 +294,9 @@ class JoveTester:
 
       for i in range(0, len(create_list)):
         if create_list[i]:
-          self.sess.kill_window(JoveTester.WINDOWS[i])
+          try:
+            self.sess.kill_window(JoveTester.WINDOWS[i])
+          except libtmux.exc.LibTmuxException:
+            pass
 
     return rc
