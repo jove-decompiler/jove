@@ -7,12 +7,7 @@ typedef uint64_t jove_thunk_return_t;
 #include "jove.common.c"
 
 _HIDDEN
-_NAKED void _jove_start(void);
-_HIDDEN void _jove_begin(uintptr_t a0,
-                         uintptr_t a1,
-                         uintptr_t v0,     /* formerly a2 */
-                         uintptr_t sp_addr /* formerly a3 */);
-
+_NAKED
 void _jove_start(void) {
   asm volatile(".set noreorder"      "\n"
                ".cpload $t9"         "\n" /* set up gp */
@@ -37,6 +32,7 @@ void _jove_start(void) {
                : /* Clobbers */);
 }
 
+_HIDDEN
 void _jove_begin(uintptr_t a0,
                  uintptr_t a1,
                  uintptr_t v0,     /* formerly a2 */

@@ -7,16 +7,7 @@ typedef unsigned __int128 jove_thunk_return_t;
 #include "jove.common.c"
 
 _HIDDEN
-_NAKED void _jove_start(void);
-_HIDDEN void _jove_begin(uintptr_t x0,
-                         uintptr_t x1,
-                         uintptr_t x2,
-                         uintptr_t x3,
-                         uintptr_t x4,
-                         uintptr_t x5,
-                         uintptr_t x6,
-                         uintptr_t sp_addr /* formerly x7 */);
-
+_NAKED
 void _jove_start(void) {
   asm volatile(/* Create an initial frame with 0 LR and FP */
                "mov x29, #0\n"
@@ -26,6 +17,7 @@ void _jove_start(void) {
                "b _jove_begin\n");
 }
 
+_HIDDEN
 void _jove_begin(uintptr_t x0,
                  uintptr_t x1,
                  uintptr_t x2,

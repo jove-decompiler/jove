@@ -6,11 +6,6 @@ typedef uint64_t jove_thunk_return_t;
 
 #include "jove.common.c"
 
-_HIDDEN void _jove_begin(uintptr_t a0,
-                         uintptr_t a1,
-                         uintptr_t v0,     /* formerly a2 */
-                         uintptr_t init_sp /* formerly a3 */);
-
 #define __STRING(x)	#x
 #define __CONCAT(x,y)	x ## y
 #define STRINGXP(X) __STRING(X)
@@ -64,6 +59,7 @@ asm(".text\n"
     _ASM_FN_EPILOGUE(_jove_start) "\n"
     ".previous");
 
+_HIDDEN
 void _jove_begin(uintptr_t a0,
                  uintptr_t a1,
                  uintptr_t v0,     /* formerly a2 */

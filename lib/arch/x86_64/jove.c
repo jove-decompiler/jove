@@ -6,32 +6,6 @@ typedef unsigned __int128 jove_thunk_return_t;
 
 #include "jove.common.c"
 
-_HIDDEN
-_NAKED void _jove_start(void);
-static void _jove_begin(uintptr_t rdi,
-                        uintptr_t rsi,
-                        uintptr_t rdx,
-                        uintptr_t rcx,
-                        uintptr_t r8,
-                        uintptr_t init_sp /* formerly r9 */);
-
-_NAKED _HIDDEN void _jove_init(uintptr_t rdi,
-                               uintptr_t rsi,
-                               uintptr_t rdx,
-                               uintptr_t rcx,
-                               uintptr_t r8,
-                               uintptr_t r9);
-
-//
-// XXX hack for glibc 2.32+
-//
-_NAKED void _jove__libc_early_init(uintptr_t rdi,
-                                   uintptr_t rsi,
-                                   uintptr_t rdx,
-                                   uintptr_t rcx,
-                                   uintptr_t r8,
-                                   uintptr_t r9);
-
 void WINAPI JoveWinMain(void) {
   //
   // TODO: __getmainargs()
@@ -56,6 +30,8 @@ void WINAPI JoveWinMain(void) {
   _jove_call_entry();
 }
 
+_HIDDEN
+_NAKED
 void _jove_start(void) {
   asm volatile(
                /* Clear the frame pointer.  The ABI suggests this be done, to
@@ -65,16 +41,16 @@ void _jove_start(void) {
                "movq %%rsp, %%r9\n"
 
                /* Align the stack to a 16 byte boundary to follow the ABI.  */
-               "and  $~15, %%rsp\n"
-               "call %P0\n"
+               "andq $~15, %%rsp\n"
+               "call _jove_begin\n"
                "hlt\n" /* Crash if somehow `_jove_begin' does return. */
 
                : /* OutputOperands */
                : /* InputOperands */
-               "i"(_jove_begin)
                : /* Clobbers */);
 }
 
+_HIDDEN
 void _jove_begin(uintptr_t rdi,
                  uintptr_t rsi,
                  uintptr_t rdx,
@@ -258,6 +234,8 @@ jove_thunk_return_t _jove_thunk6(uintptr_t rdi,
 #undef JOVE_THUNK_PROLOGUE
 #undef JOVE_THUNK_EPILOGUE
 
+_HIDDEN
+_NAKED
 void _jove_init(uintptr_t rdi,
                 uintptr_t rsi,
                 uintptr_t rdx,
@@ -305,6 +283,8 @@ void _jove_init(uintptr_t rdi,
 //
 // XXX hack for glibc 2.32+
 //
+_NAKED
+_HIDDEN
 void _jove__libc_early_init(uintptr_t rdi,
                             uintptr_t rsi,
                             uintptr_t rdx,

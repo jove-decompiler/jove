@@ -8,22 +8,7 @@ typedef uint64_t jove_thunk_return_t;
 #include "jove.common.c"
 
 _HIDDEN
-_NAKED void _jove_start(void);
-_HIDDEN void _jove_begin(uintptr_t init_sp);
-
-_HIDDEN unsigned long _jove_thread_init(unsigned long clone_newsp);
-
-_REGPARM _NAKED _HIDDEN void _jove_init(uintptr_t eax,
-                                        uintptr_t edx,
-                                        uintptr_t ecx);
-
-//
-// XXX hack for glibc 2.32+
-//
-_REGPARM _NAKED _HIDDEN void _jove__libc_early_init(uintptr_t eax,
-                                                    uintptr_t edx,
-                                                    uintptr_t ecx);
-
+_NAKED
 void _jove_start(void) {
   asm volatile(/* Clear the frame pointer.  The ABI suggests this be done, to
                   mark the outermost frame obviously.  */
@@ -38,7 +23,6 @@ void _jove_start(void) {
                /* pass original sp */
                "pushl %%ecx\n"
                "call _jove_begin\n"
-
                "hlt\n"
 
                : /* OutputOperands */
@@ -46,6 +30,7 @@ void _jove_start(void) {
                : /* Clobbers */);
 }
 
+_HIDDEN
 void _jove_begin(uintptr_t init_sp) {
   _jove_initialize();
 
@@ -173,6 +158,9 @@ jove_thunk_return_t _jove_thunk3(uintptr_t eax,
                : /* Clobbers */);
 }
 
+_REGPARM
+_NAKED
+_HIDDEN
 void _jove_init(uintptr_t eax,
                 uintptr_t edx,
                 uintptr_t ecx /* TODO preserve */) {
@@ -209,6 +197,9 @@ void _jove_init(uintptr_t eax,
 //
 // XXX hack for glibc 2.32+
 //
+_REGPARM
+_NAKED
+_HIDDEN
 void _jove__libc_early_init(uintptr_t eax,
                             uintptr_t edx,
                             uintptr_t ecx /* TODO preserve */) {
