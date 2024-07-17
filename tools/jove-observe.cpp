@@ -142,6 +142,7 @@ int ObserveTool::Run(void) {
         Arg(perf_path);
 
         Arg("record");
+        Arg("-i");
         Arg("-e");
         Arg("intel_pt/branch=1,mtc=0,cyc=0,tsc=0,ptw=0/u");
 
