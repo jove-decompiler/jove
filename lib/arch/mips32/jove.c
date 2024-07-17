@@ -29,8 +29,6 @@ _NAKED jove_thunk_return_t _jove_thunk4(uint32_t a0,
                                         uint32_t dstpc,
                                         uint32_t *emuspp);
 
-_HIDDEN uintptr_t _jove_get_init_fn_sect_ptr(void);
-
 static bool _jove_see_through_tramp(const void *ptr, uintptr_t *out);
 
 #include "jove.llvm.c"
@@ -242,7 +240,7 @@ asm(".text\n"
 
     "lw $gp,28($sp)" "\n" /* gp could have been clobbered */
 
-    "la $t9, _jove_get_init_fn_sect_ptr" "\n"
+    "la $t9, _jove_do_get_init_fn_sect_ptr" "\n"
     "jalr $t9"                           "\n"
 
     "beqz $v0, 10f" "\n" /* does DT_INIT function exist? */
@@ -312,6 +310,10 @@ asm(".text\n"
 
 _HIDDEN void _jove_do_call_rt_init(void) {
   _jove_rt_init();
+}
+
+_HIDDEN uintptr_t _jove_do_get_init_fn_sect_ptr(void) {
+  return _jove_get_init_fn_sect_ptr();
 }
 
 bool _jove_see_through_tramp(const void *ptr, uintptr_t *out) {

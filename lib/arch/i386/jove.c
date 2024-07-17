@@ -22,8 +22,6 @@ _REGPARM _NAKED jove_thunk_return_t _jove_thunk3(uint32_t eax,
                                                  uint32_t dstpc,
                                                  uint32_t *emuspp);
 
-_HIDDEN uintptr_t _jove_get_init_fn_sect_ptr(void);
-
 static bool _jove_see_through_tramp(const void *ptr, uintptr_t *out);
 
 #include "jove.llvm.c"
@@ -211,7 +209,7 @@ void _jove_init(uint32_t eax,
                "pushl %%edx\n"
 
                "call _jove_initialize\n"
-               "call _jove_get_init_fn_sect_ptr\n"
+               "call _jove_do_get_init_fn_sect_ptr\n"
                "movl %%eax, %%ecx\n"
 
                "popl %%edx\n"
@@ -258,6 +256,10 @@ extern void _jove_rt_init(void);
 
 _HIDDEN void _jove_do_call_rt_init(void) {
   _jove_rt_init();
+}
+
+_HIDDEN uintptr_t _jove_do_get_init_fn_sect_ptr(void) {
+  return _jove_get_init_fn_sect_ptr();
 }
 
 bool _jove_see_through_tramp(const void *ptr, uintptr_t *out) {

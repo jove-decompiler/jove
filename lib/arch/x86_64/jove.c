@@ -326,7 +326,7 @@ void _jove_init(uint64_t rdi,
                "pushq %%r9\n"
 
                "call _jove_initialize\n"
-               "call _jove_get_init_fn_sect_ptr\n"
+               "call _jove_do_get_init_fn_sect_ptr\n"
                "movq %%rax, %%r11\n"
 
                "popq %%r9\n" /* preserve arguments */
@@ -391,6 +391,10 @@ _HIDDEN void _jove_do_call_rt_init(void) {
 
   _jove_do_manual_relocations();
   _jove_do_emulate_copy_relocations();
+}
+
+_HIDDEN uintptr_t _jove_do_get_init_fn_sect_ptr(void) {
+  return _jove_get_init_fn_sect_ptr();
 }
 
 bool _jove_see_through_tramp(const void *ptr, uintptr_t *out) {

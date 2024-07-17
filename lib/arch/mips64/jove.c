@@ -389,7 +389,7 @@ asm(".text\n"
 
     "ld $gp,48($sp)" "\n" /* our gp could have been clobbered */
 
-    "dla $t9, _jove_get_init_fn_sect_ptr" "\n"
+    "dla $t9, _jove_do_get_init_fn_sect_ptr" "\n"
     "jalr $t9"                            "\n"
     "nop"                                 "\n"
 
@@ -474,6 +474,10 @@ asm(".text\n"
 _HIDDEN void _jove_do_call_rt_init(void) {
   if (_jove_rt_init_clunk)
     _jove_rt_init_clunk();
+}
+
+_HIDDEN uintptr_t _jove_do_get_init_fn_sect_ptr(void) {
+  return _jove_get_init_fn_sect_ptr();
 }
 
 bool _jove_see_through_tramp(const void *ptr, uintptr_t *out) {
