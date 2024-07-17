@@ -6010,7 +6010,7 @@ int LLVMTool::CreatePossibleTramps(void) {
 
         auto *GV = new llvm::GlobalVariable(
             *Module, T, true, llvm::GlobalValue::InternalLinkage, C,
-            (fmt("__jove_poss_tramps%u") % BinaryIndex).str());
+            (fmt("__jove_poss_tramps_%u") % BinaryIndex).str());
 
         IRB.CreateRet(
             IRB.CreateConstInBoundsGEP2_64(GV->getValueType(), GV, 0, 0));
