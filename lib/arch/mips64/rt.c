@@ -1,7 +1,6 @@
 #include "cpu_state.h"
 
 #include "rt.common.h"
-#include "rt.util.c"
 #include "rt.common.c"
 
 void _jove_inverse_thunk(void) {

@@ -4,7 +4,6 @@
 
 _NAKED static void _jove_do_rt_sigreturn(void);
 
-#include "rt.util.c"
 #include "rt.common.c"
 
 #if 0
