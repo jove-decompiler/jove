@@ -103,6 +103,7 @@ function(tool_for_arch arch arch_extra_cflags qemu_objs)
     jove-unserialize.cpp
     jove-unstub.cpp
     jv2xml.cpp
+    llknife.cpp
     tcgdump.cpp
   )
 
