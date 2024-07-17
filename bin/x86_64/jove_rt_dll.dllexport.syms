@@ -1,0 +1,14 @@
+___chkstk
+__jove_callstack
+__jove_callstack_begin
+__jove_env
+__jove_function_map
+__jove_function_tables
+__jove_opts
+__jove_sections_tables
+__jove_trace
+__jove_trace_begin
+_jove_flush_trace
+_jove_needs_multi_threaded_runtime
+_jove_needs_single_threaded_runtime
+_jove_rt_init
