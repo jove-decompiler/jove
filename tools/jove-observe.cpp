@@ -278,9 +278,6 @@ void ObserveTool::ProcessLine(const std::string &line) {
   if (line.empty())
     return;
 
-  if (IsVeryVerbose())
-    llvm::errs() << line << '\n';
-
 /*
      7f65c6213a29 (/usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2+0x1ba29) =>     7f65c6212040 (/usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2+0x1a040)
 */
