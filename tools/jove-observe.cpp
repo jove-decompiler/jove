@@ -58,7 +58,7 @@ struct ObserveTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, v
   explorer_t E;
   symbolizer_t symbolizer;
 
-  std::string buffer;
+  std::string buff;
   std::regex line_regex_ab;
   std::regex line_regex_a;
   std::regex line_regex_b;
@@ -243,42 +243,35 @@ int ObserveTool::Run(void) {
 }
 
 std::string ObserveTool::GetLine(int rfd, tbb::flow_control &fc) {
-  //
-  // is there already a line ready to process?
-  //
-  size_t pos;
-  while ((pos = buffer.find('\n')) != std::string::npos) {
-    std::string line = buffer.substr(0, pos);
-    buffer.erase(0, pos + 1);
-    return line;
-  }
+  char tmp_buff[4096];
 
-  char temp_buffer[256];
-  while (true) {
-    ssize_t count = read(rfd, temp_buffer, sizeof(temp_buffer) - 1);
-    if (count < 0) {
-      int err = errno;
-      die("read of pipe failed: " + std::string(strerror(err)));
+  std::string res;
+  for (;;) {
+    // do we have a line ready to go?
+    ssize_t pos;
+    if ((pos = buff.find('\n')) != std::string::npos) {
+      res = buff.substr(0, pos);
+      buff.erase(0, pos + 1);
+      break;
     }
 
-    if (count == 0) {
-      std::string result = buffer;
-      buffer.clear();
+    ssize_t ret;
+    do
+      ret = ::read(rfd, tmp_buff, sizeof(tmp_buff));
+    while (ret < 0 && errno == EINTR);
 
-      llvm::errs() << "STOPPPING\n";
+    if (ret < 0)
+      die("failed to read pipe: " + std::string(strerror(errno)));
+
+    if (ret == 0) {
       fc.stop();
-      return result;
-    } else {
-      temp_buffer[count] = '\0';
-      buffer.append(temp_buffer, count);
-
-      while ((pos = buffer.find('\n')) != std::string::npos) {
-        std::string line = buffer.substr(0, pos);
-        buffer.erase(0, pos + 1);
-        return line;
-      }
+      break;
     }
+
+    buff.append(tmp_buff, ret);
   }
+
+  return res;
 }
 
 void ObserveTool::ProcessLine(const std::string &line) {
