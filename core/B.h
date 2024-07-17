@@ -103,7 +103,7 @@ BFUNCTION(addr_pair, bounds_of_binary)
 BFUNCTION(uint64_t, va_of_offset, uint64_t, off)
 BFUNCTION(const void *, toMappedAddr, uint64_t, Addr)
 BFUNCTION(uint64_t, extractAddress, const void *, ptr)
-BFUNCTION(bool, needed_libs, std::vector<std::string> &, out);
+BFUNCTION(bool, needed_libs, std::vector<std::string> &, out)
 
 static inline uint64_t offset_of_va(llvm::object::Binary &Bin, uint64_t va) {
   const void *Ptr = toMappedAddr(Bin, va);
