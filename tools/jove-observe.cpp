@@ -110,15 +110,15 @@ binary_index_t ObserveTool::BinaryFromName(const char *name) {
     return BIdx;
   }
 
-  if (IsVeryVerbose())
-    HumanOut() << llvm::formatv("adding {0}\n", name);
-
   bool IsNew;
   binary_index_t BIdx;
 
   std::tie(BIdx, IsNew) =
       jv.AddFromPath(E, name, invalid_binary_index,
                      std::bind(&ObserveTool::on_new_binary, this, _1));
+
+  if (IsVeryVerbose() && !is_binary_index_valid(BIdx))
+    HumanOut() << llvm::formatv("failed to add \"{0}\"\n", name);
 
   return BIdx;
 }
