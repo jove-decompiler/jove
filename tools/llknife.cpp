@@ -61,7 +61,7 @@ class KnifeTool : public Tool {
 public:
   KnifeTool() : opts(JoveCategory) {}
 
-  int parseFunctionList(const char *filepath, std::vector<std::string> &out);
+  int parseSymbolList(const char *filepath, std::vector<std::string> &out);
 
   int Run(void) override;
 };
@@ -89,7 +89,7 @@ int KnifeTool::Run(void) {
   }
 
   std::vector<std::string> SymsVec;
-  if (int ret = parseFunctionList(opts.PathToSymList.c_str(), SymsVec))
+  if (int ret = parseSymbolList(opts.PathToSymList.c_str(), SymsVec))
     return ret;
 
   //
@@ -202,7 +202,7 @@ int KnifeTool::Run(void) {
   return 0;
 }
 
-int KnifeTool::parseFunctionList(const char *filepath,
+int KnifeTool::parseSymbolList(const char *filepath,
                                  std::vector<std::string> &out) {
   std::ifstream ifs(filepath);
   if (!ifs.is_open()) {
