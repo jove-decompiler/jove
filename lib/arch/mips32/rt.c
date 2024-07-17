@@ -23,8 +23,6 @@
 #include "rt.types.h"
 #include "rt.common.h"
 
-#define JOVE_SYS_ATTR _HIDDEN _UNUSED
-
 #include "rt.util.c"
 #include "rt.common.c"
 

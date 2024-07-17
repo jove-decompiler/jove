@@ -1,4 +1,9 @@
 #pragma once
+
+#ifndef JOVE_SYS_ATTR
+#define JOVE_SYS_ATTR _NOINL _HIDDEN _UNUSED
+#endif
+
 #include "jove_sys.h"
 
 static uintptr_t _mmap_rw_anonymous_private_memory(size_t len) {

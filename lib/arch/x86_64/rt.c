@@ -20,8 +20,6 @@
 #include "rt.types.h"
 #include "rt.common.h"
 
-#define JOVE_SYS_ATTR _INL _UNUSED
-
 _NAKED static void _jove_do_rt_sigreturn(void);
 
 #include "rt.util.c"

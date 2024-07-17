@@ -24,8 +24,6 @@
 #include "jove.types.h"
 #include "jove.common.h"
 
-#define JOVE_SYS_ATTR _INL _UNUSED
-
 typedef uint64_t jove_thunk_return_t;
 
 _NAKED jove_thunk_return_t _jove_thunk0(uint64_t dstpc,
