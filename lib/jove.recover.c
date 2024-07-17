@@ -2,8 +2,7 @@
 // this code is paired with tools/jove-recover.cpp
 //
 
-_HIDDEN void _jove_recover_dyn_target(uint32_t CallerBBIdx,
-                                      uintptr_t CalleeAddr) {
+void _jove_recover_dyn_target(uint32_t CallerBBIdx, uintptr_t CalleeAddr) {
   char *recover_fifo_path = _getenv("JOVE_RECOVER_FIFO");
 
   uint32_t CallerBIdx = _jove_binary_index();
@@ -368,8 +367,7 @@ found:
   }
 }
 
-void _jove_recover_function(uint32_t IndCallBBIdx,
-                            uintptr_t FuncAddr) {
+void _jove_recover_function(uint32_t IndCallBBIdx, uintptr_t FuncAddr) {
   char *recover_fifo_path = _getenv("JOVE_RECOVER_FIFO");
 
   struct {
@@ -480,8 +478,7 @@ found:
   }
 }
 
-_HIDDEN void _jove_recover_basic_block(uint32_t IndBrBBIdx,
-                                       uintptr_t BBAddr) {
+void _jove_recover_basic_block(uint32_t IndBrBBIdx, uintptr_t BBAddr) {
   char *recover_fifo_path = _getenv("JOVE_RECOVER_FIFO");
 
   struct {
@@ -569,7 +566,7 @@ found:
   }
 }
 
-_HIDDEN void _jove_recover_returned(uint32_t CallerBBIdx) {
+void _jove_recover_returned(uint32_t CallerBBIdx) {
   char *recover_fifo_path = _getenv("JOVE_RECOVER_FIFO");
 
   struct {
@@ -633,7 +630,7 @@ found:
   }
 }
 
-_HIDDEN void _jove_recover_ABI(uint32_t FIdx) {
+void _jove_recover_ABI(uint32_t FIdx) {
   char *recover_fifo_path = _getenv("JOVE_RECOVER_FIFO");
 
   struct {

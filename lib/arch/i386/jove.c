@@ -24,10 +24,7 @@ _REGPARM _NAKED jove_thunk_return_t _jove_thunk3(uint32_t eax,
 
 static bool _jove_see_through_tramp(const void *ptr, uintptr_t *out);
 
-#include "jove.llvm.c"
-#include "jove.util.c"
 #include "jove.common.c"
-#include "jove.recover.c"
 
 _HIDDEN
 _NAKED void _jove_start(void);

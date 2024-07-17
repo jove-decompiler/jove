@@ -48,10 +48,7 @@ _NAKED jove_thunk_return_t _jove_thunk6(uint64_t rdi,
 
 static bool _jove_see_through_tramp(const void *ptr, uintptr_t *out);
 
-#include "jove.llvm.c"
-#include "jove.util.c"
 #include "jove.common.c"
-#include "jove.recover.c"
 
 _HIDDEN
 _NAKED void _jove_start(void);

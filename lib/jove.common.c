@@ -1,3 +1,7 @@
+#include "jove.llvm.c"
+#include "jove.util.c"
+#include "jove.recover.h"
+
 extern __JTHREAD struct CPUArchState __jove_env __attribute__((aligned(64)));
 
 #ifdef JOVE_MT
@@ -974,9 +978,6 @@ void _jove_log2(const char *msg,
   _DUMP(s);
 }
 
-_HIDDEN void _jove_recover_function(uint32_t IndCallBBIdx,
-                                    uintptr_t FuncAddr);
-
 static
 _REGPARM
 jove_thunk_return_t _jove_call(
@@ -1545,3 +1546,5 @@ void __nodce(void **p) {
 #endif
 #endif
 }
+
+#include "jove.recover.c"
