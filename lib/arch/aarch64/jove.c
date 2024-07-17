@@ -132,6 +132,8 @@ void _jove_begin(uint64_t x0,
                  uint64_t x5,
                  uint64_t x6,
                  uint64_t init_sp /* formerly x7 */) {
+  _jove_initialize();
+
   __jove_env.xregs[0] = x0;
   __jove_env.xregs[1] = x1;
   __jove_env.xregs[2] = x2;
@@ -140,8 +142,6 @@ void _jove_begin(uint64_t x0,
   __jove_env.xregs[5] = x5;
   __jove_env.xregs[6] = x6;
   __jove_env.xregs[31] = _jove_begin_setup_emulated_stack(init_sp);
-
-  _jove_initialize();
 
   return _jove_call_entry();
 }

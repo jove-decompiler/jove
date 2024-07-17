@@ -165,12 +165,12 @@ void _jove_begin(uint64_t a0,
                  uint64_t a1,
                  uint64_t v0,     /* formerly a2 */
                  uint64_t init_sp /* formerly a3 */) {
+  _jove_initialize();
+
   __jove_env.active_tc.gpr[4] = a0;
   __jove_env.active_tc.gpr[5] = a1;
   __jove_env.active_tc.gpr[2] = v0;
   __jove_env.active_tc.gpr[29] = _jove_begin_setup_emulated_stack(init_sp);
-
-  _jove_initialize();
 
   return _jove_call_entry();
 }
