@@ -30,3 +30,4 @@ extern uintptr_t *_jove_possible_tramps(void);
 extern uint32_t _jove_possible_tramps_count(void);
 extern uintptr_t *_jove_laid_out_sections(void);
 extern uint32_t _jove_laid_out_sections_count(void);
+extern bool _jove_is_fixed_base_address(void);

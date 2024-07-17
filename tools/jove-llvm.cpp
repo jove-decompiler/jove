@@ -6589,6 +6589,14 @@ int LLVMTool::FixupHelperStubs(void) {
         IRB.CreateRet(IRB.getInt32(LaidOut.GVVec.size()));
       }, !opts.ForCBE);
 
+  fillInFunctionBody(
+      Module->getFunction("_jove_is_fixed_base_address"),
+      [&](auto &IRB) {
+        binary_t &Binary = jv.Binaries.at(BinaryIndex);
+
+        IRB.CreateRet(IRB.getInt1(Binary.IsExecutable && !Binary.IsPIC));
+      }, !opts.ForCBE);
+
   return 0;
 }
 

@@ -45,6 +45,7 @@ static void _jove_install_sections_table(void);
 static void _jove_install_function_mappings(void);
 
 static void _jove_check_sections_laid_out(void);
+static void _jove_check_sections_at_base_address(void);
 static void _jove_make_sections_executable(void);
 
 static void _jove_see_through_tramps(struct jove_function_info_t *);
@@ -103,7 +104,10 @@ _HIDDEN void _jove_initialize(void) {
   __dfsan_log_global_buffers();
 #endif
 
-  _jove_check_sections_laid_out();
+  if (_jove_laid_out_sections_count() > 0)
+    _jove_check_sections_laid_out();
+  if (_jove_is_fixed_base_address())
+    _jove_check_sections_at_base_address();
 
   _jove_make_sections_executable();
 }
@@ -141,9 +145,6 @@ static uintptr_t expected_size_of_laid_out(unsigned i) {
 }
 
 void _jove_check_sections_laid_out(void) {
-  if (_jove_laid_out_sections_count() == 0)
-    return;
-
   uintptr_t cursor = actual_addr_of_laid_out(0); /* top */
   for (unsigned i = 1; i < _jove_laid_out_sections_count(); ++i) {
     const uintptr_t expect_addr_before = cursor;
@@ -229,6 +230,9 @@ void _jove_check_sections_laid_out(void) {
   }
 }
 
+void _jove_check_sections_at_base_address(void) {
+  _ASSERT(_jove_sections_begin() == _jove_sections_start_addr());
+}
 
 void _jove_make_sections_executable(void) {
   const unsigned n = QEMU_ALIGN_UP(_jove_sections_end() -
