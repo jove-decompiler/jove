@@ -18,11 +18,7 @@
 #include <signal.h>
 #include <ucontext.h>
 
-#include "rt.constants.h"
-#include "rt.macros.h"
-#include "rt.types.h"
 #include "rt.common.h"
-
 #include "rt.util.c"
 #include "rt.common.c"
 

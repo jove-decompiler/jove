@@ -15,9 +15,6 @@
 #include <sys/uio.h>
 #include <signal.h>
 
-#include "rt.constants.h"
-#include "rt.macros.h"
-#include "rt.types.h"
 #include "rt.common.h"
 
 _NAKED static void _jove_do_rt_sigreturn(void);

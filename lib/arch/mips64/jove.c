@@ -19,9 +19,6 @@
 #include <boost/preprocessor/arithmetic/inc.hpp>
 #include <boost/preprocessor/cat.hpp>
 
-#include "jove.constants.h"
-#include "jove.macros.h"
-#include "jove.types.h"
 #include "jove.common.h"
 
 typedef uint64_t jove_thunk_return_t;

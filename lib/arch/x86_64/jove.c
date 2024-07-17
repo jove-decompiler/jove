@@ -20,9 +20,6 @@
 #include <boost/preprocessor/arithmetic/inc.hpp>
 #include <boost/preprocessor/cat.hpp>
 
-#include "jove.constants.h"
-#include "jove.macros.h"
-#include "jove.types.h"
 #include "jove.common.h"
 
 typedef unsigned __int128 jove_thunk_return_t;
