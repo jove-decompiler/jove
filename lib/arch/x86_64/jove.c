@@ -71,13 +71,6 @@ _NAKED jove_thunk_return_t _jove_thunk6(uint64_t rdi,
                                         uint64_t dstpc,
                                         uint64_t *emuspp);
 
-static uintptr_t _jove_alloc_stack(void);
-static void _jove_free_stack(uintptr_t beg);
-static uintptr_t _jove_alloc_callstack(void);
-static void _jove_free_callstack(uintptr_t start);
-static uintptr_t _jove_alloc_large_buffer(void);
-static void _jove_free_large_buffer(uintptr_t start);
-
 static bool _jove_see_through_tramp(const void *ptr, uintptr_t *out);
 
 #include "jove.llvm.c"

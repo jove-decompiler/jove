@@ -20,7 +20,7 @@ DEFINE_HASHTABLE(__jove_function_map, JOVE_FUNCTION_MAP_HASH_BITS);
 
 static uintptr_t to_free[16];
 
-void _jove_free_stack_later(uintptr_t stack) {
+static void _jove_free_stack_later(uintptr_t stack) {
   for (unsigned i = 0; i < ARRAY_SIZE(to_free); ++i) {
     if (to_free[i] != 0)
       continue;

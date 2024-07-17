@@ -22,17 +22,7 @@
 
 #define JOVE_SYS_ATTR _INL _UNUSED
 
-_HIDDEN void _jove_free_stack(uintptr_t);
-_HIDDEN void _jove_free_callstack(uintptr_t);
-_HIDDEN void _jove_free_stack_later(uintptr_t);
-#if 1
 _NAKED static void _jove_do_rt_sigreturn(void);
-#endif
-
-static uintptr_t _jove_alloc_stack(void);
-static uintptr_t _jove_alloc_callstack(void);
-static uintptr_t _jove_alloc_large_buffer(void);
-static void _jove_free_large_buffer(uintptr_t start);
 
 #include "rt.util.c"
 #include "rt.common.c"
@@ -72,7 +62,7 @@ void _jove_inverse_thunk(void) {
                //
                "call _jove_callstack_begin_location\n"
                "movq (%%rax), %%rdi\n"
-               "call _jove_free_callstack\n"
+               "call _jove_do_free_callstack\n"
 
                //
                // restore __jove_callstack
@@ -94,7 +84,7 @@ void _jove_inverse_thunk(void) {
                // mark newstack as to be freed
                //
                "movq 64(%%rsp), %%rdi\n" // rdi = newstack
-               "call _jove_free_stack_later\n"
+               "call _jove_do_free_stack_later\n"
 
                //
                // signal handling
@@ -144,6 +134,14 @@ _HIDDEN uintptr_t _jove_callstack_location(void) {
 
 _HIDDEN uintptr_t _jove_callstack_begin_location(void) {
   return (uintptr_t)&__jove_callstack_begin;
+}
+
+_HIDDEN void _jove_do_free_callstack(uintptr_t x) {
+  _jove_free_callstack(x);
+}
+
+_HIDDEN void _jove_do_free_stack_later(uintptr_t x) {
+  _jove_free_stack_later(x);
 }
 
 #if 0

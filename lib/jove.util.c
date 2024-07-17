@@ -1,3 +1,4 @@
+#include "jove.constants.h"
 #include "jove.types.h"
 #include "jove.macros.h"
 #include "jove.sys.h"
@@ -566,7 +567,7 @@ static _UNUSED bool _jove_is_readable_mem(uintptr_t Addr) {
   return ret == sizeof(byte);
 }
 
-uintptr_t _jove_alloc_stack(void) {
+static uintptr_t _jove_alloc_stack(void) {
   uintptr_t ret = _mmap_rw_anonymous_private_memory(JOVE_STACK_SIZE);
   if (IS_ERR_VALUE(ret))
     _UNREACHABLE("failed to allocate stack");
@@ -586,12 +587,12 @@ uintptr_t _jove_alloc_stack(void) {
   return beg;
 }
 
-void _jove_free_stack(uintptr_t beg) {
+static void _jove_free_stack(uintptr_t beg) {
   if (_jove_sys_munmap(beg, JOVE_STACK_SIZE) < 0)
     _UNREACHABLE("failed to deallocate stack");
 }
 
-uintptr_t _jove_alloc_callstack(void) {
+static uintptr_t _jove_alloc_callstack(void) {
   uintptr_t ret = _mmap_rw_anonymous_private_memory(JOVE_CALLSTACK_SIZE);
   if (IS_ERR_VALUE(ret))
     _UNREACHABLE("failed to allocate callstack");
@@ -611,7 +612,7 @@ uintptr_t _jove_alloc_callstack(void) {
   return beg;
 }
 
-void _jove_free_callstack(uintptr_t start) {
+static void _jove_free_callstack(uintptr_t start) {
   if (_jove_sys_munmap(start - JOVE_PAGE_SIZE, JOVE_CALLSTACK_SIZE) < 0)
     _UNREACHABLE("failed to deallocate callstack");
 }
