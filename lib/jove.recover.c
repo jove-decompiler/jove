@@ -499,9 +499,9 @@ _HIDDEN void _jove_recover_basic_block(uint32_t IndBrBBIdx,
   IndBr.BIdx = _jove_binary_index();
   IndBr.BBIdx = IndBrBBIdx;
 
-  SectionsGlobal.Beg = _jove_sections_global_beg_addr();
-  SectionsGlobal.End = _jove_sections_global_end_addr();
-  SectsStartFileAddr = _jove_sections_start_file_addr();
+  SectionsGlobal.Beg = _jove_sections_begin();
+  SectionsGlobal.End = _jove_sections_end();
+  SectsStartFileAddr = _jove_sections_start_addr();
 
   if (!(BBAddr >= SectionsGlobal.Beg && BBAddr < SectionsGlobal.End))
     return; /* not found */

@@ -4,9 +4,9 @@
 // jove-llvm fills in the definition for the following functions
 //
 
-extern uintptr_t _jove_sections_start_file_addr(void);
-extern uintptr_t _jove_sections_global_beg_addr(void);
-extern uintptr_t _jove_sections_global_end_addr(void);
+extern uintptr_t _jove_sections_start_addr(void);
+extern uintptr_t _jove_sections_begin(void);
+extern uintptr_t _jove_sections_end(void);
 extern uint32_t _jove_binary_index(void);
 extern bool _jove_trace_enabled(void);
 extern bool _jove_dfsan_enabled(void);

@@ -115,9 +115,9 @@ void _jove_install_function_table(void) {
 void _jove_install_sections_table(void) {
   static uintptr_t _Entry[3];
 
-  _Entry[0] = _jove_sections_global_beg_addr();
-  _Entry[1] = _jove_sections_global_end_addr();
-  _Entry[2] = _jove_sections_start_file_addr();
+  _Entry[0] = _jove_sections_begin();
+  _Entry[1] = _jove_sections_end();
+  _Entry[2] = _jove_sections_start_addr();
 
   __jove_sections_tables[_jove_binary_index()] = &_Entry[0];
 }
@@ -231,9 +231,9 @@ void _jove_check_sections_laid_out(void) {
 
 
 void _jove_make_sections_executable(void) {
-  const unsigned n = QEMU_ALIGN_UP(_jove_sections_global_end_addr() -
-                                   _jove_sections_global_beg_addr(), JOVE_PAGE_SIZE);
-  const uintptr_t x = QEMU_ALIGN_DOWN(_jove_sections_global_beg_addr(), JOVE_PAGE_SIZE);
+  const unsigned n = QEMU_ALIGN_UP(_jove_sections_end() -
+                                   _jove_sections_begin(), JOVE_PAGE_SIZE);
+  const uintptr_t x = QEMU_ALIGN_DOWN(_jove_sections_begin(), JOVE_PAGE_SIZE);
 
   if (_jove_sys_mprotect(x, n, PROT_READ | PROT_WRITE | PROT_EXEC) < 0)
     _UNREACHABLE("failed to make sections executable\n");

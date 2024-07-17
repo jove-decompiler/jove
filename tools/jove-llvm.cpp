@@ -6276,22 +6276,24 @@ int LLVMTool::FixupHelperStubs(void) {
   binary_t &Binary = jv.Binaries.at(BinaryIndex);
 
   fillInFunctionBody(
-      Module->getFunction("_jove_sections_start_file_addr"),
+      Module->getFunction("_jove_sections_start_addr"),
       [&](auto &IRB) {
-        IRB.CreateRet(llvm::ConstantInt::get(WordType(), state.for_binary(Binary).SectsStartAddr));
-      }, !opts.ForCBE);
+        IRB.CreateRet(llvm::ConstantInt::get(
+            WordType(), state.for_binary(Binary).SectsStartAddr));
+      },
+      !opts.ForCBE);
 
   fillInFunctionBody(
-      Module->getFunction("_jove_sections_global_beg_addr"),
+      Module->getFunction("_jove_sections_begin"),
       [&](auto &IRB) {
         IRB.CreateRet(llvm::ConstantExpr::getPtrToInt(SectionsTop(), WordType()));
       }, !opts.ForCBE);
 
   fillInFunctionBody(
-      Module->getFunction("_jove_sections_global_end_addr"),
+      Module->getFunction("_jove_sections_end"),
       [&](auto &IRB) {
-        // TODO call DL.getAllocSize and verify the numbers are the same
-        uint64_t SectsGlobalSize = state.for_binary(Binary).SectsEndAddr - state.for_binary(Binary).SectsStartAddr;
+        uint64_t SectsGlobalSize = state.for_binary(Binary).SectsEndAddr -
+                                   state.for_binary(Binary).SectsStartAddr;
 
         IRB.CreateRet(llvm::ConstantExpr::getAdd(
             llvm::ConstantExpr::getPtrToInt(SectionsTop(), WordType()),
