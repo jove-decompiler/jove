@@ -84,8 +84,7 @@ runtime_dll_ldflags = /dll \
                       /WX:no \
                       /largeaddressaware \
                       /opt:noref \
-                      /opt:noicf \
-                      /machine:x64
+                      /opt:noicf
 
 # disable built-in rules
 .SUFFIXES:
