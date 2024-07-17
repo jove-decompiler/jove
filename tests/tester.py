@@ -21,10 +21,11 @@ class JoveTester:
     'ssh'
   ]
 
-  def __init__(self, tests_dir, tests, arch, unattended=False):
+  def __init__(self, tests_dir, tests, arch, newroot_losetup, unattended=False):
     self.tests_dir = tests_dir
     self.tests = tests
     self.arch = arch
+    self.newroot_losetup = newroot_losetup
     self.unattended = unattended
 
     assert arch in JoveTester.ARCH2PORT, "invalid arch"
@@ -107,7 +108,16 @@ class JoveTester:
   def create_vm(self):
     print("creating VM...")
 
-    subprocess.run(['sudo', self.bringup_path, '-a', self.arch, '-s', 'bookworm', '-o', self.vm_dir, '-p', str(self.guest_ssh_port)], check=True)
+    bringup_cmd = [self.bringup_path, '-a', self.arch, '-s', 'bookworm', '-o', self.vm_dir, '-p', str(self.guest_ssh_port)]
+    if not (self.newroot_losetup is None):
+      bringup_cmd += ['-X', self.newroot_losetup];
+
+    subprocess.run(['sudo'] + bringup_cmd, check=True)
+
+    our_uid = os.getuid()
+
+    chown_cmd = ["chown", "-R", "%d:%d" % (our_uid, our_uid), self.vm_dir]
+    subprocess.run(['sudo'] + chown_cmd, check=True)
 
   def pane(self, name):
     self.establish_tmux_session()
