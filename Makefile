@@ -187,8 +187,8 @@ $(BINDIR)/$(1)/libjove_rt.%.dll.o: $(BINDIR)/$(1)/libjove_rt.%.bc
 	sed -i -e 's/i32 @_jove_callstack_location(/x86_64_sysvcc i32 @_jove_callstack_location(/g' $$<.dll.ll
 	sed -i -e 's/i64 @_jove_callstack_begin_location(/x86_64_sysvcc i64 @_jove_callstack_begin_location(/g' $$<.dll.ll
 	sed -i -e 's/i32 @_jove_callstack_begin_location(/x86_64_sysvcc i32 @_jove_callstack_begin_location(/g' $$<.dll.ll
-	sed -i -e 's/void @_jove_free_callstack(/x86_64_sysvcc void @_jove_free_callstack(/g' $$<.dll.ll
-	sed -i -e 's/void @_jove_free_stack_later(/x86_64_sysvcc void @_jove_free_stack_later(/g' $$<.dll.ll
+	sed -i -e 's/void @_jove_do_free_callstack(/x86_64_sysvcc void @_jove_do_free_callstack(/g' $$<.dll.ll
+	sed -i -e 's/void @_jove_do_free_stack_later(/x86_64_sysvcc void @_jove_do_free_stack_later(/g' $$<.dll.ll
 	sed -i -e 's/i64 @_jove_handle_signal_delivery(/x86_64_sysvcc i64 @_jove_handle_signal_delivery(/g' $$<.dll.ll
 	sed -i -e 's/i32 @_jove_handle_signal_delivery(/x86_64_sysvcc i32 @_jove_handle_signal_delivery(/g' $$<.dll.ll
 	sed -i -e 's/@__jove_env = global %struct.CPUArchState zeroinitializer/@__jove_env = dllexport global %struct.CPUArchState zeroinitializer/g' $$<.dll.ll
