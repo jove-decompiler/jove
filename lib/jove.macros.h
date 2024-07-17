@@ -37,11 +37,12 @@
 
 #if !defined(__x86_64__) && defined(__i386__)
 #define _REGPARM __attribute__((regparm(3)))
-#define WINAPI __attribute__((stdcall))
 #else
 #define _REGPARM
-#define WINAPI
 #endif
+
+#define WINAPI __stdcall
+#define PASCAL __stdcall
 
 #define TRUE 1
 #define FALSE 0
