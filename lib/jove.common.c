@@ -361,10 +361,12 @@ static uintptr_t _jove_begin_setup_emulated_stack(uintptr_t init_sp) {
 
   uintptr_t emu_sp = emu_stack_end - JOVE_PAGE_SIZE - len;
 
+  if (unlikely(__jove_opts.Debug.Stack)) {
 #if defined(__x86_64__) || defined(__i386__)
-  _ASSERT(init_sp % 16 == 0);
-  _ASSERT(emu_sp % 16 == 0);
+    _ASSERT(init_sp % 16 == 0);
+    _ASSERT(emu_sp % 16 == 0);
 #endif
+  }
 
   _memcpy((void *)emu_sp, (void *)init_sp, len);
 

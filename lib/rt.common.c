@@ -745,10 +745,11 @@ found:
           __builtin_memcpy_inline(p, &__jove_env, sizeof(__jove_env));
       }
 
+      if (unlikely(__jove_opts.Debug.Stack)) {
 #if defined(__x86_64__) || defined(__i386__)
-      if (((newsp + sizeof(uintptr_t)) % 32) != 0)
-        _UNREACHABLE("misaligned stack");
+        _ASSERT(((newsp + sizeof(uintptr_t)) % 32) == 0);
 #endif
+      }
 
       *sp_ptr = newsp;
     }
