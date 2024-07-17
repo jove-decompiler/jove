@@ -1,3 +1,6 @@
+#include <signal.h>
+#include <ucontext.h>
+
 __JTHREAD struct CPUArchState __jove_env __attribute__((aligned(64)));
 
 static __JTHREAD bool __jove_initialized_env = false;

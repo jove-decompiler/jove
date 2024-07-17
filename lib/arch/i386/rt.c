@@ -1,19 +1,4 @@
 #include "cpu_state.h"
-#include <stddef.h>
-
-#define _GNU_SOURCE /* for REG_EIP */
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-#include <stdio.h>
-#include <sys/syscall.h>
-#include <errno.h>
-#include <unistd.h>
-#include <inttypes.h>
-#include <sys/mman.h>
-#include <sys/uio.h>
-#include <signal.h>
-#include <ucontext.h>
 
 #include "rt.common.h"
 

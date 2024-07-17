@@ -1,3 +1,8 @@
+#include <sys/mman.h>
+#include <errno.h>
+#include <stddef.h>
+#include <fcntl.h>
+
 #include "jove.constants.h"
 #include "jove.types.h"
 #include "jove.macros.h"

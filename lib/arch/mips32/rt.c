@@ -1,22 +1,4 @@
-#define _LARGEFILE64_SOURCE /* for O_LARGEFILE */
-#define _GNU_SOURCE         /* for what? TODO */
-
 #include "cpu_state.h"
-
-#include <stddef.h>
-
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-#include <stdio.h>
-#include <fcntl.h>
-#include <errno.h>
-#include <unistd.h>
-#include <inttypes.h>
-#include <sys/mman.h>
-#include <sys/uio.h>
-#include <signal.h>
-#include <ucontext.h>
 
 #include "rt.common.h"
 #include "rt.util.c"

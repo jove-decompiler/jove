@@ -1,24 +1,4 @@
 #include "cpu_state.h"
-#include <stddef.h>
-
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-#include <stdio.h>
-#include <sys/syscall.h>
-#include <errno.h>
-#include <unistd.h>
-#include <inttypes.h>
-#include <sys/mman.h>
-#include <sys/uio.h>
-#include <signal.h>
-#include <stdbool.h>
-
-#include <jove/jove.h> /* for TARGET_NUM_REG_ARGS */
-#include <boost/preprocessor/repetition/repeat.hpp>
-#include <boost/preprocessor/punctuation/comma_if.hpp>
-#include <boost/preprocessor/arithmetic/inc.hpp>
-#include <boost/preprocessor/cat.hpp>
 
 #include "jove.common.h"
 
