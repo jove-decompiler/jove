@@ -3,6 +3,7 @@ tags
 /bin/*/*.ll
 /bin/*/*.d
 /bin/*/*.so
+/bin/*/*.tmp
 /bin/*/helpers/*.c
 /bin/*/helpers/*.bc
 /bin/*/helpers/*.bc.*

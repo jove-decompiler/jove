@@ -21,6 +21,8 @@ LLVM_CXX := $(LLVM_BIN_DIR)/clang++
 LLVM_OPT := $(LLVM_BIN_DIR)/opt
 LLVM_LLD_LINK := $(LLVM_BIN_DIR)/lld-link
 
+jove_tool = $(LLVM_BIN_DIR)/jove-$(1)
+
 JOVE_GITVER := $(shell git log -n1 --format="%h")
 
 BINDIR := bin
@@ -179,33 +181,10 @@ $(BINDIR)/$(1)/libjove_rt.%.so: $(BINDIR)/$(1)/libjove_rt.%.so.o
 # runtime DLLs
 #
 $(BINDIR)/$(1)/libjove_rt.%.dll.o: $(BINDIR)/$(1)/libjove_rt.%.bc
-	$(LLVM_DIS) -o $$<.dll.ll $$<
-	sed -i -e 's/void @_jove_rt_signal_handler(/x86_64_sysvcc void @_jove_rt_signal_handler(/g' $$<.dll.ll
-	sed -i -e 's/i64 @_jove_emusp_location(/x86_64_sysvcc i64 @_jove_emusp_location(/g' $$<.dll.ll
-	sed -i -e 's/i32 @_jove_emusp_location(/x86_64_sysvcc i32 @_jove_emusp_location(/g' $$<.dll.ll
-	sed -i -e 's/i64 @_jove_callstack_location(/x86_64_sysvcc i64 @_jove_callstack_location(/g' $$<.dll.ll
-	sed -i -e 's/i32 @_jove_callstack_location(/x86_64_sysvcc i32 @_jove_callstack_location(/g' $$<.dll.ll
-	sed -i -e 's/i64 @_jove_callstack_begin_location(/x86_64_sysvcc i64 @_jove_callstack_begin_location(/g' $$<.dll.ll
-	sed -i -e 's/i32 @_jove_callstack_begin_location(/x86_64_sysvcc i32 @_jove_callstack_begin_location(/g' $$<.dll.ll
-	sed -i -e 's/void @_jove_do_free_callstack(/x86_64_sysvcc void @_jove_do_free_callstack(/g' $$<.dll.ll
-	sed -i -e 's/void @_jove_do_free_stack_later(/x86_64_sysvcc void @_jove_do_free_stack_later(/g' $$<.dll.ll
-	sed -i -e 's/i64 @_jove_handle_signal_delivery(/x86_64_sysvcc i64 @_jove_handle_signal_delivery(/g' $$<.dll.ll
-	sed -i -e 's/i32 @_jove_handle_signal_delivery(/x86_64_sysvcc i32 @_jove_handle_signal_delivery(/g' $$<.dll.ll
-	sed -i -e 's/@__jove_env = global %struct.CPUArchState zeroinitializer/@__jove_env = dllexport global %struct.CPUArchState zeroinitializer/g' $$<.dll.ll
-	sed -i -e 's/@__jove_callstack = global ptr null/@__jove_callstack = dllexport global ptr null/g' $$<.dll.ll
-	sed -i -e 's/@__jove_callstack_begin = global ptr null/@__jove_callstack_begin = dllexport global ptr null/g' $$<.dll.ll
-	sed -i -e 's/@__jove_function_map = global /@__jove_function_map = dllexport global /g' $$<.dll.ll
-	sed -i -e 's/@__jove_function_tables = global /@__jove_function_tables = dllexport global /g' $$<.dll.ll
-	sed -i -e 's/@__jove_sections_tables = global /@__jove_sections_tables = dllexport global /g' $$<.dll.ll
-	sed -i -e 's/@__jove_opts = global /@__jove_opts = dllexport global /g' $$<.dll.ll
-	sed -i -e 's/@__jove_trace = global /@__jove_trace = dllexport global /g' $$<.dll.ll
-	sed -i -e 's/@__jove_trace_begin = global /@__jove_trace_begin = dllexport global /g' $$<.dll.ll
-	sed -i -e 's/define void @___chkstk/define dllexport void @___chkstk/g' $$<.dll.ll
-	sed -i -e 's/define void @_jove_flush_trace/define dllexport void @_jove_flush_trace/g' $$<.dll.ll
-	sed -i -e 's/define void @_jove_rt_init/define dllexport void @_jove_rt_init/g' $$<.dll.ll
-	sed -i -e 's/define i32 @_jove_needs_single_threaded_runtime/define dllexport i32 @_jove_needs_single_threaded_runtime/g' $$<.dll.ll
-	sed -i -e 's/define i32 @_jove_needs_multi_threaded_runtime/define dllexport i32 @_jove_needs_multi_threaded_runtime/g' $$<.dll.ll
-	$(LLVM_LLC) -o $$@ --filetype=obj --relocation-model=pic --mtriple=$($(1)_COFF_TRIPLE) $$<.dll.ll
+	$(call jove_tool,$(1)) llknife -v -o $$<.2.tmp -i $$< --calling-convention=X86_64_SysV $(BINDIR)/$(1)/jove_rt_dll.sysv.syms
+	$(call jove_tool,$(1)) llknife -v -o $$<.3.tmp -i $$<.2.tmp --dllexport $(BINDIR)/$(1)/jove_rt_dll.dllexport.syms
+	$(LLVM_DIS) -o $$<.dll.ll $$<.3.tmp
+	$(LLVM_LLC) -o $$@ --filetype=obj --relocation-model=pic --mtriple=$($(1)_COFF_TRIPLE) $$<.3.tmp
 
 $(BINDIR)/$(1)/libjove_rt.%.dll: $(BINDIR)/$(1)/libjove_rt.%.dll.o
 	$(LLVM_LLD_LINK) /out:$$@ $(call runtime_dll_ldflags,$(1)) $$<
@@ -294,6 +273,7 @@ clean-runtime-$(1):
 	rm -f $(BINDIR)/$(1)/jove.*.ll        \
 	      $(BINDIR)/$(1)/jove.*.bc        \
 	      $(BINDIR)/$(1)/jove.*.d         \
+	      $(BINDIR)/$(1)/libjove_rt.*.tmp \
 	      $(BINDIR)/$(1)/libjove_rt.*.d   \
 	      $(BINDIR)/$(1)/libjove_rt.*.ll  \
 	      $(BINDIR)/$(1)/libjove_rt.*.bc  \
