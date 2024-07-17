@@ -1811,7 +1811,7 @@ void AnalyzeFunction(jv_t &jv,
 // Types
 //
 
-struct section_t {
+struct section_t { /* jove has its own notion of a "section" */
   std::string Name;
   llvm::ArrayRef<uint8_t> Contents;
   uint64_t Addr;
