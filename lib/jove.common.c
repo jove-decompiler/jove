@@ -8,10 +8,6 @@ extern __JTHREAD struct CPUArchState __jove_env __attribute__((aligned(64)));
 static /* __thread */ struct CPUArchState __jove_local_env;
 #endif
 
-#ifndef JOVE_COFF
-#define JOVE_CLUNK
-#endif
-
 #ifdef JOVE_CLUNK
 static /* __thread */ struct CPUArchState *__jove_env_clunk =
 #ifdef JOVE_MT

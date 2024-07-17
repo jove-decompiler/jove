@@ -9,4 +9,8 @@
 #include "jove.macros.h"
 #include "jove.types.h"
 
+#ifndef JOVE_COFF
+#define JOVE_CLUNK
+#endif
+
 extern struct jove_opts_t __jove_opts;
