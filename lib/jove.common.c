@@ -285,6 +285,8 @@ void _jove_install_function_mappings(void) {
   mb();
 }
 
+static bool _jove_see_through_tramp(const void *ptr, uintptr_t *out);
+
 void _jove_see_through_tramps(struct jove_function_info_t *fninfo_p) {
   for (unsigned i = 0; i < _jove_possible_tramps_count(); ++i) {
     const uintptr_t poss = *((uintptr_t *)(_jove_possible_tramps()[i]));
@@ -974,6 +976,28 @@ void _jove_log2(const char *msg,
   _DUMP(s);
 }
 
+
+//
+// declare _jove_thunk_*()
+//
+#ifndef JOVE_THUNK_ATTR
+#define JOVE_THUNK_ATTR
+#endif
+
+#define __REG_ARG0(n, i, data) BOOST_PP_COMMA_IF(i) uintptr_t
+#define __REG_ARG1(n, i, data)                                                 \
+  _HIDDEN JOVE_THUNK_ATTR _NAKED jove_thunk_return_t _jove_thunk##i(           \
+      BOOST_PP_CAT(BOOST_PP_REPEAT_,n)(i, __REG_ARG0, void)                    \
+          BOOST_PP_COMMA_IF(i) uintptr_t, uintptr_t *);
+
+BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __REG_ARG1, void)
+
+#undef __REG_ARG0
+#undef __REG_ARG1
+
+//
+// indirect control-transfer
+//
 static
 _REGPARM
 jove_thunk_return_t _jove_call(
@@ -1442,9 +1466,7 @@ found:
       return res;
     }
   } else {
-#define CALLCONV_ATTR _REGPARM
-
-    return ((CALLCONV_ATTR jove_thunk_return_t (*)(
+    return ((JOVE_THUNK_ATTR jove_thunk_return_t (*)(
                          #define __REG_ARG(n, i, data) BOOST_PP_COMMA_IF(i) uintptr_t
 
                          BOOST_PP_REPEAT(TARGET_NUM_REG_ARGS, __REG_ARG, void)
@@ -1457,9 +1479,10 @@ found:
 
                                                  #undef __REG_ARG
                                                  );
-#undef CALLCONV_ATTR
   }
 }
+
+#undef JOVE_THUNK_ATTR
 
 #if defined(JOVE_DFSAN)
 void _jove_check_return_address(uintptr_t RetAddr,

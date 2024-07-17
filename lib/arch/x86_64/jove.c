@@ -4,77 +4,33 @@
 
 typedef unsigned __int128 jove_thunk_return_t;
 
-_NAKED jove_thunk_return_t _jove_thunk0(uint64_t dstpc,
-                                        uint64_t *emuspp);
-
-_NAKED jove_thunk_return_t _jove_thunk1(uint64_t rdi,
-                                        uint64_t dstpc,
-                                        uint64_t *emuspp);
-
-_NAKED jove_thunk_return_t _jove_thunk2(uint64_t rdi,
-                                        uint64_t rsi,
-                                        uint64_t dstpc,
-                                        uint64_t *emuspp);
-
-_NAKED jove_thunk_return_t _jove_thunk3(uint64_t rdi,
-                                        uint64_t rsi,
-                                        uint64_t rdx,
-                                        uint64_t dstpc,
-                                        uint64_t *emuspp);
-
-_NAKED jove_thunk_return_t _jove_thunk4(uint64_t rdi,
-                                        uint64_t rsi,
-                                        uint64_t rdx,
-                                        uint64_t rcx,
-                                        uint64_t dstpc,
-                                        uint64_t *emuspp);
-
-_NAKED jove_thunk_return_t _jove_thunk5(uint64_t rdi,
-                                        uint64_t rsi,
-                                        uint64_t rdx,
-                                        uint64_t rcx,
-                                        uint64_t r8,
-                                        uint64_t dstpc,
-                                        uint64_t *emuspp);
-
-_NAKED jove_thunk_return_t _jove_thunk6(uint64_t rdi,
-                                        uint64_t rsi,
-                                        uint64_t rdx,
-                                        uint64_t rcx,
-                                        uint64_t r8,
-                                        uint64_t r9,
-                                        uint64_t dstpc,
-                                        uint64_t *emuspp);
-
-static bool _jove_see_through_tramp(const void *ptr, uintptr_t *out);
-
 #include "jove.common.c"
 
 _HIDDEN
 _NAKED void _jove_start(void);
-static void _jove_begin(uint64_t rdi,
-                        uint64_t rsi,
-                        uint64_t rdx,
-                        uint64_t rcx,
-                        uint64_t r8,
-                        uint64_t init_sp /* formerly r9 */);
+static void _jove_begin(uintptr_t rdi,
+                        uintptr_t rsi,
+                        uintptr_t rdx,
+                        uintptr_t rcx,
+                        uintptr_t r8,
+                        uintptr_t init_sp /* formerly r9 */);
 
-_NAKED _HIDDEN void _jove_init(uint64_t rdi,
-                               uint64_t rsi,
-                               uint64_t rdx,
-                               uint64_t rcx,
-                               uint64_t r8,
-                               uint64_t r9);
+_NAKED _HIDDEN void _jove_init(uintptr_t rdi,
+                               uintptr_t rsi,
+                               uintptr_t rdx,
+                               uintptr_t rcx,
+                               uintptr_t r8,
+                               uintptr_t r9);
 
 //
 // XXX hack for glibc 2.32+
 //
-_NAKED void _jove__libc_early_init(uint64_t rdi,
-                                   uint64_t rsi,
-                                   uint64_t rdx,
-                                   uint64_t rcx,
-                                   uint64_t r8,
-                                   uint64_t r9);
+_NAKED void _jove__libc_early_init(uintptr_t rdi,
+                                   uintptr_t rsi,
+                                   uintptr_t rdx,
+                                   uintptr_t rcx,
+                                   uintptr_t r8,
+                                   uintptr_t r9);
 
 void WINAPI JoveWinMain(void) {
   //
@@ -119,12 +75,12 @@ void _jove_start(void) {
                : /* Clobbers */);
 }
 
-void _jove_begin(uint64_t rdi,
-                 uint64_t rsi,
-                 uint64_t rdx,
-                 uint64_t rcx,
-                 uint64_t r8,
-                 uint64_t init_sp /* formerly r9 */) {
+void _jove_begin(uintptr_t rdi,
+                 uintptr_t rsi,
+                 uintptr_t rdx,
+                 uintptr_t rcx,
+                 uintptr_t r8,
+                 uintptr_t init_sp /* formerly r9 */) {
   _jove_initialize();
 
   __jove_env.regs[R_EDI] = rdi;
@@ -180,8 +136,8 @@ void _jove_begin(uint64_t rdi,
                                                                                \
   JOVE_THUNK_EPILOGUE
 
-jove_thunk_return_t _jove_thunk0(uint64_t dstpc   /* rdi */,
-                                 uint64_t *emuspp /* rsi */) {
+jove_thunk_return_t _jove_thunk0(uintptr_t dstpc   /* rdi */,
+                                 uintptr_t *emuspp /* rsi */) {
   asm volatile(JOVE_THUNK_PROLOGUE
 
                "movq %%rdi, %%r11\n" /* dstpc in r11 */
@@ -194,9 +150,9 @@ jove_thunk_return_t _jove_thunk0(uint64_t dstpc   /* rdi */,
                : /* Clobbers */);
 }
 
-jove_thunk_return_t _jove_thunk1(uint64_t rdi,
-                                 uint64_t dstpc   /* rsi */,
-                                 uint64_t *emuspp /* rdx */) {
+jove_thunk_return_t _jove_thunk1(uintptr_t rdi,
+                                 uintptr_t dstpc   /* rsi */,
+                                 uintptr_t *emuspp /* rdx */) {
   asm volatile(JOVE_THUNK_PROLOGUE
 
                "movq %%rsi, %%r11\n" /* dstpc in r11 */
@@ -209,10 +165,10 @@ jove_thunk_return_t _jove_thunk1(uint64_t rdi,
                : /* Clobbers */);
 }
 
-jove_thunk_return_t _jove_thunk2(uint64_t rdi,
-                                 uint64_t rsi,
-                                 uint64_t dstpc   /* rdx */,
-                                 uint64_t *emuspp /* rcx */) {
+jove_thunk_return_t _jove_thunk2(uintptr_t rdi,
+                                 uintptr_t rsi,
+                                 uintptr_t dstpc   /* rdx */,
+                                 uintptr_t *emuspp /* rcx */) {
   asm volatile(JOVE_THUNK_PROLOGUE
 
                "movq %%rdx, %%r11\n" /* dstpc in r11 */
@@ -225,11 +181,11 @@ jove_thunk_return_t _jove_thunk2(uint64_t rdi,
                : /* Clobbers */);
 }
 
-jove_thunk_return_t _jove_thunk3(uint64_t rdi,
-                                 uint64_t rsi,
-                                 uint64_t rdx,
-                                 uint64_t dstpc   /* rcx */,
-                                 uint64_t *emuspp /* r8 */) {
+jove_thunk_return_t _jove_thunk3(uintptr_t rdi,
+                                 uintptr_t rsi,
+                                 uintptr_t rdx,
+                                 uintptr_t dstpc   /* rcx */,
+                                 uintptr_t *emuspp /* r8 */) {
   asm volatile(JOVE_THUNK_PROLOGUE
 
                "movq %%rcx, %%r11\n" /* dstpc in r11 */
@@ -242,12 +198,12 @@ jove_thunk_return_t _jove_thunk3(uint64_t rdi,
                : /* Clobbers */);
 }
 
-jove_thunk_return_t _jove_thunk4(uint64_t rdi,
-                                 uint64_t rsi,
-                                 uint64_t rdx,
-                                 uint64_t rcx,
-                                 uint64_t dstpc   /* r8 */,
-                                 uint64_t *emuspp /* r9 */) {
+jove_thunk_return_t _jove_thunk4(uintptr_t rdi,
+                                 uintptr_t rsi,
+                                 uintptr_t rdx,
+                                 uintptr_t rcx,
+                                 uintptr_t dstpc   /* r8 */,
+                                 uintptr_t *emuspp /* r9 */) {
   asm volatile(JOVE_THUNK_PROLOGUE
 
                "movq %%r8, %%r11\n" /* dstpc in r11 */
@@ -260,13 +216,13 @@ jove_thunk_return_t _jove_thunk4(uint64_t rdi,
                : /* Clobbers */);
 }
 
-jove_thunk_return_t _jove_thunk5(uint64_t rdi,
-                                 uint64_t rsi,
-                                 uint64_t rdx,
-                                 uint64_t rcx,
-                                 uint64_t r8,
-                                 uint64_t dstpc   /* r9 */,
-                                 uint64_t *emuspp) {
+jove_thunk_return_t _jove_thunk5(uintptr_t rdi,
+                                 uintptr_t rsi,
+                                 uintptr_t rdx,
+                                 uintptr_t rcx,
+                                 uintptr_t r8,
+                                 uintptr_t dstpc   /* r9 */,
+                                 uintptr_t *emuspp) {
   asm volatile(JOVE_THUNK_PROLOGUE
 
                "movq %%r9, %%r11\n" /* dstpc in r11 */
@@ -279,14 +235,14 @@ jove_thunk_return_t _jove_thunk5(uint64_t rdi,
                : /* Clobbers */);
 }
 
-jove_thunk_return_t _jove_thunk6(uint64_t rdi,
-                                 uint64_t rsi,
-                                 uint64_t rdx,
-                                 uint64_t rcx,
-                                 uint64_t r8,
-                                 uint64_t r9,
-                                 uint64_t dstpc,
-                                 uint64_t *emuspp) {
+jove_thunk_return_t _jove_thunk6(uintptr_t rdi,
+                                 uintptr_t rsi,
+                                 uintptr_t rdx,
+                                 uintptr_t rcx,
+                                 uintptr_t r8,
+                                 uintptr_t r9,
+                                 uintptr_t dstpc,
+                                 uintptr_t *emuspp) {
   asm volatile(JOVE_THUNK_PROLOGUE
 
                "movq 24(%%rsp), %%r11\n" /* dstpc in r11 */
@@ -302,12 +258,12 @@ jove_thunk_return_t _jove_thunk6(uint64_t rdi,
 #undef JOVE_THUNK_PROLOGUE
 #undef JOVE_THUNK_EPILOGUE
 
-void _jove_init(uint64_t rdi,
-                uint64_t rsi,
-                uint64_t rdx,
-                uint64_t rcx,
-                uint64_t r8,
-                uint64_t r9) {
+void _jove_init(uintptr_t rdi,
+                uintptr_t rsi,
+                uintptr_t rdx,
+                uintptr_t rcx,
+                uintptr_t r8,
+                uintptr_t r9) {
   asm volatile(
                "xchgq %%r15, %%r15\n" /* nop */
                "xchgq %%r14, %%r14\n" /* nop */
@@ -349,12 +305,12 @@ void _jove_init(uint64_t rdi,
 //
 // XXX hack for glibc 2.32+
 //
-void _jove__libc_early_init(uint64_t rdi,
-                            uint64_t rsi,
-                            uint64_t rdx,
-                            uint64_t rcx,
-                            uint64_t r8,
-                            uint64_t r9) {
+void _jove__libc_early_init(uintptr_t rdi,
+                            uintptr_t rsi,
+                            uintptr_t rdx,
+                            uintptr_t rcx,
+                            uintptr_t r8,
+                            uintptr_t r9) {
   asm volatile("pushq %%rdi\n" /* preserve arguments */
                "pushq %%rsi\n"
                "pushq %%rdx\n"
@@ -406,6 +362,6 @@ bool _jove_see_through_tramp(const void *ptr, uintptr_t *out) {
   const unsigned sizeof_jmp = 6;
   uint32_t pc_off = *((const uint32_t *)&u8p[2]);
 
-  *out = *((uint64_t *)(u8p + pc_off + sizeof_jmp));
+  *out = *((uintptr_t *)(u8p + pc_off + sizeof_jmp));
   return true;
 }

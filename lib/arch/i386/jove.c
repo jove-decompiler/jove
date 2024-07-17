@@ -2,46 +2,27 @@
 
 #include "jove.common.h"
 
+#define JOVE_THUNK_ATTR _REGPARM
 typedef uint64_t jove_thunk_return_t;
-
-_REGPARM _NAKED jove_thunk_return_t _jove_thunk0(uint32_t dstpc,
-                                                 uint32_t *emuspp);
-
-_REGPARM _NAKED jove_thunk_return_t _jove_thunk1(uint32_t eax,
-                                                 uint32_t dstpc,
-                                                 uint32_t *emuspp);
-
-_REGPARM _NAKED jove_thunk_return_t _jove_thunk2(uint32_t eax,
-                                                 uint32_t edx,
-                                                 uint32_t dstpc,
-                                                 uint32_t *emuspp);
-
-_REGPARM _NAKED jove_thunk_return_t _jove_thunk3(uint32_t eax,
-                                                 uint32_t edx,
-                                                 uint32_t ecx,
-                                                 uint32_t dstpc,
-                                                 uint32_t *emuspp);
-
-static bool _jove_see_through_tramp(const void *ptr, uintptr_t *out);
 
 #include "jove.common.c"
 
 _HIDDEN
 _NAKED void _jove_start(void);
-_HIDDEN void _jove_begin(uint32_t init_sp);
+_HIDDEN void _jove_begin(uintptr_t init_sp);
 
 _HIDDEN unsigned long _jove_thread_init(unsigned long clone_newsp);
 
-_REGPARM _NAKED _HIDDEN void _jove_init(uint32_t eax,
-                                        uint32_t edx,
-                                        uint32_t ecx);
+_REGPARM _NAKED _HIDDEN void _jove_init(uintptr_t eax,
+                                        uintptr_t edx,
+                                        uintptr_t ecx);
 
 //
 // XXX hack for glibc 2.32+
 //
-_REGPARM _NAKED _HIDDEN void _jove__libc_early_init(uint32_t eax,
-                                                    uint32_t edx,
-                                                    uint32_t ecx);
+_REGPARM _NAKED _HIDDEN void _jove__libc_early_init(uintptr_t eax,
+                                                    uintptr_t edx,
+                                                    uintptr_t ecx);
 
 void _jove_start(void) {
   asm volatile(/* Clear the frame pointer.  The ABI suggests this be done, to
@@ -65,7 +46,7 @@ void _jove_start(void) {
                : /* Clobbers */);
 }
 
-void _jove_begin(uint32_t init_sp) {
+void _jove_begin(uintptr_t init_sp) {
   _jove_initialize();
 
   __jove_env.regs[R_ESP] = _jove_begin_setup_emulated_stack(init_sp);
@@ -77,7 +58,7 @@ extern floatx80 float32_to_floatx80(float32, float_status *status);
 
 #define ST0    (env->fpregs[env->fpstt].d)
 
-_HIDDEN void _jove_thunk_handle_st0(uint32_t f32) {
+_HIDDEN void _jove_thunk_handle_st0(uintptr_t f32) {
   CPUX86State *env = &__jove_env;
 
 #if 0
@@ -130,8 +111,8 @@ _HIDDEN void _jove_thunk_handle_st0(uint32_t f32) {
                                                                                \
   JOVE_THUNK_EPILOGUE
 
-jove_thunk_return_t _jove_thunk0(uint32_t dstpc,  /* eax */
-                                 uint32_t *emuspp /* edx */) {
+jove_thunk_return_t _jove_thunk0(uintptr_t dstpc,  /* eax */
+                                 uintptr_t *emuspp /* edx */) {
   asm volatile(JOVE_THUNK_PROLOGUE
 
                "movl %%eax, %%esi\n" /* dstpc in esi */
@@ -144,9 +125,9 @@ jove_thunk_return_t _jove_thunk0(uint32_t dstpc,  /* eax */
                : /* Clobbers */);
 }
 
-jove_thunk_return_t _jove_thunk1(uint32_t eax,
-                                 uint32_t dstpc,  /* edx */
-                                 uint32_t *emuspp /* ecx */) {
+jove_thunk_return_t _jove_thunk1(uintptr_t eax,
+                                 uintptr_t dstpc,  /* edx */
+                                 uintptr_t *emuspp /* ecx */) {
   asm volatile(JOVE_THUNK_PROLOGUE
 
                "movl %%edx, %%esi\n" /* dstpc in esi */
@@ -159,10 +140,10 @@ jove_thunk_return_t _jove_thunk1(uint32_t eax,
                : /* Clobbers */);
 }
 
-jove_thunk_return_t _jove_thunk2(uint32_t eax,
-                                 uint32_t edx,
-                                 uint32_t dstpc,  /* ecx */
-                                 uint32_t *emuspp) {
+jove_thunk_return_t _jove_thunk2(uintptr_t eax,
+                                 uintptr_t edx,
+                                 uintptr_t dstpc,  /* ecx */
+                                 uintptr_t *emuspp) {
   asm volatile(JOVE_THUNK_PROLOGUE
 
                "movl %%ecx, %%esi\n" /* dstpc in esi */
@@ -175,11 +156,11 @@ jove_thunk_return_t _jove_thunk2(uint32_t eax,
                : /* Clobbers */);
 }
 
-jove_thunk_return_t _jove_thunk3(uint32_t eax,
-                                 uint32_t edx,
-                                 uint32_t ecx,
-                                 uint32_t dstpc,
-                                 uint32_t *emuspp) {
+jove_thunk_return_t _jove_thunk3(uintptr_t eax,
+                                 uintptr_t edx,
+                                 uintptr_t ecx,
+                                 uintptr_t dstpc,
+                                 uintptr_t *emuspp) {
   asm volatile(JOVE_THUNK_PROLOGUE
 
                "movl 16(%%esp), %%esi\n" /* dstpc in esi */
@@ -192,9 +173,9 @@ jove_thunk_return_t _jove_thunk3(uint32_t eax,
                : /* Clobbers */);
 }
 
-void _jove_init(uint32_t eax,
-                uint32_t edx,
-                uint32_t ecx /* TODO preserve */) {
+void _jove_init(uintptr_t eax,
+                uintptr_t edx,
+                uintptr_t ecx /* TODO preserve */) {
   asm volatile(
                "xchgl %%ebx, %%ebx\n" /* nop */
                "xchgl %%ecx, %%ecx\n" /* nop */
@@ -228,9 +209,9 @@ void _jove_init(uint32_t eax,
 //
 // XXX hack for glibc 2.32+
 //
-void _jove__libc_early_init(uint32_t eax,
-                            uint32_t edx,
-                            uint32_t ecx /* TODO preserve */) {
+void _jove__libc_early_init(uintptr_t eax,
+                            uintptr_t edx,
+                            uintptr_t ecx /* TODO preserve */) {
   asm volatile("pushl %%eax\n" /* preserve arguments */
                "pushl %%edx\n"
 
