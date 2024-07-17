@@ -382,7 +382,7 @@ void _jove_recover_function(uint32_t IndCallBBIdx,
 
   struct {
     uint32_t BIdx;
-    uintptr_t FileAddr;
+    uintptr_t Addr;
   } Callee;
 
   for (unsigned BIdx = 0; BIdx < _JOVE_MAX_BINARIES ; ++BIdx) {
@@ -395,15 +395,15 @@ void _jove_recover_function(uint32_t IndCallBBIdx,
       uintptr_t End;
     } SectionsGlobal;
 
-    uintptr_t SectsStartFileAddr;
+    uintptr_t SectsStartAddr;
 
     SectionsGlobal.Beg = Entry[0];
     SectionsGlobal.End = Entry[1];
-    SectsStartFileAddr = Entry[2];
+    SectsStartAddr = Entry[2];
 
     if (FuncAddr >= SectionsGlobal.Beg && FuncAddr < SectionsGlobal.End) {
       Callee.BIdx = BIdx;
-      Callee.FileAddr = (FuncAddr - SectionsGlobal.Beg) + SectsStartFileAddr;
+      Callee.Addr = (FuncAddr - SectionsGlobal.Beg) + SectsStartAddr;
       goto found;
     }
   }
@@ -442,7 +442,7 @@ found:
     _strcat(s, ",");
     {
       char buff[65];
-      _uint_to_string(Callee.FileAddr, buff, 10);
+      _uint_to_string(Callee.Addr, buff, 10);
 
       _strcat(s, buff);
     }
@@ -468,7 +468,7 @@ found:
         *((uint32_t *)&buff[sizeof(char) + 0 * sizeof(uint32_t)]) = IndCall.BIdx;
         *((uint32_t *)&buff[sizeof(char) + 1 * sizeof(uint32_t)]) = IndCall.BBIdx;
         *((uint32_t *)&buff[sizeof(char) + 2 * sizeof(uint32_t)]) = Callee.BIdx;
-        *((uintptr_t*)&buff[sizeof(char) + 3 * sizeof(uint32_t)]) = Callee.FileAddr;
+        *((uintptr_t*)&buff[sizeof(char) + 3 * sizeof(uint32_t)]) = Callee.Addr;
 
         if (_jove_sys_write(recover_fd, &buff[0], sizeof(buff)) != sizeof(buff))
           _UNREACHABLE();
@@ -494,19 +494,19 @@ _HIDDEN void _jove_recover_basic_block(uint32_t IndBrBBIdx,
     uintptr_t End;
   } SectionsGlobal;
 
-  uintptr_t SectsStartFileAddr;
+  uintptr_t SectsStartAddr;
 
   IndBr.BIdx = _jove_binary_index();
   IndBr.BBIdx = IndBrBBIdx;
 
   SectionsGlobal.Beg = _jove_sections_begin();
   SectionsGlobal.End = _jove_sections_end();
-  SectsStartFileAddr = _jove_sections_start_addr();
+  SectsStartAddr = _jove_sections_start_addr();
 
   if (!(BBAddr >= SectionsGlobal.Beg && BBAddr < SectionsGlobal.End))
     return; /* not found */
 
-  uintptr_t FileAddr = (BBAddr - SectionsGlobal.Beg) + SectsStartFileAddr;
+  uintptr_t Addr = (BBAddr - SectionsGlobal.Beg) + SectsStartAddr;
 
 found:
   if (!recover_fifo_path) {
@@ -532,7 +532,7 @@ found:
     _strcat(s, ",");
     {
       char buff[65];
-      _uint_to_string(FileAddr, buff, 10);
+      _uint_to_string(Addr, buff, 10);
 
       _strcat(s, buff);
     }
@@ -557,7 +557,7 @@ found:
         buff[0] = ch;
         *((uint32_t *)&buff[sizeof(char) + 0 * sizeof(uint32_t)]) = IndBr.BIdx;
         *((uint32_t *)&buff[sizeof(char) + 1 * sizeof(uint32_t)]) = IndBr.BBIdx;
-        *((uintptr_t*)&buff[sizeof(char) + 2 * sizeof(uint32_t)]) = FileAddr;
+        *((uintptr_t*)&buff[sizeof(char) + 2 * sizeof(uint32_t)]) = Addr;
 
         if (_jove_sys_write(recover_fd, &buff[0], sizeof(buff)) != sizeof(buff))
           _UNREACHABLE();
