@@ -5829,6 +5829,18 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
 
     SectsGlobal = nullptr;
     ConstSectsGlobal = nullptr;
+
+    if (_coff.rsrcSectIdx == NumSections - 1) { /* XXX .jove_po must exist */
+      auto *GV = new llvm::GlobalVariable(
+          *Module, WordType(), false,
+          llvm::GlobalValue::InternalLinkage,
+          llvm::Constant::getNullValue(WordType()),
+          "__jove_space_" + std::to_string(j));
+
+      GV->setSection(".jove_po");
+
+      ReferenceInNoDCEFunc(GV);
+    }
   }
 
   //
