@@ -48,7 +48,7 @@ void _jove_begin(uintptr_t a0,
   __jove_env.active_tc.gpr[2] = v0;
   __jove_env.active_tc.gpr[29] = _jove_begin_setup_emulated_stack(init_sp);
 
-  return _jove_call_entry();
+  _jove_call_entry();
 }
 
 #define JOVE_THUNK_PROLOGUE                                                    \

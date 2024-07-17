@@ -53,7 +53,7 @@ void WINAPI JoveWinMain(void) {
 
   _jove_initialize();
 
-  return _jove_call_entry();
+  _jove_call_entry();
 }
 
 void _jove_start(void) {
@@ -90,7 +90,7 @@ void _jove_begin(uintptr_t rdi,
   __jove_env.regs[R_R8] = r8;
   __jove_env.regs[R_ESP] = _jove_begin_setup_emulated_stack(init_sp);
 
-  return _jove_call_entry();
+  _jove_call_entry();
 }
 
 #define JOVE_THUNK_PROLOGUE                                                    \

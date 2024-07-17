@@ -51,7 +51,7 @@ void _jove_begin(uintptr_t init_sp) {
 
   __jove_env.regs[R_ESP] = _jove_begin_setup_emulated_stack(init_sp);
 
-  return _jove_call_entry();
+  _jove_call_entry();
 }
 
 extern floatx80 float32_to_floatx80(float32, float_status *status);

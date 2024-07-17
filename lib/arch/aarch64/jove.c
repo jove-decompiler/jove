@@ -45,7 +45,7 @@ void _jove_begin(uintptr_t x0,
   __jove_env.xregs[6] = x6;
   __jove_env.xregs[31] = _jove_begin_setup_emulated_stack(init_sp);
 
-  return _jove_call_entry();
+  _jove_call_entry();
 }
 
 #define JOVE_THUNK_PROLOGUE                                                    \
