@@ -131,7 +131,7 @@ void _jove_begin(uint64_t x0,
                  uint64_t x4,
                  uint64_t x5,
                  uint64_t x6,
-                 uint64_t sp_addr /* formerly x7 */) {
+                 uint64_t init_sp /* formerly x7 */) {
   __jove_env.xregs[0] = x0;
   __jove_env.xregs[1] = x1;
   __jove_env.xregs[2] = x2;
@@ -139,22 +139,7 @@ void _jove_begin(uint64_t x0,
   __jove_env.xregs[4] = x4;
   __jove_env.xregs[5] = x5;
   __jove_env.xregs[6] = x6;
-
-  //
-  // setup the stack
-  //
-  {
-    unsigned len = _get_stack_end() - sp_addr;
-
-    unsigned long env_stack_beg = _jove_alloc_stack();
-    unsigned long env_stack_end = env_stack_beg + JOVE_STACK_SIZE;
-
-    char *env_sp = (char *)(env_stack_end - JOVE_PAGE_SIZE - len);
-
-    _memcpy(env_sp, (void *)sp_addr, len);
-
-    __jove_env.xregs[31] = (target_ulong)env_sp;
-  }
+  __jove_env.xregs[31] = _jove_begin_setup_emulated_stack(init_sp);
 
   _jove_initialize();
 

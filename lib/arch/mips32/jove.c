@@ -101,26 +101,11 @@ void _jove_start(void) {
 void _jove_begin(uint32_t a0,
                  uint32_t a1,
                  uint32_t v0,     /* formerly a2 */
-                 uint32_t sp_addr /* formerly a3 */) {
+                 uint32_t init_sp /* formerly a3 */) {
   __jove_env.active_tc.gpr[4] = a0;
   __jove_env.active_tc.gpr[5] = a1;
   __jove_env.active_tc.gpr[2] = v0;
-
-  //
-  // setup the stack
-  //
-  {
-    unsigned len = _get_stack_end() - sp_addr;
-
-    unsigned long env_stack_beg = _jove_alloc_stack();
-    unsigned long env_stack_end = env_stack_beg + JOVE_STACK_SIZE;
-
-    char *env_sp = (char *)(env_stack_end - JOVE_PAGE_SIZE - len);
-
-    _memcpy(env_sp, (void *)sp_addr, len);
-
-    __jove_env.active_tc.gpr[29] = (target_ulong)env_sp;
-  }
+  __jove_env.active_tc.gpr[29] = _jove_begin_setup_emulated_stack(init_sp);
 
   _jove_initialize();
 

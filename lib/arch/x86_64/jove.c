@@ -92,7 +92,7 @@ static void _jove_begin(uint64_t rdi,
                         uint64_t rdx,
                         uint64_t rcx,
                         uint64_t r8,
-                        uint64_t sp_addr /* formerly r9 */);
+                        uint64_t init_sp /* formerly r9 */);
 
 _HIDDEN unsigned long _jove_thread_init(unsigned long clone_newsp);
 
@@ -189,25 +189,7 @@ void _jove_begin(uint64_t rdi,
   __jove_env.regs[R_EDX] = rdx;
   __jove_env.regs[R_ECX] = rcx;
   __jove_env.regs[R_R8] = r8;
-
-  //
-  // setup the stack
-  //
-  {
-    unsigned len = _get_stack_end() - init_sp;
-
-    uintptr_t emu_stack_beg = _jove_alloc_stack();
-    uintptr_t emu_stack_end = emu_stack_beg + JOVE_STACK_SIZE;
-
-    uintptr_t emu_sp = emu_stack_end - JOVE_PAGE_SIZE - len;
-
-    if (init_sp % 16 != 0) _UNREACHABLE("init sp misaligned on entry");
-    if (emu_sp % 16 != 0) _UNREACHABLE("emu sp misaligned on entry");
-
-    _memcpy((void *)emu_sp, (void *)init_sp, len);
-
-    __jove_env.regs[R_ESP] = emu_sp;
-  }
+  __jove_env.regs[R_ESP] = _jove_begin_setup_emulated_stack(init_sp);
 
   _jove_initialize();
 

@@ -62,7 +62,7 @@ static bool _jove_see_through_tramp(const void *ptr, uintptr_t *out);
 
 _HIDDEN
 _NAKED void _jove_start(void);
-_HIDDEN void _jove_begin(uint32_t sp_addr);
+_HIDDEN void _jove_begin(uint32_t init_sp);
 
 _HIDDEN unsigned long _jove_thread_init(unsigned long clone_newsp);
 
@@ -118,22 +118,8 @@ unsigned long _jove_thread_init(unsigned long clone_newsp) {
   return env_sp;
 }
 
-void _jove_begin(target_ulong sp_addr) {
-  //
-  // setup the stack
-  //
-  {
-    unsigned len = _get_stack_end() - sp_addr;
-
-    unsigned long env_stack_beg = _jove_alloc_stack();
-    unsigned long env_stack_end = env_stack_beg + JOVE_STACK_SIZE;
-
-    char *env_sp = (char *)(env_stack_end - JOVE_PAGE_SIZE - len);
-
-    _memcpy(env_sp, (void *)sp_addr, len);
-
-    __jove_env.regs[R_ESP] = (target_ulong)env_sp;
-  }
+void _jove_begin(uint32_t init_sp) {
+  __jove_env.regs[R_ESP] = _jove_begin_setup_emulated_stack(init_sp);
 
   _jove_initialize();
 

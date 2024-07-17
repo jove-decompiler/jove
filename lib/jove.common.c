@@ -353,6 +353,24 @@ found:
   }
 }
 
+static uintptr_t _jove_begin_setup_emulated_stack(uintptr_t init_sp) {
+  unsigned len = _get_stack_end() - init_sp;
+
+  uintptr_t emu_stack_beg = _jove_alloc_stack();
+  uintptr_t emu_stack_end = emu_stack_beg + JOVE_STACK_SIZE;
+
+  uintptr_t emu_sp = emu_stack_end - JOVE_PAGE_SIZE - len;
+
+#if defined(__x86_64__) || defined(__i386__)
+  _ASSERT(init_sp % 16 == 0);
+  _ASSERT(emu_sp % 16 == 0);
+#endif
+
+  _memcpy((void *)emu_sp, (void *)init_sp, len);
+
+  return emu_sp;
+}
+
 #if defined(__aarch64__)
 _HIDDEN void _jove_init(
                         #define __REG_ARG(n, i, data) BOOST_PP_COMMA_IF(i) uintptr_t reg##i

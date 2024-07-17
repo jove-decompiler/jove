@@ -106,7 +106,7 @@ static bool _jove_see_through_tramp(const void *ptr, uintptr_t *out);
 _HIDDEN void _jove_begin(uint64_t a0,
                          uint64_t a1,
                          uint64_t v0,     /* formerly a2 */
-                         uint64_t sp_addr /* formerly a3 */);
+                         uint64_t init_sp /* formerly a3 */);
 
 #define __STRING(x)	#x
 #define __CONCAT(x,y)	x ## y
@@ -164,26 +164,11 @@ asm(".text\n"
 void _jove_begin(uint64_t a0,
                  uint64_t a1,
                  uint64_t v0,     /* formerly a2 */
-                 uint64_t sp_addr /* formerly a3 */) {
+                 uint64_t init_sp /* formerly a3 */) {
   __jove_env.active_tc.gpr[4] = a0;
   __jove_env.active_tc.gpr[5] = a1;
   __jove_env.active_tc.gpr[2] = v0;
-
-  //
-  // setup the stack
-  //
-  {
-    unsigned len = _get_stack_end() - sp_addr;
-
-    unsigned long env_stack_beg = _jove_alloc_stack();
-    unsigned long env_stack_end = env_stack_beg + JOVE_STACK_SIZE;
-
-    char *env_sp = (char *)(env_stack_end - JOVE_PAGE_SIZE - len);
-
-    _memcpy(env_sp, (void *)sp_addr, len);
-
-    __jove_env.active_tc.gpr[29] = (target_ulong)env_sp;
-  }
+  __jove_env.active_tc.gpr[29] = _jove_begin_setup_emulated_stack(init_sp);
 
   _jove_initialize();
 
