@@ -41,6 +41,7 @@ runtime_cflags = -std=gnu99 \
                  -D TARGET_ARCH_NAME=\"$(1)\" \
                  $($(1)_ARCH_CFLAGS) \
                  -D _GNU_SOURCE \
+                 -D _LARGEFILE64_SOURCE \
                  -Weverything \
                  -Werror-implicit-function-declaration \
                  -Werror=return-type \
