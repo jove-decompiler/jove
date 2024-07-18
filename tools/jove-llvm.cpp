@@ -5760,8 +5760,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
         ptrdiff_t space = Sect.Addr - (PrevSect.Addr + PrevSect.Size);
         if (space > 0) { // zero padding between sections
           auto *T = llvm::ArrayType::get(llvm::Type::getInt8Ty(*Context), space);
-          auto *C = llvm::Constant::getNullValue(
-                  llvm::ArrayType::get(llvm::Type::getInt8Ty(*Context), space));
+          auto *C = llvm::Constant::getNullValue(T);
 
           auto *GV = new llvm::GlobalVariable(
               *Module, T, false, llvm::GlobalValue::InternalLinkage, C,
