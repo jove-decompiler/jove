@@ -82,9 +82,14 @@ JUST_IN_PARENT_DIR(opt, "opt")
 
 #undef JUST_IN_PARENT_DIR
 
-std::string locator_t::builtins(void) {
-  return must_exist(prebuilts_path() / "obj" /
-                    ("libclang_rt.builtins-" TARGET_ARCH_NAME ".a"));
+std::string locator_t::builtins(bool IsCOFF) {
+  fs::path p(prebuilts_path());
+  p /= "obj";
+  if (IsCOFF)
+    p /= "coff";
+  p /= ("libclang_rt.builtins-" TARGET_ARCH_NAME ".a");
+
+  return must_exist(p);
 }
 
 std::string locator_t::atomics(void) {

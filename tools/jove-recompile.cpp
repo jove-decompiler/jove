@@ -955,6 +955,8 @@ int RecompileTool::Run(void) {
     // run ld
     //
     auto linker_args = [&](auto Arg) {
+      assert(!IsCOFF);
+
       Arg("-o");
       Arg(chrooted_path.string());
 
@@ -972,15 +974,13 @@ int RecompileTool::Run(void) {
       Arg("--push-state");
       }
       Arg("--as-needed");
-      Arg(locator().builtins());
+      Arg(locator().builtins(IsCOFF));
       Arg(locator().softfloat_bitcode(IsCOFF));
       if (fs::exists(locator().atomics()))
         Arg(locator().atomics());
-      if (!IsCOFF) {
       Arg("--pop-state");
       Arg("--exclude-libs");
       Arg("ALL");
-      }
 
       if (!IsCOFF) {
       if (b.IsExecutable) {
@@ -1101,6 +1101,8 @@ int RecompileTool::Run(void) {
       rc = RunExecutableToExit(locator().lld_link(), [&](auto Arg) {
         Arg(locator().lld_link());
 
+	assert(IsCOFF);
+
         //Arg("-lldmingw");
         Arg("/out:" + chrooted_path.string());
 
@@ -1145,7 +1147,7 @@ int RecompileTool::Run(void) {
         }
         Arg(objfp);
 
-        Arg(locator().builtins());
+        Arg(locator().builtins(IsCOFF));
         Arg(locator().softfloat_bitcode(IsCOFF));
         Arg(locator().runtime_implib(opts.MT));
 

@@ -24,7 +24,7 @@ struct locator_t {
   std::string ld_gold(void);
   std::string ld_bfd(void);
   std::string clang(void);
-  std::string builtins(void);
+  std::string builtins(bool IsCOFF);
   std::string atomics(void);
 
   std::string dfsan_runtime(void);

@@ -464,7 +464,7 @@ int DecompileTool::Run(void) {
       assert(fs::exists(o_fp));
     });
 
-  fs::copy_file(locator().builtins(),
+  fs::copy_file(locator().builtins(IsCOFF),
                 fs::path(opts.Output) / ".obj" / "builtins.a",
                 fs::copy_options::overwrite_existing);
   fs::copy_file(locator().softfloat_bitcode(IsCOFF),
