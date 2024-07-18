@@ -91,7 +91,9 @@ runtime_dll_ldflags = /dll \
                       /WX:no \
                       /largeaddressaware \
                       /opt:noref \
-                      /opt:noicf
+                      /opt:noicf \
+                      /auto-import:no \
+                      /runtime-pseudo-reloc:no
 
 # disable built-in rules
 .SUFFIXES:
@@ -199,14 +201,17 @@ $(BINDIR)/$(1)/libjove_rt.%.so: $(BINDIR)/$(1)/libjove_rt.%.so.o
 #
 # runtime DLLs
 #
-$(BINDIR)/$(1)/libjove_rt.%.dll.o: $(BINDIR)/$(1)/libjove_rt.coff.%.bc
+$(BINDIR)/$(1)/libjove_rt.%.dll.o: $(BINDIR)/$(1)/libjove_rt.coff.%.bc \
+                                   $(BINDIR)/$(1)/jove_rt_dll.sysv.syms \
+                                   $(BINDIR)/$(1)/jove_rt_dll.dllexport.syms
 	$(call jove_tool,$(1)) llknife -v -o $$<.2.tmp -i $$< --calling-convention=$(_DLL_$(1)_LINUX_CALL_CONV) $(BINDIR)/$(1)/jove_rt_dll.sysv.syms
 	$(call jove_tool,$(1)) llknife -v -o $$<.3.tmp -i $$<.2.tmp --dllexport $(BINDIR)/$(1)/jove_rt_dll.dllexport.syms
 	$(LLVM_DIS) -o $$<.dll.ll $$<.3.tmp
 	$(LLVM_LLC) -o $$@ --filetype=obj --relocation-model=pic --mtriple=$($(1)_COFF_TRIPLE) $$<.3.tmp
 
-$(BINDIR)/$(1)/libjove_rt.%.dll: $(BINDIR)/$(1)/libjove_rt.%.dll.o
-	$(LLVM_LLD_LINK) /out:$$@ $(call runtime_dll_ldflags,$(1)) $$<
+$(BINDIR)/$(1)/libjove_rt.%.dll: $(BINDIR)/$(1)/libjove_rt.%.dll.o \
+                                 $(BINDIR)/$(1)/libjove_rt.%.def
+	$(LLVM_LLD_LINK) /out:$$@ /def:$$(patsubst %.dll,%.def,$$@) /verbose $(call runtime_dll_ldflags,$(1)) $$<
 
 .PHONY: gen-tcgconstants-$(1)
 gen-tcgconstants-$(1): $(BINDIR)/$(1)/gen-tcgconstants
@@ -214,8 +219,10 @@ gen-tcgconstants-$(1): $(BINDIR)/$(1)/gen-tcgconstants
 endef
 $(foreach t,$(ALL_TARGETS),$(eval $(call target_code_template,$(t))))
 
--include $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/libjove_rt.st.d)
--include $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/libjove_rt.mt.d)
+-include $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/libjove_rt.elf.st.d)
+-include $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/libjove_rt.elf.mt.d)
+-include $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/libjove_rt.coff.st.d)
+-include $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/libjove_rt.coff.mt.d)
 -include $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/jove.elf.st.d)
 -include $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/jove.elf.mt.d)
 -include $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/jove.coff.st.d)
@@ -294,6 +301,7 @@ clean-runtime-$(1):
 	      $(BINDIR)/$(1)/jove.*.d         \
 	      $(BINDIR)/$(1)/libjove_rt.*.tmp \
 	      $(BINDIR)/$(1)/libjove_rt.*.d   \
+	      $(BINDIR)/$(1)/libjove_rt.*.o   \
 	      $(BINDIR)/$(1)/libjove_rt.*.ll  \
 	      $(BINDIR)/$(1)/libjove_rt.*.bc  \
 	      $(BINDIR)/$(1)/libjove_rt.*.so  \
