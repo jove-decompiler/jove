@@ -87,11 +87,12 @@ bool capture_vdso(std::string &out) {
 
   out.clear();
 
-  char tmp_buff[4096];
+  std::vector<char> buff;
+  buff.resize(2 * 4096);
   for (;;) {
     ssize_t ret;
     do
-      ret = ::read(rfd->get(), tmp_buff, sizeof(tmp_buff));
+      ret = ::read(rfd->get(), &buff[0], buff.size());
     while (ret < 0 && errno == EINTR);
 
     if (ret < 0)
@@ -100,7 +101,7 @@ bool capture_vdso(std::string &out) {
     if (ret == 0)
       break; /* done */
 
-    out.append(tmp_buff, ret);
+    out.append(buff.data(), ret);
   }
 
   int ret_val = WaitForProcessToExit(pid);
