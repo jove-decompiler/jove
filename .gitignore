@@ -13,3 +13,4 @@ tags
 /bin/*/*.dll
 /bin/*/*.lib
 /bin/*/qemu-starter
+/bin/*/dump-vdso
