@@ -470,72 +470,6 @@ static _UNUSED uintptr_t _does_readable_regular_mapping_exist_at_address(
   return 0;
 }
 
-static _UNUSED uintptr_t _get_stack_end(void) {
-  char buff[4096 * 32];
-  unsigned n = _jove_read_pseudo_file("/proc/self/maps", buff, sizeof(buff));
-  buff[n] = '\0';
-
-  uintptr_t res = _parse_stack_end_of_maps(buff, n);
-
-  //
-  // if there is a contiguous sequence of readable maps directly after [stack], we will consider the end of such mappings to be the end of the stack.
-  //
-  uintptr_t newres;
-  do {
-    newres = _does_readable_regular_mapping_exist_at_address(res, buff, n);
-    if (newres)
-      res = newres;
-  } while (newres);
-
-  return res;
-}
-
-static _UNUSED char *_getenv(const char *name) {
-  static char envs[4096 * 32];
-  static unsigned envs_n = 0;
-
-  if (!envs_n) {
-    envs_n = _jove_read_pseudo_file("/proc/self/environ", envs, sizeof(envs));
-    envs[envs_n] = '\0';
-  }
-
-  unsigned name_len = _strlen(name);
-
-  char *const beg = &envs[0];
-  char *const end = &envs[envs_n];
-
-  char *eoe;
-  for (char *env = beg; env != end; env = eoe + 1) {
-    unsigned left = envs_n - (env - beg);
-
-    //
-    // find the end of the current entry
-    //
-    eoe = _memchr(env, '\0', left);
-
-    {
-      const char *s1 = name;
-      char *s2 = env;
-      for (;;) {
-        char ch1 = *s1++;
-        char ch2 = *s2++;
-
-        if (ch1 != ch2)
-          break;
-
-        if ((s1 - name) == name_len) {
-          if (*s2 == '=')
-            return s2 + 1;
-
-          break;
-        }
-      }
-    }
-  }
-
-  return NULL;
-}
-
 static _UNUSED size_t _sum_iovec_lengths(const struct iovec *iov, unsigned n) {
   size_t expected = 0;
   for (unsigned i = 0; i < n; ++i)
@@ -698,3 +632,71 @@ static void _jove_set_char(const jove_saved_char_t *sav) {
 #define save_and_swap_back_char(p, ch)                                         \
   const jove_saved_char_t UNIQUE_VAR_NAME(__save_and_swap_back)                \
       _CLEANUP(_jove_set_char) = _jove_save_and_set_char(p, ch);
+
+//
+// parsing
+//
+static _UNUSED uintptr_t _get_stack_end(void) {
+  JOVE_BUFF(buff, JOVE_MAX_PROC_MAPS);
+  unsigned n = _jove_read_pseudo_file("/proc/self/maps", buff, sizeof(buff));
+
+  uintptr_t res = _parse_stack_end_of_maps(buff, n);
+
+  //
+  // if there is a contiguous sequence of readable maps directly after [stack], we will consider the end of such mappings to be the end of the stack.
+  //
+  uintptr_t newres;
+  do {
+    newres = _does_readable_regular_mapping_exist_at_address(res, buff, n);
+    if (newres)
+      res = newres;
+  } while (newres);
+
+  return res;
+}
+
+static _UNUSED char *_getenv(const char *name) {
+  static char envs[ARG_MAX];
+  static unsigned envs_n = 0;
+
+  if (!envs_n) {
+    envs_n = _jove_read_pseudo_file("/proc/self/environ", envs, sizeof(envs));
+    envs[envs_n] = '\0';
+  }
+
+  unsigned name_len = _strlen(name);
+
+  char *const beg = &envs[0];
+  char *const end = &envs[envs_n];
+
+  char *eoe;
+  for (char *env = beg; env != end; env = eoe + 1) {
+    unsigned left = envs_n - (env - beg);
+
+    //
+    // find the end of the current entry
+    //
+    eoe = _memchr(env, '\0', left);
+
+    {
+      const char *s1 = name;
+      char *s2 = env;
+      for (;;) {
+        char ch1 = *s1++;
+        char ch2 = *s2++;
+
+        if (ch1 != ch2)
+          break;
+
+        if ((s1 - name) == name_len) {
+          if (*s2 == '=')
+            return s2 + 1;
+
+          break;
+        }
+      }
+    }
+  }
+
+  return NULL;
+}
