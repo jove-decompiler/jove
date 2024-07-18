@@ -7340,6 +7340,9 @@ bool LLVMTool::shouldExpandOperationWithSize(llvm::Value *Size) {
   if (opts.DFSan) /* erase all notions of contiguous memory */
     return true;
 
+  if (IsCOFF && IsX86Target && IsTarget32)
+    return true; /* XXX */
+
   constexpr unsigned MaxStaticSize = 32;
 
   llvm::ConstantInt *CI = llvm::dyn_cast<llvm::ConstantInt>(Size);
