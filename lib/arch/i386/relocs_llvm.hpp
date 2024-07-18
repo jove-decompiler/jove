@@ -116,6 +116,14 @@ llvm::Type *LLVMTool::coff_type_of_expression_for_relocation(uint8_t RelocType) 
 
 llvm::Constant *LLVMTool::coff_expression_for_relocation(uint8_t RelocType, uint64_t Offset) {
   switch (RelocType) {
+  case llvm::COFF::IMAGE_REL_BASED_ABSOLUTE:
+    return llvm::Constant::getNullValue(WordType());
+
+  case llvm::COFF::IMAGE_REL_BASED_HIGHLOW: {
+    taddr_t Addr = ExtractWordAtAddress(Offset);
+    return SectionPointer(Addr);
+  }
+
   default:
     throw unhandled_relocation_exception();
   }
