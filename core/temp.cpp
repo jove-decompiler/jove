@@ -48,8 +48,9 @@ void temp_executable::store(void) {
 }
 
 temp_executable::~temp_executable() {
-  if (!_path.empty())
-    ::unlink(_path.c_str());
+#ifndef JOVE_HAVE_MEMFD
+  ::unlink(_path.c_str());
+#endif
 }
 
 }
