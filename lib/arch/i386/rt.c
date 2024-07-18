@@ -11,6 +11,16 @@ void _jove_do_rt_sigreturn(void) {
                "int    $0x80\n");
 }
 
+#ifdef _
+#error
+#endif
+
+#ifdef JOVE_COFF
+#define _ "__"
+#else
+#define _ "_"
+#endif
+
 void _jove_inverse_thunk(void) {
   asm volatile("pushl $0xdead\n"
                "pushl %%eax\n" /* preserve return registers */
@@ -19,7 +29,7 @@ void _jove_inverse_thunk(void) {
                //
                // restore emulated stack pointer
                //
-               "call _jove_emusp_location\n" // eax = emuspp
+               "call "_"jove_emusp_location\n" // eax = emuspp
 
                "movl (%%eax), %%edx\n"   // edx = emusp
                "movl %%edx, 8(%%esp)\n" // replace 0xdead with emusp
@@ -30,14 +40,14 @@ void _jove_inverse_thunk(void) {
                //
                // free the callstack we allocated in sighandler
                //
-               "call _jove_callstack_begin_location\n"
+               "call "_"jove_callstack_begin_location\n"
                "movl (%%eax), %%eax\n"
-               "call _jove_do_free_callstack\n"
+               "call "_"jove_do_free_callstack\n"
 
                //
                // restore __jove_callstack
                //
-               "call _jove_callstack_location\n" // eax = &__jove_callstack
+               "call "_"jove_callstack_location\n" // eax = &__jove_callstack
 
                "movl 24(%%esp), %%edx\n" // edx = saved_callstack
                "movl %%edx, (%%eax)\n"   // restore callstack
@@ -45,7 +55,7 @@ void _jove_inverse_thunk(void) {
                //
                // restore __jove_callstack_begin
                //
-               "call _jove_callstack_begin_location\n" // eax = &__jove_callstack_begin
+               "call "_"jove_callstack_begin_location\n" // eax = &__jove_callstack_begin
 
                "movl 28(%%esp), %%edx\n" // edx = saved_callstack_begin
                "movl %%edx, (%%eax)\n"   // restore callstack_begin
@@ -54,14 +64,14 @@ void _jove_inverse_thunk(void) {
                // mark newstack as to be freed
                //
                "movl 32(%%esp), %%eax\n" // eax = newstack
-               "call _jove_do_free_stack_later\n"
+               "call "_"jove_do_free_stack_later\n"
 
                //
                // signal handling
                //
                "movl 36(%%esp), %%eax\n"
                "movl 40(%%esp), %%edx\n"
-               "call _jove_handle_signal_delivery\n"
+               "call "_"jove_handle_signal_delivery\n"
 
                //
                // ecx is the *only* register we can clobber

@@ -7,6 +7,16 @@ typedef uint64_t jove_thunk_return_t;
 
 #include "jove.common.c"
 
+#ifdef _
+#error
+#endif
+
+#ifdef JOVE_COFF
+#define _ "__"
+#else
+#define _ "_"
+#endif
+
 _HIDDEN
 _NAKED
 void _jove_start(void) {
@@ -22,7 +32,7 @@ void _jove_start(void) {
 
                /* pass original sp */
                "pushl %%ecx\n"
-               "call _jove_begin\n"
+               "call "_"jove_begin\n"
                "hlt\n"
 
                : /* OutputOperands */
@@ -72,7 +82,7 @@ _HIDDEN void _jove_thunk_handle_st0(uintptr_t f32) {
                                                                                \
   "pushl %%eax\n"                                                              \
   "fsts (%%esp)\n" /* get ST(0) as float */                                    \
-  "call _jove_thunk_handle_st0\n"                                              \
+  "call "_"jove_thunk_handle_st0\n"                                            \
   "popl %%eax\n"                                                               \
                                                                                \
   "popl %%edx\n"                                                               \
@@ -174,8 +184,8 @@ void _jove_init(uintptr_t eax,
                "pushl %%eax\n" /* preserve arguments */
                "pushl %%edx\n"
 
-               "call _jove_initialize\n"
-               "call _jove_do_get_init_fn_sect_ptr\n"
+               "call "_"jove_initialize\n"
+               "call "_"jove_do_get_init_fn_sect_ptr\n"
                "movl %%eax, %%ecx\n"
 
                "popl %%edx\n"
@@ -206,9 +216,9 @@ void _jove__libc_early_init(uintptr_t eax,
   asm volatile("pushl %%eax\n" /* preserve arguments */
                "pushl %%edx\n"
 
-               "call _jove_do_call_rt_init\n"
-               "call _jove_initialize\n"
-               "call _jove_get_libc_early_init_fn_sect_ptr\n"
+               "call "_"jove_do_call_rt_init\n"
+               "call "_"jove_initialize\n"
+               "call "_"jove_get_libc_early_init_fn_sect_ptr\n"
                "movl %%eax, %%ecx\n"
 
                "popl %%edx\n" /* preserve arguments */
