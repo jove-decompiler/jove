@@ -270,9 +270,6 @@ BOOL WINAPI _DllMainCRTStartup(HMODULE hModule,
     return DllMain(hModule, ul_reason_for_call, lpReserved);
 }
 
-void ___chkstk_ms() {}
-void __chkstk() {}
-
 void _jove_init_cpu_state(void) {
   if (__jove_initialized_env)
     return;
@@ -339,7 +336,8 @@ void _jove_flush_trace(void) {
 
   int fd;
   {
-    char path[4096];
+    JOVE_BUFF(path, PATH_MAX);
+
     path[0] = '\0';
 
     _strcat(path, "/mnt/jove.");
@@ -583,7 +581,7 @@ found:
         // print number of signal and description of program counter
         //
 
-        char s[4096 * 16];
+        char s[512];
         s[0] = '\0';
 
         _strcat(s, __ANSI_BOLD_BLUE "[signal ");
@@ -612,6 +610,7 @@ found:
           _strcat(s, buff);
         }
 
+#if 0
         {
           JOVE_BUFF(maps, JOVE_MAX_PROC_MAPS);
           unsigned n = _jove_read_pseudo_file("/proc/self/maps", _maps.ptr, _maps.len);
@@ -624,6 +623,7 @@ found:
             _strcat(s, ">");
           }
         }
+#endif
 
         _strcat(s, "\n" __ANSI_NORMAL_COLOR);
 
@@ -635,7 +635,7 @@ found:
       //
       // print information about call taking place
       //
-      char s[2048];
+      char s[512];
       s[0] = '\0';
 
       _strcat(s, "_jove_rt_sig: -> 0x");
@@ -788,6 +788,9 @@ not_found:
     JOVE_BUFF(s, JOVE_LARGE_BUFF_SIZE);
     s[0] = '\0';
 
+    JOVE_BUFF(path_buff, PATH_MAX);
+    path_buff[0] = '\0';
+
     _strcat(s, "*** crash (jove) *** [");
     {
       char buff[65];
@@ -808,11 +811,10 @@ not_found:
         _strcat(s, _buff);                                                     \
       }                                                                        \
       {                                                                        \
-        char _buff[PATH_MAX];                                                  \
-        _description_of_address_for_maps(_buff, (uintptr_t)(init), maps, maps_n);\
-        if (_strlen(_buff) != 0) {                                             \
+        _description_of_address_for_maps(path_buff, (uintptr_t)(init), maps, maps_n);\
+        if (_strlen(path_buff) != 0) {                                             \
           _strcat(s, " <");                                                    \
-          _strcat(s, _buff);                                                   \
+          _strcat(s, path_buff);                                                   \
           _strcat(s, ">");                                                     \
         }                                                                      \
       }                                                                        \
@@ -938,15 +940,7 @@ not_found:
     //
     void (*dfsan_flush_ptr)(void) = __jove_dfsan_flush;
     if (dfsan_flush_ptr) {
-      {
-        char buff[256];
-        buff[0] = '\0';
-
-        _strcat(buff, __ANSI_BOLD_BLUE "calling __jove_dfsan_flush\n" __ANSI_NORMAL_COLOR);
-
-        _jove_sys_write(2 /* stderr */, buff, _strlen(buff));
-      }
-
+      _DUMP(__ANSI_BOLD_BLUE "calling __jove_dfsan_flush\n" __ANSI_NORMAL_COLOR);
       dfsan_flush_ptr();
     }
   }
@@ -991,4 +985,5 @@ void __nodce(void **p) {
   *p++ = &__jove_function_map;
   *p++ = &__jove_dfsan_flush;
   *p++ = &__jove_dfsan_sig_handle;
+  *p++ = &_jove_rt_init;
 }

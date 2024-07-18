@@ -170,7 +170,7 @@ void _jove_check_sections_laid_out(void) {
       _ASSERT(actual_addr_before + actual_size_before == actual_addr);
       _ASSERT(expect_addr_before + expect_size_before == expect_addr);
 
-      char s[1024];
+      JOVE_BUFF(s, JOVE_LARGE_BUFF_SIZE);
       s[0] = '\0';
 
       _strcat(s, "(FATAL) _jove_check_sections_laid_out: [");
@@ -313,7 +313,7 @@ void _jove_see_through_tramps(struct jove_function_info_t *fninfo_p) {
 found:
     if (unlikely(__jove_opts.Debug.Tramps))
     {
-      char s[1024];
+      JOVE_BUFF(s, JOVE_LARGE_BUFF_SIZE);
       s[0] = '\0';
 
       _strcat(s, "_jove_see_through_tramps: 0x");
@@ -355,6 +355,31 @@ found:
   }
 }
 
+#if defined(__x86_64__) || defined(__i386__)
+
+void WINAPI JoveWinMain(void) {
+  //
+  // TODO? __getmainargs()
+  //
+  {
+    uintptr_t env_stack_beg = _jove_alloc_stack();
+    uintptr_t env_stack_end = env_stack_beg + JOVE_STACK_SIZE;
+
+    uintptr_t emu_sp = env_stack_end - JOVE_PAGE_SIZE - JOVE_PAGE_SIZE;
+
+    emu_sp &= ~31UL;
+    emu_sp -= sizeof(uintptr_t);
+
+    __jove_env.regs[R_ESP] = emu_sp;
+  }
+
+  _jove_initialize();
+
+  _jove_call_entry();
+}
+
+#endif
+
 static uintptr_t _jove_begin_setup_emulated_stack(uintptr_t init_sp) {
   unsigned len = _get_stack_end() - init_sp;
 
@@ -370,7 +395,7 @@ static uintptr_t _jove_begin_setup_emulated_stack(uintptr_t init_sp) {
 #endif
   }
 
-  _memcpy((void *)emu_sp, (void *)init_sp, len);
+  _memcpy((void *)emu_sp, (const void *)init_sp, len);
 
   return emu_sp;
 }
@@ -847,7 +872,9 @@ _NORET void _jove_fail1(uintptr_t a0, const char *reason) {
       _strcat(s, buff);
     }
     {
-      char buff[PATH_MAX];
+      JOVE_BUFF(buff, JOVE_MAX_PROC_MAPS);
+      buff[0] = '\0';
+
       _description_of_address_for_maps(buff, a0, maps, n);
       _strcat(s, " <");
       _strcat(s, buff);
@@ -890,7 +917,9 @@ _NORET void _jove_fail2(uintptr_t a0,
       _strcat(s, buff);
     }
     {
-      char buff[PATH_MAX];
+      JOVE_BUFF(buff, 2*PATH_MAX);
+      buff[0] = '\0';
+
       _description_of_address_for_maps(buff, a0, maps, n);
       _strcat(s, " <");
       _strcat(s, buff);
@@ -904,7 +933,9 @@ _NORET void _jove_fail2(uintptr_t a0,
       _strcat(s, buff);
     }
     {
-      char buff[PATH_MAX];
+      JOVE_BUFF(buff, JOVE_MAX_PROC_MAPS);
+      buff[0] = '\0';
+
       _description_of_address_for_maps(buff, a1, maps, n);
       _strcat(s, " <");
       _strcat(s, buff);
@@ -932,7 +963,7 @@ _NORET void _jove_fail2(uintptr_t a0,
 
 void _jove_log1(const char *msg,
                 uintptr_t x) {
-  char s[4096 * 8];
+  JOVE_BUFF(s, JOVE_LARGE_BUFF_SIZE);
   s[0] = '\0';
 
   _strcat(s, msg);
@@ -952,7 +983,7 @@ void _jove_log1(const char *msg,
 void _jove_log2(const char *msg,
                 uintptr_t x,
                 uintptr_t y) {
-  char s[4096 * 8];
+  JOVE_BUFF(s, JOVE_LARGE_BUFF_SIZE);
   s[0] = '\0';
 
   _strcat(s, msg);

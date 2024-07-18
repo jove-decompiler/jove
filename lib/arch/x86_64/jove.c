@@ -6,30 +6,6 @@ typedef unsigned __int128 jove_thunk_return_t;
 
 #include "jove.common.c"
 
-void WINAPI JoveWinMain(void) {
-  //
-  // TODO: __getmainargs()
-  //
-  {
-    //unsigned len = _get_stack_end() - sp_addr;
-    unsigned len = JOVE_PAGE_SIZE; /* FIXME */
-
-    uintptr_t env_stack_beg = _jove_alloc_stack();
-    uintptr_t env_stack_end = env_stack_beg + JOVE_STACK_SIZE;
-
-    uintptr_t emu_sp = env_stack_end - JOVE_PAGE_SIZE - len;
-
-    emu_sp &= ~31UL;
-    emu_sp -= 8;
-
-    __jove_env.regs[R_ESP] = emu_sp;
-  }
-
-  _jove_initialize();
-
-  _jove_call_entry();
-}
-
 _HIDDEN
 _NAKED
 void _jove_start(void) {
