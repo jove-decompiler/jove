@@ -1,0 +1,6 @@
+LIBRARY libjove_rt.dll
+
+EXPORTS
+  _jove_flush_trace
+  _jove_needs_single_threaded_runtime
+  _jove_rt_init
