@@ -66,6 +66,7 @@ function(tool_for_arch arch arch_extra_cflags qemu_objs)
     ../core/serialize.cpp
     ../core/symbolizer.cpp
     ../core/tcg.cpp
+    ../core/temp.cpp
     ../core/tool.cpp
     ../core/triple.cpp
     ../core/util.cpp
