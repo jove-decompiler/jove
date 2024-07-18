@@ -8,6 +8,7 @@
 #include "vdso.h"
 #include "symbolizer.h"
 #include "locator.h"
+#include "fd.h"
 #include "jove_macros.h"
 
 #include <boost/filesystem.hpp>
@@ -17,6 +18,7 @@
 #include <llvm/Support/FormatVariadic.h>
 
 #include <regex>
+#include <memory>
 
 namespace fs = boost::filesystem;
 namespace obj = llvm::object;
@@ -164,8 +166,8 @@ int ObserveTool::Run(void) {
     die("pipe(2) failed: " + std::string(strerror(err)));
   }
 
-  int rfd = pipefd[0];
-  int wfd = pipefd[1];
+  auto rfd = std::make_unique<scoped_fd>(pipefd[0]);
+  auto wfd = std::make_unique<scoped_fd>(pipefd[1]);
 
   pid_t pid = RunExecutable(
       perf_path,
@@ -178,11 +180,11 @@ int ObserveTool::Run(void) {
         Arg("ip,addr,dso,dsoff");
       }, "", "",
       [&](const char **argv, const char **envp) {
-        ::close(rfd);
-        ::dup2(wfd, STDOUT_FILENO);
-        ::close(wfd);
+        rfd.reset();
+        ::dup2(wfd->get(), STDOUT_FILENO);
+        wfd.reset();
       });
-  ::close(wfd);
+  wfd.reset();
 
 //#define DSOSTR "[/a-zA-Z0-9.]+"
 #define DSOSTR ".*?"
@@ -228,7 +230,7 @@ int ObserveTool::Run(void) {
   tbb::parallel_pipeline(
       1024, tbb::make_filter<void, std::string>(
                 tbb::filter_mode::serial_in_order,
-                std::bind(&ObserveTool::GetLine, this, rfd, _1)) &
+                std::bind(&ObserveTool::GetLine, this, rfd->get(), _1)) &
                 tbb::make_filter<std::string, void>(
                     tbb::filter_mode::serial_in_order,
                     std::bind(&ObserveTool::ProcessLine, this, _1)));
@@ -238,7 +240,7 @@ int ObserveTool::Run(void) {
   //
   int ret_val = WaitForProcessToExit(pid);
 
-  ::close(rfd);
+  rfd.reset();
 
   return ret_val;
 }
