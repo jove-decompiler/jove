@@ -99,7 +99,8 @@ runtime_dll_ldflags = /dll \
 .PHONY: all
 all: helpers \
      runtime \
-     qemu-starters
+     qemu-starters \
+     dump-vdsos
 
 .PHONY: helpers
 helpers: $(foreach t,$(ALL_TARGETS),helpers-$(t))
@@ -110,11 +111,17 @@ runtime: $(foreach t,$(ALL_TARGETS),runtime-$(t))
 .PHONY: qemu-starters
 qemu-starters: $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/qemu-starter)
 
+.PHONY: dump-vdsos
+dump-vdsos: $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/dump-vdso)
+
 runtime_dlls = $(BINDIR)/$(1)/libjove_rt.st.dll
 #               $(BINDIR)/$(1)/libjove_rt.mt.dll
 
 _DLLS_x86_64 := $(call runtime_dlls,x86_64)
-#_DLLS_i386   := $(call runtime_dlls,i386)
+_DLLS_i386   := $(call runtime_dlls,i386)
+
+_DLL_x86_64_LINUX_CALL_CONV := X86_64_SysV
+_DLL_i386_LINUX_CALL_CONV := C
 
 define target_code_template
 .PHONY: helpers-$(1)
@@ -138,7 +145,13 @@ $(BINDIR)/$(1)/qemu-starter: lib/arch/$(1)/qemu-starter.c
 	clang-16 -o $$@ $(call runtime_cflags,$(1)) $(STARTER_LDFLAGS) $$<
 	llvm-strip-16 $$@
 
+$(BINDIR)/$(1)/dump-vdso: lib/arch/$(1)/dump-vdso.c
+	clang-16 -o $$@ $(call runtime_cflags,$(1)) $(STARTER_LDFLAGS) $$<
+
 $(BINDIR)/$(1)/qemu-starter.inc: $(BINDIR)/$(1)/qemu-starter
+	xxd -i < $$< > $$@
+
+$(BINDIR)/$(1)/dump-vdso.inc: $(BINDIR)/$(1)/dump-vdso
 	xxd -i < $$< > $$@
 
 #
@@ -162,16 +175,22 @@ $(BINDIR)/$(1)/jove.%.ll: $(BINDIR)/$(1)/jove.%.bc
 #
 # runtime bitcode
 #
-$(BINDIR)/$(1)/libjove_rt.st.bc: lib/arch/$(1)/rt.c
+$(BINDIR)/$(1)/libjove_rt.elf.st.bc: lib/arch/$(1)/rt.c
 	$(LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -MMD $$<
 
-$(BINDIR)/$(1)/libjove_rt.mt.bc: lib/arch/$(1)/rt.c
+$(BINDIR)/$(1)/libjove_rt.elf.mt.bc: lib/arch/$(1)/rt.c
 	$(LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -D JOVE_MT -MMD $$<
+
+$(BINDIR)/$(1)/libjove_rt.coff.st.bc: lib/arch/$(1)/rt.c
+	$(LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -D JOVE_COFF -MMD $$<
+
+$(BINDIR)/$(1)/libjove_rt.coff.mt.bc: lib/arch/$(1)/rt.c
+	$(LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -D JOVE_COFF -D JOVE_MT -MMD $$<
 
 #
 # runtime shared libraries
 #
-$(BINDIR)/$(1)/libjove_rt.%.so.o: $(BINDIR)/$(1)/libjove_rt.%.bc
+$(BINDIR)/$(1)/libjove_rt.%.so.o: $(BINDIR)/$(1)/libjove_rt.elf.%.bc
 	$(LLVM_LLC) -o $$@ --filetype=obj --relocation-model=pic $$<
 
 $(BINDIR)/$(1)/libjove_rt.%.so: $(BINDIR)/$(1)/libjove_rt.%.so.o
@@ -180,8 +199,8 @@ $(BINDIR)/$(1)/libjove_rt.%.so: $(BINDIR)/$(1)/libjove_rt.%.so.o
 #
 # runtime DLLs
 #
-$(BINDIR)/$(1)/libjove_rt.%.dll.o: $(BINDIR)/$(1)/libjove_rt.%.bc
-	$(call jove_tool,$(1)) llknife -v -o $$<.2.tmp -i $$< --calling-convention=X86_64_SysV $(BINDIR)/$(1)/jove_rt_dll.sysv.syms
+$(BINDIR)/$(1)/libjove_rt.%.dll.o: $(BINDIR)/$(1)/libjove_rt.coff.%.bc
+	$(call jove_tool,$(1)) llknife -v -o $$<.2.tmp -i $$< --calling-convention=$(_DLL_$(1)_LINUX_CALL_CONV) $(BINDIR)/$(1)/jove_rt_dll.sysv.syms
 	$(call jove_tool,$(1)) llknife -v -o $$<.3.tmp -i $$<.2.tmp --dllexport $(BINDIR)/$(1)/jove_rt_dll.dllexport.syms
 	$(LLVM_DIS) -o $$<.dll.ll $$<.3.tmp
 	$(LLVM_LLC) -o $$@ --filetype=obj --relocation-model=pic --mtriple=$($(1)_COFF_TRIPLE) $$<.3.tmp

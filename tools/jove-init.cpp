@@ -232,17 +232,16 @@ int InitTool::Run(void) {
         case 0: jv.AddFromPath(E, prog.c_str(), static_cast<binary_index_t>(0)); return;
         case 1: jv.AddFromPath(E, rtld.c_str(), static_cast<binary_index_t>(1)); return;
         case 2: {
-          auto VDSOPair = GetVDSO();
-          std::string_view vdso_sv =
-              VDSOPair.first
-                  ? std::string_view((const char *)VDSOPair.first, VDSOPair.second)
-                  : std::string_view((const char *)VDSOStandIn(), VDSOStandInLen());
+          std::string vdso;
+          if (!capture_vdso(vdso))
+            die("failed to capture vdso");
+
           try {
-            jv.AddFromData(E, vdso_sv, "[vdso]", static_cast<binary_index_t>(2));
+            jv.AddFromData(E, vdso, "[vdso]", static_cast<binary_index_t>(2));
           } catch (const std::exception &e) {
-            llvm::errs() << llvm::formatv("failed on [vdso]: {0}\n", e.what());
-            exit(1);
+            die(std::string("failed on [vdso]: ") + e.what());
           }
+
           return;
         }
 

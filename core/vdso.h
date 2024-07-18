@@ -1,11 +1,10 @@
 #pragma once
-#include <utility>
+#include <string>
+#include <string_view>
 
 namespace jove {
 
-std::pair<void *, unsigned> GetVDSO(void);
-
-const void *VDSOStandIn(void);
-unsigned VDSOStandInLen(void);
+std::string_view get_vdso(void); /* pointer to [vdso] */
+bool capture_vdso(std::string &out);
 
 }

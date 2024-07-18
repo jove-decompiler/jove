@@ -4823,12 +4823,7 @@ binary_index_t BootstrapTool::binary_at_program_counter(pid_t child,
     std::string_view sv;
     std::string _buff;
     if (IsVDSO) { /* FIXME? */
-      void *vdso_p;
-      unsigned vdso_len;
-      std::tie(vdso_p, vdso_len) = GetVDSO();
-      assert(vdso_p);
-
-      sv = std::string_view((const char *)vdso_p, vdso_len);
+      sv = get_vdso();
     } else {
       _buff.resize(pm.end - pm.beg);
 
