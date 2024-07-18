@@ -2,14 +2,12 @@
 #include "../qemu/include/jove.h"
 
 #include "tcg.h"
-#include "fd.h"
+#include "temp.h"
 
 #include <algorithm>
 #include <sstream>
 #include <string>
 #include <llvm/Support/raw_ostream.h>
-
-#include <sys/stat.h>
 
 extern "C" void tcg_dump_ops(TCGContext *s, FILE *f, bool have_prefs);
 extern "C" void gen_intermediate_code(CPUState *cpu, TranslationBlock *tb,
@@ -1178,48 +1176,12 @@ static const uint8_t starter_bin_bytes[] = {
 };
 
 tiny_code_generator_t::tiny_code_generator_t() {
-#ifdef JOVE_HAVE_MEMFD
-  int fd = ::memfd_create("qemu-starter-" TARGET_ARCH_NAME, MFD_CLOEXEC);
-  if (fd < 0)
-    throw std::runtime_error(std::string("memfd_create failed: ") + strerror(errno));
+  temp_executable temp_exe(&starter_bin_bytes[0],
+                           sizeof(starter_bin_bytes),
+                           "qemu-starter-" TARGET_ARCH_NAME);
+  temp_exe.store();
 
-  std::string starter_bin_path = "/proc/self/fd/" + std::to_string(fd);
-
-  auto cleanup = [&](void) -> void {
-    ::close(fd);
-  };
-#else
-  std::string starter_bin_path("/tmp/qemu-starter.XXXXXX");
-  int fd = mkstemp(&starter_bin_path[0]);
-  if (fd < 0)
-    throw std::runtime_error(std::string("mkstemp failed: ") + strerror(errno));
-
-  auto cleanup = [&](void) -> void {
-    ::close(fd);
-    ::unlink(starter_bin_path.c_str());
-  };
-#endif
-
-  if (::fchmod(fd, 0777) < 0) {
-    int err = errno;
-    cleanup();
-    throw std::runtime_error(std::string("fchmod failed: ") + strerror(err));
-  }
-
-  if (robust_write(fd, &starter_bin_bytes[0], sizeof(starter_bin_bytes)) < 0) {
-    int err = errno;
-    cleanup();
-    throw std::runtime_error("failed to write to qemu-starter fd: " +
-                             std::string(strerror(err)));
-  }
-
-#ifndef JOVE_HAVE_MEMFD
-  ::close(fd); fd = -1;
-#endif
-
-  jv_init_libqemu(starter_bin_path.c_str());
-
-  cleanup();
+  jv_init_libqemu(temp_exe.path().c_str());
 }
 
 tiny_code_generator_t::~tiny_code_generator_t() {}
