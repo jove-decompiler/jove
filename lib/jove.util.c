@@ -653,7 +653,7 @@ static void _jove_free_buffer(const jove_buffer_t *buff) {
 #define JOVE_BUFF(name, len)                                                   \
   const jove_buffer_t _##name _CLEANUP(_jove_free_buffer) =                    \
       _jove_alloc_buffer(len);                                                 \
-  char *const name = (char *)_##name.ptr;
+  char *const name = (char *)_##name.ptr
 
 //
 // string management
