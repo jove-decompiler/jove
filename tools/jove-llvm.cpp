@@ -7372,14 +7372,14 @@ int LLVMTool::ExpandMemoryIntrinsicCalls(void) {
 
     switch (F.getIntrinsicID()) {
     case llvm::Intrinsic::memcpy:
-    case llvm::Intrinsic::memcpy_inline:
+    //case llvm::Intrinsic::memcpy_inline:
       ExpandFunc = DoExpandMemcpy;
       break;
     case llvm::Intrinsic::memmove:
       ExpandFunc = DoExpandMemmove;
       break;
     case llvm::Intrinsic::memset:
-    case llvm::Intrinsic::memset_inline:
+    //case llvm::Intrinsic::memset_inline:
       ExpandFunc = DoExpandMemset;
       break;
 
