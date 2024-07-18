@@ -118,7 +118,7 @@ runtime_dlls = $(BINDIR)/$(1)/libjove_rt.st.dll
 #               $(BINDIR)/$(1)/libjove_rt.mt.dll
 
 _DLLS_x86_64 := $(call runtime_dlls,x86_64)
-_DLLS_i386   := $(call runtime_dlls,i386)
+#_DLLS_i386   := $(call runtime_dlls,i386)
 
 _DLL_x86_64_LINUX_CALL_CONV := X86_64_SysV
 _DLL_i386_LINUX_CALL_CONV := C
