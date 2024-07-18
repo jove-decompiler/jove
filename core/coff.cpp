@@ -217,7 +217,7 @@ static std::string link_subsystem_of_image_subsystem(unsigned sub) {
     return "console";
   }
 
-  throw std::runtime_error("msvc_subsystem_of_image_subsystem: unimplemented");
+  throw std::runtime_error("link_subsystem_of_image_subsystem: unimplemented");
 }
 
 std::string link_subsystem(COFFO &O) {
