@@ -1123,11 +1123,11 @@ int RecompileTool::Run(void) {
         Arg("/opt:noicf");
         Arg("/safeseh:no");
 
-        //Arg("/auto-import");
+        Arg("/auto-import:no");
+        Arg("/runtime-pseudo-reloc:no");
         //Arg("/force:unresolved");
         //Arg("/opt:noref");
         //Arg("/demangle");
-        //Arg("-runtime-pseudo-reloc:no");
         //Arg("-alternatename:__image_base__=__ImageBase");
 
         if (b.IsExecutable && !b.IsPIC) { /* do we need to set base address? */
