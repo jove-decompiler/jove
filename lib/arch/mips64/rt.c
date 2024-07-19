@@ -86,3 +86,7 @@ bool is_sigreturn_insn_sequence(const void *insn_bytes) {
           p[0] == 0x24021061) &&
           p[1] == 0x0000000c;
 }
+
+int insn_length(const uint8_t *insnp) {
+  return 4;
+}

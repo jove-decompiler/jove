@@ -98,3 +98,7 @@ _HIDDEN void _jove_do_free_callstack(uintptr_t x) {
 _HIDDEN void _jove_do_free_stack_later(uintptr_t x) {
   _jove_free_stack_later(x);
 }
+
+int insn_length(const uint8_t *insnp) {
+  return 4;
+}

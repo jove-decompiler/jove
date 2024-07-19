@@ -125,12 +125,15 @@ void _jove_rt_init(void) {
 
 static void _jove_dump_opts(void);
 static void _jove_parse_debug_string(char *const);
+static void _jove_parse_trace_string(char *const);
 static void _jove_parse_crash_string(char *const);
 
 //
 // options
 //
 void _jove_parse_opts(void) {
+  __jove_opts.Trace = NULL;
+
   JOVE_BUFF(envs, ARG_MAX);
   const unsigned n =
       _jove_read_pseudo_file("/proc/self/environ", _envs.ptr, _envs.len);
@@ -139,6 +142,9 @@ void _jove_parse_opts(void) {
   for_each_in_environ(env, envs, n) {
     if (!_strcmp(env, "JOVE_DUMP_OPTS=1"))
       __jove_opts.DumpOpts = true;
+
+    if (!_strncmp(env, "JOVETRACE=", sizeof("JOVETRACE=")-1))
+      _jove_parse_trace_string(env + sizeof("JOVETRACE=")-1);
 
     if (!_strncmp(env, "JOVECRASH=", sizeof("JOVECRASH=")-1))
       _jove_parse_crash_string(env + sizeof("JOVECRASH=")-1);
@@ -189,6 +195,15 @@ void _jove_parse_debug_string(char *const s) {
 
     _ASSERT(found_opt);
   }
+}
+
+void _jove_parse_trace_string(char *const s) {
+  jove_buffer_t str = _jove_alloc_buffer(PATH_MAX);
+  char *p = (char *)str.ptr;
+
+  _strcpy(p, s);
+
+  __jove_opts.Trace = p;
 }
 
 void _jove_parse_crash_string(char *const s) {
@@ -338,25 +353,34 @@ void _jove_flush_trace(void) {
   {
     JOVE_BUFF(path, PATH_MAX);
 
-    path[0] = '\0';
+    char *const trace_path = __jove_opts.Trace;
+    _ASSERT(trace_path);
 
-    _strcat(path, "/mnt/jove.");
+    _strcpy(path, trace_path);
+    _strcat(path, ".");
+
     {
       char buff[65];
       _uint_to_string(_jove_sys_gettid(), buff, 10);
 
       _strcat(path, buff);
     }
-    _strcat(path, ".trace.bin");
 
-#ifdef __aarch64__
-    fd = _jove_sys_openat(-1, path, O_WRONLY | O_APPEND | O_CREAT | O_LARGEFILE, 0666);
-#else
-    fd = _jove_sys_open(path, O_WRONLY | O_APPEND | O_CREAT | O_LARGEFILE, 0666);
-#endif
+    fd = _jove_open(path, O_WRONLY | O_APPEND | O_CREAT | O_LARGEFILE, 0666);
 
-    if (fd < 0)
+    if (fd < 0) {
+      {
+        char buff[65];
+        _uint_to_string(-fd, buff, 10);
+
+        _strcat(path, buff);
+
+      _DUMP(buff);
+      }
+      _DUMP("\n");
+      _DUMP(path);
       _UNREACHABLE("_jove_flush_trace: failed to open trace file");
+    }
   }
 
   --TracePtr;
@@ -376,6 +400,7 @@ void _jove_flush_trace(void) {
   __jove_trace = TraceBegin;
 }
 
+static int insn_length(const uint8_t *insnp);
 static bool is_sigreturn_insn_sequence(const void *insn_bytes);
 
 _REGPARM
@@ -470,17 +495,24 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
           _jove_flush_trace();
 
         //
-        // skip faulting instruction. to do so, we need to determine its length
+        // skip faulting instruction.
         //
-        unsigned insn_len;
+        const int insn_len = insn_length((const uint8_t *)(*pc_ptr));
 
-#if defined(__mips64) || defined(__mips__) || defined(__aarch64__)
-        insn_len = 4;
-#elif defined(__x86_64) || defined(__i386__)
-        insn_len = 0; /* XXX TODO */
-#else
-#error
+        _ASSERT(insn_len >= 0); /* TODO print out bytes of insn */
+
+#if 0
+        {
+          {
+            char buff[65];
+            _uint_to_string((uintptr_t)*pc_ptr, buff, 0x10);
+            _DUMP(buff);
+            _DUMP("\n");
+          }
+          _jove_on_crash('a');
+        }
 #endif
+
         *pc_ptr += insn_len;
         return;
       }

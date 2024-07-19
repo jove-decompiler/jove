@@ -18,6 +18,8 @@ struct jove_opts_t {
 
   bool DumpOpts;
   char OnCrash; /* a=abort, s=sleep */
+
+  const char *Trace;
 };
 
 struct jove_function_info_t {
