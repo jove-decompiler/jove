@@ -7691,8 +7691,10 @@ int LLVMTool::InlineHelpers(void) {
 
   for (const auto &pair : HelperFuncMap) {
     const helper_function_t &hf = pair.second;
+#if 0
     if (hf.EnvArgNo < 0 || !hf.Analysis.Simple)
       continue;
+#endif
 
     llvm::Function *F = pair.second.F;
 
@@ -7700,9 +7702,16 @@ int LLVMTool::InlineHelpers(void) {
       if (!llvm::isa<llvm::CallInst>(HelperFU))
         continue;
 
+      llvm::CallInst *CI = llvm::cast<llvm::CallInst>(HelperFU);
+      if (CI->getCalledFunction() != F)
+        continue;
+
       llvm::InlineFunctionInfo IFI;
-      llvm::InlineFunction(*llvm::cast<llvm::CallInst>(HelperFU), IFI);
+      llvm::InlineFunction(*CI, IFI);
     }
+
+    if (F->use_empty())
+      F->eraseFromParent();
   }
 
   return 0;
