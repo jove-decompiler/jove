@@ -566,17 +566,13 @@ typedef struct jove_buffer_t {
 } jove_buffer_t;
 
 static jove_buffer_t _jove_alloc_buffer(size_t len) {
-  jove_buffer_t buff;
+  len = QEMU_ALIGN_UP(len, JOVE_PAGE_SIZE);
 
-  buff.len = QEMU_ALIGN_UP(len, JOVE_PAGE_SIZE);
-
-  uintptr_t ret = _mmap_rw_anonymous_private_memory(buff.len);
+  uintptr_t ret = _mmap_rw_anonymous_private_memory(len);
   if (IS_ERR_VALUE(ret))
     _UNREACHABLE("failed to allocate buffer");
 
-  buff.ptr = (void *)ret;
-
-  return buff;
+  return (jove_buffer_t){(void *)ret, len};
 }
 
 static void _jove_free_buffer(const jove_buffer_t *buff) {
