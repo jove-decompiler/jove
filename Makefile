@@ -4,7 +4,7 @@ JOVE_ROOT_DIR := $(shell cd $(dir $(word $(words $(MAKEFILE_LIST)),$(MAKEFILE_LI
 include gmsl
 
 include $(JOVE_ROOT_DIR)/version.mk
-include $(JOVE_ROOT_DIR)/config.mk
+include $(JOVE_ROOT_DIR)/targets.mk
 
 define include_target_helpers_template
 include $(JOVE_ROOT_DIR)/lib/arch/$(1)/helpers.mk

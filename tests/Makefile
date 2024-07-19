@@ -3,7 +3,7 @@ ROOT_DIR := $(shell cd $(dir $(word $(words $(MAKEFILE_LIST)),$(MAKEFILE_LIST)))
 
 JOVE_ROOT_DIR := $(ROOT_DIR)/..
 
-include $(JOVE_ROOT_DIR)/config.mk
+include $(JOVE_ROOT_DIR)/targets.mk
 
 LLVM_BIN_DIR := $(JOVE_ROOT_DIR)/llvm-project/build/bin
 
