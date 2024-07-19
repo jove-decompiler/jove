@@ -77,7 +77,9 @@ bool capture_vdso(std::string &out) {
   auto wfd = std::make_unique<scoped_fd>(pipefd[1]);
 
   pid_t pid = RunExecutable(
-      temp_exe.path().c_str(), [&](auto Arg) {}, "", "",
+      temp_exe.path().c_str(),
+      process::no_args,
+      process::no_envs, "", "",
       [&](const char **argv, const char **envp) {
         rfd.reset();
         ::dup2(wfd->get(), STDOUT_FILENO);

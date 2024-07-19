@@ -6,6 +6,11 @@
 
 namespace jove {
 
+namespace process {
+static inline void no_args(std::function<void(const std::string &)>) {}
+static inline void no_envs(std::function<void(const std::string &)>) {}
+}
+
 typedef std::function<void(std::function<void(const std::string &)>)> compute_args_t;
 typedef std::function<void(std::function<void(const std::string &)>)> compute_envs_t;
 typedef std::function<void(const char **, const char **)> before_exec_t;
