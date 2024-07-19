@@ -68,10 +68,8 @@ bool capture_vdso(std::string &out) {
   temp_exe.store();
 
   int pipefd[2];
-  if (::pipe(pipefd) < 0) {
-    int err = errno;
-    throw std::runtime_error("pipe failed: " + std::string(strerror(err)));
-  }
+  if (::pipe(pipefd) < 0)
+    throw std::runtime_error("pipe failed: " + std::string(strerror(errno)));
 
   auto rfd = std::make_unique<scoped_fd>(pipefd[0]);
   auto wfd = std::make_unique<scoped_fd>(pipefd[1]);
