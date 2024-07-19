@@ -143,14 +143,17 @@ void _jove_parse_opts(void) {
     if (!_strcmp(env, "JOVE_DUMP_OPTS=1"))
       __jove_opts.DumpOpts = true;
 
-    if (!_strncmp(env, "JOVETRACE=", sizeof("JOVETRACE=")-1))
-      _jove_parse_trace_string(env + sizeof("JOVETRACE=")-1);
+#define STRING_OPT(NAME, F)                                                    \
+  do {                                                                         \
+    if (!_strncmp(env, NAME "=", sizeof(NAME "=") - 1))                        \
+      F(env + sizeof(NAME "=") - 1);                                           \
+  } while (false)
 
-    if (!_strncmp(env, "JOVECRASH=", sizeof("JOVECRASH=")-1))
-      _jove_parse_crash_string(env + sizeof("JOVECRASH=")-1);
+    STRING_OPT("JOVETRACE", _jove_parse_trace_string);
+    STRING_OPT("JOVECRASH", _jove_parse_crash_string);
+    STRING_OPT("JOVEDEBUG", _jove_parse_debug_string);
 
-    if (!_strncmp(env, "JOVEDEBUG=", sizeof("JOVEDEBUG=")-1))
-      _jove_parse_debug_string(env + sizeof("JOVEDEBUG=")-1);
+#undef STRING_OPT
   }
 
   if (__jove_opts.DumpOpts)
