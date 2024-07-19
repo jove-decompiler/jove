@@ -336,6 +336,13 @@ struct basic_block_properties_t {
     return Parents->contains(FIdx);
   }
 
+  bool hasParent(void) const {
+    if (!Parents)
+      return false;
+
+    return !Parents->empty();
+  }
+
   void AddParent(function_index_t, jv_t &);
 
   bool IsSingleInstruction(void) const { return Addr == Term.Addr; }
