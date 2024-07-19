@@ -68,8 +68,8 @@ void _jove_inverse_thunk(void) {
                //
                // signal handling
                //
-               "movq 72(%%rsp), %%rdi\n"
-               "movq 80(%%rsp), %%rsi\n"
+               "movq 72(%%rsp), %%rdi\n"  // SignalDelivery
+               "movq 256(%%rsp), %%rsi\n" // &saved_cpu_state
                "call _jove_handle_signal_delivery\n"
 
                //
@@ -77,6 +77,22 @@ void _jove_inverse_thunk(void) {
                //
 
                "movq 24(%%rsp), %%r11\n"  // read saved_retaddr off the stack
+
+#ifdef JOVE_COFF /* CSR_Win64 */
+               "movq 80(%%rsp), %%rdi\n"  // read saved_rdi
+               "movq 88(%%rsp), %%rsi\n"  // read saved_rsi
+
+               "movdqu 96(%%rsp), %%xmm6\n" // read saved xmm6
+               "movdqu 112(%%rsp), %%xmm7\n" // read saved xmm7
+               "movdqu 128(%%rsp), %%xmm8\n" // read saved xmm8
+               "movdqu 144(%%rsp), %%xmm9\n" // read saved xmm9
+               "movdqu 160(%%rsp), %%xmm10\n" // read saved xmm10
+               "movdqu 176(%%rsp), %%xmm11\n" // read saved xmm11
+               "movdqu 192(%%rsp), %%xmm12\n" // read saved xmm12
+               "movdqu 208(%%rsp), %%xmm13\n" // read saved xmm13
+               "movdqu 224(%%rsp), %%xmm14\n" // read saved xmm14
+               "movdqu 240(%%rsp), %%xmm15\n" // read saved xmm15
+#endif
 
                "popq %%rdx\n"
                "popq %%rax\n"

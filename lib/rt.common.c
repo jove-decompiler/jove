@@ -685,8 +685,9 @@ found:
     {
       const uintptr_t newstack = _jove_alloc_stack();
 
+      /* TODO make tight */
       uintptr_t newsp =
-          newstack + JOVE_STACK_SIZE - JOVE_PAGE_SIZE - 19 * sizeof(uintptr_t);
+          newstack + JOVE_STACK_SIZE - JOVE_PAGE_SIZE - 60 * sizeof(uintptr_t);
 
       if (SignalDelivery)
         newsp -= sizeof(__jove_env);
@@ -712,6 +713,25 @@ found:
         *p++ = (uintptr_t)saved_callstack_begin;
         *p++ = newstack;
         *p++ = SignalDelivery;
+
+#if defined(__x86_64__)
+
+#ifdef JOVE_COFF /* CSR_Win64 */
+        *p++ = uctx->uc_mcontext.gregs[REG_RDI]; /* saved rdi */
+        *p++ = uctx->uc_mcontext.gregs[REG_RSI]; /* saved rsi */
+
+        static_assert(sizeof(uctx->uc_mcontext.fpregs->_xmm[6]) == 16);
+
+        __builtin_memcpy_inline( /* saved xmm[6]...xmm[15] */
+            (uint8_t *)p,
+            (const uint8_t *)&uctx->uc_mcontext.fpregs->_xmm[6], 160);
+#else
+        ++p;
+        ++p;
+#endif
+        p += (160 / sizeof(uintptr_t));
+#endif
+
 #elif defined(__mips__) || defined(__mips64)
         *p++ = 0xdeadbeef;
         *p++ = saved_retaddr;
