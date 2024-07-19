@@ -1,12 +1,5 @@
 ALL_TARGETS := i386 x86_64 aarch64 mipsel mips64el
 
-aarch64_SYSROOT  := /usr/aarch64-linux-gnu
-x86_64_SYSROOT   := /
-i386_SYSROOT     := /usr/i686-linux-gnu
-mipsel_SYSROOT   := /usr/mipsel-linux-gnu
-mips_SYSROOT     := /usr/mips-linux-gnu
-mips64el_SYSROOT := /usr/mips64el-linux-gnuabi64
-
 aarch64_TRIPLE  := aarch64-linux-gnu
 i386_TRIPLE     := i686-linux-gnu
 x86_64_TRIPLE   := x86_64-linux-gnu
