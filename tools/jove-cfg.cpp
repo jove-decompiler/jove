@@ -40,39 +40,31 @@ namespace jove {
 namespace {
 
 struct binary_state_t {
-  std::unique_ptr<llvm::object::Binary> ObjectFile;
+  std::unique_ptr<llvm::object::Binary> Bin;
 };
 
 }
 
-class CFGTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void, void> {
+class CFGTool : public StatefulJVTool<ToolKind::CopyOnWrite, binary_state_t, void, void> {
   struct Cmdline {
-    cl::opt<std::string> Prog;
+    cl::opt<std::string> Addr;
     cl::opt<std::string> Binary;
     cl::alias BinaryAlias;
-    cl::opt<std::string> FunctionAddress;
-    cl::alias FunctionAddressAlias;
     cl::opt<bool> PrintTerminatorType;
     cl::opt<std::string> LocalGotoAddress;
     cl::alias LocalGotoAddressAlias;
     cl::opt<bool> PrintInsnBytes;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
-        : Prog(cl::Positional, cl::desc("prog"), cl::value_desc("filename"),
-               cl::cat(JoveCategory)),
+        : Addr(cl::Positional, cl::Required,
+               cl::desc("address of basic block of interest"),
+               cl::value_desc("hexadecimal address"), cl::cat(JoveCategory)),
 
           Binary("binary", cl::desc("Binary of function"), cl::Required,
                  cl::cat(JoveCategory)),
 
           BinaryAlias("b", cl::desc("Alias for --binary."),
                       cl::aliasopt(Binary), cl::cat(JoveCategory)),
-
-          FunctionAddress("addr", cl::desc("<address>"), cl::Required,
-                          cl::cat(JoveCategory)),
-
-          FunctionAddressAlias("a", cl::desc("Alias for --addr."),
-                               cl::aliasopt(FunctionAddress),
-                               cl::cat(JoveCategory)),
 
           PrintTerminatorType("terminator-type",
                               cl::desc("Print terminator type at end of BB"),
@@ -87,9 +79,7 @@ class CFGTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void, 
                                 cl::cat(JoveCategory)),
 
           PrintInsnBytes("insn-bytes", cl::desc("Print machine code bytes"),
-                         cl::cat(JoveCategory))
-
-    {}
+                         cl::cat(JoveCategory)) {}
   } opts;
 
   binary_index_t BinaryIndex = invalid_binary_index;
@@ -177,9 +167,9 @@ std::string CFGTool::disassemble_basic_block(const GraphTy &G,
                                              typename GraphTy::vertex_descriptor V) {
   assert(BinaryIndex != invalid_binary_index);
 
-  binary_t &binary = jv.Binaries.at(BinaryIndex);
+  binary_t &b = jv.Binaries.at(BinaryIndex);
 
-  llvm::object::Binary &Bin = *state.for_binary(binary).ObjectFile;
+  llvm::object::Binary &Bin = *state.for_binary(b).Bin;
   TCG.set_binary(Bin);
 
   uint64_t End = G[V].Addr + G[V].Size;
@@ -301,7 +291,7 @@ typedef boost::filtered_graph<
 typedef control_flow_graph_t cfg_t;
 
 int CFGTool::Run(void) {
-  assert(!opts.FunctionAddress.empty());
+  std::string path_to_graph_easy = locator().graph_easy();
 
   //
   // find the binary of interest
@@ -309,8 +299,7 @@ int CFGTool::Run(void) {
   BinaryIndex = invalid_binary_index;
 
   for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
-    const binary_t &binary = jv.Binaries.at(BIdx);
-    if (!strstr(binary.Name.c_str(), opts.Binary.c_str()))
+    if (!strstr(jv.Binaries.at(BIdx).Name.c_str(), opts.Binary.c_str()))
       continue;
 
     BinaryIndex = BIdx;
@@ -323,41 +312,50 @@ int CFGTool::Run(void) {
     return 1;
   }
 
-  binary_t &binary = jv.Binaries.at(BinaryIndex);
+  binary_t &b = jv.Binaries.at(BinaryIndex);
+  auto &ICFG = b.Analysis.ICFG;
 
   //
   // initialize state associated with binary
   //
-  state.for_binary(binary).ObjectFile = B::Create(binary.data());
+  state.for_binary(b).Bin = B::Create(b.data());
+
+  uint64_t Addr = strtoull(opts.Addr.c_str(), nullptr, 0x10);
 
   //
-  // find the function of interest
+  // is there a function at the exact address provided?
   //
   function_index_t FunctionIndex = invalid_function_index;
 
-  assert(!opts.FunctionAddress.empty());
-  uint64_t FuncAddr = strtoull(opts.FunctionAddress.c_str(), nullptr, 0x10);
-
-  const auto &ICFG = binary.Analysis.ICFG;
-
-  for (function_index_t FIdx = 0; FIdx < binary.Analysis.Functions.size(); ++FIdx) {
-    const function_t &f = binary.Analysis.Functions.at(FIdx);
-
-    uint64_t EntryAddr = ICFG[basic_block_of_index(f.Entry, ICFG)].Addr;
-    if (EntryAddr != FuncAddr)
-      continue;
-
-    FunctionIndex = FIdx;
+  if (exists_function_at_address(b, Addr)) {
+    FunctionIndex = index_of_function_at_address(b, Addr);
     goto Found;
   }
 
-  WithColor::error() << llvm::formatv(
-      "failed to find function with address 0x{0:x} in {1}\n", FuncAddr,
-      binary.path_str());
+  //
+  // is there a block we know about at the address?
+  //
+  if (exists_basic_block_at_address(Addr, b)) {
+    basic_block_t bb = basic_block_at_address(Addr, b);
+    if (ICFG[bb].hasParent()) {
+      FunctionIndex = *ICFG[bb].Parents->begin();
+      goto Found;
+    }
+
+    WithColor::warning() << llvm::formatv(
+        "failed to find function for block {0:x} in {1}\n", ICFG[bb].Addr,
+        b.path_str());
+    return 1;
+  }
+
+  //
+  // give up
+  //
+  WithColor::error() << "failed to find block at given address\n";
   return 1;
 
 Found:
-  const function_t &f = binary.Analysis.Functions.at(FunctionIndex);
+  const function_t &f = b.Analysis.Functions.at(FunctionIndex);
   assert(is_basic_block_index_valid(f.Entry));
 
   std::string dot_path = (fs::path(temporary_dir()) / "cfg.dot").string();
@@ -431,53 +429,13 @@ Found:
     output_cfg(_cfg);
   }
 
-  //
-  // graph-easy
-  //
-  bool haveGraphEasy = fs::exists("/usr/bin/vendor_perl/graph-easy") ||
-                       fs::exists("/usr/bin/graph-easy");
+  return RunExecutableToExit(path_to_graph_easy, [&](auto Arg) {
+    Arg(path_to_graph_easy);
 
-  if (haveGraphEasy) {
-    pid_t pid = ::fork();
-    if (!pid) {
-      std::string input_arg = "--input=" + dot_path;
-
-      const char *arg_arr[] = {
-        fs::exists("/usr/bin/vendor_perl/graph-easy")
-            ? "/usr/bin/vendor_perl/graph-easy"
-            : "/usr/bin/graph-easy",
-
-        input_arg.c_str(),
-#if 0
-        "--as=ascii",
-#else
-        "--as=boxart",
-#endif
-
-        nullptr
-      };
-
-      print_command(&arg_arr[0]);
-
-      ::close(STDIN_FILENO);
-      ::execve(arg_arr[0], const_cast<char **>(&arg_arr[0]), ::environ);
-
-      int err = errno;
-      WithColor::error() << llvm::formatv("execve failed: {0}\n",
-                                          strerror(err));
-      return 1;
-    }
-
-    //
-    // check exit code
-    //
-    if (WaitForProcessToExit(pid))
-      WithColor::warning() << "graph-easy failed for " << dot_path << '\n';
-  } else {
-    WithColor::error() << "failed to find graph-easy executable file\n";
-  }
-
-  return 0;
+    Arg("--input=" + dot_path);
+    //Arg("--as=ascii");
+    Arg("--as=boxart");
+  });
 }
 
 }
