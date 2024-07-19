@@ -202,9 +202,9 @@ $(BINDIR)/$(1)/libjove_rt.%.so: $(BINDIR)/$(1)/libjove_rt.%.so.o
 # runtime DLLs
 #
 $(BINDIR)/$(1)/libjove_rt.%.dll.o: $(BINDIR)/$(1)/libjove_rt.coff.%.bc \
-                                   $(BINDIR)/$(1)/jove_rt_dll.sysv.syms \
+                                   $(BINDIR)/$(1)/jove_rt_dll.callconv.syms \
                                    $(BINDIR)/$(1)/jove_rt_dll.dllexport.syms
-	$(call jove_tool,$(1)) llknife -v -o $$<.2.tmp -i $$< --calling-convention=$(_DLL_$(1)_LINUX_CALL_CONV) $(BINDIR)/$(1)/jove_rt_dll.sysv.syms
+	$(call jove_tool,$(1)) llknife -v -o $$<.2.tmp -i $$< --calling-convention=$(_DLL_$(1)_LINUX_CALL_CONV) $(BINDIR)/$(1)/jove_rt_dll.callconv.syms
 	$(call jove_tool,$(1)) llknife -v -o $$<.3.tmp -i $$<.2.tmp --dllexport $(BINDIR)/$(1)/jove_rt_dll.dllexport.syms
 	$(LLVM_DIS) -o $$<.dll.ll $$<.3.tmp
 	$(LLVM_LLC) -o $$@ --filetype=obj --relocation-model=pic --mtriple=$($(1)_COFF_TRIPLE) $$<.3.tmp
