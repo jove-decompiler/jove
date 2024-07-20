@@ -32,6 +32,7 @@ class JoveTester:
 
     self.guest_ssh_port = JoveTester.ARCH2PORT[self.arch]
     self.jove_server_port = self.guest_ssh_port - 5000
+    self.ssh_common_args = ['-o', 'UserKnownHostsFile=/dev/null', '-o', 'StrictHostKeyChecking=no', '-o', 'LogLevel=quiet']
 
     self.find_things()
 
@@ -174,13 +175,13 @@ class JoveTester:
     self.fake_run_command_for_user(["ssh", '-p', str(self.guest_ssh_port), 'root@localhost'] + command)
 
   def ssh_command(self, command, text=True):
-    return subprocess.run(['ssh', '-o', 'UserKnownHostsFile=/dev/null', '-o', 'StrictHostKeyChecking=no', '-o', 'LogLevel=quiet', '-p', str(self.guest_ssh_port), 'root@localhost'] + command, capture_output=True, text=text)
+    return subprocess.run(['ssh'] + self.ssh_common_args + ['-p', str(self.guest_ssh_port), 'root@localhost'] + command, capture_output=True, text=text)
 
   def ssh(self, command):
-    return subprocess.run(['ssh', '-o', 'UserKnownHostsFile=/dev/null', '-o', 'StrictHostKeyChecking=no', '-o', 'LogLevel=quiet', '-p', str(self.guest_ssh_port), 'root@localhost'] + command)
+    return subprocess.run(['ssh'] + self.ssh_common_args + ['-p', str(self.guest_ssh_port), 'root@localhost'] + command)
 
   def scp(self, src, dst):
-    return subprocess.run(['scp', '-o', 'UserKnownHostsFile=/dev/null', '-o', 'StrictHostKeyChecking=no', '-o', 'LogLevel=quiet', '-P', str(self.guest_ssh_port), src, 'root@localhost:' + dst])
+    return subprocess.run(['scp'] + self.ssh_common_args + ['-P', str(self.guest_ssh_port), src, 'root@localhost:' + dst])
 
   def prepare_run_tests(self):
     print("preparing to run tests...")
