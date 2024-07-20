@@ -572,7 +572,7 @@ static jove_buffer_t _jove_alloc_buffer(size_t len) {
   if (IS_ERR_VALUE(ret))
     _UNREACHABLE("failed to allocate buffer");
 
-  return (jove_buffer_t){(void *)ret, len};
+  return (jove_buffer_t){.ptr = (void *)ret, .len = len};
 }
 
 static void _jove_free_buffer(const jove_buffer_t *buff) {

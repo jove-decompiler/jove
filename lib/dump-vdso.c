@@ -49,7 +49,7 @@ static _INL struct vdso_t _get_vdso(char *maps, const unsigned n) {
       uint64_t min = _u64ofhexstr(line, dash);
       uint64_t max = _u64ofhexstr(dash + 1, space);
 
-      return (struct vdso_t){(void *)min, max - min};
+      return (struct vdso_t){.ptr = (void *)min, .len = max - min};
     }
   }
 
