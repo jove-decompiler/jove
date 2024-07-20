@@ -21,14 +21,13 @@ class JoveTester:
     'ssh'
   ]
 
-  def __init__(self, tests_dir, tests, arch, extra_server_args=[], extra_bringup_args=[], newroot_losetup=None, unattended=False):
+  def __init__(self, tests_dir, tests, arch, extra_server_args=[], extra_bringup_args=[], unattended=False):
     self.tests_dir = tests_dir
     self.tests = tests
     self.arch = arch
 
     self.extra_server_args = extra_server_args
     self.extra_bringup_args = extra_bringup_args
-    self.newroot_losetup = newroot_losetup
     self.unattended = unattended
 
     assert arch in JoveTester.ARCH2PORT, "invalid arch"
@@ -113,8 +112,6 @@ class JoveTester:
     print("creating VM...")
 
     bringup_cmd = [self.bringup_path, '-a', self.arch, '-s', 'bookworm', '-o', self.vm_dir, '-p', str(self.guest_ssh_port)]
-    if not (self.newroot_losetup is None):
-      bringup_cmd += ['-X', self.newroot_losetup];
     bringup_cmd += self.extra_bringup_args
 
     subprocess.run(['sudo'] + bringup_cmd, check=True)

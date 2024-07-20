@@ -25,8 +25,6 @@ def main():
   if not (unattended_env is None) and unattended_env == "1":
     unattended = True
 
-  newroot_losetup = os.getenv("JOVE_CHROOT_LOSETUP")
-
   extra_server_args = []
   extra_bringup_args = []
 
@@ -42,7 +40,6 @@ def main():
   tester = JoveTester(tests_dir, args.tests, args.arch, \
                       extra_server_args=extra_server_args, \
                       extra_bringup_args=extra_bringup_args, \
-                      newroot_losetup=newroot_losetup, \
                       unattended=unattended)
   return tester.run()
 
