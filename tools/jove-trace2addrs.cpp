@@ -1,4 +1,5 @@
 #include "tool.h"
+#include "B.h"
 
 #include <boost/filesystem.hpp>
 
@@ -12,17 +13,36 @@ using llvm::WithColor;
 
 namespace jove {
 
-class Trace2AddrsTool : public JVTool<ToolKind::Standard> {
+namespace {
+
+struct binary_state_t {
+  std::unique_ptr<llvm::object::Binary> Bin;
+};
+
+}
+
+class Trace2AddrsTool
+    : public StatefulJVTool<ToolKind::CopyOnWrite, binary_state_t, void, void> {
   struct Cmdline {
     cl::opt<std::string> TracePath;
     cl::opt<bool> SkipRepeated;
+    cl::opt<bool> Offsets;
+    cl::alias OffsetsAlias;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : TracePath(cl::Positional, cl::desc("trace.txt"), cl::Required,
                     cl::value_desc("filename"), cl::cat(JoveCategory)),
 
           SkipRepeated("skip-repeated", cl::desc("Skip repeated blocks"),
-                       cl::cat(JoveCategory)) {}
+                       cl::cat(JoveCategory)),
+
+          Offsets("offsets",
+                  cl::desc("Print in offsets rather than virtual addresses"),
+                  cl::cat(JoveCategory)),
+
+          OffsetsAlias("o", cl::desc("Alias for --offsets."),
+                       cl::aliasopt(Offsets), cl::cat(JoveCategory)) {}
+
   } opts;
 
 public:
@@ -33,6 +53,8 @@ public:
   void ParseTraceFile(
       const char *filename,
       std::vector<std::pair<binary_index_t, basic_block_index_t>> &out);
+
+  uint64_t AddrOrOff(const binary_t &, uint64_t);
 };
 
 JOVE_REGISTER_TOOL("trace2addrs", Trace2AddrsTool);
@@ -44,6 +66,10 @@ int Trace2AddrsTool::Run(void) {
   }
 
   llvm::raw_ostream &OutputStream = llvm::outs();
+
+  for_each_binary(std::execution::par_unseq, jv, [&](binary_t &b) {
+    state.for_binary(b).Bin = B::Create(b.data());
+  });
 
   //
   // parse trace.txt
@@ -60,13 +86,13 @@ int Trace2AddrsTool::Run(void) {
 
     std::tie(BIdx, BBIdx) = pair;
 
-    const auto &binary = jv.Binaries.at(BIdx);
-    const auto &ICFG = binary.Analysis.ICFG;
+    auto &b = jv.Binaries.at(BIdx);
+    auto &ICFG = b.Analysis.ICFG;
     basic_block_t bb = basic_block_of_index(BBIdx, ICFG);
 
-    OutputStream << llvm::formatv("{0}+0x{1:x}\n",
-                                  fs::path(binary.path_str()).filename().c_str(),
-                                  ICFG[bb].Addr);
+    OutputStream << llvm::formatv("{0}+{1:x}\n",
+                                  fs::path(b.path_str()).filename().c_str(),
+                                  AddrOrOff(b, ICFG[bb].Addr));
   }
 
   return 1;
@@ -113,4 +139,12 @@ void Trace2AddrsTool::ParseTraceFile(
     Last.BBIdx = BBIdx;
   }
 }
+
+uint64_t Trace2AddrsTool::AddrOrOff(const binary_t &b, uint64_t Addr) {
+  if (opts.Offsets)
+    return B::offset_of_va(*state.for_binary(b).Bin, Addr);
+
+  return Addr;
+}
+
 }
