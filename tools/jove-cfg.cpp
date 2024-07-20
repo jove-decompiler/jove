@@ -54,6 +54,8 @@ class CFGTool : public StatefulJVTool<ToolKind::CopyOnWrite, binary_state_t, voi
     cl::opt<std::string> LocalGotoAddress;
     cl::alias LocalGotoAddressAlias;
     cl::opt<bool> PrintInsnBytes;
+    cl::opt<bool> Function;
+    cl::alias FunctionAlias;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : Addr(cl::Positional, cl::Required,
@@ -79,7 +81,13 @@ class CFGTool : public StatefulJVTool<ToolKind::CopyOnWrite, binary_state_t, voi
                                 cl::cat(JoveCategory)),
 
           PrintInsnBytes("insn-bytes", cl::desc("Print machine code bytes"),
-                         cl::cat(JoveCategory)) {}
+                         cl::cat(JoveCategory)),
+
+          Function("function", cl::desc("Present function"), cl::init(true),
+                   cl::cat(JoveCategory)),
+
+          FunctionAlias("f", cl::desc("Alias for --function."),
+                        cl::aliasopt(Function), cl::cat(JoveCategory)) {}
   } opts;
 
   binary_index_t BinaryIndex = invalid_binary_index;
@@ -314,49 +322,42 @@ int CFGTool::Run(void) {
 
   binary_t &b = jv.Binaries.at(BinaryIndex);
   auto &ICFG = b.Analysis.ICFG;
-
-  //
-  // initialize state associated with binary
-  //
   state.for_binary(b).Bin = B::Create(b.data());
-
   uint64_t Addr = strtoull(opts.Addr.c_str(), nullptr, 0x10);
 
-  //
-  // is there a function at the exact address provided?
-  //
-  function_index_t FunctionIndex = invalid_function_index;
-
+  basic_block_index_t source_BBIdx = invalid_basic_block_index;
   if (exists_function_at_address(b, Addr)) {
-    FunctionIndex = index_of_function_at_address(b, Addr);
-    goto Found;
-  }
+    //
+    // there is a function at the exact address provided.
+    //
+    source_BBIdx = function_at_address(b, Addr).Entry;
+  } else if (exists_basic_block_at_address(Addr, b)) {
+    //
+    // there is a block we know about at the address.
+    //
+    if (opts.Function) {
+      //
+      // the user demands a function...
+      //
+      basic_block_t bb = basic_block_at_address(Addr, b);
 
-  //
-  // is there a block we know about at the address?
-  //
-  if (exists_basic_block_at_address(Addr, b)) {
-    basic_block_t bb = basic_block_at_address(Addr, b);
-    if (ICFG[bb].hasParent()) {
-      FunctionIndex = *ICFG[bb].Parents->begin();
-      goto Found;
+      if (!ICFG[bb].hasParent()) {
+        WithColor::warning()
+            << llvm::formatv("failed to find function for block {0:x} in {1}\n",
+                             ICFG[bb].Addr, b.path_str());
+        return 1;
+      }
+
+      source_BBIdx = b.Analysis.Functions.at(*ICFG[bb].Parents->begin()).Entry;
+    } else {
+      source_BBIdx = index_of_basic_block_at_address(Addr, b);
     }
-
-    WithColor::warning() << llvm::formatv(
-        "failed to find function for block {0:x} in {1}\n", ICFG[bb].Addr,
-        b.path_str());
+  } else {
+    WithColor::error() << "failed to find block at given address\n";
     return 1;
   }
 
-  //
-  // give up
-  //
-  WithColor::error() << "failed to find block at given address\n";
-  return 1;
-
-Found:
-  const function_t &f = b.Analysis.Functions.at(FunctionIndex);
-  assert(is_basic_block_index_valid(f.Entry));
+  assert(is_basic_block_index_valid(source_BBIdx));
 
   std::string dot_path = (fs::path(temporary_dir()) / "cfg.dot").string();
 
@@ -386,7 +387,8 @@ Found:
   boost::unordered_set<basic_block_t> blocks;
 
   reached_visitor vis(blocks);
-  boost::breadth_first_search(ICFG, f.Entry, boost::visitor(vis));
+  boost::breadth_first_search(ICFG, basic_block_of_index(source_BBIdx, b),
+                              boost::visitor(vis));
 
   boost::keep_all e_filter;
   boost::is_in_subset<boost::unordered_set<basic_block_t>> v_filter(blocks);
