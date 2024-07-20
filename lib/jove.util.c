@@ -402,6 +402,7 @@ static _UNUSED uintptr_t _parse_stack_end_of_maps(char *maps, const unsigned n) 
     // find the end of the current line
     //
     eol = _memchr(line, '\n', left);
+    _ASSERT(eol);
 
     //
     // second hex address
@@ -414,8 +415,11 @@ static _UNUSED uintptr_t _parse_stack_end_of_maps(char *maps, const unsigned n) 
         eol[-6] == 's' &&
         eol[-7] == '[') {
       char *dash = _memchr(line, '-', left);
+      _ASSERT(dash);
 
       char *space = _memchr(line, ' ', left);
+      _ASSERT(space);
+
       uint64_t max = _u64ofhexstr(dash + 1, space);
       return max;
     }
