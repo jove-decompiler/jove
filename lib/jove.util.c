@@ -638,7 +638,7 @@ static void _jove_set_char(const jove_saved_char_t *sav) {
 //
 static _UNUSED uintptr_t _get_stack_end(void) {
   JOVE_BUFF(buff, JOVE_MAX_PROC_MAPS);
-  unsigned n = _jove_read_pseudo_file("/proc/self/maps", buff, sizeof(buff));
+  unsigned n = _jove_read_pseudo_file("/proc/self/maps", _buff.ptr, _buff.len);
 
   uintptr_t res = _parse_stack_end_of_maps(buff, n);
 
