@@ -233,11 +233,10 @@ int InitTool::Run(void) {
         case 1: jv.AddFromPath(E, rtld.c_str(), static_cast<binary_index_t>(1)); return;
         case 2: {
           std::string vdso;
-          if (!capture_vdso(vdso))
-            die("failed to capture vdso");
+          std::string_view sv = capture_vdso(vdso) ? vdso : get_vdso();
 
           try {
-            jv.AddFromData(E, vdso, "[vdso]", static_cast<binary_index_t>(2));
+            jv.AddFromData(E, sv, "[vdso]", static_cast<binary_index_t>(2));
           } catch (const std::exception &e) {
             die(std::string("failed on [vdso]: ") + e.what());
           }
