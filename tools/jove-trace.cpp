@@ -38,6 +38,10 @@ class TraceTool : public StatefulJVTool<ToolKind::CopyOnWrite, binary_state_t, v
     cl::opt<std::string> Prog;
     cl::list<std::string> Args;
     cl::list<std::string> Envs;
+    cl::opt<std::string> Group;
+    cl::alias GroupAlias;
+    cl::opt<std::string> User;
+    cl::alias UserAlias;
     cl::opt<std::string> ExistingSysroot;
     cl::opt<std::string> Output;
     cl::alias OutputAlias;
@@ -64,6 +68,18 @@ class TraceTool : public StatefulJVTool<ToolKind::CopyOnWrite, binary_state_t, v
           Envs("env", cl::CommaSeparated,
                cl::value_desc("KEY_1=VALUE_1,KEY_2=VALUE_2,...,KEY_n=VALUE_n"),
                cl::desc("Extra environment variables"), cl::cat(JoveCategory)),
+
+          Group("group", cl::desc("Run the given command as the superuser"),
+                cl::cat(JoveCategory)),
+
+          GroupAlias("g", cl::desc("Alias for --group"), cl::aliasopt(Group),
+                     cl::cat(JoveCategory)),
+
+          User("user", cl::desc("Run the given command as the superuser"),
+               cl::cat(JoveCategory)),
+
+          UserAlias("u", cl::desc("Alias for --user"), cl::aliasopt(User),
+                    cl::cat(JoveCategory)),
 
           ExistingSysroot("existing-sysroot", cl::desc("path to directory"),
                           cl::value_desc("filename"), cl::cat(JoveCategory)),
@@ -118,11 +134,24 @@ public:
   TraceTool() : opts(JoveCategory) {}
 
   int Run(void) override;
+
+  void drop_privileges(void);
 };
 
 JOVE_REGISTER_TOOL("trace", TraceTool);
 
 typedef boost::format fmt;
+
+static void set_permissions_recursively(const fs::path &p) {
+  if (fs::exists(p) && fs::is_directory(p)) {
+    fs::permissions(p, fs::perms::all_all);
+    for (fs::directory_iterator it(p); it != fs::directory_iterator(); ++it) {
+      if (fs::is_directory(it->status())) {
+        set_permissions_recursively(it->path());
+      }
+    }
+  }
+}
 
 int TraceTool::Run(void) {
   for (char *dashdash_arg : dashdash_args)
@@ -203,6 +232,8 @@ int TraceTool::Run(void) {
                                  | fs::owner_write
                                  | fs::owner_exe);
   });
+
+  set_permissions_recursively(temporary_dir());
 
   if (opts.SkipUProbe)
     goto skip_uprobe;
@@ -500,6 +531,8 @@ skip_uprobe:
 
       env_vec.push_back(nullptr);
 
+      drop_privileges();
+
       ::execve(arg_vec[0],
                const_cast<char **>(&arg_vec[0]),
                const_cast<char **>(&env_vec[0]));
@@ -574,6 +607,26 @@ skip_uprobe:
   }
 
   return 0;
+}
+
+void TraceTool::drop_privileges(void) {
+  if (!opts.Group.empty()) {
+    unsigned gid = atoi(opts.Group.c_str());
+
+    if (::setgid(gid) < 0) {
+      int err = errno;
+      HumanOut() << llvm::formatv("setgid failed: {0}", strerror(err));
+    }
+  }
+
+  if (!opts.User.empty()) {
+    unsigned uid = atoi(opts.User.c_str());
+
+    if (::setuid(uid) < 0) {
+      int err = errno;
+      HumanOut() << llvm::formatv("setuid failed: {0}", strerror(err));
+    }
+  }
 }
 
 }
