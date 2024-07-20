@@ -225,6 +225,7 @@ struct LLVMTool : public StatefulJVTool<ToolKind::CopyOnWrite,
     cl::opt<bool> MT;
     cl::opt<bool> BreakBeforeUnreachables;
     cl::opt<bool> LayOutSections;
+    cl::opt<bool> Debugify;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : Binary("binary", cl::desc("Binary to translate"),
@@ -359,8 +360,9 @@ struct LLVMTool : public StatefulJVTool<ToolKind::CopyOnWrite,
                        "_jove_check_sections_laid_out() at runtime to make "
                        "sure that those aforementioned global variables exist "
                        "side-by-side in memory in the way we expect them to"),
-              cl::cat(JoveCategory)) {}
+              cl::cat(JoveCategory)),
 
+          Debugify("debugify", cl::cat(JoveCategory)) {}
   } opts;
 
   binary_index_t BinaryIndex = invalid_binary_index;
@@ -455,9 +457,11 @@ struct LLVMTool : public StatefulJVTool<ToolKind::CopyOnWrite,
   } ThreadLocalStorage;
 
   struct {
-    llvm::DIFile *File;
-    llvm::DICompileUnit *CompileUnit;
+    llvm::DIFile *File = nullptr;
+    llvm::DICompileUnit *CompileUnit = nullptr;
   } DebugInformation;
+
+  static constexpr const char *DIVersionKey = "Debug Info Version";
 
   struct {
     llvm::GlobalVariable *HeadGV = nullptr;
@@ -549,6 +553,7 @@ public:
 
   void ReloadGlobalVariables(void);
   int DoOptimize(void);
+  int Debugify(void);
 
   llvm::Type *VoidType(void);
   llvm::IntegerType *WordType(void);
@@ -2421,6 +2426,7 @@ int LLVMTool::Run(void) {
       || (!opts.VersionScript.empty() ? WriteVersionScript() : 0)
       || (!opts.LinkerScript.empty() ? WriteLinkerScript() : 0)
       || (opts.BreakBeforeUnreachables ? BreakBeforeUnreachables() : 0)
+      || (opts.Debugify ? Debugify() : 0)
       || WriteModule();
 }
 
@@ -2554,6 +2560,8 @@ void LLVMTool::fillInFunctionBody(llvm::Function *F,
   assert(F && "function is NULL!");
   assert(F->empty() && "function is already defined!");
 
+  llvm::DISubprogram *DbgSubprogram = nullptr;
+  if (!opts.Debugify) {
   //
   // if we don't create debug information, llvm::verifyModule() will fail
   //
@@ -2568,7 +2576,7 @@ void LLVMTool::fillInFunctionBody(llvm::Function *F,
   llvm::DISubroutineType *SubProgType =
       DIB.createSubroutineType(DIB.getOrCreateTypeArray(std::nullopt));
 
-  llvm::DISubprogram *DbgSubprogram = DIB.createFunction(
+  DbgSubprogram = DIB.createFunction(
       /* Scope       */ DebugInformation.CompileUnit,
       /* Name        */ F->getName(),
       /* LinkageName */ F->getName(),
@@ -2580,11 +2588,13 @@ void LLVMTool::fillInFunctionBody(llvm::Function *F,
       /* SPFlags     */ SubProgFlags);
 
   F->setSubprogram(DbgSubprogram);
+  }
 
   llvm::BasicBlock *BB = llvm::BasicBlock::Create(*Context, "", F);
   {
     llvm::IRBuilderTy IRB(BB);
 
+    if (!opts.Debugify)
     IRB.SetCurrentDebugLocation(llvm::DILocation::get(
         *Context, 0 /* Line */, 0 /* Column */, DbgSubprogram));
 
@@ -2605,7 +2615,8 @@ void LLVMTool::fillInFunctionBody(llvm::Function *F,
     F->setVisibility(llvm::GlobalValue::HiddenVisibility);
   }
 
-  DIB.finalizeSubprogram(DbgSubprogram);
+  if (!opts.Debugify)
+  DIBuilder->finalizeSubprogram(DbgSubprogram);
 }
 
 int LLVMTool::CreateModule(void) {
@@ -3505,6 +3516,7 @@ int LLVMTool::PrepareToTranslateCode(void) {
 
   binary_t &Binary = jv.Binaries.at(BinaryIndex);
 
+  if (!opts.Debugify) {
   DIBuilder.reset(new llvm::DIBuilder(*Module));
 
   llvm::DIBuilder &DIB = *DIBuilder;
@@ -3520,6 +3532,7 @@ int LLVMTool::PrepareToTranslateCode(void) {
       /* isOptimized */ true,
       /* Flags       */ "",
       /* RunTimeVer  */ 0);
+  }
 
 #define CONST_STRING(var, s)                                                   \
   do {                                                                         \
@@ -6447,6 +6460,7 @@ int LLVMTool::FixupHelperStubs(void) {
         {
           llvm::IRBuilderTy defaultIRB(DefaultBB);
 
+          if (!opts.Debugify)
           defaultIRB.SetCurrentDebugLocation(llvm::DILocation::get(
               *Context, 7 /* Line */, 7 /* Column */, F->getSubprogram()));
 
@@ -6464,6 +6478,7 @@ int LLVMTool::FixupHelperStubs(void) {
               {
                 llvm::IRBuilderTy CaseIRB(CaseBB);
 
+                if (!opts.Debugify)
                 CaseIRB.SetCurrentDebugLocation(llvm::DILocation::get(
                     *Context, 0 /* Line */, 0 /* Column */, F->getSubprogram()));
 
@@ -6487,6 +6502,7 @@ int LLVMTool::FixupHelperStubs(void) {
         {
           llvm::IRBuilderTy defaultIRB(DefaultBB);
 
+          if (!opts.Debugify)
           defaultIRB.SetCurrentDebugLocation(llvm::DILocation::get(
               *Context, 7 /* Line */, 7 /* Column */, F->getSubprogram()));
 
@@ -6531,6 +6547,7 @@ int LLVMTool::FixupHelperStubs(void) {
               {
                 llvm::IRBuilderTy CaseIRB(CaseBB);
 
+                if (!opts.Debugify)
                 CaseIRB.SetCurrentDebugLocation(llvm::DILocation::get(
                     *Context, 0 /* Line */, 0 /* Column */, F->getSubprogram()));
 
@@ -6625,7 +6642,7 @@ struct TranslateContext {
   llvm::AllocaInst *PCAlloca;
 
   struct {
-    llvm::DISubprogram *Subprogram;
+    llvm::DISubprogram *Subprogram = nullptr;
   } DebugInformation;
 
   TranslateContext(LLVMTool &tool, function_t &f) : tool(tool), f(f) {
@@ -6719,7 +6736,6 @@ int LLVMTool::TranslateFunction(function_t &f) {
   const function_index_t FIdx = index_of_function_in_binary(f, Binary);
   interprocedural_control_flow_graph_t &ICFG = Binary.Analysis.ICFG;
   llvm::Function *F = state.for_function(f).F;
-  llvm::DIBuilder &DIB = *DIBuilder;
 
   if (unlikely(state.for_function(f).bbvec.empty()))
     return 0;
@@ -6738,7 +6754,11 @@ int LLVMTool::TranslateFunction(function_t &f) {
   if (F->hasPrivateLinkage() || F->hasInternalLinkage())
     SubProgFlags |= llvm::DISubprogram::SPFlagLocalToUnit;
 
-  llvm::DISubroutineType *SubProgType =
+  llvm::DISubroutineType *SubProgType = nullptr;
+  if (!opts.Debugify) {
+  llvm::DIBuilder &DIB = *DIBuilder;
+
+  SubProgType =
       DIB.createSubroutineType(DIB.getOrCreateTypeArray(std::nullopt));
 
   TC.DebugInformation.Subprogram = DIB.createFunction(
@@ -6753,12 +6773,14 @@ int LLVMTool::TranslateFunction(function_t &f) {
       /* SPFlags     */ SubProgFlags);
 
   F->setSubprogram(TC.DebugInformation.Subprogram);
+  }
 
   auto &GlobalAllocaArr = TC.GlobalAllocaArr;
 
   {
     llvm::IRBuilderTy IRB(EntryB);
 
+    if (!opts.Debugify)
     IRB.SetCurrentDebugLocation(
         llvm::DILocation::get(*Context, ICFG[entry_bb].Addr, 0 /* Column */,
                               TC.DebugInformation.Subprogram));
@@ -6838,7 +6860,9 @@ int LLVMTool::TranslateFunction(function_t &f) {
       return ret;
   }
 
-  DIB.finalizeSubprogram(TC.DebugInformation.Subprogram);
+  if (!opts.Debugify) {
+  DIBuilder->finalizeSubprogram(TC.DebugInformation.Subprogram);
+  }
 
   if (!f.IsABI) {
     //
@@ -6849,7 +6873,9 @@ int LLVMTool::TranslateFunction(function_t &f) {
     assert(F);
     llvm::FunctionType *FTy = F->getFunctionType();
 
-    llvm::DISubprogram *Subprogram = DIB.createFunction(
+    llvm::DISubprogram *Subprogram = nullptr;
+    if (!opts.Debugify) {
+    Subprogram = DIBuilder->createFunction(
         /* Scope       */ DebugInformation.CompileUnit,
         /* Name        */ F->getName(),
         /* LinkageName */ F->getName(),
@@ -6861,10 +6887,12 @@ int LLVMTool::TranslateFunction(function_t &f) {
         /* SPFlags     */ SubProgFlags);
 
     F->setSubprogram(Subprogram);
+    }
 
     {
       llvm::IRBuilderTy IRB(llvm::BasicBlock::Create(*Context, "", F));
 
+      if (!opts.Debugify)
       IRB.SetCurrentDebugLocation(llvm::DILocation::get(
           *Context, ICFG[entry_bb].Addr, 0 /* Column */, Subprogram));
 
@@ -6976,7 +7004,9 @@ int LLVMTool::TranslateFunction(function_t &f) {
       }
     }
 
-    DIB.finalizeSubprogram(Subprogram);
+    if (!opts.Debugify) {
+    DIBuilder->finalizeSubprogram(Subprogram);
+    }
 
     F->setVisibility(llvm::GlobalValue::HiddenVisibility);
   }
@@ -7015,8 +7045,15 @@ int LLVMTool::TranslateFunctions(void) {
       FPM.run(*state.for_function(f).F);
   }
 
-  llvm::DIBuilder &DIB = *DIBuilder;
-  DIB.finalize();
+  if (!opts.Debugify) {
+  DIBuilder->finalize();
+
+  // Claim that this synthetic debug info is valid. Without this the debug info
+  // will be ignored.
+  if (!Module->getModuleFlag(DIVersionKey))
+      Module->addModuleFlag(llvm::Module::Warning, DIVersionKey,
+                            llvm::DEBUG_METADATA_VERSION);
+  }
 
   FPM.doFinalization();
 
@@ -7024,6 +7061,11 @@ int LLVMTool::TranslateFunctions(void) {
 }
 
 int LLVMTool::PrepareToOptimize(void) {
+  static bool Inited = false;
+  if (Inited)
+    return 0;
+  Inited = true;
+
   // Initialize passes
   llvm::PassRegistry &Registry = *llvm::PassRegistry::getPassRegistry();
   initializeCore(Registry);
@@ -7071,6 +7113,8 @@ void LLVMTool::ReloadGlobalVariables(void) {
 }
 
 int LLVMTool::DoOptimize(void) {
+  assert(opts.Optimize);
+
   PrepareToOptimize();
 
   const bool DoVerify = true;
@@ -7230,6 +7274,89 @@ int LLVMTool::DoOptimize(void) {
   // becomes null.
   //
   ReloadGlobalVariables();
+
+  return 0;
+}
+
+int LLVMTool::Debugify(void) {
+  assert(opts.Debugify);
+
+  if (Module->getModuleFlag(DIVersionKey)) {
+    WithColor::error() << "Debugify: there appears to already be debug info\n";
+    return 1;
+  }
+
+  PrepareToOptimize();
+
+  const bool DoVerify = true;
+
+  // Immediately run the verifier to catch any problems before starting up the
+  // pass pipelines.  Otherwise we can crash on broken code during
+  // doInitialization().
+  if (DoVerify && llvm::verifyModule(*Module, &llvm::errs())) {
+    WithColor::error() << "Debugify: [pre] failed to verify module\n";
+    DumpModule("pre.opt.fail");
+    return 1;
+  }
+
+  std::string VerifyDIPreserveExport("");
+  std::optional<llvm::PGOOptions> P;
+
+  llvm::Triple ModuleTriple(Module->getTargetTriple());
+  llvm::TargetLibraryInfoImpl TLII(ModuleTriple);
+  if (true /* DisableSimplifyLibCalls */)
+    TLII.disableAllFunctions();
+
+  llvm::LoopAnalysisManager LAM;
+  llvm::FunctionAnalysisManager FAM;
+  llvm::CGSCCAnalysisManager CGAM;
+  llvm::ModuleAnalysisManager MAM;
+
+  llvm::PassInstrumentationCallbacks PIC;
+
+  llvm::PipelineTuningOptions PTO;
+  PTO.LoopUnrolling = false;
+
+  llvm::PassBuilder PB(disas.TM.get(), PTO, P, &PIC);
+
+  const std::string AAPipeline("default");
+
+  // Specially handle the alias analysis manager so that we can register
+  // a custom pipeline of AA passes with it.
+  llvm::AAManager AA;
+  if (auto Err = PB.parseAAPipeline(AA, AAPipeline)) {
+    WithColor::error() << llvm::toString(std::move(Err)) << "\n";
+    return 1;
+  }
+
+  // Register the AA manager first so that our version is the one used.
+  FAM.registerPass([&] { return std::move(AA); });
+  // Register our TargetLibraryInfoImpl.
+  FAM.registerPass([&] { return llvm::TargetLibraryAnalysis(TLII); });
+
+  // Register all the basic analyses with the managers.
+  PB.registerModuleAnalyses(MAM);
+  PB.registerCGSCCAnalyses(CGAM);
+  PB.registerFunctionAnalyses(FAM);
+  PB.registerLoopAnalyses(LAM);
+  PB.crossRegisterProxies(LAM, FAM, CGAM, MAM);
+
+  llvm::ModulePassManager MPM;
+
+  DebugifyStatsMap DIStatsMap;
+
+  MPM.addPass(NewPMDebugifyPass());
+  MPM.addPass(NewPMCheckDebugifyPass(false, "", &DIStatsMap));
+
+  MPM.run(*Module, MAM);
+
+  if (DoVerify && llvm::verifyModule(*Module, &llvm::errs())) {
+    WithColor::error() << "Debugify: [post] failed to verify module\n";
+
+    WithColor::error() << "Dumping module...\n";
+    DumpModule("post.debugify.fail");
+    return 1;
+  }
 
   return 0;
 }
@@ -7937,6 +8064,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
 
   llvm::IRBuilderTy IRB(state.for_basic_block(Binary, bb).B);
 
+  if (!opts.Debugify)
   IRB.SetCurrentDebugLocation(llvm::DILocation::get(
       *Context, Addr, 0 /* Column */, TC.DebugInformation.Subprogram));
 
@@ -10108,6 +10236,7 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
         Column = static_cast<uint32_t>(Addr >> 32);
       }
 
+      if (!opts.Debugify)
       IRB.SetCurrentDebugLocation(llvm::DILocation::get(
           *Context, Line, Column, TC.DebugInformation.Subprogram));
     }
