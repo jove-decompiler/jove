@@ -21,7 +21,7 @@ def main():
 
   unattended = args.unattended
 
-  unattended_env = os.getenv("JOVE_RUN_TESTS_UNATTENDED")
+  unattended_env = os.getenv("JOVE_TEST_UNATTENDED")
   if not (unattended_env is None) and unattended_env == "1":
     unattended = True
 
