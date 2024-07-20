@@ -171,7 +171,7 @@ class JoveTester:
     p.send_keys("true || " + " ".join(command), enter=True)
 
   def set_up_ssh_command_for_user(self, command):
-    self.set_up_command_for_user(["ssh", '-p', str(self.guest_ssh_port), 'root@localhost'] + command)
+    self.set_up_command_for_user(["ssh"] + self.ssh_common_args + ['-p', str(self.guest_ssh_port), 'root@localhost'] + command)
 
   def fake_run_ssh_command_for_user(self, command):
     self.fake_run_command_for_user(["ssh", '-p', str(self.guest_ssh_port), 'root@localhost'] + command)
