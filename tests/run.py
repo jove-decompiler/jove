@@ -27,7 +27,23 @@ def main():
 
   newroot_losetup = os.getenv("JOVE_CHROOT_LOSETUP")
 
-  tester = JoveTester(tests_dir, args.tests, args.arch, newroot_losetup, unattended)
+  extra_server_args = []
+  extra_bringup_args = []
+
+  extra_server_args_env = os.getenv("JOVE_TEST_SERVER_ARGS")
+  extra_bringup_args_env = os.getenv("JOVE_TEST_BRINGUP_ARGS")
+
+  if not (extra_server_args_env is None):
+    extra_server_args = extra_server_args_env.split(',')
+
+  if not (extra_bringup_args_env is None):
+    extra_bringup_args = extra_bringup_args_env.split(',')
+
+  tester = JoveTester(tests_dir, args.tests, args.arch, \
+                      extra_server_args=extra_server_args, \
+                      extra_bringup_args=extra_bringup_args, \
+                      newroot_losetup=newroot_losetup, \
+                      unattended=unattended)
   return tester.run()
 
 if __name__ == "__main__":
