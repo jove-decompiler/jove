@@ -55,14 +55,14 @@ void _jove_begin(uintptr_t rdi,
   "retq\n"
 
 #define JOVE_THUNK_EXTRA_ARGS                                                  \
-  "movsd 832(%%r14),%%xmm0\n"                                                  \
-  "movsd 896(%%r14),%%xmm1\n"                                                  \
-  "movsd 960(%%r14),%%xmm2\n"                                                  \
-  "movsd 1024(%%r14),%%xmm3\n"                                                 \
-  "movsd 1088(%%r14),%%xmm4\n"                                                 \
-  "movsd 1152(%%r14),%%xmm5\n"                                                 \
-  "movsd 1216(%%r14),%%xmm6\n"                                                 \
-  "movsd 1280(%%r14),%%xmm7\n"
+  "movsd 832(%%r14),%%xmm0\n"  /* env.xmm_regs[0]._x_ZMMReg[0]._q_XMMReg[0] */ \
+  "movsd 896(%%r14),%%xmm1\n"  /* env.xmm_regs[1]._x_ZMMReg[0]._q_XMMReg[0] */ \
+  "movsd 960(%%r14),%%xmm2\n"  /* env.xmm_regs[2]._x_ZMMReg[0]._q_XMMReg[0] */ \
+  "movsd 1024(%%r14),%%xmm3\n" /* env.xmm_regs[3]._x_ZMMReg[0]._q_XMMReg[0] */ \
+  "movsd 1088(%%r14),%%xmm4\n" /* env.xmm_regs[4]._x_ZMMReg[0]._q_XMMReg[0] */ \
+  "movsd 1152(%%r14),%%xmm5\n" /* env.xmm_regs[5]._x_ZMMReg[0]._q_XMMReg[0] */ \
+  "movsd 1216(%%r14),%%xmm6\n" /* env.xmm_regs[6]._x_ZMMReg[0]._q_XMMReg[0] */ \
+  "movsd 1280(%%r14),%%xmm7\n" /* env.xmm_regs[7]._x_ZMMReg[0]._q_XMMReg[0] */
 
 #define JOVE_THUNK_EXTRA_RETS                                                  \
   "movsd %%xmm0,832(%%r14)\n"                                                  \
