@@ -47,7 +47,8 @@ struct binary_state_t {
 
 class CFGTool : public StatefulJVTool<ToolKind::CopyOnWrite, binary_state_t, void, void> {
   struct Cmdline {
-    cl::opt<std::string> Addr;
+    cl::opt<std::string> AddrOrOff;
+    cl::opt<bool> Off;
     cl::opt<std::string> Binary;
     cl::alias BinaryAlias;
     cl::opt<bool> PrintTerminatorType;
@@ -58,9 +59,13 @@ class CFGTool : public StatefulJVTool<ToolKind::CopyOnWrite, binary_state_t, voi
     cl::alias FunctionAlias;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
-        : Addr(cl::Positional, cl::Required,
-               cl::desc("address of basic block of interest"),
-               cl::value_desc("hexadecimal address"), cl::cat(JoveCategory)),
+        : AddrOrOff(cl::Positional, cl::Required,
+                    cl::desc("address of basic block of interest"),
+                    cl::value_desc("hexadecimal address"),
+                    cl::cat(JoveCategory)),
+
+          Off("off", cl::desc("Interpret address as offset"),
+              cl::cat(JoveCategory)),
 
           Binary("binary", cl::desc("Binary of function"), cl::Required,
                  cl::cat(JoveCategory)),
@@ -323,7 +328,9 @@ int CFGTool::Run(void) {
   binary_t &b = jv.Binaries.at(BinaryIndex);
   auto &ICFG = b.Analysis.ICFG;
   state.for_binary(b).Bin = B::Create(b.data());
-  uint64_t Addr = strtoull(opts.Addr.c_str(), nullptr, 0x10);
+  uint64_t Addr = strtoull(opts.AddrOrOff.c_str(), nullptr, 0x10);
+  if (opts.Off)
+    Addr = B::va_of_offset(*state.for_binary(b).Bin, Addr);
 
   basic_block_index_t source_BBIdx = invalid_basic_block_index;
   if (exists_function_at_address(b, Addr)) {
