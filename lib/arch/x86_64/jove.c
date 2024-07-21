@@ -62,7 +62,9 @@ void _jove_begin(uintptr_t rdi,
   "movsd 1088(%%r14),%%xmm4\n" /* env.xmm_regs[4]._x_ZMMReg[0]._q_XMMReg[0] */ \
   "movsd 1152(%%r14),%%xmm5\n" /* env.xmm_regs[5]._x_ZMMReg[0]._q_XMMReg[0] */ \
   "movsd 1216(%%r14),%%xmm6\n" /* env.xmm_regs[6]._x_ZMMReg[0]._q_XMMReg[0] */ \
-  "movsd 1280(%%r14),%%xmm7\n" /* env.xmm_regs[7]._x_ZMMReg[0]._q_XMMReg[0] */
+  "movsd 1280(%%r14),%%xmm7\n" /* env.xmm_regs[7]._x_ZMMReg[0]._q_XMMReg[0] */ \
+                                                                               \
+  "movq -32(%%r14),%%rax\n" /* env.regs[R_EAX] */
 
 #define JOVE_THUNK_EXTRA_RETS                                                  \
   "movsd %%xmm0,832(%%r14)\n"                                                  \
