@@ -586,6 +586,11 @@ public:
   llvm::Constant *SectionPointer(uint64_t Addr) {
     auto &Binary = jv.Binaries.at(BinaryIndex);
 
+#if 0 /* we could do this... */
+    if (Binary.IsExecutable && !Binary.IsPIC)
+      return llvm::ConstantInt::get(WordType(), Addr);
+#endif
+
     int64_t off =
         static_cast<int64_t>(Addr) -
         static_cast<int64_t>(state.for_binary(Binary).SectsStartAddr);
@@ -1364,6 +1369,8 @@ const helper_function_t &LookupHelper(llvm::Module &M, tiny_code_generator_t &TC
                                         helper_nm);
     exit(1);
   }
+
+  //hf.F->addFnAttr(llvm::Attribute::NoInline);
 
   if (!ForCBE)
     hf.F->setVisibility(llvm::GlobalValue::HiddenVisibility);
@@ -2413,7 +2420,7 @@ int LLVMTool::Run(void) {
       || CreateCopyRelocationHack()
       || TranslateFunctions()
       || InternalizeSections()
-      || InlineHelpers()
+      || (opts.InlineHelpers ? InlineHelpers() : 0)
       || (opts.ForCBE ? PrepareForCBE() : 0)
       || (opts.DumpPreOpt1 ? (RenameFunctionLocals(), DumpModule("pre.opt"), 1) : 0)
       || ((opts.Optimize || opts.ForCBE) ? DoOptimize() : 0)
@@ -3749,6 +3756,7 @@ int LLVMTool::CreateFunctions(void) {
                                        : llvm::GlobalValue::InternalLinkage,
                                jove_name, Module.get());
     state.for_function(f).F->addFnAttr(llvm::Attribute::NonLazyBind);
+    //state.for_function(f).F->addFnAttr(llvm::Attribute::NoInline);
 
     if (f.IsABI)
       state.for_function(f).F->setVisibility(llvm::GlobalValue::HiddenVisibility);
@@ -7813,7 +7821,7 @@ int LLVMTool::BreakBeforeUnreachables(void) {
 }
 
 int LLVMTool::InlineHelpers(void) {
-  if (!opts.Optimize && !opts.InlineHelpers)
+  if (!opts.Optimize)
     return 0;
 
   for (const auto &pair : HelperFuncMap) {
@@ -9927,11 +9935,15 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
     pcrel_flag = false; /* reset pcrel flag */
     assert(bits == WordBits());
 
+#if 1
     return llvm::ConstantExpr::getAdd(
         llvm::ConstantExpr::getPtrToInt(SectionsTop(), WordType()),
         llvm::ConstantExpr::getSub(
             llvm::ConstantInt::get(WordType(), A),
             llvm::ConstantInt::get(WordType(), state.for_binary(Binary).SectsStartAddr)));
+#else
+    return SectionPointer(A);
+#endif
   };
 
   auto get = [&](TCGTemp *ts) -> llvm::Value * {
