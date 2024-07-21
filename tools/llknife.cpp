@@ -1,5 +1,6 @@
 #include "tool.h"
 
+#include <llvm/AsmParser/Parser.h>
 #include <llvm/ADT/StringSwitch.h>
 #include <llvm/Bitcode/BitcodeReader.h>
 #include <llvm/Bitcode/BitcodeWriter.h>
@@ -13,6 +14,7 @@
 #include <llvm/Support/MemoryBuffer.h>
 #include <llvm/Support/ToolOutputFile.h>
 #include <llvm/Support/WithColor.h>
+#include <llvm/Support/SourceMgr.h>
 
 #include <string>
 
@@ -33,8 +35,10 @@ class KnifeTool : public Tool {
     cl::opt<std::string> CallConv;
     cl::opt<bool> DLLExport;
 
+    cl::opt<bool> ForVimDiff;
+
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
-        : PathToSymList(cl::Positional, cl::desc("symbol list"), cl::Required,
+        : PathToSymList(cl::Positional, cl::desc("symbol list"),
                         cl::value_desc("filename"), cl::cat(JoveCategory)),
 
           Output("output", cl::desc("Output bitcode"), cl::Required,
@@ -55,7 +59,16 @@ class KnifeTool : public Tool {
 
           DLLExport("dllexport",
                     cl::desc("Force dllexport on selected functions"),
-                    cl::cat(JoveCategory)) {}
+                    cl::cat(JoveCategory)),
+
+          ForVimDiff(
+              "for-vimdiff",
+              cl::desc("In a vimdiff session of two .ll files there may be a "
+                       "large number of insignificant differences that may "
+                       "hinder one's ability to spot important differences. "
+                       "Selecting this option will produce a semantically "
+                       "nonequivalent \"normalization\" of the LLVM IR."),
+              cl::cat(JoveCategory)) {}
   } opts;
 
 public:
@@ -72,29 +85,79 @@ int KnifeTool::Run(void) {
   llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> BufferOrErr =
       llvm::MemoryBuffer::getFile(opts.Input);
   if (!BufferOrErr) {
-    WithColor::error() << llvm::formatv("could not open bitcode at {0}: {1}\n",
+    WithColor::error() << llvm::formatv("could not open {0}: {1}\n",
                                         opts.Input,
                                         BufferOrErr.getError().message());
     return 1;
   }
 
-  llvm::LLVMContext Context;
+  bool IsAssembly = true;
+  llvm::MemoryBuffer &MB = *BufferOrErr.get();
 
-  llvm::Expected<std::unique_ptr<llvm::Module>> ModuleOrErr =
-      llvm::parseBitcodeFile(BufferOrErr.get()->getMemBufferRef(), Context);
-  if (llvm::Error Err = ModuleOrErr.takeError()) {
-    WithColor::error() << llvm::formatv("could not open bitcode: {0}\n",
-                                        llvm::toString(std::move(Err)));
-    return 1;
+  llvm::LLVMContext Context;
+  std::unique_ptr<llvm::Module> MyModule;
+  if (llvm::isBitcode((const unsigned char *)MB.getBufferStart(),
+                      (const unsigned char *)MB.getBufferEnd())) {
+    IsAssembly = false;
+
+    llvm::Expected<std::unique_ptr<llvm::Module>> ModuleOrErr =
+        llvm::parseBitcodeFile(MB.getMemBufferRef(), Context);
+    if (llvm::Error Err = ModuleOrErr.takeError()) {
+      WithColor::error() << llvm::formatv("could not parse bitcode: {0}\n",
+                                          llvm::toString(std::move(Err)));
+      return 1;
+    }
+
+    MyModule = std::move(ModuleOrErr.get());
+  } else {
+    llvm::SMDiagnostic Err;
+    std::unique_ptr<llvm::Module> Module =
+        llvm::parseAssembly(MB.getMemBufferRef(), Err, Context);
+
+    if (!Module) {
+      WithColor::error() << llvm::formatv("could not parse\n");
+      return 1;
+    }
+
+    MyModule = std::move(Module);
   }
 
-  std::vector<std::string> SymsVec;
-  if (int ret = parseSymbolList(opts.PathToSymList.c_str(), SymsVec))
-    return ret;
+  llvm::Module &M = *MyModule;
 
   //
   // Commands
   //
+  auto ForVimDiff = [&](void) -> void {
+    // TODO strip debug
+
+    for (llvm::Function &F : M) {
+      F.setAttributes(llvm::AttributeList());
+
+      for (llvm::BasicBlock &BB : F) {
+        for (llvm::Instruction &I : BB) {
+	  // clear metadata
+          I.setMetadata(llvm::LLVMContext::MD_noalias, nullptr);
+          I.setMetadata(llvm::LLVMContext::MD_alias_scope, nullptr);
+
+          // Clear attributes on call instructions
+          if (llvm::CallBase *CB = llvm::dyn_cast<llvm::CallBase>(&I)) {
+            CB->setAttributes(llvm::AttributeList());
+          }
+
+          // Clear tail
+          if (llvm::CallInst *CI = llvm::dyn_cast<llvm::CallInst>(&I)) {
+            CI->setTailCall(false);
+          }
+        }
+      }
+    }
+  };
+
+  //
+  // Commands over list of globals
+  //
+  std::vector<std::string> SymsVec;
+
   struct {
     llvm::CallingConv::ID ID;
   } _CallConv;
@@ -127,55 +190,67 @@ int KnifeTool::Run(void) {
     G->setDLLStorageClass(llvm::GlobalValue::DLLExportStorageClass);
   };
 
-
   //
   // Parse command args
   //
-  std::function<void(llvm::GlobalValue *)> Op;
-  if (opts.CallConv.getNumOccurrences() > 0) {
-    Op = ForceCallConv;
+  if (opts.ForVimDiff.getNumOccurrences() > 0) {
+    ForVimDiff();
+  } else {
+    if (opts.PathToSymList.getNumOccurrences() == 0) {
+      WithColor::error() << "no file containing global names provided\n";
+      return 1;
+    }
+
+    if (int ret = parseSymbolList(opts.PathToSymList.c_str(), SymsVec))
+      return ret;
+
+    std::function<void(llvm::GlobalValue *)> Op;
+
+    if (opts.CallConv.getNumOccurrences() > 0) {
+      Op = ForceCallConv;
 
 #define _CCC(x) Case(#x, llvm::CallingConv::x)
 
-    _CallConv.ID = llvm::StringSwitch<llvm::CallingConv::ID>(opts.CallConv)
-        ._CCC(C)
-        ._CCC(Fast)
-        ._CCC(PreserveMost)
-        ._CCC(PreserveAll)
-        ._CCC(X86_StdCall)
-        ._CCC(X86_FastCall)
-        ._CCC(X86_64_SysV)
-        .Default(llvm::CallingConv::MaxID);
+      _CallConv.ID = llvm::StringSwitch<llvm::CallingConv::ID>(opts.CallConv)
+                         ._CCC(C)
+                         ._CCC(Fast)
+                         ._CCC(PreserveMost)
+                         ._CCC(PreserveAll)
+                         ._CCC(X86_StdCall)
+                         ._CCC(X86_FastCall)
+                         ._CCC(X86_64_SysV)
+                         .Default(llvm::CallingConv::MaxID);
 
 #undef _CCC
 
-    if (_CallConv.ID == llvm::CallingConv::MaxID) {
-      WithColor::error() << "invalid calling convention\n";
+      if (_CallConv.ID == llvm::CallingConv::MaxID) {
+        WithColor::error() << "invalid calling convention\n";
+        return 1;
+      }
+    } else if (opts.DLLExport.getNumOccurrences() > 0) {
+      Op = ForceDLLExport;
+    }
+
+    if (!Op) {
+      WithColor::error() << "no command provided\n";
       return 1;
     }
-  } else if (opts.DLLExport.getNumOccurrences() > 0) {
-    Op = ForceDLLExport;
-  }
 
-  if (!Op) {
-    WithColor::error() << "no command provided\n";
-    return 1;
-  }
 
-  //
-  // Transform the module
-  //
-  llvm::Module &M = *ModuleOrErr.get();
+    //
+    // Transform the module
+    //
+    for (const std::string &Nm : SymsVec) {
+      llvm::GlobalValue *G = M.getNamedValue(Nm);
+      if (!G) {
+        if (IsVerbose())
+          WithColor::warning()
+              << llvm::formatv("{0} not found in module\n", Nm);
+        continue;
+      }
 
-  for (const std::string &Nm : SymsVec) {
-    llvm::GlobalValue *G = M.getNamedValue(Nm);
-    if (!G) {
-      if (IsVerbose())
-        WithColor::warning() << llvm::formatv("{0} not found in module\n", Nm);
-      continue;
+      Op(G);
     }
-
-    Op(G);
   }
 
   //
@@ -193,7 +268,11 @@ int KnifeTool::Run(void) {
     return 1;
   }
 
-  llvm::WriteBitcodeToFile(M, Out.os());
+  if (IsAssembly) {
+    M.print(Out.os(), nullptr, false /* ShouldPreserveUseListOrder */);
+  } else {
+    llvm::WriteBitcodeToFile(M, Out.os());
+  }
 
   // Declare success.
   Out.keep();
