@@ -954,6 +954,10 @@ void tiny_code_generator_t::print_shit(void) {
   auto r15_index = [&](void) -> int {
     return tcg_index_of_named_global("r15");
   };
+
+  auto rax_index = [&](void) -> int {
+    return tcg_index_of_named_global("rax");
+  };
 #endif
 
 #if defined(TARGET_X86_64) || defined(TARGET_I386)
@@ -1034,6 +1038,7 @@ void tiny_code_generator_t::print_shit(void) {
   __TCG_CONST(r13_index);
   __TCG_CONST(r14_index);
   __TCG_CONST(r15_index);
+  __TCG_CONST(rax_index);
 #endif
 
 #if defined(TARGET_X86_64) || defined(TARGET_I386)
