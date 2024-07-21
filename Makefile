@@ -149,6 +149,7 @@ $(BINDIR)/$(1)/qemu-starter: lib/arch/$(1)/qemu-starter.c
 
 $(BINDIR)/$(1)/dump-vdso: lib/arch/$(1)/dump-vdso.c
 	clang-16 -o $$@ $(call runtime_cflags,$(1)) $(STARTER_LDFLAGS) $$<
+	llvm-strip-16 $$@
 
 $(BINDIR)/$(1)/qemu-starter.inc: $(BINDIR)/$(1)/qemu-starter
 	xxd -i < $$< > $$@
