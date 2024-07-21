@@ -9065,6 +9065,9 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
       ArgVec.push_back(PC);
       ArgVec.push_back(IRB.getInt32(index_of_basic_block(ICFG, bb)));
 
+#if defined(TARGET_X86_64)
+      store_global_to_global_cpu_state(tcg_rax_index); /* vararg */
+#endif
       store_stack_pointer();
       save_callstack_pointers();
 
@@ -9335,6 +9338,9 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
           llvm::CallInst *Ret;
           if (foreign) {
             store_stack_pointer();
+#if defined(TARGET_X86_64)
+            store_global_to_global_cpu_state(tcg_rax_index); /* vararg */
+#endif
 
             //
             // callstack stuff
