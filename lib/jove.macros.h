@@ -110,10 +110,16 @@
     __UNREACHABLE();                                                           \
   } while (false)
 
-#define _ASSERT(cond)                                                          \
+#define _RELEASE_ASSERT(cond)                                                  \
   do {                                                                         \
     if (!likely(cond))                                                         \
       _UNREACHABLE("!(" BOOST_PP_STRINGIZE(cond) ")");                         \
   } while (false)
+
+#ifdef NDEBUG
+#define _ASSERT(cond) do {} while (false)
+#else
+#define _ASSERT(cond) _RELEASE_ASSERT(cond)
+#endif
 
 #endif /* JOVE_MACROS_H */
