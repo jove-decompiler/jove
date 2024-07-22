@@ -365,6 +365,10 @@ int CFGTool::Run(void) {
   }
 
   assert(is_basic_block_index_valid(source_BBIdx));
+  basic_block_t source = basic_block_of_index(source_BBIdx, b);
+
+  if (IsVerbose() && opts.Function)
+    llvm::errs() << llvm::formatv("function @ {0:x}\n", source);
 
   std::string dot_path = (fs::path(temporary_dir()) / "cfg.dot").string();
 
@@ -394,7 +398,7 @@ int CFGTool::Run(void) {
   boost::unordered_set<basic_block_t> blocks;
 
   reached_visitor vis(blocks);
-  boost::breadth_first_search(ICFG, basic_block_of_index(source_BBIdx, b),
+  boost::breadth_first_search(ICFG, basic_block_of_index(source, b),
                               boost::visitor(vis));
 
   boost::keep_all e_filter;
