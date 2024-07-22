@@ -720,8 +720,8 @@ void _jove_install_foreign_function_tables(void) {
 
   unsigned n = _jove_read_pseudo_file("/proc/self/maps", _maps.ptr, _maps.len);
 
-  uintptr_t dynl_load_bias = _parse_dynl_load_bias(maps, n);
-  uintptr_t vdso_load_bias = _parse_vdso_load_bias(maps, n);
+  uintptr_t dynl_load_bias = _parse_dynl_load_bias(maps, n); /* cannot fail */
+  uintptr_t vdso_load_bias = _parse_vdso_load_bias(maps, n); /* cannot fail */
 
   uintptr_t *dynl_fn_tbl = _jove_get_dynl_function_table();
   uintptr_t *vdso_fn_tbl = _jove_get_vdso_function_table();
