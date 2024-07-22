@@ -346,6 +346,9 @@ void _jove_trace_init(void) {
 }
 
 void _jove_flush_trace(void) {
+  if (__jove_opts.Debug.Verbose)
+    _DUMP_FUNC();
+
   uint64_t *TracePtr = __jove_trace;
   uint64_t *const TraceBegin = __jove_trace_begin;
 
