@@ -182,4 +182,12 @@ std::string locator_t::wine_dll(bool Is32, const std::string &name) {
   }
 }
 
+std::string locator_t::mingw_addr2line(bool Is32) {
+  if (Is32) {
+    return must_exist("/usr/bin/i686-w64-mingw32-addr2line");
+  } else {
+    return must_exist("/usr/bin/x86_64-w64-mingw32-addr2line");
+  }
+}
+
 }

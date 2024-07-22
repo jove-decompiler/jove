@@ -49,6 +49,8 @@ struct locator_t {
   /* NOT the preloader- the exe the preloader loads */
   std::string wine(bool Is32);
   std::string wine_dll(bool Is32, const std::string &name);
+
+  std::string mingw_addr2line(bool Is32); /* for COFF w/ DWARF */
 };
 
 }
