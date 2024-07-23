@@ -1,7 +1,4 @@
-#define _INL     __attribute__((always_inline))
-#define _NORET   __attribute__((noreturn))
-#define _UNUSED  __attribute__((unused))
-#define _HIDDEN  __attribute__((visibility("hidden")))
+#include "jove.macros.h"
 
 #define JOVE_SYS_ATTR _INL _UNUSED
 #include "jove_sys.h"
