@@ -190,4 +190,8 @@ std::string locator_t::mingw_addr2line(bool Is32) {
   }
 }
 
+std::string locator_t::vim(void) {
+  return must_exist("/usr/bin/vim");
+}
+
 }

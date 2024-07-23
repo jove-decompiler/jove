@@ -51,6 +51,8 @@ struct locator_t {
   std::string wine_dll(bool Is32, const std::string &name);
 
   std::string mingw_addr2line(bool Is32); /* for COFF w/ DWARF */
+
+  std::string vim(void);
 };
 
 }
