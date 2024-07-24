@@ -368,7 +368,7 @@ int CFGTool::Run(void) {
   basic_block_t source = basic_block_of_index(source_BBIdx, b);
 
   if (IsVerbose() && opts.Function)
-    llvm::errs() << llvm::formatv("function @ {0:x}\n", source);
+    llvm::errs() << llvm::formatv("function @ {0:x}\n", ICFG[source].Addr);
 
   std::string dot_path = (fs::path(temporary_dir()) / "cfg.dot").string();
 
