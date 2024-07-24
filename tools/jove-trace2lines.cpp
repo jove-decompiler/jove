@@ -1,6 +1,9 @@
 #include "tool.h"
+#include "B.h"
+#include "temp.h"
 
 #include <boost/filesystem.hpp>
+#include <boost/format.hpp>
 
 #include <llvm/Support/FormatVariadic.h>
 #include <llvm/DebugInfo/Symbolize/Symbolize.h>
@@ -15,13 +18,17 @@ namespace jove {
 
 namespace {
 
+struct binary_state_t {
+  std::unique_ptr<llvm::object::Binary> Bin;
+};
+
 struct function_state_t {
   basic_block_vec_t BasicBlocks;
 };
 
 }
 
-class Trace2LinesTool : public StatefulJVTool<ToolKind::Standard, void, function_state_t, void> {
+class Trace2LinesTool : public StatefulJVTool<ToolKind::CopyOnWrite, binary_state_t, function_state_t, void> {
   struct Cmdline {
     cl::opt<std::string> TracePath;
     cl::list<unsigned> ExcludeFns;
@@ -29,6 +36,7 @@ class Trace2LinesTool : public StatefulJVTool<ToolKind::Standard, void, function
     cl::opt<bool> SkipRepeated;
     cl::opt<bool> PrintSource;
     cl::opt<bool> Vim;
+    cl::opt<std::string> RootSourceDir;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : TracePath(cl::Positional, cl::desc("trace.txt"), cl::Required,
@@ -51,7 +59,10 @@ class Trace2LinesTool : public StatefulJVTool<ToolKind::Standard, void, function
                       cl::cat(JoveCategory)),
 
           Vim("vim", cl::desc("Start vim in quickFix mode"),
-              cl::cat(JoveCategory)) {}
+              cl::cat(JoveCategory)),
+
+          RootSourceDir("root-src", cl::desc("/root/directory/of/source"),
+                        cl::value_desc("filename"), cl::cat(JoveCategory)) {}
   } opts;
 
 public:
@@ -67,6 +78,8 @@ public:
 
 JOVE_REGISTER_TOOL("trace2lines", Trace2LinesTool);
 
+typedef boost::format fmt;
+
 int Trace2LinesTool::Run(void) {
   if (!fs::exists(opts.TracePath)) {
     WithColor::error() << "trace does not exist\n";
@@ -79,12 +92,7 @@ int Trace2LinesTool::Run(void) {
   }
 
   if (opts.Vim) {
-    path_to_vim = fs::path("/") / "usr" / "bin" / "vim";
-    if (!fs::exists(path_to_vim)) {
-      WithColor::error() << "--vim provided on the command-line but could not "
-                            "find vim executable\n";
-      return 1;
-    }
+    path_to_vim = locator().vim();
 
     path_to_tmpfile = fs::path(temporary_dir()) / "Trace.txt";
     std::error_code EC;
@@ -178,6 +186,15 @@ int Trace2LinesTool::Run(void) {
       }
     }
 
+    for_each_binary(std::execution::par_unseq, jv, [&](binary_t &b) {
+      state.for_binary(b).Bin = B::Create(b.data());
+    });
+
+#if 0
+    binary_t &vdso_b = get_vdso(jv);
+    temp_executable vdso_exe(vdso_b.data(), vdso_b.Data.size());
+#endif
+
     llvm::symbolize::LLVMSymbolizer::Options Opts;
     Opts.PrintFunctions = llvm::symbolize::FunctionNameKind::None;
     Opts.UseSymbolTable = false;
@@ -210,28 +227,93 @@ int Trace2LinesTool::Run(void) {
       const auto &ICFG = binary.Analysis.ICFG;
       basic_block_t bb = basic_block_of_index(BBIdx, ICFG);
 
-      auto ResOrErr = Symbolizer.symbolizeCode(
-          binary.path_str(),
-          {ICFG[bb].Addr, llvm::object::SectionedAddress::UndefSection});
-      if (!ResOrErr)
-        continue;
+      taddr_t Addr = ICFG[bb].Addr;
 
-      llvm::DILineInfo &LnInfo = ResOrErr.get();
+      if (binary.IsVDSO)
+        die("TODO: [vdso]");
 
-      if (LnInfo.FileName == llvm::DILineInfo::BadString)
-        continue;
+      bool IsCOFF = B::is_coff(*state.for_binary(binary).Bin);
+      if (IsCOFF) {
+        std::string path_to_mingw32_addrline =
+            locator().mingw_addr2line(IsTarget32);
 
-      fs::path PrefixedFileName = fs::path("/usr/src/debug") /
-                                  fs::path(binary.path_str()).stem().c_str() /
-                                  LnInfo.FileName;
+        std::string path_to_stdout_txt = temporary_dir() + "/addr2line.txt";
+        int rc = RunExecutableToExit(path_to_mingw32_addrline, [&](auto Arg) {
+          Arg(path_to_mingw32_addrline);
 
-      OutputStream << llvm::formatv("{0}:{1}:{2}:{3}+{4:x}\n",
-                                    fs::path(LnInfo.FileName).is_relative()
-                                        ? PrefixedFileName.c_str()
-                                        : LnInfo.FileName.c_str(),
-                                    LnInfo.Line, LnInfo.Column,
-                                    fs::path(binary.path_str()).filename().c_str(),
-                                    ICFG[bb].Addr);
+          Arg("-e");
+          Arg(binary.path_str());
+
+          Arg((fmt("0x%lx") % Addr).str());
+        }, path_to_stdout_txt.c_str());
+
+        std::string stdout_txt = read_file_into_string(path_to_stdout_txt.c_str());
+        if (!rc && !stdout_txt.empty()) {
+          stdout_txt.erase(
+              std::remove(stdout_txt.begin(),
+                          stdout_txt.end(), '\n'),
+              stdout_txt.cend());
+
+          if (IsVerbose())
+            llvm::errs() << llvm::formatv("addr2line STDOUT: {0}\n", stdout_txt);
+
+          unsigned line = 0, column = 0;
+          std::string src;
+
+          auto colon_idx = stdout_txt.find(':');
+          if (colon_idx != std::string::npos) {
+            src = stdout_txt.substr(0, colon_idx);
+            std::string line_str = stdout_txt.substr(colon_idx + 1, std::string::npos);
+            if (line_str.find(':') != std::string::npos)
+              die("unrecognized addr2line output");
+
+            errno = 0;
+            line = strtol(line_str.c_str(), nullptr, 10);
+            if (errno != 0)
+              die("unrecognized addr2line output");
+          } else {
+            src = stdout_txt;
+          }
+
+          fs::path PrefixedFileName;
+          if (!opts.RootSourceDir.empty())
+            PrefixedFileName = opts.RootSourceDir;
+          else
+            PrefixedFileName = "/usr/src/debug";
+          PrefixedFileName /= src;
+
+          OutputStream << llvm::formatv("{0}:{1}:{2}:{3}+{4:x}\n",
+                                        fs::path(stdout_txt).is_relative()
+                                            ? PrefixedFileName.c_str()
+                                            : stdout_txt.c_str(),
+                                        line, column,
+                                        fs::path(binary.path_str()).filename().c_str(),
+                                        Addr);
+        }
+      } else {
+        auto ResOrErr = Symbolizer.symbolizeCode(
+            binary.path_str(),
+            {Addr, llvm::object::SectionedAddress::UndefSection});
+        if (!ResOrErr)
+          continue;
+
+        llvm::DILineInfo &LnInfo = ResOrErr.get();
+
+        if (LnInfo.FileName == llvm::DILineInfo::BadString)
+          continue;
+
+        fs::path PrefixedFileName = fs::path("/usr/src/debug") /
+                                    fs::path(binary.path_str()).stem().c_str() /
+                                    LnInfo.FileName;
+
+        OutputStream << llvm::formatv("{0}:{1}:{2}:{3}+{4:x}\n",
+                                      fs::path(LnInfo.FileName).is_relative()
+                                          ? PrefixedFileName.c_str()
+                                          : LnInfo.FileName.c_str(),
+                                      LnInfo.Line, LnInfo.Column,
+                                      fs::path(binary.path_str()).filename().c_str(),
+                                      Addr);
+      }
     }
   }
 
