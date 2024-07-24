@@ -57,6 +57,8 @@ class CFGTool : public StatefulJVTool<ToolKind::CopyOnWrite, binary_state_t, voi
     cl::opt<bool> PrintInsnBytes;
     cl::opt<bool> Function;
     cl::alias FunctionAlias;
+    cl::opt<bool> Highlight;
+    cl::alias HighlightAlias;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : AddrOrOff(cl::Positional, cl::Required,
@@ -92,7 +94,13 @@ class CFGTool : public StatefulJVTool<ToolKind::CopyOnWrite, binary_state_t, voi
                    cl::cat(JoveCategory)),
 
           FunctionAlias("f", cl::desc("Alias for --function."),
-                        cl::aliasopt(Function), cl::cat(JoveCategory)) {}
+                        cl::aliasopt(Function), cl::cat(JoveCategory)),
+
+          Highlight("highlight", cl::desc("Highlight block of given address"),
+                    cl::cat(JoveCategory)),
+
+          HighlightAlias("h", cl::desc("Alias for --highlight."),
+                         cl::aliasopt(Highlight), cl::cat(JoveCategory)) {}
   } opts;
 
   binary_index_t BinaryIndex = invalid_binary_index;
@@ -101,6 +109,8 @@ class CFGTool : public StatefulJVTool<ToolKind::CopyOnWrite, binary_state_t, voi
   tiny_code_generator_t TCG;
 
 public:
+  uint64_t Addr = 0x0;
+
   CFGTool() : opts(JoveCategory) {}
 
   int Run(void) override;
@@ -233,6 +243,11 @@ std::string CFGTool::disassemble_basic_block(const GraphTy &G,
     }
     boost::trim(line);
 
+    const bool Highlight = opts.Highlight && A == this->Addr;
+
+    if (Highlight)
+      res.append(__ANSI_BOLD_YELLOW);
+
     res.append((fmt("%x   ") % A).str());
 
     if (opts.PrintInsnBytes) {
@@ -243,6 +258,10 @@ std::string CFGTool::disassemble_basic_block(const GraphTy &G,
     }
 
     res.append(line);
+
+    if (Highlight)
+      res.append(__ANSI_NORMAL_COLOR);
+
     res.push_back('\n');
   }
 
@@ -328,7 +347,7 @@ int CFGTool::Run(void) {
   binary_t &b = jv.Binaries.at(BinaryIndex);
   auto &ICFG = b.Analysis.ICFG;
   state.for_binary(b).Bin = B::Create(b.data());
-  uint64_t Addr = strtoull(opts.AddrOrOff.c_str(), nullptr, 0x10);
+  Addr = strtoull(opts.AddrOrOff.c_str(), nullptr, 0x10);
   if (opts.Off)
     Addr = B::va_of_offset(*state.for_binary(b).Bin, Addr);
 
