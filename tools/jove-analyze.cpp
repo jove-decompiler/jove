@@ -168,16 +168,27 @@ int AnalyzeTool::AnalyzeBlocks(void) {
 }
 
 int AnalyzeTool::AnalyzeFunctions(void) {
-  /* FIXME only necessary */
+  /* FIXME only necessary? */
   for_each_function(
       std::execution::par_unseq, jv,
       [&](function_t &f, binary_t &b) {
+        function_index_t FIdx = index_of_function_in_binary(f, b);
+
         function_state_t &x = state.for_function(f);
 
         basic_blocks_of_function(f, b, x.bbvec);
         exit_basic_blocks_of_function(f, b, x.bbvec, x.exit_bbvec);
 
         x.IsLeaf = IsLeafFunction(f, b, x.bbvec);
+
+        auto &ICFG = b.Analysis.ICFG;
+        std::for_each(std::execution::par_unseq,
+                      x.bbvec.begin(),
+                      x.bbvec.end(),
+                      [&](basic_block_t bb) {
+                        if (!ICFG[bb].IsParent(FIdx))
+                          ICFG[bb].AddParent(FIdx, jv);
+                      });
       });
 
   WithColor::note() << "Analyzing functions...";
