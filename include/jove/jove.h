@@ -329,7 +329,7 @@ struct basic_block_properties_t {
 
   boost::interprocess::offset_ptr<const ip_func_index_set> Parents;
 
-  bool HasParent(function_index_t FIdx) const {
+  bool IsParent(function_index_t FIdx) const {
     if (!Parents)
       return false;
 

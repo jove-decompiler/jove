@@ -110,7 +110,7 @@ function_index_t explorer_t::_explore_function(binary_t &b,
       // if a successor already has this function marked as a parent, then we
       // can assume everything reachable from it is already too
       //
-      if (ICFG[succ].HasParent(res))
+      if (ICFG[succ].IsParent(res))
         continue;
 
       rec(succ);
