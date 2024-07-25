@@ -154,8 +154,6 @@ void for_each_exported_function(
 }
 
 void gen_module_definition_for_dll(COFFO &O, llvm::StringRef DLL, std::ostream &out) {
-  const bool IsI386 = O.getMachine() == llvm::COFF::IMAGE_FILE_MACHINE_I386;
-
   out << "NAME " << DLL.str() << '\n';
   out << "EXPORTS\n";
 
@@ -171,10 +169,7 @@ void gen_module_definition_for_dll(COFFO &O, llvm::StringRef DLL, std::ostream &
         Name.empty())
       continue;
 
-    out << "    ";
-    if (IsI386)
-      out << "_";
-    out << Name.str() << " @" << Ordinal << '\n';
+    out << Name.str() << " @ " << Ordinal << '\n';
   }
 
   //
@@ -186,9 +181,6 @@ void gen_module_definition_for_dll(COFFO &O, llvm::StringRef DLL, std::ostream &
     if (llvm::errorToBool(Exp.getOrdinal(Ordinal)))
       continue;
 
-    out << "    ";
-    if (IsI386)
-      out << "_";
     out << unique_symbol_for_ordinal_in_dll(DLL, Ordinal) << " @" << Ordinal
         << " NONAME" << '\n';
   }
