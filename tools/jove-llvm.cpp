@@ -5768,6 +5768,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
   if (opts.LayOutSections) {
     std::string CurrSectName = ".jove";
 
+    unsigned trailingBytes = 0; /* cuts into space between sections */
     unsigned j = 0;
     for (unsigned i = 0; i < NumSections; ++i) {
       section_t &Sect = SectTable[i];
@@ -5779,20 +5780,41 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
       if (i > 0) {
         section_t &PrevSect = SectTable[i - 1];
         ptrdiff_t space = Sect.Addr - (PrevSect.Addr + PrevSect.Size);
-        if (space > 0) { // zero padding between sections
-          auto *T = llvm::ArrayType::get(llvm::Type::getInt8Ty(*Context), space);
-          auto *C = llvm::Constant::getNullValue(T);
+        if (space > 0) {
+          if (trailingBytes > 0) {
+            if (trailingBytes > space) {
+              llvm::errs() << llvm::formatv(
+                  "not enough space to fit trailingBytes {0}\n", trailingBytes);
+              return 1;
+            } else {
+              space -= trailingBytes;
+              trailingBytes = 0;
+            }
+          }
 
-          auto *GV = new llvm::GlobalVariable(
-              *Module, T, false, llvm::GlobalValue::InternalLinkage, C,
-              "__jove_space_" + std::to_string(j));
-          ++j;
+          if (space > 0) {
+            auto *T = llvm::ArrayType::get(llvm::Type::getInt8Ty(*Context), space);
+            auto *C = llvm::Constant::getNullValue(T); // zeros between sections
 
-          GV->setAlignment(llvm::Align(1));
-          GV->setSection(CurrSectName); /* no .bss */
+            auto *GV = new llvm::GlobalVariable(
+                *Module, T, false, llvm::GlobalValue::InternalLinkage, C,
+                "__jove_space_" + std::to_string(j));
+            ++j;
 
-          LaidOut.GVVec.emplace_back(GV, space);
+            GV->setAlignment(llvm::Align(1));
+            GV->setSection(CurrSectName); /* no .bss */
+
+	    assert(DL.getTypeAllocSize(T) == space);
+
+            LaidOut.GVVec.emplace_back(GV, space);
+          }
+        } else if (trailingBytes > 0) {
+          WithColor::error() << llvm::formatv(
+              "no space for trailingBytes {0}\n", trailingBytes);
+          return 1;
         }
+      } else {
+        assert(trailingBytes == 0);
       }
 
       if (IsVerbose())
@@ -5807,8 +5829,8 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
           CurrSectName = ".rsrc";
       }
 
-      auto *T = SectTable[i].T;
-      auto *C = SectTable[i].C;
+      auto *T = Sect.T;
+      auto *C = Sect.C;
 
       assert(T);
       assert(C);
@@ -5823,6 +5845,14 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
                                           C, "__jove_section_" + suffix);
       ++j;
 
+      const unsigned actualSize = DL.getTypeAllocSize(T);
+      assert(actualSize >= Sect.Size);
+      trailingBytes = actualSize - Sect.Size;
+
+      if (IsVerbose() && trailingBytes > 0)
+        llvm::errs() << llvm::formatv("{0} trailing bytes for {1}\n",
+                                      trailingBytes, Sect.Name);
+
       if (!LaidOut.HeadGV) {
         GV->setAlignment(llvm::Align(WordBytes()));
         LaidOut.HeadGV = GV;
@@ -5832,7 +5862,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
 
       GV->setSection(CurrSectName);
 
-      LaidOut.GVVec.emplace_back(GV, Sect.Size);
+      LaidOut.GVVec.emplace_back(GV, Sect.Size + trailingBytes);
     }
 
     SectsGlobal->replaceAllUsesWith(llvm::ConstantExpr::getPointerCast(
