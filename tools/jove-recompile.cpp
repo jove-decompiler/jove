@@ -881,6 +881,8 @@ int RecompileTool::Run(void) {
 
       if (unlikely(RunExecutableToExit(locator().dlltool(), [&](auto Arg) {
             Arg(locator().dlltool());
+            Arg("-m");
+            Arg(IsTarget32 ? "i386" : "i386:x86-64");
             Arg("-d");
             Arg(def_path);
             Arg("-l");
@@ -1101,7 +1103,7 @@ int RecompileTool::Run(void) {
       rc = RunExecutableToExit(locator().lld_link(), [&](auto Arg) {
         Arg(locator().lld_link());
 
-	assert(IsCOFF);
+        assert(IsCOFF);
 
         //Arg("-lldmingw");
         Arg("/out:" + chrooted_path.string());
