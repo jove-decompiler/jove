@@ -242,5 +242,17 @@ _HIDDEN uintptr_t _jove_do_get_init_fn_sect_ptr(void) {
 }
 
 bool _jove_see_through_tramp(const void *ptr, uintptr_t *out) {
-  return false;
+  const uint8_t *const u8p = (const uint8_t *)ptr;
+  if (!(u8p[0] == 0xff &&
+        u8p[1] == 0x25)) /* see importThunkX86 in lld/COFF/Chunks.h */
+    return false;
+
+  //
+  // 004352ac <_GetSystemTimeAsFileTime>:
+  //   4352ac: ff 25 44 7a 43 00             jmpl    *0x437a44
+  //
+  uint32_t Addr = *((const uint32_t *)&u8p[2]);
+
+  *out = *((uintptr_t *)(Addr));
+  return true;
 }
