@@ -7901,8 +7901,10 @@ int LLVMTool::ForceCallConv(void) {
     }
   };
 
+#if defined(TARGET_X86_64)
+
   //
-  // force callconv for ABI functions and _jove_thunk_*
+  // [Win64] force callconv for ABI functions and _jove_thunk_*
   //
 #define __THUNK(n, i, data)                                                    \
   JoveThunk##i##Func = Module->getFunction("_jove_thunk" #i);                  \
@@ -7923,6 +7925,8 @@ int LLVMTool::ForceCallConv(void) {
     if (llvm::Function *F = state.for_function(f).F)
       force_callconv(F);
   }
+
+#endif
 
   return 0;
 }
