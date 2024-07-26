@@ -43,18 +43,18 @@ CodeRecovery::CodeRecovery(jv_t &jv, explorer_t &E, symbolizer_t &symbolizer)
 
 CodeRecovery::~CodeRecovery() {}
 
-uint64_t CodeRecovery::AddressOfTerminatorAtBasicBlock(uint32_t BIdx,
-                                                       uint32_t BBIdx) {
+uint64_t CodeRecovery::AddressOfTerminatorAtBasicBlock(binary_index_t BIdx,
+                                                       basic_block_index_t BBIdx) {
   binary_t &binary = jv.Binaries.at(BIdx);
   uint64_t TermAddr = state.for_binary(binary).block_term_addr_vec.at(BBIdx);
   assert(TermAddr);
   return TermAddr;
 }
 
-std::string CodeRecovery::RecoverDynamicTarget(uint32_t CallerBIdx,
-                                               uint32_t CallerBBIdx,
-                                               uint32_t CalleeBIdx,
-                                               uint32_t CalleeFIdx) {
+std::string CodeRecovery::RecoverDynamicTarget(binary_index_t CallerBIdx,
+                                               basic_block_index_t CallerBBIdx,
+                                               binary_index_t CalleeBIdx,
+                                               function_index_t CalleeFIdx) {
   binary_t &CallerBinary = jv.Binaries.at(CallerBIdx);
   binary_t &CalleeBinary = jv.Binaries.at(CalleeBIdx);
 
@@ -158,8 +158,8 @@ std::string CodeRecovery::RecoverDynamicTarget(uint32_t CallerBIdx,
       .str();
 }
 
-std::string CodeRecovery::RecoverBasicBlock(uint32_t IndBrBIdx,
-                                            uint32_t IndBrBBIdx,
+std::string CodeRecovery::RecoverBasicBlock(binary_index_t IndBrBIdx,
+                                            basic_block_index_t IndBrBBIdx,
                                             uint64_t Addr) {
   binary_t &b = jv.Binaries.at(IndBrBIdx);
   auto &ICFG = b.Analysis.ICFG;
@@ -194,9 +194,9 @@ std::string CodeRecovery::RecoverBasicBlock(uint32_t IndBrBIdx,
       .str();
 }
 
-std::string CodeRecovery::RecoverFunction(uint32_t IndCallBIdx,
-                                          uint32_t IndCallBBIdx,
-                                          uint32_t CalleeBIdx,
+std::string CodeRecovery::RecoverFunction(binary_index_t IndCallBIdx,
+                                          basic_block_index_t IndCallBBIdx,
+                                          binary_index_t CalleeBIdx,
                                           uint64_t CalleeAddr) {
   binary_t &CalleeBinary = jv.Binaries.at(CalleeBIdx);
 
@@ -204,6 +204,12 @@ std::string CodeRecovery::RecoverFunction(uint32_t IndCallBIdx,
       CalleeBinary, *state.for_binary(CalleeBinary).ObjectFile, CalleeAddr);
   if (!is_function_index_valid(CalleeFIdx))
     throw std::runtime_error((fmt("failed to translate indirect call target %#lx") % CalleeAddr).str());
+
+  if (!is_binary_index_valid(IndCallBIdx) ||
+      !is_basic_block_index_valid(IndCallBBIdx))
+    return (fmt(__ANSI_CYAN "(call*) -> %s" __ANSI_NORMAL_COLOR)
+	    % symbolizer.addr2desc(CalleeBinary, CalleeAddr))
+	.str();
 
   binary_t &CallerBinary = jv.Binaries.at(IndCallBIdx);
   uint64_t TermAddr = AddressOfTerminatorAtBasicBlock(IndCallBIdx, IndCallBBIdx);
@@ -253,8 +259,8 @@ std::string CodeRecovery::RecoverFunction(uint32_t IndCallBIdx,
       .str();
 }
 
-std::string CodeRecovery::RecoverABI(uint32_t BIdx,
-                                     uint32_t FIdx) {
+std::string CodeRecovery::RecoverABI(binary_index_t BIdx,
+                                     function_index_t FIdx) {
   dynamic_target_t NewABI(BIdx, FIdx);
 
   function_t &f = function_of_target(NewABI, jv);
@@ -269,8 +275,8 @@ std::string CodeRecovery::RecoverABI(uint32_t BIdx,
       .str();
 }
 
-std::string CodeRecovery::Returns(uint32_t CallBIdx,
-                                  uint32_t CallBBIdx) {
+std::string CodeRecovery::Returns(binary_index_t CallBIdx,
+                                  basic_block_index_t CallBBIdx) {
   binary_t &b = jv.Binaries.at(CallBIdx);
   auto &ICFG = b.Analysis.ICFG;
 
