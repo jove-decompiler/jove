@@ -8134,10 +8134,8 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
     switch (glb) {
     case tcg_env_index:
       return llvm::ConstantExpr::getPtrToInt(CPUStateGlobal, WordType());
-#if defined(TARGET_X86_64)
+#if defined(TARGET_X86_64) || defined(TARGET_I386)
     case tcg_fs_base_index:
-      return insertThreadPointerInlineAsm(IRB);
-#elif defined(TARGET_I386)
     case tcg_gs_base_index:
       return insertThreadPointerInlineAsm(IRB);
 #endif
@@ -9876,6 +9874,9 @@ llvm::Value *LLVMTool::insertThreadPointerInlineAsm(llvm::IRBuilderTy &IRB) {
     AsmText = "movq \%fs:0x0,$0";
     Constraints = "=r";
 #elif defined(TARGET_I386)
+    if (IsCOFF)
+      AsmText = "movl \%fs:0x18,$0";
+    else
     AsmText = "movl \%gs:0x0,$0";
     Constraints = "=r";
 #elif defined(TARGET_AARCH64)
@@ -9990,13 +9991,11 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
     switch (idx) {
     case tcg_env_index:
       return IRB.CreatePtrToInt(CPUStateGlobal, WordType());
-#if defined(TARGET_X86_64)
-    case tcg_fs_base_index:
-#endif
 #if defined(TARGET_X86_64) || defined(TARGET_I386)
+    case tcg_fs_base_index:
     case tcg_gs_base_index:
-#endif
       return insertThreadPointerInlineAsm(IRB);
+#endif
     }
 
     if (ts->kind == TEMP_GLOBAL) {
