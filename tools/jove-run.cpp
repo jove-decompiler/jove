@@ -1219,7 +1219,7 @@ void *recover_proc(const char *fifo_path) {
           uint32_t BBIdx;
         } IndBr;
 
-        uintptr_t Addr;
+        taddr_t Addr;
 
         {
           ssize_t ret;
@@ -1230,8 +1230,8 @@ void *recover_proc(const char *fifo_path) {
           ret = robust_read(recover_fd, &IndBr.BBIdx, sizeof(uint32_t));
           assert(ret == sizeof(uint32_t));
 
-          ret = robust_read(recover_fd, &Addr, sizeof(uintptr_t));
-          assert(ret == sizeof(uintptr_t));
+          ret = robust_read(recover_fd, &Addr, sizeof(taddr_t));
+          assert(ret == sizeof(taddr_t));
         }
 
         if (tool.IsVerbose())
@@ -1251,7 +1251,7 @@ void *recover_proc(const char *fifo_path) {
 
         struct {
           uint32_t BIdx;
-          uintptr_t Addr;
+          taddr_t Addr;
         } Callee;
 
         {
@@ -1266,8 +1266,8 @@ void *recover_proc(const char *fifo_path) {
           ret = robust_read(recover_fd, &Callee.BIdx, sizeof(uint32_t));
           assert(ret == sizeof(uint32_t));
 
-          ret = robust_read(recover_fd, &Callee.Addr, sizeof(uintptr_t));
-          assert(ret == sizeof(uintptr_t));
+          ret = robust_read(recover_fd, &Callee.Addr, sizeof(taddr_t));
+          assert(ret == sizeof(taddr_t));
         }
 
         if (tool.IsVerbose())
