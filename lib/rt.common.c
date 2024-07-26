@@ -423,6 +423,22 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
       sig != SIGILL)
     _UNREACHABLE("BUG");
 
+  if (unlikely(__jove_opts.Debug.Verbose)) {
+    char s[128];
+    s[0] = '\0';
+
+    _strcat(s, "_jove_rt_sig [");
+    {
+      char buff[65];
+      _uint_to_string(sig, buff, 10);
+
+      _strcat(s, buff);
+    }
+    _strcat(s, "]\n");
+
+    _DUMP(s);
+  }
+
   uint64_t **const callstack_ptr = &__jove_callstack;
   uint64_t **const callstack_begin_ptr = &__jove_callstack_begin;
 
