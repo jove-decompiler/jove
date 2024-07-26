@@ -4334,6 +4334,9 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
 
     PatchContents(LLVMTool &tool, binary_index_t BinaryIndex)
         : tool(tool), BinaryIndex(BinaryIndex) {
+      if (tool.IsCOFF)
+        return;
+
       auto &Binary = tool.jv.Binaries.at(BinaryIndex);
       auto &ICFG = Binary.Analysis.ICFG;
 
@@ -4397,6 +4400,9 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
       }
     }
     ~PatchContents() {
+      if (tool.IsCOFF)
+        return;
+
       auto &Binary = tool.jv.Binaries.at(BinaryIndex);
       auto &ICFG = Binary.Analysis.ICFG;
 

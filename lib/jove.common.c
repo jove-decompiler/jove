@@ -109,7 +109,9 @@ _HIDDEN void _jove_initialize(void) {
   if (_jove_is_fixed_base_address())
     _jove_check_sections_at_base_address();
 
+#ifndef JOVE_COFF
   _jove_make_sections_executable();
+#endif
 }
 
 void _jove_install_function_table(void) {
