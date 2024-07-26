@@ -89,6 +89,7 @@ runtime_dll_ldflags = /dll \
                       /nodefaultlib \
                       /debug:dwarf \
                       /WX:no \
+                      /safeseh:no \
                       /largeaddressaware \
                       /opt:noref \
                       /opt:noicf \
