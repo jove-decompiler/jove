@@ -1,4 +1,5 @@
 #include "rt.util.c"
+#include "rt.recover.h"
 
 #include <signal.h>
 #include <ucontext.h>
@@ -586,6 +587,11 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
     }
   }
 
+  //
+  // we found new code?
+  //
+  _jove_recover_function(saved_pc);
+
   goto not_found;
 
 found:
@@ -1045,3 +1051,5 @@ void __nodce(void **p) {
   *p++ = &__jove_dfsan_sig_handle;
   *p++ = &_jove_rt_init;
 }
+
+#include "rt.recover.c"
