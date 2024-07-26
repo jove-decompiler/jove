@@ -121,7 +121,7 @@ runtime_dlls = $(BINDIR)/$(1)/libjove_rt.st.dll
 #               $(BINDIR)/$(1)/libjove_rt.mt.dll
 
 _DLLS_x86_64 := $(call runtime_dlls,x86_64)
-#_DLLS_i386   := $(call runtime_dlls,i386)
+_DLLS_i386   := $(call runtime_dlls,i386)
 
 _DLL_i386_LIBGCC := /usr/lib/gcc/i686-w64-mingw32/12-win32/libgcc.a
 _DLL_x86_64_LIBGCC := /usr/lib/gcc/x86_64-w64-mingw32/12-win32/libgcc.a
