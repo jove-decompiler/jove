@@ -935,10 +935,6 @@ void tiny_code_generator_t::print_shit(void) {
   };
 
 #if defined(TARGET_X86_64)
-  auto fs_base_index = [&](void) -> int {
-    return tcg_index_of_named_global("fs_base");
-  };
-
   auto r12_index = [&](void) -> int {
     return tcg_index_of_named_global("r12");
   };
@@ -961,6 +957,10 @@ void tiny_code_generator_t::print_shit(void) {
 #endif
 
 #if defined(TARGET_X86_64) || defined(TARGET_I386)
+  auto fs_base_index = [&](void) -> int {
+    return tcg_index_of_named_global("fs_base");
+  };
+
   auto gs_base_index = [&](void) -> int {
     return tcg_index_of_named_global("gs_base");
   };
@@ -1033,7 +1033,6 @@ void tiny_code_generator_t::print_shit(void) {
   __TCG_CONST(syscall_arg6_index);
 
 #if defined(TARGET_X86_64)
-  __TCG_CONST(fs_base_index);
   __TCG_CONST(r12_index);
   __TCG_CONST(r13_index);
   __TCG_CONST(r14_index);
@@ -1042,6 +1041,7 @@ void tiny_code_generator_t::print_shit(void) {
 #endif
 
 #if defined(TARGET_X86_64) || defined(TARGET_I386)
+  __TCG_CONST(fs_base_index);
   __TCG_CONST(gs_base_index);
 #endif
 
