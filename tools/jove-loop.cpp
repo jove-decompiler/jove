@@ -1064,6 +1064,19 @@ skip_run:
         [&](auto Arg) {
           if (!opts.ForeignLibs)
             Arg("--x=0");
+
+          if (!opts.PinnedGlobals.empty()) {
+            std::string pinned_globals_arg = "--pinned-globals=";
+
+            for (const std::string &PinnedGlbStr : opts.PinnedGlobals) {
+              pinned_globals_arg.append(PinnedGlbStr);
+              pinned_globals_arg.push_back(',');
+            }
+
+            pinned_globals_arg.resize(pinned_globals_arg.size() - 1);
+
+            Arg(pinned_globals_arg);
+          }
         },
         [&](auto Env) {
           InitWithEnviron(Env);
@@ -1116,6 +1129,19 @@ skip_run:
 
           if (opts.LayOutSections)
             Arg("--lay-out-sections");
+
+          if (!opts.PinnedGlobals.empty()) {
+            std::string pinned_globals_arg = "--pinned-globals=";
+
+            for (const std::string &PinnedGlbStr : opts.PinnedGlobals) {
+              pinned_globals_arg.append(PinnedGlbStr);
+              pinned_globals_arg.push_back(',');
+            }
+
+            pinned_globals_arg.resize(pinned_globals_arg.size() - 1);
+
+            Arg(pinned_globals_arg);
+          }
         },
         [&](auto Env) {
           InitWithEnviron(Env);

@@ -43,6 +43,7 @@ class AnalyzeTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, fu
   struct Cmdline {
     cl::opt<bool> ForeignLibs;
     cl::alias ForeignLibsAlias;
+    cl::list<std::string> PinnedGlobals;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : ForeignLibs("foreign-libs",
@@ -50,8 +51,18 @@ class AnalyzeTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, fu
                       cl::cat(JoveCategory), cl::init(true)),
 
           ForeignLibsAlias("x", cl::desc("Exe only. Alias for --foreign-libs."),
-                           cl::aliasopt(ForeignLibs), cl::cat(JoveCategory)) {}
+                           cl::aliasopt(ForeignLibs), cl::cat(JoveCategory)),
+
+          PinnedGlobals(
+              "pinned-globals", cl::CommaSeparated,
+              cl::value_desc("glb_1,glb_2,...,glb_n"),
+              cl::desc(
+                  "force specified TCG globals to always go through CPUState"),
+              cl::cat(JoveCategory)) {}
+
   } opts;
+
+  tcg_global_set_t PinnedEnvGlbs = InitPinnedEnvGlbs;
 
   std::unique_ptr<tiny_code_generator_t> TCG;
   std::unique_ptr<llvm::LLVMContext> Context;
@@ -110,6 +121,14 @@ int AnalyzeTool::Run(void) {
   //
   TCG.reset(new tiny_code_generator_t);
 
+  for (const std::string &PinnedGlobalName : opts.PinnedGlobals) {
+    int idx = TCG->tcg_index_of_named_global(PinnedGlobalName.c_str());
+    if (idx < 0)
+      die("unknown global to pin: " + PinnedGlobalName);
+
+    PinnedEnvGlbs.set(idx);
+  }
+
   return AnalyzeBlocks()
       || AnalyzeFunctions();
 }
@@ -132,6 +151,7 @@ void AnalyzeFunction(jv_t &jv,
                      std::function<std::pair<basic_block_vec_t &, basic_block_vec_t &>(function_t &)> GetBlocks,
                      bool DFSan = false,
                      bool ForCBE = false,
+                     tcg_global_set_t PinnedEnvGlbs = InitPinnedEnvGlbs,
                      Tool *tool = nullptr);
 
 int AnalyzeTool::AnalyzeBlocks(void) {
@@ -213,7 +233,7 @@ int AnalyzeTool::AnalyzeFunctions(void) {
                 function_state_t &x = state.for_function(f);
                 return std::pair<basic_block_vec_t &, basic_block_vec_t &>(x.bbvec, x.exit_bbvec);
               },
-              false, false, this);
+              false, false, PinnedEnvGlbs, this);
 
           assert(!f.Analysis.Stale);
         });

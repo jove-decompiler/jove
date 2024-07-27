@@ -366,6 +366,9 @@ struct LLVMTool : public StatefulJVTool<ToolKind::CopyOnWrite,
   } opts;
 
   binary_index_t BinaryIndex = invalid_binary_index;
+
+  tcg_global_set_t PinnedEnvGlbs = InitPinnedEnvGlbs;
+
   bool IsCOFF = false;
 
   uint64_t ForAddr = 0;
@@ -1614,6 +1617,7 @@ void AnalyzeFunction(jv_t &jv,
                      std::function<std::pair<basic_block_vec_t &, basic_block_vec_t &>(function_t &)> GetBlocks,
                      bool DFSan,
                      bool ForCBE,
+                     tcg_global_set_t PinnedEnvGlbs,
                      Tool *tool) {
   if (!f.Analysis.Stale)
     return;
@@ -1844,17 +1848,6 @@ struct section_t { /* jove has its own notion of a "section" */
   llvm::Constant *C = nullptr;
 };
 
-#if 0
-static int tcg_global_index_of_name(const char *nm) {
-  for (int i = 0; i < jv_get_tcg_context()->nb_globals; i++) {
-    if (strcmp(jv_get_tcg_context()->temps[i].name, nm) == 0)
-      return i;
-  }
-
-  return -1;
-}
-#endif
-
 static bool is_integral_size(unsigned n) {
   return n == 1 || n == 2 || n == 4 || n == 8;
 }
@@ -1986,22 +1979,6 @@ int LLVMTool::Run(void) {
       (rc = CreateModule()) ||
       (rc = PrepareToTranslateCode()))
     return rc;
-
-#if 0
-  //
-  // pinned globals (cmdline)
-  //
-  for (const std::string &PinnedGlobalName : opts.PinnedGlobals) {
-    int idx = tcg_global_index_of_name(PinnedGlobalName.c_str());
-    if (idx < 0) {
-      WithColor::warning() << llvm::formatv(
-          "unknown global {0} (--pinned-globals); ignoring\n", idx);
-      continue;
-    }
-
-    CmdlinePinnedEnvGlbs.set(idx);
-  }
-#endif
 
   identify_ABIs(jv);
 
@@ -3521,6 +3498,17 @@ int LLVMTool::ProcessCOPYRelocations(void) {
 int LLVMTool::PrepareToTranslateCode(void) {
   TCG.reset(new tiny_code_generator_t);
 
+  //
+  // XXX pinned globals (cmdline)
+  //
+  for (const std::string &PinnedGlobalName : opts.PinnedGlobals) {
+    int idx = TCG->tcg_index_of_named_global(PinnedGlobalName.c_str());
+    if (idx < 0)
+      die("unknown global to pin: " + PinnedGlobalName);
+
+    PinnedEnvGlbs.set(idx);
+  }
+
   binary_t &Binary = jv.Binaries.at(BinaryIndex);
 
   if (!opts.Debugify) {
@@ -3576,7 +3564,7 @@ tcg_global_set_t LLVMTool::DetermineFunctionArgs(function_t &f) {
         function_state_t &x = state.for_function(f);
         return std::pair<basic_block_vec_t &, basic_block_vec_t &>(x.bbvec, x.exit_bbvec);
       },
-      opts.DFSan, opts.ForCBE, this);
+      opts.DFSan, opts.ForCBE, PinnedEnvGlbs, this);
 
   return f.Analysis.args;
 }
@@ -3591,7 +3579,7 @@ tcg_global_set_t LLVMTool::DetermineFunctionRets(function_t &f) {
         function_state_t &x = state.for_function(f);
         return std::pair<basic_block_vec_t &, basic_block_vec_t &>(x.bbvec, x.exit_bbvec);
       },
-      opts.DFSan, opts.ForCBE, this);
+      opts.DFSan, opts.ForCBE, PinnedEnvGlbs, this);
 
   return f.Analysis.rets;
 }

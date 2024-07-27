@@ -99,7 +99,7 @@ static const uint8_t tcg_global_by_offset_lookup_table[353] = {
 [344] = 27,
 [352] = 28,
 };
-constexpr tcg_global_set_t PinnedEnvGlbs(0);
+constexpr tcg_global_set_t InitPinnedEnvGlbs(0);
 
 #else
 
@@ -209,7 +209,7 @@ static const uint8_t tcg_global_by_offset_lookup_table[349] = {
 [344] = 35,
 [348] = 36,
 };
-constexpr tcg_global_set_t PinnedEnvGlbs(0);
+constexpr tcg_global_set_t InitPinnedEnvGlbs(0);
 
 #endif
 

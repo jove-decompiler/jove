@@ -746,10 +746,10 @@ void tiny_code_generator_t::print_shit(void) {
       }
 
       try {
-        printf("constexpr tcg_global_set_t PinnedEnvGlbs(%llu);\n", s.to_ullong());
+        printf("constexpr tcg_global_set_t InitPinnedEnvGlbs(%llu);\n", s.to_ullong());
       } catch (...) {
         std::string str = s.to_string();
-        printf("static const tcg_global_set_t PinnedEnvGlbs(\"%s\");\n", str.c_str());
+        printf("static const tcg_global_set_t InitPinnedEnvGlbs(\"%s\");\n", str.c_str());
       }
     }
   };
@@ -1174,6 +1174,17 @@ void tiny_code_generator_t::print_shit(void) {
   }
 #endif
 #endif
+}
+
+int tiny_code_generator_t::tcg_index_of_named_global(const char *name) {
+  assert(tcg_ctx);
+
+  for (int i = 0; i < tcg_ctx->nb_globals; i++) {
+    if (strcmp(tcg_ctx->temps[i].name, name) == 0)
+      return i;
+  }
+
+  return -1;
 }
 
 static const uint8_t starter_bin_bytes[] = {

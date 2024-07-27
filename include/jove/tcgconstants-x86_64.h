@@ -118,7 +118,7 @@ static const uint8_t tcg_global_by_offset_lookup_table[585] = {
 [576] = 35,
 [584] = 36,
 };
-constexpr tcg_global_set_t PinnedEnvGlbs(0);
+constexpr tcg_global_set_t InitPinnedEnvGlbs(0);
 }
 #endif /* __cplusplus */
 
