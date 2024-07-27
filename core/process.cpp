@@ -19,10 +19,6 @@ pid_t RunExecutable(const std::string &exe_path,
                     const string &stdout_path,
                     const string &stderr_path,
                     before_exec_t before_exec) {
-  pid_t pid = ::fork();
-  if (pid)
-    return pid;
-
   list<string> arg_str_list;
   list<string> env_str_list;
 
@@ -40,6 +36,10 @@ pid_t RunExecutable(const std::string &exe_path,
 
   arg_vec.push_back(nullptr);
   env_vec.push_back(nullptr);
+
+  pid_t pid = ::fork();
+  if (pid)
+    return pid;
 
   //
   // we do this before messing with standard output streams
