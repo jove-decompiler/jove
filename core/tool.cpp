@@ -253,10 +253,10 @@ bool Tool::ShouldSleepOnCrash(void) const {
 
 void Tool::print_command_environment(const char **envp) {
   for (const char **env = envp; *env; ++env) {
-    std::string e(*env);
+    const char *const e = *env;
 
-    if (!boost::algorithm::starts_with(e, "JVPATH="))
-      continue; /* ignore everything irrelevant FIXME */
+    if (strncmp(e, "JVPATH=", sizeof("JVPATH=") - 1) != 0)
+      continue;
 
     HumanOut() << e << ' ';
     break;
