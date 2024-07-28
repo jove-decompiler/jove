@@ -1405,7 +1405,7 @@ void RecompileTool::worker(dso_t dso) {
             Arg("--dwarf-version=4");
             Arg("--debugger-tune=gdb");
 
-            if (IsX86Target) {
+            if (false /* IsX86Target */) {
               //
               // FIXME... how is the stack getting unaligned??
               //
