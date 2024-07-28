@@ -307,88 +307,33 @@ static _UNUSED uint64_t _u64ofhexstr(char *str_begin, char *str_end) {
   return res;
 }
 
+static inline void *must_nonnull(void *p) {
+  _ASSERT(p != NULL);
+  return p;
+}
+
 #define array_for_each_p(elemp, arr)                                           \
   for ((elemp) = &arr[0]; ((elemp) - &arr[0]) < ARRAY_SIZE(arr); ++(elemp))
 
 #define for_each_str_delim_know_end(s, delim, str, n)                          \
   for ((s) = &str[0]; (s) != &str[n];                                          \
-       (s) = (char *)_memchr((s), delim, (n) - ((s) - &str[0])) + 1)
+       (s) = (char *)must_nonnull(_memchr((s), delim, (n) - ((s) - &str[0]))) + 1)
+
+#define for_each_str_eos_delim_know_end(s, eos, delim, str, n)                 \
+  for ((s) = &str[0], (eos) = (char *)must_nonnull(_memchr((s), delim, (n) - ((s) - &str[0]))); \
+       (s) != &str[n];                                                                          \
+       (s) = (eos)+1, (eos) = (char *)/*maybenull*/_memchr((s), delim, (n) - ((s) - &str[0])))
 
 /* iterating over /proc/pid/maps */
 #define for_each_in_proc_maps(map, maps, n)                                    \
   for_each_str_delim_know_end(map, '\n', maps, n)
 
+#define for_each_line_eol_in_proc_maps(line, eol, maps, n)                     \
+  for_each_str_eos_delim_know_end(line, eol, '\n', maps, n)
+
 /* iterating over /proc/pid/environ */
 #define for_each_in_environ(env, environ, n)                                   \
   for_each_str_delim_know_end(env, '\0', environ, n)
-
-static _UNUSED void _description_of_address_for_maps(char *out, uintptr_t Addr, char *maps, const unsigned n) {
-  out[0] = '\0'; /* empty */
-
-  char *const beg = &maps[0];
-  char *const end = &maps[n];
-
-  char *eol;
-  for (char *line = beg; line != end; line = eol + 1) {
-    {
-      unsigned left = n - (line - beg);
-
-      //
-      // find the end of the current line
-      //
-      eol = _memchr(line, '\n', left);
-    }
-
-    unsigned left = eol - line;
-
-    struct {
-      uint64_t min, max;
-    } vm;
-
-    {
-      char *dash = _memchr(line, '-', left);
-      vm.min = _u64ofhexstr(line, dash);
-
-      char *space = _memchr(line, ' ', left);
-      vm.max = _u64ofhexstr(dash + 1, space);
-    }
-
-    //
-    // does the given address exist within this mapping?
-    //
-    if (Addr >= vm.min && Addr < vm.max) {
-      //
-      // we have a match. If this mapping has a file path, we'll make it the
-      // description
-      //
-      char *fwdslash = _memchr(line, '/', left);
-      char *leftsqbr = _memchr(line, '[', left);
-
-      if (fwdslash) {
-        *eol = '\0';
-        _strcat(out, fwdslash);
-        *eol = '\n';
-      } else if (leftsqbr) {
-        *eol = '\0';
-        _strcat(out, leftsqbr);
-        *eol = '\n';
-      } else {
-        *out = '\0';
-        return;
-      }
-
-      _strcat(out, "+0x");
-
-      ssize_t Offset = Addr - vm.min;
-      char offsetStr[65];
-      _uint_to_string(Offset, offsetStr, 0x10);
-
-      _strcat(out, offsetStr);
-
-      return;
-    }
-  }
-}
 
 static _UNUSED uintptr_t _parse_stack_end_of_maps(char *maps, const unsigned n) {
   char *const beg = &maps[0];
@@ -613,25 +558,17 @@ static jove_saved_char_t _jove_save_and_set_char(char *const p, const char ch) {
   return sav;
 }
 
-static jove_saved_char_t _jove_save_and_set_char_safe(char *const p,
-                                                      const char ch,
-                                                      const char expected) {
-  _ASSERT(*p == expected);
-  return _jove_save_and_set_char(p, ch);
-}
-
 static void _jove_set_char(const jove_saved_char_t *sav) {
   *sav->p = sav->ch;
 }
 
-#define save_and_swap_back_char_safe(p, ch, expected)                          \
-  const jove_saved_char_t UNIQUE_VAR_NAME(__save_and_swap_back)                \
-      _CLEANUP(_jove_set_char) =                                               \
-          _jove_save_and_set_char_safe(p, ch, expected);
-
 #define save_and_swap_back_char(p, ch)                                         \
   const jove_saved_char_t UNIQUE_VAR_NAME(__save_and_swap_back)                \
-      _CLEANUP(_jove_set_char) = _jove_save_and_set_char(p, ch);
+      _CLEANUP(_jove_set_char) = _jove_save_and_set_char(p, ch)
+
+#define save_and_swap_back_char_safe(p, ch, expected)                          \
+  _ASSERT(*((const char *)(p)) == expected);                                   \
+  save_and_swap_back_char(p, ch)
 
 //
 // parsing
@@ -699,4 +636,75 @@ static _UNUSED char *_getenv(const char *name) {
   }
 
   return NULL;
+}
+
+static _UNUSED bool _description_of_address_for_maps(char *out,
+                                                     uintptr_t Addr,
+                                                     char *maps,
+                                                     const unsigned n) {
+  char *line = NULL;
+  char *eol = NULL;
+  for_each_line_eol_in_proc_maps(line, eol, maps, n) {
+    unsigned left = eol - line;
+
+    struct {
+      uintptr_t min, max;
+    } vm;
+
+    char *const dash = _memchr(line, '-', left);
+    char *const space = _memchr(line, ' ', left);
+
+    _ASSERT(dash);
+    _ASSERT(space);
+
+    vm.min = _u64ofhexstr(line, dash);
+    vm.max = _u64ofhexstr(dash + 1, space);
+
+    //
+    // does the given address exist within this mapping?
+    //
+    if (!(Addr >= vm.min && Addr < vm.max))
+      continue;
+
+    char *const pp = space + 4;
+    char *const off = pp + 2;
+    char *const eooff = _memchr(off, ' ', eol - off);
+    _ASSERT(eooff);
+
+    uint64_t offset = _u64ofhexstr(off, eooff);
+
+    //
+    // description is base+offset
+    //
+    char *const fwdslash = _memchr(line, '/', left);
+    char *const leftsqbr = _memchr(line, '[', left);
+
+    *out = '\0';
+
+    if (fwdslash) { /* e.g. /usr/bin/cat */
+      save_and_swap_back_char_safe(eol, '\0', '\n');
+      _strcat(out, fwdslash);
+    } else if (leftsqbr) { /* e.g. [vdso] */
+      save_and_swap_back_char_safe(eol, '\0', '\n');
+      _strcat(out, leftsqbr);
+    } else { /* anonymous mapping */
+      save_and_swap_back_char_safe(dash, '\0', '-');
+      _strcat(out, line);
+    }
+
+    _strcat(out, "+0x");
+
+    uint64_t Offset = (Addr - vm.min) + offset;
+
+    {
+      char buff[65];
+
+      _uint_to_string(Offset, buff, 0x10);
+      _strcat(out, buff);
+    }
+
+    return true;
+  }
+
+  return false;
 }

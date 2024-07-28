@@ -877,10 +877,11 @@ _NORET void _jove_fail1(uintptr_t a0, const char *reason) {
       JOVE_BUFF(buff, JOVE_MAX_PROC_MAPS);
       buff[0] = '\0';
 
-      _description_of_address_for_maps(buff, a0, maps, n);
-      _strcat(s, " <");
-      _strcat(s, buff);
-      _strcat(s, "> [");
+      if (_description_of_address_for_maps(buff, a0, maps, n)) {
+        _strcat(s, " <");
+        _strcat(s, buff);
+        _strcat(s, "> [");
+      }
     }
 
     {
@@ -922,10 +923,11 @@ _NORET void _jove_fail2(uintptr_t a0,
       JOVE_BUFF(buff, 2*PATH_MAX);
       buff[0] = '\0';
 
-      _description_of_address_for_maps(buff, a0, maps, n);
-      _strcat(s, " <");
-      _strcat(s, buff);
-      _strcat(s, ">");
+      if (_description_of_address_for_maps(buff, a0, maps, n)) {
+        _strcat(s, " <");
+        _strcat(s, buff);
+        _strcat(s, ">");
+      }
     }
     _strcat(s, "\n             0x");
     {
@@ -935,13 +937,14 @@ _NORET void _jove_fail2(uintptr_t a0,
       _strcat(s, buff);
     }
     {
-      JOVE_BUFF(buff, JOVE_MAX_PROC_MAPS);
+      JOVE_BUFF(buff, 2*PATH_MAX);
       buff[0] = '\0';
 
-      _description_of_address_for_maps(buff, a1, maps, n);
-      _strcat(s, " <");
-      _strcat(s, buff);
-      _strcat(s, "> [");
+      if (_description_of_address_for_maps(buff, a1, maps, n)) {
+        _strcat(s, " <");
+        _strcat(s, buff);
+        _strcat(s, "> [");
+      }
     }
 
     {

@@ -868,9 +868,6 @@ not_found:
     JOVE_BUFF(s, JOVE_LARGE_BUFF_SIZE);
     s[0] = '\0';
 
-    JOVE_BUFF(path_buff, PATH_MAX);
-    path_buff[0] = '\0';
-
     _strcat(s, "*** crash (jove) *** [");
     {
       char buff[65];
@@ -880,25 +877,23 @@ not_found:
     }
     _strcat(s, "]\n");
 
+    JOVE_BUFF(buff, 2*PATH_MAX);
+    buff[0] = '\0';
+
 #define _FIELD(name, init)                                                     \
     do {                                                                       \
       _strcat(s, name " 0x");                                                  \
-                                                                               \
       {                                                                        \
         char _buff[65];                                                        \
         _uint_to_string((uintptr_t)init, _buff, 0x10);                         \
                                                                                \
         _strcat(s, _buff);                                                     \
       }                                                                        \
-      {                                                                        \
-        _description_of_address_for_maps(path_buff, (uintptr_t)(init), maps, maps_n);\
-        if (_strlen(path_buff) != 0) {                                             \
-          _strcat(s, " <");                                                    \
-          _strcat(s, path_buff);                                                   \
-          _strcat(s, ">");                                                     \
-        }                                                                      \
+      if (_description_of_address_for_maps(buff, (uintptr_t)(init), maps, maps_n)) {\
+        _strcat(s, " <");                                                      \
+        _strcat(s, buff);                                                      \
+        _strcat(s, ">");                                                       \
       }                                                                        \
-                                                                               \
       _strcat(s, "\n");                                                        \
     } while (false)
 
