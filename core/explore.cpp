@@ -474,13 +474,9 @@ top:
       bbprop.Term.Addr = T.Addr;
       bbprop.DynTargetsComplete = false;
       bbprop.Term._call.Target = invalid_function_index;
-      bbprop.Term._call.ReturnsOff = 0;
       bbprop.Term._indirect_jump.IsLj = false;
       bbprop.Sj = false;
-      bbprop.Term._indirect_call.ReturnsOff = 0;
       bbprop.Term._return.Returns = false;
-      bbprop.Term._call.ReturnsOff = T._call.NextPC - T.Addr;
-      bbprop.Term._indirect_call.ReturnsOff = T._indirect_call.NextPC - T.Addr;
       bbprop.InvalidateAnalysis();
 
       addr_intvl intervl(bbprop.Addr, bbprop.Size);
@@ -682,13 +678,14 @@ void explorer_t::_explore_the_rest(binary_t &b,
       assert(is_basic_block_index_valid(CalleeIdx));
     }
 
-    unsigned RetOff;
+    uint64_t NextAddr = 0UL;
 
     auto &ICFG = b.Analysis.ICFG;
     bool DoesRet = ({
       ip_sharable_lock<ip_upgradable_mutex> s_lck(b.bbmap_mtx);
 
-      RetOff = ICFG[basic_block_at_address(TermAddr, b)].Term._call.ReturnsOff;
+      basic_block_t bb = basic_block_at_address(TermAddr, b);
+      NextAddr = ICFG[bb].Addr + ICFG[bb].Size + (unsigned)IsMIPSTarget * 4;
 
       does_function_at_block_return(basic_block_of_index(CalleeIdx, ICFG), b);
     });
@@ -696,7 +693,7 @@ void explorer_t::_explore_the_rest(binary_t &b,
     if (DoesRet)
       _control_flow_to(b, B,
                        TermAddr,
-                       TermAddr + RetOff,
+                       NextAddr,
                        process_later);
   };
 

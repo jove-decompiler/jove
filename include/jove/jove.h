@@ -284,8 +284,6 @@ struct basic_block_properties_t {
 
     struct {
       function_index_t Target;
-
-      uint8_t ReturnsOff;
     } _call;
 
     struct {
@@ -293,7 +291,6 @@ struct basic_block_properties_t {
     } _indirect_jump;
 
     struct {
-      uint8_t ReturnsOff;
     } _indirect_call;
 
     struct {
