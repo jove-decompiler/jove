@@ -47,6 +47,10 @@
 #define TRUE 1
 #define FALSE 0
 
+//
+// ASCII COLORS
+//
+
 #define __ANSI_COLOR_PREFIX "\033["
 #define __ANSI_COLOR_SUFFIX "m"
 
@@ -60,6 +64,30 @@
 #define __ANSI_YELLOW         __ANSI_COLOR_PREFIX "33" __ANSI_COLOR_SUFFIX
 #define __ANSI_BOLD_YELLOW    __ANSI_COLOR_PREFIX "1;33" __ANSI_COLOR_SUFFIX
 #define __ANSI_NORMAL_COLOR   __ANSI_COLOR_PREFIX "0" __ANSI_COLOR_SUFFIX
+
+//
+// FOR ASM
+//
+
+#define __STRING(x)	#x
+#define __CONCAT(x,y)	x ## y
+#define STRINGXP(X) __STRING(X)
+#define STRINGXV(X) STRINGV_(X)
+#define STRINGV_(...) # __VA_ARGS__
+
+# define _ASM_FN_PROLOGUE(entry)					\
+	".globl\t" __STRING(entry) "\n\t"				\
+	".ent\t" __STRING(entry) "\n\t"					\
+	".type\t" __STRING(entry) ", @function\n"			\
+	__STRING(entry) ":\n\t"
+
+# define _ASM_FN_EPILOGUE(entry)					\
+	".end\t" __STRING(entry) "\n\t"					\
+	".size\t" __STRING(entry) ", . - " __STRING(entry) "\n\t"
+
+//
+// UNREACHABLE, DUMP, ASSERT
+//
 
 #define strlen(str) ({                          \
         __builtin_constant_p((str)) ?           \

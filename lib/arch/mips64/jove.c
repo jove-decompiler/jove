@@ -6,22 +6,6 @@ typedef uint64_t jove_thunk_return_t;
 
 #include "jove.common.c"
 
-#define __STRING(x)	#x
-#define __CONCAT(x,y)	x ## y
-#define STRINGXP(X) __STRING(X)
-#define STRINGXV(X) STRINGV_(X)
-#define STRINGV_(...) # __VA_ARGS__
-
-# define _ASM_FN_PROLOGUE(entry)					\
-	".globl\t" __STRING(entry) "\n\t"				\
-	".ent\t" __STRING(entry) "\n\t"					\
-	".type\t" __STRING(entry) ", @function\n"			\
-	__STRING(entry) ":\n\t"
-
-# define _ASM_FN_EPILOGUE(entry)					\
-	".end\t" __STRING(entry) "\n\t"					\
-	".size\t" __STRING(entry) ", . - " __STRING(entry) "\n\t"
-
 # define SETUP_GPX64(cp_reg, ra_save)			\
 		move ra_save, $31; /* Save old ra.  */	\
 		.set noreorder;				\
