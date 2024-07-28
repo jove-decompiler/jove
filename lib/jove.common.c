@@ -1043,7 +1043,7 @@ jove_thunk_return_t _jove_call(
                                uintptr_t pc, uint32_t BBIdx) {
   if (unlikely(__jove_opts.Debug.Calls))
   {
-    char s[1024];
+    char s[512];
     s[0] = '\0';
 
     _strcat(s, "_jove_call: -> 0x");
@@ -1472,28 +1472,34 @@ found:
                           #undef __REG_ARG
                           RealEntry, emusp_ptr);
 
-      if (unlikely(__jove_opts.Debug.Stack)) {
-        const uintptr_t emusp = *emusp_ptr;
+      if (unlikely(__jove_opts.Debug.Calls)) {
+        char s[512];
+        s[0] = '\0';
 
-#if defined(__x86_64__) || defined(__i386__)
-        _ASSERT(emusp % 16 == 0);
-#endif
+        _strcat(s, "\t=0x");
+        {
+          char buff[65];
+          _uint_to_string((uint64_t)res, buff, 0x10);
 
-        if (__jove_opts.Debug.Calls) {
-          char s[1024];
-          s[0] = '\0';
+          _strcat(s, buff);
+        }
 
-          _strcat(s, "\t<0x");
+        if (unlikely(__jove_opts.Debug.Stack)) {
+          const uintptr_t emusp = *emusp_ptr;
+
+          _strcat(s, " <0x");
           {
             char buff[65];
             _uint_to_string(emusp, buff, 0x10);
 
             _strcat(s, buff);
           }
-          _strcat(s, ">\n");
-
-          _DUMP(s);
+          _strcat(s, ">");
         }
+
+        _strcat(s, "\n");
+
+        _DUMP(s);
       }
 
       return res;
