@@ -958,7 +958,7 @@ struct flow_edge_properties_t {
   } reach;
 };
 
-typedef boost::adjacency_list<boost::setS,              /* OutEdgeList */
+typedef boost::adjacency_list<boost::vecS, /*parallel*/ /* OutEdgeList */
                               boost::vecS,              /* VertexList */
                               boost::bidirectionalS,    /* Directed */
                               flow_vertex_properties_t, /* VertexProperties */
