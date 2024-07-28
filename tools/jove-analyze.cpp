@@ -158,7 +158,7 @@ int AnalyzeTool::AnalyzeBlocks(void) {
   std::atomic<unsigned> count = 0;
 
   for_each_basic_block(
-      std::execution::par_unseq,
+      std::execution::seq, /* FIXME */
       jv, [&](binary_t &b, basic_block_t bb) {
         const auto &ICFG = b.Analysis.ICFG;
         if (ICFG[bb].Analysis.Stale)
