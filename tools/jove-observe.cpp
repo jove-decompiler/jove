@@ -397,6 +397,10 @@ void ObserveTool::ProcessLine(const std::string &line) {
         llvm::errs() << llvm::formatv("invalid control-flow to {0}\n",
                                       taddr2str(invalid_cf.pc, false));
       return;
+    } catch (const std::exception &e) {
+      if (IsVerbose())
+        llvm::errs() << llvm::formatv("exception! {0}\n", e.what());
+      return;
     }
 
     if (!is_basic_block_index_valid(src_BBIdx) ||
