@@ -153,7 +153,7 @@ void DumpTool::dumpDecompilation(const jv_t& jv) {
           Writer.printString("Type", description_of_terminator(ICFG[bb].Term.Type));
 
           if (ICFG[bb].Term.Type == TERMINATOR::CALL) {
-            Writer.printBoolean("Returns", ICFG[bb].Term._call.Returns);
+            //Writer.printBoolean("Returns", ICFG[bb].Term._call.Returns);
 
             const function_t &f = B.Analysis.Functions.at(ICFG[bb].Term._call.Target);
             Writer.printString("Target", (fmt("0x%lX") % ICFG[basic_block_of_index(f.Entry, ICFG)].Addr).str());
@@ -162,8 +162,10 @@ void DumpTool::dumpDecompilation(const jv_t& jv) {
           if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP)
             Writer.printBoolean("IsLj", ICFG[bb].Term._indirect_jump.IsLj);
 
+#if 0
           if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL)
             Writer.printBoolean("Returns", ICFG[bb].Term._indirect_call.Returns);
+#endif
 
           if (ICFG[bb].Term.Type == TERMINATOR::RETURN)
             Writer.printBoolean("Returns", ICFG[bb].Term._return.Returns);

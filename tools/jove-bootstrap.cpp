@@ -4702,16 +4702,8 @@ void BootstrapTool::on_return(pid_t child,
 
     assert(boost::out_degree(before_bb, ICFG) <= 1);
 
-    if (isCall) {
-      before_Term._call.Returns = true; /* witnessed */
-
-      if (likely(is_function_index_valid(before_Term._call.Target)))
-        b.Analysis.Functions.at(before_Term._call.Target).Returns = true;
-    } else {
-      assert(isIndirectCall);
-
-      before_Term._indirect_call.Returns = true; /* witnessed */
-    }
+    if (isCall && is_function_index_valid(before_Term._call.Target))
+      b.Analysis.Functions.at(before_Term._call.Target).Returns = true;
 
     basic_block_t bb = basic_block_of_index(BBIdx, ICFG);
 

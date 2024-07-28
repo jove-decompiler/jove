@@ -469,14 +469,8 @@ void ObserveTool::ProcessLine(const std::string &line) {
         assert(boost::out_degree(before_bb, dst_ICFG) <= 1);
 
         if (isCall) {
-          before_Term._call.Returns = true; /* witnessed */
-
           if (likely(is_function_index_valid(before_Term._call.Target)))
             dst_bin.Analysis.Functions.at(before_Term._call.Target).Returns = true;
-        } else {
-          assert(isIndirectCall);
-
-          before_Term._indirect_call.Returns = true; /* witnessed */
         }
 
         ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));

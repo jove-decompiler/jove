@@ -474,11 +474,9 @@ top:
       bbprop.Term.Addr = T.Addr;
       bbprop.DynTargetsComplete = false;
       bbprop.Term._call.Target = invalid_function_index;
-      bbprop.Term._call.Returns = false;
       bbprop.Term._call.ReturnsOff = 0;
       bbprop.Term._indirect_jump.IsLj = false;
       bbprop.Sj = false;
-      bbprop.Term._indirect_call.Returns = false;
       bbprop.Term._indirect_call.ReturnsOff = 0;
       bbprop.Term._return.Returns = false;
       bbprop.Term._call.ReturnsOff = T._call.NextPC - T.Addr;

@@ -214,8 +214,6 @@ std::string CodeRecovery::RecoverFunction(binary_index_t IndCallBIdx,
   binary_t &CallerBinary = jv.Binaries.at(IndCallBIdx);
   uint64_t TermAddr = AddressOfTerminatorAtBasicBlock(IndCallBIdx, IndCallBBIdx);
 
-  function_t &callee = CalleeBinary.Analysis.Functions.at(CalleeFIdx);
-
   auto &ICFG = CallerBinary.Analysis.ICFG;
 
   bool isNewTarget = ({
@@ -234,6 +232,7 @@ std::string CodeRecovery::RecoverFunction(binary_index_t IndCallBIdx,
   (void)isNewTarget; /* FIXME */
 
 #if 0
+  function_t &callee = CalleeBinary.Analysis.Functions.at(CalleeFIdx);
   if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL &&
       does_function_return(callee, CalleeBinary)) {
     //
@@ -305,16 +304,8 @@ std::string CodeRecovery::Returns(binary_index_t CallBIdx,
     assert(isCall || isIndirectCall);
     assert(TermAddr);
 
-    if (isCall)
-      ICFG[bb].Term._call.Returns = true;
-    if (isIndirectCall)
-      ICFG[bb].Term._indirect_call.Returns = true;
-
-    if (ICFG[bb].Term.Type == TERMINATOR::CALL &&
-        is_function_index_valid(ICFG[bb].Term._call.Target)) {
-      function_t &f = b.Analysis.Functions.at(ICFG[bb].Term._call.Target);
-      f.Returns = true;
-    }
+    if (isCall && is_function_index_valid(ICFG[bb].Term._call.Target))
+      b.Analysis.Functions.at(ICFG[bb].Term._call.Target).Returns = true;
 
     ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
 
