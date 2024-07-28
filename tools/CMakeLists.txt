@@ -75,6 +75,7 @@ function(tool_for_arch arch arch_extra_cflags qemu_objs)
     check-helper.cpp
     gen-tcgconstants.cpp
     jove-add.cpp
+    jove-addr2off.cpp
     jove-analyze.cpp
     jove-bootstrap.cpp
     jove-cfg.cpp
@@ -89,6 +90,7 @@ function(tool_for_arch arch arch_extra_cflags qemu_objs)
     jove-loop.cpp
     jove-numbers.cpp
     jove-observe.cpp
+    jove-off2addr.cpp
     jove-readtrace.cpp
     jove-recompile.cpp
     jove-recover.cpp
