@@ -25,9 +25,9 @@ void _jove_inverse_thunk(void) {
                //
                "call _jove_emusp_location\n" // rax = emuspp
 
-#if 0
+#if 1
                "movq (%%rax), %%rdx\n"   // rdx = emusp
-#else /* FIXME */
+#else
                "movq 32(%%rsp), %%rdx\n"  // read saved_sp off the stack
                "addq $8, %%rdx\n"         // simulate pop of return addr
 #endif
