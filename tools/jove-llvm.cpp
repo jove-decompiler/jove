@@ -989,8 +989,6 @@ struct edge_copier {
 
 typedef std::pair<flow_vertex_t, bool> exit_vertex_pair_t;
 
-static basic_block_properties_t dummy_bbprop;
-
 void AnalyzeBasicBlock(tiny_code_generator_t &TCG,
                        llvm::Module &M,
                        binary_t &binary,
@@ -1075,78 +1073,122 @@ static flow_vertex_t copy_function_cfg(jv_t &jv,
   // indirect jumps
   //
   for (basic_block_t bb : bbvec) {
+    flow_vertex_t V = Orig2CopyMap.at(bb);
+
     switch (ICFG[bb].Term.Type) {
     case TERMINATOR::INDIRECT_CALL: {
-      if (!ICFG[bb].hasDynTarget())
-        continue;
+      const bool Returns = boost::out_degree(bb, ICFG) != 0;
 
-      auto eit_pair = boost::out_edges(bb, ICFG);
+      boost::clear_out_edges(V, G); /* if there were any, they're gone now */
 
-      for (dynamic_target_t DynTarget : ICFG[bb].dyn_targets()) {
-        function_t &callee = function_of_target(DynTarget, jv);
+      flow_vertex_t succV = boost::graph_traits<flow_graph_t>::null_vertex();
+      unsigned savedSuccInDeg;
+      if (Returns) {
+        assert(boost::out_degree(bb, ICFG) == 1);
 
-        std::vector<exit_vertex_pair_t> calleeExitVertices;
-        flow_vertex_t calleeEntryV =
-            copy_function_cfg(jv, TCG, M, G, callee, GetBinary, GetBlocks,
-                              DFSan, ForCBE, calleeExitVertices, memoize, tool);
-        boost::add_edge(Orig2CopyMap.at(bb), calleeEntryV, G);
+        succV = Orig2CopyMap.at(*boost::adjacent_vertices(bb, ICFG).first);
+        savedSuccInDeg = boost::in_degree(succV, G);
+      }
 
-        if (eit_pair.first != eit_pair.second) {
-          flow_vertex_t succV = Orig2CopyMap.at(boost::target(*eit_pair.first, ICFG));
+      if (ICFG[bb].hasDynTarget()) {
+        for (dynamic_target_t DynTarget : ICFG[bb].dyn_targets()) {
+          function_t &callee = function_of_target(DynTarget, jv);
 
-          for (const auto &calleeExitVertPair : calleeExitVertices) {
-            flow_vertex_t exitV;
-            bool IsABI;
+          std::vector<exit_vertex_pair_t> calleeExitVertices;
+          flow_vertex_t calleeEntryV = copy_function_cfg(
+              jv, TCG, M, G, callee, GetBinary, GetBlocks, DFSan, ForCBE,
+              calleeExitVertices, memoize, tool);
 
-            std::tie(exitV, IsABI) = calleeExitVertPair;
+          boost::add_edge(V, calleeEntryV, G);
 
-            flow_edge_t E = boost::add_edge(exitV, succV, G).first;
+          if (Returns) {
+            for (const auto &calleeExitVertPair : calleeExitVertices) {
+              flow_vertex_t exitV;
+              bool IsABI;
 
-            if (callee.IsABI || IsABI)
-              G[E].reach.mask = CallConvRets;
+              std::tie(exitV, IsABI) = calleeExitVertPair;
+
+              flow_edge_t E = boost::add_edge(exitV, succV, G).first;
+
+              if (callee.IsABI || IsABI)
+                G[E].reach.mask = CallConvRets;
+            }
           }
         }
       }
 
-      if (eit_pair.first != eit_pair.second) {
-        assert(std::next(eit_pair.first) == eit_pair.second);
+      if (Returns && boost::in_degree(succV, G) == savedSuccInDeg) {
+        //
+        // we know that this instruction returns, even if we don't know how
+        //
+        flow_vertex_t dummyV = boost::add_vertex(G);
 
-        flow_vertex_t succV = Orig2CopyMap.at(boost::target(*eit_pair.first, ICFG));
+        static basic_block_properties_t dummy_bbprop;
+        dummy_bbprop.Analysis.reach.def = CallConvRets;
+        G[dummyV].bbprop = &dummy_bbprop;
 
-        boost::remove_edge(Orig2CopyMap.at(bb), succV, G);
+        flow_edge_t E = boost::add_edge(V, dummyV, G).first;
+        boost::add_edge(dummyV, succV, G).first;
+
+        G[E].reach.mask = CallConvRets; /* assume ABI */
       }
+
       break;
     }
 
     case TERMINATOR::CALL: {
-      function_t &callee = b.Analysis.Functions.at(ICFG[bb].Term._call.Target);
+      function_index_t CalleeIdx = ICFG[bb].Term._call.Target;
+      if (!is_function_index_valid(CalleeIdx)) {
+        assert(boost::out_degree(bb, ICFG) == 0);
+        continue;
+      }
+      function_t &callee = b.Analysis.Functions.at(CalleeIdx);
+
+      const bool Returns = boost::out_degree(bb, ICFG) != 0;
+
+      boost::clear_out_edges(V, G); /* if there were any, they're gone now */
+
+      flow_vertex_t succV = boost::graph_traits<flow_graph_t>::null_vertex();
+      unsigned savedSuccInDeg;
+      if (Returns) {
+        assert(boost::out_degree(bb, ICFG) == 1);
+
+        succV = Orig2CopyMap.at(*boost::adjacent_vertices(bb, ICFG).first);
+        savedSuccInDeg = boost::in_degree(succV, G);
+      }
 
       std::vector<exit_vertex_pair_t> calleeExitVertices;
       flow_vertex_t calleeEntryV =
-          copy_function_cfg(jv, TCG, M, G, callee, GetBinary, GetBlocks, DFSan, ForCBE, calleeExitVertices, memoize, tool);
+          copy_function_cfg(jv, TCG, M, G, callee, GetBinary, GetBlocks, DFSan,
+                            ForCBE, calleeExitVertices, memoize, tool);
 
-      boost::add_edge(Orig2CopyMap.at(bb), calleeEntryV, G);
+      boost::add_edge(V, calleeEntryV, G);
 
-      auto eit_pair = boost::out_edges(bb, ICFG);
-      if (eit_pair.first == eit_pair.second)
-        break;
+      if (Returns) {
+        for (const auto &calleeExitVertPair : calleeExitVertices) {
+          flow_vertex_t exitV;
+          bool IsABI;
 
-      assert(eit_pair.first != eit_pair.second &&
-             std::next(eit_pair.first) == eit_pair.second);
+          std::tie(exitV, IsABI) = calleeExitVertPair;
 
-      flow_vertex_t succV = Orig2CopyMap.at(boost::target(*eit_pair.first, ICFG));
+          flow_edge_t E = boost::add_edge(exitV, succV, G).first;
+          if (callee.IsABI || IsABI)
+            G[E].reach.mask = CallConvRets;
+        }
+      }
 
-      boost::remove_edge(Orig2CopyMap.at(bb), succV, G);
+      if (Returns && boost::in_degree(succV, G) == savedSuccInDeg) {
+        //
+        // we know that this instruction returns, even if we don't know how
+        //
+        flow_vertex_t dummyV = boost::add_vertex(G);
 
-      for (const auto &calleeExitVertPair : calleeExitVertices) {
-        flow_vertex_t exitV;
-        bool IsABI;
+        static basic_block_properties_t dummy_bbprop;
+        dummy_bbprop.Analysis.reach.def = CallConvRets;
+        G[dummyV].bbprop = &dummy_bbprop;
 
-        std::tie(exitV, IsABI) = calleeExitVertPair;
-
-        flow_edge_t E = boost::add_edge(exitV, succV, G).first;
-        if (callee.IsABI || IsABI)
-          G[E].reach.mask = CallConvRets;
+        flow_edge_t E = boost::add_edge(V, dummyV, G).first;
+        boost::add_edge(dummyV, succV, G).first;
       }
 
       break;
@@ -1154,18 +1196,19 @@ static flow_vertex_t copy_function_cfg(jv_t &jv,
 
     case TERMINATOR::INDIRECT_JUMP: {
       {
-        flow_vertex_t flowVert = Orig2CopyMap.at(bb);
         auto it = std::find_if(exitVertices.begin(),
                                exitVertices.end(),
                                [&](exit_vertex_pair_t pair) -> bool {
-                                 return pair.first == flowVert;
-                               });
+                                 return pair.first == V;
+                               }); /* must be exit block */
         if (it == exitVertices.end())
           continue;
-        exitVertices.erase(it);
+        exitVertices.erase(it); /* exit blocks of callees replace exit block */
       }
 
       assert(ICFG[bb].hasDynTarget());
+
+      const unsigned savedNumExitVerts = exitVertices.size();
 
       for (dynamic_target_t DynTarget : ICFG[bb].dyn_targets()) {
         function_t &callee = function_of_target(DynTarget, jv);
@@ -1173,15 +1216,32 @@ static flow_vertex_t copy_function_cfg(jv_t &jv,
         std::vector<exit_vertex_pair_t> calleeExitVertices;
         flow_vertex_t calleeEntryV =
             copy_function_cfg(jv, TCG, M, G, callee, GetBinary, GetBlocks, DFSan, ForCBE, calleeExitVertices, memoize, tool);
-        boost::add_edge(Orig2CopyMap.at(bb), calleeEntryV, G);
+
+        boost::add_edge(V, calleeEntryV, G);
 
         for (const auto &calleeExitVertPair : calleeExitVertices) {
-          flow_vertex_t V;
+          flow_vertex_t exitV;
           bool IsABI;
-          std::tie(V, IsABI) = calleeExitVertPair;
+          std::tie(exitV, IsABI) = calleeExitVertPair;
 
-          exitVertices.emplace_back(V, callee.IsABI);
+          exitVertices.emplace_back(exitV, callee.IsABI);
         }
+      }
+
+      if (savedNumExitVerts == exitVertices.size()) {
+        //
+        // hallucinate an exit block.
+        //
+        flow_vertex_t dummyV = boost::add_vertex(G);
+
+        static basic_block_properties_t dummy_bbprop;
+        dummy_bbprop.Analysis.reach.def = CallConvRets;
+        G[dummyV].bbprop = &dummy_bbprop;
+
+        flow_edge_t E = boost::add_edge(V, dummyV, G).first;
+        G[E].reach.mask = CallConvRets; /* assume ABI */
+
+        exitVertices.emplace_back(dummyV, true /* abi */);
       }
       break;
     }
@@ -1197,6 +1257,7 @@ static flow_vertex_t copy_function_cfg(jv_t &jv,
   if (f.Returns && exitVertices.empty()) {
     flow_vertex_t dummyV = boost::add_vertex(G);
 
+    static basic_block_properties_t dummy_bbprop;
     dummy_bbprop.Analysis.reach.def = CallConvRets;
     G[dummyV].bbprop = &dummy_bbprop;
 
