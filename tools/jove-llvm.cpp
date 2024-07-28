@@ -2538,16 +2538,6 @@ int LLVMTool::InitStateForBinaries(void) {
 
       y.IsSj = IsFunctionSetjmp(f, binary, y.bbvec);
       y.IsLj = IsFunctionLongjmp(f, binary, y.bbvec);
-
-      if (y.IsSj)
-        llvm::outs() << llvm::formatv("setjmp found at {0:x} in {1}\n",
-                                      ICFG[basic_block_of_index(f.Entry, ICFG)].Addr,
-                                      fs::path(binary.path_str()).filename().string());
-
-      if (y.IsLj)
-        llvm::outs() << llvm::formatv("longjmp found at {0:x} in {1}\n",
-                                      ICFG[basic_block_of_index(f.Entry, ICFG)].Addr,
-                                      fs::path(binary.path_str()).filename().string());
     });
 
     ignore_exception([&]() {
@@ -2556,10 +2546,6 @@ int LLVMTool::InitStateForBinaries(void) {
       auto &SectsStartAddr = x.SectsStartAddr;
       auto &SectsEndAddr   = x.SectsEndAddr;
       std::tie(SectsStartAddr, SectsEndAddr) = B::bounds_of_binary(*x.Bin);
-
-      WithColor::note() << llvm::formatv("SectsStartAddr for {0} is {1:x}\n",
-                                         binary.Name.c_str(),
-                                         SectsStartAddr);
 
       B::_elf(*x.Bin, [&](ELFO &O) {
 
@@ -2583,6 +2569,14 @@ int LLVMTool::InitStateForBinaries(void) {
       }
       });
     });
+  });
+
+  for_each_binary(jv, [&](binary_t &b) {
+    binary_state_t &x = state.for_binary(b);
+
+    WithColor::note() << llvm::formatv("SectsStartAddr for {0} is {1:x}\n",
+                                       b.Name.c_str(),
+                                       x.SectsStartAddr);
   });
 
   auto &Binary = jv.Binaries.at(BinaryIndex);
