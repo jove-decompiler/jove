@@ -199,6 +199,9 @@ int AnalyzeTool::AnalyzeFunctions(void) {
         basic_blocks_of_function(f, b, x.bbvec);
         exit_basic_blocks_of_function(f, b, x.bbvec, x.exit_bbvec);
 
+        if (!x.exit_bbvec.empty())
+          f.Returns = true;
+
         x.IsLeaf = IsLeafFunction(f, b, x.bbvec);
 
         auto &ICFG = b.Analysis.ICFG;
