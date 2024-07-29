@@ -31,3 +31,5 @@ asm(".text\n"
 
     _ASM_FN_EPILOGUE(_jove_start) "\n"
     ".previous");
+
+# undef SETUP_GPX
