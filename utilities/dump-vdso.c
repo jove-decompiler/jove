@@ -4,6 +4,7 @@
 #define JOVE_CRASH_MODE 'a'
 
 #include "jove.util.c"
+#include "jove.start.c"
 
 struct vdso_t {
   void *ptr;
@@ -53,12 +54,13 @@ static _INL struct vdso_t _get_vdso(char *maps, const unsigned n) {
     }
   }
 
+  //_DUMP_WITH_LEN(maps, n);
   _UNREACHABLE("failed to find [vdso]");
 }
 
 _NORET
 _HIDDEN
-void _start(void) {
+void _jove_begin(void) {
   JOVE_BUFF(maps, JOVE_MAX_PROC_MAPS);
   unsigned maps_n = _jove_read_pseudo_file("/proc/self/maps", _maps.ptr, _maps.len);
 

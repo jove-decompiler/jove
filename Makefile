@@ -72,7 +72,7 @@ runtime_cflags = -std=gnu99 \
 
 UTILS_LDFLAGS := -fuse-ld=lld \
                  -nostdlib \
-                 -Wl,-e,_start \
+                 -Wl,-e,_jove_start \
                  -static
 
 runtime_so_ldflags = -nostdlib \
