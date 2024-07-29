@@ -149,22 +149,30 @@ jove_thunk_return_t _jove_thunk4(uintptr_t a0,
 #undef JOVE_THUNK_PROLOGUE
 #undef JOVE_THUNK_EPILOGUE
 
-asm(".text\n"
-    ".globl _jove_init"           "\n"
-    "_jove_init: .ent _jove_init" "\n"
-    ".set noreorder"              "\n"
-    ".cpload $t9"                 "\n"
-    ".set reorder"                "\n"
+/* when we can rely on t9 being set */
+#define SETUP_GP(gpreg)           \
+               .set noreorder;    \
+               move gpreg, $gp;   \
+               addiu $25, $25, 8; \
+               .cpload $25;       \
+               .set reorder
 
-    "subu $sp, $sp, 32" "\n" /* allocate stack memory */
+asm(".text\n"
+    _ASM_FN_PROLOGUE(_jove_init) "\n"
+    STRINGXV(SETUP_GP($24))      "\n"
+
+    ".set noreorder\n"
+
+    "addiu $sp, $sp, -64" "\n" /* allocate stack memory */
 
     "sw $a0,8($sp)"  "\n" /* save args */
-    "sw $a1,12($sp)" "\n"
-    "sw $a2,16($sp)" "\n"
-    "sw $a3,20($sp)" "\n"
+    "sw $a1,16($sp)" "\n"
+    "sw $a2,24($sp)" "\n"
+    "sw $a3,32($sp)" "\n"
 
-    "sw $ra,24($sp)" "\n" /* save ra */
-    "sw $gp,28($sp)" "\n" /* save gp */
+    "sw $ra,40($sp)" "\n" /* save ra */
+    "sw $gp,48($sp)" "\n" /* save our gp */
+    "sw $24,56($sp)" "\n" /* save original gp */
 
     /* XXX MAGIC INSTRUCTION BYTES XXX */
     "li $zero, 2345"  "\n" /* nop */
@@ -177,76 +185,94 @@ asm(".text\n"
 
     "la $t9, _jove_initialize" "\n"
     "jalr $t9"                 "\n"
+    "nop"                      "\n"
 
-    "lw $gp,28($sp)" "\n" /* gp could have been clobbered */
+    "lw $gp,48($sp)" "\n" /* our gp could have been clobbered */
 
     "la $t9, _jove_do_get_init_fn_sect_ptr" "\n"
-    "jalr $t9"                           "\n"
+    "jalr $t9"                              "\n"
+    "nop"                                   "\n"
 
     "beqz $v0, 10f" "\n" /* does DT_INIT function exist? */
+    "nop"           "\n"
 
     "lw $a0,8($sp)"  "\n" /* restore args */
-    "lw $a1,12($sp)" "\n"
-    "lw $a2,16($sp)" "\n"
-    "lw $a3,20($sp)" "\n"
+    "lw $a1,16($sp)" "\n"
+    "lw $a2,24($sp)" "\n"
+    "lw $a3,32($sp)" "\n"
 
     "move $t9, $v0" "\n"
     "jalr $t9"      "\n" /* call DT_INIT function */
+    "nop"           "\n"
 
-"10: lw $ra,24($sp)"     "\n" /* restore ra */
-    "addiu $sp, $sp, 32" "\n" /* deallocate stack memory */
+"10: lw $ra,40($sp)"      "\n" /* restore ra */
+    "lw $gp,56($sp)"      "\n" /* restore original gp */
+    "addiu $sp, $sp, 64" "\n" /* deallocate stack memory */
 
-    "jr $ra"          "\n"
-    ".end _jove_init" "\n");
+    "jr $ra" "\n"
+    "nop"    "\n"
+
+    ".set reorder\n"
+    _ASM_FN_EPILOGUE(_jove_init) "\n"
+    ".previous");
 
 //
 // XXX hack for glibc 2.32+
 //
 asm(".text\n"
-    ".globl _jove__libc_early_init"                       "\n"
-    "_jove__libc_early_init: .ent _jove__libc_early_init" "\n"
-    ".set noreorder"                                      "\n"
-    ".cpload $t9"                                         "\n"
-    ".set reorder"                                        "\n"
+    _ASM_FN_PROLOGUE(_jove__libc_early_init) "\n"
+    STRINGXV(SETUP_GP($24))                  "\n"
 
-    "subu $sp, $sp, 32" "\n" /* allocate stack memory */
+    ".set noreorder\n"
+
+    "addiu $sp, $sp, -64" "\n" /* allocate stack memory */
 
     "sw $a0,8($sp)"  "\n" /* save args */
-    "sw $a1,12($sp)" "\n"
-    "sw $a2,16($sp)" "\n"
-    "sw $a3,20($sp)" "\n"
+    "sw $a1,16($sp)" "\n"
+    "sw $a2,24($sp)" "\n"
+    "sw $a3,32($sp)" "\n"
 
-    "sw $ra,24($sp)" "\n" /* save ra */
-    "sw $gp,28($sp)" "\n" /* save gp */
+    "sw $ra,40($sp)" "\n" /* save ra */
+    "sw $gp,48($sp)" "\n" /* save ouur gp */
+    "sw $24,56($sp)" "\n" /* save original gp */
 
     "la $t9, _jove_do_call_rt_init" "\n"
-    "jalr $t9"                      "\n"
+    "jalr $t9"                       "\n"
+    "nop"                            "\n"
 
-    "lw $gp,28($sp)" "\n" /* gp could have been clobbered */
+    "lw $gp,48($sp)" "\n" /* our gp could have been clobbered */
 
     "la $t9, _jove_initialize" "\n"
-    "jalr $t9"                 "\n"
+    "jalr $t9"                  "\n"
+    "nop"                       "\n"
 
-    "lw $gp,28($sp)" "\n" /* gp could have been clobbered */
+    "lw $gp,48($sp)" "\n" /* our gp could have been clobbered */
 
     "la $t9, _jove_get_libc_early_init_fn_sect_ptr" "\n"
-    "jalr $t9"                                      "\n"
-
-    "move $t9, $v0"  "\n"
-    "jalr $t9"       "\n"
-
-    "lw $gp,28($sp)" "\n" /* gp could have been clobbered */
+    "jalr $t9"                                       "\n"
+    "nop"                                            "\n"
 
     "lw $a0,8($sp)"  "\n" /* restore args */
-    "lw $a1,12($sp)" "\n"
-    "lw $a2,16($sp)" "\n"
-    "lw $a3,20($sp)" "\n"
+    "lw $a1,16($sp)" "\n"
+    "lw $a2,24($sp)" "\n"
+    "lw $a3,32($sp)" "\n"
 
-    "lw $ra,24($sp)"     "\n" /* restore ra */
-    "addiu $sp, $sp, 32" "\n" /* deallocate stack memory */
+    "move $t9, $v0" "\n"
+    "jalr $t9"      "\n" /* call the (recompiled) __libc_early_init */
+    "nop"           "\n"
 
-    "jr $ra"                      "\n"
-    ".end _jove__libc_early_init" "\n");
+    "lw $ra,40($sp)"      "\n" /* restore ra */
+    "lw $gp,56($sp)"      "\n" /* restore original gp */
+    "addiu $sp, $sp, 64" "\n" /* deallocate stack memory */
+
+    "jr $ra" "\n"
+    "nop"    "\n"
+
+    ".set reorder\n"
+    _ASM_FN_EPILOGUE(_jove__libc_early_init) "\n"
+    ".previous");
+
+#undef SETUP_GP
 
 _HIDDEN void _jove_do_call_rt_init(void) {
   _jove_rt_init();
