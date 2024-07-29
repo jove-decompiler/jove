@@ -179,12 +179,12 @@ static const struct debug_option_pair debug_opt_tbl[] = {
 void _jove_parse_debug_string(char *const s) {
   const unsigned n = _strlen(s)+1;
 
-  save_and_swap_back_char_safe(&s[n - 1], ',', '\0'); /* comma-terminate */
+  set_restore_char_safe(&s[n - 1], ',', '\0'); /* comma-terminate */
 
   char *opt;
   for_each_str_delim_know_end(opt, ',', s, n) {
     /* null-terminate */
-    save_and_swap_back_char_safe(_memchr(opt, ',', n), '\0', ',');
+    set_restore_char_safe(_memchr(opt, ',', n), '\0', ',');
 
     bool found_opt = false;
 

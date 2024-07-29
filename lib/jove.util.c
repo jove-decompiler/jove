@@ -566,7 +566,7 @@ static void _jove_set_char(const jove_saved_char_t *sav) {
   const jove_saved_char_t UNIQUE_VAR_NAME(__save_and_swap_back)                \
       _CLEANUP(_jove_set_char) = _jove_save_and_set_char(p, ch)
 
-#define save_and_swap_back_char_safe(p, ch, expected)                          \
+#define set_restore_char_safe(p, ch, expected)                          \
   _ASSERT(*((const char *)(p)) == expected);                                   \
   save_and_swap_back_char(p, ch)
 
@@ -682,13 +682,13 @@ static _UNUSED bool _description_of_address_for_maps(char *out,
     *out = '\0';
 
     if (fwdslash) { /* e.g. /usr/bin/cat */
-      save_and_swap_back_char_safe(eol, '\0', '\n');
+      set_restore_char_safe(eol, '\0', '\n');
       _strcat(out, fwdslash);
     } else if (leftsqbr) { /* e.g. [vdso] */
-      save_and_swap_back_char_safe(eol, '\0', '\n');
+      set_restore_char_safe(eol, '\0', '\n');
       _strcat(out, leftsqbr);
     } else { /* anonymous mapping */
-      save_and_swap_back_char_safe(dash, '\0', '-');
+      set_restore_char_safe(dash, '\0', '-');
       _strcat(out, line);
     }
 
