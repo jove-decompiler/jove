@@ -563,7 +563,7 @@ static void _jove_set_char(const jove_saved_char_t *sav) {
 }
 
 #define set_restore_char(p, ch)                                                \
-  const jove_saved_char_t UNIQUE_VAR_NAME(__save_and_swap_back)                \
+  const jove_saved_char_t UNIQUE_VAR_NAME(__set_restore)                       \
       _CLEANUP(_jove_set_char) = _jove_save_and_set_char(p, ch)
 
 #define set_restore_char_safe(p, ch, expected)                                 \
