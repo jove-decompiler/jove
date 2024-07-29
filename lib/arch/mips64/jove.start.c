@@ -10,11 +10,6 @@
 		.cpsetup $31, cp_reg, 10b;		\
 		move $31, ra_save
 
-/* when we can rely on t9 being set */
-# define SETUP_GP64(gpreg, proc) \
-		move gpreg, $gp; \
-		.cpsetup $25, gpreg, proc
-
 asm(".text\n"
     _ASM_FN_PROLOGUE(_jove_start) "\n"
 

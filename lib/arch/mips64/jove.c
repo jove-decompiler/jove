@@ -232,6 +232,11 @@ jove_thunk_return_t _jove_thunk8(uintptr_t a0,
 #undef JOVE_THUNK_PROLOGUE
 #undef JOVE_THUNK_EPILOGUE
 
+/* when we can rely on t9 being set */
+# define SETUP_GP64(gpreg, proc) \
+		move gpreg, $gp; \
+		.cpsetup $25, gpreg, proc
+
 asm(".text\n"
     _ASM_FN_PROLOGUE(_jove_init)         "\n"
     STRINGXV(SETUP_GP64($24,_jove_init)) "\n"
