@@ -1,7 +1,7 @@
 #include "jove.macros.h"
 
 #define JOVE_SYS_ATTR _NOINL _UNUSED
-#define JOVE_CRASH_MODE 'a'
+#define JOVE_CRASH_MODE '\0'
 
 #include "jove.util.c"
 #include "jove.start.c"
