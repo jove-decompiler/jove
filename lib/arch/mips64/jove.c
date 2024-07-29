@@ -233,9 +233,10 @@ jove_thunk_return_t _jove_thunk8(uintptr_t a0,
 #undef JOVE_THUNK_EPILOGUE
 
 /* when we can rely on t9 being set */
-# define SETUP_GP64(gpreg, proc) \
-		move gpreg, $gp; \
-		.cpsetup $25, gpreg, proc
+#define SETUP_GP64(gpreg, proc)           \
+               .set noreorder;            \
+               .cpsetup $25, gpreg, proc; \
+               .set reorder
 
 asm(".text\n"
     _ASM_FN_PROLOGUE(_jove_init)         "\n"
@@ -270,10 +271,11 @@ asm(".text\n"
     "ld $gp,48($sp)" "\n" /* our gp could have been clobbered */
 
     "dla $t9, _jove_do_get_init_fn_sect_ptr" "\n"
-    "jalr $t9"                            "\n"
-    "nop"                                 "\n"
+    "jalr $t9"                               "\n"
+    "nop"                                    "\n"
 
     "beqz $v0, 10f" "\n" /* does DT_INIT function exist? */
+    "nop"           "\n"
 
     "ld $a0,8($sp)"  "\n" /* restore args */
     "ld $a1,16($sp)" "\n"
@@ -350,6 +352,8 @@ asm(".text\n"
     ".set reorder\n"
     _ASM_FN_EPILOGUE(_jove__libc_early_init) "\n"
     ".previous");
+
+#undef SETUP_GP64
 
 _HIDDEN void _jove_do_call_rt_init(void) {
   if (_jove_rt_init_clunk)
