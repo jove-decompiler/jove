@@ -9,6 +9,7 @@
 #include <memory>
 
 #include <unistd.h>
+#include <fcntl.h>
 
 namespace jove {
 
@@ -82,6 +83,10 @@ bool capture_vdso(std::string &out) {
         rfd.reset();
         ::dup2(wfd->get(), STDOUT_FILENO);
         wfd.reset();
+
+        int nullfd = ::open("/dev/null", O_WRONLY);
+        ::dup2(nullfd, STDERR_FILENO);
+        ::close(nullfd);
       });
   wfd.reset();
 
