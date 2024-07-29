@@ -111,9 +111,7 @@ UTILDEPS   := $(foreach t,$(ALL_TARGETS),$(foreach util,$(UTILS),$(BINDIR)/$(t)/
 .PHONY: all
 all: helpers \
      runtime \
-     utilities \
-     qemu-starters \
-     dump-vdsos
+     utilities
 
 .PHONY: helpers
 helpers: $(foreach t,$(ALL_TARGETS),helpers-$(t))
