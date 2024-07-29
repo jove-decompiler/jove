@@ -6,43 +6,6 @@ typedef uint64_t jove_thunk_return_t;
 
 #include "jove.common.c"
 
-# define SETUP_GPX64(cp_reg, ra_save)			\
-		move ra_save, $31; /* Save old ra.  */	\
-		.set noreorder;				\
-		bal 10f; /* Find addr of .cpsetup.  */	\
-		nop;					\
-10:							\
-		.set reorder;				\
-		.cpsetup $31, cp_reg, 10b;		\
-		move $31, ra_save
-
-/* when we can rely on t9 being set */
-# define SETUP_GP64(gpreg, proc) \
-		move gpreg, $gp; \
-		.cpsetup $25, gpreg, proc
-
-asm(".text\n"
-    _ASM_FN_PROLOGUE(_jove_start) "\n"
-
-    STRINGXV(SETUP_GPX64($0,$0))  "\n"
-
-    /* The return address register is set to zero so that programs
-       that search backword through stack frames recognize the last
-       stack frame. */
-    "move $ra, $0"                "\n"
-
-    "move $a2, $v0"               "\n"
-    "move $a3, $sp"               "\n"
-
-    "dla $t9, _jove_begin"        "\n"
-    "jalr $t9"                    "\n"
-    "nop"                         "\n"
-
-    "break"                       "\n"
-
-    _ASM_FN_EPILOGUE(_jove_start) "\n"
-    ".previous");
-
 _HIDDEN
 void _jove_begin(uintptr_t a0,
                  uintptr_t a1,

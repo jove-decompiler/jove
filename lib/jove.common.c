@@ -1609,3 +1609,4 @@ void __nodce(void **p) {
 }
 
 #include "jove.recover.c"
+#include "jove.start.c"
