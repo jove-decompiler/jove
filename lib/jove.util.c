@@ -562,13 +562,13 @@ static void _jove_set_char(const jove_saved_char_t *sav) {
   *sav->p = sav->ch;
 }
 
-#define save_and_swap_back_char(p, ch)                                         \
+#define set_restore_char(p, ch)                                                \
   const jove_saved_char_t UNIQUE_VAR_NAME(__save_and_swap_back)                \
       _CLEANUP(_jove_set_char) = _jove_save_and_set_char(p, ch)
 
-#define set_restore_char_safe(p, ch, expected)                          \
+#define set_restore_char_safe(p, ch, expected)                                 \
   _ASSERT(*((const char *)(p)) == expected);                                   \
-  save_and_swap_back_char(p, ch)
+  set_restore_char(p, ch)
 
 //
 // parsing
