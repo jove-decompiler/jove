@@ -70,10 +70,10 @@ runtime_cflags = -std=gnu99 \
                  -fno-plt \
                  -fPIC
 
-STARTER_LDFLAGS := -fuse-ld=lld \
-                   -nostdlib \
-                   -Wl,-e,_start \
-                   -static
+UTILS_LDFLAGS := -fuse-ld=lld \
+                 -nostdlib \
+                 -Wl,-e,_start \
+                 -static
 
 runtime_so_ldflags = -nostdlib \
                      -soname=libjove_rt.so \
@@ -96,12 +96,22 @@ runtime_dll_ldflags = /dll \
                       /auto-import:no \
                       /runtime-pseudo-reloc:no
 
+#
+# find utilities
+#
+UTILSRCDIR := utilities
+UTILSRCS   := $(wildcard $(UTILSRCDIR)/*.c)
+UTILS      := $(patsubst $(UTILSRCDIR)/%.c,%,$(UTILSRCS))
+UTILBINS   := $(foreach t,$(ALL_TARGETS),$(foreach util,$(UTILS),$(BINDIR)/$(t)/$(util)))
+UTILDEPS   := $(foreach t,$(ALL_TARGETS),$(foreach util,$(UTILS),$(BINDIR)/$(t)/$(util).d))
+
 # disable built-in rules
 .SUFFIXES:
 
 .PHONY: all
 all: helpers \
      runtime \
+     utilities \
      qemu-starters \
      dump-vdsos
 
@@ -111,11 +121,8 @@ helpers: $(foreach t,$(ALL_TARGETS),helpers-$(t))
 .PHONY: runtime
 runtime: $(foreach t,$(ALL_TARGETS),runtime-$(t))
 
-.PHONY: qemu-starters
-qemu-starters: $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/qemu-starter)
-
-.PHONY: dump-vdsos
-dump-vdsos: $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/dump-vdso)
+.PHONY: utilities
+utilities: $(UTILBINS)
 
 runtime_dlls = $(BINDIR)/$(1)/libjove_rt.st.dll
 #               $(BINDIR)/$(1)/libjove_rt.mt.dll
@@ -147,12 +154,8 @@ runtime-$(1): $(BINDIR)/$(1)/libjove_rt.st.so \
               $(BINDIR)/$(1)/jove.coff.mt.ll \
               $(_DLLS_$(1))
 
-$(BINDIR)/$(1)/qemu-starter: lib/arch/$(1)/qemu-starter.c
-	clang-16 -o $$@ $(call runtime_cflags,$(1)) $(STARTER_LDFLAGS) $$<
-	llvm-strip-16 $$@
-
-$(BINDIR)/$(1)/dump-vdso: lib/arch/$(1)/dump-vdso.c
-	clang-16 -o $$@ $(call runtime_cflags,$(1)) $(STARTER_LDFLAGS) $$<
+$(BINDIR)/$(1)/%: $(UTILSRCDIR)/%.c
+	clang-16 -o $$@ $(call runtime_cflags,$(1)) $(UTILS_LDFLAGS) $$<
 	llvm-strip-16 $$@
 
 $(BINDIR)/$(1)/qemu-starter.inc: $(BINDIR)/$(1)/qemu-starter
