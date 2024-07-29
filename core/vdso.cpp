@@ -108,10 +108,9 @@ bool capture_vdso(std::string &out) {
 
     out.append(buff.data(), ret);
   }
+  rfd.reset();
 
   int ret_val = WaitForProcessToExit(pid);
-
-  rfd.reset();
 
   return ret_val == 0;
 }
