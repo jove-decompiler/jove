@@ -571,6 +571,10 @@ public:
                                     llvm::Value *Env,
                                     unsigned glb);
 
+  llvm::Constant *EnvExpression(void) {
+    return llvm::ConstantExpr::getPtrToInt(CPUStateGlobal, WordType());
+  }
+
   std::string SectionsTopName(void) {
     if (LaidOut.HeadGV)
       return LaidOut.HeadGV->getName().str();
@@ -8186,7 +8190,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
   auto get = [&](unsigned glb) -> llvm::Value * {
     switch (glb) {
     case tcg_env_index:
-      return llvm::ConstantExpr::getPtrToInt(CPUStateGlobal, WordType());
+      return EnvExpression();
 #if defined(TARGET_X86_64) || defined(TARGET_I386)
     case tcg_fs_base_index:
     case tcg_gs_base_index:
@@ -9981,43 +9985,6 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
   auto &PCAlloca = TC.PCAlloca;
   TCGContext *s = jv_get_tcg_context();
 
-  auto set = [&](llvm::Value *V, TCGTemp *ts) -> void {
-    assert(ts->kind != TEMP_CONST);
-
-    unsigned idx = temp_idx(ts);
-    assert(idx != tcg_env_index);
-
-    if (V->getType()->isPointerTy())
-      V = IRB.CreatePtrToInt(V, WordType());
-
-    V = IRB.CreateIntCast(V, IRB.getIntNTy(bitsOfTCGType(ts->type)), false);
-
-    if (ts->kind == TEMP_GLOBAL) {
-      if (unlikely(PinnedEnvGlbs.test(idx))) {
-        llvm::StoreInst *SI =
-            IRB.CreateStore(V, BuildCPUStatePointer(IRB, CPUStateGlobal, idx));
-        SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
-        return;
-      }
-
-      llvm::AllocaInst *&Ptr = GlobalAllocaArr.at(idx);
-      if (!Ptr) {
-        llvm::IRBuilderTy tmpIRB(&state.for_function(f).F->getEntryBlock().front());
-
-        Ptr = CreateAllocaForGlobal(TC, tmpIRB, idx);
-      }
-
-      llvm::StoreInst *SI = IRB.CreateStore(V, Ptr);
-      SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
-    } else {
-      llvm::AllocaInst *Ptr = TempAllocaVec.at(idx);
-      assert(Ptr);
-
-      llvm::StoreInst *SI = IRB.CreateStore(V, Ptr);
-      SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
-    }
-  };
-
   auto immediate_constant = [&](unsigned bits, TCGArg A) -> llvm::Value * {
     if (!pcrel_flag)
       return llvm::ConstantInt::get(llvm::Type::getIntNTy(*Context, bits), A);
@@ -10025,25 +9992,22 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
     pcrel_flag = false; /* reset pcrel flag */
     assert(bits == WordBits());
 
-#if 1
+    //return SectionPointer(A);
     return llvm::ConstantExpr::getAdd(
         llvm::ConstantExpr::getPtrToInt(SectionsTop(), WordType()),
         llvm::ConstantExpr::getSub(
             llvm::ConstantInt::get(WordType(), A),
             llvm::ConstantInt::get(WordType(), state.for_binary(Binary).SectsStartAddr)));
-#else
-    return SectionPointer(A);
-#endif
   };
 
-  auto get = [&](TCGTemp *ts) -> llvm::Value * {
-    if (ts->kind == TEMP_CONST)
-      return immediate_constant(bitsOfTCGType(ts->type), ts->val);
+  /* special-cased global temps */
+  auto get_special = [&](TCGTemp *ts) -> llvm::Value * {
+    assert(ts->kind != TEMP_CONST);
 
     unsigned idx = temp_idx(ts);
     switch (idx) {
     case tcg_env_index:
-      return IRB.CreatePtrToInt(CPUStateGlobal, WordType());
+      return EnvExpression();
 #if defined(TARGET_X86_64) || defined(TARGET_I386)
     case tcg_fs_base_index:
     case tcg_gs_base_index:
@@ -10051,14 +10015,18 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
 #endif
     }
 
+    return nullptr;
+  };
+
+  /* get pointer to temp */
+  auto get_ptr = [&](TCGTemp *ts) -> llvm::Value * {
+    assert(ts->kind != TEMP_CONST);
+    assert(!get_special(ts));
+
+    unsigned idx = temp_idx(ts);
     if (ts->kind == TEMP_GLOBAL) {
-      if (unlikely(PinnedEnvGlbs.test(idx))) {
-        llvm::LoadInst *LI =
-            IRB.CreateLoad(TypeOfTCGType(ts->type),
-                           BuildCPUStatePointer(IRB, CPUStateGlobal, idx));
-        LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
-        return LI;
-      }
+      if (unlikely(PinnedEnvGlbs.test(idx)))
+        return BuildCPUStatePointer(IRB, CPUStateGlobal, idx);
 
       llvm::AllocaInst *&Ptr = GlobalAllocaArr.at(idx);
       if (!Ptr) {
@@ -10067,17 +10035,77 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
         Ptr = CreateAllocaForGlobal(TC, tmpIRB, idx);
       }
 
-      llvm::LoadInst *LI = IRB.CreateLoad(TypeOfTCGType(ts->type), Ptr);
-      LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
-      return LI;
-    } else {
-      llvm::AllocaInst *Ptr = TempAllocaVec.at(idx);
-      assert(Ptr);
-
-      llvm::LoadInst *LI = IRB.CreateLoad(TypeOfTCGType(ts->type), Ptr);
-      LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
-      return LI;
+      return Ptr;
     }
+
+    llvm::AllocaInst *Ptr = TempAllocaVec.at(idx);
+    assert(Ptr);
+    return Ptr;
+  };
+
+  /* load from temp */
+  auto get = [&](TCGTemp *ts) -> llvm::Value * {
+    if (ts->kind == TEMP_CONST)
+      return immediate_constant(bitsOfTCGType(ts->type), ts->val);
+
+    if (llvm::Value *V = get_special(ts)) {
+      assert(V->getType()->isIntegerTy(bitsOfTCGType(ts->type)));
+      return V;
+    }
+
+    llvm::LoadInst *LI = IRB.CreateLoad(TypeOfTCGType(ts->type), get_ptr(ts));
+    LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
+    return LI;
+  };
+
+  /* load word from temp */
+  auto get_word = [&](TCGTemp *ts) -> llvm::Value * {
+    assert(bitsOfTCGType(ts->type) >= WordBits());
+
+    if (ts->kind == TEMP_CONST)
+      return immediate_constant(WordBits(), ts->val);
+
+    if (llvm::Value *V = get_special(ts)) {
+      assert(V->getType()->isIntegerTy(WordBits()));
+      return V;
+    }
+
+    llvm::LoadInst *LI = IRB.CreateLoad(WordType(), get_ptr(ts));
+    LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
+    return LI;
+  };
+
+  /* store to temp */
+  auto set = [&](llvm::Value *V, TCGTemp *ts) -> void {
+    assert(temp_idx(ts) != tcg_env_index);
+    assert(ts->kind != TEMP_CONST);
+
+    if (V->getType()->isPointerTy()) {
+      assert(bitsOfTCGType(ts->type) == WordBits());
+
+      V = IRB.CreatePtrToInt(V, WordType());
+    } else {
+      V = IRB.CreateIntCast(V, TypeOfTCGType(ts->type), false);
+    }
+
+    llvm::StoreInst *SI = IRB.CreateStore(V, get_ptr(ts));
+    SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
+  };
+
+  /* store word to temp */
+  auto set_word = [&](llvm::Value *V, TCGTemp *ts) -> void {
+    assert(temp_idx(ts) != tcg_env_index);
+    assert(ts->kind != TEMP_CONST);
+
+    assert(bitsOfTCGType(ts->type) >= WordBits());
+
+    if (V->getType()->isPointerTy())
+      V = IRB.CreatePtrToInt(V, WordType());
+    else
+      assert(V->getType()->isIntegerTy(WordBits()));
+
+    llvm::StoreInst *SI = IRB.CreateStore(V, get_ptr(ts));
+    SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
   };
 
   TCGOpcode opc = op->opc;
@@ -10244,16 +10272,14 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
       }
     }
 
-    llvm::Value *ptr = get(ptr_tmp);
+    llvm::Value *UPtr =
+        IRB.CreateAdd(get_word(ptr_tmp), IRB.getIntN(WordBits(), off));
 
-    ptr = IRB.CreateZExt(ptr, WordType());
-    ptr = IRB.CreateAdd(ptr, IRB.getIntN(WordBits(), off));
-
-    ptr = IRB.CreateIntToPtr(
-        ptr, llvm::PointerType::get(IRB.getIntNTy(bits), 0));
+    llvm::Value *Ptr = IRB.CreateIntToPtr(
+        UPtr, llvm::PointerType::get(IRB.getIntNTy(bits), 0));
 
     if (IsLoad) {
-      llvm::LoadInst *LI = IRB.CreateLoad(IRB.getIntNTy(bits), ptr);
+      llvm::LoadInst *LI = IRB.CreateLoad(IRB.getIntNTy(bits), Ptr);
 
       llvm::Value *Casted = IRB.CreateIntCast(
           LI,
@@ -10264,7 +10290,7 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
     } else {
       llvm::Value *Casted =
           IRB.CreateIntCast(get(input_arg(0)), IRB.getIntNTy(bits), Signed);
-      IRB.CreateStore(Casted, ptr);
+      IRB.CreateStore(Casted, Ptr);
     }
   };
 
@@ -10320,10 +10346,8 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
       const uint64_t Addr = op->args[0];
       lstaddr = Addr;
 
-#if 0
-      if (IsVerbose())
+      if (IsVeryVerbose())
         HumanOut() << llvm::formatv("insn @ {0:x}\n", Addr);
-#endif
 
       static_assert(sizeof(unsigned) == sizeof(uint32_t));
 
@@ -10409,38 +10433,16 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
           ArgVec.push_back(IRB.CreatePointerCast(CPUStateGlobal, ParamTy));
 
         ++iarg_idx;
-
-        if (ts->type == TCG_TYPE_I32 && sizeof(TCGArg) == sizeof(uint64_t)) {
-          if (IsVerbose())
-            WithColor::warning() << llvm::formatv("skipping arg at {0}\n", iarg_idx);
-          ++iarg_idx;
-        }
       } else if (ParamTy->isPointerTy()) {
-        if (WordBits() == 32) {
-          assert(ts->type == TCG_TYPE_I32);
-        } else if (WordBits() == 64) {
-          assert(ts->type == TCG_TYPE_I64);
-        } else {
-          __builtin_trap();
-          __builtin_unreachable();
-        }
-
-        ArgVec.push_back(IRB.CreateIntToPtr(get(ts), ParamTy));
+        ArgVec.push_back(IRB.CreateIntToPtr(get_word(ts), ParamTy));
         ++iarg_idx;
-
-        if (ts->type == TCG_TYPE_I32 && sizeof(TCGArg) == sizeof(uint64_t)) {
-          if (IsVerbose())
-            WithColor::warning() << llvm::formatv("skipping arg at {0}\n", iarg_idx);
-          ++iarg_idx;
-        }
       } else if (ParamTy->isIntegerTy()) {
         if (ParamTy->isIntegerTy(32)) {
           if (ts->type == TCG_TYPE_I32) {
             ArgVec.push_back(get(ts));
             ++iarg_idx;
           } else {
-            __builtin_trap();
-            __builtin_unreachable();
+            assert(false);
           }
         } else if (ParamTy->isIntegerTy(64)) {
           if (ts->type == TCG_TYPE_I64) {
@@ -10462,16 +10464,13 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
                                            llvm::APInt(64, 32)));
             ArgVec.push_back(combined);
           } else {
-            __builtin_trap();
-            __builtin_unreachable();
+            assert(false);
           }
         } else {
-          __builtin_trap();
-          __builtin_unreachable();
+          assert(false);
         }
       } else {
-        __builtin_trap();
-        __builtin_unreachable();
+        assert(false);
       }
     }
 
@@ -10694,10 +10693,32 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
     break;
 
 #define __ARITH_OP(opc_name, LLVMOp, bits)                                     \
-  case opc_name:                                                               \
-    set(IRB.Create##LLVMOp(get(input_arg(0)), get(input_arg(1))),              \
-        output_arg(0));                                                        \
-    break;
+  case opc_name: {                                                             \
+    TCGTemp *x = input_arg(0);                                                 \
+    TCGTemp *y = input_arg(1);                                                 \
+                                                                               \
+    /* XXX when cross-compiling to 32-bit target on 64-bit host qemu will    */\
+    /* generate code to compute 64-bit addresses (because it assumes the     */\
+    /* code will run in 64-bit address-space). hence we configure qemu with  */\
+    /* --enable-tcg-interpreter, and here we intervene when computing an env */\
+    /* pointer. */                                                             \
+    if (opc_name == INDEX_op_add_i64 && WordBits() == 32) {                    \
+      bool x_isenv = temp_idx(x) == tcg_env_index;                             \
+      bool y_isenv = temp_idx(y) == tcg_env_index;                             \
+      if (x_isenv || y_isenv) {                                                \
+        assert(x_isenv ^ y_isenv);                                             \
+                                                                               \
+        auto *X = x_isenv ? get_word(x) : IRB.CreateTrunc(get(x), WordType()); \
+        auto *Y = y_isenv ? get_word(y) : IRB.CreateTrunc(get(y), WordType()); \
+                                                                               \
+        set_word(IRB.Create##LLVMOp(X, Y), output_arg(0));                     \
+        break;                                                                 \
+      }                                                                        \
+    }                                                                          \
+                                                                               \
+    set(IRB.Create##LLVMOp(get(x), get(y)), output_arg(0));                    \
+    break;                                                                     \
+  }
 
     __ARITH_OP(INDEX_op_add_i32, Add, 32)
     __ARITH_OP(INDEX_op_sub_i32, Sub, 32)
