@@ -233,8 +233,10 @@ jove_thunk_return_t _jove_thunk8(uintptr_t a0,
 #undef JOVE_THUNK_EPILOGUE
 
 /* when we can rely on t9 being set */
+/* NOTE: if non-PIC cpsetup is no-op */
 #define SETUP_GP64(gpreg, proc)           \
                .set noreorder;            \
+               move gpreg, $gp;           \
                .cpsetup $25, gpreg, proc; \
                .set reorder
 
