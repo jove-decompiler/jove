@@ -687,7 +687,7 @@ int RunTool::DoRun(void) {
   //
   fs::path prog_path = opts.Prog;
   if (!WillChroot && fs::equivalent(opts.Prog, jv.Binaries.at(0).path_str()))
-    prog_path = fs::path(opts.sysroot) / opts.Prog;
+    prog_path = fs::path(opts.sysroot) / jv.Binaries.at(0).path_str();
 
   pid_t pid = -1;
   try {
