@@ -198,6 +198,8 @@ std::string unique_symbol_for_ordinal_in_dll(llvm::StringRef DLL,
   res.append("_");
   res.append(std::to_string(Ordinal));
 
+  lower_string(res);
+
   return res;
 }
 
