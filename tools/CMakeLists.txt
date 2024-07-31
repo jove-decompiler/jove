@@ -18,6 +18,7 @@ set(JOVE_TOOL_FLAGS
   "-Wno-gnu-statement-expression-from-macro-expansion"
   "-Wno-c99-extensions"
   "-DBOOST_ICL_USE_STATIC_BOUNDED_INTERVALS"
+  "-DBOOST_INTERPROCESS_POSIX_ROBUST_MUTEXES"
 )
 
 set(JOVE_ALL_TARGETS
