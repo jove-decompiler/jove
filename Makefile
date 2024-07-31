@@ -122,8 +122,8 @@ runtime: $(foreach t,$(ALL_TARGETS),runtime-$(t))
 .PHONY: utilities
 utilities: $(UTILBINS)
 
-runtime_dlls = $(BINDIR)/$(1)/libjove_rt.st.dll
-#               $(BINDIR)/$(1)/libjove_rt.mt.dll
+runtime_dlls = $(BINDIR)/$(1)/libjove_rt.st.dll \
+               $(BINDIR)/$(1)/libjove_rt.mt.dll
 
 _DLLS_x86_64 := $(call runtime_dlls,x86_64)
 _DLLS_i386   := $(call runtime_dlls,i386)
