@@ -57,6 +57,8 @@ namespace {
 struct binary_state_t {
   std::unique_ptr<llvm::object::Binary> Bin;
 
+  fs::path chrooted_path;
+
   uint64_t Base = 0, End = 0;
 
   struct {
@@ -387,6 +389,9 @@ int RecompileTool::Run(void) {
     x.Bin = B::Create(b.data());
     std::tie(x.Base, x.End) = B::bounds_of_binary(*x.Bin);
 
+    if (b.is_file())
+      x.chrooted_path = fs::path(opts.Output.getValue()) / a2r(b.path_str());
+
     //
     // what is this binary called as far as dynamic linking goes?
     //
@@ -443,12 +448,15 @@ int RecompileTool::Run(void) {
     if (!b.IsDynamicLinker)
       continue;
 
+    binary_state_t &x = state.for_binary(b);
+
+    const auto &chrooted_path = x.chrooted_path;
+
     //
     // we have the binary data in the jv. let's use it
     //
     fs::path ldso_path = fs::path(temporary_dir()) / "ld.so";
 
-    fs::path chrooted_path(opts.Output + b.path_str());
     fs::create_directories(chrooted_path.parent_path());
 
     {
@@ -820,9 +828,11 @@ int RecompileTool::Run(void) {
     if (b.IsExecutable)
       return;
 
-    const fs::path chrooted_path = fs::path(opts.Output.getValue()) / a2r(b.path_str());
-    fs::create_directories(chrooted_path.parent_path());
+    binary_state_t &x = state.for_binary(b);
 
+    const auto &chrooted_path = x.chrooted_path;
+
+    fs::create_directories(chrooted_path.parent_path());
     fs::remove(chrooted_path);
 
     {
@@ -840,8 +850,6 @@ int RecompileTool::Run(void) {
                                    fs::perms::owner_read |
                                    fs::perms::owner_write |
                                    fs::perms::owner_exec);
-
-    binary_state_t &x = state.for_binary(b);
 
     B::_elf(*x.Bin, [&](ELFO &O) {
 
@@ -870,14 +878,28 @@ int RecompileTool::Run(void) {
     B::_coff(*x.Bin, [&](COFFO &O) {
       std::string def_path =
           fs::path(chrooted_path).replace_extension("def").string();
-      {
-        std::ofstream ofs(def_path);
 
-        coff::gen_module_definition_for_dll(O, x.soname, ofs);
-      }
+      std::ofstream ofs(def_path);
+
+      coff::gen_module_definition_for_dll(O, x.soname, ofs);
+    });
+  });
+
+  for_each_binary(std::execution::par_unseq, jv, [&](binary_t &b) {
+    if (!b.is_file())
+      return;
+
+    if (b.IsExecutable)
+      return;
+
+    binary_state_t &x = state.for_binary(b);
+
+    B::_coff(*x.Bin, [&](COFFO &O) {
+      std::string def_path =
+          fs::path(x.chrooted_path).replace_extension("def").string();
 
       std::string imp_lib_path =
-          fs::path(chrooted_path).replace_extension("lib").string();
+          fs::path(x.chrooted_path).replace_extension("lib").string();
 
       if (unlikely(RunExecutableToExit(locator().dlltool(), [&](auto Arg) {
             Arg(locator().dlltool());
@@ -909,7 +931,7 @@ int RecompileTool::Run(void) {
 
     binary_state_t &x = state.for_binary(b);
 
-    const fs::path chrooted_path = fs::path(opts.Output.getValue()) / a2r(b.path_str());
+    const auto &chrooted_path = x.chrooted_path;
 
     std::string binary_filename = fs::path(b.path_str()).filename().string();
 
@@ -1207,8 +1229,10 @@ void RecompileTool::worker(dso_t dso) {
 
   assert(b.is_file());
 
-  const fs::path chrooted_path =
-      fs::path(opts.Output.getValue()) / a2r(b.path_str());
+  binary_state_t &x = state.for_binary(b);
+
+  const auto &chrooted_path = x.chrooted_path;
+
   fs::create_directories(chrooted_path.parent_path());
 
   std::string binary_filename = fs::path(b.path_str()).filename().string();
