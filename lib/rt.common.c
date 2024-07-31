@@ -260,6 +260,9 @@ void _jove_dump_opts(void) {
   _DUMP(s);
 }
 
+#ifdef JOVE_COFF
+uint32_t _tls_index = 0;
+
 BOOL DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved)
 {
 
@@ -288,6 +291,8 @@ BOOL WINAPI _DllMainCRTStartup(HMODULE hModule,
 {
     return DllMain(hModule, ul_reason_for_call, lpReserved);
 }
+
+#endif
 
 void _jove_init_cpu_state(void) {
   if (__jove_initialized_env)

@@ -357,7 +357,10 @@ found:
   }
 }
 
+#ifdef JOVE_COFF
 #if defined(__x86_64__) || defined(__i386__)
+
+uint32_t _tls_index = 0;
 
 void WINAPI JoveWinMain(void) {
   //
@@ -380,6 +383,7 @@ void WINAPI JoveWinMain(void) {
   _jove_call_entry();
 }
 
+#endif
 #endif
 
 static uintptr_t _jove_begin_setup_emulated_stack(uintptr_t init_sp) {
