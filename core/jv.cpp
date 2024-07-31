@@ -9,7 +9,18 @@ namespace fs = boost::filesystem;
 namespace jove {
 
 size_t jvDefaultInitialSize(void) {
-  return (sizeof(void *) == 8 ? 128UL : 1UL) * 2UL * 1024UL * 65536UL;
+
+#define GiB (16ul * 1024ul * 65536ul)
+#define MiB (10485766ul)
+
+  switch (sizeof(void *)) {
+  case 8:
+    return 5*GiB;
+  case 4:
+    return 128*MiB;
+  }
+
+  abort();
 }
 
 void jv_t::UpdateCachedHash(cached_hash_t &cache,
