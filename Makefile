@@ -298,7 +298,8 @@ check-helpers-$(1): $(foreach h,$($(1)_HELPERS),check-helper-$(1)-$(h))
 
 .PHONY: clean-helpers-$(1)
 clean-helpers-$(1):
-	rm -f $(foreach h,$($(1)_HELPERS),$(BINDIR)/$(1)/helpers/$(h).c)
+	rm -f $(foreach h,$($(1)_HELPERS),$(BINDIR)/$(1)/helpers/$(h).c) \
+	      $(foreach h,$($(1)_HELPERS),$(BINDIR)/$(1)/helpers/$(h).d)
 
 .PHONY: clean-runtime-$(1)
 clean-runtime-$(1):
