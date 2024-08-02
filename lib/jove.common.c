@@ -1490,7 +1490,7 @@ found:
         _strcat(s, "\t=0x");
         {
           char buff[65];
-          _uint_to_string((uint64_t)res, buff, 0x10);
+          _uint_to_string(res & (((jove_thunk_return_t)1ULL) << (sizeof(uintptr_t)*8)-1), buff, 0x10);
 
           _strcat(s, buff);
         }
