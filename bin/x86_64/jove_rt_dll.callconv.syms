@@ -1,7 +1,0 @@
-_jove_callstack_begin_location
-_jove_callstack_location
-_jove_do_free_callstack
-_jove_do_free_stack_later
-_jove_emusp_location
-_jove_handle_signal_delivery
-_jove_rt_signal_handler
