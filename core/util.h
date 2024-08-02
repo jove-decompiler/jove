@@ -53,21 +53,26 @@ template <typename T>
 inline void read_file_into_thing(const char *path, T &out) {
   out.clear();
 
-  std::ifstream ifs(path);
+  std::ifstream ifs(path, std::ios::binary | std::ios::ate);
   if (!ifs.is_open())
     throw std::runtime_error("read_file_into_thing: failed to open " +
                              std::string(path));
 
-  ifs.seekg(0, std::ios::end);
-
-  std::streampos pos = ifs.tellg();
+  auto pos = ifs.tellg();
   if (pos == 0)
     return;
 
-  out.resize(pos);
-  ifs.seekg(0);
+  try {
+    out.resize(pos);
+  } catch (const std::bad_alloc &bad) {
+    throw std::runtime_error(
+        "read_file_into_thing: attempted to resize vec by " +
+        std::to_string(pos) + " bytes after reading \"" + path + "\"");
+  }
 
-  ifs.read(reinterpret_cast<char *>(&out[0]), out.size());
+  ifs.seekg(0, std::ios::beg);
+
+  ifs.read((char *)&out[0], out.size());
 }
 
 template <typename T>
