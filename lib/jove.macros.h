@@ -33,6 +33,24 @@
 #define _HIDDEN __attribute__((visibility("hidden")))
 #define _SECTION(name) __attribute__((section(name)))
 
+#ifndef max
+#define max(a, b)                                                              \
+  ({                                                                           \
+    __typeof__(a) _a = (a);                                                    \
+    __typeof__(b) _b = (b);                                                    \
+    _a > _b ? _a : _b;                                                         \
+  })
+#endif
+
+#ifndef min
+#define min(a, b)                                                              \
+  ({                                                                           \
+    __typeof__(a) _a = (a);                                                    \
+    __typeof__(b) _b = (b);                                                    \
+    _a < _b ? _a : _b;                                                         \
+  })
+#endif
+
 #define QEMU_ALIGN_DOWN(n, m) ((n) / (m) * (m))
 #define QEMU_ALIGN_UP(n, m) QEMU_ALIGN_DOWN((n) + (m) - 1, (m))
 
