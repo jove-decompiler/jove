@@ -1037,6 +1037,8 @@ not_found:
 #undef _FIELD
 
     _strcat(s, "\n");
+
+    maps[min(maps_n, _maps.len - 1)] = '\0';
     _strcat(s, maps);
 
     _DUMP(s);
