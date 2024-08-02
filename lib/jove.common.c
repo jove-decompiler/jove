@@ -2,14 +2,14 @@
 #include "jove.util.c"
 #include "jove.recover.h"
 
-extern __JTHREAD struct CPUArchState __jove_env __attribute__((aligned(64)));
+DECLARE_JOVE_RT_THREAD_GLOBAL(struct CPUArchState, env)
 
 #ifdef JOVE_MT
-static /* __thread */ struct CPUArchState __jove_local_env;
+static struct CPUArchState __jove_local_env;
 #endif
 
 #ifdef JOVE_CLUNK
-static /* __thread */ struct CPUArchState *__jove_env_clunk =
+static struct CPUArchState *__jove_env_clunk =
 #ifdef JOVE_MT
     &__jove_local_env
 #else
@@ -18,11 +18,11 @@ static /* __thread */ struct CPUArchState *__jove_env_clunk =
     ;
 #endif
 
-extern __JTHREAD uint64_t *__jove_trace;
-extern __JTHREAD uint64_t *__jove_trace_begin;
+DECLARE_JOVE_RT_THREAD_GLOBAL(uint64_t *, trace)
+DECLARE_JOVE_RT_THREAD_GLOBAL(uint64_t *, trace_begin)
 
-extern __JTHREAD uint64_t *__jove_callstack;
-extern __JTHREAD uint64_t *__jove_callstack_begin;
+DECLARE_JOVE_RT_THREAD_GLOBAL(uint64_t *, callstack)
+DECLARE_JOVE_RT_THREAD_GLOBAL(uint64_t *, callstack_begin)
 
 extern uintptr_t *__jove_function_tables[_JOVE_MAX_BINARIES];
 extern uintptr_t *__jove_sections_tables[_JOVE_MAX_BINARIES];
@@ -375,7 +375,7 @@ void WINAPI JoveWinMain(void) {
     emu_sp &= ~31UL;
     emu_sp -= sizeof(uintptr_t);
 
-    __jove_env.regs[R_ESP] = emu_sp;
+    JOVE_RT_THREAD_GLOBAL(env).regs[R_ESP] = emu_sp;
   }
 
   _jove_initialize();
@@ -445,7 +445,8 @@ _HIDDEN void _jove_init(
   if (!initfn)
     return;
 
-  target_ulong *const emusp_ptr = emulated_stack_pointer_of_cpu_state(&__jove_env);
+  target_ulong *const emusp_ptr =
+      emulated_stack_pointer_of_cpu_state(JOVE_RT_THREAD_GLOBALP(env));
 
   //
   // save things
@@ -485,7 +486,7 @@ _HIDDEN void _jove_init(
   //
   // (mips) set t9
   //
-  __jove_env.active_tc.gpr[25] = _jove_get_init_fn_sect_ptr();
+  JOVE_RT_THREAD_GLOBAL(env).active_tc.gpr[25] = _jove_get_init_fn_sect_ptr();
 #endif
 
   //
@@ -535,7 +536,8 @@ _HIDDEN void _jove__libc_early_init(
 
   _jove_initialize();
 
-  target_ulong *const emusp_ptr = emulated_stack_pointer_of_cpu_state(&__jove_env);
+  target_ulong *const emusp_ptr =
+      emulated_stack_pointer_of_cpu_state(JOVE_RT_THREAD_GLOBALP(env));
 
   //
   // save things
@@ -575,7 +577,7 @@ _HIDDEN void _jove__libc_early_init(
   //
   // (mips) set t9
   //
-  __jove_env.active_tc.gpr[25] = _jove_get_libc_early_init_fn_sect_ptr();
+  JOVE_RT_THREAD_GLOBAL(env).active_tc.gpr[25] = _jove_get_libc_early_init_fn_sect_ptr();
 #endif
 
   //
@@ -1063,7 +1065,8 @@ jove_thunk_return_t _jove_call(
     if (__jove_opts.Debug.Stack) {
       _strcat(s, " <0x");
       {
-        uintptr_t emusp = *emulated_stack_pointer_of_cpu_state(&__jove_env);
+        uintptr_t emusp =
+            *emulated_stack_pointer_of_cpu_state(JOVE_RT_THREAD_GLOBALP(env));
 
         char buff[65];
         _uint_to_string(emusp, buff, 0x10);
@@ -1412,7 +1415,7 @@ jove_thunk_return_t _jove_call(
                         BOOST_PP_REPEAT(TARGET_NUM_REG_ARGS, __REG_ARG, void)
 
                         #undef __REG_ARG
-                        pc, emulated_stack_pointer_of_cpu_state(&__jove_env));
+                        pc, emulated_stack_pointer_of_cpu_state(JOVE_RT_THREAD_GLOBALP(env)));
 
   //
   // we found new code?
@@ -1442,7 +1445,7 @@ found:
       //
       uintptr_t dummy_stack = _jove_alloc_stack();
 
-      typeof(__jove_env) dummy_env = {0};
+      struct CPUArchState dummy_env = {0};
 
       target_ulong *const emusp_ptr = emulated_stack_pointer_of_cpu_state(&dummy_env);
 
@@ -1461,7 +1464,8 @@ found:
 
       return res;
     } else {
-      target_ulong *const emusp_ptr = emulated_stack_pointer_of_cpu_state(&__jove_env);
+      target_ulong *const emusp_ptr =
+          emulated_stack_pointer_of_cpu_state(JOVE_RT_THREAD_GLOBALP(env));
 
       if (unlikely(__jove_opts.Debug.Stack)) {
         const uintptr_t emusp = *emusp_ptr;
@@ -1582,6 +1586,10 @@ static dfsan_label *__df32_shadow_for(uint32_t A) {
 #endif
 
 void __nodce(void **p) {
+  *p++ = JOVE_RT_THREAD_GLOBALP(trace);
+  *p++ = JOVE_RT_THREAD_GLOBALP(trace_begin);
+  *p++ = JOVE_RT_THREAD_GLOBALP(callstack);
+  *p++ = JOVE_RT_THREAD_GLOBALP(callstack_begin);
   *p++ = &_jove_trace_enabled;
   *p++ = &_jove_dfsan_enabled;
   *p++ = &_jove_get_init_fn_sect_ptr;
@@ -1589,10 +1597,6 @@ void __nodce(void **p) {
   *p++ = &_jove_get_libc_early_init_fn_sect_ptr;
   *p++ = &_jove_rt_init_clunk;
   *p++ = &_jove_needs_runtime;
-  *p++ = &__jove_trace;
-  *p++ = &__jove_trace_begin;
-  *p++ = &__jove_callstack;
-  *p++ = &__jove_callstack_begin;
 #ifdef JOVE_CLUNK
   *p++ = &__jove_env_clunk;
 #endif

@@ -46,14 +46,6 @@ struct jove_function_info_t {
 };
 
 //
-// windows
-//
-typedef void* HMODULE;
-typedef unsigned long DWORD;
-typedef void* LPVOID;
-typedef int BOOL;
-
-//
 // DFSan
 //
 typedef uint16_t dfsan_label;

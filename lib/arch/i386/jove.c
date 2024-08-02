@@ -15,7 +15,8 @@ _HIDDEN
 void _jove_begin(uintptr_t init_sp) {
   _jove_initialize();
 
-  __jove_env.regs[R_ESP] = _jove_begin_setup_emulated_stack(init_sp);
+  struct CPUArchState *const env = JOVE_RT_THREAD_GLOBALP(env);
+  env->regs[R_ESP] = _jove_begin_setup_emulated_stack(init_sp);
 
   _jove_call_entry();
 }
@@ -25,7 +26,7 @@ extern floatx80 float32_to_floatx80(float32, float_status *status);
 #define ST0    (env->fpregs[env->fpstt].d)
 
 _HIDDEN void _jove_thunk_handle_st0(uintptr_t f32) {
-  CPUX86State *env = &__jove_env;
+  struct CPUArchState *const env = JOVE_RT_THREAD_GLOBALP(env);
 
 #if 0
   helper_flds_ST0(env, f32);

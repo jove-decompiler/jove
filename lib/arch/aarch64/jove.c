@@ -17,14 +17,15 @@ void _jove_begin(uintptr_t x0,
                  uintptr_t init_sp /* formerly x7 */) {
   _jove_initialize();
 
-  __jove_env.xregs[0] = x0;
-  __jove_env.xregs[1] = x1;
-  __jove_env.xregs[2] = x2;
-  __jove_env.xregs[3] = x3;
-  __jove_env.xregs[4] = x4;
-  __jove_env.xregs[5] = x5;
-  __jove_env.xregs[6] = x6;
-  __jove_env.xregs[31] = _jove_begin_setup_emulated_stack(init_sp);
+  struct CPUArchState *const env = JOVE_RT_THREAD_GLOBALP(env);
+  env->xregs[0] = x0;
+  env->xregs[1] = x1;
+  env->xregs[2] = x2;
+  env->xregs[3] = x3;
+  env->xregs[4] = x4;
+  env->xregs[5] = x5;
+  env->xregs[6] = x6;
+  env->xregs[31] = _jove_begin_setup_emulated_stack(init_sp);
 
   _jove_call_entry();
 }

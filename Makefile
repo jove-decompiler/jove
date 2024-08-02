@@ -38,6 +38,7 @@ runtime_cflags = -std=gnu99 \
                  -I include \
                  -I lib \
                  -I lib/arch/$(1) \
+                 -I $(BINDIR)/$(1) \
                  -I boost/libs/preprocessor/include/ \
                  -D TARGET_$(call uc,$(1)) \
                  -D TARGET_ARCH_NAME=\"$(1)\" \
@@ -123,7 +124,11 @@ runtime: $(foreach t,$(ALL_TARGETS),runtime-$(t))
 utilities: $(UTILBINS)
 
 runtime_dlls = $(BINDIR)/$(1)/libjove_rt.st.dll \
-               $(BINDIR)/$(1)/libjove_rt.mt.dll
+               $(BINDIR)/$(1)/libjove_rt.mt.dll \
+               $(BINDIR)/$(1)/jove.coff.st.bc \
+               $(BINDIR)/$(1)/jove.coff.st.ll \
+               $(BINDIR)/$(1)/jove.coff.mt.bc \
+               $(BINDIR)/$(1)/jove.coff.mt.ll
 
 _DLLS_x86_64 := $(call runtime_dlls,x86_64)
 _DLLS_i386   := $(call runtime_dlls,i386)
@@ -146,10 +151,6 @@ runtime-$(1): $(BINDIR)/$(1)/libjove_rt.st.so \
               $(BINDIR)/$(1)/jove.elf.mt.bc \
               $(BINDIR)/$(1)/jove.elf.st.ll \
               $(BINDIR)/$(1)/jove.elf.mt.ll \
-              $(BINDIR)/$(1)/jove.coff.st.bc \
-              $(BINDIR)/$(1)/jove.coff.mt.bc \
-              $(BINDIR)/$(1)/jove.coff.st.ll \
-              $(BINDIR)/$(1)/jove.coff.mt.ll \
               $(_DLLS_$(1))
 
 $(BINDIR)/$(1)/%: $(UTILSRCDIR)/%.c
@@ -172,10 +173,10 @@ $(BINDIR)/$(1)/jove.elf.mt.bc: lib/arch/$(1)/jove.c
 	$(LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -D JOVE_MT -MMD $$<
 
 $(BINDIR)/$(1)/jove.coff.st.bc: lib/arch/$(1)/jove.c
-	$(LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -D JOVE_COFF -MMD $$<
+	$(LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -fdeclspec -D JOVE_COFF -MMD $$<
 
 $(BINDIR)/$(1)/jove.coff.mt.bc: lib/arch/$(1)/jove.c
-	$(LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -D JOVE_COFF -D JOVE_MT -MMD $$<
+	$(LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -fdeclspec -D JOVE_COFF -D JOVE_MT -MMD $$<
 
 $(BINDIR)/$(1)/jove.%.ll: $(BINDIR)/$(1)/jove.%.bc
 	$(LLVM_OPT) -o $$@ -S --strip-debug $$<
@@ -190,10 +191,10 @@ $(BINDIR)/$(1)/libjove_rt.elf.mt.bc: lib/arch/$(1)/rt.c
 	$(LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -D JOVE_MT -MMD $$<
 
 $(BINDIR)/$(1)/libjove_rt.coff.st.bc: lib/arch/$(1)/rt.c
-	$(LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -D JOVE_COFF -MMD $$<
+	$(LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -fdeclspec -D JOVE_COFF -MMD $$<
 
 $(BINDIR)/$(1)/libjove_rt.coff.mt.bc: lib/arch/$(1)/rt.c
-	$(LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -D JOVE_COFF -D JOVE_MT -MMD $$<
+	$(LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -fdeclspec -D JOVE_COFF -D JOVE_MT -MMD $$<
 
 #
 # runtime shared libraries
@@ -208,10 +209,10 @@ $(BINDIR)/$(1)/libjove_rt.%.so: $(BINDIR)/$(1)/libjove_rt.%.so.o
 # runtime DLLs
 #
 $(BINDIR)/$(1)/libjove_rt.%.dll.o: $(BINDIR)/$(1)/libjove_rt.coff.%.bc \
-                                   $(BINDIR)/$(1)/jove_rt_dll.callconv.syms \
-                                   $(BINDIR)/$(1)/jove_rt_dll.dllexport.syms
-	$(call jove_tool,$(1)) llknife -v -o $$<.2.tmp -i $$< --calling-convention=$(_DLL_$(1)_LINUX_CALL_CONV) $(BINDIR)/$(1)/jove_rt_dll.callconv.syms
-	$(call jove_tool,$(1)) llknife -v -o $$<.3.tmp -i $$<.2.tmp --dllexport $(BINDIR)/$(1)/jove_rt_dll.dllexport.syms
+                                   $(BINDIR)/$(1)/jove_rt_dll.callconv.%.syms \
+                                   $(BINDIR)/$(1)/jove_rt_dll.dllexport.%.syms
+	$(call jove_tool,$(1)) llknife -v -o $$<.2.tmp -i $$< --calling-convention=$(_DLL_$(1)_LINUX_CALL_CONV) $(BINDIR)/$(1)/jove_rt_dll.callconv.$$*.syms
+	$(call jove_tool,$(1)) llknife -v -o $$<.3.tmp -i $$<.2.tmp --dllexport $(BINDIR)/$(1)/jove_rt_dll.dllexport.$$*.syms
 	$(LLVM_DIS) -o $$<.dll.ll $$<.3.tmp
 	$(LLVM_LLC) -o $$@ --filetype=obj --relocation-model=pic --mtriple=$($(1)_COFF_TRIPLE) $$<.3.tmp
 

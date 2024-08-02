@@ -15,9 +15,9 @@
 #define memory_barrier() do { __sync_synchronize(); } while(0)
 
 #ifdef JOVE_MT
-#define __JTHREAD __thread
+#define _JTHREAD __thread
 #else
-#define __JTHREAD
+#define _JTHREAD
 #endif
 
 #define UNIQUE_VAR_NAME(base) base##__COUNTER__
@@ -31,6 +31,7 @@
 #define _NORET  __attribute__((noreturn))
 #define _UNUSED __attribute__((unused))
 #define _HIDDEN __attribute__((visibility("hidden")))
+#define _SECTION(name) __attribute__((section(name)))
 
 #define QEMU_ALIGN_DOWN(n, m) ((n) / (m) * (m))
 #define QEMU_ALIGN_UP(n, m) QEMU_ALIGN_DOWN((n) + (m) - 1, (m))
@@ -46,6 +47,39 @@
 
 #define TRUE 1
 #define FALSE 0
+
+#if defined(JOVE_COFF)
+#define _DLLEXPORT __declspec(dllexport)
+#define _DLLIMPORT __declspec(dllimport)
+#else
+#define _DLLEXPORT
+#define _DLLIMPORT
+#endif
+
+//
+// runtime
+//
+
+#if defined(JOVE_COFF) && defined(JOVE_MT)
+
+#define DECLARE_JOVE_RT_THREAD_GLOBAL(t, x)                                           \
+  extern t *_jove_rt_get_##x(void);
+
+#define DEFINE_JOVE_RT_THREAD_GLOBAL(t, x, init)                                      \
+  static __thread t __jove_##x = init;                                         \
+  t *_jove_rt_get_##x(void) { return &__jove_##x; }
+
+#define JOVE_RT_THREAD_GLOBALP(x) (_jove_rt_get_##x())
+
+#else
+
+#define DECLARE_JOVE_RT_THREAD_GLOBAL(t, x) extern _DLLIMPORT _JTHREAD t __jove_##x;
+#define DEFINE_JOVE_RT_THREAD_GLOBAL(t, x, init)   _DLLEXPORT _JTHREAD t __jove_##x = init;
+#define JOVE_RT_THREAD_GLOBALP(x) (&__jove_##x)
+
+#endif
+
+#define JOVE_RT_THREAD_GLOBAL(x) (*(JOVE_RT_THREAD_GLOBALP(x)))
 
 //
 // ASCII COLORS
@@ -120,6 +154,12 @@
     __buff[sizeof(__func__) + 2] = '\0';                                       \
                                                                                \
     _DUMP_WITH_LEN(__buff, sizeof(__buff) - 1);                                \
+  } while (false)
+
+#define _VERBOSE_DUMP(str)                                                     \
+  do {                                                                         \
+    if (unlikely(__jove_opts.Debug.Verbose))                                   \
+      _DUMP(str);                                                              \
   } while (false)
 
 /* if __jove_opts isn't available, define this before including this file */

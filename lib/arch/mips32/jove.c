@@ -13,10 +13,12 @@ void _jove_begin(uintptr_t a0,
                  uintptr_t init_sp /* formerly a3 */) {
   _jove_initialize();
 
-  __jove_env.active_tc.gpr[4] = a0;
-  __jove_env.active_tc.gpr[5] = a1;
-  __jove_env.active_tc.gpr[2] = v0;
-  __jove_env.active_tc.gpr[29] = _jove_begin_setup_emulated_stack(init_sp);
+  struct CPUArchState *const env = JOVE_RT_THREAD_GLOBALP(env);
+
+  env->active_tc.gpr[4] = a0;
+  env->active_tc.gpr[5] = a1;
+  env->active_tc.gpr[2] = v0;
+  env->active_tc.gpr[29] = _jove_begin_setup_emulated_stack(init_sp);
 
   _jove_call_entry();
 }

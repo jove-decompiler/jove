@@ -4,15 +4,19 @@
 #include <signal.h>
 #include <ucontext.h>
 
-__JTHREAD struct CPUArchState __jove_env __attribute__((aligned(64)));
+#ifdef JOVE_COFF
+#include "Win.copy.h"
+#endif
 
-static __JTHREAD bool __jove_initialized_env = false;
+DEFINE_JOVE_RT_THREAD_GLOBAL(struct CPUArchState, env, {0})
 
-__JTHREAD uint64_t *__jove_trace       = NULL;
-__JTHREAD uint64_t *__jove_trace_begin = NULL;
+static _JTHREAD bool __jove_initialized_env = false;
 
-__JTHREAD uint64_t *__jove_callstack       = NULL;
-__JTHREAD uint64_t *__jove_callstack_begin = NULL;
+DEFINE_JOVE_RT_THREAD_GLOBAL(uint64_t *, trace, NULL)
+DEFINE_JOVE_RT_THREAD_GLOBAL(uint64_t *, trace_begin, NULL)
+
+DEFINE_JOVE_RT_THREAD_GLOBAL(uint64_t *, callstack, NULL)
+DEFINE_JOVE_RT_THREAD_GLOBAL(uint64_t *, callstack_begin, NULL)
 
 uintptr_t *__jove_function_tables[_JOVE_MAX_BINARIES] = {
   [0 ... _JOVE_MAX_BINARIES - 1] = NULL
@@ -133,6 +137,11 @@ static void _jove_parse_crash_string(char *const);
 // options
 //
 void _jove_parse_opts(void) {
+  static bool _Done = false;
+  if (_Done)
+    return;
+  _Done = true;
+
   __jove_opts.Trace = NULL;
 
   JOVE_BUFF(envs, ARG_MAX);
@@ -261,35 +270,65 @@ void _jove_dump_opts(void) {
 }
 
 #ifdef JOVE_COFF
-uint32_t _tls_index = 0;
+_SECTION(".tls") static char _tls_start;
+_SECTION(".tls$ZZZ") static char _tls_end;
 
-BOOL DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved)
-{
+ULONG _tls_index = 0;
 
-    switch (ul_reason_for_call)
-    {
-    case 1: // DLL_PROCESS_ATTACH
-        // Code to run when the DLL is loaded
-        _jove_rt_init();
-        break;
-    case 2: // DLL_THREAD_ATTACH
-        // Code to run when a thread is created within the DLL
-        break;
-    case 3: // DLL_THREAD_DETACH
-        // Code to run when a thread within the DLL terminates
-        break;
-    case 0: // DLL_PROCESS_DETACH
-        // Code to run when the DLL is unloaded
-        break;
-    }
-    return TRUE;  // Successful DLL_PROCESS_ATTACH
+static void NTAPI TlsCallback(PVOID DllHandle, DWORD Reason, PVOID Reserved) {
+  switch (Reason) {
+  case DLL_PROCESS_ATTACH:
+    _jove_parse_opts();
+    _VERBOSE_DUMP("TlsCallback [DLL_PROCESS_ATTACH]\n");
+    break;
+  case DLL_THREAD_ATTACH:
+    _VERBOSE_DUMP("TlsCallback [DLL_THREAD_ATTACH]\n");
+    break;
+  case DLL_THREAD_DETACH:
+    _VERBOSE_DUMP("TlsCallback [DLL_THREAD_DETACH]\n");
+    break;
+  case DLL_PROCESS_DETACH:
+    _VERBOSE_DUMP("TlsCallback [DLL_PROCESS_DETACH]\n");
+    break;
+  }
 }
 
-BOOL WINAPI _DllMainCRTStartup(HMODULE hModule,
-                               DWORD ul_reason_for_call,
-                               LPVOID lpReserved)
-{
-    return DllMain(hModule, ul_reason_for_call, lpReserved);
+static PIMAGE_TLS_CALLBACK tls_callbacks[] = {TlsCallback, NULL};
+
+_SECTION(".rdata$T")
+const IMAGE_TLS_DIRECTORY _tls_used = {
+    (uintptr_t)&_tls_start,
+    (uintptr_t)&_tls_end,
+    (uintptr_t)&_tls_index,
+    (uintptr_t)&tls_callbacks,
+    0,
+    0
+};
+
+BOOL DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved) {
+
+  switch (ul_reason_for_call) {
+  case DLL_PROCESS_ATTACH:
+    _jove_parse_opts();
+    _VERBOSE_DUMP("DllMain [DLL_PROCESS_ATTACH]\n");
+    _jove_rt_init();
+    break;
+  case DLL_THREAD_ATTACH:
+    _VERBOSE_DUMP("DllMain [DLL_THREAD_ATTACH]\n");
+    break;
+  case DLL_THREAD_DETACH:
+    _VERBOSE_DUMP("DllMain [DLL_THREAD_DETACH]\n");
+    break;
+  case DLL_PROCESS_DETACH:
+    _VERBOSE_DUMP("DllMain [DLL_PROCESS_DETACH]\n");
+    break;
+  }
+  return TRUE;
+}
+
+BOOL WINAPI _DllMainCRTStartup(HMODULE hModule, DWORD ul_reason_for_call,
+                               LPVOID lpReserved) {
+  return DllMain(hModule, ul_reason_for_call, lpReserved);
 }
 
 #endif

@@ -15,12 +15,14 @@ void _jove_begin(uintptr_t rdi,
                  uintptr_t init_sp /* formerly r9 */) {
   _jove_initialize();
 
-  __jove_env.regs[R_EDI] = rdi;
-  __jove_env.regs[R_ESI] = rsi;
-  __jove_env.regs[R_EDX] = rdx;
-  __jove_env.regs[R_ECX] = rcx;
-  __jove_env.regs[R_R8] = r8;
-  __jove_env.regs[R_ESP] = _jove_begin_setup_emulated_stack(init_sp);
+  struct CPUArchState *const env = JOVE_RT_THREAD_GLOBALP(env);
+
+  env->regs[R_EDI] = rdi;
+  env->regs[R_ESI] = rsi;
+  env->regs[R_EDX] = rdx;
+  env->regs[R_ECX] = rcx;
+  env->regs[R_R8] = r8;
+  env->regs[R_ESP] = _jove_begin_setup_emulated_stack(init_sp);
 
   _jove_call_entry();
 }
