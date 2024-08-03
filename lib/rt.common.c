@@ -64,12 +64,6 @@ int _jove_needs_multi_threaded_runtime(void) { return 1; }
 int _jove_needs_single_threaded_runtime(void) { return 1; }
 #endif
 
-#if defined(__x86_64__)
-#if 0
-extern void restore_rt (void) asm ("__restore_rt") __attribute__ ((visibility ("hidden")));
-#endif
-#endif
-
 static void _jove_parse_opts(void);
 
 void _jove_rt_init(void) {
@@ -93,7 +87,13 @@ void _jove_rt_init(void) {
 #define SA_RESTORER 0x04000000
 #endif
   sa.k_sa_flags |= SA_RESTORER;
-  sa.k_sa_restorer = _jove_do_rt_sigreturn; // restore_rt
+  sa.k_sa_restorer =
+#ifdef JOVE_COFF
+      _jove_do_rt_sigreturn
+#else
+      restore_rt
+#endif
+      ;
 #elif defined(__i386__)
   sa.k_sa_restorer = _jove_do_rt_sigreturn;
 #endif
