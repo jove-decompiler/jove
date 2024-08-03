@@ -279,10 +279,47 @@ static void NTAPI TlsCallback(PVOID DllHandle, DWORD Reason, PVOID Reserved) {
   switch (Reason) {
   case DLL_PROCESS_ATTACH:
     _jove_parse_opts();
+
+#if 0
     _VERBOSE_DUMP("TlsCallback [DLL_PROCESS_ATTACH]\n");
+#else
+    if (unlikely(__jove_opts.Debug.Verbose)) {
+      char s[1024];
+      s[0] = '\0';
+
+      _strcat(s, "[");
+      {
+        char buff[65];
+        _uint_to_string(_jove_sys_gettid(), buff, 10);
+
+        _strcat(s, buff);
+      }
+      _strcat(s, "] TlsCallback [DLL_PROCESS_ATTACH]");
+
+      _DUMP(s);
+    }
+#endif
     break;
   case DLL_THREAD_ATTACH:
+#if 0
     _VERBOSE_DUMP("TlsCallback [DLL_THREAD_ATTACH]\n");
+#else
+    if (unlikely(__jove_opts.Debug.Verbose)) {
+      char s[1024];
+      s[0] = '\0';
+
+      _strcat(s, "[");
+      {
+        char buff[65];
+        _uint_to_string(_jove_sys_gettid(), buff, 10);
+
+        _strcat(s, buff);
+      }
+      _strcat(s, "] TlsCallback [DLL_THREAD_ATTACH]\n");
+
+      _DUMP(s);
+    }
+#endif
     break;
   case DLL_THREAD_DETACH:
     _VERBOSE_DUMP("TlsCallback [DLL_THREAD_DETACH]\n");
