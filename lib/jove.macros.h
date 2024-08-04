@@ -82,7 +82,7 @@
 #if defined(JOVE_COFF) && defined(JOVE_MT)
 
 #define DECLARE_JOVE_RT_THREAD_GLOBAL(t, x)                                    \
-  extern t *_jove_rt_get_##x(void);
+  extern t *_jove_rt_get_##x(void) __attribute__((returns_nonnull));
 
 #define DEFINE_JOVE_RT_THREAD_GLOBAL(t, x, init)                               \
   static __thread t __jove_##x = init;                                         \
