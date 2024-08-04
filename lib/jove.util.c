@@ -307,10 +307,12 @@ static _UNUSED uint64_t _u64ofhexstr(char *str_begin, char *str_end) {
   return res;
 }
 
-static inline void *must_nonnull(void *p) {
-  _ASSERT(p != NULL);
-  return p;
-}
+#define must_nonnull(p)                                                        \
+  ({                                                                           \
+    void *_p = (p);                                                            \
+    _ASSERT(_p != NULL);                                                       \
+    _p;                                                                        \
+  })
 
 #define array_for_each_p(elemp, arr)                                           \
   for ((elemp) = &arr[0]; ((elemp) - &arr[0]) < ARRAY_SIZE(arr); ++(elemp))
