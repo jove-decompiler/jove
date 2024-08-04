@@ -28,12 +28,25 @@ void _jove_begin(uintptr_t rdi,
 }
 
 #define JOVE_THUNK_PROLOGUE                                                    \
+  "pushq %%rbp\n\t"                                                            \
+  ".cfi_adjust_cfa_offset 8\n"                                                 \
+  ".cfi_rel_offset %%rbp,0\n"                                                  \
+  "movq %%rsp,%%rbp\n\t"                                                       \
+  ".cfi_def_cfa_register %%rbp\n"                                              \
   "pushq %%r15\n" /* callee-saved registers */                                 \
-  "pushq %%r14\n"
+  ".cfi_rel_offset %%r15,-8\n"                                                 \
+  "pushq %%r14\n"                                                              \
+  ".cfi_rel_offset %%r14,-16\n"
 
 #define JOVE_THUNK_EPILOGUE                                                    \
   "popq %%r14\n" /* callee-saved registers */                                  \
+  ".cfi_same_value %%r14\n"                                                    \
   "popq %%r15\n"                                                               \
+  ".cfi_same_value %%r15\n"                                                    \
+  ".cfi_def_cfa_register %%rsp\n"                                              \
+  "popq %%rbp\n\t"                                                             \
+  ".cfi_adjust_cfa_offset -8\n"                                                \
+  ".cfi_same_value %%rbp\n"                                                    \
   "retq\n"
 
 #define JOVE_THUNK_EXTRA_ARGS                                                  \
@@ -162,7 +175,7 @@ jove_thunk_return_t _jove_thunk5(uintptr_t rdi,
   asm volatile(JOVE_THUNK_PROLOGUE
 
                "movq %%r9, %%r11\n" /* dstpc in r11 */
-               "movq 24(%%rsp), %%r14\n" /* emuspp in r14 */
+               "movq 32(%%rsp), %%r14\n" /* emuspp in r14 */
 
                JOVE_THUNK_CORE
 
@@ -181,8 +194,8 @@ jove_thunk_return_t _jove_thunk6(uintptr_t rdi,
                                  uintptr_t *emuspp) {
   asm volatile(JOVE_THUNK_PROLOGUE
 
-               "movq 24(%%rsp), %%r11\n" /* dstpc in r11 */
-               "movq 32(%%rsp), %%r14\n" /* emuspp in r14 */
+               "movq 32(%%rsp), %%r11\n" /* dstpc in r11 */
+               "movq 40(%%rsp), %%r14\n" /* emuspp in r14 */
 
                JOVE_THUNK_CORE
 
