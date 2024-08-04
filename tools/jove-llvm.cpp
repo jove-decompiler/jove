@@ -393,6 +393,7 @@ struct LLVMTool : public StatefulJVTool<ToolKind::CopyOnWrite,
 
   llvm::GlobalVariable *EnvGlobal = nullptr;
   llvm::Function *GetEnvFunc = nullptr;
+  llvm::Value *CachedEnv = nullptr;
   llvm::Type *CPUStateType = nullptr;
 
   llvm::GlobalVariable *TraceGlobal = nullptr;
@@ -576,11 +577,14 @@ public:
                                     unsigned glb);
 
   llvm::Value *GetEnv(llvm::IRBuilderTy &IRB) {
+    if (CachedEnv)
+      return CachedEnv;
+
     if (EnvGlobal)
       return EnvGlobal;
 
     assert(GetEnvFunc);
-    return IRB.CreateCall(GetEnvFunc);
+    return IRB.CreateCall(GetEnvFunc, std::nullopt, "env");
   }
 
   std::string SectionsTopName(void) {
@@ -2727,6 +2731,7 @@ int LLVMTool::CreateModule(void) {
     F->setNoSync();
     F->setDoesNotFreeMemory();
     F->setMustProgress();
+    F->addRetAttr(llvm::Attribute::NonNull);
   };
 
   if (!(EnvGlobal = Module->getGlobalVariable("__jove_env"))) {
@@ -6491,6 +6496,7 @@ int LLVMTool::FixupHelperStubs(void) {
         if (is_function_index_valid(Binary.Analysis.EntryFunction)) {
           function_t &f = Binary.Analysis.Functions.at(Binary.Analysis.EntryFunction);
 
+	  llvm::Value *Env = GetEnv(IRB);
           std::vector<llvm::Value *> ArgVec;
           {
             std::vector<unsigned> glbv;
@@ -6503,7 +6509,7 @@ int LLVMTool::FixupHelperStubs(void) {
                 [&](unsigned glb) -> llvm::Value * {
                   return IRB.CreateLoad(
                       TypeOfTCGGlobal(glb),
-                      BuildCPUStatePointer(IRB, GetEnv(IRB), glb));
+                      BuildCPUStatePointer(IRB, Env, glb));
                 });
           }
 
@@ -6925,6 +6931,12 @@ int LLVMTool::TranslateFunction(function_t &f) {
                               TC.DebugInformation.Subprogram));
 
     //
+    // Get pointer to __jove_env
+    //
+    assert(!CachedEnv);
+    CachedEnv = GetEnv(IRB);
+
+    //
     // Create Alloca for program counter
     //
     {
@@ -6999,6 +7011,8 @@ int LLVMTool::TranslateFunction(function_t &f) {
       return ret;
   }
 
+  CachedEnv = nullptr;
+
   if (!opts.Debugify) {
   DIBuilder->finalizeSubprogram(TC.DebugInformation.Subprogram);
   }
@@ -7036,6 +7050,9 @@ int LLVMTool::TranslateFunction(function_t &f) {
           *Context, ICFG[entry_bb].Addr, 0 /* Column */, Subprogram));
 
       IRB.CreateCall(JoveRecoverABIFunc, {IRB.getInt32(FIdx)})->setIsNoInline();
+
+      assert(!CachedEnv);
+      CachedEnv = GetEnv(IRB);
 
       std::vector<llvm::Value *> argsToPass;
       {
@@ -7143,6 +7160,7 @@ int LLVMTool::TranslateFunction(function_t &f) {
         }
       }
     }
+    CachedEnv = nullptr;
 
     if (!opts.Debugify) {
     DIBuilder->finalizeSubprogram(Subprogram);
@@ -8227,7 +8245,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
 
     llvm::AllocaInst *&Ptr = GlobalAllocaArr.at(glb);
     if (!Ptr) {
-      llvm::IRBuilderTy tmpIRB(&state.for_function(f).F->getEntryBlock().front());
+      llvm::IRBuilderTy tmpIRB(state.for_function(f).F->getEntryBlock().getTerminator());
 
       Ptr = CreateAllocaForGlobal(TC, tmpIRB, glb);
     }
@@ -8256,7 +8274,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
 
     llvm::AllocaInst *&Ptr = GlobalAllocaArr.at(glb);
     if (!Ptr) {
-      llvm::IRBuilderTy tmpIRB(&state.for_function(f).F->getEntryBlock().front());
+      llvm::IRBuilderTy tmpIRB(state.for_function(f).F->getEntryBlock().getTerminator());
 
       Ptr = CreateAllocaForGlobal(TC, tmpIRB, glb);
     }
@@ -10081,7 +10099,7 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
 
       llvm::AllocaInst *&Ptr = GlobalAllocaArr.at(idx);
       if (!Ptr) {
-        llvm::IRBuilderTy tmpIRB(&state.for_function(f).F->getEntryBlock().front());
+        llvm::IRBuilderTy tmpIRB(state.for_function(f).F->getEntryBlock().getTerminator());
 
         Ptr = CreateAllocaForGlobal(TC, tmpIRB, idx);
       }
