@@ -2720,24 +2720,37 @@ int LLVMTool::CreateModule(void) {
   CPUStateType = llvm::StructType::getTypeByName(*Context, "struct.CPUArchState");
   assert(CPUStateType);
 
+  auto configure_simple_getter = [&](llvm::Function *F) -> void {
+    F->setDoesNotAccessMemory();
+    F->setWillReturn();
+    F->setDoesNotThrow();
+    F->setNoSync();
+    F->setDoesNotFreeMemory();
+    F->setMustProgress();
+  };
+
   if (!(EnvGlobal = Module->getGlobalVariable("__jove_env"))) {
     GetEnvFunc = Module->getFunction("_jove_rt_get_env");
     assert(GetEnvFunc);
+    configure_simple_getter(GetEnvFunc);
   }
 
   if (!(TraceGlobal = Module->getGlobalVariable("__jove_trace", true))) {
     GetTraceFunc = Module->getFunction("_jove_rt_get_trace");
     assert(GetTraceFunc);
+    configure_simple_getter(GetTraceFunc);
   }
 
   if (!(CallStackGlobal = Module->getGlobalVariable("__jove_callstack", true))) {
     GetCallStackFunc = Module->getFunction("_jove_rt_get_callstack");
     assert(GetCallStackFunc);
+    configure_simple_getter(GetCallStackFunc);
   }
 
   if (!(CallStackBeginGlobal = Module->getGlobalVariable("__jove_callstack_begin", true))) {
     GetCallStackBeginFunc = Module->getFunction("_jove_rt_get_callstack_begin");
     assert(GetCallStackBeginFunc);
+    configure_simple_getter(GetCallStackBeginFunc);
   }
 
   JoveInstallForeignFunctionTables =
