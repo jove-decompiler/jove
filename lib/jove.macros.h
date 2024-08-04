@@ -24,6 +24,7 @@
 
 #define _CLEANUP(x) __attribute__((cleanup(x)))
 
+#define _PURE   __attribute__((pure))
 #define _CTOR   __attribute__((constructor(0)))
 #define _INL    __attribute__((always_inline))
 #define _NAKED  __attribute__((naked))
@@ -80,10 +81,10 @@
 
 #if defined(JOVE_COFF) && defined(JOVE_MT)
 
-#define DECLARE_JOVE_RT_THREAD_GLOBAL(t, x)                                           \
+#define DECLARE_JOVE_RT_THREAD_GLOBAL(t, x)                                    \
   extern t *_jove_rt_get_##x(void);
 
-#define DEFINE_JOVE_RT_THREAD_GLOBAL(t, x, init)                                      \
+#define DEFINE_JOVE_RT_THREAD_GLOBAL(t, x, init)                               \
   static __thread t __jove_##x = init;                                         \
   t *_jove_rt_get_##x(void) { return &__jove_##x; }
 
