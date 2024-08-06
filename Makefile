@@ -33,7 +33,7 @@ mipsel_ARCH_CFLAGS   := -D TARGET_MIPS32
 mips_ARCH_CFLAGS     := -D TARGET_MIPS32
 mips64el_ARCH_CFLAGS := -D TARGET_MIPS64
 
-runtime_cflags = -std=gnu99 \
+runtime_cflags = -std=gnu11 \
                  --target=$($(1)_TRIPLE) \
                  -I include \
                  -I lib \
