@@ -1,3 +1,5 @@
+#include "common.h"
+
 #include "rt.constants.h"
 #include "rt.macros.h"
 #include "rt.types.h"

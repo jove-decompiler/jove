@@ -18,7 +18,7 @@ ___SYSCALL2(14, removexattr, const char __user *, pathname, const char __user *,
 ___SYSCALL2(15, lremovexattr, const char __user *, pathname, const char __user *, name)
 ___SYSCALL2(16, fremovexattr, int, fd, const char __user *, name)
 ___SYSCALL2(17, getcwd, char __user *, buf, unsigned long, size)
-___SYSCALL3(18, lookup_dcookie, u64, cookie64, char __user *, buf, size_t, len)
+___SYSCALL3(18, lookup_dcookie, uint64_t, cookie64, char __user *, buf, size_t, len)
 ___SYSCALL2(19, eventfd2, unsigned int, count, int, flags)
 ___SYSCALL1(20, epoll_create1, int, flags)
 ___SYSCALL4(21, epoll_ctl, int, epfd, int, op, int, fd, struct epoll_event __user *, event)

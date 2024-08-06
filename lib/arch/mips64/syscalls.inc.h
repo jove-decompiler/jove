@@ -289,7 +289,7 @@ ___SYSCALL5(5294, recvmmsg, int, fd, struct mmsghdr __user *, mmsg, unsigned int
 ___SYSCALL4(5059, wait4, pid_t, upid, int __user *, stat_addr, int, options, struct rusage __user *, ru)
 ___SYSCALL4(5297, prlimit64, pid_t, pid, unsigned int, resource, const struct rlimit64 __user *, new_rlim, struct rlimit64 __user *, old_rlim)
 ___SYSCALL2(5295, fanotify_init, unsigned int, flags, unsigned int, event_f_flags)
-___SYSCALL5(5296, fanotify_mark, int, fanotify_fd, unsigned int, flags, __u64, mask, int, dfd, const char  __user *, pathname)
+___SYSCALL5(5296, fanotify_mark, int, fanotify_fd, unsigned int, flags, uint64_t, mask, int, dfd, const char  __user *, pathname)
 ___SYSCALL5(5298, name_to_handle_at, int, dfd, const char __user *, name, struct file_handle __user *, handle, int __user *, mnt_id, int, flag)
 ___SYSCALL3(5299, open_by_handle_at, int, mountdirfd, struct file_handle __user *, handle, int, flags)
 ___SYSCALL2(5300, clock_adjtime, const clockid_t, which_clock, struct __kernel_timex __user *, utx)

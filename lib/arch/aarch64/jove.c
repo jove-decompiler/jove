@@ -1,6 +1,6 @@
-#include "cpu_state.h"
-
 #include "jove.common.h"
+
+#include "cpu_state.h"
 
 typedef unsigned __int128 jove_thunk_return_t;
 
