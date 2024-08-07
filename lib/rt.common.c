@@ -392,6 +392,9 @@ void _jove_trace_init(void) {
   if (_jove_sys_mprotect(end - JOVE_PAGE_SIZE, JOVE_PAGE_SIZE, PROT_NONE) < 0)
     _UNREACHABLE("failed to create guard page for trace");
 
+  JOVE_TRACK_ALLOCATION(beg, JOVE_TRACE_BUFF_SIZE - JOVE_PAGE_SIZE, "trace");
+  JOVE_TRACK_ALLOCATION(end - JOVE_PAGE_SIZE, JOVE_PAGE_SIZE, "end-trace");
+
   //
   // install
   //
