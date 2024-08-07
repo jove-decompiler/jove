@@ -13,3 +13,6 @@ EXPORTS
     _jove_flush_trace
     _jove_needs_multi_threaded_runtime
     _jove_rt_init
+    _jove_rt_track_alloc
+    _jove_rt_description_for_alloc
+    _jove_rt_track_free
