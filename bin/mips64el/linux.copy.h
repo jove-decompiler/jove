@@ -79,7 +79,7 @@ typedef unsigned short __u16;
 
 typedef unsigned int __u32;
 
-typedef unsigned long long __u64;
+typedef unsigned long __u64;
 
 typedef __u8  u8;
 
