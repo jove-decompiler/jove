@@ -75,6 +75,12 @@
 #define _DLLIMPORT
 #endif
 
+#if defined(JOVE_COFF)
+#define __ASM_CFI(str)
+#else
+#define __ASM_CFI(str) str
+#endif
+
 //
 // runtime
 //

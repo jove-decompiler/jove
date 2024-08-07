@@ -28,25 +28,25 @@ void _jove_begin(uintptr_t rdi,
 }
 
 #define JOVE_THUNK_PROLOGUE                                                    \
-  "pushq %%rbp\n\t"                                                            \
-  ".cfi_adjust_cfa_offset 8\n"                                                 \
-  ".cfi_rel_offset %%rbp,0\n"                                                  \
-  "movq %%rsp,%%rbp\n\t"                                                       \
-  ".cfi_def_cfa_register %%rbp\n"                                              \
+  "pushq %%rbp\n"                                                              \
+  __ASM_CFI(".cfi_adjust_cfa_offset 8\n")                                      \
+  __ASM_CFI(".cfi_rel_offset %%rbp,0\n")                                       \
+  "movq %%rsp,%%rbp\n"                                                         \
+  __ASM_CFI(".cfi_def_cfa_register %%rbp\n")                                   \
   "pushq %%r15\n" /* callee-saved registers */                                 \
-  ".cfi_rel_offset %%r15,-8\n"                                                 \
+  __ASM_CFI(".cfi_rel_offset %%r15,-8\n")                                      \
   "pushq %%r14\n"                                                              \
-  ".cfi_rel_offset %%r14,-16\n"
+  __ASM_CFI(".cfi_rel_offset %%r14,-16\n")
 
 #define JOVE_THUNK_EPILOGUE                                                    \
   "popq %%r14\n" /* callee-saved registers */                                  \
-  ".cfi_same_value %%r14\n"                                                    \
+  __ASM_CFI(".cfi_same_value %%r14\n")                                         \
   "popq %%r15\n"                                                               \
-  ".cfi_same_value %%r15\n"                                                    \
-  ".cfi_def_cfa_register %%rsp\n"                                              \
-  "popq %%rbp\n\t"                                                             \
-  ".cfi_adjust_cfa_offset -8\n"                                                \
-  ".cfi_same_value %%rbp\n"                                                    \
+  __ASM_CFI(".cfi_same_value %%r15\n")                                         \
+  __ASM_CFI(".cfi_def_cfa_register %%rsp\n")                                   \
+  "popq %%rbp\n"                                                               \
+  __ASM_CFI(".cfi_adjust_cfa_offset -8\n")                                     \
+  __ASM_CFI(".cfi_same_value %%rbp\n")                                         \
   "retq\n"
 
 #define JOVE_THUNK_EXTRA_ARGS                                                  \
