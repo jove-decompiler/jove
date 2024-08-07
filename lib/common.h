@@ -55,8 +55,10 @@ const char *_jove_rt_description_for_alloc(uintptr_t beg);
 
 #define JOVE_TRACK_ALLOCATIONS
 
+#if BITS_PER_LONG == 32 && defined(JOVE_DFSAN)
+
 //
-// DFSan
+// 32-bit DFSan
 //
 #define JOVE_SHADOW_NUM_REGIONS 32
 #define JOVE_SHADOW_REGION_SIZE (0x10000 / JOVE_SHADOW_NUM_REGIONS)
@@ -67,3 +69,5 @@ typedef uint16_t dfsan_label;
 struct shadow_t {
   uint16_t *X[JOVE_SHADOW_NUM_REGIONS];
 };
+
+#endif

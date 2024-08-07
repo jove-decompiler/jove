@@ -1549,8 +1549,7 @@ void _jove_check_return_address(uintptr_t RetAddr,
 #endif
 }
 
-#if (defined(__mips__) && !defined(__mips64)) || \
-    (defined(__i386__) && !defined(__x86_64__))
+#if BITS_PER_LONG == 32
 //
 // 32-bit DFSan
 //
@@ -1608,9 +1607,9 @@ void __nodce(void **p) {
 #ifdef JOVE_MT
   *p++ = &__jove_local_env;
 #endif
-#ifdef JOVE_DFSAN
-#if (defined(__mips__) && !defined(__mips64)) || \
-    (defined(__i386__) && !defined(__x86_64__))
+#if defined(JOVE_DFSAN)
+  *p++ = &_jove_check_return_address;
+#if BITS_PER_LONG == 32
   *p++ = &__df32_shadow_for;
 #endif
 #endif

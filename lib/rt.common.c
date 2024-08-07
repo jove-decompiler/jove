@@ -43,13 +43,14 @@ static void _jove_free_stack_later(uintptr_t stack) {
   _UNREACHABLE();
 }
 
-//
-// for DFSan
-//
+#if defined(JOVE_DFSAN)
+#if BITS_PER_LONG == 32
 struct shadow_t __df32_shadow_mem[65536];
+#endif
 
 void (*__jove_dfsan_flush)(void) = NULL; /* XXX */
 unsigned __jove_dfsan_sig_handle = 0;
+#endif
 
 #include "kernel_sigaction.h"
 
@@ -716,7 +717,9 @@ found:
     //
     bool SignalDelivery = is_sigreturn_insn_sequence((void *)saved_retaddr);
     if (SignalDelivery) {
+#if defined(JOVE_DFSAN)
       ++__jove_dfsan_sig_handle;
+#endif
 
       if (unlikely(__jove_opts.Debug.Signals)) {
         //
@@ -1097,11 +1100,13 @@ not_found:
     //
     // flush dfsan_log.pb
     //
+#if defined(JOVE_DFSAN)
     void (*dfsan_flush_ptr)(void) = __jove_dfsan_flush;
     if (dfsan_flush_ptr) {
       _DUMP(__ANSI_BOLD_BLUE "calling __jove_dfsan_flush\n" __ANSI_NORMAL_COLOR);
       dfsan_flush_ptr();
     }
+#endif
   }
 
   _jove_on_crash(__jove_opts.OnCrash);
@@ -1128,7 +1133,9 @@ uintptr_t _jove_handle_signal_delivery(uintptr_t SignalDelivery,
   if (SignalDelivery) {
     __builtin_memcpy_inline(&__jove_env, SavedState, sizeof(__jove_env));
 
+#if defined(JOVE_DFSAN)
     __jove_dfsan_sig_handle = 0;
+#endif
   }
 
   return res;
@@ -1142,8 +1149,10 @@ void __nodce(void **p) {
   *p++ = &__jove_function_tables;
   *p++ = &__jove_sections_tables;
   *p++ = &__jove_function_map;
+#if defined(JOVE_DFSAN)
   *p++ = &__jove_dfsan_flush;
   *p++ = &__jove_dfsan_sig_handle;
+#endif
   *p++ = &_jove_rt_init;
 }
 
