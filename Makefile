@@ -29,9 +29,9 @@ BINDIR := bin
 
 $(foreach t,$(ALL_TARGETS),$(shell mkdir -p $(BINDIR)/$(t)/helpers))
 
-mipsel_ARCH_CFLAGS   := -D TARGET_MIPS32
-mips_ARCH_CFLAGS     := -D TARGET_MIPS32
-mips64el_ARCH_CFLAGS := -D TARGET_MIPS64
+mipsel_RUNTIME_CFLAGS   := -D TARGET_MIPS32
+mips_RUNTIME_CFLAGS     := -D TARGET_MIPS32
+mips64el_RUNTIME_CFLAGS := -D TARGET_MIPS64
 
 runtime_cflags = -std=gnu11 \
                  --target=$($(1)_TRIPLE) \
@@ -42,7 +42,7 @@ runtime_cflags = -std=gnu11 \
                  -I boost/libs/preprocessor/include/ \
                  -D TARGET_$(call uc,$(1)) \
                  -D TARGET_ARCH_NAME=\"$(1)\" \
-                 $($(1)_ARCH_CFLAGS) \
+                 $($(1)_RUNTIME_CFLAGS) \
                  -D _GNU_SOURCE \
                  -D _LARGEFILE64_SOURCE \
                  -Weverything \
