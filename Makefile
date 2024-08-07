@@ -79,8 +79,9 @@ UTILS_LDFLAGS := -fuse-ld=lld \
 runtime_so_ldflags = -nostdlib \
                      -soname=libjove_rt.so \
                      -init _jove_rt_init \
+                     $($(1)_RUNTIME_SO_LDFLAGS) \
                      --push-state \
-                     --as-needed $(JOVE_ROOT_DIR)/prebuilts/obj/libclang_rt.builtins-$(1).a \
+                     --as-needed $($(1)_LIBGCC) \
                      --pop-state \
                      --exclude-libs ALL \
                      -shared
@@ -132,9 +133,6 @@ runtime_dlls = $(BINDIR)/$(1)/libjove_rt.st.dll \
 
 _DLLS_x86_64 := $(call runtime_dlls,x86_64)
 _DLLS_i386   := $(call runtime_dlls,i386)
-
-_DLL_i386_LIBGCC := /usr/lib/gcc/i686-w64-mingw32/12-win32/libgcc.a
-_DLL_x86_64_LIBGCC := /usr/lib/gcc/x86_64-w64-mingw32/12-win32/libgcc.a
 
 _DLL_x86_64_LINUX_CALL_CONV := X86_64_SysV
 _DLL_i386_LINUX_CALL_CONV := C
