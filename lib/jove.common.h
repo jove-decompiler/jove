@@ -16,3 +16,6 @@
 #endif
 
 extern struct jove_opts_t __jove_opts;
+
+extern void _jove_rt_track_alloc(uintptr_t beg, size_t len, const char *desc);
+extern void _jove_rt_track_free(uintptr_t beg, size_t len);

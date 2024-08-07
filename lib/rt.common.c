@@ -1,4 +1,5 @@
 #include "rt.util.c"
+#include "rt.alloc.c"
 #include "rt.recover.h"
 
 #include <signal.h>

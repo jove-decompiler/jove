@@ -1,12 +1,14 @@
-#include <sys/mman.h>
-#include <errno.h>
-#include <stddef.h>
-#include <fcntl.h>
+#pragma once
 
 #include "jove.constants.h"
 #include "jove.types.h"
 #include "jove.macros.h"
 #include "jove.sys.h"
+
+#include "jove.mutex.h"
+
+#include <errno.h>
+#include <fcntl.h>
 
 //
 // short stdlib
@@ -457,6 +459,20 @@ static _UNUSED bool _jove_is_readable_mem(uintptr_t Addr) {
   return ret == sizeof(byte);
 }
 
+#ifdef JOVE_TRACK_ALLOCATIONS
+#define JOVE_TRACK_ALLOCATION(beg, len, desc) do {                             \
+  _jove_rt_track_alloc(beg, len,                                               \
+    desc /* " (" BOOST_PP_STRINGIZE(__FILE__) ":" */                           \
+         /*      BOOST_PP_STRINGIZE(__LINE__) ")" */);                         \
+  } while (false)
+#define JOVE_UNTRACK_ALLOCATION(beg, len) do { \
+    _jove_rt_track_free(beg, len);             \
+  } while (false)
+#else
+#define JOVE_TRACK_ALLOCATION(beg, len, desc) do {} while (false)
+#define JOVE_UNTRACK_ALLOCATION(beg, len) do {} while (false)
+#endif
+
 static uintptr_t _jove_alloc_stack(void) {
   uintptr_t ret = _mmap_rw_anonymous_private_memory(JOVE_STACK_SIZE);
   if (IS_ERR_VALUE(ret))
@@ -474,12 +490,18 @@ static uintptr_t _jove_alloc_stack(void) {
   if (_jove_sys_mprotect(end - JOVE_PAGE_SIZE, JOVE_PAGE_SIZE, PROT_NONE) < 0)
     _UNREACHABLE("failed to create guard page #2");
 
+  JOVE_TRACK_ALLOCATION(beg, JOVE_PAGE_SIZE, "beg-emustack");
+  JOVE_TRACK_ALLOCATION(end - JOVE_PAGE_SIZE, JOVE_PAGE_SIZE, "end-emustack");
+  JOVE_TRACK_ALLOCATION(beg + JOVE_PAGE_SIZE, JOVE_STACK_SIZE - 2 * JOVE_PAGE_SIZE, "emustack");
+
   return beg;
 }
 
 static void _jove_free_stack(uintptr_t beg) {
   if (_jove_sys_munmap(beg, JOVE_STACK_SIZE) < 0)
     _UNREACHABLE("failed to deallocate stack");
+
+  JOVE_UNTRACK_ALLOCATION(beg, JOVE_STACK_SIZE);
 }
 
 static uintptr_t _jove_alloc_callstack(void) {
@@ -499,12 +521,18 @@ static uintptr_t _jove_alloc_callstack(void) {
   if (_jove_sys_mprotect(end - JOVE_PAGE_SIZE, JOVE_PAGE_SIZE, PROT_NONE) < 0)
     _UNREACHABLE("failed to create guard page #2");
 
+  JOVE_TRACK_ALLOCATION(beg, JOVE_PAGE_SIZE, "beg-callstack");
+  JOVE_TRACK_ALLOCATION(end - JOVE_PAGE_SIZE, JOVE_PAGE_SIZE, "end-callstack");
+  JOVE_TRACK_ALLOCATION(beg + JOVE_PAGE_SIZE, JOVE_STACK_SIZE - 2 * JOVE_PAGE_SIZE, "callstack");
+
   return beg;
 }
 
 static void _jove_free_callstack(uintptr_t start) {
   if (_jove_sys_munmap(start - JOVE_PAGE_SIZE, JOVE_CALLSTACK_SIZE) < 0)
     _UNREACHABLE("failed to deallocate callstack");
+
+  JOVE_UNTRACK_ALLOCATION(start, JOVE_CALLSTACK_SIZE);
 }
 
 //
@@ -692,6 +720,17 @@ static _UNUSED bool _description_of_address_for_maps(char *out,
     } else { /* anonymous mapping */
       set_restore_char_safe(dash, '\0', '-');
       _strcat(out, line);
+
+#ifdef JOVE_TRACK_ALLOCATIONS
+      {
+        const char *desc = _jove_rt_description_for_alloc(vm.min);
+        if (desc) {
+          _strcat(out, __ANSI_BOLD_GREEN " <");
+          _strcat(out, desc);
+          _strcat(out, ">" __ANSI_NORMAL_COLOR);
+        }
+      }
+#endif
     }
 
     _strcat(out, "+0x");

@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <stddef.h>
 
 struct jove_function_info_t {
   uint32_t BIdx;
@@ -26,6 +27,21 @@ struct jove_function_info_t {
 
   struct hlist_node hlist;
 };
+
+struct jove_allocation_t {
+  uintptr_t beg;
+  size_t len;
+
+  const char *desc;
+
+  struct hlist_node hlist;
+};
+
+void _jove_rt_track_alloc(uintptr_t beg, size_t len, const char *desc);
+void _jove_rt_track_free(uintptr_t beg, size_t len);
+const char *_jove_rt_description_for_alloc(uintptr_t beg);
+
+#define JOVE_TRACK_ALLOCATIONS
 
 //
 // DFSan
