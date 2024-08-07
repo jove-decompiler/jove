@@ -10,6 +10,11 @@
 #include <errno.h>
 #include <fcntl.h>
 
+#ifndef JOVE_TRACK_ALLOCATIONS
+#define JOVE_TRACK_ALLOCATION(beg, len, desc) do {} while (false)
+#define JOVE_UNTRACK_ALLOCATION(beg, len)     do {} while (false)
+#endif
+
 //
 // short stdlib
 //
@@ -458,20 +463,6 @@ static _UNUSED bool _jove_is_readable_mem(uintptr_t Addr) {
 
   return ret == sizeof(byte);
 }
-
-#ifdef JOVE_TRACK_ALLOCATIONS
-#define JOVE_TRACK_ALLOCATION(beg, len, desc) do {                             \
-  _jove_rt_track_alloc(beg, len,                                               \
-    desc /* " (" BOOST_PP_STRINGIZE(__FILE__) ":" */                           \
-         /*      BOOST_PP_STRINGIZE(__LINE__) ")" */);                         \
-  } while (false)
-#define JOVE_UNTRACK_ALLOCATION(beg, len) do { \
-    _jove_rt_track_free(beg, len);             \
-  } while (false)
-#else
-#define JOVE_TRACK_ALLOCATION(beg, len, desc) do {} while (false)
-#define JOVE_UNTRACK_ALLOCATION(beg, len) do {} while (false)
-#endif
 
 static uintptr_t _jove_alloc_stack(void) {
   uintptr_t ret = _mmap_rw_anonymous_private_memory(JOVE_STACK_SIZE);

@@ -28,6 +28,9 @@ struct jove_function_info_t {
   struct hlist_node hlist;
 };
 
+//
+// tracking memory
+//
 struct jove_allocation_t {
   uintptr_t beg;
   size_t len;
@@ -40,6 +43,15 @@ struct jove_allocation_t {
 void _jove_rt_track_alloc(uintptr_t beg, size_t len, const char *desc);
 void _jove_rt_track_free(uintptr_t beg, size_t len);
 const char *_jove_rt_description_for_alloc(uintptr_t beg);
+
+#define JOVE_TRACK_ALLOCATION(beg, len, desc) do {                             \
+  _jove_rt_track_alloc(beg, len,                                               \
+    desc /* " (" BOOST_PP_STRINGIZE(__FILE__) ":" */                           \
+         /*      BOOST_PP_STRINGIZE(__LINE__) ")" */);                         \
+  } while (false)
+#define JOVE_UNTRACK_ALLOCATION(beg, len) do { \
+    _jove_rt_track_free(beg, len);             \
+  } while (false)
 
 #define JOVE_TRACK_ALLOCATIONS
 
