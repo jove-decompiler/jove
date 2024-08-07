@@ -29,14 +29,19 @@ uintptr_t *__jove_sections_tables[_JOVE_MAX_BINARIES] = {
 
 DEFINE_HASHTABLE(__jove_function_map, JOVE_FUNCTION_MAP_HASH_BITS);
 
+static mutex_t to_free_lock = JOVE_MUTEX_INIT;
 static uintptr_t to_free[16];
 
 static void _jove_free_stack_later(uintptr_t stack) {
+  _mutex_lock(&to_free_lock);
+
   for (unsigned i = 0; i < ARRAY_SIZE(to_free); ++i) {
     if (to_free[i] != 0)
       continue;
 
     to_free[i] = stack;
+
+    _mutex_unlock(&to_free_lock);
     return;
   }
 
@@ -628,12 +633,18 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
   //
   // no time like the present
   //
-  for (unsigned i = 0; i < ARRAY_SIZE(to_free); ++i) {
-    if (to_free[i] == 0)
-      continue;
+  {
+    _mutex_lock(&to_free_lock);
 
-    _jove_free_stack(to_free[i]);
-    to_free[i] = 0;
+    for (unsigned i = 0; i < ARRAY_SIZE(to_free); ++i) {
+      if (to_free[i] == 0)
+        continue;
+
+      _jove_free_stack(to_free[i]);
+      to_free[i] = 0;
+    }
+
+    _mutex_unlock(&to_free_lock);
   }
 
   const uintptr_t saved_pc = *pc_ptr;
