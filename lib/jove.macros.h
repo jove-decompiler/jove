@@ -165,7 +165,12 @@
 #define JOVE_DUMP_FD 2
 #endif
 
-#define _DUMP_WITH_LEN(str, len) _jove_robust_write(JOVE_DUMP_FD, str, len)
+#ifdef JOVE_MT
+#define _DUMP_WITH_LEN(str, len) _jove_dump_tid_and_str_with_len(str, len)
+#else
+#define _DUMP_WITH_LEN(str, len) _jove_dump_str_with_len(str, len)
+#endif
+
 #define _DUMP(str) _DUMP_WITH_LEN(str, strlen(str))
 #define _DUMP_FUNC()                                                           \
   do {                                                                         \

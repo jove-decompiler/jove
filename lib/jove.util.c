@@ -9,6 +9,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <sys/uio.h>
 
 #ifndef JOVE_TRACK_ALLOCATIONS
 #define JOVE_TRACK_ALLOCATION(beg, len, desc) do {} while (false)
@@ -131,14 +132,14 @@ static _UNUSED int _strncmp(const char *s1, const char *s2, size_t n) {
   return (0);
 }
 
-static _UNUSED void _uint_to_string(uint64_t x, char *Str, unsigned Radix) {
+static char *_uint_to_string(uint64_t x, char *Str, unsigned Radix) {
   // First, check for a zero value and just short circuit the logic below.
   if (x == 0) {
     *Str++ = '0';
 
     // null-terminate
     *Str = '\0';
-    return;
+    return Str;
   }
 
   static const char Digits[] = "0123456789abcdefghijklmnopqrstuvwxyz";
@@ -158,6 +159,7 @@ static _UNUSED void _uint_to_string(uint64_t x, char *Str, unsigned Radix) {
 
   // null-terminate
   *Str = '\0';
+  return Str;
 }
 
 //
@@ -189,7 +191,55 @@ static void _jove_on_crash(char mode) {
 }
 
 static _UNUSED ssize_t _jove_robust_write(int fd, const void *buf,
-                                          size_t count) {
+                                          size_t count);
+
+static _UNUSED ssize_t _jove_robust_writev_trash(int fd, struct iovec *iov,
+                                                 unsigned iov_cnt);
+
+static _NOINL void _jove_dump_tid_and_str_with_len(const char *str,
+                                                   unsigned len) {
+  char buff[64];
+
+  buff[0] = '[';
+  char *chp = _uint_to_string(_jove_sys_gettid(), &buff[1], 10);
+  *chp++ = ']';
+  *chp++ = ' ';
+
+  struct iovec __iov_arr[2] = {
+      {.iov_base = &buff[0], .iov_len = chp - &buff[0]},
+      {.iov_base = (str), .iov_len = (len)}};
+
+  _jove_robust_writev_trash(JOVE_DUMP_FD, &__iov_arr[0], ARRAY_SIZE(__iov_arr));
+}
+
+static _NOINL void _jove_dump_str_with_len(const char *str, unsigned len) {
+  _jove_robust_write(JOVE_DUMP_FD, str, len);
+}
+
+static _NOINL void _jove_dump_on_crash(const char *str, unsigned len) {
+  _DUMP_WITH_LEN(str, len);
+  _jove_on_crash(JOVE_CRASH_MODE);
+  __UNREACHABLE();
+}
+
+static _UNUSED ssize_t _do_writev_readv(int fd, const struct iovec *iov,
+                                       unsigned iov_cnt, bool do_writev) {
+  ssize_t res;
+  do {
+    res = do_writev ? _jove_sys_writev(fd, iov, iov_cnt)
+                    : _jove_sys_readv(fd, iov, iov_cnt);
+  } while (res == -EINTR);
+  return res;
+}
+
+static _UNUSED size_t _bytes_of_iov(const struct iovec *iov, unsigned iov_cnt) {
+  size_t res = 0;
+  for (unsigned i = 0; i < iov_cnt; ++i)
+    res += iov[i].iov_len;
+  return res;
+}
+
+ssize_t _jove_robust_write(int fd, const void *buf, size_t count) {
   ssize_t ret = 0;
   ssize_t total = 0;
 
@@ -212,10 +262,96 @@ static _UNUSED ssize_t _jove_robust_write(int fd, const void *buf,
   return total;
 }
 
-static _UNUSED void _jove_dump_on_crash(const char *str, unsigned len) {
-  _DUMP_WITH_LEN(str, len);
-  _jove_on_crash(JOVE_CRASH_MODE);
-  __UNREACHABLE();
+static _UNUSED ssize_t _jove_robust_writev_readv_trash(int fd,
+                                                       struct iovec *iov,
+                                                       unsigned iov_cnt,
+                                                       bool do_writev) {
+  size_t offset = 0;
+  ssize_t total = 0;
+  ssize_t ret;
+  size_t orig_len, tail;
+  unsigned niov;
+  size_t bytes = _bytes_of_iov(iov, iov_cnt);
+
+  if (bytes <= 0) {
+    return 0;
+  }
+
+  offset = 0;
+
+  while (bytes > 0) {
+    /* Find the start position, skipping `offset' bytes:
+     * first, skip all full-sized vector elements, */
+    for (niov = 0; niov < iov_cnt && offset >= iov[niov].iov_len; ++niov) {
+      offset -= iov[niov].iov_len;
+    }
+
+    /* niov == iov_cnt would only be valid if bytes == 0, which
+     * we already ruled out in the loop condition.  */
+    _ASSERT(niov < iov_cnt);
+    iov += niov;
+    iov_cnt -= niov;
+
+    if (offset) {
+      /* second, skip `offset' bytes from the (now) first element,
+       * undo it on exit */
+      iov[0].iov_base += offset;
+      iov[0].iov_len -= offset;
+    }
+    /* Find the end position skipping `bytes' bytes: */
+    /* first, skip all full-sized elements */
+    tail = bytes;
+    for (niov = 0; niov < iov_cnt && iov[niov].iov_len <= tail; ++niov) {
+      tail -= iov[niov].iov_len;
+    }
+    if (tail) {
+      /* second, fixup the last element, and remember the original
+       * length */
+      _ASSERT(niov < iov_cnt);
+      _ASSERT(iov[niov].iov_len > tail);
+      orig_len = iov[niov].iov_len;
+      iov[niov++].iov_len = tail;
+      ret = _do_writev_readv(fd, iov, niov, do_writev);
+      /* Undo the changes above before checking for errors */
+      iov[niov - 1].iov_len = orig_len;
+    } else {
+      ret = _do_writev_readv(fd, iov, niov, do_writev);
+    }
+    if (offset) {
+      iov[0].iov_base -= offset;
+      iov[0].iov_len += offset;
+    }
+
+    if (ret < 0) {
+      int err = -ret;
+      _ASSERT(err != EINTR);
+      if (err == EAGAIN && total > 0) {
+        return total;
+      }
+      return -1;
+    }
+
+    if (ret == 0 && !do_writev) {
+      /* read returns 0 on EOF */
+      break;
+    }
+
+    /* Prepare for the next iteration */
+    offset += ret;
+    total += ret;
+    bytes -= ret;
+  }
+
+  return total;
+}
+
+ssize_t _jove_robust_writev_trash(int fd, struct iovec *iov, unsigned iov_cnt) {
+  return _jove_robust_writev_readv_trash(fd, iov, iov_cnt, true);
+}
+
+static _UNUSED ssize_t _jove_robust_readv_trash(int fd, struct iovec *iov,
+                                                unsigned iov_cnt) {
+  return _jove_robust_writev_readv_trash(fd, iov, iov_cnt, false);
 }
 
 //
