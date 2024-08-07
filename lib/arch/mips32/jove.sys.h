@@ -1,10 +1,14 @@
 #pragma once
 
 #ifndef JOVE_SYS_ATTR
+#include "jove.macros.h"
 #define JOVE_SYS_ATTR _HIDDEN _UNUSED
 #endif
 
 #include "jove_sys.h"
+
+#include <stddef.h>
+#include <sys/mman.h>
 
 static uintptr_t _mmap_rw_anonymous_private_memory(size_t len) {
   return _jove_sys_mips_mmap(0x0, len, PROT_READ | PROT_WRITE,
