@@ -398,6 +398,8 @@ struct LLVMTool : public StatefulJVTool<ToolKind::CopyOnWrite,
 
   llvm::GlobalVariable *TraceGlobal = nullptr;
   llvm::Function *GetTraceFunc = nullptr;
+  llvm::Value *CachedTrace = nullptr;
+
   llvm::GlobalVariable *CallStackGlobal = nullptr;
   llvm::Function *GetCallStackFunc = nullptr;
   llvm::GlobalVariable *CallStackBeginGlobal = nullptr;
@@ -585,6 +587,17 @@ public:
 
     assert(GetEnvFunc);
     return IRB.CreateCall(GetEnvFunc, std::nullopt, "env");
+  }
+
+  llvm::Value *GetTrace(llvm::IRBuilderTy &IRB) {
+    if (CachedTrace)
+      return CachedTrace;
+
+    if (TraceGlobal)
+      return TraceGlobal;
+
+    assert(GetTraceFunc);
+    return IRB.CreateCall(GetTraceFunc, std::nullopt, "trace");
   }
 
   std::string SectionsTopName(void) {
@@ -6936,6 +6949,14 @@ int LLVMTool::TranslateFunction(function_t &f) {
     assert(!CachedEnv);
     CachedEnv = GetEnv(IRB);
 
+    if (opts.Trace) {
+      //
+      // Get pointer to __jove_trace
+      //
+      assert(!CachedTrace);
+      CachedTrace = GetTrace(IRB);
+    }
+
     //
     // Create Alloca for program counter
     //
@@ -7012,6 +7033,7 @@ int LLVMTool::TranslateFunction(function_t &f) {
   }
 
   CachedEnv = nullptr;
+  CachedTrace = nullptr;
 
   if (!opts.Debugify) {
   DIBuilder->finalizeSubprogram(TC.DebugInformation.Subprogram);
@@ -8294,14 +8316,15 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
     uint64_t comb =
         (static_cast<uint64_t>(BIdx) << 32) | static_cast<uint64_t>(BBIdx);
 
-    llvm::LoadInst *PtrLoad = IRB.CreateLoad(IRB.getPtrTy(), TraceGlobal, true /* Volatile */);
+    llvm::LoadInst *PtrLoad =
+        IRB.CreateLoad(IRB.getPtrTy(), GetTrace(IRB), true /* Volatile */);
     llvm::Value *PtrInc = IRB.CreateConstGEP1_64(IRB.getInt64Ty(), PtrLoad, 1);
 
     PtrLoad->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
 
     {
       llvm::StoreInst *SI =
-          IRB.CreateStore(PtrInc, TraceGlobal, true /* Volatile */);
+          IRB.CreateStore(PtrInc, GetTrace(IRB), true /* Volatile */);
 
       SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
     }
