@@ -122,5 +122,16 @@ _REGPARM _HIDDEN void _jove_do_free_callstack(uintptr_t x) {
 }
 
 int insn_length(const uint8_t *insnp) {
+  if (insnp[0] == 0xc7) { /* movl with an immediate to memory */
+    // ModR/M byte indicating a memory operand with or without displacement
+    uint8_t modrm = insnp[1];
+    if ((modrm & 0xC0) == 0x00) // disp0(%reg)
+      return 1 /* opc */ + 1 /* modrm */ + 4 /* imm */;
+    if ((modrm & 0xC0) == 0x40) // disp8(%reg)
+      return 1 /* opc */ + 1 /* modrm */ + 1 /* disp */ + 4 /* imm */;
+    if ((modrm & 0xC0) == 0x80) // disp32(%reg)
+      return 1 /* opc */ + 1 /* modrm */ + 4 /* disp */ + 4 /* imm */;
+  }
+
   return -1;
 }
