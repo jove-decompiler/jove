@@ -411,39 +411,24 @@ void _jove_flush_trace(void) {
   if (unlikely(TraceBegin == TracePtr))
     return;
 
-  int fd;
+  JOVE_BUFF(path, PATH_MAX);
+
+  char *const trace_path = __jove_opts.Trace;
+  _ASSERT(trace_path);
+
+  _strcpy(path, trace_path);
+  _strcat(path, ".");
+
   {
-    JOVE_BUFF(path, PATH_MAX);
+    char buff[65];
+    _uint_to_string(_jove_sys_gettid(), buff, 10);
 
-    char *const trace_path = __jove_opts.Trace;
-    _ASSERT(trace_path);
-
-    _strcpy(path, trace_path);
-    _strcat(path, ".");
-
-    {
-      char buff[65];
-      _uint_to_string(_jove_sys_gettid(), buff, 10);
-
-      _strcat(path, buff);
-    }
-
-    fd = _jove_open(path, O_WRONLY | O_APPEND | O_CREAT | O_LARGEFILE, 0666);
-
-    if (fd < 0) {
-      {
-        char buff[65];
-        _uint_to_string(-fd, buff, 10);
-
-        _strcat(path, buff);
-
-      _DUMP(buff);
-      }
-      _DUMP("\n");
-      _DUMP(path);
-      _UNREACHABLE("_jove_flush_trace: failed to open trace file");
-    }
+    _strcat(path, buff);
   }
+
+  int fd = _jove_open(path, O_WRONLY | O_APPEND | O_CREAT | O_LARGEFILE, 0666);
+  if (fd < 0)
+    _UNREACHABLE("_jove_flush_trace: failed to open trace file");
 
   --TracePtr;
   unsigned n = (TracePtr - TraceBegin) * sizeof(uint64_t);
@@ -455,6 +440,24 @@ void _jove_flush_trace(void) {
 
   if (_jove_sys_close(fd) < 0)
     _UNREACHABLE("_jove_flush_trace: failed to close trace file");
+
+  if (unlikely(__jove_opts.Debug.Verbose)) {
+    JOVE_BUFF(s, PATH_MAX);
+    _strcpy(s, "flushed ");
+
+    {
+      char buff[65];
+      _uint_to_string(n, buff, 10);
+
+      _strcat(s, buff);
+    }
+
+    _strcat(s, " bytes to ");
+    _strcat(s, path);
+    _strcat(s, "\n");
+
+    _DUMP(s);
+  }
 
   //
   // reset
