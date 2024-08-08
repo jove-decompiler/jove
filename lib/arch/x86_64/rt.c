@@ -137,27 +137,19 @@ _HIDDEN void _jove_do_free_stack_later(uintptr_t x) {
   _jove_free_stack_later(x);
 }
 
-// Check if the given instruction is 'movq imm32, mem'
-static bool is_movq_immediate_to_memory(const uint8_t *code) {
-  // Check for REX prefix and opcode for movq imm32, mem
-  if ((code[0] & 0xF0) == 0x40 && code[1] == 0xc7) {
-    // Check if the ModR/M byte indicates a memory operand
-    // For example, 0x01 means memory at (%rcx) with no displacement
-    // Other values can be 0x02, 0x03, etc., depending on the addressing mode
-    uint8_t modrm = code[2];
-    if ((modrm & 0xC0) == 0x00 || (modrm & 0xC0) == 0x40 ||
-        (modrm & 0xC0) == 0x80 || (modrm & 0xC0) == 0xC0) {
-      // If ModR/M indicates a memory operand, we have a match
-      return true; // Instruction matches
-    }
-  }
-  return false; // Instruction does not match
-}
-
 int insn_length(const uint8_t *insnp) {
-  if (is_movq_immediate_to_memory(insnp))
-    return 7;
-
+  // Check for REX prefix and opcode for movq imm32, mem
+  if ((insnp[0] & 0xF0) == 0x40 && insnp[1] == 0xc7) {
+    uint8_t modrm = insnp[2];
+    int length = 1 /* prefix */ + 1 /* opc */ + 1 /* modrm */ + 4 /* imm */;
+    if ((modrm & 0xC0) == 0x40) // disp8(%reg)
+      length += 1 /* disp */;
+    if ((modrm & 0xC0) == 0x80) // disp32(%reg)
+      length += 4 /* disp */;
+    if ((modrm & 0x07) == 0x04) // SIB present
+      length += 1 /* SIB */;
+    return length;
+  }
   return -1;
 }
 
