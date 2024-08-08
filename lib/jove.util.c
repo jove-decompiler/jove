@@ -162,6 +162,17 @@ static char *_uint_to_string(uint64_t x, char *Str, unsigned Radix) {
   return Str;
 }
 
+static _UNUSED char *_int_to_string(int64_t x, char *Str, unsigned Radix) {
+  uint64_t ux = (uint64_t)x;
+
+  if (x < 0) {
+    ux = (uint64_t)(-x);
+    *Str++ = '-';
+  }
+
+  return _uint_to_string(ux, Str, Radix);
+}
+
 //
 // essential stuff
 //
