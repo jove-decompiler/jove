@@ -190,6 +190,7 @@ static const struct debug_option_pair debug_opt_tbl[] = {
   {"stack",   &__jove_opts.Debug.Stack},
   {"inits",   &__jove_opts.Debug.Inits},
   {"verbose", &__jove_opts.Debug.Verbose},
+  {"insn",    &__jove_opts.Debug.Insn},
 };
 
 void _jove_parse_debug_string(char *const s) {
@@ -570,31 +571,49 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
 
       if (FaultAddr >= TraceGuardPageBeg &&
           FaultAddr <= TraceGuardPageEnd) {
-        void *Trace = __jove_trace;
-
-        if (Trace != TraceBegin)
-          _jove_flush_trace();
+        _jove_flush_trace();
 
         //
-        // skip faulting instruction.
+        // skip faulting instruction by determining length.
         //
-        const int insn_len = insn_length((const uint8_t *)(*pc_ptr));
+        const uint8_t *const insnp = (const uint8_t *)(*pc_ptr);
+        const int len = insn_length(insnp);
 
-        _ASSERT(insn_len >= 0); /* TODO print out bytes of insn */
+        if (unlikely(__jove_opts.Debug.Insn)) {
+          char s[1024];
 
-#if 0
-        {
+          _strcpy(s, "insn is ");
           {
             char buff[65];
-            _uint_to_string((uintptr_t)*pc_ptr, buff, 0x10);
-            _DUMP(buff);
-            _DUMP("\n");
-          }
-          _jove_on_crash('a');
-        }
-#endif
+            _int_to_string(len, buff, 10);
 
-        *pc_ptr += insn_len;
+            _strcat(s, buff);
+          }
+          _strcat(s, " bytes (");
+
+          const unsigned n = len > 0 ? len : 10;
+          for (unsigned i = 0; i < n; ++i) {
+            _strcat(s, "0x");
+
+            char buff[65];
+            _uint_to_string(insnp[i], buff, 0x10);
+
+            _strcat(s, buff);
+
+            if (i+1 < n)
+              _strcat(s, " ");
+          }
+          if (!(len > 0))
+            _strcat(s, " ...");
+
+          _strcat(s, ")\n");
+
+          _DUMP(s);
+        }
+
+        _ASSERT(len > 0);
+
+        *pc_ptr += len;
         return;
       }
     }

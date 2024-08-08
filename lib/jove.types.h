@@ -13,6 +13,7 @@ struct jove_opts_t {
     bool Stack;
     bool Inits;
     bool Verbose;
+    bool Insn;
   } Debug;
 
   bool DumpOpts;
