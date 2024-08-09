@@ -30,6 +30,7 @@ class Trace2AddrsTool
     cl::opt<bool> Offsets;
     cl::alias OffsetsAlias;
     cl::opt<bool> PerfStyle;
+    cl::opt<bool> Terms;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : TracePath(cl::Positional, cl::desc("trace.txt"), cl::Required,
@@ -47,7 +48,11 @@ class Trace2AddrsTool
 
           PerfStyle("perf-style",
                     cl::desc("Output like 'perf script -F ip,addr,dso,dsoff'"),
-                    cl::cat(JoveCategory)) {}
+                    cl::cat(JoveCategory)),
+
+          Terms("terms",
+                cl::desc("Output addresses of terminators rather than blocks"),
+                cl::cat(JoveCategory)) {}
 
   } opts;
 
@@ -102,9 +107,19 @@ int Trace2AddrsTool::Run(void) {
     auto &ICFG = b.Analysis.ICFG;
     basic_block_t bb = basic_block_of_index(BBIdx, ICFG);
 
+    uint64_t x;
+    if (opts.Terms) {
+      if (ICFG[bb].Term.Type == TERMINATOR::NONE)
+        continue;
+      assert(ICFG[bb].Term.Addr);
+      x = ICFG[bb].Term.Addr;
+    } else {
+      x = ICFG[bb].Addr;
+    }
+
     OutputStream << llvm::formatv("{0}+{1:x}\n",
                                   fs::path(b.path_str()).filename().c_str(),
-                                  AddrOrOff(b, ICFG[bb].Addr));
+                                  AddrOrOff(b, x));
   }
 
   return 0;
