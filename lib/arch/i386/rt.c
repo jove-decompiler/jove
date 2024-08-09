@@ -130,8 +130,29 @@ int insn_length(const uint8_t *insnp) {
       length += 1 /* disp */;
     if ((modrm & 0xC0) == 0x80) // disp32(%reg)
       length += 4 /* disp */;
-    if ((modrm & 0x07) == 0x04) // SIB present
+    if ((modrm & 0x07) == 0x04) { // SIB present
       length += 1 /* SIB */;
+
+      if ((modrm & 0xC0) == 0x00 && (insnp[2] & 0x07) == 0x05) // SIB with disp32
+        length += 4 /* disp32 */;
+    }
+    return length;
+  }
+
+  if (insnp[0] == 0x8A) { /* movb from memory or register to register */
+    uint8_t modrm = insnp[1];
+    int length = 1 /* opc */ + 1 /* modrm */;
+    if ((modrm & 0xC0) == 0x40) // disp8(%reg)
+      length += 1 /* disp */;
+    if ((modrm & 0xC0) == 0x80) // disp32(%reg)
+      length += 4 /* disp */;
+    if ((modrm & 0x07) == 0x04) { // SIB present
+      length += 1 /* SIB */;
+
+      if ((modrm & 0xC0) == 0x00 && (insnp[2] & 0x07) == 0x05) // SIB with disp32
+        length += 4 /* disp32 */;
+    }
+
     return length;
   }
 
