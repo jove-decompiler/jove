@@ -184,6 +184,38 @@ found_tool:
   std::string Desc = (std::string("jove-") + name) + "\n";
   llvm::cl::ParseCommandLineOptions(argc, argv, Desc);
 
+  /*
+   * unfortunately, llvm::sys::PrintStackTrace() can trigger a deadlocks like
+   * the following (because of abort in glibc malloc, which unwinding calls):
+   *
+     #0  0x000000000448ad36 in __lll_lock_wait_private ()
+     #1  0x0000000004497818 in __malloc ()
+     #2  0x000000000443c0dd in search_object ()
+     #3  0x000000000443cba6 in _Unwind_Find_FDE ()
+     #4  0x0000000004439953 in uw_frame_state_for ()
+     #5  0x0000000004439fb0 in uw_init_context_1 ()
+     #6  0x000000000443af1c in _Unwind_Backtrace ()
+     #7  0x00000000044dfa19 in backtrace ()
+     #8  0x0000000004394f48 in llvm::sys::PrintStackTrace (OS=..., Depth=0)
+     #9  0x00000000043930b0 in llvm::sys::RunSignalHandlers ()
+     #10 0x0000000004395588 in SignalHandler (Sig=6)
+     #11 <signal handler called>
+     #12 0x000000000448f04b in __pthread_kill_implementation.constprop.0 ()
+     #13 0x0000000004451f52 in gsignal ()
+     #14 0x000000000445257f in abort ()
+     #15 0x0000000004485508 in __libc_message ()
+     #16 0x000000000449343a in malloc_printerr ()
+     #17 0x0000000004493cfe in unlink_chunk.constprop ()
+     #18 0x000000000449531b in _int_free ()
+     #19 0x0000000004497b7d in free ()
+     ...
+     #39 main (argc=<optimized out>, argv=<optimized out>)
+   *
+   * it also sucks at unwinding frames compared to gdb, and runs very slowly,
+   * so disable it.
+   */
+  jove::DoDefaultOnErrorSignal();
+
   int res = tool->Run();
 
   return res;

@@ -92,5 +92,6 @@ uint64_t size_of_file(const char *path);
 uint32_t size_of_file32(const char *path);
 unsigned num_cpus(void);
 void IgnoreCtrlC(void);
+void DoDefaultOnErrorSignal(void);
 
 }

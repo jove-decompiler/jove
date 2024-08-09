@@ -57,21 +57,39 @@ std::string read_file_into_string(char const *infile) {
                      std::istreambuf_iterator<char>());
 }
 
-void IgnoreCtrlC(void) {
+static void IgnoreSignal(unsigned sig) {
   struct sigaction sa;
 
   sigemptyset(&sa.sa_mask);
   sa.sa_flags = 0;
-#if 0
-  sa.sa_handler = [](int) -> void {};
-#else
   sa.sa_handler = SIG_IGN;
-#endif
 
-  if (::sigaction(SIGINT, &sa, nullptr) < 0) {
+  if (::sigaction(sig, &sa, nullptr) < 0) {
     int err = errno;
-    throw std::runtime_error(std::string("IgnoreCtrlC: sigaction failed: ") + strerror(err));
+    throw std::runtime_error(std::string("sigaction failed: ") + strerror(err));
   }
+}
+
+void IgnoreCtrlC(void) {
+  IgnoreSignal(SIGINT);
+}
+
+static void DoDefaultOnSignal(unsigned sig) {
+  struct sigaction sa;
+
+  sigemptyset(&sa.sa_mask);
+  sa.sa_flags = 0;
+  sa.sa_handler = SIG_DFL;
+
+  if (::sigaction(sig, &sa, nullptr) < 0) {
+    int err = errno;
+    throw std::runtime_error(std::string("sigaction failed: ") + strerror(err));
+  }
+}
+
+void DoDefaultOnErrorSignal(void) {
+  DoDefaultOnSignal(SIGABRT);
+  DoDefaultOnSignal(SIGSEGV);
 }
 
 }
