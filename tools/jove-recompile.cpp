@@ -1404,23 +1404,20 @@ void RecompileTool::worker(dso_t dso) {
             if (!opts.Optimize) {
               Arg("--frame-pointer=all");
 
-#if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
-              Arg("--disable-mips-delay-filler"); /* make our life easier */
-#endif
+              if (IsMIPSTarget)
+                Arg("--disable-mips-delay-filler"); /* make our life easier */
             }
 
-            //
-            // On mips...
-            // "The dynamic linker will use an undefined function symbol table entry
-            // with STO_MIPS_PLT set to resolve all references to that symbol in
-            // preference to the actual definition of that symbol" TODO
-            //
             if (b.IsPIC) {
               Arg("--relocation-model=pic");
             } else {
               assert(b.IsExecutable);
-              Arg(IsCOFF ? "--relocation-model=dynamic-no-pic"
-                         : "--relocation-model=static");
+
+              if (IsMips64elTarget)
+                Arg("--relocation-model=pic"); /* FIXME otherwise plt stubs broken */
+              else
+                Arg(IsCOFF ? "--relocation-model=dynamic-no-pic"
+                           : "--relocation-model=static");
             }
 
             if (IsCOFF)
@@ -1428,14 +1425,6 @@ void RecompileTool::worker(dso_t dso) {
 
             Arg("--dwarf-version=4");
             Arg("--debugger-tune=gdb");
-
-            if (false /* IsX86Target */) {
-              //
-              // FIXME... how is the stack getting unaligned??
-              //
-
-              Arg("--stackrealign");
-            }
           });
           break;
 
