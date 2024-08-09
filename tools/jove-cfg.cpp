@@ -219,19 +219,23 @@ std::string CFGTool::disassemble_basic_block(const GraphTy &G,
     {
       llvm::raw_string_ostream ErrorStrStream(errmsg);
 
-      llvm::ArrayRef<uint8_t> ContentsRef(Contents, UINT32_MAX);
+      llvm::ArrayRef<uint8_t> ContentsRef(Contents, End - A);
 
       Disassembled = disas.DisAsm->getInstruction(Inst, InstLen, ContentsRef, A,
                                                   ErrorStrStream);
     }
 
     if (!Disassembled) {
+      if (opts.Highlight)
+        res.append(__ANSI_BOLD_RED);
       res.append("failed to disassemble ");
       res.append(taddr2str(A));
       if (!errmsg.empty()) {
         res.append(": ");
         res.append(errmsg);
       }
+      if (opts.Highlight)
+        res.append(__ANSI_NORMAL_COLOR);
       res.push_back('\n');
       break;
     }
