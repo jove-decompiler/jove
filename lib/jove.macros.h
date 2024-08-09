@@ -192,6 +192,12 @@
       _DUMP(str);                                                              \
   } while (false)
 
+#define _VERBOSE_DUMP_FUNC()                                                   \
+  do {                                                                         \
+    if (unlikely(__jove_opts.Debug.Verbose))                                   \
+      _DUMP_FUNC();                                                            \
+  } while (false)
+
 /* if __jove_opts isn't available, define this before including this file */
 #ifndef JOVE_CRASH_MODE
 #define JOVE_CRASH_MODE __jove_opts.OnCrash
