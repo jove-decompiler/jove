@@ -54,6 +54,8 @@ class TraceTool : public StatefulJVTool<ToolKind::CopyOnWrite, binary_state_t, v
     cl::alias OutsideChrootAlias;
     cl::opt<std::string> PathToTracefs;
     cl::opt<bool> NoParseTrace;
+    cl::opt<bool> Force;
+    cl::alias ForceAlias;
 
     bool OnlyExecutable;
 
@@ -127,8 +129,16 @@ class TraceTool : public StatefulJVTool<ToolKind::CopyOnWrite, binary_state_t, v
           NoParseTrace("no-parse-trace",
                        cl::desc("Do not parse /sys/kernel/debug/tracing/trace "
                                 "at the very end."),
-                       cl::cat(JoveCategory)) {}
+                       cl::cat(JoveCategory)),
+
+          Force("force", cl::desc("Exec at the given path, no matter what."),
+                cl::cat(JoveCategory)),
+
+          ForceAlias("f", cl::desc("Alias for --force."), cl::aliasopt(Force),
+                     cl::cat(JoveCategory)) {}
   } opts;
+
+  std::string ForcedProgFileName;
 
 public:
   TraceTool() : opts(JoveCategory) {}
@@ -161,6 +171,8 @@ int TraceTool::Run(void) {
     WithColor::error() << "program does not exist\n";
     return 1;
   }
+  if (opts.Force)
+    ForcedProgFileName = fs::canonical(opts.Prog).string();
 
   opts.OnlyExecutable = opts.OutsideChroot;
 
@@ -322,6 +334,10 @@ open_events:
         continue;
       }
 
+      std::string filename = chrooted_path.string();
+      if (binary.IsExecutable && !ForcedProgFileName.empty())
+        filename = ForcedProgFileName;
+
       binary_state_t &x = state.for_binary(binary);
 
       const auto &ICFG = binary.Analysis.ICFG;
@@ -344,7 +360,7 @@ open_events:
           (fmt("p:jove/JV_%" PRIu32 "_%" PRIu32 " %s:0x%" PRIx64 "\n")
            % BIdx
            % BBIdx
-           % chrooted_path.string()
+           % filename
            % Off).str();
 
         if (IsVeryVerbose())
@@ -483,6 +499,9 @@ skip_uprobe:
       fs::path exe_path = opts.OutsideChroot
                               ? SysrootPath / jv.Binaries.at(0).path_str()
                               : jv.Binaries.at(0).path_str();
+
+      if (!ForcedProgFileName.empty())
+	exe_path = ForcedProgFileName;
 
       arg_vec.push_back(exe_path.c_str());
 
