@@ -129,6 +129,14 @@ constexpr unsigned IsMIPSTarget =
 #endif
     ;
 
+constexpr unsigned IsMips64elTarget =
+#if defined(TARGET_MIPS64)
+    1
+#else
+    0
+#endif
+    ;
+
 constexpr unsigned IsX86Target =
 #if defined(TARGET_I386) || defined(TARGET_X86_64)
     1
