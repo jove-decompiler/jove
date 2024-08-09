@@ -225,7 +225,7 @@ top:
           goto on_insn_boundary;
       }
 
-      throw invalid_control_flow_exception(Addr);
+      throw invalid_control_flow_exception(b, Addr);
 
     on_insn_boundary:
         //
@@ -387,10 +387,14 @@ top:
   unsigned Size = 0;
   jove::terminator_info_t T;
   do {
-    unsigned size;
-    std::tie(size, T) = tcg.translate(Addr + Size);
+    try {
+      unsigned size;
+      std::tie(size, T) = tcg.translate(Addr + Size);
 
-    Size += size;
+      Size += size;
+    } catch (const g2h_exception &e) {
+      throw invalid_control_flow_exception(b, e.pc);
+    }
 
     {
       ip_sharable_lock<ip_upgradable_mutex> s_lck(b.bbmap_mtx);

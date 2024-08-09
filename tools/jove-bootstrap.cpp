@@ -3222,8 +3222,10 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
                                   description_of_program_counter(saved_pc),
                                   description_of_program_counter(Target.Addr),
                                   ControlFlow.IsGoto ? (IsLj ? __ANSI_MAGENTA : __ANSI_GREEN) : __ANSI_CYAN);
-  } catch (const g2h_exception &e) {
-    const std::string what = "_jove_g2h() failed [" + taddr2str(e.pc) + "]";
+  } catch (const invalid_control_flow_exception &invalid_cf) {
+    const std::string what = "invalid control-flow to " +
+                             taddr2str(invalid_cf.pc, false) + " in \"" +
+                             invalid_cf.b.Name.c_str() + "\"";
 
     HumanOut() << llvm::formatv(
         "on_breakpoint failed: {0} [target: {1}+{2:x} ({3:x}) binary.LoadAddr: {4:x}]\n",

@@ -387,15 +387,11 @@ void ObserveTool::ProcessLine(const std::string &line) {
         if (!ExistsBlock)
           E.explore_basic_block(src_bin, Bin, src_va);
       }
-    } catch (const g2h_exception &e) {
-      if (IsVerbose())
-        llvm::errs() << llvm::formatv("invalid pc {0}\n",
-                                      taddr2str(e.pc, false));
-      return;
     } catch (const invalid_control_flow_exception &invalid_cf) {
       if (IsVerbose())
-        llvm::errs() << llvm::formatv("invalid control-flow to {0}\n",
-                                      taddr2str(invalid_cf.pc, false));
+        llvm::errs() << llvm::formatv("invalid control-flow to {0} in \"{1}\"\n",
+                                      taddr2str(invalid_cf.pc, false),
+                                      invalid_cf.b.Name.c_str());
       return;
     } catch (const std::exception &e) {
       if (IsVerbose())
@@ -426,15 +422,11 @@ void ObserveTool::ProcessLine(const std::string &line) {
       try {
         FIdx = E.explore_function(dst_bin, *state.for_binary(dst_bin).Bin,
                                   dst_off);
-      } catch (const g2h_exception &e) {
-        if (IsVerbose())
-          llvm::errs() << llvm::formatv("invalid pc {0}\n",
-                                        taddr2str(e.pc, false));
-        return;
       } catch (const invalid_control_flow_exception &invalid_cf) {
         if (IsVerbose())
-          llvm::errs() << llvm::formatv("invalid control-flow to {0}\n",
-                                        taddr2str(invalid_cf.pc, false));
+          llvm::errs() << llvm::formatv("invalid control-flow to {0} in \"{1}\"\n",
+                                        taddr2str(invalid_cf.pc, false),
+                                        invalid_cf.b.Name.c_str());
         return;
       }
 

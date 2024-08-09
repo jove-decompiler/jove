@@ -21,8 +21,8 @@ addr_pair bounds_of_binary(COFFO &);
 static inline const void *toMappedAddr(COFFO &O, uint64_t Addr) {
   uintptr_t UIntPtr = ~0UL;
 
-  if (llvm::Error E = O.getVaPtr(Addr, UIntPtr))
-    throw std::runtime_error(llvm::toString(std::move(E)));
+  if (llvm::errorToBool(O.getVaPtr(Addr, UIntPtr)))
+    return nullptr;
 
   return reinterpret_cast<const void *>(UIntPtr);
 }

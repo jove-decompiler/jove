@@ -23,33 +23,14 @@ static thread_local jove::terminator_info_t jv_ti;
 static thread_local unsigned has_register_thread;
 
 extern "C" const void *_jv_g2h(uint64_t Addr) {
-  if (!jv_Bin)
+  if (unlikely(!jv_Bin))
     return NULL;
 
-  return jove::B::_X(
-      *jv_Bin,
+  const void *const res = jove::B::toMappedAddr(*jv_Bin, Addr);
+  if (unlikely(!res))
+    throw jove::g2h_exception(Addr);
 
-      [&](jove::ELFO &O) -> const void * {
-        const jove::ELFF &Elf = O.getELFFile();
-
-        llvm::Expected<const uint8_t *> ExpectedPtr = Elf.toMappedAddr(Addr);
-        if (!ExpectedPtr) {
-          llvm::consumeError(ExpectedPtr.takeError());
-
-          throw jove::g2h_exception(Addr);
-        }
-
-        return *ExpectedPtr;
-      },
-
-      [&](jove::COFFO &O) -> const void * {
-        uintptr_t UIntPtr = ~0UL;
-
-        if (llvm::errorToBool(O.getVaPtr(Addr, UIntPtr)))
-          throw jove::g2h_exception(Addr);
-
-        return reinterpret_cast<const void *>(UIntPtr);
-      });
+  return res;
 }
 
 extern "C" void jv_term_is_cond_jump(uint64_t Target, uint64_t NextPC) {
