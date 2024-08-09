@@ -8316,23 +8316,34 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
     uint64_t comb =
         (static_cast<uint64_t>(BIdx) << 32) | static_cast<uint64_t>(BBIdx);
 
-    llvm::LoadInst *PtrLoad =
-        IRB.CreateLoad(IRB.getPtrTy(), GetTrace(IRB), true /* Volatile */);
-    llvm::Value *PtrInc = IRB.CreateConstGEP1_64(IRB.getInt64Ty(), PtrLoad, 1);
+    //
+    // pointless load(load(tracep)) to test the waters. if we are at the guard
+    // page, this will trigger fault, and the fault handler will reset the trace
+    // pointer (after flushing the trace to disk). without this approach we end
+    // up discarding one trace point on each guard page hit
+    //
+    {
+      llvm::LoadInst *LI = IRB.CreateLoad(IRB.getPtrTy(), GetTrace(IRB), true);
+      LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
+      LI = IRB.CreateLoad(IRB.getInt8Ty(), LI, true);
+      LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
+    }
 
-    PtrLoad->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
+    //
+    // now for real
+    //
+    llvm::LoadInst *Ptr = IRB.CreateLoad(IRB.getPtrTy(), GetTrace(IRB), true);
+    Ptr->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
 
     {
-      llvm::StoreInst *SI =
-          IRB.CreateStore(PtrInc, GetTrace(IRB), true /* Volatile */);
+      llvm::Value *PtrInc = IRB.CreateConstGEP1_64(IRB.getInt64Ty(), Ptr, 1);
 
+      llvm::StoreInst *SI = IRB.CreateStore(PtrInc, GetTrace(IRB)); // ++tracep
       SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
     }
 
     {
-      llvm::StoreInst *SI =
-          IRB.CreateStore(IRB.getInt64(comb), PtrLoad, true /* Volatile */);
-
+      llvm::StoreInst *SI = IRB.CreateStore(IRB.getInt64(comb), Ptr);
       SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
     }
   }
