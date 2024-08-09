@@ -8516,7 +8516,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
   } while (size < Size);
 
   if (T.Type != ICFG[bb].Term.Type) {
-    uintptr_t FuncAddr = ICFG[basic_block_of_index(f.Entry, ICFG)].Addr;
+    uint64_t FuncAddr = ICFG[basic_block_of_index(f.Entry, ICFG)].Addr;
 
     WithColor::error() << llvm::formatv(
         "{0}:{1} @ {2:x} (try jove-init'ing over again? this can happen when "
