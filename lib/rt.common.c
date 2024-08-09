@@ -64,6 +64,7 @@ static void _jove_rt_signal_handler(int, siginfo_t *, ucontext_t *);
 static void _jove_init_cpu_state(void);
 static void _jove_callstack_init(void);
 static void _jove_trace_init(void);
+void _jove_flush_trace(void);
 
 #ifdef JOVE_MT
 int _jove_needs_multi_threaded_runtime(void) { return 1; }
@@ -315,7 +316,6 @@ const IMAGE_TLS_DIRECTORY _tls_used = {
 };
 
 BOOL DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved) {
-
   switch (ul_reason_for_call) {
   case DLL_PROCESS_ATTACH:
     _jove_parse_opts();
@@ -324,12 +324,15 @@ BOOL DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved) {
     break;
   case DLL_THREAD_ATTACH:
     _VERBOSE_DUMP("DllMain [DLL_THREAD_ATTACH]\n");
+    _jove_trace_init();
     break;
   case DLL_THREAD_DETACH:
     _VERBOSE_DUMP("DllMain [DLL_THREAD_DETACH]\n");
+    _jove_flush_trace();
     break;
   case DLL_PROCESS_DETACH:
     _VERBOSE_DUMP("DllMain [DLL_PROCESS_DETACH]\n");
+    _jove_flush_trace();
     break;
   }
   return TRUE;
@@ -380,6 +383,13 @@ void _jove_callstack_init(void) {
 }
 
 void _jove_trace_init(void) {
+  static _JTHREAD bool _Done = false;
+  if (_Done)
+    return;
+  _Done = true;
+
+  _VERBOSE_DUMP_FUNC();
+
   unsigned long ret = _mmap_rw_anonymous_private_memory(JOVE_TRACE_BUFF_SIZE);
   if (IS_ERR_VALUE(ret))
     _UNREACHABLE("failed to allocate trace buffer");
@@ -403,8 +413,7 @@ void _jove_trace_init(void) {
 }
 
 void _jove_flush_trace(void) {
-  if (__jove_opts.Debug.Verbose)
-    _DUMP_FUNC();
+  _VERBOSE_DUMP_FUNC();
 
   uint64_t *TracePtr = __jove_trace;
   uint64_t *const TraceBegin = __jove_trace_begin;
