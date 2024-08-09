@@ -298,7 +298,6 @@ void tiny_code_generator_t::print_shit(void) {
       "cc_dst",
       "cc_src",
       "cc_src2",
-
       "bnd0_lb",
       "bnd0_ub",
       "bnd1_lb",
@@ -307,6 +306,7 @@ void tiny_code_generator_t::print_shit(void) {
       "bnd2_ub",
       "bnd3_lb",
       "bnd3_ub"
+      "eip",
     };
 
     const auto &not_ret_regs = not_arg_or_ret_regs;
