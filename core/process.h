@@ -7,7 +7,9 @@
 namespace jove {
 
 namespace process {
-static inline void no_args(std::function<void(const std::string &)>) {}
+static inline void no_args(std::function<void(const std::string &)> Arg) {
+  Arg(""); /* prevent "NULL argv" complaints in dmesg */
+}
 static inline void no_envs(std::function<void(const std::string &)>) {}
 }
 
