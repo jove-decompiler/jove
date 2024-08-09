@@ -10077,6 +10077,12 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
                              llvm::BasicBlock *ExitBB,
                              llvm::IRBuilderTy &IRB,
                              TranslateContext &TC) {
+  auto EnsureInsertPoint = [&](void) -> void {
+    if (IRB.GetInsertBlock() == nullptr)
+      IRB.SetInsertPoint(
+          llvm::BasicBlock::Create(*Context, "", state.for_function(TC.f).F));
+  };
+
   function_t &f = TC.f;
   basic_block_t bb = TC.bb;
   auto &GlobalAllocaArr = TC.GlobalAllocaArr;
@@ -11114,6 +11120,8 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
   case INDEX_op_br: {
     llvm::BasicBlock* lblB = LabelVec.at(arg_label(op->args[0])->id);
     IRB.CreateBr(lblB);
+    IRB.ClearInsertionPoint();
+    EnsureInsertPoint();
     break;
   }
 
