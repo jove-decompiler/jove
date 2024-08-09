@@ -20,10 +20,10 @@ namespace jove {
 
 class AddTool : public JVTool<ToolKind::Standard> {
   struct Cmdline {
-    cl::opt<std::string> DSO;
+    cl::list<std::string> DSO;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
-        : DSO(cl::Positional, cl::desc("DSO"), cl::Required,
+        : DSO(cl::Positional, cl::desc("DSO"), cl::OneOrMore,
               cl::value_desc("filename"), cl::cat(JoveCategory)) {}
   } opts;
 
@@ -36,16 +36,21 @@ public:
 JOVE_REGISTER_TOOL("add", AddTool);
 
 int AddTool::Run(void) {
-  if (!fs::exists(opts.DSO)) {
-    WithColor::error() << "binary does not exist\n";
-    return 1;
-  }
-
   tiny_code_generator_t tcg;
   disas_t disas;
-  explorer_t E(jv, disas, tcg, IsVerbose());
+  explorer_t E(jv, disas, tcg, IsVeryVerbose());
 
-  jv.AddFromPath(E, opts.DSO.c_str());
+  for (const std::string &filename : opts.DSO) {
+    if (!fs::exists(filename)) {
+      WithColor::error() << llvm::formatv("\"{0}\" does not exist\n", filename);
+      return 1;
+    }
+
+    if (IsVerbose())
+      HumanOut() << llvm::formatv("adding \"{0}\"\n", filename);
+
+    jv.AddFromPath(E, filename.c_str());
+  }
 
   return 0;
 }
