@@ -8784,8 +8784,11 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
       llvm::CallInst *Ret = IRB.CreateCall(
           llvm::FunctionType::get(WordType(), argTypes, false),
           CastedPtr, ArgVec);
+      Ret->doesNotThrow();
 
       if (Sj) {
+        Ret->addFnAttr(llvm::Attribute::ReturnsTwice);
+
         set(Ret, CallConvRetArray.at(0));
 
 #if defined(TARGET_X86_64) || defined(TARGET_I386)
@@ -8799,6 +8802,8 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
 #endif
         break;
       } else {
+        Ret->setDoesNotReturn();
+
         assert(Lj);
         IRB.CreateCall(
             llvm::Intrinsic::getDeclaration(Module.get(), llvm::Intrinsic::trap));
@@ -9240,8 +9245,11 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
       llvm::CallInst *Ret = IRB.CreateCall(
           llvm::FunctionType::get(WordType(), argTypes, false),
           CastedPtr, ArgVec);
+      Ret->doesNotThrow();
 
       if (Sj) {
+        Ret->addFnAttr(llvm::Attribute::ReturnsTwice);
+
         set(Ret, CallConvRetArray.at(0));
 
 #if defined(TARGET_X86_64) || defined(TARGET_I386)
@@ -9255,6 +9263,8 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
 #endif
         break;
       } else {
+        Ret->setDoesNotReturn();
+
         assert(Lj);
 
         IRB.CreateCall(
