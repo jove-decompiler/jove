@@ -263,8 +263,7 @@ class JoveTester:
           if failed:
             print("/////////\n///////// %s TEST FAILURE %s <%s>\n/////////" % \
               ("MULTI-THREADED" if multi_threaded else "SINGLE-THREADED", \
-               testbin_guest_filename, \
-               self.arch))
+               testbin, self.arch))
 
             if return_neq:
               print('%d != %d' % (p1.returncode, p2.returncode))
