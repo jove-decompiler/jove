@@ -46,6 +46,7 @@ static void _jove_install_function_mappings(void);
 
 static void _jove_check_sections_laid_out(void);
 static void _jove_check_sections_at_base_address(void);
+static void _jove_make_sections_not_executable(void);
 static void _jove_make_sections_executable(void);
 
 static void _jove_see_through_tramps(struct jove_function_info_t *);
@@ -109,7 +110,9 @@ _HIDDEN void _jove_initialize(void) {
   if (_jove_is_fixed_base_address())
     _jove_check_sections_at_base_address();
 
-#ifndef JOVE_COFF
+#ifdef JOVE_COFF
+  _jove_make_sections_not_executable();
+#else
   _jove_make_sections_executable();
 #endif
 }
@@ -243,6 +246,36 @@ void _jove_make_sections_executable(void) {
 
   if (_jove_sys_mprotect(x, n, PROT_READ | PROT_WRITE | PROT_EXEC) < 0)
     _UNREACHABLE("failed to make sections executable\n");
+}
+
+void _jove_make_sections_not_executable(void) {
+  const unsigned n = QEMU_ALIGN_UP(_jove_sections_end() -
+                                   _jove_sections_begin(), JOVE_PAGE_SIZE);
+  const uintptr_t x = QEMU_ALIGN_DOWN(_jove_sections_begin(), JOVE_PAGE_SIZE);
+
+  if (unlikely(__jove_opts.Debug.Verbose)) {
+    char s[512];
+
+    _strcpy(s, "mprotecting -x+rw [0x");
+    {
+      char buff[65];
+      _uint_to_string(x, buff, 0x10);
+
+      _strcat(s, buff);
+    }
+    _strcat(s, ", 0x");
+    {
+      char buff[65];
+      _uint_to_string(x + n, buff, 0x10);
+
+      _strcat(s, buff);
+    }
+    _strcat(s, ")\n");
+    _DUMP(s);
+  }
+
+  if (_jove_sys_mprotect(x, n, PROT_READ | PROT_WRITE) < 0)
+    _UNREACHABLE("failed to make sections not executable\n");
 }
 
 void _jove_install_function_mappings(void) {
@@ -886,9 +919,10 @@ _NORET void _jove_fail1(uintptr_t a0, const char *reason) {
       if (_description_of_address_for_maps(buff, a0, maps, n)) {
         _strcat(s, " <");
         _strcat(s, buff);
-        _strcat(s, "> [");
+        _strcat(s, ">");
       }
     }
+    _strcat(s, " [");
 
     {
       char buff[65];

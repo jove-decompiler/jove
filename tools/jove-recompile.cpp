@@ -1147,6 +1147,14 @@ int RecompileTool::Run(void) {
         Arg("/opt:noicf");
         Arg("/safeseh:no");
 
+        // Why do we do this, you may ask? Because if an app suddenly loads a
+        // DLL without /NXCOMPAT (and every other DLL previously loaded *did*
+        // have it), wine will immediately mprotect every section of the EXE and
+        // every DLL currently in memory as being executable, and thus the
+        // effect of *our* mprotect in _jove_make_sections_not_executable() is
+        // no more. So, basically we do this to get one step ahead of wine.
+        Arg("/nxcompat:no");
+
         Arg("/auto-import:no");
         Arg("/runtime-pseudo-reloc:no");
         //Arg("/force:unresolved");
