@@ -494,7 +494,7 @@ struct LLVMTool : public StatefulJVTool<ToolKind::CopyOnWrite,
 
   std::unordered_map<llvm::Function *, llvm::Function *> CtorStubMap;
 
-  std::unordered_set<llvm::Function *> FunctionsToInline;
+  std::unordered_set<llvm::Function *> MustInlineSjStubs;
 
   struct {
     std::unordered_map<std::string, std::unordered_set<std::string>> Table;
@@ -544,6 +544,7 @@ public:
   int ProcessManualRelocations(void);
   int CreateCopyRelocationHack(void);
   int TranslateFunctions(void);
+  int InlineSjStubs(void);
   int PrepareToOptimize(void);
   int ConstifyRelocationSectionPointers(void);
   int InternalizeSections(void);
@@ -2486,6 +2487,7 @@ int LLVMTool::Run(void) {
       || ProcessManualRelocations()
       || CreateCopyRelocationHack()
       || TranslateFunctions()
+      || InlineSjStubs()
       || InternalizeSections()
       || (opts.InlineHelpers ? InlineHelpers() : 0)
       || (opts.ForCBE ? PrepareForCBE() : 0)
@@ -7280,6 +7282,26 @@ int LLVMTool::TranslateFunctions(void) {
   return 0;
 }
 
+int LLVMTool::InlineSjStubs(void) {
+  for (llvm::Function *F : MustInlineSjStubs) {
+    for (llvm::User *FU : llvm::make_early_inc_range(F->users())) {
+      if (!llvm::isa<llvm::CallInst>(FU))
+        continue;
+
+      llvm::CallInst *CI = llvm::cast<llvm::CallInst>(FU);
+      if (CI->getCalledFunction() != F)
+        continue;
+
+      llvm::InlineFunctionInfo IFI;
+      llvm::InlineResult IR = llvm::InlineFunction(*CI, IFI);
+      if (!IR.isSuccess())
+        WithColor::warning() << llvm::formatv("Oh no! We couldn't inline {0}\n", *F);
+    }
+  }
+
+  return 0;
+}
+
 int LLVMTool::PrepareToOptimize(void) {
   static bool Inited = false;
   if (Inited)
@@ -8783,7 +8805,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
 
       llvm::CallInst *Ret = IRB.CreateCall(
           llvm::FunctionType::get(WordType(), argTypes, false),
-          CastedPtr, ArgVec);
+          CastedPtr, ArgVec, Sj ? "setjmpval" : "longjmpval");
       Ret->doesNotThrow();
 
       if (Sj) {
@@ -9244,11 +9266,24 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
 
       llvm::CallInst *Ret = IRB.CreateCall(
           llvm::FunctionType::get(WordType(), argTypes, false),
-          CastedPtr, ArgVec);
+          CastedPtr, ArgVec, Sj ? "setjmpval" : "longjmpval");
       Ret->doesNotThrow();
 
       if (Sj) {
         Ret->addFnAttr(llvm::Attribute::ReturnsTwice);
+
+        if (T.Type == TERMINATOR::INDIRECT_JUMP) {
+          //
+          // If the function in which setjmp was called returns, it is no longer
+          // possible to safely use longjmp with the corresponding jmp_buf obj.
+          //
+          // An indirect jump implies no additional stack frame. Unfortunately
+          // there will be a stack frame when we create a _call_ to setjmp(), so
+          // inline the surrounding stack frame. The most likely explanation for
+          // an indirect jump to setjmp() is that it is a plt stub.
+          //
+          MustInlineSjStubs.insert(IRB.GetInsertBlock()->getParent());
+        }
 
         set(Ret, CallConvRetArray.at(0));
 
