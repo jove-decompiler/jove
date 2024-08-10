@@ -9,6 +9,7 @@
 
 #include <functional>
 #include <memory>
+#include <cstdint>
 
 namespace jove {
 namespace B {
@@ -107,6 +108,8 @@ BFUNCTION(bool, needed_libs, std::vector<std::string> &, out)
 
 static inline uint64_t offset_of_va(llvm::object::Binary &Bin, uint64_t va) {
   const void *Ptr = toMappedAddr(Bin, va);
+  if (!Ptr)
+    return UINT64_MAX;
 
   return reinterpret_cast<const uint8_t *>(Ptr) -
          reinterpret_cast<const uint8_t *>(Bin.getMemoryBufferRef().getBufferStart());
