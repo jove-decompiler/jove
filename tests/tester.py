@@ -21,9 +21,8 @@ class JoveTester:
     'ssh'
   ]
 
-  def __init__(self, tests_dir, tests, arch, extra_server_args=[], extra_bringup_args=[], unattended=False):
+  def __init__(self, tests_dir, arch, extra_server_args=[], extra_bringup_args=[], unattended=False):
     self.tests_dir = tests_dir
-    self.tests = tests
     self.arch = arch
 
     self.extra_server_args = extra_server_args
@@ -36,6 +35,8 @@ class JoveTester:
     self.jove_server_port = self.guest_ssh_port - 5000
     self.ssh_common_args = ['-o', 'UserKnownHostsFile=/dev/null', '-o', 'StrictHostKeyChecking=no', '-o', 'LogLevel=quiet']
 
+    self.iphost = None
+
     self.find_things()
 
     self.vm_dir = os.getenv("JOVE_VM_" + arch.upper())
@@ -46,6 +47,10 @@ class JoveTester:
       assert os.path.isdir(self.vm_dir), "VM path not directory"
 
     self.wins = [None for _ in JoveTester.WINDOWS]
+    self.create_list = []
+    self.create_qemu = None
+    self.create_serv = None
+    self.create_ssh = None
 
   def find_things(self):
     self.jove_server_path = '%s/../llvm-project/build/bin/jove-%s' % (self.tests_dir, self.arch)
@@ -54,8 +59,11 @@ class JoveTester:
     self.jove_client_path = '%s/../llvm-project/%s_build/bin/jove-%s' % (self.tests_dir, self.arch, self.arch)
     assert Path(self.jove_client_path).is_file(), "missing guest jove binary"
 
-    self.jove_rt_path = '%s/../bin/%s/libjove_rt.st.so' % (self.tests_dir, self.arch)
-    assert Path(self.jove_rt_path).is_file(), "missing jove runtime"
+    self.jove_rt_st_path = '%s/../bin/%s/libjove_rt.st.so' % (self.tests_dir, self.arch)
+    assert Path(self.jove_rt_st_path).is_file(), "missing single-threaded jove runtime"
+
+    self.jove_rt_mt_path = '%s/../bin/%s/libjove_rt.mt.so' % (self.tests_dir, self.arch)
+    assert Path(self.jove_rt_mt_path).is_file(), "missing multi-threaded jove runtime"
 
     self.bringup_path = '%s/../mk-deb-vm/bringup.sh' % self.tests_dir
     assert Path(self.bringup_path).is_file(), "missing mk-deb-vm/bringup.sh"
@@ -185,11 +193,12 @@ class JoveTester:
   def scp(self, src, dst):
     return subprocess.run(['scp'] + self.ssh_common_args + ['-P', str(self.guest_ssh_port), src, 'root@localhost:' + dst])
 
-  def prepare_run_tests(self):
+  def prepare_to_run_tests(self, multi_threaded):
     print("preparing to run tests...")
 
     self.scp(self.jove_client_path, '/usr/local/bin/jove')
-    self.scp(self.jove_rt_path, '/lib/libjove_rt.so')
+    self.scp(self.jove_rt_mt_path if multi_threaded else \
+             self.jove_rt_st_path, '/lib/libjove_rt.so')
 
   def inputs_for_test(self, test):
     inputs_path = '%s/inputs/%s.inputs' % (self.tests_dir, test)
@@ -198,42 +207,52 @@ class JoveTester:
 
     return eval(open(inputs_path, 'r').read())
 
-  def run_tests(self):
-    print("running %d tests..." % len(self.tests))
+  def run_tests(self, tests, multi_threaded=True):
+    assert self.is_ready()
 
-    for test in self.tests:
-      test_inputs = self.inputs_for_test(test)
-      test_bin = '%s/bin/%s/%s' % (self.tests_dir, self.arch, test)
+    print("running %d tests..." % len(tests))
+
+    self.prepare_to_run_tests(multi_threaded=multi_threaded)
+
+    for test in tests:
+      inputs = self.inputs_for_test(test)
 
       for variant in ["exe", "pic"]:
-        test_bin_path = '%s.%s' % (test_bin, variant);
-        test_bin_name = Path(test_bin_path).name
+        testbin_path = Path(self.tests_dir) / "bin" / self.arch / f"{test}.{variant}"
 
-        print("test %s" % test_bin_path)
+        assert(testbin_path.is_file())
 
-        assert(Path(test_bin_path).is_file())
+        self.scp(testbin_path, '/tmp/')
+        testbin = f"/tmp/{testbin_path.name}"
 
-        self.scp(test_bin_path, '/tmp/')
+        # establish clean slate
+        self.ssh(["rm", "-rf", "/root/.jv", "/root/.jove"])
 
-        test_guest_path = '/tmp/%s' % test_bin_name
+        # initialize jv
+        self.ssh(["jove", "init", testbin])
 
-        self.ssh(["rm", "-rf", "/root/.jv", "/root/.jove"]) # FIXME
+        # run inputs through prog, recovering code
+        for input_args in inputs:
+          self.ssh(["jove", "bootstrap", testbin] + input_args)
 
-        self.ssh(["jove", "init", test_guest_path])
-        for input_args in test_inputs:
-          self.ssh(["jove", "bootstrap", test_guest_path] + input_args)
+        # run inputs through recompiled binary
+        jove_loop_args = ["jove", "loop", \
+          f"--mt={int(multi_threaded)}", \
+          "--connect", f"{self.iphost}:{str(self.jove_server_port)}", \
+          testbin]
 
-        jove_loop_args = ["jove", "loop", "--mt=0", "--connect", "%s:%d" % (self.iphost, self.jove_server_port), test_guest_path]
-
+        # show user what we're doing
         if not self.unattended:
           self.fake_run_ssh_command_for_user(jove_loop_args + input_args)
 
+        # for good measure, in case there is new code we run into
         for i in range(0, 2):
-          for input_args in test_inputs:
+          for input_args in inputs:
             self.ssh(jove_loop_args + input_args)
 
-        for input_args in test_inputs:
-          p1 = self.ssh_command([test_guest_path] + input_args, text=True)
+        # compare result of executing testbin and recompiled testbin
+        for input_args in inputs:
+          p1 = self.ssh_command([testbin] + input_args, text=True)
           p2 = self.ssh_command(jove_loop_args + input_args, text=True)
 
           return_neq = p1.returncode != p2.returncode
@@ -242,7 +261,11 @@ class JoveTester:
 
           failed = return_neq or stdout_neq or stderr_neq
           if failed:
-            print("/////////\n///////// TEST FAILURE %s <%s>\n/////////" % (test_bin_path, self.arch))
+            print("/////////\n///////// %s TEST FAILURE %s <%s>\n/////////" % \
+              ("MULTI-THREADED" if multi_threaded else "SINGLE-THREADED", \
+               testbin_guest_filename, \
+               self.arch))
+
             if return_neq:
               print('%d != %d' % (p1.returncode, p2.returncode))
             if stdout_neq:
@@ -250,6 +273,7 @@ class JoveTester:
             if stderr_neq:
               print('<STDERR>\n"%s"\n\n!=\n\n"%s"\n' % (p1.stderr, p2.stderr))
 
+            # make it easy for user to rerun failing test
             if not self.unattended:
               self.set_up_ssh_command_for_user(jove_loop_args + input_args)
 
@@ -257,11 +281,14 @@ class JoveTester:
 
     return 0
 
-  def run(self):
-    create_list = self.establish_tmux_session()
-    create_qemu, create_serv, create_ssh = tuple(create_list)
+  def is_ready(self):
+    return not (self.iphost is None)
 
-    if create_qemu:
+  def get_ready(self):
+    self.create_list = self.establish_tmux_session()
+    self.create_qemu, self.create_serv, self.create_ssh = tuple(self.create_list)
+
+    if self.create_qemu:
       if not self.exists_vm():
         self.create_vm()
       self.start_vm()
@@ -278,28 +305,20 @@ class JoveTester:
     #
     # start jove server
     #
-    if create_serv:
+    if self.create_serv:
       self.start_server()
 
-    self.prepare_run_tests()
-
-    #
-    # run tests
-    #
-    rc = self.run_tests()
-
+  def __del__(self):
     if self.unattended:
-      if create_qemu:
+      if self.create_qemu:
         self.ssh(['systemctl', 'poweroff'])
 
-      if create_serv:
+      if self.create_serv:
         self.pane("server").send_keys("C-c", literal=False, enter=False)
 
-      for i in range(0, len(create_list)):
-        if create_list[i]:
+      for i in range(0, len(self.create_list)):
+        if self.create_list[i]:
           try:
             self.sess.kill_window(JoveTester.WINDOWS[i])
           except libtmux.exc.LibTmuxException:
             pass
-
-    return rc

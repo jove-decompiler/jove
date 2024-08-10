@@ -35,11 +35,15 @@ SRCS      := $(wildcard $(SRCDIR)/*.c)
 ALL_TESTS := $(patsubst $(SRCDIR)/%.c,%,$(SRCS))
 
 # FIXME
-TESTS_TO_SKIP := multi_threaded longjmp
+TESTS_TO_SKIP := longjmp
 
-TESTS := $(filter-out $(TESTS_TO_SKIP),$(ALL_TESTS))
+SINGLE_THREADED_TESTS_TO_SKIP := multi_threaded
 
-$(info $(TESTS))
+ST_TESTS := $(filter-out $(SINGLE_THREADED_TESTS_TO_SKIP),$(ALL_TESTS))
+MT_TESTS := $(filter-out $(MULTI_THREADED_TESTS_TO_SKIP),$(ALL_TESTS))
+
+ST_TESTS := $(filter-out $(TESTS_TO_SKIP),$(ST_TESTS))
+MT_TESTS := $(filter-out $(TESTS_TO_SKIP),$(MT_TESTS))
 
 .PHONY: build
 build: $(foreach t,$(ALL_TARGETS),build-$(t))
@@ -49,12 +53,14 @@ check: $(foreach t,$(ALL_TARGETS),check-$(t))
 
 define check_template
 .PHONY: build-$(1)
-build-$(1): $(foreach test,$(TESTS),$(BINDIR)/$(1)/$(test).exe) \
-            $(foreach test,$(TESTS),$(BINDIR)/$(1)/$(test).pic)
+build-$(1): $(foreach test,$(ST_TESTS),$(BINDIR)/$(1)/$(test).exe) \
+            $(foreach test,$(ST_TESTS),$(BINDIR)/$(1)/$(test).pic) \
+            $(foreach test,$(MT_TESTS),$(BINDIR)/$(1)/$(test).exe) \
+            $(foreach test,$(MT_TESTS),$(BINDIR)/$(1)/$(test).pic)
 
 .PHONY: check-$(1)
 check-$(1): build-$(1)
-	$(ROOT_DIR)/run.py -a $(1) $(TESTS)
+	$(ROOT_DIR)/run.py -a $(1) --single-threaded $(ST_TESTS) --multi-threaded $(MT_TESTS)
 endef
 $(foreach t,$(ALL_TARGETS),$(eval $(call check_template,$(t))))
 
