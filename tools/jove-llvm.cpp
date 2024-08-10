@@ -11400,7 +11400,7 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
       break;
     }
 
-    uint32_t mask = (1u << len) - 1;
+    uint32_t mask = (UINT32_C(1) << len) - 1;
     llvm::Value *t1, *ret;
 
     if (ofs + len < 32) {
