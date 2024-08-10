@@ -4567,6 +4567,33 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
     int rsrcSectIdx = -1;
   } _coff;
 
+#if 0 && defined(TARGET_I386)
+  //
+  // fill executable sections with (1-byte) breakpoints
+  //
+  std::vector<std::pair<std::vector<uint8_t>, void *>> _coff_cpy_bck;
+  B::_coff(*Bin, [&](COFFO &O) {
+    for (const obj::SectionRef &S : O.sections()) {
+      const obj::coff_section *Section = O.getCOFFSection(S);
+      if ((Section->Characteristics & llvm::COFF::IMAGE_SCN_MEM_EXECUTE) == 0)
+        continue;
+
+      _coff_cpy_bck.emplace_back();
+      std::vector<uint8_t > &sav = _coff_cpy_bck.back().first;
+      void *&to = _coff_cpy_bck.back().second;
+
+      uint64_t StartOff =
+          B::offset_of_va(*Bin, coff::va_of_rva(O, Section->VirtualAddress));
+
+      to = &Binary.Data[StartOff];
+      sav.resize(Section->SizeOfRawData);
+
+      memcpy(&sav[0], to, sav.size()); /* save */
+      memset(to, 0xcc, sav.size());    /* overwrite */
+    }
+  });
+#endif
+
   B::_elf(*Bin, [&](ELFO &O) {
 
   const ELFF &Elf = O.getELFFile();
@@ -6151,6 +6178,19 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
                                  !jv.Binaries.at(BinaryIndex).IsPIC)))
     SectsGlobal->setSection(".jove");
 
+#if 0 && defined(TARGET_I386)
+  //
+  // undo filling executable sections with (1-byte) breakpoints
+  //
+  B::_coff(*Bin, [&](COFFO &O) {
+    for (const auto &pair : _coff_cpy_bck) {
+      const std::vector<uint8_t> &sav = pair.first;
+      void *to = pair.second;
+
+      memcpy(to, &sav[0], sav.size());
+    }
+  });
+#endif
   return 0;
 }
 
