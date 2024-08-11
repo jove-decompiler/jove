@@ -1,8 +1,6 @@
 #ifndef JOVE_TYPES_H
 #define JOVE_TYPES_H
-#include <stdint.h>
 #include <stdbool.h>
-#include <linux/limits.h> /* ARG_MAX and PATH_MAX */
 
 struct jove_opts_t {
   struct {

@@ -1,7 +1,6 @@
 #pragma once
 
 #include "jove.constants.h"
-#include "jove.types.h"
 #include "jove.macros.h"
 #include "jove.sys.h"
 
@@ -10,6 +9,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <sys/uio.h>
+#include <linux/limits.h> /* ARG_MAX and PATH_MAX */
 
 #ifndef JOVE_TRACK_ALLOCATIONS
 #define JOVE_TRACK_ALLOCATION(beg, len, desc) do {} while (false)

@@ -4,7 +4,7 @@
 
 #include "jove.constants.h"
 #include "jove.macros.h"
-#include "jove.types.h"
+#include "jove.options.h"
 
 #include <boost/preprocessor/repetition/repeat.hpp>
 #include <boost/preprocessor/punctuation/comma_if.hpp>
