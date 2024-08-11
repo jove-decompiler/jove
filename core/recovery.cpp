@@ -73,7 +73,7 @@ std::string CodeRecovery::RecoverDynamicTarget(binary_index_t CallerBIdx,
 
     ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
 
-    bool isNewTarget = ICFG[bb].insertDynTarget({CalleeBIdx, CalleeFIdx}, jv);
+    bool isNewTarget = ICFG[bb].insertDynTarget(CallerBIdx, {CalleeBIdx, CalleeFIdx}, jv);
     if (!isNewTarget)
       return std::string();
 
@@ -124,7 +124,7 @@ std::string CodeRecovery::RecoverDynamicTarget(binary_index_t CallerBIdx,
 
         ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
 
-        ICFG[bb].insertDynTarget({CallerBIdx, FIdx}, jv);
+        ICFG[bb].insertDynTarget(CallerBIdx, {CallerBIdx, FIdx}, jv);
       }
     }
 
@@ -226,7 +226,7 @@ std::string CodeRecovery::RecoverFunction(binary_index_t IndCallBIdx,
 
     ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
 
-    ICFG[bb].insertDynTarget({CalleeBIdx, CalleeFIdx}, jv);
+    ICFG[bb].insertDynTarget(IndCallBIdx, {CalleeBIdx, CalleeFIdx}, jv);
   });
 
   (void)isNewTarget; /* FIXME */

@@ -338,8 +338,12 @@ void basic_block_properties_t::AddParent(function_index_t FIdx, jv_t &jv) {
   this->Parents = &(*jv.FIdxSets.insert(boost::move(Idxs)).first);
 }
 
-bool basic_block_properties_t::insertDynTarget(dynamic_target_t X, jv_t &jv) {
+bool basic_block_properties_t::insertDynTarget(binary_index_t ThisBIdx,
+                                               dynamic_target_t X, jv_t &jv) {
   ip_void_allocator_t Alloc = jv.get_allocator();
+
+  function_t &f = function_of_target(X, jv);
+  f.Callers.emplace(ThisBIdx, this->Term.Addr);
 
   if (!pDynTargets)
     pDynTargets =

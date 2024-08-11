@@ -361,7 +361,7 @@ struct basic_block_properties_t {
     return !pDynTargets->empty();
   }
 
-  bool insertDynTarget(dynamic_target_t, jv_t &);
+  bool insertDynTarget(binary_index_t ThisBIdx, dynamic_target_t, jv_t &);
 
   unsigned getNumDynTargets(void) const {
     return hasDynTarget() ? pDynTargets->size() : 0;

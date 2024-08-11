@@ -1392,7 +1392,8 @@ int BootstrapTool::TracerLoop(pid_t child) {
 
           ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
 
-          ICFG[bb].insertDynTarget({index_of_binary(b, jv), FIdx}, jv);
+          ICFG[bb].insertDynTarget(index_of_binary(b, jv),
+                                   {index_of_binary(b, jv), FIdx}, jv);
         }
       }
     };
@@ -3102,7 +3103,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
 
   ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
-      Target.isNew = bbprop.insertDynTarget({Target.BIdx, FIdx}, jv);
+      Target.isNew = bbprop.insertDynTarget(IndBrInfo.BIdx, {Target.BIdx, FIdx}, jv);
 
     out_deg = boost::out_degree(bb, ICFG);
   }
@@ -3182,7 +3183,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
   ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
 
-          bbprop.insertDynTarget({Target.BIdx, FIdx}, jv);
+          bbprop.insertDynTarget(IndBrInfo.BIdx, {Target.BIdx, FIdx}, jv);
   });
         } else {
           const basic_block_index_t TargetBBIdx =

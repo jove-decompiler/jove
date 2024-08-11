@@ -440,7 +440,7 @@ void ObserveTool::ProcessLine(const std::string &line) {
 
       ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
 
-      src_bbprop.insertDynTarget(std::make_pair(dst_BIdx, FIdx), jv);
+      src_bbprop.insertDynTarget(src_BIdx, std::make_pair(dst_BIdx, FIdx), jv);
     };
 
     switch (Term.Type) {
