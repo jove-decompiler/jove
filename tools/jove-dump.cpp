@@ -171,6 +171,9 @@ void DumpTool::dumpDecompilation(const jv_t& jv) {
             Writer.printBoolean("Returns", ICFG[bb].Term._return.Returns);
         }
 
+        if (ICFG[bb].Sj)
+          Writer.printBoolean("Sj", true);
+
 #if 0
         if (!(ICFG[bb].Analysis.Stale &&
               ICFG[bb].Analysis.live.def.none() &&
