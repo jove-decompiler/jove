@@ -367,15 +367,8 @@ struct basic_block_properties_t {
     return hasDynTarget() ? pDynTargets->size() : 0;
   }
 
-  ip_dynamic_target_set::const_iterator dyn_targets_begin(void) const {
-    assert(hasDynTarget());
-    return pDynTargets->cbegin();
-  }
-
-  ip_dynamic_target_set::const_iterator dyn_targets_end(void) const {
-    assert(hasDynTarget());
-    return pDynTargets->cend();
-  }
+  ip_dynamic_target_set::const_iterator dyn_targets_begin(void) const;
+  ip_dynamic_target_set::const_iterator dyn_targets_end(void) const;
 
   boost::iterator_range<ip_dynamic_target_set::const_iterator> dyn_targets(void) const {
     return boost::make_iterator_range(dyn_targets_begin(), dyn_targets_end());

@@ -338,6 +338,18 @@ void basic_block_properties_t::AddParent(function_index_t FIdx, jv_t &jv) {
   this->Parents = &(*jv.FIdxSets.insert(boost::move(Idxs)).first);
 }
 
+ip_dynamic_target_set::const_iterator
+basic_block_properties_t::dyn_targets_begin(void) const {
+  assert(hasDynTarget());
+  return pDynTargets->cbegin();
+}
+
+ip_dynamic_target_set::const_iterator
+basic_block_properties_t::dyn_targets_end(void) const {
+  assert(hasDynTarget());
+  return pDynTargets->cend();
+}
+
 bool basic_block_properties_t::insertDynTarget(binary_index_t ThisBIdx,
                                                dynamic_target_t X, jv_t &jv) {
   ip_void_allocator_t Alloc = jv.get_allocator();
