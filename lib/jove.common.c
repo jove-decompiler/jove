@@ -110,7 +110,7 @@ _HIDDEN void _jove_initialize(void) {
   if (_jove_is_fixed_base_address())
     _jove_check_sections_at_base_address();
 
-#ifdef JOVE_COFF
+#if 0
   _jove_make_sections_not_executable();
 #else
   _jove_make_sections_executable();
