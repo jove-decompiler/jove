@@ -65,6 +65,7 @@ function(tool_for_arch arch arch_extra_cflags qemu_objs)
     ../core/recovery.cpp
     ../core/score.cpp
     ../core/serialize.cpp
+    ../core/sjlj.cpp
     ../core/symbolizer.cpp
     ../core/tcg.cpp
     ../core/temp.cpp
@@ -96,6 +97,7 @@ function(tool_for_arch arch arch_extra_cflags qemu_objs)
     jove-recompile.cpp
     jove-recover.cpp
     jove-run.cpp
+    jove-scan.cpp
     jove-score.cpp
     jove-serialize.cpp
     jove-server.cpp
