@@ -145,6 +145,109 @@ void ScanForSjLj(binary_t &b, llvm::object::Binary &Bin, explorer_t &E) {
     SjPatterns.emplace_back(reinterpret_cast<const char *>(&pattern[0]),
                             sizeof(pattern));
   }
+
+  {
+    // haloce.exe
+    static const uint8_t pattern[] = {
+      0x8b, 0x54, 0x24, 0x04,                   // mov    0x4(%esp),%edx
+      0x89, 0x2a,                               // mov    %ebp,(%edx)
+      0x89, 0x5a, 0x04,                         // mov    %ebx,0x4(%edx)
+      0x89, 0x7a, 0x08,                         // mov    %edi,0x8(%edx)
+      0x89, 0x72, 0x0c,                         // mov    %esi,0xc(%edx)
+      0x89, 0x62, 0x10,                         // mov    %esp,0x10(%edx)
+      0x8b, 0x04, 0x24,                         // mov    (%esp),%eax
+      0x89, 0x42, 0x14,                         // mov    %eax,0x14(%edx)
+      0xc7, 0x42, 0x20, 0x30, 0x32, 0x43, 0x56, // movl   $0x56433230,0x20(%edx)
+      0xc7, 0x42, 0x24, 0x00, 0x00, 0x00, 0x00, // movl   $0x0,0x24(%edx)
+      0x64, 0xa1, 0x00, 0x00, 0x00, 0x00,       // mov    %fs:0x0,%eax
+      0x89, 0x42, 0x18,                         // mov    %eax,0x18(%edx)
+      0x83, 0xf8, 0xff,                         // cmp    $0xffffffff,%eax
+      0x75, 0x09,                               // jne    0x5ccef9
+      0xc7, 0x42, 0x1c, 0xff, 0xff, 0xff, 0xff, // movl   $0xffffffff,0x1c(%edx)
+      0xeb, 0x3b,                               // jmp    0x5ccf34
+      0x8b, 0x4c, 0x24, 0x08,                   // mov    0x8(%esp),%ecx
+      0x0b, 0xc9,                               // or     %ecx,%ecx
+      0x74, 0x0a,                               // je     0x5ccf0b
+      0x8b, 0x44, 0x24, 0x0c,                   // mov    0xc(%esp),%eax
+      0x89, 0x42, 0x24,                         // mov    %eax,0x24(%edx)
+      0x49,                                     // dec    %ecx
+      0x75, 0x08,                               // jne    0x5ccf13
+      0x8b, 0x40, 0x0c,                         // mov    0xc(%eax),%eax
+      0x89, 0x42, 0x1c,                         // mov    %eax,0x1c(%edx)
+      0xeb, 0x21,                               // jmp    0x5ccf34
+      0x8b, 0x44, 0x24, 0x10,                   // mov    0x10(%esp),%eax
+      0x89, 0x42, 0x1c,                         // mov    %eax,0x1c(%edx)
+      0x49,                                     // dec    %ecx
+      0x74, 0x17,                               // je     0x5ccf34
+      0x56,                                     // push   %esi
+      0x57,                                     // push   %edi
+      0x8d, 0x74, 0x24, 0x1c,                   // lea    0x1c(%esp),%esi
+      0x8d, 0x7a, 0x28,                         // lea    0x28(%edx),%edi
+      0x83, 0xf9, 0x06,                         // cmp    $0x6,%ecx
+      0x76, 0x05,                               // jbe    0x5ccf30
+      0xb9, 0x06, 0x00, 0x00, 0x00,             // mov    $0x6,%ecx
+      0xf3, 0xa5,                               // rep movsl %ds:(%esi),%es:(%edi)
+      0x5f,                                     // pop    %edi
+      0x5e,                                     // pop    %esi
+      0x2b, 0xc0,                               // sub    %eax,%eax
+      0xc3                                      // ret
+    };
+
+    SjPatterns.emplace_back(reinterpret_cast<const char *>(&pattern[0]),
+                            sizeof(pattern));
+  }
+
+  {
+    // haloce.exe
+    static const uint8_t pattern[] = {
+      0x8b, 0x5c, 0x24, 0x04,                   // mov    0x4(%esp),%ebx
+      0x8b, 0x2b,                               // mov    (%ebx),%ebp
+      0x8b, 0x73, 0x18,                         // mov    0x18(%ebx),%esi
+      0x64, 0x3b, 0x35, 0x00, 0x00, 0x00, 0x00, // cmp    %fs:0x0,%esi
+      0x74, 0x09,                               // je     0x5cce5b
+      0x56,                                     // push   %esi
+      0xe8, 0x40, 0x08, 0x00, 0x00,             // call   0x5cd698
+      0x83, 0xc4, 0x04,                         // add    $0x4,%esp
+      0x83, 0xfe, 0x00,                         // cmp    $0x0,%esi
+      0x74, 0x30,                               // je     0x5cce90
+      0x8d, 0x43, 0x20,                         // lea    0x20(%ebx),%eax
+      0x50,                                     // push   %eax
+      0xe8, 0xb3, 0xa5, 0x00, 0x00,             // call   0x5d741c
+      0x0b, 0xc0,                               // or     %eax,%eax
+      0x74, 0x16,                               // je     0x5cce83
+      0x8b, 0x43, 0x20,                         // mov    0x20(%ebx),%eax
+      0x3d, 0x30, 0x32, 0x43, 0x56,             // cmp    $0x56433230,%eax
+      0x75, 0x0c,                               // jne    0x5cce83
+      0x8b, 0x43, 0x24,                         // mov    0x24(%ebx),%eax
+      0x0b, 0xc0,                               // or     %eax,%eax
+      0x74, 0x12,                               // je     0x5cce90
+      0x53,                                     // push   %ebx
+      0xff, 0xd0,                               // call   *%eax
+      0xeb, 0x0d,                               // jmp    0x5cce90
+      0x8b, 0x43, 0x1c,                         // mov    0x1c(%ebx),%eax
+      0x50,                                     // push   %eax
+      0x56,                                     // push   %esi
+      0xe8, 0x4d, 0x08, 0x00, 0x00,             // call   0x5cd6da
+      0x83, 0xc4, 0x08,                         // add    $0x8,%esp
+      0x6a, 0x00,                               // push   $0x0
+      0x8b, 0x43, 0x14,                         // mov    0x14(%ebx),%eax
+      0xe8, 0xd4, 0x08, 0x00, 0x00,             // call   0x5cd76e
+      0x8b, 0xd3,                               // mov    %ebx,%edx
+      0x8b, 0x5a, 0x04,                         // mov    0x4(%edx),%ebx
+      0x8b, 0x7a, 0x08,                         // mov    0x8(%edx),%edi
+      0x8b, 0x72, 0x0c,                         // mov    0xc(%edx),%esi
+      0x8b, 0x44, 0x24, 0x08,                   // mov    0x8(%esp),%eax
+      0x83, 0xf8, 0x01,                         // cmp    $0x1,%eax
+      0x83, 0xd0, 0x00,                         // adc    $0x0,%eax
+      0x8b, 0x62, 0x10,                         // mov    0x10(%edx),%esp
+      0x83, 0xc4, 0x04,                         // add    $0x4,%esp
+      0xff, 0x62, 0x14,                         // jmp    *0x14(%edx)
+    };
+
+    LjPatterns.emplace_back(reinterpret_cast<const char *>(&pattern[0]),
+                            sizeof(pattern));
+  }
+
 #elif defined(TARGET_MIPS32)
   {
     // glibc
