@@ -1466,8 +1466,10 @@ const helper_function_t &LookupHelper(llvm::Module &M, tiny_code_generator_t &TC
 
   //hf.F->addFnAttr(llvm::Attribute::NoInline);
 
-  if (!ForCBE)
-    hf.F->setVisibility(llvm::GlobalValue::HiddenVisibility);
+  if (!ForCBE) {
+    //hf.F->setVisibility(llvm::GlobalValue::HiddenVisibility);
+    hf.F->setLinkage(llvm::GlobalValue::InternalLinkage);
+  }
 
   assert(nb_iargs >= hf.F->arg_size());
 
