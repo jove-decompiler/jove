@@ -4,7 +4,7 @@
 static jmp_buf env;
 
 int foo(int n) {
-  if (n % 10 == 1) {
+  if (n > 3) {
     longjmp(env, 1);
   }
 

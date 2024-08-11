@@ -34,10 +34,8 @@ $(foreach t,$(ALL_TARGETS),$(shell mkdir -p $(BINDIR)/$(t)))
 SRCS      := $(wildcard $(SRCDIR)/*.c)
 ALL_TESTS := $(patsubst $(SRCDIR)/%.c,%,$(SRCS))
 
-# FIXME
-TESTS_TO_SKIP := longjmp
-
 SINGLE_THREADED_TESTS_TO_SKIP := multi_threaded
+MULTI_THREADED_TESTS_TO_SKIP := longjmp
 
 ST_TESTS := $(filter-out $(SINGLE_THREADED_TESTS_TO_SKIP),$(ALL_TESTS))
 MT_TESTS := $(filter-out $(MULTI_THREADED_TESTS_TO_SKIP),$(ALL_TESTS))
