@@ -31,6 +31,8 @@ struct function_state_t {
   basic_block_vec_t exit_bbvec;
 
   bool IsLeaf;
+
+  bool IsSj, IsLj;
 };
 
 struct binary_state_t {
@@ -203,6 +205,8 @@ int AnalyzeTool::AnalyzeFunctions(void) {
           f.Returns = true;
 
         x.IsLeaf = IsLeafFunction(f, b, x.bbvec);
+        x.IsSj = IsFunctionSetjmp(f, b, x.bbvec);
+        x.IsLj = IsFunctionLongjmp(f, b, x.bbvec);
 
         auto &ICFG = b.Analysis.ICFG;
         std::for_each(std::execution::par_unseq,
@@ -212,6 +216,50 @@ int AnalyzeTool::AnalyzeFunctions(void) {
                         if (!ICFG[bb].IsParent(FIdx))
                           ICFG[bb].AddParent(FIdx, jv);
                       });
+      });
+
+  for_each_basic_block(
+      std::execution::unseq, jv, [&](binary_t &b, basic_block_t bb) {
+        const icfg_t &ICFG = b.Analysis.ICFG;
+        taddr_t TermAddr = ICFG[bb].Term.Addr;
+
+        if (ICFG[bb].Term.Type == TERMINATOR::CALL) {
+          assert(TermAddr);
+          b.Analysis.Functions.at(ICFG[bb].Term._call.Target)
+              .Callers.emplace(index_of_binary(b, jv), TermAddr);
+          return;
+        }
+
+        if (!ICFG[bb].hasDynTarget())
+          return;
+
+        assert(TermAddr);
+        for (dynamic_target_t X : ICFG[bb].dyn_targets()) {
+          function_t &f = function_of_target(X, jv);
+          f.Callers.emplace(index_of_binary(b, jv), TermAddr);
+        }
+      });
+
+  for_each_function(
+      std::execution::par_unseq, jv, [&](function_t &f, binary_t &b) {
+        function_index_t FIdx = index_of_function_in_binary(f, b);
+
+        function_state_t &x = state.for_function(f);
+
+        if (x.IsSj) {
+          f.Callers.visit_all(
+              std::execution::par_unseq,
+              [&](const caller_t &pair) -> void {
+                binary_t &caller_b = jv.Binaries.at(pair.first);
+                auto &caller_ICFG = caller_b.Analysis.ICFG;
+                basic_block_t caller_bb = basic_block_at_address(pair.second, caller_b);
+                auto &caller_bbprop = caller_ICFG[caller_bb];
+
+                if (caller_bbprop.Term.Type == TERMINATOR::INDIRECT_JUMP) {
+                  caller_bbprop.Sj = true;
+                }
+              });
+        }
       });
 
   WithColor::note() << "Analyzing functions...";
