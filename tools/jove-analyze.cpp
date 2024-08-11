@@ -251,6 +251,10 @@ int AnalyzeTool::AnalyzeFunctions(void) {
               std::execution::par_unseq,
               [&](const caller_t &pair) -> void {
                 binary_t &caller_b = jv.Binaries.at(pair.first);
+
+                if (&caller_b != &b)
+                  return;
+
                 auto &caller_ICFG = caller_b.Analysis.ICFG;
                 basic_block_t caller_bb = basic_block_at_address(pair.second, caller_b);
                 auto &caller_bbprop = caller_ICFG[caller_bb];
