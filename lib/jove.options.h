@@ -1,5 +1,4 @@
-#ifndef JOVE_TYPES_H
-#define JOVE_TYPES_H
+#pragma once
 #include <stdbool.h>
 
 struct jove_opts_t {
@@ -19,5 +18,3 @@ struct jove_opts_t {
 
   const char *Trace;
 };
-
-#endif /* JOVE_TYPES_H */
