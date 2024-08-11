@@ -715,6 +715,62 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
     SjPatterns.emplace_back(reinterpret_cast<const char *>(&pattern[0]),
                             sizeof(pattern));
   }
+#elif defined(TARGET_MIPS64)
+  {
+    // glibc
+    static const uint32_t pattern[] = {
+      0xf4980068,                               // sdc1    $f24,104(a0)
+      0xf4990070,                               // sdc1    $f25,112(a0)
+      0xf49a0078,                               // sdc1    $f26,120(a0)
+      0xf49b0080,                               // sdc1    $f27,128(a0)
+      0xf49c0088,                               // sdc1    $f28,136(a0)
+      0xf49d0090,                               // sdc1    $f29,144(a0)
+      0xf49e0098,                               // sdc1    $f30,152(a0)
+      0xf49f00a0,                               // sdc1    $f31,160(a0)
+      0xfc9f0000,                               // sd      ra,0(a0)
+      0xfc860008,                               // sd      a2,8(a0)
+      0xfc870050,                               // sd      a3,80(a0)
+      0xfc880058,                               // sd      a4,88(a0)
+      0xfc900010,                               // sd      s0,16(a0)
+      0xfc910018,                               // sd      s1,24(a0)
+      0xfc920020,                               // sd      s2,32(a0)
+      0xfc930028,                               // sd      s3,40(a0)
+      0xfc940030,                               // sd      s4,48(a0)
+      0xfc950038,                               // sd      s5,56(a0)
+      0xfc960040,                               // sd      s6,64(a0)
+      0xfc970048,                               // sd      s7,72(a0)
+    };
+
+    SjPatterns.emplace_back(reinterpret_cast<const char *>(&pattern[0]),
+                            sizeof(pattern));
+  }
+#elif defined(TARGET_AARCH64)
+  {
+    // glibc
+    static const uint32_t pattern[] = {
+      0xa9005013,    // stp     x19, x20, [x0]
+      0xa9015815,    // stp     x21, x22, [x0, #16]
+      0xa9026017,    // stp     x23, x24, [x0, #32]
+      0xa9036819,    // stp     x25, x26, [x0, #48]
+      0xa904701b,    // stp     x27, x28, [x0, #64]
+
+/*
+      0xb0000b22     // adrp    x2, 19f000 <sys_sigabbrev@GLIBC_2.17+0x1c0>
+      0xf9471842     // ldr     x2, [x2, #3632]
+      0xf9400043     // ldr     x3, [x2]
+      0xca0303c4     // eor     x4, x30, x3
+      0xa905101d     // stp     x29, x4, [x0, #80]
+      0x6d072408     // stp     d8, d9, [x0, #112]
+      0x6d082c0a     // stp     d10, d11, [x0, #128]
+      0x6d09340c     // stp     d12, d13, [x0, #144]
+      0x6d0a3c0e     // stp     d14, d15, [x0, #160]
+*/
+
+    };
+
+    SjPatterns.emplace_back(reinterpret_cast<const char *>(&pattern[0]),
+                            sizeof(pattern));
+  }
 #endif
 
   auto ProgramHeadersOrError = Elf.program_headers();
