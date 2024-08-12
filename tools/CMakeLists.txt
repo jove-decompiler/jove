@@ -97,6 +97,7 @@ function(tool_for_arch arch arch_extra_cflags qemu_objs)
     jove-recompile.cpp
     jove-recover.cpp
     jove-run.cpp
+    jove-sanity.cpp
     jove-scan.cpp
     jove-score.cpp
     jove-serialize.cpp
