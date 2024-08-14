@@ -412,6 +412,7 @@ struct LLVMTool : public StatefulJVTool<ToolKind::CopyOnWrite,
   llvm::Function *JoveRecoverReturnedFunc = nullptr;
   llvm::Function *JoveRecoverABIFunc = nullptr;
   llvm::Function *JoveRecoverFunctionFunc = nullptr;
+  llvm::Function *JoveRecoverForeignFunctionFunc = nullptr;
 
   llvm::Function *JoveInstallForeignFunctionTables = nullptr;
 
@@ -2831,6 +2832,9 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
 
   JoveRecoverFunctionFunc = Module->getFunction("_jove_recover_function");
   assert(JoveRecoverFunctionFunc && !JoveRecoverFunctionFunc->empty());
+
+  JoveRecoverForeignFunctionFunc = Module->getFunction("_jove_recover_foreign_function");
+  assert(JoveRecoverForeignFunctionFunc && !JoveRecoverForeignFunctionFunc->empty());
 
   JoveAllocStackFunc = Module->getFunction("_jove_alloc_stack");
   assert(JoveAllocStackFunc);
@@ -9159,6 +9163,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
       if (!IsCall)
         IRB.CreateCall(JoveRecoverBasicBlockFunc, RecoverArgs)->setIsNoInline();
       IRB.CreateCall(JoveRecoverFunctionFunc, RecoverArgs)->setIsNoInline();
+      IRB.CreateCall(JoveRecoverForeignFunctionFunc, RecoverArgs)->setIsNoInline();
       IRB.CreateCall(JoveFail1Func, {PC, __jove_fail_UnknownCallee})->setIsNoInline();
       IRB.CreateUnreachable();
 
@@ -9466,6 +9471,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
 
         IRB.CreateCall(JoveRecoverDynTargetFunc, RecoverArgs)->setIsNoInline();
         IRB.CreateCall(JoveRecoverFunctionFunc, RecoverArgs)->setIsNoInline();
+        IRB.CreateCall(JoveRecoverForeignFunctionFunc, RecoverArgs)->setIsNoInline();
         IRB.CreateCall(JoveFail1Func, FailArgs)->setIsNoInline();
         IRB.CreateUnreachable();
       }

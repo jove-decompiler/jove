@@ -599,6 +599,7 @@ run:
         if ((ret != 'b' &&
              ret != 'f' &&
              ret != 'F' &&
+             ret != 'O' &&
              ret != 'r') || opts.JustRun)
           return ret;
       }

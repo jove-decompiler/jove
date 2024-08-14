@@ -39,10 +39,15 @@ public:
                                 basic_block_index_t IndBrBBIdx,
                                 uint64_t Addr);
 
-  std::string RecoverFunction(binary_index_t IndCallBIdx,
-                              basic_block_index_t IndCallBBIdx,
-                              binary_index_t CalleeBIdx,
-                              uint64_t CalleeAddr);
+  std::string RecoverFunctionAtAddress(binary_index_t IndCallBIdx,
+                                       basic_block_index_t IndCallBBIdx,
+                                       binary_index_t CalleeBIdx,
+                                       uint64_t CalleeAddr);
+
+  std::string RecoverFunctionAtOffset(binary_index_t IndCallBIdx,
+                                      basic_block_index_t IndCallBBIdx,
+                                      binary_index_t CalleeBIdx,
+                                      uint64_t Offset);
 
   std::string RecoverABI(binary_index_t BIdx,
                          function_index_t FIdx);

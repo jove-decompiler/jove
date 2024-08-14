@@ -1168,7 +1168,7 @@ void *recover_proc(const char *fifo_path) {
 
     //
     // we assume ch is loaded with a byte from the fifo. it's got to be either
-    // 'f', 'F', 'b', 'a', or 'r'.
+    // 'f', 'F', 'O', 'b', 'a', or 'r'.
     //
     assert(tool.Recovery);
 
@@ -1271,16 +1271,56 @@ void *recover_proc(const char *fifo_path) {
         }
 
         if (tool.IsVerbose())
-          tool.HumanOut() << llvm::formatv("RecoverFunction({0}, {1}, {2}, {3})\n",
-                                           IndCall.BIdx,
-                                           IndCall.BBIdx,
-                                           Callee.BIdx,
-                                           Callee.Addr);
+          tool.HumanOut() << llvm::formatv(
+              "RecoverFunctionAtAddress({0}, {1}, {2}, {3})\n",
+              IndCall.BIdx,
+              IndCall.BBIdx,
+              Callee.BIdx,
+              Callee.Addr);
 
-        return tool.Recovery->RecoverFunction(IndCall.BIdx,
-                                              IndCall.BBIdx,
-                                              Callee.BIdx,
-                                              Callee.Addr);
+        return tool.Recovery->RecoverFunctionAtAddress(IndCall.BIdx,
+                                                       IndCall.BBIdx,
+                                                       Callee.BIdx,
+                                                       Callee.Addr);
+      } else if (ch == 'O') {
+        struct {
+          uint32_t BIdx;
+          uint32_t BBIdx;
+        } IndCall;
+
+        struct {
+          uint32_t BIdx;
+          taddr_t Offset;
+        } Callee;
+
+        {
+          ssize_t ret;
+
+          ret = robust_read(recover_fd, &IndCall.BIdx, sizeof(uint32_t));
+          assert(ret == sizeof(uint32_t));
+
+          ret = robust_read(recover_fd, &IndCall.BBIdx, sizeof(uint32_t));
+          assert(ret == sizeof(uint32_t));
+
+          ret = robust_read(recover_fd, &Callee.BIdx, sizeof(uint32_t));
+          assert(ret == sizeof(uint32_t));
+
+          ret = robust_read(recover_fd, &Callee.Offset, sizeof(taddr_t));
+          assert(ret == sizeof(taddr_t));
+        }
+
+        if (tool.IsVerbose())
+          tool.HumanOut() << llvm::formatv(
+              "RecoverFunctionAtOffset({0}, {1}, {2}, {3})\n",
+              IndCall.BIdx,
+              IndCall.BBIdx,
+              Callee.BIdx,
+              Callee.Offset);
+
+        return tool.Recovery->RecoverFunctionAtOffset(IndCall.BIdx,
+                                                      IndCall.BBIdx,
+                                                      Callee.BIdx,
+                                                      Callee.Offset);
       } else if (ch == 'a') {
         struct {
           uint32_t BIdx;

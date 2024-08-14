@@ -39,7 +39,8 @@ class RecoverTool : public JVTool<ToolKind::Standard> {
     cl::list<std::string> DynTarget;
     cl::list<std::string> BasicBlock;
     cl::list<std::string> Returns;
-    cl::list<std::string> Function;
+    cl::list<std::string> FunctionAtAddr;
+    cl::list<std::string> FunctionAtOff;
     cl::list<std::string> ABI;
 
     cl::opt<std::string> HumanOutput;
@@ -61,9 +62,15 @@ class RecoverTool : public JVTool<ToolKind::Standard> {
                   cl::value_desc("CallBIdx,CallBBIdx"),
                   cl::desc("A call has returned"), cl::cat(JoveCategory)),
 
-          Function(
+          FunctionAtAddr(
               "function", cl::CommaSeparated,
               cl::value_desc("IndCallBIdx,IndCallBBIdx,CalleeBIdx,CalleeAddr"),
+              cl::desc("New target for indirect branch that is a function"),
+              cl::cat(JoveCategory)),
+
+          FunctionAtOff(
+              "function-at-offset", cl::CommaSeparated,
+              cl::value_desc("IndCallBIdx,IndCallBBIdx,CalleeBIdx,CalleeOffset"),
               cl::desc("New target for indirect branch that is a function"),
               cl::cat(JoveCategory)),
 
@@ -105,8 +112,13 @@ int RecoverTool::Run(void) {
     return 1;
   }
 
-  if (opts.Function.size() > 0 && opts.Function.size() != 4) {
+  if (opts.FunctionAtAddr.size() > 0 && opts.FunctionAtAddr.size() != 4) {
     WithColor::error() << "-function: invalid tuple\n";
+    return 1;
+  }
+
+  if (opts.FunctionAtOff.size() > 0 && opts.FunctionAtOff.size() != 4) {
+    WithColor::error() << "-function-at-offset: invalid tuple\n";
     return 1;
   }
 
@@ -168,8 +180,8 @@ int RecoverTool::Run(void) {
     msg = Recovery.RecoverBasicBlock(IndBr.BIdx,
                                      IndBr.BBIdx,
                                      IndBr.Target);
-  } else if (opts.Function.size() > 0) {
-    assert(opts.Function.size() == 4);
+  } else if (opts.FunctionAtAddr.size() > 0) {
+    assert(opts.FunctionAtAddr.size() == 4);
 
     struct {
       binary_index_t BIdx;
@@ -181,16 +193,39 @@ int RecoverTool::Run(void) {
       uint64_t FileAddr;
     } Callee;
 
-    IndCall.BIdx  = strtoul(opts.Function[0].c_str(), nullptr, 10);
-    IndCall.BBIdx = strtoul(opts.Function[1].c_str(), nullptr, 10);
+    IndCall.BIdx  = strtoul(opts.FunctionAtAddr[0].c_str(), nullptr, 10);
+    IndCall.BBIdx = strtoul(opts.FunctionAtAddr[1].c_str(), nullptr, 10);
 
-    Callee.BIdx     = strtoul(opts.Function[2].c_str(), nullptr, 10);
-    Callee.FileAddr = strtoul(opts.Function[3].c_str(), nullptr, 10);
+    Callee.BIdx     = strtoul(opts.FunctionAtAddr[2].c_str(), nullptr, 10);
+    Callee.FileAddr = strtoul(opts.FunctionAtAddr[3].c_str(), nullptr, 10);
 
-    Recovery.RecoverFunction(IndCall.BIdx,
-                             IndCall.BBIdx,
-                             Callee.BIdx,
-                             Callee.FileAddr);
+    Recovery.RecoverFunctionAtAddress(IndCall.BIdx,
+                                      IndCall.BBIdx,
+                                      Callee.BIdx,
+                                      Callee.FileAddr);
+  } else if (opts.FunctionAtOff.size() > 0) {
+    assert(opts.FunctionAtOff.size() == 4);
+
+    struct {
+      binary_index_t BIdx;
+      basic_block_index_t BBIdx;
+    } IndCall;
+
+    struct {
+      binary_index_t BIdx;
+      taddr_t Offset;
+    } Callee;
+
+    IndCall.BIdx  = strtoul(opts.FunctionAtOff[0].c_str(), nullptr, 10);
+    IndCall.BBIdx = strtoul(opts.FunctionAtOff[1].c_str(), nullptr, 10);
+
+    Callee.BIdx   = strtoul(opts.FunctionAtOff[2].c_str(), nullptr, 10);
+    Callee.Offset = strtoul(opts.FunctionAtOff[3].c_str(), nullptr, 10);
+
+    Recovery.RecoverFunctionAtOffset(IndCall.BIdx,
+                                     IndCall.BBIdx,
+                                     Callee.BIdx,
+                                     Callee.Offset);
   } else if (opts.ABI.size() > 0) {
     assert(opts.ABI.size() == 2);
 

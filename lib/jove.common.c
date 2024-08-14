@@ -1368,6 +1368,10 @@ jove_thunk_return_t _jove_call(
               goto found;
             }
           }
+
+          // if we get here, it's a function we don't know about.
+          _jove_recover_foreign_function_at_offset(BBIdx, i + 3, (pc - min) + off);
+          _UNREACHABLE();
         }
       }
 
@@ -1456,6 +1460,7 @@ jove_thunk_return_t _jove_call(
   // we found new code?
   //
   _jove_recover_function(BBIdx, pc);
+  _jove_recover_foreign_function(BBIdx, pc); /* NOTE: currently unnecessary */
 
   {
     _jove_fail1(pc, "_jove_call failed");

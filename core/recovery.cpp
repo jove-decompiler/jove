@@ -194,10 +194,10 @@ std::string CodeRecovery::RecoverBasicBlock(binary_index_t IndBrBIdx,
       .str();
 }
 
-std::string CodeRecovery::RecoverFunction(binary_index_t IndCallBIdx,
-                                          basic_block_index_t IndCallBBIdx,
-                                          binary_index_t CalleeBIdx,
-                                          uint64_t CalleeAddr) {
+std::string CodeRecovery::RecoverFunctionAtAddress(binary_index_t IndCallBIdx,
+                                                   basic_block_index_t IndCallBBIdx,
+                                                   binary_index_t CalleeBIdx,
+                                                   uint64_t CalleeAddr) {
   binary_t &CalleeBinary = jv.Binaries.at(CalleeBIdx);
 
   function_index_t CalleeFIdx = E.explore_function(
@@ -256,6 +256,18 @@ std::string CodeRecovery::RecoverFunction(binary_index_t IndCallBIdx,
           % symbolizer.addr2desc(CallerBinary, TermAddr)
           % symbolizer.addr2desc(CalleeBinary, CalleeAddr))
       .str();
+}
+
+std::string CodeRecovery::RecoverFunctionAtOffset(binary_index_t IndCallBIdx,
+                                                  basic_block_index_t IndCallBBIdx,
+                                                  binary_index_t CalleeBIdx,
+                                                  uint64_t CalleeOff) {
+  binary_t &CalleeBinary = jv.Binaries.at(CalleeBIdx);
+
+  uint64_t CalleeAddr =
+      B::va_of_offset(*state.for_binary(CalleeBinary).ObjectFile, CalleeOff);
+
+  return RecoverFunctionAtAddress(IndCallBIdx, IndCallBBIdx, CalleeBIdx, CalleeAddr);
 }
 
 std::string CodeRecovery::RecoverABI(binary_index_t BIdx,
