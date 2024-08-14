@@ -107,6 +107,7 @@ function(tool_for_arch arch arch_extra_cflags qemu_objs)
     jove-trace2addrs.cpp
     jove-trace2asm.cpp
     jove-trace2lines.cpp
+    jove-unlock.cpp
     jove-unserialize.cpp
     jove-unstub.cpp
     jv2xml.cpp
