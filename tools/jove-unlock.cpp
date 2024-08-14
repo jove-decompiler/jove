@@ -34,28 +34,28 @@ int UnlockTool::Run(void) {
     __builtin_memset(&jv.cached_hashes_mtx, 0, sizeof(jv.cached_hashes_mtx));
     __builtin_memset(&jv.name_to_binaries_mtx, 0, sizeof(jv.name_to_binaries_mtx));
     __builtin_memset(&jv.Binaries._mtx, 0, sizeof(jv.Binaries._mtx));
-
-    for (unsigned i = 0; i < jv.Binaries._deque.size(); ++i) {
-      binary_t &b = jv.Binaries._deque.at(i);
-
-      __builtin_memset(&b.bbmap_mtx, 0, sizeof(b.bbmap_mtx));
-      __builtin_memset(&b.na_bbmap_mtx, 0, sizeof(b.na_bbmap_mtx));
-      __builtin_memset(&b.Analysis.Functions._mtx, 0, sizeof(b.Analysis.Functions._mtx));
-    }
+    std::for_each(
+        std::execution::par_unseq,
+        jv.Binaries._deque.begin(),
+        jv.Binaries._deque.end(), [&](binary_t &b) {
+          __builtin_memset(&b.bbmap_mtx, 0, sizeof(b.bbmap_mtx));
+          __builtin_memset(&b.na_bbmap_mtx, 0, sizeof(b.na_bbmap_mtx));
+          __builtin_memset(&b.Analysis.Functions._mtx, 0, sizeof(b.Analysis.Functions._mtx));
+        });
   } else {
     try {
       jv.FIdxSetsMtx.unlock();
       jv.hash_to_binary_mtx.unlock();
       jv.cached_hashes_mtx.unlock();
       jv.name_to_binaries_mtx.unlock();
-
       jv.Binaries._mtx.unlock();
-
-      for_each_binary(std::execution::par_unseq, jv, [&](binary_t &b) {
-        b.bbmap_mtx.unlock();
-        b.na_bbmap_mtx.unlock();
-        b.Analysis.Functions._mtx.unlock();
-      });
+      std::for_each(std::execution::par_unseq,
+                    jv.Binaries._deque.begin(),
+                    jv.Binaries._deque.end(), [&](binary_t &b) {
+                      b.bbmap_mtx.unlock();
+                      b.na_bbmap_mtx.unlock();
+                      b.Analysis.Functions._mtx.unlock();
+                    });
     } catch (...) {
       WithColor::error() << "unlocking failed!\n";
       return 1;
