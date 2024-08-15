@@ -7355,8 +7355,6 @@ void LLVMTool::ReloadGlobalVariables(void) {
 }
 
 int LLVMTool::DoOptimize(void) {
-  assert(opts.Optimize);
-
   PrepareToOptimize();
 
   const bool DoVerify = true;
