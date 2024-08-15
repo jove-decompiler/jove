@@ -1927,6 +1927,8 @@ struct section_t { /* jove has its own notion of a "section" */
   uint64_t Addr;
   unsigned Size;
 
+  bool w = true;
+
   struct {
     bool initArray = false;
     bool finiArray = false;
@@ -4668,6 +4670,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
       const section_properties_t &prop = *pair.second.begin();
       Sect.Addr = pair.first.lower();
       Sect.Size = pair.first.upper() - pair.first.lower();
+      Sect.w = prop.w;
       Sect.Name = prop.name;
       Sect.Contents = prop.contents;
       Sect.Stuff.Intervals.insert(
@@ -4719,24 +4722,23 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
 
       SectIdxMap.add({intervl, 1+i});
 
-      {
         section_properties_t sectprop;
 
         sectprop.name = (fmt(".seg.%u") % i).str();
         sectprop.contents = vec;
-        sectprop.w = true;
-        sectprop.x = false;
+        sectprop.w = !!(LoadSegments[i]->p_flags & llvm::ELF::PF_W);
+        sectprop.x = !!(LoadSegments[i]->p_flags & llvm::ELF::PF_X);
         sectprop._elf.initArray = false;
         sectprop._elf.finiArray = false;
 
         SectMap.add({intervl, {sectprop}});
-      }
 
       {
         section_t &s = SectTable[i];
 
         s.Addr = LoadSegments[i]->p_vaddr;
         s.Size = LoadSegments[i]->p_memsz;
+        s.w = sectprop.w;
         s.Name = (fmt(".seg.%u") % i).str();
         s.Contents = vec;
         s.Stuff.Intervals.insert(
@@ -4793,8 +4795,8 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
         }
       }
 
-      sectprop.x = Sect.Characteristics & llvm::COFF::IMAGE_SCN_MEM_EXECUTE;
-      sectprop.w = Sect.Characteristics & llvm::COFF::IMAGE_SCN_MEM_WRITE;
+      sectprop.x = !!(Sect.Characteristics & llvm::COFF::IMAGE_SCN_MEM_EXECUTE);
+      sectprop.w = !!(Sect.Characteristics & llvm::COFF::IMAGE_SCN_MEM_WRITE);
 
       boost::icl::interval<uint64_t>::type intervl =
           boost::icl::interval<uint64_t>::right_open(
@@ -4825,6 +4827,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
       const section_properties_t &prop = *pair.second.begin();
       Sect.Addr = pair.first.lower();
       Sect.Size = pair.first.upper() - pair.first.lower();
+      Sect.w = prop.w;
       Sect.Name = prop.name;
       Sect.Contents = prop.contents;
       Sect.Stuff.Intervals.insert(
@@ -5069,6 +5072,9 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
             llvm::ConstantStruct::get(SectTable[i].T, SectFieldInits),
             "__jove_rsrc");
         rsrcSectGV->setSection(".rsrc");
+
+        if (!Sect.w)
+          rsrcSectGV->setConstant(true);
       }
 
       SectTable[i].C = llvm::ConstantStruct::get(SectTable[i].T, SectFieldInits);
@@ -5989,6 +5995,9 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
       auto *GV = new llvm::GlobalVariable(*Module, T, false,
                                           llvm::GlobalValue::InternalLinkage,
                                           C, "__jove_section_" + suffix);
+      if (!Sect.w)
+        GV->setConstant(true);
+
       ++j;
 
       const unsigned actualSize = DL.getTypeAllocSize(T);
