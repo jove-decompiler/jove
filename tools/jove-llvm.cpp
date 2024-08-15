@@ -184,6 +184,50 @@ struct hook_t {
   bool Syscall; // is this a wrapper for performing a system call?
 };
 
+struct section_properties_t {
+  std::string name;
+  llvm::ArrayRef<uint8_t> contents;
+
+  bool w, x;
+
+  struct {
+    bool initArray = false;
+    bool finiArray = false;
+  } _elf;
+
+  bool operator==(const section_properties_t &sect) const {
+    return name == sect.name;
+  }
+
+  bool operator<(const section_properties_t &sect) const {
+    return name < sect.name;
+  }
+};
+typedef std::set<section_properties_t> section_properties_set_t;
+
+struct section_t {
+  std::string Name;
+  llvm::ArrayRef<uint8_t> Contents;
+  uint64_t Addr;
+  unsigned Size;
+
+  bool w = true;
+
+  struct {
+    bool initArray = false;
+    bool finiArray = false;
+  } _elf;
+
+  struct {
+    boost::icl::split_interval_set<uint64_t> Intervals;
+    std::map<unsigned, llvm::Constant *> Constants;
+    std::map<unsigned, llvm::Type *> Types;
+  } Stuff;
+
+  llvm::StructType *T = nullptr;
+  llvm::Constant *C = nullptr;
+};
+
 struct TranslateContext;
 
 struct LLVMTool : public StatefulJVTool<ToolKind::CopyOnWrite,
@@ -473,6 +517,13 @@ struct LLVMTool : public StatefulJVTool<ToolKind::CopyOnWrite,
   } DebugInformation;
 
   static constexpr const char *DIVersionKey = "Debug Info Version";
+
+  unsigned NumSections = 0;
+  boost::icl::split_interval_map<uint64_t, section_properties_set_t> SectMap;
+  std::vector<section_t> SectTable;
+  boost::icl::interval_map<uint64_t, unsigned> SectIdxMap;
+
+  std::vector<std::vector<uint8_t>> SegContents;
 
   struct {
     llvm::GlobalVariable *HeadGV = nullptr;
@@ -913,27 +964,6 @@ public:
 JOVE_REGISTER_TOOL("llvm", LLVMTool);
 
 typedef boost::format fmt;
-
-struct section_properties_t {
-  std::string name;
-  llvm::ArrayRef<uint8_t> contents;
-
-  bool w, x;
-
-  struct {
-    bool initArray = false;
-    bool finiArray = false;
-  } _elf;
-
-  bool operator==(const section_properties_t &sect) const {
-    return name == sect.name;
-  }
-
-  bool operator<(const section_properties_t &sect) const {
-    return name < sect.name;
-  }
-};
-typedef std::set<section_properties_t> section_properties_set_t;
 
 struct helper_function_t {
   llvm::Function *F;
@@ -1916,33 +1946,6 @@ void AnalyzeFunction(jv_t &jv,
     }
   }
 }
-
-//
-// Types
-//
-
-struct section_t { /* jove has its own notion of a "section" */
-  std::string Name;
-  llvm::ArrayRef<uint8_t> Contents;
-  uint64_t Addr;
-  unsigned Size;
-
-  bool w = true;
-
-  struct {
-    bool initArray = false;
-    bool finiArray = false;
-  } _elf;
-
-  struct {
-    boost::icl::split_interval_set<uint64_t> Intervals;
-    std::map<unsigned, llvm::Constant *> Constants;
-    std::map<unsigned, llvm::Type *> Types;
-  } Stuff;
-
-  llvm::StructType *T = nullptr;
-  llvm::Constant *C = nullptr;
-};
 
 static bool is_integral_size(unsigned n) {
   return n == 1 || n == 2 || n == 4 || n == 8;
@@ -4557,13 +4560,6 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
     }
   } __PatchContents(*this, BinaryIndex);
 
-  unsigned NumSections = 0;
-  boost::icl::split_interval_map<uint64_t, section_properties_set_t> SectMap;
-  std::vector<section_t> SectTable;
-  boost::icl::interval_map<uint64_t, unsigned> SectIdxMap;
-
-  std::vector<std::vector<uint8_t>> SegContents;
-
   const uint64_t SectsStartAddr = state.for_binary(Binary).SectsStartAddr;
   const uint64_t SectsEndAddr = state.for_binary(Binary).SectsEndAddr;
 
@@ -4845,6 +4841,8 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
       ++i;
     }
   });
+
+  assert(NumSections > 0);
 
   auto type_at_address = [&](uint64_t Addr, llvm::Type *T) -> void {
     auto it = SectIdxMap.find(Addr);
