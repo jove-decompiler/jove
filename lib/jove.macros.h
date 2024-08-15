@@ -1,7 +1,10 @@
 #ifndef JOVE_MACROS_H
 #define JOVE_MACROS_H
 #include "jove.barrier.h"
+
 #include <boost/preprocessor/stringize.hpp>
+
+#include <stdbool.h>
 
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 #define _IOV_ENTRY(var) {.iov_base = &var, .iov_len = sizeof(var)}
