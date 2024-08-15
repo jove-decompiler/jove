@@ -255,7 +255,9 @@ int AnalyzeTool::AnalyzeFunctions(void) {
           f.Callers.visit_all(
               std::execution::par_unseq,
               [&](const caller_t &pair) -> void {
-                binary_t &caller_b = jv.Binaries.at(pair.first);
+                binary_t &caller_b = jv.Binaries.at(
+                    is_binary_index_valid(pair.first) ? pair.first
+                                                      : index_of_binary(b, jv));
 
                 if (&caller_b != &b)
                   return;
