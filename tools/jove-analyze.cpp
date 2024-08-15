@@ -46,6 +46,7 @@ class AnalyzeTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, fu
     cl::opt<bool> ForeignLibs;
     cl::alias ForeignLibsAlias;
     cl::list<std::string> PinnedGlobals;
+    cl::opt<int> Conservative;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : ForeignLibs("foreign-libs",
@@ -60,7 +61,13 @@ class AnalyzeTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, fu
               cl::value_desc("glb_1,glb_2,...,glb_n"),
               cl::desc(
                   "force specified TCG globals to always go through CPUState"),
-              cl::cat(JoveCategory)) {}
+              cl::cat(JoveCategory)),
+
+          Conservative(
+              "conservative",
+              cl::desc(
+                  "1 => assume any arg registers could be live for ABI calls."),
+              cl::cat(JoveCategory), cl::init(1)) {}
 
   } opts;
 
@@ -176,9 +183,7 @@ int AnalyzeTool::AnalyzeBlocks(void) {
     WithColor::note() << llvm::formatv("Analyzed {0} basic block{1}.\n", c,
                                        c == 1 ? "" : "s");
 
-  //
-  // XXX hack for _jove_call
-  //
+  if (opts.Conservative >= 1)
   for_each_function_if(std::execution::par_unseq, jv,
       [](function_t &f) { return f.IsABI; },
       [](function_t &f, binary_t &b) {
