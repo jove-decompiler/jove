@@ -2724,16 +2724,6 @@ int LLVMTool::CreateModule(void) {
 
   Module->setSemanticInterposition(false);
 
-#if 0
-  //
-  // nonlazybind (FIXME?)
-  //
-  for (llvm::Function &F : *Module) {
-    if (F.empty())
-      F.addFnAttr(llvm::Attribute::NonLazyBind);
-  }
-#endif
-
   //
   // removing dso_local (FIXME?)
   //
@@ -3879,7 +3869,6 @@ int LLVMTool::CreateFunctions(void) {
                                f.IsABI ? llvm::GlobalValue::ExternalLinkage
                                        : llvm::GlobalValue::InternalLinkage,
                                jove_name, Module.get());
-    state.for_function(f).F->addFnAttr(llvm::Attribute::NonLazyBind);
     //state.for_function(f).F->addFnAttr(llvm::Attribute::NoInline);
 
     if (f.IsABI)
@@ -3929,8 +3918,6 @@ int LLVMTool::CreateFunctions(void) {
           FunctionTypeOfArgsAndRets(CallConvArgs, CallConvRets),
           llvm::GlobalValue::ExternalLinkage,
           (fmt("Jj%lx") % Addr).str(), Module.get());
-
-      state.for_function(f).adapterF->addFnAttr(llvm::Attribute::NonLazyBind);
 
       //
       // assign names to the arguments, the registers they represent
