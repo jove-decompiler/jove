@@ -3919,6 +3919,17 @@ int LLVMTool::CreateFunctions(void) {
           llvm::GlobalValue::ExternalLinkage,
           (fmt("Jj%lx") % Addr).str(), Module.get());
 
+#if defined(TARGET_I386)
+      //
+      // XXX i386 quirk
+      //
+      for (unsigned i = 0; i < state.for_function(f).adapterF->arg_size(); ++i) {
+        assert(i < 3);
+
+        state.for_function(f).adapterF->addParamAttr(i, llvm::Attribute::InReg);
+      }
+#endif
+
       //
       // assign names to the arguments, the registers they represent
       //
