@@ -269,7 +269,7 @@ void tiny_code_generator_t::print_shit(void) {
     const auto &not_ret_regs = not_arg_or_ret_regs;
     const auto &not_arg_regs = not_arg_or_ret_regs;
 #elif defined(TARGET_I386)
-    const std::array<const char *, 36> not_arg_or_ret_regs{
+    const std::array<const char *, 37> not_arg_or_ret_regs{
       "_frame",
       "env",
       "es_base",
@@ -305,7 +305,7 @@ void tiny_code_generator_t::print_shit(void) {
       "bnd2_lb",
       "bnd2_ub",
       "bnd3_lb",
-      "bnd3_ub"
+      "bnd3_ub",
       "eip",
     };
 
