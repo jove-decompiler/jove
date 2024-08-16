@@ -7709,21 +7709,22 @@ int LLVMTool::PrepareForCBE(void) {
 }
 
 bool LLVMTool::shouldExpandOperationWithSize(llvm::Value *Size) {
-  if (opts.ForCBE)
-    return true;
-  if (opts.DFSan) /* erase all notions of contiguous memory */
-    return true;
-
-  if (IsCOFF && IsX86Target && IsTarget32)
-    return true; /* XXX */
-
+#if 0
   constexpr unsigned MaxStaticSize = 32;
 
   llvm::ConstantInt *CI = llvm::dyn_cast<llvm::ConstantInt>(Size);
   return !CI || (CI->getZExtValue() > MaxStaticSize);
+#else
+  return true;
+#endif
 }
 
 int LLVMTool::ExpandMemoryIntrinsicCalls(void) {
+  if (!(opts.DFSan && IsTarget32))
+    return 0; /* erase all notions of contiguous memory */
+  if (!opts.ForCBE)
+    return 0; /* FIXME */
+
   //
   // lower memory intrinsics (memcpy, memset, memmove)
   //
