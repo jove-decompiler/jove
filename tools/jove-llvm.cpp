@@ -7718,10 +7718,10 @@ bool LLVMTool::shouldExpandOperationWithSize(llvm::Value *Size) {
 }
 
 int LLVMTool::ExpandMemoryIntrinsicCalls(void) {
+  if (!opts.ForCBE) { /* FIXME */
   if (!(opts.DFSan && IsTarget32))
     return 0; /* erase all notions of contiguous memory */
-  if (!opts.ForCBE)
-    return 0; /* FIXME */
+  }
 
   //
   // lower memory intrinsics (memcpy, memset, memmove)
