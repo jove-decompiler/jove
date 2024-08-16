@@ -7,6 +7,8 @@
 #include <llvm/Support/FormatVariadic.h>
 #include <llvm/Support/WithColor.h>
 
+#include <iostream>
+
 namespace fs = boost::filesystem;
 namespace cl = llvm::cl;
 
@@ -29,11 +31,10 @@ class Trace2AddrsTool
     cl::opt<bool> SkipRepeated;
     cl::opt<bool> Offsets;
     cl::alias OffsetsAlias;
-    cl::opt<bool> PerfStyle;
     cl::opt<bool> Terms;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
-        : TracePath(cl::Positional, cl::desc("trace.txt"), cl::Required,
+        : TracePath(cl::Positional, cl::desc("trace.txt"),
                     cl::value_desc("filename"), cl::cat(JoveCategory)),
 
           SkipRepeated("skip-repeated", cl::desc("Skip repeated blocks"),
@@ -45,10 +46,6 @@ class Trace2AddrsTool
 
           OffsetsAlias("o", cl::desc("Alias for --offsets."),
                        cl::aliasopt(Offsets), cl::cat(JoveCategory)),
-
-          PerfStyle("perf-style",
-                    cl::desc("Output like 'perf script -F ip,addr,dso,dsoff'"),
-                    cl::cat(JoveCategory)),
 
           Terms("terms",
                 cl::desc("Output addresses of terminators rather than blocks"),
@@ -63,9 +60,11 @@ public:
 
   int Run(void) override;
 
-  void ParseTraceFile(const char *filename, trace_t &out);
+  void Process(llvm::raw_ostream &out, std::istream &in);
+  void ProcessBlock(llvm::raw_ostream &out,
+                    binary_index_t BIdx,
+                    basic_block_index_t BBIdx);
 
-  int OutputPerfStyle(const trace_t &, llvm::raw_ostream &out);
   uint64_t AddrOrOff(const binary_t &, uint64_t);
 };
 
@@ -74,145 +73,60 @@ JOVE_REGISTER_TOOL("trace2addrs", Trace2AddrsTool);
 typedef boost::format fmt;
 
 int Trace2AddrsTool::Run(void) {
-  if (!fs::exists(opts.TracePath)) {
-    WithColor::error() << "trace does not exist\n";
-    return 1;
-  }
-
-  llvm::raw_ostream &OutputStream = llvm::outs();
+  llvm::raw_ostream &os = llvm::outs();
 
   for_each_binary(std::execution::par_unseq, jv, [&](binary_t &b) {
     state.for_binary(b).Bin = B::Create(b.data());
   });
 
-  //
-  // parse trace.txt
-  //
-  trace_t trace;
-  ParseTraceFile(opts.TracePath.c_str(), trace);
+  std::istream *is = nullptr;
+  std::unique_ptr<std::ifstream> ifs;
 
-  if (opts.PerfStyle)
-    return OutputPerfStyle(trace, OutputStream);
-
-  //
-  // for every block in the trace, print out its description.
-  //
-  for (const auto &pair : trace) {
-    binary_index_t BIdx;
-    basic_block_index_t BBIdx;
-
-    std::tie(BIdx, BBIdx) = pair;
-
-    auto &b = jv.Binaries.at(BIdx);
-    auto &ICFG = b.Analysis.ICFG;
-    basic_block_t bb = basic_block_of_index(BBIdx, ICFG);
-
-    uint64_t x;
-    if (opts.Terms) {
-      if (ICFG[bb].Term.Type == TERMINATOR::NONE)
-        continue;
-      assert(ICFG[bb].Term.Addr);
-      x = ICFG[bb].Term.Addr;
-    } else {
-      x = ICFG[bb].Addr;
+  if (opts.TracePath.getNumOccurrences() > 0) {
+    if (!fs::exists(opts.TracePath)) {
+      WithColor::error() << "trace does not exist\n";
+      return 1;
     }
 
-    OutputStream << llvm::formatv("{0}+{1:x}\n",
-                                  fs::path(b.path_str()).filename().c_str(),
-                                  AddrOrOff(b, x));
+    ifs = std::make_unique<std::ifstream>(opts.TracePath);
+
+    if (!(*ifs))
+      die("failed to open trace file '" + opts.TracePath + "'");
+
+    is = ifs.get();
+  } else {
+    is = &std::cin;
   }
+
+  assert(is);
+  Process(os, *is);
 
   return 0;
 }
 
-static std::string x2s(uint64_t x) {
-  return (fmt("%x") % x).str();
-}
+void Trace2AddrsTool::ProcessBlock(llvm::raw_ostream &out,
+                                   binary_index_t BIdx,
+                                   basic_block_index_t BBIdx) {
+  auto &b = jv.Binaries.at(BIdx);
+  auto &ICFG = b.Analysis.ICFG;
+  basic_block_t bb = basic_block_of_index(BBIdx, ICFG);
 
-int Trace2AddrsTool::OutputPerfStyle(const trace_t &trace,
-                                     llvm::raw_ostream &out) {
-  if (trace.empty())
-    return 1;
-
-  for (auto it = trace.begin(); it != trace.end(); ++it) {
-    binary_t &b = jv.Binaries.at((*it).first);
-    auto &ICFG = b.Analysis.ICFG;
-    basic_block_t bb = basic_block_of_index((*it).second, ICFG);
-
-    binary_state_t &x = state.for_binary(b);
-
-    switch (ICFG[bb].Term.Type) {
-    case TERMINATOR::CALL: {
-      auto _it = std::next(it);
-      binary_t &_b = jv.Binaries.at((*_it).first);
-      if (&b != &_b) {
-        llvm::outs() << "unexpected\n";
-        continue;
-      }
-
-      function_t &callee = b.Analysis.Functions.at(ICFG[bb].Term._call.Target);
-      if ((*_it).second != callee.Entry) {
-        llvm::outs() << "unexpected\n";
-        continue;
-      }
-
-      auto &_ICFG = _b.Analysis.ICFG;
-      basic_block_t _bb = basic_block_of_index((*_it).second, _ICFG);
-
-      // Term.Addr -> Next block address
-      out << (fmt(" %16s (%s+0x%x) => %16s (%s+0x%x)\n")
-              % x2s(ICFG[bb].Term.Addr)
-              % b.Name.c_str()
-              % B::offset_of_va(*x.Bin, ICFG[bb].Term.Addr)
-              % x2s(_ICFG[_bb].Addr)
-              % _b.Name.c_str()
-              % B::offset_of_va(*x.Bin, _ICFG[_bb].Addr)).str();
-      break;
-    }
-
-    case TERMINATOR::CONDITIONAL_JUMP:
-    case TERMINATOR::UNCONDITIONAL_JUMP: {
-      auto _it = std::next(it);
-      binary_t &_b = jv.Binaries.at((*_it).first);
-      if (&b != &_b) {
-        llvm::outs() << "unexpected\n";
-        continue;
-      }
-
-      auto &_ICFG = _b.Analysis.ICFG;
-      basic_block_t _bb = basic_block_of_index((*_it).second, _ICFG);
-
-      // Term.Addr -> Next block address
-      out << (fmt(" %16s (%s+0x%x) => %16s (%s+0x%x)\n")
-              % x2s(ICFG[bb].Term.Addr)
-              % b.Name.c_str()
-              % B::offset_of_va(*x.Bin, ICFG[bb].Term.Addr)
-              % x2s(_ICFG[_bb].Addr)
-              % _b.Name.c_str()
-              % B::offset_of_va(*x.Bin, _ICFG[_bb].Addr)).str();
-      break;
-    }
-
-    case TERMINATOR::NONE:
-      continue;
-
-    case TERMINATOR::RETURN:
-    case TERMINATOR::INDIRECT_JUMP:
-    case TERMINATOR::INDIRECT_CALL:
-      // ????? wait for new block
-      continue;
-    }
+  uint64_t x;
+  if (opts.Terms) {
+    if (ICFG[bb].Term.Type == TERMINATOR::NONE)
+      return;
+    assert(ICFG[bb].Term.Addr);
+    x = ICFG[bb].Term.Addr;
+  } else {
+    x = ICFG[bb].Addr;
   }
 
-  return 0;
+  out << llvm::formatv("{0}+{1:x}\n",
+                       fs::path(b.path_str()).filename().c_str(),
+                       AddrOrOff(b, x));
 }
 
-void Trace2AddrsTool::ParseTraceFile(const char *filename, trace_t &out) {
-  std::ifstream ifs(filename);
-
-  if (!ifs)
-    die("failed to open trace file '" + std::string(filename) + "'");
-
+void Trace2AddrsTool::Process(llvm::raw_ostream &out, std::istream &in) {
   struct {
     binary_index_t BIdx;
     basic_block_index_t BBIdx;
@@ -222,7 +136,7 @@ void Trace2AddrsTool::ParseTraceFile(const char *filename, trace_t &out) {
   Last.BBIdx = invalid_basic_block_index;
 
   std::string line;
-  while (std::getline(ifs, line)) {
+  while (std::getline(in, line)) {
     if (line.size() < sizeof("JV_") ||
         line[0] != 'J' ||
         line[1] != 'V' ||
@@ -240,7 +154,7 @@ void Trace2AddrsTool::ParseTraceFile(const char *filename, trace_t &out) {
         continue;
     }
 
-    out.emplace_back(BIdx, BBIdx);
+    ProcessBlock(out, BIdx, BBIdx);
 
     Last.BIdx = BIdx;
     Last.BBIdx = BBIdx;
