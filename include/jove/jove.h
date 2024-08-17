@@ -307,8 +307,21 @@ constexpr addr_intvl make_addr_intvl(taddr_t lower, taddr_t upper) {
   return addr_intvl(lower, upper - lower);
 }
 
+struct binary_t;
+
+struct allocates_basic_block_t {
+  basic_block_index_t BBIdx = invalid_basic_block_index;
+
+  allocates_basic_block_t () = default;
+
+  // allocates (creates) new basic block in binary, stores index
+  inline allocates_basic_block_t(binary_t &b, basic_block_index_t &store);
+
+  operator basic_block_index_t() const { return BBIdx; }
+};
+
 typedef boost::concurrent_flat_map<
-    taddr_t, basic_block_index_t, boost::hash<taddr_t>, std::equal_to<taddr_t>,
+    taddr_t, allocates_basic_block_t, boost::hash<taddr_t>, std::equal_to<taddr_t>,
     boost::interprocess::allocator<std::pair<const taddr_t, basic_block_index_t>,
                                    segment_manager_t>>
     bbbmap_t;
@@ -318,8 +331,6 @@ typedef boost::interprocess::flat_map<
     boost::interprocess::allocator<std::pair<addr_intvl, basic_block_index_t>,
                                    segment_manager_t>>
     bbmap_t;
-
-struct binary_t;
 
 struct allocates_function_t {
   function_index_t FIdx = invalid_function_index;
@@ -693,6 +704,20 @@ struct binary_t {
 };
 
 #undef DEFINE_INTERPROCESS_MAP
+
+allocates_basic_block_t::allocates_basic_block_t(binary_t &b,
+                                                 basic_block_index_t &store) {
+  icfg_t &ICFG = b.Analysis.ICFG;
+
+  {
+    ip_scoped_lock<ip_upgradable_mutex> e_lck(b.bbmap_mtx);
+
+    BBIdx = boost::num_vertices(ICFG);
+    (void)boost::add_vertex(ICFG, b.get_allocator());
+  }
+
+  store = BBIdx;
+}
 
 allocates_function_t::allocates_function_t(binary_t &b,
                                            function_index_t &store) {
@@ -1525,19 +1550,6 @@ static inline uint64_t entry_address_of_function(const function_t &f,
                                                  const binary_t &binary) {
   const auto &ICFG = binary.Analysis.ICFG;
   return ICFG[basic_block_of_index(f.Entry, binary)].Addr;
-}
-
-static inline void construct_bbbmap(const jv_t &jv,
-                                    const binary_t &binary,
-                                    bbbmap_t &out) {
-  auto &ICFG = binary.Analysis.ICFG;
-
-  for_each_basic_block_in_binary(binary, [&](basic_block_t bb) {
-    const auto &bbprop = ICFG[bb];
-
-    bool success = out.emplace(bbprop.Addr, index_of_basic_block(ICFG, bb));
-    assert(success);
-  });
 }
 
 static inline void construct_bbmap(const jv_t &jv,

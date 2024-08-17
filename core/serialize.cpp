@@ -230,6 +230,15 @@ namespace boost {
 namespace serialization {
 
 //
+// allocates_basic_block_t
+//
+template <class Archive>
+static void serialize(Archive &ar, jove::allocates_basic_block_t &ab,
+                      const unsigned int version) {
+  ar &BOOST_SERIALIZATION_NVP(ab.BBIdx);
+}
+
+//
 // allocates_function_t
 //
 template <class Archive>

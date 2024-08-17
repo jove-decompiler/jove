@@ -113,17 +113,16 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
 
   auto &ICFG = b.Analysis.ICFG;
 
-  //
-  // fast path
-  //
+  basic_block_index_t Idx = invalid_basic_block_index;
   {
-    basic_block_index_t BBIdx = invalid_basic_block_index;
+    bool inserted = b.bbbmap.try_emplace_or_cvisit(
+        Addr, std::ref(b), std::ref(Idx),
+        [&](const typename bbbmap_t::value_type &x) { Idx = x.second; });
 
-    bool found = b.bbbmap.cvisit(Addr, [&](const auto &x) { BBIdx = x.second; });
-    if (likely(found)) {
-      assert(is_basic_block_index_valid(BBIdx));
-      return BBIdx;
-    }
+    assert(is_basic_block_index_valid(Idx));
+
+    if (likely(!inserted))
+      return Idx;
   }
 
   auto &bbmap = b.bbmap;
@@ -242,7 +241,6 @@ top:
     //
     //
 
-    const basic_block_index_t NewBBIdx = ({
     const unsigned off = Addr - beg;
 
     const addr_intvl intvl_1(beg, off);
@@ -270,8 +268,8 @@ top:
     //
     // create bb_2
     //
-    basic_block_t bb_2 = boost::add_vertex(ICFG, jv.get_allocator());
-    const basic_block_index_t NewBBIdx = index_of_basic_block(ICFG, bb_2);
+    basic_block_t bb_2 = basic_block_of_index(Idx, ICFG);
+    const basic_block_index_t NewBBIdx = Idx;
     basic_block_properties_t &bbprop_2 = ICFG[bb_2];
 
     bbprop_2.Addr = addr_intvl_lower(intvl_2);
@@ -324,14 +322,6 @@ top:
     bbmap_add(bbmap, intvl_1, BBIdx);
     bbmap_add(bbmap, intvl_2, NewBBIdx);
 
-    //
-    // update bbbmap
-    //
-    {
-      bool success = b.bbbmap.emplace(Addr, NewBBIdx);
-      assert(success);
-    }
-
     ip_sharable_lock<ip_upgradable_mutex> s_lck(boost::move(e_lck));
 
       {
@@ -353,11 +343,9 @@ top:
                                     description_of_block(bbprop_2, false));
 #endif
 
-    index_of_basic_block(ICFG, bb_2);
-    });
 
     //this->on_newbb_proc(b, basic_block_of_index(NewBBIdx, ICFG));
-    return NewBBIdx;
+    return Idx;
   }
 
   //
@@ -444,15 +432,13 @@ top:
     return invalid_basic_block_index;
   }
 
-  basic_block_index_t BBIdx;
-  basic_block_t bb;
+  basic_block_t bb = basic_block_of_index(Idx, ICFG);
   {
     ip_scoped_lock<ip_upgradable_mutex> e_lck(b.bbmap_mtx);
 
-    BBIdx = boost::num_vertices(ICFG);
-    bb = boost::add_vertex(ICFG, jv.get_allocator());
     {
       basic_block_properties_t &bbprop = ICFG[bb];
+
       bbprop.Addr = Addr;
       bbprop.Size = Size;
       bbprop.Term.Type = T.Type;
@@ -465,16 +451,7 @@ top:
       bbprop.InvalidateAnalysis();
 
       addr_intvl intervl(bbprop.Addr, bbprop.Size);
-      bbmap_add(bbmap, intervl, BBIdx);
-
-      {
-        bool success = b.bbbmap.emplace(Addr, BBIdx);
-        assert(success);
-      }
-#if 0
-      llvm::errs() << "         BBIdx=" << BBIdx
-                   << " intervl=" << addr_intvl2str(intervl) << '\n';
-#endif
+      bbmap_add(bbmap, intervl, Idx);
     }
   }
 
@@ -603,7 +580,7 @@ top:
     throw std::runtime_error((fmt("%s: unknown terminator @ 0x%lx") % __func__ % T.Addr).str());
   }
 
-  return BBIdx;
+  return Idx;
 }
 
 void explorer_t::_control_flow_to(binary_t &b,
