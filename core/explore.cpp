@@ -42,38 +42,19 @@ function_index_t explorer_t::_explore_function(binary_t &b,
   assert((Addr & 1) == 0);
 #endif
 
-  auto &fnmap = b.fnmap;
-
-  function_index_t res = invalid_function_index;
-
-  //
-  // fast path
-  //
+  function_index_t Idx = invalid_function_index;
   {
-    bool found = fnmap.cvisit(Addr, [&](const auto &x) { res = x.second; });
-    if (likely(found)) {
-      assert(is_function_index_valid(res));
-      return res;
-    }
+    bool inserted = b.fnmap.try_emplace_or_cvisit(
+        Addr, std::ref(b), std::ref(Idx),
+        [&](const typename fnmap_t::value_type &x) { Idx = x.second; });
+
+    assert(is_function_index_valid(Idx));
+
+    if (likely(!inserted))
+      return Idx;
   }
 
-  {
-    ip_scoped_lock<ip_sharable_mutex> e_lck(b.Analysis.Functions._mtx);
-
-    bool found = fnmap.cvisit(Addr, [&](const auto &x) { res = x.second; });
-    if (likely(found)) {
-      assert(is_function_index_valid(res));
-      return res;
-    }
-
-    res = b.Analysis.Functions._deque.size();
-    b.Analysis.Functions._deque.emplace_back(b, res);
-
-    bool succeeded = fnmap.emplace(Addr, res);
-    assert(succeeded);
-  }
-
-  function_t &f = b.Analysis.Functions.at(res);
+  function_t &f = b.Analysis.Functions.at(Idx);
 
   this->on_newfn_proc(b, f);
 
@@ -97,7 +78,7 @@ function_index_t explorer_t::_explore_function(binary_t &b,
   basic_block_t Entry = basic_block_of_index(EntryIdx, ICFG);
 
   std::function<void(basic_block_t bb)> rec = [&](basic_block_t bb) -> void {
-    ICFG[bb].AddParent(res, jv);
+    ICFG[bb].AddParent(Idx, jv);
 
     icfg_t::adjacency_iterator succ_it, succ_it_end;
     for (std::tie(succ_it, succ_it_end) = boost::adjacent_vertices(bb, ICFG);
@@ -110,7 +91,7 @@ function_index_t explorer_t::_explore_function(binary_t &b,
       // if a successor already has this function marked as a parent, then we
       // can assume everything reachable from it is already too
       //
-      if (ICFG[succ].IsParent(res))
+      if (ICFG[succ].IsParent(Idx))
         continue;
 
       rec(succ);
@@ -119,7 +100,7 @@ function_index_t explorer_t::_explore_function(binary_t &b,
 
   rec(Entry);
 
-  return res;
+  return Idx;
 }
 
 basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,

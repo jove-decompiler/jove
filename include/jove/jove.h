@@ -319,8 +319,21 @@ typedef boost::interprocess::flat_map<
                                    segment_manager_t>>
     bbmap_t;
 
+struct binary_t;
+
+struct allocates_function_t {
+  function_index_t FIdx = invalid_function_index;
+
+  allocates_function_t() = default;
+
+  // allocates (creates) new function in binary, stores index
+  inline allocates_function_t(binary_t &b, function_index_t &store);
+
+  operator function_index_t() const { return FIdx; }
+};
+
 typedef boost::concurrent_flat_map<
-    taddr_t, function_index_t, boost::hash<taddr_t>, std::equal_to<taddr_t>,
+    taddr_t, allocates_function_t, boost::hash<taddr_t>, std::equal_to<taddr_t>,
     boost::interprocess::allocator<std::pair<const taddr_t, function_index_t>,
                                    segment_manager_t>>
     fnmap_t;
@@ -680,6 +693,20 @@ struct binary_t {
 };
 
 #undef DEFINE_INTERPROCESS_MAP
+
+allocates_function_t::allocates_function_t(binary_t &b,
+                                           function_index_t &store) {
+  ip_protected_deque<function_t> &Functions = b.Analysis.Functions;
+
+  {
+    ip_scoped_lock<ip_sharable_mutex> e_lck(Functions._mtx);
+
+    FIdx = Functions._deque.size();
+    Functions._deque.emplace_back(b, FIdx);
+  }
+
+  store = FIdx;
+}
 
 typedef boost::interprocess::allocator<binary_t, segment_manager_t>
     ip_binary_allocator;
@@ -1523,23 +1550,6 @@ static inline void construct_bbmap(const jv_t &jv,
 
     bbmap_add(out, addr_intvl(bbprop.Addr, bbprop.Size),
               index_of_basic_block(ICFG, bb));
-  });
-}
-
-static inline void construct_fnmap(const jv_t &jv,
-                                   const binary_t &binary,
-                                   fnmap_t &out) {
-  for_each_function_in_binary(binary, [&](const function_t &f) {
-    if (unlikely(!is_basic_block_index_valid(f.Entry)))
-      return;
-
-    auto &ICFG = binary.Analysis.ICFG;
-
-    uint64_t Addr = ICFG[basic_block_of_index(f.Entry, ICFG)].Addr;
-    function_index_t FIdx = index_of_function_in_binary(f, binary);
-
-    bool success = out.emplace(Addr, FIdx);
-    assert(success);
   });
 }
 
