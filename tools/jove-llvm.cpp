@@ -4467,7 +4467,6 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
         : tool(tool), Binary(Binary) {
       Saved.resize(Binary.Analysis.Functions.size());
 
-      auto &ICFG = Binary.Analysis.ICFG;
       auto &Bin = tool.state.for_binary(Binary).Bin;
 
       //
@@ -4498,7 +4497,6 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
           });
     }
     ~PatchContents() {
-      auto &ICFG = Binary.Analysis.ICFG;
       auto &Bin = tool.state.for_binary(Binary).Bin;
 
       //
