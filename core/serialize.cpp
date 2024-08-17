@@ -230,22 +230,13 @@ namespace boost {
 namespace serialization {
 
 //
-// binary_t::Analysis_t::_Functions
-//
-template <class Archive>
-static void serialize(Archive &ar, jove::binary_t::Analysis_t::_Functions &X,
-                      const unsigned int) {
-  ar &BOOST_SERIALIZATION_NVP(X._deque);
-}
-
-//
 // binary_t::Analysis_t
 //
 template <class Archive>
 static void serialize(Archive &ar, jove::binary_t::Analysis_t &A,
                       const unsigned int version) {
   ar &BOOST_SERIALIZATION_NVP(A.EntryFunction)
-     &BOOST_SERIALIZATION_NVP(A.Functions)
+     &BOOST_SERIALIZATION_NVP(A.Functions._deque)
      &BOOST_SERIALIZATION_NVP(A.ICFG)
      &BOOST_SERIALIZATION_NVP(A.RelocDynTargets)
      &BOOST_SERIALIZATION_NVP(A.IFuncDynTargets)
@@ -337,21 +328,12 @@ static void serialize(Archive &ar, jove::basic_block_properties_t &bbprop,
 }
 
 //
-// jv_t::_Binaries
-//
-
-template <class Archive>
-static void serialize(Archive &ar, jove::jv_t::_Binaries &B, const unsigned int) {
-  ar &BOOST_SERIALIZATION_NVP(B._deque);
-}
-
-//
 // jv_t
 //
 
 template <class Archive>
 static void serialize(Archive &ar, jove::jv_t &jv, const unsigned int) {
-  ar &BOOST_SERIALIZATION_NVP(jv.Binaries)
+  ar &BOOST_SERIALIZATION_NVP(jv.Binaries._deque)
      &BOOST_SERIALIZATION_NVP(jv.hash_to_binary)
      &BOOST_SERIALIZATION_NVP(jv.name_to_binaries);
 }

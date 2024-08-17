@@ -187,14 +187,71 @@ constexpr const char *TargetStaticLinkerEmulation(bool IsCOFF) {
   }
 }
 
-//typedef boost::interprocess::managed_shared_memory::segment_manager
-//    segment_manager_t;
-
 typedef boost::interprocess::managed_mapped_file jv_file_t;
 typedef jv_file_t::segment_manager segment_manager_t;
 
 typedef boost::interprocess::allocator<void, segment_manager_t>
     ip_void_allocator_t;
+
+typedef boost::interprocess::interprocess_mutex ip_mutex;
+typedef boost::interprocess::interprocess_sharable_mutex ip_sharable_mutex;
+typedef boost::interprocess::interprocess_upgradable_mutex ip_upgradable_mutex;
+
+template <typename Mutex>
+using ip_scoped_lock = boost::interprocess::scoped_lock<Mutex>;
+template <typename Mutex>
+using ip_sharable_lock = boost::interprocess::sharable_lock<Mutex>;
+template <typename Mutex>
+using ip_upgradable_lock = boost::interprocess::upgradable_lock<Mutex>;
+
+template <typename T>
+struct ip_protected_deque {
+  using alloc_t = boost::interprocess::allocator<T, segment_manager_t>;
+  using deque_t = boost::interprocess::deque<T, alloc_t>;
+
+  deque_t _deque;
+  mutable ip_sharable_mutex _mtx;
+
+  ip_protected_deque() = delete;
+  ip_protected_deque(const ip_void_allocator_t &A) : _deque(A) {}
+  ip_protected_deque(ip_protected_deque<T> &&other)
+      : _deque(std::move(other._deque)) {}
+
+  ip_protected_deque<T> &operator=(const ip_protected_deque<T> &other) {
+    if (this == &other) {
+      return *this;
+    }
+
+    _deque = other._deque;
+    return *this;
+  }
+
+  unsigned size(void) const {
+    ip_sharable_lock<ip_sharable_mutex> s_lck(_mtx);
+    return _deque.size();
+  }
+
+  bool empty(void) const { return size() == 0; }
+
+  T &at(unsigned idx) {
+    ip_sharable_lock<ip_sharable_mutex> s_lck(_mtx);
+    return _deque.at(idx);
+  }
+
+  const T &at(unsigned idx) const {
+    ip_sharable_lock<ip_sharable_mutex> s_lck(_mtx);
+    return _deque.at(idx);
+  }
+
+  typename deque_t::const_iterator cbegin(void) const { return _deque.cbegin(); }
+  typename deque_t::const_iterator cend(void) const { return _deque.cend(); }
+
+  typename deque_t::const_iterator begin(void) const { return cbegin(); }
+  typename deque_t::const_iterator end(void) const { return cend(); }
+
+  typename deque_t::iterator begin(void) { return _deque.begin(); }
+  typename deque_t::iterator end(void) { return _deque.end(); }
+};
 
 typedef boost::interprocess::allocator<char, segment_manager_t>
     ip_char_allocator;
@@ -481,24 +538,6 @@ struct function_t {
   function_t() = delete;
 };
 
-typedef boost::interprocess::interprocess_mutex ip_mutex;
-typedef boost::interprocess::interprocess_sharable_mutex ip_sharable_mutex;
-typedef boost::interprocess::interprocess_upgradable_mutex ip_upgradable_mutex;
-
-template <typename Mutex>
-using ip_scoped_lock = boost::interprocess::scoped_lock<Mutex>;
-template <typename Mutex>
-using ip_sharable_lock = boost::interprocess::sharable_lock<Mutex>;
-template <typename Mutex>
-using ip_upgradable_lock = boost::interprocess::upgradable_lock<Mutex>;
-
-typedef boost::interprocess::interprocess_condition ip_condition;
-
-typedef boost::interprocess::allocator<function_t, segment_manager_t>
-    ip_function_allocator;
-typedef boost::interprocess::deque<function_t, ip_function_allocator>
-    ip_function_deque;
-
 #define DEFINE_INTERPROCESS_MAP(name, key, value)                              \
   boost::interprocess::map<                                                    \
       key, value, std::less<key>,                                              \
@@ -530,57 +569,10 @@ struct binary_t {
   struct Analysis_t {
     function_index_t EntryFunction;
 
-    struct _Functions {
-      ip_function_deque _deque;
-      mutable ip_sharable_mutex _mtx;
-
-      //
-      // references to function_t will never be invalidated.
-      //
-      function_t &at(unsigned idx) {
-        ip_sharable_lock<ip_sharable_mutex> s_lck(_mtx);
-        return _deque.at(idx);
-      }
-
-      const function_t &at(unsigned idx) const {
-        ip_sharable_lock<ip_sharable_mutex> s_lck(_mtx);
-        return _deque.at(idx);
-      }
-
-      unsigned size(void) const {
-        ip_sharable_lock<ip_sharable_mutex> s_lck(_mtx);
-        return _deque.size();
-      }
-
-      bool empty(void) const { return size() == 0; }
-
-      //
-      // with iterators we don't even bother taking the shared lock; they would be
-      // invalidated anyways if a modification to _deque took place in between the
-      // locking.
-      //
-      ip_function_deque::const_iterator cbegin(void) const { return _deque.cbegin(); }
-      ip_function_deque::const_iterator cend(void) const { return _deque.cend(); }
-
-      ip_function_deque::const_iterator begin(void) const { return cbegin(); }
-      ip_function_deque::const_iterator end(void) const { return cend(); }
-
-      ip_function_deque::iterator begin(void) { return _deque.begin(); }
-      ip_function_deque::iterator end(void) { return _deque.end(); }
-
-      _Functions(const ip_void_allocator_t &A) : _deque(A) {}
-      _Functions(_Functions &&other) : _deque(std::move(other._deque)) {}
-
-      _Functions &operator=(const _Functions &other) {
-        if (this == &other) {
-          return *this;
-        }
-
-        _deque = other._deque;
-        return *this;
-      }
-    } Functions;
-
+    //
+    // references to function_t will never be invalidated.
+    //
+    ip_protected_deque<function_t> Functions;
     interprocedural_control_flow_graph_t ICFG;
 
     DEFINE_INTERPROCESS_MAP(IFuncDynTargets, uint64_t, ip_dynamic_target_set);
@@ -724,46 +716,10 @@ typedef boost::unordered_map<
 typedef std::function<void(binary_t &)> on_newbin_proc_t;
 
 struct jv_t {
-  struct _Binaries {
-    ip_binary_deque _deque;
-    mutable ip_sharable_mutex _mtx;
-
-    _Binaries(const ip_void_allocator_t &A) : _deque(A) {}
-
-    //
-    // references to binary_t will never be invalidated.
-    //
-    binary_t &at(unsigned idx) {
-      ip_sharable_lock<ip_sharable_mutex> s_lck(_mtx);
-      return _deque.at(idx);
-    }
-
-    const binary_t &at(unsigned idx) const {
-      ip_sharable_lock<ip_sharable_mutex> s_lck(_mtx);
-      return _deque.at(idx);
-    }
-
-    unsigned size(void) const {
-      ip_sharable_lock<ip_sharable_mutex> s_lck(_mtx);
-      return _deque.size();
-    }
-
-    bool empty(void) const { return size() == 0; }
-
-    //
-    // with iterators we don't even bother taking the shared lock; they would be
-    // invalidated anyways if a modification to _deque took place in between the
-    // locking.
-    //
-    ip_binary_deque::const_iterator cbegin(void) const { return _deque.cbegin(); }
-    ip_binary_deque::const_iterator cend(void) const { return _deque.cend(); }
-
-    ip_binary_deque::const_iterator begin(void) const { return cbegin(); }
-    ip_binary_deque::const_iterator end(void) const { return cend(); }
-
-    ip_binary_deque::iterator begin(void) { return _deque.begin(); }
-    ip_binary_deque::iterator end(void) { return _deque.end(); }
-  } Binaries;
+  //
+  // references to binary_t will never be invalidated.
+  //
+  ip_protected_deque<binary_t> Binaries;
 
   ip_func_index_sets FIdxSets;
   ip_sharable_mutex FIdxSetsMtx;
