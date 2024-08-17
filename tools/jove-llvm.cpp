@@ -5,6 +5,7 @@
 #include "tool.h"
 #include "B.h"
 #include "disas.h"
+#include "brkpt.h"
 
 #include <boost/algorithm/string/replace.hpp>
 #include <boost/container_hash/extensions.hpp>
@@ -4451,112 +4452,70 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
 
   struct PatchContents {
     LLVMTool &tool;
-    binary_index_t BinaryIndex;
-    std::vector<uint32_t> FunctionOrigInsnTable;
+    binary_t &Binary;
 
-    PatchContents(LLVMTool &tool, binary_index_t BinaryIndex)
-        : tool(tool), BinaryIndex(BinaryIndex) {
-      auto &Binary = tool.jv.Binaries.at(BinaryIndex);
-      auto &ICFG = Binary.Analysis.ICFG;
+    std::vector<std::array<uint8_t, TargetBrkptLen>> Saved;
 
-      FunctionOrigInsnTable.resize(Binary.Analysis.Functions.size());
-
-      for (function_index_t FIdx = 0; FIdx <  Binary.Analysis.Functions.size(); ++FIdx) {
-        function_t &f = Binary.Analysis.Functions.at(FIdx);
-        if (!is_basic_block_index_valid(f.Entry))
-          continue;
-
-        uint64_t Addr = ICFG[basic_block_of_index(f.Entry, ICFG)].Addr;
-
-        uint32_t &insn = *((uint32_t *)binary_data_ptr_of_addr(Addr));
-
-        FunctionOrigInsnTable[FIdx] = insn;
-      }
-
-      for (function_index_t FIdx = 0; FIdx <  Binary.Analysis.Functions.size(); ++FIdx) {
-        function_t &f = Binary.Analysis.Functions.at(FIdx);
-        if (!is_basic_block_index_valid(f.Entry))
-          continue;
-
-        if (!f.IsABI)
-          continue;
-
-        if (tool.state.for_function(f).IsLj ||
-            tool.state.for_function(f).IsSj)
-          continue;
-
-        uint64_t Addr = ICFG[basic_block_of_index(f.Entry, ICFG)].Addr;
-
-#if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
-        uint8_t *insnp = ((uint8_t *)binary_data_ptr_of_addr(Addr));
-
-        //
-        // lw at,0(zero) ; <- guaranteed to SIGSEGV
-        //
-#ifdef TARGET_WORDS_BIGENDIAN
-        insnp[0] = 0x8c;
-        insnp[1] = 0x01;
-        insnp[2] = 0x00;
-        insnp[3] = 0x00;
-#else
-        insnp[0] = 0x00;
-        insnp[1] = 0x00;
-        insnp[2] = 0x01;
-        insnp[3] = 0x8c;
-#endif
-#elif defined(TARGET_X86_64) || defined(TARGET_I386)
-        uint8_t *insnp = ((uint8_t *)binary_data_ptr_of_addr(Addr));
-
-        insnp[0] = 0x0f; /* ud2 ; <- guaranteed to SIGILL */
-        insnp[1] = 0x0b;
-#elif defined(TARGET_AARCH64)
-        uint32_t &insn = *((uint32_t *)binary_data_ptr_of_addr(Addr));
-
-        insn = 0x00000000; /* udf     #0 ; <- guaranteed to SIGILL */
-#else
-#error
-#endif
-      }
-    }
-    ~PatchContents() {
-      auto &Binary = tool.jv.Binaries.at(BinaryIndex);
-      auto &ICFG = Binary.Analysis.ICFG;
-
-      //
-      // restore original insns
-      //
-      for (function_index_t FIdx = 0; FIdx <  Binary.Analysis.Functions.size(); ++FIdx) {
-        function_t &f = Binary.Analysis.Functions.at(FIdx);
-        if (!is_basic_block_index_valid(f.Entry))
-          continue;
-
-        if (!f.IsABI)
-          continue;
-
-        if (tool.state.for_function(f).IsLj ||
-            tool.state.for_function(f).IsSj)
-          continue;
-
-        uint64_t Addr = ICFG[basic_block_of_index(f.Entry, ICFG)].Addr;
-
-        uint32_t &insn = *((uint32_t *)binary_data_ptr_of_addr(Addr));
-
-        insn = FunctionOrigInsnTable[FIdx];
-      }
+    bool ShouldPlant(const function_t &f) {
+      return is_basic_block_index_valid(f.Entry) &&
+             f.IsABI &&
+             !tool.state.for_function(f).IsLj &&
+             !tool.state.for_function(f).IsSj;
     }
 
-    void *binary_data_ptr_of_addr(uint64_t Addr) {
-      auto &Binary = tool.jv.Binaries.at(BinaryIndex);
+    PatchContents(LLVMTool &tool, binary_t &Binary)
+        : tool(tool), Binary(Binary) {
+      Saved.resize(Binary.Analysis.Functions.size());
+
+      auto &ICFG = Binary.Analysis.ICFG;
       auto &Bin = tool.state.for_binary(Binary).Bin;
 
-      const void *Ptr = B::toMappedAddr(*Bin, Addr);
+      //
+      // backup
+      //
+      for_each_function_if_in_binary(
+          std::execution::par_unseq, Binary, 
+          std::bind(&PatchContents::ShouldPlant, this, std::placeholders::_1),
+          [&](function_t &f) {
+            uint64_t Addr = entry_address_of_function(f, Binary);
+            const void *Ptr = B::toMappedAddr(*Bin, Addr);
+
+            auto &sav = Saved.at(index_of_function_in_binary(f, Binary));
+            __builtin_memcpy_inline(&sav[0], Ptr, TargetBrkptLen);
+          });
 
       //
-      // the data resides in a std::string; it is writeable memory
+      // plant
       //
-      return const_cast<void *>(Ptr);
+      for_each_function_if_in_binary(
+          std::execution::par_unseq, Binary,
+          std::bind(&PatchContents::ShouldPlant, this, std::placeholders::_1),
+          [&](function_t &f) {
+            uint64_t Addr = entry_address_of_function(f, Binary);
+            void *Ptr = const_cast<void *>(B::toMappedAddr(*Bin, Addr));
+
+            __builtin_memcpy_inline(Ptr, &TargetBrkpt[0], TargetBrkptLen);
+          });
     }
-  } __PatchContents(*this, BinaryIndex);
+    ~PatchContents() {
+      auto &ICFG = Binary.Analysis.ICFG;
+      auto &Bin = tool.state.for_binary(Binary).Bin;
+
+      //
+      // restore
+      //
+      for_each_function_if_in_binary(
+          std::execution::par_unseq, Binary,
+          std::bind(&PatchContents::ShouldPlant, this, std::placeholders::_1),
+          [&](function_t &f) {
+            uint64_t Addr = entry_address_of_function(f, Binary);
+            void *Ptr = const_cast<void *>(B::toMappedAddr(*Bin, Addr));
+
+            auto &sav = Saved.at(index_of_function_in_binary(f, Binary));
+            __builtin_memcpy_inline(Ptr, &sav[0], TargetBrkptLen);
+          });
+    }
+  } __PatchContents(*this, Binary);
 
   const uint64_t SectsStartAddr = state.for_binary(Binary).SectsStartAddr;
   const uint64_t SectsEndAddr = state.for_binary(Binary).SectsEndAddr;

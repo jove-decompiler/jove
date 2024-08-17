@@ -1186,6 +1186,18 @@ void for_each_function(T &&jv, Proc proc) {
   for_each_function(std::execution::seq, std::forward<T>(jv), proc);
 }
 
+template <class _ExecutionPolicy, class Pred, class Proc>
+constexpr
+void for_each_function_if_in_binary(_ExecutionPolicy &&__exec,
+                                    binary_t &b,
+                                    Pred pred,
+                                    Proc proc) {
+  for_each_if(std::forward<_ExecutionPolicy>(__exec),
+              b.Analysis.Functions.begin(),
+              b.Analysis.Functions.end(), pred, proc);
+}
+
+
 template <class _ExecutionPolicy, class Proc>
 constexpr
 void for_each_function_in_binary(_ExecutionPolicy &&__exec,
