@@ -372,11 +372,11 @@ struct jv_t;
 struct basic_block_properties_t {
   bool Speculative = false;
 
-  uint64_t Addr;
+  taddr_t Addr;
   uint32_t Size;
 
   struct {
-    uint64_t Addr;
+    taddr_t Addr;
     TERMINATOR Type;
 
     struct {
@@ -657,8 +657,8 @@ struct binary_t {
 
     /*** may have use in future ***/
     void addSymDynTarget(const std::string &sym, dynamic_target_t X) {}
-    void addRelocDynTarget(uint64_t A, dynamic_target_t X) {}
-    void addIFuncDynTarget(uint64_t A, dynamic_target_t X) {}
+    void addRelocDynTarget(taddr_t A, dynamic_target_t X) {}
+    void addIFuncDynTarget(taddr_t A, dynamic_target_t X) {}
   } Analysis;
 
   basic_block_properties_t &prop(basic_block_t bb) {
@@ -952,25 +952,25 @@ description_of_block(const basic_block_properties_t &bbprop,
 
 struct terminator_info_t {
   TERMINATOR Type;
-  uint64_t Addr;
+  taddr_t Addr;
 
   struct {
     struct {
-      uint64_t Target;
+      taddr_t Target;
     } _unconditional_jump;
 
     struct {
-      uint64_t Target;
-      uint64_t NextPC;
+      taddr_t Target;
+      taddr_t NextPC;
     } _conditional_jump;
 
     struct {
-      uint64_t Target;
-      uint64_t NextPC;
+      taddr_t Target;
+      taddr_t NextPC;
     } _call;
 
     struct {
-      uint64_t NextPC;
+      taddr_t NextPC;
     } _indirect_call;
 
     struct {
@@ -986,7 +986,7 @@ struct terminator_info_t {
     } _unreachable;
 
     struct {
-      uint64_t NextPC;
+      taddr_t NextPC;
     } _none;
   };
 };
@@ -1572,7 +1572,7 @@ static inline bool IsFunctionLongjmp(const function_t &f,
 }
 
 static inline basic_block_index_t
-index_of_basic_block_at_address(uint64_t Addr, const binary_t &b) {
+index_of_basic_block_at_address(taddr_t Addr, const binary_t &b) {
   auto it = bbmap_find(b.bbmap, Addr);
 
   assert(it != b.bbmap.end());
@@ -1580,7 +1580,7 @@ index_of_basic_block_at_address(uint64_t Addr, const binary_t &b) {
 }
 
 static inline basic_block_index_t
-index_of_basic_block_starting_at_address(uint64_t Addr, const binary_t &b) {
+index_of_basic_block_starting_at_address(taddr_t Addr, const binary_t &b) {
   basic_block_index_t res = invalid_basic_block_index;
   bool found = b.bbbmap.cvisit(Addr, [&](const auto &x) { res = x.second; });
 
@@ -1588,23 +1588,23 @@ index_of_basic_block_starting_at_address(uint64_t Addr, const binary_t &b) {
   return res;
 }
 
-static inline basic_block_t basic_block_at_address(uint64_t Addr,
+static inline basic_block_t basic_block_at_address(taddr_t Addr,
                                                    const binary_t &b) {
   return basic_block_of_index(index_of_basic_block_at_address(Addr, b), b);
 }
 
-static inline bool exists_basic_block_at_address(uint64_t Addr,
+static inline bool exists_basic_block_at_address(taddr_t Addr,
                                                  const binary_t &b) {
   return bbmap_contains(b.bbmap, Addr);
 }
 
-static inline bool exists_basic_block_starting_at_address(uint64_t Addr,
+static inline bool exists_basic_block_starting_at_address(taddr_t Addr,
                                                           const binary_t &b) {
   return b.bbbmap.contains(Addr);
 }
 
 static inline function_index_t index_of_function_at_address(const binary_t &b,
-                                                            uint64_t Addr) {
+                                                            taddr_t Addr) {
   function_index_t FIdx = invalid_function_index;
   bool found = b.fnmap.cvisit(Addr, [&](const auto &x) { FIdx = x.second; });
   assert(found);
@@ -1613,20 +1613,20 @@ static inline function_index_t index_of_function_at_address(const binary_t &b,
 }
 
 static inline const function_t &function_at_address(const binary_t &b,
-                                                    uint64_t Addr) {
+                                                    taddr_t Addr) {
   return b.Analysis.Functions.at(index_of_function_at_address(b, Addr));
 }
 
-static inline function_t &function_at_address(binary_t &b, uint64_t Addr) {
+static inline function_t &function_at_address(binary_t &b, taddr_t Addr) {
   return b.Analysis.Functions.at(index_of_function_at_address(b, Addr));
 }
 
-static inline bool exists_function_at_address(const binary_t &b, uint64_t Addr) {
+static inline bool exists_function_at_address(const binary_t &b, taddr_t Addr) {
   return b.fnmap.contains(Addr);
 }
 
 // NOTE: this function excludes tail calls.
-static inline bool exists_indirect_jump_at_address(uint64_t Addr,
+static inline bool exists_indirect_jump_at_address(taddr_t Addr,
                                                    const binary_t &binary) {
   if (exists_basic_block_at_address(Addr, binary)) {
     const auto &ICFG = binary.Analysis.ICFG;
@@ -1639,7 +1639,7 @@ static inline bool exists_indirect_jump_at_address(uint64_t Addr,
   return false;
 }
 
-static inline uint64_t entry_address_of_function(const function_t &f,
+static inline taddr_t entry_address_of_function(const function_t &f,
                                                  const binary_t &binary) {
   const auto &ICFG = binary.Analysis.ICFG;
   return ICFG[basic_block_of_index(f.Entry, binary)].Addr;
