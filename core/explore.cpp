@@ -183,6 +183,8 @@ on_insn:
   //
   std::vector<basic_block_t> to_bb_vec;
 
+  ip_scoped_lock<ip_upgradable_mutex> e_lck_bbmap(boost::move(*u_lck_bbmap));
+
   ip_upgradable_lock<ip_upgradable_mutex> u_lck_ICFG(b.Analysis.ICFG_mtx);
 
   to_bb_vec.reserve(boost::out_degree(bb_1, ICFG));
@@ -245,8 +247,6 @@ on_insn:
   assert(addr_intvl_disjoint(intvl_1, intvl_2));
 
   const unsigned sav_bbmap_size = bbmap.size();
-
-  ip_scoped_lock<ip_upgradable_mutex> e_lck_bbmap(boost::move(*u_lck_bbmap));
 
   bbmap.erase(it);
   assert(bbmap.size() == sav_bbmap_size - 1);
