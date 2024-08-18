@@ -126,6 +126,9 @@ void DumpTool::dumpDecompilation(const jv_t& jv) {
 
         llvm::DictScope ____(Writer, (fmt("0x%lX") % ICFG[bb].Addr).str());
 
+        if (ICFG[bb].Speculative)
+          Writer.printBoolean("Speculative", ICFG[bb].Speculative);
+
         {
           auto inv_adj_it_pair = boost::inv_adjacent_vertices(bb, ICFG);
 
