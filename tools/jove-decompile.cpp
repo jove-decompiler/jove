@@ -61,6 +61,7 @@ class DecompileTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, 
     cl::opt<unsigned> Threads;
     cl::opt<bool> FakeLineNumbers;
     cl::opt<bool> MT;
+    cl::opt<int> Conservative;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : Prog(cl::Positional, cl::desc("prog"), cl::value_desc("filename"),
@@ -96,7 +97,13 @@ class DecompileTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, 
               cl::cat(JoveCategory)),
 
           MT("mt", cl::desc("Thread model (multi)"), cl::cat(JoveCategory),
-             cl::init(true)) {}
+             cl::init(true)),
+
+          Conservative(
+              "conservative",
+              cl::desc(
+                  "1 => assume any arg registers could be live for ABI calls."),
+              cl::cat(JoveCategory), cl::init(0)) {}
   } opts;
 
   std::vector<binary_index_t> Q;
@@ -268,6 +275,49 @@ int DecompileTool::Run(void) {
       std::string mapfp = (fs::path(opts.Output) / (binary_filename + ".map")).string();
       std::string cfp = (fs::path(opts.Output) / (binary_filename + ".c")).string();
 
+      // TODO only recompute analyses if necessary
+
+      //
+      // invalidate
+      //
+      if (RunToolToExit("invalidate", process::no_args, process::no_envs, "", "")) {
+        worker_failed.store(true);
+
+        WithColor::error() << llvm::formatv("jove invalidate failed on {0}\n",
+                                            binary_filename);
+
+        return;
+      }
+
+      //
+      // run jove-analyze
+      //
+      {
+        std::string path_to_stdout = bcfp + ".stdout.analyze.txt";
+        std::string path_to_stderr = bcfp + ".stderr.analyze.txt";
+
+        int rc = RunToolToExit(
+            "analyze",
+            [&](auto Arg) {
+              Arg("--conservative=" + std::to_string(opts.Conservative));
+            },
+            path_to_stdout,
+            path_to_stderr);
+
+        //
+        // check exit code
+        //
+        if (rc) {
+          worker_failed.store(true);
+
+          WithColor::error() << llvm::formatv(
+              "jove llvm failed on {0}: see {1}\n", binary_filename,
+              path_to_stderr);
+
+          return;
+        }
+      }
+
       //
       // run jove-llvm
       //
@@ -283,6 +333,8 @@ int DecompileTool::Run(void) {
 
               Arg("--version-script");
               Arg(mapfp);
+
+              Arg("--lay-out-sections");
 
               Arg("--binary-index");
               Arg(std::to_string(BIdx));
