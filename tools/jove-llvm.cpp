@@ -1183,8 +1183,9 @@ static flow_vertex_t copy_function_cfg(jv_t &jv,
         //
         flow_vertex_t dummyV = boost::add_vertex(G);
 
-        static basic_block_properties_t::Analysis_t DummyAnalysis;
-        DummyAnalysis.reach.def = CallConvRets;
+        static const basic_block_properties_t::Analysis_t DummyAnalysis = {
+            .live = {}, .reach = {.def = CallConvRets}};
+
         G[dummyV].Analysis = &DummyAnalysis;
 
         flow_edge_t E = boost::add_edge(V, dummyV, G).first;
@@ -1243,8 +1244,9 @@ static flow_vertex_t copy_function_cfg(jv_t &jv,
         //
         flow_vertex_t dummyV = boost::add_vertex(G);
 
-        static basic_block_properties_t::Analysis_t DummyAnalysis;
-        DummyAnalysis.reach.def = CallConvRets;
+        static const basic_block_properties_t::Analysis_t DummyAnalysis = {
+            .live = {}, .reach = {.def = CallConvRets}};
+
         G[dummyV].Analysis = &DummyAnalysis;
 
         flow_edge_t E = boost::add_edge(V, dummyV, G).first;
@@ -1294,8 +1296,9 @@ static flow_vertex_t copy_function_cfg(jv_t &jv,
         //
         flow_vertex_t dummyV = boost::add_vertex(G);
 
-        static basic_block_properties_t::Analysis_t DummyAnalysis;
-        DummyAnalysis.reach.def = CallConvRets;
+        static const basic_block_properties_t::Analysis_t DummyAnalysis = {
+            .live = {}, .reach = {.def = CallConvRets}};
+
         G[dummyV].Analysis = &DummyAnalysis;
 
         flow_edge_t E = boost::add_edge(V, dummyV, G).first;
@@ -1317,8 +1320,9 @@ static flow_vertex_t copy_function_cfg(jv_t &jv,
   if (f.Returns && exitVertices.empty()) {
     flow_vertex_t dummyV = boost::add_vertex(G);
 
-    static basic_block_properties_t::Analysis_t DummyAnalysis;
-    DummyAnalysis.reach.def = CallConvRets;
+    static const basic_block_properties_t::Analysis_t DummyAnalysis = {
+        .live = {}, .reach = {.def = CallConvRets}};
+
     G[dummyV].Analysis = &DummyAnalysis;
 
     exitVertices.emplace_back(dummyV, true);
