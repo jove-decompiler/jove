@@ -317,7 +317,8 @@ static void serialize(Archive &ar, jove::basic_block_properties_t &bbprop,
   if (bbprop.pDynTargets)
     DynTargets.insert(bbprop.dyn_targets_begin(), bbprop.dyn_targets_end());
 
-  ar &BOOST_SERIALIZATION_NVP(bbprop.Addr)
+  ar &BOOST_SERIALIZATION_NVP(bbprop.Speculative)
+     &BOOST_SERIALIZATION_NVP(bbprop.Addr)
      &BOOST_SERIALIZATION_NVP(bbprop.Size)
      &BOOST_SERIALIZATION_NVP(bbprop.Term.Addr)
      &BOOST_SERIALIZATION_NVP(bbprop.Term.Type)

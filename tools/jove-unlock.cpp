@@ -39,7 +39,7 @@ int UnlockTool::Run(void) {
         jv.Binaries._deque.begin(),
         jv.Binaries._deque.end(), [&](binary_t &b) {
           __builtin_memset(&b.bbmap_mtx, 0, sizeof(b.bbmap_mtx));
-          __builtin_memset(&b.na_bbmap_mtx, 0, sizeof(b.na_bbmap_mtx));
+          __builtin_memset(&b.Analysis.ICFG_mtx, 0, sizeof(b.Analysis.ICFG_mtx));
           __builtin_memset(&b.Analysis.Functions._mtx, 0, sizeof(b.Analysis.Functions._mtx));
         });
   } else {
@@ -53,7 +53,7 @@ int UnlockTool::Run(void) {
                     jv.Binaries._deque.begin(),
                     jv.Binaries._deque.end(), [&](binary_t &b) {
                       b.bbmap_mtx.unlock();
-                      b.na_bbmap_mtx.unlock();
+                      b.Analysis.ICFG_mtx.unlock();
                       b.Analysis.Functions._mtx.unlock();
                     });
     } catch (...) {

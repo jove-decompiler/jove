@@ -25,6 +25,9 @@ struct tiny_code_generator_t;
 typedef std::function<void(binary_t &, basic_block_t)> on_newbb_proc_t;
 typedef std::function<void(binary_t &, function_t &)> on_newfn_proc_t;
 
+//
+// performs accurate recursive traversal disassembly
+//
 class explorer_t {
   jv_t &jv;
   disas_t &disas;
@@ -34,28 +37,26 @@ class explorer_t {
   on_newbb_proc_t on_newbb_proc;
   on_newfn_proc_t on_newfn_proc;
 
-  typedef std::pair<uint64_t, uint64_t> later_item_t;
-  typedef std::function<void(later_item_t &&)> process_later_t;
+  bool split(binary_t &, llvm::object::Binary &,
+             std::unique_ptr<ip_upgradable_lock<ip_upgradable_mutex>> u_lck_bbmap,
+             bbmap_t::iterator it, const uint64_t Addr, basic_block_index_t);
 
   basic_block_index_t _explore_basic_block(binary_t &,
                                            llvm::object::Binary &,
                                            const uint64_t Addr,
-                                           process_later_t process_later);
+                                           bool Speculative);
 
   function_index_t _explore_function(binary_t &,
                                      llvm::object::Binary &,
                                      const uint64_t Addr,
-                                     process_later_t process_later);
-
-  void _explore_the_rest(binary_t &,
-                         llvm::object::Binary &,
-                         const std::vector<later_item_t> &calls_to_process);
+                                     const bool Speculative);
 
   void _control_flow_to(binary_t &,
                         llvm::object::Binary &,
                         const uint64_t TermAddr,
                         const uint64_t Target,
-                        process_later_t process_later);
+                        const bool Speculative,
+                        basic_block_t bb /* unused if !Speculative */);
 
 public:
   explorer_t(

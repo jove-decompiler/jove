@@ -364,6 +364,8 @@ typedef boost::unordered_node_set<
 struct jv_t;
 
 struct basic_block_properties_t {
+  bool Speculative = false;
+
   uint64_t Addr;
   uint32_t Size;
 
@@ -390,7 +392,7 @@ struct basic_block_properties_t {
   boost::interprocess::offset_ptr<ip_dynamic_target_set> pDynTargets;
   bool DynTargetsComplete; // XXX
 
-  bool Sj;
+  bool Sj = false;
 
   struct {
     struct {
@@ -408,7 +410,7 @@ struct basic_block_properties_t {
       tcg_global_set_t def;
     } reach;
 
-    bool Stale;
+    bool Stale = true;
   } Analysis;
 
   boost::interprocess::offset_ptr<const ip_func_index_set> Parents;
@@ -536,6 +538,8 @@ typedef boost::concurrent_flat_set<
 struct binary_t;
 
 struct function_t {
+  bool Speculative = false;
+
   boost::interprocess::offset_ptr<binary_t> b;
 
   function_index_t Idx = invalid_function_index;
@@ -548,7 +552,7 @@ struct function_t {
     tcg_global_set_t args;
     tcg_global_set_t rets;
 
-    bool Stale;
+    bool Stale = true;
   } Analysis;
 
   bool IsABI, IsSignalHandler, Returns;
@@ -588,7 +592,6 @@ struct binary_t {
   bool IsDynamicallyLoaded;
 
   ip_upgradable_mutex bbmap_mtx;
-  ip_mutex na_bbmap_mtx;
 
   struct Analysis_t {
     function_index_t EntryFunction;
@@ -597,22 +600,54 @@ struct binary_t {
     // references to function_t will never be invalidated.
     //
     ip_protected_deque<function_t> Functions;
+
+    //
+    // references to basic_block_properties_t will never be invalidated
+    // (although their fields are subject to change: see explorer_t::split() in
+    //  core/explore.cpp)
     interprocedural_control_flow_graph_t ICFG;
+    mutable ip_upgradable_mutex ICFG_mtx;
 
     DEFINE_INTERPROCESS_MAP(IFuncDynTargets, uint64_t, ip_dynamic_target_set);
     DEFINE_INTERPROCESS_MAP(RelocDynTargets, uint64_t, ip_dynamic_target_set);
     DEFINE_INTERPROCESS_MAP(SymDynTargets, ip_string, ip_dynamic_target_set);
 
+    Analysis_t() = delete;
     Analysis_t(const ip_void_allocator_t &A)
         : Functions(A), ICFG(icfg_t::graph_property_type(), A),
           IFuncDynTargets(A), RelocDynTargets(A), SymDynTargets(A) {}
 
-    Analysis_t() = delete;
+    Analysis_t(Analysis_t &&other)
+        : EntryFunction(std::move(other.EntryFunction)),
+          Functions(std::move(other.Functions)),
+          ICFG(std::move(other.ICFG)),
+          IFuncDynTargets(std::move(other.IFuncDynTargets)),
+          RelocDynTargets(std::move(other.RelocDynTargets)),
+          SymDynTargets(std::move(other.SymDynTargets)) {}
+
+    Analysis_t &operator=(const Analysis_t &other) {
+      if (this == &other)
+        return *this;
+
+      EntryFunction = other.EntryFunction;
+      Functions = other.Functions;
+      ICFG = other.ICFG;
+      IFuncDynTargets = other.IFuncDynTargets;
+      RelocDynTargets = other.RelocDynTargets;
+      SymDynTargets = other.SymDynTargets;
+      return *this;
+    }
 
     void addSymDynTarget(const std::string &sym, dynamic_target_t X);
     void addRelocDynTarget(uint64_t A, dynamic_target_t X);
     void addIFuncDynTarget(uint64_t A, dynamic_target_t X);
   } Analysis;
+
+  basic_block_properties_t &prop(basic_block_t bb) {
+    ip_sharable_lock<ip_upgradable_mutex> s_lck(this->Analysis.ICFG_mtx);
+
+    return this->Analysis.ICFG[bb];
+  }
 
   void InvalidateBasicBlockAnalyses(void);
 
@@ -710,7 +745,7 @@ allocates_basic_block_t::allocates_basic_block_t(binary_t &b,
   icfg_t &ICFG = b.Analysis.ICFG;
 
   {
-    ip_scoped_lock<ip_upgradable_mutex> e_lck(b.bbmap_mtx);
+    ip_scoped_lock<ip_upgradable_mutex> e_lck(b.Analysis.ICFG_mtx);
 
     BBIdx = boost::num_vertices(ICFG);
     (void)boost::add_vertex(ICFG, b.get_allocator());
@@ -1017,7 +1052,12 @@ void for_each_if(_ExecutionPolicy &&__exec, Iter first, Iter last, Pred pred, Pr
 template <typename Iter, typename Pred, typename Proc>
 constexpr
 void for_each_if(Iter first, Iter last, Pred pred, Proc proc) {
-  for_each_if(std::execution::seq, first, last, pred, proc);
+  std::for_each(first, last,
+                [pred, proc](auto &elem) {
+                  if (pred(elem)) {
+                    proc(elem);
+                  }
+                });
 }
 
 static inline std::string addr_intvl2str(addr_intvl intvl) {
@@ -1144,7 +1184,9 @@ void for_each_binary(_ExecutionPolicy &&__exec,
 template <class T, class Proc>
 constexpr
 void for_each_binary(T &&jv, Proc proc) {
-  for_each_binary(std::execution::seq, std::forward<T>(jv), proc);
+  std::for_each(jv.Binaries.begin(),
+                jv.Binaries.end(),
+                proc);
 }
 
 template <class _ExecutionPolicy, class T, class Pred, class Proc>
@@ -1162,7 +1204,9 @@ void for_each_binary_if(_ExecutionPolicy &&__exec,
 template <class T, class Pred, class Proc>
 constexpr
 void for_each_binary_if(T &&jv, Pred pred, Proc proc) {
-  return for_each_binary_if(std::execution::seq, std::forward<T>(jv), pred, proc);
+  for_each_if(jv.Binaries.begin(),
+              jv.Binaries.end(),
+              pred, proc);
 }
 
 template <class _ExecutionPolicy, class T, class Proc>
@@ -1183,7 +1227,12 @@ void for_each_function(_ExecutionPolicy &&__exec,
 template <class T, class Proc>
 constexpr
 void for_each_function(T &&jv, Proc proc) {
-  for_each_function(std::execution::seq, std::forward<T>(jv), proc);
+  for_each_binary(std::forward<T>(jv),
+                  [proc](auto &b) {
+    std::for_each(b.Analysis.Functions.begin(),
+                  b.Analysis.Functions.end(),
+                  [&b, proc](auto &f) { proc(f, b); });
+  });
 }
 
 template <class _ExecutionPolicy, class Pred, class Proc>
@@ -1222,14 +1271,16 @@ template <class Proc>
 constexpr
 void for_each_function_in_binary(binary_t &b,
                                  Proc proc) {
-  for_each_function_in_binary(std::execution::seq, b, proc);
+  std::for_each(b.Analysis.Functions.begin(),
+                b.Analysis.Functions.end(), proc);
 }
 
 template <class Proc>
 constexpr
 void for_each_function_in_binary(const binary_t &b,
                                  Proc proc) {
-  for_each_function_in_binary(std::execution::seq, b, proc);
+  std::for_each(b.Analysis.Functions.begin(),
+                b.Analysis.Functions.end(), proc);
 }
 
 template <class _ExecutionPolicy, class T, class Pred, class Proc>
@@ -1253,7 +1304,12 @@ constexpr
 void for_each_function_if(T &&jv,
                           Pred pred,
                           Proc proc) {
-  for_each_function_if(std::execution::seq, std::forward<T>(jv), pred, proc);
+  for_each_binary(std::forward<T>(jv),
+                  [pred, proc](auto &b) {
+    for_each_if(b.Analysis.Functions.begin(),
+                b.Analysis.Functions.end(),
+                pred, [&b, proc](auto &f) { proc(f, b); });
+  });
 }
 
 template <class _ExecutionPolicy, class T, class Proc>
@@ -1276,7 +1332,14 @@ void for_each_basic_block(_ExecutionPolicy &&__exec,
 template <class T, class Proc>
 constexpr
 void for_each_basic_block(T &&jv, Proc proc) {
-  for_each_basic_block(std::execution::seq, std::forward<T>(jv), proc);
+  for_each_binary(std::forward<T>(jv),
+                  [proc](auto &b) {
+    icfg_t::vertex_iterator it, it_end;
+    std::tie(it, it_end) = boost::vertices(b.Analysis.ICFG);
+
+    std::for_each(it, it_end,
+                  [&b, proc](basic_block_t bb) { proc(b, bb); });
+  });
 }
 
 template <class _ExecutionPolicy, class Proc>
@@ -1304,15 +1367,21 @@ void for_each_basic_block_in_binary(_ExecutionPolicy &&__exec,
 }
 
 template <class Proc>
-constexpr
+static inline
 void for_each_basic_block_in_binary(binary_t &b, Proc proc) {
-  for_each_basic_block_in_binary(std::execution::seq, b, proc);
+  icfg_t::vertex_iterator it, it_end;
+  std::tie(it, it_end) = boost::vertices(b.Analysis.ICFG);
+
+  std::for_each(it, it_end, [proc](basic_block_t bb) { proc(bb); });
 }
 
 template <class Proc>
-constexpr
+static inline
 void for_each_basic_block_in_binary(const binary_t &b, Proc proc) {
-  for_each_basic_block_in_binary(std::execution::seq, b, proc);
+  icfg_t::vertex_iterator it, it_end;
+  std::tie(it, it_end) = boost::vertices(b.Analysis.ICFG);
+
+  std::for_each(it, it_end, [proc](basic_block_t bb) { proc(bb); });
 }
 
 static inline basic_block_index_t index_of_basic_block(const icfg_t &ICFG,
@@ -1488,13 +1557,9 @@ static inline bool IsFunctionLongjmp(const function_t &f,
 
 static inline basic_block_index_t
 index_of_basic_block_at_address(uint64_t Addr, const binary_t &b) {
-  auto &bbmap = b.bbmap;
+  auto it = bbmap_find(b.bbmap, Addr);
 
-  auto it = bbmap_find(bbmap, Addr);
-  if (it == bbmap.end())
-    throw std::runtime_error(std::string(__func__) + ": no block for address " +
-                             taddr2str(Addr) + " in " + b.Name.c_str());
-
+  assert(it != b.bbmap.end());
   return (*it).second;
 }
 

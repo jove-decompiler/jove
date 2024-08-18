@@ -14,30 +14,16 @@
 
 #include <stdexcept>
 
-#include <oneapi/tbb/parallel_for_each.h>
-
 namespace obj = llvm::object;
 
 namespace jove {
 
-using boost::interprocess::usduration_from_milliseconds;
-
 typedef boost::format fmt;
-
-#if 0
-static void dump_bbmap(const bbmap_t &bbmap) {
-  llvm::errs() << "==<BBMAP>==\n";
-  for (const auto &x : bbmap) {
-    llvm::errs() << addr_intvl2str(x.first) << " : " << x.second << '\n';
-  }
-  llvm::errs() << "==</BBMAP>==\n";
-}
-#endif
 
 function_index_t explorer_t::_explore_function(binary_t &b,
                                                obj::Binary &B,
                                                const uint64_t Addr,
-                                               process_later_t process_later) {
+                                               const bool Speculative) {
 #if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
   assert((Addr & 1) == 0);
 #endif
@@ -56,26 +42,25 @@ function_index_t explorer_t::_explore_function(binary_t &b,
 
   function_t &f = b.Analysis.Functions.at(Idx);
 
-  this->on_newfn_proc(b, f);
-
-  const basic_block_index_t EntryIdx =
-      _explore_basic_block(b, B, Addr, process_later);
-
-  assert(is_basic_block_index_valid(EntryIdx));
-
+  f.Speculative = Speculative;
   f.Analysis.Stale = true;
   f.IsABI = false;
   f.IsSignalHandler = false;
   f.Returns = false;
+
+  this->on_newfn_proc(b, f);
+
+  const basic_block_index_t EntryIdx =
+      _explore_basic_block(b, B, Addr, Speculative);
+
+  assert(is_basic_block_index_valid(EntryIdx));
+
   f.Entry = EntryIdx;
 
   //
   // all blocks reachable from Entry now have f as a parent
   //
-  ip_sharable_lock<ip_upgradable_mutex> s_lck(b.bbmap_mtx);
-
   auto &ICFG = b.Analysis.ICFG;
-  basic_block_t Entry = basic_block_of_index(EntryIdx, ICFG);
 
   std::function<void(basic_block_t bb)> rec = [&](basic_block_t bb) -> void {
     ICFG[bb].AddParent(Idx, jv);
@@ -98,15 +83,211 @@ function_index_t explorer_t::_explore_function(binary_t &b,
     }
   };
 
-  rec(Entry);
+  {
+    ip_sharable_lock<ip_upgradable_mutex> s_lck_ICFG(b.Analysis.ICFG_mtx);
+
+    rec(basic_block_of_index(EntryIdx, ICFG));
+  }
 
   return Idx;
+}
+
+bool explorer_t::split(
+    binary_t &b, obj::Binary &Bin,
+    std::unique_ptr<ip_upgradable_lock<ip_upgradable_mutex>> u_lck_bbmap,
+    bbmap_t::iterator it, const uint64_t Addr, basic_block_index_t Idx) {
+  auto &bbmap = b.bbmap;
+  auto &ICFG = b.Analysis.ICFG;
+
+  assert(it != bbmap.end());
+
+  const addr_intvl intvl = (*it).first;
+  const basic_block_index_t BBIdx = (*it).second;
+
+  const auto beg = intvl.first;
+  const auto len = intvl.second;
+
+  assert(Addr > beg);
+
+  //
+  // before splitting the basic block, let's check to make sure that the
+  // new block doesn't start in the middle of an instruction. if that would
+  // occur, we need to gtfo
+  //
+  {
+    uint64_t InstLen = 0;
+    for (uint64_t A = beg; A < beg + len; A += InstLen) {
+      llvm::MCInst Inst;
+
+      std::string errmsg;
+      bool Disassembled;
+      {
+        llvm::raw_string_ostream ErrorStrStream(errmsg);
+
+        const uint8_t *Ptr =
+            reinterpret_cast<const uint8_t *>(B::toMappedAddr(Bin, A));
+
+        Disassembled = disas.DisAsm->getInstruction(
+            Inst, InstLen, llvm::ArrayRef<uint8_t>(Ptr, len), A,
+            ErrorStrStream);
+      }
+
+      if (!Disassembled)
+        throw std::runtime_error("failed to disassemble at " + taddr2str(A));
+
+      if (A == Addr)
+        goto on_insn;
+    }
+
+    return false; /* not on instruction! */
+  }
+
+on_insn:
+  //
+  // "Split" the block, i.e.
+  //
+  // ____________________
+  // |                  |
+  // |                  |
+  // |                  |
+  // |       bb_1       |  <---------------------
+  // |                  |
+  // |                  |
+  // |                  |
+  // --------CALL--------
+  //
+  // becomes
+  //
+  // _____________________
+  // |                   |
+  // |       bb_1        |
+  // |                   |
+  // |-------NONE--------|  <---------------------
+  // |                   |
+  // |       bb_2        |
+  // |                   |
+  // --------CALL---------
+  //
+  //
+
+  const unsigned off = Addr - beg;
+
+  const addr_intvl intvl_1(beg, off);
+  const addr_intvl intvl_2(addr_intvl_upper(intvl_1),
+                           addr_intvl_upper(intvl) - Addr);
+
+  basic_block_t bb_1 = basic_block_of_index(BBIdx, ICFG);
+
+  //
+  // gather up bb_1 edges
+  //
+  std::vector<basic_block_t> to_bb_vec;
+
+  ip_upgradable_lock<ip_upgradable_mutex> u_lck_ICFG(b.Analysis.ICFG_mtx);
+
+  to_bb_vec.reserve(boost::out_degree(bb_1, ICFG));
+  {
+    icfg_t::adjacency_iterator succ_it, succ_it_end;
+    std::tie(succ_it, succ_it_end) = boost::adjacent_vertices(bb_1, ICFG);
+
+    std::copy(succ_it, succ_it_end, std::back_inserter(to_bb_vec));
+  }
+
+  basic_block_properties_t &bbprop_1 = ICFG[bb_1];
+
+  //
+  // create bb_2
+  //
+  basic_block_t bb_2 = basic_block_of_index(Idx, ICFG);
+  const basic_block_index_t NewBBIdx = Idx;
+  basic_block_properties_t &bbprop_2 = ICFG[bb_2];
+
+  bbprop_2.Addr = addr_intvl_lower(intvl_2);
+  bbprop_2.Size = intvl_2.second;
+  bbprop_2.Sj = false;
+  bbprop_2.Term = bbprop_1.Term; /* terminator stolen from bb_1 */
+  bbprop_2.DynTargetsComplete = bbprop_1.DynTargetsComplete;
+  bbprop_2.InvalidateAnalysis();
+
+  assert(bbprop_2.Addr + bbprop_2.Size == addr_intvl_upper(intvl));
+
+  //
+  // update bb_1
+  //
+  bbprop_1.Size = off;
+  bbprop_1.Term.Type = TERMINATOR::NONE;
+  bbprop_1.Term.Addr = 0;
+  bbprop_1.Sj = false;
+  bbprop_1.pDynTargets =
+      boost::interprocess::offset_ptr<ip_dynamic_target_set>();
+  bbprop_1.DynTargetsComplete = false;
+  bbprop_1.InvalidateAnalysis();
+
+  //
+  // edges from bb_1 now point from bb_2
+  //
+  {
+    ip_scoped_lock<ip_upgradable_mutex> e_lck_ICFG(boost::move(u_lck_ICFG));
+
+    boost::clear_out_edges(bb_1, ICFG);
+    boost::add_edge(bb_1, bb_2, ICFG);
+
+    for (basic_block_t bb : to_bb_vec)
+      boost::add_edge(bb_2, bb, ICFG);
+  }
+
+  //
+  // update bbmap
+  //
+  assert(addr_intvl(bbprop_1.Addr, bbprop_1.Size) == intvl_1);
+  assert(addr_intvl(bbprop_2.Addr, bbprop_2.Size) == intvl_2);
+
+  assert(addr_intvl_disjoint(intvl_1, intvl_2));
+
+  const unsigned sav_bbmap_size = bbmap.size();
+
+  ip_scoped_lock<ip_upgradable_mutex> e_lck_bbmap(boost::move(*u_lck_bbmap));
+
+  bbmap.erase(it);
+  assert(bbmap.size() == sav_bbmap_size - 1);
+
+  assert(bbmap_find(bbmap, intvl_1) == bbmap.end());
+  assert(bbmap_find(bbmap, intvl_2) == bbmap.end());
+
+  bbmap_add(bbmap, intvl_1, BBIdx);
+  bbmap_add(bbmap, intvl_2, NewBBIdx);
+
+  ip_sharable_lock<ip_upgradable_mutex> s_lck_bbmap(boost::move(e_lck_bbmap));
+
+  {
+    auto _it = bbmap_find(bbmap, intvl_1);
+    assert(_it != bbmap.end());
+    assert((*_it).second == BBIdx);
+  }
+
+  {
+    auto _it = bbmap_find(bbmap, intvl_2);
+    assert(_it != bbmap.end());
+    assert((*_it).second == NewBBIdx);
+  }
+
+  if (unlikely(this->verbose))
+    llvm::errs() << llvm::formatv("{0} | {1}\n",
+                                  description_of_block(bbprop_1, false),
+                                  description_of_block(bbprop_2, false));
+
+  /* XXX should be be calling newbb proc? */
+#if 0
+  this->on_newbb_proc(b, basic_block_of_index(NewBBIdx, ICFG));
+#endif
+
+  return true;
 }
 
 basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
                                                      obj::Binary &Bin,
                                                      const uint64_t Addr,
-                                                     process_later_t process_later) {
+                                                     bool Speculative) {
 #if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
   assert((Addr & 1) == 0);
 #endif
@@ -125,231 +306,35 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
       return Idx;
   }
 
-  auto &bbmap = b.bbmap;
-
-  //
-  // does this new basic block start in the middle of a previously-created
-  // basic block?
-  //
-top:
-  std::unique_ptr<ip_upgradable_lock<ip_upgradable_mutex>> u_lck =
-      std::make_unique<ip_upgradable_lock<ip_upgradable_mutex>>(b.bbmap_mtx);
-  std::unique_ptr<ip_scoped_lock<ip_mutex>> e_na_lck;
-
-  auto it = bbmap_find(bbmap, Addr);
-
-  const bool gonna_split = ({
-    bool res = it != bbmap.end();
-    if (res && Addr == addr_intvl_lower((*it).first))
-      return (*it).second; /* the same */
-
-    res;
-  });
-
-  if (!gonna_split) {
-    u_lck.reset();
-
-    e_na_lck = std::make_unique<ip_scoped_lock<ip_mutex>>(b.na_bbmap_mtx);
-
-      const bool _gonna_split = ({
-        ip_sharable_lock<ip_upgradable_mutex> s_lck(b.bbmap_mtx);
-
-        auto it = bbmap_find(bbmap, Addr);
-        bool res = it != bbmap.end();
-        if (res && Addr == addr_intvl_lower((*it).first))
-          return (*it).second; /* the same */
-
-        res;
-      });
-
-      if (_gonna_split) {
-        e_na_lck.reset();
-        goto top;
-      }
-  } else {
-    const addr_intvl intvl = (*it).first;
-    const basic_block_index_t BBIdx = (*it).second;
-
-    const auto &beg = intvl.first;
-    const auto &len = intvl.second;
-
-    assert(Addr > beg);
+  std::unique_ptr<ip_upgradable_lock<ip_upgradable_mutex>> u_lck_bbmap;
+  if (likely(!Speculative)) {
+    u_lck_bbmap = std::make_unique<ip_upgradable_lock<ip_upgradable_mutex>>(b.bbmap_mtx);
 
     //
-    // before splitting the basic block, let's check to make sure that the
-    // new block doesn't start in the middle of an instruction. if that would
-    // occur, then we will assume the control-flow is invalid
+    // does this new basic block start in the middle of a previously-created
+    // basic block?
     //
-    {
-      uint64_t InstLen = 0;
-      for (uint64_t A = beg; A < beg + len; A += InstLen) {
-        llvm::MCInst Inst;
-
-        std::string errmsg;
-        bool Disassembled;
-        {
-          llvm::raw_string_ostream ErrorStrStream(errmsg);
-
-          const uint8_t *Ptr =
-              reinterpret_cast<const uint8_t *>(B::toMappedAddr(Bin, A));
-
-          Disassembled = disas.DisAsm->getInstruction(
-              Inst, InstLen, llvm::ArrayRef<uint8_t>(Ptr, len), A,
-              ErrorStrStream);
-        }
-
-        if (!Disassembled)
-          throw std::runtime_error("failed to disassemble at " + taddr2str(A));
-
-        if (A == Addr)
-          goto on_insn_boundary;
-      }
-
-      throw invalid_control_flow_exception(b, Addr);
-
-    on_insn_boundary:
+    auto it = bbmap_find(b.bbmap, Addr);
+    if (it != b.bbmap.end()) {
+      if (likely(split(b, Bin, std::move(u_lck_bbmap), it, Addr, Idx))) {
+        return Idx;
+      } else {
         //
-        // proceed.
+        // splitting here would totally fuck up the CFG, so mark this block as
+        // "speculative" and continue translation while leaving bbmap UNTOUCHED.
         //
-        ;
-    }
+        Speculative = true;
 
-    //
-    // "Split" the block, i.e.
-    //
-    // ____________________
-    // |                  |
-    // |                  |
-    // |                  |
-    // |       bb_1       |  <---------------------
-    // |                  |
-    // |                  |
-    // |                  |
-    // --------CALL--------
-    //
-    // becomes
-    //
-    // _____________________
-    // |                   |
-    // |       bb_1        |
-    // |                   |
-    // |-------NONE--------|  <---------------------
-    // |                   |
-    // |       bb_2        |
-    // |                   |
-    // --------CALL---------
-    //
-    //
-
-    const unsigned off = Addr - beg;
-
-    const addr_intvl intvl_1(beg, off);
-    const addr_intvl intvl_2(addr_intvl_upper(intvl_1),
-                             addr_intvl_upper(intvl) - Addr);
-
-    basic_block_t bb_1 = basic_block_of_index(BBIdx, ICFG);
-
-    //
-    // gather up bb_1 edges
-    //
-    std::vector<basic_block_t> to_bb_vec;
-    to_bb_vec.reserve(boost::out_degree(bb_1, ICFG));
-    {
-      icfg_t::adjacency_iterator succ_it, succ_it_end;
-      std::tie(succ_it, succ_it_end) = boost::adjacent_vertices(bb_1, ICFG);
-
-      std::copy(succ_it, succ_it_end, std::back_inserter(to_bb_vec));
-    }
-
-    basic_block_properties_t &bbprop_1 = ICFG[bb_1];
-
-    ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(*u_lck.get()));
-
-    //
-    // create bb_2
-    //
-    basic_block_t bb_2 = basic_block_of_index(Idx, ICFG);
-    const basic_block_index_t NewBBIdx = Idx;
-    basic_block_properties_t &bbprop_2 = ICFG[bb_2];
-
-    bbprop_2.Addr = addr_intvl_lower(intvl_2);
-    bbprop_2.Size = intvl_2.second;
-    bbprop_2.Sj = false;
-    bbprop_2.Term = bbprop_1.Term; /* terminator stolen from bb_1 */
-    bbprop_2.DynTargetsComplete = bbprop_1.DynTargetsComplete;
-    bbprop_2.InvalidateAnalysis();
-
-    assert(bbprop_2.Addr + bbprop_2.Size == addr_intvl_upper(intvl));
-
-    //
-    // update bb_1
-    //
-    bbprop_1.Size = off;
-    bbprop_1.Term.Type = TERMINATOR::NONE;
-    bbprop_1.Term.Addr = 0;
-    bbprop_1.Sj = false;
-    bbprop_1.pDynTargets =
-        boost::interprocess::offset_ptr<ip_dynamic_target_set>();
-    bbprop_1.DynTargetsComplete = false;
-    bbprop_1.InvalidateAnalysis();
-
-    //
-    // edges from bb_1 now point from bb_2
-    //
-    {
-      boost::clear_out_edges(bb_1, ICFG);
-      boost::add_edge(bb_1, bb_2, ICFG);
-
-      for (basic_block_t bb : to_bb_vec)
-        boost::add_edge(bb_2, bb, ICFG);
-    }
-
-    //
-    // update bbmap
-    //
-    assert(addr_intvl(bbprop_1.Addr, bbprop_1.Size) == intvl_1);
-    assert(addr_intvl(bbprop_2.Addr, bbprop_2.Size) == intvl_2);
-
-    assert(addr_intvl_disjoint(intvl_1, intvl_2));
-
-    const unsigned sav_bbmap_size = bbmap.size();
-    bbmap.erase(it);
-    assert(bbmap.size() == sav_bbmap_size - 1);
-
-    assert(bbmap_find(bbmap, intvl_1) == bbmap.end());
-    assert(bbmap_find(bbmap, intvl_2) == bbmap.end());
-
-    bbmap_add(bbmap, intvl_1, BBIdx);
-    bbmap_add(bbmap, intvl_2, NewBBIdx);
-
-    ip_sharable_lock<ip_upgradable_mutex> s_lck(boost::move(e_lck));
-
-      {
-        auto _it = bbmap_find(bbmap, intvl_1);
-        assert(_it != bbmap.end());
-        assert((*_it).second == BBIdx);
+        if (unlikely(this->verbose))
+          llvm::errs() << llvm::formatv(
+              "could not cleanly split at {0}+{1:x} ; {2}\n", b.Name.c_str(),
+              Addr, addr_intvl2str((*it).first));
       }
-
-      {
-        auto _it = bbmap_find(bbmap, intvl_2);
-        assert(_it != bbmap.end());
-        assert((*_it).second == NewBBIdx);
-      }
-
-#if 0
-    if (unlikely(this->verbose))
-      llvm::errs() << llvm::formatv("{0} | {1}\n",
-                                    description_of_block(bbprop_1, false),
-                                    description_of_block(bbprop_2, false));
-#endif
-
-
-    //this->on_newbb_proc(b, basic_block_of_index(NewBBIdx, ICFG));
-    return Idx;
+    }
   }
 
   //
-  // !gonna_split
+  // We are *not* splitting!
   //
   tcg.set_binary(Bin);
 
@@ -365,13 +350,11 @@ top:
       throw invalid_control_flow_exception(b, e.pc);
     }
 
-    {
-      ip_sharable_lock<ip_upgradable_mutex> s_lck(b.bbmap_mtx);
-
+    if (likely(!Speculative)) {
       addr_intvl intervl(Addr, Size);
-      auto _it = bbmap_find(bbmap, intervl);
-      if (_it != bbmap.end()) {
-        addr_intvl _intervl = (*_it).first;
+      auto it = bbmap_find(b.bbmap, intervl);
+      if (it != b.bbmap.end()) {
+        addr_intvl _intervl = (*it).first;
 
         assert(addr_intvl_lower(intervl) < addr_intvl_lower(_intervl));
 
@@ -384,19 +367,15 @@ top:
         T.Addr = 0; /* XXX? */
         T._none.NextPC = addr_intvl_lower(_intervl);
 
+        if (unlikely(this->verbose)) {
+          basic_block_index_t _BBIdx = (*it).second;
+          basic_block_t _bb = basic_block_of_index(_BBIdx, ICFG);
 
-#if 0
-    basic_block_index_t _BBIdx = (*_it).second;
-    basic_block_t _bb = basic_block_of_index(_BBIdx, ICFG);
-
-    if (unlikely(this->verbose))
-      llvm::errs() << llvm::formatv("OKAY {0} so {1} has size {2} TERM: {3}\t\t\t\t\t\t{4}\n",
-                                    description_of_block(ICFG[_bb], false),
-                                    addr_intvl2str(intervl),
-                                    Size,
-                                    description_of_terminator_info(T, false),
-                                    b.Name.c_str());
-#endif
+          llvm::errs() << llvm::formatv(
+              "OKAY {0} so {1} has size {2} TERM: {3}\t\t\t\t\t\t{4}\n",
+              description_of_block(ICFG[_bb], false), addr_intvl2str(intervl),
+              Size, description_of_terminator_info(T, false), b.Name.c_str());
+        }
 
         break;
       }
@@ -433,51 +412,47 @@ top:
   }
 
   basic_block_t bb = basic_block_of_index(Idx, ICFG);
-  {
-    ip_scoped_lock<ip_upgradable_mutex> e_lck(b.bbmap_mtx);
+  auto &bbprop = b.prop(bb);
 
-    {
-      basic_block_properties_t &bbprop = ICFG[bb];
+  bbprop.Speculative = Speculative;
+  bbprop.Addr = Addr;
+  bbprop.Size = Size;
+  bbprop.Term.Type = T.Type;
+  bbprop.Term.Addr = T.Addr;
+  bbprop.DynTargetsComplete = false;
+  bbprop.Term._call.Target = invalid_function_index;
+  bbprop.Term._indirect_jump.IsLj = false;
+  bbprop.Sj = false;
+  bbprop.Term._return.Returns = false;
+  bbprop.InvalidateAnalysis();
 
-      bbprop.Addr = Addr;
-      bbprop.Size = Size;
-      bbprop.Term.Type = T.Type;
-      bbprop.Term.Addr = T.Addr;
-      bbprop.DynTargetsComplete = false;
-      bbprop.Term._call.Target = invalid_function_index;
-      bbprop.Term._indirect_jump.IsLj = false;
-      bbprop.Sj = false;
-      bbprop.Term._return.Returns = false;
-      bbprop.InvalidateAnalysis();
+  addr_intvl intervl(bbprop.Addr, bbprop.Size);
+  if (likely(!Speculative)) {
+    ip_scoped_lock<ip_upgradable_mutex> e_lck_bbmap(boost::move(*u_lck_bbmap));
 
-      addr_intvl intervl(bbprop.Addr, bbprop.Size);
-      bbmap_add(bbmap, intervl, Idx);
-    }
+    //
+    // update bbmap
+    //
+    bbmap_add(b.bbmap, intervl, Idx);
   }
 
-  {
-    //
-    // a new basic block has been created
-    //
-#if 1
-    if (unlikely(this->verbose))
-      llvm::errs() << llvm::formatv("{0} {1}\t\t\t\t\t\t{2}\n",
-                                    description_of_block(ICFG[bb], false),
-                                    description_of_terminator_info(T, false),
-                                    b.Name.c_str());
-#endif
+  //
+  // a new basic block has been created and (maybe) added to bbmap
+  //
+  if (unlikely(this->verbose))
+    llvm::errs() << llvm::formatv(
+        "{0} {1}\t\t\t\t\t\t{2}\n", description_of_block(ICFG[bb], false),
+        description_of_terminator_info(T, false), b.Name.c_str());
 
-    this->on_newbb_proc(b, bb);
-  }
-
-  e_na_lck.reset();
+  this->on_newbb_proc(b, bb);
 
   auto control_flow_to = [&](uint64_t Target) -> void {
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
     Target &= ~1UL;
 #endif
 
-    _control_flow_to(b, Bin, T.Addr ?: Addr, Target, process_later);
+    _control_flow_to(b, Bin, T.Addr ?: Addr, Target, Speculative,
+                     bb /* unused if !Speculative */);
   };
 
   switch (T.Type) {
@@ -486,11 +461,8 @@ top:
     break;
 
   case TERMINATOR::CONDITIONAL_JUMP: {
-    //
-    // XXX there are indications of a slow-down, so the following has been
-    // ifdef'd out
-    //
 #if 0
+    // explore both destinations concurrently
     std::array<uint64_t, 2> Targets{{T._conditional_jump.Target,
                                      T._conditional_jump.NextPC}};
     std::for_each(std::execution::par_unseq,
@@ -499,10 +471,6 @@ top:
                   [&](uint64_t Target) {
                     control_flow_to(Target);
                   });
-#elif 0
-    oneapi::tbb::parallel_invoke(
-        [&](void) -> void { control_flow_to(T._conditional_jump.Target); },
-        [&](void) -> void { control_flow_to(T._conditional_jump.NextPC); });
 #else
     control_flow_to(T._conditional_jump.Target);
     control_flow_to(T._conditional_jump.NextPC);
@@ -517,47 +485,21 @@ top:
     CalleeAddr &= ~1UL;
 #endif
 
-    function_index_t CalleeFIdx = _explore_function(b, Bin, CalleeAddr,
-                                                    process_later);
+    function_index_t CalleeFIdx =
+        _explore_function(b, Bin, CalleeAddr, Speculative);
 
     assert(is_function_index_valid(CalleeFIdx));
 
     function_t &callee = b.Analysis.Functions.at(CalleeFIdx);
     callee.Callers.emplace(b.Idx /* may =invalid */, T.Addr);
 
-    {
-      ip_upgradable_lock<ip_upgradable_mutex> u_lck(b.bbmap_mtx);
+    if (unlikely(Speculative)) {
+      bbprop.Term._call.Target = CalleeFIdx;
+    } else {
+      ip_sharable_lock<ip_upgradable_mutex> s_lck_bbmap(b.bbmap_mtx);
 
-      basic_block_t bb = basic_block_at_address(T.Addr, b);
-      assert(ICFG[bb].Term.Type == TERMINATOR::CALL);
-
-      ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
-
-      ICFG[bb].Term._call.Target = CalleeFIdx;
+      b.prop(basic_block_at_address(T.Addr, b)).Term._call.Target = CalleeFIdx;
     }
-
-    break;
-
-    basic_block_index_t CalleeIdx = callee.Entry;
-
-    if (!is_basic_block_index_valid(CalleeIdx)) {
-      process_later(later_item_t(T.Addr, CalleeAddr));
-      break;
-    }
-
-    bool DoesRet = ({
-      ip_sharable_lock<ip_upgradable_mutex> s_lck(b.bbmap_mtx);
-
-      does_function_at_block_return(basic_block_of_index(CalleeIdx, ICFG), b);
-    });
-
-#if 0
-    if (this->verbose)
-    llvm::errs() << llvm::formatv("{0} DID_RET: {1}\n", taddr2str(CalleeAddr, false), DoesRet);
-#endif
-
-    if (DoesRet)
-      control_flow_to(T._call.NextPC);
 
     break;
   }
@@ -577,90 +519,41 @@ top:
 
   case TERMINATOR::UNKNOWN:
   default:
-    throw std::runtime_error((fmt("%s: unknown terminator @ 0x%lx") % __func__ % T.Addr).str());
+    throw std::runtime_error(
+        (fmt("%s: unknown terminator @ 0x%lx") % __func__ % T.Addr).str());
   }
 
   return Idx;
 }
 
-void explorer_t::_control_flow_to(binary_t &b,
-                                  obj::Binary &Bin,
-                                  const uint64_t TermAddr,
-                                  const uint64_t Target,
-                                  process_later_t process_later) {
+void explorer_t::_control_flow_to(
+    binary_t &b,
+    obj::Binary &Bin,
+    const uint64_t TermAddr,
+    const uint64_t Target,
+    const bool Speculative, basic_block_t bb /* unused if !Speculative */) {
   assert(Target);
 
-#if 0
   if (unlikely(this->verbose))
     llvm::errs() << llvm::formatv("  -> {0}\n",
                                   taddr2str(Target, false));
-#endif
 
   basic_block_index_t SuccBBIdx =
-      _explore_basic_block(b, Bin, Target, process_later);
+      _explore_basic_block(b, Bin, Target, Speculative);
 
   assert(is_basic_block_index_valid(SuccBBIdx));
 
-  {
-    ip_upgradable_lock<ip_upgradable_mutex> u_lck(b.bbmap_mtx);
+  if (unlikely(Speculative)) {
+    ip_scoped_lock<ip_upgradable_mutex> e_lck_ICFG(b.Analysis.ICFG_mtx);
 
-    auto &ICFG = b.Analysis.ICFG;
+    boost::add_edge(bb, basic_block_of_index(SuccBBIdx, b), b.Analysis.ICFG);
+  } else {
+    ip_sharable_lock<ip_upgradable_mutex> s_lck_bbmap(b.bbmap_mtx);
+    ip_scoped_lock<ip_upgradable_mutex> e_lck_ICFG(b.Analysis.ICFG_mtx);
 
-    basic_block_t bb = basic_block_at_address(TermAddr, b);
-    // assert(T.Type == ICFG[bb].Term.Type);
-
-    ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
-
-    bool isNewTarget =
-        boost::add_edge(bb, basic_block_of_index(SuccBBIdx, b), ICFG).second;
-    (void)isNewTarget;
+    boost::add_edge(basic_block_at_address(TermAddr, b),
+                    basic_block_of_index(SuccBBIdx, b), b.Analysis.ICFG);
   }
-}
-
-void explorer_t::_explore_the_rest(binary_t &b,
-                                   obj::Binary & B,
-                                   const std::vector<later_item_t> &calls_to_process) {
-  auto DoBody = [&](const later_item_t &x,
-                    oneapi::tbb::feeder<later_item_t> &feeder) {
-    auto process_later = [&](later_item_t &&later) -> void {
-      feeder.add(std::move(later));
-    };
-
-    uint64_t TermAddr;
-    uint64_t CalleeAddr;
-    std::tie(TermAddr, CalleeAddr) = x;
-
-    const function_index_t CalleeFIdx =
-        _explore_function(b, B, CalleeAddr, process_later);
-    assert(is_function_index_valid(CalleeFIdx));
-
-    basic_block_index_t &CalleeIdx = b.Analysis.Functions.at(CalleeFIdx).Entry;
-    if (unlikely(!is_basic_block_index_valid(CalleeIdx))) { /* XXX how? */
-      CalleeIdx = _explore_basic_block(b, B, CalleeAddr, process_later);
-      assert(is_basic_block_index_valid(CalleeIdx));
-    }
-
-    uint64_t NextAddr = 0UL;
-
-    auto &ICFG = b.Analysis.ICFG;
-    bool DoesRet = ({
-      ip_sharable_lock<ip_upgradable_mutex> s_lck(b.bbmap_mtx);
-
-      basic_block_t bb = basic_block_at_address(TermAddr, b);
-      NextAddr = ICFG[bb].Addr + ICFG[bb].Size + (unsigned)IsMIPSTarget * 4;
-
-      does_function_at_block_return(basic_block_of_index(CalleeIdx, ICFG), b);
-    });
-
-    if (DoesRet)
-      _control_flow_to(b, B,
-                       TermAddr,
-                       NextAddr,
-                       process_later);
-  };
-
-  oneapi::tbb::parallel_for_each(calls_to_process.begin(),
-                                 calls_to_process.end(), DoBody);
 }
 
 basic_block_index_t explorer_t::explore_basic_block(binary_t &b,
@@ -670,18 +563,7 @@ basic_block_index_t explorer_t::explore_basic_block(binary_t &b,
   Addr &= ~1UL;
 #endif
 
-  std::vector<later_item_t> calls_to_process;
-
-  const basic_block_index_t res =
-      _explore_basic_block(b, B, Addr, [&](later_item_t &&item) {
-        calls_to_process.push_back(std::move(item));
-      });
-
-#if 1
-  _explore_the_rest(b, B, calls_to_process);
-#endif
-
-  return res;
+  return _explore_basic_block(b, B, Addr, false);
 }
 
 function_index_t explorer_t::explore_function(binary_t &b,
@@ -691,18 +573,7 @@ function_index_t explorer_t::explore_function(binary_t &b,
   Addr &= ~1UL;
 #endif
 
-  std::vector<later_item_t> calls_to_process;
-
-  const function_index_t res =
-      _explore_function(b, B, Addr, [&](later_item_t &&item) {
-        calls_to_process.push_back(std::move(item));
-      });
-
-#if 1
-  _explore_the_rest(b, B, calls_to_process);
-#endif
-
-  return res;
+  return _explore_function(b, B, Addr, false);
 }
 
 }
