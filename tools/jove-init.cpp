@@ -44,16 +44,12 @@ class InitTool : public JVTool<ToolKind::Standard> {
                cl::value_desc("filename"), cl::cat(JoveCategory)) {}
   } opts;
 
-  tiny_code_generator_t tcg;
-  disas_t disas;
-  explorer_t E;
-
   int rtld_trace_loaded_objects(const char *prog, std::string &out);
   void parse_loaded_objects(const std::string &rtld_stdout,
                             std::vector<std::string> &out);
 
 public:
-  InitTool() : opts(JoveCategory), E(jv, disas, tcg, IsVeryVerbose()) {}
+  InitTool() : opts(JoveCategory) {}
 
   int Run(void) override;
 };
@@ -222,6 +218,10 @@ int InitTool::Run(void) {
   std::vector<unsigned> idx_range;
   idx_range.resize(N);
   std::iota(idx_range.begin(), idx_range.end(), 0);
+
+  tiny_code_generator_t tcg;
+  disas_t disas;
+  explorer_t E(jv, disas, tcg, IsVeryVerbose());
 
   std::for_each(
       std::execution::par_unseq,
