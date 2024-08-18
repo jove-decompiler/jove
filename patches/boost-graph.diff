@@ -481,7 +481,7 @@ index e5050b5b..a37142aa 100644
      }
  
 diff --git a/include/boost/graph/detail/adjacency_list.hpp b/include/boost/graph/detail/adjacency_list.hpp
-index 7fb2c493..b37bc5bd 100644
+index 7fb2c493..6818d118 100644
 --- a/include/boost/graph/detail/adjacency_list.hpp
 +++ b/include/boost/graph/detail/adjacency_list.hpp
 @@ -1790,41 +1790,42 @@ class adj_list_impl : public adj_list_helper< Config, Base >
@@ -794,7 +794,7 @@ index 7fb2c493..b37bc5bd 100644
              {
 -                bidir_rand_stored_vertex() {}
 +                template<class... _AllocArg>
-+                bidir_rand_stored_vertex(_AllocArg&&... AllocArg) : m_out_edges(std::forward<_AllocArg>(AllocArg)...), m_in_edges(std::forward<_AllocArg>(AllocArg)...) {}
++                bidir_rand_stored_vertex(_AllocArg&&... AllocArg) : m_out_edges(std::forward<_AllocArg>(AllocArg)...), m_in_edges(std::forward<_AllocArg>(AllocArg)...), m_property(std::forward<_AllocArg>(AllocArg)...) {}
                  bidir_rand_stored_vertex(const VertexProperty& p)
                  : m_property(p)
                  {
