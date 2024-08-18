@@ -55,10 +55,11 @@ struct ObserveTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, v
           {}
   } opts;
 
-  tiny_code_generator_t tcg;
-  disas_t disas;
-  explorer_t E;
   symbolizer_t symbolizer;
+
+  std::unique_ptr<tiny_code_generator_t> TCG;
+  std::unique_ptr<disas_t> Disas;
+  std::unique_ptr<explorer_t> E;
 
   std::string buff;
   std::regex line_regex_ab;
@@ -66,8 +67,7 @@ struct ObserveTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, v
   std::regex line_regex_b;
 
 public:
-  ObserveTool()
-      : opts(JoveCategory), E(jv, disas, tcg, false /* opts.VeryVerbose */) {}
+  ObserveTool() : opts(JoveCategory) {}
 
   int Run(void) override;
 
@@ -116,7 +116,7 @@ binary_index_t ObserveTool::BinaryFromName(const char *name) {
   binary_index_t BIdx;
 
   std::tie(BIdx, IsNew) =
-      jv.AddFromPath(E, name, invalid_binary_index,
+      jv.AddFromPath(*E, name, invalid_binary_index,
                      std::bind(&ObserveTool::on_new_binary, this, _1));
 
   if (IsVeryVerbose() && !is_binary_index_valid(BIdx))
@@ -137,6 +137,10 @@ int ObserveTool::Run(void) {
 
   for_each_binary(std::execution::par_unseq, jv,
                   [&](binary_t &b) { init_state_for_binary(b); });
+
+  TCG = std::make_unique<tiny_code_generator_t>();
+  Disas = std::make_unique<disas_t>();
+  E = std::make_unique<explorer_t>(jv, *Disas, *TCG, IsVeryVerbose());
 
   RunExecutableToExit(
       perf_path,
@@ -369,7 +373,7 @@ void ObserveTool::ProcessLine(const std::string &line) {
         auto &Bin = *state.for_binary(dst_bin).Bin;
         dst_va = B::va_of_offset(Bin, dst_off);
 
-        E.explore_basic_block(dst_bin, Bin, dst_va);
+        E->explore_basic_block(dst_bin, Bin, dst_va);
       }
 
       /* if there isn't a block at src we'll start one. */
@@ -385,7 +389,7 @@ void ObserveTool::ProcessLine(const std::string &line) {
         });
 
         if (!ExistsBlock)
-          E.explore_basic_block(src_bin, Bin, src_va);
+          E->explore_basic_block(src_bin, Bin, src_va);
       }
     } catch (const invalid_control_flow_exception &invalid_cf) {
       if (IsVerbose())
@@ -420,8 +424,8 @@ void ObserveTool::ProcessLine(const std::string &line) {
     auto handle_indirect_call = [&](void) -> void {
       function_index_t FIdx;
       try {
-        FIdx = E.explore_function(dst_bin, *state.for_binary(dst_bin).Bin,
-                                  dst_off);
+        FIdx = E->explore_function(dst_bin, *state.for_binary(dst_bin).Bin,
+                                   dst_off);
       } catch (const invalid_control_flow_exception &invalid_cf) {
         if (IsVerbose())
           llvm::errs() << llvm::formatv("invalid control-flow to {0} in \"{1}\"\n",
