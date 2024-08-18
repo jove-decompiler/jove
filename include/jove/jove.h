@@ -351,6 +351,11 @@ typedef boost::concurrent_flat_map<
 
 typedef boost::unordered::unordered_flat_set<
     function_index_t, boost::hash<function_index_t>,
+    std::equal_to<function_index_t>>
+    func_index_set;
+
+typedef boost::unordered::unordered_flat_set<
+    function_index_t, boost::hash<function_index_t>,
     std::equal_to<function_index_t>,
     boost::interprocess::allocator<function_index_t, segment_manager_t>>
     ip_func_index_set;
@@ -413,23 +418,15 @@ struct basic_block_properties_t {
     bool Stale = true;
   } Analysis;
 
-  boost::interprocess::offset_ptr<const ip_func_index_set> Parents;
+  struct {
+    mutable ip_sharable_mutex _mtx;
+    boost::interprocess::offset_ptr<const ip_func_index_set> _p;
+  } Parents;
 
-  bool IsParent(function_index_t FIdx) const {
-    if (!Parents)
-      return false;
-
-    return Parents->contains(FIdx);
-  }
-
-  bool hasParent(void) const {
-    if (!Parents)
-      return false;
-
-    return !Parents->empty();
-  }
-
+  bool HasParent(void) const;
+  bool IsParent(function_index_t) const;
   void AddParent(function_index_t, jv_t &);
+  void GetParents(func_index_set &) const;
 
   bool IsSingleInstruction(void) const { return Addr == Term.Addr; }
 
@@ -455,6 +452,20 @@ struct basic_block_properties_t {
 
   boost::iterator_range<ip_dynamic_target_set::const_iterator> dyn_targets(void) const {
     return boost::make_iterator_range(dyn_targets_begin(), dyn_targets_end());
+  }
+
+  basic_block_properties_t &operator=(const basic_block_properties_t &other) {
+    Speculative = other.Speculative;
+    Addr = other.Addr;
+    Size = other.Size;
+    Term = other.Term;
+    pDynTargets = other.pDynTargets;
+    DynTargetsComplete = other.DynTargetsComplete;
+    Sj = other.Sj;
+    Analysis = other.Analysis;
+    Parents._p = other.Parents._p;
+
+    return *this;
   }
 };
 

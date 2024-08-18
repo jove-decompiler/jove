@@ -310,12 +310,36 @@ void binary_t::Analysis_t::addIFuncDynTarget(uint64_t A, dynamic_target_t X) {
   (*it).second.insert(X);
 }
 
+bool basic_block_properties_t::IsParent(function_index_t FIdx) const {
+  ip_sharable_lock<ip_sharable_mutex> s_lck(Parents._mtx);
+
+  if (!Parents._p)
+    return false;
+
+  return Parents._p->contains(FIdx);
+}
+
+bool basic_block_properties_t::HasParent(void) const {
+  ip_sharable_lock<ip_sharable_mutex> s_lck(Parents._mtx);
+
+  if (!Parents._p)
+    return false;
+
+  return !Parents._p->empty();
+}
+
 void basic_block_properties_t::AddParent(function_index_t FIdx, jv_t &jv) {
   ip_func_index_set Idxs(jv.get_allocator());
 
   {
-    if (this->Parents)
-      Idxs = *this->Parents;
+    ip_sharable_lock<ip_sharable_mutex> s_lck_parents(Parents._mtx);
+
+    if (Parents._p) {
+      if (Parents._p->contains(FIdx))
+        return;
+
+      Idxs = *Parents._p;
+    }
   }
 
   {
@@ -324,18 +348,31 @@ void basic_block_properties_t::AddParent(function_index_t FIdx, jv_t &jv) {
   }
 
   {
-    ip_sharable_lock<ip_sharable_mutex> s_lck(jv.FIdxSetsMtx);
+    ip_sharable_lock<ip_sharable_mutex> s_lck_sets(jv.FIdxSetsMtx);
 
     auto it = jv.FIdxSets.find(Idxs);
     if (it != jv.FIdxSets.end()) {
-      this->Parents = &(*it);
+      ip_scoped_lock<ip_sharable_mutex> e_lck_parents(Parents._mtx);
+
+      Parents._p = &(*it);
       return;
     }
   }
 
-  ip_scoped_lock<ip_sharable_mutex> e_lck(jv.FIdxSetsMtx);
+  ip_scoped_lock<ip_sharable_mutex> e_lck_sets(jv.FIdxSetsMtx);
+  ip_scoped_lock<ip_sharable_mutex> e_lck_parents(Parents._mtx);
 
-  this->Parents = &(*jv.FIdxSets.insert(boost::move(Idxs)).first);
+  Parents._p = &(*jv.FIdxSets.insert(boost::move(Idxs)).first);
+}
+
+void basic_block_properties_t::GetParents(func_index_set &out) const {
+  ip_sharable_lock<ip_sharable_mutex> s_lck(Parents._mtx);
+
+  if (!Parents._p)
+    return;
+
+  const ip_func_index_set &parents = *Parents._p;
+  out.insert(parents.begin(), parents.end());
 }
 
 ip_dynamic_target_set::const_iterator

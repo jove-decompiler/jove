@@ -371,14 +371,18 @@ int CFGTool::Run(void) {
       //
       basic_block_t bb = basic_block_at_address(Addr, b);
 
-      if (!ICFG[bb].hasParent()) {
+      func_index_set Parents;
+      ICFG[bb].GetParents(Parents);
+
+      if (Parents.empty()) {
         WithColor::warning()
             << llvm::formatv("failed to find function for block {0:x} in {1}\n",
                              ICFG[bb].Addr, b.path_str());
         return 1;
       }
 
-      source_BBIdx = b.Analysis.Functions.at(*ICFG[bb].Parents->begin()).Entry;
+      /* parent chosen arbitrarily XXX? */
+      source_BBIdx = b.Analysis.Functions.at(*Parents.begin()).Entry;
     } else {
       source_BBIdx = index_of_basic_block_at_address(Addr, b);
     }
