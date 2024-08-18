@@ -255,10 +255,7 @@ static void serialize(Archive &ar, jove::binary_t::Analysis_t &A,
                       const unsigned int version) {
   ar &BOOST_SERIALIZATION_NVP(A.EntryFunction)
      &BOOST_SERIALIZATION_NVP(A.Functions._deque)
-     &BOOST_SERIALIZATION_NVP(A.ICFG)
-     &BOOST_SERIALIZATION_NVP(A.RelocDynTargets)
-     &BOOST_SERIALIZATION_NVP(A.IFuncDynTargets)
-     &BOOST_SERIALIZATION_NVP(A.SymDynTargets);
+     &BOOST_SERIALIZATION_NVP(A.ICFG);
 }
 
 //
@@ -313,10 +310,6 @@ static void serialize(Archive &ar, jove::function_t &f, const unsigned int versi
 template <class Archive>
 static void serialize(Archive &ar, jove::basic_block_properties_t &bbprop,
                       const unsigned int version) {
-  jove::dynamic_target_set DynTargets;
-  if (bbprop.pDynTargets)
-    DynTargets.insert(bbprop.dyn_targets_begin(), bbprop.dyn_targets_end());
-
   ar &BOOST_SERIALIZATION_NVP(bbprop.Speculative)
      &BOOST_SERIALIZATION_NVP(bbprop.Addr)
      &BOOST_SERIALIZATION_NVP(bbprop.Size)
@@ -325,25 +318,13 @@ static void serialize(Archive &ar, jove::basic_block_properties_t &bbprop,
      &BOOST_SERIALIZATION_NVP(bbprop.Term._call.Target)
      &BOOST_SERIALIZATION_NVP(bbprop.Term._indirect_jump.IsLj)
      &BOOST_SERIALIZATION_NVP(bbprop.Term._return.Returns)
-     &BOOST_SERIALIZATION_NVP(DynTargets)
+     &BOOST_SERIALIZATION_NVP(bbprop.DynTargets)
      &BOOST_SERIALIZATION_NVP(bbprop.DynTargetsComplete)
      &BOOST_SERIALIZATION_NVP(bbprop.Sj)
      &BOOST_SERIALIZATION_NVP(bbprop.Analysis.live.def)
      &BOOST_SERIALIZATION_NVP(bbprop.Analysis.live.use)
      &BOOST_SERIALIZATION_NVP(bbprop.Analysis.reach.def)
      &BOOST_SERIALIZATION_NVP(bbprop.Analysis.Stale);
-
-  /* XXX */
-  if (!DynTargets.empty() && jove::pAlloc_hack) {
-    jove::ip_void_allocator_t &Alloc = *jove::pAlloc_hack;
-
-    if (!bbprop.pDynTargets)
-      bbprop.pDynTargets =
-          Alloc.get_segment_manager()->construct<jove::ip_dynamic_target_set>(
-              boost::interprocess::anonymous_instance)(Alloc);
-
-    bbprop.pDynTargets->insert(DynTargets.begin(), DynTargets.end());
-  }
 }
 
 //

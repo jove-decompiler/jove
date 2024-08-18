@@ -239,10 +239,11 @@ int AnalyzeTool::AnalyzeFunctions(void) {
           return;
 
         assert(TermAddr);
-        for (dynamic_target_t X : ICFG[bb].dyn_targets()) {
-          function_t &f = function_of_target(X, jv);
-          f.Callers.emplace(index_of_binary(b, jv), TermAddr);
-        }
+        ICFG[bb].DynTargets.cvisit_all(
+            std::execution::par_unseq, [&](const dynamic_target_t &X) {
+              function_t &f = function_of_target(X, jv);
+              f.Callers.emplace(index_of_binary(b, jv), TermAddr);
+            });
       });
 
   for_each_function(

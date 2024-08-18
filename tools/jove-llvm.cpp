@@ -1009,7 +1009,7 @@ static void explode_tcg_global_set(std::vector<unsigned> &out,
 }
 
 struct flow_vertex_properties_t {
-  const basic_block_properties_t *bbprop;
+  const basic_block_properties_t::Analysis_t *Analysis;
 
   tcg_global_set_t IN, OUT;
 };
@@ -1041,7 +1041,7 @@ struct vertex_copier {
       : ICFG(ICFG), G(G) {}
 
   void operator()(basic_block_t bb, flow_vertex_t V) const {
-    G[V].bbprop = &ICFG[bb];
+    G[V].Analysis = &ICFG[bb].Analysis;
   }
 };
 
@@ -1152,8 +1152,7 @@ static flow_vertex_t copy_function_cfg(jv_t &jv,
         savedSuccInDeg = boost::in_degree(succV, G);
       }
 
-      if (ICFG[bb].hasDynTarget()) {
-        for (dynamic_target_t DynTarget : ICFG[bb].dyn_targets()) {
+      ICFG[bb].DynTargets.cvisit_all([&](const dynamic_target_t &DynTarget) {
           function_t &callee = function_of_target(DynTarget, jv);
 
           std::vector<exit_vertex_pair_t> calleeExitVertices;
@@ -1176,8 +1175,7 @@ static flow_vertex_t copy_function_cfg(jv_t &jv,
                 G[E].reach.mask = CallConvRets;
             }
           }
-        }
-      }
+        });
 
       if (Returns && boost::in_degree(succV, G) == savedSuccInDeg) {
         //
@@ -1185,9 +1183,9 @@ static flow_vertex_t copy_function_cfg(jv_t &jv,
         //
         flow_vertex_t dummyV = boost::add_vertex(G);
 
-        static basic_block_properties_t dummy_bbprop;
-        dummy_bbprop.Analysis.reach.def = CallConvRets;
-        G[dummyV].bbprop = &dummy_bbprop;
+        static basic_block_properties_t::Analysis_t DummyAnalysis;
+        DummyAnalysis.reach.def = CallConvRets;
+        G[dummyV].Analysis = &DummyAnalysis;
 
         flow_edge_t E = boost::add_edge(V, dummyV, G).first;
         boost::add_edge(dummyV, succV, G).first;
@@ -1245,9 +1243,9 @@ static flow_vertex_t copy_function_cfg(jv_t &jv,
         //
         flow_vertex_t dummyV = boost::add_vertex(G);
 
-        static basic_block_properties_t dummy_bbprop;
-        dummy_bbprop.Analysis.reach.def = CallConvRets;
-        G[dummyV].bbprop = &dummy_bbprop;
+        static basic_block_properties_t::Analysis_t DummyAnalysis;
+        DummyAnalysis.reach.def = CallConvRets;
+        G[dummyV].Analysis = &DummyAnalysis;
 
         flow_edge_t E = boost::add_edge(V, dummyV, G).first;
         boost::add_edge(dummyV, succV, G).first;
@@ -1272,7 +1270,7 @@ static flow_vertex_t copy_function_cfg(jv_t &jv,
 
       const unsigned savedNumExitVerts = exitVertices.size();
 
-      for (dynamic_target_t DynTarget : ICFG[bb].dyn_targets()) {
+      ICFG[bb].DynTargets.cvisit_all([&](const dynamic_target_t &DynTarget) {
         function_t &callee = function_of_target(DynTarget, jv);
 
         std::vector<exit_vertex_pair_t> calleeExitVertices;
@@ -1288,7 +1286,7 @@ static flow_vertex_t copy_function_cfg(jv_t &jv,
 
           exitVertices.emplace_back(exitV, callee.IsABI);
         }
-      }
+      });
 
       if (savedNumExitVerts == exitVertices.size()) {
         //
@@ -1296,9 +1294,9 @@ static flow_vertex_t copy_function_cfg(jv_t &jv,
         //
         flow_vertex_t dummyV = boost::add_vertex(G);
 
-        static basic_block_properties_t dummy_bbprop;
-        dummy_bbprop.Analysis.reach.def = CallConvRets;
-        G[dummyV].bbprop = &dummy_bbprop;
+        static basic_block_properties_t::Analysis_t DummyAnalysis;
+        DummyAnalysis.reach.def = CallConvRets;
+        G[dummyV].Analysis = &DummyAnalysis;
 
         flow_edge_t E = boost::add_edge(V, dummyV, G).first;
         G[E].reach.mask = CallConvRets; /* assume ABI */
@@ -1319,9 +1317,9 @@ static flow_vertex_t copy_function_cfg(jv_t &jv,
   if (f.Returns && exitVertices.empty()) {
     flow_vertex_t dummyV = boost::add_vertex(G);
 
-    static basic_block_properties_t dummy_bbprop;
-    dummy_bbprop.Analysis.reach.def = CallConvRets;
-    G[dummyV].bbprop = &dummy_bbprop;
+    static basic_block_properties_t::Analysis_t DummyAnalysis;
+    DummyAnalysis.reach.def = CallConvRets;
+    G[dummyV].Analysis = &DummyAnalysis;
 
     exitVertices.emplace_back(dummyV, true);
   }
@@ -1809,8 +1807,8 @@ void AnalyzeFunction(jv_t &jv,
               return res | G[boost::target(E, G)].IN;
             });
 
-        tcg_global_set_t use = G[V].bbprop->Analysis.live.use;
-        tcg_global_set_t def = G[V].bbprop->Analysis.live.def;
+        tcg_global_set_t use = G[V].Analysis->live.use;
+        tcg_global_set_t def = G[V].Analysis->live.def;
 
         G[V].IN = use | (G[V].OUT & ~def);
 
@@ -1848,7 +1846,7 @@ void AnalyzeFunction(jv_t &jv,
             [&](tcg_global_set_t res, flow_edge_t E) -> tcg_global_set_t {
               return res | (G[boost::source(E, G)].OUT & G[E].reach.mask);
             });
-        G[V].OUT = G[V].bbprop->Analysis.reach.def | G[V].IN;
+        G[V].OUT = G[V].Analysis->reach.def | G[V].IN;
 
         change = change || _OUT != G[V].OUT;
       }
@@ -9134,22 +9132,19 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
     //
     // setjmp/longjmp
     //
-    const bool Lj = std::any_of(ICFG[bb].dyn_targets_begin(),
-                                ICFG[bb].dyn_targets_end(),
-                                [&](dynamic_target_t X) -> bool {
-                                  return state.for_function(function_of_target(X, jv)).IsLj;
-                                });
-    const bool Sj = std::any_of(ICFG[bb].dyn_targets_begin(),
-                                ICFG[bb].dyn_targets_end(),
-                                [&](dynamic_target_t X) -> bool {
-                                  return state.for_function(function_of_target(X, jv)).IsSj;
-                                });
+    const bool Lj = ICFG[bb].DynTargetsAnyOf([&](dynamic_target_t X) -> bool {
+      return state.for_function(function_of_target(X, jv)).IsLj;
+    });
+
+    const bool Sj = ICFG[bb].DynTargetsAnyOf([&](dynamic_target_t X) -> bool {
+      return state.for_function(function_of_target(X, jv)).IsSj;
+    });
 
     const bool SjLj = Lj || Sj;
     if (unlikely(SjLj)) {
       assert(Lj ^ Sj);
 
-      dynamic_target_t X = *ICFG[bb].dyn_targets_begin();
+      dynamic_target_t X = ICFG[bb].DynTargetsFront();
 
       function_t &callee = function_of_target(X, jv);
 
@@ -9274,11 +9269,11 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
 
     assert(!SjLj);
 
-    bool IsABICall = std::all_of(ICFG[bb].dyn_targets_begin(),
-                                 ICFG[bb].dyn_targets_end(),
-                                 [&](dynamic_target_t X) -> bool {
-                                   return function_of_target(X, jv).IsABI;
-                                 });
+    bool IsABICall =
+        ICFG[bb].DynTargetsAllOf([&](const dynamic_target_t &X) -> bool {
+          return function_of_target(X, jv).IsABI;
+        });
+
     if (opts.ABICalls && IsABICall)
     {
       llvm::Value *PC = IRB.CreateLoad(WordType(), TC.PCAlloca);
@@ -9378,9 +9373,11 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
 
       llvm::BasicBlock *ThruB = llvm::BasicBlock::Create(*Context, "", state.for_function(f).F);
 
-      std::vector<std::pair<binary_index_t, function_index_t>> DynTargetsVec(
-          ICFG[bb].dyn_targets_begin(),
-          ICFG[bb].dyn_targets_end());
+      std::vector<std::pair<binary_index_t, function_index_t>> DynTargetsVec;
+
+      DynTargetsVec.reserve(ICFG[bb].getNumDynTargets());
+      ICFG[bb].DynTargets.cvisit_all(
+          [&](const dynamic_target_t &X) { DynTargetsVec.push_back(X); });
 
       std::vector<llvm::BasicBlock *> DynTargetsDoCallBVec;
       DynTargetsDoCallBVec.resize(DynTargetsVec.size());

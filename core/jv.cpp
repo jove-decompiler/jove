@@ -282,34 +282,6 @@ void binary_t::InvalidateBasicBlockAnalyses(void) {
                               [&](function_t &f) { f.InvalidateAnalysis(); });
 }
 
-void binary_t::Analysis_t::addSymDynTarget(const std::string &sym,
-                                           dynamic_target_t X) {
-  ip_string ips(Functions._deque.get_allocator());
-  to_ips(ips, sym);
-
-  auto it = SymDynTargets.find(ips);
-  if (it == SymDynTargets.end())
-    it = SymDynTargets.emplace(ips, ip_dynamic_target_set(Functions._deque.get_allocator())).first;
-
-  (*it).second.insert(X);
-}
-
-void binary_t::Analysis_t::addRelocDynTarget(uint64_t A, dynamic_target_t X) {
-  auto it = RelocDynTargets.find(A);
-  if (it == RelocDynTargets.end())
-    it = RelocDynTargets.emplace(A, ip_dynamic_target_set(Functions._deque.get_allocator())).first;
-
-  (*it).second.insert(X);
-}
-
-void binary_t::Analysis_t::addIFuncDynTarget(uint64_t A, dynamic_target_t X) {
-  auto it = IFuncDynTargets.find(A);
-  if (it == IFuncDynTargets.end())
-    it = IFuncDynTargets.emplace(A, ip_dynamic_target_set(Functions._deque.get_allocator())).first;
-
-  (*it).second.insert(X);
-}
-
 bool basic_block_properties_t::IsParent(function_index_t FIdx) const {
   ip_sharable_lock<ip_sharable_mutex> s_lck(Parents._mtx);
 
@@ -375,30 +347,11 @@ void basic_block_properties_t::GetParents(func_index_set &out) const {
   out.insert(parents.begin(), parents.end());
 }
 
-ip_dynamic_target_set::const_iterator
-basic_block_properties_t::dyn_targets_begin(void) const {
-  assert(hasDynTarget());
-  return pDynTargets->cbegin();
-}
-
-ip_dynamic_target_set::const_iterator
-basic_block_properties_t::dyn_targets_end(void) const {
-  assert(hasDynTarget());
-  return pDynTargets->cend();
-}
-
 bool basic_block_properties_t::insertDynTarget(binary_index_t ThisBIdx,
-                                               dynamic_target_t X, jv_t &jv) {
-  ip_void_allocator_t Alloc = jv.get_allocator();
-
-  function_t &f = function_of_target(X, jv);
-  f.Callers.emplace(ThisBIdx, this->Term.Addr);
-
-  if (!pDynTargets)
-    pDynTargets =
-        Alloc.get_segment_manager()->construct<ip_dynamic_target_set>(
-            boost::interprocess::anonymous_instance)(Alloc);
-  return pDynTargets->insert(X).second;
+                                               const dynamic_target_t &X,
+                                               jv_t &jv) {
+  function_of_target(X, jv).Callers.emplace(ThisBIdx, Term.Addr);
+  return DynTargets.insert(X);
 }
 
 }

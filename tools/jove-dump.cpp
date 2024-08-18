@@ -258,25 +258,21 @@ void DumpTool::dumpDecompilation(const jv_t& jv) {
 
         if (ICFG[bb].hasDynTarget()) {
           std::vector<std::string> descv;
-          descv.resize(ICFG[bb].getNumDynTargets());
+          descv.reserve(ICFG[bb].getNumDynTargets());
 
-          std::transform(ICFG[bb].dyn_targets_begin(),
-                         ICFG[bb].dyn_targets_end(), descv.begin(),
-                         [&](const auto &pair) -> std::string {
-                           binary_index_t BIdx;
-                           function_index_t FIdx;
-                           std::tie(BIdx, FIdx) = pair;
+          ICFG[bb].DynTargets.cvisit_all([&](const dynamic_target_t &pair) {
+            binary_index_t BIdx;
+            function_index_t FIdx;
+            std::tie(BIdx, FIdx) = pair;
 
-                           const binary_t &b = jv.Binaries.at(BIdx);
-                           const auto &_ICFG = b.Analysis.ICFG;
-                           const function_t &callee = b.Analysis.Functions.at(FIdx);
-                           uint64_t target_addr =
-                               _ICFG[basic_block_of_index(callee.Entry, _ICFG)].Addr;
+            const binary_t &b = jv.Binaries.at(BIdx);
+            const auto &_ICFG = b.Analysis.ICFG;
+            const function_t &callee = b.Analysis.Functions.at(FIdx);
+            uint64_t target_addr = entry_address_of_function(callee, b);
 
-                           return (fmt("0x%lX @ %s") % target_addr %
-                                   b.Name.c_str())
-                               .str();
-                         });
+            descv.push_back(
+                (fmt("0x%lX @ %s") % target_addr % b.Name.c_str()).str());
+          });
 
           Writer.printList("DynTargets", descv);
         }
@@ -419,6 +415,7 @@ void DumpTool::dumpDecompilation(const jv_t& jv) {
       }
     }
 
+#if 0
     if (!B.Analysis.RelocDynTargets.empty()) {
       llvm::ListScope ___(Writer, "Relocation Dynamic Targets");
 
@@ -517,6 +514,7 @@ void DumpTool::dumpDecompilation(const jv_t& jv) {
         }
       }
     }
+#endif
   }
 }
 
