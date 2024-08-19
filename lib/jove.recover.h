@@ -8,3 +8,4 @@ _HIDDEN void _jove_recover_foreign_function(uint32_t IndCallBBIdx,
 _HIDDEN _NORET void _jove_recover_foreign_function_at_offset(uint32_t IndCallBBIdx,
                                                              uint32_t CalleeBIdx,
                                                              uintptr_t CalleeOffset);
+_HIDDEN void _jove_recover_foreign_binary(uintptr_t CalleeAddr);

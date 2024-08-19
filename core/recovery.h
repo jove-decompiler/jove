@@ -54,6 +54,8 @@ public:
 
   std::string Returns(binary_index_t CallBIdx,
                       basic_block_index_t CallBBIdx);
+
+  std::string RecoverForeignBinary(const char *path);
 };
 
 }

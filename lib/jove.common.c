@@ -1375,8 +1375,10 @@ jove_thunk_return_t _jove_call(
         }
       }
 
+#if 0
       _DUMP_WITH_LEN(line, (eol - line) + 1);
       _UNREACHABLE("found vm mapping for address but no foreign binary match");
+#endif
     }
   }
 
@@ -1461,6 +1463,7 @@ jove_thunk_return_t _jove_call(
   //
   _jove_recover_function(BBIdx, pc);
   _jove_recover_foreign_function(BBIdx, pc); /* NOTE: currently unnecessary */
+  _jove_recover_foreign_binary(pc);
 
   {
     _jove_fail1(pc, "_jove_call failed");

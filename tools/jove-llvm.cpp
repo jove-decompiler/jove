@@ -458,6 +458,7 @@ struct LLVMTool : public StatefulJVTool<ToolKind::CopyOnWrite,
   llvm::Function *JoveRecoverABIFunc = nullptr;
   llvm::Function *JoveRecoverFunctionFunc = nullptr;
   llvm::Function *JoveRecoverForeignFunctionFunc = nullptr;
+  llvm::Function *JoveRecoverForeignBinaryFunc = nullptr;
 
   llvm::Function *JoveInstallForeignFunctionTables = nullptr;
 
@@ -2833,6 +2834,9 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
 
   JoveRecoverForeignFunctionFunc = Module->getFunction("_jove_recover_foreign_function");
   assert(JoveRecoverForeignFunctionFunc && !JoveRecoverForeignFunctionFunc->empty());
+
+  JoveRecoverForeignBinaryFunc = Module->getFunction("_jove_recover_foreign_binary");
+  assert(JoveRecoverForeignBinaryFunc && !JoveRecoverForeignBinaryFunc->empty());
 
   JoveAllocStackFunc = Module->getFunction("_jove_alloc_stack");
   assert(JoveAllocStackFunc);
@@ -9120,6 +9124,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
             ICFG[bb].Addr);
 #endif
 
+      llvm::Value *RecoverArgs1[] = {PC};
       llvm::Value *RecoverArgs[] = {IRB.getInt32(index_of_basic_block(ICFG, bb)), PC};
 
       IRB.CreateCall(JoveRecoverDynTargetFunc, RecoverArgs)->setIsNoInline();
@@ -9127,6 +9132,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
         IRB.CreateCall(JoveRecoverBasicBlockFunc, RecoverArgs)->setIsNoInline();
       IRB.CreateCall(JoveRecoverFunctionFunc, RecoverArgs)->setIsNoInline();
       IRB.CreateCall(JoveRecoverForeignFunctionFunc, RecoverArgs)->setIsNoInline();
+      IRB.CreateCall(JoveRecoverForeignBinaryFunc, RecoverArgs1)->setIsNoInline();
       IRB.CreateCall(JoveFail1Func, {PC, __jove_fail_UnknownCallee})->setIsNoInline();
       IRB.CreateUnreachable();
 
@@ -9428,12 +9434,14 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
       {
         IRB.SetInsertPoint(ElseB);
 
+        llvm::Value *RecoverArgs1[] = {PC};
         llvm::Value *RecoverArgs[] = {IRB.getInt32(index_of_basic_block(ICFG, bb)), PC};
         llvm::Value *FailArgs[] = {PC, __jove_fail_UnknownCallee};
 
         IRB.CreateCall(JoveRecoverDynTargetFunc, RecoverArgs)->setIsNoInline();
         IRB.CreateCall(JoveRecoverFunctionFunc, RecoverArgs)->setIsNoInline();
         IRB.CreateCall(JoveRecoverForeignFunctionFunc, RecoverArgs)->setIsNoInline();
+        IRB.CreateCall(JoveRecoverForeignBinaryFunc, RecoverArgs1)->setIsNoInline();
         IRB.CreateCall(JoveFail1Func, FailArgs)->setIsNoInline();
         IRB.CreateUnreachable();
       }

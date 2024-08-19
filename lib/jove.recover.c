@@ -974,3 +974,228 @@ found:
     }
   }
 }
+
+_NORET static void _jove_recover_foreign_binary_with_path(const char *path) {
+  const uint32_t PathLen = _strlen(path);
+
+  char *recover_fifo_path = _getenv("JOVE_RECOVER_FIFO");
+  if (!recover_fifo_path) {
+    JOVE_BUFF(buff, 2*PATH_MAX);
+    buff[0] = '\0';
+
+    _strcat(buff, "recover \"--foreign-binary=");
+    _strcat(buff, path);
+    _strcat(buff, "\"\n");
+
+    _DUMP(buff);
+    _UNREACHABLE("missing JOVE_RECOVER_FIFO environment variable");
+  }
+
+  {
+    int recover_fd = _jove_open(recover_fifo_path, O_WRONLY, 0666);
+    if (recover_fd < 0)
+      _UNREACHABLE("could not open recover fifo");
+
+    {
+      char ch = 'B';
+
+      {
+        JOVE_BUFF(buff, PATH_MAX + 1);
+
+        buff[0] = ch;
+        *((uint32_t *)&buff[sizeof(char)]) = PathLen;
+        _memcpy(&buff[sizeof(char) + 1 * sizeof(uint32_t)], path, PathLen);
+
+        unsigned N = 1 + sizeof(uint32_t) + PathLen;
+        if (_jove_sys_write(recover_fd, &buff[0], N) != N)
+          _UNREACHABLE();
+      }
+
+      _jove_sys_close(recover_fd);
+      _jove_sys_exit_group(ch);
+    }
+  }
+}
+
+void _jove_recover_foreign_binary(uintptr_t CalleeAddr) {
+  unsigned N = _jove_foreign_lib_count();
+
+  bool FoundAll = true;
+  for (unsigned j = 3; j < N + 3; ++j) {
+    if (__jove_foreign_function_tables[j] == NULL) {
+      FoundAll = false;
+      break;
+    }
+  }
+
+  if (!FoundAll) {
+    JOVE_BUFF(maps, JOVE_MAX_PROC_MAPS);
+
+    unsigned n = _jove_read_pseudo_file("/proc/self/maps", _maps.ptr, _maps.len);
+
+    char *const beg = &maps[0];
+    char *const end = &maps[n];
+
+    char *eol;
+    for (char *line = beg; line != end; line = eol + 1) {
+      unsigned left = n - (line - beg);
+
+      //
+      // find the end of the current line
+      //
+      eol = _memchr(line, '\n', left);
+
+      char *space = _memchr(line, ' ', left);
+
+      char *rp = space + 1;
+      char *wp = space + 2;
+      char *xp = space + 3;
+      char *pp = space + 4;
+
+      if (*xp != 'x') /* is the mapping executable? */
+        continue;
+
+      char *dash = _memchr(line, '-', left);
+
+      uint64_t min = _u64ofhexstr(line, dash);
+      uint64_t max = _u64ofhexstr(dash + 1, space);
+
+      //
+      // found the mapping where the address is located
+      //
+      uint64_t off;
+      {
+        char *offset = pp + 2;
+        char *offset_end = _memchr(offset, ' ', n - (offset - beg));
+
+        off = _u64ofhexstr(offset, offset_end);
+      }
+
+      //
+      // search the foreign libs
+      //
+      for (unsigned i = 0; i < N; ++i) {
+        const char *foreign_dso_path_beg = _jove_foreign_lib_path(i);
+        const unsigned foreign_dso_path_len = _strlen(foreign_dso_path_beg);
+        const char *foreign_dso_path_end = &foreign_dso_path_beg[foreign_dso_path_len];
+
+        bool match = true;
+        {
+          const char *s1 = foreign_dso_path_end - 1;
+          const char *s2 = eol - 1;
+          for (;;) {
+            if (*s1 != *s2) {
+              match = false;
+              break;
+            }
+
+            if (s1 == foreign_dso_path_beg)
+              break; /* we're done here */
+
+            --s1;
+            --s2;
+          }
+        }
+
+        if (match && __jove_foreign_function_tables[i + 3] == NULL) {
+          uintptr_t *foreign_fn_tbl = _jove_foreign_lib_function_table(i);
+
+          uintptr_t load_bias = min - off;
+          for (unsigned FIdx = 0; foreign_fn_tbl[FIdx]; ++FIdx)
+            foreign_fn_tbl[FIdx] += load_bias;
+
+          __jove_foreign_function_tables[i + 3] = foreign_fn_tbl; /* install */
+          break;
+        }
+      }
+    }
+  }
+
+  if (N > 0) {
+    //
+    // see if this is a function in a foreign DSO
+    //
+    JOVE_BUFF(maps, JOVE_MAX_PROC_MAPS);
+
+    unsigned n = _jove_read_pseudo_file("/proc/self/maps", _maps.ptr, _maps.len);
+
+    char *const beg = &maps[0];
+    char *const end = &maps[n];
+
+    char *eol;
+    for (char *line = beg; line != end; line = eol + 1) {
+      unsigned left = n - (line - beg);
+
+      //
+      // find the end of the current line
+      //
+      eol = _memchr(line, '\n', left);
+
+      char *space = _memchr(line, ' ', left);
+
+      char *rp = space + 1;
+      char *wp = space + 2;
+      char *xp = space + 3;
+      char *pp = space + 4;
+
+      if (*xp != 'x') /* is the mapping executable? */
+        continue;
+
+      char *dash = _memchr(line, '-', left);
+
+      uint64_t min = _u64ofhexstr(line, dash);
+      uint64_t max = _u64ofhexstr(dash + 1, space);
+
+      if (!(CalleeAddr >= min && CalleeAddr < max))
+        continue;
+
+      //
+      // found the mapping where the address is located
+      //
+      uint64_t off;
+      {
+        char *offset = pp + 2;
+        char *offset_end = _memchr(offset, ' ', n - (offset - beg));
+
+        off = _u64ofhexstr(offset, offset_end);
+      }
+
+      //
+      // search the foreign libs
+      //
+      for (unsigned i = 0; i < N; ++i) {
+        const char *foreign_dso_path_beg = _jove_foreign_lib_path(i);
+        const unsigned foreign_dso_path_len = _strlen(foreign_dso_path_beg);
+        const char *foreign_dso_path_end = &foreign_dso_path_beg[foreign_dso_path_len];
+
+        bool match = true;
+        {
+          const char *s1 = foreign_dso_path_end - 1;
+          const char *s2 = eol - 1;
+          for (;;) {
+            if (*s1 != *s2) {
+              match = false;
+              break;
+            }
+
+            if (s1 == foreign_dso_path_beg)
+              break; /* we're done here */
+
+            --s1;
+            --s2;
+          }
+        }
+
+        if (match)
+          _UNREACHABLE("foreign binary already known");
+      }
+
+      char *path = _memchr(line, '/', left);
+      _ASSERT(path);
+
+      *eol = '\0';
+      _jove_recover_foreign_binary_with_path(path);
+      __UNREACHABLE();
+    }
+  }
+}

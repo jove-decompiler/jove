@@ -597,9 +597,11 @@ run:
         // looking at the exit status
         //
         if ((ret != 'b' &&
+             ret != 'B' &&
              ret != 'f' &&
              ret != 'F' &&
              ret != 'O' &&
+             ret != 'a' &&
              ret != 'r') || opts.JustRun)
           return ret;
       }

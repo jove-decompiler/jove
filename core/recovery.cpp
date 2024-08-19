@@ -335,4 +335,16 @@ std::string CodeRecovery::Returns(binary_index_t CallBIdx,
       .str();
 }
 
+std::string CodeRecovery::RecoverForeignBinary(const char *path) {
+  bool IsNew;
+  binary_index_t BIdx;
+
+  std::tie(BIdx, IsNew) = jv.AddFromPath(E, path);
+
+  if (!is_binary_index_valid(BIdx) || !IsNew)
+    return "";
+
+  return (fmt("(add) \"%s\"") % path).str();
+}
+
 }

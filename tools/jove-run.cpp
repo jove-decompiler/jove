@@ -1168,7 +1168,7 @@ void *recover_proc(const char *fifo_path) {
 
     //
     // we assume ch is loaded with a byte from the fifo. it's got to be either
-    // 'f', 'F', 'O', 'b', 'a', or 'r'.
+    // 'f', 'F', 'O', 'b', 'B', 'a', or 'r'.
     //
     assert(tool.Recovery);
 
@@ -1367,6 +1367,27 @@ void *recover_proc(const char *fifo_path) {
 
         return tool.Recovery->Returns(Call.BIdx,
                                       Call.BBIdx);
+      } else if (ch == 'B') {
+        uint32_t PathLen;
+        std::string Path;
+
+        {
+          ssize_t ret;
+
+          ret = robust_read(recover_fd, &PathLen, sizeof(uint32_t));
+          assert(ret == sizeof(uint32_t));
+
+          Path.resize(PathLen);
+
+          ret = robust_read(recover_fd, &Path[0], PathLen);
+          assert(ret == PathLen);
+        }
+
+        if (tool.IsVerbose())
+          tool.HumanOut() << llvm::formatv("RecoverForeignBinary(\"{0}\")\n",
+                                           Path);
+
+        return tool.Recovery->RecoverForeignBinary(Path.c_str());
       } else {
         std::string ch_s;
         ch_s.push_back(ch);
