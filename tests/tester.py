@@ -137,8 +137,7 @@ class JoveTester:
     print("starting VM...")
 
     qp = self.pane("qemu")
-
-    qp.send_keys('clear')
+    qp.send_keys("C-c", literal=False, enter=False)
     qp.send_keys('cd "%s"' % self.vm_dir)
     qp.send_keys('./run.sh')
 
@@ -152,18 +151,18 @@ class JoveTester:
     p.send_keys(" ".join(server_cmd))
 
   def is_vm_ready(self):
-    qp = self.pane("qemu")
-
-    return any("login:" in row for row in qp.capture_pane())
+    return any("login:" in row for row in self.pane("qemu").capture_pane())
 
   def wait_for_vm_ready(self, t=1.5):
-    qp = self.pane("qemu")
-
     while not self.is_vm_ready():
-      print("waiting for VM...")
+      self.start_vm() # just in case
 
+      print("waiting for VM...")
       time.sleep(t)
-      qp.send_keys('')
+      self.pane("qemu").send_keys('')
+      time.sleep(t)
+      self.pane("qemu").send_keys('')
+      time.sleep(t)
 
     print("VM ready.")
 
@@ -292,8 +291,8 @@ class JoveTester:
         self.create_vm()
       self.start_vm()
 
-    if not self.is_vm_ready():
-      self.wait_for_vm_ready()
+    # blocks until VM is booted.
+    self.wait_for_vm_ready()
 
     #
     # get IP of host seen by guest
