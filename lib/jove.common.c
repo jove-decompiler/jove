@@ -337,7 +337,7 @@ void _jove_see_through_tramps(struct jove_function_info_t *fninfo_p) {
         if (finfo->pc != pc) {
           continue;
         } else {
-          *fninfo_p = *finfo;
+          __builtin_memcpy_inline(fninfo_p, finfo, sizeof(*finfo));
           goto found;
         }
       }
