@@ -12,7 +12,7 @@ namespace obj = llvm::object;
 namespace jove {
 
 void ScanForSjLj(binary_t &b, llvm::object::Binary &Bin, explorer_t &E) {
-  std::vector<llvm::StringRef> LjPatterns;
+  std::vector<std::pair<llvm::StringRef, int>> LjPatterns;
   std::vector<llvm::StringRef> SjPatterns;
 
 #if defined(TARGET_X86_64)
@@ -42,8 +42,10 @@ void ScanForSjLj(binary_t &b, llvm::object::Binary &Bin, explorer_t &E) {
       0xff, 0xe2,                               // jmp    *%rdx
     };
 
-    LjPatterns.emplace_back(reinterpret_cast<const char *>(&pattern[0]),
-                            sizeof(pattern));
+    LjPatterns.emplace_back(
+        llvm::StringRef(reinterpret_cast<const char *>(&pattern[0]),
+                        sizeof(pattern)),
+        0);
   }
 
   {
@@ -69,7 +71,6 @@ void ScanForSjLj(binary_t &b, llvm::object::Binary &Bin, explorer_t &E) {
       0x00, 0x00,
       0x48, 0xc1, 0xc0, 0x11,                   // rol    $0x11,%rax
       0x48, 0x89, 0x47, 0x38,                   // mov    %rax,0x38(%rdi)
-
     };
 
     SjPatterns.emplace_back(reinterpret_cast<const char *>(&pattern[0]),
@@ -95,8 +96,10 @@ void ScanForSjLj(binary_t &b, llvm::object::Binary &Bin, explorer_t &E) {
       0xff, 0xe2,                               //  jmp    *%edx
     };
 
-    LjPatterns.emplace_back(reinterpret_cast<const char *>(&pattern[0]),
-                            sizeof(pattern));
+    LjPatterns.emplace_back(
+        llvm::StringRef(reinterpret_cast<const char *>(&pattern[0]),
+                        sizeof(pattern)),
+        0);
   }
 
   {
@@ -244,8 +247,10 @@ void ScanForSjLj(binary_t &b, llvm::object::Binary &Bin, explorer_t &E) {
       0xff, 0x62, 0x14,                         // jmp    *0x14(%edx)
     };
 
-    LjPatterns.emplace_back(reinterpret_cast<const char *>(&pattern[0]),
-                            sizeof(pattern));
+    LjPatterns.emplace_back(
+        llvm::StringRef(reinterpret_cast<const char *>(&pattern[0]),
+                        sizeof(pattern)),
+        ARRAY_SIZE(pattern) - 3);
   }
 
 #elif defined(TARGET_MIPS32)
@@ -279,8 +284,15 @@ void ScanForSjLj(binary_t &b, llvm::object::Binary &Bin, explorer_t &E) {
       0x00a01025,                               // move    v0,a1
     };
 
-    LjPatterns.emplace_back(reinterpret_cast<const char *>(&pattern[0]),
-                            sizeof(pattern));
+    LjPatterns.emplace_back(
+        llvm::StringRef(reinterpret_cast<const char *>(&pattern[0]),
+                        sizeof(pattern)),
+        ARRAY_SIZE(pattern) - 2 * 4);
+
+    LjPatterns.emplace_back(
+        llvm::StringRef(reinterpret_cast<const char *>(&pattern[0]),
+                        sizeof(pattern)),
+        ARRAY_SIZE(pattern) - 6 * 4);
   }
 
   {
@@ -322,8 +334,10 @@ void ScanForSjLj(binary_t &b, llvm::object::Binary &Bin, explorer_t &E) {
       0x00000000,                               // nop
     };
 
-    LjPatterns.emplace_back(reinterpret_cast<const char *>(&pattern[0]),
-                            sizeof(pattern));
+    LjPatterns.emplace_back(
+        llvm::StringRef(reinterpret_cast<const char *>(&pattern[0]),
+                        sizeof(pattern)),
+        ARRAY_SIZE(pattern) - 2 * 4);
   }
   {
     // glibc
@@ -442,6 +456,36 @@ void ScanForSjLj(binary_t &b, llvm::object::Binary &Bin, explorer_t &E) {
   }
 #endif
 
+  auto found_setjmp = [&](uint64_t A) -> void {
+    WithColor::note() << llvm::formatv("found setjmp @ {0:x}\n", A);
+
+    basic_block_index_t BBIdx = E.explore_basic_block(b, Bin, A);
+    assert(is_basic_block_index_valid(BBIdx));
+
+    auto &ICFG = b.Analysis.ICFG;
+    ICFG[basic_block_of_index(BBIdx, ICFG)].Sj = true;
+  };
+
+  auto found_longjmp = [&](uint64_t A) -> void {
+    WithColor::note() << llvm::formatv("found longjmp @ {0:x}\n", A);
+
+    basic_block_index_t BBIdx = E.explore_basic_block(b, Bin, A);
+    assert(is_basic_block_index_valid(BBIdx));
+
+    auto &ICFG = b.Analysis.ICFG;
+    basic_block_t bb = basic_block_of_index(BBIdx, ICFG);
+
+    assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP);
+
+    if (boost::out_degree(bb, ICFG) != 0) {
+      WithColor::note()
+          << llvm::formatv("jump aint local! @ {0:x}\n", ICFG[bb].Addr);
+      boost::clear_out_edges(bb, ICFG);
+    }
+
+    ICFG[bb].Term._indirect_jump.IsLj = true;
+  };
+
   B::_elf(Bin, [&](ELFO &O) {
   const ELFF &Elf = O.getELFFile();
   auto ProgramHeadersOrError = Elf.program_headers();
@@ -456,50 +500,15 @@ void ScanForSjLj(binary_t &b, llvm::object::Binary &Bin, explorer_t &E) {
       llvm::StringRef SectionStr(
           reinterpret_cast<const char *>(Elf.base() + P->p_offset), P->p_filesz);
 
-      for (llvm::StringRef pattern : LjPatterns) {
+      for (const auto &pair : LjPatterns) {
+        llvm::StringRef pattern = pair.first;
+
         size_t idx = SectionStr.find(pattern);
         if (idx == llvm::StringRef::npos)
           continue;
 
-        uint64_t A = P->p_vaddr + idx;
-
-        WithColor::note() << llvm::formatv("found longjmp @ {0:x}\n", A);
-
-        basic_block_index_t BBIdx = E.explore_basic_block(b, O, A);
-        if (!is_basic_block_index_valid(BBIdx))
-          continue;
-
-        auto &ICFG = b.Analysis.ICFG;
-
-        std::vector<basic_block_t> bbvec;
-        std::map<basic_block_t, boost::default_color_type> color;
-
-        struct bb_visitor : public boost::default_dfs_visitor {
-          basic_block_vec_t &out;
-
-          bb_visitor(basic_block_vec_t &out) : out(out) {}
-
-          void discover_vertex(basic_block_t bb, const icfg_t &) const {
-            out.push_back(bb);
-          }
-        };
-
-        bb_visitor vis(bbvec);
-        depth_first_visit(
-            ICFG, basic_block_of_index(BBIdx, ICFG), vis,
-            boost::associative_property_map<
-                std::map<basic_block_t, boost::default_color_type>>(color));
-
-        for_each_if(
-            bbvec.begin(),
-            bbvec.end(),
-            [&](basic_block_t bb) -> bool {
-              return ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP &&
-                     boost::out_degree(bb, ICFG) == 0;
-            },
-            [&](basic_block_t bb) {
-              ICFG[bb].Term._indirect_jump.IsLj = true;
-            });
+        int off = pair.second;
+        found_longjmp(P->p_vaddr + idx + off);
       }
 
       for (llvm::StringRef pattern : SjPatterns) {
@@ -507,17 +516,7 @@ void ScanForSjLj(binary_t &b, llvm::object::Binary &Bin, explorer_t &E) {
         if (idx == llvm::StringRef::npos)
           continue;
 
-        uint64_t A = P->p_vaddr + idx;
-
-        WithColor::note() << llvm::formatv("found setjmp @ {0:x}\n", A);
-
-        basic_block_index_t BBIdx = E.explore_basic_block(b, O, A);
-        if (!is_basic_block_index_valid(BBIdx))
-          continue;
-
-        auto &ICFG = b.Analysis.ICFG;
-
-        ICFG[basic_block_of_index(BBIdx, ICFG)].Sj = true;
+        found_setjmp(P->p_vaddr + idx);
       }
     }
   }
@@ -532,40 +531,15 @@ void ScanForSjLj(binary_t &b, llvm::object::Binary &Bin, explorer_t &E) {
       llvm::StringRef SectionStr(&b.Data[Section->PointerToRawData],
                                  Section->SizeOfRawData);
 
-      for (llvm::StringRef pattern : LjPatterns) {
+      for (const auto &pair : LjPatterns) {
+        llvm::StringRef pattern = pair.first;
+
         size_t idx = SectionStr.find(pattern);
         if (idx == llvm::StringRef::npos)
           continue;
 
-        uint64_t A = coff::va_of_rva(O, Section->VirtualAddress + idx);
-
-        WithColor::note() << llvm::formatv("found longjmp @ {0:x} in {1}\n",
-                                           A, Section->Name);
-
-        basic_block_index_t BBIdx = E.explore_basic_block(b, O, A);
-        if (!is_basic_block_index_valid(BBIdx))
-          continue;
-
-        auto &ICFG = b.Analysis.ICFG;
-
-        std::vector<basic_block_t> bbvec;
-        basic_blocks_of_function_at_block(basic_block_of_index(BBIdx, ICFG), b,
-                                          bbvec);
-        for_each_if(
-            bbvec.begin(),
-            bbvec.end(),
-            [&](basic_block_t bb) -> bool {
-              return ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP;
-            },
-            [&](basic_block_t bb) {
-              if (boost::out_degree(bb, ICFG) != 0) {
-                WithColor::note() << llvm::formatv("jump aint local! @ {0:x}\n",
-                                                   ICFG[bb].Addr);
-                boost::clear_out_edges(bb, ICFG);
-              }
-
-              ICFG[bb].Term._indirect_jump.IsLj = true;
-            });
+        int off = pair.second;
+        found_longjmp(coff::va_of_rva(O, Section->VirtualAddress + idx + off));
       }
 
       for (llvm::StringRef pattern : SjPatterns) {
@@ -573,18 +547,7 @@ void ScanForSjLj(binary_t &b, llvm::object::Binary &Bin, explorer_t &E) {
         if (idx == llvm::StringRef::npos)
           continue;
 
-        uint64_t A = coff::va_of_rva(O, Section->VirtualAddress + idx);
-
-        WithColor::note() << llvm::formatv("found setjmp @ {0:x} in {1}\n",
-                                           A, Section->Name);
-
-        basic_block_index_t BBIdx = E.explore_basic_block(b, O, A);
-        if (!is_basic_block_index_valid(BBIdx))
-          continue;
-
-        auto &ICFG = b.Analysis.ICFG;
-
-        ICFG[basic_block_of_index(BBIdx, ICFG)].Sj = true;
+        found_setjmp(coff::va_of_rva(O, Section->VirtualAddress + idx));
       }
     }
   });
