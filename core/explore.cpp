@@ -207,7 +207,7 @@ on_insn:
   bbprop_2.Addr = addr_intvl_lower(intvl_2);
   bbprop_2.Size = intvl_2.second;
   bbprop_2.Sj = bbprop_1.Sj;
-  bbprop_2.Term = bbprop_1.Term; /* terminator stolen from bb_1 */
+  bbprop_2.Term = bbprop_1.Term;
   bbprop_2.DynTargets = boost::move(bbprop_1.DynTargets);
   bbprop_2.DynTargetsComplete = bbprop_1.DynTargetsComplete;
   bbprop_2.InvalidateAnalysis();
@@ -220,6 +220,7 @@ on_insn:
   bbprop_1.Size = off;
   bbprop_1.Term.Type = TERMINATOR::NONE;
   bbprop_1.Term.Addr = 0;
+  bbprop_1.Term._indirect_jump.IsLj = false;
   bbprop_1.Sj = false;
   bbprop_1.DynTargets.clear();
   bbprop_1.DynTargetsComplete = false;
