@@ -1190,8 +1190,9 @@ void _jove_recover_foreign_binary(uintptr_t CalleeAddr) {
           _UNREACHABLE("foreign binary already known");
       }
 
-      char *path = _memchr(line, '/', left);
-      _ASSERT(path);
+      char *path = _memchr(line, '/', eol - line);
+      if (!path)
+        return; /* probably anonymous memory */
 
       *eol = '\0';
       _jove_recover_foreign_binary_with_path(path);
