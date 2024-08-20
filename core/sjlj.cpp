@@ -463,6 +463,8 @@ void ScanForSjLj(binary_t &b, llvm::object::Binary &Bin, explorer_t &E) {
 
         uint64_t A = P->p_vaddr + idx;
 
+        WithColor::note() << llvm::formatv("found longjmp @ {0:x}\n", A);
+
         basic_block_index_t BBIdx = E.explore_basic_block(b, O, A);
         if (!is_basic_block_index_valid(BBIdx))
           continue;
@@ -496,9 +498,6 @@ void ScanForSjLj(binary_t &b, llvm::object::Binary &Bin, explorer_t &E) {
                      boost::out_degree(bb, ICFG) == 0;
             },
             [&](basic_block_t bb) {
-              WithColor::note()
-                  << llvm::formatv("found longjmp @ {0:x}\n", ICFG[bb].Addr);
-
               ICFG[bb].Term._indirect_jump.IsLj = true;
             });
       }
@@ -510,13 +509,13 @@ void ScanForSjLj(binary_t &b, llvm::object::Binary &Bin, explorer_t &E) {
 
         uint64_t A = P->p_vaddr + idx;
 
+        WithColor::note() << llvm::formatv("found setjmp @ {0:x}\n", A);
+
         basic_block_index_t BBIdx = E.explore_basic_block(b, O, A);
         if (!is_basic_block_index_valid(BBIdx))
           continue;
 
         auto &ICFG = b.Analysis.ICFG;
-
-        WithColor::note() << llvm::formatv("found setjmp @ {0:x}\n", A);
 
         ICFG[basic_block_of_index(BBIdx, ICFG)].Sj = true;
       }
@@ -540,6 +539,9 @@ void ScanForSjLj(binary_t &b, llvm::object::Binary &Bin, explorer_t &E) {
 
         uint64_t A = coff::va_of_rva(O, Section->VirtualAddress + idx);
 
+        WithColor::note() << llvm::formatv("found longjmp @ {0:x} in {1}\n",
+                                           A, Section->Name);
+
         basic_block_index_t BBIdx = E.explore_basic_block(b, O, A);
         if (!is_basic_block_index_valid(BBIdx))
           continue;
@@ -556,11 +558,8 @@ void ScanForSjLj(binary_t &b, llvm::object::Binary &Bin, explorer_t &E) {
               return ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP;
             },
             [&](basic_block_t bb) {
-              if (boost::out_degree(bb, ICFG) == 0) {
-                WithColor::note()
-                    << llvm::formatv("found longjmp @ {0:x}\n", ICFG[bb].Addr);
-              } else {
-                WithColor::note() << llvm::formatv("jump aint local @ {0:x}\n",
+              if (boost::out_degree(bb, ICFG) != 0) {
+                WithColor::note() << llvm::formatv("jump aint local! @ {0:x}\n",
                                                    ICFG[bb].Addr);
                 boost::clear_out_edges(bb, ICFG);
               }
@@ -576,13 +575,14 @@ void ScanForSjLj(binary_t &b, llvm::object::Binary &Bin, explorer_t &E) {
 
         uint64_t A = coff::va_of_rva(O, Section->VirtualAddress + idx);
 
+        WithColor::note() << llvm::formatv("found setjmp @ {0:x} in {1}\n",
+                                           A, Section->Name);
+
         basic_block_index_t BBIdx = E.explore_basic_block(b, O, A);
         if (!is_basic_block_index_valid(BBIdx))
           continue;
 
         auto &ICFG = b.Analysis.ICFG;
-
-        WithColor::note() << llvm::formatv("found setjmp @ {0:x}\n", A);
 
         ICFG[basic_block_of_index(BBIdx, ICFG)].Sj = true;
       }
