@@ -975,7 +975,7 @@ found:
   }
 }
 
-_NORET static void _jove_recover_foreign_binary_with_path(const char *path) {
+void _jove_recover_foreign_binary_with_path(const char *path) {
   const uint32_t PathLen = _strlen(path);
 
   char *recover_fifo_path = _getenv("JOVE_RECOVER_FIFO");
