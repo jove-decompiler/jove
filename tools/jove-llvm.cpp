@@ -5929,6 +5929,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
                 "__jove_space_" + std::to_string(j));
             ++j;
 
+            GV->setConstant(true);
             GV->setAlignment(llvm::Align(1));
             GV->setSection(CurrSectName); /* no .bss */
 
@@ -6018,6 +6019,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
           llvm::Constant::getNullValue(WordType()),
           "__jove_space_" + std::to_string(j));
 
+      GV->setConstant(true);
       GV->setSection(".jove_po");
 
       ReferenceInNoDCEFunc(GV);
