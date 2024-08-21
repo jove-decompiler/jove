@@ -10,18 +10,18 @@ long robust_sendfile(int socket, const char *file_path, size_t file_size);
 long robust_sendfile_with_size(int socket, const char *file_path);
 long robust_receive_file_with_size(int socket, const char *out, unsigned file_perm);
 
-class scoped_fd {
-  int fd = -1;
+struct scoped_fd {
+  const int fd;
 
-public:
   scoped_fd(int fd) : fd(fd) {}
-  ~scoped_fd();
+  ~scoped_fd() noexcept(false); /* throws if failed to close file descriptor */
 
-  int get(void) {
+  int get(void) const {
     assert(fd >= 0);
-
     return fd;
   }
+
+  operator bool(void) const { return fd >= 0; }
 };
 
 }

@@ -141,8 +141,13 @@ long robust_receive_file_with_size(int socket, const char *out, unsigned file_pe
   return res;
 }
 
-scoped_fd::~scoped_fd() {
-  ::close(this->fd);
+scoped_fd::~scoped_fd() noexcept(false) {
+  if (fd < 0)
+    return;
+
+  if (::close(fd) < 0)
+    throw std::runtime_error(std::string("scoped_fd: failed to close fd: ") +
+                             strerror(errno));
 }
 
 }
