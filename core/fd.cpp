@@ -50,20 +50,15 @@ long robust_write(int fd, const void *const buf, const size_t count) {
 }
 
 long robust_sendfile(int socket, const char *file_path, size_t file_size) {
-  int fd = ::open(file_path, O_RDONLY);
-
-  if (fd < 0) {
-    int err = errno;
+  scoped_fd fd = ::open(file_path, O_RDONLY);
+  if (!fd)
     throw std::runtime_error(std::string("robust_sendfile: open failed: ") +
-                             strerror(err));
-  }
-
-  scoped_fd __fd(fd);
+                             strerror(errno));
 
   const size_t saved_file_size = file_size;
 
   do {
-    ssize_t ret = ::sendfile(socket, fd, nullptr, file_size);
+    ssize_t ret = ::sendfile(socket, fd.get(), nullptr, file_size);
 
     if (ret == 0)
       return -EIO;
@@ -126,16 +121,13 @@ long robust_receive_file_with_size(int socket, const char *out, unsigned file_pe
 
   ssize_t res = -EBADF;
   {
-    int fd = ::open(out, O_WRONLY | O_TRUNC | O_CREAT, file_perm);
-    if (fd < 0)
+    scoped_fd fd = ::open(out, O_WRONLY | O_TRUNC | O_CREAT, file_perm);
+    if (!fd)
       return -errno;
 
-    res = robust_write(fd, &buff[0], buff.size());
+    res = robust_write(fd.get(), &buff[0], buff.size());
     if (res < 0)
       return res;
-
-    if (::close(fd) < 0)
-      return -errno;
   }
 
   return res;

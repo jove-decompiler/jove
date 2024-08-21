@@ -1,6 +1,7 @@
 #include "tool.h"
 #include "B.h"
 #include "serialize.h"
+#include "fd.h"
 
 #include <boost/filesystem.hpp>
 #include <boost/algorithm/string/predicate.hpp>
@@ -621,14 +622,12 @@ skip_run:
       //
       // connect to jove-server
       //
-      int remote_fd = ::socket(AF_INET, SOCK_STREAM, 0);
-      if (remote_fd < 0) {
+      scoped_fd remote_fd = ::socket(AF_INET, SOCK_STREAM, 0);
+      if (!remote_fd) {
         int err = errno;
         HumanOut() << llvm::formatv("socket failed: {0}\n", strerror(err));
         return 1;
       }
-
-      scoped_fd __remote_fd(remote_fd);
 
       std::string addr_str;
 
@@ -653,7 +652,7 @@ skip_run:
       int connect_ret;
       if (IsVerbose())
         HumanOut() << llvm::formatv("connecting to remote {0}...\n", opts.Connect);
-      connect_ret = ::connect(remote_fd,
+      connect_ret = ::connect(remote_fd.get(),
                               reinterpret_cast<struct sockaddr *>(&server_addr),
                               sizeof(sockaddr_in));
       if (connect_ret < 0 && errno != EINPROGRESS) {
@@ -668,7 +667,7 @@ skip_run:
       {
         char magic[4] = {'J', 'O', 'V', 'E'};
 
-        ssize_t ret = robust_write(remote_fd, &magic[0], sizeof(magic));
+        ssize_t ret = robust_write(remote_fd.get(), &magic[0], sizeof(magic));
 
         if (ret < 0) {
           HumanOut() << llvm::formatv(
@@ -695,7 +694,7 @@ skip_run:
 
         uint8_t header = headerBits.to_ullong();
 
-        ssize_t ret = robust_write(remote_fd, &header, sizeof(header));
+        ssize_t ret = robust_write(remote_fd.get(), &header, sizeof(header));
 
         if (ret < 0) {
           HumanOut() << llvm::formatv(
@@ -711,7 +710,7 @@ skip_run:
       {
         uint8_t NPinnedGlobals = opts.PinnedGlobals.size();
 
-        ssize_t ret = robust_write(remote_fd, &NPinnedGlobals, sizeof(NPinnedGlobals));
+        ssize_t ret = robust_write(remote_fd.get(), &NPinnedGlobals, sizeof(NPinnedGlobals));
 
         if (ret < 0) {
           HumanOut() << llvm::formatv(
@@ -724,12 +723,12 @@ skip_run:
         for (const std::string &PinnedGlobalStr : opts.PinnedGlobals) {
           uint8_t PinnedGlobalStrLen = PinnedGlobalStr.size();
 
-          if (robust_write(remote_fd, &PinnedGlobalStrLen, sizeof(PinnedGlobalStrLen)) < 0) {
+          if (robust_write(remote_fd.get(), &PinnedGlobalStrLen, sizeof(PinnedGlobalStrLen)) < 0) {
             HumanOut() << "failed to send PinnedGlobalStr to remote: {0}\n";
             return 0;
           }
 
-          if (robust_write(remote_fd, PinnedGlobalStr.c_str(), PinnedGlobalStr.size()) < 0) {
+          if (robust_write(remote_fd.get(), PinnedGlobalStr.c_str(), PinnedGlobalStr.size()) < 0) {
             HumanOut() << "failed to send PinnedGlobalStr\n";
             return 0;
           }
@@ -747,7 +746,7 @@ skip_run:
         if (IsVerbose())
           HumanOut() << llvm::formatv("sending {0}\n", tmpjv_path.c_str());
 
-        ssize_t ret = robust_sendfile_with_size(remote_fd, tmpjv_path.c_str());
+        ssize_t ret = robust_sendfile_with_size(remote_fd.get(), tmpjv_path.c_str());
 
         if (ret < 0) {
           HumanOut() << llvm::formatv(
@@ -764,7 +763,7 @@ skip_run:
         if (IsVerbose())
           HumanOut() << llvm::formatv("receiving {0}\n", tmpjv_path.c_str());
 
-        ssize_t ret = robust_receive_file_with_size(remote_fd, tmpjv_path.c_str(), 0666);
+        ssize_t ret = robust_receive_file_with_size(remote_fd.get(), tmpjv_path.c_str(), 0666);
         if (ret < 0) {
           HumanOut() << llvm::formatv(
               "failed to receive jv from remote: {0}\n",
@@ -790,7 +789,7 @@ skip_run:
         if (IsVerbose())
           HumanOut() << llvm::formatv("receiving {0}\n", chrooted_path.c_str());
 
-        ssize_t ret = robust_receive_file_with_size(remote_fd, new_chrooted_path.c_str(), 0777);
+        ssize_t ret = robust_receive_file_with_size(remote_fd.get(), new_chrooted_path.c_str(), 0777);
         if (ret < 0) {
           HumanOut()
               << llvm::formatv("failed to receive file {0} from remote: {1}\n",
@@ -921,7 +920,7 @@ skip_run:
           HumanOut() << "receiving jove runtime\n";
 
         ssize_t ret =
-            robust_receive_file_with_size(remote_fd, rt_path.c_str(), 0777);
+            robust_receive_file_with_size(remote_fd.get(), rt_path.c_str(), 0777);
         if (ret < 0) {
           HumanOut() << llvm::formatv(
               "failed to receive runtime {0} from remote: {1}\n",
@@ -1002,7 +1001,7 @@ skip_run:
           HumanOut() << "receiving jove dfsan runtime\n";
 
         ssize_t ret =
-            robust_receive_file_with_size(remote_fd, dfsan_rt_path.c_str(), 0777);
+            robust_receive_file_with_size(remote_fd.get(), dfsan_rt_path.c_str(), 0777);
         if (ret < 0) {
           HumanOut() << llvm::formatv(
               "failed to receive runtime {0} from remote: {1}\n",
