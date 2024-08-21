@@ -81,6 +81,7 @@ function(tool_for_arch arch arch_extra_cflags qemu_objs)
     jove-addr2off.cpp
     jove-analyze.cpp
     jove-bootstrap.cpp
+    jove-callstack.cpp
     jove-cfg.cpp
     jove-decompile.cpp
     jove-dig.cpp

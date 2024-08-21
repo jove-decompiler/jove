@@ -140,6 +140,7 @@ static void _jove_dump_opts(void);
 static void _jove_parse_debug_string(char *const);
 static void _jove_parse_trace_string(char *const);
 static void _jove_parse_crash_string(char *const);
+static void _jove_parse_callstack_string(char *const s);
 
 //
 // options
@@ -167,6 +168,7 @@ void _jove_parse_opts(void) {
       F(env + sizeof(NAME "=") - 1);                                           \
   } while (false)
 
+    STRING_OPT("JOVECALLS", _jove_parse_callstack_string);
     STRING_OPT("JOVETRACE", _jove_parse_trace_string);
     STRING_OPT("JOVECRASH", _jove_parse_crash_string);
     STRING_OPT("JOVEDEBUG", _jove_parse_debug_string);
@@ -192,6 +194,7 @@ static const struct debug_option_pair debug_opt_tbl[] = {
   {"inits",   &__jove_opts.Debug.Inits},
   {"verbose", &__jove_opts.Debug.Verbose},
   {"insn",    &__jove_opts.Debug.Insn},
+  {"interactive", &__jove_opts.Debug.Interactive},
 };
 
 void _jove_parse_debug_string(char *const s) {
@@ -226,6 +229,15 @@ void _jove_parse_trace_string(char *const s) {
   _strcpy(p, s);
 
   __jove_opts.Trace = p;
+}
+
+void _jove_parse_callstack_string(char *const s) {
+  jove_buffer_t str = _jove_alloc_buffer(PATH_MAX);
+  char *p = (char *)str.ptr;
+
+  _strcpy(p, s);
+
+  __jove_opts.CallS = p;
 }
 
 void _jove_parse_crash_string(char *const s) {
@@ -325,6 +337,7 @@ BOOL DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved) {
   case DLL_THREAD_ATTACH:
     _VERBOSE_DUMP("DllMain [DLL_THREAD_ATTACH]\n");
     _jove_trace_init();
+    _jove_callstack_init();
     break;
   case DLL_THREAD_DETACH:
     _VERBOSE_DUMP("DllMain [DLL_THREAD_DETACH]\n");
@@ -377,9 +390,81 @@ void _jove_init_cpu_state(void) {
 #endif
 }
 
+static uintptr_t _jove_alloc_callstack(const char *callstack_path) {
+  JOVE_BUFF(path, PATH_MAX);
+
+  _ASSERT(callstack_path);
+
+  _strcpy(path, callstack_path);
+  _strcat(path, ".");
+
+  {
+    char buff[65];
+    _uint_to_string(_jove_sys_gettid(), buff, 10);
+
+    _strcat(path, buff);
+  }
+
+  long tid = _jove_sys_gettid();
+
+  int fd = _jove_open(path, O_RDWR | O_CREAT | O_TRUNC, 0666);
+  if (fd < 0) {
+    __builtin_trap();
+    __builtin_unreachable();
+  }
+
+  if (_jove_sys_ftruncate(fd, JOVE_CALLSTACK_SIZE) < 0) {
+    __builtin_trap();
+    __builtin_unreachable();
+  }
+
+  uintptr_t ret = _mmap_rw_shared_file(fd, JOVE_CALLSTACK_SIZE);
+  if (IS_ERR_VALUE(ret))
+    _UNREACHABLE("failed to allocate callstack");
+
+  if (_jove_sys_close(fd) < 0)
+    _UNREACHABLE("failed to close callstack fd");
+
+  //
+  // create guard pages on both sides
+  //
+  uintptr_t beg = ret;
+  uintptr_t end = beg + JOVE_CALLSTACK_SIZE;
+
+  if (_jove_sys_mprotect(beg, JOVE_PAGE_SIZE, PROT_NONE) < 0)
+    _UNREACHABLE("failed to create guard page #1");
+
+  if (_jove_sys_mprotect(end - JOVE_PAGE_SIZE, JOVE_PAGE_SIZE, PROT_NONE) < 0)
+    _UNREACHABLE("failed to create guard page #2");
+
+  JOVE_TRACK_ALLOCATION(beg, JOVE_PAGE_SIZE, "beg-callstack");
+  JOVE_TRACK_ALLOCATION(end - JOVE_PAGE_SIZE, JOVE_PAGE_SIZE, "end-callstack");
+  JOVE_TRACK_ALLOCATION(beg + JOVE_PAGE_SIZE, JOVE_STACK_SIZE - 2 * JOVE_PAGE_SIZE, "callstack");
+
+  return beg;
+}
+
+static void _jove_free_callstack(uintptr_t start) {
+  if (_jove_sys_munmap(start - JOVE_PAGE_SIZE, JOVE_CALLSTACK_SIZE) < 0)
+    _UNREACHABLE("failed to deallocate callstack");
+
+  JOVE_UNTRACK_ALLOCATION(start, JOVE_CALLSTACK_SIZE);
+}
+
 void _jove_callstack_init(void) {
+  static _JTHREAD bool _Done = false;
+  if (_Done)
+    return;
+  _Done = true;
+
+  char *const callstack_path = __jove_opts.CallS;
+  if (!callstack_path)
+    return;
+
+  _VERBOSE_DUMP_FUNC();
+
   __jove_callstack_begin = __jove_callstack =
-      (uint64_t *)(_jove_alloc_callstack() + JOVE_PAGE_SIZE);
+      (uint64_t *)(_jove_alloc_callstack(callstack_path) + JOVE_PAGE_SIZE);
 }
 
 void _jove_trace_init(void) {
@@ -387,6 +472,9 @@ void _jove_trace_init(void) {
   if (_Done)
     return;
   _Done = true;
+
+  if (!__jove_opts.Trace)
+    return;
 
   _VERBOSE_DUMP_FUNC();
 
@@ -716,6 +804,15 @@ found:
     uint64_t *const saved_callstack       = *callstack_ptr;
     uint64_t *const saved_callstack_begin = *callstack_begin_ptr;
 
+    if (unlikely(saved_callstack)) {
+      uint64_t *callstack = saved_callstack;
+      *callstack++ = JOVE_COMBINE_B_AND_BB(JOVE_INVALID_BINARY_INDEX,
+                                           JOVE_INVALID_BASIC_BLOCK_INDEX);
+      *callstack = 0; /* clear */
+
+      __jove_callstack = callstack;
+    }
+
     const uintptr_t saved_sp = *sp_ptr;
     const uintptr_t saved_emusp = *emusp_ptr;
     const uintptr_t saved_retaddr = ra_ptr ? *ra_ptr : *((uintptr_t *)saved_sp);
@@ -833,6 +930,11 @@ found:
       _DUMP(s);
     }
 
+    if (unlikely(__jove_opts.Debug.Interactive)) {
+      char buff;
+      while (_jove_sys_read(STDIN_FILENO, &buff, 1) > 0 && buff != '\n');
+    }
+
     //
     // setup emulated stack
     //
@@ -940,8 +1042,10 @@ found:
     if (emut9_ptr)
       *emut9_ptr = FuncSectPtr;
 
+#if 0
     *callstack_begin_ptr = *callstack_ptr =
         (uint64_t *)(_jove_alloc_callstack() + JOVE_PAGE_SIZE);
+#endif
 
     *emusp_ptr = saved_sp; /* native stack becomes emulated stack */
 

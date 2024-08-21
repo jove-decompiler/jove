@@ -82,6 +82,7 @@ class RecompileTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, 
     cl::opt<bool> Trace;
     cl::opt<std::string> UseLd;
     cl::opt<bool> DFSan;
+    cl::opt<bool> CallStack;
     cl::opt<bool> Optimize;
     cl::opt<bool> SkipCopyRelocHack;
     cl::opt<bool> DebugSjlj;
@@ -118,6 +119,11 @@ class RecompileTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, 
 
           DFSan("dfsan", cl::desc("Run dfsan on bitcode"),
                 cl::cat(JoveCategory)),
+
+          CallStack("call-stack",
+                    cl::desc("Write state of recompiled call stack to file "
+                             "path formed from $JOVECALLS"),
+                    cl::cat(JoveCategory)),
 
           Optimize("optimize", cl::desc("Run optimizations on bitcode"),
                    cl::cat(JoveCategory)),
@@ -1288,6 +1294,9 @@ void RecompileTool::worker(dso_t dso) {
           Arg("--dfsan-output-module-id=" + dfsan_modid_fp);
           Arg("--dfsan-bytecode-loc=" + bytecode_loc);
           Arg("--dfsan-no-loop-starts");
+        }
+        if (opts.CallStack) {
+          Arg("--call-stack");
         }
 
         if (opts.CheckEmulatedStackReturnAddress)

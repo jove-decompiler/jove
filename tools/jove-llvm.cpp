@@ -260,7 +260,8 @@ struct LLVMTool : public StatefulJVTool<ToolKind::CopyOnWrite,
     cl::opt<bool> DumpPostFSBaseFixup;
     cl::opt<bool> DFSan;
     cl::opt<std::string> DFSanOutputModuleID;
-    bool CallStack, CheckEmulatedReturnAddress;
+    cl::opt<bool> CallStack;
+    bool CheckEmulatedReturnAddress;
     cl::opt<bool> ForeignLibs;
     cl::alias ForeignLibsAlias;
     cl::list<std::string> PinnedGlobals;
@@ -365,6 +366,11 @@ struct LLVMTool : public StatefulJVTool<ToolKind::CopyOnWrite,
                        "found from DFSanModuleID metadata"),
               cl::value_desc("filename"), cl::cat(JoveCategory)),
 
+          CallStack("call-stack",
+                    cl::desc("Write state of recompiled call stack to file "
+                             "path formed from $JOVECALLS"),
+                    cl::cat(JoveCategory)),
+
           ForeignLibs("foreign-libs",
                       cl::desc("only recompile the executable itself; "
                                "treat all other binaries as \"foreign\""),
@@ -447,6 +453,7 @@ struct LLVMTool : public StatefulJVTool<ToolKind::CopyOnWrite,
 
   llvm::GlobalVariable *CallStackGlobal = nullptr;
   llvm::Function *GetCallStackFunc = nullptr;
+  llvm::Value *CachedCallStack = nullptr;
   llvm::GlobalVariable *CallStackBeginGlobal = nullptr;
   llvm::Function *GetCallStackBeginFunc = nullptr;
 
@@ -642,6 +649,17 @@ public:
 
     assert(GetEnvFunc);
     return IRB.CreateCall(GetEnvFunc, std::nullopt, "env");
+  }
+
+  llvm::Value *GetCallStack(llvm::IRBuilderTy &IRB) {
+    if (CachedCallStack)
+      return CachedCallStack;
+
+    if (CallStackGlobal)
+      return CallStackGlobal;
+
+    assert(GetCallStackFunc);
+    return IRB.CreateCall(GetCallStackFunc, std::nullopt, "callstack");
   }
 
   llvm::Value *GetTrace(llvm::IRBuilderTy &IRB) {
@@ -2012,7 +2030,6 @@ static bool is_builtin_sym(const std::string &);
 
 int LLVMTool::Run(void) {
   //jove::cmdline.argv = argv;
-  opts.CallStack = opts.DFSan;
   opts.CheckEmulatedReturnAddress = opts.DFSan;
 
   //
@@ -6505,6 +6522,12 @@ int LLVMTool::FixupHelperStubs(void) {
       }, !opts.ForCBE);
 
   fillInFunctionBody(
+      Module->getFunction("_jove_callstack_enabled"),
+      [&](auto &IRB) {
+        IRB.CreateRet(IRB.getInt1(opts.CallStack));
+      }, !opts.ForCBE);
+
+  fillInFunctionBody(
       Module->getFunction("_jove_dfsan_enabled"),
       [&](auto &IRB) {
         IRB.CreateRet(IRB.getInt1(opts.DFSan));
@@ -6959,6 +6982,14 @@ int LLVMTool::TranslateFunction(function_t &f) {
     assert(!CachedEnv);
     CachedEnv = GetEnv(IRB);
 
+    if (opts.CallStack) {
+      //
+      // Get pointer to __jove_callstack
+      //
+      assert(!CachedCallStack);
+      CachedCallStack = GetCallStack(IRB);
+    }
+
     if (opts.Trace) {
       //
       // Get pointer to __jove_trace
@@ -7043,6 +7074,7 @@ int LLVMTool::TranslateFunction(function_t &f) {
   }
 
   CachedEnv = nullptr;
+  CachedCallStack = nullptr;
   CachedTrace = nullptr;
 
   if (!opts.Debugify) {
@@ -8620,68 +8652,63 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
   if (T.Type == TERMINATOR::INDIRECT_JUMP)
     _indirect_jump.IsTailCall = boost::out_degree(bb, ICFG) == 0;
 
-  if (opts.CallStack) {
-    switch (T.Type) {
-    case TERMINATOR::RETURN:
-      IRB.CreateStore(IRB.CreateConstGEP1_64(
-                          IRB.getPtrTy(),
-                          IRB.CreateLoad(IRB.getPtrTy(), CallStackGlobal), -1),
-                      CallStackGlobal);
-      break;
+  auto push_onto_callstack = [&](void) -> void {
+    if (!opts.CallStack)
+      return;
 
-    case TERMINATOR::CALL:
-    case TERMINATOR::INDIRECT_CALL: {
-      binary_index_t BIdx = BinaryIndex;
-      basic_block_index_t BBIdx = index_of_basic_block(ICFG, bb);
+    binary_index_t      BIdx  = BinaryIndex;
+    basic_block_index_t BBIdx = index_of_basic_block(ICFG, bb);
 
-      static_assert(sizeof(BIdx) == sizeof(uint32_t), "sizeof(BIdx)");
-      static_assert(sizeof(BBIdx) == sizeof(uint32_t), "sizeof(BBIdx)");
+    static_assert(sizeof(BIdx) == sizeof(uint32_t));
+    static_assert(sizeof(BBIdx) == sizeof(uint32_t));
 
-      uint64_t comb =
-          (static_cast<uint64_t>(BIdx) << 32) | static_cast<uint64_t>(BBIdx);
+    uint64_t comb =
+        (static_cast<uint64_t>(BIdx) << 32) | static_cast<uint64_t>(BBIdx);
 
-      llvm::LoadInst *Ptr = IRB.CreateLoad(IRB.getPtrTy(), CallStackGlobal);
-      IRB.CreateStore(IRB.getInt64(comb), Ptr);
+    llvm::LoadInst *Ptr = IRB.CreateLoad(IRB.getPtrTy(), GetCallStack(IRB));
+    IRB.CreateStore(IRB.getInt64(comb), Ptr);
 
-      IRB.CreateStore(IRB.CreateConstGEP1_64(IRB.getPtrTy(), Ptr, 1), CallStackGlobal);
-      break;
-    }
+    IRB.CreateStore(IRB.CreateConstInBoundsGEP1_32(IRB.getInt64Ty(), Ptr, 1),
+                    GetCallStack(IRB));
+  };
 
-    default:
-      break;
-    }
-  }
+  auto pop_off_callstack = [&](void) -> void {
+    if (!opts.CallStack)
+      return;
+
+    llvm::Value *Ptr = IRB.CreateLoad(IRB.getPtrTy(), GetCallStack(IRB));
+    IRB.CreateStore(IRB.getInt64(0), Ptr); /* clear */
+    Ptr = IRB.CreateConstInBoundsGEP1_32(IRB.getInt64Ty(), Ptr, -1);
+
+    IRB.CreateStore(IRB.getInt64(0), Ptr); /* clear */
+    IRB.CreateStore(Ptr, GetCallStack(IRB));
+  };
 
 #if 1
   llvm::LoadInst *SavedCallStackP = nullptr;
-  llvm::LoadInst *SavedCallStackBegin = nullptr;
 
-  auto save_callstack_pointers = [&](void) -> void {
+  auto save_callstack = [&](void) -> void {
     if (!opts.CallStack)
       return;
 
     assert(!SavedCallStackP);
-    assert(!SavedCallStackBegin);
 
-    SavedCallStackP = IRB.CreateLoad(IRB.getPtrTy(), CallStackGlobal);
-    SavedCallStackBegin = IRB.CreateLoad(IRB.getPtrTy(), CallStackBeginGlobal);
+    SavedCallStackP = IRB.CreateLoad(IRB.getPtrTy(), GetCallStack(IRB));
+    IRB.CreateStore(IRB.getInt64(0), SavedCallStackP); /* clear */
 
     assert(SavedCallStackP);
-    assert(SavedCallStackBegin);
   };
 
-  auto restore_callstack_pointers = [&](void) -> void {
+  auto restore_callstack = [&](void) -> void {
     if (!opts.CallStack)
       return;
 
     assert(SavedCallStackP);
-    assert(SavedCallStackBegin);
 
-    IRB.CreateStore(SavedCallStackP, CallStackGlobal);
-    IRB.CreateStore(SavedCallStackBegin, CallStackBeginGlobal);
+    IRB.CreateStore(IRB.getInt64(0), SavedCallStackP); /* clear */
+    IRB.CreateStore(SavedCallStackP, GetCallStack(IRB));
 
     SavedCallStackP = nullptr;
-    SavedCallStackBegin = nullptr;
   };
 #endif
 
@@ -8703,6 +8730,9 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
                                     Lj ? "longjmp" : "setjmp",
                                     ICFG[basic_block_of_index(callee.Entry, ICFG)].Addr,
                                     ICFG[bb].Term.Addr);
+
+      if (Sj)
+        save_callstack();
 
 #if defined(TARGET_I386)
       std::vector<llvm::Type *> argTypes(2, WordType());
@@ -8789,6 +8819,9 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
                 llvm::ConstantInt::get(WordType(), WordBytes())),
             tcg_stack_pointer_index);
 #endif
+
+        restore_callstack();
+
         break;
       } else {
         Ret->setDoesNotReturn();
@@ -8803,6 +8836,8 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
     }
 
     assert(!SjLj);
+
+    push_onto_callstack();
 
     if (opts.DFSan) {
       if (state.for_function(callee).PreHook) {
@@ -9163,6 +9198,9 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
                                     ICFG[bb].Term.Addr,
                                     IsCall ? "indcall" : "indjmp");
 
+      if (Sj)
+        save_callstack();
+
 #if defined(TARGET_I386)
       std::vector<llvm::Type *> argTypes(2, WordType());
 
@@ -9263,6 +9301,9 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
                 llvm::ConstantInt::get(WordType(), WordBytes())),
             tcg_stack_pointer_index);
 #endif
+
+        restore_callstack();
+
         break;
       } else {
         Ret->setDoesNotReturn();
@@ -9307,7 +9348,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
       store_global_to_global_cpu_state(tcg_rax_index); /* vararg */
 #endif
       store_stack_pointer();
-      save_callstack_pointers();
+      save_callstack();
 
 #if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
       store_global_to_global_cpu_state(tcg_t9_index);
@@ -9317,7 +9358,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
       llvm::CallInst *Ret = IRB.CreateCall(JoveCallFunc, ArgVec);
       Ret->setIsNoInline();
 
-      restore_callstack_pointers();
+      restore_callstack();
       reload_stack_pointer();
 
 #if defined(TARGET_I386)
@@ -9378,6 +9419,8 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
     else
     {
       assert(ICFG[bb].hasDynTarget());
+
+      push_onto_callstack();
 
       llvm::Value *PC = IRB.CreateLoad(WordType(), TC.PCAlloca);
 
@@ -9585,10 +9628,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
             store_global_to_global_cpu_state(tcg_rax_index); /* vararg */
 #endif
 
-            //
-            // callstack stuff
-            //
-            save_callstack_pointers();
+            //save_callstack_pointers();
 
             {
               std::vector<llvm::Value *> ArgVec;
@@ -9654,17 +9694,8 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
               Ret->addParamAttr(j, llvm::Attribute::InReg);
 #endif
 
-            //
-            // callstack stuff
-            //
-            restore_callstack_pointers();
+            pop_off_callstack(); /* thunk won't */
             reload_stack_pointer();
-
-            if (opts.CallStack)
-              IRB.CreateStore(
-                  IRB.CreateConstGEP1_64(IRB.getPtrTy(),
-                                         IRB.CreateLoad(IRB.getPtrTy(), CallStackGlobal), -1),
-                  CallStackGlobal);
           } else {
             std::vector<llvm::Value *> ArgVec;
             {
@@ -10023,6 +10054,8 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
 
     if (f.IsABI)
       store_stack_pointer();
+
+    pop_off_callstack();
 
     if (DetermineFunctionType(f)->getReturnType()->isVoidTy()) {
       IRB.CreateRetVoid();

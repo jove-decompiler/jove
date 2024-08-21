@@ -9,6 +9,7 @@ extern uintptr_t _jove_sections_begin(void);
 extern uintptr_t _jove_sections_end(void);
 extern uint32_t _jove_binary_index(void);
 extern bool _jove_trace_enabled(void);
+extern bool _jove_callstack_enabled(void);
 extern bool _jove_dfsan_enabled(void);
 extern void _jove_call_entry(void);
 extern uintptr_t *_jove_get_function_table(void);

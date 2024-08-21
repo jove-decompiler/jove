@@ -40,6 +40,7 @@ class LoopTool : public JVTool<ToolKind::Standard> {
     cl::list<std::string> BindMountDirs;
     cl::opt<std::string> Sysroot;
     cl::opt<bool> DFSan;
+    cl::opt<bool> CallStack;
     cl::opt<bool> Optimize;
     cl::opt<bool> SkipCopyRelocHack;
     cl::opt<bool> ForceRecompile;
@@ -105,6 +106,11 @@ class LoopTool : public JVTool<ToolKind::Standard> {
 
           DFSan("dfsan", cl::desc("Run dfsan on bitcode"),
                 cl::cat(JoveCategory)),
+
+          CallStack("call-stack",
+                    cl::desc("Write state of recompiled call stack to file "
+                             "path formed from $JOVECALLS"),
+                    cl::cat(JoveCategory)),
 
           Optimize("optimize", cl::desc("Run optimizations on bitcode"),
                    cl::cat(JoveCategory)),
@@ -675,7 +681,7 @@ skip_run:
       // send header
       //
       {
-        std::bitset<8> headerBits;
+        std::bitset<16> headerBits;
 
         headerBits.set(0, opts.DFSan);
         headerBits.set(1, opts.ForeignLibs);
@@ -685,6 +691,7 @@ skip_run:
         headerBits.set(5, opts.DebugSjlj);
         headerBits.set(6, opts.ABICalls);
         headerBits.set(7, opts.MT);
+        headerBits.set(8, opts.CallStack);
 
         uint8_t header = headerBits.to_ullong();
 
@@ -1105,6 +1112,9 @@ skip_run:
 
           if (opts.DFSan)
             Arg("--dfsan");
+
+          if (opts.CallStack)
+            Arg("--call-stack");
 
           if (opts.Optimize)
             Arg("--optimize");

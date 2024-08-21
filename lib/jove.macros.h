@@ -84,6 +84,9 @@
 #define __ASM_CFI(str) str
 #endif
 
+#define JOVE_COMBINE_B_AND_BB(BIdx, BBIdx)                                     \
+  ((uint64_t)((((uint64_t)(BIdx)) << 32) | ((uint64_t)(BBIdx))))
+
 //
 // runtime
 //

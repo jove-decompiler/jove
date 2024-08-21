@@ -259,10 +259,10 @@ void *ServerTool::ConnectionProc(void *arg) {
   // parse the header
   //
   struct {
-    bool dfsan, foreign_libs, trace, optimize, skip_copy_reloc_hack, debug_sjlj, abi_calls, mt;
+    bool dfsan, foreign_libs, trace, optimize, skip_copy_reloc_hack, debug_sjlj, abi_calls, mt, call_stack;
   } options;
 
-  std::bitset<8> headerBits(header);
+  std::bitset<16> headerBits(header);
 
   options.dfsan        = headerBits.test(0);
   options.foreign_libs = headerBits.test(1);
@@ -272,6 +272,7 @@ void *ServerTool::ConnectionProc(void *arg) {
   options.debug_sjlj = headerBits.test(5);
   options.abi_calls = headerBits.test(6);
   options.mt = headerBits.test(7);
+  options.call_stack = headerBits.test(8);
 
   std::string jv_s_path = (TemporaryDir / "serialized.jv").string();
   std::string tmpjv = (TemporaryDir / ".jv").string();
@@ -343,6 +344,8 @@ void *ServerTool::ConnectionProc(void *arg) {
 
     if (options.dfsan)
       Arg("--dfsan");
+    if (options.call_stack)
+      Arg("--call-stack");
     if (!options.foreign_libs)
       Arg("--x=0");
     if (options.trace)

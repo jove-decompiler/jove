@@ -37,21 +37,23 @@ void _jove_inverse_thunk(void) {
                "movl 20(%%esp), %%edx\n" // edx = saved_emusp
                "movl %%edx, (%%eax)\n"   // restore emusp
 
+#if 0
                //
                // free the callstack we allocated in sighandler
                //
                "call "_"jove_callstack_begin_location\n"
                "movl (%%eax), %%eax\n"
                "call "_"jove_do_free_callstack\n"
-
+#endif
                //
                // restore __jove_callstack
                //
                "call "_"jove_callstack_location\n" // eax = &__jove_callstack
 
                "movl 24(%%esp), %%edx\n" // edx = saved_callstack
+               "movl $0, (%%edx)\n" /* reset */
                "movl %%edx, (%%eax)\n"   // restore callstack
-
+#if 0
                //
                // restore __jove_callstack_begin
                //
@@ -59,6 +61,7 @@ void _jove_inverse_thunk(void) {
 
                "movl 28(%%esp), %%edx\n" // edx = saved_callstack_begin
                "movl %%edx, (%%eax)\n"   // restore callstack_begin
+#endif
 
                //
                // mark newstack as to be freed
@@ -108,18 +111,19 @@ _HIDDEN uintptr_t _jove_emusp_location(void) {
 _HIDDEN uintptr_t _jove_callstack_location(void) {
   return (uintptr_t)&__jove_callstack;
 }
-
+#if 0
 _HIDDEN uintptr_t _jove_callstack_begin_location(void) {
   return (uintptr_t)&__jove_callstack_begin;
 }
-
+#endif
 _REGPARM _HIDDEN void _jove_do_free_stack_later(uintptr_t x) {
   _jove_free_stack_later(x);
 }
-
+#if 0
 _REGPARM _HIDDEN void _jove_do_free_callstack(uintptr_t x) {
   _jove_free_callstack(x);
 }
+#endif
 
 int insn_length(const uint8_t *insnp) {
   if (insnp[0] == 0xc7) { /* movl with an immediate to memory */

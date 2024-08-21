@@ -23,28 +23,29 @@ void _jove_inverse_thunk(void) {
 
                "ldr x1, [sp, #152]\n"  // read saved_emusp off the stack
                "str x1, [x0]\n" // restore emusp
-
+#if 0
                //
                // free the callstack we allocated in sighandler
                //
                "bl _jove_callstack_begin_location\n"
                "ldr x0, [x0]\n"
                "bl _jove_do_free_callstack\n"
-
+#endif
                //
                // restore __jove_callstack
                //
                "bl _jove_callstack_location\n"
                "ldr x1, [sp, #160]\n" // x1 = saved_callstack
+               "str xzr, [x1]\n" /* reset */
                "str x1, [x0]\n" // restore callstack
-
+#if 0
                //
                // restore __jove_callstack_begin
                //
                "bl _jove_callstack_begin_location\n"
                "ldr x1, [sp, #168]\n" // x1 = saved_callstack_begin
                "str x1, [x0]\n" // restore callstack_begin
-
+#endif
                //
                // mark newstack as to be freed
                //
@@ -87,7 +88,7 @@ _HIDDEN uintptr_t _jove_emusp_location(void) {
 _HIDDEN uintptr_t _jove_callstack_location(void) {
   return (uintptr_t)&__jove_callstack;
 }
-
+#if 0
 _HIDDEN uintptr_t _jove_callstack_begin_location(void) {
   return (uintptr_t)&__jove_callstack_begin;
 }
@@ -95,7 +96,7 @@ _HIDDEN uintptr_t _jove_callstack_begin_location(void) {
 _HIDDEN void _jove_do_free_callstack(uintptr_t x) {
   _jove_free_callstack(x);
 }
-
+#endif
 _HIDDEN void _jove_do_free_stack_later(uintptr_t x) {
   _jove_free_stack_later(x);
 }

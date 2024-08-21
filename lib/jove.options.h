@@ -11,10 +11,12 @@ struct jove_opts_t {
     bool Inits;
     bool Verbose;
     bool Insn;
+    bool Interactive;
   } Debug;
 
   bool DumpOpts;
   char OnCrash; /* a=abort, s=sleep */
 
   const char *Trace;
+  const char *CallS;
 };

@@ -486,14 +486,18 @@ _HIDDEN void _jove_init(
   //
   const uintptr_t saved_emusp = *emusp_ptr;
 
+#if 0
   uint64_t *const saved_callstack_begin = __jove_callstack_begin;
   uint64_t *const saved_callstack = __jove_callstack;
+#endif
 
   //
   // setup new callstack and emulated-stack
   //
+#if 0
   const uintptr_t new_callstack = _jove_alloc_callstack() + JOVE_PAGE_SIZE;
   __jove_callstack_begin = __jove_callstack = (uint64_t *)new_callstack;
+#endif
 
   const uintptr_t new_emu_stack = _jove_alloc_stack();
 
@@ -544,11 +548,15 @@ _HIDDEN void _jove_init(
   //
   *emusp_ptr = saved_emusp;
 
+#if 0
   __jove_callstack_begin = saved_callstack_begin;
   __jove_callstack = saved_callstack;
+#endif
 
   _jove_free_stack(new_emu_stack);
+#if 0
   _jove_free_callstack(new_callstack);
+#endif
 }
 
 //
@@ -577,14 +585,18 @@ _HIDDEN void _jove__libc_early_init(
   //
   const uintptr_t saved_emusp = *emusp_ptr;
 
+#if 0
   uint64_t *const saved_callstack_begin = __jove_callstack_begin;
   uint64_t *const saved_callstack = __jove_callstack;
+#endif
 
   //
   // setup new callstack and emulated-stack
   //
+#if 0
   const uintptr_t new_callstack = _jove_alloc_callstack() + JOVE_PAGE_SIZE;
   __jove_callstack_begin = __jove_callstack = (uint64_t *)new_callstack;
+#endif
 
   const uintptr_t new_emu_stack = _jove_alloc_stack();
 
@@ -635,11 +647,15 @@ _HIDDEN void _jove__libc_early_init(
   //
   *emusp_ptr = saved_emusp;
 
+#if 0
   __jove_callstack_begin = saved_callstack_begin;
   __jove_callstack = saved_callstack;
+#endif
 
   _jove_free_stack(new_emu_stack);
+#if 0
   _jove_free_callstack(new_callstack);
+#endif
 }
 
 #else
@@ -1083,7 +1099,7 @@ jove_thunk_return_t _jove_call(
 
                                #undef __REG_ARG
 
-                               uintptr_t pc, uint32_t BBIdx) {
+                               const uintptr_t pc, const uint32_t BBIdx) {
   if (unlikely(__jove_opts.Debug.Calls))
   {
     char s[512];
@@ -1472,6 +1488,21 @@ jove_thunk_return_t _jove_call(
   }
 
 found:
+  if (_jove_callstack_enabled()) {
+    const uint32_t BIdx = _jove_binary_index();
+
+    uint64_t *callstack = JOVE_RT_THREAD_GLOBAL(callstack);
+    *callstack++ = JOVE_COMBINE_B_AND_BB(BIdx, BBIdx);
+    *callstack = 0; /* clear */
+
+    JOVE_RT_THREAD_GLOBAL(callstack) = callstack;
+  }
+
+  if (unlikely(__jove_opts.Debug.Interactive)) {
+    char buff;
+    while (_jove_sys_read(STDIN_FILENO, &buff, 1) > 0 && buff != '\n');
+  }
+
   if (Callee.IsForeign) {
     const bool in_ifunc =
 #ifdef JOVE_CLUNK
@@ -1558,6 +1589,15 @@ found:
 
       return res;
     }
+
+    if (_jove_callstack_enabled()) {
+      uint64_t *callstack = JOVE_RT_THREAD_GLOBAL(callstack);
+
+      *callstack-- = 0; /* clear */
+      *callstack = 0; /* clear */
+
+      JOVE_RT_THREAD_GLOBAL(callstack) = callstack;
+    }
   } else {
     return ((JOVE_THUNK_ATTR jove_thunk_return_t (*)(
                          #define __REG_ARG(n, i, data) BOOST_PP_COMMA_IF(i) uintptr_t
@@ -1632,7 +1672,7 @@ void __nodce(void **p) {
   *p++ = JOVE_RT_THREAD_GLOBALP(trace_begin);
   *p++ = JOVE_RT_THREAD_GLOBALP(callstack);
   *p++ = JOVE_RT_THREAD_GLOBALP(callstack_begin);
-  *p++ = &_jove_trace_enabled;
+  *p++ = &_jove_callstack_enabled;
   *p++ = &_jove_dfsan_enabled;
   *p++ = &_jove_get_init_fn_sect_ptr;
   *p++ = &_jove_get_libc_early_init_fn;
@@ -1644,8 +1684,10 @@ void __nodce(void **p) {
 #endif
   *p++ = &_jove_alloc_stack;
   *p++ = &_jove_free_stack;
+#if 0
   *p++ = &_jove_alloc_callstack;
   *p++ = &_jove_free_callstack;
+#endif
   *p++ = &_jove_call;
 #ifdef JOVE_MT
   *p++ = &__jove_local_env;

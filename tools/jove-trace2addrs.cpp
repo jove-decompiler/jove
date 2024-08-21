@@ -65,7 +65,7 @@ public:
                     binary_index_t BIdx,
                     basic_block_index_t BBIdx);
 
-  uint64_t AddrOrOff(const binary_t &, uint64_t);
+  taddr_t AddrOrOff(const binary_t &, taddr_t);
 };
 
 JOVE_REGISTER_TOOL("trace2addrs", Trace2AddrsTool);
@@ -161,7 +161,7 @@ void Trace2AddrsTool::Process(llvm::raw_ostream &out, std::istream &in) {
   }
 }
 
-uint64_t Trace2AddrsTool::AddrOrOff(const binary_t &b, uint64_t Addr) {
+taddr_t Trace2AddrsTool::AddrOrOff(const binary_t &b, taddr_t Addr) {
   if (opts.Offsets)
     return B::offset_of_va(*state.for_binary(b).Bin, Addr);
 

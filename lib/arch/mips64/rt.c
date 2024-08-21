@@ -8,6 +8,7 @@ void _jove_inverse_thunk(void) {
   asm volatile("sd $v0,96($sp)"  "\n"
                "sd $v1,104($sp)" "\n" /* preserve return registers */
 
+#if 0
                //
                // free the callstack we allocated in sighandler
                //
@@ -18,21 +19,22 @@ void _jove_inverse_thunk(void) {
                "jalr $t9"       "\n" // _jove_free_callstack(__jove_callstack_begin)
                "nop"            "\n"
                ".set reorder"   "\n"
-
+#endif
                //
                // restore __jove_callstack
                //
                "ld $a0,120($sp)" "\n"
                "ld $a1,32($sp)"  "\n"
+               "sd $zero, 0($a1)" "\n" /* reset */
                "sd $a1,0($a0)"   "\n" // __jove_callstack = saved_callstack
-
+#if 0
                //
                // restore __jove_callstack_begin
                //
                "ld $a0,112($sp)" "\n"
                "ld $a1,40($sp)"  "\n"
                "sd $a1,0($a0)"   "\n" // __jove_callstack_begin = saved_callstack_begin
-
+#endif
                //
                // mark newstack as to be freed
                //

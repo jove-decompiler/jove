@@ -642,37 +642,6 @@ static void _jove_free_stack(uintptr_t beg) {
   JOVE_UNTRACK_ALLOCATION(beg, JOVE_STACK_SIZE);
 }
 
-static uintptr_t _jove_alloc_callstack(void) {
-  uintptr_t ret = _mmap_rw_anonymous_private_memory(JOVE_CALLSTACK_SIZE);
-  if (IS_ERR_VALUE(ret))
-    _UNREACHABLE("failed to allocate callstack");
-
-  //
-  // create guard pages on both sides
-  //
-  uintptr_t beg = ret;
-  uintptr_t end = beg + JOVE_CALLSTACK_SIZE;
-
-  if (_jove_sys_mprotect(beg, JOVE_PAGE_SIZE, PROT_NONE) < 0)
-    _UNREACHABLE("failed to create guard page #1");
-
-  if (_jove_sys_mprotect(end - JOVE_PAGE_SIZE, JOVE_PAGE_SIZE, PROT_NONE) < 0)
-    _UNREACHABLE("failed to create guard page #2");
-
-  JOVE_TRACK_ALLOCATION(beg, JOVE_PAGE_SIZE, "beg-callstack");
-  JOVE_TRACK_ALLOCATION(end - JOVE_PAGE_SIZE, JOVE_PAGE_SIZE, "end-callstack");
-  JOVE_TRACK_ALLOCATION(beg + JOVE_PAGE_SIZE, JOVE_STACK_SIZE - 2 * JOVE_PAGE_SIZE, "callstack");
-
-  return beg;
-}
-
-static void _jove_free_callstack(uintptr_t start) {
-  if (_jove_sys_munmap(start - JOVE_PAGE_SIZE, JOVE_CALLSTACK_SIZE) < 0)
-    _UNREACHABLE("failed to deallocate callstack");
-
-  JOVE_UNTRACK_ALLOCATION(start, JOVE_CALLSTACK_SIZE);
-}
-
 //
 // buffer management
 //
