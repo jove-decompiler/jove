@@ -141,6 +141,7 @@ static void _jove_parse_debug_string(char *const);
 static void _jove_parse_trace_string(char *const);
 static void _jove_parse_crash_string(char *const);
 static void _jove_parse_callstack_string(char *const s);
+static void _jove_parse_hoard_string(char *const);
 
 //
 // options
@@ -168,6 +169,7 @@ void _jove_parse_opts(void) {
       F(env + sizeof(NAME "=") - 1);                                           \
   } while (false)
 
+    STRING_OPT("JOVEHOARD", _jove_parse_hoard_string);
     STRING_OPT("JOVECALLS", _jove_parse_callstack_string);
     STRING_OPT("JOVETRACE", _jove_parse_trace_string);
     STRING_OPT("JOVECRASH", _jove_parse_crash_string);
@@ -253,6 +255,10 @@ void _jove_parse_crash_string(char *const s) {
   }
 
   __jove_opts.OnCrash = ch;
+}
+
+void _jove_parse_hoard_string(char *const s) {
+  __jove_opts.Hoard = s[0] == '1';
 }
 
 void _jove_dump_opts(void) {

@@ -3,10 +3,6 @@
 //
 
 void _jove_recover_dyn_target(uint32_t CallerBBIdx, uintptr_t CalleeAddr) {
-  char *recover_fifo_path = _getenv("JOVE_RECOVER_FIFO");
-
-  uint32_t CallerBIdx = _jove_binary_index();
-
   struct {
     uint32_t BIdx;
     uint32_t FIdx;
@@ -298,6 +294,17 @@ void _jove_recover_dyn_target(uint32_t CallerBBIdx, uintptr_t CalleeAddr) {
   return; /* not found */
 
 found:
+  _jove_found_dyn_target(CallerBBIdx, Callee.BIdx, Callee.FIdx);
+  _jove_sys_exit_group('f');
+  __UNREACHABLE();
+}
+
+void _jove_found_dyn_target(uint32_t CallerBBIdx,
+                            uint32_t CalleeBIdx,
+                            uint32_t CalleeFIdx) {
+  uint32_t CallerBIdx = _jove_binary_index();
+
+  char *recover_fifo_path = _getenv("JOVE_RECOVER_FIFO");
   if (!recover_fifo_path) {
     char s[1024];
     s[0] = '\0';
@@ -321,7 +328,7 @@ found:
     _strcat(s, ",");
     {
       char buff[65];
-      _uint_to_string(Callee.BIdx, buff, 10);
+      _uint_to_string(CalleeBIdx, buff, 10);
 
       _strcat(s, buff);
     }
@@ -329,7 +336,7 @@ found:
     _strcat(s, ",");
     {
       char buff[65];
-      _uint_to_string(Callee.FIdx, buff, 10);
+      _uint_to_string(CalleeFIdx, buff, 10);
 
       _strcat(s, buff);
     }
@@ -354,15 +361,14 @@ found:
         buff[0] = ch;
         *((uint32_t *)&buff[sizeof(char) + 0 * sizeof(uint32_t)]) = CallerBIdx;
         *((uint32_t *)&buff[sizeof(char) + 1 * sizeof(uint32_t)]) = CallerBBIdx;
-        *((uint32_t *)&buff[sizeof(char) + 2 * sizeof(uint32_t)]) = Callee.BIdx;
-        *((uint32_t *)&buff[sizeof(char) + 3 * sizeof(uint32_t)]) = Callee.FIdx;
+        *((uint32_t *)&buff[sizeof(char) + 2 * sizeof(uint32_t)]) = CalleeBIdx;
+        *((uint32_t *)&buff[sizeof(char) + 3 * sizeof(uint32_t)]) = CalleeFIdx;
 
         if (_jove_sys_write(recover_fd, &buff[0], sizeof(buff)) != sizeof(buff))
           _UNREACHABLE();
       }
 
       _jove_sys_close(recover_fd);
-      _jove_sys_exit_group(ch);
     }
   }
 }

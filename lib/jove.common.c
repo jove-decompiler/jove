@@ -1495,6 +1495,9 @@ jove_thunk_return_t _jove_call(
   }
 
 found:
+  if (unlikely(__jove_opts.Hoard))
+    _jove_found_dyn_target(BBIdx, Callee.BIdx, Callee.FIdx);
+
   if (_jove_callstack_enabled()) {
     const uint32_t BIdx = _jove_binary_index();
 
