@@ -945,6 +945,8 @@ found:
     // setup emulated stack
     //
     {
+      static uint64_t __dummy_trace_point;
+
       const uintptr_t newstack = _jove_alloc_stack();
 
       /* TODO make tight */
@@ -971,7 +973,7 @@ found:
         *p++ = saved_retaddr;
         *p++ = saved_sp;
         *p++ = saved_emusp;
-        *p++ = (uintptr_t)saved_callstack;
+        *p++ = saved_callstack ? (uintptr_t)saved_callstack : (uintptr_t)&__dummy_trace_point;
         *p++ = (uintptr_t)saved_callstack_begin;
         *p++ = newstack;
         *p++ = SignalDelivery;
@@ -999,12 +1001,12 @@ found:
         *p++ = saved_retaddr;
         *p++ = saved_sp;
         *p++ = saved_emusp;
-        *p++ = (uintptr_t)saved_callstack;
+        *p++ = saved_callstack ? (uintptr_t)saved_callstack : (uintptr_t)&__dummy_trace_point;
         *p++ = (uintptr_t)saved_callstack_begin;
         *p++ = newstack;
         *p++ = (uintptr_t)emusp_ptr;
         *p++ = (uintptr_t)callstack_begin_ptr;
-        *p++ = (uintptr_t)saved_callstack;
+        *p++ = saved_callstack ? (uintptr_t)saved_callstack : (uintptr_t)&__dummy_trace_point;
         *p++ = (uintptr_t)_jove_free_stack_later;
         *p++ = (uintptr_t)_jove_free_callstack;
         *p++ = 0; /* saved v0 */
@@ -1018,7 +1020,7 @@ found:
         *p++ = saved_retaddr;
         *p++ = saved_sp;
         *p++ = saved_emusp;
-        *p++ = (uintptr_t)saved_callstack;
+        *p++ = saved_callstack ? (uintptr_t)saved_callstack : (uintptr_t)&__dummy_trace_point;
         *p++ = (uintptr_t)saved_callstack_begin;
         *p++ = newstack;
 #else
