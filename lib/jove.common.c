@@ -116,9 +116,9 @@ _HIDDEN void _jove_initialize(void) {
   _jove_make_sections_executable();
 #endif
 
-  if (_jove_trace_enabled() && !JOVE_RT_THREAD_GLOBAL(trace))
+  if (_jove_trace_enabled() && !__jove_opts.Trace)
     _UNREACHABLE("must set $JOVETRACE in trace mode");
-  if (_jove_callstack_enabled() && !JOVE_RT_THREAD_GLOBAL(callstack))
+  if (_jove_callstack_enabled() && !__jove_opts.CallS)
     _UNREACHABLE("must set $JOVECALLS in call-stack mode");
 }
 
