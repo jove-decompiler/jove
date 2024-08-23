@@ -484,6 +484,9 @@ struct LLVMTool : public StatefulJVTool<ToolKind::CopyOnWrite,
   llvm::Function *JoveNoDCEFunc = nullptr;
   llvm::Function *JoveCallFunc = nullptr;
 
+  llvm::Function *JoveMakeSectionsExeFunc = nullptr;
+  llvm::Function *JoveMakeSectionsNotExeFunc = nullptr;
+
   //
   // DFSan
   //
@@ -2864,6 +2867,12 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
   JoveCallFunc = Module->getFunction("_jove_call");
   assert(JoveCallFunc);
 
+  JoveMakeSectionsExeFunc = Module->getFunction("_jove_make_sections_executable");
+  assert(JoveMakeSectionsExeFunc);
+
+  JoveMakeSectionsNotExeFunc = Module->getFunction("_jove_make_sections_not_executable");
+  assert(JoveMakeSectionsNotExeFunc);
+
   JoveCheckReturnAddrFunc = Module->getFunction("_jove_check_return_address");
   if (opts.CheckEmulatedReturnAddress) {
     assert(JoveCheckReturnAddrFunc);
@@ -4473,6 +4482,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
   binary_t &Binary = jv.Binaries.at(BinaryIndex);
   auto &Bin = state.for_binary(Binary).Bin;
 
+#if 0
   struct PatchContents {
     LLVMTool &tool;
     binary_t &Binary;
@@ -4537,6 +4547,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
           });
     }
   } __PatchContents(*this, Binary);
+#endif
 
   const uint64_t SectsStartAddr = state.for_binary(Binary).SectsStartAddr;
   const uint64_t SectsEndAddr = state.for_binary(Binary).SectsEndAddr;
@@ -8792,6 +8803,8 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
                      });
 #endif
 
+      IRB.CreateCall(JoveMakeSectionsExeFunc);
+
       if (opts.DebugSjlj) {
         std::string message =
             (fmt("doing %s (call) to %s @ %s+0x%x\n")
@@ -8802,9 +8815,9 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
         IRB.CreateCall(JoveLog1Func, {IRB.CreateGlobalStringPtr(message.c_str()), ArgVec.at(0)});
       }
 
-      llvm::CallInst *Ret = IRB.CreateCall(
-          llvm::FunctionType::get(WordType(), argTypes, false),
-          CastedPtr, ArgVec, Sj ? "setjmpval" : "longjmpval");
+      llvm::CallInst *Ret =
+          IRB.CreateCall(llvm::FunctionType::get(WordType(), argTypes, false),
+                         CastedPtr, ArgVec, Sj ? "setjmpval" : "longjmpval");
       Ret->doesNotThrow();
 
       if (Sj) {
@@ -8821,6 +8834,8 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
                 llvm::ConstantInt::get(WordType(), WordBytes())),
             tcg_stack_pointer_index);
 #endif
+
+        IRB.CreateCall(JoveMakeSectionsNotExeFunc);
 
         restore_callstack();
 
@@ -9260,6 +9275,8 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
                      });
 #endif
 
+      IRB.CreateCall(JoveMakeSectionsExeFunc);
+
       if (opts.DebugSjlj) {
         std::string message =
             (fmt("doing %s (%s) to %s @ %s+0x%x\n")
@@ -9303,6 +9320,8 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
                 llvm::ConstantInt::get(WordType(), WordBytes())),
             tcg_stack_pointer_index);
 #endif
+
+        IRB.CreateCall(JoveMakeSectionsNotExeFunc);
 
         restore_callstack();
 
