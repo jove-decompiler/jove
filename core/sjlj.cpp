@@ -250,7 +250,7 @@ void ScanForSjLj(binary_t &b, llvm::object::Binary &Bin, explorer_t &E) {
     LjPatterns.emplace_back(
         llvm::StringRef(reinterpret_cast<const char *>(&pattern[0]),
                         sizeof(pattern)),
-        ARRAY_SIZE(pattern) - 3);
+        sizeof(pattern) - 3);
   }
 
 #elif defined(TARGET_MIPS32)
@@ -287,12 +287,12 @@ void ScanForSjLj(binary_t &b, llvm::object::Binary &Bin, explorer_t &E) {
     LjPatterns.emplace_back(
         llvm::StringRef(reinterpret_cast<const char *>(&pattern[0]),
                         sizeof(pattern)),
-        ARRAY_SIZE(pattern) - 2 * 4);
+        sizeof(pattern) - 2 * 4);
 
     LjPatterns.emplace_back(
         llvm::StringRef(reinterpret_cast<const char *>(&pattern[0]),
                         sizeof(pattern)),
-        ARRAY_SIZE(pattern) - 6 * 4);
+        sizeof(pattern) - 6 * 4);
   }
 
   {
@@ -337,7 +337,7 @@ void ScanForSjLj(binary_t &b, llvm::object::Binary &Bin, explorer_t &E) {
     LjPatterns.emplace_back(
         llvm::StringRef(reinterpret_cast<const char *>(&pattern[0]),
                         sizeof(pattern)),
-        ARRAY_SIZE(pattern) - 2 * 4);
+        sizeof(pattern) - 2 * 4);
   }
   {
     // glibc
