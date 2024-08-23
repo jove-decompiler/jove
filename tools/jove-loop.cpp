@@ -76,6 +76,7 @@ class LoopTool : public JVTool<ToolKind::Standard> {
     cl::opt<bool> WineDdb;
     cl::opt<bool> BreakBeforeUnreachables;
     cl::opt<bool> LayOutSections;
+    cl::opt<int> Conservative;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : Prog(cl::Positional, cl::desc("prog"), cl::Required,
@@ -253,7 +254,13 @@ class LoopTool : public JVTool<ToolKind::Standard> {
                        "_jove_check_sections_laid_out() at runtime to make "
                        "sure that those aforementioned global variables exist "
                        "side-by-side in memory in the way we expect them to"),
-              cl::cat(JoveCategory)) {}
+              cl::cat(JoveCategory)),
+
+          Conservative(
+              "conservative",
+              cl::desc(
+                  "1 => assume any arg registers could be live for ABI calls."),
+              cl::cat(JoveCategory), cl::init(1)) {}
   } opts;
 
 public:
@@ -1075,6 +1082,8 @@ skip_run:
         [&](auto Arg) {
           if (!opts.ForeignLibs)
             Arg("--x=0");
+
+          Arg("--conservative=" + std::to_string(opts.Conservative));
 
           if (!opts.PinnedGlobals.empty()) {
             std::string pinned_globals_arg = "--pinned-globals=";
