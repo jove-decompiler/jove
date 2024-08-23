@@ -244,6 +244,11 @@ void _jove_check_sections_at_base_address(void) {
 }
 
 void _jove_make_sections_executable(void) {
+  static bool _Done = false;
+  if (unlikely(__jove_opts.SectsExe) && _Done)
+    return; // nothing to do
+  _Done = true;
+
   const unsigned n = QEMU_ALIGN_UP(_jove_sections_end() -
                                    _jove_sections_begin(), JOVE_PAGE_SIZE);
   const uintptr_t x = QEMU_ALIGN_DOWN(_jove_sections_begin(), JOVE_PAGE_SIZE);
@@ -1064,7 +1069,7 @@ void _jove_log1(const char *msg,
 
     _strcat(s, buff);
   }
-  _strcat(s, ")\n");
+  _strcat(s, ">\n");
 
   _DUMP(s);
 }
