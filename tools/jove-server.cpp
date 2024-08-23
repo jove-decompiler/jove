@@ -408,6 +408,8 @@ void *ServerTool::ConnectionProc(void *arg) {
       continue;
     if (binary.IsDynamicLinker)
       continue;
+    if (!binary.is_file())
+      continue;
 
     fs::path chrooted_path(fs::path(sysroot_dir) / binary.path_str());
     if (!fs::exists(chrooted_path)) {

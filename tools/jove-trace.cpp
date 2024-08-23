@@ -310,7 +310,7 @@ open_events:
 
       if (binary.IsDynamicLinker)
         continue;
-      if (binary.IsVDSO)
+      if (!binary.is_file())
         continue;
       if (opts.OnlyExecutable && !binary.IsExecutable)
         continue;

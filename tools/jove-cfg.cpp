@@ -377,7 +377,7 @@ int CFGTool::Run(void) {
       if (Parents.empty()) {
         WithColor::warning()
             << llvm::formatv("failed to find function for block {0:x} in {1}\n",
-                             ICFG[bb].Addr, b.path_str());
+                             ICFG[bb].Addr, b.Name.c_str());
         return 1;
       }
 

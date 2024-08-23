@@ -387,7 +387,7 @@ int RecompileTool::Run(void) {
   // gather dynamic linking information
   //
   for_each_binary(std::execution::par_unseq, jv, [&](binary_t &b) {
-    if (b.IsVDSO)
+    if (!b.is_file())
       return;
 
     binary_state_t &x = state.for_binary(b);
@@ -578,7 +578,7 @@ int RecompileTool::Run(void) {
           (fs::path(opts.Output.getValue()) / "jove" / "BinaryPathsTable.txt").c_str());
 
       for (const binary_t &binary : jv.Binaries)
-        ofs << binary.path_str() << '\n';
+        ofs << binary.Name.c_str() << '\n';
     }
 
     fs::create_directories(fs::path(opts.Output.getValue()) / "jove" /
@@ -930,7 +930,7 @@ int RecompileTool::Run(void) {
 
     if (b.IsDynamicLinker)
       continue;
-    if (b.IsVDSO)
+    if (!b.is_file())
       continue;
 
     assert(b.is_file());

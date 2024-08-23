@@ -779,6 +779,8 @@ skip_run:
           continue;
         if (binary.IsDynamicLinker)
           continue;
+        if (!binary.is_file())
+          continue;
 
         fs::path chrooted_path(fs::path(sysroot) / binary.path_str());
 
@@ -1031,7 +1033,7 @@ skip_run:
       //
       if (!opts.NoChroot) {
         for_each_binary(std::execution::par_unseq, jv, [&](binary_t &b) {
-          if (b.IsVDSO)
+          if (!b.is_file())
             return;
 
           auto Bin = B::Create(b.data());

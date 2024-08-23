@@ -563,7 +563,7 @@ int DumpTool::Run(void) {
         if (!binary.is_file())
           continue;
 
-        if (fs::path(binary.path_str()).filename().string() !=
+        if (fs::path(binary.Name.c_str()).filename().string() !=
             opts.ListFunctionBBs)
           continue;
 

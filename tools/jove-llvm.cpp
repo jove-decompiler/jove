@@ -2048,8 +2048,8 @@ int LLVMTool::Run(void) {
           return 1;
         }
 
-        if (b.IsVDSO) {
-          WithColor::error() << "given binary is [vdso]\n";
+        if (!b.is_file()) {
+          WithColor::error() << "given binary is not file\n";
           return 1;
         }
 
@@ -5382,7 +5382,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
       return DynSymRegion.getAsArrayRef<Elf_Sym>();
     };
 
-    elf::MipsGOTParser Parser(Elf, Binary.path_str());
+    elf::MipsGOTParser Parser(Elf, Binary.Name.c_str());
     if (llvm::Error Err = Parser.findGOT(dynamic_table(),
                                          dynamic_symbols())) {
       WithColor::warning() << llvm::formatv("Failed to find GOT: {0}\n", Err);
@@ -5574,7 +5574,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
         return DynSymRegion.getAsArrayRef<Elf_Sym>();
       };
 
-      elf::MipsGOTParser Parser(Elf, Binary.path_str());
+      elf::MipsGOTParser Parser(Elf, Binary.Name.c_str());
       if (llvm::Error Err = Parser.findGOT(dynamic_table(),
                                            dynamic_symbols())) {
         WithColor::warning() << llvm::formatv("Failed to find GOT: {0}\n", Err);
@@ -5719,7 +5719,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
         return DynSymRegion.getAsArrayRef<Elf_Sym>();
       };
 
-      elf::MipsGOTParser Parser(Elf, Binary.path_str());
+      elf::MipsGOTParser Parser(Elf, Binary.Name.c_str());
       if (llvm::Error Err = Parser.findGOT(dynamic_table(),
                                            dynamic_symbols())) {
         WithColor::warning() << llvm::formatv("Failed to find GOT: {0}\n", Err);

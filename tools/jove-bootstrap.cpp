@@ -755,7 +755,7 @@ uintptr_t BootstrapTool::va_of_rva(uintptr_t Addr, binary_index_t BIdx) {
 
   if (!BinFoundVec.test(BIdx))
     throw std::runtime_error(std::string(__func__) + ": given binary (" +
-                             binary.path_str() + " is not loaded\n");
+                             binary.Name.c_str() + " is not loaded\n");
 
   if (!binary.IsPIC) {
     assert(binary.IsExecutable);
@@ -770,7 +770,7 @@ uintptr_t BootstrapTool::rva_of_va(uintptr_t Addr, binary_index_t BIdx) {
 
   if (!BinFoundVec.test(BIdx))
     throw std::runtime_error(std::string(__func__) + ": given binary (" +
-                             binary.path_str() + " is not loaded\n");
+                             binary.Name.c_str() + " is not loaded\n");
 
   if (!binary.IsPIC) {
     assert(binary.IsExecutable);
@@ -1826,7 +1826,7 @@ void BootstrapTool::place_breakpoint_at_indirect_branch(pid_t child,
            "%s BB %#lx\n"
            "%s")
        % Addr
-       % Binary.path_str()
+       % Binary.Name.c_str()
        % indbr.TermAddr
        % StringOfMCInst(Inst)).str());
   }
@@ -3230,7 +3230,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
     HumanOut() << llvm::formatv(
         "on_breakpoint failed: {0} [target: {1}+{2:x} ({3:x}) binary.LoadAddr: {4:x}]\n",
-        what, fs::path(TargetBinary.path_str()).filename().string(),
+        what, fs::path(TargetBinary.Name.c_str()).filename().string(),
         rva_of_va(Target.Addr, Target.BIdx), Target.Addr,
         state.for_binary(TargetBinary).LoadAddr);
 
@@ -3596,7 +3596,7 @@ void BootstrapTool::harvest_global_GOT_entries(pid_t child) {
       return state.for_binary(b)._elf.OptionalDynSymRegion->getAsArrayRef<Elf_Sym>();
     };
 
-    elf::MipsGOTParser Parser(Elf, b.path_str());
+    elf::MipsGOTParser Parser(Elf, b.Name.c_str());
 
     if (llvm::Error Err = Parser.findGOT(dynamic_table(),
                                          dynamic_symbols())) {
