@@ -8747,77 +8747,55 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
       if (Sj)
         save_callstack();
 
+      std::vector<llvm::Value *> SjLjArgs;
+      std::vector<llvm::Type *> SjLjArgTypes;
+
 #if defined(TARGET_I386)
-      std::vector<llvm::Type *> argTypes(2, WordType());
+      //
+      // XXX assuming __cdecl (args on emulated stack)
+      //
+      SjLjArgTypes = {WordType(), WordType()};
 
-      llvm::Value *CastedPtr = IRB.CreateIntToPtr(
-          SectionPointer(ICFG[basic_block_of_index(callee.Entry, ICFG)].Addr),
-          llvm::FunctionType::get(WordType(), argTypes, false)->getPointerTo());
+      llvm::Value *const EmuSP = get(tcg_stack_pointer_index);
 
-      std::vector<llvm::Value *> ArgVec;
+      SjLjArgs.push_back(IRB.CreateLoad(WordType(), IRB.CreateIntToPtr(
+          IRB.CreateAdd(EmuSP, IRB.getIntN(WordBits(), 1 * sizeof(uint32_t))),
+          WordType()->getPointerTo())));
 
-      {
-        llvm::Value *SP = get(tcg_stack_pointer_index);
-
-        ArgVec.push_back(IRB.CreateLoad(WordType(), IRB.CreateIntToPtr(
-            IRB.CreateAdd(SP, IRB.getIntN(WordBits(), 1 * WordBytes())),
-            WordType()->getPointerTo())));
-
-        ArgVec.push_back(IRB.CreateLoad(WordType(), IRB.CreateIntToPtr(
-            IRB.CreateAdd(SP, IRB.getIntN(WordBits(), 2 * WordBytes())),
-            WordType()->getPointerTo())));
-
-#if 0
-        {
-          std::string message =
-              (fmt("doing %s (call) to %s @ %s+0x%x\n")
-               % (Lj ? "longjmp" : "setjmp")
-               % dyn_target_desc({BinaryIndex, FIdx})
-               % fs::path(Binary.path_str()).filename().string()
-               % ICFG[bb].Term.Addr).str();
-
-          IRB.CreateCall(JoveLog2Func,
-                         {IRB.CreateGlobalStringPtr(message.c_str()),
-                          ArgVec.at(0),
-                          ArgVec.at(1)});
-        }
-#endif
-      }
-
-      assert(ArgVec.size() == argTypes.size());
+      SjLjArgs.push_back(IRB.CreateLoad(WordType(), IRB.CreateIntToPtr(
+          IRB.CreateAdd(EmuSP, IRB.getIntN(WordBits(), 2 * sizeof(uint32_t))),
+          WordType()->getPointerTo())));
 #else
-      std::vector<llvm::Type *> argTypes(CallConvArgArray.size(), WordType());
+      SjLjArgTypes = std::vector<llvm::Type *>(CallConvArgArray.size(), WordType());
 
-      llvm::Value *CastedPtr = IRB.CreateIntToPtr(
-          SectionPointer(ICFG[basic_block_of_index(callee.Entry, ICFG)].Addr),
-          llvm::FunctionType::get(WordType(), argTypes, false)->getPointerTo());
-
-      std::vector<llvm::Value *> ArgVec;
-      ArgVec.resize(CallConvArgArray.size());
-
+      SjLjArgs.resize(CallConvArgArray.size());
       std::transform(CallConvArgArray.begin(),
                      CallConvArgArray.end(),
-                     ArgVec.begin(),
-                     [&](unsigned glb) -> llvm::Value * {
-                       return get(glb);
-                     });
+                     SjLjArgs.begin(), get);
 #endif
+      assert(SjLjArgTypes.size() == SjLjArgs.size());
+      llvm::FunctionType *SjLjFuncTy =
+          llvm::FunctionType::get(WordType(), SjLjArgTypes, false);
 
       IRB.CreateCall(JoveMakeSectionsExeFunc);
 
+      llvm::Value *SjLjAddr =
+          SectionPointer(entry_address_of_function(callee, Binary));
+
       if (opts.DebugSjlj) {
         std::string message =
-            (fmt("doing %s (call) to %s @ %s+0x%x\n")
+            (fmt("doing %s (call) to %s @ %s+0x%x")
              % (Lj ? "longjmp" : "setjmp")
              % dyn_target_desc({BinaryIndex, FIdx})
              % fs::path(Binary.path_str()).filename().string()
              % ICFG[bb].Term.Addr).str();
-        IRB.CreateCall(JoveLog1Func, {IRB.CreateGlobalStringPtr(message.c_str()), ArgVec.at(0)});
+        IRB.CreateCall(JoveLog1Func,
+                       {IRB.CreateGlobalStringPtr(message.c_str()), SjLjAddr});
       }
 
-      llvm::CallInst *Ret =
-          IRB.CreateCall(llvm::FunctionType::get(WordType(), argTypes, false),
-                         CastedPtr, ArgVec, Sj ? "setjmpval" : "longjmpval");
+      llvm::CallInst *Ret = IRB.CreateCall(
+          SjLjFuncTy, IRB.CreateIntToPtr(SjLjAddr, SjLjFuncTy->getPointerTo()),
+          SjLjArgs, Sj ? "setjmpval" : "longjmpval");
       Ret->doesNotThrow();
 
       if (Sj) {
@@ -9218,79 +9196,61 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
       if (Sj)
         save_callstack();
 
+      std::vector<llvm::Value *> SjLjArgs;
+      std::vector<llvm::Type *> SjLjArgTypes;
+
 #if defined(TARGET_I386)
-      std::vector<llvm::Type *> argTypes(2, WordType());
+      //
+      // XXX assuming __cdecl (args on emulated stack)
+      //
+      SjLjArgTypes = {WordType(), WordType()};
 
-      llvm::Value *CastedPtr = IRB.CreateIntToPtr(
-          GetDynTargetAddress<false>(IRB, X),
-          llvm::FunctionType::get(WordType(), argTypes, false)->getPointerTo());
+      llvm::Value *const EmuSP = get(tcg_stack_pointer_index);
 
-      std::vector<llvm::Value *> ArgVec;
+      SjLjArgs.push_back(IRB.CreateLoad(WordType(), IRB.CreateIntToPtr(
+          IRB.CreateAdd(EmuSP, IRB.getIntN(WordBits(), 1 * sizeof(uint32_t))),
+          WordType()->getPointerTo())));
 
-      {
-        llvm::Value *SP = get(tcg_stack_pointer_index);
-
-        ArgVec.push_back(IRB.CreateLoad(WordType(), IRB.CreateIntToPtr(
-            IRB.CreateAdd(SP, IRB.getIntN(WordBits(), 1 * sizeof(uint32_t))),
-            WordType()->getPointerTo())));
-
-        ArgVec.push_back(IRB.CreateLoad(WordType(), IRB.CreateIntToPtr(
-            IRB.CreateAdd(SP, IRB.getIntN(WordBits(), 2 * sizeof(uint32_t))),
-            WordType()->getPointerTo())));
-
-#if 0
-        {
-          std::string message =
-              (fmt("doing %s (%s) to %s @ %s+0x%x\n")
-               % (Lj ? "longjmp" : "setjmp")
-               % (IsCall ? "indcall" : "indjmp")
-               % dyn_target_desc(X)
-               % fs::path(Binary.path_str()).filename().string()
-               % ICFG[bb].Term.Addr).str();
-
-          IRB.CreateCall(JoveLog2Func,
-                         {IRB.CreateGlobalStringPtr(message.c_str()),
-                          ArgVec.at(0),
-                          ArgVec.at(1)});
-        }
-#endif
-      }
-
-      assert(ArgVec.size() == argTypes.size());
+      SjLjArgs.push_back(IRB.CreateLoad(WordType(), IRB.CreateIntToPtr(
+          IRB.CreateAdd(EmuSP, IRB.getIntN(WordBits(), 2 * sizeof(uint32_t))),
+          WordType()->getPointerTo())));
 #else
-      std::vector<llvm::Type *> argTypes(CallConvArgArray.size(), WordType());
+      SjLjArgTypes = std::vector<llvm::Type *>(CallConvArgArray.size(), WordType());
 
-      llvm::Value *CastedPtr = IRB.CreateIntToPtr(
-          GetDynTargetAddress<false>(IRB, X),
-          llvm::FunctionType::get(WordType(), argTypes, false)->getPointerTo());
-
-      std::vector<llvm::Value *> ArgVec;
-      ArgVec.resize(CallConvArgArray.size());
-
+      SjLjArgs.resize(CallConvArgArray.size());
       std::transform(CallConvArgArray.begin(),
                      CallConvArgArray.end(),
-                     ArgVec.begin(),
-                     [&](unsigned glb) -> llvm::Value * {
-                       return get(glb);
-                     });
+                     SjLjArgs.begin(), get);
 #endif
+      assert(SjLjArgTypes.size() == SjLjArgs.size());
+      llvm::FunctionType *SjLjFuncTy =
+          llvm::FunctionType::get(WordType(), SjLjArgTypes, false);
 
-      IRB.CreateCall(JoveMakeSectionsExeFunc);
+      const bool ChangeSectsProt =
+          X.first == BinaryIndex; /* TODO if in other recompiled binary? */
+
+      if (ChangeSectsProt)
+        IRB.CreateCall(JoveMakeSectionsExeFunc);
+
+      llvm::Value *SjLjAddr = GetDynTargetAddress<false>(IRB, X);
 
       if (opts.DebugSjlj) {
         std::string message =
-            (fmt("doing %s (%s) to %s @ %s+0x%x\n")
+            (fmt("doing %s (%s) to %s @ %s+0x%x")
              % (Lj ? "longjmp" : "setjmp")
              % (IsCall ? "indcall" : "indjmp")
              % dyn_target_desc(X)
              % fs::path(Binary.path_str()).filename().string()
              % ICFG[bb].Term.Addr).str();
-        IRB.CreateCall(JoveLog1Func, {IRB.CreateGlobalStringPtr(message.c_str()), ArgVec.at(0)});
+        IRB.CreateCall(
+            JoveLog1Func,
+            {IRB.CreateGlobalStringPtr(message.c_str()), SjLjAddr});
       }
 
       llvm::CallInst *Ret = IRB.CreateCall(
-          llvm::FunctionType::get(WordType(), argTypes, false),
-          CastedPtr, ArgVec, Sj ? "setjmpval" : "longjmpval");
+          SjLjFuncTy,
+          IRB.CreateIntToPtr(SjLjAddr, SjLjFuncTy->getPointerTo()), SjLjArgs,
+          Sj ? "setjmpval" : "longjmpval");
       Ret->doesNotThrow();
 
       if (Sj) {
@@ -9313,7 +9273,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
 
 #if defined(TARGET_X86_64) || defined(TARGET_I386)
         //
-        // simulate return address being popped
+        // simulate popping return address on the emulated stack
         //
         set(IRB.CreateAdd(
                 get(tcg_stack_pointer_index),
@@ -9321,7 +9281,8 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
             tcg_stack_pointer_index);
 #endif
 
-        IRB.CreateCall(JoveMakeSectionsNotExeFunc);
+        if (ChangeSectsProt)
+          IRB.CreateCall(JoveMakeSectionsNotExeFunc);
 
         restore_callstack();
 
