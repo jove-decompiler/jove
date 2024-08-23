@@ -41,6 +41,15 @@ int UnlockTool::Run(void) {
           __builtin_memset(&b.bbmap_mtx, 0, sizeof(b.bbmap_mtx));
           __builtin_memset(&b.Analysis.ICFG_mtx, 0, sizeof(b.Analysis.ICFG_mtx));
           __builtin_memset(&b.Analysis.Functions._mtx, 0, sizeof(b.Analysis.Functions._mtx));
+
+          auto &ICFG = b.Analysis.ICFG;
+          auto it_pair = boost::vertices(ICFG);
+          std::for_each(std::execution::par_unseq,
+                        it_pair.first,
+                        it_pair.second, [&](basic_block_t bb) {
+                          __builtin_memset(&ICFG[bb].Parents._mtx, 0,
+                                           sizeof(ICFG[bb].Parents._mtx));
+                        });
         });
   } else {
     try {
@@ -55,6 +64,13 @@ int UnlockTool::Run(void) {
                       b.bbmap_mtx.unlock();
                       b.Analysis.ICFG_mtx.unlock();
                       b.Analysis.Functions._mtx.unlock();
+
+                      auto &ICFG = b.Analysis.ICFG;
+                      auto it_pair = boost::vertices(ICFG);
+                      std::for_each(std::execution::par_unseq, it_pair.first,
+                                    it_pair.second, [&](basic_block_t bb) {
+                                      ICFG[bb].Parents._mtx.unlock();
+                                    });
                     });
     } catch (...) {
       WithColor::error() << "unlocking failed!\n";
