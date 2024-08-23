@@ -8805,7 +8805,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
 
 #if defined(TARGET_X86_64) || defined(TARGET_I386)
         //
-        // simulate return address being popped
+        // simulate popping return address on emulated stack
         //
         set(IRB.CreateAdd(
                 get(tcg_stack_pointer_index),
@@ -9273,7 +9273,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
 
 #if defined(TARGET_X86_64) || defined(TARGET_I386)
         //
-        // simulate popping return address on the emulated stack
+        // simulate popping return address on emulated stack
         //
         set(IRB.CreateAdd(
                 get(tcg_stack_pointer_index),
