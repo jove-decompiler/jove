@@ -1069,7 +1069,7 @@ void _jove_log1(const char *msg,
 
     _strcat(s, buff);
   }
-  _strcat(s, ">\n");
+  _strcat(s, ")\n");
 
   _DUMP(s);
 }
