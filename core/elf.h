@@ -288,7 +288,7 @@ static inline const void *toMappedAddr(ELFO &O, uint64_t Addr) {
 
   llvm::Expected<const uint8_t *> ExpectedPtr = Elf.toMappedAddr(Addr);
   if (!ExpectedPtr) {
-    (void)ExpectedPtr.takeError();
+    (void)errorToBool(ExpectedPtr.takeError());
     return nullptr;
   }
 
