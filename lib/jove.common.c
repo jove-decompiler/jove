@@ -110,11 +110,10 @@ _HIDDEN void _jove_initialize(void) {
   if (_jove_is_fixed_base_address())
     _jove_check_sections_at_base_address();
 
-#if 0
-  _jove_make_sections_not_executable();
-#else
-  _jove_make_sections_executable();
-#endif
+  if (unlikely(__jove_opts.SectsExe))
+    _jove_make_sections_executable();
+  else
+    _jove_make_sections_not_executable();
 
   if (_jove_trace_enabled() && !__jove_opts.Trace)
     _UNREACHABLE("must set $JOVETRACE in trace mode");
@@ -249,11 +248,35 @@ void _jove_make_sections_executable(void) {
                                    _jove_sections_begin(), JOVE_PAGE_SIZE);
   const uintptr_t x = QEMU_ALIGN_DOWN(_jove_sections_begin(), JOVE_PAGE_SIZE);
 
+  if (unlikely(__jove_opts.Debug.Verbose)) {
+    char s[512];
+
+    _strcpy(s, "mprotecting +xrw [0x");
+    {
+      char buff[65];
+      _uint_to_string(x, buff, 0x10);
+
+      _strcat(s, buff);
+    }
+    _strcat(s, ", 0x");
+    {
+      char buff[65];
+      _uint_to_string(x + n, buff, 0x10);
+
+      _strcat(s, buff);
+    }
+    _strcat(s, ")\n");
+    _DUMP(s);
+  }
+
   if (_jove_sys_mprotect(x, n, PROT_READ | PROT_WRITE | PROT_EXEC) < 0)
     _UNREACHABLE("failed to make sections executable\n");
 }
 
 void _jove_make_sections_not_executable(void) {
+  if (unlikely(__jove_opts.SectsExe))
+    return; // overriden by user
+
   const unsigned n = QEMU_ALIGN_UP(_jove_sections_end() -
                                    _jove_sections_begin(), JOVE_PAGE_SIZE);
   const uintptr_t x = QEMU_ALIGN_DOWN(_jove_sections_begin(), JOVE_PAGE_SIZE);
@@ -1689,6 +1712,8 @@ void __nodce(void **p) {
   *p++ = &_jove_get_libc_early_init_fn_sect_ptr;
   *p++ = &_jove_rt_init_clunk;
   *p++ = &_jove_needs_runtime;
+  *p++ = &_jove_make_sections_executable;
+  *p++ = &_jove_make_sections_not_executable;
 #ifdef JOVE_CLUNK
   *p++ = &__jove_env_clunk;
 #endif

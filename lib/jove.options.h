@@ -20,4 +20,5 @@ struct jove_opts_t {
   const char *Trace;
   const char *CallS;
   bool Hoard;
+  bool SectsExe;
 };

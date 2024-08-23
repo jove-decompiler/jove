@@ -142,6 +142,7 @@ static void _jove_parse_trace_string(char *const);
 static void _jove_parse_crash_string(char *const);
 static void _jove_parse_callstack_string(char *const s);
 static void _jove_parse_hoard_string(char *const);
+static void _jove_parse_sects_string(char *const);
 
 //
 // options
@@ -165,10 +166,13 @@ void _jove_parse_opts(void) {
 
 #define STRING_OPT(NAME, F)                                                    \
   do {                                                                         \
-    if (!_strncmp(env, NAME "=", sizeof(NAME "=") - 1))                        \
+    if (!_strncmp(env, NAME "=", sizeof(NAME "=") - 1)) {                      \
       F(env + sizeof(NAME "=") - 1);                                           \
+      continue;                                                                \
+    }                                                                          \
   } while (false)
 
+    STRING_OPT("JOVESECTS", _jove_parse_sects_string);
     STRING_OPT("JOVEHOARD", _jove_parse_hoard_string);
     STRING_OPT("JOVECALLS", _jove_parse_callstack_string);
     STRING_OPT("JOVETRACE", _jove_parse_trace_string);
@@ -259,6 +263,15 @@ void _jove_parse_crash_string(char *const s) {
 
 void _jove_parse_hoard_string(char *const s) {
   __jove_opts.Hoard = s[0] == '1';
+}
+
+void _jove_parse_sects_string(char *const s) {
+  if (!_strcmp(s, "exe")) {
+    __jove_opts.SectsExe = true;
+    return;
+  }
+
+  _UNREACHABLE("invalid JOVESECTS environment variable");
 }
 
 void _jove_dump_opts(void) {
