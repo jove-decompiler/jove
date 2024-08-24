@@ -76,6 +76,7 @@ function(tool_for_arch arch arch_extra_cflags qemu_objs)
     ../core/vdso.cpp
     ../core/win.cpp
     check-helper.cpp
+    dump-vdso.cpp
     gen-tcgconstants.cpp
     jove-add.cpp
     jove-addr2off.cpp
