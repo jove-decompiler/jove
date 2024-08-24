@@ -797,7 +797,7 @@ static _INL uintptr_t _parse_vdso_load_bias(char *maps, const unsigned n) {
     }
   }
 
-  _UNREACHABLE("failed to find [vdso]");
+  return ~0ul; /* doesn't exist */
 }
 
 void _jove_install_foreign_function_tables(void) {
