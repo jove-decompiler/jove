@@ -55,7 +55,7 @@ void _jove_begin(void) {
 
   struct vdso_t vdso = _get_vdso(maps, maps_n);
 
-  _RELEASE_ASSERT(_jove_robust_write(1, vdso.ptr, vdso.len) == vdso.len);
+  _RASSERT(_jove_robust_write(1, vdso.ptr, vdso.len) == vdso.len);
 
   _jove_sys_exit_group(0);
   __UNREACHABLE();
