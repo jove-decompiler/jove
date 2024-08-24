@@ -35,20 +35,6 @@ using llvm::WithColor;
 
 namespace jove {
 
-static bool AreWeTargetArch(void) {
-  return
-#if (defined(__x86_64__)  && defined(TARGET_X86_64))  || \
-    (defined(__i386__)    && defined(TARGET_I386))    || \
-    (defined(__aarch64__) && defined(TARGET_AARCH64)) || \
-    (defined(__mips64)    && defined(TARGET_MIPS64))  || \
-    (defined(__mips__)    && defined(TARGET_MIPS32))
-  true
-#else
-  false
-#endif
-  ;
-}
-
 class InitTool : public JVTool<ToolKind::Standard> {
   struct Cmdline {
     cl::opt<std::string> Prog;
@@ -247,17 +233,21 @@ int InitTool::Run(void) {
         case 2: {
           std::string_view sv;
           std::string vdso;
-          if (capture_vdso(vdso)) {
-            sv = vdso;
-          } else {
-            if (IsVerbose())
-              WithColor::warning() << "failed to capture vdso\n";
 
-            if (AreWeTargetArch()) {
-              sv = get_vdso();
+          if (capture_vdso(vdso)) {
+            if (vdso.empty()) {
+              // no [vdso]. we could be running under qemu-user. in this case
+              // since some code in jove assumes the existence of [vdso], we'll
+              // hallucinate one.
+              if (IsVerbose())
+                WithColor::note() << "hallucinating [vdso]\n";
+
+              sv = hallucinate_vdso();
             } else {
-              die("couldn't get [vdso]");
+              sv = vdso;
             }
+          } else {
+            die("utilities/dump-vdso failed. is qemu-user properly installed?");
           }
 
           try {
