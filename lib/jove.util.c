@@ -843,34 +843,22 @@ static _UNUSED char *_getenv(const char *name) {
   unsigned n;
   char *const envs = _get_environ(&n);
 
-  char *const beg = &envs[0];
-  char *const end = &envs[n];
+  char *env;
+  for_each_in_environ(env, envs, n) {
+    const char *s1 = name;
+    char *s2 = env;
+    for (;;) {
+      char ch1 = *s1++;
+      char ch2 = *s2++;
 
-  char *eoe;
-  for (char *env = beg; env != end; env = eoe + 1) {
-    unsigned left = n - (env - beg);
+      if (ch1 != ch2)
+        break;
 
-    //
-    // find the end of the current entry
-    //
-    eoe = _memchr(env, '\0', left);
+      if ((s1 - name) == name_len) {
+        if (*s2 == '=')
+          return s2 + 1;
 
-    {
-      const char *s1 = name;
-      char *s2 = env;
-      for (;;) {
-        char ch1 = *s1++;
-        char ch2 = *s2++;
-
-        if (ch1 != ch2)
-          break;
-
-        if ((s1 - name) == name_len) {
-          if (*s2 == '=')
-            return s2 + 1;
-
-          break;
-        }
+        break;
       }
     }
   }
