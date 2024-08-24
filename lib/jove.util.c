@@ -491,6 +491,9 @@ static _UNUSED uint64_t _u64ofhexstr(char *str_begin, char *str_end) {
 #define for_each_in_environ(env, environ, n)                                   \
   for_each_str_delim_know_end(env, '\0', environ, n)
 
+//
+// /proc/<pid>/maps
+//
 static _UNUSED uintptr_t _parse_stack_end_of_maps(char *maps, const unsigned n) {
   char *const beg = &maps[0];
   char *const end = &maps[n];
@@ -667,9 +670,9 @@ static void _jove_free_buffer(const jove_buffer_t *buff) {
 }
 
 #define JOVE_SCOPED_BUFF(var, len)                                             \
-  const jove_buffer_t _##var _CLEANUP(_jove_free_buffer) =                     \
+  const jove_buffer_t __##var##_buff _CLEANUP(_jove_free_buffer) =             \
       _jove_alloc_buffer(len);                                                 \
-  var = (char *)_##var.ptr
+  var = (char *)__##var##_buff.ptr
 
 //
 // string management
@@ -708,21 +711,25 @@ static void _jove_restore_char(const jove_saved_char_t *sav) {
   set_restore_char(p, ch)
 
 //
-// parsing
+// /proc/self/maps
 //
-static _UNUSED uintptr_t _get_stack_end(void) {
-  char *buff;
-  JOVE_SCOPED_BUFF(buff, JOVE_MAX_PROC_MAPS);
-  unsigned n = _jove_read_pseudo_file("/proc/self/maps", _buff.ptr, _buff.len);
+#define LOAD_PROC_SELF_MAPS(var, len)                                          \
+  JOVE_SCOPED_BUFF(var, JOVE_MAX_PROC_MAPS);                                   \
+  len = _jove_read_pseudo_file("/proc/self/maps", var, JOVE_MAX_PROC_MAPS)
 
-  uintptr_t res = _parse_stack_end_of_maps(buff, n);
+static _UNUSED uintptr_t _get_stack_end(void) {
+  char *maps;
+  unsigned n;
+  LOAD_PROC_SELF_MAPS(maps, n);
+
+  uintptr_t res = _parse_stack_end_of_maps(maps, n);
 
   //
   // if there is a contiguous sequence of readable maps directly after [stack], we will consider the end of such mappings to be the end of the stack.
   //
   uintptr_t newres;
   do {
-    newres = _does_readable_regular_mapping_exist_at_address(res, buff, n);
+    newres = _does_readable_regular_mapping_exist_at_address(res, maps, n);
     if (newres)
       res = newres;
   } while (newres);
@@ -730,6 +737,9 @@ static _UNUSED uintptr_t _get_stack_end(void) {
   return res;
 }
 
+//
+// parsing
+//
 static _UNUSED char *_getenv(const char *name) {
   static char envs[ARG_MAX];
   static unsigned envs_n = 0;

@@ -809,9 +809,8 @@ void _jove_install_foreign_function_tables(void) {
   /* we need to get the load addresses for the dynamic linker and VDSO by
    * parsing /proc/self/maps */
   char *maps;
-  JOVE_SCOPED_BUFF(maps, JOVE_MAX_PROC_MAPS);
-
-  unsigned n = _jove_read_pseudo_file("/proc/self/maps", _maps.ptr, _maps.len);
+  unsigned n;
+  LOAD_PROC_SELF_MAPS(maps, n);
 
   uintptr_t dynl_load_bias = _parse_dynl_load_bias(maps, n); /* cannot fail */
   uintptr_t vdso_load_bias = _parse_vdso_load_bias(maps, n); /* cannot fail */
@@ -949,8 +948,8 @@ void _jove_install_foreign_function_tables(void) {
 
 _NORET void _jove_fail1(uintptr_t a0, const char *reason) {
   char *maps;
-  JOVE_SCOPED_BUFF(maps, JOVE_MAX_PROC_MAPS);
-  unsigned n = _jove_read_pseudo_file("/proc/self/maps", _maps.ptr, _maps.len);
+  unsigned n;
+  LOAD_PROC_SELF_MAPS(maps, n);
 
   {
     char *s;
@@ -968,7 +967,7 @@ _NORET void _jove_fail1(uintptr_t a0, const char *reason) {
     }
     {
       char *buff;
-      JOVE_SCOPED_BUFF(buff, JOVE_MAX_PROC_MAPS);
+      JOVE_SCOPED_BUFF(buff, 2*PATH_MAX);
       buff[0] = '\0';
 
       if (_description_of_address_for_maps(buff, a0, maps, n)) {
@@ -1001,8 +1000,8 @@ _NORET void _jove_fail1(uintptr_t a0, const char *reason) {
 _NORET void _jove_fail2(uintptr_t a0,
                         uintptr_t a1) {
   char *maps;
-  JOVE_SCOPED_BUFF(maps, JOVE_MAX_PROC_MAPS);
-  unsigned n = _jove_read_pseudo_file("/proc/self/maps", _maps.ptr, _maps.len);
+  unsigned n;
+  LOAD_PROC_SELF_MAPS(maps, n);
 
   {
     char *s;
@@ -1258,9 +1257,8 @@ jove_thunk_return_t _jove_call(
 
   if (!FoundAll) {
     char *maps;
-    JOVE_SCOPED_BUFF(maps, JOVE_MAX_PROC_MAPS);
-
-    unsigned n = _jove_read_pseudo_file("/proc/self/maps", _maps.ptr, _maps.len);
+    unsigned n;
+    LOAD_PROC_SELF_MAPS(maps, n);
 
     char *const beg = &maps[0];
     char *const end = &maps[n];
@@ -1345,9 +1343,8 @@ jove_thunk_return_t _jove_call(
     // see if this is a function in a foreign DSO
     //
     char *maps;
-    JOVE_SCOPED_BUFF(maps, JOVE_MAX_PROC_MAPS);
-
-    unsigned n = _jove_read_pseudo_file("/proc/self/maps", _maps.ptr, _maps.len);
+    unsigned n;
+    LOAD_PROC_SELF_MAPS(maps, n);
 
     char *const beg = &maps[0];
     char *const end = &maps[n];

@@ -157,8 +157,7 @@ void _jove_parse_opts(void) {
 
   char *envs;
   JOVE_SCOPED_BUFF(envs, ARG_MAX);
-  const unsigned n =
-      _jove_read_pseudo_file("/proc/self/environ", _envs.ptr, _envs.len);
+  unsigned n = _jove_read_pseudo_file("/proc/self/environ", envs, ARG_MAX);
 
   char *env;
   for_each_in_environ(env, envs, n) {
@@ -1087,8 +1086,8 @@ not_found:
     // if we get here we'll assume it's a crash.
     //
     char *maps;
-    JOVE_SCOPED_BUFF(maps, JOVE_MAX_PROC_MAPS);
-    unsigned maps_n = _jove_read_pseudo_file("/proc/self/maps", _maps.ptr, _maps.len);
+    unsigned maps_n;
+    LOAD_PROC_SELF_MAPS(maps, maps_n);
 
     char *s;
     JOVE_SCOPED_BUFF(s, JOVE_LARGE_BUFF_SIZE);
@@ -1221,7 +1220,7 @@ not_found:
 
     _strcat(s, "\n");
 
-    maps[min(maps_n, _maps.len - 1)] = '\0';
+    maps[min(maps_n, JOVE_MAX_PROC_MAPS - 1)] = '\0';
     _strcat(s, maps);
 
     _DUMP(s);

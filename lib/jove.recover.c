@@ -119,9 +119,8 @@ void _jove_recover_dyn_target(uint32_t CallerBBIdx, uintptr_t CalleeAddr) {
 
   if (!FoundAll) {
     char *maps;
-    JOVE_SCOPED_BUFF(maps, JOVE_MAX_PROC_MAPS);
-
-    unsigned n = _jove_read_pseudo_file("/proc/self/maps", _maps.ptr, _maps.len);
+    unsigned n;
+    LOAD_PROC_SELF_MAPS(maps, n);
 
     char *const beg = &maps[0];
     char *const end = &maps[n];
@@ -206,9 +205,8 @@ void _jove_recover_dyn_target(uint32_t CallerBBIdx, uintptr_t CalleeAddr) {
     // see if this is a function in a foreign DSO
     //
     char *maps;
-    JOVE_SCOPED_BUFF(maps, JOVE_MAX_PROC_MAPS);
-
-    unsigned n = _jove_read_pseudo_file("/proc/self/maps", _maps.ptr, _maps.len);
+    unsigned n;
+    LOAD_PROC_SELF_MAPS(maps, n);
 
     char *const beg = &maps[0];
     char *const end = &maps[n];
@@ -500,9 +498,8 @@ void _jove_recover_foreign_function(uint32_t IndCallBBIdx,
 
   if (!FoundAll) {
     char *maps;
-    JOVE_SCOPED_BUFF(maps, JOVE_MAX_PROC_MAPS);
-
-    unsigned n = _jove_read_pseudo_file("/proc/self/maps", _maps.ptr, _maps.len);
+    unsigned n;
+    LOAD_PROC_SELF_MAPS(maps, n);
 
     char *const beg = &maps[0];
     char *const end = &maps[n];
@@ -587,9 +584,8 @@ void _jove_recover_foreign_function(uint32_t IndCallBBIdx,
     // see if this is a function in a foreign DSO
     //
     char *maps;
-    JOVE_SCOPED_BUFF(maps, JOVE_MAX_PROC_MAPS);
-
-    unsigned n = _jove_read_pseudo_file("/proc/self/maps", _maps.ptr, _maps.len);
+    unsigned n;
+    LOAD_PROC_SELF_MAPS(maps, n);
 
     char *const beg = &maps[0];
     char *const end = &maps[n];
@@ -1042,9 +1038,8 @@ void _jove_recover_foreign_binary(uintptr_t CalleeAddr) {
 
   if (!FoundAll) {
     char *maps;
-    JOVE_SCOPED_BUFF(maps, JOVE_MAX_PROC_MAPS);
-
-    unsigned n = _jove_read_pseudo_file("/proc/self/maps", _maps.ptr, _maps.len);
+    unsigned n;
+    LOAD_PROC_SELF_MAPS(maps, n);
 
     char *const beg = &maps[0];
     char *const end = &maps[n];
@@ -1129,9 +1124,8 @@ void _jove_recover_foreign_binary(uintptr_t CalleeAddr) {
     // see if this is a function in a foreign DSO
     //
     char *maps;
-    JOVE_SCOPED_BUFF(maps, JOVE_MAX_PROC_MAPS);
-
-    unsigned n = _jove_read_pseudo_file("/proc/self/maps", _maps.ptr, _maps.len);
+    unsigned n;
+    LOAD_PROC_SELF_MAPS(maps, n);
 
     char *const beg = &maps[0];
     char *const end = &maps[n];
