@@ -96,6 +96,7 @@ class RecompileTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, 
     cl::opt<bool> MT;
     cl::opt<bool> BreakBeforeUnreachables;
     cl::opt<bool> LayOutSections;
+    cl::opt<bool> PlaceSectionBreakpoints;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : Output("output", cl::desc("Output directory"), cl::Required,
@@ -186,7 +187,21 @@ class RecompileTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, 
                        "_jove_check_sections_laid_out() at runtime to make "
                        "sure that those aforementioned global variables exist "
                        "side-by-side in memory in the way we expect them to"),
+              cl::cat(JoveCategory)),
+
+          PlaceSectionBreakpoints(
+              "place-section-breakpoints",
+              cl::desc("In the section globals, overwrite the bytes at the "
+                       "start of every ABI function (which is not setjmp() or "
+                       "longjmp()) with an illegal instruction. This is "
+                       "used to provoke a fault at runtime when such functions "
+                       "are called into from non-recompiled code, so that the "
+                       "recompiled versions are called. Unless JOVESECTS=exe, "
+                       "this is unnecessary because the section globals will "
+                       "not be executable to begin with thus triggering a "
+                       "fault."),
               cl::cat(JoveCategory)) {}
+
   } opts;
 
   bool IsCOFF = false;
@@ -1317,6 +1332,8 @@ void RecompileTool::worker(dso_t dso) {
           Arg("--break-before-unreachables");
         if (opts.LayOutSections)
           Arg("--lay-out-sections");
+        if (opts.PlaceSectionBreakpoints)
+          Arg("--place-section-breakpoints");
 
         if (!opts.PinnedGlobals.empty()) {
           std::string pinned_globals_arg = "--pinned-globals=";
