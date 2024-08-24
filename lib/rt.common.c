@@ -155,6 +155,7 @@ void _jove_parse_opts(void) {
 
   __jove_opts.Trace = NULL;
 
+  char *envs;
   JOVE_SCOPED_BUFF(envs, ARG_MAX);
   const unsigned n =
       _jove_read_pseudo_file("/proc/self/environ", _envs.ptr, _envs.len);
@@ -410,6 +411,7 @@ void _jove_init_cpu_state(void) {
 }
 
 static uintptr_t _jove_alloc_callstack(const char *callstack_path) {
+  char *path;
   JOVE_SCOPED_BUFF(path, PATH_MAX);
 
   _ASSERT(callstack_path);
@@ -528,6 +530,7 @@ void _jove_flush_trace(void) {
   if (unlikely(TraceBegin == TracePtr))
     return;
 
+  char *path;
   JOVE_SCOPED_BUFF(path, PATH_MAX);
 
   char *const trace_path = __jove_opts.Trace;
@@ -559,6 +562,7 @@ void _jove_flush_trace(void) {
     _UNREACHABLE("_jove_flush_trace: failed to close trace file");
 
   if (unlikely(__jove_opts.Debug.Verbose)) {
+    char *s;
     JOVE_SCOPED_BUFF(s, PATH_MAX);
     _strcpy(s, "flushed ");
 
@@ -882,6 +886,7 @@ found:
 
 #if 0
         {
+	  char *maps;
           JOVE_SCOPED_BUFF(maps, JOVE_MAX_PROC_MAPS);
           unsigned n = _jove_read_pseudo_file("/proc/self/maps", _maps.ptr, _maps.len);
 
@@ -1081,9 +1086,11 @@ not_found:
     //
     // if we get here we'll assume it's a crash.
     //
+    char *maps;
     JOVE_SCOPED_BUFF(maps, JOVE_MAX_PROC_MAPS);
     unsigned maps_n = _jove_read_pseudo_file("/proc/self/maps", _maps.ptr, _maps.len);
 
+    char *s;
     JOVE_SCOPED_BUFF(s, JOVE_LARGE_BUFF_SIZE);
     s[0] = '\0';
 
@@ -1096,6 +1103,7 @@ not_found:
     }
     _strcat(s, "]\n");
 
+    char *buff;
     JOVE_SCOPED_BUFF(buff, 2*PATH_MAX);
     buff[0] = '\0';
 

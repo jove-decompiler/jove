@@ -179,6 +179,7 @@ void _jove_check_sections_laid_out(void) {
       _ASSERT(actual_addr_before + actual_size_before == actual_addr);
       _ASSERT(expect_addr_before + expect_size_before == expect_addr);
 
+      char *s;
       JOVE_SCOPED_BUFF(s, JOVE_LARGE_BUFF_SIZE);
       s[0] = '\0';
 
@@ -381,6 +382,7 @@ void _jove_see_through_tramps(struct jove_function_info_t *fninfo_p) {
 found:
     if (unlikely(__jove_opts.Debug.Tramps))
     {
+      char *s;
       JOVE_SCOPED_BUFF(s, JOVE_LARGE_BUFF_SIZE);
       s[0] = '\0';
 
@@ -806,6 +808,7 @@ void _jove_install_foreign_function_tables(void) {
 
   /* we need to get the load addresses for the dynamic linker and VDSO by
    * parsing /proc/self/maps */
+  char *maps;
   JOVE_SCOPED_BUFF(maps, JOVE_MAX_PROC_MAPS);
 
   unsigned n = _jove_read_pseudo_file("/proc/self/maps", _maps.ptr, _maps.len);
@@ -945,10 +948,12 @@ void _jove_install_foreign_function_tables(void) {
 }
 
 _NORET void _jove_fail1(uintptr_t a0, const char *reason) {
+  char *maps;
   JOVE_SCOPED_BUFF(maps, JOVE_MAX_PROC_MAPS);
   unsigned n = _jove_read_pseudo_file("/proc/self/maps", _maps.ptr, _maps.len);
 
   {
+    char *s;
     JOVE_SCOPED_BUFF(s, JOVE_LARGE_BUFF_SIZE);
     s[0] = '\0';
 
@@ -962,6 +967,7 @@ _NORET void _jove_fail1(uintptr_t a0, const char *reason) {
       _strcat(s, buff);
     }
     {
+      char *buff;
       JOVE_SCOPED_BUFF(buff, JOVE_MAX_PROC_MAPS);
       buff[0] = '\0';
 
@@ -994,10 +1000,12 @@ _NORET void _jove_fail1(uintptr_t a0, const char *reason) {
 
 _NORET void _jove_fail2(uintptr_t a0,
                         uintptr_t a1) {
+  char *maps;
   JOVE_SCOPED_BUFF(maps, JOVE_MAX_PROC_MAPS);
   unsigned n = _jove_read_pseudo_file("/proc/self/maps", _maps.ptr, _maps.len);
 
   {
+    char *s;
     JOVE_SCOPED_BUFF(s, JOVE_LARGE_BUFF_SIZE);
     s[0] = '\0';
 
@@ -1009,6 +1017,7 @@ _NORET void _jove_fail2(uintptr_t a0,
       _strcat(s, buff);
     }
     {
+      char *buff;
       JOVE_SCOPED_BUFF(buff, 2*PATH_MAX);
       buff[0] = '\0';
 
@@ -1026,6 +1035,7 @@ _NORET void _jove_fail2(uintptr_t a0,
       _strcat(s, buff);
     }
     {
+      char *buff;
       JOVE_SCOPED_BUFF(buff, 2*PATH_MAX);
       buff[0] = '\0';
 
@@ -1057,6 +1067,7 @@ _NORET void _jove_fail2(uintptr_t a0,
 
 void _jove_log1(const char *msg,
                 uintptr_t x) {
+  char *s;
   JOVE_SCOPED_BUFF(s, JOVE_LARGE_BUFF_SIZE);
   s[0] = '\0';
 
@@ -1077,6 +1088,7 @@ void _jove_log1(const char *msg,
 void _jove_log2(const char *msg,
                 uintptr_t x,
                 uintptr_t y) {
+  char *s;
   JOVE_SCOPED_BUFF(s, JOVE_LARGE_BUFF_SIZE);
   s[0] = '\0';
 
@@ -1245,6 +1257,7 @@ jove_thunk_return_t _jove_call(
   }
 
   if (!FoundAll) {
+    char *maps;
     JOVE_SCOPED_BUFF(maps, JOVE_MAX_PROC_MAPS);
 
     unsigned n = _jove_read_pseudo_file("/proc/self/maps", _maps.ptr, _maps.len);
@@ -1331,6 +1344,7 @@ jove_thunk_return_t _jove_call(
     //
     // see if this is a function in a foreign DSO
     //
+    char *maps;
     JOVE_SCOPED_BUFF(maps, JOVE_MAX_PROC_MAPS);
 
     unsigned n = _jove_read_pseudo_file("/proc/self/maps", _maps.ptr, _maps.len);
