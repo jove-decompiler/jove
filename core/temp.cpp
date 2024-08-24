@@ -16,7 +16,7 @@ temp_executable::temp_executable(const void *contents, size_t size,
   int fd = -1;
 
 #ifdef JOVE_HAVE_MEMFD
-  fd = ::memfd_create(temp_prefix.c_str(), MFD_CLOEXEC);
+  fd = ::memfd_create(temp_prefix.c_str(), 0);
   if (fd < 0)
     throw std::runtime_error(std::string("memfd_create failed: ") + strerror(errno));
 
