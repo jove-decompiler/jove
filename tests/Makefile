@@ -49,6 +49,9 @@ build: $(foreach t,$(ALL_TARGETS),build-$(t))
 .PHONY: check
 check: $(foreach t,$(ALL_TARGETS),check-$(t))
 
+.PHONY: just-update-jove
+just-update-jove: $(foreach t,$(ALL_TARGETS),just-update-jove-$(t))
+
 define check_template
 .PHONY: build-$(1)
 build-$(1): $(foreach test,$(ST_TESTS),$(BINDIR)/$(1)/$(test).exe) \
@@ -59,6 +62,10 @@ build-$(1): $(foreach test,$(ST_TESTS),$(BINDIR)/$(1)/$(test).exe) \
 .PHONY: check-$(1)
 check-$(1): build-$(1)
 	$(ROOT_DIR)/run.py -a $(1) --single-threaded $(ST_TESTS) --multi-threaded $(MT_TESTS)
+
+.PHONY: just-update-jove-$(1)
+just-update-jove-$(1):
+	$(ROOT_DIR)/run.py -a $(1) --just-update-jove
 endef
 $(foreach t,$(ALL_TARGETS),$(eval $(call check_template,$(t))))
 
