@@ -271,6 +271,7 @@ struct LLVMTool : public StatefulJVTool<ToolKind::CopyOnWrite,
     cl::opt<bool> MT;
     cl::opt<bool> BreakBeforeUnreachables;
     cl::opt<bool> LayOutSections;
+    cl::opt<bool> PlaceSectionBreakpoints;
     cl::opt<bool> Debugify;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
@@ -411,6 +412,19 @@ struct LLVMTool : public StatefulJVTool<ToolKind::CopyOnWrite,
                        "_jove_check_sections_laid_out() at runtime to make "
                        "sure that those aforementioned global variables exist "
                        "side-by-side in memory in the way we expect them to"),
+              cl::cat(JoveCategory)),
+
+          PlaceSectionBreakpoints(
+              "place-section-breakpoints",
+              cl::desc("In the section globals, overwrite the bytes at the "
+                       "start of every ABI function (which is not setjmp() or "
+                       "longjmp()) with an illegal instruction. This is "
+                       "used to provoke a fault at runtime when such functions "
+                       "are called into from non-recompiled code, so that the "
+                       "recompiled versions are called. Unless JOVESECTS=exe, "
+                       "this is unnecessary because the section globals will "
+                       "not be executable to begin with thus triggering a "
+                       "fault."),
               cl::cat(JoveCategory)),
 
           Debugify("debugify", cl::cat(JoveCategory)) {}
@@ -4482,7 +4496,6 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
   binary_t &Binary = jv.Binaries.at(BinaryIndex);
   auto &Bin = state.for_binary(Binary).Bin;
 
-#if 0
   struct PatchContents {
     LLVMTool &tool;
     binary_t &Binary;
@@ -4498,6 +4511,9 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
 
     PatchContents(LLVMTool &tool, binary_t &Binary)
         : tool(tool), Binary(Binary) {
+      if (!tool.opts.PlaceSectionBreakpoints)
+        return;
+
       Saved.resize(Binary.Analysis.Functions.size());
 
       auto &Bin = tool.state.for_binary(Binary).Bin;
@@ -4530,6 +4546,9 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
           });
     }
     ~PatchContents() {
+      if (!tool.opts.PlaceSectionBreakpoints)
+        return;
+
       auto &Bin = tool.state.for_binary(Binary).Bin;
 
       //
@@ -4547,7 +4566,6 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
           });
     }
   } __PatchContents(*this, Binary);
-#endif
 
   const uint64_t SectsStartAddr = state.for_binary(Binary).SectsStartAddr;
   const uint64_t SectsEndAddr = state.for_binary(Binary).SectsEndAddr;
