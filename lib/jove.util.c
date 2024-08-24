@@ -816,25 +816,32 @@ static _UNUSED bool _description_of_address_for_maps(char *out,
 #define for_each_in_environ(env, environ, n)                                   \
   for_each_str_delim_know_end(env, '\0', environ, n)
 
-static _UNUSED char *_getenv(const char *name) {
-  static jove_buffer_t _envs = {0};
+/* caches /proc/self/environ */
+static _UNUSED char *_get_environ(unsigned *np) {
+  static jove_buffer_t envs = {0};
   static unsigned n = 0;
-  static mutex_t envs_mtx = JOVE_MUTEX_INIT;
+  static mutex_t _mtx = JOVE_MUTEX_INIT;
 
-  if (!_envs.ptr) {
-    _mutex_lock(&envs_mtx);
+  if (!envs.ptr) {
+    _mutex_lock(&_mtx);
 
-    if (!_envs.ptr) {
-      _envs = _jove_alloc_buffer(2 * ARG_MAX);
-      n = _jove_read_pseudo_file("/proc/self/environ", _envs.ptr, _envs.len);
+    if (!envs.ptr) {
+      envs = _jove_alloc_buffer(2 * ARG_MAX);
+      n = _jove_read_pseudo_file("/proc/self/environ", envs.ptr, envs.len);
     }
 
-    _mutex_unlock(&envs_mtx);
+    _mutex_unlock(&_mtx);
   }
 
+  *np = n;
+  return envs.ptr;
+}
+
+static _UNUSED char *_getenv(const char *name) {
   const unsigned name_len = _strlen(name);
 
-  char *const envs = _envs.ptr;
+  unsigned n;
+  char *const envs = _get_environ(&n);
 
   char *const beg = &envs[0];
   char *const end = &envs[n];

@@ -156,8 +156,8 @@ void _jove_parse_opts(void) {
   __jove_opts.Trace = NULL;
 
   char *envs;
-  JOVE_SCOPED_BUFF(envs, ARG_MAX);
-  unsigned n = _jove_read_pseudo_file("/proc/self/environ", envs, ARG_MAX);
+  unsigned n;
+  envs = _get_environ(&n);
 
   char *env;
   for_each_in_environ(env, envs, n) {
