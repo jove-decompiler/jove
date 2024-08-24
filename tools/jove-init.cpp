@@ -44,8 +44,9 @@ static bool AreWeTargetArch(void) {
     (defined(__mips__)    && defined(TARGET_MIPS32))
   true
 #else
-  false;
+  false
 #endif
+  ;
 }
 
 class InitTool : public JVTool<ToolKind::Standard> {
