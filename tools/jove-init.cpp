@@ -224,6 +224,7 @@ int InitTool::Run(void) {
   explorer_t E(jv, disas, tcg, IsVeryVerbose());
 
   std::for_each(
+      std::execution::par_unseq,
       idx_range.begin(),
       idx_range.end(),
       [&](unsigned i) {
