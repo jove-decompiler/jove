@@ -737,55 +737,6 @@ static _UNUSED uintptr_t _get_stack_end(void) {
   return res;
 }
 
-//
-// parsing
-//
-static _UNUSED char *_getenv(const char *name) {
-  static char envs[ARG_MAX];
-  static unsigned envs_n = 0;
-
-  if (!envs_n) {
-    envs_n = _jove_read_pseudo_file("/proc/self/environ", envs, sizeof(envs));
-    envs[envs_n] = '\0';
-  }
-
-  unsigned name_len = _strlen(name);
-
-  char *const beg = &envs[0];
-  char *const end = &envs[envs_n];
-
-  char *eoe;
-  for (char *env = beg; env != end; env = eoe + 1) {
-    unsigned left = envs_n - (env - beg);
-
-    //
-    // find the end of the current entry
-    //
-    eoe = _memchr(env, '\0', left);
-
-    {
-      const char *s1 = name;
-      char *s2 = env;
-      for (;;) {
-        char ch1 = *s1++;
-        char ch2 = *s2++;
-
-        if (ch1 != ch2)
-          break;
-
-        if ((s1 - name) == name_len) {
-          if (*s2 == '=')
-            return s2 + 1;
-
-          break;
-        }
-      }
-    }
-  }
-
-  return NULL;
-}
-
 static _UNUSED bool _description_of_address_for_maps(char *out,
                                                      uintptr_t Addr,
                                                      char *maps,
@@ -866,4 +817,55 @@ static _UNUSED bool _description_of_address_for_maps(char *out,
   }
 
   return false;
+}
+
+//
+// /proc/self/environ
+//
+static _UNUSED char *_getenv(const char *name) {
+  static jove_buffer_t _envs = {0};
+  static unsigned envs_n = 0;
+
+  if (!_envs.ptr) {
+    _envs = _jove_alloc_buffer(2 * ARG_MAX);
+    envs_n = _jove_read_pseudo_file("/proc/self/environ", _envs.ptr, _envs.len);
+  }
+
+  const unsigned name_len = _strlen(name);
+
+  char *const envs = _envs.ptr;
+
+  char *const beg = &envs[0];
+  char *const end = &envs[envs_n];
+
+  char *eoe;
+  for (char *env = beg; env != end; env = eoe + 1) {
+    unsigned left = envs_n - (env - beg);
+
+    //
+    // find the end of the current entry
+    //
+    eoe = _memchr(env, '\0', left);
+
+    {
+      const char *s1 = name;
+      char *s2 = env;
+      for (;;) {
+        char ch1 = *s1++;
+        char ch2 = *s2++;
+
+        if (ch1 != ch2)
+          break;
+
+        if ((s1 - name) == name_len) {
+          if (*s2 == '=')
+            return s2 + 1;
+
+          break;
+        }
+      }
+    }
+  }
+
+  return NULL;
 }
