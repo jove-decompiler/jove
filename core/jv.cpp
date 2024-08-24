@@ -166,6 +166,9 @@ std::pair<binary_index_t, bool> jv_t::AddFromDataWithHash(explorer_t &E,
     if (HasTargetIdx)
       b.Idx = TargetIdx;
 
+    if (name)
+      to_ips(b.Name, name);
+
     get_data(b.Data);
 
     if (b.Data.empty())
@@ -219,8 +222,6 @@ std::pair<binary_index_t, bool> jv_t::AddFromDataWithHash(explorer_t &E,
   assert(success);
 
   if (name) {
-    to_ips(b.Name, name);
-
     ip_scoped_lock<ip_sharable_mutex> e_n2b_lck(this->name_to_binaries_mtx);
 
     auto it = this->name_to_binaries.find(b.Name);
