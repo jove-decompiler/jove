@@ -339,6 +339,7 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
   //
   tcg.set_binary(Bin);
 
+  bool StartWasValid = false;
   unsigned Size = 0;
   jove::terminator_info_t T;
   do {
@@ -347,7 +348,19 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
       std::tie(size, T) = tcg.translate(Addr + Size);
 
       Size += size;
+      StartWasValid = true;
     } catch (const g2h_exception &e) {
+      if (StartWasValid) {
+        //
+        // it's possible that the provided entry point *was* valid, but
+        // something prevents the code from going further than the first
+        // translate() call. so, have the block finish with an unreachable
+        // terminator
+        //
+        T.Type = TERMINATOR::UNREACHABLE;
+        break;
+      }
+
       throw invalid_control_flow_exception(b, e.pc);
     }
 
