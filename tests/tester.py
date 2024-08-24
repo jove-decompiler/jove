@@ -192,10 +192,10 @@ class JoveTester:
   def scp(self, src, dst):
     return subprocess.run(['scp'] + self.ssh_common_args + ['-P', str(self.guest_ssh_port), src, 'root@localhost:' + dst])
 
-  def prepare_to_run_tests(self, multi_threaded):
-    print("preparing to run tests...")
-
+  def update_jove(self):
     self.scp(self.jove_client_path, '/usr/local/bin/jove')
+
+  def update_libjove_rt(self, multi_threaded):
     self.scp(self.jove_rt_mt_path if multi_threaded else \
              self.jove_rt_st_path, '/lib/libjove_rt.so')
 
@@ -208,10 +208,9 @@ class JoveTester:
 
   def run_tests(self, tests, multi_threaded=True):
     assert self.is_ready()
+    self.update_libjove_rt(multi_threaded=multi_threaded)
 
     print("running %d tests..." % len(tests))
-
-    self.prepare_to_run_tests(multi_threaded=multi_threaded)
 
     for test in tests:
       inputs = self.inputs_for_test(test)
@@ -282,7 +281,7 @@ class JoveTester:
   def is_ready(self):
     return not (self.iphost is None)
 
-  def get_ready(self):
+  def get_ready(self, update_jove=True):
     self.create_list = self.establish_tmux_session()
     self.create_qemu, self.create_serv, self.create_ssh = tuple(self.create_list)
 
@@ -299,6 +298,9 @@ class JoveTester:
     #
     self.iphost = self.ssh_command(['ip', 'route', 'show']).stdout.strip().split()[2]
     print("iphost: %s" % self.iphost)
+
+    if update_jove:
+      self.update_jove()
 
     #
     # start jove server

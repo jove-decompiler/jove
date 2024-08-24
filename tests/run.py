@@ -10,6 +10,7 @@ def parse_arguments():
   parser = argparse.ArgumentParser(description='Run tests.')
   parser.add_argument('-a', dest='arch', type=str, required=True, help='specify architecture')
   parser.add_argument('-u', '--unattended', action='store_true', help='Run in unattended mode')
+  parser.add_argument('--just-update-jove', action='store_true', help='Update /usr/local/bin/jove and exit')
   parser.add_argument('--single-threaded', nargs='+', help='Single-threaded tests')
   parser.add_argument('--multi-threaded', nargs='+', help='Multi-threaded tests')
 
@@ -44,6 +45,9 @@ def main():
                       unattended=unattended)
 
   tester.get_ready()
+
+  if args.just_update_jove:
+    return 0
 
   if args.single_threaded:
       print(f"running single-threaded tests ({args.single_threaded})")
