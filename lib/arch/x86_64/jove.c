@@ -303,18 +303,18 @@ _HIDDEN uintptr_t _jove_do_get_init_fn_sect_ptr(void) {
   return _jove_get_init_fn_sect_ptr();
 }
 
-bool _jove_see_through_tramp(const void *ptr, uintptr_t *out) {
-  const uint8_t *const u8p = (const uint8_t *)ptr;
-  if (!(u8p[0] == 0xff &&
-        u8p[1] == 0x25)) /* see importThunkX86 in lld/COFF/Chunks.h */
+bool trampoline_slot(const void *poss, uintptr_t **out) {
+  const uint8_t *const p = (const uint8_t *)poss;
+  if (!(p[0] == 0xff &&
+        p[1] == 0x25)) /* see importThunkX86 in lld/COFF/Chunks.h */
     return false;
 
   //
   // 140006ab0: ff 25 ba 7c 00 00            jmpq    *0x7cba(%rip)           # 0x14000e770 <__imp__configure_narrow_argv>
   //
   const unsigned sizeof_jmp = 6;
-  uint32_t pc_off = *((const uint32_t *)&u8p[2]);
+  uint32_t pc_off = *((const uint32_t *)&p[2]);
 
-  *out = *((uintptr_t *)(u8p + pc_off + sizeof_jmp));
+  *out = (uintptr_t *)(p + pc_off + sizeof_jmp);
   return true;
 }

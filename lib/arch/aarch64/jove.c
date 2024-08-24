@@ -249,6 +249,6 @@ jove_thunk_return_t _jove_thunk8(uintptr_t x0,
 #undef JOVE_THUNK_PROLOGUE
 #undef JOVE_THUNK_EPILOGUE
 
-bool _jove_see_through_tramp(const void *ptr, uintptr_t *out) {
+bool trampoline_slot(const void *poss, uintptr_t **out) {
   return false;
 }

@@ -367,6 +367,6 @@ _HIDDEN uintptr_t _jove_do_get_init_fn_sect_ptr(void) {
   return _jove_get_init_fn_sect_ptr();
 }
 
-bool _jove_see_through_tramp(const void *ptr, uintptr_t *out) {
+bool trampoline_slot(const void *poss, uintptr_t **out) {
   return false;
 }

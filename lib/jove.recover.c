@@ -486,6 +486,19 @@ found:
 
 void _jove_recover_foreign_function(uint32_t IndCallBBIdx,
                                     uintptr_t CalleeAddr) {
+  //
+  // if it's a trampoline, we want to look at the address in its "slot"
+  //
+  {
+    struct jove_trampoline_t *tramp;
+    hash_for_each_possible(__jove_trampolines_pending, tramp, hlist, CalleeAddr) {
+      if (tramp->pc == CalleeAddr) {
+        CalleeAddr = *tramp->slotp;
+        break;
+      }
+    }
+  }
+
   unsigned N = _jove_foreign_lib_count();
 
   bool FoundAll = true;
@@ -1026,6 +1039,19 @@ void _jove_recover_foreign_binary_with_path(const char *path) {
 }
 
 void _jove_recover_foreign_binary(uintptr_t CalleeAddr) {
+  //
+  // if it's a trampoline, we want to look at the address in its "slot"
+  //
+  {
+    struct jove_trampoline_t *tramp;
+    hash_for_each_possible(__jove_trampolines_pending, tramp, hlist, CalleeAddr) {
+      if (tramp->pc == CalleeAddr) {
+        CalleeAddr = *tramp->slotp;
+        break;
+      }
+    }
+  }
+
   unsigned N = _jove_foreign_lib_count();
 
   bool FoundAll = true;

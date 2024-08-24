@@ -15,6 +15,13 @@
 #define JOVE_CLUNK
 #endif
 
+struct jove_trampoline_t {
+  uintptr_t pc;
+  uintptr_t *slotp;
+
+  struct hlist_node hlist;
+};
+
 extern struct jove_opts_t __jove_opts;
 
 extern void _jove_rt_track_alloc(uintptr_t beg, size_t len, const char *desc);

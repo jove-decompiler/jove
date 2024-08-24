@@ -31,6 +31,8 @@ extern uintptr_t *__jove_foreign_function_tables[_JOVE_MAX_BINARIES];
 
 extern DECLARE_HASHTABLE(__jove_function_map, JOVE_FUNCTION_MAP_HASH_BITS);
 
+static DEFINE_HASHTABLE(__jove_trampolines_pending, 9);
+
 extern void _jove_flush_trace(void);
 
 _HIDDEN void _jove_install_foreign_function_tables(void);
@@ -49,7 +51,8 @@ static void _jove_check_sections_at_base_address(void);
 static void _jove_make_sections_not_executable(void);
 static void _jove_make_sections_executable(void);
 
-static void _jove_see_through_tramps(struct jove_function_info_t *);
+static void _jove_identify_trampolines(struct jove_trampoline_t *,
+                                       struct jove_function_info_t *);
 
 extern void _jove_rt_init(void);
 
@@ -327,101 +330,142 @@ void _jove_install_function_mappings(void) {
   //
   // add the mappings
   //
-  mb();
-  {
-    struct jove_function_info_t *fninfo_p =
-        (struct jove_function_info_t *)fninfo_arr_addr;
+  struct jove_function_info_t *fninfo_p =
+      (struct jove_function_info_t *)fninfo_arr_addr;
 
-    unsigned FIdx = 0;
-    for (uintptr_t *fn_p = _jove_get_function_table(); fn_p[0]; fn_p += 3) {
-      fninfo_p->BIdx = _jove_binary_index();
-      fninfo_p->FIdx = FIdx++;
+  unsigned FIdx = 0;
+  for (uintptr_t *fn_p = _jove_get_function_table(); fn_p[0]; fn_p += 3) {
+    fninfo_p->BIdx = _jove_binary_index();
+    fninfo_p->FIdx = FIdx++;
 
-      fninfo_p->IsForeign = 0;
+    fninfo_p->IsForeign = 0;
 
-      fninfo_p->Recompiled.SectPtr = fn_p[0];
-      fninfo_p->RecompiledFunc     = fn_p[2];
+    fninfo_p->Recompiled.SectPtr = fn_p[0];
+    fninfo_p->RecompiledFunc     = fn_p[2];
 
-      hash_add(__jove_function_map, &fninfo_p->hlist, fninfo_p->pc /* key */);
+    hash_add(__jove_function_map, &fninfo_p->hlist, fninfo_p->pc /* key */);
 
-      ++fninfo_p;
-    }
-
-    if (_jove_possible_tramps_count() > 0)
-      _jove_see_through_tramps(fninfo_p);
+    ++fninfo_p;
   }
 
-  mb();
+  if (_jove_possible_tramps_count() == 0)
+    return;
+
+  uintptr_t tramp_arr_addr = _mmap_rw_anonymous_private_memory(
+      QEMU_ALIGN_UP(sizeof(struct jove_trampoline_t) *
+                        _jove_possible_tramps_count(),
+                    JOVE_PAGE_SIZE));
+
+  struct jove_trampoline *tramp_p = (struct jove_trampoline *)tramp_arr_addr;
+
+  _jove_identify_trampolines(tramp_p, fninfo_p);
 }
 
-static bool _jove_see_through_tramp(const void *ptr, uintptr_t *out);
+static bool trampoline_slot(const void *poss, uintptr_t **out);
 
-void _jove_see_through_tramps(struct jove_function_info_t *fninfo_p) {
+void _jove_identify_trampolines(struct jove_trampoline_t *tramp_p,
+                                struct jove_function_info_t *fninfo_p) {
   for (unsigned i = 0; i < _jove_possible_tramps_count(); ++i) {
     const uintptr_t poss = *((uintptr_t *)(_jove_possible_tramps()[i]));
 
-    uintptr_t pc = ~0UL;
-    if (!_jove_see_through_tramp((const void *)poss, &pc) && poss)
-      pc = *((uintptr_t *)poss); /* XXX wtf? */
+    uintptr_t *slotp = NULL;
+    const bool slot = trampoline_slot((const void *)poss, &slotp);
 
     {
-      struct jove_function_info_t *finfo;
+      uintptr_t pc = slot ? *slotp : *((uintptr_t *)poss) /* wtf? */;
+      bool found = false;
 
+      struct jove_function_info_t *finfo = NULL;
       hash_for_each_possible(__jove_function_map, finfo, hlist, pc) {
-        if (finfo->pc != pc) {
-          continue;
-        } else {
-          __builtin_memcpy_inline(fninfo_p, finfo, sizeof(*finfo));
-          goto found;
+        if (finfo->pc == pc) {
+          found = true;
+          break;
         }
       }
+
+      if (found) { /* recognized function */
+        _ASSERT(finfo);
+
+        if (unlikely(__jove_opts.Debug.Tramps)) {
+          char *s;
+          JOVE_SCOPED_BUFF(s, JOVE_LARGE_BUFF_SIZE);
+          s[0] = '\0';
+
+          _strcat(s, "_jove_identify_trampolines: 0x");
+          {
+            char buff[65];
+            _uint_to_string(poss, buff, 0x10);
+
+            _strcat(s, buff);
+          }
+          _strcat(s, " -> 0x");
+          {
+            char buff[65];
+            _uint_to_string((uintptr_t)pc, buff, 0x10);
+
+            _strcat(s, buff);
+          }
+          _strcat(s, " (");
+          {
+            char buff[65];
+            _uint_to_string(finfo->BIdx, buff, 10);
+
+            _strcat(s, buff);
+          }
+          _strcat(s, ", ");
+          {
+            char buff[65];
+            _uint_to_string(finfo->FIdx, buff, 10);
+
+            _strcat(s, buff);
+          }
+          _strcat(s, ")\n");
+
+          _DUMP(s);
+        }
+
+        __builtin_memcpy_inline(fninfo_p, finfo, sizeof(*finfo));
+
+        fninfo_p->pc = poss;
+        hash_add(__jove_function_map, &fninfo_p->hlist, poss /* key */);
+        ++fninfo_p;
+        continue;
+      }
     }
 
-    continue;
+    /* addr @ slot could simply be a function we don't know about */
+    if (slot) {
+      _ASSERT(slotp);
 
-found:
-    if (unlikely(__jove_opts.Debug.Tramps))
-    {
-      char *s;
-      JOVE_SCOPED_BUFF(s, JOVE_LARGE_BUFF_SIZE);
-      s[0] = '\0';
+      if (unlikely(__jove_opts.Debug.Tramps)) {
+        char s[1024];
+        s[0] = '\0';
 
-      _strcat(s, "_jove_see_through_tramps: 0x");
-      {
-        char buff[65];
-        _uint_to_string(poss, buff, 0x10);
+        _strcat(s, "_jove_identify_trampolines: 0x");
+        {
+          char buff[65];
+          _uint_to_string(poss, buff, 0x10);
 
-        _strcat(s, buff);
+          _strcat(s, buff);
+        }
+        _strcat(s, ": slot @ 0x");
+        {
+          char buff[65];
+          _uint_to_string((uintptr_t)slotp, buff, 0x10);
+
+          _strcat(s, buff);
+        }
+        _strcat(s, "\n");
+
+        _DUMP(s);
       }
-      _strcat(s, " -> 0x");
-      {
-        char buff[65];
-        _uint_to_string((uintptr_t)pc, buff, 0x10);
 
-        _strcat(s, buff);
-      }
-      _strcat(s, " (");
-      {
-        char buff[65];
-        _uint_to_string(fninfo_p->BIdx, buff, 10);
+      tramp_p->slotp = slotp;
 
-        _strcat(s, buff);
-      }
-      _strcat(s, ", ");
-      {
-        char buff[65];
-        _uint_to_string(fninfo_p->FIdx, buff, 10);
-
-        _strcat(s, buff);
-      }
-      _strcat(s, ")\n");
-
-      _DUMP(s);
+      tramp_p->pc = poss;
+      hash_add(__jove_trampolines_pending, &tramp_p->hlist, poss /* key */);
+      ++tramp_p;
     }
-
-    fninfo_p->pc = poss;
-    hash_add(__jove_function_map, &fninfo_p->hlist, poss /* key */);
-    ++fninfo_p;
   }
 }
 
@@ -1143,7 +1187,7 @@ jove_thunk_return_t _jove_call(
 
                                #undef __REG_ARG
 
-                               const uintptr_t pc, const uint32_t BBIdx) {
+                               uintptr_t pc, const uint32_t BBIdx) {
   if (unlikely(__jove_opts.Debug.Calls))
   {
     char s[512];
@@ -1183,14 +1227,23 @@ jove_thunk_return_t _jove_call(
   //
   {
     struct jove_function_info_t *finfo;
-
     hash_for_each_possible(__jove_function_map, finfo, hlist, pc) {
-      if (finfo->pc != pc) {
-        continue;
-      } else {
+      if (finfo->pc == pc) {
         Callee = *finfo;
-
         goto found;
+      }
+    }
+  }
+
+  //
+  // if it's a trampoline, we want to look at the address in its "slot"
+  //
+  {
+    struct jove_trampoline_t *tramp;
+    hash_for_each_possible(__jove_trampolines_pending, tramp, hlist, pc) {
+      if (tramp->pc == pc) {
+        pc = *tramp->slotp;
+        break;
       }
     }
   }
