@@ -38,7 +38,7 @@ inline pid_t RunExecutable(const std::string &exe_path,
                            compute_args_t compute_args,
                            const std::string &stdout_path,
                            const std::string &stderr_path,
-                           before_exec_t before_exec) {
+                           before_exec_t before_exec = [](const char **, const char **) {}) {
   return RunExecutable(
       exe_path,
       compute_args,
