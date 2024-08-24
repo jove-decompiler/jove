@@ -1,3 +1,4 @@
+#if defined(__x86_64__) || defined(__i386__)
 #include "tool.h"
 #include "B.h"
 #include "tcg.h"
@@ -36,7 +37,7 @@ struct binary_state_t {
 
 }
 
-struct ObserveTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void, void> {
+struct IPTTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void, void> {
   struct Cmdline {
     cl::opt<std::string> Prog;
     cl::list<std::string> Args;
@@ -67,7 +68,7 @@ struct ObserveTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, v
   std::regex line_regex_b;
 
 public:
-  ObserveTool() : opts(JoveCategory) {}
+  IPTTool() : opts(JoveCategory) {}
 
   int Run(void) override;
 
@@ -78,15 +79,15 @@ public:
   void init_state_for_binary(binary_t &);
 };
 
-JOVE_REGISTER_TOOL("observe", ObserveTool);
+JOVE_REGISTER_TOOL("ipt", IPTTool);
 
-void ObserveTool::init_state_for_binary(binary_t &b) {
+void IPTTool::init_state_for_binary(binary_t &b) {
   binary_state_t &x = state.for_binary(b);
 
   x.Bin = B::Create(b.data());
 }
 
-void ObserveTool::on_new_binary(binary_t &b) {
+void IPTTool::on_new_binary(binary_t &b) {
   state.update();
 
   b.IsDynamicallyLoaded = true;
@@ -97,7 +98,7 @@ void ObserveTool::on_new_binary(binary_t &b) {
     llvm::errs() << llvm::formatv("added {0}\n", b.Name.c_str());
 }
 
-binary_index_t ObserveTool::BinaryFromName(const char *name) {
+binary_index_t IPTTool::BinaryFromName(const char *name) {
   using namespace std::placeholders;
 
   auto MaybeBIdxSet = jv.Lookup(name);
@@ -117,7 +118,7 @@ binary_index_t ObserveTool::BinaryFromName(const char *name) {
 
   std::tie(BIdx, IsNew) =
       jv.AddFromPath(*E, name, invalid_binary_index,
-                     std::bind(&ObserveTool::on_new_binary, this, _1));
+                     std::bind(&IPTTool::on_new_binary, this, _1));
 
   if (IsVeryVerbose() && !is_binary_index_valid(BIdx))
     HumanOut() << llvm::formatv("failed to add \"{0}\"\n", name);
@@ -125,7 +126,7 @@ binary_index_t ObserveTool::BinaryFromName(const char *name) {
   return BIdx;
 }
 
-int ObserveTool::Run(void) {
+int IPTTool::Run(void) {
   using namespace std::placeholders;
 
   if (fs::exists("perf.data"))
@@ -234,10 +235,10 @@ int ObserveTool::Run(void) {
   tbb::parallel_pipeline(
       1024, tbb::make_filter<void, std::string>(
                 tbb::filter_mode::serial_in_order,
-                std::bind(&ObserveTool::GetLine, this, rfd->get(), _1)) &
+                std::bind(&IPTTool::GetLine, this, rfd->get(), _1)) &
                 tbb::make_filter<std::string, void>(
                     tbb::filter_mode::serial_in_order,
-                    std::bind(&ObserveTool::ProcessLine, this, _1)));
+                    std::bind(&IPTTool::ProcessLine, this, _1)));
 
   //
   // wait for process to exit
@@ -249,7 +250,7 @@ int ObserveTool::Run(void) {
   return ret_val;
 }
 
-std::string ObserveTool::GetLine(int rfd, tbb::flow_control &fc) {
+std::string IPTTool::GetLine(int rfd, tbb::flow_control &fc) {
   char tmp_buff[4096];
 
   std::string res;
@@ -281,7 +282,7 @@ std::string ObserveTool::GetLine(int rfd, tbb::flow_control &fc) {
   return res;
 }
 
-void ObserveTool::ProcessLine(const std::string &line) {
+void IPTTool::ProcessLine(const std::string &line) {
   if (line.empty())
     return;
 
@@ -514,3 +515,4 @@ void ObserveTool::ProcessLine(const std::string &line) {
 }
 
 }
+#endif

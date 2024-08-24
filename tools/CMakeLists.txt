@@ -91,10 +91,10 @@ function(tool_for_arch arch arch_extra_cflags qemu_objs)
     jove-ida.cpp
     jove-init.cpp
     jove-invalidate.cpp
+    jove-ipt.cpp
     jove-llvm.cpp
     jove-loop.cpp
     jove-numbers.cpp
-    jove-observe.cpp
     jove-off2addr.cpp
     jove-readtrace.cpp
     jove-recompile.cpp
