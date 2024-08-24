@@ -780,8 +780,8 @@ static _UNUSED bool _description_of_address_for_maps(char *out,
                                                      uintptr_t Addr,
                                                      char *maps,
                                                      const unsigned n) {
-  char *line = NULL;
-  char *eol = NULL;
+  char *line;
+  char *eol;
   for_each_line_eol_in_proc_maps(line, eol, maps, n) {
     unsigned left = eol - line;
 

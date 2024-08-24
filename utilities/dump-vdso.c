@@ -11,38 +11,26 @@ struct vdso_t {
   unsigned len;
 };
 
-/* TODO refactor */
 static _INL struct vdso_t _get_vdso(char *maps, const unsigned n) {
-  char *const beg = &maps[0];
-  char *const end = &maps[n];
-
+  char *line;
   char *eol;
-  for (char *line = beg; line != end; line = eol + 1) {
-    unsigned left = n - (line - beg);
-
-    //
-    // find the end of the current line
-    //
-    eol = _memchr(line, '\n', left);
-    _ASSERT(eol);
-
-    //
-    // second hex address
-    //
+  for_each_line_eol_in_proc_maps(line, eol, maps, n) {
     if (eol[-1] == ']' &&
         eol[-2] == 'o' &&
         eol[-3] == 's' &&
         eol[-4] == 'd' &&
         eol[-5] == 'v' &&
         eol[-6] == '[') {
+      unsigned left = eol - line;
+
       char *space = _memchr(line, ' ', left);
       _ASSERT(space);
 
       char *rp = space + 1;
       char *xp = space + 3;
 
-      if (*rp != 'r') _UNREACHABLE("[vdso] appears to not be readable...");
-      if (*xp != 'x') _UNREACHABLE("[vdso] appears to not be executable...");
+      _ASSERT(*rp == 'r' && "[vdso] is readable");
+      _ASSERT(*xp == 'x' && "[vdso] is executable");
 
       char *dash = _memchr(line, '-', left);
       _ASSERT(dash);
@@ -54,7 +42,7 @@ static _INL struct vdso_t _get_vdso(char *maps, const unsigned n) {
     }
   }
 
-  //_DUMP_WITH_LEN(maps, n);
+  _DUMP_WITH_LEN(maps, n);
   _UNREACHABLE("failed to find [vdso]");
 }
 
