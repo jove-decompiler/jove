@@ -76,6 +76,7 @@ class LoopTool : public JVTool<ToolKind::Standard> {
     cl::opt<bool> WineDdb;
     cl::opt<bool> BreakBeforeUnreachables;
     cl::opt<bool> LayOutSections;
+    cl::opt<bool> PlaceSectionBreakpoints;
     cl::opt<int> Conservative;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
@@ -254,6 +255,19 @@ class LoopTool : public JVTool<ToolKind::Standard> {
                        "_jove_check_sections_laid_out() at runtime to make "
                        "sure that those aforementioned global variables exist "
                        "side-by-side in memory in the way we expect them to"),
+              cl::cat(JoveCategory)),
+
+          PlaceSectionBreakpoints(
+              "place-section-breakpoints",
+              cl::desc("In the section globals, overwrite the bytes at the "
+                       "start of every ABI function (which is not setjmp() or "
+                       "longjmp()) with an illegal instruction. This is "
+                       "used to provoke a fault at runtime when such functions "
+                       "are called into from non-recompiled code, so that the "
+                       "recompiled versions are called. Unless JOVESECTS=exe, "
+                       "this is unnecessary because the section globals will "
+                       "not be executable to begin with thus triggering a "
+                       "fault."),
               cl::cat(JoveCategory)),
 
           Conservative(
@@ -1152,6 +1166,9 @@ skip_run:
 
           if (opts.LayOutSections)
             Arg("--lay-out-sections");
+
+          if (opts.PlaceSectionBreakpoints)
+            Arg("--place-section-breakpoints");
 
           if (!opts.PinnedGlobals.empty()) {
             std::string pinned_globals_arg = "--pinned-globals=";
