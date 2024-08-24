@@ -61,7 +61,7 @@ static _INL struct vdso_t _get_vdso(char *maps, const unsigned n) {
 _NORET
 _HIDDEN
 void _jove_begin(void) {
-  JOVE_BUFF(maps, JOVE_MAX_PROC_MAPS);
+  JOVE_SCOPED_BUFF(maps, JOVE_MAX_PROC_MAPS);
   unsigned maps_n = _jove_read_pseudo_file("/proc/self/maps", _maps.ptr, _maps.len);
 
   struct vdso_t vdso = _get_vdso(maps, maps_n);
