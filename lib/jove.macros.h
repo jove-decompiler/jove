@@ -55,6 +55,13 @@
   })
 #endif
 
+#define must_nonnull(p)                                                        \
+  ({                                                                           \
+    void *_p = (p);                                                            \
+    _ASSERT(_p != NULL);                                                       \
+    _p;                                                                        \
+  })
+
 #define QEMU_ALIGN_DOWN(n, m) ((n) / (m) * (m))
 #define QEMU_ALIGN_UP(n, m) QEMU_ALIGN_DOWN((n) + (m) - 1, (m))
 

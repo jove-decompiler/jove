@@ -461,13 +461,9 @@ static _UNUSED uint64_t _u64ofhexstr(char *str_begin, char *str_end) {
   return res;
 }
 
-#define must_nonnull(p)                                                        \
-  ({                                                                           \
-    void *_p = (p);                                                            \
-    _ASSERT(_p != NULL);                                                       \
-    _p;                                                                        \
-  })
-
+//
+// for_each macros
+//
 #define array_for_each_p(elemp, arr)                                           \
   for ((elemp) = &arr[0]; ((elemp) - &arr[0]) < ARRAY_SIZE(arr); ++(elemp))
 
@@ -480,20 +476,15 @@ static _UNUSED uint64_t _u64ofhexstr(char *str_begin, char *str_end) {
        (s) != &str[n];                                                                          \
        (s) = (eos)+1, (eos) = (char *)/*maybenull*/_memchr((s), delim, (n) - ((s) - &str[0])))
 
-/* iterating over /proc/pid/maps */
+//
+// /proc/<pid>/maps
+//
 #define for_each_in_proc_maps(map, maps, n)                                    \
   for_each_str_delim_know_end(map, '\n', maps, n)
 
 #define for_each_line_eol_in_proc_maps(line, eol, maps, n)                     \
   for_each_str_eos_delim_know_end(line, eol, '\n', maps, n)
 
-/* iterating over /proc/pid/environ */
-#define for_each_in_environ(env, environ, n)                                   \
-  for_each_str_delim_know_end(env, '\0', environ, n)
-
-//
-// /proc/<pid>/maps
-//
 static _UNUSED uintptr_t _parse_stack_end_of_maps(char *maps, const unsigned n) {
   char *const beg = &maps[0];
   char *const end = &maps[n];
@@ -822,6 +813,9 @@ static _UNUSED bool _description_of_address_for_maps(char *out,
 //
 // /proc/self/environ
 //
+#define for_each_in_environ(env, environ, n)                                   \
+  for_each_str_delim_know_end(env, '\0', environ, n)
+
 static _UNUSED char *_getenv(const char *name) {
   static jove_buffer_t _envs = {0};
   static unsigned n = 0;
