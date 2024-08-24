@@ -23,22 +23,17 @@ std::string_view get_vdso(void) {
 
   char *eol;
   for (char *line = beg; line != end; line = eol + 1) {
-    unsigned left = n - (line - beg);
+    eol = (char *)memchr(line, '\n', n - (line - beg));
+    assert(eol);
 
-    //
-    // find the end of the current line
-    //
-    eol = (char *)memchr(line, '\n', left);
-
-    //
-    // second hex address
-    //
     if (eol[-1] == ']' &&
         eol[-2] == 'o' &&
         eol[-3] == 's' &&
         eol[-4] == 'd' &&
         eol[-5] == 'v' &&
         eol[-6] == '[') {
+      const unsigned left = eol - line;
+
       char *const dash = (char *)memchr(line, '-', left);
       assert(dash);
 
@@ -113,6 +108,15 @@ bool capture_vdso(std::string &out) {
   int ret_val = WaitForProcessToExit(pid);
 
   return ret_val == 0;
+}
+
+static const uint8_t some_vdso_bytes[] = {
+#include ".some.vdso.inc"
+};
+
+std::string_view hallucinate_vdso(void) {
+  return std::string_view(reinterpret_cast<const char *>(&some_vdso_bytes[0]),
+                          sizeof(some_vdso_bytes));
 }
 
 }
