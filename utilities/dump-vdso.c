@@ -1,7 +1,7 @@
 #include "jove.macros.h"
 
 #define JOVE_SYS_ATTR _NOINL _UNUSED
-#define JOVE_CRASH_MODE '\0'
+#define JOVE_CRASH_MODE 'a'
 
 #include "jove.util.c"
 #include "jove.start.c"
@@ -42,8 +42,7 @@ static _INL struct vdso_t _get_vdso(char *maps, const unsigned n) {
     }
   }
 
-  _DUMP_WITH_LEN(maps, n);
-  _UNREACHABLE("failed to find [vdso]");
+   return (struct vdso_t){.ptr = NULL, .len = 0u};
 }
 
 _NORET
@@ -51,11 +50,14 @@ _HIDDEN
 void _jove_begin(void) {
   char *maps;
   JOVE_SCOPED_BUFF(maps, JOVE_MAX_PROC_MAPS);
-  unsigned maps_n = _jove_read_pseudo_file("/proc/self/maps", _maps.ptr, _maps.len);
+  unsigned n = _jove_read_pseudo_file("/proc/self/maps", _maps.ptr, _maps.len);
 
-  struct vdso_t vdso = _get_vdso(maps, maps_n);
+  struct vdso_t vdso = _get_vdso(maps, n);
 
-  _RASSERT(_jove_robust_write(1, vdso.ptr, vdso.len) == vdso.len);
+  if (vdso.ptr) {
+    _RASSERT(vdso.len != 0);
+    _RASSERT(_jove_robust_write(1, vdso.ptr, vdso.len) == vdso.len);
+  }
 
   _jove_sys_exit_group(0);
   __UNREACHABLE();
