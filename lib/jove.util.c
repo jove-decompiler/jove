@@ -824,11 +824,18 @@ static _UNUSED bool _description_of_address_for_maps(char *out,
 //
 static _UNUSED char *_getenv(const char *name) {
   static jove_buffer_t _envs = {0};
-  static unsigned envs_n = 0;
+  static unsigned n = 0;
+  static mutex_t envs_mtx = JOVE_MUTEX_INIT;
 
   if (!_envs.ptr) {
-    _envs = _jove_alloc_buffer(2 * ARG_MAX);
-    envs_n = _jove_read_pseudo_file("/proc/self/environ", _envs.ptr, _envs.len);
+    _mutex_lock(&envs_mtx);
+
+    if (!_envs.ptr) {
+      _envs = _jove_alloc_buffer(2 * ARG_MAX);
+      n = _jove_read_pseudo_file("/proc/self/environ", _envs.ptr, _envs.len);
+    }
+
+    _mutex_unlock(&envs_mtx);
   }
 
   const unsigned name_len = _strlen(name);
@@ -836,11 +843,11 @@ static _UNUSED char *_getenv(const char *name) {
   char *const envs = _envs.ptr;
 
   char *const beg = &envs[0];
-  char *const end = &envs[envs_n];
+  char *const end = &envs[n];
 
   char *eoe;
   for (char *env = beg; env != end; env = eoe + 1) {
-    unsigned left = envs_n - (env - beg);
+    unsigned left = n - (env - beg);
 
     //
     // find the end of the current entry
