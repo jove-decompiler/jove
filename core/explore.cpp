@@ -552,8 +552,20 @@ void explorer_t::_control_flow_to(
     llvm::errs() << llvm::formatv("  -> {0}\n",
                                   taddr2str(Target, false));
 
-  basic_block_index_t SuccBBIdx =
-      _explore_basic_block(b, Bin, Target, Speculative);
+  basic_block_index_t SuccBBIdx = invalid_basic_block_index;
+  try {
+    SuccBBIdx = _explore_basic_block(b, Bin, Target, Speculative);
+  } catch (const invalid_control_flow_exception &e) {
+    if (1 /* unlikely(this->verbose) */)
+      llvm::errs() << llvm::formatv(
+          "invalid control flow to {0} from {1} when exploring {2} in {3}\n",
+          taddr2str(e.pc, false),
+          taddr2str(TermAddr, false),
+          taddr2str(Target, false),
+          e.b.Name.c_str());
+
+    throw e;
+  }
 
   assert(is_basic_block_index_valid(SuccBBIdx));
 
