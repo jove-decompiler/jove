@@ -35,6 +35,19 @@ using llvm::WithColor;
 
 namespace jove {
 
+static bool AreWeTargetArch(void) {
+  return
+#if (defined(__x86_64__)  && defined(TARGET_X86_64))  || \
+    (defined(__i386__)    && defined(TARGET_I386))    || \
+    (defined(__aarch64__) && defined(TARGET_AARCH64)) || \
+    (defined(__mips64)    && defined(TARGET_MIPS64))  || \
+    (defined(__mips__)    && defined(TARGET_MIPS32))
+  true
+#else
+  false;
+#endif
+}
+
 class InitTool : public JVTool<ToolKind::Standard> {
   struct Cmdline {
     cl::opt<std::string> Prog;
@@ -224,7 +237,6 @@ int InitTool::Run(void) {
   explorer_t E(jv, disas, tcg, IsVeryVerbose());
 
   std::for_each(
-      std::execution::par_unseq,
       idx_range.begin(),
       idx_range.end(),
       [&](unsigned i) {
@@ -232,8 +244,20 @@ int InitTool::Run(void) {
         case 0: jv.AddFromPath(E, prog.c_str(), static_cast<binary_index_t>(0)); return;
         case 1: jv.AddFromPath(E, rtld.c_str(), static_cast<binary_index_t>(1)); return;
         case 2: {
+          std::string_view sv;
           std::string vdso;
-          std::string_view sv = capture_vdso(vdso) ? vdso : get_vdso();
+          if (capture_vdso(vdso)) {
+            sv = vdso;
+          } else {
+            if (IsVerbose())
+              WithColor::warning() << "failed to capture vdso\n";
+
+            if (AreWeTargetArch()) {
+              sv = get_vdso();
+            } else {
+              die("couldn't get [vdso]");
+            }
+          }
 
           try {
             jv.AddFromData(E, sv, "[vdso]", static_cast<binary_index_t>(2));
