@@ -311,7 +311,7 @@ int DecompileTool::Run(void) {
           worker_failed.store(true);
 
           WithColor::error() << llvm::formatv(
-              "jove llvm failed on {0}: see {1}\n", binary_filename,
+              "jove analyze failed on {0}: see {1}\n", binary_filename,
               path_to_stderr);
 
           return;
