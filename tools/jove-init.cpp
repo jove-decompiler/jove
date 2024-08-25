@@ -118,7 +118,7 @@ int InitTool::Run(void) {
   std::vector<uint8_t> BinBytes;
   auto Bin = B::CreateFromFile(opts.Prog.c_str(), BinBytes);
 
-  std::vector<std::string> binary_paths; /* remains empty if COFF */
+  std::vector<std::string> binary_paths;
 
   std::string rtld = fs::canonical(B::_X(
     *Bin,
