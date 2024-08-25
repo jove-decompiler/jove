@@ -117,7 +117,7 @@ public:
 
   template <typename... Args>
   int RunExecutableToExit(Args &&...args) {
-    pid_t pid = RunExecutable(std::forward<Args>(args)...);
+    pid_t pid = this->RunExecutable(std::forward<Args>(args)...);
     return WaitForProcessToExit(pid);
   }
 
