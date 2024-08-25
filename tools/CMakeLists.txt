@@ -59,6 +59,7 @@ function(tool_for_arch arch arch_extra_cflags qemu_objs)
     ../core/fd.cpp
     ../core/hash.cpp
     ../core/ida.cpp
+    ../core/ipt.cpp
     ../core/jv.cpp
     ../core/locator.cpp
     ../core/mmap.cpp
@@ -149,6 +150,13 @@ function(tool_for_arch arch arch_extra_cflags qemu_objs)
   target_link_libraries(jove-${arch} PRIVATE Boost::lockfree)
 
   target_link_libraries(jove-${arch} PRIVATE TBB::tbb)
+
+  if (CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86|i[3-6]86|x86_64)$")
+    target_link_libraries(jove-${arch} PRIVATE libipt)
+    #target_link_libraries(jove-${arch} PRIVATE libipt-sb)
+    target_include_directories(jove-${arch} PRIVATE ${CMAKE_BINARY_DIR}/projects/jove/libipt/libipt/include)
+    #target_include_directories(jove-${arch} PRIVATE ${CMAKE_BINARY_DIR}/projects/jove/libipt/sideband/include)
+  endif()
 
   target_include_directories(jove-${arch} PRIVATE
     ${JOVE_SRC_DIR}/lib/arch/${arch}

@@ -55,6 +55,27 @@ else()
   jove_add_tbb()
 endif()
 
+if (CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86|i[3-6]86|x86_64)$")
+  function(jove_add_ipt)
+    set(CMAKE_INCLUDE_CURRENT_DIR OFF)
+
+    set(PTXED OFF CACHE INTERNAL "")
+#   SET(XED_INCLUDE xed/obj/wkit/include/xed)
+#   SET(XED_LIBDIR xed/obj)
+    set(PTDUMP ON CACHE INTERNAL "")
+    set(PTSEG OFF CACHE INTERNAL "")
+    SET(SIDEBAND ON CACHE INTERNAL "")
+    SET(PEVENT ON CACHE INTERNAL "")
+    SET(FEATURE_THREADS ON CACHE INTERNAL "")
+    SET(FEATURE_ELF OFF CACHE INTERNAL "")
+    add_subdirectory(libipt EXCLUDE_FROM_ALL)
+  endfunction()
+
+  message(STATUS "Building for an x86 target")
+
+  jove_add_ipt()
+endif ()
+
 set(JOVE_SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 
 add_subdirectory(tools)

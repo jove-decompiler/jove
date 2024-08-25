@@ -53,6 +53,8 @@ struct locator_t {
   std::string mingw_addr2line(bool Is32); /* for COFF w/ DWARF */
 
   std::string vim(void);
+
+  std::string libipt_scripts(void);
 };
 
 }

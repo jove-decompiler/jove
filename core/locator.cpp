@@ -194,4 +194,8 @@ std::string locator_t::vim(void) {
   return must_exist("/usr/bin/vim");
 }
 
+std::string locator_t::libipt_scripts(void) {
+  return must_exist(jove_path() / "libipt" / "script");
+}
+
 }

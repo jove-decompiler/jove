@@ -1,25 +1,26 @@
-#if defined(__x86_64__) || defined(__i386__)
+#if defined(__x86_64__) || defined(__i386__) /* x86 only */
 #include "tool.h"
 #include "B.h"
 #include "tcg.h"
 #include "disas.h"
 #include "explore.h"
-#include "crypto.h"
 #include "util.h"
-#include "vdso.h"
 #include "symbolizer.h"
 #include "locator.h"
-#include "fd.h"
-#include "jove_macros.h"
+#include "ipt.h"
 
 #include <boost/filesystem.hpp>
+#include <boost/algorithm/string.hpp>
 
 #include <oneapi/tbb/parallel_pipeline.h>
+#include <oneapi/tbb/parallel_for_each.h>
 
 #include <llvm/Support/FormatVariadic.h>
+#include <llvm/Support/WithColor.h>
 
 #include <regex>
 #include <memory>
+#include <mutex>
 
 namespace fs = boost::filesystem;
 namespace obj = llvm::object;
@@ -42,6 +43,9 @@ struct IPTTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
     cl::opt<std::string> Prog;
     cl::list<std::string> Args;
     cl::list<std::string> Envs;
+    cl::opt<bool> UsePerfScript;
+    cl::opt<bool> Chdir;
+    cl::alias ChdirAlias;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : Prog(cl::Positional, cl::desc("prog"), cl::Required,
@@ -52,9 +56,22 @@ struct IPTTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
 
           Envs("env", cl::CommaSeparated,
                cl::value_desc("KEY_1=VALUE_1,KEY_2=VALUE_2,...,KEY_n=VALUE_n"),
-               cl::desc("Extra environment variables"), cl::cat(JoveCategory))
-          {}
+               cl::desc("Extra environment variables"), cl::cat(JoveCategory)),
+
+          UsePerfScript("use-perf-script",
+                        cl::desc("Use 'perf script' to parse trace. Otherwise "
+                                 "libipt is used."),
+                        cl::init(true /* TODO */), cl::cat(JoveCategory)),
+
+          Chdir("change-dir", cl::desc("chdir(2) into temporary directory."),
+                cl::init(true), cl::cat(JoveCategory)),
+
+          ChdirAlias("c", cl::desc("Alias for --change-dir"),
+                     cl::aliasopt(Chdir), cl::cat(JoveCategory)) {}
+
   } opts;
+
+  std::string perf_path;
 
   symbolizer_t symbolizer;
 
@@ -71,6 +88,9 @@ public:
   IPTTool() : opts(JoveCategory) {}
 
   int Run(void) override;
+
+  int UsingPerfRecord(void);
+  int UsingLibipt(void);
 
   binary_index_t BinaryFromName(const char *name);
   std::string GetLine(int rfd, tbb::flow_control &);
@@ -127,21 +147,31 @@ binary_index_t IPTTool::BinaryFromName(const char *name) {
 }
 
 int IPTTool::Run(void) {
-  using namespace std::placeholders;
+  perf_path = locator().perf();
+
+  if (opts.Chdir) {
+    if (::chdir(temporary_dir().c_str()) < 0) {
+      int err = errno;
+
+      throw std::runtime_error(std::string("chdir failed: ") + strerror(err));
+    }
+  }
 
   if (fs::exists("perf.data"))
     fs::remove("perf.data");
 
-  const std::string perf_path = locator().perf();
-  const std::string prog_path = fs::canonical(opts.Prog).string();
-  const std::string stdout_path = temporary_dir() + "/perf.stdout.txt";
+  TCG = std::make_unique<tiny_code_generator_t>();
+  Disas = std::make_unique<disas_t>();
+  E = std::make_unique<explorer_t>(jv, *Disas, *TCG, IsVeryVerbose());
 
   for_each_binary(std::execution::par_unseq, jv,
                   [&](binary_t &b) { init_state_for_binary(b); });
 
-  TCG = std::make_unique<tiny_code_generator_t>();
-  Disas = std::make_unique<disas_t>();
-  E = std::make_unique<explorer_t>(jv, *Disas, *TCG, IsVeryVerbose());
+  const std::string prog_path = fs::canonical(opts.Prog).string();
+
+  bool IsCOFF = B::is_coff(*state.for_binary(jv.Binaries.at(0)).Bin);
+
+  fs::path path_to_stderr = fs::path(temporary_dir()) / "stderr";
 
   RunExecutableToExit(
       perf_path,
@@ -151,7 +181,7 @@ int IPTTool::Run(void) {
         Arg("record");
         Arg("-i");
         Arg("-e");
-        Arg("intel_pt/branch=1,mtc=0,cyc=0,tsc=0,ptw=0/u");
+        Arg("intel_pt/branch=1,mtc=0,cyc=1,noretcomp/u");
 
         Arg(opts.Prog);
 
@@ -163,7 +193,29 @@ int IPTTool::Run(void) {
 
         for (const std::string &s : opts.Envs)
           Env(s);
-      });
+
+        //
+        // wine sometimes read(2)'s binaries into memory rather than mmap(2)'ing
+        // them. this causes trouble- we need to use WINEDEBUG=+module to get
+        // wine to tell us the load addresses of sections of binaries so we can
+        // make sense of the addresses we get back from the trace.
+        //
+        if (IsCOFF)
+          Env("WINEDEBUG=+module");
+      }, "", path_to_stderr.string());
+
+  if (IsCOFF) {
+    // TODO parse stderr to make sense of the program counters
+  }
+
+  if (opts.UsePerfScript)
+    return UsingPerfRecord();
+  else
+    return UsingLibipt();
+}
+
+int IPTTool::UsingPerfRecord(void) {
+  using namespace std::placeholders;
 
   int pipefd[2];
   if (::pipe(pipefd) < 0) { /* first, create a pipe */
@@ -514,5 +566,102 @@ void IPTTool::ProcessLine(const std::string &line) {
   }
 }
 
-}
+int IPTTool::UsingLibipt(void) {
+  fs::path libipt_scripts_dir = locator().libipt_scripts();
+
+  fs::path path_to_read_aux = libipt_scripts_dir / "perf-read-aux.bash";
+  fs::path path_to_read_sideband = libipt_scripts_dir / "perf-read-sideband.bash";
+
+  bool Failed = false;
+  oneapi::tbb::parallel_invoke(
+      [&](void) -> void {
+        if (Tool::RunExecutableToExit(
+                path_to_read_aux.string(),
+                [&](auto Arg) { Arg(path_to_read_aux.string()); }, "", "")) {
+          WithColor::error()
+              << "failed to run libipt/script/perf-read-aux.bash\n";
+          Failed = true;
+        }
+      },
+      [&](void) -> void {
+        if (Tool::RunExecutableToExit(
+                path_to_read_sideband.string(),
+                [&](auto Arg) { Arg(path_to_read_sideband.string()); }, "", "")) {
+          WithColor::error()
+              << "failed to run libipt/script/perf-read-sideband.bash\n";
+          Failed = true;
+        }
+      });
+
+  if (Failed)
+    return 1;
+
+#if 0
+  fs::path path_to_get_opts = libipt_scripts_dir / "perf-get-opts.bash";
+
+  fs::path path_to_opts = fs::path(temporary_dir()) / "get-opts.txt";
+
+  if (RunExecutableToExit(
+          path_to_get_opts.string(),
+          [&](auto Arg) { Arg(path_to_get_opts.string()); },
+          path_to_opts.c_str())) {
+    WithColor::error() << "failed to run libipt/script/perf-get-opts.bash\n";
+    return 1;
+  }
+
+  std::string opts_str = read_file_into_string(path_to_opts.c_str());
+
+  std::vector<std::string> ptdump_args;
+  boost::algorithm::split(ptdump_args, opts_str, boost::is_any_of(" "),
+                          boost::token_compress_on);
+
+  llvm::errs() << opts_str << '\n';
 #endif
+
+  std::regex aux_filename_pattern(R"(perf\.data-aux-idx\d+\.bin)");
+
+  fs::path dir = opts.Chdir ? fs::path(temporary_dir()) : fs::canonical(".");
+  assert(fs::exists(dir) && fs::is_directory(dir));
+
+  std::vector<std::string> aux_filenames;
+  try {
+    for (const auto &entry : fs::directory_iterator(dir)) {
+      if (!fs::is_regular_file(entry))
+        continue;
+
+      std::string filename = entry.path().filename().string();
+      if (std::regex_match(filename, aux_filename_pattern)) {
+        if (IsVerbose())
+          llvm::errs() << "Found file: " << filename << '\n';
+        aux_filenames.push_back(std::move(filename));
+      }
+    }
+  } catch (const fs::filesystem_error &ex) {
+    llvm::errs() << "Filesystem error: " << ex.what() << '\n';
+  }
+
+  std::for_each(
+      std::execution::par_unseq,
+      aux_filenames.begin(),
+      aux_filenames.end(),
+      [&](const std::string &aux_filename) {
+        static std::mutex mtx; // FIXME
+        std::unique_lock<std::mutex> lck(mtx); // FIXME
+        printf("%s\n", aux_filename.c_str()); // FIXME
+
+        std::vector<uint8_t> aux_contents;
+        read_file_into_thing(aux_filename.c_str(), aux_contents);
+
+        IntelPT intel_ptr(jv,
+                          &aux_contents[0],
+                          &aux_contents[aux_contents.size()]);
+
+        intel_ptr.visit_all(/*FIXME*/);
+      });
+
+  return 0;
+}
+
+}
+
+#endif /* x86 */

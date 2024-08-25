@@ -26,3 +26,6 @@
 [submodule "boost"]
 	path = boost
 	url = https://github.com/boostorg/boost.git
+[submodule "libipt"]
+	path = libipt
+	url = https://github.com/intel/libipt.git
