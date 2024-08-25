@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e 
+set -e
 set -o pipefail
 set -x
 
@@ -34,20 +34,21 @@ cmake -G Ninja \
       -D LLVM_ENABLE_TERMINFO=OFF \
       -D LLVM_ENABLE_ZSTD=OFF \
       -D LLVM_ENABLE_ZLIB=ON \
-      -D LLVM_ENABLE_ASSERTIONS=ON \
+      -D LLVM_ENABLE_ASSERTIONS=OFF \
+      -D JOVE_USE_SYSTEM_TBB=ON \
       -D LLVM_ENABLE_EH=ON \
       -D LLVM_BUILD_DOCS=OFF \
       -D LLVM_BINUTILS_INCDIR=/usr/include \
       -D LLVM_ENABLE_PIC=OFF \
       -D LLVM_ENABLE_Z3_SOLVER=OFF \
-      -D JOVE_USE_SYSTEM_TBB=ON \
-      -D "LLVM_USE_SANITIZER=Address;Undefined" \
+      -D "LLVM_USE_SANITIZER=MemoryWithOrigins" \
       -D LLVM_ENABLE_LTO=OFF \
       -D LLVM_USE_LINKER=lld \
       ../llvm
 
 fi
 
+#     -D JOVE_USE_SYSTEM_TBB=ON
 #     -D LLVM_ENABLE_LIBCXX=ON
 
 ninja include/llvm/IR/Attributes.inc && ninja bin/{llvm-tblgen,llvm-dis,llvm-dlltool,llvm-cbe,opt,llc,clang,clang-tblgen,lld,jove-x86_64,jove-i386,jove-aarch64,jove-mipsel,jove-mips64el}
