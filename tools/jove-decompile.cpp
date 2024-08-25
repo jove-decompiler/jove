@@ -58,7 +58,6 @@ class DecompileTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, 
     cl::alias OutputAlias;
     cl::opt<bool> ClearOutputDir;
     cl::alias ClearOutputDirAlias;
-    cl::opt<unsigned> Threads;
     cl::opt<bool> FakeLineNumbers;
     cl::opt<bool> MT;
     cl::opt<int> Conservative;
@@ -87,9 +86,6 @@ class DecompileTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, 
           ClearOutputDirAlias("c", cl::desc("Alias for -clear-output-dir."),
                               cl::aliasopt(ClearOutputDir),
                               cl::cat(JoveCategory)),
-
-          Threads("num-threads", cl::desc("Number of CPU threads to use"),
-                  cl::init(num_cpus()), cl::cat(JoveCategory)),
 
           FakeLineNumbers(
               "fake-line-numbers",
