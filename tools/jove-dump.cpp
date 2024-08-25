@@ -83,17 +83,6 @@ JOVE_REGISTER_TOOL("dump", DumpTool);
 
 typedef boost::format fmt;
 
-struct reached_visitor : public boost::default_bfs_visitor {
-  std::vector<basic_block_t> &out;
-
-  reached_visitor(std::vector<basic_block_t> &out) : out(out) {}
-
-  void discover_vertex(basic_block_t bb,
-                       const interprocedural_control_flow_graph_t &) const {
-    out.push_back(bb);
-  }
-};
-
 void DumpTool::dumpDecompilation(const jv_t& jv) {
   llvm::ScopedPrinter Writer(llvm::outs());
   llvm::ListScope _(Writer, (fmt("Binaries (%u)") % jv.Binaries.size()).str());
@@ -570,19 +559,15 @@ int DumpTool::Run(void) {
         auto &ICFG = binary.Analysis.ICFG;
 
         for (const function_t &f : binary.Analysis.Functions) {
-          basic_block_t entry = basic_block_of_index(f.Entry, ICFG);
-
-          std::vector<basic_block_t> blocks;
-          blocks.reserve(boost::num_vertices(ICFG));
-
-          reached_visitor vis(blocks);
-          boost::breadth_first_search(ICFG, entry, boost::visitor(vis));
+          std::vector<basic_block_t> bbvec;
+          basic_blocks_of_function(f, binary, bbvec);
 
           std::vector<taddr_t> addrs;
-          addrs.resize(blocks.size());
 
+          addrs.resize(bbvec.size());
           std::transform(
-              blocks.begin(), blocks.end(), addrs.begin(),
+              bbvec.begin(),
+              bbvec.end(), addrs.begin(),
               [&](basic_block_t bb) -> taddr_t { return ICFG[bb].Addr; });
 
           Writer.printHexList("Fn", addrs);
