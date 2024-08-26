@@ -787,11 +787,8 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
     struct jove_function_info_t *finfo;
 
     hash_for_each_possible(__jove_function_map, finfo, hlist, saved_pc) {
-      if (finfo->pc != saved_pc) {
-        continue;
-      } else {
+      if (finfo->pc == saved_pc) {
         Callee = *finfo;
-
         goto found;
       }
     }
