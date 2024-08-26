@@ -594,7 +594,26 @@ _HIDDEN uintptr_t _jove_handle_signal_delivery(uintptr_t SignalDelivery,
 
 _NAKED _HIDDEN void _jove_inverse_thunk(void);
 
+static __thread bool _sighandler_reentered = false;
+
+struct _entered_t { bool *enteredp; };
+
+static struct _entered_t _jove_entered(bool *p) {
+  struct _entered_t res = {*p ? NULL : p};
+  *p = true;
+  return res;
+}
+
+static void _jove_clear_entered(const struct _entered_t *entered) {
+  _ASSERT(entered->enteredp);
+
+  *entered->enteredp = false;
+}
+
 void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
+  const struct _entered_t entered _CLEANUP(_jove_clear_entered) =
+      _jove_entered(&_sighandler_reentered);
+
   if (sig != SIGSEGV &&
       sig != SIGBUS &&
       sig != SIGABRT &&
@@ -616,6 +635,8 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
 
     _DUMP(s);
   }
+
+  _ASSERT(entered.enteredp && "haven't reentered");
 
   uint64_t **const callstack_ptr = &__jove_callstack;
   uint64_t **const callstack_begin_ptr = &__jove_callstack_begin;
@@ -1081,6 +1102,7 @@ found:
   }
 
 not_found:
+on_crash:
   {
     //
     // if we get here we'll assume it's a crash.
