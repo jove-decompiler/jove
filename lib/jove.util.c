@@ -485,23 +485,10 @@ static _UNUSED uint64_t _u64ofhexstr(char *str_begin, char *str_end) {
 #define for_each_line_eol_in_proc_maps(line, eol, maps, n)                     \
   for_each_str_eos_delim_know_end(line, eol, '\n', maps, n)
 
-static _UNUSED uintptr_t _parse_stack_end_of_maps(char *maps, const unsigned n) {
-  char *const beg = &maps[0];
-  char *const end = &maps[n];
-
+static _UNUSED uintptr_t _parse_stack_end_of_maps(char *maps, unsigned n) {
+  char *line;
   char *eol;
-  for (char *line = beg; line != end; line = eol + 1) {
-    unsigned left = n - (line - beg);
-
-    //
-    // find the end of the current line
-    //
-    eol = _memchr(line, '\n', left);
-    _ASSERT(eol);
-
-    //
-    // second hex address
-    //
+  for_each_line_eol_in_proc_maps(line, eol, maps, n) {
     if (eol[-1] == ']' &&
         eol[-2] == 'k' &&
         eol[-3] == 'c' &&
@@ -509,10 +496,12 @@ static _UNUSED uintptr_t _parse_stack_end_of_maps(char *maps, const unsigned n) 
         eol[-5] == 't' &&
         eol[-6] == 's' &&
         eol[-7] == '[') {
-      char *dash = _memchr(line, '-', left);
-      _ASSERT(dash);
+      unsigned left = eol - line;
 
+      char *dash = _memchr(line, '-', left);
       char *space = _memchr(line, ' ', left);
+
+      _ASSERT(dash);
       _ASSERT(space);
 
       uint64_t max = _u64ofhexstr(dash + 1, space);
@@ -523,47 +512,65 @@ static _UNUSED uintptr_t _parse_stack_end_of_maps(char *maps, const unsigned n) 
   _UNREACHABLE();
 }
 
-static _UNUSED uintptr_t _does_readable_regular_mapping_exist_at_address(
-    uintptr_t Addr, char *maps, const unsigned n) {
-  char *const beg = &maps[0];
-  char *const end = &maps[n];
-
+static _UNUSED uintptr_t _end_of_normal_readable_map_beginning_at(
+    uintptr_t Addr, char *maps, unsigned n) {
+  char *line;
   char *eol;
-  for (char *line = beg; line != end; line = eol + 1) {
-    {
-      unsigned left = n - (line - beg);
+  for_each_line_eol_in_proc_maps(line, eol, maps, n) {
+    if (eol[-1] == ']')
+      continue; /* special mapping */
 
-      //
-      // find the end of the current line
-      //
-      eol = _memchr(line, '\n', left);
+    struct {
+      uintptr_t min, max;
+    } vm;
 
-      if (eol[-1] == ']')
-        continue;
-    }
+    bool r = ({
+      unsigned left = eol - line;
 
+      char *dash = _memchr(line, '-', left);
+      char *space = _memchr(line, ' ', left);
+
+      _ASSERT(dash);
+      _ASSERT(space);
+
+      vm.min = _u64ofhexstr(line, dash);
+      vm.max = _u64ofhexstr(dash + 1, space);
+
+      char *rp = space + 1;
+      *rp == 'r';
+    });
+
+    if (vm.min == Addr && r)
+      return vm.max; /* yes */
+  }
+
+  return 0;
+}
+
+static _UNUSED uintptr_t _end_of_mapping_at_address(uintptr_t Addr, char *maps,
+                                                    unsigned n) {
+  char *line;
+  char *eol;
+  for_each_line_eol_in_proc_maps(line, eol, maps, n) {
     unsigned left = eol - line;
 
     struct {
       uint64_t min, max;
     } vm;
 
-    bool r;
-
     {
       char *dash = _memchr(line, '-', left);
-      vm.min = _u64ofhexstr(line, dash);
-
       char *space = _memchr(line, ' ', left);
+
+      _ASSERT(dash);
+      _ASSERT(space);
+
+      vm.min = _u64ofhexstr(line, dash);
       vm.max = _u64ofhexstr(dash + 1, space);
-
-      char *rp = space + 1;
-      r = *rp == 'r';
     }
 
-    if (r && vm.min == Addr) {
+    if (Addr >= vm.min && Addr < vm.max)
       return vm.max;
-    }
   }
 
   return 0;
@@ -707,26 +714,6 @@ static void _jove_restore_char(const jove_saved_char_t *sav) {
 #define LOAD_PROC_SELF_MAPS(var, len)                                          \
   JOVE_SCOPED_BUFF(var, JOVE_MAX_PROC_MAPS);                                   \
   len = _jove_read_pseudo_file("/proc/self/maps", var, JOVE_MAX_PROC_MAPS)
-
-static _UNUSED uintptr_t _get_stack_end(void) {
-  char *maps;
-  unsigned n;
-  LOAD_PROC_SELF_MAPS(maps, n);
-
-  uintptr_t res = _parse_stack_end_of_maps(maps, n);
-
-  //
-  // if there is a contiguous sequence of readable maps directly after [stack], we will consider the end of such mappings to be the end of the stack.
-  //
-  uintptr_t newres;
-  do {
-    newres = _does_readable_regular_mapping_exist_at_address(res, maps, n);
-    if (newres)
-      res = newres;
-  } while (newres);
-
-  return res;
-}
 
 static _UNUSED bool _description_of_address_for_maps(char *out,
                                                      uintptr_t Addr,

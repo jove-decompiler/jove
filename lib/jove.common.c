@@ -498,22 +498,113 @@ void WINAPI JoveWinMain(void) {
 #endif
 #endif
 
-static uintptr_t _jove_begin_setup_emulated_stack(uintptr_t init_sp) {
-  unsigned len = _get_stack_end() - init_sp;
+static _UNUSED uintptr_t _jove_begin_setup_emulated_stack(uintptr_t init_sp) {
+  char *m;
+  unsigned n;
+  LOAD_PROC_SELF_MAPS(m, n);
+
+  if (unlikely(__jove_opts.Debug.Stack)) {
+    char *s;
+    JOVE_SCOPED_BUFF(s, 2*PATH_MAX);
+
+    _strcpy(s, "initial stack pointer is 0x");
+    {
+      char buff[65];
+      _uint_to_string(init_sp, buff, 0x10);
+
+      _strcat(s, buff);
+    }
+
+    {
+      char *buff;
+      JOVE_SCOPED_BUFF(buff, 2*PATH_MAX);
+
+      if (_description_of_address_for_maps(buff, init_sp, m, n)) {
+        _strcat(s, " <");
+        _strcat(s, buff);
+        _strcat(s, ">");
+      }
+    }
+
+    _strcat(s, "\n");
+    _DUMP(s);
+
+#if defined(__x86_64__) || defined(__i386__)
+    _ASSERT(init_sp % 16 == 0 && "initial stack pointer is aligned");
+#endif
+  }
+
+  uintptr_t stack_end = _end_of_mapping_at_address(init_sp, m, n);
+  _ASSERT(stack_end);
+
+  //
+  // there may be a nonempty sequence of contiguous readable mappings directly
+  // following whatever mapping the initial stack pointer lies in (typically
+  // [stack], but not necessarily (e.g. under valgrind)). we consider the end of
+  // such mappings to be the true "end of the stack".
+  //
+  for (;;) {
+    uintptr_t end = _end_of_normal_readable_map_beginning_at(stack_end, m, n);
+    if (!end)
+      break; /* no such mapping */
+
+    if (unlikely(__jove_opts.Debug.Stack)) {
+      char s[128];
+
+      _strcpy(s, "mapping afterwards at 0x");
+      {
+	char buff[65];
+	_uint_to_string(end, buff, 0x10);
+
+	_strcat(s, buff);
+      }
+
+      _strcat(s, "\n");
+      _DUMP(s);
+    }
+
+    stack_end = end;
+  }
+
+  _ASSERT(stack_end);
+  _ASSERT(init_sp < stack_end);
+
+  unsigned len = stack_end - init_sp; /* amount of data currently on "stack" */
 
   uintptr_t emu_stack_beg = _jove_alloc_stack();
   uintptr_t emu_stack_end = emu_stack_beg + JOVE_STACK_SIZE;
 
-  uintptr_t emu_sp = emu_stack_end - JOVE_PAGE_SIZE - len;
-
   if (unlikely(__jove_opts.Debug.Stack)) {
-#if defined(__x86_64__) || defined(__i386__)
-    _ASSERT(init_sp % 16 == 0);
-    _ASSERT(emu_sp % 16 == 0);
-#endif
+    char s[256];
+
+    _strcpy(s, "copying ");
+    {
+      char buff[65];
+      _uint_to_string(len, buff, 10);
+
+      _strcat(s, buff);
+    }
+    _strcat(s, " bytes to emulated stack at [0x");
+    {
+      char buff[65];
+      _uint_to_string(emu_stack_beg, buff, 0x10);
+
+      _strcat(s, buff);
+    }
+    _strcat(s, ", 0x");
+    {
+      char buff[65];
+      _uint_to_string(emu_stack_end, buff, 0x10);
+
+      _strcat(s, buff);
+    }
+    _strcat(s, ")\n");
+
+    _DUMP(s);
   }
 
-  _memcpy((void *)emu_sp, (const void *)init_sp, len);
+  uintptr_t emu_sp = emu_stack_end - JOVE_PAGE_SIZE - len;
+  _memcpy((void *)emu_sp, (const void *)init_sp, len); /* copy data */
 
   return emu_sp;
 }
