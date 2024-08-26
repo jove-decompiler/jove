@@ -844,7 +844,7 @@ found:
     uint64_t *const saved_callstack       = *callstack_ptr;
     uint64_t *const saved_callstack_begin = *callstack_begin_ptr;
 
-    if (unlikely(saved_callstack)) {
+    if (unlikely(saved_callstack_begin)) {
       uint64_t *callstack = saved_callstack;
       *callstack++ = JOVE_COMBINE_B_AND_BB(JOVE_INVALID_BINARY_INDEX,
                                            JOVE_INVALID_BASIC_BLOCK_INDEX);
