@@ -206,6 +206,9 @@ class JoveTester:
 
     return eval(open(inputs_path, 'r').read())
 
+  def is_stderr_connection_closed_by_remote_host(self, s):
+    return "Connection to localhost closed by remote host.\n" == s
+
   def run_tests(self, tests, multi_threaded=True):
     assert self.is_ready()
     self.update_libjove_rt(multi_threaded=multi_threaded)
@@ -250,30 +253,43 @@ class JoveTester:
 
         # compare result of executing testbin and recompiled testbin
         for input_args in inputs:
-          p1 = self.ssh_command([testbin] + input_args, text=True)
-          p2 = self.ssh_command(jove_loop_args + input_args, text=True)
+          count = 0
+          while count < 20:
+            p1 = self.ssh_command([testbin] + input_args, text=True)
+            p2 = self.ssh_command(jove_loop_args + input_args, text=True)
 
-          return_neq = p1.returncode != p2.returncode
-          stdout_neq = p1.stdout != p2.stdout
-          stderr_neq = p1.stderr != p2.stderr
+            if self.is_stderr_connection_closed_by_remote_host(p1.stderr) or \
+               self.is_stderr_connection_closed_by_remote_host(p2.stderr):
+              print('failed to ssh, wtf? trying again (%d)...' % count)
+              time.sleep(1.25)
+              count += 1
+              continue
 
-          failed = return_neq or stdout_neq or stderr_neq
-          if failed:
-            print("/////////\n///////// %s TEST FAILURE %s <%s>\n/////////" % \
-              ("MULTI-THREADED" if multi_threaded else "SINGLE-THREADED", \
-               testbin, self.arch))
+            return_neq = p1.returncode != p2.returncode
+            stdout_neq = p1.stdout != p2.stdout
+            stderr_neq = p1.stderr != p2.stderr
 
-            if return_neq:
-              print('%d != %d' % (p1.returncode, p2.returncode))
-            if stdout_neq:
-              print('<STDOUT>\n"%s"\n\n!=\n\n"%s"\n' % (p1.stdout, p2.stdout))
-            if stderr_neq:
-              print('<STDERR>\n"%s"\n\n!=\n\n"%s"\n' % (p1.stderr, p2.stderr))
+            failed = return_neq or stdout_neq or stderr_neq
+            if failed:
+              print("/////////\n///////// %s TEST FAILURE %s <%s>\n/////////" % \
+                ("MULTI-THREADED" if multi_threaded else "SINGLE-THREADED", \
+                 testbin, self.arch))
 
-            # make it easy for user to rerun failing test
-            if not self.unattended:
-              self.set_up_ssh_command_for_user(jove_loop_args + input_args)
+              if return_neq:
+                print('%d != %d' % (p1.returncode, p2.returncode))
+              if stdout_neq:
+                print('<STDOUT>\n"%s"\n\n!=\n\n"%s"\n' % (p1.stdout, p2.stdout))
+              if stderr_neq:
+                print('<STDERR>\n"%s"\n\n!=\n\n"%s"\n' % (p1.stderr, p2.stderr))
 
+              # make it easy for user to rerun failing test
+              if not self.unattended:
+                self.set_up_ssh_command_for_user(jove_loop_args + input_args)
+
+              return 1
+            break
+          if count >= 20:
+            print("SSH FAILURE!!!")
             return 1
 
     return 0
