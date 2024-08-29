@@ -14,10 +14,11 @@ class Binary;
 namespace jove {
 
 struct invalid_control_flow_exception {
-  binary_t &b;
-  uint64_t pc;
+  std::string name_of_binary;
+  taddr_t pc;
 
-  invalid_control_flow_exception(binary_t &b, uint64_t pc) : b(b), pc(pc) {}
+  invalid_control_flow_exception(binary_t &b, uint64_t pc)
+      : name_of_binary(b.Name.c_str()), pc(pc) {}
 };
 
 struct tiny_code_generator_t;

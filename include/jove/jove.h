@@ -308,6 +308,9 @@ constexpr addr_intvl make_addr_intvl(taddr_t lower, taddr_t upper) {
   return addr_intvl(lower, upper - lower);
 }
 
+typedef boost::container::flat_map<addr_intvl, binary_index_t, addr_intvl_cmp>
+    address_space_t;
+
 struct binary_t;
 
 struct allocates_basic_block_t {

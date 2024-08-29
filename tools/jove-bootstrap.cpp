@@ -303,9 +303,6 @@ struct BootstrapTool : public StatefulJVTool<ToolKind::Standard, binary_state_t,
 
   pmm_t pmm;
 
-  typedef boost::container::flat_map<addr_intvl, binary_index_t, addr_intvl_cmp>
-      address_space_t;
-
   address_space_t AddressSpace;
 
   boost::dynamic_bitset<> BinFoundVec;
@@ -3226,7 +3223,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
   } catch (const invalid_control_flow_exception &invalid_cf) {
     const std::string what = "invalid control-flow to " +
                              taddr2str(invalid_cf.pc, false) + " in \"" +
-                             invalid_cf.b.Name.c_str() + "\"";
+                             invalid_cf.name_of_binary + "\"";
 
     HumanOut() << llvm::formatv(
         "on_breakpoint failed: {0} [target: {1}+{2:x} ({3:x}) binary.LoadAddr: {4:x}]\n",

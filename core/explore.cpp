@@ -562,7 +562,7 @@ void explorer_t::_control_flow_to(
           taddr2str(e.pc, false),
           taddr2str(TermAddr, false),
           taddr2str(Target, false),
-          e.b.Name.c_str());
+          e.name_of_binary);
 
     throw e;
   }
