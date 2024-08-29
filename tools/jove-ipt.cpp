@@ -8,6 +8,7 @@
 #include "symbolizer.h"
 #include "locator.h"
 #include "ipt.h"
+#include "wine.h"
 
 #include <boost/filesystem.hpp>
 #include <boost/algorithm/string.hpp>
@@ -34,9 +35,17 @@ namespace {
 
 struct binary_state_t {
   std::unique_ptr<llvm::object::Binary> Bin;
+
+  taddr_t LoadAddr = std::numeric_limits<taddr_t>::max();
 };
 
 }
+
+typedef boost::interprocess::flat_map<
+    addr_intvl, basic_block_index_t, addr_intvl_cmp,
+    boost::interprocess::allocator<std::pair<addr_intvl, basic_block_index_t>,
+                                   segment_manager_t>>
+    addrspace_t;
 
 struct IPTTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void, void> {
   struct Cmdline {
@@ -79,24 +88,33 @@ struct IPTTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
   std::unique_ptr<disas_t> Disas;
   std::unique_ptr<explorer_t> E;
 
+  std::unordered_map<std::string, taddr_t> binary_loadaddr_map;
+  address_space_t AddressSpace;
+
   std::string buff;
   std::regex line_regex_ab;
   std::regex line_regex_a;
   std::regex line_regex_b;
+
+  void parse_stderr(const char *path_to_stderr,
+                    std::vector<std::string> &binary_paths);
 
 public:
   IPTTool() : opts(JoveCategory) {}
 
   int Run(void) override;
 
-  int UsingPerfRecord(void);
+  int UsingPerfScript(void);
   int UsingLibipt(void);
 
   binary_index_t BinaryFromName(const char *name);
   std::string GetLine(int rfd, tbb::flow_control &);
   void ProcessLine(const std::string &line);
-  void on_new_binary(binary_t &);
+
   void init_state_for_binary(binary_t &);
+  void on_new_binary(binary_t &);
+
+  std::string convert_to_linux_path(std::string path);
 };
 
 JOVE_REGISTER_TOOL("ipt", IPTTool);
@@ -169,7 +187,11 @@ int IPTTool::Run(void) {
 
   const std::string prog_path = fs::canonical(opts.Prog).string();
 
-  bool IsCOFF = B::is_coff(*state.for_binary(jv.Binaries.at(0)).Bin);
+  bool HasCOFF = std::any_of(
+      jv.Binaries.begin(),
+      jv.Binaries.end(), [&](binary_t &b) -> bool {
+        return B::is_coff(*state.for_binary(jv.Binaries.at(0)).Bin);
+      });
 
   fs::path path_to_stderr = fs::path(temporary_dir()) / "stderr";
 
@@ -179,9 +201,11 @@ int IPTTool::Run(void) {
         Arg(perf_path);
 
         Arg("record");
-        Arg("-i");
+        Arg("-m,256M");
+        Arg("-o");
+        Arg("perf.data");
         Arg("-e");
-        Arg("intel_pt/branch=1,mtc=0,cyc=1,noretcomp/u");
+        Arg("intel_pt/cyc,noretcomp/u");
 
         Arg(opts.Prog);
 
@@ -196,25 +220,115 @@ int IPTTool::Run(void) {
 
         //
         // wine sometimes read(2)'s binaries into memory rather than mmap(2)'ing
-        // them. this causes trouble- we need to use WINEDEBUG=+module to get
-        // wine to tell us the load addresses of sections of binaries so we can
-        // make sense of the addresses we get back from the trace.
+        // them. this causes trouble- we need to use WINEDEBUG=+loaddll,+process
+        // module to get wine to tell us the load addresses of sections of
+        // binaries so we can make sense of the addresses we get back from the
+        // trace.
         //
-        if (IsCOFF)
-          Env("WINEDEBUG=+module");
+        if (HasCOFF)
+          Env("WINEDEBUG=+loaddll,+process");
       }, "", path_to_stderr.string());
 
-  if (IsCOFF) {
-    // TODO parse stderr to make sense of the program counters
+  if (HasCOFF) {
+    //
+    // parse stderr to make sense of the program counters
+    //
+    std::string stderr_contents;
+    read_file_into_thing(path_to_stderr.c_str(), stderr_contents);
+
+    wine::stderr_parser parser(stderr_contents);
+
+    long tid = parser.tid_of_NtCreateUserProcess(jv.Binaries.at(0).Name.c_str());
+    if (tid < 0) {
+      WithColor::error() << "could not find tid of prog in wine debug output\n";
+      return 1;
+    }
+
+    if (IsVerbose())
+      llvm::errs() << "tid=" << tid << '\n';
+
+    std::vector<std::pair<std::string, uint64_t>> loaded_list;
+    parser.loaddll_loaded_for_tid(tid, loaded_list);
+
+    for (auto &l : loaded_list) {
+      std::string &path = l.first;
+
+      if (!fs::exists(path))
+        path = lowered_string(path); /* case-insensitive */
+
+      assert(fs::exists(path));
+      path = fs::canonical(fs::path(path)).string();
+
+      if (IsVerbose())
+        llvm::errs() << llvm::formatv("{0} @ {1:x}\n", l.first, l.second);
+    }
+
+    std::vector<std::string> binary_paths;
+    for (const auto &pair : loaded_list) {
+      binary_loadaddr_map[pair.first] = pair.second;
+      insertSortedVec(binary_paths, pair.first);
+    }
+
+    //
+    // add binaries
+    //
+    std::for_each(
+        std::execution::par_unseq,
+        binary_paths.begin(),
+        binary_paths.end(),
+        [&](const std::string &path) {
+          bool IsNew;
+          binary_index_t BIdx;
+
+          std::tie(BIdx, IsNew) = jv.AddFromPath(
+              *E, path.c_str(), invalid_binary_index,
+              std::bind(&IPTTool::on_new_binary, this, std::placeholders::_1));
+
+          assert(is_binary_index_valid(BIdx));
+
+          binary_t &b = jv.Binaries.at(BIdx);
+          state.for_binary(b).LoadAddr = binary_loadaddr_map.at(path);
+        });
+
+    for_each_binary(jv, [&](binary_t &b) {
+      binary_state_t &x = state.for_binary(b);
+
+      if (~x.LoadAddr == 0)
+        return;
+
+      uint64_t SectsStartAddr, SectsEndAddr;
+      std::tie(SectsStartAddr, SectsEndAddr) = B::bounds_of_binary(*x.Bin);
+
+      addr_intvl intvl(x.LoadAddr, SectsEndAddr - SectsStartAddr);
+
+      {
+        auto it = intvl_map_find(AddressSpace, intvl);
+        if (it != AddressSpace.end()) {
+          binary_t &b_already_there = jv.Binaries.at((*it).second);
+
+          WithColor::error() << llvm::formatv(
+              "we think binary \"{0}\" is loaded at {1} but binary \"{2}\" "
+              "already loaded at {3}\n",
+              b.Name.c_str(), addr_intvl2str(intvl),
+              b_already_there.Name.c_str(), addr_intvl2str((*it).first));
+          return;
+        }
+      }
+
+      llvm::errs() << llvm::formatv("{0} @ {1}\n", b.Name.c_str(),
+                                    addr_intvl2str(intvl));
+
+      intvl_map_add(AddressSpace, intvl, index_of_binary(b, jv));
+    });
   }
 
   if (opts.UsePerfScript)
-    return UsingPerfRecord();
+    return UsingPerfScript();
   else
     return UsingLibipt();
 }
 
-int IPTTool::UsingPerfRecord(void) {
+int IPTTool::UsingPerfScript(void) {
   using namespace std::placeholders;
 
   int pipefd[2];
@@ -448,7 +562,7 @@ void IPTTool::ProcessLine(const std::string &line) {
       if (IsVerbose())
         llvm::errs() << llvm::formatv("invalid control-flow to {0} in \"{1}\"\n",
                                       taddr2str(invalid_cf.pc, false),
-                                      invalid_cf.b.Name.c_str());
+                                      invalid_cf.name_of_binary);
       return;
     } catch (const std::exception &e) {
       if (IsVerbose())
@@ -483,7 +597,7 @@ void IPTTool::ProcessLine(const std::string &line) {
         if (IsVerbose())
           llvm::errs() << llvm::formatv("invalid control-flow to {0} in \"{1}\"\n",
                                         taddr2str(invalid_cf.pc, false),
-                                        invalid_cf.b.Name.c_str());
+                                        invalid_cf.name_of_binary);
         return;
       }
 
@@ -596,7 +710,9 @@ int IPTTool::UsingLibipt(void) {
   if (Failed)
     return 1;
 
-#if 0
+  //
+  // perf-get-opts (written for ptdump and ptxed)
+  //
   fs::path path_to_get_opts = libipt_scripts_dir / "perf-get-opts.bash";
 
   fs::path path_to_opts = fs::path(temporary_dir()) / "get-opts.txt";
@@ -612,11 +728,17 @@ int IPTTool::UsingLibipt(void) {
   std::string opts_str = read_file_into_string(path_to_opts.c_str());
 
   std::vector<std::string> ptdump_args;
+  boost::algorithm::trim(opts_str);
   boost::algorithm::split(ptdump_args, opts_str, boost::is_any_of(" "),
                           boost::token_compress_on);
 
+  std::vector<char *> ptdump_argv;
+  ptdump_argv.push_back("ptdump");
+  for (std::string &argstr : ptdump_args)
+    ptdump_argv.push_back(const_cast<char *>(argstr.c_str()));
+  ptdump_argv.push_back(nullptr);
+
   llvm::errs() << opts_str << '\n';
-#endif
 
   std::regex aux_filename_pattern(R"(perf\.data-aux-idx\d+\.bin)");
 
@@ -645,18 +767,22 @@ int IPTTool::UsingLibipt(void) {
       aux_filenames.begin(),
       aux_filenames.end(),
       [&](const std::string &aux_filename) {
+#if 1
         static std::mutex mtx; // FIXME
         std::unique_lock<std::mutex> lck(mtx); // FIXME
         printf("%s\n", aux_filename.c_str()); // FIXME
+#endif
 
         std::vector<uint8_t> aux_contents;
         read_file_into_thing(aux_filename.c_str(), aux_contents);
 
-        IntelPT intel_ptr(jv,
+        IntelPT intel_ptr(ptdump_argv.size()-1,
+                          ptdump_argv.data(), jv, *E,
+                          AddressSpace,
                           &aux_contents[0],
                           &aux_contents[aux_contents.size()]);
 
-        intel_ptr.visit_all(/*FIXME*/);
+        intel_ptr.explore();
       });
 
   return 0;

@@ -1,46 +1,109 @@
 #if defined(__x86_64__) || defined(__i386__) /* x86 only */
 
 #include "ipt.h"
+#include "explore.h"
+#include <boost/format.hpp>
+
 #include <intel-pt.h>
-#include <inttypes.h>
-#if 0
 #include <libipt-sb.h>
-#endif
+#include <inttypes.h>
 
 extern "C" {
 #include "pt_last_ip.c" /* XXX why isn't this exported by libipt?? */
+#include "pt_time.c" /* XXX why isn't this exported by libipt?? */
 }
 
 namespace jove {
 
-IntelPT::IntelPT(jv_t &jv, void *begin, void *end) : jv(jv) {
+typedef boost::format fmt;
+
+IntelPT::IntelPT(int ptdump_argc, char **ptdump_argv, jv_t &jv,
+                 explorer_t &explorer, const address_space_t &AddressSpace,
+                 void *begin, void *end)
+    : jv(jv), explorer(explorer), state(jv), AddressSpace(AddressSpace) {
+  for_each_binary(std::execution::par_unseq, jv, [&](binary_t &b) {
+    binary_state_t &x = state.for_binary(b);
+
+    x.Bin = B::Create(b.data());
+
+    auto &SectsStartAddr = x.SectsStartAddr;
+    auto &SectsEndAddr   = x.SectsEndAddr;
+    std::tie(SectsStartAddr, SectsEndAddr) = B::bounds_of_binary(*x.Bin);
+  });
+
   config = std::make_unique<struct pt_config>();
+
   pt_config_init(config.get());
+
+  tracking.last_ip = std::make_unique<struct pt_last_ip>();
+  tracking.tcal = std::make_unique<struct pt_time_cal>();
+  tracking.time = std::make_unique<struct pt_time>();
+
+  ptdump_tracking_init();
+
+  tracking.session = pt_sb_alloc(NULL);
+  if (!tracking.session)
+    throw std::runtime_error("failed to allocate sideband session");
+
+  pt_sb_notify_error(
+      tracking.session,
+      [](int errcode, const char *filename, uint64_t offset, void *priv) {
+        assert(priv);
+        return ((IntelPT *)priv)->ptdump_print_error(errcode, filename, offset);
+      },
+      this);
+
+  if (process_args(ptdump_argc, ptdump_argv) != 0)
+    throw std::runtime_error("failed to process ptdump arguments");
+
+  int errcode = pt_sb_init_decoders(tracking.session);
+  if (errcode < 0) {
+    throw std::runtime_error(
+        std::string("error initializing sideband decoders: ") +
+        pt_errstr(pt_errcode(errcode)));
+  }
 
   config->begin = reinterpret_cast<uint8_t *>(begin);
   config->end = reinterpret_cast<uint8_t *>(end);
 
-#if 0
-  //pt_cpu_errata(...);
-  //pt_sb_init_decoders(&session);
-#endif
-
   decoder = pt_pkt_alloc_decoder(config.get());
-
-  last_ip = std::make_unique<struct pt_last_ip>();
-
-#if 0
-  session = pt_sb_alloc(NULL);
-  if (!session)
-    throw std::runtime_error("failed to allocate sideband session");
-#endif
 }
+
+static const uint32_t sb_dump_flags = 2; /* verbose */
 
 IntelPT::~IntelPT() {
   pt_pkt_free_decoder(decoder);
+
+  int errcode = pt_sb_dump(tracking.session, stdout, sb_dump_flags, UINT64_MAX);
+
+#if 0
+  if (unlikely(errcode < 0))
+    return diag("sideband dump error", UINT64_MAX, errcode);
+#endif
 }
 
-int IntelPT::visit_all(/*FIXME*/) {
+int IntelPT::ptdump_print_error(int errcode, const char *filename,
+                                uint64_t offset) {
+  if (errcode >= 0 && false /* !options->print_sb_warnings */)
+    return 0;
+
+  if (!filename)
+    filename = "<unknown>";
+
+  const char *errstr = errcode < 0
+                           ? pt_errstr(pt_errcode(errcode))
+                           : pt_sb_errstr((enum pt_sb_error_code)errcode);
+
+  if (!errstr)
+    errstr = "<unknown error>";
+
+  fprintf(stderr, "[%s:%016" PRIx64 " sideband error: %s]\n", filename, offset,
+          errstr);
+
+  return 0;
+}
+
+int IntelPT::explore(/*FIXME*/) {
   int errcode;
 
   if (0 /* options->no_sync */) {
@@ -60,7 +123,7 @@ int IntelPT::visit_all(/*FIXME*/) {
   }
 
   for (;;) {
-    errcode = visit_packets();
+    errcode = explore_packets();
     if (unlikely(!errcode))
       break;
 
@@ -73,13 +136,13 @@ int IntelPT::visit_all(/*FIXME*/) {
                                pt_errstr(pt_errcode(errcode)));
     }
 
-    //ptdump_tracking_reset(tracking);
+    ptdump_tracking_reset();
   }
 
   return errcode;
 }
 
-int IntelPT::visit_packets(/*FIXME*/) {
+int IntelPT::explore_packets() {
   uint64_t offset;
   int errcode;
 
@@ -98,9 +161,13 @@ int IntelPT::visit_packets(/*FIXME*/) {
       if (errcode == -pte_eos)
         return 0;
 
+#if 0
       throw std::runtime_error(
           std::string("IntelPT: error decoding packet: ") +
           pt_errstr(pt_errcode(errcode)));
+#else
+      return errcode;
+#endif
     }
 
     errcode = process_packet(offset, &packet);
@@ -115,10 +182,43 @@ int IntelPT::process_packet(uint64_t offset, const struct pt_packet *packet) {
   switch (packet->type) {
   case ppt_unknown:
   case ppt_invalid:
+    return 0;
+
   case ppt_psb:
+    if (1 /* options->track_time */) {
+      int errcode;
+
+      errcode = pt_tcal_update_psb(tracking.tcal.get(), config.get());
+#if 0
+      if (unlikely(errcode < 0))
+        diag("error calibrating time", offset, errcode);
+#endif
+    }
+
+    tracking.in_header = 1;
+    return 0;
+
   case ppt_psbend:
+    tracking.in_header = 0;
+    return 0;
+
   case ppt_pad:
+    return 0;
+
   case ppt_ovf:
+    if (0 /* options->keep_tcal_on_ovf */) {
+      int errcode;
+
+      errcode = pt_tcal_update_ovf(tracking.tcal.get(), config.get());
+#if 0
+      if (unlikely(errcode < 0))
+        diag("error calibrating time", offset, errcode);
+#endif
+    } else {
+      pt_tcal_init(tracking.tcal.get());
+    }
+    return 0;
+
   case ppt_stop:
     return 0;
 
@@ -129,7 +229,7 @@ int IntelPT::process_packet(uint64_t offset, const struct pt_packet *packet) {
     track_last_ip(&packet->payload.ip, offset);
     return 0;
 
-  case ppt_pip:
+  case ppt_pip: /* we'll never see this in userspace */
   case ppt_vmcs:
     return 0;
 
@@ -138,11 +238,22 @@ int IntelPT::process_packet(uint64_t offset, const struct pt_packet *packet) {
     return tnt_payload(&packet->payload.tnt);
 
   case ppt_mode: {
-    const struct pt_packet_mode *mode;
-
-    mode = &packet->payload.mode;
+    const struct pt_packet_mode *mode = &packet->payload.mode;
     switch (mode->leaf) {
     case pt_mol_exec:
+      switch (pt_get_exec_mode(&mode->bits.exec)) {
+      case ptem_64bit:
+        RightExecMode = !IsTarget32;
+        break;
+      case ptem_32bit:
+        RightExecMode = IsTarget32;
+        break;
+      case ptem_16bit:
+      case ptem_unknown:
+        RightExecMode = false;
+        break;
+      }
+      return 0;
     case pt_mol_tsx:
       return 0;
     }
@@ -153,28 +264,35 @@ int IntelPT::process_packet(uint64_t offset, const struct pt_packet *packet) {
   }
 
   case ppt_tsc:
+    track_tsc(offset, &packet->payload.tsc);
+    return 0;
+
   case ppt_cbr:
+    track_cbr(offset, &packet->payload.cbr);
+    return 0;
+
   case ppt_tma:
+    track_tma(offset, &packet->payload.tma);
+    return 0;
+
   case ppt_mtc:
+    track_mtc(offset, &packet->payload.mtc);
+    return 0;
+
   case ppt_cyc:
+    track_cyc(offset, &packet->payload.cyc);
+    return 0;
+
   case ppt_mnt:
   case ppt_exstop:
   case ppt_mwait:
   case ppt_pwre:
   case ppt_pwrx:
   case ppt_ptw:
-    return 0;
-
-#if (LIBIPT_VERSION >= 0x201)
   case ppt_cfe:
   case ppt_evd:
-    return 0;
-#endif /* (LIBIPT_VERSION >= 0x201) */
-
-#if (LIBIPT_VERSION >= 0x202)
   case ppt_trig:
     return 0;
-#endif /* (LIBIPT_VERSION >= 0x202) */
   }
 
   throw std::runtime_error(
@@ -183,6 +301,9 @@ int IntelPT::process_packet(uint64_t offset, const struct pt_packet *packet) {
 }
 
 int IntelPT::tnt_payload(const struct pt_packet_tnt *packet) {
+  if (unlikely(!RightExecMode))
+    return 0; /* ignore */
+
   assert(packet);
 
   uint64_t tnt = packet->payload;
@@ -207,7 +328,7 @@ int IntelPT::track_last_ip(const struct pt_packet_ip *packet, uint64_t offset) {
 
   //print_field(buffer->tracking.id, "ip");
 
-  errcode = pt_last_ip_update_ip(last_ip.get(), packet, NULL);
+  errcode = pt_last_ip_update_ip(tracking.last_ip.get(), packet, NULL);
   if (unlikely(errcode < 0)) {
     //print_field(buffer->tracking.payload, "<unavailable>");
 
@@ -216,7 +337,7 @@ int IntelPT::track_last_ip(const struct pt_packet_ip *packet, uint64_t offset) {
         std::to_string(offset));
   }
 
-  errcode = pt_last_ip_query(&ip, last_ip.get());
+  errcode = pt_last_ip_query(&ip, tracking.last_ip.get());
   if (unlikely(errcode < 0)) {
     if (errcode == -pte_ip_suppressed) {
       //print_field(buffer->tracking.payload, "<suppressed>");
@@ -229,11 +350,744 @@ int IntelPT::track_last_ip(const struct pt_packet_ip *packet, uint64_t offset) {
     }
   } else {
     //print_field(buffer->tracking.payload, "%016" PRIx64, ip);
-    printf("%016" PRIx64 "\n", ip); /* FIXME */
+    on_ip(ip);
   }
 
   return 0;
 }
+
+int IntelPT::on_ip(const uint64_t ip) {
+  if (unlikely(!RightExecMode))
+    return 0; /* ignore */
+
+  auto it = intvl_map_find(AddressSpace, ip);
+  if (unlikely(it == AddressSpace.end())) {
+#if 0
+    printf("\t\t\t\t\t%016" PRIx64 "\n", ip); /* FIXME */
+#endif
+    //throw std::runtime_error("unknown ip " + (fmt("%016" PRIx64) % ip).str());
+    return 0;
+  }
+
+  const addr_intvl &intvl = (*it).first;
+
+  binary_t &b = jv.Binaries.at((*it).second);
+  binary_state_t &x = state.for_binary(b);
+
+  uint64_t LoadAddr = (*it).first.first;
+  assert(ip >= LoadAddr);
+
+  uint64_t Addr = B::_X(
+      *x.Bin,
+      [&](ELFO &O) -> uint64_t { return 0; },
+      [&](COFFO &O) -> uint64_t {
+        uint64_t RVA = ip - intvl.first;
+        return coff::va_of_rva(O, RVA);
+      });
+
+  try {
+#if 1
+  printf("%016" PRIx64 " E %016" PRIx64 "\t\t\t%s\n", ip, Addr, b.Name.c_str()); /* FIXME */
+#endif
+  explorer.explore_basic_block(b, *x.Bin, Addr);
+  } catch (...) {
+#if 1
+  printf("%016" PRIx64 " <FAILED>\t\t\t%s\n", ip, b.Name.c_str()); /* FIXME */
+#endif
+  }
+
+  return 0;
+}
+
+void IntelPT::ptdump_tracking_init(void)
+{
+  pt_last_ip_init(tracking.last_ip.get());
+  pt_tcal_init(tracking.tcal.get());
+  pt_time_init(tracking.time.get());
+
+  tracking.session = NULL;
+  tracking.tsc = 0ull;
+  tracking.fcr = 0ull;
+  tracking.in_header = 0;
+}
+
+void IntelPT::ptdump_tracking_reset(void) {
+  pt_last_ip_init(tracking.last_ip.get());
+  pt_tcal_init(tracking.tcal.get());
+  pt_time_init(tracking.time.get());
+
+  tracking.tsc = 0ull;
+  tracking.fcr = 0ull;
+  tracking.in_header = 0;
+}
+
+int IntelPT::sb_track_time(uint64_t offset)
+{
+	uint64_t tsc;
+	int errcode;
+
+#if 0
+	if (!tracking || !options)
+		return diag("time tracking error", offset, -pte_internal);
+#endif
+
+	errcode = pt_time_query_tsc(&tsc, NULL, NULL, tracking.time.get());
+	if (unlikely((errcode < 0) && (errcode != -pte_no_time)))
+#if 0
+		return diag("time tracking error", offset, errcode);
+#else
+		return errcode;
+#endif
+
+        errcode = pt_sb_dump(tracking.session, stdout, sb_dump_flags, tsc);
+        if (unlikely(errcode < 0))
+#if 0
+		return diag("sideband dump error", offset, errcode);
+#else
+		return errcode;
+#endif
+
+	return 0;
+}
+
+int IntelPT::track_time(uint64_t offset) {
+#if 0
+	if (!tracking || !options)
+		return diag("error tracking time", offset, -pte_internal);
+#endif
+
+#if 0
+	if (options->show_tcal && !buffer->skip_tcal)
+		print_tcal(buffer, tracking, offset, options);
+#endif
+
+#if 0
+	if (options->show_time && !buffer->skip_time)
+		print_time(buffer, tracking, offset, options);
+#endif
+
+	return sb_track_time(offset);
+}
+
+int IntelPT::track_tsc(uint64_t offset, const struct pt_packet_tsc *packet) {
+        int errcode;
+
+#if 0
+	if (!buffer || !tracking || !options)
+		return diag("error tracking time", offset, -pte_internal);
+#endif
+
+	if (1 /* !options->no_tcal */) {
+		errcode = tracking.in_header ?
+			pt_tcal_header_tsc(tracking.tcal.get(), packet, config.get()) :
+			pt_tcal_update_tsc(tracking.tcal.get(), packet, config.get());
+#if 0
+		if (unlikely(errcode < 0))
+			diag("error calibrating time", offset, errcode);
+#endif
+	}
+
+	errcode = pt_time_update_tsc(tracking.time.get(), packet, config.get());
+#if 0
+	if (unlikely(errcode < 0))
+		diag("error updating time", offset, errcode);
+#endif
+
+	return track_time(offset);
+}
+
+int IntelPT::track_cbr(uint64_t offset, const struct pt_packet_cbr *packet) {
+        int errcode;
+
+#if 0
+	if (!buffer || !tracking || !options)
+		return diag("error tracking time", offset, -pte_internal);
+#endif
+
+	if (1 /* !options->no_tcal */) {
+		errcode = tracking.in_header ?
+			pt_tcal_header_cbr(tracking.tcal.get(), packet, config.get()) :
+			pt_tcal_update_cbr(tracking.tcal.get(), packet, config.get());
+#if 0
+		if (unlikely(errcode < 0))
+			diag("error calibrating time", offset, errcode);
+#endif
+	}
+
+	errcode = pt_time_update_cbr(tracking.time.get(), packet, config.get());
+#if 0
+	if (unlikely(errcode < 0))
+		diag("error updating time", offset, errcode);
+#endif
+
+#if 0
+	/* There is no timing update at this packet. */
+	skip_time = 1;
+#endif
+
+	return track_time(offset);
+}
+
+int IntelPT::track_tma(uint64_t offset, const struct pt_packet_tma *packet) {
+        int errcode;
+
+#if 0
+	if (!buffer || !tracking || !options)
+		return diag("error tracking time", offset, -pte_internal);
+#endif
+
+	if (1 /* !options->no_tcal */) {
+		errcode = pt_tcal_update_tma(tracking.tcal.get(), packet, config.get());
+#if 0
+		if (unlikely(errcode < 0))
+			diag("error calibrating time", offset, errcode);
+#endif
+	}
+
+	errcode = pt_time_update_tma(tracking.time.get(), packet, config.get());
+#if 0
+	if (unlikely(errcode < 0))
+		diag("error updating time", offset, errcode);
+#endif
+
+#if 0
+	/* There is no calibration update at this packet. */
+	skip_tcal = 1;
+#endif
+
+	return track_time(offset);
+}
+
+int IntelPT::track_mtc(uint64_t offset, const struct pt_packet_mtc *packet) {
+        int errcode;
+
+#if 0
+	if (!buffer || !tracking || !options)
+		return diag("error tracking time", offset, -pte_internal);
+#endif
+
+	if (1 /* !options->no_tcal */) {
+		errcode = pt_tcal_update_mtc(tracking.tcal.get(), packet, config.get());
+#if 0
+		if (unlikely(errcode < 0))
+			diag("error calibrating time", offset, errcode);
+#endif
+	}
+
+	errcode = pt_time_update_mtc(tracking.time.get(), packet, config.get());
+#if 0
+	if (unlikely(errcode < 0))
+		diag("error updating time", offset, errcode);
+#endif
+
+	return track_time(offset);
+}
+
+int IntelPT::track_cyc(uint64_t offset, const struct pt_packet_cyc *packet) {
+  uint64_t fcr;
+  int errcode;
+
+#if 0
+	if (!buffer || !tracking || !options)
+		return diag("error tracking time", offset, -pte_internal);
+#endif
+
+	/* Initialize to zero in case of calibration errors. */
+	fcr = 0ull;
+
+	if (1 /* !options->no_tcal */) {
+		errcode = pt_tcal_fcr(&fcr, tracking.tcal.get());
+#if 0
+		if (errcode < 0)
+			diag("calibration error", offset, errcode);
+#endif
+
+		errcode = pt_tcal_update_cyc(tracking.tcal.get(), packet, config.get());
+#if 0
+		if (errcode < 0)
+			diag("error calibrating time", offset, errcode);
+#endif
+	}
+
+	errcode = pt_time_update_cyc(tracking.time.get(), packet, config.get(), fcr);
+#if 0
+	if (errcode < 0)
+		diag("error updating time", offset, errcode);
+	else if (!fcr)
+		diag("error updating time: no calibration", offset, 0);
+#endif
+
+#if 0
+	/* There is no calibration update at this packet. */
+	skip_tcal = 1;
+#endif
+
+	return track_time(offset);
+}
+
+static int parse_range(const char *arg, uint64_t *begin, uint64_t *end)
+{
+	char *rest;
+
+	if (!arg || !*arg)
+		return 0;
+
+	errno = 0;
+	*begin = strtoull(arg, &rest, 0);
+	if (errno)
+		return -1;
+
+	if (!*rest)
+		return 1;
+
+	if (*rest != '-')
+		return -1;
+
+	*end = strtoull(rest+1, &rest, 0);
+	if (errno || *rest)
+		return -1;
+
+	return 2;
+}
+
+/* Preprocess a filename argument.
+ *
+ * A filename may optionally be followed by a file offset or a file range
+ * argument separated by ':'.  Split the original argument into the filename
+ * part and the offset/range part.
+ *
+ * If no end address is specified, set @size to zero.
+ * If no offset is specified, set @offset to zero.
+ *
+ * Returns zero on success, a negative error code otherwise.
+ */
+static int preprocess_filename(char *filename, uint64_t *offset, uint64_t *size)
+{
+	uint64_t begin, end;
+	char *range;
+	int parts;
+
+	if (!filename || !offset || !size)
+		return -pte_internal;
+
+	/* Search from the end as the filename may also contain ':'. */
+	range = strrchr(filename, ':');
+	if (!range) {
+		*offset = 0ull;
+		*size = 0ull;
+
+		return 0;
+	}
+
+	/* Let's try to parse an optional range suffix.
+	 *
+	 * If we can, remove it from the filename argument.
+	 * If we can not, assume that the ':' is part of the filename, e.g. a
+	 * drive letter on Windows.
+	 */
+	parts = parse_range(range + 1, &begin, &end);
+	if (parts <= 0) {
+		*offset = 0ull;
+		*size = 0ull;
+
+		return 0;
+	}
+
+	if (parts == 1) {
+		*offset = begin;
+		*size = 0ull;
+
+		*range = 0;
+
+		return 0;
+	}
+
+	if (parts == 2) {
+		if (end <= begin)
+			return -pte_invalid;
+
+		*offset = begin;
+		*size = end - begin;
+
+		*range = 0;
+
+		return 0;
+	}
+
+	return -pte_internal;
+}
+
+int IntelPT::ptdump_sb_pevent(char *filename,
+                              const struct pt_sb_pevent_config *conf,
+                              const char *prog) {
+        struct pt_sb_pevent_config config;
+	uint64_t foffset, fsize, fend;
+	int errcode;
+
+#if 0
+	if (!conf || !prog) {
+		fprintf(stderr, "%s: internal error.\n", prog ? prog : "");
+		return -1;
+	}
+#endif
+
+	errcode = preprocess_filename(filename, &foffset, &fsize);
+	if (errcode < 0) {
+#if 0
+		fprintf(stderr, "%s: bad file %s: %s.\n", prog, filename,
+			pt_errstr(pt_errcode(errcode)));
+#endif
+		return -1;
+	}
+
+	if (SIZE_MAX < foffset) {
+#if 0
+		fprintf(stderr,
+			"%s: bad offset: 0x%" PRIx64 ".\n", prog, foffset);
+#endif
+		return -1;
+	}
+
+	config = *conf;
+	config.filename = filename;
+	config.begin = (size_t) foffset;
+	config.end = 0;
+
+	if (fsize) {
+		fend = foffset + fsize;
+		if ((fend <= foffset) || (SIZE_MAX < fend)) {
+#if 0
+			fprintf(stderr,
+				"%s: bad range: 0x%" PRIx64 "-0x%" PRIx64 ".\n",
+				prog, foffset, fend);
+#endif
+			return -1;
+		}
+
+		config.end = (size_t) fend;
+	}
+
+	errcode = pt_sb_alloc_pevent_decoder(tracking.session, &config);
+	if (unlikely(errcode < 0)) {
+#if 0
+		fprintf(stderr, "%s: error loading %s: %s.\n", prog, filename,
+			pt_errstr(pt_errcode(errcode)));
+#endif
+		return -1;
+	}
+
+	return 0;
+}
+
+static int pt_parse_sample_config(struct pt_sb_pevent_config *pevent,
+                                  const char *arg) {
+        struct pev_sample_config *sample_config;
+	uint64_t identifier, sample_type;
+	uint8_t nstypes;
+	char *rest;
+
+	if (!pevent || !arg)
+		return -pte_internal;
+
+	errno = 0;
+	identifier = strtoull(arg, &rest, 0);
+	if (errno || (rest == arg))
+		return -pte_invalid;
+
+	arg = rest;
+	if (arg[0] != ':')
+		return -pte_invalid;
+
+	arg += 1;
+	sample_type = strtoull(arg, &rest, 0);
+	if (errno || *rest)
+		return -pte_invalid;
+
+	sample_config = pevent->sample_config;
+	if (!sample_config) {
+		sample_config = (struct pev_sample_config *)malloc(sizeof(*sample_config));
+		if (!sample_config)
+			return -pte_nomem;
+
+		memset(sample_config, 0, sizeof(*sample_config));
+		pevent->sample_config = sample_config;
+	}
+
+	nstypes = sample_config->nstypes;
+	sample_config = (struct pev_sample_config *)realloc(sample_config,
+				sizeof(*sample_config) +
+				((nstypes + 1) *
+				 sizeof(struct pev_sample_type)));
+	if (!sample_config)
+		return -pte_nomem;
+
+	sample_config->stypes[nstypes].identifier = identifier;
+	sample_config->stypes[nstypes].sample_type = sample_type;
+	sample_config->nstypes = nstypes + 1;
+
+	pevent->sample_config = sample_config;
+
+	return 0;
+}
+
+static int pt_cpu_parse(struct pt_cpu *cpu, const char *s)
+{
+	const char sep = '/';
+	char *endptr;
+	long family, model, stepping;
+
+	if (!cpu || !s)
+		return -pte_invalid;
+
+	family = strtol(s, &endptr, 0);
+	if (s == endptr || *endptr == '\0' || *endptr != sep)
+		return -pte_invalid;
+
+	if (family < 0 || family > USHRT_MAX)
+		return -pte_invalid;
+
+	/* skip separator */
+	s = endptr + 1;
+
+	model = strtol(s, &endptr, 0);
+	if (s == endptr || (*endptr != '\0' && *endptr != sep))
+		return -pte_invalid;
+
+	if (model < 0 || model > UCHAR_MAX)
+		return -pte_invalid;
+
+	if (*endptr == '\0')
+		/* stepping was omitted, it defaults to 0 */
+		stepping = 0;
+	else {
+		/* skip separator */
+		s = endptr + 1;
+
+		stepping = strtol(s, &endptr, 0);
+		if (*endptr != '\0')
+			return -pte_invalid;
+
+		if (stepping < 0 || stepping > UCHAR_MAX)
+			return -pte_invalid;
+	}
+
+	cpu->vendor = pcv_intel;
+	cpu->family = (uint16_t) family;
+	cpu->model = (uint8_t) model;
+	cpu->stepping = (uint8_t) stepping;
+
+	return 0;
+}
+
+static int get_arg_uint64(uint64_t *value, const char *option, const char *arg,
+			  const char *prog)
+{
+	char *rest;
+
+	if (!value || !option || !prog) {
+		fprintf(stderr, "%s: internal error.\n", prog ? prog : "?");
+		return 0;
+	}
+
+	if (!arg || arg[0] == 0 || (arg[0] == '-' && arg[1] == '-')) {
+		fprintf(stderr, "%s: %s: missing argument.\n", prog, option);
+		return 0;
+	}
+
+	errno = 0;
+	*value = strtoull(arg, &rest, 0);
+	if (errno || *rest) {
+		fprintf(stderr, "%s: %s: bad argument: %s.\n", prog, option,
+			arg);
+		return 0;
+	}
+
+	return 1;
+}
+
+static int get_arg_uint32(uint32_t *value, const char *option, const char *arg,
+			  const char *prog)
+{
+	uint64_t val;
+
+	if (!get_arg_uint64(&val, option, arg, prog))
+		return 0;
+
+	if (val > UINT32_MAX) {
+		fprintf(stderr, "%s: %s: value too big: %s.\n", prog, option,
+			arg);
+		return 0;
+	}
+
+	*value = (uint32_t) val;
+
+	return 1;
+}
+
+
+static int get_arg_uint16(uint16_t *value, const char *option, const char *arg,
+			  const char *prog)
+{
+	uint64_t val;
+
+	if (!get_arg_uint64(&val, option, arg, prog))
+		return 0;
+
+	if (val > UINT16_MAX) {
+		fprintf(stderr, "%s: %s: value too big: %s.\n", prog, option,
+			arg);
+		return 0;
+	}
+
+	*value = (uint16_t) val;
+
+	return 1;
+}
+
+static int get_arg_uint8(uint8_t *value, const char *option, const char *arg,
+			 const char *prog)
+{
+	uint64_t val;
+
+	if (!get_arg_uint64(&val, option, arg, prog))
+		return 0;
+
+	if (val > UINT8_MAX) {
+		fprintf(stderr, "%s: %s: value too big: %s.\n", prog, option,
+			arg);
+		return 0;
+	}
+
+	*value = (uint8_t) val;
+
+	return 1;
+}
+
+
+int IntelPT::process_args(int argc, char **argv)
+{
+	struct pt_sb_pevent_config pevent;
+	int idx, errcode;
+
+	memset(&pevent, 0, sizeof(pevent));
+	pevent.size = sizeof(pevent);
+	pevent.time_mult = 1;
+
+	for (idx = 1; idx < argc; ++idx) {
+		     if ((strcmp(argv[idx], "--pevent") == 0) ||
+			 (strcmp(argv[idx], "--pevent:primary") == 0) ||
+			 (strcmp(argv[idx], "--pevent:secondary") == 0)) {
+			char *arg;
+
+			arg = argv[++idx];
+			if (!arg) {
+#if 0
+				fprintf(stderr,
+					"%s: %s: missing argument.\n",
+					argv[0], argv[idx-1]);
+#endif
+				return -1;
+			}
+
+                        errcode = ptdump_sb_pevent(arg, &pevent, argv[0]);
+                        if (errcode < 0)
+				return -1;
+		} else if (strcmp(argv[idx], "--pevent:sample-type") == 0) {
+			if (!get_arg_uint64(&pevent.sample_type,
+					    "--pevent:sample-type",
+					    argv[++idx], argv[0]))
+				return -1;
+		} else if (strcmp(argv[idx], "--pevent:sample-config") == 0) {
+			errcode = pt_parse_sample_config(&pevent, argv[++idx]);
+			if (errcode < 0) {
+#if 0
+				fprintf(stderr,
+					"%s: bad sample config %s: %s.\n",
+					argv[0], argv[idx-1],
+					pt_errstr(pt_errcode(errcode)));
+#endif
+				return -1;
+			}
+		} else if (strcmp(argv[idx], "--pevent:time-zero") == 0) {
+			if (!get_arg_uint64(&pevent.time_zero,
+					    "--pevent:time-zero",
+					    argv[++idx], argv[0]))
+				return -1;
+		} else if (strcmp(argv[idx], "--pevent:time-shift") == 0) {
+			if (!get_arg_uint16(&pevent.time_shift,
+					    "--pevent:time-shift",
+					    argv[++idx], argv[0]))
+				return -1;
+		} else if (strcmp(argv[idx], "--pevent:time-mult") == 0) {
+			if (!get_arg_uint32(&pevent.time_mult,
+					    "--pevent:time-mult",
+					    argv[++idx], argv[0]))
+				return -1;
+		} else if (strcmp(argv[idx], "--pevent:tsc-offset") == 0) {
+			if (!get_arg_uint64(&pevent.tsc_offset,
+					    "--pevent:tsc-offset",
+					    argv[++idx], argv[0]))
+				return -1;
+		} else if (strcmp(argv[idx], "--pevent:kernel-start") == 0) {
+			if (!get_arg_uint64(&pevent.kernel_start,
+					    "--pevent:kernel-start",
+					    argv[++idx], argv[0]))
+				return -1;
+		} else if (strcmp(argv[idx], "--cpu") == 0) {
+			const char *arg;
+
+			arg = argv[++idx];
+			if (!arg) {
+#if 0
+				fprintf(stderr,
+					"%s: --cpu: missing argument.\n",
+					argv[0]);
+#endif
+				return -1;
+			}
+
+			if (strcmp(arg, "none") == 0) {
+				memset(&config->cpu, 0, sizeof(config->cpu));
+				continue;
+			}
+
+			errcode = pt_cpu_parse(&config->cpu, arg);
+			if (errcode < 0) {
+#if 0
+				fprintf(stderr,
+					"%s: cpu must be specified as f/m[/s]\n",
+					argv[0]);
+#endif
+				return -1;
+			}
+		} else if (strcmp(argv[idx], "--mtc-freq") == 0) {
+			if (!get_arg_uint8(&config->mtc_freq, "--mtc-freq",
+					   argv[++idx], argv[0]))
+				return -1;
+		} else if (strcmp(argv[idx], "--nom-freq") == 0) {
+			if (!get_arg_uint8(&config->nom_freq, "--nom-freq",
+					   argv[++idx], argv[0]))
+				return -1;
+		} else if (strcmp(argv[idx], "--cpuid-0x15.eax") == 0) {
+			if (!get_arg_uint32(&config->cpuid_0x15_eax,
+					    "--cpuid-0x15.eax", argv[++idx],
+					    argv[0]))
+				return -1;
+		} else if (strcmp(argv[idx], "--cpuid-0x15.ebx") == 0) {
+			if (!get_arg_uint32(&config->cpuid_0x15_ebx,
+					    "--cpuid-0x15.ebx", argv[++idx],
+					    argv[0]))
+				return -1;
+		} else
+                        throw std::runtime_error(
+                            std::string("unknown option \"") + argv[idx] +
+                            std::string("\""));
+        }
+
+	return 0;
+}
+
+
 }
 
 #endif /* x86 */
