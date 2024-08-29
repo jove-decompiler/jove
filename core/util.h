@@ -76,18 +76,21 @@ inline void read_file_into_thing(const char *path, T &out) {
 }
 
 template <typename T>
-static inline void insertSortedVec(std::vector<T> &vec, const T &x) {
+static inline bool insertSortedVec(std::vector<T> &vec, const T &x) {
   // Find the correct position to insert the string
   auto it = std::lower_bound(vec.begin(), vec.end(), x);
   // Insert only if the string is not already in the vector
   if (it == vec.end() || *it != x) {
     vec.insert(it, x);
+    return true;
   }
+
+  return false;
 }
 
 void read_file_into_vector(const char *path, std::vector<uint8_t> &out);
 void read_file_into_a_string(const char *path, std::string &out);
-std::string read_file_into_string(char const *infile);
+std::string read_file_into_string(const char *infile);
 uint64_t size_of_file(const char *path);
 uint32_t size_of_file32(const char *path);
 unsigned num_cpus(void);
