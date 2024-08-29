@@ -56,6 +56,14 @@ IntelPT::IntelPT(int ptdump_argc, char **ptdump_argv, jv_t &jv,
   if (process_args(ptdump_argc, ptdump_argv) != 0)
     throw std::runtime_error("failed to process ptdump arguments");
 
+  if (config->cpu.vendor) {
+    int errcode = pt_cpu_errata(&config->errata, &config->cpu);
+#if 0
+    if (unlikely(errcode < 0))
+      diag("failed to determine errata", 0ull, errcode);
+#endif
+  }
+
   int errcode = pt_sb_init_decoders(tracking.session);
   if (errcode < 0) {
     throw std::runtime_error(
