@@ -396,7 +396,7 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
     }
   } while (T.Type == TERMINATOR::NONE);
 
-  if (T.Type == TERMINATOR::UNKNOWN) {
+  if (unlikely(T.Type == TERMINATOR::UNKNOWN)) {
     llvm::WithColor::error()
         << (boost::format("%s: unknown terminator @ %#lx\n") % __func__ % Addr).str();
 
@@ -422,7 +422,7 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
 
     tcg.dump_operations();
     fputc('\n', stdout);
-    return invalid_basic_block_index;
+    abort();
   }
 
   basic_block_t bb = basic_block_of_index(Idx, ICFG);
