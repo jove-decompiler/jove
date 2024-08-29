@@ -80,6 +80,8 @@ IntelPT::~IntelPT() {
   if (unlikely(errcode < 0))
     return diag("sideband dump error", UINT64_MAX, errcode);
 #endif
+
+  pt_sb_free(tracking.session);
 }
 
 int IntelPT::ptdump_print_error(int errcode, const char *filename,
