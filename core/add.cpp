@@ -538,6 +538,10 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
                     ABIAtAddress(*AddrOrErr);
                   });
 
+      // XXX we cannot completely rely on isCode() to tell us whether something
+      // is code, so the following is #ifdef'd out- none of these addresses are
+      // necessarily functions.
+#if 0
       coff::for_each_base_relocation(
           O, [&](uint8_t RelocType, uint64_t RVA) -> void {
             if (!coff_is_dir_relocation(RelocType))
@@ -550,6 +554,7 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
             if (coff::isCode(O, Addr))
               ABIAtAddress(Addr);
           });
+#endif
     }
   );
 
