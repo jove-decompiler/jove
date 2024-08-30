@@ -2,7 +2,10 @@
 
 #include "ipt.h"
 #include "explore.h"
+
+#include <boost/filesystem.hpp>
 #include <boost/format.hpp>
+#include <boost/algorithm/string.hpp>
 
 #include <intel-pt.h>
 #include <libipt-sb.h>
@@ -13,14 +16,18 @@ extern "C" {
 #include "pt_time.c" /* XXX why isn't this exported by libipt?? */
 }
 
+namespace fs = boost::filesystem;
+
 namespace jove {
 
 typedef boost::format fmt;
 
 IntelPT::IntelPT(int ptdump_argc, char **ptdump_argv, jv_t &jv,
-                 explorer_t &explorer, const address_space_t &AddressSpace,
-                 void *begin, void *end)
+                 explorer_t &explorer, unsigned cpu,
+                 const address_space_t &AddressSpace, void *begin, void *end)
     : jv(jv), explorer(explorer), state(jv), AddressSpace(AddressSpace) {
+  our.cpu = cpu;
+
   for_each_binary(std::execution::par_unseq, jv, [&](binary_t &b) {
     binary_state_t &x = state.for_binary(b);
 
@@ -75,14 +82,19 @@ IntelPT::IntelPT(int ptdump_argc, char **ptdump_argv, jv_t &jv,
   config->end = reinterpret_cast<uint8_t *>(end);
 
   decoder = pt_pkt_alloc_decoder(config.get());
-}
 
-static const uint32_t sb_dump_flags = 2; /* verbose */
+  sb.os = open_memstream(&sb.ptr, &sb.len);
+  if (!sb.os)
+    throw std::runtime_error(std::string("open_memstream() failed: ") +
+                             strerror(errno));
+}
 
 IntelPT::~IntelPT() {
   pt_pkt_free_decoder(decoder);
 
+#if 0
   int errcode = pt_sb_dump(tracking.session, stdout, sb_dump_flags, UINT64_MAX);
+#endif
 
 #if 0
   if (unlikely(errcode < 0))
@@ -90,6 +102,9 @@ IntelPT::~IntelPT() {
 #endif
 
   pt_sb_free(tracking.session);
+
+  fclose(sb.os);
+  free(sb.ptr);
 }
 
 int IntelPT::ptdump_print_error(int errcode, const char *filename,
@@ -111,6 +126,227 @@ int IntelPT::ptdump_print_error(int errcode, const char *filename,
           errstr);
 
   return 0;
+}
+
+void IntelPT::examine_sb(void) {
+  fflush(sb.os);
+
+  char *ptr = sb.ptr;
+  char *const end = ptr + sb.len;
+
+  assert(ptr);
+
+  char *eol;
+  do {
+    const unsigned left = end - ptr;
+    if (!left)
+      break;
+    assert(ptr < end);
+
+    char *const line = ptr;
+
+    {
+      eol = (char *)memchr(ptr, '\n', left);
+      assert(eol);
+      ptr = eol + 1;
+    }
+    *eol = '\0';
+
+    static const char sb_line_prefix[] = "PERF_RECORD_";
+    constexpr unsigned sb_line_prefix_len = sizeof(sb_line_prefix)-1;
+
+    if (unlikely(strncmp(line, sb_line_prefix, sb_line_prefix_len) != 0)) {
+      assert(strncmp(line, "UNKNOWN", sizeof("UNKNOWN")-1) == 0);
+      continue;
+    }
+
+#define MATCHES_REST(x)                                                        \
+  (strncmp(rest, x "  ", (sizeof(x) - 1) + 2) == 0 && ({                       \
+     rest += ((sizeof(x) - 1) + 2);                                            \
+     assert(rest < eol);                                                       \
+     true;                                                                     \
+   }))
+
+    char *rest = line + sb_line_prefix_len;
+
+    auto do_comm = [&](void) -> void {
+      if (!Right.ExecMode)
+        return;
+
+      unsigned pid, tid;
+      char comm[64];
+      comm[0] = '\0';
+
+      sscanf(rest, "%x/%x, %63s", &pid, &tid, &comm[0]);
+
+      if (boost::algorithm::ends_with(jv.Binaries.at(0).Name.c_str(), comm)) {
+        our.pid = pid;
+        our.tid = tid;
+
+        fprintf(stderr, "our tid is %x\n", tid);
+      }
+    };
+
+    struct {
+      unsigned pid, tid;
+      uint64_t time;
+      uint64_t id;
+      unsigned cpu;
+      uint64_t stream_id;
+      uint64_t identifier;
+    } _;
+
+#define FMT_COMMON                                                             \
+
+#define SSCANF_ARGS_COMMON \
+
+
+    switch (rest[0]) {
+    case 'A':
+      if (likely(MATCHES_REST("AUX"))) {
+        ;
+      } else {
+        assert(false);
+      }
+      break;
+
+    case 'C':
+      if (MATCHES_REST("COMM.EXEC")) {
+        do_comm();
+      } else if (MATCHES_REST("COMM")) {
+        do_comm();
+      } else {
+        assert(false);
+      }
+      break;
+
+    case 'I':
+      if (likely(MATCHES_REST("ITRACE_START"))) {
+        ;
+      } else {
+        assert(false);
+      }
+      break;
+
+    case 'F':
+      if (likely(MATCHES_REST("FORK"))) {
+        ;
+      } else {
+        assert(false);
+      }
+      break;
+
+    case 'E':
+      if (likely(MATCHES_REST("EXIT"))) {
+        ;
+      } else {
+        assert(false);
+      }
+      break;
+
+    case 'S':
+      if (MATCHES_REST("SWITCH_CPU_WIDE.OUT")) {
+        unsigned next_pid, next_tid;
+        sscanf(rest, "%x/%x"
+                     "  { %x/%x %" PRIx64 " cpu-%x %" PRIx64 " }",
+               &next_pid, &next_tid,
+               &_.pid, &_.tid, &_.time, &_.cpu, &_.identifier);
+
+        if (_.cpu != our.cpu)
+          continue;
+
+        Right.Thread = next_tid == our.tid;
+      } else if (MATCHES_REST("SWITCH_CPU_WIDE.IN")) {
+        unsigned prev_pid, prev_tid;
+        sscanf(rest, "%x/%x"
+                     "  { %x/%x %" PRIx64 " cpu-%x %" PRIx64 " }",
+               &prev_pid, &prev_tid,
+               &_.pid, &_.tid, &_.time, &_.cpu, &_.identifier);
+
+        if (_.cpu != our.cpu)
+          continue;
+
+        Right.Thread = _.tid == our.tid;
+      } else {
+        assert(false);
+      }
+
+      CheckEngaged();
+      break;
+
+    case 'M':
+      if (likely(MATCHES_REST("MMAP2"))) {
+        if (!Engaged)
+          continue;
+
+        unsigned pid, tid;
+        uint64_t addr, len, pgoff;
+        unsigned maj, min;
+        uint64_t ino, ino_generation;
+        unsigned prot, flags;
+        char filename[4096];
+        filename[0] = '\0';
+
+        sscanf(rest, "%x/%x, %" PRIx64
+                     ", %" PRIx64 ", %" PRIx64 ", %x, %x, %" PRIx64
+                     ", %" PRIx64 ", %x, %x, %4095s"
+
+                     "  { %x/%x %" PRIx64 " cpu-%x %" PRIx64 " }",
+
+                     &pid, &tid, &addr,
+                     &len, &pgoff, &maj, &min, &ino,
+                     &ino_generation, &prot, &flags, &filename[0],
+
+                     &_.pid, &_.tid, &_.time, &_.cpu, &_.identifier);
+
+        if (intvl_map_find(AddressSpace, addr) != AddressSpace.end()) {
+          //fprintf(stderr, "previous mapping exists at 0x%" PRIx64 "\n", addr);
+          continue;
+        }
+
+        assert(strlen(filename) > 0);
+
+        if (filename[0] == '[' || strcmp(filename, "//anon") == 0)
+          continue;
+
+        if (!fs::exists(filename)) {
+          fprintf(stderr, "\"%s\" does not exist!\n", filename);
+          continue;
+        }
+
+        binary_index_t BIdx;
+        bool IsNew;
+
+        std::tie(BIdx, IsNew) = jv.AddFromPath(explorer, filename);
+
+        binary_t &b = jv.Binaries.at(BIdx);
+        if (IsNew)
+          state.update();
+        binary_state_t &x = state.for_binary(b);
+        if (IsNew)
+          x.Bin = B::Create(b.data());
+
+        if (!B::is_elf(*x.Bin))
+          continue; /* FIXME */
+
+        if (is_binary_index_valid(BIdx)) {
+          binary_t &b = jv.Binaries.at(BIdx);
+          binary_state_t &x = state.for_binary(b);
+
+          intvl_map_add(AddressSpace, addr_intvl(addr, len), BIdx);
+          if (updateVariable(x.LoadAddr, std::min(x.LoadAddr, addr)))
+            x.LoadOffset = pgoff;
+        }
+      } else {
+        assert(false);
+      }
+      break;
+
+    default:
+      fprintf(stderr, "examine_sb: \"%s\" (TODO)\n", line);
+      break;
+    }
+  } while (ptr != end);
 }
 
 int IntelPT::explore(/*FIXME*/) {
@@ -250,20 +486,35 @@ int IntelPT::process_packet(uint64_t offset, const struct pt_packet *packet) {
   case ppt_mode: {
     const struct pt_packet_mode *mode = &packet->payload.mode;
     switch (mode->leaf) {
-    case pt_mol_exec:
+    case pt_mol_exec: {
+      const char *desc = NULL;
       switch (pt_get_exec_mode(&mode->bits.exec)) {
       case ptem_64bit:
-        RightExecMode = !IsTarget32;
+        desc = "64-bit";
+        Right.ExecMode = !IsTarget32;
         break;
+
       case ptem_32bit:
-        RightExecMode = IsTarget32;
+        desc = "32-bit";
+        Right.ExecMode = IsTarget32;
         break;
+
       case ptem_16bit:
+        desc = "16-bit";
+        Right.ExecMode = false;
+        break;
+
       case ptem_unknown:
-        RightExecMode = false;
+        desc = "unknown";
+        Right.ExecMode = false;
         break;
       }
+
+      //printf("[exec mode: %s]\n", desc);
+      CheckEngaged();
       return 0;
+    }
+
     case pt_mol_tsx:
       return 0;
     }
@@ -311,8 +562,9 @@ int IntelPT::process_packet(uint64_t offset, const struct pt_packet *packet) {
 }
 
 int IntelPT::tnt_payload(const struct pt_packet_tnt *packet) {
-  if (unlikely(!RightExecMode))
-    return 0; /* ignore */
+  return 0;
+  if (!Engaged)
+    return 0;
 
   assert(packet);
 
@@ -367,14 +619,12 @@ int IntelPT::track_last_ip(const struct pt_packet_ip *packet, uint64_t offset) {
 }
 
 int IntelPT::on_ip(const uint64_t ip) {
-  if (unlikely(!RightExecMode))
-    return 0; /* ignore */
+  if (!Engaged)
+    return 0;
 
   auto it = intvl_map_find(AddressSpace, ip);
-  if (unlikely(it == AddressSpace.end())) {
-#if 0
-    printf("\t\t\t\t\t%016" PRIx64 "\n", ip); /* FIXME */
-#endif
+  if (it == AddressSpace.end()) {
+    //fprintf(stderr, "unknown ip %016" PRIx64 "\n", ip); /* FIXME */
     //throw std::runtime_error("unknown ip " + (fmt("%016" PRIx64) % ip).str());
     return 0;
   }
@@ -384,27 +634,35 @@ int IntelPT::on_ip(const uint64_t ip) {
   binary_t &b = jv.Binaries.at((*it).second);
   binary_state_t &x = state.for_binary(b);
 
-  uint64_t LoadAddr = (*it).first.first;
-  assert(ip >= LoadAddr);
-
   uint64_t Addr = B::_X(
       *x.Bin,
-      [&](ELFO &O) -> uint64_t { return 0; },
+      [&](ELFO &O) -> uint64_t {
+        const taddr_t LoadAddr = x.LoadAddr;
+        assert(ip >= LoadAddr);
+
+        uint64_t off = ip - (LoadAddr - x.LoadOffset);
+        try {
+        return elf::va_of_offset(O, off);
+        } catch (...) {
+        std::string as(addr_intvl2str((*it).first));
+        fprintf(stderr, "WTF? %" PRIx64 " in %s %" PRIx64 " %" PRIx64 "\t\t%s\n", ip,
+                as.c_str(), (uint64_t)LoadAddr, (uint64_t)x.LoadOffset, b.Name.c_str());
+        assert(false);
+        }
+      },
       [&](COFFO &O) -> uint64_t {
+        assert(ip >= intvl.first);
         uint64_t RVA = ip - intvl.first;
+        if (RVA >= 0xffffffff) {
+        fprintf(stderr, "WTF? %" PRIx64 " %" PRIx64 "\n", ip,
+                RVA);
+        assert(false);
+        }
         return coff::va_of_rva(O, RVA);
       });
 
-  try {
-#if 1
   printf("%016" PRIx64 " E %016" PRIx64 "\t\t\t%s\n", ip, Addr, b.Name.c_str()); /* FIXME */
-#endif
   explorer.explore_basic_block(b, *x.Bin, Addr);
-  } catch (...) {
-#if 1
-  printf("%016" PRIx64 " <FAILED>\t\t\t%s\n", ip, b.Name.c_str()); /* FIXME */
-#endif
-  }
 
   return 0;
 }
@@ -449,15 +707,16 @@ int IntelPT::sb_track_time(uint64_t offset)
 		return errcode;
 #endif
 
-        errcode = pt_sb_dump(tracking.session, stdout, sb_dump_flags, tsc);
+        rewind(sb.os);
+        errcode = pt_sb_dump(tracking.session, sb.os, sb_dump_flags, tsc);
         if (unlikely(errcode < 0))
 #if 0
 		return diag("sideband dump error", offset, errcode);
 #else
 		return errcode;
 #endif
-
-	return 0;
+        examine_sb();
+        return 0;
 }
 
 int IntelPT::track_time(uint64_t offset) {

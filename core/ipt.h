@@ -3,6 +3,7 @@
 #include "jove/jove.h"
 #include "B.h"
 #include <memory>
+#include <cstdio>
 
 struct pt_config;
 struct pt_sb_session;
@@ -45,15 +46,44 @@ class IntelPT {
   } tracking;
 
   struct binary_state_t {
+    taddr_t LoadAddr = std::numeric_limits<taddr_t>::max();
+    taddr_t LoadOffset = std::numeric_limits<taddr_t>::max();
+
     std::unique_ptr<llvm::object::Binary> Bin;
     uint64_t SectsStartAddr, SectsEndAddr;
   };
 
   jv_state_t<binary_state_t, void, void> state;
 
-  const address_space_t &AddressSpace;
+  address_space_t AddressSpace;
 
-  bool RightExecMode = false;
+  struct {
+    FILE *os = NULL;
+
+    char *ptr = NULL;
+    size_t len = 0UL;
+  } sb;
+
+  static constexpr uint32_t sb_dump_flags = 1; /* compact */
+
+  struct {
+    unsigned cpu = ~0u;
+    unsigned pid = ~0u;
+    unsigned tid = ~0u;
+  } our;
+
+  struct {
+    bool ExecMode = false;
+    bool Thread = false;
+  } Right;
+
+  bool Engaged = false;
+  void CheckEngaged(void) {
+    Engaged = Right.ExecMode &&
+              Right.Thread;
+  }
+
+  void examine_sb(void);
 
   void ptdump_tracking_init(void);
   void ptdump_tracking_reset(void);
@@ -77,7 +107,8 @@ class IntelPT {
 
 public:
   IntelPT(int ptdump_argc, char **ptdump_argv, jv_t &, explorer_t &,
-          const address_space_t &AddressSpace, void *begin, void *end);
+          unsigned cpu, const address_space_t &AddressSpace, void *begin,
+          void *end);
   ~IntelPT();
 
   int explore(void);

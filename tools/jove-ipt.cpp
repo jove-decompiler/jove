@@ -229,6 +229,12 @@ int IPTTool::Run(void) {
           Env("WINEDEBUG=+loaddll,+process");
       }, "", path_to_stderr.string());
 
+#if 0
+  llvm::errs() << "attach to me! " << gettid() << '\n';
+  char buff;
+  while (read(STDIN_FILENO, &buff, 1) > 0 && buff != '\n');
+#endif
+
   if (HasCOFF) {
     //
     // parse stderr to make sense of the program counters
@@ -259,7 +265,7 @@ int IPTTool::Run(void) {
       assert(fs::exists(path));
       path = fs::canonical(fs::path(path)).string();
 
-      if (IsVerbose())
+      if (IsVeryVerbose())
         llvm::errs() << llvm::formatv("{0} @ {1:x}\n", l.first, l.second);
     }
 
@@ -293,8 +299,12 @@ int IPTTool::Run(void) {
     for_each_binary(jv, [&](binary_t &b) {
       binary_state_t &x = state.for_binary(b);
 
-      if (~x.LoadAddr == 0)
+      if (~x.LoadAddr == 0) {
+        if (IsVeryVerbose())
+          llvm::errs() << llvm::formatv("no load address for \"{0}\"\n",
+                                        b.Name.c_str());
         return;
+      }
 
       uint64_t SectsStartAddr, SectsEndAddr;
       std::tie(SectsStartAddr, SectsEndAddr) = B::bounds_of_binary(*x.Bin);
@@ -520,8 +530,8 @@ void IPTTool::ProcessLine(const std::string &line) {
                                   dst_addr_s, dst_dso, dst_off_s);
 #endif
 
-    if (!src_off_s.empty()) src_off = strtol(src_off_s.c_str(), nullptr, 16);
-    if (!dst_off_s.empty()) dst_off = strtol(dst_off_s.c_str(), nullptr, 16);
+    if (!src_off_s.empty()) src_off = strtoul(src_off_s.c_str(), nullptr, 16);
+    if (!dst_off_s.empty()) dst_off = strtoul(dst_off_s.c_str(), nullptr, 16);
 
     if (!src_dso.empty() && src_off != 0x0 && src_dso[0] == '/') src_BIdx = BinaryFromName(src_dso.c_str());
     if (!dst_dso.empty() && dst_off != 0x0 && dst_dso[0] == '/') dst_BIdx = BinaryFromName(dst_dso.c_str());
@@ -726,9 +736,9 @@ int IPTTool::UsingLibipt(void) {
   }
 
   std::string opts_str = read_file_into_string(path_to_opts.c_str());
+  boost::algorithm::trim(opts_str);
 
   std::vector<std::string> ptdump_args;
-  boost::algorithm::trim(opts_str);
   boost::algorithm::split(ptdump_args, opts_str, boost::is_any_of(" "),
                           boost::token_compress_on);
 
@@ -738,24 +748,29 @@ int IPTTool::UsingLibipt(void) {
     ptdump_argv.push_back(const_cast<char *>(argstr.c_str()));
   ptdump_argv.push_back(nullptr);
 
-  llvm::errs() << opts_str << '\n';
+  if (IsVerbose())
+    llvm::errs() << llvm::formatv("ptdump {0}\n", opts_str);
 
-  std::regex aux_filename_pattern(R"(perf\.data-aux-idx\d+\.bin)");
+  std::regex aux_filename_pattern(R"(perf\.data-aux-idx(\d+)\.bin)");
 
   fs::path dir = opts.Chdir ? fs::path(temporary_dir()) : fs::canonical(".");
   assert(fs::exists(dir) && fs::is_directory(dir));
 
-  std::vector<std::string> aux_filenames;
+  std::vector<std::pair<unsigned, std::string>> aux_file_pairs;
   try {
     for (const auto &entry : fs::directory_iterator(dir)) {
       if (!fs::is_regular_file(entry))
         continue;
 
       std::string filename = entry.path().filename().string();
-      if (std::regex_match(filename, aux_filename_pattern)) {
+      std::smatch match;
+      if (std::regex_match(filename, match, aux_filename_pattern)) {
+        std::string cpu_s = match[1].str();
+
         if (IsVerbose())
-          llvm::errs() << "Found file: " << filename << '\n';
-        aux_filenames.push_back(std::move(filename));
+          llvm::errs() << llvm::formatv("Found \"{0}\" (cpu: {1})\n", filename, cpu_s);
+
+        aux_file_pairs.emplace_back(strtoul(cpu_s.c_str(), nullptr, 10), filename);
       }
     }
   } catch (const fs::filesystem_error &ex) {
@@ -764,25 +779,27 @@ int IPTTool::UsingLibipt(void) {
 
   std::for_each(
       std::execution::par_unseq,
-      aux_filenames.begin(),
-      aux_filenames.end(),
-      [&](const std::string &aux_filename) {
+      aux_file_pairs.begin(),
+      aux_file_pairs.end(),
+      [&](const auto &aux_pair) {
+        const std::string &aux_filename = aux_pair.second;
+
 #if 1
         static std::mutex mtx; // FIXME
         std::unique_lock<std::mutex> lck(mtx); // FIXME
-        printf("%s\n", aux_filename.c_str()); // FIXME
+        fprintf(stderr, "%s\n", aux_filename.c_str()); // FIXME
 #endif
 
         std::vector<uint8_t> aux_contents;
         read_file_into_thing(aux_filename.c_str(), aux_contents);
 
-        IntelPT intel_ptr(ptdump_argv.size()-1,
-                          ptdump_argv.data(), jv, *E,
+        IntelPT ipt(ptdump_argv.size()-1,
+                          ptdump_argv.data(), jv, *E, aux_pair.first,
                           AddressSpace,
                           &aux_contents[0],
                           &aux_contents[aux_contents.size()]);
 
-        intel_ptr.explore();
+        ipt.explore();
       });
 
   return 0;
