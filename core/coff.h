@@ -19,9 +19,16 @@ typedef std::pair<uint64_t, uint64_t> addr_pair;
 addr_pair bounds_of_binary(COFFO &);
 
 static inline const void *toMappedAddr(COFFO &O, uint64_t Addr) {
-  uintptr_t UIntPtr = ~0UL;
+  const uint64_t ImageBase = O.getImageBase();
+  if (!(Addr >= ImageBase))
+    return nullptr;
 
-  if (llvm::errorToBool(O.getVaPtr(Addr, UIntPtr)))
+  const uint64_t Rva = Addr - ImageBase;
+  if (!(Rva <= UINT32_MAX))
+    return nullptr;
+
+  uintptr_t UIntPtr = ~0UL;
+  if (llvm::errorToBool(O.getRvaPtr((uint32_t)Rva, UIntPtr)))
     return nullptr;
 
   return reinterpret_cast<const void *>(UIntPtr);
