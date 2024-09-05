@@ -252,10 +252,17 @@ void IntelPT::examine_sb(void) {
                &next_pid, &next_tid,
                &_.pid, &_.tid, &_.time, &_.cpu, &_.identifier);
 
-        if (_.cpu != our.cpu)
-          continue;
+        if (_.cpu == our.cpu)
+          Right.Thread = next_tid == our.tid;
+      } else if (MATCHES_REST("SWITCH.OUT")) {
+        sscanf(rest, "  { %x/%x %" PRIx64 " cpu-%x %" PRIx64 " }",
+               &_.pid, &_.tid, &_.time, &_.cpu, &_.identifier);
 
-        Right.Thread = next_tid == our.tid;
+        /* XXX? */
+#if 0
+        if (_.cpu == our.cpu)
+          Right.Thread = next_tid == our.tid;
+#endif
       } else if (MATCHES_REST("SWITCH_CPU_WIDE.IN")) {
         unsigned prev_pid, prev_tid;
         sscanf(rest, "%x/%x"
@@ -263,10 +270,14 @@ void IntelPT::examine_sb(void) {
                &prev_pid, &prev_tid,
                &_.pid, &_.tid, &_.time, &_.cpu, &_.identifier);
 
-        if (_.cpu != our.cpu)
-          continue;
+        if (_.cpu == our.cpu)
+          Right.Thread = _.tid == our.tid;
+      } else if (MATCHES_REST("SWITCH.IN")) {
+        sscanf(rest, "  { %x/%x %" PRIx64 " cpu-%x %" PRIx64 " }",
+               &_.pid, &_.tid, &_.time, &_.cpu, &_.identifier);
 
-        Right.Thread = _.tid == our.tid;
+        if (_.cpu == our.cpu)
+          Right.Thread = _.tid == our.tid;
       } else {
         assert(false);
       }
@@ -624,7 +635,7 @@ int IntelPT::on_ip(const uint64_t ip) {
 
   auto it = intvl_map_find(AddressSpace, ip);
   if (it == AddressSpace.end()) {
-    //fprintf(stderr, "unknown ip %016" PRIx64 "\n", ip); /* FIXME */
+    //printf("unknown ip %016" PRIx64 "\n", ip); /* FIXME */
     //throw std::runtime_error("unknown ip " + (fmt("%016" PRIx64) % ip).str());
     return 0;
   }

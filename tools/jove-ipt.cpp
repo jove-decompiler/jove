@@ -9,6 +9,7 @@
 #include "locator.h"
 #include "ipt.h"
 #include "wine.h"
+#include "perf.h"
 
 #include <boost/filesystem.hpp>
 #include <boost/algorithm/string.hpp>
@@ -201,7 +202,7 @@ int IPTTool::Run(void) {
         Arg(perf_path);
 
         Arg("record");
-        Arg("-m,256M");
+        Arg("-m,32M");
         Arg("-o");
         Arg("perf.data");
         Arg("-e");
@@ -697,6 +698,7 @@ int IPTTool::UsingLibipt(void) {
   fs::path path_to_read_sideband = libipt_scripts_dir / "perf-read-sideband.bash";
 
   bool Failed = false;
+#if 0
   oneapi::tbb::parallel_invoke(
       [&](void) -> void {
         if (Tool::RunExecutableToExit(
@@ -708,6 +710,7 @@ int IPTTool::UsingLibipt(void) {
         }
       },
       [&](void) -> void {
+#endif
         if (Tool::RunExecutableToExit(
                 path_to_read_sideband.string(),
                 [&](auto Arg) { Arg(path_to_read_sideband.string()); }, "", "")) {
@@ -715,7 +718,9 @@ int IPTTool::UsingLibipt(void) {
               << "failed to run libipt/script/perf-read-sideband.bash\n";
           Failed = true;
         }
+#if 0
       });
+#endif
 
   if (Failed)
     return 1;
@@ -751,6 +756,7 @@ int IPTTool::UsingLibipt(void) {
   if (IsVerbose())
     llvm::errs() << llvm::formatv("ptdump {0}\n", opts_str);
 
+#if 0
   std::regex aux_filename_pattern(R"(perf\.data-aux-idx(\d+)\.bin)");
 
   fs::path dir = opts.Chdir ? fs::path(temporary_dir()) : fs::canonical(".");
@@ -776,25 +782,65 @@ int IPTTool::UsingLibipt(void) {
   } catch (const fs::filesystem_error &ex) {
     llvm::errs() << "Filesystem error: " << ex.what() << '\n';
   }
+#else
+  perf::data_reader perf_data("perf.data");
 
-  std::for_each(
-      std::execution::par_unseq,
-      aux_file_pairs.begin(),
-      aux_file_pairs.end(),
-      [&](const auto &aux_pair) {
-        const std::string &aux_filename = aux_pair.second;
+  std::vector<uint64_t> auxtrace_sizev; /* by cpu */
+  unsigned maxcpu = 0;
+  perf_data.for_each_auxtrace([&](const struct perf::auxtrace_event &aux) {
+    maxcpu = std::max(maxcpu, aux.cpu);
 
-#if 1
-        static std::mutex mtx; // FIXME
-        std::unique_lock<std::mutex> lck(mtx); // FIXME
-        fprintf(stderr, "%s\n", aux_filename.c_str()); // FIXME
+    if (unlikely(aux.cpu >= auxtrace_sizev.size()))
+      auxtrace_sizev.resize(aux.cpu + 1, 0);
+
+    auxtrace_sizev[aux.cpu] += aux.size;
+  });
+  unsigned cpu_nr = maxcpu + 1;
+
+  std::vector<unsigned> cpuv;
+  cpuv.resize(cpu_nr);
+  std::iota(cpuv.begin(), cpuv.end(), 0);
 #endif
 
+  std::for_each(
+      cpuv.begin(),
+      cpuv.end(),
+      [&](unsigned cpu) {
+#if 1
+        static std::mutex mtx;
+        std::unique_lock<std::mutex> lck(mtx);
+#endif
+
+        if (IsVerbose())
+          WithColor::note() << llvm::formatv("auxtrace size for cpu {0}: {1}\n",
+                                             cpu, auxtrace_sizev.at(cpu));
+
+        if (!auxtrace_sizev.at(cpu))
+          return;
+
         std::vector<uint8_t> aux_contents;
-        read_file_into_thing(aux_filename.c_str(), aux_contents);
+        aux_contents.resize(auxtrace_sizev.at(cpu));
+
+        uint64_t off = 0;
+        perf_data.for_each_auxtrace(
+            [&](const struct perf::auxtrace_event &aux) {
+              if (aux.cpu != cpu)
+                return;
+
+              assert(off + aux.size <= aux_contents.size());
+
+              memcpy(&aux_contents[off],
+                     reinterpret_cast<const uint8_t *>(&aux) + aux.header.size,
+                     aux.size);
+
+              off += aux.size;
+            });
+
+        if (off != aux_contents.size())
+          die("auxtrace inconsistency");
 
         IntelPT ipt(ptdump_argv.size()-1,
-                          ptdump_argv.data(), jv, *E, aux_pair.first,
+                          ptdump_argv.data(), jv, *E, cpu,
                           AddressSpace,
                           &aux_contents[0],
                           &aux_contents[aux_contents.size()]);
