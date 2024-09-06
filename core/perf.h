@@ -1,5 +1,6 @@
 #pragma once
 #include "mmap.h"
+#include "likely.h"
 
 #include <memory>
 #include <functional>
@@ -72,7 +73,7 @@ struct data_reader {
     const uint8_t *const end = data_end();
 
     const uint8_t *p = beg;
-    while (p != end) {
+    while (unlikely(p != end)) {
       assert(p < end);
 
       auto &hdr = *reinterpret_cast<const struct perf_event_header *>(p);
