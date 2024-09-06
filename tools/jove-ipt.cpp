@@ -753,12 +753,11 @@ int IPTTool::UsingLibipt(void) {
                 [&](const std::string &line) -> void {
                   char in_filename[4097];
                   char out_filename[4097];
-                  unsigned skip;
-                  unsigned count;
+                  uint64_t skip, count;
 
                   sscanf(line.c_str(),
                          "dd if=%4096s of=%4096s conv=notrunc oflag=append "
-                         "ibs=1 skip=%u count=%u status=none",
+                         "ibs=1 skip=%" PRIu64 " count=%" PRIu64 " status=none",
                          &in_filename[0],
                          &out_filename[0],
                          &skip, &count);
