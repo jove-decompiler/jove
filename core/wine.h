@@ -15,6 +15,7 @@ struct stderr_parser {
   stderr_parser(const std::string &contents) : contents(contents) {}
 
   long tid_of_NtCreateUserProcess(const char *prog);
+  long tid_of_loaddll_exe(const char *prog);
 
   void
   loaddll_loaded_for_tid(unsigned long tid,
