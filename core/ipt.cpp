@@ -196,17 +196,20 @@ void IntelPT::examine_sb(void) {
       uint64_t identifier;
     } _;
 
-#define FMT_COMMON                                                             \
-
-#define SSCANF_ARGS_COMMON \
-
+    auto unexpected_rest = [&](void) -> void {
+      fprintf(stderr, "unexpected rest=\"%s\"\n", rest);
+      fflush(stderr);
+      assert(false);
+    };
 
     switch (rest[0]) {
     case 'A':
       if (likely(MATCHES_REST("AUX"))) {
         ;
+      } else if (MATCHES_REST("AUX.TRUNCATED")) {
+        ; /* TODO? */
       } else {
-        assert(false);
+        unexpected_rest();
       }
       break;
 
@@ -216,7 +219,7 @@ void IntelPT::examine_sb(void) {
       } else if (MATCHES_REST("COMM")) {
         do_comm();
       } else {
-        assert(false);
+        unexpected_rest();
       }
       break;
 
@@ -224,7 +227,7 @@ void IntelPT::examine_sb(void) {
       if (likely(MATCHES_REST("ITRACE_START"))) {
         ;
       } else {
-        assert(false);
+        unexpected_rest();
       }
       break;
 
@@ -232,7 +235,7 @@ void IntelPT::examine_sb(void) {
       if (likely(MATCHES_REST("FORK"))) {
         ;
       } else {
-        assert(false);
+        unexpected_rest();
       }
       break;
 
@@ -240,7 +243,7 @@ void IntelPT::examine_sb(void) {
       if (likely(MATCHES_REST("EXIT"))) {
         ;
       } else {
-        assert(false);
+        unexpected_rest();
       }
       break;
 
@@ -279,7 +282,7 @@ void IntelPT::examine_sb(void) {
         if (_.cpu == our.cpu)
           Right.Thread = _.tid == our.tid;
       } else {
-        assert(false);
+        unexpected_rest();
       }
 
       CheckEngaged();
@@ -321,7 +324,7 @@ void IntelPT::examine_sb(void) {
           continue;
 
         if (!fs::exists(filename)) {
-          fprintf(stderr, "\"%s\" does not exist!\n", filename);
+          fprintf(stderr, "\"%s\" does not exist!(%s)\n", filename, rest);
           continue;
         }
 
@@ -329,6 +332,8 @@ void IntelPT::examine_sb(void) {
         bool IsNew;
 
         std::tie(BIdx, IsNew) = jv.AddFromPath(explorer, filename);
+        if (!is_binary_index_valid(BIdx))
+          continue;
 
         binary_t &b = jv.Binaries.at(BIdx);
         if (IsNew)
@@ -345,11 +350,11 @@ void IntelPT::examine_sb(void) {
           binary_state_t &x = state.for_binary(b);
 
           intvl_map_add(AddressSpace, addr_intvl(addr, len), BIdx);
-          if (updateVariable(x.LoadAddr, std::min(x.LoadAddr, addr)))
+          if (updateVariable(x.LoadAddr, std::min(x.LoadAddr, static_cast<taddr_t>(addr))))
             x.LoadOffset = pgoff;
         }
       } else {
-        assert(false);
+        unexpected_rest();
       }
       break;
 
@@ -357,7 +362,7 @@ void IntelPT::examine_sb(void) {
       fprintf(stderr, "examine_sb: \"%s\" (TODO)\n", line);
       break;
     }
-  } while (ptr != end);
+  } while (likely(ptr != end));
 }
 
 int IntelPT::explore(/*FIXME*/) {
@@ -672,8 +677,14 @@ int IntelPT::on_ip(const uint64_t ip) {
         return coff::va_of_rva(O, RVA);
       });
 
-  printf("%016" PRIx64 " E %016" PRIx64 "\t\t\t%s\n", ip, Addr, b.Name.c_str()); /* FIXME */
-  explorer.explore_basic_block(b, *x.Bin, Addr);
+  //printf("%016" PRIx64 " E %016" PRIx64 "\t\t\t%s\n", ip, Addr, b.Name.c_str()); /* FIXME */
+  try {
+    explorer.explore_basic_block(b, *x.Bin, Addr);
+  } catch (const invalid_control_flow_exception &e) {
+    printf("BADIP!!! %016" PRIx64 " E %016" PRIx64 "\t\t\t%s\n", ip, Addr,
+           b.Name.c_str()); /* FIXME */
+    fflush(stdout);
+  }
 
   return 0;
 }
