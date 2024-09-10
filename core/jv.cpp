@@ -15,7 +15,7 @@ size_t jvDefaultInitialSize(void) {
 
   switch (sizeof(void *)) {
   case 8:
-    return 5*GiB;
+    return 7*GiB;
   case 4:
     return 128*MiB;
   }
