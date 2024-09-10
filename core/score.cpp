@@ -59,7 +59,9 @@ double compute_score(const jv_t &jv,
                       });
     }
   );
-  assert(N > 0);
+
+  if (N == 0)
+    return 1.0;
 
   //
   // add up all the basic block lengths (M)
@@ -72,6 +74,8 @@ double compute_score(const jv_t &jv,
       std::accumulate(vi_begin,
                       vi_end, 0,
                       [&](size_t res, basic_block_t bb) -> size_t {
+                        if (ICFG[bb].Speculative)
+                          return res;
                         return res + ICFG[bb].Size;
                       });
   assert(M > 0);
