@@ -330,21 +330,21 @@ int IPTTool::Run(void) {
       {
         auto it = intvl_map_find(AddressSpace, intvl);
         if (it != AddressSpace.end()) {
-          binary_t &b_already_there = jv.Binaries.at((*it).second);
+          if (is_binary_index_valid((*it).second)) {
+            binary_t &b_already_there = jv.Binaries.at((*it).second);
 
-          WithColor::error() << llvm::formatv(
-              "ambiguity detected: \"{0}\" @ {1} but \"{2}\" @ {3} so \"{2}\" "
-              "was probably unloaded\n",
-              b.Name.c_str(),
-              addr_intvl2str(intvl),
-              b_already_there.Name.c_str(),
-              addr_intvl2str((*it).first));
+            WithColor::warning() << llvm::formatv(
+                "ambiguity detected: \"{0}\" @ {1} but \"{2}\" @ {3} so \"{2}\" "
+                "was probably unloaded\n",
+                b.Name.c_str(),
+                addr_intvl2str(intvl),
+                b_already_there.Name.c_str(),
+                addr_intvl2str((*it).first));
+          }
 
-          AddressSpace.erase(it); /* FIXME (limitation) */
-
-          x.LoadAddr = std::numeric_limits<taddr_t>::max();
-          state.for_binary(b_already_there).LoadAddr =
-              std::numeric_limits<taddr_t>::max();
+          addr_intvl h = addr_intvl_hull(intvl, (*it).first);
+          AddressSpace.erase(it);
+          intvl_map_add(AddressSpace, h, invalid_binary_index);
           return;
         }
       }
@@ -734,6 +734,9 @@ int IPTTool::UsingLibipt(void) {
   fs::path path_to_read_sideband = libipt_scripts_dir / "perf-read-sideband.bash";
 
   {
+    if (IsVerbose())
+      llvm::errs() << "gathering sideband files...\n";
+
     int pipefd[2];
     if (::pipe(pipefd) < 0) { /* first, create a pipe */
       int err = errno;
@@ -822,6 +825,9 @@ int IPTTool::UsingLibipt(void) {
           << "failed to run libipt/script/perf-read-sideband.bash\n";
       return 1;
     }
+
+    if (IsVerbose())
+      llvm::errs() << "gathered sideband files.\n";
   }
 
   //
@@ -855,35 +861,8 @@ int IPTTool::UsingLibipt(void) {
   if (IsVerbose())
     llvm::errs() << llvm::formatv("ptdump {0}\n", opts_str);
 
-#if 0
-  std::regex aux_filename_pattern(R"(perf\.data-aux-idx(\d+)\.bin)");
-
-  fs::path dir = opts.Chdir ? fs::path(temporary_dir()) : fs::canonical(".");
-  assert(fs::exists(dir) && fs::is_directory(dir));
-
-  std::vector<std::pair<unsigned, std::string>> aux_file_pairs;
-  try {
-    for (const auto &entry : fs::directory_iterator(dir)) {
-      if (!fs::is_regular_file(entry))
-        continue;
-
-      std::string filename = entry.path().filename().string();
-      std::smatch match;
-      if (std::regex_match(filename, match, aux_filename_pattern)) {
-        std::string cpu_s = match[1].str();
-
-        if (IsVerbose())
-          llvm::errs() << llvm::formatv("Found \"{0}\" (cpu: {1})\n", filename, cpu_s);
-
-        aux_file_pairs.emplace_back(strtoul(cpu_s.c_str(), nullptr, 10), filename);
-      }
-    }
-  } catch (const fs::filesystem_error &ex) {
-    llvm::errs() << "Filesystem error: " << ex.what() << '\n';
-  }
-#else
   std::vector<uint64_t> auxtrace_sizev; /* by cpu */
-  perf_data.for_each_auxtrace([&](const struct perf::auxtrace_event &aux) {
+  perf_data.for_each_auxtrace<false>([&](const struct perf::auxtrace_event &aux) {
     if (unlikely(aux.cpu >= auxtrace_sizev.size()))
       auxtrace_sizev.resize(aux.cpu + 1, 0);
 
@@ -894,10 +873,13 @@ int IPTTool::UsingLibipt(void) {
   const unsigned nr_cpu = auxtrace_sizev.size();
 
   if (unlikely(opts.WriteAuxFiles)) {
+    if (IsVerbose())
+      llvm::errs() << "writing aux files...\n";
+
     std::vector<std::unique_ptr<std::ofstream>> aux_ofsv;
     aux_ofsv.resize(nr_cpu);
 
-    perf_data.for_each_auxtrace([&](const struct perf::auxtrace_event &aux) {
+    perf_data.for_each_auxtrace<false>([&](const struct perf::auxtrace_event &aux) {
       std::unique_ptr<std::ofstream> &ofs = aux_ofsv.at(aux.cpu);
       if (!ofs)
         ofs = std::make_unique<std::ofstream>("perf.data-aux-idx" +
@@ -907,12 +889,14 @@ int IPTTool::UsingLibipt(void) {
                  aux.size);
       return true;
     });
+
+    if (IsVerbose())
+      llvm::errs() << "wrote aux files.\n";
   }
 
   std::vector<unsigned> cpuv;
   cpuv.resize(nr_cpu);
   std::iota(cpuv.begin(), cpuv.end(), 0);
-#endif
 
   std::for_each(
       std::execution::par_unseq,
@@ -930,7 +914,7 @@ int IPTTool::UsingLibipt(void) {
         aux_contents.resize(auxtrace_sizev.at(cpu));
 
         uint64_t off = 0;
-        perf_data.for_each_auxtrace(
+        perf_data.for_each_auxtrace<false>(
             [&](const struct perf::auxtrace_event &aux) -> bool {
               if (aux.cpu != cpu)
                 return true;
@@ -945,15 +929,21 @@ int IPTTool::UsingLibipt(void) {
               return true;
             });
 
-        assert(off == aux_contents.size());
+        //assert(off == aux_contents.size());
 
-        IntelPT ipt(ptdump_argv.size()-1,
-                          ptdump_argv.data(), jv, *E, cpu,
-                          AddressSpace,
-                          &aux_contents[0],
-                          &aux_contents[aux_contents.size()]);
+        IntelPT ipt(ptdump_argv.size() - 1,
+                    ptdump_argv.data(), jv, *E, cpu,
+                    AddressSpace,
+                    &aux_contents[0],
+                    &aux_contents[0] + off);
 
-        ipt.explore();
+        try {
+          ipt.explore();
+        } catch (const IntelPT::truncated_aux_exception &) {
+          if (IsVerbose())
+            WithColor::warning() << llvm::formatv("truncated aux (cpu {0})\n", cpu);
+        }
+
         fflush(stdout);
         fflush(stderr);
       });

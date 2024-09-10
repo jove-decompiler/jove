@@ -67,8 +67,8 @@ struct data_reader {
     return data_begin() + get_header().data.size;
   }
 
-  void
-  for_each_auxtrace(std::function<bool(const struct auxtrace_event &)> proc) {
+  template <bool IgnoreLost = true>
+  void for_each(std::function<bool(const struct perf_event_header &)> proc) {
     const uint8_t *const beg = data_begin();
     const uint8_t *const end = data_end();
 
@@ -77,16 +77,32 @@ struct data_reader {
       assert(p < end);
 
       auto &hdr = *reinterpret_cast<const struct perf_event_header *>(p);
-      if (hdr.type == PERF_RECORD_EVENT_TYPE_AUXTRACE) {
-        auto &aux = *reinterpret_cast<const struct auxtrace_event *>(p);
-        if (unlikely(!proc(aux)))
-          return;
-        p += aux.size;
-      }
+      const auto t = hdr.type;
+
+      if (!IgnoreLost &&
+          unlikely((t == PERF_RECORD_LOST ||
+                    t == PERF_RECORD_LOST_SAMPLES)))
+        break;
+
+      if (unlikely(!proc(hdr)))
+        break;
+
+      if (t == PERF_RECORD_EVENT_TYPE_AUXTRACE)
+        p += reinterpret_cast<const struct auxtrace_event *>(p)->size;
 
       assert(hdr.size);
       p += hdr.size;
     }
+  }
+
+  template <bool IgnoreLost = true>
+  void
+  for_each_auxtrace(std::function<bool(const struct auxtrace_event &)> proc) {
+    for_each<IgnoreLost>([&](const struct perf_event_header &hdr) -> bool {
+      if (hdr.type == PERF_RECORD_EVENT_TYPE_AUXTRACE)
+        return proc(*reinterpret_cast<const struct auxtrace_event *>(&hdr));
+      return true;
+    });
   }
 };
 

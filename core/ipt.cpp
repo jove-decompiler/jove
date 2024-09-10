@@ -24,8 +24,10 @@ typedef boost::format fmt;
 
 IntelPT::IntelPT(int ptdump_argc, char **ptdump_argv, jv_t &jv,
                  explorer_t &explorer, unsigned cpu,
-                 const address_space_t &AddressSpace, void *begin, void *end)
-    : jv(jv), explorer(explorer), state(jv), AddressSpace(AddressSpace) {
+                 const address_space_t &AddressSpace, void *begin, void *end,
+                 bool ignore_trunc_aux)
+    : jv(jv), explorer(explorer), state(jv), AddressSpace(AddressSpace),
+      ignore_trunc_aux(ignore_trunc_aux) {
   our.cpu = cpu;
 
   for_each_binary(std::execution::par_unseq, jv, [&](binary_t &b) {
@@ -207,7 +209,8 @@ void IntelPT::examine_sb(void) {
       if (likely(MATCHES_REST("AUX"))) {
         ;
       } else if (MATCHES_REST("AUX.TRUNCATED")) {
-        ; /* TODO? */
+        if (!ignore_trunc_aux)
+          throw truncated_aux_exception();
       } else {
         unexpected_rest();
       }
@@ -639,7 +642,7 @@ int IntelPT::on_ip(const uint64_t ip) {
     return 0;
 
   auto it = intvl_map_find(AddressSpace, ip);
-  if (it == AddressSpace.end()) {
+  if (it == AddressSpace.end() || !is_binary_index_valid((*it).second)) {
     //printf("unknown ip %016" PRIx64 "\n", ip); /* FIXME */
     //throw std::runtime_error("unknown ip " + (fmt("%016" PRIx64) % ip).str());
     return 0;

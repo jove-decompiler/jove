@@ -83,6 +83,8 @@ class IntelPT {
               Right.Thread;
   }
 
+  const bool ignore_trunc_aux;
+
   void examine_sb(void);
 
   void ptdump_tracking_init(void);
@@ -108,13 +110,15 @@ class IntelPT {
 public:
   IntelPT(int ptdump_argc, char **ptdump_argv, jv_t &, explorer_t &,
           unsigned cpu, const address_space_t &AddressSpace, void *begin,
-          void *end);
+          void *end, bool ignore_trunc_aux = false);
   ~IntelPT();
 
   int explore(void);
   int explore_packets(void);
 
   int ptdump_print_error(int errcode, const char *filename, uint64_t offset);
+
+  struct truncated_aux_exception {};
 };
 
 }
