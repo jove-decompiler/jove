@@ -56,6 +56,11 @@ struct IPTTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
     cl::opt<bool> UsePerfScript;
     cl::opt<bool> Chdir;
     cl::alias ChdirAlias;
+    cl::opt<std::string> MMapPages;
+    cl::alias MMapPagesAlias;
+    cl::opt<std::string> AuxPages;
+    cl::alias AuxPagesAlias;
+    cl::opt<bool> WriteAuxFiles;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : Prog(cl::Positional, cl::desc("prog"), cl::Required,
@@ -77,7 +82,25 @@ struct IPTTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
                 cl::init(true), cl::cat(JoveCategory)),
 
           ChdirAlias("c", cl::desc("Alias for --change-dir"),
-                     cl::aliasopt(Chdir), cl::cat(JoveCategory)) {}
+                     cl::aliasopt(Chdir), cl::cat(JoveCategory)),
+
+          MMapPages("mmap-pages",
+                    cl::desc("Number of mmap pages for trace data"),
+                    cl::init("8M"), cl::cat(JoveCategory)),
+
+          MMapPagesAlias("m", cl::desc("Alias for --mmap-pages"),
+                         cl::aliasopt(MMapPages), cl::cat(JoveCategory)),
+
+          AuxPages("mmap-pages-aux",
+                   cl::desc("Number of mmap pages for trace data (AUX)"),
+                   cl::init("64M"), cl::cat(JoveCategory)),
+
+          AuxPagesAlias("a", cl::desc("Alias for --mmap-pages-aux"),
+                        cl::aliasopt(AuxPages), cl::cat(JoveCategory)),
+
+          WriteAuxFiles("write-aux-files",
+                        cl::desc("Write aux files to disk; can be used with ptdump/ptxed."),
+                        cl::cat(JoveCategory)) {}
 
   } opts;
 
@@ -202,7 +225,8 @@ int IPTTool::Run(void) {
         Arg(perf_path);
 
         Arg("record");
-        Arg("-m,32M");
+        Arg("-m" + opts.MMapPages);
+        Arg("-m," + opts.AuxPages);
         Arg("-o");
         Arg("perf.data");
         Arg("-e");
@@ -247,8 +271,12 @@ int IPTTool::Run(void) {
 
     long tid = parser.tid_of_NtCreateUserProcess(jv.Binaries.at(0).Name.c_str());
     if (tid < 0) {
-      WithColor::error() << "could not find tid of prog in wine debug output\n";
-      return 1;
+      tid = parser.tid_of_loaddll_exe(jv.Binaries.at(0).Name.c_str());
+
+      if (tid < 0) {
+        WithColor::error() << "could not determine thread ID of program\n";
+        return 1;
+      }
     }
 
     if (IsVerbose())
@@ -256,19 +284,6 @@ int IPTTool::Run(void) {
 
     std::vector<std::pair<std::string, uint64_t>> loaded_list;
     parser.loaddll_loaded_for_tid(tid, loaded_list);
-
-    for (auto &l : loaded_list) {
-      std::string &path = l.first;
-
-      if (!fs::exists(path))
-        path = lowered_string(path); /* case-insensitive */
-
-      assert(fs::exists(path));
-      path = fs::canonical(fs::path(path)).string();
-
-      if (IsVeryVerbose())
-        llvm::errs() << llvm::formatv("{0} @ {1:x}\n", l.first, l.second);
-    }
 
     std::vector<std::string> binary_paths;
     for (const auto &pair : loaded_list) {
@@ -318,10 +333,18 @@ int IPTTool::Run(void) {
           binary_t &b_already_there = jv.Binaries.at((*it).second);
 
           WithColor::error() << llvm::formatv(
-              "we think binary \"{0}\" is loaded at {1} but binary \"{2}\" "
-              "already loaded at {3}\n",
-              b.Name.c_str(), addr_intvl2str(intvl),
-              b_already_there.Name.c_str(), addr_intvl2str((*it).first));
+              "ambiguity detected: \"{0}\" @ {1} but \"{2}\" @ {3} so \"{2}\" "
+              "was probably unloaded\n",
+              b.Name.c_str(),
+              addr_intvl2str(intvl),
+              b_already_there.Name.c_str(),
+              addr_intvl2str((*it).first));
+
+          AddressSpace.erase(it); /* FIXME (limitation) */
+
+          x.LoadAddr = std::numeric_limits<taddr_t>::max();
+          state.for_binary(b_already_there).LoadAddr =
+              std::numeric_limits<taddr_t>::max();
           return;
         }
       }
@@ -824,7 +847,7 @@ int IPTTool::UsingLibipt(void) {
                           boost::token_compress_on);
 
   std::vector<char *> ptdump_argv;
-  ptdump_argv.push_back("ptdump");
+  ptdump_argv.push_back(const_cast<char *>("ptdump"));
   for (std::string &argstr : ptdump_args)
     ptdump_argv.push_back(const_cast<char *>(argstr.c_str()));
   ptdump_argv.push_back(nullptr);
@@ -860,19 +883,32 @@ int IPTTool::UsingLibipt(void) {
   }
 #else
   std::vector<uint64_t> auxtrace_sizev; /* by cpu */
-  unsigned maxcpu = 0;
   perf_data.for_each_auxtrace([&](const struct perf::auxtrace_event &aux) {
-    maxcpu = std::max(maxcpu, aux.cpu);
-
     if (unlikely(aux.cpu >= auxtrace_sizev.size()))
       auxtrace_sizev.resize(aux.cpu + 1, 0);
 
     auxtrace_sizev[aux.cpu] += aux.size;
   });
-  unsigned cpu_nr = maxcpu + 1;
+
+  const unsigned nr_cpu = auxtrace_sizev.size();
+
+  if (unlikely(opts.WriteAuxFiles)) {
+    std::vector<std::unique_ptr<std::ofstream>> aux_ofsv;
+    aux_ofsv.resize(nr_cpu);
+
+    perf_data.for_each_auxtrace([&](const struct perf::auxtrace_event &aux) {
+      std::unique_ptr<std::ofstream> &ofs = aux_ofsv.at(aux.cpu);
+      if (!ofs)
+        ofs = std::make_unique<std::ofstream>("perf.data-aux-idx" +
+                                              std::to_string(aux.cpu) + ".bin");
+
+      ofs->write(reinterpret_cast<const char *>(&aux) + aux.header.size,
+                 aux.size);
+    });
+  }
 
   std::vector<unsigned> cpuv;
-  cpuv.resize(cpu_nr);
+  cpuv.resize(nr_cpu);
   std::iota(cpuv.begin(), cpuv.end(), 0);
 #endif
 
@@ -881,11 +917,6 @@ int IPTTool::UsingLibipt(void) {
       cpuv.begin(),
       cpuv.end(),
       [&](unsigned cpu) {
-#if 0
-        static std::mutex mtx;
-        std::unique_lock<std::mutex> lck(mtx);
-#endif
-
         if (IsVerbose())
           WithColor::note() << llvm::formatv("auxtrace size for cpu {0}: {1}\n",
                                              cpu, auxtrace_sizev.at(cpu));
@@ -911,8 +942,7 @@ int IPTTool::UsingLibipt(void) {
               off += aux.size;
             });
 
-        if (off != aux_contents.size())
-          die("auxtrace inconsistency");
+        assert(off == aux_contents.size());
 
         IntelPT ipt(ptdump_argv.size()-1,
                           ptdump_argv.data(), jv, *E, cpu,
