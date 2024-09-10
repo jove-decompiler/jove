@@ -1116,6 +1116,16 @@ constexpr bool addr_intvl_disjoint(addr_intvl x, addr_intvl y) {
   return !addr_intvl_intersects(x, y);
 }
 
+constexpr addr_intvl addr_intvl_hull(addr_intvl x, addr_intvl y) {
+  taddr_t L_1 = addr_intvl_lower(x);
+  taddr_t L_2 = addr_intvl_lower(y);
+
+  taddr_t U_1 = addr_intvl_upper(x);
+  taddr_t U_2 = addr_intvl_upper(y);
+
+  return right_open_addr_intvl(std::min(L_1, L_2), std::max(U_1, U_2));
+}
+
 template <typename OrderedIntvlMap>
 constexpr auto intvl_map_find(OrderedIntvlMap &map, addr_intvl intvl) {
   if (unlikely(map.empty()))
