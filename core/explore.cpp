@@ -133,7 +133,9 @@ bool explorer_t::split(
       }
 
       if (!Disassembled)
-        throw std::runtime_error("failed to disassemble at " + taddr2str(A));
+        throw std::runtime_error(std::string("failed to disassemble at ") +
+                                 taddr2str(A) + " in \"" + b.Name.c_str() +
+                                 "\"");
 
       if (A == Addr)
         goto on_insn;
