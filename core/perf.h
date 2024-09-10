@@ -68,7 +68,7 @@ struct data_reader {
   }
 
   void
-  for_each_auxtrace(std::function<void(const struct auxtrace_event &)> proc) {
+  for_each_auxtrace(std::function<bool(const struct auxtrace_event &)> proc) {
     const uint8_t *const beg = data_begin();
     const uint8_t *const end = data_end();
 
@@ -79,7 +79,8 @@ struct data_reader {
       auto &hdr = *reinterpret_cast<const struct perf_event_header *>(p);
       if (hdr.type == PERF_RECORD_EVENT_TYPE_AUXTRACE) {
         auto &aux = *reinterpret_cast<const struct auxtrace_event *>(p);
-        proc(aux);
+        if (unlikely(!proc(aux)))
+          return;
         p += aux.size;
       }
 

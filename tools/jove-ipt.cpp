@@ -888,6 +888,7 @@ int IPTTool::UsingLibipt(void) {
       auxtrace_sizev.resize(aux.cpu + 1, 0);
 
     auxtrace_sizev[aux.cpu] += aux.size;
+    return true;
   });
 
   const unsigned nr_cpu = auxtrace_sizev.size();
@@ -904,6 +905,7 @@ int IPTTool::UsingLibipt(void) {
 
       ofs->write(reinterpret_cast<const char *>(&aux) + aux.header.size,
                  aux.size);
+      return true;
     });
   }
 
@@ -929,9 +931,9 @@ int IPTTool::UsingLibipt(void) {
 
         uint64_t off = 0;
         perf_data.for_each_auxtrace(
-            [&](const struct perf::auxtrace_event &aux) {
+            [&](const struct perf::auxtrace_event &aux) -> bool {
               if (aux.cpu != cpu)
-                return;
+                return true;
 
               assert(off + aux.size <= aux_contents.size());
 
@@ -940,6 +942,7 @@ int IPTTool::UsingLibipt(void) {
                      aux.size);
 
               off += aux.size;
+              return true;
             });
 
         assert(off == aux_contents.size());
