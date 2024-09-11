@@ -293,6 +293,7 @@ void IntelPT::examine_sb(void) {
 
     case 'M':
       if (likely(MATCHES_REST("MMAP2"))) {
+#if 0
         if (!Engaged)
           continue;
 
@@ -356,6 +357,7 @@ void IntelPT::examine_sb(void) {
           if (updateVariable(x.LoadAddr, std::min(x.LoadAddr, static_cast<taddr_t>(addr))))
             x.LoadOffset = pgoff;
         }
+#endif
       } else {
         unexpected_rest();
       }
