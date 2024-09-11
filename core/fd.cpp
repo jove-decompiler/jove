@@ -49,16 +49,11 @@ long robust_write(int fd, const void *const buf, const size_t count) {
   return robust_read_or_write<false /* w */>(fd, const_cast<void *>(buf), count);
 }
 
-long robust_sendfile(int socket, const char *file_path, size_t file_size) {
-  scoped_fd fd = ::open(file_path, O_RDONLY);
-  if (!fd)
-    throw std::runtime_error(std::string("robust_sendfile: open failed: ") +
-                             strerror(errno));
-
+long robust_sendfile_from_fd(int out_fd, int in_fd, size_t file_size) {
   const size_t saved_file_size = file_size;
 
   do {
-    ssize_t ret = ::sendfile(socket, fd.get(), nullptr, file_size);
+    ssize_t ret = ::sendfile(out_fd, in_fd, nullptr, file_size);
 
     if (ret == 0)
       return -EIO;
@@ -72,32 +67,40 @@ long robust_sendfile(int socket, const char *file_path, size_t file_size) {
   return saved_file_size;
 }
 
-long robust_sendfile_with_size(int socket, const char *file_path) {
+long robust_sendfile(int fd, const char *file_path, size_t file_size) {
+  scoped_fd in_fd = ::open(file_path, O_RDONLY);
+  if (!in_fd)
+    throw std::runtime_error(std::string("robust_sendfile: open failed: ") +
+                             strerror(errno));
+  return robust_sendfile_from_fd(fd, in_fd, file_size);
+}
+
+long robust_sendfile_with_size(int fd, const char *file_path) {
   ssize_t ret;
 
   uint32_t file_size = size_of_file32(file_path);
 
   std::string file_size_str = std::to_string(file_size);
 
-  ret = robust_write(socket, file_size_str.c_str(), file_size_str.size() + 1);
+  ret = robust_write(fd, file_size_str.c_str(), file_size_str.size() + 1);
   if (ret < 0)
     return ret;
 
-  ret = robust_sendfile(socket, file_path, file_size);
+  ret = robust_sendfile(fd, file_path, file_size);
   if (ret < 0)
     return ret;
 
   return file_size;
 }
 
-long robust_receive_file_with_size(int socket, const char *out, unsigned file_perm) {
+long robust_receive_file_with_size(int fd, const char *out, unsigned file_perm) {
   uint32_t file_size;
   {
     std::string file_size_str;
 
     char ch;
     do {
-      ssize_t n = robust_read(socket, &ch, sizeof(char));
+      ssize_t n = robust_read(fd, &ch, sizeof(char));
       if (n < 0)
         return n;
 
@@ -114,7 +117,7 @@ long robust_receive_file_with_size(int socket, const char *out, unsigned file_pe
   buff.resize(file_size);
 
   {
-    ssize_t res = robust_read(socket, &buff[0], buff.size());
+    ssize_t res = robust_read(fd, &buff[0], buff.size());
     if (res < 0)
       return res;
   }
