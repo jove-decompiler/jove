@@ -20,6 +20,8 @@
 #include <llvm/Support/FormatVariadic.h>
 #include <llvm/Support/WithColor.h>
 
+#include <sys/sendfile.h>
+
 #include <regex>
 #include <memory>
 #include <mutex>
@@ -717,126 +719,151 @@ void IPTTool::ProcessLine(const std::string &line) {
 int IPTTool::UsingLibipt(void) {
   fs::path libipt_scripts_dir = locator().libipt_scripts();
 
-#if 0
-  fs::path path_to_read_aux = libipt_scripts_dir / "perf-read-aux.bash";
-
-  if (Tool::RunExecutableToExit(
-          path_to_read_aux.string(),
-          [&](auto Arg) { Arg(path_to_read_aux.string()); }, "", "")) {
-    WithColor::error()
-        << "failed to run libipt/script/perf-read-aux.bash\n";
-    return 1;
-  }
-#endif
-
-  perf::data_reader perf_data("perf.data");
-
-  fs::path path_to_read_sideband = libipt_scripts_dir / "perf-read-sideband.bash";
+  unsigned aux_nr_cpu = 0;
 
   {
-    if (IsVerbose())
-      llvm::errs() << "gathering sideband files...\n";
+    bool Failed = false;
 
-    int pipefd[2];
-    if (::pipe(pipefd) < 0) { /* first, create a pipe */
-      int err = errno;
-      die("pipe(2) failed: " + std::string(strerror(err)));
-    }
+    perf::data_reader perf_data("perf.data");
 
-    auto rfd = std::make_unique<scoped_fd>(pipefd[0]);
-    auto wfd = std::make_unique<scoped_fd>(pipefd[1]);
+    oneapi::tbb::parallel_invoke(
+        [&](void) -> void {
+          if (IsVerbose())
+            llvm::errs() << "gathering sideband files...\n";
 
-    pid_t pid = Tool::RunExecutable(
-        path_to_read_sideband.string(),
-        [&](auto Arg) {
-          Arg(path_to_read_sideband.string());
-          Arg("-d");
-        },
-        "", "",
-        [&](const char **argv, const char **envp) {
-          rfd.reset();
-          ::dup2(wfd->get(), STDOUT_FILENO);
+          int pipefd[2];
+          if (::pipe(pipefd) < 0) { /* first, create a pipe */
+            int err = errno;
+            die("pipe(2) failed: " + std::string(strerror(err)));
+          }
+
+          auto rfd = std::make_unique<scoped_fd>(pipefd[0]);
+          auto wfd = std::make_unique<scoped_fd>(pipefd[1]);
+
+          fs::path path_to_read_sideband =
+              libipt_scripts_dir / "perf-read-sideband.bash";
+
+          pid_t pid = Tool::RunExecutable(
+              path_to_read_sideband.string(),
+              [&](auto Arg) {
+                Arg(path_to_read_sideband.string());
+                Arg("-d");
+              },
+              "", "",
+              [&](const char **argv, const char **envp) {
+                rfd.reset();
+                ::dup2(wfd->get(), STDOUT_FILENO);
+                wfd.reset();
+              });
           wfd.reset();
+
+          std::unique_ptr<scoped_fd> glbl_sb_ofd;
+          std::vector<std::unique_ptr<scoped_fd>> sb_ofdv;
+
+          static const std::string glbl_filename_suffix = "-sideband.pevent";
+
+          using namespace std::placeholders;
+
+          tbb::parallel_pipeline(
+              1024,
+              tbb::make_filter<void, std::string>(
+                  tbb::filter_mode::serial_in_order,
+                  std::bind(&IPTTool::GetLine, this, rfd->get(), _1)) &
+                  tbb::make_filter<std::string, void>(
+                      tbb::filter_mode::serial_in_order,
+                      [&](const std::string &line) -> void {
+                        char in_filename[4097];
+                        char out_filename[4097];
+                        uint64_t skip, count;
+
+                        sscanf(
+                            line.c_str(),
+                            "dd if=%4096s of=%4096s conv=notrunc oflag=append "
+                            "ibs=1 skip=%" PRIu64 " count=%" PRIu64
+                            " status=none",
+                            &in_filename[0], &out_filename[0], &skip, &count);
+
+                        assert(strcmp(in_filename, "perf.data") == 0);
+
+                        bool glbl = boost::algorithm::ends_with(
+                            out_filename, glbl_filename_suffix);
+                        int fd = -1;
+                        if (glbl) {
+                          std::unique_ptr<scoped_fd> &ofd = glbl_sb_ofd;
+                          if (!ofd)
+                            ofd = std::make_unique<scoped_fd>(
+                                ::open("perf.data-sideband.pevent",
+                                       O_WRONLY | O_CREAT | O_LARGEFILE, 0666));
+                          fd = ofd->get();
+                        } else {
+                          unsigned cpu;
+                          sscanf(out_filename,
+                                 "perf.data-sideband-cpu%u.pevent", &cpu);
+                          if (cpu >= sb_ofdv.size())
+                            sb_ofdv.resize(cpu + 1);
+                          std::unique_ptr<scoped_fd> &ofd = sb_ofdv.at(cpu);
+                          if (!ofd)
+                            ofd = std::make_unique<scoped_fd>(
+                                ::open(out_filename,
+                                       O_WRONLY | O_CREAT | O_LARGEFILE, 0666));
+                          fd = ofd->get();
+                        }
+
+                        off_t the_off = skip;
+                        if (::sendfile(fd, perf_data.contents.fd->get(),
+                                       &the_off, count) < 0)
+                          WithColor::error() << llvm::formatv(
+                              "sendfile failed: {0}\n", strerror(errno));
+                      }));
+
+          if (int ret = WaitForProcessToExit(pid)) {
+            WithColor::error()
+                << "failed to run libipt/script/perf-read-sideband.bash\n";
+            Failed = true;
+          } else {
+
+            if (IsVerbose())
+              llvm::errs() << "gathered sideband files.\n";
+          }
+        },
+        [&](void) -> void {
+          std::vector<std::unique_ptr<scoped_fd>> aux_ofdv;
+          perf_data.for_each_auxtrace(
+              [&](const struct perf::auxtrace_event &aux) {
+                if (unlikely(aux.cpu >= aux_ofdv.size())) {
+                  aux_nr_cpu = aux.cpu + 1;
+                  aux_ofdv.resize(aux_nr_cpu);
+                }
+
+                std::unique_ptr<scoped_fd> &aux_ofd = aux_ofdv.at(aux.cpu);
+                if (!aux_ofd) {
+                  std::string aux_ofname =
+                      "perf.data-aux-idx" + std::to_string(aux.cpu) + ".bin";
+                  aux_ofd = std::make_unique<scoped_fd>(
+                      ::open(aux_ofname.c_str(),
+                             O_WRONLY | O_CREAT | O_LARGEFILE, 0666));
+                }
+
+                off_t the_off =
+                    (reinterpret_cast<uintptr_t>(&aux) + aux.header.size) -
+                    reinterpret_cast<uintptr_t>(perf_data.contents.mmap->ptr);
+                if (::sendfile(aux_ofd->get(), perf_data.contents.fd->get(),
+                               &the_off, aux.size) < 0)
+                  WithColor::error() << llvm::formatv("sendfile failed: {0}\n",
+                                                      strerror(errno));
+              });
         });
-    wfd.reset();
 
-    std::unique_ptr<std::ofstream> glbl_sb_ofs;
-    std::vector<std::unique_ptr<std::ofstream>> sb_ofsv;
-
-    // perf.data-sideband-cpu0.pevent
-
-    static const std::string glbl_filename_suffix = "-sideband.pevent";
-
-    using namespace std::placeholders;
-
-    tbb::parallel_pipeline(
-        1024,
-        tbb::make_filter<void, std::string>(
-            tbb::filter_mode::serial_in_order,
-            std::bind(&IPTTool::GetLine, this, rfd->get(), _1)) &
-            tbb::make_filter<std::string, void>(
-                tbb::filter_mode::serial_in_order,
-                [&](const std::string &line) -> void {
-                  char in_filename[4097];
-                  char out_filename[4097];
-                  uint64_t skip, count;
-
-                  sscanf(line.c_str(),
-                         "dd if=%4096s of=%4096s conv=notrunc oflag=append "
-                         "ibs=1 skip=%" PRIu64 " count=%" PRIu64 " status=none",
-                         &in_filename[0],
-                         &out_filename[0],
-                         &skip, &count);
-
-                  assert(strcmp(in_filename, "perf.data") == 0);
-
-                  bool glbl = boost::algorithm::ends_with(out_filename,
-                                                          glbl_filename_suffix);
-                  std::ofstream &dst = *({
-                    std::ofstream *pofs = nullptr;
-                    if (glbl) {
-                      std::unique_ptr<std::ofstream> &ofs = glbl_sb_ofs;
-                      if (!ofs)
-                        ofs = std::make_unique<std::ofstream>(
-                            "perf.data-sideband.pevent");
-                      pofs = ofs.get();
-                    } else {
-                      unsigned cpu;
-                      sscanf(out_filename, "perf.data-sideband-cpu%u.pevent",
-                             &cpu);
-                      if (cpu >= sb_ofsv.size())
-                        sb_ofsv.resize(cpu + 1);
-                      std::unique_ptr<std::ofstream> &ofs = sb_ofsv.at(cpu);
-                      if (!ofs)
-                        ofs = std::make_unique<std::ofstream>(out_filename);
-                      pofs = ofs.get();
-                    }
-                    pofs;
-                  });
-
-                  dst.write(reinterpret_cast<const char *>(
-                                perf_data.contents.mmap->ptr) +
-                                skip,
-                            count);
-                }));
-
-    if (int ret = WaitForProcessToExit(pid)) {
-      WithColor::error()
-          << "failed to run libipt/script/perf-read-sideband.bash\n";
+    if (Failed)
       return 1;
-    }
-
-    if (IsVerbose())
-      llvm::errs() << "gathered sideband files.\n";
   }
 
   //
   // perf-get-opts (written for ptdump and ptxed)
   //
-  fs::path path_to_get_opts = libipt_scripts_dir / "perf-get-opts.bash";
-
   fs::path path_to_opts = fs::path(temporary_dir()) / "get-opts.txt";
 
+  fs::path path_to_get_opts = libipt_scripts_dir / "perf-get-opts.bash";
   if (RunExecutableToExit(
           path_to_get_opts.string(),
           [&](auto Arg) { Arg(path_to_get_opts.string()); },
@@ -861,84 +888,48 @@ int IPTTool::UsingLibipt(void) {
   if (IsVerbose())
     llvm::errs() << llvm::formatv("ptdump {0}\n", opts_str);
 
-  std::vector<uint64_t> auxtrace_sizev; /* by cpu */
-  perf_data.for_each_auxtrace([&](const struct perf::auxtrace_event &aux) {
-    if (unlikely(aux.cpu >= auxtrace_sizev.size()))
-      auxtrace_sizev.resize(aux.cpu + 1, 0);
-
-    auxtrace_sizev[aux.cpu] += aux.size;
-  });
-
-  const unsigned nr_cpu = auxtrace_sizev.size();
-
-  if (unlikely(opts.WriteAuxFiles)) {
-    if (IsVerbose())
-      llvm::errs() << "writing aux files...\n";
-
-    std::vector<std::unique_ptr<std::ofstream>> aux_ofsv;
-    aux_ofsv.resize(nr_cpu);
-
-    perf_data.for_each_auxtrace([&](const struct perf::auxtrace_event &aux) {
-      std::unique_ptr<std::ofstream> &ofs = aux_ofsv.at(aux.cpu);
-      if (!ofs)
-        ofs = std::make_unique<std::ofstream>("perf.data-aux-idx" +
-                                              std::to_string(aux.cpu) + ".bin");
-
-      ofs->write(reinterpret_cast<const char *>(&aux) + aux.header.size,
-                 aux.size);
-    });
-
-    if (IsVerbose())
-      llvm::errs() << "wrote aux files.\n";
-  }
-
   std::vector<unsigned> cpuv;
-  cpuv.resize(nr_cpu);
+  cpuv.resize(aux_nr_cpu);
   std::iota(cpuv.begin(), cpuv.end(), 0);
 
   std::for_each(
       std::execution::par_unseq,
       cpuv.begin(),
-      cpuv.end(),
-      [&](unsigned cpu) {
-        if (IsVerbose())
-          WithColor::note() << llvm::formatv("auxtrace size for cpu {0}: {1}\n",
-                                             cpu, auxtrace_sizev.at(cpu));
-
-        if (!auxtrace_sizev.at(cpu))
+      cpuv.end(), [&](unsigned cpu) {
+        std::string aux_fname =
+            "perf.data-aux-idx" + std::to_string(cpu) + ".bin";
+        if (!fs::exists(aux_fname))
           return;
 
-        std::vector<uint8_t> aux_contents;
-        aux_contents.resize(auxtrace_sizev.at(cpu));
+        auto len = fs::file_size(aux_fname);
 
-        uint64_t off = 0;
-        perf_data.for_each_auxtrace(
-            [&](const struct perf::auxtrace_event &aux) {
-              if (aux.cpu != cpu)
-                return;
+        if (IsVerbose())
+          WithColor::note()
+              << llvm::formatv("auxtrace size for cpu {0}: {1}\n", cpu, len);
 
-              assert(off + aux.size <= aux_contents.size());
+        scoped_fd aux_fd(::open(aux_fname.c_str(), O_RDONLY));
+        if (!aux_fd)
+          die(std::string("failed to open \"") + aux_fname + "\"");
 
-              memcpy(&aux_contents[off],
-                     reinterpret_cast<const uint8_t *>(&aux) + aux.header.size,
-                     aux.size);
+        scoped_mmap mmap(nullptr, len, PROT_READ, MAP_PRIVATE, aux_fd.get(), 0);
 
-              off += aux.size;
-            });
+        if (!mmap)
+          die(std::string("failed to mmap \"") + aux_fname + "\"");
 
-        assert(off == aux_contents.size());
+        if (::madvise(mmap.ptr, mmap.len, MADV_SEQUENTIAL) < 0)
+          WithColor::warning()
+              << llvm::formatv("madvise failed: {0}\n", strerror(errno));
 
-        IntelPT ipt(ptdump_argv.size() - 1,
-                    ptdump_argv.data(), jv, *E, cpu,
-                    AddressSpace,
-                    &aux_contents[0],
-                    &aux_contents[0] + off);
+        IntelPT ipt(ptdump_argv.size() - 1, ptdump_argv.data(), jv, *E, cpu,
+                    AddressSpace, mmap.ptr,
+                    reinterpret_cast<uint8_t *>(mmap.ptr) + len);
 
         try {
           ipt.explore();
         } catch (const IntelPT::truncated_aux_exception &) {
           if (IsVerbose())
-            WithColor::warning() << llvm::formatv("truncated aux (cpu {0})\n", cpu);
+            WithColor::warning()
+                << llvm::formatv("truncated aux (cpu {0})\n", cpu);
         }
 
         fflush(stdout);
@@ -947,7 +938,6 @@ int IPTTool::UsingLibipt(void) {
 
   return 0;
 }
-
 }
 
 #endif /* x86 */
