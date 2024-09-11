@@ -1,5 +1,6 @@
 #include "fd.h"
 #include "util.h"
+#include "likely.h"
 
 #include <cassert>
 #include <cstdint>
@@ -23,10 +24,10 @@ static ssize_t robust_read_or_write(int fd, void *const buf, const size_t count)
     ssize_t ret = IsRead ? ::read(fd, &_buf[n], left) :
                           ::write(fd, &_buf[n], left);
 
-    if (ret == 0)
+    if (unlikely(ret == 0))
       return -EIO;
 
-    if (ret < 0) {
+    if (unlikely(ret < 0)) {
       int err = errno;
 
       if (err == EINTR)
@@ -41,25 +42,54 @@ static ssize_t robust_read_or_write(int fd, void *const buf, const size_t count)
   return n;
 }
 
-long robust_read(int fd, void *const buf, const size_t count) {
+ssize_t robust_read(int fd, void *const buf, const size_t count) {
   return robust_read_or_write<true /* r */>(fd, buf, count);
 }
 
-long robust_write(int fd, const void *const buf, const size_t count) {
+ssize_t robust_write(int fd, const void *const buf, const size_t count) {
   return robust_read_or_write<false /* w */>(fd, const_cast<void *>(buf), count);
 }
 
-long robust_sendfile_from_fd(int out_fd, int in_fd, off_t *in_off, size_t file_size) {
+ssize_t robust_copy_file_range(int in_fd, off_t *in_off, int out_fd,
+                               off_t *out_off, size_t len) {
+  const size_t saved_len = len;
+
+  do {
+    ssize_t ret = ::copy_file_range(in_fd, in_off, out_fd, out_off, len, 0);
+
+    if (unlikely(ret == 0))
+      return -EIO;
+
+    if (unlikely(ret < 0)) {
+      int err = errno;
+      if (err == EINTR)
+        continue;
+
+      return -err;
+    }
+
+    len -= ret;
+  } while (len != 0);
+
+  return saved_len;
+}
+
+ssize_t robust_sendfile_from_fd(int out_fd, int in_fd, off_t *in_off, size_t file_size) {
   const size_t saved_file_size = file_size;
 
   do {
     ssize_t ret = ::sendfile(out_fd, in_fd, in_off, file_size);
 
-    if (ret == 0)
+    if (unlikely(ret == 0))
       return -EIO;
 
-    if (ret < 0)
-      return -errno;
+    if (unlikely(ret < 0)) {
+      int err = errno;
+      if (err == EINTR)
+        continue;
+
+      return -err;
+    }
 
     file_size -= ret;
   } while (file_size != 0);
@@ -67,7 +97,7 @@ long robust_sendfile_from_fd(int out_fd, int in_fd, off_t *in_off, size_t file_s
   return saved_file_size;
 }
 
-long robust_sendfile(int fd, const char *file_path, size_t file_size) {
+ssize_t robust_sendfile(int fd, const char *file_path, size_t file_size) {
   scoped_fd in_fd = ::open(file_path, O_RDONLY);
   if (!in_fd)
     throw std::runtime_error(std::string("robust_sendfile: open failed: ") +
@@ -75,7 +105,7 @@ long robust_sendfile(int fd, const char *file_path, size_t file_size) {
   return robust_sendfile_from_fd(fd, in_fd, nullptr, file_size);
 }
 
-long robust_sendfile_with_size(int fd, const char *file_path) {
+ssize_t robust_sendfile_with_size(int fd, const char *file_path) {
   ssize_t ret;
 
   uint32_t file_size = size_of_file32(file_path);
@@ -93,7 +123,7 @@ long robust_sendfile_with_size(int fd, const char *file_path) {
   return file_size;
 }
 
-long robust_receive_file_with_size(int fd, const char *out, unsigned file_perm) {
+ssize_t robust_receive_file_with_size(int fd, const char *out, unsigned file_perm) {
   uint32_t file_size;
   {
     std::string file_size_str;
