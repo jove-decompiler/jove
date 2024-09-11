@@ -808,9 +808,9 @@ int IPTTool::UsingLibipt(void) {
                         }
 
                         off_t the_off = skip;
-                        if (robust_sendfile_from_fd(
-                                fd, perf_data.contents.fd->get(), &the_off,
-                                count) < 0)
+                        if (robust_copy_file_range(perf_data.contents.fd->get(),
+                                                   &the_off, fd, nullptr,
+                                                   count) < 0)
                           WithColor::error() << llvm::formatv(
                               "sendfile failed: {0}\n", strerror(errno));
                       }));
@@ -846,9 +846,9 @@ int IPTTool::UsingLibipt(void) {
                 off_t the_off =
                     (reinterpret_cast<uintptr_t>(&aux) + aux.header.size) -
                     reinterpret_cast<uintptr_t>(perf_data.contents.mmap->ptr);
-                if (robust_sendfile_from_fd(aux_ofd->get(),
-                                            perf_data.contents.fd->get(),
-                                            &the_off, aux.size) < 0)
+                if (robust_copy_file_range(perf_data.contents.fd->get(),
+                                           &the_off, aux_ofd->get(),
+                                           nullptr, aux.size) < 0)
                   WithColor::error() << llvm::formatv("sendfile failed: {0}\n",
                                                       strerror(errno));
               });
