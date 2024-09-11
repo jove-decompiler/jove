@@ -800,7 +800,7 @@ int IPTTool::UsingLibipt(void) {
                                                    &the_off, fd, nullptr,
                                                    count) < 0)
                           WithColor::error() << llvm::formatv(
-                              "sendfile failed: {0}\n", strerror(errno));
+                              "copy_file_range failed: {0}\n", strerror(errno));
                       }));
 
           if (int ret = WaitForProcessToExit(pid)) {
@@ -837,8 +837,8 @@ int IPTTool::UsingLibipt(void) {
                 if (robust_copy_file_range(perf_data.contents.fd->get(),
                                            &the_off, aux_ofd->get(),
                                            nullptr, aux.size) < 0)
-                  WithColor::error() << llvm::formatv("sendfile failed: {0}\n",
-                                                      strerror(errno));
+                  WithColor::error() << llvm::formatv(
+                      "copy_file_range failed: {0}\n", strerror(errno));
               });
         });
 
