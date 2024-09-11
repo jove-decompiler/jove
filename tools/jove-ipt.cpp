@@ -862,12 +862,11 @@ int IPTTool::UsingLibipt(void) {
     llvm::errs() << llvm::formatv("ptdump {0}\n", opts_str);
 
   std::vector<uint64_t> auxtrace_sizev; /* by cpu */
-  perf_data.for_each_auxtrace<false>([&](const struct perf::auxtrace_event &aux) {
+  perf_data.for_each_auxtrace([&](const struct perf::auxtrace_event &aux) {
     if (unlikely(aux.cpu >= auxtrace_sizev.size()))
       auxtrace_sizev.resize(aux.cpu + 1, 0);
 
     auxtrace_sizev[aux.cpu] += aux.size;
-    return true;
   });
 
   const unsigned nr_cpu = auxtrace_sizev.size();
@@ -879,7 +878,7 @@ int IPTTool::UsingLibipt(void) {
     std::vector<std::unique_ptr<std::ofstream>> aux_ofsv;
     aux_ofsv.resize(nr_cpu);
 
-    perf_data.for_each_auxtrace<false>([&](const struct perf::auxtrace_event &aux) {
+    perf_data.for_each_auxtrace([&](const struct perf::auxtrace_event &aux) {
       std::unique_ptr<std::ofstream> &ofs = aux_ofsv.at(aux.cpu);
       if (!ofs)
         ofs = std::make_unique<std::ofstream>("perf.data-aux-idx" +
@@ -887,7 +886,6 @@ int IPTTool::UsingLibipt(void) {
 
       ofs->write(reinterpret_cast<const char *>(&aux) + aux.header.size,
                  aux.size);
-      return true;
     });
 
     if (IsVerbose())
@@ -914,10 +912,10 @@ int IPTTool::UsingLibipt(void) {
         aux_contents.resize(auxtrace_sizev.at(cpu));
 
         uint64_t off = 0;
-        perf_data.for_each_auxtrace<false>(
-            [&](const struct perf::auxtrace_event &aux) -> bool {
+        perf_data.for_each_auxtrace(
+            [&](const struct perf::auxtrace_event &aux) {
               if (aux.cpu != cpu)
-                return true;
+                return;
 
               assert(off + aux.size <= aux_contents.size());
 
@@ -926,10 +924,9 @@ int IPTTool::UsingLibipt(void) {
                      aux.size);
 
               off += aux.size;
-              return true;
             });
 
-        //assert(off == aux_contents.size());
+        assert(off == aux_contents.size());
 
         IntelPT ipt(ptdump_argv.size() - 1,
                     ptdump_argv.data(), jv, *E, cpu,
