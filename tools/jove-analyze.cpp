@@ -33,10 +33,14 @@ struct function_state_t {
   bool IsLeaf;
 
   bool IsSj, IsLj;
+
+  function_state_t(const function_t &f, const binary_t &b) {}
 };
 
 struct binary_state_t {
   std::unique_ptr<llvm::object::Binary> Bin;
+
+  binary_state_t(const binary_t &b) { Bin = B::Create(b.data()); }
 };
 
 }
@@ -91,10 +95,6 @@ JOVE_REGISTER_TOOL("analyze", AnalyzeTool);
 
 int AnalyzeTool::Run(void) {
   identify_ABIs(jv);
-
-  for_each_binary(jv, [&](binary_t &binary) {
-      state.for_binary(binary).Bin = B::Create(binary.data());
-  });
 
   bool IsCOFF = B::_X(*state.for_binary(jv.Binaries.at(0)).Bin,
       [&](ELFO &O) -> bool { return false; },

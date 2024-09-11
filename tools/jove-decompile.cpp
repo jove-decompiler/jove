@@ -45,6 +45,28 @@ struct binary_state_t {
 
   std::vector<std::string> needed;
   std::string soname;
+
+  binary_state_t(const binary_t &b) {
+    Bin = B::Create(b.data());
+
+    //
+    // gather dynamic linking information
+    //
+    B::_elf(*Bin, [&](ELFO &O) {
+      _elf.interp = elf::program_interpreter(O);
+      if (auto MaybeSoName = elf::soname(O))
+        soname = *MaybeSoName;
+    });
+
+#if 0
+    B::_coff(*Bin, [&](COFFO &O) {
+      if (b.is_file())
+        soname = fs::path(b.path_str()).filename().string();
+    });
+#endif
+
+    B::needed_libs(*Bin, needed);
+  }
 };
 
 }
@@ -144,32 +166,6 @@ void DecompileTool::queue_binaries(void) {
 }
 
 int DecompileTool::Run(void) {
-  //
-  // gather dynamic linking information
-  //
-  for_each_binary(jv, [&](binary_t &b) {
-    ignore_exception([&]() {
-      auto &x = state.for_binary(b);
-
-      x.Bin = B::Create(b.data());
-
-      B::_elf(*x.Bin, [&](ELFO &O) {
-	x._elf.interp = elf::program_interpreter(O);
-        if (auto MaybeSoName = elf::soname(O))
-          x.soname = *MaybeSoName;
-      });
-
-#if 0
-      B::_coff(*x.Bin, [&](COFFO &O) {
-        if (b.is_file())
-          x.soname = fs::path(b.path_str()).filename().string();
-      });
-#endif
-
-      B::needed_libs(*x.Bin, x.needed);
-    });
-  });
-
   IsCOFF = B::is_coff(*state.for_binary(jv.Binaries.at(0)).Bin);
 
   std::unordered_map<std::string, binary_index_t> soname_map;

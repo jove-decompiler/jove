@@ -38,6 +38,8 @@ struct binary_state_t {
   std::unique_ptr<llvm::object::Binary> Bin;
 
   taddr_t LoadAddr = std::numeric_limits<taddr_t>::max();
+
+  binary_state_t(const binary_t &b) { Bin = B::Create(b.data()); }
 };
 
 }
@@ -135,7 +137,6 @@ public:
   std::string GetLine(int rfd, tbb::flow_control &);
   void ProcessLine(const std::string &line);
 
-  void init_state_for_binary(binary_t &);
   void on_new_binary(binary_t &);
 
   std::string convert_to_linux_path(std::string path);
@@ -143,18 +144,8 @@ public:
 
 JOVE_REGISTER_TOOL("ipt", IPTTool);
 
-void IPTTool::init_state_for_binary(binary_t &b) {
-  binary_state_t &x = state.for_binary(b);
-
-  x.Bin = B::Create(b.data());
-}
-
 void IPTTool::on_new_binary(binary_t &b) {
-  state.update();
-
   b.IsDynamicallyLoaded = true;
-
-  init_state_for_binary(b);
 
   if (IsVerbose())
     llvm::errs() << llvm::formatv("added {0}\n", b.Name.c_str());
@@ -205,9 +196,6 @@ int IPTTool::Run(void) {
   TCG = std::make_unique<tiny_code_generator_t>();
   Disas = std::make_unique<disas_t>();
   E = std::make_unique<explorer_t>(jv, *Disas, *TCG, IsVeryVerbose());
-
-  for_each_binary(std::execution::par_unseq, jv,
-                  [&](binary_t &b) { init_state_for_binary(b); });
 
   const std::string prog_path = fs::canonical(opts.Prog).string();
 

@@ -27,6 +27,8 @@ namespace {
 
 struct binary_state_t {
   uint64_t SectsStartAddr, SectsEndAddr;
+
+  binary_state_t(const binary_t &b) {}
 };
 
 }

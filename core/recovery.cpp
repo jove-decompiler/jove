@@ -19,27 +19,7 @@ namespace jove {
 typedef boost::format fmt;
 
 CodeRecovery::CodeRecovery(jv_t &jv, explorer_t &E, symbolizer_t &symbolizer)
-    : jv(jv), E(E), symbolizer(symbolizer), state(jv) {
-  for_each_binary(std::execution::par_unseq, jv, [&](binary_t &binary) {
-    binary_state_t &x = state.for_binary(binary);
-
-    auto &ICFG = binary.Analysis.ICFG;
-    x.block_term_addr_vec.resize(boost::num_vertices(ICFG));
-
-    //
-    // FIXME we need to record the addresses of terminator instructions at each
-    // basic block, before the indices are messed with, since the code in
-    // jove.recover.c is hard-coded against the version of the jv
-    // that existed when jove-recompile was run.
-    //
-    for_each_basic_block_in_binary(std::execution::par_unseq,
-                                   binary, [&](basic_block_t bb) {
-      x.block_term_addr_vec.at(index_of_basic_block(ICFG, bb)) = ICFG[bb].Term.Addr;
-    });
-
-    x.ObjectFile = B::Create(binary.data());
-  });
-}
+    : jv(jv), E(E), symbolizer(symbolizer), state(jv) {}
 
 CodeRecovery::~CodeRecovery() {}
 
@@ -113,7 +93,7 @@ std::string CodeRecovery::RecoverDynamicTarget(binary_index_t CallerBIdx,
 
     for (const taddr_t &addr : succ_addr_vec) {
       function_index_t FIdx = E.explore_function(
-          CallerBinary, *state.for_binary(CallerBinary).ObjectFile, addr);
+          CallerBinary, *state.for_binary(CallerBinary).Bin, addr);
 
       assert(is_function_index_valid(FIdx));
 
@@ -137,7 +117,7 @@ std::string CodeRecovery::RecoverDynamicTarget(binary_index_t CallerBIdx,
     // this call instruction will return, so explore the return block
     //
     basic_block_index_t NextBBIdx =
-        E.explore_basic_block(CallerBinary, *state.for_binary(CallerBinary).ObjectFile,
+        E.explore_basic_block(CallerBinary, *state.for_binary(CallerBinary).Bin,
                               ICFG[bb].Addr + ICFG[bb].Size + IsMIPSTarget * 4);
 
     assert(is_basic_block_index_valid(NextBBIdx));
@@ -165,7 +145,7 @@ std::string CodeRecovery::RecoverBasicBlock(binary_index_t IndBrBIdx,
   auto &ICFG = b.Analysis.ICFG;
 
   basic_block_index_t TargetBBIdx =
-      E.explore_basic_block(b, *state.for_binary(b).ObjectFile, Addr);
+      E.explore_basic_block(b, *state.for_binary(b).Bin, Addr);
   if (!is_basic_block_index_valid(TargetBBIdx)) {
     throw std::runtime_error(
         (fmt("failed to recover control flow to %#lx") % Addr).str());
@@ -201,7 +181,7 @@ std::string CodeRecovery::RecoverFunctionAtAddress(binary_index_t IndCallBIdx,
   binary_t &CalleeBinary = jv.Binaries.at(CalleeBIdx);
 
   function_index_t CalleeFIdx = E.explore_function(
-      CalleeBinary, *state.for_binary(CalleeBinary).ObjectFile, CalleeAddr);
+      CalleeBinary, *state.for_binary(CalleeBinary).Bin, CalleeAddr);
   if (!is_function_index_valid(CalleeFIdx))
     throw std::runtime_error((fmt("failed to translate indirect call target %#lx") % CalleeAddr).str());
 
@@ -239,7 +219,7 @@ std::string CodeRecovery::RecoverFunctionAtAddress(binary_index_t IndCallBIdx,
     // this call instruction will return, so explore the return block
     //
     basic_block_index_t NextBBIdx =
-        E.explore_basic_block(CallerBinary, *state.for_binary(CallerBinary).ObjectFile,
+        E.explore_basic_block(CallerBinary, *state.for_binary(CallerBinary).Bin,
                               ICFG[bb].Addr + ICFG[bb].Size + IsMIPSTarget * 4);
 
     assert(is_basic_block_index_valid(NextBBIdx));
@@ -265,7 +245,7 @@ std::string CodeRecovery::RecoverFunctionAtOffset(binary_index_t IndCallBIdx,
   binary_t &CalleeBinary = jv.Binaries.at(CalleeBIdx);
 
   uint64_t CalleeAddr =
-      B::va_of_offset(*state.for_binary(CalleeBinary).ObjectFile, CalleeOff);
+      B::va_of_offset(*state.for_binary(CalleeBinary).Bin, CalleeOff);
 
   return RecoverFunctionAtAddress(IndCallBIdx, IndCallBBIdx, CalleeBIdx, CalleeAddr);
 }
@@ -302,7 +282,7 @@ std::string CodeRecovery::Returns(binary_index_t CallBIdx,
   });
 
   basic_block_index_t NextBBIdx =
-    E.explore_basic_block(b, *state.for_binary(b).ObjectFile, NextAddr);
+    E.explore_basic_block(b, *state.for_binary(b).Bin, NextAddr);
   assert(is_basic_block_index_valid(NextBBIdx));
 
   bool isNewTarget = ({

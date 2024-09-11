@@ -29,7 +29,9 @@ namespace jove {
 namespace {
 
 struct binary_state_t {
-  std::unique_ptr<llvm::object::Binary> ObjectFile;
+  std::unique_ptr<llvm::object::Binary> Bin;
+
+  binary_state_t(const binary_t &b) { Bin = B::Create(b.data()); }
 };
 
 }
@@ -119,15 +121,6 @@ int Trace2AsmTool::Run(void) {
     }
   }
 
-  //
-  // init state for binaries
-  //
-  for_each_binary(jv, [&](binary_t &binary) {
-    ignore_exception([&]() {
-      state.for_binary(binary).ObjectFile = B::Create(binary.data());
-    });
-  });
-
   disas_t disas;
 
   auto disassemble_basic_block = [&](binary_index_t BIdx,
@@ -136,7 +129,7 @@ int Trace2AsmTool::Run(void) {
     auto &ICFG = binary.Analysis.ICFG;
     basic_block_t bb = basic_block_of_index(BBIdx, ICFG);
 
-    const ELFF &Elf = llvm::cast<ELFO>(state.for_binary(binary).ObjectFile.get())->getELFFile();
+    const ELFF &Elf = llvm::cast<ELFO>(state.for_binary(binary).Bin.get())->getELFFile();
 
     uint64_t Addr = ICFG[bb].Addr;
     unsigned Size = ICFG[bb].Size;

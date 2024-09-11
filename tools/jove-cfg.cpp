@@ -41,6 +41,7 @@ namespace {
 
 struct binary_state_t {
   std::unique_ptr<llvm::object::Binary> Bin;
+  binary_state_t(const binary_t &b) { Bin = B::Create(b.data()); }
 };
 
 }
@@ -350,7 +351,6 @@ int CFGTool::Run(void) {
 
   binary_t &b = jv.Binaries.at(BinaryIndex);
   auto &ICFG = b.Analysis.ICFG;
-  state.for_binary(b).Bin = B::Create(b.data());
   Addr = strtoull(opts.AddrOrOff.c_str(), nullptr, 0x10);
   if (opts.Off)
     Addr = B::va_of_offset(*state.for_binary(b).Bin, Addr);

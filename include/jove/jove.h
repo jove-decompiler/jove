@@ -1710,154 +1710,274 @@ static inline binary_t &get_vdso(jv_t &jv) {
   throw std::runtime_error(std::string(__func__) + ": not found!");
 }
 
-template <typename BinaryStateTy>
-using bn_state_t = std::vector<BinaryStateTy>;
+#define __FOR_BINARY_BEG                                                       \
+private:                                                                       \
+  std::unique_ptr<BinaryStateTy> &__for_binary(const binary_t &b) {            \
+    try {                                                                      \
+      std::shared_lock<std::shared_mutex> s_lck(mtx);
 
-template <typename FunctionStateTy>
-using fn_state_t = std::vector<std::vector<FunctionStateTy>>;
+#define __FOR_BINARY_END                                                       \
+    } catch (const std::out_of_range &ex) {}                                   \
+    {                                                                          \
+      std::unique_lock<std::shared_mutex> e_lck(mtx);                          \
+      __update();                                                              \
+    }                                                                          \
+    __attribute__((musttail)) return __for_binary(b);                          \
+  }                                                                            \
+                                                                               \
+public:                                                                        \
+  BinaryStateTy &for_binary(const binary_t &b) {                               \
+    std::unique_ptr<BinaryStateTy> &y = __for_binary(b);                       \
+    if (unlikely(!y)) /* lazy */                                               \
+      y = std::make_unique<BinaryStateTy>(b);                                  \
+    return *y;                                                                 \
+  }                                                                            \
+                                                                               \
+private:                                                                       \
+  void __init_binary_state(void) { /* not lazy */                              \
+    for_each_binary(jv, [&](const binary_t &b) {                               \
+      std::unique_ptr<BinaryStateTy> &y = __for_binary(b);                     \
+      if (unlikely(!y))                                                        \
+        y = std::make_unique<BinaryStateTy>(b);                                \
+    });                                                                        \
+  }
 
-template <typename BinaryStateTy, typename FunctionStateTy>
-using bn_fn_state_t =
-    std::vector<std::pair<BinaryStateTy,
-                          std::vector<FunctionStateTy>>>;
+#define __FOR_FUNCTION_BEG                                                     \
+private:                                                                       \
+  std::unique_ptr<FunctionStateTy> &__for_function(const function_t &f) {      \
+    try {                                                                      \
+      std::shared_lock<std::shared_mutex> s_lck(mtx);
 
-template <typename BinaryStateTy, typename FunctionStateTy,
-          typename BasicBlockStateTy>
-using bn_fn_bb_state_t =
-    std::vector<std::tuple<BinaryStateTy,
-                           std::vector<FunctionStateTy>,
-                           std::vector<BasicBlockStateTy>>>;
+#define __FOR_FUNCTION_END                                                     \
+    } catch (const std::out_of_range &ex) {}                                   \
+    {                                                                          \
+      std::unique_lock<std::shared_mutex> e_lck(mtx);                          \
+      __update();                                                              \
+    }                                                                          \
+    __attribute__((musttail)) return __for_function(f);                        \
+  }                                                                            \
+                                                                               \
+public:                                                                        \
+  FunctionStateTy &for_function(const function_t &f) {                         \
+    std::unique_ptr<FunctionStateTy> &y = __for_function(f);                   \
+    if (unlikely(!y)) /* lazy */                                               \
+      y = std::make_unique<FunctionStateTy>(                                   \
+          f, jv.Binaries.at(binary_index_of_function(f, jv)));                 \
+    return *y;                                                                 \
+  }                                                                            \
+                                                                               \
+private:                                                                       \
+  void __init_function_state(void) { /* not lazy */                            \
+    for_each_function(jv, [&](function_t &f, binary_t &b) {                    \
+      std::unique_ptr<FunctionStateTy> &y = __for_function(f);                 \
+      if (unlikely(!y))                                                        \
+        y = std::make_unique<FunctionStateTy>(                                 \
+            f, jv.Binaries.at(binary_index_of_function(f, jv)));               \
+    });                                                                        \
+  }
+
+#define __FOR_BASIC_BLOCK_BEG                                                  \
+private:                                                                       \
+  std::unique_ptr<BasicBlockStateTy> &__for_basic_block(const binary_t &b,     \
+                                                        basic_block_t bb) {    \
+    try {                                                                      \
+      std::shared_lock<std::shared_mutex> s_lck(mtx);
+
+#define __FOR_BASIC_BLOCK_END                                                  \
+    } catch (const std::out_of_range &ex) {}                                   \
+    {                                                                          \
+      std::unique_lock<std::shared_mutex> e_lck(mtx);                          \
+      __update();                                                              \
+    }                                                                          \
+    __attribute__((musttail)) return __for_basic_block(b, bb);                 \
+  }                                                                            \
+                                                                               \
+public:                                                                        \
+  BasicBlockStateTy &for_basic_block(const binary_t &b, basic_block_t bb) {    \
+    std::unique_ptr<BasicBlockStateTy> &y = __for_basic_block(b, bb);          \
+    if (unlikely(!y)) /* lazy */                                               \
+      y = std::make_unique<BasicBlockStateTy>(b, bb);                          \
+    return *y;                                                                 \
+  }                                                                            \
+                                                                               \
+private:                                                                       \
+  void __init_basic_block_state(void) { /* not lazy */                         \
+    for_each_basic_block(jv, [&](binary_t &b, basic_block_t bb) {              \
+      std::unique_ptr<BasicBlockStateTy> &y = __for_basic_block(b, bb);        \
+      if (unlikely(!y))                                                        \
+        y = std::make_unique<BasicBlockStateTy>(b, bb);                        \
+    });                                                                        \
+  }
+
+#define __JV_STATE_T_COMMON__                                                  \
+private:                                                                       \
+  const jv_t &jv;                                                              \
+  state_t x;                                                                   \
+  std::shared_mutex mtx;                                                       \
+public:                                                                        \
+  jv_state_t(const jv_t &jv) : jv(jv) { __update(); }
 
 template <typename BinaryStateTy, typename FunctionStateTy, typename BasicBlockStateTy>
-struct jv_state_t {
-  const jv_t &jv;
-
+class jv_state_t {
   static_assert(!std::is_void_v<BinaryStateTy> &&
                 !std::is_void_v<FunctionStateTy> &&
                 !std::is_void_v<BasicBlockStateTy>);
 
-  bn_fn_bb_state_t<BinaryStateTy, FunctionStateTy, BasicBlockStateTy> bn_fn_bb_state;
+  typedef std::vector<
+      std::tuple<std::unique_ptr<BinaryStateTy>,
+                 std::vector<std::unique_ptr<FunctionStateTy>>,
+                 std::vector<std::unique_ptr<BasicBlockStateTy>>>>
+      state_t;
 
-  jv_state_t(const jv_t &jv) : jv(jv) { update(); }
+  __JV_STATE_T_COMMON__
 
-  BinaryStateTy &for_binary(const binary_t &b) {
-    return std::get<0>(bn_fn_bb_state.at(index_of_binary(b, jv)));
-  }
+  __FOR_BINARY_BEG {
+    return std::get<0>(x.at(index_of_binary(b, jv)));
+  } __FOR_BINARY_END
 
-  FunctionStateTy &for_function(const function_t &f) {
+  __FOR_FUNCTION_BEG {
     binary_index_t BIdx = binary_index_of_function(f, jv);
-    std::vector<FunctionStateTy> &function_state_vec = std::get<1>(bn_fn_bb_state.at(BIdx));
-
-    const binary_t &binary = jv.Binaries.at(BIdx);
-    function_index_t FIdx = index_of_function_in_binary(f, binary);
-
-    return function_state_vec.at(FIdx);
-  }
-
-  BasicBlockStateTy &for_basic_block(const binary_t &binary, basic_block_t bb) {
-    binary_index_t BIdx = index_of_binary(binary, jv);
-    std::vector<BasicBlockStateTy> &bb_state_vec = std::get<2>(bn_fn_bb_state.at(BIdx));
-
-    basic_block_index_t BBIdx = index_of_basic_block(binary.Analysis.ICFG, bb);
-
-    return bb_state_vec.at(BBIdx);
-  }
-
-  void update(void) {
-    bn_fn_bb_state.resize(jv.Binaries.size());
-
-    for_each_binary(jv, [&](const binary_t &binary) {
-      auto &bin_stuff = bn_fn_bb_state.at(index_of_binary(binary, jv));
-
-      std::get<1>(bin_stuff).resize(binary.Analysis.Functions.size());
-      std::get<2>(bin_stuff).resize(boost::num_vertices(binary.Analysis.ICFG));
-    });
-  }
-};
-
-template <typename BinaryStateTy, typename FunctionStateTy>
-struct jv_state_t<BinaryStateTy, FunctionStateTy, void> {
-  const jv_t &jv;
-
-  static_assert(!std::is_void_v<BinaryStateTy> ||
-                !std::is_void_v<FunctionStateTy>);
-
-  bn_fn_state_t<BinaryStateTy, FunctionStateTy> bn_fn_state;
-
-  jv_state_t(const jv_t &jv) : jv(jv) { update(); }
-
-  BinaryStateTy &for_binary(const binary_t &b) {
-    return bn_fn_state.at(index_of_binary(b, jv)).first;
-  }
-
-  FunctionStateTy &for_function(const function_t &f) {
-    binary_index_t BIdx = binary_index_of_function(f, jv);
-    std::vector<FunctionStateTy> &function_state_vec = bn_fn_state.at(BIdx).second;
+    std::vector<std::unique_ptr<FunctionStateTy>> &function_state_vec =
+        std::get<1>(x.at(BIdx));
 
     const binary_t &b = jv.Binaries.at(BIdx);
     function_index_t FIdx = index_of_function_in_binary(f, b);
 
     return function_state_vec.at(FIdx);
-  }
+  } __FOR_FUNCTION_END
 
-  void update(void) {
-    bn_fn_state.resize(jv.Binaries.size());
+  __FOR_BASIC_BLOCK_BEG {
+    binary_index_t BIdx = index_of_binary(b, jv);
+    std::vector<std::unique_ptr<BasicBlockStateTy>> &bb_state_vec = std::get<2>(x.at(BIdx));
 
-    for_each_binary(jv, [&](const binary_t &binary) {
-      bn_fn_state.at(index_of_binary(binary, jv))
-	  .second.resize(binary.Analysis.Functions.size());
+    basic_block_index_t BBIdx = index_of_basic_block(b.Analysis.ICFG, bb);
+
+    return bb_state_vec.at(BBIdx);
+  } __FOR_BASIC_BLOCK_END
+
+  void __update(void) {
+    x.resize(jv.Binaries.size());
+
+    for_each_binary(jv, [&](const binary_t &b) {
+      auto &bin_stuff = x.at(index_of_binary(b, jv));
+
+      std::get<1>(bin_stuff).resize(b.Analysis.Functions.size());
+      std::get<2>(bin_stuff).resize(boost::num_vertices(b.Analysis.ICFG));
     });
+
+    /* TODO if !lazy */
+#if 0
+    __init_binary_state();
+    __init_function_state();
+    __init_basic_block_state();
+#endif
+  }
+};
+
+template <typename BinaryStateTy, typename FunctionStateTy>
+class jv_state_t<BinaryStateTy, FunctionStateTy, void> {
+  static_assert(!std::is_void_v<BinaryStateTy> ||
+                !std::is_void_v<FunctionStateTy>);
+
+  typedef std::vector<std::pair<std::unique_ptr<BinaryStateTy>,
+                                std::vector<std::unique_ptr<FunctionStateTy>>>>
+      state_t;
+
+  __JV_STATE_T_COMMON__
+
+  __FOR_BINARY_BEG {
+    return x.at(index_of_binary(b, jv)).first;
+  } __FOR_BINARY_END
+
+  __FOR_FUNCTION_BEG {
+    binary_index_t BIdx = binary_index_of_function(f, jv);
+    std::vector<std::unique_ptr<FunctionStateTy>> &function_state_vec =
+        x.at(BIdx).second;
+
+    const binary_t &b = jv.Binaries.at(BIdx);
+    function_index_t FIdx = index_of_function_in_binary(f, b);
+
+    return function_state_vec.at(FIdx);
+  } __FOR_FUNCTION_END
+
+  void __update(void) {
+    x.resize(jv.Binaries.size());
+
+    for_each_binary(jv, [&](const binary_t &b) {
+      x.at(index_of_binary(b, jv))
+	  .second.resize(b.Analysis.Functions.size());
+    });
+
+    /* TODO if !lazy */
+#if 0
+    __init_binary_state();
+    __init_function_state();
+#endif
   }
 };
 
 template <typename FunctionStateTy>
-struct jv_state_t<void, FunctionStateTy, void> {
-  const jv_t &jv;
-
+class jv_state_t<void, FunctionStateTy, void> {
   static_assert(!std::is_void_v<FunctionStateTy>);
 
-  fn_state_t<FunctionStateTy> fn_state;
+  typedef std::vector<std::vector<std::unique_ptr<FunctionStateTy>>> state_t;
 
-  jv_state_t(const jv_t &jv) : jv(jv) { update(); }
+  __JV_STATE_T_COMMON__
 
-  FunctionStateTy &for_function(const function_t &f) {
+  __FOR_FUNCTION_BEG {
     binary_index_t BIdx = binary_index_of_function(f, jv);
-    std::vector<FunctionStateTy> &function_state_vec = fn_state.at(BIdx);
+    std::vector<std::unique_ptr<FunctionStateTy>> &function_state_vec = *x.at(BIdx);
 
-    const binary_t &binary = jv.Binaries.at(BIdx);
-    function_index_t FIdx = index_of_function_in_binary(f, binary);
+    const binary_t &b = jv.Binaries.at(BIdx);
+    function_index_t FIdx = index_of_function_in_binary(f, b);
 
     return function_state_vec.at(FIdx);
-  }
+  } __FOR_FUNCTION_END
 
-  void update(void) {
-    fn_state.resize(jv.Binaries.size());
+  void __update(void) {
+    x.resize(jv.Binaries.size());
 
-    for_each_binary(jv, [&](const binary_t &binary) {
-      fn_state.at(index_of_binary(binary, jv))
-	  .resize(binary.Analysis.Functions.size());
+    for_each_binary(jv, [&](const binary_t &b) {
+      x.at(index_of_binary(b, jv))
+	  .resize(b.Analysis.Functions.size());
     });
+
+    /* TODO if !lazy */
+#if 0
+    __init_function_state();
+#endif
   }
 };
 
 template <typename BinaryStateTy>
-struct jv_state_t<BinaryStateTy, void, void> {
-  const jv_t &jv;
-
+class jv_state_t<BinaryStateTy, void, void> {
   static_assert(!std::is_void_v<BinaryStateTy>);
 
-  bn_state_t<BinaryStateTy> bn_state;
+  typedef std::vector<std::unique_ptr<BinaryStateTy>> state_t;
 
-  jv_state_t(const jv_t &jv) : jv(jv) { update(); }
+  __JV_STATE_T_COMMON__
 
-  BinaryStateTy &for_binary(const binary_t &b) {
-    return bn_state.at(index_of_binary(b, jv));
-  }
+  __FOR_BINARY_BEG {
+    return x.at(index_of_binary(b, jv));
+  } __FOR_BINARY_END
 
-  void update(void) {
-    bn_state.resize(jv.Binaries.size());
+  void __update(void) {
+    x.resize(jv.Binaries.size());
+
+    /* TODO if !lazy */
+#if 0
+    __init_binary_state();
+#endif
   }
 };
+
+#undef __JV_STATE_T_COMMON__
+#undef __FOR_BINARY_BEG
+#undef __FOR_BINARY_END
+#undef __FOR_FUNCTION_BEG
+#undef __FOR_FUNCTION_END
+#undef __FOR_BASIC_BLOCK_BEG
+#undef __FOR_BASIC_BLOCK_END
 
 }
 

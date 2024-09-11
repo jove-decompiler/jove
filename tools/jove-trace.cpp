@@ -29,6 +29,7 @@ namespace {
 
 struct binary_state_t {
   std::unique_ptr<llvm::object::Binary> Bin;
+  binary_state_t(const binary_t &b) { Bin = B::Create(b.data()); }
 };
 
 }
@@ -196,10 +197,6 @@ int TraceTool::Run(void) {
       return 1;
     }
   }
-
-  for_each_binary(jv, [&](binary_t &b) {
-    state.for_binary(b).Bin = B::Create(b.data());
-  });
 
   //
   // establish temporary directory that may or may not be used as a sysroot

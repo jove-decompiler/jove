@@ -113,6 +113,8 @@ struct basic_block_state_t {
   tcg_global_set_t IN, OUT;
 
   llvm::BasicBlock *B = nullptr;
+
+  basic_block_state_t(const binary_t &b, basic_block_t bb) {}
 };
 
 struct function_state_t {
@@ -140,6 +142,19 @@ struct function_state_t {
 
   llvm::Function *F = nullptr;
   llvm::Function *adapterF = nullptr;
+
+  function_state_t(const function_t &f, const binary_t &b) {
+    if (!is_basic_block_index_valid(f.Entry))
+      return;
+
+    basic_blocks_of_function(f, b, bbvec);
+    exit_basic_blocks_of_function(f, b, bbvec, exit_bbvec);
+
+    IsLeaf = IsLeafFunction(f, b, bbvec);
+
+    IsSj = IsFunctionSetjmp(f, b, bbvec);
+    IsLj = IsFunctionLongjmp(f, b, bbvec);
+  }
 };
 
 struct binary_state_t {
@@ -161,6 +176,25 @@ struct binary_state_t {
   llvm::Function *SectsF = nullptr;
   uint64_t SectsStartAddr = 0;
   uint64_t SectsEndAddr = 0;
+
+  binary_state_t(const binary_t &b) {
+    Bin = B::Create(b.data());
+
+    std::tie(SectsStartAddr, SectsEndAddr) = B::bounds_of_binary(*Bin);
+
+    B::_elf(*Bin, [&](ELFO &O) {
+      elf::loadDynamicTable(O, _elf.DynamicTable);
+
+      if (_elf.DynamicTable.Addr) {
+        _elf.OptionalDynSymRegion =
+            loadDynamicSymbols(O,
+                               _elf.DynamicTable,
+                               _elf.DynamicStringTable,
+                               _elf.SymbolVersionSection,
+                               _elf.VersionMap);
+      }
+    });
+  }
 };
 
 }
@@ -2596,67 +2630,27 @@ void LLVMTool::DumpModule(const char *suffix) {
 }
 
 int LLVMTool::InitStateForBinaries(void) {
-  for_each_binary(std::execution::par_unseq, jv, [&](binary_t &binary) {
-    binary_state_t &x = state.for_binary(binary);
-
-    auto &ICFG = binary.Analysis.ICFG;
-
-    for_each_function_in_binary(std::execution::par_unseq, binary,
-                                [&](function_t &f) {
-      if (!is_basic_block_index_valid(f.Entry))
-        return;
-
-      function_state_t &y = state.for_function(f);
-
-      basic_blocks_of_function(f, binary, y.bbvec);
-      exit_basic_blocks_of_function(f, binary, y.bbvec, y.exit_bbvec);
-
-      y.IsLeaf = IsLeafFunction(f, binary, y.bbvec);
-
-      y.IsSj = IsFunctionSetjmp(f, binary, y.bbvec);
-      y.IsLj = IsFunctionLongjmp(f, binary, y.bbvec);
-    });
-
-    ignore_exception([&]() {
-      x.Bin = B::Create(binary.data());
-
-      auto &SectsStartAddr = x.SectsStartAddr;
-      auto &SectsEndAddr   = x.SectsEndAddr;
-      std::tie(SectsStartAddr, SectsEndAddr) = B::bounds_of_binary(*x.Bin);
-
-      B::_elf(*x.Bin, [&](ELFO &O) {
-
-      elf::loadDynamicTable(O, x._elf.DynamicTable);
-
-      if (x._elf.DynamicTable.Addr) {
-        x._elf.OptionalDynSymRegion =
-            loadDynamicSymbols(O,
-                               x._elf.DynamicTable,
-                               x._elf.DynamicStringTable,
-                               x._elf.SymbolVersionSection,
-                               x._elf.VersionMap);
-
-        if (index_of_binary(binary, jv) == BinaryIndex)
-          loadDynamicRelocations(O,
-                                 x._elf.DynamicTable,
-                                 x._elf.DynRelRegion,
-                                 x._elf.DynRelaRegion,
-                                 x._elf.DynRelrRegion,
-                                 x._elf.DynPLTRelRegion);
-      }
-      });
-    });
-  });
-
   for_each_binary(jv, [&](binary_t &b) {
-    binary_state_t &x = state.for_binary(b);
-
     WithColor::note() << llvm::formatv("SectsStartAddr for {0} is {1:x}\n",
                                        b.Name.c_str(),
-                                       x.SectsStartAddr);
+                                       state.for_binary(b).SectsStartAddr);
   });
 
   auto &Binary = jv.Binaries.at(BinaryIndex);
+
+  {
+    binary_state_t &x = state.for_binary(Binary);
+
+    B::_elf(*x.Bin, [&](ELFO &O) {
+      loadDynamicRelocations(O,
+                             x._elf.DynamicTable,
+                             x._elf.DynRelRegion,
+                             x._elf.DynRelaRegion,
+                             x._elf.DynRelrRegion,
+                             x._elf.DynPLTRelRegion);
+    });
+  }
+
   IsCOFF = B::_X(*state.for_binary(Binary).Bin,
       [&](ELFO &O) -> bool { return false; },
       [&](COFFO &O) -> bool { return true; });

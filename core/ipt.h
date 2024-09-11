@@ -51,6 +51,12 @@ class IntelPT {
 
     std::unique_ptr<llvm::object::Binary> Bin;
     uint64_t SectsStartAddr, SectsEndAddr;
+
+    binary_state_t(const binary_t &b) {
+      Bin = B::Create(b.data());
+
+      std::tie(SectsStartAddr, SectsEndAddr) = B::bounds_of_binary(*Bin);
+    }
   };
 
   jv_state_t<binary_state_t, void, void> state;

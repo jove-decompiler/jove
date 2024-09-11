@@ -20,6 +20,7 @@ namespace {
 
 struct binary_state_t {
   std::unique_ptr<llvm::object::Binary> Bin;
+  binary_state_t(const binary_t &b) { Bin = B::Create(b.data()); }
 };
 
 }
@@ -74,10 +75,6 @@ typedef boost::format fmt;
 
 int Trace2AddrsTool::Run(void) {
   llvm::raw_ostream &os = llvm::outs();
-
-  for_each_binary(std::execution::par_unseq, jv, [&](binary_t &b) {
-    state.for_binary(b).Bin = B::Create(b.data());
-  });
 
   std::istream *is = nullptr;
   std::unique_ptr<std::ifstream> ifs;

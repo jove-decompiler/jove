@@ -68,6 +68,8 @@ struct binary_state_t {
   std::vector<std::string> needed_vec;
   std::string soname;
   dso_t dso;
+
+  binary_state_t(const binary_t &b) { Bin = B::Create(b.data()); }
 };
 
 }

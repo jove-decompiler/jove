@@ -30,16 +30,6 @@ IntelPT::IntelPT(int ptdump_argc, char **ptdump_argv, jv_t &jv,
       ignore_trunc_aux(ignore_trunc_aux) {
   our.cpu = cpu;
 
-  for_each_binary(std::execution::par_unseq, jv, [&](binary_t &b) {
-    binary_state_t &x = state.for_binary(b);
-
-    x.Bin = B::Create(b.data());
-
-    auto &SectsStartAddr = x.SectsStartAddr;
-    auto &SectsEndAddr   = x.SectsEndAddr;
-    std::tie(SectsStartAddr, SectsEndAddr) = B::bounds_of_binary(*x.Bin);
-  });
-
   config = std::make_unique<struct pt_config>();
 
   pt_config_init(config.get());
