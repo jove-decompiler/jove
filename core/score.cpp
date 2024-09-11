@@ -12,6 +12,9 @@ double compute_score(const jv_t &jv,
                      const binary_t &binary) {
   auto Bin = B::Create(llvm::StringRef(binary.data()));
 
+  //
+  // count the total number of executable bytes (N)
+  //
   size_t N = B::_X(
     *Bin,
 
@@ -29,9 +32,6 @@ double compute_score(const jv_t &jv,
     if (Phdr.p_type == llvm::ELF::PT_LOAD)
       LoadSegments.push_back(const_cast<Elf_Phdr *>(&Phdr));
 
-  //
-  // count the total number of executable bytes (N)
-  //
       return
       std::accumulate(LoadSegments.begin(),
                       LoadSegments.end(), 0,
@@ -71,14 +71,12 @@ double compute_score(const jv_t &jv,
   std::tie(vi_begin, vi_end) = boost::vertices(ICFG);
 
   size_t M =
-      std::accumulate(vi_begin,
-                      vi_end, 0,
-                      [&](size_t res, basic_block_t bb) -> size_t {
-                        if (ICFG[bb].Speculative)
-                          return res;
-                        return res + ICFG[bb].Size;
+      std::accumulate(binary.bbmap.begin(),
+                      binary.bbmap.end(), 0,
+                      [&](size_t res, const auto &pair) -> size_t {
+                        const addr_intvl &intvl = pair.first;
+                        return res + intvl.second;
                       });
-  assert(M > 0);
 
   //
   // compute the ratio (M / N)
