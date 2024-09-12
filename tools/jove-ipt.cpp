@@ -88,7 +88,7 @@ struct IPTTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
 
           MMapPages("mmap-pages",
                     cl::desc("Number of mmap pages for trace data"),
-                    cl::init("8M"), cl::cat(JoveCategory)),
+                    cl::init("16M"), cl::cat(JoveCategory)),
 
           MMapPagesAlias("m", cl::desc("Alias for --mmap-pages"),
                          cl::aliasopt(MMapPages), cl::cat(JoveCategory)),
