@@ -28,7 +28,7 @@ IntelPT::IntelPT(int ptdump_argc, char **ptdump_argv, jv_t &jv,
                  bool ignore_trunc_aux)
     : jv(jv), explorer(explorer), state(jv), AddressSpace(AddressSpace),
       ignore_trunc_aux(ignore_trunc_aux) {
-  our.cpu = cpu;
+  Our.cpu = cpu;
 
   config = std::make_unique<struct pt_config>();
 
@@ -144,6 +144,8 @@ void IntelPT::examine_sb(void) {
     }
     *eol = '\0';
 
+    printf("%s\n", line);
+
     static const char sb_line_prefix[] = "PERF_RECORD_";
     constexpr unsigned sb_line_prefix_len = sizeof(sb_line_prefix)-1;
 
@@ -162,18 +164,16 @@ void IntelPT::examine_sb(void) {
     char *rest = line + sb_line_prefix_len;
 
     auto do_comm = [&](void) -> void {
-      if (!Right.ExecMode)
-        return;
-
       unsigned pid, tid;
       char comm[64];
       comm[0] = '\0';
 
-      sscanf(rest, "%x/%x, %63s", &pid, &tid, &comm[0]);
+      sscanf(rest, "%x/%x, %63s  {", &pid, &tid, &comm[0]);
 
+      printf("comm=%s\n", comm);
       if (boost::algorithm::ends_with(jv.Binaries.at(0).Name.c_str(), comm)) {
-        our.pid = pid;
-        our.tid = tid;
+        Our.pid = pid;
+        Our.tid = tid;
 
         fprintf(stderr, "our tid is %x\n", tid);
       }
@@ -242,22 +242,17 @@ void IntelPT::examine_sb(void) {
 
     case 'S':
       if (MATCHES_REST("SWITCH_CPU_WIDE.OUT")) {
+#if 0
         unsigned next_pid, next_tid;
         sscanf(rest, "%x/%x"
                      "  { %x/%x %" PRIx64 " cpu-%x %" PRIx64 " }",
                &next_pid, &next_tid,
                &_.pid, &_.tid, &_.time, &_.cpu, &_.identifier);
-
-        if (_.cpu == our.cpu)
-          Right.Thread = next_tid == our.tid;
+#endif
       } else if (MATCHES_REST("SWITCH.OUT")) {
+#if 0
         sscanf(rest, "  { %x/%x %" PRIx64 " cpu-%x %" PRIx64 " }",
                &_.pid, &_.tid, &_.time, &_.cpu, &_.identifier);
-
-        /* XXX? */
-#if 0
-        if (_.cpu == our.cpu)
-          Right.Thread = next_tid == our.tid;
 #endif
       } else if (MATCHES_REST("SWITCH_CPU_WIDE.IN")) {
         unsigned prev_pid, prev_tid;
@@ -266,14 +261,16 @@ void IntelPT::examine_sb(void) {
                &prev_pid, &prev_tid,
                &_.pid, &_.tid, &_.time, &_.cpu, &_.identifier);
 
-        if (_.cpu == our.cpu)
-          Right.Thread = _.tid == our.tid;
+        Curr.cpu = _.cpu;
+        Curr.pid = _.pid;
+        Curr.tid = _.tid;
       } else if (MATCHES_REST("SWITCH.IN")) {
         sscanf(rest, "  { %x/%x %" PRIx64 " cpu-%x %" PRIx64 " }",
                &_.pid, &_.tid, &_.time, &_.cpu, &_.identifier);
 
-        if (_.cpu == our.cpu)
-          Right.Thread = _.tid == our.tid;
+        Curr.cpu = _.cpu;
+        Curr.pid = _.pid;
+        Curr.tid = _.tid;
       } else {
         unexpected_rest();
       }
@@ -283,10 +280,6 @@ void IntelPT::examine_sb(void) {
 
     case 'M':
       if (likely(MATCHES_REST("MMAP2"))) {
-#if 0
-        if (!Engaged)
-          continue;
-
         unsigned pid, tid;
         uint64_t addr, len, pgoff;
         unsigned maj, min;
@@ -312,12 +305,15 @@ void IntelPT::examine_sb(void) {
           continue;
         }
 
-        assert(strlen(filename) > 0);
-
-        if (filename[0] == '[' || strcmp(filename, "//anon") == 0)
+        if (pid != Our.pid)
           continue;
 
-        if (!fs::exists(filename)) {
+        assert(strlen(filename) > 0);
+
+        if (strcmp(filename, "//anon") == 0)
+          continue;
+
+        if (filename[0] == '/' && !fs::exists(filename)) {
           fprintf(stderr, "\"%s\" does not exist!(%s)\n", filename, rest);
           continue;
         }
@@ -330,11 +326,7 @@ void IntelPT::examine_sb(void) {
           continue;
 
         binary_t &b = jv.Binaries.at(BIdx);
-        if (IsNew)
-          state.update();
         binary_state_t &x = state.for_binary(b);
-        if (IsNew)
-          x.Bin = B::Create(b.data());
 
         if (!B::is_elf(*x.Bin))
           continue; /* FIXME */
@@ -347,7 +339,6 @@ void IntelPT::examine_sb(void) {
           if (updateVariable(x.LoadAddr, std::min(x.LoadAddr, static_cast<taddr_t>(addr))))
             x.LoadOffset = pgoff;
         }
-#endif
       } else {
         unexpected_rest();
       }
@@ -502,26 +493,25 @@ int IntelPT::process_packet(uint64_t offset, const struct pt_packet *packet) {
       switch (pt_get_exec_mode(&mode->bits.exec)) {
       case ptem_64bit:
         desc = "64-bit";
-        Right.ExecMode = !IsTarget32;
+        Curr.exec = 0;
         break;
 
       case ptem_32bit:
         desc = "32-bit";
-        Right.ExecMode = IsTarget32;
+        Curr.exec = 1;
         break;
 
       case ptem_16bit:
         desc = "16-bit";
-        Right.ExecMode = false;
+        Curr.exec = 2;
         break;
 
       case ptem_unknown:
         desc = "unknown";
-        Right.ExecMode = false;
+        Curr.exec = 3;
         break;
       }
 
-      //printf("[exec mode: %s]\n", desc);
       CheckEngaged();
       return 0;
     }
@@ -635,7 +625,7 @@ int IntelPT::on_ip(const uint64_t ip) {
 
   auto it = intvl_map_find(AddressSpace, ip);
   if (it == AddressSpace.end() || !is_binary_index_valid((*it).second)) {
-    //printf("unknown ip %016" PRIx64 "\n", ip); /* FIXME */
+    printf("unknown ip %016" PRIx64 "\n", ip);
     //throw std::runtime_error("unknown ip " + (fmt("%016" PRIx64) % ip).str());
     return 0;
   }
@@ -672,7 +662,7 @@ int IntelPT::on_ip(const uint64_t ip) {
         return coff::va_of_rva(O, RVA);
       });
 
-  //printf("%016" PRIx64 " E %016" PRIx64 "\t\t\t%s\n", ip, Addr, b.Name.c_str()); /* FIXME */
+  printf("%016" PRIx64 " E %016" PRIx64 "\t\t\t%s\n", ip, Addr, b.Name.c_str()); /* FIXME */
   try {
     explorer.explore_basic_block(b, *x.Bin, Addr);
   } catch (const invalid_control_flow_exception &e) {

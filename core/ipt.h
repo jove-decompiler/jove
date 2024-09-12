@@ -77,17 +77,26 @@ class IntelPT {
     unsigned cpu = ~0u;
     unsigned pid = ~0u;
     unsigned tid = ~0u;
-  } our;
+  } Our;
 
   struct {
-    bool ExecMode = false;
-    bool Thread = false;
-  } Right;
+    unsigned cpu = ~0u - 1;
+    unsigned pid = ~0u - 1;
+    unsigned tid = ~0u - 1;
+    bool exec = 4;
+  } Curr;
 
   bool Engaged = false;
   void CheckEngaged(void) {
-    Engaged = Right.ExecMode &&
-              Right.Thread;
+    bool RightCpu = Curr.cpu == Our.cpu;
+    bool RightExecMode = Curr.exec == IsTarget32;
+    bool RightThread = Curr.tid == Our.tid;
+    bool RightProcess = Curr.pid == Our.pid;
+
+    Engaged = RightCpu &&
+              RightExecMode &&
+              RightThread &&
+              RightProcess;
   }
 
   const bool ignore_trunc_aux;
