@@ -12,8 +12,8 @@
 #include <inttypes.h>
 
 extern "C" {
-#include "pt_last_ip.c" /* XXX why isn't this exported by libipt?? */
-#include "pt_time.c" /* XXX why isn't this exported by libipt?? */
+#include "pt_last_ip.c"
+#include "pt_time.c"
 }
 
 namespace fs = boost::filesystem;
@@ -360,7 +360,7 @@ void IntelPT::examine_sb(void) {
   } while (likely(ptr != end));
 }
 
-int IntelPT::explore(/*FIXME*/) {
+int IntelPT::explore(void) {
   int errcode;
 
   if (0 /* options->no_sync */) {
