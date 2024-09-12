@@ -62,7 +62,6 @@ struct IPTTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
     cl::alias MMapPagesAlias;
     cl::opt<std::string> AuxPages;
     cl::alias AuxPagesAlias;
-    cl::opt<bool> WriteAuxFiles;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : Prog(cl::Positional, cl::desc("prog"), cl::Required,
@@ -98,11 +97,7 @@ struct IPTTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
                    cl::init("64M"), cl::cat(JoveCategory)),
 
           AuxPagesAlias("a", cl::desc("Alias for --mmap-pages-aux"),
-                        cl::aliasopt(AuxPages), cl::cat(JoveCategory)),
-
-          WriteAuxFiles("write-aux-files",
-                        cl::desc("Write aux files to disk; can be used with ptdump/ptxed."),
-                        cl::cat(JoveCategory)) {}
+                        cl::aliasopt(AuxPages), cl::cat(JoveCategory)) {}
 
   } opts;
 
