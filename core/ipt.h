@@ -25,6 +25,7 @@ namespace jove {
 
 class explorer_t;
 
+/* reference IPT decoder */
 class IntelPT {
   jv_t &jv;
   explorer_t &explorer;
