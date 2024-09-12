@@ -95,7 +95,7 @@ class IntelPT {
 
     Engaged = RightCpu &&
               RightExecMode &&
-              RightThread &&
+              /* RightThread && */
               RightProcess;
   }
 
