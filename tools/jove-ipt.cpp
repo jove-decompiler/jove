@@ -123,7 +123,8 @@ struct IPTTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
   std::regex line_regex_a;
   std::regex line_regex_b;
 
-  void gather_aux_files(std::vector<std::pair<unsigned, std::string>> &out);
+  void gather_all_perf_data_files(std::vector<std::string> &out);
+  void gather_perf_data_aux_files(std::vector<std::pair<unsigned, std::string>> &out);
 
 public:
   IPTTool() : opts(JoveCategory) {}
@@ -194,10 +195,15 @@ int IPTTool::Run(void) {
       return 1;
     }
   } else if (fs::exists("perf.data")) {
-    if (IsVerbose())
-      WithColor::note() << "removing perf.data\n";
+    std::vector<std::string> filenames;
+    gather_all_perf_data_files(filenames);
 
-    fs::remove("perf.data");
+    for (const auto &filename : filenames) {
+      if (IsVerbose())
+        WithColor::note() << llvm::formatv("removing {0}\n", filename);
+
+      fs::remove(filename);
+    }
   }
 
   TCG = std::make_unique<tiny_code_generator_t>();
@@ -876,7 +882,7 @@ int IPTTool::UsingLibipt(void) {
     llvm::errs() << llvm::formatv("ptdump {0}\n", opts_str);
 
   std::vector<std::pair<unsigned, std::string>> aux_filenames;
-  gather_aux_files(aux_filenames);
+  gather_perf_data_aux_files(aux_filenames);
 
   if (aux_filenames.empty()) {
     WithColor::warning() << "no aux files found!\n";
@@ -932,7 +938,26 @@ int IPTTool::UsingLibipt(void) {
   return 0;
 }
 
-void IPTTool::gather_aux_files(std::vector<std::pair<unsigned, std::string>> &out) {
+void IPTTool::gather_all_perf_data_files(std::vector<std::string> &out) {
+  std::regex filename_pattern(R"(perf\.data.*)");
+
+  fs::path dir = fs::canonical(".");
+  assert(fs::exists(dir) && fs::is_directory(dir));
+
+  for (const auto &entry : fs::directory_iterator(dir)) {
+    if (!fs::is_regular_file(entry))
+      continue;
+
+    std::string filename = entry.path().filename().string();
+    std::smatch match;
+    if (std::regex_match(filename, match, filename_pattern)) {
+      out.push_back(std::move(filename));
+    }
+  }
+}
+
+
+void IPTTool::gather_perf_data_aux_files(std::vector<std::pair<unsigned, std::string>> &out) {
   std::regex aux_filename_pattern(R"(perf\.data-aux-idx(\d+)\.bin)");
 
   fs::path dir = fs::canonical(".");
