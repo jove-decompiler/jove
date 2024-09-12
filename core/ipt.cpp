@@ -75,8 +75,8 @@ IntelPT::IntelPT(int ptdump_argc, char **ptdump_argv, jv_t &jv,
 
   decoder = pt_pkt_alloc_decoder(config.get());
 
-  sb.os = open_memstream(&sb.ptr, &sb.len);
-  if (!sb.os)
+  sideband.os = open_memstream(&sideband.ptr, &sideband.len);
+  if (!sideband.os)
     throw std::runtime_error(std::string("open_memstream() failed: ") +
                              strerror(errno));
 }
@@ -95,8 +95,8 @@ IntelPT::~IntelPT() {
 
   pt_sb_free(tracking.session);
 
-  fclose(sb.os);
-  free(sb.ptr);
+  fclose(sideband.os);
+  free(sideband.ptr);
 }
 
 int IntelPT::ptdump_print_error(int errcode, const char *filename,
@@ -121,10 +121,10 @@ int IntelPT::ptdump_print_error(int errcode, const char *filename,
 }
 
 void IntelPT::examine_sb(void) {
-  fflush(sb.os);
+  fflush(sideband.os);
 
-  char *ptr = sb.ptr;
-  char *const end = ptr + sb.len;
+  char *ptr = sideband.ptr;
+  char *const end = ptr + sideband.len;
 
   assert(ptr);
 
@@ -714,8 +714,8 @@ int IntelPT::sb_track_time(uint64_t offset)
 		return errcode;
 #endif
 
-        rewind(sb.os);
-        errcode = pt_sb_dump(tracking.session, sb.os, sb_dump_flags, tsc);
+        rewind(sideband.os);
+        errcode = pt_sb_dump(tracking.session, sideband.os, sb_dump_flags, tsc);
         if (unlikely(errcode < 0))
 #if 0
 		return diag("sideband dump error", offset, errcode);

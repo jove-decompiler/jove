@@ -69,7 +69,7 @@ class IntelPT {
 
     char *ptr = NULL;
     size_t len = 0UL;
-  } sb;
+  } sideband;
 
   static constexpr uint32_t sb_dump_flags = 1; /* compact */
 
