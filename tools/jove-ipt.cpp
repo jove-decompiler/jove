@@ -62,6 +62,7 @@ struct IPTTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
     cl::alias MMapPagesAlias;
     cl::opt<std::string> AuxPages;
     cl::alias AuxPagesAlias;
+    cl::opt<bool> ExistingPerfData;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : Prog(cl::Positional, cl::desc("prog"), cl::Required,
@@ -97,7 +98,12 @@ struct IPTTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
                    cl::init("64M"), cl::cat(JoveCategory)),
 
           AuxPagesAlias("a", cl::desc("Alias for --mmap-pages-aux"),
-                        cl::aliasopt(AuxPages), cl::cat(JoveCategory)) {}
+                        cl::aliasopt(AuxPages), cl::cat(JoveCategory)),
+
+          ExistingPerfData("existing-perf-data",
+                           cl::desc("Use perf.data* files already existing in "
+                                    "the current directory."),
+                           cl::cat(JoveCategory)) {}
 
   } opts;
 
@@ -117,8 +123,7 @@ struct IPTTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
   std::regex line_regex_a;
   std::regex line_regex_b;
 
-  void parse_stderr(const char *path_to_stderr,
-                    std::vector<std::string> &binary_paths);
+  void gather_aux_files(std::vector<std::pair<unsigned, std::string>> &out);
 
 public:
   IPTTool() : opts(JoveCategory) {}
@@ -133,8 +138,6 @@ public:
   void ProcessLine(const std::string &line);
 
   void on_new_binary(binary_t &);
-
-  std::string convert_to_linux_path(std::string path);
 };
 
 JOVE_REGISTER_TOOL("ipt", IPTTool);
@@ -177,7 +180,7 @@ binary_index_t IPTTool::BinaryFromName(const char *name) {
 int IPTTool::Run(void) {
   perf_path = locator().perf();
 
-  if (opts.Chdir) {
+  if (!opts.ExistingPerfData && opts.Chdir) {
     if (::chdir(temporary_dir().c_str()) < 0) {
       int err = errno;
 
@@ -185,8 +188,17 @@ int IPTTool::Run(void) {
     }
   }
 
-  if (fs::exists("perf.data"))
+  if (opts.ExistingPerfData) {
+    if (!fs::exists("perf.data")) {
+      WithColor::error() << "perf.data does not exist\n";
+      return 1;
+    }
+  } else if (fs::exists("perf.data")) {
+    if (IsVerbose())
+      WithColor::note() << "removing perf.data\n";
+
     fs::remove("perf.data");
+  }
 
   TCG = std::make_unique<tiny_code_generator_t>();
   Disas = std::make_unique<disas_t>();
@@ -200,8 +212,9 @@ int IPTTool::Run(void) {
         return B::is_coff(*state.for_binary(jv.Binaries.at(0)).Bin);
       });
 
-  fs::path path_to_stderr = fs::path(temporary_dir()) / "stderr";
+  fs::path path_to_stderr = "stderr";
 
+  if (!opts.ExistingPerfData)
   RunExecutableToExit(
       perf_path,
       [&](auto Arg) {
@@ -236,12 +249,6 @@ int IPTTool::Run(void) {
         if (HasCOFF)
           Env("WINEDEBUG=+loaddll,+process");
       }, "", path_to_stderr.string());
-
-#if 0
-  llvm::errs() << "attach to me! " << gettid() << '\n';
-  char buff;
-  while (read(STDIN_FILENO, &buff, 1) > 0 && buff != '\n');
-#endif
 
   if (HasCOFF) {
     //
@@ -700,8 +707,7 @@ void IPTTool::ProcessLine(const std::string &line) {
 int IPTTool::UsingLibipt(void) {
   fs::path libipt_scripts_dir = locator().libipt_scripts();
 
-  unsigned aux_nr_cpu = 0;
-
+  if (!opts.ExistingPerfData)
   {
     bool Failed = false;
 
@@ -812,10 +818,8 @@ int IPTTool::UsingLibipt(void) {
           std::vector<std::unique_ptr<scoped_fd>> aux_ofdv;
           perf_data.for_each_auxtrace(
               [&](const struct perf::auxtrace_event &aux) {
-                if (unlikely(aux.cpu >= aux_ofdv.size())) {
-                  aux_nr_cpu = aux.cpu + 1;
-                  aux_ofdv.resize(aux_nr_cpu);
-                }
+                if (unlikely(aux.cpu >= aux_ofdv.size()))
+                  aux_ofdv.resize(aux.cpu + 1);
 
                 std::unique_ptr<scoped_fd> &aux_ofd = aux_ofdv.at(aux.cpu);
                 if (!aux_ofd) {
@@ -871,33 +875,39 @@ int IPTTool::UsingLibipt(void) {
   if (IsVerbose())
     llvm::errs() << llvm::formatv("ptdump {0}\n", opts_str);
 
-  std::vector<unsigned> cpuv;
-  cpuv.resize(aux_nr_cpu);
-  std::iota(cpuv.begin(), cpuv.end(), 0);
+  std::vector<std::pair<unsigned, std::string>> aux_filenames;
+  gather_aux_files(aux_filenames);
+
+  if (aux_filenames.empty()) {
+    WithColor::warning() << "no aux files found!\n";
+    return 1;
+  }
 
   std::for_each(
       std::execution::par_unseq,
-      cpuv.begin(),
-      cpuv.end(), [&](unsigned cpu) {
-        std::string aux_fname =
-            "perf.data-aux-idx" + std::to_string(cpu) + ".bin";
-        if (!fs::exists(aux_fname))
+      aux_filenames.begin(),
+      aux_filenames.end(), [&](const auto &pair) {
+        const std::string &aux_filename = pair.second;
+        if (!fs::exists(pair.second)) {
+          WithColor::warning() << llvm::formatv("\"{0}\" disappeared!\n", pair.second);
           return;
+        }
 
-        auto len = fs::file_size(aux_fname);
+        auto len = fs::file_size(aux_filename);
 
+        unsigned cpu = pair.first;
         if (IsVerbose())
           WithColor::note()
               << llvm::formatv("auxtrace size for cpu {0}: {1}\n", cpu, len);
 
-        scoped_fd aux_fd(::open(aux_fname.c_str(), O_RDONLY));
+        scoped_fd aux_fd(::open(aux_filename.c_str(), O_RDONLY));
         if (!aux_fd)
-          die(std::string("failed to open \"") + aux_fname + "\"");
+          die(std::string("failed to open \"") + aux_filename + "\"");
 
         scoped_mmap mmap(nullptr, len, PROT_READ, MAP_PRIVATE, aux_fd.get(), 0);
 
         if (!mmap)
-          die(std::string("failed to mmap \"") + aux_fname + "\"");
+          die(std::string("failed to mmap \"") + aux_filename + "\"");
 
         if (::madvise(mmap.ptr, mmap.len, MADV_SEQUENTIAL) < 0)
           WithColor::warning()
@@ -921,6 +931,30 @@ int IPTTool::UsingLibipt(void) {
 
   return 0;
 }
+
+void IPTTool::gather_aux_files(std::vector<std::pair<unsigned, std::string>> &out) {
+  std::regex aux_filename_pattern(R"(perf\.data-aux-idx(\d+)\.bin)");
+
+  fs::path dir = fs::canonical(".");
+  assert(fs::exists(dir) && fs::is_directory(dir));
+
+  for (const auto &entry : fs::directory_iterator(dir)) {
+    if (!fs::is_regular_file(entry))
+      continue;
+
+    std::string filename = entry.path().filename().string();
+    std::smatch match;
+    if (std::regex_match(filename, match, aux_filename_pattern)) {
+      std::string cpu_s = match[1].str();
+
+      if (IsVerbose())
+        llvm::errs() << llvm::formatv("Found \"{0}\" (cpu: {1})\n", filename, cpu_s);
+
+      out.emplace_back(strtoul(cpu_s.c_str(), nullptr, 10), filename);
+    }
+  }
+}
+
 }
 
 #endif /* x86 */
