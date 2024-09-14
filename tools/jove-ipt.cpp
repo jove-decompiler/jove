@@ -11,6 +11,7 @@
 #include "fastipt.h"
 #include "wine.h"
 #include "perf.h"
+#include "glibc.h"
 
 #include <boost/filesystem.hpp>
 #include <boost/algorithm/string.hpp>
@@ -253,6 +254,8 @@ int IPTTool::Run(void) {
         // binaries so we can make sense of the addresses we get back from the
         // trace.
         //
+        SetupEnvironForRun(Env);
+
         if (HasCOFF)
           Env("WINEDEBUG=+loaddll,+process");
       }, "", path_to_stderr.string());

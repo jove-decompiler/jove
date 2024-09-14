@@ -514,30 +514,9 @@ skip_uprobe:
       for (char **env = ::environ; *env; ++env)
         env_vec.push_back(*env);
 
-#if defined(__x86_64__)
-      // <3 glibc
-      env_vec.push_back("GLIBC_TUNABLES=glibc.cpu.hwcaps="
-                        "-AVX_Usable,"
-                        "-AVX2_Usable,"
-                        "-AVX512F_Usable,"
-                        "-SSE4_1,"
-                        "-SSE4_2,"
-                        "-SSSE3,"
-                        "-Fast_Unaligned_Load,"
-                        "-ERMS,"
-                        "-AVX_Fast_Unaligned_Load");
-#elif defined(__i386__)
-      // <3 glibc
-      env_vec.push_back("GLIBC_TUNABLES=glibc.cpu.hwcaps="
-                        "-SSE4_1,"
-                        "-SSE4_2,"
-                        "-SSSE3,"
-                        "-Fast_Rep_String,"
-                        "-Fast_Unaligned_Load,"
-                        "-SSE2");
-#endif
-
-      env_vec.push_back("LD_BIND_NOW=1");
+      SetupEnvironForRun([&](const char *Env) -> void {
+        env_vec.push_back(Env);
+      });
 
       if (fs::exists("/firmadyne/libnvram.so"))
         env_vec.push_back("LD_PRELOAD=/firmadyne/libnvram.so");

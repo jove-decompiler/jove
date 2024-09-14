@@ -4,6 +4,7 @@
 #include "fd.h"
 #include "process.h"
 #include "locator.h"
+#include "run.h"
 
 #include <functional>
 #include <memory>

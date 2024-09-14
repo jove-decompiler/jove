@@ -747,33 +747,7 @@ int RunTool::DoRun(void) {
           if (IsVerbose())
             HumanOut() << fifo_env << '\n';
 
-          //
-          // XXX DISABLE GLIBC IFUNCS
-          //
-#if defined(TARGET_X86_64)
-          Env("GLIBC_TUNABLES=glibc.cpu.hwcaps="
-              "-AVX,"
-              "-AVX2,"
-              "-AVX_Usable,"
-              "-AVX2_Usable,"
-              "-AVX512F_Usable,"
-              "-SSE4_1,"
-              "-SSE4_2,"
-              "-SSSE3,"
-              "-Fast_Unaligned_Load,"
-              "-ERMS,"
-              "-AVX_Fast_Unaligned_Load");
-#elif defined(TARGET_I386)
-          Env("GLIBC_TUNABLES=glibc.cpu.hwcaps="
-              "-SSE4_1,"
-              "-SSE4_2,"
-              "-SSSE3,"
-              "-Fast_Rep_String,"
-              "-Fast_Unaligned_Load,"
-              "-SSE2");
-#endif
-
-          Env("LD_BIND_NOW=1"); /* disable lazy linking (please) */
+          SetupEnvironForRun(Env);
 
           if (fs::exists("/firmadyne/libnvram.so")) /* XXX firmadyne */
             Env("LD_PRELOAD=/firmadyne/libnvram.so");
