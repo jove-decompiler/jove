@@ -1222,7 +1222,13 @@ static flow_vertex_t copy_function_cfg(jv_t &jv,
         savedSuccInDeg = boost::in_degree(succV, G);
       }
 
+      dynamic_target_set DynTargets; /* XXX avoid reentrancy */
       ICFG[bb].DynTargets.cvisit_all([&](const dynamic_target_t &DynTarget) {
+        DynTargets.insert(DynTarget);
+      });
+
+      std::for_each(DynTargets.cbegin(), DynTargets.cend(),
+        [&](const dynamic_target_t &DynTarget) {
           function_t &callee = function_of_target(DynTarget, jv);
 
           std::vector<exit_vertex_pair_t> calleeExitVertices;
