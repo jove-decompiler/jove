@@ -85,6 +85,7 @@ function(tool_for_arch arch arch_extra_cflags qemu_objs)
     jove-add.cpp
     jove-addr2off.cpp
     jove-analyze.cpp
+    jove-block.cpp
     jove-bootstrap.cpp
     jove-callstack.cpp
     jove-cfg.cpp
@@ -92,6 +93,7 @@ function(tool_for_arch arch arch_extra_cflags qemu_objs)
     jove-dig.cpp
     jove-dump.cpp
     jove-extract.cpp
+    jove-function.cpp
     jove-ida.cpp
     jove-init.cpp
     jove-invalidate.cpp
