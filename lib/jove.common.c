@@ -157,6 +157,8 @@ static uintptr_t expected_size_of_laid_out(unsigned i) {
 }
 
 void _jove_check_sections_laid_out(void) {
+  _VERBOSE_DUMP_FUNC();
+
   uintptr_t cursor = actual_addr_of_laid_out(0); /* top */
   for (unsigned i = 1; i < _jove_laid_out_sections_count(); ++i) {
     const uintptr_t expect_addr_before = cursor;
@@ -365,6 +367,8 @@ static bool trampoline_slot(const void *poss, uintptr_t **out);
 
 void _jove_identify_trampolines(struct jove_trampoline_t *tramp_p,
                                 struct jove_function_info_t *fninfo_p) {
+  _VERBOSE_DUMP_FUNC();
+
   for (unsigned i = 0; i < _jove_possible_tramps_count(); ++i) {
     const uintptr_t poss = *((uintptr_t *)(_jove_possible_tramps()[i]));
 
