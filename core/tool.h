@@ -173,6 +173,8 @@ struct BaseJVTool : public Tool {
     /* FIXME */
     for (binary_t &b : jv.Binaries)
       __builtin_memset(&b.Analysis.ICFG.m_property, 0, sizeof(b.Analysis.ICFG.m_property));
+
+    exclude_from_coredumps(jv_file.get_address(), jv_file.get_size());
   }
 };
 

@@ -9,6 +9,7 @@
 #include <sched.h>
 #include <signal.h>
 #include <sys/stat.h>
+#include <sys/mman.h>
 
 namespace jove {
 
@@ -92,6 +93,10 @@ static void DoDefaultOnSignal(unsigned sig) {
 void DoDefaultOnErrorSignal(void) {
   DoDefaultOnSignal(SIGABRT);
   DoDefaultOnSignal(SIGSEGV);
+}
+
+void exclude_from_coredumps(void *addr, size_t size) {
+  ::madvise(addr, size, MADV_DONTDUMP);
 }
 
 }

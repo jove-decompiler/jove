@@ -96,5 +96,6 @@ uint32_t size_of_file32(const char *path);
 unsigned num_cpus(void);
 void IgnoreCtrlC(void);
 void DoDefaultOnErrorSignal(void);
+void exclude_from_coredumps(void *addr, size_t size);
 
 }
