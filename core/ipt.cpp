@@ -696,7 +696,7 @@ int IntelPT::on_ip(const uint64_t IP) {
   }
 
   if (IsVeryVerbose())
-    printf("<IP>\n");
+    printf("<IP> %" PRIx64 "\n", IP);
 
   binary_t &b = jv.Binaries.at(BIdx);
   binary_state_t &x = state.for_binary(b);
