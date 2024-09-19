@@ -13,6 +13,12 @@ struct g2h_exception {
   g2h_exception(uint64_t pc) : pc(pc) {}
 };
 
+struct illegal_op_exception {
+  uint64_t pc;
+
+  illegal_op_exception(uint64_t pc) : pc(pc) {}
+};
+
 struct tiny_code_generator_private_t;
 
 struct tiny_code_generator_t {

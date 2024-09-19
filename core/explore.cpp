@@ -364,6 +364,31 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
       }
 
       throw invalid_control_flow_exception(b, e.pc);
+    } catch (const illegal_op_exception &e) {
+      //
+      // let's see what the LLVM disassembler thinks
+      //
+      const bool CanDisassemble = ({
+        const uint8_t *const Ptr =
+            reinterpret_cast<const uint8_t *>(B::toMappedAddr(Bin, e.pc));
+        assert(Ptr);
+
+        std::string errmsg;
+        llvm::raw_string_ostream ErrorStrStream(errmsg);
+
+        llvm::MCInst Inst;
+        uint64_t InstLen;
+        disas.DisAsm->getInstruction(
+            Inst, InstLen,
+            llvm::ArrayRef<uint8_t>(Ptr, 16 /* should be enough? */), e.pc,
+            ErrorStrStream);
+      });
+
+      if (!CanDisassemble)
+        throw invalid_control_flow_exception(b, e.pc); /* it's garbage */
+
+      T.Type = TERMINATOR::UNREACHABLE;
+      break;
     }
 
     if (likely(!Speculative)) {

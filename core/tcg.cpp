@@ -104,6 +104,10 @@ extern "C" void jv_set_end_pc(uint64_t EndPC) {
   jv_end_pc = EndPC;
 }
 
+extern "C" void jv_illegal_op(uint64_t PC) {
+  throw jove::illegal_op_exception(PC);
+}
+
 
 extern CPUState *jv_cpu;
 

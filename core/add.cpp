@@ -30,10 +30,18 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
   b.IsPIC = true;
   b.IsDynamicallyLoaded = false;
 
-  auto BasicBlockAtAddress = [&](uint64_t Entrypoint) -> void {
-    E.explore_basic_block(b, *Bin, Entrypoint);
+  auto BasicBlockAtAddress = [&](uint64_t Entrypoint) -> basic_block_index_t {
+    try {
+      return E.explore_basic_block(b, *Bin, Entrypoint);
+    } catch (...) {
+      return invalid_basic_block_index;
+    }
   };
   auto FunctionAtAddress = [&](uint64_t Entrypoint) -> function_index_t {
+    // let's be extra careful.
+    if (unlikely(!is_basic_block_index_valid(BasicBlockAtAddress(Entrypoint))))
+      return invalid_function_index;
+
     return E.explore_function(b, *Bin, Entrypoint);
   };
   auto ABIAtAddress = [&](uint64_t Entrypoint) -> void {
