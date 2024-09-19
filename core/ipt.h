@@ -84,6 +84,9 @@ class IntelPT {
     unsigned pid = ~0u - 1;
     unsigned tid = ~0u - 1;
     bool exec = 4;
+
+    block_t Block = invalid_block;
+    taddr_t TermAddr = ~0UL;
   } Curr;
 
   bool Engaged = false;
@@ -98,6 +101,8 @@ class IntelPT {
               /* RightThread && */
               RightProcess;
   }
+
+  const bool v, vv;
 
   const bool ignore_trunc_aux;
 
@@ -123,11 +128,28 @@ class IntelPT {
                        const char *prog);
   int process_args(int argc, char **argv);
 
+  std::pair<basic_block_index_t, bool>
+  StraightLineAdvance(block_t, uint64_t GoNoFurther = 0);
+
+  basic_block_index_t Advance(block_t, uint64_t tnt, uint8_t n);
+
+  void on_block(block_t);
+  void block_transfer(binary_index_t FromBIdx, taddr_t FromAddr,
+                      binary_index_t ToBIdx, taddr_t ToAddr);
+
 public:
   IntelPT(int ptdump_argc, char **ptdump_argv, jv_t &, explorer_t &,
           unsigned cpu, const address_space_t &AddressSpace, void *begin,
-          void *end, bool ignore_trunc_aux = false);
+          void *end, unsigned verbose, bool ignore_trunc_aux = false);
   ~IntelPT();
+
+  bool IsVerbose(void) const {
+    return unlikely(v);
+  }
+
+  bool IsVeryVerbose(void) const {
+    return unlikely(vv);
+  }
 
   int explore(void);
   int explore_packets(void);

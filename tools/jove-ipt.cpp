@@ -210,7 +210,7 @@ int IPTTool::Run(void) {
 
   TCG = std::make_unique<tiny_code_generator_t>();
   Disas = std::make_unique<disas_t>();
-  E = std::make_unique<explorer_t>(jv, *Disas, *TCG, IsVeryVerbose());
+  E = std::make_unique<explorer_t>(jv, *Disas, *TCG, false /* IsVeryVerbose() */);
 
   const std::string prog_path = fs::canonical(opts.Prog).string();
 
@@ -908,7 +908,7 @@ int IPTTool::UsingLibipt(void) {
         unsigned cpu = pair.first;
         if (IsVerbose())
           WithColor::note()
-              << llvm::formatv("auxtrace size for cpu {0}: {1}\n", cpu, len);
+              << llvm::formatv("size of {0}: {1}\n", aux_filename, len);
 
         scoped_fd aux_fd(::open(aux_filename.c_str(), O_RDONLY));
         if (!aux_fd)
@@ -926,7 +926,8 @@ int IPTTool::UsingLibipt(void) {
 #if 1
         IntelPT ipt(ptdump_argv.size() - 1, ptdump_argv.data(), jv, *E, cpu,
                     AddressSpace, mmap.ptr,
-                    reinterpret_cast<uint8_t *>(mmap.ptr) + len);
+                    reinterpret_cast<uint8_t *>(mmap.ptr) + len,
+                    IsVeryVerbose() ? 2 : (IsVerbose() ? 1 : 0));
 
         try {
           ipt.explore();
@@ -940,9 +941,6 @@ int IPTTool::UsingLibipt(void) {
                         reinterpret_cast<uint8_t *>(mmap.ptr) + len);
         fastipt.explore();
 #endif
-
-        fflush(stdout);
-        fflush(stderr);
       });
 
   return 0;

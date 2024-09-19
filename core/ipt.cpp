@@ -25,9 +25,9 @@ typedef boost::format fmt;
 IntelPT::IntelPT(int ptdump_argc, char **ptdump_argv, jv_t &jv,
                  explorer_t &explorer, unsigned cpu,
                  const address_space_t &AddressSpace, void *begin, void *end,
-                 bool ignore_trunc_aux)
+                 unsigned verbose, bool ignore_trunc_aux)
     : jv(jv), explorer(explorer), state(jv), AddressSpace(AddressSpace),
-      ignore_trunc_aux(ignore_trunc_aux) {
+      v(verbose >= 1), vv(verbose >= 2), ignore_trunc_aux(ignore_trunc_aux) {
   Our.cpu = cpu;
 
   config = std::make_unique<struct pt_config>();
@@ -79,6 +79,10 @@ IntelPT::IntelPT(int ptdump_argc, char **ptdump_argv, jv_t &jv,
   if (!sideband.os)
     throw std::runtime_error(std::string("open_memstream() failed: ") +
                              strerror(errno));
+
+  // XXX automatically flush on new-line (because llvm::errs)
+  setvbuf(stdout, NULL, _IOLBF, 0);
+  setvbuf(stderr, NULL, _IOLBF, 0);
 }
 
 IntelPT::~IntelPT() {
@@ -144,7 +148,8 @@ void IntelPT::examine_sb(void) {
     }
     *eol = '\0';
 
-    printf("%s\n", line);
+    if (IsVeryVerbose())
+      printf("%s\n", line);
 
     static const char sb_line_prefix[] = "PERF_RECORD_";
     constexpr unsigned sb_line_prefix_len = sizeof(sb_line_prefix)-1;
@@ -170,12 +175,15 @@ void IntelPT::examine_sb(void) {
 
       sscanf(rest, "%x/%x, %63s  {", &pid, &tid, &comm[0]);
 
-      printf("comm=%s\n", comm);
+      if (IsVerbose())
+        printf("comm=%s\n", comm);
+
       if (boost::algorithm::ends_with(jv.Binaries.at(0).Name.c_str(), comm)) {
         Our.pid = pid;
         Our.tid = tid;
 
-        fprintf(stderr, "our tid is %x\n", tid);
+        if (IsVerbose())
+          fprintf(stderr, "our tid is %x\n", tid);
       }
     };
 
@@ -190,7 +198,6 @@ void IntelPT::examine_sb(void) {
 
     auto unexpected_rest = [&](void) -> void {
       fprintf(stderr, "unexpected rest=\"%s\"\n", rest);
-      fflush(stderr);
       assert(false);
     };
 
@@ -261,16 +268,20 @@ void IntelPT::examine_sb(void) {
                &prev_pid, &prev_tid,
                &_.pid, &_.tid, &_.time, &_.cpu, &_.identifier);
 
-        Curr.cpu = _.cpu;
-        Curr.pid = _.pid;
-        Curr.tid = _.tid;
+        if (_.cpu == Our.cpu) {
+          Curr.cpu = _.cpu;
+          Curr.pid = _.pid;
+          Curr.tid = _.tid;
+        }
       } else if (MATCHES_REST("SWITCH.IN")) {
         sscanf(rest, "  { %x/%x %" PRIx64 " cpu-%x %" PRIx64 " }",
                &_.pid, &_.tid, &_.time, &_.cpu, &_.identifier);
 
-        Curr.cpu = _.cpu;
-        Curr.pid = _.pid;
-        Curr.tid = _.tid;
+        if (_.cpu == Our.cpu) {
+          Curr.cpu = _.cpu;
+          Curr.pid = _.pid;
+          Curr.tid = _.tid;
+        }
       } else {
         unexpected_rest();
       }
@@ -285,8 +296,8 @@ void IntelPT::examine_sb(void) {
         unsigned maj, min;
         uint64_t ino, ino_generation;
         unsigned prot, flags;
-        char filename[4096];
-        filename[0] = '\0';
+        char name[4096];
+        name[0] = '\0';
 
         sscanf(rest, "%x/%x, %" PRIx64
                      ", %" PRIx64 ", %" PRIx64 ", %x, %x, %" PRIx64
@@ -296,7 +307,7 @@ void IntelPT::examine_sb(void) {
 
                      &pid, &tid, &addr,
                      &len, &pgoff, &maj, &min, &ino,
-                     &ino_generation, &prot, &flags, &filename[0],
+                     &ino_generation, &prot, &flags, &name[0],
 
                      &_.pid, &_.tid, &_.time, &_.cpu, &_.identifier);
 
@@ -308,22 +319,35 @@ void IntelPT::examine_sb(void) {
         if (pid != Our.pid)
           continue;
 
-        assert(strlen(filename) > 0);
+        assert(strlen(name) > 0);
 
-        if (strcmp(filename, "//anon") == 0)
+        if (strcmp(name, "//anon") == 0)
           continue;
-
-        if (filename[0] == '/' && !fs::exists(filename)) {
-          fprintf(stderr, "\"%s\" does not exist!(%s)\n", filename, rest);
-          continue;
-        }
 
         binary_index_t BIdx;
         bool IsNew;
 
-        std::tie(BIdx, IsNew) = jv.AddFromPath(explorer, filename);
-        if (!is_binary_index_valid(BIdx))
-          continue;
+        if (name[0] == '/') {
+          if (!fs::exists(name)) {
+            if (IsVeryVerbose())
+              fprintf(stderr, "\"%s\" does not exist(%s)\n", name, rest);
+            continue;
+          }
+
+          std::tie(BIdx, IsNew) = jv.AddFromPath(explorer, name);
+          if (!is_binary_index_valid(BIdx))
+            continue;
+        } else {
+          auto MaybeBIdxSet = jv.Lookup(name);
+          if (!MaybeBIdxSet)
+            continue;
+          const ip_binary_index_set &BIdxSet = *MaybeBIdxSet;
+          if (BIdxSet.empty())
+            continue;
+
+          BIdx = *(BIdxSet).rbegin(); /* most recent (XXX?) */
+          IsNew = false;
+        }
 
         binary_t &b = jv.Binaries.at(BIdx);
         binary_state_t &x = state.for_binary(b);
@@ -336,8 +360,9 @@ void IntelPT::examine_sb(void) {
           binary_state_t &x = state.for_binary(b);
 
           intvl_map_add(AddressSpace, addr_intvl(addr, len), BIdx);
-          if (updateVariable(x.LoadAddr, std::min(x.LoadAddr, static_cast<taddr_t>(addr))))
-            x.LoadOffset = pgoff;
+
+          x.LoadAddr = static_cast<taddr_t>(addr);
+          x.LoadOffset = pgoff;
         }
       } else {
         unexpected_rest();
@@ -489,6 +514,8 @@ int IntelPT::process_packet(uint64_t offset, const struct pt_packet *packet) {
     const struct pt_packet_mode *mode = &packet->payload.mode;
     switch (mode->leaf) {
     case pt_mol_exec: {
+      Curr.Block = invalid_block;
+
       const char *desc = NULL;
       switch (pt_get_exec_mode(&mode->bits.exec)) {
       case ptem_64bit:
@@ -562,25 +589,38 @@ int IntelPT::process_packet(uint64_t offset, const struct pt_packet *packet) {
       std::to_string(offset));
 }
 
+struct tnt_error {};
+
 int IntelPT::tnt_payload(const struct pt_packet_tnt *packet) {
-  return 0;
-  if (!Engaged)
+  if (unlikely(!Engaged))
     return 0;
+
+  if (unlikely(!is_block_valid(Curr.Block))) {
+#if 0
+    if (IsVeryVerbose())
+      fprintf(stderr, "unhandled tnt\n");
+#endif
+    return 1;
+  }
 
   assert(packet);
 
-  uint64_t tnt = packet->payload;
-  uint8_t bits = packet->bit_size;
-  assert(bits > 0);
+  const block_t SavedStart = Curr.Block;
 
-  do {
-    bool Taken = !!(tnt & (1ull << (bits - 1)));
+  try {
+    ip_sharable_lock<ip_upgradable_mutex> s_lck(
+        jv.Binaries.at(Curr.Block.first).bbmap_mtx);
 
-    const char *extra = bits > 1 ? " " : "";
-    printf("%d%s", (int)Taken, extra); /* FIXME */
-  } while (--bits);
+    Curr.Block.second = Advance(Curr.Block, packet->payload, packet->bit_size);
+    assert(is_basic_block_index_valid(Curr.Block.second));
+    Curr.TermAddr = address_of_block_terminator(Curr.Block, jv);
+  } catch (const tnt_error &) {
+    const binary_t &b = jv.Binaries.at(SavedStart.first);
 
-  printf("\n"); /* FIXME */
+    fprintf(stderr, "tnt error from %s+%" PRIx64 "\n", b.Name.c_str(),
+            static_cast<uint64_t>(address_of_block_in_binary(SavedStart.second, b)));
+    return 1;
+  }
 
   return 0;
 }
@@ -591,7 +631,7 @@ int IntelPT::track_last_ip(const struct pt_packet_ip *packet, uint64_t offset) {
 
   //print_field(buffer->tracking.id, "ip");
 
-  errcode = pt_last_ip_update_ip(tracking.last_ip.get(), packet, NULL);
+  errcode = pt_last_ip_update_ip(tracking.last_ip.get(), packet, config.get());
   if (unlikely(errcode < 0)) {
     //print_field(buffer->tracking.payload, "<unavailable>");
 
@@ -603,6 +643,9 @@ int IntelPT::track_last_ip(const struct pt_packet_ip *packet, uint64_t offset) {
   errcode = pt_last_ip_query(&ip, tracking.last_ip.get());
   if (unlikely(errcode < 0)) {
     if (errcode == -pte_ip_suppressed) {
+      if (IsVeryVerbose())
+        printf("<suppressed>\n");
+      Curr.Block = invalid_block;
       //print_field(buffer->tracking.payload, "<suppressed>");
     } else {
       //print_field(buffer->tracking.payload, "<unavailable>");
@@ -619,59 +662,408 @@ int IntelPT::track_last_ip(const struct pt_packet_ip *packet, uint64_t offset) {
   return 0;
 }
 
-int IntelPT::on_ip(const uint64_t ip) {
+int IntelPT::on_ip(const uint64_t IP) {
   if (!Engaged)
     return 0;
 
-  auto it = intvl_map_find(AddressSpace, ip);
-  if (it == AddressSpace.end() || !is_binary_index_valid((*it).second)) {
-    printf("unknown ip %016" PRIx64 "\n", ip);
-    //throw std::runtime_error("unknown ip " + (fmt("%016" PRIx64) % ip).str());
-    return 0;
+  auto it = intvl_map_find(AddressSpace, IP);
+  if (unlikely(it == AddressSpace.end())) {
+    if (IsVeryVerbose())
+      printf("unknown IP %016" PRIx64 "\n", IP);
+
+    Curr.Block = invalid_block;
+    return 1;
   }
 
-  const addr_intvl &intvl = (*it).first;
+  const binary_index_t BIdx = (*it).second;
+  if (unlikely(!is_binary_index_valid(BIdx))) {
+    if (IsVeryVerbose())
+      printf("ambiguous IP %016" PRIx64 "\n", IP);
 
-  binary_t &b = jv.Binaries.at((*it).second);
+    Curr.Block = invalid_block;
+    return 1;
+  }
+
+  if (IsVeryVerbose())
+    printf("<IP>\n");
+
+  binary_t &b = jv.Binaries.at(BIdx);
   binary_state_t &x = state.for_binary(b);
 
   uint64_t Addr = B::_X(
       *x.Bin,
       [&](ELFO &O) -> uint64_t {
         const taddr_t LoadAddr = x.LoadAddr;
-        assert(ip >= LoadAddr);
+        if (!(IP >= LoadAddr)) {
+        fprintf(stderr, "WTFF? %" PRIx64 " LoadAddr=%" PRIx64 " LoadOffset=%" PRIx64 "\t\t%s\n",
+                (uint64_t)IP, (uint64_t)LoadAddr, (uint64_t)x.LoadOffset, b.Name.c_str());
+        assert(false);
+        }
+        assert(IP >= LoadAddr);
 
-        uint64_t off = ip - (LoadAddr - x.LoadOffset);
+        uint64_t off = IP - (LoadAddr - x.LoadOffset);
         try {
         return elf::va_of_offset(O, off);
         } catch (...) {
         std::string as(addr_intvl2str((*it).first));
-        fprintf(stderr, "WTF? %" PRIx64 " in %s %" PRIx64 " %" PRIx64 "\t\t%s\n", ip,
+        fprintf(stderr, "WTF? %" PRIx64 " in %s %" PRIx64 " %" PRIx64 "\t\t%s\n", IP,
                 as.c_str(), (uint64_t)LoadAddr, (uint64_t)x.LoadOffset, b.Name.c_str());
         assert(false);
         }
       },
       [&](COFFO &O) -> uint64_t {
-        assert(ip >= intvl.first);
-        uint64_t RVA = ip - intvl.first;
+        const uint64_t intvl_start = addr_intvl_lower((*it).first);
+        assert(IP >= intvl_start);
+        uint64_t RVA = IP - intvl_start;
         if (RVA >= 0xffffffff) {
-        fprintf(stderr, "WTF? %" PRIx64 " %" PRIx64 "\n", ip,
+        fprintf(stderr, "WTF? %" PRIx64 " %" PRIx64 "\n", IP,
                 RVA);
         assert(false);
         }
         return coff::va_of_rva(O, RVA);
       });
 
-  printf("%016" PRIx64 " E %016" PRIx64 "\t\t\t%s\n", ip, Addr, b.Name.c_str()); /* FIXME */
-  try {
-    explorer.explore_basic_block(b, *x.Bin, Addr);
-  } catch (const invalid_control_flow_exception &e) {
-    printf("BADIP!!! %016" PRIx64 " E %016" PRIx64 "\t\t\t%s\n", ip, Addr,
-           b.Name.c_str()); /* FIXME */
-    fflush(stdout);
+  if (is_block_valid(Curr.Block)) {
+    bool WentNoFurther = false;
+    {
+      ip_sharable_lock<ip_upgradable_mutex> s_lck(
+          jv.Binaries.at(Curr.Block.first).bbmap_mtx);
+
+      std::tie(Curr.Block.second, WentNoFurther) =
+          StraightLineAdvance(Curr.Block, Curr.Block.first == BIdx ? Addr : 0u);
+      Curr.TermAddr = address_of_block_terminator(Curr.Block, jv);
+    }
+
+    if (WentNoFurther) {
+      if (IsVeryVerbose())
+        printf("no further %s+%" PRIx64 "\n</IP>\n", b.Name.c_str(), Addr);
+      return 0;
+    }
   }
 
+  const block_t PrevBlock = Curr.Block;
+  const taddr_t PrevTermAddr = Curr.TermAddr;
+
+  try {
+    Curr.Block.first = (*it).second;
+    Curr.Block.second = explorer.explore_basic_block(b, *x.Bin, Addr);
+    Curr.TermAddr = address_of_block_terminator(Curr.Block, jv);
+
+    on_block(Curr.Block);
+  } catch (const invalid_control_flow_exception &e) {
+    if (IsVeryVerbose()) {
+      printf("BADIP!!! %016" PRIx64 " E %016" PRIx64 "\t\t\t%s\n", IP, Addr,
+             b.Name.c_str());
+      printf("</IP>\n");
+    }
+
+    Curr.Block = invalid_block;
+    return 1;
+  }
+
+  if (likely(is_block_valid(PrevBlock) /* && Curr.Block != PrevBlock */))
+    block_transfer(PrevBlock.first, PrevTermAddr,
+                   Curr.Block.first, address_of_block(Curr.Block, jv));
+
+  if (IsVeryVerbose())
+    printf("</IP>\n");
+
   return 0;
+}
+
+void IntelPT::block_transfer(binary_index_t FrBIdx, taddr_t FrTermAddr,
+                             binary_index_t ToBIdx, taddr_t ToAddr) {
+  binary_t &fr_b = jv.Binaries.at(FrBIdx);
+  binary_t &to_b = jv.Binaries.at(ToBIdx);
+
+  icfg_t &fr_ICFG = fr_b.Analysis.ICFG;
+  icfg_t &to_ICFG = to_b.Analysis.ICFG;
+
+  basic_block_t to_bb = ({
+    ip_sharable_lock<ip_upgradable_mutex> to_s_lck(to_b.bbmap_mtx);
+
+    basic_block_starting_at_address(ToAddr, to_b);
+  }); /* won't be split */
+
+  basic_block_properties_t &to_bbprop = *({
+    ip_sharable_lock<ip_upgradable_mutex> to_s_lck(to_b.Analysis.ICFG_mtx);
+
+    &to_ICFG[to_bb];
+  });
+
+  const auto Term = ({
+    ip_sharable_lock<ip_upgradable_mutex> fr_s_lck(fr_b.bbmap_mtx);
+
+    fr_ICFG[basic_block_at_address(FrTermAddr, fr_b)].Term;
+  });
+
+  if (IsVeryVerbose()) {
+    printf("%s+%" PRIx64 " ==> "
+           "%s+%" PRIx64 "\n",
+           fr_b.Name.c_str(), (uint64_t)FrTermAddr, to_b.Name.c_str(),
+           (uint64_t)ToAddr);
+  }
+
+#if 0
+  ip_upgradable_lock<ip_upgradable_mutex> fr_u_lck(fr_b.bbmap_mtx);
+  ip_upgradable_lock<ip_upgradable_mutex> to_u_lck(to_b.bbmap_mtx);
+
+#endif
+
+  auto handle_indirect_call = [&](void) -> void {
+    function_index_t FIdx =
+        explorer.explore_function(to_b, *state.for_binary(to_b).Bin, ToAddr);
+
+    if (!is_function_index_valid(FIdx))
+      return;
+
+    ip_sharable_lock<ip_upgradable_mutex> fr_s_lck(fr_b.bbmap_mtx);
+
+    basic_block_t fr_bb = basic_block_at_address(FrTermAddr, fr_b);
+
+    basic_block_properties_t &fr_bbprop = *({
+      ip_sharable_lock<ip_upgradable_mutex> to_s_lck(fr_b.Analysis.ICFG_mtx);
+
+      &fr_ICFG[fr_bb];
+    });
+
+    fr_bbprop.insertDynTarget(FrBIdx, std::make_pair(ToBIdx, FIdx), jv);
+  };
+
+  switch (Term.Type) {
+  case TERMINATOR::INDIRECT_JUMP: {
+    if (Term._indirect_jump.IsLj)
+      break;
+
+    const bool TailCall = ({
+      ip_sharable_lock<ip_upgradable_mutex> s_lck(fr_b.bbmap_mtx);
+
+      IsDefinitelyTailCall(fr_ICFG, basic_block_at_address(FrTermAddr, fr_b));
+    });
+
+    if (TailCall || FrBIdx != ToBIdx) {
+      handle_indirect_call();
+    } else {
+      assert(FrBIdx == ToBIdx);
+
+      ip_scoped_lock<ip_upgradable_mutex> fr_e_lck(fr_b.bbmap_mtx);
+      ip_scoped_lock<ip_upgradable_mutex> fr_e_lck_ICFG(fr_b.Analysis.ICFG_mtx);
+
+      boost::add_edge(basic_block_at_address(FrTermAddr, fr_b), to_bb, fr_ICFG);
+    }
+
+    break;
+  }
+
+  case TERMINATOR::INDIRECT_CALL: {
+    handle_indirect_call();
+    break;
+  }
+
+  case TERMINATOR::RETURN: {
+    {
+      ip_sharable_lock<ip_upgradable_mutex> s_lck(fr_b.bbmap_mtx);
+
+      fr_ICFG[basic_block_at_address(FrTermAddr, fr_b)].Term._return.Returns = true;
+    }
+
+    //
+    // what came before?
+    //
+    const taddr_t before_pc = ToAddr - 1;
+
+    ip_upgradable_lock<ip_upgradable_mutex> to_u_lck(to_b.bbmap_mtx);
+
+    if (!exists_basic_block_at_address(before_pc, to_b))
+      break;
+
+    basic_block_t before_bb = basic_block_at_address(before_pc, to_b);
+    basic_block_properties_t &before_bbprop = *({
+      ip_sharable_lock<ip_upgradable_mutex> to_s_lck_ICFG(to_b.Analysis.ICFG_mtx);
+
+      &to_ICFG[before_bb];
+    });
+    auto &before_Term = before_bbprop.Term;
+
+    bool isCall = before_Term.Type == TERMINATOR::CALL;
+    bool isIndirectCall = before_Term.Type == TERMINATOR::INDIRECT_CALL;
+    if (isCall || isIndirectCall) {
+      assert(boost::out_degree(before_bb, to_ICFG) <= 1);
+
+      if (isCall) {
+        if (likely(is_function_index_valid(before_Term._call.Target)))
+          to_b.Analysis.Functions.at(before_Term._call.Target).Returns = true;
+      }
+
+      ip_scoped_lock<ip_upgradable_mutex> to_e_lck(boost::move(to_u_lck));
+      ip_scoped_lock<ip_upgradable_mutex> to_e_lck_ICFG(to_b.Analysis.ICFG_mtx);
+
+      boost::add_edge(before_bb, to_bb, to_ICFG); /* connect */
+    }
+
+    if (IsVeryVerbose())
+      printf("found ret\n");
+    break;
+  }
+
+  default:
+    return;
+  }
+}
+
+std::pair<basic_block_index_t, bool>
+IntelPT::StraightLineAdvance(block_t From, uint64_t GoNoFurther) {
+  const binary_t &b = jv.Binaries.at(From.first);
+  const icfg_t &ICFG = b.Analysis.ICFG;
+
+  basic_block_index_t Res = From.second;
+  for (;; on_block(block_t(From.first, Res))) {
+    basic_block_t bb = basic_block_of_index(Res, b);
+    const basic_block_properties_t &bbprop = ICFG[bb];
+
+    if (bbprop.Addr == GoNoFurther)
+      return std::make_pair(Res, true);
+
+    switch (bbprop.Term.Type) {
+    case TERMINATOR::UNCONDITIONAL_JUMP:
+    case TERMINATOR::NONE: {
+      icfg_t::adjacency_iterator succ_it, succ_it_end;
+      std::tie(succ_it, succ_it_end) = boost::adjacent_vertices(bb, ICFG);
+      if (unlikely(succ_it == succ_it_end))
+        break;
+
+      Res = index_of_basic_block(ICFG, *succ_it);
+      continue;
+    }
+    case TERMINATOR::CALL: {
+      function_index_t CalleeIdx = bbprop.Term._call.Target;
+      if (unlikely(!is_function_index_valid(CalleeIdx)))
+        break;
+
+      Res = b.Analysis.Functions.at(CalleeIdx).Entry;
+      continue;
+    }
+    case TERMINATOR::CONDITIONAL_JUMP:
+      //
+      // recognize this:
+      //
+      // ┌─────────────────────────────────────┐
+      // │                                     │ ───┐
+      // │ rep  stosq qword ptr es:[rdi], rax  │    │
+      // │                                     │ ◀──┘
+      // └─────────────────────────────────────┘
+      //
+      // there are no TNT packets for this "single-instruction" loop. we just
+      // need to move past it.
+      //
+      if (unlikely(bbprop.IsSingleInstruction())) {
+        if (likely(boost::out_degree(bb, ICFG) == 2)) {
+          icfg_t::adjacency_iterator succ_it, succ_it_end;
+          std::tie(succ_it, succ_it_end) = boost::adjacent_vertices(bb, ICFG);
+
+          basic_block_t succ1 = *succ_it++;
+          basic_block_t succ2 = *succ_it++;
+
+          assert(succ_it == succ_it_end);
+
+          if (succ1 == bb) {
+            Res = succ2;
+            continue;
+          } else if (succ2 == bb) {
+            Res = succ1;
+            continue;
+          }
+        }
+      }
+      break;
+    }
+
+    break;
+  }
+
+  return std::make_pair(Res, false);
+}
+
+void IntelPT::on_block(block_t block) {
+  if (likely(!IsVeryVerbose()))
+    return;
+
+  const binary_t &b = jv.Binaries.at(block.first);
+  const icfg_t &ICFG = b.Analysis.ICFG;
+
+  uint64_t va = ICFG[basic_block_of_index(block.second, b)].Addr;
+  auto &x = state.for_binary(b);
+  uint64_t off = B::offset_of_va(*x.Bin, va);
+  fprintf(stderr, "%016" PRIx64 "\n",
+          off + (state.for_binary(b).LoadAddr -
+                 state.for_binary(b).LoadOffset));
+  fprintf(stdout, "%016" PRIx64 " %" PRIx64 "\t%s\n",
+          off + (state.for_binary(b).LoadAddr - state.for_binary(b).LoadOffset),
+          va, b.Name.c_str());
+}
+
+basic_block_index_t IntelPT::Advance(block_t From, uint64_t tnt, uint8_t n) {
+  assert(n > 0);
+
+  if (IsVeryVerbose())
+    printf("<TNT>\n");
+
+  const binary_t &b = jv.Binaries.at(From.first);
+  const icfg_t &ICFG = b.Analysis.ICFG;
+
+  basic_block_index_t Res = From.second;
+  do {
+    Res = StraightLineAdvance(block_t(From.first, Res)).first;
+
+    basic_block_t bb = basic_block_of_index(Res, b);
+    const basic_block_properties_t &bbprop = ICFG[bb];
+
+    if (unlikely(bbprop.Term.Type != TERMINATOR::CONDITIONAL_JUMP) ||
+        unlikely(boost::out_degree(bb, ICFG) == 0)) {
+      fprintf(stderr, "not/invalid conditional branch @ %s+%" PRIx64 " (%s)\n",
+              b.Name.c_str(), static_cast<uint64_t>(bbprop.Addr),
+              string_of_terminator(bbprop.Term.Type));
+      throw tnt_error();
+    }
+
+    icfg_t::adjacency_iterator succ_it, succ_it_end;
+    std::tie(succ_it, succ_it_end) = boost::adjacent_vertices(bb, ICFG);
+    assert(succ_it != succ_it_end);
+
+    if (unlikely(boost::out_degree(bb, ICFG) == 1)) {
+      Res = index_of_basic_block(ICFG, *succ_it);
+      continue;
+    }
+
+    assert(boost::out_degree(bb, ICFG) == 2);
+
+    basic_block_t succ1 = *succ_it++;
+    basic_block_t succ2 = *succ_it++;
+
+    assert(succ_it == succ_it_end);
+
+    const bool NotTaken = !(tnt & (1ull << (n - 1)));
+
+    const bool NotTaken1 = ICFG[succ1].Addr == bbprop.Addr + bbprop.Size;
+    if (NotTaken)
+      Res = index_of_basic_block(ICFG, NotTaken1 ? succ1 : succ2);
+    else
+      Res = index_of_basic_block(ICFG, NotTaken1 ? succ2 : succ1);
+
+#if 0
+    const char *extra = n > 1 ? " " : "";
+    printf("%d%s", (int)Taken, extra); /* FIXME */
+#endif
+
+    on_block(block_t(From.first, Res));
+  } while (--n);
+
+  Res = StraightLineAdvance(block_t(From.first, Res)).first;
+
+  if (IsVeryVerbose())
+    printf("</TNT>\n");
+
+  return Res;
 }
 
 void IntelPT::ptdump_tracking_init(void)
