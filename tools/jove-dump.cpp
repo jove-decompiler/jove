@@ -98,11 +98,11 @@ void DumpTool::dumpDecompilation(const jv_t& jv) {
 
     const auto &ICFG = B.Analysis.ICFG;
 
-    if (is_function_index_valid(B.Analysis.EntryFunction) &&
-        B.Analysis.EntryFunction < B.Analysis.Functions.size()) {
-      const function_t &entryFunc =
-          B.Analysis.Functions.at(B.Analysis.EntryFunction);
-      Writer.printHex("Entry", ICFG[basic_block_of_index(entryFunc.Entry, ICFG)].Addr);
+    if (is_function_index_valid(B.Analysis.EntryFunction)) {
+      const function_t &f = B.Analysis.Functions.at(B.Analysis.EntryFunction);
+      Writer.printString("Entry", (fmt("0x%lX") % entry_address_of_function(f, B)).str());
+    } else {
+      Writer.printString("Entry", "<invalid>");
     }
 
     {
