@@ -146,9 +146,14 @@ void DumpTool::dumpDecompilation(const jv_t& jv) {
 
           if (ICFG[bb].Term.Type == TERMINATOR::CALL) {
             //Writer.printBoolean("Returns", ICFG[bb].Term._call.Returns);
+            function_index_t CalleeIdx = ICFG[bb].Term._call.Target;
 
-            const function_t &f = B.Analysis.Functions.at(ICFG[bb].Term._call.Target);
-            Writer.printString("Target", (fmt("0x%lX") % ICFG[basic_block_of_index(f.Entry, ICFG)].Addr).str());
+            if (is_function_index_valid(CalleeIdx)) {
+              const function_t &f = B.Analysis.Functions.at(CalleeIdx);
+              Writer.printString("Target", (fmt("0x%lX") % entry_address_of_function(f, B)).str());
+            } else {
+              Writer.printString("Target", "<invalid>");
+            }
           }
 
           if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP)
