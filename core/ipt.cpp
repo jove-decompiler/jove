@@ -183,7 +183,17 @@ void IntelPT::examine_sb(void) {
         Our.tid = tid;
 
         if (IsVerbose())
-          fprintf(stderr, "our tid is %x\n", tid);
+          fprintf(stderr, "our pid/tid is %x/%x\n",
+                  static_cast<unsigned>(pid),
+                  static_cast<unsigned>(tid));
+      } else if (Our.pid == pid || Our.tid == tid) {
+        if (IsVerbose())
+          fprintf(stderr, "our pid/tid is no longer %x/%x\n",
+                  static_cast<unsigned>(Our.pid),
+                  static_cast<unsigned>(Our.tid));
+
+        Our.pid = ~0u;
+        Our.tid = ~0u;
       }
     };
 
@@ -221,6 +231,7 @@ void IntelPT::examine_sb(void) {
       } else {
         unexpected_rest();
       }
+      CheckEngaged();
       break;
 
     case 'I':
