@@ -481,7 +481,7 @@ index e5050b5b..a37142aa 100644
      }
  
 diff --git a/include/boost/graph/detail/adjacency_list.hpp b/include/boost/graph/detail/adjacency_list.hpp
-index 7fb2c493..6818d118 100644
+index ed5a1d48..c760b03a 100644
 --- a/include/boost/graph/detail/adjacency_list.hpp
 +++ b/include/boost/graph/detail/adjacency_list.hpp
 @@ -1790,41 +1790,42 @@ class adj_list_impl : public adj_list_helper< Config, Base >
@@ -626,7 +626,7 @@ index 7fb2c493..6818d118 100644
      template < class EdgeIterator >
      inline vec_adj_list_impl(
          vertices_size_type num_vertices, EdgeIterator first, EdgeIterator last)
-@@ -2167,115 +2172,117 @@ public:
+@@ -2167,119 +2172,123 @@ public:
      //    protected:
      inline boost::integer_range< vertex_descriptor > vertex_set() const
      {
@@ -653,8 +653,12 @@ index 7fb2c493..6818d118 100644
          }
          // Copy the edges by adding each edge and copying its
          // property object.
+ #ifdef BOOST_NO_CXX17_STRUCTURED_BINDINGS
          edge_iterator ei, ei_end;
          for (boost::tie(ei, ei_end) = edges(x); ei != ei_end; ++ei)
+ #else // Silences -Wmaybe-uninitialized in adj_list_edge_iterator::operator++().
+         for (auto [ei, ei_end] = edges(x); ei != ei_end; ++ei)
+ #endif
          {
              edge_descriptor e;
              bool inserted;
@@ -684,7 +688,7 @@ index 7fb2c493..6818d118 100644
  
  // O(1)
 -template < class Graph, class Config, class Base >
-+template < class Graph, class Config, class Base, class... _AllocArg  >
++template < class Graph, class Config, class Base, class... _AllocArg >
  inline typename Config::vertex_descriptor add_vertex(
 -    vec_adj_list_impl< Graph, Config, Base >& g_)
 +    vec_adj_list_impl< Graph, Config, Base >& g_, _AllocArg&&... AllocArg)
@@ -715,21 +719,20 @@ index 7fb2c493..6818d118 100644
  // Here we override the directed_graph_helper add_edge() function
  // so that the number of vertices is automatically changed if
  // either u or v is greater than the number of vertices.
--template < class Graph, class Config, class Base >
-+template < class Graph, class Config, class Base, class... _AllocArg >
+ template < class Graph, class Config, class Base >
  inline std::pair< typename Config::edge_descriptor, bool > add_edge(
      typename Config::vertex_descriptor u, typename Config::vertex_descriptor v,
      const typename Config::edge_property_type& p,
--    vec_adj_list_impl< Graph, Config, Base >& g_)
-+    vec_adj_list_impl< Graph, Config, Base >& g_, _AllocArg&&... AllocArg)
+     vec_adj_list_impl< Graph, Config, Base >& g_)
  {
      BOOST_USING_STD_MAX();
-+#if 1
      typename Config::vertex_descriptor x
          = max BOOST_PREVENT_MACRO_SUBSTITUTION(u, v);
      if (x >= num_vertices(g_))
--        g_.m_vertices.resize(x + 1);
-+        abort(); //g_.m_vertices.resize(x + 1);
++#if 0
+         g_.m_vertices.resize(x + 1);
++#else
++        std::abort();
 +#endif
      adj_list_helper< Config, Base >& g = g_;
      return add_edge(u, v, p, g);
@@ -751,7 +754,7 @@ index 7fb2c493..6818d118 100644
      typedef typename Config::directed_category Cat;
      Graph& g = static_cast< Graph& >(g_);
      g.removing_vertex(
-@@ -2415,75 +2422,78 @@ namespace detail
+@@ -2419,75 +2428,78 @@ namespace detail
              typedef adj_list_edge_iterator< vertex_iterator, out_edge_iterator,
                  graph_type >
                  DirectedEdgeIter;
@@ -834,7 +837,7 @@ index 7fb2c493..6818d118 100644
      };
  
 diff --git a/include/boost/pending/container_traits.hpp b/include/boost/pending/container_traits.hpp
-index 8bf113a3..9005e5e0 100644
+index 8bf113a3..0f1361d5 100644
 --- a/include/boost/pending/container_traits.hpp
 +++ b/include/boost/pending/container_traits.hpp
 @@ -5,40 +5,42 @@
@@ -880,7 +883,7 @@ index 8bf113a3..9005e5e0 100644
  // The content of this file is in 'graph_detail' because otherwise
  // there will be name clashes with
  // sandbox/boost/sequence_algo/container_traits.hpp
-@@ -139,93 +141,154 @@ namespace graph_detail
+@@ -139,93 +141,153 @@ namespace graph_detail
  
      template < class T, class Alloc >
      vector_tag container_category(const std::vector< T, Alloc >&)
@@ -901,7 +904,7 @@ index 8bf113a3..9005e5e0 100644
          typedef unstable_tag iterator_stability;
      };
  
-+    // boost::vector
++    // boost::container::vector
 +    template < class T, class Alloc >
 +    vector_tag container_category(const boost::container::vector< T, Alloc >&)
 +    {
@@ -948,7 +951,7 @@ index 8bf113a3..9005e5e0 100644
          typedef stable_tag iterator_stability;
      };
  
-+    // list
++    // boost::container::list
 +    template < class T, class Alloc >
 +    list_tag container_category(const boost::container::list< T, Alloc >&)
 +    {
@@ -967,7 +970,6 @@ index 8bf113a3..9005e5e0 100644
 +        typedef list_tag category;
 +        typedef stable_tag iterator_stability;
 +    };
-+
 +
      // std::set
      struct set_tag : virtual public sorted_associative_container_tag,
