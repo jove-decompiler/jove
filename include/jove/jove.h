@@ -82,13 +82,13 @@ static inline std::string taddr2str(taddr_t x, bool zero_padded = true) {
 enum class TERMINATOR : uint8_t {
   UNKNOWN,
   UNCONDITIONAL_JUMP,
+  NONE,
+  CALL,
   CONDITIONAL_JUMP,
   INDIRECT_CALL,
   INDIRECT_JUMP,
-  CALL,
   RETURN,
-  UNREACHABLE,
-  NONE
+  UNREACHABLE
 };
 
 typedef uint32_t binary_index_t;
@@ -96,6 +96,7 @@ typedef uint32_t function_index_t;
 typedef uint32_t basic_block_index_t;
 
 typedef std::pair<binary_index_t, function_index_t> dynamic_target_t;
+typedef std::pair<binary_index_t, basic_block_index_t> block_t;
 
 constexpr binary_index_t
     invalid_binary_index = std::numeric_limits<binary_index_t>::max();
@@ -106,6 +107,9 @@ constexpr basic_block_index_t
 constexpr dynamic_target_t
     invalid_dynamic_target(invalid_binary_index,
                            invalid_function_index);
+constexpr block_t
+    invalid_block(invalid_binary_index,
+                  invalid_basic_block_index);
 
 constexpr bool is_binary_index_valid(binary_index_t idx) {
   return idx != invalid_binary_index;
@@ -117,6 +121,10 @@ constexpr bool is_basic_block_index_valid(basic_block_index_t idx) {
   return idx != invalid_basic_block_index;
 }
 constexpr bool is_dynamic_target_valid(dynamic_target_t X) {
+  return is_binary_index_valid(X.first) &&
+         is_function_index_valid(X.second);
+}
+constexpr bool is_block_valid(block_t X) {
   return is_binary_index_valid(X.first) &&
          is_function_index_valid(X.second);
 }
@@ -283,7 +291,7 @@ typedef boost::interprocess::set<
     boost::interprocess::allocator<binary_index_t, segment_manager_t>>
     ip_binary_index_set;
 
-typedef std::set<dynamic_target_t> dynamic_target_set;
+typedef boost::unordered_flat_set<dynamic_target_t> dynamic_target_set;
 
 typedef std::pair<taddr_t, unsigned> addr_intvl; /* right open interval */
 
@@ -1434,6 +1442,12 @@ constexpr binary_index_t index_of_binary(const binary_t &b, const jv_t &jv) {
   return res;
 }
 
+constexpr binary_index_t index_of_binary(const binary_t &b) {
+  binary_index_t res = b.Idx;
+  assert(is_binary_index_valid(res));
+  return res;
+}
+
 constexpr function_index_t index_of_function_in_binary(const function_t &f,
                                                        const binary_t &b) {
   function_index_t res = f.Idx;
@@ -1601,6 +1615,11 @@ index_of_basic_block_starting_at_address(taddr_t Addr, const binary_t &b) {
   return res;
 }
 
+static inline basic_block_t
+basic_block_starting_at_address(taddr_t Addr, const binary_t &b) {
+  return basic_block_of_index(index_of_basic_block_starting_at_address(Addr, b), b);
+}
+
 static inline basic_block_t basic_block_at_address(taddr_t Addr,
                                                    const binary_t &b) {
   return basic_block_of_index(index_of_basic_block_at_address(Addr, b), b);
@@ -1653,9 +1672,26 @@ static inline bool exists_indirect_jump_at_address(taddr_t Addr,
 }
 
 static inline taddr_t entry_address_of_function(const function_t &f,
-                                                 const binary_t &binary) {
+                                                const binary_t &binary) {
   const auto &ICFG = binary.Analysis.ICFG;
   return ICFG[basic_block_of_index(f.Entry, binary)].Addr;
+}
+
+static inline taddr_t address_of_block_in_binary(basic_block_index_t BBIdx,
+                                                 const binary_t &b) {
+  return b.Analysis.ICFG[basic_block_of_index(BBIdx, b)].Addr;
+}
+
+static inline taddr_t address_of_block(const block_t &block,
+                                       const jv_t &jv) {
+  const binary_t &b = jv.Binaries.at(block.first);
+  return address_of_block_in_binary(block.second, b);
+}
+
+static inline taddr_t address_of_block_terminator(const block_t &Block,
+                                                  const jv_t &jv) {
+  const binary_t &b = jv.Binaries.at(Block.first);
+  return b.Analysis.ICFG[basic_block_of_index(Block.second, b)].Term.Addr;
 }
 
 static inline void construct_bbmap(const jv_t &jv,
