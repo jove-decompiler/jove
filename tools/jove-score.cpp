@@ -68,15 +68,15 @@ int ScoreTool::Run(void) {
   if (is_binary_index_valid(SingleBinaryIndex)) {
     binary_t &binary = jv.Binaries.at(SingleBinaryIndex);
 
-    HumanOut() << (fmt("%.3f\n") % compute_score(jv, binary)).str();
+    llvm::outs() << (fmt("%.3f\n") % compute_score(jv, binary)).str();
   } else {
     for_each_binary(jv, [&](binary_t &binary) {
       if (binary.IsVDSO)
         return;
 
-      HumanOut() << (fmt("%.3f %s\n")
-                     % compute_score(jv, binary)
-                     % binary.Name).str();
+        llvm::outs() << (fmt("%.3f %s\n")
+                         % compute_score(jv, binary)
+                         % binary.Name).str();
     });
   }
 
