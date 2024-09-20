@@ -327,7 +327,8 @@ struct allocates_basic_block_t {
   allocates_basic_block_t () = default;
 
   // allocates (creates) new basic block in binary, stores index
-  inline allocates_basic_block_t(binary_t &b, basic_block_index_t &store);
+  inline allocates_basic_block_t(binary_t &b, basic_block_index_t &store,
+                                 taddr_t Addr);
 
   operator basic_block_index_t() const { return BBIdx; }
 };
@@ -633,7 +634,7 @@ struct binary_t {
   ip_upgradable_mutex bbmap_mtx;
 
   struct Analysis_t {
-    function_index_t EntryFunction;
+    function_index_t EntryFunction = invalid_function_index;
 
     //
     // references to function_t will never be invalidated.
@@ -768,17 +769,21 @@ struct binary_t {
 };
 
 allocates_basic_block_t::allocates_basic_block_t(binary_t &b,
-                                                 basic_block_index_t &store) {
-  icfg_t &ICFG = b.Analysis.ICFG;
+                                                 basic_block_index_t &store,
+                                                 taddr_t Addr) {
+  basic_block_index_t Idx = invalid_basic_block_index;
 
   {
     ip_scoped_lock<ip_upgradable_mutex> e_lck(b.Analysis.ICFG_mtx);
 
-    BBIdx = boost::num_vertices(ICFG);
-    (void)boost::add_vertex(ICFG, b.get_allocator());
+    icfg_t &ICFG = b.Analysis.ICFG;
+    Idx = boost::num_vertices(ICFG);
+    basic_block_t bb = boost::add_vertex(ICFG, b.get_allocator());
+    ICFG[bb].Addr = Addr;
   }
 
-  store = BBIdx;
+  store = Idx;
+  BBIdx = Idx;
 }
 
 allocates_function_t::allocates_function_t(binary_t &b,
@@ -1055,6 +1060,7 @@ description_of_terminator_info(const terminator_info_t &T,
 constexpr basic_block_t basic_block_of_index(basic_block_index_t BBIdx,
                                              const icfg_t &ICFG) {
   assert(is_basic_block_index_valid(BBIdx));
+  assert(BBIdx < boost::num_vertices(ICFG));
 
   return boost::vertex(BBIdx, ICFG);
 }
@@ -1669,6 +1675,11 @@ static inline bool exists_indirect_jump_at_address(taddr_t Addr,
   }
 
   return false;
+}
+
+static inline taddr_t address_of_basic_block(basic_block_t bb,
+                                             const icfg_t &ICFG) {
+  return ICFG[bb].Addr;
 }
 
 static inline taddr_t entry_address_of_function(const function_t &f,

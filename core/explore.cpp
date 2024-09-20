@@ -294,13 +294,14 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
 #if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
   assert((Addr & 1) == 0);
 #endif
+  assert(Addr);
 
   auto &ICFG = b.Analysis.ICFG;
 
   basic_block_index_t Idx = invalid_basic_block_index;
   {
     bool inserted = b.bbbmap.try_emplace_or_cvisit(
-        Addr, std::ref(b), std::ref(Idx),
+        Addr, std::ref(b), std::ref(Idx), static_cast<taddr_t>(Addr),
         [&](const typename bbbmap_t::value_type &x) { Idx = x.second; });
 
     assert(is_basic_block_index_valid(Idx));
@@ -452,48 +453,52 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
     abort();
   }
 
-  basic_block_t bb = basic_block_of_index(Idx, ICFG);
-  auto &bbprop = b.prop(bb);
+  {
+    basic_block_t bb = basic_block_of_index(Idx, ICFG);
+    auto &bbprop = b.prop(bb);
 
-  bbprop.Speculative = Speculative;
-  bbprop.Addr = Addr;
-  bbprop.Size = Size;
-  bbprop.Term.Type = T.Type;
-  bbprop.Term.Addr = T.Addr;
-  bbprop.DynTargetsComplete = false;
-  bbprop.Term._call.Target = invalid_function_index;
-  bbprop.Term._indirect_jump.IsLj = false;
-  bbprop.Sj = false;
-  bbprop.Term._return.Returns = false;
-  bbprop.InvalidateAnalysis();
+    bbprop.Speculative = Speculative;
+    bbprop.Addr = Addr;
+    bbprop.Size = Size;
+    bbprop.Term.Type = T.Type;
+    bbprop.Term.Addr = T.Addr;
+    bbprop.DynTargetsComplete = false;
+    bbprop.Term._call.Target = invalid_function_index;
+    bbprop.Term._indirect_jump.IsLj = false;
+    bbprop.Sj = false;
+    bbprop.Term._return.Returns = false;
+    bbprop.InvalidateAnalysis();
 
-  addr_intvl intervl(bbprop.Addr, bbprop.Size);
-  if (likely(!Speculative)) {
-    ip_scoped_lock<ip_upgradable_mutex> e_lck_bbmap(boost::move(*u_lck_bbmap));
+    addr_intvl intervl(bbprop.Addr, bbprop.Size);
+    if (likely(!Speculative)) {
+      ip_scoped_lock<ip_upgradable_mutex> e_lck_bbmap(
+          boost::move(*u_lck_bbmap));
+
+      //
+      // update bbmap
+      //
+      bbmap_add(b.bbmap, intervl, Idx);
+    }
 
     //
-    // update bbmap
+    // a new basic block has been created and (maybe) added to bbmap
     //
-    bbmap_add(b.bbmap, intervl, Idx);
+    if (unlikely(this->verbose))
+      llvm::errs() << llvm::formatv(
+          "{0} {1}\t\t\t\t\t\t{2}\n", description_of_block(bbprop, false),
+          description_of_terminator_info(T, false), b.Name.c_str());
+
+    this->on_newbb_proc(b, bb);
   }
-
-  //
-  // a new basic block has been created and (maybe) added to bbmap
-  //
-  if (unlikely(this->verbose))
-    llvm::errs() << llvm::formatv(
-        "{0} {1}\t\t\t\t\t\t{2}\n", description_of_block(ICFG[bb], false),
-        description_of_terminator_info(T, false), b.Name.c_str());
-
-  this->on_newbb_proc(b, bb);
 
   auto control_flow_to = [&](uint64_t Target) -> void {
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
     Target &= ~1UL;
 #endif
 
-    _control_flow_to(b, Bin, T.Addr ?: Addr, Target, Speculative,
-                     bb /* unused if !Speculative */);
+    _control_flow_to(
+        b, Bin, T.Addr ?: Addr, Target, Speculative,
+        basic_block_of_index(Idx, ICFG) /* unused if !Speculative */);
   };
 
   switch (T.Type) {
@@ -535,7 +540,7 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
     callee.Callers.emplace(b.Idx /* may =invalid */, T.Addr);
 
     if (unlikely(Speculative)) {
-      bbprop.Term._call.Target = CalleeFIdx;
+      ICFG[basic_block_of_index(Idx, ICFG)].Term._call.Target = CalleeFIdx;
     } else {
       ip_sharable_lock<ip_upgradable_mutex> s_lck_bbmap(b.bbmap_mtx);
 
