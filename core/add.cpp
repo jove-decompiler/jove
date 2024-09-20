@@ -31,6 +31,9 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
   b.IsDynamicallyLoaded = false;
 
   auto BasicBlockAtAddress = [&](uint64_t Entrypoint) -> basic_block_index_t {
+    if (!Entrypoint)
+      return invalid_basic_block_index;
+
     try {
       return E.explore_basic_block(b, *Bin, Entrypoint);
     } catch (...) {
@@ -38,6 +41,9 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
     }
   };
   auto FunctionAtAddress = [&](uint64_t Entrypoint) -> function_index_t {
+    if (!Entrypoint)
+      return invalid_function_index;
+
     // let's be extra careful.
     if (unlikely(!is_basic_block_index_valid(BasicBlockAtAddress(Entrypoint))))
       return invalid_function_index;
@@ -133,7 +139,7 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
   if (EntryAddr) {
     llvm::outs() << llvm::formatv("entry point @ {0:x}\n", EntryAddr);
 
-    b.Analysis.EntryFunction = E.explore_function(b, O, EntryAddr);
+    b.Analysis.EntryFunction = FunctionAtAddress(EntryAddr);
   } else {
     b.Analysis.EntryFunction = invalid_function_index;
   }
@@ -468,7 +474,7 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
       }
 
       if (entryRVA)
-        E.explore_function(b, O, coff::va_of_rva(O, entryRVA));
+        b.Analysis.EntryFunction = FunctionAtAddress(coff::va_of_rva(O, entryRVA));
 
       auto exp_itr = O.export_directories();
       for_each_if(std::execution::par_unseq,
