@@ -69,6 +69,7 @@ extern "C" void jv_term_is_none(uint64_t NextPC) {
 }
 
 extern "C" void jv_term_is_unreachable(void) {
+  jv_ti.Addr = 0;
   jv_ti.Type = jove::TERMINATOR::UNREACHABLE;
 }
 
@@ -105,6 +106,7 @@ extern "C" void jv_set_end_pc(uint64_t EndPC) {
 }
 
 extern "C" void jv_illegal_op(uint64_t PC) {
+  jv_ti.Addr = 0;
   throw jove::illegal_op_exception(PC);
 }
 
