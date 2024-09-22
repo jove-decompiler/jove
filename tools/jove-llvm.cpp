@@ -1708,7 +1708,11 @@ void AnalyzeBasicBlock(tiny_code_generator_t &TCG,
   jove::terminator_info_t T;
   do {
     unsigned len;
-    std::tie(len, T) = TCG.translate(Addr + size, Addr + Size);
+    try {
+      std::tie(len, T) = TCG.translate(Addr + size, Addr + Size);
+    } catch (const illegal_op_exception &) {
+      break;
+    }
 
     TCGContext *s = jv_get_tcg_context();
 
