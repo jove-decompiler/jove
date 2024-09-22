@@ -24,9 +24,9 @@ typedef boost::format fmt;
 
 IntelPT::IntelPT(int ptdump_argc, char **ptdump_argv, jv_t &jv,
                  explorer_t &explorer, unsigned cpu,
-                 const address_space_t &AddressSpace, void *begin, void *end,
+                 const address_space_t &AddressSpaceInit, void *begin, void *end,
                  unsigned verbose, bool ignore_trunc_aux)
-    : jv(jv), explorer(explorer), state(jv), AddressSpace(AddressSpace),
+    : jv(jv), explorer(explorer), state(jv), AddressSpaceInit(AddressSpaceInit),
       v(verbose >= 1), vv(verbose >= 2), ignore_trunc_aux(ignore_trunc_aux) {
   Our.cpu = cpu;
 
@@ -148,8 +148,8 @@ void IntelPT::examine_sb(void) {
     }
     *eol = '\0';
 
-    if (IsVeryVerbose())
-      printf("%s\n", line);
+    if (IsVerbose())
+      fprintf(stderr, "%s\n", line);
 
     static const char sb_line_prefix[] = "PERF_RECORD_";
     constexpr unsigned sb_line_prefix_len = sizeof(sb_line_prefix)-1;
@@ -168,7 +168,15 @@ void IntelPT::examine_sb(void) {
 
     char *rest = line + sb_line_prefix_len;
 
-    auto do_comm = [&](void) -> void {
+    auto init_address_space = [&](void) -> void {
+      AddressSpace.clear();
+      for (const auto &pair : AddressSpaceInit) {
+        intvl_map_add(AddressSpace, pair.first,
+                      std::make_pair(pair.second, ~0UL));
+      }
+    };
+
+    auto do_comm_exec = [&](void) -> void {
       unsigned pid, tid;
       char comm[64];
       comm[0] = '\0';
@@ -176,7 +184,7 @@ void IntelPT::examine_sb(void) {
       sscanf(rest, "%x/%x, %63s  {", &pid, &tid, &comm[0]);
 
       if (IsVerbose())
-        printf("comm=%s\n", comm);
+        fprintf(stderr, "comm=%s\n", comm);
 
       if (boost::algorithm::ends_with(jv.Binaries.at(0).Name.c_str(), comm)) {
         Our.pid = pid;
@@ -186,14 +194,20 @@ void IntelPT::examine_sb(void) {
           fprintf(stderr, "our pid/tid is %x/%x\n",
                   static_cast<unsigned>(pid),
                   static_cast<unsigned>(tid));
+
+        init_address_space();
       } else if (Our.pid == pid || Our.tid == tid) {
         if (IsVerbose())
-          fprintf(stderr, "our pid/tid is no longer %x/%x\n",
+          fprintf(stderr, "WARNING: our pid exec'd %x/%x\n",
                   static_cast<unsigned>(Our.pid),
                   static_cast<unsigned>(Our.tid));
 
+#if 0
         Our.pid = ~0u;
         Our.tid = ~0u;
+#endif
+
+        init_address_space();
       }
     };
 
@@ -225,9 +239,9 @@ void IntelPT::examine_sb(void) {
 
     case 'C':
       if (MATCHES_REST("COMM.EXEC")) {
-        do_comm();
+        do_comm_exec();
       } else if (MATCHES_REST("COMM")) {
-        do_comm();
+        //do_comm();
       } else {
         unexpected_rest();
       }
@@ -280,7 +294,6 @@ void IntelPT::examine_sb(void) {
                &_.pid, &_.tid, &_.time, &_.cpu, &_.identifier);
 
         if (_.cpu == Our.cpu) {
-          Curr.cpu = _.cpu;
           Curr.pid = _.pid;
           Curr.tid = _.tid;
         }
@@ -289,7 +302,6 @@ void IntelPT::examine_sb(void) {
                &_.pid, &_.tid, &_.time, &_.cpu, &_.identifier);
 
         if (_.cpu == Our.cpu) {
-          Curr.cpu = _.cpu;
           Curr.pid = _.pid;
           Curr.tid = _.tid;
         }
@@ -322,13 +334,21 @@ void IntelPT::examine_sb(void) {
 
                      &_.pid, &_.tid, &_.time, &_.cpu, &_.identifier);
 
-        if (intvl_map_find(AddressSpace, addr) != AddressSpace.end()) {
-          //fprintf(stderr, "previous mapping exists at 0x%" PRIx64 "\n", addr);
-          continue;
-        }
-
         if (pid != Our.pid)
           continue;
+
+        {
+          auto it = intvl_map_find(AddressSpace, addr);
+          if (it != AddressSpace.end()) {
+            if (IsVeryVerbose())
+              fprintf(stderr, "previous mapping exists at 0x%" PRIx64 "\n",
+                      addr);
+#if 0
+            continue;
+#endif
+            AddressSpace.erase(it);
+          }
+        }
 
         assert(strlen(name) > 0);
 
@@ -370,10 +390,13 @@ void IntelPT::examine_sb(void) {
           binary_t &b = jv.Binaries.at(BIdx);
           binary_state_t &x = state.for_binary(b);
 
-          intvl_map_add(AddressSpace, addr_intvl(addr, len), BIdx);
+          const addr_intvl intvl(addr, len);
+          intvl_map_add(AddressSpace, intvl, std::make_pair(BIdx, pgoff));
 
-          x.LoadAddr = static_cast<taddr_t>(addr);
-          x.LoadOffset = pgoff;
+          if (IsVeryVerbose()) {
+            std::string s = addr_intvl2str(intvl);
+            fprintf(stderr, "%s loaded at %s\n", b.Name.c_str(), s.c_str());
+          }
         }
       } else {
         unexpected_rest();
@@ -628,8 +651,12 @@ int IntelPT::tnt_payload(const struct pt_packet_tnt *packet) {
   } catch (const tnt_error &) {
     const binary_t &b = jv.Binaries.at(SavedStart.first);
 
-    fprintf(stderr, "tnt error from %s+%" PRIx64 "\n", b.Name.c_str(),
-            static_cast<uint64_t>(address_of_block_in_binary(SavedStart.second, b)));
+    if (IsVerbose())
+      fprintf(stderr, "tnt error from %s+%" PRIx64 "\n", b.Name.c_str(),
+              static_cast<uint64_t>(address_of_block_in_binary(SavedStart.second, b)));
+
+    Curr.Block = invalid_block;
+    Curr.TermAddr = ~0UL;
     return 1;
   }
 
@@ -655,8 +682,9 @@ int IntelPT::track_last_ip(const struct pt_packet_ip *packet, uint64_t offset) {
   if (unlikely(errcode < 0)) {
     if (errcode == -pte_ip_suppressed) {
       if (IsVeryVerbose())
-        printf("<suppressed>\n");
+        fprintf(stderr, "<suppressed>\n");
       Curr.Block = invalid_block;
+      Curr.TermAddr = ~0UL;
       //print_field(buffer->tracking.payload, "<suppressed>");
     } else {
       //print_field(buffer->tracking.payload, "<unavailable>");
@@ -667,36 +695,39 @@ int IntelPT::track_last_ip(const struct pt_packet_ip *packet, uint64_t offset) {
     }
   } else {
     //print_field(buffer->tracking.payload, "%016" PRIx64, ip);
-    on_ip(ip);
+    on_ip(ip, offset);
   }
 
   return 0;
 }
 
-int IntelPT::on_ip(const uint64_t IP) {
-  if (!Engaged)
+int IntelPT::on_ip(const uint64_t IP, const uint64_t offset) {
+  if (!Engaged) {
+    if (IsVeryVerbose())
+      fprintf(stderr, "%" PRIx64 "\t__IP %016" PRIx64 " [%x:%x]\n", offset,
+              IP, Curr.pid, Curr.tid);
     return 0;
+  }
 
   auto it = intvl_map_find(AddressSpace, IP);
   if (unlikely(it == AddressSpace.end())) {
     if (IsVeryVerbose())
-      printf("unknown IP %016" PRIx64 "\n", IP);
+      fprintf(stderr, "%" PRIx64 "\tunknown IP %016" PRIx64 "\n", offset, IP);
 
     Curr.Block = invalid_block;
+    Curr.TermAddr = ~0UL;
     return 1;
   }
 
-  const binary_index_t BIdx = (*it).second;
+  const binary_index_t BIdx = (*it).second.first;
   if (unlikely(!is_binary_index_valid(BIdx))) {
     if (IsVeryVerbose())
-      printf("ambiguous IP %016" PRIx64 "\n", IP);
+      fprintf(stderr, "ambiguous IP %016" PRIx64 "\n", IP);
 
     Curr.Block = invalid_block;
+    Curr.TermAddr = ~0UL;
     return 1;
   }
-
-  if (IsVeryVerbose())
-    printf("<IP> %" PRIx64 "\n", IP);
 
   binary_t &b = jv.Binaries.at(BIdx);
   binary_state_t &x = state.for_binary(b);
@@ -704,21 +735,22 @@ int IntelPT::on_ip(const uint64_t IP) {
   uint64_t Addr = B::_X(
       *x.Bin,
       [&](ELFO &O) -> uint64_t {
-        const taddr_t LoadAddr = x.LoadAddr;
+        const taddr_t LoadAddr = (*it).first.first;
+        const uint64_t LoadOffset = (*it).second.second;
         if (!(IP >= LoadAddr)) {
         fprintf(stderr, "WTFF? %" PRIx64 " LoadAddr=%" PRIx64 " LoadOffset=%" PRIx64 "\t\t%s\n",
-                (uint64_t)IP, (uint64_t)LoadAddr, (uint64_t)x.LoadOffset, b.Name.c_str());
+                (uint64_t)IP, (uint64_t)LoadAddr, (uint64_t)LoadOffset, b.Name.c_str());
         assert(false);
         }
         assert(IP >= LoadAddr);
 
-        uint64_t off = IP - (LoadAddr - x.LoadOffset);
+        uint64_t off = IP - (LoadAddr - LoadOffset);
         try {
         return elf::va_of_offset(O, off);
         } catch (...) {
         std::string as(addr_intvl2str((*it).first));
         fprintf(stderr, "WTF? %" PRIx64 " in %s %" PRIx64 " %" PRIx64 "\t\t%s\n", IP,
-                as.c_str(), (uint64_t)LoadAddr, (uint64_t)x.LoadOffset, b.Name.c_str());
+                as.c_str(), (uint64_t)LoadAddr, (uint64_t)LoadOffset, b.Name.c_str());
         assert(false);
         }
       },
@@ -734,6 +766,10 @@ int IntelPT::on_ip(const uint64_t IP) {
         return coff::va_of_rva(O, RVA);
       });
 
+  if (IsVeryVerbose())
+    fprintf(stderr, "%" PRIx64 "\t<IP> %016" PRIx64 " %s+%" PRIx64 "\n", offset,
+            IP, b.Name.c_str(), Addr);
+
   if (is_block_valid(Curr.Block)) {
     bool WentNoFurther = false;
     {
@@ -743,11 +779,12 @@ int IntelPT::on_ip(const uint64_t IP) {
       std::tie(Curr.Block.second, WentNoFurther) =
           StraightLineAdvance(Curr.Block, Curr.Block.first == BIdx ? Addr : 0u);
       Curr.TermAddr = address_of_block_terminator(Curr.Block, jv);
+      //assert(Curr.TermAddr);
     }
 
     if (WentNoFurther) {
       if (IsVeryVerbose())
-        printf("no further %s+%" PRIx64 "\n</IP>\n", b.Name.c_str(), Addr);
+        fprintf(stderr, "no further %s+%" PRIx64 "\n</IP>\n", b.Name.c_str(), Addr);
       return 0;
     }
   }
@@ -756,28 +793,29 @@ int IntelPT::on_ip(const uint64_t IP) {
   const taddr_t PrevTermAddr = Curr.TermAddr;
 
   try {
-    Curr.Block.first = (*it).second;
+    Curr.Block.first = (*it).second.first;
     Curr.Block.second = explorer.explore_basic_block(b, *x.Bin, Addr);
     Curr.TermAddr = address_of_block_terminator(Curr.Block, jv);
 
     on_block(Curr.Block);
   } catch (const invalid_control_flow_exception &e) {
-    if (IsVeryVerbose()) {
-      printf("BADIP!!! %016" PRIx64 " E %016" PRIx64 "\t\t\t%s\n", IP, Addr,
-             b.Name.c_str());
-      printf("</IP>\n");
-    }
+    fprintf(stderr, "BADIP %" PRIx64 "\t<IP> %" PRIx64 " %s+%" PRIx64 "\n",
+            offset, IP, b.Name.c_str(), Addr);
+
+    if (IsVeryVerbose())
+      fprintf(stderr, "</IP>\n");
 
     Curr.Block = invalid_block;
+    Curr.TermAddr = ~0UL;
     return 1;
   }
 
-  if (likely(is_block_valid(PrevBlock) /* && Curr.Block != PrevBlock */))
+  if (is_block_valid(PrevBlock) && is_block_valid(Curr.Block) && PrevTermAddr)
     block_transfer(PrevBlock.first, PrevTermAddr,
                    Curr.Block.first, address_of_block(Curr.Block, jv));
 
   if (IsVeryVerbose())
-    printf("</IP>\n");
+    fprintf(stderr, "</IP>\n");
 
   return 0;
 }
@@ -802,18 +840,17 @@ void IntelPT::block_transfer(binary_index_t FrBIdx, taddr_t FrTermAddr,
     &to_ICFG[to_bb];
   });
 
+  if (IsVeryVerbose())
+    fprintf(stderr, "%s+%" PRIx64 " ==> "
+           "%s+%" PRIx64 "\n",
+           fr_b.Name.c_str(), (uint64_t)FrTermAddr, to_b.Name.c_str(),
+           (uint64_t)ToAddr);
+
   const auto Term = ({
     ip_sharable_lock<ip_upgradable_mutex> fr_s_lck(fr_b.bbmap_mtx);
 
     fr_ICFG[basic_block_at_address(FrTermAddr, fr_b)].Term;
   });
-
-  if (IsVeryVerbose()) {
-    printf("%s+%" PRIx64 " ==> "
-           "%s+%" PRIx64 "\n",
-           fr_b.Name.c_str(), (uint64_t)FrTermAddr, to_b.Name.c_str(),
-           (uint64_t)ToAddr);
-  }
 
 #if 0
   ip_upgradable_lock<ip_upgradable_mutex> fr_u_lck(fr_b.bbmap_mtx);
@@ -913,7 +950,7 @@ void IntelPT::block_transfer(binary_index_t FrBIdx, taddr_t FrTermAddr,
     }
 
     if (IsVeryVerbose())
-      printf("found ret\n");
+      fprintf(stderr, "found ret\n");
     break;
   }
 
@@ -936,12 +973,18 @@ IntelPT::StraightLineAdvance(block_t From, uint64_t GoNoFurther) {
       return std::make_pair(Res, true);
 
     switch (bbprop.Term.Type) {
+    default:
+      break;
     case TERMINATOR::UNCONDITIONAL_JUMP:
     case TERMINATOR::NONE: {
       icfg_t::adjacency_iterator succ_it, succ_it_end;
       std::tie(succ_it, succ_it_end) = boost::adjacent_vertices(bb, ICFG);
-      if (unlikely(succ_it == succ_it_end))
+      if (unlikely(succ_it == succ_it_end)) {
+        if (IsVerbose())
+          fprintf(stderr, "cant proceed past NONE @ %s+%" PRIx64 "\n",
+                  b.Name.c_str(), bbprop.Addr);
         break;
+      }
 
       Res = index_of_basic_block(ICFG, *succ_it);
       continue;
@@ -1000,24 +1043,21 @@ void IntelPT::on_block(block_t block) {
     return;
 
   const binary_t &b = jv.Binaries.at(block.first);
+  binary_state_t &x = state.for_binary(b);
+
   const icfg_t &ICFG = b.Analysis.ICFG;
 
   uint64_t va = ICFG[basic_block_of_index(block.second, b)].Addr;
-  auto &x = state.for_binary(b);
-  uint64_t off = B::offset_of_va(*x.Bin, va);
-  fprintf(stderr, "%016" PRIx64 "\n",
-          off + (state.for_binary(b).LoadAddr -
-                 state.for_binary(b).LoadOffset));
-  fprintf(stdout, "%016" PRIx64 " %" PRIx64 "\t%s\n",
-          off + (state.for_binary(b).LoadAddr - state.for_binary(b).LoadOffset),
-          va, b.Name.c_str());
+
+  // TODO
+  fprintf(stderr, "%s+%016" PRIx64 " \n", b.Name.c_str(), va);
 }
 
 basic_block_index_t IntelPT::Advance(block_t From, uint64_t tnt, uint8_t n) {
   assert(n > 0);
 
   if (IsVeryVerbose())
-    printf("<TNT>\n");
+    fprintf(stderr, "<TNT>\n");
 
   const binary_t &b = jv.Binaries.at(From.first);
   const icfg_t &ICFG = b.Analysis.ICFG;
@@ -1031,9 +1071,10 @@ basic_block_index_t IntelPT::Advance(block_t From, uint64_t tnt, uint8_t n) {
 
     if (unlikely(bbprop.Term.Type != TERMINATOR::CONDITIONAL_JUMP) ||
         unlikely(boost::out_degree(bb, ICFG) == 0)) {
-      fprintf(stderr, "not/invalid conditional branch @ %s+%" PRIx64 " (%s)\n",
-              b.Name.c_str(), static_cast<uint64_t>(bbprop.Addr),
-              string_of_terminator(bbprop.Term.Type));
+      if (IsVerbose())
+        fprintf(stderr, "not/invalid conditional branch @ %s+%" PRIx64 " (%s)\n",
+                b.Name.c_str(), static_cast<uint64_t>(bbprop.Addr),
+                string_of_terminator(bbprop.Term.Type));
       throw tnt_error();
     }
 
@@ -1063,7 +1104,7 @@ basic_block_index_t IntelPT::Advance(block_t From, uint64_t tnt, uint8_t n) {
 
 #if 0
     const char *extra = n > 1 ? " " : "";
-    printf("%d%s", (int)Taken, extra); /* FIXME */
+    fprintf(stderr, "%d%s", (int)Taken, extra); /* FIXME */
 #endif
 
     on_block(block_t(From.first, Res));
@@ -1072,7 +1113,7 @@ basic_block_index_t IntelPT::Advance(block_t From, uint64_t tnt, uint8_t n) {
   Res = StraightLineAdvance(block_t(From.first, Res)).first;
 
   if (IsVeryVerbose())
-    printf("</TNT>\n");
+    fprintf(stderr, "</TNT>\n");
 
   return Res;
 }

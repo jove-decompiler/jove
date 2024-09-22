@@ -47,9 +47,6 @@ class IntelPT {
   } tracking;
 
   struct binary_state_t {
-    taddr_t LoadAddr = std::numeric_limits<taddr_t>::max();
-    taddr_t LoadOffset = std::numeric_limits<taddr_t>::max();
-
     std::unique_ptr<llvm::object::Binary> Bin;
     uint64_t SectsStartAddr, SectsEndAddr;
 
@@ -62,7 +59,10 @@ class IntelPT {
 
   jv_state_t<binary_state_t, void, void> state;
 
-  address_space_t AddressSpace;
+  address_space_t AddressSpaceInit;
+  boost::container::flat_map<addr_intvl, std::pair<binary_index_t, uint64_t>,
+                             addr_intvl_cmp>
+      AddressSpace;
 
   struct {
     FILE *os = NULL;
@@ -80,7 +80,6 @@ class IntelPT {
   } Our;
 
   struct {
-    unsigned cpu = ~0u - 1;
     unsigned pid = ~0u - 1;
     unsigned tid = ~0u - 1;
     bool exec = 4;
@@ -91,12 +90,11 @@ class IntelPT {
 
   bool Engaged = false;
   void CheckEngaged(void) {
-    bool RightCpu = Curr.cpu == Our.cpu;
     bool RightExecMode = Curr.exec == IsTarget32;
     bool RightThread = Curr.tid == Our.tid;
     bool RightProcess = Curr.pid == Our.pid;
 
-    Engaged = RightCpu &&
+    Engaged = /* RightCpu && */
               RightExecMode &&
               /* RightThread && */
               RightProcess;
@@ -122,7 +120,7 @@ class IntelPT {
   int track_mtc(uint64_t offset, const struct pt_packet_mtc *);
 
   int tnt_payload(const struct pt_packet_tnt *);
-  int on_ip(const uint64_t ip);
+  int on_ip(const uint64_t ip, const uint64_t offset);
 
   int ptdump_sb_pevent(char *filename, const struct pt_sb_pevent_config *conf,
                        const char *prog);
@@ -139,7 +137,7 @@ class IntelPT {
 
 public:
   IntelPT(int ptdump_argc, char **ptdump_argv, jv_t &, explorer_t &,
-          unsigned cpu, const address_space_t &AddressSpace, void *begin,
+          unsigned cpu, const address_space_t &AddressSpaceInit, void *begin,
           void *end, unsigned verbose, bool ignore_trunc_aux = false);
   ~IntelPT();
 
