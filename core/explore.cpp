@@ -361,6 +361,7 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
         // terminator
         //
         T.Type = TERMINATOR::UNREACHABLE;
+        T.Addr = 0;
         break;
       }
 
@@ -389,6 +390,7 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
         throw invalid_control_flow_exception(b, e.pc); /* it's garbage */
 
       T.Type = TERMINATOR::UNREACHABLE;
+      T.Addr = 0;
       break;
     }
 
