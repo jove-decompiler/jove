@@ -210,7 +210,7 @@ int IPTTool::Run(void) {
 
   TCG = std::make_unique<tiny_code_generator_t>();
   Disas = std::make_unique<disas_t>();
-  E = std::make_unique<explorer_t>(jv, *Disas, *TCG, false /* IsVeryVerbose() */);
+  E = std::make_unique<explorer_t>(jv, *Disas, *TCG, IsVeryVerbose());
 
   const std::string prog_path = fs::canonical(opts.Prog).string();
 
@@ -220,7 +220,8 @@ int IPTTool::Run(void) {
         return B::is_coff(*state.for_binary(jv.Binaries.at(0)).Bin);
       });
 
-  fs::path path_to_stderr = "stderr";
+  fs::path path_to_stdout = fs::path(temporary_dir()) / "app.stdout";
+  fs::path path_to_stderr = fs::path(temporary_dir()) / "app.stderr";
 
   if (!opts.ExistingPerfData)
   RunExecutableToExit(
@@ -247,6 +248,8 @@ int IPTTool::Run(void) {
         for (const std::string &s : opts.Envs)
           Env(s);
 
+        SetupEnvironForRun(Env);
+
         //
         // wine sometimes read(2)'s binaries into memory rather than mmap(2)'ing
         // them. this causes trouble- we need to use WINEDEBUG=+loaddll,+process
@@ -254,11 +257,9 @@ int IPTTool::Run(void) {
         // binaries so we can make sense of the addresses we get back from the
         // trace.
         //
-        SetupEnvironForRun(Env);
-
         if (HasCOFF)
           Env("WINEDEBUG=+loaddll,+process");
-      }, "", path_to_stderr.string());
+      }, path_to_stdout.string(), path_to_stderr.string());
 
   if (HasCOFF) {
     //
@@ -340,7 +341,11 @@ int IPTTool::Run(void) {
                 addr_intvl2str(intvl),
                 b_already_there.Name.c_str(),
                 addr_intvl2str((*it).first));
+
+            state.for_binary(b_already_there).LoadAddr =
+                std::numeric_limits<taddr_t>::max();
           }
+          x.LoadAddr = std::numeric_limits<taddr_t>::max();
 
           addr_intvl h = addr_intvl_hull(intvl, (*it).first);
           AddressSpace.erase(it);
