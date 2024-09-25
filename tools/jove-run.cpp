@@ -133,13 +133,13 @@ struct RunTool : public JVTool<ToolKind::Standard> {
                      "Leave the stdout/stderr of the application undisturbed"),
                  cl::cat(JoveCategory)),
 
-          Group("group", cl::desc("Run the given command as the superuser"),
+          Group("group", cl::desc("Run as given group"),
                 cl::cat(JoveCategory)),
 
           GroupAlias("g", cl::desc("Alias for --group"), cl::aliasopt(Group),
                      cl::cat(JoveCategory)),
 
-          User("user", cl::desc("Run the given command as the superuser"),
+          User("user", cl::desc("Run as given user"),
                cl::cat(JoveCategory)),
 
           UserAlias("u", cl::desc("Alias for --user"), cl::aliasopt(User),
