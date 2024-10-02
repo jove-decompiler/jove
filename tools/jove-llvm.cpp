@@ -9147,11 +9147,15 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
 
       IRB.SetInsertPoint(ElseBlock);
 
+      llvm::Value *RecoverArgs1[] = {PC};
       llvm::Value *RecoverArgs[] = {IRB.getInt32(index_of_basic_block(ICFG, bb)), PC};
       llvm::Value *FailArgs[] = {PC, __jove_fail_UnknownBranchTarget};
 
       IRB.CreateCall(JoveRecoverBasicBlockFunc, RecoverArgs)->setIsNoInline();
       IRB.CreateCall(JoveRecoverDynTargetFunc, RecoverArgs)->setIsNoInline();
+      IRB.CreateCall(JoveRecoverFunctionFunc, RecoverArgs)->setIsNoInline();
+      IRB.CreateCall(JoveRecoverForeignFunctionFunc, RecoverArgs)->setIsNoInline();
+      IRB.CreateCall(JoveRecoverForeignBinaryFunc, RecoverArgs1)->setIsNoInline();
       IRB.CreateCall(JoveFail1Func, FailArgs)->setIsNoInline();
       IRB.CreateUnreachable();
       break;
