@@ -1329,54 +1329,6 @@ int BootstrapTool::TracerLoop(pid_t child) {
     //
     std::atomic<unsigned> NumChanged = 0;
 
-    auto fix_ambiguous_indirect_jump = [&](binary_t &b,
-                                           taddr_t TermAddr) -> void {
-      //
-      // we thought this was a goto, but now we know it's definitely a tail
-      // call. translate all sucessors as functions, then store them into the
-      // dynamic targets set for this bb. afterwards, delete the edges in the
-      // ICFG that would originate from this basic block.
-      //
-      std::vector<taddr_t> succ_addr_vec;
-
-      auto &ICFG = b.Analysis.ICFG;
-      {
-        ip_upgradable_lock<ip_upgradable_mutex> u_lck(b.bbmap_mtx);
-
-        basic_block_t bb = basic_block_at_address(TermAddr, b);
-
-        succ_addr_vec.reserve(boost::out_degree(bb, ICFG));
-
-        icfg_t::adjacency_iterator succ_it, succ_it_end;
-        for (std::tie(succ_it, succ_it_end) =
-                 boost::adjacent_vertices(bb, ICFG);
-             succ_it != succ_it_end; ++succ_it)
-          succ_addr_vec.push_back(ICFG[*succ_it].Addr);
-
-        ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
-
-        boost::clear_out_edges(bb, ICFG);
-      }
-
-      for (const taddr_t &addr : succ_addr_vec) {
-        function_index_t FIdx =
-            E->explore_function(b, *state.for_binary(b).ObjectFile, addr);
-
-        assert(is_function_index_valid(FIdx));
-
-        {
-          ip_upgradable_lock<ip_upgradable_mutex> u_lck(b.bbmap_mtx);
-
-          basic_block_t bb = basic_block_at_address(TermAddr, b);
-
-          ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
-
-          ICFG[bb].insertDynTarget(index_of_binary(b, jv),
-                                   {index_of_binary(b, jv), FIdx}, jv);
-        }
-      }
-    };
-
     for_each_binary(std::execution::par_unseq, jv, [&](binary_t &b) {
       auto &ICFG = b.Analysis.ICFG;
 
@@ -1404,8 +1356,8 @@ int BootstrapTool::TracerLoop(pid_t child) {
         if (!TermAddr)
           break;
 
-        fix_ambiguous_indirect_jump(b, TermAddr);
-        ++NumChanged;
+        if (b.FixAmbiguousIndirectJump(TermAddr, *E, *state.for_binary(b).ObjectFile, jv))
+          ++NumChanged;
       }
     });
 

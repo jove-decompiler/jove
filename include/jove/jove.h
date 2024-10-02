@@ -66,6 +66,12 @@
 #include <variant>
 #include <vector>
 
+namespace llvm {
+namespace object {
+class Binary;
+}
+}
+
 namespace jove {
 
 class explorer_t;
@@ -527,7 +533,7 @@ static inline basic_block_t NullBasicBlock(void) {
 }
 
 static inline bool IsDefinitelyTailCall(const icfg_t &ICFG, basic_block_t bb) {
-  assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP);
+  assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP); /* catch bugs */
 
 #ifdef WARN_ON
   WARN_ON(boost::out_degree(bb, ICFG) > 0);
@@ -537,7 +543,7 @@ static inline bool IsDefinitelyTailCall(const icfg_t &ICFG, basic_block_t bb) {
 }
 
 static inline bool IsAmbiguousIndirectJump(const icfg_t &ICFG, basic_block_t bb) {
-  assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP);
+  assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP); /* catch bugs */
 
   return ICFG[bb].hasDynTarget() && boost::out_degree(bb, ICFG) > 0;
 }
@@ -680,6 +686,15 @@ struct binary_t {
   }
 
   void InvalidateBasicBlockAnalyses(void);
+
+  //
+  // we thought this was a goto, but now we know it's definitely a tail
+  // call. translate all sucessors as functions, then store them into the
+  // dynamic targets set for this bb. afterwards, delete the edges in the
+  // ICFG that would originate from this basic block.
+  //
+  bool FixAmbiguousIndirectJump(taddr_t TermAddr, explorer_t &,
+                                llvm::object::Binary &, jv_t &);
 
   std::string_view data(void) const {
     return std::string_view(Data.data(), Data.size());

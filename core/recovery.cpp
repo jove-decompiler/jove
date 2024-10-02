@@ -47,66 +47,20 @@ std::string CodeRecovery::RecoverDynamicTarget(binary_index_t CallerBIdx,
   assert(TermAddr);
 
   bool Ambig = ({
-    ip_upgradable_lock<ip_upgradable_mutex> u_lck(CallerBinary.bbmap_mtx);
+    ip_sharable_lock<ip_upgradable_mutex> s_lck(CallerBinary.bbmap_mtx);
 
     basic_block_t bb = basic_block_at_address(TermAddr, CallerBinary);
-
-    ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
 
     bool isNewTarget = ICFG[bb].insertDynTarget(CallerBIdx, {CalleeBIdx, CalleeFIdx}, jv);
     if (!isNewTarget)
       return std::string();
 
     ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP &&
-    IsDefinitelyTailCall(ICFG, bb) &&
-    boost::out_degree(bb, ICFG) > 0;
+    IsAmbiguousIndirectJump(ICFG, bb);
   });
 
-  //
-  // check to see if this is an ambiguous indirect jump XXX duplicated code with jove-bootstrap
-  //
-  if (Ambig) {
-    //
-    // we thought this was a goto, but now we know it's definitely a tail call.
-    // translate all sucessors as functions, then store them into the dynamic
-    // targets set for this bb. afterwards, delete the edges in the ICFG that
-    // would originate from this basic block.
-    //
-    std::vector<taddr_t> succ_addr_vec;
-
-    {
-      ip_upgradable_lock<ip_upgradable_mutex> u_lck(CallerBinary.bbmap_mtx);
-
-      basic_block_t bb = basic_block_at_address(TermAddr, CallerBinary);
-
-      succ_addr_vec.reserve(boost::out_degree(bb, ICFG));
-
-      icfg_t::adjacency_iterator succ_it, succ_it_end;
-      for (std::tie(succ_it, succ_it_end) = boost::adjacent_vertices(bb, ICFG);
-           succ_it != succ_it_end; ++succ_it)
-        succ_addr_vec.push_back(ICFG[*succ_it].Addr);
-
-      ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
-
-      boost::clear_out_edges(bb, ICFG);
-    }
-
-    for (const taddr_t &addr : succ_addr_vec) {
-      function_index_t FIdx = E.explore_function(
-          CallerBinary, *state.for_binary(CallerBinary).Bin, addr);
-
-      assert(is_function_index_valid(FIdx));
-
-      {
-        ip_upgradable_lock<ip_upgradable_mutex> u_lck(CallerBinary.bbmap_mtx);
-
-        basic_block_t bb = basic_block_at_address(TermAddr, CallerBinary);
-
-        ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
-
-        ICFG[bb].insertDynTarget(CallerBIdx, {CallerBIdx, FIdx}, jv);
-      }
-    }
+  if (Ambig)
+    CallerBinary.FixAmbiguousIndirectJump(TermAddr, E, *state.for_binary(CallerBinary).Bin, jv);
 
 #if 0
   } else if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL &&
@@ -127,8 +81,6 @@ std::string CodeRecovery::RecoverDynamicTarget(binary_index_t CallerBIdx,
     assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL);
 
     boost::add_edge(bb, basic_block_of_index(NextBBIdx, ICFG), ICFG);
-  }
-#else
   }
 #endif
 
@@ -196,20 +148,20 @@ std::string CodeRecovery::RecoverFunctionAtAddress(binary_index_t IndCallBIdx,
 
   auto &ICFG = CallerBinary.Analysis.ICFG;
 
-  bool isNewTarget = ({
-    ip_upgradable_lock<ip_upgradable_mutex> u_lck(CallerBinary.bbmap_mtx);
+  bool Ambig = ({
+    ip_sharable_lock<ip_upgradable_mutex> s_lck(CallerBinary.bbmap_mtx);
 
     basic_block_t bb = basic_block_at_address(TermAddr, CallerBinary);
 
-    if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP)
-      assert(boost::out_degree(bb, ICFG) == 0);
+    bool isNewTarget = ICFG[bb].insertDynTarget(IndCallBIdx, {CalleeBIdx, CalleeFIdx}, jv);
+    (void)isNewTarget; /* FIXME */
 
-    ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
-
-    ICFG[bb].insertDynTarget(IndCallBIdx, {CalleeBIdx, CalleeFIdx}, jv);
+    ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP &&
+    IsAmbiguousIndirectJump(ICFG, bb);
   });
 
-  (void)isNewTarget; /* FIXME */
+  if (Ambig)
+    CallerBinary.FixAmbiguousIndirectJump(TermAddr, E, *state.for_binary(CallerBinary).Bin, jv);
 
 #if 0
   function_t &callee = CalleeBinary.Analysis.Functions.at(CalleeFIdx);
