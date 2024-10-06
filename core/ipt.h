@@ -4,6 +4,7 @@
 #include "B.h"
 #include <memory>
 #include <cstdio>
+#include <array>
 
 struct pt_config;
 struct pt_sb_session;
@@ -59,10 +60,20 @@ class IntelPT {
 
   jv_state_t<binary_state_t, void, void> state;
 
-  address_space_t AddressSpaceInit;
+  const address_space_t AddressSpaceInit;
   boost::container::flat_map<addr_intvl, std::pair<binary_index_t, uint64_t>,
                              addr_intvl_cmp>
       AddressSpace;
+
+  struct syscall_state_t {
+    long nr;
+    std::array<taddr_t, 6> args;
+    unsigned dir : 1;
+
+    syscall_state_t() : dir(0) {}
+  };
+
+  std::unordered_map<uint32_t, syscall_state_t> syscall_state_map;
 
   struct {
     FILE *os = NULL;
@@ -76,12 +87,12 @@ class IntelPT {
   struct {
     unsigned cpu = ~0u;
     unsigned pid = ~0u;
-    unsigned tid = ~0u;
+//  unsigned tid = ~0u;
   } Our;
 
   struct {
     unsigned pid = ~0u - 1;
-    unsigned tid = ~0u - 1;
+//  unsigned tid = ~0u - 1;
     bool exec = 4;
 
     block_t Block = invalid_block;
@@ -91,7 +102,7 @@ class IntelPT {
   bool Engaged = false;
   void CheckEngaged(void) {
     bool RightExecMode = Curr.exec == IsTarget32;
-    bool RightThread = Curr.tid == Our.tid;
+    //bool RightThread = Curr.tid == Our.tid;
     bool RightProcess = Curr.pid == Our.pid;
 
     Engaged = /* RightCpu && */

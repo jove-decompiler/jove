@@ -13,6 +13,8 @@
 #include "perf.h"
 #include "glibc.h"
 
+#include "syscall_nrs.hpp"
+
 #include <boost/filesystem.hpp>
 #include <boost/algorithm/string.hpp>
 
@@ -39,7 +41,7 @@ namespace {
 struct binary_state_t {
   std::unique_ptr<llvm::object::Binary> Bin;
 
-  taddr_t LoadAddr = std::numeric_limits<taddr_t>::max();
+  taddr_t LoadAddr = ~0UL;
 
   binary_state_t(const binary_t &b) { Bin = B::Create(b.data()); }
 };
@@ -65,6 +67,8 @@ struct IPTTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
     cl::opt<std::string> AuxPages;
     cl::alias AuxPagesAlias;
     cl::opt<bool> ExistingPerfData;
+    cl::opt<bool> RunPerfWithSudo;
+    cl::opt<bool> RunAsUser;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : Prog(cl::Positional, cl::desc("prog"), cl::Required,
@@ -105,8 +109,16 @@ struct IPTTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
           ExistingPerfData("existing-perf-data",
                            cl::desc("Use perf.data* files already existing in "
                                     "the current directory."),
-                           cl::cat(JoveCategory)) {}
+                           cl::cat(JoveCategory)),
 
+          RunPerfWithSudo("sudo", cl::desc("Execute perf as superuser via sudo -E"),
+                      cl::init(true), cl::cat(JoveCategory)),
+
+          RunAsUser("user",
+                    cl::desc("Execute app as user running sudo (this option is "
+                             "associated with the --sudo option, and "
+                             "essentially involves executing sudo twice)"),
+                    cl::init(true), cl::cat(JoveCategory)) {}
   } opts;
 
   std::string perf_path;
@@ -223,10 +235,18 @@ int IPTTool::Run(void) {
   fs::path path_to_stdout = fs::path(temporary_dir()) / "app.stdout";
   fs::path path_to_stderr = fs::path(temporary_dir()) / "app.stderr";
 
-  if (!opts.ExistingPerfData)
+  std::string sudo_path = locator().sudo();
+  const unsigned gid = ::getgid();
+  const unsigned uid = ::getuid();
+
+  if (!opts.ExistingPerfData) {
   RunExecutableToExit(
-      perf_path,
+      opts.RunPerfWithSudo ? sudo_path : perf_path,
       [&](auto Arg) {
+        if (opts.RunPerfWithSudo) {
+          Arg(sudo_path);
+          Arg("-E");
+        }
         Arg(perf_path);
 
         Arg("record");
@@ -236,6 +256,25 @@ int IPTTool::Run(void) {
         Arg("perf.data");
         Arg("-e");
         Arg("intel_pt/cyc,noretcomp/u");
+        if (opts.RunPerfWithSudo) {
+          //
+          // to trace raw system calls we need to be superuser
+          //
+          Arg("-e");
+          Arg("raw_syscalls:sys_enter,raw_syscalls:sys_exit");
+          Arg("--filter");
+          Arg("id==" + std::to_string(syscalls::NR::munmap));
+        }
+
+        if (opts.RunAsUser) {
+          Arg("sudo");
+
+          Arg("-E");
+          Arg("-u");
+          Arg("#" + std::to_string(uid));
+          Arg("-g");
+          Arg("#" + std::to_string(gid));
+        }
 
         Arg(opts.Prog);
 
@@ -260,6 +299,23 @@ int IPTTool::Run(void) {
         if (HasCOFF)
           Env("WINEDEBUG=+loaddll,+process");
       }, path_to_stdout.string(), path_to_stderr.string());
+  }
+
+  //
+  // if we ran perf as root, perf.data will be unusable unless we chown it
+  //
+  if (opts.RunPerfWithSudo)
+  RunExecutableToExit(
+      sudo_path,
+      [&](auto Arg) {
+        Arg(sudo_path);
+
+        Arg("chown");
+        Arg(std::to_string(uid) + ":" + std::to_string(gid));
+        Arg(path_to_stdout.string());
+        Arg(path_to_stderr.string());
+        Arg("perf.data");
+    });
 
   if (HasCOFF) {
     //
@@ -326,38 +382,47 @@ int IPTTool::Run(void) {
       uint64_t SectsStartAddr, SectsEndAddr;
       std::tie(SectsStartAddr, SectsEndAddr) = B::bounds_of_binary(*x.Bin);
 
-      addr_intvl intvl(x.LoadAddr, SectsEndAddr - SectsStartAddr);
+      const addr_intvl intvl(x.LoadAddr, SectsEndAddr - SectsStartAddr);
 
-      {
-        auto it = intvl_map_find(AddressSpace, intvl);
-        if (it != AddressSpace.end()) {
-          if (is_binary_index_valid((*it).second)) {
-            binary_t &b_already_there = jv.Binaries.at((*it).second);
+      if (intvl_map_find(AddressSpace, intvl) == AddressSpace.end()) {
+        intvl_map_add(AddressSpace, intvl, index_of_binary(b, jv));
 
-            WithColor::warning() << llvm::formatv(
-                "ambiguity detected: \"{0}\" @ {1} but \"{2}\" @ {3} so \"{2}\" "
-                "was probably unloaded\n",
-                b.Name.c_str(),
-                addr_intvl2str(intvl),
-                b_already_there.Name.c_str(),
-                addr_intvl2str((*it).first));
+        llvm::errs() << llvm::formatv("{0} is loaded at {1}\n", b.Name.c_str(),
+                                      addr_intvl2str(intvl));
+      } else {
+        x.LoadAddr = std::numeric_limits<taddr_t>::max();
 
-            state.for_binary(b_already_there).LoadAddr =
-                std::numeric_limits<taddr_t>::max();
+        addr_intvl h = intvl;
+        for (;;) {
+          auto it = intvl_map_find(AddressSpace, intvl);
+          if (it == AddressSpace.end()) {
+            break;
+          } else {
+            h = addr_intvl_hull(h, (*it).first);
+
+#if 0
+            if (is_binary_index_valid((*it).second)) {
+              binary_t &b4 = jv.Binaries.at((*it).second);
+
+              WithColor::warning() << llvm::formatv(
+                  "ambiguity: \"{0}\" @ {1} but \"{2}\" @ {3} so "
+                  "\"{2}\" "
+                  "was probably unloaded\n",
+                  b.Name.c_str(), addr_intvl2str(intvl),
+                  b4.Name.c_str(), addr_intvl2str((*it).first));
+
+              state.for_binary(b4).LoadAddr = ~0UL;
+            }
+#endif
+
+            AddressSpace.erase(it);
           }
-          x.LoadAddr = std::numeric_limits<taddr_t>::max();
-
-          addr_intvl h = addr_intvl_hull(intvl, (*it).first);
-          AddressSpace.erase(it);
-          intvl_map_add(AddressSpace, h, invalid_binary_index);
-          return;
         }
+
+        intvl_map_add(AddressSpace, h, invalid_binary_index);
+
+        llvm::errs() << llvm::formatv("{0} is ambiguous\n", addr_intvl2str(h));
       }
-
-      llvm::errs() << llvm::formatv("{0} @ {1}\n", b.Name.c_str(),
-                                    addr_intvl2str(intvl));
-
-      intvl_map_add(AddressSpace, intvl, index_of_binary(b, jv));
     });
   }
 

@@ -3,6 +3,8 @@
 #include "ipt.h"
 #include "explore.h"
 
+#include "syscall_nrs.hpp"
+
 #include <boost/filesystem.hpp>
 #include <boost/format.hpp>
 #include <boost/algorithm/string.hpp>
@@ -19,6 +21,36 @@ extern "C" {
 namespace fs = boost::filesystem;
 
 namespace jove {
+
+//
+// <from linux/tools/perf/util/bpf_skel/augmented_raw_syscalls.bpf.c>
+//
+struct syscall_enter_args64 {
+	uint64_t common_tp_fields;
+	int64_t	syscall_nr;
+	uint64_t args[6];
+};
+
+struct syscall_enter_args32 {
+	uint32_t common_tp_fields;
+	int32_t	syscall_nr;
+	uint32_t args[6];
+};
+
+struct syscall_exit_args64 {
+	uint64_t common_tp_fields;
+	int64_t	syscall_nr;
+	int64_t ret;
+};
+
+struct syscall_exit_args32 {
+	uint32_t common_tp_fields;
+	int32_t	syscall_nr;
+	int32_t ret;
+};
+//
+// </>
+//
 
 typedef boost::format fmt;
 
@@ -124,6 +156,24 @@ int IntelPT::ptdump_print_error(int errcode, const char *filename,
   return 0;
 }
 
+static void hexdump(FILE *stream, const void *ptr, int buflen) {
+  const unsigned char *buf = (const unsigned char*)ptr;
+  int i, j;
+  for (i=0; i<buflen; i+=16) {
+    fprintf(stream, "%06x: ", i);
+    for (j=0; j<16; j++)
+      if (i+j < buflen)
+        fprintf(stream, "%02x ", buf[i+j]);
+      else
+        fprintf(stream, "   ");
+    printf(" ");
+    for (j=0; j<16; j++)
+      if (i+j < buflen)
+        fprintf(stream, "%c", isprint(buf[i+j]) ? buf[i+j] : '.');
+    fprintf(stream, "\n");
+  }
+}
+
 void IntelPT::examine_sb(void) {
   fflush(sideband.os);
 
@@ -148,7 +198,7 @@ void IntelPT::examine_sb(void) {
     }
     *eol = '\0';
 
-    if (IsVerbose())
+    if (IsVeryVerbose())
       fprintf(stderr, "%s\n", line);
 
     static const char sb_line_prefix[] = "PERF_RECORD_";
@@ -188,26 +238,28 @@ void IntelPT::examine_sb(void) {
 
       if (boost::algorithm::ends_with(jv.Binaries.at(0).Name.c_str(), comm)) {
         Our.pid = pid;
-        Our.tid = tid;
+//      Our.tid = tid;
 
         if (IsVerbose())
-          fprintf(stderr, "our pid/tid is %x/%x\n",
-                  static_cast<unsigned>(pid),
-                  static_cast<unsigned>(tid));
+          fprintf(stderr, "our pid is %x\n",
+                  static_cast<unsigned>(pid));
 
-        init_address_space();
-      } else if (Our.pid == pid || Our.tid == tid) {
+        //init_address_space();
+      } else if (Our.pid == pid) {
         if (IsVerbose())
-          fprintf(stderr, "WARNING: our pid exec'd %x/%x\n",
-                  static_cast<unsigned>(Our.pid),
-                  static_cast<unsigned>(Our.tid));
+          fprintf(stderr, "WHOOHOO: our pid exec'd %x\n",
+                  static_cast<unsigned>(Our.pid));
 
 #if 0
         Our.pid = ~0u;
         Our.tid = ~0u;
 #endif
 
+#if 1
         init_address_space();
+#else
+        AddressSpace.clear();
+#endif
       }
     };
 
@@ -220,10 +272,11 @@ void IntelPT::examine_sb(void) {
       uint64_t identifier;
     } _;
 
-    auto unexpected_rest = [&](void) -> void {
-      fprintf(stderr, "unexpected rest=\"%s\"\n", rest);
-      assert(false);
-    };
+#define unexpected_rest()                                                      \
+  do {                                                                         \
+    fprintf(stderr, "unexpected rest=\"%s\"\n", rest);                         \
+    assert(false);                                                             \
+  } while (0)
 
     switch (rest[0]) {
     case 'A':
@@ -295,7 +348,7 @@ void IntelPT::examine_sb(void) {
 
         if (_.cpu == Our.cpu) {
           Curr.pid = _.pid;
-          Curr.tid = _.tid;
+//        Curr.tid = _.tid;
         }
       } else if (MATCHES_REST("SWITCH.IN")) {
         sscanf(rest, "  { %x/%x %" PRIx64 " cpu-%x %" PRIx64 " }",
@@ -303,7 +356,107 @@ void IntelPT::examine_sb(void) {
 
         if (_.cpu == Our.cpu) {
           Curr.pid = _.pid;
-          Curr.tid = _.tid;
+//        Curr.tid = _.tid;
+        }
+      } else if (MATCHES_REST("SAMPLE.RAW")) {
+        char hexbytes[4097];
+        char name[33];
+
+        hexbytes[0] = '\0';
+        name[0] = '\0';
+
+        sscanf(rest, "%32[^,], %4096[0-9a-f]"
+                     "  { %x/%x %" PRIx64 " cpu-%x %" PRIx64 " }",
+               &name[0], &hexbytes[0],
+               &_.pid, &_.tid, &_.time, &_.cpu, &_.identifier);
+
+        if (_.pid != Our.pid)
+          continue;
+
+#if 0
+        fprintf(stderr, "\n\nhexbytes=\"%s\" name=\"%s\"\n\n", hexbytes, name);
+#endif
+
+        std::vector<uint8_t> bytes;
+        bytes.resize(strlen(hexbytes) / 2);
+        for (unsigned i = 0; i < bytes.size(); ++i) {
+          char hexbyte[3];
+          hexbyte[0] = hexbytes[2*i];
+          hexbyte[1] = hexbytes[2*i+1];
+          hexbyte[2] = '\0';
+          bytes[i] = strtol(hexbyte, nullptr, 16);
+        }
+
+#if 0
+        hexdump(stderr, &bytes[0], bytes.size());
+#endif
+
+        auto &state = syscall_state_map[_.tid];
+
+        if (strcmp(name, "raw_syscalls:sys_exit") == 0) {
+          long nr;
+          taddr_t ret;
+          if (bytes.size() >= sizeof(struct syscall_exit_args64)) {
+            auto *p = (const struct syscall_exit_args64 *)bytes.data();
+            nr = p->syscall_nr;
+            ret = p->ret;
+          } else if (bytes.size() >= sizeof(struct syscall_exit_args32)) {
+            auto *p = (const struct syscall_exit_args32 *)bytes.data();
+            nr = p->syscall_nr;
+            ret = p->ret;
+          } else {
+            unexpected_rest();
+          }
+
+          /* sanity check */
+          if (state.dir != 0) {
+            fprintf(stderr, "two syscall exits in a row!\n");
+            break;
+          }
+
+          state.dir = 1;
+
+          if (nr != state.nr) {
+            fprintf(stderr, "mismatched syscall exit!\n");
+            break;
+          }
+
+          state.nr = state.nr;
+
+          /* on syscall return */
+          if (state.nr == syscalls::NR::munmap) {
+            taddr_t addr = state.args[0];
+            taddr_t len = state.args[1];
+
+            if (IsVerbose())
+              fprintf(stderr, "munmap(%p, %d) = %d\n", (void *)addr,
+                      (int)len, (int)ret);
+
+            if (ret != 0)
+              continue; /* failed */
+
+            intvl_map_clear(AddressSpace, addr_intvl(addr, len));
+          } else {
+            fprintf(stderr, "unhandled syscall %u!\n", (unsigned)state.nr);
+            break;
+          }
+        } else if (strcmp(name, "raw_syscalls:sys_enter") == 0) {
+          if (bytes.size() >= sizeof(struct syscall_enter_args64)) {
+            auto *p = (const struct syscall_enter_args64 *)bytes.data();
+            for (unsigned i = 0; i < state.args.size(); ++i)
+              state.args[i] = p->args[i];
+            state.nr = p->syscall_nr;
+          } else if (bytes.size() >= sizeof(struct syscall_enter_args32)) {
+            auto *p = (const struct syscall_enter_args32 *)bytes.data();
+            for (unsigned i = 0; i < state.args.size(); ++i)
+              state.args[i] = p->args[i];
+            state.nr = p->syscall_nr;
+          } else {
+            unexpected_rest();
+          }
+          state.dir = 0;
+        } else {
+          unexpected_rest();
         }
       } else {
         unexpected_rest();
@@ -324,7 +477,7 @@ void IntelPT::examine_sb(void) {
 
         sscanf(rest, "%x/%x, %" PRIx64
                      ", %" PRIx64 ", %" PRIx64 ", %x, %x, %" PRIx64
-                     ", %" PRIx64 ", %x, %x, %4095s"
+                     ", %" PRIx64 ", %x, %x, %4095s" /* FIXME filename w/ space */
 
                      "  { %x/%x %" PRIx64 " cpu-%x %" PRIx64 " }",
 
@@ -337,16 +490,22 @@ void IntelPT::examine_sb(void) {
         if (pid != Our.pid)
           continue;
 
+        const addr_intvl intvl(addr, len);
+
         {
-          auto it = intvl_map_find(AddressSpace, addr);
+          auto it = intvl_map_find(AddressSpace, intvl);
           if (it != AddressSpace.end()) {
-            if (IsVeryVerbose())
-              fprintf(stderr, "previous mapping exists at 0x%" PRIx64 "\n",
-                      addr);
-#if 0
-            continue;
-#endif
-            AddressSpace.erase(it);
+            if (intvl_map_find(AddressSpaceInit, intvl) != AddressSpaceInit.end()) { /* XXX wine hack */
+              if (IsVeryVerbose())
+                fprintf(stderr, "wine told us something is at 0x%" PRIx64 "\n", addr);
+              continue;
+            }
+
+            if (!is_binary_index_valid((*it).second.first))
+              continue; /* this memory is "ambiguous" */
+
+            /* something must have been unmapped without our knowledge */
+            intvl_map_clear(AddressSpace, intvl);
           }
         }
 
@@ -384,20 +543,15 @@ void IntelPT::examine_sb(void) {
         binary_state_t &x = state.for_binary(b);
 
         if (!B::is_elf(*x.Bin))
-          continue; /* FIXME */
+          continue; /* FIXME? */
 
-        if (is_binary_index_valid(BIdx)) {
-          binary_t &b = jv.Binaries.at(BIdx);
-          binary_state_t &x = state.for_binary(b);
+        intvl_map_add(AddressSpace, intvl, std::make_pair(BIdx, pgoff));
 
-          const addr_intvl intvl(addr, len);
-          intvl_map_add(AddressSpace, intvl, std::make_pair(BIdx, pgoff));
-
-          if (IsVeryVerbose()) {
-            std::string s = addr_intvl2str(intvl);
-            fprintf(stderr, "%s loaded at %s\n", b.Name.c_str(), s.c_str());
-          }
+        if (IsVeryVerbose()) {
+          std::string s = addr_intvl2str(intvl);
+          fprintf(stderr, "%s loaded at %s\n", b.Name.c_str(), s.c_str());
         }
+      } else if (likely(MATCHES_REST("MMAP"))) {
       } else {
         unexpected_rest();
       }
@@ -630,7 +784,7 @@ int IntelPT::tnt_payload(const struct pt_packet_tnt *packet) {
     return 0;
 
   if (unlikely(!is_block_valid(Curr.Block))) {
-#if 0
+#if 1
     if (IsVeryVerbose())
       fprintf(stderr, "unhandled tnt\n");
 #endif
@@ -703,9 +857,11 @@ int IntelPT::track_last_ip(const struct pt_packet_ip *packet, uint64_t offset) {
 
 int IntelPT::on_ip(const uint64_t IP, const uint64_t offset) {
   if (!Engaged) {
+#if 1
     if (IsVeryVerbose())
-      fprintf(stderr, "%" PRIx64 "\t__IP %016" PRIx64 " [%x:%x]\n", offset,
-              IP, Curr.pid, Curr.tid);
+      fprintf(stderr, "%" PRIx64 "\t__IP %016" PRIx64 " [%x]\n", offset,
+              IP, (unsigned)Curr.pid);
+#endif
     return 0;
   }
 
@@ -889,12 +1045,15 @@ void IntelPT::block_transfer(binary_index_t FrBIdx, taddr_t FrTermAddr,
       IsDefinitelyTailCall(fr_ICFG, basic_block_at_address(FrTermAddr, fr_b));
     });
 
-    if (TailCall || FrBIdx != ToBIdx) {
+    if (TailCall) {
       handle_indirect_call();
+    } else if (FrBIdx != ToBIdx) {
+      handle_indirect_call();
+      fr_b.FixAmbiguousIndirectJump(FrTermAddr, explorer, *state.for_binary(fr_b).Bin, jv);
     } else {
       assert(FrBIdx == ToBIdx);
 
-      ip_scoped_lock<ip_upgradable_mutex> fr_e_lck(fr_b.bbmap_mtx);
+      ip_sharable_lock<ip_upgradable_mutex> fr_s_lck_bbmap(fr_b.bbmap_mtx);
       ip_scoped_lock<ip_upgradable_mutex> fr_e_lck_ICFG(fr_b.Analysis.ICFG_mtx);
 
       boost::add_edge(basic_block_at_address(FrTermAddr, fr_b), to_bb, fr_ICFG);
@@ -949,8 +1108,10 @@ void IntelPT::block_transfer(binary_index_t FrBIdx, taddr_t FrTermAddr,
       boost::add_edge(before_bb, to_bb, to_ICFG); /* connect */
     }
 
+#if 1
     if (IsVeryVerbose())
       fprintf(stderr, "found ret\n");
+#endif
     break;
   }
 
@@ -1039,6 +1200,9 @@ IntelPT::StraightLineAdvance(block_t From, uint64_t GoNoFurther) {
 }
 
 void IntelPT::on_block(block_t block) {
+#if 0
+  return;
+#endif
   if (likely(!IsVeryVerbose()))
     return;
 
@@ -1056,8 +1220,10 @@ void IntelPT::on_block(block_t block) {
 basic_block_index_t IntelPT::Advance(block_t From, uint64_t tnt, uint8_t n) {
   assert(n > 0);
 
+#if 1
   if (IsVeryVerbose())
     fprintf(stderr, "<TNT>\n");
+#endif
 
   const binary_t &b = jv.Binaries.at(From.first);
   const icfg_t &ICFG = b.Analysis.ICFG;
@@ -1112,8 +1278,10 @@ basic_block_index_t IntelPT::Advance(block_t From, uint64_t tnt, uint8_t n) {
 
   Res = StraightLineAdvance(block_t(From.first, Res)).first;
 
+#if 1
   if (IsVeryVerbose())
     fprintf(stderr, "</TNT>\n");
+#endif
 
   return Res;
 }
@@ -1505,6 +1673,7 @@ static int pt_parse_sample_config(struct pt_sb_pevent_config *pevent,
 	uint64_t identifier, sample_type;
 	uint8_t nstypes;
 	char *rest;
+	const char *name;
 
 	if (!pevent || !arg)
 		return -pte_internal;
@@ -1520,8 +1689,15 @@ static int pt_parse_sample_config(struct pt_sb_pevent_config *pevent,
 
 	arg += 1;
 	sample_type = strtoull(arg, &rest, 0);
-	if (errno || *rest)
+	if (errno)
 		return -pte_invalid;
+
+	arg = rest;
+	if (arg[0] != ':')
+		return -pte_invalid;
+
+	arg += 1;
+	name = arg;
 
 	sample_config = pevent->sample_config;
 	if (!sample_config) {
@@ -1544,6 +1720,8 @@ static int pt_parse_sample_config(struct pt_sb_pevent_config *pevent,
 	sample_config->stypes[nstypes].identifier = identifier;
 	sample_config->stypes[nstypes].sample_type = sample_type;
 	sample_config->nstypes = nstypes + 1;
+
+	strncpy(sample_config->stypes[nstypes].name, name, sizeof(sample_config->stypes[nstypes].name));
 
 	pevent->sample_config = sample_config;
 
