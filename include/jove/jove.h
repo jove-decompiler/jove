@@ -1201,6 +1201,17 @@ constexpr auto intvl_map_add(OrderedIntvlMap &map,
   return x.first;
 }
 
+template <typename OrderedIntvlMap>
+constexpr void intvl_map_clear(OrderedIntvlMap &map, addr_intvl intvl) {
+  for (;;) {
+    auto it = intvl_map_find(map, intvl);
+    if (it == map.end())
+      break;
+    else
+      map.erase(it);
+  }
+}
+
 template <typename BBMap>
 constexpr auto bbmap_find(BBMap &bbmap, addr_intvl intvl) {
   return intvl_map_find(bbmap, intvl);
