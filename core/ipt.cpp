@@ -959,9 +959,8 @@ int IntelPT::on_ip(const uint64_t IP, const uint64_t offset) {
 
   if (!Engaged) {
 #if 1
-    if (IsVeryVerbose())
-      fprintf(stderr, "%" PRIx64 "\t__IP %016" PRIx64 " [%x]\n", offset,
-              IP, (unsigned)Curr.pid);
+    if (IsVeryVerbose() && Curr.pid == Our.pid)
+      fprintf(stderr, "%" PRIx64 "\t__IP %016" PRIx64 "\n", offset, IP);
 #endif
     return 0;
   }
