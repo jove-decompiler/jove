@@ -49,21 +49,33 @@ class IntelPT {
 
   struct binary_state_t {
     std::unique_ptr<llvm::object::Binary> Bin;
-    uint64_t SectsStartAddr, SectsEndAddr;
+
+    struct {
+      taddr_t LoadAddr = ~0UL;
+    } _coff;
 
     binary_state_t(const binary_t &b) {
       Bin = B::Create(b.data());
-
-      std::tie(SectsStartAddr, SectsEndAddr) = B::bounds_of_binary(*Bin);
     }
   };
 
   jv_state_t<binary_state_t, void, void> state;
 
+  const bool IsCOFF;
+
   const address_space_t AddressSpaceInit;
   boost::container::flat_map<addr_intvl, std::pair<binary_index_t, uint64_t>,
                              addr_intvl_cmp>
       AddressSpace;
+
+#if 0
+  /* if true, next IP must be reachable from current without trace */
+  bool ProceedToIP = false;
+#endif
+
+  struct {
+    std::string buff;
+  } m;
 
   struct syscall_state_t {
     long nr;
@@ -99,6 +111,14 @@ class IntelPT {
     taddr_t TermAddr = ~0UL;
   } Curr;
 
+  struct {
+    unsigned ExecCount = 0; /* FIXME when and why does wine exec twice... */
+  } _wine;
+
+  bool RightWineExecCount(void) const {
+    return _wine.ExecCount == 2;
+  }
+
   bool Engaged = false;
   void CheckEngaged(void) {
     bool RightExecMode = Curr.exec == IsTarget32;
@@ -109,6 +129,9 @@ class IntelPT {
               RightExecMode &&
               /* RightThread && */
               RightProcess;
+
+    if (IsCOFF && !RightWineExecCount())
+      Engaged = false;
   }
 
   const bool v, vv;

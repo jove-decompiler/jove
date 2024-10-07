@@ -58,7 +58,7 @@ IntelPT::IntelPT(int ptdump_argc, char **ptdump_argv, jv_t &jv,
                  explorer_t &explorer, unsigned cpu,
                  const address_space_t &AddressSpaceInit, void *begin, void *end,
                  unsigned verbose, bool ignore_trunc_aux)
-    : jv(jv), explorer(explorer), state(jv), AddressSpaceInit(AddressSpaceInit),
+    : jv(jv), explorer(explorer), state(jv), IsCOFF(B::is_coff(*state.for_binary(jv.Binaries.at(0)).Bin)), AddressSpaceInit(AddressSpaceInit),
       v(verbose >= 1), vv(verbose >= 2), ignore_trunc_aux(ignore_trunc_aux) {
   Our.cpu = cpu;
 
@@ -115,6 +115,13 @@ IntelPT::IntelPT(int ptdump_argc, char **ptdump_argv, jv_t &jv,
   // XXX automatically flush on new-line (because llvm::errs)
   setvbuf(stdout, NULL, _IOLBF, 0);
   setvbuf(stderr, NULL, _IOLBF, 0);
+
+  for (const auto &pair : AddressSpaceInit) {
+    binary_index_t BIdx = pair.second;
+    if (is_binary_index_valid(BIdx))
+      state.for_binary(jv.Binaries.at(BIdx))._coff.LoadAddr =
+          addr_intvl_lower(pair.first);
+  }
 }
 
 IntelPT::~IntelPT() {
@@ -227,39 +234,33 @@ void IntelPT::examine_sb(void) {
     };
 
     auto do_comm_exec = [&](void) -> void {
+      AddressSpace.clear();
+
       unsigned pid, tid;
-      char comm[64];
+      char comm[65];
       comm[0] = '\0';
 
-      sscanf(rest, "%x/%x, %63s  {", &pid, &tid, &comm[0]);
+      sscanf(rest, "%x/%x, %64s  {", &pid, &tid, &comm[0]);
 
       if (IsVerbose())
         fprintf(stderr, "comm=%s\n", comm);
 
-      if (boost::algorithm::ends_with(jv.Binaries.at(0).Name.c_str(), comm)) {
+      if (boost::algorithm::ends_with(jv.Binaries.at(0).Name.c_str(), comm) ||
+          Our.pid == pid) {
+        if (IsCOFF) {
+          if (Our.pid != pid)
+            _wine.ExecCount = 1;
+          else
+            ++_wine.ExecCount;
+
+          if (IsVerbose() && RightWineExecCount())
+            fprintf(stderr, "second exec (%x)\n", static_cast<unsigned>(pid));
+        }
+
+        if (IsVerbose() && Our.pid != pid)
+          fprintf(stderr, "our pid is %x\n", static_cast<unsigned>(pid));
+
         Our.pid = pid;
-//      Our.tid = tid;
-
-        if (IsVerbose())
-          fprintf(stderr, "our pid is %x\n",
-                  static_cast<unsigned>(pid));
-
-        //init_address_space();
-      } else if (Our.pid == pid) {
-        if (IsVerbose())
-          fprintf(stderr, "WHOOHOO: our pid exec'd %x\n",
-                  static_cast<unsigned>(Our.pid));
-
-#if 0
-        Our.pid = ~0u;
-        Our.tid = ~0u;
-#endif
-
-#if 1
-        init_address_space();
-#else
-        AddressSpace.clear();
-#endif
       }
     };
 
@@ -359,10 +360,11 @@ void IntelPT::examine_sb(void) {
 //        Curr.tid = _.tid;
         }
       } else if (MATCHES_REST("SAMPLE.RAW")) {
-        char hexbytes[4097];
-        char name[33];
-
+        std::string &hexbytes = this->m.buff;
+        hexbytes.resize(4097);
         hexbytes[0] = '\0';
+
+        char name[33];
         name[0] = '\0';
 
         sscanf(rest, "%32[^,], %4096[0-9a-f]"
@@ -377,8 +379,14 @@ void IntelPT::examine_sb(void) {
         fprintf(stderr, "\n\nhexbytes=\"%s\" name=\"%s\"\n\n", hexbytes, name);
 #endif
 
+        {
+          unsigned hexbytes_len = strlen(hexbytes.c_str());
+          assert(hexbytes_len > 0);
+          hexbytes.resize(hexbytes_len);
+        }
+
         std::vector<uint8_t> bytes;
-        bytes.resize(strlen(hexbytes) / 2);
+        bytes.resize(hexbytes.size() / 2);
         for (unsigned i = 0; i < bytes.size(); ++i) {
           char hexbyte[3];
           hexbyte[0] = hexbytes[2*i];
@@ -467,68 +475,123 @@ void IntelPT::examine_sb(void) {
 
     case 'M':
       if (likely(MATCHES_REST("MMAP2"))) {
+#if 0
+        if ((misc & PERF_RECORD_MISC_CPUMODE_MASK) == PERF_RECORD_MISC_KERNEL)
+          continue;
+#endif
         unsigned pid, tid;
         uint64_t addr, len, pgoff;
         unsigned maj, min;
         uint64_t ino, ino_generation;
         unsigned prot, flags;
-        char name[4096];
-        name[0] = '\0';
+
+        std::string &hexname = this->m.buff;
+
+        hexname.resize(8193);
+        hexname[0] = '\0';
 
         sscanf(rest, "%x/%x, %" PRIx64
                      ", %" PRIx64 ", %" PRIx64 ", %x, %x, %" PRIx64
-                     ", %" PRIx64 ", %x, %x, %4095s" /* FIXME filename w/ space */
+                     ", %" PRIx64 ", %x, %x, %8192[0-9a-f]"
 
                      "  { %x/%x %" PRIx64 " cpu-%x %" PRIx64 " }",
 
                      &pid, &tid, &addr,
                      &len, &pgoff, &maj, &min, &ino,
-                     &ino_generation, &prot, &flags, &name[0],
+                     &ino_generation, &prot, &flags, &hexname[0],
 
                      &_.pid, &_.tid, &_.time, &_.cpu, &_.identifier);
 
         if (pid != Our.pid)
           continue;
 
+        {
+          unsigned hexname_len = strlen(hexname.c_str());
+          assert(hexname_len > 0);
+          hexname.resize(hexname_len);
+        }
+
+        std::string name;
+        name.reserve(hexname.size() / 2);
+        for (unsigned i = 0; i < hexname.size() / 2; ++i) {
+          char hexchar[3];
+          hexchar[0] = hexname[2*i];
+          hexchar[1] = hexname[2*i+1];
+          hexchar[2] = '\0';
+          name.push_back((char)strtol(hexchar, nullptr, 16));
+        }
+
+        if (IsVeryVerbose())
+          fprintf(stderr, "[mmap] \"%s\"\n", name.c_str());
+
+        const bool anon = name == "//anon";
+
         const addr_intvl intvl(addr, len);
 
+#if 0
         {
           auto it = intvl_map_find(AddressSpace, intvl);
           if (it != AddressSpace.end()) {
-            if (intvl_map_find(AddressSpaceInit, intvl) != AddressSpaceInit.end()) { /* XXX wine hack */
-              if (IsVeryVerbose())
-                fprintf(stderr, "wine told us something is at 0x%" PRIx64 "\n", addr);
-              continue;
+            if (anon) {
+              if (!is_binary_index_valid((*it).second.first))
+                continue; /* this memory is "ambiguous" */
             }
-
-            if (!is_binary_index_valid((*it).second.first))
-              continue; /* this memory is "ambiguous" */
 
             /* something must have been unmapped without our knowledge */
             intvl_map_clear(AddressSpace, intvl);
           }
         }
+#endif
 
-        assert(strlen(name) > 0);
+        if (intvl_map_find(AddressSpace, intvl) != AddressSpace.end()) {
+          /* something must have been unmapped without our knowledge */
+          intvl_map_clear(AddressSpace, intvl);
+        }
 
-        if (strcmp(name, "//anon") == 0)
-          continue;
+#if 0
+        {
+          auto it = intvl_map_find(AddressSpace, intvl);
+          if (it != AddressSpace.end()) {
+            if (anon) {
+              if (intvl_map_find(AddressSpaceInit, intvl) != AddressSpaceInit.end()) { /* XXX wine hack */
+                if (IsVeryVerbose())
+                  fprintf(stderr, "wine told us something is at 0x%" PRIx64 "\n", addr);
+                continue;
+              }
+            } else {
+            if (!is_binary_index_valid((*it).second.first))
+              continue; /* this memory is "ambiguous" */
+            }
+
+            intvl_map_clear(AddressSpace, intvl);
+          }
+        }
+#endif
 
         binary_index_t BIdx;
         bool IsNew;
 
+        if (anon) {
+          if (IsCOFF && RightWineExecCount()) {
+            auto it = intvl_map_find(AddressSpaceInit, intvl);
+            if (it != AddressSpaceInit.end())
+              intvl_map_add(AddressSpace, intvl, std::make_pair((*it).second, pgoff));
+          }
+          continue;
+        }
+
         if (name[0] == '/') {
           if (!fs::exists(name)) {
             if (IsVeryVerbose())
-              fprintf(stderr, "\"%s\" does not exist(%s)\n", name, rest);
+              fprintf(stderr, "\"%s\" does not exist(%s)\n", name.c_str(), rest);
             continue;
           }
 
-          std::tie(BIdx, IsNew) = jv.AddFromPath(explorer, name);
+          std::tie(BIdx, IsNew) = jv.AddFromPath(explorer, name.c_str());
           if (!is_binary_index_valid(BIdx))
             continue;
         } else {
-          auto MaybeBIdxSet = jv.Lookup(name);
+          auto MaybeBIdxSet = jv.Lookup(name.c_str());
           if (!MaybeBIdxSet)
             continue;
           const ip_binary_index_set &BIdxSet = *MaybeBIdxSet;
@@ -542,15 +605,26 @@ void IntelPT::examine_sb(void) {
         binary_t &b = jv.Binaries.at(BIdx);
         binary_state_t &x = state.for_binary(b);
 
-        if (!B::is_elf(*x.Bin))
-          continue; /* FIXME? */
+#if 1
+        if (!B::is_elf(*x.Bin)) { /* FIXME? */
+          if (~x._coff.LoadAddr == 0) {
+            // we know what it is but we didn't get a load address from wine
+            if (IsVerbose())
+              fprintf(stderr, "mmap eeeeek \"%s\"\n", name.c_str());
+
+            continue;
+          }
+        }
+#endif
 
         intvl_map_add(AddressSpace, intvl, std::make_pair(BIdx, pgoff));
 
+#if 0
         if (IsVeryVerbose()) {
           std::string s = addr_intvl2str(intvl);
           fprintf(stderr, "%s loaded at %s\n", b.Name.c_str(), s.c_str());
         }
+#endif
       } else if (likely(MATCHES_REST("MMAP"))) {
       } else {
         unexpected_rest();
@@ -699,6 +773,10 @@ int IntelPT::process_packet(uint64_t offset, const struct pt_packet *packet) {
     return tnt_payload(&packet->payload.tnt);
 
   case ppt_mode: {
+#if 0
+    ProceedToIP = true;
+#endif
+
     const struct pt_packet_mode *mode = &packet->payload.mode;
     switch (mode->leaf) {
     case pt_mol_exec: {
@@ -856,6 +934,39 @@ int IntelPT::track_last_ip(const struct pt_packet_ip *packet, uint64_t offset) {
 }
 
 int IntelPT::on_ip(const uint64_t IP, const uint64_t offset) {
+#if 0
+  if (unlikely(ProceedToIP)) {
+    ProceedToIP = false;
+
+    if (Engaged && is_block_valid(Curr.Block)) {
+      bool Reached = false;
+      {
+        ip_sharable_lock<ip_upgradable_mutex> s_lck(
+            jv.Binaries.at(Curr.Block.first).bbmap_mtx);
+
+        std::tie(Curr.Block.second, Reached) =
+            StraightLineAdvance(Curr.Block, IP);
+        Curr.TermAddr = address_of_block_terminator(Curr.Block, jv);
+        // assert(Curr.TermAddr);
+      }
+
+      if (!Reached) {
+        //
+        // "trace stream does not match query"
+        //
+        Curr.Block = invalid_block;
+        Curr.TermAddr = ~0UL;
+
+        if (IsVeryVerbose())
+          fprintf(stderr, "trace stream does not match query %016" PRIx64 " %016" PRIx64 "\n", offset, IP);
+        return 1;
+      }
+
+      return 0;
+    }
+  }
+#endif
+
   if (!Engaged) {
 #if 1
     if (IsVeryVerbose())
@@ -891,7 +1002,7 @@ int IntelPT::on_ip(const uint64_t IP, const uint64_t offset) {
   uint64_t Addr = B::_X(
       *x.Bin,
       [&](ELFO &O) -> uint64_t {
-        const taddr_t LoadAddr = (*it).first.first;
+        const uint64_t LoadAddr = addr_intvl_lower((*it).first);
         const uint64_t LoadOffset = (*it).second.second;
         if (!(IP >= LoadAddr)) {
         fprintf(stderr, "WTFF? %" PRIx64 " LoadAddr=%" PRIx64 " LoadOffset=%" PRIx64 "\t\t%s\n",
@@ -911,14 +1022,13 @@ int IntelPT::on_ip(const uint64_t IP, const uint64_t offset) {
         }
       },
       [&](COFFO &O) -> uint64_t {
-        const uint64_t intvl_start = addr_intvl_lower((*it).first);
-        assert(IP >= intvl_start);
-        uint64_t RVA = IP - intvl_start;
-        if (RVA >= 0xffffffff) {
-        fprintf(stderr, "WTF? %" PRIx64 " %" PRIx64 "\n", IP,
-                RVA);
-        assert(false);
-        }
+#if 0
+        const taddr_t hmodule = addr_intvl_lower((*it).first);
+#else
+        const taddr_t hmodule = x._coff.LoadAddr;
+#endif
+        assert(IP >= hmodule);
+        taddr_t RVA = IP - hmodule;
         return coff::va_of_rva(O, RVA);
       });
 
@@ -1143,7 +1253,7 @@ IntelPT::StraightLineAdvance(block_t From, uint64_t GoNoFurther) {
       if (unlikely(succ_it == succ_it_end)) {
         if (IsVerbose())
           fprintf(stderr, "cant proceed past NONE @ %s+%" PRIx64 "\n",
-                  b.Name.c_str(), bbprop.Addr);
+                  b.Name.c_str(), static_cast<uint64_t>(bbprop.Addr));
         break;
       }
 
