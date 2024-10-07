@@ -71,12 +71,9 @@ int ScoreTool::Run(void) {
     llvm::outs() << (fmt("%.3f\n") % compute_score(jv, binary)).str();
   } else {
     for_each_binary(jv, [&](binary_t &binary) {
-      if (binary.IsVDSO)
-        return;
-
         llvm::outs() << (fmt("%.3f %s\n")
                          % compute_score(jv, binary)
-                         % binary.Name).str();
+                         % binary.Name.c_str()).str();
     });
   }
 
