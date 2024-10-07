@@ -60,6 +60,10 @@ IntelPT::IntelPT(int ptdump_argc, char **ptdump_argv, jv_t &jv,
                  unsigned verbose, bool ignore_trunc_aux)
     : jv(jv), explorer(explorer), state(jv), IsCOFF(B::is_coff(*state.for_binary(jv.Binaries.at(0)).Bin)), AddressSpaceInit(AddressSpaceInit),
       v(verbose >= 1), vv(verbose >= 2), ignore_trunc_aux(ignore_trunc_aux) {
+  /* automatically flush on new-line */
+  setvbuf(stdout, NULL, _IOLBF, 0);
+  setvbuf(stderr, NULL, _IOLBF, 0);
+
   Our.cpu = cpu;
 
   config = std::make_unique<struct pt_config>();
@@ -89,10 +93,34 @@ IntelPT::IntelPT(int ptdump_argc, char **ptdump_argv, jv_t &jv,
 
   if (config->cpu.vendor) {
     int errcode = pt_cpu_errata(&config->errata, &config->cpu);
-#if 0
-    if (unlikely(errcode < 0))
-      diag("failed to determine errata", 0ull, errcode);
-#endif
+    if (errcode < 0)
+      throw std::runtime_error("failed to determine errata");
+
+    std::vector<uint8_t> zeros(sizeof(config->errata), 0);
+    if (memcmp(&config->errata, &zeros[0], sizeof(config->errata)) != 0) {
+      fprintf(stderr, "WARNING! CPU errata detected:");
+
+#define __ERRATA(x)                                                            \
+  do {                                                                         \
+    if (config->errata.x)                                                      \
+      fprintf(stderr, " " #x);                                                 \
+  } while (false)
+
+      __ERRATA(bdm70);
+      __ERRATA(bdm64);
+      __ERRATA(skd007);
+      __ERRATA(skd022);
+      __ERRATA(skd010);
+      __ERRATA(skl014);
+      __ERRATA(apl12);
+      __ERRATA(apl11);
+      __ERRATA(skl168);
+      __ERRATA(skz84);
+
+#undef __ERRATA
+
+      fprintf(stderr, "\n");
+    }
   }
 
   int errcode = pt_sb_init_decoders(tracking.session);
@@ -111,10 +139,6 @@ IntelPT::IntelPT(int ptdump_argc, char **ptdump_argv, jv_t &jv,
   if (!sideband.os)
     throw std::runtime_error(std::string("open_memstream() failed: ") +
                              strerror(errno));
-
-  // XXX automatically flush on new-line (because llvm::errs)
-  setvbuf(stdout, NULL, _IOLBF, 0);
-  setvbuf(stderr, NULL, _IOLBF, 0);
 
   for (const auto &pair : AddressSpaceInit) {
     binary_index_t BIdx = pair.second;
