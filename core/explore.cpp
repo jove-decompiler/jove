@@ -542,11 +542,14 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
     callee.Callers.emplace(b.Idx /* may =invalid */, T.Addr);
 
     if (unlikely(Speculative)) {
+      ip_sharable_lock<ip_upgradable_mutex> s_lck_ICFG(b.Analysis.ICFG_mtx);
+
       ICFG[basic_block_of_index(Idx, ICFG)].Term._call.Target = CalleeFIdx;
     } else {
       ip_sharable_lock<ip_upgradable_mutex> s_lck_bbmap(b.bbmap_mtx);
+      ip_sharable_lock<ip_upgradable_mutex> s_lck_ICFG(b.Analysis.ICFG_mtx);
 
-      b.prop(basic_block_at_address(T.Addr, b)).Term._call.Target = CalleeFIdx;
+      ICFG[basic_block_at_address(T.Addr, b)].Term._call.Target = CalleeFIdx;
     }
 
     break;
