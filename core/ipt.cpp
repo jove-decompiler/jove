@@ -360,7 +360,7 @@ void IntelPT::examine_sb(void) {
 //        Curr.tid = _.tid;
         }
       } else if (MATCHES_REST("SAMPLE.RAW")) {
-        std::string &hexbytes = this->m.buff;
+        std::string &hexbytes = this->__buff.s1;
         hexbytes.resize(4097);
         hexbytes[0] = '\0';
 
@@ -385,13 +385,14 @@ void IntelPT::examine_sb(void) {
           hexbytes.resize(hexbytes_len);
         }
 
-        std::vector<uint8_t> bytes;
+        std::vector<uint8_t> &bytes = this->__buff.u8v;
         bytes.resize(hexbytes.size() / 2);
         for (unsigned i = 0; i < bytes.size(); ++i) {
           char hexbyte[3];
           hexbyte[0] = hexbytes[2*i];
           hexbyte[1] = hexbytes[2*i+1];
           hexbyte[2] = '\0';
+
           bytes[i] = strtol(hexbyte, nullptr, 16);
         }
 
@@ -433,17 +434,42 @@ void IntelPT::examine_sb(void) {
 
           /* on syscall return */
           if (state.nr == syscalls::NR::munmap) {
-            taddr_t addr = state.args[0];
-            taddr_t len = state.args[1];
-
-            if (IsVerbose())
-              fprintf(stderr, "munmap(%p, %d) = %d\n", (void *)addr,
-                      (int)len, (int)ret);
-
             if (ret != 0)
               continue; /* failed */
 
+            taddr_t addr = state.args[0];
+            taddr_t len = state.args[1];
+
+            if (IsVeryVerbose())
+              fprintf(stderr, "munmap(%lx, %u) = %d\n", (unsigned long)addr,
+                      (unsigned)len, (int)ret);
+
             intvl_map_clear(AddressSpace, addr_intvl(addr, len));
+          } else if (state.nr == syscalls::NR::mmap) {
+            if (ret == ((uintptr_t)MAP_FAILED))
+              continue; /* failed */
+
+            taddr_t addr = state.args[0];
+            taddr_t len = state.args[1];
+            int prot = state.args[2];
+            int flags = state.args[3];
+            int fd = state.args[4];
+            taddr_t off = state.args[5];
+
+            if (IsVeryVerbose())
+              fprintf(stderr, "mmap(%lx, %lx, %d, %d, %d, %lx) = %lx\n",
+                      (unsigned long)addr, (unsigned long)len, prot, flags, fd,
+                      (unsigned long)off, (unsigned long)ret);
+
+            if (IsCOFF && RightWineExecCount()) {
+              const addr_intvl intvl(addr, len);
+
+              if (intvl_map_find(AddressSpace, intvl) == AddressSpace.end()) {
+                auto it = intvl_map_find(AddressSpaceInit, intvl);
+                if (it != AddressSpaceInit.end())
+                  intvl_map_add(AddressSpace, intvl, std::make_pair((*it).second, ~0UL));
+              }
+            }
           } else {
             fprintf(stderr, "unhandled syscall %u!\n", (unsigned)state.nr);
             break;
@@ -485,7 +511,7 @@ void IntelPT::examine_sb(void) {
         uint64_t ino, ino_generation;
         unsigned prot, flags;
 
-        std::string &hexname = this->m.buff;
+        std::string &hexname = this->__buff.s1;
 
         hexname.resize(8193);
         hexname[0] = '\0';
@@ -511,75 +537,39 @@ void IntelPT::examine_sb(void) {
           hexname.resize(hexname_len);
         }
 
-        std::string name;
-        name.reserve(hexname.size() / 2);
-        for (unsigned i = 0; i < hexname.size() / 2; ++i) {
+        std::string &name = this->__buff.s2;
+        name.resize(hexname.size() / 2);
+        for (unsigned i = 0; i < name.size(); ++i) {
           char hexchar[3];
           hexchar[0] = hexname[2*i];
           hexchar[1] = hexname[2*i+1];
           hexchar[2] = '\0';
-          name.push_back((char)strtol(hexchar, nullptr, 16));
+
+          name[i] = strtol(hexchar, nullptr, 16);
         }
 
         if (IsVeryVerbose())
           fprintf(stderr, "[mmap] \"%s\"\n", name.c_str());
 
-        const bool anon = name == "//anon";
-
         const addr_intvl intvl(addr, len);
-
-#if 0
-        {
-          auto it = intvl_map_find(AddressSpace, intvl);
-          if (it != AddressSpace.end()) {
-            if (anon) {
-              if (!is_binary_index_valid((*it).second.first))
-                continue; /* this memory is "ambiguous" */
-            }
-
-            /* something must have been unmapped without our knowledge */
-            intvl_map_clear(AddressSpace, intvl);
-          }
-        }
-#endif
 
         if (intvl_map_find(AddressSpace, intvl) != AddressSpace.end()) {
           /* something must have been unmapped without our knowledge */
           intvl_map_clear(AddressSpace, intvl);
         }
 
-#if 0
-        {
-          auto it = intvl_map_find(AddressSpace, intvl);
-          if (it != AddressSpace.end()) {
-            if (anon) {
-              if (intvl_map_find(AddressSpaceInit, intvl) != AddressSpaceInit.end()) { /* XXX wine hack */
-                if (IsVeryVerbose())
-                  fprintf(stderr, "wine told us something is at 0x%" PRIx64 "\n", addr);
-                continue;
-              }
-            } else {
-            if (!is_binary_index_valid((*it).second.first))
-              continue; /* this memory is "ambiguous" */
-            }
-
-            intvl_map_clear(AddressSpace, intvl);
-          }
-        }
-#endif
-
-        binary_index_t BIdx;
-        bool IsNew;
-
+        const bool anon = name == "//anon";
         if (anon) {
           if (IsCOFF && RightWineExecCount()) {
             auto it = intvl_map_find(AddressSpaceInit, intvl);
             if (it != AddressSpaceInit.end())
-              intvl_map_add(AddressSpace, intvl, std::make_pair((*it).second, pgoff));
+              intvl_map_add(AddressSpace, intvl, std::make_pair((*it).second, ~0UL));
           }
           continue;
         }
 
+        binary_index_t BIdx;
+        bool IsNew;
         if (name[0] == '/') {
           if (!fs::exists(name)) {
             if (IsVeryVerbose())

@@ -74,8 +74,9 @@ class IntelPT {
 #endif
 
   struct {
-    std::string buff;
-  } m;
+    std::string s1, s2;
+    std::vector<uint8_t> u8v;
+  } __buff;
 
   struct syscall_state_t {
     long nr;
