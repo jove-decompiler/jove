@@ -205,8 +205,10 @@ void IntelPT::examine_sb(void) {
     }
     *eol = '\0';
 
+#if 0
     if (IsVeryVerbose())
       fprintf(stderr, "%s\n", line);
+#endif
 
     static const char sb_line_prefix[] = "PERF_RECORD_";
     constexpr unsigned sb_line_prefix_len = sizeof(sb_line_prefix)-1;
@@ -224,14 +226,6 @@ void IntelPT::examine_sb(void) {
    }))
 
     char *rest = line + sb_line_prefix_len;
-
-    auto init_address_space = [&](void) -> void {
-      AddressSpace.clear();
-      for (const auto &pair : AddressSpaceInit) {
-        intvl_map_add(AddressSpace, pair.first,
-                      std::make_pair(pair.second, ~0UL));
-      }
-    };
 
     auto do_comm_exec = [&](void) -> void {
       AddressSpace.clear();
@@ -903,7 +897,7 @@ int IntelPT::track_last_ip(const struct pt_packet_ip *packet, uint64_t offset) {
   errcode = pt_last_ip_query(&ip, tracking.last_ip.get());
   if (unlikely(errcode < 0)) {
     if (errcode == -pte_ip_suppressed) {
-      if (IsVeryVerbose())
+      if (IsVeryVerbose() && Engaged)
         fprintf(stderr, "<suppressed>\n");
       Curr.Block = invalid_block;
       Curr.TermAddr = ~0UL;
@@ -1168,7 +1162,7 @@ void IntelPT::block_transfer(binary_index_t FrBIdx, taddr_t FrTermAddr,
 
   case TERMINATOR::RETURN: {
     {
-      ip_sharable_lock<ip_upgradable_mutex> s_lck(fr_b.bbmap_mtx);
+      ip_sharable_lock<ip_upgradable_mutex> fr_s_lck_bbmap(fr_b.bbmap_mtx);
 
       fr_ICFG[basic_block_at_address(FrTermAddr, fr_b)].Term._return.Returns = true;
     }
@@ -1178,17 +1172,15 @@ void IntelPT::block_transfer(binary_index_t FrBIdx, taddr_t FrTermAddr,
     //
     const taddr_t before_pc = ToAddr - 1;
 
-    ip_upgradable_lock<ip_upgradable_mutex> to_u_lck(to_b.bbmap_mtx);
+    ip_sharable_lock<ip_upgradable_mutex> to_s_lck_bbmap(to_b.bbmap_mtx);
 
     if (!exists_basic_block_at_address(before_pc, to_b))
       break;
 
-    basic_block_t before_bb = basic_block_at_address(before_pc, to_b);
-    basic_block_properties_t &before_bbprop = *({
-      ip_sharable_lock<ip_upgradable_mutex> to_s_lck_ICFG(to_b.Analysis.ICFG_mtx);
+    ip_upgradable_lock<ip_upgradable_mutex> to_u_lck_ICFG(to_b.Analysis.ICFG_mtx);
 
-      &to_ICFG[before_bb];
-    });
+    basic_block_t before_bb = basic_block_at_address(before_pc, to_b);
+    basic_block_properties_t &before_bbprop = to_ICFG[before_bb];
     auto &before_Term = before_bbprop.Term;
 
     bool isCall = before_Term.Type == TERMINATOR::CALL;
@@ -1201,8 +1193,7 @@ void IntelPT::block_transfer(binary_index_t FrBIdx, taddr_t FrTermAddr,
           to_b.Analysis.Functions.at(before_Term._call.Target).Returns = true;
       }
 
-      ip_scoped_lock<ip_upgradable_mutex> to_e_lck(boost::move(to_u_lck));
-      ip_scoped_lock<ip_upgradable_mutex> to_e_lck_ICFG(to_b.Analysis.ICFG_mtx);
+      ip_scoped_lock<ip_upgradable_mutex> to_e_lck_ICFG(boost::move(to_u_lck_ICFG));
 
       boost::add_edge(before_bb, to_bb, to_ICFG); /* connect */
     }
