@@ -12,7 +12,6 @@ struct pt_packet_decoder;
 struct pt_sb_pevent_config;
 struct pt_packet;
 struct pt_packet_cyc;
-struct pt_packet_ip;
 struct pt_packet_tnt;
 struct pt_packet_tsc;
 struct pt_packet_cbr;
@@ -67,13 +66,6 @@ class IntelPT {
   boost::container::flat_map<addr_intvl, std::pair<binary_index_t, uint64_t>,
                              addr_intvl_cmp>
       AddressSpace;
-
-#if 0
-  /* if true, next IP must be reachable from current without trace */
-  bool ProceedToIP = false;
-#else
-  bool SkipIP = false;
-#endif
 
   struct {
     std::string s1, s2;
@@ -146,8 +138,7 @@ class IntelPT {
   void ptdump_tracking_init(void);
   void ptdump_tracking_reset(void);
 
-  int process_packet(uint64_t offset, const struct pt_packet *);
-  int track_last_ip(const struct pt_packet_ip *, uint64_t offset);
+  int process_packet(uint64_t offset, struct pt_packet *);
   int track_cyc(uint64_t offset, const struct pt_packet_cyc *);
   int sb_track_time(uint64_t offset);
   int track_time(uint64_t offset);

@@ -712,19 +712,19 @@ int IntelPT::explore_packets() {
 #endif
     }
 
-    errcode = process_packet(offset, &packet);
-    if (unlikely(errcode < 0))
-      return errcode;
+    int ret = process_packet(offset, &packet);
+    if (unlikely(ret <= 0))
+      return ret;
   }
 
   return 0;
 }
 
-int IntelPT::process_packet(uint64_t offset, const struct pt_packet *packet) {
+int IntelPT::process_packet(uint64_t offset, struct pt_packet *packet) {
   switch (packet->type) {
   case ppt_unknown:
   case ppt_invalid:
-    return 0;
+    return 1;
 
   case ppt_psb:
     if (1 /* options->track_time */) {
@@ -738,14 +738,14 @@ int IntelPT::process_packet(uint64_t offset, const struct pt_packet *packet) {
     }
 
     tracking.in_header = 1;
-    return 0;
+    return 1;
 
   case ppt_psbend:
     tracking.in_header = 0;
-    return 0;
+    return 1;
 
   case ppt_pad:
-    return 0;
+    return 1;
 
   case ppt_ovf:
     if (0 /* options->keep_tcal_on_ovf */) {
@@ -759,21 +759,50 @@ int IntelPT::process_packet(uint64_t offset, const struct pt_packet *packet) {
     } else {
       pt_tcal_init(tracking.tcal.get());
     }
-    return 0;
+    return 1;
 
   case ppt_stop:
-    return 0;
+    return 1;
 
   case ppt_fup:
   case ppt_tip:
   case ppt_tip_pge:
-  case ppt_tip_pgd:
-    track_last_ip(&packet->payload.ip, offset);
-    return 0;
+  case ppt_tip_pgd: {
+    int errcode;
+    uint64_t ip;
+
+    errcode = pt_last_ip_update_ip(tracking.last_ip.get(), &packet->payload.ip,
+                                   config.get());
+    if (unlikely(errcode < 0))
+      throw std::runtime_error(
+          std::string("IntelPT: error tracking last-ip at offset ") +
+          std::to_string(offset));
+
+    errcode = pt_last_ip_query(&ip, tracking.last_ip.get());
+    if (unlikely(errcode < 0)) {
+      if (errcode == -pte_ip_suppressed) {
+        if (Engaged) {
+          if (IsVeryVerbose())
+            fprintf(stderr, "<suppressed>\n");
+
+          Curr.Block = invalid_block;
+          Curr.TermAddr = ~0UL;
+        }
+      } else {
+        throw std::runtime_error(
+            std::string("IntelPT: error tracking last-ip at offset ") +
+            std::to_string(offset));
+      }
+    } else {
+      on_ip(ip, offset);
+    }
+
+    return 1;
+  }
 
   case ppt_pip: /* we'll never see this in userspace */
   case ppt_vmcs:
-    return 0;
+    return 1;
 
   case ppt_tnt_8:
   case ppt_tnt_64:
@@ -801,18 +830,48 @@ int IntelPT::process_packet(uint64_t offset, const struct pt_packet *packet) {
         break;
       }
 
-      // FIXME explain this
-      if (CheckEngaged())
-        SkipIP = true;
+      CheckEngaged();
 
-      return 0;
+      int errcode;
+
+      //
+      // look ahead and, if IP packet, deal with it but don't examine IP,
+      // because IIRC (from reading libipt) whatever it is would have been
+      // reachable anyway without examining the trace- plus it might be BOGUS.
+      //
+      errcode = pt_pkt_get_offset(decoder, &offset);
+      if (unlikely(errcode < 0))
+        throw std::runtime_error(
+            std::string("IntelPT: error getting offset: ") +
+            pt_errstr(pt_errcode(errcode)));
+
+      errcode = pt_pkt_next(decoder, packet, sizeof(*packet));
+      if (unlikely(errcode < 0)) {
+        if (errcode == -pte_eos)
+          return 0;
+        return errcode;
+      }
+
+      switch (packet->type) {
+        case ppt_fup:
+        case ppt_tip:
+        case ppt_tip_pge:
+        case ppt_tip_pgd:
+          errcode = pt_last_ip_update_ip(tracking.last_ip.get(),
+                                         &packet->payload.ip, config.get());
+          if (unlikely(errcode < 0))
+            throw std::runtime_error(
+                std::string("IntelPT: error tracking last-ip at offset ") +
+                std::to_string(offset));
+          return 1;
+      }
+
+      __attribute__((musttail)) return process_packet(offset, packet);
     }
 
     case pt_mol_tsx:
-      // FIXME explain this
-      if (Engaged)
-        SkipIP = true;
-      return 0;
+      // assuming this is followed by a mode.exec, there's nothing we need to do
+      return 1;
     }
 
     throw std::runtime_error(
@@ -822,23 +881,23 @@ int IntelPT::process_packet(uint64_t offset, const struct pt_packet *packet) {
 
   case ppt_tsc:
     track_tsc(offset, &packet->payload.tsc);
-    return 0;
+    return 1;
 
   case ppt_cbr:
     track_cbr(offset, &packet->payload.cbr);
-    return 0;
+    return 1;
 
   case ppt_tma:
     track_tma(offset, &packet->payload.tma);
-    return 0;
+    return 1;
 
   case ppt_mtc:
     track_mtc(offset, &packet->payload.mtc);
-    return 0;
+    return 1;
 
   case ppt_cyc:
     track_cyc(offset, &packet->payload.cyc);
-    return 0;
+    return 1;
 
   case ppt_mnt:
   case ppt_exstop:
@@ -849,7 +908,7 @@ int IntelPT::process_packet(uint64_t offset, const struct pt_packet *packet) {
   case ppt_cfe:
   case ppt_evd:
   case ppt_trig:
-    return 0;
+    return 1;
   }
 
   throw std::runtime_error(
@@ -861,13 +920,11 @@ struct tnt_error {};
 
 int IntelPT::tnt_payload(const struct pt_packet_tnt *packet) {
   if (unlikely(!Engaged))
-    return 0;
+    return 1;
 
   if (unlikely(!is_block_valid(Curr.Block))) {
-#if 1
     if (IsVeryVerbose())
       fprintf(stderr, "unhandled tnt\n");
-#endif
     return 1;
   }
 
@@ -894,90 +951,17 @@ int IntelPT::tnt_payload(const struct pt_packet_tnt *packet) {
     return 1;
   }
 
-  return 0;
-}
-
-int IntelPT::track_last_ip(const struct pt_packet_ip *packet, uint64_t offset) {
-  uint64_t ip;
-  int errcode;
-
-  //print_field(buffer->tracking.id, "ip");
-
-  errcode = pt_last_ip_update_ip(tracking.last_ip.get(), packet, config.get());
-  if (unlikely(errcode < 0)) {
-    //print_field(buffer->tracking.payload, "<unavailable>");
-
-    throw std::runtime_error(
-        std::string("IntelPT: error tracking last-ip at offset ") +
-        std::to_string(offset));
-  }
-
-  errcode = pt_last_ip_query(&ip, tracking.last_ip.get());
-  if (unlikely(errcode < 0)) {
-    if (errcode == -pte_ip_suppressed) {
-      if (IsVeryVerbose() && Engaged)
-        fprintf(stderr, "<suppressed>\n");
-
-      Curr.Block = invalid_block;
-      Curr.TermAddr = ~0UL;
-      //print_field(buffer->tracking.payload, "<suppressed>");
-    } else {
-      //print_field(buffer->tracking.payload, "<unavailable>");
-
-      throw std::runtime_error(
-          std::string("IntelPT: error tracking last-ip at offset ") +
-          std::to_string(offset));
-    }
-  } else {
-    //print_field(buffer->tracking.payload, "%016" PRIx64, ip);
-    on_ip(ip, offset);
-  }
-
-  return 0;
+  return 1;
 }
 
 int IntelPT::on_ip(const uint64_t IP, const uint64_t offset) {
-#if 0
-  if (unlikely(ProceedToIP)) {
-    ProceedToIP = false;
-
-    if (Engaged && is_block_valid(Curr.Block)) {
-      bool Reached = false;
-      {
-        ip_sharable_lock<ip_upgradable_mutex> s_lck(
-            jv.Binaries.at(Curr.Block.first).bbmap_mtx);
-
-        std::tie(Curr.Block.second, Reached) =
-            StraightLineAdvance(Curr.Block, IP);
-        Curr.TermAddr = address_of_block_terminator(Curr.Block, jv);
-        // assert(Curr.TermAddr);
-      }
-
-      if (!Reached) {
-        Curr.Block = invalid_block;
-        Curr.TermAddr = ~0UL;
-
-        if (IsVeryVerbose())
-          fprintf(stderr, "trace stream does not match query %016" PRIx64 " %016" PRIx64 "\n", offset, IP);
-        return 1;
-      }
-
-      return 0;
-    }
-  }
-#endif
-
   if (unlikely(!Engaged)) {
     if (IsVeryVerbose() && RightProcess())
       fprintf(stderr, "%" PRIx64 "\t__IP %016" PRIx64 "\n", offset, IP);
     return 0;
   }
 
-  if (unlikely(SkipIP)) {
-    SkipIP = false;
-    return 0;
-  }
-
+  // TODO (from libipt): ip < priv->kernel_start ? ploc_in_user : ploc_in_kernel
 #if 0
   if (sizeof(taddr_t) == 4)
     assert(IP < 0xffffffffull);
@@ -1399,9 +1383,7 @@ basic_block_index_t IntelPT::Advance(block_t From, uint64_t tnt, uint8_t n) {
     on_block(block_t(From.first, Res));
   } while (--n);
 
-#if 1 /* if we are not using ProceedToIP */
   Res = StraightLineAdvance(block_t(From.first, Res)).first;
-#endif
 
 #if 1
   if (IsVeryVerbose())
