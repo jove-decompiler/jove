@@ -60,9 +60,7 @@ IntelPT::IntelPT(int ptdump_argc, char **ptdump_argv, jv_t &jv,
                  unsigned verbose, bool ignore_trunc_aux)
     : jv(jv), explorer(explorer), state(jv), IsCOFF(B::is_coff(*state.for_binary(jv.Binaries.at(0)).Bin)), AddressSpaceInit(AddressSpaceInit),
       v(verbose >= 1), vv(verbose >= 2), ignore_trunc_aux(ignore_trunc_aux) {
-  /* automatically flush on new-line */
-  setvbuf(stdout, NULL, _IOLBF, 0);
-  setvbuf(stderr, NULL, _IOLBF, 0);
+  setvbuf(stderr, NULL, _IOLBF, 0); /* automatically flush on new-line */
 
   Our.cpu = cpu;
 
@@ -152,7 +150,7 @@ IntelPT::~IntelPT() {
   pt_pkt_free_decoder(decoder);
 
 #if 0
-  int errcode = pt_sb_dump(tracking.session, stdout, sb_dump_flags, UINT64_MAX);
+  int errcode = pt_sb_dump(tracking.session, stderr, sb_dump_flags, UINT64_MAX);
 #endif
 
 #if 0
