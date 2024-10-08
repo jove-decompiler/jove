@@ -487,13 +487,16 @@ void IntelPT::examine_sb(void) {
             if (prot & PROT_EXEC)
               continue; /* we will see PERF_RECORD_MMAP2 */
 
+            const bool anon = fd < 0;
+
             if (IsCOFF) {
               const addr_intvl intvl(ret, len);
 
               if (IsVeryVerbose()) {
                 std::string as(addr_intvl2str(intvl));
 
-                fprintf(stderr, "[mmap] @ %s\n", as.c_str());
+                fprintf(stderr, "[mmap]  @ %s in %s\n", as.c_str(),
+                        anon ? "\"//anon\"" : nullptr);
               }
 
               intvl_map_clear(AddressSpace, intvl);
