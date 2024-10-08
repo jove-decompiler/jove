@@ -589,7 +589,7 @@ void IntelPT::examine_sb(void) {
       if (IsVeryVerbose()) {
         std::string as(addr_intvl2str(intvl));
 
-        fprintf(stderr, "[MMAP%s]  @ %s in \"%s\"\n", two ? "2" : "",
+        fprintf(stderr, "[MMAP%s  @ %s in \"%s\"\n", two ? "2]" : "] ",
                 as.c_str(), name.c_str());
       }
 
