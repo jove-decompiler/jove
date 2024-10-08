@@ -1115,10 +1115,11 @@ void IntelPT::block_transfer(binary_index_t FrBIdx, taddr_t FrTermAddr,
   });
 
   basic_block_t to_bb = ({
-    ip_sharable_lock<ip_upgradable_mutex> to_s_lck(to_b.bbmap_mtx);
+    ip_sharable_lock<ip_upgradable_mutex> to_s_lck_bbmap(to_b.bbmap_mtx);
+    ip_sharable_lock<ip_upgradable_mutex> to_s_lck_ICFG(to_b.Analysis.ICFG_mtx);
 
     basic_block_starting_at_address(ToAddr, to_b);
-  }); /* don't care if split */
+  }); /* makes no difference if split */
 
   auto handle_indirect_call = [&](void) -> void {
     function_index_t FIdx =
@@ -1146,7 +1147,8 @@ void IntelPT::block_transfer(binary_index_t FrBIdx, taddr_t FrTermAddr,
       break;
 
     const bool TailCall = ({
-      ip_sharable_lock<ip_upgradable_mutex> s_lck(fr_b.bbmap_mtx);
+      ip_sharable_lock<ip_upgradable_mutex> fr_s_lck_bbmap(fr_b.bbmap_mtx);
+      ip_sharable_lock<ip_upgradable_mutex> fr_s_lck_ICFG(fr_b.Analysis.ICFG_mtx);
 
       IsDefinitelyTailCall(fr_ICFG, basic_block_at_address(FrTermAddr, fr_b));
     });
@@ -1176,6 +1178,7 @@ void IntelPT::block_transfer(binary_index_t FrBIdx, taddr_t FrTermAddr,
   case TERMINATOR::RETURN: {
     {
       ip_sharable_lock<ip_upgradable_mutex> fr_s_lck_bbmap(fr_b.bbmap_mtx);
+      ip_sharable_lock<ip_upgradable_mutex> fr_s_lck_ICFG(fr_b.Analysis.ICFG_mtx);
 
       fr_ICFG[basic_block_at_address(FrTermAddr, fr_b)].Term._return.Returns = true;
     }
