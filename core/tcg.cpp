@@ -1282,7 +1282,7 @@ tiny_code_generator_t::translate(uint64_t pc, uint64_t pc_end) {
 
   if (jv_ti.Type == jove::TERMINATOR::CALL &&
       jv_ti._call.Target == jv_ti._call.NextPC) {
-    uintptr_t NextPC = jv_ti._call.NextPC;
+    taddr_t NextPC = jv_ti._call.NextPC;
 
     jv_ti.Type = jove::TERMINATOR::UNCONDITIONAL_JUMP;
     jv_ti._unconditional_jump.Target = NextPC;
