@@ -1232,7 +1232,27 @@ IntelPT::StraightLineAdvance(block_t From, uint64_t GoNoFurther) {
     basic_block_t bb = basic_block_of_index(Res, b);
     const basic_block_properties_t &bbprop = ICFG[bb];
 
-    if (bbprop.Addr == GoNoFurther)
+    if (bbprop.Addr == GoNoFurther ||
+        /* the following assumes that GoNoFurther sits cleanly in the block.
+         * to verify this, we'd have to disassemble the instructions.
+         *
+         * NOTE: this happens to "resolve" a problem encountered with the trace
+         * output, where an invalid IP follows a twirl. i.e., given the code:
+         *
+	 * 18d70:       f3 0f 1e fb             endbr32
+	 * 18d74:       e8 00 00 00 00          call   18d79
+	 * 18d79:       58                      pop    %eax
+	 * 18d7a:       05 23 b2 ff ff          add    $0xffffb223,%eax
+	 * 18d7f:       8b 80 38 00 00 00       mov    0x38(%eax),%eax
+         *
+         * we might have the following sequence:
+         *
+         *   on_ip(0x18d70);
+         *   on_ip(0x18d76);  // <-- WTF, middle of twirl instruction
+         *
+         **/
+        unlikely(GoNoFurther >= bbprop.Addr &&
+                 GoNoFurther < bbprop.Addr + bbprop.Size))
       return std::make_pair(Res, true);
 
     switch (bbprop.Term.Type) {
