@@ -1231,8 +1231,8 @@ IntelPT::StraightLineAdvance(block_t From, uint64_t GoNoFurther) {
   for (;; on_block(block_t(From.first, Res))) {
     basic_block_t bb = basic_block_of_index(Res, b);
     const basic_block_properties_t &bbprop = ICFG[bb];
-    const taddr_t Addr = bbprop.Addr;
-    const taddr_t Size = bbprop.Size;
+    const auto Addr = bbprop.Addr;
+    const auto Size = bbprop.Size;
 
     if (bbprop.Addr == GoNoFurther ||
         /* the following assumes that GoNoFurther sits cleanly in the block.
