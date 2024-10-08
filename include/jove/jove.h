@@ -299,7 +299,7 @@ typedef boost::interprocess::set<
 
 typedef boost::unordered_flat_set<dynamic_target_t> dynamic_target_set;
 
-typedef std::pair<taddr_t, unsigned> addr_intvl; /* right open interval */
+typedef std::pair<taddr_t, taddr_t> addr_intvl; /* right open interval */
 
 struct addr_intvl_cmp {
   typedef void is_transparent;
