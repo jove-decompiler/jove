@@ -1035,12 +1035,18 @@ int IntelPT::on_ip(const uint64_t IP, const uint64_t offset) {
 
   if (is_block_valid(Curr.Block)) {
     bool WentNoFurther = false;
+    bool DoNotGoFurther = Curr.Block.first == BIdx;
     {
       ip_sharable_lock<ip_upgradable_mutex> s_lck(
           jv.Binaries.at(Curr.Block.first).bbmap_mtx);
 
-      std::tie(Curr.Block.second, WentNoFurther) =
-          StraightLineAdvance(Curr.Block, Curr.Block.first == BIdx ? Addr : 0u);
+      if (DoNotGoFurther)
+          std::tie(Curr.Block.second, WentNoFurther) =
+              StraightLineAdvance(Curr.Block, Addr);
+      else
+          std::tie(Curr.Block.second, WentNoFurther) =
+              StraightLineAdvance(Curr.Block);
+
       Curr.TermAddr = address_of_block_terminator(Curr.Block, jv);
       //assert(Curr.TermAddr);
     }
@@ -1222,8 +1228,9 @@ void IntelPT::block_transfer(binary_index_t FrBIdx, taddr_t FrTermAddr,
   }
 }
 
+template<bool DoNotGoFurther>
 std::pair<basic_block_index_t, bool>
-IntelPT::StraightLineAdvance(block_t From, uint64_t GoNoFurther) {
+IntelPT::DoStraightLineAdvance(block_t From, uint64_t GoNoFurther) {
   const binary_t &b = jv.Binaries.at(From.first);
   const icfg_t &ICFG = b.Analysis.ICFG;
 
@@ -1234,29 +1241,30 @@ IntelPT::StraightLineAdvance(block_t From, uint64_t GoNoFurther) {
     const auto Addr = bbprop.Addr;
     const auto Size = bbprop.Size;
 
-    if (bbprop.Addr == GoNoFurther ||
-        /* the following assumes that GoNoFurther sits cleanly in the block.
-         * to verify this, we'd have to disassemble the instructions.
-         *
-         * NOTE: this happens to "resolve" a problem encountered with the trace
-         * output, where an invalid IP follows a twirl. i.e., given the code:
-         *
-	 * 18d70:       f3 0f 1e fb             endbr32
-	 * 18d74:       e8 00 00 00 00          call   18d79
-	 * 18d79:       58                      pop    %eax
-	 * 18d7a:       05 23 b2 ff ff          add    $0xffffb223,%eax
-	 * 18d7f:       8b 80 38 00 00 00       mov    0x38(%eax),%eax
-         *
-         * we might have the following sequence:
-         *
-         *   on_ip(0x18d70);
-         *   on_ip(0x18d76);  // <-- WTF, middle of twirl instruction
-         *
-         * this has been confirmed to confuse the hell out of ptxed.
-         *
-         **/
-        unlikely(GoNoFurther >= Addr &&
-                 GoNoFurther < Addr + Size))
+    if (DoNotGoFurther &&
+        (bbprop.Addr == GoNoFurther ||
+         /* the following assumes that GoNoFurther sits cleanly in the block.
+          * to verify this, we'd have to disassemble the instructions.
+          *
+          * NOTE: this happens to "resolve" a problem encountered with the trace
+          * output, where an invalid IP follows a twirl. i.e., given the code:
+          *
+          * 18d70:       f3 0f 1e fb             endbr32
+          * 18d74:       e8 00 00 00 00          call   18d79
+          * 18d79:       58                      pop    %eax
+          * 18d7a:       05 23 b2 ff ff          add    $0xffffb223,%eax
+          * 18d7f:       8b 80 38 00 00 00       mov    0x38(%eax),%eax
+          *
+          * we might have the following sequence:
+          *
+          *   on_ip(0x18d70);
+          *   on_ip(0x18d76);  // <-- WTF, middle of twirl instruction
+          *
+          * this has been confirmed to confuse the hell out of ptxed.
+          *
+          **/
+         unlikely(GoNoFurther >= Addr &&
+                  GoNoFurther < Addr + Size)))
       return std::make_pair(Res, true);
 
     switch (bbprop.Term.Type) {
@@ -1323,6 +1331,16 @@ IntelPT::StraightLineAdvance(block_t From, uint64_t GoNoFurther) {
   }
 
   return std::make_pair(Res, false);
+}
+
+std::pair<basic_block_index_t, bool>
+IntelPT::StraightLineAdvance(block_t block, uint64_t GoNoFurther) {
+  return DoStraightLineAdvance<true>(block, GoNoFurther);
+}
+
+std::pair<basic_block_index_t, bool>
+IntelPT::StraightLineAdvance(block_t block) {
+  return DoStraightLineAdvance<false>(block);
 }
 
 void IntelPT::on_block(block_t block) {
