@@ -8,6 +8,7 @@
 #include <boost/filesystem.hpp>
 #include <boost/format.hpp>
 #include <boost/algorithm/string.hpp>
+#include <boost/preprocessor/variadic/size.hpp>
 
 #include <intel-pt.h>
 #include <libipt-sb.h>
@@ -251,6 +252,23 @@ void IntelPT::examine_sb(void) {
 
     char *rest = line + sb_line_prefix_len;
 
+    struct {
+      unsigned pid, tid;
+      uint64_t time;
+//    uint64_t id;
+      unsigned cpu;
+//    uint64_t stream_id;
+      uint64_t identifier;
+    } _; /* common to all records */
+
+#define sscanf_rest(fmt, ...) do {                                             \
+    int rc = sscanf(rest, fmt "  { %x/%x %" PRIx64 " cpu-%x %" PRIx64 " }",    \
+                    __VA_ARGS__ __VA_OPT__(,)                                  \
+                    &_.pid, &_.tid, &_.time, &_.cpu, &_.identifier);           \
+    assert(rc != EOF);                                                         \
+    assert(rc == BOOST_PP_VARIADIC_SIZE(__VA_ARGS__) + 5);                     \
+  } while(0)
+
     auto do_comm_exec = [&](void) -> void {
       AddressSpace.clear();
 
@@ -258,7 +276,7 @@ void IntelPT::examine_sb(void) {
       char comm[65];
       comm[0] = '\0';
 
-      sscanf(rest, "%x/%x, %64s  {", &pid, &tid, &comm[0]);
+      sscanf_rest("%x/%x, %64s", &pid, &tid, &comm[0]);
 
       if (boost::algorithm::ends_with(jv.Binaries.at(0).Name.c_str(), comm) ||
           Our.pid == pid) {
@@ -282,15 +300,6 @@ void IntelPT::examine_sb(void) {
       }
     };
 
-    struct {
-      unsigned pid, tid;
-      uint64_t time;
-      uint64_t id;
-      unsigned cpu;
-      uint64_t stream_id;
-      uint64_t identifier;
-    } _;
-
 #define unexpected_rest()                                                      \
   do {                                                                         \
     fprintf(stderr, "unexpected rest=\"%s\"\n", rest);                         \
@@ -303,10 +312,8 @@ void IntelPT::examine_sb(void) {
         ;
       } else if (MATCHES_REST("AUX.TRUNCATED")) {
         uint64_t aux_offset, aux_size, aux_flags;
-        sscanf(rest, "%" PRIx64 ", %" PRIx64 ", %" PRIx64
-               "  { %x/%x %" PRIx64 " cpu-%x %" PRIx64 " }",
-               &aux_offset, &aux_size, &aux_flags,
-               &_.pid, &_.tid, &_.time, &_.cpu, &_.identifier);
+        sscanf_rest("%" PRIx64 ", %" PRIx64 ", %" PRIx64,
+                    &aux_offset, &aux_size, &aux_flags);
 
         if (_.cpu == Our.cpu) {
           if (!ignore_trunc_aux)
@@ -355,18 +362,14 @@ void IntelPT::examine_sb(void) {
     case 'S':
       if (MATCHES_REST("SWITCH_CPU_WIDE.OUT")) {
         unsigned next_pid, next_tid;
-        sscanf(rest, "%x/%x"
-                     "  { %x/%x %" PRIx64 " cpu-%x %" PRIx64 " }",
-               &next_pid, &next_tid,
-               &_.pid, &_.tid, &_.time, &_.cpu, &_.identifier);
+        sscanf_rest("%x/%x", &next_pid, &next_tid);
 
         if (_.cpu == Our.cpu) {
           Curr.pid = ~0u;
           Engaged = false;
         }
       } else if (MATCHES_REST("SWITCH.OUT")) {
-        sscanf(rest, "  { %x/%x %" PRIx64 " cpu-%x %" PRIx64 " }",
-               &_.pid, &_.tid, &_.time, &_.cpu, &_.identifier);
+        sscanf_rest("");
 
         if (_.cpu == Our.cpu) {
           Curr.pid = ~0u;
@@ -374,18 +377,14 @@ void IntelPT::examine_sb(void) {
         }
       } else if (MATCHES_REST("SWITCH_CPU_WIDE.IN")) {
         unsigned prev_pid, prev_tid;
-        sscanf(rest, "%x/%x"
-                     "  { %x/%x %" PRIx64 " cpu-%x %" PRIx64 " }",
-               &prev_pid, &prev_tid,
-               &_.pid, &_.tid, &_.time, &_.cpu, &_.identifier);
+        sscanf_rest("%x/%x", &prev_pid, &prev_tid);
 
         if (_.cpu == Our.cpu)
           Curr.pid = _.pid;
 
         CheckEngaged();
       } else if (MATCHES_REST("SWITCH.IN")) {
-        sscanf(rest, "  { %x/%x %" PRIx64 " cpu-%x %" PRIx64 " }",
-               &_.pid, &_.tid, &_.time, &_.cpu, &_.identifier);
+        sscanf_rest("");
 
         if (_.cpu == Our.cpu)
           Curr.pid = _.pid;
@@ -399,10 +398,7 @@ void IntelPT::examine_sb(void) {
         char name[33];
         name[0] = '\0';
 
-        sscanf(rest, "%32[^,], %4096[0-9a-f]"
-                     "  { %x/%x %" PRIx64 " cpu-%x %" PRIx64 " }",
-               &name[0], &hexbytes[0],
-               &_.pid, &_.tid, &_.time, &_.cpu, &_.identifier);
+        sscanf_rest("%32[^,], %4096[0-9a-f]", &name[0], &hexbytes[0]);
 
         if (!IsRightProcess(_.pid))
           continue;
@@ -549,17 +545,12 @@ void IntelPT::examine_sb(void) {
         hexname.resize(8193);
         hexname[0] = '\0';
 
-        sscanf(rest, "%x/%x, %" PRIx64
-                     ", %" PRIx64 ", %" PRIx64 ", %x, %x, %" PRIx64
-                     ", %" PRIx64 ", %x, %x, %8192[0-9a-f]"
-
-                     "  { %x/%x %" PRIx64 " cpu-%x %" PRIx64 " }",
-
-                     &pid, &tid, &addr,
-                     &len, &pgoff, &maj, &min, &ino,
-                     &ino_generation, &prot, &flags, &hexname[0],
-
-                     &_.pid, &_.tid, &_.time, &_.cpu, &_.identifier);
+        sscanf_rest("%x/%x, %" PRIx64
+                    ", %" PRIx64 ", %" PRIx64 ", %x, %x, %" PRIx64
+                    ", %" PRIx64 ", %x, %x, %8192[0-9a-f]",
+                    &pid, &tid, &addr,
+                    &len, &pgoff, &maj, &min, &ino,
+                    &ino_generation, &prot, &flags, &hexname[0]);
 
         assert(pid == _.pid);
 
@@ -643,6 +634,9 @@ void IntelPT::examine_sb(void) {
       fprintf(stderr, "examine_sb: \"%s\" (TODO)\n", line);
       break;
     }
+
+#undef unexpected_rest
+#undef sscanf_rest
   } while (likely(ptr != end));
 }
 
@@ -854,6 +848,8 @@ int IntelPT::process_packet(uint64_t offset, struct pt_packet *packet) {
       }
 
       switch (packet->type) {
+        default:
+          break;
         case ppt_fup:
         case ppt_tip:
         case ppt_tip_pge:
