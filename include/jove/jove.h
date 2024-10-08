@@ -1203,6 +1203,62 @@ constexpr auto intvl_map_add(OrderedIntvlMap &map,
 
 template <typename OrderedIntvlMap>
 constexpr void intvl_map_clear(OrderedIntvlMap &map, addr_intvl intvl) {
+  const taddr_t L2 = addr_intvl_lower(intvl);
+  const taddr_t U2 = addr_intvl_upper(intvl);
+
+  for (;;) {
+    auto it = intvl_map_find(map, intvl);
+    if (it == map.end())
+      break;
+
+    auto val = (*it).second;
+
+    const taddr_t L1 = addr_intvl_lower((*it).first);
+    const taddr_t U1 = addr_intvl_upper((*it).first);
+
+    map.erase(it);
+
+    if (L1 >= L2 && U1 <= U2) {
+      //
+      //   {   [    ]   }
+      //   L2  L1  U1   U2
+      //
+      ;
+    } else if (L1 <= L2 && U1 >= U2) {
+      //
+      //   [   {    }   ]
+      //   L1  L2   U2  U1
+      //
+      if (L2 > L1) {
+        addr_intvl left_intvl = right_open_addr_intvl(L1, L2);
+        intvl_map_add(map, left_intvl, val);
+      }
+      if (U1 > U2) {
+        addr_intvl right_intvl = right_open_addr_intvl(U2, U1);
+        intvl_map_add(map, right_intvl, val);
+      }
+    } else if (L1 < L2 && U1 > L2 && U1 <= U2) {
+      //
+      //   [   {    ]   }
+      //   L1  L2   U1  U2
+      //
+      addr_intvl new_intvl = right_open_addr_intvl(L1, L2);
+      intvl_map_add(map, new_intvl, val);
+    } else if (L1 >= L2 && L1 < U2 && U1 > U2) {
+      //
+      //   {   [    }   ]
+      //   L2  L1   U2  U1
+      //
+      addr_intvl new_intvl = right_open_addr_intvl(U2, U1);
+      intvl_map_add(map, new_intvl, val);
+    } else {
+      abort();
+    }
+  }
+}
+
+template <typename OrderedIntvlMap>
+constexpr void intvl_map_clear_all(OrderedIntvlMap &map, addr_intvl intvl) {
   for (;;) {
     auto it = intvl_map_find(map, intvl);
     if (it == map.end())
