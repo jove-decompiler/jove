@@ -951,7 +951,7 @@ int IntelPT::tnt_payload(const struct pt_packet_tnt *packet) {
   return 1;
 }
 
-int IntelPT::on_ip(const uint64_t IP, const uint64_t offset) {
+int IntelPT::on_ip(const taddr_t IP, const uint64_t offset) {
   if (unlikely(!Engaged)) {
     if (IsVeryVerbose() && RightProcess())
       fprintf(stderr, "%" PRIx64 "\t__IP %016" PRIx64 "\n", offset, IP);
@@ -988,14 +988,14 @@ int IntelPT::on_ip(const uint64_t IP, const uint64_t offset) {
   binary_state_t &x = state.for_binary(b);
 
   struct {
-    uint64_t Base;
+    taddr_t Base;
     uint64_t Offset;
   } mapping;
 
   mapping.Base = addr_intvl_lower((*it).first);
   mapping.Offset = (*it).second.second;
 
-  uint64_t Addr = B::_X(
+  const taddr_t Addr = B::_X(
       *x.Bin,
       [&](ELFO &O) -> uint64_t {
         assert(~mapping.Offset != 0);
@@ -1006,6 +1006,7 @@ int IntelPT::on_ip(const uint64_t IP, const uint64_t offset) {
         assert(false);
         }
         assert(IP >= mapping.Base);
+        assert(mapping.Base >= mapping.Offset);
 
         uint64_t off = IP - (mapping.Base - mapping.Offset);
         try {
@@ -1215,11 +1216,6 @@ void IntelPT::block_transfer(binary_index_t FrBIdx, taddr_t FrTermAddr,
 
       boost::add_edge(before_bb, to_bb, to_ICFG); /* connect */
     }
-
-#if 1
-    if (IsVeryVerbose())
-      fprintf(stderr, "found ret\n");
-#endif
     break;
   }
 
@@ -1230,7 +1226,7 @@ void IntelPT::block_transfer(binary_index_t FrBIdx, taddr_t FrTermAddr,
 
 template<bool DoNotGoFurther>
 std::pair<basic_block_index_t, bool>
-IntelPT::DoStraightLineAdvance(block_t From, uint64_t GoNoFurther) {
+IntelPT::DoStraightLineAdvance(block_t From, taddr_t GoNoFurther) {
   const binary_t &b = jv.Binaries.at(From.first);
   const icfg_t &ICFG = b.Analysis.ICFG;
 
@@ -1334,7 +1330,7 @@ IntelPT::DoStraightLineAdvance(block_t From, uint64_t GoNoFurther) {
 }
 
 std::pair<basic_block_index_t, bool>
-IntelPT::StraightLineAdvance(block_t block, uint64_t GoNoFurther) {
+IntelPT::StraightLineAdvance(block_t block, taddr_t GoNoFurther) {
   return DoStraightLineAdvance<true>(block, GoNoFurther);
 }
 
@@ -1344,30 +1340,23 @@ IntelPT::StraightLineAdvance(block_t block) {
 }
 
 void IntelPT::on_block(block_t block) {
-#if 0
-  return;
-#endif
-  if (likely(!IsVeryVerbose()))
-    return;
+  if (IsVeryVerbose()) {
+    const binary_t &b = jv.Binaries.at(block.first);
+    binary_state_t &x = state.for_binary(b);
 
-  const binary_t &b = jv.Binaries.at(block.first);
-  binary_state_t &x = state.for_binary(b);
+    const icfg_t &ICFG = b.Analysis.ICFG;
 
-  const icfg_t &ICFG = b.Analysis.ICFG;
+    auto Addr = ICFG[basic_block_of_index(block.second, b)].Addr;
 
-  uint64_t va = ICFG[basic_block_of_index(block.second, b)].Addr;
-
-  // TODO
-  fprintf(stderr, "%s+%016" PRIx64 " \n", b.Name.c_str(), va);
+    fprintf(stderr, "%s+%016" PRIx64 " \n", b.Name.c_str(), Addr);
+  }
 }
 
 basic_block_index_t IntelPT::Advance(block_t From, uint64_t tnt, uint8_t n) {
   assert(n > 0);
 
-#if 1
   if (IsVeryVerbose())
     fprintf(stderr, "<TNT>\n");
-#endif
 
   const binary_t &b = jv.Binaries.at(From.first);
   const icfg_t &ICFG = b.Analysis.ICFG;
@@ -1414,7 +1403,7 @@ basic_block_index_t IntelPT::Advance(block_t From, uint64_t tnt, uint8_t n) {
 
 #if 0
     const char *extra = n > 1 ? " " : "";
-    fprintf(stderr, "%d%s", (int)Taken, extra); /* FIXME */
+    fprintf(stderr, "%d%s", (int)Taken, extra);
 #endif
 
     on_block(block_t(From.first, Res));
@@ -1422,10 +1411,8 @@ basic_block_index_t IntelPT::Advance(block_t From, uint64_t tnt, uint8_t n) {
 
   Res = StraightLineAdvance(block_t(From.first, Res)).first;
 
-#if 1
   if (IsVeryVerbose())
     fprintf(stderr, "</TNT>\n");
-#endif
 
   return Res;
 }
