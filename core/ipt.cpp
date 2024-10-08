@@ -187,6 +187,7 @@ int IntelPT::ptdump_print_error(int errcode, const char *filename,
   return 0;
 }
 
+#if 0
 static void hexdump(FILE *stream, const void *ptr, int buflen) {
   const unsigned char *buf = (const unsigned char*)ptr;
   int i, j;
@@ -204,6 +205,7 @@ static void hexdump(FILE *stream, const void *ptr, int buflen) {
     fprintf(stream, "\n");
   }
 }
+#endif
 
 void IntelPT::examine_sb(void) {
   fflush(sideband.os);
@@ -260,11 +262,11 @@ void IntelPT::examine_sb(void) {
 
       sscanf(rest, "%x/%x, %64s  {", &pid, &tid, &comm[0]);
 
-      if (IsVerbose())
-        fprintf(stderr, "comm=%s\n", comm);
-
       if (boost::algorithm::ends_with(jv.Binaries.at(0).Name.c_str(), comm) ||
           Our.pid == pid) {
+        if (IsVerbose())
+          fprintf(stderr, "comm=%s\n", comm);
+
         if (IsCOFF) {
           if (Our.pid != pid)
             _wine.ExecCount = 1;
@@ -302,8 +304,16 @@ void IntelPT::examine_sb(void) {
       if (likely(MATCHES_REST("AUX"))) {
         ;
       } else if (MATCHES_REST("AUX.TRUNCATED")) {
-        if (!ignore_trunc_aux)
-          throw truncated_aux_exception();
+        uint64_t aux_offset, aux_size, aux_flags;
+        sscanf(rest, "%" PRIx64 ", %" PRIx64 ", %" PRIx64
+               "  { %x/%x %" PRIx64 " cpu-%x %" PRIx64 " }",
+               &aux_offset, &aux_size, &aux_flags,
+               &_.pid, &_.tid, &_.time, &_.cpu, &_.identifier);
+
+        if (_.cpu == Our.cpu) {
+          if (!ignore_trunc_aux)
+            throw truncated_aux_exception();
+        }
       } else {
         unexpected_rest();
       }
@@ -346,18 +356,24 @@ void IntelPT::examine_sb(void) {
 
     case 'S':
       if (MATCHES_REST("SWITCH_CPU_WIDE.OUT")) {
-#if 0
         unsigned next_pid, next_tid;
         sscanf(rest, "%x/%x"
                      "  { %x/%x %" PRIx64 " cpu-%x %" PRIx64 " }",
                &next_pid, &next_tid,
                &_.pid, &_.tid, &_.time, &_.cpu, &_.identifier);
-#endif
+
+        if (_.cpu == Our.cpu) {
+          Curr.pid = ~0u;
+          Engaged = false;
+        }
       } else if (MATCHES_REST("SWITCH.OUT")) {
-#if 0
         sscanf(rest, "  { %x/%x %" PRIx64 " cpu-%x %" PRIx64 " }",
                &_.pid, &_.tid, &_.time, &_.cpu, &_.identifier);
-#endif
+
+        if (_.cpu == Our.cpu) {
+          Curr.pid = ~0u;
+          Engaged = false;
+        }
       } else if (MATCHES_REST("SWITCH_CPU_WIDE.IN")) {
         unsigned prev_pid, prev_tid;
         sscanf(rest, "%x/%x"
@@ -365,18 +381,18 @@ void IntelPT::examine_sb(void) {
                &prev_pid, &prev_tid,
                &_.pid, &_.tid, &_.time, &_.cpu, &_.identifier);
 
-        if (_.cpu == Our.cpu) {
+        if (_.cpu == Our.cpu)
           Curr.pid = _.pid;
-//        Curr.tid = _.tid;
-        }
+
+        CheckEngaged();
       } else if (MATCHES_REST("SWITCH.IN")) {
         sscanf(rest, "  { %x/%x %" PRIx64 " cpu-%x %" PRIx64 " }",
                &_.pid, &_.tid, &_.time, &_.cpu, &_.identifier);
 
-        if (_.cpu == Our.cpu) {
+        if (_.cpu == Our.cpu)
           Curr.pid = _.pid;
-//        Curr.tid = _.tid;
-        }
+
+        CheckEngaged();
       } else if (MATCHES_REST("SAMPLE.RAW")) {
         std::string &hexbytes = this->__buff.s1;
         hexbytes.resize(4097);
@@ -390,12 +406,8 @@ void IntelPT::examine_sb(void) {
                &name[0], &hexbytes[0],
                &_.pid, &_.tid, &_.time, &_.cpu, &_.identifier);
 
-        if (_.pid != Our.pid)
+        if (!IsRightProcess(_.pid))
           continue;
-
-#if 0
-        fprintf(stderr, "\n\nhexbytes=\"%s\" name=\"%s\"\n\n", hexbytes, name);
-#endif
 
         {
           unsigned hexbytes_len = strlen(hexbytes.c_str());
@@ -413,10 +425,6 @@ void IntelPT::examine_sb(void) {
 
           bytes[i] = strtol(hexbyte, nullptr, 16);
         }
-
-#if 0
-        hexdump(stderr, &bytes[0], bytes.size());
-#endif
 
         auto &state = syscall_state_map[_.tid];
 
@@ -458,35 +466,43 @@ void IntelPT::examine_sb(void) {
             taddr_t addr = state.args[0];
             taddr_t len = state.args[1];
 
-            if (IsVeryVerbose())
-              fprintf(stderr, "munmap(%lx, %u) = %d\n", (unsigned long)addr,
-                      (unsigned)len, (int)ret);
+            const addr_intvl intvl(addr, len);
 
-            intvl_map_clear(AddressSpace, addr_intvl(addr, len));
+            if (IsVeryVerbose()) {
+              std::string as(addr_intvl2str(intvl));
+
+              fprintf(stderr, "[munmap] @ %s\n", as.c_str());
+            }
+
+            intvl_map_clear(AddressSpace, intvl);
           } else if (state.nr == syscalls::NR::mmap) {
-            if (ret == ((uintptr_t)MAP_FAILED))
+            if (ret >= (taddr_t)-4095)
               continue; /* failed */
 
             taddr_t addr = state.args[0];
             taddr_t len = state.args[1];
-            int prot = state.args[2];
-            int flags = state.args[3];
+            unsigned prot = state.args[2];
+            unsigned flags = state.args[3];
             int fd = state.args[4];
             taddr_t off = state.args[5];
 
-            if (IsVeryVerbose())
-              fprintf(stderr, "mmap(%lx, %lx, %d, %d, %d, %lx) = %lx\n",
-                      (unsigned long)addr, (unsigned long)len, prot, flags, fd,
-                      (unsigned long)off, (unsigned long)ret);
+            if (prot & PROT_EXEC)
+              continue; /* we will see PERF_RECORD_MMAP2 */
 
-            if (IsCOFF && RightWineExecCount()) {
-              const addr_intvl intvl(addr, len);
+            if (IsCOFF) {
+              const addr_intvl intvl(ret, len);
 
-              if (intvl_map_find(AddressSpace, intvl) == AddressSpace.end()) {
-                auto it = intvl_map_find(AddressSpaceInit, intvl);
-                if (it != AddressSpaceInit.end())
-                  intvl_map_add(AddressSpace, intvl, std::make_pair((*it).second, ~0UL));
+              if (IsVeryVerbose()) {
+                std::string as(addr_intvl2str(intvl));
+
+                fprintf(stderr, "[mmap] @ %s\n", as.c_str());
               }
+
+              intvl_map_clear(AddressSpace, intvl);
+
+              auto it = intvl_map_find(AddressSpaceInit, intvl);
+              if (it != AddressSpaceInit.end())
+                intvl_map_add(AddressSpace, intvl, std::make_pair((*it).second, ~0UL));
             }
           } else {
             fprintf(stderr, "unhandled syscall %u!\n", (unsigned)state.nr);
@@ -513,8 +529,6 @@ void IntelPT::examine_sb(void) {
       } else {
         unexpected_rest();
       }
-
-      CheckEngaged();
       break;
 
     case 'M':
@@ -546,8 +560,12 @@ void IntelPT::examine_sb(void) {
 
                      &_.pid, &_.tid, &_.time, &_.cpu, &_.identifier);
 
-        if (pid != Our.pid)
+        assert(pid == _.pid);
+
+        if (!IsRightProcess(pid))
           continue;
+
+        assert(prot & PROT_EXEC);
 
         {
           unsigned hexname_len = strlen(hexname.c_str());
@@ -566,19 +584,19 @@ void IntelPT::examine_sb(void) {
           name[i] = strtol(hexchar, nullptr, 16);
         }
 
-        if (IsVeryVerbose())
-          fprintf(stderr, "[mmap] \"%s\"\n", name.c_str());
-
         const addr_intvl intvl(addr, len);
 
-        if (intvl_map_find(AddressSpace, intvl) != AddressSpace.end()) {
-          /* something must have been unmapped without our knowledge */
-          intvl_map_clear(AddressSpace, intvl);
+        if (IsVeryVerbose()) {
+          std::string as(addr_intvl2str(intvl));
+
+          fprintf(stderr, "[MMAP2] @ %s in \"%s\"\n", as.c_str(), name.c_str());
         }
+
+        intvl_map_clear(AddressSpace, intvl);
 
         const bool anon = name == "//anon";
         if (anon) {
-          if (IsCOFF && RightWineExecCount()) {
+          if (IsCOFF) {
             auto it = intvl_map_find(AddressSpaceInit, intvl);
             if (it != AddressSpaceInit.end())
               intvl_map_add(AddressSpace, intvl, std::make_pair((*it).second, ~0UL));
@@ -613,26 +631,7 @@ void IntelPT::examine_sb(void) {
         binary_t &b = jv.Binaries.at(BIdx);
         binary_state_t &x = state.for_binary(b);
 
-#if 1
-        if (!B::is_elf(*x.Bin)) { /* FIXME? */
-          if (~x._coff.LoadAddr == 0) {
-            // we know what it is but we didn't get a load address from wine
-            if (IsVerbose())
-              fprintf(stderr, "mmap eeeeek \"%s\"\n", name.c_str());
-
-            continue;
-          }
-        }
-#endif
-
         intvl_map_add(AddressSpace, intvl, std::make_pair(BIdx, pgoff));
-
-#if 0
-        if (IsVeryVerbose()) {
-          std::string s = addr_intvl2str(intvl);
-          fprintf(stderr, "%s loaded at %s\n", b.Name.c_str(), s.c_str());
-        }
-#endif
       } else if (likely(MATCHES_REST("MMAP"))) {
       } else {
         unexpected_rest();
@@ -781,43 +780,38 @@ int IntelPT::process_packet(uint64_t offset, const struct pt_packet *packet) {
     return tnt_payload(&packet->payload.tnt);
 
   case ppt_mode: {
-#if 0
-    ProceedToIP = true;
-#endif
-
     const struct pt_packet_mode *mode = &packet->payload.mode;
     switch (mode->leaf) {
     case pt_mol_exec: {
-      Curr.Block = invalid_block;
-
-      const char *desc = NULL;
       switch (pt_get_exec_mode(&mode->bits.exec)) {
       case ptem_64bit:
-        desc = "64-bit";
-        Curr.exec = 0;
+        Curr.ExecBits = 64;
         break;
 
       case ptem_32bit:
-        desc = "32-bit";
-        Curr.exec = 1;
+        Curr.ExecBits = 32;
         break;
 
       case ptem_16bit:
-        desc = "16-bit";
-        Curr.exec = 2;
+        Curr.ExecBits = 16;
         break;
 
       case ptem_unknown:
-        desc = "unknown";
-        Curr.exec = 3;
+        Curr.ExecBits = ~0u;
         break;
       }
 
-      CheckEngaged();
+      // FIXME explain this
+      if (CheckEngaged())
+        SkipIP = true;
+
       return 0;
     }
 
     case pt_mol_tsx:
+      // FIXME explain this
+      if (Engaged)
+        SkipIP = true;
       return 0;
     }
 
@@ -923,6 +917,7 @@ int IntelPT::track_last_ip(const struct pt_packet_ip *packet, uint64_t offset) {
     if (errcode == -pte_ip_suppressed) {
       if (IsVeryVerbose() && Engaged)
         fprintf(stderr, "<suppressed>\n");
+
       Curr.Block = invalid_block;
       Curr.TermAddr = ~0UL;
       //print_field(buffer->tracking.payload, "<suppressed>");
@@ -959,9 +954,6 @@ int IntelPT::on_ip(const uint64_t IP, const uint64_t offset) {
       }
 
       if (!Reached) {
-        //
-        // "trace stream does not match query"
-        //
         Curr.Block = invalid_block;
         Curr.TermAddr = ~0UL;
 
@@ -975,13 +967,21 @@ int IntelPT::on_ip(const uint64_t IP, const uint64_t offset) {
   }
 #endif
 
-  if (!Engaged) {
-#if 1
-    if (IsVeryVerbose() && Curr.pid == Our.pid)
+  if (unlikely(!Engaged)) {
+    if (IsVeryVerbose() && RightProcess())
       fprintf(stderr, "%" PRIx64 "\t__IP %016" PRIx64 "\n", offset, IP);
-#endif
     return 0;
   }
+
+  if (unlikely(SkipIP)) {
+    SkipIP = false;
+    return 0;
+  }
+
+#if 0
+  if (sizeof(taddr_t) == 4)
+    assert(IP < 0xffffffffull);
+#endif
 
   auto it = intvl_map_find(AddressSpace, IP);
   if (unlikely(it == AddressSpace.end())) {
@@ -1006,37 +1006,46 @@ int IntelPT::on_ip(const uint64_t IP, const uint64_t offset) {
   binary_t &b = jv.Binaries.at(BIdx);
   binary_state_t &x = state.for_binary(b);
 
+  struct {
+    uint64_t Base;
+    uint64_t Offset;
+  } mapping;
+
+  mapping.Base = addr_intvl_lower((*it).first);
+  mapping.Offset = (*it).second.second;
+
   uint64_t Addr = B::_X(
       *x.Bin,
       [&](ELFO &O) -> uint64_t {
-        const uint64_t LoadAddr = addr_intvl_lower((*it).first);
-        const uint64_t LoadOffset = (*it).second.second;
-        if (!(IP >= LoadAddr)) {
-        fprintf(stderr, "WTFF? %" PRIx64 " LoadAddr=%" PRIx64 " LoadOffset=%" PRIx64 "\t\t%s\n",
-                (uint64_t)IP, (uint64_t)LoadAddr, (uint64_t)LoadOffset, b.Name.c_str());
+        assert(~mapping.Offset != 0);
+
+        if (!(IP >= mapping.Base)) {
+        fprintf(stderr, "WTFF? %" PRIx64 " mapping.Base=%" PRIx64 " mapping.Offset=%" PRIx64 "\t\t%s\n",
+                IP, mapping.Base, mapping.Offset, b.Name.c_str());
         assert(false);
         }
-        assert(IP >= LoadAddr);
+        assert(IP >= mapping.Base);
 
-        uint64_t off = IP - (LoadAddr - LoadOffset);
+        uint64_t off = IP - (mapping.Base - mapping.Offset);
         try {
         return elf::va_of_offset(O, off);
         } catch (...) {
         std::string as(addr_intvl2str((*it).first));
-        fprintf(stderr, "WTF? %" PRIx64 " in %s %" PRIx64 " %" PRIx64 "\t\t%s\n", IP,
-                as.c_str(), (uint64_t)LoadAddr, (uint64_t)LoadOffset, b.Name.c_str());
+        fprintf(stderr, "WTFF! %" PRIx64 " in %s: off=%" PRIx64 " in \"%s\" mapping.Base=%" PRIx64 " mapping.Offset=%" PRIx64 " \n", IP, as.c_str(), off, b.Name.c_str(), mapping.Base, mapping.Offset);
         assert(false);
         }
       },
       [&](COFFO &O) -> uint64_t {
-#if 0
-        const taddr_t hmodule = addr_intvl_lower((*it).first);
-#else
-        const taddr_t hmodule = x._coff.LoadAddr;
-#endif
-        assert(IP >= hmodule);
-        taddr_t RVA = IP - hmodule;
-        return coff::va_of_rva(O, RVA);
+        if (~x._coff.LoadAddr == 0) {
+          assert(~mapping.Offset != 0);
+          uint64_t off = IP - (mapping.Base - mapping.Offset);
+          return coff::va_of_offset(O, off);
+        } else {
+          const taddr_t hmod = x._coff.LoadAddr;
+          assert(IP >= hmod);
+          taddr_t RVA = IP - hmod;
+          return coff::va_of_rva(O, RVA);
+        }
       });
 
   if (IsVeryVerbose())
@@ -1390,7 +1399,9 @@ basic_block_index_t IntelPT::Advance(block_t From, uint64_t tnt, uint8_t n) {
     on_block(block_t(From.first, Res));
   } while (--n);
 
+#if 1 /* if we are not using ProceedToIP */
   Res = StraightLineAdvance(block_t(From.first, Res)).first;
+#endif
 
 #if 1
   if (IsVeryVerbose())

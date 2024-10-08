@@ -71,6 +71,8 @@ class IntelPT {
 #if 0
   /* if true, next IP must be reachable from current without trace */
   bool ProceedToIP = false;
+#else
+  bool SkipIP = false;
 #endif
 
   struct {
@@ -100,13 +102,11 @@ class IntelPT {
   struct {
     unsigned cpu = ~0u;
     unsigned pid = ~0u;
-//  unsigned tid = ~0u;
   } Our;
 
   struct {
-    unsigned pid = ~0u - 1;
-//  unsigned tid = ~0u - 1;
-    bool exec = 4;
+    unsigned pid = ~0u;
+    unsigned ExecBits = 8*sizeof(taddr_t);
 
     block_t Block = invalid_block;
     taddr_t TermAddr = ~0UL;
@@ -120,19 +120,21 @@ class IntelPT {
     return _wine.ExecCount == 2;
   }
 
+  bool IsRightProcess(unsigned pid) const {
+    return pid == Our.pid && !(IsCOFF && !RightWineExecCount());
+  }
+
+  bool RightProcess(void) const {
+    return IsRightProcess(Curr.pid);
+  }
+
+  bool RightExecMode(void) const {
+    return Curr.ExecBits == 8*sizeof(taddr_t);
+  }
+
   bool Engaged = false;
-  void CheckEngaged(void) {
-    bool RightExecMode = Curr.exec == IsTarget32;
-    //bool RightThread = Curr.tid == Our.tid;
-    bool RightProcess = Curr.pid == Our.pid;
-
-    Engaged = /* RightCpu && */
-              RightExecMode &&
-              /* RightThread && */
-              RightProcess;
-
-    if (IsCOFF && !RightWineExecCount())
-      Engaged = false;
+  bool CheckEngaged(void) {
+    return (Engaged = RightExecMode() && RightProcess());
   }
 
   const bool v, vv;
