@@ -1095,35 +1095,30 @@ void IntelPT::block_transfer(binary_index_t FrBIdx, taddr_t FrTermAddr,
   icfg_t &fr_ICFG = fr_b.Analysis.ICFG;
   icfg_t &to_ICFG = to_b.Analysis.ICFG;
 
-  basic_block_t to_bb = ({
-    ip_sharable_lock<ip_upgradable_mutex> to_s_lck(to_b.bbmap_mtx);
-
-    basic_block_starting_at_address(ToAddr, to_b);
-  }); /* won't be split */
-
-  basic_block_properties_t &to_bbprop = *({
-    ip_sharable_lock<ip_upgradable_mutex> to_s_lck(to_b.Analysis.ICFG_mtx);
-
-    &to_ICFG[to_bb];
-  });
-
   if (IsVeryVerbose())
     fprintf(stderr, "%s+%" PRIx64 " ==> "
            "%s+%" PRIx64 "\n",
            fr_b.Name.c_str(), (uint64_t)FrTermAddr, to_b.Name.c_str(),
            (uint64_t)ToAddr);
 
-  const auto Term = ({
-    ip_sharable_lock<ip_upgradable_mutex> fr_s_lck(fr_b.bbmap_mtx);
+  TERMINATOR TermType;
+  bool Term_indirect_jump_IsLj;
 
-    fr_ICFG[basic_block_at_address(FrTermAddr, fr_b)].Term;
+  ({
+    ip_sharable_lock<ip_upgradable_mutex> fr_s_lck_bbmap(fr_b.bbmap_mtx);
+    ip_sharable_lock<ip_upgradable_mutex> fr_s_lck_ICFG(fr_b.Analysis.ICFG_mtx);
+
+    const auto &Term = fr_ICFG[basic_block_at_address(FrTermAddr, fr_b)].Term;
+
+    TermType = Term.Type;
+    Term_indirect_jump_IsLj = Term._indirect_jump.IsLj;
   });
 
-#if 0
-  ip_upgradable_lock<ip_upgradable_mutex> fr_u_lck(fr_b.bbmap_mtx);
-  ip_upgradable_lock<ip_upgradable_mutex> to_u_lck(to_b.bbmap_mtx);
+  basic_block_t to_bb = ({
+    ip_sharable_lock<ip_upgradable_mutex> to_s_lck(to_b.bbmap_mtx);
 
-#endif
+    basic_block_starting_at_address(ToAddr, to_b);
+  }); /* don't care if split */
 
   auto handle_indirect_call = [&](void) -> void {
     function_index_t FIdx =
@@ -1137,7 +1132,7 @@ void IntelPT::block_transfer(binary_index_t FrBIdx, taddr_t FrTermAddr,
     basic_block_t fr_bb = basic_block_at_address(FrTermAddr, fr_b);
 
     basic_block_properties_t &fr_bbprop = *({
-      ip_sharable_lock<ip_upgradable_mutex> to_s_lck(fr_b.Analysis.ICFG_mtx);
+      ip_sharable_lock<ip_upgradable_mutex> fr_s_lck(fr_b.Analysis.ICFG_mtx);
 
       &fr_ICFG[fr_bb];
     });
@@ -1145,9 +1140,9 @@ void IntelPT::block_transfer(binary_index_t FrBIdx, taddr_t FrTermAddr,
     fr_bbprop.insertDynTarget(FrBIdx, std::make_pair(ToBIdx, FIdx), jv);
   };
 
-  switch (Term.Type) {
+  switch (TermType) {
   case TERMINATOR::INDIRECT_JUMP: {
-    if (Term._indirect_jump.IsLj)
+    if (Term_indirect_jump_IsLj)
       break;
 
     const bool TailCall = ({
