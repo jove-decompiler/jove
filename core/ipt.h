@@ -148,16 +148,24 @@ class IntelPT {
   int track_mtc(uint64_t offset, const struct pt_packet_mtc *);
 
   int tnt_payload(const struct pt_packet_tnt *);
-  int on_ip(const uint64_t ip, const uint64_t offset);
+  int on_ip(const taddr_t ip, const uint64_t offset);
 
   int ptdump_sb_pevent(char *filename, const struct pt_sb_pevent_config *conf,
                        const char *prog);
   int process_args(int argc, char **argv);
 
+  template <bool DoNotGoFurther>
+  __attribute__((always_inline))
   std::pair<basic_block_index_t, bool>
-  StraightLineAdvance(block_t, uint64_t GoNoFurther = 0);
+  DoStraightLineAdvance(block_t, taddr_t GoNoFurther = 0);
 
-  basic_block_index_t Advance(block_t, uint64_t tnt, uint8_t n);
+  std::pair<basic_block_index_t, bool>
+  StraightLineAdvance(block_t, taddr_t GoNoFurther);
+
+  std::pair<basic_block_index_t, bool>
+  StraightLineAdvance(block_t);
+
+  basic_block_index_t TNTAdvance(block_t, uint64_t tnt, uint8_t n);
 
   void on_block(block_t);
   void block_transfer(binary_index_t FromBIdx, taddr_t FromAddr,
@@ -169,10 +177,12 @@ public:
           void *end, unsigned verbose, bool ignore_trunc_aux = false);
   ~IntelPT();
 
+  __attribute__((always_inline))
   bool IsVerbose(void) const {
     return unlikely(v);
   }
 
+  __attribute__((always_inline))
   bool IsVeryVerbose(void) const {
     return unlikely(vv);
   }

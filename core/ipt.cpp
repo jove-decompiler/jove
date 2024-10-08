@@ -933,7 +933,7 @@ int IntelPT::tnt_payload(const struct pt_packet_tnt *packet) {
     ip_sharable_lock<ip_upgradable_mutex> s_lck(
         jv.Binaries.at(Curr.Block.first).bbmap_mtx);
 
-    Curr.Block.second = Advance(Curr.Block, packet->payload, packet->bit_size);
+    Curr.Block.second = TNTAdvance(Curr.Block, packet->payload, packet->bit_size);
     assert(is_basic_block_index_valid(Curr.Block.second));
     Curr.TermAddr = address_of_block_terminator(Curr.Block, jv);
   } catch (const tnt_error &) {
@@ -954,7 +954,7 @@ int IntelPT::tnt_payload(const struct pt_packet_tnt *packet) {
 int IntelPT::on_ip(const taddr_t IP, const uint64_t offset) {
   if (unlikely(!Engaged)) {
     if (IsVeryVerbose() && RightProcess())
-      fprintf(stderr, "%" PRIx64 "\t__IP %016" PRIx64 "\n", offset, IP);
+      fprintf(stderr, "%" PRIx64 "\t__IP %016" PRIx64 "\n", offset, (uint64_t)IP);
     return 0;
   }
 
@@ -967,7 +967,7 @@ int IntelPT::on_ip(const taddr_t IP, const uint64_t offset) {
   auto it = intvl_map_find(AddressSpace, IP);
   if (unlikely(it == AddressSpace.end())) {
     if (IsVeryVerbose())
-      fprintf(stderr, "%" PRIx64 "\tunknown IP %016" PRIx64 "\n", offset, IP);
+      fprintf(stderr, "%" PRIx64 "\tunknown IP %016" PRIx64 "\n", offset, (uint64_t)IP);
 
     Curr.Block = invalid_block;
     Curr.TermAddr = ~0UL;
@@ -977,7 +977,7 @@ int IntelPT::on_ip(const taddr_t IP, const uint64_t offset) {
   const binary_index_t BIdx = (*it).second.first;
   if (unlikely(!is_binary_index_valid(BIdx))) {
     if (IsVeryVerbose())
-      fprintf(stderr, "ambiguous IP %016" PRIx64 "\n", IP);
+      fprintf(stderr, "ambiguous IP %016" PRIx64 "\n", (uint64_t)IP);
 
     Curr.Block = invalid_block;
     Curr.TermAddr = ~0UL;
@@ -999,25 +999,20 @@ int IntelPT::on_ip(const taddr_t IP, const uint64_t offset) {
       *x.Bin,
       [&](ELFO &O) -> uint64_t {
         assert(~mapping.Offset != 0);
-
-        if (!(IP >= mapping.Base)) {
-        fprintf(stderr, "WTFF? %" PRIx64 " mapping.Base=%" PRIx64 " mapping.Offset=%" PRIx64 "\t\t%s\n",
-                IP, mapping.Base, mapping.Offset, b.Name.c_str());
-        assert(false);
-        }
         assert(IP >= mapping.Base);
-        assert(mapping.Base >= mapping.Offset);
+        assert(static_cast<uint64_t>(mapping.Base) >= mapping.Offset);
 
         uint64_t off = IP - (mapping.Base - mapping.Offset);
         try {
         return elf::va_of_offset(O, off);
         } catch (...) {
         std::string as(addr_intvl2str((*it).first));
-        fprintf(stderr, "WTFF! %" PRIx64 " in %s: off=%" PRIx64 " in \"%s\" mapping.Base=%" PRIx64 " mapping.Offset=%" PRIx64 " \n", IP, as.c_str(), off, b.Name.c_str(), mapping.Base, mapping.Offset);
+        fprintf(stderr, "WTFF! %" PRIx64 " in %s: off=%" PRIx64 " in \"%s\" mapping.Base=%" PRIx64 " mapping.Offset=%" PRIx64 " \n", (uint64_t)IP, as.c_str(), off, b.Name.c_str(), (uint64_t)mapping.Base, mapping.Offset);
         assert(false);
         }
       },
       [&](COFFO &O) -> uint64_t {
+        try {
         if (~x._coff.LoadAddr == 0) {
           assert(~mapping.Offset != 0);
           uint64_t off = IP - (mapping.Base - mapping.Offset);
@@ -1028,11 +1023,16 @@ int IntelPT::on_ip(const taddr_t IP, const uint64_t offset) {
           taddr_t RVA = IP - hmod;
           return coff::va_of_rva(O, RVA);
         }
+        } catch (...) {
+        std::string as(addr_intvl2str((*it).first));
+        fprintf(stderr, "WTFF! %" PRIx64 " in %s in \"%s\" mapping.Base=%" PRIx64 " mapping.Offset=%" PRIx64 " \n", (uint64_t)IP, as.c_str(), b.Name.c_str(), (uint64_t)mapping.Base, mapping.Offset);
+        assert(false);
+        }
       });
 
   if (IsVeryVerbose())
     fprintf(stderr, "%" PRIx64 "\t<IP> %016" PRIx64 " %s+%" PRIx64 "\n", offset,
-            IP, b.Name.c_str(), Addr);
+            (uint64_t)IP, b.Name.c_str(), (uint64_t)Addr);
 
   if (is_block_valid(Curr.Block)) {
     bool WentNoFurther = false;
@@ -1054,7 +1054,7 @@ int IntelPT::on_ip(const taddr_t IP, const uint64_t offset) {
 
     if (WentNoFurther) {
       if (IsVeryVerbose())
-        fprintf(stderr, "no further %s+%" PRIx64 "\n</IP>\n", b.Name.c_str(), Addr);
+        fprintf(stderr, "no further %s+%" PRIx64 "\n</IP>\n", b.Name.c_str(), (uint64_t)Addr);
       return 0;
     }
   }
@@ -1070,7 +1070,7 @@ int IntelPT::on_ip(const taddr_t IP, const uint64_t offset) {
     on_block(Curr.Block);
   } catch (const invalid_control_flow_exception &e) {
     fprintf(stderr, "BADIP %" PRIx64 "\t<IP> %" PRIx64 " %s+%" PRIx64 "\n",
-            offset, IP, b.Name.c_str(), Addr);
+            offset, (uint64_t)IP, b.Name.c_str(), (uint64_t)Addr);
 
     if (IsVeryVerbose())
       fprintf(stderr, "</IP>\n");
@@ -1348,11 +1348,11 @@ void IntelPT::on_block(block_t block) {
 
     auto Addr = ICFG[basic_block_of_index(block.second, b)].Addr;
 
-    fprintf(stderr, "%s+%016" PRIx64 " \n", b.Name.c_str(), Addr);
+    fprintf(stderr, "%s+%016" PRIx64 " \n", b.Name.c_str(), (uint64_t)Addr);
   }
 }
 
-basic_block_index_t IntelPT::Advance(block_t From, uint64_t tnt, uint8_t n) {
+basic_block_index_t IntelPT::TNTAdvance(block_t From, uint64_t tnt, uint8_t n) {
   assert(n > 0);
 
   if (IsVeryVerbose())
