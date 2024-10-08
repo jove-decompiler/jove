@@ -1231,6 +1231,8 @@ IntelPT::StraightLineAdvance(block_t From, uint64_t GoNoFurther) {
   for (;; on_block(block_t(From.first, Res))) {
     basic_block_t bb = basic_block_of_index(Res, b);
     const basic_block_properties_t &bbprop = ICFG[bb];
+    const taddr_t Addr = bbprop.Addr;
+    const taddr_t Size = bbprop.Size;
 
     if (bbprop.Addr == GoNoFurther ||
         /* the following assumes that GoNoFurther sits cleanly in the block.
@@ -1250,9 +1252,11 @@ IntelPT::StraightLineAdvance(block_t From, uint64_t GoNoFurther) {
          *   on_ip(0x18d70);
          *   on_ip(0x18d76);  // <-- WTF, middle of twirl instruction
          *
+         * this has been confirmed to confuse the hell out of ptxed.
+         *
          **/
-        unlikely(GoNoFurther >= bbprop.Addr &&
-                 GoNoFurther < bbprop.Addr + bbprop.Size))
+        unlikely(GoNoFurther >= Addr &&
+                 GoNoFurther < Addr + Size))
       return std::make_pair(Res, true);
 
     switch (bbprop.Term.Type) {
@@ -1265,7 +1269,7 @@ IntelPT::StraightLineAdvance(block_t From, uint64_t GoNoFurther) {
       if (unlikely(succ_it == succ_it_end)) {
         if (IsVerbose())
           fprintf(stderr, "cant proceed past NONE @ %s+%" PRIx64 "\n",
-                  b.Name.c_str(), static_cast<uint64_t>(bbprop.Addr));
+                  b.Name.c_str(), static_cast<uint64_t>(Addr));
         break;
       }
 
