@@ -495,7 +495,7 @@ void IntelPT::examine_sb(void) {
               if (IsVeryVerbose()) {
                 std::string as(addr_intvl2str(intvl));
 
-                fprintf(stderr, "[mmap]  @ %s in %s\n", as.c_str(),
+                fprintf(stderr, "[mmap]   @ %s in %s\n", as.c_str(),
                         anon ? "\"//anon\"" : nullptr);
               }
 
@@ -590,7 +590,7 @@ void IntelPT::examine_sb(void) {
         if (IsVeryVerbose()) {
           std::string as(addr_intvl2str(intvl));
 
-          fprintf(stderr, "[MMAP2] @ %s in \"%s\"\n", as.c_str(), name.c_str());
+          fprintf(stderr, "[MMAP2]  @ %s in \"%s\"\n", as.c_str(), name.c_str());
         }
 
         intvl_map_clear(AddressSpace, intvl);
