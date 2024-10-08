@@ -530,10 +530,6 @@ void IntelPT::examine_sb(void) {
 
     case 'M':
       if (likely(MATCHES_REST("MMAP2"))) {
-#if 0
-        if ((misc & PERF_RECORD_MISC_CPUMODE_MASK) == PERF_RECORD_MISC_KERNEL)
-          continue;
-#endif
         unsigned pid, tid;
         uint64_t addr, len, pgoff;
         unsigned maj, min;
