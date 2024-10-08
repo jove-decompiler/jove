@@ -3620,7 +3620,7 @@ bool BootstrapTool::UpdateVM(pid_t child) {
   for (unsigned i = 0; i < cached_proc_maps.size(); ++i) {
     const proc_map_t &pm = cached_proc_maps[i];
 
-    intvl_map_add(pmm, make_addr_intvl(pm.beg, pm.end), i);
+    intvl_map_add(pmm, right_open_addr_intvl(pm.beg, pm.end), i);
   }
 
   return true;
@@ -3684,7 +3684,7 @@ void BootstrapTool::ScanAddressSpace(pid_t child, bool VMUpdate) {
 
     binary_t &b = jv.Binaries.at(BIdx);
 
-    intvl_map_add(AddressSpace, make_addr_intvl(pm.beg, pm.end), BIdx);
+    intvl_map_add(AddressSpace, right_open_addr_intvl(pm.beg, pm.end), BIdx);
 
     if (updateVariable(state.for_binary(b).LoadAddr,
                        std::min(state.for_binary(b).LoadAddr, pm.beg)))

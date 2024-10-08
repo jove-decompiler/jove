@@ -317,11 +317,6 @@ struct addr_intvl_cmp {
   }
 };
 
-constexpr addr_intvl make_addr_intvl(taddr_t lower, taddr_t upper) {
-  assert(upper > lower);
-  return addr_intvl(lower, upper - lower);
-}
-
 typedef boost::container::flat_map<addr_intvl, binary_index_t, addr_intvl_cmp>
     address_space_t;
 
@@ -1114,9 +1109,9 @@ static inline std::string addr_intvl2str(addr_intvl intvl) {
          taddr2str(intvl.first + intvl.second, false) + ")";
 }
 
-constexpr addr_intvl right_open_addr_intvl(taddr_t Addr, taddr_t End) {
-  assert(End > Addr);
-  return addr_intvl(Addr, End - Addr);
+constexpr addr_intvl right_open_addr_intvl(taddr_t lower, taddr_t upper) {
+  assert(upper > lower);
+  return addr_intvl(lower, upper - lower);
 }
 
 constexpr taddr_t addr_intvl_lower(addr_intvl intvl) {
