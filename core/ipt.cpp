@@ -239,8 +239,11 @@ void IntelPT::examine_sb(void) {
     constexpr unsigned sb_line_prefix_len = sizeof(sb_line_prefix)-1;
 
     if (unlikely(strncmp(line, sb_line_prefix, sb_line_prefix_len) != 0)) {
-      assert(strncmp(line, "UNKNOWN", sizeof("UNKNOWN")-1) == 0);
-      continue;
+      if (likely(strncmp(line, "UNKNOWN", sizeof("UNKNOWN")-1) == 0))
+        continue;
+
+      fprintf(stderr, "unrecognized sideband line: \"%s\"\n", line);
+      assert(false);
     }
 
 #define MATCHES_REST(x)                                                        \
@@ -528,18 +531,20 @@ void IntelPT::examine_sb(void) {
       }
       break;
 
-    case 'M':
-      if (likely(MATCHES_REST("MMAP2"))) {
-        unsigned pid, tid;
-        uint64_t addr, len, pgoff;
+    case 'M': {
+      unsigned pid, tid;
+      uint64_t addr, len, pgoff;
+
+      std::string &hexname = this->__buff.s1;
+
+      hexname.resize(8193);
+      hexname[0] = '\0';
+
+      bool two;
+      if (likely(two = MATCHES_REST("MMAP2"))) {
         unsigned maj, min;
         uint64_t ino, ino_generation;
         unsigned prot, flags;
-
-        std::string &hexname = this->__buff.s1;
-
-        hexname.resize(8193);
-        hexname[0] = '\0';
 
         sscanf_rest("%x/%x, %" PRIx64
                     ", %" PRIx64 ", %" PRIx64 ", %x, %x, %" PRIx64
@@ -548,83 +553,88 @@ void IntelPT::examine_sb(void) {
                     &len, &pgoff, &maj, &min, &ino,
                     &ino_generation, &prot, &flags, &hexname[0]);
 
-        assert(pid == _.pid);
-
-        if (!IsRightProcess(pid))
-          continue;
-
         assert(prot & PROT_EXEC);
-
-        {
-          unsigned hexname_len = strlen(hexname.c_str());
-          assert(hexname_len > 0);
-          hexname.resize(hexname_len);
-        }
-
-        std::string &name = this->__buff.s2;
-        name.resize(hexname.size() / 2);
-        for (unsigned i = 0; i < name.size(); ++i) {
-          char hexchar[3];
-          hexchar[0] = hexname[2*i];
-          hexchar[1] = hexname[2*i+1];
-          hexchar[2] = '\0';
-
-          name[i] = strtol(hexchar, nullptr, 16);
-        }
-
-        const addr_intvl intvl(addr, len);
-
-        if (IsVeryVerbose()) {
-          std::string as(addr_intvl2str(intvl));
-
-          fprintf(stderr, "[MMAP2]  @ %s in \"%s\"\n", as.c_str(), name.c_str());
-        }
-
-        intvl_map_clear(AddressSpace, intvl);
-
-        const bool anon = name == "//anon";
-        if (anon) {
-          if (IsCOFF) {
-            auto it = intvl_map_find(AddressSpaceInit, intvl);
-            if (it != AddressSpaceInit.end())
-              intvl_map_add(AddressSpace, intvl, std::make_pair((*it).second, ~0UL));
-          }
-          continue;
-        }
-
-        binary_index_t BIdx;
-        bool IsNew;
-        if (name[0] == '/') {
-          if (!fs::exists(name)) {
-            if (IsVeryVerbose())
-              fprintf(stderr, "\"%s\" does not exist(%s)\n", name.c_str(), rest);
-            continue;
-          }
-
-          std::tie(BIdx, IsNew) = jv.AddFromPath(explorer, name.c_str());
-          if (!is_binary_index_valid(BIdx))
-            continue;
-        } else {
-          auto MaybeBIdxSet = jv.Lookup(name.c_str());
-          if (!MaybeBIdxSet)
-            continue;
-          const ip_binary_index_set &BIdxSet = *MaybeBIdxSet;
-          if (BIdxSet.empty())
-            continue;
-
-          BIdx = *(BIdxSet).rbegin(); /* most recent (XXX?) */
-          IsNew = false;
-        }
-
-        binary_t &b = jv.Binaries.at(BIdx);
-        binary_state_t &x = state.for_binary(b);
-
-        intvl_map_add(AddressSpace, intvl, std::make_pair(BIdx, pgoff));
       } else if (likely(MATCHES_REST("MMAP"))) {
+        sscanf_rest("%x/%x, %" PRIx64 ", %" PRIx64 ", %" PRIx64
+                    ", %8192[0-9a-f]",
+                    &pid, &tid, &addr, &len, &pgoff, &hexname[0]);
       } else {
         unexpected_rest();
       }
+
+      assert(pid == _.pid);
+
+      if (!IsRightProcess(pid))
+        continue;
+
+      {
+        unsigned hexname_len = strlen(hexname.c_str());
+        assert(hexname_len > 0);
+        hexname.resize(hexname_len);
+      }
+
+      std::string &name = this->__buff.s2;
+      name.resize(hexname.size() / 2);
+      for (unsigned i = 0; i < name.size(); ++i) {
+        char hexchar[3];
+        hexchar[0] = hexname[2*i];
+        hexchar[1] = hexname[2*i+1];
+        hexchar[2] = '\0';
+
+        name[i] = strtol(hexchar, nullptr, 16);
+      }
+
+      const addr_intvl intvl(addr, len);
+
+      if (IsVeryVerbose()) {
+        std::string as(addr_intvl2str(intvl));
+
+        fprintf(stderr, "[MMAP%s]  @ %s in \"%s\"\n", two ? "2" : "",
+                as.c_str(), name.c_str());
+      }
+
+      intvl_map_clear(AddressSpace, intvl);
+
+      const bool anon = name == "//anon";
+      if (anon) {
+        if (IsCOFF) {
+          auto it = intvl_map_find(AddressSpaceInit, intvl);
+          if (it != AddressSpaceInit.end())
+            intvl_map_add(AddressSpace, intvl, std::make_pair((*it).second, ~0UL));
+        }
+        continue;
+      }
+
+      binary_index_t BIdx;
+      bool IsNew;
+      if (name[0] == '/') {
+        if (!fs::exists(name)) {
+          if (IsVeryVerbose())
+            fprintf(stderr, "\"%s\" does not exist(%s)\n", name.c_str(), rest);
+          continue;
+        }
+
+        std::tie(BIdx, IsNew) = jv.AddFromPath(explorer, name.c_str());
+        if (!is_binary_index_valid(BIdx))
+          continue;
+      } else {
+        auto MaybeBIdxSet = jv.Lookup(name.c_str());
+        if (!MaybeBIdxSet)
+          continue;
+        const ip_binary_index_set &BIdxSet = *MaybeBIdxSet;
+        if (BIdxSet.empty())
+          continue;
+
+        BIdx = *(BIdxSet).rbegin(); /* most recent (XXX?) */
+        IsNew = false;
+      }
+
+      binary_t &b = jv.Binaries.at(BIdx);
+      binary_state_t &x = state.for_binary(b);
+
+      intvl_map_add(AddressSpace, intvl, std::make_pair(BIdx, pgoff));
       break;
+    }
 
     default:
       fprintf(stderr, "examine_sb: \"%s\" (TODO)\n", line);
