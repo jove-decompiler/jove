@@ -44,6 +44,7 @@
 #include <boost/interprocess/sync/interprocess_condition.hpp>
 #include <boost/range/iterator_range.hpp>
 #include <boost/optional.hpp>
+#include <boost/dynamic_bitset.hpp>
 
 #include <algorithm>
 #include <atomic>
@@ -651,12 +652,13 @@ struct binary_t {
 
     Analysis_t() = delete;
     Analysis_t(const ip_void_allocator_t &A)
-        : Functions(A), ICFG(icfg_t::graph_property_type(), A) {}
+        : Functions(A), ICFG(icfg_t::graph_property_type(), A), objdump(A) {}
 
     Analysis_t(Analysis_t &&other)
         : EntryFunction(std::move(other.EntryFunction)),
           Functions(std::move(other.Functions)),
-          ICFG(std::move(other.ICFG)) {}
+          ICFG(std::move(other.ICFG)),
+          objdump(std::move(other.objdump)) {}
 
     Analysis_t &operator=(const Analysis_t &other) {
       if (this == &other)
@@ -665,6 +667,7 @@ struct binary_t {
       EntryFunction = other.EntryFunction;
       Functions = other.Functions;
       ICFG = other.ICFG;
+      objdump = other.objdump;
       return *this;
     }
 
@@ -672,6 +675,52 @@ struct binary_t {
     void addSymDynTarget(const std::string &sym, dynamic_target_t X) {}
     void addRelocDynTarget(taddr_t A, dynamic_target_t X) {}
     void addIFuncDynTarget(taddr_t A, dynamic_target_t X) {}
+
+    struct objdump_t {
+      taddr_t begin = ~0UL;
+
+      boost::dynamic_bitset<
+          unsigned long,
+          boost::interprocess::allocator<unsigned long, segment_manager_t>>
+          good;
+
+      mutable ip_sharable_mutex mtx;
+
+      objdump_t() = delete;
+      objdump_t(const ip_void_allocator_t &A) : good(A) {}
+      objdump_t(objdump_t &&other)
+          : begin(other.begin), good(other.good.get_allocator()) {
+        good = other.good; /* XXX? */
+      }
+      objdump_t &operator=(const objdump_t &other) {
+        if (this == &other)
+          return *this;
+
+        begin = other.begin;
+        good = other.good;
+        return *this;
+      }
+
+      bool empty(void) const {
+        ip_sharable_lock<ip_sharable_mutex> s_lck(mtx);
+        return good.empty();
+      }
+
+      bool is_addr_good(taddr_t addr) const {
+        ip_sharable_lock<ip_sharable_mutex> s_lck(mtx);
+
+        if (addr < begin)
+          return true; /* who knows? */
+        taddr_t idx = addr - begin;
+        if (idx >= good.size())
+          return true; /* who knows? */
+        return good.test(idx);
+      }
+
+      bool is_addr_bad(taddr_t addr) const {
+        return !is_addr_good(addr);
+      }
+    } objdump;
   } Analysis;
 
   basic_block_properties_t &prop(basic_block_t bb) {
@@ -778,10 +827,20 @@ struct binary_t {
   binary_t() = delete;
 };
 
+struct objdump_exception {
+  taddr_t Addr;
+  objdump_exception(taddr_t Addr) : Addr(Addr) {}
+};
+
 allocates_basic_block_t::allocates_basic_block_t(binary_t &b,
                                                  basic_block_index_t &store,
                                                  taddr_t Addr) {
   basic_block_index_t Idx = invalid_basic_block_index;
+
+#if 0
+  if (unlikely(b.Analysis.objdump.is_addr_bad(Addr)))
+    throw objdump_exception(Addr);
+#endif
 
   {
     ip_scoped_lock<ip_upgradable_mutex> e_lck(b.Analysis.ICFG_mtx);

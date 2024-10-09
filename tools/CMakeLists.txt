@@ -67,7 +67,9 @@ function(tool_for_arch arch arch_extra_cflags qemu_objs)
     ../core/jv.cpp
     ../core/locator.cpp
     ../core/mmap.cpp
+    ../core/objdump.cpp
     ../core/perf.cpp
+    ../core/pipe.cpp
     ../core/process.cpp
     ../core/recovery.cpp
     ../core/score.cpp
