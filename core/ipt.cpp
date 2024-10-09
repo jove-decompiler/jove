@@ -2,6 +2,7 @@
 
 #include "ipt.h"
 #include "explore.h"
+#include "objdump.h"
 
 #include "syscall_nrs.hpp"
 
@@ -440,20 +441,20 @@ void IntelPT::examine_sb(void) {
             unexpected_rest();
           }
 
-          /* sanity check */
-          if (state.dir != 0) {
-            fprintf(stderr, "two syscall exits in a row!\n");
+          bool two_consecutive_exits = state.dir != 0;
+          bool mismatched_nr = nr != state.nr;
+
+          if (unlikely(two_consecutive_exits || mismatched_nr)) {
+            if (two_consecutive_exits)
+              fprintf(stderr, "two syscall exits in a row!\n");
+            if (mismatched_nr)
+              fprintf(stderr, "mismatched syscall exit! (%ld != %ld)\n", nr,
+                      state.nr);
+            state.dir = state.nr = -1;
             break;
           }
 
           state.dir = 1;
-
-          if (nr != state.nr) {
-            fprintf(stderr, "mismatched syscall exit!\n");
-            break;
-          }
-
-          state.nr = state.nr;
 
           /* on syscall return */
           if (state.nr == syscalls::NR::munmap) {
@@ -1068,13 +1069,26 @@ int IntelPT::on_ip(const taddr_t IP, const uint64_t offset) {
   const block_t PrevBlock = Curr.Block;
   const taddr_t PrevTermAddr = Curr.TermAddr;
 
+  if (unlikely(!b.bbbmap.contains(Addr) && b.Analysis.objdump.is_addr_bad(Addr))) {
+    fprintf(stderr,
+            "OBJDUMP SAYS \"BADIP!\" %" PRIx64 "\t<IP> %" PRIx64 " %s+%" PRIx64 "\n",
+            offset, (uint64_t)IP, b.Name.c_str(), (uint64_t)Addr);
+
+    if (IsVeryVerbose())
+      fprintf(stderr, "</IP>\n");
+
+    Curr.Block = invalid_block;
+    Curr.TermAddr = ~0UL;
+    return 1;
+  }
+
   try {
     Curr.Block.first = (*it).second.first;
     Curr.Block.second = explorer.explore_basic_block(b, *x.Bin, Addr);
     Curr.TermAddr = address_of_block_terminator(Curr.Block, jv);
 
     on_block(Curr.Block);
-  } catch (const invalid_control_flow_exception &e) {
+  } catch (const invalid_control_flow_exception &) {
     fprintf(stderr, "BADIP %" PRIx64 "\t<IP> %" PRIx64 " %s+%" PRIx64 "\n",
             offset, (uint64_t)IP, b.Name.c_str(), (uint64_t)Addr);
 
@@ -1292,6 +1306,7 @@ IntelPT::DoStraightLineAdvance(block_t From, taddr_t GoNoFurther) {
         break;
 
       Res = b.Analysis.Functions.at(CalleeIdx).Entry;
+      assert(is_basic_block_index_valid(Res));
       continue;
     }
     case TERMINATOR::CONDITIONAL_JUMP:
@@ -2122,6 +2137,23 @@ int IntelPT::process_args(int argc, char **argv)
 	return 0;
 }
 
+IntelPT::binary_state_t::binary_state_t(const binary_t &b) {
+  Bin = B::Create(b.data());
+
+  binary_t::Analysis_t::objdump_t &objdump =
+      const_cast<binary_t &>(b).Analysis.objdump;
+
+  if (!objdump.empty())
+    return;
+
+  {
+    ip_scoped_lock<ip_sharable_mutex> e_lck(objdump.mtx);
+
+    if (objdump.good.empty())
+      run_objdump_and_parse_addresses(b.is_file() ? b.Name.c_str() : nullptr,
+                                      *Bin, objdump);
+  }
+}
 
 }
 

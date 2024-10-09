@@ -53,9 +53,7 @@ class IntelPT {
       taddr_t LoadAddr = ~0UL;
     } _coff;
 
-    binary_state_t(const binary_t &b) {
-      Bin = B::Create(b.data());
-    }
+    binary_state_t(const binary_t &b); /* runs objdump */
   };
 
   jv_state_t<binary_state_t, void, void> state;
@@ -73,11 +71,9 @@ class IntelPT {
   } __buff;
 
   struct syscall_state_t {
-    long nr;
+    long nr = -1;
     std::array<taddr_t, 6> args;
-    unsigned dir : 1;
-
-    syscall_state_t() : dir(0) {}
+    int8_t dir = -1;
   };
 
   std::unordered_map<uint32_t, syscall_state_t> syscall_state_map;
