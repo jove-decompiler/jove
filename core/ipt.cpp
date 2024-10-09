@@ -445,8 +445,12 @@ void IntelPT::examine_sb(void) {
           bool mismatched_nr = nr != state.nr;
 
           if (unlikely(two_consecutive_exits || mismatched_nr)) {
-            if (two_consecutive_exits)
-              fprintf(stderr, "two syscall exits in a row!\n");
+            if (two_consecutive_exits) {
+              if (mismatched_nr)
+                fprintf(stderr, "two syscall exits in a row!\n");
+              else
+                fprintf(stderr, "two syscall exits in a row! (%ld)\n", nr);
+            }
             if (mismatched_nr)
               fprintf(stderr, "mismatched syscall exit! (%ld != %ld)\n", nr,
                       state.nr);
@@ -1100,7 +1104,7 @@ int IntelPT::on_ip(const taddr_t IP, const uint64_t offset) {
     return 1;
   }
 
-  if (is_block_valid(PrevBlock) && is_block_valid(Curr.Block) && PrevTermAddr)
+  if (is_block_valid(PrevBlock) && is_block_valid(Curr.Block) && ~PrevTermAddr != 0)
     block_transfer(PrevBlock.first, PrevTermAddr,
                    Curr.Block.first, address_of_block(Curr.Block, jv));
 
