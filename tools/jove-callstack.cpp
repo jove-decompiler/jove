@@ -88,7 +88,7 @@ int CallStackTool::Run(void) {
         std::string filepath = std::string(env) + "." + std::to_string(tid);
         assert(fs::exists(filepath) && fs::is_regular_file(filepath));
 
-        scoped_fd fd = ::open(filepath.c_str(), O_RDONLY);
+        scoped_fd fd(::open(filepath.c_str(), O_RDONLY));
         if (!fd) {
           int err = errno;
           WithColor::error() << llvm::formatv(

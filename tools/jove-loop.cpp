@@ -643,7 +643,7 @@ skip_run:
       //
       // connect to jove-server
       //
-      scoped_fd remote_fd = ::socket(AF_INET, SOCK_STREAM, 0);
+      scoped_fd remote_fd(::socket(AF_INET, SOCK_STREAM, 0));
       if (!remote_fd) {
         int err = errno;
         HumanOut() << llvm::formatv("socket failed: {0}\n", strerror(err));

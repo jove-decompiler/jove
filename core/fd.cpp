@@ -98,7 +98,7 @@ ssize_t robust_sendfile_from_fd(int out_fd, int in_fd, off_t *in_off, size_t fil
 }
 
 ssize_t robust_sendfile(int fd, const char *file_path, size_t file_size) {
-  scoped_fd in_fd = ::open(file_path, O_RDONLY);
+  scoped_fd in_fd(::open(file_path, O_RDONLY));
   if (!in_fd)
     throw std::runtime_error(std::string("robust_sendfile: open failed: ") +
                              strerror(errno));
@@ -154,7 +154,7 @@ ssize_t robust_receive_file_with_size(int fd, const char *out, unsigned file_per
 
   ssize_t res = -EBADF;
   {
-    scoped_fd fd = ::open(out, O_WRONLY | O_TRUNC | O_CREAT, file_perm);
+    scoped_fd fd(::open(out, O_WRONLY | O_TRUNC | O_CREAT, file_perm));
     if (!fd)
       return -errno;
 

@@ -22,7 +22,11 @@ ssize_t robust_copy_file_range(int in_fd, off_t *in_off, int out_fd,
 struct scoped_fd {
   const int fd;
 
-  scoped_fd(int fd) : fd(fd) {}
+  scoped_fd() = delete;
+  scoped_fd(const scoped_fd &) = delete;
+  scoped_fd &operator=(const scoped_fd &) = delete;
+
+  explicit scoped_fd(int fd) : fd(fd) {}
   ~scoped_fd() noexcept(false); /* throws if failed to close file descriptor */
 
   int get(void) const {
