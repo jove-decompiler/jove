@@ -1,5 +1,6 @@
 #pragma once
-#if defined(__x86_64__) || defined(__i386__) /* x86 only */
+#if (defined(__x86_64__) || defined(__i386__)) &&                              \
+    (defined(TARGET_X86_64) || defined(TARGET_I386))
 #include "jove/jove.h"
 #include "B.h"
 #include <memory>
