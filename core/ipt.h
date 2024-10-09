@@ -27,6 +27,7 @@ namespace jove {
 class explorer_t;
 
 /* reference IPT decoder */
+template <unsigned Verbosity>
 class IntelPT {
   jv_t &jv;
   explorer_t &explorer;
@@ -126,8 +127,6 @@ class IntelPT {
     return (Engaged = RightExecMode() && RightProcess());
   }
 
-  const bool v, vv;
-
   const bool ignore_trunc_aux;
 
   void examine_sb(void);
@@ -176,21 +175,21 @@ public:
 
   __attribute__((always_inline))
   bool IsVerbose(void) const {
-    return unlikely(v);
+    return Verbosity >= 1;
   }
 
   __attribute__((always_inline))
   bool IsVeryVerbose(void) const {
-    return unlikely(vv);
+    return Verbosity >= 2;
   }
 
   int explore(void);
   int explore_packets(void);
 
   int ptdump_print_error(int errcode, const char *filename, uint64_t offset);
-
-  struct truncated_aux_exception {};
 };
+
+struct truncated_aux_exception {};
 
 }
 

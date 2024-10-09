@@ -995,20 +995,29 @@ int IPTTool::UsingLibipt(void) {
           WithColor::warning()
               << llvm::formatv("madvise failed: {0}\n", strerror(errno));
 
-#if 1
-        IntelPT ipt(ptdump_argv.size() - 1, ptdump_argv.data(), jv, *E, cpu,
-                    AddressSpace, mmap.ptr,
-                    reinterpret_cast<uint8_t *>(mmap.ptr) + len,
-                    IsVeryVerbose() ? 2 : (IsVerbose() ? 1 : 0));
+        auto run = [&]<unsigned Verbosity>(void) {
+          IntelPT<Verbosity> ipt(ptdump_argv.size() - 1, ptdump_argv.data(), jv,
+                                 *E, cpu, AddressSpace, mmap.ptr,
+                                 reinterpret_cast<uint8_t *>(mmap.ptr) + len,
+                                 IsVeryVerbose() ? 2 : (IsVerbose() ? 1 : 0));
 
-        try {
-          ipt.explore();
-        } catch (const IntelPT::truncated_aux_exception &) {
-          if (IsVerbose())
-            WithColor::warning()
-                << llvm::formatv("truncated aux (cpu {0})\n", cpu);
+          try {
+            ipt.explore();
+          } catch (const truncated_aux_exception &) {
+            if (IsVerbose())
+              WithColor::warning()
+                  << llvm::formatv("truncated aux (cpu {0})\n", cpu);
+          }
+        };
+
+        if (IsVeryVerbose()) {
+          run.template operator()<2>();
+        } else if (IsVerbose()) {
+          run.template operator()<1>();
+        } else {
+          run.template operator()<0>();
         }
-#else
+#if 0
         FastIPT fastipt(jv, *E, cpu, AddressSpace, mmap.ptr,
                         reinterpret_cast<uint8_t *>(mmap.ptr) + len);
         fastipt.explore();
