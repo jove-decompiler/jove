@@ -198,4 +198,27 @@ std::string locator_t::libipt_scripts(void) {
   return must_exist(jove_path() / "libipt" / "script");
 }
 
+std::string locator_t::objdump(bool IsCOFF) {
+  std::string prefix =
+
+#if defined(TARGET_AARCH64)
+  "aarch64-linux-gnu-"
+#elif defined(TARGET_X86_64)
+  IsCOFF ? "x86_64-w64-mingw32-" : ""
+#elif defined(TARGET_I386)
+  IsCOFF ? "i686-w64-mingw32-" : ""
+#elif defined(TARGET_MIPS64)
+  "mips64el-linux-gnuabi64-"
+#elif defined(TARGET_MIPSEL)
+  "mipsel-linux-gnu-"
+#elif defined(TARGET_MIPS)
+  "mips-linux-gnu-"
+#else
+#error
+#endif
+  ;
+
+  return must_exist("/usr/bin/" + prefix + "objdump");
+}
+
 }

@@ -55,6 +55,8 @@ struct locator_t {
   std::string vim(void);
 
   std::string libipt_scripts(void);
+
+  static std::string objdump(bool IsCOFF);
 };
 
 }
