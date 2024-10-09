@@ -1059,8 +1059,10 @@ int IntelPT<Verbosity>::on_ip(const taddr_t IP, const uint64_t offset) {
     bool WentNoFurther = false;
     bool DoNotGoFurther = Curr.Block.first == BIdx;
     {
-      ip_sharable_lock<ip_upgradable_mutex> s_lck(
+      ip_sharable_lock<ip_upgradable_mutex> s_lck_bbmap(
           jv.Binaries.at(Curr.Block.first).bbmap_mtx);
+      ip_sharable_lock<ip_upgradable_mutex> s_lck_ICFG(
+          jv.Binaries.at(Curr.Block.first).Analysis.ICFG_mtx);
 
       if (DoNotGoFurther)
           std::tie(Curr.Block.second, WentNoFurther) =
