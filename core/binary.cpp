@@ -47,8 +47,11 @@ bool binary_t::FixAmbiguousIndirectJump(taddr_t TermAddr, explorer_t &E,
   {
     ip_sharable_lock<ip_upgradable_mutex> s_lck_bbmap(this->bbmap_mtx);
 
-    basic_block_t bb = basic_block_at_address(TermAddr, *this);
-    auto &bbprop = this->prop(bb);
+    basic_block_properties_t &bbprop = *({
+      ip_sharable_lock<ip_upgradable_mutex> s_lck_bbmap(this->Analysis.ICFG_mtx);
+
+      &ICFG[basic_block_at_address(TermAddr, *this)];
+    });
 
     for (function_index_t FIdx : SuccFIdxVec)
       bbprop.insertDynTarget(index_of_binary(*this, jv),
