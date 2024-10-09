@@ -189,9 +189,9 @@ function(tool_for_arch arch arch_extra_cflags qemu_objs)
 endfunction()
 
 #
-# Insist on C++ 17 features.
+# Insist on C++ 20 features.
 #
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS ON)
 
