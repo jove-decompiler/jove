@@ -57,11 +57,11 @@ constexpr auto _must_be_coff(llvm::object::Binary &Bin, Proc proc) {
   return proc(*llvm::cast<COFFO>(&Bin));
 }
 
-constexpr bool is_elf(llvm::object::Binary &Bin) {
+constexpr bool is_elf(const llvm::object::Binary &Bin) {
   return llvm::isa<ELFO>(&Bin);
 }
 
-constexpr bool is_coff(llvm::object::Binary &Bin) {
+constexpr bool is_coff(const llvm::object::Binary &Bin) {
   return llvm::isa<COFFO>(&Bin);
 }
 
