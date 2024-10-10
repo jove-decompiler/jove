@@ -81,6 +81,7 @@ function(tool_for_arch arch arch_extra_cflags qemu_objs)
     ../core/temp.cpp
     ../core/tool.cpp # has to come before all the tools
     ../core/triple.cpp
+    ../core/unlock.cpp
     ../core/util.cpp
     ../core/vdso.cpp
     ../core/win.cpp

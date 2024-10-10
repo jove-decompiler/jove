@@ -5,6 +5,7 @@
 #include "process.h"
 #include "locator.h"
 #include "run.h"
+#include "unlock.h"
 
 #include <functional>
 #include <memory>
@@ -194,7 +195,12 @@ template <>
 struct JVTool<ToolKind::CopyOnWrite> : public BaseJVTool  {
   JVTool()
       : BaseJVTool(boost::interprocess::open_copy_on_write,
-                   path_to_jv().c_str()) {}
+                   path_to_jv().c_str()) {
+    if (char *var = getenv("JVFORCE")) {
+      if (var[0] == '1')
+        forcefully_unlock(jv);
+    }
+  }
 };
 
 template <ToolKind Kind,
