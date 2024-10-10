@@ -333,6 +333,9 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
           llvm::errs() << llvm::formatv(
               "could not cleanly split at {0}+{1:x} ; {2}\n", b.Name.c_str(),
               Addr, addr_intvl2str((*it).first));
+#if 1
+        throw invalid_control_flow_exception(b, Addr);
+#endif
       }
     }
   }

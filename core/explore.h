@@ -15,8 +15,9 @@ namespace jove {
 
 struct invalid_control_flow_exception {
   std::string name_of_binary;
-  taddr_t pc;
+  taddr_t pc = ~0UL;
 
+  invalid_control_flow_exception() = default;
   invalid_control_flow_exception(binary_t &b, uint64_t pc)
       : name_of_binary(b.Name.c_str()), pc(pc) {}
 };
