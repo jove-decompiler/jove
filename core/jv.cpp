@@ -14,7 +14,7 @@ size_t jvDefaultInitialSize(void) {
   case 8:
     return 9*GiB;
   case 4:
-    return 128*MiB;
+    return 1280*MiB;
   }
 
   abort();
