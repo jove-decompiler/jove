@@ -21,6 +21,7 @@
 #include "jove/types.h"
 
 #include <boost/graph/adjacency_list.hpp>
+#include <boost/graph/breadth_first_search.hpp>
 #include <boost/graph/depth_first_search.hpp>
 #include <boost/unordered/unordered_map.hpp>
 #include <boost/unordered/unordered_node_set.hpp>
@@ -219,6 +220,11 @@ using ip_sharable_lock = boost::interprocess::sharable_lock<Mutex>;
 template <typename Mutex>
 using ip_upgradable_lock = boost::interprocess::upgradable_lock<Mutex>;
 
+struct __do_nothing_t {
+  template <typename... Args>
+  __do_nothing_t (Args&&...) noexcept {}
+};
+
 template <typename T>
 struct ip_safe_deque {
   using alloc_t = boost::interprocess::allocator<T, segment_manager_t>;
@@ -258,6 +264,7 @@ struct ip_safe_deque {
     return _deque.at(idx);
   }
 
+  /* FIXME */
   typename deque_t::const_iterator cbegin(void) const { return _deque.cbegin(); }
   typename deque_t::const_iterator cend(void) const { return _deque.cend(); }
 
@@ -266,6 +273,190 @@ struct ip_safe_deque {
 
   typename deque_t::iterator begin(void) { return _deque.begin(); }
   typename deque_t::iterator end(void) { return _deque.end(); }
+};
+
+template <typename Ty, typename ip_mutex_t = ip_upgradable_mutex>
+struct ip_safe_adjacency_list {
+  using vertex_descriptor = Ty::vertex_descriptor;
+  using edge_descriptor = Ty::edge_descriptor;
+  using vertices_size_type = Ty::vertices_size_type;
+  using vertex_iterator = Ty::vertex_iterator;
+  using degree_size_type = Ty::degree_size_type;
+  using adjacency_iterator = Ty::adjacency_iterator;
+  using out_edge_iterator = Ty::out_edge_iterator;
+  using in_edge_iterator = Ty::in_edge_iterator;
+  using inv_adjacency_iterator = Ty::inv_adjacency_iterator;
+
+  Ty _adjacency_list;
+  mutable ip_mutex_t _mtx;
+
+  template <typename... Args>
+  ip_safe_adjacency_list(Args &&...args)
+      : _adjacency_list(std::forward<Args>(args)...) {}
+  ip_safe_adjacency_list(ip_safe_adjacency_list<Ty> &&other)
+      : _adjacency_list(std::move(other._adjacency_list)) {}
+
+  ip_safe_adjacency_list<Ty> &
+  operator=(const ip_safe_adjacency_list<Ty> &other) {
+    if (this == &other)
+      return *this;
+
+    _adjacency_list = other._adjacency_list;
+    return *this;
+  }
+
+#define S_LCK(ShouldLock)                                                      \
+  typename std::conditional<ShouldLock, ip_sharable_lock<ip_mutex_t>,          \
+                            __do_nothing_t>::type __s_lck##__COUNTER__(_mtx)
+
+#define E_LCK(ShouldLock)                                                      \
+  typename std::conditional<ShouldLock, ip_scoped_lock<ip_mutex_t>,            \
+                            __do_nothing_t>::type __e_lck##__COUNTER__(_mtx)
+
+  template <bool L = true>
+  vertices_size_type num_vertices(void) const {
+    S_LCK(L);
+    return boost::num_vertices(_adjacency_list);
+  }
+
+  template <bool L = true>
+  bool empty(void) const { return num_vertices<L>() == 0; }
+
+  template <bool L = true>
+  auto &at(vertex_descriptor V) {
+    S_LCK(L);
+    return _adjacency_list[V];
+  }
+
+  template <bool L = true>
+  const auto &at(vertex_descriptor V) const {
+    S_LCK(L);
+    return _adjacency_list[V];
+  }
+
+  template <bool L = true>
+  auto &at_index(vertices_size_type Idx) {
+    S_LCK(L);
+    return _adjacency_list[this->vertex<false>(Idx)];
+  }
+
+  template <bool L = true>
+  const auto &at_index(vertices_size_type Idx) const {
+    S_LCK(L);
+    return _adjacency_list[this->vertex<false>(Idx)];
+  }
+
+  auto &operator[](vertex_descriptor V) {
+    S_LCK(true);
+    return _adjacency_list[V];
+  }
+
+  const auto &operator[](vertex_descriptor V) const {
+    S_LCK(true);
+    return _adjacency_list[V];
+  }
+
+  template <bool L = true>
+  vertex_descriptor vertex(vertices_size_type Idx) const {
+    S_LCK(L);
+    assert(Idx < boost::num_vertices(_adjacency_list)); /* catch bugs */
+    return boost::vertex(Idx, _adjacency_list);
+  }
+
+  vertices_size_type index(vertex_descriptor V) const {
+    typename boost::property_map<Ty, boost::vertex_index_t>::type Vert2Index =
+        boost::get(boost::vertex_index, _adjacency_list);
+    return Vert2Index[V]; /* for VertexList=vecS this is just identity map */
+  }
+
+  template <class DFSVisitor, bool L = true>
+  void depth_first_visit(vertex_descriptor V, DFSVisitor &vis) const {
+    std::map<vertex_descriptor, boost::default_color_type> color;
+
+    S_LCK(L);
+
+    boost::depth_first_visit(
+        _adjacency_list, V, vis,
+        boost::associative_property_map<
+            std::map<vertex_descriptor, boost::default_color_type>>(color));
+  }
+
+  template <class BFSVisitor, bool L = true>
+  void breadth_first_search(vertex_descriptor V, BFSVisitor &vis) const {
+    S_LCK(L);
+
+    boost::breadth_first_search(_adjacency_list, V, boost::visitor(vis));
+  }
+
+  template <bool L = true>
+  degree_size_type out_degree(vertex_descriptor V) const {
+    S_LCK(L);
+    return boost::out_degree(V, _adjacency_list);
+  }
+
+  template <bool L = true>
+  void clear_out_edges(vertex_descriptor V) {
+    E_LCK(L);
+    boost::clear_out_edges(V, _adjacency_list);
+  }
+
+  template <bool L = true>
+  std::pair<edge_descriptor, bool> add_edge(vertex_descriptor V1,
+                                            vertex_descriptor V2) {
+    E_LCK(L);
+    return boost::add_edge(V1, V2, _adjacency_list);
+  }
+
+  template <bool L = true>
+  vertex_descriptor adjacent_front(vertex_descriptor V) const {
+    S_LCK(L);
+    return *adjacent_vertices(V).first;
+  }
+
+  // precondition: out_degree(V) >= N
+  template <unsigned N, bool L = true>
+  __attribute__((always_inline))
+  std::array<vertex_descriptor, N> adjacent_n(vertex_descriptor V) const {
+    std::array<vertex_descriptor, N> res;
+
+    {
+      S_LCK(L);
+
+      adjacency_iterator it, it_end;
+      std::tie(it, it_end) = adjacent_vertices(V);
+
+#pragma clang loop unroll(full)
+      for (unsigned i = 0; i < N; ++i)
+        res[i] = *it++;
+    }
+
+    return res;
+  }
+
+#undef S_LCK
+#undef E_LCK
+
+  /* ********** unsafe methods ********** */
+
+  std::pair<vertex_iterator, vertex_iterator> vertices(void) const {
+    return boost::vertices(_adjacency_list);
+  }
+  std::pair<adjacency_iterator, adjacency_iterator>
+  adjacent_vertices(vertex_descriptor V) const {
+    return boost::adjacent_vertices(V, _adjacency_list);
+  }
+  std::pair<inv_adjacency_iterator, inv_adjacency_iterator>
+  inv_adjacent_vertices(vertex_descriptor V) const {
+    return boost::inv_adjacent_vertices(V, _adjacency_list);
+  }
+  std::pair<out_edge_iterator, out_edge_iterator>
+  out_edges(vertex_descriptor V) const {
+    return boost::out_edges(V, _adjacency_list);
+  }
+  std::pair<in_edge_iterator, in_edge_iterator>
+  in_edges(vertex_descriptor V) const {
+    return boost::in_edges(V, _adjacency_list);
+  }
 };
 
 typedef boost::interprocess::allocator<char, segment_manager_t>
@@ -529,28 +720,28 @@ static inline basic_block_t NullBasicBlock(void) {
       interprocedural_control_flow_graph_t>::null_vertex();
 }
 
-static inline bool IsDefinitelyTailCall(const icfg_t &ICFG, basic_block_t bb) {
-  assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP); /* catch bugs */
+typedef ip_safe_adjacency_list<icfg_t> ip_icfg_t;
 
-#ifdef WARN_ON
-  WARN_ON(boost::out_degree(bb, ICFG) > 0);
-#endif
-
-  return ICFG[bb].hasDynTarget();
+template <bool L = true>
+constexpr bool IsDefinitelyTailCall(const ip_icfg_t &ICFG, basic_block_t bb) {
+  assert(ICFG.at<L>(bb).Term.Type == TERMINATOR::INDIRECT_JUMP); /* catch bugs */
+  //WARN_ON(ICFG.out_degree<L>(bb) > 0); /* catch bugs */
+  return ICFG.at<L>(bb).hasDynTarget();
 }
 
-static inline bool IsAmbiguousIndirectJump(const icfg_t &ICFG, basic_block_t bb) {
-  assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP); /* catch bugs */
-
-  return ICFG[bb].hasDynTarget() && boost::out_degree(bb, ICFG) > 0;
+template <bool L = true>
+constexpr bool IsAmbiguousIndirectJump(const ip_icfg_t &ICFG, basic_block_t bb) {
+  assert(ICFG.at<L>(bb).Term.Type == TERMINATOR::INDIRECT_JUMP); /* catch bugs */
+  return ICFG.at<L>(bb).hasDynTarget() && ICFG.out_degree<L>(bb) > 0;
 }
 
-static inline bool IsExitBlock(const icfg_t &ICFG, basic_block_t bb) {
-  auto T = ICFG[bb].Term.Type;
+template <bool L = true>
+constexpr bool IsExitBlock(const ip_icfg_t &ICFG, basic_block_t bb) {
+  auto T = ICFG.at<L>(bb).Term.Type;
 
   return T == TERMINATOR::RETURN ||
         (T == TERMINATOR::INDIRECT_JUMP &&
-         IsDefinitelyTailCall(ICFG, bb));
+         IsDefinitelyTailCall<L>(ICFG, bb));
 }
 
 //
@@ -648,8 +839,7 @@ struct binary_t {
     // references to basic_block_properties_t will never be invalidated
     // (although their fields are subject to change: see explorer_t::split() in
     //  core/explore.cpp)
-    interprocedural_control_flow_graph_t ICFG;
-    mutable ip_upgradable_mutex ICFG_mtx;
+    ip_safe_adjacency_list<interprocedural_control_flow_graph_t> ICFG;
 
     Analysis_t() = delete;
     Analysis_t(const ip_void_allocator_t &A)
@@ -723,12 +913,6 @@ struct binary_t {
       }
     } objdump;
   } Analysis;
-
-  basic_block_properties_t &prop(basic_block_t bb) {
-    ip_sharable_lock<ip_upgradable_mutex> s_lck(this->Analysis.ICFG_mtx);
-
-    return this->Analysis.ICFG[bb];
-  }
 
   void InvalidateBasicBlockAnalyses(void);
 
@@ -843,13 +1027,14 @@ allocates_basic_block_t::allocates_basic_block_t(binary_t &b,
     throw objdump_exception(Addr);
 #endif
 
+  auto &ICFG = b.Analysis.ICFG;
+  auto &adjacency_list = ICFG._adjacency_list;
   {
-    ip_scoped_lock<ip_upgradable_mutex> e_lck(b.Analysis.ICFG_mtx);
+    ip_scoped_lock<ip_upgradable_mutex> e_lck(ICFG._mtx);
 
-    icfg_t &ICFG = b.Analysis.ICFG;
-    Idx = boost::num_vertices(ICFG);
-    basic_block_t bb = boost::add_vertex(ICFG, b.get_allocator());
-    ICFG[bb].Addr = Addr;
+    Idx = boost::num_vertices(adjacency_list);
+    basic_block_t bb = boost::add_vertex(adjacency_list, b.get_allocator());
+    adjacency_list[bb].Addr = Addr;
   }
 
   store = Idx;
@@ -1127,18 +1312,18 @@ description_of_terminator_info(const terminator_info_t &T,
   return res;
 }
 
+template <bool L = true>
 constexpr basic_block_t basic_block_of_index(basic_block_index_t BBIdx,
-                                             const icfg_t &ICFG) {
+                                             const ip_icfg_t &ICFG) {
   assert(is_basic_block_index_valid(BBIdx));
-  assert(BBIdx < boost::num_vertices(ICFG));
-
-  return boost::vertex(BBIdx, ICFG);
+  return ICFG.vertex<L>(BBIdx);
 }
 
+template <bool L = true>
 constexpr basic_block_t basic_block_of_index(basic_block_index_t BBIdx,
                                              const binary_t &b) {
   const auto &ICFG = b.Analysis.ICFG;
-  return basic_block_of_index(BBIdx, ICFG);
+  return basic_block_of_index<L>(BBIdx, ICFG);
 }
 
 template <typename _ExecutionPolicy, typename Iter, typename Pred, typename Proc>
@@ -1196,6 +1381,10 @@ constexpr bool addr_intvl_intersects(addr_intvl x, addr_intvl y) {
   return true;
 }
 
+constexpr bool addr_intvl_intersects(addr_intvl intvl, taddr_t Addr) {
+  return addr_intvl_contains(intvl, Addr);
+}
+
 constexpr bool addr_intvl_disjoint(addr_intvl x, addr_intvl y) {
   return !addr_intvl_intersects(x, y);
 }
@@ -1210,14 +1399,14 @@ constexpr addr_intvl addr_intvl_hull(addr_intvl x, addr_intvl y) {
   return right_open_addr_intvl(std::min(L_1, L_2), std::max(U_1, U_2));
 }
 
-template <typename OrderedIntvlMap>
-constexpr auto intvl_map_find(OrderedIntvlMap &map, addr_intvl intvl) {
+template <typename OrderedIntvlMap, typename T>
+constexpr auto intvl_map_find(OrderedIntvlMap &map, T x) {
   if (unlikely(map.empty()))
     return map.end();
 
-  auto it = map.upper_bound(intvl.first);
+  auto it = map.upper_bound(x);
 
-  if (it != map.end() && addr_intvl_intersects((*it).first, intvl))
+  if (it != map.end() && addr_intvl_intersects((*it).first, x))
     return it;
 
   if (it == map.begin())
@@ -1225,25 +1414,15 @@ constexpr auto intvl_map_find(OrderedIntvlMap &map, addr_intvl intvl) {
 
   --it;
 
-  if (addr_intvl_intersects((*it).first, intvl))
+  if (addr_intvl_intersects((*it).first, x))
     return it;
 
   return map.end();
 }
 
-template <typename OrderedIntvlMap>
-constexpr auto intvl_map_find(OrderedIntvlMap &map, taddr_t Addr) {
-  return intvl_map_find(map, addr_intvl(Addr, 1u));
-}
-
-template <typename OrderedIntvlMap>
-constexpr bool intvl_map_contains(OrderedIntvlMap &map, addr_intvl intvl) {
-  return intvl_map_find(map, intvl) != map.end();
-}
-
-template <typename OrderedIntvlMap>
-constexpr bool intvl_map_contains(OrderedIntvlMap &map, taddr_t Addr) {
-  return intvl_map_contains(map, addr_intvl(Addr, 1u));
+template <typename OrderedIntvlMap, typename T>
+constexpr bool intvl_map_contains(OrderedIntvlMap &map, T x) {
+  return intvl_map_find(map, x) != map.end();
 }
 
 template <typename OrderedIntvlMap, typename Value>
@@ -1501,7 +1680,7 @@ void for_each_basic_block(_ExecutionPolicy &&__exec,
                   std::forward<T>(jv),
                   [&__exec, proc](auto &b) {
     icfg_t::vertex_iterator it, it_end;
-    std::tie(it, it_end) = boost::vertices(b.Analysis.ICFG);
+    std::tie(it, it_end) = b.Analysis.ICFG.vertices();
 
     std::for_each(std::forward<_ExecutionPolicy>(__exec),
                   it, it_end,
@@ -1515,7 +1694,7 @@ void for_each_basic_block(T &&jv, Proc proc) {
   for_each_binary(std::forward<T>(jv),
                   [proc](auto &b) {
     icfg_t::vertex_iterator it, it_end;
-    std::tie(it, it_end) = boost::vertices(b.Analysis.ICFG);
+    std::tie(it, it_end) = b.Analysis.ICFG.vertices();
 
     std::for_each(it, it_end,
                   [&b, proc](basic_block_t bb) { proc(b, bb); });
@@ -1528,7 +1707,7 @@ void for_each_basic_block_in_binary(_ExecutionPolicy &&__exec,
                                     binary_t &b,
                                     Proc proc) {
   icfg_t::vertex_iterator it, it_end;
-  std::tie(it, it_end) = boost::vertices(b.Analysis.ICFG);
+  std::tie(it, it_end) = b.Analysis.ICFG.vertices();
 
   std::for_each(std::forward<_ExecutionPolicy>(__exec),
                it, it_end, [proc](basic_block_t bb) { proc(bb); });
@@ -1540,7 +1719,7 @@ void for_each_basic_block_in_binary(_ExecutionPolicy &&__exec,
                                     const binary_t &b,
                                     Proc proc) {
   icfg_t::vertex_iterator it, it_end;
-  std::tie(it, it_end) = boost::vertices(b.Analysis.ICFG);
+  std::tie(it, it_end) = b.Analysis.ICFG.vertices();
 
   std::for_each(std::forward<_ExecutionPolicy>(__exec),
                it, it_end, [proc](basic_block_t bb) { proc(bb); });
@@ -1550,7 +1729,7 @@ template <class Proc>
 static inline
 void for_each_basic_block_in_binary(binary_t &b, Proc proc) {
   icfg_t::vertex_iterator it, it_end;
-  std::tie(it, it_end) = boost::vertices(b.Analysis.ICFG);
+  std::tie(it, it_end) = b.Analysis.ICFG.vertices();
 
   std::for_each(it, it_end, [proc](basic_block_t bb) { proc(bb); });
 }
@@ -1559,16 +1738,14 @@ template <class Proc>
 static inline
 void for_each_basic_block_in_binary(const binary_t &b, Proc proc) {
   icfg_t::vertex_iterator it, it_end;
-  std::tie(it, it_end) = boost::vertices(b.Analysis.ICFG);
+  std::tie(it, it_end) = b.Analysis.ICFG.vertices();
 
   std::for_each(it, it_end, [proc](basic_block_t bb) { proc(bb); });
 }
 
-static inline basic_block_index_t index_of_basic_block(const icfg_t &ICFG,
+static inline basic_block_index_t index_of_basic_block(const ip_icfg_t &ICFG,
                                                        basic_block_t bb) {
-  boost::property_map<icfg_t, boost::vertex_index_t>::type bb2idx =
-      boost::get(boost::vertex_index, ICFG);
-  return bb2idx[bb];
+  return ICFG.index(bb);
 }
 
 constexpr binary_index_t binary_index_of_function(const function_t &f,
@@ -1626,12 +1803,8 @@ static inline void basic_blocks_of_function_at_block(basic_block_t entry,
     }
   };
 
-  std::map<basic_block_t, boost::default_color_type> color;
   bb_visitor vis(out);
-  depth_first_visit(
-      ICFG, entry, vis,
-      boost::associative_property_map<
-          std::map<basic_block_t, boost::default_color_type>>(color));
+  ICFG.depth_first_visit(entry, vis);
 }
 
 static inline void basic_blocks_of_function(const function_t &f,
@@ -1695,7 +1868,7 @@ static inline bool IsLeafFunction(const function_t &f,
                     [&](basic_block_t bb) -> bool {
                       auto T = ICFG[bb].Term.Type;
                       return (T == TERMINATOR::INDIRECT_JUMP &&
-                              boost::out_degree(bb, ICFG) == 0)
+                              ICFG.out_degree(bb) == 0)
                            || T == TERMINATOR::INDIRECT_CALL
                            || T == TERMINATOR::CALL;
                     }))
@@ -1758,14 +1931,16 @@ index_of_basic_block_starting_at_address(taddr_t Addr, const binary_t &b) {
   return res;
 }
 
+template <bool L = true>
 static inline basic_block_t
 basic_block_starting_at_address(taddr_t Addr, const binary_t &b) {
-  return basic_block_of_index(index_of_basic_block_starting_at_address(Addr, b), b);
+  return basic_block_of_index<L>(index_of_basic_block_starting_at_address(Addr, b), b);
 }
 
+template <bool L = true>
 static inline basic_block_t basic_block_at_address(taddr_t Addr,
                                                    const binary_t &b) {
-  return basic_block_of_index(index_of_basic_block_at_address(Addr, b), b);
+  return basic_block_of_index<L>(index_of_basic_block_at_address(Addr, b), b);
 }
 
 static inline bool exists_basic_block_at_address(taddr_t Addr,
@@ -1850,8 +2025,7 @@ static inline void construct_bbmap(const jv_t &jv,
   for_each_basic_block_in_binary(binary, [&](basic_block_t bb) {
     const auto &bbprop = ICFG[bb];
 
-    bbmap_add(out, addr_intvl(bbprop.Addr, bbprop.Size),
-              index_of_basic_block(ICFG, bb));
+    bbmap_add(out, addr_intvl(bbprop.Addr, bbprop.Size), ICFG.index(bb));
   });
 }
 
@@ -2046,7 +2220,7 @@ class jv_state_t {
       auto &bin_stuff = x.at(index_of_binary(b, jv));
 
       std::get<1>(bin_stuff).resize(b.Analysis.Functions.size());
-      std::get<2>(bin_stuff).resize(boost::num_vertices(b.Analysis.ICFG));
+      std::get<2>(bin_stuff).resize(b.Analysis.ICFG.num_vertices());
     });
 
     /* TODO if !lazy */

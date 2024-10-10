@@ -65,7 +65,7 @@ std::string CodeRecovery::RecoverDynamicTarget(binary_index_t CallerBIdx,
 #if 0
   } else if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL &&
              isNewTarget &&
-             boost::out_degree(bb, ICFG) == 0 &&
+             ICFG.out_degree(bb) == 0 &&
              does_function_return(callee, CalleeBinary)) {
     //
     // this call instruction will return, so explore the return block
@@ -80,7 +80,7 @@ std::string CodeRecovery::RecoverDynamicTarget(binary_index_t CallerBIdx,
     bb = basic_block_at_address(TermAddr, CallerBinary);
     assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL);
 
-    boost::add_edge(bb, basic_block_of_index(NextBBIdx, ICFG), ICFG);
+    ICFG.add_edge(bb, basic_block_of_index(NextBBIdx, ICFG));
   }
 #endif
 
@@ -114,7 +114,7 @@ std::string CodeRecovery::RecoverBasicBlock(binary_index_t IndBrBIdx,
     ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
 
     basic_block_t target_bb = basic_block_of_index(TargetBBIdx, ICFG);
-    boost::add_edge(bb, target_bb, ICFG).second;
+    ICFG.add_edge(bb, target_bb).second;
   });
 
   if (!isNewTarget)
@@ -180,7 +180,7 @@ std::string CodeRecovery::RecoverFunctionAtAddress(binary_index_t IndCallBIdx,
     bb = basic_block_at_address(TermAddr, CallerBinary);
     assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL);
 
-    boost::add_edge(bb, basic_block_of_index(NextBBIdx, ICFG), ICFG);
+    ICFG.add_edge(bb, basic_block_of_index(NextBBIdx, ICFG));
   }
 #endif
 
@@ -253,11 +253,11 @@ std::string CodeRecovery::Returns(binary_index_t CallBIdx,
 
     ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
 
-    unsigned deg = boost::out_degree(bb, ICFG);
+    unsigned deg = ICFG.out_degree(bb);
     if (deg > 0)
       return std::string();
 
-    boost::add_edge(bb, basic_block_of_index(NextBBIdx, ICFG), ICFG).second;
+    ICFG.add_edge(bb, basic_block_of_index(NextBBIdx, ICFG)).second;
   });
 
   (void)isNewTarget; /* FIXME */

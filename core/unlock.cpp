@@ -13,16 +13,16 @@ void forcefully_unlock(jv_t &jv) {
       jv.Binaries._deque.begin(),
       jv.Binaries._deque.end(), [&](binary_t &b) {
 	__builtin_memset(&b.bbmap_mtx, 0, sizeof(b.bbmap_mtx));
-	__builtin_memset(&b.Analysis.ICFG_mtx, 0, sizeof(b.Analysis.ICFG_mtx));
+	__builtin_memset(&b.Analysis.ICFG._mtx, 0, sizeof(b.Analysis.ICFG._mtx));
 	__builtin_memset(&b.Analysis.Functions._mtx, 0, sizeof(b.Analysis.Functions._mtx));
 
 	auto &ICFG = b.Analysis.ICFG;
-	auto it_pair = boost::vertices(ICFG);
+	auto it_pair = boost::vertices(ICFG._adjacency_list);
 	std::for_each(std::execution::par_unseq,
 		      it_pair.first,
 		      it_pair.second, [&](basic_block_t bb) {
-			__builtin_memset(&ICFG[bb].Parents._mtx, 0,
-					 sizeof(ICFG[bb].Parents._mtx));
+			__builtin_memset(&ICFG._adjacency_list[bb].Parents._mtx, 0,
+					 sizeof(ICFG._adjacency_list[bb].Parents._mtx));
 		      });
       });
 }

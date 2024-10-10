@@ -363,7 +363,7 @@ int IDATool::Run(void) {
             {
               auto &v = our.succ_vec;
 
-              auto it_pair = boost::adjacent_vertices(indjmp_bb, ICFG);
+              auto it_pair = ICFG.adjacent_vertices(indjmp_bb);
               v.reserve(std::distance(it_pair.first, it_pair.second));
               std::copy(it_pair.first, it_pair.second, std::back_inserter(v));
             }
@@ -515,7 +515,7 @@ int IDATool::Run(void) {
                   [&](uint64_t start_ea) {
                     basic_block_t succ_bb =
                         basic_block_at_address(start_ea, binary);
-                    boost::add_edge(indjmp_bb, succ_bb, ICFG);
+                    ICFG.add_edge(indjmp_bb, succ_bb);
                   });
             }
           });

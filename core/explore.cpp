@@ -27,6 +27,7 @@ function_index_t explorer_t::_explore_function(binary_t &b,
 #if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
   assert((Addr & 1) == 0);
 #endif
+  assert(Addr);
 
   function_index_t Idx = invalid_function_index;
   {
@@ -63,10 +64,10 @@ function_index_t explorer_t::_explore_function(binary_t &b,
   auto &ICFG = b.Analysis.ICFG;
 
   std::function<void(basic_block_t bb)> rec = [&](basic_block_t bb) -> void {
-    ICFG[bb].AddParent(Idx, jv);
+    ICFG.at<false>(bb).AddParent(Idx, jv);
 
     icfg_t::adjacency_iterator succ_it, succ_it_end;
-    for (std::tie(succ_it, succ_it_end) = boost::adjacent_vertices(bb, ICFG);
+    for (std::tie(succ_it, succ_it_end) = ICFG.adjacent_vertices(bb);
          succ_it != succ_it_end; ++succ_it) {
       basic_block_t succ = *succ_it;
 
@@ -76,18 +77,21 @@ function_index_t explorer_t::_explore_function(binary_t &b,
       // if a successor already has this function marked as a parent, then we
       // can assume everything reachable from it is already too
       //
-      if (ICFG[succ].IsParent(Idx))
+      if (ICFG.at<false>(succ).IsParent(Idx))
         continue;
 
       rec(succ);
     }
   };
 
+  /* FIXME significant slowdown */
+#if 0
   {
-    ip_sharable_lock<ip_upgradable_mutex> s_lck_ICFG(b.Analysis.ICFG_mtx);
+    ip_sharable_lock<ip_upgradable_mutex> s_lck_ICFG(b.Analysis.ICFG._mtx);
 
-    rec(basic_block_of_index(EntryIdx, ICFG));
+    rec(basic_block_of_index<false>(EntryIdx, ICFG));
   }
+#endif
 
   return Idx;
 }
@@ -187,24 +191,24 @@ on_insn:
 
   ip_scoped_lock<ip_upgradable_mutex> e_lck_bbmap(boost::move(*u_lck_bbmap));
 
-  ip_upgradable_lock<ip_upgradable_mutex> u_lck_ICFG(b.Analysis.ICFG_mtx);
+  ip_upgradable_lock<ip_upgradable_mutex> u_lck_ICFG(b.Analysis.ICFG._mtx);
 
-  to_bb_vec.reserve(boost::out_degree(bb_1, ICFG));
+  to_bb_vec.reserve(ICFG.out_degree<false>(bb_1));
   {
     icfg_t::adjacency_iterator succ_it, succ_it_end;
-    std::tie(succ_it, succ_it_end) = boost::adjacent_vertices(bb_1, ICFG);
+    std::tie(succ_it, succ_it_end) = ICFG.adjacent_vertices(bb_1);
 
     std::copy(succ_it, succ_it_end, std::back_inserter(to_bb_vec));
   }
 
-  basic_block_properties_t &bbprop_1 = ICFG[bb_1];
+  basic_block_properties_t &bbprop_1 = ICFG.at<false>(bb_1);
 
   //
   // create bb_2
   //
-  basic_block_t bb_2 = basic_block_of_index(Idx, ICFG);
+  basic_block_t bb_2 = basic_block_of_index<false>(Idx, ICFG);
   const basic_block_index_t NewBBIdx = Idx;
-  basic_block_properties_t &bbprop_2 = ICFG[bb_2];
+  basic_block_properties_t &bbprop_2 = ICFG.at<false>(bb_2);
 
   bbprop_2.Addr = addr_intvl_lower(intvl_2);
   bbprop_2.Size = intvl_2.second;
@@ -234,11 +238,11 @@ on_insn:
   {
     ip_scoped_lock<ip_upgradable_mutex> e_lck_ICFG(boost::move(u_lck_ICFG));
 
-    boost::clear_out_edges(bb_1, ICFG);
-    boost::add_edge(bb_1, bb_2, ICFG);
+    ICFG.clear_out_edges<false>(bb_1);
+    ICFG.add_edge<false>(bb_1, bb_2);
 
     for (basic_block_t bb : to_bb_vec)
-      boost::add_edge(bb_2, bb, ICFG);
+      ICFG.add_edge<false>(bb_2, bb);
   }
 
   //
@@ -329,7 +333,7 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
         //
         Speculative = true;
 
-        if (unlikely(this->verbose))
+        if (true /* unlikely(this->verbose) */)
           llvm::errs() << llvm::formatv(
               "could not cleanly split at {0}+{1:x} ; {2}\n", b.Name.c_str(),
               Addr, addr_intvl2str((*it).first));
@@ -459,8 +463,7 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
   }
 
   {
-    basic_block_t bb = basic_block_of_index(Idx, ICFG);
-    auto &bbprop = b.prop(bb);
+    auto &bbprop = ICFG.at_index(Idx);
 
     bbprop.Speculative = Speculative;
     bbprop.Addr = Addr;
@@ -493,7 +496,7 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
           "{0} {1}\t\t\t\t\t\t{2}\n", description_of_block(bbprop, false),
           description_of_terminator_info(T, false), b.Name.c_str());
 
-    this->on_newbb_proc(b, bb);
+    this->on_newbb_proc(b, ICFG.vertex(Idx));
   }
 
   auto control_flow_to = [&](uint64_t Target) -> void {
@@ -545,12 +548,9 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
     callee.Callers.emplace(b.Idx /* may =invalid */, T.Addr);
 
     if (unlikely(Speculative)) {
-      ip_sharable_lock<ip_upgradable_mutex> s_lck_ICFG(b.Analysis.ICFG_mtx);
-
       ICFG[basic_block_of_index(Idx, ICFG)].Term._call.Target = CalleeFIdx;
     } else {
       ip_sharable_lock<ip_upgradable_mutex> s_lck_bbmap(b.bbmap_mtx);
-      ip_sharable_lock<ip_upgradable_mutex> s_lck_ICFG(b.Analysis.ICFG_mtx);
 
       ICFG[basic_block_at_address(T.Addr, b)].Term._call.Target = CalleeFIdx;
     }
@@ -589,8 +589,7 @@ void explorer_t::_control_flow_to(
   assert(Target);
 
   if (unlikely(this->verbose))
-    llvm::errs() << llvm::formatv("  -> {0}\n",
-                                  taddr2str(Target, false));
+    llvm::errs() << llvm::formatv("  -> {0}\n", taddr2str(Target, false));
 
   basic_block_index_t SuccBBIdx = invalid_basic_block_index;
   try {
@@ -609,16 +608,14 @@ void explorer_t::_control_flow_to(
 
   assert(is_basic_block_index_valid(SuccBBIdx));
 
+  auto &ICFG = b.Analysis.ICFG;
   if (unlikely(Speculative)) {
-    ip_scoped_lock<ip_upgradable_mutex> e_lck_ICFG(b.Analysis.ICFG_mtx);
-
-    boost::add_edge(bb, basic_block_of_index(SuccBBIdx, b), b.Analysis.ICFG);
+    ICFG.add_edge(bb, basic_block_of_index(SuccBBIdx, b));
   } else {
     ip_sharable_lock<ip_upgradable_mutex> s_lck_bbmap(b.bbmap_mtx);
-    ip_scoped_lock<ip_upgradable_mutex> e_lck_ICFG(b.Analysis.ICFG_mtx);
 
-    boost::add_edge(basic_block_at_address(TermAddr, b),
-                    basic_block_of_index(SuccBBIdx, b), b.Analysis.ICFG);
+    ICFG.add_edge(basic_block_at_address(TermAddr, b),
+                  basic_block_of_index(SuccBBIdx, b));
   }
 }
 

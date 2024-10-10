@@ -107,10 +107,10 @@ void DumpTool::dumpDecompilation(const jv_t& jv) {
 
     {
       llvm::ListScope ___(
-          Writer, (fmt("Basic Blocks (%u)") % boost::num_vertices(ICFG)).str());
+          Writer, (fmt("Basic Blocks (%u)") % ICFG.num_vertices()).str());
 
       icfg_t::vertex_iterator vi, vi_end;
-      for (std::tie(vi, vi_end) = boost::vertices(ICFG); vi != vi_end; ++vi) {
+      for (std::tie(vi, vi_end) = ICFG.vertices(); vi != vi_end; ++vi) {
         basic_block_t bb = *vi;
 
         llvm::DictScope ____(Writer, (fmt("0x%lX") % ICFG[bb].Addr).str());
@@ -119,7 +119,7 @@ void DumpTool::dumpDecompilation(const jv_t& jv) {
           Writer.printBoolean("Speculative", ICFG[bb].Speculative);
 
         {
-          auto inv_adj_it_pair = boost::inv_adjacent_vertices(bb, ICFG);
+          auto inv_adj_it_pair = ICFG.inv_adjacent_vertices(bb);
 
           std::vector<taddr_t> preds;
           preds.resize(
@@ -275,7 +275,7 @@ void DumpTool::dumpDecompilation(const jv_t& jv) {
           Writer.printBoolean("DynTargetsComplete", true);
 
         {
-          auto adj_it_pair = boost::adjacent_vertices(bb, ICFG);
+          auto adj_it_pair = ICFG.adjacent_vertices(bb);
 
           std::vector<taddr_t> succs;
           succs.resize(std::distance(adj_it_pair.first, adj_it_pair.second));
@@ -522,9 +522,8 @@ int DumpTool::Run(void) {
     } else if (opts.Statistics) {
       for (const binary_t &binary : jv.Binaries) {
         llvm::outs() << llvm::formatv("Binary: {0}\n", binary.Name.c_str());
-        llvm::outs() << llvm::formatv(
-            "  # of basic blocks: {0}\n",
-            boost::num_vertices(binary.Analysis.ICFG));
+        llvm::outs() << llvm::formatv("  # of basic blocks: {0}\n",
+                                      binary.Analysis.ICFG.num_vertices());
         llvm::outs() << llvm::formatv("  # of functions: {0}\n",
                                       binary.Analysis.Functions.size());
       }

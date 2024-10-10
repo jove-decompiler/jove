@@ -42,14 +42,13 @@ int UnlockTool::Run(void) {
                     jv.Binaries._deque.begin(),
                     jv.Binaries._deque.end(), [&](binary_t &b) {
                       b.bbmap_mtx.unlock();
-                      b.Analysis.ICFG_mtx.unlock();
+                      b.Analysis.ICFG._mtx.unlock();
                       b.Analysis.Functions._mtx.unlock();
 
-                      auto &ICFG = b.Analysis.ICFG;
-                      auto it_pair = boost::vertices(ICFG);
+                      auto it_pair = boost::vertices(b.Analysis.ICFG._adjacency_list);
                       std::for_each(std::execution::par_unseq, it_pair.first,
                                     it_pair.second, [&](basic_block_t bb) {
-                                      ICFG[bb].Parents._mtx.unlock();
+                                      b.Analysis.ICFG._adjacency_list[bb].Parents._mtx.unlock();
                                     });
                     });
     } catch (...) {

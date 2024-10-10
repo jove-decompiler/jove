@@ -1176,11 +1176,11 @@ static flow_vertex_t copy_function_cfg(jv_t &jv,
   //
   std::map<basic_block_t, flow_vertex_t> Orig2CopyMap;
   {
-    vertex_copier vc(ICFG, G);
+    vertex_copier vc(ICFG._adjacency_list, G);
     edge_copier ec;
 
     boost::copy_component(
-        ICFG, bbvec.front(), G,
+        ICFG._adjacency_list, bbvec.front(), G,
         boost::orig_to_copy(
             boost::associative_property_map<
                 std::map<basic_block_t, flow_vertex_t>>(Orig2CopyMap))
@@ -1209,16 +1209,16 @@ static flow_vertex_t copy_function_cfg(jv_t &jv,
 
     switch (ICFG[bb].Term.Type) {
     case TERMINATOR::INDIRECT_CALL: {
-      const bool Returns = boost::out_degree(bb, ICFG) != 0;
+      const bool Returns = ICFG.out_degree(bb) != 0;
 
       boost::clear_out_edges(V, G); /* if there were any, they're gone now */
 
       flow_vertex_t succV = boost::graph_traits<flow_graph_t>::null_vertex();
       unsigned savedSuccInDeg;
       if (Returns) {
-        assert(boost::out_degree(bb, ICFG) == 1);
+        assert(ICFG.out_degree(bb) == 1);
 
-        succV = Orig2CopyMap.at(*boost::adjacent_vertices(bb, ICFG).first);
+        succV = Orig2CopyMap.at(ICFG.adjacent_front(bb));
         savedSuccInDeg = boost::in_degree(succV, G);
       }
 
@@ -1276,21 +1276,21 @@ static flow_vertex_t copy_function_cfg(jv_t &jv,
     case TERMINATOR::CALL: {
       function_index_t CalleeIdx = ICFG[bb].Term._call.Target;
       if (!is_function_index_valid(CalleeIdx)) {
-        assert(boost::out_degree(bb, ICFG) == 0);
+        assert(ICFG.out_degree(bb) == 0);
         continue;
       }
       function_t &callee = b.Analysis.Functions.at(CalleeIdx);
 
-      const bool Returns = boost::out_degree(bb, ICFG) != 0;
+      const bool Returns = ICFG.out_degree(bb) != 0;
 
       boost::clear_out_edges(V, G); /* if there were any, they're gone now */
 
       flow_vertex_t succV = boost::graph_traits<flow_graph_t>::null_vertex();
       unsigned savedSuccInDeg;
       if (Returns) {
-        assert(boost::out_degree(bb, ICFG) == 1);
+        assert(ICFG.out_degree(bb) == 1);
 
-        succV = Orig2CopyMap.at(*boost::adjacent_vertices(bb, ICFG).first);
+        succV = Orig2CopyMap.at(ICFG.adjacent_front(bb));
         savedSuccInDeg = boost::in_degree(succV, G);
       }
 
@@ -6966,7 +6966,7 @@ int LLVMTool::TranslateFunction(function_t &f) {
 
   binary_t &Binary = jv.Binaries.at(BinaryIndex);
   const function_index_t FIdx = index_of_function_in_binary(f, Binary);
-  interprocedural_control_flow_graph_t &ICFG = Binary.Analysis.ICFG;
+  auto &ICFG = Binary.Analysis.ICFG;
   llvm::Function *F = state.for_function(f).F;
 
   if (unlikely(state.for_function(f).bbvec.empty()))
@@ -8655,12 +8655,8 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
   }
 
   if (T.Type == TERMINATOR::NONE) {
-    auto eit_pair = boost::out_edges(bb, ICFG);
-    assert(eit_pair.first != eit_pair.second &&
-           std::next(eit_pair.first) == eit_pair.second);
-    control_flow_t cf = *eit_pair.first;
-    basic_block_t succ = boost::target(cf, ICFG);
-    IRB.CreateBr(state.for_basic_block(Binary, succ).B);
+    assert(ICFG.out_degree(bb) == 1);
+    IRB.CreateBr(state.for_basic_block(Binary, ICFG.adjacent_front(bb)).B);
     return 0;
   }
 
@@ -8691,7 +8687,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
   } _indirect_jump;
 
   if (T.Type == TERMINATOR::INDIRECT_JUMP)
-    _indirect_jump.IsTailCall = boost::out_degree(bb, ICFG) == 0;
+    _indirect_jump.IsTailCall = ICFG.out_degree(bb) == 0;
 
   auto push_onto_callstack = [&](void) -> void {
     if (!opts.CallStack)
@@ -9131,11 +9127,11 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
       llvm::Value *SectsGlobalOff = IRB.CreateSub(
           PC, llvm::ConstantExpr::getPtrToInt(SectionsTop(), WordType()));
 
-      auto it_pair = boost::adjacent_vertices(bb, ICFG);
+      auto it_pair = ICFG.adjacent_vertices(bb);
 
       {
         llvm::SwitchInst *SI = IRB.CreateSwitch(SectsGlobalOff, ElseBlock,
-                                                boost::out_degree(bb, ICFG));
+                                                ICFG.out_degree(bb));
 
         for (auto it = it_pair.first; it != it_pair.second; ++it) {
           basic_block_t succ = *it;
@@ -10012,18 +10008,21 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
 
   switch (T.Type) {
   case TERMINATOR::CONDITIONAL_JUMP: {
-    auto eit_pair = boost::out_edges(bb, ICFG);
+    auto eit_pair = ICFG.out_edges(bb);
 
-    assert(boost::out_degree(bb, ICFG) == 2 ||
-           boost::out_degree(bb, ICFG) == 1);
+    assert(ICFG.out_degree(bb) == 2 ||
+           ICFG.out_degree(bb) == 1);
 
-    bool is1 = boost::out_degree(bb, ICFG) == 1;
+    bool is1 = ICFG.out_degree(bb) == 1;
 
-    control_flow_t cf1 = *eit_pair.first;
-    control_flow_t cf2 = is1 ? cf1 : *std::next(eit_pair.first);
-
-    basic_block_t succ1 = boost::target(cf1, ICFG);
-    basic_block_t succ2 = boost::target(cf2, ICFG);
+    basic_block_t succ1, succ2;
+    if (is1) {
+      succ1 = succ2 = ICFG.adjacent_front(bb);
+    } else {
+      auto succ = ICFG.adjacent_n<2>(bb);
+      succ1 = succ[0];
+      succ2 = succ[1];
+    }
 
     llvm::Value *PC = IRB.CreateLoad(WordType(), TC.PCAlloca);
     llvm::Value *EQV = IRB.CreateICmpEQ(
@@ -10036,8 +10035,7 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
 
   case TERMINATOR::CALL:
   case TERMINATOR::INDIRECT_CALL: {
-    auto eit_pair = boost::out_edges(bb, ICFG);
-    if (eit_pair.first == eit_pair.second) { /* otherwise fallthrough */
+    if (ICFG.out_degree(bb) == 0) { /* otherwise fallthrough */
       IRB.CreateCall(JoveRecoverReturnedFunc, IRB.getInt32(index_of_basic_block(ICFG, bb)))->setIsNoInline();
       IRB.CreateCall(llvm::Intrinsic::getDeclaration(Module.get(), llvm::Intrinsic::trap));
       IRB.CreateUnreachable();
@@ -10046,12 +10044,8 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
   }
 
   case TERMINATOR::UNCONDITIONAL_JUMP: {
-    auto eit_pair = boost::out_edges(bb, ICFG);
-    assert(eit_pair.first != eit_pair.second &&
-           std::next(eit_pair.first) == eit_pair.second);
-    control_flow_t cf = *eit_pair.first;
-    basic_block_t succ = boost::target(cf, ICFG);
-    IRB.CreateBr(state.for_basic_block(Binary, succ).B);
+    assert(ICFG.out_degree(bb) == 1);
+    IRB.CreateBr(state.for_basic_block(Binary, ICFG.adjacent_front(bb)).B);
     break;
   }
 

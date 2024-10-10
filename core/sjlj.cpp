@@ -477,10 +477,10 @@ void ScanForSjLj(binary_t &b, llvm::object::Binary &Bin, explorer_t &E) {
 
     assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP);
 
-    if (boost::out_degree(bb, ICFG) != 0) {
+    if (ICFG.out_degree(bb) != 0) {
       WithColor::note()
           << llvm::formatv("jump aint local! @ {0:x}\n", ICFG[bb].Addr);
-      boost::clear_out_edges(bb, ICFG);
+      ICFG.clear_out_edges(bb);
     }
 
     ICFG[bb].Term._indirect_jump.IsLj = true;

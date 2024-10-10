@@ -610,8 +610,7 @@ int RecompileTool::Run(void) {
                            "BinaryBlockAddrTables" / std::to_string(BIdx))
                               .c_str());
 
-        for (basic_block_index_t BBIdx = 0; BBIdx < boost::num_vertices(ICFG);
-             ++BBIdx) {
+        for (basic_block_index_t BBIdx = 0; BBIdx < ICFG.num_vertices(); ++BBIdx) {
           basic_block_t bb = basic_block_of_index(BBIdx, ICFG);
           uint64_t Addr = ICFG[bb].Term.Addr; /* XXX */
           ofs.write(reinterpret_cast<char *>(&Addr), sizeof(Addr));

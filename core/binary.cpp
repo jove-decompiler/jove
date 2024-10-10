@@ -15,28 +15,31 @@ bool binary_t::FixAmbiguousIndirectJump(taddr_t TermAddr, explorer_t &E,
   auto &ICFG = this->Analysis.ICFG;
   {
     ip_sharable_lock<ip_upgradable_mutex> s_lck_bbmap(this->bbmap_mtx);
-    ip_upgradable_lock<ip_upgradable_mutex> u_lck_ICFG(this->Analysis.ICFG_mtx);
+    ip_upgradable_lock<ip_upgradable_mutex> u_lck_ICFG(this->Analysis.ICFG._mtx);
 
-    basic_block_t bb = basic_block_at_address(TermAddr, *this);
+    basic_block_t bb = basic_block_at_address<false>(TermAddr, *this);
 
-    if (!IsAmbiguousIndirectJump(ICFG, bb))
+    if (!IsAmbiguousIndirectJump<false>(ICFG, bb))
       return false;
 
-    SuccAddrVec.reserve(boost::out_degree(bb, ICFG));
-
     icfg_t::adjacency_iterator succ_it, succ_it_end;
-    for (std::tie(succ_it, succ_it_end) = boost::adjacent_vertices(bb, ICFG);
-         succ_it != succ_it_end; ++succ_it)
-      SuccAddrVec.push_back(ICFG[*succ_it].Addr);
+    std::tie(succ_it, succ_it_end) = ICFG.adjacent_vertices(bb);
+
+    SuccAddrVec.resize(ICFG.out_degree<false>(bb));
+    std::transform(
+        succ_it,
+        succ_it_end, SuccAddrVec.begin(),
+        [&](basic_block_t bb) -> taddr_t { return ICFG.at<false>(bb).Addr; });
 
     ip_scoped_lock<ip_upgradable_mutex> e_lck_ICFG(boost::move(u_lck_ICFG));
 
-    boost::clear_out_edges(bb, ICFG); /* ambiguous no more */
+    ICFG.clear_out_edges<false>(bb); /* ambiguous no more */
   }
 
   std::vector<function_index_t> SuccFIdxVec;
   SuccFIdxVec.resize(SuccAddrVec.size());
-  std::transform(SuccAddrVec.begin(),
+  std::transform(std::execution::par_unseq,
+                 SuccAddrVec.begin(),
                  SuccAddrVec.end(), SuccFIdxVec.begin(),
                  [&](taddr_t Addr) -> function_index_t {
                    function_index_t res = E.explore_function(*this, Bin, Addr);
@@ -47,12 +50,7 @@ bool binary_t::FixAmbiguousIndirectJump(taddr_t TermAddr, explorer_t &E,
   {
     ip_sharable_lock<ip_upgradable_mutex> s_lck_bbmap(this->bbmap_mtx);
 
-    basic_block_properties_t &bbprop = *({
-      ip_sharable_lock<ip_upgradable_mutex> s_lck_bbmap(this->Analysis.ICFG_mtx);
-
-      &ICFG[basic_block_at_address(TermAddr, *this)];
-    });
-
+    auto &bbprop = ICFG[basic_block_at_address(TermAddr, *this)];
     for (function_index_t FIdx : SuccFIdxVec)
       bbprop.insertDynTarget(index_of_binary(*this, jv),
                              {index_of_binary(*this, jv), FIdx}, jv);

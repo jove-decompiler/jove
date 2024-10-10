@@ -225,7 +225,7 @@ int AnalyzeTool::AnalyzeFunctions(void) {
 
   for_each_basic_block(
       std::execution::unseq, jv, [&](binary_t &b, basic_block_t bb) {
-        const icfg_t &ICFG = b.Analysis.ICFG;
+        auto &ICFG = b.Analysis.ICFG;
         taddr_t TermAddr = ICFG[bb].Term.Addr;
 
         if (ICFG[bb].Term.Type == TERMINATOR::CALL) {

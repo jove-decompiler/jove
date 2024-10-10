@@ -425,13 +425,12 @@ int CFGTool::Run(void) {
   boost::unordered_set<basic_block_t> blocks;
 
   reached_visitor vis(blocks);
-  boost::breadth_first_search(ICFG, basic_block_of_index(source, b),
-                              boost::visitor(vis));
+  ICFG.breadth_first_search(basic_block_of_index(source, b), vis);
 
   boost::keep_all e_filter;
   boost::is_in_subset<boost::unordered_set<basic_block_t>> v_filter(blocks);
 
-  cfg_t cfg(ICFG, e_filter, v_filter);
+  cfg_t cfg(ICFG._adjacency_list, e_filter, v_filter);
 
   if (opts.LocalGotoAddress.empty()) {
     output_cfg(cfg);
@@ -464,7 +463,7 @@ int CFGTool::Run(void) {
     boost::keep_all e_filter;
     boost::is_in_subset<boost::unordered_set<basic_block_t>> v_filter(indjmp_blocks);
 
-    cfg_t _cfg(ICFG, e_filter, v_filter);
+    cfg_t _cfg(ICFG._adjacency_list, e_filter, v_filter);
 
     output_cfg(_cfg);
   }

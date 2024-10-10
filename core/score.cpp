@@ -30,7 +30,7 @@ double compute_score(const jv_t &jv,
 
   for (const Elf_Phdr &Phdr : *ProgramHeadersOrError)
     if (Phdr.p_type == llvm::ELF::PT_LOAD)
-      LoadSegments.push_back(const_cast<Elf_Phdr *>(&Phdr));
+      LoadSegments.push_back(&Phdr);
 
       return
       std::accumulate(LoadSegments.begin(),
@@ -63,20 +63,26 @@ double compute_score(const jv_t &jv,
   if (N == 0)
     return 1.0;
 
+  binary_t &b = const_cast<binary_t &>(binary);
+  auto &ICFG = b.Analysis.ICFG;
+
   //
   // add up all the basic block lengths (M)
   //
-  const icfg_t &ICFG = binary.Analysis.ICFG;
-  icfg_t::vertex_iterator vi_begin, vi_end;
-  std::tie(vi_begin, vi_end) = boost::vertices(ICFG);
+  size_t M = ({
+    ip_sharable_lock<ip_upgradable_mutex> s_lck_bbmap(b.bbmap_mtx);
+    ip_sharable_lock<ip_upgradable_mutex> s_lck_ICFG(ICFG._mtx);
 
-  size_t M =
-      std::accumulate(binary.bbmap.begin(),
-                      binary.bbmap.end(), 0,
-                      [&](size_t res, const auto &pair) -> size_t {
-                        const addr_intvl &intvl = pair.first;
-                        return res + intvl.second;
-                      });
+    icfg_t::vertex_iterator vi_begin, vi_end;
+    std::tie(vi_begin, vi_end) = ICFG.vertices();
+
+    std::accumulate(b.bbmap.cbegin(),
+		    b.bbmap.cend(), 0,
+                    [&](size_t res, const auto &pair) -> size_t {
+                      const addr_intvl &intvl = pair.first;
+                      return res + intvl.second;
+                    });
+  });
 
   //
   // compute the ratio (M / N)

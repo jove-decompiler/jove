@@ -1061,8 +1061,6 @@ int IntelPT<Verbosity>::on_ip(const taddr_t IP, const uint64_t offset) {
     {
       ip_sharable_lock<ip_upgradable_mutex> s_lck_bbmap(
           jv.Binaries.at(Curr.Block.first).bbmap_mtx);
-      ip_sharable_lock<ip_upgradable_mutex> s_lck_ICFG(
-          jv.Binaries.at(Curr.Block.first).Analysis.ICFG_mtx);
 
       if (DoNotGoFurther)
           std::tie(Curr.Block.second, WentNoFurther) =
@@ -1099,7 +1097,7 @@ int IntelPT<Verbosity>::on_ip(const taddr_t IP, const uint64_t offset) {
   }
 
   try {
-    Curr.Block.first = (*it).second.first;
+    Curr.Block.first = BIdx;
     Curr.Block.second = explorer.explore_basic_block(b, *x.Bin, Addr);
     Curr.TermAddr = address_of_block_terminator(Curr.Block, jv);
 
@@ -1116,7 +1114,8 @@ int IntelPT<Verbosity>::on_ip(const taddr_t IP, const uint64_t offset) {
     return 1;
   }
 
-  if (is_block_valid(PrevBlock) && is_block_valid(Curr.Block) && ~PrevTermAddr != 0)
+  if (is_block_valid(PrevBlock) && is_block_valid(Curr.Block) &&
+      PrevTermAddr != 0 && ~PrevTermAddr != 0)
     block_transfer(PrevBlock.first, PrevTermAddr,
                    Curr.Block.first, address_of_block(Curr.Block, jv));
 
@@ -1127,13 +1126,14 @@ int IntelPT<Verbosity>::on_ip(const taddr_t IP, const uint64_t offset) {
 }
 
 template <unsigned Verbosity>
-void IntelPT<Verbosity>::block_transfer(binary_index_t FrBIdx, taddr_t FrTermAddr,
-                             binary_index_t ToBIdx, taddr_t ToAddr) {
+void IntelPT<Verbosity>::block_transfer(binary_index_t FrBIdx,
+                                        taddr_t FrTermAddr,
+                                        binary_index_t ToBIdx, taddr_t ToAddr) {
   binary_t &fr_b = jv.Binaries.at(FrBIdx);
   binary_t &to_b = jv.Binaries.at(ToBIdx);
 
-  icfg_t &fr_ICFG = fr_b.Analysis.ICFG;
-  icfg_t &to_ICFG = to_b.Analysis.ICFG;
+  auto &fr_ICFG = fr_b.Analysis.ICFG;
+  auto &to_ICFG = to_b.Analysis.ICFG;
 
   if (IsVeryVerbose())
     fprintf(stderr, "%s+%" PRIx64 " ==> "
@@ -1146,7 +1146,6 @@ void IntelPT<Verbosity>::block_transfer(binary_index_t FrBIdx, taddr_t FrTermAdd
 
   ({
     ip_sharable_lock<ip_upgradable_mutex> fr_s_lck_bbmap(fr_b.bbmap_mtx);
-    ip_sharable_lock<ip_upgradable_mutex> fr_s_lck_ICFG(fr_b.Analysis.ICFG_mtx);
 
     const auto &Term = fr_ICFG[basic_block_at_address(FrTermAddr, fr_b)].Term;
 
@@ -1154,12 +1153,7 @@ void IntelPT<Verbosity>::block_transfer(binary_index_t FrBIdx, taddr_t FrTermAdd
     Term_indirect_jump_IsLj = Term._indirect_jump.IsLj;
   });
 
-  basic_block_t to_bb = ({
-    ip_sharable_lock<ip_upgradable_mutex> to_s_lck_bbmap(to_b.bbmap_mtx);
-    ip_sharable_lock<ip_upgradable_mutex> to_s_lck_ICFG(to_b.Analysis.ICFG_mtx);
-
-    basic_block_starting_at_address(ToAddr, to_b);
-  }); /* makes no difference if split */
+  basic_block_t to_bb = basic_block_starting_at_address(ToAddr, to_b);
 
   auto handle_indirect_call = [&](void) -> void {
     function_index_t FIdx =
@@ -1172,11 +1166,7 @@ void IntelPT<Verbosity>::block_transfer(binary_index_t FrBIdx, taddr_t FrTermAdd
 
     basic_block_t fr_bb = basic_block_at_address(FrTermAddr, fr_b);
 
-    basic_block_properties_t &fr_bbprop = *({
-      ip_sharable_lock<ip_upgradable_mutex> fr_s_lck(fr_b.Analysis.ICFG_mtx);
-
-      &fr_ICFG[fr_bb];
-    });
+    basic_block_properties_t &fr_bbprop = fr_ICFG[fr_bb];
 
     fr_bbprop.insertDynTarget(FrBIdx, std::make_pair(ToBIdx, FIdx), jv);
   };
@@ -1188,7 +1178,6 @@ void IntelPT<Verbosity>::block_transfer(binary_index_t FrBIdx, taddr_t FrTermAdd
 
     const bool TailCall = ({
       ip_sharable_lock<ip_upgradable_mutex> fr_s_lck_bbmap(fr_b.bbmap_mtx);
-      ip_sharable_lock<ip_upgradable_mutex> fr_s_lck_ICFG(fr_b.Analysis.ICFG_mtx);
 
       IsDefinitelyTailCall(fr_ICFG, basic_block_at_address(FrTermAddr, fr_b));
     });
@@ -1202,9 +1191,8 @@ void IntelPT<Verbosity>::block_transfer(binary_index_t FrBIdx, taddr_t FrTermAdd
       assert(FrBIdx == ToBIdx);
 
       ip_sharable_lock<ip_upgradable_mutex> fr_s_lck_bbmap(fr_b.bbmap_mtx);
-      ip_scoped_lock<ip_upgradable_mutex> fr_e_lck_ICFG(fr_b.Analysis.ICFG_mtx);
 
-      boost::add_edge(basic_block_at_address(FrTermAddr, fr_b), to_bb, fr_ICFG);
+      fr_ICFG.add_edge(basic_block_at_address(FrTermAddr, fr_b), to_bb);
     }
 
     break;
@@ -1218,7 +1206,6 @@ void IntelPT<Verbosity>::block_transfer(binary_index_t FrBIdx, taddr_t FrTermAdd
   case TERMINATOR::RETURN: {
     {
       ip_sharable_lock<ip_upgradable_mutex> fr_s_lck_bbmap(fr_b.bbmap_mtx);
-      ip_sharable_lock<ip_upgradable_mutex> fr_s_lck_ICFG(fr_b.Analysis.ICFG_mtx);
 
       fr_ICFG[basic_block_at_address(FrTermAddr, fr_b)].Term._return.Returns = true;
     }
@@ -1233,16 +1220,16 @@ void IntelPT<Verbosity>::block_transfer(binary_index_t FrBIdx, taddr_t FrTermAdd
     if (!exists_basic_block_at_address(before_pc, to_b))
       break;
 
-    ip_upgradable_lock<ip_upgradable_mutex> to_u_lck_ICFG(to_b.Analysis.ICFG_mtx);
+    ip_upgradable_lock<ip_upgradable_mutex> to_u_lck_ICFG(to_b.Analysis.ICFG._mtx);
 
-    basic_block_t before_bb = basic_block_at_address(before_pc, to_b);
-    basic_block_properties_t &before_bbprop = to_ICFG[before_bb];
+    basic_block_t before_bb = basic_block_at_address<false>(before_pc, to_b);
+    basic_block_properties_t &before_bbprop = to_ICFG.at<false>(before_bb);
     auto &before_Term = before_bbprop.Term;
 
     bool isCall = before_Term.Type == TERMINATOR::CALL;
     bool isIndirectCall = before_Term.Type == TERMINATOR::INDIRECT_CALL;
     if (isCall || isIndirectCall) {
-      assert(boost::out_degree(before_bb, to_ICFG) <= 1);
+      assert(to_ICFG.out_degree<false>(before_bb) <= 1);
 
       if (isCall) {
         if (likely(is_function_index_valid(before_Term._call.Target)))
@@ -1251,7 +1238,7 @@ void IntelPT<Verbosity>::block_transfer(binary_index_t FrBIdx, taddr_t FrTermAdd
 
       ip_scoped_lock<ip_upgradable_mutex> to_e_lck_ICFG(boost::move(to_u_lck_ICFG));
 
-      boost::add_edge(before_bb, to_bb, to_ICFG); /* connect */
+      to_ICFG.add_edge<false>(before_bb, to_bb); /* connect */
     }
     break;
   }
@@ -1266,7 +1253,7 @@ template<bool DoNotGoFurther>
 std::pair<basic_block_index_t, bool>
 IntelPT<Verbosity>::DoStraightLineAdvance(block_t From, taddr_t GoNoFurther) {
   const binary_t &b = jv.Binaries.at(From.first);
-  const icfg_t &ICFG = b.Analysis.ICFG;
+  const auto &ICFG = b.Analysis.ICFG;
 
   basic_block_index_t Res = From.second;
   for (;; on_block(block_t(From.first, Res))) {
@@ -1306,16 +1293,14 @@ IntelPT<Verbosity>::DoStraightLineAdvance(block_t From, taddr_t GoNoFurther) {
       break;
     case TERMINATOR::UNCONDITIONAL_JUMP:
     case TERMINATOR::NONE: {
-      icfg_t::adjacency_iterator succ_it, succ_it_end;
-      std::tie(succ_it, succ_it_end) = boost::adjacent_vertices(bb, ICFG);
-      if (unlikely(succ_it == succ_it_end)) {
+      if (unlikely(ICFG.out_degree(bb) == 0)) {
         if (IsVerbose())
           fprintf(stderr, "cant proceed past NONE @ %s+%" PRIx64 "\n",
                   b.Name.c_str(), static_cast<uint64_t>(Addr));
         break;
       }
 
-      Res = index_of_basic_block(ICFG, *succ_it);
+      Res = index_of_basic_block(ICFG, ICFG.adjacent_front(bb));
       continue;
     }
     case TERMINATOR::CALL: {
@@ -1341,20 +1326,13 @@ IntelPT<Verbosity>::DoStraightLineAdvance(block_t From, taddr_t GoNoFurther) {
       // need to move past it.
       //
       if (unlikely(bbprop.IsSingleInstruction())) {
-        if (likely(boost::out_degree(bb, ICFG) == 2)) {
-          icfg_t::adjacency_iterator succ_it, succ_it_end;
-          std::tie(succ_it, succ_it_end) = boost::adjacent_vertices(bb, ICFG);
-
-          basic_block_t succ1 = *succ_it++;
-          basic_block_t succ2 = *succ_it++;
-
-          assert(succ_it == succ_it_end);
-
-          if (succ1 == bb) {
-            Res = succ2;
+        if (likely(ICFG.out_degree(bb) == 2)) {
+          auto succ = ICFG.adjacent_n<2>(bb);
+          if (succ[0] == bb) {
+            Res = index_of_basic_block(ICFG, succ[1]);
             continue;
-          } else if (succ2 == bb) {
-            Res = succ1;
+          } else if (succ[1] == bb) {
+            Res = index_of_basic_block(ICFG, succ[0]);
             continue;
           }
         }
@@ -1386,7 +1364,7 @@ void IntelPT<Verbosity>::on_block(block_t block) {
     const binary_t &b = jv.Binaries.at(block.first);
     binary_state_t &x = state.for_binary(b);
 
-    const icfg_t &ICFG = b.Analysis.ICFG;
+    const auto &ICFG = b.Analysis.ICFG;
 
     auto Addr = ICFG[basic_block_of_index(block.second, b)].Addr;
 
@@ -1402,7 +1380,7 @@ basic_block_index_t IntelPT<Verbosity>::TNTAdvance(block_t From, uint64_t tnt, u
     fprintf(stderr, "<TNT>\n");
 
   const binary_t &b = jv.Binaries.at(From.first);
-  const icfg_t &ICFG = b.Analysis.ICFG;
+  const auto &ICFG = b.Analysis.ICFG;
 
   basic_block_index_t Res = From.second;
   do {
@@ -1412,7 +1390,7 @@ basic_block_index_t IntelPT<Verbosity>::TNTAdvance(block_t From, uint64_t tnt, u
     const basic_block_properties_t &bbprop = ICFG[bb];
 
     if (unlikely(bbprop.Term.Type != TERMINATOR::CONDITIONAL_JUMP) ||
-        unlikely(boost::out_degree(bb, ICFG) == 0)) {
+        unlikely(ICFG.out_degree(bb) == 0)) {
       if (IsVerbose())
         fprintf(stderr, "not/invalid conditional branch @ %s+%" PRIx64 " (%s)\n",
                 b.Name.c_str(), static_cast<uint64_t>(bbprop.Addr),
@@ -1420,29 +1398,22 @@ basic_block_index_t IntelPT<Verbosity>::TNTAdvance(block_t From, uint64_t tnt, u
       throw tnt_error();
     }
 
-    icfg_t::adjacency_iterator succ_it, succ_it_end;
-    std::tie(succ_it, succ_it_end) = boost::adjacent_vertices(bb, ICFG);
-    assert(succ_it != succ_it_end);
-
-    if (unlikely(boost::out_degree(bb, ICFG) == 1)) {
-      Res = index_of_basic_block(ICFG, *succ_it);
+    if (unlikely(ICFG.out_degree(bb) == 1)) {
+      Res = index_of_basic_block(ICFG, ICFG.adjacent_front(bb));
       continue;
     }
 
-    assert(boost::out_degree(bb, ICFG) == 2);
+    assert(ICFG.out_degree(bb) == 2);
 
-    basic_block_t succ1 = *succ_it++;
-    basic_block_t succ2 = *succ_it++;
-
-    assert(succ_it == succ_it_end);
+    auto succ = ICFG.adjacent_n<2>(bb);
 
     const bool NotTaken = !(tnt & (1ull << (n - 1)));
 
-    const bool NotTaken1 = ICFG[succ1].Addr == bbprop.Addr + bbprop.Size;
+    const bool NotTaken1 = ICFG[succ[0]].Addr == bbprop.Addr + bbprop.Size;
     if (NotTaken)
-      Res = index_of_basic_block(ICFG, NotTaken1 ? succ1 : succ2);
+      Res = index_of_basic_block(ICFG, NotTaken1 ? succ[0] : succ[1]);
     else
-      Res = index_of_basic_block(ICFG, NotTaken1 ? succ2 : succ1);
+      Res = index_of_basic_block(ICFG, NotTaken1 ? succ[1] : succ[0]);
 
 #if 0
     const char *extra = n > 1 ? " " : "";

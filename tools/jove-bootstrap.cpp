@@ -1339,8 +1339,7 @@ int BootstrapTool::TracerLoop(pid_t child) {
           ip_sharable_lock<ip_upgradable_mutex> s_lck(b.bbmap_mtx);
 
           icfg_t::vertex_iterator vi, vi_end;
-          for (std::tie(vi, vi_end) = boost::vertices(ICFG); vi != vi_end;
-               ++vi) {
+          for (std::tie(vi, vi_end) = ICFG.vertices(); vi != vi_end; ++vi) {
             basic_block_t bb = *vi;
 
             if (ICFG[bb].Term.Type != TERMINATOR::INDIRECT_JUMP)
@@ -2699,7 +2698,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
     ip_sharable_lock<ip_upgradable_mutex> s_lck(binary.bbmap_mtx);
 
     basic_block_t bb = basic_block_at_address(IndBrInfo.TermAddr, binary);
-    out_deg = boost::out_degree(bb, ICFG);
+    out_deg = ICFG.out_degree(bb);
 
     const basic_block_properties_t &bbprop = ICFG[bb];
 
@@ -2980,7 +2979,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
   // update the jv based on the target
   //
   binary_t &TargetBinary = jv.Binaries.at(Target.BIdx);
-  icfg_t &TargetICFG = TargetBinary.Analysis.ICFG;
+  auto &TargetICFG = TargetBinary.Analysis.ICFG;
 
   struct {
     bool IsGoto = false;
@@ -3036,7 +3035,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
   ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
       Target.isNew = bbprop.insertDynTarget(IndBrInfo.BIdx, {Target.BIdx, FIdx}, jv);
 
-    out_deg = boost::out_degree(bb, ICFG);
+    out_deg = ICFG.out_degree(bb);
   }
 
 
@@ -3061,7 +3060,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
         assert(bbprop.Term.Type == TERMINATOR::INDIRECT_CALL);
 
   ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
-        boost::add_edge(bb, basic_block_of_index(NextBBIdx, ICFG), ICFG);
+        ICFG.add_edge(bb, basic_block_of_index(NextBBIdx, ICFG));
   }
       }
 #endif
@@ -3137,7 +3136,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
   ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
 
-          Target.isNew = boost::add_edge(bb, TargetBB, ICFG).second;
+          Target.isNew = ICFG.add_edge(bb, TargetBB).second;
 
           if (Target.isNew)
             bbprop.InvalidateAnalysis();
@@ -3773,7 +3772,7 @@ void BootstrapTool::on_binary_loaded(pid_t child,
   // place breakpoints for indirect branches
   //
   for (basic_block_index_t bbidx = 0;
-       bbidx < boost::num_vertices(binary.Analysis.ICFG); ++bbidx) {
+       bbidx < binary.Analysis.ICFG.num_vertices(); ++bbidx) {
     basic_block_t bb = basic_block_of_index(bbidx, binary.Analysis.ICFG);
 
     basic_block_properties_t &bbprop = binary.Analysis.ICFG[bb];
@@ -3856,7 +3855,7 @@ void BootstrapTool::on_binary_loaded(pid_t child,
   // place breakpoints for returns
   //
   for (basic_block_index_t bbidx = 0;
-       bbidx < boost::num_vertices(binary.Analysis.ICFG); ++bbidx) {
+       bbidx < binary.Analysis.ICFG.num_vertices(); ++bbidx) {
     basic_block_t bb = basic_block_of_index(bbidx, binary.Analysis.ICFG);
 
     basic_block_properties_t &bbprop = binary.Analysis.ICFG[bb];
@@ -4612,7 +4611,7 @@ void BootstrapTool::on_return(pid_t child,
       return;
     }
 
-    assert(boost::out_degree(before_bb, ICFG) <= 1);
+    assert(ICFG.out_degree(before_bb) <= 1);
 
     if (isCall && is_function_index_valid(before_Term._call.Target))
       b.Analysis.Functions.at(before_Term._call.Target).Returns = true;
@@ -4621,7 +4620,7 @@ void BootstrapTool::on_return(pid_t child,
 
     ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
 
-    boost::add_edge(before_bb, bb, ICFG); /* connect */
+    ICFG.add_edge(before_bb, bb); /* connect */
   }
 }
 

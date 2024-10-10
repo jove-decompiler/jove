@@ -739,7 +739,7 @@ void IPTTool::ProcessLine(const std::string &line) {
       bool isCall = before_Term.Type == TERMINATOR::CALL;
       bool isIndirectCall = before_Term.Type == TERMINATOR::INDIRECT_CALL;
       if (isCall || isIndirectCall) {
-        assert(boost::out_degree(before_bb, dst_ICFG) <= 1);
+        assert(dst_ICFG.out_degree(before_bb) <= 1);
 
         if (isCall) {
           if (likely(is_function_index_valid(before_Term._call.Target)))
@@ -748,7 +748,7 @@ void IPTTool::ProcessLine(const std::string &line) {
 
         ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
 
-        boost::add_edge(before_bb, dst, dst_ICFG); /* connect */
+        dst_ICFG.add_edge(before_bb, dst); /* connect */
       }
 
       break;
@@ -775,7 +775,7 @@ void IPTTool::ProcessLine(const std::string &line) {
 
         ip_scoped_lock<ip_upgradable_mutex> e_lck(src_bin.bbmap_mtx);
 
-        boost::add_edge(basic_block_at_address(src_va, src_bin), dst, src_ICFG);
+        src_ICFG.add_edge(basic_block_at_address(src_va, src_bin), dst);
       }
       break;
     }

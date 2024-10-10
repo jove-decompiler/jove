@@ -23,7 +23,7 @@ class CodeRecovery {
       Bin = B::Create(b.data());
 
       auto &ICFG = b.Analysis.ICFG;
-      block_term_addr_vec.resize(boost::num_vertices(ICFG));
+      block_term_addr_vec.resize(ICFG.num_vertices());
 
       //
       // FIXME we need to record the addresses of terminator instructions at each

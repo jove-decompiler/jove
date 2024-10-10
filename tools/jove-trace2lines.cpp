@@ -178,12 +178,8 @@ int Trace2LinesTool::Run(void) {
 
       const auto &ICFG = binary.Analysis.ICFG;
 
-      boost::property_map<interprocedural_control_flow_graph_t,
-                          boost::vertex_index_t>::type bb_idx_map =
-          boost::get(boost::vertex_index, ICFG);
-
       for (basic_block_t bb : state.for_function(function).BasicBlocks) {
-        basic_block_index_t BBIdx = bb_idx_map[bb];
+        basic_block_index_t BBIdx = index_of_basic_block(ICFG, bb);
 
         Excludes[BIdx].insert(BBIdx);
       }
