@@ -1,6 +1,7 @@
 #include "tool.h"
 #include "crypto.h"
 #include "locator.h"
+#include "sizes.h"
 
 #include <stdexcept>
 #include <fstream>
@@ -554,6 +555,43 @@ void Tool::cleanup_temp_dir(void) {
       fs::is_directory(_temp_dir)) {
     fs::remove_all(_temp_dir);
   }
+}
+
+struct invalid_size_exception {};
+
+std::optional<size_t> BaseJVTool::jvSize(void) {
+  if (char *var = getenv("JVSIZE")) {
+    try {
+      if (!var[0])
+        throw invalid_size_exception();
+
+      char *endptr = nullptr;
+
+      errno = 0;
+      size_t size = strtoull(var, &endptr, 0);
+      if (!size || errno)
+        throw invalid_size_exception();
+      if (!endptr || endptr[0] == '\0')
+        return size;
+
+      size_t res;
+      if ((strcmp(endptr, "G") == 0 && !__builtin_mul_overflow(size, GiB, &res)) ||
+          (strcmp(endptr, "M") == 0 && !__builtin_mul_overflow(size, MiB, &res)))
+        return res;
+
+      throw invalid_size_exception();
+    } catch (const invalid_size_exception &) {
+      WithColor::error() << "invalid JVSIZE provided: falling back on default\n";
+    }
+  }
+
+  return std::nullopt;
+}
+
+size_t BaseJVTool::jvCreationSize(void) {
+  if (auto userProvidedSize = jvSize())
+    return *userProvidedSize;
+  return jvDefaultInitialSize();
 }
 
 }

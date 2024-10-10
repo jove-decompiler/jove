@@ -1,6 +1,7 @@
 #include "jove/jove.h"
 #include "util.h"
 #include "hash.h"
+#include "sizes.h"
 
 #include <boost/filesystem.hpp>
 
@@ -9,10 +10,6 @@ namespace fs = boost::filesystem;
 namespace jove {
 
 size_t jvDefaultInitialSize(void) {
-
-#define GiB (16ul * 1024ul * 65536ul)
-#define MiB (10485766ul)
-
   switch (sizeof(void *)) {
   case 8:
     return 9*GiB;

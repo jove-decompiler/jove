@@ -382,6 +382,7 @@ typedef boost::unordered_node_set<
     ip_func_index_sets;
 
 struct jv_t;
+size_t jvDefaultInitialSize(void);
 
 struct basic_block_properties_t {
   bool Speculative = false;

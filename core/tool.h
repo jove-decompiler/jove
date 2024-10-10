@@ -12,6 +12,7 @@
 #include <mutex>
 #include <string>
 #include <vector>
+#include <optional>
 
 #include <boost/interprocess/managed_mapped_file.hpp>
 #include <llvm/Support/CommandLine.h>
@@ -157,7 +158,7 @@ private:
 
 typedef Tool *(*ToolCreationProc)(void);
 
-size_t jvDefaultInitialSize(void);
+size_t jvCreationSize(void);
 
 struct BaseJVTool : public Tool {
   jv_file_t jv_file;
@@ -176,6 +177,9 @@ struct BaseJVTool : public Tool {
 
     exclude_from_coredumps(jv_file.get_address(), jv_file.get_size());
   }
+
+  static std::optional<size_t> jvSize(void); /* parses $JVSIZE */
+  static size_t jvCreationSize(void);
 };
 
 enum class ToolKind { Standard, CopyOnWrite };
@@ -188,7 +192,7 @@ template <>
 struct JVTool<ToolKind::Standard> : public BaseJVTool {
   JVTool()
       : BaseJVTool(boost::interprocess::open_or_create, path_to_jv().c_str(),
-                   jvDefaultInitialSize()) {}
+                   jvCreationSize()) {}
 };
 
 template <>
