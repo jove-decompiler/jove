@@ -220,19 +220,19 @@ template <typename Mutex>
 using ip_upgradable_lock = boost::interprocess::upgradable_lock<Mutex>;
 
 template <typename T>
-struct ip_protected_deque {
+struct ip_safe_deque {
   using alloc_t = boost::interprocess::allocator<T, segment_manager_t>;
   using deque_t = boost::interprocess::deque<T, alloc_t>;
 
   deque_t _deque;
   mutable ip_sharable_mutex _mtx;
 
-  ip_protected_deque() = delete;
-  ip_protected_deque(const ip_void_allocator_t &A) : _deque(A) {}
-  ip_protected_deque(ip_protected_deque<T> &&other)
+  ip_safe_deque() = delete;
+  ip_safe_deque(const ip_void_allocator_t &A) : _deque(A) {}
+  ip_safe_deque(ip_safe_deque<T> &&other)
       : _deque(std::move(other._deque)) {}
 
-  ip_protected_deque<T> &operator=(const ip_protected_deque<T> &other) {
+  ip_safe_deque<T> &operator=(const ip_safe_deque<T> &other) {
     if (this == &other) {
       return *this;
     }
@@ -642,7 +642,7 @@ struct binary_t {
     //
     // references to function_t will never be invalidated.
     //
-    ip_protected_deque<function_t> Functions;
+    ip_safe_deque<function_t> Functions;
 
     //
     // references to basic_block_properties_t will never be invalidated
@@ -858,7 +858,7 @@ allocates_basic_block_t::allocates_basic_block_t(binary_t &b,
 
 allocates_function_t::allocates_function_t(binary_t &b,
                                            function_index_t &store) {
-  ip_protected_deque<function_t> &Functions = b.Analysis.Functions;
+  ip_safe_deque<function_t> &Functions = b.Analysis.Functions;
 
   {
     ip_scoped_lock<ip_sharable_mutex> e_lck(Functions._mtx);
@@ -908,7 +908,7 @@ struct jv_t {
   //
   // references to binary_t will never be invalidated.
   //
-  ip_protected_deque<binary_t> Binaries;
+  ip_safe_deque<binary_t> Binaries;
 
   ip_func_index_sets FIdxSets;
   ip_sharable_mutex FIdxSetsMtx;
