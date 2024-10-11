@@ -28,6 +28,7 @@ function_index_t explorer_t::_explore_function(binary_t &b,
   assert((Addr & 1) == 0);
 #endif
   assert(Addr);
+  assert(~Addr != 0);
 
   function_index_t Idx = invalid_function_index;
   {
@@ -89,7 +90,7 @@ function_index_t explorer_t::_explore_function(binary_t &b,
   {
     ip_sharable_lock<ip_upgradable_mutex> s_lck_ICFG(b.Analysis.ICFG._mtx);
 
-    rec(basic_block_of_index<false>(EntryIdx, ICFG));
+    rec(basic_block_of_index(EntryIdx, ICFG));
   }
 #endif
 
@@ -206,7 +207,7 @@ on_insn:
   //
   // create bb_2
   //
-  basic_block_t bb_2 = basic_block_of_index<false>(Idx, ICFG);
+  basic_block_t bb_2 = basic_block_of_index(Idx, ICFG);
   const basic_block_index_t NewBBIdx = Idx;
   basic_block_properties_t &bbprop_2 = ICFG.at<false>(bb_2);
 
@@ -463,7 +464,7 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
   }
 
   {
-    auto &bbprop = ICFG.at_index(Idx);
+    auto &bbprop = ICFG[ICFG.vertex(Idx)];
 
     bbprop.Speculative = Speculative;
     bbprop.Addr = Addr;

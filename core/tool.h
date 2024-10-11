@@ -170,7 +170,8 @@ struct BaseJVTool : public Tool {
   BaseJVTool(Args &&...args)
       : jv_file(std::forward<Args>(args)...),
         Alloc(jv_file.get_segment_manager()),
-        jv(*jv_file.find_or_construct<jv_t>("JV")(Alloc)) {
+        jv(*jv_file.find_or_construct<jv_t>("JV")(Alloc))
+  {
     /* FIXME */
     for (binary_t &b : jv.Binaries)
       __builtin_memset(&b.Analysis.ICFG._adjacency_list.m_property, 0,

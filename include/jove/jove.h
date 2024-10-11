@@ -67,6 +67,7 @@
 #include <utility>
 #include <variant>
 #include <vector>
+#include <bit>
 
 namespace llvm {
 namespace object {
@@ -286,15 +287,19 @@ struct ip_safe_adjacency_list {
   using out_edge_iterator = Ty::out_edge_iterator;
   using in_edge_iterator = Ty::in_edge_iterator;
   using inv_adjacency_iterator = Ty::inv_adjacency_iterator;
+  using vertex_property_type = Ty::vertex_property_type;
 
   Ty _adjacency_list;
   mutable ip_mutex_t _mtx;
+
+  std::atomic<vertices_size_type> _size = 0;
 
   template <typename... Args>
   ip_safe_adjacency_list(Args &&...args)
       : _adjacency_list(std::forward<Args>(args)...) {}
   ip_safe_adjacency_list(ip_safe_adjacency_list<Ty> &&other)
-      : _adjacency_list(std::move(other._adjacency_list)) {}
+      : _adjacency_list(std::move(other._adjacency_list)),
+        _size(other._size.load()) {}
 
   ip_safe_adjacency_list<Ty> &
   operator=(const ip_safe_adjacency_list<Ty> &other) {
@@ -302,6 +307,7 @@ struct ip_safe_adjacency_list {
       return *this;
 
     _adjacency_list = other._adjacency_list;
+    _size.store(other._size.load());
     return *this;
   }
 
@@ -313,60 +319,83 @@ struct ip_safe_adjacency_list {
   typename std::conditional<ShouldLock, ip_scoped_lock<ip_mutex_t>,            \
                             __do_nothing_t>::type __e_lck##__COUNTER__(_mtx)
 
+  template <bool L = true, typename... Args>
+  vertices_size_type index_of_add_vertex(Args &&...args) {
+    const vertices_size_type Idx =
+        _size.fetch_add(1u, std::memory_order_relaxed);
+
+    if (unlikely(Idx >= actual_num_vertices<L>())) {
+      E_LCK(L);
+
+      vertices_size_type actual_size = actual_num_vertices<false>();
+      if (Idx >= actual_size) {
+        vertices_size_type desired = std::bit_ceil(Idx + 1);
+        assert(desired > actual_size);
+        for (unsigned i = 0; i < desired - actual_size; ++i)
+          boost::add_vertex(_adjacency_list, std::forward<Args>(args)...);
+      }
+    }
+
+    return Idx;
+  }
+
+  template <bool L = true, typename... Args>
+  vertex_descriptor add_vertex(Args &&...args) {
+    return vertex(index_of_add_vertex<L>(std::forward<Args>(args)...));
+  }
+
   template <bool L = true>
-  vertices_size_type num_vertices(void) const {
+  vertices_size_type actual_num_vertices(void) const {
     S_LCK(L);
     return boost::num_vertices(_adjacency_list);
   }
 
-  template <bool L = true>
-  bool empty(void) const { return num_vertices<L>() == 0; }
+  vertices_size_type num_vertices(void) const {
+    return _size.load(std::memory_order_relaxed);
+  }
+
+  bool empty(void) const { return num_vertices() == 0; }
 
   template <bool L = true>
-  auto &at(vertex_descriptor V) {
+  vertex_property_type &at(vertex_descriptor V) {
     S_LCK(L);
+
+    if (unlikely(index(V) >= num_vertices()))
+      throw std::out_of_range(__PRETTY_FUNCTION__);
+
     return _adjacency_list[V];
   }
 
   template <bool L = true>
-  const auto &at(vertex_descriptor V) const {
+  const vertex_property_type &at(vertex_descriptor V) const {
     S_LCK(L);
+
+    if (unlikely(index(V) >= num_vertices()))
+      throw std::out_of_range(__PRETTY_FUNCTION__);
+
     return _adjacency_list[V];
   }
 
-  template <bool L = true>
-  auto &at_index(vertices_size_type Idx) {
-    S_LCK(L);
-    return _adjacency_list[this->vertex<false>(Idx)];
-  }
-
-  template <bool L = true>
-  const auto &at_index(vertices_size_type Idx) const {
-    S_LCK(L);
-    return _adjacency_list[this->vertex<false>(Idx)];
-  }
-
-  auto &operator[](vertex_descriptor V) {
+  vertex_property_type &operator[](vertex_descriptor V) {
     S_LCK(true);
     return _adjacency_list[V];
   }
 
-  const auto &operator[](vertex_descriptor V) const {
+  const vertex_property_type &operator[](vertex_descriptor V) const {
     S_LCK(true);
     return _adjacency_list[V];
   }
 
-  template <bool L = true>
   vertex_descriptor vertex(vertices_size_type Idx) const {
-    S_LCK(L);
-    assert(Idx < boost::num_vertices(_adjacency_list)); /* catch bugs */
+    assert(Idx < num_vertices()); /* catch bugs */
+
+    // for VertexList=vecS this is just identity map
     return boost::vertex(Idx, _adjacency_list);
   }
 
   vertices_size_type index(vertex_descriptor V) const {
-    typename boost::property_map<Ty, boost::vertex_index_t>::type Vert2Index =
-        boost::get(boost::vertex_index, _adjacency_list);
-    return Vert2Index[V]; /* for VertexList=vecS this is just identity map */
+    // for VertexList=vecS this is just identity map
+    return boost::get(boost::vertex_index, _adjacency_list)[V];
   }
 
   template <class DFSVisitor, bool L = true>
@@ -438,8 +467,11 @@ struct ip_safe_adjacency_list {
 
   /* ********** unsafe methods ********** */
 
+  template <bool L = true>
   std::pair<vertex_iterator, vertex_iterator> vertices(void) const {
-    return boost::vertices(_adjacency_list);
+    auto res = boost::vertices(_adjacency_list);
+    std::advance(res.second, -(actual_num_vertices() - num_vertices()));
+    return res;
   }
   std::pair<adjacency_iterator, adjacency_iterator>
   adjacent_vertices(vertex_descriptor V) const {
@@ -578,8 +610,8 @@ size_t jvDefaultInitialSize(void);
 struct basic_block_properties_t {
   bool Speculative = false;
 
-  taddr_t Addr;
-  uint32_t Size;
+  taddr_t Addr = ~0UL;
+  uint32_t Size = ~0UL;
 
   struct {
     taddr_t Addr;
@@ -1020,22 +1052,15 @@ struct objdump_exception {
 allocates_basic_block_t::allocates_basic_block_t(binary_t &b,
                                                  basic_block_index_t &store,
                                                  taddr_t Addr) {
-  basic_block_index_t Idx = invalid_basic_block_index;
-
 #if 0
   if (unlikely(b.Analysis.objdump.is_addr_bad(Addr)))
     throw objdump_exception(Addr);
 #endif
 
   auto &ICFG = b.Analysis.ICFG;
-  auto &adjacency_list = ICFG._adjacency_list;
-  {
-    ip_scoped_lock<ip_upgradable_mutex> e_lck(ICFG._mtx);
 
-    Idx = boost::num_vertices(adjacency_list);
-    basic_block_t bb = boost::add_vertex(adjacency_list, b.get_allocator());
-    adjacency_list[bb].Addr = Addr;
-  }
+  basic_block_index_t Idx = ICFG.index_of_add_vertex(b.get_allocator());
+  ICFG[ICFG.vertex(Idx)].Addr = Addr;
 
   store = Idx;
   BBIdx = Idx;
@@ -1312,18 +1337,17 @@ description_of_terminator_info(const terminator_info_t &T,
   return res;
 }
 
-template <bool L = true>
 constexpr basic_block_t basic_block_of_index(basic_block_index_t BBIdx,
                                              const ip_icfg_t &ICFG) {
   assert(is_basic_block_index_valid(BBIdx));
-  return ICFG.vertex<L>(BBIdx);
+  return ICFG.vertex(BBIdx);
 }
 
 template <bool L = true>
 constexpr basic_block_t basic_block_of_index(basic_block_index_t BBIdx,
                                              const binary_t &b) {
   const auto &ICFG = b.Analysis.ICFG;
-  return basic_block_of_index<L>(BBIdx, ICFG);
+  return basic_block_of_index(BBIdx, ICFG);
 }
 
 template <typename _ExecutionPolicy, typename Iter, typename Pred, typename Proc>
@@ -1934,13 +1958,13 @@ index_of_basic_block_starting_at_address(taddr_t Addr, const binary_t &b) {
 template <bool L = true>
 static inline basic_block_t
 basic_block_starting_at_address(taddr_t Addr, const binary_t &b) {
-  return basic_block_of_index<L>(index_of_basic_block_starting_at_address(Addr, b), b);
+  return basic_block_of_index(index_of_basic_block_starting_at_address(Addr, b), b);
 }
 
 template <bool L = true>
 static inline basic_block_t basic_block_at_address(taddr_t Addr,
                                                    const binary_t &b) {
-  return basic_block_of_index<L>(index_of_basic_block_at_address(Addr, b), b);
+  return basic_block_of_index(index_of_basic_block_at_address(Addr, b), b);
 }
 
 static inline bool exists_basic_block_at_address(taddr_t Addr,
