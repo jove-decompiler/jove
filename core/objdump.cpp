@@ -54,15 +54,6 @@ int run_objdump_and_parse_addresses(const char *filename,
 
   pipe_line_reader pipe;
 
-  auto do_get_line = [&](void /* tbb::flow_control &fc */) -> std::string {
-    auto o = pipe.get_line(rfd->get());
-    if (!o) {
-      //fc.stop();
-      return std::string();
-    }
-    return *o;
-  };
-
   auto do_parse_line = [&](std::string &line) -> void {
     auto it = line.begin();
 
