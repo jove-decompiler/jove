@@ -99,7 +99,6 @@ class IntelPT {
     unsigned ExecBits = 8*sizeof(taddr_t);
 
     block_t Block = invalid_block;
-    taddr_t TermAddr = ~0UL;
   } Curr;
 
   struct {

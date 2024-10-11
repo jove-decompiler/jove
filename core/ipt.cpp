@@ -800,7 +800,6 @@ int IntelPT<Verbosity>::process_packet(uint64_t offset, struct pt_packet *packet
             fprintf(stderr, "<suppressed>\n");
 
           Curr.Block = invalid_block;
-          Curr.TermAddr = ~0UL;
         }
       } else {
         throw std::runtime_error(
@@ -955,7 +954,6 @@ int IntelPT<Verbosity>::tnt_payload(const struct pt_packet_tnt *packet) {
 
     Curr.Block.second = TNTAdvance(Curr.Block, packet->payload, packet->bit_size);
     assert(is_basic_block_index_valid(Curr.Block.second));
-    Curr.TermAddr = address_of_block_terminator(Curr.Block, jv);
   } catch (const tnt_error &) {
     const binary_t &b = jv.Binaries.at(SavedStart.first);
 
@@ -964,7 +962,6 @@ int IntelPT<Verbosity>::tnt_payload(const struct pt_packet_tnt *packet) {
               static_cast<uint64_t>(address_of_block_in_binary(SavedStart.second, b)));
 
     Curr.Block = invalid_block;
-    Curr.TermAddr = ~0UL;
     return 1;
   }
 
@@ -991,7 +988,6 @@ int IntelPT<Verbosity>::on_ip(const taddr_t IP, const uint64_t offset) {
       fprintf(stderr, "%" PRIx64 "\tunknown IP %016" PRIx64 "\n", offset, (uint64_t)IP);
 
     Curr.Block = invalid_block;
-    Curr.TermAddr = ~0UL;
     return 1;
   }
 
@@ -1001,14 +997,11 @@ int IntelPT<Verbosity>::on_ip(const taddr_t IP, const uint64_t offset) {
       fprintf(stderr, "ambiguous IP %016" PRIx64 "\n", (uint64_t)IP);
 
     Curr.Block = invalid_block;
-    Curr.TermAddr = ~0UL;
     return 1;
   }
 
   binary_t &b = jv.Binaries.at(BIdx);
   binary_state_t &x = state.for_binary(b);
-
-  auto &ICFG = b.Analysis.ICFG;
 
   struct {
     taddr_t Base;
@@ -1070,9 +1063,6 @@ int IntelPT<Verbosity>::on_ip(const taddr_t IP, const uint64_t offset) {
       else
           std::tie(Curr.Block.second, WentNoFurther) =
               StraightLineAdvance(Curr.Block);
-
-      Curr.TermAddr = address_of_block_terminator(Curr.Block, jv);
-      //assert(Curr.TermAddr);
     }
 
     if (WentNoFurther) {
@@ -1081,9 +1071,6 @@ int IntelPT<Verbosity>::on_ip(const taddr_t IP, const uint64_t offset) {
       return 0;
     }
   }
-
-  const block_t PrevBlock = Curr.Block;
-  const taddr_t PrevTermAddr = Curr.TermAddr;
 
   if (unlikely(!b.bbbmap.contains(Addr) && b.Analysis.objdump.is_addr_bad(Addr))) {
     fprintf(stderr,
@@ -1094,23 +1081,13 @@ int IntelPT<Verbosity>::on_ip(const taddr_t IP, const uint64_t offset) {
       fprintf(stderr, "</IP>\n");
 
     Curr.Block = invalid_block;
-    Curr.TermAddr = ~0UL;
     return 1;
   }
 
+  const block_t PrevBlock = Curr.Block;
   try {
     Curr.Block.first = BIdx;
     Curr.Block.second = explorer.explore_basic_block(b, *x.Bin, Addr);
-
-    Curr.TermAddr = ({ /* XXX can we make this better? */
-      ip_sharable_lock<ip_upgradable_mutex> s_lck_bbmap(
-          jv.Binaries.at(Curr.Block.first).bbmap_mtx);
-
-      basic_block_t bb = ICFG.vertex(Curr.Block.second);
-      for (; !ICFG[bb].Term.Addr; bb = ICFG.adjacent_front(bb))
-        assert(ICFG[bb].Term.Type == TERMINATOR::NONE);
-      ICFG[bb].Term.Addr;
-    });
 
     on_block(Curr.Block);
   } catch (const invalid_control_flow_exception &) {
@@ -1121,14 +1098,24 @@ int IntelPT<Verbosity>::on_ip(const taddr_t IP, const uint64_t offset) {
       fprintf(stderr, "</IP>\n");
 
     Curr.Block = invalid_block;
-    Curr.TermAddr = ~0UL;
     return 1;
   }
 
-  if (is_block_valid(PrevBlock) && is_block_valid(Curr.Block) &&
-      PrevTermAddr != 0 && ~PrevTermAddr != 0)
+  if (is_block_valid(PrevBlock) &&
+      is_block_valid(Curr.Block)) {
+    auto &prev_b = jv.Binaries.at(PrevBlock.first);
+    auto &PrevICFG = prev_b.Analysis.ICFG;
+    const taddr_t PrevTermAddr = ({
+      ip_sharable_lock<ip_upgradable_mutex> s_lck_bbmap(prev_b.bbmap_mtx);
+
+      basic_block_t bb = PrevICFG.vertex(PrevBlock.second);
+      for (; !PrevICFG[bb].Term.Addr; bb = PrevICFG.adjacent_front(bb))
+        assert(PrevICFG[bb].Term.Type == TERMINATOR::NONE);
+      PrevICFG[bb].Term.Addr;
+    });
     block_transfer(PrevBlock.first, PrevTermAddr,
                    Curr.Block.first, address_of_block(Curr.Block, jv));
+  }
 
   if (IsVeryVerbose())
     fprintf(stderr, "</IP>\n");
