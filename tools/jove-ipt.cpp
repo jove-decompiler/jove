@@ -13,6 +13,7 @@
 #include "wine.h"
 #include "perf.h"
 #include "glibc.h"
+#include "pipe.h"
 
 #include "syscall_nrs.hpp"
 
@@ -798,7 +799,7 @@ int IPTTool::UsingLibipt(void) {
     oneapi::tbb::parallel_invoke(
         [&](void) -> void {
           if (IsVerbose())
-            llvm::errs() << "gathering sideband files...\n";
+            llvm::errs() << "writing sideband files...\n";
 
           int pipefd[2];
           if (::pipe(pipefd) < 0) { /* first, create a pipe */
@@ -831,72 +832,72 @@ int IPTTool::UsingLibipt(void) {
 
           static const std::string glbl_filename_suffix = "-sideband.pevent";
 
+          pipe_line_reader pipe;
+
           using namespace std::placeholders;
 
-          tbb::parallel_pipeline(
-              1024,
-              tbb::make_filter<void, std::string>(
-                  tbb::filter_mode::serial_in_order,
-                  std::bind(&IPTTool::GetLine, this, rfd->get(), _1)) &
-                  tbb::make_filter<std::string, void>(
-                      tbb::filter_mode::serial_in_order,
-                      [&](const std::string &line) -> void {
-                        char in_filename[4097];
-                        char out_filename[4097];
-                        uint64_t skip, count;
+          std::string in_filename;
+          std::string out_filename;
 
-                        sscanf(
-                            line.c_str(),
-                            "dd if=%4096s of=%4096s conv=notrunc oflag=append "
-                            "ibs=1 skip=%" PRIu64 " count=%" PRIu64
-                            " status=none",
-                            &in_filename[0], &out_filename[0], &skip, &count);
+          auto process_line = [&](const std::string &line) -> void {
+            in_filename.resize(4097);
+            out_filename.resize(4097);
 
-                        assert(strcmp(in_filename, "perf.data") == 0);
+            uint64_t skip, count;
 
-                        bool glbl = boost::algorithm::ends_with(
-                            out_filename, glbl_filename_suffix);
-                        int fd = -1;
-                        if (glbl) {
-                          std::unique_ptr<scoped_fd> &ofd = glbl_sb_ofd;
-                          if (!ofd)
-                            ofd = std::make_unique<scoped_fd>(
-                                ::open("perf.data-sideband.pevent",
-                                       O_WRONLY | O_CREAT | O_LARGEFILE, 0666));
-                          fd = ofd->get();
-                        } else {
-                          unsigned cpu;
-                          sscanf(out_filename,
-                                 "perf.data-sideband-cpu%u.pevent", &cpu);
-                          if (cpu >= sb_ofdv.size())
-                            sb_ofdv.resize(cpu + 1);
-                          std::unique_ptr<scoped_fd> &ofd = sb_ofdv.at(cpu);
-                          if (!ofd)
-                            ofd = std::make_unique<scoped_fd>(
-                                ::open(out_filename,
-                                       O_WRONLY | O_CREAT | O_LARGEFILE, 0666));
-                          fd = ofd->get();
-                        }
+            sscanf(line.c_str(),
+                   "dd if=%4096s of=%4096s conv=notrunc oflag=append "
+                   "ibs=1 skip=%" PRIu64 " count=%" PRIu64 " status=none",
+                   &in_filename[0], &out_filename[0], &skip, &count);
 
-                        off_t the_off = skip;
-                        if (robust_copy_file_range(perf_data.contents.fd->get(),
-                                                   &the_off, fd, nullptr,
-                                                   count) < 0)
-                          WithColor::error() << llvm::formatv(
-                              "copy_file_range failed: {0}\n", strerror(errno));
-                      }));
+            in_filename.resize(strlen(in_filename.c_str()));
+            out_filename.resize(strlen(out_filename.c_str()));
 
-          if (int ret = WaitForProcessToExit(pid)) {
+            assert(in_filename == "perf.data");
+
+            int fd = -1;
+            if (boost::algorithm::ends_with(out_filename, glbl_filename_suffix)) {
+              std::unique_ptr<scoped_fd> &ofd = glbl_sb_ofd;
+              if (!ofd)
+                ofd = std::make_unique<scoped_fd>(
+                    ::open("perf.data-sideband.pevent",
+                           O_WRONLY | O_CREAT | O_LARGEFILE, 0666));
+              fd = ofd->get();
+            } else {
+              unsigned cpu;
+              sscanf(out_filename.c_str(), "perf.data-sideband-cpu%u.pevent", &cpu);
+              if (cpu >= sb_ofdv.size())
+                sb_ofdv.resize(cpu + 1);
+              std::unique_ptr<scoped_fd> &ofd = sb_ofdv.at(cpu);
+              if (!ofd)
+                ofd = std::make_unique<scoped_fd>(
+                    ::open(out_filename.c_str(),
+                           O_WRONLY | O_CREAT | O_LARGEFILE, 0666));
+              fd = ofd->get();
+            }
+
+            off_t the_off = skip;
+            if (robust_copy_file_range(perf_data.contents.fd->get(),
+                                       &the_off, fd, nullptr,
+                                       count) < 0)
+              WithColor::error() << llvm::formatv(
+                  "copy_file_range failed: {0}\n", strerror(errno));
+          };
+
+          while (auto o = pipe.get_line(rfd->get()))
+            process_line(*o);
+
+          if (WaitForProcessToExit(pid)) {
             WithColor::error()
                 << "failed to run libipt/script/perf-read-sideband.bash\n";
             Failed = true;
-          } else {
-
-            if (IsVerbose())
-              llvm::errs() << "gathered sideband files.\n";
           }
+
+          llvm::errs() << "wrote sideband files.\n";
         },
         [&](void) -> void {
+          llvm::errs() << "writing aux files...\n";
+
           std::vector<std::unique_ptr<scoped_fd>> aux_ofdv;
           perf_data.for_each_auxtrace(
               [&](const struct perf::auxtrace_event &aux) {
@@ -921,6 +922,8 @@ int IPTTool::UsingLibipt(void) {
                   WithColor::error() << llvm::formatv(
                       "copy_file_range failed: {0}\n", strerror(errno));
               });
+
+          llvm::errs() << "wrote aux files.\n";
         });
 
     if (Failed)
