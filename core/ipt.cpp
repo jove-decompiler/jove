@@ -1109,8 +1109,10 @@ int IntelPT<Verbosity>::on_ip(const taddr_t IP, const uint64_t offset) {
       ip_sharable_lock<ip_upgradable_mutex> s_lck_bbmap(prev_b.bbmap_mtx);
 
       basic_block_t bb = PrevICFG.vertex(PrevBlock.second);
-      for (; !PrevICFG[bb].Term.Addr; bb = PrevICFG.adjacent_front(bb))
+      for (; !PrevICFG[bb].Term.Addr; bb = PrevICFG.adjacent_front(bb)) {
         assert(PrevICFG[bb].Term.Type == TERMINATOR::NONE);
+        assert(PrevICFG.out_degree(bb) == 1);
+      }
       PrevICFG[bb].Term.Addr;
     });
     block_transfer(PrevBlock.first, PrevTermAddr,
