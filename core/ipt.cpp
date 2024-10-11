@@ -949,7 +949,7 @@ int IntelPT<Verbosity>::tnt_payload(const struct pt_packet_tnt *packet) {
   const block_t SavedStart = Curr.Block;
 
   try {
-    ip_sharable_lock<ip_upgradable_mutex> s_lck(
+    ip_sharable_lock<ip_sharable_mutex> s_lck(
         jv.Binaries.at(Curr.Block.first).bbmap_mtx);
 
     Curr.Block.second = TNTAdvance(Curr.Block, packet->payload, packet->bit_size);
@@ -1054,7 +1054,7 @@ int IntelPT<Verbosity>::on_ip(const taddr_t IP, const uint64_t offset) {
     bool WentNoFurther = false;
     bool DoNotGoFurther = Curr.Block.first == BIdx;
     {
-      ip_sharable_lock<ip_upgradable_mutex> s_lck_bbmap(
+      ip_sharable_lock<ip_sharable_mutex> s_lck_bbmap(
           jv.Binaries.at(Curr.Block.first).bbmap_mtx);
 
       if (DoNotGoFurther)
@@ -1106,7 +1106,7 @@ int IntelPT<Verbosity>::on_ip(const taddr_t IP, const uint64_t offset) {
     auto &prev_b = jv.Binaries.at(PrevBlock.first);
     auto &PrevICFG = prev_b.Analysis.ICFG;
     const taddr_t PrevTermAddr = ({
-      ip_sharable_lock<ip_upgradable_mutex> s_lck_bbmap(prev_b.bbmap_mtx);
+      ip_sharable_lock<ip_sharable_mutex> s_lck_bbmap(prev_b.bbmap_mtx);
 
       basic_block_t bb = PrevICFG.vertex(PrevBlock.second);
       for (; !PrevICFG[bb].Term.Addr; bb = PrevICFG.adjacent_front(bb)) {
@@ -1145,7 +1145,7 @@ void IntelPT<Verbosity>::block_transfer(binary_index_t FrBIdx,
   bool Term_indirect_jump_IsLj;
 
   ({
-    ip_sharable_lock<ip_upgradable_mutex> fr_s_lck_bbmap(fr_b.bbmap_mtx);
+    ip_sharable_lock<ip_sharable_mutex> fr_s_lck_bbmap(fr_b.bbmap_mtx);
 
     const auto &Term = fr_ICFG[basic_block_at_address(FrTermAddr, fr_b)].Term;
 
@@ -1162,7 +1162,7 @@ void IntelPT<Verbosity>::block_transfer(binary_index_t FrBIdx,
     if (!is_function_index_valid(FIdx))
       return;
 
-    ip_sharable_lock<ip_upgradable_mutex> fr_s_lck(fr_b.bbmap_mtx);
+    ip_sharable_lock<ip_sharable_mutex> fr_s_lck(fr_b.bbmap_mtx);
 
     basic_block_t fr_bb = basic_block_at_address(FrTermAddr, fr_b);
 
@@ -1177,7 +1177,7 @@ void IntelPT<Verbosity>::block_transfer(binary_index_t FrBIdx,
       break;
 
     const bool TailCall = ({
-      ip_sharable_lock<ip_upgradable_mutex> fr_s_lck_bbmap(fr_b.bbmap_mtx);
+      ip_sharable_lock<ip_sharable_mutex> fr_s_lck_bbmap(fr_b.bbmap_mtx);
 
       IsDefinitelyTailCall(fr_ICFG, basic_block_at_address(FrTermAddr, fr_b));
     });
@@ -1190,7 +1190,7 @@ void IntelPT<Verbosity>::block_transfer(binary_index_t FrBIdx,
     } else {
       assert(FrBIdx == ToBIdx);
 
-      ip_sharable_lock<ip_upgradable_mutex> fr_s_lck_bbmap(fr_b.bbmap_mtx);
+      ip_sharable_lock<ip_sharable_mutex> fr_s_lck_bbmap(fr_b.bbmap_mtx);
 
       fr_ICFG.add_edge(basic_block_at_address(FrTermAddr, fr_b), to_bb);
     }
@@ -1205,7 +1205,7 @@ void IntelPT<Verbosity>::block_transfer(binary_index_t FrBIdx,
 
   case TERMINATOR::RETURN: {
     {
-      ip_sharable_lock<ip_upgradable_mutex> fr_s_lck_bbmap(fr_b.bbmap_mtx);
+      ip_sharable_lock<ip_sharable_mutex> fr_s_lck_bbmap(fr_b.bbmap_mtx);
 
       fr_ICFG[basic_block_at_address(FrTermAddr, fr_b)].Term._return.Returns = true;
     }
@@ -1215,7 +1215,7 @@ void IntelPT<Verbosity>::block_transfer(binary_index_t FrBIdx,
     //
     const taddr_t before_pc = ToAddr - 1;
 
-    ip_sharable_lock<ip_upgradable_mutex> to_s_lck_bbmap(to_b.bbmap_mtx);
+    ip_sharable_lock<ip_sharable_mutex> to_s_lck_bbmap(to_b.bbmap_mtx);
 
     if (!exists_basic_block_at_address(before_pc, to_b))
       break;

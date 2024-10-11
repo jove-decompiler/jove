@@ -99,7 +99,7 @@ function_index_t explorer_t::_explore_function(binary_t &b,
 
 bool explorer_t::split(
     binary_t &b, obj::Binary &Bin,
-    std::unique_ptr<ip_upgradable_lock<ip_upgradable_mutex>> u_lck_bbmap,
+    std::unique_ptr<ip_scoped_lock<ip_sharable_mutex>> e_lck_bbmap,
     bbmap_t::iterator it, const uint64_t Addr, basic_block_index_t Idx) {
   auto &bbmap = b.bbmap;
   auto &ICFG = b.Analysis.ICFG;
@@ -190,8 +190,6 @@ on_insn:
   //
   std::vector<basic_block_t> to_bb_vec;
 
-  ip_scoped_lock<ip_upgradable_mutex> e_lck_bbmap(boost::move(*u_lck_bbmap));
-
   ip_upgradable_lock<ip_upgradable_mutex> u_lck_ICFG(b.Analysis.ICFG._mtx);
 
   to_bb_vec.reserve(ICFG.out_degree<false>(bb_1));
@@ -265,6 +263,7 @@ on_insn:
   bbmap_add(bbmap, intvl_1, BBIdx);
   bbmap_add(bbmap, intvl_2, NewBBIdx);
 
+#if 0
   ip_sharable_lock<ip_upgradable_mutex> s_lck_bbmap(boost::move(e_lck_bbmap));
 
   {
@@ -278,6 +277,7 @@ on_insn:
     assert(_it != bbmap.end());
     assert((*_it).second == NewBBIdx);
   }
+#endif
 
   if (unlikely(this->verbose))
     llvm::errs() << llvm::formatv("{0} | {1}\n",
@@ -315,9 +315,9 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
       return Idx;
   }
 
-  std::unique_ptr<ip_upgradable_lock<ip_upgradable_mutex>> u_lck_bbmap;
+  std::unique_ptr<ip_scoped_lock<ip_sharable_mutex>> e_lck_bbmap;
   if (likely(!Speculative)) {
-    u_lck_bbmap = std::make_unique<ip_upgradable_lock<ip_upgradable_mutex>>(b.bbmap_mtx);
+    e_lck_bbmap = std::make_unique<ip_scoped_lock<ip_sharable_mutex>>(b.bbmap_mtx);
 
     //
     // does this new basic block start in the middle of a previously-created
@@ -325,7 +325,7 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
     //
     auto it = bbmap_find(b.bbmap, Addr);
     if (it != b.bbmap.end()) {
-      if (likely(split(b, Bin, std::move(u_lck_bbmap), it, Addr, Idx))) {
+      if (likely(split(b, Bin, std::move(e_lck_bbmap), it, Addr, Idx))) {
         return Idx;
       } else {
         //
@@ -480,13 +480,8 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
 
     addr_intvl intervl(bbprop.Addr, bbprop.Size);
     if (likely(!Speculative)) {
-      ip_scoped_lock<ip_upgradable_mutex> e_lck_bbmap(
-          boost::move(*u_lck_bbmap));
-
-      //
-      // update bbmap
-      //
       bbmap_add(b.bbmap, intervl, Idx);
+      e_lck_bbmap.reset();
     }
 
     //
@@ -551,7 +546,7 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
     if (unlikely(Speculative)) {
       ICFG[basic_block_of_index(Idx, ICFG)].Term._call.Target = CalleeFIdx;
     } else {
-      ip_sharable_lock<ip_upgradable_mutex> s_lck_bbmap(b.bbmap_mtx);
+      ip_sharable_lock<ip_sharable_mutex> s_lck_bbmap(b.bbmap_mtx);
 
       ICFG[basic_block_at_address(T.Addr, b)].Term._call.Target = CalleeFIdx;
     }
@@ -613,7 +608,7 @@ void explorer_t::_control_flow_to(
   if (unlikely(Speculative)) {
     ICFG.add_edge(bb, basic_block_of_index(SuccBBIdx, b));
   } else {
-    ip_sharable_lock<ip_upgradable_mutex> s_lck_bbmap(b.bbmap_mtx);
+    ip_sharable_lock<ip_sharable_mutex> s_lck_bbmap(b.bbmap_mtx);
 
     ICFG.add_edge(basic_block_at_address(TermAddr, b),
                   basic_block_of_index(SuccBBIdx, b));

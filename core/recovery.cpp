@@ -47,7 +47,7 @@ std::string CodeRecovery::RecoverDynamicTarget(binary_index_t CallerBIdx,
   assert(TermAddr);
 
   bool Ambig = ({
-    ip_sharable_lock<ip_upgradable_mutex> s_lck(CallerBinary.bbmap_mtx);
+    ip_sharable_lock<ip_sharable_mutex> s_lck(CallerBinary.bbmap_mtx);
 
     basic_block_t bb = basic_block_at_address(TermAddr, CallerBinary);
 
@@ -106,15 +106,12 @@ std::string CodeRecovery::RecoverBasicBlock(binary_index_t IndBrBIdx,
   uint64_t TermAddr = AddressOfTerminatorAtBasicBlock(IndBrBIdx, IndBrBBIdx);
 
   bool isNewTarget = ({
-    ip_upgradable_lock<ip_upgradable_mutex> u_lck(b.bbmap_mtx);
+    ip_sharable_lock<ip_sharable_mutex> u_lck(b.bbmap_mtx);
 
     basic_block_t bb = basic_block_at_address(TermAddr, b);
     assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP);
 
-    ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
-
-    basic_block_t target_bb = basic_block_of_index(TargetBBIdx, ICFG);
-    ICFG.add_edge(bb, target_bb).second;
+    ICFG.add_edge(bb, basic_block_of_index(TargetBBIdx, ICFG)).second;
   });
 
   if (!isNewTarget)
@@ -149,7 +146,7 @@ std::string CodeRecovery::RecoverFunctionAtAddress(binary_index_t IndCallBIdx,
   auto &ICFG = CallerBinary.Analysis.ICFG;
 
   bool Ambig = ({
-    ip_sharable_lock<ip_upgradable_mutex> s_lck(CallerBinary.bbmap_mtx);
+    ip_sharable_lock<ip_sharable_mutex> s_lck(CallerBinary.bbmap_mtx);
 
     basic_block_t bb = basic_block_at_address(TermAddr, CallerBinary);
 
@@ -226,7 +223,7 @@ std::string CodeRecovery::Returns(binary_index_t CallBIdx,
   uint64_t TermAddr = AddressOfTerminatorAtBasicBlock(CallBIdx, CallBBIdx);
 
   uint64_t NextAddr = ({
-    ip_sharable_lock<ip_upgradable_mutex> s_lck(b.bbmap_mtx);
+    ip_sharable_lock<ip_sharable_mutex> s_lck(b.bbmap_mtx);
 
     basic_block_t bb = basic_block_at_address(TermAddr, b);
 
@@ -238,7 +235,7 @@ std::string CodeRecovery::Returns(binary_index_t CallBIdx,
   assert(is_basic_block_index_valid(NextBBIdx));
 
   bool isNewTarget = ({
-    ip_upgradable_lock<ip_upgradable_mutex> u_lck(b.bbmap_mtx);
+    ip_sharable_lock<ip_sharable_mutex> s_lck(b.bbmap_mtx);
 
     basic_block_t bb = basic_block_at_address(TermAddr, b);
 
@@ -250,8 +247,6 @@ std::string CodeRecovery::Returns(binary_index_t CallBIdx,
 
     if (isCall && is_function_index_valid(ICFG[bb].Term._call.Target))
       b.Analysis.Functions.at(ICFG[bb].Term._call.Target).Returns = true;
-
-    ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
 
     unsigned deg = ICFG.out_degree(bb);
     if (deg > 0)

@@ -1336,7 +1336,7 @@ int BootstrapTool::TracerLoop(pid_t child) {
         taddr_t TermAddr = 0;
 
         {
-          ip_sharable_lock<ip_upgradable_mutex> s_lck(b.bbmap_mtx);
+          ip_sharable_lock<ip_sharable_mutex> s_lck(b.bbmap_mtx);
 
           icfg_t::vertex_iterator vi, vi_end;
           for (std::tie(vi, vi_end) = ICFG.vertices(); vi != vi_end; ++vi) {
@@ -1415,7 +1415,7 @@ BootstrapTool::basic_blocks_for_function(binary_index_t BIdx,
 
   binary_t &b = jv.Binaries.at(BIdx);
 
-  ip_sharable_lock<ip_upgradable_mutex> s_lck(b.bbmap_mtx);
+  ip_sharable_lock<ip_sharable_mutex> s_lck(b.bbmap_mtx);
 
   basic_blocks_of_function(b.Analysis.Functions.at(FIdx), b, x.bbvec);
 
@@ -1442,7 +1442,7 @@ void BootstrapTool::place_breakpoints_in_new_blocks(void) {
 #endif
 
 void BootstrapTool::place_breakpoints_in_block(binary_t &b, basic_block_t bb) {
-  ip_sharable_lock<ip_upgradable_mutex> s_lck(b.bbmap_mtx);
+  ip_sharable_lock<ip_sharable_mutex> s_lck(b.bbmap_mtx);
 
   auto &ICFG = b.Analysis.ICFG;
 
@@ -2695,7 +2695,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
   unsigned out_deg;
   bool HasDynTarget = false;
   const TERMINATOR TermType = ({
-    ip_sharable_lock<ip_upgradable_mutex> s_lck(binary.bbmap_mtx);
+    ip_sharable_lock<ip_sharable_mutex> s_lck(binary.bbmap_mtx);
 
     basic_block_t bb = basic_block_at_address(IndBrInfo.TermAddr, binary);
     out_deg = ICFG.out_degree(bb);
@@ -3023,7 +3023,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
 
   {
-  ip_upgradable_lock<ip_upgradable_mutex> u_lck(binary.bbmap_mtx);
+  ip_sharable_lock<ip_sharable_mutex> s_lck(binary.bbmap_mtx);
 
 
       basic_block_t bb = basic_block_at_address(IndBrInfo.TermAddr, binary);
@@ -3032,7 +3032,6 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
       assert(bbprop.Term.Type == TERMINATOR::INDIRECT_CALL);
 
 
-  ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
       Target.isNew = bbprop.insertDynTarget(IndBrInfo.BIdx, {Target.BIdx, FIdx}, jv);
 
     out_deg = ICFG.out_degree(bb);
@@ -3053,13 +3052,12 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
         assert(is_basic_block_index_valid(NextBBIdx));
 
   {
-  ip_upgradable_lock<ip_upgradable_mutex> u_lck(binary.bbmap_mtx);
+  ip_sharable_lock<ip_sharable_mutex> s_lck(binary.bbmap_mtx);
         basic_block_t bb = basic_block_at_address(IndBrInfo.TermAddr, binary);
         const basic_block_properties_t &bbprop = ICFG[bb];
 
         assert(bbprop.Term.Type == TERMINATOR::INDIRECT_CALL);
 
-  ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
         ICFG.add_edge(bb, basic_block_of_index(NextBBIdx, ICFG));
   }
       }
@@ -3103,15 +3101,13 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
   Target.isNew = ({
 
-  ip_upgradable_lock<ip_upgradable_mutex> u_lck(binary.bbmap_mtx);
+  ip_sharable_lock<ip_sharable_mutex> s_lck(binary.bbmap_mtx);
 
           basic_block_t bb = basic_block_at_address(IndBrInfo.TermAddr, binary);
           basic_block_properties_t &bbprop = ICFG[bb];
 
           assert(bbprop.Term.Type == TERMINATOR::INDIRECT_JUMP);
 
-
-  ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
 
           bbprop.insertDynTarget(IndBrInfo.BIdx, {Target.BIdx, FIdx}, jv);
   });
@@ -3125,7 +3121,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
   {
 
-  ip_upgradable_lock<ip_upgradable_mutex> u_lck(binary.bbmap_mtx);
+  ip_sharable_lock<ip_sharable_mutex> s_lck(binary.bbmap_mtx);
 
 
           basic_block_t bb = basic_block_at_address(IndBrInfo.TermAddr, binary);
@@ -3133,8 +3129,6 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
           assert(bbprop.Term.Type == TERMINATOR::INDIRECT_JUMP);
 
-
-  ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
 
           Target.isNew = ICFG.add_edge(bb, TargetBB).second;
 
@@ -4523,7 +4517,7 @@ void BootstrapTool::on_return(pid_t child,
 
     binary_t &b = jv.Binaries.at(RetBIdx);
 
-    ip_sharable_lock<ip_upgradable_mutex> s_lck(b.bbmap_mtx);
+    ip_sharable_lock<ip_sharable_mutex> s_lck(b.bbmap_mtx);
 
     binary_index_t BIdx;
     basic_block_index_t BBIdx;
@@ -4568,7 +4562,7 @@ void BootstrapTool::on_return(pid_t child,
 
     binary_t &b = jv.Binaries.at(BIdx);
 
-    ip_upgradable_lock<ip_upgradable_mutex> u_lck(b.bbmap_mtx);
+    ip_sharable_lock<ip_sharable_mutex> s_lck(b.bbmap_mtx);
 
     //
     // what came before?
@@ -4616,11 +4610,7 @@ void BootstrapTool::on_return(pid_t child,
     if (isCall && is_function_index_valid(before_Term._call.Target))
       b.Analysis.Functions.at(before_Term._call.Target).Returns = true;
 
-    basic_block_t bb = basic_block_of_index(BBIdx, ICFG);
-
-    ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
-
-    ICFG.add_edge(before_bb, bb); /* connect */
+    ICFG.add_edge(before_bb, basic_block_of_index(BBIdx, ICFG)); /* connect */
   }
 }
 

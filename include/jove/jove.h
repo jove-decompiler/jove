@@ -857,7 +857,7 @@ struct binary_t {
 
   bool IsDynamicallyLoaded;
 
-  ip_upgradable_mutex bbmap_mtx;
+  ip_sharable_mutex bbmap_mtx;
 
   struct Analysis_t {
     function_index_t EntryFunction = invalid_function_index;

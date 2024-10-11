@@ -40,7 +40,7 @@ class explorer_t {
   on_newfn_proc_t on_newfn_proc;
 
   bool split(binary_t &, llvm::object::Binary &,
-             std::unique_ptr<ip_upgradable_lock<ip_upgradable_mutex>> u_lck_bbmap,
+             std::unique_ptr<ip_scoped_lock<ip_sharable_mutex>> e_lck_bbmap,
              bbmap_t::iterator it, const uint64_t Addr, basic_block_index_t);
 
   basic_block_index_t _explore_basic_block(binary_t &,

@@ -14,7 +14,7 @@ bool binary_t::FixAmbiguousIndirectJump(taddr_t TermAddr, explorer_t &E,
 
   auto &ICFG = this->Analysis.ICFG;
   {
-    ip_sharable_lock<ip_upgradable_mutex> s_lck_bbmap(this->bbmap_mtx);
+    ip_sharable_lock<ip_sharable_mutex> s_lck_bbmap(this->bbmap_mtx);
     ip_upgradable_lock<ip_upgradable_mutex> u_lck_ICFG(this->Analysis.ICFG._mtx);
 
     basic_block_t bb = basic_block_at_address<false>(TermAddr, *this);
@@ -48,7 +48,7 @@ bool binary_t::FixAmbiguousIndirectJump(taddr_t TermAddr, explorer_t &E,
                  });
 
   {
-    ip_sharable_lock<ip_upgradable_mutex> s_lck_bbmap(this->bbmap_mtx);
+    ip_sharable_lock<ip_sharable_mutex> s_lck_bbmap(this->bbmap_mtx);
 
     auto &bbprop = ICFG[basic_block_at_address(TermAddr, *this)];
     for (function_index_t FIdx : SuccFIdxVec)

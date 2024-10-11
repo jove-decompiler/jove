@@ -657,7 +657,7 @@ void IPTTool::ProcessLine(const std::string &line) {
         src_va = B::va_of_offset(Bin, src_off);
 
         bool ExistsBlock = ({
-          ip_sharable_lock<ip_upgradable_mutex> s_lck(src_bin.bbmap_mtx);
+          ip_sharable_lock<ip_sharable_mutex> s_lck(src_bin.bbmap_mtx);
 
           exists_basic_block_at_address(src_va, src_bin);
         });
@@ -690,7 +690,7 @@ void IPTTool::ProcessLine(const std::string &line) {
     basic_block_t dst = basic_block_of_index(dst_BBIdx, dst_ICFG);
 
     const auto Term = ({
-      ip_sharable_lock<ip_upgradable_mutex> s_lck(src_bin.bbmap_mtx);
+      ip_sharable_lock<ip_sharable_mutex> s_lck(src_bin.bbmap_mtx);
 
       src_ICFG[basic_block_at_address(src_va, src_bin)].Term;
     });
@@ -711,12 +711,10 @@ void IPTTool::ProcessLine(const std::string &line) {
       if (!is_function_index_valid(FIdx))
         return;
 
-      ip_upgradable_lock<ip_upgradable_mutex> u_lck(src_bin.bbmap_mtx);
+      ip_sharable_lock<ip_sharable_mutex> s_lck(src_bin.bbmap_mtx);
 
       basic_block_t src = basic_block_at_address(Term.Addr, src_bin);
       basic_block_properties_t &src_bbprop = src_ICFG[src];
-
-      ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
 
       src_bbprop.insertDynTarget(src_BIdx, std::make_pair(dst_BIdx, FIdx), jv);
     };
@@ -724,14 +722,14 @@ void IPTTool::ProcessLine(const std::string &line) {
     switch (Term.Type) {
     case TERMINATOR::RETURN: {
       {
-        ip_sharable_lock<ip_upgradable_mutex> s_lck(src_bin.bbmap_mtx);
+        ip_sharable_lock<ip_sharable_mutex> s_lck(src_bin.bbmap_mtx);
 
         src_ICFG[basic_block_at_address(src_va, src_bin)].Term._return.Returns = true;
       }
 
       const taddr_t before_pc = dst_va - 1 - IsMIPSTarget * 4;
 
-      ip_upgradable_lock<ip_upgradable_mutex> u_lck(dst_bin.bbmap_mtx);
+      ip_sharable_lock<ip_sharable_mutex> s_lck(dst_bin.bbmap_mtx);
 
       basic_block_t before_bb = basic_block_at_address(before_pc, dst_bin);
       basic_block_properties_t &before_bbprop = dst_ICFG[before_bb];
@@ -746,8 +744,6 @@ void IPTTool::ProcessLine(const std::string &line) {
           if (likely(is_function_index_valid(before_Term._call.Target)))
             dst_bin.Analysis.Functions.at(before_Term._call.Target).Returns = true;
         }
-
-        ip_scoped_lock<ip_upgradable_mutex> e_lck(boost::move(u_lck));
 
         dst_ICFG.add_edge(before_bb, dst); /* connect */
       }
@@ -764,7 +760,7 @@ void IPTTool::ProcessLine(const std::string &line) {
         break;
 
       const bool TailCall = ({
-        ip_sharable_lock<ip_upgradable_mutex> s_lck(src_bin.bbmap_mtx);
+        ip_sharable_lock<ip_sharable_mutex> s_lck(src_bin.bbmap_mtx);
 
         IsDefinitelyTailCall(src_ICFG, basic_block_at_address(src_va, src_bin));
       });
@@ -774,7 +770,7 @@ void IPTTool::ProcessLine(const std::string &line) {
       } else {
         assert(src_BIdx == dst_BIdx);
 
-        ip_scoped_lock<ip_upgradable_mutex> e_lck(src_bin.bbmap_mtx);
+        ip_scoped_lock<ip_sharable_mutex> e_lck(src_bin.bbmap_mtx);
 
         src_ICFG.add_edge(basic_block_at_address(src_va, src_bin), dst);
       }
