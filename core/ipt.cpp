@@ -1108,7 +1108,7 @@ int IntelPT<Verbosity>::on_ip(const taddr_t IP, const uint64_t offset) {
 
       basic_block_t bb = ICFG.vertex(Curr.Block.second);
       for (; !ICFG[bb].Term.Addr; bb = ICFG.adjacent_front(bb))
-        ;
+        assert(ICFG[bb].Term.Type == TERMINATOR::NONE);
       ICFG[bb].Term.Addr;
     });
 
