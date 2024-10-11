@@ -1008,6 +1008,8 @@ int IntelPT<Verbosity>::on_ip(const taddr_t IP, const uint64_t offset) {
   binary_t &b = jv.Binaries.at(BIdx);
   binary_state_t &x = state.for_binary(b);
 
+  auto &ICFG = b.Analysis.ICFG;
+
   struct {
     taddr_t Base;
     uint64_t Offset;
@@ -1099,7 +1101,16 @@ int IntelPT<Verbosity>::on_ip(const taddr_t IP, const uint64_t offset) {
   try {
     Curr.Block.first = BIdx;
     Curr.Block.second = explorer.explore_basic_block(b, *x.Bin, Addr);
-    Curr.TermAddr = address_of_block_terminator(Curr.Block, jv);
+
+    Curr.TermAddr = ({ /* XXX can we make this better? */
+      ip_sharable_lock<ip_upgradable_mutex> s_lck_bbmap(
+          jv.Binaries.at(Curr.Block.first).bbmap_mtx);
+
+      basic_block_t bb = ICFG.vertex(Curr.Block.second);
+      for (; !ICFG[bb].Term.Addr; bb = ICFG.adjacent_front(bb))
+        ;
+      ICFG[bb].Term.Addr;
+    });
 
     on_block(Curr.Block);
   } catch (const invalid_control_flow_exception &) {
