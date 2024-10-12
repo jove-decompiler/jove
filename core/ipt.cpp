@@ -1165,7 +1165,6 @@ void IntelPT<Verbosity>::block_transfer(binary_index_t FrBIdx,
     ip_sharable_lock<ip_sharable_mutex> fr_s_lck(fr_b.bbmap_mtx);
 
     basic_block_t fr_bb = basic_block_at_address(FrTermAddr, fr_b);
-
     basic_block_properties_t &fr_bbprop = fr_ICFG[fr_bb];
 
     fr_bbprop.insertDynTarget(FrBIdx, std::make_pair(ToBIdx, FIdx), jv);
@@ -1220,25 +1219,21 @@ void IntelPT<Verbosity>::block_transfer(binary_index_t FrBIdx,
     if (!exists_basic_block_at_address(before_pc, to_b))
       break;
 
-    ip_upgradable_lock<ip_upgradable_mutex> to_u_lck_ICFG(to_b.Analysis.ICFG._mtx);
-
-    basic_block_t before_bb = basic_block_at_address<false>(before_pc, to_b);
-    basic_block_properties_t &before_bbprop = to_ICFG.at<false>(before_bb);
+    basic_block_t before_bb = basic_block_at_address(before_pc, to_b);
+    basic_block_properties_t &before_bbprop = to_ICFG.at(before_bb);
     auto &before_Term = before_bbprop.Term;
 
     bool isCall = before_Term.Type == TERMINATOR::CALL;
     bool isIndirectCall = before_Term.Type == TERMINATOR::INDIRECT_CALL;
     if (isCall || isIndirectCall) {
-      assert(to_ICFG.out_degree<false>(before_bb) <= 1);
+      assert(to_ICFG.out_degree(before_bb) <= 1);
 
       if (isCall) {
         if (likely(is_function_index_valid(before_Term._call.Target)))
           to_b.Analysis.Functions.at(before_Term._call.Target).Returns = true;
       }
 
-      ip_scoped_lock<ip_upgradable_mutex> to_e_lck_ICFG(boost::move(to_u_lck_ICFG));
-
-      to_ICFG.add_edge<false>(before_bb, to_bb); /* connect */
+      to_ICFG.add_edge(before_bb, to_bb); /* connect */
     }
     break;
   }
@@ -1308,8 +1303,17 @@ IntelPT<Verbosity>::DoStraightLineAdvance(block_t From, taddr_t GoNoFurther) {
       if (unlikely(!is_function_index_valid(CalleeIdx)))
         break;
 
-      Res = b.Analysis.Functions.at(CalleeIdx).Entry;
+      basic_block_index_t EntryBBIdx = b.Analysis.Functions.at(CalleeIdx).Entry;
+      if (!unlikely(is_basic_block_index_valid(EntryBBIdx))) {
+        if (IsVerbose())
+          fprintf(stderr, "cant proceed past CALL @ %s+%" PRIx64 "\n",
+                  b.Name.c_str(), static_cast<uint64_t>(Addr));
+        break;
+      }
+      Res = EntryBBIdx;
+#if 0
       assert(is_basic_block_index_valid(Res));
+#endif
       continue;
     }
     case TERMINATOR::CONDITIONAL_JUMP:

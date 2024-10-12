@@ -71,7 +71,7 @@ double compute_score(const jv_t &jv,
   //
   size_t M = ({
     ip_sharable_lock<ip_sharable_mutex> s_lck_bbmap(b.bbmap_mtx);
-    ip_sharable_lock<ip_upgradable_mutex> s_lck_ICFG(ICFG._mtx);
+    ip_sharable_lock<ip_sharable_mutex> s_lck_ICFG(ICFG._mtx);
 
     icfg_t::vertex_iterator vi_begin, vi_end;
     std::tie(vi_begin, vi_end) = ICFG.vertices();

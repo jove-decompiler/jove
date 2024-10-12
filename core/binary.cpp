@@ -15,25 +15,22 @@ bool binary_t::FixAmbiguousIndirectJump(taddr_t TermAddr, explorer_t &E,
   auto &ICFG = this->Analysis.ICFG;
   {
     ip_sharable_lock<ip_sharable_mutex> s_lck_bbmap(this->bbmap_mtx);
-    ip_upgradable_lock<ip_upgradable_mutex> u_lck_ICFG(this->Analysis.ICFG._mtx);
 
-    basic_block_t bb = basic_block_at_address<false>(TermAddr, *this);
+    basic_block_t bb = basic_block_at_address(TermAddr, *this);
 
-    if (!IsAmbiguousIndirectJump<false>(ICFG, bb))
+    if (!IsAmbiguousIndirectJump(ICFG, bb))
       return false;
 
     icfg_t::adjacency_iterator succ_it, succ_it_end;
     std::tie(succ_it, succ_it_end) = ICFG.adjacent_vertices(bb);
 
-    SuccAddrVec.resize(ICFG.out_degree<false>(bb));
+    SuccAddrVec.resize(ICFG.out_degree(bb));
     std::transform(
         succ_it,
         succ_it_end, SuccAddrVec.begin(),
-        [&](basic_block_t bb) -> taddr_t { return ICFG.at<false>(bb).Addr; });
+        [&](basic_block_t bb) -> taddr_t { return ICFG.at(bb).Addr; });
 
-    ip_scoped_lock<ip_upgradable_mutex> e_lck_ICFG(boost::move(u_lck_ICFG));
-
-    ICFG.clear_out_edges<false>(bb); /* ambiguous no more */
+    ICFG.clear_out_edges(bb); /* ambiguous no more */
   }
 
   std::vector<function_index_t> SuccFIdxVec;

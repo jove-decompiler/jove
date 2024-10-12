@@ -276,7 +276,7 @@ struct ip_safe_deque {
   typename deque_t::iterator end(void) { return _deque.end(); }
 };
 
-template <typename Ty, typename ip_mutex_t = ip_upgradable_mutex>
+template <typename Ty>
 struct ip_safe_adjacency_list {
   using vertex_descriptor = Ty::vertex_descriptor;
   using edge_descriptor = Ty::edge_descriptor;
@@ -290,7 +290,7 @@ struct ip_safe_adjacency_list {
   using vertex_property_type = Ty::vertex_property_type;
 
   Ty _adjacency_list;
-  mutable ip_mutex_t _mtx;
+  mutable ip_sharable_mutex _mtx;
 
   std::atomic<vertices_size_type> _size = 0;
 
@@ -312,11 +312,11 @@ struct ip_safe_adjacency_list {
   }
 
 #define S_LCK(ShouldLock)                                                      \
-  typename std::conditional<ShouldLock, ip_sharable_lock<ip_mutex_t>,          \
+  typename std::conditional<ShouldLock, ip_sharable_lock<ip_sharable_mutex>,   \
                             __do_nothing_t>::type __s_lck##__COUNTER__(_mtx)
 
 #define E_LCK(ShouldLock)                                                      \
-  typename std::conditional<ShouldLock, ip_scoped_lock<ip_mutex_t>,            \
+  typename std::conditional<ShouldLock, ip_scoped_lock<ip_sharable_mutex>,     \
                             __do_nothing_t>::type __e_lck##__COUNTER__(_mtx)
 
   template <bool L = true, typename... Args>

@@ -88,7 +88,7 @@ function_index_t explorer_t::_explore_function(binary_t &b,
   /* FIXME significant slowdown */
 #if 0
   {
-    ip_sharable_lock<ip_upgradable_mutex> s_lck_ICFG(b.Analysis.ICFG._mtx);
+    ip_sharable_lock<ip_sharable_mutex> s_lck_ICFG(b.Analysis.ICFG._mtx);
 
     rec(basic_block_of_index(EntryIdx, ICFG));
   }
@@ -190,9 +190,7 @@ on_insn:
   //
   std::vector<basic_block_t> to_bb_vec;
 
-  ip_upgradable_lock<ip_upgradable_mutex> u_lck_ICFG(b.Analysis.ICFG._mtx);
-
-  to_bb_vec.reserve(ICFG.out_degree<false>(bb_1));
+  to_bb_vec.reserve(ICFG.out_degree(bb_1));
   {
     icfg_t::adjacency_iterator succ_it, succ_it_end;
     std::tie(succ_it, succ_it_end) = ICFG.adjacent_vertices(bb_1);
@@ -200,14 +198,13 @@ on_insn:
     std::copy(succ_it, succ_it_end, std::back_inserter(to_bb_vec));
   }
 
-  basic_block_properties_t &bbprop_1 = ICFG.at<false>(bb_1);
+  basic_block_properties_t &bbprop_1 = ICFG.at(bb_1);
 
   //
   // create bb_2
   //
   basic_block_t bb_2 = basic_block_of_index(Idx, ICFG);
-  const basic_block_index_t NewBBIdx = Idx;
-  basic_block_properties_t &bbprop_2 = ICFG.at<false>(bb_2);
+  basic_block_properties_t &bbprop_2 = ICFG.at(bb_2);
 
   bbprop_2.Addr = addr_intvl_lower(intvl_2);
   bbprop_2.Size = intvl_2.second;
@@ -235,7 +232,7 @@ on_insn:
   // edges from bb_1 now point from bb_2
   //
   {
-    ip_scoped_lock<ip_upgradable_mutex> e_lck_ICFG(boost::move(u_lck_ICFG));
+    ip_scoped_lock<ip_sharable_mutex> e_lck_ICFG(b.Analysis.ICFG._mtx);
 
     ICFG.clear_out_edges<false>(bb_1);
     ICFG.add_edge<false>(bb_1, bb_2);
@@ -247,25 +244,28 @@ on_insn:
   //
   // update bbmap
   //
+#if 0
   assert(addr_intvl(bbprop_1.Addr, bbprop_1.Size) == intvl_1);
   assert(addr_intvl(bbprop_2.Addr, bbprop_2.Size) == intvl_2);
 
   assert(addr_intvl_disjoint(intvl_1, intvl_2));
 
   const unsigned sav_bbmap_size = bbmap.size();
+#endif
 
   bbmap.erase(it);
+
+#if 0
   assert(bbmap.size() == sav_bbmap_size - 1);
 
   assert(bbmap_find(bbmap, intvl_1) == bbmap.end());
   assert(bbmap_find(bbmap, intvl_2) == bbmap.end());
+#endif
 
   bbmap_add(bbmap, intvl_1, BBIdx);
-  bbmap_add(bbmap, intvl_2, NewBBIdx);
+  bbmap_add(bbmap, intvl_2, Idx);
 
 #if 0
-  ip_sharable_lock<ip_upgradable_mutex> s_lck_bbmap(boost::move(e_lck_bbmap));
-
   {
     auto _it = bbmap_find(bbmap, intvl_1);
     assert(_it != bbmap.end());
@@ -275,7 +275,7 @@ on_insn:
   {
     auto _it = bbmap_find(bbmap, intvl_2);
     assert(_it != bbmap.end());
-    assert((*_it).second == NewBBIdx);
+    assert((*_it).second == Idx);
   }
 #endif
 
@@ -286,7 +286,7 @@ on_insn:
 
   /* XXX should be be calling newbb proc? */
 #if 0
-  this->on_newbb_proc(b, basic_block_of_index(NewBBIdx, ICFG));
+  this->on_newbb_proc(b, basic_block_of_index(Idx, ICFG));
 #endif
 
   return true;
