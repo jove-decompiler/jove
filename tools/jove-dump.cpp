@@ -118,6 +118,7 @@ void DumpTool::dumpDecompilation(const jv_t& jv) {
         if (ICFG[bb].Speculative)
           Writer.printBoolean("Speculative", ICFG[bb].Speculative);
 
+#if 0
         {
           auto inv_adj_it_pair = ICFG.inv_adjacent_vertices(bb);
 
@@ -132,6 +133,7 @@ void DumpTool::dumpDecompilation(const jv_t& jv) {
 
           Writer.printHexList("Predecessors", preds);
         }
+#endif
 
         Writer.getOStream() << '\n';
 

@@ -184,21 +184,25 @@ on_insn:
                            addr_intvl_upper(intvl) - Addr);
 
   basic_block_t bb_1 = basic_block_of_index(BBIdx, ICFG);
+  basic_block_properties_t &bbprop_1 = ICFG.at(bb_1);
 
   //
   // gather up bb_1 edges
   //
   std::vector<basic_block_t> to_bb_vec;
 
-  to_bb_vec.reserve(ICFG.out_degree(bb_1));
   {
-    icfg_t::adjacency_iterator succ_it, succ_it_end;
-    std::tie(succ_it, succ_it_end) = ICFG.adjacent_vertices(bb_1);
+    ip_sharable_lock<ip_sharable_mutex> s_lck(bbprop_1.mtx);
 
-    std::copy(succ_it, succ_it_end, std::back_inserter(to_bb_vec));
+    to_bb_vec.reserve(ICFG.out_degree<false>(bb_1));
+    {
+      icfg_t::adjacency_iterator succ_it, succ_it_end;
+      std::tie(succ_it, succ_it_end) = ICFG.adjacent_vertices(bb_1);
+
+      std::copy(succ_it, succ_it_end, std::back_inserter(to_bb_vec));
+    }
   }
 
-  basic_block_properties_t &bbprop_1 = ICFG.at(bb_1);
 
   //
   // create bb_2
@@ -232,10 +236,14 @@ on_insn:
   // edges from bb_1 now point from bb_2
   //
   {
-    ip_scoped_lock<ip_sharable_mutex> e_lck_ICFG(b.Analysis.ICFG._mtx);
+    ip_scoped_lock<ip_sharable_mutex> e_lck(bbprop_1.mtx);
 
     ICFG.clear_out_edges<false>(bb_1);
     ICFG.add_edge<false>(bb_1, bb_2);
+  }
+
+  {
+    ip_scoped_lock<ip_sharable_mutex> e_lck(bbprop_2.mtx);
 
     for (basic_block_t bb : to_bb_vec)
       ICFG.add_edge<false>(bb_2, bb);

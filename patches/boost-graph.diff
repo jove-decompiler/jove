@@ -481,10 +481,71 @@ index e5050b5b..a37142aa 100644
      }
  
 diff --git a/include/boost/graph/detail/adjacency_list.hpp b/include/boost/graph/detail/adjacency_list.hpp
-index ed5a1d48..c760b03a 100644
+index ed5a1d48..ca6f281c 100644
 --- a/include/boost/graph/detail/adjacency_list.hpp
 +++ b/include/boost/graph/detail/adjacency_list.hpp
-@@ -1790,41 +1790,42 @@ class adj_list_impl : public adj_list_helper< Config, Base >
+@@ -323,40 +323,60 @@ namespace detail
+             // 55771 of Mozilla).
+             static_cast< Base& >(*this) = static_cast< Base&& >(x);
+             m_property = std::move(x.m_property);
+             return *this;
+         }
+         self& operator=(self const& x)
+         {
+             // NOTE: avoid 'Base::operator=(x);' broken on SGI MIPSpro (bug
+             // 55771 of Mozilla).
+             static_cast< Base& >(*this) = static_cast< Base const& >(x);
+             m_property = std::move(const_cast< self& >(x).m_property);
+             return *this;
+         }
+         inline Property& get_property() { return *m_property; }
+         inline const Property& get_property() const { return *m_property; }
+ 
+     protected:
+         std::unique_ptr< Property > m_property;
+     };
+ #endif
++    template < class Vertex >
++    class stored_edge_no_property : public stored_edge< Vertex >
++    {
++        typedef stored_edge_no_property self;
++        typedef stored_edge< Vertex > Base;
++
++    public:
++        typedef no_property property_type;
++        inline stored_edge_no_property() {}
++        inline stored_edge_no_property(
++            Vertex target, const no_property& p = no_property())
++        : stored_edge< Vertex >(target)
++        {
++        }
++        inline no_property& get_property() { return s_prop; }
++        inline const no_property& get_property() const { return s_prop; }
++
++        static no_property s_prop;
++    };
++    template < class Vertex > no_property stored_edge_no_property < Vertex >::s_prop;
+ 
+     template < class Vertex, class Iter, class Property >
+     class stored_edge_iter : public stored_edge< Vertex >
+     {
+     public:
+         typedef Property property_type;
+         inline stored_edge_iter() {}
+         inline stored_edge_iter(Vertex v) : stored_edge< Vertex >(v) {}
+         inline stored_edge_iter(Vertex v, Iter i, void* = 0)
+         : stored_edge< Vertex >(v), m_iter(i)
+         {
+         }
+         inline Property& get_property() { return m_iter->get_property(); }
+         inline const Property& get_property() const
+         {
+             return m_iter->get_property();
+         }
+         inline Iter get_iter() const { return m_iter; }
+ 
+     protected:
+@@ -1790,41 +1810,42 @@ class adj_list_impl : public adj_list_helper< Config, Base >
      typedef typename Config::OutEdgeList OutEdgeList;
      typedef typename Config::InEdgeList InEdgeList;
      typedef typename Config::StoredVertexList StoredVertexList;
@@ -528,7 +589,7 @@ index ed5a1d48..c760b03a 100644
      {
          for (vertices_size_type i = 0; i < num_vertices; ++i)
              add_vertex(static_cast< Derived& >(*this));
-@@ -1900,47 +1901,47 @@ public:
+@@ -1900,47 +1921,47 @@ public:
          // Copy the edges by adding each edge and copying its
          // property object.
          edge_iterator ei, ei_end;
@@ -579,7 +640,7 @@ index ed5a1d48..c760b03a 100644
          return *v;
  
      typedef typename Config::stored_vertex stored_vertex;
-@@ -2103,41 +2104,45 @@ public:
+@@ -2103,41 +2124,45 @@ public:
      typedef typename Config::edge_descriptor edge_descriptor;
      typedef typename Config::out_edge_iterator out_edge_iterator;
      typedef typename Config::edge_iterator edge_iterator;
@@ -626,7 +687,7 @@ index ed5a1d48..c760b03a 100644
      template < class EdgeIterator >
      inline vec_adj_list_impl(
          vertices_size_type num_vertices, EdgeIterator first, EdgeIterator last)
-@@ -2167,119 +2172,123 @@ public:
+@@ -2167,119 +2192,123 @@ public:
      //    protected:
      inline boost::integer_range< vertex_descriptor > vertex_set() const
      {
@@ -754,7 +815,56 @@ index ed5a1d48..c760b03a 100644
      typedef typename Config::directed_category Cat;
      Graph& g = static_cast< Graph& >(g_);
      g.removing_vertex(
-@@ -2419,75 +2428,78 @@ namespace detail
+@@ -2348,42 +2377,47 @@ namespace detail
+             typedef typename VertexList::iterator vertex_iterator;
+ 
+             // EdgeContainer and StoredEdge
+ 
+             typedef typename container_gen< EdgeListS,
+                 list_edge< vertex_descriptor, EdgeProperty > >::type
+                 EdgeContainer;
+ 
+             typedef typename mpl::and_< DirectedT,
+                 typename mpl::not_< BidirectionalT >::type >::type
+                 on_edge_storage;
+ 
+             typedef typename mpl::if_< on_edge_storage, std::size_t,
+                 typename EdgeContainer::size_type >::type edges_size_type;
+ 
+             typedef typename EdgeContainer::iterator EdgeIter;
+ 
+             typedef
+                 typename detail::is_random_access< EdgeListS >::type is_edge_ra;
+ 
++	    typedef is_no_property<EdgeProperty>::type no_edge_property;
++
+             typedef typename mpl::if_< on_edge_storage,
+-                stored_edge_property< vertex_descriptor, EdgeProperty >,
++                typename mpl::if_< no_edge_property,
++                    stored_edge_no_property< vertex_descriptor >,
++                    stored_edge_property< vertex_descriptor,
++                        EdgeProperty > >::type,
+                 typename mpl::if_< is_edge_ra,
+                     stored_ra_edge_iter< vertex_descriptor, EdgeContainer,
+                         EdgeProperty >,
+                     stored_edge_iter< vertex_descriptor, EdgeIter,
+                         EdgeProperty > >::type >::type StoredEdge;
+ 
+             // Adjacency Types
+ 
+             typedef typename container_gen< OutEdgeListS, StoredEdge >::type
+                 OutEdgeList;
+             typedef typename OutEdgeList::size_type degree_size_type;
+             typedef typename OutEdgeList::iterator OutEdgeIter;
+ 
+             typedef std::iterator_traits< OutEdgeIter >
+                 OutEdgeIterTraits;
+             typedef
+                 typename OutEdgeIterTraits::iterator_category OutEdgeIterCat;
+             typedef typename OutEdgeIterTraits::difference_type OutEdgeIterDiff;
+ 
+             typedef out_edge_iter< OutEdgeIter, vertex_descriptor,
+@@ -2419,75 +2453,79 @@ namespace detail
              typedef adj_list_edge_iterator< vertex_iterator, out_edge_iterator,
                  graph_type >
                  DirectedEdgeIter;
@@ -788,7 +898,9 @@ index ed5a1d48..c760b03a 100644
              };
              struct rand_stored_vertex
              {
-                 rand_stored_vertex() {}
+-                rand_stored_vertex() {}
++                template<class... _AllocArg>
++                rand_stored_vertex(_AllocArg&&... AllocArg) : m_out_edges(std::forward<_AllocArg>(AllocArg)...), m_property(std::forward<_AllocArg>(AllocArg)...) {}
                  rand_stored_vertex(const VertexProperty& p) : m_property(p) {}
                  OutEdgeList m_out_edges;
                  VertexProperty m_property;

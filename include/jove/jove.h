@@ -311,13 +311,16 @@ struct ip_safe_adjacency_list {
     return *this;
   }
 
-#define S_LCK(ShouldLock)                                                      \
+#define _S_LCK(ShouldLock, Mutex)                                              \
   typename std::conditional<ShouldLock, ip_sharable_lock<ip_sharable_mutex>,   \
-                            __do_nothing_t>::type __s_lck##__COUNTER__(_mtx)
+                            __do_nothing_t>::type __s_lck##__COUNTER__(Mutex)
 
-#define E_LCK(ShouldLock)                                                      \
+#define _E_LCK(ShouldLock, Mutex)                                              \
   typename std::conditional<ShouldLock, ip_scoped_lock<ip_sharable_mutex>,     \
-                            __do_nothing_t>::type __e_lck##__COUNTER__(_mtx)
+                            __do_nothing_t>::type __e_lck##__COUNTER__(Mutex)
+
+#define S_LCK(ShouldLock) _S_LCK(ShouldLock, this->_mtx)
+#define E_LCK(ShouldLock) _E_LCK(ShouldLock, this->_mtx)
 
   template <bool L = true, typename... Args>
   vertices_size_type index_of_add_vertex(Args &&...args) {
@@ -398,7 +401,7 @@ struct ip_safe_adjacency_list {
     return boost::get(boost::vertex_index, _adjacency_list)[V];
   }
 
-  template <class DFSVisitor, bool L = true>
+  template <bool L = true, class DFSVisitor>
   void depth_first_visit(vertex_descriptor V, DFSVisitor &vis) const {
     std::map<vertex_descriptor, boost::default_color_type> color;
 
@@ -410,7 +413,7 @@ struct ip_safe_adjacency_list {
             std::map<vertex_descriptor, boost::default_color_type>>(color));
   }
 
-  template <class BFSVisitor, bool L = true>
+  template <bool L = true, class BFSVisitor>
   void breadth_first_search(vertex_descriptor V, BFSVisitor &vis) const {
     S_LCK(L);
 
@@ -419,26 +422,30 @@ struct ip_safe_adjacency_list {
 
   template <bool L = true>
   degree_size_type out_degree(vertex_descriptor V) const {
-    S_LCK(L);
+    _S_LCK(L, _adjacency_list[V].mtx);
+
     return boost::out_degree(V, _adjacency_list);
   }
 
   template <bool L = true>
   void clear_out_edges(vertex_descriptor V) {
-    E_LCK(L);
+    _E_LCK(L, _adjacency_list[V].mtx);
+
     boost::clear_out_edges(V, _adjacency_list);
   }
 
   template <bool L = true>
   std::pair<edge_descriptor, bool> add_edge(vertex_descriptor V1,
                                             vertex_descriptor V2) {
-    E_LCK(L);
+    _E_LCK(L, _adjacency_list[V1].mtx);
+
     return boost::add_edge(V1, V2, _adjacency_list);
   }
 
   template <bool L = true>
   vertex_descriptor adjacent_front(vertex_descriptor V) const {
-    S_LCK(L);
+    _S_LCK(L, _adjacency_list[V].mtx);
+
     return *adjacent_vertices(V).first;
   }
 
@@ -449,7 +456,7 @@ struct ip_safe_adjacency_list {
     std::array<vertex_descriptor, N> res;
 
     {
-      S_LCK(L);
+      _S_LCK(L, _adjacency_list[V].mtx);
 
       adjacency_iterator it, it_end;
       std::tie(it, it_end) = adjacent_vertices(V);
@@ -462,6 +469,8 @@ struct ip_safe_adjacency_list {
     return res;
   }
 
+#undef _S_LCK
+#undef _E_LCK
 #undef S_LCK
 #undef E_LCK
 
@@ -608,6 +617,8 @@ struct jv_t;
 size_t jvDefaultInitialSize(void);
 
 struct basic_block_properties_t {
+  mutable ip_sharable_mutex mtx;
+
   bool Speculative = false;
 
   taddr_t Addr = ~0UL;
@@ -634,7 +645,7 @@ struct basic_block_properties_t {
   } Term;
 
   ip_dynamic_target_set DynTargets;
-  bool DynTargetsComplete; // XXX
+  bool DynTargetsComplete = false;
 
   bool Sj = false;
 
@@ -733,7 +744,7 @@ struct basic_block_properties_t {
 
 typedef boost::adjacency_list<boost::setS_ip,           /* OutEdgeList */
                               boost::dequeS_ip,         /* VertexList */
-                              boost::bidirectionalS,    /* Directed */
+                              boost::directedS,         /* Directed */
                               basic_block_properties_t, /* VertexProperties */
                               boost::no_property,       /* EdgeProperties */
                               boost::no_property,       /* GraphProperties */

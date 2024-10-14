@@ -21,16 +21,18 @@ bool binary_t::FixAmbiguousIndirectJump(taddr_t TermAddr, explorer_t &E,
     if (!IsAmbiguousIndirectJump(ICFG, bb))
       return false;
 
+    ip_scoped_lock<ip_sharable_mutex> e_lck(ICFG.at(bb).mtx);
+
     icfg_t::adjacency_iterator succ_it, succ_it_end;
     std::tie(succ_it, succ_it_end) = ICFG.adjacent_vertices(bb);
 
-    SuccAddrVec.resize(ICFG.out_degree(bb));
+    SuccAddrVec.resize(ICFG.out_degree<false>(bb));
     std::transform(
         succ_it,
         succ_it_end, SuccAddrVec.begin(),
         [&](basic_block_t bb) -> taddr_t { return ICFG.at(bb).Addr; });
 
-    ICFG.clear_out_edges(bb); /* ambiguous no more */
+    ICFG.clear_out_edges<false>(bb); /* ambiguous no more */
   }
 
   std::vector<function_index_t> SuccFIdxVec;
