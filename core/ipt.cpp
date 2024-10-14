@@ -1024,7 +1024,7 @@ int IntelPT<Verbosity>::on_ip(const taddr_t IP, const uint64_t offset) {
         } catch (...) {
         std::string as(addr_intvl2str((*it).first));
         fprintf(stderr, "WTFF! %" PRIx64 " in %s: off=%" PRIx64 " in \"%s\" mapping.Base=%" PRIx64 " mapping.Offset=%" PRIx64 " \n", (uint64_t)IP, as.c_str(), off, b.Name.c_str(), (uint64_t)mapping.Base, mapping.Offset);
-        assert(false);
+        abort();
         }
       },
       [&](COFFO &O) -> uint64_t {
@@ -1042,7 +1042,7 @@ int IntelPT<Verbosity>::on_ip(const taddr_t IP, const uint64_t offset) {
         } catch (...) {
         std::string as(addr_intvl2str((*it).first));
         fprintf(stderr, "WTFF! %" PRIx64 " in %s in \"%s\" mapping.Base=%" PRIx64 " mapping.Offset=%" PRIx64 " \n", (uint64_t)IP, as.c_str(), b.Name.c_str(), (uint64_t)mapping.Base, mapping.Offset);
-        assert(false);
+        abort();
         }
       });
 
