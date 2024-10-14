@@ -137,7 +137,9 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
                 [](const Elf_Phdr &Phdr) -> bool{ return Phdr.p_type == llvm::ELF::PT_INTERP; });
   uint64_t EntryAddr = Elf.getHeader().e_entry;
   if (EntryAddr) {
+#if 0
     llvm::outs() << llvm::formatv("entry point @ {0:x}\n", EntryAddr);
+#endif
 
     b.Analysis.EntryFunction = FunctionAtAddress(EntryAddr);
   } else {
@@ -194,8 +196,10 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
         (llvm::toHex(BuildID.slice(1), /*LowerCase=*/true) + ".debug");
 
     if (fs::exists(splitDbgInfo)) {
+#if 0
       WithColor::note() << llvm::formatv("found split debug info file {0}\n",
                                          splitDbgInfo.c_str());
+#endif
 
       std::vector<uint8_t> SplitBinBytes;
       auto SplitBin = B::CreateFromFile(splitDbgInfo.c_str(), SplitBinBytes);
@@ -422,9 +426,11 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
         return;
 
       if (!elf_is_relative_relocation(R)) {
+#if 0
         WithColor::warning() << llvm::formatv(
             "unrecognized relocation {0} in .init_array/.fini_array\n",
             Elf.getRelocationTypeName(R.Type));
+#endif
         return;
       }
 
