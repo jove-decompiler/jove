@@ -16,6 +16,8 @@
 #include <libipt-sb.h>
 #include <inttypes.h>
 
+#include <type_traits>
+
 extern "C" {
 #include "pt_last_ip.c"
 #include "pt_time.c"
@@ -28,29 +30,25 @@ namespace jove {
 //
 // <from linux/tools/perf/util/bpf_skel/augmented_raw_syscalls.bpf.c>
 //
-struct syscall_enter_args64 {
-	uint64_t common_tp_fields;
-	int64_t	syscall_nr;
-	uint64_t args[6];
+template <typename UIntType>
+struct syscall_enter_args {
+  UIntType common_tp_fields;
+  std::make_signed_t<UIntType> syscall_nr;
+  UIntType args[6];
 };
 
-struct syscall_enter_args32 {
-	uint32_t common_tp_fields;
-	int32_t	syscall_nr;
-	uint32_t args[6];
+template <typename UIntType>
+struct syscall_exit_args {
+  UIntType common_tp_fields;
+  std::make_signed_t<UIntType> syscall_nr;
+  std::make_signed_t<UIntType> ret;
 };
 
-struct syscall_exit_args64 {
-	uint64_t common_tp_fields;
-	int64_t	syscall_nr;
-	int64_t ret;
-};
-
-struct syscall_exit_args32 {
-	uint32_t common_tp_fields;
-	int32_t	syscall_nr;
-	int32_t ret;
-};
+// Type aliases for 64-bit and 32-bit versions
+using syscall_enter_args64 = syscall_enter_args<uint64_t>;
+using syscall_enter_args32 = syscall_enter_args<uint32_t>;
+using syscall_exit_args64 = syscall_exit_args<uint64_t>;
+using syscall_exit_args32 = syscall_exit_args<uint32_t>;
 //
 // </>
 //
@@ -434,17 +432,21 @@ void IntelPT<Verbosity>::examine_sb(void) {
         if (strcmp(name, "raw_syscalls:sys_exit") == 0) {
           long nr;
           taddr_t ret;
-          if (bytes.size() >= sizeof(struct syscall_exit_args64)) {
-            auto *p = (const struct syscall_exit_args64 *)bytes.data();
-            nr = p->syscall_nr;
-            ret = p->ret;
-          } else if (bytes.size() >= sizeof(struct syscall_exit_args32)) {
-            auto *p = (const struct syscall_exit_args32 *)bytes.data();
-            nr = p->syscall_nr;
-            ret = p->ret;
-          } else {
+
+          auto syscall_exit_extract = [&]<typename UIntType>(void) -> bool {
+            if (bytes.size() >= sizeof(syscall_exit_args<UIntType>)) {
+              auto *p = (const syscall_exit_args<UIntType> *)bytes.data();
+              nr = p->syscall_nr;
+              ret = p->ret;
+              return true;
+            }
+
+            return false;
+          };
+
+          if (!syscall_exit_extract.template operator()<uint64_t>() &&
+              !syscall_exit_extract.template operator()<uint32_t>())
             unexpected_rest();
-          }
 
           bool two_consecutive_exits = state.dir != 0;
           bool mismatched_nr = nr != state.nr;
@@ -519,19 +521,21 @@ void IntelPT<Verbosity>::examine_sb(void) {
             break;
           }
         } else if (strcmp(name, "raw_syscalls:sys_enter") == 0) {
-          if (bytes.size() >= sizeof(struct syscall_enter_args64)) {
-            auto *p = (const struct syscall_enter_args64 *)bytes.data();
-            for (unsigned i = 0; i < state.args.size(); ++i)
-              state.args[i] = p->args[i];
-            state.nr = p->syscall_nr;
-          } else if (bytes.size() >= sizeof(struct syscall_enter_args32)) {
-            auto *p = (const struct syscall_enter_args32 *)bytes.data();
-            for (unsigned i = 0; i < state.args.size(); ++i)
-              state.args[i] = p->args[i];
-            state.nr = p->syscall_nr;
-          } else {
+          auto syscall_enter_extract = [&]<typename UIntType>(void) -> bool {
+            if (bytes.size() >= sizeof(syscall_enter_args<UIntType>)) {
+              auto *p = (const syscall_enter_args<UIntType> *)bytes.data();
+              for (unsigned i = 0; i < state.args.size(); ++i)
+                state.args[i] = p->args[i];
+              state.nr = p->syscall_nr;
+              return true;
+            }
+            return false;
+          };
+
+          if (!syscall_enter_extract.template operator()<uint64_t>() &&
+              !syscall_enter_extract.template operator()<uint32_t>())
             unexpected_rest();
-          }
+
           state.dir = 0;
         } else {
           unexpected_rest();
