@@ -265,10 +265,9 @@ struct section_t {
 
 struct TranslateContext;
 
-struct LLVMTool : public StatefulJVTool<ToolKind::CopyOnWrite,
-                                                 binary_state_t,
-                                                 function_state_t,
-                                                 basic_block_state_t> {
+struct LLVMTool : public StatefulJVTool<ToolKind::CopyOnWrite, binary_state_t,
+                                        function_state_t, basic_block_state_t,
+                                        false, false> {
   struct Cmdline {
     cl::opt<std::string> Binary;
     cl::alias BinaryAlias;

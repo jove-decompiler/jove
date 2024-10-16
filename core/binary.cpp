@@ -37,7 +37,7 @@ bool binary_t::FixAmbiguousIndirectJump(taddr_t TermAddr, explorer_t &E,
 
   std::vector<function_index_t> SuccFIdxVec;
   SuccFIdxVec.resize(SuccAddrVec.size());
-  std::transform(std::execution::par_unseq,
+  std::transform(std::execution::seq /* par_unseq */,
                  SuccAddrVec.begin(),
                  SuccAddrVec.end(), SuccFIdxVec.begin(),
                  [&](taddr_t Addr) -> function_index_t {

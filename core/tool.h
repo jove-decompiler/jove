@@ -212,9 +212,15 @@ struct JVTool<ToolKind::CopyOnWrite> : public BaseJVTool  {
 template <ToolKind Kind,
           typename BinaryStateT,
           typename FunctionStateT,
-          typename BBStateT>
+          typename BBStateT,
+          bool MultiThreaded = true,
+          bool LazyInitialization = true,
+          bool Eager = false,
+          bool BoundsChecking = true>
 struct StatefulJVTool : public JVTool<Kind> {
-  jv_state_t<BinaryStateT, FunctionStateT, BBStateT> state;
+  jv_state_t<BinaryStateT, FunctionStateT, BBStateT, MultiThreaded,
+             LazyInitialization, Eager, BoundsChecking>
+      state;
 
   template <typename... Args>
   StatefulJVTool(Args &&...args)

@@ -58,7 +58,7 @@ class IntelPT {
     binary_state_t(const binary_t &b); /* runs objdump */
   };
 
-  jv_state_t<binary_state_t, void, void> state;
+  jv_state_t<binary_state_t, void, void, false, false, true> state;
 
   const bool IsCOFF;
 
