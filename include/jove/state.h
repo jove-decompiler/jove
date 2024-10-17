@@ -57,21 +57,17 @@ private:
 
 public:
   explicit jv_state_t(const jv_t &jv) : jv(jv) {
-    if constexpr (Eager) {
+    if constexpr (Eager)
       update();
-    } else {
-      if constexpr (!MultiThreaded)
-        x.reserve(jv.Binaries.size());
-    }
   }
 
   void update(void) {
     unsigned N_B = jv.Binaries.size();
 
-    if constexpr (!MultiThreaded)
-      x.reserve(N_B);
-
     for (binary_index_t BIdx = x.size(); BIdx < N_B; ++BIdx) {
+      if constexpr (!MultiThreaded)
+        x.reserve(N_B);
+
       const binary_t &b = jv.Binaries.at(BIdx);
 
       if constexpr (std::is_void_v<BinaryStateTy>) {
@@ -83,13 +79,17 @@ public:
           x.emplace_back(b, FunctionStateContainer(), BasicBlockStateContainer());
         }
       }
+    }
 
-      auto &bin_stuff = x.back();
+    for (binary_index_t BIdx = 0; BIdx < N_B; ++BIdx) {
+      const binary_t &b = jv.Binaries.at(BIdx);
+
+      StateTuple &y = x.at(BIdx);
 
       if constexpr (!std::is_void_v<FunctionStateTy>) {
         unsigned N_F = b.Analysis.Functions.size();
 
-        FunctionStateContainer &state_vec = std::get<1>(bin_stuff);
+        FunctionStateContainer &state_vec = std::get<1>(y);
 
         if constexpr (!MultiThreaded)
           state_vec.reserve(N_F);
@@ -108,7 +108,7 @@ public:
       if constexpr (!std::is_void_v<BasicBlockStateTy>) {
         unsigned N_BB = b.Analysis.ICFG.num_vertices();
 
-        BasicBlockStateContainer &state_vec = std::get<2>(bin_stuff);
+        BasicBlockStateContainer &state_vec = std::get<2>(y);
 
         if constexpr (!MultiThreaded)
           state_vec.reserve(N_BB);
@@ -127,80 +127,79 @@ public:
   }
 
   void update(const binary_t &b) {
-    binary_index_t BIdx = index_of_binary(b, jv);
-    unsigned N_B = BIdx + 1;
-
     if constexpr (!MultiThreaded)
-      x.reserve(N_B);
+      x.reserve(jv.Binaries.size());
 
-    for (binary_index_t BIdx = x.size(); BIdx < N_B; ++BIdx) {
-      const binary_t &b = jv.Binaries.at(BIdx);
+    unsigned N_B = index_of_binary(b, jv) + 1;
 
+    for (binary_index_t BIdx = x.size(); BIdx < N_B - 1; ++BIdx) {
       if constexpr (std::is_void_v<BinaryStateTy>) {
         x.emplace_back();
       } else {
         if constexpr (LazyInitialization) {
           x.emplace_back();
         } else {
-          x.emplace_back(b, FunctionStateContainer(), BasicBlockStateContainer());
+          x.emplace_back(jv.Binaries.at(BIdx), FunctionStateContainer(), BasicBlockStateContainer());
         }
+      }
+    }
+
+    if constexpr (std::is_void_v<BinaryStateTy>) {
+      x.emplace_back();
+    } else {
+      if constexpr (LazyInitialization) {
+        x.emplace_back();
+      } else {
+        x.emplace_back(b, FunctionStateContainer(), BasicBlockStateContainer());
       }
     }
   }
 
   template <typename T = FunctionStateTy>
-  std::enable_if_t<!std::is_void_v<T>, void> update(const function_t &f) {
-    const binary_index_t BIdx = binary_index_of_function(f, jv);
-    const binary_t &b = jv.Binaries.at(BIdx);
-    update(b);
-
-    auto &bin_stuff = x.at(BIdx);
-
-    function_index_t FIdx =
-        index_of_function_in_binary(f, jv.Binaries.at(BIdx));
-
-    unsigned N_F = FIdx + 1;
-
-    FunctionStateContainer &state_vec = std::get<1>(bin_stuff);
-
+  std::enable_if_t<!std::is_void_v<T>, void> update(const binary_t &b,
+                                                    const function_t &f,
+                                                    FunctionStateContainer &y) {
     if constexpr (!MultiThreaded)
-      state_vec.reserve(N_F);
+      y.reserve(b.Analysis.Functions.size());
 
-    for (function_index_t FIdx = state_vec.size(); FIdx < N_F; ++FIdx) {
-      const function_t &f = b.Analysis.Functions.at(FIdx);
+    unsigned N_F = index_of_function_in_binary(f, b) + 1;
 
+    for (function_index_t FIdx = y.size(); FIdx < N_F - 1; ++FIdx) {
       if constexpr (LazyInitialization) {
-        state_vec.emplace_back();
+        y.emplace_back();
       } else {
-        state_vec.emplace_back(f, b);
+        y.emplace_back(b.Analysis.Functions.at(FIdx), b);
       }
+    }
+
+    if constexpr (LazyInitialization) {
+      y.emplace_back();
+    } else {
+      y.emplace_back(f, b);
     }
   }
 
   template <typename T = BasicBlockStateTy>
   std::enable_if_t<!std::is_void_v<T>, void> update(const binary_t &b,
-                                                    basic_block_t bb) {
-    const binary_index_t BIdx = index_of_binary(b, jv);
-    update(b);
-
-    auto &bin_stuff = x.at(BIdx);
-
-    basic_block_index_t BBIdx = index_of_basic_block(b.Analysis.ICFG, bb);
-    unsigned N_BB = BBIdx + 1;
-
-    BasicBlockStateContainer &state_vec = std::get<2>(bin_stuff);
-
+                                                    basic_block_t bb,
+                                                    BasicBlockStateContainer &y) {
     if constexpr (!MultiThreaded)
-      state_vec.reserve(N_BB);
+      y.reserve(b.Analysis.ICFG.num_vertices());
 
-    for (basic_block_index_t BBIdx = state_vec.size(); BBIdx < N_BB; ++BBIdx) {
-      basic_block_t bb = basic_block_of_index(BBIdx, b.Analysis.ICFG);
+    unsigned N_BB = index_of_basic_block(b.Analysis.ICFG, bb) + 1;
 
+    for (basic_block_index_t BBIdx = y.size(); BBIdx < N_BB - 1; ++BBIdx) {
       if constexpr (LazyInitialization) {
-        state_vec.emplace_back();
+        y.emplace_back();
       } else {
-        state_vec.emplace_back(b, bb);
+        y.emplace_back(b, basic_block_of_index(BBIdx, b.Analysis.ICFG));
       }
+    }
+
+    if constexpr (LazyInitialization) {
+      y.emplace_back();
+    } else {
+      y.emplace_back(b, bb);
     }
   }
 
@@ -249,19 +248,31 @@ private:
                    std::conditional_t<std::is_void_v<T>, void, StatePtr<T> &>>
   __for_binary(const binary_t &b) {
     if constexpr (BoundsChecking) {
-      try {
-        MaybeSharableLock lck(mtx);
+      if constexpr (Eager) {
+        try {
+          MaybeSharableLock s_lck(mtx);
 
-        return std::get<0>(x.at(index_of_binary(b, jv)));
-      } catch (const std::out_of_range &ex) {}
-      {
-        MaybeExclusiveLock lck(mtx);
-        if constexpr (Eager)
+          return std::get<0>(x.at(index_of_binary(b, jv)));
+        } catch (const std::out_of_range &ex) {}
+        {
+          MaybeExclusiveLock e_lck(mtx);
           update();
-        else
-          update(b);
+        }
+        __attribute__((musttail)) return __for_binary(b);
+      } else {
+        MaybeSharableLock s_lck(mtx);
+
+        binary_index_t BIdx = index_of_binary(b, jv);
+        if (unlikely(BIdx >= x.size())) {
+          s_lck.unlock();
+          {
+            MaybeExclusiveLock e_lck(mtx);
+            update(b);
+          }
+          s_lck.lock();
+        }
+        return std::get<0>(x[BIdx]);
       }
-      __attribute__((musttail)) return __for_binary(b);
     } else {
       return std::get<0>(x[index_of_binary(b, jv)]);
     }
@@ -272,22 +283,44 @@ private:
                    std::conditional_t<std::is_void_v<T>, void, StatePtr<T> &>>
   __for_function(const function_t &f) {
     if constexpr (BoundsChecking) {
-      try {
-        MaybeSharableLock lck(mtx);
+      if constexpr (Eager) {
+        try {
+          MaybeSharableLock lck(mtx);
+
+          binary_index_t BIdx = binary_index_of_function(f, jv);
+          function_index_t FIdx = index_of_function_in_binary(f, jv.Binaries.at(BIdx));
+
+          return std::get<1>(x.at(BIdx)).at(FIdx);
+        } catch (const std::out_of_range &ex) {}
+        {
+          MaybeExclusiveLock lck(mtx);
+          update();
+        }
+        __attribute__((musttail)) return __for_function(f);
+      } else {
+        MaybeSharableLock s_lck(mtx);
 
         binary_index_t BIdx = binary_index_of_function(f, jv);
-        function_index_t FIdx = index_of_function_in_binary(f, jv.Binaries.at(BIdx));
-
-        return std::get<1>(x.at(BIdx)).at(FIdx);
-      } catch (const std::out_of_range &ex) {}
-      {
-        MaybeExclusiveLock lck(mtx);
-        if constexpr (Eager)
-          update();
-        else
-          update(f);
+        if (unlikely(BIdx >= x.size())) {
+          s_lck.unlock();
+          {
+            MaybeExclusiveLock e_lck(mtx);
+            update(jv.Binaries.at(BIdx));
+          }
+          s_lck.lock();
+        }
+        FunctionStateContainer &y = std::get<1>(x[BIdx]);
+        function_index_t FIdx = index_of_function(f);
+        if (unlikely(FIdx >= y.size())) {
+          s_lck.unlock();
+          {
+            MaybeExclusiveLock e_lck(mtx);
+            update(jv.Binaries.at(BIdx), f, y);
+          }
+          s_lck.lock();
+        }
+        return y[FIdx];
       }
-      __attribute__((musttail)) return __for_function(f);
     } else {
       binary_index_t BIdx = binary_index_of_function(f, jv);
       function_index_t FIdx = index_of_function_in_binary(f, jv.Binaries.at(BIdx));
@@ -301,22 +334,44 @@ private:
                    std::conditional_t<std::is_void_v<T>, void, StatePtr<T> &>>
   __for_basic_block(const binary_t &b, basic_block_t bb) {
     if constexpr (BoundsChecking) {
-      try {
-        MaybeSharableLock lck(mtx);
+      if constexpr (Eager) {
+        try {
+          MaybeSharableLock lck(mtx);
+
+          binary_index_t BIdx = index_of_binary(b, jv);
+          basic_block_index_t BBIdx = index_of_basic_block(b.Analysis.ICFG, bb);
+
+          return std::get<2>(x.at(BIdx)).at(BBIdx);
+        } catch (const std::out_of_range &ex) {}
+        {
+          MaybeExclusiveLock lck(mtx);
+          update();
+        }
+        __attribute__((musttail)) return __for_basic_block(b, bb);
+      } else {
+        MaybeSharableLock s_lck(mtx);
 
         binary_index_t BIdx = index_of_binary(b, jv);
+        if (unlikely(BIdx >= x.size())) {
+          s_lck.unlock();
+          {
+            MaybeExclusiveLock e_lck(mtx);
+            update(b);
+          }
+          s_lck.lock();
+        }
+        BasicBlockStateContainer &y = std::get<2>(x[BIdx]);
         basic_block_index_t BBIdx = index_of_basic_block(b.Analysis.ICFG, bb);
-
-        return std::get<2>(x.at(BIdx)).at(BBIdx);
-      } catch (const std::out_of_range &ex) {}
-      {
-        MaybeExclusiveLock lck(mtx);
-        if constexpr (Eager)
-          update();
-        else
-          update(b, bb);
+        if (unlikely(BBIdx >= y.size())) {
+          s_lck.unlock();
+          {
+            MaybeExclusiveLock e_lck(mtx);
+            update(b, bb, y);
+          }
+          s_lck.lock();
+        }
+        return y[BBIdx];
       }
-      __attribute__((musttail)) return __for_basic_block(b, bb);
     } else {
       binary_index_t BIdx = index_of_binary(b, jv);
       basic_block_index_t BBIdx = index_of_basic_block(b.Analysis.ICFG, bb);
