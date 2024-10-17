@@ -1088,8 +1088,10 @@ int IntelPT<Verbosity>::on_ip(const taddr_t IP, const uint64_t offset) {
         return 0;
       }
     } else {
-      Curr.Block.second = StraightLineSlow<false>(
-          jv.Binaries.at(Curr.Block.first), Curr.Block.second);
+      binary_t &curr_b = jv.Binaries.at(Curr.Block.first);
+
+      ip_sharable_lock<ip_sharable_mutex> s_lck_bbmap(curr_b.bbmap_mtx);
+      Curr.Block.second = StraightLineSlow<false>(curr_b, Curr.Block.second);
     }
   }
 
