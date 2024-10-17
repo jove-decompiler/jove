@@ -119,6 +119,7 @@ constexpr dynamic_target_t
 constexpr block_t
     invalid_block(invalid_binary_index,
                   invalid_basic_block_index);
+constexpr taddr_t invalid_taddr = std::numeric_limits<taddr_t>::max();
 
 constexpr bool is_binary_index_valid(binary_index_t idx) {
   return idx != invalid_binary_index;
@@ -135,7 +136,11 @@ constexpr bool is_dynamic_target_valid(dynamic_target_t X) {
 }
 constexpr bool is_block_valid(block_t X) {
   return is_binary_index_valid(X.first) &&
-         is_function_index_valid(X.second);
+         is_basic_block_index_valid(X.second);
+}
+constexpr bool is_taddr_valid(taddr_t Addr) {
+  // the following is equivalent to Addr != 0UL && Addr != ~0UL
+  return !!((Addr + taddr_t(1)) & taddr_t(~1ull));
 }
 
 constexpr unsigned IsMIPSTarget =
@@ -224,6 +229,9 @@ using ip_upgradable_lock = boost::interprocess::upgradable_lock<Mutex>;
 struct __do_nothing_t {
   template <typename... Args>
   __do_nothing_t (Args&&...) noexcept {}
+
+  void unlock(void) const {}
+  void lock(void) const {}
 };
 
 template <typename T>
@@ -322,13 +330,13 @@ struct ip_safe_adjacency_list {
 #define S_LCK(ShouldLock) _S_LCK(ShouldLock, this->_mtx)
 #define E_LCK(ShouldLock) _E_LCK(ShouldLock, this->_mtx)
 
-  template <bool L = true, typename... Args>
+  template <typename... Args>
   vertices_size_type index_of_add_vertex(Args &&...args) {
     const vertices_size_type Idx =
         _size.fetch_add(1u, std::memory_order_relaxed);
 
-    if (unlikely(Idx >= actual_num_vertices<L>())) {
-      E_LCK(L);
+    if (unlikely(Idx >= actual_num_vertices<true>())) {
+      E_LCK(true);
 
       vertices_size_type actual_size = actual_num_vertices<false>();
       if (Idx >= actual_size) {
@@ -342,9 +350,9 @@ struct ip_safe_adjacency_list {
     return Idx;
   }
 
-  template <bool L = true, typename... Args>
+  template <typename... Args>
   vertex_descriptor add_vertex(Args &&...args) {
-    return vertex(index_of_add_vertex<L>(std::forward<Args>(args)...));
+    return vertex<false>(index_of_add_vertex(std::forward<Args>(args)...));
   }
 
   template <bool L = true>
@@ -389,8 +397,10 @@ struct ip_safe_adjacency_list {
     return _adjacency_list[V];
   }
 
+  template <bool Check = true>
   vertex_descriptor vertex(vertices_size_type Idx) const {
-    assert(Idx < num_vertices()); /* catch bugs */
+    if (Check)
+      assert(Idx < num_vertices()); /* catch bugs */
 
     // for VertexList=vecS this is just identity map
     return boost::vertex(Idx, _adjacency_list);
@@ -618,6 +628,7 @@ size_t jvDefaultInitialSize(void);
 
 struct basic_block_properties_t {
   mutable ip_sharable_mutex mtx;
+  mutable ip_sharable_mutex finished_mtx;
 
   bool Speculative = false;
 
@@ -625,11 +636,11 @@ struct basic_block_properties_t {
   uint32_t Size = ~0UL;
 
   struct {
-    taddr_t Addr;
-    TERMINATOR Type;
+    taddr_t Addr = ~0UL;
+    TERMINATOR Type = TERMINATOR::UNKNOWN;
 
     struct {
-      function_index_t Target;
+      function_index_t Target = invalid_function_index;
     } _call;
 
     struct {
@@ -1071,7 +1082,8 @@ allocates_basic_block_t::allocates_basic_block_t(binary_t &b,
   auto &ICFG = b.Analysis.ICFG;
 
   basic_block_index_t Idx = ICFG.index_of_add_vertex(b.get_allocator());
-  ICFG[ICFG.vertex(Idx)].Addr = Addr;
+  bool success = ICFG[ICFG.vertex<false>(Idx)].mtx.try_lock();
+  assert(success);
 
   store = Idx;
   BBIdx = Idx;
@@ -1777,9 +1789,14 @@ void for_each_basic_block_in_binary(const binary_t &b, Proc proc) {
   std::for_each(it, it_end, [proc](basic_block_t bb) { proc(bb); });
 }
 
-static inline basic_block_index_t index_of_basic_block(const ip_icfg_t &ICFG,
-                                                       basic_block_t bb) {
+constexpr basic_block_index_t index_of_basic_block(const ip_icfg_t &ICFG,
+                                                   basic_block_t bb) {
   return ICFG.index(bb);
+}
+
+constexpr basic_block_index_t index_of_basic_block(const binary_t &b,
+                                                   basic_block_t bb) {
+  return index_of_basic_block(b.Analysis.ICFG, bb);
 }
 
 constexpr binary_index_t binary_index_of_function(const function_t &f,
@@ -1804,6 +1821,12 @@ constexpr binary_index_t index_of_binary(const binary_t &b) {
 
 constexpr function_index_t index_of_function_in_binary(const function_t &f,
                                                        const binary_t &b) {
+  function_index_t res = f.Idx;
+  assert(is_function_index_valid(res));
+  return res;
+}
+
+constexpr function_index_t index_of_function(const function_t &f) {
   function_index_t res = f.Idx;
   assert(is_function_index_valid(res));
   return res;
@@ -1951,7 +1974,6 @@ static inline bool IsFunctionLongjmp(const function_t &f,
 static inline basic_block_index_t
 index_of_basic_block_at_address(taddr_t Addr, const binary_t &b) {
   auto it = bbmap_find(b.bbmap, Addr);
-
   assert(it != b.bbmap.end());
   return (*it).second;
 }
