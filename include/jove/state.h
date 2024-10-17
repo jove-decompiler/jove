@@ -221,8 +221,7 @@ public:
     if constexpr (LazyInitialization) {
       std::unique_ptr<FunctionStateTy> &y = __for_function(f);
       if (unlikely(!y))
-        y = std::make_unique<FunctionStateTy>(
-            f, jv.Binaries.at(binary_index_of_function(f, jv)));
+        y = std::make_unique<FunctionStateTy>(f, binary_of_function(f));
       return *y;
     } else {
       return __for_function(f);
@@ -288,7 +287,7 @@ private:
           MaybeSharableLock lck(mtx);
 
           binary_index_t BIdx = binary_index_of_function(f, jv);
-          function_index_t FIdx = index_of_function_in_binary(f, jv.Binaries.at(BIdx));
+          function_index_t FIdx = index_of_function(f);
 
           return std::get<1>(x.at(BIdx)).at(FIdx);
         } catch (const std::out_of_range &ex) {}
@@ -305,7 +304,7 @@ private:
           s_lck.unlock();
           {
             MaybeExclusiveLock e_lck(mtx);
-            update(jv.Binaries.at(BIdx));
+            update(binary_of_function(f));
           }
           s_lck.lock();
         }
@@ -315,7 +314,7 @@ private:
           s_lck.unlock();
           {
             MaybeExclusiveLock e_lck(mtx);
-            update(jv.Binaries.at(BIdx), f, y);
+            update(binary_of_function(f), f, y);
           }
           s_lck.lock();
         }
@@ -323,7 +322,7 @@ private:
       }
     } else {
       binary_index_t BIdx = binary_index_of_function(f, jv);
-      function_index_t FIdx = index_of_function_in_binary(f, jv.Binaries.at(BIdx));
+      function_index_t FIdx = index_of_function(f);
 
       return std::get<1>(x[BIdx])[FIdx];
     }
