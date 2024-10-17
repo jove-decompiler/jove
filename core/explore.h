@@ -44,7 +44,10 @@ class explorer_t {
 
   bool split(binary_t &, llvm::object::Binary &,
              ip_scoped_lock<ip_sharable_mutex> e_lck_bb,
-             bbmap_t::iterator it, const taddr_t Addr, basic_block_index_t);
+             bbmap_t::iterator it,
+             const taddr_t Addr,
+             basic_block_index_t,
+             on_the_block_proc_t);
 
   basic_block_index_t _explore_basic_block(binary_t &,
                                            llvm::object::Binary &,

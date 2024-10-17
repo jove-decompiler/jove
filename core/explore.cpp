@@ -96,10 +96,11 @@ function_index_t explorer_t::_explore_function(binary_t &b,
   return Idx;
 }
 
-bool explorer_t::split(
-    binary_t &b, obj::Binary &Bin,
-    ip_scoped_lock<ip_sharable_mutex> e_lck_bb,
-    bbmap_t::iterator it, const taddr_t Addr, basic_block_index_t Idx) {
+bool explorer_t::split(binary_t &b, obj::Binary &Bin,
+                       ip_scoped_lock<ip_sharable_mutex> e_lck_bb,
+                       bbmap_t::iterator it, const taddr_t Addr,
+                       basic_block_index_t Idx,
+                       on_the_block_proc_t on_the_block_proc) {
   auto &bbmap = b.bbmap;
   auto &ICFG = b.Analysis.ICFG;
 
@@ -243,6 +244,8 @@ on_insn:
     //
     for (basic_block_t bb : to_bb_vec)
       ICFG.add_edge<false>(bb_2, bb);
+
+    on_the_block_proc(bb_2);
   }
 
   //
@@ -312,7 +315,11 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
   {
     bool inserted = b.bbbmap.try_emplace_or_cvisit(
         Addr, std::ref(b), std::ref(Idx), static_cast<taddr_t>(Addr),
-        [&](const typename bbbmap_t::value_type &x) { Idx = x.second; });
+        [&](const typename bbbmap_t::value_type &x) {
+          const basic_block_index_t TheIdx = x.second;
+          on_the_block_proc(basic_block_of_index(TheIdx, ICFG));
+          Idx = TheIdx;
+        });
 
     assert(is_basic_block_index_valid(Idx));
 
@@ -337,7 +344,8 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
     //
     auto it = bbmap_find(b.bbmap, Addr);
     if (it != b.bbmap.end()) {
-      if (likely(split(b, Bin, boost::move(e_lck_bb), it, Addr, Idx))) {
+      if (likely(split(b, Bin, boost::move(e_lck_bb), it, Addr, Idx,
+                       on_the_block_proc))) {
         return Idx;
       } else {
         //
