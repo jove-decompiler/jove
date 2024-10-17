@@ -22,13 +22,12 @@ typedef boost::format fmt;
 
 function_index_t explorer_t::_explore_function(binary_t &b,
                                                obj::Binary &B,
-                                               const uint64_t Addr,
+                                               const taddr_t Addr,
                                                const bool Speculative) {
 #if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
   assert((Addr & 1) == 0);
 #endif
-  assert(Addr);
-  assert(~Addr != 0);
+  assert(is_taddr_valid(Addr));
 
   function_index_t Idx = invalid_function_index;
   {
@@ -100,7 +99,7 @@ function_index_t explorer_t::_explore_function(binary_t &b,
 bool explorer_t::split(
     binary_t &b, obj::Binary &Bin,
     ip_scoped_lock<ip_sharable_mutex> e_lck_bb,
-    bbmap_t::iterator it, const uint64_t Addr, basic_block_index_t Idx) {
+    bbmap_t::iterator it, const taddr_t Addr, basic_block_index_t Idx) {
   auto &bbmap = b.bbmap;
   auto &ICFG = b.Analysis.ICFG;
 
@@ -299,7 +298,7 @@ on_insn:
 
 basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
                                                      obj::Binary &Bin,
-                                                     const uint64_t Addr,
+                                                     const taddr_t Addr,
                                                      bool Speculative) {
 #if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
   assert((Addr & 1) == 0);
@@ -507,7 +506,7 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
 
   this->on_newbb_proc(b, basic_block_of_index(Idx, ICFG));
 
-  auto control_flow_to = [&](uint64_t Target) -> void {
+  auto control_flow_to = [&](taddr_t Target) -> void {
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
     Target &= ~1UL;
 #endif
@@ -525,12 +524,12 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
   case TERMINATOR::CONDITIONAL_JUMP: {
 #if 0
     // explore both destinations concurrently
-    std::array<uint64_t, 2> Targets{{T._conditional_jump.Target,
+    std::array<taddr_t, 2> Targets{{T._conditional_jump.Target,
                                      T._conditional_jump.NextPC}};
     std::for_each(std::execution::par_unseq,
                   Targets.begin(),
                   Targets.end(),
-                  [&](uint64_t Target) {
+                  [&](taddr_t Target) {
                     control_flow_to(Target);
                   });
 #else
@@ -541,7 +540,7 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
   }
 
   case TERMINATOR::CALL: {
-    uint64_t CalleeAddr = T._call.Target;
+    taddr_t CalleeAddr = T._call.Target;
 
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
     CalleeAddr &= ~1UL;
@@ -591,8 +590,8 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
 void explorer_t::_control_flow_to(
     binary_t &b,
     obj::Binary &Bin,
-    const uint64_t TermAddr,
-    const uint64_t Target,
+    const taddr_t TermAddr,
+    const taddr_t Target,
     const bool Speculative, basic_block_t bb /* unused if !Speculative */) {
   assert(Target);
 
@@ -629,7 +628,7 @@ void explorer_t::_control_flow_to(
 
 basic_block_index_t explorer_t::explore_basic_block(binary_t &b,
                                                     obj::Binary &B,
-                                                    uint64_t Addr) {
+                                                    taddr_t Addr) {
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
   Addr &= ~1UL;
 #endif
@@ -639,7 +638,7 @@ basic_block_index_t explorer_t::explore_basic_block(binary_t &b,
 
 function_index_t explorer_t::explore_function(binary_t &b,
                                               obj::Binary &B,
-                                              uint64_t Addr) {
+                                              taddr_t Addr) {
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
   Addr &= ~1UL;
 #endif

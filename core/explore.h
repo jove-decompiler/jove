@@ -41,22 +41,22 @@ class explorer_t {
 
   bool split(binary_t &, llvm::object::Binary &,
              ip_scoped_lock<ip_sharable_mutex> e_lck_bb,
-             bbmap_t::iterator it, const uint64_t Addr, basic_block_index_t);
+             bbmap_t::iterator it, const taddr_t Addr, basic_block_index_t);
 
   basic_block_index_t _explore_basic_block(binary_t &,
                                            llvm::object::Binary &,
-                                           const uint64_t Addr,
+                                           const taddr_t Addr,
                                            bool Speculative);
 
   function_index_t _explore_function(binary_t &,
                                      llvm::object::Binary &,
-                                     const uint64_t Addr,
+                                     const taddr_t Addr,
                                      const bool Speculative);
 
   void _control_flow_to(binary_t &,
                         llvm::object::Binary &,
-                        const uint64_t TermAddr,
-                        const uint64_t Target,
+                        const taddr_t TermAddr,
+                        const taddr_t Target,
                         const bool Speculative,
                         basic_block_t bb /* unused if !Speculative */);
 
@@ -78,11 +78,11 @@ public:
   //
   basic_block_index_t explore_basic_block(binary_t &,
                                           llvm::object::Binary &,
-                                          uint64_t Addr);
+                                          taddr_t Addr);
 
   function_index_t explore_function(binary_t &,
                                     llvm::object::Binary &,
-                                    uint64_t Addr);
+                                    taddr_t Addr);
 
   on_newbb_proc_t get_newbb_proc(void) const {
     return on_newbb_proc;
