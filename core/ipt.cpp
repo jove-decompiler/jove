@@ -1278,7 +1278,7 @@ static std::pair<basic_block_index_t, bool>
 StraightLineGo(const binary_t &b,
                basic_block_index_t Res,
                taddr_t GoNoFurther = 0,
-               std::function<void(const binary_t &, basic_block_index_t)> on_block = [](const binary_t &, basic_block_index_t) -> void {},
+               std::function<void(basic_block_t)> on_block = [](basic_block_t) -> void {},
                std::function<basic_block_index_t (basic_block_index_t)> on_final_block = [](basic_block_index_t Res) -> basic_block_index_t { return Res; }) {
   const auto &ICFG = b.Analysis.ICFG;
 
@@ -1314,14 +1314,14 @@ StraightLineGo(const binary_t &b,
 
          ResSav = Res;
 
-         const basic_block_properties_t &new_bbprop =
-             ICFG[basic_block_of_index(Res, b)];
+         basic_block_t newbb = basic_block_of_index(Res, b);
+         const basic_block_properties_t &new_bbprop = ICFG[newbb];
          the_bbprop = new_bbprop;
 
          ip_sharable_lock<ip_sharable_mutex>(new_bbprop.init_mtx);
          new_bbprop.mtx.lock_sharable();
 
-         on_block(b, Res);
+         on_block(newbb);
          0;
        })) {
     basic_block_t bb = basic_block_of_index(Res, b);
@@ -1442,9 +1442,8 @@ IntelPT<Verbosity>::StraightLineUntilSlow(const binary_t &b,
                                           taddr_t GoNoFurther, std::function<basic_block_index_t(basic_block_index_t)> on_final_block) {
   return StraightLineGo<true, InfiniteLoopThrow, Verbosity>(
       b, From, GoNoFurther,
-      std::bind(&IntelPT<Verbosity>::on_block, this,
-                std::placeholders::_1,
-                std::placeholders::_2), on_final_block);
+      std::bind(&IntelPT<Verbosity>::on_block, this, std::ref(b),
+                std::placeholders::_1), on_final_block);
 }
 
 template <unsigned Verbosity>
@@ -1455,9 +1454,8 @@ IntelPT<Verbosity>::StraightLineSlow(const binary_t &b,
                                      std::function<basic_block_index_t(basic_block_index_t)> on_final_block) {
   return StraightLineGo<false, InfiniteLoopThrow, Verbosity>(
       b, From, 0 /* unused */,
-      std::bind(&IntelPT<Verbosity>::on_block, this,
-                std::placeholders::_1,
-                std::placeholders::_2), on_final_block).first;
+      std::bind(&IntelPT<Verbosity>::on_block, this, std::ref(b),
+                std::placeholders::_1), on_final_block).first;
 }
 
 template <unsigned Verbosity>
