@@ -130,6 +130,7 @@ class IntelPT {
     unsigned ExecBits = 8*sizeof(taddr_t);
 
     block_t Block = invalid_block;
+    taddr_t TermAddr = invalid_taddr;
   } Curr;
 
   struct {
@@ -182,16 +183,21 @@ class IntelPT {
 
   template <bool InfiniteLoopThrow = false>
   std::pair<basic_block_index_t, bool>
-  StraightLineUntilSlow(const binary_t &, basic_block_index_t, taddr_t GoNoFurther);
+  StraightLineUntilSlow(const binary_t &,
+                        basic_block_index_t,
+                        taddr_t GoNoFurther,
+                        std::function<basic_block_index_t(basic_block_index_t)> on_final_block = [](basic_block_index_t Res) -> basic_block_index_t { return Res; });
 
   template <bool InfiniteLoopThrow = false>
   basic_block_index_t StraightLineFast(const binary_t &, basic_block_index_t);
 
   template <bool InfiniteLoopThrow = false>
-  basic_block_index_t StraightLineSlow(const binary_t &, basic_block_index_t);
+  basic_block_index_t
+  StraightLineSlow(const binary_t &,
+                   basic_block_index_t,
+                   std::function<basic_block_index_t(basic_block_index_t)> on_final_block = [](basic_block_index_t Res) -> basic_block_index_t { return Res; });
 
-  basic_block_index_t TNTAdvance(const binary_t &, basic_block_index_t From,
-                                 uint64_t tnt, uint8_t n);
+  void TNTAdvance(uint64_t tnt, uint8_t n);
 
   void on_block(const binary_t &, basic_block_index_t);
   void block_transfer(binary_index_t FromBIdx, taddr_t FromAddr,
