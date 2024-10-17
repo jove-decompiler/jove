@@ -133,9 +133,9 @@ void DumpTool::dumpDecompilation(const jv_t& jv) {
 
           Writer.printHexList("Predecessors", preds);
         }
-#endif
 
         Writer.getOStream() << '\n';
+#endif
 
         //Writer.printHex("Address", ICFG[bb].Addr);
         Writer.printNumber("Size", ICFG[bb].Size);
