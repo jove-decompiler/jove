@@ -66,10 +66,10 @@ extern "C" void jv_term_is_call(uint64_t Target, uint64_t NextPC) {
 extern "C" void jv_term_is_none(uint64_t NextPC) {
   jv_ti.Type = jove::TERMINATOR::NONE;
   jv_ti._none.NextPC = NextPC;
+  jv_ti.Addr = 0;
 }
 
 extern "C" void jv_term_is_unreachable(void) {
-  jv_ti.Addr = 0;
   jv_ti.Type = jove::TERMINATOR::UNREACHABLE;
 }
 
@@ -106,7 +106,7 @@ extern "C" void jv_set_end_pc(uint64_t EndPC) {
 }
 
 extern "C" void jv_illegal_op(uint64_t PC) {
-  jv_ti.Addr = 0;
+  jv_ti.Addr = ~0UL;
   throw jove::illegal_op_exception(PC);
 }
 
@@ -1212,7 +1212,7 @@ tiny_code_generator_t::translate(uint64_t pc, uint64_t pc_end) {
   unsigned tb_size = 0;
 
   jv_ti.Type = TERMINATOR::UNKNOWN;
-  jv_ti.Addr = 0;
+  jv_ti.Addr = ~0UL;
 
   int max_insns = 64;
   TranslationBlock tb = {0};
