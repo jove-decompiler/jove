@@ -2062,6 +2062,16 @@ static inline taddr_t address_of_basic_block(basic_block_t bb,
   return address_of_basic_block(bb, b.Analysis.ICFG);
 }
 
+static inline taddr_t address_of_basic_block_terminator(basic_block_t bb,
+                                                        const ip_icfg_t &ICFG) {
+  return ICFG[bb].Term.Addr;
+}
+
+static inline taddr_t address_of_basic_block_terminator(basic_block_t bb,
+                                                        const binary_t &b) {
+  return address_of_basic_block_terminator(bb, b.Analysis.ICFG);
+}
+
 static inline taddr_t entry_address_of_function(const function_t &f,
                                                 const binary_t &binary) {
   const auto &ICFG = binary.Analysis.ICFG;
