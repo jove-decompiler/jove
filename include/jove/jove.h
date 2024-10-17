@@ -1806,18 +1806,17 @@ constexpr basic_block_index_t index_of_basic_block(const binary_t &b,
   return index_of_basic_block(b.Analysis.ICFG, bb);
 }
 
-constexpr binary_index_t binary_index_of_function(const function_t &f,
-                                                  const jv_t &jv) {
+constexpr binary_index_t binary_index_of_function(const function_t &f) {
   assert(f.b);
   binary_index_t res = f.b->Idx;
   assert(is_binary_index_valid(res));
   return res;
 }
 
-constexpr binary_index_t index_of_binary(const binary_t &b, const jv_t &jv) {
-  binary_index_t res = b.Idx;
-  assert(is_binary_index_valid(res));
-  return res;
+[[deprecated]] /* use binary_index_of_function(f) */
+constexpr binary_index_t binary_index_of_function(const function_t &f,
+                                                  const jv_t &jv) {
+  return binary_index_of_function(f);
 }
 
 constexpr binary_index_t index_of_binary(const binary_t &b) {
@@ -1826,11 +1825,9 @@ constexpr binary_index_t index_of_binary(const binary_t &b) {
   return res;
 }
 
-constexpr function_index_t index_of_function_in_binary(const function_t &f,
-                                                       const binary_t &b) {
-  function_index_t res = f.Idx;
-  assert(is_function_index_valid(res));
-  return res;
+[[deprecated]] /* use index_of_binary(b) */
+constexpr binary_index_t index_of_binary(const binary_t &b, const jv_t &jv) {
+  return index_of_binary(b);
 }
 
 constexpr function_index_t index_of_function(const function_t &f) {
@@ -1839,13 +1836,26 @@ constexpr function_index_t index_of_function(const function_t &f) {
   return res;
 }
 
-constexpr binary_t &binary_of_function(const function_t &f, jv_t &jv) {
-  return jv.Binaries.at(binary_index_of_function(f, jv));
+[[deprecated]] /* use index_of_function(f) */
+constexpr function_index_t index_of_function_in_binary(const function_t &f,
+                                                       const binary_t &b) {
+  return index_of_function(f);
 }
 
+constexpr const binary_t &binary_of_function(const function_t &f) {
+  assert(f.b);
+  return *f.b.get();
+}
+
+constexpr binary_t &binary_of_function(function_t &f) {
+  assert(f.b);
+  return *f.b.get();
+}
+
+[[deprecated]] /* use binary_of_function(f) */
 constexpr const binary_t &binary_of_function(const function_t &f,
                                              const jv_t &jv) {
-  return jv.Binaries.at(binary_index_of_function(f, jv));
+  return binary_of_function(f);
 }
 
 constexpr function_t &function_of_target(dynamic_target_t X, jv_t &jv) {
