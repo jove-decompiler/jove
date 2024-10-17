@@ -628,7 +628,7 @@ size_t jvDefaultInitialSize(void);
 
 struct basic_block_properties_t {
   mutable ip_sharable_mutex mtx;
-  mutable ip_sharable_mutex finished_mtx;
+  mutable ip_sharable_mutex init_mtx;
 
   bool Speculative = false;
 
@@ -1082,7 +1082,14 @@ allocates_basic_block_t::allocates_basic_block_t(binary_t &b,
   auto &ICFG = b.Analysis.ICFG;
 
   basic_block_index_t Idx = ICFG.index_of_add_vertex(b.get_allocator());
-  bool success = ICFG[ICFG.vertex<false>(Idx)].mtx.try_lock();
+  auto &bbprop = ICFG[ICFG.vertex<false>(Idx)];
+  bbprop.Addr = Addr;
+
+  bool success;
+
+  success = bbprop.init_mtx.try_lock();
+  assert(success);
+  success = bbprop.mtx.try_lock();
   assert(success);
 
   store = Idx;
@@ -2046,8 +2053,13 @@ static inline bool exists_indirect_jump_at_address(taddr_t Addr,
 }
 
 static inline taddr_t address_of_basic_block(basic_block_t bb,
-                                             const icfg_t &ICFG) {
+                                             const ip_icfg_t &ICFG) {
   return ICFG[bb].Addr;
+}
+
+static inline taddr_t address_of_basic_block(basic_block_t bb,
+                                             const binary_t &b) {
+  return address_of_basic_block(bb, b.Analysis.ICFG);
 }
 
 static inline taddr_t entry_address_of_function(const function_t &f,

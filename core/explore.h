@@ -24,8 +24,11 @@ struct invalid_control_flow_exception {
 
 struct tiny_code_generator_t;
 
+typedef std::function<void(basic_block_t)> on_the_block_proc_t;
 typedef std::function<void(binary_t &, basic_block_t)> on_newbb_proc_t;
 typedef std::function<void(binary_t &, function_t &)> on_newfn_proc_t;
+
+static inline void do_nothing_on_the_block(basic_block_t) {}
 
 //
 // performs accurate recursive traversal disassembly
@@ -46,7 +49,8 @@ class explorer_t {
   basic_block_index_t _explore_basic_block(binary_t &,
                                            llvm::object::Binary &,
                                            const taddr_t Addr,
-                                           bool Speculative);
+                                           bool Speculative,
+                                           on_the_block_proc_t on_the_block_proc = do_nothing_on_the_block);
 
   function_index_t _explore_function(binary_t &,
                                      llvm::object::Binary &,
@@ -78,7 +82,8 @@ public:
   //
   basic_block_index_t explore_basic_block(binary_t &,
                                           llvm::object::Binary &,
-                                          taddr_t Addr);
+                                          taddr_t Addr,
+                                          on_the_block_proc_t on_the_block_proc = do_nothing_on_the_block);
 
   function_index_t explore_function(binary_t &,
                                     llvm::object::Binary &,

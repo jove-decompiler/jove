@@ -299,7 +299,8 @@ on_insn:
 basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
                                                      obj::Binary &Bin,
                                                      const taddr_t Addr,
-                                                     bool Speculative) {
+                                                     bool Speculative,
+                                                     on_the_block_proc_t on_the_block_proc) {
 #if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
   assert((Addr & 1) == 0);
 #endif
@@ -320,6 +321,8 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
   }
 
   auto &bbprop = ICFG[basic_block_of_index(Idx, ICFG)];
+  ip_scoped_lock<ip_sharable_mutex> e_lck_bb_init(
+      bbprop.init_mtx, boost::interprocess::accept_ownership);
   ip_scoped_lock<ip_sharable_mutex> e_lck_bb(
       bbprop.mtx, boost::interprocess::accept_ownership);
 
@@ -472,8 +475,6 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
     abort();
   }
 
-  ip_scoped_lock<ip_sharable_mutex> finished_lck(bbprop.finished_mtx);
-
   {
     ip_scoped_lock<ip_sharable_mutex> e_lck(boost::move(e_lck_bb));
 
@@ -494,6 +495,8 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
       bbmap_add(b.bbmap, intervl, Idx);
       e_lck_bbmap.unlock();
     }
+
+    on_the_block_proc(basic_block_of_index(Idx, ICFG));
   }
 
   //
@@ -621,19 +624,20 @@ void explorer_t::_control_flow_to(
   } else {
     ip_sharable_lock<ip_sharable_mutex> s_lck_bbmap(b.bbmap_mtx);
 
-    ICFG.add_edge(basic_block_at_address(TermAddr, b),
-                  basic_block_of_index(SuccBBIdx, b));
+    ICFG.add_edge<false>(basic_block_at_address(TermAddr, b),
+                         basic_block_of_index(SuccBBIdx, b));
   }
 }
 
 basic_block_index_t explorer_t::explore_basic_block(binary_t &b,
                                                     obj::Binary &B,
-                                                    taddr_t Addr) {
+                                                    taddr_t Addr,
+                                                    on_the_block_proc_t on_the_block_proc) {
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
   Addr &= ~1UL;
 #endif
 
-  return _explore_basic_block(b, B, Addr, false);
+  return _explore_basic_block(b, B, Addr, false, on_the_block_proc);
 }
 
 function_index_t explorer_t::explore_function(binary_t &b,
