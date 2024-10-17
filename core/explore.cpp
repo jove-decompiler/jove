@@ -99,7 +99,7 @@ function_index_t explorer_t::_explore_function(binary_t &b,
 
 bool explorer_t::split(
     binary_t &b, obj::Binary &Bin,
-    std::unique_ptr<ip_scoped_lock<ip_sharable_mutex>> e_lck_bbmap,
+    ip_scoped_lock<ip_sharable_mutex> e_lck_bb,
     bbmap_t::iterator it, const uint64_t Addr, basic_block_index_t Idx) {
   auto &bbmap = b.bbmap;
   auto &ICFG = b.Analysis.ICFG;
@@ -187,24 +187,6 @@ on_insn:
   basic_block_properties_t &bbprop_1 = ICFG.at(bb_1);
 
   //
-  // gather up bb_1 edges
-  //
-  std::vector<basic_block_t> to_bb_vec;
-
-  {
-    ip_sharable_lock<ip_sharable_mutex> s_lck(bbprop_1.mtx);
-
-    to_bb_vec.reserve(ICFG.out_degree<false>(bb_1));
-    {
-      icfg_t::adjacency_iterator succ_it, succ_it_end;
-      std::tie(succ_it, succ_it_end) = ICFG.adjacent_vertices(bb_1);
-
-      std::copy(succ_it, succ_it_end, std::back_inserter(to_bb_vec));
-    }
-  }
-
-
-  //
   // create bb_2
   //
   basic_block_t bb_2 = basic_block_of_index(Idx, ICFG);
@@ -220,31 +202,46 @@ on_insn:
 
   assert(bbprop_2.Addr + bbprop_2.Size == addr_intvl_upper(intvl));
 
-  //
-  // update bb_1
-  //
-  bbprop_1.Size = off;
-  bbprop_1.Term.Type = TERMINATOR::NONE;
-  bbprop_1.Term.Addr = 0;
-  bbprop_1.Term._indirect_jump.IsLj = false;
-  bbprop_1.Sj = false;
-  bbprop_1.DynTargets.clear();
-  bbprop_1.DynTargetsComplete = false;
-  bbprop_1.InvalidateAnalysis();
-
-  //
-  // edges from bb_1 now point from bb_2
-  //
+  std::vector<basic_block_t> to_bb_vec;
   {
     ip_scoped_lock<ip_sharable_mutex> e_lck(bbprop_1.mtx);
 
+    //
+    // update bb_1
+    //
+    bbprop_1.Size = off;
+    bbprop_1.Term.Type = TERMINATOR::NONE;
+    bbprop_1.Term.Addr = 0;
+    bbprop_1.Term._indirect_jump.IsLj = false;
+    bbprop_1.Sj = false;
+    bbprop_1.DynTargets.clear();
+    bbprop_1.DynTargetsComplete = false;
+    bbprop_1.InvalidateAnalysis();
+
+    //
+    // gather up bb_1 edges
+    //
+    to_bb_vec.reserve(ICFG.out_degree<false>(bb_1));
+    {
+      icfg_t::adjacency_iterator succ_it, succ_it_end;
+      std::tie(succ_it, succ_it_end) = ICFG.adjacent_vertices(bb_1);
+
+      std::copy(succ_it, succ_it_end, std::back_inserter(to_bb_vec));
+    }
+
+    //
+    // bb_1 leads to bb_2
+    //
     ICFG.clear_out_edges<false>(bb_1);
     ICFG.add_edge<false>(bb_1, bb_2);
   }
 
   {
-    ip_scoped_lock<ip_sharable_mutex> e_lck(bbprop_2.mtx);
+    ip_scoped_lock<ip_sharable_mutex> e_lck(boost::move(e_lck_bb));
 
+    //
+    // edges from bb_1 now point from bb_2
+    //
     for (basic_block_t bb : to_bb_vec)
       ICFG.add_edge<false>(bb_2, bb);
   }
@@ -323,9 +320,14 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
       return Idx;
   }
 
-  std::unique_ptr<ip_scoped_lock<ip_sharable_mutex>> e_lck_bbmap;
+  auto &bbprop = ICFG[basic_block_of_index(Idx, ICFG)];
+  ip_scoped_lock<ip_sharable_mutex> e_lck_bb(
+      bbprop.mtx, boost::interprocess::accept_ownership);
+
+  ip_scoped_lock<ip_sharable_mutex> e_lck_bbmap(
+      b.bbmap_mtx, boost::interprocess::defer_lock);
   if (likely(!Speculative)) {
-    e_lck_bbmap = std::make_unique<ip_scoped_lock<ip_sharable_mutex>>(b.bbmap_mtx);
+    e_lck_bbmap.lock();
 
     //
     // does this new basic block start in the middle of a previously-created
@@ -333,7 +335,7 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
     //
     auto it = bbmap_find(b.bbmap, Addr);
     if (it != b.bbmap.end()) {
-      if (likely(split(b, Bin, std::move(e_lck_bbmap), it, Addr, Idx))) {
+      if (likely(split(b, Bin, boost::move(e_lck_bb), it, Addr, Idx))) {
         return Idx;
       } else {
         //
@@ -377,7 +379,7 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
         // terminator
         //
         T.Type = TERMINATOR::UNREACHABLE;
-        T.Addr = 0;
+        T.Addr = ~0UL;
         break;
       }
 
@@ -406,7 +408,7 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
         throw invalid_control_flow_exception(b, e.pc); /* it's garbage */
 
       T.Type = TERMINATOR::UNREACHABLE;
-      T.Addr = 0;
+      T.Addr = ~0UL;
       break;
     }
 
@@ -471,8 +473,10 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
     abort();
   }
 
+  ip_scoped_lock<ip_sharable_mutex> finished_lck(bbprop.finished_mtx);
+
   {
-    auto &bbprop = ICFG[ICFG.vertex(Idx)];
+    ip_scoped_lock<ip_sharable_mutex> e_lck(boost::move(e_lck_bb));
 
     bbprop.Speculative = Speculative;
     bbprop.Addr = Addr;
@@ -489,19 +493,19 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
     addr_intvl intervl(bbprop.Addr, bbprop.Size);
     if (likely(!Speculative)) {
       bbmap_add(b.bbmap, intervl, Idx);
-      e_lck_bbmap.reset();
+      e_lck_bbmap.unlock();
     }
-
-    //
-    // a new basic block has been created and (maybe) added to bbmap
-    //
-    if (unlikely(this->verbose))
-      llvm::errs() << llvm::formatv(
-          "{0} {1}\t\t\t\t\t\t{2}\n", description_of_block(bbprop, false),
-          description_of_terminator_info(T, false), b.Name.c_str());
-
-    this->on_newbb_proc(b, ICFG.vertex(Idx));
   }
+
+  //
+  // a new basic block has been created and (maybe) added to bbmap
+  //
+  if (unlikely(this->verbose))
+    llvm::errs() << llvm::formatv(
+        "{0} {1}\t\t\t\t\t\t{2}\n", description_of_block(bbprop, false),
+        description_of_terminator_info(T, false), b.Name.c_str());
+
+  this->on_newbb_proc(b, basic_block_of_index(Idx, ICFG));
 
   auto control_flow_to = [&](uint64_t Target) -> void {
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
