@@ -128,10 +128,64 @@ class IntelPT {
   struct {
     unsigned pid = ~0u;
     unsigned ExecBits = 8*sizeof(taddr_t);
-
-    block_t Block = invalid_block;
-    taddr_t TermAddr = invalid_taddr;
   } Curr;
+
+  class Point_t {
+    std::reference_wrapper<binary_t> b;
+    basic_block_index_t Idx = invalid_basic_block_index;
+    taddr_t TermAddr =
+#ifdef NDEBUG
+        invalid_taddr
+#else
+        invalid_taddr - 1
+#endif
+        ;
+
+  public:
+    Point_t(binary_t &b) : b(b) {}
+
+    binary_t &Binary(void) const { return b; }
+    binary_index_t BinaryIndex(void) const { return index_of_binary(b); }
+
+    basic_block_index_t BlockIndex(void) const { return Idx; }
+    void SetBlockIndex(basic_block_index_t NewIdx) {
+      assert(is_basic_block_index_valid(NewIdx));
+      Idx = NewIdx;
+    }
+
+    basic_block_t Block(void) const {
+      return basic_block_of_index(BlockIndex(), b.get());
+    }
+
+    taddr_t Address(void) const { return address_of_block_in_binary(Idx, b); }
+
+    taddr_t GetTermAddr(void) const { return TermAddr; }
+    void SetTermAddr(taddr_t NewTermAddr) { TermAddr = NewTermAddr; }
+
+    bool Valid(void) const {
+      return is_basic_block_index_valid(Idx) &&
+#ifdef NDEBUG
+             true
+#else
+             TermAddr != (invalid_taddr - 1)
+#endif
+          ;
+    }
+
+    void Invalidate(void) {
+      Idx = invalid_basic_block_index;
+#ifndef NDEBUG
+      TermAddr = invalid_taddr;
+#endif
+    }
+
+    void SetBinary(binary_t &newb) {
+      b = newb;
+#ifndef NDEBUG
+      TermAddr = invalid_taddr - 1;
+#endif
+    }
+  } CurrPoint;
 
   struct {
     unsigned ExecCount = 0; /* FIXME when and why does wine exec twice... */
@@ -174,7 +228,7 @@ class IntelPT {
   int track_tma(uint64_t offset, const struct pt_packet_tma *);
   int track_mtc(uint64_t offset, const struct pt_packet_mtc *);
 
-  int tnt_payload(const struct pt_packet_tnt &);
+  int tnt_payload(const struct pt_packet_tnt &, const uint64_t offset);
   int on_ip(const taddr_t ip, const uint64_t offset);
 
   int ptdump_sb_pevent(char *filename, const struct pt_sb_pevent_config *conf,
@@ -200,8 +254,8 @@ class IntelPT {
   void TNTAdvance(uint64_t tnt, uint8_t n);
 
   void on_block(const binary_t &, basic_block_index_t);
-  void block_transfer(binary_index_t FromBIdx, taddr_t FromAddr,
-                      binary_index_t ToBIdx, taddr_t ToAddr);
+  void block_transfer(binary_t &from, taddr_t FromAddr,
+                      binary_t &to, taddr_t ToAddr);
 
 public:
   IntelPT(int ptdump_argc, char **ptdump_argv, jv_t &, explorer_t &,

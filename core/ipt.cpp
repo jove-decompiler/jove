@@ -61,10 +61,13 @@ typedef boost::format fmt;
 
 template <unsigned Verbosity>
 IntelPT<Verbosity>::IntelPT(int ptdump_argc, char **ptdump_argv, jv_t &jv,
-                 explorer_t &explorer, unsigned cpu,
-                 const address_space_t &AddressSpaceInit, void *begin, void *end,
-                 unsigned verbose, bool ignore_trunc_aux)
-    : jv(jv), explorer(explorer), state(jv), IsCOFF(B::is_coff(*state.for_binary(jv.Binaries.at(0)).Bin)), AddressSpaceInit(AddressSpaceInit),
+                            explorer_t &explorer, unsigned cpu,
+                            const address_space_t &AddressSpaceInit,
+                            void *begin, void *end, unsigned verbose,
+                            bool ignore_trunc_aux)
+    : jv(jv), explorer(explorer), state(jv),
+      IsCOFF(B::is_coff(*state.for_binary(jv.Binaries.at(0)).Bin)),
+      AddressSpaceInit(AddressSpaceInit), CurrPoint(jv.Binaries.at(0)),
       ignore_trunc_aux(ignore_trunc_aux) {
   setvbuf(stderr, NULL, _IOLBF, 0); /* automatically flush on new-line */
 
@@ -807,8 +810,7 @@ int IntelPT<Verbosity>::process_packet(uint64_t offset, struct pt_packet *packet
           if constexpr (IsVeryVerbose())
             fprintf(stderr, "<suppressed>\n");
 
-          Curr.Block = invalid_block;
-          Curr.TermAddr = invalid_taddr;
+          CurrPoint.Invalidate();
         }
       } else {
         throw std::runtime_error(
@@ -828,7 +830,7 @@ int IntelPT<Verbosity>::process_packet(uint64_t offset, struct pt_packet *packet
 
   case ppt_tnt_8:
   case ppt_tnt_64:
-    return tnt_payload(packet->payload.tnt);
+    return tnt_payload(packet->payload.tnt, offset);
 
   case ppt_mode: {
     const struct pt_packet_mode *mode = &packet->payload.mode;
@@ -945,40 +947,35 @@ struct tnt_error {};
 struct infinite_loop_exception {};
 
 template <unsigned Verbosity>
-int IntelPT<Verbosity>::tnt_payload(const struct pt_packet_tnt &packet) {
+int IntelPT<Verbosity>::tnt_payload(const struct pt_packet_tnt &packet,
+                                    const uint64_t offset) {
   if (unlikely(!Engaged))
     return 1;
 
-  if (unlikely(!is_block_valid(Curr.Block))) {
+  if (unlikely(!CurrPoint.Valid())) {
     if constexpr (IsVeryVerbose())
-      fprintf(stderr, "unhandled tnt\n");
+      fprintf(stderr, "%" PRIx64 "\tunhandled tnt\n", offset);
     return 1;
   }
 
-  auto SavedStart = Curr.Block;
+  auto Saved = CurrPoint;
   try {
     TNTAdvance(packet.payload, packet.bit_size);
-    assert(is_basic_block_index_valid(Curr.Block.second));
+
+    assert(CurrPoint.Valid());
+    return 1;
   } catch (const tnt_error &) {
-    if constexpr (IsVerbose()) {
-      binary_t &b = jv.Binaries.at(SavedStart.first);
-      fprintf(stderr, "tnt error from %s+%" PRIx64 "\n", b.Name.c_str(),
-              static_cast<uint64_t>(address_of_block_in_binary(SavedStart.second, b)));
-    }
-
-    Curr.Block = invalid_block;
-    Curr.TermAddr = invalid_taddr;
+    if constexpr (IsVerbose())
+      fprintf(stderr, "tnt error from %s+%" PRIx64 "\n",
+              Saved.Binary().Name.c_str(),
+              static_cast<uint64_t>(Saved.Address()));
   } catch (const infinite_loop_exception &) {
-    if constexpr (IsVerbose()) {
-      binary_t &b = jv.Binaries.at(SavedStart.first);
+    if constexpr (IsVerbose())
       fprintf(stderr, "tnt error (infinite loop) from %s+%" PRIx64 "\n",
-              b.Name.c_str(),
-              static_cast<uint64_t>(address_of_block_in_binary(SavedStart.second, b)));
-    }
-
-    Curr.Block = invalid_block;
-    Curr.TermAddr = invalid_taddr;
+              Saved.Binary().Name.c_str(),
+              static_cast<uint64_t>(Saved.Address()));
   }
+  CurrPoint.Invalidate();
 
   return 1;
 }
@@ -1003,18 +1000,16 @@ int IntelPT<Verbosity>::on_ip(const taddr_t IP, const uint64_t offset) {
     if constexpr (IsVeryVerbose())
       fprintf(stderr, "%" PRIx64 "\tunknown IP %016" PRIx64 "\n", offset, (uint64_t)IP);
 
-    Curr.Block = invalid_block;
-    Curr.TermAddr = invalid_taddr;
+    CurrPoint.Invalidate();
     return 1;
   }
 
   const binary_index_t BIdx = (*it).second.first;
   if (unlikely(!is_binary_index_valid(BIdx))) {
-    if constexpr (IsVeryVerbose())
-      fprintf(stderr, "ambiguous IP %016" PRIx64 "\n", (uint64_t)IP);
+    if constexpr (IsVerbose())
+      fprintf(stderr, "%" PRIx64 "\tambiguous IP %016" PRIx64 "\n", offset, (uint64_t)IP);
 
-    Curr.Block = invalid_block;
-    Curr.TermAddr = invalid_taddr;
+    CurrPoint.Invalidate();
     return 1;
   }
 
@@ -1079,18 +1074,22 @@ int IntelPT<Verbosity>::on_ip(const taddr_t IP, const uint64_t offset) {
     fprintf(stderr, "%" PRIx64 "\t<IP> %016" PRIx64 " %s+%" PRIx64 "\n", offset,
             (uint64_t)IP, b.Name.c_str(), (uint64_t)Addr);
 
-  if (is_block_valid(Curr.Block)) {
-    if (Curr.Block.first == BIdx) {
+  if (CurrPoint.Valid()) {
+    auto set_curr_term_addr =
+        [&](basic_block_index_t BBIdx) -> basic_block_index_t {
+      CurrPoint.SetTermAddr(address_of_basic_block_terminator(
+          basic_block_of_index(BBIdx, CurrPoint.Binary()), CurrPoint.Binary()));
+      return BBIdx;
+    };
+    if (CurrPoint.BinaryIndex() == BIdx) {
       bool WentNoFurther = false;
+      basic_block_index_t NewBBIdx;
 
-      std::tie(Curr.Block.second, WentNoFurther) = StraightLineUntilSlow<false>(
-          b, Curr.Block.second, Addr,
-          [&](basic_block_index_t BBIdx) -> basic_block_index_t {
-            Curr.TermAddr =
-                b.Analysis.ICFG[basic_block_of_index(BBIdx, b)].Term.Addr;
-            return BBIdx;
-          });
+      std::tie(NewBBIdx, WentNoFurther) = StraightLineUntilSlow<false>(
+          b, CurrPoint.BlockIndex(), Addr, set_curr_term_addr);
+      CurrPoint.SetBlockIndex(NewBBIdx);
 
+      assert(CurrPoint.Valid());
       if (WentNoFurther) {
         if constexpr (IsVeryVerbose())
             fprintf(stderr, "no further %s+%" PRIx64 "\n</IP>\n",
@@ -1098,15 +1097,9 @@ int IntelPT<Verbosity>::on_ip(const taddr_t IP, const uint64_t offset) {
         return 0;
       }
     } else {
-      binary_t &curr_b = jv.Binaries.at(Curr.Block.first);
-
-      Curr.Block.second = StraightLineSlow<false>(
-          curr_b, Curr.Block.second,
-          [&](basic_block_index_t BBIdx) -> basic_block_index_t {
-            Curr.TermAddr =
-                curr_b.Analysis.ICFG[basic_block_of_index(BBIdx, b)].Term.Addr;
-            return BBIdx;
-          });
+      CurrPoint.SetBlockIndex(StraightLineSlow<false>(
+          CurrPoint.Binary(), CurrPoint.BlockIndex(), set_curr_term_addr));
+      assert(CurrPoint.Valid());
     }
   }
 
@@ -1120,21 +1113,20 @@ int IntelPT<Verbosity>::on_ip(const taddr_t IP, const uint64_t offset) {
     if constexpr (IsVeryVerbose())
       fprintf(stderr, "</IP>\n");
 
-    Curr.Block = invalid_block;
-    Curr.TermAddr = invalid_taddr;
+    CurrPoint.Invalidate();
     return 1;
   }
 
-  const auto PrevBlock = Curr.Block;
-  const auto PrevTermAddr = Curr.TermAddr;
+  const auto PrevPoint = CurrPoint;
   try {
-    Curr.Block.first = BIdx;
-    Curr.Block.second = explorer.explore_basic_block(
+    CurrPoint.SetBinary(b);
+    CurrPoint.SetBlockIndex(explorer.explore_basic_block(
         b, *x.Bin, Addr, [&](basic_block_t bb) -> void {
-          Curr.TermAddr = b.Analysis.ICFG[bb].Term.Addr;
-        });
+          CurrPoint.SetTermAddr(address_of_basic_block_terminator(bb, b));
+        }));
+    assert(CurrPoint.Valid());
 
-    on_block(b, Curr.Block.second);
+    on_block(b, CurrPoint.BlockIndex());
   } catch (const invalid_control_flow_exception &) {
     if constexpr (IsVerbose())
       fprintf(stderr, "BADIP %" PRIx64 "\t<IP> %" PRIx64 " %s+%" PRIx64 "\n",
@@ -1143,17 +1135,14 @@ int IntelPT<Verbosity>::on_ip(const taddr_t IP, const uint64_t offset) {
     if constexpr (IsVeryVerbose())
       fprintf(stderr, "</IP>\n");
 
-    Curr.Block = invalid_block;
-    Curr.TermAddr = invalid_taddr;
+    CurrPoint.Invalidate();
     return 1;
   }
 
-  if (is_block_valid(PrevBlock) &&
-      is_taddr_valid(PrevTermAddr) &&
-      is_block_valid(Curr.Block)) {
-    block_transfer(
-        PrevBlock.first, PrevTermAddr, Curr.Block.first,
-        address_of_basic_block(basic_block_of_index(Curr.Block.second, b), b));
+  if (PrevPoint.Valid() && CurrPoint.Valid()) {
+    assert(is_taddr_valid(PrevPoint.GetTermAddr()));
+    block_transfer(PrevPoint.Binary(), PrevPoint.GetTermAddr(),
+                   CurrPoint.Binary(), address_of_basic_block(CurrPoint.Block(), b));
   }
 
   if constexpr (IsVeryVerbose())
@@ -1163,11 +1152,10 @@ int IntelPT<Verbosity>::on_ip(const taddr_t IP, const uint64_t offset) {
 }
 
 template <unsigned Verbosity>
-void IntelPT<Verbosity>::block_transfer(binary_index_t FrBIdx,
-                                        taddr_t FrTermAddr,
-                                        binary_index_t ToBIdx, taddr_t ToAddr) {
-  binary_t &fr_b = jv.Binaries.at(FrBIdx);
-  binary_t &to_b = jv.Binaries.at(ToBIdx);
+void IntelPT<Verbosity>::block_transfer(binary_t &fr_b, taddr_t FrTermAddr,
+                                        binary_t &to_b, taddr_t ToAddr) {
+  const binary_index_t FrBIdx = index_of_binary(fr_b);
+  const binary_index_t ToBIdx = index_of_binary(to_b);
 
   auto &fr_ICFG = fr_b.Analysis.ICFG;
   auto &to_ICFG = to_b.Analysis.ICFG;
@@ -1502,8 +1490,8 @@ void IntelPT<Verbosity>::TNTAdvance(uint64_t tnt, uint8_t n) {
   if constexpr (IsVeryVerbose())
     fprintf(stderr, "<TNT>\n");
 
-  binary_t &b = jv.Binaries.at(Curr.Block.first);
-  basic_block_index_t Res = Curr.Block.second;
+  binary_t &b = CurrPoint.Binary();
+  basic_block_index_t Res = CurrPoint.BlockIndex();
 
   const auto &ICFG = b.Analysis.ICFG;
   do {
@@ -1548,11 +1536,13 @@ void IntelPT<Verbosity>::TNTAdvance(uint64_t tnt, uint8_t n) {
   } while (--n);
 
   //Res = StraightLineFast<true>(b, Res);
-  Curr.Block.second = StraightLineSlow<true>(
+
+  CurrPoint.SetBlockIndex(StraightLineSlow<true>(
       b, Res, [&](basic_block_index_t BBIdx) -> basic_block_index_t {
-        Curr.TermAddr = ICFG[basic_block_of_index(BBIdx, b)].Term.Addr;
+        CurrPoint.SetTermAddr(address_of_basic_block_terminator(
+            basic_block_of_index(BBIdx, b), b));
         return BBIdx;
-      });
+      }));
 
   if constexpr (IsVeryVerbose())
     fprintf(stderr, "</TNT>\n");
