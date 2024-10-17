@@ -209,16 +209,6 @@ public:
           void *end, unsigned verbose, bool ignore_trunc_aux = false);
   ~IntelPT();
 
-  __attribute__((always_inline))
-  bool IsVerbose(void) const {
-    return Verbosity >= 1;
-  }
-
-  __attribute__((always_inline))
-  bool IsVeryVerbose(void) const {
-    return Verbosity >= 2;
-  }
-
   int explore(void);
   int explore_packets(void);
 

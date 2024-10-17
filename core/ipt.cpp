@@ -55,6 +55,10 @@ using syscall_exit_args32 = syscall_exit_args<uint32_t>;
 
 typedef boost::format fmt;
 
+// XXX
+#define IsVerbose() (Verbosity >= 1)
+#define IsVeryVerbose() (Verbosity >= 2)
+
 template <unsigned Verbosity>
 IntelPT<Verbosity>::IntelPT(int ptdump_argc, char **ptdump_argv, jv_t &jv,
                  explorer_t &explorer, unsigned cpu,
@@ -477,7 +481,7 @@ void IntelPT<Verbosity>::examine_sb(void) {
 
             const addr_intvl intvl(addr, len);
 
-            if (IsVeryVerbose()) {
+            if constexpr (IsVeryVerbose()) {
               std::string as(addr_intvl2str(intvl));
 
               fprintf(stderr, "[munmap] @ %s\n", as.c_str());
@@ -503,7 +507,7 @@ void IntelPT<Verbosity>::examine_sb(void) {
             if (IsCOFF) {
               const addr_intvl intvl(ret, len);
 
-              if (IsVeryVerbose()) {
+              if constexpr (IsVeryVerbose()) {
                 std::string as(addr_intvl2str(intvl));
 
                 fprintf(stderr, "[mmap]   @ %s in %s\n", as.c_str(),
@@ -600,7 +604,7 @@ void IntelPT<Verbosity>::examine_sb(void) {
 
       const addr_intvl intvl(addr, len);
 
-      if (IsVeryVerbose()) {
+      if constexpr (IsVeryVerbose()) {
         std::string as(addr_intvl2str(intvl));
 
         fprintf(stderr, "[MMAP%s  @ %s in \"%s\"\n", two ? "2]" : "] ",
@@ -623,7 +627,7 @@ void IntelPT<Verbosity>::examine_sb(void) {
       bool IsNew;
       if (name[0] == '/') {
         if (!fs::exists(name)) {
-          if (IsVeryVerbose())
+          if constexpr (IsVeryVerbose())
             fprintf(stderr, "\"%s\" does not exist(%s)\n", name.c_str(), rest);
           continue;
         }
@@ -800,7 +804,7 @@ int IntelPT<Verbosity>::process_packet(uint64_t offset, struct pt_packet *packet
     if (unlikely(errcode < 0)) {
       if (errcode == -pte_ip_suppressed) {
         if (Engaged) {
-          if (IsVeryVerbose())
+          if constexpr (IsVeryVerbose())
             fprintf(stderr, "<suppressed>\n");
 
           Curr.Block = invalid_block;
@@ -946,7 +950,7 @@ int IntelPT<Verbosity>::tnt_payload(const struct pt_packet_tnt &packet) {
     return 1;
 
   if (unlikely(!is_block_valid(Curr.Block))) {
-    if (IsVeryVerbose())
+    if constexpr (IsVeryVerbose())
       fprintf(stderr, "unhandled tnt\n");
     return 1;
   }
@@ -956,7 +960,7 @@ int IntelPT<Verbosity>::tnt_payload(const struct pt_packet_tnt &packet) {
     TNTAdvance(packet.payload, packet.bit_size);
     assert(is_basic_block_index_valid(Curr.Block.second));
   } catch (const tnt_error &) {
-    if (IsVerbose()) {
+    if constexpr (IsVerbose()) {
       binary_t &b = jv.Binaries.at(SavedStart.first);
       fprintf(stderr, "tnt error from %s+%" PRIx64 "\n", b.Name.c_str(),
               static_cast<uint64_t>(address_of_block_in_binary(SavedStart.second, b)));
@@ -965,7 +969,7 @@ int IntelPT<Verbosity>::tnt_payload(const struct pt_packet_tnt &packet) {
     Curr.Block = invalid_block;
     Curr.TermAddr = invalid_taddr;
   } catch (const infinite_loop_exception &) {
-    if (IsVerbose()) {
+    if constexpr (IsVerbose()) {
       binary_t &b = jv.Binaries.at(SavedStart.first);
       fprintf(stderr, "tnt error (infinite loop) from %s+%" PRIx64 "\n",
               b.Name.c_str(),
@@ -982,8 +986,9 @@ int IntelPT<Verbosity>::tnt_payload(const struct pt_packet_tnt &packet) {
 template <unsigned Verbosity>
 int IntelPT<Verbosity>::on_ip(const taddr_t IP, const uint64_t offset) {
   if (unlikely(!Engaged)) {
-    if (IsVeryVerbose() && RightProcess())
-      fprintf(stderr, "%" PRIx64 "\t__IP %016" PRIx64 "\n", offset, (uint64_t)IP);
+    if constexpr (IsVeryVerbose())
+      if (RightProcess())
+        fprintf(stderr, "%" PRIx64 "\t__IP %016" PRIx64 "\n", offset, (uint64_t)IP);
     return 0;
   }
 
@@ -995,7 +1000,7 @@ int IntelPT<Verbosity>::on_ip(const taddr_t IP, const uint64_t offset) {
 
   auto it = intvl_map_find(AddressSpace, IP);
   if (unlikely(it == AddressSpace.end())) {
-    if (IsVeryVerbose())
+    if constexpr (IsVeryVerbose())
       fprintf(stderr, "%" PRIx64 "\tunknown IP %016" PRIx64 "\n", offset, (uint64_t)IP);
 
     Curr.Block = invalid_block;
@@ -1005,7 +1010,7 @@ int IntelPT<Verbosity>::on_ip(const taddr_t IP, const uint64_t offset) {
 
   const binary_index_t BIdx = (*it).second.first;
   if (unlikely(!is_binary_index_valid(BIdx))) {
-    if (IsVeryVerbose())
+    if constexpr (IsVeryVerbose())
       fprintf(stderr, "ambiguous IP %016" PRIx64 "\n", (uint64_t)IP);
 
     Curr.Block = invalid_block;
@@ -1070,7 +1075,7 @@ int IntelPT<Verbosity>::on_ip(const taddr_t IP, const uint64_t offset) {
         });
   });
 
-  if (IsVeryVerbose())
+  if constexpr (IsVeryVerbose())
     fprintf(stderr, "%" PRIx64 "\t<IP> %016" PRIx64 " %s+%" PRIx64 "\n", offset,
             (uint64_t)IP, b.Name.c_str(), (uint64_t)Addr);
 
@@ -1087,7 +1092,7 @@ int IntelPT<Verbosity>::on_ip(const taddr_t IP, const uint64_t offset) {
           });
 
       if (WentNoFurther) {
-        if (IsVeryVerbose())
+        if constexpr (IsVeryVerbose())
             fprintf(stderr, "no further %s+%" PRIx64 "\n</IP>\n",
                     b.Name.c_str(), (uint64_t)Addr);
         return 0;
@@ -1107,12 +1112,12 @@ int IntelPT<Verbosity>::on_ip(const taddr_t IP, const uint64_t offset) {
 
   binary_state_t &x = state.for_binary(b);
   if (!b.bbbmap.contains(Addr) && unlikely(x.__objdump.is_addr_bad(Addr))) {
-    if (IsVerbose())
+    if constexpr (IsVerbose())
       fprintf(stderr,
               "OBJDUMP SAYS \"BADIP!\" %" PRIx64 "\t<IP> %" PRIx64 " %s+%" PRIx64 "\n",
               offset, (uint64_t)IP, b.Name.c_str(), (uint64_t)Addr);
 
-    if (IsVeryVerbose())
+    if constexpr (IsVeryVerbose())
       fprintf(stderr, "</IP>\n");
 
     Curr.Block = invalid_block;
@@ -1134,7 +1139,7 @@ int IntelPT<Verbosity>::on_ip(const taddr_t IP, const uint64_t offset) {
     fprintf(stderr, "BADIP %" PRIx64 "\t<IP> %" PRIx64 " %s+%" PRIx64 "\n",
             offset, (uint64_t)IP, b.Name.c_str(), (uint64_t)Addr);
 
-    if (IsVeryVerbose())
+    if constexpr (IsVeryVerbose())
       fprintf(stderr, "</IP>\n");
 
     Curr.Block = invalid_block;
@@ -1150,7 +1155,7 @@ int IntelPT<Verbosity>::on_ip(const taddr_t IP, const uint64_t offset) {
         address_of_basic_block(basic_block_of_index(Curr.Block.second, b), b));
   }
 
-  if (IsVeryVerbose())
+  if constexpr (IsVeryVerbose())
     fprintf(stderr, "</IP>\n");
 
   return 0;
@@ -1166,7 +1171,7 @@ void IntelPT<Verbosity>::block_transfer(binary_index_t FrBIdx,
   auto &fr_ICFG = fr_b.Analysis.ICFG;
   auto &to_ICFG = to_b.Analysis.ICFG;
 
-  if (IsVeryVerbose())
+  if constexpr (IsVeryVerbose())
     fprintf(stderr, "%s+%" PRIx64 " ==> "
            "%s+%" PRIx64 "\n",
            fr_b.Name.c_str(), (uint64_t)FrTermAddr, to_b.Name.c_str(),
@@ -1368,7 +1373,7 @@ StraightLineGo(const binary_t &b,
     case TERMINATOR::UNCONDITIONAL_JUMP:
     case TERMINATOR::NONE: {
       if (unlikely(ICFG.out_degree<false>(bb) == 0)) {
-        if constexpr (Verbosity >= 1)
+        if constexpr (IsVerbose())
           fprintf(stderr, "cant proceed past NONE @ %s+%" PRIx64 " [size=%u] %s\n",
                   b.Name.c_str(),
                   static_cast<uint64_t>(Addr),
@@ -1390,7 +1395,7 @@ StraightLineGo(const binary_t &b,
 
       basic_block_index_t EntryBBIdx = b.Analysis.Functions.at(CalleeIdx).Entry;
       if (!unlikely(is_basic_block_index_valid(EntryBBIdx))) {
-        if constexpr (Verbosity >= 1)
+        if constexpr (IsVerbose())
           fprintf(stderr, "cant proceed past CALL @ %s+%" PRIx64 "\n",
                   b.Name.c_str(), static_cast<uint64_t>(Addr));
         break;
@@ -1477,7 +1482,7 @@ IntelPT<Verbosity>::StraightLineFast(const binary_t &b,
 
 template <unsigned Verbosity>
 void IntelPT<Verbosity>::on_block(const binary_t &b, basic_block_index_t BBIdx) {
-  if (IsVeryVerbose()) {
+  if constexpr (IsVeryVerbose()) {
     binary_state_t &x = state.for_binary(b);
 
     const auto &ICFG = b.Analysis.ICFG;
@@ -1493,7 +1498,7 @@ template <unsigned Verbosity>
 void IntelPT<Verbosity>::TNTAdvance(uint64_t tnt, uint8_t n) {
   assert(n > 0);
 
-  if (IsVeryVerbose())
+  if constexpr (IsVeryVerbose())
     fprintf(stderr, "<TNT>\n");
 
   binary_t &b = jv.Binaries.at(Curr.Block.first);
@@ -1511,7 +1516,7 @@ void IntelPT<Verbosity>::TNTAdvance(uint64_t tnt, uint8_t n) {
 
           if (unlikely(bbprop.Term.Type != TERMINATOR::CONDITIONAL_JUMP) ||
               unlikely(out_deg == 0)) {
-            if (IsVerbose())
+            if constexpr (IsVerbose())
               fprintf(stderr,
                       "not/invalid conditional branch @ %s+%" PRIx64 " (%s)\n",
                       b.Name.c_str(), static_cast<uint64_t>(bbprop.Addr),
@@ -1548,7 +1553,7 @@ void IntelPT<Verbosity>::TNTAdvance(uint64_t tnt, uint8_t n) {
         return BBIdx;
       });
 
-  if (IsVeryVerbose())
+  if constexpr (IsVeryVerbose())
     fprintf(stderr, "</TNT>\n");
 }
 
@@ -2315,6 +2320,9 @@ IntelPT<Verbosity>::basic_block_state_t::basic_block_state_t(const binary_t &b,
     }
   }
 }
+
+#undef IsVerbose
+#undef IsVeryVerbose
 
 template class IntelPT<0>; /* not verbose */
 template class IntelPT<1>; /* verbose */
