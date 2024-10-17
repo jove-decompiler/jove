@@ -6,6 +6,7 @@
 #include <memory>
 #include <cstdio>
 #include <array>
+#include <boost/container/static_vector.hpp>
 
 struct pt_config;
 struct pt_sb_session;
@@ -48,6 +49,17 @@ class IntelPT {
     uint32_t in_header = 0; /* Header vs. normal decode. */
   } tracking;
 
+  struct basic_block_state_t {
+    taddr_t Addr = ~0UL;
+    uint32_t Size = ~0UL;
+    TERMINATOR TermType;
+    taddr_t TermAddr = ~0UL;
+    boost::container::static_vector<basic_block_index_t, 2> adj;
+    basic_block_index_t StraightLineNext = invalid_basic_block_index;
+
+    basic_block_state_t(const binary_t &b, basic_block_t bb);
+  };
+
   struct binary_state_t {
     std::unique_ptr<llvm::object::Binary> Bin;
 
@@ -55,10 +67,29 @@ class IntelPT {
       taddr_t LoadAddr = ~0UL;
     } _coff;
 
+    struct {
+      taddr_t begin = ~0UL;
+
+      boost::dynamic_bitset<unsigned long> good;
+
+      bool is_addr_good(taddr_t addr) const {
+        if (addr < begin)
+          return true; /* who knows? */
+        taddr_t idx = addr - begin;
+        if (idx >= good.size())
+          return true; /* who knows? */
+        return good.test(idx);
+      }
+
+      bool is_addr_bad(taddr_t addr) const {
+        return !is_addr_good(addr);
+      }
+    } __objdump;
+
     binary_state_t(const binary_t &b); /* runs objdump */
   };
 
-  jv_state_t<binary_state_t, void, void, false, false, true> state;
+  jv_state_t<binary_state_t, void, basic_block_state_t, false, false> state;
 
   const bool IsCOFF;
 
@@ -142,27 +173,27 @@ class IntelPT {
   int track_tma(uint64_t offset, const struct pt_packet_tma *);
   int track_mtc(uint64_t offset, const struct pt_packet_mtc *);
 
-  int tnt_payload(const struct pt_packet_tnt *);
+  int tnt_payload(const struct pt_packet_tnt &);
   int on_ip(const taddr_t ip, const uint64_t offset);
 
   int ptdump_sb_pevent(char *filename, const struct pt_sb_pevent_config *conf,
                        const char *prog);
   int process_args(int argc, char **argv);
 
-  template <bool DoNotGoFurther>
-  __attribute__((always_inline))
+  template <bool InfiniteLoopThrow = false>
   std::pair<basic_block_index_t, bool>
-  DoStraightLineAdvance(block_t, taddr_t GoNoFurther = 0);
+  StraightLineUntilSlow(const binary_t &, basic_block_index_t, taddr_t GoNoFurther);
 
-  std::pair<basic_block_index_t, bool>
-  StraightLineAdvance(block_t, taddr_t GoNoFurther);
+  template <bool InfiniteLoopThrow = false>
+  basic_block_index_t StraightLineFast(const binary_t &, basic_block_index_t);
 
-  std::pair<basic_block_index_t, bool>
-  StraightLineAdvance(block_t);
+  template <bool InfiniteLoopThrow = false>
+  basic_block_index_t StraightLineSlow(const binary_t &, basic_block_index_t);
 
-  basic_block_index_t TNTAdvance(block_t, uint64_t tnt, uint8_t n);
+  basic_block_index_t TNTAdvance(const binary_t &, basic_block_index_t From,
+                                 uint64_t tnt, uint8_t n);
 
-  void on_block(block_t);
+  void on_block(const binary_t &, basic_block_index_t);
   void block_transfer(binary_index_t FromBIdx, taddr_t FromAddr,
                       binary_index_t ToBIdx, taddr_t ToAddr);
 
