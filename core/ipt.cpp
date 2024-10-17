@@ -1107,9 +1107,10 @@ int IntelPT<Verbosity>::on_ip(const taddr_t IP, const uint64_t offset) {
 
   binary_state_t &x = state.for_binary(b);
   if (!b.bbbmap.contains(Addr) && unlikely(x.__objdump.is_addr_bad(Addr))) {
-    fprintf(stderr,
-            "OBJDUMP SAYS \"BADIP!\" %" PRIx64 "\t<IP> %" PRIx64 " %s+%" PRIx64 "\n",
-            offset, (uint64_t)IP, b.Name.c_str(), (uint64_t)Addr);
+    if (IsVerbose())
+      fprintf(stderr,
+              "OBJDUMP SAYS \"BADIP!\" %" PRIx64 "\t<IP> %" PRIx64 " %s+%" PRIx64 "\n",
+              offset, (uint64_t)IP, b.Name.c_str(), (uint64_t)Addr);
 
     if (IsVeryVerbose())
       fprintf(stderr, "</IP>\n");
