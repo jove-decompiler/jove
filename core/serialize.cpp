@@ -37,6 +37,28 @@ namespace boost {
 namespace serialization {
 
 //
+// std::atomic
+//
+template <class Archive, class T>
+static void save(Archive &ar, const std::atomic<T> &t, const unsigned int) {
+  const T value = t.load();
+  ar << BOOST_SERIALIZATION_NVP(value);
+}
+
+template <class Archive, class T>
+static void load(Archive &ar, std::atomic<T> &t, const unsigned int) {
+  T value;
+  ar >> value;
+  t = value;
+}
+
+template <class Archive, class T>
+static void serialize(Archive &ar, std::atomic<T> &t,
+                      const unsigned int file_version) {
+  boost::serialization::split_free(ar, t, file_version);
+}
+
+//
 // interprocess string
 //
 
@@ -85,8 +107,8 @@ save(Archive &ar,
 
 template <class Archive, class T, class Allocator>
 static inline void load(Archive &ar,
-                 boost::container::vector<T, Allocator> &x,
-                 const unsigned int file_version) {
+                        boost::container::vector<T, Allocator> &x,
+                        const unsigned int file_version) {
   const boost::serialization::library_version_type library_version(
       ar.get_library_version());
   // retrieve number of elements
@@ -150,16 +172,16 @@ serialize(Archive &ar,
 
 template <class Archive, class Type, class Key, class Compare, class Allocator>
 static inline void save(Archive &ar,
-                 const boost::container::map<Key, Type, Compare, Allocator> &t,
-                 const unsigned int file_version) {
+                        const boost::container::map<Key, Type, Compare, Allocator> &t,
+                        const unsigned int file_version) {
   stl::save_collection<Archive,
                        boost::container::map<Key, Type, Compare, Allocator>>(ar, t);
 }
 
 template <class Archive, class Type, class Key, class Compare, class Allocator>
 static inline void load(Archive &ar,
-                 boost::container::map<Key, Type, Compare, Allocator> &t,
-                 const unsigned int file_version) {
+                        boost::container::map<Key, Type, Compare, Allocator> &t,
+                        const unsigned int file_version) {
   boost::serialization::load_map_collection(ar, t);
 }
 
@@ -177,16 +199,16 @@ serialize(Archive &ar,
 
 template <class Archive, class Type, class Key, class Compare, class Allocator>
 static inline void save(Archive &ar,
-                 const boost::container::flat_map<Key, Type, Compare, Allocator> &t,
-                 const unsigned int file_version) {
+                        const boost::container::flat_map<Key, Type, Compare, Allocator> &t,
+                        const unsigned int file_version) {
   stl::save_collection<Archive,
                        boost::container::flat_map<Key, Type, Compare, Allocator>>(ar, t);
 }
 
 template <class Archive, class Type, class Key, class Compare, class Allocator>
 static inline void load(Archive &ar,
-                 boost::container::flat_map<Key, Type, Compare, Allocator> &t,
-                 const unsigned int file_version) {
+                        boost::container::flat_map<Key, Type, Compare, Allocator> &t,
+                        const unsigned int file_version) {
   boost::serialization::load_map_collection(ar, t);
 }
 
@@ -255,7 +277,8 @@ static void serialize(Archive &ar, jove::binary_t::Analysis_t &A,
                       const unsigned int version) {
   ar &BOOST_SERIALIZATION_NVP(A.EntryFunction)
      &BOOST_SERIALIZATION_NVP(A.Functions._deque)
-     &BOOST_SERIALIZATION_NVP(A.ICFG._adjacency_list);
+     &BOOST_SERIALIZATION_NVP(A.ICFG._adjacency_list)
+     &BOOST_SERIALIZATION_NVP(A.ICFG._size);
 }
 
 //
