@@ -17,6 +17,7 @@ set(JOVE_TOOL_FLAGS
   "-Wno-gnu-designator"
   "-Wno-gnu-statement-expression-from-macro-expansion"
   "-Wno-c99-extensions"
+  "-Wno-unused-lambda-capture"
   "-Werror=format"
   "-Werror=return-stack-address"
   "-DBOOST_ICL_USE_STATIC_BOUNDED_INTERVALS"
