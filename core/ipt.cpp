@@ -1136,8 +1136,9 @@ int IntelPT<Verbosity>::on_ip(const taddr_t IP, const uint64_t offset) {
 
     on_block(b, Curr.Block.second);
   } catch (const invalid_control_flow_exception &) {
-    fprintf(stderr, "BADIP %" PRIx64 "\t<IP> %" PRIx64 " %s+%" PRIx64 "\n",
-            offset, (uint64_t)IP, b.Name.c_str(), (uint64_t)Addr);
+    if constexpr (IsVerbose())
+      fprintf(stderr, "BADIP %" PRIx64 "\t<IP> %" PRIx64 " %s+%" PRIx64 "\n",
+              offset, (uint64_t)IP, b.Name.c_str(), (uint64_t)Addr);
 
     if constexpr (IsVeryVerbose())
       fprintf(stderr, "</IP>\n");
