@@ -71,6 +71,7 @@ struct IPTTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
     cl::opt<bool> ExistingPerfData;
     cl::opt<bool> RunPerfWithSudo;
     cl::opt<bool> RunAsUser;
+    cl::opt<bool> Cache;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : Prog(cl::Positional, cl::desc("prog"), cl::Required,
@@ -120,7 +121,11 @@ struct IPTTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
                     cl::desc("Execute app as user running sudo (this option is "
                              "associated with the --sudo option, and "
                              "essentially involves executing sudo twice)"),
-                    cl::init(true), cl::cat(JoveCategory)) {}
+                    cl::init(true), cl::cat(JoveCategory)),
+
+          Cache("cache",
+                cl::desc("Cache graph."),
+                cl::init(true), cl::cat(JoveCategory)) {}
   } opts;
 
   std::string perf_path;
@@ -224,7 +229,7 @@ int IPTTool::Run(void) {
 
   TCG = std::make_unique<tiny_code_generator_t>();
   Disas = std::make_unique<disas_t>();
-  E = std::make_unique<explorer_t>(jv, *Disas, *TCG, IsVeryVerbose());
+  E = std::make_unique<explorer_t>(jv, *Disas, *TCG, false /* IsVeryVerbose() */);
 
   const std::string prog_path = fs::canonical(opts.Prog).string();
 
@@ -994,11 +999,12 @@ int IPTTool::UsingLibipt(void) {
           WithColor::warning()
               << llvm::formatv("madvise failed: {0}\n", strerror(errno));
 
-        auto run = [&]<unsigned Verbosity>(void) {
-          IntelPT<Verbosity> ipt(ptdump_argv.size() - 1, ptdump_argv.data(), jv,
-                                 *E, cpu, AddressSpace, mmap.ptr,
-                                 reinterpret_cast<uint8_t *>(mmap.ptr) + len,
-                                 IsVeryVerbose() ? 2 : (IsVerbose() ? 1 : 0));
+        auto run = [&]<unsigned Verbosity, bool Caching>(void) {
+          IntelPT<Verbosity, Caching> ipt(
+              ptdump_argv.size() - 1, ptdump_argv.data(), jv, *E, cpu,
+              AddressSpace, mmap.ptr,
+              reinterpret_cast<uint8_t *>(mmap.ptr) + len,
+              IsVeryVerbose() ? 2 : (IsVerbose() ? 1 : 0));
 
           try {
             ipt.explore();
@@ -1010,11 +1016,20 @@ int IPTTool::UsingLibipt(void) {
         };
 
         if (IsVeryVerbose()) {
-          run.template operator()<2>();
+          if (opts.Cache)
+            run.template operator()<2, true>();
+          else
+            run.template operator()<2, false>();
         } else if (IsVerbose()) {
-          run.template operator()<1>();
+          if (opts.Cache)
+            run.template operator()<1, true>();
+          else
+            run.template operator()<1, false>();
         } else {
-          run.template operator()<0>();
+          if (opts.Cache)
+            run.template operator()<0, true>();
+          else
+            run.template operator()<0, false>();
         }
 #if 0
         FastIPT fastipt(jv, *E, cpu, AddressSpace, mmap.ptr,

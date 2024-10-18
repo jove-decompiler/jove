@@ -59,12 +59,13 @@ typedef boost::format fmt;
 #define IsVerbose() (Verbosity >= 1)
 #define IsVeryVerbose() (Verbosity >= 2)
 
-template <unsigned Verbosity>
-IntelPT<Verbosity>::IntelPT(int ptdump_argc, char **ptdump_argv, jv_t &jv,
-                            explorer_t &explorer, unsigned cpu,
-                            const address_space_t &AddressSpaceInit,
-                            void *begin, void *end, unsigned verbose,
-                            bool ignore_trunc_aux)
+template <unsigned Verbosity, bool Caching>
+IntelPT<Verbosity, Caching>::IntelPT(int ptdump_argc, char **ptdump_argv,
+                                     jv_t &jv, explorer_t &explorer,
+                                     unsigned cpu,
+                                     const address_space_t &AddressSpaceInit,
+                                     void *begin, void *end, unsigned verbose,
+                                     bool ignore_trunc_aux)
     : jv(jv), explorer(explorer), state(jv),
       IsCOFF(B::is_coff(*state.for_binary(jv.Binaries.at(0)).Bin)),
       AddressSpaceInit(AddressSpaceInit), CurrPoint(jv.Binaries.at(0)),
@@ -155,8 +156,8 @@ IntelPT<Verbosity>::IntelPT(int ptdump_argc, char **ptdump_argv, jv_t &jv,
   }
 }
 
-template <unsigned Verbosity>
-IntelPT<Verbosity>::~IntelPT() {
+template <unsigned Verbosity, bool Caching>
+IntelPT<Verbosity, Caching>::~IntelPT() {
   pt_pkt_free_decoder(decoder);
 
 #if 0
@@ -174,9 +175,10 @@ IntelPT<Verbosity>::~IntelPT() {
   free(sideband.ptr);
 }
 
-template <unsigned Verbosity>
-int IntelPT<Verbosity>::ptdump_print_error(int errcode, const char *filename,
-                                uint64_t offset) {
+template <unsigned Verbosity, bool Caching>
+int IntelPT<Verbosity, Caching>::ptdump_print_error(int errcode,
+                                                    const char *filename,
+                                                    uint64_t offset) {
   if (errcode >= 0 && false /* !options->print_sb_warnings */)
     return 0;
 
@@ -216,8 +218,8 @@ static void hexdump(FILE *stream, const void *ptr, int buflen) {
 }
 #endif
 
-template <unsigned Verbosity>
-void IntelPT<Verbosity>::examine_sb(void) {
+template <unsigned Verbosity, bool Caching>
+void IntelPT<Verbosity, Caching>::examine_sb(void) {
   fflush(sideband.os);
 
   char *ptr = sideband.ptr;
@@ -667,8 +669,8 @@ void IntelPT<Verbosity>::examine_sb(void) {
   } while (likely(ptr != end));
 }
 
-template <unsigned Verbosity>
-int IntelPT<Verbosity>::explore(void) {
+template <unsigned Verbosity, bool Caching>
+int IntelPT<Verbosity, Caching>::explore(void) {
   int errcode;
 
   if (0 /* options->no_sync */) {
@@ -707,8 +709,8 @@ int IntelPT<Verbosity>::explore(void) {
   return errcode;
 }
 
-template <unsigned Verbosity>
-int IntelPT<Verbosity>::explore_packets() {
+template <unsigned Verbosity, bool Caching>
+int IntelPT<Verbosity, Caching>::explore_packets() {
   uint64_t offset;
   int errcode;
 
@@ -744,8 +746,9 @@ int IntelPT<Verbosity>::explore_packets() {
   return 0;
 }
 
-template <unsigned Verbosity>
-int IntelPT<Verbosity>::process_packet(uint64_t offset, struct pt_packet *packet) {
+template <unsigned Verbosity, bool Caching>
+int IntelPT<Verbosity, Caching>::process_packet(uint64_t offset,
+                                                struct pt_packet *packet) {
   switch (packet->type) {
   case ppt_unknown:
   case ppt_invalid:
@@ -946,9 +949,9 @@ int IntelPT<Verbosity>::process_packet(uint64_t offset, struct pt_packet *packet
 struct tnt_error {};
 struct infinite_loop_exception {};
 
-template <unsigned Verbosity>
-int IntelPT<Verbosity>::tnt_payload(const struct pt_packet_tnt &packet,
-                                    const uint64_t offset) {
+template <unsigned Verbosity, bool Caching>
+int IntelPT<Verbosity, Caching>::tnt_payload(const struct pt_packet_tnt &packet,
+                                             const uint64_t offset) {
   if (unlikely(!Engaged))
     return 1;
 
@@ -975,13 +978,13 @@ int IntelPT<Verbosity>::tnt_payload(const struct pt_packet_tnt &packet,
               Saved.Binary().Name.c_str(),
               static_cast<uint64_t>(Saved.Address()));
   }
-  CurrPoint.Invalidate();
 
+  CurrPoint.Invalidate();
   return 1;
 }
 
-template <unsigned Verbosity>
-int IntelPT<Verbosity>::on_ip(const taddr_t IP, const uint64_t offset) {
+template <unsigned Verbosity, bool Caching>
+int IntelPT<Verbosity, Caching>::on_ip(const taddr_t IP, const uint64_t offset) {
   if (unlikely(!Engaged)) {
     if constexpr (IsVeryVerbose())
       if (RightProcess())
@@ -1097,9 +1100,19 @@ int IntelPT<Verbosity>::on_ip(const taddr_t IP, const uint64_t offset) {
         return 0;
       }
     } else {
+      if constexpr (Caching) {
+        try {
+          auto &x = state.for_basic_block(CurrPoint.Binary(), CurrPoint.Block());
+          CurrPoint.SetBlockIndex(x.SL.BBIdx);
+          CurrPoint.SetTermAddr(x.SL.TermAddr);
+        } catch (const infinite_loop_exception &) {
+          CurrPoint.Invalidate();
+        }
+      } else {
       CurrPoint.SetBlockIndex(StraightLineSlow<false>(
           CurrPoint.Binary(), CurrPoint.BlockIndex(), set_curr_term_addr));
       assert(CurrPoint.Valid());
+      }
     }
   }
 
@@ -1151,9 +1164,11 @@ int IntelPT<Verbosity>::on_ip(const taddr_t IP, const uint64_t offset) {
   return 0;
 }
 
-template <unsigned Verbosity>
-void IntelPT<Verbosity>::block_transfer(binary_t &fr_b, taddr_t FrTermAddr,
-                                        binary_t &to_b, taddr_t ToAddr) {
+template <unsigned Verbosity, bool Caching>
+void IntelPT<Verbosity, Caching>::block_transfer(binary_t &fr_b,
+                                                 taddr_t FrTermAddr,
+                                                 binary_t &to_b,
+                                                 taddr_t ToAddr) {
   const binary_index_t FrBIdx = index_of_binary(fr_b);
   const binary_index_t ToBIdx = index_of_binary(to_b);
 
@@ -1429,48 +1444,35 @@ StraightLineGo(const binary_t &b,
   abort();
 }
 
-template <unsigned Verbosity>
+template <unsigned Verbosity, bool Caching>
 template <bool InfiniteLoopThrow>
 std::pair<basic_block_index_t, bool>
-IntelPT<Verbosity>::StraightLineUntilSlow(const binary_t &b,
-                                          basic_block_index_t From,
-                                          taddr_t GoNoFurther, std::function<basic_block_index_t(basic_block_index_t)> on_final_block) {
+IntelPT<Verbosity, Caching>::StraightLineUntilSlow(
+    const binary_t &b,
+    basic_block_index_t From,
+    taddr_t GoNoFurther,
+    std::function<basic_block_index_t(basic_block_index_t)> on_final_block) {
   return StraightLineGo<true, InfiniteLoopThrow, Verbosity>(
       b, From, GoNoFurther,
-      std::bind(&IntelPT<Verbosity>::on_block, this, std::ref(b),
+      std::bind(&IntelPT<Verbosity, Caching>::on_block, this, std::ref(b),
                 std::placeholders::_1), on_final_block);
 }
 
-template <unsigned Verbosity>
+template <unsigned Verbosity, bool Caching>
 template <bool InfiniteLoopThrow>
-basic_block_index_t
-IntelPT<Verbosity>::StraightLineSlow(const binary_t &b,
-                                     basic_block_index_t From,
-                                     std::function<basic_block_index_t(basic_block_index_t)> on_final_block) {
+basic_block_index_t IntelPT<Verbosity, Caching>::StraightLineSlow(
+    const binary_t &b,
+    basic_block_index_t From,
+    std::function<basic_block_index_t(basic_block_index_t)> on_final_block) {
   return StraightLineGo<false, InfiniteLoopThrow, Verbosity>(
       b, From, 0 /* unused */,
-      std::bind(&IntelPT<Verbosity>::on_block, this, std::ref(b),
+      std::bind(&IntelPT<Verbosity, Caching>::on_block, this, std::ref(b),
                 std::placeholders::_1), on_final_block).first;
 }
 
-template <unsigned Verbosity>
-template <bool InfiniteLoopThrow>
-basic_block_index_t
-IntelPT<Verbosity>::StraightLineFast(const binary_t &b,
-                                     basic_block_index_t From) {
-  basic_block_index_t Res =
-      state.for_basic_block(b, basic_block_of_index(From, b)).StraightLineNext;
-
-  if constexpr (InfiniteLoopThrow) {
-    if (unlikely(!is_basic_block_index_valid(Res)))
-      throw infinite_loop_exception();
-  }
-
-  return Res;
-}
-
-template <unsigned Verbosity>
-void IntelPT<Verbosity>::on_block(const binary_t &b, basic_block_index_t BBIdx) {
+template <unsigned Verbosity, bool Caching>
+void IntelPT<Verbosity, Caching>::on_block(const binary_t &b,
+                                           basic_block_index_t BBIdx) {
   if constexpr (IsVeryVerbose()) {
     binary_state_t &x = state.for_binary(b);
 
@@ -1483,8 +1485,8 @@ void IntelPT<Verbosity>::on_block(const binary_t &b, basic_block_index_t BBIdx) 
   }
 }
 
-template <unsigned Verbosity>
-void IntelPT<Verbosity>::TNTAdvance(uint64_t tnt, uint8_t n) {
+template <unsigned Verbosity, bool Caching>
+void IntelPT<Verbosity, Caching>::TNTAdvance(uint64_t tnt, uint8_t n) {
   assert(n > 0);
 
   if constexpr (IsVeryVerbose())
@@ -1495,7 +1497,22 @@ void IntelPT<Verbosity>::TNTAdvance(uint64_t tnt, uint8_t n) {
 
   const auto &ICFG = b.Analysis.ICFG;
   do {
-    // Res = StraightLineFast<true>(b, Res);
+    const bool Taken = !!(tnt & (1ull << (n - 1)));
+
+    if constexpr (Caching) {
+      basic_block_t bb = basic_block_of_index(Res, b);
+      auto &x = state.for_basic_block(b, bb);
+      if (unlikely(x.SL.adj.empty())) {
+        if constexpr (IsVerbose())
+          fprintf(stderr,
+                  "not/invalid conditional branch @ %s+%" PRIx64 " (%s)\n",
+                  b.Name.c_str(), static_cast<uint64_t>(x.SL.Addr),
+                  string_of_terminator(x.SL.TermType));
+        throw tnt_error();
+      }
+      assert(x.SL.adj.size() == 2);
+      Res = x.SL.adj[static_cast<unsigned>(Taken)];
+    } else {
     Res = StraightLineSlow<true>(
         b, Res, [&](basic_block_index_t BBIdx) -> basic_block_index_t {
           basic_block_t bb = basic_block_of_index(BBIdx, b);
@@ -1522,12 +1539,11 @@ void IntelPT<Verbosity>::TNTAdvance(uint64_t tnt, uint8_t n) {
           const bool Is0NotTaking =
               ICFG[succ[0]].Addr == bbprop.Addr + bbprop.Size;
 
-          const bool NotTaken = !(tnt & (1ull << (n - 1)));
-
           return index_of_basic_block(
-              ICFG, NotTaken ? (Is0NotTaking ? succ[0] : succ[1])
-                             : (Is0NotTaking ? succ[1] : succ[0]));
+              ICFG, Taken ? (Is0NotTaking ? succ[1] : succ[0])
+                          : (Is0NotTaking ? succ[0] : succ[1]));
         });
+    }
 
 #if 0
     const char *extra = n > 1 ? " " : "";
@@ -1535,21 +1551,26 @@ void IntelPT<Verbosity>::TNTAdvance(uint64_t tnt, uint8_t n) {
 #endif
   } while (--n);
 
-  //Res = StraightLineFast<true>(b, Res);
-
+  if constexpr (Caching) {
+    basic_block_t bb = basic_block_of_index(Res, b);
+    auto &x = state.for_basic_block(b, bb);
+    CurrPoint.SetBlockIndex(x.SL.BBIdx);
+    CurrPoint.SetTermAddr(x.SL.TermAddr);
+  } else {
   CurrPoint.SetBlockIndex(StraightLineSlow<true>(
       b, Res, [&](basic_block_index_t BBIdx) -> basic_block_index_t {
         CurrPoint.SetTermAddr(address_of_basic_block_terminator(
             basic_block_of_index(BBIdx, b), b));
         return BBIdx;
       }));
+  }
 
   if constexpr (IsVeryVerbose())
     fprintf(stderr, "</TNT>\n");
 }
 
-template <unsigned Verbosity>
-void IntelPT<Verbosity>::ptdump_tracking_init(void)
+template <unsigned Verbosity, bool Caching>
+void IntelPT<Verbosity, Caching>::ptdump_tracking_init(void)
 {
   pt_last_ip_init(tracking.last_ip.get());
   pt_tcal_init(tracking.tcal.get());
@@ -1561,8 +1582,8 @@ void IntelPT<Verbosity>::ptdump_tracking_init(void)
   tracking.in_header = 0;
 }
 
-template <unsigned Verbosity>
-void IntelPT<Verbosity>::ptdump_tracking_reset(void) {
+template <unsigned Verbosity, bool Caching>
+void IntelPT<Verbosity, Caching>::ptdump_tracking_reset(void) {
   pt_last_ip_init(tracking.last_ip.get());
   pt_tcal_init(tracking.tcal.get());
   pt_time_init(tracking.time.get());
@@ -1572,8 +1593,8 @@ void IntelPT<Verbosity>::ptdump_tracking_reset(void) {
   tracking.in_header = 0;
 }
 
-template <unsigned Verbosity>
-int IntelPT<Verbosity>::sb_track_time(uint64_t offset)
+template <unsigned Verbosity, bool Caching>
+int IntelPT<Verbosity, Caching>::sb_track_time(uint64_t offset)
 {
 	uint64_t tsc;
 	int errcode;
@@ -1603,8 +1624,8 @@ int IntelPT<Verbosity>::sb_track_time(uint64_t offset)
         return 0;
 }
 
-template <unsigned Verbosity>
-int IntelPT<Verbosity>::track_time(uint64_t offset) {
+template <unsigned Verbosity, bool Caching>
+int IntelPT<Verbosity, Caching>::track_time(uint64_t offset) {
 #if 0
 	if (!tracking || !options)
 		return diag("error tracking time", offset, -pte_internal);
@@ -1623,8 +1644,9 @@ int IntelPT<Verbosity>::track_time(uint64_t offset) {
 	return sb_track_time(offset);
 }
 
-template <unsigned Verbosity>
-int IntelPT<Verbosity>::track_tsc(uint64_t offset, const struct pt_packet_tsc *packet) {
+template <unsigned Verbosity, bool Caching>
+int IntelPT<Verbosity, Caching>::track_tsc(uint64_t offset,
+                                           const struct pt_packet_tsc *packet) {
         int errcode;
 
 #if 0
@@ -1651,8 +1673,9 @@ int IntelPT<Verbosity>::track_tsc(uint64_t offset, const struct pt_packet_tsc *p
 	return track_time(offset);
 }
 
-template <unsigned Verbosity>
-int IntelPT<Verbosity>::track_cbr(uint64_t offset, const struct pt_packet_cbr *packet) {
+template <unsigned Verbosity, bool Caching>
+int IntelPT<Verbosity, Caching>::track_cbr(uint64_t offset,
+                                           const struct pt_packet_cbr *packet) {
         int errcode;
 
 #if 0
@@ -1684,8 +1707,9 @@ int IntelPT<Verbosity>::track_cbr(uint64_t offset, const struct pt_packet_cbr *p
 	return track_time(offset);
 }
 
-template <unsigned Verbosity>
-int IntelPT<Verbosity>::track_tma(uint64_t offset, const struct pt_packet_tma *packet) {
+template <unsigned Verbosity, bool Caching>
+int IntelPT<Verbosity, Caching>::track_tma(uint64_t offset,
+                                           const struct pt_packet_tma *packet) {
         int errcode;
 
 #if 0
@@ -1715,8 +1739,9 @@ int IntelPT<Verbosity>::track_tma(uint64_t offset, const struct pt_packet_tma *p
 	return track_time(offset);
 }
 
-template <unsigned Verbosity>
-int IntelPT<Verbosity>::track_mtc(uint64_t offset, const struct pt_packet_mtc *packet) {
+template <unsigned Verbosity, bool Caching>
+int IntelPT<Verbosity, Caching>::track_mtc(uint64_t offset,
+                                           const struct pt_packet_mtc *packet) {
         int errcode;
 
 #if 0
@@ -1741,10 +1766,11 @@ int IntelPT<Verbosity>::track_mtc(uint64_t offset, const struct pt_packet_mtc *p
 	return track_time(offset);
 }
 
-template <unsigned Verbosity>
-int IntelPT<Verbosity>::track_cyc(uint64_t offset, const struct pt_packet_cyc *packet) {
-  uint64_t fcr;
-  int errcode;
+template <unsigned Verbosity, bool Caching>
+int IntelPT<Verbosity, Caching>::track_cyc(uint64_t offset,
+                                           const struct pt_packet_cyc *packet) {
+	uint64_t fcr;
+	int errcode;
 
 #if 0
 	if (!buffer || !tracking || !options)
@@ -1876,8 +1902,8 @@ static int preprocess_filename(char *filename, uint64_t *offset, uint64_t *size)
 	return -pte_internal;
 }
 
-template <unsigned Verbosity>
-int IntelPT<Verbosity>::ptdump_sb_pevent(char *filename,
+template <unsigned Verbosity, bool Caching>
+int IntelPT<Verbosity, Caching>::ptdump_sb_pevent(char *filename,
                               const struct pt_sb_pevent_config *conf,
                               const char *prog) {
         struct pt_sb_pevent_config config;
@@ -2134,8 +2160,8 @@ static int get_arg_uint8(uint8_t *value, const char *option, const char *arg,
 }
 
 
-template <unsigned Verbosity>
-int IntelPT<Verbosity>::process_args(int argc, char **argv)
+template <unsigned Verbosity, bool Caching>
+int IntelPT<Verbosity, Caching>::process_args(int argc, char **argv)
 {
 	struct pt_sb_pevent_config pevent;
 	int idx, errcode;
@@ -2258,8 +2284,8 @@ int IntelPT<Verbosity>::process_args(int argc, char **argv)
 	return 0;
 }
 
-template <unsigned Verbosity>
-IntelPT<Verbosity>::binary_state_t::binary_state_t(const binary_t &b) {
+template <unsigned Verbosity, bool Caching>
+IntelPT<Verbosity, Caching>::binary_state_t::binary_state_t(const binary_t &b) {
   Bin = B::Create(b.data());
 
   binary_t::Analysis_t::objdump_t &objdump =
@@ -2282,42 +2308,69 @@ IntelPT<Verbosity>::binary_state_t::binary_state_t(const binary_t &b) {
   __objdump.good.resize(objdump.good.size());
 }
 
-template <unsigned Verbosity>
-IntelPT<Verbosity>::basic_block_state_t::basic_block_state_t(const binary_t &b,
-                                                             basic_block_t bb) {
+template <unsigned Verbosity, bool Caching>
+IntelPT<Verbosity, Caching>::basic_block_state_t::basic_block_state_t(
+    const binary_t &b, basic_block_t bb) {
+  if constexpr (!Caching)
+    return;
+
   auto &ICFG = b.Analysis.ICFG;
-  auto &bbprop = ICFG[bb];
 
-  {
-    ip_sharable_lock<ip_sharable_mutex>(bbprop.init_mtx);
-    ip_sharable_lock<ip_sharable_mutex> s_lck(bbprop.mtx);
+  const basic_block_index_t Idx = index_of_basic_block(b, bb);
+  assert(is_basic_block_index_valid(Idx));
 
-    Addr = bbprop.Addr;
-    Size = bbprop.Size;
-    TermType = bbprop.Term.Type;
-    TermAddr = bbprop.Term.Addr;
+  this->SL.BBIdx = StraightLineGo<false, true, Verbosity>(
+      b, Idx, 0 /* unused */,
+      [](basic_block_t) -> void {},
+      [&](basic_block_index_t BBIdx) -> basic_block_index_t {
+        basic_block_t bb = basic_block_of_index(BBIdx, b);
+        const auto &bbprop = ICFG[bb];
 
-    StraightLineNext =
-        StraightLineGo<false, false, Verbosity>(b, index_of_basic_block(b, bb))
-            .first;
+        this->SL.Addr = bbprop.Addr;
+//      this->SL.Size = bbprop.Size;
+        this->SL.TermType = bbprop.Term.Type;
+        this->SL.TermAddr = bbprop.Term.Addr;
 
-    {
-      icfg_t::adjacency_iterator succ_it, succ_it_end;
-      std::tie(succ_it, succ_it_end) = ICFG.adjacent_vertices(bb);
+        {
+          icfg_t::adjacency_iterator it, it_end;
+          std::tie(it, it_end) = ICFG.adjacent_vertices(bb);
 
-      if (std::distance(succ_it, succ_it_end) <= adj.max_size())
-                                std::copy(succ_it, succ_it_end,
-                                          std::back_inserter(adj));
-    }
-  }
+          unsigned N = std::distance(it, it_end);
+          if (N == 1) {
+            SL.adj.push_back(*it);
+            SL.adj.push_back(*it);
+          } else if (N == 2 && SL.TermType == TERMINATOR::CONDITIONAL_JUMP) {
+            basic_block_index_t succ0 = *it++;
+            basic_block_index_t succ1 = *it++;
+
+            bool Is0NotTaking = ICFG[succ0].Addr == bbprop.Addr + bbprop.Size;
+            if (Is0NotTaking) {
+              this->SL.adj.push_back(succ0);
+              this->SL.adj.push_back(succ1);
+            } else {
+              this->SL.adj.push_back(succ1);
+              this->SL.adj.push_back(succ0);
+            }
+          } else {
+            ;
+          }
+        }
+
+        return BBIdx;
+      }).first;
+  assert(is_basic_block_index_valid(SL.BBIdx));
 }
 
 #undef IsVerbose
 #undef IsVeryVerbose
 
-template class IntelPT<0>; /* not verbose */
-template class IntelPT<1>; /* verbose */
-template class IntelPT<2>; /* very verbose */
+template class IntelPT<0, true>;
+template class IntelPT<1, true>;
+template class IntelPT<2, true>;
+
+template class IntelPT<0, false>;
+template class IntelPT<1, false>;
+template class IntelPT<2, false>;
 
 }
 

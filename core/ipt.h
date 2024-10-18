@@ -28,7 +28,7 @@ namespace jove {
 class explorer_t;
 
 /* reference IPT decoder */
-template <unsigned Verbosity>
+template <unsigned Verbosity, bool Caching>
 class IntelPT {
   jv_t &jv;
   explorer_t &explorer;
@@ -50,12 +50,17 @@ class IntelPT {
   } tracking;
 
   struct basic_block_state_t {
-    taddr_t Addr = ~0UL;
-    uint32_t Size = ~0UL;
-    TERMINATOR TermType;
-    taddr_t TermAddr = ~0UL;
-    boost::container::static_vector<basic_block_index_t, 2> adj;
-    basic_block_index_t StraightLineNext = invalid_basic_block_index;
+    struct {
+      basic_block_index_t BBIdx = invalid_basic_block_index;
+
+      taddr_t Addr = invalid_taddr;
+      //uint32_t Size = ~0u;
+      TERMINATOR TermType = TERMINATOR::UNKNOWN;
+      taddr_t TermAddr = invalid_taddr;
+
+      // if cond jump, first is not taken
+      boost::container::static_vector<basic_block_index_t, 2> adj;
+    } SL;
 
     basic_block_state_t(const binary_t &b, basic_block_t bb);
   };
@@ -89,7 +94,9 @@ class IntelPT {
     binary_state_t(const binary_t &b); /* runs objdump */
   };
 
-  jv_state_t<binary_state_t, void, basic_block_state_t, false, false> state;
+  using BBState = std::conditional_t<Caching, basic_block_state_t, void>;
+
+  jv_state_t<binary_state_t, void, BBState, false, true> state;
 
   const bool IsCOFF;
 
@@ -241,9 +248,6 @@ class IntelPT {
                         basic_block_index_t,
                         taddr_t GoNoFurther,
                         std::function<basic_block_index_t(basic_block_index_t)> on_final_block = [](basic_block_index_t Res) -> basic_block_index_t { return Res; });
-
-  template <bool InfiniteLoopThrow = false>
-  basic_block_index_t StraightLineFast(const binary_t &, basic_block_index_t);
 
   template <bool InfiniteLoopThrow = false>
   basic_block_index_t
