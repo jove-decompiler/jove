@@ -1,6 +1,6 @@
-#pragma once
-
-namespace jove {
+#ifndef IN_JOVE_H
+#error "only to be included inline in jove/jove.h"
+#endif
 
 template <typename BinaryStateTy = void,
           typename FunctionStateTy = void,
@@ -379,4 +379,3 @@ private:
     }
   }
 };
-}
