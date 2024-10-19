@@ -66,11 +66,15 @@ public:
     return *HumanOutputStreamPtr;
   }
 
-  inline bool IsVerbose(void) {
+  unsigned VerbosityLevel(void) const {
+    return IsVeryVerbose() ? 2 : (IsVerbose() ? 1 : 0);
+  }
+
+  inline bool IsVerbose(void) const {
     return unlikely(opt_Verbose || opt_VeryVerbose);
   }
 
-  inline bool IsVeryVerbose(void) {
+  inline bool IsVeryVerbose(void) const {
     return unlikely(opt_VeryVerbose);
   }
 

@@ -7,6 +7,9 @@
 #include <cstdio>
 #include <array>
 #include <boost/container/static_vector.hpp>
+#include <boost/preprocessor/seq/for_each_product.hpp>
+#include <boost/preprocessor/seq/elem.hpp>
+#include <boost/preprocessor/seq/seq.hpp>
 
 struct pt_config;
 struct pt_sb_session;
@@ -27,8 +30,36 @@ namespace jove {
 
 class explorer_t;
 
+// Define your template parameters as a sequence of tuples
+#define IPT_TEMPLATE_PARAMS \
+  ((unsigned, Verbosity)) \
+  ((bool, Caching)) \
+  ((bool, Objdump))
+
+// Macro to generate the template parameter declarations with types
+#define IPT_PARAM_DECL(r, data, i, elem)                                       \
+  BOOST_PP_COMMA_IF(i)                                                         \
+  BOOST_PP_TUPLE_ELEM(2, 0, elem) /* Type */                                   \
+  /* space */                                                                  \
+  BOOST_PP_TUPLE_ELEM(2, 1, elem) /* Name */
+
+#define IPT_TEMPLATE_PARAMS_DCL \
+  BOOST_PP_SEQ_FOR_EACH_I(IPT_PARAM_DECL, _, IPT_TEMPLATE_PARAMS)
+
+// Macro to generate the template parameter definitions (names only)
+#define IPT_PARAM_NAME(r, data, i, elem)                                       \
+  BOOST_PP_COMMA_IF(i)                                                         \
+  BOOST_PP_TUPLE_ELEM(2, 1, elem)
+
+#define IPT_TEMPLATE_PARAMS_DEF \
+  BOOST_PP_SEQ_FOR_EACH_I(IPT_PARAM_NAME, _, IPT_TEMPLATE_PARAMS)
+
+#define IPT_VERBOSITY_POSSIBLE (0)(1)(2)
+#define IPT_CACHE_POSSIBLE (false)(true)
+#define IPT_OBJDUMP_POSSIBLE (false)(true)
+
 /* reference IPT decoder */
-template <unsigned Verbosity, bool Caching>
+template <IPT_TEMPLATE_PARAMS_DCL>
 class IntelPT {
   jv_t &jv;
   explorer_t &explorer;
@@ -72,26 +103,11 @@ class IntelPT {
       taddr_t LoadAddr = ~0UL;
     } _coff;
 
-    struct {
-      taddr_t begin = ~0UL;
+    std::conditional_t<Objdump && Caching, objdump_output_t<false>,
+                       std::monostate>
+        m_objdump;
 
-      boost::dynamic_bitset<unsigned long> good;
-
-      bool is_addr_good(taddr_t addr) const {
-        if (addr < begin)
-          return true; /* who knows? */
-        taddr_t idx = addr - begin;
-        if (idx >= good.size())
-          return true; /* who knows? */
-        return good.test(idx);
-      }
-
-      bool is_addr_bad(taddr_t addr) const {
-        return !is_addr_good(addr);
-      }
-    } __objdump;
-
-    binary_state_t(const binary_t &b); /* runs objdump */
+    binary_state_t(const binary_t &b);
   };
 
   using BBState = std::conditional_t<Caching, basic_block_state_t, void>;

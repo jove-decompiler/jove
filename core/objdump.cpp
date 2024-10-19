@@ -12,9 +12,9 @@
 
 namespace jove {
 
+template <typename T>
 int run_objdump_and_parse_addresses(const char *filename,
-                                    llvm::object::Binary &Bin,
-                                    binary_t::Analysis_t::objdump_t &out) {
+                                    llvm::object::Binary &Bin, T &out) {
   std::unique_ptr<temp_executable> temp_exe;
   if (!filename) {
     temp_exe = std::make_unique<temp_executable>(
@@ -178,4 +178,10 @@ int run_objdump_and_parse_addresses(const char *filename,
 
   return rc;
 }
+
+template int run_objdump_and_parse_addresses<objdump_output_t<false>>(const char *filename, llvm::object::Binary &Bin, objdump_output_t<false> &out);
+template int run_objdump_and_parse_addresses<objdump_output_t<true>>(const char *filename, llvm::object::Binary &Bin, objdump_output_t<true> &out);
+
+template int run_objdump_and_parse_addresses<binary_t::Analysis_t::objdump_output_type>(const char *filename, llvm::object::Binary &Bin, binary_t::Analysis_t::objdump_output_type &out);
+
 }

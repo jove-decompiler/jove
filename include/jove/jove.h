@@ -1,4 +1,7 @@
-#pragma once
+#ifndef JOVE_H
+#define JOVE_H
+#define IN_JOVE_H
+
 #if defined(TARGET_AARCH64)
 #include <jove/tcgconstants-aarch64.h>
 #elif defined(TARGET_X86_64)
@@ -46,6 +49,7 @@
 #include <boost/range/iterator_range.hpp>
 #include <boost/optional.hpp>
 #include <boost/dynamic_bitset.hpp>
+//#include <boost/container/scoped_allocator.hpp>
 
 #include <algorithm>
 #include <atomic>
@@ -861,6 +865,8 @@ struct function_t {
   function_t() = delete;
 };
 
+#include "jove/objdump.h"
+
 struct binary_t {
   binary_index_t Idx = invalid_binary_index;
 
@@ -921,51 +927,11 @@ struct binary_t {
     void addRelocDynTarget(taddr_t A, dynamic_target_t X) {}
     void addIFuncDynTarget(taddr_t A, dynamic_target_t X) {}
 
-    struct objdump_t {
-      taddr_t begin = ~0UL;
+    typedef objdump_output_t<
+        true, boost::interprocess::allocator<unsigned long, segment_manager_t>>
+        objdump_output_type;
 
-      boost::dynamic_bitset<
-          unsigned long,
-          boost::interprocess::allocator<unsigned long, segment_manager_t>>
-          good;
-
-      mutable ip_sharable_mutex mtx;
-
-      objdump_t() = delete;
-      objdump_t(const ip_void_allocator_t &A) : good(A) {}
-      objdump_t(objdump_t &&other)
-          : begin(other.begin), good(other.good.get_allocator()) {
-        good = other.good; /* XXX? */
-      }
-      objdump_t &operator=(const objdump_t &other) {
-        if (this == &other)
-          return *this;
-
-        begin = other.begin;
-        good = other.good;
-        return *this;
-      }
-
-      bool empty(void) const {
-        ip_sharable_lock<ip_sharable_mutex> s_lck(mtx);
-        return good.empty();
-      }
-
-      bool is_addr_good(taddr_t addr) const {
-        ip_sharable_lock<ip_sharable_mutex> s_lck(mtx);
-
-        if (addr < begin)
-          return true; /* who knows? */
-        taddr_t idx = addr - begin;
-        if (idx >= good.size())
-          return true; /* who knows? */
-        return good.test(idx);
-      }
-
-      bool is_addr_bad(taddr_t addr) const {
-        return !is_addr_good(addr);
-      }
-    } objdump;
+    objdump_output_type objdump;
   } Analysis;
 
   void InvalidateBasicBlockAnalyses(void);
@@ -2156,8 +2122,11 @@ static inline binary_t &get_vdso(jv_t &jv) {
   throw std::runtime_error(std::string(__func__) + ": not found!");
 }
 
-}
-
 #include "jove/state.h"
 
+} /* namespace jove */
+
 #endif /* __cplusplus */
+
+#undef IN_JOVE_H
+#endif /* JOVE_H */
