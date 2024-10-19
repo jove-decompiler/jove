@@ -2382,14 +2382,21 @@ IntelPT<IPT_TEMPLATE_PARAMS_DEF>::basic_block_state_t::basic_block_state_t(
 #undef IsVerbose
 #undef IsVeryVerbose
 
-#define IPT_INSTANTIATE(r, product)                                            \
-  template class IntelPT<BOOST_PP_SEQ_ELEM(0, product),                        \
-                         BOOST_PP_SEQ_ELEM(1, product),                        \
-                         BOOST_PP_SEQ_ELEM(2, product)>;
+#define IPT_EXTRACT_VALUES(s, data, elem)                                      \
+  BOOST_PP_TUPLE_ELEM(3, 2, elem)
 
-BOOST_PP_SEQ_FOR_EACH_PRODUCT(
-    IPT_INSTANTIATE,
-    (IPT_VERBOSITY_POSSIBLE)(IPT_CACHE_POSSIBLE)(IPT_OBJDUMP_POSSIBLE));
+#define IPT_ALL_OPTIONS                                                        \
+  BOOST_PP_SEQ_TRANSFORM(IPT_EXTRACT_VALUES, _, IPT_TEMPLATE_PARAMS)
+
+#define IPT_GENERATE_TEMPLATE_ARG(r, product, i, elem)                         \
+  BOOST_PP_COMMA_IF(i) BOOST_PP_SEQ_ELEM(i, product)
+
+#define IPT_INSTANTIATE(r, product)                                            \
+  template class IntelPT<                                                      \
+      BOOST_PP_SEQ_FOR_EACH_I(IPT_GENERATE_TEMPLATE_ARG, product,              \
+                              IPT_TEMPLATE_PARAMS)>;
+
+BOOST_PP_SEQ_FOR_EACH_PRODUCT(IPT_INSTANTIATE, IPT_ALL_OPTIONS);
 
 #undef IPT_INSTANTIATE
 

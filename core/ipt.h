@@ -30,33 +30,26 @@ namespace jove {
 
 class explorer_t;
 
-// Define your template parameters as a sequence of tuples
 #define IPT_TEMPLATE_PARAMS \
-  ((unsigned, Verbosity)) \
-  ((bool, Caching)) \
-  ((bool, Objdump))
+  ((unsigned, Verbosity, (0)(1)(2))) \
+  ((bool, Caching, (false)(true)))    \
+  ((bool, Objdump, (false)(true)))
 
-// Macro to generate the template parameter declarations with types
 #define IPT_PARAM_DECL(r, data, i, elem)                                       \
   BOOST_PP_COMMA_IF(i)                                                         \
-  BOOST_PP_TUPLE_ELEM(2, 0, elem) /* Type */                                   \
+  BOOST_PP_TUPLE_ELEM(3, 0, elem) /* Type */                                   \
   /* space */                                                                  \
-  BOOST_PP_TUPLE_ELEM(2, 1, elem) /* Name */
+  BOOST_PP_TUPLE_ELEM(3, 1, elem) /* Name */
 
-#define IPT_TEMPLATE_PARAMS_DCL \
+#define IPT_TEMPLATE_PARAMS_DCL                                                \
   BOOST_PP_SEQ_FOR_EACH_I(IPT_PARAM_DECL, _, IPT_TEMPLATE_PARAMS)
 
-// Macro to generate the template parameter definitions (names only)
 #define IPT_PARAM_NAME(r, data, i, elem)                                       \
   BOOST_PP_COMMA_IF(i)                                                         \
-  BOOST_PP_TUPLE_ELEM(2, 1, elem)
+  BOOST_PP_TUPLE_ELEM(3, 1, elem)
 
-#define IPT_TEMPLATE_PARAMS_DEF \
+#define IPT_TEMPLATE_PARAMS_DEF                                                \
   BOOST_PP_SEQ_FOR_EACH_I(IPT_PARAM_NAME, _, IPT_TEMPLATE_PARAMS)
-
-#define IPT_VERBOSITY_POSSIBLE (0)(1)(2)
-#define IPT_CACHE_POSSIBLE (false)(true)
-#define IPT_OBJDUMP_POSSIBLE (false)(true)
 
 /* reference IPT decoder */
 template <IPT_TEMPLATE_PARAMS_DCL>

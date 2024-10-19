@@ -1022,17 +1022,33 @@ int IPTTool::UsingLibipt(void) {
           }
         };
 
-#define GENERATE_RUN(r, product)                                               \
-  if (VerbosityLevel() == BOOST_PP_SEQ_ELEM(0, product) &&                     \
-      opts.Cache == BOOST_PP_SEQ_ELEM(1, product) &&                           \
-      opts.Objdump == BOOST_PP_SEQ_ELEM(2, product))                           \
-     run.template operator()<BOOST_PP_SEQ_ELEM(0, product),                    \
-                             BOOST_PP_SEQ_ELEM(1, product),                    \
-                             BOOST_PP_SEQ_ELEM(2, product)>();
+        const unsigned VerbLevel = VerbosityLevel();
 
-        BOOST_PP_SEQ_FOR_EACH_PRODUCT(
-            GENERATE_RUN,
-            (IPT_VERBOSITY_POSSIBLE)(IPT_CACHE_POSSIBLE)(IPT_OBJDUMP_POSSIBLE));
+#define __opts_Verbosity VerbLevel
+#define __opts_Caching opts.Cache
+#define __opts_Objdump opts.Objdump
+
+#define IPT_EXTRACT_VALUES(s, data, elem)                                      \
+  BOOST_PP_TUPLE_ELEM(3, 2, elem)
+
+#define IPT_ALL_OPTIONS                                                        \
+  BOOST_PP_SEQ_TRANSFORM(IPT_EXTRACT_VALUES, _, IPT_TEMPLATE_PARAMS)
+
+#define IPT_GENERATE_COMPARISON(r, product, i, elem)                           \
+  BOOST_PP_IF(i, &&, )                                                         \
+  (BOOST_PP_CAT(__opts_,BOOST_PP_TUPLE_ELEM(3, 1, elem)) == BOOST_PP_SEQ_ELEM(i, product))
+
+#define IPT_GENERATE_TEMPLATE_ARG(r, product, i, elem)                         \
+  BOOST_PP_COMMA_IF(i) BOOST_PP_SEQ_ELEM(i, product)
+
+#define GENERATE_RUN(r, product)                                               \
+  if (BOOST_PP_SEQ_FOR_EACH_I(IPT_GENERATE_COMPARISON, product,                \
+                              IPT_TEMPLATE_PARAMS))                            \
+    run.template operator()<                                                   \
+        BOOST_PP_SEQ_FOR_EACH_I(IPT_GENERATE_TEMPLATE_ARG, product,            \
+                                IPT_TEMPLATE_PARAMS)>();
+
+BOOST_PP_SEQ_FOR_EACH_PRODUCT(GENERATE_RUN, IPT_ALL_OPTIONS);
 
 #undef GENERATE_RUN
       });
@@ -1057,7 +1073,6 @@ void IPTTool::gather_all_perf_data_files(std::vector<std::string> &out) {
     }
   }
 }
-
 
 void IPTTool::gather_perf_data_aux_files(std::vector<std::pair<unsigned, std::string>> &out) {
   std::regex aux_filename_pattern(R"(perf\.data-aux-idx(\d+)\.bin)");
