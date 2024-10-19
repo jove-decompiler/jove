@@ -1132,11 +1132,21 @@ int IntelPT<Verbosity, Caching>::on_ip(const taddr_t IP, const uint64_t offset) 
 
   const auto PrevPoint = CurrPoint;
   try {
+    auto obp = [&]<bool Unlocked>(basic_block_t bb) -> void {
+      const auto &bbprop = b.Analysis.ICFG[bb];
+
+      // lock if necessary so we see the terminator address when it is published
+      std::conditional_t<Unlocked, ip_sharable_lock<ip_sharable_mutex>,
+                         __do_nothing_t> __may_s_lck(bbprop.mtx);
+
+      CurrPoint.SetTermAddr(bbprop.Term.Addr);
+    };
+
     CurrPoint.SetBinary(b);
     CurrPoint.SetBlockIndex(explorer.explore_basic_block(
-        b, *x.Bin, Addr, [&](basic_block_t bb) -> void {
-          CurrPoint.SetTermAddr(address_of_basic_block_terminator(bb, b));
-        }));
+        b, *x.Bin, Addr,
+        [=](basic_block_t bb) -> void { obp.template operator()<false>(bb); },
+        [=](basic_block_t bb) -> void { obp.template operator()<true>(bb); }));
     assert(CurrPoint.Valid());
 
     on_block(b, CurrPoint.BlockIndex());

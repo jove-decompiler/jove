@@ -24,11 +24,11 @@ struct invalid_control_flow_exception {
 
 struct tiny_code_generator_t;
 
-typedef std::function<void(basic_block_t)> on_the_block_proc_t;
+typedef std::function<void(basic_block_t)> onblockproc_t;
 typedef std::function<void(binary_t &, basic_block_t)> on_newbb_proc_t;
 typedef std::function<void(binary_t &, function_t &)> on_newfn_proc_t;
 
-static inline void do_nothing_on_the_block(basic_block_t) {}
+static inline void nop_on_block(basic_block_t) {}
 
 //
 // performs accurate recursive traversal disassembly
@@ -42,18 +42,21 @@ class explorer_t {
   on_newbb_proc_t on_newbb_proc;
   on_newfn_proc_t on_newfn_proc;
 
+  template <bool WithOnBlockProc = false>
   bool split(binary_t &, llvm::object::Binary &,
              ip_scoped_lock<ip_sharable_mutex> e_lck_bb,
              bbmap_t::iterator it,
              const taddr_t Addr,
              basic_block_index_t,
-             on_the_block_proc_t);
+             onblockproc_t obp = nop_on_block);
 
+  template <bool WithOnBlockProc = false>
   basic_block_index_t _explore_basic_block(binary_t &,
                                            llvm::object::Binary &,
                                            const taddr_t Addr,
                                            bool Speculative,
-                                           on_the_block_proc_t on_the_block_proc = do_nothing_on_the_block);
+                                           onblockproc_t obp = nop_on_block,
+                                           onblockproc_t obp_u = nop_on_block);
 
   function_index_t _explore_function(binary_t &,
                                      llvm::object::Binary &,
@@ -85,8 +88,13 @@ public:
   //
   basic_block_index_t explore_basic_block(binary_t &,
                                           llvm::object::Binary &,
+                                          taddr_t Addr);
+
+  basic_block_index_t explore_basic_block(binary_t &,
+                                          llvm::object::Binary &,
                                           taddr_t Addr,
-                                          on_the_block_proc_t on_the_block_proc = do_nothing_on_the_block);
+                                          onblockproc_t obp,
+                                          onblockproc_t obp_u);
 
   function_index_t explore_function(binary_t &,
                                     llvm::object::Binary &,

@@ -96,11 +96,12 @@ function_index_t explorer_t::_explore_function(binary_t &b,
   return Idx;
 }
 
+template <bool WithOnBlockProc>
 bool explorer_t::split(binary_t &b, obj::Binary &Bin,
                        ip_scoped_lock<ip_sharable_mutex> e_lck_bb,
                        bbmap_t::iterator it, const taddr_t Addr,
                        basic_block_index_t Idx,
-                       on_the_block_proc_t on_the_block_proc) {
+                       onblockproc_t obp) {
   auto &bbmap = b.bbmap;
   auto &ICFG = b.Analysis.ICFG;
 
@@ -245,7 +246,8 @@ on_insn:
     for (basic_block_t bb : to_bb_vec)
       ICFG.add_edge<false>(bb_2, bb);
 
-    on_the_block_proc(bb_2);
+    if constexpr (WithOnBlockProc)
+      obp(bb_2);
   }
 
   //
@@ -299,11 +301,13 @@ on_insn:
   return true;
 }
 
+template <bool WithOnBlockProc>
 basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
                                                      obj::Binary &Bin,
                                                      const taddr_t Addr,
                                                      bool Speculative,
-                                                     on_the_block_proc_t on_the_block_proc) {
+                                                     onblockproc_t obp,
+                                                     onblockproc_t obp_u) {
 #if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
   assert((Addr & 1) == 0);
 #endif
@@ -317,7 +321,8 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
         Addr, std::ref(b), std::ref(Idx), static_cast<taddr_t>(Addr),
         [&](const typename bbbmap_t::value_type &x) {
           const basic_block_index_t TheIdx = x.second;
-          on_the_block_proc(basic_block_of_index(TheIdx, ICFG));
+          if constexpr (WithOnBlockProc)
+            obp_u(basic_block_of_index(TheIdx, ICFG));
           Idx = TheIdx;
         });
 
@@ -344,8 +349,12 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
     //
     auto it = bbmap_find(b.bbmap, Addr);
     if (it != b.bbmap.end()) {
-      if (likely(split(b, Bin, boost::move(e_lck_bb), it, Addr, Idx,
-                       on_the_block_proc))) {
+      bool success;
+      if constexpr (WithOnBlockProc)
+        success = split<true>(b, Bin, boost::move(e_lck_bb), it, Addr, Idx, obp);
+      else
+        success = split(b, Bin, boost::move(e_lck_bb), it, Addr, Idx);
+      if (likely(success)) {
         return Idx;
       } else {
         //
@@ -504,7 +513,8 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
       e_lck_bbmap.unlock();
     }
 
-    on_the_block_proc(basic_block_of_index(Idx, ICFG));
+    if constexpr (WithOnBlockProc)
+      obp(basic_block_of_index(Idx, ICFG));
   }
 
   //
@@ -639,13 +649,24 @@ void explorer_t::_control_flow_to(
 
 basic_block_index_t explorer_t::explore_basic_block(binary_t &b,
                                                     obj::Binary &B,
-                                                    taddr_t Addr,
-                                                    on_the_block_proc_t on_the_block_proc) {
+                                                    taddr_t Addr) {
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
   Addr &= ~1UL;
 #endif
 
-  return _explore_basic_block(b, B, Addr, false, on_the_block_proc);
+  return _explore_basic_block(b, B, Addr, false);
+}
+
+basic_block_index_t explorer_t::explore_basic_block(binary_t &b,
+                                                    obj::Binary &B,
+                                                    taddr_t Addr,
+                                                    onblockproc_t obp,
+                                                    onblockproc_t obp_u) {
+#if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
+  Addr &= ~1UL;
+#endif
+
+  return _explore_basic_block<true>(b, B, Addr, false, obp, obp_u);
 }
 
 function_index_t explorer_t::explore_function(binary_t &b,
