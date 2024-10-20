@@ -2,7 +2,7 @@
 #include "win.h"
 #include "util.h"
 
-#include <unordered_set>
+#include <boost/unordered/unordered_flat_set.hpp>
 
 namespace obj = llvm::object;
 
@@ -63,7 +63,7 @@ addr_pair bounds_of_binary(COFFO &O) {
 }
 
 bool needed_libs(COFFO &O, std::vector<std::string> &out) {
-  std::unordered_set<std::string> needed_set;
+  boost::unordered::unordered_flat_set<std::string> needed_set;
 
   for (const obj::ImportDirectoryEntryRef &DirRef : O.import_directories()) {
     llvm::StringRef Needed;

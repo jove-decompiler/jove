@@ -14,7 +14,6 @@
 #include <chrono>
 #include <execution>
 #include <thread>
-#include <unordered_set>
 
 namespace fs = boost::filesystem;
 namespace obj = llvm::object;

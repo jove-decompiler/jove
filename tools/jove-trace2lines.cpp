@@ -4,6 +4,7 @@
 
 #include <boost/filesystem.hpp>
 #include <boost/format.hpp>
+#include <boost/unordered/unordered_flat_set.hpp>
 
 #include <llvm/Support/FormatVariadic.h>
 #include <llvm/DebugInfo/Symbolize/Symbolize.h>
@@ -67,6 +68,9 @@ class Trace2LinesTool : public StatefulJVTool<ToolKind::CopyOnWrite, binary_stat
           RootSourceDir("root-src", cl::desc("/root/directory/of/source"),
                         cl::value_desc("filename"), cl::cat(JoveCategory)) {}
   } opts;
+
+  template <typename T>
+  using unordered_set = boost::unordered::unordered_flat_set<T>;
 
 public:
   Trace2LinesTool() : opts(JoveCategory) {}
@@ -166,7 +170,7 @@ int Trace2LinesTool::Run(void) {
         basic_blocks_of_function(f, b, state.for_function(f).BasicBlocks);
     }
 
-    std::vector<std::unordered_set<basic_block_index_t>> Excludes;
+    std::vector<unordered_set<basic_block_index_t>> Excludes;
     Excludes.resize(jv.Binaries.size());
 
     for (unsigned i = 0; i < opts.ExcludeFns.size(); i += 2) {

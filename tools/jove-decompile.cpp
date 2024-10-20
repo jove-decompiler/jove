@@ -3,6 +3,7 @@
 #include "triple.h"
 #include "util.h"
 
+#include <boost/unordered/unordered_flat_set.hpp>
 #include <boost/unordered/unordered_flat_map.hpp>
 
 #include <llvm/Bitcode/BitcodeReader.h>
@@ -125,6 +126,9 @@ class DecompileTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, 
                   "1 => assume any arg registers could be live for ABI calls."),
               cl::cat(JoveCategory), cl::init(0)) {}
   } opts;
+
+  template <typename T>
+  using unordered_set = boost::unordered::unordered_flat_set<T>;
 
   std::vector<binary_index_t> Q;
   std::mutex Q_mtx;
@@ -671,8 +675,8 @@ int DecompileTool::Run(void) {
       //
       // include lib directories
       //
-      std::unordered_set<std::string> needed_lib_dirs = {"/lib"};
-      std::unordered_set<std::string> needed_sonames;
+      unordered_set<std::string> needed_lib_dirs = {"/lib"};
+      unordered_set<std::string> needed_sonames;
       for (std::string &needed : x.needed) {
         auto it = soname_map.find(needed);
         if (it == soname_map.end()) {

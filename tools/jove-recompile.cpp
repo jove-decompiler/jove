@@ -22,7 +22,6 @@
 #include <sstream>
 #include <string>
 #include <thread>
-#include <unordered_set>
 #include <filesystem>
 
 #include <fcntl.h>
@@ -207,6 +206,12 @@ class RecompileTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, 
 
   } opts;
 
+  template <typename Key, typename Value>
+  using unordered_map = boost::unordered::unordered_flat_map<Key, Value>;
+
+  template <typename T>
+  using unordered_set = boost::unordered::unordered_flat_set<T>;
+
   bool IsCOFF = false;
 
   inline fs::path a2r(const std::string &ap) {
@@ -240,10 +245,10 @@ struct all_edges_t {
 };
 
 struct vert_exists_in_set_t {
-  const std::unordered_set<dso_t> *vert_set;
+  const boost::unordered::unordered_flat_set<dso_t> *vert_set;
 
   vert_exists_in_set_t() : vert_set(nullptr) {}
-  vert_exists_in_set_t(const std::unordered_set<dso_t> &vert_set)
+  vert_exists_in_set_t(const boost::unordered::unordered_flat_set<dso_t> &vert_set)
       : vert_set(&vert_set) {}
 
   bool operator()(const dso_t &v) const {
@@ -295,13 +300,14 @@ struct graphviz_label_writer {
 
 struct no_bad_edges_t {
   const dso_graph_t *g_ptr;
-  const boost::unordered::unordered_flat_map<dso_t, std::unordered_set<dso_t>>
-      *bad_edges;
+  const boost::unordered::unordered_flat_map<
+      dso_t, boost::unordered::unordered_flat_set<dso_t>> *bad_edges;
 
   no_bad_edges_t() : g_ptr(nullptr) {}
-  no_bad_edges_t(const dso_graph_t *g_ptr,
-                 const boost::unordered::unordered_flat_map<
-                     dso_t, std::unordered_set<dso_t>> *bad_edges)
+  no_bad_edges_t(
+      const dso_graph_t *g_ptr,
+      const boost::unordered::unordered_flat_map<
+          dso_t, boost::unordered::unordered_flat_set<dso_t>> *bad_edges)
       : g_ptr(g_ptr), bad_edges(bad_edges) {}
 
   template <typename Edge> bool operator()(const Edge &e) const {
@@ -730,12 +736,11 @@ int RecompileTool::Run(void) {
                 .vertex_index_map(boost::associative_property_map<std::map<dso_t, int>>(idx_map)));
     }
 
-    std::map<dso_graph_t::vertices_size_type, std::unordered_set<dso_t>> comp_verts_map;
+    std::map<dso_graph_t::vertices_size_type, unordered_set<dso_t>> comp_verts_map;
     for (const auto &el : vert_comps)
       comp_verts_map[el.second].insert(el.first);
 
-    boost::unordered::unordered_flat_map<dso_t, std::unordered_set<dso_t>>
-        bad_edges;
+    unordered_map<dso_t, unordered_set<dso_t>> bad_edges;
 
     //
     // examine edges in strongly-connected components
@@ -976,9 +981,9 @@ int RecompileTool::Run(void) {
     fs::remove(chrooted_path);
 
 #if 1
-    std::unordered_set<std::string> lib_dirs({opts.Output + "/usr/lib"});
+    unordered_set<std::string> lib_dirs({opts.Output + "/usr/lib"});
 #else
-    std::unordered_set<std::string> lib_dirs({jove_bin_path, "/usr/lib"});
+    unordered_set<std::string> lib_dirs({jove_bin_path, "/usr/lib"});
 #endif
 
     for (const std::string &needed : x.needed_vec) {

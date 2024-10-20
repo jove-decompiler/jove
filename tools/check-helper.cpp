@@ -1,5 +1,7 @@
 #include "tool.h"
 
+#include <boost/unordered/unordered_flat_set.hpp>
+
 #include <llvm/Bitcode/BitcodeReader.h>
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
@@ -9,7 +11,6 @@
 #include <llvm/Support/WithColor.h>
 
 #include <string>
-#include <unordered_set>
 
 namespace cl = llvm::cl;
 
@@ -30,6 +31,9 @@ class CheckHelpersTool : public Tool {
                cl::cat(JoveCategory)) {}
 
   } opts;
+
+  template <typename T>
+  using unordered_set = boost::unordered::unordered_flat_set<T>;
 
   llvm::LLVMContext Context;
 
@@ -69,8 +73,8 @@ void CheckHelpersTool::checkHelper(const std::string &helper_nm) {
 
   std::unique_ptr<llvm::Module> &helperModule = helperModuleOr.get();
 
-  std::unordered_set<std::string> fun_syms;
-  std::unordered_set<std::string> var_syms;
+  unordered_set<std::string> fun_syms;
+  unordered_set<std::string> var_syms;
 
   {
     llvm::Module &helperM = *helperModule;

@@ -21,6 +21,7 @@
 #include <boost/range/adaptor/reversed.hpp>
 #include <boost/icl/split_interval_map.hpp>
 #include <boost/unordered/unordered_flat_map.hpp>
+#include <boost/unordered/unordered_flat_set.hpp>
 
 #include <llvm/Analysis/Passes.h>
 #include <llvm/Analysis/TargetTransformInfo.h>
@@ -71,7 +72,6 @@
 #include <cctype>
 #include <random>
 #include <set>
-#include <unordered_set>
 
 #include "jove_macros.h"
 #include "jove_constants.h"
@@ -200,7 +200,7 @@ struct binary_state_t {
 
 }
 
-typedef std::unordered_set<
+typedef boost::unordered::unordered_flat_set<
     std::pair<binary_index_t, function_index_t>,
     boost::hash<std::pair<binary_index_t, function_index_t>>>
     hooks_t;
@@ -467,6 +467,9 @@ struct LLVMTool : public StatefulJVTool<ToolKind::CopyOnWrite, binary_state_t,
   template <typename Key, typename Value>
   using unordered_map = boost::unordered::unordered_flat_map<Key, Value>;
 
+  template <typename T>
+  using unordered_set = boost::unordered::unordered_flat_set<T>;
+
   binary_index_t BinaryIndex = invalid_binary_index;
 
   tcg_global_set_t PinnedEnvGlbs = InitPinnedEnvGlbs;
@@ -490,7 +493,7 @@ struct LLVMTool : public StatefulJVTool<ToolKind::CopyOnWrite, binary_state_t,
 
   disas_t disas;
 
-  std::unordered_set<uint64_t> ConstantRelocationLocs;
+  unordered_set<uint64_t> ConstantRelocationLocs;
   uint64_t libcEarlyInitAddr = 0;
 
   llvm::GlobalVariable *EnvGlobal = nullptr;
@@ -602,16 +605,16 @@ struct LLVMTool : public StatefulJVTool<ToolKind::CopyOnWrite, binary_state_t,
 
   unordered_map<uint64_t, std::set<std::string>> AddrToSymbolMap;
   unordered_map<uint64_t, unsigned> AddrToSizeMap;
-  std::unordered_set<uint64_t> TLSObjects; // XXX
+  unordered_set<uint64_t> TLSObjects; // XXX
 
-  std::unordered_set<std::string> CopyRelSyms;
+  unordered_set<std::string> CopyRelSyms;
 
   unordered_map<llvm::Function *, llvm::Function *> CtorStubMap;
 
-  std::unordered_set<llvm::Function *> MustInlineSjStubs;
+  unordered_set<llvm::Function *> MustInlineSjStubs;
 
   struct {
-    unordered_map<std::string, std::unordered_set<std::string>> Table;
+    unordered_map<std::string, unordered_set<std::string>> Table;
   } VersionScript;
 
   // set {int}0x08053ebc = 0xf7fa83f0
