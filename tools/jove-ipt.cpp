@@ -1006,6 +1006,8 @@ int IPTTool::UsingLibipt(void) {
           WithColor::warning()
               << llvm::formatv("madvise failed: {0}\n", strerror(errno));
 
+        bool Ran = false;
+
         auto run = [&]<IPT_TEMPLATE_PARAMS_DCL>(void) {
           IntelPT<IPT_TEMPLATE_PARAMS_DEF> ipt(
               ptdump_argv.size() - 1, ptdump_argv.data(), jv, *E, cpu,
@@ -1014,6 +1016,8 @@ int IPTTool::UsingLibipt(void) {
               IsVeryVerbose() ? 2 : (IsVerbose() ? 1 : 0));
 
           try {
+            Ran = true;
+
             ipt.explore();
           } catch (const truncated_aux_exception &) {
             if (IsVerbose())
@@ -1052,7 +1056,7 @@ BOOST_PP_SEQ_FOR_EACH_PRODUCT(GENERATE_RUN, IPT_ALL_OPTIONS);
 
 #undef GENERATE_RUN
 
-        abort();
+        assert(Ran);
       });
 
   return 0;
