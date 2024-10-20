@@ -632,7 +632,7 @@ size_t jvDefaultInitialSize(void);
 
 struct basic_block_properties_t {
   mutable ip_sharable_mutex mtx;
-  mutable ip_sharable_mutex init_mtx;
+  mutable ip_sharable_mutex pub_mtx;
 
   bool Speculative = false;
 
@@ -1053,7 +1053,7 @@ allocates_basic_block_t::allocates_basic_block_t(binary_t &b,
 
   bool success;
 
-  success = bbprop.init_mtx.try_lock();
+  success = bbprop.pub_mtx.try_lock();
   assert(success);
   success = bbprop.mtx.try_lock();
   assert(success);

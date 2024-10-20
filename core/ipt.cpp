@@ -1319,7 +1319,7 @@ StraightLineGo(const binary_t &b,
   basic_block_index_t ResSav = Res;
   for (
        (void)({
-         ip_sharable_lock<ip_sharable_mutex>(the_bbprop.get().init_mtx);
+         ip_sharable_lock<ip_sharable_mutex>(the_bbprop.get().pub_mtx);
          the_bbprop.get().mtx.lock_sharable();
          0;
        });
@@ -1349,7 +1349,7 @@ StraightLineGo(const binary_t &b,
          const basic_block_properties_t &new_bbprop = ICFG[newbb];
          the_bbprop = new_bbprop;
 
-         ip_sharable_lock<ip_sharable_mutex>(new_bbprop.init_mtx);
+         ip_sharable_lock<ip_sharable_mutex>(new_bbprop.pub_mtx);
          new_bbprop.mtx.lock_sharable();
 
          on_block(newbb);

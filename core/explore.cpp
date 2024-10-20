@@ -334,7 +334,7 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
 
   auto &bbprop = ICFG[basic_block_of_index(Idx, ICFG)];
   ip_scoped_lock<ip_sharable_mutex> e_lck_bb_init(
-      bbprop.init_mtx, boost::interprocess::accept_ownership);
+      bbprop.pub_mtx, boost::interprocess::accept_ownership);
   ip_scoped_lock<ip_sharable_mutex> e_lck_bb(
       bbprop.mtx, boost::interprocess::accept_ownership);
 
