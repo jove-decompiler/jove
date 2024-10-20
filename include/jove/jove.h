@@ -33,6 +33,7 @@
 #include <boost/unordered/concurrent_flat_set.hpp>
 #include <boost/interprocess/containers/map.hpp>
 #include <boost/interprocess/containers/flat_map.hpp>
+#include <boost/interprocess/containers/flat_set.hpp>
 #include <boost/interprocess/containers/set.hpp>
 #include <boost/interprocess/containers/string.hpp>
 #include <boost/interprocess/containers/vector.hpp>
@@ -695,6 +696,7 @@ struct basic_block_properties_t {
       taddr_t TermAddr;
       TERMINATOR TermType;
       boost::container::static_vector<basic_block_index_t, 2> adj;
+      boost::container::flat_set<addr_intvl, addr_intvl_cmp> addrng;
     };
 
 #if 0
@@ -1549,6 +1551,32 @@ constexpr void intvl_map_clear_all(OrderedIntvlMap &map, addr_intvl intvl) {
     else
       map.erase(it);
   }
+}
+
+template <typename OrderedIntvlSet, typename T>
+constexpr auto intvl_set_find(OrderedIntvlSet &set, T x) {
+  if (unlikely(set.empty()))
+    return set.end();
+
+  auto it = set.upper_bound(x);
+
+  if (it != set.end() && addr_intvl_intersects(*it, x))
+    return it;
+
+  if (it == set.begin())
+    return set.end();
+
+  --it;
+
+  if (addr_intvl_intersects(*it, x))
+    return it;
+
+  return set.end();
+}
+
+template <typename OrderedIntvlSet, typename T>
+constexpr bool intvl_set_contains(OrderedIntvlSet &set, T x) {
+  return intvl_set_find(set, x) != set.end();
 }
 
 template <typename BBMap>
