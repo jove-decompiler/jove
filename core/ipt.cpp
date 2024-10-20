@@ -1102,9 +1102,9 @@ int IntelPT<IPT_PARAMETERS_DEF>::on_ip(const taddr_t IP, const uint64_t offset) 
     } else {
       if constexpr (Caching) {
         try {
-          auto &x = state.for_basic_block(CurrPoint.Binary(), CurrPoint.Block());
-          CurrPoint.SetBlockIndex(x.SL.BBIdx);
-          CurrPoint.SetTermAddr(x.SL.TermAddr);
+          const auto &SL = SLForBlock(CurrPoint.Binary(), CurrPoint.Block());
+          CurrPoint.SetBlockIndex(SL.BBIdx);
+          CurrPoint.SetTermAddr(SL.TermAddr);
         } catch (const infinite_loop_exception &) {
           CurrPoint.Invalidate();
         }
@@ -1150,7 +1150,7 @@ int IntelPT<IPT_PARAMETERS_DEF>::on_ip(const taddr_t IP, const uint64_t offset) 
       const auto &bbprop =
           b.Analysis.ICFG[basic_block_of_index(BBIdx, b.Analysis.ICFG)];
 
-      if (unlikely(bbprop.pub.is == 0))
+      if (unlikely(!bbprop.pub.is.load(std::memory_order_acquire)))
         ip_sharable_lock<ip_sharable_mutex>(bbprop.mtx);
 
       CurrPoint.SetTermAddr(bbprop.Term.Addr);
@@ -1321,9 +1321,9 @@ StraightLineGo(const binary_t &b,
        (void)({
          const basic_block_properties_t &bbprop = the_bbprop.get();
 
-         if (unlikely(bbprop.pub.is != 2))
-           ip_sharable_lock<ip_sharable_mutex>(bbprop.pub.mtx);
-         bbprop.mtx.lock_sharable();
+         //if (unlikely(bbprop.pub.is.load(std::memory_order_acquire) != 2))
+         ip_sharable_lock<ip_sharable_mutex>(bbprop.pub.mtx);
+         bbprop.mtx.lock_sharable(); /* don't change on us */
          0;
        });
        ;
@@ -1352,9 +1352,9 @@ StraightLineGo(const binary_t &b,
          const basic_block_properties_t &new_bbprop = ICFG[newbb];
          the_bbprop = new_bbprop;
 
-         if (unlikely(new_bbprop.pub.is != 2))
-           ip_sharable_lock<ip_sharable_mutex>(new_bbprop.pub.mtx);
-         new_bbprop.mtx.lock_sharable();
+         //if (unlikely(new_bbprop.pub.is.load(std::memory_order_acquire) != 2))
+         ip_sharable_lock<ip_sharable_mutex>(new_bbprop.pub.mtx);
+         new_bbprop.mtx.lock_sharable(); /* don't change on us */
 
          on_block(newbb);
          0;
@@ -1526,17 +1526,17 @@ void IntelPT<IPT_PARAMETERS_DEF>::TNTAdvance(uint64_t tnt, uint8_t n) {
 
     if constexpr (Caching) {
       basic_block_t bb = basic_block_of_index(Res, b);
-      auto &x = state.for_basic_block(b, bb);
-      if (unlikely(x.SL.adj.empty())) {
+      const auto &SL = SLForBlock(b, bb);
+      if (unlikely(SL.adj.empty())) {
         if constexpr (IsVerbose())
           fprintf(stderr,
                   "not/invalid conditional branch @ %s+%" PRIx64 " (%s)\n",
-                  b.Name.c_str(), static_cast<uint64_t>(x.SL.Addr),
-                  string_of_terminator(x.SL.TermType));
+                  b.Name.c_str(), static_cast<uint64_t>(ICFG[basic_block_of_index(SL.BBIdx, b)].Addr),
+                  string_of_terminator(SL.TermType));
         throw tnt_error();
       }
-      assert(x.SL.adj.size() == 2);
-      Res = x.SL.adj[static_cast<unsigned>(Taken)];
+      assert(SL.adj.size() == 2);
+      Res = SL.adj[static_cast<unsigned>(Taken)];
     } else {
     Res = StraightLineSlow<true>(
         b, Res, [&](basic_block_index_t BBIdx) -> basic_block_index_t {
@@ -1578,9 +1578,9 @@ void IntelPT<IPT_PARAMETERS_DEF>::TNTAdvance(uint64_t tnt, uint8_t n) {
 
   if constexpr (Caching) {
     basic_block_t bb = basic_block_of_index(Res, b);
-    auto &x = state.for_basic_block(b, bb);
-    CurrPoint.SetBlockIndex(x.SL.BBIdx);
-    CurrPoint.SetTermAddr(x.SL.TermAddr);
+    const auto &SL = SLForBlock(b, bb);
+    CurrPoint.SetBlockIndex(SL.BBIdx);
+    CurrPoint.SetTermAddr(SL.TermAddr);
   } else {
   CurrPoint.SetBlockIndex(StraightLineSlow<true>(
       b, Res, [&](basic_block_index_t BBIdx) -> basic_block_index_t {
@@ -2330,6 +2330,84 @@ IntelPT<IPT_PARAMETERS_DEF>::binary_state_t::binary_state_t(const binary_t &b) {
   }
 }
 
+#if 0
+
+template <IPT_PARAMETERS_DCL>
+const basic_block_properties_t::Analysis_t::straight_line_t &
+IntelPT<IPT_PARAMETERS_DEF>::basic_block_state_t::SL(const binary_t &b,
+                                                     basic_block_t the_bb) {
+  const straight_line_t *p = prop.Analysis.pSL.Load(std::memory_order_acquire);
+  if (likely(p))
+    return *p;
+
+  straight_line_t *ourSL =
+      b.get_allocator().get_segment_manager()->construct<straight_line_t>(
+          boost::interprocess::anonymous_instance)();
+  assert(ourSL);
+
+  {
+    straight_line_t &SL = *ourSL;
+
+    const basic_block_index_t TheIdx = index_of_basic_block(b, the_bb);
+    assert(is_basic_block_index_valid(TheIdx));
+
+    const auto &ICFG = b.Analysis.ICFG;
+
+    SL.BBIdx = StraightLineGo<false, true, Verbosity>(
+        b, TheIdx, 0 /* unused */,
+        [](basic_block_t) -> void {},
+        [&](basic_block_index_t BBIdx) -> basic_block_index_t {
+          basic_block_t bb = basic_block_of_index(BBIdx, b);
+          const auto &bbprop = ICFG[bb];
+
+          SL.TermType = bbprop.Term.Type;
+          SL.TermAddr = bbprop.Term.Addr;
+
+          {
+            icfg_t::adjacency_iterator it, it_end;
+            std::tie(it, it_end) = ICFG.adjacent_vertices(bb);
+
+            unsigned N = std::distance(it, it_end);
+            if (N == 1) {
+              SL.adj.push_back(*it);
+              SL.adj.push_back(*it);
+            } else if (N == 2 && SL.TermType == TERMINATOR::CONDITIONAL_JUMP) {
+              basic_block_index_t succ0 = *it++;
+              basic_block_index_t succ1 = *it++;
+
+              bool Is0NotTaking = ICFG[succ0].Addr == bbprop.Addr + bbprop.Size;
+              if (Is0NotTaking) {
+                SL.adj.push_back(succ0);
+                SL.adj.push_back(succ1);
+              } else {
+                SL.adj.push_back(succ1);
+                SL.adj.push_back(succ0);
+              }
+            } else {
+              ;
+            }
+          }
+
+          return BBIdx;
+        }).first;
+
+    assert(is_basic_block_index_valid(SL.BBIdx));
+  }
+
+  const straight_line_t *expected = nullptr;
+  if (prop.Analysis.pSL.CompareExchangeStrong(expected, ourSL,
+                                              std::memory_order_release,
+                                              std::memory_order_acquire))
+    return *ourSL;
+
+  assert(expected);
+
+  b.get_allocator().get_segment_manager()->destroy_ptr(ourSL);
+  return *expected;
+}
+
+#else
+
 template <IPT_PARAMETERS_DCL>
 IntelPT<IPT_PARAMETERS_DEF>::basic_block_state_t::basic_block_state_t(
     const binary_t &b, basic_block_t bb) {
@@ -2348,8 +2426,6 @@ IntelPT<IPT_PARAMETERS_DEF>::basic_block_state_t::basic_block_state_t(
         basic_block_t bb = basic_block_of_index(BBIdx, b);
         const auto &bbprop = ICFG[bb];
 
-        this->SL.Addr = bbprop.Addr;
-//      this->SL.Size = bbprop.Size;
         this->SL.TermType = bbprop.Term.Type;
         this->SL.TermAddr = bbprop.Term.Addr;
 
@@ -2382,6 +2458,8 @@ IntelPT<IPT_PARAMETERS_DEF>::basic_block_state_t::basic_block_state_t(
       }).first;
   assert(is_basic_block_index_valid(SL.BBIdx));
 }
+
+#endif
 
 #undef IsVerbose
 #undef IsVeryVerbose

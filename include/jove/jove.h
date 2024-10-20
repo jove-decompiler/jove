@@ -49,6 +49,7 @@
 #include <boost/range/iterator_range.hpp>
 #include <boost/optional.hpp>
 #include <boost/dynamic_bitset.hpp>
+#include <boost/container/static_vector.hpp>
 //#include <boost/container/scoped_allocator.hpp>
 
 #include <algorithm>
@@ -630,10 +631,12 @@ typedef boost::unordered_node_set<
 struct jv_t;
 size_t jvDefaultInitialSize(void);
 
+#include "jove/atomic.h"
+
 struct basic_block_properties_t {
   mutable ip_sharable_mutex mtx;
   struct {
-    int is = 0;
+    std::atomic<bool> is = false;
     mutable ip_sharable_mutex mtx;
   } pub;
 
@@ -684,6 +687,27 @@ struct basic_block_properties_t {
     } reach;
 
     bool Stale = true;
+
+    struct straight_line_t {
+      std::atomic<bool> Stale = true;
+
+      basic_block_index_t BBIdx = invalid_basic_block_index;
+      taddr_t TermAddr;
+      TERMINATOR TermType;
+      boost::container::static_vector<basic_block_index_t, 2> adj;
+    };
+
+#if 0
+    AtomicOffsetPtr<const straight_line_t> pSL;
+#endif
+
+    Analysis_t &operator=(const Analysis_t &other) {
+      live.def = other.live.def;
+      live.use = other.live.use;
+      reach.def = other.reach.def;
+      Stale = other.Stale;
+      return *this;
+    }
   } Analysis;
 
   struct {
@@ -746,7 +770,9 @@ struct basic_block_properties_t {
   basic_block_properties_t(const ip_void_allocator_t &A) : DynTargets(A) {}
 
   basic_block_properties_t &operator=(const basic_block_properties_t &other) {
-    pub.is = other.pub.is;
+    pub.is.store(other.pub.is.load(std::memory_order_relaxed),
+                 std::memory_order_relaxed);
+
     Speculative = other.Speculative;
     Addr = other.Addr;
     Size = other.Size;
@@ -981,7 +1007,7 @@ struct binary_t {
     return !Name.empty() && Name.front() == '[' && Name.back() == ']';
   }
 
-  ip_void_allocator_t get_allocator(void) {
+  ip_void_allocator_t get_allocator(void) const {
     return Analysis.Functions._deque.get_allocator();
   }
 
@@ -1136,7 +1162,7 @@ struct jv_t {
 
   void clear(bool everything = false);
 
-  ip_void_allocator_t get_allocator(void) {
+  ip_void_allocator_t get_allocator(void) const {
     return Binaries._deque.get_allocator();
   }
 

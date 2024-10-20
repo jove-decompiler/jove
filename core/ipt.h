@@ -6,7 +6,6 @@
 #include <memory>
 #include <cstdio>
 #include <array>
-#include <boost/container/static_vector.hpp>
 #include <boost/preprocessor/seq/for_each_product.hpp>
 #include <boost/preprocessor/seq/elem.hpp>
 #include <boost/preprocessor/seq/seq.hpp>
@@ -73,21 +72,40 @@ class IntelPT {
     uint32_t in_header = 0; /* Header vs. normal decode. */
   } tracking;
 
+  using straight_line_t = basic_block_properties_t::Analysis_t::straight_line_t;
+
+#if 0
+  class basic_block_state_t {
+    basic_block_properties_t &prop;
+
+  public:
+    basic_block_state_t(const binary_t &b, basic_block_t bb)
+        : prop(const_cast<basic_block_properties_t &>(b.Analysis.ICFG[bb])) {}
+
+    const straight_line_t &SL(const binary_t &b, basic_block_t bb);
+  };
+
+  template <bool X = Caching>
+  std::enable_if_t<X, const straight_line_t &> SLForBlock(const binary_t &b,
+                                                          basic_block_t bb) {
+    return state.for_basic_block(b, bb).SL(b, bb);
+  }
+
+  static constexpr bool Lazy = false;
+#else
   struct basic_block_state_t {
-    struct {
-      basic_block_index_t BBIdx = invalid_basic_block_index;
-
-      taddr_t Addr = invalid_taddr;
-      //uint32_t Size = ~0u;
-      TERMINATOR TermType = TERMINATOR::UNKNOWN;
-      taddr_t TermAddr = invalid_taddr;
-
-      // if cond jump, first is not taken
-      boost::container::static_vector<basic_block_index_t, 2> adj;
-    } SL;
+    straight_line_t SL;
 
     basic_block_state_t(const binary_t &b, basic_block_t bb);
   };
+
+  template <bool X = Caching>
+  std::enable_if_t<X, const straight_line_t &> SLForBlock(const binary_t &b,
+                                                          basic_block_t bb) {
+    return state.for_basic_block(b, bb).SL;
+  }
+  static constexpr bool Lazy = true;
+#endif
 
   struct binary_state_t {
     std::unique_ptr<llvm::object::Binary> Bin;
@@ -105,7 +123,7 @@ class IntelPT {
 
   using BBState = std::conditional_t<Caching, basic_block_state_t, void>;
 
-  jv_state_t<binary_state_t, void, BBState, false, true> state;
+  jv_state_t<binary_state_t, void, BBState, false, Lazy> state;
 
   const bool IsCOFF;
 

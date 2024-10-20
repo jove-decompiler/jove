@@ -3,7 +3,7 @@
 #include "tcg.h"
 
 #include <boost/format.hpp>
-#include <boost/scope/defer.hpp>
+#include <boost/scope/scope_exit.hpp>
 
 #include <llvm/MC/MCDisassembler/MCDisassembler.h>
 #include <llvm/MC/MCInst.h>
@@ -334,12 +334,14 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
   }
 
   auto &bbprop = ICFG[basic_block_of_index(Idx, ICFG)];
-  ip_scoped_lock<ip_sharable_mutex> e_lck_bb_init(
+  ip_scoped_lock<ip_sharable_mutex> e_lck_bb_pub(
       bbprop.pub.mtx, boost::interprocess::accept_ownership);
   ip_scoped_lock<ip_sharable_mutex> e_lck_bb(
       bbprop.mtx, boost::interprocess::accept_ownership);
 
-  BOOST_SCOPE_DEFER [&] { bbprop.pub.is = 2; };
+  boost::scope::scope_exit pub([&](void) -> void {
+    bbprop.pub.is.store(true, std::memory_order_release);
+  });
 
   ip_scoped_lock<ip_sharable_mutex> e_lck_bbmap(
       b.bbmap_mtx, boost::interprocess::defer_lock);
@@ -510,7 +512,7 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
     bbprop.Term._return.Returns = false;
     bbprop.InvalidateAnalysis();
 
-    bbprop.pub.is = 1;
+    { boost::scope::scope_exit now(boost::move(pub)); }
 
     addr_intvl intervl(bbprop.Addr, bbprop.Size);
     if (likely(!Speculative)) {
