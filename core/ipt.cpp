@@ -2386,7 +2386,7 @@ IntelPT<IPT_TEMPLATE_PARAMS_DEF>::basic_block_state_t::basic_block_state_t(
   BOOST_PP_TUPLE_ELEM(3, 2, elem)
 
 #define IPT_ALL_OPTIONS                                                        \
-  BOOST_PP_SEQ_TRANSFORM(IPT_EXTRACT_VALUES, _, IPT_TEMPLATE_PARAMS)
+  BOOST_PP_SEQ_TRANSFORM(IPT_EXTRACT_VALUES, void, IPT_TEMPLATE_PARAMS)
 
 #define IPT_GENERATE_TEMPLATE_ARG(r, product, i, elem)                         \
   BOOST_PP_COMMA_IF(i) BOOST_PP_SEQ_ELEM(i, product)
