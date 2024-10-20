@@ -1147,8 +1147,10 @@ int IntelPT<IPT_PARAMETERS_DEF>::on_ip(const taddr_t IP, const uint64_t offset) 
       const auto &bbprop = b.Analysis.ICFG[bb];
 
       // lock if necessary so we see the terminator address when it is published
-      std::conditional_t<Unlocked, ip_sharable_lock<ip_sharable_mutex>,
-                         __do_nothing_t> __may_s_lck(bbprop.mtx);
+      if constexpr (Unlocked) {
+        if (bbprop.pub.is == 0)
+          ip_sharable_lock<ip_sharable_mutex>(bbprop.mtx);
+      }
 
       CurrPoint.SetTermAddr(bbprop.Term.Addr);
     };
@@ -1319,8 +1321,11 @@ StraightLineGo(const binary_t &b,
   basic_block_index_t ResSav = Res;
   for (
        (void)({
-         ip_sharable_lock<ip_sharable_mutex>(the_bbprop.get().pub_mtx);
-         the_bbprop.get().mtx.lock_sharable();
+         const basic_block_properties_t &bbprop = the_bbprop.get();
+
+         if (unlikely(bbprop.pub.is != 2))
+           ip_sharable_lock<ip_sharable_mutex>(bbprop.pub.mtx);
+         bbprop.mtx.lock_sharable();
          0;
        });
        ;
@@ -1349,7 +1354,8 @@ StraightLineGo(const binary_t &b,
          const basic_block_properties_t &new_bbprop = ICFG[newbb];
          the_bbprop = new_bbprop;
 
-         ip_sharable_lock<ip_sharable_mutex>(new_bbprop.pub_mtx);
+         if (unlikely(new_bbprop.pub.is != 2))
+           ip_sharable_lock<ip_sharable_mutex>(new_bbprop.pub.mtx);
          new_bbprop.mtx.lock_sharable();
 
          on_block(newbb);

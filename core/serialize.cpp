@@ -333,7 +333,8 @@ static void serialize(Archive &ar, jove::function_t &f, const unsigned int versi
 template <class Archive>
 static void serialize(Archive &ar, jove::basic_block_properties_t &bbprop,
                       const unsigned int version) {
-  ar &BOOST_SERIALIZATION_NVP(bbprop.Speculative)
+  ar &BOOST_SERIALIZATION_NVP(bbprop.pub.is)
+     &BOOST_SERIALIZATION_NVP(bbprop.Speculative)
      &BOOST_SERIALIZATION_NVP(bbprop.Addr)
      &BOOST_SERIALIZATION_NVP(bbprop.Size)
      &BOOST_SERIALIZATION_NVP(bbprop.Term.Addr)

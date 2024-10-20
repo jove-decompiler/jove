@@ -632,7 +632,10 @@ size_t jvDefaultInitialSize(void);
 
 struct basic_block_properties_t {
   mutable ip_sharable_mutex mtx;
-  mutable ip_sharable_mutex pub_mtx;
+  struct {
+    int is = 0;
+    mutable ip_sharable_mutex mtx;
+  } pub;
 
   bool Speculative = false;
 
@@ -743,6 +746,7 @@ struct basic_block_properties_t {
   basic_block_properties_t(const ip_void_allocator_t &A) : DynTargets(A) {}
 
   basic_block_properties_t &operator=(const basic_block_properties_t &other) {
+    pub.is = other.pub.is;
     Speculative = other.Speculative;
     Addr = other.Addr;
     Size = other.Size;
@@ -1053,7 +1057,7 @@ allocates_basic_block_t::allocates_basic_block_t(binary_t &b,
 
   bool success;
 
-  success = bbprop.pub_mtx.try_lock();
+  success = bbprop.pub.mtx.try_lock();
   assert(success);
   success = bbprop.mtx.try_lock();
   assert(success);
