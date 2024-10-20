@@ -64,7 +64,8 @@ IntelPT<IPT_PARAMETERS_DEF>::IntelPT(int ptdump_argc, char **ptdump_argv,
                                      jv_t &jv, explorer_t &explorer,
                                      unsigned cpu,
                                      const address_space_t &AddressSpaceInit,
-                                     void *begin, void *end, unsigned verbose,
+                                     void *begin, void *end,
+                                     const char *sb_filename, unsigned verbose,
                                      bool ignore_trunc_aux)
     : jv(jv), explorer(explorer), state(jv),
       IsCOFF(B::is_coff(*state.for_binary(jv.Binaries.at(0)).Bin)),
@@ -96,7 +97,7 @@ IntelPT<IPT_PARAMETERS_DEF>::IntelPT(int ptdump_argc, char **ptdump_argv,
       },
       this);
 
-  if (process_args(ptdump_argc, ptdump_argv) != 0)
+  if (process_args(ptdump_argc, ptdump_argv, sb_filename) != 0)
     throw std::runtime_error("failed to process ptdump arguments");
 
   if (config->cpu.vendor) {
@@ -407,14 +408,16 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb(void) {
 
         CheckEngaged();
       } else if (MATCHES_REST("SAMPLE.RAW")) {
-        std::string &hexbytes = this->__buff.s1;
+        std::string &hexbytes = this->__buff.s2;
         hexbytes.resize(4097);
         hexbytes[0] = '\0';
 
         char name[33];
         name[0] = '\0';
 
-        sscanf_rest("%32[^,], %4096[0-9a-f]", &name[0], &hexbytes[0]);
+        uint64_t ip;
+
+        sscanf_rest("%32[^,], %" PRIx64 ", %4096[0-9a-f]", &name[0], &ip, &hexbytes[0]);
 
         if (!IsRightProcess(_.pid))
           continue;
@@ -486,10 +489,10 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb(void) {
 
             const addr_intvl intvl(addr, len);
 
-            if constexpr (IsVeryVerbose()) {
+            if constexpr (IsVerbose()) {
               std::string as(addr_intvl2str(intvl));
 
-              fprintf(stderr, "[munmap] @ %s\n", as.c_str());
+              fprintf(stderr, "[munmap] @ %s <%" PRIx64 ">\n", as.c_str(), ip);
             }
 
             intvl_map_clear(AddressSpace, intvl);
@@ -512,11 +515,11 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb(void) {
             if (IsCOFF) {
               const addr_intvl intvl(ret, len);
 
-              if constexpr (IsVeryVerbose()) {
+              if constexpr (IsVerbose()) {
                 std::string as(addr_intvl2str(intvl));
 
-                fprintf(stderr, "[mmap]   @ %s in %s\n", as.c_str(),
-                        anon ? "\"//anon\"" : nullptr);
+                fprintf(stderr, "[mmap]   @ %s in %s <%" PRIx64 ">\n", as.c_str(),
+                        anon ? "\"//anon\"" : nullptr, ip);
               }
 
               intvl_map_clear(AddressSpace, intvl);
@@ -729,13 +732,10 @@ int IntelPT<IPT_PARAMETERS_DEF>::explore_packets() {
       if (errcode == -pte_eos)
         return 0;
 
-#if 0
-      throw std::runtime_error(
-          std::string("IntelPT: error decoding packet: ") +
-          pt_errstr(pt_errcode(errcode)));
-#else
+      if constexpr (IsVerbose())
+        fprintf(stderr, "IntelPT: error decoding packet: %s\n",
+                pt_errstr(pt_errcode(errcode)));
       return errcode;
-#endif
     }
 
     int ret = process_packet(offset, &packet);
@@ -759,10 +759,10 @@ int IntelPT<IPT_PARAMETERS_DEF>::process_packet(uint64_t offset,
       int errcode;
 
       errcode = pt_tcal_update_psb(tracking.tcal.get(), config.get());
-#if 0
-      if (unlikely(errcode < 0))
-        diag("error calibrating time", offset, errcode);
-#endif
+      if (unlikely(errcode < 0)) {
+        if constexpr (IsVerbose())
+          fprintf(stderr, "%s: error calibrating time", __PRETTY_FUNCTION__);
+      }
     }
 
     tracking.in_header = 1;
@@ -780,10 +780,10 @@ int IntelPT<IPT_PARAMETERS_DEF>::process_packet(uint64_t offset,
       int errcode;
 
       errcode = pt_tcal_update_ovf(tracking.tcal.get(), config.get());
-#if 0
-      if (unlikely(errcode < 0))
-        diag("error calibrating time", offset, errcode);
-#endif
+      if (unlikely(errcode < 0)) {
+        if constexpr (IsVerbose())
+          fprintf(stderr, "%s: error calibrating time", __PRETTY_FUNCTION__);
+      }
     } else {
       pt_tcal_init(tracking.tcal.get());
     }
@@ -1637,48 +1637,27 @@ int IntelPT<IPT_PARAMETERS_DEF>::sb_track_time(uint64_t offset)
 	uint64_t tsc;
 	int errcode;
 
-#if 0
-	if (!tracking || !options)
-		return diag("time tracking error", offset, -pte_internal);
-#endif
-
 	errcode = pt_time_query_tsc(&tsc, NULL, NULL, tracking.time.get());
-	if (unlikely((errcode < 0) && (errcode != -pte_no_time)))
-#if 0
-		return diag("time tracking error", offset, errcode);
-#else
+	if (unlikely((errcode < 0) && (errcode != -pte_no_time))) {
+		if constexpr (IsVerbose())
+			fprintf(stderr, "%s: time tracking error\n", __PRETTY_FUNCTION__);
 		return errcode;
-#endif
+	}
 
         rewind(sideband.os);
         errcode = pt_sb_dump(tracking.session, sideband.os, sb_dump_flags, tsc);
-        if (unlikely(errcode < 0))
-#if 0
-		return diag("sideband dump error", offset, errcode);
-#else
+	if (unlikely(errcode < 0)) {
+		if constexpr (IsVerbose())
+			fprintf(stderr, "%s: sideband dump error\n", __PRETTY_FUNCTION__);
 		return errcode;
-#endif
+	}
+
         examine_sb();
         return 0;
 }
 
 template <IPT_PARAMETERS_DCL>
 int IntelPT<IPT_PARAMETERS_DEF>::track_time(uint64_t offset) {
-#if 0
-	if (!tracking || !options)
-		return diag("error tracking time", offset, -pte_internal);
-#endif
-
-#if 0
-	if (options->show_tcal && !buffer->skip_tcal)
-		print_tcal(buffer, tracking, offset, options);
-#endif
-
-#if 0
-	if (options->show_time && !buffer->skip_time)
-		print_time(buffer, tracking, offset, options);
-#endif
-
 	return sb_track_time(offset);
 }
 
@@ -1687,26 +1666,21 @@ int IntelPT<IPT_PARAMETERS_DEF>::track_tsc(uint64_t offset,
                                            const struct pt_packet_tsc *packet) {
         int errcode;
 
-#if 0
-	if (!buffer || !tracking || !options)
-		return diag("error tracking time", offset, -pte_internal);
-#endif
-
 	if (1 /* !options->no_tcal */) {
 		errcode = tracking.in_header ?
 			pt_tcal_header_tsc(tracking.tcal.get(), packet, config.get()) :
 			pt_tcal_update_tsc(tracking.tcal.get(), packet, config.get());
-#if 0
-		if (unlikely(errcode < 0))
-			diag("error calibrating time", offset, errcode);
-#endif
+		if (unlikely(errcode < 0)) {
+			if constexpr (IsVerbose())
+				fprintf(stderr, "%s: error calibrating time\n", __PRETTY_FUNCTION__);
+		}
 	}
 
 	errcode = pt_time_update_tsc(tracking.time.get(), packet, config.get());
-#if 0
-	if (unlikely(errcode < 0))
-		diag("error updating time", offset, errcode);
-#endif
+	if (unlikely(errcode < 0)) {
+		if constexpr (IsVerbose())
+			fprintf(stderr, "%s: error updating time\n", __PRETTY_FUNCTION__);
+	}
 
 	return track_time(offset);
 }
@@ -1716,31 +1690,21 @@ int IntelPT<IPT_PARAMETERS_DEF>::track_cbr(uint64_t offset,
                                            const struct pt_packet_cbr *packet) {
         int errcode;
 
-#if 0
-	if (!buffer || !tracking || !options)
-		return diag("error tracking time", offset, -pte_internal);
-#endif
-
 	if (1 /* !options->no_tcal */) {
 		errcode = tracking.in_header ?
 			pt_tcal_header_cbr(tracking.tcal.get(), packet, config.get()) :
 			pt_tcal_update_cbr(tracking.tcal.get(), packet, config.get());
-#if 0
-		if (unlikely(errcode < 0))
-			diag("error calibrating time", offset, errcode);
-#endif
-	}
+		if (unlikely(errcode < 0)) {
+			if constexpr (IsVerbose())
+				fprintf(stderr, "%s: error calibrating time\n", __PRETTY_FUNCTION__);
+		}
+        }
 
 	errcode = pt_time_update_cbr(tracking.time.get(), packet, config.get());
-#if 0
-	if (unlikely(errcode < 0))
-		diag("error updating time", offset, errcode);
-#endif
-
-#if 0
-	/* There is no timing update at this packet. */
-	skip_time = 1;
-#endif
+	if (unlikely(errcode < 0)) {
+		if constexpr (IsVerbose())
+			fprintf(stderr, "%s: error updating time\n", __PRETTY_FUNCTION__);
+	}
 
 	return track_time(offset);
 }
@@ -1750,29 +1714,19 @@ int IntelPT<IPT_PARAMETERS_DEF>::track_tma(uint64_t offset,
                                            const struct pt_packet_tma *packet) {
         int errcode;
 
-#if 0
-	if (!buffer || !tracking || !options)
-		return diag("error tracking time", offset, -pte_internal);
-#endif
-
 	if (1 /* !options->no_tcal */) {
 		errcode = pt_tcal_update_tma(tracking.tcal.get(), packet, config.get());
-#if 0
-		if (unlikely(errcode < 0))
-			diag("error calibrating time", offset, errcode);
-#endif
+		if (unlikely(errcode < 0)) {
+			if constexpr (IsVerbose())
+				fprintf(stderr, "%s: error calibrating time\n", __PRETTY_FUNCTION__);
+		}
 	}
 
 	errcode = pt_time_update_tma(tracking.time.get(), packet, config.get());
-#if 0
-	if (unlikely(errcode < 0))
-		diag("error updating time", offset, errcode);
-#endif
-
-#if 0
-	/* There is no calibration update at this packet. */
-	skip_tcal = 1;
-#endif
+	if (unlikely(errcode < 0)) {
+		if constexpr (IsVerbose())
+			fprintf(stderr, "%s: error updating time\n", __PRETTY_FUNCTION__);
+	}
 
 	return track_time(offset);
 }
@@ -1782,24 +1736,24 @@ int IntelPT<IPT_PARAMETERS_DEF>::track_mtc(uint64_t offset,
                                            const struct pt_packet_mtc *packet) {
         int errcode;
 
-#if 0
-	if (!buffer || !tracking || !options)
-		return diag("error tracking time", offset, -pte_internal);
-#endif
-
 	if (1 /* !options->no_tcal */) {
 		errcode = pt_tcal_update_mtc(tracking.tcal.get(), packet, config.get());
-#if 0
-		if (unlikely(errcode < 0))
-			diag("error calibrating time", offset, errcode);
-#endif
+		if (unlikely(errcode < 0)) {
+			if constexpr (IsVerbose())
+                                fprintf(stderr,
+                                        "%s: error calibrating time: %s\n",
+                                        __PRETTY_FUNCTION__,
+                                        pt_errstr(pt_errcode(errcode)));
+                }
 	}
 
 	errcode = pt_time_update_mtc(tracking.time.get(), packet, config.get());
-#if 0
-	if (unlikely(errcode < 0))
-		diag("error updating time", offset, errcode);
-#endif
+	if (unlikely(errcode < 0)) {
+		if constexpr (IsVerbose())
+                        fprintf(stderr, "%s: error updating time: %s\n",
+                                __PRETTY_FUNCTION__,
+                                pt_errstr(pt_errcode(errcode)));
+        }
 
 	return track_time(offset);
 }
@@ -1810,40 +1764,42 @@ int IntelPT<IPT_PARAMETERS_DEF>::track_cyc(uint64_t offset,
 	uint64_t fcr;
 	int errcode;
 
-#if 0
-	if (!buffer || !tracking || !options)
-		return diag("error tracking time", offset, -pte_internal);
-#endif
-
 	/* Initialize to zero in case of calibration errors. */
 	fcr = 0ull;
 
 	if (1 /* !options->no_tcal */) {
 		errcode = pt_tcal_fcr(&fcr, tracking.tcal.get());
-#if 0
-		if (errcode < 0)
-			diag("calibration error", offset, errcode);
-#endif
+
+		if (unlikely(errcode < 0)) {
+			if constexpr (IsVerbose())
+                                fprintf(stderr, "%s: calibration error: %s\n",
+                                        __PRETTY_FUNCTION__,
+                                        pt_errstr(pt_errcode(errcode)));
+                }
 
 		errcode = pt_tcal_update_cyc(tracking.tcal.get(), packet, config.get());
-#if 0
-		if (errcode < 0)
-			diag("error calibrating time", offset, errcode);
-#endif
+		if (unlikely(errcode < 0)) {
+			if constexpr (IsVerbose())
+                                fprintf(stderr,
+                                        "%s: error calibrating time: %s\n",
+                                        __PRETTY_FUNCTION__,
+                                        pt_errstr(pt_errcode(errcode)));
+                }
 	}
 
 	errcode = pt_time_update_cyc(tracking.time.get(), packet, config.get(), fcr);
-#if 0
-	if (errcode < 0)
-		diag("error updating time", offset, errcode);
-	else if (!fcr)
-		diag("error updating time: no calibration", offset, 0);
-#endif
 
-#if 0
-	/* There is no calibration update at this packet. */
-	skip_tcal = 1;
-#endif
+	if (unlikely(errcode < 0)) {
+		if constexpr (IsVerbose())
+                        fprintf(stderr, "%s: error updating time: %s\n",
+                                __PRETTY_FUNCTION__,
+                                pt_errstr(pt_errcode(errcode)));
+        } else if (!fcr) {
+		if constexpr (IsVerbose())
+                        fprintf(stderr,
+                                "%s: error updating time: no calibration\n",
+                                __PRETTY_FUNCTION__);
+        }
 
 	return track_time(offset);
 }
@@ -1948,27 +1904,18 @@ int IntelPT<IPT_PARAMETERS_DEF>::ptdump_sb_pevent(char *filename,
 	uint64_t foffset, fsize, fend;
 	int errcode;
 
-#if 0
-	if (!conf || !prog) {
-		fprintf(stderr, "%s: internal error.\n", prog ? prog : "");
-		return -1;
-	}
-#endif
-
 	errcode = preprocess_filename(filename, &foffset, &fsize);
 	if (errcode < 0) {
-#if 0
-		fprintf(stderr, "%s: bad file %s: %s.\n", prog, filename,
-			pt_errstr(pt_errcode(errcode)));
-#endif
+		if constexpr (IsVerbose())
+			fprintf(stderr, "%s: bad file: %s.\n",
+                                __PRETTY_FUNCTION__,
+				pt_errstr(pt_errcode(errcode)));
 		return -1;
 	}
 
 	if (SIZE_MAX < foffset) {
-#if 0
-		fprintf(stderr,
-			"%s: bad offset: 0x%" PRIx64 ".\n", prog, foffset);
-#endif
+		if constexpr (IsVerbose())
+			fprintf(stderr, "%s: bad offset.\n", __PRETTY_FUNCTION__);
 		return -1;
 	}
 
@@ -1980,11 +1927,8 @@ int IntelPT<IPT_PARAMETERS_DEF>::ptdump_sb_pevent(char *filename,
 	if (fsize) {
 		fend = foffset + fsize;
 		if ((fend <= foffset) || (SIZE_MAX < fend)) {
-#if 0
-			fprintf(stderr,
-				"%s: bad range: 0x%" PRIx64 "-0x%" PRIx64 ".\n",
-				prog, foffset, fend);
-#endif
+			if constexpr (IsVerbose())
+				fprintf(stderr, "%s: bad range.\n", __PRETTY_FUNCTION__);
 			return -1;
 		}
 
@@ -1993,10 +1937,10 @@ int IntelPT<IPT_PARAMETERS_DEF>::ptdump_sb_pevent(char *filename,
 
 	errcode = pt_sb_alloc_pevent_decoder(tracking.session, &config);
 	if (unlikely(errcode < 0)) {
-#if 0
-		fprintf(stderr, "%s: error loading %s: %s.\n", prog, filename,
-			pt_errstr(pt_errcode(errcode)));
-#endif
+		if constexpr (IsVerbose())
+			fprintf(stderr, "%s: error loading: %s\n",
+				__PRETTY_FUNCTION__,
+				pt_errstr(pt_errcode(errcode)));
 		return -1;
 	}
 
@@ -2197,10 +2141,9 @@ static int get_arg_uint8(uint8_t *value, const char *option, const char *arg,
 	return 1;
 }
 
-
 template <IPT_PARAMETERS_DCL>
-int IntelPT<IPT_PARAMETERS_DEF>::process_args(int argc, char **argv)
-{
+int IntelPT<IPT_PARAMETERS_DEF>::process_args(int argc, char **argv,
+                                              const char *sb_filename) {
 	struct pt_sb_pevent_config pevent;
 	int idx, errcode;
 
@@ -2216,11 +2159,9 @@ int IntelPT<IPT_PARAMETERS_DEF>::process_args(int argc, char **argv)
 
 			arg = argv[++idx];
 			if (!arg) {
-#if 0
 				fprintf(stderr,
 					"%s: %s: missing argument.\n",
 					argv[0], argv[idx-1]);
-#endif
 				return -1;
 			}
 
@@ -2235,12 +2176,10 @@ int IntelPT<IPT_PARAMETERS_DEF>::process_args(int argc, char **argv)
 		} else if (strcmp(argv[idx], "--pevent:sample-config") == 0) {
 			errcode = pt_parse_sample_config(&pevent, argv[++idx]);
 			if (errcode < 0) {
-#if 0
 				fprintf(stderr,
 					"%s: bad sample config %s: %s.\n",
 					argv[0], argv[idx-1],
 					pt_errstr(pt_errcode(errcode)));
-#endif
 				return -1;
 			}
 		} else if (strcmp(argv[idx], "--pevent:time-zero") == 0) {
@@ -2273,11 +2212,9 @@ int IntelPT<IPT_PARAMETERS_DEF>::process_args(int argc, char **argv)
 
 			arg = argv[++idx];
 			if (!arg) {
-#if 0
 				fprintf(stderr,
 					"%s: --cpu: missing argument.\n",
 					argv[0]);
-#endif
 				return -1;
 			}
 
@@ -2288,11 +2225,9 @@ int IntelPT<IPT_PARAMETERS_DEF>::process_args(int argc, char **argv)
 
 			errcode = pt_cpu_parse(&config->cpu, arg);
 			if (errcode < 0) {
-#if 0
 				fprintf(stderr,
 					"%s: cpu must be specified as f/m[/s]\n",
 					argv[0]);
-#endif
 				return -1;
 			}
 		} else if (strcmp(argv[idx], "--mtc-freq") == 0) {
@@ -2318,6 +2253,11 @@ int IntelPT<IPT_PARAMETERS_DEF>::process_args(int argc, char **argv)
                             std::string("unknown option \"") + argv[idx] +
                             std::string("\""));
         }
+
+	errcode = ptdump_sb_pevent(const_cast<char *>(sb_filename), &pevent,
+	                           "jove-ipt");
+	if (errcode < 0)
+		throw std::runtime_error("ptdump_sb_pevent() failed");
 
 	return 0;
 }

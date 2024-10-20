@@ -267,7 +267,7 @@ class IntelPT {
 
   int ptdump_sb_pevent(char *filename, const struct pt_sb_pevent_config *conf,
                        const char *prog);
-  int process_args(int argc, char **argv);
+  int process_args(int argc, char **argv, const char *sideband_filename);
 
   template <bool InfiniteLoopThrow = false>
   std::pair<basic_block_index_t, bool>
@@ -291,7 +291,8 @@ class IntelPT {
 public:
   IntelPT(int ptdump_argc, char **ptdump_argv, jv_t &, explorer_t &,
           unsigned cpu, const address_space_t &AddressSpaceInit, void *begin,
-          void *end, unsigned verbose, bool ignore_trunc_aux = false);
+          void *end, const char *sb_filename, unsigned verbose,
+          bool ignore_trunc_aux = false);
   ~IntelPT();
 
   int explore(void);

@@ -160,6 +160,7 @@ struct IPTTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
 
   static constexpr const char *path_to_stdout = "perf.data.stdout";
   static constexpr const char *path_to_stderr = "perf.data.stderr";
+  static constexpr const char *sb_filename = "perf.data-sideband.pevent";
 
 public:
   IPTTool()
@@ -805,15 +806,53 @@ void IPTTool::ProcessLine(const std::string &line) {
 int IPTTool::UsingLibipt(void) {
   fs::path libipt_scripts_dir = locator().libipt_scripts();
 
-  if (opts.ExistingPerfData) {
-    if (int ret = ProcessAppStderr())
-      return ret;
-  } else {
-    bool Failed = false;
+  bool Failed = false;
 
+  std::vector<std::string> ptdump_args;
+  std::vector<char *> ptdump_argv;
+  auto get_opts = [&](void) -> void {
+    //
+    // perf-get-opts (originally written for ptdump and ptxed)
+    //
+    fs::path path_to_opts = fs::path(temporary_dir()) / "get-opts.txt";
+
+    fs::path path_to_get_opts = libipt_scripts_dir / "perf-get-opts.bash";
+    if (RunExecutableToExit(
+            path_to_get_opts.string(),
+            [&](auto Arg) { Arg(path_to_get_opts.string()); },
+            path_to_opts.c_str())) {
+      WithColor::error() << "failed to run libipt/script/perf-get-opts.bash\n";
+      Failed = true;
+      return;
+    }
+
+    std::string opts_str = read_file_into_string(path_to_opts.c_str());
+    boost::algorithm::trim(opts_str);
+
+    if (IsVerbose())
+      llvm::errs() << llvm::formatv("ptdump {0}\n", opts_str);
+
+    boost::algorithm::split(ptdump_args, opts_str, boost::is_any_of(" "),
+                            boost::token_compress_on);
+
+    ptdump_argv.push_back(const_cast<char *>("ptdump"));
+    for (std::string &argstr : ptdump_args)
+      ptdump_argv.push_back(const_cast<char *>(argstr.c_str()));
+    ptdump_argv.push_back(nullptr);
+  };
+
+  if (opts.ExistingPerfData) {
+    oneapi::tbb::parallel_invoke(
+        [&](void) -> void {
+          if (int ret = ProcessAppStderr())
+            Failed = true;
+        },
+        get_opts);
+  } else {
     perf::data_reader perf_data("perf.data");
 
     oneapi::tbb::parallel_invoke(
+        get_opts,
         [&](void) -> void { if (ProcessAppStderr()) Failed = true; },
         [&](void) -> void {
           if (IsVerbose())
@@ -845,17 +884,14 @@ int IPTTool::UsingLibipt(void) {
               });
           wfd.reset();
 
-          std::unique_ptr<scoped_fd> glbl_sb_ofd;
-          std::vector<std::unique_ptr<scoped_fd>> sb_ofdv;
-
-          static const std::string glbl_filename_suffix = "-sideband.pevent";
-
           pipe_line_reader pipe;
 
           using namespace std::placeholders;
 
           std::string in_filename;
           std::string out_filename;
+
+          std::ofstream dst(sb_filename);
 
           auto process_line = [&](const std::string &line) -> void {
             in_filename.resize(4097);
@@ -873,33 +909,9 @@ int IPTTool::UsingLibipt(void) {
 
             assert(in_filename == "perf.data");
 
-            int fd = -1;
-            if (boost::algorithm::ends_with(out_filename, glbl_filename_suffix)) {
-              std::unique_ptr<scoped_fd> &ofd = glbl_sb_ofd;
-              if (!ofd)
-                ofd = std::make_unique<scoped_fd>(
-                    ::open("perf.data-sideband.pevent",
-                           O_WRONLY | O_CREAT | O_LARGEFILE, 0666));
-              fd = ofd->get();
-            } else {
-              unsigned cpu;
-              sscanf(out_filename.c_str(), "perf.data-sideband-cpu%u.pevent", &cpu);
-              if (cpu >= sb_ofdv.size())
-                sb_ofdv.resize(cpu + 1);
-              std::unique_ptr<scoped_fd> &ofd = sb_ofdv.at(cpu);
-              if (!ofd)
-                ofd = std::make_unique<scoped_fd>(
-                    ::open(out_filename.c_str(),
-                           O_WRONLY | O_CREAT | O_LARGEFILE, 0666));
-              fd = ofd->get();
-            }
-
-            off_t the_off = skip;
-            if (robust_copy_file_range(perf_data.contents.fd->get(),
-                                       &the_off, fd, nullptr,
-                                       count) < 0)
-              WithColor::error() << llvm::formatv(
-                  "copy_file_range failed: {0}\n", strerror(errno));
+            dst.write(
+                reinterpret_cast<const char *>(perf_data.contents.mmap->ptr) +
+                skip, count);
           };
 
           while (auto o = pipe.get_line(rfd->get()))
@@ -909,6 +921,7 @@ int IPTTool::UsingLibipt(void) {
             WithColor::error()
                 << "failed to run libipt/script/perf-read-sideband.bash\n";
             Failed = true;
+            return;
           }
 
           llvm::errs() << "wrote sideband files.\n";
@@ -948,35 +961,10 @@ int IPTTool::UsingLibipt(void) {
       return 1;
   }
 
-  //
-  // perf-get-opts (written for ptdump and ptxed)
-  //
-  fs::path path_to_opts = fs::path(temporary_dir()) / "get-opts.txt";
-
-  fs::path path_to_get_opts = libipt_scripts_dir / "perf-get-opts.bash";
-  if (RunExecutableToExit(
-          path_to_get_opts.string(),
-          [&](auto Arg) { Arg(path_to_get_opts.string()); },
-          path_to_opts.c_str())) {
-    WithColor::error() << "failed to run libipt/script/perf-get-opts.bash\n";
+  if (!fs::exists(sb_filename)) {
+    WithColor::error() << llvm::formatv("could not find {0}\n", sb_filename);
     return 1;
   }
-
-  std::string opts_str = read_file_into_string(path_to_opts.c_str());
-  boost::algorithm::trim(opts_str);
-
-  std::vector<std::string> ptdump_args;
-  boost::algorithm::split(ptdump_args, opts_str, boost::is_any_of(" "),
-                          boost::token_compress_on);
-
-  std::vector<char *> ptdump_argv;
-  ptdump_argv.push_back(const_cast<char *>("ptdump"));
-  for (std::string &argstr : ptdump_args)
-    ptdump_argv.push_back(const_cast<char *>(argstr.c_str()));
-  ptdump_argv.push_back(nullptr);
-
-  if (IsVerbose())
-    llvm::errs() << llvm::formatv("ptdump {0}\n", opts_str);
 
   std::vector<std::pair<unsigned, std::string>> aux_filenames;
   gather_perf_data_aux_files(aux_filenames);
@@ -1022,7 +1010,7 @@ int IPTTool::UsingLibipt(void) {
           IntelPT<IPT_PARAMETERS_DEF> ipt(
               ptdump_argv.size() - 1, ptdump_argv.data(), jv, *E, cpu,
               AddressSpace, mmap.ptr,
-              reinterpret_cast<uint8_t *>(mmap.ptr) + len,
+              reinterpret_cast<uint8_t *>(mmap.ptr) + len, sb_filename,
               IsVeryVerbose() ? 2 : (IsVerbose() ? 1 : 0));
 
           try {
