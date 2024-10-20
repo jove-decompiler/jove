@@ -135,6 +135,8 @@ struct IPTTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
               cl::init(true), cl::cat(JoveCategory)) {}
   } opts;
 
+  const bool IsCOFF;
+
   std::string perf_path;
 
   symbolizer_t symbolizer;
@@ -154,8 +156,15 @@ struct IPTTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
   void gather_all_perf_data_files(std::vector<std::string> &out);
   void gather_perf_data_aux_files(std::vector<std::pair<unsigned, std::string>> &out);
 
+  int ProcessAppStderr(void);
+
+  static constexpr const char *path_to_stdout = "perf.data.stdout";
+  static constexpr const char *path_to_stderr = "perf.data.stderr";
+
 public:
-  IPTTool() : opts(JoveCategory) {}
+  IPTTool()
+      : opts(JoveCategory),
+        IsCOFF(B::is_coff(*state.for_binary(jv.Binaries.at(0)).Bin)) {}
 
   int Run(void) override;
 
@@ -240,15 +249,6 @@ int IPTTool::Run(void) {
 
   const std::string prog_path = fs::canonical(opts.Prog).string();
 
-  bool HasCOFF = std::any_of(
-      jv.Binaries.begin(),
-      jv.Binaries.end(), [&](binary_t &b) -> bool {
-        return B::is_coff(*state.for_binary(jv.Binaries.at(0)).Bin);
-      });
-
-  fs::path path_to_stdout = "perf.data.stdout";
-  fs::path path_to_stderr = "perf.data.stderr";
-
   std::string sudo_path = locator().sudo();
   const unsigned gid = ::getgid();
   const unsigned uid = ::getuid();
@@ -311,9 +311,9 @@ int IPTTool::Run(void) {
         // binaries so we can make sense of the addresses we get back from the
         // trace.
         //
-        if (HasCOFF)
+        if (IsCOFF)
           Env("WINEDEBUG=+loaddll,+process");
-      }, path_to_stdout.string(), path_to_stderr.string());
+      }, path_to_stdout, path_to_stderr);
   }
 
   //
@@ -327,17 +327,24 @@ int IPTTool::Run(void) {
 
         Arg("chown");
         Arg(std::to_string(uid) + ":" + std::to_string(gid));
-        Arg(path_to_stdout.string());
-        Arg(path_to_stderr.string());
+        Arg(path_to_stdout);
+        Arg(path_to_stderr);
         Arg("perf.data");
     });
 
-  if (HasCOFF) {
+  if (opts.UsePerfScript)
+    return UsingPerfScript();
+  else
+    return UsingLibipt();
+}
+
+int IPTTool::ProcessAppStderr(void) {
+  if (IsCOFF) {
     //
     // parse stderr to make sense of the program counters
     //
     std::string stderr_contents;
-    read_file_into_thing(path_to_stderr.c_str(), stderr_contents);
+    read_file_into_thing(path_to_stderr, stderr_contents);
 
     wine::stderr_parser parser(stderr_contents);
 
@@ -441,13 +448,13 @@ int IPTTool::Run(void) {
     });
   }
 
-  if (opts.UsePerfScript)
-    return UsingPerfScript();
-  else
-    return UsingLibipt();
+  return 0;
 }
 
 int IPTTool::UsingPerfScript(void) {
+  if (int ret = ProcessAppStderr())
+    return ret;
+
   using namespace std::placeholders;
 
   int pipefd[2];
@@ -805,6 +812,7 @@ int IPTTool::UsingLibipt(void) {
     perf::data_reader perf_data("perf.data");
 
     oneapi::tbb::parallel_invoke(
+        [&](void) -> void { if (ProcessAppStderr()) Failed = true; },
         [&](void) -> void {
           if (IsVerbose())
             llvm::errs() << "writing sideband files...\n";
