@@ -1086,13 +1086,24 @@ int IntelPT<IPT_PARAMETERS_DEF>::on_ip(const taddr_t IP, const uint64_t offset) 
     };
     if (CurrPoint.BinaryIndex() == BIdx) {
       bool WentNoFurther = false;
-      basic_block_index_t NewBBIdx;
 
-      std::tie(NewBBIdx, WentNoFurther) = StraightLineUntilSlow<false>(
-          b, CurrPoint.BlockIndex(), Addr, set_curr_term_addr);
-      CurrPoint.SetBlockIndex(NewBBIdx);
+      if constexpr (Caching) {
+        try {
+          const auto &SL = SLForBlock(b, CurrPoint.Block());
+          CurrPoint.SetBlockIndex(SL.BBIdx);
+          CurrPoint.SetTermAddr(SL.TermAddr);
+          WentNoFurther = intvl_set_contains(SL.addrng, Addr);
+        } catch (const infinite_loop_exception &) {
+          CurrPoint.Invalidate();
+        }
+      } else {
+        basic_block_index_t NewBBIdx;
+        std::tie(NewBBIdx, WentNoFurther) = StraightLineUntilSlow<false>(
+            b, CurrPoint.BlockIndex(), Addr, set_curr_term_addr);
+        CurrPoint.SetBlockIndex(NewBBIdx);
+      }
 
-      assert(CurrPoint.Valid());
+      //assert(CurrPoint.Valid());
       if (WentNoFurther) {
         if constexpr (IsVeryVerbose())
             fprintf(stderr, "no further %s+%" PRIx64 "\n</IP>\n",
@@ -1309,7 +1320,7 @@ static std::pair<basic_block_index_t, bool>
 StraightLineGo(const binary_t &b,
                basic_block_index_t Res,
                taddr_t GoNoFurther = 0,
-               std::function<void(basic_block_t)> on_block = [](basic_block_t) -> void {},
+               std::function<void(basic_block_index_t)> on_block = [](basic_block_index_t) -> void {},
                std::function<basic_block_index_t (basic_block_index_t)> on_final_block = [](basic_block_index_t Res) -> basic_block_index_t { return Res; }) {
   const auto &ICFG = b.Analysis.ICFG;
 
@@ -1324,6 +1335,8 @@ StraightLineGo(const binary_t &b,
          //if (unlikely(bbprop.pub.is.load(std::memory_order_acquire) != 2))
          ip_sharable_lock<ip_sharable_mutex>(bbprop.pub.mtx);
          bbprop.mtx.lock_sharable(); /* don't change on us */
+
+         on_block(Res);
          0;
        });
        ;
@@ -1356,7 +1369,7 @@ StraightLineGo(const binary_t &b,
          ip_sharable_lock<ip_sharable_mutex>(new_bbprop.pub.mtx);
          new_bbprop.mtx.lock_sharable(); /* don't change on us */
 
-         on_block(newbb);
+         on_block(Res);
          0;
        })) {
     basic_block_t bb = basic_block_of_index(Res, b);
@@ -2419,15 +2432,34 @@ IntelPT<IPT_PARAMETERS_DEF>::basic_block_state_t::basic_block_state_t(
   const basic_block_index_t Idx = index_of_basic_block(b, bb);
   assert(is_basic_block_index_valid(Idx));
 
-  this->SL.BBIdx = StraightLineGo<false, true, Verbosity>(
+  auto &SL = this->SL;
+
+  SL.BBIdx = StraightLineGo<false, true, Verbosity>(
       b, Idx, 0 /* unused */,
-      [](basic_block_t) -> void {},
+      [&](basic_block_index_t BBIdx) -> void {
+        const auto &bbprop = ICFG[bb];
+
+        const addr_intvl intvl(bbprop.Addr, bbprop.Size);
+
+        addr_intvl h = intvl;
+        for (;;) {
+          auto it = intvl_set_find(SL.addrng, intvl);
+          if (it == SL.addrng.end()) {
+            break;
+          } else {
+            h = addr_intvl_hull(h, *it);
+            SL.addrng.erase(it);
+          }
+        }
+        bool success = SL.addrng.insert(h).second;
+        assert(success);
+      },
       [&](basic_block_index_t BBIdx) -> basic_block_index_t {
         basic_block_t bb = basic_block_of_index(BBIdx, b);
         const auto &bbprop = ICFG[bb];
 
-        this->SL.TermType = bbprop.Term.Type;
-        this->SL.TermAddr = bbprop.Term.Addr;
+        SL.TermType = bbprop.Term.Type;
+        SL.TermAddr = bbprop.Term.Addr;
 
         {
           icfg_t::adjacency_iterator it, it_end;
@@ -2443,11 +2475,11 @@ IntelPT<IPT_PARAMETERS_DEF>::basic_block_state_t::basic_block_state_t(
 
             bool Is0NotTaking = ICFG[succ0].Addr == bbprop.Addr + bbprop.Size;
             if (Is0NotTaking) {
-              this->SL.adj.push_back(succ0);
-              this->SL.adj.push_back(succ1);
+              SL.adj.push_back(succ0);
+              SL.adj.push_back(succ1);
             } else {
-              this->SL.adj.push_back(succ1);
-              this->SL.adj.push_back(succ0);
+              SL.adj.push_back(succ1);
+              SL.adj.push_back(succ0);
             }
           } else {
             ;
