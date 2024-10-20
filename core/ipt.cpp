@@ -439,8 +439,6 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb(void) {
           bytes[i] = strtol(hexbyte, nullptr, 16);
         }
 
-        auto &state = syscall_state_map[_.tid];
-
         if (strcmp(name, "raw_syscalls:sys_exit") == 0) {
           long nr;
           taddr_t ret;
@@ -460,27 +458,20 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb(void) {
               !syscall_exit_extract.template operator()<uint32_t>())
             unexpected_rest();
 
-          bool two_consecutive_exits = state.dir != 0;
-          bool mismatched_nr = nr != state.nr;
+          assert(nr >= 0);
+          auto &state = syscall_state_map[std::make_pair(_.tid, static_cast<uint32_t>(nr))];
 
-          if (unlikely(two_consecutive_exits || mismatched_nr)) {
-            if (two_consecutive_exits) {
-              if (mismatched_nr)
-                fprintf(stderr, "two syscall exits in a row!\n");
-              else
-                fprintf(stderr, "two syscall exits in a row! (%ld)\n", nr);
-            }
-            if (mismatched_nr)
-              fprintf(stderr, "mismatched syscall exit! (%ld != %ld)\n", nr,
-                      state.nr);
-            state.dir = state.nr = -1;
+          if (unlikely(state.dir != SYSCALL_DIRECTION::ENTER)) {
+            fprintf(stderr, "syscall exit (%ld) after a %s\n", nr,
+                    directionNames[static_cast<unsigned>(state.dir)]);
+            state.dir = SYSCALL_DIRECTION::EXIT;
             break;
           }
 
-          state.dir = 1;
+          state.dir = SYSCALL_DIRECTION::EXIT;
 
           /* on syscall return */
-          if (state.nr == syscalls::NR::munmap) {
+          if (nr == syscalls::NR::munmap) {
             if (ret != 0)
               continue; /* failed */
 
@@ -489,14 +480,14 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb(void) {
 
             const addr_intvl intvl(addr, len);
 
-            if constexpr (IsVerbose()) {
+            if constexpr (IsVeryVerbose()) {
               std::string as(addr_intvl2str(intvl));
 
-              fprintf(stderr, "[munmap] @ %s <%" PRIx64 ">\n", as.c_str(), ip);
+              fprintf(stderr, "[munmap] @ %s\n", as.c_str());
             }
 
             intvl_map_clear(AddressSpace, intvl);
-          } else if (state.nr == syscalls::NR::mmap) {
+          } else if (nr == syscalls::NR::mmap) {
             if (ret >= (taddr_t)-4095)
               continue; /* failed */
 
@@ -515,11 +506,11 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb(void) {
             if (IsCOFF) {
               const addr_intvl intvl(ret, len);
 
-              if constexpr (IsVerbose()) {
+              if constexpr (IsVeryVerbose()) {
                 std::string as(addr_intvl2str(intvl));
 
-                fprintf(stderr, "[mmap]   @ %s in %s <%" PRIx64 ">\n", as.c_str(),
-                        anon ? "\"//anon\"" : nullptr, ip);
+                fprintf(stderr, "[mmap]   @ %s in %s\n", as.c_str(),
+                        anon ? "\"//anon\"" : nullptr);
               }
 
               intvl_map_clear(AddressSpace, intvl);
@@ -529,16 +520,25 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb(void) {
                 intvl_map_add(AddressSpace, intvl, std::make_pair((*it).second, ~0UL));
             }
           } else {
-            fprintf(stderr, "unhandled syscall %u!\n", (unsigned)state.nr);
+            fprintf(stderr, "unhandled syscall %u!\n", (unsigned)nr);
             break;
           }
         } else if (strcmp(name, "raw_syscalls:sys_enter") == 0) {
+          long nr;
+
+          syscall_state_t *statep = nullptr;
           auto syscall_enter_extract = [&]<typename UIntType>(void) -> bool {
             if (bytes.size() >= sizeof(syscall_enter_args<UIntType>)) {
               auto *p = (const syscall_enter_args<UIntType> *)bytes.data();
+
+              nr = p->syscall_nr;
+              assert(nr >= 0);
+
+              auto &state = syscall_state_map[std::make_pair(_.tid, static_cast<uint32_t>(nr))];
               for (unsigned i = 0; i < state.args.size(); ++i)
                 state.args[i] = p->args[i];
-              state.nr = p->syscall_nr;
+
+              statep = &state;
               return true;
             }
             return false;
@@ -548,7 +548,13 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb(void) {
               !syscall_enter_extract.template operator()<uint32_t>())
             unexpected_rest();
 
-          state.dir = 0;
+          assert(statep);
+          auto &state = *statep;
+
+          if (unlikely(state.dir == SYSCALL_DIRECTION::ENTER))
+            fprintf(stderr, "syscall enter (%ld) after an enter\n", nr);
+
+          state.dir = SYSCALL_DIRECTION::ENTER;
         } else {
           unexpected_rest();
         }

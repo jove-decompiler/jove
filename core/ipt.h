@@ -9,6 +9,7 @@
 #include <boost/preprocessor/seq/for_each_product.hpp>
 #include <boost/preprocessor/seq/elem.hpp>
 #include <boost/preprocessor/seq/seq.hpp>
+#include <boost/unordered/unordered_flat_map.hpp>
 
 struct pt_config;
 struct pt_sb_session;
@@ -137,13 +138,25 @@ class IntelPT {
     std::vector<uint8_t> u8v;
   } __buff;
 
-  struct syscall_state_t {
-    long nr = -1;
-    std::array<taddr_t, 6> args;
-    int8_t dir = -1;
+  enum class SYSCALL_DIRECTION {
+    UNKNOWN = 0,
+    ENTER,
+    EXIT
+  };
+  static constexpr const char *directionNames[] = {
+    "unknown",
+    "enter",
+    "exit"
   };
 
-  std::unordered_map<uint32_t, syscall_state_t> syscall_state_map;
+  struct syscall_state_t {
+    std::array<taddr_t, 6> args;
+    SYSCALL_DIRECTION dir = SYSCALL_DIRECTION::UNKNOWN;
+  };
+
+  boost::unordered::unordered_flat_map<
+      std::pair<uint32_t /* pid */, uint32_t /* nr */>, syscall_state_t>
+      syscall_state_map;
 
   struct {
     FILE *os = NULL;
