@@ -1143,23 +1143,21 @@ int IntelPT<IPT_PARAMETERS_DEF>::on_ip(const taddr_t IP, const uint64_t offset) 
 
   const auto PrevPoint = CurrPoint;
   try {
-    auto obp = [&]<bool Unlocked>(basic_block_t bb) -> void {
-      const auto &bbprop = b.Analysis.ICFG[bb];
+    auto obp = [&](basic_block_properties_t &bbprop) -> void {
+      CurrPoint.SetTermAddr(bbprop.Term.Addr);
+    };
+    auto obp_u = [&](basic_block_index_t BBIdx) -> void {
+      const auto &bbprop =
+          b.Analysis.ICFG[basic_block_of_index(BBIdx, b.Analysis.ICFG)];
 
-      // lock if necessary so we see the terminator address when it is published
-      if constexpr (Unlocked) {
-        if (bbprop.pub.is == 0)
-          ip_sharable_lock<ip_sharable_mutex>(bbprop.mtx);
-      }
+      if (unlikely(bbprop.pub.is == 0))
+        ip_sharable_lock<ip_sharable_mutex>(bbprop.mtx);
 
       CurrPoint.SetTermAddr(bbprop.Term.Addr);
     };
 
     CurrPoint.SetBinary(b);
-    CurrPoint.SetBlockIndex(explorer.explore_basic_block(
-        b, *x.Bin, Addr,
-        [=](basic_block_t bb) -> void { obp.template operator()<false>(bb); },
-        [=](basic_block_t bb) -> void { obp.template operator()<true>(bb); }));
+    CurrPoint.SetBlockIndex(explorer.explore_basic_block(b, *x.Bin, Addr, obp, obp_u));
     assert(CurrPoint.Valid());
 
     on_block(b, CurrPoint.BlockIndex());
