@@ -20,6 +20,7 @@
 #include <boost/preprocessor/repetition/repeat.hpp>
 #include <boost/range/adaptor/reversed.hpp>
 #include <boost/icl/split_interval_map.hpp>
+#include <boost/unordered/unordered_flat_map.hpp>
 
 #include <llvm/Analysis/Passes.h>
 #include <llvm/Analysis/TargetTransformInfo.h>
@@ -463,6 +464,9 @@ struct LLVMTool : public StatefulJVTool<ToolKind::CopyOnWrite, binary_state_t,
           Debugify("debugify", cl::cat(JoveCategory)) {}
   } opts;
 
+  template <typename Key, typename Value>
+  using unordered_map = boost::unordered::unordered_flat_map<Key, Value>;
+
   binary_index_t BinaryIndex = invalid_binary_index;
 
   tcg_global_set_t PinnedEnvGlbs = InitPinnedEnvGlbs;
@@ -482,7 +486,7 @@ struct LLVMTool : public StatefulJVTool<ToolKind::CopyOnWrite, binary_state_t,
   llvm::GlobalVariable *SectsGlobal = nullptr;
   llvm::GlobalVariable *ConstSectsGlobal = nullptr;
 
-  std::unordered_map<std::string, std::set<dynamic_target_t>> ExportedFunctions;
+  unordered_map<std::string, std::set<dynamic_target_t>> ExportedFunctions;
 
   disas_t disas;
 
@@ -589,26 +593,25 @@ struct LLVMTool : public StatefulJVTool<ToolKind::CopyOnWrite, binary_state_t,
     std::vector<std::pair<llvm::GlobalVariable *, unsigned>> GVVec;
   } LaidOut;
 
-  std::unordered_map<std::string, unsigned> GlobalSymbolDefinedSizeMap;
+  unordered_map<std::string, unsigned> GlobalSymbolDefinedSizeMap;
 
-  std::unordered_map<uint64_t, std::set<llvm::StringRef>>
-      TLSValueToSymbolMap;
-  std::unordered_map<uint64_t, unsigned> TLSValueToSizeMap;
+  unordered_map<uint64_t, std::set<llvm::StringRef>> TLSValueToSymbolMap;
+  unordered_map<uint64_t, unsigned> TLSValueToSizeMap;
 
   boost::icl::split_interval_set<uint64_t> AddressSpaceObjects;
 
-  std::unordered_map<uint64_t, std::set<std::string>> AddrToSymbolMap;
-  std::unordered_map<uint64_t, unsigned> AddrToSizeMap;
+  unordered_map<uint64_t, std::set<std::string>> AddrToSymbolMap;
+  unordered_map<uint64_t, unsigned> AddrToSizeMap;
   std::unordered_set<uint64_t> TLSObjects; // XXX
 
   std::unordered_set<std::string> CopyRelSyms;
 
-  std::unordered_map<llvm::Function *, llvm::Function *> CtorStubMap;
+  unordered_map<llvm::Function *, llvm::Function *> CtorStubMap;
 
   std::unordered_set<llvm::Function *> MustInlineSjStubs;
 
   struct {
-    std::unordered_map<std::string, std::unordered_set<std::string>> Table;
+    unordered_map<std::string, std::unordered_set<std::string>> Table;
   } VersionScript;
 
   // set {int}0x08053ebc = 0xf7fa83f0
@@ -618,7 +621,7 @@ struct LLVMTool : public StatefulJVTool<ToolKind::CopyOnWrite, binary_state_t,
 
   std::vector<uint64_t> possible_tramps_vec;
 
-  std::unordered_map<std::string, std::set<unsigned>> ordinal_imports;
+  unordered_map<std::string, std::set<unsigned>> ordinal_imports;
 
   llvm::Constant *__jove_fail_UnknownBranchTarget;
   llvm::Constant *__jove_fail_UnknownCallee;
@@ -1047,7 +1050,8 @@ struct helper_function_t {
 
 const helper_function_t &LookupHelper(llvm::Module &M, tiny_code_generator_t &TCG, TCGOp *op, bool DFSan, bool ForCBE, Tool &tool);
 
-static std::unordered_map<uintptr_t, helper_function_t> HelperFuncMap;
+static boost::unordered::unordered_flat_map<uintptr_t, helper_function_t>
+    HelperFuncMap;
 static std::mutex helper_mtx;
 
 static void explode_tcg_global_set(std::vector<unsigned> &out,
@@ -1139,7 +1143,7 @@ static flow_vertex_t copy_function_cfg(jv_t &jv,
                                        bool DFSan,
                                        bool ForCBE,
                                        std::vector<exit_vertex_pair_t> &exitVertices,
-                                       std::unordered_map<function_t *, std::pair<flow_vertex_t, std::vector<exit_vertex_pair_t>>> &memoize,
+                                       boost::unordered::unordered_flat_map<function_t *, std::pair<flow_vertex_t, std::vector<exit_vertex_pair_t>>> &memoize,
                                        Tool &tool) {
   binary_index_t BIdx = binary_index_of_function(f, jv); /* XXX */
   auto &b = jv.Binaries.at(BIdx);
@@ -1838,8 +1842,8 @@ void AnalyzeFunction(jv_t &jv,
   {
     flow_graph_t G;
 
-    std::unordered_map<function_t *,
-                       std::pair<flow_vertex_t, std::vector<exit_vertex_pair_t>>>
+    boost::unordered::unordered_flat_map<
+        function_t *, std::pair<flow_vertex_t, std::vector<exit_vertex_pair_t>>>
         memoize;
 
     std::vector<exit_vertex_pair_t> exitVertices;

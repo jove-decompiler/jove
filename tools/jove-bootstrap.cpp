@@ -32,6 +32,7 @@ static constexpr bool IsI386 =
 #include <boost/preprocessor/repetition/repeat.hpp>
 #include <boost/preprocessor/repetition/repeat_from_to.hpp>
 #include <boost/lockfree/queue.hpp>
+#include <boost/unordered/unordered_flat_map.hpp>
 
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
@@ -335,9 +336,9 @@ struct BootstrapTool : public StatefulJVTool<ToolKind::Standard, binary_state_t,
 
   pid_t _child = 0; /* XXX */
 
-  std::unordered_map<uintptr_t, indirect_branch_t> IndBrMap;
-  std::unordered_map<uintptr_t, return_t> RetMap;
-  std::unordered_map<uintptr_t, breakpoint_t> BrkMap;
+  boost::unordered::unordered_flat_map<uintptr_t, indirect_branch_t> IndBrMap;
+  boost::unordered::unordered_flat_map<uintptr_t, return_t> RetMap;
+  boost::unordered::unordered_flat_map<uintptr_t, breakpoint_t> BrkMap;
 
   struct {
     bool Found = false;
@@ -346,7 +347,8 @@ struct BootstrapTool : public StatefulJVTool<ToolKind::Standard, binary_state_t,
     uintptr_t r_brk = 0;
   } _r_debug;
 
-  std::unordered_map<pid_t, child_syscall_state_t> children_syscall_state;
+  boost::unordered::unordered_flat_map<pid_t, child_syscall_state_t>
+      children_syscall_state;
 
   bool invalidateAnalyses = false;
 

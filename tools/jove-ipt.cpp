@@ -19,6 +19,7 @@
 
 #include <boost/filesystem.hpp>
 #include <boost/algorithm/string.hpp>
+#include <boost/unordered/unordered_flat_map.hpp>
 
 #include <oneapi/tbb/parallel_pipeline.h>
 #include <oneapi/tbb/parallel_for_each.h>
@@ -145,7 +146,8 @@ struct IPTTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
   std::unique_ptr<disas_t> Disas;
   std::unique_ptr<explorer_t> E;
 
-  std::unordered_map<std::string, taddr_t> binary_loadaddr_map;
+  boost::unordered::unordered_flat_map<std::string, taddr_t>
+      binary_loadaddr_map;
   address_space_t AddressSpace;
 
   std::string buff;

@@ -9,6 +9,7 @@
 #include <boost/graph/strong_components.hpp>
 #include <boost/graph/topological_sort.hpp>
 #include <boost/range/adaptor/reversed.hpp>
+#include <boost/unordered/unordered_flat_map.hpp>
 
 #include <llvm/ADT/StringRef.h>
 #include <llvm/Support/FormatVariadic.h>
@@ -294,12 +295,13 @@ struct graphviz_label_writer {
 
 struct no_bad_edges_t {
   const dso_graph_t *g_ptr;
-  const std::unordered_map<dso_t, std::unordered_set<dso_t>> *bad_edges;
+  const boost::unordered::unordered_flat_map<dso_t, std::unordered_set<dso_t>>
+      *bad_edges;
 
   no_bad_edges_t() : g_ptr(nullptr) {}
-  no_bad_edges_t(
-      const dso_graph_t *g_ptr,
-      const std::unordered_map<dso_t, std::unordered_set<dso_t>> *bad_edges)
+  no_bad_edges_t(const dso_graph_t *g_ptr,
+                 const boost::unordered::unordered_flat_map<
+                     dso_t, std::unordered_set<dso_t>> *bad_edges)
       : g_ptr(g_ptr), bad_edges(bad_edges) {}
 
   template <typename Edge> bool operator()(const Edge &e) const {
@@ -622,7 +624,7 @@ int RecompileTool::Run(void) {
   //
   // create mapping from "soname" to binary
   //
-  std::unordered_map<std::string, binary_index_t> soname_map;
+  boost::unordered::unordered_flat_map<std::string, binary_index_t> soname_map;
   for_each_binary(jv, [&](binary_t &b) {
     binary_state_t &x = state.for_binary(b);
 
@@ -732,7 +734,8 @@ int RecompileTool::Run(void) {
     for (const auto &el : vert_comps)
       comp_verts_map[el.second].insert(el.first);
 
-    std::unordered_map<dso_t, std::unordered_set<dso_t>> bad_edges;
+    boost::unordered::unordered_flat_map<dso_t, std::unordered_set<dso_t>>
+        bad_edges;
 
     //
     // examine edges in strongly-connected components

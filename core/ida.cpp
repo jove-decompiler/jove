@@ -8,6 +8,7 @@
 #include <boost/ref.hpp>
 #include <boost/spirit/include/lex_lexertl.hpp>
 #include <boost/spirit/include/qi.hpp>
+#include <boost/unordered/unordered_flat_map.hpp>
 
 #include <fstream>
 #include <stdexcept>
@@ -140,7 +141,8 @@ struct on_token {
 };
 
 bool ReadIDAFlowgraphFromGDLFile(const char *filepath, ida_flowgraph_t &out) {
-  std::unordered_map<std::string, ida_flowgraph_node_t> title_node_map;
+  boost::unordered::unordered_flat_map<std::string, ida_flowgraph_node_t>
+      title_node_map;
 
   auto on_node = [&](const std::string &title_text,
                      const std::string &label_text) -> void {

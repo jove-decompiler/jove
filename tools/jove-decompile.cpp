@@ -3,6 +3,8 @@
 #include "triple.h"
 #include "util.h"
 
+#include <boost/unordered/unordered_flat_map.hpp>
+
 #include <llvm/Bitcode/BitcodeReader.h>
 #include <llvm/Support/CommandLine.h>
 #include <llvm/Support/DataTypes.h>
@@ -168,7 +170,7 @@ void DecompileTool::queue_binaries(void) {
 int DecompileTool::Run(void) {
   IsCOFF = B::is_coff(*state.for_binary(jv.Binaries.at(0)).Bin);
 
-  std::unordered_map<std::string, binary_index_t> soname_map;
+  boost::unordered::unordered_flat_map<std::string, binary_index_t> soname_map;
 
   for_each_binary(jv, [&](binary_t &binary) {
     binary_index_t BIdx = index_of_binary(binary, jv);
