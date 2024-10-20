@@ -179,9 +179,17 @@ int run_objdump_and_parse_addresses(const char *filename,
   return rc;
 }
 
-template int run_objdump_and_parse_addresses<objdump_output_t<false>>(const char *filename, llvm::object::Binary &Bin, objdump_output_t<false> &out);
-template int run_objdump_and_parse_addresses<objdump_output_t<true>>(const char *filename, llvm::object::Binary &Bin, objdump_output_t<true> &out);
+#define TYPES_TO_INSTANTIATE_WITH                                              \
+    ((objdump_output_t<false>))                                                \
+    ((objdump_output_t<true>))                                                 \
+    ((binary_t::Analysis_t::objdump_output_type))
 
-template int run_objdump_and_parse_addresses<binary_t::Analysis_t::objdump_output_type>(const char *filename, llvm::object::Binary &Bin, binary_t::Analysis_t::objdump_output_type &out);
+#define GET_TYPE(x) BOOST_PP_TUPLE_ELEM(0, x)
+
+#define DO_INSTANTIATE(r, data, elem)                                          \
+  template int run_objdump_and_parse_addresses<GET_TYPE(elem)>(                \
+      const char *filename, llvm::object::Binary &Bin, GET_TYPE(elem) & out);
+
+BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, TYPES_TO_INSTANTIATE_WITH)
 
 }
