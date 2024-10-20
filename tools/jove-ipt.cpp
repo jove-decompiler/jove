@@ -246,8 +246,8 @@ int IPTTool::Run(void) {
         return B::is_coff(*state.for_binary(jv.Binaries.at(0)).Bin);
       });
 
-  fs::path path_to_stdout = fs::path(temporary_dir()) / "app.stdout";
-  fs::path path_to_stderr = fs::path(temporary_dir()) / "app.stderr";
+  fs::path path_to_stdout = "perf.data.stdout";
+  fs::path path_to_stderr = "perf.data.stderr";
 
   std::string sudo_path = locator().sudo();
   const unsigned gid = ::getgid();
