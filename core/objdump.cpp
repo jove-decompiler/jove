@@ -188,7 +188,7 @@ int run_objdump_and_parse_addresses(const char *filename,
 
 #define DO_INSTANTIATE(r, data, elem)                                          \
   template int run_objdump_and_parse_addresses<GET_TYPE(elem)>(                \
-      const char *filename, llvm::object::Binary &Bin, GET_TYPE(elem) & out);
+      const char *filename, llvm::object::Binary &Bin, GET_TYPE(elem) &out);
 
 BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, TYPES_TO_INSTANTIATE_WITH)
 
