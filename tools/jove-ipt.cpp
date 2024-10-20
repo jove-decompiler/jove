@@ -805,8 +805,10 @@ void IPTTool::ProcessLine(const std::string &line) {
 int IPTTool::UsingLibipt(void) {
   fs::path libipt_scripts_dir = locator().libipt_scripts();
 
-  if (!opts.ExistingPerfData)
-  {
+  if (opts.ExistingPerfData) {
+    if (int ret = ProcessAppStderr())
+      return ret;
+  } else {
     bool Failed = false;
 
     perf::data_reader perf_data("perf.data");
