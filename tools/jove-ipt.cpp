@@ -1051,6 +1051,8 @@ int IPTTool::UsingLibipt(void) {
 BOOST_PP_SEQ_FOR_EACH_PRODUCT(GENERATE_RUN, IPT_ALL_OPTIONS);
 
 #undef GENERATE_RUN
+
+        abort();
       });
 
   return 0;
