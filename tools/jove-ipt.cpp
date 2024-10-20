@@ -1044,7 +1044,7 @@ int IPTTool::UsingLibipt(void) {
   BOOST_PP_TUPLE_ELEM(3, 2, elem)
 
 #define IPT_ALL_OPTIONS                                                        \
-  BOOST_PP_SEQ_TRANSFORM(IPT_EXTRACT_VALUES, _, IPT_PARAMETERS)
+  BOOST_PP_SEQ_TRANSFORM(IPT_EXTRACT_VALUES, void, IPT_PARAMETERS)
 
 #define IPT_GENERATE_COMPARISON(r, product, i, elem)                           \
   BOOST_PP_IF(i, &&, )                                                         \
