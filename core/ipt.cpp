@@ -59,8 +59,8 @@ typedef boost::format fmt;
 #define IsVerbose() (Verbosity >= 1)
 #define IsVeryVerbose() (Verbosity >= 2)
 
-template <IPT_TEMPLATE_PARAMS_DCL>
-IntelPT<IPT_TEMPLATE_PARAMS_DEF>::IntelPT(int ptdump_argc, char **ptdump_argv,
+template <IPT_PARAMETERS_DCL>
+IntelPT<IPT_PARAMETERS_DEF>::IntelPT(int ptdump_argc, char **ptdump_argv,
                                      jv_t &jv, explorer_t &explorer,
                                      unsigned cpu,
                                      const address_space_t &AddressSpaceInit,
@@ -156,8 +156,8 @@ IntelPT<IPT_TEMPLATE_PARAMS_DEF>::IntelPT(int ptdump_argc, char **ptdump_argv,
   }
 }
 
-template <IPT_TEMPLATE_PARAMS_DCL>
-IntelPT<IPT_TEMPLATE_PARAMS_DEF>::~IntelPT() {
+template <IPT_PARAMETERS_DCL>
+IntelPT<IPT_PARAMETERS_DEF>::~IntelPT() {
   pt_pkt_free_decoder(decoder);
 
 #if 0
@@ -175,8 +175,8 @@ IntelPT<IPT_TEMPLATE_PARAMS_DEF>::~IntelPT() {
   free(sideband.ptr);
 }
 
-template <IPT_TEMPLATE_PARAMS_DCL>
-int IntelPT<IPT_TEMPLATE_PARAMS_DEF>::ptdump_print_error(int errcode,
+template <IPT_PARAMETERS_DCL>
+int IntelPT<IPT_PARAMETERS_DEF>::ptdump_print_error(int errcode,
                                                     const char *filename,
                                                     uint64_t offset) {
   if (errcode >= 0 && false /* !options->print_sb_warnings */)
@@ -218,8 +218,8 @@ static void hexdump(FILE *stream, const void *ptr, int buflen) {
 }
 #endif
 
-template <IPT_TEMPLATE_PARAMS_DCL>
-void IntelPT<IPT_TEMPLATE_PARAMS_DEF>::examine_sb(void) {
+template <IPT_PARAMETERS_DCL>
+void IntelPT<IPT_PARAMETERS_DEF>::examine_sb(void) {
   fflush(sideband.os);
 
   char *ptr = sideband.ptr;
@@ -669,8 +669,8 @@ void IntelPT<IPT_TEMPLATE_PARAMS_DEF>::examine_sb(void) {
   } while (likely(ptr != end));
 }
 
-template <IPT_TEMPLATE_PARAMS_DCL>
-int IntelPT<IPT_TEMPLATE_PARAMS_DEF>::explore(void) {
+template <IPT_PARAMETERS_DCL>
+int IntelPT<IPT_PARAMETERS_DEF>::explore(void) {
   int errcode;
 
   if (0 /* options->no_sync */) {
@@ -709,8 +709,8 @@ int IntelPT<IPT_TEMPLATE_PARAMS_DEF>::explore(void) {
   return errcode;
 }
 
-template <IPT_TEMPLATE_PARAMS_DCL>
-int IntelPT<IPT_TEMPLATE_PARAMS_DEF>::explore_packets() {
+template <IPT_PARAMETERS_DCL>
+int IntelPT<IPT_PARAMETERS_DEF>::explore_packets() {
   uint64_t offset;
   int errcode;
 
@@ -746,8 +746,8 @@ int IntelPT<IPT_TEMPLATE_PARAMS_DEF>::explore_packets() {
   return 0;
 }
 
-template <IPT_TEMPLATE_PARAMS_DCL>
-int IntelPT<IPT_TEMPLATE_PARAMS_DEF>::process_packet(uint64_t offset,
+template <IPT_PARAMETERS_DCL>
+int IntelPT<IPT_PARAMETERS_DEF>::process_packet(uint64_t offset,
                                                 struct pt_packet *packet) {
   switch (packet->type) {
   case ppt_unknown:
@@ -949,8 +949,8 @@ int IntelPT<IPT_TEMPLATE_PARAMS_DEF>::process_packet(uint64_t offset,
 struct tnt_error {};
 struct infinite_loop_exception {};
 
-template <IPT_TEMPLATE_PARAMS_DCL>
-int IntelPT<IPT_TEMPLATE_PARAMS_DEF>::tnt_payload(const struct pt_packet_tnt &packet,
+template <IPT_PARAMETERS_DCL>
+int IntelPT<IPT_PARAMETERS_DEF>::tnt_payload(const struct pt_packet_tnt &packet,
                                              const uint64_t offset) {
   if (unlikely(!Engaged))
     return 1;
@@ -983,8 +983,8 @@ int IntelPT<IPT_TEMPLATE_PARAMS_DEF>::tnt_payload(const struct pt_packet_tnt &pa
   return 1;
 }
 
-template <IPT_TEMPLATE_PARAMS_DCL>
-int IntelPT<IPT_TEMPLATE_PARAMS_DEF>::on_ip(const taddr_t IP, const uint64_t offset) {
+template <IPT_PARAMETERS_DCL>
+int IntelPT<IPT_PARAMETERS_DEF>::on_ip(const taddr_t IP, const uint64_t offset) {
   if (unlikely(!Engaged)) {
     if constexpr (IsVeryVerbose())
       if (RightProcess())
@@ -1185,8 +1185,8 @@ int IntelPT<IPT_TEMPLATE_PARAMS_DEF>::on_ip(const taddr_t IP, const uint64_t off
   return 0;
 }
 
-template <IPT_TEMPLATE_PARAMS_DCL>
-void IntelPT<IPT_TEMPLATE_PARAMS_DEF>::block_transfer(binary_t &fr_b,
+template <IPT_PARAMETERS_DCL>
+void IntelPT<IPT_PARAMETERS_DEF>::block_transfer(binary_t &fr_b,
                                                  taddr_t FrTermAddr,
                                                  binary_t &to_b,
                                                  taddr_t ToAddr) {
@@ -1465,34 +1465,34 @@ StraightLineGo(const binary_t &b,
   abort();
 }
 
-template <IPT_TEMPLATE_PARAMS_DCL>
+template <IPT_PARAMETERS_DCL>
 template <bool InfiniteLoopThrow>
 std::pair<basic_block_index_t, bool>
-IntelPT<IPT_TEMPLATE_PARAMS_DEF>::StraightLineUntilSlow(
+IntelPT<IPT_PARAMETERS_DEF>::StraightLineUntilSlow(
     const binary_t &b,
     basic_block_index_t From,
     taddr_t GoNoFurther,
     std::function<basic_block_index_t(basic_block_index_t)> on_final_block) {
   return StraightLineGo<true, InfiniteLoopThrow, Verbosity>(
       b, From, GoNoFurther,
-      std::bind(&IntelPT<IPT_TEMPLATE_PARAMS_DEF>::on_block, this, std::ref(b),
+      std::bind(&IntelPT<IPT_PARAMETERS_DEF>::on_block, this, std::ref(b),
                 std::placeholders::_1), on_final_block);
 }
 
-template <IPT_TEMPLATE_PARAMS_DCL>
+template <IPT_PARAMETERS_DCL>
 template <bool InfiniteLoopThrow>
-basic_block_index_t IntelPT<IPT_TEMPLATE_PARAMS_DEF>::StraightLineSlow(
+basic_block_index_t IntelPT<IPT_PARAMETERS_DEF>::StraightLineSlow(
     const binary_t &b,
     basic_block_index_t From,
     std::function<basic_block_index_t(basic_block_index_t)> on_final_block) {
   return StraightLineGo<false, InfiniteLoopThrow, Verbosity>(
       b, From, 0 /* unused */,
-      std::bind(&IntelPT<IPT_TEMPLATE_PARAMS_DEF>::on_block, this, std::ref(b),
+      std::bind(&IntelPT<IPT_PARAMETERS_DEF>::on_block, this, std::ref(b),
                 std::placeholders::_1), on_final_block).first;
 }
 
-template <IPT_TEMPLATE_PARAMS_DCL>
-void IntelPT<IPT_TEMPLATE_PARAMS_DEF>::on_block(const binary_t &b,
+template <IPT_PARAMETERS_DCL>
+void IntelPT<IPT_PARAMETERS_DEF>::on_block(const binary_t &b,
                                            basic_block_index_t BBIdx) {
   if constexpr (IsVeryVerbose()) {
     binary_state_t &x = state.for_binary(b);
@@ -1506,8 +1506,8 @@ void IntelPT<IPT_TEMPLATE_PARAMS_DEF>::on_block(const binary_t &b,
   }
 }
 
-template <IPT_TEMPLATE_PARAMS_DCL>
-void IntelPT<IPT_TEMPLATE_PARAMS_DEF>::TNTAdvance(uint64_t tnt, uint8_t n) {
+template <IPT_PARAMETERS_DCL>
+void IntelPT<IPT_PARAMETERS_DEF>::TNTAdvance(uint64_t tnt, uint8_t n) {
   assert(n > 0);
 
   if constexpr (IsVeryVerbose())
@@ -1590,8 +1590,8 @@ void IntelPT<IPT_TEMPLATE_PARAMS_DEF>::TNTAdvance(uint64_t tnt, uint8_t n) {
     fprintf(stderr, "</TNT>\n");
 }
 
-template <IPT_TEMPLATE_PARAMS_DCL>
-void IntelPT<IPT_TEMPLATE_PARAMS_DEF>::ptdump_tracking_init(void)
+template <IPT_PARAMETERS_DCL>
+void IntelPT<IPT_PARAMETERS_DEF>::ptdump_tracking_init(void)
 {
   pt_last_ip_init(tracking.last_ip.get());
   pt_tcal_init(tracking.tcal.get());
@@ -1603,8 +1603,8 @@ void IntelPT<IPT_TEMPLATE_PARAMS_DEF>::ptdump_tracking_init(void)
   tracking.in_header = 0;
 }
 
-template <IPT_TEMPLATE_PARAMS_DCL>
-void IntelPT<IPT_TEMPLATE_PARAMS_DEF>::ptdump_tracking_reset(void) {
+template <IPT_PARAMETERS_DCL>
+void IntelPT<IPT_PARAMETERS_DEF>::ptdump_tracking_reset(void) {
   pt_last_ip_init(tracking.last_ip.get());
   pt_tcal_init(tracking.tcal.get());
   pt_time_init(tracking.time.get());
@@ -1614,8 +1614,8 @@ void IntelPT<IPT_TEMPLATE_PARAMS_DEF>::ptdump_tracking_reset(void) {
   tracking.in_header = 0;
 }
 
-template <IPT_TEMPLATE_PARAMS_DCL>
-int IntelPT<IPT_TEMPLATE_PARAMS_DEF>::sb_track_time(uint64_t offset)
+template <IPT_PARAMETERS_DCL>
+int IntelPT<IPT_PARAMETERS_DEF>::sb_track_time(uint64_t offset)
 {
 	uint64_t tsc;
 	int errcode;
@@ -1645,8 +1645,8 @@ int IntelPT<IPT_TEMPLATE_PARAMS_DEF>::sb_track_time(uint64_t offset)
         return 0;
 }
 
-template <IPT_TEMPLATE_PARAMS_DCL>
-int IntelPT<IPT_TEMPLATE_PARAMS_DEF>::track_time(uint64_t offset) {
+template <IPT_PARAMETERS_DCL>
+int IntelPT<IPT_PARAMETERS_DEF>::track_time(uint64_t offset) {
 #if 0
 	if (!tracking || !options)
 		return diag("error tracking time", offset, -pte_internal);
@@ -1665,8 +1665,8 @@ int IntelPT<IPT_TEMPLATE_PARAMS_DEF>::track_time(uint64_t offset) {
 	return sb_track_time(offset);
 }
 
-template <IPT_TEMPLATE_PARAMS_DCL>
-int IntelPT<IPT_TEMPLATE_PARAMS_DEF>::track_tsc(uint64_t offset,
+template <IPT_PARAMETERS_DCL>
+int IntelPT<IPT_PARAMETERS_DEF>::track_tsc(uint64_t offset,
                                            const struct pt_packet_tsc *packet) {
         int errcode;
 
@@ -1694,8 +1694,8 @@ int IntelPT<IPT_TEMPLATE_PARAMS_DEF>::track_tsc(uint64_t offset,
 	return track_time(offset);
 }
 
-template <IPT_TEMPLATE_PARAMS_DCL>
-int IntelPT<IPT_TEMPLATE_PARAMS_DEF>::track_cbr(uint64_t offset,
+template <IPT_PARAMETERS_DCL>
+int IntelPT<IPT_PARAMETERS_DEF>::track_cbr(uint64_t offset,
                                            const struct pt_packet_cbr *packet) {
         int errcode;
 
@@ -1728,8 +1728,8 @@ int IntelPT<IPT_TEMPLATE_PARAMS_DEF>::track_cbr(uint64_t offset,
 	return track_time(offset);
 }
 
-template <IPT_TEMPLATE_PARAMS_DCL>
-int IntelPT<IPT_TEMPLATE_PARAMS_DEF>::track_tma(uint64_t offset,
+template <IPT_PARAMETERS_DCL>
+int IntelPT<IPT_PARAMETERS_DEF>::track_tma(uint64_t offset,
                                            const struct pt_packet_tma *packet) {
         int errcode;
 
@@ -1760,8 +1760,8 @@ int IntelPT<IPT_TEMPLATE_PARAMS_DEF>::track_tma(uint64_t offset,
 	return track_time(offset);
 }
 
-template <IPT_TEMPLATE_PARAMS_DCL>
-int IntelPT<IPT_TEMPLATE_PARAMS_DEF>::track_mtc(uint64_t offset,
+template <IPT_PARAMETERS_DCL>
+int IntelPT<IPT_PARAMETERS_DEF>::track_mtc(uint64_t offset,
                                            const struct pt_packet_mtc *packet) {
         int errcode;
 
@@ -1787,8 +1787,8 @@ int IntelPT<IPT_TEMPLATE_PARAMS_DEF>::track_mtc(uint64_t offset,
 	return track_time(offset);
 }
 
-template <IPT_TEMPLATE_PARAMS_DCL>
-int IntelPT<IPT_TEMPLATE_PARAMS_DEF>::track_cyc(uint64_t offset,
+template <IPT_PARAMETERS_DCL>
+int IntelPT<IPT_PARAMETERS_DEF>::track_cyc(uint64_t offset,
                                            const struct pt_packet_cyc *packet) {
 	uint64_t fcr;
 	int errcode;
@@ -1923,8 +1923,8 @@ static int preprocess_filename(char *filename, uint64_t *offset, uint64_t *size)
 	return -pte_internal;
 }
 
-template <IPT_TEMPLATE_PARAMS_DCL>
-int IntelPT<IPT_TEMPLATE_PARAMS_DEF>::ptdump_sb_pevent(char *filename,
+template <IPT_PARAMETERS_DCL>
+int IntelPT<IPT_PARAMETERS_DEF>::ptdump_sb_pevent(char *filename,
                               const struct pt_sb_pevent_config *conf,
                               const char *prog) {
         struct pt_sb_pevent_config config;
@@ -2181,8 +2181,8 @@ static int get_arg_uint8(uint8_t *value, const char *option, const char *arg,
 }
 
 
-template <IPT_TEMPLATE_PARAMS_DCL>
-int IntelPT<IPT_TEMPLATE_PARAMS_DEF>::process_args(int argc, char **argv)
+template <IPT_PARAMETERS_DCL>
+int IntelPT<IPT_PARAMETERS_DEF>::process_args(int argc, char **argv)
 {
 	struct pt_sb_pevent_config pevent;
 	int idx, errcode;
@@ -2305,8 +2305,8 @@ int IntelPT<IPT_TEMPLATE_PARAMS_DEF>::process_args(int argc, char **argv)
 	return 0;
 }
 
-template <IPT_TEMPLATE_PARAMS_DCL>
-IntelPT<IPT_TEMPLATE_PARAMS_DEF>::binary_state_t::binary_state_t(const binary_t &b) {
+template <IPT_PARAMETERS_DCL>
+IntelPT<IPT_PARAMETERS_DEF>::binary_state_t::binary_state_t(const binary_t &b) {
   Bin = B::Create(b.data());
 
   if constexpr(Objdump) {
@@ -2326,8 +2326,8 @@ IntelPT<IPT_TEMPLATE_PARAMS_DEF>::binary_state_t::binary_state_t(const binary_t 
   }
 }
 
-template <IPT_TEMPLATE_PARAMS_DCL>
-IntelPT<IPT_TEMPLATE_PARAMS_DEF>::basic_block_state_t::basic_block_state_t(
+template <IPT_PARAMETERS_DCL>
+IntelPT<IPT_PARAMETERS_DEF>::basic_block_state_t::basic_block_state_t(
     const binary_t &b, basic_block_t bb) {
   if constexpr (!Caching)
     return;
@@ -2386,7 +2386,7 @@ IntelPT<IPT_TEMPLATE_PARAMS_DEF>::basic_block_state_t::basic_block_state_t(
   BOOST_PP_TUPLE_ELEM(3, 2, elem)
 
 #define IPT_ALL_OPTIONS                                                        \
-  BOOST_PP_SEQ_TRANSFORM(IPT_EXTRACT_VALUES, void, IPT_TEMPLATE_PARAMS)
+  BOOST_PP_SEQ_TRANSFORM(IPT_EXTRACT_VALUES, void, IPT_PARAMETERS)
 
 #define IPT_GENERATE_TEMPLATE_ARG(r, product, i, elem)                         \
   BOOST_PP_COMMA_IF(i) BOOST_PP_SEQ_ELEM(i, product)
@@ -2394,7 +2394,7 @@ IntelPT<IPT_TEMPLATE_PARAMS_DEF>::basic_block_state_t::basic_block_state_t(
 #define IPT_INSTANTIATE(r, product)                                            \
   template class IntelPT<                                                      \
       BOOST_PP_SEQ_FOR_EACH_I(IPT_GENERATE_TEMPLATE_ARG, product,              \
-                              IPT_TEMPLATE_PARAMS)>;
+                              IPT_PARAMETERS)>;
 
 BOOST_PP_SEQ_FOR_EACH_PRODUCT(IPT_INSTANTIATE, IPT_ALL_OPTIONS);
 

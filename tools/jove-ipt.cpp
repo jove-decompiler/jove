@@ -1016,8 +1016,8 @@ int IPTTool::UsingLibipt(void) {
 
         bool Ran = false;
 
-        auto run = [&]<IPT_TEMPLATE_PARAMS_DCL>(void) {
-          IntelPT<IPT_TEMPLATE_PARAMS_DEF> ipt(
+        auto run = [&]<IPT_PARAMETERS_DCL>(void) {
+          IntelPT<IPT_PARAMETERS_DEF> ipt(
               ptdump_argv.size() - 1, ptdump_argv.data(), jv, *E, cpu,
               AddressSpace, mmap.ptr,
               reinterpret_cast<uint8_t *>(mmap.ptr) + len,
@@ -1044,7 +1044,7 @@ int IPTTool::UsingLibipt(void) {
   BOOST_PP_TUPLE_ELEM(3, 2, elem)
 
 #define IPT_ALL_OPTIONS                                                        \
-  BOOST_PP_SEQ_TRANSFORM(IPT_EXTRACT_VALUES, _, IPT_TEMPLATE_PARAMS)
+  BOOST_PP_SEQ_TRANSFORM(IPT_EXTRACT_VALUES, _, IPT_PARAMETERS)
 
 #define IPT_GENERATE_COMPARISON(r, product, i, elem)                           \
   BOOST_PP_IF(i, &&, )                                                         \
@@ -1055,10 +1055,10 @@ int IPTTool::UsingLibipt(void) {
 
 #define GENERATE_RUN(r, product)                                               \
   if (BOOST_PP_SEQ_FOR_EACH_I(IPT_GENERATE_COMPARISON, product,                \
-                              IPT_TEMPLATE_PARAMS))                            \
+                              IPT_PARAMETERS))                            \
     run.template operator()<                                                   \
         BOOST_PP_SEQ_FOR_EACH_I(IPT_GENERATE_TEMPLATE_ARG, product,            \
-                                IPT_TEMPLATE_PARAMS)>();
+                                IPT_PARAMETERS)>();
 
 BOOST_PP_SEQ_FOR_EACH_PRODUCT(GENERATE_RUN, IPT_ALL_OPTIONS);
 

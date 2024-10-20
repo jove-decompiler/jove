@@ -30,7 +30,7 @@ namespace jove {
 
 class explorer_t;
 
-#define IPT_TEMPLATE_PARAMS \
+#define IPT_PARAMETERS \
   ((unsigned, Verbosity, (0)(1)(2))) \
   ((bool, Caching, (false)(true)))    \
   ((bool, Objdump, (false)(true)))
@@ -41,18 +41,18 @@ class explorer_t;
   /* space */                                                                  \
   BOOST_PP_TUPLE_ELEM(3, 1, elem) /* Name */
 
-#define IPT_TEMPLATE_PARAMS_DCL                                                \
-  BOOST_PP_SEQ_FOR_EACH_I(IPT_PARAM_DECL, _, IPT_TEMPLATE_PARAMS)
+#define IPT_PARAMETERS_DCL                                                \
+  BOOST_PP_SEQ_FOR_EACH_I(IPT_PARAM_DECL, _, IPT_PARAMETERS)
 
 #define IPT_PARAM_NAME(r, data, i, elem)                                       \
   BOOST_PP_COMMA_IF(i)                                                         \
   BOOST_PP_TUPLE_ELEM(3, 1, elem)
 
-#define IPT_TEMPLATE_PARAMS_DEF                                                \
-  BOOST_PP_SEQ_FOR_EACH_I(IPT_PARAM_NAME, _, IPT_TEMPLATE_PARAMS)
+#define IPT_PARAMETERS_DEF                                                \
+  BOOST_PP_SEQ_FOR_EACH_I(IPT_PARAM_NAME, _, IPT_PARAMETERS)
 
 /* reference IPT decoder */
-template <IPT_TEMPLATE_PARAMS_DCL>
+template <IPT_PARAMETERS_DCL>
 class IntelPT {
   jv_t &jv;
   explorer_t &explorer;
