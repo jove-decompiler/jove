@@ -25,6 +25,7 @@ struct pt_packet_tma;
 struct pt_last_ip;
 struct pt_time_cal;
 struct pt_time;
+struct pev_event;
 
 namespace jove {
 
@@ -158,13 +159,6 @@ class IntelPT {
       std::pair<uint32_t /* pid */, uint32_t /* nr */>, syscall_state_t>
       syscall_state_map;
 
-  struct {
-    FILE *os = NULL;
-
-    char *ptr = NULL;
-    size_t len = 0UL;
-  } sideband;
-
   static constexpr uint32_t sb_dump_flags = 1; /* compact */
 
   struct {
@@ -261,7 +255,7 @@ class IntelPT {
 
   const bool ignore_trunc_aux;
 
-  void examine_sb(void);
+  void examine_sb_event(const struct pev_event &);
 
   void ptdump_tracking_init(void);
   void ptdump_tracking_reset(void);

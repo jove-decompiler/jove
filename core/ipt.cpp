@@ -4,6 +4,7 @@
 #include "ipt.h"
 #include "explore.h"
 #include "objdump.h"
+#include "racy.h"
 
 #include "syscall_nrs.hpp"
 
@@ -19,6 +20,7 @@
 #include <type_traits>
 
 extern "C" {
+#include "pevent.h"
 #include "pt_last_ip.c"
 #include "pt_time.c"
 }
@@ -31,24 +33,18 @@ namespace jove {
 // <from linux/tools/perf/util/bpf_skel/augmented_raw_syscalls.bpf.c>
 //
 template <typename UIntType>
-struct syscall_enter_args {
+struct __attribute__((__packed__)) syscall_enter_args {
   UIntType common_tp_fields;
   std::make_signed_t<UIntType> syscall_nr;
   UIntType args[6];
 };
 
 template <typename UIntType>
-struct syscall_exit_args {
+struct __attribute__((__packed__)) syscall_exit_args {
   UIntType common_tp_fields;
   std::make_signed_t<UIntType> syscall_nr;
   std::make_signed_t<UIntType> ret;
 };
-
-// Type aliases for 64-bit and 32-bit versions
-using syscall_enter_args64 = syscall_enter_args<uint64_t>;
-using syscall_enter_args32 = syscall_enter_args<uint32_t>;
-using syscall_exit_args64 = syscall_exit_args<uint64_t>;
-using syscall_exit_args32 = syscall_exit_args<uint32_t>;
 //
 // </>
 //
@@ -144,11 +140,6 @@ IntelPT<IPT_PARAMETERS_DEF>::IntelPT(int ptdump_argc, char **ptdump_argv,
 
   decoder = pt_pkt_alloc_decoder(config.get());
 
-  sideband.os = open_memstream(&sideband.ptr, &sideband.len);
-  if (!sideband.os)
-    throw std::runtime_error(std::string("open_memstream() failed: ") +
-                             strerror(errno));
-
   for (const auto &pair : AddressSpaceInit) {
     binary_index_t BIdx = pair.second;
     if (is_binary_index_valid(BIdx))
@@ -171,9 +162,6 @@ IntelPT<IPT_PARAMETERS_DEF>::~IntelPT() {
 #endif
 
   pt_sb_free(tracking.session);
-
-  fclose(sideband.os);
-  free(sideband.ptr);
 }
 
 template <IPT_PARAMETERS_DCL>
@@ -220,85 +208,19 @@ static void hexdump(FILE *stream, const void *ptr, int buflen) {
 #endif
 
 template <IPT_PARAMETERS_DCL>
-void IntelPT<IPT_PARAMETERS_DEF>::examine_sb(void) {
-  fflush(sideband.os);
-
-  char *ptr = sideband.ptr;
-  char *const end = ptr + sideband.len;
-
-  assert(ptr);
-
-  char *eol;
-  do {
-    const unsigned left = end - ptr;
-    if (!left)
-      break;
-    assert(ptr < end);
-
-    char *const line = ptr;
-
-    {
-      eol = (char *)memchr(ptr, '\n', left);
-      assert(eol);
-      ptr = eol + 1;
-    }
-    *eol = '\0';
-
-#if 0
-    if (IsVeryVerbose())
-      fprintf(stderr, "%s\n", line);
-#endif
-
-    static const char sb_line_prefix[] = "PERF_RECORD_";
-    constexpr unsigned sb_line_prefix_len = sizeof(sb_line_prefix)-1;
-
-    if (unlikely(strncmp(line, sb_line_prefix, sb_line_prefix_len) != 0)) {
-      if (likely(strncmp(line, "UNKNOWN", sizeof("UNKNOWN")-1) == 0))
-        continue;
-
-      fprintf(stderr, "unrecognized sideband line: \"%s\"\n", line);
-      assert(false);
-    }
-
-#define MATCHES_REST(x)                                                        \
-  (strncmp(rest, x "  ", (sizeof(x) - 1) + 2) == 0 && ({                       \
-     rest += ((sizeof(x) - 1) + 2);                                            \
-     assert(rest < eol);                                                       \
-     true;                                                                     \
-   }))
-
-    char *rest = line + sb_line_prefix_len;
-
-    struct {
-      unsigned pid, tid;
-      uint64_t time;
-//    uint64_t id;
-      unsigned cpu;
-//    uint64_t stream_id;
-      uint64_t identifier;
-    } _; /* common to all records */
-
-#define sscanf_rest(fmt, ...) do {                                             \
-    int rc = sscanf(rest, fmt "  { %x/%x %" PRIx64 " cpu-%x %" PRIx64 " }",    \
-                    __VA_ARGS__ __VA_OPT__(,)                                  \
-                    &_.pid, &_.tid, &_.time, &_.cpu, &_.identifier);           \
-    assert(rc != EOF);                                                         \
-    assert(rc == BOOST_PP_VARIADIC_SIZE(__VA_ARGS__) + 5);                     \
-  } while(0)
-
-    auto do_comm_exec = [&](void) -> void {
+void IntelPT<IPT_PARAMETERS_DEF>::examine_sb_event(const struct pev_event &event) {
+    auto do_comm_exec = [&](const struct pev_record_comm &comm) -> void {
       AddressSpace.clear();
 
-      unsigned pid, tid;
-      char comm[65];
-      comm[0] = '\0';
+      std::string name(comm.comm);
 
-      sscanf_rest("%x/%x, %64s", &pid, &tid, &comm[0]);
+      const auto &pid = comm.pid;
+      const auto &tid = comm.tid;
 
-      if (boost::algorithm::ends_with(jv.Binaries.at(0).Name.c_str(), comm) ||
+      if (boost::algorithm::ends_with(jv.Binaries.at(0).Name.c_str(), name) ||
           Our.pid == pid) {
         if (IsVerbose())
-          fprintf(stderr, "comm=%s\n", comm);
+          fprintf(stderr, "comm=%s\n", comm.comm);
 
         if (IsCOFF) {
           if (Our.pid != pid)
@@ -319,133 +241,110 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb(void) {
 
 #define unexpected_rest()                                                      \
   do {                                                                         \
-    fprintf(stderr, "unexpected rest=\"%s\"\n", rest);                         \
+    fprintf(stderr, "unexpected rest (%" PRIu32 ")\n", event.type);            \
     assert(false);                                                             \
+    abort();\
   } while (0)
 
-    switch (rest[0]) {
-    case 'A':
-      if (likely(MATCHES_REST("AUX"))) {
-        ;
-      } else if (MATCHES_REST("AUX.TRUNCATED")) {
-        uint64_t aux_offset, aux_size, aux_flags;
-        sscanf_rest("%" PRIx64 ", %" PRIx64 ", %" PRIx64,
-                    &aux_offset, &aux_size, &aux_flags);
+    uint32_t pid = ~0u;
+    uint32_t tid = ~0u;
+    if (event.sample.pid)
+      pid = *event.sample.pid;
+    if (event.sample.tid)
+      tid = *event.sample.tid;
 
-        if (_.cpu == Our.cpu) {
-          if (!ignore_trunc_aux)
-            throw truncated_aux_exception();
+    unsigned cpu = ~0u;
+    if (event.sample.cpu)
+      cpu = *event.sample.cpu;
+
+    struct {
+      bool two = true;
+
+      unsigned pid, tid;
+      uint64_t addr, len, pgoff;
+      const char *filename;
+    } _mmap;
+
+    switch (event.type) {
+      case PERF_RECORD_AUX: {
+        const struct pev_record_aux *aux = event.record.aux;
+        assert(aux);
+        if (aux->flags & PERF_AUX_FLAG_TRUNCATED) {
+          if (cpu == Our.cpu) {
+            if (!ignore_trunc_aux)
+              throw truncated_aux_exception();
+          }
         }
-      } else {
-        unexpected_rest();
+        break;
       }
-      break;
 
-    case 'C':
-      if (MATCHES_REST("COMM.EXEC")) {
-        do_comm_exec();
-      } else if (MATCHES_REST("COMM")) {
-        //do_comm();
-      } else {
-        unexpected_rest();
-      }
+    case PERF_RECORD_COMM: {
+		const struct pev_record_comm *comm = event.record.comm;
+                assert(comm);
+      if (event.misc & PERF_RECORD_MISC_COMM_EXEC) {
+        do_comm_exec(*comm);
       CheckEngaged();
-      break;
-
-    case 'I':
-      if (likely(MATCHES_REST("ITRACE_START"))) {
-        ;
-      } else {
-        unexpected_rest();
       }
       break;
+    }
 
-    case 'F':
-      if (likely(MATCHES_REST("FORK"))) {
-        ;
-      } else {
-        unexpected_rest();
-      }
+    case PERF_RECORD_ITRACE_START:
+    case PERF_RECORD_FORK:
+    case PERF_RECORD_EXIT:
       break;
 
-    case 'E':
-      if (likely(MATCHES_REST("EXIT"))) {
-        ;
-      } else {
-        unexpected_rest();
-      }
-      break;
-
-    case 'S':
-      if (MATCHES_REST("SWITCH_CPU_WIDE.OUT")) {
-        unsigned next_pid, next_tid;
-        sscanf_rest("%x/%x", &next_pid, &next_tid);
-
-        if (_.cpu == Our.cpu) {
+    case PERF_RECORD_SWITCH_CPU_WIDE: {
+      const struct pev_record_switch_cpu_wide *switch_cpu_wide = event.record.switch_cpu_wide;
+      assert(switch_cpu_wide);
+      if (event.misc & PERF_RECORD_MISC_SWITCH_OUT) {
+        if (cpu == Our.cpu) {
           Curr.pid = ~0u;
           Engaged = false;
         }
-      } else if (MATCHES_REST("SWITCH.OUT")) {
-        sscanf_rest("");
+      } else {
+        if (cpu == Our.cpu) {
+          Curr.pid = pid;
+          CheckEngaged();
+        }
+      }
+      break;
+    }
 
-        if (_.cpu == Our.cpu) {
+    case PERF_RECORD_SWITCH: {
+      if (event.misc & PERF_RECORD_MISC_SWITCH_OUT) {
+        if (cpu == Our.cpu) {
           Curr.pid = ~0u;
           Engaged = false;
         }
-      } else if (MATCHES_REST("SWITCH_CPU_WIDE.IN")) {
-        unsigned prev_pid, prev_tid;
-        sscanf_rest("%x/%x", &prev_pid, &prev_tid);
-
-        if (_.cpu == Our.cpu)
-          Curr.pid = _.pid;
-
-        CheckEngaged();
-      } else if (MATCHES_REST("SWITCH.IN")) {
-        sscanf_rest("");
-
-        if (_.cpu == Our.cpu)
-          Curr.pid = _.pid;
-
-        CheckEngaged();
-      } else if (MATCHES_REST("SAMPLE.RAW")) {
-        std::string &hexbytes = this->__buff.s2;
-        hexbytes.resize(4097);
-        hexbytes[0] = '\0';
-
-        char name[33];
-        name[0] = '\0';
-
-        uint64_t ip;
-
-        sscanf_rest("%32[^,], %" PRIx64 ", %4096[0-9a-f]", &name[0], &ip, &hexbytes[0]);
-
-        if (!IsRightProcess(_.pid))
-          continue;
-
-        {
-          unsigned hexbytes_len = strlen(hexbytes.c_str());
-          assert(hexbytes_len > 0);
-          hexbytes.resize(hexbytes_len);
+      } else {
+        if (cpu == Our.cpu) {
+          Curr.pid = pid;
+          CheckEngaged();
         }
+      }
+      break;
+    }
 
-        std::vector<uint8_t> &bytes = this->__buff.u8v;
-        bytes.resize(hexbytes.size() / 2);
-        for (unsigned i = 0; i < bytes.size(); ++i) {
-          char hexbyte[3];
-          hexbyte[0] = hexbytes[2*i];
-          hexbyte[1] = hexbytes[2*i+1];
-          hexbyte[2] = '\0';
+    case PERF_RECORD_SAMPLE: {
+      assert(event.name);
+      assert(event.record.raw);
+      assert(event.sample.ip);
+        const char *const name = event.name;
+        const uint64_t ip = *event.sample.ip;
 
-          bytes[i] = strtol(hexbyte, nullptr, 16);
-        }
+        if (!IsRightProcess(pid))
+          break;
+
+        unsigned bytes_size = event.record.raw->size;
+        const void *const bytes = event.record.raw->data;
 
         if (strcmp(name, "raw_syscalls:sys_exit") == 0) {
           long nr;
           taddr_t ret;
 
           auto syscall_exit_extract = [&]<typename UIntType>(void) -> bool {
-            if (bytes.size() >= sizeof(syscall_exit_args<UIntType>)) {
-              auto *p = (const syscall_exit_args<UIntType> *)bytes.data();
+            if (bytes_size >= sizeof(syscall_exit_args<UIntType>)) {
+              auto *p = (const syscall_exit_args<UIntType> *)bytes;
               nr = p->syscall_nr;
               ret = p->ret;
               return true;
@@ -459,7 +358,7 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb(void) {
             unexpected_rest();
 
           assert(nr >= 0);
-          auto &state = syscall_state_map[std::make_pair(_.tid, static_cast<uint32_t>(nr))];
+          auto &state = syscall_state_map[std::make_pair(tid, static_cast<uint32_t>(nr))];
 
           if (unlikely(state.dir != SYSCALL_DIRECTION::ENTER)) {
             fprintf(stderr, "syscall exit (%ld) after a %s\n", nr,
@@ -473,7 +372,7 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb(void) {
           /* on syscall return */
           if (nr == syscalls::NR::munmap) {
             if (ret != 0)
-              continue; /* failed */
+              break; /* failed */
 
             taddr_t addr = state.args[0];
             taddr_t len = state.args[1];
@@ -489,7 +388,7 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb(void) {
             intvl_map_clear(AddressSpace, intvl);
           } else if (nr == syscalls::NR::mmap) {
             if (ret >= (taddr_t)-4095)
-              continue; /* failed */
+              break; /* failed */
 
             taddr_t addr = state.args[0];
             taddr_t len = state.args[1];
@@ -499,7 +398,7 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb(void) {
             taddr_t off = state.args[5];
 
             if (prot & PROT_EXEC)
-              continue; /* we will see PERF_RECORD_MMAP2 */
+              break; /* we will see PERF_RECORD_MMAP2 */
 
             const bool anon = fd < 0;
 
@@ -528,13 +427,13 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb(void) {
 
           syscall_state_t *statep = nullptr;
           auto syscall_enter_extract = [&]<typename UIntType>(void) -> bool {
-            if (bytes.size() >= sizeof(syscall_enter_args<UIntType>)) {
-              auto *p = (const syscall_enter_args<UIntType> *)bytes.data();
+            if (bytes_size >= sizeof(syscall_enter_args<UIntType>)) {
+              auto *p = (const syscall_enter_args<UIntType> *)bytes;
 
               nr = p->syscall_nr;
               assert(nr >= 0);
 
-              auto &state = syscall_state_map[std::make_pair(_.tid, static_cast<uint32_t>(nr))];
+              auto &state = syscall_state_map[std::make_pair(tid, static_cast<uint32_t>(nr))];
               for (unsigned i = 0; i < state.args.size(); ++i)
                 state.args[i] = p->args[i];
 
@@ -558,70 +457,57 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb(void) {
         } else {
           unexpected_rest();
         }
-      } else {
-        unexpected_rest();
-      }
-      break;
-
-    case 'M': {
-      unsigned pid, tid;
-      uint64_t addr, len, pgoff;
-
-      std::string &hexname = this->__buff.s1;
-
-      hexname.resize(8193);
-      hexname[0] = '\0';
-
-      bool two;
-      if (likely(two = MATCHES_REST("MMAP2"))) {
-        unsigned maj, min;
-        uint64_t ino, ino_generation;
-        unsigned prot, flags;
-
-        sscanf_rest("%x/%x, %" PRIx64
-                    ", %" PRIx64 ", %" PRIx64 ", %x, %x, %" PRIx64
-                    ", %" PRIx64 ", %x, %x, %8192[0-9a-f]",
-                    &pid, &tid, &addr,
-                    &len, &pgoff, &maj, &min, &ino,
-                    &ino_generation, &prot, &flags, &hexname[0]);
-
-        assert(prot & PROT_EXEC);
-      } else if (likely(MATCHES_REST("MMAP"))) {
-        sscanf_rest("%x/%x, %" PRIx64 ", %" PRIx64 ", %" PRIx64
-                    ", %8192[0-9a-f]",
-                    &pid, &tid, &addr, &len, &pgoff, &hexname[0]);
-      } else {
-        unexpected_rest();
+        break;
       }
 
-      assert(pid == _.pid);
+    case PERF_RECORD_MMAP: {
+      if ((event.misc & PERF_RECORD_MISC_CPUMODE_MASK) == PERF_RECORD_MISC_KERNEL)
+        break;
+
+      const struct pev_record_mmap *mmap = event.record.mmap;
+      assert(mmap);
+
+      _mmap.two = false;
+
+      _mmap.pid = mmap->pid;
+      _mmap.tid = mmap->tid;
+      _mmap.addr = mmap->addr;
+      _mmap.len = mmap->len;
+      _mmap.pgoff = mmap->pgoff;
+      _mmap.filename = mmap->filename;
+    } /* fallthrough */
+    case PERF_RECORD_MMAP2: {
+      if ((event.misc & PERF_RECORD_MISC_CPUMODE_MASK) == PERF_RECORD_MISC_KERNEL)
+        break;
+
+      if (_mmap.two) {
+        const struct pev_record_mmap2 *mmap2= event.record.mmap2;
+        assert(mmap2);
+
+        assert(mmap2->prot & PROT_EXEC);
+
+      _mmap.pid = mmap2->pid;
+      _mmap.tid = mmap2->tid;
+      _mmap.addr = mmap2->addr;
+      _mmap.len = mmap2->len;
+      _mmap.pgoff = mmap2->pgoff;
+      _mmap.filename = mmap2->filename;
+
+      }
+
+      assert(_mmap.pid == pid);
 
       if (!IsRightProcess(pid))
-        continue;
+        break;
 
-      {
-        unsigned hexname_len = strlen(hexname.c_str());
-        assert(hexname_len > 0);
-        hexname.resize(hexname_len);
-      }
+      std::string name(_mmap.filename);
 
-      std::string &name = this->__buff.s2;
-      name.resize(hexname.size() / 2);
-      for (unsigned i = 0; i < name.size(); ++i) {
-        char hexchar[3];
-        hexchar[0] = hexname[2*i];
-        hexchar[1] = hexname[2*i+1];
-        hexchar[2] = '\0';
-
-        name[i] = strtol(hexchar, nullptr, 16);
-      }
-
-      const addr_intvl intvl(addr, len);
+      const addr_intvl intvl(_mmap.addr, _mmap.len);
 
       if constexpr (IsVeryVerbose()) {
         std::string as(addr_intvl2str(intvl));
 
-        fprintf(stderr, "[MMAP%s  @ %s in \"%s\"\n", two ? "2]" : "] ",
+        fprintf(stderr, "[MMAP%s  @ %s in \"%s\"\n", _mmap.two ? "2]" : "] ",
                 as.c_str(), name.c_str());
       }
 
@@ -634,7 +520,7 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb(void) {
           if (it != AddressSpaceInit.end())
             intvl_map_add(AddressSpace, intvl, std::make_pair((*it).second, ~0UL));
         }
-        continue;
+        break;
       }
 
       binary_index_t BIdx;
@@ -642,20 +528,20 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb(void) {
       if (name[0] == '/') {
         if (!fs::exists(name)) {
           if constexpr (IsVeryVerbose())
-            fprintf(stderr, "\"%s\" does not exist(%s)\n", name.c_str(), rest);
-          continue;
+            fprintf(stderr, "\"%s\" does not exist\n", name.c_str());
+          break;
         }
 
         std::tie(BIdx, IsNew) = jv.AddFromPath(explorer, name.c_str());
         if (!is_binary_index_valid(BIdx))
-          continue;
+          break;
       } else {
         auto MaybeBIdxSet = jv.Lookup(name.c_str());
         if (!MaybeBIdxSet)
-          continue;
+          break;
         const ip_binary_index_set &BIdxSet = *MaybeBIdxSet;
         if (BIdxSet.empty())
-          continue;
+          break;
 
         BIdx = *(BIdxSet).rbegin(); /* most recent (XXX?) */
         IsNew = false;
@@ -664,18 +550,15 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb(void) {
       binary_t &b = jv.Binaries.at(BIdx);
       binary_state_t &x = state.for_binary(b);
 
-      intvl_map_add(AddressSpace, intvl, std::make_pair(BIdx, pgoff));
+      intvl_map_add(AddressSpace, intvl, std::make_pair(BIdx, _mmap.pgoff));
       break;
     }
 
     default:
-      fprintf(stderr, "examine_sb: \"%s\" (TODO)\n", line);
       break;
     }
-
 #undef unexpected_rest
-#undef sscanf_rest
-  } while (likely(ptr != end));
+
 }
 
 template <IPT_PARAMETERS_DCL>
@@ -916,24 +799,19 @@ int IntelPT<IPT_PARAMETERS_DEF>::process_packet(uint64_t offset,
   }
 
   case ppt_tsc:
-    track_tsc(offset, &packet->payload.tsc);
-    return 1;
+    return track_tsc(offset, &packet->payload.tsc);
 
   case ppt_cbr:
-    track_cbr(offset, &packet->payload.cbr);
-    return 1;
+    return track_cbr(offset, &packet->payload.cbr);;
 
   case ppt_tma:
-    track_tma(offset, &packet->payload.tma);
-    return 1;
+    return track_tma(offset, &packet->payload.tma);;
 
   case ppt_mtc:
-    track_mtc(offset, &packet->payload.mtc);
-    return 1;
+    return track_mtc(offset, &packet->payload.mtc);;
 
   case ppt_cyc:
-    track_cyc(offset, &packet->payload.cyc);
-    return 1;
+    return track_cyc(offset, &packet->payload.cyc);;
 
   case ppt_mnt:
   case ppt_exstop:
@@ -1167,9 +1045,7 @@ int IntelPT<IPT_PARAMETERS_DEF>::on_ip(const taddr_t IP, const uint64_t offset) 
       const auto &bbprop =
           b.Analysis.ICFG[basic_block_of_index(BBIdx, b.Analysis.ICFG)];
 
-      if (unlikely(!bbprop.pub.is.load(std::memory_order_acquire)))
-        ip_sharable_lock<ip_sharable_mutex>(bbprop.mtx);
-
+      ip_sharable_lock<ip_sharable_mutex> s_lck(bbprop.mtx);
       CurrPoint.SetTermAddr(bbprop.Term.Addr);
     };
 
@@ -1284,7 +1160,7 @@ void IntelPT<IPT_PARAMETERS_DEF>::block_transfer(binary_t &fr_b,
     {
       ip_sharable_lock<ip_sharable_mutex> fr_s_lck_bbmap(fr_b.bbmap_mtx);
 
-      fr_ICFG[basic_block_at_address(FrTermAddr, fr_b)].Term._return.Returns = true;
+      racy::set(fr_ICFG[basic_block_at_address(FrTermAddr, fr_b)].Term._return.Returns);
     }
 
     //
@@ -1308,7 +1184,7 @@ void IntelPT<IPT_PARAMETERS_DEF>::block_transfer(binary_t &fr_b,
 
       if (isCall) {
         if (likely(is_function_index_valid(before_Term._call.Target)))
-          to_b.Analysis.Functions.at(before_Term._call.Target).Returns = true;
+          racy::set(to_b.Analysis.Functions.at(before_Term._call.Target).Returns);
       }
 
       to_ICFG.add_edge(before_bb, to_bb); /* connect */
@@ -1338,8 +1214,8 @@ StraightLineGo(const binary_t &b,
        (void)({
          const basic_block_properties_t &bbprop = the_bbprop.get();
 
-         //if (unlikely(bbprop.pub.is.load(std::memory_order_acquire) != 2))
-         ip_sharable_lock<ip_sharable_mutex>(bbprop.pub.mtx);
+         if (!bbprop.pub.is.load(std::memory_order_acquire))
+           ip_sharable_lock<ip_sharable_mutex>(bbprop.pub.mtx);
          bbprop.mtx.lock_sharable(); /* don't change on us */
 
          on_block(Res);
@@ -1371,8 +1247,8 @@ StraightLineGo(const binary_t &b,
          const basic_block_properties_t &new_bbprop = ICFG[newbb];
          the_bbprop = new_bbprop;
 
-         //if (unlikely(new_bbprop.pub.is.load(std::memory_order_acquire) != 2))
-         ip_sharable_lock<ip_sharable_mutex>(new_bbprop.pub.mtx);
+         if (!new_bbprop.pub.is.load(std::memory_order_acquire))
+           ip_sharable_lock<ip_sharable_mutex>(new_bbprop.pub.mtx);
          new_bbprop.mtx.lock_sharable(); /* don't change on us */
 
          on_block(Res);
@@ -1650,16 +1526,10 @@ int IntelPT<IPT_PARAMETERS_DEF>::sb_track_time(uint64_t offset)
 		return errcode;
 	}
 
-        rewind(sideband.os);
-        errcode = pt_sb_dump(tracking.session, sideband.os, sb_dump_flags, tsc);
-	if (unlikely(errcode < 0)) {
-		if constexpr (IsVerbose())
-			fprintf(stderr, "%s: sideband dump error\n", __PRETTY_FUNCTION__);
-		return errcode;
-	}
+        while (struct pev_event *event = pt_sb_pop(tracking.session, tsc))
+                examine_sb_event(*event);
 
-        examine_sb();
-        return 0;
+        return 1;
 }
 
 template <IPT_PARAMETERS_DCL>
@@ -2369,13 +2239,13 @@ IntelPT<IPT_PARAMETERS_DEF>::basic_block_state_t::SL(const binary_t &b,
 
 template <IPT_PARAMETERS_DCL>
 IntelPT<IPT_PARAMETERS_DEF>::basic_block_state_t::basic_block_state_t(
-    const binary_t &b, basic_block_t bb) {
+    const binary_t &b, basic_block_t the_bb) {
   if constexpr (!Caching)
     return;
 
   auto &ICFG = b.Analysis.ICFG;
 
-  const basic_block_index_t Idx = index_of_basic_block(b, bb);
+  const basic_block_index_t Idx = index_of_basic_block(b, the_bb);
   assert(is_basic_block_index_valid(Idx));
 
   auto &SL = this->SL;
@@ -2383,6 +2253,7 @@ IntelPT<IPT_PARAMETERS_DEF>::basic_block_state_t::basic_block_state_t(
   SL.BBIdx = StraightLineGo<false, true, Verbosity>(
       b, Idx, 0 /* unused */,
       [&](basic_block_index_t BBIdx) -> void {
+        basic_block_t bb = basic_block_of_index(BBIdx, b);
         const auto &bbprop = ICFG[bb];
 
         const addr_intvl intvl(bbprop.Addr, bbprop.Size);
