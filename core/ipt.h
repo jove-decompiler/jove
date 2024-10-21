@@ -281,17 +281,25 @@ class IntelPT {
   StraightLineUntilSlow(const binary_t &,
                         basic_block_index_t,
                         taddr_t GoNoFurther,
-                        std::function<basic_block_index_t(basic_block_index_t)> on_final_block = [](basic_block_index_t Res) -> basic_block_index_t { return Res; });
+                        std::function<basic_block_index_t(const basic_block_properties_t &, basic_block_index_t)> on_final_block = [](const basic_block_properties_t &, basic_block_index_t Res) -> basic_block_index_t { return Res; });
 
   template <bool InfiniteLoopThrow = false>
   basic_block_index_t
   StraightLineSlow(const binary_t &,
                    basic_block_index_t,
-                   std::function<basic_block_index_t(basic_block_index_t)> on_final_block = [](basic_block_index_t Res) -> basic_block_index_t { return Res; });
+                   std::function<basic_block_index_t(const basic_block_properties_t &, basic_block_index_t)> on_final_block = [](const basic_block_properties_t &, basic_block_index_t Res) -> basic_block_index_t { return Res; });
 
   void TNTAdvance(uint64_t tnt, uint8_t n);
 
-  void on_block(const binary_t &, basic_block_index_t);
+  struct {
+    struct {
+      binary_index_t BIdx = invalid_binary_index;
+      basic_block_index_t BBIdx = invalid_basic_block_index;
+    } Last;
+  } OnBlock;
+
+  void on_block(const binary_t &, const basic_block_properties_t &,
+                basic_block_index_t);
   void block_transfer(binary_t &from, taddr_t FromAddr,
                       binary_t &to, taddr_t ToAddr);
 
