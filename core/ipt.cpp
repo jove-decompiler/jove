@@ -1407,10 +1407,11 @@ void IntelPT<IPT_PARAMETERS_DEF>::on_block(const binary_t &b,
 
 template <IPT_PARAMETERS_DCL>
 void IntelPT<IPT_PARAMETERS_DEF>::TNTAdvance(uint64_t tnt, uint8_t n) {
-  assert(n > 0);
-
   if constexpr (IsVeryVerbose())
     fprintf(stderr, "<TNT>\n");
+
+  assert(n > 0);
+  assert(CurrPoint.Valid());
 
   binary_t &b = CurrPoint.Binary();
   basic_block_index_t Res = CurrPoint.BlockIndex();
