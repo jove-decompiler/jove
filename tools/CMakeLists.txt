@@ -36,6 +36,8 @@ set(JOVE_ALL_TARGETS
   mips64el
 )
 
+option(JOVE_SANITIZE_THREAD "Building with -fsanitize=thread" OFF)
+
 set(JOVE_TARGETS_TO_BUILD "all"
     CACHE STRING "Semicolon-separated list of targets to build, or \"all\".")
 
@@ -174,6 +176,11 @@ function(tool_for_arch arch arch_extra_cflags qemu_objs)
     target_include_directories(jove-${arch} PRIVATE ${JOVE_SRC_DIR}/libipt/libipt/internal/include)
     target_include_directories(jove-${arch} PRIVATE ${CMAKE_BINARY_DIR}/projects/jove/libipt/libipt/include)
     target_include_directories(jove-${arch} PRIVATE ${CMAKE_BINARY_DIR}/projects/jove/libipt/sideband/include)
+    target_include_directories(jove-${arch} PRIVATE ${JOVE_SRC_DIR}/libipt/pevent/include)
+  endif()
+
+  if(JOVE_SANITIZE_THREAD)
+    add_definitions(-DJOVE_TSAN)
   endif()
 
   target_include_directories(jove-${arch} PRIVATE

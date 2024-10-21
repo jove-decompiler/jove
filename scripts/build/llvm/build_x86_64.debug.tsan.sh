@@ -37,6 +37,7 @@ cmake -G Ninja \
       -D LLVM_ENABLE_ASSERTIONS=OFF \
       -D JOVE_USE_SYSTEM_TBB=OFF \
       -D TBB_SANITIZE=thread \
+      -D JOVE_SANITIZE_THREAD=ON \
       -D LLVM_ENABLE_EH=ON \
       -D LLVM_BUILD_DOCS=OFF \
       -D LLVM_BINUTILS_INCDIR=/usr/include \
