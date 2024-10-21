@@ -948,6 +948,64 @@ index ed5a1d48..ca6f281c 100644
              adj_list_impl< Graph, config, DirectedHelper > >::type type;
      };
  
+diff --git a/include/boost/graph/detail/set_adaptor.hpp b/include/boost/graph/detail/set_adaptor.hpp
+index 487d3be2..3156db80 100644
+--- a/include/boost/graph/detail/set_adaptor.hpp
++++ b/include/boost/graph/detail/set_adaptor.hpp
+@@ -1,46 +1,53 @@
+ // (C) Copyright Jeremy Siek 2001.
+ // Distributed under the Boost Software License, Version 1.0. (See
+ // accompanying file LICENSE_1_0.txt or copy at
+ // http://www.boost.org/LICENSE_1_0.txt)
+ 
+ #ifndef BOOST_SET_ADAPTOR_HPP
+ #define BOOST_SET_ADAPTOR_HPP
+ 
+ #include <set>
+ #include <boost/unordered_set.hpp>
++#include <boost/unordered/unordered_flat_set.hpp>
+ 
+ namespace boost
+ {
+ 
+ template < class K, class C, class A, class T >
+ bool set_contains(const std::set< K, C, A >& s, const T& x)
+ {
+     return s.find(x) != s.end();
+ }
+ 
+ template < class K, class H, class C, class A, class T >
+ bool set_contains(const boost::unordered_set< K, H, C, A >& s, const T& x)
+ {
+     return s.find(x) != s.end();
+ }
+ 
++template < class K, class H, class C, class A, class T >
++bool set_contains(const boost::unordered::unordered_flat_set< K, H, C, A >& s, const T& x)
++{
++    return s.find(x) != s.end();
++}
++
+ template < class K, class C, class A >
+ bool set_equal(const std::set< K, C, A >& x, const std::set< K, C, A >& y)
+ {
+     return x == y;
+ }
+ 
+ // Not the same as lexicographical_compare_3way applied to std::set.
+ // this is equivalent semantically to bitset::operator<()
+ template < class K, class C, class A >
+ int set_lex_order(const std::set< K, C, A >& x, const std::set< K, C, A >& y)
+ {
+     typename std::set< K, C, A >::iterator xi = x.begin(), yi = y.begin(),
+                                            xend = x.end(), yend = y.end();
+     for (; xi != xend && yi != yend; ++xi, ++yi)
+     {
+         if (*xi < *yi)
+             return 1;
+         else if (*yi < *xi)
+             return -1;
+     }
 diff --git a/include/boost/pending/container_traits.hpp b/include/boost/pending/container_traits.hpp
 index 8bf113a3..0f1361d5 100644
 --- a/include/boost/pending/container_traits.hpp
