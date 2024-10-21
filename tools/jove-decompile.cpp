@@ -127,6 +127,9 @@ class DecompileTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, 
               cl::cat(JoveCategory), cl::init(0)) {}
   } opts;
 
+  template <typename Key, typename Value>
+  using unordered_map = boost::unordered::unordered_flat_map<Key, Value>;
+
   template <typename T>
   using unordered_set = boost::unordered::unordered_flat_set<T>;
 
@@ -174,7 +177,7 @@ void DecompileTool::queue_binaries(void) {
 int DecompileTool::Run(void) {
   IsCOFF = B::is_coff(*state.for_binary(jv.Binaries.at(0)).Bin);
 
-  boost::unordered::unordered_flat_map<std::string, binary_index_t> soname_map;
+  unordered_map<std::string, binary_index_t> soname_map;
 
   for_each_binary(jv, [&](binary_t &binary) {
     binary_index_t BIdx = index_of_binary(binary, jv);

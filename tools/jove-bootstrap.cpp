@@ -316,6 +316,9 @@ struct BootstrapTool : public StatefulJVTool<ToolKind::Standard, binary_state_t,
                  cl::cat(JoveCategory)) {}
   } opts;
 
+  template <typename Key, typename Value>
+  using unordered_map = boost::unordered::unordered_flat_map<Key, Value>;
+
   std::unique_ptr<tiny_code_generator_t> tcg;
   std::unique_ptr<disas_t> disas;
   std::unique_ptr<symbolizer_t> symbolizer;
@@ -336,9 +339,9 @@ struct BootstrapTool : public StatefulJVTool<ToolKind::Standard, binary_state_t,
 
   pid_t _child = 0; /* XXX */
 
-  boost::unordered::unordered_flat_map<uintptr_t, indirect_branch_t> IndBrMap;
-  boost::unordered::unordered_flat_map<uintptr_t, return_t> RetMap;
-  boost::unordered::unordered_flat_map<uintptr_t, breakpoint_t> BrkMap;
+  unordered_map<uintptr_t, indirect_branch_t> IndBrMap;
+  unordered_map<uintptr_t, return_t> RetMap;
+  unordered_map<uintptr_t, breakpoint_t> BrkMap;
 
   struct {
     bool Found = false;
@@ -347,8 +350,7 @@ struct BootstrapTool : public StatefulJVTool<ToolKind::Standard, binary_state_t,
     uintptr_t r_brk = 0;
   } _r_debug;
 
-  boost::unordered::unordered_flat_map<pid_t, child_syscall_state_t>
-      children_syscall_state;
+  unordered_map<pid_t, child_syscall_state_t> children_syscall_state;
 
   bool invalidateAnalyses = false;
 

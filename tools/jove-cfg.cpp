@@ -3,6 +3,8 @@
 #include "B.h"
 #include "disas.h"
 
+#include <boost/unordered/unordered_flat_set.hpp>
+
 #include <llvm/MC/MCDisassembler/MCDisassembler.h>
 #include <llvm/MC/MCInstPrinter.h>
 #include <llvm/MC/MCInstrInfo.h>
@@ -23,9 +25,9 @@
 #include <boost/graph/graphviz.hpp>
 #include <boost/icl/split_interval_map.hpp>
 #include <boost/range/adaptor/reversed.hpp>
-#include <boost/unordered_set.hpp>
 
 #include <memory>
+#include <map>
 
 #include "jove_macros.h"
 
@@ -104,6 +106,9 @@ class CFGTool : public StatefulJVTool<ToolKind::CopyOnWrite, binary_state_t, voi
                          cl::aliasopt(Highlight), cl::cat(JoveCategory)) {}
   } opts;
 
+  template <typename T>
+  using unordered_set = boost::unordered::unordered_flat_set<T>;
+
   binary_index_t BinaryIndex = invalid_binary_index;
 
   disas_t disas;
@@ -126,9 +131,10 @@ JOVE_REGISTER_TOOL("cfg", CFGTool);
 typedef boost::format fmt;
 
 struct reached_visitor : public boost::default_bfs_visitor {
-  boost::unordered_set<basic_block_t> &out;
+  boost::unordered::unordered_flat_set<basic_block_t> &out;
 
-  reached_visitor(boost::unordered_set<basic_block_t> &out) : out(out) {}
+  reached_visitor(boost::unordered::unordered_flat_set<basic_block_t> &out)
+      : out(out) {}
 
   void discover_vertex(basic_block_t bb,
                        const interprocedural_control_flow_graph_t &) const {
@@ -322,7 +328,7 @@ struct graphviz_prop_writer {
 typedef boost::filtered_graph<
     interprocedural_control_flow_graph_t,
     boost::keep_all,
-    boost::is_in_subset<boost::unordered_set<basic_block_t>>>
+    boost::is_in_subset<boost::unordered::unordered_flat_set<basic_block_t>>>
     control_flow_graph_t;
 
 typedef control_flow_graph_t cfg_t;
@@ -422,13 +428,13 @@ int CFGTool::Run(void) {
             std::map<cfg_t::vertex_descriptor, int>>(idx_map));
   };
 
-  boost::unordered_set<basic_block_t> blocks;
+  unordered_set<basic_block_t> blocks;
 
   reached_visitor vis(blocks);
   ICFG.breadth_first_search(basic_block_of_index(source, b), vis);
 
   boost::keep_all e_filter;
-  boost::is_in_subset<boost::unordered_set<basic_block_t>> v_filter(blocks);
+  boost::is_in_subset<unordered_set<basic_block_t>> v_filter(blocks);
 
   cfg_t cfg(ICFG._adjacency_list, e_filter, v_filter);
 
@@ -437,7 +443,7 @@ int CFGTool::Run(void) {
   } else {
     uint64_t indjmp_addr =
         strtoull(opts.LocalGotoAddress.c_str(), nullptr, 0x10);
-    boost::unordered_set<basic_block_t> indjmp_blocks;
+    unordered_set<basic_block_t> indjmp_blocks;
 
     cfg_t::vertex_iterator vi, vi_end;
     for (std::tie(vi, vi_end) = boost::vertices(cfg); vi != vi_end; ++vi) {
@@ -461,7 +467,7 @@ int CFGTool::Run(void) {
     }
 
     boost::keep_all e_filter;
-    boost::is_in_subset<boost::unordered_set<basic_block_t>> v_filter(indjmp_blocks);
+    boost::is_in_subset<unordered_set<basic_block_t>> v_filter(indjmp_blocks);
 
     cfg_t _cfg(ICFG._adjacency_list, e_filter, v_filter);
 
