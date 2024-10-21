@@ -481,7 +481,7 @@ index e5050b5b..a37142aa 100644
      }
  
 diff --git a/include/boost/graph/detail/adjacency_list.hpp b/include/boost/graph/detail/adjacency_list.hpp
-index ed5a1d48..ca6f281c 100644
+index ed5a1d48..94f3ec07 100644
 --- a/include/boost/graph/detail/adjacency_list.hpp
 +++ b/include/boost/graph/detail/adjacency_list.hpp
 @@ -323,40 +323,60 @@ namespace detail
@@ -687,7 +687,7 @@ index ed5a1d48..ca6f281c 100644
      template < class EdgeIterator >
      inline vec_adj_list_impl(
          vertices_size_type num_vertices, EdgeIterator first, EdgeIterator last)
-@@ -2167,119 +2192,123 @@ public:
+@@ -2167,119 +2192,121 @@ public:
      //    protected:
      inline boost::integer_range< vertex_descriptor > vertex_set() const
      {
@@ -789,11 +789,10 @@ index ed5a1d48..ca6f281c 100644
      BOOST_USING_STD_MAX();
      typename Config::vertex_descriptor x
          = max BOOST_PREVENT_MACRO_SUBSTITUTION(u, v);
-     if (x >= num_vertices(g_))
+-    if (x >= num_vertices(g_))
 +#if 0
++    if (x >= num_vertices(g_)) /* causes race */
          g_.m_vertices.resize(x + 1);
-+#else
-+        std::abort();
 +#endif
      adj_list_helper< Config, Base >& g = g_;
      return add_edge(u, v, p, g);
@@ -815,7 +814,7 @@ index ed5a1d48..ca6f281c 100644
      typedef typename Config::directed_category Cat;
      Graph& g = static_cast< Graph& >(g_);
      g.removing_vertex(
-@@ -2348,42 +2377,47 @@ namespace detail
+@@ -2348,42 +2375,47 @@ namespace detail
              typedef typename VertexList::iterator vertex_iterator;
  
              // EdgeContainer and StoredEdge
@@ -864,7 +863,7 @@ index ed5a1d48..ca6f281c 100644
              typedef typename OutEdgeIterTraits::difference_type OutEdgeIterDiff;
  
              typedef out_edge_iter< OutEdgeIter, vertex_descriptor,
-@@ -2419,75 +2453,79 @@ namespace detail
+@@ -2419,75 +2451,79 @@ namespace detail
              typedef adj_list_edge_iterator< vertex_iterator, out_edge_iterator,
                  graph_type >
                  DirectedEdgeIter;
