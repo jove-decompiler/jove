@@ -2,6 +2,7 @@
 #define JOVE_MACROS_H
 #include "jove.barrier.h"
 
+#include <boost/preprocessor/cat.hpp>
 #include <boost/preprocessor/stringize.hpp>
 
 #include <stdbool.h>
@@ -23,7 +24,7 @@
 #define _JTHREAD
 #endif
 
-#define UNIQUE_VAR_NAME(base) base##__COUNTER__
+#define UNIQUE_VAR_NAME(base) BOOST_PP_CAT(base,__COUNTER__)
 
 #define _CLEANUP(x) __attribute__((cleanup(x)))
 

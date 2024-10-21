@@ -1,4 +1,5 @@
 #pragma once
+#include <boost/preprocessor/cat.hpp>
 
 #ifndef likely
 #define likely(x) __builtin_expect(!!(x), 1)
@@ -36,3 +37,5 @@
 
 extern void __compiletime_error("unreachable")
 __compiletime_unreachable(void);
+
+#define UNIQUE_VAR_NAME(base) BOOST_PP_CAT(base,__COUNTER__)
