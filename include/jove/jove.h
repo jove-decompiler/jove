@@ -26,8 +26,8 @@
 #include <boost/graph/adjacency_list.hpp>
 #include <boost/graph/breadth_first_search.hpp>
 #include <boost/graph/depth_first_search.hpp>
-#include <boost/unordered/unordered_map.hpp>
 #include <boost/unordered/unordered_node_set.hpp>
+#include <boost/unordered/unordered_flat_map.hpp>
 #include <boost/unordered/unordered_flat_set.hpp>
 #include <boost/unordered/concurrent_flat_map.hpp>
 #include <boost/unordered/concurrent_flat_set.hpp>
@@ -1121,19 +1121,19 @@ struct cached_hash_t {
   } mtime;
 };
 
-typedef boost::unordered_map<
+typedef boost::unordered_flat_map<
     ip_string, cached_hash_t, boost::hash<ip_string>, std::equal_to<ip_string>,
     boost::interprocess::allocator<std::pair<const ip_string, cached_hash_t>,
                                    segment_manager_t>>
     ip_cached_hashes_type;
 
-typedef boost::unordered_map<
+typedef boost::unordered_flat_map<
     hash_t, binary_index_t, boost::hash<hash_t>, std::equal_to<hash_t>,
     boost::interprocess::allocator<std::pair<const hash_t, binary_index_t>,
                                    segment_manager_t>>
     ip_hash_to_binary_map_type;
 
-typedef boost::unordered_map<
+typedef boost::unordered_flat_map<
     ip_string, ip_binary_index_set, boost::hash<ip_string>,
     std::equal_to<ip_string>,
     boost::interprocess::allocator<
