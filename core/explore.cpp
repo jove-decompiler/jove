@@ -3,7 +3,7 @@
 #include "tcg.h"
 
 #include <boost/format.hpp>
-#include <boost/scope/scope_exit.hpp>
+#include <boost/scope/defer.hpp>
 
 #include <llvm/MC/MCDisassembler/MCDisassembler.h>
 #include <llvm/MC/MCInst.h>
@@ -321,16 +321,16 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
     bool inserted = b.bbbmap.try_emplace_or_cvisit(
         Addr, std::ref(b), std::ref(Idx), static_cast<taddr_t>(Addr),
         [&](const typename bbbmap_t::value_type &x) {
-          const basic_block_index_t TheIdx = x.second;
-          if constexpr (WithOnBlockProc)
-            obp_u(TheIdx);
-          Idx = TheIdx;
+          Idx = x.second;
         });
 
     assert(is_basic_block_index_valid(Idx));
 
-    if (likely(!inserted))
+    if (likely(!inserted)) {
+      if constexpr (WithOnBlockProc)
+        obp_u(Idx);
       return Idx;
+    }
   }
 
   auto &bbprop = ICFG[basic_block_of_index(Idx, ICFG)];
@@ -339,9 +339,9 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
   ip_scoped_lock<ip_sharable_mutex> e_lck_bb(
       bbprop.mtx, boost::interprocess::accept_ownership);
 
-  boost::scope::scope_exit pub([&](void) -> void {
+  BOOST_SCOPE_DEFER [&bbprop] {
     bbprop.pub.is.store(true, std::memory_order_release);
-  });
+  };
 
   ip_scoped_lock<ip_sharable_mutex> e_lck_bbmap(
       b.bbmap_mtx, boost::interprocess::defer_lock);
@@ -511,8 +511,6 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
     bbprop.Sj = false;
     bbprop.Term._return.Returns = false;
     bbprop.InvalidateAnalysis();
-
-    { boost::scope::scope_exit now(boost::move(pub)); }
 
     addr_intvl intervl(bbprop.Addr, bbprop.Size);
     if (likely(!Speculative)) {
