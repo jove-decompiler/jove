@@ -327,11 +327,11 @@ struct ip_safe_adjacency_list {
 
 #define _S_LCK(ShouldLock, Mutex)                                              \
   typename std::conditional<ShouldLock, ip_sharable_lock<ip_sharable_mutex>,   \
-                            __do_nothing_t>::type __s_lck##__COUNTER__(Mutex)
+                            __do_nothing_t>::type UNIQUE_VAR_NAME(__s_lck)(Mutex)
 
 #define _E_LCK(ShouldLock, Mutex)                                              \
   typename std::conditional<ShouldLock, ip_scoped_lock<ip_sharable_mutex>,     \
-                            __do_nothing_t>::type __e_lck##__COUNTER__(Mutex)
+                            __do_nothing_t>::type UNIQUE_VAR_NAME(__e_lck)(Mutex)
 
 #define S_LCK(ShouldLock) _S_LCK(ShouldLock, this->_mtx)
 #define E_LCK(ShouldLock) _E_LCK(ShouldLock, this->_mtx)
@@ -438,6 +438,7 @@ struct ip_safe_adjacency_list {
 
   template <bool L = true>
   degree_size_type out_degree(vertex_descriptor V) const {
+    S_LCK(true);
     _S_LCK(L, _adjacency_list[V].mtx);
 
     return boost::out_degree(V, _adjacency_list);
@@ -445,6 +446,7 @@ struct ip_safe_adjacency_list {
 
   template <bool L = true>
   void clear_out_edges(vertex_descriptor V) {
+    S_LCK(true);
     _E_LCK(L, _adjacency_list[V].mtx);
 
     boost::clear_out_edges(V, _adjacency_list);
@@ -453,6 +455,7 @@ struct ip_safe_adjacency_list {
   template <bool L = true>
   std::pair<edge_descriptor, bool> add_edge(vertex_descriptor V1,
                                             vertex_descriptor V2) {
+    S_LCK(true);
     _E_LCK(L, _adjacency_list[V1].mtx);
 
     return boost::add_edge(V1, V2, _adjacency_list);
@@ -485,13 +488,6 @@ struct ip_safe_adjacency_list {
     return res;
   }
 
-#undef _S_LCK
-#undef _E_LCK
-#undef S_LCK
-#undef E_LCK
-
-  /* ********** unsafe methods ********** */
-
   template <bool L = true>
   std::pair<vertex_iterator, vertex_iterator> vertices(void) const {
     auto res = boost::vertices(_adjacency_list);
@@ -500,20 +496,29 @@ struct ip_safe_adjacency_list {
   }
   std::pair<adjacency_iterator, adjacency_iterator>
   adjacent_vertices(vertex_descriptor V) const {
+    S_LCK(true);
     return boost::adjacent_vertices(V, _adjacency_list);
   }
   std::pair<inv_adjacency_iterator, inv_adjacency_iterator>
   inv_adjacent_vertices(vertex_descriptor V) const {
+    S_LCK(true);
     return boost::inv_adjacent_vertices(V, _adjacency_list);
   }
   std::pair<out_edge_iterator, out_edge_iterator>
   out_edges(vertex_descriptor V) const {
+    S_LCK(true);
     return boost::out_edges(V, _adjacency_list);
   }
   std::pair<in_edge_iterator, in_edge_iterator>
   in_edges(vertex_descriptor V) const {
+    S_LCK(true);
     return boost::in_edges(V, _adjacency_list);
   }
+
+#undef _S_LCK
+#undef _E_LCK
+#undef S_LCK
+#undef E_LCK
 };
 
 typedef boost::interprocess::allocator<char, segment_manager_t>
@@ -1086,9 +1091,15 @@ allocates_basic_block_t::allocates_basic_block_t(binary_t &b,
   bool success;
 
   success = bbprop.pub.mtx.try_lock();
-  assert(success);
+  if (unlikely(!success)) {
+    __builtin_trap();
+    __builtin_unreachable();
+  }
   success = bbprop.mtx.try_lock();
-  assert(success);
+  if (unlikely(!success)) {
+    __builtin_trap();
+    __builtin_unreachable();
+  }
 
   store = Idx;
   BBIdx = Idx;
