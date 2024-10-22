@@ -1047,24 +1047,24 @@ int IntelPT<IPT_PARAMETERS_DEF>::on_ip(const taddr_t IP, const uint64_t offset) 
 
   const auto PrevPoint = CurrPoint;
   try {
-    auto obp = [&](basic_block_properties_t &bbprop) -> void {
+    auto obp = [&](basic_block_t bb, basic_block_properties_t &bbprop) -> void {
       CurrPoint.SetAddr(bbprop.Addr);
       CurrPoint.SetTermAddr(bbprop.Term.Addr);
+
+      if constexpr (IsVeryVerbose())
+        on_block(b, bbprop, bb);
     };
     auto obp_u = [&](basic_block_index_t BBIdx) -> void {
       basic_block_properties_t &bbprop =
           b.Analysis.ICFG[basic_block_of_index(BBIdx, b.Analysis.ICFG)];
 
       ip_sharable_lock<ip_sharable_mutex> s_lck(bbprop.mtx);
-      obp(bbprop);
+      obp(basic_block_of_index(BBIdx, b.Analysis.ICFG), bbprop);
     };
 
     CurrPoint.SetBinary(b);
     CurrPoint.SetBlockIndex(explorer.explore_basic_block(b, *x.Bin, Addr, obp, obp_u));
     assert(CurrPoint.Valid());
-
-    if constexpr (IsVeryVerbose())
-      on_block(b, b.Analysis.ICFG[CurrPoint.Block()], CurrPoint.BlockIndex());
   } catch (const invalid_control_flow_exception &) {
     if constexpr (IsVerbose())
       fprintf(stderr, "BADIP %" PRIx64 "\t<IP> %" PRIx64 " %s+%" PRIx64 "\n",
@@ -1227,8 +1227,8 @@ static std::pair<basic_block_index_t, bool>
 StraightLineGo(const binary_t &b,
                basic_block_index_t Res,
                taddr_t GoNoFurther = 0,
-               std::function<void(const basic_block_properties_t &, basic_block_index_t)> on_block = [](const basic_block_properties_t &, basic_block_index_t) -> void {},
-               std::function<basic_block_index_t (const basic_block_properties_t &, basic_block_index_t)> on_final_block = [](const basic_block_properties_t &, basic_block_index_t Res) -> basic_block_index_t { return Res; }) {
+               std::function<basic_block_index_t (const basic_block_properties_t &, basic_block_index_t)> on_final_block = [](const basic_block_properties_t &, basic_block_index_t Res) -> basic_block_index_t { return Res; },
+               std::function<void(const basic_block_properties_t &, basic_block_index_t)> on_block = [](const basic_block_properties_t &, basic_block_index_t) -> void {}) {
   const auto &ICFG = b.Analysis.ICFG;
 
   std::reference_wrapper<const basic_block_properties_t> the_bbprop =
@@ -1400,9 +1400,7 @@ IntelPT<IPT_PARAMETERS_DEF>::StraightLineUntilSlow(
   using namespace std::placeholders;
 
   return StraightLineGo<true, InfiniteLoopThrow, Verbosity>(
-      b, From, GoNoFurther,
-      std::bind(&IntelPT<IPT_PARAMETERS_DEF>::on_block, this, std::ref(b),
-                _1, _2), on_final_block);
+      b, From, GoNoFurther, on_final_block);
 }
 
 template <IPT_PARAMETERS_DCL>
@@ -1414,26 +1412,27 @@ basic_block_index_t IntelPT<IPT_PARAMETERS_DEF>::StraightLineSlow(
   using namespace std::placeholders;
 
   return StraightLineGo<false, InfiniteLoopThrow, Verbosity>(
-      b, From, 0 /* unused */,
-      std::bind(&IntelPT<IPT_PARAMETERS_DEF>::on_block, this, std::ref(b),
-                _1, _2), on_final_block).first;
+      b, From, 0 /* unused */, on_final_block).first;
 }
 
 template <IPT_PARAMETERS_DCL>
 void IntelPT<IPT_PARAMETERS_DEF>::on_block(const binary_t &b,
                                            const basic_block_properties_t &bbprop,
-                                           basic_block_index_t BBIdx) {
+                                           basic_block_t bb) {
   if constexpr (IsVeryVerbose()) {
-    if (index_of_binary(b) != OnBlock.Last.BIdx ||
-        BBIdx != OnBlock.Last.BBIdx) {
+    auto &ICFG = b.Analysis.ICFG;
+    if (index_of_binary(b) == OnBlock.Last.BIdx &&
+        index_of_basic_block(ICFG, bb) == OnBlock.Last.BBIdx) {
+      fputs(".", stderr);
+    } else {
       const auto Addr = bbprop.Addr;
 
       fprintf(stderr, "%s+%016" PRIx64 "\n", b.Name.c_str(), (uint64_t)Addr);
-      fprintf(stdout, "%s+%016" PRIx64 "\n", b.Name.c_str(), (uint64_t)Addr);
+      //fprintf(stdout, "%s+%016" PRIx64 "\n", b.Name.c_str(), (uint64_t)Addr);
     }
 
     OnBlock.Last.BIdx = index_of_binary(b);
-    OnBlock.Last.BBIdx = BBIdx;
+    OnBlock.Last.BBIdx = index_of_basic_block(ICFG, bb);
   }
 }
 
@@ -1462,12 +1461,6 @@ void IntelPT<IPT_PARAMETERS_DEF>::TNTAdvance(uint64_t tnt, uint8_t n) {
                   b.Name.c_str(), static_cast<uint64_t>(ICFG[basic_block_of_index(SL.BBIdx, b)].Addr),
                   string_of_terminator(SL.TermType));
         throw tnt_error();
-      }
-      if constexpr (IsVeryVerbose()) {
-        for (basic_block_index_t BBIdx : SL.seq) {
-          const auto &bbprop = ICFG[bb];
-          on_block(b, bbprop, BBIdx);
-        }
       }
       assert(SL.adj.size() == 2);
       Res = SL.adj[static_cast<unsigned>(Taken)];
@@ -1498,10 +1491,20 @@ void IntelPT<IPT_PARAMETERS_DEF>::TNTAdvance(uint64_t tnt, uint8_t n) {
           const bool Is0NotTaking =
               ICFG[succ[0]].Addr == bbprop.Addr + bbprop.Size;
 
-          return index_of_basic_block(
+          basic_block_index_t TheRes = index_of_basic_block(
               ICFG, Taken ? (Is0NotTaking ? succ[1] : succ[0])
                           : (Is0NotTaking ? succ[0] : succ[1]));
+          return TheRes;
         });
+    }
+
+    if constexpr (IsVeryVerbose()) {
+      basic_block_t bb = basic_block_of_index(Res, b);
+      const auto &bbprop = ICFG[bb];
+
+      ip_sharable_lock<ip_sharable_mutex> s_lck(bbprop.mtx);
+
+      on_block(b, bbprop, bb);
     }
 
 #if 0
@@ -2090,7 +2093,6 @@ IntelPT<IPT_PARAMETERS_DEF>::basic_block_state_t::SL(const binary_t &b,
 
     SL.BBIdx = StraightLineGo<false, true, Verbosity>(
         b, TheIdx, 0 /* unused */,
-        [](basic_block_t) -> void {},
         [&](basic_block_index_t BBIdx) -> basic_block_index_t {
           basic_block_t bb = basic_block_of_index(BBIdx, b);
           const auto &bbprop = ICFG[bb];
@@ -2158,13 +2160,11 @@ IntelPT<IPT_PARAMETERS_DEF>::basic_block_state_t::basic_block_state_t(
 
   auto on_block = [&](const basic_block_properties_t &bbprop,
                       basic_block_index_t BBIdx) -> void {
-    SL.seq.push_back(BBIdx);
     intvl_set_add(SL.addrng, addr_intvl(bbprop.Addr, bbprop.Size));
   };
 
   SL.BBIdx = StraightLineGo<false, true, Verbosity>(
       b, Idx, 0 /* unused */,
-      on_block,
       [&](const basic_block_properties_t &bbprop, basic_block_index_t BBIdx) -> basic_block_index_t {
         SL.Addr = bbprop.Addr;
         SL.TermType = bbprop.Term.Type;
@@ -2196,7 +2196,8 @@ IntelPT<IPT_PARAMETERS_DEF>::basic_block_state_t::basic_block_state_t(
         }
 
         return BBIdx;
-      }).first;
+      }, on_block).first;
+
   assert(is_basic_block_index_valid(SL.BBIdx));
 }
 

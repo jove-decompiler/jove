@@ -248,7 +248,7 @@ on_insn:
       ICFG.add_edge<false>(bb_2, bb);
 
     if constexpr (WithOnBlockProc)
-      obp(bbprop_2);
+      obp(bb_2, bbprop_2);
   }
 
   //
@@ -518,19 +518,20 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
       e_lck_bbmap.unlock();
     }
 
+    basic_block_t bb = basic_block_of_index(Idx, ICFG);
     if constexpr (WithOnBlockProc)
-      obp(bbprop);
+      obp(bb, bbprop);
+
+    //
+    // a new basic block has been created and (maybe) added to bbmap
+    //
+    if (unlikely(this->verbose))
+      llvm::errs() << llvm::formatv(
+          "{0} {1}\t\t\t\t\t\t{2}\n", description_of_block(bbprop, false),
+          description_of_terminator_info(T, false), b.Name.c_str());
+
+    this->on_newbb_proc(b, bb);
   }
-
-  //
-  // a new basic block has been created and (maybe) added to bbmap
-  //
-  if (unlikely(this->verbose))
-    llvm::errs() << llvm::formatv(
-        "{0} {1}\t\t\t\t\t\t{2}\n", description_of_block(bbprop, false),
-        description_of_terminator_info(T, false), b.Name.c_str());
-
-  this->on_newbb_proc(b, basic_block_of_index(Idx, ICFG));
 
   auto control_flow_to = [&](taddr_t Target) -> void {
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)

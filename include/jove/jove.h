@@ -716,7 +716,6 @@ struct basic_block_properties_t {
       TERMINATOR TermType = TERMINATOR::UNKNOWN;
       boost::container::static_vector<basic_block_index_t, 2> adj;
       boost::container::flat_set<addr_intvl, addr_intvl_cmp> addrng;
-      std::vector<basic_block_index_t> seq;
     };
 
 #if 0

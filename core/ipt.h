@@ -311,7 +311,7 @@ class IntelPT {
   } OnBlock;
 
   void on_block(const binary_t &, const basic_block_properties_t &,
-                basic_block_index_t);
+                basic_block_t);
   void block_transfer(binary_t &from, taddr_t FromAddr,
                       binary_t &to, taddr_t ToAddr);
 

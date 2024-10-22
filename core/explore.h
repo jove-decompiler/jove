@@ -24,13 +24,14 @@ struct invalid_control_flow_exception {
 
 struct tiny_code_generator_t;
 
-typedef std::function<void(basic_block_properties_t &)> onblockproc_t;
+typedef std::function<void(basic_block_t, basic_block_properties_t &)> onblockproc_t;
 typedef std::function<void(basic_block_index_t)> onblockproc_u_t;
 typedef std::function<void(binary_t &, basic_block_t)> on_newbb_proc_t;
 typedef std::function<void(binary_t &, function_t &)> on_newfn_proc_t;
 
-static inline void nop_on_block(basic_block_properties_t &) {}
-static inline void nop_on_block_u(basic_block_t) {}
+static inline void nop_on_block(basic_block_t,
+                                basic_block_properties_t &) {}
+static inline void nop_on_block_u(basic_block_index_t) {}
 
 //
 // performs accurate recursive traversal disassembly
