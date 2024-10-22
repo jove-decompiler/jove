@@ -992,7 +992,7 @@ int IPTTool::UsingLibipt(void) {
 
           std::ofstream dst(sb_filename);
 
-          int num_req = 0;
+          unsigned num_req = 0;
           uint64_t offset = 0;
 
           struct io_uring ring;
@@ -1021,7 +1021,6 @@ int IPTTool::UsingLibipt(void) {
                 reinterpret_cast<const char *>(perf_data.contents.mmap->ptr) +
                     skip,
                 count, offset);
-            assert(num_req >= 0);
 
             offset += count;
             ++num_req;
@@ -1058,7 +1057,7 @@ int IPTTool::UsingLibipt(void) {
             }
           };
 
-          int num_req = 0;
+          unsigned num_req = 0;
 
           struct io_uring ring;
           OUR_IOURING_INIT(&ring);
@@ -1095,7 +1094,6 @@ int IPTTool::UsingLibipt(void) {
                     &ring, aux_ofd->get(),
                     reinterpret_cast<const uint8_t *>(&aux) + aux.header.size,
                     size, offset);
-                assert(num_req >= 0);
 
                 offset += size;
                 ++num_req;
