@@ -2166,8 +2166,6 @@ IntelPT<IPT_PARAMETERS_DEF>::basic_block_state_t::basic_block_state_t(
       b, Idx, 0 /* unused */,
       on_block,
       [&](const basic_block_properties_t &bbprop, basic_block_index_t BBIdx) -> basic_block_index_t {
-        on_block(bbprop, BBIdx);
-
         SL.Addr = bbprop.Addr;
         SL.TermType = bbprop.Term.Type;
         SL.TermAddr = bbprop.Term.Addr;
