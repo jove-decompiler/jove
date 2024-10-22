@@ -41,7 +41,7 @@ namespace serialization {
 //
 template <class Archive, class T>
 static void save(Archive &ar, const std::atomic<T> &t, const unsigned int) {
-  const T value = t.load();
+  const T value = t.load(std::memory_order_relaxed);
   ar << BOOST_SERIALIZATION_NVP(value);
 }
 
@@ -49,7 +49,7 @@ template <class Archive, class T>
 static void load(Archive &ar, std::atomic<T> &t, const unsigned int) {
   T value;
   ar >> value;
-  t = value;
+  t.store(value, std::memory_order_relaxed);
 }
 
 template <class Archive, class T>
@@ -254,6 +254,45 @@ namespace serialization {
 //
 // allocates_basic_block_t
 //
+template <class Archive, typename T>
+static void serialize(Archive &ar, jove::ip_safe_adjacency_list<T> &ICFG,
+                      const unsigned int version) {
+  boost::serialization::split_free(ar, ICFG, version);
+}
+
+template <class Archive, typename T>
+static inline void save(Archive &ar,
+                        const jove::ip_safe_adjacency_list<T> &ICFG,
+                        const unsigned int file_version) {
+  jove::ip_scoped_lock<jove::ip_sharable_mutex> e_lck(ICFG._mtx);
+
+  jove::icfg_t &_ICFG = const_cast<jove::ip_safe_adjacency_list<T> &>(ICFG)._adjacency_list;
+
+  unsigned num_verts = ICFG.num_vertices();
+  unsigned num_verts_act = boost::num_vertices(_ICFG);
+
+  assert(num_verts_act >= num_verts);
+
+  for (unsigned i = 0; i < num_verts_act - num_verts; ++i)
+    _ICFG.m_vertices.pop_back();
+
+  ar << BOOST_SERIALIZATION_NVP(ICFG._adjacency_list);
+}
+
+template <class Archive, typename T>
+static inline void load(Archive &ar,
+                        jove::ip_safe_adjacency_list<T> &ICFG,
+                        const unsigned int file_version) {
+  jove::ip_scoped_lock<jove::ip_sharable_mutex> e_lck(ICFG._mtx);
+
+  jove::icfg_t &_ICFG = ICFG._adjacency_list;
+  ar >> _ICFG;
+  ICFG._size.store(boost::num_vertices(_ICFG), std::memory_order_relaxed);
+}
+
+//
+// allocates_basic_block_t
+//
 template <class Archive>
 static void serialize(Archive &ar, jove::allocates_basic_block_t &ab,
                       const unsigned int version) {
@@ -277,8 +316,7 @@ static void serialize(Archive &ar, jove::binary_t::Analysis_t &A,
                       const unsigned int version) {
   ar &BOOST_SERIALIZATION_NVP(A.EntryFunction)
      &BOOST_SERIALIZATION_NVP(A.Functions._deque)
-     &BOOST_SERIALIZATION_NVP(A.ICFG._adjacency_list)
-     &BOOST_SERIALIZATION_NVP(A.ICFG._size);
+     &BOOST_SERIALIZATION_NVP(A.ICFG);
 }
 
 //
