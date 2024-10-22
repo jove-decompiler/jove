@@ -39,3 +39,15 @@ extern void __compiletime_error("unreachable")
 __compiletime_unreachable(void);
 
 #define UNIQUE_VAR_NAME(base) BOOST_PP_CAT(base,__COUNTER__)
+
+#ifdef NDEBUG
+#define rassert(cond)                                                          \
+  do {                                                                         \
+    if (unlikely(!(!!(cond)))) {                                               \
+      __builtin_trap();                                                        \
+      __builtin_unreachable();                                                 \
+    }                                                                          \
+  } while (false)
+#else
+#define rassert(cond) assert(cond)
+#endif

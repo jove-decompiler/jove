@@ -1092,15 +1092,10 @@ allocates_basic_block_t::allocates_basic_block_t(binary_t &b,
   bool success;
 
   success = bbprop.pub.mtx.try_lock();
-  if (unlikely(!success)) {
-    __builtin_trap();
-    __builtin_unreachable();
-  }
+  rassert(success && "allocates_basic_block_t: BUG1");
+
   success = bbprop.mtx.try_lock();
-  if (unlikely(!success)) {
-    __builtin_trap();
-    __builtin_unreachable();
-  }
+  rassert(success && "allocates_basic_block_t: BUG2");
 
   store = Idx;
   BBIdx = Idx;
