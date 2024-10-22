@@ -850,19 +850,19 @@ int IPTTool::UsingLibipt(void) {
     ptdump_argv.push_back(nullptr);
   };
 
+  auto process_app_stderr = [&](void) -> void {
+    if (int ret = ProcessAppStderr())
+      Failed = true;
+  };
+
   if (opts.ExistingPerfData) {
-    oneapi::tbb::parallel_invoke(
-        [&](void) -> void {
-          if (int ret = ProcessAppStderr())
-            Failed = true;
-        },
-        get_opts);
+    oneapi::tbb::parallel_invoke(get_opts, process_app_stderr);
   } else {
     perf::data_reader perf_data("perf.data");
 
     oneapi::tbb::parallel_invoke(
         get_opts,
-        [&](void) -> void { if (ProcessAppStderr()) Failed = true; },
+        process_app_stderr,
         [&](void) -> void {
           if (IsVerbose())
             llvm::errs() << "writing sideband files...\n";
