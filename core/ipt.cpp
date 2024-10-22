@@ -686,7 +686,7 @@ int IntelPT<IPT_PARAMETERS_DEF>::process_packet(uint64_t offset,
   case ppt_tip_pge:
   case ppt_tip_pgd: {
     int errcode;
-    uint64_t ip;
+    uint64_t IP;
 
     errcode = pt_last_ip_update_ip(tracking.last_ip.get(), &packet->payload.ip,
                                    config.get());
@@ -695,7 +695,7 @@ int IntelPT<IPT_PARAMETERS_DEF>::process_packet(uint64_t offset,
           std::string("IntelPT: error tracking last-ip at offset ") +
           std::to_string(offset));
 
-    errcode = pt_last_ip_query(&ip, tracking.last_ip.get());
+    errcode = pt_last_ip_query(&IP, tracking.last_ip.get());
     if (unlikely(errcode < 0)) {
       if (errcode == -pte_ip_suppressed) {
         if (Engaged) {
@@ -710,7 +710,7 @@ int IntelPT<IPT_PARAMETERS_DEF>::process_packet(uint64_t offset,
             std::to_string(offset));
       }
     } else {
-      on_ip(ip, offset);
+      on_ip(IP, offset);
     }
 
     return 1;
@@ -781,6 +781,12 @@ int IntelPT<IPT_PARAMETERS_DEF>::process_packet(uint64_t offset,
             throw std::runtime_error(
                 std::string("IntelPT: error tracking last-ip at offset ") +
                 std::to_string(offset));
+
+          if constexpr (IsVeryVerbose()) {
+            uint64_t IP;
+            if (pt_last_ip_query(&IP, tracking.last_ip.get()) >= 0)
+              fprintf(stderr, "%" PRIx64 "\tskipping IP %016" PRIx64 "\n", offset, (uint64_t)IP);
+          }
 
           return 1;
       }
