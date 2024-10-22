@@ -127,6 +127,14 @@ constexpr block_t
                   invalid_basic_block_index);
 constexpr taddr_t invalid_taddr = std::numeric_limits<taddr_t>::max();
 
+#ifdef NDEBUG
+constexpr taddr_t uninit_taddr = invalid_taddr;
+constexpr bool is_taddr_init(taddr_t) { return true; }
+#else
+constexpr taddr_t uninit_taddr = invalid_taddr - 1;
+constexpr bool is_taddr_init(taddr_t Addr) { return Addr != uninit_taddr; }
+#endif
+
 constexpr bool is_binary_index_valid(binary_index_t idx) {
   return idx != invalid_binary_index;
 }
@@ -145,8 +153,13 @@ constexpr bool is_block_valid(block_t X) {
          is_basic_block_index_valid(X.second);
 }
 constexpr bool is_taddr_valid(taddr_t Addr) {
+#ifdef NDEBUG
   // the following is equivalent to Addr != 0UL && Addr != ~0UL
   return !!((Addr + taddr_t(1)) & taddr_t(~1ull));
+#else
+  // same as the top except also covers uninit_taddr (and one **)
+  return !!((Addr + taddr_t(2)) & taddr_t(~3ull));
+#endif
 }
 
 constexpr unsigned IsMIPSTarget =
@@ -648,11 +661,11 @@ struct basic_block_properties_t {
 
   bool Speculative = false;
 
-  taddr_t Addr = ~0UL;
+  taddr_t Addr = uninit_taddr;
   uint32_t Size = ~0UL;
 
   struct {
-    taddr_t Addr = ~0UL;
+    taddr_t Addr = uninit_taddr;
     TERMINATOR Type = TERMINATOR::UNKNOWN;
 
     struct {
@@ -698,8 +711,9 @@ struct basic_block_properties_t {
       std::atomic<bool> Stale = true;
 
       basic_block_index_t BBIdx = invalid_basic_block_index;
-      taddr_t TermAddr;
-      TERMINATOR TermType;
+      taddr_t Addr = uninit_taddr;
+      taddr_t TermAddr = uninit_taddr;
+      TERMINATOR TermType = TERMINATOR::UNKNOWN;
       boost::container::static_vector<basic_block_index_t, 2> adj;
       boost::container::flat_set<addr_intvl, addr_intvl_cmp> addrng;
       std::vector<basic_block_index_t> seq;
@@ -1584,6 +1598,23 @@ constexpr auto intvl_set_find(OrderedIntvlSet &set, T x) {
 template <typename OrderedIntvlSet, typename T>
 constexpr bool intvl_set_contains(OrderedIntvlSet &set, T x) {
   return intvl_set_find(set, x) != set.end();
+}
+
+template <typename OrderedIntvlSet, typename T>
+constexpr void intvl_set_add(OrderedIntvlSet &set, T intvl) {
+  auto h = intvl;
+  for (;;) {
+    auto it = intvl_set_find(set, intvl);
+    if (it == set.end()) {
+      break;
+    } else {
+      h = addr_intvl_hull(h, *it);
+      set.erase(it);
+    }
+  }
+
+  bool success = set.insert(h).second;
+  (void)success;
 }
 
 template <typename BBMap>
