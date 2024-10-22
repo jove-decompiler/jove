@@ -12,7 +12,7 @@ class UnserializeTool : public JVTool<ToolKind::Standard> {
     cl::opt<std::string> Path;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
-        : Text("text", cl::desc("Unserialize to text (portable)"),
+        : Text("text", cl::desc("Unserialize from text (portable)"),
                cl::init(true), cl::cat(JoveCategory)),
           Path(cl::Positional, cl::desc("Path to output of jove-serialize"),
                cl::value_desc("filename"), cl::cat(JoveCategory)) {}
