@@ -4,7 +4,7 @@
 #include "ipt.h"
 #include "explore.h"
 #include "objdump.h"
-#include "racy.h"
+#include "concurrent.h"
 
 #include "syscall_nrs.hpp"
 
@@ -855,12 +855,12 @@ int IntelPT<IPT_PARAMETERS_DEF>::tnt_payload(const struct pt_packet_tnt &packet,
     if constexpr (IsVerbose())
       fprintf(stderr, "tnt error from %s+%" PRIx64 "\n",
               Saved.Binary().Name.c_str(),
-              static_cast<uint64_t>(Saved.Address()));
+              static_cast<uint64_t>(Saved.GetAddr()));
   } catch (const infinite_loop_exception &) {
     if constexpr (IsVerbose())
       fprintf(stderr, "tnt error (infinite loop) from %s+%" PRIx64 "\n",
               Saved.Binary().Name.c_str(),
-              static_cast<uint64_t>(Saved.Address()));
+              static_cast<uint64_t>(Saved.GetAddr()));
   }
 
   CurrPoint.Invalidate();
@@ -962,9 +962,10 @@ int IntelPT<IPT_PARAMETERS_DEF>::on_ip(const taddr_t IP, const uint64_t offset) 
             (uint64_t)IP, b.Name.c_str(), (uint64_t)Addr);
 
   if (CurrPoint.Valid()) {
-    auto set_curr_term_addr =
+    auto grab_addresses =
         [&](const basic_block_properties_t &bbprop,
             basic_block_index_t BBIdx) -> basic_block_index_t {
+      CurrPoint.SetAddr(bbprop.Addr);
       CurrPoint.SetTermAddr(bbprop.Term.Addr);
       return BBIdx;
     };
@@ -975,6 +976,7 @@ int IntelPT<IPT_PARAMETERS_DEF>::on_ip(const taddr_t IP, const uint64_t offset) 
         try {
           const auto &SL = SLForBlock(b, CurrPoint.Block());
           CurrPoint.SetBlockIndex(SL.BBIdx);
+          CurrPoint.SetAddr(SL.Addr);
           CurrPoint.SetTermAddr(SL.TermAddr);
           WentNoFurther = intvl_set_contains(SL.addrng, Addr);
         } catch (const infinite_loop_exception &) {
@@ -983,7 +985,7 @@ int IntelPT<IPT_PARAMETERS_DEF>::on_ip(const taddr_t IP, const uint64_t offset) 
       } else {
         basic_block_index_t NewBBIdx;
         std::tie(NewBBIdx, WentNoFurther) = StraightLineUntilSlow<false>(
-            b, CurrPoint.BlockIndex(), Addr, set_curr_term_addr);
+            b, CurrPoint.BlockIndex(), Addr, grab_addresses);
         CurrPoint.SetBlockIndex(NewBBIdx);
       }
 
@@ -999,13 +1001,14 @@ int IntelPT<IPT_PARAMETERS_DEF>::on_ip(const taddr_t IP, const uint64_t offset) 
         try {
           const auto &SL = SLForBlock(CurrPoint.Binary(), CurrPoint.Block());
           CurrPoint.SetBlockIndex(SL.BBIdx);
+          CurrPoint.SetAddr(SL.Addr);
           CurrPoint.SetTermAddr(SL.TermAddr);
         } catch (const infinite_loop_exception &) {
           CurrPoint.Invalidate();
         }
       } else {
       CurrPoint.SetBlockIndex(StraightLineSlow<false>(
-          CurrPoint.Binary(), CurrPoint.BlockIndex(), set_curr_term_addr));
+          CurrPoint.Binary(), CurrPoint.BlockIndex(), grab_addresses));
       assert(CurrPoint.Valid());
       }
     }
@@ -1039,6 +1042,7 @@ int IntelPT<IPT_PARAMETERS_DEF>::on_ip(const taddr_t IP, const uint64_t offset) 
   const auto PrevPoint = CurrPoint;
   try {
     auto obp = [&](basic_block_properties_t &bbprop) -> void {
+      CurrPoint.SetAddr(bbprop.Addr);
       CurrPoint.SetTermAddr(bbprop.Term.Addr);
     };
     auto obp_u = [&](basic_block_index_t BBIdx) -> void {
@@ -1046,6 +1050,7 @@ int IntelPT<IPT_PARAMETERS_DEF>::on_ip(const taddr_t IP, const uint64_t offset) 
           b.Analysis.ICFG[basic_block_of_index(BBIdx, b.Analysis.ICFG)];
 
       ip_sharable_lock<ip_sharable_mutex> s_lck(bbprop.mtx);
+      CurrPoint.SetAddr(bbprop.Addr);
       CurrPoint.SetTermAddr(bbprop.Term.Addr);
     };
 
@@ -1068,9 +1073,23 @@ int IntelPT<IPT_PARAMETERS_DEF>::on_ip(const taddr_t IP, const uint64_t offset) 
   }
 
   if (PrevPoint.Valid() && CurrPoint.Valid()) {
-    assert(is_taddr_valid(PrevPoint.GetTermAddr()));
-    block_transfer(PrevPoint.Binary(), PrevPoint.GetTermAddr(),
-                   CurrPoint.Binary(), address_of_basic_block(CurrPoint.Block(), b));
+    const taddr_t PrevTermAddr = PrevPoint.GetTermAddr();
+
+    if (likely(is_taddr_valid(PrevTermAddr))) {
+      block_transfer(PrevPoint.Binary(), PrevTermAddr,
+                     CurrPoint.Binary(), CurrPoint.GetAddr());
+    } else {
+      if constexpr (IsVerbose()) {
+        auto &prevb = PrevPoint.Binary();
+        auto &prevprop = prevb.Analysis.ICFG[PrevPoint.Block()];
+
+        fprintf(stderr,
+                "PrevPoint has invalid terminator address %" PRIx64
+                " @ %s+%" PRIx64 "\n",
+                (uint64_t)PrevTermAddr, prevb.Name.c_str(),
+                (uint64_t)prevprop.Addr);
+      }
+    }
   }
 
   if constexpr (IsVeryVerbose())
@@ -1161,7 +1180,7 @@ void IntelPT<IPT_PARAMETERS_DEF>::block_transfer(binary_t &fr_b,
     {
       ip_sharable_lock<ip_sharable_mutex> fr_s_lck_bbmap(fr_b.bbmap_mtx);
 
-      racy::set(fr_ICFG[basic_block_at_address(FrTermAddr, fr_b)].Term._return.Returns);
+      concurrent::set(fr_ICFG[basic_block_at_address(FrTermAddr, fr_b)].Term._return.Returns);
     }
 
     //
@@ -1185,7 +1204,7 @@ void IntelPT<IPT_PARAMETERS_DEF>::block_transfer(binary_t &fr_b,
 
       if (isCall) {
         if (likely(is_function_index_valid(before_Term._call.Target)))
-          racy::set(to_b.Analysis.Functions.at(before_Term._call.Target).Returns);
+          concurrent::set(to_b.Analysis.Functions.at(before_Term._call.Target).Returns);
       }
 
       to_ICFG.add_edge(before_bb, to_bb); /* connect */
@@ -1490,12 +1509,14 @@ void IntelPT<IPT_PARAMETERS_DEF>::TNTAdvance(uint64_t tnt, uint8_t n) {
     basic_block_t bb = basic_block_of_index(Res, b);
     const auto &SL = SLForBlock(b, bb);
     CurrPoint.SetBlockIndex(SL.BBIdx);
+    CurrPoint.SetAddr(SL.Addr);
     CurrPoint.SetTermAddr(SL.TermAddr);
   } else {
     CurrPoint.SetBlockIndex(StraightLineSlow<true>(
         b, Res,
         [&](const basic_block_properties_t &bbprop,
             basic_block_index_t BBIdx) -> basic_block_index_t {
+          CurrPoint.SetAddr(bbprop.Addr);
           CurrPoint.SetTermAddr(bbprop.Term.Addr);
           return BBIdx;
         }));
@@ -1721,111 +1742,16 @@ static int parse_range(const char *arg, uint64_t *begin, uint64_t *end)
 	return 2;
 }
 
-/* Preprocess a filename argument.
- *
- * A filename may optionally be followed by a file offset or a file range
- * argument separated by ':'.  Split the original argument into the filename
- * part and the offset/range part.
- *
- * If no end address is specified, set @size to zero.
- * If no offset is specified, set @offset to zero.
- *
- * Returns zero on success, a negative error code otherwise.
- */
-static int preprocess_filename(char *filename, uint64_t *offset, uint64_t *size)
-{
-	uint64_t begin, end;
-	char *range;
-	int parts;
-
-	if (!filename || !offset || !size)
-		return -pte_internal;
-
-	/* Search from the end as the filename may also contain ':'. */
-	range = strrchr(filename, ':');
-	if (!range) {
-		*offset = 0ull;
-		*size = 0ull;
-
-		return 0;
-	}
-
-	/* Let's try to parse an optional range suffix.
-	 *
-	 * If we can, remove it from the filename argument.
-	 * If we can not, assume that the ':' is part of the filename, e.g. a
-	 * drive letter on Windows.
-	 */
-	parts = parse_range(range + 1, &begin, &end);
-	if (parts <= 0) {
-		*offset = 0ull;
-		*size = 0ull;
-
-		return 0;
-	}
-
-	if (parts == 1) {
-		*offset = begin;
-		*size = 0ull;
-
-		*range = 0;
-
-		return 0;
-	}
-
-	if (parts == 2) {
-		if (end <= begin)
-			return -pte_invalid;
-
-		*offset = begin;
-		*size = end - begin;
-
-		*range = 0;
-
-		return 0;
-	}
-
-	return -pte_internal;
-}
-
 template <IPT_PARAMETERS_DCL>
-int IntelPT<IPT_PARAMETERS_DEF>::ptdump_sb_pevent(char *filename,
-                              const struct pt_sb_pevent_config *conf,
-                              const char *prog) {
-        struct pt_sb_pevent_config config;
-	uint64_t foffset, fsize, fend;
+int IntelPT<IPT_PARAMETERS_DEF>::ptdump_sb_pevent(const char *filename,
+                                                  const struct pt_sb_pevent_config *conf) {
+	struct pt_sb_pevent_config config;
 	int errcode;
-
-	errcode = preprocess_filename(filename, &foffset, &fsize);
-	if (errcode < 0) {
-		if constexpr (IsVerbose())
-			fprintf(stderr, "%s: bad file: %s.\n",
-                                __PRETTY_FUNCTION__,
-				pt_errstr(pt_errcode(errcode)));
-		return -1;
-	}
-
-	if (SIZE_MAX < foffset) {
-		if constexpr (IsVerbose())
-			fprintf(stderr, "%s: bad offset.\n", __PRETTY_FUNCTION__);
-		return -1;
-	}
 
 	config = *conf;
 	config.filename = filename;
-	config.begin = (size_t) foffset;
+	config.begin = 0;
 	config.end = 0;
-
-	if (fsize) {
-		fend = foffset + fsize;
-		if ((fend <= foffset) || (SIZE_MAX < fend)) {
-			if constexpr (IsVerbose())
-				fprintf(stderr, "%s: bad range.\n", __PRETTY_FUNCTION__);
-			return -1;
-		}
-
-		config.end = (size_t) fend;
-	}
 
 	errcode = pt_sb_alloc_pevent_decoder(tracking.session, &config);
 	if (unlikely(errcode < 0)) {
@@ -1841,7 +1767,7 @@ int IntelPT<IPT_PARAMETERS_DEF>::ptdump_sb_pevent(char *filename,
 
 static int pt_parse_sample_config(struct pt_sb_pevent_config *pevent,
                                   const char *arg) {
-        struct pev_sample_config *sample_config;
+	struct pev_sample_config *sample_config;
 	uint64_t identifier, sample_type;
 	uint8_t nstypes;
 	char *rest;
@@ -2044,23 +1970,7 @@ int IntelPT<IPT_PARAMETERS_DEF>::process_args(int argc, char **argv,
 	pevent.time_mult = 1;
 
 	for (idx = 1; idx < argc; ++idx) {
-		     if ((strcmp(argv[idx], "--pevent") == 0) ||
-			 (strcmp(argv[idx], "--pevent:primary") == 0) ||
-			 (strcmp(argv[idx], "--pevent:secondary") == 0)) {
-			char *arg;
-
-			arg = argv[++idx];
-			if (!arg) {
-				fprintf(stderr,
-					"%s: %s: missing argument.\n",
-					argv[0], argv[idx-1]);
-				return -1;
-			}
-
-                        errcode = ptdump_sb_pevent(arg, &pevent, argv[0]);
-                        if (errcode < 0)
-				return -1;
-		} else if (strcmp(argv[idx], "--pevent:sample-type") == 0) {
+		if (strcmp(argv[idx], "--pevent:sample-type") == 0) {
 			if (!get_arg_uint64(&pevent.sample_type,
 					    "--pevent:sample-type",
 					    argv[++idx], argv[0]))
@@ -2140,14 +2050,14 @@ int IntelPT<IPT_PARAMETERS_DEF>::process_args(int argc, char **argv,
 					    "--cpuid-0x15.ebx", argv[++idx],
 					    argv[0]))
 				return -1;
-		} else
-                        throw std::runtime_error(
-                            std::string("unknown option \"") + argv[idx] +
-                            std::string("\""));
-        }
+		} else {
+			throw std::runtime_error(
+				std::string("unknown option \"") + argv[idx] +
+				std::string("\""));
+		}
+	}
 
-	errcode = ptdump_sb_pevent(const_cast<char *>(sb_filename), &pevent,
-	                           "jove-ipt");
+	errcode = ptdump_sb_pevent(sb_filename, &pevent);
 	if (errcode < 0)
 		throw std::runtime_error("ptdump_sb_pevent() failed");
 
@@ -2264,29 +2174,21 @@ IntelPT<IPT_PARAMETERS_DEF>::basic_block_state_t::basic_block_state_t(
   const basic_block_index_t Idx = index_of_basic_block(b, the_bb);
   assert(is_basic_block_index_valid(Idx));
 
-  auto &SL = this->SL;
+  auto &SL = this->theSL;
+
+  auto on_block = [&](const basic_block_properties_t &bbprop,
+                      basic_block_index_t BBIdx) -> void {
+    SL.seq.push_back(BBIdx);
+    intvl_set_add(SL.addrng, addr_intvl(bbprop.Addr, bbprop.Size));
+  };
 
   SL.BBIdx = StraightLineGo<false, true, Verbosity>(
       b, Idx, 0 /* unused */,
-      [&](const basic_block_properties_t &bbprop, basic_block_index_t BBIdx) -> void {
-        SL.seq.push_back(BBIdx);
-
-        const addr_intvl intvl(bbprop.Addr, bbprop.Size);
-
-        addr_intvl h = intvl;
-        for (;;) {
-          auto it = intvl_set_find(SL.addrng, intvl);
-          if (it == SL.addrng.end()) {
-            break;
-          } else {
-            h = addr_intvl_hull(h, *it);
-            SL.addrng.erase(it);
-          }
-        }
-        bool success = SL.addrng.insert(h).second;
-        assert(success);
-      },
+      on_block,
       [&](const basic_block_properties_t &bbprop, basic_block_index_t BBIdx) -> basic_block_index_t {
+        on_block(bbprop, BBIdx);
+
+        SL.Addr = bbprop.Addr;
         SL.TermType = bbprop.Term.Type;
         SL.TermAddr = bbprop.Term.Addr;
 

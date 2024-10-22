@@ -96,7 +96,7 @@ class IntelPT {
   static constexpr bool Lazy = false;
 #else
   struct basic_block_state_t {
-    straight_line_t SL;
+    straight_line_t theSL;
 
     basic_block_state_t(const binary_t &b, basic_block_t bb);
   };
@@ -104,7 +104,7 @@ class IntelPT {
   template <bool X = Caching>
   std::enable_if_t<X, const straight_line_t &> SLForBlock(const binary_t &b,
                                                           basic_block_t bb) {
-    return state.for_basic_block(b, bb).SL;
+    return state.for_basic_block(b, bb).theSL;
   }
   static constexpr bool Lazy = true;
 #endif
@@ -174,13 +174,11 @@ class IntelPT {
   class Point_t {
     std::reference_wrapper<binary_t> b;
     basic_block_index_t Idx = invalid_basic_block_index;
-    taddr_t TermAddr =
-#ifdef NDEBUG
-        invalid_taddr
-#else
-        invalid_taddr - 1
-#endif
-        ;
+
+    struct {
+      taddr_t Addr = uninit_taddr;
+      taddr_t TermAddr = uninit_taddr;
+    } Cached;
 
   public:
     Point_t(binary_t &b) : b(b) {}
@@ -198,32 +196,47 @@ class IntelPT {
       return basic_block_of_index(BlockIndex(), b.get());
     }
 
-    taddr_t Address(void) const { return address_of_block_in_binary(Idx, b); }
+    taddr_t GetTermAddr(void) const {
+      assert(is_taddr_init(Cached.TermAddr));
+      return Cached.TermAddr; /* may be invalid */
+    }
+    void SetTermAddr(taddr_t NewTermAddr) { Cached.TermAddr = NewTermAddr; }
 
-    taddr_t GetTermAddr(void) const { return TermAddr; }
-    void SetTermAddr(taddr_t NewTermAddr) { TermAddr = NewTermAddr; }
+    void SetAddr(taddr_t Addr) {
+      assert(is_taddr_valid(Addr));
+      Cached.Addr = Addr;
+    }
+    taddr_t GetAddr(void) const {
+      assert(is_taddr_init(Cached.Addr));
+      assert(is_taddr_valid(Cached.Addr));
+      return Cached.Addr;
+    }
 
     bool Valid(void) const {
       return is_basic_block_index_valid(Idx) &&
 #ifdef NDEBUG
              true
 #else
-             TermAddr != (invalid_taddr - 1)
+             is_taddr_valid(Cached.Addr) &&
+             is_taddr_init(Cached.TermAddr)
 #endif
           ;
     }
 
     void Invalidate(void) {
       Idx = invalid_basic_block_index;
+
 #ifndef NDEBUG
-      TermAddr = invalid_taddr;
+      Cached.Addr = uninit_taddr;
+      Cached.TermAddr = uninit_taddr;
 #endif
     }
 
     void SetBinary(binary_t &newb) {
       b = newb;
 #ifndef NDEBUG
-      TermAddr = invalid_taddr - 1;
+      Cached.Addr = uninit_taddr;
+      Cached.TermAddr = uninit_taddr;
 #endif
     }
   } CurrPoint;
@@ -272,8 +285,7 @@ class IntelPT {
   int tnt_payload(const struct pt_packet_tnt &, const uint64_t offset);
   int on_ip(const taddr_t ip, const uint64_t offset);
 
-  int ptdump_sb_pevent(char *filename, const struct pt_sb_pevent_config *conf,
-                       const char *prog);
+  int ptdump_sb_pevent(const char *filename, const struct pt_sb_pevent_config *);
   int process_args(int argc, char **argv, const char *sideband_filename);
 
   template <bool InfiniteLoopThrow = false>
