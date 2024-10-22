@@ -32,6 +32,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       libpcre2-dev \
                       libtinfo-dev \
                       libtool \
+                      liburing \
                       libxml2-dev \
                       libz3-dev \
                       libzstd-dev \
@@ -71,6 +72,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       libc6-dev:i386 \
                       linux-libc-dev:i386 \
                       libglib2.0-dev:i386 \
+                      liburing-dev:i386 \
                       zlib1g-dev:i386 && \
     eatmydata apt-get autoremove -y && \
     eatmydata apt-get autoclean -y

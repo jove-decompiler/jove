@@ -20,6 +20,7 @@
 #include <boost/filesystem.hpp>
 #include <boost/algorithm/string.hpp>
 #include <boost/unordered/unordered_flat_map.hpp>
+#include <boost/scope/defer.hpp>
 
 #include <oneapi/tbb/parallel_pipeline.h>
 #include <oneapi/tbb/parallel_for_each.h>
@@ -30,6 +31,8 @@
 #include <regex>
 #include <memory>
 #include <mutex>
+
+#include <liburing.h>
 
 namespace fs = boost::filesystem;
 namespace obj = llvm::object;
@@ -860,12 +863,99 @@ int IPTTool::UsingLibipt(void) {
   } else {
     perf::data_reader perf_data("perf.data");
 
+#define OUR_IOURING_INIT(ringp)                                                \
+  do {                                                                         \
+    if (io_uring_queue_init(1024, ringp, 0) < 0) {                             \
+      int err = errno;                                                         \
+      WithColor::error() << llvm::formatv(                                     \
+          "io_uring_queue_init() failed: {0}\n", strerror(errno));             \
+      WeFailed = true;                                                         \
+      return;                                                                  \
+    }                                                                          \
+  } while (false)
+
+#define OUR_IOURING_QUEUE_WRITE(ringp, fd, buf, nbytes, offset)                \
+  ({                                                                           \
+    int submitted = 0;                                                         \
+    bool TriedAgain = false;                                                   \
+    struct io_uring_sqe *sqe;                                                  \
+    for (;;) {                                                                 \
+      sqe = io_uring_get_sqe(ringp);                                           \
+      if (sqe)                                                                 \
+        break; /* success */                                                   \
+      if (!TriedAgain) {                                                       \
+        TriedAgain = true;                                                     \
+                                                                               \
+        submitted = io_uring_submit(ringp);                                    \
+        if (submitted < 0) {                                                   \
+          WithColor::error() << llvm::formatv(                                 \
+              "io_uring_submit() failed: {0}\n", strerror(-submitted));        \
+          return false;                                                        \
+        }                                                                      \
+        continue;                                                              \
+      }                                                                        \
+      WithColor::error() << "Could not get submission queue entry\n";          \
+      return false;                                                            \
+    }                                                                          \
+    io_uring_prep_write(sqe, fd, buf, nbytes, offset);                         \
+    submitted;                                                                 \
+  })
+
+#define OUR_IOURING_SUBMIT_AND_WAIT(ringp, num)                                \
+  do {                                                                         \
+    assert(num >= 0);                                                          \
+    int ret = io_uring_submit(ringp);                                          \
+    if (ret < 0) {                                                             \
+      WithColor::error() << llvm::formatv("io_uring_submit() failed: {0}\n",   \
+                                          strerror(-ret));                     \
+      WeFailed = true;                                                         \
+      return;                                                                  \
+    }                                                                          \
+                                                                               \
+    for (size_t i = 0; i < num; ++i) {                                         \
+      struct io_uring_cqe *cqe;                                                \
+      int ret = io_uring_wait_cqe(&ring, &cqe);                                \
+      if (ret < 0) {                                                           \
+        WithColor::error() << llvm::formatv(                                   \
+            "io_uring_wait_cqe() failed: {0}\n", strerror(-ret));              \
+        WeFailed = true;                                                       \
+        return;                                                                \
+      }                                                                        \
+                                                                               \
+      if (cqe->res < 0) {                                                      \
+        WithColor::error() << llvm::formatv("async write failed: {0}\n",       \
+                                            strerror(-cqe->res));              \
+        WeFailed = true;                                                       \
+        return;                                                                \
+      }                                                                        \
+                                                                               \
+      io_uring_cqe_seen(&ring, cqe);                                           \
+    }                                                                          \
+  } while (false)
+
     oneapi::tbb::parallel_invoke(
         get_opts,
         process_app_stderr,
         [&](void) -> void {
-          if (IsVerbose())
-            llvm::errs() << "writing sideband files...\n";
+          bool WeFailed = false;
+          BOOST_SCOPE_DEFER [&] {
+            if (WeFailed) {
+              Failed = true;
+              WithColor::error() << "failed to write sideband file.\n";
+            } else {
+              if (IsVerbose())
+                llvm::errs() << "wrote sideband files.\n";
+            }
+          };
+
+          scoped_fd ofd(::open(sb_filename, O_WRONLY | O_CREAT | O_LARGEFILE, 0666));
+          if (!ofd) {
+            int err = errno;
+            WithColor::error() << llvm::formatv("failed to open {0}: {1}\n",
+                                                sb_filename, strerror(err));
+            WeFailed = true;
+            return;
+          }
 
           int pipefd[2];
           if (::pipe(pipefd) < 0) { /* first, create a pipe */
@@ -902,7 +992,15 @@ int IPTTool::UsingLibipt(void) {
 
           std::ofstream dst(sb_filename);
 
-          auto process_line = [&](const std::string &line) -> void {
+          int num_req = 0;
+          uint64_t offset = 0;
+
+          struct io_uring ring;
+          OUR_IOURING_INIT(&ring);
+
+          BOOST_SCOPE_DEFER [&ring] { io_uring_queue_exit(&ring); };
+
+          auto process_line = [&](const std::string &line) -> bool {
             in_filename.resize(4097);
             out_filename.resize(4097);
 
@@ -918,53 +1016,103 @@ int IPTTool::UsingLibipt(void) {
 
             assert(in_filename == "perf.data");
 
-            dst.write(
+            OUR_IOURING_QUEUE_WRITE(
+                &ring, ofd.get(),
                 reinterpret_cast<const char *>(perf_data.contents.mmap->ptr) +
-                skip, count);
+                    skip,
+                count, offset);
+            assert(num_req >= 0);
+
+            offset += count;
+            ++num_req;
+            return true;
           };
 
-          while (auto o = pipe.get_line(rfd->get()))
-            process_line(*o);
+          if (IsVerbose())
+            llvm::errs() << "writing sideband files...\n";
+
+          while (auto o = pipe.get_line(rfd->get())) {
+            if (unlikely(!process_line(*o))) {
+              WeFailed = true;
+              return;
+            }
+          }
 
           if (WaitForProcessToExit(pid)) {
-            WithColor::error()
-                << "failed to run libipt/script/perf-read-sideband.bash\n";
-            Failed = true;
+            WithColor::error() << "failed to run perf-read-sideband.bash\n";
+            WeFailed = true;
             return;
           }
 
-          llvm::errs() << "wrote sideband files.\n";
+          OUR_IOURING_SUBMIT_AND_WAIT(&ring, num_req);
         },
         [&](void) -> void {
-          llvm::errs() << "writing aux files...\n";
+          bool WeFailed = false;
+          BOOST_SCOPE_DEFER [&] {
+            if (WeFailed) {
+              Failed = true;
+              WithColor::error() << "failed to write aux files.\n";
+            } else {
+              if (IsVerbose())
+                llvm::errs() << "wrote aux files.\n";
+            }
+          };
 
-          std::vector<std::unique_ptr<scoped_fd>> aux_ofdv;
-          perf_data.for_each_auxtrace(
-              [&](const struct perf::auxtrace_event &aux) {
+          int num_req = 0;
+
+          struct io_uring ring;
+          OUR_IOURING_INIT(&ring);
+
+          BOOST_SCOPE_DEFER [&ring] { io_uring_queue_exit(&ring); };
+
+          std::vector<std::pair<std::unique_ptr<scoped_fd>, uint64_t>> aux_ofdv;
+
+          if (IsVerbose())
+            llvm::errs() << "writing aux files...\n";
+
+          bool success = perf_data.for_each_auxtrace(
+              [&](const struct perf::auxtrace_event &aux) -> bool {
                 if (unlikely(aux.cpu >= aux_ofdv.size()))
                   aux_ofdv.resize(aux.cpu + 1);
 
-                std::unique_ptr<scoped_fd> &aux_ofd = aux_ofdv.at(aux.cpu);
+                auto &pair = aux_ofdv.at(aux.cpu);
+
+                std::unique_ptr<scoped_fd> &aux_ofd = pair.first;
+                uint64_t &offset = pair.second;
+
                 if (!aux_ofd) {
                   std::string aux_ofname =
                       "perf.data-aux-idx" + std::to_string(aux.cpu) + ".bin";
                   aux_ofd = std::make_unique<scoped_fd>(
                       ::open(aux_ofname.c_str(),
                              O_WRONLY | O_CREAT | O_LARGEFILE, 0666));
+                  offset = 0;
                 }
 
-                off_t the_off =
-                    (reinterpret_cast<uintptr_t>(&aux) + aux.header.size) -
-                    reinterpret_cast<uintptr_t>(perf_data.contents.mmap->ptr);
-                if (robust_copy_file_range(perf_data.contents.fd->get(),
-                                           &the_off, aux_ofd->get(),
-                                           nullptr, aux.size) < 0)
-                  WithColor::error() << llvm::formatv(
-                      "copy_file_range failed: {0}\n", strerror(errno));
+                const auto size = aux.size;
+
+                OUR_IOURING_QUEUE_WRITE(
+                    &ring, aux_ofd->get(),
+                    reinterpret_cast<const uint8_t *>(&aux) + aux.header.size,
+                    size, offset);
+                assert(num_req >= 0);
+
+                offset += size;
+                ++num_req;
+                return true;
               });
 
-          llvm::errs() << "wrote aux files.\n";
+          if (!success) {
+            WeFailed = true;
+            return;
+          }
+
+          OUR_IOURING_SUBMIT_AND_WAIT(&ring, num_req);
         });
+
+#undef OUR_IOURING_INIT
+#undef OUR_IOURING_QUEUE_WRITE
+#undef OUR_IOURING_SUBMIT_AND_WAIT
 
     if (Failed)
       return 1;
