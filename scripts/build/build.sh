@@ -18,7 +18,7 @@ archs="x86_64 i386 mipsel mips64el aarch64"
 
 function build_all_variants() {
   rm -f build
-  ln -sf x86_64${2}_build build
+  ln -sf x86_64_build build
 
   for arch in $archs ; do
     pushd .
