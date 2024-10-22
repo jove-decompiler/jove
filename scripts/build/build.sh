@@ -15,10 +15,11 @@ ln -sf ../../.. $llvm_path/llvm/projects/jove
 ln -sf ../../../llvm-cbe $llvm_path/llvm/projects/llvm-cbe
 
 archs="x86_64 i386 mipsel mips64el aarch64"
+hostarch="x86_64"
 
 function build_all_variants() {
   rm -f build
-  ln -sf x86_64_build build
+  ln -sf ${hostarch}_build build
 
   for arch in $archs ; do
     pushd .
