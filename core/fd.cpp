@@ -102,7 +102,7 @@ ssize_t robust_sendfile(int fd, const char *file_path, size_t file_size) {
   if (!in_fd)
     throw std::runtime_error(std::string("robust_sendfile: open failed: ") +
                              strerror(errno));
-  return robust_sendfile_from_fd(fd, in_fd, nullptr, file_size);
+  return robust_sendfile_from_fd(fd, in_fd.get(), nullptr, file_size);
 }
 
 ssize_t robust_sendfile_with_size(int fd, const char *file_path) {
