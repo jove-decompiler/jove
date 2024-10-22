@@ -266,15 +266,22 @@ static inline void save(Archive &ar,
                         const unsigned int file_version) {
   jove::ip_scoped_lock<jove::ip_sharable_mutex> e_lck(ICFG._mtx);
 
-  jove::icfg_t &_ICFG = const_cast<jove::ip_safe_adjacency_list<T> &>(ICFG)._adjacency_list;
+  jove::icfg_t &_ICFG =
+      const_cast<jove::ip_safe_adjacency_list<T> &>(ICFG)._adjacency_list;
 
   unsigned num_verts = ICFG.num_vertices();
   unsigned num_verts_act = boost::num_vertices(_ICFG);
 
   assert(num_verts_act >= num_verts);
 
-  for (unsigned i = 0; i < num_verts_act - num_verts; ++i)
+  for (unsigned i = 0; i < num_verts_act - num_verts; ++i) {
+    //
+    // no need to call boost::remove_vertex since we are not using a named graph
+    // (and so icfg_t::removing_vertex() is a no-op), and none of these vertices
+    // have outgoing (or incoming) edges
+    //
     _ICFG.m_vertices.pop_back();
+  }
 
   ar << BOOST_SERIALIZATION_NVP(ICFG._adjacency_list);
 }
