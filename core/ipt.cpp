@@ -1046,12 +1046,11 @@ int IntelPT<IPT_PARAMETERS_DEF>::on_ip(const taddr_t IP, const uint64_t offset) 
       CurrPoint.SetTermAddr(bbprop.Term.Addr);
     };
     auto obp_u = [&](basic_block_index_t BBIdx) -> void {
-      const auto &bbprop =
+      basic_block_properties_t &bbprop =
           b.Analysis.ICFG[basic_block_of_index(BBIdx, b.Analysis.ICFG)];
 
       ip_sharable_lock<ip_sharable_mutex> s_lck(bbprop.mtx);
-      CurrPoint.SetAddr(bbprop.Addr);
-      CurrPoint.SetTermAddr(bbprop.Term.Addr);
+      obp(bbprop);
     };
 
     CurrPoint.SetBinary(b);
