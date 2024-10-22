@@ -20,8 +20,6 @@ class Block : public JVTool<ToolKind::CopyOnWrite> {
               cl::value_desc("index"), cl::cat(JoveCategory)) {}
   } opts;
 
-  binary_index_t BinaryIndex = invalid_binary_index;
-
 public:
   Block() : opts(JoveCategory) {}
 
