@@ -1722,31 +1722,6 @@ int IntelPT<IPT_PARAMETERS_DEF>::track_cyc(uint64_t offset,
 	return track_time(offset);
 }
 
-static int parse_range(const char *arg, uint64_t *begin, uint64_t *end)
-{
-	char *rest;
-
-	if (!arg || !*arg)
-		return 0;
-
-	errno = 0;
-	*begin = strtoull(arg, &rest, 0);
-	if (errno)
-		return -1;
-
-	if (!*rest)
-		return 1;
-
-	if (*rest != '-')
-		return -1;
-
-	*end = strtoull(rest+1, &rest, 0);
-	if (errno || *rest)
-		return -1;
-
-	return 2;
-}
-
 template <IPT_PARAMETERS_DCL>
 int IntelPT<IPT_PARAMETERS_DEF>::ptdump_sb_pevent(const char *filename,
                                                   const struct pt_sb_pevent_config *conf) {
