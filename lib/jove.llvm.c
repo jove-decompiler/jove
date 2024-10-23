@@ -21,7 +21,7 @@ extern void _jove_do_manual_relocations(void);
 extern void _jove_do_emulate_copy_relocations(void);
 extern const char *_jove_dynl_path(void);
 extern uint32_t    _jove_foreign_lib_count(void);
-extern const char *_jove_foreign_lib_path(uint32_t Idx);
+extern const char **_jove_binary_paths(uint32_t Idx);
 extern uintptr_t  *_jove_foreign_lib_function_table(uint32_t Idx);
 extern uintptr_t _jove_get_init_fn(void);
 extern uintptr_t _jove_get_init_fn_sect_ptr(void);

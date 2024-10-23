@@ -164,7 +164,9 @@ void _jove_recover_dyn_target(uint32_t CallerBBIdx, uintptr_t CalleeAddr) {
       // search the foreign libs
       //
       for (unsigned i = 0; i < N; ++i) {
-        const char *foreign_dso_path_beg = _jove_foreign_lib_path(i);
+        const char **pforeign_dso_path_beg;
+        for_each_binary_paths(i + 3, pforeign_dso_path_beg) {
+        const char *const foreign_dso_path_beg = *pforeign_dso_path_beg;
         const unsigned foreign_dso_path_len = _strlen(foreign_dso_path_beg);
         const char *foreign_dso_path_end = &foreign_dso_path_beg[foreign_dso_path_len];
 
@@ -184,6 +186,8 @@ void _jove_recover_dyn_target(uint32_t CallerBBIdx, uintptr_t CalleeAddr) {
             --s1;
             --s2;
           }
+          if (!match)
+            continue;
         }
 
         if (match && __jove_foreign_function_tables[i + 3] == NULL) {
@@ -194,9 +198,11 @@ void _jove_recover_dyn_target(uint32_t CallerBBIdx, uintptr_t CalleeAddr) {
             foreign_fn_tbl[FIdx] += load_bias;
 
           __jove_foreign_function_tables[i + 3] = foreign_fn_tbl; /* install */
-          break;
+          goto matched;
+        }
         }
       }
+matched:
     }
   }
 
@@ -253,7 +259,9 @@ void _jove_recover_dyn_target(uint32_t CallerBBIdx, uintptr_t CalleeAddr) {
       // search the foreign libs
       //
       for (unsigned i = 0; i < N; ++i) {
-        const char *foreign_dso_path_beg = _jove_foreign_lib_path(i);
+        const char **pforeign_dso_path_beg;
+        for_each_binary_paths(i + 3, pforeign_dso_path_beg) {
+        const char *const foreign_dso_path_beg = *pforeign_dso_path_beg;
         const unsigned foreign_dso_path_len = _strlen(foreign_dso_path_beg);
         const char *foreign_dso_path_end = &foreign_dso_path_beg[foreign_dso_path_len];
 
@@ -273,6 +281,8 @@ void _jove_recover_dyn_target(uint32_t CallerBBIdx, uintptr_t CalleeAddr) {
             --s1;
             --s2;
           }
+          if (!match)
+            continue;
         }
 
         if (match) {
@@ -286,6 +296,7 @@ void _jove_recover_dyn_target(uint32_t CallerBBIdx, uintptr_t CalleeAddr) {
               goto found;
             }
           }
+        }
         }
       }
     }
@@ -556,7 +567,9 @@ void _jove_recover_foreign_function(uint32_t IndCallBBIdx,
       // search the foreign libs
       //
       for (unsigned i = 0; i < N; ++i) {
-        const char *foreign_dso_path_beg = _jove_foreign_lib_path(i);
+        const char **pforeign_dso_path_beg;
+        for_each_binary_paths(i + 3, pforeign_dso_path_beg) {
+        const char *const foreign_dso_path_beg = *pforeign_dso_path_beg;
         const unsigned foreign_dso_path_len = _strlen(foreign_dso_path_beg);
         const char *foreign_dso_path_end = &foreign_dso_path_beg[foreign_dso_path_len];
 
@@ -576,6 +589,8 @@ void _jove_recover_foreign_function(uint32_t IndCallBBIdx,
             --s1;
             --s2;
           }
+          if (!match)
+            continue;
         }
 
         if (match && __jove_foreign_function_tables[i + 3] == NULL) {
@@ -586,9 +601,11 @@ void _jove_recover_foreign_function(uint32_t IndCallBBIdx,
             foreign_fn_tbl[FIdx] += load_bias;
 
           __jove_foreign_function_tables[i + 3] = foreign_fn_tbl; /* install */
-          break;
+          goto matched;
         }
       }
+      }
+matched:
     }
   }
 
@@ -645,7 +662,9 @@ void _jove_recover_foreign_function(uint32_t IndCallBBIdx,
       // search the foreign libs
       //
       for (unsigned i = 0; i < N; ++i) {
-        const char *foreign_dso_path_beg = _jove_foreign_lib_path(i);
+        const char **pforeign_dso_path_beg;
+        for_each_binary_paths(i + 3, pforeign_dso_path_beg) {
+        const char *const foreign_dso_path_beg = *pforeign_dso_path_beg;
         const unsigned foreign_dso_path_len = _strlen(foreign_dso_path_beg);
         const char *foreign_dso_path_end = &foreign_dso_path_beg[foreign_dso_path_len];
 
@@ -665,6 +684,8 @@ void _jove_recover_foreign_function(uint32_t IndCallBBIdx,
             --s1;
             --s2;
           }
+          if (!match)
+            continue;
         }
 
         if (match) {
@@ -681,6 +702,7 @@ void _jove_recover_foreign_function(uint32_t IndCallBBIdx,
                                                    (CalleeAddr - min) + off);
           _UNREACHABLE();
         }
+      }
       }
 
       return; /* nope */
@@ -1109,7 +1131,9 @@ void _jove_recover_foreign_binary(uintptr_t CalleeAddr) {
       // search the foreign libs
       //
       for (unsigned i = 0; i < N; ++i) {
-        const char *foreign_dso_path_beg = _jove_foreign_lib_path(i);
+        const char **pforeign_dso_path_beg;
+        for_each_binary_paths(i + 3, pforeign_dso_path_beg) {
+        const char *const foreign_dso_path_beg = *pforeign_dso_path_beg;
         const unsigned foreign_dso_path_len = _strlen(foreign_dso_path_beg);
         const char *foreign_dso_path_end = &foreign_dso_path_beg[foreign_dso_path_len];
 
@@ -1129,6 +1153,8 @@ void _jove_recover_foreign_binary(uintptr_t CalleeAddr) {
             --s1;
             --s2;
           }
+          if (!match)
+            continue;
         }
 
         if (match && __jove_foreign_function_tables[i + 3] == NULL) {
@@ -1139,9 +1165,11 @@ void _jove_recover_foreign_binary(uintptr_t CalleeAddr) {
             foreign_fn_tbl[FIdx] += load_bias;
 
           __jove_foreign_function_tables[i + 3] = foreign_fn_tbl; /* install */
-          break;
+          goto matched;
         }
       }
+      }
+matched:
     }
   }
 
@@ -1198,7 +1226,9 @@ void _jove_recover_foreign_binary(uintptr_t CalleeAddr) {
       // search the foreign libs
       //
       for (unsigned i = 0; i < N; ++i) {
-        const char *foreign_dso_path_beg = _jove_foreign_lib_path(i);
+        const char **pforeign_dso_path_beg;
+        for_each_binary_paths(i + 3, pforeign_dso_path_beg) {
+        const char *const foreign_dso_path_beg = *pforeign_dso_path_beg;
         const unsigned foreign_dso_path_len = _strlen(foreign_dso_path_beg);
         const char *foreign_dso_path_end = &foreign_dso_path_beg[foreign_dso_path_len];
 
@@ -1218,10 +1248,13 @@ void _jove_recover_foreign_binary(uintptr_t CalleeAddr) {
             --s1;
             --s2;
           }
+          if (!match)
+            continue;
         }
 
         if (match)
           _UNREACHABLE("foreign binary already known");
+      }
       }
 
       char *path = _memchr(line, '/', eol - line);

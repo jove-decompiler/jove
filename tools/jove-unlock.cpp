@@ -34,9 +34,6 @@ int UnlockTool::Run(void) {
   } else {
     try {
       jv.FIdxSetsMtx.unlock();
-      jv.hash_to_binary_mtx.unlock();
-      jv.cached_hashes_mtx.unlock();
-      jv.name_to_binaries_mtx.unlock();
       jv.Binaries._mtx.unlock();
       std::for_each(std::execution::par_unseq,
                     jv.Binaries._deque.begin(),

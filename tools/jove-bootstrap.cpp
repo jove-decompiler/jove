@@ -3656,10 +3656,8 @@ void BootstrapTool::ScanAddressSpace(pid_t child, bool VMUpdate) {
       //
       // [vdso], [vsyscall], ...
       //
-      auto MaybeBIdxSet = jv.Lookup(nm.c_str());
-      if (MaybeBIdxSet) {
-        const ip_binary_index_set &BIdxSet = *MaybeBIdxSet;
-
+      binary_index_set BIdxSet;
+      if (jv.LookupByName(nm.c_str(), BIdxSet)) {
         assert(!BIdxSet.empty());
 #if 0
         if (BIdxSet.size() > 1 && IsVerbose())

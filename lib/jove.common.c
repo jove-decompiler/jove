@@ -1009,7 +1009,9 @@ void _jove_install_foreign_function_tables(void) {
       // search the foreign libs
       //
       for (unsigned i = 0; i < N; ++i) {
-        const char *foreign_dso_path_beg = _jove_foreign_lib_path(i);
+        const char **pforeign_dso_path_beg;
+        for_each_binary_paths(i + 3, pforeign_dso_path_beg) {
+        const char *const foreign_dso_path_beg = *pforeign_dso_path_beg;
         const unsigned foreign_dso_path_len = _strlen(foreign_dso_path_beg);
         const char *foreign_dso_path_end = &foreign_dso_path_beg[foreign_dso_path_len];
 
@@ -1029,6 +1031,8 @@ void _jove_install_foreign_function_tables(void) {
             --s1;
             --s2;
           }
+          if (!match)
+            continue;
         }
 
         if (match && __jove_foreign_function_tables[i + 3] == NULL) {
@@ -1039,9 +1043,11 @@ void _jove_install_foreign_function_tables(void) {
             foreign_fn_tbl[FIdx] += load_bias;
 
           __jove_foreign_function_tables[i + 3] = foreign_fn_tbl; /* install */
-          break;
+          goto matched;
         }
       }
+      }
+matched:
     }
   }
 
@@ -1450,7 +1456,9 @@ jove_thunk_return_t _jove_call(
       // search the foreign libs
       //
       for (unsigned i = 0; i < N; ++i) {
-        const char *foreign_dso_path_beg = _jove_foreign_lib_path(i);
+        const char **pforeign_dso_path_beg;
+        for_each_binary_paths(i + 3, pforeign_dso_path_beg) {
+        const char *const foreign_dso_path_beg = *pforeign_dso_path_beg;
         const unsigned foreign_dso_path_len = _strlen(foreign_dso_path_beg);
         const char *foreign_dso_path_end = &foreign_dso_path_beg[foreign_dso_path_len];
 
@@ -1470,6 +1478,8 @@ jove_thunk_return_t _jove_call(
             --s1;
             --s2;
           }
+          if (!match)
+            continue;
         }
 
         if (match && __jove_foreign_function_tables[i + 3] == NULL) {
@@ -1480,9 +1490,11 @@ jove_thunk_return_t _jove_call(
             foreign_fn_tbl[FIdx] += load_bias;
 
           __jove_foreign_function_tables[i + 3] = foreign_fn_tbl; /* install */
-          break;
+          goto matched;
         }
       }
+      }
+matched:
     }
   }
 
@@ -1539,7 +1551,9 @@ jove_thunk_return_t _jove_call(
       // search the foreign libs
       //
       for (unsigned i = 0; i < N; ++i) {
-        const char *foreign_dso_path_beg = _jove_foreign_lib_path(i);
+        const char **pforeign_dso_path_beg;
+        for_each_binary_paths(i + 3, pforeign_dso_path_beg) {
+        const char *const foreign_dso_path_beg = *pforeign_dso_path_beg;
         const unsigned foreign_dso_path_len = _strlen(foreign_dso_path_beg);
         const char *foreign_dso_path_end = &foreign_dso_path_beg[foreign_dso_path_len];
 
@@ -1559,6 +1573,8 @@ jove_thunk_return_t _jove_call(
             --s1;
             --s2;
           }
+          if (!match)
+            continue;
         }
 
         if (match) {
@@ -1580,6 +1596,7 @@ jove_thunk_return_t _jove_call(
           // if we get here, it's a function we don't know about.
           _jove_recover_foreign_function_at_offset(BBIdx, i + 3, (pc - min) + off);
           _UNREACHABLE();
+        }
         }
       }
 

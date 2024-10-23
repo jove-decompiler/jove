@@ -4,9 +4,6 @@ namespace jove {
 
 void forcefully_unlock(jv_t &jv) {
   __builtin_memset(&jv.FIdxSetsMtx, 0, sizeof(jv.FIdxSetsMtx));
-  __builtin_memset(&jv.hash_to_binary_mtx, 0, sizeof(jv.hash_to_binary_mtx));
-  __builtin_memset(&jv.cached_hashes_mtx, 0, sizeof(jv.cached_hashes_mtx));
-  __builtin_memset(&jv.name_to_binaries_mtx, 0, sizeof(jv.name_to_binaries_mtx));
   __builtin_memset(&jv.Binaries._mtx, 0, sizeof(jv.Binaries._mtx));
   std::for_each(
       std::execution::par_unseq,

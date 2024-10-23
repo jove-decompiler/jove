@@ -51,7 +51,7 @@
 #include <boost/optional.hpp>
 #include <boost/dynamic_bitset.hpp>
 #include <boost/container/static_vector.hpp>
-//#include <boost/container/scoped_allocator.hpp>
+#include <boost/container/scoped_allocator.hpp>
 
 #include <algorithm>
 #include <atomic>
@@ -84,6 +84,7 @@ class Binary;
 namespace jove {
 
 class explorer_t;
+struct jv_t;
 
 static inline std::string taddr2str(taddr_t x, bool zero_padded = true) {
   std::stringstream stream;
@@ -546,7 +547,7 @@ static inline std::string un_ips(const ip_string &x) {
   return res;
 }
 
-static inline ip_string &to_ips(ip_string &res, const std::string &x) {
+static inline ip_string &to_ips(ip_string &res, std::string_view x) {
   res.clear();
   res.reserve(x.size());
   std::copy(x.begin(), x.end(), std::back_inserter(res));
@@ -559,17 +560,21 @@ typedef boost::concurrent_flat_set<
     boost::interprocess::allocator<dynamic_target_t, segment_manager_t>>
     ip_dynamic_target_set;
 
-typedef boost::interprocess::set<
-    binary_index_t, std::less<binary_index_t>,
+typedef boost::concurrent_flat_set<
+    binary_index_t, boost::hash<binary_index_t>,
+    std::equal_to<binary_index_t>,
     boost::interprocess::allocator<binary_index_t, segment_manager_t>>
     ip_binary_index_set;
+
+typedef boost::container::flat_set<binary_index_t, std::less<binary_index_t>>
+    binary_index_set;
 
 typedef boost::unordered_flat_set<dynamic_target_t> dynamic_target_set;
 
 typedef std::pair<taddr_t, taddr_t> addr_intvl; /* right open interval */
 
 struct addr_intvl_cmp {
-  typedef void is_transparent;
+  using is_transparent = void;
 
   bool operator()(const addr_intvl &lhs, const addr_intvl &rhs) const {
     return lhs.first < rhs.first;
@@ -1128,6 +1133,38 @@ allocates_function_t::allocates_function_t(binary_t &b,
   store = FIdx;
 }
 
+typedef std::function<void(ip_string &)> get_data_t;
+
+struct adds_binary_t {
+  binary_index_t BIdx = invalid_basic_block_index;
+
+  adds_binary_t() = default;
+
+  // adds new binary, stores index
+  adds_binary_t(binary_index_t &out,
+                jv_t &jv,
+                explorer_t &E,
+                get_data_t get_data,
+                const hash_t &h,
+                const char *name,
+                const binary_index_t TargetIdx);
+
+  operator binary_index_t() const { return BIdx; }
+};
+
+struct allocates_binary_index_set_t {
+  ip_binary_index_set set;
+
+  allocates_binary_index_set_t() = default;
+
+  allocates_binary_index_set_t(const ip_void_allocator_t &A) : set(A) {}
+  allocates_binary_index_set_t(const ip_void_allocator_t &A,
+                               binary_index_t BIdx)
+      : set(A) {
+    set.insert(BIdx);
+  }
+};
+
 typedef boost::interprocess::allocator<binary_t, segment_manager_t>
     ip_binary_allocator;
 typedef boost::interprocess::deque<binary_t, ip_binary_allocator>
@@ -1139,25 +1176,96 @@ struct cached_hash_t {
   struct {
     int64_t sec = 0, nsec = 0;
   } mtime;
+
+  cached_hash_t(const char *path, std::string &file_contents, hash_t &out);
+
+  void Update(const char *path, std::string &file_contents);
 };
 
-typedef boost::unordered_flat_map<
+typedef boost::concurrent_flat_map<
     ip_string, cached_hash_t, boost::hash<ip_string>, std::equal_to<ip_string>,
     boost::interprocess::allocator<std::pair<const ip_string, cached_hash_t>,
                                    segment_manager_t>>
     ip_cached_hashes_type;
 
-typedef boost::unordered_flat_map<
-    hash_t, binary_index_t, boost::hash<hash_t>, std::equal_to<hash_t>,
-    boost::interprocess::allocator<std::pair<const hash_t, binary_index_t>,
+typedef boost::concurrent_flat_map<
+    hash_t, adds_binary_t, boost::hash<hash_t>, std::equal_to<hash_t>,
+    boost::interprocess::allocator<std::pair<const hash_t, adds_binary_t>,
                                    segment_manager_t>>
     ip_hash_to_binary_map_type;
 
-typedef boost::unordered_flat_map<
-    ip_string, ip_binary_index_set, boost::hash<ip_string>,
-    std::equal_to<ip_string>,
-    boost::interprocess::allocator<
-        std::pair<const ip_string, ip_binary_index_set>, segment_manager_t>>
+
+struct ip_string_hash_t  {
+  using is_transparent = void;
+
+  template <typename A>
+  std::size_t operator()(const boost::interprocess::basic_string<char, std::char_traits<char>, A> &str) const noexcept {
+    return std::hash<std::string_view>{}(std::string_view(str.data(), str.size()));
+  }
+
+  std::size_t operator()(std::string_view sv) const noexcept {
+    return std::hash<std::string_view>{}(sv);
+  }
+
+  std::size_t operator()(const char *s) const noexcept {
+    return std::hash<std::string_view>{}(s);
+  }
+};
+
+struct ip_string_equal_t {
+  using is_transparent = void;
+
+  template <typename A>
+  bool operator()(
+      const boost::interprocess::basic_string<char, std::char_traits<char>, A> &lhs,
+      const boost::interprocess::basic_string<char, std::char_traits<char>, A> &rhs) const noexcept {
+    return lhs == rhs;
+  }
+
+  template <typename A>
+  bool operator()(const boost::interprocess::basic_string<char, std::char_traits<char>, A> &lhs,
+      std::string_view rhs) const noexcept {
+    return lhs == rhs;
+  }
+
+  template <typename A>
+  bool operator()(std::string_view lhs,
+                  const boost::interprocess::basic_string<char, std::char_traits<char>, A> &rhs) const noexcept {
+    return lhs == rhs;
+  }
+
+  bool operator()(std::string_view lhs, std::string_view rhs) const noexcept {
+    return lhs == rhs;
+  }
+
+  template <typename A>
+  bool operator()(const boost::interprocess::basic_string<char, std::char_traits<char>, A> &lhs,
+      const char *rhs) const noexcept {
+    return lhs == rhs;
+  }
+
+  template <typename A>
+  bool operator()(
+      const char *lhs,
+      const boost::interprocess::basic_string<char, std::char_traits<char>, A> &rhs) const noexcept {
+    return lhs == rhs;
+  }
+
+  bool operator()(std::string_view lhs, const char* rhs) const noexcept {
+    return lhs == rhs;
+  }
+
+  bool operator()(const char* lhs, std::string_view rhs) const noexcept {
+    return lhs == rhs;
+  }
+};
+
+typedef boost::concurrent_flat_map<
+    ip_string, allocates_binary_index_set_t, ip_string_hash_t,
+    ip_string_equal_t,
+    boost::container::scoped_allocator_adaptor<boost::interprocess::allocator<
+        std::pair<const ip_string, allocates_binary_index_set_t>,
+        segment_manager_t>>>
     ip_name_to_binaries_map_type;
 
 typedef std::function<void(binary_t &)> on_newbin_proc_t;
@@ -1176,10 +1284,6 @@ struct jv_t {
 
   ip_name_to_binaries_map_type name_to_binaries;
 
-  ip_sharable_mutex hash_to_binary_mtx;
-  ip_mutex cached_hashes_mtx;
-  ip_sharable_mutex name_to_binaries_mtx;
-
   void InvalidateFunctionAnalyses(void);
 
   void clear(bool everything = false);
@@ -1194,8 +1298,8 @@ struct jv_t {
 
   jv_t() = delete;
 
-  boost::optional<binary_index_t> LookupByHash(const hash_t &h);
-  boost::optional<const ip_binary_index_set &> Lookup(const char *name);
+  std::optional<binary_index_t> LookupByHash(const hash_t &h);
+  bool LookupByName(const char *name, binary_index_set &out);
 
   std::pair<binary_index_t, bool>
   AddFromPath(explorer_t &,
@@ -1214,13 +1318,8 @@ struct jv_t {
   }
 
 private:
-  hash_t LookupAndCacheHash(const char *path,
-                            std::string &file_contents);
-  void UpdateCachedHash(cached_hash_t &,
-                        const char *path,
-                        std::string &file_contents);
-
-  typedef std::function<void(ip_string &)> get_data_t;
+  void LookupAndCacheHash(hash_t &out, const char *path,
+                          std::string &file_contents);
 
   std::pair<binary_index_t, bool> AddFromDataWithHash(explorer_t &E, get_data_t,
                                                       const hash_t &h,
@@ -1228,6 +1327,8 @@ private:
                                                       const binary_index_t TargetIdx,
                                                       on_newbin_proc_t on_newbin);
   void DoAdd(binary_t &, explorer_t &);
+
+  friend adds_binary_t;
 };
 
 static inline const char *string_of_terminator(TERMINATOR TermTy) {

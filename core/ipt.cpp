@@ -536,12 +536,10 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb_event(const struct pev_event &event
         if (!is_binary_index_valid(BIdx))
           break;
       } else {
-        auto MaybeBIdxSet = jv.Lookup(name.c_str());
-        if (!MaybeBIdxSet)
+        binary_index_set BIdxSet;
+        if (!jv.LookupByName(name.c_str(), BIdxSet))
           break;
-        const ip_binary_index_set &BIdxSet = *MaybeBIdxSet;
-        if (BIdxSet.empty())
-          break;
+        assert(!BIdxSet.empty());
 
         BIdx = *(BIdxSet).rbegin(); /* most recent (XXX?) */
         IsNew = false;

@@ -298,6 +298,24 @@ static inline void load(Archive &ar,
 }
 
 //
+// adds_binary_t
+//
+template <class Archive>
+static void serialize(Archive &ar, jove::adds_binary_t &x,
+                      const unsigned int version) {
+  ar &BOOST_SERIALIZATION_NVP(x.BIdx);
+}
+
+//
+// allocates_binary_index_set_t
+//
+template <class Archive>
+static void serialize(Archive &ar, jove::allocates_binary_index_set_t &x,
+                      const unsigned int version) {
+  ar &BOOST_SERIALIZATION_NVP(x.set);
+}
+
+//
 // allocates_basic_block_t
 //
 template <class Archive>
@@ -435,12 +453,20 @@ static inline void load_construct_data(Archive &ar, jove::ip_string *t,
 }
 
 template <class Archive>
+static inline void load_construct_data(Archive &ar,
+                                       jove::allocates_binary_index_set_t *t,
+                                       const unsigned int file_version) {
+  assert(jove::pAlloc_hack);
+  ::new (t)jove::allocates_binary_index_set_t(*jove::pAlloc_hack);
+}
+
+template <class Archive>
 static inline void load_construct_data(
     Archive &ar,
-    std::pair<const jove::ip_string, jove::ip_dynamic_target_set> *t,
+    std::pair<const jove::ip_string, jove::allocates_binary_index_set_t> *t,
     const unsigned int file_version) {
   assert(jove::pAlloc_hack);
-  ::new (t)std::pair<const jove::ip_string, jove::ip_dynamic_target_set>(*jove::pAlloc_hack, *jove::pAlloc_hack);
+  ::new (t)std::pair<const jove::ip_string, jove::allocates_binary_index_set_t>(*jove::pAlloc_hack, *jove::pAlloc_hack);
 }
 
 template <class Archive>

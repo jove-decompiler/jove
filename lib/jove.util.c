@@ -476,6 +476,9 @@ static _UNUSED uint64_t _u64ofhexstr(char *str_begin, char *str_end) {
        (s) != &str[n];                                                                          \
        (s) = (eos)+1, (eos) = (char *)/*maybenull*/_memchr((s), delim, (n) - ((s) - &str[0])))
 
+#define for_each_binary_paths(idx, pathp)                                      \
+  for ((pathp) = _jove_binary_paths(idx); *(pathp); ++(pathp))
+
 //
 // /proc/<pid>/maps
 //

@@ -20,9 +20,13 @@ size_t jvDefaultInitialSize(void) {
   abort();
 }
 
-void jv_t::UpdateCachedHash(cached_hash_t &cache,
-                            const char *path,
-                            std::string &file_contents) {
+cached_hash_t::cached_hash_t(const char *path, std::string &file_contents,
+                             hash_t &out) {
+  Update(path, file_contents);
+  out = h;
+}
+
+void cached_hash_t::Update(const char *path, std::string &file_contents) {
   struct stat st;
   if (stat(path, &st) < 0) {
     int err = errno;
@@ -30,66 +34,53 @@ void jv_t::UpdateCachedHash(cached_hash_t &cache,
                              std::string(strerror(err)));
   }
 
-  if (cache.mtime.sec == st.st_mtim.tv_sec &&
-      cache.mtime.nsec == st.st_mtim.tv_nsec)
+  if (mtime.sec == st.st_mtim.tv_sec &&
+      mtime.nsec == st.st_mtim.tv_nsec)
     return;
 
   //
   // otherwise
   //
-
   read_file_into_thing(path, file_contents);
-  cache.h = hash_data(file_contents);
-  cache.mtime.sec = st.st_mtim.tv_sec;
-  cache.mtime.nsec = st.st_mtim.tv_nsec;
+  h = hash_data(file_contents);
+  mtime.sec = st.st_mtim.tv_sec;
+  mtime.nsec = st.st_mtim.tv_nsec;
 }
 
-hash_t jv_t::LookupAndCacheHash(const char *path,
-                                std::string &file_contents) {
+void jv_t::LookupAndCacheHash(hash_t &out, const char *path,
+                              std::string &file_contents) {
   ip_string s(path, get_allocator());
 
-  {
-    ip_scoped_lock<ip_mutex> lck(this->cached_hashes_mtx);
-
-    // FIXME handle empty file
-    auto it = cached_hashes.find(s);
-    if (it == cached_hashes.end())
-      it = cached_hashes.emplace(s, cached_hash_t{}).first;
-
-    cached_hash_t &cache = (*it).second;
-    UpdateCachedHash(cache, path, file_contents);
-
-    return cache.h;
-  }
+  // FIXME handle empty file
+  this->cached_hashes.try_emplace_or_visit(
+      s, path, std::ref(file_contents), std::ref(out),
+      [&](typename ip_cached_hashes_type::value_type &x) -> void {
+        x.second.Update(path, file_contents);
+        out = x.second.h;
+      });
 }
 
-boost::optional<const ip_binary_index_set &> jv_t::Lookup(const char *name) {
+bool jv_t::LookupByName(const char *name, binary_index_set &out) {
   assert(name);
+  std::string_view sv(name);
 
-  ip_string s(get_allocator());
-  to_ips(s, name);
-
-  {
-    ip_sharable_lock<ip_sharable_mutex> s_lck(this->name_to_binaries_mtx);
-
-    auto it = this->name_to_binaries.find(s);
-    if (it == this->name_to_binaries.end()) {
-      return boost::optional<const ip_binary_index_set &>();
-    } else {
-      return (*it).second;
-    }
-  }
+  return static_cast<bool>(this->name_to_binaries.cvisit(
+      sv,
+      [&](const typename ip_name_to_binaries_map_type::value_type &x) -> void {
+        assert(!x.second.set.empty());
+        x.second.set.cvisit_all(
+            [&](binary_index_t BIdx) -> void { out.insert(BIdx); });
+      }));
 }
 
-boost::optional<binary_index_t> jv_t::LookupByHash(const hash_t &h) {
-  ip_sharable_lock<ip_sharable_mutex> s_lck(this->hash_to_binary_mtx);
+std::optional<binary_index_t> jv_t::LookupByHash(const hash_t &h) {
+  std::optional<binary_index_t> Res = std::nullopt;
 
-  auto it = this->hash_to_binary.find(h);
-  if (it == this->hash_to_binary.end()) {
-    return boost::optional<binary_index_t>();
-  } else {
-    return (*it).second;
-  }
+  this->hash_to_binary.cvisit(
+      h, [&](const typename ip_hash_to_binary_map_type::value_type &x) -> void {
+        Res = x.second;
+      });
+  return Res;
 }
 
 std::pair<binary_index_t, bool> jv_t::AddFromPath(explorer_t &E,
@@ -104,7 +95,8 @@ std::pair<binary_index_t, bool> jv_t::AddFromPath(explorer_t &E,
   fs::path the_path = fs::canonical(path);
 
   std::string file_contents;
-  hash_t h = LookupAndCacheHash(the_path.c_str(), file_contents);
+  hash_t h;
+  LookupAndCacheHash(h, the_path.c_str(), file_contents);
 
   get_data_t get_data;
   if (file_contents.empty())
@@ -138,27 +130,47 @@ std::pair<binary_index_t, bool> jv_t::AddFromDataWithHash(explorer_t &E,
                                                           const char *name,
                                                           const binary_index_t TargetIdx,
                                                           on_newbin_proc_t on_newbin) {
-  const bool HasTargetIdx = is_binary_index_valid(TargetIdx);
+  try {
+    binary_index_t Res = invalid_binary_index;
+    const bool isNewBinary = this->hash_to_binary.try_emplace_or_visit(
+        h, std::ref(Res), std::ref(*this), std::ref(E), get_data, std::ref(h),
+        name, TargetIdx,
+        [&](const typename ip_hash_to_binary_map_type::value_type &x) -> void {
+          Res = x.second;
+        });
 
-  //
-  // check if exists (fast path)
-  //
-  {
-    ip_sharable_lock<ip_sharable_mutex> s_lck(this->hash_to_binary_mtx);
+    assert(is_binary_index_valid(Res));
 
-    auto it = this->hash_to_binary.find(h);
-    if (it != this->hash_to_binary.end()) {
-      assert(!HasTargetIdx);
-      return std::make_pair((*it).second, false);
-    }
+    const bool isNewName = this->name_to_binaries.try_emplace_or_visit(
+        std::string_view(name), get_allocator(), Res,
+        [&](typename ip_name_to_binaries_map_type::value_type &x) -> void {
+          x.second.set.insert(Res);
+        });
+
+    if (unlikely(isNewBinary))
+      on_newbin(this->Binaries.at(Res));
+
+    return std::make_pair(Res, isNewBinary || isNewName);
+  } catch (...) {
+    return std::make_pair(invalid_binary_index, false);
   }
+}
+
+adds_binary_t::adds_binary_t(binary_index_t &out,
+                             jv_t &jv,
+                             explorer_t &E,
+                             get_data_t get_data,
+                             const hash_t &h,
+                             const char *name,
+                             const binary_index_t TargetIdx) {
+  const bool HasTargetIdx = is_binary_index_valid(TargetIdx);
 
   std::unique_ptr<binary_t> _b;
   if (!HasTargetIdx)
-    _b = std::make_unique<binary_t>(get_allocator());
+    _b = std::make_unique<binary_t>(jv.get_allocator());
 
   {
-    binary_t &b = _b ? *_b : Binaries.at(TargetIdx);
+    binary_t &b = _b ? *_b : jv.Binaries.at(TargetIdx);
 
     if (HasTargetIdx)
       b.Idx = TargetIdx;
@@ -172,41 +184,21 @@ std::pair<binary_index_t, bool> jv_t::AddFromDataWithHash(explorer_t &E,
       throw std::runtime_error(
           "AddFromDataWithHash: empty data"); /* uh oh... */
 
-    try {
-      DoAdd(b, E);
-    } catch (const std::exception &e) {
-      return std::make_pair(invalid_binary_index, false);
-    }
+    jv.DoAdd(b, E);
   }
 
-  ip_scoped_lock<ip_sharable_mutex> e_h2b_lck(this->hash_to_binary_mtx);
-
-  //
-  // check if exists
-  //
-  {
-    auto it = this->hash_to_binary.find(h);
-    if (it != this->hash_to_binary.end()) {
-      assert(!HasTargetIdx);
-      return std::make_pair((*it).second, false);
-    }
-  }
-
-  //
-  // nope!
-  //
-  binary_index_t BIdx = TargetIdx;
+  BIdx = TargetIdx;
   if (!HasTargetIdx) {
     assert(!is_binary_index_valid(BIdx));
 
-    ip_scoped_lock<ip_sharable_mutex> e_b_lck(this->Binaries._mtx);
+    ip_scoped_lock<ip_sharable_mutex> e_b_lck(jv.Binaries._mtx);
 
-    BIdx = Binaries._deque.size();
+    BIdx = jv.Binaries._deque.size();
     _b->Idx = BIdx;
-    Binaries._deque.push_back(std::move(*_b));
+    jv.Binaries._deque.push_back(std::move(*_b));
   }
 
-  binary_t &b = Binaries.at(BIdx);
+  binary_t &b = jv.Binaries.at(BIdx);
   b.Hash = h;
 
   assert(b.Idx == BIdx);
@@ -215,39 +207,12 @@ std::pair<binary_index_t, bool> jv_t::AddFromDataWithHash(explorer_t &E,
     for (function_t &f : b.Analysis.Functions)
       f.b = &b; /* XXX */
 
-  bool success = this->hash_to_binary.emplace(h, BIdx).second;
-  assert(success);
-
-  if (name) {
-    ip_scoped_lock<ip_sharable_mutex> e_n2b_lck(this->name_to_binaries_mtx);
-
-    auto it = this->name_to_binaries.find(b.Name);
-    if (it == this->name_to_binaries.end()) {
-      ip_binary_index_set set(get_allocator());
-      set.insert(BIdx);
-      this->name_to_binaries.insert(std::make_pair(b.Name, set));
-    } else {
-      (*it).second.insert(BIdx);
-    }
-  }
-
-  on_newbin(b);
-
-  return std::make_pair(BIdx, true);
+  out = BIdx;
 }
 
 void jv_t::clear(bool everything) {
-  {
-    ip_scoped_lock<ip_sharable_mutex> e_lck(this->name_to_binaries_mtx);
-
-    name_to_binaries.clear();
-  }
-
-  {
-    ip_scoped_lock<ip_sharable_mutex> e_lck(this->hash_to_binary_mtx);
-
-    hash_to_binary.clear();
-  }
+  name_to_binaries.clear();
+  hash_to_binary.clear();
 
   {
     ip_scoped_lock<ip_sharable_mutex> e_lck(this->Binaries._mtx);
@@ -255,11 +220,8 @@ void jv_t::clear(bool everything) {
     this->Binaries._deque.clear();
   }
 
-  if (everything) {
-    ip_scoped_lock<ip_mutex> e_lck(this->cached_hashes_mtx);
-
+  if (everything)
     cached_hashes.clear();
-  }
 }
 
 void jv_t::InvalidateFunctionAnalyses(void) {

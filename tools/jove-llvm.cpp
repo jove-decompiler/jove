@@ -491,6 +491,9 @@ struct LLVMTool : public StatefulJVTool<ToolKind::CopyOnWrite, binary_state_t,
 
   unordered_map<std::string, std::set<dynamic_target_t>> ExportedFunctions;
 
+  std::vector<unordered_set<std::string_view>> bin_paths_vec;
+  llvm::GlobalVariable *binNamesTable;
+
   disas_t disas;
 
   unordered_set<uint64_t> ConstantRelocationLocs;
@@ -656,6 +659,7 @@ public:
   int CreateSectionGlobalVariables(void);
   int CreatePossibleTramps(void);
   int CreateFunctionTable(void);
+  int CreateBinaryNamesTable(void);
   int FixupHelperStubs(void);
   int CreateNoAliasMetadata(void);
   int ProcessManualRelocations(void);
@@ -2584,6 +2588,7 @@ int LLVMTool::Run(void) {
   });
 
   return CreateFunctionTable()
+      || CreateBinaryNamesTable()
       || FixupHelperStubs()
       || CreateNoAliasMetadata()
       || ProcessManualRelocations()
@@ -6513,6 +6518,50 @@ int LLVMTool::CreateCopyRelocationHack(void) {
   return 0;
 }
 
+int LLVMTool::CreateBinaryNamesTable(void) {
+  bin_paths_vec.resize(jv.Binaries.size());
+
+  jv.name_to_binaries.cvisit_all(
+      [&](const typename ip_name_to_binaries_map_type::value_type &x) {
+        x.second.set.cvisit_all([&](binary_index_t BIdx) {
+          if (jv.Binaries.at(BIdx).is_file())
+            bin_paths_vec[BIdx].insert(x.first);
+        });
+      });
+
+    std::vector<llvm::Constant *> strArrArr;
+  for (const auto &set : bin_paths_vec) {
+    std::vector<llvm::Constant *> strArr;
+    for (const auto &str : set) {
+      llvm::Constant *strConst =
+          llvm::ConstantDataArray::getString(*Context, str);
+      auto *strGlobal =
+          new llvm::GlobalVariable(*Module, strConst->getType(), true,
+                                   llvm::GlobalValue::PrivateLinkage, strConst);
+      strArr.push_back(strGlobal);
+    }
+    strArr.push_back(
+        llvm::Constant::getNullValue(llvm::PointerType::get(*Context, 0)));
+
+    llvm::ArrayType *arrayType =
+        llvm::ArrayType::get(llvm::PointerType::get(*Context, 0), strArr.size());
+    llvm::Constant *arrayConst = llvm::ConstantArray::get(arrayType, strArr);
+
+    strArrArr.push_back(new llvm::GlobalVariable(
+        *Module, arrayConst->getType(), true, llvm::GlobalValue::PrivateLinkage,
+        arrayConst));
+  }
+
+  llvm::ArrayType *arrayType =
+      llvm::ArrayType::get(llvm::PointerType::get(*Context, 0), jv.Binaries.size());
+  llvm::Constant *arrayConst = llvm::ConstantArray::get(arrayType, strArrArr);
+  binNamesTable = new llvm::GlobalVariable(*Module, arrayConst->getType(), true,
+                                           llvm::GlobalValue::PrivateLinkage,
+                                           arrayConst, "__jove_bin_names");
+
+  return 0;
+}
+
 int LLVMTool::FixupHelperStubs(void) {
   binary_t &Binary = jv.Binaries.at(BinaryIndex);
 
@@ -6688,46 +6737,16 @@ int LLVMTool::FixupHelperStubs(void) {
       }, !opts.ForCBE);
 
   fillInFunctionBody(
-      Module->getFunction("_jove_foreign_lib_path"),
+      Module->getFunction("_jove_binary_paths"),
       [&](auto &IRB) {
         llvm::Function *F = IRB.GetInsertBlock()->getParent();
-
-        llvm::BasicBlock *DefaultBB = llvm::BasicBlock::Create(*Context, "", F);
-        {
-          llvm::IRBuilderTy defaultIRB(DefaultBB);
-
-          if (!opts.Debugify)
-          defaultIRB.SetCurrentDebugLocation(llvm::DILocation::get(
-              *Context, 7 /* Line */, 7 /* Column */, F->getSubprogram()));
-
-          defaultIRB.CreateRet(llvm::Constant::getNullValue(
-              F->getFunctionType()->getReturnType()));
-        }
-
-        {
-          assert(F->arg_begin() != F->arg_end());
-          llvm::SwitchInst *SI = IRB.CreateSwitch(F->arg_begin(), DefaultBB,
-                                                  jv.Binaries.size() - 3);
-          if (opts.ForeignLibs) {
-            for (binary_index_t BIdx = 3; BIdx < jv.Binaries.size(); ++BIdx) {
-              llvm::BasicBlock *CaseBB = llvm::BasicBlock::Create(*Context, "", F);
-              {
-                llvm::IRBuilderTy CaseIRB(CaseBB);
-
-                if (!opts.Debugify)
-                CaseIRB.SetCurrentDebugLocation(llvm::DILocation::get(
-                    *Context, 0 /* Line */, 0 /* Column */, F->getSubprogram()));
-
-                CaseIRB.CreateRet(
-                    CaseIRB.CreateGlobalStringPtr(jv.Binaries.at(BIdx).path_str()));
-              }
-
-              SI->addCase(llvm::ConstantInt::get(IRB.getInt32Ty(), BIdx - 3),  CaseBB);
-            }
-          }
-        }
+        llvm::Value *Idxs[2] = {
+            llvm::Constant::getNullValue(IRB.getInt64Ty()),
+            IRB.CreateZExt(F->arg_begin(), IRB.getInt64Ty())};
+        IRB.CreateRet(IRB.CreateLoad(
+            IRB.getPtrTy(), IRB.CreateInBoundsGEP(binNamesTable->getValueType(),
+                                                  binNamesTable, Idxs)));
       }, !opts.ForCBE);
-
 
   fillInFunctionBody(
       Module->getFunction("_jove_foreign_lib_function_table"),

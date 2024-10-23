@@ -203,10 +203,8 @@ void IPTTool::on_new_binary(binary_t &b) {
 binary_index_t IPTTool::BinaryFromName(const char *name) {
   using namespace std::placeholders;
 
-  auto MaybeBIdxSet = jv.Lookup(name);
-  if (MaybeBIdxSet) {
-    const ip_binary_index_set &BIdxSet = *MaybeBIdxSet;
-
+  binary_index_set BIdxSet;
+  if (jv.LookupByName(name, BIdxSet)) {
     assert(!BIdxSet.empty());
 
     binary_index_t BIdx = *BIdxSet.rbegin(); /* most recent (XXX?) */
