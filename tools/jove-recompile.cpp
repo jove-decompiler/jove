@@ -227,6 +227,10 @@ public:
 
   void write_dso_graphviz(std::ostream &out, const dso_graph_t &);
 
+  binary_index_t ChooseBinaryWithSoname(const std::string &soname);
+
+  unordered_map<std::string, unordered_set<binary_index_t>> soname_map;
+
   dso_graph_t dso_graph;
 
   std::atomic<bool> worker_failed = false;
@@ -630,7 +634,6 @@ int RecompileTool::Run(void) {
   //
   // create mapping from "soname" to binary
   //
-  boost::unordered::unordered_flat_map<std::string, binary_index_t> soname_map;
   for_each_binary(jv, [&](binary_t &b) {
     binary_state_t &x = state.for_binary(b);
 
@@ -638,9 +641,18 @@ int RecompileTool::Run(void) {
     if (soname.empty())
       return;
 
-    bool success = soname_map.emplace(soname, index_of_binary(b, jv)).second;
-    if (!success)
-      die("same soname \"" + soname + "\" occurs more than once");
+#if 0
+    auto it = soname_map.find(soname);
+    if (it != soname_map.end()) {
+      WithColor::error() << llvm::formatv(
+          "{0} and {1} have the same soname ({2})\n",
+          jv.Binaries.at((*it).second).Name.c_str(), b.Name.c_str(), soname);
+      return;
+    }
+#endif
+
+    bool success = soname_map[soname].insert(index_of_binary(b, jv)).second;
+    assert(success);
   });
 
   //
@@ -664,14 +676,15 @@ int RecompileTool::Run(void) {
     binary_state_t &x = state.for_binary(b);
 
     for (const std::string &needed : x.needed_vec) {
-      auto it = soname_map.find(needed);
-      if (it == soname_map.end()) {
+      binary_index_t ChosenBIdx = ChooseBinaryWithSoname(needed);
+
+      if (!is_binary_index_valid(ChosenBIdx)) {
         WithColor::warning() << llvm::formatv("unknown \"{0}\" needed by {1}\n",
                                               needed, b.path_str());
         return;
       }
 
-      binary_t &needed_b = jv.Binaries.at((*it).second);
+      binary_t &needed_b = jv.Binaries.at(ChosenBIdx);
       binary_state_t &y = state.for_binary(needed_b);
 
       boost::add_edge(x.dso, y.dso, dso_graph);
@@ -987,14 +1000,14 @@ int RecompileTool::Run(void) {
 #endif
 
     for (const std::string &needed : x.needed_vec) {
-      auto it = soname_map.find(needed);
-      if (it == soname_map.end()) {
+      binary_index_t ChosenBIdx = ChooseBinaryWithSoname(needed);
+      if (!is_binary_index_valid(ChosenBIdx)) {
         WithColor::warning()
             << llvm::formatv("no entry in soname_map for {0}\n", needed);
         continue;
       }
 
-      binary_t &needed_b = jv.Binaries.at((*it).second);
+      binary_t &needed_b = jv.Binaries.at(ChosenBIdx);
 
 #if 1
       const fs::path needed_chrooted_path(opts.Output + needed_b.path_str());
@@ -1214,14 +1227,15 @@ int RecompileTool::Run(void) {
         Arg(locator().runtime_implib(opts.MT));
 
         for (const std::string &needed : x.needed_vec) {
-          auto it = soname_map.find(needed);
-          if (it == soname_map.end()) {
+          binary_index_t ChosenBIdx = ChooseBinaryWithSoname(needed);
+
+          if (!is_binary_index_valid(ChosenBIdx)) {
             WithColor::warning()
                 << llvm::formatv("no entry in soname_map for {0}\n", needed);
             continue;
           }
 
-          binary_t &needed_b = jv.Binaries.at((*it).second);
+          binary_t &needed_b = jv.Binaries.at(ChosenBIdx);
 
           fs::path needed_chrooted_path(opts.Output + needed_b.path_str());
           Arg(needed_chrooted_path.replace_extension("lib").string());
@@ -1497,6 +1511,29 @@ void RecompileTool::write_dso_graphviz(std::ostream &out,
 
 void handle_sigint(int no) {
   Cancel.store(true);
+}
+
+binary_index_t RecompileTool::ChooseBinaryWithSoname(const std::string &soname) {
+  auto it = soname_map.find(soname);
+  if (it == soname_map.end())
+    return invalid_binary_index;
+
+  binary_index_t Res = invalid_binary_index;
+  fs::path exe_parent = fs::path(jv.Binaries.at(0).path()).parent_path();
+  const auto &BIdxSet = (*it).second;
+  for (binary_index_t BIdx : BIdxSet) {
+    binary_t &otherb = jv.Binaries.at(BIdx);
+    fs::path parent = fs::path(otherb.path()).parent_path();
+    if (exe_parent == parent) {
+      Res = BIdx; /* in same dir */
+      break;
+    }
+  }
+
+  if (!is_binary_index_valid(Res))
+    Res = *BIdxSet.begin(); /* arbitrary */
+
+  return Res;
 }
 
 }
