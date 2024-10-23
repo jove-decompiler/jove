@@ -1,0 +1,55 @@
+diff --git a/include/boost/interprocess/mapped_region.hpp b/include/boost/interprocess/mapped_region.hpp
+index 1ef2845..fa8785a 100644
+--- a/include/boost/interprocess/mapped_region.hpp
++++ b/include/boost/interprocess/mapped_region.hpp
+@@ -640,43 +640,49 @@ inline mapped_region::mapped_region
+ 
+    //We calculate the difference between demanded and valid offset
+    const offset_t page_offset = priv_page_offset_addr_fixup(offset, address);
+ 
+    if(size == 0){
+       struct ::stat buf;
+       if(0 != fstat(map_hnd.handle, &buf)){
+          error_info err(system_error_code());
+          throw interprocess_exception(err);
+       }
+       //This can throw
+       priv_size_from_mapping_size(buf.st_size, offset, page_offset, size);
+    }
+ 
+    #ifdef MAP_NOSYNC
+       #define BOOST_INTERPROCESS_MAP_NOSYNC MAP_NOSYNC
+    #else
+       #define BOOST_INTERPROCESS_MAP_NOSYNC 0
+    #endif   //MAP_NOSYNC
+ 
++   #ifdef MAP_NORESERVE
++      #define BOOST_INTERPROCESS_MAP_NORESERVE MAP_NORESERVE
++   #else
++      #define BOOST_INTERPROCESS_MAP_NORESERVE 0
++   #endif   //MAP_NORESERVE
++
+    //Create new mapping
+    int prot    = 0;
+-   int flags   = map_options == default_map_options ? BOOST_INTERPROCESS_MAP_NOSYNC : map_options;
++   int flags   = map_options == default_map_options ? (BOOST_INTERPROCESS_MAP_NORESERVE | BOOST_INTERPROCESS_MAP_NOSYNC) : map_options;
+ 
+    #undef BOOST_INTERPROCESS_MAP_NOSYNC
+ 
+    switch(mode)
+    {
+       case read_only:
+          prot  |= PROT_READ;
+          flags |= MAP_SHARED;
+       break;
+ 
+       case read_private:
+          prot  |= (PROT_READ);
+          flags |= MAP_PRIVATE;
+       break;
+ 
+       case read_write:
+          prot  |= (PROT_WRITE | PROT_READ);
+          flags |= MAP_SHARED;
+       break;
+ 
