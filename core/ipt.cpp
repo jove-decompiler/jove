@@ -768,13 +768,7 @@ int IntelPT<IPT_PARAMETERS_DEF>::process_packet(uint64_t offset,
         return errcode;
       }
 
-      switch (packet->type) {
-        default:
-          break;
-        case ppt_fup:
-        case ppt_tip:
-        case ppt_tip_pge:
-        case ppt_tip_pgd:
+      if (packet->type == ppt_fup) {
           errcode = pt_last_ip_update_ip(tracking.last_ip.get(),
                                          &packet->payload.ip, config.get());
           if (unlikely(errcode < 0))
@@ -785,9 +779,10 @@ int IntelPT<IPT_PARAMETERS_DEF>::process_packet(uint64_t offset,
           if constexpr (IsVeryVerbose()) {
             uint64_t IP;
             if (pt_last_ip_query(&IP, tracking.last_ip.get()) >= 0)
-              fprintf(stderr, "%" PRIx64 "\tskipping IP %016" PRIx64 "\n", offset, (uint64_t)IP);
+              fprintf(stderr, "%016" PRIx64 "\tskipping IP %016" PRIx64 "\n", offset, (uint64_t)IP);
           }
 
+          CurrPoint.Invalidate();
           return 1;
       }
 
@@ -891,7 +886,7 @@ int IntelPT<IPT_PARAMETERS_DEF>::on_ip(const taddr_t IP, const uint64_t offset) 
   auto it = intvl_map_find(AddressSpace, IP);
   if (unlikely(it == AddressSpace.end())) {
     if constexpr (IsVeryVerbose())
-      fprintf(stderr, "%" PRIx64 "\tunknown IP %016" PRIx64 "\n", offset, (uint64_t)IP);
+      fprintf(stderr, "%016" PRIx64 "\tunknown IP %016" PRIx64 "\n", offset, (uint64_t)IP);
 
     CurrPoint.Invalidate();
     return 1;
@@ -900,7 +895,7 @@ int IntelPT<IPT_PARAMETERS_DEF>::on_ip(const taddr_t IP, const uint64_t offset) 
   const binary_index_t BIdx = (*it).second.first;
   if (unlikely(!is_binary_index_valid(BIdx))) {
     if constexpr (IsVerbose())
-      fprintf(stderr, "%" PRIx64 "\tambiguous IP %016" PRIx64 "\n", offset, (uint64_t)IP);
+      fprintf(stderr, "%016" PRIx64 "\tambiguous IP %016" PRIx64 "\n", offset, (uint64_t)IP);
 
     CurrPoint.Invalidate();
     return 1;
@@ -964,7 +959,7 @@ int IntelPT<IPT_PARAMETERS_DEF>::on_ip(const taddr_t IP, const uint64_t offset) 
   });
 
   if constexpr (IsVeryVerbose())
-    fprintf(stderr, "%" PRIx64 "\t<IP> %016" PRIx64 " %s+%" PRIx64 "\n", offset,
+    fprintf(stderr, "%016" PRIx64 "\t<IP> %016" PRIx64 " %s+%" PRIx64 "\n", offset,
             (uint64_t)IP, b.Name.c_str(), (uint64_t)Addr);
 
   if (CurrPoint.Valid()) {
@@ -1033,7 +1028,7 @@ int IntelPT<IPT_PARAMETERS_DEF>::on_ip(const taddr_t IP, const uint64_t offset) 
       if (unlikely(bad)) {
         if constexpr (IsVerbose())
           fprintf(stderr,
-                  "OBJDUMP SAYS \"BADIP!\" %" PRIx64 "\t<IP> %" PRIx64 " %s+%" PRIx64 "\n",
+                  "OBJDUMP SAYS \"BADIP!\" %016" PRIx64 "\t<IP> %016" PRIx64 " %s+%" PRIx64 "\n",
                   offset, (uint64_t)IP, b.Name.c_str(), (uint64_t)Addr);
 
         if constexpr (IsVeryVerbose())
@@ -1067,7 +1062,7 @@ int IntelPT<IPT_PARAMETERS_DEF>::on_ip(const taddr_t IP, const uint64_t offset) 
     assert(CurrPoint.Valid());
   } catch (const invalid_control_flow_exception &) {
     if constexpr (IsVerbose())
-      fprintf(stderr, "BADIP %" PRIx64 "\t<IP> %" PRIx64 " %s+%" PRIx64 "\n",
+      fprintf(stderr, "BADIP %016" PRIx64 "\t<IP> %016" PRIx64 " %s+%" PRIx64 "\n",
               offset, (uint64_t)IP, b.Name.c_str(), (uint64_t)Addr);
 
     if constexpr (IsVeryVerbose())
