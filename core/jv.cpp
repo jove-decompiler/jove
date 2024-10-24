@@ -51,11 +51,11 @@ void cached_hash_t::Update(const char *path, std::string &file_contents) {
 
 void jv_t::LookupAndCacheHash(hash_t &out, const char *path,
                               std::string &file_contents) {
-  ip_string s(path, get_allocator());
+  assert(path);
+  std::string_view sv(path);
 
-  // FIXME handle empty file
   this->cached_hashes.try_emplace_or_visit(
-      s, path, std::ref(file_contents), std::ref(out),
+      sv, path, std::ref(file_contents), std::ref(out),
       [&](typename ip_cached_hashes_type::value_type &x) -> void {
         x.second.Update(path, file_contents);
         out = x.second.h;

@@ -1173,31 +1173,6 @@ typedef boost::interprocess::allocator<binary_t, segment_manager_t>
 typedef boost::interprocess::deque<binary_t, ip_binary_allocator>
     ip_binary_deque;
 
-struct cached_hash_t {
-  hash_t h;
-
-  struct {
-    int64_t sec = 0, nsec = 0;
-  } mtime;
-
-  cached_hash_t(const char *path, std::string &file_contents, hash_t &out);
-
-  void Update(const char *path, std::string &file_contents);
-};
-
-typedef boost::concurrent_flat_map<
-    ip_string, cached_hash_t, boost::hash<ip_string>, std::equal_to<ip_string>,
-    boost::interprocess::allocator<std::pair<const ip_string, cached_hash_t>,
-                                   segment_manager_t>>
-    ip_cached_hashes_type;
-
-typedef boost::concurrent_flat_map<
-    hash_t, adds_binary_t, boost::hash<hash_t>, std::equal_to<hash_t>,
-    boost::interprocess::allocator<std::pair<const hash_t, adds_binary_t>,
-                                   segment_manager_t>>
-    ip_hash_to_binary_map_type;
-
-
 struct ip_string_hash_t  {
   using is_transparent = void;
 
@@ -1262,6 +1237,31 @@ struct ip_string_equal_t {
     return lhs == rhs;
   }
 };
+
+struct cached_hash_t {
+  hash_t h;
+
+  struct {
+    int64_t sec = 0, nsec = 0;
+  } mtime;
+
+  cached_hash_t(const char *path, std::string &file_contents, hash_t &out);
+
+  void Update(const char *path, std::string &file_contents);
+};
+
+typedef boost::concurrent_flat_map<
+    ip_string, cached_hash_t, ip_string_hash_t, ip_string_equal_t,
+    boost::container::scoped_allocator_adaptor<boost::interprocess::allocator<
+        std::pair<const ip_string, cached_hash_t>, segment_manager_t>>>
+    ip_cached_hashes_type;
+
+typedef boost::concurrent_flat_map<
+    hash_t, adds_binary_t, boost::hash<hash_t>, std::equal_to<hash_t>,
+    boost::interprocess::allocator<std::pair<const hash_t, adds_binary_t>,
+                                   segment_manager_t>>
+    ip_hash_to_binary_map_type;
+
 
 typedef boost::concurrent_flat_map<
     ip_string, allocates_binary_index_set_t, ip_string_hash_t,
