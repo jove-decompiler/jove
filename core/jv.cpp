@@ -201,9 +201,14 @@ adds_binary_t::adds_binary_t(binary_index_t &out,
 
     std::unique_ptr<llvm::object::Binary> Bin = B::Create(b.data());
 
-    if (Options.Objdump)
-      run_objdump_and_parse_addresses(b.is_file() ? b.Name.c_str() : nullptr,
-                                      *Bin, b.Analysis.objdump);
+    if (Options.Objdump) {
+      try {
+        run_objdump_and_parse_addresses(b.is_file() ? b.Name.c_str() : nullptr,
+                                        *Bin, b.Analysis.objdump);
+      } catch (...) {
+        ; // failed to run objdump
+      }
+    }
 
     jv.DoAdd(b, explorer, *Bin, Options);
   }
@@ -239,6 +244,11 @@ void jv_t::clear(bool everything) {
     ip_scoped_lock<ip_sharable_mutex> e_lck(this->Binaries._mtx);
 
     this->Binaries._deque.clear();
+  }
+
+  {
+    ip_scoped_lock<ip_sharable_mutex> e_lck_sets(this->FIdxSetsMtx);
+    this->FIdxSets.clear();
   }
 
   if (everything)
