@@ -1383,8 +1383,15 @@ void RecompileTool::worker(dso_t dso) {
   //
   if (rc) {
     worker_failed.store(true);
-    WithColor::error() << llvm::formatv("jove llvm failed! see {0}\n",
-                                        path_to_stderr);
+    if (IsVerbose()) {
+      WithColor::error() << "jove llvm failed!\n";
+      std::string stderr_contents;
+      read_file_into_thing(path_to_stderr.c_str(), stderr_contents);
+      llvm::errs() << stderr_contents;
+    } else {
+      WithColor::error() << llvm::formatv("jove llvm failed! see {0}\n",
+                                          path_to_stderr);
+    }
     return;
   }
 
