@@ -1308,6 +1308,7 @@ struct jv_t {
   std::optional<binary_index_t> LookupByHash(const hash_t &h);
   bool LookupByName(const char *name, binary_index_set &out);
 
+  template <bool ValidatePath = true>
   std::pair<binary_index_t, bool>
   AddFromPath(explorer_t &,
               const char *path,

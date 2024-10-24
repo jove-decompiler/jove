@@ -85,20 +85,24 @@ std::optional<binary_index_t> jv_t::LookupByHash(const hash_t &h) {
   return Res;
 }
 
+template <bool ValidatePath>
 std::pair<binary_index_t, bool> jv_t::AddFromPath(explorer_t &explorer,
                                                   const char *path,
                                                   on_newbin_proc_t on_newbin,
                                                   const AddOptions_t &Options) {
   assert(path);
 
-  if (!fs::exists(path))
-    return std::make_pair(invalid_binary_index, false);
+  std::conditional_t<ValidatePath, fs::path, std::monostate> canon_path;
+  if constexpr (ValidatePath) {
+    if (!fs::exists(path))
+      return std::make_pair(invalid_binary_index, false);
 
-  fs::path the_path = fs::canonical(path);
+    path = (canon_path = fs::canonical(path)).c_str();
+  }
 
   std::string file_contents;
   hash_t h;
-  LookupAndCacheHash(h, the_path.c_str(), file_contents);
+  LookupAndCacheHash(h, path, file_contents);
 
   get_data_t get_data;
   if (file_contents.empty())
@@ -109,7 +113,7 @@ std::pair<binary_index_t, bool> jv_t::AddFromPath(explorer_t &explorer,
       memcpy(&out[0], file_contents.data(), out.size());
     };
 
-  return AddFromDataWithHash(explorer, get_data, h, the_path.c_str(),
+  return AddFromDataWithHash(explorer, get_data, h, path,
                              invalid_binary_index, on_newbin, Options);
 }
 
@@ -267,5 +271,16 @@ function_t::function_t(binary_t &b, function_index_t Idx)
 
 function_t::function_t(const ip_void_allocator_t &A)
     : Callers(A) {}
+
+#define VALUES_TO_INSTANTIATE_WITH                                             \
+    ((true))                                                                   \
+    ((false))
+
+#define GET_VALUE(x) BOOST_PP_TUPLE_ELEM(0, x)
+#define DO_INSTANTIATE(r, data, elem)                                          \
+  template std::pair<binary_index_t, bool> jv_t::AddFromPath<GET_VALUE(elem)>( \
+      explorer_t &, const char *, on_newbin_proc_t, const AddOptions_t &);
+
+BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, VALUES_TO_INSTANTIATE_WITH)
 
 }
