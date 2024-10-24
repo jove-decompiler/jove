@@ -394,6 +394,8 @@ public:
   int TracerLoop(pid_t child);
 
   // breakpoints aren't placed until on_binary_loaded()
+
+  template <bool ValidatePath>
   binary_index_t BinaryFromPath(pid_t, const char *path);
   binary_index_t BinaryFromData(pid_t, std::string_view data,
                                 const char *name = nullptr);
@@ -3671,7 +3673,7 @@ void BootstrapTool::ScanAddressSpace(pid_t child, bool VMUpdate) {
         continue;
       }
     } else {
-      BIdx = BinaryFromPath(child, nm.c_str());
+      BIdx = BinaryFromPath<false>(child, nm.c_str());
     }
 
     if (!is_binary_index_valid(BIdx))
@@ -4317,7 +4319,7 @@ void BootstrapTool::scan_rtld_link_map(pid_t child) {
                                   (void *)lm.l_ld);
 
     if (!s.empty() && s.front() == '/' && fs::exists(s)) {
-      ignore_exception([&]() { BinaryFromPath(child, s.c_str()); });
+      ignore_exception([&]() { BinaryFromPath<true>(child, s.c_str()); });
     }
 
     lmp = lm.l_next;
@@ -4327,6 +4329,7 @@ void BootstrapTool::scan_rtld_link_map(pid_t child) {
     ScanAddressSpace(child);
 }
 
+template <bool ValidatePath>
 binary_index_t BootstrapTool::BinaryFromPath(pid_t child, const char *path) {
   struct EmptyBasicBlockProcSetter {
     BootstrapTool &tool;
@@ -4342,8 +4345,8 @@ binary_index_t BootstrapTool::BinaryFromPath(pid_t child, const char *path) {
 
   using namespace std::placeholders;
 
-  return jv.AddFromPath(*E, path,
-                        std::bind(&BootstrapTool::on_new_binary, this, _1)).first;
+  return jv.AddFromPath<ValidatePath>(*E, path,
+      std::bind(&BootstrapTool::on_new_binary, this, _1)).first;
 }
 
 binary_index_t BootstrapTool::BinaryFromData(pid_t child, std::string_view sv,
@@ -4735,7 +4738,7 @@ binary_index_t BootstrapTool::binary_at_program_counter(pid_t child,
 
     BIdx = BinaryFromData(child, sv, nm.c_str());
   } else {
-    BIdx = BinaryFromPath(child, nm.c_str());
+    BIdx = BinaryFromPath<false>(child, nm.c_str());
   }
 
   if (!is_binary_index_valid(BIdx)) {
