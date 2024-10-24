@@ -293,7 +293,7 @@ int InitTool::Run(void) {
         try {
           if (!jv.Add(explorer, BIdx, AddOptions))
             WithColor::warning()
-                << llvm::formatv("Binary not new: \"{0}\"", b.Name.c_str());
+                << llvm::formatv("Binary not new: \"{0}\"\n", b.Name.c_str());
         } catch (const std::exception &e) {
           die(std::string("failed to add \"") + b.Name.c_str() +
               std::string("\": ") + e.what());
