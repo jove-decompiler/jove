@@ -1135,6 +1135,8 @@ allocates_function_t::allocates_function_t(binary_t &b,
 
 typedef std::function<void(ip_string &)> get_data_t;
 
+struct AddOptions_t;
+
 struct adds_binary_t {
   binary_index_t BIdx = invalid_basic_block_index;
 
@@ -1142,12 +1144,13 @@ struct adds_binary_t {
 
   // adds new binary, stores index
   adds_binary_t(binary_index_t &out,
-                jv_t &jv,
-                explorer_t &E,
+                jv_t &,
+                explorer_t &,
                 get_data_t get_data,
-                const hash_t &h,
+                const hash_t &,
                 const char *name,
-                const binary_index_t TargetIdx);
+                const binary_index_t TargetIdx,
+                const AddOptions_t &);
 
   operator binary_index_t() const { return BIdx; }
 };
@@ -1270,6 +1273,10 @@ typedef boost::concurrent_flat_map<
 
 typedef std::function<void(binary_t &)> on_newbin_proc_t;
 
+struct AddOptions_t {
+  bool Objdump = false;
+};
+
 struct jv_t {
   //
   // references to binary_t will never be invalidated.
@@ -1304,14 +1311,20 @@ struct jv_t {
   std::pair<binary_index_t, bool>
   AddFromPath(explorer_t &,
               const char *path,
-              const binary_index_t TargetIdx = invalid_binary_index,
-              on_newbin_proc_t on_newbin = [](binary_t &) {});
+              on_newbin_proc_t on_newbin = [](binary_t &) {},
+              const AddOptions_t &Options = AddOptions_t());
+
+  // it is assumed the data and name has already been stored in the
+  // binary specified by Idx. throws if fails
+  bool Add(explorer_t &, const binary_index_t,
+           const AddOptions_t &Options = AddOptions_t());
+
   std::pair<binary_index_t, bool>
   AddFromData(explorer_t &,
               std::string_view data,
               const char *name = nullptr,
-              const binary_index_t TargetIdx = invalid_binary_index,
-              on_newbin_proc_t on_newbin = [](binary_t &) {});
+              on_newbin_proc_t on_newbin = [](binary_t &) {},
+              const AddOptions_t &Options = AddOptions_t());
 
   unsigned NumBinaries(void) {
     return Binaries.size();
@@ -1321,12 +1334,17 @@ private:
   void LookupAndCacheHash(hash_t &out, const char *path,
                           std::string &file_contents);
 
-  std::pair<binary_index_t, bool> AddFromDataWithHash(explorer_t &E, get_data_t,
+  std::pair<binary_index_t, bool> AddFromDataWithHash(explorer_t &E,
+                                                      get_data_t,
                                                       const hash_t &h,
                                                       const char *name,
                                                       const binary_index_t TargetIdx,
-                                                      on_newbin_proc_t on_newbin);
-  void DoAdd(binary_t &, explorer_t &);
+                                                      on_newbin_proc_t on_newbin,
+                                                      const AddOptions_t &Options);
+  void DoAdd(binary_t &,
+             explorer_t &,
+             llvm::object::Binary &,
+             const AddOptions_t &);
 
   friend adds_binary_t;
 };

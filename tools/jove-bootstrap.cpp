@@ -4362,7 +4362,7 @@ binary_index_t BootstrapTool::BinaryFromData(pid_t child, std::string_view sv,
 
   using namespace std::placeholders;
 
-  return jv.AddFromData(*E, sv, name, invalid_binary_index,
+  return jv.AddFromData(*E, sv, name,
                         std::bind(&BootstrapTool::on_new_binary, this, _1)).first;
 }
 

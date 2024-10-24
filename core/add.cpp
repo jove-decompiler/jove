@@ -20,9 +20,10 @@ namespace jove {
 
 #include "relocs_common.hpp"
 
-void jv_t::DoAdd(binary_t &b, explorer_t &E) {
-  std::unique_ptr<obj::Binary> Bin = B::Create(b.data());
-
+void jv_t::DoAdd(binary_t &b,
+                 explorer_t &explorer,
+                 llvm::object::Binary &Bin,
+                 const AddOptions_t &Options) {
   b.IsDynamicLinker = false;
   b.IsExecutable = false;
   b.IsVDSO = false;
@@ -34,8 +35,11 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
     if (!Entrypoint)
       return invalid_basic_block_index;
 
+    if (Options.Objdump && b.Analysis.objdump.is_addr_bad(Entrypoint))
+      return invalid_basic_block_index;
+
     try {
-      return E.explore_basic_block(b, *Bin, Entrypoint);
+      return explorer.explore_basic_block(b, Bin, Entrypoint);
     } catch (...) {
       return invalid_basic_block_index;
     }
@@ -48,7 +52,7 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
     if (unlikely(!is_basic_block_index_valid(BasicBlockAtAddress(Entrypoint))))
       return invalid_function_index;
 
-    return E.explore_function(b, *Bin, Entrypoint);
+    return explorer.explore_function(b, Bin, Entrypoint);
   };
   auto ABIAtAddress = [&](uint64_t Entrypoint) -> void {
     function_index_t FIdx = FunctionAtAddress(Entrypoint);
@@ -59,7 +63,7 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
     b.Analysis.Functions.at(FIdx).IsABI = true;
   };
 
-  B::_elf(*Bin,
+  B::_elf(Bin,
     [&](ELFO &O) {
   const ELFF &Elf = O.getELFFile();
 
@@ -396,7 +400,7 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
         if (!resolverAddr) {
           llvm::Expected<const uint8_t *> ExpectedPtr = Elf.toMappedAddr(R.Offset);
           if (ExpectedPtr)
-            resolverAddr = B::extractAddress(*Bin, *ExpectedPtr);
+            resolverAddr = B::extractAddress(Bin, *ExpectedPtr);
         }
 
         if (resolverAddr)
@@ -442,7 +446,7 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
         llvm::Expected<const uint8_t *> ExpectedPtr = Elf.toMappedAddr(R.Offset);
 
         if (ExpectedPtr)
-          Addr = B::extractAddress(*Bin, *ExpectedPtr);
+          Addr = B::extractAddress(Bin, *ExpectedPtr);
       }
 
 #if 0
@@ -464,7 +468,7 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
   }
     });
 
-  B::_coff(*Bin,
+  B::_coff(Bin,
     [&](COFFO &O) {
       //b.IsExecutable = O.getCharacteristics() & llvm::COFF::IMAGE_FILE_DLL;
 
@@ -578,7 +582,6 @@ void jv_t::DoAdd(binary_t &b, explorer_t &E) {
     }
   );
 
-  ScanForSjLj(b, *Bin, E);
+  ScanForSjLj(b, Bin, explorer);
 }
-
 }

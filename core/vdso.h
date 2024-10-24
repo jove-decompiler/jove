@@ -5,7 +5,9 @@
 namespace jove {
 
 std::string_view get_vdso(void); /* pointer to [vdso] */
-bool capture_vdso(std::string &out);
 std::string_view hallucinate_vdso(void);
+
+template <typename StringTy>
+bool capture_vdso(StringTy &out);
 
 }

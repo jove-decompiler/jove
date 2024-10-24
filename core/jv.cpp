@@ -2,6 +2,8 @@
 #include "util.h"
 #include "hash.h"
 #include "sizes.h"
+#include "objdump.h"
+#include "B.h"
 
 #include <boost/filesystem.hpp>
 
@@ -83,10 +85,10 @@ std::optional<binary_index_t> jv_t::LookupByHash(const hash_t &h) {
   return Res;
 }
 
-std::pair<binary_index_t, bool> jv_t::AddFromPath(explorer_t &E,
+std::pair<binary_index_t, bool> jv_t::AddFromPath(explorer_t &explorer,
                                                   const char *path,
-                                                  const binary_index_t TargetIdx,
-                                                  on_newbin_proc_t on_newbin) {
+                                                  on_newbin_proc_t on_newbin,
+                                                  const AddOptions_t &Options) {
   assert(path);
 
   if (!fs::exists(path))
@@ -107,34 +109,46 @@ std::pair<binary_index_t, bool> jv_t::AddFromPath(explorer_t &E,
       memcpy(&out[0], file_contents.data(), out.size());
     };
 
-  return AddFromDataWithHash(E, get_data, h, the_path.c_str(), TargetIdx, on_newbin);
+  return AddFromDataWithHash(explorer, get_data, h, the_path.c_str(),
+                             invalid_binary_index, on_newbin, Options);
 }
 
-std::pair<binary_index_t, bool> jv_t::AddFromData(explorer_t &E,
+bool jv_t::Add(explorer_t &explorer,
+               const binary_index_t BIdx,
+               const AddOptions_t &Options) {
+  binary_t &b = Binaries.at(BIdx);
+  return AddFromDataWithHash(
+             explorer, [](ip_string &) -> void {}, hash_data(b.Data),
+             b.Name.c_str(), BIdx, [](binary_t &) {}, Options)
+      .second;
+}
+
+std::pair<binary_index_t, bool> jv_t::AddFromData(explorer_t &explorer,
                                                   std::string_view x,
                                                   const char *name,
-                                                  const binary_index_t TargetIdx,
-                                                  on_newbin_proc_t on_newbin) {
+                                                  on_newbin_proc_t on_newbin,
+                                                  const AddOptions_t &Options) {
   return AddFromDataWithHash(
-      E,
+      explorer,
       [&](ip_string &out) -> void {
         out.resize(x.size());
         memcpy(&out[0], x.data(), out.size());
       },
-      hash_data(x), name, TargetIdx, on_newbin);
+      hash_data(x), name, invalid_binary_index, on_newbin, Options);
 }
 
-std::pair<binary_index_t, bool> jv_t::AddFromDataWithHash(explorer_t &E,
+std::pair<binary_index_t, bool> jv_t::AddFromDataWithHash(explorer_t &explorer,
                                                           get_data_t get_data,
                                                           const hash_t &h,
                                                           const char *name,
                                                           const binary_index_t TargetIdx,
-                                                          on_newbin_proc_t on_newbin) {
+                                                          on_newbin_proc_t on_newbin,
+                                                          const AddOptions_t &Options) {
   try {
     binary_index_t Res = invalid_binary_index;
     const bool isNewBinary = this->hash_to_binary.try_emplace_or_visit(
-        h, std::ref(Res), std::ref(*this), std::ref(E), get_data, std::ref(h),
-        name, TargetIdx,
+        h, std::ref(Res), std::ref(*this), std::ref(explorer), get_data,
+        std::ref(h), name, TargetIdx, std::ref(Options),
         [&](const typename ip_hash_to_binary_map_type::value_type &x) -> void {
           Res = x.second;
         });
@@ -158,11 +172,12 @@ std::pair<binary_index_t, bool> jv_t::AddFromDataWithHash(explorer_t &E,
 
 adds_binary_t::adds_binary_t(binary_index_t &out,
                              jv_t &jv,
-                             explorer_t &E,
+                             explorer_t &explorer,
                              get_data_t get_data,
                              const hash_t &h,
                              const char *name,
-                             const binary_index_t TargetIdx) {
+                             const binary_index_t TargetIdx,
+                             const AddOptions_t &Options) {
   const bool HasTargetIdx = is_binary_index_valid(TargetIdx);
 
   std::unique_ptr<binary_t> _b;
@@ -172,19 +187,25 @@ adds_binary_t::adds_binary_t(binary_index_t &out,
   {
     binary_t &b = _b ? *_b : jv.Binaries.at(TargetIdx);
 
-    if (HasTargetIdx)
-      b.Idx = TargetIdx;
-
-    if (name)
-      to_ips(b.Name, name);
-
-    get_data(b.Data);
+    if (HasTargetIdx) {
+      b.Idx = TargetIdx; /* might as well */
+    } else {
+      get_data(b.Data);
+      if (name)
+        to_ips(b.Name, name);
+    }
 
     if (b.Data.empty())
       throw std::runtime_error(
           "AddFromDataWithHash: empty data"); /* uh oh... */
 
-    jv.DoAdd(b, E);
+    std::unique_ptr<llvm::object::Binary> Bin = B::Create(b.data());
+
+    if (Options.Objdump)
+      run_objdump_and_parse_addresses(b.is_file() ? b.Name.c_str() : nullptr,
+                                      *Bin, b.Analysis.objdump);
+
+    jv.DoAdd(b, explorer, *Bin, Options);
   }
 
   BIdx = TargetIdx;

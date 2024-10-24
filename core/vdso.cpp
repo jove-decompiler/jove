@@ -3,6 +3,7 @@
 #include "temp.h"
 #include "process.h"
 #include "fd.h"
+#include "jove/jove.h" /* for ip_string */
 
 #include <cstring>
 #include <stdexcept>
@@ -57,7 +58,8 @@ static const uint8_t dumper_bin_bytes[] = {
 #include "dump-vdso.inc"
 };
 
-bool capture_vdso(std::string &out) {
+template <typename StringTy>
+bool capture_vdso(StringTy &out) {
   temp_executable temp_exe(&dumper_bin_bytes[0],
                            sizeof(dumper_bin_bytes),
                            "dump-vdso-" TARGET_ARCH_NAME);
@@ -118,5 +120,14 @@ std::string_view hallucinate_vdso(void) {
   return std::string_view(reinterpret_cast<const char *>(&some_vdso_bytes[0]),
                           sizeof(some_vdso_bytes));
 }
+
+#define TYPES_TO_INSTANTIATE_WITH                                              \
+    ((std::string))                                                            \
+    ((ip_string))
+
+#define GET_TYPE(x) BOOST_PP_TUPLE_ELEM(0, x)
+#define DO_INSTANTIATE(r, data, elem)                                          \
+  template bool capture_vdso<GET_TYPE(elem)>(GET_TYPE(elem) &out);
+BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, TYPES_TO_INSTANTIATE_WITH)
 
 }

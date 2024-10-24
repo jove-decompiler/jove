@@ -34,15 +34,33 @@ namespace obj = llvm::object;
 using llvm::WithColor;
 
 namespace jove {
+namespace {
 
-class InitTool : public JVTool<ToolKind::Standard> {
+struct binary_state_t {
+  std::unique_ptr<llvm::object::Binary> Bin;
+  binary_state_t(const binary_t &b) {
+    Bin = B::Create(b.data());
+  }
+};
+
+}
+
+class InitTool
+    : public StatefulJVTool<ToolKind::Standard, binary_state_t, void, void> {
   struct Cmdline {
     cl::opt<std::string> Prog;
+    cl::opt<bool> Objdump;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : Prog(cl::Positional, cl::desc("prog"), cl::Required,
-               cl::value_desc("filename"), cl::cat(JoveCategory)) {}
+               cl::value_desc("filename"), cl::cat(JoveCategory)),
+
+          Objdump("objdump",
+                  cl::desc("Run objdump and treat output as authoritative."),
+                  cl::init(true), cl::cat(JoveCategory)) {}
   } opts;
+
+  AddOptions_t AddOptions;
 
   int rtld_trace_loaded_objects(const char *prog, std::string &out);
   void parse_loaded_objects(const std::string &rtld_stdout,
@@ -112,6 +130,8 @@ int InitTool::Run(void) {
     WithColor::error() << "binary does not exist\n";
     return 1;
   }
+
+  AddOptions.Objdump = opts.Objdump;
 
   fs::path prog = fs::canonical(opts.Prog);
 
@@ -221,50 +241,62 @@ int InitTool::Run(void) {
 
   tiny_code_generator_t tcg;
   disas_t disas;
-  explorer_t E(jv, disas, tcg, IsVeryVerbose());
+  explorer_t explorer(jv, disas, tcg, IsVeryVerbose());
 
   std::for_each(
       std::execution::par_unseq,
       idx_range.begin(),
       idx_range.end(),
-      [&](unsigned i) {
-        switch (i) {
-        case 0: jv.AddFromPath(E, prog.c_str(), static_cast<binary_index_t>(0)); return;
-        case 1: jv.AddFromPath(E, rtld.c_str(), static_cast<binary_index_t>(1)); return;
-        case 2: {
-          std::string_view sv;
-          std::string vdso;
+      [&](unsigned BIdx) {
+        binary_t &b = jv.Binaries.at(BIdx);
 
-          if (capture_vdso(vdso)) {
-            if (vdso.empty()) {
+        //
+        // Name
+        //
+        std::string path_to_bin;
+        switch (BIdx) {
+        case 0:  to_ips(b.Name, prog.c_str());           break;
+        case 1:  to_ips(b.Name, rtld.c_str());           break;
+        case 2:  to_ips(b.Name, "[vdso]");               break;
+        default: to_ips(b.Name, binary_paths.at(BIdx - 3)); break;
+        }
+
+        //
+        // Data
+        //
+        switch (BIdx) {
+        case 2:
+          if (capture_vdso(b.Data)) {
+            if (b.Data.empty()) {
               // no [vdso]. we could be running under qemu-user. in this case
               // since some code in jove assumes the existence of [vdso], we'll
               // hallucinate one.
               if (IsVerbose())
                 WithColor::note() << "hallucinating [vdso]\n";
 
-              sv = hallucinate_vdso();
-            } else {
-              sv = vdso;
+              b.Data = hallucinate_vdso();
             }
           } else {
             die("utilities/dump-vdso failed. is qemu-user properly installed?");
           }
-
-          try {
-            jv.AddFromData(E, sv, "[vdso]", static_cast<binary_index_t>(2));
-          } catch (const std::exception &e) {
-            die(std::string("failed on [vdso]: ") + e.what());
-          }
-
-          return;
-        }
+          break;
 
         default:
-          assert(i >= 3);
-          jv.AddFromPath(E, binary_paths.at(i - 3).c_str(),
-                         static_cast<binary_index_t>(i));
-          return;
+          assert(b.is_file());
+          read_file_into_thing(b.path(), b.Data);
+          break;
+        }
+
+        //
+        // explore them for real
+        //
+        try {
+          if (!jv.Add(explorer, BIdx, AddOptions))
+            WithColor::warning()
+                << llvm::formatv("Binary not new: \"{0}\"", b.Name.c_str());
+        } catch (const std::exception &e) {
+          die(std::string("failed to add \"") + b.Name.c_str() +
+              std::string("\": ") + e.what());
         }
       });
 

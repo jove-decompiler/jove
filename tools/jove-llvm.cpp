@@ -8493,7 +8493,14 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
       TCGLLVMUserBreakPoint();
 
     unsigned len;
-    std::tie(len, T) = TCG->translate(Addr + size, Addr + Size);
+
+    try {
+      std::tie(len, T) = TCG->translate(Addr + size, Addr + Size);
+    } catch (const illegal_op_exception &) {
+      WithColor::error() << llvm::formatv("tcg: illegal_op_exception @ {0:x}\n",
+                                          Addr);
+      return 1;
+    }
 
     if (unlikely(ForAddrMatch))
       TCG->dump_operations();
