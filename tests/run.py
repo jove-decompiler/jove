@@ -44,10 +44,11 @@ def main():
                       extra_bringup_args=extra_bringup_args, \
                       unattended=unattended)
 
-  tester.get_ready()
-
   if args.just_update_jove:
+    tester.update_jove()
     return 0
+
+  tester.get_ready()
 
   if args.single_threaded:
       print(f"running single-threaded tests ({args.single_threaded})")
