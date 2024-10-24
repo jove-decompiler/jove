@@ -208,7 +208,7 @@ static void hexdump(FILE *stream, const void *ptr, int buflen) {
 #endif
 
 template <IPT_PARAMETERS_DCL>
-void IntelPT<IPT_PARAMETERS_DEF>::examine_sb_event(const struct pev_event &event) {
+void IntelPT<IPT_PARAMETERS_DEF>::examine_sb_event(const struct pev_event &event, uint64_t offset) {
     auto do_comm_exec = [&](const struct pev_record_comm &comm) -> void {
       AddressSpace.clear();
 
@@ -219,8 +219,8 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb_event(const struct pev_event &event
 
       if (boost::algorithm::ends_with(jv.Binaries.at(0).Name.c_str(), name) ||
           Our.pid == pid) {
-        if (IsVerbose())
-          fprintf(stderr, "comm=%s\n", comm.comm);
+        if constexpr (IsVerbose())
+          fprintf(stderr, "comm.exec \"%s\"\n", comm.comm);
 
         if (IsCOFF) {
           if (Our.pid != pid)
@@ -228,12 +228,19 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb_event(const struct pev_event &event
           else
             ++_wine.ExecCount;
 
-          if (IsVerbose() && RightWineExecCount())
-            fprintf(stderr, "second exec (%x)\n", static_cast<unsigned>(pid));
+          if constexpr (IsVerbose()) {
+            if (RightWineExecCount())
+              fprintf(stderr, "second exec for %u\n",
+                      static_cast<unsigned>(pid));
+            else
+              fprintf(stderr, "wrong exec count (%u) for %u\n",
+                      _wine.ExecCount,
+                      static_cast<unsigned>(pid));
+          }
         }
 
         if (IsVerbose() && Our.pid != pid)
-          fprintf(stderr, "our pid is %x\n", static_cast<unsigned>(pid));
+          fprintf(stderr, "our pid is %u\n", static_cast<unsigned>(pid));
 
         Our.pid = pid;
       }
@@ -288,10 +295,51 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb_event(const struct pev_event &event
       break;
     }
 
-    case PERF_RECORD_ITRACE_START:
-    case PERF_RECORD_FORK:
-    case PERF_RECORD_EXIT:
+    case PERF_RECORD_FORK: {
+      const struct pev_record_fork *fork = event.record.fork;
+      assert(fork);
+
+      if constexpr (IsVeryVerbose())
+        fprintf(stderr, "%016" PRIx64 "\tfork %u/%u, %u/%u\n", offset, fork->pid,
+                fork->tid, fork->ppid, fork->ptid);
       break;
+    }
+
+    case PERF_RECORD_LOST_SAMPLES: {
+      const struct pev_record_lost_samples *lost_samples = event.record.lost_samples;
+      assert(lost_samples);
+
+      if constexpr (IsVeryVerbose())
+        fprintf(stderr, "%016" PRIx64 "\tlost_samples %" PRIx64 "\n",
+                offset, lost_samples->lost);
+      break;
+    }
+
+    case PERF_RECORD_ITRACE_START: {
+      const struct pev_record_itrace_start *itrace_start =
+          event.record.itrace_start;
+      assert(itrace_start);
+
+      Curr.pid = itrace_start->pid;
+
+      const bool Eng = CheckEngaged();
+      if constexpr (IsVeryVerbose())
+        if (Eng)
+          fprintf(stderr, "%016" PRIx64 "\titrace_start %u/%u\n", offset,
+                  itrace_start->pid, itrace_start->tid);
+      break;
+    }
+
+    case PERF_RECORD_EXIT: {
+      const struct pev_record_exit *exit = event.record.exit;
+      assert(exit);
+
+      if constexpr (IsVeryVerbose())
+        fprintf(stderr, "%016" PRIx64 "\texit %u/%u, %u/%u\n", offset, exit->pid,
+                exit->tid, exit->ppid, exit->ptid);
+
+      break;
+    }
 
     case PERF_RECORD_SWITCH_CPU_WIDE: {
       const struct pev_record_switch_cpu_wide *switch_cpu_wide = event.record.switch_cpu_wide;
@@ -726,6 +774,7 @@ int IntelPT<IPT_PARAMETERS_DEF>::process_packet(uint64_t offset,
     const struct pt_packet_mode *mode = &packet->payload.mode;
     switch (mode->leaf) {
     case pt_mol_exec: {
+      const auto SavedExecBits = Curr.ExecBits;
       switch (pt_get_exec_mode(&mode->bits.exec)) {
       case ptem_64bit:
         Curr.ExecBits = 64;
@@ -744,8 +793,14 @@ int IntelPT<IPT_PARAMETERS_DEF>::process_packet(uint64_t offset,
         break;
       }
 
+      if constexpr (IsVeryVerbose())
+        if (Curr.ExecBits != SavedExecBits)
+          fprintf(stderr, "%016" PRIx64 "\tbits %u -> %u\n", offset,
+                  SavedExecBits, Curr.ExecBits);
+
       CheckEngaged();
 
+#ifdef TARGET_I386
       int errcode;
 
       //
@@ -785,6 +840,9 @@ int IntelPT<IPT_PARAMETERS_DEF>::process_packet(uint64_t offset,
       }
 
       __attribute__((musttail)) return process_packet(offset, packet);
+#else
+      return 1;
+#endif
     }
 
     case pt_mol_tsx:
@@ -1565,7 +1623,7 @@ int IntelPT<IPT_PARAMETERS_DEF>::sb_track_time(uint64_t offset)
 	}
 
         while (struct pev_event *event = pt_sb_pop(tracking.session, tsc))
-                examine_sb_event(*event);
+                examine_sb_event(*event, offset);
 
         return 1;
 }

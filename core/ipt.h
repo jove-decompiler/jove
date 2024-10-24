@@ -268,7 +268,7 @@ class IntelPT {
 
   const bool ignore_trunc_aux;
 
-  void examine_sb_event(const struct pev_event &);
+  void examine_sb_event(const struct pev_event &, uint64_t offset);
 
   void ptdump_tracking_init(void);
   void ptdump_tracking_reset(void);
