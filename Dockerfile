@@ -32,7 +32,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       libpcre2-dev \
                       libtinfo-dev \
                       libtool \
-                      liburing \
+                      liburing-dev \
                       libxml2-dev \
                       libz3-dev \
                       libzstd-dev \
