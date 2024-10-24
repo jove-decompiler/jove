@@ -59,7 +59,7 @@ constexpr int tcg_syscall_arg5_index = 14;
 constexpr int tcg_syscall_arg6_index = 12;
 constexpr int tcg_fs_base_index = 19;
 constexpr int tcg_gs_base_index = 20;
-typedef std::bitset<tcg_num_globals> tcg_global_set_t;
+typedef std::bitset</* tcg_num_globals */ 37> tcg_global_set_t;
 constexpr tcg_global_set_t NotArgs(536838271);
 constexpr tcg_global_set_t NotRets(536838271);
 constexpr tcg_global_set_t CallConvArgs(896);
