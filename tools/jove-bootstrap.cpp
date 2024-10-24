@@ -4342,7 +4342,7 @@ binary_index_t BootstrapTool::BinaryFromPath(pid_t child, const char *path) {
 
   using namespace std::placeholders;
 
-  return jv.AddFromPath(*E, path, invalid_binary_index,
+  return jv.AddFromPath(*E, path,
                         std::bind(&BootstrapTool::on_new_binary, this, _1)).first;
 }
 
