@@ -167,7 +167,7 @@ int IntelPT<IPT_PARAMETERS_DEF>::ptdump_print_error(int errcode,
   return 0;
 }
 
-#if 0
+#if 1
 static void hexdump(FILE *stream, const void *ptr, int buflen) {
   const unsigned char *buf = (const unsigned char*)ptr;
   int i, j;
@@ -360,22 +360,29 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb_event(const struct pev_event &event
         const char *const name = event.name;
         const uint64_t ip = *event.sample.ip;
 
-        if (!IsRightProcess(pid))
-          break;
-
         if (strcmp(name, "__jove_augmented_syscalls__") == 0) {
           auto on_syscall = [&]<typename T>(const T *payload) -> void {
 	  const auto &hdr = payload->hdr;
 
-          long nr = hdr.syscall_nr;
-          taddr_t ret = hdr.ret;
+          auto nr = hdr.syscall_nr;
+          auto ret = hdr.ret;
 
           assert(nr >= 0);
 
-          /* on syscall return */
-          if (nr == syscalls::NR::munmap) {
-            assert(ret == 0);
+          switch (nr) {
+          case syscalls::NR::execve:
+          case syscalls::NR::execveat:
+            break;
+          default:
+            if (!IsRightProcess(pid))
+              return;
+          }
 
+          //
+          // we can assume that the syscall successfully completed
+          //
+          switch (nr) {
+          case syscalls::NR::munmap: {
             taddr_t addr = hdr.args[0];
             taddr_t len  = hdr.args[1];
 
@@ -388,9 +395,10 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb_event(const struct pev_event &event
             }
 
             intvl_map_clear(AddressSpace, intvl);
-          } else if (nr == syscalls::NR::mmap) {
-            assert(!(ret >= (taddr_t)-4095));
+            break;
+          }
 
+          case syscalls::NR::mmap: {
             taddr_t addr   = hdr.args[0];
             taddr_t len    = hdr.args[1];
             unsigned prot  = hdr.args[2];
@@ -419,15 +427,63 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb_event(const struct pev_event &event
               if (it != AddressSpaceInit.end())
                 intvl_map_add(AddressSpace, intvl, std::make_pair((*it).second, ~0UL));
             }
-          } else {
-            fprintf(stderr, "unhandled syscall %u!\n", (unsigned)nr);
+            break;
           }
-	  };
+
+          case syscalls::NR::execve:
+          case syscalls::NR::execveat: {
+            if constexpr (IsVerbose()) {
+#if 0
+              std::string str(payload->str, payload->hdr.str_len);
+              str.push_back('\0');
+              fprintf(stderr, "exec: %s\n", str.c_str());
+#else
+              fprintf(stderr, "exec: \"%s\"\n", payload->str);
+#endif
+            }
+            break;
+          }
+
+          default:
+            fprintf(stderr, "unhandled syscall %u!\n", (unsigned)nr);
+            break;
+	  }
+          };
 
 	  unsigned bytes_size = event.record.raw->size;
-	  const void *const bytes = event.record.raw->data;
+	  const uint8_t *const bytes = (const uint8_t *)event.record.raw->data;
 
-          const bool was32 = (((const uint8_t *)bytes)[0] & 1u) == 1u;
+          const bool was32 = (bytes[4] & 1u) == 1u;
+
+#if 1
+          const unsigned size_of_struct =
+              was32 ? sizeof(struct augmented_syscall_payload32)
+                    : sizeof(struct augmented_syscall_payload64);
+
+          bool bad = false;
+          if (!(bytes[0] == 'J' &&
+                bytes[1] == 'O' &&
+                bytes[2] == 'V' &&
+                bytes[3] == 'E')) {
+            fprintf(stderr, "offset at %" PRIu64 " does not start with magic1! bytes_size=%u sizeof(struct)=%u\n", offset, bytes_size, size_of_struct);
+            bad = true;
+          }
+
+          if (!(bytes[bytes_size - 1] == 'E' &&
+                bytes[bytes_size - 2] == 'V' &&
+                bytes[bytes_size - 3] == 'O' &&
+                bytes[bytes_size - 4] == 'J')) {
+            fprintf(stderr, "offset at %" PRIu64 " does not end with magic2! bytes_size=%u sizeof(struct)=%u\n", offset, bytes_size, size_of_struct);
+            bad = true;
+          }
+
+          if (bad) {
+            fprintf(stderr, "\n");
+            hexdump(stderr, bytes, bytes_size);
+            fprintf(stderr, "\n");
+          }
+#endif
+
 	  if (was32) {
 	    if (IsTarget32)
 	      on_syscall.template operator()<struct augmented_syscall_payload32>(reinterpret_cast<const struct augmented_syscall_payload32 *>(bytes));

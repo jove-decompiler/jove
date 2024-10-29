@@ -1,8 +1,8 @@
 diff --git a/tools/perf/Makefile.perf b/tools/perf/Makefile.perf
-index 9dd2e8d3f3c9..ed529a964a72 100644
+index 9dd2e8d3f3c9..f5de5fef64d6 100644
 --- a/tools/perf/Makefile.perf
 +++ b/tools/perf/Makefile.perf
-@@ -1157,67 +1157,71 @@ install-python_ext:
+@@ -1157,40 +1157,41 @@ install-python_ext:
  
  # 'make install-doc' should call 'make -C Documentation install'
  $(INSTALL_DOC_TARGETS):
@@ -44,36 +44,51 @@ index 9dd2e8d3f3c9..ed529a964a72 100644
  
  ifneq ($(CROSS_COMPILE),)
  CLANG_TARGET_ARCH = --target=$(notdir $(CROSS_COMPILE:%-=%))
+@@ -1228,40 +1229,44 @@ VMLINUX_BTF_PATHS ?= $(shell for file in $(VMLINUX_BTF_ELF_ABSPATHS); \
+ 				fi; \
+ 			done) \
+ 			$(wildcard $(VMLINUX_BTF_BTF_PATHS))
+ 
+ # Select the first as the source of vmlinux.h.
+ VMLINUX_BTF ?= $(firstword $(VMLINUX_BTF_PATHS))
+ 
+ ifeq ($(VMLINUX_H),)
+   ifeq ($(VMLINUX_BTF),)
+     $(error Missing bpftool input for generating vmlinux.h)
+   endif
  endif
  
- CLANG_OPTIONS = -Wall
- CLANG_SYS_INCLUDES = $(call get_sys_includes,$(CLANG),$(CLANG_TARGET_ARCH))
- BPF_INCLUDE := -I$(SKEL_TMP_OUT)/.. -I$(LIBBPF_INCLUDE) $(CLANG_SYS_INCLUDES)
- TOOLS_UAPI_INCLUDE := -I$(srctree)/tools/include/uapi
+ $(SKEL_OUT)/vmlinux.h: $(VMLINUX_BTF) $(BPFTOOL) $(VMLINUX_H)
+ ifeq ($(VMLINUX_H),)
+ 	$(QUIET_GEN)$(BPFTOOL) btf dump file $< format c > $@
+ else
+ 	$(Q)cp "$(VMLINUX_H)" $@
+ endif
  
-+BPF_INCLUDE += -I$(srctree)/../boost/libs/preprocessor/include
-+BPF_INCLUDE += -I$(srctree)/../lib
++$(SKEL_TMP_OUT)/jove_augmented_raw_syscalls.bpf.o: CLANG_OPTIONS += -std=gnu2x
++$(SKEL_TMP_OUT)/jove_augmented_raw_syscalls.bpf.o: BPF_INCLUDE += -I$(srctree)/../boost/libs/preprocessor/include
++$(SKEL_TMP_OUT)/jove_augmented_raw_syscalls.bpf.o: BPF_INCLUDE += -I$(srctree)/../lib
 +
- ifneq ($(WERROR),0)
-   CLANG_OPTIONS += -Werror
- endif
+ $(SKEL_TMP_OUT)/%.bpf.o: util/bpf_skel/%.bpf.c $(LIBBPF) $(SKEL_OUT)/vmlinux.h | $(SKEL_TMP_OUT)
+ 	$(QUIET_CLANG)$(CLANG) -g -O2 --target=bpf $(CLANG_OPTIONS) $(BPF_INCLUDE) $(TOOLS_UAPI_INCLUDE) \
+ 	  -c $(filter util/bpf_skel/%.bpf.c,$^) -o $@
  
- $(BPFTOOL): | $(SKEL_TMP_OUT)
- 	$(Q)CFLAGS= $(MAKE) -C ../bpf/bpftool \
- 		OUTPUT=$(SKEL_TMP_OUT)/ bootstrap
+ $(SKEL_OUT)/%.skel.h: $(SKEL_TMP_OUT)/%.bpf.o | $(BPFTOOL)
+ 	$(QUIET_GENSKEL)$(BPFTOOL) gen skeleton $< > $@
  
- # Paths to search for a kernel to generate vmlinux.h from.
- VMLINUX_BTF_ELF_PATHS ?= $(if $(O),$(O)/vmlinux)			\
- 		     $(if $(KBUILD_OUTPUT),$(KBUILD_OUTPUT)/vmlinux)	\
- 		     ../../vmlinux					\
- 		     /boot/vmlinux-$(shell uname -r)
+ bpf-skel: $(SKELETONS)
  
- # Paths to BTF information.
- VMLINUX_BTF_BTF_PATHS ?= /sys/kernel/btf/vmlinux
+ .PRECIOUS: $(SKEL_TMP_OUT)/%.bpf.o
  
- # Filter out kernels that don't exist or without a BTF section.
- VMLINUX_BTF_ELF_ABSPATHS ?= $(abspath $(wildcard $(VMLINUX_BTF_ELF_PATHS)))
- VMLINUX_BTF_PATHS ?= $(shell for file in $(VMLINUX_BTF_ELF_ABSPATHS); \
+ else # CONFIG_PERF_BPF_SKEL
+ 
+ bpf-skel:
+ 
+ endif # CONFIG_PERF_BPF_SKEL
+ 
+ bpf-skel-clean:
+ 	$(call QUIET_CLEAN, bpf-skel) $(RM) -r $(SKEL_TMP_OUT) $(SKELETONS) $(SKEL_OUT)/vmlinux.h
+ 
 diff --git a/tools/perf/builtin-record.c b/tools/perf/builtin-record.c
 index adbaf80b398c..06783224fe45 100644
 --- a/tools/perf/builtin-record.c
@@ -528,10 +543,10 @@ index adbaf80b398c..06783224fe45 100644
  	record__free_thread_masks(rec, rec->nr_threads);
 diff --git a/tools/perf/util/bpf_skel/jove_augmented_raw_syscalls.bpf.c b/tools/perf/util/bpf_skel/jove_augmented_raw_syscalls.bpf.c
 new file mode 100644
-index 000000000000..02a305f526e1
+index 000000000000..f0cede52ccf8
 --- /dev/null
 +++ b/tools/perf/util/bpf_skel/jove_augmented_raw_syscalls.bpf.c
-@@ -0,0 +1,393 @@
+@@ -0,0 +1,428 @@
 +#include "vmlinux.h"
 +#include "augmented_raw_syscalls.h"
 +#include <linux/limits.h>
@@ -558,7 +573,7 @@ index 000000000000..02a305f526e1
 +#define MAX_ARG_COUNT 10
 +#define MAX_ENV_COUNT 40
 +
-+#define MAX_BPF_PRINK_LEN 400
++#define MAX_BPF_PRINK_LEN 128
 +
 +static bool bpf_in_ia32_syscall(void) {
 +  u32 status;
@@ -587,10 +602,17 @@ index 000000000000..02a305f526e1
 +};
 +
 +struct augmented_syscalls_tmp {
++#if 1
++  __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
++  __type(key, int);
++  __type(value, union augmented_syscall_payload_u);
++  __uint(max_entries, 1);
++#else
 +  __uint(type, BPF_MAP_TYPE_HASH);
 +  __uint(max_entries, 512);
 +  __type(key, u64);
 +  __type(value, union augmented_syscall_payload_u);
++#endif
 +} augmented_syscalls_tmp SEC(".maps");
 +
 +struct __jove_augmented_syscalls__ {
@@ -623,10 +645,11 @@ index 000000000000..02a305f526e1
 +}
 +
 +static union augmented_syscall_payload_u *augmented_syscall_payload(void) {
++  union augmented_syscall_payload_u *res;
++#if 0
 +  u64 key = bpf_get_current_pid_tgid();
 +
-+  union augmented_syscall_payload_u *res =
-+      bpf_map_lookup_elem(&augmented_syscalls_tmp, &key);
++  res = bpf_map_lookup_elem(&augmented_syscalls_tmp, &key);
 +  if (res)
 +    return res;
 +
@@ -634,7 +657,16 @@ index 000000000000..02a305f526e1
 +  if (bpf_map_update_elem(&augmented_syscalls_tmp, &key, &tmp, BPF_NOEXIST) < 0)
 +    return NULL;
 +
-+  return bpf_map_lookup_elem(&augmented_syscalls_tmp, &key);
++  res = bpf_map_lookup_elem(&augmented_syscalls_tmp, &key);
++#else
++  int key = 0;
++  res = bpf_map_lookup_elem(&augmented_syscalls_tmp, &key);
++#endif
++
++  if (res == NULL)
++    bpf_printk("augmented_syscall_payload failed!!!\n");
++
++  return res;
 +}
 +
 +#define DO_READ_STRING(str_arg, what_done)                                     \
@@ -741,6 +773,8 @@ index 000000000000..02a305f526e1
 +    return 0;
 +#endif
 +
++  //bpf_printk("sys_enter: %u\n", (unsigned)our_pid());
++
 +  union augmented_syscall_payload_u *payload_u = augmented_syscall_payload();
 +  if (payload_u == NULL)
 +    return 0;
@@ -752,11 +786,20 @@ index 000000000000..02a305f526e1
 +  do {                                                                         \
 +    struct augmented_syscall_payload##bits *payload = &payload_u->_##bits;     \
 +                                                                               \
++    payload->hdr.magic1[0] = 'J';                                              \
++    payload->hdr.magic1[1] = 'O';                                              \
++    payload->hdr.magic1[2] = 'V';                                              \
++    payload->hdr.magic1[3] = 'E';                                              \
++                                                                               \
++    payload->hdr.magic2[0] = 'E';                                              \
++    payload->hdr.magic2[1] = 'V';                                              \
++    payload->hdr.magic2[2] = 'O';                                              \
++    payload->hdr.magic2[3] = 'J';                                              \
++                                                                               \
++    payload->str[0] = '\0';                                                    \
 +    payload->hdr.is32 = is32;                                                  \
-+    payload->hdr.str_len = 0;                                                  \
 +    payload->hdr.syscall_nr = nr;                                              \
 +    payload->hdr.ret = -1;                                                     \
-+    payload->str[0] = '\0';                                                    \
 +                                                                               \
 +    switch (nr) {                                                              \
 +    case nr##bits##_execve:                                                    \
@@ -764,6 +807,11 @@ index 000000000000..02a305f526e1
 +      break;                                                                   \
 +    case nr##bits##_execveat:                                                  \
 +      on_sys_enter_execveat##bits(payload, args);                              \
++      break;                                                                   \
++    case nr##bits##_mmap:                                                      \
++/*    on_sys_enter_mmap##bits(payload, args); */                               \
++      break;                                                                   \
++    case nr##bits##_munmap:                                                    \
 +      break;                                                                   \
 +    default:                                                                   \
 +      return 0;                                                                \
@@ -798,11 +846,11 @@ index 000000000000..02a305f526e1
 +  if (payload_u == NULL)
 +    return 0;
 +
-+  const bool was32 = (((const uint8_t *)payload_u)[0] & 1u) == 1u; /* is32 */
++  const bool was32 = (((const uint8_t *)payload_u)[4] & 1u) == 1u; /* is32 */
 +  const bool is32 = bpf_in_ia32_syscall();
 +  const bool diff32 = is32 != was32;
 +  const long nr = args->syscall_nr;
-+  const long ret = args->ret;
++  const unsigned long ret = args->ret;
 +
 +#define ON_SYS_EXIT(bits)                                                      \
 +  do {                                                                         \
@@ -841,12 +889,14 @@ index 000000000000..02a305f526e1
 +      break;                                                                   \
 +                                                                               \
 +    case nr##bits##_mmap:                                                      \
-+      if ((unsigned long)ret >= (unsigned long)-4095)                          \
++      if (((uint##bits##_t)ret) >= (uint##bits##_t)-4095)                      \
 +        return 0; /* failed */                                                 \
++      break;                                                                   \
 +                                                                               \
 +    case nr##bits##_munmap:                                                    \
 +      if (ret != 0)                                                            \
 +        return 0; /* failed */                                                 \
++      break;                                                                   \
 +                                                                               \
 +    default:                                                                   \
 +      return 0;                                                                \
