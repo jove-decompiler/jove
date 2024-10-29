@@ -188,6 +188,7 @@ constexpr unsigned IsX86Target =
     ;
 
 constexpr bool IsTarget32 = sizeof(taddr_t) == 4;
+constexpr bool IsTarget64 = sizeof(taddr_t) == 8;
 
 constexpr bool IsTargetLittleEndian =
 #if defined(TARGET_MIPS32) && defined(TARGET_MIPS)
