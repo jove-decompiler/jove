@@ -543,10 +543,10 @@ index adbaf80b398c..06783224fe45 100644
  	record__free_thread_masks(rec, rec->nr_threads);
 diff --git a/tools/perf/util/bpf_skel/jove_augmented_raw_syscalls.bpf.c b/tools/perf/util/bpf_skel/jove_augmented_raw_syscalls.bpf.c
 new file mode 100644
-index 000000000000..f0cede52ccf8
+index 000000000000..dcec19f8defc
 --- /dev/null
 +++ b/tools/perf/util/bpf_skel/jove_augmented_raw_syscalls.bpf.c
-@@ -0,0 +1,428 @@
+@@ -0,0 +1,429 @@
 +#include "vmlinux.h"
 +#include "augmented_raw_syscalls.h"
 +#include <linux/limits.h>
@@ -797,6 +797,7 @@ index 000000000000..f0cede52ccf8
 +    payload->hdr.magic2[3] = 'J';                                              \
 +                                                                               \
 +    payload->str[0] = '\0';                                                    \
++    payload->hdr.str_len = 0;                                                  \
 +    payload->hdr.is32 = is32;                                                  \
 +    payload->hdr.syscall_nr = nr;                                              \
 +    payload->hdr.ret = -1;                                                     \
