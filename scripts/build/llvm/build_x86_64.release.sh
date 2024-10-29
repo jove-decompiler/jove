@@ -5,12 +5,22 @@ set -x
 
 if [ ! -f build.ninja ]; then
 
+OURCFLAGS=\
+" -gline-tables-only"\
+" -fno-omit-frame-pointer"\
+" -mno-omit-leaf-frame-pointer"\
+" -ggdb"
+
 cmake -G Ninja \
       -D CMAKE_BUILD_TYPE=RelWithDebInfo \
       -D CMAKE_C_COMPILER=$(which clang-16) \
       -D CMAKE_CXX_COMPILER=$(which clang++-16) \
+      -D "CMAKE_C_FLAGS=$OURCFLAGS" \
+      -D "CMAKE_CXX_FLAGS=$OURCFLAGS" \
       -D "LLVM_TARGETS_TO_BUILD=Mips;X86;AArch64" \
       -D "JOVE_TARGETS_TO_BUILD=i386;x86_64;mipsel;mips64el;aarch64" \
+      -D "LLVM_TABLEGEN=$(pwd)/../build/bin/llvm-tblgen" \
+      -D "CLANG_TABLEGEN=$(pwd)/../build/bin/clang-tblgen" \
       -D JOVE_HAVE_MEMFD=ON \
       -D LLVM_BUILD_TESTS=OFF \
       -D LLVM_INCLUDE_TESTS=OFF \
@@ -26,10 +36,10 @@ cmake -G Ninja \
       -D LLVM_ENABLE_EH=ON \
       -D LLVM_BUILD_DOCS=OFF \
       -D LLVM_BINUTILS_INCDIR=/usr/include \
+      -D JOVE_USE_SYSTEM_TBB=ON \
       -D LLVM_ENABLE_PIC=ON \
       -D LLVM_ENABLE_Z3_SOLVER=OFF \
       -D LLVM_ENABLE_LTO=OFF \
-      -D "CMAKE_EXE_LINKER_FLAGS=-static" \
       -D LLVM_USE_LINKER=lld \
       ../llvm
 

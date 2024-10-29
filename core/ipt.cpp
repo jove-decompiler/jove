@@ -5,6 +5,7 @@
 #include "explore.h"
 #include "objdump.h"
 #include "concurrent.h"
+#include "augmented_raw_syscalls.h"
 
 #include "syscall_nrs.hpp"
 
@@ -29,29 +30,8 @@ namespace fs = boost::filesystem;
 
 namespace jove {
 
-//
-// <from linux/tools/perf/util/bpf_skel/augmented_raw_syscalls.bpf.c>
-//
-template <typename UIntType>
-struct __attribute__((__packed__)) syscall_enter_args {
-  UIntType common_tp_fields;
-  std::make_signed_t<UIntType> syscall_nr;
-  UIntType args[6];
-};
-
-template <typename UIntType>
-struct __attribute__((__packed__)) syscall_exit_args {
-  UIntType common_tp_fields;
-  std::make_signed_t<UIntType> syscall_nr;
-  std::make_signed_t<UIntType> ret;
-};
-//
-// </>
-//
-
 typedef boost::format fmt;
 
-// XXX
 #define IsVerbose() (Verbosity >= 1)
 #define IsVeryVerbose() (Verbosity >= 2)
 
@@ -383,47 +363,21 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb_event(const struct pev_event &event
         if (!IsRightProcess(pid))
           break;
 
-        unsigned bytes_size = event.record.raw->size;
-        const void *const bytes = event.record.raw->data;
+        if (strcmp(name, "__jove_augmented_syscalls__") == 0) {
+          auto on_syscall = [&]<typename T>(const T *payload) -> void {
+	  const auto &hdr = payload->hdr;
 
-        if (strcmp(name, "raw_syscalls:sys_exit") == 0) {
-          long nr;
-          taddr_t ret;
-
-          auto syscall_exit_extract = [&]<typename UIntType>(void) -> bool {
-            if (bytes_size >= sizeof(syscall_exit_args<UIntType>)) {
-              auto *p = (const syscall_exit_args<UIntType> *)bytes;
-              nr = p->syscall_nr;
-              ret = p->ret;
-              return true;
-            }
-
-            return false;
-          };
-
-          if (!syscall_exit_extract.template operator()<uint64_t>() &&
-              !syscall_exit_extract.template operator()<uint32_t>())
-            unexpected_rest();
+          long nr = hdr.syscall_nr;
+          taddr_t ret = hdr.ret;
 
           assert(nr >= 0);
-          auto &state = syscall_state_map[std::make_pair(tid, static_cast<uint32_t>(nr))];
-
-          if (unlikely(state.dir != SYSCALL_DIRECTION::ENTER)) {
-            fprintf(stderr, "syscall exit (%ld) after a %s\n", nr,
-                    directionNames[static_cast<unsigned>(state.dir)]);
-            state.dir = SYSCALL_DIRECTION::EXIT;
-            break;
-          }
-
-          state.dir = SYSCALL_DIRECTION::EXIT;
 
           /* on syscall return */
           if (nr == syscalls::NR::munmap) {
-            if (ret != 0)
-              break; /* failed */
+            assert(ret == 0);
 
-            taddr_t addr = state.args[0];
-            taddr_t len = state.args[1];
+            taddr_t addr = hdr.args[0];
+            taddr_t len  = hdr.args[1];
 
             const addr_intvl intvl(addr, len);
 
@@ -435,18 +389,17 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb_event(const struct pev_event &event
 
             intvl_map_clear(AddressSpace, intvl);
           } else if (nr == syscalls::NR::mmap) {
-            if (ret >= (taddr_t)-4095)
-              break; /* failed */
+            assert(!(ret >= (taddr_t)-4095));
 
-            taddr_t addr = state.args[0];
-            taddr_t len = state.args[1];
-            unsigned prot = state.args[2];
-            unsigned flags = state.args[3];
-            int fd = state.args[4];
-            taddr_t off = state.args[5];
+            taddr_t addr   = hdr.args[0];
+            taddr_t len    = hdr.args[1];
+            unsigned prot  = hdr.args[2];
+            unsigned flags = hdr.args[3];
+            int fd         = hdr.args[4];
+            taddr_t off    = hdr.args[5];
 
             if (prot & PROT_EXEC)
-              break; /* we will see PERF_RECORD_MMAP2 */
+              return; /* we will see PERF_RECORD_MMAP2 */
 
             const bool anon = fd < 0;
 
@@ -468,40 +421,20 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb_event(const struct pev_event &event
             }
           } else {
             fprintf(stderr, "unhandled syscall %u!\n", (unsigned)nr);
-            break;
           }
-        } else if (strcmp(name, "raw_syscalls:sys_enter") == 0) {
-          long nr;
+	  };
 
-          syscall_state_t *statep = nullptr;
-          auto syscall_enter_extract = [&]<typename UIntType>(void) -> bool {
-            if (bytes_size >= sizeof(syscall_enter_args<UIntType>)) {
-              auto *p = (const syscall_enter_args<UIntType> *)bytes;
+	  unsigned bytes_size = event.record.raw->size;
+	  const void *const bytes = event.record.raw->data;
 
-              nr = p->syscall_nr;
-              assert(nr >= 0);
-
-              auto &state = syscall_state_map[std::make_pair(tid, static_cast<uint32_t>(nr))];
-              for (unsigned i = 0; i < state.args.size(); ++i)
-                state.args[i] = p->args[i];
-
-              statep = &state;
-              return true;
-            }
-            return false;
-          };
-
-          if (!syscall_enter_extract.template operator()<uint64_t>() &&
-              !syscall_enter_extract.template operator()<uint32_t>())
-            unexpected_rest();
-
-          assert(statep);
-          auto &state = *statep;
-
-          if (unlikely(state.dir == SYSCALL_DIRECTION::ENTER))
-            fprintf(stderr, "syscall enter (%ld) after an enter\n", nr);
-
-          state.dir = SYSCALL_DIRECTION::ENTER;
+          const bool was32 = (((const uint8_t *)bytes)[0] & 1u) == 1u;
+	  if (was32) {
+	    if (IsTarget32)
+	      on_syscall.template operator()<struct augmented_syscall_payload32>(reinterpret_cast<const struct augmented_syscall_payload32 *>(bytes));
+	  } else {
+	    if (IsTarget64)
+	      on_syscall.template operator()<struct augmented_syscall_payload64>(reinterpret_cast<const struct augmented_syscall_payload64 *>(bytes));
+	  }
         } else {
           unexpected_rest();
         }
@@ -543,6 +476,13 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb_event(const struct pev_event &event
 
       }
 
+      if (pid <= 1) /* ignore kernel/init */
+	break;
+
+      if (_mmap.pid != pid) {
+      fprintf(stderr, "_mmap.pid %u != pid %u %u %s\n", _mmap.pid, pid,
+              (unsigned)_mmap.two, _mmap.filename);
+      }
       assert(_mmap.pid == pid);
 
       if (!IsRightProcess(pid))

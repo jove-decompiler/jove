@@ -35,6 +35,10 @@ static fs::path arch_bin_path(void) {
   return jove_path() / "bin" / TARGET_ARCH_NAME;
 }
 
+static fs::path linux_path(void) {
+  return jove_path() / "linux";
+}
+
 static fs::path prebuilts_path(void) { return jove_path() / "prebuilts"; }
 
 std::string locator_t::runtime_so(bool mt) {
@@ -155,7 +159,7 @@ std::string locator_t::gdbserver(void) {
 }
 
 std::string locator_t::perf(void) {
-  return must_exist("/usr/bin/perf");
+  return must_exist(linux_path() / "tools" / "perf" / "perf");
 }
 
 std::string locator_t::sudo(void) {

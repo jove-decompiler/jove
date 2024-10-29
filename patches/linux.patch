@@ -1,0 +1,927 @@
+diff --git a/tools/perf/Makefile.perf b/tools/perf/Makefile.perf
+index 9dd2e8d3f3c9..ed529a964a72 100644
+--- a/tools/perf/Makefile.perf
++++ b/tools/perf/Makefile.perf
+@@ -1157,67 +1157,71 @@ install-python_ext:
+ 
+ # 'make install-doc' should call 'make -C Documentation install'
+ $(INSTALL_DOC_TARGETS):
+ 	$(Q)$(MAKE) -C $(DOC_DIR) O=$(OUTPUT) $(@:-doc=) ASCIIDOC_EXTRA=$(ASCIIDOC_EXTRA) subdir=
+ 
+ ### Cleaning rules
+ 
+ python-clean:
+ 	$(python-clean)
+ 
+ SKEL_OUT := $(abspath $(OUTPUT)util/bpf_skel)
+ SKEL_TMP_OUT := $(abspath $(SKEL_OUT)/.tmp)
+ SKELETONS := $(SKEL_OUT)/bpf_prog_profiler.skel.h
+ SKELETONS += $(SKEL_OUT)/bperf_leader.skel.h $(SKEL_OUT)/bperf_follower.skel.h
+ SKELETONS += $(SKEL_OUT)/bperf_cgroup.skel.h $(SKEL_OUT)/func_latency.skel.h
+ SKELETONS += $(SKEL_OUT)/off_cpu.skel.h $(SKEL_OUT)/lock_contention.skel.h
+ SKELETONS += $(SKEL_OUT)/kwork_trace.skel.h $(SKEL_OUT)/sample_filter.skel.h
+ SKELETONS += $(SKEL_OUT)/kwork_top.skel.h
+ SKELETONS += $(SKEL_OUT)/bench_uprobe.skel.h
+ SKELETONS += $(SKEL_OUT)/augmented_raw_syscalls.skel.h
++SKELETONS += $(SKEL_OUT)/jove_augmented_raw_syscalls.skel.h
+ 
+ $(SKEL_TMP_OUT) $(LIBAPI_OUTPUT) $(LIBBPF_OUTPUT) $(LIBPERF_OUTPUT) $(LIBSUBCMD_OUTPUT) $(LIBSYMBOL_OUTPUT):
+ 	$(Q)$(MKDIR) -p $@
+ 
+ ifeq ($(CONFIG_PERF_BPF_SKEL),y)
+ BPFTOOL := $(SKEL_TMP_OUT)/bootstrap/bpftool
+ # Get Clang's default includes on this system, as opposed to those seen by
+ # '--target=bpf'. This fixes "missing" files on some architectures/distros,
+ # such as asm/byteorder.h, asm/socket.h, asm/sockios.h, sys/cdefs.h etc.
+ #
+ # Use '-idirafter': Don't interfere with include mechanics except where the
+ # build would have failed anyways.
+ define get_sys_includes
+ $(shell $(1) $(2) -v -E - </dev/null 2>&1 \
+        | sed -n '/<...> search starts here:/,/End of search list./{ s| \(/.*\)|-idirafter \1|p }') \
+ $(shell $(1) $(2) -dM -E - </dev/null | grep '__riscv_xlen ' | awk '{printf("-D__riscv_xlen=%d -D__BITS_PER_LONG=%d", $$3, $$3)}')
+ endef
+ 
+ ifneq ($(CROSS_COMPILE),)
+ CLANG_TARGET_ARCH = --target=$(notdir $(CROSS_COMPILE:%-=%))
+ endif
+ 
+ CLANG_OPTIONS = -Wall
+ CLANG_SYS_INCLUDES = $(call get_sys_includes,$(CLANG),$(CLANG_TARGET_ARCH))
+ BPF_INCLUDE := -I$(SKEL_TMP_OUT)/.. -I$(LIBBPF_INCLUDE) $(CLANG_SYS_INCLUDES)
+ TOOLS_UAPI_INCLUDE := -I$(srctree)/tools/include/uapi
+ 
++BPF_INCLUDE += -I$(srctree)/../boost/libs/preprocessor/include
++BPF_INCLUDE += -I$(srctree)/../lib
++
+ ifneq ($(WERROR),0)
+   CLANG_OPTIONS += -Werror
+ endif
+ 
+ $(BPFTOOL): | $(SKEL_TMP_OUT)
+ 	$(Q)CFLAGS= $(MAKE) -C ../bpf/bpftool \
+ 		OUTPUT=$(SKEL_TMP_OUT)/ bootstrap
+ 
+ # Paths to search for a kernel to generate vmlinux.h from.
+ VMLINUX_BTF_ELF_PATHS ?= $(if $(O),$(O)/vmlinux)			\
+ 		     $(if $(KBUILD_OUTPUT),$(KBUILD_OUTPUT)/vmlinux)	\
+ 		     ../../vmlinux					\
+ 		     /boot/vmlinux-$(shell uname -r)
+ 
+ # Paths to BTF information.
+ VMLINUX_BTF_BTF_PATHS ?= /sys/kernel/btf/vmlinux
+ 
+ # Filter out kernels that don't exist or without a BTF section.
+ VMLINUX_BTF_ELF_ABSPATHS ?= $(abspath $(wildcard $(VMLINUX_BTF_ELF_PATHS)))
+ VMLINUX_BTF_PATHS ?= $(shell for file in $(VMLINUX_BTF_ELF_ABSPATHS); \
+diff --git a/tools/perf/builtin-record.c b/tools/perf/builtin-record.c
+index adbaf80b398c..06783224fe45 100644
+--- a/tools/perf/builtin-record.c
++++ b/tools/perf/builtin-record.c
+@@ -1,30 +1,39 @@
+ // SPDX-License-Identifier: GPL-2.0
+ /*
+  * builtin-record.c
+  *
+  * Builtin record command: Record the profile of a workload
+  * (or a CPU, or a PID) into the perf.data output file - for
+  * later analysis via perf report.
+  */
+ #include "builtin.h"
+ 
++#ifdef HAVE_LIBBPF_SUPPORT
++#include <bpf/bpf.h>
++#include <bpf/libbpf.h>
++#include <bpf/btf.h>
++#ifdef HAVE_BPF_SKEL
++#include "bpf_skel/jove_augmented_raw_syscalls.skel.h"
++#endif
++#endif
++
+ #include "util/build-id.h"
+ #include <subcmd/parse-options.h>
+ #include <internal/xyarray.h>
+ #include "util/parse-events.h"
+ #include "util/config.h"
+ 
+ #include "util/callchain.h"
+ #include "util/cgroup.h"
+ #include "util/header.h"
+ #include "util/event.h"
+ #include "util/evlist.h"
+ #include "util/evsel.h"
+ #include "util/debug.h"
+ #include "util/mmap.h"
+ #include "util/mutex.h"
+ #include "util/target.h"
+ #include "util/session.h"
+ #include "util/tool.h"
+ #include "util/symbol.h"
+ #include "util/record.h"
+@@ -142,40 +151,54 @@ enum thread_spec {
+ 
+ static const char *thread_spec_tags[THREAD_SPEC__MAX] = {
+ 	"undefined", "cpu", "core", "package", "numa", "user"
+ };
+ 
+ struct pollfd_index_map {
+ 	int evlist_pollfd_index;
+ 	int thread_pollfd_index;
+ };
+ 
+ struct record {
+ 	struct perf_tool	tool;
+ 	struct record_opts	opts;
+ 	u64			bytes_written;
+ 	u64			thread_bytes_written;
+ 	struct perf_data	data;
+ 	struct auxtrace_record	*itr;
+ 	struct evlist	*evlist;
+ 	struct perf_session	*session;
+ 	struct evlist		*sb_evlist;
++	struct {
++		struct syscall  *table;
++		struct {
++			struct evsel *sys_enter,
++				*sys_exit,
++				*bpf_output;
++		}		events;
++	} syscalls;
++#ifdef HAVE_BPF_SKEL
++	struct jove_augmented_raw_syscalls_bpf *skel;
++#endif
++#ifdef HAVE_LIBBPF_SUPPORT
++	struct btf		*btf;
++#endif
+ 	pthread_t		thread_id;
+ 	int			realtime_prio;
+ 	bool			switch_output_event_set;
+ 	bool			no_buildid;
+ 	bool			no_buildid_set;
+ 	bool			no_buildid_cache;
+ 	bool			no_buildid_cache_set;
+ 	bool			buildid_all;
+ 	bool			buildid_mmap;
+ 	bool			timestamp_filename;
+ 	bool			timestamp_boundary;
+ 	bool			off_cpu;
+ 	const char		*filter_action;
+ 	struct switch_output	switch_output;
+ 	unsigned long long	samples;
+ 	unsigned long		output_max_size;	/* = 0: unlimited */
+ 	struct perf_debuginfod	debuginfod;
+ 	int			nr_threads;
+ 	struct thread_mask	*thread_masks;
+ 	struct record_thread	*thread_data;
+@@ -2447,66 +2470,98 @@ static int __cmd_record(struct record *rec, int argc, const char **argv)
+ 
+ 	if (rec->opts.kcore &&
+ 	    !record__kcore_readable(&session->machines.host)) {
+ 		pr_err("ERROR: kcore is not readable.\n");
+ 		return -1;
+ 	}
+ 
+ 	if (record__init_clock(rec))
+ 		return -1;
+ 
+ 	record__init_features(rec);
+ 
+ 	if (forks) {
+ 		err = evlist__prepare_workload(rec->evlist, &opts->target, argv, data->is_pipe,
+ 					       workload_exec_failed_signal);
+ 		if (err < 0) {
+ 			pr_err("Couldn't run the workload!\n");
+ 			status = err;
+ 			goto out_delete_session;
+ 		}
++
++		{
++			struct stat st;
++			if (stat("/proc/self/ns/pid", &st) < 0) {
++				int err = errno;
++				fprintf(stderr, "stat(/proc/self/ns/pid) failed: %s\n", strerror(err));
++			}
++
++			rec->skel->bss->dev = st.st_dev;
++			rec->skel->bss->ino = st.st_ino;
++		}
++
++		//rec->skel->bss->the_pid = rec->evlist->workload.pid;
++		bool value = true;
++		err = bpf_map_update_elem(bpf_map__fd(rec->skel->maps.pids_unfiltered),
++                                          &rec->evlist->workload.pid, &value, BPF_ANY);
+ 	}
+ 
+ 	/*
+ 	 * If we have just single event and are sending data
+ 	 * through pipe, we need to force the ids allocation,
+ 	 * because we synthesize event name through the pipe
+ 	 * and need the id for that.
+ 	 */
+ 	if (data->is_pipe && rec->evlist->core.nr_entries == 1)
+ 		rec->opts.sample_id = true;
+ 
+ 	if (rec->timestamp_filename && perf_data__is_pipe(data)) {
+ 		rec->timestamp_filename = false;
+ 		pr_warning("WARNING: --timestamp-filename option is not available in pipe mode.\n");
+ 	}
+ 
+ 	evlist__uniquify_name(rec->evlist);
+ 
+ 	evlist__config(rec->evlist, opts, &callchain_param);
+ 
+ 	/* Debug message used by test scripts */
+ 	pr_debug3("perf record opening and mmapping events\n");
+ 	if (record__open(rec) != 0) {
+ 		err = -1;
+ 		goto out_free_threads;
+ 	}
++
++#ifdef HAVE_BPF_SKEL
++	if (rec->syscalls.events.bpf_output) {
++		struct perf_cpu cpu;
++		int i;
++		perf_cpu_map__for_each_cpu(cpu, i, rec->syscalls.events.bpf_output->core.cpus) {
++                  fprintf(stderr, "rec->syscalls.events.bpf_output->core.fd=%d\n", *((const int *)xyarray__entry(rec->syscalls.events.bpf_output->core.fd,
++					       cpu.cpu, 0)));
++			bpf_map__update_elem(rec->skel->maps.__jove_augmented_syscalls__,
++				&cpu.cpu, sizeof(int),
++				xyarray__entry(rec->syscalls.events.bpf_output->core.fd,
++					       cpu.cpu, 0),
++				sizeof(__u32), BPF_ANY);
++		}
++	}
++#endif
+ 	/* Debug message used by test scripts */
+ 	pr_debug3("perf record done opening and mmapping events\n");
+ 	session->header.env.comp_mmap_len = session->evlist->core.mmap_len;
+ 
+ 	if (rec->opts.kcore) {
+ 		err = record__kcore_copy(&session->machines.host, data);
+ 		if (err) {
+ 			pr_err("ERROR: Failed to copy kcore\n");
+ 			goto out_free_threads;
+ 		}
+ 	}
+ 
+ 	/*
+ 	 * Normally perf_session__new would do this, but it doesn't have the
+ 	 * evlist.
+ 	 */
+ 	if (rec->tool.ordered_events && !evlist__sample_id_all(rec->evlist)) {
+ 		pr_warning("WARNING: No sample_id_all support, falling back to unordered processing\n");
+ 		rec->tool.ordered_events = false;
+ 	}
+@@ -3332,40 +3387,41 @@ static struct record record = {
+ 		.mmap_pages	     = UINT_MAX,
+ 		.user_freq	     = UINT_MAX,
+ 		.user_interval	     = ULLONG_MAX,
+ 		.freq		     = 4000,
+ 		.target		     = {
+ 			.uses_mmap   = true,
+ 			.default_per_cpu = true,
+ 		},
+ 		.mmap_flush          = MMAP_FLUSH_DEFAULT,
+ 		.nr_threads_synthesize = 1,
+ 		.ctl_fd              = -1,
+ 		.ctl_fd_ack          = -1,
+ 		.synth               = PERF_SYNTH_ALL,
+ 	},
+ };
+ 
+ const char record_callchain_help[] = CALLCHAIN_RECORD_HELP
+ 	"\n\t\t\t\tDefault: fp";
+ 
+ static bool dry_run;
++static bool jove_syscalls;
+ 
+ static struct parse_events_option_args parse_events_option_args = {
+ 	.evlistp = &record.evlist,
+ };
+ 
+ static struct parse_events_option_args switch_output_parse_events_option_args = {
+ 	.evlistp = &record.sb_evlist,
+ };
+ 
+ /*
+  * XXX Will stay a global variable till we fix builtin-script.c to stop messing
+  * with it and switch to use the library functions in perf_evlist that came
+  * from builtin-record.c, i.e. use record_opts,
+  * evlist__prepare_workload, etc instead of fork+exec'in 'perf record',
+  * using pipes, etc.
+  */
+ static struct option __record_options[] = {
+ 	OPT_CALLBACK('e', "event", &parse_events_option_args, "event",
+ 		     "event selector. use 'perf list' to list available events",
+ 		     parse_events_option),
+@@ -3547,40 +3603,42 @@ static struct option __record_options[] = {
+ 		parse_libpfm_events_option),
+ #endif
+ 	OPT_CALLBACK(0, "control", &record.opts, "fd:ctl-fd[,ack-fd] or fifo:ctl-fifo[,ack-fifo]",
+ 		     "Listen on ctl-fd descriptor for command to control measurement ('enable': enable events, 'disable': disable events,\n"
+ 		     "\t\t\t  'snapshot': AUX area tracing snapshot).\n"
+ 		     "\t\t\t  Optionally send control command completion ('ack\\n') to ack-fd descriptor.\n"
+ 		     "\t\t\t  Alternatively, ctl-fifo / ack-fifo will be opened and used as ctl-fd / ack-fd.",
+ 		      parse_control_option),
+ 	OPT_CALLBACK(0, "synth", &record.opts, "no|all|task|mmap|cgroup",
+ 		     "Fine-tune event synthesis: default=all", parse_record_synth_option),
+ 	OPT_STRING_OPTARG_SET(0, "debuginfod", &record.debuginfod.urls,
+ 			  &record.debuginfod.set, "debuginfod urls",
+ 			  "Enable debuginfod data retrieval from DEBUGINFOD_URLS or specified urls",
+ 			  "system"),
+ 	OPT_CALLBACK_OPTARG(0, "threads", &record.opts, NULL, "spec",
+ 			    "write collected trace data into several data files using parallel threads",
+ 			    record__parse_threads),
+ 	OPT_BOOLEAN(0, "off-cpu", &record.off_cpu, "Enable off-cpu analysis"),
+ 	OPT_STRING(0, "setup-filter", &record.filter_action, "pin|unpin",
+ 		   "BPF filter action"),
++	OPT_BOOLEAN(0, "jove_syscalls", &jove_syscalls,
++		    "Run jove syscalls bpf program"),
+ 	OPT_END()
+ };
+ 
+ struct option *record_options = __record_options;
+ 
+ static int record__mmap_cpu_mask_init(struct mmap_cpu_mask *mask, struct perf_cpu_map *cpus)
+ {
+ 	struct perf_cpu cpu;
+ 	int idx;
+ 
+ 	if (cpu_map__is_dummy(cpus))
+ 		return 0;
+ 
+ 	perf_cpu_map__for_each_cpu_skip_any(cpu, idx, cpus) {
+ 		/* Return ENODEV is input cpu is greater than max cpu */
+ 		if ((unsigned long)cpu.cpu > mask->nbits)
+ 			return -ENODEV;
+ 		__set_bit(cpu.cpu, mask->bits);
+ 	}
+ 
+@@ -3953,40 +4011,52 @@ static int record__init_thread_masks(struct record *rec)
+ 		break;
+ 	case THREAD_SPEC__CORE:
+ 		ret = record__init_thread_core_masks(rec, cpus);
+ 		break;
+ 	case THREAD_SPEC__PACKAGE:
+ 		ret = record__init_thread_package_masks(rec, cpus);
+ 		break;
+ 	case THREAD_SPEC__NUMA:
+ 		ret = record__init_thread_numa_masks(rec, cpus);
+ 		break;
+ 	case THREAD_SPEC__USER:
+ 		ret = record__init_thread_user_masks(rec, cpus);
+ 		break;
+ 	default:
+ 		break;
+ 	}
+ 
+ 	return ret;
+ }
+ 
++#ifdef HAVE_BPF_SKEL
++static int bpf__setup_bpf_output(struct evlist *evlist)
++{
++	int err = parse_event(evlist, "bpf-output/no-inherit=1,name=__jove_augmented_syscalls__/");
++
++	if (err)
++		pr_debug("ERROR: failed to create the \"__augmented_syscalls__\" bpf-output event\n");
++
++	return err;
++}
++#endif
++
+ int cmd_record(int argc, const char **argv)
+ {
+ 	int err;
+ 	struct record *rec = &record;
+ 	char errbuf[BUFSIZ];
+ 
+ 	setlocale(LC_ALL, "");
+ 
+ #ifndef HAVE_BPF_SKEL
+ # define set_nobuild(s, l, m, c) set_option_nobuild(record_options, s, l, m, c)
+ 	set_nobuild('\0', "off-cpu", "no BUILD_BPF_SKEL=1", true);
+ # undef set_nobuild
+ #endif
+ 
+ 	/* Disable eager loading of kernel symbols that adds overhead to perf record. */
+ 	symbol_conf.lazy_load_kernel_maps = true;
+ 	rec->opts.affinity = PERF_AFFINITY_SYS;
+ 
+ 	rec->evlist = evlist__new();
+ 	if (rec->evlist == NULL)
+@@ -4000,40 +4070,71 @@ int cmd_record(int argc, const char **argv)
+ 			    PARSE_OPT_STOP_AT_NON_OPTION);
+ 	if (quiet)
+ 		perf_quiet_option();
+ 
+ 	err = symbol__validate_sym_arguments();
+ 	if (err)
+ 		return err;
+ 
+ 	perf_debuginfod_setup(&record.debuginfod);
+ 
+ 	/* Make system wide (-a) the default target. */
+ 	if (!argc && target__none(&rec->opts.target))
+ 		rec->opts.target.system_wide = true;
+ 
+ 	if (nr_cgroups && !rec->opts.target.system_wide) {
+ 		usage_with_options_msg(record_usage, record_options,
+ 			"cgroup monitoring only available in system-wide mode");
+ 
+ 	}
+ 
++#ifdef HAVE_BPF_SKEL
++	if (!jove_syscalls)
++		goto skip_augmentation;
++
++	record.skel = jove_augmented_raw_syscalls_bpf__open();
++	if (!record.skel) {
++		pr_err("Failed to open augmented syscalls BPF skeleton");
++			err = -EINVAL;
++			goto out_opts;
++	} else {
++		err = jove_augmented_raw_syscalls_bpf__load(record.skel);
++
++		if (err < 0) {
++			libbpf_strerror(err, errbuf, sizeof(errbuf));
++			pr_debug("Failed to load jove augmented syscalls BPF skeleton: %s\n", errbuf);
++		} else {
++			jove_augmented_raw_syscalls_bpf__attach(record.skel);
++
++			err = bpf__setup_bpf_output(record.evlist);
++			if (err) {
++				libbpf_strerror(err, errbuf, sizeof(errbuf));
++				pr_err("ERROR: Setup BPF output event failed: %s\n", errbuf);
++				goto out_opts;
++			}
++			record.syscalls.events.bpf_output = evlist__last(record.evlist);
++			assert(evsel__name_is(record.syscalls.events.bpf_output, "__jove_augmented_syscalls__"));
++		}
++	}
++skip_augmentation:
++#endif
++
+ 	if (rec->buildid_mmap) {
+ 		if (!perf_can_record_build_id()) {
+ 			pr_err("Failed: no support to record build id in mmap events, update your kernel.\n");
+ 			err = -EINVAL;
+ 			goto out_opts;
+ 		}
+ 		pr_debug("Enabling build id in mmap2 events.\n");
+ 		/* Enable mmap build id synthesizing. */
+ 		symbol_conf.buildid_mmap2 = true;
+ 		/* Enable perf_event_attr::build_id bit. */
+ 		rec->opts.build_id = true;
+ 		/* Disable build id cache. */
+ 		rec->no_buildid = true;
+ 	}
+ 
+ 	if (rec->opts.record_cgroup && !perf_can_record_cgroup()) {
+ 		pr_err("Kernel has no cgroup sampling support.\n");
+ 		err = -EINVAL;
+ 		goto out_opts;
+ 	}
+@@ -4225,40 +4326,43 @@ int cmd_record(int argc, const char **argv)
+ 
+ 	if (rec->off_cpu) {
+ 		err = record__config_off_cpu(rec);
+ 		if (err) {
+ 			pr_err("record__config_off_cpu failed, error %d\n", err);
+ 			goto out;
+ 		}
+ 	}
+ 
+ 	if (record_opts__config(&rec->opts)) {
+ 		err = -EINVAL;
+ 		goto out;
+ 	}
+ 
+ 	err = record__config_tracking_events(rec);
+ 	if (err) {
+ 		pr_err("record__config_tracking_events failed, error %d\n", err);
+ 		goto out;
+ 	}
+ 
++	if (jove_syscalls)
++		rec->opts.target.system_wide = true;
++
+ 	err = record__init_thread_masks(rec);
+ 	if (err) {
+ 		pr_err("Failed to initialize parallel data streaming masks\n");
+ 		goto out;
+ 	}
+ 
+ 	if (rec->opts.nr_cblocks > nr_cblocks_max)
+ 		rec->opts.nr_cblocks = nr_cblocks_max;
+ 	pr_debug("nr_cblocks: %d\n", rec->opts.nr_cblocks);
+ 
+ 	pr_debug("affinity: %s\n", affinity_tags[rec->opts.affinity]);
+ 	pr_debug("mmap flush: %d\n", rec->opts.mmap_flush);
+ 
+ 	if (rec->opts.comp_level > comp_level_max)
+ 		rec->opts.comp_level = comp_level_max;
+ 	pr_debug("comp level: %d\n", rec->opts.comp_level);
+ 
+ 	err = __cmd_record(&record, argc, argv);
+ out:
+ 	record__free_thread_masks(rec, rec->nr_threads);
+diff --git a/tools/perf/util/bpf_skel/jove_augmented_raw_syscalls.bpf.c b/tools/perf/util/bpf_skel/jove_augmented_raw_syscalls.bpf.c
+new file mode 100644
+index 000000000000..02a305f526e1
+--- /dev/null
++++ b/tools/perf/util/bpf_skel/jove_augmented_raw_syscalls.bpf.c
+@@ -0,0 +1,393 @@
++#include "vmlinux.h"
++#include "augmented_raw_syscalls.h"
++#include <linux/limits.h>
++#include <bpf/bpf_helpers.h>
++#include <bpf/bpf_tracing.h>
++#include <stdint.h>
++#include <boost/preprocessor/cat.hpp>
++#include <boost/preprocessor/repetition/repeat.hpp>
++
++#define VERY_UNIQUE_BASE 0xfffffff
++#define VERY_UNIQUE_NUM() (VERY_UNIQUE_BASE + __COUNTER__)
++
++#define ___SYSCALL(nr, nm) static const unsigned nr64_##nm = nr;
++#include <arch/x86_64/syscalls.inc.h>
++static const unsigned nr64_clone3 = VERY_UNIQUE_NUM();
++
++#define ___SYSCALL(nr, nm) static const unsigned nr32_##nm = nr;
++#include <arch/i386/syscalls.inc.h>
++
++#ifndef TS_COMPAT
++#define TS_COMPAT		0x0002	/* 32bit syscall active (64BIT)*/
++#endif
++
++#define MAX_ARG_COUNT 10
++#define MAX_ENV_COUNT 40
++
++#define MAX_BPF_PRINK_LEN 400
++
++static bool bpf_in_ia32_syscall(void) {
++  u32 status;
++  bpf_probe_read_kernel(&status, sizeof(status),
++                        (void *)bpf_get_current_task() +
++                            2 * sizeof(long unsigned int));
++
++  return !!(status & TS_COMPAT);
++}
++
++struct syscall_enter_args {
++  unsigned long long common_tp_fields;
++  long syscall_nr;
++  unsigned long args[6];
++};
++
++struct syscall_exit_args {
++  unsigned long long common_tp_fields;
++  long syscall_nr;
++  long ret;
++};
++
++union augmented_syscall_payload_u {
++  struct augmented_syscall_payload32 _32;
++  struct augmented_syscall_payload64 _64;
++};
++
++struct augmented_syscalls_tmp {
++  __uint(type, BPF_MAP_TYPE_HASH);
++  __uint(max_entries, 512);
++  __type(key, u64);
++  __type(value, union augmented_syscall_payload_u);
++} augmented_syscalls_tmp SEC(".maps");
++
++struct __jove_augmented_syscalls__ {
++  __uint(type, BPF_MAP_TYPE_PERF_EVENT_ARRAY);
++  __type(key, int);
++  __type(value, int);
++} __jove_augmented_syscalls__ SEC(".maps");
++
++struct pids_filtered {
++  __uint(type, BPF_MAP_TYPE_HASH);
++  __type(key, pid_t);
++  __type(value, bool);
++  __uint(max_entries, 64);
++} pids_unfiltered SEC(".maps");
++
++unsigned dev = 0;
++unsigned ino = 0;
++
++static pid_t our_pid(void) {
++  struct bpf_pidns_info nsdata;
++
++  if (bpf_get_ns_current_pid_tgid(dev, ino, &nsdata, sizeof(nsdata)))
++    return ~0u;
++
++  return nsdata.tgid;
++}
++
++static bool check_pid(pid_t pid) {
++  return bpf_map_lookup_elem(&pids_unfiltered, &pid) != NULL;
++}
++
++static union augmented_syscall_payload_u *augmented_syscall_payload(void) {
++  u64 key = bpf_get_current_pid_tgid();
++
++  union augmented_syscall_payload_u *res =
++      bpf_map_lookup_elem(&augmented_syscalls_tmp, &key);
++  if (res)
++    return res;
++
++  static const union augmented_syscall_payload_u tmp = {0};
++  if (bpf_map_update_elem(&augmented_syscalls_tmp, &key, &tmp, BPF_NOEXIST) < 0)
++    return NULL;
++
++  return bpf_map_lookup_elem(&augmented_syscalls_tmp, &key);
++}
++
++#define DO_READ_STRING(str_arg, what_done)                                     \
++  do {                                                                         \
++    void *const c_str = (void *)str_arg;                                       \
++    if (c_str) {                                                               \
++      long path_len = bpf_probe_read_user_str(                                 \
++          &payload->str[pos & HALFMAXMASK], HALFMAXLEN, c_str);                \
++      if (path_len <= 0) {                                                     \
++        ; /* error */                                                          \
++      } else {                                                                 \
++        --path_len;                                                            \
++      }                                                                        \
++      pos += path_len;                                                         \
++      if (pos >= HALFMAXLEN)                                                   \
++        goto what_done##_done;  /* overflow */                                 \
++    } else {                                                                   \
++      goto what_done##_done;                                                   \
++    }                                                                          \
++  } while (false);
++
++#define CLEAR_STUFF(count)                       \
++  do {                                           \
++    BOOST_PP_REPEAT(count, DO_CLEAR_STUFF, void) \
++  } while (false)
++
++#define DO_CLEAR_STUFF(n, i, data) the_stuff[i] = 0;
++
++#define READ_STUFF(count, what) \
++  do {                          \
++    CLEAR_STUFF(count);         \
++    DO_READ_STUFF(what);        \
++  } while (false)
++
++#define DO_READ_STUFF(what)                                                    \
++  do {                                                                         \
++    if (bpf_probe_read_user(the_stuff, sizeof(the_stuff), (void *)what) < 0)   \
++      return 0;                                                                \
++  } while (false)
++
++#define READ_ARGV_STUFF() READ_STUFF(MAX_ARG_COUNT, argv)
++#define READ_ENVP_STUFF() READ_STUFF(MAX_ENV_COUNT, envp)
++
++#define DO_READ_ARG(n, i, data) DO_READ_STRING(the_stuff[i], args)
++#define DO_READ_ENV(n, i, data) DO_READ_STRING(the_stuff[i], envs)
++
++#define READ_ARGV() BOOST_PP_REPEAT(MAX_ARG_COUNT, DO_READ_ARG, void)
++#define READ_ENVP() BOOST_PP_REPEAT(MAX_ENV_COUNT, DO_READ_ENV, void)
++
++#define ON_ENTER_EXEC(bits)                                                    \
++  static int on_enter_exec##bits(                                              \
++      struct augmented_syscall_payload##bits *payload, u##bits pathname,       \
++      u##bits argv, u##bits envp) {                                            \
++    unsigned pos = 0;                                                          \
++    DO_READ_STRING(pathname, path);                                            \
++  path_done:                                                                   \
++    if (argv) {                                                                \
++      u##bits the_stuff[MAX_ARG_COUNT];                                        \
++      READ_ARGV_STUFF();                                                       \
++      READ_ARGV();                                                             \
++    }                                                                          \
++  args_done:                                                                   \
++    if (envp) {                                                                \
++      u##bits the_stuff[MAX_ENV_COUNT];                                        \
++      READ_ENVP_STUFF();                                                       \
++      READ_ENVP();                                                             \
++    }                                                                          \
++  envs_done:                                                                   \
++    payload->hdr.str_len = pos;                                                \
++                                                                               \
++    return 0;                                                                  \
++  }
++
++ON_ENTER_EXEC(32)
++ON_ENTER_EXEC(64)
++
++#define ON_SYS_ENTER_EXECVE(bits)                                              \
++  static int on_sys_enter_execve##bits(                                        \
++      struct augmented_syscall_payload##bits *payload,                         \
++      struct syscall_enter_args *args) {                                       \
++    return on_enter_exec##bits(payload, args->args[0], args->args[1],          \
++                               args->args[2]);                                 \
++  }
++
++ON_SYS_ENTER_EXECVE(32)
++ON_SYS_ENTER_EXECVE(64)
++
++#define ON_SYS_ENTER_EXECVEAT(bits)                                            \
++  static int on_sys_enter_execveat##bits(                                      \
++      struct augmented_syscall_payload##bits *payload,                         \
++      struct syscall_enter_args *args) {                                       \
++    return on_enter_exec##bits(payload, args->args[1], args->args[2],          \
++                               args->args[3]);                                 \
++  }
++
++ON_SYS_ENTER_EXECVEAT(32)
++ON_SYS_ENTER_EXECVEAT(64)
++
++SEC("tp/raw_syscalls/sys_enter")
++int sys_enter(struct syscall_enter_args *args)
++{
++#if 0
++  if (!check_pid())
++    return 0;
++#endif
++
++  union augmented_syscall_payload_u *payload_u = augmented_syscall_payload();
++  if (payload_u == NULL)
++    return 0;
++
++  const bool is32 = bpf_in_ia32_syscall();
++  const long nr = args->syscall_nr;
++
++#define ON_SYS_ENTER(bits)                                                     \
++  do {                                                                         \
++    struct augmented_syscall_payload##bits *payload = &payload_u->_##bits;     \
++                                                                               \
++    payload->hdr.is32 = is32;                                                  \
++    payload->hdr.str_len = 0;                                                  \
++    payload->hdr.syscall_nr = nr;                                              \
++    payload->hdr.ret = -1;                                                     \
++    payload->str[0] = '\0';                                                    \
++                                                                               \
++    switch (nr) {                                                              \
++    case nr##bits##_execve:                                                    \
++      on_sys_enter_execve##bits(payload, args);                                \
++      break;                                                                   \
++    case nr##bits##_execveat:                                                  \
++      on_sys_enter_execveat##bits(payload, args);                              \
++      break;                                                                   \
++    default:                                                                   \
++      return 0;                                                                \
++    }                                                                          \
++                                                                               \
++    payload->hdr.args[0] = args->args[0];                                      \
++    payload->hdr.args[1] = args->args[1];                                      \
++    payload->hdr.args[2] = args->args[2];                                      \
++    payload->hdr.args[3] = args->args[3];                                      \
++    payload->hdr.args[4] = args->args[4];                                      \
++    payload->hdr.args[5] = args->args[5];                                      \
++  } while (false)
++
++  if (is32)
++    ON_SYS_ENTER(32);
++  else
++    ON_SYS_ENTER(64);
++
++#undef ON_SYS_ENTER
++
++  return 0;
++}
++
++SEC("tp/raw_syscalls/sys_exit")
++int sys_exit(struct syscall_exit_args *args)
++{
++  pid_t ourpid = our_pid();
++  if (!check_pid(ourpid))
++    return 0;
++
++  union augmented_syscall_payload_u *payload_u = augmented_syscall_payload();
++  if (payload_u == NULL)
++    return 0;
++
++  const bool was32 = (((const uint8_t *)payload_u)[0] & 1u) == 1u; /* is32 */
++  const bool is32 = bpf_in_ia32_syscall();
++  const bool diff32 = is32 != was32;
++  const long nr = args->syscall_nr;
++  const long ret = args->ret;
++
++#define ON_SYS_EXIT(bits)                                                      \
++  do {                                                                         \
++    struct augmented_syscall_payload##bits *payload = &payload_u->_##bits;     \
++                                                                               \
++    const long wasnr = payload->hdr.syscall_nr;                                \
++                                                                               \
++    bool uhoh = diff32;                                                        \
++                                                                               \
++    switch (wasnr) {                                                           \
++    case nr##bits##_clone:                                                     \
++    case nr##bits##_clone3:                                                    \
++    case nr##bits##_fork: {                                                    \
++      if (ret <= 0)                                                            \
++        return 0;                                                              \
++                                                                               \
++      pid_t key = ret;                                                         \
++      bool value = true;                                                       \
++      bpf_map_update_elem(&pids_unfiltered, &key, &value, BPF_ANY);            \
++      return 0;                                                                \
++    }                                                                          \
++    case nr##bits##_execve:                                                    \
++    case nr##bits##_execveat:                                                  \
++      if (ret != 0)                                                            \
++        return 0;                                                              \
++                                                                               \
++      if (diff32) {                                                            \
++        if (bits == 32) {                                                      \
++          uhoh = !((wasnr == nr32_execve && nr == nr64_execve) ||              \
++                   (wasnr == nr32_execveat && nr == nr64_execve));             \
++        } else {                                                               \
++          uhoh = !((wasnr == nr64_execve && nr == nr32_execve) ||              \
++                   (wasnr == nr64_execveat && nr == nr32_execve));             \
++        }                                                                      \
++      }                                                                        \
++      break;                                                                   \
++                                                                               \
++    case nr##bits##_mmap:                                                      \
++      if ((unsigned long)ret >= (unsigned long)-4095)                          \
++        return 0; /* failed */                                                 \
++                                                                               \
++    case nr##bits##_munmap:                                                    \
++      if (ret != 0)                                                            \
++        return 0; /* failed */                                                 \
++                                                                               \
++    default:                                                                   \
++      return 0;                                                                \
++    }                                                                          \
++                                                                               \
++                                                                               \
++    if (payload->hdr.str_len > 0) {                                            \
++      char sav = payload->str[MAX_BPF_PRINK_LEN];                              \
++      payload->str[MAX_BPF_PRINK_LEN] = '\0';                                  \
++      PRINT_PAYLOAD();                                                         \
++      payload->str[MAX_BPF_PRINK_LEN] = sav;                                   \
++    }                                                                          \
++    OUTPUT_PAYLOAD(bits);                                                      \
++                                                                               \
++    payload->hdr.syscall_nr = ~0u;                                             \
++  } while (false)
++
++#define FMT_STR " on %ld (%ld) \"%s\" <%u>\n"
++#define FMT_ARGS nr, wasnr, payload->str,  ourpid
++
++#define PRINT_PAYLOAD()                                                        \
++  do {                                                                         \
++    if (uhoh) {                                                                \
++      if (is32)                                                                \
++        bpf_printk("uhhh oh! [32]" FMT_STR, FMT_ARGS);                         \
++      else                                                                     \
++        bpf_printk("uhhh oh! [64]" FMT_STR, FMT_ARGS);                         \
++    } else {                                                                   \
++      if (is32) {                                                              \
++        if (diff32) {                                                          \
++          bpf_printk("[64 -> 32]" FMT_STR, FMT_ARGS);                          \
++        } else {                                                               \
++          bpf_printk("[32]" FMT_STR, FMT_ARGS);                                \
++        }                                                                      \
++      } else {                                                                 \
++        if (diff32) {                                                          \
++          bpf_printk("[32 -> 64]" FMT_STR, FMT_ARGS);                          \
++        } else {                                                               \
++          bpf_printk("[64]" FMT_STR, FMT_ARGS);                                \
++        }                                                                      \
++      }                                                                        \
++    }                                                                          \
++  } while (false)
++
++#define OUTPUT_PAYLOAD(bits)                                                   \
++  do {                                                                         \
++    payload->hdr.ret = ret;                                                    \
++    unsigned the_payload_size =                                                \
++        sizeof(struct augmented_syscall_payload##bits##_header) +              \
++        payload->hdr.str_len;                                                  \
++                                                                               \
++    long err;                                                                  \
++    if ((err = bpf_perf_event_output(                                          \
++             args, &__jove_augmented_syscalls__, BPF_F_CURRENT_CPU, payload,   \
++             the_payload_size & TWOTIMESMAXMASK)) < 0) {                       \
++      bpf_printk("bpf_perf_event_output() failed! %ld", err);                  \
++    } else {                                                                   \
++/*    bpf_printk("bpf_perf_event_output() suceeded! (wrote %u)",             */\
++/*               the_payload_size);                                          */\
++    }                                                                          \
++                                                                               \
++    payload->hdr.ret = -1;                                                     \
++    payload->hdr.str_len = 0;                                                  \
++  } while (false)
++
++  if (was32)
++    ON_SYS_EXIT(32);
++  else
++    ON_SYS_EXIT(64);
++
++#undef ON_SYS_EXIT
++#undef FMT_ARGS
++#undef FMT_STR
++
++  return 0;
++}
++
++char _license[] SEC("license") = "GPL";

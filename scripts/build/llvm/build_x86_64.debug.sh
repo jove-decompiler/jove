@@ -5,12 +5,23 @@ set -x
 
 if [ ! -f build.ninja ]; then
 
+OURCFLAGS=\
+" -gline-tables-only"\
+" -fno-omit-frame-pointer"\
+" -mno-omit-leaf-frame-pointer"\
+" -ggdb"\
+" -Og"
+
 cmake -G Ninja \
       -D CMAKE_BUILD_TYPE=Debug \
       -D CMAKE_C_COMPILER=$(which clang-16) \
       -D CMAKE_CXX_COMPILER=$(which clang++-16) \
+      -D "CMAKE_C_FLAGS=$OURCFLAGS" \
+      -D "CMAKE_CXX_FLAGS=$OURCFLAGS" \
       -D "LLVM_TARGETS_TO_BUILD=Mips;X86;AArch64" \
       -D "JOVE_TARGETS_TO_BUILD=i386;x86_64;mipsel;mips64el;aarch64" \
+      -D "LLVM_TABLEGEN=$(pwd)/../build/bin/llvm-tblgen" \
+      -D "CLANG_TABLEGEN=$(pwd)/../build/bin/clang-tblgen" \
       -D JOVE_HAVE_MEMFD=ON \
       -D "LLVM_TABLEGEN=$(pwd)/../build/bin/llvm-tblgen" \
       -D LLVM_BUILD_TESTS=OFF \
@@ -23,7 +34,7 @@ cmake -G Ninja \
       -D LLVM_ENABLE_TERMINFO=OFF \
       -D LLVM_ENABLE_ZSTD=OFF \
       -D LLVM_ENABLE_ZLIB=ON \
-      -D LLVM_ENABLE_ASSERTIONS=ON \
+      -D LLVM_ENABLE_ASSERTIONS=OFF \
       -D LLVM_ENABLE_EH=ON \
       -D LLVM_BUILD_DOCS=OFF \
       -D LLVM_BINUTILS_INCDIR=/usr/include \

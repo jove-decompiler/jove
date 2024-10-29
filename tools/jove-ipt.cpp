@@ -289,11 +289,7 @@ int IPTTool::Run(void) {
           //
           // to trace raw system calls we need to be superuser
           //
-          Arg("-e");
-          Arg("raw_syscalls:sys_enter,raw_syscalls:sys_exit");
-          Arg("--filter");
-          Arg("id==" + std::to_string(syscalls::NR::munmap) + " || " +
-              "id==" + std::to_string(syscalls::NR::mmap));
+          Arg("--jove_syscalls");
         }
 
         if (opts.RunAsUser) {
