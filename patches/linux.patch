@@ -543,10 +543,10 @@ index adbaf80b398c..06783224fe45 100644
  	record__free_thread_masks(rec, rec->nr_threads);
 diff --git a/tools/perf/util/bpf_skel/jove_augmented_raw_syscalls.bpf.c b/tools/perf/util/bpf_skel/jove_augmented_raw_syscalls.bpf.c
 new file mode 100644
-index 000000000000..dcec19f8defc
+index 000000000000..16e8dc928b01
 --- /dev/null
 +++ b/tools/perf/util/bpf_skel/jove_augmented_raw_syscalls.bpf.c
-@@ -0,0 +1,429 @@
+@@ -0,0 +1,430 @@
 +#include "vmlinux.h"
 +#include "augmented_raw_syscalls.h"
 +#include <linux/limits.h>
@@ -571,7 +571,7 @@ index 000000000000..dcec19f8defc
 +#endif
 +
 +#define MAX_ARG_COUNT 10
-+#define MAX_ENV_COUNT 40
++#define MAX_ENV_COUNT 60
 +
 +#define MAX_BPF_PRINK_LEN 128
 +
@@ -676,13 +676,12 @@ index 000000000000..dcec19f8defc
 +      long path_len = bpf_probe_read_user_str(                                 \
 +          &payload->str[pos & HALFMAXMASK], HALFMAXLEN, c_str);                \
 +      if (path_len <= 0) {                                                     \
-+        ; /* error */                                                          \
-+      } else {                                                                 \
-+        --path_len;                                                            \
++        payload->str[pos & HALFMAXMASK] = '\0'; /* error */                    \
++        ++pos;                                                                 \
 +      }                                                                        \
 +      pos += path_len;                                                         \
 +      if (pos >= HALFMAXLEN)                                                   \
-+        goto what_done##_done;  /* overflow */                                 \
++        goto what_done##_done; /* overflow */                                  \
 +    } else {                                                                   \
 +      goto what_done##_done;                                                   \
 +    }                                                                          \
@@ -729,6 +728,8 @@ index 000000000000..dcec19f8defc
 +      READ_ARGV();                                                             \
 +    }                                                                          \
 +  args_done:                                                                   \
++    payload->str[pos & HALFMAXMASK] = '\0';                                    \
++    ++pos;                                                                     \
 +    if (envp) {                                                                \
 +      u##bits the_stuff[MAX_ENV_COUNT];                                        \
 +      READ_ENVP_STUFF();                                                       \

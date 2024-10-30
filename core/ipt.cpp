@@ -432,14 +432,52 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb_event(const struct pev_event &event
 
           case syscalls::NR::execve:
           case syscalls::NR::execveat: {
+            std::vector<const char *> argvec;
+            std::vector<const char *> envvec;
+
+            const unsigned n = payload->hdr.str_len;
+
+            const char *const beg = &payload->str[0];
+            const char *const end = &payload->str[n];
+
+            const char *eon;
+            const char *const pathname = beg;
+
+            eon = (char *)memchr(pathname, '\0', n - (pathname - beg));
+            assert(eon);
+
+            for (const char *arg = eon + 1; *arg; arg = eon + 1) {
+              argvec.push_back(arg);
+
+              unsigned left = n - (arg - beg);
+              eon = (const char *)memchr(arg, '\0', left);
+              assert(eon);
+            }
+            assert(eon != end);
+            ++eon;
+            assert(eon != end);
+            assert(*eon == '\0');
+args_done:
+            for (const char *env = eon + 1; env != end; env = eon + 1) {
+              envvec.push_back(env);
+
+              unsigned left = n - (env - beg);
+              eon = (const char *)memchr(env, '\0', left);
+              assert(eon);
+            }
+envs_done:
             if constexpr (IsVerbose()) {
-#if 0
-              std::string str(payload->str, payload->hdr.str_len);
-              str.push_back('\0');
-              fprintf(stderr, "exec: %s\n", str.c_str());
-#else
-              fprintf(stderr, "exec: \"%s\"\n", payload->str);
-#endif
+              fprintf(stderr, "nargs=%u nenvs=%u (%u / %u) exec:",
+                      (unsigned)argvec.size(),
+                      (unsigned)envvec.size(),
+                      (unsigned)(sizeof(payload->hdr) + n),
+                      TWOTIMESMAXLEN);
+              for (const char *env : envvec)
+                fprintf(stderr, " \"%s\"", env);
+              fprintf(stderr, " \"%s\"", pathname);
+              for (const char *arg : argvec)
+                fprintf(stderr, " \"%s\"", arg);
+              fprintf(stderr, "\n");
             }
             break;
           }
