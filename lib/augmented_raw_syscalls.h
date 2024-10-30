@@ -4,16 +4,18 @@
 //
 // magic
 //
-#ifdef MAGIC
+#if defined(MAGIC) || defined(MAGIC_LEN)
 #error
 #endif
 
 #if 0
 /* lean and mean */
+#define MAGIC_LEN 0
 #define MAGIC(idx)
 #else
 /* four characters */
-#define MAGIC(idx) char magic##idx[4]
+#define MAGIC_LEN 4
+#define MAGIC(idx) char magic##idx[MAGIC_LEN]
 #endif
 
 //
@@ -36,8 +38,9 @@ namespace jove {
   struct __attribute__((__packed__))                                           \
   augmented_syscall_payload##bits##_header {                                   \
     MAGIC(1);                      /* 'J' 'O' 'V' 'E' */                       \
+    unsigned was32 : 1;                                                        \
     unsigned is32 : 1;                                                         \
-    unsigned syscall_nr : 15;                                                  \
+    unsigned syscall_nr : 14;                                                  \
     uint32_t str_len;                                                          \
     uint##bits##_t ret;                                                        \
     uint##bits##_t args[6];                                                    \

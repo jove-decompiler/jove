@@ -6,6 +6,7 @@
 #include "objdump.h"
 #include "concurrent.h"
 #include "augmented_raw_syscalls.h"
+#include "locator.h"
 
 #include "syscall_nrs.hpp"
 
@@ -46,7 +47,8 @@ IntelPT<IPT_PARAMETERS_DEF>::IntelPT(int ptdump_argc, char **ptdump_argv,
     : jv(jv), explorer(explorer), state(jv),
       IsCOFF(B::is_coff(*state.for_binary(jv.Binaries.at(0)).Bin)),
       AddressSpaceInit(AddressSpaceInit), CurrPoint(jv.Binaries.at(0)),
-      ignore_trunc_aux(ignore_trunc_aux) {
+      ignore_trunc_aux(ignore_trunc_aux),
+      path_to_wine_bin(locator_t::wine(IsTarget32)) {
   setvbuf(stderr, NULL, _IOLBF, 0); /* automatically flush on new-line */
 
   Our.cpu = cpu;
@@ -189,6 +191,7 @@ static void hexdump(FILE *stream, const void *ptr, int buflen) {
 
 template <IPT_PARAMETERS_DCL>
 void IntelPT<IPT_PARAMETERS_DEF>::examine_sb_event(const struct pev_event &event, uint64_t offset) {
+#if 0
     auto do_comm_exec = [&](const struct pev_record_comm &comm) -> void {
       AddressSpace.clear();
 
@@ -225,6 +228,7 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb_event(const struct pev_event &event
         Our.pid = pid;
       }
     };
+#endif
 
 #define unexpected_rest()                                                      \
   do {                                                                         \
@@ -266,12 +270,14 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb_event(const struct pev_event &event
       }
 
     case PERF_RECORD_COMM: {
+#if 0
 		const struct pev_record_comm *comm = event.record.comm;
                 assert(comm);
       if (event.misc & PERF_RECORD_MISC_COMM_EXEC) {
         do_comm_exec(*comm);
       CheckEngaged();
       }
+#endif
       break;
     }
 
@@ -466,18 +472,52 @@ args_done:
               assert(eon);
             }
 envs_done:
+
+            const unsigned nowBits = payload->hdr.is32 ? 32u : 64u;
+
             if constexpr (IsVerbose()) {
-              fprintf(stderr, "nargs=%u nenvs=%u (%u / %u) exec:",
+              fprintf(stderr, "nargs=%u nenvs=%u (%u / %u) <%u> [%u] exec:",
                       (unsigned)argvec.size(),
                       (unsigned)envvec.size(),
                       (unsigned)(sizeof(payload->hdr) + n),
-                      TWOTIMESMAXLEN);
+                      TWOTIMESMAXLEN,
+                      (unsigned)pid,
+                      (unsigned)nowBits);
               for (const char *env : envvec)
                 fprintf(stderr, " \"%s\"", env);
               fprintf(stderr, " \"%s\"", pathname);
               for (const char *arg : argvec)
                 fprintf(stderr, " \"%s\"", arg);
               fprintf(stderr, "\n");
+            }
+
+            const bool rightBits = nowBits == sizeof(taddr_t) * 8;
+            if (!rightBits)
+              break;
+
+            ignore_exception([&](void) -> void {
+              if (pathname == path_to_wine_bin &&
+                  fs::equivalent(argvec.at(0), jv.Binaries.at(0).Name.c_str())) {
+                fprintf(stderr, "our pid is %u\n", static_cast<unsigned>(pid));
+
+                Our.pid = pid;
+                AddressSpace.clear();
+                CheckEngaged();
+              }
+            });
+
+            if (Our.pid == pid) {
+              for (const char *env : envvec) {
+                if (env != wine_env_of_interest)
+                  continue;
+
+                fprintf(stderr, "our pid (%u) exec'd\n",
+                        static_cast<unsigned>(pid));
+              }
+
+              AddressSpace.clear();
+              CheckEngaged();
+              break;
             }
             break;
           }
@@ -491,7 +531,7 @@ envs_done:
 	  unsigned bytes_size = event.record.raw->size;
 	  const uint8_t *const bytes = (const uint8_t *)event.record.raw->data;
 
-          const bool was32 = (bytes[4] & 1u) == 1u;
+          const bool was32 = !!(bytes[MAGIC_LEN] & 1u);
 
 #if 1
           const unsigned size_of_struct =

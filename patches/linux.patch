@@ -543,10 +543,10 @@ index adbaf80b398c..06783224fe45 100644
  	record__free_thread_masks(rec, rec->nr_threads);
 diff --git a/tools/perf/util/bpf_skel/jove_augmented_raw_syscalls.bpf.c b/tools/perf/util/bpf_skel/jove_augmented_raw_syscalls.bpf.c
 new file mode 100644
-index 000000000000..16e8dc928b01
+index 000000000000..996d1f29ae01
 --- /dev/null
 +++ b/tools/perf/util/bpf_skel/jove_augmented_raw_syscalls.bpf.c
-@@ -0,0 +1,430 @@
+@@ -0,0 +1,431 @@
 +#include "vmlinux.h"
 +#include "augmented_raw_syscalls.h"
 +#include <linux/limits.h>
@@ -799,7 +799,7 @@ index 000000000000..16e8dc928b01
 +                                                                               \
 +    payload->str[0] = '\0';                                                    \
 +    payload->hdr.str_len = 0;                                                  \
-+    payload->hdr.is32 = is32;                                                  \
++    payload->hdr.was32 = is32;                                                 \
 +    payload->hdr.syscall_nr = nr;                                              \
 +    payload->hdr.ret = -1;                                                     \
 +                                                                               \
@@ -848,7 +848,7 @@ index 000000000000..16e8dc928b01
 +  if (payload_u == NULL)
 +    return 0;
 +
-+  const bool was32 = (((const uint8_t *)payload_u)[4] & 1u) == 1u; /* is32 */
++  const bool was32 = !!(((const uint8_t *)payload_u)[MAGIC_LEN] & 1u);
 +  const bool is32 = bpf_in_ia32_syscall();
 +  const bool diff32 = is32 != was32;
 +  const long nr = args->syscall_nr;
@@ -904,6 +904,8 @@ index 000000000000..16e8dc928b01
 +      return 0;                                                                \
 +    }                                                                          \
 +                                                                               \
++    payload->hdr.ret = ret;                                                    \
++    payload->hdr.is32 = is32;                                                  \
 +                                                                               \
 +    if (payload->hdr.str_len > 0) {                                            \
 +      char sav = payload->str[MAX_BPF_PRINK_LEN];                              \
@@ -945,7 +947,6 @@ index 000000000000..16e8dc928b01
 +
 +#define OUTPUT_PAYLOAD(bits)                                                   \
 +  do {                                                                         \
-+    payload->hdr.ret = ret;                                                    \
 +    unsigned the_payload_size =                                                \
 +        sizeof(struct augmented_syscall_payload##bits##_header) +              \
 +        payload->hdr.str_len;                                                  \

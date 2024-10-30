@@ -241,16 +241,11 @@ class IntelPT {
     }
   } CurrPoint;
 
-  struct {
-    unsigned ExecCount = 0; /* FIXME when and why does wine exec twice... */
-  } _wine;
-
-  bool RightWineExecCount(void) const {
-    return _wine.ExecCount == 2;
-  }
+  const std::string path_to_wine_bin;
+  static inline const std::string wine_env_of_interest = "WINELOADERNOEXEC=1";
 
   bool IsRightProcess(unsigned pid) const {
-    return pid == Our.pid && !(IsCOFF && !RightWineExecCount());
+    return pid == Our.pid;
   }
 
   bool RightProcess(void) const {
