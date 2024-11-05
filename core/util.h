@@ -49,6 +49,41 @@ template <typename T> static inline bool updateVariable(T &x, const T &y) {
   return false;
 }
 
+// doesn't assume the file is seekable
+template <typename T>
+inline void read_whatever_into_thing(const char *path, T &out) {
+  std::ifstream ifs(path);
+  if (!ifs.is_open())
+    throw std::runtime_error("read_whatever_into_thing: failed to open " +
+                             std::string(path));
+  std::vector<char> buff;
+  const std::size_t chunkSize = 4096;
+
+  for (;;) {
+    // Increase the size of the vector to accommodate new data
+    std::size_t currentSize = buff.size();
+    buff.resize(currentSize + chunkSize);
+
+    // Read data directly into the vector
+    ifs.read(&buff[currentSize], chunkSize);
+    std::streamsize bytesRead = ifs.gcount();
+
+    // Resize the vector to the actual number of bytes read
+    buff.resize(currentSize + bytesRead);
+
+    // Break if we've reached the end of the file
+    if (bytesRead < static_cast<std::streamsize>(chunkSize))
+      break;
+  }
+
+  if (buff.empty())
+    throw std::runtime_error("read_whatever_into_thing: empty file \"" +
+                             std::string(path) + "\"");
+
+  out.resize(buff.size());
+  memcpy(&out[0], &buff[0], buff.size());
+}
+
 template <typename T>
 inline void read_file_into_thing(const char *path, T &out) {
   out.clear();

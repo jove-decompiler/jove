@@ -43,7 +43,7 @@ void cached_hash_t::Update(const char *path, std::string &file_contents) {
   //
   // otherwise
   //
-  read_file_into_thing(path, file_contents);
+  read_whatever_into_thing(path, file_contents);
   h = hash_data(file_contents);
   mtime.sec = st.st_mtim.tv_sec;
   mtime.nsec = st.st_mtim.tv_nsec;
@@ -94,7 +94,7 @@ std::pair<binary_index_t, bool> jv_t::AddFromPath(explorer_t &explorer,
 
   std::conditional_t<ValidatePath, fs::path, std::monostate> canon_path;
   if constexpr (ValidatePath) {
-    if (!fs::exists(path))
+    if (!fs::exists(path) || !fs::is_regular_file(path))
       return std::make_pair(invalid_binary_index, false);
 
     path = (canon_path = fs::canonical(path)).c_str();
@@ -102,11 +102,18 @@ std::pair<binary_index_t, bool> jv_t::AddFromPath(explorer_t &explorer,
 
   std::string file_contents;
   hash_t h;
-  LookupAndCacheHash(h, path, file_contents);
+
+  try {
+    LookupAndCacheHash(h, path, file_contents);
+  } catch (...) {
+    return std::make_pair(invalid_binary_index, false);
+  }
 
   get_data_t get_data;
   if (file_contents.empty())
-    get_data = [&](ip_string &out) -> void { read_file_into_thing(path, out); };
+    get_data = [&](ip_string &out) -> void {
+      read_whatever_into_thing(path, out);
+    };
   else
     get_data = [&](ip_string &out) -> void {
       out.resize(file_contents.size());
