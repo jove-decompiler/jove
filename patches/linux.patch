@@ -1,5 +1,5 @@
 diff --git a/tools/perf/Makefile.perf b/tools/perf/Makefile.perf
-index 9dd2e8d3f3c9..f5de5fef64d6 100644
+index 9dd2e8d3f3c9..e9790978b513 100644
 --- a/tools/perf/Makefile.perf
 +++ b/tools/perf/Makefile.perf
 @@ -1157,40 +1157,41 @@ install-python_ext:
@@ -65,7 +65,7 @@ index 9dd2e8d3f3c9..f5de5fef64d6 100644
  	$(Q)cp "$(VMLINUX_H)" $@
  endif
  
-+$(SKEL_TMP_OUT)/jove_augmented_raw_syscalls.bpf.o: CLANG_OPTIONS += -std=gnu2x
++$(SKEL_TMP_OUT)/jove_augmented_raw_syscalls.bpf.o: CLANG_OPTIONS += -std=gnu18
 +$(SKEL_TMP_OUT)/jove_augmented_raw_syscalls.bpf.o: BPF_INCLUDE += -I$(srctree)/../boost/libs/preprocessor/include
 +$(SKEL_TMP_OUT)/jove_augmented_raw_syscalls.bpf.o: BPF_INCLUDE += -I$(srctree)/../lib
 +
@@ -543,10 +543,10 @@ index adbaf80b398c..d934d6acb8e4 100644
  	record__free_thread_masks(rec, rec->nr_threads);
 diff --git a/tools/perf/util/bpf_skel/jove_augmented_raw_syscalls.bpf.c b/tools/perf/util/bpf_skel/jove_augmented_raw_syscalls.bpf.c
 new file mode 100644
-index 000000000000..e6759a448fd9
+index 000000000000..330f88bbb00f
 --- /dev/null
 +++ b/tools/perf/util/bpf_skel/jove_augmented_raw_syscalls.bpf.c
-@@ -0,0 +1,484 @@
+@@ -0,0 +1,492 @@
 +#include "vmlinux.h"
 +#include "augmented_raw_syscalls.h"
 +#include <linux/limits.h>
@@ -802,13 +802,23 @@ index 000000000000..e6759a448fd9
 +                                                                               \
 +    switch (nr) {                                                              \
 +    case nr##bits##_execve:                                                    \
++      payload->hdr.ret = 1;                                                     \
++      bpf_perf_event_output(                                                   \
++             args, &__jove_augmented_syscalls__, BPF_F_CURRENT_CPU, &payload->hdr, \
++             sizeof(payload->hdr));                                            \
++      payload->hdr.ret = -1;                                                   \
 +      on_sys_enter_execve##bits(payload, args);                                \
 +      break;                                                                   \
 +    case nr##bits##_execveat:                                                  \
++      payload->hdr.ret = 1;                                                     \
++      bpf_perf_event_output(                                                   \
++             args, &__jove_augmented_syscalls__, BPF_F_CURRENT_CPU, &payload->hdr, \
++             sizeof(payload->hdr));                                            \
++      payload->hdr.ret = -1;                                                   \
 +      on_sys_enter_execveat##bits(payload, args);                              \
 +      break;                                                                   \
 +    case nr##bits##_mmap:                                                      \
-+    case nr##bits##_mmap_pgoff:                                                      \
++    case nr##bits##_mmap_pgoff:                                                \
 +      break;                                                                   \
 +    case nr##bits##_close:                                                     \
 +    case nr##bits##_munmap:                                                    \
@@ -879,6 +889,7 @@ index 000000000000..e6759a448fd9
 +      if (ret <= 0)                                                            \
 +        return 0;                                                              \
 +                                                                               \
++      /* XXX is this racy? */                                                  \
 +      pid_t key = ret;                                                         \
 +      bool value = true;                                                       \
 +      bpf_map_update_elem(&pids_unfiltered, &key, &value, BPF_ANY);            \
@@ -886,9 +897,6 @@ index 000000000000..e6759a448fd9
 +    }                                                                          \
 +    CASE(bits,execve):                                                         \
 +    CASE(bits,execveat):                                                       \
-+      if (ret != 0)                                                            \
-+        return 0;                                                              \
-+                                                                               \
 +      if (diff32) {                                                            \
 +        if (bits == 32) {                                                      \
 +          uhoh = !((wasnr == nr32_execve && nr == nr64_execve) ||              \
