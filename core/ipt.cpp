@@ -252,6 +252,10 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb_event(const struct pev_event &event
       if (pid == 0)
         break;
 
+      if (!IsRightProcess(pid))
+	break;
+
+      Our.pids.insert(fork->pid);
       pid_map[fork->pid] = pid_map[pid];
 
       break;
@@ -272,13 +276,14 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb_event(const struct pev_event &event
           event.record.itrace_start;
       assert(itrace_start);
 
-      Curr.pid = itrace_start->pid;
+      if (cpu == Our.cpu) {
+	Curr.pid = itrace_start->pid;
 
-      const bool Eng = CheckEngaged();
-      if constexpr (IsVeryVerbose())
-        if (Eng)
-          fprintf(stderr, "%016" PRIx64 "\titrace_start %u/%u\n", offset,
-                  itrace_start->pid, itrace_start->tid);
+        if constexpr (IsVeryVerbose())
+          fprintf(stderr, "itrace switch (%u)\n", (unsigned)itrace_start->pid);
+
+	CheckEngaged();
+      }
       break;
     }
 
@@ -298,12 +303,18 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb_event(const struct pev_event &event
       assert(switch_cpu_wide);
       if (event.misc & PERF_RECORD_MISC_SWITCH_OUT) {
         if (cpu == Our.cpu) {
+	  if constexpr (IsVeryVerbose())
+	    fprintf(stderr, "switch out\n");
+
           Curr.pid = ~0u;
           process_state = dummy_process_state;
           Engaged = false;
         }
       } else {
         if (cpu == Our.cpu) {
+	  if constexpr (IsVeryVerbose())
+	    fprintf(stderr, "switch (%u)\n", (unsigned)pid);
+
           Curr.pid = pid;
           process_state = pid_map[pid];
           CheckEngaged();
@@ -315,12 +326,18 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb_event(const struct pev_event &event
     case PERF_RECORD_SWITCH: {
       if (event.misc & PERF_RECORD_MISC_SWITCH_OUT) {
         if (cpu == Our.cpu) {
+	  if constexpr (IsVeryVerbose())
+	    fprintf(stderr, "switch out\n");
+
           Curr.pid = ~0u;
           process_state = dummy_process_state;
           Engaged = false;
         }
       } else {
         if (cpu == Our.cpu) {
+	  if constexpr (IsVeryVerbose())
+	    fprintf(stderr, "switch (%u)\n", (unsigned)pid);
+
           Curr.pid = pid;
           process_state = pid_map[pid];
           CheckEngaged();
@@ -336,9 +353,6 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb_event(const struct pev_event &event
         const char *const name = event.name;
         const uint64_t ip = *event.sample.ip;
 
-        auto &pstate = pid_map[pid];
-        auto &AddressSpace = pstate.addrspace;
-
         if (strcmp(name, "__jove_augmented_syscalls__") != 0) {
           unexpected_rest();
           break;
@@ -350,11 +364,21 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb_event(const struct pev_event &event
           auto nr = hdr.syscall_nr;
           auto ret = hdr.ret;
 
+#define RIGHT_PROCESS_GET                                                      \
+    auto &pstate = pid_map[pid];                                               \
+    auto &AddressSpace = pstate.addrspace
+
+#define IS_RIGHT_PROCESS_GET                                                   \
+    if (!IsRightProcess(pid))                                                  \
+      break;                                                                   \
+    RIGHT_PROCESS_GET
           //
-          // we can assume that the syscall successfully completed
+          // we can assume that the syscall successfully completed (XXX except exec)
           //
           switch (nr) {
           case syscalls::NR::munmap: {
+            IS_RIGHT_PROCESS_GET;
+
             auto addr = hdr.args[0];
             auto len  = hdr.args[1];
 
@@ -377,6 +401,8 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb_event(const struct pev_event &event
             is_pgoff = true;
 #endif
           {
+            IS_RIGHT_PROCESS_GET;
+
             auto addr  = hdr.args[0];
             auto len   = hdr.args[1];
             auto prot  = hdr.args[2];
@@ -438,12 +464,21 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb_event(const struct pev_event &event
           }
 
           case syscalls::NR::close: {
-            pstate.fdmap.erase(hdr.args[0]);
+            IS_RIGHT_PROCESS_GET;
+
+            auto fd = hdr.args[0];
+
+            if constexpr (IsVeryVerbose())
+              fprintf(stderr, "close(%d) = %ld\n", (int)fd, (long)ret);
+
+            pstate.fdmap.erase(fd);
             break;
           }
 
           case syscalls::NR::openat:
           case syscalls::NR::open: {
+            IS_RIGHT_PROCESS_GET;
+
             if constexpr (IsVeryVerbose())
               fprintf(stderr, "open(\"%s\") = %ld\n", payload->str, (long)ret);
 
@@ -455,6 +490,8 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb_event(const struct pev_event &event
             fd_pos = hdr.args[3];
 
           case syscalls::NR::read: {
+            IS_RIGHT_PROCESS_GET;
+
             auto fd = hdr.args[0];
 
             auto &fdmap = pstate.fdmap;
@@ -468,10 +505,11 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb_event(const struct pev_event &event
             bool IsNew;
             std::tie(BIdx, IsNew) = jv.AddFromPath(explorer, filename.c_str());
 
-            if (is_binary_index_valid(BIdx))
-              llvm::errs()
-                  << llvm::formatv("read of {0} (offset {1}) to {2:x}\n",
-                                   filename, fd_pos, hdr.args[1]);
+            if constexpr (IsVerbose())
+              if (is_binary_index_valid(BIdx))
+                llvm::errs()
+                    << llvm::formatv("read of {0} (offset {1}) to {2:x}\n",
+                                     filename, fd_pos, hdr.args[1]);
 
             (*it).second.pos += ret;
             break;
@@ -479,7 +517,41 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb_event(const struct pev_event &event
 
           case syscalls::NR::execve:
           case syscalls::NR::execveat: {
-            AddressSpace.clear();
+            if (ret == 1) {
+              // XXX exec never returns 1; we use this value to just say that an
+              // exec is being attempted. the exit will be reported even if it
+              // fails.
+              //
+              // we do this here because the MMAP records come before the exec
+              // has completed
+              if constexpr (IsVeryVerbose())
+                fprintf(stderr, "(enter exec)\n");
+
+	      auto it = pid_map.find(pid);
+	      if (it != pid_map.end()) {
+		auto &pstate = (*it).second;
+		pstate.addrspace_sav = pstate.addrspace;
+		pstate.addrspace.clear(); /* entering exec */
+	      }
+              break;
+            }
+            if (static_cast<int>(ret) == -1) {
+	      // exec failed, undo our clear of the address space
+              if constexpr (IsVeryVerbose())
+                fprintf(stderr, "(exec failed)\n");
+
+	      auto it = pid_map.find(pid);
+	      if (it != pid_map.end()) {
+		auto &pstate = (*it).second;
+		pstate.addrspace = pstate.addrspace_sav;
+		pstate.addrspace_sav.clear();
+	      }
+              break;
+            }
+
+            Our.pids.insert(pid);
+            RIGHT_PROCESS_GET;
+            CheckEngaged();
 
             std::vector<const char *> argvec;
             std::vector<const char *> envvec;
@@ -634,6 +706,15 @@ envs_done:
               (unsigned)_mmap.two, _mmap.filename);
       }
       assert(_mmap.pid == pid);
+
+      //
+      // we want to see all records since they will be encountered before the
+      // exec of a process of interest happens
+      //
+#if 0
+      if (!IsRightProcess(pid))
+	break;
+#endif
 
       auto &pstate = pid_map[pid];
       auto &AddressSpace = pstate.addrspace;

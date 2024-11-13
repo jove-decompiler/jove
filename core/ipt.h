@@ -11,6 +11,7 @@
 #include <boost/preprocessor/seq/seq.hpp>
 #include <boost/unordered/unordered_flat_map.hpp>
 #include <boost/unordered/unordered_node_map.hpp>
+#include <boost/unordered/unordered_flat_set.hpp>
 
 struct pt_config;
 struct pt_sb_session;
@@ -140,6 +141,9 @@ class IntelPT {
     boost::container::flat_map<addr_intvl, std::pair<binary_index_t, uint64_t>,
                                addr_intvl_cmp>
         addrspace;
+    boost::container::flat_map<addr_intvl, std::pair<binary_index_t, uint64_t>,
+                               addr_intvl_cmp>
+        addrspace_sav;
     boost::unordered::unordered_flat_map<int, file_descriptor_state_t> fdmap;
   };
 
@@ -153,6 +157,7 @@ class IntelPT {
   struct {
     unsigned cpu = ~0u;
     unsigned pid = ~0u;
+    boost::unordered_flat_set<unsigned> pids;
   } Our;
 
   struct {
@@ -234,11 +239,9 @@ class IntelPT {
   static inline const std::string wine_env_of_interest = "WINELOADERNOEXEC=1";
 
   bool IsRightProcess(unsigned pid) const {
-#if 0
-    return pid == Our.pid;
-#else
-    return true;
-#endif
+    // the following is equivalent to pid != 0UL && pid != ~0UL
+    //return !!((pid + unsigned(1)) & unsigned(~1ull));
+    return Our.pids.contains(pid);
   }
 
   bool RightProcess(void) const {
