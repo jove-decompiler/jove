@@ -90,7 +90,7 @@ index 9dd2e8d3f3c9..f5de5fef64d6 100644
  	$(call QUIET_CLEAN, bpf-skel) $(RM) -r $(SKEL_TMP_OUT) $(SKELETONS) $(SKEL_OUT)/vmlinux.h
  
 diff --git a/tools/perf/builtin-record.c b/tools/perf/builtin-record.c
-index adbaf80b398c..06783224fe45 100644
+index adbaf80b398c..d934d6acb8e4 100644
 --- a/tools/perf/builtin-record.c
 +++ b/tools/perf/builtin-record.c
 @@ -1,30 +1,39 @@
@@ -351,7 +351,7 @@ index adbaf80b398c..06783224fe45 100644
  	OPT_STRING(0, "setup-filter", &record.filter_action, "pin|unpin",
  		   "BPF filter action"),
 +	OPT_BOOLEAN(0, "jove_syscalls", &jove_syscalls,
-+		    "Run jove syscalls bpf program"),
++		    "Augmented raw syscalls (jove)"),
  	OPT_END()
  };
  
@@ -543,16 +543,15 @@ index adbaf80b398c..06783224fe45 100644
  	record__free_thread_masks(rec, rec->nr_threads);
 diff --git a/tools/perf/util/bpf_skel/jove_augmented_raw_syscalls.bpf.c b/tools/perf/util/bpf_skel/jove_augmented_raw_syscalls.bpf.c
 new file mode 100644
-index 000000000000..c687727af37f
+index 000000000000..e6759a448fd9
 --- /dev/null
 +++ b/tools/perf/util/bpf_skel/jove_augmented_raw_syscalls.bpf.c
-@@ -0,0 +1,467 @@
+@@ -0,0 +1,484 @@
 +#include "vmlinux.h"
 +#include "augmented_raw_syscalls.h"
 +#include <linux/limits.h>
 +#include <bpf/bpf_helpers.h>
 +#include <bpf/bpf_tracing.h>
-+#include <stdint.h>
 +#include <boost/preprocessor/cat.hpp>
 +#include <boost/preprocessor/repetition/repeat.hpp>
 +
@@ -578,10 +577,12 @@ index 000000000000..c687727af37f
 +
 +#include <arch/x86_64/syscalls.inc.h>
 +static const unsigned nr64_clone3 = VERY_UNIQUE_NUM();
++static const unsigned nr64_mmap_pgoff = VERY_UNIQUE_NUM();
 +
 +#define ___SYSCALL(nr, nm) static const unsigned nr32_##nm = nr;\
 +  static const char *const nr32_##nm##_nm = #nm;
 +#include <arch/i386/syscalls.inc.h>
++static const unsigned nr32_mmap = VERY_UNIQUE_NUM();
 +
 +#ifndef TS_COMPAT
 +#define TS_COMPAT		0x0002	/* 32bit syscall active (64BIT)*/
@@ -807,18 +808,14 @@ index 000000000000..c687727af37f
 +      on_sys_enter_execveat##bits(payload, args);                              \
 +      break;                                                                   \
 +    case nr##bits##_mmap:                                                      \
-+/*    on_sys_enter_mmap##bits(payload, args); */                               \
++    case nr##bits##_mmap_pgoff:                                                      \
 +      break;                                                                   \
 +    case nr##bits##_close:                                                     \
 +    case nr##bits##_munmap:                                                    \
 +    case nr##bits##_read:                                                      \
 +    case nr##bits##_pread64:                                                   \
-+      break;                                                                   \
 +    case nr##bits##_open:                                                      \
-+      payload->hdr.str_len = bpf_probe_read_user_str(payload->str, MAXLEN, (void *)args->args[0]);    \
-+      break;                                                                   \
 +    case nr##bits##_openat:                                                    \
-+      payload->hdr.str_len = bpf_probe_read_user_str(payload->str, MAXLEN, (void *)args->args[1]);    \
 +      break;                                                                   \
 +    default:                                                                   \
 +      return 0;                                                                \
@@ -856,8 +853,7 @@ index 000000000000..c687727af37f
 +  const bool was32 = !!(((const uint8_t *)payload_u)[MAGIC_LEN] & 1u);
 +  const bool is32 = bpf_in_ia32_syscall();
 +  const bool diff32 = is32 != was32;
-+  const long nr = args->syscall_nr;
-+  const unsigned long ret = args->ret;
++  const unsigned nr = args->syscall_nr;
 +
 +#define CASE(bits, nm)                                         \
 +  case BOOST_PP_CAT(BOOST_PP_CAT(BOOST_PP_CAT(nr,bits),_),nm): \
@@ -866,10 +862,13 @@ index 000000000000..c687727af37f
 +
 +#define ON_SYS_EXIT(bits)                                                      \
 +  do {                                                                         \
++    const uint##bits##_t uret = args->ret;                                     \
++    const int##bits##_t ret = (int##bits##_t)uret;                             \
++                                                                               \
 +    struct augmented_syscall_payload##bits *payload = &payload_u->_##bits;     \
 +                                                                               \
 +    const long wasnr = payload->hdr.syscall_nr;                                \
-+    [[ maybe_unused ]] const char *sysnm = NULL;\
++    __attribute__((maybe_unused)) const char *sysnm = NULL;\
 +                                                                               \
 +    bool uhoh = diff32;                                                        \
 +                                                                               \
@@ -902,7 +901,8 @@ index 000000000000..c687727af37f
 +      break;                                                                   \
 +                                                                               \
 +    CASE(bits,mmap):                                                           \
-+      if (((uint##bits##_t)ret) >= (uint##bits##_t)-4095)                      \
++    CASE(bits,mmap_pgoff):                                                     \
++      if (uret >= (uint##bits##_t)-4095)                                       \
 +        return 0; /* failed */                                                 \
 +      break;                                                                   \
 +                                                                               \
@@ -918,11 +918,28 @@ index 000000000000..c687727af37f
 +        return 0; \
 +      break;                                                                   \
 +                                                                               \
-+    CASE(bits,open):                                                           \
-+    CASE(bits,openat):                                                         \
++    CASE(bits,open): {                                                         \
 +      if (ret < 0)                                                             \
 +        return 0;                                                              \
++      long rdret = bpf_probe_read_user_str(payload->str, MAXLEN, (void *)payload->hdr.args[0]);    \
++      if (rdret >= 1) {\
++        payload->hdr.str_len = rdret;\
++      } else {\
++        return 0;\
++      }\
 +      break;                                                                   \
++    }                                                                          \
++    CASE(bits,openat): {                                                       \
++      if (ret < 0)                                                             \
++        return 0;                                                              \
++      long rdret = bpf_probe_read_user_str(payload->str, MAXLEN, (void *)payload->hdr.args[1]);    \
++      if (rdret >= 1) {\
++        payload->hdr.str_len = rdret;\
++      } else {\
++        return 0;\
++      }\
++      break;                                                                   \
++    }\
 +    default:                                                                   \
 +      return 0;                                                                \
 +    }                                                                          \
@@ -991,7 +1008,7 @@ index 000000000000..c687727af37f
 +    if ((err = bpf_perf_event_output(                                          \
 +             args, &__jove_augmented_syscalls__, BPF_F_CURRENT_CPU, payload,   \
 +             the_payload_size & TWOTIMESMAXMASK)) < 0) {                       \
-+      bpf_printk("bpf_perf_event_output() failed! %ld", err);                  \
++/*    bpf_printk("bpf_perf_event_output() failed! %ld", err);                */\
 +    } else {                                                                   \
 +/*    bpf_printk("bpf_perf_event_output() suceeded! (wrote %u)",             */\
 +/*               the_payload_size);                                          */\
