@@ -18,6 +18,7 @@
 #include <intel-pt.h>
 #include <libipt-sb.h>
 #include <inttypes.h>
+#include <unistd.h>
 
 #include <type_traits>
 
@@ -40,14 +41,15 @@ template <IPT_PARAMETERS_DCL>
 IntelPT<IPT_PARAMETERS_DEF>::IntelPT(int ptdump_argc, char **ptdump_argv,
                                      jv_t &jv, explorer_t &explorer,
                                      unsigned cpu,
-                                     const address_space_t &AddressSpaceInit,
                                      void *begin, void *end,
                                      const char *sb_filename, unsigned verbose,
                                      bool ignore_trunc_aux)
     : jv(jv), explorer(explorer), state(jv),
+      PageSize(sysconf(_SC_PAGESIZE)),
       IsCOFF(B::is_coff(*state.for_binary(jv.Binaries.at(0)).Bin)),
-      AddressSpaceInit(AddressSpaceInit), CurrPoint(jv.Binaries.at(0)),
+      CurrPoint(jv.Binaries.at(0)),
       ignore_trunc_aux(ignore_trunc_aux),
+      process_state(dummy_process_state),
       path_to_wine_bin(locator_t::wine(IsTarget32)) {
   setvbuf(stderr, NULL, _IOLBF, 0); /* automatically flush on new-line */
 
@@ -121,13 +123,6 @@ IntelPT<IPT_PARAMETERS_DEF>::IntelPT(int ptdump_argc, char **ptdump_argv,
   config->end = reinterpret_cast<uint8_t *>(end);
 
   decoder = pt_pkt_alloc_decoder(config.get());
-
-  for (const auto &pair : AddressSpaceInit) {
-    binary_index_t BIdx = pair.second;
-    if (is_binary_index_valid(BIdx))
-      state.for_binary(jv.Binaries.at(BIdx))._coff.LoadAddr =
-          addr_intvl_lower(pair.first);
-  }
 }
 
 template <IPT_PARAMETERS_DCL>
@@ -191,45 +186,6 @@ static void hexdump(FILE *stream, const void *ptr, int buflen) {
 
 template <IPT_PARAMETERS_DCL>
 void IntelPT<IPT_PARAMETERS_DEF>::examine_sb_event(const struct pev_event &event, uint64_t offset) {
-#if 0
-    auto do_comm_exec = [&](const struct pev_record_comm &comm) -> void {
-      AddressSpace.clear();
-
-      std::string name(comm.comm);
-
-      const auto &pid = comm.pid;
-      const auto &tid = comm.tid;
-
-      if (boost::algorithm::ends_with(jv.Binaries.at(0).Name.c_str(), name) ||
-          Our.pid == pid) {
-        if constexpr (IsVerbose())
-          fprintf(stderr, "comm.exec \"%s\"\n", comm.comm);
-
-        if (IsCOFF) {
-          if (Our.pid != pid)
-            _wine.ExecCount = 1;
-          else
-            ++_wine.ExecCount;
-
-          if constexpr (IsVerbose()) {
-            if (RightWineExecCount())
-              fprintf(stderr, "second exec for %u\n",
-                      static_cast<unsigned>(pid));
-            else
-              fprintf(stderr, "wrong exec count (%u) for %u\n",
-                      _wine.ExecCount,
-                      static_cast<unsigned>(pid));
-          }
-        }
-
-        if (IsVerbose() && Our.pid != pid)
-          fprintf(stderr, "our pid is %u\n", static_cast<unsigned>(pid));
-
-        Our.pid = pid;
-      }
-    };
-#endif
-
 #define unexpected_rest()                                                      \
   do {                                                                         \
     fprintf(stderr, "unexpected rest (%" PRIu32 ")\n", event.type);            \
@@ -255,6 +211,10 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb_event(const struct pev_event &event
       uint64_t addr, len, pgoff;
       const char *filename;
     } _mmap;
+
+    bool is_pgoff = false;
+
+    uint64_t fd_pos = 0;
 
     switch (event.type) {
       case PERF_RECORD_AUX: {
@@ -286,8 +246,14 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb_event(const struct pev_event &event
       assert(fork);
 
       if constexpr (IsVeryVerbose())
-        fprintf(stderr, "%016" PRIx64 "\tfork %u/%u, %u/%u\n", offset, fork->pid,
-                fork->tid, fork->ppid, fork->ptid);
+          fprintf(stderr, "%016" PRIx64 "\tfork (from %u) %u/%u, %u/%u\n",
+                  offset, pid, fork->pid, fork->tid, fork->ppid, fork->ptid);
+
+      if (pid == 0)
+        break;
+
+      pid_map[fork->pid] = pid_map[pid];
+
       break;
     }
 
@@ -333,11 +299,13 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb_event(const struct pev_event &event
       if (event.misc & PERF_RECORD_MISC_SWITCH_OUT) {
         if (cpu == Our.cpu) {
           Curr.pid = ~0u;
+          process_state = dummy_process_state;
           Engaged = false;
         }
       } else {
         if (cpu == Our.cpu) {
           Curr.pid = pid;
+          process_state = pid_map[pid];
           CheckEngaged();
         }
       }
@@ -348,11 +316,13 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb_event(const struct pev_event &event
       if (event.misc & PERF_RECORD_MISC_SWITCH_OUT) {
         if (cpu == Our.cpu) {
           Curr.pid = ~0u;
+          process_state = dummy_process_state;
           Engaged = false;
         }
       } else {
         if (cpu == Our.cpu) {
           Curr.pid = pid;
+          process_state = pid_map[pid];
           CheckEngaged();
         }
       }
@@ -366,78 +336,151 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb_event(const struct pev_event &event
         const char *const name = event.name;
         const uint64_t ip = *event.sample.ip;
 
-        if (strcmp(name, "__jove_augmented_syscalls__") == 0) {
+        auto &pstate = pid_map[pid];
+        auto &AddressSpace = pstate.addrspace;
+
+        if (strcmp(name, "__jove_augmented_syscalls__") != 0) {
+          unexpected_rest();
+          break;
+        }
+
           auto on_syscall = [&]<typename T>(const T *payload) -> void {
 	  const auto &hdr = payload->hdr;
 
           auto nr = hdr.syscall_nr;
           auto ret = hdr.ret;
 
-          assert(nr >= 0);
-
-          switch (nr) {
-          case syscalls::NR::execve:
-          case syscalls::NR::execveat:
-            break;
-          default:
-            if (!IsRightProcess(pid))
-              return;
-          }
-
           //
           // we can assume that the syscall successfully completed
           //
           switch (nr) {
           case syscalls::NR::munmap: {
-            taddr_t addr = hdr.args[0];
-            taddr_t len  = hdr.args[1];
+            auto addr = hdr.args[0];
+            auto len  = hdr.args[1];
 
             const addr_intvl intvl(addr, len);
 
-            if constexpr (IsVeryVerbose()) {
+            if constexpr (IsVerbose()) {
               std::string as(addr_intvl2str(intvl));
 
-              fprintf(stderr, "[munmap] @ %s\n", as.c_str());
+              fprintf(stderr, "-\t%s\t\t<munmap(2)>\n", as.c_str());
             }
 
             intvl_map_clear(AddressSpace, intvl);
             break;
           }
 
-          case syscalls::NR::mmap: {
-            taddr_t addr   = hdr.args[0];
-            taddr_t len    = hdr.args[1];
-            unsigned prot  = hdr.args[2];
-            unsigned flags = hdr.args[3];
-            int fd         = hdr.args[4];
-            taddr_t off    = hdr.args[5];
+#ifdef TARGET_X86_64
+          case syscalls::NR::mmap:
+#else
+          case syscalls::NR::mmap_pgoff:
+            is_pgoff = true;
+#endif
+          {
+            auto addr  = hdr.args[0];
+            auto len   = hdr.args[1];
+            auto prot  = hdr.args[2];
+            auto flags = hdr.args[3];
+            auto fd    = hdr.args[4];
+            auto off   = hdr.args[5];
 
-            if (prot & PROT_EXEC)
-              return; /* we will see PERF_RECORD_MMAP2 */
+            if (is_pgoff)
+              off *= PageSize;
 
-            const bool anon = fd < 0;
+            const addr_intvl intvl(ret, len);
 
-            if (IsCOFF) {
-              const addr_intvl intvl(ret, len);
+            const bool anon = static_cast<int>(fd) < 0;
+            if (anon) {
+              intvl_map_clear(AddressSpace, intvl);
 
               if constexpr (IsVeryVerbose()) {
                 std::string as(addr_intvl2str(intvl));
 
-                fprintf(stderr, "[mmap]   @ %s in %s\n", as.c_str(),
-                        anon ? "\"//anon\"" : nullptr);
+                fprintf(stderr, "+\t%s\t\"//anon\"\t<mmap(2)>\n", as.c_str());
               }
+            } else {
+              // do we know the path?
+              auto it = pstate.fdmap.find(fd);
+              if (it == pstate.fdmap.end()) {
+                if constexpr (IsVerbose()) {
+                  std::string as(addr_intvl2str(intvl));
 
-              intvl_map_clear(AddressSpace, intvl);
+                  fprintf(stderr, "+\t%s\t??%d??\t<mmap(2)>\n", as.c_str(), (int)fd);
+                }
+              } else {
+                binary_index_t BIdx;
+                bool isNew;
 
-              auto it = intvl_map_find(AddressSpaceInit, intvl);
-              if (it != AddressSpaceInit.end())
-                intvl_map_add(AddressSpace, intvl, std::make_pair((*it).second, ~0UL));
+                const std::string &path = (*it).second.path;
+                if (path.empty() || path.front() != '/') {
+                  fprintf(stderr, "bogus path \"%s\" (nr=%ld) (ret=%lx)\n", path.c_str(), (long)nr, (unsigned long)ret);
+                  break;
+                }
+
+                assert(path[0] == '/');
+
+                std::tie(BIdx, isNew) = jv.AddFromPath(explorer, path.c_str());
+                if (!is_binary_index_valid(BIdx))
+                  break;
+
+                if constexpr (IsVerbose()) {
+                  std::string as(addr_intvl2str(intvl));
+
+                  fprintf(stderr, "+\t%s\t\"%s\"+%#x\t<mmap(2)>\n", as.c_str(),
+                          jv.Binaries.at(BIdx).Name.c_str(), (unsigned)off);
+                }
+
+                intvl_map_clear(AddressSpace, intvl);
+                intvl_map_add(AddressSpace, intvl, std::make_pair(BIdx, off));
+              }
             }
+            break;
+          }
+
+          case syscalls::NR::close: {
+            pstate.fdmap.erase(hdr.args[0]);
+            break;
+          }
+
+          case syscalls::NR::openat:
+          case syscalls::NR::open: {
+            if constexpr (IsVeryVerbose())
+              fprintf(stderr, "open(\"%s\") = %ld\n", payload->str, (long)ret);
+
+            pstate.fdmap[ret].path = payload->str;
+            break;
+          }
+
+          case syscalls::NR::pread64:
+            fd_pos = hdr.args[3];
+
+          case syscalls::NR::read: {
+            auto fd = hdr.args[0];
+
+            auto &fdmap = pstate.fdmap;
+            auto it = fdmap.find(fd);
+            if (it == fdmap.end())
+              break;
+
+            const auto &filename = (*it).second.path;
+
+            binary_index_t BIdx;
+            bool IsNew;
+            std::tie(BIdx, IsNew) = jv.AddFromPath(explorer, filename.c_str());
+
+            if (is_binary_index_valid(BIdx))
+              llvm::errs()
+                  << llvm::formatv("read of {0} (offset {1}) to {2:x}\n",
+                                   filename, fd_pos, hdr.args[1]);
+
+            (*it).second.pos += ret;
             break;
           }
 
           case syscalls::NR::execve:
           case syscalls::NR::execveat: {
+            AddressSpace.clear();
+
             std::vector<const char *> argvec;
             std::vector<const char *> envvec;
 
@@ -475,7 +518,7 @@ envs_done:
 
             const unsigned nowBits = payload->hdr.is32 ? 32u : 64u;
 
-            if constexpr (IsVerbose()) {
+            if constexpr (IsVeryVerbose()) {
               fprintf(stderr, "nargs=%u nenvs=%u (%u / %u) <%u> [%u] exec:",
                       (unsigned)argvec.size(),
                       (unsigned)envvec.size(),
@@ -495,30 +538,6 @@ envs_done:
             if (!rightBits)
               break;
 
-            ignore_exception([&](void) -> void {
-              if (pathname == path_to_wine_bin &&
-                  fs::equivalent(argvec.at(0), jv.Binaries.at(0).Name.c_str())) {
-                fprintf(stderr, "our pid is %u\n", static_cast<unsigned>(pid));
-
-                Our.pid = pid;
-                AddressSpace.clear();
-                CheckEngaged();
-              }
-            });
-
-            if (Our.pid == pid) {
-              for (const char *env : envvec) {
-                if (env != wine_env_of_interest)
-                  continue;
-
-                fprintf(stderr, "our pid (%u) exec'd\n",
-                        static_cast<unsigned>(pid));
-              }
-
-              AddressSpace.clear();
-              CheckEngaged();
-              break;
-            }
             break;
           }
 
@@ -533,7 +552,7 @@ envs_done:
 
           const bool was32 = !!(bytes[MAGIC_LEN] & 1u);
 
-#if 1
+#if 0
           const unsigned size_of_struct =
               was32 ? sizeof(struct augmented_syscall_payload32)
                     : sizeof(struct augmented_syscall_payload64);
@@ -569,9 +588,6 @@ envs_done:
 	    if (IsTarget64)
 	      on_syscall.template operator()<struct augmented_syscall_payload64>(reinterpret_cast<const struct augmented_syscall_payload64 *>(bytes));
 	  }
-        } else {
-          unexpected_rest();
-        }
         break;
       }
 
@@ -619,28 +635,21 @@ envs_done:
       }
       assert(_mmap.pid == pid);
 
-      if (!IsRightProcess(pid))
-        break;
+      auto &pstate = pid_map[pid];
+      auto &AddressSpace = pstate.addrspace;
 
       std::string name(_mmap.filename);
 
       const addr_intvl intvl(_mmap.addr, _mmap.len);
 
-      if constexpr (IsVeryVerbose()) {
-        std::string as(addr_intvl2str(intvl));
-
-        fprintf(stderr, "[MMAP%s  @ %s in \"%s\"\n", _mmap.two ? "2]" : "] ",
-                as.c_str(), name.c_str());
-      }
-
-      intvl_map_clear(AddressSpace, intvl);
-
       const bool anon = name == "//anon";
       if (anon) {
-        if (IsCOFF) {
-          auto it = intvl_map_find(AddressSpaceInit, intvl);
-          if (it != AddressSpaceInit.end())
-            intvl_map_add(AddressSpace, intvl, std::make_pair((*it).second, ~0UL));
+        intvl_map_clear(AddressSpace, intvl);
+
+        if constexpr (IsVerbose()) {
+          std::string as(addr_intvl2str(intvl));
+
+          fprintf(stderr, "+\t%s\t\"//anon\"\t<MMAP%s>\n", as.c_str(), _mmap.two ? "2" : "");
         }
         break;
       }
@@ -667,9 +676,17 @@ envs_done:
         IsNew = false;
       }
 
+      if constexpr (IsVerbose()) {
+        std::string as(addr_intvl2str(intvl));
+
+        fprintf(stderr, "+\t%s\t\"%s\"+%#x\t<MMAP%s>\n", as.c_str(), name.c_str(),
+                (unsigned)_mmap.pgoff, _mmap.two ? "2" : "");
+      }
+
       binary_t &b = jv.Binaries.at(BIdx);
       binary_state_t &x = state.for_binary(b);
 
+      intvl_map_clear(AddressSpace, intvl);
       intvl_map_add(AddressSpace, intvl, std::make_pair(BIdx, _mmap.pgoff));
       break;
     }
@@ -1003,15 +1020,16 @@ int IntelPT<IPT_PARAMETERS_DEF>::on_ip(const taddr_t IP, const uint64_t offset) 
   if (unlikely(!Engaged)) {
     if constexpr (IsVeryVerbose())
       if (RightProcess())
-        fprintf(stderr, "%" PRIx64 "\t__IP %016" PRIx64 "\n", offset, (uint64_t)IP);
+        fprintf(stderr, "%016" PRIx64 "\t__IP %016" PRIx64 "\n", offset, (uint64_t)IP);
     return 0;
   }
 
-  // TODO (from libipt): ip < priv->kernel_start ? ploc_in_user : ploc_in_kernel
 #if 0
   if (sizeof(taddr_t) == 4)
     assert(IP < 0xffffffffull);
 #endif
+
+  auto &AddressSpace = process_state.get().addrspace;
 
   auto it = intvl_map_find(AddressSpace, IP);
   if (unlikely(it == AddressSpace.end())) {

@@ -10,6 +10,7 @@
 #include <boost/preprocessor/seq/elem.hpp>
 #include <boost/preprocessor/seq/seq.hpp>
 #include <boost/unordered/unordered_flat_map.hpp>
+#include <boost/unordered/unordered_node_map.hpp>
 
 struct pt_config;
 struct pt_sb_session;
@@ -127,37 +128,25 @@ class IntelPT {
 
   jv_state_t<binary_state_t, void, BBState, false, Lazy> state;
 
+  const unsigned PageSize;
   const bool IsCOFF;
 
-  const address_space_t AddressSpaceInit;
-  boost::container::flat_map<addr_intvl, std::pair<binary_index_t, uint64_t>,
-                             addr_intvl_cmp>
-      AddressSpace;
-
-  struct {
-    std::string s1, s2;
-    std::vector<uint8_t> u8v;
-  } __buff;
-
-  enum class SYSCALL_DIRECTION {
-    UNKNOWN = 0,
-    ENTER,
-    EXIT
-  };
-  static constexpr const char *directionNames[] = {
-    "unknown",
-    "enter",
-    "exit"
+  struct file_descriptor_state_t {
+    std::string path;
+    uint64_t pos;
   };
 
-  struct syscall_state_t {
-    std::array<taddr_t, 6> args;
-    SYSCALL_DIRECTION dir = SYSCALL_DIRECTION::UNKNOWN;
+  struct process_state_t {
+    boost::container::flat_map<addr_intvl, std::pair<binary_index_t, uint64_t>,
+                               addr_intvl_cmp>
+        addrspace;
+    boost::unordered::unordered_flat_map<int, file_descriptor_state_t> fdmap;
   };
 
-  boost::unordered::unordered_flat_map<
-      std::pair<uint32_t /* pid */, uint32_t /* nr */>, syscall_state_t>
-      syscall_state_map;
+  boost::unordered::unordered_node_map<pid_t, process_state_t> pid_map;
+
+  process_state_t dummy_process_state;
+  std::reference_wrapper<process_state_t> process_state;
 
   static constexpr uint32_t sb_dump_flags = 1; /* compact */
 
@@ -245,7 +234,11 @@ class IntelPT {
   static inline const std::string wine_env_of_interest = "WINELOADERNOEXEC=1";
 
   bool IsRightProcess(unsigned pid) const {
+#if 0
     return pid == Our.pid;
+#else
+    return true;
+#endif
   }
 
   bool RightProcess(void) const {
@@ -312,7 +305,7 @@ class IntelPT {
 
 public:
   IntelPT(int ptdump_argc, char **ptdump_argv, jv_t &, explorer_t &,
-          unsigned cpu, const address_space_t &AddressSpaceInit, void *begin,
+          unsigned cpu, void *begin,
           void *end, const char *sb_filename, unsigned verbose,
           bool ignore_trunc_aux = false);
   ~IntelPT();

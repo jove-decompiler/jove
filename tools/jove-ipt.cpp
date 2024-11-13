@@ -20,6 +20,7 @@
 #include <boost/filesystem.hpp>
 #include <boost/algorithm/string.hpp>
 #include <boost/unordered/unordered_flat_map.hpp>
+#include <boost/unordered/unordered_flat_set.hpp>
 #include <boost/scope/defer.hpp>
 
 #include <oneapi/tbb/parallel_pipeline.h>
@@ -46,8 +47,6 @@ namespace {
 
 struct binary_state_t {
   std::unique_ptr<llvm::object::Binary> Bin;
-
-  taddr_t LoadAddr = ~0UL;
 
   binary_state_t(const binary_t &b) { Bin = B::Create(b.data()); }
 };
@@ -146,6 +145,9 @@ struct IPTTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
               cl::cat(JoveCategory)) {}
   } opts;
 
+  template <typename T>
+  using unordered_set = boost::unordered::unordered_flat_set<T>;
+
   AddOptions_t AddOptions;
 
   const bool IsCOFF;
@@ -157,10 +159,6 @@ struct IPTTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
   std::unique_ptr<tiny_code_generator_t> TCG;
   std::unique_ptr<disas_t> Disas;
   std::unique_ptr<explorer_t> Explorer;
-
-  boost::unordered::unordered_flat_map<std::string, taddr_t>
-      binary_loadaddr_map;
-  address_space_t AddressSpace;
 
   std::string buff;
   std::regex line_regex_ab;
@@ -377,7 +375,6 @@ int IPTTool::ProcessAppStderr(void) {
 
     std::vector<std::string> binary_paths;
     for (const auto &pair : loaded_list) {
-      binary_loadaddr_map[pair.first] = pair.second;
       insertSortedVec(binary_paths, pair.first);
     }
 
@@ -398,66 +395,7 @@ int IPTTool::ProcessAppStderr(void) {
               AddOptions);
 
           assert(is_binary_index_valid(BIdx));
-
-          binary_t &b = jv.Binaries.at(BIdx);
-          state.for_binary(b).LoadAddr = binary_loadaddr_map.at(path);
         });
-
-    for_each_binary(jv, [&](binary_t &b) {
-      binary_state_t &x = state.for_binary(b);
-
-      if (~x.LoadAddr == 0) {
-        if (IsVeryVerbose())
-          llvm::errs() << llvm::formatv("no load address for \"{0}\"\n",
-                                        b.Name.c_str());
-        return;
-      }
-
-      uint64_t SectsStartAddr, SectsEndAddr;
-      std::tie(SectsStartAddr, SectsEndAddr) = B::bounds_of_binary(*x.Bin);
-
-      const addr_intvl intvl(x.LoadAddr, SectsEndAddr - SectsStartAddr);
-
-      if (intvl_map_find(AddressSpace, intvl) == AddressSpace.end()) {
-        intvl_map_add(AddressSpace, intvl, index_of_binary(b, jv));
-
-        llvm::errs() << llvm::formatv("{0} is loaded at {1}\n", b.Name.c_str(),
-                                      addr_intvl2str(intvl));
-      } else {
-        x.LoadAddr = std::numeric_limits<taddr_t>::max();
-
-        addr_intvl h = intvl;
-        for (;;) {
-          auto it = intvl_map_find(AddressSpace, intvl);
-          if (it == AddressSpace.end()) {
-            break;
-          } else {
-            h = addr_intvl_hull(h, (*it).first);
-
-#if 0
-            if (is_binary_index_valid((*it).second)) {
-              binary_t &b4 = jv.Binaries.at((*it).second);
-
-              WithColor::warning() << llvm::formatv(
-                  "ambiguity: \"{0}\" @ {1} but \"{2}\" @ {3} so "
-                  "\"{2}\" "
-                  "was probably unloaded\n",
-                  b.Name.c_str(), addr_intvl2str(intvl),
-                  b4.Name.c_str(), addr_intvl2str((*it).first));
-
-              state.for_binary(b4).LoadAddr = ~0UL;
-            }
-#endif
-
-            AddressSpace.erase(it);
-          }
-        }
-
-        intvl_map_add(AddressSpace, h, invalid_binary_index);
-
-        llvm::errs() << llvm::formatv("{0} is ambiguous\n", addr_intvl2str(h));
-      }
-    });
   }
 
   return 0;
@@ -1161,7 +1099,7 @@ int IPTTool::UsingLibipt(void) {
         auto run = [&]<IPT_PARAMETERS_DCL>(void) {
           IntelPT<IPT_PARAMETERS_DEF> ipt(
               ptdump_argv.size() - 1, ptdump_argv.data(), jv, *Explorer, cpu,
-              AddressSpace, mmap.ptr,
+              mmap.ptr,
               reinterpret_cast<uint8_t *>(mmap.ptr) + len, sb_filename,
               IsVeryVerbose() ? 2 : (IsVerbose() ? 1 : 0));
 
