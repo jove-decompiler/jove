@@ -1,5 +1,4 @@
 #pragma once
-#include <stdint.h>
 
 //
 // magic
@@ -31,6 +30,7 @@
 #define TWOTIMESMAXMASK (TWOTIMESMAXLEN - 1u)
 
 #ifdef __cplusplus
+#include <cstdint>
 namespace jove {
 #endif
 
@@ -58,9 +58,9 @@ namespace jove {
 DECLARE_AUGMENTED_ARGS_PAYLOAD(32)
 DECLARE_AUGMENTED_ARGS_PAYLOAD(64)
 
+#ifdef __cplusplus
 static_assert(sizeof(struct augmented_syscall_payload32) == TWOTIMESMAXLEN);
 static_assert(sizeof(struct augmented_syscall_payload64) == TWOTIMESMAXLEN);
 
-#ifdef __cplusplus
 } /* namespace jove */
 #endif
