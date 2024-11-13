@@ -24,14 +24,19 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       git \
                       gmsl \
                       graphviz \
+                      gstreamer1.0-dev \
                       hostname \
+                      libavformat-dev \
+                      libavcodec-dev \
                       libclang-16-dev \
                       libglib2.0-dev \
                       libgraph-easy-perl \
+                      libgstreamer-plugins-base1.0-dev \
                       libkeyutils-dev \
                       libpcre2-dev \
                       libtinfo-dev \
                       libtool \
+                      libunwind-dev \
                       liburing-dev \
                       libxml2-dev \
                       libz3-dev \
@@ -69,7 +74,11 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
     eatmydata apt-get dist-upgrade -y && \
     eatmydata apt-get install --no-install-recommends -y dpkg-dev && \
     eatmydata apt-get install --no-install-recommends -y \
+                      gstreamer1.0-dev:i386 \
                       libc6-dev:i386 \
+                      libgstreamer-plugins-base1.0-dev:i386 \
+                      libxkbregistry-dev:i386 \
+                      libvulkan-dev:i386 \
                       linux-libc-dev:i386 \
                       libglib2.0-dev:i386 \
                       liburing-dev:i386 \
