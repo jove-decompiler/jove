@@ -225,7 +225,7 @@ int InitTool::Run(void) {
   unsigned N = binary_paths.size() + 3;
 
   {
-    ip_scoped_lock<ip_sharable_mutex> e_lck(jv.Binaries._mtx);
+    auto e_lck = jv.Binaries.exclusive_access();
 
     for (unsigned i = 0; i < N; ++i)
       jv.Binaries._deque.emplace_back(jv.get_allocator(),

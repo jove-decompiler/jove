@@ -228,7 +228,7 @@ adds_binary_t::adds_binary_t(binary_index_t &out,
   if (!HasTargetIdx) {
     assert(!is_binary_index_valid(BIdx));
 
-    ip_scoped_lock<ip_sharable_mutex> e_b_lck(jv.Binaries._mtx);
+    auto e_lck = jv.Binaries.exclusive_access();
 
     BIdx = jv.Binaries._deque.size();
     _b->Idx = BIdx;
@@ -252,7 +252,7 @@ void jv_t::clear(bool everything) {
   hash_to_binary.clear();
 
   {
-    ip_scoped_lock<ip_sharable_mutex> e_lck(this->Binaries._mtx);
+    auto e_lck = this->Binaries.exclusive_access();
 
     this->Binaries._deque.clear();
   }

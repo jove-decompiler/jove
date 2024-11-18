@@ -261,7 +261,15 @@ struct ip_safe_deque {
   using deque_t = boost::interprocess::deque<T, alloc_t>;
 
   deque_t _deque;
-  mutable ip_sharable_mutex _mtx;
+
+  using mutex_type = boost::unordered::detail::foa::rw_spinlock;
+  using shared_lock_guard = boost::unordered::detail::foa::shared_lock<mutex_type>;
+  using exclusive_lock_guard = boost::unordered::detail::foa::lock_guard<mutex_type>;
+
+  mutable mutex_type _mtx;
+
+  shared_lock_guard shared_access() const { return shared_lock_guard{_mtx}; }
+  exclusive_lock_guard exclusive_access() const { return exclusive_lock_guard{_mtx}; }
 
   ip_safe_deque() = delete;
   ip_safe_deque(const ip_void_allocator_t &A) : _deque(A) {}
@@ -278,19 +286,19 @@ struct ip_safe_deque {
   }
 
   unsigned size(void) const {
-    ip_sharable_lock<ip_sharable_mutex> s_lck(_mtx);
+    auto s_lck = shared_access();
     return _deque.size();
   }
 
   bool empty(void) const { return size() == 0; }
 
   T &at(unsigned idx) {
-    ip_sharable_lock<ip_sharable_mutex> s_lck(_mtx);
+    auto s_lck = shared_access();
     return _deque.at(idx);
   }
 
   const T &at(unsigned idx) const {
-    ip_sharable_lock<ip_sharable_mutex> s_lck(_mtx);
+    auto s_lck = shared_access();
     return _deque.at(idx);
   }
 
@@ -1125,7 +1133,7 @@ allocates_function_t::allocates_function_t(binary_t &b,
   ip_safe_deque<function_t> &Functions = b.Analysis.Functions;
 
   {
-    ip_scoped_lock<ip_sharable_mutex> e_lck(Functions._mtx);
+    auto e_lck = Functions.exclusive_access();
 
     FIdx = Functions._deque.size();
     Functions._deque.emplace_back(b, FIdx);
