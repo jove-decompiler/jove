@@ -719,8 +719,8 @@ int DecompileTool::Run(void) {
       }
 
       B::_elf(*x.Bin, [&](ELFO &O) {
-	if (!x.soname.empty())
-	  ofs << " -soname=" << x.soname;
+        if (!x.soname.empty())
+          ofs << " -soname=" << x.soname;
 
         if (x._elf.interp) {
           ofs << " -dynamic-linker " << fs::canonical(*x._elf.interp).string();
