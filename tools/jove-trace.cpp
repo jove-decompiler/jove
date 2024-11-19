@@ -498,7 +498,7 @@ skip_uprobe:
                               : jv.Binaries.at(0).path_str();
 
       if (!ForcedProgFileName.empty())
-	exe_path = ForcedProgFileName;
+        exe_path = ForcedProgFileName;
 
       arg_vec.push_back(exe_path.c_str());
 
