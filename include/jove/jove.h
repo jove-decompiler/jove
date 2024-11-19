@@ -266,8 +266,10 @@ struct ip_safe_deque {
   using shared_lock_guard = boost::unordered::detail::foa::shared_lock<mutex_type>;
   using exclusive_lock_guard = boost::unordered::detail::foa::lock_guard<mutex_type>;
 
+private:
   mutable mutex_type _mtx;
 
+public:
   shared_lock_guard shared_access() const { return shared_lock_guard{_mtx}; }
   exclusive_lock_guard exclusive_access() const { return exclusive_lock_guard{_mtx}; }
 
@@ -311,6 +313,8 @@ struct ip_safe_deque {
 
   typename deque_t::iterator begin(void) { return _deque.begin(); }
   typename deque_t::iterator end(void) { return _deque.end(); }
+
+  void __force_reset_access(void) { __builtin_memset(&this->_mtx, 0, sizeof(this->_mtx)); }
 };
 
 template <typename Ty>
