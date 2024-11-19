@@ -1146,7 +1146,7 @@ allocates_function_t::allocates_function_t(binary_t &b,
   store = FIdx;
 }
 
-typedef std::function<void(ip_string &)> get_data_t;
+typedef std::function<std::string_view(void)> get_data_t;
 
 struct AddOptions_t;
 

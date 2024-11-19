@@ -43,7 +43,7 @@ void cached_hash_t::Update(const char *path, std::string &file_contents) {
   //
   // otherwise
   //
-  read_whatever_into_thing(path, file_contents);
+  read_file_into_thing(path, file_contents);
   h = hash_data(file_contents);
   mtime.sec = st.st_mtim.tv_sec;
   mtime.nsec = st.st_mtim.tv_nsec;
@@ -111,13 +111,13 @@ std::pair<binary_index_t, bool> jv_t::AddFromPath(explorer_t &explorer,
 
   get_data_t get_data;
   if (file_contents.empty())
-    get_data = [&](ip_string &out) -> void {
-      read_whatever_into_thing(path, out);
+    get_data = [&](void) -> std::string_view {
+      read_file_into_thing(path, file_contents);
+      return file_contents;
     };
   else
-    get_data = [&](ip_string &out) -> void {
-      out.resize(file_contents.size());
-      memcpy(&out[0], file_contents.data(), out.size());
+    get_data = [&](void) -> std::string_view {
+      return file_contents;
     };
 
   return AddFromDataWithHash(explorer, get_data, h, path,
@@ -129,23 +129,21 @@ bool jv_t::Add(explorer_t &explorer,
                const AddOptions_t &Options) {
   binary_t &b = Binaries.at(BIdx);
   return AddFromDataWithHash(
-             explorer, [](ip_string &) -> void {}, hash_data(b.Data),
-             b.Name.c_str(), BIdx, [](binary_t &) {}, Options)
+             explorer, [&](void) -> std::string_view { return b.Data; },
+             hash_data(b.Data), b.Name.c_str(), BIdx, [](binary_t &) {},
+             Options)
       .second;
 }
 
 std::pair<binary_index_t, bool> jv_t::AddFromData(explorer_t &explorer,
-                                                  std::string_view x,
+                                                  std::string_view data,
                                                   const char *name,
                                                   on_newbin_proc_t on_newbin,
                                                   const AddOptions_t &Options) {
   return AddFromDataWithHash(
       explorer,
-      [&](ip_string &out) -> void {
-        out.resize(x.size());
-        memcpy(&out[0], x.data(), out.size());
-      },
-      hash_data(x), name, invalid_binary_index, on_newbin, Options);
+      [&](void) -> std::string_view { return data; },
+      hash_data(data), name, invalid_binary_index, on_newbin, Options);
 }
 
 std::pair<binary_index_t, bool> jv_t::AddFromDataWithHash(explorer_t &explorer,
@@ -189,6 +187,16 @@ adds_binary_t::adds_binary_t(binary_index_t &out,
                              const char *name,
                              const binary_index_t TargetIdx,
                              const AddOptions_t &Options) {
+  std::string_view data = get_data();
+
+  if (unlikely(data.empty()))
+    throw std::runtime_error("adds_binary_t(): no data");
+
+  std::unique_ptr<llvm::object::Binary> Bin = B::Create(data);
+
+  //
+  // if we make it here then it's most likely a legitimate binary of interest.
+  //
   const bool HasTargetIdx = is_binary_index_valid(TargetIdx);
 
   std::unique_ptr<binary_t> _b;
@@ -199,18 +207,11 @@ adds_binary_t::adds_binary_t(binary_index_t &out,
     binary_t &b = _b ? *_b : jv.Binaries.at(TargetIdx);
 
     if (HasTargetIdx) {
-      b.Idx = TargetIdx; /* might as well */
+      b.Idx = TargetIdx; /* XXX might as well ensure? */
     } else {
-      get_data(b.Data);
       if (name)
-        to_ips(b.Name, name);
+        to_ips(b.Name, name); /* set up name */
     }
-
-    if (b.Data.empty())
-      throw std::runtime_error(
-          "AddFromDataWithHash: empty data"); /* uh oh... */
-
-    std::unique_ptr<llvm::object::Binary> Bin = B::Create(b.data());
 
     if (Options.Objdump) {
       try {
@@ -222,6 +223,14 @@ adds_binary_t::adds_binary_t(binary_index_t &out,
     }
 
     jv.DoAdd(b, explorer, *Bin, Options);
+
+    //
+    // success!
+    //
+    if (!HasTargetIdx) {
+      b.Data.resize(data.size()); /* lock it in */
+      memcpy(&b.Data[0], data.data(), data.size());
+    }
   }
 
   BIdx = TargetIdx;
