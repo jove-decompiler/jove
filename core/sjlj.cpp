@@ -528,8 +528,9 @@ void ScanForSjLj(binary_t &b, llvm::object::Binary &Bin, explorer_t &E) {
       if (!(Section->Characteristics & llvm::COFF::IMAGE_SCN_MEM_EXECUTE))
         continue;
 
-      llvm::StringRef SectionStr(&b.Data[Section->PointerToRawData],
-                                 Section->SizeOfRawData);
+      llvm::StringRef SectionStr(
+          &Bin.getMemoryBufferRef().getBufferStart()[Section->PointerToRawData],
+          Section->SizeOfRawData);
 
       for (const auto &pair : LjPatterns) {
         llvm::StringRef pattern = pair.first;
