@@ -1,0 +1,1843 @@
+diff --git a/include/boost/unordered/concurrent_flat_map.hpp b/include/boost/unordered/concurrent_flat_map.hpp
+index b67f2ad3..7cb512ab 100644
+--- a/include/boost/unordered/concurrent_flat_map.hpp
++++ b/include/boost/unordered/concurrent_flat_map.hpp
+@@ -10,69 +10,69 @@
+  */
+ 
+ #ifndef BOOST_UNORDERED_CONCURRENT_FLAT_MAP_HPP
+ #define BOOST_UNORDERED_CONCURRENT_FLAT_MAP_HPP
+ 
+ #include <boost/unordered/concurrent_flat_map_fwd.hpp>
+ #include <boost/unordered/detail/concurrent_static_asserts.hpp>
+ #include <boost/unordered/detail/foa/concurrent_table.hpp>
+ #include <boost/unordered/detail/foa/flat_map_types.hpp>
+ #include <boost/unordered/detail/type_traits.hpp>
+ #include <boost/unordered/unordered_flat_map_fwd.hpp>
+ 
+ #include <boost/container_hash/hash.hpp>
+ #include <boost/core/allocator_access.hpp>
+ #include <boost/core/serialization.hpp>
+ 
+ #include <type_traits>
+ 
+ namespace boost {
+   namespace unordered {
+-    template <class Key, class T, class Hash, class Pred, class Allocator>
++    template <class Key, class T, class Hash, class Pred, class Allocator, class Spin>
+     class concurrent_flat_map
+     {
+     private:
+       template <class Key2, class T2, class Hash2, class Pred2,
+-        class Allocator2>
++        class Allocator2, class Spin2>
+       friend class concurrent_flat_map;
+       template <class Key2, class T2, class Hash2, class Pred2,
+         class Allocator2>
+       friend class unordered_flat_map;
+ 
+       using type_policy = detail::foa::flat_map_types<Key, T>;
+ 
+       using table_type =
+-        detail::foa::concurrent_table<type_policy, Hash, Pred, Allocator>;
++        detail::foa::concurrent_table<type_policy, Hash, Pred, Allocator, Spin>;
+ 
+       table_type table_;
+ 
+-      template <class K, class V, class H, class KE, class A>
+-      bool friend operator==(concurrent_flat_map<K, V, H, KE, A> const& lhs,
+-        concurrent_flat_map<K, V, H, KE, A> const& rhs);
++      template <class K, class V, class H, class KE, class A, class S>
++      bool friend operator==(concurrent_flat_map<K, V, H, KE, A, S> const& lhs,
++        concurrent_flat_map<K, V, H, KE, A, S> const& rhs);
+ 
+-      template <class K, class V, class H, class KE, class A, class Predicate>
+-      friend typename concurrent_flat_map<K, V, H, KE, A>::size_type erase_if(
+-        concurrent_flat_map<K, V, H, KE, A>& set, Predicate pred);
++      template <class K, class V, class H, class KE, class A, class S, class Predicate>
++      friend typename concurrent_flat_map<K, V, H, KE, A, S>::size_type erase_if(
++        concurrent_flat_map<K, V, H, KE, A, S>& set, Predicate pred);
+ 
+-      template<class Archive, class K, class V, class H, class KE, class A>
++      template<class Archive, class K, class V, class H, class KE, class A, class S>
+       friend void serialize(
+-        Archive& ar, concurrent_flat_map<K, V, H, KE, A>& c,
++        Archive& ar, concurrent_flat_map<K, V, H, KE, A, S>& c,
+         unsigned int version);
+ 
+     public:
+       using key_type = Key;
+       using mapped_type = T;
+       using value_type = typename type_policy::value_type;
+       using init_type = typename type_policy::init_type;
+       using size_type = std::size_t;
+       using difference_type = std::ptrdiff_t;
+       using hasher = typename boost::unordered::detail::type_identity<Hash>::type;
+       using key_equal = typename boost::unordered::detail::type_identity<Pred>::type;
+       using allocator_type = typename boost::unordered::detail::type_identity<Allocator>::type;
+       using reference = value_type&;
+       using const_reference = value_type const&;
+       using pointer = typename boost::allocator_pointer<allocator_type>::type;
+       using const_pointer =
+         typename boost::allocator_const_pointer<allocator_type>::type;
+       static constexpr size_type bulk_visit_size = table_type::bulk_visit_size;
+ 
+ #if defined(BOOST_UNORDERED_ENABLE_STATS)
+@@ -720,153 +720,163 @@ namespace boost {
+ 
+ #if defined(BOOST_UNORDERED_ENABLE_STATS)
+       /// Stats
+       ///
+       stats get_stats() const { return table_.get_stats(); }
+ 
+       void reset_stats() noexcept { table_.reset_stats(); }
+ #endif
+ 
+       /// Observers
+       ///
+       allocator_type get_allocator() const noexcept
+       {
+         return table_.get_allocator();
+       }
+ 
+       hasher hash_function() const { return table_.hash_function(); }
+       key_equal key_eq() const { return table_.key_eq(); }
+     };
+ 
+-    template <class Key, class T, class Hash, class KeyEqual, class Allocator>
++    template <class Key, class T, class Hash, class KeyEqual, class Allocator, class Spin>
+     bool operator==(
+-      concurrent_flat_map<Key, T, Hash, KeyEqual, Allocator> const& lhs,
+-      concurrent_flat_map<Key, T, Hash, KeyEqual, Allocator> const& rhs)
++      concurrent_flat_map<Key, T, Hash, KeyEqual, Allocator, Spin> const& lhs,
++      concurrent_flat_map<Key, T, Hash, KeyEqual, Allocator, Spin> const& rhs)
+     {
+       return lhs.table_ == rhs.table_;
+     }
+ 
+-    template <class Key, class T, class Hash, class KeyEqual, class Allocator>
++    template <class Key, class T, class Hash, class KeyEqual, class Allocator, class Spin>
+     bool operator!=(
+-      concurrent_flat_map<Key, T, Hash, KeyEqual, Allocator> const& lhs,
+-      concurrent_flat_map<Key, T, Hash, KeyEqual, Allocator> const& rhs)
++      concurrent_flat_map<Key, T, Hash, KeyEqual, Allocator, Spin> const& lhs,
++      concurrent_flat_map<Key, T, Hash, KeyEqual, Allocator, Spin> const& rhs)
+     {
+       return !(lhs == rhs);
+     }
+ 
+-    template <class Key, class T, class Hash, class Pred, class Alloc>
+-    void swap(concurrent_flat_map<Key, T, Hash, Pred, Alloc>& x,
++    template <class Key, class T, class Hash, class Pred, class Alloc, class Spin>
++    void swap(concurrent_flat_map<Key, T, Hash, Pred, Alloc, Spin>& x,
+       concurrent_flat_map<Key, T, Hash, Pred, Alloc>& y)
+       noexcept(noexcept(x.swap(y)))
+     {
+       x.swap(y);
+     }
+ 
+-    template <class K, class T, class H, class P, class A, class Predicate>
+-    typename concurrent_flat_map<K, T, H, P, A>::size_type erase_if(
+-      concurrent_flat_map<K, T, H, P, A>& c, Predicate pred)
++    template <class K, class T, class H, class P, class A, class S, class Predicate>
++    typename concurrent_flat_map<K, T, H, P, A, S>::size_type erase_if(
++      concurrent_flat_map<K, T, H, P, A, S>& c, Predicate pred)
+     {
+       return c.table_.erase_if(pred);
+     }
+ 
+-    template<class Archive, class K, class V, class H, class KE, class A>
++    template<class Archive, class K, class V, class H, class KE, class A, class S>
+     void serialize(
+-      Archive& ar, concurrent_flat_map<K, V, H, KE, A>& c, unsigned int)
++      Archive& ar, concurrent_flat_map<K, V, H, KE, A, S>& c, unsigned int)
+     {
+       ar & core::make_nvp("table",c.table_);
+     }
+ 
+ #if BOOST_UNORDERED_TEMPLATE_DEDUCTION_GUIDES
+ 
+     template <class InputIterator,
+       class Hash =
+         boost::hash<boost::unordered::detail::iter_key_t<InputIterator> >,
+       class Pred =
+         std::equal_to<boost::unordered::detail::iter_key_t<InputIterator> >,
+       class Allocator = std::allocator<
+         boost::unordered::detail::iter_to_alloc_t<InputIterator> >,
++      class Spin,
+       class = std::enable_if_t<detail::is_input_iterator_v<InputIterator> >,
+       class = std::enable_if_t<detail::is_hash_v<Hash> >,
+       class = std::enable_if_t<detail::is_pred_v<Pred> >,
+-      class = std::enable_if_t<detail::is_allocator_v<Allocator> > >
++      class = std::enable_if_t<detail::is_allocator_v<Allocator> >,
++      class = std::enable_if_t<detail::is_true_or_false_type_v<Spin> > >
+     concurrent_flat_map(InputIterator, InputIterator,
+       std::size_t = boost::unordered::detail::foa::default_bucket_count,
+-      Hash = Hash(), Pred = Pred(), Allocator = Allocator())
++      Hash = Hash(), Pred = Pred(), Allocator = Allocator(), Spin = Spin())
+       -> concurrent_flat_map<
+         boost::unordered::detail::iter_key_t<InputIterator>,
+         boost::unordered::detail::iter_val_t<InputIterator>, Hash, Pred,
+-        Allocator>;
++        Allocator, Spin>;
+ 
+     template <class Key, class T,
+       class Hash = boost::hash<std::remove_const_t<Key> >,
+       class Pred = std::equal_to<std::remove_const_t<Key> >,
+       class Allocator = std::allocator<std::pair<const Key, T> >,
++      class Spin,
+       class = std::enable_if_t<detail::is_hash_v<Hash> >,
+       class = std::enable_if_t<detail::is_pred_v<Pred> >,
+-      class = std::enable_if_t<detail::is_allocator_v<Allocator> > >
++      class = std::enable_if_t<detail::is_allocator_v<Allocator> >,
++      class = std::enable_if_t<detail::is_true_or_false_type_v<Spin> > >
+     concurrent_flat_map(std::initializer_list<std::pair<Key, T> >,
+       std::size_t = boost::unordered::detail::foa::default_bucket_count,
+-      Hash = Hash(), Pred = Pred(), Allocator = Allocator())
++      Hash = Hash(), Pred = Pred(), Allocator = Allocator(), Spin = Spin())
+       -> concurrent_flat_map<std::remove_const_t<Key>, T, Hash, Pred,
+-        Allocator>;
++        Allocator, Spin>;
+ 
+-    template <class InputIterator, class Allocator,
++    template <class InputIterator, class Allocator, class Spin,
+       class = std::enable_if_t<detail::is_input_iterator_v<InputIterator> >,
+-      class = std::enable_if_t<detail::is_allocator_v<Allocator> > >
+-    concurrent_flat_map(InputIterator, InputIterator, std::size_t, Allocator)
++      class = std::enable_if_t<detail::is_allocator_v<Allocator> >,
++      class = std::enable_if_t<detail::is_true_or_false_type_v<Spin> > >
++    concurrent_flat_map(InputIterator, InputIterator, std::size_t, Allocator, Spin)
+       -> concurrent_flat_map<
+         boost::unordered::detail::iter_key_t<InputIterator>,
+         boost::unordered::detail::iter_val_t<InputIterator>,
+         boost::hash<boost::unordered::detail::iter_key_t<InputIterator> >,
+         std::equal_to<boost::unordered::detail::iter_key_t<InputIterator> >,
+-        Allocator>;
++        Allocator, Spin>;
+ 
+-    template <class InputIterator, class Allocator,
++    template <class InputIterator, class Allocator, class Spin,
+       class = std::enable_if_t<detail::is_input_iterator_v<InputIterator> >,
+-      class = std::enable_if_t<detail::is_allocator_v<Allocator> > >
+-    concurrent_flat_map(InputIterator, InputIterator, Allocator)
++      class = std::enable_if_t<detail::is_allocator_v<Allocator> >,
++      class = std::enable_if_t<detail::is_true_or_false_type_v<Spin> > >
++    concurrent_flat_map(InputIterator, InputIterator, Allocator, Spin)
+       -> concurrent_flat_map<
+         boost::unordered::detail::iter_key_t<InputIterator>,
+         boost::unordered::detail::iter_val_t<InputIterator>,
+         boost::hash<boost::unordered::detail::iter_key_t<InputIterator> >,
+         std::equal_to<boost::unordered::detail::iter_key_t<InputIterator> >,
+-        Allocator>;
++        Allocator, Spin>;
+ 
+-    template <class InputIterator, class Hash, class Allocator,
++    template <class InputIterator, class Hash, class Allocator, class Spin,
+       class = std::enable_if_t<detail::is_hash_v<Hash> >,
+       class = std::enable_if_t<detail::is_input_iterator_v<InputIterator> >,
+-      class = std::enable_if_t<detail::is_allocator_v<Allocator> > >
++      class = std::enable_if_t<detail::is_allocator_v<Allocator> >,
++      class = std::enable_if_t<detail::is_true_or_false_type_v<Spin> > >
+     concurrent_flat_map(
+-      InputIterator, InputIterator, std::size_t, Hash, Allocator)
++      InputIterator, InputIterator, std::size_t, Hash, Allocator, Spin)
+       -> concurrent_flat_map<
+         boost::unordered::detail::iter_key_t<InputIterator>,
+         boost::unordered::detail::iter_val_t<InputIterator>, Hash,
+         std::equal_to<boost::unordered::detail::iter_key_t<InputIterator> >,
+-        Allocator>;
++        Allocator, Spin>;
+ 
+-    template <class Key, class T, class Allocator,
+-      class = std::enable_if_t<detail::is_allocator_v<Allocator> > >
++    template <class Key, class T, class Allocator, class Spin,
++      class = std::enable_if_t<detail::is_allocator_v<Allocator> >,
++      class = std::enable_if_t<detail::is_true_or_false_type_v<Spin> > >
+     concurrent_flat_map(std::initializer_list<std::pair<Key, T> >, std::size_t,
+-      Allocator) -> concurrent_flat_map<std::remove_const_t<Key>, T,
++      Allocator, Spin) -> concurrent_flat_map<std::remove_const_t<Key>, T,
+       boost::hash<std::remove_const_t<Key> >,
+-      std::equal_to<std::remove_const_t<Key> >, Allocator>;
++      std::equal_to<std::remove_const_t<Key> >, Allocator, Spin>;
+ 
+-    template <class Key, class T, class Allocator,
+-      class = std::enable_if_t<detail::is_allocator_v<Allocator> > >
+-    concurrent_flat_map(std::initializer_list<std::pair<Key, T> >, Allocator)
++    template <class Key, class T, class Allocator, class Spin,
++      class = std::enable_if_t<detail::is_allocator_v<Allocator> >,
++      class = std::enable_if_t<detail::is_true_or_false_type_v<Spin> > >
++    concurrent_flat_map(std::initializer_list<std::pair<Key, T> >, Allocator, Spin)
+       -> concurrent_flat_map<std::remove_const_t<Key>, T,
+         boost::hash<std::remove_const_t<Key> >,
+-        std::equal_to<std::remove_const_t<Key> >, Allocator>;
++        std::equal_to<std::remove_const_t<Key> >, Allocator, Spin>;
+ 
+-    template <class Key, class T, class Hash, class Allocator,
++    template <class Key, class T, class Hash, class Allocator, class Spin,
+       class = std::enable_if_t<detail::is_hash_v<Hash> >,
+-      class = std::enable_if_t<detail::is_allocator_v<Allocator> > >
++      class = std::enable_if_t<detail::is_allocator_v<Allocator> >,
++      class = std::enable_if_t<detail::is_true_or_false_type_v<Spin> > >
+     concurrent_flat_map(std::initializer_list<std::pair<Key, T> >, std::size_t,
+-      Hash, Allocator) -> concurrent_flat_map<std::remove_const_t<Key>, T,
+-      Hash, std::equal_to<std::remove_const_t<Key> >, Allocator>;
++      Hash, Allocator, Spin) -> concurrent_flat_map<std::remove_const_t<Key>, T,
++      Hash, std::equal_to<std::remove_const_t<Key> >, Allocator, Spin>;
+ 
+ #endif
+ 
+   } // namespace unordered
+ } // namespace boost
+ 
+ #endif // BOOST_UNORDERED_CONCURRENT_FLAT_MAP_HPP
+diff --git a/include/boost/unordered/concurrent_flat_map_fwd.hpp b/include/boost/unordered/concurrent_flat_map_fwd.hpp
+index e66f3674..9fad5c9b 100644
+--- a/include/boost/unordered/concurrent_flat_map_fwd.hpp
++++ b/include/boost/unordered/concurrent_flat_map_fwd.hpp
+@@ -10,57 +10,58 @@
+  */
+ 
+ #ifndef BOOST_UNORDERED_CONCURRENT_FLAT_MAP_FWD_HPP
+ #define BOOST_UNORDERED_CONCURRENT_FLAT_MAP_FWD_HPP
+ 
+ #include <boost/config.hpp>
+ #include <boost/container_hash/hash_fwd.hpp>
+ 
+ #include <functional>
+ #include <memory>
+ 
+ #ifndef BOOST_NO_CXX17_HDR_MEMORY_RESOURCE
+ #include <memory_resource>
+ #endif
+ 
+ namespace boost {
+   namespace unordered {
+ 
+     template <class Key, class T, class Hash = boost::hash<Key>,
+       class Pred = std::equal_to<Key>,
+-      class Allocator = std::allocator<std::pair<Key const, T> > >
++      class Allocator = std::allocator<std::pair<Key const, T> >,
++      class Spin = std::true_type>
+     class concurrent_flat_map;
+ 
+-    template <class Key, class T, class Hash, class KeyEqual, class Allocator>
++    template <class Key, class T, class Hash, class KeyEqual, class Allocator, class Spin>
+     bool operator==(
+-      concurrent_flat_map<Key, T, Hash, KeyEqual, Allocator> const& lhs,
+-      concurrent_flat_map<Key, T, Hash, KeyEqual, Allocator> const& rhs);
++      concurrent_flat_map<Key, T, Hash, KeyEqual, Allocator, Spin> const& lhs,
++      concurrent_flat_map<Key, T, Hash, KeyEqual, Allocator, Spin> const& rhs);
+ 
+-    template <class Key, class T, class Hash, class KeyEqual, class Allocator>
++    template <class Key, class T, class Hash, class KeyEqual, class Allocator, class Spin>
+     bool operator!=(
+-      concurrent_flat_map<Key, T, Hash, KeyEqual, Allocator> const& lhs,
+-      concurrent_flat_map<Key, T, Hash, KeyEqual, Allocator> const& rhs);
++      concurrent_flat_map<Key, T, Hash, KeyEqual, Allocator, Spin> const& lhs,
++      concurrent_flat_map<Key, T, Hash, KeyEqual, Allocator, Spin> const& rhs);
+ 
+-    template <class Key, class T, class Hash, class Pred, class Alloc>
+-    void swap(concurrent_flat_map<Key, T, Hash, Pred, Alloc>& x,
+-      concurrent_flat_map<Key, T, Hash, Pred, Alloc>& y)
++    template <class Key, class T, class Hash, class Pred, class Alloc, class Spin>
++    void swap(concurrent_flat_map<Key, T, Hash, Pred, Alloc, Spin>& x,
++      concurrent_flat_map<Key, T, Hash, Pred, Alloc, Spin>& y)
+       noexcept(noexcept(x.swap(y)));
+ 
+-    template <class K, class T, class H, class P, class A, class Predicate>
+-    typename concurrent_flat_map<K, T, H, P, A>::size_type erase_if(
+-      concurrent_flat_map<K, T, H, P, A>& c, Predicate pred);
++    template <class K, class T, class H, class P, class A, class S, class Predicate>
++    typename concurrent_flat_map<K, T, H, P, A, S>::size_type erase_if(
++      concurrent_flat_map<K, T, H, P, A, S>& c, Predicate pred);
+ 
+ #ifndef BOOST_NO_CXX17_HDR_MEMORY_RESOURCE
+     namespace pmr {
+       template <class Key, class T, class Hash = boost::hash<Key>,
+         class Pred = std::equal_to<Key> >
+       using concurrent_flat_map = boost::unordered::concurrent_flat_map<Key, T,
+         Hash, Pred, std::pmr::polymorphic_allocator<std::pair<Key const, T> > >;
+     } // namespace pmr
+ #endif
+ 
+   } // namespace unordered
+ 
+   using boost::unordered::concurrent_flat_map;
+ } // namespace boost
+ 
+ #endif // BOOST_UNORDERED_CONCURRENT_FLAT_MAP_HPP
+diff --git a/include/boost/unordered/concurrent_flat_set.hpp b/include/boost/unordered/concurrent_flat_set.hpp
+index d0665f71..20c8d20c 100644
+--- a/include/boost/unordered/concurrent_flat_set.hpp
++++ b/include/boost/unordered/concurrent_flat_set.hpp
+@@ -10,67 +10,67 @@
+  */
+ 
+ #ifndef BOOST_UNORDERED_CONCURRENT_FLAT_SET_HPP
+ #define BOOST_UNORDERED_CONCURRENT_FLAT_SET_HPP
+ 
+ #include <boost/unordered/concurrent_flat_set_fwd.hpp>
+ #include <boost/unordered/detail/concurrent_static_asserts.hpp>
+ #include <boost/unordered/detail/foa/concurrent_table.hpp>
+ #include <boost/unordered/detail/foa/flat_set_types.hpp>
+ #include <boost/unordered/detail/type_traits.hpp>
+ #include <boost/unordered/unordered_flat_set_fwd.hpp>
+ 
+ #include <boost/container_hash/hash.hpp>
+ #include <boost/core/allocator_access.hpp>
+ #include <boost/core/serialization.hpp>
+ 
+ #include <utility>
+ 
+ namespace boost {
+   namespace unordered {
+-    template <class Key, class Hash, class Pred, class Allocator>
++    template <class Key, class Hash, class Pred, class Allocator, class Spin>
+     class concurrent_flat_set
+     {
+     private:
+-      template <class Key2, class Hash2, class Pred2, class Allocator2>
++      template <class Key2, class Hash2, class Pred2, class Allocator2, class Spin2>
+       friend class concurrent_flat_set;
+       template <class Key2, class Hash2, class Pred2, class Allocator2>
+       friend class unordered_flat_set;
+ 
+       using type_policy = detail::foa::flat_set_types<Key>;
+ 
+       using table_type =
+-        detail::foa::concurrent_table<type_policy, Hash, Pred, Allocator>;
++        detail::foa::concurrent_table<type_policy, Hash, Pred, Allocator, Spin>;
+ 
+       table_type table_;
+ 
+-      template <class K, class H, class KE, class A>
+-      bool friend operator==(concurrent_flat_set<K, H, KE, A> const& lhs,
+-        concurrent_flat_set<K, H, KE, A> const& rhs);
++      template <class K, class H, class KE, class A, class S>
++      bool friend operator==(concurrent_flat_set<K, H, KE, A, S> const& lhs,
++        concurrent_flat_set<K, H, KE, A, S> const& rhs);
+ 
+-      template <class K, class H, class KE, class A, class Predicate>
+-      friend typename concurrent_flat_set<K, H, KE, A>::size_type erase_if(
+-        concurrent_flat_set<K, H, KE, A>& set, Predicate pred);
++      template <class K, class H, class KE, class A, class S, class Predicate>
++      friend typename concurrent_flat_set<K, H, KE, A, S>::size_type erase_if(
++        concurrent_flat_set<K, H, KE, A, S>& set, Predicate pred);
+ 
+-      template<class Archive, class K, class H, class KE, class A>
++      template<class Archive, class K, class H, class KE, class A, class S>
+       friend void serialize(
+-        Archive& ar, concurrent_flat_set<K, H, KE, A>& c,
++        Archive& ar, concurrent_flat_set<K, H, KE, A, S>& c,
+         unsigned int version);
+ 
+     public:
+       using key_type = Key;
+       using value_type = typename type_policy::value_type;
+       using init_type = typename type_policy::init_type;
+       using size_type = std::size_t;
+       using difference_type = std::ptrdiff_t;
+       using hasher = typename boost::unordered::detail::type_identity<Hash>::type;
+       using key_equal = typename boost::unordered::detail::type_identity<Pred>::type;
+       using allocator_type = typename boost::unordered::detail::type_identity<Allocator>::type;
+       using reference = value_type&;
+       using const_reference = value_type const&;
+       using pointer = typename boost::allocator_pointer<allocator_type>::type;
+       using const_pointer =
+         typename boost::allocator_const_pointer<allocator_type>::type;
+       static constexpr size_type bulk_visit_size = table_type::bulk_visit_size;
+ 
+ #if defined(BOOST_UNORDERED_ENABLE_STATS)
+       using stats = typename table_type::stats;
+@@ -588,74 +588,74 @@ namespace boost {
+ 
+ #if defined(BOOST_UNORDERED_ENABLE_STATS)
+       /// Stats
+       ///
+       stats get_stats() const { return table_.get_stats(); }
+ 
+       void reset_stats() noexcept { table_.reset_stats(); }
+ #endif
+ 
+       /// Observers
+       ///
+       allocator_type get_allocator() const noexcept
+       {
+         return table_.get_allocator();
+       }
+ 
+       hasher hash_function() const { return table_.hash_function(); }
+       key_equal key_eq() const { return table_.key_eq(); }
+     };
+ 
+-    template <class Key, class Hash, class KeyEqual, class Allocator>
++    template <class Key, class Hash, class KeyEqual, class Allocator, class Spin>
+     bool operator==(
+-      concurrent_flat_set<Key, Hash, KeyEqual, Allocator> const& lhs,
+-      concurrent_flat_set<Key, Hash, KeyEqual, Allocator> const& rhs)
++      concurrent_flat_set<Key, Hash, KeyEqual, Allocator, Spin> const& lhs,
++      concurrent_flat_set<Key, Hash, KeyEqual, Allocator, Spin> const& rhs)
+     {
+       return lhs.table_ == rhs.table_;
+     }
+ 
+-    template <class Key, class Hash, class KeyEqual, class Allocator>
++    template <class Key, class Hash, class KeyEqual, class Allocator, class Spin>
+     bool operator!=(
+-      concurrent_flat_set<Key, Hash, KeyEqual, Allocator> const& lhs,
+-      concurrent_flat_set<Key, Hash, KeyEqual, Allocator> const& rhs)
++      concurrent_flat_set<Key, Hash, KeyEqual, Allocator, Spin> const& lhs,
++      concurrent_flat_set<Key, Hash, KeyEqual, Allocator, Spin> const& rhs)
+     {
+       return !(lhs == rhs);
+     }
+ 
+-    template <class Key, class Hash, class Pred, class Alloc>
+-    void swap(concurrent_flat_set<Key, Hash, Pred, Alloc>& x,
+-      concurrent_flat_set<Key, Hash, Pred, Alloc>& y)
++    template <class Key, class Hash, class Pred, class Alloc, class Spin>
++    void swap(concurrent_flat_set<Key, Hash, Pred, Alloc, Spin>& x,
++      concurrent_flat_set<Key, Hash, Pred, Alloc, Spin>& y)
+       noexcept(noexcept(x.swap(y)))
+     {
+       x.swap(y);
+     }
+ 
+-    template <class K, class H, class P, class A, class Predicate>
+-    typename concurrent_flat_set<K, H, P, A>::size_type erase_if(
+-      concurrent_flat_set<K, H, P, A>& c, Predicate pred)
++    template <class K, class H, class P, class A, class S, class Predicate>
++    typename concurrent_flat_set<K, H, P, A, S>::size_type erase_if(
++      concurrent_flat_set<K, H, P, A, S>& c, Predicate pred)
+     {
+       return c.table_.erase_if(pred);
+     }
+ 
+-    template<class Archive, class K, class H, class KE, class A>
++    template<class Archive, class K, class H, class KE, class A, class S>
+     void serialize(
+-      Archive& ar, concurrent_flat_set<K, H, KE, A>& c, unsigned int)
++      Archive& ar, concurrent_flat_set<K, H, KE, A, S>& c, unsigned int)
+     {
+       ar & core::make_nvp("table",c.table_);
+     }
+ 
+ #if BOOST_UNORDERED_TEMPLATE_DEDUCTION_GUIDES
+ 
+     template <class InputIterator,
+       class Hash =
+         boost::hash<typename std::iterator_traits<InputIterator>::value_type>,
+       class Pred =
+         std::equal_to<typename std::iterator_traits<InputIterator>::value_type>,
+       class Allocator = std::allocator<
+         typename std::iterator_traits<InputIterator>::value_type>,
+       class = std::enable_if_t<detail::is_input_iterator_v<InputIterator> >,
+       class = std::enable_if_t<detail::is_hash_v<Hash> >,
+       class = std::enable_if_t<detail::is_pred_v<Pred> >,
+       class = std::enable_if_t<detail::is_allocator_v<Allocator> > >
+     concurrent_flat_set(InputIterator, InputIterator,
+       std::size_t = boost::unordered::detail::foa::default_bucket_count,
+       Hash = Hash(), Pred = Pred(), Allocator = Allocator())
+@@ -676,53 +676,57 @@ namespace boost {
+     template <class InputIterator, class Allocator,
+       class = std::enable_if_t<detail::is_input_iterator_v<InputIterator> >,
+       class = std::enable_if_t<detail::is_allocator_v<Allocator> > >
+     concurrent_flat_set(InputIterator, InputIterator, std::size_t, Allocator)
+       -> concurrent_flat_set<
+         typename std::iterator_traits<InputIterator>::value_type,
+         boost::hash<typename std::iterator_traits<InputIterator>::value_type>,
+         std::equal_to<typename std::iterator_traits<InputIterator>::value_type>,
+         Allocator>;
+ 
+     template <class InputIterator, class Allocator,
+       class = std::enable_if_t<detail::is_input_iterator_v<InputIterator> >,
+       class = std::enable_if_t<detail::is_allocator_v<Allocator> > >
+     concurrent_flat_set(InputIterator, InputIterator, Allocator)
+       -> concurrent_flat_set<
+         typename std::iterator_traits<InputIterator>::value_type,
+         boost::hash<typename std::iterator_traits<InputIterator>::value_type>,
+         std::equal_to<typename std::iterator_traits<InputIterator>::value_type>,
+         Allocator>;
+ 
+-    template <class InputIterator, class Hash, class Allocator,
++    template <class InputIterator, class Hash, class Allocator, class Spin,
+       class = std::enable_if_t<detail::is_hash_v<Hash> >,
+       class = std::enable_if_t<detail::is_input_iterator_v<InputIterator> >,
+-      class = std::enable_if_t<detail::is_allocator_v<Allocator> > >
++      class = std::enable_if_t<detail::is_allocator_v<Allocator> >,
++      class = std::enable_if_t<detail::is_true_or_false_type_v<Spin> > >
+     concurrent_flat_set(
+-      InputIterator, InputIterator, std::size_t, Hash, Allocator)
++      InputIterator, InputIterator, std::size_t, Hash, Allocator, Spin)
+       -> concurrent_flat_set<
+         typename std::iterator_traits<InputIterator>::value_type, Hash,
+         std::equal_to<typename std::iterator_traits<InputIterator>::value_type>,
+-        Allocator>;
++        Allocator, Spin>;
+ 
+-    template <class T, class Allocator,
+-      class = std::enable_if_t<detail::is_allocator_v<Allocator> > >
+-    concurrent_flat_set(std::initializer_list<T>, std::size_t, Allocator)
+-      -> concurrent_flat_set<T, boost::hash<T>,std::equal_to<T>, Allocator>;
++    template <class T, class Allocator, class Spin,
++      class = std::enable_if_t<detail::is_allocator_v<Allocator> >,
++      class = std::enable_if_t<detail::is_true_or_false_type_v<Spin> > >
++    concurrent_flat_set(std::initializer_list<T>, std::size_t, Allocator, Spin)
++      -> concurrent_flat_set<T, boost::hash<T>,std::equal_to<T>, Allocator, Spin>;
+ 
+-    template <class T, class Allocator,
+-      class = std::enable_if_t<detail::is_allocator_v<Allocator> > >
+-    concurrent_flat_set(std::initializer_list<T >, Allocator)
+-      -> concurrent_flat_set<T, boost::hash<T>, std::equal_to<T>, Allocator>;
++    template <class T, class Allocator, class Spin,
++      class = std::enable_if_t<detail::is_allocator_v<Allocator> >,
++      class = std::enable_if_t<detail::is_true_or_false_type_v<Spin> > >
++    concurrent_flat_set(std::initializer_list<T >, Allocator, Spin)
++      -> concurrent_flat_set<T, boost::hash<T>, std::equal_to<T>, Allocator, Spin>;
+ 
+-    template <class T, class Hash, class Allocator,
++    template <class T, class Hash, class Allocator, class Spin,
+       class = std::enable_if_t<detail::is_hash_v<Hash> >,
+-      class = std::enable_if_t<detail::is_allocator_v<Allocator> > >
+-    concurrent_flat_set(std::initializer_list<T >, std::size_t,Hash, Allocator)
+-      -> concurrent_flat_set<T, Hash, std::equal_to<T>, Allocator>;
++      class = std::enable_if_t<detail::is_allocator_v<Allocator> >,
++      class = std::enable_if_t<detail::is_true_or_false_type_v<Spin> > >
++    concurrent_flat_set(std::initializer_list<T >, std::size_t,Hash, Allocator, Spin)
++      -> concurrent_flat_set<T, Hash, std::equal_to<T>, Allocator, Spin>;
+ 
+ #endif
+ 
+   } // namespace unordered
+ } // namespace boost
+ 
+ #endif // BOOST_UNORDERED_CONCURRENT_FLAT_SET_HPP
+diff --git a/include/boost/unordered/concurrent_flat_set_fwd.hpp b/include/boost/unordered/concurrent_flat_set_fwd.hpp
+index 1133d9c9..d2b6f840 100644
+--- a/include/boost/unordered/concurrent_flat_set_fwd.hpp
++++ b/include/boost/unordered/concurrent_flat_set_fwd.hpp
+@@ -11,57 +11,58 @@
+  */
+ 
+ #ifndef BOOST_UNORDERED_CONCURRENT_FLAT_SET_FWD_HPP
+ #define BOOST_UNORDERED_CONCURRENT_FLAT_SET_FWD_HPP
+ 
+ #include <boost/config.hpp>
+ #include <boost/container_hash/hash_fwd.hpp>
+ 
+ #include <functional>
+ #include <memory>
+ 
+ #ifndef BOOST_NO_CXX17_HDR_MEMORY_RESOURCE
+ #include <memory_resource>
+ #endif
+ 
+ namespace boost {
+   namespace unordered {
+ 
+     template <class Key, class Hash = boost::hash<Key>,
+       class Pred = std::equal_to<Key>,
+-      class Allocator = std::allocator<Key> >
++      class Allocator = std::allocator<Key>,
++      class Spin = std::true_type>
+     class concurrent_flat_set;
+ 
+-    template <class Key, class Hash, class KeyEqual, class Allocator>
++    template <class Key, class Hash, class KeyEqual, class Allocator, class Spin>
+     bool operator==(
+-      concurrent_flat_set<Key, Hash, KeyEqual, Allocator> const& lhs,
+-      concurrent_flat_set<Key, Hash, KeyEqual, Allocator> const& rhs);
++      concurrent_flat_set<Key, Hash, KeyEqual, Allocator, Spin> const& lhs,
++      concurrent_flat_set<Key, Hash, KeyEqual, Allocator, Spin> const& rhs);
+ 
+-    template <class Key, class Hash, class KeyEqual, class Allocator>
++    template <class Key, class Hash, class KeyEqual, class Allocator, class Spin>
+     bool operator!=(
+-      concurrent_flat_set<Key, Hash, KeyEqual, Allocator> const& lhs,
+-      concurrent_flat_set<Key, Hash, KeyEqual, Allocator> const& rhs);
++      concurrent_flat_set<Key, Hash, KeyEqual, Allocator, Spin> const& lhs,
++      concurrent_flat_set<Key, Hash, KeyEqual, Allocator, Spin> const& rhs);
+ 
+-    template <class Key, class Hash, class Pred, class Alloc>
+-    void swap(concurrent_flat_set<Key, Hash, Pred, Alloc>& x,
++    template <class Key, class Hash, class Pred, class Alloc, class Spin>
++    void swap(concurrent_flat_set<Key, Hash, Pred, Alloc, Spin>& x,
+       concurrent_flat_set<Key, Hash, Pred, Alloc>& y)
+       noexcept(noexcept(x.swap(y)));
+ 
+-    template <class K, class H, class P, class A, class Predicate>
+-    typename concurrent_flat_set<K, H, P, A>::size_type erase_if(
+-      concurrent_flat_set<K, H, P, A>& c, Predicate pred);
++    template <class K, class H, class P, class A, class S, class Predicate>
++    typename concurrent_flat_set<K, H, P, A, S>::size_type erase_if(
++      concurrent_flat_set<K, H, P, A, S>& c, Predicate pred);
+ 
+ #ifndef BOOST_NO_CXX17_HDR_MEMORY_RESOURCE
+     namespace pmr {
+       template <class Key, class Hash = boost::hash<Key>,
+         class Pred = std::equal_to<Key> >
+       using concurrent_flat_set = boost::unordered::concurrent_flat_set<Key,
+         Hash, Pred, std::pmr::polymorphic_allocator<Key> >;
+     } // namespace pmr
+ #endif
+ 
+   } // namespace unordered
+ 
+   using boost::unordered::concurrent_flat_set;
+ } // namespace boost
+ 
+ #endif // BOOST_UNORDERED_CONCURRENT_FLAT_SET_FWD_HPP
+diff --git a/include/boost/unordered/detail/foa/concurrent_table.hpp b/include/boost/unordered/detail/foa/concurrent_table.hpp
+index 66c25791..c9e1a843 100644
+--- a/include/boost/unordered/detail/foa/concurrent_table.hpp
++++ b/include/boost/unordered/detail/foa/concurrent_table.hpp
+@@ -201,131 +201,133 @@ template<typename Integral>
+ struct atomic_integral
+ {
+   operator Integral()const{return n.load(std::memory_order_relaxed);}
+   void operator=(Integral m){n.store(m,std::memory_order_relaxed);}
+   void operator|=(Integral m){n.fetch_or(m,std::memory_order_relaxed);}
+   void operator&=(Integral m){n.fetch_and(m,std::memory_order_relaxed);}
+ 
+   atomic_integral& operator=(atomic_integral const& rhs) {
+     n.store(rhs.n.load(std::memory_order_relaxed),std::memory_order_relaxed);
+     return *this;
+   }
+ 
+   std::atomic<Integral> n;
+ };
+ 
+ /* Group-level concurrency protection. It provides a rw mutex plus an
+  * atomic insertion counter for optimistic insertion (see
+  * unprotected_norehash_emplace_or_visit).
+  */
+ 
++template <typename Spin>
+ struct group_access
+ {    
+-  using mutex_type=rw_spinlock;
+-  using shared_lock_guard=shared_lock<mutex_type>;
+-  using exclusive_lock_guard=lock_guard<mutex_type>;
++  using mutex_type=std::conditional_t<Spin::value, rw_spinlock,
++                         boost::interprocess::interprocess_sharable_mutex>;
++  using shared_lock_guard=std::conditional_t<Spin::value, shared_lock<mutex_type>, boost::interprocess::sharable_lock<mutex_type>>;
++  using exclusive_lock_guard=std::conditional_t<Spin::value, lock_guard<mutex_type>, boost::interprocess::scoped_lock<mutex_type>>;
+   using insert_counter_type=std::atomic<boost::uint32_t>;
+ 
+   shared_lock_guard    shared_access(){return shared_lock_guard{m};}
+   exclusive_lock_guard exclusive_access(){return exclusive_lock_guard{m};}
+   insert_counter_type& insert_counter(){return cnt;}
+ 
+ private:
+   mutex_type          m;
+   insert_counter_type cnt{0};
+ };
+ 
+-template<std::size_t Size>
+-group_access* dummy_group_accesses()
++template<std::size_t Size, typename Spin>
++group_access<Spin>* dummy_group_accesses()
+ {
+   /* Default group_access array to provide to empty containers without
+    * incurring dynamic allocation. Mutexes won't actually ever be used,
+    * (no successful reduced hash match) and insertion counters won't ever
+    * be incremented (insertions won't succeed as capacity()==0).
+    */
+ 
+-  static group_access accesses[Size];
++  static group_access<Spin> accesses[Size];
+ 
+   return accesses;
+ }
+ 
+ /* subclasses table_arrays to add an additional group_access array */
+ 
+-template<typename Value,typename Group,typename SizePolicy,typename Allocator>
+-struct concurrent_table_arrays:table_arrays<Value,Group,SizePolicy,Allocator>
++template<typename Value,typename Group,typename SizePolicy,typename Allocator,typename Spin>
++struct concurrent_table_arrays:table_arrays<Value,Group,SizePolicy,Allocator,Spin>
+ {
+   using group_access_allocator_type=
+-    typename boost::allocator_rebind<Allocator,group_access>::type;
++    typename boost::allocator_rebind<Allocator,group_access<Spin>>::type;
+   using group_access_pointer=
+     typename boost::allocator_pointer<group_access_allocator_type>::type;
+ 
+-  using super=table_arrays<Value,Group,SizePolicy,Allocator>;
++  using super=table_arrays<Value,Group,SizePolicy,Allocator,Spin>;
+   using allocator_type=typename super::allocator_type;
+ 
+   concurrent_table_arrays(const super& arrays,group_access_pointer pga):
+     super{arrays},group_accesses_{pga}{}
+ 
+-  group_access* group_accesses()const noexcept{
++  group_access<Spin>* group_accesses()const noexcept{
+     return boost::to_address(group_accesses_);
+   }
+ 
+   static concurrent_table_arrays new_(allocator_type al,std::size_t n)
+   {
+     super x{super::new_(al,n)};
+     BOOST_TRY{
+       return new_group_access(group_access_allocator_type(al),x);
+     }
+     BOOST_CATCH(...){
+       super::delete_(al,x);
+       BOOST_RETHROW
+     }
+     BOOST_CATCH_END
+   }
+ 
+   static void set_group_access(
+     group_access_allocator_type al,concurrent_table_arrays& arrays)
+   {
+     set_group_access(
+-      al,arrays,std::is_same<group_access*,group_access_pointer>{});
++      al,arrays,std::is_same<group_access<Spin>*,group_access_pointer>{});
+   }
+ 
+   static void set_group_access(
+     group_access_allocator_type al,
+     concurrent_table_arrays& arrays,
+     std::false_type /* fancy pointers */)
+   {
+     arrays.group_accesses_=
+         boost::allocator_allocate(al,arrays.groups_size_mask+1);
+ 
+       for(std::size_t i=0;i<arrays.groups_size_mask+1;++i){
+-        ::new (arrays.group_accesses()+i) group_access();
++        ::new (arrays.group_accesses()+i) group_access<Spin>();
+       }
+   }
+ 
+   static void set_group_access(
+     group_access_allocator_type al,
+     concurrent_table_arrays& arrays,
+     std::true_type /* optimize when elements() is null */)
+   {
+     if(!arrays.elements()){
+       arrays.group_accesses_=
+-        dummy_group_accesses<SizePolicy::min_size()>();
++        dummy_group_accesses<SizePolicy::min_size(), Spin>();
+     } else {
+       set_group_access(al,arrays,std::false_type{});
+     }
+   }
+ 
+   static concurrent_table_arrays new_group_access(
+     group_access_allocator_type al,const super& x)
+   {
+     concurrent_table_arrays arrays{x,nullptr};
+     set_group_access(al,arrays);
+     return arrays;
+   }
+ 
+   static void delete_(allocator_type al,concurrent_table_arrays& arrays)noexcept
+   {
+     delete_group_access(group_access_allocator_type(al),arrays);
+     super::delete_(al,arrays);
+   }
+ 
+   static void delete_group_access(
+@@ -412,60 +414,60 @@ inline void swap(atomic_size_control& x,atomic_size_control& y)
+  *   - Each group of slots has an associated rw spinlock. A thread holds
+  *     at most one group lock at any given time. Lookup is implemented in
+  *     a (groupwise) lock-free manner until a reduced hash match is found, in
+  *     which case the relevant group is locked and the slot is double-checked
+  *     for occupancy and compared with the key.
+  *   - Each group has also an associated so-called insertion counter used for
+  *     the following optimistic insertion algorithm:
+  *     - The value of the insertion counter for the initial group in the probe
+  *       sequence is locally recorded (let's call this value c0).
+  *     - Lookup is as described above. If lookup finds no equivalent element,
+  *       search for an available slot for insertion successively locks/unlocks
+  *       each group in the probing sequence.
+  *     - When an available slot is located, it is preemptively occupied (its
+  *       reduced hash value is set) and the insertion counter is atomically
+  *       incremented: if no other thread has incremented the counter during the
+  *       whole operation (which is checked by comparing with c0), then we're
+  *       good to go and complete the insertion, otherwise we roll back and
+  *       start over.
+  */
+ 
+-template<typename,typename,typename,typename>
++template<typename,typename,typename,typename,typename>
+ class table; /* concurrent/non-concurrent interop */
+ 
+-template <typename TypePolicy,typename Hash,typename Pred,typename Allocator>
++template <typename TypePolicy,typename Hash,typename Pred,typename Allocator,typename Spin>
+ using concurrent_table_core_impl=table_core<
+   TypePolicy,group15<atomic_integral>,concurrent_table_arrays,
+-  atomic_size_control,Hash,Pred,Allocator>;
++  atomic_size_control,Hash,Pred,Allocator,Spin>;
+ 
+ #include <boost/unordered/detail/foa/ignore_wshadow.hpp>
+ 
+ #if defined(BOOST_MSVC)
+ #pragma warning(push)
+ #pragma warning(disable:4714) /* marked as __forceinline not inlined */
+ #endif
+ 
+-template<typename TypePolicy,typename Hash,typename Pred,typename Allocator>
++template<typename TypePolicy,typename Hash,typename Pred,typename Allocator,typename Spin>
+ class concurrent_table:
+-  concurrent_table_core_impl<TypePolicy,Hash,Pred,Allocator>
++  concurrent_table_core_impl<TypePolicy,Hash,Pred,Allocator,Spin>
+ {
+-  using super=concurrent_table_core_impl<TypePolicy,Hash,Pred,Allocator>;
++  using super=concurrent_table_core_impl<TypePolicy,Hash,Pred,Allocator,Spin>;
+   using type_policy=typename super::type_policy;
+   using group_type=typename super::group_type;
+   using super::N;
+   using prober=typename super::prober;
+   using arrays_type=typename super::arrays_type;
+   using size_ctrl_type=typename super::size_ctrl_type;
+   using compatible_nonconcurrent_table=table<TypePolicy,Hash,Pred,Allocator>;
+   friend compatible_nonconcurrent_table;
+ 
+ public:
+   using key_type=typename super::key_type;
+   using init_type=typename super::init_type;
+   using value_type=typename super::value_type;
+   using element_type=typename super::element_type;
+   using hasher=typename super::hasher;
+   using key_equal=typename super::key_equal;
+   using allocator_type=typename super::allocator_type;
+   using size_type=typename super::size_type;
+   static constexpr std::size_t bulk_visit_size=16;
+ 
+@@ -874,60 +876,60 @@ public:
+         }
+       });
+   }
+ #endif
+ 
+   void swap(concurrent_table& x)
+     noexcept(noexcept(std::declval<super&>().swap(std::declval<super&>())))
+   {
+     auto lck=exclusive_access(*this,x);
+     super::swap(x);
+   }
+ 
+   void clear()noexcept
+   {
+     auto lck=exclusive_access();
+     super::clear();
+   }
+ 
+   // TODO: should we accept different allocator too?
+   template<typename Hash2,typename Pred2>
+-  size_type merge(concurrent_table<TypePolicy,Hash2,Pred2,Allocator>& x)
++  size_type merge(concurrent_table<TypePolicy,Hash2,Pred2,Allocator,Spin>& x)
+   {
+-    using merge_table_type=concurrent_table<TypePolicy,Hash2,Pred2,Allocator>;
++    using merge_table_type=concurrent_table<TypePolicy,Hash2,Pred2,Allocator,Spin>;
+     using super2=typename merge_table_type::super;
+ 
+     // for clang
+     boost::ignore_unused<super2>();
+ 
+     auto      lck=exclusive_access(*this,x);
+     size_type s=super::size();
+     x.super2::for_all_elements( /* super2::for_all_elements -> unprotected */
+       [&,this](group_type* pg,unsigned int n,element_type* p){
+         typename merge_table_type::erase_on_exit e{x,pg,n,p};
+         if(!unprotected_emplace(type_policy::move(*p)))e.rollback();
+       });
+     return size_type{super::size()-s};
+   }
+ 
+   template<typename Hash2,typename Pred2>
+-  void merge(concurrent_table<TypePolicy,Hash2,Pred2,Allocator>&& x){merge(x);}
++  void merge(concurrent_table<TypePolicy,Hash2,Pred2,Allocator,Spin>&& x){merge(x);}
+ 
+   hasher hash_function()const
+   {
+     auto lck=shared_access();
+     return super::hash_function();
+   }
+ 
+   key_equal key_eq()const
+   {
+     auto lck=shared_access();
+     return super::key_eq();
+   }
+ 
+   template<typename Key>
+   BOOST_FORCEINLINE std::size_t count(Key&& x)const
+   {
+     return (std::size_t)contains(std::forward<Key>(x));
+   }
+ 
+   template<typename Key>
+@@ -978,85 +980,85 @@ public:
+ #endif
+ 
+   template<typename Predicate>
+   friend std::size_t erase_if(concurrent_table& x,Predicate&& pr)
+   {
+     return x.erase_if(std::forward<Predicate>(pr));
+   }
+ 
+   friend bool operator==(const concurrent_table& x,const concurrent_table& y)
+   {
+     auto lck=exclusive_access(x,y);
+     return static_cast<const super&>(x)==static_cast<const super&>(y);
+   }
+ 
+   friend bool operator!=(const concurrent_table& x,const concurrent_table& y)
+   {
+     return !(x==y);
+   }
+ 
+ private:
+-  template<typename,typename,typename,typename> friend class concurrent_table;
++  template<typename,typename,typename,typename,typename> friend class concurrent_table;
+ 
+   using mutex_type=rw_spinlock;
+   using multimutex_type=multimutex<mutex_type,128>; // TODO: adapt 128 to the machine
+   using shared_lock_guard=reentrancy_checked<shared_lock<mutex_type>>;
+   using exclusive_lock_guard=reentrancy_checked<lock_guard<multimutex_type>>;
+   using exclusive_bilock_guard=
+     reentrancy_bichecked<scoped_bilock<multimutex_type>>;
+-  using group_shared_lock_guard=typename group_access::shared_lock_guard;
+-  using group_exclusive_lock_guard=typename group_access::exclusive_lock_guard;
+-  using group_insert_counter_type=typename group_access::insert_counter_type;
++  using group_shared_lock_guard=typename group_access<Spin>::shared_lock_guard;
++  using group_exclusive_lock_guard=typename group_access<Spin>::exclusive_lock_guard;
++  using group_insert_counter_type=typename group_access<Spin>::insert_counter_type;
+ 
+   concurrent_table(const concurrent_table& x,exclusive_lock_guard):
+     super{x}{}
+   concurrent_table(concurrent_table&& x,exclusive_lock_guard):
+     super{std::move(x)}{}
+   concurrent_table(
+     const concurrent_table& x,const Allocator& al_,exclusive_lock_guard):
+     super{x,al_}{}
+   concurrent_table(
+     concurrent_table&& x,const Allocator& al_,exclusive_lock_guard):
+     super{std::move(x),al_}{}
+ 
+   inline shared_lock_guard shared_access()const
+   {
+     thread_local auto id=(++thread_counter)%mutexes.size();
+ 
+     return shared_lock_guard{this,mutexes[id]};
+   }
+ 
+   inline exclusive_lock_guard exclusive_access()const
+   {
+     return exclusive_lock_guard{this,mutexes};
+   }
+ 
+   static inline exclusive_bilock_guard exclusive_access(
+     const concurrent_table& x,const concurrent_table& y)
+   {
+     return {&x,&y,x.mutexes,y.mutexes};
+   }
+ 
+   template<typename Hash2,typename Pred2>
+   static inline exclusive_bilock_guard exclusive_access(
+     const concurrent_table& x,
+-    const concurrent_table<TypePolicy,Hash2,Pred2,Allocator>& y)
++    const concurrent_table<TypePolicy,Hash2,Pred2,Allocator,Spin>& y)
+   {
+     return {&x,&y,x.mutexes,y.mutexes};
+   }
+ 
+   /* Tag-dispatched shared/exclusive group access */
+ 
+   using group_shared=std::false_type;
+   using group_exclusive=std::true_type;
+ 
+   inline group_shared_lock_guard access(group_shared,std::size_t pos)const
+   {
+     return this->arrays.group_accesses()[pos].shared_access();
+   }
+ 
+   inline group_exclusive_lock_guard access(
+     group_exclusive,std::size_t pos)const
+   {
+     return this->arrays.group_accesses()[pos].exclusive_access();
+   }
+ 
+@@ -1758,35 +1760,35 @@ private:
+ 
+     for(std::size_t n=0;n<s;++n){
+       archive_constructed<raw_key_type>    key("key",ar,key_version);
+       archive_constructed<raw_mapped_type> mapped("mapped",ar,mapped_version);
+       auto&                                k=key.get();
+       auto&                                m=mapped.get();
+       auto                                 hash=this->hash_for(k);
+       auto                                 pos0=this->position_for(hash);
+ 
+       if(this->find(k,pos0,hash))throw_exception(bad_archive_exception());
+       auto loc=this->unchecked_emplace_at(pos0,hash,std::move(k),std::move(m));
+       ar.reset_object_address(std::addressof(loc.p->first),std::addressof(k));
+       ar.reset_object_address(std::addressof(loc.p->second),std::addressof(m));
+     }
+   }
+ 
+   static std::atomic<std::size_t> thread_counter;
+   mutable multimutex_type         mutexes;
+ };
+ 
+-template<typename T,typename H,typename P,typename A>
+-std::atomic<std::size_t> concurrent_table<T,H,P,A>::thread_counter={};
++template<typename T,typename H,typename P,typename A,typename S>
++std::atomic<std::size_t> concurrent_table<T,H,P,A,S>::thread_counter={};
+ 
+ #if defined(BOOST_MSVC)
+ #pragma warning(pop) /* C4714 */
+ #endif
+ 
+ #include <boost/unordered/detail/foa/restore_wshadow.hpp>
+ 
+ } /* namespace foa */
+ } /* namespace detail */
+ } /* namespace unordered */
+ } /* namespace boost */
+ 
+ #endif
+diff --git a/include/boost/unordered/detail/foa/core.hpp b/include/boost/unordered/detail/foa/core.hpp
+index e89a21cf..8a8ca41e 100644
+--- a/include/boost/unordered/detail/foa/core.hpp
++++ b/include/boost/unordered/detail/foa/core.hpp
+@@ -984,41 +984,41 @@ struct arrays_holder
+ 
+   ~arrays_holder()
+   {
+     if(!released_){
+       arrays_.delete_(typename Arrays::allocator_type(al_),arrays_);
+     }
+   }
+ 
+   const Arrays& release()
+   {
+     released_=true;
+     return arrays_;
+   }
+ 
+ private:
+   Arrays    arrays_;
+   Allocator al_;
+   bool      released_=false;
+ };
+ 
+-template<typename Value,typename Group,typename SizePolicy,typename Allocator>
++template<typename Value,typename Group,typename SizePolicy,typename Allocator,typename Spin>
+ struct table_arrays
+ {
+   using allocator_type=typename boost::allocator_rebind<Allocator,Value>::type;
+ 
+   using value_type=Value;
+   using group_type=Group;
+   static constexpr auto N=group_type::N;
+   using size_policy=SizePolicy;
+   using value_type_pointer=
+     typename boost::allocator_pointer<allocator_type>::type;
+   using group_type_pointer=
+     typename boost::pointer_traits<value_type_pointer>::template
+       rebind<group_type>;
+   using group_type_pointer_traits=boost::pointer_traits<group_type_pointer>;
+ 
+   table_arrays(
+     std::size_t gsi,std::size_t gsm,
+     group_type_pointer pg,value_type_pointer pe):
+     groups_size_index{gsi},groups_size_mask{gsm},groups_{pg},elements_{pe}{}
+ 
+@@ -1386,64 +1386,64 @@ using is_emplace_kv_able = std::integral_constant<bool,
+  *     the element_type itself is moved.
+  */
+ 
+ #include <boost/unordered/detail/foa/ignore_wshadow.hpp>
+ 
+ #if defined(BOOST_MSVC)
+ #pragma warning(push)
+ #pragma warning(disable:4714) /* marked as __forceinline not inlined */
+ #endif
+ 
+ #if BOOST_WORKAROUND(BOOST_MSVC,<=1900)
+ /* VS2015 marks as unreachable generic catch clauses around non-throwing
+  * code.
+  */
+ #pragma warning(push)
+ #pragma warning(disable:4702)
+ #endif
+ 
+ template<
+   typename TypePolicy,typename Group,template<typename...> class Arrays,
+-  typename SizeControl,typename Hash,typename Pred,typename Allocator
++  typename SizeControl,typename Hash,typename Pred,typename Allocator,typename Spin
+ >
+ class 
+ 
+ #if defined(_MSC_VER)&&_MSC_FULL_VER>=190023918
+ __declspec(empty_bases) /* activate EBO with multiple inheritance */
+ #endif
+ 
+ table_core:empty_value<Hash,0>,empty_value<Pred,1>,empty_value<Allocator,2>
+ {
+ public:
+   using type_policy=TypePolicy;
+   using group_type=Group;
+   static constexpr auto N=group_type::N;
+   using size_policy=pow2_size_policy;
+   using prober=pow2_quadratic_prober;
+   using mix_policy=typename std::conditional<
+     hash_is_avalanching<Hash>::value,
+     no_mix,
+     mulx_mix
+   >::type;
+   using alloc_traits=boost::allocator_traits<Allocator>;
+   using element_type=typename type_policy::element_type;
+-  using arrays_type=Arrays<element_type,group_type,size_policy,Allocator>;
++  using arrays_type=Arrays<element_type,group_type,size_policy,Allocator,Spin>;
+   using size_ctrl_type=SizeControl;
+   static constexpr auto uses_fancy_pointers=!std::is_same<
+     typename alloc_traits::pointer,
+     typename alloc_traits::value_type*
+   >::value;
+ 
+   using key_type=typename type_policy::key_type;
+   using init_type=typename type_policy::init_type;
+   using value_type=typename type_policy::value_type;
+   using hasher=Hash;
+   using key_equal=Pred;
+   using allocator_type=Allocator;
+   using pointer=value_type*;
+   using const_pointer=const value_type*;
+   using reference=value_type&;
+   using const_reference=const value_type&;
+   using size_type=std::size_t;
+   using difference_type=std::ptrdiff_t;
+   using locator=table_locator<group_type,element_type>;
+   using arrays_holder_type=arrays_holder<arrays_type,Allocator>;
+@@ -2050,41 +2050,41 @@ public:
+         while(mask){
+           auto n=unchecked_countr_zero(mask);
+           if(!f(pg,n,p+n))return false;
+           mask&=mask-1;
+         }
+       }
+     }
+     return true;
+   }
+ 
+   arrays_type              arrays;
+   size_ctrl_type           size_ctrl;
+ 
+ #if defined(BOOST_UNORDERED_ENABLE_STATS)
+   mutable cumulative_stats cstats;
+ #endif
+ 
+ private:
+   template<
+     typename,typename,template<typename...> class,
+-    typename,typename,typename,typename
++    typename,typename,typename,typename,typename
+   >
+   friend class table_core;
+ 
+   using hash_base=empty_value<Hash,0>;
+   using pred_base=empty_value<Pred,1>;
+   using allocator_base=empty_value<Allocator,2>;
+ 
+   /* used by allocator-extended move ctor */
+ 
+   table_core(Hash&& h_,Pred&& pred_,const Allocator& al_):
+     hash_base{empty_init,std::move(h_)},
+     pred_base{empty_init,std::move(pred_)},
+     allocator_base{empty_init,al_},arrays(new_arrays(0)),
+     size_ctrl{initial_max_load(),0}
+   {
+   }
+ 
+   arrays_type new_arrays(std::size_t n)const
+   {
+     return arrays_type::new_(typename arrays_type::allocator_type(al()),n);
+diff --git a/include/boost/unordered/detail/foa/table.hpp b/include/boost/unordered/detail/foa/table.hpp
+index 529a514c..14a8e80b 100644
+--- a/include/boost/unordered/detail/foa/table.hpp
++++ b/include/boost/unordered/detail/foa/table.hpp
+@@ -39,41 +39,41 @@ struct plain_integral
+   operator Integral()const{return n;}
+   void operator=(Integral m){n=m;}
+ 
+ #if BOOST_WORKAROUND(BOOST_GCC,>=50000 && BOOST_GCC<60000)
+   void operator|=(Integral m){n=static_cast<Integral>(n|m);}
+   void operator&=(Integral m){n=static_cast<Integral>(n&m);}
+ #else
+   void operator|=(Integral m){n|=m;}
+   void operator&=(Integral m){n&=m;}
+ #endif
+ 
+   Integral n;
+ };
+ 
+ struct plain_size_control
+ {
+   std::size_t ml;
+   std::size_t size;
+ };
+ 
+-template<typename,typename,typename,typename>
++template<typename,typename,typename,typename,typename>
+ class table;
+ 
+ /* table_iterator keeps two pointers:
+  * 
+  *   - A pointer p to the element slot.
+  *   - A pointer pc to the n-th byte of the associated group metadata, where n
+  *     is the position of the element in the group.
+  *
+  * A simpler solution would have been to keep a pointer p to the element, a
+  * pointer pg to the group, and the position n, but that would increase
+  * sizeof(table_iterator) by 4/8 bytes. In order to make this compact
+  * representation feasible, it is required that group objects are aligned
+  * to their size, so that we can recover pg and n as
+  * 
+  *   - n = pc%sizeof(group)
+  *   - pg = pc-n
+  * 
+  * (for explanatory purposes pg and pc are treated above as if they were memory
+  * addresses rather than pointers).
+  * 
+@@ -116,41 +116,41 @@ public:
+     const_iterator_cast_tag, const table_iterator<TypePolicy,GroupPtr,true>& x):
+     pc_{x.pc_},p_{x.p_}{}
+ 
+   inline reference operator*()const noexcept
+     {return type_policy::value_from(*p());}
+   inline pointer operator->()const noexcept
+     {return std::addressof(type_policy::value_from(*p()));}
+   inline table_iterator& operator++()noexcept{increment();return *this;}
+   inline table_iterator operator++(int)noexcept
+     {auto x=*this;increment();return x;}
+   friend inline bool operator==(
+     const table_iterator& x,const table_iterator& y)
+     {return x.p()==y.p();}
+   friend inline bool operator!=(
+     const table_iterator& x,const table_iterator& y)
+     {return !(x==y);}
+ 
+ private:
+   template<typename,typename,bool> friend class table_iterator;
+   template<typename> friend class table_erase_return_type;
+-  template<typename,typename,typename,typename> friend class table;
++  template<typename,typename,typename,typename,typename> friend class table;
+ 
+   table_iterator(group_type* pg,std::size_t n,const table_element_type* ptet):
+     pc_{to_pointer<char_pointer>(
+       reinterpret_cast<unsigned char*>(const_cast<group_type*>(pg))+n)},
+     p_{to_pointer<table_element_pointer>(const_cast<table_element_type*>(ptet))}
+   {}
+ 
+   unsigned char* pc()const noexcept{return boost::to_address(pc_);}
+   table_element_type* p()const noexcept{return boost::to_address(p_);}
+ 
+   inline void increment()noexcept
+   {
+     BOOST_ASSERT(p()!=nullptr);
+     increment(std::integral_constant<bool,regular_layout>{});
+   }
+ 
+   inline void increment(std::true_type /* regular layout */)noexcept
+   {
+     using diff_type=
+       typename boost::pointer_traits<char_pointer>::difference_type;
+@@ -251,102 +251,102 @@ class table_erase_return_type<table_iterator<TypePolicy,GroupPtr,Const>>
+   using const_iterator=table_iterator<TypePolicy,GroupPtr,true>;
+ 
+ public:
+   /* can't delete it because VS in pre-C++17 mode needs to see it for RVO */
+   table_erase_return_type(const table_erase_return_type&);
+ 
+   operator iterator()const noexcept
+   {
+     auto it=pos;
+     it.increment(); /* valid even if *it was erased */
+     return iterator(const_iterator_cast_tag{},it);
+   }
+ 
+   template<
+     bool dependent_value=false,
+     typename std::enable_if<!Const||dependent_value>::type* =nullptr
+   >
+   operator const_iterator()const noexcept{return this->operator iterator();}
+ 
+ private:
+-  template<typename,typename,typename,typename> friend class table;
++  template<typename,typename,typename,typename,typename> friend class table;
+ 
+   table_erase_return_type(const_iterator pos_):pos{pos_}{}
+   table_erase_return_type& operator=(const table_erase_return_type&)=delete;
+ 
+   const_iterator pos;
+ };
+ 
+ /* foa::table interface departs in a number of ways from that of C++ unordered
+  * associative containers because it's not for end-user consumption
+  * (boost::unordered_(flat|node)_(map|set) wrappers complete it as
+  * appropriate).
+  *
+  * The table supports two main modes of operation: flat and node-based. In the
+  * flat case, buckets directly store elements. For node-based, buckets store
+  * pointers to individually heap-allocated elements.
+  *
+  * For both flat and node-based:
+  *
+  *   - begin() is not O(1).
+  *   - No bucket API.
+  *   - Load factor is fixed and can't be set by the user.
+  * 
+  * For flat only:
+  *
+  *   - value_type must be moveable.
+  *   - Pointer stability is not kept under rehashing.
+  *   - No extract API.
+  *
+  * try_emplace, erase and find support heterogeneous lookup by default,
+  * that is, without checking for any ::is_transparent typedefs --the
+  * checking is done by boost::unordered_(flat|node)_(map|set).
+  */
+ 
+-template<typename,typename,typename,typename>
++template<typename,typename,typename,typename,typename>
+ class concurrent_table; /* concurrent/non-concurrent interop */
+ 
+-template <typename TypePolicy,typename Hash,typename Pred,typename Allocator>
++template <typename TypePolicy,typename Hash,typename Pred,typename Allocator,typename Spin>
+ using table_core_impl=
+   table_core<TypePolicy,group15<plain_integral>,table_arrays,
+-  plain_size_control,Hash,Pred,Allocator>;
++  plain_size_control,Hash,Pred,Allocator,Spin>;
+ 
+ #include <boost/unordered/detail/foa/ignore_wshadow.hpp>
+ 
+ #if defined(BOOST_MSVC)
+ #pragma warning(push)
+ #pragma warning(disable:4714) /* marked as __forceinline not inlined */
+ #endif
+ 
+-template<typename TypePolicy,typename Hash,typename Pred,typename Allocator>
+-class table:table_core_impl<TypePolicy,Hash,Pred,Allocator>
++template<typename TypePolicy,typename Hash,typename Pred,typename Allocator,typename Spin=std::true_type>
++class table:table_core_impl<TypePolicy,Hash,Pred,Allocator,Spin>
+ {
+-  using super=table_core_impl<TypePolicy,Hash,Pred,Allocator>;
++  using super=table_core_impl<TypePolicy,Hash,Pred,Allocator,Spin>;
+   using type_policy=typename super::type_policy;
+   using group_type=typename super::group_type;
+   using super::N;
+   using prober=typename super::prober;
+   using arrays_type=typename super::arrays_type;
+   using size_ctrl_type=typename super::size_ctrl_type;
+   using locator=typename super::locator;
+   using compatible_concurrent_table=
+-    concurrent_table<TypePolicy,Hash,Pred,Allocator>;
++    concurrent_table<TypePolicy,Hash,Pred,Allocator,Spin>;
+   using group_type_pointer=typename boost::pointer_traits<
+     typename boost::allocator_pointer<Allocator>::type
+   >::template rebind<group_type>;
+   friend compatible_concurrent_table;
+ 
+ public:
+   using key_type=typename super::key_type;
+   using init_type=typename super::init_type;
+   using value_type=typename super::value_type;
+   using element_type=typename super::element_type;
+ 
+ private:
+   static constexpr bool has_mutable_iterator=
+     !std::is_same<key_type,value_type>::value;
+ public:
+   using hasher=typename super::hasher;
+   using key_equal=typename super::key_equal;
+   using allocator_type=typename super::allocator_type;
+   using pointer=typename super::pointer;
+   using const_pointer=typename super::const_pointer;
+@@ -496,50 +496,50 @@ public:
+   }
+ 
+   void swap(table& x)
+     noexcept(noexcept(std::declval<super&>().swap(std::declval<super&>())))
+   {
+     super::swap(x);
+   }
+ 
+   using super::clear;
+ 
+   element_type extract(const_iterator pos)
+   {
+     BOOST_ASSERT(pos!=end());
+     erase_on_exit e{*this,pos};
+     (void)e;
+     return std::move(*pos.p());
+   }
+ 
+   // TODO: should we accept different allocator too?
+   template<typename Hash2,typename Pred2>
+-  void merge(table<TypePolicy,Hash2,Pred2,Allocator>& x)
++  void merge(table<TypePolicy,Hash2,Pred2,Allocator,Spin>& x)
+   {
+     x.for_all_elements([&,this](group_type* pg,unsigned int n,element_type* p){
+       erase_on_exit e{x,{pg,n,p}};
+       if(!emplace_impl(type_policy::move(*p)).second)e.rollback();
+     });
+   }
+ 
+   template<typename Hash2,typename Pred2>
+-  void merge(table<TypePolicy,Hash2,Pred2,Allocator>&& x){merge(x);}
++  void merge(table<TypePolicy,Hash2,Pred2,Allocator,Spin>&& x){merge(x);}
+ 
+   using super::hash_function;
+   using super::key_eq;
+ 
+   template<typename Key>
+   BOOST_FORCEINLINE iterator find(const Key& x)
+   {
+     return make_iterator(super::find(x));
+   }
+ 
+   template<typename Key>
+   BOOST_FORCEINLINE const_iterator find(const Key& x)const
+   {
+     return const_cast<table*>(this)->find(x);
+   }
+ 
+   using super::capacity;
+   using super::load_factor;
+   using super::max_load_factor;
+   using super::max_load;
+diff --git a/include/boost/unordered/detail/type_traits.hpp b/include/boost/unordered/detail/type_traits.hpp
+index 4369df2e..bff81ed2 100644
+--- a/include/boost/unordered/detail/type_traits.hpp
++++ b/include/boost/unordered/detail/type_traits.hpp
+@@ -202,25 +202,35 @@ namespace boost {
+ 
+       template <class A>
+       constexpr bool const is_allocator_v = is_allocator<A>::value;
+ 
+       template <class H>
+       constexpr bool const is_hash_v =
+         !std::is_integral<H>::value && !is_allocator_v<H>;
+ 
+       template <class P> constexpr bool const is_pred_v = !is_allocator_v<P>;
+ 
+       template <typename T>
+       using iter_key_t =
+         typename std::iterator_traits<T>::value_type::first_type;
+       template <typename T>
+       using iter_val_t =
+         typename std::iterator_traits<T>::value_type::second_type;
+       template <typename T>
+       using iter_to_alloc_t =
+         typename std::pair<iter_key_t<T> const, iter_val_t<T> >;
+ #endif
++
++      template <typename T>
++      struct is_true_or_false_type
++          : std::disjunction<std::is_same<T, std::true_type>,
++              std::is_same<T, std::false_type> >
++      {
++      };
++
++      template <typename T>
++      constexpr bool is_true_or_false_type_v = is_true_or_false_type<T>::value;
+     } // namespace detail
+   } // namespace unordered
+ } // namespace boost
+ 
+ #endif // BOOST_UNORDERED_DETAIL_TYPE_TRAITS_HPP
+diff --git a/include/boost/unordered/unordered_flat_map.hpp b/include/boost/unordered/unordered_flat_map.hpp
+index 55024102..53397fe3 100644
+--- a/include/boost/unordered/unordered_flat_map.hpp
++++ b/include/boost/unordered/unordered_flat_map.hpp
+@@ -22,41 +22,41 @@
+ #include <boost/container_hash/hash.hpp>
+ 
+ #include <initializer_list>
+ #include <iterator>
+ #include <stdexcept>
+ #include <type_traits>
+ #include <utility>
+ 
+ namespace boost {
+   namespace unordered {
+ 
+ #if defined(BOOST_MSVC)
+ #pragma warning(push)
+ #pragma warning(disable : 4714) /* marked as __forceinline not inlined */
+ #endif
+ 
+     template <class Key, class T, class Hash, class KeyEqual, class Allocator>
+     class unordered_flat_map
+     {
+       template <class Key2, class T2, class Hash2, class Pred2,
+-        class Allocator2>
++        class Allocator2, class Spin2>
+       friend class concurrent_flat_map;
+ 
+       using map_types = detail::foa::flat_map_types<Key, T>;
+ 
+       using table_type = detail::foa::table<map_types, Hash, KeyEqual,
+         typename boost::allocator_rebind<Allocator,
+           typename map_types::value_type>::type>;
+ 
+       table_type table_;
+ 
+       template <class K, class V, class H, class KE, class A>
+       bool friend operator==(unordered_flat_map<K, V, H, KE, A> const& lhs,
+         unordered_flat_map<K, V, H, KE, A> const& rhs);
+ 
+       template <class K, class V, class H, class KE, class A, class Pred>
+       typename unordered_flat_map<K, V, H, KE, A>::size_type friend erase_if(
+         unordered_flat_map<K, V, H, KE, A>& set, Pred pred);
+ 
+     public:
+       using key_type = Key;
+@@ -164,42 +164,43 @@ namespace boost {
+       }
+ 
+       unordered_flat_map(
+         std::initializer_list<value_type> il, allocator_type const& a)
+           : unordered_flat_map(il, size_type(0), hasher(), key_equal(), a)
+       {
+       }
+ 
+       unordered_flat_map(std::initializer_list<value_type> init, size_type n,
+         allocator_type const& a)
+           : unordered_flat_map(init, n, hasher(), key_equal(), a)
+       {
+       }
+ 
+       unordered_flat_map(std::initializer_list<value_type> init, size_type n,
+         hasher const& h, allocator_type const& a)
+           : unordered_flat_map(init, n, h, key_equal(), a)
+       {
+       }
+ 
++      template <typename Spin>
+       unordered_flat_map(
+-        concurrent_flat_map<Key, T, Hash, KeyEqual, Allocator>&& other)
++        concurrent_flat_map<Key, T, Hash, KeyEqual, Allocator, Spin>&& other)
+           : table_(std::move(other.table_))
+       {
+       }
+ 
+       ~unordered_flat_map() = default;
+ 
+       unordered_flat_map& operator=(unordered_flat_map const& other)
+       {
+         table_ = other.table_;
+         return *this;
+       }
+ 
+       unordered_flat_map& operator=(unordered_flat_map&& other) noexcept(
+         noexcept(std::declval<table_type&>() = std::declval<table_type&&>()))
+       {
+         table_ = std::move(other.table_);
+         return *this;
+       }
+ 
+       allocator_type get_allocator() const noexcept
+diff --git a/include/boost/unordered/unordered_flat_map_fwd.hpp b/include/boost/unordered/unordered_flat_map_fwd.hpp
+index f758f83a..a47dcd14 100644
+--- a/include/boost/unordered/unordered_flat_map_fwd.hpp
++++ b/include/boost/unordered/unordered_flat_map_fwd.hpp
+@@ -7,53 +7,53 @@
+ #ifndef BOOST_UNORDERED_FLAT_MAP_FWD_HPP_INCLUDED
+ #define BOOST_UNORDERED_FLAT_MAP_FWD_HPP_INCLUDED
+ 
+ #include <boost/config.hpp>
+ #if defined(BOOST_HAS_PRAGMA_ONCE)
+ #pragma once
+ #endif
+ 
+ #include <boost/container_hash/hash_fwd.hpp>
+ #include <functional>
+ #include <memory>
+ 
+ #ifndef BOOST_NO_CXX17_HDR_MEMORY_RESOURCE
+ #include <memory_resource>
+ #endif
+ 
+ namespace boost {
+   namespace unordered {
+     template <class Key, class T, class Hash = boost::hash<Key>,
+       class KeyEqual = std::equal_to<Key>,
+-      class Allocator = std::allocator<std::pair<const Key, T> > >
++      class Allocator = std::allocator<std::pair<const Key, T> >>
+     class unordered_flat_map;
+ 
+     template <class Key, class T, class Hash, class KeyEqual, class Allocator>
+     bool operator==(
+       unordered_flat_map<Key, T, Hash, KeyEqual, Allocator> const& lhs,
+       unordered_flat_map<Key, T, Hash, KeyEqual, Allocator> const& rhs);
+ 
+     template <class Key, class T, class Hash, class KeyEqual, class Allocator>
+     bool operator!=(
+       unordered_flat_map<Key, T, Hash, KeyEqual, Allocator> const& lhs,
+       unordered_flat_map<Key, T, Hash, KeyEqual, Allocator> const& rhs);
+ 
+     template <class Key, class T, class Hash, class KeyEqual, class Allocator>
+     void swap(unordered_flat_map<Key, T, Hash, KeyEqual, Allocator>& lhs,
+       unordered_flat_map<Key, T, Hash, KeyEqual, Allocator>& rhs)
+       noexcept(noexcept(lhs.swap(rhs)));
+ 
+ #ifndef BOOST_NO_CXX17_HDR_MEMORY_RESOURCE
+     namespace pmr {
+       template <class Key, class T, class Hash = boost::hash<Key>,
+-        class KeyEqual = std::equal_to<Key> >
++        class KeyEqual = std::equal_to<Key>>
+       using unordered_flat_map =
+         boost::unordered::unordered_flat_map<Key, T, Hash, KeyEqual,
+           std::pmr::polymorphic_allocator<std::pair<const Key, T> > >;
+     } // namespace pmr
+ #endif
+   } // namespace unordered
+ 
+   using boost::unordered::unordered_flat_map;
+ } // namespace boost
+ 
+ #endif
+diff --git a/include/boost/unordered/unordered_flat_set.hpp b/include/boost/unordered/unordered_flat_set.hpp
+index a72d3567..72b26500 100644
+--- a/include/boost/unordered/unordered_flat_set.hpp
++++ b/include/boost/unordered/unordered_flat_set.hpp
+@@ -19,41 +19,41 @@
+ 
+ #include <boost/core/allocator_access.hpp>
+ #include <boost/container_hash/hash.hpp>
+ 
+ #include <initializer_list>
+ #include <iterator>
+ #include <type_traits>
+ #include <utility>
+ 
+ namespace boost {
+   namespace unordered {
+ 
+ #if defined(BOOST_MSVC)
+ #pragma warning(push)
+ #pragma warning(disable : 4714) /* marked as __forceinline not inlined */
+ #endif
+ 
+     template <class Key, class Hash, class KeyEqual, class Allocator>
+     class unordered_flat_set
+     {
+-      template <class Key2, class Hash2, class KeyEqual2, class Allocator2>
++      template <class Key2, class Hash2, class KeyEqual2, class Allocator2, class Spin>
+       friend class concurrent_flat_set;
+ 
+       using set_types = detail::foa::flat_set_types<Key>;
+ 
+       using table_type = detail::foa::table<set_types, Hash, KeyEqual,
+         typename boost::allocator_rebind<Allocator,
+           typename set_types::value_type>::type>;
+ 
+       table_type table_;
+ 
+       template <class K, class H, class KE, class A>
+       bool friend operator==(unordered_flat_set<K, H, KE, A> const& lhs,
+         unordered_flat_set<K, H, KE, A> const& rhs);
+ 
+       template <class K, class H, class KE, class A, class Pred>
+       typename unordered_flat_set<K, H, KE, A>::size_type friend erase_if(
+         unordered_flat_set<K, H, KE, A>& set, Pred pred);
+ 
+     public:
+       using key_type = Key;
+@@ -160,42 +160,43 @@ namespace boost {
+       }
+ 
+       unordered_flat_set(
+         std::initializer_list<value_type> il, allocator_type const& a)
+           : unordered_flat_set(il, size_type(0), hasher(), key_equal(), a)
+       {
+       }
+ 
+       unordered_flat_set(std::initializer_list<value_type> init, size_type n,
+         allocator_type const& a)
+           : unordered_flat_set(init, n, hasher(), key_equal(), a)
+       {
+       }
+ 
+       unordered_flat_set(std::initializer_list<value_type> init, size_type n,
+         hasher const& h, allocator_type const& a)
+           : unordered_flat_set(init, n, h, key_equal(), a)
+       {
+       }
+ 
++      template <typename Spin>
+       unordered_flat_set(
+-        concurrent_flat_set<Key, Hash, KeyEqual, Allocator>&& other)
++        concurrent_flat_set<Key, Hash, KeyEqual, Allocator, Spin>&& other)
+           : table_(std::move(other.table_))
+       {
+       }
+ 
+       ~unordered_flat_set() = default;
+ 
+       unordered_flat_set& operator=(unordered_flat_set const& other)
+       {
+         table_ = other.table_;
+         return *this;
+       }
+ 
+       unordered_flat_set& operator=(unordered_flat_set&& other) noexcept(
+         noexcept(std::declval<table_type&>() = std::declval<table_type&&>()))
+       {
+         table_ = std::move(other.table_);
+         return *this;
+       }
+ 
+       allocator_type get_allocator() const noexcept
+diff --git a/include/boost/unordered/unordered_flat_set_fwd.hpp b/include/boost/unordered/unordered_flat_set_fwd.hpp
+index 9214939f..389cdf3d 100644
+--- a/include/boost/unordered/unordered_flat_set_fwd.hpp
++++ b/include/boost/unordered/unordered_flat_set_fwd.hpp
+@@ -7,41 +7,41 @@
+ #ifndef BOOST_UNORDERED_FLAT_SET_FWD_HPP_INCLUDED
+ #define BOOST_UNORDERED_FLAT_SET_FWD_HPP_INCLUDED
+ 
+ #include <boost/config.hpp>
+ #if defined(BOOST_HAS_PRAGMA_ONCE)
+ #pragma once
+ #endif
+ 
+ #include <boost/container_hash/hash_fwd.hpp>
+ #include <functional>
+ #include <memory>
+ 
+ #ifndef BOOST_NO_CXX17_HDR_MEMORY_RESOURCE
+ #include <memory_resource>
+ #endif
+ 
+ namespace boost {
+   namespace unordered {
+     template <class Key, class Hash = boost::hash<Key>,
+       class KeyEqual = std::equal_to<Key>,
+-      class Allocator = std::allocator<Key> >
++      class Allocator = std::allocator<Key>>
+     class unordered_flat_set;
+ 
+     template <class Key, class Hash, class KeyEqual, class Allocator>
+     bool operator==(
+       unordered_flat_set<Key, Hash, KeyEqual, Allocator> const& lhs,
+       unordered_flat_set<Key, Hash, KeyEqual, Allocator> const& rhs);
+ 
+     template <class Key, class Hash, class KeyEqual, class Allocator>
+     bool operator!=(
+       unordered_flat_set<Key, Hash, KeyEqual, Allocator> const& lhs,
+       unordered_flat_set<Key, Hash, KeyEqual, Allocator> const& rhs);
+ 
+     template <class Key, class Hash, class KeyEqual, class Allocator>
+     void swap(unordered_flat_set<Key, Hash, KeyEqual, Allocator>& lhs,
+       unordered_flat_set<Key, Hash, KeyEqual, Allocator>& rhs)
+       noexcept(noexcept(lhs.swap(rhs)));
+ 
+ #ifndef BOOST_NO_CXX17_HDR_MEMORY_RESOURCE
+     namespace pmr {
+       template <class Key, class Hash = boost::hash<Key>,

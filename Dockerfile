@@ -129,4 +129,6 @@ ADD . /jove/
 RUN /jove/scripts/ci_build_carbon_copy.sh
 RUN patch -p1 -d /usr/lib/python3/dist-packages -i /jove/patches/meson.diff
 RUN patch -p1 -d /jove/boost/libs/graph -i /jove/patches/boost-graph.diff
+RUN patch -p1 -d /jove/boost/libs/interprocess -i /jove/patches/boost-interprocess.diff
+RUN patch -p1 -d /jove/boost/libs/unordered -i /jove/patches/boost-unordered.diff
 RUN /jove/scripts/build/build.sh

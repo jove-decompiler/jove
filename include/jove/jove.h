@@ -1271,13 +1271,15 @@ struct cached_hash_t {
 typedef boost::concurrent_flat_map<
     ip_string, cached_hash_t, ip_string_hash_t, ip_string_equal_t,
     boost::container::scoped_allocator_adaptor<boost::interprocess::allocator<
-        std::pair<const ip_string, cached_hash_t>, segment_manager_t>>>
+        std::pair<const ip_string, cached_hash_t>, segment_manager_t>>,
+    std::false_type /* !Spin */>
     ip_cached_hashes_type;
 
 typedef boost::concurrent_flat_map<
     hash_t, adds_binary_t, boost::hash<hash_t>, std::equal_to<hash_t>,
     boost::interprocess::allocator<std::pair<const hash_t, adds_binary_t>,
-                                   segment_manager_t>>
+                                   segment_manager_t>,
+    std::false_type /* !Spin */>
     ip_hash_to_binary_map_type;
 
 
