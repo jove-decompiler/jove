@@ -264,7 +264,7 @@ template <class Archive, typename T>
 static inline void save(Archive &ar,
                         const jove::ip_safe_adjacency_list<T> &ICFG,
                         const unsigned int file_version) {
-  jove::ip_scoped_lock<jove::ip_sharable_mutex> e_lck(ICFG._mtx);
+  auto e_lck = ICFG.exclusive_access();
 
   jove::icfg_t &_ICFG =
       const_cast<jove::ip_safe_adjacency_list<T> &>(ICFG)._adjacency_list;
@@ -290,7 +290,7 @@ template <class Archive, typename T>
 static inline void load(Archive &ar,
                         jove::ip_safe_adjacency_list<T> &ICFG,
                         const unsigned int file_version) {
-  jove::ip_scoped_lock<jove::ip_sharable_mutex> e_lck(ICFG._mtx);
+  auto e_lck = ICFG.exclusive_access();
 
   jove::icfg_t &_ICFG = ICFG._adjacency_list;
   ar >> _ICFG;

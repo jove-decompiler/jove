@@ -35,7 +35,7 @@ int UnlockTool::Run(void) {
       jv.Binaries._deque.begin(),
       jv.Binaries._deque.end(), [&](binary_t &b) {
 	__builtin_memset(&b.bbmap_mtx, 0, sizeof(b.bbmap_mtx));
-	__builtin_memset(&b.Analysis.ICFG._mtx, 0, sizeof(b.Analysis.ICFG._mtx));
+        b.Analysis.ICFG.__force_reset_access();
         b.Analysis.Functions.__force_reset_access();
 
         auto &ICFG = b.Analysis.ICFG;

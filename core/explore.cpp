@@ -65,7 +65,7 @@ function_index_t explorer_t::_explore_function(binary_t &b,
   auto &ICFG = b.Analysis.ICFG;
 
   std::function<void(basic_block_t bb)> rec = [&](basic_block_t bb) -> void {
-    ICFG.at<false>(bb).AddParent(Idx, jv);
+    ICFG[bb].AddParent(Idx, jv);
 
     icfg_t::adjacency_iterator succ_it, succ_it_end;
     for (std::tie(succ_it, succ_it_end) = ICFG.adjacent_vertices(bb);
@@ -78,7 +78,7 @@ function_index_t explorer_t::_explore_function(binary_t &b,
       // if a successor already has this function marked as a parent, then we
       // can assume everything reachable from it is already too
       //
-      if (ICFG.at<false>(succ).IsParent(Idx))
+      if (ICFG[succ].IsParent(Idx))
         continue;
 
       rec(succ);
@@ -339,6 +339,7 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
   ip_scoped_lock<ip_sharable_mutex> e_lck_bb(
       bbprop.mtx, boost::interprocess::accept_ownership);
 
+  {
   BOOST_SCOPE_DEFER [&bbprop] {
     bbprop.pub.is.store(true, std::memory_order_release);
   };
@@ -610,6 +611,7 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
     throw std::runtime_error(
         (fmt("%s: unknown terminator @ 0x%lx") % __func__ % T.Addr).str());
   }
+  } /* pub */
 
   return Idx;
 }

@@ -331,7 +331,17 @@ struct ip_safe_adjacency_list {
   using vertex_property_type = Ty::vertex_property_type;
 
   Ty _adjacency_list;
-  mutable ip_sharable_mutex _mtx;
+
+  using mutex_type = boost::unordered::detail::foa::rw_spinlock;
+  using shared_lock_guard = boost::unordered::detail::foa::shared_lock<mutex_type>;
+  using exclusive_lock_guard = boost::unordered::detail::foa::lock_guard<mutex_type>;
+
+private:
+  mutable mutex_type _mtx;
+
+public:
+  shared_lock_guard shared_access() const { return shared_lock_guard{_mtx}; }
+  exclusive_lock_guard exclusive_access() const { return exclusive_lock_guard{_mtx}; }
 
   std::atomic<vertices_size_type> _size = 0;
 
@@ -360,18 +370,15 @@ struct ip_safe_adjacency_list {
   typename std::conditional<ShouldLock, ip_scoped_lock<ip_sharable_mutex>,     \
                             __do_nothing_t>::type UNIQUE_VAR_NAME(__e_lck)(Mutex)
 
-#define S_LCK(ShouldLock) _S_LCK(ShouldLock, this->_mtx)
-#define E_LCK(ShouldLock) _E_LCK(ShouldLock, this->_mtx)
-
   template <typename... Args>
   vertices_size_type index_of_add_vertex(Args &&...args) {
     const vertices_size_type Idx =
         _size.fetch_add(1u, std::memory_order_relaxed);
 
-    if (unlikely(Idx >= actual_num_vertices<true>())) {
-      E_LCK(true);
+    if (unlikely(Idx >= actual_num_vertices())) {
+      auto e_lck = exclusive_access();
 
-      vertices_size_type actual_size = actual_num_vertices<false>();
+      vertices_size_type actual_size = boost::num_vertices(_adjacency_list);
       if (Idx >= actual_size) {
         vertices_size_type desired = std::bit_ceil(Idx + 1);
         assert(desired > actual_size);
@@ -388,9 +395,8 @@ struct ip_safe_adjacency_list {
     return vertex<false>(index_of_add_vertex(std::forward<Args>(args)...));
   }
 
-  template <bool L = true>
   vertices_size_type actual_num_vertices(void) const {
-    S_LCK(L);
+    auto s_lck = shared_access();
     return boost::num_vertices(_adjacency_list);
   }
 
@@ -400,9 +406,8 @@ struct ip_safe_adjacency_list {
 
   bool empty(void) const { return num_vertices() == 0; }
 
-  template <bool L = true>
   vertex_property_type &at(vertex_descriptor V) {
-    S_LCK(L);
+    auto s_lck = shared_access();
 
     if (unlikely(index(V) >= num_vertices()))
       throw std::out_of_range(__PRETTY_FUNCTION__);
@@ -410,9 +415,8 @@ struct ip_safe_adjacency_list {
     return _adjacency_list[V];
   }
 
-  template <bool L = true>
   const vertex_property_type &at(vertex_descriptor V) const {
-    S_LCK(L);
+    auto s_lck = shared_access();
 
     if (unlikely(index(V) >= num_vertices()))
       throw std::out_of_range(__PRETTY_FUNCTION__);
@@ -421,12 +425,12 @@ struct ip_safe_adjacency_list {
   }
 
   vertex_property_type &operator[](vertex_descriptor V) {
-    S_LCK(true);
+    auto s_lck = shared_access();
     return _adjacency_list[V];
   }
 
   const vertex_property_type &operator[](vertex_descriptor V) const {
-    S_LCK(true);
+    auto s_lck = shared_access();
     return _adjacency_list[V];
   }
 
@@ -448,7 +452,7 @@ struct ip_safe_adjacency_list {
   void depth_first_visit(vertex_descriptor V, DFSVisitor &vis) const {
     std::map<vertex_descriptor, boost::default_color_type> color;
 
-    S_LCK(L);
+    auto s_lck = shared_access();
 
     boost::depth_first_visit(
         _adjacency_list, V, vis,
@@ -458,14 +462,14 @@ struct ip_safe_adjacency_list {
 
   template <bool L = true, class BFSVisitor>
   void breadth_first_search(vertex_descriptor V, BFSVisitor &vis) const {
-    S_LCK(L);
+    auto s_lck = shared_access();
 
     boost::breadth_first_search(_adjacency_list, V, boost::visitor(vis));
   }
 
   template <bool L = true>
   degree_size_type out_degree(vertex_descriptor V) const {
-    S_LCK(true);
+    auto s_lck = shared_access();
     _S_LCK(L, _adjacency_list[V].mtx);
 
     return boost::out_degree(V, _adjacency_list);
@@ -473,7 +477,7 @@ struct ip_safe_adjacency_list {
 
   template <bool L = true>
   void clear_out_edges(vertex_descriptor V) {
-    S_LCK(true);
+    auto s_lck = shared_access();
     _E_LCK(L, _adjacency_list[V].mtx);
 
     boost::clear_out_edges(V, _adjacency_list);
@@ -482,7 +486,7 @@ struct ip_safe_adjacency_list {
   template <bool L = true>
   std::pair<edge_descriptor, bool> add_edge(vertex_descriptor V1,
                                             vertex_descriptor V2) {
-    S_LCK(true);
+    auto s_lck = shared_access();
     _E_LCK(L, _adjacency_list[V1].mtx);
 
     return boost::add_edge(V1, V2, _adjacency_list);
@@ -523,29 +527,29 @@ struct ip_safe_adjacency_list {
   }
   std::pair<adjacency_iterator, adjacency_iterator>
   adjacent_vertices(vertex_descriptor V) const {
-    S_LCK(true);
+    auto s_lck = shared_access();
     return boost::adjacent_vertices(V, _adjacency_list);
   }
   std::pair<inv_adjacency_iterator, inv_adjacency_iterator>
   inv_adjacent_vertices(vertex_descriptor V) const {
-    S_LCK(true);
+    auto s_lck = shared_access();
     return boost::inv_adjacent_vertices(V, _adjacency_list);
   }
   std::pair<out_edge_iterator, out_edge_iterator>
   out_edges(vertex_descriptor V) const {
-    S_LCK(true);
+    auto s_lck = shared_access();
     return boost::out_edges(V, _adjacency_list);
   }
   std::pair<in_edge_iterator, in_edge_iterator>
   in_edges(vertex_descriptor V) const {
-    S_LCK(true);
+    auto s_lck = shared_access();
     return boost::in_edges(V, _adjacency_list);
   }
 
 #undef _S_LCK
 #undef _E_LCK
-#undef S_LCK
-#undef E_LCK
+
+  void __force_reset_access(void) { __builtin_memset(&this->_mtx, 0, sizeof(this->_mtx)); }
 };
 
 typedef boost::interprocess::allocator<char, segment_manager_t>
@@ -849,26 +853,27 @@ static inline basic_block_t NullBasicBlock(void) {
 
 typedef ip_safe_adjacency_list<icfg_t> ip_icfg_t;
 
-template <bool L = true>
 constexpr bool IsDefinitelyTailCall(const ip_icfg_t &ICFG, basic_block_t bb) {
-  assert(ICFG.at<L>(bb).Term.Type == TERMINATOR::INDIRECT_JUMP); /* catch bugs */
+  auto &bbprop = ICFG[bb];
+
+  assert(bbprop.Term.Type == TERMINATOR::INDIRECT_JUMP); /* catch bugs */
   //WARN_ON(ICFG.out_degree<L>(bb) > 0); /* catch bugs */
-  return ICFG.at<L>(bb).hasDynTarget();
+  return bbprop.hasDynTarget();
 }
 
-template <bool L = true>
 constexpr bool IsAmbiguousIndirectJump(const ip_icfg_t &ICFG, basic_block_t bb) {
-  assert(ICFG.at<L>(bb).Term.Type == TERMINATOR::INDIRECT_JUMP); /* catch bugs */
-  return ICFG.at<L>(bb).hasDynTarget() && ICFG.out_degree<L>(bb) > 0;
+  auto &bbprop = ICFG[bb];
+
+  assert(bbprop.Term.Type == TERMINATOR::INDIRECT_JUMP); /* catch bugs */
+  return bbprop.hasDynTarget() && ICFG.out_degree(bb) > 0;
 }
 
-template <bool L = true>
 constexpr bool IsExitBlock(const ip_icfg_t &ICFG, basic_block_t bb) {
-  auto T = ICFG.at<L>(bb).Term.Type;
+  auto T = ICFG[bb].Term.Type;
 
   return T == TERMINATOR::RETURN ||
         (T == TERMINATOR::INDIRECT_JUMP &&
-         IsDefinitelyTailCall<L>(ICFG, bb));
+         IsDefinitelyTailCall(ICFG, bb));
 }
 
 //
