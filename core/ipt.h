@@ -36,7 +36,8 @@ class explorer_t;
 #define IPT_PARAMETERS \
   ((unsigned, Verbosity, (0)(1)(2))) \
   ((bool, Caching, (false)(true)))    \
-  ((bool, Objdump, (false)(true)))
+  ((bool, Objdump, (false)(true))) \
+  ((bool, ExeOnly, (false)(true)))
 
 #define IPT_PARAM_DECL(r, data, i, elem)                                       \
   BOOST_PP_COMMA_IF(i)                                                         \
@@ -165,6 +166,8 @@ class IntelPT {
     unsigned ExecBits = 8*sizeof(taddr_t);
   } Curr;
 
+  binary_t &exe;
+
   class Point_t {
     std::reference_wrapper<binary_t> b;
     basic_block_index_t Idx = invalid_basic_block_index;
@@ -234,6 +237,12 @@ class IntelPT {
 #endif
     }
   } CurrPoint;
+
+  struct ExeAddressRange {
+    taddr_t beg, end;
+  };
+
+  std::conditional_t<ExeOnly, ExeAddressRange, std::monostate> exeOnly;
 
   const std::string path_to_wine_bin;
   static inline const std::string wine_env_of_interest = "WINELOADERNOEXEC=1";

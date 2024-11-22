@@ -47,7 +47,7 @@ IntelPT<IPT_PARAMETERS_DEF>::IntelPT(int ptdump_argc, char **ptdump_argv,
     : jv(jv), explorer(explorer), state(jv),
       PageSize(sysconf(_SC_PAGESIZE)),
       IsCOFF(B::is_coff(*state.for_binary(jv.Binaries.at(0)).Bin)),
-      CurrPoint(jv.Binaries.at(0)),
+      exe(jv.Binaries.at(0)), CurrPoint(exe),
       ignore_trunc_aux(ignore_trunc_aux),
       process_state(dummy_process_state),
       path_to_wine_bin(locator_t::wine(IsTarget32)) {
@@ -123,6 +123,20 @@ IntelPT<IPT_PARAMETERS_DEF>::IntelPT(int ptdump_argc, char **ptdump_argv,
   config->end = reinterpret_cast<uint8_t *>(end);
 
   decoder = pt_pkt_alloc_decoder(config.get());
+
+  if constexpr (ExeOnly) {
+    binary_t &exe = jv.Binaries.at(0);
+
+    if (!exe.IsPIC) {
+      std::tie(exeOnly.beg, exeOnly.end) =
+          B::bounds_of_binary(*state.for_binary(exe).Bin);
+
+      if constexpr (IsVerbose())
+        fprintf(stderr, "looking for [%016" PRIx64 ", %016" PRIx64 ")\n",
+                (uint64_t)exeOnly.beg,
+                (uint64_t)exeOnly.end);
+    }
+  }
 }
 
 template <IPT_PARAMETERS_DCL>
@@ -1105,6 +1119,14 @@ int IntelPT<IPT_PARAMETERS_DEF>::on_ip(const taddr_t IP, const uint64_t offset) 
     return 0;
   }
 
+  taddr_t Addr = IP;
+  binary_index_t BIdx = 0;
+  std::reference_wrapper<binary_t> refb = exe;
+  if constexpr (ExeOnly) {
+    if (!(IP >= exeOnly.beg && IP < exeOnly.end))
+      return 0;
+  } else {
+
 #if 0
   if (sizeof(taddr_t) == 4)
     assert(IP < 0xffffffffull);
@@ -1121,7 +1143,7 @@ int IntelPT<IPT_PARAMETERS_DEF>::on_ip(const taddr_t IP, const uint64_t offset) 
     return 1;
   }
 
-  const binary_index_t BIdx = (*it).second.first;
+  BIdx = (*it).second.first;
   if (unlikely(!is_binary_index_valid(BIdx))) {
     if constexpr (IsVerbose())
       fprintf(stderr, "%016" PRIx64 "\tambiguous IP %016" PRIx64 "\n", offset, (uint64_t)IP);
@@ -1131,6 +1153,7 @@ int IntelPT<IPT_PARAMETERS_DEF>::on_ip(const taddr_t IP, const uint64_t offset) 
   }
 
   binary_t &b = jv.Binaries.at(BIdx);
+  refb = b;
 
   struct {
     taddr_t Base;
@@ -1140,7 +1163,7 @@ int IntelPT<IPT_PARAMETERS_DEF>::on_ip(const taddr_t IP, const uint64_t offset) 
   mapping.Base = addr_intvl_lower((*it).first);
   mapping.Offset = (*it).second.second;
 
-  const uint64_t Addr = ({
+  Addr = ({
     binary_state_t &x = state.for_binary(b);
     B::_X(
         *x.Bin,
@@ -1186,6 +1209,10 @@ int IntelPT<IPT_PARAMETERS_DEF>::on_ip(const taddr_t IP, const uint64_t offset) 
           }
         });
   });
+
+  }
+
+  binary_t &b = refb.get();
 
   if constexpr (IsVeryVerbose())
     fprintf(stderr, "%016" PRIx64 "\t<IP> %016" PRIx64 " %s+%" PRIx64 "\n", offset,

@@ -77,6 +77,7 @@ struct IPTTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
     cl::opt<bool> Cache;
     cl::opt<bool> Objdump;
     cl::opt<std::string> Threaded;
+    cl::opt<bool> ExeOnly;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : Prog(cl::Positional, cl::desc("prog"), cl::Required,
@@ -142,7 +143,10 @@ struct IPTTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
               "threaded",
               cl::value_desc("(multi)|(single)"),
               cl::desc("Use multiple threads"), cl::init("multi"),
-              cl::cat(JoveCategory)) {}
+              cl::cat(JoveCategory)),
+
+          ExeOnly("exe-only", cl::desc("Only care about exe addresses."),
+                cl::cat(JoveCategory)) {}
   } opts;
 
   template <typename T>
@@ -1119,6 +1123,7 @@ int IPTTool::UsingLibipt(void) {
 #define __opts_Verbosity VerbLevel
 #define __opts_Caching opts.Cache
 #define __opts_Objdump opts.Objdump
+#define __opts_ExeOnly opts.ExeOnly
 
 #define IPT_EXTRACT_VALUES(s, data, elem)                                      \
   BOOST_PP_TUPLE_ELEM(3, 2, elem)
