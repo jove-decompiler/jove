@@ -688,10 +688,52 @@ index 1133d9c9..d2b6f840 100644
  
  #endif // BOOST_UNORDERED_CONCURRENT_FLAT_SET_FWD_HPP
 diff --git a/include/boost/unordered/detail/foa/concurrent_table.hpp b/include/boost/unordered/detail/foa/concurrent_table.hpp
-index 66c25791..c9e1a843 100644
+index 66c25791..8c2bab59 100644
 --- a/include/boost/unordered/detail/foa/concurrent_table.hpp
 +++ b/include/boost/unordered/detail/foa/concurrent_table.hpp
-@@ -201,131 +201,133 @@ template<typename Integral>
+@@ -13,40 +13,41 @@
+ #define BOOST_UNORDERED_DETAIL_FOA_CONCURRENT_TABLE_HPP
+ 
+ #include <atomic>
+ #include <boost/assert.hpp>
+ #include <boost/config.hpp>
+ #include <boost/core/ignore_unused.hpp>
+ #include <boost/core/no_exceptions_support.hpp>
+ #include <boost/core/serialization.hpp>
+ #include <boost/cstdint.hpp>
+ #include <boost/mp11/tuple.hpp>
+ #include <boost/throw_exception.hpp>
+ #include <boost/unordered/detail/archive_constructed.hpp>
+ #include <boost/unordered/detail/bad_archive_exception.hpp>
+ #include <boost/unordered/detail/foa/core.hpp>
+ #include <boost/unordered/detail/foa/reentrancy_check.hpp>
+ #include <boost/unordered/detail/foa/rw_spinlock.hpp>
+ #include <boost/unordered/detail/foa/tuple_rotate_right.hpp>
+ #include <boost/unordered/detail/serialization_version.hpp>
+ #include <boost/unordered/detail/static_assert.hpp>
+ #include <boost/unordered/detail/type_traits.hpp>
++#include <boost/thread/lock_algorithms.hpp>
+ #include <cstddef>
+ #include <functional>
+ #include <initializer_list>
+ #include <iterator>
+ #include <memory>
+ #include <new>
+ #include <type_traits>
+ #include <tuple>
+ #include <utility>
+ 
+ #if !defined(BOOST_UNORDERED_DISABLE_PARALLEL_ALGORITHMS)
+ #if defined(BOOST_UNORDERED_ENABLE_PARALLEL_ALGORITHMS)|| \
+     !defined(BOOST_NO_CXX17_HDR_EXECUTION)
+ #define BOOST_UNORDERED_PARALLEL_ALGORITHMS
+ #endif
+ #endif
+ 
+ #if defined(BOOST_UNORDERED_PARALLEL_ALGORITHMS)
+ #include <algorithm>
+ #include <execution>
+@@ -201,131 +202,133 @@ template<typename Integral>
  struct atomic_integral
  {
    operator Integral()const{return n.load(std::memory_order_relaxed);}
@@ -714,14 +756,13 @@ index 66c25791..c9e1a843 100644
  
 +template <typename Spin>
  struct group_access
- {    
+-{    
 -  using mutex_type=rw_spinlock;
--  using shared_lock_guard=shared_lock<mutex_type>;
--  using exclusive_lock_guard=lock_guard<mutex_type>;
-+  using mutex_type=std::conditional_t<Spin::value, rw_spinlock,
-+                         boost::interprocess::interprocess_sharable_mutex>;
-+  using shared_lock_guard=std::conditional_t<Spin::value, shared_lock<mutex_type>, boost::interprocess::sharable_lock<mutex_type>>;
-+  using exclusive_lock_guard=std::conditional_t<Spin::value, lock_guard<mutex_type>, boost::interprocess::scoped_lock<mutex_type>>;
++{
++  using mutex_type = std::conditional_t<Spin::value, rw_spinlock,
++    boost::interprocess::interprocess_sharable_mutex>;
+   using shared_lock_guard=shared_lock<mutex_type>;
+   using exclusive_lock_guard=lock_guard<mutex_type>;
    using insert_counter_type=std::atomic<boost::uint32_t>;
  
    shared_lock_guard    shared_access(){return shared_lock_guard{m};}
@@ -839,7 +880,7 @@ index 66c25791..c9e1a843 100644
    }
  
    static void delete_group_access(
-@@ -412,60 +414,60 @@ inline void swap(atomic_size_control& x,atomic_size_control& y)
+@@ -412,60 +415,60 @@ inline void swap(atomic_size_control& x,atomic_size_control& y)
   *   - Each group of slots has an associated rw spinlock. A thread holds
   *     at most one group lock at any given time. Lookup is implemented in
   *     a (groupwise) lock-free manner until a reduced hash match is found, in
@@ -906,7 +947,7 @@ index 66c25791..c9e1a843 100644
    using size_type=typename super::size_type;
    static constexpr std::size_t bulk_visit_size=16;
  
-@@ -874,60 +876,60 @@ public:
+@@ -874,60 +877,60 @@ public:
          }
        });
    }
@@ -970,7 +1011,7 @@ index 66c25791..c9e1a843 100644
    }
  
    template<typename Key>
-@@ -978,85 +980,85 @@ public:
+@@ -978,85 +981,85 @@ public:
  #endif
  
    template<typename Predicate>
@@ -994,7 +1035,8 @@ index 66c25791..c9e1a843 100644
 -  template<typename,typename,typename,typename> friend class concurrent_table;
 +  template<typename,typename,typename,typename,typename> friend class concurrent_table;
  
-   using mutex_type=rw_spinlock;
+-  using mutex_type=rw_spinlock;
++  using mutex_type=std::conditional_t<Spin::value, rw_spinlock, boost::interprocess::interprocess_sharable_mutex>;
    using multimutex_type=multimutex<mutex_type,128>; // TODO: adapt 128 to the machine
    using shared_lock_guard=reentrancy_checked<shared_lock<mutex_type>>;
    using exclusive_lock_guard=reentrancy_checked<lock_guard<multimutex_type>>;
@@ -1061,7 +1103,7 @@ index 66c25791..c9e1a843 100644
      return this->arrays.group_accesses()[pos].exclusive_access();
    }
  
-@@ -1758,35 +1760,35 @@ private:
+@@ -1758,35 +1761,35 @@ private:
  
      for(std::size_t n=0;n<s;++n){
        archive_constructed<raw_key_type>    key("key",ar,key_version);
