@@ -574,6 +574,14 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
     CalleeAddr &= ~1UL;
 #endif
 
+    if (CalleeAddr == 0) {
+      // what.the.fuck.
+      // objdump reports seeing the following:
+      //   8fedab:       e8 50 12 70 ff          call   0 <thread_id>
+      throw std::runtime_error(
+          (fmt("%s: call to zero @ 0x%lx") % __func__ % T.Addr).str());
+    }
+
     function_index_t CalleeFIdx =
         _explore_function(b, Bin, CalleeAddr, Speculative);
 
