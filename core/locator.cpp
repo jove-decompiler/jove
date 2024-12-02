@@ -39,6 +39,10 @@ static fs::path linux_path(void) {
   return jove_path() / "linux";
 }
 
+static fs::path wine_path(void) {
+  return jove_path() / "wine";
+}
+
 static fs::path prebuilts_path(void) { return jove_path() / "prebuilts"; }
 
 std::string locator_t::runtime_so(bool mt) {
@@ -168,10 +172,12 @@ std::string locator_t::sudo(void) {
 
 std::string locator_t::wine(bool Is32) {
   try {
+    return must_exist(wine_path() / ("build" + std::string(Is32 ? "" : "64")) / "wine");
+  } catch (...) {}
+  try {
     return must_exist("/usr/lib/wine/wine" + std::string(Is32 ? "" : "64"));
-  } catch (...) {
-    return must_exist("/usr/bin/wine" + std::string(Is32 ? "" : "64"));
-  }
+  } catch (...) {}
+  return must_exist("/usr/bin/wine" + std::string(Is32 ? "" : "64"));
 }
 
 std::string locator_t::wine_dll(bool Is32, const std::string &name) {
