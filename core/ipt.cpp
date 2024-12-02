@@ -986,7 +986,7 @@ int IntelPT<IPT_PARAMETERS_DEF>::process_packet(uint64_t offset,
 
       CheckEngaged();
 
-#ifdef TARGET_I386
+#if 1
       int errcode;
 
       //
@@ -1317,7 +1317,7 @@ int IntelPT<IPT_PARAMETERS_DEF>::on_ip(const taddr_t IP, const uint64_t offset) 
     CurrPoint.SetBlockIndex(explorer.explore_basic_block(b, *x.Bin, Addr, obp, obp_u));
     assert(CurrPoint.Valid());
   } catch (const invalid_control_flow_exception &) {
-    if constexpr (IsVerbose())
+    if constexpr (1 /* IsVerbose() */)
       fprintf(stderr, "BADIP %016" PRIx64 "\t<IP> %016" PRIx64 " %s+%" PRIx64 "\n",
               offset, (uint64_t)IP, b.Name.c_str(), (uint64_t)Addr);
 
