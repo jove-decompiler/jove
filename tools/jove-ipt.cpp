@@ -14,6 +14,7 @@
 #include "perf.h"
 #include "glibc.h"
 #include "pipe.h"
+#include "hash.h"
 
 #include "syscall_nrs.hpp"
 
@@ -34,6 +35,12 @@
 #include <mutex>
 
 #include <liburing.h>
+
+#include <intel-pt.h>
+#include <libipt-sb.h>
+extern "C" {
+#include "pevent.h"
+}
 
 namespace fs = boost::filesystem;
 namespace obj = llvm::object;
@@ -193,6 +200,11 @@ public:
   void ProcessLine(const std::string &line);
 
   void on_new_binary(binary_t &);
+
+  void gather_binary_paths(std::vector<std::string> &out,
+                           const sb_info_t &sb_info,
+                           const struct perf_event_header *const sb_beg,
+                           const struct perf_event_header *const sb_end);
 };
 
 JOVE_REGISTER_TOOL("ipt", IPTTool);
@@ -794,13 +806,8 @@ int IPTTool::UsingLibipt(void) {
     ptdump_argv.push_back(nullptr);
   };
 
-  auto process_app_stderr = [&](void) -> void {
-    if (int ret = ProcessAppStderr())
-      Failed = true;
-  };
-
   if (opts.ExistingPerfData) {
-    oneapi::tbb::parallel_invoke(get_opts, process_app_stderr);
+    get_opts();
   } else {
     perf::data_reader perf_data("perf.data");
 
@@ -876,7 +883,6 @@ int IPTTool::UsingLibipt(void) {
 
     oneapi::tbb::parallel_invoke(
         get_opts,
-        process_app_stderr,
         [&](void) -> void {
           bool WeFailed = false;
           BOOST_SCOPE_DEFER [&] {
@@ -1062,6 +1068,111 @@ int IPTTool::UsingLibipt(void) {
     return 1;
   }
 
+  auto sb_len = fs::file_size(sb_filename);
+
+  scoped_fd sb_fd(::open(sb_filename, O_RDONLY));
+  if (!sb_fd) {
+    WithColor::error() << llvm::formatv("could not open {0}\n", sb_filename);
+    return 1;
+  }
+
+  scoped_mmap sb_mmap(nullptr, sb_len, PROT_READ, MAP_PRIVATE, sb_fd.get(), 0);
+
+
+  if (!sb_mmap) {
+    WithColor::error() << llvm::formatv("failed to mmap {0}\n", sb_filename);
+    return 1;
+  }
+
+  if (::madvise(sb_mmap.ptr, sb_mmap.len, MADV_SEQUENTIAL) < 0)
+    WithColor::warning() << llvm::formatv("madvise failed: {0}\n",
+                                          strerror(errno));
+
+  const struct perf_event_header *sb_beg =
+      static_cast<const struct perf_event_header *>(sb_mmap.ptr);
+  const struct perf_event_header *sb_end =
+      reinterpret_cast<const struct perf_event_header *>(
+          reinterpret_cast<const uint8_t *>(sb_beg) + sb_len);
+
+  sb_info_t sb_info;
+  for (unsigned idx = 0; idx < ptdump_args.size(); ++idx) {
+    const std::string &arg = ptdump_args.at(idx++);
+    const std::string &arga = ptdump_args.at(idx);
+
+    //HumanOut() << "arg is " << arg << '\n';
+    if (arg == "--pevent:sample-config") {
+      std::vector<std::string> x;
+      boost::algorithm::split(x, arga, boost::is_any_of(":"),
+                              boost::token_compress_on);
+
+      uint64_t id = std::stoull(x.at(0), nullptr, 0);
+      uint64_t sample_type = std::stoull(x.at(1), nullptr, 0);
+      std::string &name = x.at(2);
+
+      if (id >= sb_info.stypes.size())
+        sb_info.stypes.resize(id + 1);
+
+      sb_sample_type_t &st = sb_info.stypes.at(id);
+      st.identifier = id;
+      st.sample_type = sample_type;
+      st.name = std::move(name);
+
+      if (IsVerbose())
+        HumanOut() << llvm::formatv("sample-config({0}, {1:x}, \"{2}\")\n",
+                                    st.identifier, st.sample_type, st.name);
+
+      sb_info.sample_type = sample_type;
+    } else {
+      continue;
+    }
+  }
+
+  {
+    std::vector<std::string> pathvec;
+    gather_binary_paths(pathvec, sb_info, sb_beg, sb_end);
+
+    std::for_each(
+        std::execution::par_unseq,
+        pathvec.begin(),
+        pathvec.end(),
+        [&](const std::string &path_s) {
+          std::string path_str;
+          try {
+            path_str = fs::canonical(path_s.c_str()).string();
+          } catch (...) {
+            return;
+          }
+
+          binary_t *pb = new binary_t(jv.get_allocator());
+          binary_t &b = *pb;
+          read_file_into_thing(path_s.c_str(), b.Data);
+
+          std::unique_ptr<llvm::object::Binary> Bin;
+          try {
+            Bin = B::Create(b.data());
+          } catch (...) {
+            return;
+          }
+
+          hash_t h = hash_data(b.data());
+          auto ByHash = jv.LookupByHash(h);
+          if (ByHash)
+            return;
+          b.Hash = h;
+          to_ips(b.Name, path_str);
+
+          AddOptions_t Options;
+          jv.DoAdd(b, *Explorer, *Bin, Options);
+
+          jv.Add(std::move(b), [&](binary_t &b) -> void {
+            if (IsVerbose())
+              HumanOut() << llvm::formatv("\"{0}\"\n", b.Name.c_str());
+          });
+        });
+  }
+
+  //HumanOut() << "cap=" << jv.hash_to_binary.bucket_count() << '\n';
+
   std::vector<std::pair<unsigned, std::string>> aux_filenames;
   gather_perf_data_aux_files(aux_filenames);
 
@@ -1204,6 +1315,251 @@ void IPTTool::gather_perf_data_aux_files(std::vector<std::pair<unsigned, std::st
   }
 }
 
+static int pev_strlen(const char *begin, const void *end_arg) {
+  const char *pos, *end;
+
+  end = (const char *)end_arg;
+  assert(end >= begin);
+
+  for (pos = begin; pos < end; ++pos) {
+    if (!pos[0])
+      return (int)(pos - begin) + 1;
+  }
+
+  return -1;
+}
+
+void IPTTool::gather_binary_paths(
+    std::vector<std::string> &out, const sb_info_t &sb_info,
+    const struct perf_event_header *const sb_beg,
+    const struct perf_event_header *const sb_end) {
+  auto cstrless = [](const char *s1, const char *s2) {
+    return strcmp(s1, s2) < 0;
+  };
+
+  for (const struct perf_event_header *sb = sb_beg; sb != sb_end;
+       sb = reinterpret_cast<const struct perf_event_header *>(
+           reinterpret_cast<const uint8_t *>(sb) + sb->size)) {
+    assert(sb < sb_end);
+
+    const struct perf_event_header &hdr = *sb;
+    const uint8_t *const end = reinterpret_cast<const uint8_t *>(sb) + hdr.size;
+
+    struct {
+      /* The sampled pid and tid. */
+      const uint32_t *pid = nullptr;
+      const uint32_t *tid = nullptr;
+
+      /* The sampled time in perf_event format. */
+      const uint64_t *time = nullptr;
+
+      /* The sampled time in TSC format - if @time is not NULL. */
+      uint64_t tsc = 0;
+
+      /* The sampled id. */
+      const uint64_t *id = nullptr;
+
+      /* The sampled stream id. */
+      const uint64_t *stream_id = nullptr;
+
+      /* The sampled cpu. */
+      const uint32_t *cpu = nullptr;
+
+      /* The sample identifier. */
+      const uint64_t *identifier = nullptr;
+
+      /* The instruction pointer. */
+      const uint64_t *ip = nullptr;
+
+      const struct pev_record_raw *raw = nullptr;
+    } sample;
+
+    auto read_samples = [&](const uint8_t *const begin) -> unsigned {
+      const uint64_t *pidentifier = nullptr;
+      const uint8_t *pos = (end - sizeof(*pidentifier));
+
+      if (begin <= pos)
+        pidentifier = reinterpret_cast<const uint64_t *>(pos);
+
+      assert(pidentifier);
+      //HumanOut() << "id=" << *pidentifier << '\n';
+      const uint64_t id = *pidentifier;
+      const sb_sample_type_t &the_sample_type = sb_info.stypes.at(id);
+      const uint64_t sample_type = the_sample_type.identifier == id
+                                       ? the_sample_type.sample_type
+                                       : sb_info.sample_type;
+
+      pos = begin;
+
+      if (sample_type & PERF_SAMPLE_TID) {
+        sample.pid = reinterpret_cast<const uint32_t *>(&pos[0]);
+        sample.tid = reinterpret_cast<const uint32_t *>(&pos[4]);
+        pos += 8;
+      }
+
+      if (sample_type & PERF_SAMPLE_TIME) {
+        sample.time = reinterpret_cast<const uint64_t *>(pos);
+        pos += 8;
+      }
+
+      if (sample_type & PERF_SAMPLE_ID) {
+        sample.id = reinterpret_cast<const uint64_t *>(pos);
+        pos += 8;
+      }
+
+      if (sample_type & PERF_SAMPLE_STREAM_ID) {
+        sample.stream_id = reinterpret_cast<const uint64_t *>(pos);
+        pos += 8;
+      }
+
+      if (sample_type & PERF_SAMPLE_CPU) {
+        sample.cpu = reinterpret_cast<const uint32_t *>(pos);
+        pos += 8;
+      }
+
+      if (sample_type & PERF_SAMPLE_IDENTIFIER) {
+        sample.identifier = reinterpret_cast<const uint64_t *>(pos);
+        pos += 8;
+      }
+
+      return pos - begin;
+    };
+
+    auto read_sample_samples = [&](const uint8_t *const begin,
+                                   const char *&name) -> unsigned {
+      const uint64_t *const pidentifier =
+          (const uint64_t *)begin; /* XXX assumes PERF_SAMPLE_IDENTIFIER */
+
+      const uint64_t id = *pidentifier;
+      const sb_sample_type_t &the_sample_type = sb_info.stypes.at(id);
+      if (id != the_sample_type.identifier)
+        throw std::runtime_error("bad sample type");
+
+      const uint64_t sample_type = the_sample_type.sample_type;
+      name = the_sample_type.name.c_str();
+
+      const uint8_t *pos = begin;
+
+      if (sample_type & PERF_SAMPLE_IDENTIFIER) {
+        sample.identifier = (const uint64_t *)pos;
+        pos += 8;
+      } else {
+        throw std::runtime_error("bad sample");
+      }
+
+      if (sample_type & PERF_SAMPLE_IP) {
+        sample.ip = (const uint64_t *)pos;
+        pos += 8; /* skip */
+      }
+
+      if (sample_type & PERF_SAMPLE_TID) {
+        sample.pid = (const uint32_t *)&pos[0];
+        sample.tid = (const uint32_t *)&pos[4];
+        pos += 8;
+      }
+
+      if (sample_type & PERF_SAMPLE_TIME) {
+        sample.time = (const uint64_t *)pos;
+        pos += 8;
+      }
+
+      if (sample_type & PERF_SAMPLE_ADDR) {
+        pos += 8; /* skip */
+      }
+
+      if (sample_type & PERF_SAMPLE_ID) {
+        sample.id = (const uint64_t *)pos;
+        pos += 8;
+      }
+
+      if (sample_type & PERF_SAMPLE_STREAM_ID) {
+        sample.stream_id = (const uint64_t *)pos;
+        pos += 8;
+      }
+
+      if (sample_type & PERF_SAMPLE_CPU) {
+        sample.cpu = (const uint32_t *)pos;
+        pos += 8;
+      }
+
+      if (sample_type & PERF_SAMPLE_PERIOD) {
+        pos += 8; /* skip */
+      }
+
+      if (sample_type & PERF_SAMPLE_READ) {
+        throw std::runtime_error(
+            "read_sample_samples: unimplemented (PERF_SAMPLE_READ)");
+      }
+
+      if (sample_type & PERF_SAMPLE_CALLCHAIN) {
+        pos += (*((const uint64_t *)pos) * 8); /* skip */
+      }
+
+      if (sample_type & PERF_SAMPLE_RAW) {
+        sample.raw = (const struct pev_record_raw *)pos;
+        pos += 4;
+        pos += sample.raw->size;
+      }
+
+      return pos - begin;
+    };
+
+    const uint8_t *const begin = reinterpret_cast<const uint8_t *>(sb);
+    const uint8_t *pos = begin + sizeof(struct perf_event_header);
+
+    switch (hdr.type) {
+    case PERF_RECORD_MMAP: {
+      const auto &rec = *reinterpret_cast<const struct pev_record_mmap *>(pos);
+
+      int slen = pev_strlen(rec.filename, end);
+      if (slen < 0)
+        continue;
+
+      std::string filename_str(rec.filename, slen-1);
+      //HumanOut() << llvm::formatv("mmap fn=\"{0}\"\n", filename_str.c_str());
+      insertSortedVec<std::string>(out, filename_str);
+
+      slen = (slen + 7) & ~7;
+
+      pos += sizeof(struct pev_record_mmap);
+      pos += slen;
+      pos += read_samples(pos);
+      break;
+    }
+    case PERF_RECORD_MMAP2: {
+      const auto &rec = *reinterpret_cast<const struct pev_record_mmap2 *>(pos);
+
+      int slen = pev_strlen(rec.filename, end);
+      if (slen < 0)
+        continue;
+
+      std::string filename_str(rec.filename, slen-1);
+      //HumanOut() << llvm::formatv("mmap2 \"{0}\"\n", filename_str.c_str());
+      insertSortedVec<std::string>(out, filename_str);
+
+      slen = (slen + 7) & ~7;
+
+      pos += sizeof(struct pev_record_mmap2);
+      pos += slen;
+      pos += read_samples(pos);
+      break;
+    }
+    case PERF_RECORD_SAMPLE: {
+      const char *name = nullptr;
+      pos += read_sample_samples(pos, name);
+
+      //HumanOut() << llvm::formatv("sample \"{0}\"\n", name);
+      break;
+    }
+
+    default:
+      continue;
+    }
+
+    if (pos - begin != hdr.size)
+      throw std::runtime_error("invalid sideband");
+  }
+}
 }
 
 #endif /* x86 */

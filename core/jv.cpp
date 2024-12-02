@@ -124,15 +124,45 @@ std::pair<binary_index_t, bool> jv_t::AddFromPath(explorer_t &explorer,
                              invalid_binary_index, on_newbin, Options);
 }
 
-bool jv_t::Add(explorer_t &explorer,
-               const binary_index_t BIdx,
-               const AddOptions_t &Options) {
+bool jv_t::InplaceAdd(explorer_t &explorer,
+                      const binary_index_t BIdx,
+                      const AddOptions_t &Options) {
   binary_t &b = Binaries.at(BIdx);
   return AddFromDataWithHash(
              explorer, [&](void) -> std::string_view { return b.Data; },
              hash_data(b.Data), b.Name.c_str(), BIdx, [](binary_t &) {},
              Options)
       .second;
+}
+
+std::pair<binary_index_t, bool> jv_t::Add(binary_t &&b,
+                                          on_newbin_proc_t on_newbin) {
+  try {
+    auto h = b.Hash;
+    binary_index_t Res = invalid_binary_index;
+    const bool isNewBinary = this->hash_to_binary.try_emplace_or_visit(
+        h, std::ref(Res), std::ref(*this), std::move(b),
+        [&](const typename ip_hash_to_binary_map_type::value_type &x) -> void {
+          Res = x.second;
+        });
+
+    assert(is_binary_index_valid(Res));
+
+    binary_t &b_ = this->Binaries.at(Res);
+
+    const bool isNewName = this->name_to_binaries.try_emplace_or_visit(
+        b_.Name, get_allocator(), Res,
+        [&](typename ip_name_to_binaries_map_type::value_type &x) -> void {
+          x.second.set.insert(Res);
+        });
+
+    if (unlikely(isNewBinary))
+      on_newbin(b_);
+
+    return std::make_pair(Res, isNewBinary || isNewName);
+  } catch (...) {
+    return std::make_pair(invalid_binary_index, false);
+  }
 }
 
 std::pair<binary_index_t, bool> jv_t::AddFromData(explorer_t &explorer,
@@ -252,6 +282,24 @@ adds_binary_t::adds_binary_t(binary_index_t &out,
   if (!HasTargetIdx)
     for (function_t &f : b.Analysis.Functions)
       f.b = &b; /* XXX */
+
+  out = BIdx;
+}
+
+adds_binary_t::adds_binary_t(binary_index_t &out, jv_t &jv, binary_t &&b) {
+  if (unlikely(b.data().empty()))
+    throw std::runtime_error("adds_binary_t(): no data");
+
+  {
+    auto e_lck = jv.Binaries.exclusive_access();
+
+    BIdx = jv.Binaries._deque.size();
+    b.Idx = BIdx;
+    jv.Binaries._deque.push_back(std::move(b));
+  }
+
+  for (function_t &f : b.Analysis.Functions)
+    f.b = &b; /* XXX */
 
   out = BIdx;
 }

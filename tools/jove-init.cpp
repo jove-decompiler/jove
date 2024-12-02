@@ -222,6 +222,9 @@ int InitTool::Run(void) {
 
   jv.clear(); /* point of no return */
 
+  jv.hash_to_binary.reserve(2048);
+  //HumanOut() << "cap=" << jv.hash_to_binary.bucket_count() << '\n';
+
   unsigned N = binary_paths.size() + 3;
 
   {
@@ -291,7 +294,7 @@ int InitTool::Run(void) {
         // explore them for real
         //
         try {
-          if (!jv.Add(explorer, BIdx, AddOptions))
+          if (!jv.InplaceAdd(explorer, BIdx, AddOptions))
             WithColor::warning()
                 << llvm::formatv("Binary not new: \"{0}\"\n", b.Name.c_str());
         } catch (const std::exception &e) {

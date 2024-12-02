@@ -31,6 +31,36 @@ struct pev_event;
 
 namespace jove {
 
+struct sb_sample_type_t {
+  /* The sample identifier.
+   *
+   * This corresponds to the PERF_SAMPLE_IDENTIFIER sample that can be
+   * found at the very end of the event record.
+   */
+  uint64_t identifier = UINT64_MAX;
+
+  /* The sample type.
+   *
+   * At least PERF_SAMPLE_IDENTIFIER must be set.
+   */
+  uint64_t sample_type;
+
+  std::string name;
+};
+
+struct sb_info_t {
+  /* The respective field in struct perf_event_attr.
+   *
+   * We require sample_id_all in struct perf_event_attr to be set.
+   *
+   * This field is only valid if \@sample_config is NULL.
+   */
+  uint64_t sample_type = 0;
+
+  /* An array of \@nstypes sample types. */
+  std::vector<sb_sample_type_t> stypes;
+};
+
 class explorer_t;
 
 #define IPT_PARAMETERS \

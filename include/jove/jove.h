@@ -262,9 +262,15 @@ struct ip_safe_deque {
 
   deque_t _deque;
 
+#if 1
   using mutex_type = boost::unordered::detail::foa::rw_spinlock;
   using shared_lock_guard = boost::unordered::detail::foa::shared_lock<mutex_type>;
   using exclusive_lock_guard = boost::unordered::detail::foa::lock_guard<mutex_type>;
+#else
+  using mutex_type = ip_sharable_mutex;
+  using shared_lock_guard = ip_sharable_lock<mutex_type>;
+  using exclusive_lock_guard = ip_scoped_lock<mutex_type>;
+#endif
 
 private:
   mutable mutex_type _mtx;
@@ -1170,6 +1176,11 @@ struct adds_binary_t {
                 const binary_index_t TargetIdx,
                 const AddOptions_t &);
 
+  // adds new binary, stores index
+  adds_binary_t(binary_index_t &out,
+                jv_t &,
+                binary_t &&);
+
   operator binary_index_t() const { return BIdx; }
 };
 
@@ -1288,7 +1299,7 @@ typedef boost::concurrent_flat_map<
     ip_string_equal_t,
     boost::container::scoped_allocator_adaptor<boost::interprocess::allocator<
         std::pair<const ip_string, allocates_binary_index_set_t>,
-        segment_manager_t>>>
+        segment_manager_t>>, std::false_type /* !Spin */>
     ip_name_to_binaries_map_type;
 
 typedef std::function<void(binary_t &)> on_newbin_proc_t;
@@ -1337,8 +1348,11 @@ struct jv_t {
 
   // it is assumed the data and name has already been stored in the
   // binary specified by Idx. throws if fails
-  bool Add(explorer_t &, const binary_index_t,
-           const AddOptions_t &Options = AddOptions_t());
+  bool InplaceAdd(explorer_t &, const binary_index_t,
+                  const AddOptions_t &Options = AddOptions_t());
+
+  std::pair<binary_index_t, bool> Add(
+      binary_t &&, on_newbin_proc_t on_newbin = [](binary_t &) {});
 
   std::pair<binary_index_t, bool>
   AddFromData(explorer_t &,
@@ -1362,6 +1376,7 @@ private:
                                                       const binary_index_t TargetIdx,
                                                       on_newbin_proc_t on_newbin,
                                                       const AddOptions_t &Options);
+public:
   void DoAdd(binary_t &,
              explorer_t &,
              llvm::object::Binary &,
