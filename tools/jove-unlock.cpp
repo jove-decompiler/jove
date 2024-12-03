@@ -39,14 +39,14 @@ int UnlockTool::Run(void) {
         b.Analysis.Functions.__force_reset_access();
 
         auto &ICFG = b.Analysis.ICFG;
-	auto it_pair = boost::vertices(ICFG._adjacency_list);
+	auto it_pair = boost::vertices(ICFG.container());
 	std::for_each(std::execution::par_unseq,
 		      it_pair.first,
 		      it_pair.second, [&](basic_block_t bb) {
-			__builtin_memset(&ICFG._adjacency_list[bb].mtx, 0,
-					 sizeof(ICFG._adjacency_list[bb].mtx));
-			__builtin_memset(&ICFG._adjacency_list[bb].Parents._mtx, 0,
-					 sizeof(ICFG._adjacency_list[bb].Parents._mtx));
+			__builtin_memset(&ICFG.container()[bb].mtx, 0,
+					 sizeof(ICFG.container()[bb].mtx));
+			__builtin_memset(&ICFG.container()[bb].Parents._mtx, 0,
+					 sizeof(ICFG.container()[bb].Parents._mtx));
 		      });
       });
 

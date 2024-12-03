@@ -1186,11 +1186,11 @@ static flow_vertex_t copy_function_cfg(jv_t &jv,
   //
   std::map<basic_block_t, flow_vertex_t> Orig2CopyMap;
   {
-    vertex_copier vc(ICFG._adjacency_list, G);
+    vertex_copier vc(ICFG.container(), G);
     edge_copier ec;
 
     boost::copy_component(
-        ICFG._adjacency_list, bbvec.front(), G,
+        ICFG.container(), bbvec.front(), G,
         boost::orig_to_copy(
             boost::associative_property_map<
                 std::map<basic_block_t, flow_vertex_t>>(Orig2CopyMap))

@@ -255,20 +255,19 @@ namespace serialization {
 //
 // allocates_basic_block_t
 //
-template <class Archive, typename T>
-static void serialize(Archive &ar, jove::ip_safe_adjacency_list<T> &ICFG,
+template <class Archive>
+static void serialize(Archive &ar, jove::ip_icfg_t &ICFG,
                       const unsigned int version) {
   boost::serialization::split_free(ar, ICFG, version);
 }
 
-template <class Archive, typename T>
+template <class Archive>
 static inline void save(Archive &ar,
-                        const jove::ip_safe_adjacency_list<T> &ICFG,
+                        const jove::ip_icfg_t &ICFG,
                         const unsigned int file_version) {
   auto e_lck = ICFG.exclusive_access();
 
-  jove::icfg_t &_ICFG =
-      const_cast<jove::ip_safe_adjacency_list<T> &>(ICFG)._adjacency_list;
+  auto &_ICFG = const_cast<jove::ip_icfg_t::type &>(ICFG.container());
 
   unsigned num_verts = ICFG.num_vertices();
   unsigned num_verts_act = boost::num_vertices(_ICFG);
@@ -284,16 +283,16 @@ static inline void save(Archive &ar,
     _ICFG.m_vertices.pop_back();
   }
 
-  ar << BOOST_SERIALIZATION_NVP(ICFG._adjacency_list);
+  ar << BOOST_SERIALIZATION_NVP(ICFG.container());
 }
 
-template <class Archive, typename T>
+template <class Archive>
 static inline void load(Archive &ar,
-                        jove::ip_safe_adjacency_list<T> &ICFG,
+                        jove::ip_icfg_t &ICFG,
                         const unsigned int file_version) {
   auto e_lck = ICFG.exclusive_access();
 
-  jove::icfg_t &_ICFG = ICFG._adjacency_list;
+  jove::icfg_t &_ICFG = ICFG.container();
   ar >> _ICFG;
   ICFG._size.store(boost::num_vertices(_ICFG), std::memory_order_relaxed);
 }
@@ -528,8 +527,8 @@ void SerializeJVToFile(const jv_t &in, const char *path, bool text) {
 void UnserializeJV(jv_t &out, jv_file_t &jv_file, std::istream &is, bool text) {
   /* FIXME */
   for (binary_t &b : out.Binaries)
-    __builtin_memset(&b.Analysis.ICFG._adjacency_list.m_property, 0,
-                     sizeof(b.Analysis.ICFG._adjacency_list.m_property));
+    __builtin_memset(&b.Analysis.ICFG.container().m_property, 0,
+                     sizeof(b.Analysis.ICFG.container().m_property));
 
   pFile_hack = &jv_file;
   pAlloc_hack.reset(new ip_void_allocator_t(out.get_allocator())); /* XXX */
@@ -550,8 +549,8 @@ void UnserializeJV(jv_t &out, jv_file_t &jv_file, std::istream &is, bool text) {
 
   /* FIXME */
   for (binary_t &b : out.Binaries)
-    __builtin_memset(&b.Analysis.ICFG._adjacency_list.m_property, 0,
-                     sizeof(b.Analysis.ICFG._adjacency_list.m_property));
+    __builtin_memset(&b.Analysis.ICFG.container().m_property, 0,
+                     sizeof(b.Analysis.ICFG.container().m_property));
 
   /* XXX */
   for (unsigned BIdx = 0; BIdx < out.Binaries.container().size(); ++BIdx) {

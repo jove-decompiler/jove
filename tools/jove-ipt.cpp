@@ -1171,6 +1171,8 @@ int IPTTool::UsingLibipt(void) {
         });
   }
 
+  return 0;
+
   //HumanOut() << "cap=" << jv.hash_to_binary.bucket_count() << '\n';
 
   std::vector<std::pair<unsigned, std::string>> aux_filenames;
