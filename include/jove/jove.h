@@ -455,12 +455,16 @@ public:
   }
 
 #define _S_LCK(ShouldLock, Mutex)                                              \
-  typename std::conditional<ShouldLock, ip_sharable_lock<ip_sharable_mutex>,   \
-                            __do_nothing_t>::type UNIQUE_VAR_NAME(__s_lck)(Mutex)
+  typename std::conditional<ShouldLock && MT,                                  \
+                            ip_sharable_lock<ip_sharable_mutex>,               \
+                            __do_nothing_t>::type                              \
+  UNIQUE_VAR_NAME(__s_lck)(Mutex)
 
 #define _E_LCK(ShouldLock, Mutex)                                              \
-  typename std::conditional<ShouldLock, ip_scoped_lock<ip_sharable_mutex>,     \
-                            __do_nothing_t>::type UNIQUE_VAR_NAME(__e_lck)(Mutex)
+  typename std::conditional<ShouldLock && MT,                                  \
+                            ip_scoped_lock<ip_sharable_mutex>,                 \
+                            __do_nothing_t>::type                              \
+  UNIQUE_VAR_NAME(__e_lck)(Mutex)
 
   template <typename... Args>
   vertices_size_type index_of_add_vertex(Args &&...args) {
