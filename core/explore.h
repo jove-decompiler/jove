@@ -37,7 +37,6 @@ static inline void nop_on_block_u(basic_block_index_t) {}
 // performs accurate recursive traversal disassembly
 //
 class explorer_t {
-  jv_t &jv;
   disas_t &disas;
   tiny_code_generator_t &tcg;
   const bool verbose;
@@ -75,11 +74,11 @@ class explorer_t {
 
 public:
   explorer_t(
-      jv_t &jv, disas_t &disas, tiny_code_generator_t &tcg,
+      disas_t &disas, tiny_code_generator_t &tcg,
       bool verbose = false,
       on_newbb_proc_t on_newbb_proc = [](binary_t &, basic_block_t) {},
       on_newfn_proc_t on_newfn_proc = [](binary_t &, function_t &) {})
-      : jv(jv), disas(disas), tcg(tcg), verbose(verbose),
+      : disas(disas), tcg(tcg), verbose(verbose),
         on_newbb_proc(on_newbb_proc),
         on_newfn_proc(on_newfn_proc) {}
 

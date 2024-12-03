@@ -59,6 +59,7 @@ function_index_t explorer_t::_explore_function(binary_t &b,
 
   f.Entry = EntryIdx;
 
+#if 0
   //
   // all blocks reachable from Entry now have f as a parent
   //
@@ -86,7 +87,6 @@ function_index_t explorer_t::_explore_function(binary_t &b,
   };
 
   /* FIXME significant slowdown */
-#if 0
   {
     ip_sharable_lock<ip_sharable_mutex> s_lck_ICFG(b.Analysis.ICFG._mtx);
 

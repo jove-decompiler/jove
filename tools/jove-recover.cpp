@@ -138,7 +138,7 @@ int RecoverTool::Run(void) {
   tiny_code_generator_t tcg;
   symbolizer_t symbolizer;
 
-  explorer_t Explorer(jv, disas, tcg);
+  explorer_t Explorer(disas, tcg);
   CodeRecovery Recovery(jv_file, jv, Explorer, symbolizer);
 
   std::string msg;

@@ -244,7 +244,7 @@ int InitTool::Run(void) {
 
   tiny_code_generator_t tcg;
   disas_t disas;
-  explorer_t explorer(jv, disas, tcg, IsVeryVerbose());
+  explorer_t explorer(disas, tcg, IsVeryVerbose());
 
   std::for_each(
       std::execution::par_unseq,

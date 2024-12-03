@@ -37,7 +37,7 @@ public:
   disas_t disas;
   explorer_t E;
 
-  ScanTool() : opts(JoveCategory), E(jv, disas, tcg, IsVeryVerbose()) {}
+  ScanTool() : opts(JoveCategory), E(disas, tcg, IsVeryVerbose()) {}
 
   int Run(void) override;
 
