@@ -88,6 +88,7 @@ class explorer_t;
 /* reference IPT decoder */
 template <IPT_PARAMETERS_DCL>
 class IntelPT {
+  jv_file_t &jv_file;
   jv_t &jv;
   explorer_t &explorer;
 
@@ -347,6 +348,7 @@ class IntelPT {
 
 public:
   IntelPT(int ptdump_argc, char **ptdump_argv, jv_t &, explorer_t &,
+          jv_file_t &jv_file,
           unsigned cpu, void *begin,
           void *end, const char *sb_filename, unsigned verbose,
           bool ignore_trunc_aux = false);

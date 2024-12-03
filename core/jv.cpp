@@ -87,6 +87,7 @@ std::optional<binary_index_t> jv_t::LookupByHash(const hash_t &h) {
 
 template <bool ValidatePath>
 std::pair<binary_index_t, bool> jv_t::AddFromPath(explorer_t &explorer,
+                                                  jv_file_t &jv_file,
                                                   const char *path,
                                                   on_newbin_proc_t on_newbin,
                                                   const AddOptions_t &Options) {
@@ -120,16 +121,17 @@ std::pair<binary_index_t, bool> jv_t::AddFromPath(explorer_t &explorer,
       return file_contents;
     };
 
-  return AddFromDataWithHash(explorer, get_data, h, path,
+  return AddFromDataWithHash(explorer, jv_file, get_data, h, path,
                              invalid_binary_index, on_newbin, Options);
 }
 
 bool jv_t::InplaceAdd(explorer_t &explorer,
+                      jv_file_t &jv_file,
                       const binary_index_t BIdx,
                       const AddOptions_t &Options) {
   binary_t &b = Binaries.at(BIdx);
   return AddFromDataWithHash(
-             explorer, [&](void) -> std::string_view { return b.Data; },
+             explorer, jv_file, [&](void) -> std::string_view { return b.Data; },
              hash_data(b.Data), b.Name.c_str(), BIdx, [](binary_t &) {},
              Options)
       .second;
@@ -166,17 +168,19 @@ std::pair<binary_index_t, bool> jv_t::Add(binary_t &&b,
 }
 
 std::pair<binary_index_t, bool> jv_t::AddFromData(explorer_t &explorer,
+                                                  jv_file_t &jv_file,
                                                   std::string_view data,
                                                   const char *name,
                                                   on_newbin_proc_t on_newbin,
                                                   const AddOptions_t &Options) {
   return AddFromDataWithHash(
-      explorer,
+      explorer, jv_file,
       [&](void) -> std::string_view { return data; },
       hash_data(data), name, invalid_binary_index, on_newbin, Options);
 }
 
 std::pair<binary_index_t, bool> jv_t::AddFromDataWithHash(explorer_t &explorer,
+                                                          jv_file_t &jv_file,
                                                           get_data_t get_data,
                                                           const hash_t &h,
                                                           const char *name,
@@ -186,7 +190,7 @@ std::pair<binary_index_t, bool> jv_t::AddFromDataWithHash(explorer_t &explorer,
   try {
     binary_index_t Res = invalid_binary_index;
     const bool isNewBinary = this->hash_to_binary.try_emplace_or_visit(
-        h, std::ref(Res), std::ref(*this), std::ref(explorer), get_data,
+        h, std::ref(Res), jv_file, std::ref(*this), std::ref(explorer), get_data,
         std::ref(h), name, TargetIdx, std::ref(Options),
         [&](const typename ip_hash_to_binary_map_type::value_type &x) -> void {
           Res = x.second;
@@ -210,6 +214,7 @@ std::pair<binary_index_t, bool> jv_t::AddFromDataWithHash(explorer_t &explorer,
 }
 
 adds_binary_t::adds_binary_t(binary_index_t &out,
+                             jv_file_t &jv_file,
                              jv_t &jv,
                              explorer_t &explorer,
                              get_data_t get_data,
@@ -229,12 +234,10 @@ adds_binary_t::adds_binary_t(binary_index_t &out,
   //
   const bool HasTargetIdx = is_binary_index_valid(TargetIdx);
 
-  std::unique_ptr<binary_t> _b;
-  if (!HasTargetIdx)
-    _b = std::make_unique<binary_t>(jv.get_allocator());
+  binary_t _b(jv_file);
 
   {
-    binary_t &b = _b ? *_b : jv.Binaries.at(TargetIdx);
+    binary_t &b = HasTargetIdx ? jv.Binaries.at(TargetIdx) : _b;
 
     if (HasTargetIdx) {
       b.Idx = TargetIdx; /* XXX might as well ensure? */
@@ -270,8 +273,8 @@ adds_binary_t::adds_binary_t(binary_index_t &out,
     auto e_lck = jv.Binaries.exclusive_access();
 
     BIdx = jv.Binaries._deque.size();
-    _b->Idx = BIdx;
-    jv.Binaries._deque.push_back(std::move(*_b));
+    _b.Idx = BIdx;
+    jv.Binaries.container().push_back(std::move(_b));
   }
 
   binary_t &b = jv.Binaries.at(BIdx);
@@ -298,8 +301,9 @@ adds_binary_t::adds_binary_t(binary_index_t &out, jv_t &jv, binary_t &&b) {
     jv.Binaries._deque.push_back(std::move(b));
   }
 
-  for (function_t &f : b.Analysis.Functions)
-    f.b = &b; /* XXX */
+  binary_t &newb = jv.Binaries.at(BIdx);
+  for (function_t &f : newb.Analysis.Functions)
+    f.b = &newb; /* XXX */
 
   out = BIdx;
 }
@@ -343,7 +347,8 @@ function_t::function_t(const ip_void_allocator_t &A)
 #define GET_VALUE(x) BOOST_PP_TUPLE_ELEM(0, x)
 #define DO_INSTANTIATE(r, data, elem)                                          \
   template std::pair<binary_index_t, bool> jv_t::AddFromPath<GET_VALUE(elem)>( \
-      explorer_t &, const char *, on_newbin_proc_t, const AddOptions_t &);
+      explorer_t &, jv_file_t &, const char *, on_newbin_proc_t,               \
+      const AddOptions_t &);
 
 BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, VALUES_TO_INSTANTIATE_WITH)
 

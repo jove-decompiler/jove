@@ -92,7 +92,7 @@ public:
   CodeDigger()
       : opts(JoveCategory),
         Explorer(jv, disas, tcg),
-        Recovery(jv, Explorer, symbolizer) {}
+        Recovery(jv_file, jv, Explorer, symbolizer) {}
 
   int Run(void) override;
 

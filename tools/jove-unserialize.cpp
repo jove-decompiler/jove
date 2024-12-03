@@ -28,11 +28,11 @@ JOVE_REGISTER_TOOL("unserialize", UnserializeTool);
 
 int UnserializeTool::Run(void) {
   if (opts.Path.empty()) {
-    UnserializeJV(jv, std::cin, opts.Text);
+    UnserializeJV(jv, jv_file, std::cin, opts.Text);
     return 0;
   }
 
-  UnserializeJVFromFile(jv, opts.Path.c_str(), opts.Text);
+  UnserializeJVFromFile(jv, jv_file, opts.Path.c_str(), opts.Text);
   return 0;
 }
 

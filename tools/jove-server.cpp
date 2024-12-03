@@ -286,10 +286,9 @@ void *ServerTool::ConnectionProc(void *arg) {
 
   jv_file_t jv_file(boost::interprocess::create_only, tmpjv.c_str(),
                     jvDefaultInitialSize() /* FIXME */);
-  jv_t &jv(*jv_file.construct<jv_t>("JV")(
-      ip_void_allocator_t(jv_file.get_segment_manager())));
+  jv_t &jv(*jv_file.construct<jv_t>("JV")(jv_file));
 
-  UnserializeJVFromFile(jv, jv_s_path.c_str());
+  UnserializeJVFromFile(jv, jv_file, jv_s_path.c_str());
 
   bool IsCOFF = ({
     binary_t &b = jv.Binaries.at(0);

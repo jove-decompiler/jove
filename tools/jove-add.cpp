@@ -49,7 +49,7 @@ int AddTool::Run(void) {
     if (IsVerbose())
       HumanOut() << llvm::formatv("adding \"{0}\"\n", filename);
 
-    jv.AddFromPath(E, filename.c_str());
+    jv.AddFromPath(E, jv_file, filename.c_str());
   }
 
   return 0;

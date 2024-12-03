@@ -40,11 +40,12 @@ typedef boost::format fmt;
 template <IPT_PARAMETERS_DCL>
 IntelPT<IPT_PARAMETERS_DEF>::IntelPT(int ptdump_argc, char **ptdump_argv,
                                      jv_t &jv, explorer_t &explorer,
+                                     jv_file_t &jv_file,
                                      unsigned cpu,
                                      void *begin, void *end,
                                      const char *sb_filename, unsigned verbose,
                                      bool ignore_trunc_aux)
-    : jv(jv), explorer(explorer), state(jv),
+    : jv_file(jv_file), jv(jv), explorer(explorer), state(jv),
       PageSize(sysconf(_SC_PAGESIZE)),
       IsCOFF(B::is_coff(*state.for_binary(jv.Binaries.at(0)).Bin)),
       exe(jv.Binaries.at(0)), CurrPoint(exe),
@@ -459,7 +460,7 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb_event(const struct pev_event &event
 
                 assert(path[0] == '/');
 
-                std::tie(BIdx, isNew) = jv.AddFromPath(explorer, path.c_str());
+                std::tie(BIdx, isNew) = jv.AddFromPath(explorer, jv_file, path.c_str());
                 if (!is_binary_index_valid(BIdx))
                   break;
 
@@ -517,7 +518,7 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb_event(const struct pev_event &event
 
             binary_index_t BIdx;
             bool IsNew;
-            std::tie(BIdx, IsNew) = jv.AddFromPath(explorer, filename.c_str());
+            std::tie(BIdx, IsNew) = jv.AddFromPath(explorer, jv_file, filename.c_str());
 
             if constexpr (IsVerbose())
               if (is_binary_index_valid(BIdx))
@@ -758,7 +759,7 @@ envs_done:
           break;
         }
 
-        std::tie(BIdx, IsNew) = jv.AddFromPath(explorer, name.c_str());
+        std::tie(BIdx, IsNew) = jv.AddFromPath(explorer, jv_file, name.c_str());
         if (!is_binary_index_valid(BIdx))
           break;
       } else {

@@ -231,8 +231,8 @@ int InitTool::Run(void) {
     auto e_lck = jv.Binaries.exclusive_access();
 
     for (unsigned i = 0; i < N; ++i)
-      jv.Binaries._deque.emplace_back(jv.get_allocator(),
-                                      static_cast<binary_index_t>(i));
+      jv.Binaries.container().emplace_back(jv_file,
+                                           static_cast<binary_index_t>(i));
   }
 
   //
@@ -294,7 +294,7 @@ int InitTool::Run(void) {
         // explore them for real
         //
         try {
-          if (!jv.InplaceAdd(explorer, BIdx, AddOptions))
+          if (!jv.InplaceAdd(explorer, jv_file, BIdx, AddOptions))
             WithColor::warning()
                 << llvm::formatv("Binary not new: \"{0}\"\n", b.Name.c_str());
         } catch (const std::exception &e) {

@@ -9,6 +9,7 @@ namespace jove {
 class explorer_t;
 
 class CodeRecovery {
+  jv_file_t &jv_file;
   jv_t &jv;
 
   explorer_t &E;
@@ -41,7 +42,7 @@ class CodeRecovery {
   jv_state_t<binary_state_t, void, void> state;
 
 public:
-  CodeRecovery(jv_t &, explorer_t &E, symbolizer_t &);
+  CodeRecovery(jv_file_t &, jv_t &, explorer_t &E, symbolizer_t &);
   ~CodeRecovery();
 
   uint64_t AddressOfTerminatorAtBasicBlock(binary_index_t BIdx,

@@ -233,7 +233,7 @@ binary_index_t IPTTool::BinaryFromName(const char *name) {
   binary_index_t BIdx;
 
   std::tie(BIdx, IsNew) =
-      jv.AddFromPath(*Explorer, name,
+      jv.AddFromPath(*Explorer, jv_file, name,
                      std::bind(&IPTTool::on_new_binary, this, _1), AddOptions);
 
   if (IsVeryVerbose() && !is_binary_index_valid(BIdx))
@@ -406,7 +406,7 @@ int IPTTool::ProcessAppStderr(void) {
           binary_index_t BIdx;
 
           std::tie(BIdx, IsNew) = jv.AddFromPath(
-              *Explorer, path.c_str(),
+              *Explorer, jv_file, path.c_str(),
               std::bind(&IPTTool::on_new_binary, this, std::placeholders::_1),
               AddOptions);
 
@@ -1143,7 +1143,7 @@ int IPTTool::UsingLibipt(void) {
             return;
           }
 
-          binary_t *pb = new binary_t(jv.get_allocator());
+          binary_t *pb = new binary_t(jv_file);
           binary_t &b = *pb;
           read_file_into_thing(path_s.c_str(), b.Data);
 
@@ -1213,8 +1213,8 @@ int IPTTool::UsingLibipt(void) {
 
         auto run = [&]<IPT_PARAMETERS_DCL>(void) {
           IntelPT<IPT_PARAMETERS_DEF> ipt(
-              ptdump_argv.size() - 1, ptdump_argv.data(), jv, *Explorer, cpu,
-              mmap.ptr,
+              ptdump_argv.size() - 1, ptdump_argv.data(), jv, *Explorer,
+              jv_file, cpu, mmap.ptr,
               reinterpret_cast<uint8_t *>(mmap.ptr) + len, sb_filename,
               IsVeryVerbose() ? 2 : (IsVerbose() ? 1 : 0));
 

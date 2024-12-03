@@ -139,7 +139,7 @@ int RecoverTool::Run(void) {
   symbolizer_t symbolizer;
 
   explorer_t Explorer(jv, disas, tcg);
-  CodeRecovery Recovery(jv, Explorer, symbolizer);
+  CodeRecovery Recovery(jv_file, jv, Explorer, symbolizer);
 
   std::string msg;
 

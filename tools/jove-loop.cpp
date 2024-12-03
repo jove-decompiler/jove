@@ -792,7 +792,7 @@ skip_run:
           return 1;
         }
 
-        UnserializeJVFromFile(jv, tmpjv_path.c_str()); /* is this necessary? */
+        UnserializeJVFromFile(jv, jv_file, tmpjv_path.c_str()); /* is this necessary? */
       }
 
       for (const binary_t &binary : jv.Binaries) {

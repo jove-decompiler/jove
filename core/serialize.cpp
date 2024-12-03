@@ -29,6 +29,7 @@
 
 namespace jove {
 
+static jv_file_t *pFile_hack = nullptr;                  /* XXX */
 static std::unique_ptr<ip_void_allocator_t> pAlloc_hack; /* XXX */
 
 }
@@ -340,7 +341,7 @@ template <class Archive>
 static void serialize(Archive &ar, jove::binary_t::Analysis_t &A,
                       const unsigned int version) {
   ar &BOOST_SERIALIZATION_NVP(A.EntryFunction)
-     &BOOST_SERIALIZATION_NVP(A.Functions._deque)
+     &BOOST_SERIALIZATION_NVP(A.Functions.container())
      &BOOST_SERIALIZATION_NVP(A.ICFG);
 }
 
@@ -420,7 +421,7 @@ static void serialize(Archive &ar, jove::basic_block_properties_t &bbprop,
 
 template <class Archive>
 static void serialize(Archive &ar, jove::jv_t &jv, const unsigned int) {
-  ar &BOOST_SERIALIZATION_NVP(jv.Binaries._deque)
+  ar &BOOST_SERIALIZATION_NVP(jv.Binaries.container())
      &BOOST_SERIALIZATION_NVP(jv.hash_to_binary)
      &BOOST_SERIALIZATION_NVP(jv.name_to_binaries);
 }
@@ -434,8 +435,8 @@ namespace serialization {
 template <class Archive>
 static inline void load_construct_data(Archive &ar, jove::binary_t *t,
                                        const unsigned int file_version) {
-  assert(jove::pAlloc_hack);
-  ::new (t)jove::binary_t(*jove::pAlloc_hack);
+  assert(jove::pFile_hack);
+  ::new (t)jove::binary_t(*jove::pFile_hack);
 }
 
 template <class Archive>
@@ -524,12 +525,13 @@ void SerializeJVToFile(const jv_t &in, const char *path, bool text) {
   SerializeJV(in, ofs, text);
 }
 
-void UnserializeJV(jv_t &out, std::istream &is, bool text) {
+void UnserializeJV(jv_t &out, jv_file_t &jv_file, std::istream &is, bool text) {
   /* FIXME */
   for (binary_t &b : out.Binaries)
     __builtin_memset(&b.Analysis.ICFG._adjacency_list.m_property, 0,
                      sizeof(b.Analysis.ICFG._adjacency_list.m_property));
 
+  pFile_hack = &jv_file;
   pAlloc_hack.reset(new ip_void_allocator_t(out.get_allocator())); /* XXX */
 
   out.clear();
@@ -552,12 +554,12 @@ void UnserializeJV(jv_t &out, std::istream &is, bool text) {
                      sizeof(b.Analysis.ICFG._adjacency_list.m_property));
 
   /* XXX */
-  for (unsigned BIdx = 0; BIdx < out.Binaries._deque.size(); ++BIdx) {
-    binary_t &b = out.Binaries._deque[BIdx];
+  for (unsigned BIdx = 0; BIdx < out.Binaries.container().size(); ++BIdx) {
+    binary_t &b = out.Binaries.container()[BIdx];
     b.Idx = BIdx;
 
-    for (unsigned FIdx = 0; FIdx < b.Analysis.Functions._deque.size(); ++FIdx) {
-      jove::function_t &f = b.Analysis.Functions._deque[FIdx];
+    for (unsigned FIdx = 0; FIdx < b.Analysis.Functions.container().size(); ++FIdx) {
+      jove::function_t &f = b.Analysis.Functions.container()[FIdx];
 
       f.Idx = FIdx;
       f.b = &b;
@@ -565,13 +567,13 @@ void UnserializeJV(jv_t &out, std::istream &is, bool text) {
   }
 }
 
-void UnserializeJVFromFile(jv_t &out, const char *path, bool text) {
+void UnserializeJVFromFile(jv_t &out, jv_file_t &jv_file, const char *path, bool text) {
   std::ifstream ifs(path);
   if (!ifs.is_open())
     throw std::runtime_error("UnserializeJVFromFile: failed to open " +
                              std::string(path));
 
-  UnserializeJV(out, ifs, text);
+  UnserializeJV(out, jv_file, ifs, text);
 }
 
 void jv2xml(const jv_t &jv, std::ostringstream &oss) {

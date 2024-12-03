@@ -4345,7 +4345,7 @@ binary_index_t BootstrapTool::BinaryFromPath(pid_t child, const char *path) {
 
   using namespace std::placeholders;
 
-  return jv.AddFromPath<ValidatePath>(*E, path,
+  return jv.AddFromPath<ValidatePath>(*E, jv_file, path,
       std::bind(&BootstrapTool::on_new_binary, this, _1)).first;
 }
 
@@ -4365,7 +4365,7 @@ binary_index_t BootstrapTool::BinaryFromData(pid_t child, std::string_view sv,
 
   using namespace std::placeholders;
 
-  return jv.AddFromData(*E, sv, name,
+  return jv.AddFromData(*E, jv_file, sv, name,
                         std::bind(&BootstrapTool::on_new_binary, this, _1)).first;
 }
 

@@ -18,8 +18,10 @@ namespace jove {
 
 typedef boost::format fmt;
 
-CodeRecovery::CodeRecovery(jv_t &jv, explorer_t &E, symbolizer_t &symbolizer)
-    : jv(jv), E(E), symbolizer(symbolizer), state(jv) {}
+CodeRecovery::CodeRecovery(jv_file_t &jv_file, jv_t &jv,
+                           explorer_t &E,
+                           symbolizer_t &symbolizer)
+    : jv_file(jv_file), jv(jv), E(E), symbolizer(symbolizer), state(jv) {}
 
 CodeRecovery::~CodeRecovery() {}
 
@@ -266,7 +268,7 @@ std::string CodeRecovery::RecoverForeignBinary(const char *path) {
   bool IsNew;
   binary_index_t BIdx;
 
-  std::tie(BIdx, IsNew) = jv.AddFromPath(E, path);
+  std::tie(BIdx, IsNew) = jv.AddFromPath(E, jv_file, path);
 
   if (!is_binary_index_valid(BIdx) || !IsNew)
     return "";

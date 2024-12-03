@@ -31,6 +31,7 @@
 #include <boost/unordered/unordered_flat_set.hpp>
 #include <boost/unordered/concurrent_flat_map.hpp>
 #include <boost/unordered/concurrent_flat_set.hpp>
+#include <boost/interprocess/smart_ptr/unique_ptr.hpp>
 #include <boost/interprocess/containers/map.hpp>
 #include <boost/interprocess/containers/flat_map.hpp>
 #include <boost/interprocess/containers/flat_set.hpp>
@@ -233,6 +234,9 @@ constexpr const char *TargetStaticLinkerEmulation(bool IsCOFF) {
 typedef boost::interprocess::managed_mapped_file jv_file_t;
 typedef jv_file_t::segment_manager segment_manager_t;
 
+template <typename T>
+using ip_unique_ptr = boost::interprocess::managed_unique_ptr<T, jv_file_t>::type;
+
 typedef boost::interprocess::allocator<void, segment_manager_t>
     ip_void_allocator_t;
 
@@ -255,22 +259,43 @@ struct __do_nothing_t {
   void lock(void) const {}
 };
 
-template <typename T>
-struct ip_safe_deque {
-  using alloc_t = boost::interprocess::allocator<T, segment_manager_t>;
-  using deque_t = boost::interprocess::deque<T, alloc_t>;
+template <typename T, typename Alloc, bool PointUnique = false, bool MT = true, bool Spin = true>
+struct deque {
+  using type = boost::interprocess::deque<T, Alloc>;
 
-  deque_t _deque;
+  std::conditional_t<PointUnique, ip_unique_ptr<type>, type> _deque;
 
-#if 1
-  using mutex_type = boost::unordered::detail::foa::rw_spinlock;
-  using shared_lock_guard = boost::unordered::detail::foa::shared_lock<mutex_type>;
-  using exclusive_lock_guard = boost::unordered::detail::foa::lock_guard<mutex_type>;
-#else
-  using mutex_type = ip_sharable_mutex;
-  using shared_lock_guard = ip_sharable_lock<mutex_type>;
-  using exclusive_lock_guard = ip_scoped_lock<mutex_type>;
-#endif
+  const type &container(void) const {
+    if constexpr (PointUnique)
+      return *_deque;
+    else
+      return _deque;
+  }
+  type &container(void) {
+    if constexpr (PointUnique)
+      return *_deque;
+    else
+      return _deque;
+  }
+
+  using mutex_type = std::conditional_t<
+    MT,
+    std::conditional_t<Spin,
+                       boost::unordered::detail::foa::rw_spinlock,
+                       ip_sharable_mutex>,
+    std::monostate>;
+  using shared_lock_guard = std::conditional_t<
+    MT,
+    std::conditional_t<Spin,
+                       boost::unordered::detail::foa::shared_lock<mutex_type>,
+                       ip_sharable_lock<mutex_type>>,
+    __do_nothing_t>;
+  using exclusive_lock_guard = std::conditional_t<
+    MT,
+    std::conditional_t<Spin,
+                       boost::unordered::detail::foa::lock_guard<mutex_type>,
+                       ip_scoped_lock<mutex_type>>,
+    __do_nothing_t>;
 
 private:
   mutable mutex_type _mtx;
@@ -279,46 +304,58 @@ public:
   shared_lock_guard shared_access() const { return shared_lock_guard{_mtx}; }
   exclusive_lock_guard exclusive_access() const { return exclusive_lock_guard{_mtx}; }
 
-  ip_safe_deque() = delete;
-  ip_safe_deque(const ip_void_allocator_t &A) : _deque(A) {}
-  ip_safe_deque(ip_safe_deque<T> &&other)
+  deque() = delete;
+
+  template <bool E = PointUnique, typename std::enable_if<E, int>::type = 0>
+  deque(jv_file_t &jv_file)
+      : _deque(boost::interprocess::make_managed_unique_ptr(
+            jv_file.construct<type>(boost::interprocess::anonymous_instance)(
+                jv_file.get_segment_manager()),
+            jv_file)) {}
+
+  template <bool E = PointUnique, typename std::enable_if<!E, int>::type = 0>
+  deque(jv_file_t &jv_file) : _deque(jv_file.get_segment_manager()) {}
+
+  template <bool M2, bool S2>
+  deque(deque<T, Alloc, M2, S2> &&other) noexcept
       : _deque(std::move(other._deque)) {}
 
-  ip_safe_deque<T> &operator=(const ip_safe_deque<T> &other) {
+  deque<T, Alloc, PointUnique, MT, Spin> &
+  operator=(deque<T, Alloc, PointUnique, MT, Spin> &&other) noexcept {
     if (this == &other) {
       return *this;
     }
 
-    _deque = other._deque;
+    _deque = std::move(other._deque);
     return *this;
   }
 
   unsigned size(void) const {
     auto s_lck = shared_access();
-    return _deque.size();
+    return container().size();
   }
 
   bool empty(void) const { return size() == 0; }
 
   T &at(unsigned idx) {
     auto s_lck = shared_access();
-    return _deque.at(idx);
+    return container().at(idx);
   }
 
   const T &at(unsigned idx) const {
     auto s_lck = shared_access();
-    return _deque.at(idx);
+    return container().at(idx);
   }
 
   /* FIXME */
-  typename deque_t::const_iterator cbegin(void) const { return _deque.cbegin(); }
-  typename deque_t::const_iterator cend(void) const { return _deque.cend(); }
+  typename type::const_iterator cbegin(void) const { return container().cbegin(); }
+  typename type::const_iterator cend(void) const { return container().cend(); }
 
-  typename deque_t::const_iterator begin(void) const { return cbegin(); }
-  typename deque_t::const_iterator end(void) const { return cend(); }
+  typename type::const_iterator begin(void) const { return cbegin(); }
+  typename type::const_iterator end(void) const { return cend(); }
 
-  typename deque_t::iterator begin(void) { return _deque.begin(); }
-  typename deque_t::iterator end(void) { return _deque.end(); }
+  typename type::iterator begin(void) { return container().begin(); }
+  typename type::iterator end(void) { return container().end(); }
 
   void __force_reset_access(void) { __builtin_memset(&this->_mtx, 0, sizeof(this->_mtx)); }
 };
@@ -973,7 +1010,7 @@ struct binary_t {
     //
     // references to function_t will never be invalidated.
     //
-    ip_safe_deque<function_t> Functions;
+    deque<function_t, boost::interprocess::allocator<function_t, segment_manager_t>, true> Functions;
 
     //
     // references to basic_block_properties_t will never be invalidated
@@ -982,23 +1019,25 @@ struct binary_t {
     ip_safe_adjacency_list<interprocedural_control_flow_graph_t> ICFG;
 
     Analysis_t() = delete;
-    Analysis_t(const ip_void_allocator_t &A)
-        : Functions(A), ICFG(icfg_t::graph_property_type(), A), objdump(A) {}
+    Analysis_t(jv_file_t &jv_file)
+        : Functions(jv_file),
+          ICFG(icfg_t::graph_property_type(), jv_file.get_segment_manager()),
+          objdump(jv_file.get_segment_manager()) {}
 
-    Analysis_t(Analysis_t &&other)
+    Analysis_t(Analysis_t &&other) noexcept
         : EntryFunction(std::move(other.EntryFunction)),
           Functions(std::move(other.Functions)),
           ICFG(std::move(other.ICFG)),
           objdump(std::move(other.objdump)) {}
 
-    Analysis_t &operator=(const Analysis_t &other) {
+    Analysis_t &operator=(Analysis_t &&other) noexcept {
       if (this == &other)
         return *this;
 
       EntryFunction = other.EntryFunction;
-      Functions = other.Functions;
-      ICFG = other.ICFG;
-      objdump = other.objdump;
+      Functions = std::move(other.Functions);
+      ICFG = std::move(other.ICFG);
+      objdump = std::move(other.objdump);
       return *this;
     }
 
@@ -1058,13 +1097,17 @@ struct binary_t {
   }
 
   ip_void_allocator_t get_allocator(void) const {
-    return Analysis.Functions._deque.get_allocator();
+    return Analysis.Functions.container().get_allocator();
   }
 
-  binary_t(const ip_void_allocator_t &A, binary_index_t Idx = invalid_binary_index)
-      : Idx(Idx), bbbmap(A), bbmap(A), fnmap(A), Name(A), Data(A), Analysis(A) {}
+  binary_t(jv_file_t &jv_file, binary_index_t Idx = invalid_binary_index)
+      : Idx(Idx), bbbmap(jv_file.get_segment_manager()),
+        bbmap(jv_file.get_segment_manager()),
+        fnmap(jv_file.get_segment_manager()),
+        Name(jv_file.get_segment_manager()),
+        Data(jv_file.get_segment_manager()), Analysis(jv_file) {}
 
-  binary_t(binary_t &&other)
+  binary_t(binary_t &&other) noexcept
       : Idx(other.Idx),
 
         bbbmap(std::move(other.bbbmap)),
@@ -1083,19 +1126,19 @@ struct binary_t {
 
         Analysis(std::move(other.Analysis)) {}
 
-  binary_t &operator=(const binary_t &other) {
+  binary_t &operator=(binary_t &&other) noexcept {
     if (this == &other) {
       return *this;
     }
 
     Idx = other.Idx;
 
-    bbbmap = other.bbbmap;
-    bbmap = other.bbmap;
-    fnmap = other.fnmap;
+    bbbmap = std::move(other.bbbmap);
+    bbmap = std::move(other.bbmap);
+    fnmap = std::move(other.fnmap);
 
-    Name = other.Name;
-    Data = other.Data;
+    Name = std::move(other.Name);
+    Data = std::move(other.Data);
     Hash = other.Hash;
 
     IsDynamicLinker = other.IsDynamicLinker;
@@ -1104,7 +1147,7 @@ struct binary_t {
     IsPIC = other.IsPIC;
     IsDynamicallyLoaded = other.IsDynamicallyLoaded;
 
-    Analysis = other.Analysis;
+    Analysis = std::move(other.Analysis);
 
     return *this;
   }
@@ -1145,13 +1188,15 @@ allocates_basic_block_t::allocates_basic_block_t(binary_t &b,
 
 allocates_function_t::allocates_function_t(binary_t &b,
                                            function_index_t &store) {
-  ip_safe_deque<function_t> &Functions = b.Analysis.Functions;
+  auto &Functions = b.Analysis.Functions;
 
   {
     auto e_lck = Functions.exclusive_access();
 
-    FIdx = Functions._deque.size();
-    Functions._deque.emplace_back(b, FIdx);
+    auto &x = Functions.container();
+
+    FIdx = x.size();
+    x.emplace_back(b, FIdx);
   }
 
   store = FIdx;
@@ -1168,6 +1213,7 @@ struct adds_binary_t {
 
   // adds new binary, stores index
   adds_binary_t(binary_index_t &out,
+                jv_file_t &,
                 jv_t &,
                 explorer_t &,
                 get_data_t get_data,
@@ -1312,7 +1358,7 @@ struct jv_t {
   //
   // references to binary_t will never be invalidated.
   //
-  ip_safe_deque<binary_t> Binaries;
+  deque<binary_t, ip_binary_allocator, false, true, false> Binaries;
 
   ip_func_index_sets FIdxSets;
   ip_sharable_mutex FIdxSetsMtx;
@@ -1330,9 +1376,11 @@ struct jv_t {
     return Binaries._deque.get_allocator();
   }
 
-  jv_t(const ip_void_allocator_t &A)
-      : Binaries(A), FIdxSets(A), hash_to_binary(A), cached_hashes(A),
-        name_to_binaries(A) {}
+  jv_t(jv_file_t &jv_file)
+      : Binaries(jv_file), FIdxSets(jv_file.get_segment_manager()),
+        hash_to_binary(jv_file.get_segment_manager()),
+        cached_hashes(jv_file.get_segment_manager()),
+        name_to_binaries(jv_file.get_segment_manager()) {}
 
   jv_t() = delete;
 
@@ -1342,13 +1390,14 @@ struct jv_t {
   template <bool ValidatePath = true>
   std::pair<binary_index_t, bool>
   AddFromPath(explorer_t &,
+              jv_file_t &,
               const char *path,
               on_newbin_proc_t on_newbin = [](binary_t &) {},
               const AddOptions_t &Options = AddOptions_t());
 
   // it is assumed the data and name has already been stored in the
   // binary specified by Idx. throws if fails
-  bool InplaceAdd(explorer_t &, const binary_index_t,
+  bool InplaceAdd(explorer_t &, jv_file_t &, const binary_index_t,
                   const AddOptions_t &Options = AddOptions_t());
 
   std::pair<binary_index_t, bool> Add(
@@ -1356,6 +1405,7 @@ struct jv_t {
 
   std::pair<binary_index_t, bool>
   AddFromData(explorer_t &,
+              jv_file_t &,
               std::string_view data,
               const char *name = nullptr,
               on_newbin_proc_t on_newbin = [](binary_t &) {},
@@ -1370,6 +1420,7 @@ private:
                           std::string &file_contents);
 
   std::pair<binary_index_t, bool> AddFromDataWithHash(explorer_t &E,
+                                                      jv_file_t &,
                                                       get_data_t,
                                                       const hash_t &h,
                                                       const char *name,
