@@ -212,7 +212,7 @@ class IntelPT {
     Point_t(binary_t &b) : b(b) {}
 
     binary_t &Binary(void) const { return b; }
-    binary_index_t BinaryIndex(void) const { return index_of_binary(b); }
+    binary_index_t BinaryIndex(void) const { return index_of_binary(b.get()); }
 
     basic_block_index_t BlockIndex(void) const { return Idx; }
     void SetBlockIndex(basic_block_index_t NewIdx) {

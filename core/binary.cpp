@@ -3,18 +3,21 @@
 
 namespace jove {
 
-void binary_t::InvalidateBasicBlockAnalyses(void) {
+template <bool MT>
+void binary_base_t<MT>::InvalidateBasicBlockAnalyses(void) {
   for_each_function_in_binary(std::execution::par_unseq, *this,
                               [&](function_t &f) { f.InvalidateAnalysis(); });
 }
 
-bool binary_t::FixAmbiguousIndirectJump(taddr_t TermAddr, explorer_t &E,
-                                        llvm::object::Binary &Bin, jv_t &jv) {
+template <bool MT>
+bool binary_base_t<MT>::FixAmbiguousIndirectJump(taddr_t TermAddr, explorer_t &E,
+                                                 llvm::object::Binary &Bin,
+                                                 jv_base_t<MT> &jv) {
   std::vector<taddr_t> SuccAddrVec;
 
   auto &ICFG = this->Analysis.ICFG;
   {
-    ip_sharable_lock<ip_sharable_mutex> s_lck_bbmap(this->bbmap_mtx);
+    auto s_lck_bbmap = this->bbmap_shared_access();
 
     basic_block_t bb = basic_block_at_address(TermAddr, *this);
 
@@ -26,13 +29,13 @@ bool binary_t::FixAmbiguousIndirectJump(taddr_t TermAddr, explorer_t &E,
     icfg_t::adjacency_iterator succ_it, succ_it_end;
     std::tie(succ_it, succ_it_end) = ICFG.adjacent_vertices(bb);
 
-    SuccAddrVec.resize(ICFG.out_degree<false>(bb));
+    SuccAddrVec.resize(ICFG.template out_degree<false>(bb));
     std::transform(
         succ_it,
         succ_it_end, SuccAddrVec.begin(),
         [&](basic_block_t bb) -> taddr_t { return ICFG.at(bb).Addr; });
 
-    ICFG.clear_out_edges<false>(bb); /* ambiguous no more */
+    ICFG.template clear_out_edges<false>(bb); /* ambiguous no more */
   }
 
   std::vector<function_index_t> SuccFIdxVec;
@@ -47,7 +50,7 @@ bool binary_t::FixAmbiguousIndirectJump(taddr_t TermAddr, explorer_t &E,
                  });
 
   {
-    ip_sharable_lock<ip_sharable_mutex> s_lck_bbmap(this->bbmap_mtx);
+    auto s_lck_bbmap = this->bbmap_shared_access();
 
     auto &bbprop = ICFG[basic_block_at_address(TermAddr, *this)];
     for (function_index_t FIdx : SuccFIdxVec)
@@ -57,5 +60,16 @@ bool binary_t::FixAmbiguousIndirectJump(taddr_t TermAddr, explorer_t &E,
 
   return true;
 }
+
+#define VALUES_TO_INSTANTIATE_WITH                                             \
+    ((true))                                                                   \
+    ((false))
+#define GET_VALUE(x) BOOST_PP_TUPLE_ELEM(0, x)
+
+#define DO_INSTANTIATE(r, data, elem)                                          \
+  template bool binary_base_t<GET_VALUE(elem)>::FixAmbiguousIndirectJump(      \
+      taddr_t TermAddr, explorer_t &, llvm::object::Binary &Bin,               \
+      jv_base_t<GET_VALUE(elem)> &);
+BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, VALUES_TO_INSTANTIATE_WITH)
 
 }

@@ -3,6 +3,7 @@
 
 namespace jove {
 
-double compute_score(const jv_t &, const binary_t &);
+template <bool MT>
+double compute_score(const jv_base_t<MT> &, const binary_base_t<MT> &);
 
 }

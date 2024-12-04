@@ -4,6 +4,7 @@
 
 namespace jove {
 
-void ScanForSjLj(binary_t &, llvm::object::Binary &, explorer_t &);
+template <bool MT>
+void ScanForSjLj(binary_base_t<MT> &, llvm::object::Binary &, explorer_t &);
 
 }

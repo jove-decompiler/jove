@@ -1137,22 +1137,16 @@ int IPTTool::UsingLibipt(void) {
         pathvec.end(),
         [&](const std::string &path_s) {
           std::string path_str;
-          try {
-            path_str = fs::canonical(path_s.c_str()).string();
-          } catch (...) {
+          if (catch_exception(
+                  [&]() { path_str = fs::canonical(path_s.c_str()).string(); }))
             return;
-          }
 
-          binary_t *pb = new binary_t(jv_file);
-          binary_t &b = *pb;
+          binary_base_t<false> b(jv_file);
           read_file_into_thing(path_s.c_str(), b.Data);
 
           std::unique_ptr<llvm::object::Binary> Bin;
-          try {
-            Bin = B::Create(b.data());
-          } catch (...) {
+          if (catch_exception([&]() { Bin = B::Create(b.data()); }))
             return;
-          }
 
           hash_t h = hash_data(b.data());
           auto ByHash = jv.LookupByHash(h);

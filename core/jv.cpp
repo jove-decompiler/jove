@@ -49,48 +49,84 @@ void cached_hash_t::Update(const char *path, std::string &file_contents) {
   mtime.nsec = st.st_mtim.tv_nsec;
 }
 
-void jv_t::LookupAndCacheHash(hash_t &out, const char *path,
-                              std::string &file_contents) {
+template <bool MT>
+void jv_base_t<MT>::LookupAndCacheHash(hash_t &out, const char *path,
+                                       std::string &file_contents) {
   assert(path);
   std::string_view sv(path);
 
-  this->cached_hashes.try_emplace_or_visit(
-      sv, path, std::ref(file_contents), std::ref(out),
-      [&](typename ip_cached_hashes_type::value_type &x) -> void {
-        x.second.Update(path, file_contents);
-        out = x.second.h;
-      });
+  if constexpr (MT) {
+    this->cached_hashes.try_emplace_or_visit(
+        sv, path, std::ref(file_contents), std::ref(out),
+        [&](typename ip_cached_hashes_type<MT>::value_type &x) -> void {
+          x.second.Update(path, file_contents);
+          out = x.second.h;
+        });
+  } else {
+    auto it = this->cached_hashes.find(sv);
+    if (it == this->cached_hashes.end()) {
+      bool succ = this->cached_hashes.try_emplace(
+          sv, path, std::ref(file_contents), std::ref(out)).second;
+      assert(succ);
+    } else {
+      (*it).second.Update(path, file_contents);
+      out = (*it).second.h;
+    }
+  }
 }
 
-bool jv_t::LookupByName(const char *name, binary_index_set &out) {
+template <bool MT>
+bool jv_base_t<MT>::LookupByName(const char *name, binary_index_set &out) {
   assert(name);
   std::string_view sv(name);
 
-  return static_cast<bool>(this->name_to_binaries.cvisit(
-      sv,
-      [&](const typename ip_name_to_binaries_map_type::value_type &x) -> void {
-        assert(!x.second.set.empty());
-        x.second.set.cvisit_all(
-            [&](binary_index_t BIdx) -> void { out.insert(BIdx); });
-      }));
+  if constexpr (MT) {
+    return static_cast<bool>(this->name_to_binaries.cvisit(
+        sv,
+        [&](const typename ip_name_to_binaries_map_type<MT>::value_type &x) -> void {
+          assert(!x.second.set.empty());
+          x.second.set.cvisit_all(
+              [&](binary_index_t BIdx) -> void { out.insert(BIdx); });
+        }));
+  } else {
+    auto it = this->name_to_binaries.find(sv);
+    if (it == this->name_to_binaries.end()) {
+      return false;
+    } else {
+      const ip_binary_index_set &set = (*it).second.set;
+      assert(!set.empty());
+      set.cvisit_all([&](binary_index_t BIdx) -> void { out.insert(BIdx); });
+      return true;
+    }
+  }
 }
 
-std::optional<binary_index_t> jv_t::LookupByHash(const hash_t &h) {
+template <bool MT>
+std::optional<binary_index_t> jv_base_t<MT>::LookupByHash(const hash_t &h) {
   std::optional<binary_index_t> Res = std::nullopt;
 
-  this->hash_to_binary.cvisit(
-      h, [&](const typename ip_hash_to_binary_map_type::value_type &x) -> void {
-        Res = x.second;
-      });
+  if constexpr (MT) {
+    this->hash_to_binary.cvisit(
+        h, [&](const typename ip_hash_to_binary_map_type<MT>::value_type &x) -> void {
+          Res = x.second;
+        });
+  } else {
+    auto it = this->hash_to_binary.find(h);
+    if (it != this->hash_to_binary.end())
+      Res = (*it).second;
+  }
+
   return Res;
 }
 
+template <bool MT>
 template <bool ValidatePath>
-std::pair<binary_index_t, bool> jv_t::AddFromPath(explorer_t &explorer,
-                                                  jv_file_t &jv_file,
-                                                  const char *path,
-                                                  on_newbin_proc_t on_newbin,
-                                                  const AddOptions_t &Options) {
+std::pair<binary_index_t, bool>
+jv_base_t<MT>::AddFromPath(explorer_t &explorer,
+                           jv_file_t &jv_file,
+                           const char *path,
+                           on_newbin_proc_t<MT> on_newbin,
+                           const AddOptions_t &Options) {
   assert(path);
 
   std::conditional_t<ValidatePath, fs::path, std::monostate> canon_path;
@@ -122,41 +158,58 @@ std::pair<binary_index_t, bool> jv_t::AddFromPath(explorer_t &explorer,
     };
 
   return AddFromDataWithHash(explorer, jv_file, get_data, h, path,
-                             invalid_binary_index, on_newbin, Options);
+                             on_newbin, Options);
 }
 
-bool jv_t::InplaceAdd(explorer_t &explorer,
-                      jv_file_t &jv_file,
-                      const binary_index_t BIdx,
-                      const AddOptions_t &Options) {
-  binary_t &b = Binaries.at(BIdx);
-  return AddFromDataWithHash(
-             explorer, jv_file, [&](void) -> std::string_view { return b.Data; },
-             hash_data(b.Data), b.Name.c_str(), BIdx, [](binary_t &) {},
-             Options)
-      .second;
-}
-
-std::pair<binary_index_t, bool> jv_t::Add(binary_t &&b,
-                                          on_newbin_proc_t on_newbin) {
+template <bool MT>
+std::pair<binary_index_t, bool> jv_base_t<MT>::Add(binary_base_t<MT> &&b,
+                                                   on_newbin_proc_t<MT> on_newbin) {
   try {
     auto h = b.Hash;
     binary_index_t Res = invalid_binary_index;
-    const bool isNewBinary = this->hash_to_binary.try_emplace_or_visit(
-        h, std::ref(Res), std::ref(*this), std::move(b),
-        [&](const typename ip_hash_to_binary_map_type::value_type &x) -> void {
-          Res = x.second;
-        });
+    bool isNewBinary;
+
+    if constexpr (MT) {
+      isNewBinary = this->hash_to_binary.try_emplace_or_visit(
+          h, std::ref(Res), *this, std::move(b),
+          [&](const typename ip_hash_to_binary_map_type<MT>::value_type &x) -> void {
+            Res = x.second;
+          });
+    } else {
+      auto it = this->hash_to_binary.find(h);
+      if (it == this->hash_to_binary.end()) {
+        isNewBinary = this->hash_to_binary.try_emplace(
+          h, std::ref(Res), *this, std::move(b)).second;
+        assert(isNewBinary);
+      } else {
+        isNewBinary = false;
+        Res = (*it).second;
+      }
+    }
 
     assert(is_binary_index_valid(Res));
 
-    binary_t &b_ = this->Binaries.at(Res);
+    binary_base_t<MT> &b_ = this->Binaries.at(Res);
 
-    const bool isNewName = this->name_to_binaries.try_emplace_or_visit(
-        b_.Name, get_allocator(), Res,
-        [&](typename ip_name_to_binaries_map_type::value_type &x) -> void {
-          x.second.set.insert(Res);
-        });
+    bool isNewName;
+    if constexpr (MT) {
+      isNewName = this->name_to_binaries.try_emplace_or_visit(
+          b_.Name, get_allocator(), Res,
+          [&](typename ip_name_to_binaries_map_type<MT>::value_type &x) -> void {
+            x.second.set.insert(Res);
+          });
+    } else {
+      auto it = this->name_to_binaries.find(b_.Name);
+      if (it == this->name_to_binaries.end()) {
+        isNewName =
+            this->name_to_binaries.try_emplace(b_.Name, get_allocator(), Res)
+                .second;
+        assert(isNewName);
+      } else {
+        isNewName = false;
+        (*it).second.set.insert(Res);
+      }
+    }
 
     if (unlikely(isNewBinary))
       on_newbin(b_);
@@ -167,45 +220,92 @@ std::pair<binary_index_t, bool> jv_t::Add(binary_t &&b,
   }
 }
 
-std::pair<binary_index_t, bool> jv_t::AddFromData(explorer_t &explorer,
-                                                  jv_file_t &jv_file,
-                                                  std::string_view data,
-                                                  const char *name,
-                                                  on_newbin_proc_t on_newbin,
-                                                  const AddOptions_t &Options) {
+template <bool MT>
+std::pair<binary_index_t, bool>
+jv_base_t<MT>::AddFromData(explorer_t &explorer,
+                           jv_file_t &jv_file,
+                           std::string_view data,
+                           const char *name,
+                           on_newbin_proc_t<MT> on_newbin,
+                           const AddOptions_t &Options) {
   return AddFromDataWithHash(
       explorer, jv_file,
       [&](void) -> std::string_view { return data; },
-      hash_data(data), name, invalid_binary_index, on_newbin, Options);
+      hash_data(data), name, on_newbin, Options);
 }
 
-std::pair<binary_index_t, bool> jv_t::AddFromDataWithHash(explorer_t &explorer,
-                                                          jv_file_t &jv_file,
-                                                          get_data_t get_data,
-                                                          const hash_t &h,
-                                                          const char *name,
-                                                          const binary_index_t TargetIdx,
-                                                          on_newbin_proc_t on_newbin,
-                                                          const AddOptions_t &Options) {
+template <bool MT>
+std::pair<binary_index_t, bool> jv_base_t<MT>::AddFromDataWithHash(
+    explorer_t &explorer,
+    jv_file_t &jv_file,
+    get_data_t get_data,
+    const hash_t &h,
+    const char *name,
+    on_newbin_proc_t<MT> on_newbin,
+    const AddOptions_t &Options) {
   try {
     binary_index_t Res = invalid_binary_index;
-    const bool isNewBinary = this->hash_to_binary.try_emplace_or_visit(
-        h, std::ref(Res), jv_file, std::ref(*this), std::ref(explorer), get_data,
-        std::ref(h), name, TargetIdx, std::ref(Options),
-        [&](const typename ip_hash_to_binary_map_type::value_type &x) -> void {
-          Res = x.second;
-        });
+    bool isNewBinary;
+    if constexpr (MT) {
+      isNewBinary = this->hash_to_binary.try_emplace_or_visit(
+          h, std::ref(Res), jv_file, *this,
+          std::ref(explorer), get_data, std::ref(h), name,
+          std::ref(Options),
+          [&](const typename ip_hash_to_binary_map_type<MT>::value_type &x)
+              -> void { Res = x.second; });
+    } else {
+      auto it = this->hash_to_binary.find(h);
+      if (it == this->hash_to_binary.end()) {
+        isNewBinary =
+            this->hash_to_binary
+                .try_emplace(h, std::ref(Res), jv_file,
+                             *this, std::ref(explorer),
+                             get_data, std::ref(h), name,
+                             std::ref(Options))
+                .second;
+        assert(isNewBinary);
+      } else {
+        isNewBinary = false;
+        Res = (*it).second;
+      }
+    }
 
     assert(is_binary_index_valid(Res));
 
-    const bool isNewName = this->name_to_binaries.try_emplace_or_visit(
-        std::string_view(name), get_allocator(), Res,
-        [&](typename ip_name_to_binaries_map_type::value_type &x) -> void {
-          x.second.set.insert(Res);
-        });
+    std::string_view name_sv(name);
+
+    bool isNewName;
+    if constexpr (MT) {
+      isNewName = this->name_to_binaries.try_emplace_or_visit(
+          name_sv, get_allocator(), Res,
+          [&](typename ip_name_to_binaries_map_type<MT>::value_type &x) -> void {
+            x.second.set.insert(Res);
+          });
+    } else {
+      auto it = this->name_to_binaries.find(name_sv);
+      if (it == this->name_to_binaries.end()) {
+        isNewName =
+            this->name_to_binaries.try_emplace(name_sv, get_allocator(), Res)
+                .second;
+        assert(isNewName);
+      } else {
+        isNewName = false;
+        (*it).second.set.insert(Res);
+      }
+    }
+
+    binary_base_t<MT> &b = this->Binaries.at(Res);
+    if (Options.Objdump) {
+      catch_exception([&]() {
+        std::unique_ptr<llvm::object::Binary> Bin = B::Create(b.data());
+
+        run_objdump_and_parse_addresses(b.is_file() ? b.Name.c_str() : nullptr,
+                                        *Bin, b.Analysis.objdump);
+      });
+    }
 
     if (unlikely(isNewBinary))
-      on_newbin(this->Binaries.at(Res));
+      on_newbin(b);
 
     return std::make_pair(Res, isNewBinary || isNewName);
   } catch (...) {
@@ -213,14 +313,14 @@ std::pair<binary_index_t, bool> jv_t::AddFromDataWithHash(explorer_t &explorer,
   }
 }
 
+template <bool MT>
 adds_binary_t::adds_binary_t(binary_index_t &out,
                              jv_file_t &jv_file,
-                             jv_t &jv,
+                             jv_base_t<MT> &jv,
                              explorer_t &explorer,
                              get_data_t get_data,
                              const hash_t &h,
                              const char *name,
-                             const binary_index_t TargetIdx,
                              const AddOptions_t &Options) {
   std::string_view data = get_data();
 
@@ -232,90 +332,71 @@ adds_binary_t::adds_binary_t(binary_index_t &out,
   //
   // if we make it here then it's most likely a legitimate binary of interest.
   //
-  const bool HasTargetIdx = is_binary_index_valid(TargetIdx);
-
-  binary_t _b(jv_file);
-
   {
-    binary_t &b = HasTargetIdx ? jv.Binaries.at(TargetIdx) : _b;
+    binary_base_t<false> b(jv_file);
 
-    if (HasTargetIdx) {
-      b.Idx = TargetIdx; /* XXX might as well ensure? */
-    } else {
-      if (name)
-        to_ips(b.Name, name); /* set up name */
-    }
-
-    if (Options.Objdump) {
-      try {
-        run_objdump_and_parse_addresses(b.is_file() ? b.Name.c_str() : nullptr,
-                                        *Bin, b.Analysis.objdump);
-      } catch (...) {
-        ; // failed to run objdump
-      }
-    }
+    if (name)
+      to_ips(b.Name, name); /* set up name */
 
     jv.DoAdd(b, explorer, *Bin, Options);
 
     //
     // success!
     //
-    if (!HasTargetIdx) {
-      b.Data.resize(data.size()); /* lock it in */
-      memcpy(&b.Data[0], data.data(), data.size());
+    b.Data.resize(data.size()); /* lock it in */
+    memcpy(&b.Data[0], data.data(), data.size());
+
+    b.Hash = h;
+
+    {
+      auto e_lck = jv.Binaries.exclusive_access();
+
+      BIdx = jv.Binaries.container().size();
+      b.Idx = BIdx;
+      jv.Binaries.container().push_back(std::move(b));
     }
   }
 
-  BIdx = TargetIdx;
-  if (!HasTargetIdx) {
-    assert(!is_binary_index_valid(BIdx));
-
-    auto e_lck = jv.Binaries.exclusive_access();
-
-    BIdx = jv.Binaries._deque.size();
-    _b.Idx = BIdx;
-    jv.Binaries.container().push_back(std::move(_b));
-  }
-
-  binary_t &b = jv.Binaries.at(BIdx);
-  b.Hash = h;
-
+  binary_base_t<MT> &b = jv.Binaries.at(BIdx);
   assert(b.Idx == BIdx);
 
-  if (!HasTargetIdx)
-    for (function_t &f : b.Analysis.Functions)
-      f.b = &b; /* XXX */
+  for (function_t &f : b.Analysis.Functions)
+    f.b = &b; /* XXX */
 
   out = BIdx;
 }
 
-adds_binary_t::adds_binary_t(binary_index_t &out, jv_t &jv, binary_t &&b) {
+template <bool MT>
+adds_binary_t::adds_binary_t(binary_index_t &out,
+                             jv_base_t<MT> &jv,
+                             binary_base_t<MT> &&b) {
   if (unlikely(b.data().empty()))
     throw std::runtime_error("adds_binary_t(): no data");
 
   {
     auto e_lck = jv.Binaries.exclusive_access();
 
-    BIdx = jv.Binaries._deque.size();
+    BIdx = jv.Binaries.container().size();
     b.Idx = BIdx;
-    jv.Binaries._deque.push_back(std::move(b));
+    jv.Binaries.container().push_back(std::move(b));
   }
 
-  binary_t &newb = jv.Binaries.at(BIdx);
+  binary_base_t<MT> &newb = jv.Binaries.at(BIdx);
   for (function_t &f : newb.Analysis.Functions)
     f.b = &newb; /* XXX */
 
   out = BIdx;
 }
 
-void jv_t::clear(bool everything) {
+template <bool MT>
+void jv_base_t<MT>::clear(bool everything) {
   name_to_binaries.clear();
   hash_to_binary.clear();
 
   {
     auto e_lck = this->Binaries.exclusive_access();
 
-    this->Binaries._deque.clear();
+    this->Binaries.container().clear();
   }
 
   {
@@ -327,15 +408,17 @@ void jv_t::clear(bool everything) {
     cached_hashes.clear();
 }
 
-void jv_t::InvalidateFunctionAnalyses(void) {
-  for_each_binary(std::execution::par_unseq, *this, [&](binary_t &b) {
+template <bool MT>
+void jv_base_t<MT>::InvalidateFunctionAnalyses(void) {
+  for_each_binary(std::execution::par_unseq, *this, [&](binary_base_t<MT> &b) {
     for_each_function_in_binary(std::execution::par_unseq, b,
                                 [&](function_t &f) { f.InvalidateAnalysis(); });
   });
 }
 
-function_t::function_t(binary_t &b, function_index_t Idx)
-    : b(&b), Idx(Idx), Callers(b.get_allocator()) {}
+template <bool MT>
+function_t::function_t(binary_base_t<MT> &b, function_index_t Idx)
+    : b((void *)&b), Idx(Idx), Callers(b.get_allocator()) {}
 
 function_t::function_t(const ip_void_allocator_t &A)
     : Callers(A) {}
@@ -345,11 +428,47 @@ function_t::function_t(const ip_void_allocator_t &A)
     ((false))
 
 #define GET_VALUE(x) BOOST_PP_TUPLE_ELEM(0, x)
-#define DO_INSTANTIATE(r, data, elem)                                          \
-  template std::pair<binary_index_t, bool> jv_t::AddFromPath<GET_VALUE(elem)>( \
-      explorer_t &, jv_file_t &, const char *, on_newbin_proc_t,               \
-      const AddOptions_t &);
 
+#define DO_INSTANTIATE(r, data, elem)                                          \
+  template function_t::function_t(binary_base_t<GET_VALUE(elem)> &,            \
+                                  function_index_t Idx);
 BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, VALUES_TO_INSTANTIATE_WITH)
 
+#define DO_INSTANTIATE(r, ValidatePath, elem)                                  \
+  template std::pair<binary_index_t, bool>                                     \
+  jv_base_t<GET_VALUE(elem)>::AddFromPath<ValidatePath>(                       \
+      explorer_t &, jv_file_t &, const char *,                                 \
+      on_newbin_proc_t<GET_VALUE(elem)>, const AddOptions_t &);
+BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, true, VALUES_TO_INSTANTIATE_WITH)
+BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, false, VALUES_TO_INSTANTIATE_WITH)
+
+#define DO_INSTANTIATE(r, data, elem)                                          \
+  template std::pair<binary_index_t, bool> jv_base_t<GET_VALUE(elem)>::Add(    \
+      binary_base_t<GET_VALUE(elem)> &&, on_newbin_proc_t<GET_VALUE(elem)>);
+BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, VALUES_TO_INSTANTIATE_WITH)
+
+#define DO_INSTANTIATE(r, data, elem)                                          \
+  template std::pair<binary_index_t, bool>                                     \
+  jv_base_t<GET_VALUE(elem)>::AddFromData(                                     \
+      explorer_t &, jv_file_t &, std::string_view, const char *,               \
+      on_newbin_proc_t<GET_VALUE(elem)>, const AddOptions_t &);
+BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, VALUES_TO_INSTANTIATE_WITH)
+
+#define DO_INSTANTIATE(r, data, elem)                                          \
+  template std::optional<binary_index_t>                                       \
+  jv_base_t<GET_VALUE(elem)>::LookupByHash(const hash_t &);
+BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, VALUES_TO_INSTANTIATE_WITH)
+
+#define DO_INSTANTIATE(r, data, elem)                                          \
+  template bool jv_base_t<GET_VALUE(elem)>::LookupByName(const char *name,     \
+                                                         binary_index_set &);
+BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, VALUES_TO_INSTANTIATE_WITH)
+
+#define DO_INSTANTIATE(r, data, elem)                                          \
+  template void jv_base_t<GET_VALUE(elem)>::clear(bool everything);
+BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, VALUES_TO_INSTANTIATE_WITH)
+
+#define DO_INSTANTIATE(r, data, elem)                                          \
+template void jv_base_t<GET_VALUE(elem)>::InvalidateFunctionAnalyses(void);
+BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, VALUES_TO_INSTANTIATE_WITH)
 }

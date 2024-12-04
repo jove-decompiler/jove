@@ -8,7 +8,8 @@ template <typename BinaryStateTy = void,
           bool MultiThreaded = true,
           bool LazyInitialization = true,
           bool Eager = false,
-          bool BoundsChecking = true>
+          bool BoundsChecking = true,
+          bool MT = true>
 class jv_state_t {
   static_assert(!std::is_void_v<BinaryStateTy> ||
                     !std::is_void_v<FunctionStateTy> ||
@@ -18,7 +19,7 @@ class jv_state_t {
                 "If no bounds checking must be eager");
 
 private:
-  const jv_t &jv;
+  const jv_base_t<MT> &jv;
 
   template <typename T>
   using ContainerType =
@@ -68,7 +69,7 @@ public:
       if constexpr (!MultiThreaded)
         x.reserve(N_B);
 
-      const binary_t &b = jv.Binaries.at(BIdx);
+      const binary_base_t<MT> &b = jv.Binaries.at(BIdx);
 
       if constexpr (std::is_void_v<BinaryStateTy>) {
         x.emplace_back();
@@ -82,7 +83,7 @@ public:
     }
 
     for (binary_index_t BIdx = 0; BIdx < N_B; ++BIdx) {
-      const binary_t &b = jv.Binaries.at(BIdx);
+      const binary_base_t<MT> &b = jv.Binaries.at(BIdx);
 
       StateTuple &y = x.at(BIdx);
 
@@ -126,7 +127,7 @@ public:
     }
   }
 
-  void update(const binary_t &b) {
+  void update(const binary_base_t<MT> &b) {
     if constexpr (!MultiThreaded)
       x.reserve(jv.Binaries.size());
 
@@ -156,7 +157,7 @@ public:
   }
 
   template <typename T = FunctionStateTy>
-  std::enable_if_t<!std::is_void_v<T>, void> update(const binary_t &b,
+  std::enable_if_t<!std::is_void_v<T>, void> update(const binary_base_t<MT> &b,
                                                     const function_t &f,
                                                     FunctionStateContainer &y) {
     if constexpr (!MultiThreaded)
@@ -180,7 +181,7 @@ public:
   }
 
   template <typename T = BasicBlockStateTy>
-  std::enable_if_t<!std::is_void_v<T>, void> update(const binary_t &b,
+  std::enable_if_t<!std::is_void_v<T>, void> update(const binary_base_t<MT> &b,
                                                     basic_block_t bb,
                                                     BasicBlockStateContainer &y) {
     if constexpr (!MultiThreaded)
@@ -205,7 +206,7 @@ public:
 
 public:
   template <typename T = BinaryStateTy>
-  std::enable_if_t<!std::is_void_v<T>, T &> for_binary(const binary_t &b) {
+  std::enable_if_t<!std::is_void_v<T>, T &> for_binary(const binary_base_t<MT> &b) {
     if constexpr (LazyInitialization) {
       std::unique_ptr<BinaryStateTy> &y = __for_binary(b);
       if (unlikely(!y))
@@ -229,7 +230,7 @@ public:
   }
 
   template <typename T = BasicBlockStateTy>
-  std::enable_if_t<!std::is_void_v<T>, T &> for_basic_block(const binary_t &b,
+  std::enable_if_t<!std::is_void_v<T>, T &> for_basic_block(const binary_base_t<MT> &b,
                                                             basic_block_t bb) {
     if constexpr (LazyInitialization) {
       std::unique_ptr<BasicBlockStateTy> &y = __for_basic_block(b, bb);
@@ -245,7 +246,7 @@ private:
   template <typename T = BinaryStateTy>
   std::enable_if_t<!std::is_void_v<T>,
                    std::conditional_t<std::is_void_v<T>, void, StatePtr<T> &>>
-  __for_binary(const binary_t &b) {
+  __for_binary(const binary_base_t<MT> &b) {
     if constexpr (BoundsChecking) {
       if constexpr (Eager) {
         try {
@@ -331,7 +332,7 @@ private:
   template <typename T = BasicBlockStateTy>
   std::enable_if_t<!std::is_void_v<T>,
                    std::conditional_t<std::is_void_v<T>, void, StatePtr<T> &>>
-  __for_basic_block(const binary_t &b, basic_block_t bb) {
+  __for_basic_block(const binary_base_t<MT> &b, basic_block_t bb) {
     if constexpr (BoundsChecking) {
       if constexpr (Eager) {
         try {

@@ -32,8 +32,8 @@ int UnlockTool::Run(void) {
   jv.Binaries.__force_reset_access();
   std::for_each(
       std::execution::par_unseq,
-      jv.Binaries._deque.begin(),
-      jv.Binaries._deque.end(), [&](binary_t &b) {
+      jv.Binaries.container().begin(),
+      jv.Binaries.container().end(), [&](binary_t &b) {
 	__builtin_memset(&b.bbmap_mtx, 0, sizeof(b.bbmap_mtx));
         b.Analysis.ICFG.__force_reset_access();
         b.Analysis.Functions.__force_reset_access();

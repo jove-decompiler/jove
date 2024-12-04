@@ -18,7 +18,8 @@ struct invalid_control_flow_exception {
   taddr_t pc = ~0UL;
 
   invalid_control_flow_exception() = default;
-  invalid_control_flow_exception(binary_t &b, uint64_t pc)
+  template <bool MT>
+  invalid_control_flow_exception(binary_base_t<MT> &b, uint64_t pc)
       : name_of_binary(b.Name.c_str()), pc(pc) {}
 };
 
@@ -26,8 +27,19 @@ struct tiny_code_generator_t;
 
 typedef std::function<void(basic_block_t, basic_block_properties_t &)> onblockproc_t;
 typedef std::function<void(basic_block_index_t)> onblockproc_u_t;
-typedef std::function<void(binary_t &, basic_block_t)> on_newbb_proc_t;
-typedef std::function<void(binary_t &, function_t &)> on_newfn_proc_t;
+
+
+template <bool MT>
+using on_newbb_proc = std::function<void(binary_base_t<MT> &, basic_block_t)>;
+
+typedef on_newbb_proc<false> on_newbb_proc_f;
+typedef on_newbb_proc<true> on_newbb_proc_t;
+
+template <bool MT>
+using on_newfn_proc = std::function<void(binary_base_t<MT> &, function_t &)>;
+
+typedef on_newfn_proc<false> on_newfn_proc_f;
+typedef on_newfn_proc<true> on_newfn_proc_t;
 
 static inline void nop_on_block(basic_block_t,
                                 basic_block_properties_t &) {}
@@ -41,31 +53,36 @@ class explorer_t {
   tiny_code_generator_t &tcg;
   const bool verbose;
 
-  on_newbb_proc_t on_newbb_proc;
-  on_newfn_proc_t on_newfn_proc;
+  on_newbb_proc_f the_on_newbb_proc_f = [](binary_base_t<false> &, basic_block_t) {};
+  on_newbb_proc_t the_on_newbb_proc_t = [](binary_base_t<true> &, basic_block_t) {};
 
-  template <bool WithOnBlockProc = false>
-  bool split(binary_t &, llvm::object::Binary &,
-             ip_scoped_lock<ip_sharable_mutex> e_lck_bb,
+  on_newfn_proc_f the_on_newfn_proc_f = [](binary_base_t<false> &, function_t &) {};
+  on_newfn_proc_t the_on_newfn_proc_t = [](binary_base_t<true> &, function_t &) {};
+
+  template <bool WithOnBlockProc = false, bool MT = true>
+  bool split(binary_base_t<MT> &, llvm::object::Binary &,
+             bbprop_t::exclusive_lock_guard<MT> e_lck_bb,
              bbmap_t::iterator it,
              const taddr_t Addr,
              basic_block_index_t,
              onblockproc_t obp = nop_on_block);
 
-  template <bool WithOnBlockProc = false>
-  basic_block_index_t _explore_basic_block(binary_t &,
+  template <bool WithOnBlockProc = false, bool MT = true>
+  basic_block_index_t _explore_basic_block(binary_base_t<MT> &,
                                            llvm::object::Binary &,
                                            const taddr_t Addr,
                                            bool Speculative,
                                            onblockproc_t obp = nop_on_block,
                                            onblockproc_u_t obp_u = nop_on_block_u);
 
-  function_index_t _explore_function(binary_t &,
+  template <bool MT>
+  function_index_t _explore_function(binary_base_t<MT> &,
                                      llvm::object::Binary &,
                                      const taddr_t Addr,
                                      const bool Speculative);
 
-  void _control_flow_to(binary_t &,
+  template <bool MT>
+  void _control_flow_to(binary_base_t<MT> &,
                         llvm::object::Binary &,
                         const taddr_t TermAddr,
                         const taddr_t Target,
@@ -73,14 +90,8 @@ class explorer_t {
                         basic_block_t bb /* unused if !Speculative */);
 
 public:
-  explorer_t(
-      disas_t &disas, tiny_code_generator_t &tcg,
-      bool verbose = false,
-      on_newbb_proc_t on_newbb_proc = [](binary_t &, basic_block_t) {},
-      on_newfn_proc_t on_newfn_proc = [](binary_t &, function_t &) {})
-      : disas(disas), tcg(tcg), verbose(verbose),
-        on_newbb_proc(on_newbb_proc),
-        on_newfn_proc(on_newfn_proc) {}
+  explorer_t(disas_t &disas, tiny_code_generator_t &tcg, bool verbose = false)
+      : disas(disas), tcg(tcg), verbose(verbose) {}
 
   //
   // the objective is to translate all the code we can up until indirect
@@ -88,36 +99,55 @@ public:
   // do when it sees new code before it can allow the tracee to continue
   // executing.
   //
-  basic_block_index_t explore_basic_block(binary_t &,
+  template <bool MT>
+  basic_block_index_t explore_basic_block(binary_base_t<MT> &,
                                           llvm::object::Binary &,
                                           taddr_t Addr);
 
-  basic_block_index_t explore_basic_block(binary_t &,
+  template <bool MT>
+  basic_block_index_t explore_basic_block(binary_base_t<MT> &,
                                           llvm::object::Binary &,
                                           taddr_t Addr,
                                           onblockproc_t obp,
                                           onblockproc_u_t obp_u);
 
-  function_index_t explore_function(binary_t &,
+  template <bool MT>
+  function_index_t explore_function(binary_base_t<MT> &,
                                     llvm::object::Binary &,
                                     taddr_t Addr);
 
-  on_newbb_proc_t get_newbb_proc(void) const {
-    return on_newbb_proc;
+  template <bool MT = true>
+  on_newbb_proc<MT> get_newbb_proc(void) const {
+    if constexpr (MT)
+      return the_on_newbb_proc_t;
+    else
+      return the_on_newbb_proc_f;
   }
 
-  void set_newbb_proc(on_newbb_proc_t proc) {
-    on_newbb_proc = proc;
+  template <bool MT = true>
+  void set_newbb_proc(on_newbb_proc<MT> proc) {
+    if constexpr (MT)
+      the_on_newbb_proc_t = proc;
+    else
+      the_on_newbb_proc_f = proc;
   }
 
-  on_newfn_proc_t get_newfn_proc(void) const {
-    return on_newfn_proc;
+  template <bool MT = true>
+  on_newfn_proc<MT> get_newfn_proc(void) const {
+    if constexpr (MT)
+      return the_on_newfn_proc_t;
+    else
+      return the_on_newfn_proc_f;
   }
 
   // NOTE: the new function will initially posses an invalid basic block index
   // for Entry
-  void set_newfn_proc(on_newfn_proc_t proc) {
-    on_newfn_proc = proc;
+  template <bool MT = true>
+  void set_newfn_proc(on_newfn_proc<MT> proc) {
+    if constexpr (MT)
+      the_on_newfn_proc_t = proc;
+    else
+      the_on_newfn_proc_f = proc;
   }
 };
 

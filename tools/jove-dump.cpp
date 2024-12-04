@@ -383,7 +383,9 @@ void DumpTool::dumpDecompilation(const jv_t& jv) {
           std::vector<caller_t> Callers;
           Callers.reserve(f.Callers.size());
 
-          f.Callers.visit_all([&](const caller_t &x) -> void {
+          std::for_each(f.Callers.cbegin(),
+                        f.Callers.cend(),
+          [&](const caller_t &x) -> void {
             Callers.push_back(x);
           });
 

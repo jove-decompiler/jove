@@ -85,7 +85,8 @@ class Binary;
 namespace jove {
 
 class explorer_t;
-struct jv_t;
+template <bool MT>
+struct jv_base_t;
 
 static inline std::string taddr2str(taddr_t x, bool zero_padded = true) {
   std::stringstream stream;
@@ -259,7 +260,15 @@ struct __do_nothing_t {
   void lock(void) const {}
 };
 
-template <typename T, typename Alloc, bool PointUnique = false, bool MT = true, bool Spin = true>
+template <bool MT, typename Spin, typename... Params>
+using possibly_concurrent_flat_map =
+    std::conditional_t<MT, boost::concurrent_flat_map<Params..., Spin>,
+                       boost::unordered_flat_map<Params...>>;
+
+template <typename T, typename Alloc,
+          bool MT = true,
+          bool Spin = true,
+          bool PointUnique = false>
 struct deque {
   using type = boost::interprocess::deque<T, Alloc>;
 
@@ -316,14 +325,15 @@ public:
   template <bool E = PointUnique, typename std::enable_if<!E, int>::type = 0>
   deque(jv_file_t &jv_file) : _deque(jv_file.get_segment_manager()) {}
 
-  template <bool M2, bool S2>
-  deque(deque<T, Alloc, M2, S2> &&other) noexcept
+  template <bool MT2, bool Spin2>
+  deque(deque<T, Alloc, MT2, Spin2, PointUnique> &&other) noexcept
       : _deque(std::move(other._deque)) {}
 
-  deque<T, Alloc, PointUnique, MT, Spin> &
-  operator=(deque<T, Alloc, PointUnique, MT, Spin> &&other) noexcept {
-    if (this == &other) {
-      return *this;
+  template <bool MT2, bool Spin2>
+  deque &operator=(deque<T, Alloc, MT2, Spin2, PointUnique> &&other) noexcept {
+    if constexpr (MT == MT2) {
+      if (this == &other)
+        return *this;
     }
 
     _deque = std::move(other._deque);
@@ -367,7 +377,7 @@ template <class OutEdgeListS,
           class EdgeProperty,
           class GraphProperty,
           class EdgeListS,
-          bool PointUnique = true, bool MT = true, bool Spin = true>
+          bool MT = true, bool Spin = true, bool PointUnique = true>
 struct adjacency_list {
   using type = boost::adjacency_list<OutEdgeListS, VertexListS, DirectedS,
                                      VertexProperty, EdgeProperty,
@@ -439,14 +449,23 @@ public:
       : _adjacency_list(typename type::graph_property_type(),
                         jv_file.get_segment_manager()) {}
 
-  adjacency_list(adjacency_list &&other) noexcept
+  template <bool MT2, bool Spin2>
+  adjacency_list(
+      adjacency_list<OutEdgeListS, VertexListS, DirectedS, VertexProperty,
+                     EdgeProperty, GraphProperty, EdgeListS, MT2, Spin2,
+                     PointUnique> &&other) noexcept
       : _adjacency_list(std::move(other._adjacency_list)),
         _size(other._size.load()) {}
 
+  template <bool MT2, bool Spin2>
   adjacency_list &
-  operator=(adjacency_list &&other) noexcept {
-    if (this == &other)
-      return *this;
+  operator=(adjacency_list<OutEdgeListS, VertexListS, DirectedS, VertexProperty,
+                           EdgeProperty, GraphProperty, EdgeListS, MT2, Spin2,
+                           PointUnique> &&other) noexcept {
+    if constexpr (MT == MT2) {
+      if (this == &other)
+        return *this;
+    }
 
     _adjacency_list = std::move(other._adjacency_list);
     _size.store(other._size.load());
@@ -705,7 +724,8 @@ struct addr_intvl_cmp {
 typedef boost::container::flat_map<addr_intvl, binary_index_t, addr_intvl_cmp>
     address_space_t;
 
-struct binary_t;
+template <bool MT>
+struct binary_base_t;
 
 struct allocates_basic_block_t {
   basic_block_index_t BBIdx = invalid_basic_block_index;
@@ -713,17 +733,20 @@ struct allocates_basic_block_t {
   allocates_basic_block_t () = default;
 
   // allocates (creates) new basic block in binary, stores index
-  inline allocates_basic_block_t(binary_t &b, basic_block_index_t &store,
+  template <bool MT>
+  inline allocates_basic_block_t(binary_base_t<MT> &b, basic_block_index_t &store,
                                  taddr_t Addr);
 
   operator basic_block_index_t() const { return BBIdx; }
 };
 
-typedef boost::concurrent_flat_map<
+template <bool MT>
+using bbbmap_t =
+possibly_concurrent_flat_map<
+    MT, std::true_type /* Spin */,
     taddr_t, allocates_basic_block_t, boost::hash<taddr_t>, std::equal_to<taddr_t>,
-    boost::interprocess::allocator<std::pair<const taddr_t, basic_block_index_t>,
-                                   segment_manager_t>>
-    bbbmap_t;
+    boost::interprocess::allocator<std::pair<const taddr_t, allocates_basic_block_t>,
+                                   segment_manager_t>>;
 
 typedef boost::interprocess::flat_map<
     addr_intvl, basic_block_index_t, addr_intvl_cmp,
@@ -737,16 +760,18 @@ struct allocates_function_t {
   allocates_function_t() = default;
 
   // allocates (creates) new function in binary, stores index
-  inline allocates_function_t(binary_t &b, function_index_t &store);
+  template <bool MT>
+  inline allocates_function_t(binary_base_t<MT> &b, function_index_t &store);
 
   operator function_index_t() const { return FIdx; }
 };
 
-typedef boost::concurrent_flat_map<
+template <bool MT>
+using fnmap_t = possibly_concurrent_flat_map<
+    MT, std::true_type /* Spin */,
     taddr_t, allocates_function_t, boost::hash<taddr_t>, std::equal_to<taddr_t>,
-    boost::interprocess::allocator<std::pair<const taddr_t, function_index_t>,
-                                   segment_manager_t>>
-    fnmap_t;
+    boost::interprocess::allocator<std::pair<const taddr_t, allocates_function_t>,
+                                   segment_manager_t>>;
 
 typedef boost::unordered::unordered_flat_set<
     function_index_t, boost::hash<function_index_t>,
@@ -765,13 +790,30 @@ typedef boost::unordered_node_set<
     boost::interprocess::allocator<function_index_t, segment_manager_t>>
     ip_func_index_sets;
 
-struct jv_t;
 size_t jvDefaultInitialSize(void);
 
 #include "jove/atomic.h"
 
 struct basic_block_properties_t {
   mutable ip_sharable_mutex mtx;
+
+  template <bool MT>
+  using shared_lock_guard =
+      std::conditional_t<MT, ip_sharable_lock<ip_sharable_mutex>, __do_nothing_t>;
+  template <bool MT>
+  using exclusive_lock_guard =
+      std::conditional_t<MT, ip_scoped_lock<ip_sharable_mutex>, __do_nothing_t>;
+
+  template <bool MT> shared_lock_guard<MT> shared_access() const {
+    return shared_lock_guard<MT>{mtx};
+  }
+  template <bool MT> exclusive_lock_guard<MT> exclusive_access() const {
+    return exclusive_lock_guard<MT>{mtx};
+  }
+
+  template <bool MT> using pub_shared_lock_guard = shared_lock_guard<MT>;
+  template <bool MT> using pub_exclusive_lock_guard = exclusive_lock_guard<MT>;
+
   struct {
     std::atomic<bool> is = false;
     mutable ip_sharable_mutex mtx;
@@ -860,7 +902,8 @@ struct basic_block_properties_t {
   unsigned getNumDynTargets(void) const {
     return DynTargets.size();
   }
-  bool insertDynTarget(binary_index_t ThisBIdx, const dynamic_target_t &, jv_t &);
+  template <bool MT>
+  bool insertDynTarget(binary_index_t ThisBIdx, const dynamic_target_t &, jv_base_t<MT> &);
   bool DynTargetsAnyOf(std::function<bool(const dynamic_target_t &)> proc) const {
     bool res = false;
     DynTargets.cvisit_while([&](const dynamic_target_t &X) -> bool {
@@ -895,9 +938,13 @@ struct basic_block_properties_t {
     return res;
   }
 
+  template <bool MT = true>
   bool HasParent(void) const;
+  template <bool MT = true>
   bool IsParent(function_index_t) const;
-  void AddParent(function_index_t, jv_t &);
+  template <bool MT = true>
+  void AddParent(function_index_t, jv_base_t<MT> &);
+  template <bool MT = true>
   void GetParents(func_index_set &) const;
 
   bool IsSingleInstruction(void) const { return Addr == Term.Addr; }
@@ -926,14 +973,20 @@ struct basic_block_properties_t {
   }
 };
 
-typedef adjacency_list<boost::setS_ip,           /* OutEdgeList */
-                       boost::dequeS_ip,         /* VertexList */
-                       boost::directedS,         /* Directed */
-                       basic_block_properties_t, /* VertexProperties */
-                       boost::no_property,       /* EdgeProperties */
-                       boost::no_property,       /* GraphProperties */
-                       boost::listS_ip>          /* EdgeList */
-    ip_icfg_t;
+typedef basic_block_properties_t bbprop_t;
+
+template <bool MT>
+using ip_icfg_base_t =
+adjacency_list<boost::setS_ip,           /* OutEdgeList */
+               boost::dequeS_ip,         /* VertexList */
+               boost::directedS,         /* Directed */
+               basic_block_properties_t, /* VertexProperties */
+               boost::no_property,       /* EdgeProperties */
+               boost::no_property,       /* GraphProperties */
+               boost::listS_ip,          /* EdgeList */
+               MT>;
+
+typedef ip_icfg_base_t<true> ip_icfg_t;
 
 typedef ip_icfg_t::type interprocedural_control_flow_graph_t;
 
@@ -957,14 +1010,16 @@ constexpr bool IsDefinitelyTailCall(const ip_icfg_t &ICFG, basic_block_t bb) {
   return bbprop.hasDynTarget();
 }
 
-constexpr bool IsAmbiguousIndirectJump(const ip_icfg_t &ICFG, basic_block_t bb) {
+template <bool MT>
+constexpr bool IsAmbiguousIndirectJump(const ip_icfg_base_t<MT> &ICFG, basic_block_t bb) {
   auto &bbprop = ICFG[bb];
 
   assert(bbprop.Term.Type == TERMINATOR::INDIRECT_JUMP); /* catch bugs */
   return bbprop.hasDynTarget() && ICFG.out_degree(bb) > 0;
 }
 
-constexpr bool IsExitBlock(const ip_icfg_t &ICFG, basic_block_t bb) {
+template <bool MT>
+constexpr bool IsExitBlock(const ip_icfg_base_t<MT> &ICFG, basic_block_t bb) {
   auto T = ICFG[bb].Term.Type;
 
   return T == TERMINATOR::RETURN ||
@@ -999,23 +1054,21 @@ constexpr bool IsExitBlock(const ip_icfg_t &ICFG, basic_block_t bb) {
 //       ...
 //
 typedef std::pair<binary_index_t, taddr_t> caller_t;
-typedef boost::concurrent_flat_set<
+typedef boost::unordered_flat_set<
     caller_t, boost::hash<caller_t>, std::equal_to<caller_t>,
     boost::interprocess::allocator<caller_t, segment_manager_t>>
-    ip_callers;
-
-struct binary_t;
+    callers_t;
 
 struct function_t {
   bool Speculative = false;
 
-  boost::interprocess::offset_ptr<binary_t> b;
+  boost::interprocess::offset_ptr<void> b;
 
   function_index_t Idx = invalid_function_index;
 
   basic_block_index_t Entry = invalid_basic_block_index;
 
-  ip_callers Callers;
+  callers_t Callers;
 
   struct Analysis_t {
     tcg_global_set_t args;
@@ -1030,20 +1083,22 @@ struct function_t {
     this->Analysis.Stale = true;
   }
 
-  function_t(binary_t &, function_index_t);
+  template <bool MT>
+  function_t(binary_base_t<MT> &, function_index_t);
   function_t(const ip_void_allocator_t &); /* XXX */
   function_t() = delete;
 };
 
 #include "jove/objdump.h"
 
-struct binary_t {
+template <bool MT = true>
+struct binary_base_t {
   binary_index_t Idx = invalid_binary_index;
 
-  bbbmap_t bbbmap;
+  bbbmap_t<MT> bbbmap;
 
   bbmap_t bbmap;
-  fnmap_t fnmap;
+  fnmap_t<MT> fnmap;
 
   ip_string Name;
   ip_string Data;
@@ -1055,7 +1110,21 @@ struct binary_t {
 
   bool IsDynamicallyLoaded;
 
-  ip_sharable_mutex bbmap_mtx;
+  using bbmap_mutex_type =
+      std::conditional_t<MT, ip_sharable_mutex, std::monostate>;
+  using bbmap_shared_lock_guard =
+      std::conditional_t<MT, ip_sharable_lock<bbmap_mutex_type>, __do_nothing_t>;
+  using bbmap_exclusive_lock_guard =
+      std::conditional_t<MT, ip_scoped_lock<bbmap_mutex_type>, __do_nothing_t>;
+
+  mutable bbmap_mutex_type bbmap_mtx;
+
+  bbmap_shared_lock_guard bbmap_shared_access() const {
+    return bbmap_shared_lock_guard{bbmap_mtx};
+  }
+  bbmap_exclusive_lock_guard bbmap_exclusive_access() const {
+    return bbmap_exclusive_lock_guard{bbmap_mtx};
+  }
 
   struct Analysis_t {
     function_index_t EntryFunction = invalid_function_index;
@@ -1063,16 +1132,22 @@ struct binary_t {
     //
     // references to function_t will never be invalidated.
     //
-    deque<function_t, boost::interprocess::allocator<function_t, segment_manager_t>, true> Functions;
+    deque<function_t,
+          boost::interprocess::allocator<function_t, segment_manager_t>, MT,
+          true, true>
+        Functions;
 
     //
     // references to basic_block_properties_t will never be invalidated
     // (although their fields are subject to change: see explorer_t::split() in
     //  core/explore.cpp)
-    ip_icfg_t ICFG;
+    ip_icfg_base_t<MT> ICFG;
 
     Analysis_t() = delete;
-    Analysis_t(jv_file_t &jv_file)
+    Analysis_t(const Analysis_t &) = delete;
+    Analysis_t &operator=(const Analysis_t &) = delete;
+
+    explicit Analysis_t(jv_file_t &jv_file)
         : Functions(jv_file),
           ICFG(jv_file),
           objdump(jv_file.get_segment_manager()) {}
@@ -1083,9 +1158,19 @@ struct binary_t {
           ICFG(std::move(other.ICFG)),
           objdump(std::move(other.objdump)) {}
 
-    Analysis_t &operator=(Analysis_t &&other) noexcept {
-      if (this == &other)
-        return *this;
+    Analysis_t(typename binary_base_t<!MT>::Analysis_t &&other) noexcept
+        : EntryFunction(std::move(other.EntryFunction)),
+          Functions(std::move(other.Functions)),
+          ICFG(std::move(other.ICFG)),
+          objdump(std::move(other.objdump)) {}
+
+    template <bool MT2>
+    Analysis_t &
+    operator=(typename binary_base_t<MT2>::Analysis_t &&other) noexcept {
+      if constexpr (MT == MT2) {
+        if (this == &other)
+          return *this;
+      }
 
       EntryFunction = other.EntryFunction;
       Functions = std::move(other.Functions);
@@ -1093,6 +1178,9 @@ struct binary_t {
       objdump = std::move(other.objdump);
       return *this;
     }
+
+    template <class Archive>
+    void serialize(Archive &ar, const unsigned int version);
 
     /*** may have use in future ***/
     void addSymDynTarget(const std::string &sym, dynamic_target_t X) {}
@@ -1115,7 +1203,7 @@ struct binary_t {
   // ICFG that would originate from this basic block.
   //
   bool FixAmbiguousIndirectJump(taddr_t TermAddr, explorer_t &,
-                                llvm::object::Binary &, jv_t &);
+                                llvm::object::Binary &, jv_base_t<MT> &);
 
   std::string_view data(void) const {
     return std::string_view(Data.data(), Data.size());
@@ -1153,14 +1241,15 @@ struct binary_t {
     return Analysis.Functions.container().get_allocator();
   }
 
-  binary_t(jv_file_t &jv_file, binary_index_t Idx = invalid_binary_index)
+  explicit binary_base_t(jv_file_t &jv_file, binary_index_t Idx = invalid_binary_index)
       : Idx(Idx), bbbmap(jv_file.get_segment_manager()),
         bbmap(jv_file.get_segment_manager()),
         fnmap(jv_file.get_segment_manager()),
         Name(jv_file.get_segment_manager()),
         Data(jv_file.get_segment_manager()), Analysis(jv_file) {}
 
-  binary_t(binary_t &&other) noexcept
+  template <bool MT2>
+  binary_base_t(binary_base_t<MT2> &&other) noexcept
       : Idx(other.Idx),
 
         bbbmap(std::move(other.bbbmap)),
@@ -1179,9 +1268,11 @@ struct binary_t {
 
         Analysis(std::move(other.Analysis)) {}
 
-  binary_t &operator=(binary_t &&other) noexcept {
-    if (this == &other) {
-      return *this;
+  template <bool MT2>
+  binary_base_t &operator=(binary_base_t<MT2> &&other) noexcept {
+    if constexpr (MT == MT2) {
+      if (this == &other)
+        return *this;
     }
 
     Idx = other.Idx;
@@ -1200,20 +1291,25 @@ struct binary_t {
     IsPIC = other.IsPIC;
     IsDynamicallyLoaded = other.IsDynamicallyLoaded;
 
-    Analysis = std::move(other.Analysis);
+    Analysis.template operator=<MT2>(std::move(other.Analysis));
 
     return *this;
   }
 
-  binary_t() = delete;
+  binary_base_t() = delete;
+  binary_base_t(const binary_base_t &) = delete;
+  binary_base_t &operator=(const binary_base_t &) = delete;
 };
+
+typedef binary_base_t<true> binary_t;
 
 struct objdump_exception {
   taddr_t Addr;
   objdump_exception(taddr_t Addr) : Addr(Addr) {}
 };
 
-allocates_basic_block_t::allocates_basic_block_t(binary_t &b,
+template <bool MT>
+allocates_basic_block_t::allocates_basic_block_t(binary_base_t<MT> &b,
                                                  basic_block_index_t &store,
                                                  taddr_t Addr) {
 #if 0
@@ -1224,22 +1320,24 @@ allocates_basic_block_t::allocates_basic_block_t(binary_t &b,
   auto &ICFG = b.Analysis.ICFG;
 
   basic_block_index_t Idx = ICFG.index_of_add_vertex(b.get_allocator());
-  auto &bbprop = ICFG[ICFG.vertex<false>(Idx)];
+  auto &bbprop = ICFG[ICFG.template vertex<false>(Idx)];
   bbprop.Addr = Addr;
 
-  bool success;
+  if constexpr (MT) {
+    bool success;
+    success = bbprop.pub.mtx.try_lock();
+    rassert(success && "allocates_basic_block_t: BUG1");
 
-  success = bbprop.pub.mtx.try_lock();
-  rassert(success && "allocates_basic_block_t: BUG1");
-
-  success = bbprop.mtx.try_lock();
-  rassert(success && "allocates_basic_block_t: BUG2");
+    success = bbprop.mtx.try_lock();
+    rassert(success && "allocates_basic_block_t: BUG2");
+  }
 
   store = Idx;
   BBIdx = Idx;
 }
 
-allocates_function_t::allocates_function_t(binary_t &b,
+template <bool MT>
+allocates_function_t::allocates_function_t(binary_base_t<MT> &b,
                                            function_index_t &store) {
   auto &Functions = b.Analysis.Functions;
 
@@ -1264,21 +1362,24 @@ struct adds_binary_t {
 
   adds_binary_t() = default;
 
+  explicit adds_binary_t(binary_index_t BIdx) : BIdx(BIdx) {}
+
   // adds new binary, stores index
+  template <bool MT>
   adds_binary_t(binary_index_t &out,
                 jv_file_t &,
-                jv_t &,
+                jv_base_t<MT> &,
                 explorer_t &,
                 get_data_t get_data,
                 const hash_t &,
                 const char *name,
-                const binary_index_t TargetIdx,
                 const AddOptions_t &);
 
   // adds new binary, stores index
+  template <bool MT>
   adds_binary_t(binary_index_t &out,
-                jv_t &,
-                binary_t &&);
+                jv_base_t<MT> &,
+                binary_base_t<MT> &&);
 
   operator binary_index_t() const { return BIdx; }
 };
@@ -1295,11 +1396,6 @@ struct allocates_binary_index_set_t {
     set.insert(BIdx);
   }
 };
-
-typedef boost::interprocess::allocator<binary_t, segment_manager_t>
-    ip_binary_allocator;
-typedef boost::interprocess::deque<binary_t, ip_binary_allocator>
-    ip_binary_deque;
 
 struct ip_string_hash_t  {
   using is_transparent = void;
@@ -1378,64 +1474,72 @@ struct cached_hash_t {
   void Update(const char *path, std::string &file_contents);
 };
 
-typedef boost::concurrent_flat_map<
-    ip_string, cached_hash_t, ip_string_hash_t, ip_string_equal_t,
+template <bool MT>
+using ip_cached_hashes_type = possibly_concurrent_flat_map<
+    MT, std::false_type /* !Spin */,
+    ip_string, cached_hash_t,
+    ip_string_hash_t, ip_string_equal_t,
     boost::container::scoped_allocator_adaptor<boost::interprocess::allocator<
-        std::pair<const ip_string, cached_hash_t>, segment_manager_t>>,
-    std::false_type /* !Spin */>
-    ip_cached_hashes_type;
+        std::pair<const ip_string, cached_hash_t>, segment_manager_t>>>;
 
-typedef boost::concurrent_flat_map<
+template <bool MT>
+using ip_hash_to_binary_map_type = possibly_concurrent_flat_map<
+    MT, std::false_type /* !Spin */,
     hash_t, adds_binary_t, boost::hash<hash_t>, std::equal_to<hash_t>,
     boost::interprocess::allocator<std::pair<const hash_t, adds_binary_t>,
-                                   segment_manager_t>,
-    std::false_type /* !Spin */>
-    ip_hash_to_binary_map_type;
+                                   segment_manager_t>>;
 
-
-typedef boost::concurrent_flat_map<
+template <bool MT>
+using ip_name_to_binaries_map_type = possibly_concurrent_flat_map<
+    MT, std::false_type /* !Spin */,
     ip_string, allocates_binary_index_set_t, ip_string_hash_t,
     ip_string_equal_t,
     boost::container::scoped_allocator_adaptor<boost::interprocess::allocator<
         std::pair<const ip_string, allocates_binary_index_set_t>,
-        segment_manager_t>>, std::false_type /* !Spin */>
-    ip_name_to_binaries_map_type;
+        segment_manager_t>>>;
 
-typedef std::function<void(binary_t &)> on_newbin_proc_t;
+template <bool MT>
+using on_newbin_proc_t = std::function<void(binary_base_t<MT> &)>;
 
 struct AddOptions_t {
   bool Objdump = false;
 };
 
-struct jv_t {
+template <bool MT = true>
+struct jv_base_t {
   //
   // references to binary_t will never be invalidated.
   //
-  deque<binary_t, ip_binary_allocator, false, true, true> Binaries;
+  deque<binary_base_t<MT>,
+        boost::interprocess::allocator<binary_base_t<MT>, segment_manager_t>,
+        MT, true, true>
+      Binaries;
 
   ip_func_index_sets FIdxSets;
   ip_sharable_mutex FIdxSetsMtx;
 
-  ip_hash_to_binary_map_type hash_to_binary;
-  ip_cached_hashes_type cached_hashes; /* NOT serialized */
+  ip_hash_to_binary_map_type<MT> hash_to_binary;
+  ip_cached_hashes_type<MT> cached_hashes; /* NOT serialized */
 
-  ip_name_to_binaries_map_type name_to_binaries;
+  ip_name_to_binaries_map_type<MT> name_to_binaries;
 
   void InvalidateFunctionAnalyses(void);
 
   void clear(bool everything = false);
 
   ip_void_allocator_t get_allocator(void) const {
-    return Binaries._deque.get_allocator();
+    return Binaries.container().get_allocator();
   }
 
-  jv_t(jv_file_t &jv_file)
+  explicit jv_base_t(jv_file_t &jv_file)
       : Binaries(jv_file), FIdxSets(jv_file.get_segment_manager()),
         hash_to_binary(jv_file.get_segment_manager()),
         cached_hashes(jv_file.get_segment_manager()),
         name_to_binaries(jv_file.get_segment_manager()) {}
 
-  jv_t() = delete;
+  jv_base_t() = delete;
+  jv_base_t(const jv_base_t &) = delete;
+  jv_base_t &operator=(const jv_base_t &) = delete;
 
   std::optional<binary_index_t> LookupByHash(const hash_t &h);
   bool LookupByName(const char *name, binary_index_set &out);
@@ -1445,23 +1549,19 @@ struct jv_t {
   AddFromPath(explorer_t &,
               jv_file_t &,
               const char *path,
-              on_newbin_proc_t on_newbin = [](binary_t &) {},
+              on_newbin_proc_t<MT> on_newbin = [](binary_base_t<MT> &) {},
               const AddOptions_t &Options = AddOptions_t());
 
-  // it is assumed the data and name has already been stored in the
-  // binary specified by Idx. throws if fails
-  bool InplaceAdd(explorer_t &, jv_file_t &, const binary_index_t,
-                  const AddOptions_t &Options = AddOptions_t());
-
   std::pair<binary_index_t, bool> Add(
-      binary_t &&, on_newbin_proc_t on_newbin = [](binary_t &) {});
+      binary_base_t<MT> &&,
+      on_newbin_proc_t<MT> on_newbin = [](binary_base_t<MT> &) {});
 
   std::pair<binary_index_t, bool>
   AddFromData(explorer_t &,
               jv_file_t &,
               std::string_view data,
               const char *name = nullptr,
-              on_newbin_proc_t on_newbin = [](binary_t &) {},
+              on_newbin_proc_t<MT> on_newbin = [](binary_base_t<MT> &) {},
               const AddOptions_t &Options = AddOptions_t());
 
   unsigned NumBinaries(void) {
@@ -1477,17 +1577,19 @@ private:
                                                       get_data_t,
                                                       const hash_t &h,
                                                       const char *name,
-                                                      const binary_index_t TargetIdx,
-                                                      on_newbin_proc_t on_newbin,
+                                                      on_newbin_proc_t<MT> on_newbin,
                                                       const AddOptions_t &Options);
 public:
-  void DoAdd(binary_t &,
+  template <bool MT2>
+  void DoAdd(binary_base_t<MT2> &,
              explorer_t &,
              llvm::object::Binary &,
              const AddOptions_t &);
 
   friend adds_binary_t;
 };
+
+typedef jv_base_t<true> jv_t;
 
 static inline const char *string_of_terminator(TERMINATOR TermTy) {
   switch (TermTy) {
@@ -1644,14 +1746,16 @@ description_of_terminator_info(const terminator_info_t &T,
   return res;
 }
 
+template <bool MT>
 constexpr basic_block_t basic_block_of_index(basic_block_index_t BBIdx,
-                                             const ip_icfg_t &ICFG) {
+                                             const ip_icfg_base_t<MT> &ICFG) {
   assert(is_basic_block_index_valid(BBIdx));
   return ICFG.vertex(BBIdx);
 }
 
+template <bool MT>
 constexpr basic_block_t basic_block_of_index(basic_block_index_t BBIdx,
-                                             const binary_t &b) {
+                                             const binary_base_t<MT> &b) {
   const auto &ICFG = b.Analysis.ICFG;
   return basic_block_of_index(BBIdx, ICFG);
 }
@@ -1967,10 +2071,10 @@ void for_each_function(T &&jv, Proc proc) {
   });
 }
 
-template <class _ExecutionPolicy, class Pred, class Proc>
+template <class _ExecutionPolicy, class Pred, class Proc, bool MT = true>
 constexpr
 void for_each_function_if_in_binary(_ExecutionPolicy &&__exec,
-                                    binary_t &b,
+                                    binary_base_t<MT> &b,
                                     Pred pred,
                                     Proc proc) {
   for_each_if(std::forward<_ExecutionPolicy>(__exec),
@@ -1979,37 +2083,37 @@ void for_each_function_if_in_binary(_ExecutionPolicy &&__exec,
 }
 
 
-template <class _ExecutionPolicy, class Proc>
+template <class _ExecutionPolicy, class Proc, bool MT = true>
 constexpr
 void for_each_function_in_binary(_ExecutionPolicy &&__exec,
-                                 binary_t &b,
+                                 binary_base_t<MT> &b,
                                  Proc proc) {
   std::for_each(std::forward<_ExecutionPolicy>(__exec),
                 b.Analysis.Functions.begin(),
                 b.Analysis.Functions.end(), proc);
 }
 
-template <class _ExecutionPolicy, class Proc>
+template <class _ExecutionPolicy, class Proc, bool MT = true>
 constexpr
 void for_each_function_in_binary(_ExecutionPolicy &&__exec,
-                                 const binary_t &b,
+                                 const binary_base_t<MT> &b,
                                  Proc proc) {
   std::for_each(std::forward<_ExecutionPolicy>(__exec),
                 b.Analysis.Functions.begin(),
                 b.Analysis.Functions.end(), proc);
 }
 
-template <class Proc>
+template <class Proc, bool MT = true>
 constexpr
-void for_each_function_in_binary(binary_t &b,
+void for_each_function_in_binary(binary_base_t<MT> &b,
                                  Proc proc) {
   std::for_each(b.Analysis.Functions.begin(),
                 b.Analysis.Functions.end(), proc);
 }
 
-template <class Proc>
+template <class Proc, bool MT>
 constexpr
-void for_each_function_in_binary(const binary_t &b,
+void for_each_function_in_binary(const binary_base_t<MT> &b,
                                  Proc proc) {
   std::for_each(b.Analysis.Functions.begin(),
                 b.Analysis.Functions.end(), proc);
@@ -2074,10 +2178,10 @@ void for_each_basic_block(T &&jv, Proc proc) {
   });
 }
 
-template <class _ExecutionPolicy, class Proc>
+template <class _ExecutionPolicy, class Proc, bool MT = true>
 static inline
 void for_each_basic_block_in_binary(_ExecutionPolicy &&__exec,
-                                    binary_t &b,
+                                    binary_base_t<MT> &b,
                                     Proc proc) {
   icfg_t::vertex_iterator it, it_end;
   std::tie(it, it_end) = b.Analysis.ICFG.vertices();
@@ -2086,10 +2190,10 @@ void for_each_basic_block_in_binary(_ExecutionPolicy &&__exec,
                it, it_end, [proc](basic_block_t bb) { proc(bb); });
 }
 
-template <class _ExecutionPolicy, class Proc>
+template <class _ExecutionPolicy, class Proc, bool MT = true>
 static inline
 void for_each_basic_block_in_binary(_ExecutionPolicy &&__exec,
-                                    const binary_t &b,
+                                    const binary_base_t<MT> &b,
                                     Proc proc) {
   icfg_t::vertex_iterator it, it_end;
   std::tie(it, it_end) = b.Analysis.ICFG.vertices();
@@ -2098,18 +2202,18 @@ void for_each_basic_block_in_binary(_ExecutionPolicy &&__exec,
                it, it_end, [proc](basic_block_t bb) { proc(bb); });
 }
 
-template <class Proc>
+template <class Proc, bool MT = true>
 static inline
-void for_each_basic_block_in_binary(binary_t &b, Proc proc) {
+void for_each_basic_block_in_binary(binary_base_t<MT> &b, Proc proc) {
   icfg_t::vertex_iterator it, it_end;
   std::tie(it, it_end) = b.Analysis.ICFG.vertices();
 
   std::for_each(it, it_end, [proc](basic_block_t bb) { proc(bb); });
 }
 
-template <class Proc>
+template <class Proc, bool MT = true>
 static inline
-void for_each_basic_block_in_binary(const binary_t &b, Proc proc) {
+void for_each_basic_block_in_binary(const binary_base_t<MT> &b, Proc proc) {
   icfg_t::vertex_iterator it, it_end;
   std::tie(it, it_end) = b.Analysis.ICFG.vertices();
 
@@ -2121,32 +2225,37 @@ constexpr basic_block_index_t index_of_basic_block(const ip_icfg_t &ICFG,
   return ICFG.index(bb);
 }
 
-constexpr basic_block_index_t index_of_basic_block(const binary_t &b,
+template <bool MT>
+constexpr basic_block_index_t index_of_basic_block(const binary_base_t<MT> &b,
                                                    basic_block_t bb) {
   return index_of_basic_block(b.Analysis.ICFG, bb);
 }
 
 constexpr binary_index_t binary_index_of_function(const function_t &f) {
   assert(f.b);
-  binary_index_t res = f.b->Idx;
+  binary_index_t res = *((binary_index_t *)&f.b);
   assert(is_binary_index_valid(res));
   return res;
 }
 
+template <bool MT>
 [[deprecated]] /* use binary_index_of_function(f) */
 constexpr binary_index_t binary_index_of_function(const function_t &f,
-                                                  const jv_t &jv) {
+                                                  const jv_base_t<MT> &jv) {
   return binary_index_of_function(f);
 }
 
-constexpr binary_index_t index_of_binary(const binary_t &b) {
+template <bool MT>
+constexpr binary_index_t index_of_binary(const binary_base_t<MT> &b) {
   binary_index_t res = b.Idx;
   assert(is_binary_index_valid(res));
   return res;
 }
 
+template <bool MT>
 [[deprecated]] /* use index_of_binary(b) */
-constexpr binary_index_t index_of_binary(const binary_t &b, const jv_t &jv) {
+constexpr binary_index_t
+index_of_binary(const binary_base_t<MT> &b, const jv_base_t<MT> &jv) {
   return index_of_binary(b);
 }
 
@@ -2156,34 +2265,40 @@ constexpr function_index_t index_of_function(const function_t &f) {
   return res;
 }
 
+template <bool MT>
 [[deprecated]] /* use index_of_function(f) */
 constexpr function_index_t index_of_function_in_binary(const function_t &f,
-                                                       const binary_t &b) {
+                                                       const binary_base_t<MT> &b) {
   return index_of_function(f);
 }
 
-constexpr const binary_t &binary_of_function(const function_t &f) {
+template <bool MT = true>
+constexpr const binary_base_t<MT> &binary_of_function(const function_t &f) {
   assert(f.b);
-  return *f.b.get();
+  return *((binary_base_t<MT> *)f.b.get());
 }
 
-constexpr binary_t &binary_of_function(function_t &f) {
+template <bool MT = true>
+constexpr binary_base_t<MT> &binary_of_function(function_t &f) {
   assert(f.b);
-  return *f.b.get();
+  return *((binary_base_t<MT> *)f.b.get());
 }
 
+template <bool MT = true>
 [[deprecated]] /* use binary_of_function(f) */
-constexpr const binary_t &binary_of_function(const function_t &f,
-                                             const jv_t &jv) {
+constexpr const binary_base_t<MT> &binary_of_function(const function_t &f,
+                                                      const jv_base_t<MT> &jv) {
   return binary_of_function(f);
 }
 
-constexpr function_t &function_of_target(dynamic_target_t X, jv_t &jv) {
+template <bool MT>
+constexpr function_t &function_of_target(dynamic_target_t X, jv_base_t<MT> &jv) {
   return jv.Binaries.at(X.first).Analysis.Functions.at(X.second);
 }
 
+template <bool MT>
 static inline void basic_blocks_of_function_at_block(basic_block_t entry,
-                                                     const binary_t &b,
+                                                     const binary_base_t<MT> &b,
                                                      basic_block_vec_t &out) {
   const auto &ICFG = b.Analysis.ICFG;
 
@@ -2201,8 +2316,9 @@ static inline void basic_blocks_of_function_at_block(basic_block_t entry,
   ICFG.depth_first_visit(entry, vis);
 }
 
+template <bool MT>
 static inline void basic_blocks_of_function(const function_t &f,
-                                            const binary_t &b,
+                                            const binary_base_t<MT> &b,
                                             basic_block_vec_t &out) {
 
   const auto &ICFG = b.Analysis.ICFG;
@@ -2210,8 +2326,9 @@ static inline void basic_blocks_of_function(const function_t &f,
   basic_blocks_of_function_at_block(basic_block_of_index(f.Entry, ICFG), b, out);
 }
 
+template <bool MT>
 static inline void exit_basic_blocks_of_function(const function_t &f,
-                                                 const binary_t &b,
+                                                 const binary_base_t<MT> &b,
                                                  const basic_block_vec_t &bbvec,
                                                  basic_block_vec_t &out) {
   const auto &ICFG = b.Analysis.ICFG;
@@ -2233,8 +2350,9 @@ static inline bool does_function_return_fast(const ip_icfg_t &ICFG,
                      });
 }
 
+template <bool MT>
 static inline bool does_function_at_block_return(basic_block_t entry,
-                                                 const binary_t &b) {
+                                                 const binary_base_t<MT> &b) {
   basic_block_vec_t bbvec;
   basic_blocks_of_function_at_block(entry, b, bbvec);
 
@@ -2247,13 +2365,15 @@ static inline bool does_function_at_block_return(basic_block_t entry,
                      });
 }
 
+template <bool MT>
 static inline bool does_function_return(const function_t &f,
-                                        const binary_t &b) {
+                                        const binary_base_t<MT> &b) {
   return does_function_at_block_return(basic_block_of_index(f.Entry, b), b);
 }
 
+template <bool MT>
 static inline bool IsLeafFunction(const function_t &f,
-                                  const binary_t &b,
+                                  const binary_base_t<MT> &b,
                                   const basic_block_vec_t &bbvec) {
   const auto &ICFG = b.Analysis.ICFG;
 
@@ -2282,8 +2402,9 @@ static inline bool IsLeafFunction(const function_t &f,
   }
 }
 
+template <bool MT>
 static inline bool IsFunctionSetjmp(const function_t &f,
-                                    const binary_t &b,
+                                    const binary_base_t<MT> &b,
                                     const basic_block_vec_t &bbvec) {
   const auto &ICFG = b.Analysis.ICFG;
 
@@ -2294,8 +2415,9 @@ static inline bool IsFunctionSetjmp(const function_t &f,
                      });
 }
 
+template <bool MT>
 static inline bool IsFunctionLongjmp(const function_t &f,
-                                     const binary_t &b,
+                                     const binary_base_t<MT> &b,
                                      const basic_block_vec_t &bbvec) {
   const auto &ICFG = b.Analysis.ICFG;
 
@@ -2308,15 +2430,17 @@ static inline bool IsFunctionLongjmp(const function_t &f,
                      });
 }
 
+template <bool MT>
 static inline basic_block_index_t
-index_of_basic_block_at_address(taddr_t Addr, const binary_t &b) {
+index_of_basic_block_at_address(taddr_t Addr, const binary_base_t<MT> &b) {
   auto it = bbmap_find(b.bbmap, Addr);
   assert(it != b.bbmap.end());
   return (*it).second;
 }
 
+template <bool MT>
 static inline basic_block_index_t
-index_of_basic_block_starting_at_address(taddr_t Addr, const binary_t &b) {
+index_of_basic_block_starting_at_address(taddr_t Addr, const binary_base_t<MT> &b) {
   basic_block_index_t res = invalid_basic_block_index;
   bool found = b.bbbmap.cvisit(Addr, [&](const auto &x) { res = x.second; });
 
@@ -2324,29 +2448,32 @@ index_of_basic_block_starting_at_address(taddr_t Addr, const binary_t &b) {
   return res;
 }
 
-template <bool L = true>
+template <bool L = true, bool MT = true>
 static inline basic_block_t
-basic_block_starting_at_address(taddr_t Addr, const binary_t &b) {
+basic_block_starting_at_address(taddr_t Addr, const binary_base_t<MT> &b) {
   return basic_block_of_index(index_of_basic_block_starting_at_address(Addr, b), b);
 }
 
-template <bool L = true>
+template <bool L = true, bool MT = true>
 static inline basic_block_t basic_block_at_address(taddr_t Addr,
-                                                   const binary_t &b) {
+                                                   const binary_base_t<MT> &b) {
   return basic_block_of_index(index_of_basic_block_at_address(Addr, b), b);
 }
 
+template <bool MT>
 static inline bool exists_basic_block_at_address(taddr_t Addr,
-                                                 const binary_t &b) {
+                                                 const binary_base_t<MT> &b) {
   return bbmap_contains(b.bbmap, Addr);
 }
 
+template <bool MT>
 static inline bool exists_basic_block_starting_at_address(taddr_t Addr,
-                                                          const binary_t &b) {
+                                                          const binary_base_t<MT> &b) {
   return b.bbbmap.contains(Addr);
 }
 
-static inline function_index_t index_of_function_at_address(const binary_t &b,
+template <bool MT>
+static inline function_index_t index_of_function_at_address(const binary_base_t<MT> &b,
                                                             taddr_t Addr) {
   function_index_t FIdx = invalid_function_index;
   bool found = b.fnmap.cvisit(Addr, [&](const auto &x) { FIdx = x.second; });
@@ -2355,22 +2482,26 @@ static inline function_index_t index_of_function_at_address(const binary_t &b,
   return FIdx;
 }
 
-static inline const function_t &function_at_address(const binary_t &b,
+template <bool MT>
+static inline const function_t &function_at_address(const binary_base_t<MT> &b,
                                                     taddr_t Addr) {
   return b.Analysis.Functions.at(index_of_function_at_address(b, Addr));
 }
 
-static inline function_t &function_at_address(binary_t &b, taddr_t Addr) {
+template <bool MT>
+static inline function_t &function_at_address(binary_base_t<MT> &b, taddr_t Addr) {
   return b.Analysis.Functions.at(index_of_function_at_address(b, Addr));
 }
 
-static inline bool exists_function_at_address(const binary_t &b, taddr_t Addr) {
+template <bool MT>
+static inline bool exists_function_at_address(const binary_base_t<MT> &b, taddr_t Addr) {
   return b.fnmap.contains(Addr);
 }
 
 // NOTE: this function excludes tail calls.
+template <bool MT>
 static inline bool exists_indirect_jump_at_address(taddr_t Addr,
-                                                   const binary_t &binary) {
+                                                   const binary_base_t<MT> &binary) {
   if (exists_basic_block_at_address(Addr, binary)) {
     const auto &ICFG = binary.Analysis.ICFG;
     basic_block_t bb = basic_block_at_address(Addr, binary);
@@ -2387,8 +2518,9 @@ static inline taddr_t address_of_basic_block(basic_block_t bb,
   return ICFG[bb].Addr;
 }
 
+template <bool MT>
 static inline taddr_t address_of_basic_block(basic_block_t bb,
-                                             const binary_t &b) {
+                                             const binary_base_t<MT> &b) {
   return address_of_basic_block(bb, b.Analysis.ICFG);
 }
 
@@ -2397,36 +2529,42 @@ static inline taddr_t address_of_basic_block_terminator(basic_block_t bb,
   return ICFG[bb].Term.Addr;
 }
 
+template <bool MT>
 static inline taddr_t address_of_basic_block_terminator(basic_block_t bb,
-                                                        const binary_t &b) {
+                                                        const binary_base_t<MT> &b) {
   return address_of_basic_block_terminator(bb, b.Analysis.ICFG);
 }
 
+template <bool MT>
 static inline taddr_t entry_address_of_function(const function_t &f,
-                                                const binary_t &binary) {
+                                                const binary_base_t<MT> &binary) {
   const auto &ICFG = binary.Analysis.ICFG;
   return ICFG[basic_block_of_index(f.Entry, binary)].Addr;
 }
 
+template <bool MT>
 static inline taddr_t address_of_block_in_binary(basic_block_index_t BBIdx,
-                                                 const binary_t &b) {
+                                                 const binary_base_t<MT> &b) {
   return b.Analysis.ICFG[basic_block_of_index(BBIdx, b)].Addr;
 }
 
+template <bool MT>
 static inline taddr_t address_of_block(const block_t &block,
-                                       const jv_t &jv) {
-  const binary_t &b = jv.Binaries.at(block.first);
+                                       const jv_base_t<MT> &jv) {
+  const binary_base_t<MT> &b = jv.Binaries.at(block.first);
   return address_of_block_in_binary(block.second, b);
 }
 
+template <bool MT>
 static inline taddr_t address_of_block_terminator(const block_t &Block,
-                                                  const jv_t &jv) {
-  const binary_t &b = jv.Binaries.at(Block.first);
+                                                  const jv_base_t<MT> &jv) {
+  const binary_base_t<MT> &b = jv.Binaries.at(Block.first);
   return b.Analysis.ICFG[basic_block_of_index(Block.second, b)].Term.Addr;
 }
 
-static inline void construct_bbmap(const jv_t &jv,
-                                   const binary_t &binary,
+template <bool MT>
+static inline void construct_bbmap(const jv_base_t<MT> &jv,
+                                   const binary_base_t<MT> &binary,
                                    bbmap_t &out) {
   auto &ICFG = binary.Analysis.ICFG;
 
@@ -2437,12 +2575,13 @@ static inline void construct_bbmap(const jv_t &jv,
   });
 }
 
-static inline void identify_ABIs(jv_t &jv) {
+template <bool MT>
+static inline void identify_ABIs(jv_base_t<MT> &jv) {
   //
   // If a function is called from a different binary, it is an ABI.
   //
   for_each_basic_block(std::execution::par_unseq,
-                       jv, [&](binary_t &b, basic_block_t bb) {
+                       jv, [&](binary_base_t<MT> &b, basic_block_t bb) {
     auto &bbprop = b.Analysis.ICFG[bb];
     if (!bbprop.hasDynTarget())
       return;
@@ -2458,8 +2597,9 @@ static inline void identify_ABIs(jv_t &jv) {
   });
 }
 
-static inline binary_t &get_dynl(jv_t &jv) {
-  for (binary_t &binary : jv.Binaries) {
+template <bool MT>
+static inline binary_base_t<MT> &get_dynl(jv_base_t<MT> &jv) {
+  for (binary_base_t<MT> &binary : jv.Binaries) {
     if (binary.IsDynamicLinker)
       return binary;
   }
@@ -2467,8 +2607,9 @@ static inline binary_t &get_dynl(jv_t &jv) {
   throw std::runtime_error(std::string(__func__) + ": not found!");
 }
 
-static inline binary_t &get_vdso(jv_t &jv) {
-  for (binary_t &binary : jv.Binaries) {
+template <bool MT>
+static inline binary_base_t<MT> &get_vdso(jv_base_t<MT> &jv) {
+  for (binary_base_t<MT> &binary : jv.Binaries) {
     if (binary.IsVDSO)
       return binary;
   }

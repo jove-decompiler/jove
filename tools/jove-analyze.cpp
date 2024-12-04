@@ -1,6 +1,7 @@
 #include "tool.h"
 #include "B.h"
 #include "tcg.h"
+#include "concurrent.h"
 
 #include <boost/filesystem.hpp>
 
@@ -46,7 +47,7 @@ struct binary_state_t {
 
 class AnalyzeTool
     : public StatefulJVTool<ToolKind::Standard, binary_state_t,
-                            function_state_t, void, false, false, true> {
+                            function_state_t, void, true, false, true> {
   struct Cmdline {
     cl::opt<bool> ForeignLibs;
     cl::alias ForeignLibsAlias;
@@ -254,8 +255,10 @@ int AnalyzeTool::AnalyzeFunctions(void) {
         function_state_t &x = state.for_function(f);
 
         if (x.IsSj) {
-          f.Callers.visit_all(
+          std::for_each(
               std::execution::par_unseq,
+              f.Callers.cbegin(),
+              f.Callers.cend(),
               [&](const caller_t &pair) -> void {
                 binary_t &caller_b = jv.Binaries.at(
                     is_binary_index_valid(pair.first) ? pair.first
@@ -269,7 +272,7 @@ int AnalyzeTool::AnalyzeFunctions(void) {
                 auto &caller_bbprop = caller_ICFG[caller_bb];
 
                 if (caller_bbprop.Term.Type == TERMINATOR::INDIRECT_JUMP) {
-                  caller_bbprop.Sj = true;
+                  concurrent::set(caller_bbprop.Sj);
                 }
               });
         }

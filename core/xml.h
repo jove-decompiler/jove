@@ -4,6 +4,7 @@
 
 namespace jove {
 
-void jv2xml(const jv_t &, std::ostringstream &);
+template <bool MT>
+void jv2xml(const jv_base_t<MT> &, std::ostringstream &);
 
 }

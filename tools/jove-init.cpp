@@ -6,6 +6,7 @@
 #include "explore.h"
 #include "tcg.h"
 #include "win.h"
+#include "hash.h"
 
 #include <boost/filesystem.hpp>
 #include <boost/format.hpp>
@@ -21,6 +22,7 @@
 #include <functional>
 #include <execution>
 #include <numeric>
+#include <iterator>
 
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -246,12 +248,14 @@ int InitTool::Run(void) {
   disas_t disas;
   explorer_t explorer(disas, tcg, IsVeryVerbose());
 
-  std::for_each(
+  std::transform(
       std::execution::par_unseq,
-      idx_range.begin(),
-      idx_range.end(),
-      [&](unsigned BIdx) {
-        binary_t &b = jv.Binaries.at(BIdx);
+      jv.Binaries.container().cbegin(),
+      jv.Binaries.container().cend(),
+      jv.Binaries.container().begin(),
+      [&](const binary_t &init) -> binary_t {
+        const binary_index_t BIdx = index_of_binary(init);
+        binary_base_t<false> b(jv_file, BIdx);
 
         //
         // Name
@@ -290,17 +294,41 @@ int InitTool::Run(void) {
           break;
         }
 
+        std::unique_ptr<llvm::object::Binary> Bin;
+        if (catch_exception([&]() { Bin = B::Create(b.data()); })) {
+          WithColor::error()
+              << llvm::formatv("not valid binary: \"{0}\"\n", b.Name.c_str());
+          exit(1);
+        }
+
+        b.Hash = hash_data(b.data());
+
         //
         // explore them for real
         //
         try {
-          if (!jv.InplaceAdd(explorer, jv_file, BIdx, AddOptions))
-            WithColor::warning()
-                << llvm::formatv("Binary not new: \"{0}\"\n", b.Name.c_str());
+          jv.DoAdd(b, explorer, *Bin, AddOptions);
         } catch (const std::exception &e) {
           die(std::string("failed to add \"") + b.Name.c_str() +
               std::string("\": ") + e.what());
         }
+
+        const bool isNewBinary = jv.hash_to_binary.try_emplace(b.Hash, BIdx);
+        if (!isNewBinary) {
+          WithColor::error()
+              << llvm::formatv("not new binary: \"{0}\"\n", b.Name.c_str());
+          exit(1);
+        }
+
+        const bool isNewName =
+            jv.name_to_binaries.try_emplace(b.Name, b.get_allocator(), BIdx);
+        if (!isNewName) {
+          WithColor::error()
+              << llvm::formatv("not new name: \"{0}\"\n", b.Name.c_str());
+          exit(1);
+        }
+
+        return std::move(b);
       });
 
   jv.Binaries.at(0).IsExecutable = true;

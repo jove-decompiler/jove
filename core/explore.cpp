@@ -21,7 +21,8 @@ namespace jove {
 
 typedef boost::format fmt;
 
-function_index_t explorer_t::_explore_function(binary_t &b,
+template <bool MT>
+function_index_t explorer_t::_explore_function(binary_base_t<MT> &b,
                                                obj::Binary &B,
                                                const taddr_t Addr,
                                                const bool Speculative) {
@@ -32,9 +33,21 @@ function_index_t explorer_t::_explore_function(binary_t &b,
 
   function_index_t Idx = invalid_function_index;
   {
-    bool inserted = b.fnmap.try_emplace_or_cvisit(
-        Addr, std::ref(b), std::ref(Idx),
-        [&](const typename fnmap_t::value_type &x) { Idx = x.second; });
+    bool inserted;
+    if constexpr (MT) {
+      inserted = b.fnmap.try_emplace_or_cvisit(
+          Addr, b, std::ref(Idx),
+          [&](const typename fnmap_t<MT>::value_type &x) { Idx = x.second; });
+    } else {
+      auto it = b.fnmap.find(Addr);
+      if (it == b.fnmap.end()) {
+        inserted = b.fnmap.try_emplace(Addr, b, std::ref(Idx)).second;
+        assert(inserted);
+      } else {
+        inserted = false;
+        Idx = (*it).second;
+      }
+    }
 
     assert(is_function_index_valid(Idx));
 
@@ -50,7 +63,7 @@ function_index_t explorer_t::_explore_function(binary_t &b,
   f.IsSignalHandler = false;
   f.Returns = false;
 
-  this->on_newfn_proc(b, f);
+  get_newfn_proc<MT>()(b, f);
 
   const basic_block_index_t EntryIdx =
       _explore_basic_block(b, B, Addr, Speculative);
@@ -97,9 +110,10 @@ function_index_t explorer_t::_explore_function(binary_t &b,
   return Idx;
 }
 
-template <bool WithOnBlockProc>
-bool explorer_t::split(binary_t &b, obj::Binary &Bin,
-                       ip_scoped_lock<ip_sharable_mutex> e_lck_bb,
+template <bool WithOnBlockProc, bool MT>
+bool explorer_t::split(binary_base_t<MT> &b,
+                       obj::Binary &Bin,
+                       bbprop_t::exclusive_lock_guard<MT> e_lck_bb,
                        bbmap_t::iterator it, const taddr_t Addr,
                        basic_block_index_t Idx,
                        onblockproc_t obp) {
@@ -206,7 +220,7 @@ on_insn:
 
   std::vector<basic_block_t> to_bb_vec;
   {
-    ip_scoped_lock<ip_sharable_mutex> e_lck(bbprop_1.mtx);
+    bbprop_t::exclusive_lock_guard<MT> e_lck(bbprop_1.mtx);
 
     //
     // update bb_1
@@ -223,7 +237,7 @@ on_insn:
     //
     // gather up bb_1 edges
     //
-    to_bb_vec.reserve(ICFG.out_degree<false>(bb_1));
+    to_bb_vec.reserve(ICFG.template out_degree<false>(bb_1));
     {
       icfg_t::adjacency_iterator succ_it, succ_it_end;
       std::tie(succ_it, succ_it_end) = ICFG.adjacent_vertices(bb_1);
@@ -234,18 +248,18 @@ on_insn:
     //
     // bb_1 leads to bb_2
     //
-    ICFG.clear_out_edges<false>(bb_1);
-    ICFG.add_edge<false>(bb_1, bb_2);
+    ICFG.template clear_out_edges<false>(bb_1);
+    ICFG.template add_edge<false>(bb_1, bb_2);
   }
 
   {
-    ip_scoped_lock<ip_sharable_mutex> e_lck(boost::move(e_lck_bb));
+    bbprop_t::exclusive_lock_guard<MT> e_lck(boost::move(e_lck_bb));
 
     //
     // edges from bb_1 now point from bb_2
     //
     for (basic_block_t bb : to_bb_vec)
-      ICFG.add_edge<false>(bb_2, bb);
+      ICFG.template add_edge<false>(bb_2, bb);
 
     if constexpr (WithOnBlockProc)
       obp(bb_2, bbprop_2);
@@ -302,8 +316,8 @@ on_insn:
   return true;
 }
 
-template <bool WithOnBlockProc>
-basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
+template <bool WithOnBlockProc, bool MT>
+basic_block_index_t explorer_t::_explore_basic_block(binary_base_t<MT> &b,
                                                      obj::Binary &Bin,
                                                      const taddr_t Addr,
                                                      bool Speculative,
@@ -318,11 +332,24 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
 
   basic_block_index_t Idx = invalid_basic_block_index;
   {
-    bool inserted = b.bbbmap.try_emplace_or_cvisit(
-        Addr, std::ref(b), std::ref(Idx), static_cast<taddr_t>(Addr),
-        [&](const typename bbbmap_t::value_type &x) {
-          Idx = x.second;
-        });
+    bool inserted;
+    if constexpr (MT) {
+      inserted = b.bbbmap.try_emplace_or_cvisit(
+          Addr, b, std::ref(Idx), static_cast<taddr_t>(Addr),
+          [&](const typename bbbmap_t<MT>::value_type &x) { Idx = x.second; });
+    } else {
+      auto it = b.bbbmap.find(Addr);
+      if (it == b.bbbmap.end()) {
+        inserted =
+            b.bbbmap
+                .try_emplace(Addr, b, std::ref(Idx), static_cast<taddr_t>(Addr))
+                .second;
+        assert(inserted);
+      } else {
+        inserted = false;
+        Idx = (*it).second;
+      }
+    }
 
     assert(is_basic_block_index_valid(Idx));
 
@@ -334,18 +361,21 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
   }
 
   auto &bbprop = ICFG[basic_block_of_index(Idx, ICFG)];
-  ip_scoped_lock<ip_sharable_mutex> e_lck_bb_pub(
+  bbprop_t::pub_exclusive_lock_guard<MT> e_lck_bb_pub(
       bbprop.pub.mtx, boost::interprocess::accept_ownership);
-  ip_scoped_lock<ip_sharable_mutex> e_lck_bb(
+  bbprop_t::exclusive_lock_guard<MT> e_lck_bb(
       bbprop.mtx, boost::interprocess::accept_ownership);
 
   {
   BOOST_SCOPE_DEFER [&bbprop] {
-    bbprop.pub.is.store(true, std::memory_order_release);
+    if constexpr (MT)
+      bbprop.pub.is.store(true, std::memory_order_release);
   };
 
-  ip_scoped_lock<ip_sharable_mutex> e_lck_bbmap(
-      b.bbmap_mtx, boost::interprocess::defer_lock);
+  using bbmap_shared_lock_guard = binary_base_t<MT>::bbmap_shared_lock_guard;
+  using bbmap_exclusive_lock_guard = binary_base_t<MT>::bbmap_exclusive_lock_guard;
+  bbmap_exclusive_lock_guard e_lck_bbmap(b.bbmap_mtx,
+                                         boost::interprocess::defer_lock);
   if (likely(!Speculative)) {
     e_lck_bbmap.lock();
 
@@ -499,7 +529,7 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
   }
 
   {
-    ip_scoped_lock<ip_sharable_mutex> e_lck(boost::move(e_lck_bb));
+    bbprop_t::exclusive_lock_guard<MT> e_lck(boost::move(e_lck_bb));
 
     bbprop.Speculative = Speculative;
     bbprop.Addr = Addr;
@@ -531,7 +561,7 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
           "{0} {1}\t\t\t\t\t\t{2}\n", description_of_block(bbprop, false),
           description_of_terminator_info(T, false), b.Name.c_str());
 
-    this->on_newbb_proc(b, bb);
+    get_newbb_proc<MT>()(b, bb);
   }
 
   auto control_flow_to = [&](taddr_t Target) -> void {
@@ -593,7 +623,7 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
     if (unlikely(Speculative)) {
       ICFG[basic_block_of_index(Idx, ICFG)].Term._call.Target = CalleeFIdx;
     } else {
-      ip_sharable_lock<ip_sharable_mutex> s_lck_bbmap(b.bbmap_mtx);
+      auto s_lck_bbmap = b.bbmap_shared_access();
 
       ICFG[basic_block_at_address(T.Addr, b)].Term._call.Target = CalleeFIdx;
     }
@@ -624,8 +654,9 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_t &b,
   return Idx;
 }
 
+template <bool MT>
 void explorer_t::_control_flow_to(
-    binary_t &b,
+    binary_base_t<MT> &b,
     obj::Binary &Bin,
     const taddr_t TermAddr,
     const taddr_t Target,
@@ -656,14 +687,15 @@ void explorer_t::_control_flow_to(
   if (unlikely(Speculative)) {
     ICFG.add_edge(bb, basic_block_of_index(SuccBBIdx, b));
   } else {
-    ip_sharable_lock<ip_sharable_mutex> s_lck_bbmap(b.bbmap_mtx);
+    auto s_lck_bbmap = b.bbmap_shared_access();
 
-    ICFG.add_edge<false>(basic_block_at_address(TermAddr, b),
-                         basic_block_of_index(SuccBBIdx, b));
+    ICFG.template add_edge<false>(basic_block_at_address(TermAddr, b),
+                                  basic_block_of_index(SuccBBIdx, b));
   }
 }
 
-basic_block_index_t explorer_t::explore_basic_block(binary_t &b,
+template <bool MT>
+basic_block_index_t explorer_t::explore_basic_block(binary_base_t<MT> &b,
                                                     obj::Binary &B,
                                                     taddr_t Addr) {
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
@@ -673,7 +705,8 @@ basic_block_index_t explorer_t::explore_basic_block(binary_t &b,
   return _explore_basic_block(b, B, Addr, false);
 }
 
-basic_block_index_t explorer_t::explore_basic_block(binary_t &b,
+template <bool MT>
+basic_block_index_t explorer_t::explore_basic_block(binary_base_t<MT> &b,
                                                     obj::Binary &B,
                                                     taddr_t Addr,
                                                     onblockproc_t obp,
@@ -685,7 +718,8 @@ basic_block_index_t explorer_t::explore_basic_block(binary_t &b,
   return _explore_basic_block<true>(b, B, Addr, false, obp, obp_u);
 }
 
-function_index_t explorer_t::explore_function(binary_t &b,
+template <bool MT>
+function_index_t explorer_t::explore_function(binary_base_t<MT> &b,
                                               obj::Binary &B,
                                               taddr_t Addr) {
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
@@ -694,5 +728,36 @@ function_index_t explorer_t::explore_function(binary_t &b,
 
   return _explore_function(b, B, Addr, false);
 }
+
+#define VALUES_TO_INSTANTIATE_WITH                                             \
+    ((true))                                                                   \
+    ((false))
+#define GET_VALUE(x) BOOST_PP_TUPLE_ELEM(0, x)
+
+#define DO_INSTANTIATE(r, data, elem)                                          \
+  template basic_block_index_t                                                 \
+  explorer_t::explore_basic_block<GET_VALUE(elem)>(                            \
+      binary_base_t<GET_VALUE(elem)> &, obj::Binary &, taddr_t Addr);
+BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, VALUES_TO_INSTANTIATE_WITH)
+
+#define DO_INSTANTIATE(r, data, elem)                                          \
+  template basic_block_index_t                                                 \
+  explorer_t::explore_basic_block<GET_VALUE(elem)>(                            \
+      binary_base_t<GET_VALUE(elem)> &, obj::Binary &, taddr_t Addr,           \
+      onblockproc_t obp, onblockproc_u_t obp_u);
+BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, VALUES_TO_INSTANTIATE_WITH)
+
+#define DO_INSTANTIATE(r, data, elem)                                          \
+  template function_index_t explorer_t::explore_function<GET_VALUE(elem)>(     \
+      binary_base_t<GET_VALUE(elem)> &, obj::Binary &, taddr_t Addr);
+BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, VALUES_TO_INSTANTIATE_WITH)
+
+#define DO_INSTANTIATE(r, data, elem)                                          \
+  template bool explorer_t::split(                                             \
+      binary_base_t<GET_VALUE(elem)> &, obj::Binary &,                         \
+      bbprop_t::exclusive_lock_guard<GET_VALUE(elem)> e_lck_bb,                \
+      bbmap_t::iterator it, const taddr_t Addr, basic_block_index_t Idx,       \
+      onblockproc_t obp);
+BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, VALUES_TO_INSTANTIATE_WITH)
 
 }

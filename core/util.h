@@ -31,12 +31,17 @@ static inline std::string uppered_string(const std::string &s) {
 }
 
 // when using this function carefully consider whether it is the right choice.
-inline void ignore_exception(std::function<void(void)> f) {
+static inline bool ignore_exception(std::function<void(void)> f) {
   try {
     f();
+    return false;
   } catch (...) {
-    ;
+    return true;
   }
+}
+
+static inline bool catch_exception(std::function<void(void)> f) {
+  return ignore_exception(f);
 }
 
 // assigns x to y, returns x != y (before the assignment)

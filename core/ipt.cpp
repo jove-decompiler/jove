@@ -1376,7 +1376,7 @@ void IntelPT<IPT_PARAMETERS_DEF>::block_transfer(binary_t &fr_b,
   bool Term_indirect_jump_IsLj;
 
   ({
-    ip_sharable_lock<ip_sharable_mutex> fr_s_lck_bbmap(fr_b.bbmap_mtx);
+    auto fr_s_lck_bbmap = fr_b.bbmap_shared_access();
 
     const auto &Term = fr_ICFG[basic_block_at_address(FrTermAddr, fr_b)].Term;
 
@@ -1393,7 +1393,7 @@ void IntelPT<IPT_PARAMETERS_DEF>::block_transfer(binary_t &fr_b,
     if (!is_function_index_valid(FIdx))
       return;
 
-    ip_sharable_lock<ip_sharable_mutex> fr_s_lck(fr_b.bbmap_mtx);
+    auto fr_s_lck = fr_b.bbmap_shared_access();
 
     basic_block_t fr_bb = basic_block_at_address(FrTermAddr, fr_b);
     basic_block_properties_t &fr_bbprop = fr_ICFG[fr_bb];
@@ -1407,7 +1407,7 @@ void IntelPT<IPT_PARAMETERS_DEF>::block_transfer(binary_t &fr_b,
       break;
 
     const bool TailCall = ({
-      ip_sharable_lock<ip_sharable_mutex> fr_s_lck_bbmap(fr_b.bbmap_mtx);
+      auto fr_s_lck_bbmap = fr_b.bbmap_shared_access();
 
       IsDefinitelyTailCall(fr_ICFG, basic_block_at_address(FrTermAddr, fr_b));
     });
@@ -1420,7 +1420,7 @@ void IntelPT<IPT_PARAMETERS_DEF>::block_transfer(binary_t &fr_b,
     } else {
       assert(FrBIdx == ToBIdx);
 
-      ip_sharable_lock<ip_sharable_mutex> fr_s_lck_bbmap(fr_b.bbmap_mtx);
+      auto fr_s_lck_bbmap = fr_b.bbmap_shared_access();
 
       fr_ICFG.add_edge(basic_block_at_address(FrTermAddr, fr_b), to_bb);
     }
@@ -1435,7 +1435,7 @@ void IntelPT<IPT_PARAMETERS_DEF>::block_transfer(binary_t &fr_b,
 
   case TERMINATOR::RETURN: {
     {
-      ip_sharable_lock<ip_sharable_mutex> fr_s_lck_bbmap(fr_b.bbmap_mtx);
+      auto fr_s_lck_bbmap = fr_b.bbmap_shared_access();
 
       concurrent::set(fr_ICFG[basic_block_at_address(FrTermAddr, fr_b)].Term._return.Returns);
     }
@@ -1445,7 +1445,7 @@ void IntelPT<IPT_PARAMETERS_DEF>::block_transfer(binary_t &fr_b,
     //
     const taddr_t before_pc = ToAddr - 1;
 
-    ip_sharable_lock<ip_sharable_mutex> to_s_lck_bbmap(to_b.bbmap_mtx);
+    auto to_s_lck_bbmap = to_b.bbmap_shared_access();
 
     if (!exists_basic_block_at_address(before_pc, to_b))
       break;

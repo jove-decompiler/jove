@@ -2,7 +2,7 @@ set(JOVE_VERSION "v0.8")
 
 set(JOVE_TOOL_FLAGS
   "-fwrapv"
-# "-ftemplate-backtrace-limit=0"
+  "-ftemplate-backtrace-limit=0"
 
   "-DBOOST_ICL_USE_STATIC_BOUNDED_INTERVALS"
   "-DBOOST_INTERPROCESS_POSIX_ROBUST_MUTEXES"

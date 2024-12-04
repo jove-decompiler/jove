@@ -333,22 +333,83 @@ static void serialize(Archive &ar, jove::allocates_function_t &af,
   ar &BOOST_SERIALIZATION_NVP(af.FIdx);
 }
 
+#if 0
+
 //
 // binary_t::Analysis_t
 //
-template <class Archive>
-static void serialize(Archive &ar, jove::binary_t::Analysis_t &A,
+template <class Archive, bool MT>
+static void serialize(Archive &ar,
+                      typename ::jove::binary_base_t<MT>::Analysis_t &A,
                       const unsigned int version) {
   ar &BOOST_SERIALIZATION_NVP(A.EntryFunction)
      &BOOST_SERIALIZATION_NVP(A.Functions.container())
-     &BOOST_SERIALIZATION_NVP(A.ICFG);
+     &BOOST_SERIALIZATION_NVP(A.ICFG.container());
 }
+
+#define VALUES_TO_INSTANTIATE_WITH1                                            \
+    ((true))                                                                   \
+    ((false))
+
+#define VALUES_TO_INSTANTIATE_WITH2                                            \
+    ((boost::archive::text_oarchive))                                          \
+    ((boost::archive::text_iarchive))                                          \
+    ((boost::archive::binary_oarchive))                                        \
+    ((boost::archive::binary_iarchive))
+
+#define GET_VALUE(x) BOOST_PP_TUPLE_ELEM(0, x)
+
+#define DO_INSTANTIATE(r, product)                                             \
+  template void serialize<GET_VALUE(BOOST_PP_SEQ_ELEM(1, product)),     \
+                          GET_VALUE(BOOST_PP_SEQ_ELEM(0, product))>(    \
+      GET_VALUE(BOOST_PP_SEQ_ELEM(1, product)) &,                              \
+      ::jove::binary_base_t<GET_VALUE(BOOST_PP_SEQ_ELEM(0, product))>::Analysis_t &, \
+      const unsigned int);
+
+BOOST_PP_SEQ_FOR_EACH_PRODUCT(DO_INSTANTIATE, (VALUES_TO_INSTANTIATE_WITH1)(VALUES_TO_INSTANTIATE_WITH2))
+#else
+}}
+namespace jove {
+
+
+template <bool MT>
+template <class Archive>
+void binary_base_t<MT>::Analysis_t::serialize(Archive &ar, const unsigned int version) {
+  ar &BOOST_SERIALIZATION_NVP(EntryFunction)
+     &BOOST_SERIALIZATION_NVP(Functions.container())
+     &BOOST_SERIALIZATION_NVP(ICFG.container());
+}
+
+#define VALUES_TO_INSTANTIATE_WITH1                                            \
+    ((true))                                                                   \
+    ((false))
+
+#define VALUES_TO_INSTANTIATE_WITH2                                            \
+    ((boost::archive::text_oarchive))                                          \
+    ((boost::archive::text_iarchive))                                          \
+    ((boost::archive::binary_oarchive))                                        \
+    ((boost::archive::binary_iarchive))
+
+#define GET_VALUE(x) BOOST_PP_TUPLE_ELEM(0, x)
+
+#define DO_INSTANTIATE(r, product)                                             \
+  template void binary_base_t<GET_VALUE(BOOST_PP_SEQ_ELEM(0, product))>::Analysis_t::serialize<GET_VALUE(BOOST_PP_SEQ_ELEM(1, product))     >(    \
+      GET_VALUE(BOOST_PP_SEQ_ELEM(1, product)) &,\
+      const unsigned int);
+
+BOOST_PP_SEQ_FOR_EACH_PRODUCT(DO_INSTANTIATE, (VALUES_TO_INSTANTIATE_WITH1)(VALUES_TO_INSTANTIATE_WITH2))
+
+
+}
+namespace boost {
+namespace serialization {
+#endif
 
 //
 // binary_t
 //
-template <class Archive>
-static void serialize(Archive &ar, jove::binary_t &b,
+template <class Archive, bool MT>
+static void serialize(Archive &ar, jove::binary_base_t<MT> &b,
                       const unsigned int version) {
   ar &BOOST_SERIALIZATION_NVP(b.Idx)
      &BOOST_SERIALIZATION_NVP(b.bbbmap)
@@ -364,6 +425,25 @@ static void serialize(Archive &ar, jove::binary_t &b,
      &BOOST_SERIALIZATION_NVP(b.IsDynamicallyLoaded)
      &BOOST_SERIALIZATION_NVP(b.Analysis);
 }
+
+#define VALUES_TO_INSTANTIATE_WITH1                                            \
+    ((true))                                                                   \
+    ((false))
+
+#define VALUES_TO_INSTANTIATE_WITH2                                            \
+    ((boost::archive::text_oarchive))                                          \
+    ((boost::archive::text_iarchive))                                          \
+    ((boost::archive::binary_oarchive))                                        \
+    ((boost::archive::binary_iarchive))
+
+#define GET_VALUE(x) BOOST_PP_TUPLE_ELEM(0, x)
+
+#define DO_INSTANTIATE(r, product)                                             \
+  template void serialize<GET_VALUE(BOOST_PP_SEQ_ELEM(1, product)),            \
+                          GET_VALUE(BOOST_PP_SEQ_ELEM(0, product))>(           \
+      GET_VALUE(BOOST_PP_SEQ_ELEM(1, product)) &,                              \
+      jove::binary_base_t<GET_VALUE(BOOST_PP_SEQ_ELEM(0, product))> &,         \
+      const unsigned int);
 
 //
 // function_t::Analysis_t
@@ -418,12 +498,33 @@ static void serialize(Archive &ar, jove::basic_block_properties_t &bbprop,
 // jv_t
 //
 
-template <class Archive>
-static void serialize(Archive &ar, jove::jv_t &jv, const unsigned int) {
+template <class Archive, bool MT>
+static void serialize(Archive &ar, jove::jv_base_t<MT> &jv, const unsigned int) {
   ar &BOOST_SERIALIZATION_NVP(jv.Binaries.container())
      &BOOST_SERIALIZATION_NVP(jv.hash_to_binary)
      &BOOST_SERIALIZATION_NVP(jv.name_to_binaries);
 }
+
+#define VALUES_TO_INSTANTIATE_WITH1                                            \
+    ((true))                                                                   \
+    ((false))
+
+#define VALUES_TO_INSTANTIATE_WITH2                                            \
+    ((boost::archive::text_oarchive))                                          \
+    ((boost::archive::text_iarchive))                                          \
+    ((boost::archive::binary_oarchive))                                        \
+    ((boost::archive::binary_iarchive))
+
+#define GET_VALUE(x) BOOST_PP_TUPLE_ELEM(0, x)
+
+#define DO_INSTANTIATE(r, product)                                             \
+  template void serialize<GET_VALUE(BOOST_PP_SEQ_ELEM(1, product)),            \
+                          GET_VALUE(BOOST_PP_SEQ_ELEM(0, product))>(           \
+      GET_VALUE(BOOST_PP_SEQ_ELEM(1, product)) &,                              \
+      jove::jv_base_t<GET_VALUE(BOOST_PP_SEQ_ELEM(0, product))> &,             \
+      const unsigned int);
+
+BOOST_PP_SEQ_FOR_EACH_PRODUCT(DO_INSTANTIATE, (VALUES_TO_INSTANTIATE_WITH1)(VALUES_TO_INSTANTIATE_WITH2))
 
 } // namespace serialization
 } // namespace boost
@@ -431,12 +532,32 @@ static void serialize(Archive &ar, jove::jv_t &jv, const unsigned int) {
 namespace boost {
 namespace serialization {
 
-template <class Archive>
-static inline void load_construct_data(Archive &ar, jove::binary_t *t,
-                                       const unsigned int file_version) {
+template <class Archive, bool MT>
+static void load_construct_data(Archive &ar, jove::binary_base_t<MT> *t,
+                                const unsigned int file_version) {
   assert(jove::pFile_hack);
   ::new (t)jove::binary_t(*jove::pFile_hack);
 }
+
+#define VALUES_TO_INSTANTIATE_WITH1                                            \
+    ((true))                                                                   \
+    ((false))
+
+#define VALUES_TO_INSTANTIATE_WITH2                                            \
+    ((boost::archive::text_oarchive))                                          \
+    ((boost::archive::text_iarchive))                                          \
+    ((boost::archive::binary_oarchive))                                        \
+    ((boost::archive::binary_iarchive))
+
+#define GET_VALUE(x) BOOST_PP_TUPLE_ELEM(0, x)
+
+#define DO_INSTANTIATE(r, product)                                             \
+  template void load_construct_data<GET_VALUE(BOOST_PP_SEQ_ELEM(1, product)),  \
+                                    GET_VALUE(BOOST_PP_SEQ_ELEM(0, product))>( \
+      GET_VALUE(BOOST_PP_SEQ_ELEM(1, product)) &,                              \
+      jove::binary_base_t<GET_VALUE(BOOST_PP_SEQ_ELEM(0, product))> *,         \
+      const unsigned int file_version);
+BOOST_PP_SEQ_FOR_EACH_PRODUCT(DO_INSTANTIATE, (VALUES_TO_INSTANTIATE_WITH1)(VALUES_TO_INSTANTIATE_WITH2))
 
 template <class Archive>
 static inline void load_construct_data(Archive &ar, jove::function_t *t,
@@ -501,7 +622,8 @@ static inline void load_construct_data(
 
 namespace jove {
 
-void SerializeJV(const jv_t &in, std::ostream &os, bool text) {
+template <bool MT>
+void SerializeJV(const jv_base_t<MT> &in, std::ostream &os, bool text) {
   try {
     if (text) {
       boost::archive::text_oarchive oa(os);
@@ -515,7 +637,8 @@ void SerializeJV(const jv_t &in, std::ostream &os, bool text) {
   }
 }
 
-void SerializeJVToFile(const jv_t &in, const char *path, bool text) {
+template <bool MT>
+void SerializeJVToFile(const jv_base_t<MT> &in, const char *path, bool text) {
   std::ofstream ofs(path);
   if (!ofs.is_open())
     throw std::runtime_error("SerializeJVToFile: failed to open " +
@@ -524,9 +647,11 @@ void SerializeJVToFile(const jv_t &in, const char *path, bool text) {
   SerializeJV(in, ofs, text);
 }
 
-void UnserializeJV(jv_t &out, jv_file_t &jv_file, std::istream &is, bool text) {
+template <bool MT>
+void UnserializeJV(jv_base_t<MT> &out, jv_file_t &jv_file, std::istream &is,
+                   bool text) {
   /* FIXME */
-  for (binary_t &b : out.Binaries)
+  for (binary_base_t<MT> &b : out.Binaries)
     __builtin_memset(&b.Analysis.ICFG.container().m_property, 0,
                      sizeof(b.Analysis.ICFG.container().m_property));
 
@@ -548,13 +673,13 @@ void UnserializeJV(jv_t &out, jv_file_t &jv_file, std::istream &is, bool text) {
   }
 
   /* FIXME */
-  for (binary_t &b : out.Binaries)
+  for (binary_base_t<MT> &b : out.Binaries)
     __builtin_memset(&b.Analysis.ICFG.container().m_property, 0,
                      sizeof(b.Analysis.ICFG.container().m_property));
 
   /* XXX */
   for (unsigned BIdx = 0; BIdx < out.Binaries.container().size(); ++BIdx) {
-    binary_t &b = out.Binaries.container()[BIdx];
+    binary_base_t<MT> &b = out.Binaries.container()[BIdx];
     b.Idx = BIdx;
 
     for (unsigned FIdx = 0; FIdx < b.Analysis.Functions.container().size(); ++FIdx) {
@@ -566,7 +691,9 @@ void UnserializeJV(jv_t &out, jv_file_t &jv_file, std::istream &is, bool text) {
   }
 }
 
-void UnserializeJVFromFile(jv_t &out, jv_file_t &jv_file, const char *path, bool text) {
+template <bool MT>
+void UnserializeJVFromFile(jv_base_t<MT> &out, jv_file_t &jv_file, const char *path,
+                           bool text) {
   std::ifstream ifs(path);
   if (!ifs.is_open())
     throw std::runtime_error("UnserializeJVFromFile: failed to open " +
@@ -575,10 +702,43 @@ void UnserializeJVFromFile(jv_t &out, jv_file_t &jv_file, const char *path, bool
   UnserializeJV(out, jv_file, ifs, text);
 }
 
-void jv2xml(const jv_t &jv, std::ostringstream &oss) {
+template <bool MT>
+void jv2xml(const jv_base_t<MT> &jv, std::ostringstream &oss) {
   boost::archive::xml_oarchive oa(oss);
 
   oa << BOOST_SERIALIZATION_NVP(jv);
 }
+
+#define VALUES_TO_INSTANTIATE_WITH                                             \
+    ((true))                                                                   \
+    ((false))
+#define GET_VALUE(x) BOOST_PP_TUPLE_ELEM(0, x)
+
+#define DO_INSTANTIATE(r, data, elem)                                          \
+  template void SerializeJV(const jv_base_t<GET_VALUE(elem)> &in,              \
+                            std::ostream &os, bool text);
+BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, VALUES_TO_INSTANTIATE_WITH)
+
+#define DO_INSTANTIATE(r, data, elem)                                          \
+  template void SerializeJVToFile(const jv_base_t<GET_VALUE(elem)> &,          \
+                                  const char *path, bool text);
+BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, VALUES_TO_INSTANTIATE_WITH)
+
+#define DO_INSTANTIATE(r, data, elem)                                          \
+  template void UnserializeJV(jv_base_t<GET_VALUE(elem)> &out,                 \
+                              jv_file_t &jv_file, std::istream &is,            \
+                              bool text);
+BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, VALUES_TO_INSTANTIATE_WITH)
+
+#define DO_INSTANTIATE(r, data, elem)                                          \
+  template void UnserializeJVFromFile(jv_base_t<GET_VALUE(elem)> &out,         \
+                                      jv_file_t &jv_file, const char *path,    \
+                                      bool text);
+BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, VALUES_TO_INSTANTIATE_WITH)
+
+#define DO_INSTANTIATE(r, data, elem)                                          \
+  template void jv2xml(const jv_base_t<GET_VALUE(elem)> &jv,                   \
+                       std::ostringstream &oss);
+BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, VALUES_TO_INSTANTIATE_WITH)
 
 }

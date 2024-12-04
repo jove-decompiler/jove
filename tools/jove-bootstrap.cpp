@@ -769,13 +769,11 @@ int BootstrapTool::TracerLoop(pid_t child) {
   disas = std::make_unique<disas_t>();
   tcg = std::make_unique<tiny_code_generator_t>();
   symbolizer = std::make_unique<symbolizer_t>();
-  E = std::make_unique<explorer_t>(*disas, *tcg, IsVeryVerbose(),
-                                   std::bind(&BootstrapTool::on_new_basic_block,
-                                             this, std::placeholders::_1,
-                                             std::placeholders::_2),
-                                   std::bind(&BootstrapTool::on_new_function,
-                                             this, std::placeholders::_1,
-                                             std::placeholders::_2));
+  E = std::make_unique<explorer_t>(*disas, *tcg, IsVeryVerbose());
+  E->set_newbb_proc<true>(std::bind(&BootstrapTool::on_new_basic_block, this,
+                              std::placeholders::_1, std::placeholders::_2));
+  E->set_newfn_proc<true>(std::bind(&BootstrapTool::on_new_function, this,
+                              std::placeholders::_1, std::placeholders::_2));
 
   siginfo_t si;
   long sig = 0;
@@ -4337,10 +4335,10 @@ binary_index_t BootstrapTool::BinaryFromPath(pid_t child, const char *path) {
 
     EmptyBasicBlockProcSetter(BootstrapTool &tool)
         : tool(tool), sav_proc(tool.E->get_newbb_proc()) {
-      tool.E->set_newbb_proc([](binary_t &, basic_block_t) -> void {});
+      tool.E->set_newbb_proc<true>([](binary_t &, basic_block_t) -> void {});
     }
 
-    ~EmptyBasicBlockProcSetter() { tool.E->set_newbb_proc(sav_proc); }
+    ~EmptyBasicBlockProcSetter() { tool.E->set_newbb_proc<true>(sav_proc); }
   } __EmptyBasicBlockProcSetter(*this); /* on_binary_loaded will place brkpts */
 
   using namespace std::placeholders;
@@ -4357,10 +4355,10 @@ binary_index_t BootstrapTool::BinaryFromData(pid_t child, std::string_view sv,
 
     EmptyBasicBlockProcSetter(BootstrapTool &tool)
         : tool(tool), sav_proc(tool.E->get_newbb_proc()) {
-      tool.E->set_newbb_proc([](binary_t &, basic_block_t) -> void {});
+      tool.E->set_newbb_proc<true>([](binary_t &, basic_block_t) -> void {});
     }
 
-    ~EmptyBasicBlockProcSetter() { tool.E->set_newbb_proc(sav_proc); }
+    ~EmptyBasicBlockProcSetter() { tool.E->set_newbb_proc<true>(sav_proc); }
   } __EmptyBasicBlockProcSetter(*this); /* on_binary_loaded will place brkpts */
 
   using namespace std::placeholders;

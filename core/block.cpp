@@ -2,6 +2,7 @@
 
 namespace jove {
 
+template <bool MT>
 bool basic_block_properties_t::IsParent(function_index_t FIdx) const {
   ip_sharable_lock<ip_sharable_mutex> s_lck(Parents._mtx);
 
@@ -11,6 +12,7 @@ bool basic_block_properties_t::IsParent(function_index_t FIdx) const {
   return Parents._p->contains(FIdx);
 }
 
+template <bool MT>
 bool basic_block_properties_t::HasParent(void) const {
   ip_sharable_lock<ip_sharable_mutex> s_lck(Parents._mtx);
 
@@ -20,7 +22,8 @@ bool basic_block_properties_t::HasParent(void) const {
   return !Parents._p->empty();
 }
 
-void basic_block_properties_t::AddParent(function_index_t FIdx, jv_t &jv) {
+template <bool MT>
+void basic_block_properties_t::AddParent(function_index_t FIdx, jv_base_t<MT> &jv) {
   ip_func_index_set Idxs(jv.get_allocator());
 
   {
@@ -57,6 +60,7 @@ void basic_block_properties_t::AddParent(function_index_t FIdx, jv_t &jv) {
   Parents._p = &(*jv.FIdxSets.insert(boost::move(Idxs)).first);
 }
 
+template <bool MT>
 void basic_block_properties_t::GetParents(func_index_set &out) const {
   ip_sharable_lock<ip_sharable_mutex> s_lck(Parents._mtx);
 
@@ -67,11 +71,42 @@ void basic_block_properties_t::GetParents(func_index_set &out) const {
   out.insert(parents.begin(), parents.end());
 }
 
+template <bool MT>
 bool basic_block_properties_t::insertDynTarget(binary_index_t ThisBIdx,
                                                const dynamic_target_t &X,
-                                               jv_t &jv) {
+                                               jv_base_t<MT> &jv) {
   function_of_target(X, jv).Callers.emplace(ThisBIdx, Term.Addr);
   return DynTargets.insert(X);
 }
+
+#define VALUES_TO_INSTANTIATE_WITH                                             \
+    ((true))                                                                   \
+    ((false))
+#define GET_VALUE(x) BOOST_PP_TUPLE_ELEM(0, x)
+
+#define DO_INSTANTIATE(r, data, elem)                                          \
+  template bool basic_block_properties_t::insertDynTarget(                     \
+      binary_index_t ThisBIdx, const dynamic_target_t &,                       \
+      jv_base_t<GET_VALUE(elem)> &);
+BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, VALUES_TO_INSTANTIATE_WITH)
+
+#define DO_INSTANTIATE(r, data, elem)                                          \
+  template bool basic_block_properties_t::IsParent<GET_VALUE(elem)>(           \
+      function_index_t FIdx) const;
+BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, VALUES_TO_INSTANTIATE_WITH)
+
+#define DO_INSTANTIATE(r, data, elem)                                          \
+  template void basic_block_properties_t::GetParents<GET_VALUE(elem)>(         \
+      func_index_set &) const;
+BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, VALUES_TO_INSTANTIATE_WITH)
+
+#define DO_INSTANTIATE(r, data, elem)                                          \
+  template void basic_block_properties_t::AddParent<GET_VALUE(elem)>(          \
+      function_index_t, jv_base_t<GET_VALUE(elem)> &);
+BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, VALUES_TO_INSTANTIATE_WITH)
+
+#define DO_INSTANTIATE(r, data, elem)                                          \
+  template bool basic_block_properties_t::HasParent<GET_VALUE(elem)>(void) const;
+BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, VALUES_TO_INSTANTIATE_WITH)
 
 }

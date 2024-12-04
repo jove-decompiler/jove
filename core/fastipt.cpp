@@ -507,7 +507,8 @@ static inline int get_next_opcode(unsigned char **data_p, size_t *size_p,
 	return 1;
 }
 
-uint64_t FastIPT::decode_ip(unsigned char *data) {
+template <bool MT>
+uint64_t FastIPT<MT>::decode_ip(unsigned char *data) {
 	uint64_t next_ip;
 
 	switch ((*data) >> 5) {
@@ -535,17 +536,16 @@ uint64_t FastIPT::decode_ip(unsigned char *data) {
 	return next_ip;
 }
 
-FastIPT::FastIPT(jv_t &jv, explorer_t &explorer, unsigned cpu,
-          const address_space_t &AddressSpace, void *begin, void *end,
-          bool ignore_trunc_aux) : jv(jv), explorer(explorer),
-  begin(begin),
-  end(end)
-{
-}
+template <bool MT>
+FastIPT<MT>::FastIPT(jv_base_t<MT> &jv, explorer_t &explorer, unsigned cpu,
+                     const address_space_t &AddressSpace, void *begin,
+                     void *end, bool ignore_trunc_aux)
+    : jv(jv), explorer(explorer), begin(begin), end(end) {}
 
 // fast decoder that decodes only tip (and related packets)
 // and skips over the reset
-void FastIPT::explore(void) {
+template <bool MT>
+void FastIPT<MT>::explore(void) {
   unsigned char *data = reinterpret_cast<unsigned char *>(begin);
   size_t size = reinterpret_cast<unsigned char *>(end) -
                 reinterpret_cast<unsigned char *>(begin);

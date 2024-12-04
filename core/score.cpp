@@ -8,8 +8,9 @@ namespace jove {
 
 typedef boost::format fmt;
 
-double compute_score(const jv_t &jv,
-                     const binary_t &binary) {
+template <bool MT>
+double compute_score(const jv_base_t<MT> &jv,
+                     const binary_base_t<MT> &binary) {
   auto Bin = B::Create(llvm::StringRef(binary.data()));
 
   //
@@ -63,14 +64,14 @@ double compute_score(const jv_t &jv,
   if (N == 0)
     return 1.0;
 
-  binary_t &b = const_cast<binary_t &>(binary);
+  binary_base_t<MT> &b = const_cast<binary_base_t<MT> &>(binary);
   auto &ICFG = b.Analysis.ICFG;
 
   //
   // add up all the basic block lengths (M)
   //
   size_t M = ({
-    ip_sharable_lock<ip_sharable_mutex> s_lck_bbmap(b.bbmap_mtx);
+    auto s_lck_bbmap = b.bbmap_shared_access();
 
     std::accumulate(b.bbmap.cbegin(),
 		    b.bbmap.cend(), 0,
@@ -85,5 +86,17 @@ double compute_score(const jv_t &jv,
   //
   return static_cast<double>(M) / static_cast<double>(N);
 }
+
+#define VALUES_TO_INSTANTIATE_WITH                                             \
+    ((true))                                                                   \
+    ((false))
+
+#define GET_VALUE(x) BOOST_PP_TUPLE_ELEM(0, x)
+
+#define DO_INSTANTIATE(r, data, elem)                                          \
+  template double compute_score(const jv_base_t<GET_VALUE(elem)> &,            \
+                                const binary_base_t<GET_VALUE(elem)> &);
+
+BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, VALUES_TO_INSTANTIATE_WITH)
 
 }

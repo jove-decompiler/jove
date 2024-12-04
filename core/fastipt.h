@@ -7,8 +7,9 @@ namespace jove {
 class explorer_t;
 
 /* winafl IPT decoder */
+template <bool MT>
 class FastIPT {
-  jv_t &jv;
+  jv_base_t<MT> &jv;
   explorer_t &explorer;
 
   void *begin;
@@ -18,7 +19,7 @@ class FastIPT {
   uint64_t previous_ip = 0;
 
 public:
-  FastIPT(jv_t &, explorer_t &, unsigned cpu,
+  FastIPT(jv_base_t<MT> &, explorer_t &, unsigned cpu,
           const address_space_t &AddressSpace, void *begin, void *end,
           bool ignore_trunc_aux = false);
 

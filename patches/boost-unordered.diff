@@ -688,7 +688,7 @@ index 1133d9c9..d2b6f840 100644
  
  #endif // BOOST_UNORDERED_CONCURRENT_FLAT_SET_FWD_HPP
 diff --git a/include/boost/unordered/detail/foa/concurrent_table.hpp b/include/boost/unordered/detail/foa/concurrent_table.hpp
-index 66c25791..8c2bab59 100644
+index 66c25791..27d0e06e 100644
 --- a/include/boost/unordered/detail/foa/concurrent_table.hpp
 +++ b/include/boost/unordered/detail/foa/concurrent_table.hpp
 @@ -13,40 +13,41 @@
@@ -880,7 +880,7 @@ index 66c25791..8c2bab59 100644
    }
  
    static void delete_group_access(
-@@ -412,60 +415,60 @@ inline void swap(atomic_size_control& x,atomic_size_control& y)
+@@ -412,129 +415,133 @@ inline void swap(atomic_size_control& x,atomic_size_control& y)
   *   - Each group of slots has an associated rw spinlock. A thread holds
   *     at most one group lock at any given time. Lookup is implemented in
   *     a (groupwise) lock-free manner until a reduced hash match is found, in
@@ -933,8 +933,13 @@ index 66c25791..8c2bab59 100644
    using prober=typename super::prober;
    using arrays_type=typename super::arrays_type;
    using size_ctrl_type=typename super::size_ctrl_type;
-   using compatible_nonconcurrent_table=table<TypePolicy,Hash,Pred,Allocator>;
-   friend compatible_nonconcurrent_table;
+-  using compatible_nonconcurrent_table=table<TypePolicy,Hash,Pred,Allocator>;
+-  friend compatible_nonconcurrent_table;
++  template <typename Spin2>
++  using compatible_nonconcurrent_table=table<TypePolicy,Hash,Pred,Allocator,Spin2>;
++  friend compatible_nonconcurrent_table<std::true_type>;
++  friend compatible_nonconcurrent_table<std::false_type>;
++
  
  public:
    using key_type=typename super::key_type;
@@ -947,7 +952,80 @@ index 66c25791..8c2bab59 100644
    using size_type=typename super::size_type;
    static constexpr std::size_t bulk_visit_size=16;
  
-@@ -874,60 +877,60 @@ public:
+ #if defined(BOOST_UNORDERED_ENABLE_STATS)
+   using stats=typename super::stats;
+ #endif
+ 
+ private:
+   template<typename Value,typename T>
+   using enable_if_is_value_type=typename std::enable_if<
+     !std::is_same<init_type,value_type>::value&&
+     std::is_same<Value,value_type>::value,
+     T
+   >::type;
+ 
+ public:
+   concurrent_table(
+     std::size_t n=default_bucket_count,const Hash& h_=Hash(),
+     const Pred& pred_=Pred(),const Allocator& al_=Allocator()):
+     super{n,h_,pred_,al_}
+     {}
+ 
+   concurrent_table(const concurrent_table& x):
+     concurrent_table(x,x.exclusive_access()){}
+   concurrent_table(concurrent_table&& x):
+     concurrent_table(std::move(x),x.exclusive_access()){}
+   concurrent_table(const concurrent_table& x,const Allocator& al_):
+     concurrent_table(x,al_,x.exclusive_access()){}
+   concurrent_table(concurrent_table&& x,const Allocator& al_):
+     concurrent_table(std::move(x),al_,x.exclusive_access()){}
+ 
+-  template<typename ArraysType>
++  template<typename ArraysType, typename Spin2>
+   concurrent_table(
+-    compatible_nonconcurrent_table&& x,
++    compatible_nonconcurrent_table<Spin2>&& x,
+     arrays_holder<ArraysType,Allocator>&& ah):
+     super{
+       std::move(x.h()),std::move(x.pred()),std::move(x.al()),
+       [&x]{return arrays_type::new_group_access(
+         x.al(),typename arrays_type::super{
+           x.arrays.groups_size_index,x.arrays.groups_size_mask,
+           to_pointer<typename arrays_type::group_type_pointer>(
+             reinterpret_cast<group_type*>(x.arrays.groups())),
+           x.arrays.elements_});},
+       size_ctrl_type{x.size_ctrl.ml,x.size_ctrl.size}}
+   {
+     x.arrays=ah.release();
+     x.size_ctrl.ml=x.initial_max_load();
+     x.size_ctrl.size=0;
+     BOOST_UNORDERED_SWAP_STATS(this->cstats,x.cstats);
+   }
+ 
+-  concurrent_table(compatible_nonconcurrent_table&& x):
++  template<typename Spin2>
++  concurrent_table(compatible_nonconcurrent_table<Spin2>&& x):
+     concurrent_table(std::move(x),x.make_empty_arrays())
+   {}
+ 
+   ~concurrent_table()=default;
+ 
+   concurrent_table& operator=(const concurrent_table& x)
+   {
+     auto lck=exclusive_access(*this,x);
+     super::operator=(x);
+     return *this;
+   }
+ 
+   concurrent_table& operator=(concurrent_table&& x)noexcept(
+     noexcept(std::declval<super&>() = std::declval<super&&>()))
+   {
+     auto lck=exclusive_access(*this,x);
+     super::operator=(std::move(x));
+     return *this;
+   }
+ 
+@@ -874,60 +881,60 @@ public:
          }
        });
    }
@@ -1011,7 +1089,7 @@ index 66c25791..8c2bab59 100644
    }
  
    template<typename Key>
-@@ -978,85 +981,85 @@ public:
+@@ -978,85 +985,85 @@ public:
  #endif
  
    template<typename Predicate>
@@ -1103,7 +1181,7 @@ index 66c25791..8c2bab59 100644
      return this->arrays.group_accesses()[pos].exclusive_access();
    }
  
-@@ -1758,35 +1761,35 @@ private:
+@@ -1758,35 +1765,35 @@ private:
  
      for(std::size_t n=0;n<s;++n){
        archive_constructed<raw_key_type>    key("key",ar,key_version);
@@ -1299,7 +1377,7 @@ index e89a21cf..8a8ca41e 100644
    {
      return arrays_type::new_(typename arrays_type::allocator_type(al()),n);
 diff --git a/include/boost/unordered/detail/foa/table.hpp b/include/boost/unordered/detail/foa/table.hpp
-index 529a514c..14a8e80b 100644
+index 529a514c..b157fd95 100644
 --- a/include/boost/unordered/detail/foa/table.hpp
 +++ b/include/boost/unordered/detail/foa/table.hpp
 @@ -39,41 +39,41 @@ struct plain_integral
@@ -1388,7 +1466,7 @@ index 529a514c..14a8e80b 100644
    {
      using diff_type=
        typename boost::pointer_traits<char_pointer>::difference_type;
-@@ -251,102 +251,102 @@ class table_erase_return_type<table_iterator<TypePolicy,GroupPtr,Const>>
+@@ -251,106 +251,108 @@ class table_erase_return_type<table_iterator<TypePolicy,GroupPtr,Const>>
    using const_iterator=table_iterator<TypePolicy,GroupPtr,true>;
  
  public:
@@ -1476,13 +1554,16 @@ index 529a514c..14a8e80b 100644
    using arrays_type=typename super::arrays_type;
    using size_ctrl_type=typename super::size_ctrl_type;
    using locator=typename super::locator;
++  template <typename Spin2>
    using compatible_concurrent_table=
 -    concurrent_table<TypePolicy,Hash,Pred,Allocator>;
-+    concurrent_table<TypePolicy,Hash,Pred,Allocator,Spin>;
++    concurrent_table<TypePolicy,Hash,Pred,Allocator,Spin2>;
    using group_type_pointer=typename boost::pointer_traits<
      typename boost::allocator_pointer<Allocator>::type
    >::template rebind<group_type>;
-   friend compatible_concurrent_table;
+-  friend compatible_concurrent_table;
++  friend compatible_concurrent_table<std::true_type>;
++  friend compatible_concurrent_table<std::false_type>;
  
  public:
    using key_type=typename super::key_type;
@@ -1499,7 +1580,55 @@ index 529a514c..14a8e80b 100644
    using allocator_type=typename super::allocator_type;
    using pointer=typename super::pointer;
    using const_pointer=typename super::const_pointer;
-@@ -496,50 +496,50 @@ public:
+   using reference=typename super::reference;
+   using const_reference=typename super::const_reference;
+   using size_type=typename super::size_type;
+   using difference_type=typename super::difference_type;
+@@ -358,41 +360,42 @@ public:
+   using iterator=typename std::conditional<
+     has_mutable_iterator,
+     table_iterator<type_policy,group_type_pointer,false>,
+     const_iterator>::type;
+   using erase_return_type=table_erase_return_type<iterator>;
+ 
+ #if defined(BOOST_UNORDERED_ENABLE_STATS)
+   using stats=typename super::stats;
+ #endif
+ 
+   table(
+     std::size_t n=default_bucket_count,const Hash& h_=Hash(),
+     const Pred& pred_=Pred(),const Allocator& al_=Allocator()):
+     super{n,h_,pred_,al_}
+     {}
+ 
+   table(const table& x)=default;
+   table(table&& x)=default;
+   table(const table& x,const Allocator& al_):super{x,al_}{}
+   table(table&& x,const Allocator& al_):super{std::move(x),al_}{}
+-  table(compatible_concurrent_table&& x):
++  template <typename Spin2>
++  table(compatible_concurrent_table<Spin2>&& x):
+     table(std::move(x),x.exclusive_access()){}
+   ~table()=default;
+ 
+   table& operator=(const table& x)=default;
+   table& operator=(table&& x)=default;
+ 
+   using super::get_allocator;
+ 
+   iterator begin()noexcept
+   {
+     iterator it{this->arrays.groups(),0,this->arrays.elements()};
+     if(this->arrays.elements()&&
+        !(this->arrays.groups()[0].match_occupied()&0x1))++it;
+     return it;
+   }
+ 
+   const_iterator begin()const noexcept
+                    {return const_cast<table*>(this)->begin();}
+   iterator       end()noexcept{return {};}
+   const_iterator end()const noexcept{return const_cast<table*>(this)->end();}
+@@ -496,50 +499,50 @@ public:
    }
  
    void swap(table& x)
@@ -1552,6 +1681,72 @@ index 529a514c..14a8e80b 100644
    using super::load_factor;
    using super::max_load_factor;
    using super::max_load;
+@@ -561,60 +564,60 @@ public:
+     >::type;
+ 
+     std::size_t s=x.size();
+     x.for_all_elements(
+       [&](group_type* pg,unsigned int n,element_type* p){
+         if(pr(const_cast<value_reference>(type_policy::value_from(*p)))){
+           x.super::erase(pg,n,p);
+         }
+       });
+     return std::size_t(s-x.size());
+   }
+ 
+   friend bool operator==(const table& x,const table& y)
+   {
+     return static_cast<const super&>(x)==static_cast<const super&>(y);
+   }
+ 
+   friend bool operator!=(const table& x,const table& y){return !(x==y);}
+ 
+ private:
+-  template<typename ArraysType>
+-  table(compatible_concurrent_table&& x,arrays_holder<ArraysType,Allocator>&& ah):
++  template<typename ArraysType, typename Spin2>
++  table(compatible_concurrent_table<Spin2>&& x,arrays_holder<ArraysType,Allocator>&& ah):
+     super{
+       std::move(x.h()),std::move(x.pred()),std::move(x.al()),
+       [&x]{return arrays_type{
+         x.arrays.groups_size_index,x.arrays.groups_size_mask,
+         to_pointer<group_type_pointer>(
+           reinterpret_cast<group_type*>(x.arrays.groups())),
+         x.arrays.elements_};},
+       size_ctrl_type{x.size_ctrl.ml,x.size_ctrl.size}}
+   {
+-    compatible_concurrent_table::arrays_type::delete_group_access(x.al(),x.arrays);
++    compatible_concurrent_table<Spin>::arrays_type::delete_group_access(x.al(),x.arrays);
+     x.arrays=ah.release();
+     x.size_ctrl.ml=x.initial_max_load();
+     x.size_ctrl.size=0;
+     BOOST_UNORDERED_SWAP_STATS(this->cstats,x.cstats);
+   }
+ 
+-  template<typename ExclusiveLockGuard>
+-  table(compatible_concurrent_table&& x,ExclusiveLockGuard):
++  template<typename ExclusiveLockGuard, typename Spin2>
++  table(compatible_concurrent_table<Spin2>&& x,ExclusiveLockGuard):
+     table(std::move(x),x.make_empty_arrays())
+   {}
+ 
+   struct erase_on_exit
+   {
+     erase_on_exit(table& x_,const_iterator it_):x(x_),it(it_){}
+     ~erase_on_exit(){if(!rollback_)x.erase(it);}
+ 
+     void rollback(){rollback_=true;}
+ 
+     table&         x;
+     const_iterator it;
+     bool           rollback_=false;
+   };
+ 
+   static inline iterator make_iterator(const locator& l)noexcept
+   {
+     return {l.pg,l.n,l.p};
+   }
+ 
 diff --git a/include/boost/unordered/detail/type_traits.hpp b/include/boost/unordered/detail/type_traits.hpp
 index 4369df2e..bff81ed2 100644
 --- a/include/boost/unordered/detail/type_traits.hpp
