@@ -184,6 +184,7 @@ struct IPTTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
   static constexpr const char *path_to_stdout = "perf.data.stdout";
   static constexpr const char *path_to_stderr = "perf.data.stderr";
   static constexpr const char *sb_filename = "perf.data-sideband.pevent";
+  static constexpr const char *opts_filename = "perf.data.opts";
 
 public:
   IPTTool()
@@ -773,42 +774,7 @@ int IPTTool::UsingLibipt(void) {
 
   bool Failed = false;
 
-  std::vector<std::string> ptdump_args;
-  std::vector<char *> ptdump_argv;
-  auto get_opts = [&](void) -> void {
-    //
-    // perf-get-opts (originally written for ptdump and ptxed)
-    //
-    fs::path path_to_opts = fs::path(temporary_dir()) / "get-opts.txt";
-
-    fs::path path_to_get_opts = libipt_scripts_dir / "perf-get-opts.bash";
-    if (RunExecutableToExit(
-            path_to_get_opts.string(),
-            [&](auto Arg) { Arg(path_to_get_opts.string()); },
-            path_to_opts.c_str())) {
-      WithColor::error() << "failed to run libipt/script/perf-get-opts.bash\n";
-      Failed = true;
-      return;
-    }
-
-    std::string opts_str = read_file_into_string(path_to_opts.c_str());
-    boost::algorithm::trim(opts_str);
-
-    if (IsVerbose())
-      llvm::errs() << llvm::formatv("ptdump {0}\n", opts_str);
-
-    boost::algorithm::split(ptdump_args, opts_str, boost::is_any_of(" "),
-                            boost::token_compress_on);
-
-    ptdump_argv.push_back(const_cast<char *>("ptdump"));
-    for (std::string &argstr : ptdump_args)
-      ptdump_argv.push_back(const_cast<char *>(argstr.c_str()));
-    ptdump_argv.push_back(nullptr);
-  };
-
-  if (opts.ExistingPerfData) {
-    get_opts();
-  } else {
+  if (!opts.ExistingPerfData) {
     perf::data_reader perf_data("perf.data");
 
 #define OUR_IOURING_INIT(ringp)                                                \
@@ -882,7 +848,20 @@ int IPTTool::UsingLibipt(void) {
   } while (false)
 
     oneapi::tbb::parallel_invoke(
-        get_opts,
+        [&](void) -> void {
+          //
+          // perf-get-opts (originally written for ptdump and ptxed)
+          //
+          fs::path path_to_get_opts = libipt_scripts_dir / "perf-get-opts.bash";
+          if (RunExecutableToExit(
+                  path_to_get_opts.string(),
+                  [&](auto Arg) { Arg(path_to_get_opts.string()); },
+                  opts_filename)) {
+            WithColor::error() << "failed to run libipt/script/perf-get-opts.bash\n";
+            Failed = true;
+            return;
+          }
+        },
         [&](void) -> void {
           bool WeFailed = false;
           BOOST_SCOPE_DEFER [&] {
@@ -1062,6 +1041,28 @@ int IPTTool::UsingLibipt(void) {
     if (Failed)
       return 1;
   }
+
+  if (!fs::exists(opts_filename)) {
+    WithColor::error() << llvm::formatv("could not find {0}\n", opts_filename);
+    return 1;
+  }
+
+  std::string opts_str = read_file_into_string(opts_filename);
+  boost::algorithm::trim(opts_str);
+
+  if (IsVerbose())
+    llvm::errs() << llvm::formatv("ptdump {0}\n", opts_str);
+
+  std::vector<std::string> ptdump_args;
+  std::vector<char *> ptdump_argv;
+
+  boost::algorithm::split(ptdump_args, opts_str, boost::is_any_of(" "),
+                          boost::token_compress_on);
+
+  ptdump_argv.push_back(const_cast<char *>("ptdump"));
+  for (std::string &argstr : ptdump_args)
+    ptdump_argv.push_back(const_cast<char *>(argstr.c_str()));
+  ptdump_argv.push_back(nullptr);
 
   if (!fs::exists(sb_filename)) {
     WithColor::error() << llvm::formatv("could not find {0}\n", sb_filename);
