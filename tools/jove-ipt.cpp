@@ -15,6 +15,7 @@
 #include "glibc.h"
 #include "pipe.h"
 #include "hash.h"
+#include "objdump.h"
 
 #include "syscall_nrs.hpp"
 
@@ -85,6 +86,7 @@ struct IPTTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
     cl::opt<bool> Objdump;
     cl::opt<std::string> Threaded;
     cl::opt<bool> ExeOnly;
+    cl::opt<bool> GatherBins;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : Prog(cl::Positional, cl::desc("prog"), cl::Required,
@@ -153,7 +155,11 @@ struct IPTTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
               cl::cat(JoveCategory)),
 
           ExeOnly("exe-only", cl::desc("Only care about exe addresses."),
-                cl::cat(JoveCategory)) {}
+                cl::cat(JoveCategory)),
+
+          GatherBins("gather-bins",
+                     cl::desc("Look ahead in sideband records to add binaries early on."),
+                     cl::init(true), cl::cat(JoveCategory)) {}
   } opts;
 
   template <typename T>
@@ -1069,6 +1075,7 @@ int IPTTool::UsingLibipt(void) {
     return 1;
   }
 
+  if (opts.GatherBins) {
   auto sb_len = fs::file_size(sb_filename);
 
   scoped_fd sb_fd(::open(sb_filename, O_RDONLY));
@@ -1166,7 +1173,17 @@ int IPTTool::UsingLibipt(void) {
         });
   }
 
-  return 0;
+  for_each_binary(std::execution::par_unseq, jv, [&](binary_t &b) {
+    if (!b.Analysis.objdump.empty())
+      return;
+
+    catch_exception([&]() {
+      run_objdump_and_parse_addresses(b.is_file() ? b.Name.c_str() : nullptr,
+                                      *state.for_binary(b).Bin,
+                                      b.Analysis.objdump);
+    });
+  });
+  }
 
   //HumanOut() << "cap=" << jv.hash_to_binary.bucket_count() << '\n';
 
@@ -1177,6 +1194,28 @@ int IPTTool::UsingLibipt(void) {
     WithColor::warning() << "no aux files found!\n";
     return 1;
   }
+
+#if 0
+  if (msync(jv_file.get_address(), jv_file.get_size(), MS_SYNC) < 0) {
+    int err = errno;
+    WithColor::error() << llvm::formatv("msync failed: {0}\n", strerror(err));
+    return 1;
+  }
+#endif
+
+  //(void)jv_file.m_mfile.m_mapped_region.get_mapping_handle().handle;
+
+          if (IsVerbose())
+            llvm::errs() << "move constructing jv2...\n";
+
+  jv_file_t jv_file2(boost::interprocess::open_copy_on_write,
+                     path_to_jv().c_str());
+  jv_t &_jv(*jv_file2.find<jv_t>("JV").first);
+  jv_base_t<false> &jv2(
+      *jv_file2.construct<jv_base_t<false>>("JV_tmp")(std::move(_jv), jv_file2));
+
+          if (IsVerbose())
+            llvm::errs() << "move constructed jv2.\n";
 
   bool Multi = opts.Threaded == "multi";
   auto run = [&](const auto &pair) -> void {
@@ -1209,16 +1248,25 @@ int IPTTool::UsingLibipt(void) {
         bool Ran = false;
 
         auto run = [&]<IPT_PARAMETERS_DCL>(void) {
-          IntelPT<IPT_PARAMETERS_DEF> ipt(
-              ptdump_argv.size() - 1, ptdump_argv.data(), jv, *Explorer,
-              jv_file, cpu, mmap.ptr,
-              reinterpret_cast<uint8_t *>(mmap.ptr) + len, sb_filename,
-              IsVeryVerbose() ? 2 : (IsVerbose() ? 1 : 0));
 
           try {
-            Ran = true;
-
-            ipt.explore();
+            if constexpr (MT) {
+              IntelPT<IPT_PARAMETERS_DEF> ipt(
+                  ptdump_argv.size() - 1, ptdump_argv.data(), jv, *Explorer,
+                  jv_file, cpu, mmap.ptr,
+                  reinterpret_cast<uint8_t *>(mmap.ptr) + len, sb_filename,
+                  IsVeryVerbose() ? 2 : (IsVerbose() ? 1 : 0));
+              Ran = true;
+              ipt.explore();
+            } else {
+              IntelPT<IPT_PARAMETERS_DEF> ipt(
+                  ptdump_argv.size() - 1, ptdump_argv.data(), jv2, *Explorer,
+                  jv_file2, cpu, mmap.ptr,
+                  reinterpret_cast<uint8_t *>(mmap.ptr) + len, sb_filename,
+                  IsVeryVerbose() ? 2 : (IsVerbose() ? 1 : 0));
+              Ran = true;
+              ipt.explore();
+            }
           } catch (const truncated_aux_exception &) {
             if (IsVerbose())
               WithColor::warning()
@@ -1232,6 +1280,7 @@ int IPTTool::UsingLibipt(void) {
 #define __opts_Caching opts.Cache
 #define __opts_Objdump opts.Objdump
 #define __opts_ExeOnly opts.ExeOnly
+#define __opts_MT false
 
 #define IPT_EXTRACT_VALUES(s, data, elem)                                      \
   BOOST_PP_TUPLE_ELEM(3, 2, elem)
@@ -1260,6 +1309,7 @@ BOOST_PP_SEQ_FOR_EACH_PRODUCT(GENERATE_RUN, IPT_ALL_OPTIONS);
         assert(Ran);
       };
 
+#if 0
   if (Multi)
     std::for_each(std::execution::par_unseq,
                   aux_filenames.begin(),
@@ -1267,6 +1317,24 @@ BOOST_PP_SEQ_FOR_EACH_PRODUCT(GENERATE_RUN, IPT_ALL_OPTIONS);
   else
     std::for_each(aux_filenames.begin(),
                   aux_filenames.end(), run);
+#else
+  std::vector<pid_t> pidvec;
+  for (const auto &pair : aux_filenames) {
+    pid_t pid = ::fork();
+    if (pid) {
+      pidvec.push_back(pid);
+      continue;
+    }
+
+    run(pair);
+    //integrate_jv();
+    return 0;
+  }
+
+  for (pid_t pid : pidvec) {
+    WaitForProcessToExit(pid);
+  }
+#endif
 
   return 0;
 }

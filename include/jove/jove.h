@@ -811,6 +811,12 @@ struct basic_block_properties_t {
     return exclusive_lock_guard<MT>{mtx};
   }
 
+  template <bool MT> void lock_sharable(void) const {
+    if constexpr (MT) {
+      mtx.lock_sharable();
+    }
+  }
+
   template <bool MT> using pub_shared_lock_guard = shared_lock_guard<MT>;
   template <bool MT> using pub_exclusive_lock_guard = exclusive_lock_guard<MT>;
 
@@ -1002,7 +1008,8 @@ static inline basic_block_t NullBasicBlock(void) {
       interprocedural_control_flow_graph_t>::null_vertex();
 }
 
-constexpr bool IsDefinitelyTailCall(const ip_icfg_t &ICFG, basic_block_t bb) {
+template <bool MT>
+constexpr bool IsDefinitelyTailCall(const ip_icfg_base_t<MT> &ICFG, basic_block_t bb) {
   auto &bbprop = ICFG[bb];
 
   assert(bbprop.Term.Type == TERMINATOR::INDIRECT_JUMP); /* catch bugs */
@@ -1512,7 +1519,7 @@ struct jv_base_t {
   //
   deque<binary_base_t<MT>,
         boost::interprocess::allocator<binary_base_t<MT>, segment_manager_t>,
-        MT, true, true>
+        MT>
       Binaries;
 
   ip_func_index_sets FIdxSets;
@@ -1521,7 +1528,8 @@ struct jv_base_t {
   ip_hash_to_binary_map_type<MT> hash_to_binary;
   ip_cached_hashes_type<MT> cached_hashes; /* NOT serialized */
 
-  ip_name_to_binaries_map_type<MT> name_to_binaries;
+  ip_name_to_binaries_map_type<MT> name_to_binaries; /* this is questionable */
+                                                     /* used by LookupByName */
 
   void InvalidateFunctionAnalyses(void);
 
@@ -1532,10 +1540,22 @@ struct jv_base_t {
   }
 
   explicit jv_base_t(jv_file_t &jv_file)
-      : Binaries(jv_file), FIdxSets(jv_file.get_segment_manager()),
+      : Binaries(jv_file),
+        FIdxSets(jv_file.get_segment_manager()),
         hash_to_binary(jv_file.get_segment_manager()),
         cached_hashes(jv_file.get_segment_manager()),
         name_to_binaries(jv_file.get_segment_manager()) {}
+
+  template <bool MT2>
+  jv_base_t(jv_base_t<MT2> &&other, jv_file_t &jv_file) noexcept
+      : Binaries(jv_file),
+        FIdxSets(std::move(other.FIdxSets)),
+        hash_to_binary(std::move(other.hash_to_binary)),
+        cached_hashes(std::move(other.cached_hashes)),
+        name_to_binaries(std::move(other.name_to_binaries)) {
+    for (binary_base_t<MT2> &b : other.Binaries)
+      Binaries.container().push_back(std::move(b));
+  }
 
   jv_base_t() = delete;
   jv_base_t(const jv_base_t &) = delete;
@@ -2220,7 +2240,8 @@ void for_each_basic_block_in_binary(const binary_base_t<MT> &b, Proc proc) {
   std::for_each(it, it_end, [proc](basic_block_t bb) { proc(bb); });
 }
 
-constexpr basic_block_index_t index_of_basic_block(const ip_icfg_t &ICFG,
+template <bool MT>
+constexpr basic_block_index_t index_of_basic_block(const ip_icfg_base_t<MT> &ICFG,
                                                    basic_block_t bb) {
   return ICFG.index(bb);
 }
@@ -2442,7 +2463,15 @@ template <bool MT>
 static inline basic_block_index_t
 index_of_basic_block_starting_at_address(taddr_t Addr, const binary_base_t<MT> &b) {
   basic_block_index_t res = invalid_basic_block_index;
-  bool found = b.bbbmap.cvisit(Addr, [&](const auto &x) { res = x.second; });
+  bool found;
+  if constexpr (MT) {
+    found = b.bbbmap.cvisit(Addr, [&](const auto &x) { res = x.second; });
+  } else {
+    auto it = b.bbbmap.find(Addr);
+    found = it != b.bbbmap.end();
+    if (found)
+      res = (*it).second;
+  }
 
   assert(found);
   return res;

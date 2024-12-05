@@ -39,7 +39,7 @@ typedef boost::format fmt;
 
 template <IPT_PARAMETERS_DCL>
 IntelPT<IPT_PARAMETERS_DEF>::IntelPT(int ptdump_argc, char **ptdump_argv,
-                                     jv_t &jv, explorer_t &explorer,
+                                     jv_base_t<MT> &jv, explorer_t &explorer,
                                      jv_file_t &jv_file,
                                      unsigned cpu,
                                      void *begin, void *end,
@@ -126,7 +126,7 @@ IntelPT<IPT_PARAMETERS_DEF>::IntelPT(int ptdump_argc, char **ptdump_argv,
   decoder = pt_pkt_alloc_decoder(config.get());
 
   if constexpr (ExeOnly) {
-    binary_t &exe = jv.Binaries.at(0);
+    binary_base_t<MT> &exe = jv.Binaries.at(0);
 
     if (!exe.IsPIC) {
       std::tie(exeOnly.beg, exeOnly.end) =
@@ -779,7 +779,7 @@ envs_done:
                 (unsigned)_mmap.pgoff, _mmap.two ? "2" : "");
       }
 
-      binary_t &b = jv.Binaries.at(BIdx);
+      auto &b = jv.Binaries.at(BIdx);
       binary_state_t &x = state.for_binary(b);
 
       intvl_map_clear(AddressSpace, intvl);
@@ -1122,7 +1122,7 @@ int IntelPT<IPT_PARAMETERS_DEF>::on_ip(const taddr_t IP, const uint64_t offset) 
 
   taddr_t Addr = IP;
   binary_index_t BIdx = 0;
-  std::reference_wrapper<binary_t> refb = exe;
+  std::reference_wrapper<binary_base_t<MT>> refb = exe;
   if constexpr (ExeOnly) {
     if (!(IP >= exeOnly.beg && IP < exeOnly.end))
       return 0;
@@ -1153,7 +1153,7 @@ int IntelPT<IPT_PARAMETERS_DEF>::on_ip(const taddr_t IP, const uint64_t offset) 
     return 1;
   }
 
-  binary_t &b = jv.Binaries.at(BIdx);
+  auto &b = jv.Binaries.at(BIdx);
   refb = b;
 
   struct {
@@ -1213,7 +1213,7 @@ int IntelPT<IPT_PARAMETERS_DEF>::on_ip(const taddr_t IP, const uint64_t offset) 
 
   }
 
-  binary_t &b = refb.get();
+  binary_base_t<MT> &b = refb.get();
 
   if constexpr (IsVeryVerbose())
     fprintf(stderr, "%016" PRIx64 "\t<IP> %016" PRIx64 " %s+%" PRIx64 "\n", offset,
@@ -1310,7 +1310,7 @@ int IntelPT<IPT_PARAMETERS_DEF>::on_ip(const taddr_t IP, const uint64_t offset) 
       basic_block_properties_t &bbprop =
           b.Analysis.ICFG[basic_block_of_index(BBIdx, b.Analysis.ICFG)];
 
-      ip_sharable_lock<ip_sharable_mutex> s_lck(bbprop.mtx);
+      auto s_lck = bbprop.shared_access<MT>();
       obp(basic_block_of_index(BBIdx, b.Analysis.ICFG), bbprop);
     };
 
@@ -1356,9 +1356,9 @@ int IntelPT<IPT_PARAMETERS_DEF>::on_ip(const taddr_t IP, const uint64_t offset) 
 }
 
 template <IPT_PARAMETERS_DCL>
-void IntelPT<IPT_PARAMETERS_DEF>::block_transfer(binary_t &fr_b,
+void IntelPT<IPT_PARAMETERS_DEF>::block_transfer(binary_base_t<MT> &fr_b,
                                                  taddr_t FrTermAddr,
-                                                 binary_t &to_b,
+                                                 binary_base_t<MT> &to_b,
                                                  taddr_t ToAddr) {
   const binary_index_t FrBIdx = index_of_binary(fr_b);
   const binary_index_t ToBIdx = index_of_binary(to_b);
@@ -1474,9 +1474,9 @@ void IntelPT<IPT_PARAMETERS_DEF>::block_transfer(binary_t &fr_b,
   }
 }
 
-template <bool DoNotGoFurther, bool InfiniteLoopThrow, unsigned Verbosity = 0>
+template <bool DoNotGoFurther, bool InfiniteLoopThrow, bool MT, unsigned Verbosity = 0>
 static std::pair<basic_block_index_t, bool>
-StraightLineGo(const binary_t &b,
+StraightLineGo(const auto &b,
                basic_block_index_t Res,
                taddr_t GoNoFurther = 0,
                std::function<basic_block_index_t (const basic_block_properties_t &, basic_block_index_t)> on_final_block = [](const basic_block_properties_t &, basic_block_index_t Res) -> basic_block_index_t { return Res; },
@@ -1491,9 +1491,11 @@ StraightLineGo(const binary_t &b,
        (void)({
          const basic_block_properties_t &bbprop = the_bbprop.get();
 
-         if (!bbprop.pub.is.load(std::memory_order_acquire))
-           ip_sharable_lock<ip_sharable_mutex>(bbprop.pub.mtx);
-         bbprop.mtx.lock_sharable(); /* don't change on us */
+         if constexpr (MT) {
+           if (!bbprop.pub.is.load(std::memory_order_acquire))
+             ip_sharable_lock<ip_sharable_mutex>(bbprop.pub.mtx);
+         }
+         bbprop.lock_sharable<MT>(); /* don't change on us */
 
          on_block(bbprop, Res);
          0;
@@ -1524,9 +1526,11 @@ StraightLineGo(const binary_t &b,
          const basic_block_properties_t &new_bbprop = ICFG[newbb];
          the_bbprop = new_bbprop;
 
-         if (!new_bbprop.pub.is.load(std::memory_order_acquire))
-           ip_sharable_lock<ip_sharable_mutex>(new_bbprop.pub.mtx);
-         new_bbprop.mtx.lock_sharable(); /* don't change on us */
+         if constexpr (MT) {
+           if (!new_bbprop.pub.is.load(std::memory_order_acquire))
+             ip_sharable_lock<ip_sharable_mutex>(new_bbprop.pub.mtx);
+         }
+         new_bbprop.lock_sharable<MT>(); /* don't change on us */
 
          on_block(new_bbprop, Res);
          0;
@@ -1562,7 +1566,7 @@ StraightLineGo(const binary_t &b,
            *
            **/
           unlikely(GoNoFurther >= Addr && GoNoFurther < Addr + Size)) {
-        ip_sharable_lock<ip_sharable_mutex> s_lck_bb(
+        bbprop_t::shared_lock_guard<MT> s_lck_bb(
             bbprop.mtx, boost::interprocess::accept_ownership);
         return std::make_pair(on_final_block(bbprop, basic_block_of_index(Res, b)), true);
       }
@@ -1573,7 +1577,7 @@ StraightLineGo(const binary_t &b,
       break;
     case TERMINATOR::UNCONDITIONAL_JUMP:
     case TERMINATOR::NONE: {
-      if (unlikely(ICFG.out_degree<false>(bb) == 0)) {
+      if (unlikely(ICFG.template out_degree<false>(bb) == 0)) {
         if constexpr (IsVerbose())
           fprintf(stderr, "cant proceed past NONE @ %s+%" PRIx64 " [size=%u] %s\n",
                   b.Name.c_str(),
@@ -1584,7 +1588,7 @@ StraightLineGo(const binary_t &b,
       }
 
       basic_block_index_t NewRes =
-          index_of_basic_block(ICFG, ICFG.adjacent_front<false>(bb));
+          index_of_basic_block(ICFG, ICFG.template adjacent_front<false>(bb));
 
       Res = NewRes;
       continue;
@@ -1619,8 +1623,8 @@ StraightLineGo(const binary_t &b,
       // need to move past it.
       //
       if (unlikely(bbprop.IsSingleInstruction())) {
-        if (likely(ICFG.out_degree<false>(bb) == 2)) {
-          auto succ = ICFG.adjacent_n<2, false>(bb);
+        if (likely(ICFG.template out_degree<false>(bb) == 2)) {
+          auto succ = ICFG.template adjacent_n<2, false>(bb);
           if (succ[0] == bb) {
             Res = index_of_basic_block(ICFG, succ[1]);
             continue;
@@ -1633,7 +1637,7 @@ StraightLineGo(const binary_t &b,
       break;
     }
 
-    ip_sharable_lock<ip_sharable_mutex> s_lck_bb(
+    bbprop_t::shared_lock_guard<MT> s_lck_bb(
         bbprop.mtx, boost::interprocess::accept_ownership);
     return std::make_pair(on_final_block(bbprop, basic_block_of_index(Res, b)), false);
   }
@@ -1645,30 +1649,30 @@ template <IPT_PARAMETERS_DCL>
 template <bool InfiniteLoopThrow>
 std::pair<basic_block_index_t, bool>
 IntelPT<IPT_PARAMETERS_DEF>::StraightLineUntilSlow(
-    const binary_t &b,
+    const binary_base_t<MT> &b,
     basic_block_index_t From,
     taddr_t GoNoFurther,
     std::function<basic_block_index_t(const basic_block_properties_t &, basic_block_index_t)> on_final_block) {
   using namespace std::placeholders;
 
-  return StraightLineGo<true, InfiniteLoopThrow, Verbosity>(
+  return StraightLineGo<true, InfiniteLoopThrow, MT, Verbosity>(
       b, From, GoNoFurther, on_final_block);
 }
 
 template <IPT_PARAMETERS_DCL>
 template <bool InfiniteLoopThrow>
 basic_block_index_t IntelPT<IPT_PARAMETERS_DEF>::StraightLineSlow(
-    const binary_t &b,
+    const binary_base_t<MT> &b,
     basic_block_index_t From,
     std::function<basic_block_index_t(const basic_block_properties_t &, basic_block_index_t)> on_final_block) {
   using namespace std::placeholders;
 
-  return StraightLineGo<false, InfiniteLoopThrow, Verbosity>(
+  return StraightLineGo<false, InfiniteLoopThrow, MT, Verbosity>(
       b, From, 0 /* unused */, on_final_block).first;
 }
 
 template <IPT_PARAMETERS_DCL>
-void IntelPT<IPT_PARAMETERS_DEF>::on_block(const binary_t &b,
+void IntelPT<IPT_PARAMETERS_DEF>::on_block(const binary_base_t<MT> &b,
                                            const basic_block_properties_t &bbprop,
                                            basic_block_t bb) {
   if constexpr (IsVeryVerbose()) {
@@ -1696,7 +1700,7 @@ void IntelPT<IPT_PARAMETERS_DEF>::TNTAdvance(uint64_t tnt, uint8_t n) {
   assert(n > 0);
   assert(CurrPoint.Valid());
 
-  binary_t &b = CurrPoint.Binary();
+  binary_base_t<MT> &b = CurrPoint.Binary();
   basic_block_index_t Res = CurrPoint.BlockIndex();
 
   const auto &ICFG = b.Analysis.ICFG;
@@ -1722,7 +1726,7 @@ void IntelPT<IPT_PARAMETERS_DEF>::TNTAdvance(uint64_t tnt, uint8_t n) {
                     basic_block_index_t BBIdx) -> basic_block_index_t {
           basic_block_t bb = basic_block_of_index(BBIdx, b);
 
-          unsigned out_deg = ICFG.out_degree<false>(bb);
+          unsigned out_deg = ICFG.template out_degree<false>(bb);
 
           if (unlikely(bbprop.Term.Type != TERMINATOR::CONDITIONAL_JUMP) ||
               unlikely(out_deg == 0)) {
@@ -1735,11 +1739,11 @@ void IntelPT<IPT_PARAMETERS_DEF>::TNTAdvance(uint64_t tnt, uint8_t n) {
           }
 
           if (unlikely(out_deg == 1))
-            return index_of_basic_block(ICFG, ICFG.adjacent_front<false>(bb));
+            return index_of_basic_block(ICFG, ICFG.template adjacent_front<false>(bb));
 
           assert(out_deg == 2);
 
-          auto succ = ICFG.adjacent_n<2, false>(bb);
+          auto succ = ICFG.template adjacent_n<2, false>(bb);
           const bool Is0NotTaking =
               ICFG[succ[0]].Addr == bbprop.Addr + bbprop.Size;
 
@@ -2300,18 +2304,18 @@ int IntelPT<IPT_PARAMETERS_DEF>::process_args(int argc, char **argv,
 }
 
 template <IPT_PARAMETERS_DCL>
-IntelPT<IPT_PARAMETERS_DEF>::binary_state_t::binary_state_t(const binary_t &b) {
+IntelPT<IPT_PARAMETERS_DEF>::binary_state_t::binary_state_t(const binary_base_t<MT> &b) {
   Bin = B::Create(b.data());
 
   if constexpr(Objdump) {
-    binary_t::Analysis_t::objdump_output_type &objdump =
-      const_cast<binary_t &>(b).Analysis.objdump;
+    typename binary_base_t<MT>::Analysis_t::objdump_output_type &objdump =
+      const_cast<binary_base_t<MT> &>(b).Analysis.objdump;
 
     if (objdump.empty()) {
       ip_scoped_lock<ip_sharable_mutex> e_lck(objdump.mtx);
 
       if (objdump.good.empty())
-        run_objdump_and_parse_addresses<binary_t::Analysis_t::objdump_output_type>(b.is_file() ? b.Name.c_str() : nullptr,
+        run_objdump_and_parse_addresses<typename binary_base_t<MT>::Analysis_t::objdump_output_type>(b.is_file() ? b.Name.c_str() : nullptr,
                                         *Bin, objdump);
     }
 
@@ -2343,7 +2347,7 @@ IntelPT<IPT_PARAMETERS_DEF>::basic_block_state_t::SL(const binary_t &b,
 
     const auto &ICFG = b.Analysis.ICFG;
 
-    SL.BBIdx = StraightLineGo<false, true, Verbosity>(
+    SL.BBIdx = StraightLineGo<false, true, MT, Verbosity>(
         b, TheIdx, 0 /* unused */,
         [&](basic_block_index_t BBIdx) -> basic_block_index_t {
           basic_block_t bb = basic_block_of_index(BBIdx, b);
@@ -2399,7 +2403,7 @@ IntelPT<IPT_PARAMETERS_DEF>::basic_block_state_t::SL(const binary_t &b,
 
 template <IPT_PARAMETERS_DCL>
 IntelPT<IPT_PARAMETERS_DEF>::basic_block_state_t::basic_block_state_t(
-    const binary_t &b, basic_block_t the_bb) {
+    const binary_base_t<MT> &b, basic_block_t the_bb) {
   if constexpr (!Caching)
     return;
 
@@ -2415,7 +2419,7 @@ IntelPT<IPT_PARAMETERS_DEF>::basic_block_state_t::basic_block_state_t(
     intvl_set_add(SL.addrng, addr_intvl(bbprop.Addr, bbprop.Size));
   };
 
-  SL.BBIdx = StraightLineGo<false, true, Verbosity>(
+  SL.BBIdx = StraightLineGo<false, true, MT, Verbosity>(
       b, Idx, 0 /* unused */,
       [&](const basic_block_properties_t &bbprop, basic_block_index_t BBIdx) -> basic_block_index_t {
         SL.Addr = bbprop.Addr;

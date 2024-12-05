@@ -65,9 +65,10 @@ class explorer_t;
 
 #define IPT_PARAMETERS \
   ((unsigned, Verbosity, (0)(1)(2))) \
-  ((bool, Caching, (false)(true)))    \
-  ((bool, Objdump, (false)(true))) \
-  ((bool, ExeOnly, (false)(true)))
+  ((bool, Caching, (false)(true)))   \
+  ((bool, Objdump, (false)(true)))   \
+  ((bool, ExeOnly, (false)(true)))   \
+  ((bool, MT, (false)(true)))
 
 #define IPT_PARAM_DECL(r, data, i, elem)                                       \
   BOOST_PP_COMMA_IF(i)                                                         \
@@ -89,7 +90,7 @@ class explorer_t;
 template <IPT_PARAMETERS_DCL>
 class IntelPT {
   jv_file_t &jv_file;
-  jv_t &jv;
+  jv_base_t<MT> &jv;
   explorer_t &explorer;
 
   std::unique_ptr<struct pt_config> config;
@@ -132,11 +133,11 @@ class IntelPT {
   struct basic_block_state_t {
     straight_line_t theSL;
 
-    basic_block_state_t(const binary_t &b, basic_block_t bb);
+    basic_block_state_t(const binary_base_t<MT> &b, basic_block_t bb);
   };
 
   template <bool X = Caching>
-  std::enable_if_t<X, const straight_line_t &> SLForBlock(const binary_t &b,
+  std::enable_if_t<X, const straight_line_t &> SLForBlock(const binary_base_t<MT> &b,
                                                           basic_block_t bb) {
     return state.for_basic_block(b, bb).theSL;
   }
@@ -154,12 +155,12 @@ class IntelPT {
                        std::monostate>
         m_objdump;
 
-    binary_state_t(const binary_t &b);
+    binary_state_t(const binary_base_t<MT> &b);
   };
 
   using BBState = std::conditional_t<Caching, basic_block_state_t, void>;
 
-  jv_state_t<binary_state_t, void, BBState, false, Lazy> state;
+  jv_state_t<binary_state_t, void, BBState, false, Lazy, false, true, MT> state;
 
   const unsigned PageSize;
   const bool IsCOFF;
@@ -197,10 +198,10 @@ class IntelPT {
     unsigned ExecBits = 8*sizeof(taddr_t);
   } Curr;
 
-  binary_t &exe;
+  binary_base_t<MT> &exe;
 
   class Point_t {
-    std::reference_wrapper<binary_t> b;
+    std::reference_wrapper<binary_base_t<MT>> b;
     basic_block_index_t Idx = invalid_basic_block_index;
 
     struct {
@@ -209,9 +210,9 @@ class IntelPT {
     } Cached;
 
   public:
-    Point_t(binary_t &b) : b(b) {}
+    Point_t(binary_base_t<MT> &b) : b(b) {}
 
-    binary_t &Binary(void) const { return b; }
+    binary_base_t<MT> &Binary(void) const { return b; }
     binary_index_t BinaryIndex(void) const { return index_of_binary(b.get()); }
 
     basic_block_index_t BlockIndex(void) const { return Idx; }
@@ -260,7 +261,7 @@ class IntelPT {
 #endif
     }
 
-    void SetBinary(binary_t &newb) {
+    void SetBinary(binary_base_t<MT> &newb) {
       b = newb;
 #ifndef NDEBUG
       Cached.Addr = uninit_taddr;
@@ -321,14 +322,14 @@ class IntelPT {
 
   template <bool InfiniteLoopThrow = false>
   std::pair<basic_block_index_t, bool>
-  StraightLineUntilSlow(const binary_t &,
+  StraightLineUntilSlow(const binary_base_t<MT> &,
                         basic_block_index_t,
                         taddr_t GoNoFurther,
                         std::function<basic_block_index_t(const basic_block_properties_t &, basic_block_index_t)> on_final_block = [](const basic_block_properties_t &, basic_block_index_t Res) -> basic_block_index_t { return Res; });
 
   template <bool InfiniteLoopThrow = false>
   basic_block_index_t
-  StraightLineSlow(const binary_t &,
+  StraightLineSlow(const binary_base_t<MT> &,
                    basic_block_index_t,
                    std::function<basic_block_index_t(const basic_block_properties_t &, basic_block_index_t)> on_final_block = [](const basic_block_properties_t &, basic_block_index_t Res) -> basic_block_index_t { return Res; });
 
@@ -341,16 +342,15 @@ class IntelPT {
     } Last;
   } OnBlock;
 
-  void on_block(const binary_t &, const basic_block_properties_t &,
+  void on_block(const binary_base_t<MT> &, const basic_block_properties_t &,
                 basic_block_t);
-  void block_transfer(binary_t &from, taddr_t FromAddr,
-                      binary_t &to, taddr_t ToAddr);
+  void block_transfer(binary_base_t<MT> &from, taddr_t FromAddr,
+                      binary_base_t<MT> &to, taddr_t ToAddr);
 
 public:
-  IntelPT(int ptdump_argc, char **ptdump_argv, jv_t &, explorer_t &,
-          jv_file_t &jv_file,
-          unsigned cpu, void *begin,
-          void *end, const char *sb_filename, unsigned verbose,
+  IntelPT(int ptdump_argc, char **ptdump_argv, jv_base_t<MT> &, explorer_t &,
+          jv_file_t &jv_file, unsigned cpu, void *begin, void *end,
+          const char *sb_filename, unsigned verbose,
           bool ignore_trunc_aux = false);
   ~IntelPT();
 

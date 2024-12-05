@@ -43,7 +43,7 @@ void cached_hash_t::Update(const char *path, std::string &file_contents) {
   //
   // otherwise
   //
-  read_file_into_thing(path, file_contents);
+  read_file_into_thing<std::string>(path, file_contents);
   h = hash_data(file_contents);
   mtime.sec = st.st_mtim.tv_sec;
   mtime.nsec = st.st_mtim.tv_nsec;

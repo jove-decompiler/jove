@@ -57,7 +57,7 @@ private:
                          __do_nothing_t>;
 
 public:
-  explicit jv_state_t(const jv_t &jv) : jv(jv) {
+  explicit jv_state_t(const jv_base_t<MT> &jv) : jv(jv) {
     if constexpr (Eager)
       update();
   }
