@@ -16,6 +16,7 @@
 #include "pipe.h"
 #include "hash.h"
 #include "objdump.h"
+#include "augmented_raw_syscalls.h"
 
 #include "syscall_nrs.hpp"
 
@@ -1144,6 +1145,7 @@ int IPTTool::UsingLibipt(void) {
         pathvec.begin(),
         pathvec.end(),
         [&](const std::string &path_s) {
+#if 0
           std::string path_str;
           if (catch_exception(
                   [&]() { path_str = fs::canonical(path_s.c_str()).string(); }))
@@ -1170,6 +1172,14 @@ int IPTTool::UsingLibipt(void) {
             if (IsVerbose())
               HumanOut() << llvm::formatv("\"{0}\"\n", b.Name.c_str());
           });
+#else
+          AddOptions_t Options;
+          jv.AddFromPath(*Explorer, jv_file, path_s.c_str(),
+                         [&](binary_t &b) -> void {
+            if (IsVerbose())
+              HumanOut() << llvm::formatv("\"{0}\"\n", b.Name.c_str());
+          }, Options);
+#endif
         });
   }
 
@@ -1581,7 +1591,7 @@ void IPTTool::gather_binary_paths(
         continue;
 
       std::string filename_str(rec.filename, slen-1);
-      //HumanOut() << llvm::formatv("mmap fn=\"{0}\"\n", filename_str.c_str());
+      HumanOut() << llvm::formatv("mmap fn=\"{0}\"\n", filename_str.c_str());
       insertSortedVec<std::string>(out, filename_str);
 
       slen = (slen + 7) & ~7;
@@ -1599,7 +1609,7 @@ void IPTTool::gather_binary_paths(
         continue;
 
       std::string filename_str(rec.filename, slen-1);
-      //HumanOut() << llvm::formatv("mmap2 \"{0}\"\n", filename_str.c_str());
+      HumanOut() << llvm::formatv("mmap2 \"{0}\"\n", filename_str.c_str());
       insertSortedVec<std::string>(out, filename_str);
 
       slen = (slen + 7) & ~7;
@@ -1612,6 +1622,83 @@ void IPTTool::gather_binary_paths(
     case PERF_RECORD_SAMPLE: {
       const char *name = nullptr;
       pos += read_sample_samples(pos, name);
+
+      if (strcmp(name, "__jove_augmented_syscalls__") != 0) {
+        break;
+      }
+
+      assert(sample.raw);
+
+          auto on_syscall = [&]<typename T>(const T *payload) -> void {
+	  const auto &hdr = payload->hdr;
+
+          auto nr = hdr.syscall_nr;
+          auto ret = hdr.ret;
+
+          //
+          // we can assume that the syscall successfully completed (XXX except exec)
+          //
+          switch (nr) {
+
+          case syscalls::NR::openat:
+          case syscalls::NR::open: {
+              fprintf(stderr, "open(\"%s\") = %ld\n", payload->str, (long)ret);
+
+            binary_index_t BIdx;
+            bool IsNew;
+            std::tie(BIdx, IsNew) = jv.AddFromPath(*Explorer, jv_file, payload->str);
+
+              fprintf(stderr, "is %" PRIu32 "\n", BIdx);
+            break;
+          }
+
+          default:
+            break;
+	  }
+          };
+
+	  unsigned bytes_size = sample.raw->size;
+	  const uint8_t *const bytes = (const uint8_t *)sample.raw->data;
+
+          const bool was32 = !!(bytes[MAGIC_LEN] & 1u);
+
+#if 0
+          const unsigned size_of_struct =
+              was32 ? sizeof(struct augmented_syscall_payload32)
+                    : sizeof(struct augmented_syscall_payload64);
+
+          bool bad = false;
+          if (!(bytes[0] == 'J' &&
+                bytes[1] == 'O' &&
+                bytes[2] == 'V' &&
+                bytes[3] == 'E')) {
+            fprintf(stderr, "offset at %" PRIu64 " does not start with magic1! bytes_size=%u sizeof(struct)=%u\n", offset, bytes_size, size_of_struct);
+            bad = true;
+          }
+
+          if (!(bytes[bytes_size - 1] == 'E' &&
+                bytes[bytes_size - 2] == 'V' &&
+                bytes[bytes_size - 3] == 'O' &&
+                bytes[bytes_size - 4] == 'J')) {
+            fprintf(stderr, "offset at %" PRIu64 " does not end with magic2! bytes_size=%u sizeof(struct)=%u\n", offset, bytes_size, size_of_struct);
+            bad = true;
+          }
+
+          if (bad) {
+            fprintf(stderr, "\n");
+            hexdump(stderr, bytes, bytes_size);
+            fprintf(stderr, "\n");
+          }
+#endif
+
+	  if (was32) {
+	    if (IsTarget32)
+	      on_syscall.template operator()<struct augmented_syscall_payload32>(reinterpret_cast<const struct augmented_syscall_payload32 *>(bytes));
+	  } else {
+	    if (IsTarget64)
+	      on_syscall.template operator()<struct augmented_syscall_payload64>(reinterpret_cast<const struct augmented_syscall_payload64 *>(bytes));
+	  }
+        break;
 
       //HumanOut() << llvm::formatv("sample \"{0}\"\n", name);
       break;

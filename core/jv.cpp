@@ -29,12 +29,15 @@ cached_hash_t::cached_hash_t(const char *path, std::string &file_contents,
 }
 
 void cached_hash_t::Update(const char *path, std::string &file_contents) {
-  struct stat st;
-  if (stat(path, &st) < 0) {
+  struct stat64 st;
+  if (::stat64(path, &st) < 0) {
     int err = errno;
     throw std::runtime_error("HashNeedsUpdate: stat failed: " +
                              std::string(strerror(err)));
   }
+
+  if (!st.st_size)
+    throw std::runtime_error(std::string("HashNeedsUpdate: empty file: ") + path);
 
   if (mtime.sec == st.st_mtim.tv_sec &&
       mtime.nsec == st.st_mtim.tv_nsec)
@@ -43,7 +46,10 @@ void cached_hash_t::Update(const char *path, std::string &file_contents) {
   //
   // otherwise
   //
-  read_file_into_thing<std::string>(path, file_contents);
+  load_file(path, file_contents);
+  if (file_contents.empty())
+    throw std::runtime_error(std::string("HashNeedsUpdate: empty file: ") + path);
+
   h = hash_data(file_contents);
   mtime.sec = st.st_mtim.tv_sec;
   mtime.nsec = st.st_mtim.tv_nsec;
@@ -149,7 +155,7 @@ jv_base_t<MT>::AddFromPath(explorer_t &explorer,
   get_data_t get_data;
   if (file_contents.empty())
     get_data = [&](void) -> std::string_view {
-      read_file_into_thing(path, file_contents);
+      load_file(path, file_contents);
       return file_contents;
     };
   else
@@ -270,7 +276,8 @@ std::pair<binary_index_t, bool> jv_base_t<MT>::AddFromDataWithHash(
       }
     }
 
-    assert(is_binary_index_valid(Res));
+    if (!is_binary_index_valid(Res));
+      return std::make_pair(invalid_binary_index, false);
 
     std::string_view name_sv(name);
 
@@ -327,7 +334,13 @@ adds_binary_t::adds_binary_t(binary_index_t &out,
   if (unlikely(data.empty()))
     throw std::runtime_error("adds_binary_t(): no data");
 
-  std::unique_ptr<llvm::object::Binary> Bin = B::Create(data);
+  std::unique_ptr<llvm::object::Binary> Bin;
+  try {
+    Bin = B::Create(data);
+  } catch (...) {
+    out = BIdx = invalid_basic_block_index;
+    return;
+  }
 
   //
   // if we make it here then it's most likely a legitimate binary of interest.

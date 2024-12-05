@@ -1,10 +1,12 @@
 #pragma once
+#include <algorithm>
+#include <boost/scope/defer.hpp>
 #include <cstdint>
+#include <cstring>
+#include <fstream>
+#include <functional>
 #include <string>
 #include <vector>
-#include <functional>
-#include <algorithm>
-#include <fstream>
 
 namespace jove {
 
@@ -115,6 +117,53 @@ inline void read_file_into_thing(const char *path, T &out) {
   ifs.read((char *)&out[0], out.size());
 }
 
+template <typename T> static void load_file(const char *path, T &out) {
+  uint8_t *content;
+  size_t read;
+  FILE *file;
+  long fsize;
+  int errcode;
+  uint64_t offset = 0;
+
+  if (!path)
+    throw std::runtime_error("load_file: null path");
+
+  errno = 0;
+  file = fopen(path, "rb");
+  if (!file)
+    throw std::runtime_error(std::string("load_file: failed to open \"") +
+                             path + "\": " + std::string(strerror(errno)));
+
+  BOOST_SCOPE_DEFER [&] { fclose(file); };
+
+  errcode = fseek(file, 0, SEEK_END);
+  if (errcode)
+    throw std::runtime_error(
+        std::string("load_file: failed to determine size of \"") + path +
+        "\": " + std::string(strerror(errno)));
+
+  fsize = ftell(file);
+  if (fsize < 0)
+    throw std::runtime_error(
+        std::string("load_file: failed to tell \"") + path +
+        "\": " + std::string(strerror(errno)));
+
+  if (fsize == 0)
+    return;
+
+  out.resize((size_t)fsize);
+
+  errcode = fseek(file, 0, SEEK_SET);
+  if (errcode)
+    throw std::runtime_error(std::string("load_file: failed to seek \"") +
+                             path + "\": " + std::string(strerror(errno)));
+
+  read = fread(&out[0], (size_t)fsize, 1u, file);
+  if (read != 1)
+    throw std::runtime_error(std::string("load_file: failed to read \"") +
+                             path + "\": " + std::string(strerror(errno)));
+}
+
 template <typename T>
 static inline bool insertSortedVec(std::vector<T> &vec, const T &x) {
   // Find the correct position to insert the string
@@ -138,4 +187,4 @@ void IgnoreCtrlC(void);
 void DoDefaultOnErrorSignal(void);
 void exclude_from_coredumps(void *addr, size_t size);
 
-}
+} // namespace jove
