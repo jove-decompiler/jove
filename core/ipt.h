@@ -151,10 +151,6 @@ class IntelPT {
       taddr_t LoadAddr = ~0UL;
     } _coff;
 
-    std::conditional_t<Objdump && Caching, objdump_output_t<false>,
-                       std::monostate>
-        m_objdump;
-
     binary_state_t(const binary_base_t<MT> &b);
   };
 

@@ -1275,12 +1275,7 @@ int IntelPT<IPT_PARAMETERS_DEF>::on_ip(const taddr_t IP, const uint64_t offset) 
   binary_state_t &x = state.for_binary(b);
   if constexpr(Objdump) {
     if (!b.bbbmap.contains(Addr)) {
-      bool bad;
-
-      if constexpr(Caching)
-        bad = x.m_objdump.is_addr_bad(Addr);
-      else
-        bad = b.Analysis.objdump.is_addr_bad(Addr);
+      const bool bad = b.Analysis.objdump.is_addr_bad(Addr);
 
       if (unlikely(bad)) {
         if constexpr (IsVerbose())
@@ -2307,20 +2302,13 @@ template <IPT_PARAMETERS_DCL>
 IntelPT<IPT_PARAMETERS_DEF>::binary_state_t::binary_state_t(const binary_base_t<MT> &b) {
   Bin = B::Create(b.data());
 
-  if constexpr(Objdump) {
-    typename binary_base_t<MT>::Analysis_t::objdump_output_type &objdump =
-      const_cast<binary_base_t<MT> &>(b).Analysis.objdump;
+  if constexpr (Objdump) {
+    if (b.Analysis.objdump.empty()) {
+      auto e_lck = b.Analysis.objdump.exclusive_access();
 
-    if (objdump.empty()) {
-      ip_scoped_lock<ip_sharable_mutex> e_lck(objdump.mtx);
-
-      if (objdump.good.empty())
-        run_objdump_and_parse_addresses<typename binary_base_t<MT>::Analysis_t::objdump_output_type>(b.is_file() ? b.Name.c_str() : nullptr,
-                                        *Bin, objdump);
+      if (b.Analysis.objdump.empty_unlocked())
+        binary_base_t<MT>::Analysis_t::objdump_output_type::generate(const_cast<binary_base_t<MT> &>(b).Analysis.objdump, b.is_file() ? b.Name.c_str() : nullptr, *Bin);
     }
-
-    if constexpr(Caching)
-      m_objdump = objdump;
   }
 }
 

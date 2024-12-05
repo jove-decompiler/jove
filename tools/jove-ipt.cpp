@@ -1188,9 +1188,9 @@ int IPTTool::UsingLibipt(void) {
       return;
 
     catch_exception([&]() {
-      run_objdump_and_parse_addresses(b.is_file() ? b.Name.c_str() : nullptr,
-                                      *state.for_binary(b).Bin,
-                                      b.Analysis.objdump);
+      binary_t::Analysis_t::objdump_output_type::generate(
+          b.Analysis.objdump, b.is_file() ? b.Name.c_str() : nullptr,
+          *state.for_binary(b).Bin);
     });
   });
   }

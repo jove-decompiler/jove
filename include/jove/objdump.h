@@ -2,87 +2,85 @@
 #error "only to be included inline in jove/jove.h"
 #endif
 
-template <bool MultiThreaded = false,
-          typename Alloc = std::allocator<unsigned long>>
-class objdump_output_t {
+template <typename Alloc, bool MT>
+struct objdump_output_t {
   using allocator_type = Alloc;
 
   template <typename _Alloc>
   using bitset_type = boost::dynamic_bitset<unsigned long, _Alloc>;
   using bitset_t = bitset_type<Alloc>;
 
-  template <typename _Alloc>
-  void bits_assign_slow(const bitset_type<_Alloc> &other) {
-    std::vector<unsigned long> blocks(other.num_blocks()); /* make a copy */
-    boost::to_block_range(other, blocks.begin());
-
-    this->good = bitset_t(blocks.begin(), blocks.end());
-    this->good.resize(other.size());
-  }
-
-public:
+private:
   taddr_t begin = ~0UL;
   bitset_t good;
 
-  mutable std::conditional_t<MultiThreaded, ip_sharable_mutex, std::monostate>
-      mtx;
+  template <typename Alloc2, bool MT2> friend class objdump_output_t;
+
+public:
+  using mutex_type =
+      std::conditional_t<MT, boost::unordered::detail::foa::rw_spinlock,
+                         std::monostate>;
+  using shared_lock_guard =
+      std::conditional_t<MT,
+                         boost::unordered::detail::foa::shared_lock<mutex_type>,
+                         __do_nothing_t>;
+  using exclusive_lock_guard =
+      std::conditional_t<MT,
+                         boost::unordered::detail::foa::lock_guard<mutex_type>,
+                         __do_nothing_t>;
+
+  mutable mutex_type mtx;
+
+  shared_lock_guard shared_access() const { return shared_lock_guard{mtx}; }
+  exclusive_lock_guard exclusive_access() const { return exclusive_lock_guard{mtx}; }
 
   template <typename... Args>
   objdump_output_t(Args &&...args) : good(std::forward<Args>(args)...) {}
 
-  objdump_output_t(const objdump_output_t &other)
+  template <bool MT2>
+  objdump_output_t(const objdump_output_t<Alloc, MT2> &other) noexcept
       : begin(other.begin), good(other.good) {}
 
-  template <bool _MultiThreaded>
-  objdump_output_t(const objdump_output_t<_MultiThreaded, Alloc> &other)
-      : begin(other.begin), good(other.good) {}
-
-  template <bool _MultiThreaded, typename _Alloc>
-  objdump_output_t(const objdump_output_t<_MultiThreaded, _Alloc> &other)
-      : begin(other.begin) {
-    bits_assign_slow(other.good);
-  }
-
-  objdump_output_t(objdump_output_t &&other) noexcept
+  template <bool MT2>
+  objdump_output_t(objdump_output_t<Alloc, MT2> &&other) noexcept
       : begin(other.begin), good(std::move(other.good)) {}
 
-  objdump_output_t &operator=(const objdump_output_t &other) {
-    if (this != &other) {
-      this->begin = other.begin;
-      this->good = other.good;
+  template <bool MT2>
+  objdump_output_t &operator=(objdump_output_t<Alloc, MT2> &&other) noexcept {
+    if constexpr (MT == MT2) {
+      if (this == &other)
+        return *this;
     }
+
+    begin = std::move(other.begin);
+    good = std::move(other.good);
     return *this;
   }
 
-  template <bool _MultiThreaded>
-  objdump_output_t &operator=(const objdump_output_t<_MultiThreaded, Alloc> &other) {
-    if (this != &other) {
-      this->begin = other.begin;
-      this->good = other.good;
+  template <bool MT2>
+  objdump_output_t &operator=(const objdump_output_t<Alloc, MT2> &other) noexcept {
+    if constexpr (MT == MT2) {
+      if (this == &other)
+        return *this;
     }
-    return *this;
-  }
 
-  template <bool _MultiThreaded, typename _Alloc>
-  objdump_output_t &
-  operator=(const objdump_output_t<_MultiThreaded, _Alloc> &other) {
-    this->begin = other.begin;
-    bits_assign_slow(other.good);
+    begin = other.begin;
+    good = other.good;
     return *this;
   }
 
   bool empty(void) const {
-    std::conditional_t<MultiThreaded, ip_sharable_lock<ip_sharable_mutex>,
-                       __do_nothing_t>
-        s_lck(mtx);
+    auto s_lck = shared_access();
 
+    return empty_unlocked();
+  }
+
+  bool empty_unlocked(void) const {
     return good.empty();
   }
 
   bool is_addr_good(taddr_t addr) const {
-    std::conditional_t<MultiThreaded, ip_sharable_lock<ip_sharable_mutex>,
-                       __do_nothing_t>
-        s_lck(mtx);
+    auto s_lck = shared_access();
 
     if (addr < begin)
       return true; /* who knows? */
@@ -93,4 +91,7 @@ public:
   }
 
   bool is_addr_bad(taddr_t addr) const { return !is_addr_good(addr); }
+
+  static int generate(objdump_output_t &out, const char *filename,
+                      llvm::object::Binary &Bin);
 };

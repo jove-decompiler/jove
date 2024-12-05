@@ -306,8 +306,8 @@ std::pair<binary_index_t, bool> jv_base_t<MT>::AddFromDataWithHash(
       catch_exception([&]() {
         std::unique_ptr<llvm::object::Binary> Bin = B::Create(b.data());
 
-        run_objdump_and_parse_addresses(b.is_file() ? b.Name.c_str() : nullptr,
-                                        *Bin, b.Analysis.objdump);
+        binary_base_t<MT>::Analysis_t::objdump_output_type::generate(
+            b.Analysis.objdump, b.is_file() ? b.Name.c_str() : nullptr, *Bin);
       });
     }
 

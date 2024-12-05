@@ -455,7 +455,9 @@ public:
                      EdgeProperty, GraphProperty, EdgeListS, MT2, Spin2,
                      PointUnique> &&other) noexcept
       : _adjacency_list(std::move(other._adjacency_list)),
-        _size(other._size.load()) {}
+        _size(other._size.load(std::memory_order_relaxed)) {
+    other._size.store(0, std::memory_order_relaxed);
+  }
 
   template <bool MT2, bool Spin2>
   adjacency_list &
@@ -468,8 +470,8 @@ public:
     }
 
     _adjacency_list = std::move(other._adjacency_list);
-    _size.store(other._size.load());
-    other._size.store(0);
+    _size.store(other._size.load(std::memory_order_relaxed));
+    other._size.store(0, std::memory_order_relaxed);
     return *this;
   }
 
@@ -1195,7 +1197,7 @@ struct binary_base_t {
     void addIFuncDynTarget(taddr_t A, dynamic_target_t X) {}
 
     typedef objdump_output_t<
-        true, boost::interprocess::allocator<unsigned long, segment_manager_t>>
+        boost::interprocess::allocator<unsigned long, segment_manager_t>, MT>
         objdump_output_type;
 
     objdump_output_type objdump;
