@@ -43,10 +43,8 @@ public:
     bits_assign_slow(other.good);
   }
 
-  objdump_output_t(objdump_output_t &&other)
-      : begin(other.begin), good(other.good.get_allocator()) {
-    good = other.good;
-  }
+  objdump_output_t(objdump_output_t &&other) noexcept
+      : begin(other.begin), good(std::move(other.good)) {}
 
   objdump_output_t &operator=(const objdump_output_t &other) {
     if (this != &other) {
