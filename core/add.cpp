@@ -587,19 +587,16 @@ void jv_base_t<MT>::DoAdd(binary_base_t<MT2> &b,
   ScanForSjLj(b, Bin, explorer);
 }
 
-#define VALUES_TO_INSTANTIATE_WITH1                                            \
-    ((true))                                                                   \
-    ((false))
-#define VALUES_TO_INSTANTIATE_WITH2                                            \
+#define VALUES_TO_INSTANTIATE_WITH                                             \
     ((true))                                                                   \
     ((false))
 
 #define GET_VALUE(x) BOOST_PP_TUPLE_ELEM(0, x)
-
-#define DO_INSTANTIATE(r, product)                                             \
-  template void jv_base_t<GET_VALUE(BOOST_PP_SEQ_ELEM(0, product))>::DoAdd(    \
-      binary_base_t<GET_VALUE(BOOST_PP_SEQ_ELEM(1, product))> &b,              \
-      explorer_t &, llvm::object::Binary &, const AddOptions_t &);
-BOOST_PP_SEQ_FOR_EACH_PRODUCT(DO_INSTANTIATE, (VALUES_TO_INSTANTIATE_WITH1)(VALUES_TO_INSTANTIATE_WITH2))
+#define DO_INSTANTIATE(r, MT2, elem)                                           \
+  template void jv_base_t<GET_VALUE(elem)>::DoAdd<MT2>(                        \
+      binary_base_t<MT2> &, explorer_t &, llvm::object::Binary &,              \
+      const AddOptions_t &);
+BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, true, VALUES_TO_INSTANTIATE_WITH)
+BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, false, VALUES_TO_INSTANTIATE_WITH)
 
 }
