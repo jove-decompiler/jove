@@ -436,6 +436,9 @@ function_t::function_t(binary_base_t<MT> &b, function_index_t Idx)
 function_t::function_t(const ip_void_allocator_t &A)
     : Callers(A) {}
 
+template struct jv_base_t<false>;
+template struct jv_base_t<true>;
+
 #define VALUES_TO_INSTANTIATE_WITH                                             \
     ((true))                                                                   \
     ((false))
@@ -455,33 +458,4 @@ BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, VALUES_TO_INSTANTIATE_WITH)
 BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, true, VALUES_TO_INSTANTIATE_WITH)
 BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, false, VALUES_TO_INSTANTIATE_WITH)
 
-#define DO_INSTANTIATE(r, data, elem)                                          \
-  template std::pair<binary_index_t, bool> jv_base_t<GET_VALUE(elem)>::Add(    \
-      binary_base_t<GET_VALUE(elem)> &&, on_newbin_proc_t<GET_VALUE(elem)>);
-BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, VALUES_TO_INSTANTIATE_WITH)
-
-#define DO_INSTANTIATE(r, data, elem)                                          \
-  template std::pair<binary_index_t, bool>                                     \
-  jv_base_t<GET_VALUE(elem)>::AddFromData(                                     \
-      explorer_t &, jv_file_t &, std::string_view, const char *,               \
-      on_newbin_proc_t<GET_VALUE(elem)>, const AddOptions_t &);
-BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, VALUES_TO_INSTANTIATE_WITH)
-
-#define DO_INSTANTIATE(r, data, elem)                                          \
-  template std::optional<binary_index_t>                                       \
-  jv_base_t<GET_VALUE(elem)>::LookupByHash(const hash_t &);
-BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, VALUES_TO_INSTANTIATE_WITH)
-
-#define DO_INSTANTIATE(r, data, elem)                                          \
-  template bool jv_base_t<GET_VALUE(elem)>::LookupByName(const char *name,     \
-                                                         binary_index_set &);
-BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, VALUES_TO_INSTANTIATE_WITH)
-
-#define DO_INSTANTIATE(r, data, elem)                                          \
-  template void jv_base_t<GET_VALUE(elem)>::clear(bool everything);
-BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, VALUES_TO_INSTANTIATE_WITH)
-
-#define DO_INSTANTIATE(r, data, elem)                                          \
-template void jv_base_t<GET_VALUE(elem)>::InvalidateFunctionAnalyses(void);
-BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, VALUES_TO_INSTANTIATE_WITH)
 }
