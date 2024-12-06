@@ -61,15 +61,7 @@ bool binary_base_t<MT>::FixAmbiguousIndirectJump(taddr_t TermAddr, explorer_t &E
   return true;
 }
 
-#define VALUES_TO_INSTANTIATE_WITH                                             \
-    ((true))                                                                   \
-    ((false))
-#define GET_VALUE(x) BOOST_PP_TUPLE_ELEM(0, x)
-
-#define DO_INSTANTIATE(r, data, elem)                                          \
-  template bool binary_base_t<GET_VALUE(elem)>::FixAmbiguousIndirectJump(      \
-      taddr_t TermAddr, explorer_t &, llvm::object::Binary &Bin,               \
-      jv_base_t<GET_VALUE(elem)> &);
-BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, VALUES_TO_INSTANTIATE_WITH)
+template struct binary_base_t<false>;
+template struct binary_base_t<true>;
 
 }
