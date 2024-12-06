@@ -1594,7 +1594,8 @@ void IPTTool::gather_binary_paths(
         continue;
 
       std::string filename_str(rec.filename, slen-1);
-      HumanOut() << llvm::formatv("mmap fn=\"{0}\"\n", filename_str.c_str());
+      if (IsVerbose())
+        HumanOut() << llvm::formatv("mmap fn=\"{0}\"\n", filename_str.c_str());
       insertSortedVec<std::string>(out, filename_str);
 
       slen = (slen + 7) & ~7;
@@ -1612,7 +1613,8 @@ void IPTTool::gather_binary_paths(
         continue;
 
       std::string filename_str(rec.filename, slen-1);
-      HumanOut() << llvm::formatv("mmap2 \"{0}\"\n", filename_str.c_str());
+      if (IsVerbose())
+        HumanOut() << llvm::formatv("mmap2 \"{0}\"\n", filename_str.c_str());
       insertSortedVec<std::string>(out, filename_str);
 
       slen = (slen + 7) & ~7;
@@ -1645,12 +1647,14 @@ void IPTTool::gather_binary_paths(
 
           case syscalls::NR::openat:
           case syscalls::NR::open: {
+            if (IsVerbose())
               fprintf(stderr, "open(\"%s\") = %ld\n", payload->str, (long)ret);
 
             binary_index_t BIdx;
             bool IsNew;
             std::tie(BIdx, IsNew) = jv.AddFromPath(*Explorer, jv_file, payload->str);
 
+            if (IsVerbose())
               fprintf(stderr, "is %" PRIu32 "\n", BIdx);
             break;
           }
