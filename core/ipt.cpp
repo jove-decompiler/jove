@@ -1488,7 +1488,7 @@ StraightLineGo(const auto &b,
 
          if constexpr (MT) {
            if (!bbprop.pub.is.load(std::memory_order_acquire))
-             ip_sharable_lock<ip_sharable_mutex>(bbprop.pub.mtx);
+             bbprop_t::pub_shared_lock_guard<MT>(bbprop.pub.mtx);
          }
          bbprop.lock_sharable<MT>(); /* don't change on us */
 
@@ -1523,7 +1523,7 @@ StraightLineGo(const auto &b,
 
          if constexpr (MT) {
            if (!new_bbprop.pub.is.load(std::memory_order_acquire))
-             ip_sharable_lock<ip_sharable_mutex>(new_bbprop.pub.mtx);
+             bbprop_t::pub_shared_lock_guard<MT>(new_bbprop.pub.mtx);
          }
          new_bbprop.lock_sharable<MT>(); /* don't change on us */
 
@@ -1753,7 +1753,7 @@ void IntelPT<IPT_PARAMETERS_DEF>::TNTAdvance(uint64_t tnt, uint8_t n) {
       basic_block_t bb = basic_block_of_index(Res, b);
       const auto &bbprop = ICFG[bb];
 
-      ip_sharable_lock<ip_sharable_mutex> s_lck(bbprop.mtx);
+      auto s_lck = bbprop.template shared_access<MT>();
 
       on_block(b, bbprop, bb);
     }
@@ -1810,10 +1810,37 @@ void IntelPT<IPT_PARAMETERS_DEF>::ptdump_tracking_reset(void) {
 }
 
 template <IPT_PARAMETERS_DCL>
+int IntelPT<IPT_PARAMETERS_DEF>::print_time(uint64_t offset)
+{
+	uint64_t tsc;
+	int errcode;
+
+	errcode = pt_time_query_tsc(&tsc, NULL, NULL, tracking.time.get());
+	if (errcode < 0) {
+		switch (-errcode) {
+		case pte_no_time:
+			if (0 /* options->no_wall_clock */)
+				break;
+
+		default:
+			//diag("error printing time", offset, errcode);
+			return errcode;
+		}
+	}
+
+	fprintf(stderr, "tsc=%016" PRIx64 "\n", tsc);
+
+	return 0;
+}
+
+template <IPT_PARAMETERS_DCL>
 int IntelPT<IPT_PARAMETERS_DEF>::sb_track_time(uint64_t offset)
 {
 	uint64_t tsc;
 	int errcode;
+
+        if constexpr (IsVeryVerbose())
+          print_time(offset);
 
 	errcode = pt_time_query_tsc(&tsc, NULL, NULL, tracking.time.get());
 	if (unlikely((errcode < 0) && (errcode != -pte_no_time))) {
@@ -1943,18 +1970,20 @@ int IntelPT<IPT_PARAMETERS_DEF>::track_cyc(uint64_t offset,
 		errcode = pt_tcal_fcr(&fcr, tracking.tcal.get());
 
 		if (unlikely(errcode < 0)) {
+#if 0
 			if constexpr (IsVerbose())
-                                fprintf(stderr, "%s: calibration error: %s\n",
-                                        __PRETTY_FUNCTION__,
+                                fprintf(stderr, "%s: calibration error (1): %s\n",
+                                        __func__,
                                         pt_errstr(pt_errcode(errcode)));
+#endif
                 }
 
 		errcode = pt_tcal_update_cyc(tracking.tcal.get(), packet, config.get());
 		if (unlikely(errcode < 0)) {
 			if constexpr (IsVerbose())
                                 fprintf(stderr,
-                                        "%s: error calibrating time: %s\n",
-                                        __PRETTY_FUNCTION__,
+                                        "%s: error calibrating time (2): %s\n",
+                                        __func__,
                                         pt_errstr(pt_errcode(errcode)));
                 }
 	}
@@ -1963,14 +1992,16 @@ int IntelPT<IPT_PARAMETERS_DEF>::track_cyc(uint64_t offset,
 
 	if (unlikely(errcode < 0)) {
 		if constexpr (IsVerbose())
-                        fprintf(stderr, "%s: error updating time: %s\n",
-                                __PRETTY_FUNCTION__,
+                        fprintf(stderr, "%s: error updating time (3): %s\n",
+                                __func__,
                                 pt_errstr(pt_errcode(errcode)));
         } else if (!fcr) {
+#if 0
 		if constexpr (IsVerbose())
                         fprintf(stderr,
-                                "%s: error updating time: no calibration\n",
-                                __PRETTY_FUNCTION__);
+                                "%s: error updating time (4): no calibration\n",
+                                __func__);
+#endif
         }
 
 	return track_time(offset);

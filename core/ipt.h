@@ -301,6 +301,8 @@ class IntelPT {
   void ptdump_tracking_init(void);
   void ptdump_tracking_reset(void);
 
+  int print_time(uint64_t offset);
+
   int process_packet(uint64_t offset, struct pt_packet *);
   int track_cyc(uint64_t offset, const struct pt_packet_cyc *);
   int sb_track_time(uint64_t offset);
