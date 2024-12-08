@@ -7,9 +7,14 @@ namespace jove {
 namespace perf {
 
 sideband_parser::sideband_parser(const std::vector<std::string> &ptdump_args) {
+  pev_config_init(&the_pev_config);
+
   for (unsigned idx = 0; idx < ptdump_args.size(); ++idx) {
     const std::string &arg = ptdump_args.at(idx++);
     const std::string &arga = ptdump_args.at(idx);
+
+    if (arg[0] != '-' || arg[1] != '-')
+      throw std::runtime_error("sideband_parser: unrecognized ptdump args");
 
     if (arg == "--pevent:sample-config") {
       std::vector<std::string> x;
@@ -28,11 +33,18 @@ sideband_parser::sideband_parser(const std::vector<std::string> &ptdump_args) {
       st.sample_type = sample_type;
       st.name = std::move(name);
 
-      if (1 /* IsVerbose() */)
-        fprintf(stderr, "sample-config(%" PRIu64 ", %" PRIx64 ", \"%s\")\n",
-                st.identifier, st.sample_type, st.name.c_str());
+#if 0
+      fprintf(stderr, "sample-config(%" PRIu64 ", %" PRIx64 ", \"%s\")\n",
+              st.identifier, st.sample_type, st.name.c_str());
+#endif
 
       sb_info.sample_type = sample_type;
+    } else if (arg == "--pevent:time-shift") {
+      the_pev_config.time_shift = std::stoull(arga, nullptr, 0);
+    } else if (arg == "--pevent:time-mult") {
+      the_pev_config.time_mult = std::stoull(arga, nullptr, 0);
+    } else if (arg == "--pevent:time-zero") {
+      the_pev_config.time_zero = std::stoull(arga, nullptr, 0);
     } else {
       continue;
     }
@@ -69,6 +81,11 @@ unsigned sideband_parser::read_samples(const uint8_t *const begin,
   if (sample_type & PERF_SAMPLE_TIME) {
     sample.time = reinterpret_cast<const uint64_t *>(pos);
     pos += 8;
+
+    int errcode = pev_time_to_tsc(&sample.tsc, *sample.time, &the_pev_config);
+    if (errcode < 0)
+      throw std::runtime_error(__func__ +
+                               std::string(": pev_time_to_tsc failed"));
   }
 
   if (sample_type & PERF_SAMPLE_ID) {
@@ -132,6 +149,11 @@ unsigned sideband_parser::read_sample_samples(const uint8_t *const begin,
   if (sample_type & PERF_SAMPLE_TIME) {
     sample.time = (const uint64_t *)pos;
     pos += 8;
+
+    int errcode = pev_time_to_tsc(&sample.tsc, *sample.time, &the_pev_config);
+    if (errcode < 0)
+      throw std::runtime_error(__func__ +
+                               std::string(": pev_time_to_tsc failed"));
   }
 
   if (sample_type & PERF_SAMPLE_ADDR) {
@@ -309,9 +331,8 @@ void sideband_parser::load(struct pev_event &out,
   }
 
   case PERF_RECORD_SAMPLE: {
-    const auto &rec = *(out.record.raw = reinterpret_cast<const struct pev_record_raw *>(pos));
-    out.record.raw = reinterpret_cast<const struct pev_record_raw *>(pos);
     pos += read_sample_samples(pos, out);
+    assert(out.record.raw);
     break;
   }
 

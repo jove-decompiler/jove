@@ -41,6 +41,8 @@ struct sb_info_t {
 class sideband_parser {
   sb_info_t sb_info;
 
+  pev_config the_pev_config;
+
 public:
   sideband_parser(const std::vector<std::string> &ptdump_args);
 
