@@ -1,5 +1,9 @@
 #include "jove/jove.h"
 
+#include <boost/preprocessor/seq/for_each.hpp>
+#include <boost/preprocessor/seq/elem.hpp>
+#include <boost/preprocessor/seq/seq.hpp>
+
 namespace jove {
 
 template <bool MT>

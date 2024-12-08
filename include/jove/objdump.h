@@ -14,7 +14,7 @@ private:
   taddr_t begin = ~0UL;
   bitset_t good;
 
-  template <typename Alloc2, bool MT2> friend class objdump_output_t;
+  template <typename Alloc2, bool MT2> friend struct objdump_output_t;
 
 public:
   using mutex_type =

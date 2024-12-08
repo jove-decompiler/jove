@@ -81,6 +81,7 @@ function(tool_for_arch arch arch_extra_cflags qemu_objs)
     ../core/recovery.cpp
     ../core/score.cpp
     ../core/serialize.cpp
+    ../core/sideband.cpp
     ../core/sjlj.cpp
     ../core/symbolizer.cpp
     ../core/tcg.cpp

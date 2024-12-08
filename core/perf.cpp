@@ -19,7 +19,8 @@ namespace fs = boost::filesystem;
 namespace jove {
 namespace perf {
 
-data_reader::data_reader(const char *filename) {
+template <bool HasHeader>
+data_reader<HasHeader>::data_reader(const char *filename, bool sequential) {
   contents.fd = std::make_unique<scoped_fd>(::open(filename, O_RDONLY));
   if (!(*contents.fd))
     throw std::runtime_error(std::string("failed to open \"") + filename + "\"");
@@ -30,12 +31,19 @@ data_reader::data_reader(const char *filename) {
   if (!(*contents.mmap))
     throw std::runtime_error(std::string("mmap failed: ") + strerror(errno));
 
-  if (!check_magic())
-    throw std::runtime_error(std::string("\"") + filename +
-                             std::string("\" is not perf.data"));
+  if constexpr (HasHeader)
+    if (!check_magic())
+      throw std::runtime_error(std::string("\"") + filename +
+                               std::string("\" is not perf.data"));
+
+  if (sequential)
+    if (::madvise(contents.mmap->ptr, contents.mmap->len, MADV_SEQUENTIAL) < 0)
+      throw std::runtime_error(std::string("madvise failed: ") +
+                               strerror(errno));
 }
 
-data_reader::~data_reader() {}
+template <bool HasHeader>
+data_reader<HasHeader>::~data_reader() {}
 
 static const char *__magic1 = "PERFFILE";
 static const uint64_t __magic2    = 0x32454c4946524550ULL;
@@ -50,9 +58,14 @@ static bool is_magic(uint64_t magic) {
   return false;
 }
 
-bool data_reader::check_magic(void) const {
+template <bool HasHeader>
+template <bool H, typename>
+bool data_reader<HasHeader>::check_magic(void) const {
   return is_magic(*reinterpret_cast<const uint64_t *>(&get_header().magic[0]));
 }
+
+template struct data_reader<false>;
+template struct data_reader<true>;
 
 }
 }

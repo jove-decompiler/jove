@@ -1,8 +1,8 @@
 #pragma once
-#if (defined(__x86_64__) || defined(__i386__)) &&                              \
-    (defined(TARGET_X86_64) || defined(TARGET_I386))
+#if defined(__x86_64__) && (defined(TARGET_X86_64) || defined(TARGET_I386))
 #include "jove/jove.h"
 #include "B.h"
+#include "perf.h"
 #include <memory>
 #include <cstdio>
 #include <array>
@@ -31,37 +31,11 @@ struct pev_event;
 
 namespace jove {
 
-struct sb_sample_type_t {
-  /* The sample identifier.
-   *
-   * This corresponds to the PERF_SAMPLE_IDENTIFIER sample that can be
-   * found at the very end of the event record.
-   */
-  uint64_t identifier = UINT64_MAX;
-
-  /* The sample type.
-   *
-   * At least PERF_SAMPLE_IDENTIFIER must be set.
-   */
-  uint64_t sample_type;
-
-  std::string name;
-};
-
-struct sb_info_t {
-  /* The respective field in struct perf_event_attr.
-   *
-   * We require sample_id_all in struct perf_event_attr to be set.
-   *
-   * This field is only valid if \@sample_config is NULL.
-   */
-  uint64_t sample_type = 0;
-
-  /* An array of \@nstypes sample types. */
-  std::vector<sb_sample_type_t> stypes;
-};
-
 class explorer_t;
+
+namespace perf {
+class sideband_parser;
+}
 
 #define IPT_PARAMETERS \
   ((unsigned, Verbosity, (0)(1)(2))) \
@@ -96,8 +70,14 @@ class IntelPT {
   std::unique_ptr<struct pt_config> config;
   struct pt_packet_decoder *decoder = NULL;
 
+  perf::data_reader<false> &sb;
+  perf::event_iterator sb_it;
+  perf::sideband_parser &sb_parser;
+
   struct {
+#if 0
     struct pt_sb_session *session = NULL;
+#endif
 
     std::unique_ptr<struct pt_last_ip> last_ip;
     std::unique_ptr<struct pt_time_cal> tcal;
@@ -315,7 +295,9 @@ class IntelPT {
   int tnt_payload(const struct pt_packet_tnt &, const uint64_t offset);
   int on_ip(const taddr_t ip, const uint64_t offset);
 
+#if 0
   int ptdump_sb_pevent(const char *filename, const struct pt_sb_pevent_config *);
+#endif
   int process_args(int argc, char **argv, const char *sideband_filename);
 
   template <bool InfiniteLoopThrow = false>
@@ -346,8 +328,15 @@ class IntelPT {
                       binary_base_t<MT> &to, taddr_t ToAddr);
 
 public:
-  IntelPT(int ptdump_argc, char **ptdump_argv, jv_base_t<MT> &, explorer_t &,
-          jv_file_t &jv_file, unsigned cpu, void *begin, void *end,
+  IntelPT(int ptdump_argc,
+          char **ptdump_argv,
+          jv_base_t<MT> &,
+          explorer_t &,
+          jv_file_t &jv_file,
+          unsigned cpu,
+          perf::data_reader<false> &sb,
+          perf::sideband_parser &sb_parser,
+          uint8_t *begin, uint8_t *end,
           const char *sb_filename, unsigned verbose,
           bool ignore_trunc_aux = false);
   ~IntelPT();

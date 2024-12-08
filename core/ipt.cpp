@@ -1,5 +1,4 @@
-#if (defined(__x86_64__) || defined(__i386__)) &&                              \
-    (defined(TARGET_X86_64) || defined(TARGET_I386))
+#if defined(__x86_64__) && (defined(TARGET_X86_64) || defined(TARGET_I386))
 
 #include "ipt.h"
 #include "explore.h"
@@ -7,8 +6,25 @@
 #include "concurrent.h"
 #include "augmented_raw_syscalls.h"
 #include "locator.h"
+#include "sideband.h"
 
-#include "syscall_nrs.hpp"
+////////////////////////////////////////////////////////////////////////////////
+#define VERY_UNIQUE_BASE 0xfffffff
+#define VERY_UNIQUE_NUM() (VERY_UNIQUE_BASE + __COUNTER__)
+
+#define ___SYSCALL(nr, nm) \
+  static const unsigned nr64_##nm = nr;\
+  static const char *const nr64_##nm##_nm = #nm;
+
+#include <arch/x86_64/syscalls.inc.h>
+static const unsigned nr64_clone3 = VERY_UNIQUE_NUM();
+static const unsigned nr64_mmap_pgoff = VERY_UNIQUE_NUM();
+
+#define ___SYSCALL(nr, nm) static const unsigned nr32_##nm = nr;\
+  static const char *const nr32_##nm##_nm = #nm;
+#include <arch/i386/syscalls.inc.h>
+static const unsigned nr32_mmap = VERY_UNIQUE_NUM();
+////////////////////////////////////////////////////////////////////////////////
 
 #include <boost/filesystem.hpp>
 #include <boost/format.hpp>
@@ -42,10 +58,14 @@ IntelPT<IPT_PARAMETERS_DEF>::IntelPT(int ptdump_argc, char **ptdump_argv,
                                      jv_base_t<MT> &jv, explorer_t &explorer,
                                      jv_file_t &jv_file,
                                      unsigned cpu,
-                                     void *begin, void *end,
+                                     perf::data_reader<false> &sb,
+                                     perf::sideband_parser &sb_parser,
+                                     uint8_t *begin, uint8_t *end,
                                      const char *sb_filename, unsigned verbose,
                                      bool ignore_trunc_aux)
-    : jv_file(jv_file), jv(jv), explorer(explorer), state(jv),
+    : jv_file(jv_file), jv(jv), explorer(explorer),
+      sb(sb), sb_it(sb.begin()), sb_parser(sb_parser),
+      state(jv),
       PageSize(sysconf(_SC_PAGESIZE)),
       IsCOFF(B::is_coff(*state.for_binary(jv.Binaries.at(0)).Bin)),
       exe(jv.Binaries.at(0)), CurrPoint(exe),
@@ -66,6 +86,7 @@ IntelPT<IPT_PARAMETERS_DEF>::IntelPT(int ptdump_argc, char **ptdump_argv,
 
   ptdump_tracking_init();
 
+#if 0
   tracking.session = pt_sb_alloc(NULL);
   if (!tracking.session)
     throw std::runtime_error("failed to allocate sideband session");
@@ -77,6 +98,7 @@ IntelPT<IPT_PARAMETERS_DEF>::IntelPT(int ptdump_argc, char **ptdump_argv,
         return ((IntelPT *)priv)->ptdump_print_error(errcode, filename, offset);
       },
       this);
+#endif
 
   if (process_args(ptdump_argc, ptdump_argv, sb_filename) != 0)
     throw std::runtime_error("failed to process ptdump arguments");
@@ -113,15 +135,17 @@ IntelPT<IPT_PARAMETERS_DEF>::IntelPT(int ptdump_argc, char **ptdump_argv,
     }
   }
 
+#if 0
   int errcode = pt_sb_init_decoders(tracking.session);
   if (errcode < 0) {
     throw std::runtime_error(
         std::string("error initializing sideband decoders: ") +
         pt_errstr(pt_errcode(errcode)));
   }
+#endif
 
-  config->begin = reinterpret_cast<uint8_t *>(begin);
-  config->end = reinterpret_cast<uint8_t *>(end);
+  config->begin = begin;
+  config->end = end;
 
   decoder = pt_pkt_alloc_decoder(config.get());
 
@@ -153,7 +177,9 @@ IntelPT<IPT_PARAMETERS_DEF>::~IntelPT() {
     return diag("sideband dump error", UINT64_MAX, errcode);
 #endif
 
+#if 0
   pt_sb_free(tracking.session);
+#endif
 }
 
 template <IPT_PARAMETERS_DCL>
@@ -390,8 +416,12 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb_event(const struct pev_event &event
           //
           // we can assume that the syscall successfully completed (XXX except exec)
           //
+
+#define nr_for(sysnm)                                                          \
+  (std::is_same_v<T, struct augmented_syscall_payload64> ? nr64_##sysnm        \
+                                                         : nr32_##sysnm)
           switch (nr) {
-          case syscalls::NR::munmap: {
+          case nr_for(munmap): {
             IS_RIGHT_PROCESS_GET;
 
             auto addr = hdr.args[0];
@@ -409,12 +439,9 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb_event(const struct pev_event &event
             break;
           }
 
-#ifdef TARGET_X86_64
-          case syscalls::NR::mmap:
-#else
-          case syscalls::NR::mmap_pgoff:
+          case nr_for(mmap_pgoff):
             is_pgoff = true;
-#endif
+          case nr_for(mmap):
           {
             IS_RIGHT_PROCESS_GET;
 
@@ -478,7 +505,7 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb_event(const struct pev_event &event
             break;
           }
 
-          case syscalls::NR::close: {
+          case nr_for(close): {
             IS_RIGHT_PROCESS_GET;
 
             auto fd = hdr.args[0];
@@ -490,8 +517,8 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb_event(const struct pev_event &event
             break;
           }
 
-          case syscalls::NR::openat:
-          case syscalls::NR::open: {
+          case nr_for(openat):
+          case nr_for(open): {
             IS_RIGHT_PROCESS_GET;
 
             if constexpr (IsVeryVerbose())
@@ -501,10 +528,10 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb_event(const struct pev_event &event
             break;
           }
 
-          case syscalls::NR::pread64:
+          case nr_for(pread64):
             fd_pos = hdr.args[3];
 
-          case syscalls::NR::read: {
+          case nr_for(read): {
             IS_RIGHT_PROCESS_GET;
 
             auto fd = hdr.args[0];
@@ -530,8 +557,8 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb_event(const struct pev_event &event
             break;
           }
 
-          case syscalls::NR::execve:
-          case syscalls::NR::execveat: {
+          case nr_for(execve):
+          case nr_for(execveat): {
             if (ret == 1) {
               // XXX exec never returns 1; we use this value to just say that an
               // exec is being attempted. the exit will be reported even if it
@@ -1792,7 +1819,9 @@ void IntelPT<IPT_PARAMETERS_DEF>::ptdump_tracking_init(void)
   pt_tcal_init(tracking.tcal.get());
   pt_time_init(tracking.time.get());
 
+#if 0
   tracking.session = NULL;
+#endif
   tracking.tsc = 0ull;
   tracking.fcr = 0ull;
   tracking.in_header = 0;
@@ -1849,8 +1878,22 @@ int IntelPT<IPT_PARAMETERS_DEF>::sb_track_time(uint64_t offset)
 		return errcode;
 	}
 
+#if 0
         while (struct pev_event *event = pt_sb_pop(tracking.session, tsc))
                 examine_sb_event(*event, offset);
+#else
+        // TODO
+        for (; sb_it != sb.end(); ++sb_it) {
+          struct pev_event e;
+          sb_parser.load(e, *sb_it);
+
+          if (const uint64_t *t = e.sample.time)
+            if (*t < tsc)
+              break;
+
+          examine_sb_event(e, offset);
+        }
+#endif
 
         return 1;
 }
@@ -2007,6 +2050,7 @@ int IntelPT<IPT_PARAMETERS_DEF>::track_cyc(uint64_t offset,
 	return track_time(offset);
 }
 
+#if 0
 template <IPT_PARAMETERS_DCL>
 int IntelPT<IPT_PARAMETERS_DEF>::ptdump_sb_pevent(const char *filename,
                                                   const struct pt_sb_pevent_config *conf) {
@@ -2029,6 +2073,7 @@ int IntelPT<IPT_PARAMETERS_DEF>::ptdump_sb_pevent(const char *filename,
 
 	return 0;
 }
+#endif
 
 static int pt_parse_sample_config(struct pt_sb_pevent_config *pevent,
                                   const char *arg) {
@@ -2322,9 +2367,11 @@ int IntelPT<IPT_PARAMETERS_DEF>::process_args(int argc, char **argv,
 		}
 	}
 
+#if 0
 	errcode = ptdump_sb_pevent(sb_filename, &pevent);
 	if (errcode < 0)
 		throw std::runtime_error("ptdump_sb_pevent() failed");
+#endif
 
 	return 0;
 }

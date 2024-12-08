@@ -185,6 +185,7 @@ found_tool:
   std::string Desc = (std::string("jove-") + name) + "\n";
   llvm::cl::ParseCommandLineOptions(argc, argv, Desc);
 
+#if 0
   /*
    * unfortunately, llvm::sys::PrintStackTrace() can trigger a deadlocks like
    * the following (because of abort in glibc malloc, which unwinding calls):
@@ -216,6 +217,7 @@ found_tool:
    * so disable it.
    */
   jove::DoDefaultOnErrorSignal();
+#endif
 
   int res = tool->Run();
 
