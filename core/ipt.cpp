@@ -410,8 +410,8 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb_event(const struct pev_event &event
     auto &AddressSpace = pstate.addrspace
 
 #define IS_RIGHT_PROCESS_GET                                                   \
-    if (!IsRightProcess(pid))                                                  \
-      break;                                                                   \
+    assert(~pid != 0u);                                                        \
+    if (!IsRightProcess(pid)) break;                                           \
     RIGHT_PROCESS_GET
           //
           // we can assume that the syscall successfully completed (XXX except exec)
@@ -569,36 +569,37 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb_event(const struct pev_event &event
               if constexpr (IsVeryVerbose())
                 fprintf(stderr, "(enter exec)\n");
 
-	      auto it = pid_map.find(pid);
-	      if (it != pid_map.end()) {
-		auto &pstate = (*it).second;
-		pstate.addrspace_sav = pstate.addrspace;
-		pstate.addrspace.clear(); /* entering exec */
-	      }
+              auto it = pid_map.find(pid);
+              if (it != pid_map.end()) {
+                auto &pstate = (*it).second;
+                pstate.addrspace_sav = pstate.addrspace;
+                pstate.addrspace.clear(); /* entering exec */
+              }
               break;
             }
             if (static_cast<int>(ret) == -1) {
-	      // exec failed, undo our clear of the address space
+              // exec failed, undo our clear of the address space
               if constexpr (IsVeryVerbose())
                 fprintf(stderr, "(exec failed)\n");
 
-	      auto it = pid_map.find(pid);
-	      if (it != pid_map.end()) {
-		auto &pstate = (*it).second;
-		pstate.addrspace = pstate.addrspace_sav;
-		pstate.addrspace_sav.clear();
-	      }
+              auto it = pid_map.find(pid);
+              if (it != pid_map.end()) {
+                auto &pstate = (*it).second;
+                pstate.addrspace = pstate.addrspace_sav;
+                pstate.addrspace_sav.clear();
+              }
               break;
             }
 
             Our.pids.insert(pid);
             RIGHT_PROCESS_GET;
             CheckEngaged();
+            assert(Engaged);
 
             std::vector<const char *> argvec;
             std::vector<const char *> envvec;
 
-            const unsigned n = payload->hdr.str_len;
+            const uint64_t n = payload->hdr.str_len;
 
             const char *const beg = &payload->str[0];
             const char *const end = &payload->str[n];
@@ -606,25 +607,31 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb_event(const struct pev_event &event
             const char *eon;
             const char *const pathname = beg;
 
-            eon = (char *)memchr(pathname, '\0', n - (pathname - beg));
+            eon = (char *)memchr(pathname, '\0', n);
             assert(eon);
 
             for (const char *arg = eon + 1; *arg; arg = eon + 1) {
               argvec.push_back(arg);
 
-              unsigned left = n - (arg - beg);
+              assert(arg >= beg);
+              assert(n >= (arg - beg));
+
+              uint64_t left = n - (arg - beg);
               eon = (const char *)memchr(arg, '\0', left);
               assert(eon);
             }
-            assert(eon != end);
+            assert(eon < end);
             ++eon;
-            assert(eon != end);
+            assert(eon < end);
             assert(*eon == '\0');
 args_done:
-            for (const char *env = eon + 1; env != end; env = eon + 1) {
+            for (const char *env = eon + 1; env < end; env = eon + 1) {
               envvec.push_back(env);
 
-              unsigned left = n - (env - beg);
+              assert(env >= beg);
+              assert(n >= (env - beg));
+
+              uint64_t left = n - (env - beg);
               eon = (const char *)memchr(env, '\0', left);
               assert(eon);
             }
@@ -658,11 +665,11 @@ envs_done:
           default:
             fprintf(stderr, "unhandled syscall %u!\n", (unsigned)nr);
             break;
-	  }
+          }
           };
 
-	  unsigned bytes_size = event.record.raw->size;
-	  const uint8_t *const bytes = (const uint8_t *)event.record.raw->data;
+          unsigned bytes_size = event.record.raw->size;
+          const uint8_t *const bytes = (const uint8_t *)event.record.raw->data;
 
           const bool was32 = !!(bytes[MAGIC_LEN] & 1u);
 
@@ -695,13 +702,15 @@ envs_done:
           }
 #endif
 
-	  if (was32) {
-	    if (IsTarget32)
-	      on_syscall.template operator()<struct augmented_syscall_payload32>(reinterpret_cast<const struct augmented_syscall_payload32 *>(bytes));
-	  } else {
-	    if (IsTarget64)
-	      on_syscall.template operator()<struct augmented_syscall_payload64>(reinterpret_cast<const struct augmented_syscall_payload64 *>(bytes));
-	  }
+          if (was32) {
+            on_syscall.template operator()<struct augmented_syscall_payload32>(
+                reinterpret_cast<const struct augmented_syscall_payload32 *>(
+                    bytes));
+          } else {
+            on_syscall.template operator()<struct augmented_syscall_payload64>(
+                reinterpret_cast<const struct augmented_syscall_payload64 *>(
+                    bytes));
+          }
         break;
       }
 
@@ -741,7 +750,7 @@ envs_done:
       }
 
       if (pid <= 1) /* ignore kernel/init */
-	break;
+        break;
 
       if (_mmap.pid != pid) {
       fprintf(stderr, "_mmap.pid %u != pid %u %u %s\n", _mmap.pid, pid,
@@ -755,7 +764,7 @@ envs_done:
       //
 #if 0
       if (!IsRightProcess(pid))
-	break;
+        break;
 #endif
 
       auto &pstate = pid_map[pid];
@@ -1012,9 +1021,8 @@ int IntelPT<IPT_PARAMETERS_DEF>::process_packet(uint64_t offset,
           fprintf(stderr, "%016" PRIx64 "\tbits %u -> %u\n", offset,
                   SavedExecBits, Curr.ExecBits);
 
-      CheckEngaged();
-
 #if 1
+      if (CheckEngaged()) {
       int errcode;
 
       //
@@ -1054,9 +1062,9 @@ int IntelPT<IPT_PARAMETERS_DEF>::process_packet(uint64_t offset,
       }
 
       __attribute__((musttail)) return process_packet(offset, packet);
-#else
-      return 1;
+      } else
 #endif
+      return 1;
     }
 
     case pt_mol_tsx:
@@ -1841,61 +1849,66 @@ void IntelPT<IPT_PARAMETERS_DEF>::ptdump_tracking_reset(void) {
 template <IPT_PARAMETERS_DCL>
 int IntelPT<IPT_PARAMETERS_DEF>::print_time(uint64_t offset)
 {
-	uint64_t tsc;
-	int errcode;
+  uint64_t tsc;
+  int errcode;
 
-	errcode = pt_time_query_tsc(&tsc, NULL, NULL, tracking.time.get());
-	if (errcode < 0) {
-		switch (-errcode) {
-		case pte_no_time:
-			if (0 /* options->no_wall_clock */)
-				break;
+  errcode = pt_time_query_tsc(&tsc, NULL, NULL, tracking.time.get());
+  if (errcode < 0) {
+    switch (-errcode) {
+    case pte_no_time:
+      if (0 /* options->no_wall_clock */)
+        break;
 
-		default:
-			//diag("error printing time", offset, errcode);
-			return errcode;
-		}
-	}
+    default:
+      // diag("error printing time", offset, errcode);
+      return errcode;
+    }
+  }
 
-	fprintf(stderr, "tsc=%016" PRIx64 "\n", tsc);
+  fprintf(stderr, "tsc=%016" PRIx64 "\n", tsc);
 
-	return 0;
+  return 0;
 }
 
 template <IPT_PARAMETERS_DCL>
 int IntelPT<IPT_PARAMETERS_DEF>::sb_track_time(uint64_t offset)
 {
-	uint64_t tsc;
-	int errcode;
-
-        if constexpr (IsVeryVerbose())
-          print_time(offset);
-
-	errcode = pt_time_query_tsc(&tsc, NULL, NULL, tracking.time.get());
-	if (unlikely((errcode < 0) && (errcode != -pte_no_time))) {
-		if constexpr (IsVerbose())
-			fprintf(stderr, "%s: time tracking error\n", __PRETTY_FUNCTION__);
-		return errcode;
-	}
+  uint64_t tsc;
+  int errcode;
 
 #if 0
-        while (struct pev_event *event = pt_sb_pop(tracking.session, tsc))
-                examine_sb_event(*event, offset);
-#else
-        // TODO
-        for (; sb_it != sb.end(); ++sb_it) {
-          struct pev_event e;
-          sb_parser.load(e, *sb_it);
-
-          if (const uint64_t *t = e.sample.time)
-            if (*t < tsc)
-              break;
-
-          examine_sb_event(e, offset);
-        }
+  if constexpr (IsVeryVerbose())
+    print_time(offset);
 #endif
 
-        return 1;
+  errcode = pt_time_query_tsc(&tsc, NULL, NULL, tracking.time.get());
+  if (unlikely((errcode < 0) && (errcode != -pte_no_time))) {
+    if constexpr (IsVerbose())
+      fprintf(stderr, "%s: time tracking error\n", __PRETTY_FUNCTION__);
+    return errcode;
+  }
+
+  // fprintf(stderr, "tsc=%" PRIx64 "\n", tsc);
+  //  TODO
+  for (; sb_it != sb.end(); ++sb_it) {
+    struct pev_event e;
+    sb_parser.load(e, *sb_it);
+
+    if (const uint64_t *t = e.sample.time) {
+      auto etsc = e.sample.tsc;
+      if (etsc && tsc < etsc) {
+        // fprintf(stderr, "tscno %" PRIx64 " %" PRIx64 "\n", etsc, tsc);
+        break;
+      } else {
+        // fprintf(stderr, "tscyes %" PRIx64 " %" PRIx64 "\n", etsc, tsc);
+      }
+    } else {
+      // fprintf(stderr, "!e.sample.time (tsc=%" PRIx64 ")\n", tsc);
+    }
+    examine_sb_event(e, offset);
+  }
+
+  return 1;
 }
 
 template <IPT_PARAMETERS_DCL>
