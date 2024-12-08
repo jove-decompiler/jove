@@ -108,6 +108,7 @@ struct IPTTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
     cl::opt<bool> ExeOnly;
     cl::alias ExeOnlyAlias;
     cl::opt<bool> GatherBins;
+    cl::opt<bool> JustGatherBins;
     cl::opt<bool> MT;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
@@ -188,6 +189,10 @@ struct IPTTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
           GatherBins("gather-bins",
                      cl::desc("Look ahead in sideband records to add binaries early on."),
                      cl::init(true), cl::cat(JoveCategory)),
+
+          JustGatherBins("just-gather-bins",
+                     cl::desc("Only do --gather-bins."),
+                     cl::cat(JoveCategory)),
 
           MT("mt", cl::desc("Operate on multi-threaded jv"), cl::cat(JoveCategory)) {}
   } opts;
@@ -1068,6 +1073,8 @@ int IPTTool::UsingLibipt(void) {
         });
       });
 #endif
+    if (opts.JustGatherBins)
+      return 0;
   }
 
   //HumanOut() << "cap=" << jv.hash_to_binary.bucket_count() << '\n';
