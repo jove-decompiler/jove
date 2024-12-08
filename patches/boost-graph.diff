@@ -44,7 +44,7 @@ index 0e294eb5..bfd287bd 100644
  
  endif()
 diff --git a/include/boost/graph/adj_list_serialize.hpp b/include/boost/graph/adj_list_serialize.hpp
-index 85f7e2ed..9d2ceda7 100644
+index 85f7e2ed..28bdfa63 100644
 --- a/include/boost/graph/adj_list_serialize.hpp
 +++ b/include/boost/graph/adj_list_serialize.hpp
 @@ -53,78 +53,82 @@ namespace serialization
@@ -95,7 +95,7 @@ index 85f7e2ed..9d2ceda7 100644
          while (V-- > 0)
          {
 -            Vertex v = add_vertex(graph);
-+            Vertex v = add_vertex(graph, graph.m_vertices.get_allocator());
++            Vertex v = add_vertex(graph, graph.m_vertices.get_allocator().get_segment_manager());
              verts[i++] = v;
              ar >> serialization::make_nvp(
                  "vertex_property", get(vertex_all_t(), graph, v));
@@ -132,10 +132,10 @@ index 85f7e2ed..9d2ceda7 100644
  
  #endif // BOOST_GRAPH_ADJ_LIST_SERIALIZE_HPP
 diff --git a/include/boost/graph/adjacency_list.hpp b/include/boost/graph/adjacency_list.hpp
-index e5050b5b..a37142aa 100644
+index e5050b5b..75481f6b 100644
 --- a/include/boost/graph/adjacency_list.hpp
 +++ b/include/boost/graph/adjacency_list.hpp
-@@ -18,153 +18,216 @@
+@@ -18,153 +18,217 @@
  #include <set>
  
  #include <boost/unordered_set.hpp>
@@ -156,7 +156,8 @@ index e5050b5b..a37142aa 100644
  #include <boost/graph/properties.hpp>
  #include <boost/graph/named_graph.hpp>
  
-+#include <boost/interprocess/allocators/allocator.hpp>
++#include <boost/interprocess/allocators/private_node_allocator.hpp>
++#include <boost/interprocess/allocators/cached_adaptive_pool.hpp>
 +#include <boost/interprocess/managed_shared_memory.hpp>
 +#include <boost/interprocess/containers/vector.hpp>
 +#include <boost/interprocess/containers/deque.hpp>
@@ -226,7 +227,7 @@ index e5050b5b..a37142aa 100644
  
 +template < class ValueType > struct container_gen< listS_ip, ValueType >
 +{
-+    typedef interprocess::allocator<ValueType, interprocess::managed_shared_memory::segment_manager> _Allocator;
++    typedef interprocess::private_node_allocator<ValueType, interprocess::managed_shared_memory::segment_manager> _Allocator;
 +    typedef interprocess::list< ValueType, _Allocator > type;
 +};
 +
@@ -237,13 +238,13 @@ index e5050b5b..a37142aa 100644
  
 +template < class ValueType > struct container_gen< vecS_ip, ValueType >
 +{
-+    typedef interprocess::allocator<ValueType, interprocess::managed_shared_memory::segment_manager> _Allocator;
++    typedef interprocess::private_node_allocator<ValueType, interprocess::managed_shared_memory::segment_manager> _Allocator;
 +    typedef interprocess::vector< ValueType, _Allocator > type;
 +};
 +
 +template < class ValueType > struct container_gen< dequeS_ip, ValueType >
 +{
-+    typedef interprocess::allocator<ValueType, interprocess::managed_shared_memory::segment_manager> _Allocator;
++    typedef interprocess::private_node_allocator<ValueType, interprocess::managed_shared_memory::segment_manager> _Allocator;
 +    typedef interprocess::deque< ValueType, _Allocator > type;
 +};
 +
@@ -259,7 +260,7 @@ index e5050b5b..a37142aa 100644
  
 +template < class ValueType > struct container_gen< setS_ip, ValueType >
 +{
-+    typedef interprocess::allocator<ValueType, interprocess::managed_shared_memory::segment_manager> _Allocator;
++    typedef interprocess::private_node_allocator<ValueType, interprocess::managed_shared_memory::segment_manager> _Allocator;
 +    typedef interprocess::set< ValueType, std::less<ValueType>, _Allocator > type;
 +};
 +
@@ -352,7 +353,7 @@ index e5050b5b..a37142aa 100644
  {
      typedef disallow_parallel_edge_tag type;
  };
-@@ -180,40 +243,56 @@ template <> struct parallel_edge_traits< hash_multimapS >
+@@ -180,40 +244,56 @@ template <> struct parallel_edge_traits< hash_multimapS >
  };
  
  namespace detail
@@ -409,7 +410,7 @@ index e5050b5b..a37142aa 100644
  {
      typedef
          typename detail::is_random_access< VertexListS >::type is_rand_access;
-@@ -295,59 +374,66 @@ public:
+@@ -295,59 +375,66 @@ public:
          edge_bundled;
  
  private:

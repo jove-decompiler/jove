@@ -48,6 +48,9 @@
 #include <boost/interprocess/sync/sharable_lock.hpp>
 #include <boost/interprocess/sync/upgradable_lock.hpp>
 #include <boost/interprocess/sync/interprocess_condition.hpp>
+#include <boost/interprocess/allocators/private_node_allocator.hpp>
+#include <boost/interprocess/allocators/cached_adaptive_pool.hpp>
+#include <boost/interprocess/allocators/node_allocator.hpp>
 #include <boost/range/iterator_range.hpp>
 #include <boost/optional.hpp>
 #include <boost/dynamic_bitset.hpp>
@@ -743,17 +746,16 @@ struct allocates_basic_block_t {
 };
 
 template <bool MT>
-using bbbmap_t =
-possibly_concurrent_flat_map<
-    MT, std::true_type /* Spin */,
-    taddr_t, allocates_basic_block_t, boost::hash<taddr_t>, std::equal_to<taddr_t>,
-    boost::interprocess::allocator<std::pair<const taddr_t, allocates_basic_block_t>,
-                                   segment_manager_t>>;
+using bbbmap_t = possibly_concurrent_flat_map<
+    MT, std::true_type /* Spin */, taddr_t, allocates_basic_block_t,
+    boost::hash<taddr_t>, std::equal_to<taddr_t>,
+    boost::interprocess::node_allocator<
+        std::pair<const taddr_t, allocates_basic_block_t>, segment_manager_t>>;
 
 typedef boost::interprocess::flat_map<
     addr_intvl, basic_block_index_t, addr_intvl_cmp,
-    boost::interprocess::allocator<std::pair<addr_intvl, basic_block_index_t>,
-                                   segment_manager_t>>
+    boost::interprocess::private_adaptive_pool<
+        std::pair<addr_intvl, basic_block_index_t>, segment_manager_t>>
     bbmap_t;
 
 struct allocates_function_t {
@@ -770,10 +772,10 @@ struct allocates_function_t {
 
 template <bool MT>
 using fnmap_t = possibly_concurrent_flat_map<
-    MT, std::true_type /* Spin */,
-    taddr_t, allocates_function_t, boost::hash<taddr_t>, std::equal_to<taddr_t>,
-    boost::interprocess::allocator<std::pair<const taddr_t, allocates_function_t>,
-                                   segment_manager_t>>;
+    MT, std::true_type /* Spin */, taddr_t, allocates_function_t,
+    boost::hash<taddr_t>, std::equal_to<taddr_t>,
+    boost::interprocess::node_allocator<
+        std::pair<const taddr_t, allocates_function_t>, segment_manager_t>>;
 
 typedef boost::unordered::unordered_flat_set<
     function_index_t, boost::hash<function_index_t>,
@@ -783,13 +785,15 @@ typedef boost::unordered::unordered_flat_set<
 typedef boost::unordered::unordered_flat_set<
     function_index_t, boost::hash<function_index_t>,
     std::equal_to<function_index_t>,
-    boost::interprocess::allocator<function_index_t, segment_manager_t>>
+    boost::interprocess::private_node_allocator<function_index_t,
+                                                segment_manager_t>>
     ip_func_index_set;
 
-typedef boost::unordered_node_set<
-    ip_func_index_set, boost::hash<ip_func_index_set>,
-    std::equal_to<ip_func_index_set>,
-    boost::interprocess::allocator<function_index_t, segment_manager_t>>
+typedef boost::unordered_node_set<ip_func_index_set,
+                                  boost::hash<ip_func_index_set>,
+                                  std::equal_to<ip_func_index_set>,
+                                  boost::interprocess::private_node_allocator<
+                                      function_index_t, segment_manager_t>>
     ip_func_index_sets;
 
 size_t jvDefaultInitialSize(void);
@@ -1328,7 +1332,7 @@ allocates_basic_block_t::allocates_basic_block_t(binary_base_t<MT> &b,
 
   auto &ICFG = b.Analysis.ICFG;
 
-  basic_block_index_t Idx = ICFG.index_of_add_vertex(b.get_allocator());
+  basic_block_index_t Idx = ICFG.index_of_add_vertex(b.get_allocator().get_segment_manager());
   auto &bbprop = ICFG[ICFG.template vertex<false>(Idx)];
   bbprop.Addr = Addr;
 

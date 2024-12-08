@@ -28,7 +28,7 @@ bool basic_block_properties_t::HasParent(void) const {
 
 template <bool MT>
 void basic_block_properties_t::AddParent(function_index_t FIdx, jv_base_t<MT> &jv) {
-  ip_func_index_set Idxs(jv.get_allocator());
+  ip_func_index_set Idxs(jv.get_allocator().get_segment_manager());
 
   {
     ip_sharable_lock<ip_sharable_mutex> s_lck_parents(Parents._mtx);
