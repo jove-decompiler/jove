@@ -90,7 +90,7 @@ index 9dd2e8d3f3c9..e9790978b513 100644
  	$(call QUIET_CLEAN, bpf-skel) $(RM) -r $(SKEL_TMP_OUT) $(SKELETONS) $(SKEL_OUT)/vmlinux.h
  
 diff --git a/tools/perf/builtin-record.c b/tools/perf/builtin-record.c
-index adbaf80b398c..d934d6acb8e4 100644
+index adbaf80b398c..982cd0d030c9 100644
 --- a/tools/perf/builtin-record.c
 +++ b/tools/perf/builtin-record.c
 @@ -1,30 +1,39 @@
@@ -133,7 +133,7 @@ index adbaf80b398c..d934d6acb8e4 100644
  #include "util/tool.h"
  #include "util/symbol.h"
  #include "util/record.h"
-@@ -142,40 +151,54 @@ enum thread_spec {
+@@ -142,71 +151,87 @@ enum thread_spec {
  
  static const char *thread_spec_tags[THREAD_SPEC__MAX] = {
  	"undefined", "cpu", "core", "package", "numa", "user"
@@ -188,7 +188,40 @@ index adbaf80b398c..d934d6acb8e4 100644
  	int			nr_threads;
  	struct thread_mask	*thread_masks;
  	struct record_thread	*thread_data;
-@@ -2447,66 +2470,98 @@ static int __cmd_record(struct record *rec, int argc, const char **argv)
+ 	struct pollfd_index_map	*index_map;
+ 	size_t			index_map_sz;
+ 	size_t			index_map_cnt;
+ };
+ 
+ static volatile int done;
+ 
+ static volatile int auxtrace_record__snapshot_started;
+ static DEFINE_TRIGGER(auxtrace_snapshot_trigger);
+ static DEFINE_TRIGGER(switch_output_trigger);
+ 
++static bool jove_syscalls;
++
+ static const char *affinity_tags[PERF_AFFINITY_MAX] = {
+ 	"SYS", "NODE", "CPU"
+ };
+ 
+ static int build_id__process_mmap(const struct perf_tool *tool, union perf_event *event,
+ 				  struct perf_sample *sample, struct machine *machine);
+ static int build_id__process_mmap2(const struct perf_tool *tool, union perf_event *event,
+ 				   struct perf_sample *sample, struct machine *machine);
+ static int process_timestamp_boundary(const struct perf_tool *tool,
+ 				      union perf_event *event,
+ 				      struct perf_sample *sample,
+ 				      struct machine *machine);
+ 
+ #ifndef HAVE_GETTID
+ static inline pid_t gettid(void)
+ {
+ 	return (pid_t)syscall(__NR_gettid);
+ }
+ #endif
+ 
+@@ -2447,66 +2472,99 @@ static int __cmd_record(struct record *rec, int argc, const char **argv)
  
  	if (rec->opts.kcore &&
  	    !record__kcore_readable(&session->machines.host)) {
@@ -210,6 +243,7 @@ index adbaf80b398c..d934d6acb8e4 100644
  			goto out_delete_session;
  		}
 +
++		if (jove_syscalls)
 +		{
 +			struct stat st;
 +			if (stat("/proc/self/ns/pid", &st) < 0) {
@@ -219,12 +253,12 @@ index adbaf80b398c..d934d6acb8e4 100644
 +
 +			rec->skel->bss->dev = st.st_dev;
 +			rec->skel->bss->ino = st.st_ino;
-+		}
 +
 +		//rec->skel->bss->the_pid = rec->evlist->workload.pid;
 +		bool value = true;
 +		err = bpf_map_update_elem(bpf_map__fd(rec->skel->maps.pids_unfiltered),
 +                                          &rec->evlist->workload.pid, &value, BPF_ANY);
++		}
  	}
  
  	/*
@@ -287,49 +321,7 @@ index adbaf80b398c..d934d6acb8e4 100644
  		pr_warning("WARNING: No sample_id_all support, falling back to unordered processing\n");
  		rec->tool.ordered_events = false;
  	}
-@@ -3332,40 +3387,41 @@ static struct record record = {
- 		.mmap_pages	     = UINT_MAX,
- 		.user_freq	     = UINT_MAX,
- 		.user_interval	     = ULLONG_MAX,
- 		.freq		     = 4000,
- 		.target		     = {
- 			.uses_mmap   = true,
- 			.default_per_cpu = true,
- 		},
- 		.mmap_flush          = MMAP_FLUSH_DEFAULT,
- 		.nr_threads_synthesize = 1,
- 		.ctl_fd              = -1,
- 		.ctl_fd_ack          = -1,
- 		.synth               = PERF_SYNTH_ALL,
- 	},
- };
- 
- const char record_callchain_help[] = CALLCHAIN_RECORD_HELP
- 	"\n\t\t\t\tDefault: fp";
- 
- static bool dry_run;
-+static bool jove_syscalls;
- 
- static struct parse_events_option_args parse_events_option_args = {
- 	.evlistp = &record.evlist,
- };
- 
- static struct parse_events_option_args switch_output_parse_events_option_args = {
- 	.evlistp = &record.sb_evlist,
- };
- 
- /*
-  * XXX Will stay a global variable till we fix builtin-script.c to stop messing
-  * with it and switch to use the library functions in perf_evlist that came
-  * from builtin-record.c, i.e. use record_opts,
-  * evlist__prepare_workload, etc instead of fork+exec'in 'perf record',
-  * using pipes, etc.
-  */
- static struct option __record_options[] = {
- 	OPT_CALLBACK('e', "event", &parse_events_option_args, "event",
- 		     "event selector. use 'perf list' to list available events",
- 		     parse_events_option),
-@@ -3547,40 +3603,42 @@ static struct option __record_options[] = {
+@@ -3547,40 +3605,42 @@ static struct option __record_options[] = {
  		parse_libpfm_events_option),
  #endif
  	OPT_CALLBACK(0, "control", &record.opts, "fd:ctl-fd[,ack-fd] or fifo:ctl-fifo[,ack-fifo]",
@@ -372,7 +364,7 @@ index adbaf80b398c..d934d6acb8e4 100644
  		__set_bit(cpu.cpu, mask->bits);
  	}
  
-@@ -3953,40 +4011,52 @@ static int record__init_thread_masks(struct record *rec)
+@@ -3953,40 +4013,52 @@ static int record__init_thread_masks(struct record *rec)
  		break;
  	case THREAD_SPEC__CORE:
  		ret = record__init_thread_core_masks(rec, cpus);
@@ -425,7 +417,7 @@ index adbaf80b398c..d934d6acb8e4 100644
  
  	rec->evlist = evlist__new();
  	if (rec->evlist == NULL)
-@@ -4000,40 +4070,71 @@ int cmd_record(int argc, const char **argv)
+@@ -4000,40 +4072,73 @@ int cmd_record(int argc, const char **argv)
  			    PARSE_OPT_STOP_AT_NON_OPTION);
  	if (quiet)
  		perf_quiet_option();
@@ -461,6 +453,8 @@ index adbaf80b398c..d934d6acb8e4 100644
 +		if (err < 0) {
 +			libbpf_strerror(err, errbuf, sizeof(errbuf));
 +			pr_debug("Failed to load jove augmented syscalls BPF skeleton: %s\n", errbuf);
++			err = -EINVAL;
++			goto out_opts;
 +		} else {
 +			jove_augmented_raw_syscalls_bpf__attach(record.skel);
 +
@@ -497,7 +491,7 @@ index adbaf80b398c..d934d6acb8e4 100644
  		err = -EINVAL;
  		goto out_opts;
  	}
-@@ -4225,40 +4326,43 @@ int cmd_record(int argc, const char **argv)
+@@ -4225,40 +4330,43 @@ int cmd_record(int argc, const char **argv)
  
  	if (rec->off_cpu) {
  		err = record__config_off_cpu(rec);
@@ -543,17 +537,23 @@ index adbaf80b398c..d934d6acb8e4 100644
  	record__free_thread_masks(rec, rec->nr_threads);
 diff --git a/tools/perf/util/bpf_skel/jove_augmented_raw_syscalls.bpf.c b/tools/perf/util/bpf_skel/jove_augmented_raw_syscalls.bpf.c
 new file mode 100644
-index 000000000000..330f88bbb00f
+index 000000000000..ff2a1d8b172a
 --- /dev/null
 +++ b/tools/perf/util/bpf_skel/jove_augmented_raw_syscalls.bpf.c
-@@ -0,0 +1,492 @@
+@@ -0,0 +1,499 @@
 +#include "vmlinux.h"
-+#include "augmented_raw_syscalls.h"
 +#include <linux/limits.h>
 +#include <bpf/bpf_helpers.h>
 +#include <bpf/bpf_tracing.h>
 +#include <boost/preprocessor/cat.hpp>
 +#include <boost/preprocessor/repetition/repeat.hpp>
++typedef u8 uint8_t;
++typedef signed char int8_t;
++typedef u32 uint32_t;
++typedef s32 int32_t;
++typedef u64 uint64_t;
++typedef s64 int64_t;
++#include "augmented_raw_syscalls.h"
 +
 +#if defined(IFDEBUG) || defined(NOP)
 +#error
@@ -672,11 +672,12 @@ index 000000000000..330f88bbb00f
 +    if (c_str) {                                                               \
 +      long path_len = bpf_probe_read_user_str(                                 \
 +          &payload->str[pos & HALFMAXMASK], HALFMAXLEN, c_str);                \
-+      if (path_len <= 0) {                                                     \
++      if (path_len >= 1) {                                                     \
++        pos += path_len;                                                       \
++      } else {                                                                 \
 +        payload->str[pos & HALFMAXMASK] = '\0'; /* error */                    \
 +        ++pos;                                                                 \
 +      }                                                                        \
-+      pos += path_len;                                                         \
 +      if (pos >= HALFMAXLEN)                                                   \
 +        goto what_done##_done; /* overflow */                                  \
 +    } else {                                                                   \
@@ -716,7 +717,7 @@ index 000000000000..330f88bbb00f
 +  static int on_enter_exec##bits(                                              \
 +      struct augmented_syscall_payload##bits *payload, u##bits pathname,       \
 +      u##bits argv, u##bits envp) {                                            \
-+    unsigned pos = 0;                                                          \
++    volatile /* !!! */ unsigned pos = 0;                                       \
 +    DO_READ_STRING(pathname, path);                                            \
 +  path_done:                                                                   \
 +    if (argv) {                                                                \
