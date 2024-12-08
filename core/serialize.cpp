@@ -563,14 +563,14 @@ template <class Archive>
 static inline void load_construct_data(Archive &ar, jove::function_t *t,
                                        const unsigned int file_version) {
   assert(jove::pAlloc_hack);
-  ::new (t)jove::function_t(*jove::pAlloc_hack);
+  ::new (t)jove::function_t(jove::pAlloc_hack->get_segment_manager());
 }
 
 template <class Archive>
 static inline void load_construct_data(Archive &ar, jove::ip_string *t,
                                        const unsigned int file_version) {
   assert(jove::pAlloc_hack);
-  ::new (t)jove::ip_string(*jove::pAlloc_hack);
+  ::new (t)jove::ip_string(jove::pAlloc_hack->get_segment_manager());
 }
 
 template <class Archive>
@@ -578,7 +578,7 @@ static inline void load_construct_data(Archive &ar,
                                        jove::allocates_binary_index_set_t *t,
                                        const unsigned int file_version) {
   assert(jove::pAlloc_hack);
-  ::new (t)jove::allocates_binary_index_set_t(*jove::pAlloc_hack);
+  ::new (t)jove::allocates_binary_index_set_t(jove::pAlloc_hack->get_segment_manager());
 }
 
 template <class Archive>
@@ -587,7 +587,10 @@ static inline void load_construct_data(
     std::pair<const jove::ip_string, jove::allocates_binary_index_set_t> *t,
     const unsigned int file_version) {
   assert(jove::pAlloc_hack);
-  ::new (t)std::pair<const jove::ip_string, jove::allocates_binary_index_set_t>(*jove::pAlloc_hack, *jove::pAlloc_hack);
+  ::new (t)
+      std::pair<const jove::ip_string, jove::allocates_binary_index_set_t>(
+          jove::pAlloc_hack->get_segment_manager(),
+          jove::pAlloc_hack->get_segment_manager());
 }
 
 template <class Archive>
@@ -596,7 +599,8 @@ load_construct_data(Archive &ar,
                     std::pair<const uint64_t, jove::ip_dynamic_target_set> *t,
                     const unsigned int file_version) {
   assert(jove::pAlloc_hack);
-  ::new (t)std::pair<const uint64_t, jove::ip_dynamic_target_set>(0, *jove::pAlloc_hack);
+  ::new (t) std::pair<const uint64_t, jove::ip_dynamic_target_set>(
+      0, jove::pAlloc_hack->get_segment_manager());
 }
 
 template <class Archive>
@@ -605,7 +609,9 @@ static inline void load_construct_data(
     std::pair<const jove::ip_string, jove::ip_binary_index_set> *t,
     const unsigned int file_version) {
   assert(jove::pAlloc_hack);
-  ::new (t)std::pair<const jove::ip_string, jove::ip_binary_index_set>(*jove::pAlloc_hack, *jove::pAlloc_hack);
+  ::new (t) std::pair<const jove::ip_string, jove::ip_binary_index_set>(
+      jove::pAlloc_hack->get_segment_manager(),
+      jove::pAlloc_hack->get_segment_manager());
 }
 
 template <class Archive>
@@ -614,7 +620,7 @@ static inline void load_construct_data(
     jove::ip_binary_index_set *t,
     const unsigned int file_version) {
   assert(jove::pAlloc_hack);
-  ::new (t)jove::ip_binary_index_set(*jove::pAlloc_hack);
+  ::new (t)jove::ip_binary_index_set(jove::pAlloc_hack->get_segment_manager());
 }
 
 } // namespace serialization
@@ -656,7 +662,7 @@ void UnserializeJV(jv_base_t<MT> &out, jv_file_t &jv_file, std::istream &is,
                      sizeof(b.Analysis.ICFG.container().m_property));
 
   pFile_hack = &jv_file;
-  pAlloc_hack.reset(new ip_void_allocator_t(out.get_allocator())); /* XXX */
+  pAlloc_hack.reset(new ip_void_allocator_t(out.get_segment_manager())); /* XXX */
 
   out.clear();
 

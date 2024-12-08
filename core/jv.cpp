@@ -206,16 +206,16 @@ std::pair<binary_index_t, bool> jv_base_t<MT>::Add(binary_base_t<MT> &&b,
   bool isNewName = false;
   if constexpr (MT) {
     isNewName = this->name_to_binaries.try_emplace_or_visit(
-        b_.Name, get_allocator(), Res,
+        b_.Name, get_segment_manager(), Res,
         [&](typename ip_name_to_binaries_map_type<MT>::value_type &x) -> void {
           x.second.set.insert(Res);
         });
   } else {
     auto it = this->name_to_binaries.find(b_.Name);
     if (it == this->name_to_binaries.end()) {
-      isNewName =
-          this->name_to_binaries.try_emplace(b_.Name, get_allocator(), Res)
-              .second;
+      isNewName = this->name_to_binaries
+                      .try_emplace(b_.Name, get_segment_manager(), Res)
+                      .second;
       assert(isNewName);
     } else {
       isNewName = false;
@@ -289,16 +289,16 @@ std::pair<binary_index_t, bool> jv_base_t<MT>::AddFromDataWithHash(
   std::string_view name_sv(name);
   if constexpr (MT) {
     isNewName = this->name_to_binaries.try_emplace_or_visit(
-        name_sv, get_allocator(), Res,
+        name_sv, get_segment_manager(), Res,
         [&](typename ip_name_to_binaries_map_type<MT>::value_type &x) -> void {
           x.second.set.insert(Res);
         });
   } else {
     auto it = this->name_to_binaries.find(name_sv);
     if (it == this->name_to_binaries.end()) {
-      isNewName =
-          this->name_to_binaries.try_emplace(name_sv, get_allocator(), Res)
-              .second;
+      isNewName = this->name_to_binaries
+                      .try_emplace(name_sv, get_segment_manager(), Res)
+                      .second;
       assert(isNewName);
     } else {
       isNewName = false;
@@ -433,10 +433,10 @@ void jv_base_t<MT>::InvalidateFunctionAnalyses(void) {
 
 template <bool MT>
 function_t::function_t(binary_base_t<MT> &b, function_index_t Idx)
-    : b((void *)&b), Idx(Idx), Callers(b.get_allocator()) {}
+    : b((void *)&b), Idx(Idx), Callers(b.get_segment_manager()) {}
 
-function_t::function_t(const ip_void_allocator_t &A)
-    : Callers(A) {}
+function_t::function_t(segment_manager_t *sm)
+    : Callers(sm) {}
 
 template struct jv_base_t<false>;
 template struct jv_base_t<true>;

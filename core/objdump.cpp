@@ -180,7 +180,8 @@ int objdump_output_t<Alloc, MT>::generate(objdump_output_t<Alloc, MT> &out,
   return rc;
 }
 
-typedef boost::interprocess::allocator<unsigned long, segment_manager_t> alloc_t;
+typedef boost::interprocess::allocator<unsigned long, segment_manager_t>
+    alloc_t;
 
 #define VALUES_TO_INSTANTIATE_WITH \
     ((false)) \

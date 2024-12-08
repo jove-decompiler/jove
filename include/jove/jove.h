@@ -49,7 +49,7 @@
 #include <boost/interprocess/sync/upgradable_lock.hpp>
 #include <boost/interprocess/sync/interprocess_condition.hpp>
 #include <boost/interprocess/allocators/private_node_allocator.hpp>
-#include <boost/interprocess/allocators/cached_adaptive_pool.hpp>
+#include <boost/interprocess/allocators/private_adaptive_pool.hpp>
 #include <boost/interprocess/allocators/node_allocator.hpp>
 #include <boost/range/iterator_range.hpp>
 #include <boost/optional.hpp>
@@ -674,7 +674,8 @@ public:
 
 typedef boost::interprocess::allocator<char, segment_manager_t>
     ip_char_allocator;
-typedef boost::interprocess::basic_string<char, std::char_traits<char>, ip_char_allocator>
+typedef boost::interprocess::basic_string<char, std::char_traits<char>,
+                                          ip_char_allocator>
     ip_string;
 
 static inline std::string un_ips(const ip_string &x) {
@@ -694,13 +695,13 @@ static inline ip_string &to_ips(ip_string &res, std::string_view x) {
 typedef boost::concurrent_flat_set<
     dynamic_target_t, boost::hash<dynamic_target_t>,
     std::equal_to<dynamic_target_t>,
-    boost::interprocess::allocator<dynamic_target_t, segment_manager_t>>
+    boost::interprocess::node_allocator<dynamic_target_t, segment_manager_t>>
     ip_dynamic_target_set;
 
 typedef boost::concurrent_flat_set<
     binary_index_t, boost::hash<binary_index_t>,
     std::equal_to<binary_index_t>,
-    boost::interprocess::allocator<binary_index_t, segment_manager_t>>
+    boost::interprocess::node_allocator<binary_index_t, segment_manager_t>>
     ip_binary_index_set;
 
 typedef boost::container::flat_set<binary_index_t, std::less<binary_index_t>>
@@ -965,7 +966,7 @@ struct basic_block_properties_t {
     this->Analysis.Stale = true;
   }
 
-  basic_block_properties_t(const ip_void_allocator_t &A) : DynTargets(A) {}
+  basic_block_properties_t(const ip_void_allocator_t &A) : DynTargets(A.get_segment_manager()) {}
 
   basic_block_properties_t &operator=(const basic_block_properties_t &other) {
     pub.is.store(other.pub.is.load(std::memory_order_relaxed),
@@ -1069,7 +1070,7 @@ constexpr bool IsExitBlock(const ip_icfg_base_t<MT> &ICFG, basic_block_t bb) {
 typedef std::pair<binary_index_t, taddr_t> caller_t;
 typedef boost::unordered_flat_set<
     caller_t, boost::hash<caller_t>, std::equal_to<caller_t>,
-    boost::interprocess::allocator<caller_t, segment_manager_t>>
+    boost::interprocess::private_node_allocator<caller_t, segment_manager_t>>
     callers_t;
 
 struct function_t {
@@ -1098,7 +1099,7 @@ struct function_t {
 
   template <bool MT>
   function_t(binary_base_t<MT> &, function_index_t);
-  function_t(const ip_void_allocator_t &); /* XXX */
+  function_t(segment_manager_t *); /* XXX */
   function_t() = delete;
 };
 
@@ -1146,8 +1147,9 @@ struct binary_base_t {
     // references to function_t will never be invalidated.
     //
     deque<function_t,
-          boost::interprocess::allocator<function_t, segment_manager_t>, MT,
-          true, true>
+          boost::interprocess::private_node_allocator<function_t,
+                                                      segment_manager_t>,
+          MT, true, true>
         Functions;
 
     //
@@ -1250,8 +1252,8 @@ struct binary_base_t {
     return !Name.empty() && Name.front() == '[' && Name.back() == ']';
   }
 
-  ip_void_allocator_t get_allocator(void) const {
-    return Analysis.Functions.container().get_allocator();
+  segment_manager_t *get_segment_manager(void) const {
+    return Analysis.Functions.container().get_allocator().get_segment_manager();
   }
 
   explicit binary_base_t(jv_file_t &jv_file, binary_index_t Idx = invalid_binary_index)
@@ -1332,7 +1334,7 @@ allocates_basic_block_t::allocates_basic_block_t(binary_base_t<MT> &b,
 
   auto &ICFG = b.Analysis.ICFG;
 
-  basic_block_index_t Idx = ICFG.index_of_add_vertex(b.get_allocator().get_segment_manager());
+  basic_block_index_t Idx = ICFG.index_of_add_vertex(b.get_segment_manager());
   auto &bbprop = ICFG[ICFG.template vertex<false>(Idx)];
   bbprop.Addr = Addr;
 
@@ -1402,10 +1404,10 @@ struct allocates_binary_index_set_t {
 
   allocates_binary_index_set_t() = default;
 
-  allocates_binary_index_set_t(const ip_void_allocator_t &A) : set(A) {}
-  allocates_binary_index_set_t(const ip_void_allocator_t &A,
+  allocates_binary_index_set_t(segment_manager_t *sm) : set(sm) {}
+  allocates_binary_index_set_t(segment_manager_t *sm,
                                binary_index_t BIdx)
-      : set(A) {
+      : set(sm) {
     set.insert(BIdx);
   }
 };
@@ -1489,24 +1491,22 @@ struct cached_hash_t {
 
 template <bool MT>
 using ip_cached_hashes_type = possibly_concurrent_flat_map<
-    MT, std::false_type /* !Spin */,
-    ip_string, cached_hash_t,
-    ip_string_hash_t, ip_string_equal_t,
+    MT, std::false_type /* !Spin */, ip_string, cached_hash_t, ip_string_hash_t,
+    ip_string_equal_t,
     boost::container::scoped_allocator_adaptor<boost::interprocess::allocator<
         std::pair<const ip_string, cached_hash_t>, segment_manager_t>>>;
 
 template <bool MT>
 using ip_hash_to_binary_map_type = possibly_concurrent_flat_map<
-    MT, std::false_type /* !Spin */,
-    hash_t, adds_binary_t, boost::hash<hash_t>, std::equal_to<hash_t>,
-    boost::interprocess::allocator<std::pair<const hash_t, adds_binary_t>,
-                                   segment_manager_t>>;
+    MT, std::false_type /* !Spin */, hash_t, adds_binary_t, boost::hash<hash_t>,
+    std::equal_to<hash_t>,
+    boost::interprocess::node_allocator<std::pair<const hash_t, adds_binary_t>,
+                                        segment_manager_t>>;
 
 template <bool MT>
 using ip_name_to_binaries_map_type = possibly_concurrent_flat_map<
-    MT, std::false_type /* !Spin */,
-    ip_string, allocates_binary_index_set_t, ip_string_hash_t,
-    ip_string_equal_t,
+    MT, std::false_type /* !Spin */, ip_string, allocates_binary_index_set_t,
+    ip_string_hash_t, ip_string_equal_t,
     boost::container::scoped_allocator_adaptor<boost::interprocess::allocator<
         std::pair<const ip_string, allocates_binary_index_set_t>,
         segment_manager_t>>>;
@@ -1524,7 +1524,8 @@ struct jv_base_t {
   // references to binary_t will never be invalidated.
   //
   deque<binary_base_t<MT>,
-        boost::interprocess::allocator<binary_base_t<MT>, segment_manager_t>,
+        boost::interprocess::private_node_allocator<binary_base_t<MT>,
+                                                    segment_manager_t>,
         MT>
       Binaries;
 
@@ -1541,8 +1542,8 @@ struct jv_base_t {
 
   void clear(bool everything = false);
 
-  ip_void_allocator_t get_allocator(void) const {
-    return Binaries.container().get_allocator();
+  segment_manager_t *get_segment_manager(void) const {
+    return Binaries.container().get_allocator().get_segment_manager();
   }
 
   explicit jv_base_t(jv_file_t &jv_file)
