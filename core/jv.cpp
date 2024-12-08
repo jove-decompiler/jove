@@ -5,6 +5,9 @@
 #include "objdump.h"
 #include "B.h"
 
+#include <boost/preprocessor/seq/for_each.hpp>
+#include <boost/preprocessor/seq/elem.hpp>
+#include <boost/preprocessor/seq/seq.hpp>
 #include <boost/filesystem.hpp>
 
 namespace fs = boost::filesystem;
@@ -170,10 +173,10 @@ jv_base_t<MT>::AddFromPath(explorer_t &explorer,
 template <bool MT>
 std::pair<binary_index_t, bool> jv_base_t<MT>::Add(binary_base_t<MT> &&b,
                                                    on_newbin_proc_t<MT> on_newbin) {
+  binary_index_t Res = invalid_binary_index;
+  bool isNewBinary = false;
   try {
     auto h = b.Hash;
-    binary_index_t Res = invalid_binary_index;
-    bool isNewBinary;
 
     if constexpr (MT) {
       isNewBinary = this->hash_to_binary.try_emplace_or_visit(
@@ -194,36 +197,36 @@ std::pair<binary_index_t, bool> jv_base_t<MT>::Add(binary_base_t<MT> &&b,
     }
 
     assert(is_binary_index_valid(Res));
-
-    binary_base_t<MT> &b_ = this->Binaries.at(Res);
-
-    bool isNewName;
-    if constexpr (MT) {
-      isNewName = this->name_to_binaries.try_emplace_or_visit(
-          b_.Name, get_allocator(), Res,
-          [&](typename ip_name_to_binaries_map_type<MT>::value_type &x) -> void {
-            x.second.set.insert(Res);
-          });
-    } else {
-      auto it = this->name_to_binaries.find(b_.Name);
-      if (it == this->name_to_binaries.end()) {
-        isNewName =
-            this->name_to_binaries.try_emplace(b_.Name, get_allocator(), Res)
-                .second;
-        assert(isNewName);
-      } else {
-        isNewName = false;
-        (*it).second.set.insert(Res);
-      }
-    }
-
-    if (unlikely(isNewBinary))
-      on_newbin(b_);
-
-    return std::make_pair(Res, isNewBinary || isNewName);
   } catch (...) {
     return std::make_pair(invalid_binary_index, false);
   }
+
+  binary_base_t<MT> &b_ = this->Binaries.at(Res);
+
+  bool isNewName = false;
+  if constexpr (MT) {
+    isNewName = this->name_to_binaries.try_emplace_or_visit(
+        b_.Name, get_allocator(), Res,
+        [&](typename ip_name_to_binaries_map_type<MT>::value_type &x) -> void {
+          x.second.set.insert(Res);
+        });
+  } else {
+    auto it = this->name_to_binaries.find(b_.Name);
+    if (it == this->name_to_binaries.end()) {
+      isNewName =
+          this->name_to_binaries.try_emplace(b_.Name, get_allocator(), Res)
+              .second;
+      assert(isNewName);
+    } else {
+      isNewName = false;
+      (*it).second.set.insert(Res);
+    }
+  }
+
+  if (unlikely(isNewBinary))
+    on_newbin(b_);
+
+  return std::make_pair(Res, isNewBinary || isNewName);
 }
 
 template <bool MT>
@@ -249,9 +252,9 @@ std::pair<binary_index_t, bool> jv_base_t<MT>::AddFromDataWithHash(
     const char *name,
     on_newbin_proc_t<MT> on_newbin,
     const AddOptions_t &Options) {
+  binary_index_t Res = invalid_binary_index;
+  bool isNewBinary = false;
   try {
-    binary_index_t Res = invalid_binary_index;
-    bool isNewBinary;
     if constexpr (MT) {
       isNewBinary = this->hash_to_binary.try_emplace_or_visit(
           h, std::ref(Res), jv_file, *this,
@@ -276,48 +279,47 @@ std::pair<binary_index_t, bool> jv_base_t<MT>::AddFromDataWithHash(
       }
     }
 
-    if (!is_binary_index_valid(Res));
+    if (!is_binary_index_valid(Res))
       return std::make_pair(invalid_binary_index, false);
-
-    std::string_view name_sv(name);
-
-    bool isNewName;
-    if constexpr (MT) {
-      isNewName = this->name_to_binaries.try_emplace_or_visit(
-          name_sv, get_allocator(), Res,
-          [&](typename ip_name_to_binaries_map_type<MT>::value_type &x) -> void {
-            x.second.set.insert(Res);
-          });
-    } else {
-      auto it = this->name_to_binaries.find(name_sv);
-      if (it == this->name_to_binaries.end()) {
-        isNewName =
-            this->name_to_binaries.try_emplace(name_sv, get_allocator(), Res)
-                .second;
-        assert(isNewName);
-      } else {
-        isNewName = false;
-        (*it).second.set.insert(Res);
-      }
-    }
-
-    binary_base_t<MT> &b = this->Binaries.at(Res);
-    if (Options.Objdump) {
-      catch_exception([&]() {
-        std::unique_ptr<llvm::object::Binary> Bin = B::Create(b.data());
-
-        binary_base_t<MT>::Analysis_t::objdump_output_type::generate(
-            b.Analysis.objdump, b.is_file() ? b.Name.c_str() : nullptr, *Bin);
-      });
-    }
-
-    if (unlikely(isNewBinary))
-      on_newbin(b);
-
-    return std::make_pair(Res, isNewBinary || isNewName);
   } catch (...) {
     return std::make_pair(invalid_binary_index, false);
   }
+
+  bool isNewName = false;
+  std::string_view name_sv(name);
+  if constexpr (MT) {
+    isNewName = this->name_to_binaries.try_emplace_or_visit(
+        name_sv, get_allocator(), Res,
+        [&](typename ip_name_to_binaries_map_type<MT>::value_type &x) -> void {
+          x.second.set.insert(Res);
+        });
+  } else {
+    auto it = this->name_to_binaries.find(name_sv);
+    if (it == this->name_to_binaries.end()) {
+      isNewName =
+          this->name_to_binaries.try_emplace(name_sv, get_allocator(), Res)
+              .second;
+      assert(isNewName);
+    } else {
+      isNewName = false;
+      (*it).second.set.insert(Res);
+    }
+  }
+
+  if (isNewBinary) {
+    binary_base_t<MT> &b = this->Binaries.at(Res);
+
+    if (Options.Objdump) {
+      std::unique_ptr<llvm::object::Binary> Bin = B::Create(b.data());
+
+      binary_base_t<MT>::Analysis_t::objdump_output_type::generate(
+          b.Analysis.objdump, b.is_file() ? b.Name.c_str() : nullptr, *Bin);
+    }
+
+    on_newbin(b);
+  }
+
+  return std::make_pair(Res, isNewBinary || isNewName);
 }
 
 template <bool MT>
