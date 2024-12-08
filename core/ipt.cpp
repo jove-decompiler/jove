@@ -594,7 +594,6 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb_event(const struct pev_event &event
             Our.pids.insert(pid);
             RIGHT_PROCESS_GET;
             CheckEngaged();
-            assert(Engaged);
 
             std::vector<const char *> argvec;
             std::vector<const char *> envvec;
