@@ -215,10 +215,6 @@ struct IPTTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
   void gather_all_perf_data_files(std::vector<std::string> &out);
   void gather_perf_data_aux_files(std::vector<std::pair<unsigned, std::string>> &out);
 
-  int ProcessAppStderr(void);
-
-  static constexpr const char *path_to_stdout = "perf.data.stdout";
-  static constexpr const char *path_to_stderr = "perf.data.stderr";
   static constexpr const char *sb_filename = "perf.data-sideband.pevent";
   static constexpr const char *opts_filename = "perf.data.opts";
 
@@ -317,7 +313,7 @@ int IPTTool::Run(void) {
   const unsigned uid = ::getuid();
 
   if (!opts.ExistingPerfData) {
-  RunExecutableToExit(
+    if (int ret = RunExecutableToExit(
       opts.RunPerfWithSudo ? sudo_path : perf_path,
       [&](auto Arg) {
         if (opts.RunPerfWithSudo) {
@@ -372,7 +368,10 @@ int IPTTool::Run(void) {
         //
         if (IsCOFF)
           Env("WINEDEBUG=+loaddll,+process");
-      }, path_to_stdout, path_to_stderr);
+      })) {
+      WithColor::error() << "perf failed\n";
+      return ret;
+    }
   }
 
   //
@@ -386,8 +385,6 @@ int IPTTool::Run(void) {
 
         Arg("chown");
         Arg(std::to_string(uid) + ":" + std::to_string(gid));
-        Arg(path_to_stdout);
-        Arg(path_to_stderr);
         Arg("perf.data");
     });
 
@@ -397,63 +394,11 @@ int IPTTool::Run(void) {
     return UsingLibipt();
 }
 
-int IPTTool::ProcessAppStderr(void) {
-  if (IsCOFF) {
-    //
-    // parse stderr to make sense of the program counters
-    //
-    std::string stderr_contents;
-    read_file_into_thing(path_to_stderr, stderr_contents);
-
-    wine::stderr_parser parser(stderr_contents);
-
-    long tid = parser.tid_of_NtCreateUserProcess(jv.Binaries.at(0).Name.c_str());
-    if (tid < 0) {
-      tid = parser.tid_of_loaddll_exe(jv.Binaries.at(0).Name.c_str());
-
-      if (tid < 0) {
-        WithColor::error() << "could not determine thread ID of program\n";
-        return 1;
-      }
-    }
-
-    if (IsVerbose())
-      llvm::errs() << "tid=" << tid << '\n';
-
-    std::vector<std::pair<std::string, uint64_t>> loaded_list;
-    parser.loaddll_loaded_for_tid(tid, loaded_list);
-
-    std::vector<std::string> binary_paths;
-    for (const auto &pair : loaded_list) {
-      insertSortedVec(binary_paths, pair.first);
-    }
-
-    //
-    // add binaries
-    //
-    std::for_each(
-        std::execution::par_unseq,
-        binary_paths.begin(),
-        binary_paths.end(),
-        [&](const std::string &path) {
-          bool IsNew;
-          binary_index_t BIdx;
-
-          std::tie(BIdx, IsNew) = jv.AddFromPath(
-              *Explorer, jv_file, path.c_str(),
-              std::bind(&IPTTool::on_new_binary, this, std::placeholders::_1),
-              AddOptions);
-
-          assert(is_binary_index_valid(BIdx));
-        });
-  }
-
-  return 0;
-}
-
 int IPTTool::UsingPerfScript(void) {
+#if 0
   if (int ret = ProcessAppStderr())
     return ret;
+#endif
 
   using namespace std::placeholders;
 
@@ -1136,7 +1081,9 @@ int IPTTool::UsingLibipt(void) {
   }
 
 #if 0
-  if (msync(jv_file.get_address(), jv_file.get_size(), MS_SYNC) < 0) {
+  const bool WillFork = !opts.MT && !opts.Serial;
+
+  if (WillFork && msync(jv_file.get_address(), jv_file.get_size(), MS_SYNC) < 0) {
     int err = errno;
     WithColor::error() << llvm::formatv("msync failed: {0}\n", strerror(err));
     return 1;
@@ -1183,7 +1130,8 @@ int IPTTool::UsingLibipt(void) {
 
         perf::data_reader<false> aux(aux_filename.c_str());
 
-        unsigned cpu = pair.first;
+        const unsigned cpu = pair.first;
+
         if (IsVerbose())
           WithColor::note() << llvm::formatv("size of {0}: {1}\n", aux_filename,
                                              aux.contents.mmap->len);
@@ -1197,7 +1145,8 @@ int IPTTool::UsingLibipt(void) {
                   ptdump_argv.size() - 1, ptdump_argv.data(), jv, *Explorer,
                   jv_file, cpu, sb, sb_parser,
                   const_cast<uint8_t *>(aux.data_begin()),
-                  const_cast<uint8_t *>(aux.data_end()), sb_filename,
+                  const_cast<uint8_t *>(aux.data_end()),
+                  sb_filename,
                   IsVeryVerbose() ? 2 : (IsVerbose() ? 1 : 0));
               Ran = true;
               ipt.explore();
@@ -1206,7 +1155,8 @@ int IPTTool::UsingLibipt(void) {
                   ptdump_argv.size() - 1, ptdump_argv.data(), *jv2, *Explorer,
                   *jv_file2, cpu, sb, sb_parser,
                   const_cast<uint8_t *>(aux.data_begin()),
-                  const_cast<uint8_t *>(aux.data_end()), sb_filename,
+                  const_cast<uint8_t *>(aux.data_end()),
+                  sb_filename,
                   IsVeryVerbose() ? 2 : (IsVerbose() ? 1 : 0));
               Ran = true;
               ipt.explore();
