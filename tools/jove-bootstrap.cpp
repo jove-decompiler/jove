@@ -1359,7 +1359,7 @@ int BootstrapTool::TracerLoop(pid_t child) {
         if (!TermAddr)
           break;
 
-        if (b.FixAmbiguousIndirectJump(TermAddr, *E, *state.for_binary(b).ObjectFile, jv))
+        if (b.FixAmbiguousIndirectJump(TermAddr, *E, *state.for_binary(b).ObjectFile, jv_file, jv))
           ++NumChanged;
       }
     });
@@ -3036,7 +3036,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
       assert(bbprop.Term.Type == TERMINATOR::INDIRECT_CALL);
 
 
-      Target.isNew = bbprop.insertDynTarget(IndBrInfo.BIdx, {Target.BIdx, FIdx}, jv);
+      Target.isNew = bbprop.insertDynTarget(IndBrInfo.BIdx, {Target.BIdx, FIdx}, jv_file, jv);
 
     out_deg = ICFG.out_degree(bb);
   }
@@ -3113,7 +3113,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
           assert(bbprop.Term.Type == TERMINATOR::INDIRECT_JUMP);
 
 
-          bbprop.insertDynTarget(IndBrInfo.BIdx, {Target.BIdx, FIdx}, jv);
+          bbprop.insertDynTarget(IndBrInfo.BIdx, {Target.BIdx, FIdx}, jv_file, jv);
   });
         } else {
           const basic_block_index_t TargetBBIdx =

@@ -212,8 +212,10 @@ on_insn:
   bbprop_2.Size = intvl_2.second;
   bbprop_2.Sj = bbprop_1.Sj;
   bbprop_2.Term = bbprop_1.Term;
-  bbprop_2.DynTargets = boost::move(bbprop_1.DynTargets);
-  bbprop_2.DynTargetsComplete = bbprop_1.DynTargetsComplete;
+  bbprop_2.DynTargets._p.Store(
+      bbprop_1.DynTargets._p.Load(std::memory_order_relaxed),
+      std::memory_order_relaxed);
+  bbprop_2.DynTargets.Complete = bbprop_1.DynTargets.Complete;
   bbprop_2.InvalidateAnalysis();
 
   assert(bbprop_2.Addr + bbprop_2.Size == addr_intvl_upper(intvl));
@@ -230,8 +232,8 @@ on_insn:
     bbprop_1.Term.Addr = 0;
     bbprop_1.Term._indirect_jump.IsLj = false;
     bbprop_1.Sj = false;
-    bbprop_1.DynTargets.clear();
-    bbprop_1.DynTargetsComplete = false;
+    bbprop_1.DynTargets._p.Store(nullptr, std::memory_order_relaxed);
+    bbprop_1.DynTargets.Complete = false;
     bbprop_1.InvalidateAnalysis();
 
     //
@@ -536,7 +538,7 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_base_t<MT> &b,
     bbprop.Size = Size;
     bbprop.Term.Type = T.Type;
     bbprop.Term.Addr = T.Addr;
-    bbprop.DynTargetsComplete = false;
+    bbprop.DynTargets.Complete = false;
     bbprop.Term._call.Target = invalid_function_index;
     bbprop.Term._indirect_jump.IsLj = false;
     bbprop.Sj = false;

@@ -47,7 +47,7 @@ struct binary_state_t {
 
 class AnalyzeTool
     : public StatefulJVTool<ToolKind::Standard, binary_state_t,
-                            function_state_t, void, true, false, true> {
+                            function_state_t, void, false, false, true> {
   struct Cmdline {
     cl::opt<bool> ForeignLibs;
     cl::alias ForeignLibsAlias;
@@ -232,8 +232,10 @@ int AnalyzeTool::AnalyzeFunctions(void) {
 
         if (ICFG[bb].Term.Type == TERMINATOR::CALL) {
           assert(TermAddr);
+#if 0
           b.Analysis.Functions.at(ICFG[bb].Term._call.Target)
               .Callers.emplace(index_of_binary(b, jv), TermAddr);
+#endif
           return;
         }
 
@@ -241,10 +243,12 @@ int AnalyzeTool::AnalyzeFunctions(void) {
           return;
 
         assert(TermAddr);
-        ICFG[bb].DynTargets.cvisit_all(
+        ICFG[bb].DynTargetsForEach(
             std::execution::par_unseq, [&](const dynamic_target_t &X) {
               function_t &f = function_of_target(X, jv);
+#if 0
               f.Callers.emplace(index_of_binary(b, jv), TermAddr);
+#endif
             });
       });
 

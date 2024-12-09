@@ -1427,7 +1427,7 @@ void IntelPT<IPT_PARAMETERS_DEF>::block_transfer(binary_base_t<MT> &fr_b,
     basic_block_t fr_bb = basic_block_at_address(FrTermAddr, fr_b);
     basic_block_properties_t &fr_bbprop = fr_ICFG[fr_bb];
 
-    fr_bbprop.insertDynTarget(FrBIdx, std::make_pair(ToBIdx, FIdx), jv);
+    fr_bbprop.insertDynTarget(FrBIdx, std::make_pair(ToBIdx, FIdx), jv_file, jv);
   };
 
   switch (TermType) {
@@ -1445,7 +1445,8 @@ void IntelPT<IPT_PARAMETERS_DEF>::block_transfer(binary_base_t<MT> &fr_b,
       handle_indirect_call();
     } else if (FrBIdx != ToBIdx) {
       handle_indirect_call();
-      fr_b.FixAmbiguousIndirectJump(FrTermAddr, explorer, *state.for_binary(fr_b).Bin, jv);
+      fr_b.FixAmbiguousIndirectJump(FrTermAddr, explorer,
+                                    *state.for_binary(fr_b).Bin, jv_file, jv);
     } else {
       assert(FrBIdx == ToBIdx);
 

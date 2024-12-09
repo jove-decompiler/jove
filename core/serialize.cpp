@@ -476,6 +476,12 @@ static void serialize(Archive &ar, jove::function_t &f, const unsigned int versi
 template <class Archive>
 static void serialize(Archive &ar, jove::basic_block_properties_t &bbprop,
                       const unsigned int version) {
+  assert(jove::pAlloc_hack);
+
+  jove::ip_dynamic_target_set TheDynTargets(jove::pAlloc_hack->get_segment_manager());
+  if (auto *p = bbprop.DynTargets._p.Load(std::memory_order_relaxed))
+    TheDynTargets = *p;
+
   ar &BOOST_SERIALIZATION_NVP(bbprop.pub.is)
      &BOOST_SERIALIZATION_NVP(bbprop.Speculative)
      &BOOST_SERIALIZATION_NVP(bbprop.Addr)
@@ -485,13 +491,20 @@ static void serialize(Archive &ar, jove::basic_block_properties_t &bbprop,
      &BOOST_SERIALIZATION_NVP(bbprop.Term._call.Target)
      &BOOST_SERIALIZATION_NVP(bbprop.Term._indirect_jump.IsLj)
      &BOOST_SERIALIZATION_NVP(bbprop.Term._return.Returns)
-     &BOOST_SERIALIZATION_NVP(bbprop.DynTargets)
-     &BOOST_SERIALIZATION_NVP(bbprop.DynTargetsComplete)
+     &BOOST_SERIALIZATION_NVP(TheDynTargets)
+     &BOOST_SERIALIZATION_NVP(bbprop.DynTargets.Complete)
      &BOOST_SERIALIZATION_NVP(bbprop.Sj)
      &BOOST_SERIALIZATION_NVP(bbprop.Analysis.live.def)
      &BOOST_SERIALIZATION_NVP(bbprop.Analysis.live.use)
      &BOOST_SERIALIZATION_NVP(bbprop.Analysis.reach.def)
      &BOOST_SERIALIZATION_NVP(bbprop.Analysis.Stale);
+
+  if (!TheDynTargets.empty()) {
+    assert(jove::pFile_hack);
+    TheDynTargets.cvisit_all([&](const jove::dynamic_target_t &X) {
+      bbprop.doInsertDynTarget(X, *jove::pFile_hack);
+    });
+  }
 }
 
 //

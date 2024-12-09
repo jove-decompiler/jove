@@ -45,6 +45,27 @@ public:
     return res;
   }
 
+  bool CompareExchangeWeak(T *&expected, T *desired,
+                           std::memory_order success,
+                           std::memory_order failure) {
+
+    uint64_t expected_off =
+        boost::interprocess::ipcdetail::offset_ptr_to_offset<std::uintptr_t>(
+            expected, this);
+
+    bool res = m_offset.compare_exchange_weak(
+        expected_off,
+        boost::interprocess::ipcdetail::offset_ptr_to_offset<std::uintptr_t>(
+            desired, this),
+        success, failure);
+
+    expected = static_cast<T *>(
+        boost::interprocess::ipcdetail::offset_ptr_to_raw_pointer(
+            this, expected_off));
+
+    return res;
+  }
+
 private:
   std::atomic<std::uint64_t> m_offset;
 };

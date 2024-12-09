@@ -10,8 +10,10 @@ void binary_base_t<MT>::InvalidateBasicBlockAnalyses(void) {
 }
 
 template <bool MT>
-bool binary_base_t<MT>::FixAmbiguousIndirectJump(taddr_t TermAddr, explorer_t &E,
+bool binary_base_t<MT>::FixAmbiguousIndirectJump(taddr_t TermAddr,
+                                                 explorer_t &E,
                                                  llvm::object::Binary &Bin,
+                                                 jv_file_t &jv_file,
                                                  jv_base_t<MT> &jv) {
   std::vector<taddr_t> SuccAddrVec;
 
@@ -24,7 +26,7 @@ bool binary_base_t<MT>::FixAmbiguousIndirectJump(taddr_t TermAddr, explorer_t &E
     if (!IsAmbiguousIndirectJump(ICFG, bb))
       return false;
 
-    ip_scoped_lock<ip_sharable_mutex> e_lck(ICFG.at(bb).mtx);
+    auto e_lck = ICFG.at(bb).template exclusive_access<MT>();
 
     icfg_t::adjacency_iterator succ_it, succ_it_end;
     std::tie(succ_it, succ_it_end) = ICFG.adjacent_vertices(bb);
@@ -55,7 +57,7 @@ bool binary_base_t<MT>::FixAmbiguousIndirectJump(taddr_t TermAddr, explorer_t &E
     auto &bbprop = ICFG[basic_block_at_address(TermAddr, *this)];
     for (function_index_t FIdx : SuccFIdxVec)
       bbprop.insertDynTarget(index_of_binary(*this, jv),
-                             {index_of_binary(*this, jv), FIdx}, jv);
+                             {index_of_binary(*this, jv), FIdx}, jv_file, jv);
   }
 
   return true;

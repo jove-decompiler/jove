@@ -685,7 +685,8 @@ void IPTTool::ProcessLine(const std::string &line) {
       basic_block_t src = basic_block_at_address(Term.Addr, src_bin);
       basic_block_properties_t &src_bbprop = src_ICFG[src];
 
-      src_bbprop.insertDynTarget(src_BIdx, std::make_pair(dst_BIdx, FIdx), jv);
+      src_bbprop.insertDynTarget(src_BIdx, std::make_pair(dst_BIdx, FIdx),
+                                 jv_file, jv);
     };
 
     switch (Term.Type) {

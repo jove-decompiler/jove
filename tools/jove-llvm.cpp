@@ -1233,7 +1233,7 @@ static flow_vertex_t copy_function_cfg(jv_t &jv,
       }
 
       dynamic_target_set DynTargets; /* XXX avoid reentrancy */
-      ICFG[bb].DynTargets.cvisit_all([&](const dynamic_target_t &DynTarget) {
+      ICFG[bb].DynTargetsForEach([&](const dynamic_target_t &DynTarget) {
         DynTargets.insert(DynTarget);
       });
 
@@ -1359,7 +1359,7 @@ static flow_vertex_t copy_function_cfg(jv_t &jv,
       const unsigned savedNumExitVerts = exitVertices.size();
 
       dynamic_target_set DynTargets; /* XXX avoid reentrancy */
-      ICFG[bb].DynTargets.cvisit_all([&](const dynamic_target_t &DynTarget) {
+      ICFG[bb].DynTargetsForEach([&](const dynamic_target_t &DynTarget) {
         DynTargets.insert(DynTarget);
       });
 
@@ -9191,7 +9191,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
 
   case TERMINATOR::INDIRECT_CALL: {
     bool IsCall = T.Type == TERMINATOR::INDIRECT_CALL;
-    const bool &DynTargetsComplete = ICFG[bb].DynTargetsComplete;
+    const bool &DynTargetsComplete = ICFG[bb].DynTargets.Complete;
 
     llvm::Value *PC = IRB.CreateLoad(WordType(), TC.PCAlloca);
     if (!IsCall && ICFG[bb].Term._indirect_jump.IsLj) {
@@ -9471,7 +9471,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
       std::vector<std::pair<binary_index_t, function_index_t>> DynTargetsVec;
 
       DynTargetsVec.reserve(ICFG[bb].getNumDynTargets());
-      ICFG[bb].DynTargets.cvisit_all(
+      ICFG[bb].DynTargetsForEach(
           [&](const dynamic_target_t &X) { DynTargetsVec.push_back(X); });
 
       std::vector<llvm::BasicBlock *> DynTargetsDoCallBVec;

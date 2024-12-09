@@ -478,6 +478,12 @@ public:
     return *this;
   }
 
+  template <bool MT2, bool Spin2>
+  adjacency_list &operator=(
+      const adjacency_list<OutEdgeListS, VertexListS, DirectedS, VertexProperty,
+                           EdgeProperty, GraphProperty, EdgeListS, MT2, Spin2,
+                           PointUnique> &) = delete;
+
 #define _S_LCK(ShouldLock, Mutex)                                              \
   typename std::conditional<ShouldLock && MT,                                  \
                             ip_sharable_lock<ip_sharable_mutex>,               \
@@ -504,6 +510,7 @@ public:
         assert(desired > actual_size);
         for (unsigned i = 0; i < desired - actual_size; ++i)
           boost::add_vertex(container(), std::forward<Args>(args)...);
+        assert(Idx < boost::num_vertices(container()));
       }
     }
 
@@ -736,7 +743,7 @@ struct binary_base_t;
 struct allocates_basic_block_t {
   basic_block_index_t BBIdx = invalid_basic_block_index;
 
-  allocates_basic_block_t () = default;
+  allocates_basic_block_t () noexcept = default;
 
   // allocates (creates) new basic block in binary, stores index
   template <bool MT>
@@ -762,7 +769,7 @@ typedef boost::interprocess::flat_map<
 struct allocates_function_t {
   function_index_t FIdx = invalid_function_index;
 
-  allocates_function_t() = default;
+  allocates_function_t() noexcept = default;
 
   // allocates (creates) new function in binary, stores index
   template <bool MT>
@@ -857,8 +864,11 @@ struct basic_block_properties_t {
     } _return;
   } Term;
 
-  ip_dynamic_target_set DynTargets;
-  bool DynTargetsComplete = false;
+  struct {
+    AtomicOffsetPtr<ip_dynamic_target_set> _p; /* TODO atomic ip_unique_ptr.. */
+    boost::interprocess::offset_ptr<segment_manager_t> _sm = nullptr;
+    bool Complete = false;
+  } DynTargets;
 
   bool Sj = false;
 
@@ -906,20 +916,46 @@ struct basic_block_properties_t {
 
   struct {
     mutable ip_sharable_mutex _mtx;
-    boost::interprocess::offset_ptr<const ip_func_index_set> _p;
+    boost::interprocess::offset_ptr<const ip_func_index_set> _p = nullptr;
   } Parents;
 
   bool hasDynTarget(void) const {
-    return !DynTargets.empty();
+    if (auto *p = DynTargets._p.Load(std::memory_order_relaxed))
+      return !p->empty();
+
+    return false;
   }
   unsigned getNumDynTargets(void) const {
-    return DynTargets.size();
+    if (auto *p = DynTargets._p.Load(std::memory_order_relaxed))
+      return p->size();
+
+    return 0;
   }
+
+  bool doInsertDynTarget(const dynamic_target_t &, jv_file_t &);
+
   template <bool MT>
-  bool insertDynTarget(binary_index_t ThisBIdx, const dynamic_target_t &, jv_base_t<MT> &);
+  bool insertDynTarget(binary_index_t ThisBIdx,
+                       const dynamic_target_t &,
+                       jv_file_t &, jv_base_t<MT> &);
+
+  template <class _ExecutionPolicy>
+  void DynTargetsForEach(_ExecutionPolicy &&__exec,
+                         std::function<void(const dynamic_target_t &)> proc) const {
+    if (auto *p = DynTargets._p.Load(std::memory_order_relaxed))
+      p->cvisit_all(std::forward<_ExecutionPolicy>(__exec), proc);
+  }
+  void DynTargetsForEach(std::function<void(const dynamic_target_t &)> proc) const {
+    DynTargetsForEach(std::execution::seq, proc);
+  }
   bool DynTargetsAnyOf(std::function<bool(const dynamic_target_t &)> proc) const {
+    ip_dynamic_target_set *const p =
+        DynTargets._p.Load(std::memory_order_relaxed);
+    if (!p)
+      return false;
+
     bool res = false;
-    DynTargets.cvisit_while([&](const dynamic_target_t &X) -> bool {
+    p->cvisit_while([&](const dynamic_target_t &X) -> bool {
       if (proc(X)) {
         res = true;
         return false;
@@ -929,8 +965,13 @@ struct basic_block_properties_t {
     return res;
   }
   bool DynTargetsAllOf(std::function<bool(const dynamic_target_t &)> proc) const {
+    ip_dynamic_target_set *const p =
+        DynTargets._p.Load(std::memory_order_relaxed);
+    if (!p)
+      return true;
+
     bool res = true;
-    DynTargets.cvisit_while([&](const dynamic_target_t &X) -> bool {
+    p->cvisit_while([&](const dynamic_target_t &X) -> bool {
       if (!proc(X)) {
         res = false;
         return false;
@@ -942,7 +983,13 @@ struct basic_block_properties_t {
   dynamic_target_t DynTargetsFront(void) const {
     dynamic_target_t res = invalid_dynamic_target;
 
-    DynTargets.cvisit_while([&](const dynamic_target_t &X) -> bool {
+    ip_dynamic_target_set *const p =
+        DynTargets._p.Load(std::memory_order_relaxed);
+    if (!p)
+      return res;
+
+
+    p->cvisit_while([&](const dynamic_target_t &X) -> bool {
       res = X;
       return false;
     });
@@ -966,23 +1013,50 @@ struct basic_block_properties_t {
     this->Analysis.Stale = true;
   }
 
-  basic_block_properties_t(const ip_void_allocator_t &A) : DynTargets(A.get_segment_manager()) {}
+  basic_block_properties_t() noexcept = default;
 
-  basic_block_properties_t &operator=(const basic_block_properties_t &other) {
+  basic_block_properties_t(basic_block_properties_t &&other) noexcept {
+    moveFrom(std::move(other));
+  }
+
+  basic_block_properties_t &
+  operator=(basic_block_properties_t &&other) noexcept {
+    if (this != &other)
+      moveFrom(std::move(other));
+
+    return *this;
+  }
+
+  ~basic_block_properties_t() noexcept {
+    if (auto *p = DynTargets._p.Load(std::memory_order_relaxed)) {
+      assert(DynTargets._sm);
+      DynTargets._sm->destroy_ptr(p); /* (boost/ipc/smart_ptr/deleter.hpp) */
+    }
+  }
+
+  basic_block_properties_t(const basic_block_properties_t &) = delete;
+  basic_block_properties_t &operator=(const basic_block_properties_t &) = delete;
+
+private:
+  void moveFrom(basic_block_properties_t &&other) noexcept {
     pub.is.store(other.pub.is.load(std::memory_order_relaxed),
                  std::memory_order_relaxed);
+    other.pub.is.store(false, std::memory_order_relaxed);
 
     Speculative = other.Speculative;
     Addr = other.Addr;
     Size = other.Size;
     Term = other.Term;
-    DynTargets = other.DynTargets;
-    DynTargetsComplete = other.DynTargetsComplete;
     Sj = other.Sj;
     Analysis = other.Analysis;
     Parents._p = other.Parents._p;
 
-    return *this;
+    DynTargets._p.Store(other.DynTargets._p.Load(std::memory_order_relaxed),
+                        std::memory_order_relaxed);
+    other.DynTargets._p.Store(nullptr, std::memory_order_relaxed);
+
+    DynTargets._sm = other.DynTargets._sm;
+    DynTargets.Complete = other.DynTargets.Complete;
   }
 };
 
@@ -1076,7 +1150,7 @@ typedef boost::unordered_flat_set<
 struct function_t {
   bool Speculative = false;
 
-  boost::interprocess::offset_ptr<void> b;
+  boost::interprocess::offset_ptr<void> b = nullptr;
 
   function_index_t Idx = invalid_function_index;
 
@@ -1218,7 +1292,9 @@ struct binary_base_t {
   // ICFG that would originate from this basic block.
   //
   bool FixAmbiguousIndirectJump(taddr_t TermAddr, explorer_t &,
-                                llvm::object::Binary &, jv_base_t<MT> &);
+                                llvm::object::Binary &,
+                                jv_file_t &,
+                                jv_base_t<MT> &);
 
   std::string_view data(void) const {
     return std::string_view(Data.data(), Data.size());
@@ -1375,7 +1451,7 @@ struct AddOptions_t;
 struct adds_binary_t {
   binary_index_t BIdx = invalid_basic_block_index;
 
-  adds_binary_t() = default;
+  adds_binary_t() noexcept = default;
 
   explicit adds_binary_t(binary_index_t BIdx) : BIdx(BIdx) {}
 
@@ -1402,7 +1478,7 @@ struct adds_binary_t {
 struct allocates_binary_index_set_t {
   ip_binary_index_set set;
 
-  allocates_binary_index_set_t() = default;
+  allocates_binary_index_set_t() noexcept = default;
 
   allocates_binary_index_set_t(segment_manager_t *sm) : set(sm) {}
   allocates_binary_index_set_t(segment_manager_t *sm,
@@ -1777,6 +1853,7 @@ template <bool MT>
 constexpr basic_block_t basic_block_of_index(basic_block_index_t BBIdx,
                                              const ip_icfg_base_t<MT> &ICFG) {
   assert(is_basic_block_index_valid(BBIdx));
+  assert(BBIdx < ICFG.num_vertices());
   return ICFG.vertex(BBIdx);
 }
 
@@ -2260,8 +2337,11 @@ constexpr basic_block_index_t index_of_basic_block(const binary_base_t<MT> &b,
 }
 
 constexpr binary_index_t binary_index_of_function(const function_t &f) {
+  static_assert(offsetof(binary_base_t<false>, Idx) ==
+                offsetof(binary_base_t<true>, Idx));
+
   assert(f.b);
-  binary_index_t res = *((binary_index_t *)&f.b);
+  binary_index_t res = ((binary_base_t<true> *)f.b.get())->Idx;
   assert(is_binary_index_valid(res));
   return res;
 }
@@ -2626,10 +2706,10 @@ static inline void identify_ABIs(jv_base_t<MT> &jv) {
 
     if (bbprop.DynTargetsAnyOf(
             [&](const dynamic_target_t &X) { return X.first != BIdx; }))
-      bbprop.DynTargets.cvisit_all(std::execution::par_unseq,
-                                   [&](const dynamic_target_t &X) {
-                                     function_of_target(X, jv).IsABI = true;
-                                   });
+      bbprop.DynTargetsForEach(std::execution::par_unseq,
+                               [&](const dynamic_target_t &X) {
+                                 function_of_target(X, jv).IsABI = true;
+                               });
   });
 }
 

@@ -256,7 +256,7 @@ void DumpTool::dumpDecompilation(const jv_t& jv) {
           std::vector<std::string> descv;
           descv.reserve(ICFG[bb].getNumDynTargets());
 
-          ICFG[bb].DynTargets.cvisit_all([&](const dynamic_target_t &pair) {
+          ICFG[bb].DynTargetsForEach([&](const dynamic_target_t &pair) {
             binary_index_t BIdx;
             function_index_t FIdx;
             std::tie(BIdx, FIdx) = pair;
@@ -273,7 +273,7 @@ void DumpTool::dumpDecompilation(const jv_t& jv) {
           Writer.printList("DynTargets", descv);
         }
 
-        if (ICFG[bb].DynTargetsComplete)
+        if (ICFG[bb].DynTargets.Complete)
           Writer.printBoolean("DynTargetsComplete", true);
 
         {

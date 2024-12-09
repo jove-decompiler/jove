@@ -75,12 +75,38 @@ void basic_block_properties_t::GetParents(func_index_set &out) const {
   out.insert(parents.begin(), parents.end());
 }
 
+bool basic_block_properties_t::doInsertDynTarget(const dynamic_target_t &X,
+                                                 jv_file_t &jv_file) {
+  if (auto *p = DynTargets._p.Load(std::memory_order_relaxed))
+    return p->insert(X);
+
+  ip_unique_ptr<ip_dynamic_target_set> TheDynTargets(
+      boost::interprocess::make_managed_unique_ptr(
+          jv_file.construct<ip_dynamic_target_set>(
+              boost::interprocess::anonymous_instance)(
+              jv_file.get_segment_manager()),
+          jv_file));
+
+  ip_dynamic_target_set *expected = nullptr;
+  if (DynTargets._p.CompareExchangeStrong(
+          expected,
+          boost::interprocess::ipcdetail::to_raw_pointer(TheDynTargets.get()),
+          std::memory_order_relaxed, std::memory_order_relaxed)) {
+    DynTargets._sm = jv_file.get_segment_manager();
+    TheDynTargets.release();
+    return true;
+  }
+
+  return expected->insert(X);
+}
+
 template <bool MT>
 bool basic_block_properties_t::insertDynTarget(binary_index_t ThisBIdx,
                                                const dynamic_target_t &X,
+                                               jv_file_t &jv_file,
                                                jv_base_t<MT> &jv) {
   function_of_target(X, jv).Callers.emplace(ThisBIdx, Term.Addr);
-  return DynTargets.insert(X);
+  return doInsertDynTarget(X, jv_file);
 }
 
 #define VALUES_TO_INSTANTIATE_WITH                                             \
@@ -90,7 +116,7 @@ bool basic_block_properties_t::insertDynTarget(binary_index_t ThisBIdx,
 
 #define DO_INSTANTIATE(r, data, elem)                                          \
   template bool basic_block_properties_t::insertDynTarget(                     \
-      binary_index_t ThisBIdx, const dynamic_target_t &,                       \
+      binary_index_t ThisBIdx, const dynamic_target_t &, jv_file_t &,          \
       jv_base_t<GET_VALUE(elem)> &);
 BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, VALUES_TO_INSTANTIATE_WITH)
 
