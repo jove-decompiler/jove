@@ -275,6 +275,7 @@ class IntelPT {
   }
 
   const bool ignore_trunc_aux;
+  const bool gathered_bins;
 
   void examine_sb_event(const struct pev_event &, uint64_t offset);
 
@@ -338,6 +339,7 @@ public:
           perf::sideband_parser &sb_parser,
           uint8_t *begin, uint8_t *end,
           const char *sb_filename, unsigned verbose,
+          bool gathered_bins = false,
           bool ignore_trunc_aux = false);
   ~IntelPT();
 

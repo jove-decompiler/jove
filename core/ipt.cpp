@@ -62,7 +62,7 @@ IntelPT<IPT_PARAMETERS_DEF>::IntelPT(int ptdump_argc, char **ptdump_argv,
                                      perf::sideband_parser &sb_parser,
                                      uint8_t *begin, uint8_t *end,
                                      const char *sb_filename, unsigned verbose,
-                                     bool ignore_trunc_aux)
+                                     bool gathered_bins, bool ignore_trunc_aux)
     : jv_file(jv_file), jv(jv), explorer(explorer),
       sb(sb), sb_it(sb.begin()), sb_parser(sb_parser),
       state(jv),
@@ -70,6 +70,7 @@ IntelPT<IPT_PARAMETERS_DEF>::IntelPT(int ptdump_argc, char **ptdump_argv,
       IsCOFF(B::is_coff(*state.for_binary(jv.Binaries.at(0)).Bin)),
       exe(jv.Binaries.at(0)), CurrPoint(exe),
       ignore_trunc_aux(ignore_trunc_aux),
+      gathered_bins(gathered_bins),
       process_state(dummy_process_state),
       path_to_wine_bin(locator_t::wine(IsTarget32)) {
   setvbuf(stderr, NULL, _IOLBF, 0); /* automatically flush on new-line */
@@ -487,9 +488,19 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb_event(const struct pev_event &event
 
                 assert(path[0] == '/');
 
-                std::tie(BIdx, isNew) = jv.AddFromPath(explorer, jv_file, path.c_str());
-                if (!is_binary_index_valid(BIdx))
-                  break;
+                if (gathered_bins) {
+                  binary_index_set BIdxSet;
+                  if (jv.LookupByName(path.c_str(), BIdxSet)) {
+                    BIdx = *BIdxSet.cbegin();
+                    (void)isNew;
+                  } else {
+                    break;
+                  }
+                } else {
+                  std::tie(BIdx, isNew) = jv.AddFromPath(explorer, jv_file, path.c_str());
+                  if (!is_binary_index_valid(BIdx))
+                    break;
+                }
 
                 if constexpr (IsVerbose()) {
                   std::string as(addr_intvl2str(intvl));
@@ -544,8 +555,22 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb_event(const struct pev_event &event
             const auto &filename = (*it).second.path;
 
             binary_index_t BIdx;
-            bool IsNew;
-            std::tie(BIdx, IsNew) = jv.AddFromPath(explorer, jv_file, filename.c_str());
+            bool isNew;
+
+            if (gathered_bins) {
+              binary_index_set BIdxSet;
+              if (jv.LookupByName(filename.c_str(), BIdxSet)) {
+                BIdx = *BIdxSet.cbegin();
+                (void)isNew;
+              } else {
+                break;
+              }
+            } else {
+              std::tie(BIdx, isNew) =
+                  jv.AddFromPath(explorer, jv_file, filename.c_str());
+              if (!is_binary_index_valid(BIdx))
+                break;
+            }
 
             if constexpr (IsVerbose())
               if (is_binary_index_valid(BIdx))
@@ -786,7 +811,7 @@ envs_done:
       }
 
       binary_index_t BIdx;
-      bool IsNew;
+      bool isNew;
       if (name[0] == '/') {
         if (!fs::exists(name)) {
           if constexpr (IsVeryVerbose())
@@ -794,9 +819,19 @@ envs_done:
           break;
         }
 
-        std::tie(BIdx, IsNew) = jv.AddFromPath(explorer, jv_file, name.c_str());
-        if (!is_binary_index_valid(BIdx))
-          break;
+        if (gathered_bins) {
+          binary_index_set BIdxSet;
+          if (jv.LookupByName(name.c_str(), BIdxSet)) {
+            BIdx = *BIdxSet.cbegin();
+            (void)isNew;
+          } else {
+            break;
+          }
+        } else {
+          std::tie(BIdx, isNew) = jv.AddFromPath(explorer, jv_file, name.c_str());
+          if (!is_binary_index_valid(BIdx))
+            break;
+        }
       } else {
         binary_index_set BIdxSet;
         if (!jv.LookupByName(name.c_str(), BIdxSet))
@@ -804,7 +839,7 @@ envs_done:
         assert(!BIdxSet.empty());
 
         BIdx = *(BIdxSet).rbegin(); /* most recent (XXX?) */
-        IsNew = false;
+        isNew = false;
       }
 
       if constexpr (IsVerbose()) {

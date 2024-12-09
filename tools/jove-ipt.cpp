@@ -1155,7 +1155,8 @@ int IPTTool::UsingLibipt(void) {
                   const_cast<uint8_t *>(aux.data_begin()),
                   const_cast<uint8_t *>(aux.data_end()),
                   sb_filename,
-                  IsVeryVerbose() ? 2 : (IsVerbose() ? 1 : 0));
+                  IsVeryVerbose() ? 2 : (IsVerbose() ? 1 : 0),
+                  !opts.GatherBins);
               Ran = true;
               ipt.explore();
             } else {
@@ -1165,7 +1166,8 @@ int IPTTool::UsingLibipt(void) {
                   const_cast<uint8_t *>(aux.data_begin()),
                   const_cast<uint8_t *>(aux.data_end()),
                   sb_filename,
-                  IsVeryVerbose() ? 2 : (IsVerbose() ? 1 : 0));
+                  IsVeryVerbose() ? 2 : (IsVerbose() ? 1 : 0),
+                  !opts.GatherBins);
               Ran = true;
               ipt.explore();
             }
