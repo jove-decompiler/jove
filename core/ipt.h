@@ -13,8 +13,11 @@
 #include <boost/unordered/unordered_node_map.hpp>
 #include <boost/unordered/unordered_flat_set.hpp>
 
+#include <intel-pt.h>
 extern "C" {
 #include "pevent.h"
+#include "pt_last_ip.h"
+#include "pt_time.h"
 }
 
 struct pt_config;
@@ -28,9 +31,6 @@ struct pt_packet_tsc;
 struct pt_packet_cbr;
 struct pt_packet_mtc;
 struct pt_packet_tma;
-struct pt_last_ip;
-struct pt_time_cal;
-struct pt_time;
 
 namespace jove {
 
@@ -70,7 +70,7 @@ class IntelPT {
   jv_base_t<MT> &jv;
   explorer_t &explorer;
 
-  std::unique_ptr<struct pt_config> config;
+  struct pt_config config;
   struct pt_packet_decoder *decoder = NULL;
 
   perf::data_reader<false> &sb;
@@ -82,9 +82,9 @@ class IntelPT {
     struct pt_sb_session *session = NULL;
 #endif
 
-    std::unique_ptr<struct pt_last_ip> last_ip;
-    std::unique_ptr<struct pt_time_cal> tcal;
-    std::unique_ptr<struct pt_time> time;
+    struct pt_last_ip last_ip;
+    struct pt_time_cal tcal;
+    struct pt_time time;
 
     uint64_t tsc = 0ull; /* The last estimated TSC. */
     uint64_t fcr = 0ull; /* The last calibration value. */

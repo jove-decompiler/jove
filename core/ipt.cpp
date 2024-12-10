@@ -31,7 +31,6 @@ static const unsigned nr32_mmap = VERY_UNIQUE_NUM();
 #include <boost/algorithm/string.hpp>
 #include <boost/preprocessor/variadic/size.hpp>
 
-#include <intel-pt.h>
 #include <libipt-sb.h>
 #include <inttypes.h>
 #include <unistd.h>
@@ -76,13 +75,7 @@ IntelPT<IPT_PARAMETERS_DEF>::IntelPT(int ptdump_argc, char **ptdump_argv,
 
   Our.cpu = cpu;
 
-  config = std::make_unique<struct pt_config>();
-
-  pt_config_init(config.get());
-
-  tracking.last_ip = std::make_unique<struct pt_last_ip>();
-  tracking.tcal = std::make_unique<struct pt_time_cal>();
-  tracking.time = std::make_unique<struct pt_time>();
+  pt_config_init(&config);
 
   ptdump_tracking_init();
 
@@ -103,18 +96,18 @@ IntelPT<IPT_PARAMETERS_DEF>::IntelPT(int ptdump_argc, char **ptdump_argv,
   if (process_args(ptdump_argc, ptdump_argv, sb_filename) != 0)
     throw std::runtime_error("failed to process ptdump arguments");
 
-  if (config->cpu.vendor) {
-    int errcode = pt_cpu_errata(&config->errata, &config->cpu);
+  if (config.cpu.vendor) {
+    int errcode = pt_cpu_errata(&config.errata, &config.cpu);
     if (errcode < 0)
       throw std::runtime_error("failed to determine errata");
 
-    std::vector<uint8_t> zeros(sizeof(config->errata), 0);
-    if (memcmp(&config->errata, &zeros[0], sizeof(config->errata)) != 0) {
+    std::vector<uint8_t> zeros(sizeof(config.errata), 0);
+    if (memcmp(&config.errata, &zeros[0], sizeof(config.errata)) != 0) {
       fprintf(stderr, "WARNING! CPU errata detected:");
 
 #define __ERRATA(x)                                                            \
   do {                                                                         \
-    if (config->errata.x)                                                      \
+    if (config.errata.x)                                                      \
       fprintf(stderr, " " #x);                                                 \
   } while (false)
 
@@ -144,10 +137,10 @@ IntelPT<IPT_PARAMETERS_DEF>::IntelPT(int ptdump_argc, char **ptdump_argv,
   }
 #endif
 
-  config->begin = begin;
-  config->end = end;
+  config.begin = begin;
+  config.end = end;
 
-  decoder = pt_pkt_alloc_decoder(config.get());
+  decoder = pt_pkt_alloc_decoder(&config);
 
   if constexpr (ExeOnly) {
     binary_base_t<MT> &exe = jv.Binaries.at(0);
@@ -972,7 +965,7 @@ int IntelPT<IPT_PARAMETERS_DEF>::process_packet(uint64_t offset,
     if (1 /* options->track_time */) {
       int errcode;
 
-      errcode = pt_tcal_update_psb(tracking.tcal.get(), config.get());
+      errcode = pt_tcal_update_psb(&tracking.tcal, &config);
       if (unlikely(errcode < 0)) {
         if constexpr (IsVerbose())
           fprintf(stderr, "%s: error calibrating time", __PRETTY_FUNCTION__);
@@ -993,13 +986,13 @@ int IntelPT<IPT_PARAMETERS_DEF>::process_packet(uint64_t offset,
     if (0 /* options->keep_tcal_on_ovf */) {
       int errcode;
 
-      errcode = pt_tcal_update_ovf(tracking.tcal.get(), config.get());
+      errcode = pt_tcal_update_ovf(&tracking.tcal, &config);
       if (unlikely(errcode < 0)) {
         if constexpr (IsVerbose())
           fprintf(stderr, "%s: error calibrating time", __PRETTY_FUNCTION__);
       }
     } else {
-      pt_tcal_init(tracking.tcal.get());
+      pt_tcal_init(&tracking.tcal);
     }
     return 1;
 
@@ -1013,14 +1006,14 @@ int IntelPT<IPT_PARAMETERS_DEF>::process_packet(uint64_t offset,
     int errcode;
     uint64_t IP;
 
-    errcode = pt_last_ip_update_ip(tracking.last_ip.get(), &packet->payload.ip,
-                                   config.get());
+    errcode = pt_last_ip_update_ip(&tracking.last_ip, &packet->payload.ip,
+                                   &config);
     if (unlikely(errcode < 0))
       throw std::runtime_error(
           std::string("IntelPT: error tracking last-ip at offset ") +
           std::to_string(offset));
 
-    errcode = pt_last_ip_query(&IP, tracking.last_ip.get());
+    errcode = pt_last_ip_query(&IP, &tracking.last_ip);
     if (unlikely(errcode < 0)) {
       if (errcode == -pte_ip_suppressed) {
         if (Engaged) {
@@ -1100,8 +1093,8 @@ int IntelPT<IPT_PARAMETERS_DEF>::process_packet(uint64_t offset,
       }
 
       if (packet->type == ppt_fup) {
-          errcode = pt_last_ip_update_ip(tracking.last_ip.get(),
-                                         &packet->payload.ip, config.get());
+          errcode = pt_last_ip_update_ip(&tracking.last_ip,
+                                         &packet->payload.ip, &config);
           if (unlikely(errcode < 0))
             throw std::runtime_error(
                 std::string("IntelPT: error tracking last-ip at offset ") +
@@ -1109,7 +1102,7 @@ int IntelPT<IPT_PARAMETERS_DEF>::process_packet(uint64_t offset,
 
           if constexpr (IsVeryVerbose()) {
             uint64_t IP;
-            if (pt_last_ip_query(&IP, tracking.last_ip.get()) >= 0)
+            if (pt_last_ip_query(&IP, &tracking.last_ip) >= 0)
               fprintf(stderr, "%016" PRIx64 "\tskipping IP %016" PRIx64 "\n", offset, (uint64_t)IP);
           }
 
@@ -1880,9 +1873,9 @@ void IntelPT<IPT_PARAMETERS_DEF>::TNTAdvance(uint64_t tnt, uint8_t n) {
 template <IPT_PARAMETERS_DCL>
 void IntelPT<IPT_PARAMETERS_DEF>::ptdump_tracking_init(void)
 {
-  pt_last_ip_init(tracking.last_ip.get());
-  pt_tcal_init(tracking.tcal.get());
-  pt_time_init(tracking.time.get());
+  pt_last_ip_init(&tracking.last_ip);
+  pt_tcal_init(&tracking.tcal);
+  pt_time_init(&tracking.time);
 
 #if 0
   tracking.session = NULL;
@@ -1894,9 +1887,9 @@ void IntelPT<IPT_PARAMETERS_DEF>::ptdump_tracking_init(void)
 
 template <IPT_PARAMETERS_DCL>
 void IntelPT<IPT_PARAMETERS_DEF>::ptdump_tracking_reset(void) {
-  pt_last_ip_init(tracking.last_ip.get());
-  pt_tcal_init(tracking.tcal.get());
-  pt_time_init(tracking.time.get());
+  pt_last_ip_init(&tracking.last_ip);
+  pt_tcal_init(&tracking.tcal);
+  pt_time_init(&tracking.time);
 
   tracking.tsc = 0ull;
   tracking.fcr = 0ull;
@@ -1909,7 +1902,7 @@ int IntelPT<IPT_PARAMETERS_DEF>::print_time(uint64_t offset)
   uint64_t tsc;
   int errcode;
 
-  errcode = pt_time_query_tsc(&tsc, NULL, NULL, tracking.time.get());
+  errcode = pt_time_query_tsc(&tsc, NULL, NULL, &tracking.time);
   if (errcode < 0) {
     switch (-errcode) {
     case pte_no_time:
@@ -1930,7 +1923,7 @@ int IntelPT<IPT_PARAMETERS_DEF>::print_time(uint64_t offset)
 template <IPT_PARAMETERS_DCL>
 int IntelPT<IPT_PARAMETERS_DEF>::sb_track_time(uint64_t offset)
 {
-  auto &tt = *tracking.time;
+  auto &tt = tracking.time;
 
   if (unlikely(!tt.have_tsc))
     return 1;
@@ -1986,15 +1979,15 @@ int IntelPT<IPT_PARAMETERS_DEF>::track_tsc(uint64_t offset,
 
 	if (1 /* !options->no_tcal */) {
 		errcode = tracking.in_header ?
-			pt_tcal_header_tsc(tracking.tcal.get(), packet, config.get()) :
-			pt_tcal_update_tsc(tracking.tcal.get(), packet, config.get());
+			pt_tcal_header_tsc(&tracking.tcal, packet, &config) :
+			pt_tcal_update_tsc(&tracking.tcal, packet, &config);
 		if (unlikely(errcode < 0)) {
 			if constexpr (IsVerbose())
 				fprintf(stderr, "%s: error calibrating time\n", __PRETTY_FUNCTION__);
 		}
 	}
 
-	errcode = pt_time_update_tsc(tracking.time.get(), packet, config.get());
+	errcode = pt_time_update_tsc(&tracking.time, packet, &config);
 	if (unlikely(errcode < 0)) {
 		if constexpr (IsVerbose())
 			fprintf(stderr, "%s: error updating time\n", __PRETTY_FUNCTION__);
@@ -2010,15 +2003,15 @@ int IntelPT<IPT_PARAMETERS_DEF>::track_cbr(uint64_t offset,
 
 	if (1 /* !options->no_tcal */) {
 		errcode = tracking.in_header ?
-			pt_tcal_header_cbr(tracking.tcal.get(), packet, config.get()) :
-			pt_tcal_update_cbr(tracking.tcal.get(), packet, config.get());
+			pt_tcal_header_cbr(&tracking.tcal, packet, &config) :
+			pt_tcal_update_cbr(&tracking.tcal, packet, &config);
 		if (unlikely(errcode < 0)) {
 			if constexpr (IsVerbose())
 				fprintf(stderr, "%s: error calibrating time\n", __PRETTY_FUNCTION__);
 		}
         }
 
-	errcode = pt_time_update_cbr(tracking.time.get(), packet, config.get());
+	errcode = pt_time_update_cbr(&tracking.time, packet, &config);
 	if (unlikely(errcode < 0)) {
 		if constexpr (IsVerbose())
 			fprintf(stderr, "%s: error updating time\n", __PRETTY_FUNCTION__);
@@ -2033,14 +2026,14 @@ int IntelPT<IPT_PARAMETERS_DEF>::track_tma(uint64_t offset,
         int errcode;
 
 	if (1 /* !options->no_tcal */) {
-		errcode = pt_tcal_update_tma(tracking.tcal.get(), packet, config.get());
+		errcode = pt_tcal_update_tma(&tracking.tcal, packet, &config);
 		if (unlikely(errcode < 0)) {
 			if constexpr (IsVerbose())
 				fprintf(stderr, "%s: error calibrating time\n", __PRETTY_FUNCTION__);
 		}
 	}
 
-	errcode = pt_time_update_tma(tracking.time.get(), packet, config.get());
+	errcode = pt_time_update_tma(&tracking.time, packet, &config);
 	if (unlikely(errcode < 0)) {
 		if constexpr (IsVerbose())
 			fprintf(stderr, "%s: error updating time\n", __PRETTY_FUNCTION__);
@@ -2055,7 +2048,7 @@ int IntelPT<IPT_PARAMETERS_DEF>::track_mtc(uint64_t offset,
         int errcode;
 
 	if (1 /* !options->no_tcal */) {
-		errcode = pt_tcal_update_mtc(tracking.tcal.get(), packet, config.get());
+		errcode = pt_tcal_update_mtc(&tracking.tcal, packet, &config);
 		if (unlikely(errcode < 0)) {
 			if constexpr (IsVerbose())
                                 fprintf(stderr,
@@ -2065,7 +2058,7 @@ int IntelPT<IPT_PARAMETERS_DEF>::track_mtc(uint64_t offset,
                 }
 	}
 
-	errcode = pt_time_update_mtc(tracking.time.get(), packet, config.get());
+	errcode = pt_time_update_mtc(&tracking.time, packet, &config);
 	if (unlikely(errcode < 0)) {
 		if constexpr (IsVerbose())
                         fprintf(stderr, "%s: error updating time: %s\n",
@@ -2086,7 +2079,7 @@ int IntelPT<IPT_PARAMETERS_DEF>::track_cyc(uint64_t offset,
 	fcr = 0ull;
 
 	if (1 /* !options->no_tcal */) {
-		errcode = pt_tcal_fcr(&fcr, tracking.tcal.get());
+		errcode = pt_tcal_fcr(&fcr, &tracking.tcal);
 
 		if (unlikely(errcode < 0)) {
 #if 0
@@ -2097,7 +2090,7 @@ int IntelPT<IPT_PARAMETERS_DEF>::track_cyc(uint64_t offset,
 #endif
                 }
 
-		errcode = pt_tcal_update_cyc(tracking.tcal.get(), packet, config.get());
+		errcode = pt_tcal_update_cyc(&tracking.tcal, packet, &config);
 		if (unlikely(errcode < 0)) {
 			if constexpr (IsVerbose())
                                 fprintf(stderr,
@@ -2107,7 +2100,7 @@ int IntelPT<IPT_PARAMETERS_DEF>::track_cyc(uint64_t offset,
                 }
 	}
 
-	errcode = pt_time_update_cyc(tracking.time.get(), packet, config.get(), fcr);
+	errcode = pt_time_update_cyc(&tracking.time, packet, &config, fcr);
 
 	if (unlikely(errcode < 0)) {
 		if constexpr (IsVerbose())
@@ -2407,11 +2400,11 @@ int IntelPT<IPT_PARAMETERS_DEF>::process_args(int argc, char **argv,
 			}
 
 			if (strcmp(arg, "none") == 0) {
-				memset(&config->cpu, 0, sizeof(config->cpu));
+				memset(&config.cpu, 0, sizeof(config.cpu));
 				continue;
 			}
 
-			errcode = pt_cpu_parse(&config->cpu, arg);
+			errcode = pt_cpu_parse(&config.cpu, arg);
 			if (errcode < 0) {
 				fprintf(stderr,
 					"%s: cpu must be specified as f/m[/s]\n",
@@ -2419,20 +2412,20 @@ int IntelPT<IPT_PARAMETERS_DEF>::process_args(int argc, char **argv,
 				return -1;
 			}
 		} else if (strcmp(argv[idx], "--mtc-freq") == 0) {
-			if (!get_arg_uint8(&config->mtc_freq, "--mtc-freq",
+			if (!get_arg_uint8(&config.mtc_freq, "--mtc-freq",
 					   argv[++idx], argv[0]))
 				return -1;
 		} else if (strcmp(argv[idx], "--nom-freq") == 0) {
-			if (!get_arg_uint8(&config->nom_freq, "--nom-freq",
+			if (!get_arg_uint8(&config.nom_freq, "--nom-freq",
 					   argv[++idx], argv[0]))
 				return -1;
 		} else if (strcmp(argv[idx], "--cpuid-0x15.eax") == 0) {
-			if (!get_arg_uint32(&config->cpuid_0x15_eax,
+			if (!get_arg_uint32(&config.cpuid_0x15_eax,
 					    "--cpuid-0x15.eax", argv[++idx],
 					    argv[0]))
 				return -1;
 		} else if (strcmp(argv[idx], "--cpuid-0x15.ebx") == 0) {
-			if (!get_arg_uint32(&config->cpuid_0x15_ebx,
+			if (!get_arg_uint32(&config.cpuid_0x15_ebx,
 					    "--cpuid-0x15.ebx", argv[++idx],
 					    argv[0]))
 				return -1;
