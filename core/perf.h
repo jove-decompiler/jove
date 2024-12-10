@@ -62,10 +62,12 @@ public:
     const uint8_t *p = reinterpret_cast<const uint8_t *>(current);
 
     const auto &hdr = *current;
+#if 0
     if (hdr.type == PERF_RECORD_EVENT_TYPE_AUXTRACE) {
       auto &aux = *reinterpret_cast<const struct auxtrace_event *>(current);
       p += aux.size;
     }
+#endif
 
     assert(hdr.size);
     p += hdr.size;
