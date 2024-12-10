@@ -8,7 +8,7 @@
 #include "symbolizer.h"
 #include "locator.h"
 #include "reference_ipt.h"
-#include "fastipt.h"
+#include "afl_ipt.h"
 #include "wine.h"
 #include "perf.h"
 #include "sideband.h"
@@ -1133,7 +1133,7 @@ int IPTTool::UsingLibipt(void) {
 
         bool Ran = false;
 
-#define afl_ipt_t reference_ipt_t /* FIXME */
+#define afl_ipt_t afl_ipt_t /* FIXME */
 #define simple_ipt_t reference_ipt_t /* FIXME */
 
         auto run = [&]<IPT_PARAMETERS_DCL>(void) {

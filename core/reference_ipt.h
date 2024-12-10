@@ -149,7 +149,7 @@ struct reference_ipt_t
   }
 
   template <bool IsEngaged>
-  void process_packets(uint64_t offset, struct pt_packet &packet) {
+  void process_packets(uint64_t offset, packet_type &packet) {
 #define GTFO_IF_ENGAGED_CHANGED()                                              \
   do {                                                                         \
     if constexpr (IsEngaged) {                                                 \

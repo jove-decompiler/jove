@@ -1,20 +1,37 @@
-#if defined(__x86_64__) || defined(__i386__) /* x86 only */
-#include "fastipt.h"
+#if defined(__x86_64__) && (defined(TARGET_X86_64) || defined(TARGET_I386))
+#pragma once
+#include "ipt.h"
 
+#include <cstdio>
+
+extern "C" {
+#include "pt_time.h"
+}
+
+#if 0
 extern "C" {
 #include "pt_cpu.h"
 #include "pt_opcodes.h"
 #include "pt_retstack.h"
 //#include "pt_block_decoder.h"
 }
-
-#include <cstdio>
-
-#include <intel-pt.h>
-
-#define PPT_EXT 0xFF
+#endif
 
 namespace jove {
+
+struct afl_packet_type {
+  unsigned char opcode;
+  unsigned char opcodesize;
+};
+
+template <IPT_PARAMETERS_DCL> struct afl_ipt_t;
+
+template <IPT_PARAMETERS_DCL>
+struct ipt_traits<afl_ipt_t<IPT_PARAMETERS_DEF>> {
+  using packet_type = afl_packet_type;
+};
+
+#define PPT_EXT 0xFF
 
 static
 unsigned char opc_lut[] = {
@@ -172,6 +189,7 @@ static const unsigned char psb_and_psbend[18] = {
 	0x02, 0x23
 };
 
+#if 0
 static
 void dump_lut(unsigned char *lut, char *lutname) {
 	printf("unsigned char %s[] = {\n", lutname);
@@ -424,6 +442,7 @@ void build_luts() {
 	dump_lut(opc_size_lut, "opc_size_lut");
 	dump_lut(ext_size_lut, "ext_size_lut");
 }
+#endif
 
 // sign extend
 inline static uint64_t sext(uint64_t val, uint8_t sign) {
@@ -436,7 +455,7 @@ inline static uint64_t sext(uint64_t val, uint8_t sign) {
 }
 
 // finds the next psb packet in the data buffer
-static bool findpsb(unsigned char **data, size_t *size) {
+inline static bool findpsb(const unsigned char **data, size_t *size) {
 	if (*size < 16) return false;
 
 	if (memcmp(*data, psb, sizeof(psb)) == 0) return true;
@@ -455,13 +474,9 @@ static bool findpsb(unsigned char **data, size_t *size) {
 }
 
 // gets the opcode and the size of the next packet in the trace buffer
-static inline int get_next_opcode(unsigned char **data_p, size_t *size_p, 
+static inline int get_next_opcode(const unsigned char *data, size_t size, 
 	unsigned char *opcode_p, unsigned char *opcodesize_p)
 {
-
-	unsigned char *data = *data_p;
-	size_t size = *size_p;
-
 	unsigned char opcode = opc_lut[*data];
 	unsigned char opcodesize = opc_size_lut[*data];
     
@@ -507,8 +522,36 @@ static inline int get_next_opcode(unsigned char **data_p, size_t *size_p,
 	return 1;
 }
 
-template <bool MT>
-uint64_t FastIPT<MT>::decode_ip(unsigned char *data) {
+template <IPT_PARAMETERS_DCL>
+struct afl_ipt_t
+    : public ipt_t<IPT_PARAMETERS_DEF, afl_ipt_t<IPT_PARAMETERS_DEF>> {
+#define IsVerbose() (Verbosity >= 1)
+#define IsVeryVerbose() (Verbosity >= 2)
+
+  typedef ipt_t<IPT_PARAMETERS_DEF, afl_ipt_t<IPT_PARAMETERS_DEF>> Base;
+
+  using packet_type = Base::packet_type;
+
+  uint32_t previous_offset = 0;
+  uint64_t previous_ip = 0;
+  const unsigned char *data = nullptr;
+  size_t size = 0;
+
+  template <typename... Args>
+  afl_ipt_t(Args &&...args) : Base(std::forward<Args>(args)...) {
+    data = reinterpret_cast<const unsigned char *>(this->aux_begin);
+    size = this->aux_end - this->aux_begin;
+  }
+
+  void process_packets_while_engaged(uint64_t offset, packet_type &packet) {
+    __attribute__((musttail)) return process_packets<true>(offset, packet);
+  }
+
+  void process_packets_while_not_engaged(uint64_t offset, packet_type &packet) {
+    __attribute__((musttail)) return process_packets<false>(offset, packet);
+  }
+
+uint64_t decode_ip(const unsigned char *data) {
 	uint64_t next_ip;
 
 	switch ((*data) >> 5) {
@@ -536,71 +579,55 @@ uint64_t FastIPT<MT>::decode_ip(unsigned char *data) {
 	return next_ip;
 }
 
-template <bool MT>
-FastIPT<MT>::FastIPT(jv_base_t<MT> &jv, explorer_t &explorer, unsigned cpu,
-                     const address_space_t &AddressSpace, void *begin,
-                     void *end, bool ignore_trunc_aux)
-    : jv(jv), explorer(explorer), begin(begin), end(end) {}
+  void packet_sync(void) {
+    if (size < sizeof(psb) || !findpsb(&data, &size)) {
+            throw end_of_trace_exception();
+    }
+
+    previous_offset = 0;
+    previous_ip = 0;
+  }
+
+  uint64_t next_packet(packet_type &out) {
+	if (unlikely(!get_next_opcode(data, size, &out.opcode, &out.opcodesize)))
+            throw end_of_trace_exception();
+
+    auto opcodesize = out.opcodesize ;
+    size -= opcodesize;
+    data += opcodesize;
+
+    return data - this->aux_begin;
+  }
+
 
 // fast decoder that decodes only tip (and related packets)
 // and skips over the reset
-template <bool MT>
-void FastIPT<MT>::explore(void) {
-  unsigned char *data = reinterpret_cast<unsigned char *>(begin);
-  size_t size = reinterpret_cast<unsigned char *>(end) -
-                reinterpret_cast<unsigned char *>(begin);
+template <bool IsEngaged>
+void process_packets(uint64_t offset, packet_type &packet) {
   uint64_t next_ip;
+  auto opcode = packet.opcode;
 
-  unsigned char opcode;
-  unsigned char opcodesize;
+  if (opcode == ppt_invalid)
+            throw error_decoding_exception();
 
-  previous_offset = 0;
-  previous_ip = 0;
-
-  if (size < sizeof(psb)) return;
-
-  if (!findpsb(&data, &size)) {
-	  fprintf(stderr, "No sync packets in trace\n");
-	  return;
-  }
-
-  while(size) {
-
-	if (!get_next_opcode(&data, &size, &opcode, &opcodesize)) return;
-
-    if(opcode == ppt_invalid) {
-#if 0
-      fprintf(stderr, "Decoding error\n");
-#endif
-	  if (findpsb(&data, &size)) continue;
-	  else return;
+  switch (opcode) {
+  case ppt_fup:
+  case ppt_tip:
+  case ppt_tip_pge:
+  case ppt_tip_pgd:
+            next_ip = decode_ip(data);
+            if constexpr (IsVeryVerbose())
+		 fprintf(stderr, "ip: %p\n", (void*)next_ip);
+            break;
     }
 
-#if 0
-	 printf("packet type: %d\n", opcode);
-#endif
-
-    switch (opcode) {
-    case ppt_fup:
-    case ppt_tip:
-    case ppt_tip_pge:
-    case ppt_tip_pgd:
-	  next_ip = decode_ip(data);
-      break;
-    default:
-      break;
-    }
-
-#if 0
-	if (opcode == ppt_tip) {
-		 printf("ip: %p\n", (void*)next_ip);
-	}
-#endif
-
-    size -= opcodesize;
-    data += opcodesize;
-  }
+    __attribute__((musttail)) return process_packets<IsEngaged>(
+        next_packet(packet), packet);
 }
+
+#undef IsVerbose
+#undef IsVeryVerbose
+};
 
 }
 

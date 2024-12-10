@@ -66,7 +66,6 @@ function(tool_for_arch arch arch_extra_cflags qemu_objs)
     ../core/disas.cpp
     ../core/elf.cpp
     ../core/explore.cpp
-    ../core/fastipt.cpp
     ../core/fd.cpp
     ../core/hash.cpp
     ../core/ida.cpp
