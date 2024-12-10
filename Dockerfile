@@ -10,11 +10,16 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       automake \
                       bash \
                       binutils-dev \
+                      bison \
+                      bsdextrautils \
                       ca-certificates \
                       clang-16 \
                       cmake \
                       debootstrap \
+                      elfutils \
+                      flex \
                       g++-aarch64-linux-gnu \
+                      g++-multilib \
                       g++-multilib-i686-linux-gnu \
                       g++-multilib-mips-linux-gnu \
                       g++-multilib-mips64el-linux-gnuabi64 \
@@ -26,18 +31,29 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       graphviz \
                       gstreamer1.0-dev \
                       hostname \
-                      libavformat-dev \
                       libavcodec-dev \
+                      libavformat-dev \
                       libclang-16-dev \
+                      libegl1-mesa-dev \
+                      libfontconfig-dev \
+                      libfontconfig-dev \
+                      libfreetype-dev \
                       libglib2.0-dev \
                       libgraph-easy-perl \
                       libgstreamer-plugins-base1.0-dev \
+                      libgstreamer1.0-dev \
                       libkeyutils-dev \
+                      libosmesa6-dev \
                       libpcre2-dev \
+                      libpfm4-dev \
+                      libsdl2-dev \
                       libtinfo-dev \
                       libtool \
                       libunwind-dev \
                       liburing-dev \
+                      libvulkan-dev \
+                      libwayland-dev \
+                      libxkbregistry-dev \
                       libxml2-dev \
                       libz3-dev \
                       libzstd-dev \
@@ -52,6 +68,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       parted \
                       pkg-config \
                       pkgconf \
+                      python3-dev \
                       python3-libtmux \
                       python3-venv \
                       qemu-system \
@@ -75,13 +92,27 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
     eatmydata apt-get install --no-install-recommends -y dpkg-dev && \
     eatmydata apt-get install --no-install-recommends -y \
                       gstreamer1.0-dev:i386 \
+                      libavcodec-dev:i386 \
+                      libavdevice-dev:i386 \
                       libc6-dev:i386 \
-                      libgstreamer-plugins-base1.0-dev:i386 \
-                      libxkbregistry-dev:i386 \
-                      libvulkan-dev:i386 \
-                      linux-libc-dev:i386 \
+                      libegl1-mesa-dev:i386 \
+                      libfontconfig-dev:i386 \
+                      libfontconfig-dev:i386 \
+                      libfreetype-dev:i386 \
                       libglib2.0-dev:i386 \
+                      libgnutls28-dev:i386 \
+                      libgstreamer-plugins-base1.0-dev:i386 \
+                      libgstreamer-plugins-base1.0-dev:i386 \
+                      libgstreamer1.0-dev:i386 \
+                      libosmesa6-dev:i386 \
+                      libsdl2-dev:i386 \
                       liburing-dev:i386 \
+                      libvulkan-dev:i386 \
+                      libvulkan-dev:i386 \
+                      libwayland-dev:i386 \
+                      libxkbregistry-dev:i386 \
+                      libxkbregistry-dev:i386 \
+                      linux-libc-dev:i386 \
                       zlib1g-dev:i386 && \
     eatmydata apt-get autoremove -y && \
     eatmydata apt-get autoclean -y
@@ -131,4 +162,5 @@ RUN patch -p1 -d /usr/lib/python3/dist-packages -i /jove/patches/meson.diff
 RUN patch -p1 -d /jove/boost/libs/graph -i /jove/patches/boost-graph.diff
 RUN patch -p1 -d /jove/boost/libs/interprocess -i /jove/patches/boost-interprocess.diff
 RUN patch -p1 -d /jove/boost/libs/unordered -i /jove/patches/boost-unordered.diff
+RUN patch -p1 -d /jove/boost/libs/dynamic_bitset -i /jove/patches/boost-dynamic_bitset.diff
 RUN /jove/scripts/build/build.sh
