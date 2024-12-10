@@ -74,6 +74,7 @@ struct IPTTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
     cl::list<std::string> Args;
     cl::list<std::string> Envs;
     cl::opt<bool> UsePerfScript;
+    cl::opt<std::string> Decoder;
     cl::opt<bool> Chdir;
     cl::alias ChdirAlias;
     cl::opt<std::string> MMapPages;
@@ -107,7 +108,11 @@ struct IPTTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
           UsePerfScript("use-perf-script",
                         cl::desc("Use 'perf script' to parse trace. Otherwise "
                                  "libipt is used."),
-                        cl::init(true /* TODO */), cl::cat(JoveCategory)),
+                        cl::init(false), cl::cat(JoveCategory)),
+
+          Decoder("decoder",
+                  cl::desc("Select decoder (reference, afl, simple)."),
+                  cl::init("reference"), cl::cat(JoveCategory)),
 
           Chdir("change-dir", cl::desc("chdir(2) into temporary directory."),
                 cl::init(true), cl::cat(JoveCategory)),
@@ -1128,31 +1133,50 @@ int IPTTool::UsingLibipt(void) {
 
         bool Ran = false;
 
+#define afl_ipt_t reference_ipt_t /* FIXME */
+#define simple_ipt_t reference_ipt_t /* FIXME */
+
         auto run = [&]<IPT_PARAMETERS_DCL>(void) {
           try {
+#define SELECT_DECODER_AND_EXPLORE(...)                                        \
+  do {                                                                         \
+    if (opts.Decoder == "reference") {                                         \
+      reference_ipt_t<IPT_PARAMETERS_DEF> ipt(__VA_ARGS__);                    \
+      Ran = true;                                                              \
+      ipt.explore();                                                           \
+    } else if (opts.Decoder == "afl") {                                        \
+      afl_ipt_t<IPT_PARAMETERS_DEF> ipt(__VA_ARGS__);                          \
+      Ran = true;                                                              \
+      ipt.explore();                                                           \
+    } else if (opts.Decoder == "simple") {                                     \
+      simple_ipt_t<IPT_PARAMETERS_DEF> ipt(__VA_ARGS__);                       \
+      Ran = true;                                                              \
+      ipt.explore();                                                           \
+    } else {                                                                   \
+      WithColor::error() << llvm::formatv("unknown decoder \"{0}\"\n",         \
+                                          opts.Decoder);                       \
+      exit(1);                                                                 \
+    }                                                                          \
+  } while (false)
+
+#define THE_IPT_ARGS(__jv, __jv_file) \
+                  ptdump_argv.size() - 1, ptdump_argv.data(), \
+                   __jv, *Explorer, \
+                  __jv_file, cpu, sb, sb_parser, \
+                  const_cast<uint8_t *>(aux.data_begin()), \
+                  const_cast<uint8_t *>(aux.data_end()), \
+                  sb_filename, \
+                  IsVeryVerbose() ? 2 : (IsVerbose() ? 1 : 0), \
+                  !opts.GatherBins
+
             if constexpr (MT) {
-              reference_ipt_t<IPT_PARAMETERS_DEF> ipt(
-                  ptdump_argv.size() - 1, ptdump_argv.data(), jv, *Explorer,
-                  jv_file, cpu, sb, sb_parser,
-                  const_cast<uint8_t *>(aux.data_begin()),
-                  const_cast<uint8_t *>(aux.data_end()),
-                  sb_filename,
-                  IsVeryVerbose() ? 2 : (IsVerbose() ? 1 : 0),
-                  !opts.GatherBins);
-              Ran = true;
-              ipt.explore();
+              SELECT_DECODER_AND_EXPLORE(THE_IPT_ARGS(jv, jv_file));
             } else {
-              reference_ipt_t<IPT_PARAMETERS_DEF> ipt(
-                  ptdump_argv.size() - 1, ptdump_argv.data(), *jv2, *Explorer,
-                  *jv_file2, cpu, sb, sb_parser,
-                  const_cast<uint8_t *>(aux.data_begin()),
-                  const_cast<uint8_t *>(aux.data_end()),
-                  sb_filename,
-                  IsVeryVerbose() ? 2 : (IsVerbose() ? 1 : 0),
-                  !opts.GatherBins);
-              Ran = true;
-              ipt.explore();
+              SELECT_DECODER_AND_EXPLORE(THE_IPT_ARGS(*jv2, *jv_file2));
             }
+
+#undef THE_IPT_ARGS
+#undef SELECT_DECODER_AND_EXPLORE
           } catch (const truncated_aux_exception &) {
             if (IsVerbose())
               WithColor::warning()
