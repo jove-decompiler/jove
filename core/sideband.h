@@ -1,12 +1,22 @@
 #pragma once
 #include "perf.h"
 
+#include <functional>
+
 extern "C" {
 #include "pevent.h"
 }
 
 namespace jove {
 namespace perf {
+
+typedef std::function<unsigned(const uint8_t *const, struct pev_event &,
+                               const pev_config &)>
+    read_sample_samples_t;
+
+typedef std::function<unsigned(const uint8_t *const, struct pev_event &,
+                               const pev_config &)>
+    read_samples_t;
 
 struct sb_sample_type_t {
   /* The sample identifier.
@@ -23,6 +33,9 @@ struct sb_sample_type_t {
   uint64_t sample_type;
 
   std::string name;
+
+  read_sample_samples_t read_sample_samples_proc;
+  read_samples_t read_samples_proc;
 };
 
 struct sb_info_t {
@@ -49,9 +62,10 @@ public:
   void load(struct pev_event &out, const struct perf_event_header &hdr) const;
 
 private:
-  unsigned read_samples(const uint8_t *const begin,
-                        const uint8_t *const end, struct pev_event &out) const;
-  unsigned read_sample_samples(const uint8_t *const begin,
+  unsigned handle_read_sample_samples(const uint8_t *const begin,
+                                      struct pev_event &) const;
+  unsigned handle_read_samples(const uint8_t *const begin,
+                               const uint8_t *const end,
                                struct pev_event &out) const;
 };
 

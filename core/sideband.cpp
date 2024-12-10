@@ -1,10 +1,162 @@
 #include "sideband.h"
 #include <cstdio>
 #include <cinttypes>
+#include <tuple>
 #include <boost/algorithm/string.hpp>
+#include <boost/unordered/unordered_flat_map.hpp>
+#include <boost/unordered/unordered_map.hpp>
 
 namespace jove {
 namespace perf {
+
+template <bool TID, bool TIME, bool ID, bool STREAM_ID, bool CPU,
+          bool IDENTIFIER>
+static unsigned do_read_samples(const uint8_t *const begin,
+                                struct pev_event &out,
+                                const pev_config &the_pev_config) {
+  auto &sample = out.sample;
+
+  const uint8_t *pos = begin;
+  if constexpr (TID) {
+    sample.pid = reinterpret_cast<const uint32_t *>(&pos[0]);
+    sample.tid = reinterpret_cast<const uint32_t *>(&pos[4]);
+    pos += 8;
+  }
+
+  if constexpr (TIME) {
+    sample.time = reinterpret_cast<const uint64_t *>(pos);
+    pos += 8;
+
+    int errcode = pev_time_to_tsc(&sample.tsc, *sample.time, &the_pev_config);
+    assert(errcode == 0);
+  }
+
+  if constexpr (ID) {
+    sample.id = reinterpret_cast<const uint64_t *>(pos);
+    pos += 8;
+  }
+
+  if constexpr (STREAM_ID) {
+    sample.stream_id = reinterpret_cast<const uint64_t *>(pos);
+    pos += 8;
+  }
+
+  if constexpr (CPU) {
+    sample.cpu = reinterpret_cast<const uint32_t *>(pos);
+    pos += 8;
+  }
+
+  if constexpr (IDENTIFIER) {
+    sample.identifier = reinterpret_cast<const uint64_t *>(pos);
+    pos += 8;
+  }
+
+  return pos - begin;
+};
+
+typedef boost::unordered_flat_map<
+    std::tuple<bool, bool, bool, bool, bool, bool>, read_samples_t>
+    read_samples_map_t;
+
+#define SAMPLES_PROC_ENTRY(...)                                                \
+  read_samples_map_t::value_type(read_samples_map_t::key_type(__VA_ARGS__),    \
+                                 do_read_samples<__VA_ARGS__>)
+
+static const read_samples_map_t read_samples_map = {
+    SAMPLES_PROC_ENTRY(true, true, true, true, true, true),
+    SAMPLES_PROC_ENTRY(true, true, false, false, true, true)};
+
+template <bool IDENTIFIER, bool IP, bool TID, bool TIME, bool ADDR, bool ID,
+          bool STREAM, bool CPU, bool PERIOD, bool READ, bool CALLCHAIN,
+          bool RAW>
+static unsigned do_read_sample_samples(const uint8_t *const begin,
+                                       struct pev_event &out,
+                                       const pev_config &the_pev_config) {
+  auto &sample = out.sample;
+  const uint8_t *pos = begin;
+
+  static_assert(IDENTIFIER, "read_sample_samples: bad (!IDENTIFIER)");
+  if constexpr (IDENTIFIER) {
+    sample.identifier = (const uint64_t *)pos;
+    pos += 8;
+  }
+
+  if constexpr (IP) {
+    sample.ip = (const uint64_t *)pos;
+    pos += 8; /* skip */
+  }
+
+  if constexpr (TID) {
+    sample.pid = (const uint32_t *)&pos[0];
+    sample.tid = (const uint32_t *)&pos[4];
+    pos += 8;
+  }
+
+  if constexpr (TIME) {
+    sample.time = (const uint64_t *)pos;
+    pos += 8;
+
+    int errcode = pev_time_to_tsc(&sample.tsc, *sample.time, &the_pev_config);
+    assert(errcode == 0);
+  }
+
+  if constexpr (ADDR) {
+    pos += 8; /* skip */
+  }
+
+  if constexpr (ID) {
+    sample.id = (const uint64_t *)pos;
+    pos += 8;
+  }
+
+  if constexpr (STREAM) {
+    sample.stream_id = (const uint64_t *)pos;
+    pos += 8;
+  }
+
+  if constexpr (CPU) {
+    sample.cpu = (const uint32_t *)pos;
+    pos += 8;
+  }
+
+  if constexpr (PERIOD) {
+    pos += 8; /* skip */
+  }
+
+  static_assert(!READ, "read_sample_samples: unimplemented (PERF_SAMPLE_READ)");
+
+  if constexpr (CALLCHAIN) {
+    pos += (*((const uint64_t *)pos) * 8); /* skip */
+  }
+
+  if constexpr (RAW) {
+    const struct pev_record_raw *raw = (const struct pev_record_raw *)pos;
+    out.record.raw = raw;
+    pos += 4;
+    pos += raw->size;
+  }
+
+  return pos - begin;
+}
+
+typedef boost::unordered_flat_map<
+    std::tuple<bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool,
+               bool>,
+    read_sample_samples_t>
+    read_sample_samples_map_t;
+
+#define SAMPLE_SAMPLES_PROC_ENTRY(...)                                         \
+  read_sample_samples_map_t::value_type(                                       \
+      read_sample_samples_map_t::key_type(__VA_ARGS__),                        \
+      do_read_sample_samples<__VA_ARGS__>)
+
+static const read_sample_samples_map_t read_sample_samples_map = {
+    SAMPLE_SAMPLES_PROC_ENTRY(true, true, true, true, true, true, true, true,
+                              true, false, true, true),
+    SAMPLE_SAMPLES_PROC_ENTRY(true, true, true, true, false, false, false, true,
+                              false, false, false, false),
+    SAMPLE_SAMPLES_PROC_ENTRY(true, true, true, true, false, false, false, true,
+                              true, false, false, true)};
 
 sideband_parser::sideband_parser(const std::vector<std::string> &ptdump_args) {
   pev_config_init(&the_pev_config);
@@ -32,6 +184,57 @@ sideband_parser::sideband_parser(const std::vector<std::string> &ptdump_args) {
       st.identifier = id;
       st.sample_type = sample_type;
       st.name = std::move(name);
+      try {
+        st.read_sample_samples_proc =
+            read_sample_samples_map.at(read_sample_samples_map_t::key_type(
+                sample_type & PERF_SAMPLE_IDENTIFIER,
+                sample_type & PERF_SAMPLE_IP,
+                sample_type & PERF_SAMPLE_TID,
+                sample_type & PERF_SAMPLE_TIME,
+                sample_type & PERF_SAMPLE_ADDR,
+                sample_type & PERF_SAMPLE_ID,
+                sample_type & PERF_SAMPLE_STREAM_ID,
+                sample_type & PERF_SAMPLE_CPU,
+                sample_type & PERF_SAMPLE_PERIOD,
+                sample_type & PERF_SAMPLE_READ,
+                sample_type & PERF_SAMPLE_CALLCHAIN,
+                sample_type & PERF_SAMPLE_RAW));
+      } catch (const std::out_of_range) {
+        fprintf(stderr, "%u %u %u %u %u %u %u %u %u %u %u %u\n",
+              (unsigned)sample_type & PERF_SAMPLE_IDENTIFIER,
+              (unsigned)sample_type & PERF_SAMPLE_IP,
+              (unsigned)sample_type & PERF_SAMPLE_TID,
+              (unsigned)sample_type & PERF_SAMPLE_TIME,
+              (unsigned)sample_type & PERF_SAMPLE_ADDR,
+              (unsigned)sample_type & PERF_SAMPLE_ID,
+              (unsigned)sample_type & PERF_SAMPLE_STREAM_ID,
+              (unsigned)sample_type & PERF_SAMPLE_CPU,
+              (unsigned)sample_type & PERF_SAMPLE_PERIOD,
+              (unsigned)sample_type & PERF_SAMPLE_READ,
+              (unsigned)sample_type & PERF_SAMPLE_CALLCHAIN,
+              (unsigned)sample_type & PERF_SAMPLE_RAW);
+        exit(1);
+      }
+
+      try {
+        st.read_samples_proc =
+          read_samples_map.at(read_samples_map_t::key_type(
+            sample_type & PERF_SAMPLE_TID,
+            sample_type & PERF_SAMPLE_TIME,
+            sample_type & PERF_SAMPLE_ID,
+            sample_type & PERF_SAMPLE_STREAM_ID,
+            sample_type & PERF_SAMPLE_CPU,
+            sample_type & PERF_SAMPLE_IDENTIFIER));
+      } catch (const std::out_of_range) {
+        fprintf(stderr, "%u %u %u %u %u %u\n",
+          (unsigned)sample_type & PERF_SAMPLE_TID,
+          (unsigned)sample_type & PERF_SAMPLE_TIME,
+          (unsigned)sample_type & PERF_SAMPLE_ID,
+          (unsigned)sample_type & PERF_SAMPLE_STREAM_ID,
+          (unsigned)sample_type & PERF_SAMPLE_CPU,
+          (unsigned)sample_type & PERF_SAMPLE_IDENTIFIER);
+        exit(1);
+      }
 
 #if 0
       fprintf(stderr, "sample-config(%" PRIu64 ", %" PRIx64 ", \"%s\")\n",
@@ -51,9 +254,9 @@ sideband_parser::sideband_parser(const std::vector<std::string> &ptdump_args) {
   }
 }
 
-unsigned sideband_parser::read_samples(const uint8_t *const begin,
-                                       const uint8_t *const end,
-                                       struct pev_event &out) const {
+unsigned sideband_parser::handle_read_samples(const uint8_t *const begin,
+                                              const uint8_t *const end,
+                                              struct pev_event &out) const {
   auto &sample = out.sample;
 
   const uint64_t *pidentifier = nullptr;
@@ -66,53 +269,13 @@ unsigned sideband_parser::read_samples(const uint8_t *const begin,
   //HumanOut() << "id=" << *pidentifier << '\n';
   const uint64_t id = *pidentifier;
   const sb_sample_type_t &the_sample_type = sb_info.stypes.at(id);
-  const uint64_t sample_type = the_sample_type.identifier == id
-                                   ? the_sample_type.sample_type
-                                   : sb_info.sample_type;
 
-  pos = begin;
+  return the_sample_type.read_samples_proc(begin, out, the_pev_config);
+}
 
-  if (sample_type & PERF_SAMPLE_TID) {
-    sample.pid = reinterpret_cast<const uint32_t *>(&pos[0]);
-    sample.tid = reinterpret_cast<const uint32_t *>(&pos[4]);
-    pos += 8;
-  }
-
-  if (sample_type & PERF_SAMPLE_TIME) {
-    sample.time = reinterpret_cast<const uint64_t *>(pos);
-    pos += 8;
-
-    int errcode = pev_time_to_tsc(&sample.tsc, *sample.time, &the_pev_config);
-    if (errcode < 0)
-      throw std::runtime_error(__func__ +
-                               std::string(": pev_time_to_tsc failed"));
-  }
-
-  if (sample_type & PERF_SAMPLE_ID) {
-    sample.id = reinterpret_cast<const uint64_t *>(pos);
-    pos += 8;
-  }
-
-  if (sample_type & PERF_SAMPLE_STREAM_ID) {
-    sample.stream_id = reinterpret_cast<const uint64_t *>(pos);
-    pos += 8;
-  }
-
-  if (sample_type & PERF_SAMPLE_CPU) {
-    sample.cpu = reinterpret_cast<const uint32_t *>(pos);
-    pos += 8;
-  }
-
-  if (sample_type & PERF_SAMPLE_IDENTIFIER) {
-    sample.identifier = reinterpret_cast<const uint64_t *>(pos);
-    pos += 8;
-  }
-
-  return pos - begin;
-};
-
-unsigned sideband_parser::read_sample_samples(const uint8_t *const begin,
-                                              struct pev_event &out) const {
+unsigned
+sideband_parser::handle_read_sample_samples(const uint8_t *const begin,
+                                            struct pev_event &out) const {
   auto &sample = out.sample;
 
   const uint64_t *const pidentifier =
@@ -123,79 +286,9 @@ unsigned sideband_parser::read_sample_samples(const uint8_t *const begin,
   if (id != the_sample_type.identifier)
     throw std::runtime_error("bad sample type");
 
-  const uint64_t sample_type = the_sample_type.sample_type;
   out.name = the_sample_type.name.c_str();
 
-  const uint8_t *pos = begin;
-
-  if (sample_type & PERF_SAMPLE_IDENTIFIER) {
-    sample.identifier = (const uint64_t *)pos;
-    pos += 8;
-  } else {
-    throw std::runtime_error("bad sample");
-  }
-
-  if (sample_type & PERF_SAMPLE_IP) {
-    sample.ip = (const uint64_t *)pos;
-    pos += 8; /* skip */
-  }
-
-  if (sample_type & PERF_SAMPLE_TID) {
-    sample.pid = (const uint32_t *)&pos[0];
-    sample.tid = (const uint32_t *)&pos[4];
-    pos += 8;
-  }
-
-  if (sample_type & PERF_SAMPLE_TIME) {
-    sample.time = (const uint64_t *)pos;
-    pos += 8;
-
-    int errcode = pev_time_to_tsc(&sample.tsc, *sample.time, &the_pev_config);
-    if (errcode < 0)
-      throw std::runtime_error(__func__ +
-                               std::string(": pev_time_to_tsc failed"));
-  }
-
-  if (sample_type & PERF_SAMPLE_ADDR) {
-    pos += 8; /* skip */
-  }
-
-  if (sample_type & PERF_SAMPLE_ID) {
-    sample.id = (const uint64_t *)pos;
-    pos += 8;
-  }
-
-  if (sample_type & PERF_SAMPLE_STREAM_ID) {
-    sample.stream_id = (const uint64_t *)pos;
-    pos += 8;
-  }
-
-  if (sample_type & PERF_SAMPLE_CPU) {
-    sample.cpu = (const uint32_t *)pos;
-    pos += 8;
-  }
-
-  if (sample_type & PERF_SAMPLE_PERIOD) {
-    pos += 8; /* skip */
-  }
-
-  if (sample_type & PERF_SAMPLE_READ) {
-    throw std::runtime_error(
-        "read_sample_samples: unimplemented (PERF_SAMPLE_READ)");
-  }
-
-  if (sample_type & PERF_SAMPLE_CALLCHAIN) {
-    pos += (*((const uint64_t *)pos) * 8); /* skip */
-  }
-
-  if (sample_type & PERF_SAMPLE_RAW) {
-    const struct pev_record_raw *raw = (const struct pev_record_raw *)pos;
-    out.record.raw = raw;
-    pos += 4;
-    pos += raw->size;
-  }
-
-  return pos - begin;
+  return the_sample_type.read_sample_samples_proc(begin, out, the_pev_config);
 }
 
 static int pev_strlen(const char *begin, const void *end_arg) {
@@ -235,7 +328,7 @@ void sideband_parser::load(struct pev_event &out,
 
     pos += sizeof(struct pev_record_mmap);
     pos += slen;
-    pos += read_samples(pos, end, out);
+    pos += handle_read_samples(pos, end, out);
     break;
   }
   case PERF_RECORD_MMAP2: {
@@ -247,14 +340,14 @@ void sideband_parser::load(struct pev_event &out,
 
     pos += sizeof(struct pev_record_mmap2);
     pos += slen;
-    pos += read_samples(pos, end, out);
+    pos += handle_read_samples(pos, end, out);
     break;
   }
 
   case PERF_RECORD_LOST: {
     const auto &rec = *(out.record.lost = reinterpret_cast<const struct pev_record_lost *>(pos));
     pos += sizeof(struct pev_record_lost);
-    pos += read_samples(pos, end, out);
+    pos += handle_read_samples(pos, end, out);
     break;
   }
 
@@ -270,14 +363,14 @@ void sideband_parser::load(struct pev_event &out,
 
     pos += sizeof(struct pev_record_comm);
     pos += slen;
-    pos += read_samples(pos, end, out);
+    pos += handle_read_samples(pos, end, out);
     break;
   }
 
   case PERF_RECORD_EXIT: {
     const auto &rec = *(out.record.exit = reinterpret_cast<const struct pev_record_exit *>(pos));
     pos += sizeof(struct pev_record_exit);
-    pos += read_samples(pos, end, out);
+    pos += handle_read_samples(pos, end, out);
     break;
   }
 
@@ -286,52 +379,52 @@ void sideband_parser::load(struct pev_event &out,
     const auto &rec = *(out.record.throttle = reinterpret_cast<const struct pev_record_throttle *>(pos));
 
     pos += sizeof(struct pev_record_throttle);
-    pos += read_samples(pos, end, out);
+    pos += handle_read_samples(pos, end, out);
     break;
   }
 
   case PERF_RECORD_FORK: {
     const auto &rec = *(out.record.fork = reinterpret_cast<const struct pev_record_fork *>(pos));
     pos += sizeof(struct pev_record_fork);
-    pos += read_samples(pos, end, out);
+    pos += handle_read_samples(pos, end, out);
     break;
   }
 
   case PERF_RECORD_AUX: {
     const auto &rec = *(out.record.aux = reinterpret_cast<const struct pev_record_aux *>(pos));
     pos += sizeof(struct pev_record_aux);
-    pos += read_samples(pos, end, out);
+    pos += handle_read_samples(pos, end, out);
     break;
   }
 
   case PERF_RECORD_ITRACE_START: {
     const auto &rec = *(out.record.itrace_start = reinterpret_cast<const struct pev_record_itrace_start *>(pos));
     pos += sizeof(struct pev_record_itrace_start);
-    pos += read_samples(pos, end, out);
+    pos += handle_read_samples(pos, end, out);
     break;
   }
 
   case PERF_RECORD_LOST_SAMPLES: {
     const auto &rec = *(out.record.lost_samples = reinterpret_cast<const struct pev_record_lost_samples *>(pos));
     pos += sizeof(struct pev_record_lost_samples);
-    pos += read_samples(pos, end, out);
+    pos += handle_read_samples(pos, end, out);
     break;
   }
 
   case PERF_RECORD_SWITCH: {
-    pos += read_samples(pos, end, out);
+    pos += handle_read_samples(pos, end, out);
     break;
   }
 
   case PERF_RECORD_SWITCH_CPU_WIDE: {
     const auto &rec = *(out.record.switch_cpu_wide = reinterpret_cast<const struct pev_record_switch_cpu_wide *>(pos));
     pos += sizeof(struct pev_record_switch_cpu_wide);
-    pos += read_samples(pos, end, out);
+    pos += handle_read_samples(pos, end, out);
     break;
   }
 
   case PERF_RECORD_SAMPLE: {
-    pos += read_sample_samples(pos, out);
+    pos += handle_read_sample_samples(pos, out);
     assert(out.record.raw);
     break;
   }
