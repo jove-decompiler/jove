@@ -262,8 +262,8 @@ unsigned sideband_parser::handle_read_samples(const uint8_t *const begin,
   const uint64_t *pidentifier = nullptr;
   const uint8_t *pos = (end - sizeof(*pidentifier));
 
-  if (begin <= pos)
-    pidentifier = reinterpret_cast<const uint64_t *>(pos);
+  assert(begin <= pos);
+  pidentifier = reinterpret_cast<const uint64_t *>(pos);
 
   assert(pidentifier);
   //HumanOut() << "id=" << *pidentifier << '\n';
@@ -284,7 +284,7 @@ sideband_parser::handle_read_sample_samples(const uint8_t *const begin,
 
   const uint64_t id = *pidentifier;
   const perf::sb_sample_type_t &the_sample_type = sb_info.stypes.at(id);
-  if (id != the_sample_type.identifier)
+  if (unlikely(id != the_sample_type.identifier))
     throw std::runtime_error("bad sample type");
 
   out.name = the_sample_type.name.c_str();
