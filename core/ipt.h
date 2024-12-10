@@ -277,6 +277,7 @@ class IntelPT {
   const bool ignore_trunc_aux;
   const bool gathered_bins;
 
+  __attribute__((always_inline))
   void examine_sb_event(const struct pev_event &, uint64_t offset);
 
   void ptdump_tracking_init(void);

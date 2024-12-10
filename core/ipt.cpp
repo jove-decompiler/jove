@@ -227,6 +227,7 @@ static void hexdump(FILE *stream, const void *ptr, int buflen) {
 #endif
 
 template <IPT_PARAMETERS_DCL>
+__attribute__((always_inline))
 void IntelPT<IPT_PARAMETERS_DEF>::examine_sb_event(const struct pev_event &event, uint64_t offset) {
 #define unexpected_rest()                                                      \
   do {                                                                         \
@@ -235,16 +236,19 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb_event(const struct pev_event &event
     abort();\
   } while (0)
 
-    uint32_t pid = ~0u;
-    uint32_t tid = ~0u;
-    if (event.sample.pid)
-      pid = *event.sample.pid;
-    if (event.sample.tid)
-      tid = *event.sample.tid;
+    auto get_pid = [&](void) -> uint32_t {
+      assert(event.sample.pid);
+      return *event.sample.pid;
+    };
+    auto get_tid = [&](void) -> uint32_t {
+      assert(event.sample.tid);
+      return *event.sample.tid;
+    };
 
-    unsigned cpu = ~0u;
-    if (event.sample.cpu)
-      cpu = *event.sample.cpu;
+    auto get_cpu = [&](void) -> unsigned {
+      assert(event.sample.cpu);
+      return *event.sample.cpu;
+    };
 
     struct {
       bool two = true;
@@ -262,6 +266,7 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb_event(const struct pev_event &event
       case PERF_RECORD_AUX: {
         const struct pev_record_aux *aux = event.record.aux;
         assert(aux);
+        auto cpu = get_cpu();
         if (aux->flags & PERF_AUX_FLAG_TRUNCATED) {
           if (cpu == Our.cpu) {
             if (!ignore_trunc_aux)
@@ -286,6 +291,8 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb_event(const struct pev_event &event
     case PERF_RECORD_FORK: {
       const struct pev_record_fork *fork = event.record.fork;
       assert(fork);
+
+      auto pid = get_pid();
 
       if constexpr (IsVeryVerbose())
           fprintf(stderr, "%016" PRIx64 "\tfork (from %u) %u/%u, %u/%u\n",
@@ -318,6 +325,7 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb_event(const struct pev_event &event
           event.record.itrace_start;
       assert(itrace_start);
 
+      auto cpu = get_cpu();
       if (cpu == Our.cpu) {
 	Curr.pid = itrace_start->pid;
 
@@ -343,6 +351,8 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb_event(const struct pev_event &event
     case PERF_RECORD_SWITCH_CPU_WIDE: {
       const struct pev_record_switch_cpu_wide *switch_cpu_wide = event.record.switch_cpu_wide;
       assert(switch_cpu_wide);
+      auto pid = get_pid();
+      auto cpu = get_cpu();
       if (event.misc & PERF_RECORD_MISC_SWITCH_OUT) {
         if (cpu == Our.cpu) {
 	  if constexpr (IsVeryVerbose())
@@ -366,6 +376,8 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb_event(const struct pev_event &event
     }
 
     case PERF_RECORD_SWITCH: {
+      auto pid = get_pid();
+      auto cpu = get_cpu();
       if (event.misc & PERF_RECORD_MISC_SWITCH_OUT) {
         if (cpu == Our.cpu) {
 	  if constexpr (IsVeryVerbose())
@@ -392,6 +404,7 @@ void IntelPT<IPT_PARAMETERS_DEF>::examine_sb_event(const struct pev_event &event
       assert(event.name);
       assert(event.record.raw);
       assert(event.sample.ip);
+      auto pid = get_pid();
         const char *const name = event.name;
         const uint64_t ip = *event.sample.ip;
 
@@ -773,6 +786,7 @@ envs_done:
 
       }
 
+      auto pid = get_pid();
       if (pid <= 1) /* ignore kernel/init */
         break;
 
