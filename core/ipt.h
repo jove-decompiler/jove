@@ -65,7 +65,7 @@ class sideband_parser;
 
 /* reference IPT decoder */
 template <IPT_PARAMETERS_DCL>
-class IntelPT {
+class ipt_t {
   jv_file_t &jv_file;
   jv_base_t<MT> &jv;
   explorer_t &explorer;
@@ -334,19 +334,19 @@ class IntelPT {
                       binary_base_t<MT> &to, taddr_t ToAddr);
 
 public:
-  IntelPT(int ptdump_argc,
-          char **ptdump_argv,
-          jv_base_t<MT> &,
-          explorer_t &,
-          jv_file_t &jv_file,
-          unsigned cpu,
-          perf::data_reader<false> &sb,
-          perf::sideband_parser &sb_parser,
-          uint8_t *begin, uint8_t *end,
-          const char *sb_filename, unsigned verbose,
-          bool gathered_bins = false,
-          bool ignore_trunc_aux = false);
-  ~IntelPT();
+  ipt_t(int ptdump_argc,
+        char **ptdump_argv,
+        jv_base_t<MT> &,
+        explorer_t &,
+        jv_file_t &jv_file,
+        unsigned cpu,
+        perf::data_reader<false> &sb,
+        perf::sideband_parser &sb_parser,
+        uint8_t *begin, uint8_t *end,
+        const char *sb_filename, unsigned verbose,
+        bool gathered_bins = false,
+        bool ignore_trunc_aux = false);
+  ~ipt_t();
 
   int explore(void);
   int explore_packets(void);

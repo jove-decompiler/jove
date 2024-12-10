@@ -1149,7 +1149,7 @@ int IPTTool::UsingLibipt(void) {
         auto run = [&]<IPT_PARAMETERS_DCL>(void) {
           try {
             if constexpr (MT) {
-              IntelPT<IPT_PARAMETERS_DEF> ipt(
+              ipt_t<IPT_PARAMETERS_DEF> ipt(
                   ptdump_argv.size() - 1, ptdump_argv.data(), jv, *Explorer,
                   jv_file, cpu, sb, sb_parser,
                   const_cast<uint8_t *>(aux.data_begin()),
@@ -1160,7 +1160,7 @@ int IPTTool::UsingLibipt(void) {
               Ran = true;
               ipt.explore();
             } else {
-              IntelPT<IPT_PARAMETERS_DEF> ipt(
+              ipt_t<IPT_PARAMETERS_DEF> ipt(
                   ptdump_argv.size() - 1, ptdump_argv.data(), *jv2, *Explorer,
                   *jv_file2, cpu, sb, sb_parser,
                   const_cast<uint8_t *>(aux.data_begin()),
