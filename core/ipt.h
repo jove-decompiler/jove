@@ -13,6 +13,10 @@
 #include <boost/unordered/unordered_node_map.hpp>
 #include <boost/unordered/unordered_flat_set.hpp>
 
+extern "C" {
+#include "pevent.h"
+}
+
 struct pt_config;
 struct pt_sb_session;
 struct pt_packet_decoder;
@@ -27,7 +31,6 @@ struct pt_packet_tma;
 struct pt_last_ip;
 struct pt_time_cal;
 struct pt_time;
-struct pev_event;
 
 namespace jove {
 
@@ -88,6 +91,8 @@ class IntelPT {
 
     uint32_t in_header = 0; /* Header vs. normal decode. */
   } tracking;
+
+  struct pev_event incoming_event;
 
   using straight_line_t = basic_block_properties_t::Analysis_t::straight_line_t;
 
@@ -277,7 +282,6 @@ class IntelPT {
   const bool ignore_trunc_aux;
   const bool gathered_bins;
 
-  __attribute__((always_inline))
   void examine_sb_event(const struct pev_event &, uint64_t offset);
 
   void ptdump_tracking_init(void);

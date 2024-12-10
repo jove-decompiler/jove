@@ -39,7 +39,6 @@ static const unsigned nr32_mmap = VERY_UNIQUE_NUM();
 #include <type_traits>
 
 extern "C" {
-#include "pevent.h"
 #include "pt_last_ip.c"
 #include "pt_time.c"
 }
@@ -163,6 +162,16 @@ IntelPT<IPT_PARAMETERS_DEF>::IntelPT(int ptdump_argc, char **ptdump_argv,
                 (uint64_t)exeOnly.end);
     }
   }
+
+  if (sb_it == sb.end()) {
+    incoming_event.sample.time = nullptr;
+    incoming_event.sample.tsc =
+        std::numeric_limits<decltype(incoming_event.sample.tsc)>::max();
+  } else {
+    sb_parser.load(incoming_event, *sb_it);
+    if (!incoming_event.sample.time)
+      incoming_event.sample.tsc = 0;
+  }
 }
 
 template <IPT_PARAMETERS_DCL>
@@ -227,7 +236,6 @@ static void hexdump(FILE *stream, const void *ptr, int buflen) {
 #endif
 
 template <IPT_PARAMETERS_DCL>
-__attribute__((always_inline))
 void IntelPT<IPT_PARAMETERS_DEF>::examine_sb_event(const struct pev_event &event, uint64_t offset) {
 #define unexpected_rest()                                                      \
   do {                                                                         \
@@ -1934,24 +1942,33 @@ int IntelPT<IPT_PARAMETERS_DEF>::sb_track_time(uint64_t offset)
     print_time(offset);
 #endif
 
-  // fprintf(stderr, "tsc=%" PRIx64 "\n", tsc);
-  //  TODO
-  for (; sb_it != sb.end(); ++sb_it) {
-    struct pev_event e;
-    sb_parser.load(e, *sb_it);
+  for (;;) {
+    auto etsc = incoming_event.sample.tsc;
 
-    if (const uint64_t *t = e.sample.time) {
-      auto etsc = e.sample.tsc;
-      if (etsc && tsc < etsc) {
-        // fprintf(stderr, "tscno %" PRIx64 " %" PRIx64 "\n", etsc, tsc);
-        break;
-      } else {
-        // fprintf(stderr, "tscyes %" PRIx64 " %" PRIx64 "\n", etsc, tsc);
-      }
-    } else {
-      // fprintf(stderr, "!e.sample.time (tsc=%" PRIx64 ")\n", tsc);
+    if (tsc < etsc)
+      return 1;
+
+    examine_sb_event(incoming_event, offset);
+
+    if (++sb_it == sb.end()) {
+      incoming_event.sample.time = nullptr;
+      incoming_event.sample.tsc =
+          std::numeric_limits<decltype(incoming_event.sample.tsc)>::max();
+      return 1;
     }
-    examine_sb_event(e, offset);
+
+    for (;;) {
+      incoming_event.sample.time = nullptr;
+      incoming_event.sample.tsc =
+          std::numeric_limits<decltype(incoming_event.sample.tsc)>::max();
+      sb_parser.load(incoming_event, *sb_it);
+
+      if (incoming_event.sample.time && incoming_event.sample.tsc)
+        break;
+
+      examine_sb_event(incoming_event, offset);
+      ++sb_it;
+    }
   }
 
   return 1;
