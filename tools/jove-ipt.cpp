@@ -7,7 +7,7 @@
 #include "util.h"
 #include "symbolizer.h"
 #include "locator.h"
-#include "ipt.h"
+#include "reference_ipt.h"
 #include "fastipt.h"
 #include "wine.h"
 #include "perf.h"
@@ -19,24 +19,6 @@
 #include "augmented_raw_syscalls.h"
 
 #include <tbb/flow_graph.h>
-
-////////////////////////////////////////////////////////////////////////////////
-#define VERY_UNIQUE_BASE 0xfffffff
-#define VERY_UNIQUE_NUM() (VERY_UNIQUE_BASE + __COUNTER__)
-
-#define ___SYSCALL(nr, nm) \
-  static const unsigned nr64_##nm = nr;\
-  static const char *const nr64_##nm##_nm = #nm;
-
-#include <arch/x86_64/syscalls.inc.h>
-static const unsigned nr64_clone3 = VERY_UNIQUE_NUM();
-static const unsigned nr64_mmap_pgoff = VERY_UNIQUE_NUM();
-
-#define ___SYSCALL(nr, nm) static const unsigned nr32_##nm = nr;\
-  static const char *const nr32_##nm##_nm = #nm;
-#include <arch/i386/syscalls.inc.h>
-static const unsigned nr32_mmap = VERY_UNIQUE_NUM();
-////////////////////////////////////////////////////////////////////////////////
 
 #include <boost/filesystem.hpp>
 #include <boost/algorithm/string.hpp>
@@ -1149,7 +1131,7 @@ int IPTTool::UsingLibipt(void) {
         auto run = [&]<IPT_PARAMETERS_DCL>(void) {
           try {
             if constexpr (MT) {
-              ipt_t<IPT_PARAMETERS_DEF> ipt(
+              reference_ipt_t<IPT_PARAMETERS_DEF> ipt(
                   ptdump_argv.size() - 1, ptdump_argv.data(), jv, *Explorer,
                   jv_file, cpu, sb, sb_parser,
                   const_cast<uint8_t *>(aux.data_begin()),
@@ -1160,7 +1142,7 @@ int IPTTool::UsingLibipt(void) {
               Ran = true;
               ipt.explore();
             } else {
-              ipt_t<IPT_PARAMETERS_DEF> ipt(
+              reference_ipt_t<IPT_PARAMETERS_DEF> ipt(
                   ptdump_argv.size() - 1, ptdump_argv.data(), *jv2, *Explorer,
                   *jv_file2, cpu, sb, sb_parser,
                   const_cast<uint8_t *>(aux.data_begin()),

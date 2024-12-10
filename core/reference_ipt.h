@@ -1,109 +1,64 @@
 #if defined(__x86_64__) && (defined(TARGET_X86_64) || defined(TARGET_I386))
-
+#pragma once
 #include "ipt.h"
-#include "explore.h"
-#include "objdump.h"
-#include "concurrent.h"
-#include "augmented_raw_syscalls.h"
-#include "locator.h"
-#include "sideband.h"
-
-////////////////////////////////////////////////////////////////////////////////
-#define VERY_UNIQUE_BASE 0xfffffff
-#define VERY_UNIQUE_NUM() (VERY_UNIQUE_BASE + __COUNTER__)
-
-#define ___SYSCALL(nr, nm) \
-  static const unsigned nr64_##nm = nr;\
-  static const char *const nr64_##nm##_nm = #nm;
-
-#include <arch/x86_64/syscalls.inc.h>
-static const unsigned nr64_clone3 = VERY_UNIQUE_NUM();
-static const unsigned nr64_mmap_pgoff = VERY_UNIQUE_NUM();
-
-#define ___SYSCALL(nr, nm) static const unsigned nr32_##nm = nr;\
-  static const char *const nr32_##nm##_nm = #nm;
-#include <arch/i386/syscalls.inc.h>
-static const unsigned nr32_mmap = VERY_UNIQUE_NUM();
-////////////////////////////////////////////////////////////////////////////////
-
-#include <boost/filesystem.hpp>
-#include <boost/format.hpp>
-#include <boost/algorithm/string.hpp>
-#include <boost/preprocessor/variadic/size.hpp>
-
-#include <libipt-sb.h>
-#include <inttypes.h>
-#include <unistd.h>
-
-#include <type_traits>
 
 extern "C" {
-#include "pt_last_ip.c"
-#include "pt_time.c"
+#include "pt_last_ip.h"
+#include "pt_time.h"
+//#include "pt_last_ip.c"
+//#include "pt_time.c"
 }
-
-namespace fs = boost::filesystem;
 
 namespace jove {
 
-typedef boost::format fmt;
+template <IPT_PARAMETERS_DCL> struct reference_ipt_t;
 
+template <IPT_PARAMETERS_DCL>
+struct ipt_traits<reference_ipt_t<IPT_PARAMETERS_DEF>> {
+  using packet_type = struct pt_packet;
+};
+
+template <IPT_PARAMETERS_DCL>
+struct reference_ipt_t : public ipt_t<IPT_PARAMETERS_DEF, reference_ipt_t<IPT_PARAMETERS_DEF>> {
 #define IsVerbose() (Verbosity >= 1)
 #define IsVeryVerbose() (Verbosity >= 2)
 
-template <IPT_PARAMETERS_DCL>
-ipt_t<IPT_PARAMETERS_DEF>::ipt_t(int ptdump_argc, char **ptdump_argv,
-                                 jv_base_t<MT> &jv, explorer_t &explorer,
-                                 jv_file_t &jv_file,
-                                 unsigned cpu,
-                                 perf::data_reader<false> &sb,
-                                 perf::sideband_parser &sb_parser,
-                                 uint8_t *begin, uint8_t *end,
-                                 const char *sb_filename, unsigned verbose,
-                                 bool gathered_bins, bool ignore_trunc_aux)
-    : jv_file(jv_file), jv(jv), explorer(explorer),
-      sb(sb), sb_it(sb.begin()), sb_parser(sb_parser),
-      state(jv),
-      PageSize(sysconf(_SC_PAGESIZE)),
-      IsCOFF(B::is_coff(*state.for_binary(jv.Binaries.at(0)).Bin)),
-      exe(jv.Binaries.at(0)), CurrPoint(exe),
-      ignore_trunc_aux(ignore_trunc_aux),
-      gathered_bins(gathered_bins),
-      process_state(dummy_process_state),
-      path_to_wine_bin(locator_t::wine(IsTarget32)) {
-  setvbuf(stderr, NULL, _IOLBF, 0); /* automatically flush on new-line */
+  typedef ipt_t<IPT_PARAMETERS_DEF, reference_ipt_t<IPT_PARAMETERS_DEF>> Base;
 
-  Our.cpu = cpu;
+  using packet_type = Base::packet_type;
 
-  pt_config_init(&config);
+  struct pt_config config;
+  struct pt_packet_decoder *decoder = NULL;
 
-  ptdump_tracking_init();
+  struct {
+    struct pt_last_ip last_ip;
+    struct pt_time_cal tcal;
+    struct pt_time time;
 
-#if 0
-  tracking.session = pt_sb_alloc(NULL);
-  if (!tracking.session)
-    throw std::runtime_error("failed to allocate sideband session");
+    uint64_t tsc = 0ull; /* The last estimated TSC. */
+    uint64_t fcr = 0ull; /* The last calibration value. */
 
-  pt_sb_notify_error(
-      tracking.session,
-      [](int errcode, const char *filename, uint64_t offset, void *priv) {
-        assert(priv);
-        return ((ipt_t *)priv)->ptdump_print_error(errcode, filename, offset);
-      },
-      this);
-#endif
+    uint32_t in_header = 0; /* Header vs. normal decode. */
+  } tracking;
 
-  if (process_args(ptdump_argc, ptdump_argv, sb_filename) != 0)
-    throw std::runtime_error("failed to process ptdump arguments");
+  template <typename... Args>
+  reference_ipt_t(Args &&...args) : Base(std::forward<Args>(args)...) {
+    setvbuf(stderr, NULL, _IOLBF, 0); /* automatically flush on new-line */
 
-  if (config.cpu.vendor) {
-    int errcode = pt_cpu_errata(&config.errata, &config.cpu);
-    if (errcode < 0)
-      throw std::runtime_error("failed to determine errata");
+    pt_config_init(&config);
+    ptdump_tracking_init();
 
-    std::vector<uint8_t> zeros(sizeof(config.errata), 0);
-    if (memcmp(&config.errata, &zeros[0], sizeof(config.errata)) != 0) {
-      fprintf(stderr, "WARNING! CPU errata detected:");
+    if (process_args(this->ptdump_argc, this->ptdump_argv) != 0)
+      throw std::runtime_error("failed to process ptdump arguments");
+
+    if (config.cpu.vendor) {
+      int errcode = pt_cpu_errata(&config.errata, &config.cpu);
+      if (errcode < 0)
+        throw std::runtime_error("failed to determine errata");
+
+      std::vector<uint8_t> zeros(sizeof(config.errata), 0);
+      if (memcmp(&config.errata, &zeros[0], sizeof(config.errata)) != 0) {
+        fprintf(stderr, "WARNING! CPU errata detected:");
 
 #define __ERRATA(x)                                                            \
   do {                                                                         \
@@ -128,65 +83,17 @@ ipt_t<IPT_PARAMETERS_DEF>::ipt_t(int ptdump_argc, char **ptdump_argv,
     }
   }
 
-#if 0
-  int errcode = pt_sb_init_decoders(tracking.session);
-  if (errcode < 0) {
-    throw std::runtime_error(
-        std::string("error initializing sideband decoders: ") +
-        pt_errstr(pt_errcode(errcode)));
-  }
-#endif
-
-  config.begin = begin;
-  config.end = end;
+  config.begin = const_cast<uint8_t *>(this->aux_begin);
+  config.end = const_cast<uint8_t *>(this->aux_end);
 
   decoder = pt_pkt_alloc_decoder(&config);
-
-  if constexpr (ExeOnly) {
-    binary_base_t<MT> &exe = jv.Binaries.at(0);
-
-    if (!exe.IsPIC) {
-      std::tie(exeOnly.beg, exeOnly.end) =
-          B::bounds_of_binary(*state.for_binary(exe).Bin);
-
-      if constexpr (IsVerbose())
-        fprintf(stderr, "looking for [%016" PRIx64 ", %016" PRIx64 ")\n",
-                (uint64_t)exeOnly.beg,
-                (uint64_t)exeOnly.end);
-    }
   }
 
-  if (sb_it == sb.end()) {
-    incoming_event.sample.time = nullptr;
-    incoming_event.sample.tsc =
-        std::numeric_limits<decltype(incoming_event.sample.tsc)>::max();
-  } else {
-    sb_parser.load(incoming_event, *sb_it);
-    if (!incoming_event.sample.time)
-      incoming_event.sample.tsc = 0;
-  }
-}
-
-template <IPT_PARAMETERS_DCL>
-ipt_t<IPT_PARAMETERS_DEF>::~ipt_t() {
+~reference_ipt_t() {
   pt_pkt_free_decoder(decoder);
-
-#if 0
-  int errcode = pt_sb_dump(tracking.session, stderr, sb_dump_flags, UINT64_MAX);
-#endif
-
-#if 0
-  if (unlikely(errcode < 0))
-    return diag("sideband dump error", UINT64_MAX, errcode);
-#endif
-
-#if 0
-  pt_sb_free(tracking.session);
-#endif
 }
 
-template <IPT_PARAMETERS_DCL>
-int ipt_t<IPT_PARAMETERS_DEF>::ptdump_print_error(int errcode,
+int ptdump_print_error(int errcode,
                                                   const char *filename,
                                                   uint64_t offset) {
   if (errcode >= 0 && false /* !options->print_sb_warnings */)
@@ -208,749 +115,25 @@ int ipt_t<IPT_PARAMETERS_DEF>::ptdump_print_error(int errcode,
   return 0;
 }
 
-#if 1
-static void hexdump(FILE *stream, const void *ptr, int buflen) {
-  const unsigned char *buf = (const unsigned char*)ptr;
-  int i, j;
-  for (i=0; i<buflen; i+=16) {
-    fprintf(stream, "%06x: ", i);
-    for (j=0; j<16; j++)
-      if (i+j < buflen)
-        fprintf(stream, "%02x ", buf[i+j]);
-      else
-        fprintf(stream, "   ");
-    printf(" ");
-    for (j=0; j<16; j++)
-      if (i+j < buflen)
-        fprintf(stream, "%c", isprint(buf[i+j]) ? buf[i+j] : '.');
-    fprintf(stream, "\n");
-  }
-}
-#endif
-
-template <IPT_PARAMETERS_DCL>
-void ipt_t<IPT_PARAMETERS_DEF>::examine_sb_event(const struct pev_event &event,
-                                                 uint64_t offset) {
-#define unexpected_rest()                                                      \
-  do {                                                                         \
-    fprintf(stderr, "unexpected rest (%" PRIu32 ")\n", event.type);            \
-    assert(false);                                                             \
-    abort();\
-  } while (0)
-
-    auto get_pid = [&](void) -> uint32_t {
-      assert(event.sample.pid);
-      return *event.sample.pid;
-    };
-    auto get_tid = [&](void) -> uint32_t {
-      assert(event.sample.tid);
-      return *event.sample.tid;
-    };
-
-    auto get_cpu = [&](void) -> unsigned {
-      assert(event.sample.cpu);
-      return *event.sample.cpu;
-    };
-
-    struct {
-      bool two = true;
-
-      unsigned pid, tid;
-      uint64_t addr, len, pgoff;
-      const char *filename;
-    } _mmap;
-
-    bool is_pgoff = false;
-
-    uint64_t fd_pos = 0;
-
-    switch (event.type) {
-      case PERF_RECORD_AUX: {
-        const struct pev_record_aux *aux = event.record.aux;
-        assert(aux);
-        auto cpu = get_cpu();
-        if (aux->flags & PERF_AUX_FLAG_TRUNCATED) {
-          if (cpu == Our.cpu) {
-            if (!ignore_trunc_aux)
-              throw truncated_aux_exception();
-          }
-        }
-        break;
-      }
-
-    case PERF_RECORD_COMM: {
-#if 0
-		const struct pev_record_comm *comm = event.record.comm;
-                assert(comm);
-      if (event.misc & PERF_RECORD_MISC_COMM_EXEC) {
-        do_comm_exec(*comm);
-      CheckEngaged();
-      }
-#endif
-      break;
-    }
-
-    case PERF_RECORD_FORK: {
-      const struct pev_record_fork *fork = event.record.fork;
-      assert(fork);
-
-      auto pid = get_pid();
-
-      if constexpr (IsVeryVerbose())
-          fprintf(stderr, "%016" PRIx64 "\tfork (from %u) %u/%u, %u/%u\n",
-                  offset, pid, fork->pid, fork->tid, fork->ppid, fork->ptid);
-
-      if (pid == 0)
-        break;
-
-      if (!IsRightProcess(pid))
-	break;
-
-      Our.pids.insert(fork->pid);
-      pid_map[fork->pid] = pid_map[pid];
-
-      break;
-    }
-
-    case PERF_RECORD_LOST_SAMPLES: {
-      const struct pev_record_lost_samples *lost_samples = event.record.lost_samples;
-      assert(lost_samples);
-
-      if constexpr (IsVeryVerbose())
-        fprintf(stderr, "%016" PRIx64 "\tlost_samples %" PRIx64 "\n",
-                offset, lost_samples->lost);
-      break;
-    }
-
-    case PERF_RECORD_ITRACE_START: {
-      const struct pev_record_itrace_start *itrace_start =
-          event.record.itrace_start;
-      assert(itrace_start);
-
-      auto cpu = get_cpu();
-      if (cpu == Our.cpu) {
-	Curr.pid = itrace_start->pid;
-
-        if constexpr (IsVeryVerbose())
-          fprintf(stderr, "itrace switch (%u)\n", (unsigned)itrace_start->pid);
-
-	CheckEngaged();
-      }
-      break;
-    }
-
-    case PERF_RECORD_EXIT: {
-      const struct pev_record_exit *exit = event.record.exit;
-      assert(exit);
-
-      if constexpr (IsVeryVerbose())
-        fprintf(stderr, "%016" PRIx64 "\texit %u/%u, %u/%u\n", offset, exit->pid,
-                exit->tid, exit->ppid, exit->ptid);
-
-      break;
-    }
-
-    case PERF_RECORD_SWITCH_CPU_WIDE: {
-      const struct pev_record_switch_cpu_wide *switch_cpu_wide = event.record.switch_cpu_wide;
-      assert(switch_cpu_wide);
-      auto pid = get_pid();
-      auto cpu = get_cpu();
-      if (event.misc & PERF_RECORD_MISC_SWITCH_OUT) {
-        if (cpu == Our.cpu) {
-	  if constexpr (IsVeryVerbose())
-	    fprintf(stderr, "switch out\n");
-
-          Curr.pid = ~0u;
-          process_state = dummy_process_state;
-          Engaged = false;
-        }
-      } else {
-        if (cpu == Our.cpu) {
-	  if constexpr (IsVeryVerbose())
-	    fprintf(stderr, "switch (%u)\n", (unsigned)pid);
-
-          Curr.pid = pid;
-          process_state = pid_map[pid];
-          CheckEngaged();
-        }
-      }
-      break;
-    }
-
-    case PERF_RECORD_SWITCH: {
-      auto pid = get_pid();
-      auto cpu = get_cpu();
-      if (event.misc & PERF_RECORD_MISC_SWITCH_OUT) {
-        if (cpu == Our.cpu) {
-	  if constexpr (IsVeryVerbose())
-	    fprintf(stderr, "switch out\n");
-
-          Curr.pid = ~0u;
-          process_state = dummy_process_state;
-          Engaged = false;
-        }
-      } else {
-        if (cpu == Our.cpu) {
-	  if constexpr (IsVeryVerbose())
-	    fprintf(stderr, "switch (%u)\n", (unsigned)pid);
-
-          Curr.pid = pid;
-          process_state = pid_map[pid];
-          CheckEngaged();
-        }
-      }
-      break;
-    }
-
-    case PERF_RECORD_SAMPLE: {
-      assert(event.name);
-      assert(event.record.raw);
-      assert(event.sample.ip);
-      auto pid = get_pid();
-        const char *const name = event.name;
-        const uint64_t ip = *event.sample.ip;
-
-        if (strcmp(name, "__jove_augmented_syscalls__") != 0) {
-          unexpected_rest();
-          break;
-        }
-
-          auto on_syscall = [&]<typename T>(const T *payload) -> void {
-	  const auto &hdr = payload->hdr;
-
-          auto nr = hdr.syscall_nr;
-          auto ret = hdr.ret;
-
-#define RIGHT_PROCESS_GET                                                      \
-    auto &pstate = pid_map[pid];                                               \
-    auto &AddressSpace = pstate.addrspace
-
-#define IS_RIGHT_PROCESS_GET                                                   \
-    assert(~pid != 0u);                                                        \
-    if (!IsRightProcess(pid)) break;                                           \
-    RIGHT_PROCESS_GET
-          //
-          // we can assume that the syscall successfully completed (XXX except exec)
-          //
-
-#define nr_for(sysnm)                                                          \
-  (std::is_same_v<T, struct augmented_syscall_payload64> ? nr64_##sysnm        \
-                                                         : nr32_##sysnm)
-          switch (nr) {
-          case nr_for(munmap): {
-            IS_RIGHT_PROCESS_GET;
-
-            auto addr = hdr.args[0];
-            auto len  = hdr.args[1];
-
-            const addr_intvl intvl(addr, len);
-
-            if constexpr (IsVerbose()) {
-              std::string as(addr_intvl2str(intvl));
-
-              fprintf(stderr, "-\t%s\t\t<munmap(2)>\n", as.c_str());
-            }
-
-            intvl_map_clear(AddressSpace, intvl);
-            break;
-          }
-
-          case nr_for(mmap_pgoff):
-            is_pgoff = true;
-          case nr_for(mmap):
-          {
-            IS_RIGHT_PROCESS_GET;
-
-            auto addr  = hdr.args[0];
-            auto len   = hdr.args[1];
-            auto prot  = hdr.args[2];
-            auto flags = hdr.args[3];
-            auto fd    = hdr.args[4];
-            auto off   = hdr.args[5];
-
-            if (is_pgoff)
-              off *= PageSize;
-
-            const addr_intvl intvl(ret, len);
-
-            const bool anon = static_cast<int>(fd) < 0;
-            if (anon) {
-              intvl_map_clear(AddressSpace, intvl);
-
-              if constexpr (IsVeryVerbose()) {
-                std::string as(addr_intvl2str(intvl));
-
-                fprintf(stderr, "+\t%s\t\"//anon\"\t<mmap(2)>\n", as.c_str());
-              }
-            } else {
-              // do we know the path?
-              auto it = pstate.fdmap.find(fd);
-              if (it == pstate.fdmap.end()) {
-                if constexpr (IsVerbose()) {
-                  std::string as(addr_intvl2str(intvl));
-
-                  fprintf(stderr, "+\t%s\t??%d??\t<mmap(2)>\n", as.c_str(), (int)fd);
-                }
-              } else {
-                binary_index_t BIdx;
-                bool isNew;
-
-                const std::string &path = (*it).second.path;
-                if (path.empty() || path.front() != '/') {
-                  fprintf(stderr, "bogus path \"%s\" (nr=%ld) (ret=%lx)\n", path.c_str(), (long)nr, (unsigned long)ret);
-                  break;
-                }
-
-                assert(path[0] == '/');
-
-                if (gathered_bins) {
-                  binary_index_set BIdxSet;
-                  if (jv.LookupByName(path.c_str(), BIdxSet)) {
-                    BIdx = *BIdxSet.cbegin();
-                    (void)isNew;
-                  } else {
-                    break;
-                  }
-                } else {
-                  std::tie(BIdx, isNew) = jv.AddFromPath(explorer, jv_file, path.c_str());
-                  if (!is_binary_index_valid(BIdx))
-                    break;
-                }
-
-                if constexpr (IsVerbose()) {
-                  std::string as(addr_intvl2str(intvl));
-
-                  fprintf(stderr, "+\t%s\t\"%s\"+%#x\t<mmap(2)>\n", as.c_str(),
-                          jv.Binaries.at(BIdx).Name.c_str(), (unsigned)off);
-                }
-
-                intvl_map_clear(AddressSpace, intvl);
-                intvl_map_add(AddressSpace, intvl, std::make_pair(BIdx, off));
-              }
-            }
-            break;
-          }
-
-          case nr_for(close): {
-            IS_RIGHT_PROCESS_GET;
-
-            auto fd = hdr.args[0];
-
-            if constexpr (IsVeryVerbose())
-              fprintf(stderr, "close(%d) = %ld\n", (int)fd, (long)ret);
-
-            pstate.fdmap.erase(fd);
-            break;
-          }
-
-          case nr_for(openat):
-          case nr_for(open): {
-            IS_RIGHT_PROCESS_GET;
-
-            if constexpr (IsVeryVerbose())
-              fprintf(stderr, "open(\"%s\") = %ld\n", payload->str, (long)ret);
-
-            pstate.fdmap[ret].path = payload->str;
-            break;
-          }
-
-          case nr_for(pread64):
-            fd_pos = hdr.args[3];
-
-          case nr_for(read): {
-            IS_RIGHT_PROCESS_GET;
-
-            auto fd = hdr.args[0];
-
-            auto &fdmap = pstate.fdmap;
-            auto it = fdmap.find(fd);
-            if (it == fdmap.end())
-              break;
-
-            const auto &filename = (*it).second.path;
-
-            binary_index_t BIdx;
-            bool isNew;
-
-            if (gathered_bins) {
-              binary_index_set BIdxSet;
-              if (jv.LookupByName(filename.c_str(), BIdxSet)) {
-                BIdx = *BIdxSet.cbegin();
-                (void)isNew;
-              } else {
-                break;
-              }
-            } else {
-              std::tie(BIdx, isNew) =
-                  jv.AddFromPath(explorer, jv_file, filename.c_str());
-              if (!is_binary_index_valid(BIdx))
-                break;
-            }
-
-            if constexpr (IsVerbose())
-              if (is_binary_index_valid(BIdx))
-                llvm::errs()
-                    << llvm::formatv("read of {0} (offset {1}) to {2:x}\n",
-                                     filename, fd_pos, hdr.args[1]);
-
-            (*it).second.pos += ret;
-            break;
-          }
-
-          case nr_for(execve):
-          case nr_for(execveat): {
-            if (ret == 1) {
-              // XXX exec never returns 1; we use this value to just say that an
-              // exec is being attempted. the exit will be reported even if it
-              // fails.
-              //
-              // we do this here because the MMAP records come before the exec
-              // has completed
-              if constexpr (IsVeryVerbose())
-                fprintf(stderr, "(enter exec)\n");
-
-              auto it = pid_map.find(pid);
-              if (it != pid_map.end()) {
-                auto &pstate = (*it).second;
-                pstate.addrspace_sav = pstate.addrspace;
-                pstate.addrspace.clear(); /* entering exec */
-              }
-              break;
-            }
-            if (static_cast<int>(ret) == -1) {
-              // exec failed, undo our clear of the address space
-              if constexpr (IsVeryVerbose())
-                fprintf(stderr, "(exec failed)\n");
-
-              auto it = pid_map.find(pid);
-              if (it != pid_map.end()) {
-                auto &pstate = (*it).second;
-                pstate.addrspace = pstate.addrspace_sav;
-                pstate.addrspace_sav.clear();
-              }
-              break;
-            }
-
-            Our.pids.insert(pid);
-            RIGHT_PROCESS_GET;
-            CheckEngaged();
-
-            std::vector<const char *> argvec;
-            std::vector<const char *> envvec;
-
-            const uint64_t n = payload->hdr.str_len;
-
-            const char *const beg = &payload->str[0];
-            const char *const end = &payload->str[n];
-
-            const char *eon;
-            const char *const pathname = beg;
-
-            eon = (char *)memchr(pathname, '\0', n);
-            assert(eon);
-
-            for (const char *arg = eon + 1; *arg; arg = eon + 1) {
-              argvec.push_back(arg);
-
-              assert(arg >= beg);
-              assert(n >= (arg - beg));
-
-              uint64_t left = n - (arg - beg);
-              eon = (const char *)memchr(arg, '\0', left);
-              assert(eon);
-            }
-            assert(eon < end);
-            ++eon;
-            assert(eon < end);
-            assert(*eon == '\0');
-args_done:
-            for (const char *env = eon + 1; env < end; env = eon + 1) {
-              envvec.push_back(env);
-
-              assert(env >= beg);
-              assert(n >= (env - beg));
-
-              uint64_t left = n - (env - beg);
-              eon = (const char *)memchr(env, '\0', left);
-              assert(eon);
-            }
-envs_done:
-
-            const unsigned nowBits = payload->hdr.is32 ? 32u : 64u;
-
-            if constexpr (IsVeryVerbose()) {
-              fprintf(stderr, "nargs=%u nenvs=%u (%u / %u) <%u> [%u] exec:",
-                      (unsigned)argvec.size(),
-                      (unsigned)envvec.size(),
-                      (unsigned)(sizeof(payload->hdr) + n),
-                      TWOTIMESMAXLEN,
-                      (unsigned)pid,
-                      (unsigned)nowBits);
-              for (const char *env : envvec)
-                fprintf(stderr, " \"%s\"", env);
-              fprintf(stderr, " \"%s\"", pathname);
-              for (const char *arg : argvec)
-                fprintf(stderr, " \"%s\"", arg);
-              fprintf(stderr, "\n");
-            }
-
-            const bool rightBits = nowBits == sizeof(taddr_t) * 8;
-            if (!rightBits)
-              break;
-
-            break;
-          }
-
-          default:
-            fprintf(stderr, "unhandled syscall %u!\n", (unsigned)nr);
-            break;
-          }
-          };
-
-          unsigned bytes_size = event.record.raw->size;
-          const uint8_t *const bytes = (const uint8_t *)event.record.raw->data;
-
-          const bool was32 = !!(bytes[MAGIC_LEN] & 1u);
-
-#if 0
-          const unsigned size_of_struct =
-              was32 ? sizeof(struct augmented_syscall_payload32)
-                    : sizeof(struct augmented_syscall_payload64);
-
-          bool bad = false;
-          if (!(bytes[0] == 'J' &&
-                bytes[1] == 'O' &&
-                bytes[2] == 'V' &&
-                bytes[3] == 'E')) {
-            fprintf(stderr, "offset at %" PRIu64 " does not start with magic1! bytes_size=%u sizeof(struct)=%u\n", offset, bytes_size, size_of_struct);
-            bad = true;
-          }
-
-          if (!(bytes[bytes_size - 1] == 'E' &&
-                bytes[bytes_size - 2] == 'V' &&
-                bytes[bytes_size - 3] == 'O' &&
-                bytes[bytes_size - 4] == 'J')) {
-            fprintf(stderr, "offset at %" PRIu64 " does not end with magic2! bytes_size=%u sizeof(struct)=%u\n", offset, bytes_size, size_of_struct);
-            bad = true;
-          }
-
-          if (bad) {
-            fprintf(stderr, "\n");
-            hexdump(stderr, bytes, bytes_size);
-            fprintf(stderr, "\n");
-          }
-#endif
-
-          if (was32) {
-            on_syscall.template operator()<struct augmented_syscall_payload32>(
-                reinterpret_cast<const struct augmented_syscall_payload32 *>(
-                    bytes));
-          } else {
-            on_syscall.template operator()<struct augmented_syscall_payload64>(
-                reinterpret_cast<const struct augmented_syscall_payload64 *>(
-                    bytes));
-          }
-        break;
-      }
-
-    case PERF_RECORD_MMAP: {
-      if ((event.misc & PERF_RECORD_MISC_CPUMODE_MASK) == PERF_RECORD_MISC_KERNEL)
-        break;
-
-      const struct pev_record_mmap *mmap = event.record.mmap;
-      assert(mmap);
-
-      _mmap.two = false;
-
-      _mmap.pid = mmap->pid;
-      _mmap.tid = mmap->tid;
-      _mmap.addr = mmap->addr;
-      _mmap.len = mmap->len;
-      _mmap.pgoff = mmap->pgoff;
-      _mmap.filename = mmap->filename;
-    } /* fallthrough */
-    case PERF_RECORD_MMAP2: {
-      if ((event.misc & PERF_RECORD_MISC_CPUMODE_MASK) == PERF_RECORD_MISC_KERNEL)
-        break;
-
-      if (_mmap.two) {
-        const struct pev_record_mmap2 *mmap2= event.record.mmap2;
-        assert(mmap2);
-
-        assert(mmap2->prot & PROT_EXEC);
-
-      _mmap.pid = mmap2->pid;
-      _mmap.tid = mmap2->tid;
-      _mmap.addr = mmap2->addr;
-      _mmap.len = mmap2->len;
-      _mmap.pgoff = mmap2->pgoff;
-      _mmap.filename = mmap2->filename;
-
-      }
-
-      auto pid = get_pid();
-      if (pid <= 1) /* ignore kernel/init */
-        break;
-
-      if (_mmap.pid != pid) {
-      fprintf(stderr, "_mmap.pid %u != pid %u %u %s\n", _mmap.pid, pid,
-              (unsigned)_mmap.two, _mmap.filename);
-      }
-      assert(_mmap.pid == pid);
-
-      //
-      // we want to see all records since they will be encountered before the
-      // exec of a process of interest happens
-      //
-#if 0
-      if (!IsRightProcess(pid))
-        break;
-#endif
-
-      auto &pstate = pid_map[pid];
-      auto &AddressSpace = pstate.addrspace;
-
-      std::string name(_mmap.filename);
-
-      const addr_intvl intvl(_mmap.addr, _mmap.len);
-
-      const bool anon = name == "//anon";
-      if (anon) {
-        intvl_map_clear(AddressSpace, intvl);
-
-        if constexpr (IsVerbose()) {
-          std::string as(addr_intvl2str(intvl));
-
-          fprintf(stderr, "+\t%s\t\"//anon\"\t<MMAP%s>\n", as.c_str(), _mmap.two ? "2" : "");
-        }
-        break;
-      }
-
-      binary_index_t BIdx;
-      bool isNew;
-      if (name[0] == '/') {
-        if (!fs::exists(name)) {
-          if constexpr (IsVeryVerbose())
-            fprintf(stderr, "\"%s\" does not exist\n", name.c_str());
-          break;
-        }
-
-        if (gathered_bins) {
-          binary_index_set BIdxSet;
-          if (jv.LookupByName(name.c_str(), BIdxSet)) {
-            BIdx = *BIdxSet.cbegin();
-            (void)isNew;
-          } else {
-            break;
-          }
-        } else {
-          std::tie(BIdx, isNew) = jv.AddFromPath(explorer, jv_file, name.c_str());
-          if (!is_binary_index_valid(BIdx))
-            break;
-        }
-      } else {
-        binary_index_set BIdxSet;
-        if (!jv.LookupByName(name.c_str(), BIdxSet))
-          break;
-        assert(!BIdxSet.empty());
-
-        BIdx = *(BIdxSet).rbegin(); /* most recent (XXX?) */
-        isNew = false;
-      }
-
-      if constexpr (IsVerbose()) {
-        std::string as(addr_intvl2str(intvl));
-
-        fprintf(stderr, "+\t%s\t\"%s\"+%#x\t<MMAP%s>\n", as.c_str(), name.c_str(),
-                (unsigned)_mmap.pgoff, _mmap.two ? "2" : "");
-      }
-
-      auto &b = jv.Binaries.at(BIdx);
-      binary_state_t &x = state.for_binary(b);
-
-      intvl_map_clear(AddressSpace, intvl);
-      intvl_map_add(AddressSpace, intvl, std::make_pair(BIdx, _mmap.pgoff));
-      break;
-    }
-
-    default:
-      break;
-    }
-#undef unexpected_rest
-}
-
-template <IPT_PARAMETERS_DCL>
-int ipt_t<IPT_PARAMETERS_DEF>::explore(void) {
-  int errcode;
-
-  if (0 /* options->no_sync */) {
-    errcode = pt_pkt_sync_set(decoder, 0ull);
-    if (errcode < 0)
-      throw std::runtime_error(std::string("ipt_t: sync error: ") +
-                               pt_errstr(pt_errcode(errcode)));
-  } else {
-    errcode = pt_pkt_sync_forward(decoder);
-    if (errcode < 0) {
-      if (errcode == -pte_eos)
-        return 0;
-
-      throw std::runtime_error(std::string("ipt_t: sync error: ") +
-                               pt_errstr(pt_errcode(errcode)));
-    }
-  }
-
-  try {
-    struct pt_packet packet;
-    for (;;) {
-      for (;;) {
-        try {
-          process_packets<false>(next_packet(packet), packet);
-          break;
-        } catch (const error_decoding_exception &) {
-          if (IsVeryVerbose())
-            fprintf(stderr, "error decoding trace\n");
-          packet_sync();
-        }
-      }
-      for (;;) {
-        try {
-          process_packets<true>(next_packet(packet), packet);
-          break;
-        } catch (const error_decoding_exception &) {
-          if (IsVeryVerbose())
-            fprintf(stderr, "error decoding trace\n");
-          packet_sync();
-        }
-      }
-    }
-  } catch (const end_of_trace_exception &) {
-    return 0;
-  }
-
-  return errcode;
-}
-
-template <IPT_PARAMETERS_DCL>
-void ipt_t<IPT_PARAMETERS_DEF>::packet_sync(void) {
+void packet_sync(void) {
   int errcode = pt_pkt_sync_forward(decoder);
   if (unlikely(errcode < 0)) {
     if (errcode == -pte_eos)
       throw end_of_trace_exception();
 
-    throw std::runtime_error(std::string("ipt_t: sync error: ") +
+    throw std::runtime_error(std::string("reference_ipt: sync error: ") +
                              pt_errstr(pt_errcode(errcode)));
   }
 
   ptdump_tracking_reset();
 }
 
-template <IPT_PARAMETERS_DCL>
-uint64_t ipt_t<IPT_PARAMETERS_DEF>::next_packet(struct pt_packet &out) {
+uint64_t next_packet(packet_type &out) {
   uint64_t offset;
 
   int errcode = pt_pkt_get_offset(decoder, &offset);
   if (unlikely(errcode < 0))
-    throw std::runtime_error(std::string("ipt_t: error getting offset: ") +
+    throw std::runtime_error(std::string("reference_ipt: error getting offset: ") +
                              pt_errstr(pt_errcode(errcode)));
 
   errcode = pt_pkt_next(decoder, &out, sizeof(out));
@@ -959,7 +142,7 @@ uint64_t ipt_t<IPT_PARAMETERS_DEF>::next_packet(struct pt_packet &out) {
       throw end_of_trace_exception();
 
     if constexpr (IsVerbose())
-      fprintf(stderr, "ipt_t: error decoding packet: %s\n",
+      fprintf(stderr, "reference_ipt: error decoding packet: %s\n",
               pt_errstr(pt_errcode(errcode)));
     throw error_decoding_exception();
   }
@@ -967,17 +150,16 @@ uint64_t ipt_t<IPT_PARAMETERS_DEF>::next_packet(struct pt_packet &out) {
   return offset;
 }
 
-template <IPT_PARAMETERS_DCL>
 template <bool IsEngaged>
-void ipt_t<IPT_PARAMETERS_DEF>::process_packets(uint64_t offset,
+void process_packets(uint64_t offset,
                                                 struct pt_packet &packet) {
 #define GTFO_IF_ENGAGED_CHANGED()                                              \
   do {                                                                         \
     if constexpr (IsEngaged) {                                                 \
-      if (!Engaged)                                                            \
+      if (!this->Engaged)                                                            \
         return;                                                                \
     } else {                                                                   \
-      if (Engaged)                                                             \
+      if (this->Engaged)                                                             \
         return;                                                                \
     }                                                                          \
   } while (false)
@@ -1036,7 +218,7 @@ void ipt_t<IPT_PARAMETERS_DEF>::process_packets(uint64_t offset,
                                    &config);
     if (unlikely(errcode < 0))
       throw std::runtime_error(
-          std::string("ipt_t: error tracking last-ip at offset ") +
+          std::string("reference_ipt: error tracking last-ip at offset ") +
           std::to_string(offset));
 
     errcode = pt_last_ip_query(&IP, &tracking.last_ip);
@@ -1046,19 +228,19 @@ void ipt_t<IPT_PARAMETERS_DEF>::process_packets(uint64_t offset,
           if constexpr (IsVeryVerbose())
             fprintf(stderr, "<suppressed>\n");
 
-          CurrPoint.Invalidate();
+          this->CurrPoint.Invalidate();
         }
       } else {
         throw std::runtime_error(
-            std::string("ipt_t: error tracking last-ip at offset ") +
+            std::string("reference_ipt: error tracking last-ip at offset ") +
             std::to_string(offset));
       }
     } else {
       if constexpr (IsEngaged) {
-        on_ip(IP, offset);
+        this->on_ip(IP, offset);
       } else {
         if constexpr (IsVeryVerbose())
-          if (RightProcess())
+          if (this->RightProcess())
             fprintf(stderr, "%016" PRIx64 "\t__IP %016" PRIx64 "\n", offset, (uint64_t)IP);
       }
     }
@@ -1079,29 +261,29 @@ void ipt_t<IPT_PARAMETERS_DEF>::process_packets(uint64_t offset,
     const struct pt_packet_mode *mode = &packet.payload.mode;
     switch (mode->leaf) {
     case pt_mol_exec: {
-      const auto SavedExecBits = Curr.ExecBits;
+      const auto SavedExecBits = this->Curr.ExecBits;
       switch (pt_get_exec_mode(&mode->bits.exec)) {
       case ptem_64bit:
-        Curr.ExecBits = 64;
+        this->Curr.ExecBits = 64;
         break;
 
       case ptem_32bit:
-        Curr.ExecBits = 32;
+        this->Curr.ExecBits = 32;
         break;
 
       case ptem_16bit:
-        Curr.ExecBits = 16;
+        this->Curr.ExecBits = 16;
         break;
 
       case ptem_unknown:
-        Curr.ExecBits = ~0u;
+        this->Curr.ExecBits = ~0u;
         break;
       }
 
       if constexpr (IsVeryVerbose())
-        if (Curr.ExecBits != SavedExecBits)
+        if (this->Curr.ExecBits != SavedExecBits)
           fprintf(stderr, "%016" PRIx64 "\tbits %u -> %u\n", offset,
-                  SavedExecBits, Curr.ExecBits);
+                  SavedExecBits, this->Curr.ExecBits);
 
 #if 0
       if (CheckEngaged()) {
@@ -1118,7 +300,7 @@ void ipt_t<IPT_PARAMETERS_DEF>::process_packets(uint64_t offset,
                                          &packet.payload.ip, &config);
           if (unlikely(errcode < 0))
             throw std::runtime_error(
-                std::string("ipt_t: error tracking last-ip at offset ") +
+                std::string("reference_ipt: error tracking last-ip at offset ") +
                 std::to_string(offset));
 
           if constexpr (IsVeryVerbose()) {
@@ -1144,7 +326,7 @@ void ipt_t<IPT_PARAMETERS_DEF>::process_packets(uint64_t offset,
 
     default:
       throw std::runtime_error(
-          std::string("ipt_t: unknown mode leaf at offset ") +
+          std::string("reference_ipt: unknown mode leaf at offset ") +
           std::to_string(offset));
     }
 
@@ -1190,7 +372,7 @@ void ipt_t<IPT_PARAMETERS_DEF>::process_packets(uint64_t offset,
 
   default:
   throw std::runtime_error(
-      std::string("ipt_t: unknown packet at offset ") +
+      std::string("reference_ipt: unknown packet at offset ") +
       std::to_string(offset));
   }
 
@@ -1200,23 +382,27 @@ void ipt_t<IPT_PARAMETERS_DEF>::process_packets(uint64_t offset,
       next_packet(packet), packet);
 }
 
-struct tnt_error {};
-struct infinite_loop_exception {};
+void process_packets_while_engaged(uint64_t offset, packet_type &packet) {
+  __attribute__((musttail)) return process_packets<true>(offset, packet);
+}
 
-template <IPT_PARAMETERS_DCL>
-int ipt_t<IPT_PARAMETERS_DEF>::tnt_payload(const struct pt_packet_tnt &packet,
+void process_packets_while_not_engaged(uint64_t offset, packet_type &packet) {
+  __attribute__((musttail)) return process_packets<false>(offset, packet);
+}
+
+int tnt_payload(const struct pt_packet_tnt &packet,
                                            const uint64_t offset) {
-  if (unlikely(!CurrPoint.Valid())) {
+  if (unlikely(!this->CurrPoint.Valid())) {
     if constexpr (IsVeryVerbose())
       fprintf(stderr, "%" PRIx64 "\tunhandled tnt\n", offset);
     return 1;
   }
 
-  auto Saved = CurrPoint;
+  auto Saved = this->CurrPoint;
   try {
-    TNTAdvance(packet.payload, packet.bit_size);
+    this->TNTAdvance(packet.payload, packet.bit_size);
 
-    assert(CurrPoint.Valid());
+    assert(this->CurrPoint.Valid());
     return 1;
   } catch (const tnt_error &) {
     if constexpr (IsVerbose())
@@ -1230,695 +416,22 @@ int ipt_t<IPT_PARAMETERS_DEF>::tnt_payload(const struct pt_packet_tnt &packet,
               static_cast<uint64_t>(Saved.GetAddr()));
   }
 
-  CurrPoint.Invalidate();
+  this->CurrPoint.Invalidate();
   return 1;
 }
 
-template <IPT_PARAMETERS_DCL>
-int ipt_t<IPT_PARAMETERS_DEF>::on_ip(const taddr_t IP, const uint64_t offset) {
-  taddr_t Addr = IP;
-  binary_index_t BIdx = 0;
-  std::reference_wrapper<binary_base_t<MT>> refb = exe;
-  if constexpr (ExeOnly) {
-    if (!(IP >= exeOnly.beg && IP < exeOnly.end))
-      return 0;
-  } else {
-
-#if 0
-  if (sizeof(taddr_t) == 4)
-    assert(IP < 0xffffffffull);
-#endif
-
-  auto &AddressSpace = process_state.get().addrspace;
-
-  auto it = intvl_map_find(AddressSpace, IP);
-  if (unlikely(it == AddressSpace.end())) {
-    if constexpr (IsVeryVerbose())
-      fprintf(stderr, "%016" PRIx64 "\tunknown IP %016" PRIx64 "\n", offset, (uint64_t)IP);
-
-    CurrPoint.Invalidate();
-    return 1;
-  }
-
-  BIdx = (*it).second.first;
-  if (unlikely(!is_binary_index_valid(BIdx))) {
-    if constexpr (IsVerbose())
-      fprintf(stderr, "%016" PRIx64 "\tambiguous IP %016" PRIx64 "\n", offset, (uint64_t)IP);
-
-    CurrPoint.Invalidate();
-    return 1;
-  }
-
-  auto &b = jv.Binaries.at(BIdx);
-  refb = b;
-
-  struct {
-    taddr_t Base;
-    uint64_t Offset;
-  } mapping;
-
-  mapping.Base = addr_intvl_lower((*it).first);
-  mapping.Offset = (*it).second.second;
-
-  Addr = ({
-    binary_state_t &x = state.for_binary(b);
-    B::_X(
-        *x.Bin,
-        [&](ELFO &O) -> uint64_t {
-          assert(~mapping.Offset != 0);
-          assert(IP >= mapping.Base);
-          assert(static_cast<uint64_t>(mapping.Base) >= mapping.Offset);
-
-          uint64_t off = IP - (mapping.Base - mapping.Offset);
-          try {
-            return elf::va_of_offset(O, off);
-          } catch (...) {
-            std::string as(addr_intvl2str((*it).first));
-            fprintf(stderr,
-                    "WTFF! %" PRIx64 " in %s: off=%" PRIx64
-                    " in \"%s\" mapping.Base=%" PRIx64
-                    " mapping.Offset=%" PRIx64 " \n",
-                    (uint64_t)IP, as.c_str(), off, b.Name.c_str(),
-                    (uint64_t)mapping.Base, mapping.Offset);
-            abort();
-          }
-        },
-        [&](COFFO &O) -> uint64_t {
-          try {
-            if (~x._coff.LoadAddr == 0) {
-              assert(~mapping.Offset != 0);
-              uint64_t off = IP - (mapping.Base - mapping.Offset);
-              return coff::va_of_offset(O, off);
-            } else {
-              const taddr_t hmod = x._coff.LoadAddr;
-              assert(IP >= hmod);
-              taddr_t RVA = IP - hmod;
-              return coff::va_of_rva(O, RVA);
-            }
-          } catch (...) {
-            std::string as(addr_intvl2str((*it).first));
-            fprintf(stderr,
-                    "WTFF! %" PRIx64 " in %s in \"%s\" mapping.Base=%" PRIx64
-                    " mapping.Offset=%" PRIx64 " \n",
-                    (uint64_t)IP, as.c_str(), b.Name.c_str(),
-                    (uint64_t)mapping.Base, mapping.Offset);
-            abort();
-          }
-        });
-  });
-
-  }
-
-  binary_base_t<MT> &b = refb.get();
-
-  if constexpr (IsVeryVerbose())
-    fprintf(stderr, "%016" PRIx64 "\t<IP> %016" PRIx64 " %s+%" PRIx64 "\n", offset,
-            (uint64_t)IP, b.Name.c_str(), (uint64_t)Addr);
-
-  if (CurrPoint.Valid()) {
-    auto grab_addresses =
-        [&](const basic_block_properties_t &bbprop,
-            basic_block_index_t BBIdx) -> basic_block_index_t {
-      CurrPoint.SetAddr(bbprop.Addr);
-      CurrPoint.SetTermAddr(bbprop.Term.Addr);
-      return BBIdx;
-    };
-    if (CurrPoint.BinaryIndex() == BIdx) {
-      bool WentNoFurther = false;
-
-      if constexpr (Caching) {
-        try {
-          const auto &SL = SLForBlock(b, CurrPoint.Block());
-          CurrPoint.SetBlockIndex(SL.BBIdx);
-          CurrPoint.SetAddr(SL.Addr);
-          CurrPoint.SetTermAddr(SL.TermAddr);
-          WentNoFurther = intvl_set_contains(SL.addrng, Addr);
-        } catch (const infinite_loop_exception &) {
-          CurrPoint.Invalidate();
-        }
-      } else {
-        basic_block_index_t NewBBIdx;
-        std::tie(NewBBIdx, WentNoFurther) = StraightLineUntilSlow<false>(
-            b, CurrPoint.BlockIndex(), Addr, grab_addresses);
-        CurrPoint.SetBlockIndex(NewBBIdx);
-      }
-
-      //assert(CurrPoint.Valid());
-      if (WentNoFurther) {
-        if constexpr (IsVeryVerbose())
-            fprintf(stderr, "no further %s+%" PRIx64 "\n</IP>\n",
-                    b.Name.c_str(), (uint64_t)Addr);
-        return 0;
-      }
-    } else {
-      if constexpr (Caching) {
-        try {
-          const auto &SL = SLForBlock(CurrPoint.Binary(), CurrPoint.Block());
-          CurrPoint.SetBlockIndex(SL.BBIdx);
-          CurrPoint.SetAddr(SL.Addr);
-          CurrPoint.SetTermAddr(SL.TermAddr);
-        } catch (const infinite_loop_exception &) {
-          CurrPoint.Invalidate();
-        }
-      } else {
-      CurrPoint.SetBlockIndex(StraightLineSlow<false>(
-          CurrPoint.Binary(), CurrPoint.BlockIndex(), grab_addresses));
-      assert(CurrPoint.Valid());
-      }
-    }
-  }
-
-  binary_state_t &x = state.for_binary(b);
-  if constexpr(Objdump) {
-    if (!b.bbbmap.contains(Addr)) {
-      const bool bad = b.Analysis.objdump.is_addr_bad(Addr);
-
-      if (unlikely(bad)) {
-        if constexpr (IsVerbose())
-          fprintf(stderr,
-                  "OBJDUMP SAYS \"BADIP!\" %016" PRIx64 "\t<IP> %016" PRIx64 " %s+%" PRIx64 "\n",
-                  offset, (uint64_t)IP, b.Name.c_str(), (uint64_t)Addr);
-
-        if constexpr (IsVeryVerbose())
-          fprintf(stderr, "</IP>\n");
-
-        CurrPoint.Invalidate();
-        return 1;
-      }
-    }
-  }
-
-  const auto PrevPoint = CurrPoint;
-  try {
-    auto obp = [&](basic_block_t bb, basic_block_properties_t &bbprop) -> void {
-      CurrPoint.SetAddr(bbprop.Addr);
-      CurrPoint.SetTermAddr(bbprop.Term.Addr);
-
-      if constexpr (IsVeryVerbose())
-        on_block(b, bbprop, bb);
-    };
-    auto obp_u = [&](basic_block_index_t BBIdx) -> void {
-      basic_block_properties_t &bbprop =
-          b.Analysis.ICFG[basic_block_of_index(BBIdx, b.Analysis.ICFG)];
-
-      auto s_lck = bbprop.shared_access<MT>();
-      obp(basic_block_of_index(BBIdx, b.Analysis.ICFG), bbprop);
-    };
-
-    CurrPoint.SetBinary(b);
-    CurrPoint.SetBlockIndex(explorer.explore_basic_block(b, *x.Bin, Addr, obp, obp_u));
-    assert(CurrPoint.Valid());
-  } catch (const invalid_control_flow_exception &) {
-    if constexpr (1 /* IsVerbose() */)
-      fprintf(stderr, "BADIP %016" PRIx64 "\t<IP> %016" PRIx64 " %s+%" PRIx64 "\n",
-              offset, (uint64_t)IP, b.Name.c_str(), (uint64_t)Addr);
-
-    if constexpr (IsVeryVerbose())
-      fprintf(stderr, "</IP>\n");
-
-    CurrPoint.Invalidate();
-    return 1;
-  }
-
-  if (PrevPoint.Valid() && CurrPoint.Valid()) {
-    const taddr_t PrevTermAddr = PrevPoint.GetTermAddr();
-
-    if (likely(is_taddr_valid(PrevTermAddr))) {
-      block_transfer(PrevPoint.Binary(), PrevTermAddr,
-                     CurrPoint.Binary(), CurrPoint.GetAddr());
-    } else {
-      if constexpr (IsVerbose()) {
-        auto &prevb = PrevPoint.Binary();
-        auto &prevprop = prevb.Analysis.ICFG[PrevPoint.Block()];
-
-        fprintf(stderr,
-                "PrevPoint has invalid terminator address %" PRIx64
-                " @ %s+%" PRIx64 "\n",
-                (uint64_t)PrevTermAddr, prevb.Name.c_str(),
-                (uint64_t)prevprop.Addr);
-      }
-    }
-  }
-
-  if constexpr (IsVeryVerbose())
-    fprintf(stderr, "</IP>\n");
-
-  return 0;
-}
-
-template <IPT_PARAMETERS_DCL>
-void ipt_t<IPT_PARAMETERS_DEF>::block_transfer(binary_base_t<MT> &fr_b,
-                                               taddr_t FrTermAddr,
-                                               binary_base_t<MT> &to_b,
-                                               taddr_t ToAddr) {
-  const binary_index_t FrBIdx = index_of_binary(fr_b);
-  const binary_index_t ToBIdx = index_of_binary(to_b);
-
-  auto &fr_ICFG = fr_b.Analysis.ICFG;
-  auto &to_ICFG = to_b.Analysis.ICFG;
-
-  if constexpr (IsVeryVerbose())
-    fprintf(stderr, "%s+%" PRIx64 " ==> "
-           "%s+%" PRIx64 "\n",
-           fr_b.Name.c_str(), (uint64_t)FrTermAddr, to_b.Name.c_str(),
-           (uint64_t)ToAddr);
-
-  TERMINATOR TermType;
-  bool Term_indirect_jump_IsLj;
-
-  ({
-    auto fr_s_lck_bbmap = fr_b.bbmap_shared_access();
-
-    const auto &Term = fr_ICFG[basic_block_at_address(FrTermAddr, fr_b)].Term;
-
-    TermType = Term.Type;
-    Term_indirect_jump_IsLj = Term._indirect_jump.IsLj;
-  });
-
-  basic_block_t to_bb = basic_block_starting_at_address(ToAddr, to_b);
-
-  auto handle_indirect_call = [&](void) -> void {
-    function_index_t FIdx =
-        explorer.explore_function(to_b, *state.for_binary(to_b).Bin, ToAddr);
-
-    if (!is_function_index_valid(FIdx))
-      return;
-
-    auto fr_s_lck = fr_b.bbmap_shared_access();
-
-    basic_block_t fr_bb = basic_block_at_address(FrTermAddr, fr_b);
-    basic_block_properties_t &fr_bbprop = fr_ICFG[fr_bb];
-
-    fr_bbprop.insertDynTarget(FrBIdx, std::make_pair(ToBIdx, FIdx), jv_file, jv);
-  };
-
-  switch (TermType) {
-  case TERMINATOR::INDIRECT_JUMP: {
-    if (Term_indirect_jump_IsLj)
-      break;
-
-    const bool TailCall = ({
-      auto fr_s_lck_bbmap = fr_b.bbmap_shared_access();
-
-      IsDefinitelyTailCall(fr_ICFG, basic_block_at_address(FrTermAddr, fr_b));
-    });
-
-    if (TailCall) {
-      handle_indirect_call();
-    } else if (FrBIdx != ToBIdx) {
-      handle_indirect_call();
-      fr_b.FixAmbiguousIndirectJump(FrTermAddr, explorer,
-                                    *state.for_binary(fr_b).Bin, jv_file, jv);
-    } else {
-      assert(FrBIdx == ToBIdx);
-
-      auto fr_s_lck_bbmap = fr_b.bbmap_shared_access();
-
-      fr_ICFG.add_edge(basic_block_at_address(FrTermAddr, fr_b), to_bb);
-    }
-
-    break;
-  }
-
-  case TERMINATOR::INDIRECT_CALL: {
-    handle_indirect_call();
-    break;
-  }
-
-  case TERMINATOR::RETURN: {
-    {
-      auto fr_s_lck_bbmap = fr_b.bbmap_shared_access();
-
-      concurrent::set(fr_ICFG[basic_block_at_address(FrTermAddr, fr_b)].Term._return.Returns);
-    }
-
-    //
-    // what came before?
-    //
-    const taddr_t before_pc = ToAddr - 1;
-
-    auto to_s_lck_bbmap = to_b.bbmap_shared_access();
-
-    if (!exists_basic_block_at_address(before_pc, to_b))
-      break;
-
-    basic_block_t before_bb = basic_block_at_address(before_pc, to_b);
-    basic_block_properties_t &before_bbprop = to_ICFG.at(before_bb);
-    auto &before_Term = before_bbprop.Term;
-
-    bool isCall = before_Term.Type == TERMINATOR::CALL;
-    bool isIndirectCall = before_Term.Type == TERMINATOR::INDIRECT_CALL;
-    if (isCall || isIndirectCall) {
-      assert(to_ICFG.out_degree(before_bb) <= 1);
-
-      if (isCall) {
-        if (likely(is_function_index_valid(before_Term._call.Target)))
-          concurrent::set(to_b.Analysis.Functions.at(before_Term._call.Target).Returns);
-      }
-
-      to_ICFG.add_edge(before_bb, to_bb); /* connect */
-    }
-    break;
-  }
-
-  default:
-    return;
-  }
-}
-
-template <bool DoNotGoFurther, bool InfiniteLoopThrow, bool MT, unsigned Verbosity = 0>
-static std::pair<basic_block_index_t, bool>
-StraightLineGo(const auto &b,
-               basic_block_index_t Res,
-               taddr_t GoNoFurther = 0,
-               std::function<basic_block_index_t (const basic_block_properties_t &, basic_block_index_t)> on_final_block = [](const basic_block_properties_t &, basic_block_index_t Res) -> basic_block_index_t { return Res; },
-               std::function<void(const basic_block_properties_t &, basic_block_index_t)> on_block = [](const basic_block_properties_t &, basic_block_index_t) -> void {}) {
-  const auto &ICFG = b.Analysis.ICFG;
-
-  std::reference_wrapper<const basic_block_properties_t> the_bbprop =
-      ICFG[basic_block_of_index(Res, b)];
-
-  basic_block_index_t ResSav = Res;
-  for (
-       (void)({
-         const basic_block_properties_t &bbprop = the_bbprop.get();
-
-         if constexpr (MT) {
-           if (!bbprop.pub.is.load(std::memory_order_acquire))
-             bbprop_t::pub_shared_lock_guard<MT>(bbprop.pub.mtx);
-         }
-         bbprop.lock_sharable<MT>(); /* don't change on us */
-
-         on_block(bbprop, Res);
-         0;
-       });
-       ;
-       (void)({
-         the_bbprop.get().mtx.unlock_sharable();
-
-         //
-         // cycle detection: the code might infinitely loop. FIXME
-         //
-         // an example seen in the wild is at the end of start_thread() in
-         // glibc/nptl/pthread_create.c...
-         //
-         // while (1)
-         //   INTERNAL_SYSCALL_CALL (exit, 0);
-         //
-         if (unlikely(ResSav == Res)) {
-           if constexpr (InfiniteLoopThrow)
-             throw infinite_loop_exception();
-           else
-             return std::make_pair(invalid_basic_block_index, false);
-         }
-
-         ResSav = Res;
-
-         basic_block_t newbb = basic_block_of_index(Res, b);
-         const basic_block_properties_t &new_bbprop = ICFG[newbb];
-         the_bbprop = new_bbprop;
-
-         if constexpr (MT) {
-           if (!new_bbprop.pub.is.load(std::memory_order_acquire))
-             bbprop_t::pub_shared_lock_guard<MT>(new_bbprop.pub.mtx);
-         }
-         new_bbprop.lock_sharable<MT>(); /* don't change on us */
-
-         on_block(new_bbprop, Res);
-         0;
-       })) {
-    basic_block_t bb = basic_block_of_index(Res, b);
-    const basic_block_properties_t &bbprop = the_bbprop.get();
-
-    const auto Addr = bbprop.Addr;
-    const auto Size = bbprop.Size;
-    const auto TermType = bbprop.Term.Type;
-
-    if constexpr (DoNotGoFurther) {
-      if (Addr == GoNoFurther ||
-          /* the following assumes that GoNoFurther sits cleanly in the block.
-           * to verify this, we'd have to disassemble the instructions.
-           *
-           * NOTE: this happens to "resolve" a problem encountered with the
-           * trace output, where an invalid IP follows a twirl. i.e., given the
-           * code:
-           *
-           * 18d70:       f3 0f 1e fb             endbr32
-           * 18d74:       e8 00 00 00 00          call   18d79
-           * 18d79:       58                      pop    %eax
-           * 18d7a:       05 23 b2 ff ff          add    $0xffffb223,%eax
-           * 18d7f:       8b 80 38 00 00 00       mov    0x38(%eax),%eax
-           *
-           * we might have the following sequence:
-           *
-           *   on_ip(0x18d70);
-           *   on_ip(0x18d76);  // <-- WTF, middle of twirl instruction
-           *
-           * this has been confirmed to confuse the hell out of ptxed.
-           *
-           **/
-          unlikely(GoNoFurther >= Addr && GoNoFurther < Addr + Size)) {
-        bbprop_t::shared_lock_guard<MT> s_lck_bb(
-            bbprop.mtx, boost::interprocess::accept_ownership);
-        return std::make_pair(on_final_block(bbprop, basic_block_of_index(Res, b)), true);
-      }
-    }
-
-    switch (TermType) {
-    default:
-      break;
-    case TERMINATOR::UNCONDITIONAL_JUMP:
-    case TERMINATOR::NONE: {
-      if (unlikely(ICFG.template out_degree<false>(bb) == 0)) {
-        if constexpr (IsVerbose())
-          fprintf(stderr, "cant proceed past NONE @ %s+%" PRIx64 " [size=%u] %s\n",
-                  b.Name.c_str(),
-                  static_cast<uint64_t>(Addr),
-                  static_cast<unsigned>(Size),
-                  description_of_terminator(TermType));
-        break;
-      }
-
-      basic_block_index_t NewRes =
-          index_of_basic_block(ICFG, ICFG.template adjacent_front<false>(bb));
-
-      Res = NewRes;
-      continue;
-    }
-    case TERMINATOR::CALL: {
-      function_index_t CalleeIdx = bbprop.Term._call.Target;
-      if (unlikely(!is_function_index_valid(CalleeIdx)))
-        break;
-
-      basic_block_index_t EntryBBIdx = b.Analysis.Functions.at(CalleeIdx).Entry;
-      if (!unlikely(is_basic_block_index_valid(EntryBBIdx))) {
-        if constexpr (IsVerbose())
-          fprintf(stderr, "cant proceed past CALL @ %s+%" PRIx64 "\n",
-                  b.Name.c_str(), static_cast<uint64_t>(Addr));
-        break;
-      }
-      Res = EntryBBIdx;
-      assert(is_basic_block_index_valid(Res));
-      continue;
-    }
-    case TERMINATOR::CONDITIONAL_JUMP:
-      //
-      // recognize this:
-      //
-      // ┌─────────────────────────────────────┐
-      // │                                     │ ───┐
-      // │ rep  stosq qword ptr es:[rdi], rax  │    │
-      // │                                     │ ◀──┘
-      // └─────────────────────────────────────┘
-      //
-      // there are no TNT packets for this "single-instruction" loop. we just
-      // need to move past it.
-      //
-      if (unlikely(bbprop.IsSingleInstruction())) {
-        if (likely(ICFG.template out_degree<false>(bb) == 2)) {
-          auto succ = ICFG.template adjacent_n<2, false>(bb);
-          if (succ[0] == bb) {
-            Res = index_of_basic_block(ICFG, succ[1]);
-            continue;
-          } else if (succ[1] == bb) {
-            Res = index_of_basic_block(ICFG, succ[0]);
-            continue;
-          }
-        }
-      }
-      break;
-    }
-
-    bbprop_t::shared_lock_guard<MT> s_lck_bb(
-        bbprop.mtx, boost::interprocess::accept_ownership);
-    return std::make_pair(on_final_block(bbprop, basic_block_of_index(Res, b)), false);
-  }
-
-  abort();
-}
-
-template <IPT_PARAMETERS_DCL>
-template <bool InfiniteLoopThrow>
-std::pair<basic_block_index_t, bool>
-ipt_t<IPT_PARAMETERS_DEF>::StraightLineUntilSlow(
-    const binary_base_t<MT> &b,
-    basic_block_index_t From,
-    taddr_t GoNoFurther,
-    std::function<basic_block_index_t(const basic_block_properties_t &, basic_block_index_t)> on_final_block) {
-  using namespace std::placeholders;
-
-  return StraightLineGo<true, InfiniteLoopThrow, MT, Verbosity>(
-      b, From, GoNoFurther, on_final_block);
-}
-
-template <IPT_PARAMETERS_DCL>
-template <bool InfiniteLoopThrow>
-basic_block_index_t ipt_t<IPT_PARAMETERS_DEF>::StraightLineSlow(
-    const binary_base_t<MT> &b,
-    basic_block_index_t From,
-    std::function<basic_block_index_t(const basic_block_properties_t &, basic_block_index_t)> on_final_block) {
-  using namespace std::placeholders;
-
-  return StraightLineGo<false, InfiniteLoopThrow, MT, Verbosity>(
-      b, From, 0 /* unused */, on_final_block).first;
-}
-
-template <IPT_PARAMETERS_DCL>
-void ipt_t<IPT_PARAMETERS_DEF>::on_block(const binary_base_t<MT> &b,
-                                         const basic_block_properties_t &bbprop,
-                                         basic_block_t bb) {
-  if constexpr (IsVeryVerbose()) {
-    auto &ICFG = b.Analysis.ICFG;
-    if (index_of_binary(b) == OnBlock.Last.BIdx &&
-        index_of_basic_block(ICFG, bb) == OnBlock.Last.BBIdx) {
-      fputs(".", stderr);
-    } else {
-      const auto Addr = bbprop.Addr;
-
-      fprintf(stderr, "%s+%016" PRIx64 "\n", b.Name.c_str(), (uint64_t)Addr);
-      //fprintf(stdout, "%s+%016" PRIx64 "\n", b.Name.c_str(), (uint64_t)Addr);
-    }
-
-    OnBlock.Last.BIdx = index_of_binary(b);
-    OnBlock.Last.BBIdx = index_of_basic_block(ICFG, bb);
-  }
-}
-
-template <IPT_PARAMETERS_DCL>
-void ipt_t<IPT_PARAMETERS_DEF>::TNTAdvance(uint64_t tnt, uint8_t n) {
-  if constexpr (IsVeryVerbose())
-    fprintf(stderr, "<TNT>\n");
-
-  assert(n > 0);
-  assert(CurrPoint.Valid());
-
-  binary_base_t<MT> &b = CurrPoint.Binary();
-  basic_block_index_t Res = CurrPoint.BlockIndex();
-
-  const auto &ICFG = b.Analysis.ICFG;
-  do {
-    const bool Taken = !!(tnt & (1ull << (n - 1)));
-
-    if constexpr (Caching) {
-      basic_block_t bb = basic_block_of_index(Res, b);
-      const auto &SL = SLForBlock(b, bb);
-      if (unlikely(SL.adj.empty())) {
-        if constexpr (IsVerbose())
-          fprintf(stderr,
-                  "not/invalid conditional branch @ %s+%" PRIx64 " (%s)\n",
-                  b.Name.c_str(), static_cast<uint64_t>(ICFG[basic_block_of_index(SL.BBIdx, b)].Addr),
-                  string_of_terminator(SL.TermType));
-        throw tnt_error();
-      }
-      assert(SL.adj.size() == 2);
-      Res = SL.adj[static_cast<unsigned>(Taken)];
-    } else {
-    Res = StraightLineSlow<true>(
-        b, Res, [&](const basic_block_properties_t &bbprop,
-                    basic_block_index_t BBIdx) -> basic_block_index_t {
-          basic_block_t bb = basic_block_of_index(BBIdx, b);
-
-          unsigned out_deg = ICFG.template out_degree<false>(bb);
-
-          if (unlikely(bbprop.Term.Type != TERMINATOR::CONDITIONAL_JUMP) ||
-              unlikely(out_deg == 0)) {
-            if constexpr (IsVerbose())
-              fprintf(stderr,
-                      "not/invalid conditional branch @ %s+%" PRIx64 " (%s)\n",
-                      b.Name.c_str(), static_cast<uint64_t>(bbprop.Addr),
-                      string_of_terminator(bbprop.Term.Type));
-            throw tnt_error();
-          }
-
-          if (unlikely(out_deg == 1))
-            return index_of_basic_block(ICFG, ICFG.template adjacent_front<false>(bb));
-
-          assert(out_deg == 2);
-
-          auto succ = ICFG.template adjacent_n<2, false>(bb);
-          const bool Is0NotTaking =
-              ICFG[succ[0]].Addr == bbprop.Addr + bbprop.Size;
-
-          basic_block_index_t TheRes = index_of_basic_block(
-              ICFG, Taken ? (Is0NotTaking ? succ[1] : succ[0])
-                          : (Is0NotTaking ? succ[0] : succ[1]));
-          return TheRes;
-        });
-    }
-
-    if constexpr (IsVeryVerbose()) {
-      basic_block_t bb = basic_block_of_index(Res, b);
-      const auto &bbprop = ICFG[bb];
-
-      auto s_lck = bbprop.template shared_access<MT>();
-
-      on_block(b, bbprop, bb);
-    }
-
-#if 0
-    const char *extra = n > 1 ? " " : "";
-    fprintf(stderr, "%d%s", (int)Taken, extra);
-#endif
-  } while (--n);
-
-  if constexpr (Caching) {
-    basic_block_t bb = basic_block_of_index(Res, b);
-    const auto &SL = SLForBlock(b, bb);
-    CurrPoint.SetBlockIndex(SL.BBIdx);
-    CurrPoint.SetAddr(SL.Addr);
-    CurrPoint.SetTermAddr(SL.TermAddr);
-  } else {
-    CurrPoint.SetBlockIndex(StraightLineSlow<true>(
-        b, Res,
-        [&](const basic_block_properties_t &bbprop,
-            basic_block_index_t BBIdx) -> basic_block_index_t {
-          CurrPoint.SetAddr(bbprop.Addr);
-          CurrPoint.SetTermAddr(bbprop.Term.Addr);
-          return BBIdx;
-        }));
-  }
-
-  if constexpr (IsVeryVerbose())
-    fprintf(stderr, "</TNT>\n");
-}
-
-template <IPT_PARAMETERS_DCL>
-void ipt_t<IPT_PARAMETERS_DEF>::ptdump_tracking_init(void)
+void ptdump_tracking_init(void)
 {
   pt_last_ip_init(&tracking.last_ip);
   pt_tcal_init(&tracking.tcal);
   pt_time_init(&tracking.time);
 
-#if 0
-  tracking.session = NULL;
-#endif
   tracking.tsc = 0ull;
   tracking.fcr = 0ull;
   tracking.in_header = 0;
 }
 
-template <IPT_PARAMETERS_DCL>
-void ipt_t<IPT_PARAMETERS_DEF>::ptdump_tracking_reset(void) {
+void ptdump_tracking_reset(void) {
   pt_last_ip_init(&tracking.last_ip);
   pt_tcal_init(&tracking.tcal);
   pt_time_init(&tracking.time);
@@ -1928,8 +441,7 @@ void ipt_t<IPT_PARAMETERS_DEF>::ptdump_tracking_reset(void) {
   tracking.in_header = 0;
 }
 
-template <IPT_PARAMETERS_DCL>
-int ipt_t<IPT_PARAMETERS_DEF>::print_time(uint64_t offset)
+int print_time(uint64_t offset)
 {
   uint64_t tsc;
   int errcode;
@@ -1952,60 +464,7 @@ int ipt_t<IPT_PARAMETERS_DEF>::print_time(uint64_t offset)
   return 0;
 }
 
-template <IPT_PARAMETERS_DCL>
-int ipt_t<IPT_PARAMETERS_DEF>::sb_track_time(uint64_t offset)
-{
-  auto &tt = tracking.time;
-
-  if (unlikely(!tt.have_tsc))
-    return 1;
-
-  const uint64_t tsc = tt.tsc;
-
-#if 0
-  if constexpr (IsVeryVerbose())
-    print_time(offset);
-#endif
-
-  for (;;) {
-    auto etsc = incoming_event.sample.tsc;
-
-    if (tsc < etsc)
-      return 1;
-
-    examine_sb_event(incoming_event, offset);
-
-    if (++sb_it == sb.end()) {
-      incoming_event.sample.time = nullptr;
-      incoming_event.sample.tsc =
-          std::numeric_limits<decltype(incoming_event.sample.tsc)>::max();
-      return 1;
-    }
-
-    for (;;) {
-      incoming_event.sample.time = nullptr;
-      incoming_event.sample.tsc =
-          std::numeric_limits<decltype(incoming_event.sample.tsc)>::max();
-      sb_parser.load(incoming_event, *sb_it);
-
-      if (incoming_event.sample.time && incoming_event.sample.tsc)
-        break;
-
-      examine_sb_event(incoming_event, offset);
-      ++sb_it;
-    }
-  }
-
-  return 1;
-}
-
-template <IPT_PARAMETERS_DCL>
-int ipt_t<IPT_PARAMETERS_DEF>::track_time(uint64_t offset) {
-	return sb_track_time(offset);
-}
-
-template <IPT_PARAMETERS_DCL>
-int ipt_t<IPT_PARAMETERS_DEF>::track_tsc(uint64_t offset,
+int track_tsc(uint64_t offset,
                                          const struct pt_packet_tsc *packet) {
         int errcode;
 
@@ -2020,16 +479,15 @@ int ipt_t<IPT_PARAMETERS_DEF>::track_tsc(uint64_t offset,
 	}
 
 	errcode = pt_time_update_tsc(&tracking.time, packet, &config);
-	if (unlikely(errcode < 0)) {
-		if constexpr (IsVerbose())
-			fprintf(stderr, "%s: error updating time\n", __PRETTY_FUNCTION__);
-	}
+	assert(errcode == 0);
 
-	return track_time(offset);
+        assert(tracking.time.have_tsc);
+        this->track_time(offset, tracking.time.tsc);
+
+        return 0;
 }
 
-template <IPT_PARAMETERS_DCL>
-int ipt_t<IPT_PARAMETERS_DEF>::track_cbr(uint64_t offset,
+int track_cbr(uint64_t offset,
                                          const struct pt_packet_cbr *packet) {
         int errcode;
 
@@ -2049,11 +507,12 @@ int ipt_t<IPT_PARAMETERS_DEF>::track_cbr(uint64_t offset,
 			fprintf(stderr, "%s: error updating time\n", __PRETTY_FUNCTION__);
 	}
 
-	return track_time(offset);
+        if (likely(tracking.time.have_tsc))
+                this->track_time(offset, tracking.time.tsc);
+        return 0;
 }
 
-template <IPT_PARAMETERS_DCL>
-int ipt_t<IPT_PARAMETERS_DEF>::track_tma(uint64_t offset,
+int track_tma(uint64_t offset,
                                          const struct pt_packet_tma *packet) {
         int errcode;
 
@@ -2071,11 +530,12 @@ int ipt_t<IPT_PARAMETERS_DEF>::track_tma(uint64_t offset,
 			fprintf(stderr, "%s: error updating time\n", __PRETTY_FUNCTION__);
 	}
 
-	return track_time(offset);
+        if (likely(tracking.time.have_tsc))
+                this->track_time(offset, tracking.time.tsc);
+        return 0;
 }
 
-template <IPT_PARAMETERS_DCL>
-int ipt_t<IPT_PARAMETERS_DEF>::track_mtc(uint64_t offset,
+int track_mtc(uint64_t offset,
                                          const struct pt_packet_mtc *packet) {
         int errcode;
 
@@ -2098,11 +558,12 @@ int ipt_t<IPT_PARAMETERS_DEF>::track_mtc(uint64_t offset,
                                 pt_errstr(pt_errcode(errcode)));
         }
 
-	return track_time(offset);
+        if (likely(tracking.time.have_tsc))
+                this->track_time(offset, tracking.time.tsc);
+        return 0;
 }
 
-template <IPT_PARAMETERS_DCL>
-int ipt_t<IPT_PARAMETERS_DEF>::track_cyc(uint64_t offset,
+int track_cyc(uint64_t offset,
                                          const struct pt_packet_cyc *packet) {
         uint64_t fcr;
 	int errcode;
@@ -2148,33 +609,10 @@ int ipt_t<IPT_PARAMETERS_DEF>::track_cyc(uint64_t offset,
 #endif
         }
 
-	return track_time(offset);
+        if (likely(tracking.time.have_tsc))
+                this->track_time(offset, tracking.time.tsc);
+        return 0;
 }
-
-#if 0
-template <IPT_PARAMETERS_DCL>
-int ipt_t<IPT_PARAMETERS_DEF>::ptdump_sb_pevent(const char *filename,
-                                                  const struct pt_sb_pevent_config *conf) {
-	struct pt_sb_pevent_config config;
-	int errcode;
-
-	config = *conf;
-	config.filename = filename;
-	config.begin = 0;
-	config.end = 0;
-
-	errcode = pt_sb_alloc_pevent_decoder(tracking.session, &config);
-	if (unlikely(errcode < 0)) {
-		if constexpr (IsVerbose())
-			fprintf(stderr, "%s: error loading: %s\n",
-				__PRETTY_FUNCTION__,
-				pt_errstr(pt_errcode(errcode)));
-		return -1;
-	}
-
-	return 0;
-}
-#endif
 
 static int pt_parse_sample_config(struct pt_sb_pevent_config *pevent,
                                   const char *arg) {
@@ -2370,9 +808,7 @@ static int get_arg_uint8(uint8_t *value, const char *option, const char *arg,
 	return 1;
 }
 
-template <IPT_PARAMETERS_DCL>
-int ipt_t<IPT_PARAMETERS_DEF>::process_args(int argc, char **argv,
-                                            const char *sb_filename) {
+int process_args(int argc, char **argv) {
         struct pt_sb_pevent_config pevent;
 	int idx, errcode;
 
@@ -2468,184 +904,12 @@ int ipt_t<IPT_PARAMETERS_DEF>::process_args(int argc, char **argv,
 		}
 	}
 
-#if 0
-	errcode = ptdump_sb_pevent(sb_filename, &pevent);
-	if (errcode < 0)
-		throw std::runtime_error("ptdump_sb_pevent() failed");
-#endif
-
 	return 0;
 }
 
-template <IPT_PARAMETERS_DCL>
-ipt_t<IPT_PARAMETERS_DEF>::binary_state_t::binary_state_t(const binary_base_t<MT> &b) {
-  Bin = B::Create(b.data());
-
-  if constexpr (Objdump) {
-    if (b.Analysis.objdump.empty()) {
-      auto e_lck = b.Analysis.objdump.exclusive_access();
-
-      if (b.Analysis.objdump.empty_unlocked())
-        binary_base_t<MT>::Analysis_t::objdump_output_type::generate(const_cast<binary_base_t<MT> &>(b).Analysis.objdump, b.is_file() ? b.Name.c_str() : nullptr, *Bin);
-    }
-  }
-}
-
-#if 0
-
-template <IPT_PARAMETERS_DCL>
-const basic_block_properties_t::Analysis_t::straight_line_t &
-ipt_t<IPT_PARAMETERS_DEF>::basic_block_state_t::SL(const binary_t &b,
-                                                     basic_block_t the_bb) {
-  const straight_line_t *p = prop.Analysis.pSL.Load(std::memory_order_acquire);
-  if (likely(p))
-    return *p;
-
-  straight_line_t *ourSL =
-      b.get_allocator().get_segment_manager()->construct<straight_line_t>(
-          boost::interprocess::anonymous_instance)();
-  assert(ourSL);
-
-  {
-    straight_line_t &SL = *ourSL;
-
-    const basic_block_index_t TheIdx = index_of_basic_block(b, the_bb);
-    assert(is_basic_block_index_valid(TheIdx));
-
-    const auto &ICFG = b.Analysis.ICFG;
-
-    SL.BBIdx = StraightLineGo<false, true, MT, Verbosity>(
-        b, TheIdx, 0 /* unused */,
-        [&](basic_block_index_t BBIdx) -> basic_block_index_t {
-          basic_block_t bb = basic_block_of_index(BBIdx, b);
-          const auto &bbprop = ICFG[bb];
-
-          SL.TermType = bbprop.Term.Type;
-          SL.TermAddr = bbprop.Term.Addr;
-
-          {
-            icfg_t::adjacency_iterator it, it_end;
-            std::tie(it, it_end) = ICFG.adjacent_vertices(bb);
-
-            unsigned N = std::distance(it, it_end);
-            if (N == 1) {
-              SL.adj.push_back(*it);
-              SL.adj.push_back(*it);
-            } else if (N == 2 && SL.TermType == TERMINATOR::CONDITIONAL_JUMP) {
-              basic_block_index_t succ0 = *it++;
-              basic_block_index_t succ1 = *it++;
-
-              bool Is0NotTaking = ICFG[succ0].Addr == bbprop.Addr + bbprop.Size;
-              if (Is0NotTaking) {
-                SL.adj.push_back(succ0);
-                SL.adj.push_back(succ1);
-              } else {
-                SL.adj.push_back(succ1);
-                SL.adj.push_back(succ0);
-              }
-            } else {
-              ;
-            }
-          }
-
-          return BBIdx;
-        }).first;
-
-    assert(is_basic_block_index_valid(SL.BBIdx));
-  }
-
-  const straight_line_t *expected = nullptr;
-  if (prop.Analysis.pSL.CompareExchangeStrong(expected, ourSL,
-                                              std::memory_order_release,
-                                              std::memory_order_acquire))
-    return *ourSL;
-
-  assert(expected);
-
-  b.get_allocator().get_segment_manager()->destroy_ptr(ourSL);
-  return *expected;
-}
-
-#else
-
-template <IPT_PARAMETERS_DCL>
-ipt_t<IPT_PARAMETERS_DEF>::basic_block_state_t::basic_block_state_t(
-    const binary_base_t<MT> &b, basic_block_t the_bb) {
-  if constexpr (!Caching)
-    return;
-
-  auto &ICFG = b.Analysis.ICFG;
-
-  const basic_block_index_t Idx = index_of_basic_block(b, the_bb);
-  assert(is_basic_block_index_valid(Idx));
-
-  auto &SL = this->theSL;
-
-  auto on_block = [&](const basic_block_properties_t &bbprop,
-                      basic_block_index_t BBIdx) -> void {
-    intvl_set_add(SL.addrng, addr_intvl(bbprop.Addr, bbprop.Size));
-  };
-
-  SL.BBIdx = StraightLineGo<false, true, MT, Verbosity>(
-      b, Idx, 0 /* unused */,
-      [&](const basic_block_properties_t &bbprop, basic_block_index_t BBIdx) -> basic_block_index_t {
-        SL.Addr = bbprop.Addr;
-        SL.TermType = bbprop.Term.Type;
-        SL.TermAddr = bbprop.Term.Addr;
-
-        {
-          icfg_t::adjacency_iterator it, it_end;
-          std::tie(it, it_end) = ICFG.adjacent_vertices(basic_block_of_index(BBIdx, b));
-
-          unsigned N = std::distance(it, it_end);
-          if (N == 1) {
-            SL.adj.push_back(*it);
-            SL.adj.push_back(*it);
-          } else if (N == 2 && SL.TermType == TERMINATOR::CONDITIONAL_JUMP) {
-            basic_block_index_t succ0 = *it++;
-            basic_block_index_t succ1 = *it++;
-
-            bool Is0NotTaking = ICFG[succ0].Addr == bbprop.Addr + bbprop.Size;
-            if (Is0NotTaking) {
-              SL.adj.push_back(succ0);
-              SL.adj.push_back(succ1);
-            } else {
-              SL.adj.push_back(succ1);
-              SL.adj.push_back(succ0);
-            }
-          } else {
-            ;
-          }
-        }
-
-        return BBIdx;
-      }, on_block).first;
-
-  assert(is_basic_block_index_valid(SL.BBIdx));
-}
-
-#endif
-
 #undef IsVerbose
 #undef IsVeryVerbose
-
-#define IPT_EXTRACT_VALUES(s, data, elem)                                      \
-  BOOST_PP_TUPLE_ELEM(3, 2, elem)
-
-#define IPT_ALL_OPTIONS                                                        \
-  BOOST_PP_SEQ_TRANSFORM(IPT_EXTRACT_VALUES, void, IPT_PARAMETERS)
-
-#define IPT_GENERATE_TEMPLATE_ARG(r, product, i, elem)                         \
-  BOOST_PP_COMMA_IF(i) BOOST_PP_SEQ_ELEM(i, product)
-
-#define IPT_INSTANTIATE(r, product)                                            \
-  template class ipt_t<BOOST_PP_SEQ_FOR_EACH_I(IPT_GENERATE_TEMPLATE_ARG,      \
-                                               product, IPT_PARAMETERS)>;
-
-BOOST_PP_SEQ_FOR_EACH_PRODUCT(IPT_INSTANTIATE, IPT_ALL_OPTIONS);
-
-#undef IPT_INSTANTIATE
-
+};
 }
 
 #endif /* x86 */
