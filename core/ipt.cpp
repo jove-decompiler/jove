@@ -899,30 +899,49 @@ int ipt_t<IPT_PARAMETERS_DEF>::explore(void) {
     }
   }
 
-  for (;;) {
-    try {
-      explore_packets();
-    } catch (const error_decoding_exception &) {
-      if (IsVeryVerbose()) {
-        fprintf(stderr, "error decoding trace\n");
+  try {
+    struct pt_packet packet;
+    for (;;) {
+      for (;;) {
+        try {
+          process_packets<false>(next_packet(packet), packet);
+          break;
+        } catch (const error_decoding_exception &) {
+          if (IsVeryVerbose())
+            fprintf(stderr, "error decoding trace\n");
+          packet_sync();
+        }
       }
-    } catch (const end_of_trace_exception &) {
-      return 0;
+      for (;;) {
+        try {
+          process_packets<true>(next_packet(packet), packet);
+          break;
+        } catch (const error_decoding_exception &) {
+          if (IsVeryVerbose())
+            fprintf(stderr, "error decoding trace\n");
+          packet_sync();
+        }
+      }
     }
-
-    errcode = pt_pkt_sync_forward(decoder);
-    if (unlikely(errcode < 0)) {
-      if (errcode == -pte_eos)
-        return 0;
-
-      throw std::runtime_error(std::string("ipt_t: sync error: ") +
-                               pt_errstr(pt_errcode(errcode)));
-    }
-
-    ptdump_tracking_reset();
+  } catch (const end_of_trace_exception &) {
+    return 0;
   }
 
   return errcode;
+}
+
+template <IPT_PARAMETERS_DCL>
+void ipt_t<IPT_PARAMETERS_DEF>::packet_sync(void) {
+  int errcode = pt_pkt_sync_forward(decoder);
+  if (unlikely(errcode < 0)) {
+    if (errcode == -pte_eos)
+      throw end_of_trace_exception();
+
+    throw std::runtime_error(std::string("ipt_t: sync error: ") +
+                             pt_errstr(pt_errcode(errcode)));
+  }
+
+  ptdump_tracking_reset();
 }
 
 template <IPT_PARAMETERS_DCL>
@@ -949,17 +968,9 @@ uint64_t ipt_t<IPT_PARAMETERS_DEF>::next_packet(struct pt_packet &out) {
 }
 
 template <IPT_PARAMETERS_DCL>
-void ipt_t<IPT_PARAMETERS_DEF>::explore_packets() {
-  struct pt_packet packet;
-
-  for (;;) {
-    process_packet(next_packet(packet), packet);
-  }
-}
-
-template <IPT_PARAMETERS_DCL>
-void ipt_t<IPT_PARAMETERS_DEF>::process_packet(uint64_t offset,
-                                               struct pt_packet &packet) {
+template <bool IsEngaged>
+void ipt_t<IPT_PARAMETERS_DEF>::process_packets(uint64_t offset,
+                                                struct pt_packet &packet) {
   switch (packet.type) {
   case ppt_unknown:
   case ppt_invalid:
@@ -1020,7 +1031,7 @@ void ipt_t<IPT_PARAMETERS_DEF>::process_packet(uint64_t offset,
     errcode = pt_last_ip_query(&IP, &tracking.last_ip);
     if (unlikely(errcode < 0)) {
       if (errcode == -pte_ip_suppressed) {
-        if (Engaged) {
+        if constexpr (IsEngaged) {
           if constexpr (IsVeryVerbose())
             fprintf(stderr, "<suppressed>\n");
 
@@ -1032,7 +1043,13 @@ void ipt_t<IPT_PARAMETERS_DEF>::process_packet(uint64_t offset,
             std::to_string(offset));
       }
     } else {
-      on_ip(IP, offset);
+      if constexpr (IsEngaged) {
+        on_ip(IP, offset);
+      } else {
+        if constexpr (IsVeryVerbose())
+          if (RightProcess())
+            fprintf(stderr, "%016" PRIx64 "\t__IP %016" PRIx64 "\n", offset, (uint64_t)IP);
+      }
     }
     break;
   }
@@ -1043,7 +1060,8 @@ void ipt_t<IPT_PARAMETERS_DEF>::process_packet(uint64_t offset,
 
   case ppt_tnt_8:
   case ppt_tnt_64:
-    tnt_payload(packet.payload.tnt, offset);
+    if constexpr (IsEngaged)
+      tnt_payload(packet.payload.tnt, offset);
     break;
 
   case ppt_mode: {
@@ -1074,7 +1092,7 @@ void ipt_t<IPT_PARAMETERS_DEF>::process_packet(uint64_t offset,
           fprintf(stderr, "%016" PRIx64 "\tbits %u -> %u\n", offset,
                   SavedExecBits, Curr.ExecBits);
 
-#if 1
+#if 0
       if (CheckEngaged()) {
       int errcode;
 
@@ -1103,7 +1121,7 @@ void ipt_t<IPT_PARAMETERS_DEF>::process_packet(uint64_t offset,
       }
 
       // process normally
-      __attribute__((musttail)) return process_packet(offset, packet);
+      __attribute__((musttail)) return process_packets(offset, packet);
       } else
 #endif
       break;
@@ -1158,7 +1176,16 @@ void ipt_t<IPT_PARAMETERS_DEF>::process_packet(uint64_t offset,
       std::to_string(offset));
   }
 
-  __attribute__((musttail)) return process_packet(next_packet(packet), packet);
+  if constexpr (IsEngaged) {
+    if (!Engaged)
+      return;
+  } else {
+    if (Engaged)
+      return;
+  }
+
+  __attribute__((musttail)) return process_packets<IsEngaged>(
+      next_packet(packet), packet);
 }
 
 struct tnt_error {};
@@ -1167,9 +1194,6 @@ struct infinite_loop_exception {};
 template <IPT_PARAMETERS_DCL>
 int ipt_t<IPT_PARAMETERS_DEF>::tnt_payload(const struct pt_packet_tnt &packet,
                                            const uint64_t offset) {
-  if (unlikely(!Engaged))
-    return 1;
-
   if (unlikely(!CurrPoint.Valid())) {
     if constexpr (IsVeryVerbose())
       fprintf(stderr, "%" PRIx64 "\tunhandled tnt\n", offset);
@@ -1200,13 +1224,6 @@ int ipt_t<IPT_PARAMETERS_DEF>::tnt_payload(const struct pt_packet_tnt &packet,
 
 template <IPT_PARAMETERS_DCL>
 int ipt_t<IPT_PARAMETERS_DEF>::on_ip(const taddr_t IP, const uint64_t offset) {
-  if (unlikely(!Engaged)) {
-    if constexpr (IsVeryVerbose())
-      if (RightProcess())
-        fprintf(stderr, "%016" PRIx64 "\t__IP %016" PRIx64 "\n", offset, (uint64_t)IP);
-    return 0;
-  }
-
   taddr_t Addr = IP;
   binary_index_t BIdx = 0;
   std::reference_wrapper<binary_base_t<MT>> refb = exe;

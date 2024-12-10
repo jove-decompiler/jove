@@ -63,6 +63,9 @@ class sideband_parser;
 #define IPT_PARAMETERS_DEF                                                \
   BOOST_PP_SEQ_FOR_EACH_I(IPT_PARAM_NAME, _, IPT_PARAMETERS)
 
+struct end_of_trace_exception {};
+struct error_decoding_exception {};
+
 /* reference IPT decoder */
 template <IPT_PARAMETERS_DCL>
 class ipt_t {
@@ -289,7 +292,11 @@ class ipt_t {
 
   int print_time(uint64_t offset);
 
-  int process_packet(uint64_t offset, struct pt_packet *);
+  template <bool IsEngaged>
+  void process_packets(uint64_t offset, struct pt_packet &);
+  uint64_t next_packet(struct pt_packet &);
+  void packet_sync(void);
+
   int track_cyc(uint64_t offset, const struct pt_packet_cyc *);
   int sb_track_time(uint64_t offset);
   int track_time(uint64_t offset);
@@ -349,7 +356,6 @@ public:
   ~ipt_t();
 
   int explore(void);
-  int explore_packets(void);
 
   int ptdump_print_error(int errcode, const char *filename, uint64_t offset);
 };
