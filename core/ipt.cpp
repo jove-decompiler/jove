@@ -900,9 +900,15 @@ int ipt_t<IPT_PARAMETERS_DEF>::explore(void) {
   }
 
   for (;;) {
-    errcode = explore_packets();
-    if (unlikely(!errcode))
-      break;
+    try {
+      explore_packets();
+    } catch (const error_decoding_exception &) {
+      if (IsVeryVerbose()) {
+        fprintf(stderr, "error decoding trace\n");
+      }
+    } catch (const end_of_trace_exception &) {
+      return 0;
+    }
 
     errcode = pt_pkt_sync_forward(decoder);
     if (unlikely(errcode < 0)) {
@@ -920,46 +926,44 @@ int ipt_t<IPT_PARAMETERS_DEF>::explore(void) {
 }
 
 template <IPT_PARAMETERS_DCL>
-int ipt_t<IPT_PARAMETERS_DEF>::explore_packets() {
+uint64_t ipt_t<IPT_PARAMETERS_DEF>::next_packet(struct pt_packet &out) {
   uint64_t offset;
-  int errcode;
 
-  offset = 0ull;
-  for (;;) {
-    struct pt_packet packet;
+  int errcode = pt_pkt_get_offset(decoder, &offset);
+  if (unlikely(errcode < 0))
+    throw std::runtime_error(std::string("ipt_t: error getting offset: ") +
+                             pt_errstr(pt_errcode(errcode)));
 
-    errcode = pt_pkt_get_offset(decoder, &offset);
-    if (unlikely(errcode < 0))
-      throw std::runtime_error(
-          std::string("ipt_t: error getting offset: ") +
-          pt_errstr(pt_errcode(errcode)));
+  errcode = pt_pkt_next(decoder, &out, sizeof(out));
+  if (unlikely(errcode < 0)) {
+    if (errcode == -pte_eos)
+      throw end_of_trace_exception();
 
-    errcode = pt_pkt_next(decoder, &packet, sizeof(packet));
-    if (unlikely(errcode < 0)) {
-      if (errcode == -pte_eos)
-        return 0;
-
-      if constexpr (IsVerbose())
-        fprintf(stderr, "ipt_t: error decoding packet: %s\n",
-                pt_errstr(pt_errcode(errcode)));
-      return errcode;
-    }
-
-    int ret = process_packet(offset, &packet);
-    if (unlikely(ret <= 0))
-      return ret;
+    if constexpr (IsVerbose())
+      fprintf(stderr, "ipt_t: error decoding packet: %s\n",
+              pt_errstr(pt_errcode(errcode)));
+    throw error_decoding_exception();
   }
 
-  return 0;
+  return offset;
 }
 
 template <IPT_PARAMETERS_DCL>
-int ipt_t<IPT_PARAMETERS_DEF>::process_packet(uint64_t offset,
-                                              struct pt_packet *packet) {
-  switch (packet->type) {
+void ipt_t<IPT_PARAMETERS_DEF>::explore_packets() {
+  struct pt_packet packet;
+
+  for (;;) {
+    process_packet(next_packet(packet), packet);
+  }
+}
+
+template <IPT_PARAMETERS_DCL>
+void ipt_t<IPT_PARAMETERS_DEF>::process_packet(uint64_t offset,
+                                               struct pt_packet &packet) {
+  switch (packet.type) {
   case ppt_unknown:
   case ppt_invalid:
-    return 1;
+    break;
 
   case ppt_psb:
     if (1 /* options->track_time */) {
@@ -973,14 +977,14 @@ int ipt_t<IPT_PARAMETERS_DEF>::process_packet(uint64_t offset,
     }
 
     tracking.in_header = 1;
-    return 1;
+    break;
 
   case ppt_psbend:
     tracking.in_header = 0;
-    return 1;
+    break;
 
   case ppt_pad:
-    return 1;
+    break;
 
   case ppt_ovf:
     if (0 /* options->keep_tcal_on_ovf */) {
@@ -994,10 +998,10 @@ int ipt_t<IPT_PARAMETERS_DEF>::process_packet(uint64_t offset,
     } else {
       pt_tcal_init(&tracking.tcal);
     }
-    return 1;
+    break;
 
   case ppt_stop:
-    return 1;
+    break;
 
   case ppt_fup:
   case ppt_tip:
@@ -1006,7 +1010,7 @@ int ipt_t<IPT_PARAMETERS_DEF>::process_packet(uint64_t offset,
     int errcode;
     uint64_t IP;
 
-    errcode = pt_last_ip_update_ip(&tracking.last_ip, &packet->payload.ip,
+    errcode = pt_last_ip_update_ip(&tracking.last_ip, &packet.payload.ip,
                                    &config);
     if (unlikely(errcode < 0))
       throw std::runtime_error(
@@ -1030,20 +1034,20 @@ int ipt_t<IPT_PARAMETERS_DEF>::process_packet(uint64_t offset,
     } else {
       on_ip(IP, offset);
     }
-
-    return 1;
+    break;
   }
 
   case ppt_pip: /* we'll never see this in userspace */
   case ppt_vmcs:
-    return 1;
+    break;
 
   case ppt_tnt_8:
   case ppt_tnt_64:
-    return tnt_payload(packet->payload.tnt, offset);
+    tnt_payload(packet.payload.tnt, offset);
+    break;
 
   case ppt_mode: {
-    const struct pt_packet_mode *mode = &packet->payload.mode;
+    const struct pt_packet_mode *mode = &packet.payload.mode;
     switch (mode->leaf) {
     case pt_mol_exec: {
       const auto SavedExecBits = Curr.ExecBits;
@@ -1079,22 +1083,10 @@ int ipt_t<IPT_PARAMETERS_DEF>::process_packet(uint64_t offset,
       // because IIRC (from reading libipt) whatever it is would have been
       // reachable anyway without examining the trace- plus it might be BOGUS.
       //
-      errcode = pt_pkt_get_offset(decoder, &offset);
-      if (unlikely(errcode < 0))
-        throw std::runtime_error(
-            std::string("ipt_t: error getting offset: ") +
-            pt_errstr(pt_errcode(errcode)));
-
-      errcode = pt_pkt_next(decoder, packet, sizeof(*packet));
-      if (unlikely(errcode < 0)) {
-        if (errcode == -pte_eos)
-          return 0;
-        return errcode;
-      }
-
-      if (packet->type == ppt_fup) {
+      offset = next_packet(packet);
+      if (packet.type == ppt_fup) {
           errcode = pt_last_ip_update_ip(&tracking.last_ip,
-                                         &packet->payload.ip, &config);
+                                         &packet.payload.ip, &config);
           if (unlikely(errcode < 0))
             throw std::runtime_error(
                 std::string("ipt_t: error tracking last-ip at offset ") +
@@ -1107,39 +1099,47 @@ int ipt_t<IPT_PARAMETERS_DEF>::process_packet(uint64_t offset,
           }
 
           CurrPoint.Invalidate();
-          return 1;
+          break;
       }
 
+      // process normally
       __attribute__((musttail)) return process_packet(offset, packet);
       } else
 #endif
-      return 1;
+      break;
     }
 
     case pt_mol_tsx:
       // assuming this is followed by a mode.exec, there's nothing we need to do
-      return 1;
-    }
+      break;
 
-    throw std::runtime_error(
-        std::string("ipt_t: unknown mode leaf at offset ") +
-        std::to_string(offset));
+    default:
+      throw std::runtime_error(
+          std::string("ipt_t: unknown mode leaf at offset ") +
+          std::to_string(offset));
+    }
+    break;
   }
 
   case ppt_tsc:
-    return track_tsc(offset, &packet->payload.tsc);
+    track_tsc(offset, &packet.payload.tsc);
+    break;
 
   case ppt_cbr:
-    return track_cbr(offset, &packet->payload.cbr);;
+    track_cbr(offset, &packet.payload.cbr);;
+    break;
 
   case ppt_tma:
-    return track_tma(offset, &packet->payload.tma);;
+    track_tma(offset, &packet.payload.tma);;
+    break;
 
   case ppt_mtc:
-    return track_mtc(offset, &packet->payload.mtc);;
+    track_mtc(offset, &packet.payload.mtc);;
+    break;
 
   case ppt_cyc:
-    return track_cyc(offset, &packet->payload.cyc);;
+    track_cyc(offset, &packet.payload.cyc);;
+    break;
 
   case ppt_mnt:
   case ppt_exstop:
@@ -1150,12 +1150,15 @@ int ipt_t<IPT_PARAMETERS_DEF>::process_packet(uint64_t offset,
   case ppt_cfe:
   case ppt_evd:
   case ppt_trig:
-    return 1;
-  }
+    break;
 
+  default:
   throw std::runtime_error(
       std::string("ipt_t: unknown packet at offset ") +
       std::to_string(offset));
+  }
+
+  __attribute__((musttail)) return process_packet(next_packet(packet), packet);
 }
 
 struct tnt_error {};
