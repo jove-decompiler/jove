@@ -256,9 +256,11 @@ StraightLineGo(const auto &b,
 }
 
 #define IPT_PARAMETERS                                                         \
-  ((unsigned, Verbosity, (0)(1)(2)))((bool, Caching, (false)(true)))(          \
-      (bool, Objdump, (false)(true)))((bool, ExeOnly, (false)(true)))(         \
-      (bool, MT, (false)(true)))
+  ((unsigned, Verbosity, (0)(1)(2)))                                           \
+  ((bool, Caching, (false)(true)))                                             \
+  ((bool, Objdump, (false)(true)))                                             \
+  ((bool, ExeOnly, (false)(true)))                                             \
+  ((bool, MT, (false)(true)))
 
 #define IPT_PARAM_DECL(r, data, i, elem)                                       \
   BOOST_PP_COMMA_IF(i)                                                         \
