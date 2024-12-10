@@ -971,6 +971,17 @@ template <IPT_PARAMETERS_DCL>
 template <bool IsEngaged>
 void ipt_t<IPT_PARAMETERS_DEF>::process_packets(uint64_t offset,
                                                 struct pt_packet &packet) {
+#define GTFO_IF_ENGAGED_CHANGED()                                              \
+  do {                                                                         \
+    if constexpr (IsEngaged) {                                                 \
+      if (!Engaged)                                                            \
+        return;                                                                \
+    } else {                                                                   \
+      if (Engaged)                                                             \
+        return;                                                                \
+    }                                                                          \
+  } while (false)
+
   switch (packet.type) {
   case ppt_unknown:
   case ppt_invalid:
@@ -1136,27 +1147,34 @@ void ipt_t<IPT_PARAMETERS_DEF>::process_packets(uint64_t offset,
           std::string("ipt_t: unknown mode leaf at offset ") +
           std::to_string(offset));
     }
+
+    GTFO_IF_ENGAGED_CHANGED();
     break;
   }
 
   case ppt_tsc:
     track_tsc(offset, &packet.payload.tsc);
+    GTFO_IF_ENGAGED_CHANGED();
     break;
 
   case ppt_cbr:
     track_cbr(offset, &packet.payload.cbr);;
+    GTFO_IF_ENGAGED_CHANGED();
     break;
 
   case ppt_tma:
     track_tma(offset, &packet.payload.tma);;
+    GTFO_IF_ENGAGED_CHANGED();
     break;
 
   case ppt_mtc:
     track_mtc(offset, &packet.payload.mtc);;
+    GTFO_IF_ENGAGED_CHANGED();
     break;
 
   case ppt_cyc:
     track_cyc(offset, &packet.payload.cyc);;
+    GTFO_IF_ENGAGED_CHANGED();
     break;
 
   case ppt_mnt:
@@ -1176,13 +1194,7 @@ void ipt_t<IPT_PARAMETERS_DEF>::process_packets(uint64_t offset,
       std::to_string(offset));
   }
 
-  if constexpr (IsEngaged) {
-    if (!Engaged)
-      return;
-  } else {
-    if (Engaged)
-      return;
-  }
+#undef GTFO_IF_ENGAGED_CHANGED
 
   __attribute__((musttail)) return process_packets<IsEngaged>(
       next_packet(packet), packet);
