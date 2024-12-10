@@ -273,6 +273,7 @@ unsigned sideband_parser::handle_read_samples(const uint8_t *const begin,
   return the_sample_type.read_samples_proc(begin, out, the_pev_config);
 }
 
+__attribute__((always_inline))
 unsigned
 sideband_parser::handle_read_sample_samples(const uint8_t *const begin,
                                             struct pev_event &out) const {

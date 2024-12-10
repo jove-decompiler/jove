@@ -62,6 +62,7 @@ public:
   void load(struct pev_event &out, const struct perf_event_header &hdr) const;
 
 private:
+  __attribute__((always_inline))
   unsigned handle_read_sample_samples(const uint8_t *const begin,
                                       struct pev_event &) const;
   unsigned handle_read_samples(const uint8_t *const begin,
