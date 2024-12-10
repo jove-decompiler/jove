@@ -10,13 +10,11 @@ extern "C" {
 namespace jove {
 namespace perf {
 
-typedef std::function<unsigned(const uint8_t *const, struct pev_event &,
-                               const pev_config &)>
-    read_sample_samples_t;
-
-typedef std::function<unsigned(const uint8_t *const, struct pev_event &,
-                               const pev_config &)>
-    read_samples_t;
+typedef unsigned (*read_sample_samples_t)(const uint8_t *const,
+                                          struct pev_event &,
+                                          const pev_config &);
+typedef unsigned (*read_samples_t)(const uint8_t *const, struct pev_event &,
+                                   const pev_config &);
 
 struct sb_sample_type_t {
   /* The sample identifier.

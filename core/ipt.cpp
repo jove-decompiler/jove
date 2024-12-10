@@ -1908,20 +1908,17 @@ int IntelPT<IPT_PARAMETERS_DEF>::print_time(uint64_t offset)
 template <IPT_PARAMETERS_DCL>
 int IntelPT<IPT_PARAMETERS_DEF>::sb_track_time(uint64_t offset)
 {
-  uint64_t tsc;
-  int errcode;
+  auto &tt = *tracking.time;
+
+  if (unlikely(!tt.have_tsc))
+    return 1;
+
+  const uint64_t tsc = tt.tsc;
 
 #if 0
   if constexpr (IsVeryVerbose())
     print_time(offset);
 #endif
-
-  errcode = pt_time_query_tsc(&tsc, NULL, NULL, tracking.time.get());
-  if (unlikely((errcode < 0) && (errcode != -pte_no_time))) {
-    if constexpr (IsVerbose())
-      fprintf(stderr, "%s: time tracking error\n", __PRETTY_FUNCTION__);
-    return errcode;
-  }
 
   // fprintf(stderr, "tsc=%" PRIx64 "\n", tsc);
   //  TODO

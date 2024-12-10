@@ -308,9 +308,12 @@ static int pev_strlen(const char *begin, const void *end_arg) {
 
 void sideband_parser::load(struct pev_event &out,
                            const struct perf_event_header &hdr) const {
+  int slen;
+#ifndef NDEBUG
   __builtin_memset(&out, 0, sizeof(out));
+#endif
 
-  auto type = hdr.type;
+  unsigned type = hdr.type;
 
   out.type = type;
   out.misc = hdr.misc;
@@ -319,45 +322,106 @@ void sideband_parser::load(struct pev_event &out,
   const uint8_t *const end = begin + hdr.size;
   const uint8_t *pos = begin + sizeof(struct perf_event_header);
 
-  switch (type) {
-  case PERF_RECORD_MMAP: {
-    const auto &rec = *(out.record.mmap = reinterpret_cast<const struct pev_record_mmap *>(pos));
+  static constexpr unsigned MAXNR = std::max({
+  PERF_RECORD_MMAP,
+  PERF_RECORD_MMAP2,
+  PERF_RECORD_LOST,
+  PERF_RECORD_COMM,
+  PERF_RECORD_EXIT,
+  PERF_RECORD_THROTTLE,
+  PERF_RECORD_UNTHROTTLE,
+  PERF_RECORD_FORK,
+  PERF_RECORD_AUX,
+  PERF_RECORD_ITRACE_START,
+  PERF_RECORD_LOST_SAMPLES,
+  PERF_RECORD_SWITCH,
+  PERF_RECORD_SWITCH_CPU_WIDE,
+  PERF_RECORD_SAMPLE});
+  static constexpr unsigned SZ = 1 << 7;
+  static_assert(SZ > MAXNR);
 
-    int slen = pev_strlen(rec.filename, end);
+#define JUMP_TABLE_BASE_LABEL do_unknown
+#if 1
+#define REF(Name) &&do_##Name
+#else
+#define REF(Name)                                                              \
+  static_cast<int>(reinterpret_cast<const uint8_t *>(&&do_##Name) -            \
+                   reinterpret_cast<const uint8_t *>(&&JUMP_TABLE_BASE_LABEL))
+#endif
+#define ENTRY(Name) [PERF_RECORD_##Name] = REF(Name)
+
+#if 1
+  typedef void *const jumps_elem_t;
+#else
+  typedef int jumps_elem_t;
+#endif
+
+  static const jumps_elem_t jumps[SZ] = {
+      [0 ... SZ - 1] = REF(unknown),
+      ENTRY(MMAP),
+      ENTRY(MMAP2),
+      ENTRY(LOST),
+      ENTRY(COMM),
+      ENTRY(EXIT),
+      ENTRY(THROTTLE),
+      ENTRY(UNTHROTTLE),
+      ENTRY(FORK),
+      ENTRY(AUX),
+      ENTRY(ITRACE_START),
+      ENTRY(LOST_SAMPLES),
+      ENTRY(SWITCH),
+      ENTRY(SWITCH_CPU_WIDE),
+      ENTRY(SAMPLE)
+  };
+
+  assert(type < SZ);
+  type &= (SZ - 1u);
+#if 1
+  goto *jumps[type];
+#else
+  int offset = jumps[type];
+  const void *ptr = reinterpret_cast<const void *>(
+      reinterpret_cast<const uint8_t *>(&&JUMP_TABLE_BASE_LABEL) + offset);
+  goto *ptr;
+#endif
+
+do_unknown:
+    return;
+
+  do_MMAP:
+    out.record.mmap = reinterpret_cast<const struct pev_record_mmap *>(pos);
+
+    slen = pev_strlen(out.record.mmap->filename, end);
     assert(slen >= 0);
     slen = (slen + 7) & ~7;
 
     pos += sizeof(struct pev_record_mmap);
     pos += slen;
     pos += handle_read_samples(pos, end, out);
-    break;
-  }
-  case PERF_RECORD_MMAP2: {
-    const auto &rec = *(out.record.mmap2 = reinterpret_cast<const struct pev_record_mmap2 *>(pos));
+    goto out;
 
-    int slen = pev_strlen(rec.filename, end);
+  do_MMAP2:
+    out.record.mmap2 = reinterpret_cast<const struct pev_record_mmap2 *>(pos);
+
+    slen = pev_strlen(out.record.mmap2->filename, end);
     assert(slen >= 0);
     slen = (slen + 7) & ~7;
 
     pos += sizeof(struct pev_record_mmap2);
     pos += slen;
     pos += handle_read_samples(pos, end, out);
-    break;
-  }
+    goto out;
 
-  case PERF_RECORD_LOST: {
-    const auto &rec = *(out.record.lost = reinterpret_cast<const struct pev_record_lost *>(pos));
+  do_LOST:
+    out.record.lost = reinterpret_cast<const struct pev_record_lost *>(pos);
     pos += sizeof(struct pev_record_lost);
     pos += handle_read_samples(pos, end, out);
-    break;
-  }
+    goto out;
 
-  case PERF_RECORD_COMM: {
-    const auto &rec = *(out.record.comm = reinterpret_cast<const struct pev_record_comm *>(pos));
+  do_COMM:
+    out.record.comm = reinterpret_cast<const struct pev_record_comm *>(pos);
 
-    int slen;
-
-    slen = pev_strlen(rec.comm, end);
+    slen = pev_strlen(out.record.comm->comm, end);
     assert(slen >= 0);
 
     slen = (slen + 7) & ~7;
@@ -365,77 +429,64 @@ void sideband_parser::load(struct pev_event &out,
     pos += sizeof(struct pev_record_comm);
     pos += slen;
     pos += handle_read_samples(pos, end, out);
-    break;
-  }
+    goto out;
 
-  case PERF_RECORD_EXIT: {
-    const auto &rec = *(out.record.exit = reinterpret_cast<const struct pev_record_exit *>(pos));
+  do_EXIT:
+    out.record.exit = reinterpret_cast<const struct pev_record_exit *>(pos);
     pos += sizeof(struct pev_record_exit);
     pos += handle_read_samples(pos, end, out);
-    break;
-  }
+    goto out;
 
-  case PERF_RECORD_THROTTLE: {
-  case PERF_RECORD_UNTHROTTLE:
-    const auto &rec = *(out.record.throttle = reinterpret_cast<const struct pev_record_throttle *>(pos));
+  do_THROTTLE:
+  do_UNTHROTTLE:
+    out.record.throttle = reinterpret_cast<const struct pev_record_throttle *>(pos);
 
     pos += sizeof(struct pev_record_throttle);
     pos += handle_read_samples(pos, end, out);
-    break;
-  }
+    goto out;
 
-  case PERF_RECORD_FORK: {
-    const auto &rec = *(out.record.fork = reinterpret_cast<const struct pev_record_fork *>(pos));
+  do_FORK:
+    out.record.fork = reinterpret_cast<const struct pev_record_fork *>(pos);
     pos += sizeof(struct pev_record_fork);
     pos += handle_read_samples(pos, end, out);
-    break;
-  }
+    goto out;
 
-  case PERF_RECORD_AUX: {
-    const auto &rec = *(out.record.aux = reinterpret_cast<const struct pev_record_aux *>(pos));
+  do_AUX:
+    out.record.aux = reinterpret_cast<const struct pev_record_aux *>(pos);
     pos += sizeof(struct pev_record_aux);
     pos += handle_read_samples(pos, end, out);
-    break;
-  }
+    goto out;
 
-  case PERF_RECORD_ITRACE_START: {
-    const auto &rec = *(out.record.itrace_start = reinterpret_cast<const struct pev_record_itrace_start *>(pos));
+  do_ITRACE_START:
+    out.record.itrace_start = reinterpret_cast<const struct pev_record_itrace_start *>(pos);
     pos += sizeof(struct pev_record_itrace_start);
     pos += handle_read_samples(pos, end, out);
-    break;
-  }
+    goto out;
 
-  case PERF_RECORD_LOST_SAMPLES: {
-    const auto &rec = *(out.record.lost_samples = reinterpret_cast<const struct pev_record_lost_samples *>(pos));
+  do_LOST_SAMPLES:
+    out.record.lost_samples = reinterpret_cast<const struct pev_record_lost_samples *>(pos);
     pos += sizeof(struct pev_record_lost_samples);
     pos += handle_read_samples(pos, end, out);
-    break;
-  }
+    goto out;
 
-  case PERF_RECORD_SWITCH: {
+  do_SWITCH:
     pos += handle_read_samples(pos, end, out);
-    break;
-  }
+    goto out;
 
-  case PERF_RECORD_SWITCH_CPU_WIDE: {
-    const auto &rec = *(out.record.switch_cpu_wide = reinterpret_cast<const struct pev_record_switch_cpu_wide *>(pos));
+  do_SWITCH_CPU_WIDE:
+    out.record.switch_cpu_wide = reinterpret_cast<const struct pev_record_switch_cpu_wide *>(pos);
     pos += sizeof(struct pev_record_switch_cpu_wide);
     pos += handle_read_samples(pos, end, out);
-    break;
-  }
+    goto out;
 
-  case PERF_RECORD_SAMPLE: {
+  do_SAMPLE:
     pos += handle_read_sample_samples(pos, out);
     assert(out.record.raw);
-    break;
-  }
+    goto out;
 
-  default:
-    return;
-  }
-
-  if (pos - begin != hdr.size)
-    throw std::runtime_error("invalid sideband");
+out:
+  assert(pos - begin == hdr.size);
 }
+
 }
 }
