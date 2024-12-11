@@ -310,13 +310,13 @@ struct reference_ipt_t
             std::to_string(offset));
       }
 
-      GTFO_IF_ENGAGED_CHANGED();
+      IPT_PROCESS_GTFO_IF_ENGAGED_CHANGED(IsEngaged);
       break;
     }
 
     case ppt_tsc:
       this->track_tsc(offset, &packet.payload.tsc);
-      GTFO_IF_ENGAGED_CHANGED();
+      IPT_PROCESS_GTFO_IF_ENGAGED_CHANGED(IsEngaged);
       break;
 
     case ppt_cbr:
