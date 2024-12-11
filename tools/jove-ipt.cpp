@@ -1075,6 +1075,8 @@ int IPTTool::UsingLibipt(void) {
     return 1;
   }
 
+  std::sort(aux_filenames.begin(), aux_filenames.end());
+
 #if 0
   const bool WillFork = !opts.MT && !opts.Serial;
 
