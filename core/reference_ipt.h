@@ -160,83 +160,10 @@ struct reference_ipt_t
         tnt_payload(packet.payload.tnt, offset);
       break;
 
-    case ppt_mode: {
-      const struct pt_packet_mode *mode = &packet.payload.mode;
-      switch (mode->leaf) {
-      case pt_mol_exec: {
-        const auto SavedExecBits = this->Curr.ExecBits;
-        switch (pt_get_exec_mode(&mode->bits.exec)) {
-        case ptem_64bit:
-          this->Curr.ExecBits = 64;
-          break;
-
-        case ptem_32bit:
-          this->Curr.ExecBits = 32;
-          break;
-
-        case ptem_16bit:
-          this->Curr.ExecBits = 16;
-          break;
-
-        case ptem_unknown:
-          this->Curr.ExecBits = ~0u;
-          break;
-        }
-
-        if constexpr (IsVeryVerbose())
-          if (this->Curr.ExecBits != SavedExecBits)
-            fprintf(stderr, "%016" PRIx64 "\tbits %u -> %u\n", offset,
-                    SavedExecBits, this->Curr.ExecBits);
-
-#if 0
-      if (CheckEngaged()) {
-      int errcode;
-
-      //
-      // look ahead and, if IP packet, deal with it but don't examine IP,
-      // because IIRC (from reading libipt) whatever it is would have been
-      // reachable anyway without examining the trace- plus it might be BOGUS.
-      //
-      offset = next_packet(packet);
-      if (packet.type == ppt_fup) {
-          errcode = pt_last_ip_update_ip(&this->tracking.last_ip,
-                                         &packet.payload.ip, &this->config);
-          if (unlikely(errcode < 0))
-            throw std::runtime_error(
-                std::string("reference_ipt: error tracking last-ip at offset ") +
-                std::to_string(offset));
-
-          if constexpr (IsVeryVerbose()) {
-            uint64_t IP;
-            if (pt_last_ip_query(&IP, &this->tracking.last_ip) >= 0)
-              fprintf(stderr, "%016" PRIx64 "\tskipping IP %016" PRIx64 "\n", offset, (uint64_t)IP);
-          }
-
-          CurrPoint.Invalidate();
-          break;
-      }
-
-      // process normally
-      __attribute__((musttail)) return process_packets(offset, packet);
-      } else
-#endif
-        break;
-      }
-
-      case pt_mol_tsx:
-        // assuming this is followed by a mode.exec, there's nothing we need to
-        // do
-        break;
-
-      default:
-        throw std::runtime_error(
-            std::string("reference_ipt: unknown mode leaf at offset ") +
-            std::to_string(offset));
-      }
-
+    case ppt_mode:
+      this->handle_mode(packet.payload.mode, offset);
       IPT_PROCESS_GTFO_IF_ENGAGED_CHANGED(IsEngaged);
       break;
-    }
 
     case ppt_tsc:
       this->track_tsc(offset, &packet.payload.tsc);

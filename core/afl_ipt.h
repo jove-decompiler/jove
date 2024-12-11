@@ -680,6 +680,16 @@ void process_packets(uint64_t offset, packet_type &the_packet) {
     break;
   }
 
+  case ppt_mode: {
+    struct pt_packet_mode packet;
+    auto sz = pkt_read_mode(&packet, (const uint8_t *)data, &this->config);
+    assert(the_packet.opcodesize == sz);
+
+    this->handle_mode(packet, offset);
+    IPT_PROCESS_GTFO_IF_ENGAGED_CHANGED(IsEngaged);
+    break;
+  }
+
   case ppt_fup:
   case ppt_tip:
   case ppt_tip_pge:

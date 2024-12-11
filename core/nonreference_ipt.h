@@ -124,4 +124,41 @@ static int pkt_read_ip(struct pt_packet_ip *packet, const uint8_t *pos,
   return ipsize + 1;
 }
 
+static int pkt_read_mode_exec(struct pt_packet_mode_exec *packet,
+                              uint8_t mode) {
+  packet->csl = (mode & pt_mob_exec_csl) != 0;
+  packet->csd = (mode & pt_mob_exec_csd) != 0;
+  packet->iflag = (mode & pt_mob_exec_iflag) != 0;
+
+  return ptps_mode;
+}
+
+static int pkt_read_mode_tsx(struct pt_packet_mode_tsx *packet, uint8_t mode) {
+  packet->intx = (mode & pt_mob_tsx_intx) != 0;
+  packet->abrt = (mode & pt_mob_tsx_abrt) != 0;
+
+  return ptps_mode;
+}
+
+static int pkt_read_mode(struct pt_packet_mode *packet, const uint8_t *pos,
+                         const struct pt_config *config) {
+  uint8_t payload, mode, leaf;
+
+  if (unlikely(config->end < pos + ptps_mode))
+    throw end_of_trace_exception();
+
+  payload = pos[pt_opcs_mode];
+  leaf = payload & pt_mom_leaf;
+  mode = payload & pt_mom_bits;
+
+  packet->leaf = (enum pt_mode_leaf)leaf;
+  switch (leaf) {
+  case pt_mol_exec:
+    return pkt_read_mode_exec(&packet->bits.exec, mode);
+  case pt_mol_tsx:
+    return pkt_read_mode_tsx(&packet->bits.tsx, mode);
+  }
+  throw error_decoding_exception();
+}
+
 } // namespace jove
