@@ -9,20 +9,13 @@ extern "C" {
 #include "pt_opcodes.h"
 }
 
-#if 0
-extern "C" {
-#include "pt_cpu.h"
-#include "pt_opcodes.h"
-#include "pt_retstack.h"
-//#include "pt_block_decoder.h"
-}
-#endif
+#include "nonreference_ipt.h"
 
 namespace jove {
 
 struct afl_packet_type {
-  unsigned char opcode;
-  unsigned char opcodesize;
+  unsigned char opcode = 0;
+  unsigned char opcodesize = 0;
 };
 
 template <IPT_PARAMETERS_DCL> struct afl_ipt_t;
@@ -542,9 +535,6 @@ struct afl_ipt_t
   afl_ipt_t(Args &&...args) : Base(std::forward<Args>(args)...) {
     data = reinterpret_cast<const unsigned char *>(this->aux_begin);
     size = this->aux_end - this->aux_begin;
-
-    pt_config_init(&this->config);
-    this->ptdump_tracking_init();
   }
 
   void process_packets_while_engaged(uint64_t offset, packet_type &packet) {
@@ -586,7 +576,7 @@ uint64_t decode_ip(const unsigned char *data) {
 	return next_ip;
 }
 
-  void packet_sync(void) {
+  void packet_sync(packet_type &packet) {
     if (size < sizeof(psb) || !findpsb(&data, &size)) {
             throw end_of_trace_exception();
     }
@@ -594,17 +584,25 @@ uint64_t decode_ip(const unsigned char *data) {
     previous_offset = 0;
     previous_ip = 0;
 
+    packet.opcodesize = 0;
+
     this->ptdump_tracking_reset();
   }
 
   uint64_t next_packet(packet_type &out) {
-    assert(data < this->aux_end);
-    if (unlikely(!get_next_opcode(data, size, &out.opcode, &out.opcodesize)))
+    {
+      auto opcodesize = out.opcodesize;
+
+      data += opcodesize;
+      size -= opcodesize;
+    }
+
+    if (unlikely(data >= this->aux_end) ||
+        unlikely(!get_next_opcode(data, size, &out.opcode, &out.opcodesize)))
             throw end_of_trace_exception();
 
-    auto opcodesize = out.opcodesize ;
-    size -= opcodesize;
-    data += opcodesize;
+    if (unlikely(!out.opcodesize))
+      throw error_decoding_exception();
 
     return data - this->aux_begin;
   }
@@ -618,14 +616,85 @@ void process_packets(uint64_t offset, packet_type &packet) {
   auto type = packet.opcode;
 
   switch (type) {
+  case ppt_psb:
+    if (IsVeryVerbose())
+      fprintf(stderr, "psb\n");
+    this->tracking.in_header = 1;
+    break;
+
+  case ppt_psbend:
+    if (IsVeryVerbose())
+      fprintf(stderr, "psbend\n");
+    this->tracking.in_header = 0;
+    break;
+
+  case ppt_tsc: {
+    if (IsVeryVerbose())
+      fprintf(stderr, "tsc\n");
+    struct pt_packet_tsc packet;
+    packet.tsc = pt_pkt_read_value(data + pt_opcs_tsc, pt_pl_tsc_size);
+
+    this->track_tsc(offset, &packet);
+    IPT_PROCESS_GTFO_IF_ENGAGED_CHANGED(IsEngaged);
+    break;
+  }
+  case ppt_cbr: {
+    if (IsVeryVerbose())
+      fprintf(stderr, "cbr\n");
+    struct pt_packet_cbr packet;
+    packet.ratio = data[2];
+
+    this->track_cbr(offset, &packet);
+    IPT_PROCESS_GTFO_IF_ENGAGED_CHANGED(IsEngaged);
+    break;
+  }
+  case ppt_tma: {
+    if (IsVeryVerbose())
+      fprintf(stderr, "tma\n");
+    struct pt_packet_tma packet;
+    pkt_read_tma(&packet, (const uint8_t *)data);
+
+    this->track_tma(offset, &packet);
+    IPT_PROCESS_GTFO_IF_ENGAGED_CHANGED(IsEngaged);
+    break;
+  }
+  case ppt_mtc: {
+    if (IsVeryVerbose())
+      fprintf(stderr, "mtc\n");
+    struct pt_packet_mtc packet;
+    packet.ctc = data[pt_opcs_mtc];
+
+    this->track_mtc(offset, &packet);
+    IPT_PROCESS_GTFO_IF_ENGAGED_CHANGED(IsEngaged);
+    break;
+  }
+  case ppt_cyc: {
+    if (IsVeryVerbose())
+      fprintf(stderr, "cyc\n");
+    struct pt_packet_cyc packet;
+    pkt_read_cyc(&packet, (const uint8_t *)data, &this->config);
+
+    this->track_cyc(offset, &packet);
+    IPT_PROCESS_GTFO_IF_ENGAGED_CHANGED(IsEngaged);
+    break;
+  }
+
   case ppt_fup:
   case ppt_tip:
   case ppt_tip_pge:
   case ppt_tip_pgd:
-            next_ip = decode_ip(data);
-            break;
+    next_ip = decode_ip(data);
+    if constexpr (IsEngaged) {
+      this->on_ip(next_ip, offset);
+    } else {
+      if constexpr (IsVeryVerbose())
+        if (this->RightProcess())
+          fprintf(stderr, "%016" PRIx64 "\t__IP %016" PRIx64 "\n", offset,
+                  (uint64_t)next_ip);
+    }
+    break;
   default:
-            break;
+    break;
   }
 
   __attribute__((musttail)) return process_packets<IsEngaged>(
