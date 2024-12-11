@@ -537,11 +537,11 @@ struct afl_ipt_t
     size = this->aux_end - this->aux_begin;
   }
 
-  void process_packets_while_engaged(uint64_t offset, packet_type &packet) {
+  void process_packets_engaged(uint64_t offset, packet_type &packet) {
     __attribute__((musttail)) return process_packets<true>(offset, packet);
   }
 
-  void process_packets_while_not_engaged(uint64_t offset, packet_type &packet) {
+  void process_packets_unengaged(uint64_t offset, packet_type &packet) {
     __attribute__((musttail)) return process_packets<false>(offset, packet);
   }
 

@@ -2157,7 +2157,7 @@ public:
       for (;;) {
         for (;;) {
           try {
-            get_this()->process_packets_while_not_engaged(
+            get_this()->process_packets_unengaged(
                 get_this()->next_packet(packet), packet);
             break;
           } catch (const error_decoding_exception &) {
@@ -2166,7 +2166,7 @@ public:
         }
         for (;;) {
           try {
-            get_this()->process_packets_while_engaged(
+            get_this()->process_packets_engaged(
                 get_this()->next_packet(packet), packet);
             break;
           } catch (const error_decoding_exception &) {
