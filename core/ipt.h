@@ -2339,6 +2339,29 @@ public:
       this->track_time(offset, tracking.time.tsc);
     return 0;
   }
+
+  uint64_t track_ip(uint64_t offset, const struct pt_packet_ip &packet) {
+    int errcode;
+    uint64_t IP;
+
+    errcode = pt_last_ip_update_ip(&this->tracking.last_ip, &packet,
+                                   &this->config);
+    if (unlikely(errcode < 0))
+      throw std::runtime_error(
+          std::string("reference_ipt: error (1) tracking last-ip at offset ") +
+          std::to_string(offset));
+
+    errcode = pt_last_ip_query(&IP, &this->tracking.last_ip);
+    if (likely(errcode == 0))
+      return IP;
+
+    if constexpr (IsVeryVerbose()) {
+      if (errcode == -pte_ip_suppressed)
+        fprintf(stderr, "%016" PRIx64 "\tIP supressed\n", offset);
+    }
+
+    return 0;
+  }
 };
 
 #undef IsVerbose

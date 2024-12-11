@@ -22,12 +22,11 @@ static void pkt_read_tma(struct pt_packet_tma *packet, const uint8_t *pos) {
 
 static int pkt_read_cyc(struct pt_packet_cyc *packet, const uint8_t *pos,
                         const struct pt_config *config) {
-  const uint8_t *begin, *end;
   uint64_t value;
   uint8_t cyc, ext, shl;
 
-  begin = pos;
-  end = config->end;
+  const uint8_t *const begin = pos;
+  const uint8_t *const end = config->end;
 
   /* The first byte contains the opcode and part of the payload.
    * We already checked that this first byte is within bounds.
@@ -76,6 +75,53 @@ static uint64_t pt_pkt_read_value(const uint8_t *pos, int size) {
   }
 
   return val;
+}
+
+static int pkt_ip_size(enum pt_ip_compression ipc) {
+  switch (ipc) {
+  case pt_ipc_suppressed:
+    return 0;
+
+  case pt_ipc_update_16:
+    return 2;
+
+  case pt_ipc_update_32:
+    return 4;
+
+  case pt_ipc_update_48:
+  case pt_ipc_sext_48:
+    return 6;
+
+  case pt_ipc_full:
+    return 8;
+  }
+
+  throw error_decoding_exception();
+}
+
+static int pkt_read_ip(struct pt_packet_ip *packet, const uint8_t *pos,
+                       const struct pt_config *config) {
+  uint64_t ip;
+  uint8_t ipc;
+  int ipsize;
+
+  ipc = (*pos++ >> pt_opm_ipc_shr) & pt_opm_ipc_shr_mask;
+
+  ip = 0ull;
+  ipsize = pkt_ip_size((enum pt_ip_compression)ipc);
+  if (unlikely(ipsize < 0))
+    throw error_decoding_exception();
+
+  if (unlikely(config->end < pos + ipsize))
+    throw end_of_trace_exception();
+
+  if (likely(ipsize))
+    ip = pt_pkt_read_value(pos, ipsize);
+
+  packet->ipc = (enum pt_ip_compression)ipc;
+  packet->ip = ip;
+
+  return ipsize + 1;
 }
 
 } // namespace jove

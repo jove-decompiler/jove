@@ -135,39 +135,17 @@ struct reference_ipt_t
     case ppt_tip:
     case ppt_tip_pge:
     case ppt_tip_pgd: {
-      int errcode;
-      uint64_t IP;
-
-      errcode = pt_last_ip_update_ip(&this->tracking.last_ip, &packet.payload.ip,
-                                     &this->config);
-      if (unlikely(errcode < 0))
-        throw std::runtime_error(
-            std::string("reference_ipt: error tracking last-ip at offset ") +
-            std::to_string(offset));
-
-      errcode = pt_last_ip_query(&IP, &this->tracking.last_ip);
-      if (unlikely(errcode < 0)) {
-        if (errcode == -pte_ip_suppressed) {
-          if constexpr (IsEngaged) {
-            if constexpr (IsVeryVerbose())
-              fprintf(stderr, "<suppressed>\n");
-
-            this->CurrPoint.Invalidate();
-          }
-        } else {
-          throw std::runtime_error(
-              std::string("reference_ipt: error tracking last-ip at offset ") +
-              std::to_string(offset));
-        }
-      } else {
-        if constexpr (IsEngaged) {
+      uint64_t IP = this->track_ip(offset, packet.payload.ip);
+      if constexpr (IsEngaged) {
+        if (likely(IP))
           this->on_ip(IP, offset);
-        } else {
-          if constexpr (IsVeryVerbose())
-            if (this->RightProcess())
-              fprintf(stderr, "%016" PRIx64 "\t__IP %016" PRIx64 "\n", offset,
-                      (uint64_t)IP);
-        }
+        else
+          this->CurrPoint.Invalidate();
+      } else {
+        if constexpr (IsVeryVerbose())
+          if (this->RightProcess())
+            fprintf(stderr, "%016" PRIx64 "\t__IP %016" PRIx64 "\n", offset,
+                    (uint64_t)IP);
       }
       break;
     }

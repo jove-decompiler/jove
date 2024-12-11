@@ -611,9 +611,9 @@ uint64_t decode_ip(const unsigned char *data) {
 // fast decoder that decodes only tip (and related packets)
 // and skips over the reset
 template <bool IsEngaged>
-void process_packets(uint64_t offset, packet_type &packet) {
+void process_packets(uint64_t offset, packet_type &the_packet) {
   uint64_t next_ip;
-  auto type = packet.opcode;
+  auto type = the_packet.opcode;
 
   switch (type) {
   case ppt_psb:
@@ -672,7 +672,8 @@ void process_packets(uint64_t offset, packet_type &packet) {
     if (IsVeryVerbose())
       fprintf(stderr, "cyc\n");
     struct pt_packet_cyc packet;
-    pkt_read_cyc(&packet, (const uint8_t *)data, &this->config);
+    auto sz = pkt_read_cyc(&packet, (const uint8_t *)data, &this->config);
+    assert(the_packet.opcodesize == sz);
 
     this->track_cyc(offset, &packet);
     IPT_PROCESS_GTFO_IF_ENGAGED_CHANGED(IsEngaged);
@@ -682,10 +683,19 @@ void process_packets(uint64_t offset, packet_type &packet) {
   case ppt_fup:
   case ppt_tip:
   case ppt_tip_pge:
-  case ppt_tip_pgd:
-    next_ip = decode_ip(data);
+  case ppt_tip_pgd: {
+#if 0
+    uint64_t next_ip = decode_ip(data);
+#else
+    struct pt_packet_ip packet;
+    pkt_read_ip(&packet, (const uint8_t *)data, &this->config);
+    uint64_t next_ip = this->track_ip(offset, packet);
+#endif
     if constexpr (IsEngaged) {
-      this->on_ip(next_ip, offset);
+      if (likely(next_ip))
+        this->on_ip(next_ip, offset);
+      else
+        this->CurrPoint.Invalidate();
     } else {
       if constexpr (IsVeryVerbose())
         if (this->RightProcess())
@@ -693,12 +703,13 @@ void process_packets(uint64_t offset, packet_type &packet) {
                   (uint64_t)next_ip);
     }
     break;
+  }
   default:
     break;
   }
 
   __attribute__((musttail)) return process_packets<IsEngaged>(
-      next_packet(packet), packet);
+      next_packet(the_packet), the_packet);
 }
 
 #undef IsVerbose
