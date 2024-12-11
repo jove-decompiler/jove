@@ -29,6 +29,8 @@
 #include <intel-pt.h>
 extern "C" {
 #include "pevent.h"
+#include "pt_last_ip.h"
+#include "pt_time.h"
 }
 
 #if 1
@@ -302,6 +304,19 @@ protected:
   perf::data_reader<false> &sb;
   perf::event_iterator sb_it;
   perf::sideband_parser &sb_parser;
+
+  struct pt_config config;
+
+  struct {
+    struct pt_last_ip last_ip;
+    struct pt_time_cal tcal;
+    struct pt_time time;
+
+    uint64_t tsc = 0ull; /* The last estimated TSC. */
+    uint64_t fcr = 0ull; /* The last calibration value. */
+
+    uint32_t in_header = 0; /* Header vs. normal decode. */
+  } tracking;
 
   struct pev_event incoming_event;
 
@@ -1854,12 +1869,180 @@ public:
     return 0;
   }
 
-  int ptdump_print_error(int errcode, const char *filename, uint64_t offset);
+  void ptdump_tracking_init(void) {
+    pt_last_ip_init(&tracking.last_ip);
+    pt_tcal_init(&tracking.tcal);
+    pt_time_init(&tracking.time);
+
+    tracking.tsc = 0ull;
+    tracking.fcr = 0ull;
+    tracking.in_header = 0;
+  }
+
+  void ptdump_tracking_reset(void) {
+    pt_last_ip_init(&tracking.last_ip);
+    pt_tcal_init(&tracking.tcal);
+    pt_time_init(&tracking.time);
+
+    tracking.tsc = 0ull;
+    tracking.fcr = 0ull;
+    tracking.in_header = 0;
+  }
+
+  int track_tsc(uint64_t offset, const struct pt_packet_tsc *packet) {
+    int errcode;
+
+    if (1 /* !options->no_tcal */) {
+      errcode = tracking.in_header
+                    ? pt_tcal_header_tsc(&tracking.tcal, packet, &config)
+                    : pt_tcal_update_tsc(&tracking.tcal, packet, &config);
+      if (unlikely(errcode < 0)) {
+        if constexpr (IsVerbose())
+          fprintf(stderr, "%s: error calibrating time\n", __PRETTY_FUNCTION__);
+      }
+    }
+
+    errcode = pt_time_update_tsc(&tracking.time, packet, &config);
+    assert(errcode == 0);
+
+    assert(tracking.time.have_tsc);
+    this->track_time(offset, tracking.time.tsc);
+
+    return 0;
+  }
+
+  int track_cbr(uint64_t offset, const struct pt_packet_cbr *packet) {
+    int errcode;
+
+    if (1 /* !options->no_tcal */) {
+      errcode = tracking.in_header
+                    ? pt_tcal_header_cbr(&tracking.tcal, packet, &config)
+                    : pt_tcal_update_cbr(&tracking.tcal, packet, &config);
+      if (unlikely(errcode < 0)) {
+        if constexpr (IsVerbose())
+          fprintf(stderr, "%s: error calibrating time\n", __PRETTY_FUNCTION__);
+      }
+    }
+
+    errcode = pt_time_update_cbr(&tracking.time, packet, &config);
+    if (unlikely(errcode < 0)) {
+      if constexpr (IsVerbose())
+        fprintf(stderr, "%s: error updating time\n", __PRETTY_FUNCTION__);
+    }
+
+    if (likely(tracking.time.have_tsc))
+      this->track_time(offset, tracking.time.tsc);
+    return 0;
+  }
+
+  int track_tma(uint64_t offset, const struct pt_packet_tma *packet) {
+    int errcode;
+
+    if (1 /* !options->no_tcal */) {
+      errcode = pt_tcal_update_tma(&tracking.tcal, packet, &config);
+      if (unlikely(errcode < 0)) {
+        if constexpr (IsVerbose())
+          fprintf(stderr, "%s: error calibrating time\n", __PRETTY_FUNCTION__);
+      }
+    }
+
+    errcode = pt_time_update_tma(&tracking.time, packet, &config);
+    if (unlikely(errcode < 0)) {
+      if constexpr (IsVerbose())
+        fprintf(stderr, "%s: error updating time\n", __PRETTY_FUNCTION__);
+    }
+
+    if (likely(tracking.time.have_tsc))
+      this->track_time(offset, tracking.time.tsc);
+    return 0;
+  }
+
+  int track_mtc(uint64_t offset, const struct pt_packet_mtc *packet) {
+    int errcode;
+
+    if (1 /* !options->no_tcal */) {
+      errcode = pt_tcal_update_mtc(&tracking.tcal, packet, &config);
+      if (unlikely(errcode < 0)) {
+        if constexpr (IsVerbose())
+          fprintf(stderr, "%s: error calibrating time: %s\n",
+                  __PRETTY_FUNCTION__, pt_errstr(pt_errcode(errcode)));
+      }
+    }
+
+    errcode = pt_time_update_mtc(&tracking.time, packet, &config);
+    if (unlikely(errcode < 0)) {
+      if constexpr (IsVerbose())
+        fprintf(stderr, "%s: error updating time: %s\n", __PRETTY_FUNCTION__,
+                pt_errstr(pt_errcode(errcode)));
+    }
+
+    if (likely(tracking.time.have_tsc))
+      this->track_time(offset, tracking.time.tsc);
+    return 0;
+  }
+
+  int track_cyc(uint64_t offset, const struct pt_packet_cyc *packet) {
+    uint64_t fcr;
+    int errcode;
+
+    /* Initialize to zero in case of calibration errors. */
+    fcr = 0ull;
+
+    if (1 /* !options->no_tcal */) {
+      errcode = pt_tcal_fcr(&fcr, &tracking.tcal);
+
+      if (unlikely(errcode < 0)) {
+#if 0
+			if constexpr (IsVerbose())
+                                fprintf(stderr, "%s: calibration error (1): %s\n",
+                                        __func__,
+                                        pt_errstr(pt_errcode(errcode)));
+#endif
+      }
+
+      errcode = pt_tcal_update_cyc(&tracking.tcal, packet, &config);
+      if (unlikely(errcode < 0)) {
+        if constexpr (IsVerbose())
+          fprintf(stderr, "%s: error calibrating time (2): %s\n", __func__,
+                  pt_errstr(pt_errcode(errcode)));
+      }
+    }
+
+    errcode = pt_time_update_cyc(&tracking.time, packet, &config, fcr);
+
+    if (unlikely(errcode < 0)) {
+      if constexpr (IsVerbose())
+        fprintf(stderr, "%s: error updating time (3): %s\n", __func__,
+                pt_errstr(pt_errcode(errcode)));
+    } else if (!fcr) {
+#if 0
+		if constexpr (IsVerbose())
+                        fprintf(stderr,
+                                "%s: error updating time (4): no calibration\n",
+                                __func__);
+#endif
+    }
+
+    if (likely(tracking.time.have_tsc))
+      this->track_time(offset, tracking.time.tsc);
+    return 0;
+  }
 };
 
 #undef IsVerbose
 #undef IsVeryVerbose
 
 } // namespace jove
+
+#define IPT_PROCESS_GTFO_IF_ENGAGED_CHANGED(ISENG)                             \
+  do {                                                                         \
+    if constexpr (ISENG) {                                                     \
+      if (!this->Engaged)                                                      \
+        return;                                                                \
+    } else {                                                                   \
+      if (this->Engaged)                                                       \
+        return;                                                                \
+    }                                                                          \
+  } while (false)
 
 #endif /* x86 */

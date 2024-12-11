@@ -6,6 +6,7 @@
 
 extern "C" {
 #include "pt_time.h"
+#include "pt_opcodes.h"
 }
 
 #if 0
@@ -541,6 +542,9 @@ struct afl_ipt_t
   afl_ipt_t(Args &&...args) : Base(std::forward<Args>(args)...) {
     data = reinterpret_cast<const unsigned char *>(this->aux_begin);
     size = this->aux_end - this->aux_begin;
+
+    pt_config_init(&this->config);
+    this->ptdump_tracking_init();
   }
 
   void process_packets_while_engaged(uint64_t offset, packet_type &packet) {
@@ -576,6 +580,9 @@ uint64_t decode_ip(const unsigned char *data) {
 	}
 	previous_ip = next_ip;
 
+	if constexpr (IsVeryVerbose())
+		fprintf(stderr, "ip: %p\n", (void *)next_ip);
+
 	return next_ip;
 }
 
@@ -586,10 +593,13 @@ uint64_t decode_ip(const unsigned char *data) {
 
     previous_offset = 0;
     previous_ip = 0;
+
+    this->ptdump_tracking_reset();
   }
 
   uint64_t next_packet(packet_type &out) {
-	if (unlikely(!get_next_opcode(data, size, &out.opcode, &out.opcodesize)))
+    assert(data < this->aux_end);
+    if (unlikely(!get_next_opcode(data, size, &out.opcode, &out.opcodesize)))
             throw end_of_trace_exception();
 
     auto opcodesize = out.opcodesize ;
@@ -605,24 +615,21 @@ uint64_t decode_ip(const unsigned char *data) {
 template <bool IsEngaged>
 void process_packets(uint64_t offset, packet_type &packet) {
   uint64_t next_ip;
-  auto opcode = packet.opcode;
+  auto type = packet.opcode;
 
-  if (opcode == ppt_invalid)
-            throw error_decoding_exception();
-
-  switch (opcode) {
+  switch (type) {
   case ppt_fup:
   case ppt_tip:
   case ppt_tip_pge:
   case ppt_tip_pgd:
             next_ip = decode_ip(data);
-            if constexpr (IsVeryVerbose())
-		 fprintf(stderr, "ip: %p\n", (void*)next_ip);
             break;
-    }
+  default:
+            break;
+  }
 
-    __attribute__((musttail)) return process_packets<IsEngaged>(
-        next_packet(packet), packet);
+  __attribute__((musttail)) return process_packets<IsEngaged>(
+      next_packet(packet), packet);
 }
 
 #undef IsVerbose
