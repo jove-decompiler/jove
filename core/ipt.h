@@ -2161,6 +2161,8 @@ public:
                 get_this()->next_packet(packet), packet);
             break;
           } catch (const error_decoding_exception &) {
+            if constexpr (!IsVerbose())
+              fprintf(stdout, "error\n");
           }
           get_this()->packet_sync(packet);
         }
@@ -2170,6 +2172,8 @@ public:
                 get_this()->next_packet(packet), packet);
             break;
           } catch (const error_decoding_exception &) {
+            if constexpr (!IsVerbose())
+              fprintf(stdout, "error\n");
           }
           get_this()->packet_sync(packet);
         }

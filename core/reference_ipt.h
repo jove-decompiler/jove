@@ -88,7 +88,12 @@ struct reference_ipt_t
 
   template <bool IsEngaged>
   void process_packets(uint64_t offset, packet_type &packet) {
-    switch (packet.type) {
+    auto type = packet.type;
+
+    if constexpr (!IsVerbose())
+      fprintf(stdout, "%016" PRIx64 "\t%u\n", offset, (unsigned)type);
+
+    switch (type) {
     case ppt_unknown:
     case ppt_invalid:
       break;

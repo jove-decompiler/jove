@@ -3,6 +3,7 @@
 #include "ipt.h"
 
 #include <cstdio>
+#include <array>
 
 extern "C" {
 #include "pt_time.h"
@@ -27,8 +28,9 @@ struct ipt_traits<afl_ipt_t<IPT_PARAMETERS_DEF>> {
 
 #define PPT_EXT 0xFF
 
-static
-unsigned char opc_lut[] = {
+#if 0
+static constexpr
+unsigned char orig_opc_lut[] = {
 	0x02, 0x08, 0xff, 0x12, 0x09, 0x00, 0x09, 0x12,
 	0x09, 0x00, 0x09, 0x12, 0x09, 0x06, 0x09, 0x12,
 	0x09, 0x07, 0x09, 0x12, 0x09, 0x00, 0x09, 0x12,
@@ -63,8 +65,8 @@ unsigned char opc_lut[] = {
 	0x09, 0x00, 0x09, 0x12, 0x09, 0x00, 0x09, 0x12
 };
 
-static
-unsigned char ext_lut[] = {
+static constexpr
+unsigned char orig_ext_lut[] = {
 	0x00, 0x00, 0x00, 0x0e, 0x00, 0x00, 0x00, 0x00,
 	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 	0x00, 0x00, 0x1a, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -99,8 +101,8 @@ unsigned char ext_lut[] = {
 	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 };
 
-static
-unsigned char opc_size_lut[] = {
+static constexpr
+unsigned char orig_opc_size_lut[] = {
 	0x01, 0x01, 0x01, 0x01, 0x01, 0x00, 0x01, 0x01,
 	0x01, 0x00, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
 	0x01, 0x01, 0x01, 0x01, 0x01, 0x00, 0x01, 0x01,
@@ -135,8 +137,8 @@ unsigned char opc_size_lut[] = {
 	0x01, 0x00, 0x01, 0x01, 0x01, 0x00, 0x01, 0x01
 };
 
-static
-unsigned char ext_size_lut[] = {
+static constexpr
+unsigned char orig_ext_size_lut[] = {
 	0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00,
 	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 	0x00, 0x00, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -170,6 +172,7 @@ unsigned char ext_size_lut[] = {
 	0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00,
 	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 };
+#endif
 
 static const
 unsigned char psb[16] = {
@@ -183,7 +186,6 @@ static const unsigned char psb_and_psbend[18] = {
 	0x02, 0x23
 };
 
-#if 0
 static
 void dump_lut(unsigned char *lut, char *lutname) {
 	printf("unsigned char %s[] = {\n", lutname);
@@ -199,9 +201,22 @@ void dump_lut(unsigned char *lut, char *lutname) {
 	printf("}; \n\n");
 }
 
+enum class lookup_table_kind {
+	opc_lut,
+	ext_lut,
+	opc_size_lut,
+	ext_size_lut
+};
+
 // function that was used to build the lookup tables for the packet decoder
-static
-void build_luts() {
+template<lookup_table_kind WhichLut>
+static constexpr
+std::array<unsigned char, 256> build_luts(void) {
+	std::array<unsigned char, 256> opc_lut;
+	std::array<unsigned char, 256> ext_lut;
+	std::array<unsigned char, 256> opc_size_lut;
+	std::array<unsigned char, 256> ext_size_lut;
+
 	for (int i = 0; i<256; i++) {
 		opc_lut[i] = ppt_invalid;
 	}
@@ -431,11 +446,49 @@ void build_luts() {
 	ext_lut[pt_ext_ext2] = PPT_EXT;
 	ext_size_lut[pt_ext_ext2] = 1; // not really important
 
+#if 0
 	dump_lut(opc_lut, "opc_lut");
 	dump_lut(ext_lut, "ext_lut");
 	dump_lut(opc_size_lut, "opc_size_lut");
 	dump_lut(ext_size_lut, "ext_size_lut");
+#endif
+
+	if constexpr (WhichLut == lookup_table_kind::opc_lut)
+		return opc_lut;
+	else if constexpr (WhichLut == lookup_table_kind::ext_lut)
+		return ext_lut;
+	else if constexpr (WhichLut == lookup_table_kind::opc_size_lut)
+		return opc_size_lut;
+	else if constexpr (WhichLut == lookup_table_kind::ext_size_lut)
+		return ext_size_lut;
+
+	__compiletime_unreachable();
 }
+
+static constexpr std::array<unsigned char, 256> opc_lut =
+    build_luts<lookup_table_kind::opc_lut>();
+static constexpr std::array<unsigned char, 256> ext_lut =
+    build_luts<lookup_table_kind::ext_lut>();
+static constexpr std::array<unsigned char, 256> opc_size_lut =
+    build_luts<lookup_table_kind::opc_size_lut>();
+static constexpr std::array<unsigned char, 256> ext_size_lut =
+    build_luts<lookup_table_kind::ext_size_lut>();
+
+#if 0
+template <typename T, std::size_t N>
+constexpr bool arrays_equal(const std::array<T, N>& std_arr, const T (&c_arr)[N]) {
+    for (std::size_t i = 0; i < N; ++i) {
+        if (std_arr[i] != c_arr[i]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static_assert(arrays_equal(opc_lut, orig_opc_lut));
+static_assert(arrays_equal(ext_lut, orig_ext_lut));
+static_assert(arrays_equal(opc_size_lut, orig_opc_size_lut));
+static_assert(arrays_equal(ext_size_lut, orig_ext_size_lut));
 #endif
 
 // sign extend
@@ -614,6 +667,9 @@ template <bool IsEngaged>
 void process_packets(uint64_t offset, packet_type &the_packet) {
   uint64_t next_ip;
   auto type = the_packet.opcode;
+
+  if constexpr (!IsVerbose())
+    fprintf(stdout, "%016" PRIx64 "\t%u\n", offset, (unsigned)type);
 
   switch (type) {
   case ppt_psb:
