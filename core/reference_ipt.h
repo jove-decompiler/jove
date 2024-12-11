@@ -340,25 +340,21 @@ struct reference_ipt_t
 
     case ppt_cbr:
       track_cbr(offset, &packet.payload.cbr);
-      ;
       GTFO_IF_ENGAGED_CHANGED();
       break;
 
     case ppt_tma:
       track_tma(offset, &packet.payload.tma);
-      ;
       GTFO_IF_ENGAGED_CHANGED();
       break;
 
     case ppt_mtc:
       track_mtc(offset, &packet.payload.mtc);
-      ;
       GTFO_IF_ENGAGED_CHANGED();
       break;
 
     case ppt_cyc:
       track_cyc(offset, &packet.payload.cyc);
-      ;
       GTFO_IF_ENGAGED_CHANGED();
       break;
 
