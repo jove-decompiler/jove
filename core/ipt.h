@@ -2032,6 +2032,21 @@ public:
 #undef IsVerbose
 #undef IsVeryVerbose
 
+static uint64_t pt_pkt_read_value(const uint8_t *pos, int size)
+{
+	uint64_t val;
+	int idx;
+
+	for (val = 0, idx = 0; idx < size; ++idx) {
+		uint64_t byte = *pos++;
+
+		byte <<= (idx * 8);
+		val |= byte;
+	}
+
+	return val;
+}
+
 } // namespace jove
 
 #define IPT_PROCESS_GTFO_IF_ENGAGED_CHANGED(ISENG)                             \
