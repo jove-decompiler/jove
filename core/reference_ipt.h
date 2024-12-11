@@ -25,49 +25,6 @@ struct reference_ipt_t
 
   template <typename... Args>
   reference_ipt_t(Args &&...args) : Base(std::forward<Args>(args)...) {
-    setvbuf(stderr, NULL, _IOLBF, 0); /* automatically flush on new-line */
-
-    pt_config_init(&this->config);
-    this->ptdump_tracking_init();
-
-    if (process_args(this->ptdump_argc, this->ptdump_argv) != 0)
-      throw std::runtime_error("failed to process ptdump arguments");
-
-    if (this->config.cpu.vendor) {
-      int errcode = pt_cpu_errata(&this->config.errata, &this->config.cpu);
-      if (errcode < 0)
-        throw std::runtime_error("failed to determine errata");
-
-      std::vector<uint8_t> zeros(sizeof(this->config.errata), 0);
-      if (memcmp(&this->config.errata, &zeros[0], sizeof(this->config.errata)) != 0) {
-        fprintf(stderr, "WARNING! CPU errata detected:");
-
-#define __ERRATA(x)                                                            \
-  do {                                                                         \
-    if (this->config.errata.x)                                                       \
-      fprintf(stderr, " " #x);                                                 \
-  } while (false)
-
-        __ERRATA(bdm70);
-        __ERRATA(bdm64);
-        __ERRATA(skd007);
-        __ERRATA(skd022);
-        __ERRATA(skd010);
-        __ERRATA(skl014);
-        __ERRATA(apl12);
-        __ERRATA(apl11);
-        __ERRATA(skl168);
-        __ERRATA(skz84);
-
-#undef __ERRATA
-
-        fprintf(stderr, "\n");
-      }
-    }
-
-    this->config.begin = const_cast<uint8_t *>(this->aux_begin);
-    this->config.end = const_cast<uint8_t *>(this->aux_end);
-
     decoder = pt_pkt_alloc_decoder(&this->config);
   }
 
@@ -93,7 +50,7 @@ struct reference_ipt_t
     return 0;
   }
 
-  void packet_sync(void) {
+  void packet_sync(packet_type &) {
     int errcode = pt_pkt_sync_forward(decoder);
     if (unlikely(errcode < 0)) {
       if (errcode == -pte_eos)
@@ -131,17 +88,6 @@ struct reference_ipt_t
 
   template <bool IsEngaged>
   void process_packets(uint64_t offset, packet_type &packet) {
-#define GTFO_IF_ENGAGED_CHANGED()                                              \
-  do {                                                                         \
-    if constexpr (IsEngaged) {                                                 \
-      if (!this->Engaged)                                                      \
-        return;                                                                \
-    } else {                                                                   \
-      if (this->Engaged)                                                       \
-        return;                                                                \
-    }                                                                          \
-  } while (false)
-
     switch (packet.type) {
     case ppt_unknown:
     case ppt_invalid:
@@ -321,22 +267,22 @@ struct reference_ipt_t
 
     case ppt_cbr:
       this->track_cbr(offset, &packet.payload.cbr);
-      GTFO_IF_ENGAGED_CHANGED();
+      IPT_PROCESS_GTFO_IF_ENGAGED_CHANGED(IsEngaged);
       break;
 
     case ppt_tma:
       this->track_tma(offset, &packet.payload.tma);
-      GTFO_IF_ENGAGED_CHANGED();
+      IPT_PROCESS_GTFO_IF_ENGAGED_CHANGED(IsEngaged);
       break;
 
     case ppt_mtc:
       this->track_mtc(offset, &packet.payload.mtc);
-      GTFO_IF_ENGAGED_CHANGED();
+      IPT_PROCESS_GTFO_IF_ENGAGED_CHANGED(IsEngaged);
       break;
 
     case ppt_cyc:
       this->track_cyc(offset, &packet.payload.cyc);
-      GTFO_IF_ENGAGED_CHANGED();
+      IPT_PROCESS_GTFO_IF_ENGAGED_CHANGED(IsEngaged);
       break;
 
     case ppt_mnt:
@@ -355,8 +301,6 @@ struct reference_ipt_t
           std::string("reference_ipt: unknown packet at offset ") +
           std::to_string(offset));
     }
-
-#undef GTFO_IF_ENGAGED_CHANGED
 
     __attribute__((musttail)) return process_packets<IsEngaged>(
         next_packet(packet), packet);
@@ -417,275 +361,6 @@ struct reference_ipt_t
     }
 
     fprintf(stderr, "tsc=%016" PRIx64 "\n", tsc);
-
-    return 0;
-  }
-
-  static int pt_parse_sample_config(struct pt_sb_pevent_config *pevent,
-                                    const char *arg) {
-    struct pev_sample_config *sample_config;
-    uint64_t identifier, sample_type;
-    uint8_t nstypes;
-    char *rest;
-    const char *name;
-
-    if (!pevent || !arg)
-      return -pte_internal;
-
-    errno = 0;
-    identifier = strtoull(arg, &rest, 0);
-    if (errno || (rest == arg))
-      return -pte_invalid;
-
-    arg = rest;
-    if (arg[0] != ':')
-      return -pte_invalid;
-
-    arg += 1;
-    sample_type = strtoull(arg, &rest, 0);
-    if (errno)
-      return -pte_invalid;
-
-    arg = rest;
-    if (arg[0] != ':')
-      return -pte_invalid;
-
-    arg += 1;
-    name = arg;
-
-    sample_config = pevent->sample_config;
-    if (!sample_config) {
-      sample_config =
-          (struct pev_sample_config *)malloc(sizeof(*sample_config));
-      if (!sample_config)
-        return -pte_nomem;
-
-      memset(sample_config, 0, sizeof(*sample_config));
-      pevent->sample_config = sample_config;
-    }
-
-    nstypes = sample_config->nstypes;
-    sample_config = (struct pev_sample_config *)realloc(
-        sample_config, sizeof(*sample_config) +
-                           ((nstypes + 1) * sizeof(struct pev_sample_type)));
-    if (!sample_config)
-      return -pte_nomem;
-
-    sample_config->stypes[nstypes].identifier = identifier;
-    sample_config->stypes[nstypes].sample_type = sample_type;
-    sample_config->nstypes = nstypes + 1;
-
-    strncpy(sample_config->stypes[nstypes].name, name,
-            sizeof(sample_config->stypes[nstypes].name));
-
-    pevent->sample_config = sample_config;
-
-    return 0;
-  }
-
-  static int pt_cpu_parse(struct pt_cpu *cpu, const char *s) {
-    const char sep = '/';
-    char *endptr;
-    long family, model, stepping;
-
-    if (!cpu || !s)
-      return -pte_invalid;
-
-    family = strtol(s, &endptr, 0);
-    if (s == endptr || *endptr == '\0' || *endptr != sep)
-      return -pte_invalid;
-
-    if (family < 0 || family > USHRT_MAX)
-      return -pte_invalid;
-
-    /* skip separator */
-    s = endptr + 1;
-
-    model = strtol(s, &endptr, 0);
-    if (s == endptr || (*endptr != '\0' && *endptr != sep))
-      return -pte_invalid;
-
-    if (model < 0 || model > UCHAR_MAX)
-      return -pte_invalid;
-
-    if (*endptr == '\0')
-      /* stepping was omitted, it defaults to 0 */
-      stepping = 0;
-    else {
-      /* skip separator */
-      s = endptr + 1;
-
-      stepping = strtol(s, &endptr, 0);
-      if (*endptr != '\0')
-        return -pte_invalid;
-
-      if (stepping < 0 || stepping > UCHAR_MAX)
-        return -pte_invalid;
-    }
-
-    cpu->vendor = pcv_intel;
-    cpu->family = (uint16_t)family;
-    cpu->model = (uint8_t)model;
-    cpu->stepping = (uint8_t)stepping;
-
-    return 0;
-  }
-
-  static int get_arg_uint64(uint64_t *value, const char *option,
-                            const char *arg, const char *prog) {
-    char *rest;
-
-    if (!value || !option || !prog) {
-      fprintf(stderr, "%s: internal error.\n", prog ? prog : "?");
-      return 0;
-    }
-
-    if (!arg || arg[0] == 0 || (arg[0] == '-' && arg[1] == '-')) {
-      fprintf(stderr, "%s: %s: missing argument.\n", prog, option);
-      return 0;
-    }
-
-    errno = 0;
-    *value = strtoull(arg, &rest, 0);
-    if (errno || *rest) {
-      fprintf(stderr, "%s: %s: bad argument: %s.\n", prog, option, arg);
-      return 0;
-    }
-
-    return 1;
-  }
-
-  static int get_arg_uint32(uint32_t *value, const char *option,
-                            const char *arg, const char *prog) {
-    uint64_t val;
-
-    if (!get_arg_uint64(&val, option, arg, prog))
-      return 0;
-
-    if (val > UINT32_MAX) {
-      fprintf(stderr, "%s: %s: value too big: %s.\n", prog, option, arg);
-      return 0;
-    }
-
-    *value = (uint32_t)val;
-
-    return 1;
-  }
-
-  static int get_arg_uint16(uint16_t *value, const char *option,
-                            const char *arg, const char *prog) {
-    uint64_t val;
-
-    if (!get_arg_uint64(&val, option, arg, prog))
-      return 0;
-
-    if (val > UINT16_MAX) {
-      fprintf(stderr, "%s: %s: value too big: %s.\n", prog, option, arg);
-      return 0;
-    }
-
-    *value = (uint16_t)val;
-
-    return 1;
-  }
-
-  static int get_arg_uint8(uint8_t *value, const char *option, const char *arg,
-                           const char *prog) {
-    uint64_t val;
-
-    if (!get_arg_uint64(&val, option, arg, prog))
-      return 0;
-
-    if (val > UINT8_MAX) {
-      fprintf(stderr, "%s: %s: value too big: %s.\n", prog, option, arg);
-      return 0;
-    }
-
-    *value = (uint8_t)val;
-
-    return 1;
-  }
-
-  int process_args(int argc, char **argv) {
-    struct pt_sb_pevent_config pevent;
-    int idx, errcode;
-
-    memset(&pevent, 0, sizeof(pevent));
-    pevent.size = sizeof(pevent);
-    pevent.time_mult = 1;
-
-    for (idx = 1; idx < argc; ++idx) {
-      if (strcmp(argv[idx], "--pevent:sample-type") == 0) {
-        if (!get_arg_uint64(&pevent.sample_type, "--pevent:sample-type",
-                            argv[++idx], argv[0]))
-          return -1;
-      } else if (strcmp(argv[idx], "--pevent:sample-config") == 0) {
-        errcode = pt_parse_sample_config(&pevent, argv[++idx]);
-        if (errcode < 0) {
-          fprintf(stderr, "%s: bad sample config %s: %s.\n", argv[0],
-                  argv[idx - 1], pt_errstr(pt_errcode(errcode)));
-          return -1;
-        }
-      } else if (strcmp(argv[idx], "--pevent:time-zero") == 0) {
-        if (!get_arg_uint64(&pevent.time_zero, "--pevent:time-zero",
-                            argv[++idx], argv[0]))
-          return -1;
-      } else if (strcmp(argv[idx], "--pevent:time-shift") == 0) {
-        if (!get_arg_uint16(&pevent.time_shift, "--pevent:time-shift",
-                            argv[++idx], argv[0]))
-          return -1;
-      } else if (strcmp(argv[idx], "--pevent:time-mult") == 0) {
-        if (!get_arg_uint32(&pevent.time_mult, "--pevent:time-mult",
-                            argv[++idx], argv[0]))
-          return -1;
-      } else if (strcmp(argv[idx], "--pevent:tsc-offset") == 0) {
-        if (!get_arg_uint64(&pevent.tsc_offset, "--pevent:tsc-offset",
-                            argv[++idx], argv[0]))
-          return -1;
-      } else if (strcmp(argv[idx], "--pevent:kernel-start") == 0) {
-        if (!get_arg_uint64(&pevent.kernel_start, "--pevent:kernel-start",
-                            argv[++idx], argv[0]))
-          return -1;
-      } else if (strcmp(argv[idx], "--cpu") == 0) {
-        const char *arg;
-
-        arg = argv[++idx];
-        if (!arg) {
-          fprintf(stderr, "%s: --cpu: missing argument.\n", argv[0]);
-          return -1;
-        }
-
-        if (strcmp(arg, "none") == 0) {
-          memset(&this->config.cpu, 0, sizeof(this->config.cpu));
-          continue;
-        }
-
-        errcode = pt_cpu_parse(&this->config.cpu, arg);
-        if (errcode < 0) {
-          fprintf(stderr, "%s: cpu must be specified as f/m[/s]\n", argv[0]);
-          return -1;
-        }
-      } else if (strcmp(argv[idx], "--mtc-freq") == 0) {
-        if (!get_arg_uint8(&this->config.mtc_freq, "--mtc-freq", argv[++idx],
-                           argv[0]))
-          return -1;
-      } else if (strcmp(argv[idx], "--nom-freq") == 0) {
-        if (!get_arg_uint8(&this->config.nom_freq, "--nom-freq", argv[++idx],
-                           argv[0]))
-          return -1;
-      } else if (strcmp(argv[idx], "--cpuid-0x15.eax") == 0) {
-        if (!get_arg_uint32(&this->config.cpuid_0x15_eax, "--cpuid-0x15.eax",
-                            argv[++idx], argv[0]))
-          return -1;
-      } else if (strcmp(argv[idx], "--cpuid-0x15.ebx") == 0) {
-        if (!get_arg_uint32(&this->config.cpuid_0x15_ebx, "--cpuid-0x15.ebx",
-                            argv[++idx], argv[0]))
-          return -1;
-      } else {
-        throw std::runtime_error(std::string("unknown option \"") + argv[idx] +
-                                 std::string("\""));
-      }
-    }
 
     return 0;
   }
