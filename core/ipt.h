@@ -830,8 +830,9 @@ protected:
 
               const std::string &path = (*it).second.path;
               if (path.empty() || path.front() != '/') {
-                fprintf(stderr, "bogus path \"%s\" (nr=%ld) (ret=%lx)\n",
-                        path.c_str(), (long)nr, (unsigned long)ret);
+                if constexpr (IsVeryVerbose())
+                  fprintf(stderr, "bogus path \"%s\" (nr=%ld) (ret=%lx)\n",
+                          path.c_str(), (long)nr, (unsigned long)ret);
                 break;
               }
 
