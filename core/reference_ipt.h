@@ -90,8 +90,10 @@ struct reference_ipt_t
   void process_packets(uint64_t offset, packet_type &packet) {
     auto type = packet.type;
 
+#if 0
     if constexpr (!IsVerbose())
       fprintf(stdout, "%016" PRIx64 "\t%u\n", offset, (unsigned)type);
+#endif
 
     switch (type) {
     case ppt_unknown:
