@@ -266,9 +266,9 @@ struct section_t {
 
 struct TranslateContext;
 
-struct LLVMTool
-    : public StatefulJVTool<ToolKind::SingleThreadedCopyOnWrite, binary_state_t,
-                            function_state_t, basic_block_state_t> {
+struct LLVMTool : public StatefulJVTool<ToolKind::SingleThreadedCopyOnWrite,
+                                        binary_state_t, function_state_t,
+                                        basic_block_state_t, false> {
   struct Cmdline {
     cl::opt<std::string> Binary;
     cl::alias BinaryAlias;
@@ -4591,7 +4591,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
       // backup
       //
       for_each_function_if_in_binary(
-          std::execution::par_unseq, Binary, 
+          /* std::execution::par_unseq, */ Binary,
           std::bind(&PatchContents::ShouldPlant, this, std::placeholders::_1),
           [&](function_t &f) {
             uint64_t Addr = entry_address_of_function(f, Binary);
@@ -4605,7 +4605,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
       // plant
       //
       for_each_function_if_in_binary(
-          std::execution::par_unseq, Binary,
+          /* std::execution::par_unseq, */ Binary,
           std::bind(&PatchContents::ShouldPlant, this, std::placeholders::_1),
           [&](function_t &f) {
             uint64_t Addr = entry_address_of_function(f, Binary);
@@ -4624,7 +4624,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
       // restore
       //
       for_each_function_if_in_binary(
-          std::execution::par_unseq, Binary,
+          /* std::execution::par_unseq, */ Binary,
           std::bind(&PatchContents::ShouldPlant, this, std::placeholders::_1),
           [&](function_t &f) {
             uint64_t Addr = entry_address_of_function(f, Binary);

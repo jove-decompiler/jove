@@ -2190,6 +2190,15 @@ void for_each_function_if_in_binary(_ExecutionPolicy &&__exec,
               b.Analysis.Functions.end(), pred, proc);
 }
 
+template <class Pred, class Proc, bool MT = true>
+constexpr
+void for_each_function_if_in_binary(binary_base_t<MT> &b,
+                                    Pred pred,
+                                    Proc proc) {
+  for_each_if(b.Analysis.Functions.begin(),
+              b.Analysis.Functions.end(), pred, proc);
+}
+
 
 template <class _ExecutionPolicy, class Proc, bool MT = true>
 constexpr
