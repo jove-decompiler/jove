@@ -370,8 +370,8 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_base_t<MT> &b,
 
   {
   BOOST_SCOPE_DEFER [&bbprop] {
-    if constexpr (MT)
-      bbprop.pub.is.store(true, std::memory_order_release);
+      bbprop.pub.is.store(true, MT ? std::memory_order_release
+                                   : std::memory_order_relaxed);
   };
 
   using bbmap_shared_lock_guard = binary_base_t<MT>::bbmap_shared_lock_guard;
