@@ -222,8 +222,9 @@ public:
     if constexpr (MultiThreaded) {                                             \
       {                                                                        \
         std::shared_ptr<T> the_x = x.load(std::memory_order_relaxed);          \
-        if (likely(the_x))                                                     \
-          return *the_x;                                                       \
+        T *const xp = the_x.get();                                             \
+        if (likely(xp))                                                        \
+          return *xp;                                                          \
       }                                                                        \
                                                                                \
       std::shared_ptr<T> new_x = std::make_shared<T>(BOOST_PP_CAT(thing,_NEW_ARGS));\
