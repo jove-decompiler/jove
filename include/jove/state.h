@@ -235,9 +235,13 @@ public:
       }                                                                        \
       return *expected;                                                        \
     } else {                                                                   \
-      if (unlikely(!x))                                                        \
-        x = std::make_unique<T>(BOOST_PP_CAT(thing,_NEW_ARGS));                \
-      return *x;                                                               \
+      T *xp = x.get();                                                         \
+      if (unlikely(!xp)) {                                                     \
+        auto new_x = std::make_unique<T>(BOOST_PP_CAT(thing,_NEW_ARGS));       \
+        xp = new_x.get();                                                      \
+        x = std::move(new_x);                                                  \
+      }                                                                        \
+      return *xp;                                                              \
     }                                                                          \
   } else {                                                                     \
     return __for_##thing(BOOST_PP_CAT(thing,_GET_ARGS));                       \
