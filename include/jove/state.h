@@ -21,13 +21,19 @@ class jv_state_t {
 private:
   const jv_base_t<MT> &jv;
 
-  template <typename T>
-  using ContainerType = std::conditional_t<LazyInitialization || !MultiThreaded,
-                                           std::vector<T>, std::deque<T>>;
+  static constexpr bool IsContainerVec = LazyInitialization && !MultiThreaded;
+  static constexpr bool CanReserve = IsContainerVec;
 
   template <typename T>
-  using StatePtr =
-      std::conditional_t<LazyInitialization, std::unique_ptr<T>, T>;
+  using ContainerType =
+      std::conditional_t<IsContainerVec, std::vector<T>, std::deque<T>>;
+
+  template <typename T>
+  using StatePtr = std::conditional_t<
+      LazyInitialization,
+      std::conditional_t<MultiThreaded, std::atomic<std::shared_ptr<T>>,
+                         std::unique_ptr<T>>,
+      T>;
 
   using BinaryState =
       std::conditional_t<std::is_void_v<BinaryStateTy>, std::monostate,
@@ -42,6 +48,7 @@ private:
   using StateTuple =
       std::tuple<BinaryState, FunctionStateContainer, BasicBlockStateContainer>;
   using StateContainer = ContainerType<StateTuple>;
+
   StateContainer x;
 
   using MutexType =
@@ -69,7 +76,7 @@ public:
     unsigned N_B = jv.Binaries.size();
 
     for (binary_index_t BIdx = x.size(); BIdx < N_B; ++BIdx) {
-      if constexpr (!MultiThreaded)
+      if constexpr (CanReserve)
         x.reserve(N_B);
 
       const binary_base_t<MT> &b = jv.Binaries.at(BIdx);
@@ -95,7 +102,7 @@ public:
 
         FunctionStateContainer &state_vec = std::get<1>(y);
 
-        if constexpr (!MultiThreaded)
+        if constexpr (CanReserve)
           state_vec.reserve(N_F);
 
         for (function_index_t FIdx = state_vec.size(); FIdx < N_F; ++FIdx) {
@@ -114,7 +121,7 @@ public:
 
         BasicBlockStateContainer &state_vec = std::get<2>(y);
 
-        if constexpr (!MultiThreaded)
+        if constexpr (CanReserve)
           state_vec.reserve(N_BB);
 
         for (basic_block_index_t BBIdx = state_vec.size(); BBIdx < N_BB; ++BBIdx) {
@@ -131,8 +138,8 @@ public:
   }
 
   void update(const binary_base_t<MT> &b) {
-    if constexpr (!MultiThreaded)
-      x.reserve(jv.Binaries.size());
+    if constexpr (CanReserve)
+      x.reserve(CanReserve);
 
     unsigned N_B = index_of_binary<MT>(b, jv) + 1;
 
@@ -163,7 +170,7 @@ public:
   std::enable_if_t<!std::is_void_v<T>, void> update(const binary_base_t<MT> &b,
                                                     const function_t &f,
                                                     FunctionStateContainer &y) {
-    if constexpr (!MultiThreaded)
+    if constexpr (CanReserve)
       y.reserve(b.Analysis.Functions.size());
 
     unsigned N_F = index_of_function_in_binary<MT>(f, b) + 1;
@@ -187,7 +194,7 @@ public:
   std::enable_if_t<!std::is_void_v<T>, void> update(const binary_base_t<MT> &b,
                                                     basic_block_t bb,
                                                     BasicBlockStateContainer &y) {
-    if constexpr (!MultiThreaded)
+    if constexpr (CanReserve)
       y.reserve(b.Analysis.ICFG.num_vertices());
 
     unsigned N_BB = index_of_basic_block<MT>(b.Analysis.ICFG, bb) + 1;
@@ -208,41 +215,60 @@ public:
   }
 
 public:
+
+#define FOR_SOMETHING_BODY(thing)                                              \
+  if constexpr (LazyInitialization) {                                          \
+    StatePtr<T> &x = __for_##thing(BOOST_PP_CAT(thing,_GET_ARGS));             \
+    if constexpr (MultiThreaded) {                                             \
+      {                                                                        \
+        std::shared_ptr<T> the_x = x.load(std::memory_order_relaxed);          \
+        if (likely(the_x))                                                     \
+          return *the_x;                                                       \
+      }                                                                        \
+                                                                               \
+      std::shared_ptr<T> new_x = std::make_shared<T>(BOOST_PP_CAT(thing,_NEW_ARGS));\
+      std::shared_ptr<T> expected;                                             \
+      if (x.compare_exchange_strong(expected, new_x,                           \
+                                    std::memory_order_relaxed,                 \
+                                    std::memory_order_relaxed)) {              \
+        return *new_x;                                                         \
+      }                                                                        \
+      return *expected;                                                        \
+    } else {                                                                   \
+      if (unlikely(!x))                                                        \
+        x = std::make_unique<T>(BOOST_PP_CAT(thing,_NEW_ARGS));                \
+      return *x;                                                               \
+    }                                                                          \
+  } else {                                                                     \
+    return __for_##thing(BOOST_PP_CAT(thing,_GET_ARGS));                       \
+  }
+
   template <typename T = BinaryStateTy>
   std::enable_if_t<!std::is_void_v<T>, T &> for_binary(const binary_base_t<MT> &b) {
-    if constexpr (LazyInitialization) {
-      std::unique_ptr<BinaryStateTy> &y = __for_binary(b);
-      if (unlikely(!y))
-        y = std::make_unique<BinaryStateTy>(b);
-      return *y;
-    } else {
-      return __for_binary(b);
-    }
+#define binary_GET_ARGS b
+#define binary_NEW_ARGS b
+    FOR_SOMETHING_BODY(binary)
+#undef binary_GET_ARGS
+#undef binary_NEW_ARGS
   }
 
   template <typename T = FunctionStateTy>
   std::enable_if_t<!std::is_void_v<T>, T &> for_function(const function_t &f) {
-    if constexpr (LazyInitialization) {
-      std::unique_ptr<FunctionStateTy> &y = __for_function(f);
-      if (unlikely(!y))
-        y = std::make_unique<FunctionStateTy>(f, binary_of_function<MT>(f));
-      return *y;
-    } else {
-      return __for_function(f);
-    }
+#define function_GET_ARGS f
+#define function_NEW_ARGS f, binary_of_function<MT>(f)
+    FOR_SOMETHING_BODY(function)
+#undef function_GET_ARGS
+#undef function_NEW_ARGS
   }
 
   template <typename T = BasicBlockStateTy>
   std::enable_if_t<!std::is_void_v<T>, T &> for_basic_block(const binary_base_t<MT> &b,
                                                             basic_block_t bb) {
-    if constexpr (LazyInitialization) {
-      std::unique_ptr<BasicBlockStateTy> &y = __for_basic_block(b, bb);
-      if (unlikely(!y))
-        y = std::make_unique<BasicBlockStateTy>(b, bb);
-      return *y;
-    } else {
-      return __for_basic_block(b, bb);
-    }
+#define basic_block_GET_ARGS b, bb
+#define basic_block_NEW_ARGS b, bb
+    FOR_SOMETHING_BODY(basic_block)
+#undef basic_block_GET_ARGS
+#undef basic_block_NEW_ARGS
   }
 
 private:
@@ -332,7 +358,7 @@ private:
     }
   }
 
-  template <typename T = BasicBlockStateTy>
+  template <bool L = true, typename T = BasicBlockStateTy>
   std::enable_if_t<!std::is_void_v<T>,
                    std::conditional_t<std::is_void_v<T>, void, StatePtr<T> &>>
   __for_basic_block(const binary_base_t<MT> &b, basic_block_t bb) {

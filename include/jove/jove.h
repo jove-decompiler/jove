@@ -51,6 +51,7 @@
 #include <boost/interprocess/allocators/private_node_allocator.hpp>
 #include <boost/interprocess/allocators/private_adaptive_pool.hpp>
 #include <boost/interprocess/allocators/node_allocator.hpp>
+#include <boost/preprocessor/cat.hpp>
 #include <boost/range/iterator_range.hpp>
 #include <boost/optional.hpp>
 #include <boost/dynamic_bitset.hpp>
