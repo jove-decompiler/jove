@@ -9,6 +9,7 @@
 #include "objdump.h"
 #include "perf.h"
 #include "sideband.h"
+#include "misaligned.h"
 
 #include <array>
 #include <cstdio>
@@ -752,6 +753,18 @@ protected:
         auto nr = hdr.syscall_nr;
         auto ret = hdr.ret;
 
+        const auto arg0 = JOVE_MISALIGNED_LOAD(hdr.args[0]);
+        const auto arg1 = JOVE_MISALIGNED_LOAD(hdr.args[1]);
+        const auto arg2 = JOVE_MISALIGNED_LOAD(hdr.args[2]);
+        const auto arg3 = JOVE_MISALIGNED_LOAD(hdr.args[3]);
+        const auto arg4 = JOVE_MISALIGNED_LOAD(hdr.args[4]);
+        const auto arg5 = JOVE_MISALIGNED_LOAD(hdr.args[5]);
+
+#if 0
+        constexpr bool Is64 = std::is_same_v<T, struct augmented_syscall_payload64>;
+        using sys_uint_t = std::conditional_t<Is64, uint64_t, uint32_t>;
+#endif
+
 #define RIGHT_PROCESS_GET                                                      \
   auto &pstate = pid_map[pid];                                                 \
   auto &AddressSpace = pstate.addrspace
@@ -773,8 +786,8 @@ protected:
         case nr_for(munmap): {
           IS_RIGHT_PROCESS_GET;
 
-          auto addr = hdr.args[0];
-          auto len = hdr.args[1];
+          auto addr = arg0;
+          auto len  = arg1;
 
           const addr_intvl intvl(addr, len);
 
@@ -793,12 +806,12 @@ protected:
         case nr_for(mmap): {
           IS_RIGHT_PROCESS_GET;
 
-          auto addr = hdr.args[0];
-          auto len = hdr.args[1];
-          auto prot = hdr.args[2];
-          auto flags = hdr.args[3];
-          auto fd = hdr.args[4];
-          auto off = hdr.args[5];
+          auto addr  = arg0;
+          auto len   = arg1;
+          auto prot  = arg2;
+          auto flags = arg3;
+          auto fd    = arg4;
+          auto off   = arg5;
 
           if (is_pgoff)
             off *= PageSize;
@@ -870,7 +883,7 @@ protected:
         case nr_for(close): {
           IS_RIGHT_PROCESS_GET;
 
-          auto fd = hdr.args[0];
+          auto fd = arg0;
 
           if constexpr (IsVeryVerbose())
             fprintf(stderr, "close(%d) = %ld\n", (int)fd, (long)ret);
@@ -891,12 +904,12 @@ protected:
         }
 
         case nr_for(pread64):
-          fd_pos = hdr.args[3];
+          fd_pos = arg3;
 
         case nr_for(read): {
           IS_RIGHT_PROCESS_GET;
 
-          auto fd = hdr.args[0];
+          auto fd = arg0;
 
           auto &fdmap = pstate.fdmap;
           auto it = fdmap.find(fd);
@@ -927,7 +940,7 @@ protected:
             if (is_binary_index_valid(BIdx))
               llvm::errs() << llvm::formatv(
                   "read of {0} (offset {1}) to {2:x}\n", filename, fd_pos,
-                  hdr.args[1]);
+                  arg1);
 
           (*it).second.pos += ret;
           break;
