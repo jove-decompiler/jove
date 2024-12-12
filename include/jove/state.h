@@ -22,8 +22,8 @@ private:
   const jv_base_t<MT> &jv;
 
   template <typename T>
-  using ContainerType =
-      std::conditional_t<MultiThreaded, std::deque<T>, std::vector<T>>;
+  using ContainerType = std::conditional_t<LazyInitialization || !MultiThreaded,
+                                           std::vector<T>, std::deque<T>>;
 
   template <typename T>
   using StatePtr =
