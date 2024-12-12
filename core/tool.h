@@ -163,20 +163,41 @@ typedef Tool *(*ToolCreationProc)(void);
 
 size_t jvCreationSize(void);
 
+template <bool MT>
 struct BaseJVTool : public Tool {
+  static constexpr bool IsToolMT = MT;
+
   jv_file_t jv_file;
   ip_void_allocator_t Alloc;
 
-  jv_t &jv;
+  using mt_jv_ref = std::conditional_t<!MT, jv_base_t<true> &, std::monostate>;
+
+  mt_jv_ref __mt_jv;
+  jv_base_t<MT> &jv;
 
   template <typename... Args>
   BaseJVTool(Args &&...args)
+    requires(MT)
       : jv_file(std::forward<Args>(args)...),
         Alloc(jv_file.get_segment_manager()),
-        jv(*jv_file.find_or_construct<jv_t>("JV")(jv_file))
-  {
+        jv(*jv_file.find_or_construct<jv_base_t<true>>("JV")(jv_file)) {
+    DoCtorCommon();
+  }
+
+  template <typename... Args>
+  BaseJVTool(Args &&...args)
+    requires(!MT)
+      : jv_file(std::forward<Args>(args)...),
+        Alloc(jv_file.get_segment_manager()),
+        __mt_jv(*jv_file.find_or_construct<jv_base_t<true>>("JV")(jv_file)),
+        jv(*jv_file.construct<jv_base_t<false>>("JV_tmp")(std::move(__mt_jv),
+                                                          jv_file)) {
+    DoCtorCommon();
+  }
+
+  void DoCtorCommon(void) {
     /* FIXME */
-    for (binary_t &b : jv.Binaries)
+    for (binary_base_t<MT> &b : jv.Binaries)
       __builtin_memset(&b.Analysis.ICFG.container().m_property, 0,
                        sizeof(b.Analysis.ICFG.container().m_property));
 
@@ -187,24 +208,36 @@ struct BaseJVTool : public Tool {
   static size_t jvCreationSize(void);
 };
 
-enum class ToolKind { Standard, CopyOnWrite };
+enum class ToolKind { Standard, CopyOnWrite, SingleThreadedCopyOnWrite };
 
-template <ToolKind Kind>
-struct JVTool : public BaseJVTool {
-};
+template <ToolKind Kind> struct JVTool {};
 
 template <>
-struct JVTool<ToolKind::Standard> : public BaseJVTool {
+struct JVTool<ToolKind::Standard> : public BaseJVTool<true> {
   JVTool()
       : BaseJVTool(boost::interprocess::open_or_create, path_to_jv().c_str(),
                    jvCreationSize()) {}
 };
 
 template <>
-struct JVTool<ToolKind::CopyOnWrite> : public BaseJVTool  {
+struct JVTool<ToolKind::CopyOnWrite> : public BaseJVTool<true>  {
   JVTool()
       : BaseJVTool(boost::interprocess::open_copy_on_write,
                    path_to_jv().c_str()) {
+#if 0
+    if (char *var = getenv("JVFORCE")) {
+      if (var[0] == '1')
+        forcefully_unlock(jv);
+    }
+#endif
+  }
+};
+
+template <>
+struct JVTool<ToolKind::SingleThreadedCopyOnWrite> : public BaseJVTool<false> {
+  JVTool()
+      : BaseJVTool<false>(boost::interprocess::open_copy_on_write,
+                          path_to_jv().c_str()) {
 #if 0
     if (char *var = getenv("JVFORCE")) {
       if (var[0] == '1')
@@ -224,12 +257,12 @@ template <ToolKind Kind,
           bool BoundsChecking = true>
 struct StatefulJVTool : public JVTool<Kind> {
   jv_state_t<BinaryStateT, FunctionStateT, BBStateT, MultiThreaded,
-             LazyInitialization, Eager, BoundsChecking>
+             LazyInitialization, Eager, BoundsChecking, JVTool<Kind>::IsToolMT>
       state;
 
   template <typename... Args>
   StatefulJVTool(Args &&...args)
-      : JVTool<Kind>(std::forward<Args>(args)...), state(BaseJVTool::jv) {}
+      : JVTool<Kind>(std::forward<Args>(args)...), state(this->jv) {}
 };
 
 void RegisterTool(const char *name, ToolCreationProc Create);

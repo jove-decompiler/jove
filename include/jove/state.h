@@ -115,7 +115,7 @@ public:
           state_vec.reserve(N_BB);
 
         for (basic_block_index_t BBIdx = state_vec.size(); BBIdx < N_BB; ++BBIdx) {
-          basic_block_t bb = basic_block_of_index(BBIdx, b.Analysis.ICFG);
+          basic_block_t bb = basic_block_of_index<MT>(BBIdx, b.Analysis.ICFG);
 
           if constexpr (LazyInitialization) {
             state_vec.emplace_back();
@@ -131,7 +131,7 @@ public:
     if constexpr (!MultiThreaded)
       x.reserve(jv.Binaries.size());
 
-    unsigned N_B = index_of_binary(b, jv) + 1;
+    unsigned N_B = index_of_binary<MT>(b, jv) + 1;
 
     for (binary_index_t BIdx = x.size(); BIdx < N_B - 1; ++BIdx) {
       if constexpr (std::is_void_v<BinaryStateTy>) {
@@ -163,7 +163,7 @@ public:
     if constexpr (!MultiThreaded)
       y.reserve(b.Analysis.Functions.size());
 
-    unsigned N_F = index_of_function_in_binary(f, b) + 1;
+    unsigned N_F = index_of_function_in_binary<MT>(f, b) + 1;
 
     for (function_index_t FIdx = y.size(); FIdx < N_F - 1; ++FIdx) {
       if constexpr (LazyInitialization) {
@@ -187,13 +187,13 @@ public:
     if constexpr (!MultiThreaded)
       y.reserve(b.Analysis.ICFG.num_vertices());
 
-    unsigned N_BB = index_of_basic_block(b.Analysis.ICFG, bb) + 1;
+    unsigned N_BB = index_of_basic_block<MT>(b.Analysis.ICFG, bb) + 1;
 
     for (basic_block_index_t BBIdx = y.size(); BBIdx < N_BB - 1; ++BBIdx) {
       if constexpr (LazyInitialization) {
         y.emplace_back();
       } else {
-        y.emplace_back(b, basic_block_of_index(BBIdx, b.Analysis.ICFG));
+        y.emplace_back(b, basic_block_of_index<MT>(BBIdx, b.Analysis.ICFG));
       }
     }
 
@@ -222,7 +222,7 @@ public:
     if constexpr (LazyInitialization) {
       std::unique_ptr<FunctionStateTy> &y = __for_function(f);
       if (unlikely(!y))
-        y = std::make_unique<FunctionStateTy>(f, binary_of_function(f));
+        y = std::make_unique<FunctionStateTy>(f, binary_of_function<MT>(f));
       return *y;
     } else {
       return __for_function(f);
@@ -252,7 +252,7 @@ private:
         try {
           MaybeSharableLock s_lck(mtx);
 
-          return std::get<0>(x.at(index_of_binary(b, jv)));
+          return std::get<0>(x.at(index_of_binary<MT>(b, jv)));
         } catch (const std::out_of_range &ex) {}
         {
           MaybeExclusiveLock e_lck(mtx);
@@ -262,7 +262,7 @@ private:
       } else {
         MaybeSharableLock s_lck(mtx);
 
-        binary_index_t BIdx = index_of_binary(b, jv);
+        binary_index_t BIdx = index_of_binary<MT>(b, jv);
         if (unlikely(BIdx >= x.size())) {
           s_lck.unlock();
           {
@@ -274,7 +274,7 @@ private:
         return std::get<0>(x[BIdx]);
       }
     } else {
-      return std::get<0>(x[index_of_binary(b, jv)]);
+      return std::get<0>(x[index_of_binary<MT>(b, jv)]);
     }
   }
 
@@ -287,7 +287,7 @@ private:
         try {
           MaybeSharableLock lck(mtx);
 
-          binary_index_t BIdx = binary_index_of_function(f, jv);
+          binary_index_t BIdx = binary_index_of_function<MT>(f, jv);
           function_index_t FIdx = index_of_function(f);
 
           return std::get<1>(x.at(BIdx)).at(FIdx);
@@ -300,12 +300,12 @@ private:
       } else {
         MaybeSharableLock s_lck(mtx);
 
-        binary_index_t BIdx = binary_index_of_function(f, jv);
+        binary_index_t BIdx = binary_index_of_function<MT>(f, jv);
         if (unlikely(BIdx >= x.size())) {
           s_lck.unlock();
           {
             MaybeExclusiveLock e_lck(mtx);
-            update(binary_of_function(f));
+            update(binary_of_function<MT>(f));
           }
           s_lck.lock();
         }
@@ -315,14 +315,14 @@ private:
           s_lck.unlock();
           {
             MaybeExclusiveLock e_lck(mtx);
-            update(binary_of_function(f), f, y);
+            update(binary_of_function<MT>(f), f, y);
           }
           s_lck.lock();
         }
         return y[FIdx];
       }
     } else {
-      binary_index_t BIdx = binary_index_of_function(f, jv);
+      binary_index_t BIdx = binary_index_of_function<MT>(f, jv);
       function_index_t FIdx = index_of_function(f);
 
       return std::get<1>(x[BIdx])[FIdx];
@@ -338,8 +338,8 @@ private:
         try {
           MaybeSharableLock lck(mtx);
 
-          binary_index_t BIdx = index_of_binary(b, jv);
-          basic_block_index_t BBIdx = index_of_basic_block(b.Analysis.ICFG, bb);
+          binary_index_t BIdx = index_of_binary<MT>(b, jv);
+          basic_block_index_t BBIdx = index_of_basic_block<MT>(b.Analysis.ICFG, bb);
 
           return std::get<2>(x.at(BIdx)).at(BBIdx);
         } catch (const std::out_of_range &ex) {}
@@ -351,7 +351,7 @@ private:
       } else {
         MaybeSharableLock s_lck(mtx);
 
-        binary_index_t BIdx = index_of_binary(b, jv);
+        binary_index_t BIdx = index_of_binary<MT>(b, jv);
         if (unlikely(BIdx >= x.size())) {
           s_lck.unlock();
           {
@@ -361,7 +361,7 @@ private:
           s_lck.lock();
         }
         BasicBlockStateContainer &y = std::get<2>(x[BIdx]);
-        basic_block_index_t BBIdx = index_of_basic_block(b.Analysis.ICFG, bb);
+        basic_block_index_t BBIdx = index_of_basic_block<MT>(b.Analysis.ICFG, bb);
         if (unlikely(BBIdx >= y.size())) {
           s_lck.unlock();
           {
@@ -373,8 +373,8 @@ private:
         return y[BBIdx];
       }
     } else {
-      binary_index_t BIdx = index_of_binary(b, jv);
-      basic_block_index_t BBIdx = index_of_basic_block(b.Analysis.ICFG, bb);
+      binary_index_t BIdx = index_of_binary<MT>(b, jv);
+      basic_block_index_t BBIdx = index_of_basic_block<MT>(b.Analysis.ICFG, bb);
 
       return std::get<2>(x[BIdx])[BBIdx];
     }

@@ -145,20 +145,22 @@ int AnalyzeTool::Run(void) {
 }
 
 // defined in tools/llvm.cpp
+template <bool MT>
 void AnalyzeBasicBlock(tiny_code_generator_t &TCG,
                        llvm::Module &M,
-                       binary_t &binary,
+                       binary_base_t<MT> &binary,
                        llvm::object::Binary &B,
                        basic_block_t bb,
                        bool DFSan = false,
                        bool ForCBE = false,
                        Tool *tool = nullptr);
 
-void AnalyzeFunction(jv_t &jv,
+template <bool MT>
+void AnalyzeFunction(jv_base_t<MT> &jv,
                      tiny_code_generator_t &TCG,
                      llvm::Module &M,
                      function_t &f,
-                     std::function<llvm::object::Binary &(binary_t &)> GetBinary,
+                     std::function<llvm::object::Binary &(binary_base_t<MT> &)> GetBinary,
                      std::function<std::pair<basic_block_vec_t &, basic_block_vec_t &>(function_t &)> GetBlocks,
                      bool DFSan = false,
                      bool ForCBE = false,
@@ -295,7 +297,7 @@ int AnalyzeTool::AnalyzeFunctions(void) {
           if (!f.Analysis.Stale)
             return;
 
-          AnalyzeFunction(
+          AnalyzeFunction<true>(
               jv, *TCG, *Module, f,
               [&](binary_t &b) -> llvm::object::Binary & {
                 return *state.for_binary(b).Bin;

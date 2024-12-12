@@ -561,7 +561,8 @@ void Tool::cleanup_temp_dir(void) {
 
 struct invalid_size_exception {};
 
-std::optional<size_t> BaseJVTool::jvSize(void) {
+template <bool MT>
+std::optional<size_t> BaseJVTool<MT>::jvSize(void) {
   if (char *var = getenv("JVSIZE")) {
     try {
       if (!var[0])
@@ -590,10 +591,14 @@ std::optional<size_t> BaseJVTool::jvSize(void) {
   return std::nullopt;
 }
 
-size_t BaseJVTool::jvCreationSize(void) {
+template <bool MT>
+size_t BaseJVTool<MT>::jvCreationSize(void) {
   if (auto userProvidedSize = jvSize())
     return *userProvidedSize;
   return jvDefaultInitialSize();
 }
+
+template struct BaseJVTool<false>;
+template struct BaseJVTool<true>;
 
 }

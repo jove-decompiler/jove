@@ -1638,6 +1638,8 @@ struct jv_base_t {
         name_to_binaries(std::move(other.name_to_binaries)) {
     for (binary_base_t<MT2> &b : other.Binaries)
       Binaries.container().push_back(std::move(b));
+
+    fixup(); /* FIXME? eek */
   }
 
   jv_base_t() = delete;
@@ -1690,6 +1692,8 @@ public:
              const AddOptions_t &);
 
   friend adds_binary_t;
+
+  void fixup(void); /* FIXME? eek */
 };
 
 typedef jv_base_t<true> jv_t;
@@ -2564,13 +2568,13 @@ index_of_basic_block_starting_at_address(taddr_t Addr, const binary_base_t<MT> &
   return res;
 }
 
-template <bool L = true, bool MT = true>
+template <bool MT = true>
 static inline basic_block_t
 basic_block_starting_at_address(taddr_t Addr, const binary_base_t<MT> &b) {
   return basic_block_of_index(index_of_basic_block_starting_at_address(Addr, b), b);
 }
 
-template <bool L = true, bool MT = true>
+template <bool MT = true>
 static inline basic_block_t basic_block_at_address(taddr_t Addr,
                                                    const binary_base_t<MT> &b) {
   return basic_block_of_index(index_of_basic_block_at_address(Addr, b), b);
@@ -2592,7 +2596,18 @@ template <bool MT>
 static inline function_index_t index_of_function_at_address(const binary_base_t<MT> &b,
                                                             taddr_t Addr) {
   function_index_t FIdx = invalid_function_index;
-  bool found = b.fnmap.cvisit(Addr, [&](const auto &x) { FIdx = x.second; });
+  bool found;
+  if constexpr (MT) {
+    b.fnmap.cvisit(Addr, [&](const auto &x) { FIdx = x.second; });
+  } else {
+    auto it = b.fnmap.find(Addr);
+    if (it == b.fnmap.end()) {
+      found = false;
+    } else {
+      found = true;
+      FIdx = (*it).second;
+    }
+  }
   assert(found);
 
   return FIdx;

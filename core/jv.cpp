@@ -432,6 +432,21 @@ void jv_base_t<MT>::InvalidateFunctionAnalyses(void) {
 }
 
 template <bool MT>
+void jv_base_t<MT>::fixup(void) {
+  for (unsigned BIdx = 0; BIdx < Binaries.container().size(); ++BIdx) {
+    binary_base_t<MT> &b = Binaries.container()[BIdx];
+    b.Idx = BIdx;
+
+    for (unsigned FIdx = 0; FIdx < b.Analysis.Functions.container().size(); ++FIdx) {
+      function_t &f = b.Analysis.Functions.container()[FIdx];
+
+      f.Idx = FIdx;
+      f.b = &b;
+    }
+  }
+}
+
+template <bool MT>
 function_t::function_t(binary_base_t<MT> &b, function_index_t Idx)
     : b((void *)&b), Idx(Idx), Callers(b.get_segment_manager()) {}
 

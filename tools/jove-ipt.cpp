@@ -1252,7 +1252,9 @@ BOOST_PP_SEQ_FOR_EACH_PRODUCT(GENERATE_RUN, IPT_ALL_OPTIONS);
       }
 
       run(pair);
+#if 0
       integrate_jv();
+#endif
 
       if (!opts.Serial)
         return 0;

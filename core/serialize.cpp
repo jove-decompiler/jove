@@ -696,18 +696,7 @@ void UnserializeJV(jv_base_t<MT> &out, jv_file_t &jv_file, std::istream &is,
     __builtin_memset(&b.Analysis.ICFG.container().m_property, 0,
                      sizeof(b.Analysis.ICFG.container().m_property));
 
-  /* XXX */
-  for (unsigned BIdx = 0; BIdx < out.Binaries.container().size(); ++BIdx) {
-    binary_base_t<MT> &b = out.Binaries.container()[BIdx];
-    b.Idx = BIdx;
-
-    for (unsigned FIdx = 0; FIdx < b.Analysis.Functions.container().size(); ++FIdx) {
-      jove::function_t &f = b.Analysis.Functions.container()[FIdx];
-
-      f.Idx = FIdx;
-      f.b = &b;
-    }
-  }
+  out.fixup(); /* FIXME? eek */
 }
 
 template <bool MT>

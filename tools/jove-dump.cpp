@@ -24,7 +24,7 @@ using llvm::WithColor;
 
 namespace jove {
 
-class DumpTool : public JVTool<ToolKind::CopyOnWrite> {
+class DumpTool : public JVTool<ToolKind::SingleThreadedCopyOnWrite> {
   struct Cmdline {
     cl::opt<bool> Compact;
     cl::opt<bool> Graphviz;
@@ -75,7 +75,7 @@ public:
 
   int Run(void) override;
 
-  void dumpDecompilation(const jv_t &);
+  void dumpDecompilation(const jv_base_t<false> &);
   void dumpInput(const std::string &Path);
 };
 
@@ -83,7 +83,7 @@ JOVE_REGISTER_TOOL("dump", DumpTool);
 
 typedef boost::format fmt;
 
-void DumpTool::dumpDecompilation(const jv_t& jv) {
+void DumpTool::dumpDecompilation(const jv_base_t<false>& jv) {
   llvm::ScopedPrinter Writer(llvm::outs());
   llvm::ListScope _(Writer, (fmt("Binaries (%u)") % jv.Binaries.size()).str());
 
@@ -261,7 +261,7 @@ void DumpTool::dumpDecompilation(const jv_t& jv) {
             function_index_t FIdx;
             std::tie(BIdx, FIdx) = pair;
 
-            const binary_t &b = jv.Binaries.at(BIdx);
+            const auto &b = jv.Binaries.at(BIdx);
             const auto &_ICFG = b.Analysis.ICFG;
             const function_t &callee = b.Analysis.Functions.at(FIdx);
             uint64_t target_addr = entry_address_of_function(callee, b);
@@ -401,7 +401,7 @@ void DumpTool::dumpDecompilation(const jv_t& jv) {
                            if (!is_binary_index_valid(BIdx))
                              BIdx = index_of_binary(B, jv);
 
-                           const binary_t &b = jv.Binaries.at(BIdx);
+                           const auto &b = jv.Binaries.at(BIdx);
 
                            return (fmt("%s+0x%lX") % b.Name.c_str() % TermAddr).str();
                          });
@@ -524,7 +524,7 @@ int DumpTool::Run(void) {
         llvm::outs() << binary.Name.c_str() << '\n';
       }
     } else if (opts.Statistics) {
-      for (const binary_t &binary : jv.Binaries) {
+      for (const auto &binary : jv.Binaries) {
         llvm::outs() << llvm::formatv("Binary: {0}\n", binary.Name.c_str());
         llvm::outs() << llvm::formatv("  # of basic blocks: {0}\n",
                                       binary.Analysis.ICFG.num_vertices());
@@ -533,7 +533,7 @@ int DumpTool::Run(void) {
       }
     } else if (!opts.ListFunctions.empty()) {
       for (unsigned BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
-        const binary_t &binary = jv.Binaries.at(BIdx);
+        const auto &binary = jv.Binaries.at(BIdx);
 
         if (binary.name_str().find(opts.ListFunctions) == std::string::npos)
           continue;
@@ -553,7 +553,7 @@ int DumpTool::Run(void) {
       llvm::ScopedPrinter Writer(llvm::outs());
 
       for (unsigned BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
-        const binary_t &binary = jv.Binaries.at(BIdx);
+        const auto &binary = jv.Binaries.at(BIdx);
 
         if (!binary.is_file())
           continue;
