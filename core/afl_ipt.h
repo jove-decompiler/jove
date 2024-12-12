@@ -189,16 +189,16 @@ static const unsigned char psb_and_psbend[18] = {
 static
 void dump_lut(unsigned char *lut, char *lutname) {
 	printf("unsigned char %s[] = {\n", lutname);
-	for (int i = 0; i<16; i++) {
-		printf("  ");
-		for (int j = 0; j<16; j++) {
-			printf("%02x", lut[i * 16 + j]);
-			if (j != 15) printf(", ");
+	for (int i = 0; i<32; i++) {
+		printf("\t");
+		for (int j = 0; j<8; j++) {
+			printf("0x%02x", lut[i * 8 + j]);
+			if (j != 7) printf(", ");
 		}
-		if (i != 15) printf(",\n");
+		if (i != 31) printf(",\n");
 		else printf("\n");
 	}
-	printf("}; \n\n");
+	printf("};\n\n");
 }
 
 enum class lookup_table_kind {
@@ -398,7 +398,7 @@ std::array<unsigned char, 256> build_luts(void) {
 
 	//tma packet
 	ext_lut[pt_ext_tma] = ppt_tma;
-	ext_size_lut[pt_ext_tma] = 8;
+	ext_size_lut[pt_ext_tma] = 7;
 
 	//stop packet
 	ext_lut[pt_ext_stop] = ppt_stop;
@@ -406,7 +406,7 @@ std::array<unsigned char, 256> build_luts(void) {
 
 	//vmcs packet
 	ext_lut[pt_ext_vmcs] = ppt_vmcs;
-	ext_size_lut[pt_ext_vmcs] = 8;
+	ext_size_lut[pt_ext_vmcs] = 7;
 
 	//exstop packet
 	ext_lut[pt_ext_exstop] = ppt_exstop;
@@ -426,7 +426,7 @@ std::array<unsigned char, 256> build_luts(void) {
 
 	//pwrx packet
 	ext_lut[pt_ext_pwrx] = ppt_pwrx;
-	ext_size_lut[pt_ext_pwrx] = 8;
+	ext_size_lut[pt_ext_pwrx] = 7;
 
 	//ptw packet
 	for (int i = 0; i<2; i++) {
@@ -445,13 +445,6 @@ std::array<unsigned char, 256> build_luts(void) {
 	//ext2
 	ext_lut[pt_ext_ext2] = PPT_EXT;
 	ext_size_lut[pt_ext_ext2] = 1; // not really important
-
-#if 0
-	dump_lut(opc_lut, "opc_lut");
-	dump_lut(ext_lut, "ext_lut");
-	dump_lut(opc_size_lut, "opc_size_lut");
-	dump_lut(ext_size_lut, "ext_size_lut");
-#endif
 
 	if constexpr (WhichLut == lookup_table_kind::opc_lut)
 		return opc_lut;
@@ -588,6 +581,15 @@ struct afl_ipt_t
   afl_ipt_t(Args &&...args) : Base(std::forward<Args>(args)...) {
     data = reinterpret_cast<const unsigned char *>(this->aux_begin);
     size = this->aux_end - this->aux_begin;
+
+#if 0
+    if constexpr (!IsVerbose()) {
+	dump_lut(opc_lut.data(), "opc_lut");
+	dump_lut(ext_lut.data(), "ext_lut");
+	dump_lut(opc_size_lut.data(), "opc_size_lut");
+	dump_lut(ext_size_lut.data(), "ext_size_lut");
+    }
+#endif
   }
 
   void process_packets_engaged(uint64_t offset, packet_type &packet) {
