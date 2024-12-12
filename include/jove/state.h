@@ -271,6 +271,8 @@ public:
 #undef basic_block_NEW_ARGS
   }
 
+#undef FOR_SOMETHING_BODY
+
 private:
   template <typename T = BinaryStateTy>
   std::enable_if_t<!std::is_void_v<T>,
