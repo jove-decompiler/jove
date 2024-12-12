@@ -48,13 +48,16 @@ private:
       std::conditional_t<MultiThreaded, std::shared_mutex, std::monostate>;
   mutable MutexType mtx;
 
-  using MaybeSharableLock =
+  using shared_lock_guard =
       std::conditional_t<MultiThreaded, std::shared_lock<std::shared_mutex>,
                          __do_nothing_t>;
 
-  using MaybeExclusiveLock =
+  using exclusive_lock_guard =
       std::conditional_t<MultiThreaded, std::unique_lock<std::shared_mutex>,
                          __do_nothing_t>;
+
+  shared_lock_guard shared_access() const { return shared_lock_guard{mtx}; }
+  exclusive_lock_guard exclusive_access() const { return exclusive_lock_guard{mtx}; }
 
 public:
   explicit jv_state_t(const jv_base_t<MT> &jv) : jv(jv) {
@@ -250,23 +253,23 @@ private:
     if constexpr (BoundsChecking) {
       if constexpr (Eager) {
         try {
-          MaybeSharableLock s_lck(mtx);
+          auto s_lck = shared_access();
 
           return std::get<0>(x.at(index_of_binary<MT>(b, jv)));
         } catch (const std::out_of_range &ex) {}
         {
-          MaybeExclusiveLock e_lck(mtx);
+          auto e_lck = exclusive_access();
           update();
         }
         __attribute__((musttail)) return __for_binary(b);
       } else {
-        MaybeSharableLock s_lck(mtx);
+        auto s_lck = shared_access();
 
         binary_index_t BIdx = index_of_binary<MT>(b, jv);
         if (unlikely(BIdx >= x.size())) {
           s_lck.unlock();
           {
-            MaybeExclusiveLock e_lck(mtx);
+            auto e_lck = exclusive_access();
             update(b);
           }
           s_lck.lock();
@@ -285,7 +288,7 @@ private:
     if constexpr (BoundsChecking) {
       if constexpr (Eager) {
         try {
-          MaybeSharableLock lck(mtx);
+          auto s_lck = shared_access();
 
           binary_index_t BIdx = binary_index_of_function<MT>(f, jv);
           function_index_t FIdx = index_of_function(f);
@@ -293,18 +296,18 @@ private:
           return std::get<1>(x.at(BIdx)).at(FIdx);
         } catch (const std::out_of_range &ex) {}
         {
-          MaybeExclusiveLock lck(mtx);
+          auto e_lck = exclusive_access();
           update();
         }
         __attribute__((musttail)) return __for_function(f);
       } else {
-        MaybeSharableLock s_lck(mtx);
+        auto s_lck = shared_access();
 
         binary_index_t BIdx = binary_index_of_function<MT>(f, jv);
         if (unlikely(BIdx >= x.size())) {
           s_lck.unlock();
           {
-            MaybeExclusiveLock e_lck(mtx);
+            auto e_lck = exclusive_access();
             update(binary_of_function<MT>(f));
           }
           s_lck.lock();
@@ -314,7 +317,7 @@ private:
         if (unlikely(FIdx >= y.size())) {
           s_lck.unlock();
           {
-            MaybeExclusiveLock e_lck(mtx);
+            auto e_lck = exclusive_access();
             update(binary_of_function<MT>(f), f, y);
           }
           s_lck.lock();
@@ -336,7 +339,7 @@ private:
     if constexpr (BoundsChecking) {
       if constexpr (Eager) {
         try {
-          MaybeSharableLock lck(mtx);
+          auto s_lck = shared_access();
 
           binary_index_t BIdx = index_of_binary<MT>(b, jv);
           basic_block_index_t BBIdx = index_of_basic_block<MT>(b.Analysis.ICFG, bb);
@@ -344,18 +347,18 @@ private:
           return std::get<2>(x.at(BIdx)).at(BBIdx);
         } catch (const std::out_of_range &ex) {}
         {
-          MaybeExclusiveLock lck(mtx);
+          auto e_lck = exclusive_access();
           update();
         }
         __attribute__((musttail)) return __for_basic_block(b, bb);
       } else {
-        MaybeSharableLock s_lck(mtx);
+        auto s_lck = shared_access();
 
         binary_index_t BIdx = index_of_binary<MT>(b, jv);
         if (unlikely(BIdx >= x.size())) {
           s_lck.unlock();
           {
-            MaybeExclusiveLock e_lck(mtx);
+            auto e_lck = exclusive_access();
             update(b);
           }
           s_lck.lock();
@@ -365,7 +368,7 @@ private:
         if (unlikely(BBIdx >= y.size())) {
           s_lck.unlock();
           {
-            MaybeExclusiveLock e_lck(mtx);
+            auto e_lck = exclusive_access();
             update(b, bb, y);
           }
           s_lck.lock();
