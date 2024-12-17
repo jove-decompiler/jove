@@ -2170,24 +2170,24 @@ public:
     try {
       for (;;) {
         for (;;) {
+          const uint64_t offset = get_this()->next_packet(packet);
           try {
-            get_this()->process_packets_unengaged(
-                get_this()->next_packet(packet), packet);
+            get_this()->process_packets_unengaged(offset, packet);
             break;
           } catch (const error_decoding_exception &) {
-            if constexpr (!IsVerbose())
-              fprintf(stdout, "error\n");
+            if constexpr (IsVerbose())
+              fprintf(stdout, "%016" PRIx64 "\tdecoding error while not engaged\n", offset);
           }
           get_this()->packet_sync(packet);
         }
         for (;;) {
+          const uint64_t offset = get_this()->next_packet(packet);
           try {
-            get_this()->process_packets_engaged(
-                get_this()->next_packet(packet), packet);
+            get_this()->process_packets_engaged(offset, packet);
             break;
           } catch (const error_decoding_exception &) {
-            if constexpr (!IsVerbose())
-              fprintf(stdout, "error\n");
+            if constexpr (IsVerbose())
+              fprintf(stdout, "%016" PRIx64 "\tdecoding error while engaged\n", offset);
           }
           get_this()->packet_sync(packet);
         }
