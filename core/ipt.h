@@ -2375,7 +2375,7 @@ public:
 
     if constexpr (IsVeryVerbose()) {
       if (errcode == -pte_ip_suppressed)
-        fprintf(stderr, "%016" PRIx64 "\tIP supressed\n", offset);
+        fprintf(stderr, "%016" PRIx64 "\tIP suppressed\n", offset);
     }
 
     return 0;
