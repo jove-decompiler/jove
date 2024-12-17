@@ -2408,8 +2408,9 @@ public:
           fprintf(stderr, "%016" PRIx64 "\tbits %u -> %u\n", offset,
                   SavedExecBits, this->Curr.ExecBits);
 
+      bool IsNowEng = CheckEngaged();
 #if 0
-      if (CheckEngaged()) {
+      if (IsNowEng) {
       int errcode;
 
       //
