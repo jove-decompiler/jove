@@ -1377,7 +1377,7 @@ index e89a21cf..8a8ca41e 100644
    {
      return arrays_type::new_(typename arrays_type::allocator_type(al()),n);
 diff --git a/include/boost/unordered/detail/foa/table.hpp b/include/boost/unordered/detail/foa/table.hpp
-index 529a514c..b157fd95 100644
+index 529a514c..b6d55e4a 100644
 --- a/include/boost/unordered/detail/foa/table.hpp
 +++ b/include/boost/unordered/detail/foa/table.hpp
 @@ -39,41 +39,41 @@ struct plain_integral
@@ -1716,7 +1716,7 @@ index 529a514c..b157fd95 100644
        size_ctrl_type{x.size_ctrl.ml,x.size_ctrl.size}}
    {
 -    compatible_concurrent_table::arrays_type::delete_group_access(x.al(),x.arrays);
-+    compatible_concurrent_table<Spin>::arrays_type::delete_group_access(x.al(),x.arrays);
++    compatible_concurrent_table<Spin2>::arrays_type::delete_group_access(x.al(),x.arrays);
      x.arrays=ah.release();
      x.size_ctrl.ml=x.initial_max_load();
      x.size_ctrl.size=0;
