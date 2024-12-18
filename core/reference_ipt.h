@@ -133,6 +133,12 @@ struct reference_ipt_t
       } else {
         pt_tcal_init(&this->tracking.tcal);
       }
+
+      if constexpr (IsVeryVerbose())
+        fprintf(stderr, "%016" PRIx64 "\toverflow\n", offset);
+
+      if constexpr (IsEngaged)
+        this->CurrPoint.Invalidate();
       break;
 
     case ppt_stop:
@@ -229,7 +235,7 @@ struct reference_ipt_t
   int tnt_payload(const struct pt_packet_tnt &packet, const uint64_t offset) {
     if (unlikely(!this->CurrPoint.Valid())) {
       if constexpr (IsVeryVerbose())
-        fprintf(stderr, "%" PRIx64 "\tunhandled tnt\n", offset);
+        fprintf(stderr, "%016" PRIx64 "\tunhandled tnt\n", offset);
       return 1;
     }
 
@@ -241,12 +247,14 @@ struct reference_ipt_t
       return 1;
     } catch (const tnt_error &) {
       if constexpr (IsVerbose())
-        fprintf(stderr, "tnt error from %s+%" PRIx64 "\n",
+        fprintf(stderr, "%016" PRIx64 "\ttnt error from %s+%" PRIx64 "\n",
+                offset,
                 Saved.Binary().Name.c_str(),
                 static_cast<uint64_t>(Saved.GetAddr()));
     } catch (const infinite_loop_exception &) {
       if constexpr (IsVerbose())
-        fprintf(stderr, "tnt error (infinite loop) from %s+%" PRIx64 "\n",
+        fprintf(stderr, "%016" PRIx64 "\ttnt error (infinite loop) from %s+%" PRIx64 "\n",
+                offset,
                 Saved.Binary().Name.c_str(),
                 static_cast<uint64_t>(Saved.GetAddr()));
     }
