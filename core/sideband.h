@@ -1,4 +1,5 @@
 #pragma once
+#if defined(__x86_64__) && (defined(TARGET_X86_64) || defined(TARGET_I386))
 #include "perf.h"
 
 #include <functional>
@@ -70,3 +71,4 @@ private:
 
 }
 }
+#endif /* x86 */
