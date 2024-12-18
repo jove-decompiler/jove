@@ -1,3 +1,139 @@
+diff --git a/include/boost/interprocess/detail/file_wrapper.hpp b/include/boost/interprocess/detail/file_wrapper.hpp
+index 84b4953..9cabb88 100644
+--- a/include/boost/interprocess/detail/file_wrapper.hpp
++++ b/include/boost/interprocess/detail/file_wrapper.hpp
+@@ -124,40 +124,41 @@ class file_wrapper
+ 
+    //!Returns the name of the file
+    //!used in the constructor
+    bool get_size(offset_t &size) const;
+ 
+    //!Returns access mode
+    //!used in the constructor
+    mode_t get_mode() const;
+ 
+    //!Get mapping handle
+    //!to use with mapped_region
+    mapping_handle_t get_mapping_handle() const;
+ 
+    private:
+    //!Closes a previously opened file mapping. Never throws.
+    void priv_close();
+    //!Closes a previously opened file mapping. Never throws.
+    template <class CharT>
+    bool priv_open_or_create(ipcdetail::create_enum_t type, const CharT *filename, mode_t mode, const permissions &perm);
+ 
++   public:
+    file_handle_t  m_handle;
+    mode_t         m_mode;
+ };
+ 
+ inline file_wrapper::file_wrapper()
+    : m_handle(file_handle_t(ipcdetail::invalid_file()))
+    , m_mode(read_only)
+ {}
+ 
+ inline file_wrapper::~file_wrapper()
+ {  this->priv_close(); }
+ 
+ inline bool file_wrapper::get_size(offset_t &size) const
+ {  return get_file_size((file_handle_t)m_handle, size);  }
+ 
+ inline void file_wrapper::swap(file_wrapper &other)
+ {
+    (simple_swap)(m_handle,  other.m_handle);
+    (simple_swap)(m_mode,    other.m_mode);
+ }
+diff --git a/include/boost/interprocess/managed_mapped_file.hpp b/include/boost/interprocess/managed_mapped_file.hpp
+index daca6ad..104b2c2 100644
+--- a/include/boost/interprocess/managed_mapped_file.hpp
++++ b/include/boost/interprocess/managed_mapped_file.hpp
+@@ -43,41 +43,41 @@ template
+          class CharType,
+          class AllocationAlgorithm,
+          template<class IndexConfig> class IndexType
+       >
+ struct mfile_open_or_create
+ {
+    static const std::size_t segment_manager_alignment = boost::move_detail::alignment_of
+          < segment_manager
+                < CharType
+                , AllocationAlgorithm
+                , IndexType>
+          >::value;
+    static const std::size_t final_segment_manager_alignment
+       = segment_manager_alignment > AllocationAlgorithm::Alignment
+       ? segment_manager_alignment : AllocationAlgorithm::Alignment;
+ 
+    typedef  ipcdetail::managed_open_or_create_impl
+       < file_wrapper
+       , final_segment_manager_alignment
+       , true
+-      , false> type;
++      , true> type;
+ };
+ 
+ }  //namespace ipcdetail {
+ 
+ //!A basic mapped file named object creation class. Initializes the
+ //!mapped file. Inherits all basic functionality from
+ //!basic_managed_memory_impl<CharType, AllocationAlgorithm, IndexType>
+ template
+       <
+          class CharType,
+          class AllocationAlgorithm,
+          template<class IndexConfig> class IndexType
+       >
+ class basic_managed_mapped_file
+    #if !defined(BOOST_INTERPROCESS_DOXYGEN_INVOKED)
+    : public ipcdetail::basic_managed_memory_impl
+       < CharType, AllocationAlgorithm, IndexType
+       , ipcdetail::mfile_open_or_create
+          <CharType, AllocationAlgorithm, IndexType>::type::ManagedOpenOrCreateUserOffset>
+    #endif   //#ifndef BOOST_INTERPROCESS_DOXYGEN_INVOKED
+@@ -319,41 +319,41 @@ class basic_managed_mapped_file
+    }
+ 
+    #endif
+ 
+    #if !defined(BOOST_INTERPROCESS_DOXYGEN_INVOKED)
+ 
+    //!Tries to find a previous named allocation address. Returns a memory
+    //!buffer and the object count. If not found returned pointer is 0.
+    //!Never throws.
+    template <class T>
+    std::pair<T*, size_type> find  (char_ptr_holder_t name)
+    {
+       if(m_mfile.get_mapped_region().get_mode() == read_only){
+          return base_t::template find_no_lock<T>(name);
+       }
+       else{
+          return base_t::template find<T>(name);
+       }
+    }
+ 
+-   private:
++   public:
+    typename ipcdetail::mfile_open_or_create
+       <CharType, AllocationAlgorithm, IndexType>::type m_mfile;
+    #endif   //#ifndef BOOST_INTERPROCESS_DOXYGEN_INVOKED
+ };
+ 
+ #ifdef BOOST_INTERPROCESS_DOXYGEN_INVOKED
+ 
+ //!Typedef for a default basic_managed_mapped_file
+ //!of narrow characters
+ typedef basic_managed_mapped_file
+    <char
+    ,rbtree_best_fit<mutex_family>
+    ,iset_index>
+ managed_mapped_file;
+ 
+ //!Typedef for a default basic_managed_mapped_file
+ //!of wide characters
+ typedef basic_managed_mapped_file
+    <wchar_t
+    ,rbtree_best_fit<mutex_family>
 diff --git a/include/boost/interprocess/mapped_region.hpp b/include/boost/interprocess/mapped_region.hpp
 index 1ef2845..fa8785a 100644
 --- a/include/boost/interprocess/mapped_region.hpp

@@ -2,6 +2,7 @@
 #include "crypto.h"
 #include "locator.h"
 #include "sizes.h"
+#include "reflink.h"
 
 #include <stdexcept>
 #include <fstream>
@@ -254,7 +255,9 @@ Tool::Tool()
       opt_NoDeleteTemporaryDir(
           "no-rm-temp-dir",
           llvm::cl::desc("Do not remove temporary directory on exit"),
-          llvm::cl::cat(JoveCategory)) {}
+          llvm::cl::cat(JoveCategory)) {
+  assert(!jv_filename.empty());
+}
 
 Tool::~Tool() {
   cleanup_temp_dir();
@@ -487,7 +490,10 @@ std::string Tool::jove_dir(void) {
   return home_dir() + "/.jove";
 }
 
-std::string Tool::path_to_jv(void) {
+std::string Tool::jv_filename;
+bool Tool::is_jv_cow_copy = false;
+
+std::string Tool::get_path_to_jv(void) {
   if (char *var = getenv("JVPATH"))
     return var;
 
@@ -596,6 +602,29 @@ size_t BaseJVTool<MT>::jvCreationSize(void) {
   if (auto userProvidedSize = jvSize())
     return *userProvidedSize;
   return jvDefaultInitialSize();
+}
+
+template <bool MT>
+std::string
+BaseJVTool<MT>::cow_copy_if_possible(const std::string &the_jv_filename) {
+  scoped_fd src_fd(::open(the_jv_filename.c_str(), O_RDONLY));
+  if (!src_fd)
+    throw std::runtime_error("failed to open jv");
+
+  std::string cow_filename(the_jv_filename + ".copy.XXXXXX");
+
+  int fd_ = mkstemp(&cow_filename[0]);
+  if (fd_ < 0)
+    return the_jv_filename; /* we failed to make a CoW copy :( */
+
+  scoped_fd dst_fd(fd_);
+  assert(dst_fd);
+
+  if (cp_reflink(src_fd.get(), dst_fd.get()) < 0)
+    return the_jv_filename;
+
+  is_jv_cow_copy = true;
+  return cow_filename;
 }
 
 template struct BaseJVTool<false>;

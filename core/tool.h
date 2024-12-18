@@ -42,6 +42,10 @@ private:
   std::string _temp_dir;
   void cleanup_temp_dir(void);
 
+protected:
+  static bool is_jv_cow_copy;
+  static std::string jv_filename; /* XXX must set this *before* ctor */
+
   locator_t loc;
 public:
   const char *_name = nullptr;
@@ -145,10 +149,14 @@ public:
 
   static std::string home_dir(void);
   static std::string jove_dir(void);
-  static std::string path_to_jv(void);
+  static std::string get_path_to_jv(void);
   static std::string path_to_sysroot(const char *exe_path, bool ForeignLibs);
 
   const std::string &temporary_dir(void);
+
+  const std::string &path_to_jv(void) {
+    return jv_filename;
+  }
 
   locator_t &locator() { return loc; }
 
@@ -206,6 +214,7 @@ struct BaseJVTool : public Tool {
 
   static std::optional<size_t> jvSize(void); /* parses $JVSIZE */
   static size_t jvCreationSize(void);
+  static std::string cow_copy_if_possible(const std::string &filename);
 };
 
 enum class ToolKind { Standard, CopyOnWrite, SingleThreadedCopyOnWrite };
@@ -215,15 +224,19 @@ template <ToolKind Kind> struct JVTool {};
 template <>
 struct JVTool<ToolKind::Standard> : public BaseJVTool<true> {
   JVTool()
-      : BaseJVTool(boost::interprocess::open_or_create, path_to_jv().c_str(),
-                   jvCreationSize()) {}
+      : BaseJVTool(boost::interprocess::open_or_create,
+                   (jv_filename = get_path_to_jv()).c_str(), jvCreationSize())
+  {}
 };
 
 template <>
 struct JVTool<ToolKind::CopyOnWrite> : public BaseJVTool<true>  {
   JVTool()
-      : BaseJVTool(boost::interprocess::open_copy_on_write,
-                   path_to_jv().c_str()) {
+      : BaseJVTool(
+            boost::interprocess::open_copy_on_write,
+            (jv_filename = cow_copy_if_possible(get_path_to_jv())).c_str()) {
+    if (is_jv_cow_copy)
+      ::unlink(path_to_jv().c_str());
 #if 0
     if (char *var = getenv("JVFORCE")) {
       if (var[0] == '1')
@@ -236,8 +249,11 @@ struct JVTool<ToolKind::CopyOnWrite> : public BaseJVTool<true>  {
 template <>
 struct JVTool<ToolKind::SingleThreadedCopyOnWrite> : public BaseJVTool<false> {
   JVTool()
-      : BaseJVTool<false>(boost::interprocess::open_copy_on_write,
-                          path_to_jv().c_str()) {
+      : BaseJVTool<false>(
+            boost::interprocess::open_copy_on_write,
+            (jv_filename = cow_copy_if_possible(get_path_to_jv())).c_str()) {
+    if (is_jv_cow_copy)
+      ::unlink(path_to_jv().c_str());
 #if 0
     if (char *var = getenv("JVFORCE")) {
       if (var[0] == '1')

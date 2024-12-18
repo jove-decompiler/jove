@@ -16,6 +16,7 @@
 #include "pipe.h"
 #include "hash.h"
 #include "objdump.h"
+#include "reflink.h"
 #include "augmented_raw_syscalls.h"
 
 #include <tbb/flow_graph.h>
@@ -1087,17 +1088,40 @@ int IPTTool::UsingLibipt(void) {
   }
 #endif
 
-  //(void)jv_file.m_mfile.m_mapped_region.get_mapping_handle().handle;
-
   const unsigned N = jv.Binaries.size();
 
   std::unique_ptr<jv_file_t> jv_file2;
   jv_base_t<false> *jv2 = nullptr;
 
   if (!opts.MT) {
-    jv_file2 =
-      std::make_unique<jv_file_t>(boost::interprocess::open_copy_on_write,
-                                  path_to_jv().c_str());
+    const std::string jv_filename(path_to_jv());
+
+    const int jvfd = jv_file.m_mfile.get_device().m_handle;
+    assert(jvfd >= 0);
+
+    const char *jv_filename2 = nullptr;
+    std::string tmpjv_filename(temporary_dir() + "/.jv");
+    if (cp_reflink_to(jvfd, tmpjv_filename.c_str(), jv_file.get_size()) < 0) {
+      if (IsVerbose())
+        WithColor::warning()
+            << llvm::formatv("reflink failed: {0}\n", strerror(errno));
+      jv_filename2 = jv_filename.c_str();
+      tmpjv_filename.clear();
+    } else {
+      jv_filename2 = tmpjv_filename.c_str();
+    }
+    assert(jv_filename2);
+
+    jv_file2 = std::make_unique<jv_file_t>(
+        boost::interprocess::open_copy_on_write, jv_filename2);
+
+    if (!tmpjv_filename.empty()) {
+      if (::unlink(tmpjv_filename.c_str()) < 0) {
+        if (IsVerbose())
+          WithColor::warning()
+              << llvm::formatv("unlink failed: {0}\n", strerror(errno));
+      }
+    }
 
     jv_t &_jv = *jv_file2->find<jv_t>("JV").first;
 
@@ -1252,9 +1276,7 @@ BOOST_PP_SEQ_FOR_EACH_PRODUCT(GENERATE_RUN, IPT_ALL_OPTIONS);
       }
 
       run(pair);
-#if 0
       integrate_jv();
-#endif
 
       if (!opts.Serial)
         return 0;
