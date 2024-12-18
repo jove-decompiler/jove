@@ -1094,8 +1094,6 @@ int IPTTool::UsingLibipt(void) {
   jv_base_t<false> *jv2 = nullptr;
 
   if (!opts.MT) {
-    const std::string jv_filename(path_to_jv());
-
     const int jvfd = jv_file.m_mfile.get_device().m_handle;
     assert(jvfd >= 0);
 
@@ -1105,7 +1103,7 @@ int IPTTool::UsingLibipt(void) {
       if (IsVerbose())
         WithColor::warning()
             << llvm::formatv("reflink failed: {0}\n", strerror(errno));
-      jv_filename2 = jv_filename.c_str();
+      jv_filename2 = path_to_jv().c_str();
       tmpjv_filename.clear();
     } else {
       jv_filename2 = tmpjv_filename.c_str();
