@@ -636,6 +636,9 @@ protected:
       if (!IsRightProcess(pid))
         break;
 
+      if constexpr (IsVeryVerbose())
+        fprintf(stderr, "our pid: %u\n", (unsigned)fork->pid);
+
       Our.pids.insert(fork->pid);
       pid_map[fork->pid] = pid_map[pid];
 
@@ -979,6 +982,9 @@ protected:
             }
             break;
           }
+
+          if constexpr (IsVeryVerbose())
+            fprintf(stderr, "our pid: %u\n", (unsigned)pid);
 
           Our.pids.insert(pid);
           RIGHT_PROCESS_GET;
@@ -2175,8 +2181,8 @@ public:
             get_this()->process_packets_unengaged(offset, packet);
             break;
           } catch (const error_decoding_exception &) {
-            if constexpr (IsVerbose())
-              fprintf(stdout, "%016" PRIx64 "\tdecoding error while not engaged\n", offset);
+            if constexpr (IsVeryVerbose())
+              fprintf(stderr, "%016" PRIx64 "\tdecoding error (not engaged)\n", offset);
           }
           get_this()->packet_sync(packet);
         }
@@ -2186,8 +2192,8 @@ public:
             get_this()->process_packets_engaged(offset, packet);
             break;
           } catch (const error_decoding_exception &) {
-            if constexpr (IsVerbose())
-              fprintf(stdout, "%016" PRIx64 "\tdecoding error while engaged\n", offset);
+            if constexpr (IsVeryVerbose())
+              fprintf(stderr, "%016" PRIx64 "\tdecoding error (engaged)\n", offset);
           }
           get_this()->packet_sync(packet);
         }
@@ -2370,8 +2376,11 @@ public:
           std::to_string(offset));
 
     errcode = pt_last_ip_query(&IP, &this->tracking.last_ip);
-    if (likely(errcode == 0))
+    if (likely(errcode == 0)) {
+      if constexpr (IsVeryVerbose())
+        fprintf(stderr, "%016" PRIx64 "\tIP %016" PRIx64 "\n", offset, IP);
       return IP;
+    }
 
     if constexpr (IsVeryVerbose()) {
       if (errcode == -pte_ip_suppressed)
