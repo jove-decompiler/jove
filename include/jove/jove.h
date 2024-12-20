@@ -319,15 +319,16 @@ public:
 
   deque() = delete;
 
-  template <bool E = PointUnique, typename std::enable_if<E, int>::type = 0>
   deque(jv_file_t &jv_file)
+    requires(PointUnique)
       : _deque(boost::interprocess::make_managed_unique_ptr(
             jv_file.construct<type>(boost::interprocess::anonymous_instance)(
                 jv_file.get_segment_manager()),
             jv_file)) {}
 
-  template <bool E = PointUnique, typename std::enable_if<!E, int>::type = 0>
-  deque(jv_file_t &jv_file) : _deque(jv_file.get_segment_manager()) {}
+  deque(jv_file_t &jv_file)
+    requires(!PointUnique)
+      : _deque(jv_file.get_segment_manager()) {}
 
   template <bool MT2, bool Spin2>
   deque(deque<T, Alloc, MT2, Spin2, PointUnique> &&other) noexcept
