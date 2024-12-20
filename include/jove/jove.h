@@ -773,7 +773,7 @@ typedef boost::interprocess::flat_map<
     addr_intvl, basic_block_index_t, addr_intvl_cmp,
     boost::interprocess::private_adaptive_pool<
         std::pair<addr_intvl, basic_block_index_t>, segment_manager_t>>
-    bbmap_t;
+    bbmap_t; /* _private_ adaptive pool because of heavyweight bbmap_lock */
 
 struct allocates_function_t {
   function_index_t FIdx = invalid_function_index;
