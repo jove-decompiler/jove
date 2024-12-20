@@ -710,7 +710,7 @@ static inline ip_string &to_ips(ip_string &res, std::string_view x) {
 typedef boost::concurrent_flat_set<
     dynamic_target_t, boost::hash<dynamic_target_t>,
     std::equal_to<dynamic_target_t>,
-    boost::interprocess::allocator<dynamic_target_t, segment_manager_t>>
+    boost::interprocess::node_allocator<dynamic_target_t, segment_manager_t>>
     ip_dynamic_target_set;
 
 typedef boost::concurrent_flat_set<
