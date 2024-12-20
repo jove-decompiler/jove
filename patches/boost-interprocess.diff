@@ -45,7 +45,7 @@ index 84b4953..9cabb88 100644
     (simple_swap)(m_mode,    other.m_mode);
  }
 diff --git a/include/boost/interprocess/managed_mapped_file.hpp b/include/boost/interprocess/managed_mapped_file.hpp
-index daca6ad..104b2c2 100644
+index 3c4570c..4117d6b 100644
 --- a/include/boost/interprocess/managed_mapped_file.hpp
 +++ b/include/boost/interprocess/managed_mapped_file.hpp
 @@ -43,41 +43,41 @@ template
@@ -91,7 +91,7 @@ index daca6ad..104b2c2 100644
        , ipcdetail::mfile_open_or_create
           <CharType, AllocationAlgorithm, IndexType>::type::ManagedOpenOrCreateUserOffset>
     #endif   //#ifndef BOOST_INTERPROCESS_DOXYGEN_INVOKED
-@@ -319,41 +319,41 @@ class basic_managed_mapped_file
+@@ -322,41 +322,41 @@ class basic_managed_mapped_file
     }
  
     #endif
@@ -135,7 +135,7 @@ index daca6ad..104b2c2 100644
     <wchar_t
     ,rbtree_best_fit<mutex_family>
 diff --git a/include/boost/interprocess/mapped_region.hpp b/include/boost/interprocess/mapped_region.hpp
-index 1ef2845..fa8785a 100644
+index a76e0c4..4257ed4 100644
 --- a/include/boost/interprocess/mapped_region.hpp
 +++ b/include/boost/interprocess/mapped_region.hpp
 @@ -640,43 +640,49 @@ inline mapped_region::mapped_region
