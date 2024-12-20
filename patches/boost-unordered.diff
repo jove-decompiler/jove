@@ -1,5 +1,5 @@
 diff --git a/include/boost/unordered/concurrent_flat_map.hpp b/include/boost/unordered/concurrent_flat_map.hpp
-index b67f2ad3..7cb512ab 100644
+index 77445d18..b29afd3f 100644
 --- a/include/boost/unordered/concurrent_flat_map.hpp
 +++ b/include/boost/unordered/concurrent_flat_map.hpp
 @@ -10,69 +10,69 @@
@@ -83,7 +83,7 @@ index b67f2ad3..7cb512ab 100644
        static constexpr size_type bulk_visit_size = table_type::bulk_visit_size;
  
  #if defined(BOOST_UNORDERED_ENABLE_STATS)
-@@ -720,153 +720,163 @@ namespace boost {
+@@ -903,153 +903,163 @@ namespace boost {
  
  #if defined(BOOST_UNORDERED_ENABLE_STATS)
        /// Stats
@@ -367,7 +367,7 @@ index e66f3674..9fad5c9b 100644
  
  #endif // BOOST_UNORDERED_CONCURRENT_FLAT_MAP_HPP
 diff --git a/include/boost/unordered/concurrent_flat_set.hpp b/include/boost/unordered/concurrent_flat_set.hpp
-index d0665f71..20c8d20c 100644
+index f0f44308..6c6ef1f2 100644
 --- a/include/boost/unordered/concurrent_flat_set.hpp
 +++ b/include/boost/unordered/concurrent_flat_set.hpp
 @@ -10,67 +10,67 @@
@@ -449,7 +449,7 @@ index d0665f71..20c8d20c 100644
  
  #if defined(BOOST_UNORDERED_ENABLE_STATS)
        using stats = typename table_type::stats;
-@@ -588,74 +588,74 @@ namespace boost {
+@@ -777,74 +777,74 @@ namespace boost {
  
  #if defined(BOOST_UNORDERED_ENABLE_STATS)
        /// Stats
@@ -538,7 +538,7 @@ index d0665f71..20c8d20c 100644
      concurrent_flat_set(InputIterator, InputIterator,
        std::size_t = boost::unordered::detail::foa::default_bucket_count,
        Hash = Hash(), Pred = Pred(), Allocator = Allocator())
-@@ -676,53 +676,57 @@ namespace boost {
+@@ -865,53 +865,57 @@ namespace boost {
      template <class InputIterator, class Allocator,
        class = std::enable_if_t<detail::is_input_iterator_v<InputIterator> >,
        class = std::enable_if_t<detail::is_allocator_v<Allocator> > >
@@ -688,7 +688,7 @@ index 1133d9c9..d2b6f840 100644
  
  #endif // BOOST_UNORDERED_CONCURRENT_FLAT_SET_FWD_HPP
 diff --git a/include/boost/unordered/detail/foa/concurrent_table.hpp b/include/boost/unordered/detail/foa/concurrent_table.hpp
-index 66c25791..27d0e06e 100644
+index d2f0991c..718e993a 100644
 --- a/include/boost/unordered/detail/foa/concurrent_table.hpp
 +++ b/include/boost/unordered/detail/foa/concurrent_table.hpp
 @@ -13,40 +13,41 @@
@@ -751,7 +751,7 @@ index 66c25791..27d0e06e 100644
  
  /* Group-level concurrency protection. It provides a rw mutex plus an
   * atomic insertion counter for optimistic insertion (see
-  * unprotected_norehash_emplace_or_visit).
+  * unprotected_norehash_emplace_and_visit).
   */
  
 +template <typename Spin>
@@ -859,7 +859,7 @@ index 66c25791..27d0e06e 100644
      if(!arrays.elements()){
        arrays.group_accesses_=
 -        dummy_group_accesses<SizePolicy::min_size()>();
-+        dummy_group_accesses<SizePolicy::min_size(), Spin>();
++        dummy_group_accesses<SizePolicy::min_size(),Spin>();
      } else {
        set_group_access(al,arrays,std::false_type{});
      }
@@ -1025,32 +1025,34 @@ index 66c25791..27d0e06e 100644
      return *this;
    }
  
-@@ -874,60 +881,60 @@ public:
+@@ -979,61 +986,61 @@ public:
+       x,[](const value_type&){return true;},std::forward<Extractor>(ext));
+   }
+ 
+   template<typename Key,typename F,typename Extractor>
+   BOOST_FORCEINLINE void extract_if(const Key& x,F&& f,Extractor&& ext)
+   {
+     auto        lck=shared_access();
+     auto        hash=this->hash_for(x);
+     unprotected_internal_visit(
+       group_exclusive{},x,this->position_for(hash),hash,
+       [&,this](group_type* pg,unsigned int n,element_type* p)
+       {
+         if(f(cast_for(group_exclusive{},type_policy::value_from(*p)))){
+           ext(std::move(*p),this->al());
+           super::erase(pg,n,p);
          }
        });
    }
- #endif
- 
-   void swap(concurrent_table& x)
-     noexcept(noexcept(std::declval<super&>().swap(std::declval<super&>())))
-   {
-     auto lck=exclusive_access(*this,x);
-     super::swap(x);
-   }
- 
-   void clear()noexcept
-   {
-     auto lck=exclusive_access();
-     super::clear();
-   }
  
    // TODO: should we accept different allocator too?
-   template<typename Hash2,typename Pred2>
+-  template<typename Hash2,typename Pred2>
 -  size_type merge(concurrent_table<TypePolicy,Hash2,Pred2,Allocator>& x)
-+  size_type merge(concurrent_table<TypePolicy,Hash2,Pred2,Allocator,Spin>& x)
++  template<typename Hash2,typename Pred2,typename Spin2>
++  size_type merge(concurrent_table<TypePolicy,Hash2,Pred2,Allocator,Spin2>& x)
    {
 -    using merge_table_type=concurrent_table<TypePolicy,Hash2,Pred2,Allocator>;
-+    using merge_table_type=concurrent_table<TypePolicy,Hash2,Pred2,Allocator,Spin>;
++    using merge_table_type=concurrent_table<TypePolicy,Hash2,Pred2,Allocator,Spin2>;
      using super2=typename merge_table_type::super;
  
      // for clang
@@ -1066,9 +1068,10 @@ index 66c25791..27d0e06e 100644
      return size_type{super::size()-s};
    }
  
-   template<typename Hash2,typename Pred2>
+-  template<typename Hash2,typename Pred2>
 -  void merge(concurrent_table<TypePolicy,Hash2,Pred2,Allocator>&& x){merge(x);}
-+  void merge(concurrent_table<TypePolicy,Hash2,Pred2,Allocator,Spin>&& x){merge(x);}
++  template<typename Hash2,typename Pred2,typename Spin2>
++  void merge(concurrent_table<TypePolicy,Hash2,Pred2,Allocator,Spin2>&& x){merge(x);}
  
    hasher hash_function()const
    {
@@ -1089,7 +1092,7 @@ index 66c25791..27d0e06e 100644
    }
  
    template<typename Key>
-@@ -978,85 +985,85 @@ public:
+@@ -1084,85 +1091,85 @@ public:
  #endif
  
    template<typename Predicate>
@@ -1181,11 +1184,7 @@ index 66c25791..27d0e06e 100644
      return this->arrays.group_accesses()[pos].exclusive_access();
    }
  
-@@ -1758,35 +1765,35 @@ private:
- 
-     for(std::size_t n=0;n<s;++n){
-       archive_constructed<raw_key_type>    key("key",ar,key_version);
-       archive_constructed<raw_mapped_type> mapped("mapped",ar,mapped_version);
+@@ -1959,35 +1966,35 @@ private:
        auto&                                k=key.get();
        auto&                                m=mapped.get();
        auto                                 hash=this->hash_for(k);
@@ -1193,8 +1192,12 @@ index 66c25791..27d0e06e 100644
  
        if(this->find(k,pos0,hash))throw_exception(bad_archive_exception());
        auto loc=this->unchecked_emplace_at(pos0,hash,std::move(k),std::move(m));
-       ar.reset_object_address(std::addressof(loc.p->first),std::addressof(k));
-       ar.reset_object_address(std::addressof(loc.p->second),std::addressof(m));
+       ar.reset_object_address(
+         std::addressof(type_policy::value_from(*loc.p).first),
+         std::addressof(k));
+       ar.reset_object_address(
+         std::addressof(type_policy::value_from(*loc.p).second),
+         std::addressof(m));
      }
    }
  
@@ -1220,10 +1223,10 @@ index 66c25791..27d0e06e 100644
  
  #endif
 diff --git a/include/boost/unordered/detail/foa/core.hpp b/include/boost/unordered/detail/foa/core.hpp
-index e89a21cf..8a8ca41e 100644
+index 062b7112..d1696331 100644
 --- a/include/boost/unordered/detail/foa/core.hpp
 +++ b/include/boost/unordered/detail/foa/core.hpp
-@@ -984,41 +984,41 @@ struct arrays_holder
+@@ -985,41 +985,41 @@ struct arrays_holder
  
    ~arrays_holder()
    {
@@ -1261,12 +1264,12 @@ index e89a21cf..8a8ca41e 100644
        rebind<group_type>;
    using group_type_pointer_traits=boost::pointer_traits<group_type_pointer>;
  
-   table_arrays(
-     std::size_t gsi,std::size_t gsm,
-     group_type_pointer pg,value_type_pointer pe):
-     groups_size_index{gsi},groups_size_mask{gsm},groups_{pg},elements_{pe}{}
+   // For natvis purposes
+   using char_pointer=
+     typename boost::pointer_traits<value_type_pointer>::template
+       rebind<unsigned char>;
  
-@@ -1386,64 +1386,64 @@ using is_emplace_kv_able = std::integral_constant<bool,
+@@ -1392,64 +1392,64 @@ using is_emplace_kv_able = std::integral_constant<bool,
   *     the element_type itself is moved.
   */
  
@@ -1333,7 +1336,7 @@ index e89a21cf..8a8ca41e 100644
    using difference_type=std::ptrdiff_t;
    using locator=table_locator<group_type,element_type>;
    using arrays_holder_type=arrays_holder<arrays_type,Allocator>;
-@@ -2050,41 +2050,41 @@ public:
+@@ -2065,41 +2065,41 @@ public:
          while(mask){
            auto n=unchecked_countr_zero(mask);
            if(!f(pg,n,p+n))return false;
@@ -1363,6 +1366,11 @@ index e89a21cf..8a8ca41e 100644
    using pred_base=empty_value<Pred,1>;
    using allocator_base=empty_value<Allocator,2>;
  
+ #if defined(BOOST_GCC)
+ #pragma GCC diagnostic push
+ #pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+ #endif
+ 
    /* used by allocator-extended move ctor */
  
    table_core(Hash&& h_,Pred&& pred_,const Allocator& al_):
@@ -1371,11 +1379,6 @@ index e89a21cf..8a8ca41e 100644
      allocator_base{empty_init,al_},arrays(new_arrays(0)),
      size_ctrl{initial_max_load(),0}
    {
-   }
- 
-   arrays_type new_arrays(std::size_t n)const
-   {
-     return arrays_type::new_(typename arrays_type::allocator_type(al()),n);
 diff --git a/include/boost/unordered/detail/foa/table.hpp b/include/boost/unordered/detail/foa/table.hpp
 index 529a514c..b6d55e4a 100644
 --- a/include/boost/unordered/detail/foa/table.hpp
@@ -1748,31 +1751,30 @@ index 529a514c..b6d55e4a 100644
    }
  
 diff --git a/include/boost/unordered/detail/type_traits.hpp b/include/boost/unordered/detail/type_traits.hpp
-index 4369df2e..bff81ed2 100644
+index f99f7f42..fe2ebe0e 100644
 --- a/include/boost/unordered/detail/type_traits.hpp
 +++ b/include/boost/unordered/detail/type_traits.hpp
-@@ -202,25 +202,35 @@ namespace boost {
+@@ -162,40 +162,50 @@ namespace boost {
+           !std::is_convertible<Key, const_iterator>::value;
+       };
  
-       template <class A>
-       constexpr bool const is_allocator_v = is_allocator<A>::value;
+       template <class T>
+       using remove_cvref_t =
+         typename std::remove_cv<typename std::remove_reference<T>::type>::type;
  
-       template <class H>
-       constexpr bool const is_hash_v =
-         !std::is_integral<H>::value && !is_allocator_v<H>;
+       template <class T, class U>
+       using is_similar = std::is_same<remove_cvref_t<T>, remove_cvref_t<U> >;
  
-       template <class P> constexpr bool const is_pred_v = !is_allocator_v<P>;
+       template <class, class...> struct is_similar_to_any : std::false_type
+       {
+       };
+       template <class T, class U, class... Us>
+       struct is_similar_to_any<T, U, Us...>
+           : std::conditional<is_similar<T, U>::value, is_similar<T, U>,
+               is_similar_to_any<T, Us...> >::type
+       {
+       };
  
-       template <typename T>
-       using iter_key_t =
-         typename std::iterator_traits<T>::value_type::first_type;
-       template <typename T>
-       using iter_val_t =
-         typename std::iterator_traits<T>::value_type::second_type;
-       template <typename T>
-       using iter_to_alloc_t =
-         typename std::pair<iter_key_t<T> const, iter_val_t<T> >;
- #endif
-+
 +      template <typename T>
 +      struct is_true_or_false_type
 +          : std::disjunction<std::is_same<T, std::true_type>,
@@ -1782,16 +1784,32 @@ index 4369df2e..bff81ed2 100644
 +
 +      template <typename T>
 +      constexpr bool is_true_or_false_type_v = is_true_or_false_type<T>::value;
-     } // namespace detail
-   } // namespace unordered
- } // namespace boost
++
+ #if BOOST_UNORDERED_TEMPLATE_DEDUCTION_GUIDES
+       // https://eel.is/c++draft/container.requirements#container.alloc.reqmts-34
+       // https://eel.is/c++draft/container.requirements#unord.req.general-243
  
- #endif // BOOST_UNORDERED_DETAIL_TYPE_TRAITS_HPP
+       template <class InputIterator>
+       constexpr bool const is_input_iterator_v =
+         !std::is_integral<InputIterator>::value;
+ 
+       template <class A, class = void> struct is_allocator
+       {
+         constexpr static bool const value = false;
+       };
+ 
+       template <class A>
+       struct is_allocator<A,
+         boost::unordered::detail::void_t<typename A::value_type,
+           decltype(std::declval<A&>().allocate(std::size_t{}))> >
+       {
+         constexpr static bool const value = true;
+       };
 diff --git a/include/boost/unordered/unordered_flat_map.hpp b/include/boost/unordered/unordered_flat_map.hpp
-index 55024102..53397fe3 100644
+index 6ad25d8e..6affbc50 100644
 --- a/include/boost/unordered/unordered_flat_map.hpp
 +++ b/include/boost/unordered/unordered_flat_map.hpp
-@@ -22,41 +22,41 @@
+@@ -23,41 +23,41 @@
  #include <boost/container_hash/hash.hpp>
  
  #include <initializer_list>
@@ -1834,7 +1852,7 @@ index 55024102..53397fe3 100644
  
      public:
        using key_type = Key;
-@@ -164,42 +164,43 @@ namespace boost {
+@@ -165,43 +165,43 @@ namespace boost {
        }
  
        unordered_flat_map(
@@ -1855,7 +1873,8 @@ index 55024102..53397fe3 100644
        {
        }
  
-+      template <typename Spin>
+-      template <bool avoid_explicit_instantiation = true>
++      template <typename Spin, bool avoid_explicit_instantiation = true>
        unordered_flat_map(
 -        concurrent_flat_map<Key, T, Hash, KeyEqual, Allocator>&& other)
 +        concurrent_flat_map<Key, T, Hash, KeyEqual, Allocator, Spin>&& other)
@@ -1878,7 +1897,7 @@ index 55024102..53397fe3 100644
          return *this;
        }
  
-       allocator_type get_allocator() const noexcept
+       unordered_flat_map& operator=(std::initializer_list<value_type> il)
 diff --git a/include/boost/unordered/unordered_flat_map_fwd.hpp b/include/boost/unordered/unordered_flat_map_fwd.hpp
 index f758f83a..a47dcd14 100644
 --- a/include/boost/unordered/unordered_flat_map_fwd.hpp
@@ -1940,10 +1959,10 @@ index f758f83a..a47dcd14 100644
  
  #endif
 diff --git a/include/boost/unordered/unordered_flat_set.hpp b/include/boost/unordered/unordered_flat_set.hpp
-index a72d3567..72b26500 100644
+index 8e925931..ae234243 100644
 --- a/include/boost/unordered/unordered_flat_set.hpp
 +++ b/include/boost/unordered/unordered_flat_set.hpp
-@@ -19,41 +19,41 @@
+@@ -20,41 +20,41 @@
  
  #include <boost/core/allocator_access.hpp>
  #include <boost/container_hash/hash.hpp>
@@ -1986,7 +2005,7 @@ index a72d3567..72b26500 100644
  
      public:
        using key_type = Key;
-@@ -160,42 +160,43 @@ namespace boost {
+@@ -161,43 +161,43 @@ namespace boost {
        }
  
        unordered_flat_set(
@@ -2007,7 +2026,8 @@ index a72d3567..72b26500 100644
        {
        }
  
-+      template <typename Spin>
+-      template <bool avoid_explicit_instantiation = true>
++      template <typename Spin, bool avoid_explicit_instantiation = true>
        unordered_flat_set(
 -        concurrent_flat_set<Key, Hash, KeyEqual, Allocator>&& other)
 +        concurrent_flat_set<Key, Hash, KeyEqual, Allocator, Spin>&& other)
@@ -2030,7 +2050,7 @@ index a72d3567..72b26500 100644
          return *this;
        }
  
-       allocator_type get_allocator() const noexcept
+       unordered_flat_set& operator=(std::initializer_list<value_type> il)
 diff --git a/include/boost/unordered/unordered_flat_set_fwd.hpp b/include/boost/unordered/unordered_flat_set_fwd.hpp
 index 9214939f..389cdf3d 100644
 --- a/include/boost/unordered/unordered_flat_set_fwd.hpp
