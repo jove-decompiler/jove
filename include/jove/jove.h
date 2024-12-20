@@ -480,6 +480,12 @@ public:
   }
 
   template <bool MT2, bool Spin2>
+  adjacency_list(
+      const adjacency_list<OutEdgeListS, VertexListS, DirectedS, VertexProperty,
+                           EdgeProperty, GraphProperty, EdgeListS, MT2, Spin2,
+                           PointUnique> &) = delete;
+
+  template <bool MT2, bool Spin2>
   adjacency_list &operator=(
       const adjacency_list<OutEdgeListS, VertexListS, DirectedS, VertexProperty,
                            EdgeProperty, GraphProperty, EdgeListS, MT2, Spin2,
