@@ -441,15 +441,16 @@ public:
 
   std::atomic<vertices_size_type> _size = 0;
 
-  template <bool E = PointUnique, typename std::enable_if<E, int>::type = 0>
   adjacency_list(jv_file_t &jv_file)
+    requires(PointUnique)
       : _adjacency_list(boost::interprocess::make_managed_unique_ptr(
             jv_file.construct<type>(boost::interprocess::anonymous_instance)(
-                typename type::graph_property_type(), jv_file.get_segment_manager()),
+                typename type::graph_property_type(),
+                jv_file.get_segment_manager()),
             jv_file)) {}
 
-  template <bool E = PointUnique, typename std::enable_if<!E, int>::type = 0>
   adjacency_list(jv_file_t &jv_file)
+    requires(!PointUnique)
       : _adjacency_list(typename type::graph_property_type(),
                         jv_file.get_segment_manager()) {}
 
