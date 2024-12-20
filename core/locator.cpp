@@ -172,7 +172,7 @@ std::string locator_t::sudo(void) {
 
 std::string locator_t::wine(bool Is32) {
   try {
-    return must_exist(wine_path() / ("build" + std::string(Is32 ? "" : "64")) / "wine");
+    return must_exist(wine_path() / ("build" + std::string(Is32 ? "" : "64")) / "loader" / "wine");
   } catch (...) {}
   try {
     return must_exist("/usr/lib/wine/wine" + std::string(Is32 ? "" : "64"));
