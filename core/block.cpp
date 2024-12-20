@@ -90,7 +90,7 @@ bool basic_block_properties_t::doInsertDynTarget(const dynamic_target_t &X,
   ip_dynamic_target_set *expected = nullptr;
   if (DynTargets._p.CompareExchangeStrong(
           expected,
-          boost::interprocess::ipcdetail::to_raw_pointer(TheDynTargets.get()),
+          TheDynTargets.get().get(),
           std::memory_order_relaxed, std::memory_order_relaxed)) {
     DynTargets._sm = jv_file.get_segment_manager();
     TheDynTargets.release();
