@@ -208,7 +208,7 @@ public:
     requires(!Eager && !std::is_void_v<BasicBlockStateTy>)
   {
     const basic_block_t BBIdx = index_of_basic_block<MT>(b.Analysis.ICFG, bb);
-    if (BBIdx < y.size());
+    if (BBIdx < y.size())
       return; /* no action required */
 
     const unsigned N_BB = BBIdx + 1;
