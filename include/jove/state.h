@@ -24,9 +24,25 @@ class jv_state_t {
   static constexpr bool IsContainerVec = LazyInitialization && !MultiThreaded;
   static constexpr bool CanReserve = IsContainerVec;
 
+  static_assert(sizeof(binary_index_t) <= sizeof(uint32_t));
+  static_assert(sizeof(function_index_t) <= sizeof(uint32_t));
+  static_assert(sizeof(basic_block_index_t) <= sizeof(uint32_t));
+
+  typedef boost::container::vector_options<
+      boost::container::stored_size<uint32_t>>::type VectorOptions;
+  typedef boost::container::deque_options<
+      boost::container::stored_size<uint32_t>>::type DequeOptions;
+
   template <typename T>
-  using ContainerType =
-      std::conditional_t<IsContainerVec, std::vector<T>, std::deque<T>>;
+  using DequeAlloc = boost::container::private_adaptive_pool<T>; /* TODO? private_node_allocator? */
+  template <typename T>
+  using VectorAlloc = boost::container::private_adaptive_pool<T>;
+
+  template <typename T>
+  using ContainerType = std::conditional_t<
+      IsContainerVec,
+      boost::container::vector<T, VectorAlloc<T>, VectorOptions>,
+      boost::container::deque<T, DequeAlloc<T>, DequeOptions>>;
 
   template <typename T>
   using StatePtr = std::conditional_t<
