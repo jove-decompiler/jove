@@ -1252,8 +1252,15 @@ protected:
     for (;;) {
       auto etsc = incoming_event.sample.tsc;
 
-      if (tsc < etsc)
+      if (tsc < etsc) {
+#if 0
+        if constexpr (IsVeryVerbose()) {
+          fprintf(stderr, "%016" PRIx64 "\t%" PRIu64 " < %" PRIu64 "\n", offset,
+                  tsc, etsc);
+        }
+#endif
         return 1;
+      }
 
       examine_sb_event(incoming_event, offset);
 
@@ -1884,6 +1891,7 @@ public:
       }
     }
 
+    memset(&incoming_event, 0, sizeof(incoming_event));
     if (sb_it == sb.end()) {
       incoming_event.sample.time = nullptr;
       incoming_event.sample.tsc =
