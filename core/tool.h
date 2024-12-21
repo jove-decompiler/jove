@@ -210,6 +210,7 @@ struct BaseJVTool : public Tool {
                        sizeof(b.Analysis.ICFG.container().m_property));
 
     exclude_from_coredumps(jv_file.get_address(), jv_file.get_size());
+    assert(!jv_filename.empty());
   }
 
   static std::optional<size_t> jvSize(void); /* parses $JVSIZE */

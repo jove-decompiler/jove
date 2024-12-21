@@ -256,7 +256,6 @@ Tool::Tool()
           "no-rm-temp-dir",
           llvm::cl::desc("Do not remove temporary directory on exit"),
           llvm::cl::cat(JoveCategory)) {
-  assert(!jv_filename.empty());
 }
 
 Tool::~Tool() {
