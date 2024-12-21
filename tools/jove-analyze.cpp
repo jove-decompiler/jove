@@ -34,7 +34,27 @@ struct function_state_t {
 
   bool IsSj, IsLj;
 
-  function_state_t(const function_t &f, const binary_t &b) {}
+  function_state_t(const function_t &f, const binary_t &b) {
+    basic_blocks_of_function(f, b, bbvec);
+    exit_basic_blocks_of_function(f, b, bbvec, exit_bbvec);
+
+    IsLeaf = IsLeafFunction(f, b, bbvec);
+    IsSj = IsFunctionSetjmp(f, b, bbvec);
+    IsLj = IsFunctionLongjmp(f, b, bbvec);
+
+#if 0
+    const function_index_t FIdx = index_of_function_in_binary(f, b);
+
+    auto &ICFG = b.Analysis.ICFG;
+    std::for_each(std::execution::par_unseq,
+                  bbvec.begin(),
+                  bbvec.end(),
+                  [&](basic_block_t bb) {
+                    if (!ICFG[bb].IsParent(FIdx))
+                      ICFG[bb].AddParent(FIdx, jv);
+                  });
+#endif
+  }
 };
 
 struct binary_state_t {
@@ -198,34 +218,6 @@ int AnalyzeTool::AnalyzeBlocks(void) {
 }
 
 int AnalyzeTool::AnalyzeFunctions(void) {
-  /* FIXME only necessary? */
-  for_each_function(
-      std::execution::par_unseq, jv,
-      [&](function_t &f, binary_t &b) {
-        function_index_t FIdx = index_of_function_in_binary(f, b);
-
-        function_state_t &x = state.for_function(f);
-
-        basic_blocks_of_function(f, b, x.bbvec);
-        exit_basic_blocks_of_function(f, b, x.bbvec, x.exit_bbvec);
-
-        if (!x.exit_bbvec.empty())
-          f.Returns = true;
-
-        x.IsLeaf = IsLeafFunction(f, b, x.bbvec);
-        x.IsSj = IsFunctionSetjmp(f, b, x.bbvec);
-        x.IsLj = IsFunctionLongjmp(f, b, x.bbvec);
-
-        auto &ICFG = b.Analysis.ICFG;
-        std::for_each(std::execution::par_unseq,
-                      x.bbvec.begin(),
-                      x.bbvec.end(),
-                      [&](basic_block_t bb) {
-                        if (!ICFG[bb].IsParent(FIdx))
-                          ICFG[bb].AddParent(FIdx, jv);
-                      });
-      });
-
   for_each_basic_block(
       std::execution::unseq, jv, [&](binary_t &b, basic_block_t bb) {
         auto &ICFG = b.Analysis.ICFG;
@@ -258,6 +250,9 @@ int AnalyzeTool::AnalyzeFunctions(void) {
         function_index_t FIdx = index_of_function_in_binary(f, b);
 
         function_state_t &x = state.for_function(f);
+
+        if (!x.exit_bbvec.empty())
+          f.Returns = true;
 
         if (x.IsSj) {
           std::for_each(

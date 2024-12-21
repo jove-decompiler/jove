@@ -226,7 +226,8 @@ struct child_syscall_state_t {
   child_syscall_state_t() : dir(0), pc(0) {}
 };
 
-struct BootstrapTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void, void, false, false> {
+struct BootstrapTool
+    : public StatefulJVTool<ToolKind::Standard, binary_state_t, void, void> {
   struct Cmdline {
     cl::opt<std::string> Prog;
     cl::list<std::string> Args;

@@ -12,13 +12,13 @@ template <typename BinaryStateTy = void,
           bool MT = true>
 class jv_state_t {
   static_assert(!std::is_void_v<BinaryStateTy> ||
-                    !std::is_void_v<FunctionStateTy> ||
-                    !std::is_void_v<BasicBlockStateTy>,
+                !std::is_void_v<FunctionStateTy> ||
+                !std::is_void_v<BasicBlockStateTy>,
                 "At least one of the state types must be non-void.");
+
   static_assert(!(!BoundsChecking && !Eager),
                 "If no bounds checking must be eager");
 
-private:
   const jv_base_t<MT> &jv;
 
   static constexpr bool IsContainerVec = LazyInitialization && !MultiThreaded;
@@ -66,25 +66,37 @@ private:
   shared_lock_guard shared_access() const { return shared_lock_guard{mtx}; }
   exclusive_lock_guard exclusive_access() const { return exclusive_lock_guard{mtx}; }
 
+  template <typename T> struct StatePtrRefHelper {
+    using type = StatePtr<T> &;
+  };
+
+  template <> struct StatePtrRefHelper<void> {
+    using type = void;
+  };
+
+  template <typename T> using StatePtrRef = typename StatePtrRefHelper<T>::type;
+
 public:
   explicit jv_state_t(const jv_base_t<MT> &jv) : jv(jv) {
     if constexpr (Eager)
       update();
   }
 
-  void update(void) {
-    unsigned N_B = jv.Binaries.size();
+  void update(void) /* accomodate everything */
+    requires(Eager)
+  {
+    const unsigned N_B = jv.Binaries.size();
 
-    for (binary_index_t BIdx = x.size(); BIdx < N_B; ++BIdx) {
+    if constexpr (LazyInitialization) {
+      x.resize(N_B);
+    } else {
       if constexpr (CanReserve)
         x.reserve(N_B);
 
-      const binary_base_t<MT> &b = jv.Binaries.at(BIdx);
+      for (binary_index_t BIdx = x.size(); BIdx < N_B; ++BIdx) {
+        const binary_base_t<MT> &b = jv.Binaries.at(BIdx);
 
-      if constexpr (std::is_void_v<BinaryStateTy>) {
-        x.emplace_back();
-      } else {
-        if constexpr (LazyInitialization) {
+        if constexpr (std::is_void_v<BinaryStateTy>) {
           x.emplace_back();
         } else {
           x.emplace_back(b, FunctionStateContainer(), BasicBlockStateContainer());
@@ -98,38 +110,38 @@ public:
       StateTuple &y = x.at(BIdx);
 
       if constexpr (!std::is_void_v<FunctionStateTy>) {
-        unsigned N_F = b.Analysis.Functions.size();
+        const unsigned N_F = b.Analysis.Functions.size();
 
         FunctionStateContainer &state_vec = std::get<1>(y);
 
-        if constexpr (CanReserve)
-          state_vec.reserve(N_F);
+        if constexpr (LazyInitialization) {
+          state_vec.resize(N_F);
+        } else {
+          if constexpr (CanReserve)
+            state_vec.reserve(N_F);
 
-        for (function_index_t FIdx = state_vec.size(); FIdx < N_F; ++FIdx) {
-          const function_t &f = b.Analysis.Functions.at(FIdx);
+          for (function_index_t FIdx = state_vec.size(); FIdx < N_F; ++FIdx) {
+            const function_t &f = b.Analysis.Functions.at(FIdx);
 
-          if constexpr (LazyInitialization) {
-            state_vec.emplace_back();
-          } else {
             state_vec.emplace_back(f, b);
           }
         }
       }
 
       if constexpr (!std::is_void_v<BasicBlockStateTy>) {
-        unsigned N_BB = b.Analysis.ICFG.num_vertices();
+        const unsigned N_BB = b.Analysis.ICFG.num_vertices();
 
         BasicBlockStateContainer &state_vec = std::get<2>(y);
 
-        if constexpr (CanReserve)
-          state_vec.reserve(N_BB);
+        if constexpr (LazyInitialization) {
+          state_vec.resize(N_BB);
+        } else {
+          if constexpr (CanReserve)
+            state_vec.reserve(N_BB);
 
-        for (basic_block_index_t BBIdx = state_vec.size(); BBIdx < N_BB; ++BBIdx) {
-          basic_block_t bb = basic_block_of_index<MT>(BBIdx, b.Analysis.ICFG);
+          for (basic_block_index_t BBIdx = state_vec.size(); BBIdx < N_BB; ++BBIdx) {
+            basic_block_t bb = basic_block_of_index<MT>(BBIdx, b.Analysis.ICFG);
 
-          if constexpr (LazyInitialization) {
-            state_vec.emplace_back();
-          } else {
             state_vec.emplace_back(b, bb);
           }
         }
@@ -137,28 +149,30 @@ public:
     }
   }
 
-  void update(const binary_base_t<MT> &b) {
-    if constexpr (CanReserve)
-      x.reserve(CanReserve);
+  void update(const binary_base_t<MT> &b) /* accomodate b */
+    requires(!Eager && !std::is_void_v<BinaryStateTy>)
+  {
+    const binary_index_t BIdx = index_of_binary<MT>(b, jv);
+    if (BIdx < x.size())
+      return; /* no action required */
 
-    unsigned N_B = index_of_binary<MT>(b, jv) + 1;
+    const unsigned N_B = BIdx + 1;
+    if constexpr (LazyInitialization) {
+      x.resize(N_B);
+    } else {
+      if constexpr (CanReserve)
+        x.reserve(N_B);
 
-    for (binary_index_t BIdx = x.size(); BIdx < N_B - 1; ++BIdx) {
-      if constexpr (std::is_void_v<BinaryStateTy>) {
-        x.emplace_back();
-      } else {
-        if constexpr (LazyInitialization) {
+      for (binary_index_t BIdx = x.size(); BIdx < N_B - 1; ++BIdx) {
+        if constexpr (std::is_void_v<BinaryStateTy>) {
           x.emplace_back();
         } else {
           x.emplace_back(jv.Binaries.at(BIdx), FunctionStateContainer(), BasicBlockStateContainer());
         }
       }
-    }
 
-    if constexpr (std::is_void_v<BinaryStateTy>) {
-      x.emplace_back();
-    } else {
-      if constexpr (LazyInitialization) {
+      // we already have a reference to b
+      if constexpr (std::is_void_v<BinaryStateTy>) {
         x.emplace_back();
       } else {
         x.emplace_back(b, FunctionStateContainer(), BasicBlockStateContainer());
@@ -166,50 +180,48 @@ public:
     }
   }
 
-  template <typename T = FunctionStateTy>
-  std::enable_if_t<!std::is_void_v<T>, void> update(const binary_base_t<MT> &b,
-                                                    const function_t &f,
-                                                    FunctionStateContainer &y) {
-    if constexpr (CanReserve)
-      y.reserve(b.Analysis.Functions.size());
+  void update(const binary_base_t<MT> &b, const function_t &f,
+              FunctionStateContainer &y) /* accomodate f */
+    requires(!Eager && !std::is_void_v<FunctionStateTy>)
+  {
+    const function_index_t FIdx = index_of_function_in_binary<MT>(f, b);
+    if (FIdx < y.size())
+      return; /* no action required */
 
-    unsigned N_F = index_of_function_in_binary<MT>(f, b) + 1;
-
-    for (function_index_t FIdx = y.size(); FIdx < N_F - 1; ++FIdx) {
-      if constexpr (LazyInitialization) {
-        y.emplace_back();
-      } else {
-        y.emplace_back(b.Analysis.Functions.at(FIdx), b);
-      }
-    }
-
+    const unsigned N_F = FIdx + 1;
     if constexpr (LazyInitialization) {
-      y.emplace_back();
+      y.resize(N_F);
     } else {
+      if constexpr (CanReserve)
+        y.reserve(N_F);
+
+      for (function_index_t FIdx = y.size(); FIdx < N_F - 1; ++FIdx)
+        y.emplace_back(b.Analysis.Functions.at(FIdx), b);
+
+      // we already have a reference to f
       y.emplace_back(f, b);
     }
   }
 
-  template <typename T = BasicBlockStateTy>
-  std::enable_if_t<!std::is_void_v<T>, void> update(const binary_base_t<MT> &b,
-                                                    basic_block_t bb,
-                                                    BasicBlockStateContainer &y) {
-    if constexpr (CanReserve)
-      y.reserve(b.Analysis.ICFG.num_vertices());
+  void update(const binary_base_t<MT> &b, basic_block_t bb,
+              BasicBlockStateContainer &y) /* accomodate bb */
+    requires(!Eager && !std::is_void_v<BasicBlockStateTy>)
+  {
+    const basic_block_t BBIdx = index_of_basic_block<MT>(b.Analysis.ICFG, bb);
+    if (BBIdx < y.size());
+      return; /* no action required */
 
-    unsigned N_BB = index_of_basic_block<MT>(b.Analysis.ICFG, bb) + 1;
-
-    for (basic_block_index_t BBIdx = y.size(); BBIdx < N_BB - 1; ++BBIdx) {
-      if constexpr (LazyInitialization) {
-        y.emplace_back();
-      } else {
-        y.emplace_back(b, basic_block_of_index<MT>(BBIdx, b.Analysis.ICFG));
-      }
-    }
-
+    const unsigned N_BB = BBIdx + 1;
     if constexpr (LazyInitialization) {
-      y.emplace_back();
+      y.resize(N_BB);
     } else {
+      if constexpr (CanReserve)
+        y.reserve(N_BB);
+
+      for (basic_block_index_t BBIdx = y.size(); BBIdx < N_BB - 1; ++BBIdx)
+        y.emplace_back(b, basic_block_of_index<MT>(BBIdx, b.Analysis.ICFG));
+
+      // we already have bb
       y.emplace_back(b, bb);
     }
   }
@@ -279,10 +291,9 @@ public:
 #undef FOR_SOMETHING_BODY
 
 private:
-  template <typename T = BinaryStateTy>
-  std::enable_if_t<!std::is_void_v<T>,
-                   std::conditional_t<std::is_void_v<T>, void, StatePtr<T> &>>
-  __for_binary(const binary_base_t<MT> &b) {
+  StatePtrRef<BinaryStateTy> __for_binary(const binary_base_t<MT> &b)
+    requires(!std::is_void_v<BinaryStateTy>)
+  {
     if constexpr (BoundsChecking) {
       if constexpr (Eager) {
         try {
@@ -314,10 +325,9 @@ private:
     }
   }
 
-  template <typename T = FunctionStateTy>
-  std::enable_if_t<!std::is_void_v<T>,
-                   std::conditional_t<std::is_void_v<T>, void, StatePtr<T> &>>
-  __for_function(const function_t &f) {
+  StatePtrRef<FunctionStateTy> __for_function(const function_t &f)
+    requires(!std::is_void_v<FunctionStateTy>)
+  {
     if constexpr (BoundsChecking) {
       if constexpr (Eager) {
         try {
@@ -365,10 +375,10 @@ private:
     }
   }
 
-  template <bool L = true, typename T = BasicBlockStateTy>
-  std::enable_if_t<!std::is_void_v<T>,
-                   std::conditional_t<std::is_void_v<T>, void, StatePtr<T> &>>
-  __for_basic_block(const binary_base_t<MT> &b, basic_block_t bb) {
+  StatePtrRef<BasicBlockStateTy> __for_basic_block(const binary_base_t<MT> &b,
+                                                   basic_block_t bb)
+    requires(!std::is_void_v<BasicBlockStateTy>)
+  {
     if constexpr (BoundsChecking) {
       if constexpr (Eager) {
         try {

@@ -266,9 +266,10 @@ struct section_t {
 
 struct TranslateContext;
 
-struct LLVMTool : public StatefulJVTool<ToolKind::SingleThreadedCopyOnWrite,
-                                        binary_state_t, function_state_t,
-                                        basic_block_state_t, false> {
+struct LLVMTool
+    : public StatefulJVTool<ToolKind::SingleThreadedCopyOnWrite, binary_state_t,
+                            function_state_t, basic_block_state_t, false, true,
+                            true, false> {
   struct Cmdline {
     cl::opt<std::string> Binary;
     cl::alias BinaryAlias;
@@ -2705,11 +2706,12 @@ void LLVMTool::DumpModule(const char *suffix) {
 }
 
 int LLVMTool::InitStateForBinaries(void) {
-  for_each_binary(jv, [&](auto &b) {
-    WithColor::note() << llvm::formatv("SectsStartAddr for {0} is {1:x}\n",
-                                       b.Name.c_str(),
-                                       state.for_binary(b).SectsStartAddr);
-  });
+  if (IsVerbose())
+    for_each_binary(jv, [&](auto &b) {
+      WithColor::note() << llvm::formatv("SectsStartAddr for {0} is {1:x}\n",
+                                         b.Name.c_str(),
+                                         state.for_binary(b).SectsStartAddr);
+    });
 
   auto &Binary = jv.Binaries.at(BinaryIndex);
 
