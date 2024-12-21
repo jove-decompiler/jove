@@ -19,7 +19,6 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       elfutils \
                       flex \
                       g++-aarch64-linux-gnu \
-                      g++-multilib \
                       g++-multilib-i686-linux-gnu \
                       g++-multilib-mips-linux-gnu \
                       g++-multilib-mips64el-linux-gnuabi64 \
@@ -27,6 +26,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       gawk \
                       gcc \
                       git \
+                      glib2.0-dev \
                       gmsl \
                       graphviz \
                       gstreamer1.0-dev \
@@ -39,6 +39,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       libfontconfig-dev \
                       libfreetype-dev \
                       libglib2.0-dev \
+                      libgnutls28-dev \
                       libgraph-easy-perl \
                       libgstreamer-plugins-base1.0-dev \
                       libgstreamer1.0-dev \
