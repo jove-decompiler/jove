@@ -370,7 +370,27 @@ void _jove_identify_trampolines(struct jove_trampoline_t *tramp_p,
   _VERBOSE_DUMP_FUNC();
 
   for (unsigned i = 0; i < _jove_possible_tramps_count(); ++i) {
-    const uintptr_t poss = *((uintptr_t *)(_jove_possible_tramps()[i]));
+    uintptr_t SectPtr = _jove_possible_tramps()[i];
+    const uintptr_t poss = *((uintptr_t *)SectPtr);
+
+    // poss being NULL can be an indicator of the loader not being able to
+    // resolve a symbol, which can be caused by a mismatch of wine versions
+    if (unlikely(!poss)) {
+      char *s;
+      JOVE_SCOPED_BUFF(s, JOVE_LARGE_BUFF_SIZE);
+      s[0] = '\0';
+
+      _strcat(s, "_jove_identify_trampolines: NULL @ 0x");
+      {
+        char buff[65];
+        _uint_to_string(SectPtr, buff, 0x10);
+
+        _strcat(s, buff);
+      }
+
+      _DUMP(s);
+    }
+    _ASSERT(poss);
 
     uintptr_t *slotp = NULL;
     const bool slot = trampoline_slot((const void *)poss, &slotp);
