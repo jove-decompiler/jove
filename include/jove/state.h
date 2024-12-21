@@ -34,9 +34,9 @@ class jv_state_t {
       boost::container::stored_size<uint32_t>>::type DequeOptions;
 
   template <typename T>
-  using DequeAlloc = boost::container::private_adaptive_pool<T>; /* TODO? private_node_allocator? */
+  using DequeAlloc = boost::container::node_allocator<T>;
   template <typename T>
-  using VectorAlloc = boost::container::private_adaptive_pool<T>;
+  using VectorAlloc = boost::container::adaptive_pool<T>;
 
   template <typename T>
   using ContainerType = std::conditional_t<
