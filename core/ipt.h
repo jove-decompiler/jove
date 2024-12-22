@@ -576,7 +576,7 @@ protected:
     if (anon) {
       intvl_map_clear(AddressSpace, intvl);
 
-      if constexpr (IsVerbose()) {
+      if constexpr (IsVeryVerbose()) {
         std::string as(addr_intvl2str(intvl));
 
         fprintf(stderr, "+\t%s\t\"//anon\"\t<%s>\n", as.c_str(), src);
@@ -606,7 +606,7 @@ protected:
     if (!is_binary_index_valid(BIdx))
       return;
 
-    if constexpr (IsVerbose()) {
+    if constexpr (IsVeryVerbose()) {
       std::string as(addr_intvl2str(intvl));
 
       fprintf(stderr, "+\t%s\t\"%s\"+0x%" PRIx64 "\t<%s>\n", as.c_str(),
@@ -853,7 +853,7 @@ protected:
 
           const addr_intvl intvl(addr, len);
 
-          if constexpr (IsVerbose()) {
+          if constexpr (IsVeryVerbose()) {
             std::string as(addr_intvl2str(intvl));
 
             fprintf(stderr, "-\t%s\t\t<munmap(2)>\n", as.c_str());
@@ -892,7 +892,7 @@ protected:
             // do we know the path?
             auto it = pstate.fdmap.find(fd);
             if (it == pstate.fdmap.end()) {
-              if constexpr (IsVerbose()) {
+              if constexpr (IsVeryVerbose()) {
                 std::string as(addr_intvl2str(intvl));
 
                 fprintf(stderr, "+\t%s\t??%d??\t<mmap(2)>\n", as.c_str(),
@@ -1018,13 +1018,13 @@ protected:
 
           if constexpr (ExeOnly) {
             if (fs::equivalent(pathname, exe.Name.c_str())) {
-              if constexpr (IsVeryVerbose())
+              if constexpr (IsVerbose())
                 fprintf(stderr, "our exe pid: %u\n", (unsigned)pid);
 
               Our.pids.insert(pid);
             }
           } else {
-            if constexpr (IsVeryVerbose())
+            if constexpr (IsVerbose())
               fprintf(stderr, "our pid: %u\n", (unsigned)pid);
 
             Our.pids.insert(pid);
@@ -1068,7 +1068,7 @@ protected:
 
           const unsigned nowBits = payload->hdr.is32 ? 32u : 64u;
 
-          if constexpr (IsVeryVerbose()) {
+          if constexpr (IsVerbose()) {
             fprintf(stderr, "nargs=%u nenvs=%u (%u / %u) <%u> [%u] exec:",
                     (unsigned)argvec.size(),
                     (unsigned)envvec.size(),
@@ -1076,8 +1076,10 @@ protected:
                     TWOTIMESMAXLEN,
                     (unsigned)pid,
                     (unsigned)nowBits);
-            for (const char *env : envvec)
-              fprintf(stderr, " \"%s\"", env);
+            if constexpr (IsVeryVerbose()) {
+              for (const char *env : envvec)
+                fprintf(stderr, " \"%s\"", env);
+            }
             fprintf(stderr, " \"%s\"", pathname);
             for (const char *arg : argvec)
               fprintf(stderr, " \"%s\"", arg);
