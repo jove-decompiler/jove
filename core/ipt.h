@@ -401,10 +401,6 @@ protected:
   struct binary_state_t {
     std::unique_ptr<llvm::object::Binary> Bin;
 
-    struct {
-      taddr_t LoadAddr = ~0UL;
-    } _coff;
-
     binary_state_t(const binary_base_t<MT> &b) {
       Bin = B::Create(b.data());
 
@@ -1287,8 +1283,8 @@ protected:
     return 1;
   }
 
-  int on_ip(const taddr_t IP, const uint64_t offset) {
-    taddr_t Addr = IP;
+  int on_ip(const uint64_t IP, const uint64_t offset) {
+    taddr_t Addr = uninit_taddr;
     binary_index_t BIdx = 0;
     std::reference_wrapper<binary_base_t<MT>> refb = exe;
     if constexpr (ExeOnly) {
@@ -1330,58 +1326,14 @@ protected:
 
       try {
         binary_state_t &x = state.for_binary(b);
-        Addr = B::_X(
-            *x.Bin,
-            [&](ELFO &O) -> uint64_t {
-              assert(~mapping.Offset != 0);
-              assert(IP >= mapping.Base);
-              assert(static_cast<uint64_t>(mapping.Base) >= mapping.Offset);
 
-              uint64_t off = IP - (mapping.Base - mapping.Offset);
-#if 0
-              try {
-#endif
-              return elf::va_of_offset(O, off);
-#if 0
-              } catch (...) {
-                std::string as(addr_intvl2str((*it).first));
-                fprintf(stderr,
-                        "WTFF! %" PRIx64 " in %s: off=%" PRIx64
-                        " in \"%s\" mapping.Base=%" PRIx64
-                        " mapping.Offset=%" PRIx64 " \n",
-                        (uint64_t)IP, as.c_str(), off, b.Name.c_str(),
-                        (uint64_t)mapping.Base, mapping.Offset);
-                abort();
-              }
-#endif
-            },
-            [&](COFFO &O) -> uint64_t {
-#if 0
-              try {
-#endif
-              if (~x._coff.LoadAddr == 0) {
-                assert(~mapping.Offset != 0);
-                uint64_t off = IP - (mapping.Base - mapping.Offset);
-                return coff::va_of_offset(O, off);
-              } else {
-                const taddr_t hmod = x._coff.LoadAddr;
-                assert(IP >= hmod);
-                taddr_t RVA = IP - hmod;
-                return coff::va_of_rva(O, RVA);
-              }
-#if 0
-              } catch (...) {
-                std::string as(addr_intvl2str((*it).first));
-                fprintf(stderr,
-                        "WTFF! %" PRIx64
-                        " in %s in \"%s\" mapping.Base=%" PRIx64
-                        " mapping.Offset=%" PRIx64 " \n",
-                        (uint64_t)IP, as.c_str(), b.Name.c_str(),
-                        (uint64_t)mapping.Base, mapping.Offset);
-                abort();
-              }
-#endif
-            });
+        assert(~mapping.Offset);
+        assert(static_cast<uint64_t>(mapping.Base) >= mapping.Offset);
+        assert(IP >= (mapping.Base - mapping.Offset));
+
+        uint64_t off = IP - (mapping.Base - mapping.Offset);
+
+        Addr = B::va_of_offset(*x.Bin, off);
       } catch (...) {
         if constexpr (IsVerbose())
           fprintf(stderr, "%016" PRIx64 "\tno section for %016" PRIx64 "\n",
