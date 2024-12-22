@@ -319,6 +319,7 @@ protected:
     uint32_t in_header = 0; /* Header vs. normal decode. */
   } tracking;
 
+  static const uint64_t dummy_time;
   struct pev_event incoming_event;
 
   using straight_line_t = basic_block_properties_t::Analysis_t::straight_line_t;
@@ -1243,46 +1244,42 @@ protected:
 #undef unexpected_rest
   }
 
-  int track_time(uint64_t offset, uint64_t tsc) {
-#if 0
-    if constexpr (IsVeryVerbose())
-      print_time(offset);
-#endif
+  int track_time(uint64_t offset) {
+    uint64_t tsc;
+    int errcode = pt_time_query_tsc(&tsc, NULL, NULL, &tracking.time);
+    if ((errcode < 0) && (errcode != -pte_no_time)) {
+      if constexpr (IsVeryVerbose())
+        fprintf(stderr, "%016" PRIx64 "\ttime tracking error (%s)\n",
+                offset,
+                pt_errstr(pt_errcode(errcode)));
+      return 1;
+    }
 
     for (;;) {
-      auto etsc = incoming_event.sample.tsc;
-
-      if (tsc < etsc) {
-#if 0
-        if constexpr (IsVeryVerbose()) {
-          fprintf(stderr, "%016" PRIx64 "\t%" PRIu64 " < %" PRIu64 "\n", offset,
-                  tsc, etsc);
-        }
-#endif
-        return 1;
-      }
+      // (if an event has a NULL time or zero tsc, we want to examine at once)
+      if (incoming_event.sample.time &&
+          tsc < incoming_event.sample.tsc)
+        break;
 
       examine_sb_event(incoming_event, offset);
 
+      //
+      // no more sideband records.
+      //
       if (++sb_it == sb.end()) {
-        incoming_event.sample.time = nullptr;
+        incoming_event.sample.time = &dummy_time;
         incoming_event.sample.tsc =
             std::numeric_limits<decltype(incoming_event.sample.tsc)>::max();
         return 1;
       }
 
-      for (;;) {
-        incoming_event.sample.time = nullptr;
-        incoming_event.sample.tsc =
-            std::numeric_limits<decltype(incoming_event.sample.tsc)>::max();
-        sb_parser.load(incoming_event, *sb_it);
-
-        if (incoming_event.sample.time && incoming_event.sample.tsc)
-          break;
-
-        examine_sb_event(incoming_event, offset);
-        ++sb_it;
-      }
+      //
+      // load the next one up
+      //
+      incoming_event.sample.time = nullptr;
+      incoming_event.sample.tsc =
+          std::numeric_limits<decltype(incoming_event.sample.tsc)>::max();
+      sb_parser.load(incoming_event, *sb_it);
     }
 
     return 1;
@@ -1296,12 +1293,6 @@ protected:
       if (!(IP >= exeOnly.beg && IP < exeOnly.end))
         return 0;
     } else {
-
-#if 0
-  if (sizeof(taddr_t) == 4)
-    assert(IP < 0xffffffffull);
-#endif
-
       auto &AddressSpace = process_state.get().addrspace;
 
       auto it = intvl_map_find(AddressSpace, IP);
@@ -1335,9 +1326,9 @@ protected:
       mapping.Base = addr_intvl_lower((*it).first);
       mapping.Offset = (*it).second.second;
 
-      Addr = ({
+      try {
         binary_state_t &x = state.for_binary(b);
-        B::_X(
+        Addr = B::_X(
             *x.Bin,
             [&](ELFO &O) -> uint64_t {
               assert(~mapping.Offset != 0);
@@ -1345,8 +1336,11 @@ protected:
               assert(static_cast<uint64_t>(mapping.Base) >= mapping.Offset);
 
               uint64_t off = IP - (mapping.Base - mapping.Offset);
+#if 0
               try {
-                return elf::va_of_offset(O, off);
+#endif
+              return elf::va_of_offset(O, off);
+#if 0
               } catch (...) {
                 std::string as(addr_intvl2str((*it).first));
                 fprintf(stderr,
@@ -1357,19 +1351,23 @@ protected:
                         (uint64_t)mapping.Base, mapping.Offset);
                 abort();
               }
+#endif
             },
             [&](COFFO &O) -> uint64_t {
+#if 0
               try {
-                if (~x._coff.LoadAddr == 0) {
-                  assert(~mapping.Offset != 0);
-                  uint64_t off = IP - (mapping.Base - mapping.Offset);
-                  return coff::va_of_offset(O, off);
-                } else {
-                  const taddr_t hmod = x._coff.LoadAddr;
-                  assert(IP >= hmod);
-                  taddr_t RVA = IP - hmod;
-                  return coff::va_of_rva(O, RVA);
-                }
+#endif
+              if (~x._coff.LoadAddr == 0) {
+                assert(~mapping.Offset != 0);
+                uint64_t off = IP - (mapping.Base - mapping.Offset);
+                return coff::va_of_offset(O, off);
+              } else {
+                const taddr_t hmod = x._coff.LoadAddr;
+                assert(IP >= hmod);
+                taddr_t RVA = IP - hmod;
+                return coff::va_of_rva(O, RVA);
+              }
+#if 0
               } catch (...) {
                 std::string as(addr_intvl2str((*it).first));
                 fprintf(stderr,
@@ -1380,8 +1378,16 @@ protected:
                         (uint64_t)mapping.Base, mapping.Offset);
                 abort();
               }
+#endif
             });
-      });
+      } catch (...) {
+        if constexpr (IsVerbose())
+          fprintf(stderr, "%016" PRIx64 "\tno section for %016" PRIx64 "\n",
+                  offset, static_cast<uint64_t>(IP));
+
+        CurrPoint.Invalidate();
+        return 0;
+      }
     }
 
     binary_base_t<MT> &b = refb.get();
@@ -1893,13 +1899,11 @@ public:
 
     memset(&incoming_event, 0, sizeof(incoming_event));
     if (sb_it == sb.end()) {
-      incoming_event.sample.time = nullptr;
+      incoming_event.sample.time = &dummy_time;
       incoming_event.sample.tsc =
           std::numeric_limits<decltype(incoming_event.sample.tsc)>::max();
     } else {
       sb_parser.load(incoming_event, *sb_it);
-      if (!incoming_event.sample.time)
-        incoming_event.sample.tsc = 0;
     }
   }
   virtual ~ipt_t() {}
@@ -2241,18 +2245,20 @@ public:
                     ? pt_tcal_header_tsc(&tracking.tcal, packet, &config)
                     : pt_tcal_update_tsc(&tracking.tcal, packet, &config);
       if (unlikely(errcode < 0)) {
-        if constexpr (IsVerbose())
-          fprintf(stderr, "%s: error calibrating time\n", __PRETTY_FUNCTION__);
+        if constexpr (IsVeryVerbose())
+          fprintf(stderr, "%016" PRIx64 "\ttsc: error calibrating time (%s)\n",
+                  offset, pt_errstr(pt_errcode(errcode)));
       }
     }
 
     errcode = pt_time_update_tsc(&tracking.time, packet, &config);
-    assert(errcode == 0);
+    if (unlikely(errcode < 0)) {
+      if constexpr (IsVeryVerbose())
+        fprintf(stderr, "%016" PRIx64 "\ttsc: error updating time (%s)\n",
+                offset, pt_errstr(pt_errcode(errcode)));
+    }
 
-    assert(tracking.time.have_tsc);
-    this->track_time(offset, tracking.time.tsc);
-
-    return 0;
+    return this->track_time(offset);
   }
 
   int track_cbr(uint64_t offset, const struct pt_packet_cbr *packet) {
@@ -2263,20 +2269,20 @@ public:
                     ? pt_tcal_header_cbr(&tracking.tcal, packet, &config)
                     : pt_tcal_update_cbr(&tracking.tcal, packet, &config);
       if (unlikely(errcode < 0)) {
-        if constexpr (IsVerbose())
-          fprintf(stderr, "%s: error calibrating time\n", __PRETTY_FUNCTION__);
+        if constexpr (IsVeryVerbose())
+          fprintf(stderr, "%016" PRIx64 "\tcbr: error calibrating time (%s)\n",
+                  offset, pt_errstr(pt_errcode(errcode)));
       }
     }
 
     errcode = pt_time_update_cbr(&tracking.time, packet, &config);
     if (unlikely(errcode < 0)) {
-      if constexpr (IsVerbose())
-        fprintf(stderr, "%s: error updating time\n", __PRETTY_FUNCTION__);
+      if constexpr (IsVeryVerbose())
+        fprintf(stderr, "%016" PRIx64 "\tcbr: error updating time (%s)\n",
+                offset, pt_errstr(pt_errcode(errcode)));
     }
 
-    if (likely(tracking.time.have_tsc))
-      this->track_time(offset, tracking.time.tsc);
-    return 0;
+    return this->track_time(offset);
   }
 
   int track_tma(uint64_t offset, const struct pt_packet_tma *packet) {
@@ -2285,20 +2291,20 @@ public:
     if (1 /* !options->no_tcal */) {
       errcode = pt_tcal_update_tma(&tracking.tcal, packet, &config);
       if (unlikely(errcode < 0)) {
-        if constexpr (IsVerbose())
-          fprintf(stderr, "%s: error calibrating time\n", __PRETTY_FUNCTION__);
+        if constexpr (IsVeryVerbose())
+          fprintf(stderr, "%016" PRIx64 "\ttma: error calibrating time (%s)\n",
+                  offset, pt_errstr(pt_errcode(errcode)));
       }
     }
 
     errcode = pt_time_update_tma(&tracking.time, packet, &config);
     if (unlikely(errcode < 0)) {
-      if constexpr (IsVerbose())
-        fprintf(stderr, "%s: error updating time\n", __PRETTY_FUNCTION__);
+      if constexpr (IsVeryVerbose())
+        fprintf(stderr, "%016" PRIx64 "\ttma: error updating time (%s)\n",
+                offset, pt_errstr(pt_errcode(errcode)));
     }
 
-    if (likely(tracking.time.have_tsc))
-      this->track_time(offset, tracking.time.tsc);
-    return 0;
+    return this->track_time(offset);
   }
 
   int track_mtc(uint64_t offset, const struct pt_packet_mtc *packet) {
@@ -2307,22 +2313,20 @@ public:
     if (1 /* !options->no_tcal */) {
       errcode = pt_tcal_update_mtc(&tracking.tcal, packet, &config);
       if (unlikely(errcode < 0)) {
-        if constexpr (IsVerbose())
-          fprintf(stderr, "%s: error calibrating time: %s\n",
-                  __PRETTY_FUNCTION__, pt_errstr(pt_errcode(errcode)));
+        if constexpr (IsVeryVerbose())
+          fprintf(stderr, "%016" PRIx64 "\tmtc: error calibrating time (%s)\n",
+                  offset, pt_errstr(pt_errcode(errcode)));
       }
     }
 
     errcode = pt_time_update_mtc(&tracking.time, packet, &config);
     if (unlikely(errcode < 0)) {
-      if constexpr (IsVerbose())
-        fprintf(stderr, "%s: error updating time: %s\n", __PRETTY_FUNCTION__,
-                pt_errstr(pt_errcode(errcode)));
+      if constexpr (IsVeryVerbose())
+        fprintf(stderr, "%016" PRIx64 "\tmtc: error updating time (%s)\n",
+                offset, pt_errstr(pt_errcode(errcode)));
     }
 
-    if (likely(tracking.time.have_tsc))
-      this->track_time(offset, tracking.time.tsc);
-    return 0;
+    return this->track_time(offset);
   }
 
   int track_cyc(uint64_t offset, const struct pt_packet_cyc *packet) {
@@ -2336,40 +2340,32 @@ public:
       errcode = pt_tcal_fcr(&fcr, &tracking.tcal);
 
       if (unlikely(errcode < 0)) {
-#if 0
-			if constexpr (IsVerbose())
-                                fprintf(stderr, "%s: calibration error (1): %s\n",
-                                        __func__,
-                                        pt_errstr(pt_errcode(errcode)));
-#endif
+        if constexpr (IsVeryVerbose())
+          fprintf(stderr, "%016" PRIx64 "\tcyc: calibration error (%s)\n",
+                  offset, pt_errstr(pt_errcode(errcode)));
       }
 
       errcode = pt_tcal_update_cyc(&tracking.tcal, packet, &config);
       if (unlikely(errcode < 0)) {
-        if constexpr (IsVerbose())
-          fprintf(stderr, "%s: error calibrating time (2): %s\n", __func__,
-                  pt_errstr(pt_errcode(errcode)));
+        if constexpr (IsVeryVerbose())
+          fprintf(stderr, "%016" PRIx64 "\tcyc: error calibrating time (%s)\n",
+                  offset, pt_errstr(pt_errcode(errcode)));
       }
     }
 
     errcode = pt_time_update_cyc(&tracking.time, packet, &config, fcr);
-
     if (unlikely(errcode < 0)) {
-      if constexpr (IsVerbose())
-        fprintf(stderr, "%s: error updating time (3): %s\n", __func__,
-                pt_errstr(pt_errcode(errcode)));
+      if constexpr (IsVeryVerbose())
+        fprintf(stderr, "%016" PRIx64 "\tcyc: error updating time (%s)\n",
+                offset, pt_errstr(pt_errcode(errcode)));
     } else if (!fcr) {
-#if 0
-		if constexpr (IsVerbose())
-                        fprintf(stderr,
-                                "%s: error updating time (4): no calibration\n",
-                                __func__);
-#endif
+      if constexpr (IsVeryVerbose())
+        fprintf(stderr,
+                "%016" PRIx64 "\tcyc: error updating time: no calibration\n",
+                offset);
     }
 
-    if (likely(tracking.time.have_tsc))
-      this->track_time(offset, tracking.time.tsc);
-    return 0;
+    return this->track_time(offset);
   }
 
   uint64_t track_ip(uint64_t offset, const struct pt_packet_ip &packet) {
@@ -2476,6 +2472,10 @@ public:
 
 #undef IsVerbose
 #undef IsVeryVerbose
+
+template <IPT_PARAMETERS_DCL, typename Derived>
+const uint64_t ipt_t<IPT_PARAMETERS_DEF, Derived>::dummy_time =
+    std::numeric_limits<uint64_t>::max();
 
 } // namespace jove
 
