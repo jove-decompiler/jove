@@ -313,8 +313,10 @@ protected:
     struct pt_time_cal tcal;
     struct pt_time time;
 
+#if 0
     uint64_t tsc = 0ull; /* The last estimated TSC. */
     uint64_t fcr = 0ull; /* The last calibration value. */
+#endif
 
     uint32_t in_header = 0; /* Header vs. normal decode. */
   } tracking;
@@ -2222,8 +2224,10 @@ public:
     pt_tcal_init(&tracking.tcal);
     pt_time_init(&tracking.time);
 
+#if 0
     tracking.tsc = 0ull;
     tracking.fcr = 0ull;
+#endif
     tracking.in_header = 0;
   }
 
@@ -2232,8 +2236,10 @@ public:
     pt_tcal_init(&tracking.tcal);
     pt_time_init(&tracking.time);
 
+#if 0
     tracking.tsc = 0ull;
     tracking.fcr = 0ull;
+#endif
     tracking.in_header = 0;
   }
 
