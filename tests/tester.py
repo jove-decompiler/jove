@@ -306,6 +306,10 @@ class JoveTester:
       if not self.exists_vm():
         self.create_vm()
       self.start_vm()
+    else:
+      if not self.exists_vm():
+        self.create_vm()
+        self.start_vm()
 
     # blocks until VM is booted.
     self.wait_for_vm_ready()
