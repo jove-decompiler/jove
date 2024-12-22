@@ -2,6 +2,7 @@
 
 #include <boost/filesystem.hpp>
 #include <boost/dll/runtime_symbol_info.hpp>
+#include <boost/algorithm/string/predicate.hpp>
 #include <stdexcept>
 
 namespace fs = boost::filesystem;
@@ -182,14 +183,26 @@ std::string locator_t::wine(bool Is32) {
 
 std::string locator_t::wine_dll(bool Is32, const std::string &name) {
   try {
+    if (!boost::algorithm::ends_with(name, ".dll"))
+      throw -1;
+
+    std::string name_ =
+        name.substr(0, name.size() - sizeof(".dll") + 1); /* chop it off */
+
+    return must_exist(
+        wine_path() / ("build" + std::string(Is32 ? "" : "64")) / "dlls" /
+        name_ / std::string(Is32 ? "i386-windows" : "x86_64-windows") / name);
+  } catch (...) {}
+
+  try {
     const char *dir = Is32 ? "/usr/lib32/wine/i386-windows/"
                            : "/usr/lib/wine/x86_64-windows/";
     return must_exist(dir + name);
-  } catch (...) {
-    const char *dir = Is32 ? "/usr/lib/i386-linux-gnu/wine/i386-windows/"
-                           : "/usr/lib/x86_64-linux-gnu/wine/x86_64-windows/";
-    return must_exist(dir + name);
-  }
+  } catch (...) {}
+
+  const char *dir = Is32 ? "/usr/lib/i386-linux-gnu/wine/i386-windows/"
+                         : "/usr/lib/x86_64-linux-gnu/wine/x86_64-windows/";
+  return must_exist(dir + name);
 }
 
 std::string locator_t::mingw_addr2line(bool Is32) {
