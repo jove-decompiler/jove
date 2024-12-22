@@ -44,7 +44,8 @@ class JoveTester:
       self.td = tempfile.TemporaryDirectory()
       self.vm_dir = self.td.name
     else:
-      assert os.path.isdir(self.vm_dir), "VM path not directory"
+      if not os.path.isdir(self.vm_dir):
+        os.mkdir(self.vm_dir)
 
     self.wins = [None for _ in JoveTester.WINDOWS]
     self.create_list = []
