@@ -352,6 +352,7 @@ int IPTTool::Run(void) {
 
         SetupEnvironForRun(Env);
 
+#if 0
         //
         // wine sometimes read(2)'s binaries into memory rather than mmap(2)'ing
         // them. this causes trouble- we need to use WINEDEBUG=+loaddll,+process
@@ -361,6 +362,7 @@ int IPTTool::Run(void) {
         //
         if (IsCOFF)
           Env("WINEDEBUG=+loaddll,+process");
+#endif
       })) {
       WithColor::error() << "perf failed\n";
       return ret;
