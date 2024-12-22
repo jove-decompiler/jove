@@ -1263,10 +1263,10 @@ protected:
 
       examine_sb_event(incoming_event, offset);
 
-      //
-      // no more sideband records.
-      //
       if (++sb_it == sb.end()) {
+        //
+        // no more sideband records.
+        //
         incoming_event.sample.time = &dummy_time;
         incoming_event.sample.tsc =
             std::numeric_limits<decltype(incoming_event.sample.tsc)>::max();
