@@ -537,10 +537,10 @@ index adbaf80b398c..982cd0d030c9 100644
  	record__free_thread_masks(rec, rec->nr_threads);
 diff --git a/tools/perf/util/bpf_skel/jove_augmented_raw_syscalls.bpf.c b/tools/perf/util/bpf_skel/jove_augmented_raw_syscalls.bpf.c
 new file mode 100644
-index 000000000000..ff2a1d8b172a
+index 000000000000..29533eee092e
 --- /dev/null
 +++ b/tools/perf/util/bpf_skel/jove_augmented_raw_syscalls.bpf.c
-@@ -0,0 +1,499 @@
+@@ -0,0 +1,507 @@
 +#include "vmlinux.h"
 +#include <linux/limits.h>
 +#include <bpf/bpf_helpers.h>
@@ -764,6 +764,22 @@ index 000000000000..ff2a1d8b172a
 +ON_SYS_ENTER_EXECVEAT(32)
 +ON_SYS_ENTER_EXECVEAT(64)
 +
++#define SET_MAGIC0() NOP()
++#define SET_MAGIC1()                      \
++  do {                                    \
++    if (MAGIC_LEN == 4) {                 \
++      payload->hdr.magic1[0] = 'J';       \
++      payload->hdr.magic1[1] = 'O';       \
++      payload->hdr.magic1[2] = 'V';       \
++      payload->hdr.magic1[3] = 'E';       \
++                                          \
++      payload->hdr.magic2[0] = 'E';       \
++      payload->hdr.magic2[1] = 'V';       \
++      payload->hdr.magic2[2] = 'O';       \
++      payload->hdr.magic2[3] = 'J';       \
++    }                                     \
++  } while (false)
++
 +SEC("tp/raw_syscalls/sys_enter")
 +int sys_enter(struct syscall_enter_args *args)
 +{
@@ -785,15 +801,7 @@ index 000000000000..ff2a1d8b172a
 +  do {                                                                         \
 +    struct augmented_syscall_payload##bits *payload = &payload_u->_##bits;     \
 +                                                                               \
-+    payload->hdr.magic1[0] = 'J';                                              \
-+    payload->hdr.magic1[1] = 'O';                                              \
-+    payload->hdr.magic1[2] = 'V';                                              \
-+    payload->hdr.magic1[3] = 'E';                                              \
-+                                                                               \
-+    payload->hdr.magic2[0] = 'E';                                              \
-+    payload->hdr.magic2[1] = 'V';                                              \
-+    payload->hdr.magic2[2] = 'O';                                              \
-+    payload->hdr.magic2[3] = 'J';                                              \
++    BOOST_PP_CAT(SET_MAGIC,IFDEBUG)();                                         \
 +                                                                               \
 +    payload->str[0] = '\0';                                                    \
 +    payload->hdr.str_len = 0;                                                  \
@@ -975,7 +983,7 @@ index 000000000000..ff2a1d8b172a
 +      bpf_printk(msg " " FMT_STR2, FMT_ARGS2);                                 \
 +  } while(false)
 +
-+#define PRINT_PAYLOAD0 NOP
++#define PRINT_PAYLOAD0() NOP()
 +#define PRINT_PAYLOAD1()                                                       \
 +  do {                                                                         \
 +    char sav;                                                                  \

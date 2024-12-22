@@ -7,7 +7,7 @@
 #error
 #endif
 
-#if 0
+#if 1
 /* lean and mean */
 #define MAGIC_LEN 0
 #define MAGIC(idx)
@@ -57,6 +57,8 @@ namespace jove {
 
 DECLARE_AUGMENTED_ARGS_PAYLOAD(32)
 DECLARE_AUGMENTED_ARGS_PAYLOAD(64)
+
+#undef MAGIC
 
 #ifdef __cplusplus
 static_assert(sizeof(struct augmented_syscall_payload32) == TWOTIMESMAXLEN);
