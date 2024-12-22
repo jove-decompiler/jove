@@ -82,11 +82,14 @@ public:
   bool is_addr_good(taddr_t addr) const {
     auto s_lck = shared_access();
 
+    if (unlikely(empty_unlocked()))
+      return true; /* who knows */
+
     if (addr < begin)
-      return true; /* who knows? */
+      return false;
     taddr_t idx = addr - begin;
     if (idx >= good.size())
-      return true; /* who knows? */
+      return false;
     return good.test(idx);
   }
 

@@ -982,23 +982,32 @@ protected:
             break;
           }
 
-          if constexpr (IsVeryVerbose())
-            fprintf(stderr, "our pid: %u\n", (unsigned)pid);
-
-          Our.pids.insert(pid);
-          RIGHT_PROCESS_GET;
-          CheckEngaged();
-
-          std::vector<const char *> argvec;
-          std::vector<const char *> envvec;
-
           const uint64_t n = payload->hdr.str_len;
 
           const char *const beg = &payload->str[0];
           const char *const end = &payload->str[n];
 
-          const char *eon;
           const char *const pathname = beg;
+
+          if constexpr (ExeOnly) {
+            if (fs::equivalent(pathname, exe.Name.c_str())) {
+              if constexpr (IsVeryVerbose())
+                fprintf(stderr, "our exe pid: %u\n", (unsigned)pid);
+
+              Our.pids.insert(pid);
+            }
+          } else {
+            if constexpr (IsVeryVerbose())
+              fprintf(stderr, "our pid: %u\n", (unsigned)pid);
+
+            Our.pids.insert(pid);
+          }
+          CheckEngaged();
+
+          std::vector<const char *> argvec;
+          std::vector<const char *> envvec;
+
+          const char *eon;
 
           eon = (char *)memchr(pathname, '\0', n);
           assert(eon);
@@ -1345,6 +1354,23 @@ protected:
     }
 
     binary_base_t<MT> &b = refb.get();
+    binary_state_t &x = state.for_binary(b);
+
+    if constexpr (Objdump) {
+      if (!b.bbbmap.contains(Addr)) {
+        const bool bad = b.Analysis.objdump.is_addr_bad(Addr);
+
+        if (unlikely(bad)) {
+          if constexpr (IsVerbose())
+            fprintf(stderr,
+                    "%016" PRIx64 "\tBADIP_O[%016" PRIx64 "] %s+%" PRIx64 "\n",
+                    offset, IP, b.Name.c_str(), (uint64_t)Addr);
+
+          CurrPoint.Invalidate();
+          return 1;
+        }
+      }
+    }
 
     if constexpr (IsVeryVerbose())
       fprintf(stderr, "%016" PRIx64 "\t<IP> %016" PRIx64 " %s+%" PRIx64 "\n",
@@ -1399,27 +1425,6 @@ protected:
           CurrPoint.SetBlockIndex(StraightLineSlow<false>(
               CurrPoint.Binary(), CurrPoint.BlockIndex(), grab_addresses));
           assert(CurrPoint.Valid());
-        }
-      }
-    }
-
-    binary_state_t &x = state.for_binary(b);
-    if constexpr (Objdump) {
-      if (!b.bbbmap.contains(Addr)) {
-        const bool bad = b.Analysis.objdump.is_addr_bad(Addr);
-
-        if (unlikely(bad)) {
-          if constexpr (IsVerbose())
-            fprintf(stderr,
-                    "OBJDUMP SAYS \"BADIP!\" %016" PRIx64 "\t<IP> %016" PRIx64
-                    " %s+%" PRIx64 "\n",
-                    offset, (uint64_t)IP, b.Name.c_str(), (uint64_t)Addr);
-
-          if constexpr (IsVeryVerbose())
-            fprintf(stderr, "</IP>\n");
-
-          CurrPoint.Invalidate();
-          return 1;
         }
       }
     }
