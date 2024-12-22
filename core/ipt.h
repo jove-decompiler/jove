@@ -292,6 +292,7 @@ struct error_decoding_exception {};
 template <IPT_PARAMETERS_DCL, typename Derived> struct ipt_t {
   using packet_type = typename ipt_traits<Derived>::packet_type;
 
+
 protected:
   int ptdump_argc;
   char **ptdump_argv;
@@ -557,6 +558,65 @@ protected:
   const bool ignore_trunc_aux;
   const bool gathered_bins;
 
+  void on_mmap(uint64_t offset,
+               const pid_t pid,
+               const uint64_t ret,
+               const uint64_t len,
+               const uint64_t pgoff,
+               const char *const filename,
+               const char *const src) {
+    namespace fs = boost::filesystem;
+
+    auto &pstate = pid_map[pid];
+    auto &AddressSpace = pstate.addrspace;
+
+    const addr_intvl intvl(ret, len);
+
+    const bool anon = strcmp(filename, "//anon") == 0;
+    if (anon) {
+      intvl_map_clear(AddressSpace, intvl);
+
+      if constexpr (IsVerbose()) {
+        std::string as(addr_intvl2str(intvl));
+
+        fprintf(stderr, "+\t%s\t\"//anon\"\t<%s>\n", as.c_str(), src);
+      }
+      return;
+    }
+
+    binary_index_t BIdx = invalid_binary_index;
+    bool isNew = false;
+    if (filename[0] == '/' && !gathered_bins) {
+      if (!fs::exists(filename)) {
+        if constexpr (IsVeryVerbose())
+          fprintf(stderr, "%s: \"%s\" does not exist\n", src, filename);
+        return;
+      }
+
+      std::tie(BIdx, isNew) = jv.AddFromPath(explorer, jv_file, filename);
+    } else {
+      binary_index_set BIdxSet;
+      if (!jv.LookupByName(filename, BIdxSet))
+        return;
+      assert(!BIdxSet.empty());
+
+      BIdx = *(BIdxSet).rbegin(); /* most recent (XXX?) */
+      isNew = false;
+    }
+    if (!is_binary_index_valid(BIdx))
+      return;
+
+    if constexpr (IsVerbose()) {
+      std::string as(addr_intvl2str(intvl));
+
+      fprintf(stderr, "+\t%s\t\"%s\"+0x%" PRIx64 "\t<%s>\n", as.c_str(),
+              jv.Binaries.at(BIdx).Name.c_str(), pgoff, src);
+    }
+
+    intvl_map_clear(AddressSpace, intvl);
+    intvl_map_add(AddressSpace, intvl, std::make_pair(BIdx, pgoff));
+  }
+
   void examine_sb_event(const struct pev_event &event, uint64_t offset) {
     namespace fs = boost::filesystem;
 
@@ -815,20 +875,19 @@ protected:
           auto fd    = arg4;
           auto off   = arg5;
 
+          (void)addr;
+          (void)prot;
+          (void)flags;
+
           if (is_pgoff)
             off *= PageSize;
 
           const addr_intvl intvl(ret, len);
 
+          const char *filename = nullptr;
           const bool anon = static_cast<int>(fd) < 0;
           if (anon) {
-            intvl_map_clear(AddressSpace, intvl);
-
-            if constexpr (IsVeryVerbose()) {
-              std::string as(addr_intvl2str(intvl));
-
-              fprintf(stderr, "+\t%s\t\"//anon\"\t<mmap(2)>\n", as.c_str());
-            }
+            filename = "//anon";
           } else {
             // do we know the path?
             auto it = pstate.fdmap.find(fd);
@@ -839,46 +898,14 @@ protected:
                 fprintf(stderr, "+\t%s\t??%d??\t<mmap(2)>\n", as.c_str(),
                         (int)fd);
               }
+              break;
             } else {
-              binary_index_t BIdx;
-              bool isNew;
-
-              const std::string &path = (*it).second.path;
-              if (path.empty() || path.front() != '/') {
-                if constexpr (IsVeryVerbose())
-                  fprintf(stderr, "bogus path \"%s\" (nr=%ld) (ret=%lx)\n",
-                          path.c_str(), (long)nr, (unsigned long)ret);
-                break;
-              }
-
-              assert(path[0] == '/');
-
-              if (gathered_bins) {
-                binary_index_set BIdxSet;
-                if (jv.LookupByName(path.c_str(), BIdxSet)) {
-                  BIdx = *BIdxSet.cbegin();
-                  (void)isNew;
-                } else {
-                  break;
-                }
-              } else {
-                std::tie(BIdx, isNew) =
-                    jv.AddFromPath(explorer, jv_file, path.c_str());
-                if (!is_binary_index_valid(BIdx))
-                  break;
-              }
-
-              if constexpr (IsVerbose()) {
-                std::string as(addr_intvl2str(intvl));
-
-                fprintf(stderr, "+\t%s\t\"%s\"+%#x\t<mmap(2)>\n", as.c_str(),
-                        jv.Binaries.at(BIdx).Name.c_str(), (unsigned)off);
-              }
-
-              intvl_map_clear(AddressSpace, intvl);
-              intvl_map_add(AddressSpace, intvl, std::make_pair(BIdx, off));
+              filename = (*it).second.path.c_str();
             }
           }
+
+          assert(filename);
+          on_mmap(offset, pid, ret, len, off, filename, "mmap(2)");
           break;
         }
 
@@ -1123,50 +1150,29 @@ protected:
 
       const struct pev_record_mmap *mmap = event.record.mmap;
       assert(mmap);
+      assert(mmap->pid == get_pid());
 
-      _mmap.two = false;
+      on_mmap(offset, mmap->pid, mmap->addr, mmap->len, mmap->pgoff,
+              mmap->filename, "MMAP");
+      break;
+    }
 
-      _mmap.pid = mmap->pid;
-      _mmap.tid = mmap->tid;
-      _mmap.addr = mmap->addr;
-      _mmap.len = mmap->len;
-      _mmap.pgoff = mmap->pgoff;
-      _mmap.filename = mmap->filename;
-    } /* fallthrough */
     case PERF_RECORD_MMAP2: {
       if ((event.misc & PERF_RECORD_MISC_CPUMODE_MASK) ==
           PERF_RECORD_MISC_KERNEL)
         break;
 
-      if (_mmap.two) {
-        const struct pev_record_mmap2 *mmap2 = event.record.mmap2;
-        assert(mmap2);
-
-        assert(mmap2->prot & PROT_EXEC);
-
-        _mmap.pid = mmap2->pid;
-        _mmap.tid = mmap2->tid;
-        _mmap.addr = mmap2->addr;
-        _mmap.len = mmap2->len;
-        _mmap.pgoff = mmap2->pgoff;
-        _mmap.filename = mmap2->filename;
-      }
+      const struct pev_record_mmap2 *mmap2 = event.record.mmap2;
+      assert(mmap2);
 
       auto pid = get_pid();
       if (pid <= 1) /* ignore kernel/init */
         break;
 
-      if (_mmap.pid != pid) {
-        fprintf(stderr, "_mmap.pid %u != pid %u %u %s\n",
-                _mmap.pid,
-                pid,
-                (unsigned)_mmap.two,
-                _mmap.filename);
-      }
-      assert(_mmap.pid == pid);
+      assert(mmap2->pid == pid);
 
       //
-      // we want to see all records since they will be encountered before the
+      // we want to see all records since they will be encountered *before* the
       // exec of a process of interest happens
       //
 #if 0
@@ -1174,74 +1180,8 @@ protected:
         break;
 #endif
 
-      auto &pstate = pid_map[pid];
-      auto &AddressSpace = pstate.addrspace;
-
-      std::string name(_mmap.filename);
-
-      const addr_intvl intvl(_mmap.addr, _mmap.len);
-
-      const bool anon = name == "//anon";
-      if (anon) {
-        intvl_map_clear(AddressSpace, intvl);
-
-        if constexpr (IsVerbose()) {
-          std::string as(addr_intvl2str(intvl));
-
-          fprintf(stderr, "+\t%s\t\"//anon\"\t<MMAP%s>\n", as.c_str(),
-                  _mmap.two ? "2" : "");
-        }
-        break;
-      }
-
-      binary_index_t BIdx;
-      bool isNew;
-      if (name[0] == '/') {
-        if (!fs::exists(name)) {
-          if constexpr (IsVeryVerbose())
-            fprintf(stderr, "\"%s\" does not exist\n", name.c_str());
-          break;
-        }
-
-        if (gathered_bins) {
-          binary_index_set BIdxSet;
-          if (jv.LookupByName(name.c_str(), BIdxSet)) {
-            BIdx = *BIdxSet.cbegin();
-            (void)isNew;
-          } else {
-            break;
-          }
-        } else {
-          std::tie(BIdx, isNew) =
-              jv.AddFromPath(explorer, jv_file, name.c_str());
-          if (!is_binary_index_valid(BIdx))
-            break;
-        }
-      } else {
-        binary_index_set BIdxSet;
-        if (!jv.LookupByName(name.c_str(), BIdxSet))
-          break;
-        assert(!BIdxSet.empty());
-
-        BIdx = *(BIdxSet).rbegin(); /* most recent (XXX?) */
-        isNew = false;
-      }
-
-      if constexpr (IsVerbose()) {
-        std::string as(addr_intvl2str(intvl));
-
-        fprintf(stderr, "+\t%s\t\"%s\"+%#x\t<MMAP%s>\n",
-                as.c_str(),
-                name.c_str(),
-                (unsigned)_mmap.pgoff,
-                _mmap.two ? "2" : "");
-      }
-
-      auto &b = jv.Binaries.at(BIdx);
-      binary_state_t &x = state.for_binary(b);
-
-      intvl_map_clear(AddressSpace, intvl);
-      intvl_map_add(AddressSpace, intvl, std::make_pair(BIdx, _mmap.pgoff));
+      on_mmap(offset, mmap2->pid, mmap2->addr, mmap2->len, mmap2->pgoff,
+              mmap2->filename, "MMAP2");
       break;
     }
 
