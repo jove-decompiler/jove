@@ -1064,11 +1064,13 @@ private:
     Analysis = other.Analysis;
     Parents._p = other.Parents._p;
 
+    DynTargets._sm = other.DynTargets._sm;
+    other.DynTargets._sm = nullptr;
+
     DynTargets._p.Store(other.DynTargets._p.Load(std::memory_order_relaxed),
                         std::memory_order_relaxed);
     other.DynTargets._p.Store(nullptr, std::memory_order_relaxed);
 
-    DynTargets._sm = other.DynTargets._sm;
     DynTargets.Complete = other.DynTargets.Complete;
   }
 };

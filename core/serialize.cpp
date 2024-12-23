@@ -434,9 +434,10 @@ static void serialize(Archive &ar, jove::basic_block_properties_t &bbprop,
      &BOOST_SERIALIZATION_NVP(bbprop.Analysis.Stale);
 
   if (!bbprop.DynTargets._sm)
-    TheDynTargets.cvisit_all([&](const jove::dynamic_target_t &X) {
-      bbprop.doInsertDynTarget(X, jv_file);
-    });
+    bbprop.DynTargets._sm = jv_file.get_segment_manager();
+  TheDynTargets.cvisit_all([&](const jove::dynamic_target_t &X) {
+    bbprop.doInsertDynTarget(X, jv_file);
+  });
 }
 
 //
