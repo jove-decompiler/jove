@@ -7,6 +7,7 @@
 
 #include <boost/filesystem.hpp>
 #include <boost/format.hpp>
+#include <boost/scope/defer.hpp>
 
 #include <llvm/Support/FormatVariadic.h>
 #include <llvm/MC/MCInstrInfo.h>
@@ -171,6 +172,8 @@ public:
 
   std::atomic<char> recovered_ch = '\0';
   std::atomic<bool> FileSystemRestored = false;
+
+  void *FifoProc(const char *fifo_file_path);
 };
 
 JOVE_REGISTER_TOOL("run", RunTool);
@@ -581,15 +584,13 @@ int RunTool::DoRun(void) {
   if (WillChroot)
     fifo_path_under_sysroot = "/" + fs::relative(fifo_file_path, fs::canonical(opts.sysroot)).string();
 
+  BOOST_SCOPE_DEFER [&] { fs::remove_all(fifo_dir); };
+
+  {
   //
   // create thread reading from fifo
   //
-  pthread_t recover_thd;
-  if (pthread_create(&recover_thd, nullptr, (void *(*)(void *))recover_proc,
-                     (void *)fifo_file_path.c_str()) != 0) {
-    HumanOut() << "failed to create recover_proc thread\n";
-    return 1;
-  }
+  std::thread recover_thd(&RunTool::FifoProc, this, fifo_file_path.c_str());
 
   //
   // parse jv
@@ -984,26 +985,46 @@ int RunTool::DoRun(void) {
     }
   }
 
-  //
-  // cancel the thread reading the fifo
-  //
-  if (pthread_cancel(recover_thd) != 0) {
-    HumanOut() << "error: failed to cancel recover_proc thread\n";
+  if (IsVeryVerbose())
+    HumanOut() << llvm::formatv("app has exited ({0}).\n", ret_val);
 
-    void *retval;
-    if (pthread_join(recover_thd, &retval) != 0)
-      HumanOut() << "error: pthread_join failed\n";
-  } else {
-    void *recover_retval;
-    if (pthread_join(recover_thd, &recover_retval) != 0)
-      HumanOut() << "error: pthread_join failed\n";
-    else if (recover_retval != PTHREAD_CANCELED)
-      HumanOut() << llvm::formatv(
-              "warning: expected retval to equal PTHREAD_CANCELED, but is {0}\n",
-              recover_retval);
+  //
+  // communicate to FifoProc that the app has exited.
+  //
+  {
+    int fd = -1;
+    int err = 0;
+    do {
+      fd = ::open(fifo_file_path.c_str(), O_WRONLY);
+      err = errno;
+    } while (fd < 0 && err == EINTR);
+
+    scoped_fd recover_fd(fd);
+    if (!recover_fd) {
+      WithColor::error() << llvm::formatv(
+          "failed to open fifo (\"{0}\") to signal app has exited: {1}\n",
+          fifo_path, strerror(err));
+      return 1;
+    }
+
+    static const char exited_char = '!';
+
+    ssize_t ret;
+    do {
+      err = 0;
+      ret = ::write(fd, &exited_char, 1);
+    } while (ret < 0 && err == EINTR);
+
+    if (ret != 1) {
+      WithColor::error() << llvm::formatv(
+          "failed to write to fifo (\"{0}\") to signal app has exited: {1}\n",
+          fifo_path, strerror(err));
+      return 1;
+    }
   }
 
-  fs::remove_all(fifo_dir);
+  recover_thd.join();
+  }
 
 #if 0 /* is this necessary? */
   if (::umount2(opts.sysroot, 0) < 0)
@@ -1036,97 +1057,61 @@ void touch(const fs::path &p) {
     ::close(::open(p.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0666));
 }
 
-void *recover_proc(const char *fifo_path) {
-  assert(pTool);
-  RunTool &tool = *pTool;
+void *RunTool::FifoProc(const char *fifo_path) {
+  if (IsVeryVerbose())
+    HumanOut() << "FifoProc: opening fifo...\n";
 
-  //
-  // ATTENTION: this thread has to be cancel-able.
-  //
+  int fd = -1;
+  int err = 0;
+  do {
+    fd = ::open(fifo_path, O_RDONLY);
+    err = errno;
+  } while (fd < 0 && err == EINTR);
 
-  int recover_fd;
-  do
-    recover_fd = ::open(fifo_path, O_RDONLY);
-  while (recover_fd < 0 && errno == EINTR);
+  {
 
-  if (recover_fd < 0) {
-    int err = errno;
-    tool.HumanOut() << llvm::formatv("recover: failed to open fifo at {0} ({1})\n",
-                                     fifo_path, strerror(err));
+  scoped_fd recover_fd(fd);
+  if (!recover_fd) {
+    WithColor::error() << llvm::formatv(
+        "FifoProc: failed to open fifo at {0} ({1})\n", fifo_path,
+        strerror(err));
     return nullptr;
   }
 
-  void (*cleanup_handler)(void *) = [](void *arg) -> void {
-    int fd = reinterpret_cast<long>(arg);
-    if (::close(fd) < 0) {
-      int err = errno;
-      throw std::runtime_error(
-          std::string("recover_proc: cleanup_handler: close failed: ") +
-          strerror(err));
-    }
-  };
-
-  pthread_cleanup_push(cleanup_handler, reinterpret_cast<void *>(recover_fd));
+  if (IsVeryVerbose())
+    HumanOut() << "FifoProc: fifo opened.\n";
 
   for (;;) {
     char ch;
 
     {
-      // NOTE: read is a cancellation point
-      ssize_t ret = ::read(recover_fd, &ch, 1);
+      if (IsVeryVerbose())
+        HumanOut() << "FifoProc: reading from fifo...\n";
+
+      ssize_t ret = ::read(recover_fd.get(), &ch, 1);
       if (ret != 1) {
         if (ret < 0) {
-          int err = errno;
+          err = errno;
 
-          if (err == EINTR)
+          if (err == EINTR) {
+            if (IsVeryVerbose())
+              HumanOut() << "FifoProc: read interrupted\n";
             continue;
+	  }
 
-          tool.HumanOut() << llvm::formatv("recover: read failed ({0})\n",
-                                           strerror(err));
-        } else if (ret == 0) {
-          // NOTE: open is a cancellation point
-          int new_recover_fd = ::open(fifo_path, O_RDONLY);
-          if (new_recover_fd < 0) {
-            int err = errno;
-            tool.HumanOut() << llvm::formatv(
-                "recover: failed to open fifo at {0} ({1})\n", fifo_path,
-                strerror(err));
-            return nullptr;
-          }
-
-          if (pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, nullptr) != 0) {
-            tool.HumanOut() << "pthread_setcancelstate failed\n";
-          }
-
-          assert(new_recover_fd != recover_fd);
-
-          if (::dup2(new_recover_fd, recover_fd) < 0) {
-            int err = errno;
-            tool.HumanOut() << llvm::formatv(
-                "recover: failed to dup2({0}, {1})) ({2})\n", new_recover_fd,
-                recover_fd, strerror(err));
-          }
-
-          if (::close(new_recover_fd) < 0) {
-            int err = errno;
-            tool.HumanOut() << llvm::formatv("recover_proc: close failed ({0})\n",
-                                        strerror(err));
-          }
-
-          if (pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, nullptr) != 0)
-            tool.HumanOut() << "pthread_setcancelstate failed\n";
-
-          continue;
-        } else {
-          tool.HumanOut() << llvm::formatv("recover: read gave {0}\n", ret);
+          WithColor::error() << llvm::formatv("FifoProc: failed to read: {0}\n",
+                                              strerror(err));
+          return nullptr;
+        } else if (ret == 0) { /* closed */
+          break;
         }
 
-        break;
+	die("FifoProc: read returned impossible value");
       }
     }
 
-    if (pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, nullptr) != 0)
-      tool.HumanOut() << "pthread_setcancelstate failed\n";
+    if (IsVeryVerbose())
+      HumanOut() << llvm::formatv("recover_proc: got '{0}'\n", ch);
 
     {
       static bool FirstTime = true;
@@ -1134,19 +1119,21 @@ void *recover_proc(const char *fifo_path) {
       if (unlikely(FirstTime)) {
         FirstTime = false;
 
-        if (tool.LivingDangerously)
-          while (!tool.FileSystemRestored.load())
+        if (LivingDangerously)
+          while (!FileSystemRestored.load())
             usleep(10000 /* 0.01 s */);
       }
     }
 
     //
     // we assume ch is loaded with a byte from the fifo. it's got to be either
-    // 'f', 'F', 'O', 'b', 'B', 'a', or 'r'.
+    // 'f', 'F', 'O', 'b', 'B', 'a', 'r', or '!'
     //
-    assert(tool.Recovery);
+    if (unlikely(ch == '!'))
+      return nullptr; /* if we see this, the app has exited. */
 
-    tool.recovered_ch.store(ch);
+    assert(Recovery);
+    recovered_ch.store(ch);
 
     auto do_recover = [&](void) -> std::string {
       if (ch == 'f') {
@@ -1163,27 +1150,27 @@ void *recover_proc(const char *fifo_path) {
         {
           ssize_t ret;
 
-          ret = robust_read(recover_fd, &Caller.BIdx, sizeof(uint32_t));
+          ret = robust_read(recover_fd.get(), &Caller.BIdx, sizeof(uint32_t));
           assert(ret == sizeof(uint32_t));
 
-          ret = robust_read(recover_fd, &Caller.BBIdx, sizeof(uint32_t));
+          ret = robust_read(recover_fd.get(), &Caller.BBIdx, sizeof(uint32_t));
           assert(ret == sizeof(uint32_t));
 
-          ret = robust_read(recover_fd, &Callee.BIdx, sizeof(uint32_t));
+          ret = robust_read(recover_fd.get(), &Callee.BIdx, sizeof(uint32_t));
           assert(ret == sizeof(uint32_t));
 
-          ret = robust_read(recover_fd, &Callee.FIdx, sizeof(uint32_t));
+          ret = robust_read(recover_fd.get(), &Callee.FIdx, sizeof(uint32_t));
           assert(ret == sizeof(uint32_t));
         }
 
-        if (tool.IsVerbose())
-          tool.HumanOut() << llvm::formatv("RecoverDynamicTarget({0}, {1}, {2}, {3})\n",
+        if (IsVerbose())
+          HumanOut() << llvm::formatv("RecoverDynamicTarget({0}, {1}, {2}, {3})\n",
                                            Caller.BIdx,
                                            Caller.BBIdx,
                                            Callee.BIdx,
                                            Callee.FIdx);
 
-        return tool.Recovery->RecoverDynamicTarget(Caller.BIdx,
+        return Recovery->RecoverDynamicTarget(Caller.BIdx,
                                                    Caller.BBIdx,
                                                    Callee.BIdx,
                                                    Callee.FIdx);
@@ -1198,23 +1185,23 @@ void *recover_proc(const char *fifo_path) {
         {
           ssize_t ret;
 
-          ret = robust_read(recover_fd, &IndBr.BIdx, sizeof(uint32_t));
+          ret = robust_read(recover_fd.get(), &IndBr.BIdx, sizeof(uint32_t));
           assert(ret == sizeof(uint32_t));
 
-          ret = robust_read(recover_fd, &IndBr.BBIdx, sizeof(uint32_t));
+          ret = robust_read(recover_fd.get(), &IndBr.BBIdx, sizeof(uint32_t));
           assert(ret == sizeof(uint32_t));
 
-          ret = robust_read(recover_fd, &Addr, sizeof(taddr_t));
+          ret = robust_read(recover_fd.get(), &Addr, sizeof(taddr_t));
           assert(ret == sizeof(taddr_t));
         }
 
-        if (tool.IsVerbose())
-          tool.HumanOut() << llvm::formatv("RecoverBasicBlock({0}, {1}, {2})\n",
+        if (IsVerbose())
+          HumanOut() << llvm::formatv("RecoverBasicBlock({0}, {1}, {2})\n",
                                            IndBr.BIdx,
                                            IndBr.BBIdx,
                                            taddr2str(Addr, false));
 
-        return tool.Recovery->RecoverBasicBlock(IndBr.BIdx,
+        return Recovery->RecoverBasicBlock(IndBr.BIdx,
                                                 IndBr.BBIdx,
                                                 Addr);
       } else if (ch == 'F') {
@@ -1231,28 +1218,28 @@ void *recover_proc(const char *fifo_path) {
         {
           ssize_t ret;
 
-          ret = robust_read(recover_fd, &IndCall.BIdx, sizeof(uint32_t));
+          ret = robust_read(recover_fd.get(), &IndCall.BIdx, sizeof(uint32_t));
           assert(ret == sizeof(uint32_t));
 
-          ret = robust_read(recover_fd, &IndCall.BBIdx, sizeof(uint32_t));
+          ret = robust_read(recover_fd.get(), &IndCall.BBIdx, sizeof(uint32_t));
           assert(ret == sizeof(uint32_t));
 
-          ret = robust_read(recover_fd, &Callee.BIdx, sizeof(uint32_t));
+          ret = robust_read(recover_fd.get(), &Callee.BIdx, sizeof(uint32_t));
           assert(ret == sizeof(uint32_t));
 
-          ret = robust_read(recover_fd, &Callee.Addr, sizeof(taddr_t));
+          ret = robust_read(recover_fd.get(), &Callee.Addr, sizeof(taddr_t));
           assert(ret == sizeof(taddr_t));
         }
 
-        if (tool.IsVerbose())
-          tool.HumanOut() << llvm::formatv(
+        if (IsVerbose())
+          HumanOut() << llvm::formatv(
               "RecoverFunctionAtAddress({0}, {1}, {2}, {3})\n",
               IndCall.BIdx,
               IndCall.BBIdx,
               Callee.BIdx,
               Callee.Addr);
 
-        return tool.Recovery->RecoverFunctionAtAddress(IndCall.BIdx,
+        return Recovery->RecoverFunctionAtAddress(IndCall.BIdx,
                                                        IndCall.BBIdx,
                                                        Callee.BIdx,
                                                        Callee.Addr);
@@ -1270,28 +1257,28 @@ void *recover_proc(const char *fifo_path) {
         {
           ssize_t ret;
 
-          ret = robust_read(recover_fd, &IndCall.BIdx, sizeof(uint32_t));
+          ret = robust_read(recover_fd.get(), &IndCall.BIdx, sizeof(uint32_t));
           assert(ret == sizeof(uint32_t));
 
-          ret = robust_read(recover_fd, &IndCall.BBIdx, sizeof(uint32_t));
+          ret = robust_read(recover_fd.get(), &IndCall.BBIdx, sizeof(uint32_t));
           assert(ret == sizeof(uint32_t));
 
-          ret = robust_read(recover_fd, &Callee.BIdx, sizeof(uint32_t));
+          ret = robust_read(recover_fd.get(), &Callee.BIdx, sizeof(uint32_t));
           assert(ret == sizeof(uint32_t));
 
-          ret = robust_read(recover_fd, &Callee.Offset, sizeof(taddr_t));
+          ret = robust_read(recover_fd.get(), &Callee.Offset, sizeof(taddr_t));
           assert(ret == sizeof(taddr_t));
         }
 
-        if (tool.IsVerbose())
-          tool.HumanOut() << llvm::formatv(
+        if (IsVerbose())
+          HumanOut() << llvm::formatv(
               "RecoverFunctionAtOffset({0}, {1}, {2}, {3})\n",
               IndCall.BIdx,
               IndCall.BBIdx,
               Callee.BIdx,
               Callee.Offset);
 
-        return tool.Recovery->RecoverFunctionAtOffset(IndCall.BIdx,
+        return Recovery->RecoverFunctionAtOffset(IndCall.BIdx,
                                                       IndCall.BBIdx,
                                                       Callee.BIdx,
                                                       Callee.Offset);
@@ -1304,19 +1291,19 @@ void *recover_proc(const char *fifo_path) {
         {
           ssize_t ret;
 
-          ret = robust_read(recover_fd, &NewABI.BIdx, sizeof(uint32_t));
+          ret = robust_read(recover_fd.get(), &NewABI.BIdx, sizeof(uint32_t));
           assert(ret == sizeof(uint32_t));
 
-          ret = robust_read(recover_fd, &NewABI.FIdx, sizeof(uint32_t));
+          ret = robust_read(recover_fd.get(), &NewABI.FIdx, sizeof(uint32_t));
           assert(ret == sizeof(uint32_t));
         }
 
-        if (tool.IsVerbose())
-          tool.HumanOut() << llvm::formatv("RecoverABI({0}, {1})\n",
+        if (IsVerbose())
+          HumanOut() << llvm::formatv("RecoverABI({0}, {1})\n",
                                            NewABI.BIdx,
                                            NewABI.FIdx);
 
-        return tool.Recovery->RecoverABI(NewABI.BIdx,
+        return Recovery->RecoverABI(NewABI.BIdx,
                                          NewABI.FIdx);
       } else if (ch == 'r') {
         struct {
@@ -1327,19 +1314,19 @@ void *recover_proc(const char *fifo_path) {
         {
           ssize_t ret;
 
-          ret = robust_read(recover_fd, &Call.BIdx, sizeof(uint32_t));
+          ret = robust_read(recover_fd.get(), &Call.BIdx, sizeof(uint32_t));
           assert(ret == sizeof(uint32_t));
 
-          ret = robust_read(recover_fd, &Call.BBIdx, sizeof(uint32_t));
+          ret = robust_read(recover_fd.get(), &Call.BBIdx, sizeof(uint32_t));
           assert(ret == sizeof(uint32_t));
         }
 
-        if (tool.IsVerbose())
-          tool.HumanOut() << llvm::formatv("Returns({0}, {1})\n",
+        if (IsVerbose())
+          HumanOut() << llvm::formatv("Returns({0}, {1})\n",
                                            Call.BIdx,
                                            Call.BBIdx);
 
-        return tool.Recovery->Returns(Call.BIdx,
+        return Recovery->Returns(Call.BIdx,
                                       Call.BBIdx);
       } else if (ch == 'B') {
         uint32_t PathLen;
@@ -1348,20 +1335,20 @@ void *recover_proc(const char *fifo_path) {
         {
           ssize_t ret;
 
-          ret = robust_read(recover_fd, &PathLen, sizeof(uint32_t));
+          ret = robust_read(recover_fd.get(), &PathLen, sizeof(uint32_t));
           assert(ret == sizeof(uint32_t));
 
           Path.resize(PathLen);
 
-          ret = robust_read(recover_fd, &Path[0], PathLen);
+          ret = robust_read(recover_fd.get(), &Path[0], PathLen);
           assert(ret == PathLen);
         }
 
-        if (tool.IsVerbose())
-          tool.HumanOut() << llvm::formatv("RecoverForeignBinary(\"{0}\")\n",
+        if (IsVerbose())
+          HumanOut() << llvm::formatv("RecoverForeignBinary(\"{0}\")\n",
                                            Path);
 
-        return tool.Recovery->RecoverForeignBinary(Path.c_str());
+        return Recovery->RecoverForeignBinary(Path.c_str());
       } else {
         std::string ch_s;
         ch_s.push_back(ch);
@@ -1369,33 +1356,25 @@ void *recover_proc(const char *fifo_path) {
       }
     };
 
-#if 0
     try {
-#endif
       std::string msg = do_recover();
 
       if (!msg.empty()) {
-        tool.WasDecompilationModified.store(true);
+        WasDecompilationModified.store(true);
 
-        tool.HumanOut() << msg << '\n';
+        HumanOut() << msg << '\n';
       }
-#if 0
     } catch (const std::exception &e) {
-      tool.HumanOut() << llvm::formatv(
+      HumanOut() << llvm::formatv(
           __ANSI_RED "failed to recover: {0}" __ANSI_NORMAL_COLOR "\n",
           e.what());
+      break;
     }
-#endif
-
-    if (pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, nullptr) != 0)
-      tool.HumanOut() << "pthread_setcancelstate failed\n";
   }
 
-  // (Clean-up handlers are not called if the thread terminates by performing a
-  // return from the thread start function.)
-  pthread_cleanup_pop(1 /* execute */);
+  }
 
-  return nullptr;
+  __attribute__((musttail)) return FifoProc(fifo_path);
 }
 
 }
