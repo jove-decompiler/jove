@@ -316,7 +316,7 @@ void _jove_found_dyn_target(uint32_t CallerBBIdx,
   uint32_t CallerBIdx = _jove_binary_index();
 
   char *recover_fifo_path = _getenv("JOVE_RECOVER_FIFO");
-  if (!recover_fifo_path) {
+  if (!recover_fifo_path || __jove_opts.Debug.Verbose) {
     char s[1024];
     s[0] = '\0';
 
@@ -355,7 +355,8 @@ void _jove_found_dyn_target(uint32_t CallerBBIdx,
 
     _jove_robust_write(2 /* stderr */, s, _strlen(s));
 
-    _UNREACHABLE("missing JOVE_RECOVER_FIFO environment variable");
+    if (!recover_fifo_path)
+      _UNREACHABLE("missing JOVE_RECOVER_FIFO environment variable");
   }
 
   {
@@ -426,7 +427,7 @@ void _jove_recover_function(uint32_t IndCallBBIdx, uintptr_t FuncAddr) {
   return; /* not found */
 
 found:
-  if (!recover_fifo_path) {
+  if (!recover_fifo_path || __jove_opts.Debug.Verbose) {
     char s[1024];
     s[0] = '\0';
 
@@ -465,7 +466,8 @@ found:
 
     _jove_robust_write(2 /* stderr */, s, _strlen(s));
 
-    _UNREACHABLE("missing JOVE_RECOVER_FIFO environment variable");
+    if (!recover_fifo_path)
+      _UNREACHABLE("missing JOVE_RECOVER_FIFO environment variable");
   }
 
   {
@@ -732,7 +734,7 @@ void _jove_recover_foreign_function_at_offset(uint32_t IndCallBBIdx,
   Callee.Offset = CalleeOffset;
 
 found:
-  if (!recover_fifo_path) {
+  if (!recover_fifo_path || __jove_opts.Debug.Verbose) {
     char s[1024];
     s[0] = '\0';
 
@@ -771,7 +773,8 @@ found:
 
     _jove_robust_write(2 /* stderr */, s, _strlen(s));
 
-    _UNREACHABLE("missing JOVE_RECOVER_FIFO environment variable");
+    if (!recover_fifo_path)
+      _UNREACHABLE("missing JOVE_RECOVER_FIFO environment variable");
   }
 
   {
@@ -829,7 +832,7 @@ void _jove_recover_basic_block(uint32_t IndBrBBIdx, uintptr_t BBAddr) {
   uintptr_t Addr = (BBAddr - SectionsGlobal.Beg) + SectsStartAddr;
 
 found:
-  if (!recover_fifo_path) {
+  if (!recover_fifo_path || __jove_opts.Debug.Verbose) {
     char s[1024];
     s[0] = '\0';
 
@@ -860,7 +863,8 @@ found:
 
     _jove_robust_write(2 /* stderr */, s, _strlen(s));
 
-    _UNREACHABLE("missing JOVE_RECOVER_FIFO environment variable");
+    if (!recover_fifo_path)
+      _UNREACHABLE("missing JOVE_RECOVER_FIFO environment variable");
   }
 
   {
@@ -901,7 +905,7 @@ void _jove_recover_returned(uint32_t CallerBBIdx) {
   Call.BBIdx = CallerBBIdx;
 
 found:
-  if (!recover_fifo_path) {
+  if (!recover_fifo_path || __jove_opts.Debug.Verbose) {
     char s[1024];
     s[0] = '\0';
 
@@ -925,7 +929,8 @@ found:
 
     _jove_robust_write(2 /* stderr */, s, _strlen(s));
 
-    _UNREACHABLE("missing JOVE_RECOVER_FIFO environment variable");
+    if (!recover_fifo_path)
+      _UNREACHABLE("missing JOVE_RECOVER_FIFO environment variable");
   }
 
   {
@@ -965,7 +970,7 @@ void _jove_recover_ABI(uint32_t FIdx) {
   NewABI.FIdx = FIdx;
 
 found:
-  if (!recover_fifo_path) {
+  if (!recover_fifo_path || __jove_opts.Debug.Verbose) {
     char s[1024];
     s[0] = '\0';
 
@@ -989,7 +994,8 @@ found:
 
     _jove_robust_write(2 /* stderr */, s, _strlen(s));
 
-    _UNREACHABLE("missing JOVE_RECOVER_FIFO environment variable");
+    if (!recover_fifo_path)
+      _UNREACHABLE("missing JOVE_RECOVER_FIFO environment variable");
   }
 
   {
@@ -1020,7 +1026,7 @@ void _jove_recover_foreign_binary_with_path(const char *path) {
   const uint32_t PathLen = _strlen(path);
 
   char *recover_fifo_path = _getenv("JOVE_RECOVER_FIFO");
-  if (!recover_fifo_path) {
+  if (!recover_fifo_path || __jove_opts.Debug.Verbose) {
     char *buff;
     JOVE_SCOPED_BUFF(buff, 2*PATH_MAX);
     buff[0] = '\0';
@@ -1030,7 +1036,8 @@ void _jove_recover_foreign_binary_with_path(const char *path) {
     _strcat(buff, "\"\n");
 
     _DUMP(buff);
-    _UNREACHABLE("missing JOVE_RECOVER_FIFO environment variable");
+    if (!recover_fifo_path)
+      _UNREACHABLE("missing JOVE_RECOVER_FIFO environment variable");
   }
 
   {
