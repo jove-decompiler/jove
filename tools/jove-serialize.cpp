@@ -28,11 +28,11 @@ JOVE_REGISTER_TOOL("serialize", SerializeTool);
 
 int SerializeTool::Run(void) {
   if (opts.Path.empty()) {
-    SerializeJV(jv, std::cout, opts.Text);
+    SerializeJV(jv, jv_file, std::cout, opts.Text);
     return 0;
   }
 
-  SerializeJVToFile(jv, opts.Path.c_str(), opts.Text);
+  SerializeJVToFile(jv, jv_file, opts.Path.c_str(), opts.Text);
   return 0;
 }
 

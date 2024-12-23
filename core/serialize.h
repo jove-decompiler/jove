@@ -11,8 +11,9 @@ void UnserializeJVFromFile(jv_base_t<MT> &out, jv_file_t &, const char *path,
 template <bool MT>
 void UnserializeJV(jv_base_t<MT> &out, jv_file_t &, std::istream &, bool text = true);
 template <bool MT>
-void SerializeJV(const jv_base_t<MT> &in, std::ostream &, bool text = true);
+void SerializeJV(const jv_base_t<MT> &in, jv_file_t &, std::ostream &,
+                 bool text = true);
 template <bool MT>
-void SerializeJVToFile(const jv_base_t<MT> &in, const char *path, bool text = true);
-
+void SerializeJVToFile(const jv_base_t<MT> &in, jv_file_t &, const char *path,
+                       bool text = true);
 }

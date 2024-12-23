@@ -30,7 +30,6 @@
 namespace jove {
 
 static jv_file_t *pFile_hack = nullptr;                  /* XXX */
-static std::unique_ptr<ip_void_allocator_t> pAlloc_hack; /* XXX */
 
 }
 
@@ -255,22 +254,22 @@ namespace serialization {
 //
 // allocates_basic_block_t
 //
-template <class Archive>
-static void serialize(Archive &ar, jove::ip_icfg_t &ICFG,
+template <class Archive, bool MT>
+static void serialize(Archive &ar, jove::ip_icfg_base_t<MT> &ICFG,
                       const unsigned int version) {
   boost::serialization::split_free(ar, ICFG, version);
 }
 
-template <class Archive>
+template <class Archive, bool MT>
 static inline void save(Archive &ar,
-                        const jove::ip_icfg_t &ICFG,
+                        const jove::ip_icfg_base_t<MT> &ICFG,
                         const unsigned int file_version) {
   auto e_lck = ICFG.exclusive_access();
 
   auto &_ICFG = const_cast<jove::ip_icfg_t::type &>(ICFG.container());
 
-  unsigned num_verts = ICFG.num_vertices();
-  unsigned num_verts_act = boost::num_vertices(_ICFG);
+  const unsigned num_verts = ICFG.num_vertices();
+  const unsigned num_verts_act = boost::num_vertices(_ICFG);
 
   assert(num_verts_act >= num_verts);
 
@@ -283,12 +282,14 @@ static inline void save(Archive &ar,
     _ICFG.m_vertices.pop_back();
   }
 
+  assert(boost::num_vertices(_ICFG) == num_verts);
+
   ar << BOOST_SERIALIZATION_NVP(ICFG.container());
 }
 
-template <class Archive>
+template <class Archive, bool MT>
 static inline void load(Archive &ar,
-                        jove::ip_icfg_t &ICFG,
+                        jove::ip_icfg_base_t<MT> &ICFG,
                         const unsigned int file_version) {
   auto e_lck = ICFG.exclusive_access();
 
@@ -333,78 +334,6 @@ static void serialize(Archive &ar, jove::allocates_function_t &af,
   ar &BOOST_SERIALIZATION_NVP(af.FIdx);
 }
 
-#if 0
-
-//
-// binary_t::Analysis_t
-//
-template <class Archive, bool MT>
-static void serialize(Archive &ar,
-                      typename ::jove::binary_base_t<MT>::Analysis_t &A,
-                      const unsigned int version) {
-  ar &BOOST_SERIALIZATION_NVP(A.EntryFunction)
-     &BOOST_SERIALIZATION_NVP(A.Functions.container())
-     &BOOST_SERIALIZATION_NVP(A.ICFG.container());
-}
-
-#define VALUES_TO_INSTANTIATE_WITH1                                            \
-    ((true))                                                                   \
-    ((false))
-
-#define VALUES_TO_INSTANTIATE_WITH2                                            \
-    ((boost::archive::text_oarchive))                                          \
-    ((boost::archive::text_iarchive))                                          \
-    ((boost::archive::binary_oarchive))                                        \
-    ((boost::archive::binary_iarchive))
-
-#define GET_VALUE(x) BOOST_PP_TUPLE_ELEM(0, x)
-
-#define DO_INSTANTIATE(r, product)                                             \
-  template void serialize<GET_VALUE(BOOST_PP_SEQ_ELEM(1, product)),     \
-                          GET_VALUE(BOOST_PP_SEQ_ELEM(0, product))>(    \
-      GET_VALUE(BOOST_PP_SEQ_ELEM(1, product)) &,                              \
-      ::jove::binary_base_t<GET_VALUE(BOOST_PP_SEQ_ELEM(0, product))>::Analysis_t &, \
-      const unsigned int);
-
-BOOST_PP_SEQ_FOR_EACH_PRODUCT(DO_INSTANTIATE, (VALUES_TO_INSTANTIATE_WITH1)(VALUES_TO_INSTANTIATE_WITH2))
-#else
-}}
-namespace jove {
-
-
-template <bool MT>
-template <class Archive>
-void binary_base_t<MT>::Analysis_t::serialize(Archive &ar, const unsigned int version) {
-  ar &BOOST_SERIALIZATION_NVP(EntryFunction)
-     &BOOST_SERIALIZATION_NVP(Functions.container())
-     &BOOST_SERIALIZATION_NVP(ICFG.container());
-}
-
-#define VALUES_TO_INSTANTIATE_WITH1                                            \
-    ((true))                                                                   \
-    ((false))
-
-#define VALUES_TO_INSTANTIATE_WITH2                                            \
-    ((boost::archive::text_oarchive))                                          \
-    ((boost::archive::text_iarchive))                                          \
-    ((boost::archive::binary_oarchive))                                        \
-    ((boost::archive::binary_iarchive))
-
-#define GET_VALUE(x) BOOST_PP_TUPLE_ELEM(0, x)
-
-#define DO_INSTANTIATE(r, product)                                             \
-  template void binary_base_t<GET_VALUE(BOOST_PP_SEQ_ELEM(0, product))>::Analysis_t::serialize<GET_VALUE(BOOST_PP_SEQ_ELEM(1, product))     >(    \
-      GET_VALUE(BOOST_PP_SEQ_ELEM(1, product)) &,\
-      const unsigned int);
-
-BOOST_PP_SEQ_FOR_EACH_PRODUCT(DO_INSTANTIATE, (VALUES_TO_INSTANTIATE_WITH1)(VALUES_TO_INSTANTIATE_WITH2))
-
-
-}
-namespace boost {
-namespace serialization {
-#endif
-
 //
 // binary_t
 //
@@ -423,7 +352,9 @@ static void serialize(Archive &ar, jove::binary_base_t<MT> &b,
      &BOOST_SERIALIZATION_NVP(b.IsVDSO)
      &BOOST_SERIALIZATION_NVP(b.IsPIC)
      &BOOST_SERIALIZATION_NVP(b.IsDynamicallyLoaded)
-     &BOOST_SERIALIZATION_NVP(b.Analysis);
+     &BOOST_SERIALIZATION_NVP(b.Analysis.EntryFunction)
+     &BOOST_SERIALIZATION_NVP(b.Analysis.Functions.container())
+     &BOOST_SERIALIZATION_NVP(b.Analysis.ICFG);
 }
 
 #define VALUES_TO_INSTANTIATE_WITH1                                            \
@@ -476,9 +407,12 @@ static void serialize(Archive &ar, jove::function_t &f, const unsigned int versi
 template <class Archive>
 static void serialize(Archive &ar, jove::basic_block_properties_t &bbprop,
                       const unsigned int version) {
-  assert(jove::pAlloc_hack);
+  assert(jove::pFile_hack);
 
-  jove::ip_dynamic_target_set TheDynTargets(jove::pAlloc_hack->get_segment_manager());
+  jove::jv_file_t &jv_file = *jove::pFile_hack;
+
+  jove::ip_dynamic_target_set TheDynTargets(jv_file.get_segment_manager());
+
   if (auto *p = bbprop.DynTargets._p.Load(std::memory_order_relaxed))
     TheDynTargets = *p;
 
@@ -499,12 +433,12 @@ static void serialize(Archive &ar, jove::basic_block_properties_t &bbprop,
      &BOOST_SERIALIZATION_NVP(bbprop.Analysis.reach.def)
      &BOOST_SERIALIZATION_NVP(bbprop.Analysis.Stale);
 
-  if (!TheDynTargets.empty()) {
-    assert(jove::pFile_hack);
-    TheDynTargets.cvisit_all([&](const jove::dynamic_target_t &X) {
-      bbprop.doInsertDynTarget(X, *jove::pFile_hack);
-    });
-  }
+  TheDynTargets.cvisit_all([&](const jove::dynamic_target_t &X) {
+    bbprop.doInsertDynTarget(X, jv_file);
+  });
+
+  if (!bbprop.DynTargets._sm)
+    bbprop.DynTargets._sm = jv_file.get_segment_manager();
 }
 
 //
@@ -575,23 +509,23 @@ BOOST_PP_SEQ_FOR_EACH_PRODUCT(DO_INSTANTIATE, (VALUES_TO_INSTANTIATE_WITH1)(VALU
 template <class Archive>
 static inline void load_construct_data(Archive &ar, jove::function_t *t,
                                        const unsigned int file_version) {
-  assert(jove::pAlloc_hack);
-  ::new (t)jove::function_t(jove::pAlloc_hack->get_segment_manager());
+  assert(jove::pFile_hack);
+  ::new (t)jove::function_t(jove::pFile_hack->get_segment_manager());
 }
 
 template <class Archive>
 static inline void load_construct_data(Archive &ar, jove::ip_string *t,
                                        const unsigned int file_version) {
-  assert(jove::pAlloc_hack);
-  ::new (t)jove::ip_string(jove::pAlloc_hack->get_segment_manager());
+  assert(jove::pFile_hack);
+  ::new (t)jove::ip_string(jove::pFile_hack->get_segment_manager());
 }
 
 template <class Archive>
 static inline void load_construct_data(Archive &ar,
                                        jove::allocates_binary_index_set_t *t,
                                        const unsigned int file_version) {
-  assert(jove::pAlloc_hack);
-  ::new (t)jove::allocates_binary_index_set_t(jove::pAlloc_hack->get_segment_manager());
+  assert(jove::pFile_hack);
+  ::new (t)jove::allocates_binary_index_set_t(jove::pFile_hack->get_segment_manager());
 }
 
 template <class Archive>
@@ -599,11 +533,11 @@ static inline void load_construct_data(
     Archive &ar,
     std::pair<const jove::ip_string, jove::allocates_binary_index_set_t> *t,
     const unsigned int file_version) {
-  assert(jove::pAlloc_hack);
+  assert(jove::pFile_hack);
   ::new (t)
       std::pair<const jove::ip_string, jove::allocates_binary_index_set_t>(
-          jove::pAlloc_hack->get_segment_manager(),
-          jove::pAlloc_hack->get_segment_manager());
+          jove::pFile_hack->get_segment_manager(),
+          jove::pFile_hack->get_segment_manager());
 }
 
 template <class Archive>
@@ -611,9 +545,9 @@ static inline void
 load_construct_data(Archive &ar,
                     std::pair<const uint64_t, jove::ip_dynamic_target_set> *t,
                     const unsigned int file_version) {
-  assert(jove::pAlloc_hack);
+  assert(jove::pFile_hack);
   ::new (t) std::pair<const uint64_t, jove::ip_dynamic_target_set>(
-      0, jove::pAlloc_hack->get_segment_manager());
+      0, jove::pFile_hack->get_segment_manager());
 }
 
 template <class Archive>
@@ -621,10 +555,10 @@ static inline void load_construct_data(
     Archive &ar,
     std::pair<const jove::ip_string, jove::ip_binary_index_set> *t,
     const unsigned int file_version) {
-  assert(jove::pAlloc_hack);
+  assert(jove::pFile_hack);
   ::new (t) std::pair<const jove::ip_string, jove::ip_binary_index_set>(
-      jove::pAlloc_hack->get_segment_manager(),
-      jove::pAlloc_hack->get_segment_manager());
+      jove::pFile_hack->get_segment_manager(),
+      jove::pFile_hack->get_segment_manager());
 }
 
 template <class Archive>
@@ -632,8 +566,8 @@ static inline void load_construct_data(
     Archive &ar,
     jove::ip_binary_index_set *t,
     const unsigned int file_version) {
-  assert(jove::pAlloc_hack);
-  ::new (t)jove::ip_binary_index_set(jove::pAlloc_hack->get_segment_manager());
+  assert(jove::pFile_hack);
+  ::new (t)jove::ip_binary_index_set(jove::pFile_hack->get_segment_manager());
 }
 
 } // namespace serialization
@@ -642,7 +576,10 @@ static inline void load_construct_data(
 namespace jove {
 
 template <bool MT>
-void SerializeJV(const jv_base_t<MT> &in, std::ostream &os, bool text) {
+void SerializeJV(const jv_base_t<MT> &in, jv_file_t &jv_file, std::ostream &os,
+                 bool text) {
+  pFile_hack = &jv_file;
+
   try {
     if (text) {
       boost::archive::text_oarchive oa(os);
@@ -657,13 +594,14 @@ void SerializeJV(const jv_base_t<MT> &in, std::ostream &os, bool text) {
 }
 
 template <bool MT>
-void SerializeJVToFile(const jv_base_t<MT> &in, const char *path, bool text) {
+void SerializeJVToFile(const jv_base_t<MT> &in, jv_file_t &jv_file,
+                       const char *path, bool text) {
   std::ofstream ofs(path);
   if (!ofs.is_open())
     throw std::runtime_error("SerializeJVToFile: failed to open " +
                              std::string(path));
 
-  SerializeJV(in, ofs, text);
+  SerializeJV(in, jv_file, ofs, text);
 }
 
 template <bool MT>
@@ -675,7 +613,6 @@ void UnserializeJV(jv_base_t<MT> &out, jv_file_t &jv_file, std::istream &is,
                      sizeof(b.Analysis.ICFG.container().m_property));
 
   pFile_hack = &jv_file;
-  pAlloc_hack.reset(new ip_void_allocator_t(out.get_segment_manager())); /* XXX */
 
   out.clear();
 
@@ -723,13 +660,13 @@ void jv2xml(const jv_base_t<MT> &jv, std::ostringstream &oss) {
 #define GET_VALUE(x) BOOST_PP_TUPLE_ELEM(0, x)
 
 #define DO_INSTANTIATE(r, data, elem)                                          \
-  template void SerializeJV(const jv_base_t<GET_VALUE(elem)> &in,              \
+  template void SerializeJV(const jv_base_t<GET_VALUE(elem)> &in, jv_file_t &, \
                             std::ostream &os, bool text);
 BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, VALUES_TO_INSTANTIATE_WITH)
 
 #define DO_INSTANTIATE(r, data, elem)                                          \
   template void SerializeJVToFile(const jv_base_t<GET_VALUE(elem)> &,          \
-                                  const char *path, bool text);
+                                  jv_file_t &, const char *path, bool text);
 BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, VALUES_TO_INSTANTIATE_WITH)
 
 #define DO_INSTANTIATE(r, data, elem)                                          \

@@ -444,7 +444,7 @@ public:
   shared_lock_guard shared_access() const { return shared_lock_guard{_mtx}; }
   exclusive_lock_guard exclusive_access() const { return exclusive_lock_guard{_mtx}; }
 
-  std::atomic<vertices_size_type> _size = 0;
+  std::atomic<uint32_t> _size = 0;
 
   adjacency_list(jv_file_t &jv_file)
     requires(PointUnique)
@@ -866,14 +866,14 @@ struct basic_block_properties_t {
     } _call;
 
     struct {
-      bool IsLj;
+      bool IsLj = false;
     } _indirect_jump;
 
     struct {
     } _indirect_call;
 
     struct {
-      bool Returns;
+      bool Returns = false;
     } _return;
   } Term;
 
@@ -1178,7 +1178,9 @@ struct function_t {
     bool Stale = true;
   } Analysis;
 
-  bool IsABI, IsSignalHandler, Returns;
+  bool IsABI = false;
+  bool IsSignalHandler = false;
+  bool Returns = false;
 
   void InvalidateAnalysis(void) {
     this->Analysis.Stale = true;
