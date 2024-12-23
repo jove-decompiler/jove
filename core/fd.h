@@ -34,7 +34,7 @@ struct scoped_fd {
     return fd;
   }
 
-  operator bool(void) const { return fd >= 0; }
+  explicit operator bool(void) const { return fd >= 0; }
 };
 
 }

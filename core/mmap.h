@@ -17,7 +17,7 @@ struct scoped_mmap {
 
   bool failed(void) const; /* is ptr equal to MAP_FAILED */
 
-  operator bool(void) const { return !failed(); }
+  explicit operator bool(void) const { return !failed(); }
 };
 
 }
