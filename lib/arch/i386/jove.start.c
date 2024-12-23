@@ -20,8 +20,9 @@ void _jove_start(void) {
                /* save original sp */
                "movl %%esp, %%ecx\n"
 
-               /* Align the stack to a 16 byte boundary to follow the ABI. */
-               "andl $0xfffffff0, %%esp\n"
+               /* make sure the stack is aligned when we make the call. */
+               "andl $~15, %%esp\n"
+               "subl $12, %%esp\n"
 
                /* pass original sp */
                "pushl %%ecx\n"
