@@ -363,8 +363,11 @@ pid_t Tool::RunExecutable(const std::string &exe_path,
 }
 
 void Tool::persist_tool_options(std::function<void(const std::string &)> Arg) {
-  if (IsVerbose())
+  if (IsVeryVerbose())
+    Arg("-vv");
+  else if (IsVerbose())
     Arg("-v");
+
   if (opt_NoDeleteTemporaryDir)
     Arg("--no-rm-temp-dir");
 }
