@@ -88,13 +88,15 @@ bool basic_block_properties_t::doInsertDynTarget(const dynamic_target_t &X,
           jv_file));
 
   ip_dynamic_target_set *expected = nullptr;
+  ip_dynamic_target_set *desired = TheDynTargets.get().get();
   if (DynTargets._p.CompareExchangeStrong(
           expected,
-          TheDynTargets.get().get(),
+          desired,
           std::memory_order_relaxed, std::memory_order_relaxed)) {
     DynTargets._sm = jv_file.get_segment_manager();
     TheDynTargets.release();
-    return true;
+    desired->insert(X);
+    return true; /* it was empty before */
   }
 
   return expected->insert(X);
