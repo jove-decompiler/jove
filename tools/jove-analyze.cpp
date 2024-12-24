@@ -282,12 +282,9 @@ int AnalyzeTool::AnalyzeFunctions(void) {
   WithColor::note() << "Analyzing functions...";
   auto t1 = std::chrono::high_resolution_clock::now();
 
-  for_each_binary(std::execution::par_unseq, jv, [&](binary_t &binary) {
-    if (opts.ForeignLibs && !binary.IsExecutable)
-      return;
-
+  auto analyze_functions_in_binary = [&](auto &b) -> void {
     for_each_function_in_binary(
-        std::execution::par_unseq, binary,
+        std::execution::par_unseq, b,
         [&](function_t &f) {
           if (!f.Analysis.Stale)
             return;
@@ -305,7 +302,13 @@ int AnalyzeTool::AnalyzeFunctions(void) {
 
           assert(!f.Analysis.Stale);
         });
-  });
+  };
+
+  if (opts.ForeignLibs)
+    analyze_functions_in_binary(jv.Binaries.at(0));
+  else
+    for_each_binary(std::execution::par_unseq, jv,
+                    [&](binary_t &b) { analyze_functions_in_binary(b); });
 
   auto t2 = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double> s_double = t2 - t1;
