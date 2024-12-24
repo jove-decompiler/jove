@@ -6,6 +6,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
     eatmydata apt-get dist-upgrade -y && \
     eatmydata apt-get install --no-install-recommends -y \
                       arch-install-scripts \
+                      autossh \
                       autoconf \
                       automake \
                       bash \
@@ -80,6 +81,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       tmux \
                       unzip \
                       vim-common \
+                      xfsprogs \
                       zlib1g-dev && \
     eatmydata apt-get autoremove -y && \
     eatmydata apt-get autoclean -y && \
