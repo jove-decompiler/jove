@@ -315,7 +315,7 @@ void DumpTool::dumpDecompilation(const jv_base_t<false>& jv) {
       llvm::ListScope ___(Writer, (fmt("Functions (%u)") % B.Analysis.Functions.size()).str());
 
       for (const function_t &f : B.Analysis.Functions) {
-        if (!is_basic_block_index_valid(f.Entry) || !f.b || f.b.get() != &B) {
+        if (!is_binary_index_valid(f.BIdx) || !is_basic_block_index_valid(f.Entry)) {
           llvm::errs() << llvm::formatv(
               "invalid function with index {0}, skipping\n", f.Idx);
           continue;

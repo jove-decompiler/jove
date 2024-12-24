@@ -372,11 +372,7 @@ adds_binary_t::adds_binary_t(binary_index_t &out,
     }
   }
 
-  binary_base_t<MT> &b = jv.Binaries.at(BIdx);
-  assert(b.Idx == BIdx);
-
-  for (function_t &f : b.Analysis.Functions)
-    f.b = &b; /* XXX */
+  jv.fixup_binary(BIdx);
 
   out = BIdx;
 }
@@ -396,9 +392,7 @@ adds_binary_t::adds_binary_t(binary_index_t &out,
     jv.Binaries.container().push_back(std::move(b));
   }
 
-  binary_base_t<MT> &newb = jv.Binaries.at(BIdx);
-  for (function_t &f : newb.Analysis.Functions)
-    f.b = &newb; /* XXX */
+  jv.fixup_binary(BIdx);
 
   out = BIdx;
 }
@@ -432,18 +426,13 @@ void jv_base_t<MT>::InvalidateFunctionAnalyses(void) {
 }
 
 template <bool MT>
-void jv_base_t<MT>::fixup(void) {
-  for (unsigned BIdx = 0; BIdx < Binaries.container().size(); ++BIdx) {
-    binary_base_t<MT> &b = Binaries.container()[BIdx];
-    b.Idx = BIdx;
+void jv_base_t<MT>::fixup_binary(binary_index_t BIdx) {
+  assert(is_binary_index_valid(BIdx));
+  binary_base_t<MT> &b = Binaries.at(BIdx);
+  assert(index_of_binary(b) == BIdx);
 
-    for (unsigned FIdx = 0; FIdx < b.Analysis.Functions.container().size(); ++FIdx) {
-      function_t &f = b.Analysis.Functions.container()[FIdx];
-
-      f.Idx = FIdx;
-      f.b = &b;
-    }
-  }
+  for_each_function_in_binary(std::execution::par_unseq, b,
+                              [&](function_t &f) { f.BIdx = BIdx; });
 }
 
 template struct jv_base_t<false>;

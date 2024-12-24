@@ -392,7 +392,8 @@ static void serialize(Archive &ar, jove::function_t::Analysis_t &A,
 //
 template <class Archive>
 static void serialize(Archive &ar, jove::function_t &f, const unsigned int version) {
-  ar &BOOST_SERIALIZATION_NVP(f.Idx)
+  ar &BOOST_SERIALIZATION_NVP(f.BIdx)
+     &BOOST_SERIALIZATION_NVP(f.Idx)
      &BOOST_SERIALIZATION_NVP(f.Entry)
      &BOOST_SERIALIZATION_NVP(f.Analysis)
      &BOOST_SERIALIZATION_NVP(f.IsABI)
@@ -631,8 +632,6 @@ void UnserializeJV(jv_base_t<MT> &out, jv_file_t &jv_file, std::istream &is,
   for (binary_base_t<MT> &b : out.Binaries)
     __builtin_memset(&b.Analysis.ICFG.container().m_property, 0,
                      sizeof(b.Analysis.ICFG.container().m_property));
-
-  out.fixup(); /* FIXME? eek */
 }
 
 template <bool MT>

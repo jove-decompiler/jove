@@ -1165,10 +1165,8 @@ typedef boost::unordered_flat_set<
 struct function_t {
   bool Speculative = false;
 
-  boost::interprocess::offset_ptr<void> b = nullptr;
-
+  binary_index_t BIdx = invalid_binary_index;
   function_index_t Idx = invalid_function_index;
-
   basic_block_index_t Entry = invalid_basic_block_index;
 
   callers_t Callers;
@@ -1655,8 +1653,6 @@ struct jv_base_t {
         name_to_binaries(std::move(other.name_to_binaries)) {
     for (binary_base_t<MT2> &b : other.Binaries)
       Binaries.container().push_back(std::move(b));
-
-    fixup(); /* FIXME? eek */
   }
 
   jv_base_t() = delete;
@@ -1710,7 +1706,7 @@ public:
 
   friend adds_binary_t;
 
-  void fixup(void); /* FIXME? eek */
+  void fixup_binary(binary_index_t); /* XXX */
 };
 
 typedef jv_base_t<true> jv_t;
@@ -2370,11 +2366,7 @@ constexpr basic_block_index_t index_of_basic_block(const binary_base_t<MT> &b,
 }
 
 constexpr binary_index_t binary_index_of_function(const function_t &f) {
-  static_assert(offsetof(binary_base_t<false>, Idx) ==
-                offsetof(binary_base_t<true>, Idx));
-
-  assert(f.b);
-  binary_index_t res = ((binary_base_t<true> *)f.b.get())->Idx;
+  binary_index_t res = f.BIdx;
   assert(is_binary_index_valid(res));
   return res;
 }
@@ -2414,22 +2406,19 @@ constexpr function_index_t index_of_function_in_binary(const function_t &f,
 }
 
 template <bool MT = true>
-constexpr const binary_base_t<MT> &binary_of_function(const function_t &f) {
-  assert(f.b);
-  return *((binary_base_t<MT> *)f.b.get());
-}
-
-template <bool MT = true>
-constexpr binary_base_t<MT> &binary_of_function(function_t &f) {
-  assert(f.b);
-  return *((binary_base_t<MT> *)f.b.get());
-}
-
-template <bool MT = true>
-[[deprecated]] /* use binary_of_function(f) */
 constexpr const binary_base_t<MT> &binary_of_function(const function_t &f,
                                                       const jv_base_t<MT> &jv) {
-  return binary_of_function(f);
+  binary_index_t BIdx = f.BIdx;
+  assert(is_binary_index_valid(BIdx));
+  return jv.Binaries.at(BIdx);
+}
+
+template <bool MT = true>
+constexpr binary_base_t<MT> &binary_of_function(function_t &f,
+                                                jv_base_t<MT> &jv) {
+  binary_index_t BIdx = f.BIdx;
+  assert(is_binary_index_valid(BIdx));
+  return jv.Binaries.at(BIdx);
 }
 
 template <bool MT>

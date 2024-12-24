@@ -288,7 +288,7 @@ public:
   template <typename T = FunctionStateTy>
   std::enable_if_t<!std::is_void_v<T>, T &> for_function(const function_t &f) {
 #define function_GET_ARGS f
-#define function_NEW_ARGS f, binary_of_function<MT>(f)
+#define function_NEW_ARGS f, binary_of_function<MT>(f, jv)
     FOR_SOMETHING_BODY(function)
 #undef function_GET_ARGS
 #undef function_NEW_ARGS
@@ -367,7 +367,7 @@ private:
           s_lck.unlock();
           {
             auto e_lck = exclusive_access();
-            update(binary_of_function<MT>(f));
+            update(binary_of_function<MT>(f, jv));
           }
           s_lck.lock();
         }
@@ -377,7 +377,7 @@ private:
           s_lck.unlock();
           {
             auto e_lck = exclusive_access();
-            update(binary_of_function<MT>(f), f, y);
+            update(binary_of_function<MT>(f, jv), f, y);
           }
           s_lck.lock();
         }
