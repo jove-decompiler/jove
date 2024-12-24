@@ -1009,10 +1009,11 @@ int RunTool::DoRun(void) {
 
     static const char exited_char = '!';
 
-    ssize_t ret;
+    ssize_t ret = -1;
+    err = 0;
     do {
-      err = 0;
       ret = ::write(fd, &exited_char, 1);
+      err = errno;
     } while (ret < 0 && err == EINTR);
 
     if (ret != 1) {
