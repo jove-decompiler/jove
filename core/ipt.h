@@ -1297,7 +1297,7 @@ protected:
         if (unlikely(bad)) {
           if constexpr (IsVerbose())
             fprintf(stderr,
-                    "%016" PRIx64 "\tBADIP_O[%016" PRIx64 "] %s+%" PRIx64 "\n",
+                    "%016" PRIx64 "\tBADIP O[%016" PRIx64 "] %s+%" PRIx64 "\n",
                     offset, IP, b.Name.c_str(), (uint64_t)Addr);
 
           CurrPoint.Invalidate();
