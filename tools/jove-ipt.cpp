@@ -176,7 +176,7 @@ struct IPTTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
 
           GatherBins("gather-bins",
                      cl::desc("Look ahead in sideband records to add binaries early on."),
-                     cl::init(true), cl::cat(JoveCategory)),
+                     cl::init(false), cl::cat(JoveCategory)),
 
           JustGatherBins("just-gather-bins",
                      cl::desc("Only do --gather-bins."),
