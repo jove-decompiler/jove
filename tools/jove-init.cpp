@@ -303,10 +303,12 @@ int InitTool::Run(void) {
 
         b.Hash = hash_data(b.data());
 
-        if (AddOptions.Objdump) {
-          binary_base_t<false>::Analysis_t::objdump_output_type::generate(
-              b.Analysis.objdump, b.is_file() ? b.Name.c_str() : nullptr, *Bin);
-        }
+        if (AddOptions.Objdump)
+          ignore_exception([&]() {
+            binary_base_t<false>::Analysis_t::objdump_output_type::generate(
+                b.Analysis.objdump, b.is_file() ? b.Name.c_str() : nullptr,
+                *Bin);
+          });
 
         //
         // explore them for real
