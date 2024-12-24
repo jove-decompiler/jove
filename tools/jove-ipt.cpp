@@ -1193,7 +1193,7 @@ int IPTTool::UsingLibipt(void) {
                   const_cast<uint8_t *>(aux.data_end()), \
                   sb_filename, \
                   IsVeryVerbose() ? 2 : (IsVerbose() ? 1 : 0), \
-                  !opts.GatherBins
+                  true
 
             if constexpr (MT) {
               SELECT_DECODER_AND_EXPLORE(THE_IPT_ARGS(jv, jv_file));
