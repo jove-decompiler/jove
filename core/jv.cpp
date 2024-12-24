@@ -446,13 +446,6 @@ void jv_base_t<MT>::fixup(void) {
   }
 }
 
-template <bool MT>
-function_t::function_t(binary_base_t<MT> &b, function_index_t Idx)
-    : b((void *)&b), Idx(Idx), Callers(b.get_segment_manager()) {}
-
-function_t::function_t(segment_manager_t *sm)
-    : Callers(sm) {}
-
 template struct jv_base_t<false>;
 template struct jv_base_t<true>;
 
@@ -461,11 +454,6 @@ template struct jv_base_t<true>;
     ((false))
 
 #define GET_VALUE(x) BOOST_PP_TUPLE_ELEM(0, x)
-
-#define DO_INSTANTIATE(r, data, elem)                                          \
-  template function_t::function_t(binary_base_t<GET_VALUE(elem)> &,            \
-                                  function_index_t Idx);
-BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, VALUES_TO_INSTANTIATE_WITH)
 
 #define DO_INSTANTIATE(r, ValidatePath, elem)                                  \
   template std::pair<binary_index_t, bool>                                     \
