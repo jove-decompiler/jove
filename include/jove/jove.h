@@ -1926,6 +1926,9 @@ constexpr taddr_t addr_intvl_upper(addr_intvl intvl) {
   return intvl.first + intvl.second;
 }
 
+static constexpr addr_intvl
+    empty_addr_intvl(std::numeric_limits<taddr_t>::max(), 1);
+
 constexpr bool addr_intvl_contains(addr_intvl intvl, taddr_t Addr) {
   return Addr >= intvl.first && Addr < intvl.first + intvl.second;
 }
