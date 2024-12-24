@@ -340,12 +340,7 @@ int InitTool::Run(void) {
   jv.Binaries.at(1).IsDynamicLinker = true;
   jv.Binaries.at(2).IsVDSO = true;
 
-  // XXX
-  for (binary_index_t BIdx = 0; BIdx < N; ++BIdx) {
-    binary_t &b = jv.Binaries.at(BIdx);
-    for_each_function_in_binary(std::execution::par_unseq, b,
-                                [&](function_t &f) { f.b = &b; });
-  }
+  jv.fixup(); /* XXX */
 
   return 0;
 }
