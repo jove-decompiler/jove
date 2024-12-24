@@ -27,7 +27,7 @@ struct scoped_fd {
   scoped_fd &operator=(const scoped_fd &) = delete;
 
   explicit scoped_fd(int fd) : fd(fd) {}
-  ~scoped_fd() noexcept(false); /* throws if failed to close file descriptor */
+  ~scoped_fd() noexcept(false); /* throws if fails to close valid fd */
 
   int get(void) const {
     assert(fd >= 0);
