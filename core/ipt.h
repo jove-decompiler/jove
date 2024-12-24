@@ -1166,8 +1166,8 @@ protected:
       assert(mmap2->pid == pid);
 
       //
-      // we want to see all records since they will be encountered *before* the
-      // exec of a process of interest happens
+      // we want to consider all MMAP2 records because on a succesful exec they
+      // will appear *before* the successful exec appears
       //
 #if 0
       if (!IsRightProcess(pid))
