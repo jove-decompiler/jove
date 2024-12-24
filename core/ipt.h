@@ -430,6 +430,11 @@ protected:
     uint64_t pos;
   };
 
+  struct mapping_t {
+    taddr_t Base = std::numeric_limits<taddr_t>::max();
+    uint64_t Offset = std::numeric_limits<uint64_t>::max();
+  };
+
   struct process_state_t {
     boost::container::flat_map<addr_intvl, std::pair<binary_index_t, uint64_t>,
                                addr_intvl_cmp>
@@ -438,6 +443,20 @@ protected:
                                addr_intvl_cmp>
         addrspace_sav;
     boost::unordered::unordered_flat_map<int, file_descriptor_state_t> fdmap;
+
+    std::conditional_t<ExeOnly, std::pair<addr_intvl, mapping_t>,
+                       std::monostate>
+        exeOnly;
+
+    bool IsOurs = false;
+
+    process_state_t() noexcept {
+      if constexpr (ExeOnly) {
+        exeOnly.first = empty_addr_intvl;
+        exeOnly.second.Base = uninit_taddr;
+        exeOnly.second.Offset = ~0UL;
+      }
+    }
   };
 
   boost::unordered::unordered_node_map<pid_t, process_state_t> pid_map;
@@ -449,8 +468,6 @@ protected:
 
   struct {
     unsigned cpu = ~0u;
-    unsigned pid = ~0u;
-    boost::unordered_flat_set<unsigned> pids;
   } Our;
 
   struct {
@@ -529,22 +546,22 @@ protected:
     }
   } CurrPoint;
 
-  struct ExeAddressRange {
-    taddr_t beg, end;
-  };
-
-  std::conditional_t<ExeOnly, ExeAddressRange, std::monostate> exeOnly;
-
   const std::string path_to_wine_bin;
   static inline const std::string wine_env_of_interest = "WINELOADERNOEXEC=1";
 
   bool IsRightProcess(unsigned pid) const {
+#if 0
     // the following is equivalent to pid != 0UL && pid != ~0UL
-    // return !!((pid + unsigned(1)) & unsigned(~1ull));
-    return Our.pids.contains(pid);
+    return !!((pid + unsigned(1)) & unsigned(~1ull));
+#else
+    auto it = pid_map.find(pid);
+    return it != pid_map.end() && (*it).second.IsOurs;
+#endif
   }
 
-  bool RightProcess(void) const { return IsRightProcess(Curr.pid); }
+  bool RightProcess(void) const {
+    return process_state.get().IsOurs;
+  }
 
   bool RightExecMode(void) const {
     return Curr.ExecBits == 8 * sizeof(taddr_t);
@@ -562,7 +579,7 @@ protected:
                const pid_t pid,
                const uint64_t ret,
                const uint64_t len,
-               const uint64_t pgoff,
+               const uint64_t off,
                const char *const filename,
                const char *const src) {
     namespace fs = boost::filesystem;
@@ -606,15 +623,31 @@ protected:
     if (!is_binary_index_valid(BIdx))
       return;
 
+    if constexpr (ExeOnly) {
+      if (fs::equivalent(filename, exe.Name.c_str())) {
+        pstate.exeOnly.first = addr_intvl_hull(pstate.exeOnly.first, intvl);
+
+        if (updateVariable(
+                pstate.exeOnly.second.Base,
+                std::min(pstate.exeOnly.second.Base, addr_intvl_lower(intvl))))
+          pstate.exeOnly.second.Offset = off;
+
+        if constexpr (IsVerbose()) {
+          std::string as(addr_intvl2str(intvl));
+          fprintf(stderr, "looking for %s\n", as.c_str());
+        }
+      }
+    }
+
     if constexpr (IsVeryVerbose()) {
       std::string as(addr_intvl2str(intvl));
 
       fprintf(stderr, "+\t%s\t\"%s\"+0x%" PRIx64 "\t<%s>\n", as.c_str(),
-              jv.Binaries.at(BIdx).Name.c_str(), pgoff, src);
+              jv.Binaries.at(BIdx).Name.c_str(), off, src);
     }
 
     intvl_map_clear(AddressSpace, intvl);
-    intvl_map_add(AddressSpace, intvl, std::make_pair(BIdx, pgoff));
+    intvl_map_add(AddressSpace, intvl, std::make_pair(BIdx, off));
   }
 
   void examine_sb_event(const struct pev_event &event, uint64_t offset) {
@@ -690,9 +723,9 @@ protected:
       if constexpr (IsVeryVerbose())
         fprintf(stderr, "our pid: %u\n", (unsigned)fork->pid);
 
-      Our.pids.insert(fork->pid);
       pid_map[fork->pid] = pid_map[pid];
 
+      assert(pid_map[fork->pid].IsOurs);
       break;
     }
 
@@ -714,7 +747,7 @@ protected:
 
       auto cpu = get_cpu();
       if (cpu == Our.cpu) {
-        Curr.pid = itrace_start->pid;
+        process_state = pid_map[itrace_start->pid];
 
         if constexpr (IsVeryVerbose())
           fprintf(stderr, "itrace switch (%u)\n", (unsigned)itrace_start->pid);
@@ -746,7 +779,6 @@ protected:
           if constexpr (IsVeryVerbose())
             fprintf(stderr, "switch out\n");
 
-          Curr.pid = ~0u;
           process_state = dummy_process_state;
           Engaged = false;
         }
@@ -755,7 +787,6 @@ protected:
           if constexpr (IsVeryVerbose())
             fprintf(stderr, "switch (%u)\n", (unsigned)pid);
 
-          Curr.pid = pid;
           process_state = pid_map[pid];
           CheckEngaged();
         }
@@ -771,7 +802,6 @@ protected:
           if constexpr (IsVeryVerbose())
             fprintf(stderr, "switch out\n");
 
-          Curr.pid = ~0u;
           process_state = dummy_process_state;
           Engaged = false;
         }
@@ -780,7 +810,6 @@ protected:
           if constexpr (IsVeryVerbose())
             fprintf(stderr, "switch (%u)\n", (unsigned)pid);
 
-          Curr.pid = pid;
           process_state = pid_map[pid];
           CheckEngaged();
         }
@@ -838,7 +867,11 @@ protected:
                                                          : nr32_##sysnm)
         switch (nr) {
         case nr_for(munmap): {
+#if 0
           IS_RIGHT_PROCESS_GET;
+#else
+          RIGHT_PROCESS_GET;
+#endif
 
           auto addr = arg0;
           auto len  = arg1;
@@ -858,14 +891,18 @@ protected:
         case nr_for(mmap_pgoff):
           is_pgoff = true;
         case nr_for(mmap): {
+#if 0
           IS_RIGHT_PROCESS_GET;
+#else
+          RIGHT_PROCESS_GET;
+#endif
 
-          auto addr  = arg0;
-          auto len   = arg1;
-          auto prot  = arg2;
-          auto flags = arg3;
-          auto fd    = arg4;
-          auto off   = arg5;
+          const auto addr  = arg0;
+          const auto len   = arg1;
+          const auto prot  = arg2;
+          const auto flags = arg3;
+          const auto fd    = arg4;
+          auto off = arg5;
 
           (void)addr;
           (void)prot;
@@ -1013,13 +1050,13 @@ protected:
               if constexpr (IsVerbose())
                 fprintf(stderr, "our exe pid: %u\n", (unsigned)pid);
 
-              Our.pids.insert(pid);
+              pid_map[pid].IsOurs = true;
             }
           } else {
             if constexpr (IsVerbose())
               fprintf(stderr, "our pid: %u\n", (unsigned)pid);
 
-            Our.pids.insert(pid);
+            pid_map[pid].IsOurs = true;
           }
           CheckEngaged();
 
@@ -1227,14 +1264,23 @@ protected:
   }
 
   int on_ip(const uint64_t IP, const uint64_t offset) {
+    process_state_t &pstate = process_state.get();
+    assert(pstate.IsOurs);
+
     taddr_t Addr = uninit_taddr;
     binary_index_t BIdx = 0;
     std::reference_wrapper<binary_base_t<MT>> refb = exe;
+
+    mapping_t mapping;
     if constexpr (ExeOnly) {
-      if (!(IP >= exeOnly.beg && IP < exeOnly.end))
+      if (!addr_intvl_contains(pstate.exeOnly.first, IP)) {
+        CurrPoint.Invalidate();
         return 0;
+      }
+
+      mapping = pstate.exeOnly.second;
     } else {
-      auto &AddressSpace = process_state.get().addrspace;
+      auto &AddressSpace = pstate.addrspace;
 
       auto it = intvl_map_find(AddressSpace, IP);
       if (unlikely(it == AddressSpace.end())) {
@@ -1256,39 +1302,33 @@ protected:
         return 1;
       }
 
-      auto &b = jv.Binaries.at(BIdx);
-      refb = b;
-
-      struct {
-        taddr_t Base;
-        uint64_t Offset;
-      } mapping;
+      refb = jv.Binaries.at(BIdx);
 
       mapping.Base = addr_intvl_lower((*it).first);
       mapping.Offset = (*it).second.second;
-
-      try {
-        binary_state_t &x = state.for_binary(b);
-
-        assert(~mapping.Offset);
-        assert(static_cast<uint64_t>(mapping.Base) >= mapping.Offset);
-        assert(IP >= (mapping.Base - mapping.Offset));
-
-        uint64_t off = IP - (mapping.Base - mapping.Offset);
-
-        Addr = B::va_of_offset(*x.Bin, off);
-      } catch (...) {
-        if constexpr (IsVerbose())
-          fprintf(stderr, "%016" PRIx64 "\tno section for %016" PRIx64 "\n",
-                  offset, static_cast<uint64_t>(IP));
-
-        CurrPoint.Invalidate();
-        return 0;
-      }
     }
 
     binary_base_t<MT> &b = refb.get();
     binary_state_t &x = state.for_binary(b);
+
+    assert(is_taddr_valid(mapping.Base));
+    assert(~mapping.Offset);
+
+    try {
+      assert(static_cast<uint64_t>(mapping.Base) >= mapping.Offset);
+      assert(IP >= (mapping.Base - mapping.Offset));
+
+      uint64_t off = IP - (mapping.Base - mapping.Offset);
+
+      Addr = B::va_of_offset(*x.Bin, off);
+    } catch (...) {
+      if constexpr (IsVerbose())
+        fprintf(stderr, "%016" PRIx64 "\tno section for %016" PRIx64 "\n",
+                offset, static_cast<uint64_t>(IP));
+
+      CurrPoint.Invalidate();
+      return 0;
+    }
 
     if constexpr (Objdump) {
       if (!b.bbbmap.contains(Addr)) {
@@ -1776,19 +1816,6 @@ public:
 
     this->config.begin = const_cast<uint8_t *>(this->aux_begin);
     this->config.end = const_cast<uint8_t *>(this->aux_end);
-
-    if constexpr (ExeOnly) {
-      binary_base_t<MT> &exe = jv.Binaries.at(0);
-
-      if (!exe.IsPIC) {
-        std::tie(exeOnly.beg, exeOnly.end) =
-            B::bounds_of_binary(*state.for_binary(exe).Bin);
-
-        if constexpr (IsVerbose())
-          fprintf(stderr, "looking for [%016" PRIx64 ", %016" PRIx64 ")\n",
-                  (uint64_t)exeOnly.beg, (uint64_t)exeOnly.end);
-      }
-    }
 
     memset(&incoming_event, 0, sizeof(incoming_event));
     if (sb_it == sb.end()) {
