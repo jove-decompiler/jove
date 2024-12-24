@@ -622,8 +622,10 @@ BaseJVTool<MT>::cow_copy_if_possible(const std::string &the_jv_filename) {
   scoped_fd dst_fd(fd_);
   assert(dst_fd);
 
-  if (cp_reflink(src_fd.get(), dst_fd.get()) < 0)
+  if (cp_reflink(src_fd.get(), dst_fd.get()) < 0) {
+    WithColor::warning() << "filesystem does not support reflink copy!!\n";
     return the_jv_filename;
+  }
 
   is_jv_cow_copy = true;
   return cow_filename;
