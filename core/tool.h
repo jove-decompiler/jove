@@ -176,7 +176,6 @@ struct BaseJVTool : public Tool {
   static constexpr bool IsToolMT = MT;
 
   jv_file_t jv_file;
-  ip_void_allocator_t Alloc;
 
   using mt_jv_ref = std::conditional_t<!MT, jv_base_t<true> &, std::monostate>;
 
@@ -187,7 +186,6 @@ struct BaseJVTool : public Tool {
   BaseJVTool(Args &&...args)
     requires(MT)
       : jv_file(std::forward<Args>(args)...),
-        Alloc(jv_file.get_segment_manager()),
         jv(*jv_file.find_or_construct<jv_base_t<true>>("JV")(jv_file)) {
     DoCtorCommon();
   }
@@ -196,7 +194,6 @@ struct BaseJVTool : public Tool {
   BaseJVTool(Args &&...args)
     requires(!MT)
       : jv_file(std::forward<Args>(args)...),
-        Alloc(jv_file.get_segment_manager()),
         __mt_jv(*jv_file.find_or_construct<jv_base_t<true>>("JV")(jv_file)),
         jv(*jv_file.construct<jv_base_t<false>>("JV_tmp")(std::move(__mt_jv),
                                                           jv_file)) {
