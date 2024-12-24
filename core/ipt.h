@@ -586,7 +586,7 @@ protected:
 
     binary_index_t BIdx = invalid_binary_index;
     bool isNew = false;
-    if (filename[0] == '/' && !gathered_bins) {
+    if (!gathered_bins && filename[0] == '/') {
       if (!fs::exists(filename)) {
         if constexpr (IsVeryVerbose())
           fprintf(stderr, "%s: \"%s\" does not exist\n", src, filename);
