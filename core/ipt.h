@@ -641,14 +641,6 @@ protected:
       return *event.sample.cpu;
     };
 
-    struct {
-      bool two = true;
-
-      unsigned pid, tid;
-      uint64_t addr, len, pgoff;
-      const char *filename;
-    } _mmap;
-
     bool is_pgoff = false;
 
     uint64_t fd_pos = 0;
