@@ -212,7 +212,6 @@ int AnalyzeTool::AnalyzeBlocks(void) {
       [](function_t &f, binary_t &b) {
         auto &ICFG = b.Analysis.ICFG;
         assert(is_basic_block_index_valid(f.Entry));
-        llvm::errs() << llvm::formatv("BBIdx={0} N={1} N2={2}\n", f.Entry, ICFG.num_vertices(), ICFG.actual_num_vertices());
         ICFG[basic_block_of_index(f.Entry, ICFG)].Analysis.live.use |= CallConvArgs;
       });
 
