@@ -170,6 +170,8 @@ public:
   std::atomic<bool> WasDecompilationModified = false;
   bool LivingDangerously = false;
 
+  static const char exited_char;
+
   std::atomic<char> recovered_ch = '\0';
   std::atomic<bool> FileSystemRestored = false;
 
@@ -177,6 +179,8 @@ public:
 };
 
 JOVE_REGISTER_TOOL("run", RunTool);
+
+const char RunTool::exited_char = '!';
 
 typedef boost::format fmt;
 
@@ -1007,8 +1011,6 @@ int RunTool::DoRun(void) {
       return 1;
     }
 
-    static const char exited_char = '!';
-
     ssize_t ret = -1;
     err = 0;
     do {
@@ -1130,7 +1132,7 @@ void *RunTool::FifoProc(const char *fifo_path) {
     // we assume ch is loaded with a byte from the fifo. it's got to be either
     // 'f', 'F', 'O', 'b', 'B', 'a', 'r', or '!'
     //
-    if (unlikely(ch == '!'))
+    if (unlikely(ch == exited_char))
       return nullptr; /* if we see this, the app has exited. */
 
     assert(Recovery);
