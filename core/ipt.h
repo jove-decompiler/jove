@@ -453,8 +453,6 @@ protected:
     process_state_t() noexcept {
       if constexpr (ExeOnly) {
         exeOnly.first = empty_addr_intvl;
-        exeOnly.second.Base = uninit_taddr;
-        exeOnly.second.Offset = ~0UL;
       }
     }
   };
