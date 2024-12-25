@@ -1187,18 +1187,19 @@ static flow_vertex_t copy_function_cfg(jv_base_t<MT> &jv,
   // copy the function's CFG into the flow graph, maintaining a mapping from the
   // CFG's basic blocks to the flow graph vertices
   //
-  std::map<basic_block_t, flow_vertex_t> Orig2CopyMap;
+  G.m_vertices.reserve(G.m_vertices.size() + bbvec.size());
+  std::vector<flow_vertex_t> Orig2CopyMap(boost::num_vertices(ICFG.container())
+                                          /*, heap_mem.get_segment_manager()*/);
+
+  auto Orig2CopyPropMap = boost::make_iterator_property_map(
+      Orig2CopyMap.begin(), boost::get(boost::vertex_index, ICFG.container()));
   {
     vertex_copier vc(ICFG.container(), G);
     edge_copier ec;
 
     boost::copy_component(
         ICFG.container(), bbvec.front(), G,
-        boost::orig_to_copy(
-            boost::associative_property_map<
-                std::map<basic_block_t, flow_vertex_t>>(Orig2CopyMap))
-            .vertex_copy(vc)
-            .edge_copy(ec));
+        boost::orig_to_copy(Orig2CopyPropMap).vertex_copy(vc).edge_copy(ec));
   }
 
   flow_vertex_t res = Orig2CopyMap.at(bbvec.front());
