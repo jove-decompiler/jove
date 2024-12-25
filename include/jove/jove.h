@@ -278,7 +278,10 @@ template <typename T, typename Alloc,
           bool Spin = true,
           bool PointUnique = false>
 struct deque {
-  using type = boost::interprocess::deque<T, Alloc>;
+  typedef boost::container::deque_options<
+      boost::container::stored_size<uint32_t>>::type DequeOptions;
+
+  using type = boost::interprocess::deque<T, Alloc, DequeOptions>;
 
   std::conditional_t<PointUnique, ip_unique_ptr<type>, type> _deque;
 

@@ -134,18 +134,18 @@ serialize(Archive &ar,
 // interprocess deque
 //
 
-template <class Archive, class T, class Allocator>
+template <class Archive, class T, class Allocator, class Options>
 static inline void
 save(Archive &ar,
-     const boost::container::deque<T, Allocator> &x,
+     const boost::container::deque<T, Allocator, Options> &x,
      const unsigned int file_version) {
-  stl::save_collection<Archive, boost::container::deque<T, Allocator>>(ar, x);
+  stl::save_collection<Archive, boost::container::deque<T, Allocator, Options>>(ar, x);
 }
 
-template <class Archive, class T, class Allocator>
+template <class Archive, class T, class Allocator, class Options>
 static inline void load(Archive &ar,
-                 boost::container::deque<T, Allocator> &x,
-                 const unsigned int file_version) {
+                        boost::container::deque<T, Allocator, Options> &x,
+                        const unsigned int file_version) {
   const boost::serialization::library_version_type library_version(
       ar.get_library_version());
   // retrieve number of elements
@@ -158,10 +158,10 @@ static inline void load(Archive &ar,
   stl::collection_load_impl(ar, x, count, item_version);
 }
 
-template <class Archive, class T, class Allocator>
+template <class Archive, class T, class Allocator, class Options>
 static inline void
 serialize(Archive &ar,
-          boost::container::deque<T, Allocator> &x,
+          boost::container::deque<T, Allocator, Options> &x,
           const unsigned int file_version) {
   boost::serialization::split_free(ar, x, file_version);
 }
