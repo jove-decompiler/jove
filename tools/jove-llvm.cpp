@@ -1223,16 +1223,17 @@ static flow_vertex_t copy_function_cfg(jv_base_t<MT> &jv,
 
     switch (ICFG[bb].Term.Type) {
     case TERMINATOR::INDIRECT_CALL: {
-      const bool Returns = ICFG.out_degree(bb) != 0;
+      const bool Returns = boost::out_degree(bb, ICFG.container()) != 0;
 
       boost::clear_out_edges(V, G); /* if there were any, they're gone now */
 
       flow_vertex_t succV = boost::graph_traits<flow_graph_t>::null_vertex();
       unsigned savedSuccInDeg;
       if (Returns) {
-        assert(ICFG.out_degree(bb) == 1);
+        assert(boost::out_degree(bb, ICFG.container()) == 1);
 
-        succV = Orig2CopyMap.at(ICFG.adjacent_front(bb));
+        succV = Orig2CopyMap.at(
+            *boost::adjacent_vertices(bb, ICFG.container()).first);
         savedSuccInDeg = boost::in_degree(succV, G);
       }
 
@@ -1290,21 +1291,22 @@ static flow_vertex_t copy_function_cfg(jv_base_t<MT> &jv,
     case TERMINATOR::CALL: {
       function_index_t CalleeIdx = ICFG[bb].Term._call.Target;
       if (!is_function_index_valid(CalleeIdx)) {
-        assert(ICFG.out_degree(bb) == 0);
+        assert(boost::out_degree(bb, ICFG.container()) == 0);
         continue;
       }
       function_t &callee = b.Analysis.Functions.at(CalleeIdx);
 
-      const bool Returns = ICFG.out_degree(bb) != 0;
+      const bool Returns = boost::out_degree(bb, ICFG.container()) != 0;
 
       boost::clear_out_edges(V, G); /* if there were any, they're gone now */
 
       flow_vertex_t succV = boost::graph_traits<flow_graph_t>::null_vertex();
       unsigned savedSuccInDeg;
       if (Returns) {
-        assert(ICFG.out_degree(bb) == 1);
+        assert(boost::out_degree(bb, ICFG.container()) == 1);
 
-        succV = Orig2CopyMap.at(ICFG.adjacent_front(bb));
+        succV = Orig2CopyMap.at(
+            *boost::adjacent_vertices(bb, ICFG.container()).first);
         savedSuccInDeg = boost::in_degree(succV, G);
       }
 
