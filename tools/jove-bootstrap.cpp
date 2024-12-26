@@ -4058,6 +4058,7 @@ int BootstrapTool::ChildProc(int pipefd) {
   ::ptrace(PTRACE_TRACEME);
   //
   // turns the calling thread into a tracee.  The thread continues to run
+#if 0
   // (doesn't enter ptrace-stop).  A common practice is to follow the
   // PTRACE_TRACEME with
   //
@@ -4066,6 +4067,7 @@ int BootstrapTool::ChildProc(int pipefd) {
   // and allow the parent (which is our tracer now) to observe our
   // signal-delivery-stop.
   //
+#endif
 
 #ifdef JOVE_HAVE_MEMFD
   std::string name = "jove/bootstrap" + jv.Binaries.at(0).path_str();
