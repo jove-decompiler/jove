@@ -67,7 +67,7 @@ struct binary_state_t {
 
 class AnalyzeTool
     : public StatefulJVTool<ToolKind::Standard, binary_state_t,
-                            function_state_t, void, false, true, true> {
+                            function_state_t, void, true, false, true, false> {
   struct Cmdline {
     cl::opt<bool> ForeignLibs;
     cl::alias ForeignLibsAlias;
@@ -279,6 +279,16 @@ int AnalyzeTool::AnalyzeFunctions(void) {
               });
         }
       });
+
+#if 0 /* force initializing state upfront */
+  for_each_binary(std::execution::par_unseq, jv, [&](binary_t &b) {
+    (void)state.for_binary(b);
+
+    for_each_function_in_binary(
+        std::execution::par_unseq, b,
+        [&](function_t &f) { (void)state.for_function(f); });
+  });
+#endif
 
   WithColor::note() << "Analyzing functions...";
   auto t1 = std::chrono::high_resolution_clock::now();
