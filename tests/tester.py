@@ -185,10 +185,10 @@ class JoveTester:
     self.fake_run_command_for_user(["ssh", '-p', str(self.guest_ssh_port), 'root@localhost'] + command)
 
   def ssh_command(self, command, text=True):
-    return subprocess.run(['autossh', '--'] + self.ssh_common_args + ['-p', str(self.guest_ssh_port), 'root@localhost'] + ['env', 'LLVM_SYMBOLIZER_PATH=/usr/bin/llvm-symbolizer-16'] + command, capture_output=True, text=text)
+    return subprocess.run(['ssh'] + self.ssh_common_args + ['-p', str(self.guest_ssh_port), 'root@localhost'] + command, capture_output=True, text=text)
 
   def ssh(self, command):
-    return subprocess.run(['autossh', '--'] + self.ssh_common_args + ['-p', str(self.guest_ssh_port), 'root@localhost'] + ['env', 'LLVM_SYMBOLIZER_PATH=/usr/bin/llvm-symbolizer-16'] + command)
+    return subprocess.run(['ssh'] + self.ssh_common_args + ['-p', str(self.guest_ssh_port), 'root@localhost'] + command)
 
   def scp(self, src, dst):
     return subprocess.run(['scp'] + self.ssh_common_args + ['-P', str(self.guest_ssh_port), src, 'root@localhost:' + dst])
