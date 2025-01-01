@@ -21,7 +21,8 @@ class jv_state_t {
 
   const jv_base_t<MT> &jv;
 
-  static constexpr bool IsContainerVec = LazyInitialization && !MultiThreaded;
+  static constexpr bool IsContainerVec =
+      (LazyInitialization && !MultiThreaded) || Eager;
   static constexpr bool CanReserve = IsContainerVec;
 
   static_assert(sizeof(binary_index_t) <= sizeof(uint32_t));
@@ -104,7 +105,7 @@ public:
     const unsigned N_B = jv.Binaries.size();
 
     if constexpr (LazyInitialization) {
-      x.resize(N_B);
+      x = StateContainer(N_B);
     } else {
       if constexpr (CanReserve)
         x.reserve(N_B);
@@ -131,7 +132,7 @@ public:
         FunctionStateContainer &state_vec = std::get<1>(y);
 
         if constexpr (LazyInitialization) {
-          state_vec.resize(N_F);
+          state_vec = FunctionStateContainer(N_F);
         } else {
           if constexpr (CanReserve)
             state_vec.reserve(N_F);
@@ -150,7 +151,7 @@ public:
         BasicBlockStateContainer &state_vec = std::get<2>(y);
 
         if constexpr (LazyInitialization) {
-          state_vec.resize(N_BB);
+          state_vec = BasicBlockStateContainer(N_BB);
         } else {
           if constexpr (CanReserve)
             state_vec.reserve(N_BB);
@@ -312,16 +313,7 @@ private:
   {
     if constexpr (BoundsChecking) {
       if constexpr (Eager) {
-        try {
-          auto s_lck = shared_access();
-
-          return std::get<0>(x.at(index_of_binary<MT>(b, jv)));
-        } catch (const std::out_of_range &ex) {}
-        {
-          auto e_lck = exclusive_access();
-          update();
-        }
-        __attribute__((musttail)) return __for_binary(b);
+        return std::get<0>(x.at(index_of_binary<MT>(b, jv)));
       } else {
         auto s_lck = shared_access();
 
@@ -346,19 +338,10 @@ private:
   {
     if constexpr (BoundsChecking) {
       if constexpr (Eager) {
-        try {
-          auto s_lck = shared_access();
+        binary_index_t BIdx = binary_index_of_function<MT>(f, jv);
+        function_index_t FIdx = index_of_function(f);
 
-          binary_index_t BIdx = binary_index_of_function<MT>(f, jv);
-          function_index_t FIdx = index_of_function(f);
-
-          return std::get<1>(x.at(BIdx)).at(FIdx);
-        } catch (const std::out_of_range &ex) {}
-        {
-          auto e_lck = exclusive_access();
-          update();
-        }
-        __attribute__((musttail)) return __for_function(f);
+        return std::get<1>(x.at(BIdx)).at(FIdx);
       } else {
         auto s_lck = shared_access();
 
@@ -397,19 +380,10 @@ private:
   {
     if constexpr (BoundsChecking) {
       if constexpr (Eager) {
-        try {
-          auto s_lck = shared_access();
+        binary_index_t BIdx = index_of_binary<MT>(b, jv);
+        basic_block_index_t BBIdx = index_of_basic_block<MT>(b.Analysis.ICFG, bb);
 
-          binary_index_t BIdx = index_of_binary<MT>(b, jv);
-          basic_block_index_t BBIdx = index_of_basic_block<MT>(b.Analysis.ICFG, bb);
-
-          return std::get<2>(x.at(BIdx)).at(BBIdx);
-        } catch (const std::out_of_range &ex) {}
-        {
-          auto e_lck = exclusive_access();
-          update();
-        }
-        __attribute__((musttail)) return __for_basic_block(b, bb);
+        return std::get<2>(x.at(BIdx)).at(BBIdx);
       } else {
         auto s_lck = shared_access();
 
