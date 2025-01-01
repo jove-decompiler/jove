@@ -1188,18 +1188,20 @@ static flow_vertex_t copy_function_cfg(jv_base_t<MT> &jv,
   // CFG's basic blocks to the flow graph vertices
   //
   G.m_vertices.reserve(G.m_vertices.size() + bbvec.size());
-  std::vector<flow_vertex_t> Orig2CopyMap(boost::num_vertices(ICFG.container())
-                                          /*, heap_mem.get_segment_manager()*/);
+  std::vector<flow_vertex_t> Orig2CopyMap(boost::num_vertices(ICFG.container()));
 
-  auto Orig2CopyPropMap = boost::make_iterator_property_map(
-      Orig2CopyMap.begin(), boost::get(boost::vertex_index, ICFG.container()));
   {
     vertex_copier vc(ICFG.container(), G);
     edge_copier ec;
 
     boost::copy_component(
         ICFG.container(), bbvec.front(), G,
-        boost::orig_to_copy(Orig2CopyPropMap).vertex_copy(vc).edge_copy(ec));
+        boost::orig_to_copy(
+            boost::make_iterator_property_map(
+                Orig2CopyMap.begin(),
+                boost::get(boost::vertex_index, ICFG.container())))
+            .vertex_copy(vc)
+            .edge_copy(ec));
   }
 
   flow_vertex_t res = Orig2CopyMap.at(bbvec.front());
@@ -1901,13 +1903,12 @@ void AnalyzeFunction(jv_base_t<MT> &jv,
         }
       };
 
-      flowvert_dfs_visitor vis(Vertices);
+      std::vector<boost::default_color_type> colorVec(boost::num_vertices(G));
 
-      std::map<flow_vertex_t, boost::default_color_type> colorMap;
+      flowvert_dfs_visitor vis(Vertices);
       boost::depth_first_search(
-          G, vis,
-          boost::associative_property_map<
-              std::map<flow_vertex_t, boost::default_color_type>>(colorMap));
+          G, boost::visitor(vis).color_map(boost::make_iterator_property_map(
+                 colorVec.begin(), boost::get(boost::vertex_index, G))));
     }
 
     bool change;
