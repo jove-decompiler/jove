@@ -4028,6 +4028,8 @@ void _ptrace_pokedata(pid_t child, uintptr_t addr, unsigned long data) {
 }
 
 int BootstrapTool::ChildProc(int pipefd) {
+  scoped_fd pipefd_(pipefd);
+
   std::vector<const char *> arg_vec;
   arg_vec.push_back(opts.Prog.c_str());
 
@@ -4058,7 +4060,6 @@ int BootstrapTool::ChildProc(int pipefd) {
   ::ptrace(PTRACE_TRACEME);
   //
   // turns the calling thread into a tracee.  The thread continues to run
-#if 0
   // (doesn't enter ptrace-stop).  A common practice is to follow the
   // PTRACE_TRACEME with
   //
@@ -4067,20 +4068,17 @@ int BootstrapTool::ChildProc(int pipefd) {
   // and allow the parent (which is our tracer now) to observe our
   // signal-delivery-stop.
   //
-#endif
 
 #ifdef JOVE_HAVE_MEMFD
   std::string name = "jove/bootstrap" + jv.Binaries.at(0).path_str();
   int fd = ::memfd_create(name.c_str(), MFD_CLOEXEC);
   if (fd < 0) {
-    ::close(pipefd);
     abort();
   }
+  scoped_fd fd_(fd);
   if (robust_write(fd,
                    &jv.Binaries.at(0).Data[0],
                    jv.Binaries.at(0).Data.size()) < 0) {
-    ::close(pipefd);
-    ::close(fd);
     abort();
   }
   std::string exe_path = "/proc/self/fd/" + std::to_string(fd);
@@ -4098,11 +4096,6 @@ int BootstrapTool::ChildProc(int pipefd) {
   int err = errno;
   HumanOut() << llvm::formatv("failed to execve (reason: {0})",
                               strerror(err));
-
-  ::close(pipefd);
-#ifdef JOVE_HAVE_MEMFD
-  ::close(fd);
-#endif
   return 1;
 }
 
