@@ -393,6 +393,16 @@ int AnalyzeTool::AnalyzeFunctions(void) {
             msg.append(" functions...");
 
             if (IsVeryVerbose()) {
+              msg.append(" (");
+
+              auto t2 = std::chrono::high_resolution_clock::now();
+              std::chrono::duration<double> s_double = t2 - t1;
+
+              msg.append(std::to_string(s_double.count()));
+              msg.append(" s)");
+            }
+
+            if (IsVeryVerbose()) {
               boost::container::flat_map<
                   binary_index_t, boost::container::flat_set<
                                       std::pair<uint64_t, function_index_t>>>
