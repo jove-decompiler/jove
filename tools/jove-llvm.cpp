@@ -1188,10 +1188,12 @@ static flow_vertex_t copy_function_cfg(jv_base_t<MT> &jv,
   // CFG's basic blocks to the flow graph vertices
   //
   G.m_vertices.reserve(G.m_vertices.size() + bbvec.size());
-  std::vector<flow_vertex_t> Orig2CopyMap(boost::num_vertices(ICFG.container()));
+  std::unique_ptr<flow_vertex_t[]> Orig2CopyMap(
+      new flow_vertex_t[boost::num_vertices(ICFG.container())]);
 
   auto Orig2CopyPropMap = boost::make_iterator_property_map(
-      Orig2CopyMap.begin(), boost::get(boost::vertex_index, ICFG.container()));
+      Orig2CopyMap.get(),
+      boost::get(boost::vertex_index, ICFG.container()));
 
   {
     vertex_copier vc(ICFG.container(), G);
