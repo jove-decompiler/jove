@@ -10,8 +10,8 @@ typedef boost::format fmt;
 
 template <bool MT>
 double compute_score(const jv_base_t<MT> &jv,
-                     const binary_base_t<MT> &binary) {
-  auto Bin = B::Create(llvm::StringRef(binary.data()));
+                     const binary_base_t<MT> &b) {
+  auto Bin = B::Create(llvm::StringRef(b.data()));
 
   //
   // count the total number of executable bytes (N)
@@ -27,7 +27,7 @@ double compute_score(const jv_base_t<MT> &jv,
 
   auto ProgramHeadersOrError = Elf.program_headers();
   if (!ProgramHeadersOrError)
-    throw std::runtime_error("failed to to get program headers from " + binary.path_str());
+    throw std::runtime_error("failed to to get program headers from " + b.path_str());
 
   for (const Elf_Phdr &Phdr : *ProgramHeadersOrError)
     if (Phdr.p_type == llvm::ELF::PT_LOAD)
@@ -63,9 +63,6 @@ double compute_score(const jv_base_t<MT> &jv,
 
   if (N == 0)
     return 1.0;
-
-  binary_base_t<MT> &b = const_cast<binary_base_t<MT> &>(binary);
-  auto &ICFG = b.Analysis.ICFG;
 
   //
   // add up all the basic block lengths (M)
