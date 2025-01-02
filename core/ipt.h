@@ -1696,8 +1696,8 @@ protected:
       {
         auto fr_s_lck_bbmap = fr_b.bbmap_shared_access();
 
-        concurrent::set(fr_ICFG[basic_block_at_address(FrTermAddr, fr_b)]
-                            .Term._return.Returns);
+        racy::set(fr_ICFG[basic_block_at_address(FrTermAddr, fr_b)]
+                      .Term._return.Returns);
       }
 
       //
@@ -1721,7 +1721,7 @@ protected:
 
         if (isCall) {
           if (likely(is_function_index_valid(before_Term._call.Target)))
-            concurrent::set(
+            racy::set(
                 to_b.Analysis.Functions.at(before_Term._call.Target).Returns);
         }
 

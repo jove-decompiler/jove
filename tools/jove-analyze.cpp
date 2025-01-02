@@ -1,7 +1,6 @@
 #include "tool.h"
 #include "B.h"
 #include "tcg.h"
-#include "concurrent.h"
 
 #include <boost/filesystem.hpp>
 #include <boost/format.hpp>
@@ -280,7 +279,7 @@ int AnalyzeTool::AnalyzeFunctions(void) {
                 auto &caller_bbprop = caller_ICFG[caller_bb];
 
                 if (caller_bbprop.Term.Type == TERMINATOR::INDIRECT_JUMP) {
-                  concurrent::set(caller_bbprop.Sj);
+                  racy::set(caller_bbprop.Sj);
                 }
               });
         }

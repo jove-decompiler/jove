@@ -22,7 +22,7 @@
 #ifdef __cplusplus
 #include "jove/macros.h"
 #include "jove/types.h"
-#include "jove/concurrent.h"
+#include "jove/racy.h"
 
 #include <boost/graph/adjacency_list.hpp>
 #include <boost/graph/breadth_first_search.hpp>
@@ -2748,7 +2748,7 @@ static inline void identify_ABIs(jv_base_t<MT> &jv) {
             [&](const dynamic_target_t &X) { return X.first != BIdx; }))
       bbprop.DynTargetsForEach(std::execution::par_unseq,
                                [&](const dynamic_target_t &X) {
-                                 concurrent::set(function_of_target(X, jv).IsABI);
+                                 racy::set(function_of_target(X, jv).IsABI);
                                });
   });
 }

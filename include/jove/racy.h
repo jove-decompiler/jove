@@ -2,7 +2,7 @@
 #include <cstdbool>
 
 namespace jove {
-namespace concurrent {
+namespace racy {
 
 static inline void set(bool &dst) {
 #ifdef JOVE_TSAN
