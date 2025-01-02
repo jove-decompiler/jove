@@ -1190,28 +1190,30 @@ static flow_vertex_t copy_function_cfg(jv_base_t<MT> &jv,
   G.m_vertices.reserve(G.m_vertices.size() + bbvec.size());
   std::vector<flow_vertex_t> Orig2CopyMap(boost::num_vertices(ICFG.container()));
 
+  auto Orig2CopyPropMap = boost::make_iterator_property_map(
+      Orig2CopyMap.begin(), boost::get(boost::vertex_index, ICFG.container()));
+
   {
     vertex_copier vc(ICFG.container(), G);
     edge_copier ec;
 
     boost::copy_component(
         ICFG.container(), bbvec.front(), G,
-        boost::orig_to_copy(
-            boost::make_iterator_property_map(
-                Orig2CopyMap.begin(),
-                boost::get(boost::vertex_index, ICFG.container())))
-            .vertex_copy(vc)
-            .edge_copy(ec));
+        boost::orig_to_copy(Orig2CopyPropMap).vertex_copy(vc).edge_copy(ec));
   }
 
-  flow_vertex_t res = Orig2CopyMap.at(bbvec.front());
+  auto Orig2Copy = [&](basic_block_t bb) -> flow_vertex_t {
+    return boost::get(Orig2CopyPropMap, bb);
+  };
+
+  flow_vertex_t res = Orig2Copy(bbvec.front());
 
   exitVertices.resize(exit_bbvec.size());
   std::transform(exit_bbvec.begin(),
                  exit_bbvec.end(),
                  exitVertices.begin(),
                  [&](basic_block_t bb) -> exit_vertex_pair_t {
-                   return exit_vertex_pair_t(Orig2CopyMap.at(bb), false);
+                   return exit_vertex_pair_t(Orig2Copy(bb), false);
                  });
 
   memoize.insert({&f, {res, exitVertices}});
@@ -1221,7 +1223,7 @@ static flow_vertex_t copy_function_cfg(jv_base_t<MT> &jv,
   // indirect jumps
   //
   for (basic_block_t bb : bbvec) {
-    flow_vertex_t V = Orig2CopyMap.at(bb);
+    flow_vertex_t V = Orig2Copy(bb);
 
     switch (ICFG[bb].Term.Type) {
     case TERMINATOR::INDIRECT_CALL: {
@@ -1234,7 +1236,7 @@ static flow_vertex_t copy_function_cfg(jv_base_t<MT> &jv,
       if (Returns) {
         assert(boost::out_degree(bb, ICFG.container()) == 1);
 
-        succV = Orig2CopyMap.at(
+        succV = Orig2Copy(
             *boost::adjacent_vertices(bb, ICFG.container()).first);
         savedSuccInDeg = boost::in_degree(succV, G);
       }
@@ -1307,7 +1309,7 @@ static flow_vertex_t copy_function_cfg(jv_base_t<MT> &jv,
       if (Returns) {
         assert(boost::out_degree(bb, ICFG.container()) == 1);
 
-        succV = Orig2CopyMap.at(
+        succV = Orig2Copy(
             *boost::adjacent_vertices(bb, ICFG.container()).first);
         savedSuccInDeg = boost::in_degree(succV, G);
       }
