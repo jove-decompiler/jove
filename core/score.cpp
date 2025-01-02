@@ -9,57 +9,53 @@ namespace jove {
 typedef boost::format fmt;
 
 template <bool MT>
-double compute_score(const jv_base_t<MT> &jv,
-                     const binary_base_t<MT> &b) {
+double compute_score(const jv_base_t<MT> &jv, const binary_base_t<MT> &b) {
   auto Bin = B::Create(llvm::StringRef(b.data()));
 
   //
   // count the total number of executable bytes (N)
   //
   size_t N = B::_X(
-    *Bin,
+      *Bin,
 
-    [&](ELFO &O) -> size_t {
+      [&](ELFO &O) -> size_t {
+        const ELFF &Elf = O.getELFFile();
 
-  const ELFF &Elf = O.getELFFile();
+        llvm::SmallVector<const Elf_Phdr *, 4> LoadSegments;
 
-  llvm::SmallVector<const Elf_Phdr *, 4> LoadSegments;
+        auto ProgramHeadersOrError = Elf.program_headers();
+        if (!ProgramHeadersOrError)
+          throw std::runtime_error("failed to to get program headers from " +
+                                   b.path_str());
 
-  auto ProgramHeadersOrError = Elf.program_headers();
-  if (!ProgramHeadersOrError)
-    throw std::runtime_error("failed to to get program headers from " + b.path_str());
+        for (const Elf_Phdr &Phdr : *ProgramHeadersOrError)
+          if (Phdr.p_type == llvm::ELF::PT_LOAD)
+            LoadSegments.push_back(&Phdr);
 
-  for (const Elf_Phdr &Phdr : *ProgramHeadersOrError)
-    if (Phdr.p_type == llvm::ELF::PT_LOAD)
-      LoadSegments.push_back(&Phdr);
+        return std::accumulate(
+            LoadSegments.begin(),
+	    LoadSegments.end(), 0,
+            [&](size_t res, const Elf_Phdr *LoadSeg) -> size_t {
+              const Elf_Phdr &Phdr = *LoadSeg;
 
-      return
-      std::accumulate(LoadSegments.begin(),
-                      LoadSegments.end(), 0,
-                      [&](size_t res, const Elf_Phdr *LoadSeg) -> size_t {
-                        const Elf_Phdr &Phdr = *LoadSeg;
+              return res + (Phdr.p_flags & llvm::ELF::PF_X ? Phdr.p_filesz : 0);
+            });
+      },
 
-                        return res + (Phdr.p_flags & llvm::ELF::PF_X
-                                          ? Phdr.p_filesz
-                                          : 0);
-                      });
-    },
+      [&](COFFO &O) -> size_t {
+        auto sects_itr = O.sections();
+        return std::accumulate(
+            sects_itr.begin(),
+	    sects_itr.end(), 0,
+            [&](size_t res, const llvm::object::SectionRef &S) -> size_t {
+              const llvm::object::coff_section *Sect = O.getCOFFSection(S);
 
-    [&](COFFO &O) -> size_t {
-      auto sects_itr = O.sections();
-      return
-      std::accumulate(sects_itr.begin(),
-                      sects_itr.end(), 0,
-                      [&](size_t res, const llvm::object::SectionRef &S) -> size_t {
-                        const llvm::object::coff_section *Sect = O.getCOFFSection(S);
-
-                        return res +
-                               (Sect->Characteristics & llvm::COFF::IMAGE_SCN_MEM_EXECUTE
-                                 ? Sect->SizeOfRawData
-                                 : 0);
-                      });
-    }
-  );
+              return res +
+                     (Sect->Characteristics & llvm::COFF::IMAGE_SCN_MEM_EXECUTE
+                          ? Sect->SizeOfRawData
+                          : 0);
+            });
+      });
 
   if (N == 0)
     return 1.0;
