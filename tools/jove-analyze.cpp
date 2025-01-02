@@ -225,6 +225,7 @@ int AnalyzeTool::AnalyzeBlocks(void) {
 }
 
 int AnalyzeTool::AnalyzeFunctions(void) {
+#ifndef JOVE_TSAN /* FIXME */
   for_each_basic_block(
       std::execution::unseq, jv, [&](binary_t &b, basic_block_t bb) {
         auto &ICFG = b.Analysis.ICFG;
@@ -284,6 +285,7 @@ int AnalyzeTool::AnalyzeFunctions(void) {
               });
         }
       });
+#endif
 
 #if 0 /* force initializing state upfront */
   for_each_binary(std::execution::par_unseq, jv, [&](binary_t &b) {
@@ -295,10 +297,7 @@ int AnalyzeTool::AnalyzeFunctions(void) {
   });
 #endif
 
-  const bool smartterm = is_smart_terminal();
-  const bool vv = IsVeryVerbose();
   boost::concurrent_flat_set<dynamic_target_t> inflight;
-
   std::atomic<uint64_t> done = 0;
 
   auto analyze_functions_in_binary = [&](auto &b) -> void {
@@ -307,13 +306,13 @@ int AnalyzeTool::AnalyzeFunctions(void) {
           const dynamic_target_t X(index_of_binary(b, jv),
                                    index_of_function(f));
 
-          if (smartterm && vv)
+          if (IsVeryVerbose())
             inflight.insert(X);
 
           BOOST_SCOPE_DEFER [&] {
-            if (smartterm) {
+            if (IsVerbose()) {
               done.fetch_add(1u, std::memory_order_relaxed);
-              if (vv)
+              if (IsVeryVerbose())
                 inflight.erase(X);
             }
           };
@@ -352,12 +351,11 @@ int AnalyzeTool::AnalyzeFunctions(void) {
                               return x + b.Analysis.Functions.size();
                             });
 
-#if 0
-  WithColor::note() << "Analyzing functions...";
   auto t1 = std::chrono::high_resolution_clock::now();
-#endif
 
-  if (smartterm) {
+  if (IsVerbose()) {
+    const bool smartterm = is_smart_terminal();
+
     //
     // show progress to stdout
     //
@@ -384,17 +382,17 @@ int AnalyzeTool::AnalyzeFunctions(void) {
               break;
 
             struct winsize term_sz;
-            if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &term_sz) < 0)
-              term_sz.ws_col = ~0UL;
+            if (!smartterm || ioctl(STDOUT_FILENO, TIOCGWINSZ, &term_sz) < 0)
+              term_sz.ws_col = 0;
 
             msg.clear();
             msg.append("Analyzing ");
             msg.append(std::to_string(did));
             msg.append(" / ");
             msg.append(std::to_string(N));
-            msg.append(" ...");
+            msg.append(" functions...");
 
-            if (vv) {
+            if (IsVeryVerbose()) {
               boost::container::flat_map<
                   binary_index_t, boost::container::flat_set<
                                       std::pair<uint64_t, function_index_t>>>
@@ -451,36 +449,45 @@ int AnalyzeTool::AnalyzeFunctions(void) {
               }
 
               msg.append("]\n");
-            }
 
-            const unsigned sav_lll = lll;
-            lll = msg.size();
-
-            if (lll > term_sz.ws_col) {
-              printf("\n%s\n", msg.c_str()); // the current line will be fucked
+              printf("%s\n", msg.c_str());
             } else {
-              if (msg.size() < sav_lll) {
-                unsigned left = sav_lll - msg.size();
-                msg.append(std::string(left, ' '));
-              }
+              const unsigned sav_lll = lll;
+              lll = msg.size();
 
-              printf("\r%s", msg.c_str()); // Print over previous line, if any
+              if (!term_sz.ws_col || lll > term_sz.ws_col) {
+                printf("%s\n", msg.c_str()); // the current line will be fucked
+              } else {
+                if (msg.size() < sav_lll) {
+                  unsigned left = sav_lll - msg.size();
+                  msg.append(std::string(left, ' '));
+                }
+
+                printf("\r%s", msg.c_str()); // Print over previous line, if any
+              }
             }
+
             fflush(stdout);
           }
 
           struct winsize term_sz;
-          if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &term_sz) < 0)
-            term_sz.ws_col = ~0UL;
+          if (!smartterm || ioctl(STDOUT_FILENO, TIOCGWINSZ, &term_sz) < 0)
+            term_sz.ws_col = 0;
 
           // final message
           msg.clear();
           msg.append("Analyzed ");
           msg.append(std::to_string(N));
-          msg.append(" functions.");
+          msg.append(" functions. (");
 
-          if (lll > term_sz.ws_col) {
-            printf("\n%s\n", msg.c_str()); // the current line will be fucked
+          auto t2 = std::chrono::high_resolution_clock::now();
+          std::chrono::duration<double> s_double = t2 - t1;
+
+          msg.append(std::to_string(s_double.count()));
+          msg.append(" s)");
+
+          if (!term_sz.ws_col || lll > term_sz.ws_col) {
+            printf("%s\n", msg.c_str()); // the current line will be fucked
           } else {
             if (msg.size() < lll) {
               unsigned left = lll - msg.size();
@@ -499,8 +506,6 @@ int AnalyzeTool::AnalyzeFunctions(void) {
   }
 
 #if 0
-  auto t2 = std::chrono::high_resolution_clock::now();
-  std::chrono::duration<double> s_double = t2 - t1;
 
   HumanOut() << llvm::formatv(" {0} s\n", s_double.count());
 #endif
