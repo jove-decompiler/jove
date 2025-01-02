@@ -38,7 +38,7 @@ struct function_state_t {
     basic_blocks_of_function(f, b, bbvec);
     exit_basic_blocks_of_function(f, b, bbvec, exit_bbvec);
 
-    IsLeaf = IsLeafFunction(f, b, bbvec);
+    IsLeaf = IsLeafFunction(f, b, bbvec, exit_bbvec);
     IsSj = IsFunctionSetjmp(f, b, bbvec);
     IsLj = IsFunctionLongjmp(f, b, bbvec);
 

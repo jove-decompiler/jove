@@ -2507,7 +2507,8 @@ static inline bool does_function_return(const function_t &f,
 template <bool MT>
 static inline bool IsLeafFunction(const function_t &f,
                                   const binary_base_t<MT> &b,
-                                  const basic_block_vec_t &bbvec) {
+                                  const basic_block_vec_t &bbvec,
+                                  const basic_block_vec_t &exit_bbvec) {
   const auto &ICFG = b.Analysis.ICFG;
 
   if (!std::none_of(bbvec.begin(),
@@ -2521,18 +2522,13 @@ static inline bool IsLeafFunction(const function_t &f,
                     }))
     return false;
 
-  {
-    basic_block_vec_t exit_bbvec;
-    exit_basic_blocks_of_function(f, b, bbvec, exit_bbvec);
-
-    return std::all_of(exit_bbvec.begin(),
-                       exit_bbvec.end(),
-                       [&](basic_block_t bb) -> bool {
-                         auto T = ICFG[bb].Term.Type;
-                         return T == TERMINATOR::RETURN
-                             || T == TERMINATOR::UNREACHABLE;
-                       });
-  }
+  return std::all_of(exit_bbvec.begin(),
+                     exit_bbvec.end(),
+                     [&](basic_block_t bb) -> bool {
+                       auto T = ICFG[bb].Term.Type;
+                       return T == TERMINATOR::RETURN
+                           || T == TERMINATOR::UNREACHABLE;
+                     });
 }
 
 template <bool MT>
