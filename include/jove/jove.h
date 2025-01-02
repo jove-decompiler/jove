@@ -777,10 +777,10 @@ using bbbmap_t = possibly_concurrent_flat_map<
     boost::interprocess::node_allocator<
         std::pair<const taddr_t, allocates_basic_block_t>, segment_manager_t>>;
 
-typedef boost::interprocess::flat_map<
+typedef boost::interprocess::map<
     addr_intvl, basic_block_index_t, addr_intvl_cmp,
     boost::interprocess::private_adaptive_pool<
-        std::pair<addr_intvl, basic_block_index_t>, segment_manager_t>>
+        std::pair<const addr_intvl, basic_block_index_t>, segment_manager_t>>
     bbmap_t; /* _private_ adaptive pool because of heavyweight bbmap_lock */
 
 struct allocates_function_t {
