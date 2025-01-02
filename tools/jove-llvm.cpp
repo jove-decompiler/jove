@@ -1907,12 +1907,14 @@ void AnalyzeFunction(jv_base_t<MT> &jv,
         }
       };
 
-      std::vector<boost::default_color_type> colorVec(boost::num_vertices(G));
+      std::unique_ptr<boost::default_color_type[]> ColorMap(
+          new boost::default_color_type[boost::num_vertices(G)]);
+
+      auto ColorPropMap = boost::make_iterator_property_map(
+          ColorMap.get(), boost::get(boost::vertex_index, G));
 
       flowvert_dfs_visitor vis(Vertices);
-      boost::depth_first_search(
-          G, boost::visitor(vis).color_map(boost::make_iterator_property_map(
-                 colorVec.begin(), boost::get(boost::vertex_index, G))));
+      boost::depth_first_search(G, boost::visitor(vis).color_map(ColorPropMap));
     }
 
     bool change;
