@@ -719,13 +719,12 @@ static inline ip_string &to_ips(ip_string &res, std::string_view x) {
 typedef boost::concurrent_flat_set<
     dynamic_target_t, boost::hash<dynamic_target_t>,
     std::equal_to<dynamic_target_t>,
-    boost::interprocess::node_allocator<dynamic_target_t, segment_manager_t>>
+    boost::interprocess::allocator<dynamic_target_t, segment_manager_t>>
     ip_dynamic_target_set;
 
 typedef boost::concurrent_flat_set<
-    binary_index_t, boost::hash<binary_index_t>,
-    std::equal_to<binary_index_t>,
-    boost::interprocess::node_allocator<binary_index_t, segment_manager_t>>
+    binary_index_t, boost::hash<binary_index_t>, std::equal_to<binary_index_t>,
+    boost::interprocess::allocator<binary_index_t, segment_manager_t>>
     ip_binary_index_set;
 
 typedef boost::container::flat_set<binary_index_t, std::less<binary_index_t>>
@@ -774,7 +773,7 @@ template <bool MT>
 using bbbmap_t = possibly_concurrent_flat_map<
     MT, std::true_type /* Spin */, taddr_t, allocates_basic_block_t,
     boost::hash<taddr_t>, std::equal_to<taddr_t>,
-    boost::interprocess::node_allocator<
+    boost::interprocess::allocator<
         std::pair<const taddr_t, allocates_basic_block_t>, segment_manager_t>>;
 
 typedef boost::interprocess::map<
@@ -799,7 +798,7 @@ template <bool MT>
 using fnmap_t = possibly_concurrent_flat_map<
     MT, std::true_type /* Spin */, taddr_t, allocates_function_t,
     boost::hash<taddr_t>, std::equal_to<taddr_t>,
-    boost::interprocess::node_allocator<
+    boost::interprocess::allocator<
         std::pair<const taddr_t, allocates_function_t>, segment_manager_t>>;
 
 typedef boost::unordered::unordered_flat_set<
@@ -810,8 +809,7 @@ typedef boost::unordered::unordered_flat_set<
 typedef boost::unordered::unordered_flat_set<
     function_index_t, boost::hash<function_index_t>,
     std::equal_to<function_index_t>,
-    boost::interprocess::private_node_allocator<function_index_t,
-                                                segment_manager_t>>
+    boost::interprocess::allocator<function_index_t, segment_manager_t>>
     ip_func_index_set;
 
 typedef boost::unordered_node_set<ip_func_index_set,
@@ -1163,7 +1161,7 @@ constexpr bool IsExitBlock(const ip_icfg_base_t<MT> &ICFG, basic_block_t bb) {
 typedef std::pair<binary_index_t, taddr_t> caller_t;
 typedef boost::unordered_flat_set<
     caller_t, boost::hash<caller_t>, std::equal_to<caller_t>,
-    boost::interprocess::private_node_allocator<caller_t, segment_manager_t>>
+    boost::interprocess::allocator<caller_t, segment_manager_t>>
     callers_t;
 
 struct function_t {
@@ -1595,8 +1593,8 @@ template <bool MT>
 using ip_hash_to_binary_map_type = possibly_concurrent_flat_map<
     MT, std::false_type /* !Spin */, hash_t, adds_binary_t, boost::hash<hash_t>,
     std::equal_to<hash_t>,
-    boost::interprocess::node_allocator<std::pair<const hash_t, adds_binary_t>,
-                                        segment_manager_t>>;
+    boost::interprocess::allocator<std::pair<const hash_t, adds_binary_t>,
+                                   segment_manager_t>>;
 
 template <bool MT>
 using ip_name_to_binaries_map_type = possibly_concurrent_flat_map<
