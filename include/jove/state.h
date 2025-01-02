@@ -256,7 +256,7 @@ public:
           return *xp;                                                          \
       }                                                                        \
                                                                                \
-      std::shared_ptr<T> new_x = std::make_shared<T>(BOOST_PP_CAT(thing,_NEW_ARGS));\
+      std::shared_ptr<T> new_x = std::allocate_shared<T>(boost::container::adaptive_pool<T>(), BOOST_PP_CAT(thing,_NEW_ARGS));\
       std::shared_ptr<T> expected;                                             \
       if (x.compare_exchange_strong(expected, new_x,                           \
                                     std::memory_order_relaxed,                 \
