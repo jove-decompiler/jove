@@ -393,28 +393,66 @@ int AnalyzeTool::AnalyzeFunctions(void) {
             msg.append(std::to_string(did));
             msg.append(" / ");
             msg.append(std::to_string(N));
+            msg.append(" ...");
 
             if (vv) {
-              msg.append(" {");
+              boost::container::flat_map<
+                  binary_index_t, boost::container::flat_set<
+                                      std::pair<uint64_t, function_index_t>>>
+                  inflight_map;
+
               inflight.cvisit_all([&](dynamic_target_t X) -> void {
-                assert(!msg.empty());
-                if (msg.back() != '{')
-                  msg.append(", ");
+                auto &b = jv.Binaries.at(X.first);
+                auto &f = b.Analysis.Functions.at(X.second);
 
-                binary_index_t BIdx;
-                function_index_t FIdx;
-                std::tie(BIdx, FIdx) = X;
+                uint64_t Addr = entry_address_of_function(f, b);
 
-                const auto &b = jv.Binaries.at(BIdx);
-                const auto &f = b.Analysis.Functions.at(FIdx);
-                uint64_t target_addr = entry_address_of_function(f, b);
-
-                msg.append(
-                    (fmt("0x%lx @ %s") % target_addr % b.Name.c_str()).str());
+                inflight_map[X.first].emplace(Addr, X.second);
               });
-              msg.append("}");
+
+              msg.append(" [\n");
+              for (auto it_ = inflight_map.begin(); it_ != inflight_map.end(); ++it_) {
+                const auto &pair = *it_;
+
+                auto &b = jv.Binaries.at(pair.first);
+
+                std::string nm = b.is_file()
+                                     ? fs::path(b.path()).filename().string()
+                                     : b.Name.c_str();
+
+                std::string ln;
+                ln.append("  ");
+                ln.append(nm);
+                ln.append(": { ");
+
+                const unsigned lnlen = ln.size() - 1;
+
+                msg.append(ln);
+
+                for (auto it = pair.second.begin(); it != pair.second.end(); ++it) {
+                  const function_index_t FIdx = (*it).second;
+
+                  auto &f = b.Analysis.Functions.at(FIdx);
+                  uint64_t Addr = entry_address_of_function(f, b);
+
+                  if (it != pair.second.begin()) {
+                    msg.append(std::string(lnlen, ' '));
+                    msg.append(" ");
+                  }
+                  msg.append((fmt("0x%lx") % Addr).str());
+                  if (std::next(it) != pair.second.end()) {
+                    msg.append(",");
+                    msg.append("\n");
+                  }
+                }
+
+                msg.append(" }");
+                msg.append(std::next(it_) != inflight_map.end() ? ",\n" : "");
+                msg.append("\n");
+              }
+
+              msg.append("]\n");
             }
-            msg.append("...");
 
             const unsigned sav_lll = lll;
             lll = msg.size();
@@ -424,7 +462,7 @@ int AnalyzeTool::AnalyzeFunctions(void) {
             } else {
               if (msg.size() < sav_lll) {
                 unsigned left = sav_lll - msg.size();
-                msg.append(std::string(' ', left));
+                msg.append(std::string(left, ' '));
               }
 
               printf("\r%s", msg.c_str()); // Print over previous line, if any
@@ -432,8 +470,25 @@ int AnalyzeTool::AnalyzeFunctions(void) {
             fflush(stdout);
           }
 
+          struct winsize term_sz;
+          if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &term_sz) < 0)
+            term_sz.ws_col = ~0UL;
+
           // final message
-          printf("\rAnalyzed %" PRIu64 " functions.\n", N);
+          msg.clear();
+          msg.append("Analyzed ");
+          msg.append(std::to_string(N));
+          msg.append(" functions.");
+
+          if (lll > term_sz.ws_col) {
+            printf("\n%s\n", msg.c_str()); // the current line will be fucked
+          } else {
+            if (msg.size() < lll) {
+              unsigned left = lll - msg.size();
+              msg.append(std::string(left, ' '));
+            }
+            printf("\r%s\n", msg.c_str());
+          }
           fflush(stdout);
         },
         [&](void) -> void {
