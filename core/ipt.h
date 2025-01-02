@@ -2,7 +2,6 @@
 #if defined(__x86_64__) && (defined(TARGET_X86_64) || defined(TARGET_I386))
 #include "B.h"
 #include "augmented_raw_syscalls.h"
-#include "concurrent.h"
 #include "explore.h"
 #include "jove/jove.h"
 #include "locator.h"
