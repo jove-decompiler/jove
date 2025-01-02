@@ -4,6 +4,7 @@
 #include "concurrent.h"
 
 #include <boost/filesystem.hpp>
+#include <boost/format.hpp>
 
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
@@ -16,6 +17,8 @@
 #include <execution>
 #include <thread>
 #include <condition_variable>
+
+#include <sys/ioctl.h>
 
 namespace fs = boost::filesystem;
 namespace obj = llvm::object;
@@ -115,6 +118,8 @@ public:
 };
 
 JOVE_REGISTER_TOOL("analyze", AnalyzeTool);
+
+typedef boost::format fmt;
 
 int AnalyzeTool::Run(void) {
   identify_ABIs(jv);
@@ -291,13 +296,28 @@ int AnalyzeTool::AnalyzeFunctions(void) {
   });
 #endif
 
+  const bool smartterm = is_smart_terminal();
+  const bool vv = IsVeryVerbose();
+  boost::concurrent_flat_set<dynamic_target_t> inflight;
+
   std::atomic<uint64_t> done = 0;
 
   auto analyze_functions_in_binary = [&](auto &b) -> void {
     for_each_function_in_binary(
-        std::execution::par_unseq, b,
-        [&](function_t &f) {
-          BOOST_SCOPE_DEFER [&done] { done.fetch_add(1u, std::memory_order_relaxed); };
+        std::execution::par_unseq, b, [&](function_t &f) {
+          const dynamic_target_t X(index_of_binary(b, jv),
+                                   index_of_function(f));
+
+          if (smartterm && vv)
+            inflight.insert(X);
+
+          BOOST_SCOPE_DEFER [&] {
+            if (smartterm) {
+              done.fetch_add(1u, std::memory_order_relaxed);
+              if (vv)
+                inflight.erase(X);
+            }
+          };
 
           if (!f.Analysis.Stale)
             return;
@@ -338,7 +358,7 @@ int AnalyzeTool::AnalyzeFunctions(void) {
   auto t1 = std::chrono::high_resolution_clock::now();
 #endif
 
-  if (is_smart_terminal()) {
+  if (smartterm) {
     //
     // show progress to stdout
     //
@@ -346,6 +366,8 @@ int AnalyzeTool::AnalyzeFunctions(void) {
     std::condition_variable cv;
     oneapi::tbb::parallel_invoke(
         [&](void) -> void {
+          unsigned lll = 0;
+          std::string msg;
           std::unique_lock<std::mutex> lk(m);
 
           uint64_t did;
@@ -354,7 +376,7 @@ int AnalyzeTool::AnalyzeFunctions(void) {
             if (did >= N)
               break;
 
-            cv.wait_for(lk, std::chrono::seconds(1), [&]() {
+            cv.wait_for(lk, /* std::chrono::seconds(1) */ std::chrono::milliseconds(500), [&](void) -> bool {
               return done.load(std::memory_order_relaxed) >= N;
             });
 
@@ -362,8 +384,51 @@ int AnalyzeTool::AnalyzeFunctions(void) {
             if (did >= N)
               break;
 
-            printf("\r"); // Print over previous line, if any
-            printf("Analyzing %" PRIu64 " / %" PRIu64 " functions...", did, N);
+            struct winsize term_sz;
+            if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &term_sz) < 0)
+              term_sz.ws_col = ~0UL;
+
+            msg.clear();
+            msg.append("Analyzing ");
+            msg.append(std::to_string(did));
+            msg.append(" / ");
+            msg.append(std::to_string(N));
+
+            if (vv) {
+              msg.append(" {");
+              inflight.cvisit_all([&](dynamic_target_t X) -> void {
+                assert(!msg.empty());
+                if (msg.back() != '{')
+                  msg.append(", ");
+
+                binary_index_t BIdx;
+                function_index_t FIdx;
+                std::tie(BIdx, FIdx) = X;
+
+                const auto &b = jv.Binaries.at(BIdx);
+                const auto &f = b.Analysis.Functions.at(FIdx);
+                uint64_t target_addr = entry_address_of_function(f, b);
+
+                msg.append(
+                    (fmt("0x%lx @ %s") % target_addr % b.Name.c_str()).str());
+              });
+              msg.append("}");
+            }
+            msg.append("...");
+
+            const unsigned sav_lll = lll;
+            lll = msg.size();
+
+            if (lll > term_sz.ws_col) {
+              printf("\n%s\n", msg.c_str()); // the current line will be fucked
+            } else {
+              if (msg.size() < sav_lll) {
+                unsigned left = sav_lll - msg.size();
+                msg.append(std::string(' ', left));
+              }
+
+              printf("\r%s", msg.c_str()); // Print over previous line, if any
+            }
             fflush(stdout);
           }
 
