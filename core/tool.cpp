@@ -524,6 +524,17 @@ std::string Tool::path_to_sysroot(const char *exe_path, bool ForeignLibs) {
   return res;
 }
 
+bool Tool::is_smart_terminal(int fd) {
+  const char *const term = getenv("TERM");
+  if (!term)
+    return false;
+
+  if (strcmp(term, "dumb") == 0)
+    return false;
+
+  return ::isatty(fd);
+}
+
 const std::string &Tool::temporary_dir(void) {
   std::lock_guard<std::mutex> lck(_temp_dir_mtx);
 

@@ -151,6 +151,7 @@ public:
   static std::string jove_dir(void);
   static std::string get_path_to_jv(void);
   static std::string path_to_sysroot(const char *exe_path, bool ForeignLibs);
+  static bool is_smart_terminal(int fd = STDOUT_FILENO);
 
   const std::string &temporary_dir(void);
 

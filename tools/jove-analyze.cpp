@@ -15,6 +15,7 @@
 #include <chrono>
 #include <execution>
 #include <thread>
+#include <condition_variable>
 
 namespace fs = boost::filesystem;
 namespace obj = llvm::object;
@@ -290,13 +291,14 @@ int AnalyzeTool::AnalyzeFunctions(void) {
   });
 #endif
 
-  WithColor::note() << "Analyzing functions...";
-  auto t1 = std::chrono::high_resolution_clock::now();
+  std::atomic<uint64_t> done = 0;
 
   auto analyze_functions_in_binary = [&](auto &b) -> void {
     for_each_function_in_binary(
         std::execution::par_unseq, b,
         [&](function_t &f) {
+          BOOST_SCOPE_DEFER [&done] { done.fetch_add(1u, std::memory_order_relaxed); };
+
           if (!f.Analysis.Stale)
             return;
 
@@ -315,16 +317,74 @@ int AnalyzeTool::AnalyzeFunctions(void) {
         });
   };
 
-  if (opts.ForeignLibs)
-    analyze_functions_in_binary(jv.Binaries.at(0));
-  else
-    for_each_binary(std::execution::par_unseq, jv,
-                    [&](binary_t &b) { analyze_functions_in_binary(b); });
+  auto do_work = [&](void) -> void {
+    if (opts.ForeignLibs)
+      analyze_functions_in_binary(jv.Binaries.at(0));
+    else
+      for_each_binary(std::execution::par_unseq, jv,
+                      [&](binary_t &b) { analyze_functions_in_binary(b); });
+  };
 
+  const uint64_t N =
+      opts.ForeignLibs
+          ? jv.Binaries.at(0).Analysis.Functions.size()
+          : std::accumulate(jv.Binaries.begin(), jv.Binaries.end(), 0,
+                            [](uint64_t x, const binary_t &b) {
+                              return x + b.Analysis.Functions.size();
+                            });
+
+#if 0
+  WithColor::note() << "Analyzing functions...";
+  auto t1 = std::chrono::high_resolution_clock::now();
+#endif
+
+  if (is_smart_terminal()) {
+    //
+    // show progress to stdout
+    //
+    std::mutex m;
+    std::condition_variable cv;
+    oneapi::tbb::parallel_invoke(
+        [&](void) -> void {
+          std::unique_lock<std::mutex> lk(m);
+
+          uint64_t did;
+          for (;;) {
+            did = done.load(std::memory_order_relaxed);
+            if (did >= N)
+              break;
+
+            cv.wait_for(lk, std::chrono::seconds(1), [&]() {
+              return done.load(std::memory_order_relaxed) >= N;
+            });
+
+            did = done.load(std::memory_order_relaxed);
+            if (did >= N)
+              break;
+
+            printf("\r"); // Print over previous line, if any
+            printf("Analyzing %" PRIu64 " / %" PRIu64 " functions...", did, N);
+            fflush(stdout);
+          }
+
+          // final message
+          printf("\rAnalyzed %" PRIu64 " functions.\n", N);
+          fflush(stdout);
+        },
+        [&](void) -> void {
+          do_work();
+          cv.notify_one();
+        });
+  } else {
+    do_work();
+  }
+
+#if 0
   auto t2 = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double> s_double = t2 - t1;
 
   HumanOut() << llvm::formatv(" {0} s\n", s_double.count());
+#endif
 
   return 0;
 }
