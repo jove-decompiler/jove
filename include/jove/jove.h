@@ -58,6 +58,7 @@
 #include <boost/container/static_vector.hpp>
 #include <boost/container/vector.hpp>
 #include <boost/container/deque.hpp>
+#include <boost/container/allocator.hpp>
 #include <boost/container/adaptive_pool.hpp>
 #include <boost/container/node_allocator.hpp>
 #include <boost/container/scoped_allocator.hpp>
