@@ -76,6 +76,7 @@ class AnalyzeTool
     cl::alias ForeignLibsAlias;
     cl::list<std::string> PinnedGlobals;
     cl::opt<int> Conservative;
+    cl::opt<unsigned> WaitMilli;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : ForeignLibs("foreign-libs",
@@ -96,7 +97,13 @@ class AnalyzeTool
               "conservative",
               cl::desc(
                   "1 => assume any arg registers could be live for ABI calls."),
-              cl::cat(JoveCategory), cl::init(1)) {}
+              cl::cat(JoveCategory), cl::init(1)),
+
+          WaitMilli(
+              "wait-for",
+              cl::desc(
+                  "Number of milliseconds to update message in -vv mode."),
+              cl::cat(JoveCategory), cl::init(1000u)) {}
 
   } opts;
 
@@ -373,7 +380,7 @@ int AnalyzeTool::AnalyzeFunctions(void) {
             if (did >= N)
               break;
 
-            cv.wait_for(lk, /* std::chrono::seconds(1) */ std::chrono::milliseconds(500), [&](void) -> bool {
+            cv.wait_for(lk, std::chrono::milliseconds(opts.WaitMilli), [&](void) -> bool {
               return done.load(std::memory_order_relaxed) >= N;
             });
 
