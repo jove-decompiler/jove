@@ -1202,6 +1202,7 @@ struct binary_base_t {
 
   bbbmap_t<MT> bbbmap;
 
+  ip_unique_ptr<bbmap_t::allocator_type> bbmap_alloc;
   bbmap_t bbmap;
   fnmap_t<MT> fnmap;
 
@@ -1351,7 +1352,12 @@ struct binary_base_t {
 
   explicit binary_base_t(jv_file_t &jv_file, binary_index_t Idx = invalid_binary_index)
       : Idx(Idx), bbbmap(jv_file.get_segment_manager()),
-        bbmap(jv_file.get_segment_manager()),
+        bbmap_alloc(boost::interprocess::make_managed_unique_ptr(
+            jv_file.construct<bbmap_t::allocator_type>(
+                boost::interprocess::anonymous_instance)(
+                jv_file.get_segment_manager()),
+            jv_file)),
+        bbmap(*bbmap_alloc),
         fnmap(jv_file.get_segment_manager()),
         Name(jv_file.get_segment_manager()),
         Data(jv_file.get_segment_manager()), Analysis(jv_file) {}
@@ -1361,7 +1367,8 @@ struct binary_base_t {
       : Idx(other.Idx),
 
         bbbmap(std::move(other.bbbmap)),
-        bbmap(std::move(other.bbmap)),
+        bbmap_alloc(std::move(other.bbmap_alloc)),
+        bbmap(std::move(other.bbmap), *bbmap_alloc),
         fnmap(std::move(other.fnmap)),
 
         Name(std::move(other.Name)),
@@ -1386,7 +1393,8 @@ struct binary_base_t {
     Idx = other.Idx;
 
     bbbmap = std::move(other.bbbmap);
-    bbmap = std::move(other.bbmap);
+    bbmap_alloc = std::move(other.bbmap_alloc);
+    std::swap(bbmap, other.bbmap);
     fnmap = std::move(other.fnmap);
 
     Name = std::move(other.Name);
