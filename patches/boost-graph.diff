@@ -132,10 +132,10 @@ index 85f7e2ed..28bdfa63 100644
  
  #endif // BOOST_GRAPH_ADJ_LIST_SERIALIZE_HPP
 diff --git a/include/boost/graph/adjacency_list.hpp b/include/boost/graph/adjacency_list.hpp
-index e5050b5b..f0e2648a 100644
+index e5050b5b..62583dd2 100644
 --- a/include/boost/graph/adjacency_list.hpp
 +++ b/include/boost/graph/adjacency_list.hpp
-@@ -18,153 +18,217 @@
+@@ -18,153 +18,203 @@
  #include <set>
  
  #include <boost/unordered_set.hpp>
@@ -176,9 +176,6 @@ index e5050b5b..f0e2648a 100644
  struct vecS
  {
  };
-+struct vecS_ip
-+{
-+};
 +struct dequeS_ip
 +{
 +};
@@ -236,12 +233,6 @@ index e5050b5b..f0e2648a 100644
      typedef std::vector< ValueType > type;
  };
  
-+template < class ValueType > struct container_gen< vecS_ip, ValueType >
-+{
-+    typedef interprocess::private_node_allocator<ValueType, interprocess::managed_shared_memory::segment_manager> _Allocator;
-+    typedef interprocess::vector< ValueType, _Allocator > type;
-+};
-+
 +template < class ValueType > struct container_gen< dequeS_ip, ValueType >
 +{
 +    typedef interprocess::private_node_allocator<ValueType, interprocess::managed_shared_memory::segment_manager> _Allocator;
@@ -303,11 +294,6 @@ index e5050b5b..f0e2648a 100644
      typedef allow_parallel_edge_tag type;
  };
  
-+template <> struct parallel_edge_traits< vecS_ip >
-+{
-+    typedef allow_parallel_edge_tag type;
-+};
-+
 +template <> struct parallel_edge_traits< dequeS_ip >
 +{
 +    typedef allow_parallel_edge_tag type;
@@ -353,7 +339,7 @@ index e5050b5b..f0e2648a 100644
  {
      typedef disallow_parallel_edge_tag type;
  };
-@@ -180,40 +244,56 @@ template <> struct parallel_edge_traits< hash_multimapS >
+@@ -180,40 +230,48 @@ template <> struct parallel_edge_traits< hash_multimapS >
  };
  
  namespace detail
@@ -374,14 +360,6 @@ index e5050b5b..f0e2648a 100644
          };
          typedef mpl::true_ type;
      };
-+    template <> struct is_random_access< vecS_ip >
-+    {
-+        enum
-+        {
-+            value = true
-+        };
-+        typedef mpl::true_ type;
-+    };
 +    template <> struct is_random_access< dequeS_ip >
 +    {
 +        enum
@@ -410,7 +388,7 @@ index e5050b5b..f0e2648a 100644
  {
      typedef
          typename detail::is_random_access< VertexListS >::type is_rand_access;
-@@ -295,59 +375,66 @@ public:
+@@ -295,59 +353,66 @@ public:
          edge_bundled;
  
  private:
