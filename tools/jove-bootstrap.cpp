@@ -3023,10 +3023,6 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
       assert(is_function_index_valid(FIdx));
 
-      function_t &callee = TargetBinary.Analysis.Functions.at(FIdx);
-      callee.Callers.emplace(IndBrInfo.BIdx, IndBrInfo.TermAddr);
-
-
   {
   ip_sharable_lock<ip_sharable_mutex> s_lck(binary.bbmap_mtx);
 
@@ -3100,9 +3096,6 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
                                  rva_of_va(Target.Addr, Target.BIdx));
 
           assert(is_function_index_valid(FIdx));
-
-          function_t &callee = TargetBinary.Analysis.Functions.at(FIdx);
-          callee.Callers.emplace(IndBrInfo.BIdx, IndBrInfo.TermAddr);
 
   Target.isNew = ({
 
