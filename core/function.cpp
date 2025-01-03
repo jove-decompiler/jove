@@ -7,11 +7,11 @@
 namespace jove {
 
 template <bool MT>
-function_t::function_t(binary_base_t<MT> &b, function_index_t Idx)
+function_t::function_t(binary_base_t<MT> &b, function_index_t Idx) noexcept
     : BIdx(b.Idx /* could be invalid */), Idx(Idx),
       Callers(b.get_segment_manager()) {}
 
-function_t::function_t(segment_manager_t *sm)
+function_t::function_t(segment_manager_t *sm) noexcept
     : Callers(sm) {}
 
 #define VALUES_TO_INSTANTIATE_WITH                                             \

@@ -1195,8 +1195,8 @@ struct function_t {
   }
 
   template <bool MT>
-  function_t(binary_base_t<MT> &, function_index_t);
-  function_t(segment_manager_t *); /* XXX used by serialize */
+  function_t(binary_base_t<MT> &, function_index_t) noexcept;
+  function_t(segment_manager_t *) noexcept; /* XXX used by serialize */
   function_t() = delete;
 };
 
