@@ -1198,6 +1198,12 @@ struct function_t {
   function_t(binary_base_t<MT> &, function_index_t) noexcept;
   function_t(segment_manager_t *) noexcept; /* XXX used by serialize */
   function_t() = delete;
+
+  function_t(function_t &&) noexcept = default;
+  function_t &operator=(function_t &&) noexcept = default;
+
+  function_t(const function_t &) = delete;
+  function_t &operator=(const function_t &) = delete;
 };
 
 #include "jove/objdump.h"
