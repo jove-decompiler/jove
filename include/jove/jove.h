@@ -765,7 +765,7 @@ struct allocates_basic_block_t {
   // allocates (creates) new basic block in binary, stores index
   template <bool MT>
   inline allocates_basic_block_t(binary_base_t<MT> &b, basic_block_index_t &store,
-                                 taddr_t Addr);
+                                 taddr_t Addr) noexcept;
 
   operator basic_block_index_t() const { return BBIdx; }
 };
@@ -790,7 +790,7 @@ struct allocates_function_t {
 
   // allocates (creates) new function in binary, stores index
   template <bool MT>
-  inline allocates_function_t(binary_base_t<MT> &b, function_index_t &store);
+  allocates_function_t(binary_base_t<MT> &b, function_index_t &store) noexcept;
 
   operator function_index_t() const { return FIdx; }
 };
@@ -1428,7 +1428,7 @@ struct objdump_exception {
 template <bool MT>
 allocates_basic_block_t::allocates_basic_block_t(binary_base_t<MT> &b,
                                                  basic_block_index_t &store,
-                                                 taddr_t Addr) {
+                                                 taddr_t Addr) noexcept {
 #if 0
   if (unlikely(b.Analysis.objdump.is_addr_bad(Addr)))
     throw objdump_exception(Addr);
@@ -1455,7 +1455,7 @@ allocates_basic_block_t::allocates_basic_block_t(binary_base_t<MT> &b,
 
 template <bool MT>
 allocates_function_t::allocates_function_t(binary_base_t<MT> &b,
-                                           function_index_t &store) {
+                                           function_index_t &store) noexcept {
   auto &Functions = b.Analysis.Functions;
 
   {
@@ -1477,9 +1477,11 @@ struct AddOptions_t;
 struct adds_binary_t {
   binary_index_t BIdx = invalid_basic_block_index;
 
-  adds_binary_t() noexcept = default;
+  adds_binary_t() = delete;
 
-  explicit adds_binary_t(binary_index_t BIdx) : BIdx(BIdx) {}
+  explicit adds_binary_t(binary_index_t BIdx) noexcept : BIdx(BIdx) {
+    assert(is_binary_index_valid(BIdx));
+  }
 
   // adds new binary, stores index
   template <bool MT>
@@ -1490,13 +1492,13 @@ struct adds_binary_t {
                 get_data_t get_data,
                 const hash_t &,
                 const char *name,
-                const AddOptions_t &);
+                const AddOptions_t &) noexcept(false);
 
   // adds new binary, stores index
   template <bool MT>
   adds_binary_t(binary_index_t &out,
                 jv_base_t<MT> &,
-                binary_base_t<MT> &&);
+                binary_base_t<MT> &&) noexcept;
 
   operator binary_index_t() const { return BIdx; }
 };
@@ -1504,11 +1506,10 @@ struct adds_binary_t {
 struct allocates_binary_index_set_t {
   ip_binary_index_set set;
 
-  allocates_binary_index_set_t() noexcept = default;
-
-  allocates_binary_index_set_t(segment_manager_t *sm) : set(sm) {}
+  allocates_binary_index_set_t() = delete;
+  allocates_binary_index_set_t(segment_manager_t *sm) noexcept : set(sm) {}
   allocates_binary_index_set_t(segment_manager_t *sm,
-                               binary_index_t BIdx)
+                               binary_index_t BIdx) noexcept
       : set(sm) {
     set.insert(BIdx);
   }

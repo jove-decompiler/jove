@@ -330,7 +330,7 @@ adds_binary_t::adds_binary_t(binary_index_t &out,
                              get_data_t get_data,
                              const hash_t &h,
                              const char *name,
-                             const AddOptions_t &Options) {
+                             const AddOptions_t &Options) noexcept(false) {
   std::string_view data = get_data();
 
   if (unlikely(data.empty()))
@@ -380,10 +380,8 @@ adds_binary_t::adds_binary_t(binary_index_t &out,
 template <bool MT>
 adds_binary_t::adds_binary_t(binary_index_t &out,
                              jv_base_t<MT> &jv,
-                             binary_base_t<MT> &&b) {
-  if (unlikely(b.data().empty()))
-    throw std::runtime_error("adds_binary_t(): no data");
-
+                             binary_base_t<MT> &&b) noexcept {
+  // don't ask questions
   {
     auto e_lck = jv.Binaries.exclusive_access();
 
