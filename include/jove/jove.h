@@ -1647,7 +1647,7 @@ struct jv_base_t {
     return Binaries.container().get_allocator().get_segment_manager();
   }
 
-  explicit jv_base_t(jv_file_t &jv_file)
+  explicit jv_base_t(jv_file_t &jv_file) noexcept
       : Binaries(jv_file),
         FIdxSets(jv_file.get_segment_manager()),
         hash_to_binary(jv_file.get_segment_manager()),
@@ -1668,6 +1668,7 @@ struct jv_base_t {
   jv_base_t() = delete;
   jv_base_t(const jv_base_t &) = delete;
   jv_base_t &operator=(const jv_base_t &) = delete;
+  jv_base_t &operator=(jv_base_t &&) = delete;
 
   std::optional<binary_index_t> LookupByHash(const hash_t &h);
   bool LookupByName(const char *name, binary_index_set &out);
