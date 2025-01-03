@@ -262,13 +262,7 @@ using ip_sharable_lock = boost::interprocess::sharable_lock<Mutex>;
 template <typename Mutex>
 using ip_upgradable_lock = boost::interprocess::upgradable_lock<Mutex>;
 
-struct __do_nothing_t {
-  template <typename... Args>
-  __do_nothing_t (Args&&...) noexcept {}
-
-  void unlock(void) const {}
-  void lock(void) const {}
-};
+#include "jove/mt.h"
 
 template <bool MT, typename Spin, typename... Params>
 using possibly_concurrent_flat_map =
@@ -284,7 +278,7 @@ template <typename T, typename Alloc,
           bool MT = true,
           bool Spin = true,
           bool PointUnique = false>
-struct deque {
+struct deque : public ip_base_rw_accessible<MT, Spin> {
   typedef boost::container::deque_options<
       boost::container::stored_size<uint32_t>>::type DequeOptions;
 
@@ -304,32 +298,6 @@ struct deque {
     else
       return _deque;
   }
-
-  using mutex_type = std::conditional_t<
-    MT,
-    std::conditional_t<Spin,
-                       boost::unordered::detail::foa::rw_spinlock,
-                       ip_sharable_mutex>,
-    std::monostate>;
-  using shared_lock_guard = std::conditional_t<
-    MT,
-    std::conditional_t<Spin,
-                       boost::unordered::detail::foa::shared_lock<mutex_type>,
-                       ip_sharable_lock<mutex_type>>,
-    __do_nothing_t>;
-  using exclusive_lock_guard = std::conditional_t<
-    MT,
-    std::conditional_t<Spin,
-                       boost::unordered::detail::foa::lock_guard<mutex_type>,
-                       ip_scoped_lock<mutex_type>>,
-    __do_nothing_t>;
-
-private:
-  mutable mutex_type _mtx;
-
-public:
-  shared_lock_guard shared_access() const { return shared_lock_guard{_mtx}; }
-  exclusive_lock_guard exclusive_access() const { return exclusive_lock_guard{_mtx}; }
 
   deque() = delete;
 
@@ -360,19 +328,19 @@ public:
   }
 
   unsigned size(void) const {
-    auto s_lck = shared_access();
+    auto s_lck = this->shared_access();
     return container().size();
   }
 
   bool empty(void) const { return size() == 0; }
 
   T &at(unsigned idx) {
-    auto s_lck = shared_access();
+    auto s_lck = this->shared_access();
     return container().at(idx);
   }
 
   const T &at(unsigned idx) const {
-    auto s_lck = shared_access();
+    auto s_lck = this->shared_access();
     return container().at(idx);
   }
 
@@ -385,8 +353,6 @@ public:
 
   typename type::iterator begin(void) { return container().begin(); }
   typename type::iterator end(void) { return container().end(); }
-
-  void __force_reset_access(void) { __builtin_memset(&this->_mtx, 0, sizeof(this->_mtx)); }
 };
 
 template <class OutEdgeListS,
@@ -397,7 +363,7 @@ template <class OutEdgeListS,
           class GraphProperty,
           class EdgeListS,
           bool MT = true, bool Spin = true, bool PointUnique = true>
-struct adjacency_list {
+struct adjacency_list : public ip_base_rw_accessible<MT, Spin> {
   using type = boost::adjacency_list<OutEdgeListS, VertexListS, DirectedS,
                                      VertexProperty, EdgeProperty,
                                      GraphProperty, EdgeListS>;
@@ -427,32 +393,6 @@ struct adjacency_list {
   using in_edge_iterator = type::in_edge_iterator;
   using inv_adjacency_iterator = type::inv_adjacency_iterator;
   using vertex_property_type = type::vertex_property_type;
-
-  using mutex_type = std::conditional_t<
-    MT,
-    std::conditional_t<Spin,
-                       boost::unordered::detail::foa::rw_spinlock,
-                       ip_sharable_mutex>,
-    std::monostate>;
-  using shared_lock_guard = std::conditional_t<
-    MT,
-    std::conditional_t<Spin,
-                       boost::unordered::detail::foa::shared_lock<mutex_type>,
-                       ip_sharable_lock<mutex_type>>,
-    __do_nothing_t>;
-  using exclusive_lock_guard = std::conditional_t<
-    MT,
-    std::conditional_t<Spin,
-                       boost::unordered::detail::foa::lock_guard<mutex_type>,
-                       ip_scoped_lock<mutex_type>>,
-    __do_nothing_t>;
-
-private:
-  mutable mutex_type _mtx;
-
-public:
-  shared_lock_guard shared_access() const { return shared_lock_guard{_mtx}; }
-  exclusive_lock_guard exclusive_access() const { return exclusive_lock_guard{_mtx}; }
 
   std::atomic<uint32_t> _size = 0;
 
@@ -525,7 +465,7 @@ public:
         _size.fetch_add(1u, std::memory_order_relaxed);
 
     if (unlikely(Idx >= actual_num_vertices())) {
-      auto e_lck = exclusive_access();
+      auto e_lck = this->exclusive_access();
 
       vertices_size_type actual_size = boost::num_vertices(container());
       if (Idx >= actual_size) {
@@ -546,7 +486,7 @@ public:
   }
 
   vertices_size_type actual_num_vertices(void) const {
-    auto s_lck = shared_access();
+    auto s_lck = this->shared_access();
     return boost::num_vertices(container());
   }
 
@@ -557,7 +497,7 @@ public:
   bool empty(void) const { return num_vertices() == 0; }
 
   vertex_property_type &at(vertex_descriptor V) {
-    auto s_lck = shared_access();
+    auto s_lck = this->shared_access();
 
     if (unlikely(index(V) >= num_vertices()))
       throw std::out_of_range(__PRETTY_FUNCTION__);
@@ -566,7 +506,7 @@ public:
   }
 
   const vertex_property_type &at(vertex_descriptor V) const {
-    auto s_lck = shared_access();
+    auto s_lck = this->shared_access();
 
     if (unlikely(index(V) >= num_vertices()))
       throw std::out_of_range(__PRETTY_FUNCTION__);
@@ -575,12 +515,12 @@ public:
   }
 
   vertex_property_type &operator[](vertex_descriptor V) {
-    auto s_lck = shared_access();
+    auto s_lck = this->shared_access();
     return container()[V];
   }
 
   const vertex_property_type &operator[](vertex_descriptor V) const {
-    auto s_lck = shared_access();
+    auto s_lck = this->shared_access();
     return container()[V];
   }
 
@@ -602,7 +542,7 @@ public:
   void depth_first_visit(vertex_descriptor V, DFSVisitor &vis) const {
     std::map<vertex_descriptor, boost::default_color_type> color;
 
-    auto s_lck = shared_access();
+    auto s_lck = this->shared_access();
 
     boost::depth_first_visit(
         container(), V, vis,
@@ -612,14 +552,14 @@ public:
 
   template <bool L = true, class BFSVisitor>
   void breadth_first_search(vertex_descriptor V, BFSVisitor &vis) const {
-    auto s_lck = shared_access();
+    auto s_lck = this->shared_access();
 
     boost::breadth_first_search(container(), V, boost::visitor(vis));
   }
 
   template <bool L = true>
   degree_size_type out_degree(vertex_descriptor V) const {
-    auto s_lck = shared_access();
+    auto s_lck = this->shared_access();
     _S_LCK(L, container()[V].mtx);
 
     return boost::out_degree(V, container());
@@ -627,7 +567,7 @@ public:
 
   template <bool L = true>
   void clear_out_edges(vertex_descriptor V) {
-    auto s_lck = shared_access();
+    auto s_lck = this->shared_access();
     _E_LCK(L, container()[V].mtx);
 
     boost::clear_out_edges(V, container());
@@ -636,7 +576,7 @@ public:
   template <bool L = true>
   std::pair<edge_descriptor, bool> add_edge(vertex_descriptor V1,
                                             vertex_descriptor V2) {
-    auto s_lck = shared_access();
+    auto s_lck = this->shared_access();
     _E_LCK(L, container()[V1].mtx);
 
     return boost::add_edge(V1, V2, container());
@@ -677,29 +617,27 @@ public:
   }
   std::pair<adjacency_iterator, adjacency_iterator>
   adjacent_vertices(vertex_descriptor V) const {
-    auto s_lck = shared_access();
+    auto s_lck = this->shared_access();
     return boost::adjacent_vertices(V, container());
   }
   std::pair<inv_adjacency_iterator, inv_adjacency_iterator>
   inv_adjacent_vertices(vertex_descriptor V) const {
-    auto s_lck = shared_access();
+    auto s_lck = this->shared_access();
     return boost::inv_adjacent_vertices(V, container());
   }
   std::pair<out_edge_iterator, out_edge_iterator>
   out_edges(vertex_descriptor V) const {
-    auto s_lck = shared_access();
+    auto s_lck = this->shared_access();
     return boost::out_edges(V, container());
   }
   std::pair<in_edge_iterator, in_edge_iterator>
   in_edges(vertex_descriptor V) const {
-    auto s_lck = shared_access();
+    auto s_lck = this->shared_access();
     return boost::in_edges(V, container());
   }
 
 #undef _S_LCK
 #undef _E_LCK
-
-  void __force_reset_access(void) { __builtin_memset(&this->_mtx, 0, sizeof(this->_mtx)); }
 };
 
 typedef boost::interprocess::allocator<char, segment_manager_t>
@@ -829,35 +767,15 @@ size_t jvDefaultInitialSize(void);
 
 #include "jove/atomic.h"
 
-struct basic_block_properties_t {
-  mutable ip_sharable_mutex mtx;
-
-  template <bool MT>
-  using shared_lock_guard =
-      std::conditional_t<MT, ip_sharable_lock<ip_sharable_mutex>, __do_nothing_t>;
-  template <bool MT>
-  using exclusive_lock_guard =
-      std::conditional_t<MT, ip_scoped_lock<ip_sharable_mutex>, __do_nothing_t>;
-
-  template <bool MT> shared_lock_guard<MT> shared_access() const {
-    return shared_lock_guard<MT>{mtx};
-  }
-  template <bool MT> exclusive_lock_guard<MT> exclusive_access() const {
-    return exclusive_lock_guard<MT>{mtx};
-  }
-
+struct basic_block_properties_t : public ip_mt_base_rw_accessible_nospin {
   template <bool MT> void lock_sharable(void) const {
     if constexpr (MT) {
       mtx.lock_sharable();
     }
   }
 
-  template <bool MT> using pub_shared_lock_guard = shared_lock_guard<MT>;
-  template <bool MT> using pub_exclusive_lock_guard = exclusive_lock_guard<MT>;
-
-  struct {
+  struct pub_t : public ip_mt_base_rw_accessible_nospin {
     std::atomic<bool> is = false;
-    mutable ip_sharable_mutex mtx;
   } pub;
 
   bool Speculative = false;
@@ -1165,48 +1083,15 @@ struct function_t {
   function_index_t Idx = invalid_function_index;
   basic_block_index_t Entry = invalid_basic_block_index;
 
-  struct Callers_t {
+  struct Callers_t : public ip_mt_base_rw_accessible_spin {
     callers_t set;
 
-    using mutex_type = boost::unordered::detail::foa::rw_spinlock;
+    explicit Callers_t(segment_manager_t *sm) noexcept : set(sm) {}
 
-    mutable mutex_type mtx;
-
-    template <bool MT>
-    using shared_lock_guard = std::conditional_t<
-        MT, boost::unordered::detail::foa::shared_lock<mutex_type>,
-        __do_nothing_t>;
-
-    template <bool MT>
-    using exclusive_lock_guard = std::conditional_t<
-        MT, boost::unordered::detail::foa::lock_guard<mutex_type>,
-        __do_nothing_t>;
-
-    template <bool MT> shared_lock_guard<MT> shared_access() const {
-      return shared_lock_guard<MT>{mtx};
-    }
-    template <bool MT> exclusive_lock_guard<MT> exclusive_access() const {
-      return exclusive_lock_guard<MT>{mtx};
-    }
-
-    Callers_t(segment_manager_t *sm) noexcept : set(sm) {}
-
-    Callers_t(Callers_t &&other) noexcept : set(std::move(other.set)) {}
-    Callers_t &operator=(Callers_t &&other) noexcept {
-      if (this == &other)
-        return *this;
-
-      set = std::move(other.set);
-      return *this;
-    }
-    Callers_t(const Callers_t &other) noexcept : set(other.set) {}
-    Callers_t &operator=(const Callers_t &other) noexcept {
-      if (this == &other)
-        return *this;
-
-      set = other.set;
-      return *this;
-    }
+    Callers_t(Callers_t &&) noexcept = default;
+    Callers_t &operator=(Callers_t &&) noexcept = default;
+    Callers_t(const Callers_t &) noexcept = default;
+    Callers_t &operator=(const Callers_t &) noexcept  = default;
   } Callers;
 
   struct Analysis_t {

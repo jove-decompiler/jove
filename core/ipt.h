@@ -105,7 +105,7 @@ StraightLineGo(const auto &b,
 
          if constexpr (MT) {
            if (!bbprop.pub.is.load(std::memory_order_acquire))
-             bbprop_t::pub_shared_lock_guard<MT>(bbprop.pub.mtx);
+             bbprop_t::pub_t::shared_lock_guard<MT>(bbprop.pub.mtx);
          }
          bbprop.lock_sharable<MT>(); /* don't change on us */
 
@@ -139,7 +139,7 @@ StraightLineGo(const auto &b,
 
          if constexpr (MT) {
            if (!new_bbprop.pub.is.load(std::memory_order_acquire))
-             bbprop_t::pub_shared_lock_guard<MT>(new_bbprop.pub.mtx);
+             bbprop_t::pub_t::shared_lock_guard<MT>(new_bbprop.pub.mtx);
          }
          new_bbprop.lock_sharable<MT>(); /* don't change on us */
 

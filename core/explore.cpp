@@ -363,7 +363,7 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_base_t<MT> &b,
   }
 
   auto &bbprop = ICFG[basic_block_of_index(Idx, ICFG)];
-  bbprop_t::pub_exclusive_lock_guard<MT> e_lck_bb_pub(
+  bbprop_t::pub_t::exclusive_lock_guard<MT> e_lck_bb_pub(
       bbprop.pub.mtx, boost::interprocess::accept_ownership);
   bbprop_t::exclusive_lock_guard<MT> e_lck_bb(
       bbprop.mtx, boost::interprocess::accept_ownership);
