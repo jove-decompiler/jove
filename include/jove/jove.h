@@ -1254,7 +1254,7 @@ struct binary_base_t {
     Analysis_t(const Analysis_t &) = delete;
     Analysis_t &operator=(const Analysis_t &) = delete;
 
-    explicit Analysis_t(jv_file_t &jv_file)
+    explicit Analysis_t(jv_file_t &jv_file) noexcept
         : Functions(jv_file),
           ICFG(jv_file),
           objdump(jv_file.get_segment_manager()) {}
@@ -1350,7 +1350,7 @@ struct binary_base_t {
     return Analysis.Functions.container().get_allocator().get_segment_manager();
   }
 
-  explicit binary_base_t(jv_file_t &jv_file, binary_index_t Idx = invalid_binary_index)
+  explicit binary_base_t(jv_file_t &jv_file, binary_index_t Idx = invalid_binary_index) noexcept
       : Idx(Idx), bbbmap(jv_file.get_segment_manager()),
         bbmap_alloc(boost::interprocess::make_managed_unique_ptr(
             jv_file.construct<bbmap_t::allocator_type>(
