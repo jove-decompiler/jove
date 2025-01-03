@@ -107,7 +107,12 @@ bool basic_block_properties_t::insertDynTarget(binary_index_t ThisBIdx,
                                                const dynamic_target_t &X,
                                                jv_file_t &jv_file,
                                                jv_base_t<MT> &jv) {
-  function_of_target(X, jv).Callers.emplace(ThisBIdx, Term.Addr);
+  function_t &callee = function_of_target(X, jv);
+  {
+    auto e_lck = callee.Callers.exclusive_access<MT>();
+
+    callee.Callers.set.emplace(ThisBIdx, Term.Addr);
+  }
   return doInsertDynTarget(X, jv_file);
 }
 

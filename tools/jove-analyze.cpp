@@ -271,9 +271,8 @@ int AnalyzeTool::AnalyzeFunctions(void) {
 
         if (x.IsSj) {
           std::for_each(
-              std::execution::par_unseq,
-              f.Callers.cbegin(),
-              f.Callers.cend(),
+              f.Callers.set.cbegin(),
+              f.Callers.set.cend(),
               [&](const caller_t &pair) -> void {
                 binary_t &caller_b = jv.Binaries.at(
                     is_binary_index_valid(pair.first) ? pair.first

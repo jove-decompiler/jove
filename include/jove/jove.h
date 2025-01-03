@@ -1153,9 +1153,9 @@ constexpr bool IsExitBlock(const ip_icfg_base_t<MT> &ICFG, basic_block_t bb) {
 //       ...
 //
 typedef std::pair<binary_index_t, taddr_t> caller_t;
-typedef boost::unordered_flat_set<
-    caller_t, boost::hash<caller_t>, std::equal_to<caller_t>,
-    boost::interprocess::allocator<caller_t, segment_manager_t>>
+typedef boost::interprocess::set<
+    caller_t, std::less<caller_t>,
+    boost::interprocess::node_allocator<caller_t, segment_manager_t>>
     callers_t;
 
 struct function_t {
@@ -1165,7 +1165,49 @@ struct function_t {
   function_index_t Idx = invalid_function_index;
   basic_block_index_t Entry = invalid_basic_block_index;
 
-  callers_t Callers;
+  struct Callers_t {
+    callers_t set;
+
+    using mutex_type = boost::unordered::detail::foa::rw_spinlock;
+
+    mutable mutex_type mtx;
+
+    template <bool MT>
+    using shared_lock_guard = std::conditional_t<
+        MT, boost::unordered::detail::foa::shared_lock<mutex_type>,
+        __do_nothing_t>;
+
+    template <bool MT>
+    using exclusive_lock_guard = std::conditional_t<
+        MT, boost::unordered::detail::foa::lock_guard<mutex_type>,
+        __do_nothing_t>;
+
+    template <bool MT> shared_lock_guard<MT> shared_access() const {
+      return shared_lock_guard<MT>{mtx};
+    }
+    template <bool MT> exclusive_lock_guard<MT> exclusive_access() const {
+      return exclusive_lock_guard<MT>{mtx};
+    }
+
+    Callers_t(segment_manager_t *sm) noexcept : set(sm) {}
+
+    Callers_t(Callers_t &&other) noexcept : set(std::move(other.set)) {}
+    Callers_t &operator=(Callers_t &&other) noexcept {
+      if (this == &other)
+        return *this;
+
+      set = std::move(other.set);
+      return *this;
+    }
+    Callers_t(const Callers_t &other) noexcept : set(other.set) {}
+    Callers_t &operator=(const Callers_t &other) noexcept {
+      if (this == &other)
+        return *this;
+
+      set = other.set;
+      return *this;
+    }
+  } Callers;
 
   struct Analysis_t {
     tcg_global_set_t args;

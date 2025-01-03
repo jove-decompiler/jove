@@ -378,13 +378,13 @@ void DumpTool::dumpDecompilation(const jv_base_t<false>& jv) {
         Writer.printBoolean("IsSignalHandler", f.IsSignalHandler);
         Writer.printBoolean("Returns", f.Returns);
 
-        if (!f.Callers.empty())
+        if (!f.Callers.set.empty())
         {
           std::vector<caller_t> Callers;
-          Callers.reserve(f.Callers.size());
+          Callers.reserve(f.Callers.set.size());
 
-          std::for_each(f.Callers.cbegin(),
-                        f.Callers.cend(),
+          std::for_each(f.Callers.set.cbegin(),
+                        f.Callers.set.cend(),
           [&](const caller_t &x) -> void {
             Callers.push_back(x);
           });
