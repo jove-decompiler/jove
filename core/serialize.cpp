@@ -308,15 +308,6 @@ static void serialize(Archive &ar, jove::adds_binary_t &x,
 }
 
 //
-// allocates_binary_index_set_t
-//
-template <class Archive>
-static void serialize(Archive &ar, jove::allocates_binary_index_set_t &x,
-                      const unsigned int version) {
-  ar &BOOST_SERIALIZATION_NVP(x.set);
-}
-
-//
 // allocates_basic_block_t
 //
 template <class Archive>
@@ -521,26 +512,6 @@ static inline void load_construct_data(Archive &ar, jove::ip_string *t,
 }
 
 template <class Archive>
-static inline void load_construct_data(Archive &ar,
-                                       jove::allocates_binary_index_set_t *t,
-                                       const unsigned int file_version) {
-  assert(jove::pFile_hack);
-  ::new (t)jove::allocates_binary_index_set_t(jove::pFile_hack->get_segment_manager());
-}
-
-template <class Archive>
-static inline void load_construct_data(
-    Archive &ar,
-    std::pair<const jove::ip_string, jove::allocates_binary_index_set_t> *t,
-    const unsigned int file_version) {
-  assert(jove::pFile_hack);
-  ::new (t)
-      std::pair<const jove::ip_string, jove::allocates_binary_index_set_t>(
-          jove::pFile_hack->get_segment_manager(),
-          jove::pFile_hack->get_segment_manager());
-}
-
-template <class Archive>
 static inline void
 load_construct_data(Archive &ar,
                     std::pair<const uint64_t, jove::ip_dynamic_target_set> *t,
@@ -569,6 +540,7 @@ static inline void load_construct_data(
   assert(jove::pFile_hack);
   ::new (t)jove::ip_binary_index_set(jove::pFile_hack->get_segment_manager());
 }
+
 
 } // namespace serialization
 } // namespace boost

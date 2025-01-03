@@ -275,6 +275,11 @@ using possibly_concurrent_flat_map =
     std::conditional_t<MT, boost::concurrent_flat_map<Params..., Spin>,
                        boost::unordered_flat_map<Params...>>;
 
+template <bool MT, typename... Params>
+using possibly_concurrent_flat_set =
+    std::conditional_t<MT, boost::concurrent_flat_set<Params...>,
+                       boost::unordered_flat_set<Params...>>;
+
 template <typename T, typename Alloc,
           bool MT = true,
           bool Spin = true,
@@ -1477,7 +1482,7 @@ struct AddOptions_t;
 struct adds_binary_t {
   binary_index_t BIdx = invalid_basic_block_index;
 
-  adds_binary_t() = delete;
+  adds_binary_t() = default;
 
   explicit adds_binary_t(binary_index_t BIdx) noexcept : BIdx(BIdx) {
     assert(is_binary_index_valid(BIdx));
@@ -1501,18 +1506,6 @@ struct adds_binary_t {
                 binary_base_t<MT> &&) noexcept;
 
   operator binary_index_t() const { return BIdx; }
-};
-
-struct allocates_binary_index_set_t {
-  ip_binary_index_set set;
-
-  allocates_binary_index_set_t() = delete;
-  allocates_binary_index_set_t(segment_manager_t *sm) noexcept : set(sm) {}
-  allocates_binary_index_set_t(segment_manager_t *sm,
-                               binary_index_t BIdx) noexcept
-      : set(sm) {
-    set.insert(BIdx);
-  }
 };
 
 struct ip_string_hash_t  {
@@ -1608,11 +1601,10 @@ using ip_hash_to_binary_map_type = possibly_concurrent_flat_map<
 
 template <bool MT>
 using ip_name_to_binaries_map_type = possibly_concurrent_flat_map<
-    MT, std::false_type /* !Spin */, ip_string, allocates_binary_index_set_t,
+    MT, std::false_type /* !Spin */, ip_string, ip_binary_index_set,
     ip_string_hash_t, ip_string_equal_t,
     boost::container::scoped_allocator_adaptor<boost::interprocess::allocator<
-        std::pair<const ip_string, allocates_binary_index_set_t>,
-        segment_manager_t>>>;
+        std::pair<const ip_string, ip_binary_index_set>, segment_manager_t>>>;
 
 template <bool MT>
 using on_newbin_proc_t = std::function<void(binary_base_t<MT> &)>;

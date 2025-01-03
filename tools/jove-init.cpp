@@ -327,8 +327,11 @@ int InitTool::Run(void) {
           exit(1);
         }
 
-        const bool isNewName = jv.name_to_binaries.try_emplace(
-            b.Name, b.get_segment_manager(), BIdx);
+        ip_binary_index_set BIdxSet(jv_file.get_segment_manager());
+        BIdxSet.insert(BIdx);
+
+        const bool isNewName =
+            jv.name_to_binaries.try_emplace(b.Name, boost::move(BIdxSet));
         if (!isNewName) {
           WithColor::error()
               << llvm::formatv("not new name: \"{0}\"\n", b.Name.c_str());

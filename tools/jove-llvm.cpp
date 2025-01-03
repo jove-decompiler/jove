@@ -6582,7 +6582,7 @@ int LLVMTool::CreateBinaryNamesTable(void) {
   bin_paths_vec.resize(jv.Binaries.size());
 
   for (const auto &x : jv.name_to_binaries) {
-    x.second.set.cvisit_all([&](binary_index_t BIdx) {
+    x.second.cvisit_all([&](binary_index_t BIdx) {
       if (jv.Binaries.at(BIdx).is_file())
         bin_paths_vec[BIdx].insert(x.first);
     });

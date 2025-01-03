@@ -93,8 +93,8 @@ bool jv_base_t<MT>::LookupByName(const char *name, binary_index_set &out) {
     return static_cast<bool>(this->name_to_binaries.cvisit(
         sv,
         [&](const typename ip_name_to_binaries_map_type<MT>::value_type &x) -> void {
-          assert(!x.second.set.empty());
-          x.second.set.cvisit_all(
+          assert(!x.second.empty());
+          x.second.cvisit_all(
               [&](binary_index_t BIdx) -> void { out.insert(BIdx); });
         }));
   } else {
@@ -102,7 +102,7 @@ bool jv_base_t<MT>::LookupByName(const char *name, binary_index_set &out) {
     if (it == this->name_to_binaries.end()) {
       return false;
     } else {
-      const ip_binary_index_set &set = (*it).second.set;
+      const ip_binary_index_set &set = (*it).second;
       assert(!set.empty());
       set.cvisit_all([&](binary_index_t BIdx) -> void { out.insert(BIdx); });
       return true;
@@ -203,23 +203,26 @@ std::pair<binary_index_t, bool> jv_base_t<MT>::Add(binary_base_t<MT> &&b,
 
   binary_base_t<MT> &b_ = this->Binaries.at(Res);
 
+  ip_binary_index_set ResSet(get_segment_manager());
+  ResSet.insert(Res);
+
   bool isNewName = false;
   if constexpr (MT) {
     isNewName = this->name_to_binaries.try_emplace_or_visit(
-        b_.Name, get_segment_manager(), Res,
+        b_.Name, boost::move(ResSet),
         [&](typename ip_name_to_binaries_map_type<MT>::value_type &x) -> void {
-          x.second.set.insert(Res);
+          x.second.insert(Res);
         });
   } else {
     auto it = this->name_to_binaries.find(b_.Name);
     if (it == this->name_to_binaries.end()) {
-      isNewName = this->name_to_binaries
-                      .try_emplace(b_.Name, get_segment_manager(), Res)
-                      .second;
+      isNewName =
+          this->name_to_binaries.try_emplace(b_.Name, boost::move(ResSet))
+              .second;
       assert(isNewName);
     } else {
       isNewName = false;
-      (*it).second.set.insert(Res);
+      (*it).second.insert(Res);
     }
   }
 
@@ -285,24 +288,27 @@ std::pair<binary_index_t, bool> jv_base_t<MT>::AddFromDataWithHash(
     return std::make_pair(invalid_binary_index, false);
   }
 
+  ip_binary_index_set ResSet(get_segment_manager());
+  ResSet.insert(Res);
+
   bool isNewName = false;
   std::string_view name_sv(name);
   if constexpr (MT) {
     isNewName = this->name_to_binaries.try_emplace_or_visit(
-        name_sv, get_segment_manager(), Res,
+        name_sv, boost::move(ResSet),
         [&](typename ip_name_to_binaries_map_type<MT>::value_type &x) -> void {
-          x.second.set.insert(Res);
+          x.second.insert(Res);
         });
   } else {
     auto it = this->name_to_binaries.find(name_sv);
     if (it == this->name_to_binaries.end()) {
-      isNewName = this->name_to_binaries
-                      .try_emplace(name_sv, get_segment_manager(), Res)
-                      .second;
+      isNewName =
+          this->name_to_binaries.try_emplace(name_sv, boost::move(ResSet))
+              .second;
       assert(isNewName);
     } else {
       isNewName = false;
-      (*it).second.set.insert(Res);
+      (*it).second.insert(Res);
     }
   }
 
