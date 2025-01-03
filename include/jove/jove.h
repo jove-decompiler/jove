@@ -1087,11 +1087,6 @@ struct function_t {
     callers_t set;
 
     explicit Callers_t(segment_manager_t *sm) noexcept : set(sm) {}
-
-    Callers_t(Callers_t &&) noexcept = default;
-    Callers_t &operator=(Callers_t &&) noexcept = default;
-    Callers_t(const Callers_t &) noexcept = default;
-    Callers_t &operator=(const Callers_t &) noexcept  = default;
   } Callers;
 
   struct Analysis_t {
