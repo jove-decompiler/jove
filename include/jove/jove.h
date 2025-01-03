@@ -921,18 +921,6 @@ struct basic_block_properties_t {
       boost::container::static_vector<basic_block_index_t, 2> adj;
       boost::container::flat_set<addr_intvl, addr_intvl_cmp> addrng;
     };
-
-#if 0
-    AtomicOffsetPtr<const straight_line_t> pSL;
-#endif
-
-    Analysis_t &operator=(const Analysis_t &other) {
-      live.def = other.live.def;
-      live.use = other.live.use;
-      reach.def = other.reach.def;
-      Stale = other.Stale;
-      return *this;
-    }
   } Analysis;
 
   struct {
