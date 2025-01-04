@@ -33,21 +33,21 @@ int UnlockTool::Run(void) {
       std::execution::par_unseq,
       jv.Binaries.container().begin(),
       jv.Binaries.container().end(), [&](binary_t &b) {
-	__builtin_memset(&b.bbmap_mtx, 0, sizeof(b.bbmap_mtx));
+        __builtin_memset(&b.bbmap_mtx, 0, sizeof(b.bbmap_mtx));
         b.Analysis.ICFG.__force_reset_access();
         b.Analysis.Functions.__force_reset_access();
 
         auto &ICFG = b.Analysis.ICFG;
-	auto it_pair = boost::vertices(ICFG.container());
-	std::for_each(std::execution::par_unseq,
-		      it_pair.first,
-		      it_pair.second, [&](basic_block_t bb) {
+        auto it_pair = boost::vertices(ICFG.container());
+        std::for_each(std::execution::par_unseq,
+                      it_pair.first,
+                      it_pair.second, [&](basic_block_t bb) {
                         auto &bbprop = ICFG.container()[bb];
 
-			bbprop.__force_reset_access();
-			bbprop.pub.__force_reset_access();
-			bbprop.Parents.__force_reset_access();
-		      });
+                        bbprop.__force_reset_access();
+                        bbprop.pub.__force_reset_access();
+                        bbprop.Parents.__force_reset_access();
+        });
       });
 
   return 0;
