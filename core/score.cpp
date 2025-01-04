@@ -34,7 +34,7 @@ double compute_score(const jv_base_t<MT> &jv, const binary_base_t<MT> &b) {
 
         return std::accumulate(
             LoadSegments.begin(),
-	    LoadSegments.end(), 0,
+            LoadSegments.end(), 0,
             [&](size_t res, const Elf_Phdr *LoadSeg) -> size_t {
               const Elf_Phdr &Phdr = *LoadSeg;
 
@@ -46,7 +46,7 @@ double compute_score(const jv_base_t<MT> &jv, const binary_base_t<MT> &b) {
         auto sects_itr = O.sections();
         return std::accumulate(
             sects_itr.begin(),
-	    sects_itr.end(), 0,
+            sects_itr.end(), 0,
             [&](size_t res, const llvm::object::SectionRef &S) -> size_t {
               const llvm::object::coff_section *Sect = O.getCOFFSection(S);
 
@@ -64,10 +64,10 @@ double compute_score(const jv_base_t<MT> &jv, const binary_base_t<MT> &b) {
   // add up all the basic block lengths (M)
   //
   size_t M = ({
-    auto s_lck_bbmap = b.bbmap_shared_access();
+    auto s_lck_bbmap = b.BBMap.shared_access();
 
-    std::accumulate(b.bbmap.cbegin(),
-		    b.bbmap.cend(), 0,
+    std::accumulate(b.BBMap.map.cbegin(),
+                    b.BBMap.map.cend(), 0,
                     [&](size_t res, const auto &pair) -> size_t {
                       const addr_intvl &intvl = pair.first;
                       return res + intvl.second;

@@ -333,7 +333,7 @@ static void serialize(Archive &ar, jove::binary_base_t<MT> &b,
                       const unsigned int version) {
   ar &BOOST_SERIALIZATION_NVP(b.Idx)
      &BOOST_SERIALIZATION_NVP(b.bbbmap)
-     &BOOST_SERIALIZATION_NVP(b.bbmap)
+     &BOOST_SERIALIZATION_NVP(b.BBMap.map)
      &BOOST_SERIALIZATION_NVP(b.fnmap)
      &BOOST_SERIALIZATION_NVP(b.Name)
      &BOOST_SERIALIZATION_NVP(b.Data)

@@ -757,6 +757,41 @@ typedef boost::interprocess::map<
         std::pair<const addr_intvl, basic_block_index_t>, segment_manager_t>>
     bbmap_t; /* _private_ adaptive pool because of heavyweight bbmap_lock */
 
+template <bool MT>
+struct BBMap_t : public ip_base_rw_accessible<MT, false> {
+  ip_unique_ptr<bbmap_t::allocator_type> alloc;
+  bbmap_t map;
+
+  BBMap_t() = delete;
+  BBMap_t(jv_file_t &jv_file) noexcept
+      : alloc(boost::interprocess::make_managed_unique_ptr(
+            jv_file.construct<bbmap_t::allocator_type>(
+                boost::interprocess::anonymous_instance)(
+                jv_file.get_segment_manager()),
+            jv_file)),
+        map(jv_file.get_segment_manager()) {}
+
+  template <bool MT2>
+  BBMap_t(BBMap_t<MT2> &&other) noexcept
+      : alloc(std::move(other.alloc)), map(std::move(other.map), *alloc) {}
+
+  template <bool MT2>
+  BBMap_t &operator=(BBMap_t<MT2> &&other) noexcept {
+    if constexpr (MT == MT2) {
+      if (this == &other)
+        return *this;
+    }
+
+    alloc = std::move(other.alloc);
+    std::swap(map, other.map);
+
+    return *this;
+  }
+
+  BBMap_t(const BBMap_t &) = delete;
+  BBMap_t &operator=(const BBMap_t &) = delete;
+};
+
 struct allocates_function_t {
   function_index_t FIdx = invalid_function_index;
 
@@ -1169,8 +1204,7 @@ struct binary_base_t {
 
   bbbmap_t<MT> bbbmap;
 
-  ip_unique_ptr<bbmap_t::allocator_type> bbmap_alloc;
-  bbmap_t bbmap;
+  BBMap_t<MT> BBMap;
   fnmap_t<MT> fnmap;
 
   ip_string Name;
@@ -1185,22 +1219,6 @@ struct binary_base_t {
 
   ip_unique_ptr<ip_func_index_set> EmptyFIdxSet;
   ip_func_index_sets<MT> FIdxSets;
-
-  using bbmap_mutex_type =
-      std::conditional_t<MT, ip_sharable_mutex, std::monostate>;
-  using bbmap_shared_lock_guard =
-      std::conditional_t<MT, ip_sharable_lock<bbmap_mutex_type>, __do_nothing_t>;
-  using bbmap_exclusive_lock_guard =
-      std::conditional_t<MT, ip_scoped_lock<bbmap_mutex_type>, __do_nothing_t>;
-
-  mutable bbmap_mutex_type bbmap_mtx;
-
-  bbmap_shared_lock_guard bbmap_shared_access() const {
-    return bbmap_shared_lock_guard{bbmap_mtx};
-  }
-  bbmap_exclusive_lock_guard bbmap_exclusive_access() const {
-    return bbmap_exclusive_lock_guard{bbmap_mtx};
-  }
 
   struct Analysis_t {
     function_index_t EntryFunction = invalid_function_index;
@@ -1320,14 +1338,10 @@ struct binary_base_t {
     return Analysis.Functions.container().get_allocator().get_segment_manager();
   }
 
-  explicit binary_base_t(jv_file_t &jv_file, binary_index_t Idx = invalid_binary_index) noexcept
+  explicit binary_base_t(jv_file_t &jv_file,
+                         binary_index_t Idx = invalid_binary_index) noexcept
       : Idx(Idx), bbbmap(jv_file.get_segment_manager()),
-        bbmap_alloc(boost::interprocess::make_managed_unique_ptr(
-            jv_file.construct<bbmap_t::allocator_type>(
-                boost::interprocess::anonymous_instance)(
-                jv_file.get_segment_manager()),
-            jv_file)),
-        bbmap(*bbmap_alloc),
+        BBMap(jv_file),
         fnmap(jv_file.get_segment_manager()),
         Name(jv_file.get_segment_manager()),
         EmptyFIdxSet(boost::interprocess::make_managed_unique_ptr(
@@ -1343,8 +1357,7 @@ struct binary_base_t {
       : Idx(other.Idx),
 
         bbbmap(std::move(other.bbbmap)),
-        bbmap_alloc(std::move(other.bbmap_alloc)),
-        bbmap(std::move(other.bbmap), *bbmap_alloc),
+        BBMap(std::move(other.BBMap)),
         fnmap(std::move(other.fnmap)),
 
         Name(std::move(other.Name)),
@@ -1372,8 +1385,7 @@ struct binary_base_t {
     Idx = other.Idx;
 
     bbbmap = std::move(other.bbbmap);
-    bbmap_alloc = std::move(other.bbmap_alloc);
-    std::swap(bbmap, other.bbmap);
+    BBMap = std::move(other.BBMap);
     fnmap = std::move(other.fnmap);
 
     Name = std::move(other.Name);
@@ -2536,8 +2548,8 @@ static inline bool IsFunctionLongjmp(const function_t &f,
 template <bool MT>
 static inline basic_block_index_t
 index_of_basic_block_at_address(taddr_t Addr, const binary_base_t<MT> &b) {
-  auto it = bbmap_find(b.bbmap, Addr);
-  assert(it != b.bbmap.end());
+  auto it = bbmap_find(b.BBMap.map, Addr);
+  assert(it != b.BBMap.map.end());
   return (*it).second;
 }
 
@@ -2574,7 +2586,7 @@ static inline basic_block_t basic_block_at_address(taddr_t Addr,
 template <bool MT>
 static inline bool exists_basic_block_at_address(taddr_t Addr,
                                                  const binary_base_t<MT> &b) {
-  return bbmap_contains(b.bbmap, Addr);
+  return bbmap_contains(b.BBMap.map, Addr);
 }
 
 template <bool MT>

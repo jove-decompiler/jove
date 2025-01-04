@@ -33,7 +33,7 @@ int UnlockTool::Run(void) {
       std::execution::par_unseq,
       jv.Binaries.container().begin(),
       jv.Binaries.container().end(), [&](binary_t &b) {
-        __builtin_memset(&b.bbmap_mtx, 0, sizeof(b.bbmap_mtx));
+        b.BBMap.__force_reset_access();
         b.Analysis.ICFG.__force_reset_access();
         b.Analysis.Functions.__force_reset_access();
 

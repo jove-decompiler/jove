@@ -107,7 +107,7 @@ bool explorer_t::split(binary_base_t<MT> &b,
                        bbmap_t::iterator it, const taddr_t Addr,
                        basic_block_index_t Idx,
                        onblockproc_t obp) {
-  auto &bbmap = b.bbmap;
+  bbmap_t &bbmap = b.BBMap.map;
   auto &ICFG = b.Analysis.ICFG;
 
   assert(it != bbmap.end());
@@ -364,10 +364,9 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_base_t<MT> &b,
                                    : std::memory_order_relaxed);
   };
 
-  using bbmap_shared_lock_guard = binary_base_t<MT>::bbmap_shared_lock_guard;
-  using bbmap_exclusive_lock_guard = binary_base_t<MT>::bbmap_exclusive_lock_guard;
-  bbmap_exclusive_lock_guard e_lck_bbmap(b.bbmap_mtx,
-                                         boost::interprocess::defer_lock);
+  typename BBMap_t<MT>::exclusive_lock_guard e_lck_bbmap(
+      b.BBMap.mtx, boost::interprocess::defer_lock);
+  bbmap_t &bbmap = b.BBMap.map;
   if (likely(!Speculative)) {
     e_lck_bbmap.lock();
 
@@ -375,8 +374,8 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_base_t<MT> &b,
     // does this new basic block start in the middle of a previously-created
     // basic block?
     //
-    auto it = bbmap_find(b.bbmap, Addr);
-    if (it != b.bbmap.end()) {
+    auto it = bbmap_find(bbmap, Addr);
+    if (it != bbmap.end()) {
       bool success;
       if constexpr (WithOnBlockProc)
         success = split<true>(b, Bin, boost::move(e_lck_bb), it, Addr, Idx, obp);
@@ -461,8 +460,8 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_base_t<MT> &b,
 
     if (likely(!Speculative)) {
       addr_intvl intervl(Addr, Size);
-      auto it = bbmap_find(b.bbmap, intervl);
-      if (it != b.bbmap.end()) {
+      auto it = bbmap_find(bbmap, intervl);
+      if (it != bbmap.end()) {
         addr_intvl _intervl = (*it).first;
 
         assert(addr_intvl_lower(intervl) < addr_intvl_lower(_intervl));
@@ -537,7 +536,7 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_base_t<MT> &b,
 
     addr_intvl intervl(bbprop.Addr, bbprop.Size);
     if (likely(!Speculative)) {
-      bbmap_add(b.bbmap, intervl, Idx);
+      bbmap_add(bbmap, intervl, Idx);
       e_lck_bbmap.unlock();
     }
 
@@ -618,7 +617,7 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_base_t<MT> &b,
     if (unlikely(Speculative)) {
       ICFG[basic_block_of_index(Idx, ICFG)].Term._call.Target = CalleeFIdx;
     } else {
-      auto s_lck_bbmap = b.bbmap_shared_access();
+      auto s_lck_bbmap = b.BBMap.shared_access();
 
       ICFG[basic_block_at_address(T.Addr, b)].Term._call.Target = CalleeFIdx;
     }
@@ -682,7 +681,7 @@ void explorer_t::_control_flow_to(
   if (unlikely(Speculative)) {
     ICFG.add_edge(bb, basic_block_of_index(SuccBBIdx, b));
   } else {
-    auto s_lck_bbmap = b.bbmap_shared_access();
+    auto s_lck_bbmap = b.BBMap.shared_access();
 
     ICFG.template add_edge<false>(basic_block_at_address(TermAddr, b),
                                   basic_block_of_index(SuccBBIdx, b));

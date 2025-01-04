@@ -1341,7 +1341,7 @@ int BootstrapTool::TracerLoop(pid_t child) {
         taddr_t TermAddr = 0;
 
         {
-          ip_sharable_lock<ip_sharable_mutex> s_lck(b.bbmap_mtx);
+          auto s_lck = b.BBMap.shared_access();
 
           icfg_t::vertex_iterator vi, vi_end;
           for (std::tie(vi, vi_end) = ICFG.vertices(); vi != vi_end; ++vi) {
@@ -1447,7 +1447,7 @@ void BootstrapTool::place_breakpoints_in_new_blocks(void) {
 #endif
 
 void BootstrapTool::place_breakpoints_in_block(binary_t &b, basic_block_t bb) {
-  ip_sharable_lock<ip_sharable_mutex> s_lck(b.bbmap_mtx);
+  auto s_lck = b.BBMap.shared_access();
 
   auto &ICFG = b.Analysis.ICFG;
 
@@ -2700,7 +2700,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
   unsigned out_deg;
   bool HasDynTarget = false;
   const TERMINATOR TermType = ({
-    ip_sharable_lock<ip_sharable_mutex> s_lck(binary.bbmap_mtx);
+    auto s_lck = binary.BBMap.shared_access();
 
     basic_block_t bb = basic_block_at_address(IndBrInfo.TermAddr, binary);
     out_deg = ICFG.out_degree(bb);
@@ -3024,7 +3024,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
       assert(is_function_index_valid(FIdx));
 
   {
-  ip_sharable_lock<ip_sharable_mutex> s_lck(binary.bbmap_mtx);
+  auto s_lck = binary.BBMap.shared_access();
 
 
       basic_block_t bb = basic_block_at_address(IndBrInfo.TermAddr, binary);
@@ -3099,7 +3099,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
   Target.isNew = ({
 
-  ip_sharable_lock<ip_sharable_mutex> s_lck(binary.bbmap_mtx);
+  auto s_lck = binary.BBMap.shared_access();
 
           basic_block_t bb = basic_block_at_address(IndBrInfo.TermAddr, binary);
           basic_block_properties_t &bbprop = ICFG[bb];
@@ -3119,7 +3119,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
   {
 
-  ip_sharable_lock<ip_sharable_mutex> s_lck(binary.bbmap_mtx);
+  auto s_lck = binary.BBMap.shared_access();
 
 
           basic_block_t bb = basic_block_at_address(IndBrInfo.TermAddr, binary);
@@ -4509,7 +4509,7 @@ void BootstrapTool::on_return(pid_t child,
 
     binary_t &b = jv.Binaries.at(RetBIdx);
 
-    ip_sharable_lock<ip_sharable_mutex> s_lck(b.bbmap_mtx);
+    auto s_lck = b.BBMap.shared_access();
 
     binary_index_t BIdx;
     basic_block_index_t BBIdx;
@@ -4554,7 +4554,7 @@ void BootstrapTool::on_return(pid_t child,
 
     binary_t &b = jv.Binaries.at(BIdx);
 
-    ip_sharable_lock<ip_sharable_mutex> s_lck(b.bbmap_mtx);
+    auto s_lck = b.BBMap.shared_access();
 
     //
     // what came before?
@@ -4799,14 +4799,12 @@ BootstrapTool::existing_block_at_program_counter(pid_t child, uintptr_t pc) {
   if (!is_binary_index_valid(BIdx))
     return std::make_pair(invalid_binary_index, invalid_basic_block_index);
 
-  binary_t &binary = jv.Binaries.at(BIdx);
+  binary_t &b = jv.Binaries.at(BIdx);
   uintptr_t rva = rva_of_va(pc, BIdx);
 
   basic_block_index_t BBIdx = ({
-    auto &bbmap = binary.bbmap;
-
-    auto it = bbmap_find(bbmap, rva);
-    if (it == bbmap.end())
+    auto it = bbmap_find(b.BBMap.map, rva);
+    if (it == b.BBMap.map.end())
       return std::make_pair(BIdx, invalid_basic_block_index);
 
     (*it).second;

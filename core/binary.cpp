@@ -19,7 +19,7 @@ bool binary_base_t<MT>::FixAmbiguousIndirectJump(taddr_t TermAddr,
 
   auto &ICFG = this->Analysis.ICFG;
   {
-    auto s_lck_bbmap = this->bbmap_shared_access();
+    auto s_lck_bbmap = this->BBMap.shared_access();
 
     basic_block_t bb = basic_block_at_address(TermAddr, *this);
 
@@ -52,7 +52,7 @@ bool binary_base_t<MT>::FixAmbiguousIndirectJump(taddr_t TermAddr,
                  });
 
   {
-    auto s_lck_bbmap = this->bbmap_shared_access();
+    auto s_lck_bbmap = this->BBMap.shared_access();
 
     auto &bbprop = ICFG[basic_block_at_address(TermAddr, *this)];
     for (function_index_t FIdx : SuccFIdxVec)

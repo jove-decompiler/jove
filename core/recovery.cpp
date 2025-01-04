@@ -49,7 +49,7 @@ std::string CodeRecovery::RecoverDynamicTarget(binary_index_t CallerBIdx,
   assert(TermAddr);
 
   bool Ambig = ({
-    auto s_lck = CallerBinary.bbmap_shared_access();
+    auto s_lck = CallerBinary.BBMap.shared_access();
 
     basic_block_t bb = basic_block_at_address(TermAddr, CallerBinary);
 
@@ -110,7 +110,7 @@ std::string CodeRecovery::RecoverBasicBlock(binary_index_t IndBrBIdx,
   uint64_t TermAddr = AddressOfTerminatorAtBasicBlock(IndBrBIdx, IndBrBBIdx);
 
   bool isNewTarget = ({
-    auto s_lck = b.bbmap_shared_access();
+    auto s_lck = b.BBMap.shared_access();
 
     basic_block_t bb = basic_block_at_address(TermAddr, b);
     assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP);
@@ -150,7 +150,7 @@ std::string CodeRecovery::RecoverFunctionAtAddress(binary_index_t IndCallBIdx,
   auto &ICFG = CallerBinary.Analysis.ICFG;
 
   bool Ambig = ({
-    auto s_lck = CallerBinary.bbmap_shared_access();
+    auto s_lck = CallerBinary.BBMap.shared_access();
 
     basic_block_t bb = basic_block_at_address(TermAddr, CallerBinary);
 
@@ -229,7 +229,7 @@ std::string CodeRecovery::Returns(binary_index_t CallBIdx,
   uint64_t TermAddr = AddressOfTerminatorAtBasicBlock(CallBIdx, CallBBIdx);
 
   uint64_t NextAddr = ({
-    auto s_lck = b.bbmap_shared_access();
+    auto s_lck = b.BBMap.shared_access();
 
     basic_block_t bb = basic_block_at_address(TermAddr, b);
 
@@ -241,7 +241,7 @@ std::string CodeRecovery::Returns(binary_index_t CallBIdx,
   assert(is_basic_block_index_valid(NextBBIdx));
 
   bool isNewTarget = ({
-    auto s_lck = b.bbmap_shared_access();
+    auto s_lck = b.BBMap.shared_access();
 
     basic_block_t bb = basic_block_at_address(TermAddr, b);
 
