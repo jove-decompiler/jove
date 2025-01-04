@@ -28,7 +28,6 @@ int UnlockTool::Run(void) {
     HumanOut() << "Standard input is not a TTY, skipping confirmation.\n";
   }
 
-  __builtin_memset(&jv.FIdxSetsMtx, 0, sizeof(jv.FIdxSetsMtx));
   jv.Binaries.__force_reset_access();
   std::for_each(
       std::execution::par_unseq,
@@ -43,10 +42,11 @@ int UnlockTool::Run(void) {
 	std::for_each(std::execution::par_unseq,
 		      it_pair.first,
 		      it_pair.second, [&](basic_block_t bb) {
-			__builtin_memset(&ICFG.container()[bb].mtx, 0,
-					 sizeof(ICFG.container()[bb].mtx));
-			__builtin_memset(&ICFG.container()[bb].Parents._mtx, 0,
-					 sizeof(ICFG.container()[bb].Parents._mtx));
+                        auto &bbprop = ICFG.container()[bb];
+
+			bbprop.__force_reset_access();
+			bbprop.pub.__force_reset_access();
+			bbprop.Parents.__force_reset_access();
 		      });
       });
 

@@ -49,6 +49,12 @@ struct ip_base_rw_accessible {
     return exclusive_lock_guard{mtx};
   }
 
+  void lock_sharable(void) const {
+    if constexpr (MT) {
+      mtx.lock_sharable();
+    }
+  }
+
   ip_base_rw_accessible() noexcept {}
   ip_base_rw_accessible(ip_base_rw_accessible &&) noexcept {}
   ip_base_rw_accessible &operator=(ip_base_rw_accessible &&other) noexcept {
@@ -86,6 +92,12 @@ struct ip_mt_base_rw_accessible {
   }
   template <bool MT> exclusive_lock_guard<MT> exclusive_access() const {
     return exclusive_lock_guard<MT>{mtx};
+  }
+
+  template <bool MT> void lock_sharable(void) const {
+    if constexpr (MT) {
+      mtx.lock_sharable();
+    }
   }
 
   ip_mt_base_rw_accessible() noexcept {}

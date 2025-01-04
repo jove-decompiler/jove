@@ -290,10 +290,9 @@ void DumpTool::dumpDecompilation(const jv_base_t<false>& jv) {
           Writer.printHexList("Successors", succs);
         }
 
-        if (ICFG[bb].HasParent())
+        const ip_func_index_set &_Parents = ICFG[bb].Parents.get<false>();
+        if (!_Parents.empty())
         {
-          const ip_func_index_set &_Parents = *ICFG[bb].Parents._p;
-
           std::vector<taddr_t> avec;
           avec.resize(_Parents.size());
 

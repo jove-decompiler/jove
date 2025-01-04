@@ -43,12 +43,13 @@ namespace {
 
 struct binary_state_t {
   std::unique_ptr<llvm::object::Binary> Bin;
-  binary_state_t(const binary_t &b) { Bin = B::Create(b.data()); }
+  binary_state_t(const auto &b) { Bin = B::Create(b.data()); }
 };
 
 }
 
-class CFGTool : public StatefulJVTool<ToolKind::CopyOnWrite, binary_state_t, void, void> {
+class CFGTool : public StatefulJVTool<ToolKind::SingleThreadedCopyOnWrite,
+                                      binary_state_t, void, void> {
   struct Cmdline {
     cl::opt<std::string> AddrOrOff;
     cl::opt<bool> Off;
@@ -197,7 +198,7 @@ std::string CFGTool::disassemble_basic_block(const GraphTy &G,
                                              typename GraphTy::vertex_descriptor V) {
   assert(BinaryIndex != invalid_binary_index);
 
-  binary_t &b = jv.Binaries.at(BinaryIndex);
+  auto &b = jv.Binaries.at(BinaryIndex);
 
   llvm::object::Binary &Bin = *state.for_binary(b).Bin;
   TCG.set_binary(Bin);
@@ -355,7 +356,7 @@ int CFGTool::Run(void) {
     return 1;
   }
 
-  binary_t &b = jv.Binaries.at(BinaryIndex);
+  auto &b = jv.Binaries.at(BinaryIndex);
   auto &ICFG = b.Analysis.ICFG;
   Addr = strtoull(opts.AddrOrOff.c_str(), nullptr, 0x10);
   if (opts.Off)
@@ -377,9 +378,7 @@ int CFGTool::Run(void) {
       //
       basic_block_t bb = basic_block_at_address(Addr, b);
 
-      func_index_set Parents;
-      ICFG[bb].GetParents(Parents);
-
+      const ip_func_index_set &Parents = ICFG[bb].Parents.get<false>();
       if (Parents.empty()) {
         WithColor::warning()
             << llvm::formatv("failed to find function for block {0:x} in {1}\n",

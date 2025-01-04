@@ -72,40 +72,30 @@ function_index_t explorer_t::_explore_function(binary_base_t<MT> &b,
 
   f.Entry = EntryIdx;
 
-#if 0
   //
   // all blocks reachable from Entry now have f as a parent
   //
   auto &ICFG = b.Analysis.ICFG;
 
   std::function<void(basic_block_t bb)> rec = [&](basic_block_t bb) -> void {
-    ICFG[bb].AddParent(Idx, jv);
+    ICFG[bb].Parents.template insert<MT>(Idx, b);
 
-    icfg_t::adjacency_iterator succ_it, succ_it_end;
-    for (std::tie(succ_it, succ_it_end) = ICFG.adjacent_vertices(bb);
-         succ_it != succ_it_end; ++succ_it) {
-      basic_block_t succ = *succ_it;
-
+    auto adj = ICFG.get_adjacent_vertices(bb);
+    for (basic_block_t succ : adj) {
       // TODO: if succ has no other predecessors we can reuse new set
 
       //
       // if a successor already has this function marked as a parent, then we
       // can assume everything reachable from it is already too
       //
-      if (ICFG[succ].IsParent(Idx))
+      if (ICFG[succ].Parents.template contains<MT>(Idx))
         continue;
 
       rec(succ);
     }
   };
 
-  /* FIXME significant slowdown */
-  {
-    ip_sharable_lock<ip_sharable_mutex> s_lck_ICFG(b.Analysis.ICFG._mtx);
-
-    rec(basic_block_of_index(EntryIdx, ICFG));
-  }
-#endif
+  rec(basic_block_of_index(EntryIdx, ICFG));
 
   return Idx;
 }

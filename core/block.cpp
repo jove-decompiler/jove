@@ -7,72 +7,35 @@
 namespace jove {
 
 template <bool MT>
-bool basic_block_properties_t::IsParent(function_index_t FIdx) const {
-  ip_sharable_lock<ip_sharable_mutex> s_lck(Parents._mtx);
-
-  if (!Parents._p)
-    return false;
-
-  return Parents._p->contains(FIdx);
-}
-
-template <bool MT>
-bool basic_block_properties_t::HasParent(void) const {
-  ip_sharable_lock<ip_sharable_mutex> s_lck(Parents._mtx);
-
-  if (!Parents._p)
-    return false;
-
-  return !Parents._p->empty();
-}
-
-template <bool MT>
-void basic_block_properties_t::AddParent(function_index_t FIdx, jv_base_t<MT> &jv) {
-  ip_func_index_set Idxs(jv.get_segment_manager());
-
+void basic_block_properties_t::Parents_t::insert(function_index_t FIdx,
+                                                 binary_base_t<MT> &b) {
   {
-    ip_sharable_lock<ip_sharable_mutex> s_lck_parents(Parents._mtx);
-
-    if (Parents._p) {
-      if (Parents._p->contains(FIdx))
-        return;
-
-      Idxs = *Parents._p;
-    }
-  }
-
-  {
-    bool success = Idxs.insert(FIdx).second;
-    assert(success);
-  }
-
-  {
-    ip_sharable_lock<ip_sharable_mutex> s_lck_sets(jv.FIdxSetsMtx);
-
-    auto it = jv.FIdxSets.find(Idxs);
-    if (it != jv.FIdxSets.end()) {
-      ip_scoped_lock<ip_sharable_mutex> e_lck_parents(Parents._mtx);
-
-      Parents._p = &(*it);
+    const ip_func_index_set &FIdxSet = get<MT>();
+    if (FIdxSet.contains(FIdx))
       return;
+
+    ip_func_index_set copy(FIdxSet);
+    copy.insert(FIdx);
+
+    const ip_func_index_set *TheSetPtr = nullptr;
+    if constexpr (MT) {
+      auto grab = [&](const ip_func_index_set &TheSet) -> void {
+        TheSetPtr = &TheSet;
+      };
+
+      b.FIdxSets.insert_and_cvisit(boost::move(copy), grab, grab);
+    } else {
+      TheSetPtr = &(*b.FIdxSets.insert(boost::move(copy)).first);
     }
+    assert(TheSetPtr);
+
+    set<MT>(*TheSetPtr);
   }
 
-  ip_scoped_lock<ip_sharable_mutex> e_lck_sets(jv.FIdxSetsMtx);
-  ip_scoped_lock<ip_sharable_mutex> e_lck_parents(Parents._mtx);
-
-  Parents._p = &(*jv.FIdxSets.insert(boost::move(Idxs)).first);
-}
-
-template <bool MT>
-void basic_block_properties_t::GetParents(func_index_set &out) const {
-  ip_sharable_lock<ip_sharable_mutex> s_lck(Parents._mtx);
-
-  if (!Parents._p)
+  if (get<MT>().contains(FIdx))
     return;
 
-  const ip_func_index_set &parents = *Parents._p;
-  out.insert(parents.begin(), parents.end());
+  __attribute__((musttail)) return insert<MT>(FIdx, b); /* try again */
 }
 
 bool basic_block_properties_t::doInsertDynTarget(const dynamic_target_t &X,
@@ -128,22 +91,8 @@ bool basic_block_properties_t::insertDynTarget(binary_index_t ThisBIdx,
 BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, VALUES_TO_INSTANTIATE_WITH)
 
 #define DO_INSTANTIATE(r, data, elem)                                          \
-  template bool basic_block_properties_t::IsParent<GET_VALUE(elem)>(           \
-      function_index_t FIdx) const;
-BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, VALUES_TO_INSTANTIATE_WITH)
-
-#define DO_INSTANTIATE(r, data, elem)                                          \
-  template void basic_block_properties_t::GetParents<GET_VALUE(elem)>(         \
-      func_index_set &) const;
-BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, VALUES_TO_INSTANTIATE_WITH)
-
-#define DO_INSTANTIATE(r, data, elem)                                          \
-  template void basic_block_properties_t::AddParent<GET_VALUE(elem)>(          \
-      function_index_t, jv_base_t<GET_VALUE(elem)> &);
-BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, VALUES_TO_INSTANTIATE_WITH)
-
-#define DO_INSTANTIATE(r, data, elem)                                          \
-  template bool basic_block_properties_t::HasParent<GET_VALUE(elem)>(void) const;
+  template void basic_block_properties_t::Parents_t::insert(                   \
+      function_index_t, binary_base_t<GET_VALUE(elem)> &);
 BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, VALUES_TO_INSTANTIATE_WITH)
 
 }

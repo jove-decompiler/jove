@@ -32,6 +32,7 @@
 #include <boost/unordered/unordered_flat_set.hpp>
 #include <boost/unordered/concurrent_flat_map.hpp>
 #include <boost/unordered/concurrent_flat_set.hpp>
+#include <boost/unordered/concurrent_node_set.hpp>
 #include <boost/interprocess/smart_ptr/unique_ptr.hpp>
 #include <boost/interprocess/containers/map.hpp>
 #include <boost/interprocess/containers/flat_map.hpp>
@@ -274,6 +275,11 @@ using possibly_concurrent_flat_set =
     std::conditional_t<MT, boost::concurrent_flat_set<Params...>,
                        boost::unordered_flat_set<Params...>>;
 
+template <bool MT, typename... Params>
+using possibly_concurrent_node_set =
+    std::conditional_t<MT, boost::concurrent_node_set<Params...>,
+                       boost::unordered_node_set<Params...>>;
+
 template <typename T, typename Alloc,
           bool MT = true,
           bool Spin = true,
@@ -342,6 +348,12 @@ struct deque : public ip_base_rw_accessible<MT, Spin> {
   const T &at(unsigned idx) const {
     auto s_lck = this->shared_access();
     return container().at(idx);
+  }
+
+  void clear(void) {
+    auto e_lck = this->exclusive_access();
+
+    container().clear();
   }
 
   /* FIXME */
@@ -636,6 +648,25 @@ struct adjacency_list : public ip_base_rw_accessible<MT, Spin> {
     return boost::in_edges(V, container());
   }
 
+  std::vector<vertex_descriptor>
+  get_adjacent_vertices(vertex_descriptor V) const {
+    std::vector<vertex_descriptor> res;
+
+#if 0
+    _S_LCK(L, container()[V].mtx);
+#else
+    auto s_lck = this->shared_access();
+#endif
+
+    res.reserve(boost::out_degree(V, container()));
+
+    adjacency_iterator it, it_end;
+    std::tie(it, it_end) = boost::adjacent_vertices(V, container());
+    std::copy(it, it_end, std::back_inserter(res));
+
+    return res;
+  }
+
 #undef _S_LCK
 #undef _E_LCK
 };
@@ -750,30 +781,22 @@ typedef boost::unordered::unordered_flat_set<
     std::equal_to<function_index_t>>
     func_index_set;
 
-typedef boost::unordered::unordered_flat_set<
-    function_index_t, boost::hash<function_index_t>,
-    std::equal_to<function_index_t>,
-    boost::interprocess::allocator<function_index_t, segment_manager_t>>
+typedef boost::interprocess::set<
+    function_index_t, std::less<function_index_t>,
+    boost::interprocess::node_allocator<function_index_t, segment_manager_t>>
     ip_func_index_set;
 
-typedef boost::unordered_node_set<ip_func_index_set,
-                                  boost::hash<ip_func_index_set>,
-                                  std::equal_to<ip_func_index_set>,
-                                  boost::interprocess::private_node_allocator<
-                                      function_index_t, segment_manager_t>>
-    ip_func_index_sets;
+template <bool MT>
+using ip_func_index_sets = possibly_concurrent_node_set<
+    MT, ip_func_index_set, boost::hash<ip_func_index_set>,
+    std::equal_to<ip_func_index_set>,
+    boost::interprocess::node_allocator<ip_func_index_set, segment_manager_t>>;
 
 size_t jvDefaultInitialSize(void);
 
 #include "jove/atomic.h"
 
 struct basic_block_properties_t : public ip_mt_base_rw_accessible_nospin {
-  template <bool MT> void lock_sharable(void) const {
-    if constexpr (MT) {
-      mtx.lock_sharable();
-    }
-  }
-
   struct pub_t : public ip_mt_base_rw_accessible_nospin {
     std::atomic<bool> is = false;
   } pub;
@@ -841,9 +864,38 @@ struct basic_block_properties_t : public ip_mt_base_rw_accessible_nospin {
     };
   } Analysis;
 
-  struct {
-    mutable ip_sharable_mutex _mtx;
-    boost::interprocess::offset_ptr<const ip_func_index_set> _p = nullptr;
+  struct Parents_t : public ip_mt_base_rw_accessible_spin {
+    boost::interprocess::offset_ptr<const ip_func_index_set> _p;
+
+    template <bool MT>
+    void set(const ip_func_index_set &x) {
+      auto e_lck = this->exclusive_access<MT>();
+
+      _p = &x;
+    }
+
+    template <bool MT>
+    const ip_func_index_set &get(void) const {
+      auto s_lck = this->shared_access<MT>();
+
+      assert(_p);
+      return *_p;
+    }
+
+    Parents_t() noexcept : _p(nullptr) {}
+
+    template <bool MT>
+    bool empty(void) const {
+      return get<MT>().empty();
+    }
+
+    template <bool MT>
+    bool contains(function_index_t FIdx) const {
+      return get<MT>().contains(FIdx);
+    }
+
+    template <bool MT>
+    void insert(function_index_t, binary_base_t<MT> &);
   } Parents;
 
   bool hasDynTarget(void) const {
@@ -925,15 +977,6 @@ struct basic_block_properties_t : public ip_mt_base_rw_accessible_nospin {
     return res;
   }
 
-  template <bool MT = true>
-  bool HasParent(void) const;
-  template <bool MT = true>
-  bool IsParent(function_index_t) const;
-  template <bool MT = true>
-  void AddParent(function_index_t, jv_base_t<MT> &);
-  template <bool MT = true>
-  void GetParents(func_index_set &) const;
-
   bool IsSingleInstruction(void) const { return Addr == Term.Addr; }
 
   void InvalidateAnalysis(void) {
@@ -976,7 +1019,9 @@ private:
     Term = other.Term;
     Sj = other.Sj;
     Analysis = other.Analysis;
+
     Parents._p = other.Parents._p;
+    other.Parents._p = nullptr;
 
     DynTargets._sm = other.DynTargets._sm;
     other.DynTargets._sm = nullptr;
@@ -1138,6 +1183,9 @@ struct binary_base_t {
 
   bool IsDynamicallyLoaded;
 
+  ip_unique_ptr<ip_func_index_set> EmptyFIdxSet;
+  ip_func_index_sets<MT> FIdxSets;
+
   using bbmap_mutex_type =
       std::conditional_t<MT, ip_sharable_mutex, std::monostate>;
   using bbmap_shared_lock_guard =
@@ -1282,6 +1330,12 @@ struct binary_base_t {
         bbmap(*bbmap_alloc),
         fnmap(jv_file.get_segment_manager()),
         Name(jv_file.get_segment_manager()),
+        EmptyFIdxSet(boost::interprocess::make_managed_unique_ptr(
+            jv_file.construct<ip_func_index_set>(
+                boost::interprocess::anonymous_instance)(
+                jv_file.get_segment_manager()),
+            jv_file)),
+        FIdxSets(jv_file.get_segment_manager()),
         Data(jv_file.get_segment_manager()), Analysis(jv_file) {}
 
   template <bool MT2>
@@ -1302,6 +1356,9 @@ struct binary_base_t {
         IsVDSO(other.IsVDSO),
         IsPIC(other.IsPIC),
         IsDynamicallyLoaded(other.IsDynamicallyLoaded),
+
+        EmptyFIdxSet(std::move(other.EmptyFIdxSet)),
+        FIdxSets(std::move(other.FIdxSets)),
 
         Analysis(std::move(other.Analysis)) {}
 
@@ -1328,6 +1385,9 @@ struct binary_base_t {
     IsVDSO = other.IsVDSO;
     IsPIC = other.IsPIC;
     IsDynamicallyLoaded = other.IsDynamicallyLoaded;
+
+    EmptyFIdxSet = std::move(other.EmptyFIdxSet);
+    FIdxSets = std::move(other.FIdxSets);
 
     Analysis.template operator=<MT2>(std::move(other.Analysis));
 
@@ -1360,6 +1420,7 @@ allocates_basic_block_t::allocates_basic_block_t(binary_base_t<MT> &b,
   basic_block_index_t Idx = ICFG.index_of_add_vertex(b.get_segment_manager());
   auto &bbprop = ICFG[ICFG.template vertex<false>(Idx)];
   bbprop.Addr = Addr;
+  bbprop.Parents.template set<false>(*b.EmptyFIdxSet);
 
   if constexpr (MT) {
     bool success;
@@ -1540,9 +1601,6 @@ struct jv_base_t {
         MT>
       Binaries;
 
-  ip_func_index_sets FIdxSets;
-  ip_sharable_mutex FIdxSetsMtx;
-
   ip_hash_to_binary_map_type<MT> hash_to_binary;
   ip_cached_hashes_type<MT> cached_hashes; /* NOT serialized */
 
@@ -1559,7 +1617,6 @@ struct jv_base_t {
 
   explicit jv_base_t(jv_file_t &jv_file) noexcept
       : Binaries(jv_file),
-        FIdxSets(jv_file.get_segment_manager()),
         hash_to_binary(jv_file.get_segment_manager()),
         cached_hashes(jv_file.get_segment_manager()),
         name_to_binaries(jv_file.get_segment_manager()) {}
@@ -1567,7 +1624,6 @@ struct jv_base_t {
   template <bool MT2>
   jv_base_t(jv_base_t<MT2> &&other, jv_file_t &jv_file) noexcept
       : Binaries(jv_file),
-        FIdxSets(std::move(other.FIdxSets)),
         hash_to_binary(std::move(other.hash_to_binary)),
         cached_hashes(std::move(other.cached_hashes)),
         name_to_binaries(std::move(other.name_to_binaries)) {

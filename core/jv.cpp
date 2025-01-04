@@ -406,16 +406,7 @@ void jv_base_t<MT>::clear(bool everything) {
   name_to_binaries.clear();
   hash_to_binary.clear();
 
-  {
-    auto e_lck = this->Binaries.exclusive_access();
-
-    this->Binaries.container().clear();
-  }
-
-  {
-    ip_scoped_lock<ip_sharable_mutex> e_lck_sets(this->FIdxSetsMtx);
-    this->FIdxSets.clear();
-  }
+  this->Binaries.clear();
 
   if (everything)
     cached_hashes.clear();
