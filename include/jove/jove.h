@@ -2416,11 +2416,16 @@ constexpr binary_base_t<MT> &binary_of_function(function_t &f,
 }
 
 template <bool MT>
+constexpr const function_t &function_of_target(dynamic_target_t X, const jv_base_t<MT> &jv) {
+  return jv.Binaries.at(X.first).Analysis.Functions.at(X.second);
+}
+
+template <bool MT>
 constexpr function_t &function_of_target(dynamic_target_t X, jv_base_t<MT> &jv) {
   return jv.Binaries.at(X.first).Analysis.Functions.at(X.second);
 }
 
-constexpr dynamic_target_t target_of_function(function_t &f) {
+constexpr dynamic_target_t target_of_function(const function_t &f) {
   return {binary_index_of_function(f), index_of_function(f)};
 }
 
