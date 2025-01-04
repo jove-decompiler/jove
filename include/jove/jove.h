@@ -1177,11 +1177,11 @@ struct binary_base_t {
   ip_string Data;
   hash_t Hash;
 
-  bool IsDynamicLinker, IsExecutable, IsVDSO;
-
-  bool IsPIC;
-
-  bool IsDynamicallyLoaded;
+  bool IsDynamicLinker = false;
+  bool IsExecutable = false;
+  bool IsVDSO = false;
+  bool IsPIC = false;
+  bool IsDynamicallyLoaded = false;
 
   ip_unique_ptr<ip_func_index_set> EmptyFIdxSet;
   ip_func_index_sets<MT> FIdxSets;
