@@ -9,33 +9,40 @@ namespace jove {
 template <bool MT>
 void basic_block_properties_t::Parents_t::insert(function_index_t FIdx,
                                                  binary_base_t<MT> &b) {
-  {
-    const ip_func_index_set &FIdxSet = get<MT>();
-    if (FIdxSet.contains(FIdx))
-      return;
+  const ip_func_index_set &FIdxSet = get<MT>();
+  if (FIdxSet.contains(FIdx))
+    return;
 
-    ip_func_index_set copy(FIdxSet);
-    copy.insert(FIdx);
+  if constexpr (MT) {
+    {
+      ip_func_index_set copy(FIdxSet);
+      copy.insert(FIdx);
 
-    const ip_func_index_set *TheSetPtr = nullptr;
-    if constexpr (MT) {
+      const ip_func_index_set *TheSetPtr = nullptr;
+
       auto grab = [&](const ip_func_index_set &TheSet) -> void {
         TheSetPtr = &TheSet;
       };
 
       b.FIdxSets.insert_and_cvisit(boost::move(copy), grab, grab);
-    } else {
-      TheSetPtr = &(*b.FIdxSets.insert(boost::move(copy)).first);
+
+      assert(TheSetPtr);
+      set<MT>(*TheSetPtr);
     }
-    assert(TheSetPtr);
 
-    set<MT>(*TheSetPtr);
+    if (get<MT>().contains(FIdx))
+      return;
+
+    __attribute__((musttail)) return insert<MT>(FIdx, b); /* try again */
+  } else {
+    ip_func_index_set copy(FIdxSet);
+    copy.insert(FIdx);
+
+    auto insert_ret = b.FIdxSets.insert(boost::move(copy));
+    assert(insert_ret.second);
+
+    set<MT>(*insert_ret.first);
   }
-
-  if (get<MT>().contains(FIdx))
-    return;
-
-  __attribute__((musttail)) return insert<MT>(FIdx, b); /* try again */
 }
 
 bool basic_block_properties_t::doInsertDynTarget(const dynamic_target_t &X,
