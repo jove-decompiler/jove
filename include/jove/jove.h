@@ -34,6 +34,7 @@
 #include <boost/unordered/concurrent_flat_set.hpp>
 #include <boost/unordered/concurrent_node_set.hpp>
 #include <boost/interprocess/smart_ptr/unique_ptr.hpp>
+#include <boost/smart_ptr/detail/spinlock.hpp>
 #include <boost/interprocess/containers/map.hpp>
 #include <boost/interprocess/containers/flat_map.hpp>
 #include <boost/interprocess/containers/flat_set.hpp>
@@ -899,8 +900,13 @@ struct basic_block_properties_t : public ip_mt_base_rw_accessible_nospin {
     };
   } Analysis;
 
-  struct Parents_t : public ip_mt_base_rw_accessible_spin {
-    boost::interprocess::offset_ptr<const ip_func_index_set> _p;
+  class Parents_t : public ip_mt_base_accessible_spin {
+    boost::interprocess::offset_ptr<const ip_func_index_set> _p = nullptr;
+
+    friend basic_block_properties_t;
+    friend allocates_basic_block_t;
+
+    Parents_t() noexcept {}
 
     template <bool MT>
     void set(const ip_func_index_set &x) {
@@ -909,15 +915,14 @@ struct basic_block_properties_t : public ip_mt_base_rw_accessible_nospin {
       _p = &x;
     }
 
+  public:
     template <bool MT>
     const ip_func_index_set &get(void) const {
-      auto s_lck = this->shared_access<MT>();
+      auto s_lck = this->exclusive_access<MT>();
 
       assert(_p);
       return *_p;
     }
-
-    Parents_t() noexcept : _p(nullptr) {}
 
     template <bool MT>
     bool empty(void) const {
