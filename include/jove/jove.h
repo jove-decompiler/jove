@@ -2415,6 +2415,10 @@ constexpr function_t &function_of_target(dynamic_target_t X, jv_base_t<MT> &jv) 
   return jv.Binaries.at(X.first).Analysis.Functions.at(X.second);
 }
 
+constexpr dynamic_target_t target_of_function(function_t &f) {
+  return {binary_index_of_function(f), index_of_function(f)};
+}
+
 template <bool MT>
 static inline void basic_blocks_of_function_at_block(basic_block_t entry,
                                                      const binary_base_t<MT> &b,
