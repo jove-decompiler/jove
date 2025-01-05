@@ -69,6 +69,7 @@ function(tool_for_arch arch arch_extra_cflags qemu_objs)
     ../core/elf.cpp
     ../core/explore.cpp
     ../core/fd.cpp
+    ../core/flow.cpp
     ../core/function.cpp
     ../core/hash.cpp
     ../core/ida.cpp

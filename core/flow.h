@@ -1,6 +1,10 @@
 #pragma once
 #include "jove/jove.h"
 
+//
+// data-flow analysis (liveness, reaching definitions)
+//
+
 namespace jove {
 
 struct flow_vertex_properties_t {
@@ -31,5 +35,10 @@ typedef flow_graph_t::vertex_descriptor flow_vertex_t;
 typedef flow_graph_t::edge_descriptor flow_edge_t;
 
 using flow_vertex_vec_t = std::vector<flow_vertex_t>;
+
+
+void verticesInDfsOrder(const flow_graph_t &, flow_vertex_vec_t &out);
+void livenessComputeFixpoint(flow_graph_t &, const flow_vertex_vec_t &dfsOrder);
+void reachingComputeFixpoint(flow_graph_t &, const flow_vertex_vec_t &dfsOrder);
 
 }
