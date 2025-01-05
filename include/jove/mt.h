@@ -145,7 +145,9 @@ struct ip_mt_base_accessible {
     return exclusive_lock_guard<MT>{mtx};
   }
 
-  ip_mt_base_accessible() noexcept {}
+  ip_mt_base_accessible() noexcept requires(Spin) : mtx BOOST_DETAIL_SPINLOCK_INIT {}
+  ip_mt_base_accessible() noexcept requires(!Spin) = default;
+
   ip_mt_base_accessible(ip_mt_base_accessible &&) noexcept {}
   ip_mt_base_accessible &operator=(ip_mt_base_accessible &&other) noexcept {
     return *this;
