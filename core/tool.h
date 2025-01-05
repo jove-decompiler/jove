@@ -218,6 +218,11 @@ struct BaseJVTool : public Tool {
 
 enum class ToolKind { Standard, CopyOnWrite, SingleThreadedCopyOnWrite };
 
+constexpr bool IsToolKindCopyOnWrite(ToolKind Kind) {
+  return Kind == ToolKind::CopyOnWrite ||
+         Kind == ToolKind::SingleThreadedCopyOnWrite;
+}
+
 template <ToolKind Kind> struct JVTool {};
 
 template <>
@@ -269,10 +274,15 @@ template <ToolKind Kind,
           bool MultiThreaded = true,
           bool LazyInitialization = true,
           bool Eager = false,
-          bool BoundsChecking = true>
+          bool BoundsChecking = true,
+          bool SubjectToChange = true>
 struct StatefulJVTool : public JVTool<Kind> {
+  static_assert(!(!IsToolKindCopyOnWrite(Kind) && !SubjectToChange),
+                "if !CoW then must be subject to change");
+
   jv_state_t<BinaryStateT, FunctionStateT, BBStateT, MultiThreaded,
-             LazyInitialization, Eager, BoundsChecking, JVTool<Kind>::IsToolMT>
+             LazyInitialization, Eager, BoundsChecking, JVTool<Kind>::IsToolMT,
+             SubjectToChange>
       state;
 
   template <typename... Args>

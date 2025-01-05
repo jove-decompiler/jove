@@ -1,6 +1,8 @@
 #include "tool.h"
 #include "B.h"
 #include "tcg.h"
+#include "calls.h"
+#include "analyze.h"
 
 #include <boost/filesystem.hpp>
 #include <boost/format.hpp>
@@ -27,50 +29,7 @@ using llvm::WithColor;
 
 namespace jove {
 
-namespace {
-
-struct function_state_t {
-  basic_block_vec_t bbvec;
-  basic_block_vec_t exit_bbvec;
-
-  bool IsLeaf;
-
-  bool IsSj, IsLj;
-
-  function_state_t(const function_t &f, const binary_t &b) {
-    basic_blocks_of_function(f, b, bbvec);
-    exit_basic_blocks_of_function(f, b, bbvec, exit_bbvec);
-
-    IsLeaf = IsLeafFunction(f, b, bbvec, exit_bbvec);
-    IsSj = IsFunctionSetjmp(f, b, bbvec);
-    IsLj = IsFunctionLongjmp(f, b, bbvec);
-
-#if 0
-    const function_index_t FIdx = index_of_function_in_binary(f, b);
-
-    auto &ICFG = b.Analysis.ICFG;
-    std::for_each(std::execution::par_unseq,
-                  bbvec.begin(),
-                  bbvec.end(),
-                  [&](basic_block_t bb) {
-                    if (!ICFG[bb].IsParent(FIdx))
-                      ICFG[bb].AddParent(FIdx, jv);
-                  });
-#endif
-  }
-};
-
-struct binary_state_t {
-  std::unique_ptr<llvm::object::Binary> Bin;
-
-  binary_state_t(const binary_t &b) { Bin = B::Create(b.data()); }
-};
-
-}
-
-class AnalyzeTool
-    : public StatefulJVTool<ToolKind::Standard, binary_state_t,
-                            function_state_t, void, true, false, true, false> {
+class AnalyzeTool : public JVTool<ToolKind::Standard> {
   struct Cmdline {
     cl::opt<bool> ForeignLibs;
     cl::alias ForeignLibsAlias;
@@ -107,11 +66,10 @@ class AnalyzeTool
 
   } opts;
 
-  tcg_global_set_t PinnedEnvGlbs = InitPinnedEnvGlbs;
-
   std::unique_ptr<tiny_code_generator_t> TCG;
-  std::unique_ptr<llvm::LLVMContext> Context;
-  std::unique_ptr<llvm::Module> Module;
+  std::unique_ptr<analyzer_t<IsToolMT>> analyzer;
+
+  analyzer_options_t analyzer_opts;
 
   int AnalyzeBlocks(void);
   int AnalyzeFunctions(void);
@@ -128,37 +86,6 @@ JOVE_REGISTER_TOOL("analyze", AnalyzeTool);
 typedef boost::format fmt;
 
 int AnalyzeTool::Run(void) {
-  identify_ABIs(jv);
-
-  bool IsCOFF = B::_X(*state.for_binary(jv.Binaries.at(0)).Bin,
-      [&](ELFO &O) -> bool { return false; },
-      [&](COFFO &O) -> bool { return true; });
-  //
-  // create LLVM module (necessary to analyze helpers)
-  //
-  Context.reset(new llvm::LLVMContext);
-
-  std::string path_to_bitcode = locator().starter_bitcode(false, IsCOFF);
-
-  llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> BufferOr =
-      llvm::MemoryBuffer::getFile(path_to_bitcode);
-  if (!BufferOr) {
-    WithColor::error() << llvm::formatv("failed to open {0}: {1}\n",
-                                        path_to_bitcode,
-                                        BufferOr.getError().message());
-    return 1;
-  }
-
-  llvm::Expected<std::unique_ptr<llvm::Module>> moduleOr =
-      llvm::parseBitcodeFile(BufferOr.get()->getMemBufferRef(), *Context);
-  if (!moduleOr) {
-    llvm::logAllUnhandledErrors(moduleOr.takeError(), HumanOut(),
-                                "could not parse helper bitcode: ");
-    return 1;
-  }
-
-  Module = std::move(moduleOr.get());
-
   //
   // initialize TCG
   //
@@ -169,128 +96,25 @@ int AnalyzeTool::Run(void) {
     if (idx < 0)
       die("unknown global to pin: " + PinnedGlobalName);
 
-    PinnedEnvGlbs.set(idx);
+    analyzer_opts.PinnedEnvGlbs.set(idx);
   }
+
+  analyzer = std::make_unique<analyzer_t<IsToolMT>>(analyzer_opts, *TCG, jv);
 
   return AnalyzeBlocks()
       || AnalyzeFunctions();
 }
 
-// defined in tools/llvm.cpp
-template <bool MT>
-void AnalyzeBasicBlock(tiny_code_generator_t &TCG,
-                       llvm::Module &M,
-                       binary_base_t<MT> &binary,
-                       llvm::object::Binary &B,
-                       basic_block_t bb,
-                       bool DFSan = false,
-                       bool ForCBE = false,
-                       Tool *tool = nullptr);
-
-template <bool MT>
-void AnalyzeFunction(jv_base_t<MT> &jv,
-                     tiny_code_generator_t &TCG,
-                     llvm::Module &M,
-                     function_t &f,
-                     std::function<llvm::object::Binary &(binary_base_t<MT> &)> GetBinary,
-                     std::function<std::pair<basic_block_vec_t &, basic_block_vec_t &>(function_t &)> GetBlocks,
-                     bool DFSan = false,
-                     bool ForCBE = false,
-                     tcg_global_set_t PinnedEnvGlbs = InitPinnedEnvGlbs,
-                     Tool *tool = nullptr);
-
 int AnalyzeTool::AnalyzeBlocks(void) {
-  std::atomic<unsigned> count = 0;
-
-  for_each_basic_block(
-      std::execution::seq, /* FIXME */
-      jv, [&](binary_t &b, basic_block_t bb) {
-        const auto &ICFG = b.Analysis.ICFG;
-        if (ICFG[bb].Analysis.Stale)
-          ++count;
-
-        AnalyzeBasicBlock(*TCG, *Module, b, *state.for_binary(b).Bin, bb,
-                          false, false, this);
-
-        assert(!ICFG[bb].Analysis.Stale);
-      });
-
-  if (unsigned c = count.load())
-    WithColor::note() << llvm::formatv("Analyzed {0} basic block{1}.\n", c,
-                                       c == 1 ? "" : "s");
-
-  if (opts.Conservative >= 1)
-  for_each_function_if(std::execution::par_unseq, jv,
-      [](function_t &f) { return f.IsABI; },
-      [](function_t &f, binary_t &b) {
-        auto &ICFG = b.Analysis.ICFG;
-        assert(is_basic_block_index_valid(f.Entry));
-        ICFG[basic_block_of_index(f.Entry, ICFG)].Analysis.live.use |= CallConvArgs;
-      });
-
-  return 0;
+  return analyzer->analyze_blocks();
 }
 
 int AnalyzeTool::AnalyzeFunctions(void) {
 #ifndef JOVE_TSAN /* FIXME */
-  for_each_basic_block(
-      std::execution::unseq, jv, [&](binary_t &b, basic_block_t bb) {
-        auto &ICFG = b.Analysis.ICFG;
-        taddr_t TermAddr = ICFG[bb].Term.Addr;
-
-        if (ICFG[bb].Term.Type == TERMINATOR::CALL) {
-          assert(TermAddr);
-#if 0
-          b.Analysis.Functions.at(ICFG[bb].Term._call.Target)
-              .Callers.emplace(index_of_binary(b, jv), TermAddr);
-#endif
-          return;
-        }
-
-        if (!ICFG[bb].hasDynTarget())
-          return;
-
-        assert(TermAddr);
-        ICFG[bb].DynTargetsForEach(
-            std::execution::par_unseq, [&](const dynamic_target_t &X) {
-              function_t &f = function_of_target(X, jv);
-#if 0
-              f.Callers.emplace(index_of_binary(b, jv), TermAddr);
-#endif
-            });
-      });
-
-  for_each_function(
-      std::execution::par_unseq, jv, [&](function_t &f, binary_t &b) {
-        function_index_t FIdx = index_of_function_in_binary(f, b);
-
-        function_state_t &x = state.for_function(f);
-
-        if (!x.exit_bbvec.empty())
-          f.Returns = true;
-
-        if (x.IsSj) {
-          std::for_each(
-              f.Callers.set.cbegin(),
-              f.Callers.set.cend(),
-              [&](const caller_t &pair) -> void {
-                binary_t &caller_b = jv.Binaries.at(
-                    is_binary_index_valid(pair.first) ? pair.first
-                                                      : index_of_binary(b, jv));
-
-                if (&caller_b != &b)
-                  return;
-
-                auto &caller_ICFG = caller_b.Analysis.ICFG;
-                basic_block_t caller_bb = basic_block_at_address(pair.second, caller_b);
-                auto &caller_bbprop = caller_ICFG[caller_bb];
-
-                if (caller_bbprop.Term.Type == TERMINATOR::INDIRECT_JUMP) {
-                  racy::set(caller_bbprop.Sj);
-                }
-              });
-        }
-      });
+  analyzer->update_callers();
+  analyzer->update_parents();
+  analyzer->identify_ABIs();
+  analyzer->identify_Sjs();
 #endif
 
 #if 0 /* force initializing state upfront */
@@ -303,13 +127,38 @@ int AnalyzeTool::AnalyzeFunctions(void) {
   });
 #endif
 
+#if 0 /* dump topo */
+  for (call_graph_t::vertex_descriptor V : topo) {
+    function_t &f = function_of_target(call_graph[V], jv);
+    auto &b = binary_of_function(f, jv);
+
+    HumanOut() << llvm::formatv("{0}.{1}\n", b.Name.c_str(),
+                                index_of_function(f));
+  }
+#endif
+
+  jv.InvalidateFunctionAnalyses();
+
+#if 0
+  call_graph_builder_t cg(jv);
+
+  if (IsVeryVerbose()) {
+    std::string dot_path = (fs::path(temporary_dir()) / "call_graph.dot").string();
+    std::ofstream ofs(dot_path);
+    cg.write_graphviz(ofs);
+  }
+
+  std::vector<call_graph_t::vertex_descriptor> topo;
+  cg.best_toposort(topo);
+#endif
+
   boost::concurrent_flat_set<dynamic_target_t> inflight;
   std::atomic<uint64_t> done = 0;
 
   auto analyze_functions_in_binary = [&](auto &b) -> void {
     for_each_function_in_binary(
         std::execution::par_unseq, b, [&](function_t &f) {
-          const dynamic_target_t X(index_of_binary(b, jv),
+          const dynamic_target_t X(index_of_binary(b),
                                    index_of_function(f));
 
           if (IsVeryVerbose())
@@ -326,16 +175,7 @@ int AnalyzeTool::AnalyzeFunctions(void) {
           if (!f.Analysis.Stale)
             return;
 
-          AnalyzeFunction<true>(
-              jv, *TCG, *Module, f,
-              [&](binary_t &b) -> llvm::object::Binary & {
-                return *state.for_binary(b).Bin;
-              },
-              [&](function_t &f) -> std::pair<basic_block_vec_t &, basic_block_vec_t &> {
-                function_state_t &x = state.for_function(f);
-                return std::pair<basic_block_vec_t &, basic_block_vec_t &>(x.bbvec, x.exit_bbvec);
-              },
-              false, false, PinnedEnvGlbs, this);
+          analyzer->analyze_function(f);
 
           assert(!f.Analysis.Stale);
         });
@@ -346,14 +186,15 @@ int AnalyzeTool::AnalyzeFunctions(void) {
       analyze_functions_in_binary(jv.Binaries.at(0));
     else
       for_each_binary(std::execution::par_unseq, jv,
-                      [&](binary_t &b) { analyze_functions_in_binary(b); });
+                      [&](auto &b) { analyze_functions_in_binary(b); });
   };
 
   const uint64_t N =
       opts.ForeignLibs
           ? jv.Binaries.at(0).Analysis.Functions.size()
-          : std::accumulate(jv.Binaries.begin(), jv.Binaries.end(), 0,
-                            [](uint64_t x, const binary_t &b) {
+          : std::accumulate(jv.Binaries.begin(),
+                            jv.Binaries.end(), 0,
+                            [](uint64_t x, const auto &b) {
                               return x + b.Analysis.Functions.size();
                             });
 

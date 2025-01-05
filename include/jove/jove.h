@@ -2,23 +2,7 @@
 #define JOVE_H
 #define IN_JOVE_H
 
-#if defined(TARGET_AARCH64)
-#include <jove/tcgconstants-aarch64.h>
-#elif defined(TARGET_X86_64)
-#include <jove/tcgconstants-x86_64.h>
-#elif defined(TARGET_I386)
-#include <jove/tcgconstants-i386.h>
-#elif defined(TARGET_MIPS64)
-#include <jove/tcgconstants-mips64el.h>
-#elif defined(TARGET_MIPSEL)
-#include <jove/tcgconstants-mipsel.h>
-#elif defined(TARGET_MIPS)
-#include <jove/tcgconstants-mips.h>
-#define TARGET_WORDS_BIGENDIAN
-#else
-#error "unknown target"
-#endif
-
+#include "jove/tcg.h"
 #ifdef __cplusplus
 #include "jove/macros.h"
 #include "jove/types.h"
@@ -906,7 +890,7 @@ struct basic_block_properties_t : public ip_mt_base_rw_accessible_nospin {
     friend basic_block_properties_t;
     friend allocates_basic_block_t;
 
-    Parents_t() noexcept {}
+    Parents_t() noexcept = default;
 
     template <bool MT>
     void set(const ip_func_index_set &x) {
@@ -1156,6 +1140,23 @@ constexpr bool IsExitBlock(const ip_icfg_base_t<MT> &ICFG, basic_block_t bb) {
 //       ...
 //
 typedef std::pair<binary_index_t, taddr_t> caller_t;
+
+template <bool MT>
+constexpr block_t block_for_caller_in_binary(const caller_t &caller,
+                                             const binary_base_t<MT> &caller_b,
+                                             const jv_base_t<MT> &jv) {
+  const binary_index_t BIdx =
+      is_binary_index_valid(caller.first)
+          ? caller.first
+          : index_of_binary(caller_b); /* invalid => binary of caller */
+
+  const binary_base_t<MT> &b = jv.Binaries.at(BIdx);
+  const basic_block_index_t BBIdx =
+      index_of_basic_block_at_address(caller.second, b);
+
+  return {BIdx, BBIdx};
+}
+
 typedef boost::interprocess::set<
     caller_t, std::less<caller_t>,
     boost::interprocess::node_allocator<caller_t, segment_manager_t>>
@@ -1168,10 +1169,31 @@ struct function_t {
   function_index_t Idx = invalid_function_index;
   basic_block_index_t Entry = invalid_basic_block_index;
 
-  struct Callers_t : public ip_mt_base_rw_accessible_spin {
+  class Callers_t : private ip_mt_base_rw_accessible_spin {
     callers_t set;
 
+  public:
     explicit Callers_t(segment_manager_t *sm) noexcept : set(sm) {}
+
+    template <bool MT>
+    void insert(binary_index_t BIdx, taddr_t TermAddr) {
+      auto e_lck = this->exclusive_access<MT>();
+
+      set.emplace(BIdx, TermAddr);
+    }
+
+    template <bool MT>
+    shared_lock_guard<MT> get(const callers_t *&out) const {
+      out = &set;
+      return this->shared_access<MT>();
+    }
+
+    template <bool MT>
+    bool empty(void) const {
+      auto s_lck = this->shared_access<MT>();
+
+      return set.empty();
+    }
   } Callers;
 
   struct Analysis_t {
@@ -2416,7 +2438,8 @@ constexpr binary_base_t<MT> &binary_of_function(function_t &f,
 }
 
 template <bool MT>
-constexpr const function_t &function_of_target(dynamic_target_t X, const jv_base_t<MT> &jv) {
+constexpr const function_t &function_of_target(dynamic_target_t X,
+                                               const jv_base_t<MT> &jv) {
   return jv.Binaries.at(X.first).Analysis.Functions.at(X.second);
 }
 
@@ -2720,28 +2743,6 @@ static inline void construct_bbmap(const jv_base_t<MT> &jv,
     const auto &bbprop = ICFG[bb];
 
     bbmap_add(out, addr_intvl(bbprop.Addr, bbprop.Size), ICFG.index(bb));
-  });
-}
-
-template <bool MT>
-static inline void identify_ABIs(jv_base_t<MT> &jv) {
-  //
-  // If a function is called from a different binary, it is an ABI.
-  //
-  for_each_basic_block(std::execution::par_unseq,
-                       jv, [&](binary_base_t<MT> &b, basic_block_t bb) {
-    auto &bbprop = b.Analysis.ICFG[bb];
-    if (!bbprop.hasDynTarget())
-      return;
-
-    const binary_index_t BIdx = index_of_binary(b, jv);
-
-    if (bbprop.DynTargetsAnyOf(
-            [&](const dynamic_target_t &X) { return X.first != BIdx; }))
-      bbprop.DynTargetsForEach(std::execution::par_unseq,
-                               [&](const dynamic_target_t &X) {
-                                 racy::set(function_of_target(X, jv).IsABI);
-                               });
   });
 }
 

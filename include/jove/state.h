@@ -9,7 +9,8 @@ template <typename BinaryStateTy = void,
           bool LazyInitialization = true,
           bool Eager = false,
           bool BoundsChecking = true,
-          bool MT = true>
+          bool MT = true,
+          bool SubjectToChange = true>
 struct jv_state_t {
   static_assert(!std::is_void_v<BinaryStateTy> ||
                 !std::is_void_v<FunctionStateTy> ||
@@ -18,6 +19,9 @@ struct jv_state_t {
 
   static_assert(!(!BoundsChecking && !Eager),
                 "If no bounds checking must be eager");
+
+  static_assert(!(!BoundsChecking && SubjectToChange),
+                "If no bounds checking must not be subject to change");
 
   const jv_base_t<MT> &jv;
 
@@ -314,7 +318,20 @@ private:
   {
     if constexpr (BoundsChecking) {
       if constexpr (Eager) {
-        return std::get<0>(x.at(index_of_binary<MT>(b, jv)));
+        if constexpr (SubjectToChange) {
+          try {
+            auto s_lck = shared_access();
+
+            return std::get<0>(x.at(index_of_binary<MT>(b, jv)));
+          } catch (const std::out_of_range &ex) {}
+          {
+            auto e_lck = exclusive_access();
+            update();
+          }
+          __attribute__((musttail)) return __for_binary(b);
+        } else {
+          return std::get<0>(x.at(index_of_binary<MT>(b, jv)));
+        }
       } else {
         auto s_lck = shared_access();
 
@@ -339,10 +356,26 @@ private:
   {
     if constexpr (BoundsChecking) {
       if constexpr (Eager) {
-        binary_index_t BIdx = binary_index_of_function<MT>(f, jv);
-        function_index_t FIdx = index_of_function(f);
+        if constexpr (SubjectToChange) {
+          try {
+            auto s_lck = shared_access();
 
-        return std::get<1>(x.at(BIdx)).at(FIdx);
+            binary_index_t BIdx = binary_index_of_function<MT>(f, jv);
+            function_index_t FIdx = index_of_function(f);
+
+            return std::get<1>(x.at(BIdx)).at(FIdx);
+          } catch (const std::out_of_range &ex) {}
+          {
+            auto e_lck = exclusive_access();
+            update();
+          }
+          __attribute__((musttail)) return __for_function(f);
+        } else {
+          binary_index_t BIdx = binary_index_of_function<MT>(f, jv);
+          function_index_t FIdx = index_of_function(f);
+
+          return std::get<1>(x.at(BIdx)).at(FIdx);
+        }
       } else {
         auto s_lck = shared_access();
 
@@ -381,10 +414,26 @@ private:
   {
     if constexpr (BoundsChecking) {
       if constexpr (Eager) {
-        binary_index_t BIdx = index_of_binary<MT>(b, jv);
-        basic_block_index_t BBIdx = index_of_basic_block<MT>(b.Analysis.ICFG, bb);
+        if constexpr (SubjectToChange) {
+          try {
+            auto s_lck = shared_access();
 
-        return std::get<2>(x.at(BIdx)).at(BBIdx);
+            binary_index_t BIdx = index_of_binary<MT>(b, jv);
+            basic_block_index_t BBIdx = index_of_basic_block<MT>(b.Analysis.ICFG, bb);
+
+            return std::get<2>(x.at(BIdx)).at(BBIdx);
+          } catch (const std::out_of_range &ex) {}
+          {
+            auto e_lck = exclusive_access();
+            update();
+          }
+          __attribute__((musttail)) return __for_basic_block(b, bb);
+        } else {
+          binary_index_t BIdx = index_of_binary<MT>(b, jv);
+          basic_block_index_t BBIdx = index_of_basic_block<MT>(b.Analysis.ICFG, bb);
+
+          return std::get<2>(x.at(BIdx)).at(BBIdx);
+        }
       } else {
         auto s_lck = shared_access();
 

@@ -200,7 +200,7 @@ void DumpTool::dumpDecompilation(const jv_base_t<false>& jv) {
 
               Writer.printList("def", descv);
 #else
-	      Writer.printString("def", ICFG[bb].Analysis.live.def.to_string());
+              Writer.printString("def", ICFG[bb].Analysis.live.def.to_string());
 #endif
             }
 
@@ -219,7 +219,7 @@ void DumpTool::dumpDecompilation(const jv_base_t<false>& jv) {
 
               Writer.printList("use", descv);
 #else
-	      Writer.printString("use", ICFG[bb].Analysis.live.use.to_string());
+              Writer.printString("use", ICFG[bb].Analysis.live.use.to_string());
 #endif
             }
           }
@@ -377,33 +377,27 @@ void DumpTool::dumpDecompilation(const jv_base_t<false>& jv) {
         Writer.printBoolean("IsSignalHandler", f.IsSignalHandler);
         Writer.printBoolean("Returns", f.Returns);
 
-        if (!f.Callers.set.empty())
-        {
-          std::vector<caller_t> Callers;
-          Callers.reserve(f.Callers.set.size());
-
-          std::for_each(f.Callers.set.cbegin(),
-                        f.Callers.set.cend(),
-          [&](const caller_t &x) -> void {
-            Callers.push_back(x);
-          });
+        if (!f.Callers.empty<false>()) {
+          const callers_t *pcallers;
+          auto s_lck_callers = f.Callers.get<false>(pcallers);
 
           std::vector<std::string> descv;
-          descv.resize(Callers.size());
+          descv.resize(pcallers->size());
 
-          std::transform(Callers.begin(),
-                         Callers.end(), descv.begin(),
-                         [&](const caller_t &x) -> std::string {
-                           binary_index_t BIdx;
-                           taddr_t TermAddr;
-                           std::tie(BIdx, TermAddr) = x;
-                           if (!is_binary_index_valid(BIdx))
-                             BIdx = index_of_binary(B, jv);
+          std::transform(
+              pcallers->cbegin(),
+	      pcallers->cend(), descv.begin(),
+              [&](const caller_t &x) -> std::string {
+                binary_index_t BIdx;
+                taddr_t TermAddr;
+                std::tie(BIdx, TermAddr) = x;
+                if (!is_binary_index_valid(BIdx))
+                  BIdx = index_of_binary(B, jv);
 
-                           const auto &b = jv.Binaries.at(BIdx);
+                const auto &b = jv.Binaries.at(BIdx);
 
-                           return (fmt("%s+0x%lX") % b.Name.c_str() % TermAddr).str();
-                         });
+                return (fmt("%s+0x%lX") % b.Name.c_str() % TermAddr).str();
+              });
 
           Writer.printList("Callers", descv);
         }

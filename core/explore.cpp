@@ -609,10 +609,7 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_base_t<MT> &b,
     assert(is_function_index_valid(CalleeFIdx));
 
     function_t &callee = b.Analysis.Functions.at(CalleeFIdx);
-    {
-      auto e_lck = callee.Callers.exclusive_access<MT>();
-      callee.Callers.set.emplace(b.Idx /* may =invalid */, T.Addr);
-    }
+    callee.Callers.insert<MT>(b.Idx /* may =invalid */, T.Addr);
 
     if (unlikely(Speculative)) {
       ICFG[basic_block_of_index(Idx, ICFG)].Term._call.Target = CalleeFIdx;

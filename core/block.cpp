@@ -38,10 +38,7 @@ void basic_block_properties_t::Parents_t::insert(function_index_t FIdx,
     ip_func_index_set copy(FIdxSet);
     copy.insert(FIdx);
 
-    auto insert_ret = b.FIdxSets.insert(boost::move(copy));
-    assert(insert_ret.second);
-
-    set<MT>(*insert_ret.first);
+    set<MT>(*b.FIdxSets.insert(boost::move(copy)).first);
   }
 }
 
@@ -78,11 +75,8 @@ bool basic_block_properties_t::insertDynTarget(binary_index_t ThisBIdx,
                                                jv_file_t &jv_file,
                                                jv_base_t<MT> &jv) {
   function_t &callee = function_of_target(X, jv);
-  {
-    auto e_lck = callee.Callers.exclusive_access<MT>();
+  callee.Callers.insert<MT>(ThisBIdx, Term.Addr);
 
-    callee.Callers.set.emplace(ThisBIdx, Term.Addr);
-  }
   return doInsertDynTarget(X, jv_file);
 }
 
