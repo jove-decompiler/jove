@@ -10,7 +10,7 @@ template <typename BinaryStateTy = void,
           bool Eager = false,
           bool BoundsChecking = true,
           bool MT = true>
-class jv_state_t {
+struct jv_state_t {
   static_assert(!std::is_void_v<BinaryStateTy> ||
                 !std::is_void_v<FunctionStateTy> ||
                 !std::is_void_v<BasicBlockStateTy>,
@@ -21,6 +21,7 @@ class jv_state_t {
 
   const jv_base_t<MT> &jv;
 
+private:
   static constexpr bool IsContainerVec =
       (LazyInitialization && !MultiThreaded) || Eager;
   static constexpr bool CanReserve = IsContainerVec;
