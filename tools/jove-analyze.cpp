@@ -61,7 +61,7 @@ class AnalyzeTool : public JVTool<ToolKind::Standard> {
 
           WaitMilli(
               "wait-for",
-              cl::desc("Number of milliseconds to update message in -vv mode."),
+              cl::desc("Number of milliseconds to update message in -v mode."),
               cl::cat(JoveCategory), cl::init(1000u)),
 
           New("new",
