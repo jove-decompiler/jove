@@ -166,23 +166,6 @@ int AnalyzeTool::AnalyzeFunctions(void) {
   auto analyze_functions_in_binary = [&](auto &b) -> void {
     for_each_function_in_binary(
         std::execution::par_unseq, b, [&](function_t &f) {
-          const dynamic_target_t X(index_of_binary(b),
-                                   index_of_function(f));
-
-          if (IsVeryVerbose())
-            inflight.insert(X);
-
-          BOOST_SCOPE_DEFER [&] {
-            if (IsVerbose()) {
-              done.fetch_add(1u, std::memory_order_relaxed);
-              if (IsVeryVerbose())
-                inflight.erase(X);
-            }
-          };
-
-          if (!f.Analysis.Stale)
-            return;
-
           analyzer->analyze_function(f);
 
           assert(!f.Analysis.Stale);
@@ -346,7 +329,7 @@ int AnalyzeTool::AnalyzeFunctions(void) {
           // final message
           msg.clear();
           msg.append("Analyzed ");
-          msg.append(std::to_string(N));
+          msg.append(std::to_string(done.load(std::memory_order_relaxed)));
           msg.append(" functions. (");
 
           auto t2 = std::chrono::high_resolution_clock::now();
