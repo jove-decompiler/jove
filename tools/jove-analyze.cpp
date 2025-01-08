@@ -67,7 +67,7 @@ class AnalyzeTool : public JVTool<ToolKind::Standard> {
           New("new",
               cl::desc("Use newer version of algorithm which computes SCCs and "
                        "topologically sorts them"),
-              cl::cat(JoveCategory)) {}
+              cl::init(true), cl::cat(JoveCategory)) {}
   } opts;
 
   boost::concurrent_flat_set<dynamic_target_t> inflight;
