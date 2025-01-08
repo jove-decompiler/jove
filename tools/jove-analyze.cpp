@@ -183,13 +183,20 @@ int AnalyzeTool::AnalyzeFunctions(void) {
     }
   };
 
+  auto count_stale_functions = [&](auto &b) -> uint64_t {
+    return std::accumulate(b.Analysis.Functions.begin(),
+                           b.Analysis.Functions.end(), 0u,
+                           [&](uint64_t n, const function_t &f) -> uint64_t {
+                             return n + (f.Analysis.Stale ? 1 : 0);
+                           });
+  };
+
   const uint64_t N =
       !opts.New && opts.ForeignLibs
-          ? jv.Binaries.at(0).Analysis.Functions.size()
-          : std::accumulate(jv.Binaries.begin(),
-                            jv.Binaries.end(), 0,
-                            [](uint64_t x, const auto &b) {
-                              return x + b.Analysis.Functions.size();
+          ? count_stale_functions(jv.Binaries.at(0))
+          : std::accumulate(jv.Binaries.begin(), jv.Binaries.end(), 0u,
+                            [&](uint64_t x, const auto &b) {
+                              return x + count_stale_functions(b);
                             });
 
   auto t1 = std::chrono::high_resolution_clock::now();
