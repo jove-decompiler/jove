@@ -5,7 +5,7 @@ namespace jove {
 
 typedef boost::adjacency_list<boost::vecS,        /* OutEdgeList */
                               boost::vecS,        /* VertexList */
-                              boost::directedS,   /* Directed */
+                              boost::bidirectionalS, /* Directed */
                               dynamic_target_t,   /* VertexProperties */
                               boost::no_property, /* EdgeProperties */
                               boost::no_property, /* GraphProperties */
