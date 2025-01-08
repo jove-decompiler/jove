@@ -8,6 +8,9 @@
 #include <boost/graph/create_condensation_graph.hpp>
 #include <boost/graph/topological_sort.hpp>
 
+#include <tbb/parallel_for_each.h>
+#include <tbb/flow_graph.h>
+
 #include <llvm/Bitcode/BitcodeReader.h>
 #include <llvm/Support/Error.h>
 #include <llvm/Support/FormatVariadic.h>
@@ -213,33 +216,56 @@ int analyzer_t<MT>::analyze_functions(void) {
   std::vector<std::vector<call_node_t>> components;
   build_component_lists(cg.G, sc_num, CompPropMap, components);
 
-  // create the DAG of SCCs
+  // create the DAG of the SCCs
   call_graph_t CGCondensed;
   boost::create_condensation_graph(cg.G, components, CompPropMap, CGCondensed);
 
-  // topologically sort the condensation graph
-  std::vector<call_node_t> topo_order;
-  topo_order.reserve(boost::num_vertices(CGCondensed));
-  boost::topological_sort(CGCondensed, std::back_inserter(topo_order));
+  tbb::flow::graph flow_graph;
 
-  // for each SCC (in topological order), analyze each function.
-  for (auto scc_node : boost::adaptors::reverse(topo_order)) {
-    auto &scc_verts =
-        components.at(get(boost::vertex_index, CGCondensed, scc_node));
-    std::for_each(std::execution::par_unseq,
-                  scc_verts.begin(),
-                  scc_verts.end(),
-                  [&](call_node_t V) {
-                    analyze_function(function_of_target(cg.G[V], jv));
-                  });
+  std::unique_ptr<std::atomic<unsigned>[]> counts(
+      new std::atomic<unsigned>[boost::num_vertices(CGCondensed)]);
+
+  for (auto v : boost::make_iterator_range(boost::vertices(CGCondensed)))
+    counts[get(boost::vertex_index, CGCondensed, v)].store(
+        0, std::memory_order_relaxed);
+
+  tbb::flow::function_node<call_node_t> analyze_node(
+      flow_graph, tbb::flow::unlimited,
+      [this, &counts, &analyze_node, &CGCondensed,
+       &components](call_node_t v) -> void {
+        auto &scc_verts =
+            components.at(get(boost::vertex_index, CGCondensed, v));
+        tbb::parallel_for_each(
+            scc_verts.begin(), scc_verts.end(), [&](call_node_t V) {
+              analyze_function(function_of_target(cg.G[V], jv));
+            });
+
+        for (auto succ : boost::make_iterator_range(
+                 boost::adjacent_vertices(v, CGCondensed))) {
+          unsigned c =
+              counts[get(boost::vertex_index, CGCondensed, succ)].fetch_add(
+                  1u, std::memory_order_relaxed) +
+              1u;
+
+          if (c == boost::in_degree(succ, CGCondensed))
+            analyze_node.try_put(succ);
+        }
+      });
+
+  for (auto v : boost::make_iterator_range(boost::vertices(CGCondensed))) {
+    if (boost::in_degree(v, CGCondensed) == 0) {
+      analyze_node.try_put(v);
+    }
   }
+
+  flow_graph.wait_for_all();
 
   return 0;
 }
 
 template <bool MT>
 int analyzer_t<MT>::analyze_function(function_t &f) {
-  if (!f.Analysis.Stale)
+  if (!__atomic_load_n(&f.Analysis.Stale, __ATOMIC_RELAXED))
     return 0;
 
   dynamic_target_t X(target_of_function(f));
@@ -248,13 +274,13 @@ int analyzer_t<MT>::analyze_function(function_t &f) {
     inflight.insert(X);
 
   BOOST_SCOPE_DEFER [&] {
-    __atomic_store_n(&f.Analysis.Stale, false, __ATOMIC_RELEASE);
-
     if (options.Verbose) {
       done.fetch_add(1u, std::memory_order_relaxed);
       if (options.VeryVerbose)
         inflight.erase(X);
     }
+
+    __atomic_store_n(&f.Analysis.Stale, false, __ATOMIC_RELEASE);
   };
 
   {
@@ -266,9 +292,6 @@ int analyzer_t<MT>::analyze_function(function_t &f) {
 
     std::vector<exit_vertex_pair_t> exitVertices;
     flow_vertex_t entryV = copy_function_cfg(G, f, exitVertices, memoize);
-
-    if (options.VeryVerbose)
-      llvm::errs() << llvm::formatv("|G|={0}\n", boost::num_vertices(G));
 
     //
     // build vector of vertices in DFS order

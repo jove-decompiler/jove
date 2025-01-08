@@ -148,7 +148,7 @@ int AnalyzeTool::AnalyzeFunctions(void) {
   }
 #endif
 
-  jv.InvalidateFunctionAnalyses();
+  //jv.InvalidateFunctionAnalyses();
 
 #if 0
   call_graph_builder_t cg(jv);
@@ -163,24 +163,23 @@ int AnalyzeTool::AnalyzeFunctions(void) {
   cg.best_toposort(topo);
 #endif
 
-  auto analyze_functions_in_binary = [&](auto &b) -> void {
-    for_each_function_in_binary(
-        std::execution::par_unseq, b, [&](function_t &f) {
-          analyzer->analyze_function(f);
-
-          assert(!f.Analysis.Stale);
-        });
-  };
-
   auto do_work = [&](void) -> void {
     if (opts.New) {
       analyzer->analyze_functions();
     } else {
-    if (opts.ForeignLibs)
-      analyze_functions_in_binary(jv.Binaries.at(0));
-    else
-      for_each_binary(std::execution::par_unseq, jv,
-                      [&](auto &b) { analyze_functions_in_binary(b); });
+      auto analyze_functions_in_binary = [&](auto &b) -> void {
+        for_each_function_in_binary(std::execution::par_unseq, b,
+                                    [&](function_t &f) {
+                                      analyzer->analyze_function(f);
+
+                                      assert(!f.Analysis.Stale);
+                                    });
+      };
+      if (opts.ForeignLibs)
+        analyze_functions_in_binary(jv.Binaries.at(0));
+      else
+        for_each_binary(std::execution::par_unseq, jv,
+                        [&](auto &b) { analyze_functions_in_binary(b); });
     }
   };
 
