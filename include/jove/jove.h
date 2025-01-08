@@ -923,8 +923,10 @@ struct basic_block_properties_t : public ip_mt_base_rw_accessible_nospin {
   } Parents;
 
   bool hasDynTarget(void) const {
-    if (auto *p = DynTargets._p.Load(std::memory_order_relaxed))
-      return !p->empty();
+    if (auto *p = DynTargets._p.Load(std::memory_order_relaxed)) {
+      assert(!p->empty());
+      return true;
+    }
 
     return false;
   }
@@ -950,6 +952,21 @@ struct basic_block_properties_t : public ip_mt_base_rw_accessible_nospin {
   }
   void DynTargetsForEach(std::function<void(const dynamic_target_t &)> proc) const {
     DynTargetsForEach(std::execution::seq, proc);
+  }
+  void DynTargetsForEachWhile(std::function<bool(const dynamic_target_t &)> proc) const {
+    ip_dynamic_target_set *const p =
+        DynTargets._p.Load(std::memory_order_relaxed);
+    if (!p)
+      return;
+
+    bool res = false;
+    p->cvisit_while([&](const dynamic_target_t &X) -> bool {
+      if (proc(X)) {
+        res = true;
+        return false;
+      }
+      return true;
+    });
   }
   bool DynTargetsAnyOf(std::function<bool(const dynamic_target_t &)> proc) const {
     ip_dynamic_target_set *const p =
@@ -1000,6 +1017,16 @@ struct basic_block_properties_t : public ip_mt_base_rw_accessible_nospin {
     assert(is_dynamic_target_valid(res));
     return res;
   }
+
+  template <class T, class BinaryOperation>
+  T DynTargetsAccumulate(T init, BinaryOperation op) const {
+    if (auto *p = DynTargets._p.Load(std::memory_order_relaxed))
+      p->cvisit_all(
+          [&](dynamic_target_t X) -> void { init = op(std::move(init), X); });
+
+    return init;
+  }
+
 
   bool IsSingleInstruction(void) const { return Addr == Term.Addr; }
 

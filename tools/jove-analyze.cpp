@@ -36,6 +36,7 @@ class AnalyzeTool : public JVTool<ToolKind::Standard> {
     cl::list<std::string> PinnedGlobals;
     cl::opt<int> Conservative;
     cl::opt<unsigned> WaitMilli;
+    cl::opt<bool> New;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : ForeignLibs("foreign-libs",
@@ -60,11 +61,17 @@ class AnalyzeTool : public JVTool<ToolKind::Standard> {
 
           WaitMilli(
               "wait-for",
-              cl::desc(
-                  "Number of milliseconds to update message in -vv mode."),
-              cl::cat(JoveCategory), cl::init(1000u)) {}
+              cl::desc("Number of milliseconds to update message in -vv mode."),
+              cl::cat(JoveCategory), cl::init(1000u)),
 
+          New("new",
+              cl::desc("Use newer version of algorithm which computes SCCs and "
+                       "topologically sorts them"),
+              cl::cat(JoveCategory)) {}
   } opts;
+
+  boost::concurrent_flat_set<dynamic_target_t> inflight;
+  std::atomic<uint64_t> done = 0;
 
   std::unique_ptr<tiny_code_generator_t> TCG;
   std::unique_ptr<analyzer_t<IsToolMT>> analyzer;
@@ -99,7 +106,11 @@ int AnalyzeTool::Run(void) {
     analyzer_opts.PinnedEnvGlbs.set(idx);
   }
 
-  analyzer = std::make_unique<analyzer_t<IsToolMT>>(analyzer_opts, *TCG, jv);
+  analyzer_opts.Verbose = IsVerbose();
+  analyzer_opts.VeryVerbose = IsVeryVerbose();
+
+  analyzer = std::make_unique<analyzer_t<IsToolMT>>(analyzer_opts, *TCG, jv,
+                                                    inflight, done);
 
   return AnalyzeBlocks()
       || AnalyzeFunctions();
@@ -152,9 +163,6 @@ int AnalyzeTool::AnalyzeFunctions(void) {
   cg.best_toposort(topo);
 #endif
 
-  boost::concurrent_flat_set<dynamic_target_t> inflight;
-  std::atomic<uint64_t> done = 0;
-
   auto analyze_functions_in_binary = [&](auto &b) -> void {
     for_each_function_in_binary(
         std::execution::par_unseq, b, [&](function_t &f) {
@@ -182,15 +190,19 @@ int AnalyzeTool::AnalyzeFunctions(void) {
   };
 
   auto do_work = [&](void) -> void {
+    if (opts.New) {
+      analyzer->analyze_functions();
+    } else {
     if (opts.ForeignLibs)
       analyze_functions_in_binary(jv.Binaries.at(0));
     else
       for_each_binary(std::execution::par_unseq, jv,
                       [&](auto &b) { analyze_functions_in_binary(b); });
+    }
   };
 
   const uint64_t N =
-      opts.ForeignLibs
+      !opts.New && opts.ForeignLibs
           ? jv.Binaries.at(0).Analysis.Functions.size()
           : std::accumulate(jv.Binaries.begin(),
                             jv.Binaries.end(), 0,

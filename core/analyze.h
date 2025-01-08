@@ -14,8 +14,10 @@ namespace jove {
 struct tiny_code_generator_t;
 
 struct analyzer_options_t {
+  unsigned Precision = 0;
   unsigned Conservative = 1;
   bool ForCBE = false;
+  bool Verbose = false;
   bool VeryVerbose = false;
 
   tcg_global_set_t PinnedEnvGlbs = InitPinnedEnvGlbs;
@@ -58,16 +60,21 @@ struct analyzer_t {
              MT, false>
       state;
 
-  //call_graph_builder_t cg;
+  call_graph_builder_t<MT> cg;
 
   const bool IsCOFF;
 
   std::unique_ptr<llvm::LLVMContext> Context;
   std::unique_ptr<llvm::Module> Module;
 
+  boost::concurrent_flat_set<dynamic_target_t> &inflight;
+  std::atomic<uint64_t> &done;
+
   analyzer_t(const analyzer_options_t &,
              tiny_code_generator_t &,
-             jv_base_t<MT> &);
+             jv_base_t<MT> &,
+             boost::concurrent_flat_set<dynamic_target_t> &inflight,
+             std::atomic<uint64_t> &done);
 
   void update_callers(void);
   void update_parents(void);
@@ -76,9 +83,7 @@ struct analyzer_t {
   void identify_Sjs(void);
 
   int analyze_blocks(void);
-#if 0
   int analyze_functions(void);
-#endif
 
   int analyze_function(function_t &);
 
