@@ -42,7 +42,7 @@ call_graph_builder_t<MT>::call_graph_builder_t(const jv_base_t<MT> &jv) noexcept
       basic_block_t bb = basic_block_at_address(pair.second, caller_b);
       const bbprop_t &bbprop = ICFG[bb];
 
-      const auto &parents = bbprop.Parents.get<true>();
+      const auto &parents = bbprop.Parents.get<MT>();
       for (function_index_t FIdx : parents) {
         const function_t &caller = caller_b.Analysis.Functions.at(FIdx);
 
