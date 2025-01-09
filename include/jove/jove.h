@@ -890,6 +890,9 @@ struct basic_block_properties_t : public ip_mt_base_rw_accessible_nospin {
     friend basic_block_properties_t;
     friend allocates_basic_block_t;
 
+    template <bool MT>
+    friend void UnserializeJV(jv_base_t<MT> &, jv_file_t &, std::istream &, bool);
+
     Parents_t() noexcept = default;
 
     template <bool MT>

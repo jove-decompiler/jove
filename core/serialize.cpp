@@ -604,6 +604,16 @@ void UnserializeJV(jv_base_t<MT> &out, jv_file_t &jv_file, std::istream &is,
   for (binary_base_t<MT> &b : out.Binaries)
     __builtin_memset(&b.Analysis.ICFG.container().m_property, 0,
                      sizeof(b.Analysis.ICFG.container().m_property));
+
+  // XXX
+  for_each_basic_block(std::execution::unseq, out,
+                       [&](binary_base_t<MT> &b, basic_block_t bb) {
+                         auto &ICFG = b.Analysis.ICFG;
+                         bbprop_t &bbprop = ICFG[bb];
+
+                         assert(b.EmptyFIdxSet);
+                         bbprop.Parents.template set<false>(*b.EmptyFIdxSet);
+                       });
 }
 
 template <bool MT>

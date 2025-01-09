@@ -762,7 +762,7 @@ skip_run:
       // send the jv
       //
       {
-        SerializeJVToFile(jv, jv_file, tmpjv_path.c_str());
+        SerializeJVToFile(jv, jv_file, tmpjv_path.c_str(), true /* text */);
 
         if (IsVerbose())
           HumanOut() << llvm::formatv("sending {0}\n", tmpjv_path.c_str());

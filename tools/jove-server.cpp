@@ -384,7 +384,7 @@ void *ServerTool::ConnectionProc(void *arg) {
     return nullptr;
   }
 
-  SerializeJVToFile(jv, jv_file, jv_s_path.c_str());
+  SerializeJVToFile(jv, jv_file, jv_s_path.c_str(), true /* text */);
   {
     //
     // send new jv

@@ -4954,7 +4954,7 @@ void SignalHandler(int no) {
     //
     // write jv
     //
-    SerializeJVToFile(tool.jv, tool.jv_file, "/tmp/serialized.jv");
+    SerializeJVToFile(tool.jv, tool.jv_file, "/tmp/serialized.jv", true /* text */);
 
     exit(0);
   }
