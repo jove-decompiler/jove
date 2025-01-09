@@ -8387,10 +8387,12 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
     }
 
     if (callee.IsABI) {
+      auto args = DetermineFunctionArgs(callee);
+
       //
       // store globals which are not passed as parameters to env
       //
-      tcg_global_set_t glbs(DetermineFunctionArgs(callee) & ~CallConvArgs);
+      tcg_global_set_t glbs(args & ~CallConvArgs);
       glbs.reset(tcg_stack_pointer_index);
 
       std::vector<unsigned> glbv;
@@ -8401,6 +8403,11 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
             get(glb), BuildCPUStatePointer(IRB, GetEnv(IRB), glb));
         SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
       }
+
+#if defined(TARGET_X86_64)
+      if (args.test(tcg_rax_index))
+        store_global_to_global_cpu_state(tcg_rax_index); /* vararg */
+#endif
 
       store_stack_pointer();
     }
