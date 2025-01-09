@@ -81,10 +81,10 @@ class JoveTester:
     self.sess = None
     self.wins = [None for _ in JoveTester.WINDOWS]
 
-    for sess in tmux.sessions:
-      if sess.name == self.session_name():
-        self.sess = sess
-        break
+    try:
+      self.sess = tmux.sessions.get(name=self.session_name())
+    except libtmux._internal.query_list.ObjectDoesNotExist:
+      self.sess = None
 
     if self.sess is None:
       self.sess = tmux.new_session(session_name=self.session_name(), window_name=JoveTester.WINDOWS[0])
