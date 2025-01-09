@@ -22,6 +22,7 @@ class JoveTester:
   ]
 
   def __init__(self, tests_dir, arch, extra_server_args=[], extra_bringup_args=[], unattended=False):
+    self.tmux = libtmux.Server()
     self.tests_dir = tests_dir
     self.arch = arch
 
@@ -73,7 +74,7 @@ class JoveTester:
     return "jove_" + self.arch
 
   def establish_tmux_session(self):
-    tmux = libtmux.Server()
+    tmux = self.tmux
 
     res = [False for _ in JoveTester.WINDOWS]
 
