@@ -855,6 +855,7 @@ analyzer_t<MT>::DynTargetsSummary(const bbprop_t &bbprop, bool IsABI) {
         });
     return std::make_pair(args, rets);
   } else {
+#if 0 /* the following breaks vararg on x86_64 (eax) */
     if (IsABI) {
       return std::make_pair(CallConvArgs, CallConvRets);
     } else if (bbprop.DynTargetsAnyOf([&](dynamic_target_t X) {
@@ -878,6 +879,7 @@ analyzer_t<MT>::DynTargetsSummary(const bbprop_t &bbprop, bool IsABI) {
       });
       return std::make_pair(args, rets);
     }
+#endif
   }
   return std::nullopt;
 }
