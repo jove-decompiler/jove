@@ -93,6 +93,9 @@ private:
              function_t &f,
              std::vector<exit_vertex_pair_t> &exitVertices,
              boost::unordered::unordered_flat_map<function_t *, std::pair<flow_vertex_t, std::vector<exit_vertex_pair_t>>> &memoize);
+
+  std::optional<std::pair<tcg_global_set_t, tcg_global_set_t>>
+  DynTargetsSummary(const bbprop_t &bbprop, bool IsABI);
 };
 
 }

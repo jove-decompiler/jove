@@ -501,52 +501,6 @@ flow_vertex_t analyzer_t<MT>::copy_function_cfg(
 
   memoize.insert({&f, {res, exitVertices}});
 
-  auto SummaryOfDynTargets = [&](const bbprop_t &bbprop, bool IsABI)
-      -> std::optional<std::pair<tcg_global_set_t, tcg_global_set_t>> {
-    assert(bbprop.hasDynTarget());
-
-    bool AllNotStale = bbprop.DynTargetsAllOf(
-        [&](dynamic_target_t X) {
-          function_t &callee = function_of_target(X, jv);
-          return !__atomic_load_n(&callee.Analysis.Stale, __ATOMIC_ACQUIRE);
-        });
-    if (AllNotStale) {
-      auto args = bbprop.DynTargetsAccumulate(
-          tcg_global_set_t(), [&](tcg_global_set_t res, dynamic_target_t X) {
-            return res | function_of_target(X, jv).Analysis.args;
-          });
-      auto rets = bbprop.DynTargetsAccumulate(
-          tcg_global_set_t(), [&](tcg_global_set_t res, dynamic_target_t X) {
-            return res | function_of_target(X, jv).Analysis.rets;
-          });
-      return std::make_pair(args, rets);
-    } else {
-      if (IsABI) {
-        return std::make_pair(CallConvArgs, CallConvRets);
-      } else if (bbprop.DynTargetsAnyOf([&](dynamic_target_t X) {
-            function_t &callee = function_of_target(X, jv);
-            return !__atomic_load_n(&callee.Analysis.Stale, __ATOMIC_ACQUIRE);
-          })){
-        tcg_global_set_t args, rets;
-        bbprop.DynTargetsForEachWhile(
-          [&](dynamic_target_t X) -> bool {
-            function_t &callee = function_of_target(X, jv);
-            if (!callee.Analysis.Stale) {
-              function_t &callee = function_of_target(X, jv);
-
-              args = callee.Analysis.args;
-              rets = callee.Analysis.rets;
-
-              return false;
-            }
-
-            return true;
-          });
-        return std::make_pair(args, rets);
-      }
-    }
-    return std::nullopt;
-  };
 
   //
   // this recursive function's duty is also to inline calls to functions and
@@ -579,7 +533,7 @@ flow_vertex_t analyzer_t<MT>::copy_function_cfg(
         return function_of_target(X, jv).IsABI;
       });
 
-      if (auto Summary = SummaryOfDynTargets(bbprop, IsABI)) {
+      if (auto Summary = DynTargetsSummary(bbprop, IsABI)) {
         bbprop_t::Analysis_t &TheAnalysis =
             G[boost::graph_bundle].deq.emplace_back();
 
@@ -791,7 +745,7 @@ flow_vertex_t analyzer_t<MT>::copy_function_cfg(
       bool IsABI = bbprop.DynTargetsAnyOf([&](dynamic_target_t X) {
         return function_of_target(X, jv).IsABI;
       });
-      if (auto Summary = SummaryOfDynTargets(bbprop, IsABI)) {
+      if (auto Summary = DynTargetsSummary(bbprop, IsABI)) {
         bbprop_t::Analysis_t &TheAnalysis =
             G[boost::graph_bundle].deq.emplace_back();
         std::tie(TheAnalysis.live.use, TheAnalysis.reach.def) = *Summary;
@@ -878,6 +832,54 @@ flow_vertex_t analyzer_t<MT>::copy_function_cfg(
   }
 
   return res;
+}
+
+template <bool MT>
+std::optional<std::pair<tcg_global_set_t, tcg_global_set_t>>
+analyzer_t<MT>::DynTargetsSummary(const bbprop_t &bbprop, bool IsABI) {
+  assert(bbprop.hasDynTarget());
+
+  bool AllNotStale = bbprop.DynTargetsAllOf([&](dynamic_target_t X) {
+    function_t &callee = function_of_target(X, jv);
+    return !__atomic_load_n(&callee.Analysis.Stale, __ATOMIC_ACQUIRE);
+  });
+
+  if (AllNotStale) {
+    auto args = bbprop.DynTargetsAccumulate(
+        tcg_global_set_t(), [&](tcg_global_set_t res, dynamic_target_t X) {
+          return res | function_of_target(X, jv).Analysis.args;
+        });
+    auto rets = bbprop.DynTargetsAccumulate(
+        tcg_global_set_t(), [&](tcg_global_set_t res, dynamic_target_t X) {
+          return res | function_of_target(X, jv).Analysis.rets;
+        });
+    return std::make_pair(args, rets);
+  } else {
+    if (IsABI) {
+      return std::make_pair(CallConvArgs, CallConvRets);
+    } else if (bbprop.DynTargetsAnyOf([&](dynamic_target_t X) {
+                 function_t &callee = function_of_target(X, jv);
+                 return !__atomic_load_n(&callee.Analysis.Stale,
+                                         __ATOMIC_ACQUIRE);
+               })) {
+      tcg_global_set_t args, rets;
+      bbprop.DynTargetsForEachWhile([&](dynamic_target_t X) -> bool {
+        function_t &callee = function_of_target(X, jv);
+        if (!callee.Analysis.Stale) {
+          function_t &callee = function_of_target(X, jv);
+
+          args = callee.Analysis.args;
+          rets = callee.Analysis.rets;
+
+          return false;
+        }
+
+        return true;
+      });
+      return std::make_pair(args, rets);
+    }
+  }
+  return std::nullopt;
 }
 
 template struct analyzer_t<false>;
