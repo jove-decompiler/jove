@@ -42,7 +42,6 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       libglib2.0-dev \
                       libgnutls28-dev \
                       libgraph-easy-perl \
-                      libgstreamer-plugins-base1.0-dev \
                       libgstreamer1.0-dev \
                       libkeyutils-dev \
                       libosmesa6-dev \
@@ -104,7 +103,6 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       libfreetype-dev:i386 \
                       libglib2.0-dev:i386 \
                       libgnutls28-dev:i386 \
-                      libgstreamer-plugins-base1.0-dev:i386 \
                       libgstreamer-plugins-base1.0-dev:i386 \
                       libgstreamer1.0-dev:i386 \
                       libosmesa6-dev:i386 \
