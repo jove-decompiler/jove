@@ -278,7 +278,6 @@ struct LLVMTool
     cl::opt<bool> NoFixupFSBase;
     cl::opt<bool> PrintPCRel;
     cl::opt<bool> PrintDefAndUse;
-    cl::opt<bool> PrintLiveness;
     cl::opt<bool> DebugSjlj;
     cl::opt<bool> DumpTCG;
     cl::opt<std::string> ForAddr;
@@ -345,10 +344,6 @@ struct LLVMTool
               "print-def-and-use",
               cl::desc("Print use_B and def_B for every basic block B"),
               cl::cat(JoveCategory)),
-
-          PrintLiveness("print-liveness",
-                        cl::desc("Print liveness for every function"),
-                        cl::cat(JoveCategory)),
 
           DebugSjlj(
               "debug-sjlj",
