@@ -743,7 +743,7 @@ typedef boost::interprocess::map<
     bbmap_t; /* _private_ adaptive pool because of heavyweight bbmap_lock */
 
 template <bool MT>
-struct BBMap_t : public ip_base_rw_accessible<MT, false> {
+struct BBMap_t : public ip_base_rw_accessible_nospin<MT> {
   ip_unique_ptr<bbmap_t::allocator_type> alloc;
   bbmap_t map;
 

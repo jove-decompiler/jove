@@ -71,6 +71,12 @@ struct ip_base_rw_accessible {
   }
 };
 
+template <bool MT>
+using ip_base_rw_accessible_spin = ip_base_rw_accessible<MT, true>;
+
+template <bool MT>
+using ip_base_rw_accessible_nospin = ip_base_rw_accessible<MT, false>;
+
 template <bool Spin>
 struct ip_mt_base_rw_accessible {
   using mutex_type = ip_base_mt_rw_choose_mutex<Spin>;
