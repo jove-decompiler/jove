@@ -103,6 +103,10 @@ void _jove_rt_init(void) {
 #endif
       ;
 #elif defined(__i386__)
+#ifndef SA_RESTORER
+#define SA_RESTORER 0x04000000
+#endif
+  sa.k_sa_flags |= SA_RESTORER;
   sa.k_sa_restorer = _jove_do_rt_sigreturn;
 #endif
 
