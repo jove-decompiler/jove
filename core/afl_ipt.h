@@ -677,19 +677,19 @@ void process_packets(uint64_t offset, packet_type &the_packet) {
 
   switch (type) {
   case ppt_psb:
-    if (IsVeryVerbose())
+    if constexpr (IsVeryVerbose())
       fprintf(stderr, "psb\n");
     this->tracking.in_header = 1;
     break;
 
   case ppt_psbend:
-    if (IsVeryVerbose())
+    if constexpr (IsVeryVerbose())
       fprintf(stderr, "psbend\n");
     this->tracking.in_header = 0;
     break;
 
   case ppt_tsc: {
-    if (IsVeryVerbose())
+    if constexpr (IsVeryVerbose())
       fprintf(stderr, "tsc\n");
     struct pt_packet_tsc packet;
     packet.tsc = pt_pkt_read_value(data + pt_opcs_tsc, pt_pl_tsc_size);
@@ -699,7 +699,7 @@ void process_packets(uint64_t offset, packet_type &the_packet) {
     break;
   }
   case ppt_cbr: {
-    if (IsVeryVerbose())
+    if constexpr (IsVeryVerbose())
       fprintf(stderr, "cbr\n");
     struct pt_packet_cbr packet;
     packet.ratio = data[2];
@@ -709,7 +709,7 @@ void process_packets(uint64_t offset, packet_type &the_packet) {
     break;
   }
   case ppt_tma: {
-    if (IsVeryVerbose())
+    if constexpr (IsVeryVerbose())
       fprintf(stderr, "tma\n");
     struct pt_packet_tma packet;
     pkt_read_tma(&packet, (const uint8_t *)data);
@@ -719,7 +719,7 @@ void process_packets(uint64_t offset, packet_type &the_packet) {
     break;
   }
   case ppt_mtc: {
-    if (IsVeryVerbose())
+    if constexpr (IsVeryVerbose())
       fprintf(stderr, "mtc\n");
     struct pt_packet_mtc packet;
     packet.ctc = data[pt_opcs_mtc];
@@ -729,7 +729,7 @@ void process_packets(uint64_t offset, packet_type &the_packet) {
     break;
   }
   case ppt_cyc: {
-    if (IsVeryVerbose())
+    if constexpr (IsVeryVerbose())
       fprintf(stderr, "cyc\n");
     struct pt_packet_cyc packet;
     auto sz = pkt_read_cyc(&packet, (const uint8_t *)data, &this->config);
