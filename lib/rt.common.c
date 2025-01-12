@@ -138,6 +138,7 @@ void _jove_rt_init(void) {
 
 static void _jove_dump_opts(void);
 static void _jove_parse_debug_string(char *const);
+static void _jove_parse_pause_string(char *const);
 static void _jove_parse_trace_string(char *const);
 static void _jove_parse_crash_string(char *const);
 static void _jove_parse_callstack_string(char *const s);
@@ -178,6 +179,7 @@ void _jove_parse_opts(void) {
     STRING_OPT("JOVETRACE", _jove_parse_trace_string);
     STRING_OPT("JOVECRASH", _jove_parse_crash_string);
     STRING_OPT("JOVEDEBUG", _jove_parse_debug_string);
+    STRING_OPT("JOVEPAUSE", _jove_parse_pause_string);
 
 #undef STRING_OPT
   }
@@ -217,6 +219,35 @@ void _jove_parse_debug_string(char *const s) {
 
     struct debug_option_pair *pairp;
     array_for_each_p(pairp, debug_opt_tbl) {
+      if (!_strcmp(pairp->name, opt)) {
+        found_opt = true;
+        *pairp->opt_ptr = true;
+        break;
+      }
+    }
+
+    _ASSERT(found_opt);
+  }
+}
+
+static const struct debug_option_pair pause_opt_tbl[] = {
+  {"WinMain", &__jove_opts.Pause.WinMain}
+};
+
+void _jove_parse_pause_string(char *const s) {
+  const unsigned n = _strlen(s)+1;
+
+  set_restore_char_safe(&s[n - 1], ',', '\0'); /* comma-terminate */
+
+  char *opt;
+  for_each_str_delim_know_end(opt, ',', s, n) {
+    /* null-terminate */
+    set_restore_char_safe(_memchr(opt, ',', n), '\0', ',');
+
+    bool found_opt = false;
+
+    struct debug_option_pair *pairp;
+    array_for_each_p(pairp, pause_opt_tbl) {
       if (!_strcmp(pairp->name, opt)) {
         found_opt = true;
         *pairp->opt_ptr = true;

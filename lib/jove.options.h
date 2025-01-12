@@ -14,6 +14,10 @@ struct jove_opts_t {
     bool Interactive;
   } Debug;
 
+  struct {
+    bool WinMain;
+  } Pause;
+
   bool DumpOpts;
   char OnCrash; /* a=abort, s=sleep */
 
