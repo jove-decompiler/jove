@@ -1181,8 +1181,11 @@ constexpr block_t block_for_caller_in_binary(const caller_t &caller,
           : index_of_binary(caller_b); /* invalid => binary of caller */
 
   const binary_base_t<MT> &b = jv.Binaries.at(BIdx);
-  const basic_block_index_t BBIdx =
+  const basic_block_index_t BBIdx = ({
+      auto s_lck_bbmap = b.BBMap.shared_access();
+
       index_of_basic_block_at_address(caller.second, b);
+  });
 
   return {BIdx, BBIdx};
 }
