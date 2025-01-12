@@ -1,5 +1,6 @@
 #pragma once
 #include "jove/jove.h"
+#include <boost/container/slist.hpp>
 
 //
 // data-flow analysis (liveness, reaching definitions)
@@ -20,7 +21,10 @@ struct flow_edge_properties_t {
 };
 
 struct flow_graph_dummy_analyses_t {
-  std::deque<bbprop_t::Analysis_t> deq;
+  boost::container::slist<
+      bbprop_t::Analysis_t,
+      boost::container::node_allocator<bbprop_t::Analysis_t>>
+      extra;
 };
 
 typedef boost::adjacency_list<boost::vecS, /*parallel*/ /* OutEdgeList */

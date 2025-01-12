@@ -535,7 +535,7 @@ flow_vertex_t analyzer_t<MT>::copy_function_cfg(
 
       if (auto Summary = DynTargetsSummary(bbprop, IsABI)) {
         bbprop_t::Analysis_t &TheAnalysis =
-            G[boost::graph_bundle].deq.emplace_back();
+            G[boost::graph_bundle].extra.emplace_front();
 
         std::tie(TheAnalysis.live.use, TheAnalysis.reach.def) = *Summary;
 
@@ -595,7 +595,7 @@ flow_vertex_t analyzer_t<MT>::copy_function_cfg(
 #if 0
           } else { /* we've already analyzed! */
             bbprop_t::Analysis_t &TheAnalysis =
-                G[boost::graph_bundle].deq.emplace_back();
+                G[boost::graph_bundle].extra.emplace_front();
             TheAnalysis.live.use = callee.Analysis.args;
             TheAnalysis.reach.def = callee.Analysis.rets;
 
@@ -697,7 +697,7 @@ flow_vertex_t analyzer_t<MT>::copy_function_cfg(
       }
           } else { /* we've already analyzed! */
             bbprop_t::Analysis_t &TheAnalysis =
-                G[boost::graph_bundle].deq.emplace_back();
+                G[boost::graph_bundle].extra.emplace_front();
             TheAnalysis.live.use = callee.Analysis.args;
             TheAnalysis.reach.def = callee.Analysis.rets;
 
@@ -753,7 +753,7 @@ flow_vertex_t analyzer_t<MT>::copy_function_cfg(
       });
       if (auto Summary = DynTargetsSummary(bbprop, IsABI)) {
         bbprop_t::Analysis_t &TheAnalysis =
-            G[boost::graph_bundle].deq.emplace_back();
+            G[boost::graph_bundle].extra.emplace_front();
         std::tie(TheAnalysis.live.use, TheAnalysis.reach.def) = *Summary;
 
         flow_vertex_t dummyV = boost::add_vertex(G);
