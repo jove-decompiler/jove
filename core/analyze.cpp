@@ -226,7 +226,7 @@ int analyzer_t<MT>::analyze_functions(void) {
       new std::atomic<unsigned>[boost::num_vertices(CGCondensed)]);
 
   for (auto v : boost::make_iterator_range(boost::vertices(CGCondensed)))
-    counts[get(boost::vertex_index, CGCondensed, v)].store(
+    counts[boost::get(boost::vertex_index, CGCondensed, v)].store(
         0, std::memory_order_relaxed);
 
   tbb::flow::function_node<call_node_t> analyze_node(
@@ -234,7 +234,7 @@ int analyzer_t<MT>::analyze_functions(void) {
       [this, &counts, &analyze_node, &CGCondensed,
        &components](call_node_t v) -> void {
         auto &scc_verts =
-            components.at(get(boost::vertex_index, CGCondensed, v));
+            components.at(boost::get(boost::vertex_index, CGCondensed, v));
         tbb::parallel_for_each(
             scc_verts.begin(), scc_verts.end(), [&](call_node_t V) {
               analyze_function(function_of_target(cg.G[V], jv));
@@ -243,9 +243,8 @@ int analyzer_t<MT>::analyze_functions(void) {
         for (auto succ : boost::make_iterator_range(
                  boost::adjacent_vertices(v, CGCondensed))) {
           unsigned c =
-              counts[get(boost::vertex_index, CGCondensed, succ)].fetch_add(
-                  1u, std::memory_order_relaxed) +
-              1u;
+              counts[boost::get(boost::vertex_index, CGCondensed, succ)]
+                  .fetch_add(1u, std::memory_order_relaxed) + 1u;
 
           if (c == boost::in_degree(succ, CGCondensed))
             analyze_node.try_put(succ);
