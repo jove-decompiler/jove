@@ -118,12 +118,10 @@ inline void read_file_into_thing(const char *path, T &out) {
 }
 
 template <typename T> static void load_file(const char *path, T &out) {
-  uint8_t *content;
   size_t read;
   FILE *file;
   long fsize;
   int errcode;
-  uint64_t offset = 0;
 
   if (!path)
     throw std::runtime_error("load_file: null path");
