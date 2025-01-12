@@ -1340,7 +1340,7 @@ struct binary_base_t {
     void addIFuncDynTarget(taddr_t A, dynamic_target_t X) {}
 
     typedef objdump_output_t<
-        boost::interprocess::allocator<uint32_t, segment_manager_t>, MT>
+        boost::interprocess::allocator<unsigned long /* FIXME */, segment_manager_t>, MT>
         objdump_output_type;
 
     objdump_output_type objdump;
