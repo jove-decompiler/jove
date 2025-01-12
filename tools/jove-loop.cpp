@@ -78,6 +78,7 @@ class LoopTool : public JVTool<ToolKind::Standard> {
     cl::opt<bool> LayOutSections;
     cl::opt<bool> PlaceSectionBreakpoints;
     cl::opt<int> Conservative;
+    cl::opt<std::string> WineStderr;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : Prog(cl::Positional, cl::desc("prog"), cl::Required,
@@ -274,7 +275,11 @@ class LoopTool : public JVTool<ToolKind::Standard> {
               "conservative",
               cl::desc(
                   "1 => assume any arg registers could be live for ABI calls."),
-              cl::cat(JoveCategory), cl::init(1)) {}
+              cl::cat(JoveCategory), cl::init(1)),
+
+          WineStderr("wine-stderr",
+                     cl::desc("Redirect WINEDEBUG output with WINEDEBUGLOG"),
+                     cl::cat(JoveCategory)) {}
   } opts;
 
 public:
@@ -531,6 +536,11 @@ run:
             if (unsigned Sec = opts.Sleep) {
               Arg("--sleep");
               Arg(std::to_string(Sec));
+            }
+
+            if (!opts.WineStderr.empty()) {
+              Arg("--wine-stderr");
+              Arg(opts.WineStderr);
             }
 
             //

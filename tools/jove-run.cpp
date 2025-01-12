@@ -61,6 +61,7 @@ struct RunTool : public JVTool<ToolKind::Standard> {
     cl::opt<std::string> User;
     cl::alias UserAlias;
     cl::opt<std::string> PIDFifo;
+    cl::opt<std::string> WineStderr;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : Prog(cl::Positional, cl::desc("prog"), cl::Required,
@@ -148,7 +149,11 @@ struct RunTool : public JVTool<ToolKind::Standard> {
 
           PIDFifo("pid-fifo",
                   cl::desc("Path to FIFO which will receive child PID"),
-                  cl::cat(JoveCategory)) {}
+                  cl::cat(JoveCategory)),
+
+          WineStderr("wine-stderr",
+                     cl::desc("Redirect WINEDEBUG output with WINEDEBUGLOG"),
+                     cl::cat(JoveCategory)) {}
   } opts;
 
   bool has_jv;
@@ -756,6 +761,12 @@ int RunTool::DoRun(void) {
 
           if (fs::exists("/firmadyne/libnvram.so")) /* XXX firmadyne */
             Env("LD_PRELOAD=/firmadyne/libnvram.so");
+
+          if (!opts.WineStderr.empty()) {
+            // TODO look for preexisting WINEDEBUG
+            Env("WINEDEBUG=+module,+process,+seh");
+            Env("WINEDEBUGLOG=" + opts.WineStderr);
+          }
 
           for (const std::string &s : opts.Envs)
             Env(s);
