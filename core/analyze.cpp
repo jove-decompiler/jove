@@ -560,11 +560,13 @@ flow_vertex_t analyzer_t<MT>::copy_function_cfg(
       bool FirstOne = true;
       std::for_each(DynTargets.cbegin(), DynTargets.cend(),
         [&](const dynamic_target_t &DynTarget) {
+#if 0
         if (options.Precision == 0) {
           if (!FirstOne)
             return;
           FirstOne = false;
         }
+#endif
 
           function_t &callee = function_of_target(DynTarget, jv);
 
@@ -654,6 +656,7 @@ flow_vertex_t analyzer_t<MT>::copy_function_cfg(
         savedSuccInDeg = boost::in_degree(succV, G);
       }
 
+#if 0 /* the following breaks vararg on x86_64 (eax) */
       if (options.Precision == 0 && callee.IsABI) {
         static const basic_block_properties_t::Analysis_t DummyAnalysis = {
             .live = {.def = {}, .use = CallConvArgs},
@@ -671,6 +674,9 @@ flow_vertex_t analyzer_t<MT>::copy_function_cfg(
           G[E].reach.mask = CallConvRets;
         }
       } else if (__atomic_load_n(&callee.Analysis.Stale, __ATOMIC_ACQUIRE)) {
+#else
+      if (__atomic_load_n(&callee.Analysis.Stale, __ATOMIC_ACQUIRE)) {
+#endif
       std::vector<exit_vertex_pair_t> calleeExitVertices;
       flow_vertex_t calleeEntryV =
           copy_function_cfg(G, callee, calleeExitVertices, memoize);
@@ -769,11 +775,13 @@ flow_vertex_t analyzer_t<MT>::copy_function_cfg(
       bool FirstOne = true;
       std::for_each(DynTargets.cbegin(), DynTargets.cend(),
         [&](const dynamic_target_t &DynTarget) {
+#if 0
         if (options.Precision == 0) {
           if (!FirstOne)
             return;
           FirstOne = false;
         }
+#endif
 
         function_t &callee = function_of_target(DynTarget, jv);
 
