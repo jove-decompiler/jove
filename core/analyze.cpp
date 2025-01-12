@@ -214,7 +214,7 @@ int analyzer_t<MT>::analyze_functions(void) {
   const auto sc_num = boost::strong_components(cg.G, CompPropMap);
 
   std::vector<std::vector<call_node_t>> components;
-  build_component_lists(cg.G, sc_num, CompPropMap, components);
+  boost::build_component_lists(cg.G, sc_num, CompPropMap, components);
 
   // create the DAG of the SCCs
   call_graph_t CGCondensed;
