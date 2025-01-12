@@ -1420,7 +1420,7 @@ protected:
 
       CurrPoint.SetBinary(b);
       CurrPoint.SetBlockIndex(
-          explorer.explore_basic_block(b, *x.Bin, Addr, obp, obp_u));
+          explorer.explore_basic_block<MT>(b, *x.Bin, Addr, obp, obp_u));
       assert(CurrPoint.Valid());
     } catch (const invalid_control_flow_exception &) {
       if constexpr (1 /* IsVerbose() */)

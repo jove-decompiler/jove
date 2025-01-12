@@ -59,7 +59,7 @@ class explorer_t {
   on_newfn_proc_f the_on_newfn_proc_f = [](binary_base_t<false> &, function_t &) {};
   on_newfn_proc_t the_on_newfn_proc_t = [](binary_base_t<true> &, function_t &) {};
 
-  template <bool WithOnBlockProc = false, bool MT = true>
+  template <bool WithOnBlockProc, bool MT>
   bool split(binary_base_t<MT> &, llvm::object::Binary &,
              bbprop_t::exclusive_lock_guard<MT> e_lck_bb,
              bbmap_t::iterator it,
@@ -67,7 +67,7 @@ class explorer_t {
              basic_block_index_t,
              onblockproc_t obp = nop_on_block);
 
-  template <bool WithOnBlockProc = false, bool MT = true>
+  template <bool WithOnBlockProc, bool MT>
   basic_block_index_t _explore_basic_block(binary_base_t<MT> &,
                                            llvm::object::Binary &,
                                            const taddr_t Addr,
