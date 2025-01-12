@@ -3,7 +3,7 @@
 #endif
 
 template <typename Alloc, bool MT>
-struct objdump_output_t {
+struct objdump_output_t : public ip_base_rw_accessible_spin<MT> {
   using allocator_type = Alloc;
 
   template <typename _Alloc>
@@ -17,23 +17,6 @@ private:
   template <typename Alloc2, bool MT2> friend struct objdump_output_t;
 
 public:
-  using mutex_type =
-      std::conditional_t<MT, boost::unordered::detail::foa::rw_spinlock,
-                         std::monostate>;
-  using shared_lock_guard =
-      std::conditional_t<MT,
-                         boost::unordered::detail::foa::shared_lock<mutex_type>,
-                         __do_nothing_t>;
-  using exclusive_lock_guard =
-      std::conditional_t<MT,
-                         boost::unordered::detail::foa::lock_guard<mutex_type>,
-                         __do_nothing_t>;
-
-  mutable mutex_type mtx;
-
-  shared_lock_guard shared_access() const { return shared_lock_guard{mtx}; }
-  exclusive_lock_guard exclusive_access() const { return exclusive_lock_guard{mtx}; }
-
   template <typename... Args>
   objdump_output_t(Args &&...args) : good(std::forward<Args>(args)...) {}
 
@@ -70,7 +53,7 @@ public:
   }
 
   bool empty(void) const {
-    auto s_lck = shared_access();
+    auto s_lck = this->shared_access();
 
     return empty_unlocked();
   }
@@ -80,7 +63,7 @@ public:
   }
 
   bool is_addr_good(taddr_t addr) const {
-    auto s_lck = shared_access();
+    auto s_lck = this->shared_access();
 
     if (unlikely(empty_unlocked()))
       return true; /* who knows */
