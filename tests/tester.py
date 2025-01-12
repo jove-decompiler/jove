@@ -151,8 +151,13 @@ class JoveTester:
     server_cmd = [self.jove_server_path, 'server', '-v', '--port=%d' % self.jove_server_port]
     server_cmd += self.extra_server_args
 
-    p = self.pane("server")
-    p.send_keys(" ".join(server_cmd))
+    if self.unattended:
+      self.serv_process = subprocess.Popen(server_cmd, stdin=subprocess.DEVNULL)
+    else:
+      self.serv_process = None
+
+      p = self.pane("server")
+      p.send_keys(" ".join(server_cmd))
 
   def is_vm_ready(self):
     return any("login:" in row for row in self.pane("qemu").capture_pane())
@@ -334,11 +339,15 @@ class JoveTester:
 
   def __del__(self):
     if self.unattended:
-      if self.create_qemu:
-        self.ssh(['systemctl', 'poweroff'])
+      self.ssh(['systemctl', 'poweroff'])
 
-      if self.create_serv:
-        self.pane("server").send_keys("C-c", literal=False, enter=False)
+      assert self.serv_process is not None
+      try:
+        self.serv_process.terminate()  # Gracefully terminate
+        self.serv_process.wait(timeout=5)  # Wait for the process to exit
+      except Exception as e:
+        self.serv_process.kill()  # Forcefully kill if it doesn't exit
+        print(f"Forced server subprocess termination: {e}")
 
       for i in range(0, len(self.create_list)):
         if self.create_list[i]:
