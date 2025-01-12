@@ -92,8 +92,6 @@ namespace cl = llvm::cl;
 
 using llvm::WithColor;
 
-//#include "analyze.hpp"
-
 namespace llvm {
 
 using IRBuilderTy = IRBuilder<ConstantFolder, IRBuilderDefaultInserter>;
