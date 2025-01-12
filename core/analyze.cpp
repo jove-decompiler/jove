@@ -751,6 +751,7 @@ flow_vertex_t analyzer_t<MT>::copy_function_cfg(
       bool IsABI = bbprop.DynTargetsAnyOf([&](dynamic_target_t X) {
         return function_of_target(X, jv).IsABI;
       });
+#if 0
       if (auto Summary = DynTargetsSummary(bbprop, IsABI)) {
         bbprop_t::Analysis_t &TheAnalysis =
             G[boost::graph_bundle].extra.emplace_front();
@@ -767,6 +768,7 @@ flow_vertex_t analyzer_t<MT>::copy_function_cfg(
 #endif
           exitVertices.emplace_back(dummyV, IsABI /* true */ /* abi */);
       } else {
+#endif
       dynamic_target_set DynTargets; /* XXX avoid reentrancy */
       ICFG[bb].DynTargetsForEach([&](const dynamic_target_t &DynTarget) {
         DynTargets.insert(DynTarget);
@@ -799,7 +801,9 @@ flow_vertex_t analyzer_t<MT>::copy_function_cfg(
           exitVertices.emplace_back(exitV, callee.IsABI);
         }
       });
+#if 0
       }
+#endif
 
       if (savedNumExitVerts == exitVertices.size()) {
         //
