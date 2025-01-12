@@ -172,7 +172,7 @@ int KnifeTool::Run(void) {
       return;
     }
 
-    F->setCallingConv(llvm::CallingConv::X86_64_SysV);
+    F->setCallingConv(_CallConv.ID);
 
     for (llvm::User *FU : F->users()) {
       if (!llvm::isa<llvm::CallInst>(FU))
