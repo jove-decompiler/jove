@@ -7,7 +7,7 @@ struct objdump_output_t : public ip_base_rw_accessible_spin<MT> {
   using allocator_type = Alloc;
 
   template <typename _Alloc>
-  using bitset_type = boost::dynamic_bitset<unsigned long, _Alloc>;
+  using bitset_type = boost::dynamic_bitset<uint32_t, _Alloc>;
   using bitset_t = bitset_type<Alloc>;
 
 private:
