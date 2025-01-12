@@ -12,9 +12,6 @@
 #include <boost/container_hash/extensions.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/format.hpp>
-#include <boost/graph/depth_first_search.hpp>
-#include <boost/graph/filtered_graph.hpp>
-#include <boost/graph/graphviz.hpp>
 #include <boost/preprocessor/arithmetic/inc.hpp>
 #include <boost/preprocessor/punctuation/comma_if.hpp>
 #include <boost/preprocessor/repetition/repeat.hpp>
@@ -287,7 +284,6 @@ struct LLVMTool
     cl::opt<std::string> ForAddr;
     cl::opt<bool> Optimize;
     cl::opt<bool> VerifyBitcode;
-    cl::opt<bool> Graphviz;
     cl::opt<bool> DumpPreOpt1;
     cl::opt<bool> DumpPostOpt1;
     cl::opt<bool> DumpPreFSBaseFixup;
@@ -372,9 +368,6 @@ struct LLVMTool
           VerifyBitcode("verify-bitcode",
                         cl::desc("run llvm::verifyModule on the bitcode"),
                         cl::cat(JoveCategory)),
-
-          Graphviz("graphviz", cl::desc("Dump graphviz of flow graphs"),
-                   cl::cat(JoveCategory)),
 
           DumpPreOpt1("dump-pre-opt",
                       cl::desc("Dump bitcode before DoOptimize()"),
