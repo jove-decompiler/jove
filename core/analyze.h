@@ -56,8 +56,8 @@ struct analyzer_t {
   tiny_code_generator_t &TCG;
   jv_base_t<MT> &jv;
 
-  jv_state_t<binary_state_t, function_state_t, void, false, false, true, false,
-             MT, false>
+  jv_state_t<binary_state_t, function_state_t, void, true, true, false, true,
+             MT>
       state;
 
   call_graph_builder_t<MT> cg;
