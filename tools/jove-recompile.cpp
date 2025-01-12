@@ -80,7 +80,6 @@ class RecompileTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, 
   struct Cmdline {
     cl::opt<std::string> Output;
     cl::alias OutputAlias;
-    cl::opt<unsigned> Threads;
     cl::opt<bool> Trace;
     cl::opt<std::string> UseLd;
     cl::opt<bool> DFSan;
@@ -106,10 +105,6 @@ class RecompileTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, 
 
           OutputAlias("o", cl::desc("Alias for -output."), cl::aliasopt(Output),
                       cl::cat(JoveCategory)),
-
-          Threads("num-threads",
-                  cl::desc("Number of CPU threads to use (hack)"),
-                  cl::init(num_cpus()), cl::cat(JoveCategory)),
 
           Trace(
               "trace",
