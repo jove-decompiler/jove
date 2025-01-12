@@ -133,7 +133,9 @@ class JoveTester:
 
   def pane(self, name):
     self.establish_tmux_session()
-    return self.wins[JoveTester.WINDOWS.index(name)].attached_pane
+    res = self.wins[JoveTester.WINDOWS.index(name)].attached_pane
+    res.select_pane()
+    return res
 
   def start_vm(self):
     print("starting VM...")
