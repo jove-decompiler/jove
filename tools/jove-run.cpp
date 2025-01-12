@@ -1050,10 +1050,13 @@ int RunTool::DoRun(void) {
   drop_privileges();
 
   if (has_jv && WasDecompilationModified.load()) {
+    /* FIXME */
+#if 0
     if (opts.ForeignLibs)
       for_each_function_in_binary(std::execution::par_unseq, jv.Binaries.at(0),
                                   [&](function_t &f) { f.InvalidateAnalysis(); });
     else
+#endif
       jv.InvalidateFunctionAnalyses(); /* FIXME */
   }
 
