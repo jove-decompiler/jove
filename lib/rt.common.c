@@ -90,18 +90,11 @@ void _jove_rt_init(void) {
   sa.k_sa_handler = (void *)_jove_rt_signal_handler;
   sa.k_sa_flags = SA_SIGINFO | SA_ONSTACK | SA_NODEFER;
 
-#if defined(__x86_64__) || defined(__i386__) || defined(__aarch64__)
+#if defined(__x86_64__)
 #ifndef SA_RESTORER
 #define SA_RESTORER 0x04000000
 #endif
   sa.k_sa_flags |= SA_RESTORER;
-#elif defined(__mips64) || defined(__mips__)
-  // not on this arch
-#else
-#error
-#endif
-
-#if defined(__x86_64__)
   sa.k_sa_restorer =
 #ifdef JOVE_COFF
       _jove_do_rt_sigreturn
@@ -110,6 +103,10 @@ void _jove_rt_init(void) {
 #endif
       ;
 #elif defined(__i386__)
+#ifndef SA_RESTORER
+#define SA_RESTORER 0x04000000
+#endif
+  sa.k_sa_flags |= SA_RESTORER;
   sa.k_sa_restorer = _jove_do_rt_sigreturn;
 #endif
 
