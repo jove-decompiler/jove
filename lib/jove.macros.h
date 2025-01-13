@@ -242,8 +242,14 @@
 
 #define MAYBE_PAUSE(name)                                                      \
   do {                                                                         \
-    if (unlikely(__jove_opts.Pause.name))                                      \
+    if (unlikely(__jove_opts.Pause.name)) {                                    \
+      static const char __msg[] =                                              \
+          "Pausing (" #name ") at "                                            \
+          BOOST_PP_STRINGIZE(__FILE__) ":"                                     \
+          BOOST_PP_STRINGIZE(__LINE__) ". Press enter to continue...\n";       \
+      _DUMP_WITH_LEN(__msg, sizeof(__msg) - 1);                                \
       _jove_pause();                                                           \
+    }                                                                          \
   } while (false)
 
 #endif /* JOVE_MACROS_H */
