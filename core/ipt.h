@@ -1005,7 +1005,7 @@ protected:
         case nr_for(execveat): {
           if (ret == 1) {
             // XXX exec never returns 1; we use this value to just say that an
-            // exec is being attempted. the exit will be reported even if it
+            // exec is being attempted. the exec will be reported even if it
             // fails.
             //
             // we do this here because the MMAP records come before the exec
