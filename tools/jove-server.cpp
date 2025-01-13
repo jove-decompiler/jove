@@ -286,6 +286,11 @@ void *ServerTool::ConnectionProc(void *arg) {
 
   jv_file_t jv_file(boost::interprocess::create_only, tmpjv.c_str(),
                     jvDefaultInitialSize() /* FIXME */);
+
+  BOOST_SCOPE_DEFER [&] {
+    boost::interprocess::file_mapping::remove(tmpjv.c_str());
+  };
+
   jv_t &jv(*jv_file.construct<jv_t>("JV")(jv_file));
 
   UnserializeJVFromFile(jv, jv_file, jv_s_path.c_str());
@@ -455,8 +460,6 @@ void *ServerTool::ConnectionProc(void *arg) {
       return nullptr;
     }
   }
-
-  boost::interprocess::file_mapping::remove(tmpjv.c_str());
 
   return nullptr;
 }
