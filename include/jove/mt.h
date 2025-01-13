@@ -2,6 +2,8 @@
 #error "only to be included inline in jove/jove.h"
 #endif
 
+struct UnlockTool;
+
 struct __do_nothing_t {
   template <typename... Args>
   __do_nothing_t (Args&&...) noexcept {}
@@ -29,6 +31,8 @@ using ip_base_mt_rw_choose_exclusive_lock_guard = std::conditional_t<
 
 template <bool MT, bool Spin>
 struct ip_base_rw_accessible {
+  friend UnlockTool;
+
   using mutex_type =
       std::conditional_t<MT, ip_base_mt_rw_choose_mutex<Spin>, std::monostate>;
 
@@ -79,6 +83,8 @@ using ip_base_rw_accessible_nospin = ip_base_rw_accessible<MT, false>;
 
 template <bool Spin>
 struct ip_mt_base_rw_accessible {
+  friend UnlockTool;
+
   using mutex_type = ip_base_mt_rw_choose_mutex<Spin>;
 
   mutable mutex_type mtx;
@@ -138,6 +144,8 @@ using ip_base_mt_choose_exclusive_lock_guard =
 
 template <bool Spin>
 struct ip_mt_base_accessible {
+  friend UnlockTool;
+
   using mutex_type = ip_base_mt_choose_mutex<Spin>;
 
   mutable mutex_type mtx;

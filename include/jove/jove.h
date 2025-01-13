@@ -884,9 +884,10 @@ struct basic_block_properties_t : public ip_mt_base_rw_accessible_nospin {
     };
   } Analysis;
 
-  class Parents_t : public ip_mt_base_accessible_spin {
+  class Parents_t : private ip_mt_base_accessible_spin {
     boost::interprocess::offset_ptr<const ip_func_index_set> _p = nullptr;
 
+    friend UnlockTool;
     friend basic_block_properties_t;
     friend allocates_basic_block_t;
 
