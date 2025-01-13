@@ -240,4 +240,10 @@
 #define _ASSERT(cond) _RASSERT(cond)
 #endif
 
+#define MAYBE_PAUSE(name)                                                      \
+  do {                                                                         \
+    if (unlikely(__jove_opts.Pause.name))                                      \
+      _jove_pause();                                                           \
+  } while (false)
+
 #endif /* JOVE_MACROS_H */

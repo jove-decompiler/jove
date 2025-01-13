@@ -16,6 +16,7 @@ struct jove_opts_t {
 
   struct {
     bool WinMain;
+    bool UnknownCallee;
   } Pause;
 
   bool DumpOpts;

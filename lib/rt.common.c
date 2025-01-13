@@ -235,7 +235,8 @@ void _jove_parse_debug_string(char *const s) {
 }
 
 static const struct debug_option_pair pause_opt_tbl[] = {
-  {"WinMain", &__jove_opts.Pause.WinMain}
+  {"WinMain", &__jove_opts.Pause.WinMain},
+  {"UnknownCallee", &__jove_opts.Pause.UnknownCallee}
 };
 
 void _jove_parse_pause_string(char *const s) {

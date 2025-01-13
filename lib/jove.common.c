@@ -1747,6 +1747,7 @@ matched:
   //
   // we found new code?
   //
+  MAYBE_PAUSE(UnknownCallee);
   _jove_recover_function(BBIdx, pc);
   _jove_recover_foreign_function(BBIdx, pc); /* NOTE: currently unnecessary */
   _jove_recover_foreign_binary(pc); /* NOTE: currently unnecessary */

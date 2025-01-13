@@ -201,6 +201,12 @@ static void _jove_on_crash(char mode) {
   __UNREACHABLE();
 }
 
+static void _jove_pause(void) {
+  char buff;
+  while (_jove_sys_read(STDIN_FILENO, &buff, 1) > 0 && buff != '\n')
+    ;
+}
+
 static _UNUSED ssize_t _jove_robust_write(int fd, const void *buf,
                                           size_t count);
 
