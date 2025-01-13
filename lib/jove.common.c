@@ -28,6 +28,7 @@ extern uintptr_t *__jove_function_tables[_JOVE_MAX_BINARIES];
 extern uintptr_t *__jove_sections_tables[_JOVE_MAX_BINARIES];
 
 extern uintptr_t *__jove_foreign_function_tables[_JOVE_MAX_BINARIES];
+static ptrdiff_t __jove_foreign_function_tables_bias[_JOVE_MAX_BINARIES];
 
 extern DECLARE_HASHTABLE(__jove_function_map, JOVE_FUNCTION_MAP_HASH_BITS);
 
@@ -1067,6 +1068,7 @@ void _jove_install_foreign_function_tables(void) {
           for (unsigned FIdx = 0; foreign_fn_tbl[FIdx]; ++FIdx)
             foreign_fn_tbl[FIdx] += load_bias;
 
+          __jove_foreign_function_tables_bias[i + 3] = load_bias;
           __jove_foreign_function_tables[i + 3] = foreign_fn_tbl; /* install */
           goto matched;
         }
@@ -1507,13 +1509,24 @@ jove_thunk_return_t _jove_call(
             continue;
         }
 
-        if (match && __jove_foreign_function_tables[i + 3] == NULL) {
+        ptrdiff_t curr_bias = __jove_foreign_function_tables_bias[i + 3];
+        ptrdiff_t load_bias = min - off;
+        if (match && (__jove_foreign_function_tables[i + 3] == NULL ||
+                      load_bias != curr_bias)) {
           uintptr_t *foreign_fn_tbl = _jove_foreign_lib_function_table(i);
 
-          uintptr_t load_bias = min - off;
+          if (curr_bias) {
+            //
+            // DSO was reloaded at different address
+            //
+            for (unsigned FIdx = 0; foreign_fn_tbl[FIdx]; ++FIdx)
+              foreign_fn_tbl[FIdx] -= curr_bias; /* undo */
+          }
+
           for (unsigned FIdx = 0; foreign_fn_tbl[FIdx]; ++FIdx)
             foreign_fn_tbl[FIdx] += load_bias;
 
+          __jove_foreign_function_tables_bias[i + 3] = load_bias;
           __jove_foreign_function_tables[i + 3] = foreign_fn_tbl; /* install */
           goto matched;
         }
@@ -1604,6 +1617,27 @@ matched:
 
         if (match) {
           uintptr_t *ForeignFnTbl = _jove_foreign_lib_function_table(i);
+
+          ptrdiff_t curr_bias = __jove_foreign_function_tables_bias[i + 3];
+          ptrdiff_t load_bias = min - off;
+          if (match && (__jove_foreign_function_tables[i + 3] == NULL ||
+                        load_bias != curr_bias)) {
+            uintptr_t *foreign_fn_tbl = _jove_foreign_lib_function_table(i);
+
+            if (curr_bias) {
+              //
+              // DSO was reloaded at different address
+              //
+              for (unsigned FIdx = 0; foreign_fn_tbl[FIdx]; ++FIdx)
+                foreign_fn_tbl[FIdx] -= curr_bias; /* undo */
+            }
+
+            for (unsigned FIdx = 0; foreign_fn_tbl[FIdx]; ++FIdx)
+              foreign_fn_tbl[FIdx] += load_bias;
+
+            __jove_foreign_function_tables_bias[i + 3] = load_bias;
+            __jove_foreign_function_tables[i + 3] = foreign_fn_tbl; /* install */
+          }
 
           for (unsigned FIdx = 0; ForeignFnTbl[FIdx]; ++FIdx) {
             if (pc == ForeignFnTbl[FIdx]) {
