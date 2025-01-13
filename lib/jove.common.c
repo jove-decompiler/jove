@@ -980,10 +980,8 @@ void _jove_install_foreign_function_tables(void) {
   uintptr_t *dynl_fn_tbl = _jove_get_dynl_function_table();
   uintptr_t *vdso_fn_tbl = _jove_get_vdso_function_table();
 
-  for (uintptr_t *p = dynl_fn_tbl; *p; ++p)
-    *p += dynl_load_bias;
-  for (uintptr_t *p = vdso_fn_tbl; *p; ++p)
-    *p += vdso_load_bias;
+  for (uintptr_t *p = dynl_fn_tbl; *p; ++p) *p += dynl_load_bias;
+  for (uintptr_t *p = vdso_fn_tbl; *p; ++p) *p += vdso_load_bias;
 
   __jove_foreign_function_tables[1] = dynl_fn_tbl;
   __jove_foreign_function_tables[2] = vdso_fn_tbl;
