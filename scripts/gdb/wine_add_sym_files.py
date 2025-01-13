@@ -9,59 +9,79 @@ from collections import defaultdict
 
 class WineAddSymFilesCommand(gdb.Command):
     def __init__(self):
-        super(WineAddSymFilesCommand, self).__init__(
-            "wine_add_sym_files",
-            gdb.COMMAND_DATA
-        )
-        #
-        # We'll compile our regex patterns once we know which .exe the user
-        # wants to track. See _compile_regex().
-        #
+        super(WineAddSymFilesCommand, self).__init__("wine_add_sym_files", gdb.COMMAND_DATA)
+        # We'll compile our regex patterns once we know which .exe the user wants to track.
         self._build_module_regex = None
         self._all_sections_regex = None
 
     def _compile_regex(self, exe_name):
         """
-        Compile the two necessary regex patterns based on the exe_name provided by the user:
-          1) Identify PIDs referencing exe_name via build_module
-          2) Identify lines that map any section that begins with '.' (like .text, .data, etc.)
+        Compile the two necessary regex patterns based on the exe_name.
+        We do two passes:
+
+          1) Find lines with 'build_module loaded L"...exe_name..."' to identify PIDs.
+          2) Find lines with 'map_image_into_view mapping <some path> section .something at 0x...'
+             capturing all sections that begin with '.'.
+
+        Note: We now allow spaces in the path by using '(?P<path>.*?)' with a lazy quantifier,
+        up until the literal text ' section '.
         """
         exe_escaped = re.escape(exe_name)
 
-        # Regex #1: finds lines indicating that a PID loaded `exe_name`.
+        #
+        # 1) Build-module lines (the loaded L"..." lines).
+        #
         # Example:
-        #   0024:trace:module:build_module loaded L"...mynotepad.exe" ...
+        #   0024:trace:module:build_module loaded L"\\??\\C:\\Program Files\\...\\haloce.exe" ...
+        #
+        # We want to capture PID=0024 if the path ends with 'haloce.exe' (or user-specified exe_name).
+        #
+        # Notice the path can have spaces:
+        #   L"\\??\\C:\\Program Files\\Microsoft Games\\Halo Custom Edition\\haloce.exe"
+        #
+        # So we do a lazy match, then specifically look for the user’s exe name near the end:
         self._build_module_regex = re.compile(
-            rf'^(?P<pid>[0-9A-Fa-f]{{4}}):.*?build_module\s+loaded\s+L"[^"]*{exe_escaped}"'
+            rf'^'
+            r'(?P<pid>[0-9A-Fa-f]{4})'         # e.g. 0024
+            r':.*?'                           # skip the rest until
+            r'build_module\s+loaded\s+L"'     # literal text
+            r'[^"]*' + exe_escaped + r'"'     # must eventually contain 'mynotepad.exe' or 'haloce.exe', etc.
         )
 
-        # Regex #2: finds lines that mention a section that starts with '.'.
-        # Example:
-        #   0024:trace:module:map_image_into_view mapping /home/.../mynotepad.exe section .text at 0x463000 ...
         #
-        # Captures:
-        #   - pid
-        #   - path (the mapped file)
-        #   - section (e.g., .text, .data, .rdata, etc.)
-        #   - addr (the load address in hex)
+        # 2) All-sections lines.
+        #
+        # Example:
+        #   0024:trace:module:map_image_into_view mapping /home/.../Program Files/... haloce.exe section .text at 0x82d000 ...
+        #
+        # Because the path can contain spaces, we do a lazy capture (.*?) until we see ' section '.
+        #
+        # Also note we capture .whatever for the section name:
         self._all_sections_regex = re.compile(
-            r'^(?P<pid>[0-9A-Fa-f]{4}):.*?mapping\s+(?P<path>\S+)\s+section\s+(?P<section>\.\S+)\s+at\s+(?P<addr>0x[0-9A-Fa-f]+)'
+            r'^'
+            r'(?P<pid>[0-9A-Fa-f]{4})'         # e.g. 0024
+            r':.*?'                           # skip the rest until
+            r'mapping\s+(?P<path>.*?)\s+section\s+(?P<section>\.\S+)\s+at\s+(?P<addr>0x[0-9A-Fa-f]+)'
         )
 
     def invoke(self, arg, from_tty):
         """
         Usage:
-          wine_add_sym_files [log_file] exe_name
+            wine_add_sym_files [log_file] exe_name
 
-        - If two arguments are provided:
-            1) log_file
-            2) exe_name
-        - If one argument is provided:
-            1) exe_name
-            (the log file is read from $WINEDEBUGLOG)
-        - Otherwise, we display usage and return.
+        1) If two arguments:
+              - log_file
+              - exe_name
+        2) If one argument:
+              - exe_name
+              (log_file is read from $WINEDEBUGLOG)
+        3) Otherwise, display usage.
+
+        This will:
+            - First pass: find which Windows PIDs loaded the specified exe.
+            - Second pass: parse all sections for those PIDs (including spaces in file paths).
+            - Then produce one add-symbol-file command per (PID, path).
         """
-
         args = arg.strip().split()
         if len(args) == 0 or len(args) > 2:
             gdb.write(
@@ -71,14 +91,12 @@ class WineAddSymFilesCommand(gdb.Command):
             return
 
         if len(args) == 1:
-            # Only got an exe_name
             exe_name = args[0]
             debug_log_path = os.environ.get("WINEDEBUGLOG")
             if not debug_log_path:
                 gdb.write("Error: No log file argument and $WINEDEBUGLOG not set.\n")
                 return
         else:
-            # Two arguments: log_file, exe_name
             debug_log_path, exe_name = args
 
         exe_name = exe_name.strip()
@@ -115,8 +133,7 @@ class WineAddSymFilesCommand(gdb.Command):
 
         #
         # Second pass: gather all sections for lines that match our PIDs.
-        #
-        # We'll store them by (pid, path) → { section_name: address }
+        # Store them by (pid, path) -> { section_name: address }
         #
         sections_by_pid_path = defaultdict(dict)
 
@@ -127,58 +144,43 @@ class WineAddSymFilesCommand(gdb.Command):
                     continue
 
                 pid_str  = match.group("pid").upper()
-                dso_path = match.group("path")
+                dso_path = match.group("path").strip()
                 sectname = match.group("section").strip()
-                addr_str = match.group("addr")
+                addr_str = match.group("addr").strip()
 
-                # Only record sections for the PIDs we care about.
                 if pid_str not in matched_pids:
                     continue
-
-                # We only want sections that begin with '.', so quick sanity check:
-                # (the regex ensures it starts with '.', but let's keep the check anyway)
+                # We only want sections that begin with '.', which the regex ensures, but let's be safe:
                 if not sectname.startswith('.'):
                     continue
 
-                # Convert address string (e.g. "0x463000") to int
                 try:
                     addr_val = int(addr_str, 16)
                 except ValueError:
                     gdb.write(f"Warning: couldn't parse addr '{addr_str}' for {dso_path}\n")
                     continue
 
-                # Store the address in our dictionary
                 key = (pid_str, dso_path)
                 sections_by_pid_path[key][sectname] = addr_val
 
         #
-        # Now that we've collected all sections for each (pid, path),
-        # we can issue one "add-symbol-file" command per (pid, path).
+        # Now issue one "add-symbol-file" per (pid, path), specifying .text as base, and -s for the others.
         #
-        # GDB expects:
-        #   add-symbol-file "PATH" TEXT_ADDR -s .data DATA_ADDR -s .bss BSS_ADDR ...
-        #
-        # So we must identify the `.text` address first, if it exists.
-        #
-        for (pid_str, dso_path), sectdict in sections_by_pid_path.items():
-            if ".text" not in sectdict:
+        for (pid_str, dso_path), sect_dict in sections_by_pid_path.items():
+            if ".text" not in sect_dict:
                 gdb.write(f"Warning: Skipping {dso_path} (PID={pid_str}); no .text section found.\n")
                 continue
 
-            text_addr = sectdict[".text"]
-
-            # Build the command
-            # The first parameter after the file name is the .text address
+            text_addr = sect_dict[".text"]
             cmd = f'add-symbol-file "{dso_path}" 0x{text_addr:x}'
 
-            # Then append -s for every other section
-            for sname, saddr in sectdict.items():
+            # Add -s for any other sections
+            for sname, saddr in sect_dict.items():
                 if sname == ".text":
                     continue
                 cmd += f' -s {sname} 0x{saddr:x}'
 
             gdb.write(f"[PID={pid_str}] Loading symbols: {cmd}\n")
-
             try:
                 gdb.execute(cmd, to_string=True)
             except gdb.error as e:
@@ -187,6 +189,6 @@ class WineAddSymFilesCommand(gdb.Command):
 
         gdb.write("wine_add_sym_files: Done processing WINEDEBUG log.\n")
 
+
 # Instantiate the command so it is available in GDB
 WineAddSymFilesCommand()
-
