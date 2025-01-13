@@ -26,7 +26,10 @@ typedef futex_t mutex_t;
 
 static _UNUSED void _mutex_lock(mutex_t *mtx) {
   uint32_t expected = JOVE_UNLOCKED;
-  while (unlikely(!atomic_compare_exchange_weak(mtx, &expected, JOVE_LOCKED))) {
+  while (unlikely(!atomic_compare_exchange_weak_explicit(
+      mtx, &expected, JOVE_LOCKED,
+      memory_order_acquire,
+      memory_order_relaxed))) {
     expected = JOVE_UNLOCKED; /* reset expected value */
 
     /* wait until the lock becomes available */
@@ -35,7 +38,7 @@ static _UNUSED void _mutex_lock(mutex_t *mtx) {
 }
 
 static _UNUSED void _mutex_unlock(mutex_t *mtx) {
-  atomic_store(mtx, JOVE_UNLOCKED);
+  atomic_store_explicit(mtx, JOVE_UNLOCKED, memory_order_release);
 
   /* wake up one waiting thread */
   _futex_wake(mtx, 1);
