@@ -517,10 +517,7 @@ void WINAPI JoveWinMain(void) {
 
   _jove_initialize();
 
-  if (unlikely(__jove_opts.Pause.WinMain)) {
-    char buff;
-    while (_jove_sys_read(STDIN_FILENO, &buff, 1) > 0 && buff != '\n');
-  }
+  MAYBE_PAUSE(WinMain);
 
   _jove_call_entry();
 }
