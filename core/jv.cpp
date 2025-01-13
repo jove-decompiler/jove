@@ -346,6 +346,9 @@ adds_binary_t::adds_binary_t(binary_index_t &out,
   try {
     Bin = B::Create(data);
   } catch (...) {
+    //
+    // we're making note here that this is *not* a (valid) binary
+    //
     out = BIdx = invalid_basic_block_index;
     return;
   }
