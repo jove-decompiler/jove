@@ -29,7 +29,7 @@
 
 namespace jove {
 
-static jv_file_t *pFile_hack = nullptr;                  /* XXX */
+static thread_local jv_file_t *pFile_hack = nullptr; /* XXX */
 
 }
 
