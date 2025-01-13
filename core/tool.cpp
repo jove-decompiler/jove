@@ -634,7 +634,8 @@ BaseJVTool<MT>::cow_copy_if_possible(const std::string &the_jv_filename) {
   assert(dst_fd);
 
   if (cp_reflink(src_fd.get(), dst_fd.get()) < 0) {
-    WithColor::warning() << "filesystem does not support reflink copy!!\n";
+    WithColor::warning() << "filesystem does not support reflink copy!! XFS or "
+                            "btrfs is recommended.\n";
     return the_jv_filename;
   }
 
