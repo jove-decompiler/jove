@@ -460,7 +460,8 @@ flow_vertex_t analyzer_t<MT>::copy_function_cfg(
   // CFG's basic blocks to the flow graph vertices
   //
   G.m_vertices.reserve(G.m_vertices.size() + bbvec.size());
-  std::unique_ptr<flow_vertex_t[]> Orig2CopyMap(
+
+  std::unique_ptr<flow_vertex_t[]> Orig2CopyMap( /* look ma, no memset */
       new flow_vertex_t[boost::num_vertices(ICFG.container())]);
 
   auto Orig2CopyPropMap = boost::make_iterator_property_map(
