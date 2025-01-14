@@ -7,7 +7,6 @@ on:
   workflow_dispatch:
 
 env:
-  TEST_TAG: aleden22/jove:test
   LATEST_TAG: aleden22/jove:latest
 
 jobs:
@@ -38,11 +37,11 @@ jobs:
         with:
           context: .
           load: true
-          tags: ${{ env.TEST_TAG }}
+          tags: ${{ env.LATEST_TAG }}
       -
         name: Test
         run: |
-          docker run --rm --privileged -v /dev:/dev ${{ env.TEST_TAG }} /jove/scripts/ci_check.sh
+          docker run --rm --privileged -v /dev:/dev ${{ env.LATEST_TAG }} /jove/scripts/ci_check.sh
       -
         name: Build and push
         uses: docker/build-push-action@v5
