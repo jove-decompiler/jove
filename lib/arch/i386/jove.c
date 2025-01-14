@@ -2,7 +2,7 @@
 
 #include "cpu_state.h"
 
-#define JOVE_THUNK_ATTR _REGPARM
+#define JOVE_THUNK_EXTRA_ATTR _REGPARM
 typedef uint64_t jove_thunk_return_t;
 
 #include "jove.common.c"
