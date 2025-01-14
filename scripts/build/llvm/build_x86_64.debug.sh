@@ -6,10 +6,8 @@ set -x
 if [ ! -f build.ninja ]; then
 
 OURCFLAGS=\
-" -gline-tables-only"\
 " -fno-omit-frame-pointer"\
 " -mno-omit-leaf-frame-pointer"\
-" -ggdb"\
 " -Og"
 
 cmake -G Ninja \
