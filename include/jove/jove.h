@@ -1405,13 +1405,14 @@ struct binary_base_t {
         BBMap(jv_file),
         fnmap(jv_file.get_segment_manager()),
         Name(jv_file.get_segment_manager()),
+        Data(jv_file.get_segment_manager()),
         EmptyFIdxSet(boost::interprocess::make_managed_unique_ptr(
             jv_file.construct<ip_func_index_set>(
                 boost::interprocess::anonymous_instance)(
                 jv_file.get_segment_manager()),
             jv_file)),
         FIdxSets(jv_file.get_segment_manager()),
-        Data(jv_file.get_segment_manager()), Analysis(jv_file) {}
+        Analysis(jv_file) {}
 
   template <bool MT2>
   binary_base_t(binary_base_t<MT2> &&other) noexcept
