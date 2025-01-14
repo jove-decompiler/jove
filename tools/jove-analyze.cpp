@@ -108,9 +108,17 @@ int AnalyzeTool::Run(void) {
 
   analyzer_opts.Verbose = IsVerbose();
   analyzer_opts.VeryVerbose = IsVeryVerbose();
+  analyzer_opts.Conservative = opts.Conservative;
 
   analyzer = std::make_unique<analyzer_t<IsToolMT>>(analyzer_opts, *TCG, jv,
                                                     inflight, done);
+
+#ifndef JOVE_TSAN /* FIXME */
+  analyzer->update_callers();
+  analyzer->update_parents();
+  analyzer->identify_ABIs();
+  analyzer->identify_Sjs();
+#endif
 
   return AnalyzeBlocks()
       || AnalyzeFunctions();
@@ -121,13 +129,6 @@ int AnalyzeTool::AnalyzeBlocks(void) {
 }
 
 int AnalyzeTool::AnalyzeFunctions(void) {
-#ifndef JOVE_TSAN /* FIXME */
-  analyzer->update_callers();
-  analyzer->update_parents();
-  analyzer->identify_ABIs();
-  analyzer->identify_Sjs();
-#endif
-
 #if 0 /* force initializing state upfront */
   for_each_binary(std::execution::par_unseq, jv, [&](binary_t &b) {
     (void)state.for_binary(b);
