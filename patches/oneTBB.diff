@@ -1,0 +1,93 @@
+diff --git a/cmake/sanitize.cmake b/cmake/sanitize.cmake
+index d07b3298..818f57ca 100644
+--- a/cmake/sanitize.cmake
++++ b/cmake/sanitize.cmake
+@@ -7,37 +7,37 @@
+ #     http://www.apache.org/licenses/LICENSE-2.0
+ #
+ # Unless required by applicable law or agreed to in writing, software
+ # distributed under the License is distributed on an "AS IS" BASIS,
+ # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ # See the License for the specific language governing permissions and
+ # limitations under the License.
+ 
+ set(TBB_SANITIZE ${TBB_SANITIZE} CACHE STRING "Sanitizer parameter passed to compiler/linker" FORCE)
+ # Possible values of sanitizer parameter for cmake-gui for convenience, user still can use any other value.
+ set_property(CACHE TBB_SANITIZE PROPERTY STRINGS "thread" "memory" "leak" "address -fno-omit-frame-pointer")
+ 
+ if (NOT TBB_SANITIZE)
+     return()
+ endif()
+ 
+ set(TBB_SANITIZE_OPTION -fsanitize=${TBB_SANITIZE})
+ 
+ # It is required to add sanitizer option to CMAKE_REQUIRED_LIBRARIES to make check_cxx_compiler_flag working properly:
+ # sanitizer option should be passed during the compilation phase as well as during the compilation.
+-set(CMAKE_REQUIRED_LIBRARIES "${TBB_SANITIZE_OPTION} ${CMAKE_REQUIRED_LIBRARIES}")
++##set(CMAKE_REQUIRED_LIBRARIES "${TBB_SANITIZE_OPTION} ${CMAKE_REQUIRED_LIBRARIES}")
+ 
+ string(MAKE_C_IDENTIFIER ${TBB_SANITIZE_OPTION} FLAG_DISPLAY_NAME)
+ check_cxx_compiler_flag(${TBB_SANITIZE_OPTION} ${FLAG_DISPLAY_NAME})
+ if (NOT ${FLAG_DISPLAY_NAME})
+     message(FATAL_ERROR
+     "${TBB_SANITIZE_OPTION} is not supported by compiler ${CMAKE_CXX_COMPILER_ID}:${CMAKE_CXX_COMPILER_VERSION}, "
+     "please try another compiler or omit TBB_SANITIZE variable")
+ endif()
+ 
+ set(TBB_TESTS_ENVIRONMENT ${TBB_TESTS_ENVIRONMENT}
+     "TSAN_OPTIONS=suppressions=${CMAKE_CURRENT_SOURCE_DIR}/cmake/suppressions/tsan.suppressions"
+     "LSAN_OPTIONS=suppressions=${CMAKE_CURRENT_SOURCE_DIR}/cmake/suppressions/lsan.suppressions")
+ 
+ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TBB_SANITIZE_OPTION}")
+ set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${TBB_SANITIZE_OPTION}")
+ set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${TBB_SANITIZE_OPTION}")
+diff --git a/src/tbb/governor.cpp b/src/tbb/governor.cpp
+index 218a2bc5..d344d7a7 100644
+--- a/src/tbb/governor.cpp
++++ b/src/tbb/governor.cpp
+@@ -158,41 +158,45 @@ static std::uintptr_t get_stack_base(std::size_t stack_size) {
+     suppress_unused_warning(stack_size);
+     NT_TIB* pteb = (NT_TIB*)NtCurrentTeb();
+     __TBB_ASSERT(&pteb < pteb->StackBase && &pteb > pteb->StackLimit, "invalid stack info in TEB");
+     return reinterpret_cast<std::uintptr_t>(pteb->StackBase);
+ #elif defined(EMSCRIPTEN)
+     suppress_unused_warning(stack_size);
+     return reinterpret_cast<std::uintptr_t>(emscripten_stack_get_base());
+ #else
+     // There is no portable way to get stack base address in Posix, so we use
+     // non-portable method (on all modern Linux) or the simplified approach
+     // based on the common sense assumptions. The most important assumption
+     // is that the main thread's stack size is not less than that of other threads.
+ 
+     // Points to the lowest addressable byte of a stack.
+     void* stack_limit = nullptr;
+ #if __linux__ && !__bg__
+     size_t np_stack_size = 0;
+     pthread_attr_t np_attr_stack;
+     if (0 == pthread_getattr_np(pthread_self(), &np_attr_stack)) {
+         if (0 == pthread_attr_getstack(&np_attr_stack, &stack_limit, &np_stack_size)) {
++#if 1 /* defined(__SANITIZE_ADDRESS__) */
++            np_stack_size = 1u << 15;
++#else
+             __TBB_ASSERT( &stack_limit > stack_limit, "stack size must be positive" );
++#endif
+         }
+         pthread_attr_destroy(&np_attr_stack);
+     }
+ #endif /* __linux__ */
+     std::uintptr_t stack_base{};
+     if (stack_limit) {
+         stack_base = reinterpret_cast<std::uintptr_t>(stack_limit) + stack_size;
+     } else {
+         // Use an anchor as a base stack address.
+         int anchor{};
+         stack_base = reinterpret_cast<std::uintptr_t>(&anchor);
+     }
+     return stack_base;
+ #endif /* __TBB_USE_WINAPI */
+ }
+ 
+ #if (_WIN32||_WIN64) && !__TBB_DYNAMIC_LOAD_ENABLED
+ static void register_external_thread_destructor() {
+     struct thread_destructor {
+         ~thread_destructor() {
