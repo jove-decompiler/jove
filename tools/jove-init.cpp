@@ -206,6 +206,12 @@ int InitTool::Run(void) {
       if (coff::needed_libs(O, needed_vec)) {
         for (const std::string &needed : needed_vec) {
           try {
+            // anything in directory of exe takes precedence
+            binary_paths.push_back(fs::canonical(prog.parent_path() / needed).string());
+            continue;
+          } catch (...) {}
+
+          try {
             binary_paths.push_back(locator().wine_dll(IsTarget32, needed));
           } catch (const std::exception &e) {
             WithColor::warning() << llvm::formatv("can't locate wine dll \"{0}\"\n", needed);

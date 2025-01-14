@@ -49,6 +49,7 @@ static inline uint64_t extractAddress(COFFO &O, const void *ptr) {
 bool isCode(COFFO &, uint64_t va);
 
 bool needed_libs(COFFO &, std::vector<std::string> &out);
+bool needed_delay_libs(COFFO &, std::vector<std::string> &out);
 
 void for_each_imported_function(
     COFFO &, std::function<void(llvm::StringRef DLL, uint32_t Ordinal,

@@ -66,6 +66,9 @@ struct binary_state_t {
   } _elf;
 
   std::vector<std::string> needed_vec;
+  struct {
+    std::vector<std::string> needed_delay_vec;
+  } _coff;
   std::string soname;
   dso_t dso;
 
@@ -444,6 +447,10 @@ int RecompileTool::Run(void) {
     if (!B::needed_libs(*x.Bin, x.needed_vec))
       WithColor::warning() << llvm::formatv(
           "failed to get libraries needed by {0}\n", b.Name.c_str());
+
+    B::_coff(*x.Bin, [&](COFFO &O) {
+      coff::needed_delay_libs(O, x._coff.needed_delay_vec);
+    });
   });
 
   if (B::is_coff(*state.for_binary(jv.Binaries.at(0)).Bin)) {
@@ -1220,6 +1227,24 @@ int RecompileTool::Run(void) {
         Arg(locator().builtins(IsCOFF));
         Arg(locator().softfloat_bitcode(IsCOFF));
         Arg(locator().runtime_implib(opts.MT));
+
+        for (const std::string &needed_delay : x._coff.needed_delay_vec) {
+#if 0
+          if (needed_delay == "dsound.dll")
+            continue; /* FIXME */
+#endif
+
+          Arg("/delayload:" + needed_delay);
+        }
+
+        if (!x._coff.needed_delay_vec.empty()) {
+          const char *x = IsX86Target && IsTarget32 ? "___delayLoadHelper2@8"
+                                                    : "__delayLoadHelper2";
+          const char *y = IsX86Target && IsTarget32 ? "_JoveWinMain@0"
+                                                    : "JoveWinMain";
+
+          Arg(std::string("/alternatename:") + x + std::string("=") + y);
+        }
 
         for (const std::string &needed : x.needed_vec) {
           binary_index_t ChosenBIdx = ChooseBinaryWithSoname(needed);

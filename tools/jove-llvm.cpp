@@ -4932,30 +4932,16 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
   });
 
   B::_coff(*Bin, [&](COFFO &O) {
-
-  auto printImportedSymbols =
-      [&](llvm::StringRef DLL, uint32_t RVA,
-          llvm::iterator_range<llvm::object::imported_symbol_iterator> Range,
-          bool IAT) -> void {
-    unsigned i = 0;
-    for (auto it = Range.begin(); it != Range.end(); ++it, ++i) {
-      const llvm::object::ImportedSymbolRef &I = *it;
-
-      llvm::StringRef SymName;
-      if (llvm::errorToBool(I.getSymbolName(SymName)))
-        ;
-      uint16_t Ordinal = UINT16_MAX;
-      if (llvm::errorToBool(I.getOrdinal(Ordinal)))
-        ;
-
-      llvm::outs() <<
-        (fmt("[%s] %-15s (%u) @ %x <%s>\n")
-         % (IAT ? "IAT" : "ILT")
-         % SymName.str()
-         % Ordinal
-         % (coff::va_of_rva(O, RVA + i*WordBytes()))
-         % DLL.str()).str();
-    }
+  auto printImportedSymbol = [&](const char *tableName,
+                                 llvm::StringRef SymName, uint16_t Ordinal,
+                                 uint64_t Addr, llvm::StringRef DLL) -> void {
+    llvm::outs() <<
+      (fmt("[%s] %-15s (%u) @ %x <%s>\n")
+       % tableName
+       % SymName.str()
+       % Ordinal
+       % Addr
+       % DLL.str()).str();
   };
 
   // Regular imports
@@ -4967,12 +4953,77 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
     uint32_t ILTAddr;
     uint32_t IATAddr;
 
+    auto printImportedSymbols =
+        [&](uint32_t RVA,
+            llvm::iterator_range<llvm::object::imported_symbol_iterator> Range,
+            bool IAT) -> void {
+      unsigned i = 0;
+      for (auto it = Range.begin(); it != Range.end(); ++it, ++i) {
+        const llvm::object::ImportedSymbolRef &I = *it;
+
+        llvm::StringRef SymName;
+        if (llvm::errorToBool(I.getSymbolName(SymName)))
+          ;
+        uint16_t Ordinal = UINT16_MAX;
+        if (llvm::errorToBool(I.getOrdinal(Ordinal)))
+          ;
+
+        printImportedSymbol(IAT ? "IAT" : "ILT",
+                            SymName,
+                            Ordinal,
+                            coff::va_of_rva(O, RVA + i * WordBytes()),
+                            DLL);
+      }
+    };
+
     // The import lookup table can be missing with certain older linkers
     if (!llvm::errorToBool(I.getImportLookupTableRVA(ILTAddr)) && ILTAddr)
-      printImportedSymbols(DLL, ILTAddr, I.lookup_table_symbols(), false);
+      printImportedSymbols(ILTAddr, I.lookup_table_symbols(), false);
 
     if (!llvm::errorToBool(I.getImportAddressTableRVA(IATAddr)) && IATAddr)
-      printImportedSymbols(DLL, IATAddr, I.imported_symbols(), true);
+      printImportedSymbols(IATAddr, I.imported_symbols(), true);
+  }
+
+  // Delayed imports
+  for (const obj::DelayImportDirectoryEntryRef &I : O.delay_import_directories()) {
+    llvm::StringRef DLL;
+    if (llvm::errorToBool(I.getName(DLL)))
+      continue;
+
+    auto printImportedSymbols =
+        [&](uint32_t RVA,
+            llvm::iterator_range<llvm::object::imported_symbol_iterator> Range)
+        -> void {
+      unsigned i = 0;
+      for (auto it = Range.begin(); it != Range.end(); ++it, ++i) {
+        const llvm::object::ImportedSymbolRef &S = *it;
+
+        llvm::StringRef SymName;
+        (void)llvm::errorToBool(S.getSymbolName(SymName));
+
+        uint16_t Ordinal = UINT16_MAX;
+        if (llvm::errorToBool(S.getOrdinal(Ordinal)))
+          continue;
+
+        uint64_t Addr;
+        if (llvm::errorToBool(I.getImportAddress(i, Addr)))
+          continue;
+
+        //llvm::errs() << llvm::formatv("{0:x} {1:x}\n", Addr, RVA + i * WordBytes());
+
+        printImportedSymbol("DIAT",
+                            SymName,
+                            Ordinal,
+                            Addr,
+                            DLL);
+      }
+    };
+
+    const obj::delay_import_directory_table_entry *Table = nullptr;
+    if (llvm::errorToBool(I.getDelayImportTable(Table)))
+      continue;
+
+    printImportedSymbols(Table->DelayImportAddressTable, I.imported_symbols());
   }
 
   });
@@ -5088,8 +5139,8 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
           O, [&](llvm::StringRef DLL,
                  uint32_t Ordinal,
                  llvm::StringRef Name,
-                 uint64_t RVA) {
-            type_at_address(coff::va_of_rva(O, RVA), WordType());
+                 uint64_t Addr) {
+            type_at_address(Addr, WordType());
           });
     });
 
@@ -5274,9 +5325,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
           O, [&](llvm::StringRef DLL,
                  uint32_t Ordinal,
                  llvm::StringRef Name,
-                 uint64_t RVA) {
-            uint64_t Offset = coff::va_of_rva(O, RVA);
-
+                 uint64_t Offset) {
             llvm::Constant *R_C =
                 ImportedFunctionAddress(DLL, Ordinal, Name, Offset);
 

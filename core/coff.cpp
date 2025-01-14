@@ -77,6 +77,34 @@ bool needed_libs(COFFO &O, std::vector<std::string> &out) {
       needed_set.insert(lowered_string(needed));
   }
 
+  for (const obj::DelayImportDirectoryEntryRef &DirRef : O.delay_import_directories()) {
+    llvm::StringRef Name;
+    if (llvm::errorToBool(DirRef.getName(Name)))
+      continue;
+
+    std::string name(Name.str());
+    needed_set.insert(lowered_string(name));
+  }
+
+  out.clear();
+  for (const std::string &needed : needed_set)
+    out.push_back(needed);
+
+  return true;
+}
+
+bool needed_delay_libs(COFFO &O, std::vector<std::string> &out) {
+  boost::unordered::unordered_flat_set<std::string> needed_set;
+
+  for (const obj::DelayImportDirectoryEntryRef &DirRef : O.delay_import_directories()) {
+    llvm::StringRef Name;
+    if (llvm::errorToBool(DirRef.getName(Name)))
+      continue;
+
+    std::string name(Name.str());
+    needed_set.insert(lowered_string(name));
+  }
+
   out.clear();
   for (const std::string &needed : needed_set)
     out.push_back(needed);
@@ -86,7 +114,7 @@ bool needed_libs(COFFO &O, std::vector<std::string> &out) {
 
 void for_each_imported_function(
     COFFO &O, std::function<void(llvm::StringRef DLL, uint32_t Ordinal,
-                                 llvm::StringRef Name, uint64_t RVA)> proc) {
+                                 llvm::StringRef Name, uint64_t Addr)> proc) {
   for (const llvm::object::ImportDirectoryEntryRef &I : O.import_directories()) {
     llvm::StringRef DLL;
     if (llvm::errorToBool(I.getName(DLL)))
@@ -105,7 +133,7 @@ void for_each_imported_function(
         if (llvm::errorToBool(I.getOrdinal(Ordinal)))
           continue;
 
-        proc(DLL, Ordinal, SymName, RVA + i*O.getBytesInAddress());
+        proc(DLL, Ordinal, SymName, coff::va_of_rva(O, RVA + i*O.getBytesInAddress()));
       }
     };
 
@@ -116,6 +144,43 @@ void for_each_imported_function(
     uint32_t IATAddr = 0;
     if (!llvm::errorToBool(I.getImportAddressTableRVA(IATAddr)) && IATAddr)
       processImportedSymbols(IATAddr, I.imported_symbols());
+  }
+
+  for (const obj::DelayImportDirectoryEntryRef &I : O.delay_import_directories()) {
+    llvm::StringRef DLL;
+    if (llvm::errorToBool(I.getName(DLL)))
+      continue;
+
+    auto processDelayImportedSymbols =
+        [&](uint64_t RVA,
+            const obj::DelayImportDirectoryEntryRef &I,
+            llvm::iterator_range<llvm::object::imported_symbol_iterator> Range)
+        -> void {
+      unsigned i = 0;
+      for (auto it = Range.begin(); it != Range.end(); ++it, ++i) {
+        const llvm::object::ImportedSymbolRef &S = *it;
+
+        llvm::StringRef SymName;
+        (void)llvm::errorToBool(S.getSymbolName(SymName));
+
+        uint16_t Ordinal = UINT16_MAX;
+        if (llvm::errorToBool(S.getOrdinal(Ordinal)))
+          continue;
+
+        uint64_t Addr;
+        if (llvm::errorToBool(I.getImportAddress(i, Addr)))
+          continue;
+
+        proc(DLL, Ordinal, SymName, Addr);
+      }
+    };
+
+    const obj::delay_import_directory_table_entry *Table = nullptr;
+    if (llvm::errorToBool(I.getDelayImportTable(Table)))
+      continue;
+
+    processDelayImportedSymbols(Table->DelayImportAddressTable, I,
+                                I.imported_symbols());
   }
 }
 
