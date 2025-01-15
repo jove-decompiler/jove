@@ -13,12 +13,12 @@ pushd .
 cd $wine_path
 
 pushd .
-mkdir build64 && cd build64
+mkdir -p build64 && cd build64
 $build_scripts_path/wine/build64.sh
 popd
 
 pushd .
-mkdir build && cd build
+mkdir -p build && cd build
 $build_scripts_path/wine/build.sh
 popd
 
