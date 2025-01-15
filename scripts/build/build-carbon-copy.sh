@@ -4,6 +4,9 @@ set -x
 cd /jove/carbon-copy
 mkdir build && cd build
 
-CXX=clang++-16 CC=clang-16 cmake -G Ninja -D CMAKE_BUILD_TYPE=Release ..
+
+
+
+cmake -G Ninja -D CMAKE_C_COMPILER=$(which clang-16) -D CMAKE_CXX_COMPILER=$(which clang++-16) -D CMAKE_BUILD_TYPE=Release ..
 
 ninja
