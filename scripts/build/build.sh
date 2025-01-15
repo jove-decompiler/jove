@@ -7,6 +7,7 @@ jove_path=$build_scripts_path/../..
 
 qemu_path=$jove_path/qemu
 llvm_path=$jove_path/llvm-project
+wine_path=$jove_path/wine
 
 rm -f $llvm_path/llvm/projects/jove
 rm -f $llvm_path/llvm/projects/llvm-cbe
@@ -43,3 +44,18 @@ build_all_variants llvm
 popd
 
 make -C $jove_path -j$(nproc)
+
+pushd .
+cd $wine_path
+
+pushd .
+mkdir build64 && cd build64
+$build_scripts_path/wine/build64.sh
+popd
+
+pushd .
+mkdir build && cd build
+$build_scripts_path/wine/build.sh
+popd
+
+popd
