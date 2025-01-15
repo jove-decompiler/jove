@@ -38,7 +38,7 @@ cmake -G Ninja \
       -D LLVM_ENABLE_LTO=OFF \
       -D "CMAKE_EXE_LINKER_FLAGS=-static" \
       -D LLVM_USE_LINKER=lld \
-      ..
+      -S $(pwd)/.. -B $(pwd)
 
 fi
 

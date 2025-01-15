@@ -27,7 +27,7 @@ cmake -G Ninja \
   -D "LLVM_TARGETS_TO_BUILD=X86" \
   -D "JOVE_TARGETS_TO_BUILD=i386" \
   -D JOVE_HAVE_MEMFD=ON \
-  -D "LLVM_TABLEGEN=$(pwd)/../build/bin/llvm-tblgen" \
+  -D "LLVM_TABLEGEN=$(pwd)/../build/llvm/bin/llvm-tblgen" \
   -D LLVM_BUILD_TESTS=OFF \
   -D LLVM_INCLUDE_TESTS=OFF \
   -D "LLVM_ENABLE_PROJECTS=llvm" \
@@ -45,7 +45,7 @@ cmake -G Ninja \
   -D "CMAKE_EXE_LINKER_FLAGS=-static" \
   -D LLVM_BINUTILS_INCDIR=/usr/include \
   -D LLVM_USE_LINKER=lld \
-  ..
+  -S $(pwd)/.. -B $(pwd)
 
 fi
 

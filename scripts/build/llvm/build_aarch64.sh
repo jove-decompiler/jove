@@ -28,7 +28,7 @@ cmake -G Ninja \
   -D "CMAKE_CXX_FLAGS=$OURCFLAGS" \
   -D "LLVM_TARGETS_TO_BUILD=AArch64" \
   -D "JOVE_TARGETS_TO_BUILD=aarch64" \
-  -D "LLVM_TABLEGEN=$(pwd)/../build/bin/llvm-tblgen" \
+  -D "LLVM_TABLEGEN=$(pwd)/../build/llvm/bin/llvm-tblgen" \
   -D LLVM_BUILD_TESTS=OFF \
   -D LLVM_INCLUDE_TESTS=OFF \
   -D "LLVM_ENABLE_PROJECTS=llvm" \
@@ -45,7 +45,7 @@ cmake -G Ninja \
   -D "CMAKE_EXE_LINKER_FLAGS=-static-pie" \
   -D LLVM_USE_LINKER=lld \
   -D LLVM_BINUTILS_INCDIR=/usr/include \
-  ..
+  -S $(pwd)/.. -B $(pwd)
 
 fi
 

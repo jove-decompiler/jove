@@ -26,7 +26,7 @@ cmake -G Ninja \
   -D "CMAKE_CXX_FLAGS=$OURCFLAGS" \
   -D "LLVM_TARGETS_TO_BUILD=Mips" \
   -D "JOVE_TARGETS_TO_BUILD=mips" \
-  -D "LLVM_TABLEGEN=$(pwd)/../build/bin/llvm-tblgen" \
+  -D "LLVM_TABLEGEN=$(pwd)/../build/llvm/bin/llvm-tblgen" \
   -D LLVM_BUILD_TESTS=OFF \
   -D LLVM_INCLUDE_TESTS=OFF \
   -D "LLVM_ENABLE_PROJECTS=llvm" \
@@ -41,7 +41,7 @@ cmake -G Ninja \
   -D LLVM_BUILD_DOCS=OFF \
   -D "CMAKE_EXE_LINKER_FLAGS=-static" \
   -D LLVM_BINUTILS_INCDIR=/usr/include \
-  ..
+  -S $(pwd)/.. -B $(pwd)
 
 fi
 
