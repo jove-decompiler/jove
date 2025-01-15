@@ -663,8 +663,7 @@ uint64_t decode_ip(const unsigned char *data) {
   }
 
 
-// fast decoder that decodes only tip (and related packets)
-// and skips over the reset
+// fast decoder which originally decoded only tip (and related packets)
 template <bool IsEngaged>
 void process_packets(uint64_t offset, packet_type &the_packet) {
   uint64_t next_ip;
