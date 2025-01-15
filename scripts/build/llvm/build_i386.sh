@@ -45,8 +45,8 @@ cmake -G Ninja \
   -D "CMAKE_EXE_LINKER_FLAGS=-static" \
   -D LLVM_BINUTILS_INCDIR=/usr/include \
   -D LLVM_USE_LINKER=lld \
-  ../llvm
+  ..
 
 fi
 
-ninja bin/jove-i386
+ninja llvm/bin/jove-i386

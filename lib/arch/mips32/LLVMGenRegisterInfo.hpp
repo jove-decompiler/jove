@@ -1,1 +1,1 @@
-../../../llvm-project/build/lib/Target/Mips/MipsGenRegisterInfo.inc
+../../../llvm-project/build/llvm/lib/Target/Mips/MipsGenRegisterInfo.inc

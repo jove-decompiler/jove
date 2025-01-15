@@ -45,8 +45,8 @@ cmake -G Ninja \
   -D "CMAKE_EXE_LINKER_FLAGS=-static-pie" \
   -D LLVM_USE_LINKER=lld \
   -D LLVM_BINUTILS_INCDIR=/usr/include \
-  ../llvm
+  ..
 
 fi
 
-ninja bin/jove-aarch64
+ninja llvm/bin/jove-aarch64

@@ -41,8 +41,8 @@ cmake -G Ninja \
       -D LLVM_ENABLE_Z3_SOLVER=OFF \
       -D LLVM_ENABLE_LTO=OFF \
       -D LLVM_USE_LINKER=lld \
-      ../llvm
+      ..
 
 fi
 
-ninja include/llvm/IR/Attributes.inc && ninja bin/{llvm-tblgen,llvm-dis,llvm-dlltool,llvm-cbe,opt,llc,clang,clang-tblgen,lld,jove-x86_64,jove-i386,jove-aarch64,jove-mipsel,jove-mips64el}
+ninja llvm/include/llvm/IR/Attributes.inc && ninja llvm/bin/{llvm-tblgen,llvm-dis,llvm-dlltool,llvm-cbe,opt,llc,clang,clang-tblgen,lld,jove-x86_64,jove-i386,jove-aarch64,jove-mipsel,jove-mips64el}
