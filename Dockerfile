@@ -113,6 +113,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       libsdl2-dev \
                       libtinfo-dev \
                       libtool \
+                      libtraceevent-dev \
                       libunwind-dev \
                       liburing-dev \
                       libvulkan-dev \
