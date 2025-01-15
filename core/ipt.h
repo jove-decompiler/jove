@@ -2108,7 +2108,7 @@ public:
           const uint64_t offset = get_this()->next_packet(packet);
           try {
             get_this()->process_packets_unengaged(offset, packet);
-            break;
+            break; /* => engaged */
           } catch (const error_decoding_exception &) {
             if constexpr (IsVeryVerbose())
               fprintf(stderr, "%016" PRIx64 "\tdecoding error (not engaged)\n", offset);
@@ -2119,7 +2119,7 @@ public:
           const uint64_t offset = get_this()->next_packet(packet);
           try {
             get_this()->process_packets_engaged(offset, packet);
-            break;
+            break; /* => not engaged */
           } catch (const error_decoding_exception &) {
             if constexpr (IsVeryVerbose())
               fprintf(stderr, "%016" PRIx64 "\tdecoding error (engaged)\n", offset);

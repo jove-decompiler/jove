@@ -53,12 +53,13 @@ class JoveTester:
     self.create_qemu = None
     self.create_serv = None
     self.create_ssh = None
+    self.serv_process = None
 
   def find_things(self):
-    self.jove_server_path = '%s/../llvm-project/build/bin/jove-%s' % (self.tests_dir, self.arch)
+    self.jove_server_path = '%s/../llvm-project/build/llvm/bin/jove-%s' % (self.tests_dir, self.arch)
     assert Path(self.jove_server_path).is_file(), "missing host jove binary"
 
-    self.jove_client_path = '%s/../llvm-project/%s_build/bin/jove-%s' % (self.tests_dir, self.arch, self.arch)
+    self.jove_client_path = '%s/../llvm-project/%s_build/llvm/bin/jove-%s' % (self.tests_dir, self.arch, self.arch)
     assert Path(self.jove_client_path).is_file(), "missing guest jove binary"
 
     self.jove_rt_st_path = '%s/../bin/%s/libjove_rt.st.so' % (self.tests_dir, self.arch)
