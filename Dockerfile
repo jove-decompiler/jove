@@ -3,91 +3,6 @@ FROM docker.io/library/debian:12-slim AS builder
 RUN export DEBIAN_FRONTEND=noninteractive && \
     apt-get update && \
     apt-get install -y eatmydata && \
-    eatmydata apt-get dist-upgrade -y && \
-    eatmydata apt-get install --no-install-recommends -y \
-                      arch-install-scripts \
-                      autossh \
-                      autoconf \
-                      automake \
-                      bash \
-                      binutils-dev \
-                      bison \
-                      bsdextrautils \
-                      ca-certificates \
-                      clang-16 \
-                      cmake \
-                      debootstrap \
-                      elfutils \
-                      flex \
-                      g++-aarch64-linux-gnu \
-                      g++-multilib-i686-linux-gnu \
-                      g++-multilib-mips-linux-gnu \
-                      g++-multilib-mips64el-linux-gnuabi64 \
-                      g++-multilib-mipsel-linux-gnu \
-                      gawk \
-                      gcc \
-                      git \
-                      glib2.0-dev \
-                      gmsl \
-                      graphviz \
-                      gstreamer1.0-dev \
-                      hostname \
-                      libavcodec-dev \
-                      libavformat-dev \
-                      libclang-16-dev \
-                      libegl1-mesa-dev \
-                      libc6-dev-i386 \
-                      libfontconfig-dev \
-                      libfontconfig-dev \
-                      libfreetype-dev \
-                      libglib2.0-dev \
-                      libgnutls28-dev \
-                      libgraph-easy-perl \
-                      libgstreamer1.0-dev \
-                      libkeyutils-dev \
-                      libosmesa6-dev \
-                      libpcre2-dev \
-                      libpfm4-dev \
-                      libsdl2-dev \
-                      libtinfo-dev \
-                      libtool \
-                      libunwind-dev \
-                      liburing-dev \
-                      libvulkan-dev \
-                      libwayland-dev \
-                      libxkbregistry-dev \
-                      libxml2-dev \
-                      libz3-dev \
-                      libzstd-dev \
-                      lld-16 \
-                      llvm-16-dev \
-                      locales \
-                      make \
-                      meson \
-                      mingw-w64 \
-                      ninja-build \
-                      openssh-client \
-                      parted \
-                      pkg-config \
-                      pkgconf \
-                      python3-dev \
-                      python3-libtmux \
-                      python3-venv \
-                      qemu-system \
-                      sed \
-                      ssh \
-                      sudo \
-                      tar \
-                      tmux \
-                      unzip \
-                      vim-common \
-                      xfsprogs && \
-    eatmydata apt-get autoremove -y && \
-    eatmydata apt-get autoclean -y && \
-    sed -Ei 's,^# (en_US\.UTF-8 .*)$,\1,' /etc/locale.gen && \
-    dpkg-reconfigure locales
-
-RUN export DEBIAN_FRONTEND=noninteractive && \
     dpkg --add-architecture i386 && \
     eatmydata apt-get update && \
     eatmydata apt-get dist-upgrade -y && \
@@ -140,10 +55,102 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
     eatmydata apt-get autoclean -y
 
 RUN export DEBIAN_FRONTEND=noninteractive && \
+    eatmydata apt-get update && \
+    eatmydata apt-get dist-upgrade -y && \
+    eatmydata apt-get install --no-install-recommends -y \
+                      arch-install-scripts \
+                      autossh \
+                      autoconf \
+                      automake \
+                      bash \
+                      binutils-dev \
+                      bison \
+                      bsdextrautils \
+                      ca-certificates \
+                      clang++-16 \
+                      clang-16 \
+                      cmake \
+                      debootstrap \
+                      elfutils \
+                      flex \
+                      g++-12-aarch64-linux-gnu \
+                      g++-12-multilib \
+                      g++-12-multilib-i686-linux-gnu \
+                      g++-12-multilib-mips-linux-gnu \
+                      g++-12-multilib-mips64el-linux-gnuabi64 \
+                      g++-12-multilib-mipsel-linux-gnu \
+                      gcc-12-aarch64-linux-gnu \
+                      gcc-12-multilib-i686-linux-gnu \
+                      gcc-12-multilib-mips-linux-gnu \
+                      gcc-12-multilib-mips64el-linux-gnuabi64 \
+                      gcc-12-multilib-mipsel-linux-gnu \
+                      gcc-12-multilib \
+                      gawk \
+                      git \
+                      glib2.0-dev \
+                      gmsl \
+                      graphviz \
+                      gstreamer1.0-dev \
+                      hostname \
+                      libavcodec-dev \
+                      libavformat-dev \
+                      libc6-dev-i386 \
+                      libclang-16-dev \
+                      libegl1-mesa-dev \
+                      libfontconfig-dev \
+                      libfontconfig-dev \
+                      libfreetype-dev \
+                      libglib2.0-dev \
+                      libgnutls28-dev \
+                      libgraph-easy-perl \
+                      libgstreamer1.0-dev \
+                      libkeyutils-dev \
+                      libosmesa6-dev \
+                      libpcre2-dev \
+                      libpfm4-dev \
+                      libsdl2-dev \
+                      libtinfo-dev \
+                      libtool \
+                      libunwind-dev \
+                      liburing-dev \
+                      libvulkan-dev \
+                      libwayland-dev \
+                      libxkbregistry-dev \
+                      libxml2-dev \
+                      libz3-dev \
+                      libzstd-dev \
+                      lld-16 \
+                      llvm-16-dev \
+                      locales \
+                      make \
+                      meson \
+                      mingw-w64 \
+                      ninja-build \
+                      openssh-client \
+                      parted \
+                      pkg-config \
+                      pkgconf \
+                      python3-dev \
+                      python3-libtmux \
+                      python3-venv \
+                      qemu-system \
+                      sed \
+                      ssh \
+                      sudo \
+                      tar \
+                      tmux \
+                      unzip \
+                      vim-common \
+                      xfsprogs && \
+    eatmydata apt-get autoremove -y && \
+    eatmydata apt-get autoclean -y && \
+    sed -Ei 's,^# (en_US\.UTF-8 .*)$,\1,' /etc/locale.gen && \
+    dpkg-reconfigure locales
+
+RUN export DEBIAN_FRONTEND=noninteractive && \
     dpkg --add-architecture mipsel && \
     eatmydata apt-get update && \
     eatmydata apt-get dist-upgrade -y && \
-    eatmydata apt-get install --no-install-recommends -y dpkg-dev && \
     eatmydata apt-get install --no-install-recommends -y \
                       libc6-dev:mipsel \
                       linux-libc-dev:mipsel \
@@ -155,7 +162,6 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
     dpkg --add-architecture mips64el && \
     eatmydata apt-get update && \
     eatmydata apt-get dist-upgrade -y && \
-    eatmydata apt-get install --no-install-recommends -y dpkg-dev && \
     eatmydata apt-get install --no-install-recommends -y \
                       libc6-dev:mips64el \
                       linux-libc-dev:mips64el \
@@ -167,7 +173,6 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
     dpkg --add-architecture arm64 && \
     eatmydata apt-get update && \
     eatmydata apt-get dist-upgrade -y && \
-    eatmydata apt-get install --no-install-recommends -y dpkg-dev && \
     eatmydata apt-get install --no-install-recommends -y \
                       libc6-dev:arm64 \
                       linux-libc-dev:arm64 \
