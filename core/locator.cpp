@@ -29,6 +29,7 @@ static fs::path jove_path(void) {
       .parent_path()
       .parent_path()
       .parent_path()
+      .parent_path()
       .parent_path();
 }
 
