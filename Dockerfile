@@ -81,7 +81,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       tmux \
                       unzip \
                       vim-common \
-                      xfsprogs && \
+                      xfsprogs \
     eatmydata apt-get autoremove -y && \
     eatmydata apt-get autoclean -y && \
     sed -Ei 's,^# (en_US\.UTF-8 .*)$,\1,' /etc/locale.gen && \
