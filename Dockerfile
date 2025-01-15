@@ -81,7 +81,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       tmux \
                       unzip \
                       vim-common \
-                      xfsprogs \
+                      xfsprogs && \
     eatmydata apt-get autoremove -y && \
     eatmydata apt-get autoclean -y && \
     sed -Ei 's,^# (en_US\.UTF-8 .*)$,\1,' /etc/locale.gen && \
@@ -135,7 +135,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       libxpm-dev:i386 \
                       libxxhash-dev:i386 \
                       libyuv-dev:i386 \
-                      linux-libc-dev:i386 \
+                      linux-libc-dev:i386 && \
     eatmydata apt-get autoremove -y && \
     eatmydata apt-get autoclean -y
 
@@ -147,7 +147,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
     eatmydata apt-get install --no-install-recommends -y \
                       libc6-dev:mipsel \
                       linux-libc-dev:mipsel \
-                      libglib2.0-dev:mipsel \
+                      libglib2.0-dev:mipsel && \
     eatmydata apt-get autoremove -y && \
     eatmydata apt-get autoclean -y
 
@@ -159,7 +159,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
     eatmydata apt-get install --no-install-recommends -y \
                       libc6-dev:mips64el \
                       linux-libc-dev:mips64el \
-                      libglib2.0-dev:mips64el \
+                      libglib2.0-dev:mips64el && \
     eatmydata apt-get autoremove -y && \
     eatmydata apt-get autoclean -y
 
@@ -171,7 +171,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
     eatmydata apt-get install --no-install-recommends -y \
                       libc6-dev:arm64 \
                       linux-libc-dev:arm64 \
-                      libglib2.0-dev:arm64 \
+                      libglib2.0-dev:arm64 && \
     eatmydata apt-get autoremove -y && \
     eatmydata apt-get autoclean -y
 
