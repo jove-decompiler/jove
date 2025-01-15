@@ -36,6 +36,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       libavformat-dev \
                       libclang-16-dev \
                       libegl1-mesa-dev \
+                      libc6-dev-i386 \
                       libfontconfig-dev \
                       libfontconfig-dev \
                       libfreetype-dev \
@@ -80,8 +81,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       tmux \
                       unzip \
                       vim-common \
-                      xfsprogs \
-                      zlib1g-dev && \
+                      xfsprogs && \
     eatmydata apt-get autoremove -y && \
     eatmydata apt-get autoclean -y && \
     sed -Ei 's,^# (en_US\.UTF-8 .*)$,\1,' /etc/locale.gen && \
@@ -93,28 +93,49 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
     eatmydata apt-get dist-upgrade -y && \
     eatmydata apt-get install --no-install-recommends -y dpkg-dev && \
     eatmydata apt-get install --no-install-recommends -y \
+                      gettext:i386 \
                       gstreamer1.0-dev:i386 \
+                      gstreamer1.0-plugins-base:i386 \
+                      gstreamer1.0-plugins-good:i386 \
+                      libasound2-plugins:i386 \
                       libavcodec-dev:i386 \
                       libavdevice-dev:i386 \
+                      libbabeltrace1:i386 \
                       libc6-dev:i386 \
+                      libcapi20-dev:i386 \
+                      libcups2-dev:i386 \
+                      libcurl3-gnutls:i386 \
+                      libcurl4:i386 \
+                      libdebuginfod-dev:i386 \
                       libegl1-mesa-dev:i386 \
                       libfontconfig-dev:i386 \
                       libfontconfig-dev:i386 \
                       libfreetype-dev:i386 \
+                      libgav1-dev:i386 \
+                      libgd3:i386 \
                       libglib2.0-dev:i386 \
                       libgnutls28-dev:i386 \
                       libgstreamer-plugins-base1.0-dev:i386 \
                       libgstreamer1.0-dev:i386 \
+                      libltdl-dev:i386 \
+                      libmpfr-dev:i386 \
+                      libodbc2:i386 \
                       libosmesa6-dev:i386 \
+                      libpcap-dev:i386 \
+                      libpython3-dev:i386 \
+                      libreadline8:i386 \
                       libsdl2-dev:i386 \
+                      libssh2-1:i386 \
+                      libsystemd-dev:i386 \
                       liburing-dev:i386 \
                       libvulkan-dev:i386 \
-                      libvulkan-dev:i386 \
                       libwayland-dev:i386 \
+                      libxcomposite1:i386 \
                       libxkbregistry-dev:i386 \
-                      libxkbregistry-dev:i386 \
+                      libxpm-dev:i386 \
+                      libxxhash-dev:i386 \
+                      libyuv-dev:i386 \
                       linux-libc-dev:i386 \
-                      zlib1g-dev:i386 && \
     eatmydata apt-get autoremove -y && \
     eatmydata apt-get autoclean -y
 
@@ -127,7 +148,6 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       libc6-dev:mipsel \
                       linux-libc-dev:mipsel \
                       libglib2.0-dev:mipsel \
-                      zlib1g-dev:mipsel && \
     eatmydata apt-get autoremove -y && \
     eatmydata apt-get autoclean -y
 
@@ -140,7 +160,6 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       libc6-dev:mips64el \
                       linux-libc-dev:mips64el \
                       libglib2.0-dev:mips64el \
-                      zlib1g-dev:mips64el && \
     eatmydata apt-get autoremove -y && \
     eatmydata apt-get autoclean -y
 
@@ -153,7 +172,6 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       libc6-dev:arm64 \
                       linux-libc-dev:arm64 \
                       libglib2.0-dev:arm64 \
-                      zlib1g-dev:arm64 && \
     eatmydata apt-get autoremove -y && \
     eatmydata apt-get autoclean -y
 
