@@ -73,19 +73,21 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       debootstrap \
                       elfutils \
                       flex \
+                      g++ \
                       g++-12-aarch64-linux-gnu \
                       g++-12-multilib \
                       g++-12-multilib-i686-linux-gnu \
                       g++-12-multilib-mips-linux-gnu \
                       g++-12-multilib-mips64el-linux-gnuabi64 \
                       g++-12-multilib-mipsel-linux-gnu \
+                      gawk \
+                      gcc \
                       gcc-12-aarch64-linux-gnu \
+                      gcc-12-multilib \
                       gcc-12-multilib-i686-linux-gnu \
                       gcc-12-multilib-mips-linux-gnu \
                       gcc-12-multilib-mips64el-linux-gnuabi64 \
                       gcc-12-multilib-mipsel-linux-gnu \
-                      gcc-12-multilib \
-                      gawk \
                       git \
                       glib2.0-dev \
                       gmsl \
