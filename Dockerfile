@@ -192,3 +192,4 @@ RUN patch -p1 -d /jove/boost/libs/interprocess -i /jove/patches/boost-interproce
 RUN patch -p1 -d /jove/boost/libs/unordered -i /jove/patches/boost-unordered.diff
 RUN patch -p1 -d /jove/boost/libs/dynamic_bitset -i /jove/patches/boost-dynamic_bitset.diff
 RUN /jove/scripts/build/build.sh
+RUN /jove/scripts/ci_install.sh
