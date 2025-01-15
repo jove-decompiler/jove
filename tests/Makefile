@@ -5,7 +5,7 @@ JOVE_ROOT_DIR := $(ROOT_DIR)/..
 
 include $(JOVE_ROOT_DIR)/targets.mk
 
-LLVM_BIN_DIR := $(JOVE_ROOT_DIR)/llvm-project/build/bin
+LLVM_BIN_DIR := $(JOVE_ROOT_DIR)/llvm-project/build/llvm/bin
 
 CC := clang-16
 

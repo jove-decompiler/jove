@@ -11,7 +11,7 @@ include $(JOVE_ROOT_DIR)/lib/arch/$(1)/helpers.mk
 endef
 $(foreach t,$(ALL_TARGETS),$(eval $(call include_target_helpers_template,$(t))))
 
-LLVM_BIN_DIR := $(JOVE_ROOT_DIR)/llvm-project/build/bin
+LLVM_BIN_DIR := $(JOVE_ROOT_DIR)/llvm-project/build/llvm/bin
 
 LLVM_DIS := $(LLVM_BIN_DIR)/llvm-dis
 LLVM_CC  := $(LLVM_BIN_DIR)/clang
