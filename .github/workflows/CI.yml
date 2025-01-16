@@ -48,6 +48,7 @@ jobs:
           docker run --rm --privileged -v /dev:/dev ${{ env.LATEST_TAG }} /jove/scripts/ci_check.sh
 
       # 3) Now just push that same local image to Docker Hub.
-      - name: Push
+      -
+        name: Push
         run: |
           docker push ${{ env.LATEST_TAG }}
