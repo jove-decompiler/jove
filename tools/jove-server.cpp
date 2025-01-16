@@ -87,6 +87,18 @@ int ServerTool::Run(void) {
     return 1;
   }
 
+  //
+  // Set SO_REUSEADDR option
+  //
+  int opt = 1;
+  if (::setsockopt(connection_socket, SOL_SOCKET, SO_REUSEADDR, &opt,
+                   sizeof(opt)) < 0) {
+    int err = errno;
+    WithColor::error() << llvm::formatv("setsockopt failed: {0}\n",
+                                        strerror(err));
+    return 1;
+  }
+
   {
     struct sockaddr_in server_addr;
     server_addr.sin_family = AF_INET;
