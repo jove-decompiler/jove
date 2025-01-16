@@ -1175,8 +1175,12 @@ int RecompileTool::Run(void) {
         //Arg("-lldmingw");
         Arg("/out:" + chrooted_path.string());
 
-        if (IsVeryVerbose())
+        if (IsVeryVerbose()) {
           Arg("/verbose");
+
+	  Arg("/map:" + chrooted_path.string() + ".link.map");
+	  Arg("/mapinfo:exports");
+	}
 
         Arg(std::string("/machine:") + (IsTarget32 ? "x86" : "x64"));
 
