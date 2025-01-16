@@ -7,4 +7,4 @@ export LLVM_SYMBOLIZER_PATH=$(which llvm-symbolizer-16)
 
 export LANG=en_US.UTF-8
 
-make -C jove check -j$(nproc)
+make -C jove check-linux -j$(nproc)

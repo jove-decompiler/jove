@@ -1,4 +1,9 @@
+PLATFORMS := linux win
+
 ALL_TARGETS := i386 x86_64 aarch64 mipsel mips64el
+
+ALL_LINUX_TARGETS := $(ALL_TARGETS)
+ALL_WIN_TARGETS   := i386 x86_64
 
 aarch64_TRIPLE  := aarch64-linux-gnu
 i386_TRIPLE     := i686-linux-gnu
@@ -35,3 +40,6 @@ mipsel_RUNTIME_SO_LDFLAGS := -z notext
 
 _DLL_i386_LIBGCC := /usr/lib/gcc/i686-w64-mingw32/12-win32/libgcc.a
 _DLL_x86_64_LIBGCC := /usr/lib/gcc/x86_64-w64-mingw32/12-win32/libgcc.a
+
+WIN_i386_CC   := i686-w64-mingw32-gcc
+WIN_x86_64_CC := x86_64-w64-mingw32-gcc

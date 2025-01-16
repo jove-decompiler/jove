@@ -1,6 +1,8 @@
 # this just obtains the directory this Makefile resides in
 ROOT_DIR := $(shell cd $(dir $(word $(words $(MAKEFILE_LIST)),$(MAKEFILE_LIST)));pwd)
 
+include gmsl
+
 JOVE_ROOT_DIR := $(ROOT_DIR)/..
 
 include $(JOVE_ROOT_DIR)/targets.mk
@@ -20,64 +22,151 @@ CFLAGS := -Wall \
 
 EXTRAFLAGS = $(shell awk -v search="/// FLAGS: " 'substr($$0, 1, length(search)) == search { print }' $< | cut -c 12-)
 
-#
-# important directories
-#
-SRCDIR := $(ROOT_DIR)/src
-BINDIR := $(ROOT_DIR)/bin
-
-$(foreach t,$(ALL_TARGETS),$(shell mkdir -p $(BINDIR)/$(t)))
-
-#
-# find tests
-#
-SRCS      := $(wildcard $(SRCDIR)/*.c)
-ALL_TESTS := $(patsubst $(SRCDIR)/%.c,%,$(SRCS))
-
-SINGLE_THREADED_TESTS_TO_SKIP := multi_threaded
-MULTI_THREADED_TESTS_TO_SKIP := longjmp
-
-ST_TESTS := $(filter-out $(SINGLE_THREADED_TESTS_TO_SKIP),$(ALL_TESTS))
-MT_TESTS := $(filter-out $(MULTI_THREADED_TESTS_TO_SKIP),$(ALL_TESTS))
-
-ST_TESTS := $(filter-out $(TESTS_TO_SKIP),$(ST_TESTS))
-MT_TESTS := $(filter-out $(TESTS_TO_SKIP),$(MT_TESTS))
+# disable built-in rules
+.SUFFIXES:
 
 .PHONY: build
-build: $(foreach t,$(ALL_TARGETS),build-$(t))
+build: $(foreach p,$(PLATFORMS),build-$(p))
 
 .PHONY: check
-check: $(foreach t,$(ALL_TARGETS),check-$(t))
+check: $(foreach p,$(PLATFORMS),check-$(p))
 
-.PHONY: just-update-jove
-just-update-jove: $(foreach t,$(ALL_TARGETS),just-update-jove-$(t))
+.PHONY: clean
+clean: $(foreach p,$(PLATFORMS),clean-$(p))
 
-define check_template
+define template_platform
 .PHONY: build-$(1)
-build-$(1): $(foreach test,$(ST_TESTS),$(BINDIR)/$(1)/$(test).exe) \
-            $(foreach test,$(ST_TESTS),$(BINDIR)/$(1)/$(test).pic) \
-            $(foreach test,$(MT_TESTS),$(BINDIR)/$(1)/$(test).exe) \
-            $(foreach test,$(MT_TESTS),$(BINDIR)/$(1)/$(test).pic)
+build-$(1): $(foreach t,$(ALL_$(call uc,$(1))_TARGETS),build-$(1)-$(t))
 
 .PHONY: check-$(1)
-check-$(1): build-$(1)
-	$(ROOT_DIR)/run.py -a $(1) --single-threaded $(ST_TESTS) --multi-threaded $(MT_TESTS)
+check-$(1): $(foreach t,$(ALL_$(call uc,$(1))_TARGETS),check-$(1)-$(t))
+
+.PHONY: clean-$(1)
+clean-$(1): $(foreach t,$(ALL_$(call uc,$(1))_TARGETS),clean-$(1)-$(t))
+endef
+$(foreach p,$(PLATFORMS),$(eval $(call template_platform,$(p))))
+
+define template_platform_clean
+.PHONY: clean-$(1)-$(2)
+clean-$(1)-$(2):
+	rm -rf $(ROOT_DIR)/$(1)/bin/$(2)
+endef
+$(foreach p,$(PLATFORMS),$(foreach t,$(ALL_$(call uc,$p)_TARGETS),$(eval $(call template_platform_clean,$(p),$(t)))))
+
+.PHONY: just-update-jove
+just-update-jove: $(foreach t,$(ALL_LINUX_TARGETS),just-update-jove-$(t))
+
+define template_just_update_linux
 
 .PHONY: just-update-jove-$(1)
 just-update-jove-$(1):
 	$(ROOT_DIR)/run.py -a $(1) --just-update-jove
-endef
-$(foreach t,$(ALL_TARGETS),$(eval $(call check_template,$(t))))
 
-define target_template
-$(BINDIR)/$(1)/%.exe: $(SRCDIR)/%.c
+endef
+$(foreach t,$(ALL_LINUX_TARGETS),$(eval $(call template_just_update_linux,$(t))))
+
+define template_linux
+
+SRCDIR := $(ROOT_DIR)/linux/src
+BINDIR := $(ROOT_DIR)/linux/bin
+
+$$(shell mkdir -p $$(BINDIR)/$(1))
+
+#
+# find tests
+#
+SRCS      := $$(wildcard $$(SRCDIR)/*.c)
+ALL_TESTS := $$(patsubst $$(SRCDIR)/%.c,%,$$(SRCS))
+
+SINGLE_THREADED_TESTS_TO_SKIP := multi_threaded
+MULTI_THREADED_TESTS_TO_SKIP := longjmp
+
+ST_TESTS := $$(filter-out $$(SINGLE_THREADED_TESTS_TO_SKIP),$$(ALL_TESTS))
+MT_TESTS := $$(filter-out $$(MULTI_THREADED_TESTS_TO_SKIP),$$(ALL_TESTS))
+
+.PHONY: build-linux-$(1)
+build-linux-$(1): $$(foreach test,$$(ST_TESTS),$$(BINDIR)/$(1)/$$(test).exe) \
+                  $$(foreach test,$$(ST_TESTS),$$(BINDIR)/$(1)/$$(test).pic) \
+                  $$(foreach test,$$(MT_TESTS),$$(BINDIR)/$(1)/$$(test).exe) \
+                  $$(foreach test,$$(MT_TESTS),$$(BINDIR)/$(1)/$$(test).pic)
+
+$(shell mkdir -p .t)
+$$(file > .t/linux.tests.$(1).st,$$(ST_TESTS))
+$$(file > .t/linux.tests.$(1).mt,$$(MT_TESTS))
+
+.PHONY: check-linux-$(1)
+check-linux-$(1): build-linux-$(1)
+	$(ROOT_DIR)/run.py -a $(1) -p linux \
+	                   --single-threaded $$(shell cat $(ROOT_DIR)/.t/linux.tests.$(1).st) \
+	                    --multi-threaded $$(shell cat $(ROOT_DIR)/.t/linux.tests.$(1).mt)
+
+$$(BINDIR)/$(1)/%.exe: $$(SRCDIR)/%.c
 	$(CC) -o $$@ $(CFLAGS) --target=$($(1)_TRIPLE) $$< -fno-pic -no-pie $$(EXTRAFLAGS)
 
-$(BINDIR)/$(1)/%.pic: $(SRCDIR)/%.c
+$$(BINDIR)/$(1)/%.pic: $$(SRCDIR)/%.c
 	$(CC) -o $$@ $(CFLAGS) --target=$($(1)_TRIPLE) $$< -fpie -pie $$(EXTRAFLAGS)
-endef
-$(foreach t,$(ALL_TARGETS),$(eval $(call target_template,$(t))))
 
-.PHONY: clean
-clean:
-	rm -r $(BINDIR)/*
+undefine SRCDIR
+undefine BINDIR
+undefine SRCS
+undefine ALL_TESTS
+undefine SINGLE_THREADED_TESTS_TO_SKIP
+undefine MULTI_THREADED_TESTS_TO_SKIP
+undefine ST_TESTS
+undefine MT_TESTS
+
+endef
+$(foreach t,$(ALL_LINUX_TARGETS),$(eval $(call template_linux,$(t))))
+
+define template_win
+
+SRCDIR := $(ROOT_DIR)/win/src
+BINDIR := $(ROOT_DIR)/win/bin
+
+$$(shell mkdir -p $$(BINDIR)/$(1))
+
+#
+# find tests
+#
+SRCS      := $$(wildcard $$(SRCDIR)/*.c)
+ALL_TESTS := $$(patsubst $$(SRCDIR)/%.c,%,$$(SRCS))
+
+SINGLE_THREADED_TESTS_TO_SKIP :=
+MULTI_THREADED_TESTS_TO_SKIP :=
+
+ST_TESTS := $$(filter-out $$(SINGLE_THREADED_TESTS_TO_SKIP),$$(ALL_TESTS))
+MT_TESTS := $$(filter-out $$(MULTI_THREADED_TESTS_TO_SKIP),$$(ALL_TESTS))
+
+.PHONY: build-win-$(1)
+build-win-$(1): $$(foreach test,$$(ST_TESTS),$$(BINDIR)/$(1)/$$(test).EXE) \
+                $$(foreach test,$$(ST_TESTS),$$(BINDIR)/$(1)/$$(test).PIC) \
+                $$(foreach test,$$(MT_TESTS),$$(BINDIR)/$(1)/$$(test).EXE) \
+                $$(foreach test,$$(MT_TESTS),$$(BINDIR)/$(1)/$$(test).PIC)
+
+$(shell mkdir -p .t)
+$$(file > .t/win.tests.$(1).st,$$(ST_TESTS))
+$$(file > .t/win.tests.$(1).mt,$$(MT_TESTS))
+
+.PHONY: check-win-$(1)
+check-win-$(1): build-win-$(1)
+	$(ROOT_DIR)/run.py -a $(1) -p win \
+	                   --single-threaded $$(shell cat $(ROOT_DIR)/.t/win.tests.$(1).st) \
+	                    --multi-threaded $$(shell cat $(ROOT_DIR)/.t/win.tests.$(1).mt)
+
+$$(BINDIR)/$(1)/%.EXE: $$(SRCDIR)/%.c
+	$(WIN_$(1)_CC) -o $$@ $(CFLAGS) $$< -fno-pic -no-pie
+
+$$(BINDIR)/$(1)/%.PIC: $$(SRCDIR)/%.c
+	$(WIN_$(1)_CC) -o $$@ $(CFLAGS) $$< -fpie -pie
+
+undefine SRCDIR
+undefine BINDIR
+undefine SRCS
+undefine ALL_TESTS
+undefine SINGLE_THREADED_TESTS_TO_SKIP
+undefine MULTI_THREADED_TESTS_TO_SKIP
+undefine ST_TESTS
+undefine MT_TESTS
+
+endef
+$(foreach t,$(ALL_WIN_TARGETS),$(eval $(call template_win,$(t))))

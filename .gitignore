@@ -14,5 +14,5 @@ tags
 /bin/*/*.lib
 /bin/*/qemu-starter
 /bin/*/dump-vdso
-tests/.t*
+tests/.t/*
 tests/__pycache__/*

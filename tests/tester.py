@@ -21,16 +21,25 @@ class JoveTester:
     'ssh'
   ]
 
-  def __init__(self, tests_dir, arch, extra_server_args=[], extra_bringup_args=[], unattended=False):
+  PLATFORMS = [
+    'linux',
+    'win'
+  ]
+
+  def __init__(self, tests_dir, arch, platform, extra_server_args=[], extra_bringup_args=[], unattended=False):
+    assert arch in JoveTester.ARCH2PORT, "invalid arch"
+    assert platform in JoveTester.PLATFORMS, "invalid platform"
+
     self.tmux = libtmux.Server()
     self.tests_dir = tests_dir
     self.arch = arch
+    self.platform = platform
+    self.dsoext = "so" if platform == "linux" else "dll"
+    self.variants = ["exe", "pic"] if platform == "linux" else ["EXE", "PIC"]
 
     self.extra_server_args = extra_server_args
     self.extra_bringup_args = extra_bringup_args
     self.unattended = unattended
-
-    assert arch in JoveTester.ARCH2PORT, "invalid arch"
 
     self.guest_ssh_port = JoveTester.ARCH2PORT[self.arch]
     self.jove_server_port = self.guest_ssh_port - 5000
@@ -62,17 +71,17 @@ class JoveTester:
     self.jove_client_path = '%s/../llvm-project/%s_build/llvm/bin/jove-%s' % (self.tests_dir, self.arch, self.arch)
     assert Path(self.jove_client_path).is_file(), "missing guest jove binary"
 
-    self.jove_rt_st_path = '%s/../bin/%s/libjove_rt.st.so' % (self.tests_dir, self.arch)
+    self.jove_rt_st_path = '%s/../bin/%s/libjove_rt.st.%s' % (self.tests_dir, self.arch, self.dsoext)
     assert Path(self.jove_rt_st_path).is_file(), "missing single-threaded jove runtime"
 
-    self.jove_rt_mt_path = '%s/../bin/%s/libjove_rt.mt.so' % (self.tests_dir, self.arch)
+    self.jove_rt_mt_path = '%s/../bin/%s/libjove_rt.mt.%s' % (self.tests_dir, self.arch, self.dsoext)
     assert Path(self.jove_rt_mt_path).is_file(), "missing multi-threaded jove runtime"
 
     self.bringup_path = '%s/../mk-deb-vm/bringup.sh' % self.tests_dir
     assert Path(self.bringup_path).is_file(), "missing mk-deb-vm/bringup.sh"
 
   def session_name(self):
-    return "jove_" + self.arch
+    return "jove_" + self.platform + "_" + self.arch
 
   def establish_tmux_session(self):
     tmux = self.tmux
@@ -158,7 +167,7 @@ class JoveTester:
       self.serv_process = None
 
       p = self.pane("server")
-      p.send_keys(" ".join(server_cmd))
+      p.send_keys(" ".join(server_cmd)) # this is unreliable!!!
 
   def is_vm_ready(self):
     return any("login:" in row for row in self.pane("qemu").capture_pane())
@@ -207,10 +216,10 @@ class JoveTester:
 
   def update_libjove_rt(self, multi_threaded):
     self.scp(self.jove_rt_mt_path if multi_threaded else \
-             self.jove_rt_st_path, '/lib/libjove_rt.so')
+             self.jove_rt_st_path, f'/lib/libjove_rt.{self.dsoext}')
 
-  def inputs_for_test(self, test):
-    inputs_path = '%s/inputs/%s.inputs' % (self.tests_dir, test)
+  def inputs_for_test(self, test, platform):
+    inputs_path = f"{self.tests_dir}/{platform}/inputs/{test}.inputs"
 
     assert os.path.exists(inputs_path), "no input for %s" % test
 
@@ -226,10 +235,10 @@ class JoveTester:
     print("running %d tests..." % len(tests))
 
     for test in tests:
-      inputs = self.inputs_for_test(test)
+      inputs = self.inputs_for_test(test, self.platform)
 
-      for variant in ["exe", "pic"]:
-        testbin_path = Path(self.tests_dir) / "bin" / self.arch / f"{test}.{variant}"
+      for variant in self.variants:
+        testbin_path = Path(self.tests_dir) / self.platform / "bin" / self.arch / f"{test}.{variant}"
 
         assert(testbin_path.is_file())
 
