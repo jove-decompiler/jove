@@ -764,7 +764,7 @@ int RunTool::DoRun(void) {
 
           if (!opts.WineStderr.empty()) {
             // TODO look for preexisting WINEDEBUG
-            Env("WINEDEBUG=+module,+process,+seh");
+            Env("WINEDEBUG=+module,+loaddll");
             Env("WINEDEBUGLOG=" + opts.WineStderr);
           }
 
