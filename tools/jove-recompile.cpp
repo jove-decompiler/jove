@@ -1195,6 +1195,7 @@ int RecompileTool::Run(void) {
         Arg("/opt:noref");
         Arg("/opt:noicf");
         Arg("/safeseh:no");
+        //Arg("/section:.text,RWE"); /* FIXME mingw */
 
         // Why do we do this, you may ask? Because if an app suddenly loads a
         // DLL without /NXCOMPAT (and every other DLL previously loaded *did*
