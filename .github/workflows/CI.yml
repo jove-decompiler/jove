@@ -31,6 +31,8 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # 1) Build once, load into local Docker (push is false).
       -
         name: Build and export to Docker
         uses: docker/build-push-action@v5
@@ -38,18 +40,14 @@ jobs:
           context: .
           load: true
           tags: ${{ env.LATEST_TAG }}
-          cache-to: type=inline
 
+      # 2) Test the *already-built* local image.
       -
         name: Test
         run: |
           docker run --rm --privileged -v /dev:/dev ${{ env.LATEST_TAG }} /jove/scripts/ci_check.sh
-      -
-        name: Build and push
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          platforms: linux/amd64
-          push: true
-          tags: ${{ env.LATEST_TAG }}
-          cache-from: type=inline
+
+      # 3) Now just push that same local image to Docker Hub.
+      - name: Push
+        run: |
+          docker push ${{ env.LATEST_TAG }}
