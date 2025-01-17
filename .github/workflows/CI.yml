@@ -32,6 +32,10 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      -
+        name: Set BUILDKIT_STEP_LOG_MAX_SIZE
+        run: echo "BUILDKIT_STEP_LOG_MAX_SIZE=-1" >> $GITHUB_ENV
+
       # 1) Build once, load into local Docker (push is false).
       -
         name: Build and export to Docker
