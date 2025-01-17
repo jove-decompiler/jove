@@ -152,8 +152,8 @@ runtime-$(1): $(BINDIR)/$(1)/libjove_rt.st.so \
               $(_DLLS_$(1))
 
 $(BINDIR)/$(1)/%: $(UTILSRCDIR)/%.c
-	clang-16 -o $$@ $(call runtime_cflags,$(1)) $(UTILS_LDFLAGS) $$<
-	llvm-strip-16 $$@
+	clang-19 -o $$@ $(call runtime_cflags,$(1)) $(UTILS_LDFLAGS) $$<
+	llvm-strip-19 $$@
 
 $(BINDIR)/$(1)/qemu-starter.inc: $(BINDIR)/$(1)/qemu-starter
 	xxd -i < $$< > $$@

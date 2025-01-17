@@ -17,8 +17,8 @@ if [ ! -f build.ninja ]; then
 
 cmake -G Ninja \
       -D CMAKE_BUILD_TYPE=RelWithDebInfo \
-      -D CMAKE_C_COMPILER=$(which clang-16) \
-      -D CMAKE_CXX_COMPILER=$(which clang++-16) \
+      -D CMAKE_C_COMPILER=$(which clang-19) \
+      -D CMAKE_CXX_COMPILER=$(which clang++-19) \
       -D "LLVM_TARGETS_TO_BUILD=Mips;X86;AArch64" \
       -D "JOVE_TARGETS_TO_BUILD=i386;x86_64;mipsel;mips64el;aarch64" \
       -D JOVE_HAVE_MEMFD=ON \

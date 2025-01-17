@@ -22,10 +22,10 @@ if [ ! -f build.ninja ]; then
 
 ../configure \
   --target-list=mips-linux-user \
-  --cc=clang-16 \
-  --host-cc=clang-16 \
-  --cxx=clang++-16 \
-  --objcc=clang-16 \
+  --cc=clang-19 \
+  --host-cc=clang-19 \
+  --cxx=clang++-19 \
+  --objcc=clang-19 \
   --disable-werror \
   --extra-cflags="$OURCFLAGS" \
   --cross-prefix=mips-linux-gnu- \

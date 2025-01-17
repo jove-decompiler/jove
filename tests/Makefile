@@ -9,7 +9,7 @@ include $(JOVE_ROOT_DIR)/targets.mk
 
 LLVM_BIN_DIR := $(JOVE_ROOT_DIR)/llvm-project/build/llvm/bin
 
-CC := clang-16
+CC := clang-19
 
 #
 # build flags

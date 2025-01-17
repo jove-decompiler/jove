@@ -17,10 +17,10 @@ if [ ! -f build.ninja ]; then
 
 ../configure \
   --target-list=$TARGETLIST \
-  --cc=clang-16 \
-  --host-cc=clang-16 \
-  --cxx=clang++-16 \
-  --objcc=clang-16 \
+  --cc=clang-19 \
+  --host-cc=clang-19 \
+  --cxx=clang++-19 \
+  --objcc=clang-19 \
   --cpu=x86_64 \
   --enable-tcg-interpreter \
   --disable-werror \
