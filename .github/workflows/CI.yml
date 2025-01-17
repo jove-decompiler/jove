@@ -1,8 +1,5 @@
 name: CI
 
-global:
-  buildkit_additional_args: [ '-e', 'BUILDKIT_STEP_LOG_MAX_SIZE=-1' ]
-
 on:
   push:
     branches:
