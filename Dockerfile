@@ -67,8 +67,8 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       bison \
                       bsdextrautils \
                       ca-certificates \
-                      clang++-16 \
-                      clang-16 \
+                      clang++-19 \
+                      clang-19 \
                       cmake \
                       debootstrap \
                       elfutils \
@@ -97,7 +97,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       libavcodec-dev \
                       libavformat-dev \
                       libc6-dev-i386 \
-                      libclang-16-dev \
+                      libclang-19-dev \
                       libegl1-mesa-dev \
                       libfontconfig-dev \
                       libfontconfig-dev \
