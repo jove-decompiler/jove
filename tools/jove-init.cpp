@@ -190,8 +190,13 @@ int InitTool::Run(void) {
       //
       // look at the program interpreter for the wine executable (which is elf)
       //
+      std::string path_to_wine = locator().wine(IsTarget32);
+
+      if (IsVerbose())
+        HumanOut() << llvm::formatv("path to wine: \"{0}\"\n", path_to_wine);
+
       std::vector<uint8_t> WineBytes;
-      auto WineBin = B::CreateFromFile(locator().wine(IsTarget32).c_str(), WineBytes);
+      auto WineBin = B::CreateFromFile(path_to_wine.c_str(), WineBytes);
 
       std::optional<std::string> MaybeRTLD =
           B::_must_be_elf(*WineBin, elf::program_interpreter);
