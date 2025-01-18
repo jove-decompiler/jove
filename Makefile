@@ -248,10 +248,6 @@ distclean: clean
 	rm -f jove-v*.tar \
 	      jove-v*.tar.xz
 
-.PHONY: check
-check:
-	$(MAKE) -C $(JOVE_ROOT_DIR)/tests check
-
 #
 # TCG
 #
