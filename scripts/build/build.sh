@@ -2,6 +2,28 @@
 set -e
 set -o pipefail
 
+# Maximum number of retries for each build
+MAX_RETRIES=5
+
+# Retry function for building. Why? because clang-19 segfaults :(
+retry5() {
+  local command="$1"
+  local retries=0
+
+  until (( retries >= MAX_RETRIES )); do
+    echo "Attempt $((retries + 1)) for command: $command"
+    if eval "$command"; then
+      echo "Command succeeded: $command"
+      return 0
+    fi
+    echo "Command failed: $command. Retrying..."
+    retries=$((retries + 1))
+  done
+
+  echo "All attempts failed for command: $command"
+  return 1
+}
+
 build_scripts_path=$(cd "$(dirname -- "$0")"; pwd)
 jove_path=$build_scripts_path/../..
 
@@ -14,12 +36,12 @@ cd $wine_path
 
 pushd .
 mkdir -p build64 && cd build64
-$build_scripts_path/wine/build64.sh
+retry5 $build_scripts_path/wine/build64.sh
 popd
 
 pushd .
 mkdir -p build && cd build
-$build_scripts_path/wine/build.sh
+retry5 $build_scripts_path/wine/build.sh
 popd
 
 popd
@@ -41,7 +63,7 @@ function build_all_variants() {
     pushd .
 
     mkdir -p ${arch}${2}_build && cd ${arch}${2}_build
-    $build_scripts_path/$1/build_${arch}.sh $2
+    retry5 $build_scripts_path/$1/build_${arch}.sh $2
 
     popd
   done
@@ -58,4 +80,4 @@ build_all_variants llvm
 
 popd
 
-make -C $jove_path -j$(nproc)
+retry5 "make -C $jove_path -j$(nproc)"
