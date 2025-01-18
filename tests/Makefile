@@ -60,7 +60,7 @@ define template_just_update_linux
 
 .PHONY: just-update-jove-$(1)
 just-update-jove-$(1):
-	$(ROOT_DIR)/run.py -a $(1) --just-update-jove
+	$(ROOT_DIR)/run.py -a $(1) -p linux --just-update-jove
 
 endef
 $(foreach t,$(ALL_LINUX_TARGETS),$(eval $(call template_just_update_linux,$(t))))
