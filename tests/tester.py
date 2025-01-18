@@ -344,7 +344,7 @@ class JoveTester:
     #
     # start jove server
     #
-    if self.create_serv:
+    if self.unattended or self.create_serv:
       self.start_server()
 
   def __del__(self):
