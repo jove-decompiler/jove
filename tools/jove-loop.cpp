@@ -31,7 +31,17 @@ using llvm::WithColor;
 
 namespace jove {
 
-class LoopTool : public JVTool<ToolKind::Standard> {
+namespace {
+
+struct binary_state_t {
+  std::unique_ptr<llvm::object::Binary> Bin;
+
+  binary_state_t(const binary_t &b) { Bin = B::Create(b.data()); }
+};
+
+}
+
+class LoopTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void, void> {
   struct Cmdline {
     cl::opt<std::string> Prog;
     cl::list<std::string> Args;
@@ -282,8 +292,12 @@ class LoopTool : public JVTool<ToolKind::Standard> {
                      cl::cat(JoveCategory)) {}
   } opts;
 
+  const bool IsCOFF;
+
 public:
-  LoopTool() : opts(JoveCategory) {}
+  LoopTool()
+      : opts(JoveCategory),
+        IsCOFF(B::is_coff(*state.for_binary(jv.Binaries.at(0)).Bin)) {}
 
   int Run(void) override;
 
@@ -944,6 +958,24 @@ skip_run:
       //
       // get jove runtime from remote
       //
+      if (IsCOFF) {
+        fs::path rt_path =
+            fs::path(fs::path(sysroot) / jv.Binaries.at(0).path_str())
+                .parent_path() /
+            "libjove_rt.dll";
+
+        if (IsVerbose())
+          HumanOut() << "receiving jove runtime\n";
+
+        ssize_t ret =
+            robust_receive_file_with_size(remote_fd.get(), rt_path.c_str(), 0777);
+        if (ret < 0) {
+          HumanOut() << llvm::formatv(
+              "failed to receive runtime {0} from remote: {1}\n",
+              rt_path.c_str(), strerror(-ret));
+          return 1;
+        }
+      } else
       {
         fs::path rt_path =
             fs::path(Prefix) / "usr" / "lib" / "libjove_rt.so";
