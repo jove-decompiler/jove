@@ -38,7 +38,17 @@ using llvm::WithColor;
 
 namespace jove {
 
-struct RunTool : public JVTool<ToolKind::Standard> {
+namespace {
+
+struct binary_state_t {
+  std::unique_ptr<llvm::object::Binary> Bin;
+
+  binary_state_t(const binary_t &b) { Bin = B::Create(b.data()); }
+};
+
+}
+
+struct RunTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void, void> {
   struct Cmdline {
     cl::opt<std::string> Prog;
     cl::list<std::string> Args;
@@ -156,7 +166,7 @@ struct RunTool : public JVTool<ToolKind::Standard> {
                      cl::cat(JoveCategory)) {}
   } opts;
 
-  bool has_jv;
+  const bool IsCOFF;
 
   std::unique_ptr<disas_t> disas;
   std::unique_ptr<tiny_code_generator_t> tcg;
@@ -165,7 +175,9 @@ struct RunTool : public JVTool<ToolKind::Standard> {
   std::unique_ptr<CodeRecovery> Recovery;
 
 public:
-  RunTool() : opts(JoveCategory) {}
+  RunTool()
+      : opts(JoveCategory),
+        IsCOFF(B::is_coff(*state.for_binary(jv.Binaries.at(0)).Bin)) {}
 
   int Run(void) override;
 
@@ -218,8 +230,6 @@ int RunTool::Run(void) {
 
   if (!opts.HumanOutput.empty())
     HumanOutToFile(opts.HumanOutput);
-
-  has_jv = true; // FIXME
 
   //
   // signal handlers
@@ -604,7 +614,7 @@ int RunTool::DoRun(void) {
   //
   // parse jv
   //
-  if (has_jv) {
+  if (1 /* has_jv */) {
     disas = std::make_unique<disas_t>();
     tcg = std::make_unique<tiny_code_generator_t>();
     symbolizer = std::make_unique<symbolizer_t>();
@@ -701,8 +711,11 @@ int RunTool::DoRun(void) {
 
   pid_t pid = -1;
   try {
+    std::string path_to_exec =
+        IsCOFF ? locator().wine(IsTarget32) : prog_path.string();
+
     pid = RunExecutable(
-        prog_path.c_str(),
+        path_to_exec,
         [&](auto Arg) {
           if (!opts.ArgsFromFile.empty()) {
             std::ifstream ifs(opts.ArgsFromFile);
@@ -721,7 +734,10 @@ int RunTool::DoRun(void) {
                 Arg(arg_entry);
             }
           } else {
-            Arg(prog_path.string());
+            Arg(path_to_exec);
+
+            if (IsCOFF)
+              Arg(prog_path.string());
 
             for (const std::string &s : opts.Args)
               Arg(s);
@@ -746,6 +762,13 @@ int RunTool::DoRun(void) {
             }
           } else {
             InitWithEnviron(Env);
+
+            if (IsCOFF && !getenv("WINEPREFIX")) {
+              std::string new_wine_prefix = temporary_dir() + "/.wine";
+              if (IsVerbose())
+                WithColor::note() << llvm::formatv("setting WINEPREFIX={0}\n", new_wine_prefix);
+              Env("WINEPREFIX=" + new_wine_prefix);
+            }
           }
 
           std::string fifo_env("JOVE_RECOVER_FIFO=");
@@ -1049,7 +1072,7 @@ int RunTool::DoRun(void) {
 
   drop_privileges();
 
-  if (has_jv && WasDecompilationModified.load()) {
+  if (WasDecompilationModified.load()) {
     /* FIXME */
 #if 0
     if (opts.ForeignLibs)
