@@ -763,11 +763,25 @@ int RunTool::DoRun(void) {
           } else {
             InitWithEnviron(Env);
 
-            if (IsCOFF && !getenv("WINEPREFIX")) {
-              std::string new_wine_prefix = temporary_dir() + "/.wine";
-              if (IsVerbose())
-                WithColor::note() << llvm::formatv("setting WINEPREFIX={0}\n", new_wine_prefix);
-              Env("WINEPREFIX=" + new_wine_prefix);
+            if (IsCOFF) {
+              if (!getenv("WINEPREFIX")) {
+                std::string new_wine_prefix =
+#if 0
+                    temporary_dir() + "/.wine"
+#else
+                    locator().wine_prefix(IsTarget32)
+#endif
+                    ;
+
+                if (IsVerbose())
+                  WithColor::note() << llvm::formatv("setting WINEPREFIX={0}\n", new_wine_prefix);
+                Env("WINEPREFIX=" + new_wine_prefix);
+              }
+
+              if (!getenv("WINEARCH")) {
+                // it simplifies things if we can forget about WOW64
+                Env(std::string("export WINEARCH=win") + (IsTarget32 ? "32" : "64"));
+              }
             }
           }
 

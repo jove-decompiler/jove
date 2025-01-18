@@ -1,4 +1,5 @@
 #include "locator.h"
+#include "tool.h"
 
 #include <boost/filesystem.hpp>
 #include <boost/dll/runtime_symbol_info.hpp>
@@ -170,6 +171,14 @@ std::string locator_t::perf(void) {
 
 std::string locator_t::sudo(void) {
   return must_exist("/usr/bin/sudo");
+}
+
+std::string locator_t::wine_prefix(bool Is32) {
+  std::string dir = Tool::home_dir();
+  dir += "/.wine";
+  dir += (Is32 ? "32" : "64");
+
+  return dir;
 }
 
 std::string locator_t::wine(bool Is32) {
