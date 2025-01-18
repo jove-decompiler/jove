@@ -307,7 +307,7 @@ void *ServerTool::ConnectionProc(void *arg) {
 
   UnserializeJVFromFile(jv, jv_file, jv_s_path.c_str());
 
-  bool IsCOFF = ({
+  const bool IsCOFF = ({
     binary_t &b = jv.Binaries.at(0);
     auto Bin = B::Create(b.data());
     B::is_coff(*Bin);
