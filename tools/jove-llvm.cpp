@@ -4456,12 +4456,11 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
       std::vector<llvm::Constant *> SectFieldInits;
 
       for (const auto &intvl : Sect.Stuff.Intervals) {
-#if 0
-        if (IsVerbose())
+        if (IsVeryVerbose())
           llvm::errs() << llvm::formatv("  [{0:x}, {1:x})\n",
                                         intvl.lower(),
                                         intvl.upper());
-#endif
+
         //
         // FIXME the following is code duplication, don't you think?
         //
@@ -5125,6 +5124,10 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
     B::_coff(*Bin, [&](COFFO &O) {
       coff::for_each_base_relocation(
           O, [&](uint8_t RelocType, uint64_t RVA) {
+            // ABSOLUTE is a no-op. see wine/dlls/ntdll/unix/virtual.c
+            if (RelocType == llvm::COFF::IMAGE_REL_BASED_ABSOLUTE)
+              return;
+
             uint64_t Offset = coff::va_of_rva(O, RVA);
 
             llvm::Type *R_T = nullptr;
@@ -5317,6 +5320,10 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
     B::_coff(*Bin, [&](COFFO &O) {
       coff::for_each_base_relocation(
           O, [&](uint8_t RelocType, uint64_t RVA) {
+            // ABSOLUTE is a no-op. see wine/dlls/ntdll/unix/virtual.c
+            if (RelocType == llvm::COFF::IMAGE_REL_BASED_ABSOLUTE)
+              return;
+
             uint64_t Offset = coff::va_of_rva(O, RVA);
 
             llvm::Constant *R_C = nullptr;
