@@ -736,8 +736,9 @@ skip_run:
         headerBits.set(6, opts.ABICalls);
         headerBits.set(7, opts.MT);
         headerBits.set(8, opts.CallStack);
+        headerBits.set(9, opts.LayOutSections);
 
-        uint8_t header = headerBits.to_ullong();
+        uint16_t header = headerBits.to_ullong();
 
         ssize_t ret = robust_write(remote_fd.get(), &header, sizeof(header));
 

@@ -220,7 +220,7 @@ void *ServerTool::ConnectionProc(void *arg) {
   //
   // read header
   //
-  uint8_t header;
+  uint16_t header;
   if (robust_read(data_socket, &header, sizeof(header)) != sizeof(header)) {
     WithColor::error() << "failed to read header\n";
     return nullptr;
@@ -269,7 +269,7 @@ void *ServerTool::ConnectionProc(void *arg) {
   // parse the header
   //
   struct {
-    bool dfsan, foreign_libs, trace, optimize, skip_copy_reloc_hack, debug_sjlj, abi_calls, mt, call_stack;
+    bool dfsan, foreign_libs, trace, optimize, skip_copy_reloc_hack, debug_sjlj, abi_calls, mt, call_stack, lay_out_sections;
   } options;
 
   std::bitset<16> headerBits(header);
@@ -283,6 +283,7 @@ void *ServerTool::ConnectionProc(void *arg) {
   options.abi_calls = headerBits.test(6);
   options.mt = headerBits.test(7);
   options.call_stack = headerBits.test(8);
+  options.lay_out_sections = headerBits.test(9);
 
   std::string jv_s_path = (TemporaryDir / "serialized.jv").string();
   std::string tmpjv = (TemporaryDir / ".jv").string();
@@ -360,6 +361,8 @@ void *ServerTool::ConnectionProc(void *arg) {
       Arg("--dfsan");
     if (options.call_stack)
       Arg("--call-stack");
+    if (options.lay_out_sections)
+      Arg("--lay-out-sections");
     if (!options.foreign_libs)
       Arg("--x=0");
     if (options.trace)
