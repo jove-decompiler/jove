@@ -388,6 +388,7 @@ void _jove_identify_trampolines(struct jove_trampoline_t *tramp_p,
 
         _strcat(s, buff);
       }
+      _strcat(s, "\n");
 
       _DUMP(s);
     }
