@@ -43,6 +43,9 @@ check-$(1): $(foreach t,$(ALL_$(call uc,$(1))_TARGETS),check-$(1)-$(t))
 
 .PHONY: clean-$(1)
 clean-$(1): $(foreach t,$(ALL_$(call uc,$(1))_TARGETS),clean-$(1)-$(t))
+
+.PHONY: just-update-jove-$(1)
+just-update-jove-$(1): $(foreach t,$(ALL_$(call uc,$(1))_TARGETS),just-update-jove-$(1)-$(t))
 endef
 $(foreach p,$(PLATFORMS),$(eval $(call template_platform,$(p))))
 
@@ -53,17 +56,12 @@ clean-$(1)-$(2):
 endef
 $(foreach p,$(PLATFORMS),$(foreach t,$(ALL_$(call uc,$p)_TARGETS),$(eval $(call template_platform_clean,$(p),$(t)))))
 
-.PHONY: just-update-jove
-just-update-jove: $(foreach t,$(ALL_LINUX_TARGETS),just-update-jove-$(t))
-
-define template_just_update_linux
-
-.PHONY: just-update-jove-$(1)
-just-update-jove-$(1):
-	$(ROOT_DIR)/run.py -a $(1) -p linux --just-update-jove
-
+define template_platform_just_update
+.PHONY: just-update-jove-$(1)-$(2)
+just-update-jove-$(1)-$(2):
+	-$(ROOT_DIR)/run.py -a $(2) -p $(1) --just-update-jove
 endef
-$(foreach t,$(ALL_LINUX_TARGETS),$(eval $(call template_just_update_linux,$(t))))
+$(foreach p,$(PLATFORMS),$(foreach t,$(ALL_$(call uc,$p)_TARGETS),$(eval $(call template_platform_just_update,$(p),$(t)))))
 
 define template_linux
 
@@ -131,11 +129,19 @@ $$(shell mkdir -p $$(BINDIR)/$(1))
 SRCS      := $$(wildcard $$(SRCDIR)/*.c)
 ALL_TESTS := $$(patsubst $$(SRCDIR)/%.c,%,$$(SRCS))
 
+PREBUILTS := $$(wildcard $$(BINDIR)/$(1)/*.EXE)
+PREBUILTS_NAMES := $$(basename $$(notdir $$(PREBUILTS)))
+PREBUILTS_ONLY  := $$(filter-out $$(ALL_TESTS),$$(PREBUILTS_NAMES))
+
 SINGLE_THREADED_TESTS_TO_SKIP :=
 MULTI_THREADED_TESTS_TO_SKIP :=
 
-ST_TESTS := $$(filter-out $$(SINGLE_THREADED_TESTS_TO_SKIP),$$(ALL_TESTS))
-MT_TESTS := $$(filter-out $$(MULTI_THREADED_TESTS_TO_SKIP),$$(ALL_TESTS))
+#ST_TESTS := $$(filter-out $$(SINGLE_THREADED_TESTS_TO_SKIP),$$(ALL_TESTS))
+#MT_TESTS := $$(filter-out $$(MULTI_THREADED_TESTS_TO_SKIP),$$(ALL_TESTS))
+
+# for now, prebuilts only
+ST_TESTS := $$(filter-out $$(SINGLE_THREADED_TESTS_TO_SKIP),$$(PREBUILTS_ONLY))
+MT_TESTS := $$(filter-out $$(MULTI_THREADED_TESTS_TO_SKIP),$$(PREBUILTS_ONLY))
 
 .PHONY: build-win-$(1)
 build-win-$(1): $$(foreach test,$$(ST_TESTS),$$(BINDIR)/$(1)/$$(test).EXE) \

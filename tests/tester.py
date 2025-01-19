@@ -6,13 +6,27 @@ import time
 import os
 
 class JoveTester:
-  ARCH2PORT = {
-    'i386'    : 10023,
-    'x86_64'  : 10024,
-    'aarch64' : 10025,
-    'mipsel'  : 10026,
-    'mips'    : 10027,
-    'mips64el': 10028
+  PLATFORM_AND_ARCH_2PORT = {
+    'linux': {
+      'i386'    : 10023,
+      'x86_64'  : 10024,
+      'aarch64' : 10025,
+      'mipsel'  : 10026,
+      'mips'    : 10027,
+      'mips64el': 10028,
+    },
+    'win': {
+      'i386'   : 11023,
+      'x86_64' : 11024,
+      'aarch64': 11025,
+    },
+  }
+
+  PLATFORM_AND_ARCH_2RUN = {
+    'win': {
+      'i386'   : ['/usr/lib/wine/wine'],
+      'x86_64' : ['/usr/lib/wine/wine64'],
+    },
   }
 
   WINDOWS = [
@@ -21,14 +35,9 @@ class JoveTester:
     'ssh'
   ]
 
-  PLATFORMS = [
-    'linux',
-    'win'
-  ]
-
   def __init__(self, tests_dir, arch, platform, extra_server_args=[], extra_bringup_args=[], unattended=False):
-    assert arch in JoveTester.ARCH2PORT, "invalid arch"
-    assert platform in JoveTester.PLATFORMS, "invalid platform"
+    assert platform in JoveTester.PLATFORM_AND_ARCH_2PORT, "invalid platform"
+    assert arch in JoveTester.PLATFORM_AND_ARCH_2PORT[platform], "invalid arch"
 
     self.tmux = libtmux.Server()
     self.tests_dir = tests_dir
@@ -36,12 +45,15 @@ class JoveTester:
     self.platform = platform
     self.dsoext = "so" if platform == "linux" else "dll"
     self.variants = ["exe", "pic"] if platform == "linux" else ["EXE", "PIC"]
+    self.run = []
+    if platform in JoveTester.PLATFORM_AND_ARCH_2RUN:
+      self.run = JoveTester.PLATFORM_AND_ARCH_2RUN[platform][arch]
 
     self.extra_server_args = extra_server_args
     self.extra_bringup_args = extra_bringup_args
     self.unattended = unattended
 
-    self.guest_ssh_port = JoveTester.ARCH2PORT[self.arch]
+    self.guest_ssh_port = JoveTester.PLATFORM_AND_ARCH_2PORT[platform][arch]
     self.jove_server_port = self.guest_ssh_port - 5000
     self.ssh_common_args = ['-o', 'UserKnownHostsFile=/dev/null', '-o', 'StrictHostKeyChecking=no', '-o', 'LogLevel=quiet']
 
@@ -49,7 +61,7 @@ class JoveTester:
 
     self.find_things()
 
-    self.vm_dir = os.getenv("JOVE_VM_" + arch.upper())
+    self.vm_dir = os.getenv("JOVE_VM_" + platform.upper() + "_" + arch.upper())
     if self.vm_dir is None:
       self.td = tempfile.TemporaryDirectory()
       self.vm_dir = self.td.name
@@ -132,6 +144,8 @@ class JoveTester:
     print("creating VM...")
 
     bringup_cmd = [self.bringup_path, '-a', self.arch, '-s', 'bookworm', '-o', self.vm_dir, '-p', str(self.guest_ssh_port)]
+    if self.platform == "win":
+      bringup_cmd += ["-w"]
     bringup_cmd += self.extra_bringup_args
 
     subprocess.run(['sudo'] + bringup_cmd, check=True)
@@ -215,8 +229,9 @@ class JoveTester:
     self.scp(self.jove_client_path, '/usr/local/bin/jove')
 
   def update_libjove_rt(self, multi_threaded):
-    self.scp(self.jove_rt_mt_path if multi_threaded else \
-             self.jove_rt_st_path, f'/lib/libjove_rt.{self.dsoext}')
+    rtpath = self.jove_rt_mt_path if multi_threaded else self.jove_rt_st_path
+    dstdir = "/tmp" if self.platform == "win" else "/lib"
+    self.scp(rtpath, f'{dstdir}/libjove_rt.{self.dsoext}')
 
   def inputs_for_test(self, test, platform):
     inputs_path = f"{self.tests_dir}/{platform}/inputs/{test}.inputs"
@@ -251,15 +266,18 @@ class JoveTester:
         # initialize jv
         self.ssh(["jove", "init", testbin])
 
-        # run inputs through prog, recovering code
-        for input_args in inputs:
-          self.ssh(["jove", "bootstrap", testbin] + input_args)
+        if self.platform != "win":
+          # run inputs through prog, recovering code
+          for input_args in inputs:
+            self.ssh(["jove", "bootstrap", testbin] + input_args)
 
         # run inputs through recompiled binary
         jove_loop_args = ["jove", "loop", \
           f"--mt={int(multi_threaded)}", \
-          "--connect", f"{self.iphost}:{str(self.jove_server_port)}", \
-          testbin]
+          "--connect", f"{self.iphost}:{str(self.jove_server_port)}"]
+        if self.platform == "win":
+          jove_loop_args += ["--lay-out-sections"]
+        jove_loop_args += [testbin]
 
         # show user what we're doing
         if not self.unattended:
@@ -274,7 +292,7 @@ class JoveTester:
         for input_args in inputs:
           count = 0
           while count < 20:
-            p1 = self.ssh_command([testbin] + input_args, text=True)
+            p1 = self.ssh_command(self.run + [testbin] + input_args, text=True)
             p2 = self.ssh_command(jove_loop_args + input_args, text=True)
 
             if self.is_stderr_connection_closed_by_remote_host(p1.stderr) or \
@@ -288,7 +306,10 @@ class JoveTester:
             stdout_neq = p1.stdout != p2.stdout
             stderr_neq = p1.stderr != p2.stderr
 
-            failed = return_neq or stdout_neq or stderr_neq
+            failed = return_neq or stdout_neq
+            if self.platform != "win": # wine prints a bunch of shit to stderr
+              failed = failed or stderr_neq
+
             if failed:
               print("/////////\n///////// %s TEST FAILURE %s <%s>\n/////////" % \
                 ("MULTI-THREADED" if multi_threaded else "SINGLE-THREADED", \
@@ -350,6 +371,7 @@ class JoveTester:
   def __del__(self):
     if self.unattended:
       self.ssh(['systemctl', 'poweroff'])
+      time.sleep(3)
 
       assert self.serv_process is not None
       try:
@@ -359,9 +381,4 @@ class JoveTester:
         self.serv_process.kill()  # Forcefully kill if it doesn't exit
         print(f"Forced server subprocess termination: {e}")
 
-      for i in range(0, len(self.create_list)):
-        if self.create_list[i]:
-          try:
-            self.sess.kill_window(JoveTester.WINDOWS[i])
-          except libtmux.exc.LibTmuxException:
-            pass
+      self.sess.kill_session()
