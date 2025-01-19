@@ -289,5 +289,18 @@ std::string link_subsystem(COFFO &O) {
   return "";
 }
 
+std::string getBaseRelocTypeName(uint8_t Type) {
+  switch (Type) {
+  case llvm::COFF::IMAGE_REL_BASED_ABSOLUTE: return "ABSOLUTE";
+  case llvm::COFF::IMAGE_REL_BASED_HIGH: return "HIGH";
+  case llvm::COFF::IMAGE_REL_BASED_LOW: return "LOW";
+  case llvm::COFF::IMAGE_REL_BASED_HIGHLOW: return "HIGHLOW";
+  case llvm::COFF::IMAGE_REL_BASED_HIGHADJ: return "HIGHADJ";
+  case llvm::COFF::IMAGE_REL_BASED_ARM_MOV32T: return "ARM_MOV32(T)";
+  case llvm::COFF::IMAGE_REL_BASED_DIR64: return "DIR64";
+  default: return "unknown (" + llvm::utostr(Type) + ")";
+  }
+}
+
 }
 }

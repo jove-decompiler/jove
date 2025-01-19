@@ -69,5 +69,7 @@ std::string unique_symbol_for_ordinal_in_dll(llvm::StringRef DLL,
 
 std::string link_subsystem(COFFO &);
 
+std::string getBaseRelocTypeName(uint8_t Type);
+
 }
 }

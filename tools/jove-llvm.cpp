@@ -3971,7 +3971,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
             const void *Ptr = B::toMappedAddr(*Bin, Addr);
 
             auto &sav = Saved.at(index_of_function_in_binary(f, Binary));
-            __builtin_memcpy_inline(&sav[0], Ptr, TargetBrkptLen);
+            __builtin_memcpy(&sav[0], Ptr, TargetBrkptLen);
           });
 
       //
@@ -3984,7 +3984,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
             uint64_t Addr = entry_address_of_function(f, Binary);
             void *Ptr = const_cast<void *>(B::toMappedAddr(*Bin, Addr));
 
-            __builtin_memcpy_inline(Ptr, &TargetBrkpt[0], TargetBrkptLen);
+            __builtin_memcpy(Ptr, &TargetBrkpt[0], TargetBrkptLen);
           });
     }
     ~PatchContents() {
@@ -4004,7 +4004,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
             void *Ptr = const_cast<void *>(B::toMappedAddr(*Bin, Addr));
 
             auto &sav = Saved.at(index_of_function_in_binary(f, Binary));
-            __builtin_memcpy_inline(Ptr, &sav[0], TargetBrkptLen);
+            __builtin_memcpy(Ptr, &sav[0], TargetBrkptLen);
           });
     }
   } __PatchContents(*this, Binary);
@@ -5025,6 +5025,20 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
 
     printImportedSymbols(Table->DelayImportAddressTable, I.imported_symbols());
   }
+
+  auto printBaseReloc = [&](uint64_t Offset, uint8_t RelocType) -> void {
+    llvm::outs() <<
+      (fmt("%-18s @ %-8x") % coff::getBaseRelocTypeName(RelocType)
+                           % Offset).str();
+    llvm::outs() << '\n';
+  };
+
+  coff::for_each_base_relocation(
+      O, [&](uint8_t RelocType, uint64_t RVA) {
+        uint64_t Offset = coff::va_of_rva(O, RVA);
+
+        printBaseReloc(Offset, RelocType);
+  });
 
   });
 
