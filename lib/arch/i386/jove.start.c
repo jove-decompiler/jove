@@ -20,7 +20,10 @@ void _jove_start(void) {
                /* save original sp */
                "movl %%esp, %%ecx\n"
 
-               /* make sure the stack is aligned when we make the call. */
+               /*
+                * Align the stack pointer according to the i386 ABI,
+                * i.e. so that on function entry ((sp + 4) & 15) == 0.
+                */
                "andl $~15, %%esp\n"
                "subl $12, %%esp\n"
 
