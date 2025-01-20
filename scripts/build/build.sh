@@ -63,7 +63,7 @@ function build_all_variants() {
     pushd .
 
     mkdir -p ${arch}${2}_build && cd ${arch}${2}_build
-    retry5 $build_scripts_path/$1/build_${arch}.sh $2
+    retry5 "$build_scripts_path/$1/build_${arch}.sh $2"
 
     popd
   done
