@@ -249,6 +249,7 @@ struct BootstrapTool
     cl::alias FastAlias;
     cl::opt<bool> Longjmps;
     cl::opt<std::string> ShowMe;
+    cl::opt<bool> Symbolize;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : Prog(cl::Positional, cl::desc("prog"), cl::Required,
@@ -314,6 +315,11 @@ struct BootstrapTool
           ShowMe("show",
                  cl::desc("Control whether to print when code is recovered"),
                  cl::value_desc("(n)ever|(a)lways|(s)ometimes"), cl::init("s"),
+                 cl::cat(JoveCategory)),
+
+          Symbolize("symbolize",
+                 cl::desc("Whether to run addr2line"),
+                 cl::init(true),
                  cl::cat(JoveCategory)) {}
   } opts;
 
@@ -4849,17 +4855,21 @@ std::string BootstrapTool::description_of_program_counter(uintptr_t pc, bool Ver
         //
         // pc is in binary that's been "loaded"
         //
-        uintptr_t rva = rva_of_va(pc, BIdx);
+        binary_t &b = jv.Binaries.at(BIdx);
+        binary_state_t &x = state.for_binary(b);
 
-        if (IsVeryVerbose()) {
-          std::string line = symbolizer->addr2line(jv.Binaries.at(BIdx), rva);
+        ptrdiff_t off = pc - (pm.beg - pm.off);
+        uintptr_t Addr = B::va_of_offset(*x.ObjectFile, off);
+
+        if (opts.Symbolize) {
+          std::string line = symbolizer->addr2line(b, Addr);
           if (!line.empty())
             return line;
         }
 
         std::string str = fs::path(pm.nm).filename().string();
 
-        return (fmt("%s+%#lx%s") % str % rva % extra).str();
+        return (fmt("%s:%#lx%s") % str % Addr % extra).str();
       }
     }
 
