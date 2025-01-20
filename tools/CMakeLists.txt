@@ -157,7 +157,7 @@ function(tool_for_arch arch arch_extra_cflags qemu_objs)
     ffi
     glib-2.0
     atomic
-    z
+    zlibstatic
   )
 
   target_link_libraries(jove-${arch} PRIVATE Boost::system)
