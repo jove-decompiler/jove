@@ -3,7 +3,7 @@ set -e
 set -o pipefail
 
 # Maximum number of retries for each build
-MAX_RETRIES=5
+MAX_RETRIES=50
 
 # Retry function for building. Why? because clang-19 segfaults :(
 retry5() {
