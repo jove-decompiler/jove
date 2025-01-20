@@ -1,4 +1,4 @@
-set(JOVE_VERSION "v0.8")
+set(JOVE_VERSION "v0.94")
 
 set(JOVE_TOOL_FLAGS
   "-fwrapv"
