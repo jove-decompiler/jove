@@ -62,7 +62,7 @@ std::string symbolizer_t::addr2desc(const binary_t &binary, uint64_t Addr) {
     return "??";
 
   std::string desc =
-    (fmt("%s+0x%08x")
+    (fmt("%s:0x%08x")
      % fs::path(binary.path_str()).filename().string()
      % Addr).str();
 
