@@ -1312,6 +1312,8 @@ jove_thunk_return_t _jove_call(
                                #undef __REG_ARG
 
                                uintptr_t pc, const uint32_t BBIdx) {
+  MAYBE_PAUSE(Call);
+
   if (unlikely(__jove_opts.Debug.Calls))
   {
     char s[512];
