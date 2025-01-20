@@ -396,7 +396,7 @@ void DumpTool::dumpDecompilation(const jv_base_t<false>& jv) {
 
                 const auto &b = jv.Binaries.at(BIdx);
 
-                return (fmt("%s+0x%lX") % b.Name.c_str() % TermAddr).str();
+                return (fmt("%s:0x%lX") % b.Name.c_str() % TermAddr).str();
               });
 
           Writer.printList("Callers", descv);
