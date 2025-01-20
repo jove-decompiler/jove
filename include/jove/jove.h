@@ -196,6 +196,22 @@ constexpr bool IsTargetLittleEndian =
 #endif
     ;
 
+#if defined(TARGET_X86_64)
+#define TARGET_SHORT_NAME "x64"
+#elif defined(TARGET_I386)
+#define TARGET_SHORT_NAME "x86"
+#elif defined(TARGET_AARCH64)
+#define TARGET_SHORT_NAME "arm64"
+#elif defined(TARGET_MIPS64)
+#define TARGET_SHORT_NAME "mips64el"
+#elif defined(TARGET_MIPS32) && defined(TARGET_MIPSEL)
+#define TARGET_SHORT_NAME "mipsel"
+#elif defined(TARGET_MIPS32) && defined(TARGET_MIPS)
+#define TARGET_SHORT_NAME "mips"
+#else
+#error
+#endif
+
 constexpr const char *TargetStaticLinkerEmulation(bool IsCOFF) {
   if (IsCOFF) {
     return

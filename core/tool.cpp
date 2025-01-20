@@ -499,7 +499,7 @@ std::string Tool::get_path_to_jv(void) {
   if (char *var = getenv("JVPATH"))
     return var;
 
-  return home_dir() + "/.jv";
+  return home_dir() + ("/.jv." TARGET_SHORT_NAME);
 }
 
 #if 0
