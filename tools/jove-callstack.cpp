@@ -136,7 +136,7 @@ int CallStackTool::Run(void) {
               taddr_t x = ICFG[bb].Addr;
 
               llvm::outs() << llvm::formatv(
-                  "{0}+{1:x}\n",
+                  "{0}:{1:x}\n",
                   b.is_file() ? fs::path(b.path_str()).filename().c_str()
                               : b.Name.c_str(),
                   AddrOrOff(b, x));
