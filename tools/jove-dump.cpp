@@ -109,10 +109,7 @@ void DumpTool::dumpDecompilation(const jv_base_t<false>& jv) {
       llvm::ListScope ___(
           Writer, (fmt("Basic Blocks (%u)") % ICFG.num_vertices()).str());
 
-      icfg_t::vertex_iterator vi, vi_end;
-      for (std::tie(vi, vi_end) = ICFG.vertices(); vi != vi_end; ++vi) {
-        basic_block_t bb = *vi;
-
+      for (basic_block_t bb : boost::make_iterator_range(ICFG.vertices())) {
         llvm::DictScope ____(Writer, (fmt("0x%lX") % ICFG[bb].Addr).str());
 
         if (ICFG[bb].Speculative)
