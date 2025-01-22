@@ -275,7 +275,7 @@ template <ToolKind Kind,
           bool LazyInitialization = true,
           bool Eager = false,
           bool BoundsChecking = true,
-          bool SubjectToChange = true>
+          bool SubjectToChange = !IsToolKindCopyOnWrite(Kind)>
 struct StatefulJVTool : public JVTool<Kind> {
   static_assert(!(!IsToolKindCopyOnWrite(Kind) && !SubjectToChange),
                 "if !CoW then must be subject to change");
