@@ -805,6 +805,9 @@ int RunTool::DoRun(void) {
             Env("WINEDEBUGLOG=" + opts.WineStderr);
           }
 
+          Env("LD_LIBRARY_PATH=" +
+              (fs::path(opts.sysroot) / "usr" / "lib").string());
+
           for (const std::string &s : opts.Envs)
             Env(s);
         },
