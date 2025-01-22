@@ -252,10 +252,6 @@ int InitTool::Run(void) {
   //
   // add them
   //
-  std::vector<unsigned> idx_range;
-  idx_range.resize(N);
-  std::iota(idx_range.begin(), idx_range.end(), 0);
-
   tiny_code_generator_t tcg;
   disas_t disas;
   explorer_t explorer(disas, tcg, VerbosityLevel());
