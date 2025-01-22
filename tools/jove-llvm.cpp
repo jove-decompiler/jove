@@ -1322,6 +1322,7 @@ static const helper_function_t &LookupHelper(llvm::Module &M,
 void AnalyzeBasicBlock(tiny_code_generator_t &TCG,
                        llvm::Module &M,
                        llvm::object::Binary &B,
+                       const char *B_Name,
                        bbprop_t &bbprop,
                        const analyzer_options_t &options) {
   if (!bbprop.Analysis.Stale)

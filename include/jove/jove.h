@@ -1678,6 +1678,7 @@ using on_newbin_proc_t = std::function<void(binary_base_t<MT> &)>;
 
 struct AddOptions_t {
   bool Objdump = false;
+  bool Verbose = false;
 };
 
 template <bool MT = true>

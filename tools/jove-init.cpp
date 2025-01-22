@@ -134,6 +134,7 @@ int InitTool::Run(void) {
   }
 
   AddOptions.Objdump = opts.Objdump;
+  AddOptions.Verbose = IsVerbose();
 
   fs::path prog = fs::canonical(opts.Prog);
 
@@ -257,7 +258,7 @@ int InitTool::Run(void) {
 
   tiny_code_generator_t tcg;
   disas_t disas;
-  explorer_t explorer(disas, tcg, IsVeryVerbose());
+  explorer_t explorer(disas, tcg, VerbosityLevel());
 
   std::transform(
       std::execution::par_unseq,
@@ -314,12 +315,18 @@ int InitTool::Run(void) {
 
         b.Hash = hash_data(b.data());
 
-        if (AddOptions.Objdump)
-          ignore_exception([&]() {
-            binary_base_t<false>::Analysis_t::objdump_output_type::generate(
-                b.Analysis.objdump, b.is_file() ? b.Name.c_str() : nullptr,
-                *Bin);
-          });
+        if (AddOptions.Objdump) {
+          if (catch_exception([&]() {
+                binary_base_t<false>::Analysis_t::objdump_output_type::generate(
+                    b.Analysis.objdump, b.is_file() ? b.Name.c_str() : nullptr,
+                    *Bin);
+              })) {
+            if (IsVerbose()) {
+              WithColor::warning() << llvm::formatv(
+                  "failed to run objdump on {0}\n", b.Name.c_str());
+            }
+          }
+        }
 
         //
         // explore them for real

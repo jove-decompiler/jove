@@ -91,7 +91,7 @@ class CodeDigger : public StatefulJVTool<ToolKind::Standard, binary_state_t, voi
 public:
   CodeDigger()
       : opts(JoveCategory),
-        Explorer(disas, tcg),
+        Explorer(disas, tcg, VerbosityLevel()),
         Recovery(jv_file, jv, Explorer, symbolizer) {}
 
   int Run(void) override;

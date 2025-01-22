@@ -41,6 +41,10 @@ void jv_base_t<MT>::DoAdd(binary_base_t<MT2> &b,
       return invalid_basic_block_index;
 
     try {
+      if (Options.Verbose)
+        llvm::errs() << llvm::formatv("exploring {0}:{1:x}\n", b.Name.c_str(),
+                                      Entrypoint);
+
       return explorer.explore_basic_block(b, Bin, Entrypoint);
     } catch (...) {
       return invalid_basic_block_index;

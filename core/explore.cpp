@@ -295,7 +295,7 @@ on_insn:
   }
 #endif
 
-  if (unlikely(this->verbose))
+  if (IsVeryVerbose())
     llvm::errs() << llvm::formatv("{0} | {1}\n",
                                   description_of_block(bbprop_1, false),
                                   description_of_block(bbprop_2, false));
@@ -390,7 +390,7 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_base_t<MT> &b,
         //
         Speculative = true;
 
-        if (true /* unlikely(this->verbose) */)
+        if (true /* IsVerbose() */)
           llvm::errs() << llvm::formatv(
               "could not cleanly split at {0}+{1:x} ; {2}\n", b.Name.c_str(),
               Addr, addr_intvl2str((*it).first));
@@ -409,6 +409,11 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_base_t<MT> &b,
   bool StartWasValid = false;
   unsigned Size = 0;
   jove::terminator_info_t T;
+
+  if (IsVeryVerbose() && unlikely(b.Analysis.objdump.is_addr_bad(Addr)))
+    llvm::errs() << llvm::formatv("objdump says {0}:{1:x} is BAD\n",
+                                  b.Name.c_str(), Addr);
+
   do {
     try {
       unsigned size;
@@ -475,7 +480,7 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_base_t<MT> &b,
         T.Addr = 0; /* XXX? */
         T._none.NextPC = addr_intvl_lower(_intervl);
 
-        if (unlikely(this->verbose)) {
+        if (IsVerbose()) {
           basic_block_index_t _BBIdx = (*it).second;
           basic_block_t _bb = basic_block_of_index(_BBIdx, ICFG);
 
@@ -486,6 +491,31 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_base_t<MT> &b,
         }
 
         break;
+      }
+    }
+
+    if (T.Type == TERMINATOR::NONE) {
+      if (b.Analysis.objdump.is_addr_really_bad(T._none.NextPC)) {
+        //
+        // it's possible that something prevents the code from going further so,
+        // have the block finish with an unreachable terminator.
+        //
+        // classic example of this is in arm64 [vdso], where last instruction
+        // that appears is a noreturn svc(sigreturn)
+        //
+        if (IsVerbose()) {
+          llvm::errs() << llvm::formatv(
+              "objdump says really bad, no further @ {0}:{1:x}\n",
+              b.Name.c_str(), T._none.NextPC);
+#if 0
+          llvm::errs() << llvm::formatv(
+              "objdump is [{0:x}, {1:x})\n", b.Analysis.objdump.begin,
+              b.Analysis.objdump.begin + b.Analysis.objdump.good.size());
+#endif
+        }
+
+        T.Type = TERMINATOR::UNREACHABLE;
+        T.Addr = ~0UL;
       }
     }
   } while (T.Type == TERMINATOR::NONE);
@@ -547,7 +577,7 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_base_t<MT> &b,
     //
     // a new basic block has been created and (maybe) added to bbmap
     //
-    if (unlikely(this->verbose))
+    if (IsVeryVerbose())
       llvm::errs() << llvm::formatv(
           "{0} {1}\t\t\t\t\t\t{2}\n", description_of_block(bbprop, false),
           description_of_terminator_info(T, false), b.Name.c_str());
@@ -654,14 +684,14 @@ void explorer_t::_control_flow_to(
     const bool Speculative, basic_block_t bb /* unused if !Speculative */) {
   assert(Target);
 
-  if (unlikely(this->verbose))
+  if (IsVeryVerbose())
     llvm::errs() << llvm::formatv("  -> {0}\n", taddr2str(Target, false));
 
   basic_block_index_t SuccBBIdx = invalid_basic_block_index;
   try {
     SuccBBIdx = _explore_basic_block<false, MT>(b, Bin, Target, Speculative);
   } catch (const invalid_control_flow_exception &e) {
-    if (1 /* unlikely(this->verbose) */)
+    if (1 /* IsVerbose() */)
       llvm::errs() << llvm::formatv(
           "invalid control flow to {0} from {1} when exploring {2} in {3}\n",
           taddr2str(e.pc, false),

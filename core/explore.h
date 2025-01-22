@@ -51,7 +51,7 @@ static inline void nop_on_block_u(basic_block_index_t) {}
 class explorer_t {
   disas_t &disas;
   tiny_code_generator_t &tcg;
-  const bool verbose;
+  const unsigned VerbosityLevel;
 
   on_newbb_proc_f the_on_newbb_proc_f = [](binary_base_t<false> &, basic_block_t) {};
   on_newbb_proc_t the_on_newbb_proc_t = [](binary_base_t<true> &, basic_block_t) {};
@@ -89,9 +89,12 @@ class explorer_t {
                         const bool Speculative,
                         basic_block_t bb /* unused if !Speculative */);
 
+  bool IsVerbose(void) const { return unlikely(VerbosityLevel >= 1); }
+  bool IsVeryVerbose(void) const { return unlikely(VerbosityLevel >= 2); }
+
 public:
-  explorer_t(disas_t &disas, tiny_code_generator_t &tcg, bool verbose = false)
-      : disas(disas), tcg(tcg), verbose(verbose) {}
+  explorer_t(disas_t &disas, tiny_code_generator_t &tcg, unsigned VerbosityLevel = 0)
+      : disas(disas), tcg(tcg), VerbosityLevel(VerbosityLevel) {}
 
   //
   // the objective is to translate all the code we can up until indirect

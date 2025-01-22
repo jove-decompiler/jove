@@ -618,7 +618,7 @@ int RunTool::DoRun(void) {
     disas = std::make_unique<disas_t>();
     tcg = std::make_unique<tiny_code_generator_t>();
     symbolizer = std::make_unique<symbolizer_t>();
-    Explorer = std::make_unique<explorer_t>(*disas, *tcg);
+    Explorer = std::make_unique<explorer_t>(*disas, *tcg, VerbosityLevel());
     Recovery = std::make_unique<CodeRecovery>(jv_file, jv, *Explorer, *symbolizer);
   }
 

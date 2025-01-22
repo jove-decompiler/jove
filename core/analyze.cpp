@@ -164,6 +164,7 @@ void analyzer_t<MT>::identify_Sjs(void) {
 void AnalyzeBasicBlock(tiny_code_generator_t &,
                        llvm::Module &,
                        llvm::object::Binary &,
+                       const char *B_Name,
                        bbprop_t &,
                        const analyzer_options_t &);
 
@@ -178,8 +179,8 @@ int analyzer_t<MT>::analyze_blocks(void) {
         if (ICFG[bb].Analysis.Stale)
           ++count;
 
-        AnalyzeBasicBlock(TCG, *Module, *state.for_binary(b).Bin, ICFG[bb],
-                          options);
+        AnalyzeBasicBlock(TCG, *Module, *state.for_binary(b).Bin,
+                          b.Name.c_str(), ICFG[bb], options);
 
         assert(!ICFG[bb].Analysis.Stale);
       });
@@ -439,8 +440,8 @@ flow_vertex_t analyzer_t<MT>::copy_function_cfg(
   // make sure basic blocks have been analyzed
   //
   for (basic_block_t bb : bbvec)
-    AnalyzeBasicBlock(TCG, *Module, *state.for_binary(b).Bin, ICFG[bb],
-                      options);
+    AnalyzeBasicBlock(TCG, *Module, *state.for_binary(b).Bin, b.Name.c_str(),
+                      ICFG[bb], options);
 
   if (!IsLeafFunction(f, b, bbvec, exit_bbvec)) {
     //
