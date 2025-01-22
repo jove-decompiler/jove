@@ -538,8 +538,8 @@ int RecompileTool::Run(void) {
   //
   if (IsCOFF) {
     fs::path chrooted_path =
-        fs::path(opts.Output.getValue()) / "usr" / "lib" / "libjove_rt.dll";
-
+        state.for_binary(jv.Binaries.at(0)).chrooted_path.parent_path() /
+        "libjove_rt.dll";
     fs::create_directories(chrooted_path.parent_path());
     fs::copy_file(locator().runtime_dll(opts.MT), chrooted_path,
                   fs::copy_options::overwrite_existing);
