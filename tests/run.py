@@ -67,7 +67,9 @@ def main():
     if ret != 0:
       return ret
 
+  del tester
+
   return 0
 
 if __name__ == "__main__":
-  rc = main()
+  sys.exit(main())

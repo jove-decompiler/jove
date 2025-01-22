@@ -247,7 +247,7 @@ class JoveTester:
     assert self.is_ready()
     self.update_libjove_rt(multi_threaded=multi_threaded)
 
-    print("running %d tests..." % len(tests))
+    print(f"running {len(tests)} tests [{self.platform} {self.arch}]...")
 
     for test in tests:
       inputs = self.inputs_for_test(test, self.platform)
@@ -311,9 +311,9 @@ class JoveTester:
               failed = failed or stderr_neq
 
             if failed:
-              print("/////////\n///////// %s TEST FAILURE %s <%s>\n/////////" % \
+              print("/////////\n///////// %s TEST FAILURE %s [%s %s]\n/////////" % \
                 ("MULTI-THREADED" if multi_threaded else "SINGLE-THREADED", \
-                 testbin, self.arch))
+                 testbin, self.platform, self.arch))
 
               if return_neq:
                 print('%d != %d' % (p1.returncode, p2.returncode))
@@ -369,6 +369,7 @@ class JoveTester:
       self.start_server()
 
   def __del__(self):
+    print("tester: cleaning up...")
     if self.unattended:
       self.ssh(['systemctl', 'poweroff'])
       time.sleep(3)
