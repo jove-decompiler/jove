@@ -233,26 +233,30 @@ std::string locator_t::libipt_scripts(void) {
 }
 
 std::string locator_t::objdump(bool IsCOFF) {
-  std::string prefix =
+  try {
+    std::string prefix =
 
 #if defined(TARGET_AARCH64)
-  "aarch64-linux-gnu-"
+        "aarch64-linux-gnu"
 #elif defined(TARGET_X86_64)
-  IsCOFF ? "x86_64-w64-mingw32-" : ""
+        IsCOFF ? "x86_64-w64-mingw32" : "x86_64-linux-gnu"
 #elif defined(TARGET_I386)
-  IsCOFF ? "i686-w64-mingw32-" : ""
+        IsCOFF ? "i686-w64-mingw32" : "i686-linux-gnu"
 #elif defined(TARGET_MIPS64)
-  "mips64el-linux-gnuabi64-"
+        "mips64el-linux-gnuabi64"
 #elif defined(TARGET_MIPSEL)
-  "mipsel-linux-gnu-"
+        "mipsel-linux-gnu"
 #elif defined(TARGET_MIPS)
-  "mips-linux-gnu-"
+        "mips-linux-gnu"
 #else
 #error
 #endif
-  ;
+        ;
 
-  return must_exist("/usr/bin/" + prefix + "objdump");
+    return must_exist("/usr/bin/" + prefix + "-objdump");
+  } catch (...) {}
+
+  return must_exist("/usr/bin/objdump");
 }
 
 }
