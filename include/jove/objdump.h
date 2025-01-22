@@ -76,6 +76,23 @@ public:
 
   bool is_addr_bad(taddr_t addr) const { return !is_addr_good(addr); }
 
+  // given address is less than the minimum address reported by objdump, or
+  // is greater than the biggest address
+  bool is_addr_really_bad(taddr_t addr) const {
+    auto s_lck = this->shared_access();
+
+    if (unlikely(empty_unlocked()))
+      return false; /* who knows */
+
+    if (addr < begin)
+      return true;
+
+    if (addr > begin + good.size())
+      return true;
+
+    return false;
+  }
+
   static int generate(objdump_output_t &out, const char *filename,
                       llvm::object::Binary &Bin);
 };
