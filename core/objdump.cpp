@@ -122,7 +122,7 @@ int objdump_output_t<Alloc, MT>::generate(objdump_output_t<Alloc, MT> &out,
     *addr_end = '\0';
 
     errno = 0;
-    unsigned long addr = strtoul(&(*addr_beg), nullptr, 0x10);
+    unsigned long long addr = strtoull(&(*addr_beg), nullptr, 0x10);
     if (errno != 0)
       return;
 
@@ -156,14 +156,6 @@ int objdump_output_t<Alloc, MT>::generate(objdump_output_t<Alloc, MT> &out,
 #undef pos
   };
 
-  out.good.clear();
-  {
-    uint64_t SectsStartAddr, SectsEndAddr;
-    std::tie(SectsStartAddr, SectsEndAddr) = B::bounds_of_binary(Bin);
-
-    out.good.resize(SectsEndAddr - SectsStartAddr); /* estimate */
-  }
-
   while (auto o = pipe.get_line(rfd->get()))
     do_parse_line(*o);
 
@@ -174,7 +166,6 @@ int objdump_output_t<Alloc, MT>::generate(objdump_output_t<Alloc, MT> &out,
     out.good.clear();
   } else {
     out.begin = minaddr;
-    out.good.resize(maxaddr - minaddr + 1);
   }
 
   return rc;
