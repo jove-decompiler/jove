@@ -82,7 +82,7 @@ int TCGDumpTool::Run(void) {
 
   if (!opts.BreakOnAddr.empty()) {
     BreakOn.Active = true;
-    BreakOn.Addr = std::stoi(opts.BreakOnAddr.c_str(), 0, 16);
+    BreakOn.Addr = std::strtoull(opts.BreakOnAddr.c_str(), nullptr, 0x10);
   }
 
   if (!fs::exists(opts.Binary)) {
