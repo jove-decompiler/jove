@@ -369,7 +369,7 @@ class JoveTester:
       self.start_server()
 
   def __del__(self):
-    print("tester: cleaning up...")
+    print(f"tester: cleaning up... [{self.platform} {self.arch}]")
     if self.unattended:
       self.ssh(['systemctl', 'poweroff'])
       time.sleep(3)
