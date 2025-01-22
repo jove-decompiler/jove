@@ -72,14 +72,15 @@ struct binary_state_t {
   std::string soname;
   dso_t dso;
 
-  binary_state_t(const binary_t &b) { Bin = B::Create(b.data()); }
+  binary_state_t(const auto &b) { Bin = B::Create(b.data()); }
 };
 
 }
 
 typedef boost::format fmt;
 
-class RecompileTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void, void> {
+class RecompileTool : public StatefulJVTool<ToolKind::SingleThreadedCopyOnWrite,
+                                            binary_state_t, void, void> {
   struct Cmdline {
     cl::opt<std::string> Output;
     cl::alias OutputAlias;
@@ -262,14 +263,15 @@ struct vert_exists_in_set_t {
 
 template <typename Graph>
 struct graphviz_label_writer {
-  JVTool<ToolKind::Standard> &tool;
+  RecompileTool &tool;
   const Graph &g;
 
-  graphviz_label_writer(JVTool<ToolKind::Standard> &tool, const Graph &g) : tool(tool), g(g) {}
+  graphviz_label_writer(RecompileTool &tool, const Graph &g)
+      : tool(tool), g(g) {}
 
   template <typename Vertex>
   void operator()(std::ostream &out, Vertex v) const {
-    binary_t &b = tool.jv.Binaries.at(g[v].BIdx);
+    auto &b = tool.jv.Binaries.at(g[v].BIdx);
 
     std::string name;
     if (b.is_file())
@@ -386,7 +388,8 @@ int RecompileTool::Run(void) {
   if (fs::exists(fs::path(opts.Output.getValue()) / ".jv")) // delete any stale symlinks
     fs::remove(fs::path(opts.Output.getValue()) / ".jv");
 
-  fs::create_symlink(fs::canonical(path_to_jv()), fs::path(opts.Output.getValue()) / ".jv");
+  fs::create_symlink(fs::canonical(get_path_to_jv()),
+                     fs::path(opts.Output.getValue()) / ".jv");
 
   //
   // install signal handler for Ctrl-C to gracefully cancel
@@ -413,7 +416,7 @@ int RecompileTool::Run(void) {
   //
   // gather dynamic linking information
   //
-  for_each_binary(std::execution::par_unseq, jv, [&](binary_t &b) {
+  for_each_binary(std::execution::par_unseq, jv, [&](auto &b) {
     if (!b.is_file())
       return;
 
@@ -481,7 +484,7 @@ int RecompileTool::Run(void) {
   //
   std::string rtld_soname;
 
-  for (binary_t &b : jv.Binaries) {
+  for (auto &b : jv.Binaries) {
     if (!b.IsDynamicLinker)
       continue;
 
@@ -608,7 +611,7 @@ int RecompileTool::Run(void) {
       std::ofstream ofs(
           (fs::path(opts.Output.getValue()) / "jove" / "BinaryPathsTable.txt").c_str());
 
-      for (const binary_t &binary : jv.Binaries)
+      for (const auto &binary : jv.Binaries)
         ofs << binary.Name.c_str() << '\n';
     }
 
@@ -616,7 +619,7 @@ int RecompileTool::Run(void) {
                            "BinaryBlockAddrTables");
 
     for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
-      binary_t &binary = jv.Binaries.at(BIdx);
+      auto &binary = jv.Binaries.at(BIdx);
       auto &ICFG = binary.Analysis.ICFG;
 
       {
@@ -636,7 +639,7 @@ int RecompileTool::Run(void) {
   //
   // create mapping from "soname" to binary
   //
-  for_each_binary(jv, [&](binary_t &b) {
+  for_each_binary(jv, [&](auto &b) {
     binary_state_t &x = state.for_binary(b);
 
     const std::string &soname = x.soname;
@@ -660,7 +663,7 @@ int RecompileTool::Run(void) {
   //
   // initialize dynamic linking graph
   //
-  for_each_binary(jv, [&](binary_t &b) {
+  for_each_binary(jv, [&](auto &b) {
     binary_state_t &x = state.for_binary(b);
     binary_index_t BIdx = index_of_binary(b, jv);
 
@@ -671,7 +674,7 @@ int RecompileTool::Run(void) {
   //
   // build dynamic linking graph
   //
-  for_each_binary(jv, [&](binary_t &b) {
+  for_each_binary(jv, [&](auto &b) {
     if (!b.is_file())
       return;
 
@@ -686,7 +689,7 @@ int RecompileTool::Run(void) {
         return;
       }
 
-      binary_t &needed_b = jv.Binaries.at(ChosenBIdx);
+      auto &needed_b = jv.Binaries.at(ChosenBIdx);
       binary_state_t &y = state.for_binary(needed_b);
 
       boost::add_edge(x.dso, y.dso, dso_graph);
@@ -866,7 +869,7 @@ int RecompileTool::Run(void) {
   // linker to produce each recompiled DSO, this solves "unable to find library"
   // errors XXX
   //
-  for_each_binary(std::execution::par_unseq, jv, [&](binary_t &b) {
+  for_each_binary(std::execution::par_unseq, jv, [&](auto &b) {
     if (!b.is_file())
       return;
 
@@ -930,7 +933,7 @@ int RecompileTool::Run(void) {
     });
   });
 
-  for_each_binary(std::execution::par_unseq, jv, [&](binary_t &b) {
+  for_each_binary(std::execution::par_unseq, jv, [&](auto &b) {
     if (!b.is_file())
       return;
 
@@ -965,7 +968,7 @@ int RecompileTool::Run(void) {
   for (dso_t dso : top_sorted) {
     binary_index_t BIdx = dso_graph[dso].BIdx;
 
-    binary_t &b = jv.Binaries.at(BIdx);
+    auto &b = jv.Binaries.at(BIdx);
 
     if (b.IsDynamicLinker)
       continue;
@@ -1009,7 +1012,7 @@ int RecompileTool::Run(void) {
         continue;
       }
 
-      binary_t &needed_b = jv.Binaries.at(ChosenBIdx);
+      auto &needed_b = jv.Binaries.at(ChosenBIdx);
 
 #if 1
       const fs::path needed_chrooted_path(opts.Output + needed_b.path_str());
@@ -1111,7 +1114,7 @@ int RecompileTool::Run(void) {
       const char *rtld_path = nullptr;
       B::_elf(*x.Bin, [&](ELFO &O) {
         if (x._elf.interp) {
-          for (binary_t &b : jv.Binaries) {
+          for (auto &b : jv.Binaries) {
             if (b.IsDynamicLinker) {
               rtld_path = b.path();
               break;
@@ -1260,7 +1263,7 @@ int RecompileTool::Run(void) {
             continue;
           }
 
-          binary_t &needed_b = jv.Binaries.at(ChosenBIdx);
+          auto &needed_b = jv.Binaries.at(ChosenBIdx);
 
           fs::path needed_chrooted_path(opts.Output + needed_b.path_str());
           Arg(needed_chrooted_path.replace_extension("lib").string());
@@ -1297,7 +1300,7 @@ void RecompileTool::worker(dso_t dso) {
 
   binary_index_t BIdx = dso_graph[dso].BIdx;
 
-  binary_t &b = jv.Binaries.at(BIdx);
+  auto &b = jv.Binaries.at(BIdx);
 
   if (b.IsDynamicLinker)
     return;
@@ -1554,7 +1557,7 @@ binary_index_t RecompileTool::ChooseBinaryWithSoname(const std::string &soname) 
   fs::path exe_parent = fs::path(jv.Binaries.at(0).path()).parent_path();
   const auto &BIdxSet = (*it).second;
   for (binary_index_t BIdx : BIdxSet) {
-    binary_t &otherb = jv.Binaries.at(BIdx);
+    auto &otherb = jv.Binaries.at(BIdx);
     fs::path parent = fs::path(otherb.path()).parent_path();
     if (exe_parent == parent) {
       Res = BIdx; /* in same dir */
