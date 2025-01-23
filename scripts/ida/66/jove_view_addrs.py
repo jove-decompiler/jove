@@ -37,9 +37,9 @@ def open_trace_file():
   print("opening trace file %s..." % trace_filename)
   with open(trace_filename) as f:
     for line in f:
-      plus = line.find("+")
-      if (plus > 0):
-        addrstr = line[plus+1:]
+      colon = line.find(":")
+      if (colon > 0):
+        addrstr = line[colon+1:]
       else:
         addrstr = line
 

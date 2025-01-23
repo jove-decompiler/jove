@@ -281,7 +281,7 @@ int Trace2LinesTool::Run(void) {
             PrefixedFileName = "/usr/src/debug";
           PrefixedFileName /= src;
 
-          OutputStream << llvm::formatv("{0}:{1}:{2}:{3}+{4:x}\n",
+          OutputStream << llvm::formatv("{0}:{1}:{2}:{3}:{4:x}\n",
                                         fs::path(stdout_txt).is_relative()
                                             ? PrefixedFileName.c_str()
                                             : stdout_txt.c_str(),
@@ -305,7 +305,7 @@ int Trace2LinesTool::Run(void) {
                                     fs::path(binary.path_str()).stem().c_str() /
                                     LnInfo.FileName;
 
-        OutputStream << llvm::formatv("{0}:{1}:{2}:{3}+{4:x}\n",
+        OutputStream << llvm::formatv("{0}:{1}:{2}:{3}:{4:x}\n",
                                       fs::path(LnInfo.FileName).is_relative()
                                           ? PrefixedFileName.c_str()
                                           : LnInfo.FileName.c_str(),

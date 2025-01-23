@@ -20,13 +20,14 @@ namespace {
 
 struct binary_state_t {
   std::unique_ptr<llvm::object::Binary> Bin;
-  binary_state_t(const binary_t &b) { Bin = B::Create(b.data()); }
+  binary_state_t(const auto &b) { Bin = B::Create(b.data()); }
 };
 
 }
 
 class Trace2AddrsTool
-    : public StatefulJVTool<ToolKind::CopyOnWrite, binary_state_t, void, void> {
+    : public StatefulJVTool<ToolKind::SingleThreadedCopyOnWrite, binary_state_t,
+                            void, void> {
   struct Cmdline {
     cl::opt<std::string> TracePath;
     cl::opt<bool> SkipRepeated;
@@ -66,7 +67,7 @@ public:
                     binary_index_t BIdx,
                     basic_block_index_t BBIdx);
 
-  taddr_t AddrOrOff(const binary_t &, taddr_t);
+  taddr_t AddrOrOff(const auto &b, taddr_t);
 };
 
 JOVE_REGISTER_TOOL("trace2addrs", Trace2AddrsTool);
@@ -118,9 +119,9 @@ void Trace2AddrsTool::ProcessBlock(llvm::raw_ostream &out,
     x = ICFG[bb].Addr;
   }
 
-  out << llvm::formatv("{0}+{1:x}\n",
+  out << llvm::formatv("{0}{1}{2:x}\n",
                        fs::path(b.path_str()).filename().c_str(),
-                       AddrOrOff(b, x));
+                       opts.Offsets ? "+" : ":", AddrOrOff(b, x));
 }
 
 void Trace2AddrsTool::Process(llvm::raw_ostream &out, std::istream &in) {
@@ -158,7 +159,7 @@ void Trace2AddrsTool::Process(llvm::raw_ostream &out, std::istream &in) {
   }
 }
 
-taddr_t Trace2AddrsTool::AddrOrOff(const binary_t &b, taddr_t Addr) {
+taddr_t Trace2AddrsTool::AddrOrOff(const auto &b, taddr_t Addr) {
   if (opts.Offsets)
     return B::offset_of_va(*state.for_binary(b).Bin, Addr);
 
