@@ -480,7 +480,7 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_base_t<MT> &b,
         T.Addr = 0; /* XXX? */
         T._none.NextPC = addr_intvl_lower(_intervl);
 
-        if (IsVerbose()) {
+        if (IsVeryVerbose()) {
           basic_block_index_t _BBIdx = (*it).second;
           basic_block_t _bb = basic_block_of_index(_BBIdx, ICFG);
 
