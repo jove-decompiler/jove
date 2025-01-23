@@ -7,4 +7,4 @@ export LLVM_SYMBOLIZER_PATH=$(which llvm-symbolizer-19)
 
 export LANG=en_US.UTF-8
 
-make -C /jove/tests check -j$(nproc)
+exec make -C /jove/tests check -j$(nproc)
