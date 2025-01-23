@@ -1319,27 +1319,14 @@ jove_thunk_return_t _jove_call(
     char s[512];
     s[0] = '\0';
 
-    _strcat(s, "_jove_call: -> 0x");
+    _strcat(s, "_jove_call(... 0x");
     {
       char buff[65];
       _uint_to_string(pc, buff, 0x10);
 
       _strcat(s, buff);
     }
-    if (__jove_opts.Debug.Stack) {
-      _strcat(s, " <0x");
-      {
-        uintptr_t emusp =
-            *emulated_stack_pointer_of_cpu_state(JOVE_RT_THREAD_GLOBALP(env));
-
-        char buff[65];
-        _uint_to_string(emusp, buff, 0x10);
-
-        _strcat(s, buff);
-      }
-      _strcat(s, ">");
-    }
-    _strcat(s, "\n");
+    _strcat(s, ")");
 
     _DUMP(s);
   }
@@ -1424,8 +1411,9 @@ jove_thunk_return_t _jove_call(
     }
   }
 
-  unsigned N = _jove_foreign_lib_count();
+  const unsigned N = _jove_foreign_lib_count();
 
+#if 0
   bool FoundAll = true;
   for (unsigned j = 3; j < N + 3; ++j) {
     if (__jove_foreign_function_tables[j] == NULL) {
@@ -1517,6 +1505,18 @@ jove_thunk_return_t _jove_call(
             //
             // DSO was reloaded at different address
             //
+	    {
+              char *s;
+              JOVE_SCOPED_BUFF(s, JOVE_LARGE_BUFF_SIZE);
+	      s[0] = '\0';
+
+	      _strcat(s, "_jove_call: DSO reloaded (1): ");
+	      _strcat(s, foreign_dso_path_beg);
+	      _strcat(s, "\n");
+
+	      _DUMP(s);
+	    }
+
             for (unsigned FIdx = 0; foreign_fn_tbl[FIdx]; ++FIdx)
               foreign_fn_tbl[FIdx] -= curr_bias; /* undo */
           }
@@ -1533,6 +1533,7 @@ jove_thunk_return_t _jove_call(
 matched:
     }
   }
+#endif
 
   if (N > 0) {
     //
@@ -1626,6 +1627,18 @@ matched:
               //
               // DSO was reloaded at different address
               //
+              if (unlikely(__jove_opts.Debug.Calls)) {
+		char *s;
+		JOVE_SCOPED_BUFF(s, JOVE_LARGE_BUFF_SIZE);
+		s[0] = '\0';
+
+		_strcat(s, "_jove_call: DSO reloaded (2): ");
+		_strcat(s, foreign_dso_path_beg);
+		_strcat(s, "\n");
+
+		_DUMP(s);
+	      }
+
               for (unsigned FIdx = 0; foreign_fn_tbl[FIdx]; ++FIdx)
                 foreign_fn_tbl[FIdx] -= curr_bias; /* undo */
             }
@@ -1785,6 +1798,38 @@ found:
         ;
 
     uintptr_t RealEntry = __jove_foreign_function_tables[Callee.BIdx][Callee.FIdx];
+
+    if (unlikely(__jove_opts.Debug.Calls))
+    {
+      char s[512];
+      s[0] = '\0';
+
+      _strcat(s, " F<");
+      {
+	char buff[65];
+	_uint_to_string(Callee.BIdx, buff, 10);
+
+	_strcat(s, buff);
+      }
+      _strcat(s, ", ");
+      {
+	char buff[65];
+	_uint_to_string(Callee.FIdx, buff, 10);
+
+	_strcat(s, buff);
+      }
+      _strcat(s, ">(0x");
+      {
+	char buff[65];
+	_uint_to_string(RealEntry, buff, 0x10);
+
+	_strcat(s, buff);
+      }
+      _strcat(s, ")\n");
+
+      _DUMP(s);
+    }
+
     if (unlikely(in_ifunc)) {
       //
       // when might __jove_env_clunk be NULL? in an ifunc resolver, that's when
@@ -1871,6 +1916,23 @@ found:
       JOVE_RT_THREAD_GLOBAL(callstack) = callstack;
     }
   } else {
+    if (unlikely(__jove_opts.Debug.Calls))
+    {
+      char s[512];
+      s[0] = '\0';
+
+      _strcat(s, " R(0x");
+      {
+	char buff[65];
+	_uint_to_string(Callee.RecompiledFunc, buff, 0x10);
+
+	_strcat(s, buff);
+      }
+      _strcat(s, ")\n");
+
+      _DUMP(s);
+    }
+
     return ((JOVE_THUNK_EXTRA_ATTR jove_thunk_return_t (*)(
                          #define __REG_ARG(n, i, data) BOOST_PP_COMMA_IF(i) uintptr_t
 
