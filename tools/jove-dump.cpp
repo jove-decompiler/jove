@@ -26,6 +26,8 @@ namespace jove {
 
 class DumpTool : public JVTool<ToolKind::SingleThreadedCopyOnWrite> {
   struct Cmdline {
+    cl::opt<std::string> Output;
+    cl::alias OutputAlias;
     cl::opt<bool> Compact;
     cl::opt<bool> Graphviz;
     cl::opt<bool> Statistics;
@@ -36,7 +38,13 @@ class DumpTool : public JVTool<ToolKind::SingleThreadedCopyOnWrite> {
     cl::opt<std::string> ListFunctionBBs;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
-        : Compact("compact",
+        : Output("output", cl::desc("Destination for output"),
+                 cl::value_desc("filename"), cl::cat(JoveCategory)),
+
+          OutputAlias("o", cl::desc("Alias for -output."), cl::aliasopt(Output),
+                      cl::cat(JoveCategory)),
+
+          Compact("compact",
                   cl::desc("Print functions as list of basic-blocks addresses"),
                   cl::cat(JoveCategory)),
 
@@ -84,7 +92,13 @@ JOVE_REGISTER_TOOL("dump", DumpTool);
 typedef boost::format fmt;
 
 void DumpTool::dumpDecompilation(const jv_base_t<false>& jv) {
-  llvm::ScopedPrinter Writer(llvm::outs());
+  std::unique_ptr<llvm::raw_fd_ostream> ostream;
+  if (!opts.Output.empty()) {
+    std::error_code EC;
+    ostream = std::make_unique<llvm::raw_fd_ostream>(opts.Output.c_str(), EC);
+  }
+
+  llvm::ScopedPrinter Writer(ostream ? *ostream : llvm::outs());
   llvm::ListScope _(Writer, (fmt("Binaries (%u)") % jv.Binaries.size()).str());
 
   for (const auto &B : jv.Binaries) {
