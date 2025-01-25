@@ -586,7 +586,6 @@ void _jove_flush_trace(void) {
   if (fd < 0)
     _UNREACHABLE("_jove_flush_trace: failed to open trace file");
 
-  --TracePtr;
   unsigned n = (TracePtr - TraceBegin) * sizeof(uint64_t);
 
   ssize_t ret = _jove_robust_write(fd, TraceBegin, n);

@@ -7941,28 +7941,27 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
     // up discarding one trace point on each guard page hit
     //
     {
-      llvm::LoadInst *LI = IRB.CreateLoad(IRB.getPtrTy(), GetTrace(IRB), true);
-      LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
-      LI = IRB.CreateLoad(IRB.getInt8Ty(), LI, true);
+      llvm::LoadInst *Ptr = IRB.CreateLoad(IRB.getPtrTy(), GetTrace(IRB), true);
+      Ptr->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
+
+      llvm::LoadInst *LI = IRB.CreateLoad(IRB.getInt8Ty(), Ptr, true);
       LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
     }
 
     //
     // now for real
     //
-    llvm::LoadInst *Ptr = IRB.CreateLoad(IRB.getPtrTy(), GetTrace(IRB), true);
-    Ptr->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
-
     {
+      llvm::LoadInst *Ptr = IRB.CreateLoad(IRB.getPtrTy(), GetTrace(IRB), true);
+      Ptr->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
+
+      llvm::StoreInst *StorePoint = IRB.CreateStore(IRB.getInt64(comb), Ptr);
+      StorePoint->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
+
       llvm::Value *PtrInc = IRB.CreateConstGEP1_64(IRB.getInt64Ty(), Ptr, 1);
 
-      llvm::StoreInst *SI = IRB.CreateStore(PtrInc, GetTrace(IRB)); // ++tracep
-      SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
-    }
-
-    {
-      llvm::StoreInst *SI = IRB.CreateStore(IRB.getInt64(comb), Ptr);
-      SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
+      llvm::StoreInst *StoreInc = IRB.CreateStore(PtrInc, GetTrace(IRB)); // ++tracep
+      StoreInc->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
     }
   }
 
