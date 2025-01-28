@@ -2312,6 +2312,12 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
   JoveCallFunc = Module->getFunction("_jove_call");
   assert(JoveCallFunc);
 
+  if (opts.ForCBE) {
+    assert(JoveCallFunc->getLinkage() == llvm::GlobalValue::ExternalLinkage);
+  } else {
+    JoveCallFunc->setLinkage(llvm::GlobalValue::InternalLinkage);
+  }
+
   JoveMakeSectionsExeFunc = Module->getFunction("_jove_make_sections_executable");
   assert(JoveMakeSectionsExeFunc);
 
