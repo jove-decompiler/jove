@@ -186,7 +186,7 @@ int DecompileTool::Run(void) {
     if (!binary.is_file())
       return;
 
-    if (_state.soname.empty() && !binary.IsExecutable) {
+    if (_state.soname.empty() && !binary.IsExecutable && binary.is_file()) {
       soname_map.insert({fs::path(binary.path_str()).filename().string(), BIdx});
       return;
     }
@@ -281,7 +281,8 @@ int DecompileTool::Run(void) {
       //
       // invalidate
       //
-      if (RunToolToExit("invalidate", process::no_args, process::no_envs, "", "")) {
+      if (RunToolToExit(
+              "invalidate", [](auto) -> void {}, process::no_envs, "", "")) {
         worker_failed.store(true);
 
         WithColor::error() << llvm::formatv("jove invalidate failed on {0}\n",
@@ -335,7 +336,9 @@ int DecompileTool::Run(void) {
               Arg("--version-script");
               Arg(mapfp);
 
+#if 0 /* FIXME */
               Arg("--lay-out-sections");
+#endif
 
               Arg("--binary-index");
               Arg(std::to_string(BIdx));
