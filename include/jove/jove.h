@@ -266,6 +266,10 @@ using ip_upgradable_lock = boost::interprocess::upgradable_lock<Mutex>;
 
 #include "jove/mt.h"
 
+//
+// The concurrent and non-concurrent data structures can be move-constructed
+// from one another.
+//
 template <bool MT, typename Spin, typename... Params>
 using possibly_concurrent_flat_map =
     std::conditional_t<MT, boost::concurrent_flat_map<Params..., Spin>,
