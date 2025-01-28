@@ -106,8 +106,7 @@ int AnalyzeTool::Run(void) {
     analyzer_opts.PinnedEnvGlbs.set(idx);
   }
 
-  analyzer_opts.Verbose = IsVerbose();
-  analyzer_opts.VeryVerbose = IsVeryVerbose();
+  analyzer_opts.VerbosityLevel = VerbosityLevel();
   analyzer_opts.Conservative = opts.Conservative;
 
   analyzer = std::make_unique<analyzer_t<IsToolMT>>(analyzer_opts, *TCG, jv,

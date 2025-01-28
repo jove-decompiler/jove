@@ -18,7 +18,10 @@ struct analyzer_options_t {
   unsigned Conservative = 1;
   bool ForCBE = false;
   bool Verbose = false;
-  bool VeryVerbose = false;
+  unsigned VerbosityLevel = 0;
+
+  bool IsVerbose(void) const { return VerbosityLevel >= 1; };
+  bool IsVeryVerbose(void) const { return VerbosityLevel >= 2; };
 
   tcg_global_set_t PinnedEnvGlbs = InitPinnedEnvGlbs;
 };

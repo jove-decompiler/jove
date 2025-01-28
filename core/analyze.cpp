@@ -270,13 +270,13 @@ int analyzer_t<MT>::analyze_function(function_t &f) {
 
   dynamic_target_t X(target_of_function(f));
 
-  if (options.VeryVerbose)
+  if (options.IsVeryVerbose())
     inflight.insert(X);
 
   BOOST_SCOPE_DEFER [&] {
-    if (options.Verbose) {
+    if (options.IsVerbose()) {
       done.fetch_add(1u, std::memory_order_relaxed);
-      if (options.VeryVerbose)
+      if (options.IsVeryVerbose())
         inflight.erase(X);
     }
 

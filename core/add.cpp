@@ -26,9 +26,6 @@ void jv_base_t<MT>::DoAdd(binary_base_t<MT2> &b,
                           explorer_t &explorer,
                           llvm::object::Binary &Bin,
                           const AddOptions_t &Options) {
-  auto IsVerbose = [&](void) -> bool { return Options.VerbosityLevel >= 1; };
-  auto IsVeryVerbose = [&](void) -> bool { return Options.VerbosityLevel >= 2; };
-
   b.IsDynamicLinker = false;
   b.IsExecutable = false;
   b.IsVDSO = false;
@@ -41,14 +38,14 @@ void jv_base_t<MT>::DoAdd(binary_base_t<MT2> &b,
       return invalid_basic_block_index;
 
     if (Options.Objdump && b.Analysis.objdump.is_addr_bad(Entrypoint)) {
-      if (IsVeryVerbose())
+      if (Options.IsVeryVerbose())
         llvm::errs() << llvm::formatv("objdump rejects {0}:{1:x}\n",
                                       b.Name.c_str(), Entrypoint);
       return invalid_basic_block_index;
     }
 
     try {
-      if (IsVeryVerbose())
+      if (Options.IsVeryVerbose())
         llvm::errs() << llvm::formatv("exploring {0}:{1:x}\n", b.Name.c_str(),
                                       Entrypoint);
 
@@ -463,7 +460,7 @@ void jv_base_t<MT>::DoAdd(binary_base_t<MT2> &b,
       }
 
 #if 0
-      if (IsVerbose())
+      if (Options.IsVerbose())
         WithColor::note() << llvm::formatv("ctor/dtor: off={0:x} Addr={1:x}\n",
                                            R.Offset, Addr);
 #endif

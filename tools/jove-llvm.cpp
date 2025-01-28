@@ -1047,7 +1047,8 @@ static boost::unordered::unordered_flat_map<uintptr_t, helper_function_t>
     HelperFuncMap;
 static std::mutex helper_mtx;
 
-static bool AnalyzeHelper(helper_function_t &hf, bool VeryVerbose) {
+static bool AnalyzeHelper(helper_function_t &hf,
+                          const analyzer_options_t &options) {
   if (hf.EnvArgNo < 0)
     return true; /* doesn't take CPUState* parameter */
 
@@ -1059,7 +1060,7 @@ static bool AnalyzeHelper(helper_function_t &hf, bool VeryVerbose) {
     if (!V)
       return;
 
-    if (VeryVerbose)
+    if (options.IsVeryVerbose())
       llvm::errs() << llvm::formatv("[AnalyzeHelper] unknown use of env: {0}\n", *V);
   };
 
@@ -1246,7 +1247,7 @@ static const helper_function_t &LookupHelper(llvm::Module &M,
   }
 
   hf.EnvArgNo = EnvArgNo;
-  hf.Analysis.Simple = AnalyzeHelper(hf, options.VeryVerbose);
+  hf.Analysis.Simple = AnalyzeHelper(hf, options);
 
   //
   // is this a system call?
@@ -1305,6 +1306,7 @@ static const helper_function_t &LookupHelper(llvm::Module &M,
 
     const char *IsSimpleStr = hf.Analysis.Simple ? "-" : "+";
 
+    if (options.IsVerbose()) {
     if (InGlbsStr.empty() && OutGlbsStr.empty()) {
       WithColor::note() << llvm::formatv("helper_{0} ({1})\n", helper_nm, IsSimpleStr);
     } else {
@@ -1313,6 +1315,7 @@ static const helper_function_t &LookupHelper(llvm::Module &M,
                                          InGlbsStr,
                                          OutGlbsStr,
                                          IsSimpleStr);
+    }
     }
   }
 
@@ -3120,7 +3123,7 @@ int LLVMTool::PrepareToTranslateCode(void) {
   }
 
   analyzer_options.ForCBE = opts.ForCBE;
-  analyzer_options.VeryVerbose = IsVeryVerbose();
+  analyzer_options.VerbosityLevel = VerbosityLevel();
   analyzer_options.PinnedEnvGlbs = PinnedEnvGlbs;
 
   auto &Binary = jv.Binaries.at(BinaryIndex);

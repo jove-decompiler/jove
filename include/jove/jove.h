@@ -1691,6 +1691,9 @@ using on_newbin_proc_t = std::function<void(binary_base_t<MT> &)>;
 struct AddOptions_t {
   bool Objdump = false;
   unsigned VerbosityLevel = 0;
+
+  bool IsVerbose(void) const { return VerbosityLevel >= 1; };
+  bool IsVeryVerbose(void) const { return VerbosityLevel >= 2; };
 };
 
 template <bool MT = true>
