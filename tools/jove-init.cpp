@@ -134,7 +134,7 @@ int InitTool::Run(void) {
   }
 
   AddOptions.Objdump = opts.Objdump;
-  AddOptions.Verbose = IsVerbose();
+  AddOptions.VerbosityLevel = VerbosityLevel();
 
   fs::path prog = fs::canonical(opts.Prog);
 
