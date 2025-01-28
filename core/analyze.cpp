@@ -185,6 +185,7 @@ int analyzer_t<MT>::analyze_blocks(void) {
         assert(!ICFG[bb].Analysis.Stale);
       });
 
+  if (options.IsVerbose())
   if (unsigned c = count.load())
     WithColor::note() << llvm::formatv("Analyzed {0} basic block{1}.\n", c,
                                        c == 1 ? "" : "s");

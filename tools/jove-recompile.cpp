@@ -684,6 +684,7 @@ int RecompileTool::Run(void) {
       binary_index_t ChosenBIdx = ChooseBinaryWithSoname(needed);
 
       if (!is_binary_index_valid(ChosenBIdx)) {
+        if (IsVerbose())
         WithColor::warning() << llvm::formatv("unknown \"{0}\" needed by {1}\n",
                                               needed, b.path_str());
         return;
@@ -836,7 +837,7 @@ int RecompileTool::Run(void) {
     Q.push_back(dso);
   }
 
-  if (!IsVerbose())
+  if (IsVerbose())
     WithColor::note() << llvm::formatv(
         "Recompiling {0} {1}...",
         (opts.ForeignLibs ? 3 : jv.Binaries.size()) - 2,
@@ -860,7 +861,7 @@ int RecompileTool::Run(void) {
 
   std::chrono::duration<double> s_double = t2 - t1;
 
-  if (!IsVerbose())
+  if (IsVerbose())
     llvm::errs() << llvm::formatv(" {0} s\n", s_double.count());
 
   //
