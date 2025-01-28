@@ -1644,6 +1644,14 @@ struct ip_string_equal_t {
   }
 };
 
+struct JoveBinaryHash : public boost::hash<hash_t> {
+  using is_avalanching = std::true_type;
+
+  std::size_t operator()(const hash_t &x) const noexcept {
+    return boost::hash<hash_t>::operator()(x);
+  }
+};
+
 struct cached_hash_t {
   hash_t h;
 
@@ -1665,7 +1673,7 @@ using ip_cached_hashes_type = possibly_concurrent_flat_map<
 
 template <bool MT>
 using ip_hash_to_binary_map_type = possibly_concurrent_flat_map<
-    MT, std::false_type /* !Spin */, hash_t, adds_binary_t, boost::hash<hash_t>,
+    MT, std::false_type /* !Spin */, hash_t, adds_binary_t, JoveBinaryHash,
     std::equal_to<hash_t>,
     boost::interprocess::allocator<std::pair<const hash_t, adds_binary_t>,
                                    segment_manager_t>>;
