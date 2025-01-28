@@ -277,7 +277,7 @@ std::string CodeRecovery::RecoverForeignBinary(const char *path) {
   if (!is_binary_index_valid(BIdx) || !IsNew)
     return "";
 
-  return (fmt("(add) \"%s\"") % path).str();
+  return (fmt(__ANSI_BOLD_MAGENTA "(add) \"%s\"" __ANSI_NORMAL_COLOR) % path).str();
 }
 
 }
