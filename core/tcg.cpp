@@ -1201,6 +1201,8 @@ void tiny_code_generator_t::dump_operations(void) {
 
 std::pair<unsigned, terminator_info_t>
 tiny_code_generator_t::translate(uint64_t pc, uint64_t pc_end) {
+  rassert(jv_cpu);
+
   if (!has_register_thread) {
     has_register_thread = 1;
     tcg_register_thread();
