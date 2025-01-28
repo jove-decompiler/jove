@@ -83,10 +83,8 @@ ST_TESTS := $$(filter-out $$(SINGLE_THREADED_TESTS_TO_SKIP),$$(ALL_TESTS))
 MT_TESTS := $$(filter-out $$(MULTI_THREADED_TESTS_TO_SKIP),$$(ALL_TESTS))
 
 .PHONY: build-linux-$(1)
-build-linux-$(1): $$(foreach test,$$(ST_TESTS),$$(BINDIR)/$(1)/$$(test).exe) \
-                  $$(foreach test,$$(ST_TESTS),$$(BINDIR)/$(1)/$$(test).pic) \
-                  $$(foreach test,$$(MT_TESTS),$$(BINDIR)/$(1)/$$(test).exe) \
-                  $$(foreach test,$$(MT_TESTS),$$(BINDIR)/$(1)/$$(test).pic)
+build-linux-$(1): $$(foreach test,$$(ALL_TESTS),$$(BINDIR)/$(1)/$$(test).exe) \
+                  $$(foreach test,$$(ALL_TESTS),$$(BINDIR)/$(1)/$$(test).pic)
 
 $(shell mkdir -p .t)
 $$(file > .t/linux.tests.$(1).st,$$(ST_TESTS))
@@ -144,10 +142,8 @@ ST_TESTS := $$(filter-out $$(SINGLE_THREADED_TESTS_TO_SKIP),$$(PREBUILTS_ONLY))
 MT_TESTS := $$(filter-out $$(MULTI_THREADED_TESTS_TO_SKIP),$$(PREBUILTS_ONLY))
 
 .PHONY: build-win-$(1)
-build-win-$(1): $$(foreach test,$$(ST_TESTS),$$(BINDIR)/$(1)/$$(test).EXE) \
-                $$(foreach test,$$(ST_TESTS),$$(BINDIR)/$(1)/$$(test).PIC) \
-                $$(foreach test,$$(MT_TESTS),$$(BINDIR)/$(1)/$$(test).EXE) \
-                $$(foreach test,$$(MT_TESTS),$$(BINDIR)/$(1)/$$(test).PIC)
+build-win-$(1): $$(foreach test,$$(ALL_TESTS),$$(BINDIR)/$(1)/$$(test).EXE) \
+                $$(foreach test,$$(ALL_TESTS),$$(BINDIR)/$(1)/$$(test).PIC)
 
 $(shell mkdir -p .t)
 $$(file > .t/win.tests.$(1).st,$$(ST_TESTS))
