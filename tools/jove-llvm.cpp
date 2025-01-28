@@ -3799,6 +3799,25 @@ llvm::Constant *LLVMTool::ImportedFunctionAddress(llvm::StringRef DLL,
                        ? coff::unique_symbol_for_ordinal_in_dll(DLL, Ordinal)
                        : Name.str();
 
+#if 0
+  if (IsCOFF && Name == "__initenv") {
+    if (auto *GV = Module->getGlobalVariable("_imp____initenv")) {
+      assert(!GV->hasInitializer());
+      return llvm::ConstantExpr::getPtrToInt(GV, WordType());
+    }
+
+    llvm::GlobalVariable *GV = new llvm::GlobalVariable(
+          *Module,
+          WordType(),
+          false,
+          llvm::GlobalValue::ExternalLinkage,
+          nullptr,
+          "_imp____initenv");
+    GV->setDLLStorageClass(llvm::GlobalValue::DLLImportStorageClass);
+    return llvm::ConstantExpr::getPtrToInt(GV, WordType());
+  }
+#endif
+
   if (auto *F = Module->getFunction(nm)) {
     assert(F->empty());
     return llvm::ConstantExpr::getPtrToInt(F, WordType());
@@ -7271,7 +7290,9 @@ bool LLVMTool::shouldExpandOperationWithSize(llvm::Value *Size) {
 
 int LLVMTool::ExpandMemoryIntrinsicCalls(void) {
   if (!opts.ForCBE) { /* FIXME */
+#if 0
   if (!(opts.DFSan && IsTarget32))
+#endif
     return 0; /* erase all notions of contiguous memory */
   }
 
@@ -7300,14 +7321,14 @@ int LLVMTool::ExpandMemoryIntrinsicCalls(void) {
 
     switch (F.getIntrinsicID()) {
     case llvm::Intrinsic::memcpy:
-    //case llvm::Intrinsic::memcpy_inline:
+    case llvm::Intrinsic::memcpy_inline:
       ExpandFunc = DoExpandMemcpy;
       break;
     case llvm::Intrinsic::memmove:
       ExpandFunc = DoExpandMemmove;
       break;
     case llvm::Intrinsic::memset:
-    //case llvm::Intrinsic::memset_inline:
+    case llvm::Intrinsic::memset_inline:
       ExpandFunc = DoExpandMemset;
       break;
 
