@@ -3813,10 +3813,7 @@ llvm::Constant *LLVMTool::ImportedFunctionAddress(llvm::StringRef DLL,
                                                   llvm::StringRef Name,
                                                   uint64_t Addr) {
   const bool ByOrdinal = Name.empty();
-
-  std::string nm = ByOrdinal
-                       ? coff::unique_symbol_for_ordinal_in_dll(DLL, Ordinal)
-                       : Name.str();
+  if (!ByOrdinal) {
 
   const bool IsCode = ({
     std::string dll_str = lowered_string(DLL.str());
@@ -3871,6 +3868,15 @@ llvm::Constant *LLVMTool::ImportedFunctionAddress(llvm::StringRef DLL,
     GV->setDLLStorageClass(llvm::GlobalValue::DLLImportStorageClass);
     return llvm::ConstantExpr::getPtrToInt(GV, WordType());
   }
+
+  }
+
+  //
+  // if we get here, our assumption is that it is a function.
+  //
+  std::string nm = ByOrdinal
+                       ? coff::unique_symbol_for_ordinal_in_dll(DLL, Ordinal)
+                       : Name.str();
 
   if (auto *F = Module->getFunction(nm)) {
     assert(F->empty());
