@@ -166,6 +166,9 @@ struct binary_state_t {
     elf::DynRegionInfo DynRelrRegion;
     elf::DynRegionInfo DynPLTRelRegion;
   } _elf;
+  struct {
+    boost::unordered::unordered_flat_map<std::string_view, uint32_t> Name2RVA;
+  } _coff;
   llvm::GlobalVariable *FunctionsTable = nullptr;
   llvm::GlobalVariable *FunctionsTableClunk = nullptr;
   llvm::Function *SectsF = nullptr;
@@ -188,6 +191,13 @@ struct binary_state_t {
                                _elf.SymbolVersionSection,
                                _elf.VersionMap);
       }
+    });
+
+    B::_coff(*Bin, [&](COFFO &O) {
+      coff::for_each_exported_function(
+          O, [&](uint32_t Ordinal, llvm::StringRef Name, uint64_t RVA) {
+            _coff.Name2RVA.emplace(Name, RVA);
+          });
     });
   }
 };
@@ -476,6 +486,10 @@ struct LLVMTool
   llvm::GlobalVariable *ConstSectsGlobal = nullptr;
 
   unordered_map<std::string, std::set<dynamic_target_t>> ExportedFunctions;
+
+  struct {
+    unordered_map<std::string, binary_index_t> DLL2Binary;
+  } _coff;
 
   std::vector<unordered_set<std::string_view>> bin_paths_vec;
   llvm::GlobalVariable *binNamesTable;
@@ -2091,9 +2105,19 @@ int LLVMTool::InitStateForBinaries(void) {
     });
   }
 
-  IsCOFF = B::_X(*state.for_binary(Binary).Bin,
-      [&](ELFO &O) -> bool { return false; },
-      [&](COFFO &O) -> bool { return true; });
+  IsCOFF = B::is_coff(*state.for_binary(Binary).Bin);
+
+  for_each_binary(jv, [&](auto &b) {
+    if (!b.is_file())
+      return;
+
+    binary_state_t &x = state.for_binary(Binary);
+
+    if (B::is_coff(*x.Bin))
+      _coff.DLL2Binary.emplace(
+          lowered_string(fs::path(b.path_str()).filename().string()),
+          index_of_binary(b, jv));
+  });
 
   return 0;
 }
@@ -3808,9 +3832,38 @@ llvm::Constant *LLVMTool::ImportedFunctionAddress(llvm::StringRef DLL,
                        ? coff::unique_symbol_for_ordinal_in_dll(DLL, Ordinal)
                        : Name.str();
 
-#if 1
-  if (IsCOFF && Name == "__initenv") {
-    if (auto *GV = Module->getGlobalVariable("__initenv")) {
+  const bool IsCode = ({
+    auto b_it = _coff.DLL2Binary.find(lowered_string(DLL.str()));
+    if (b_it == _coff.DLL2Binary.end()) {
+      WithColor::error() << "DLL2Binary failed on " << DLL << '\n';
+    }
+    assert(b_it != _coff.DLL2Binary.end());
+
+    binary_state_t &x = state.for_binary(jv.Binaries.at((*b_it).second));
+
+    assert(B::is_coff(*x.Bin));
+    COFFO &O = llvm::cast<COFFO>(*x.Bin);
+
+    bool isCode = true;
+
+    auto it = x._coff.Name2RVA.find(Name);
+    if (it == x._coff.Name2RVA.end()) {
+      // FIXME this will happen when we have a forwarding export like this:
+      // Export {
+      //   Ordinal: 187
+      //   Name: DeleteCriticalSection
+      //   ForwardedTo: NTDLL.RtlDeleteCriticalSection
+      // }
+      WithColor::error() << "Name2RVA failed on " << Name << " in " << DLL << '\n';
+    } else {
+      //assert(it != x._coff.Name2RVA.end());
+      isCode = coff::isRVACode(O, (*it).second);
+    }
+    isCode;
+  });
+
+  if (!IsCode) {
+    if (auto *GV = Module->getGlobalVariable(Name)) {
       assert(!GV->hasInitializer());
       return llvm::ConstantExpr::getPtrToInt(GV, WordType());
     }
@@ -3821,11 +3874,10 @@ llvm::Constant *LLVMTool::ImportedFunctionAddress(llvm::StringRef DLL,
           false,
           llvm::GlobalValue::ExternalLinkage,
           nullptr,
-          "__initenv");
+          Name);
     GV->setDLLStorageClass(llvm::GlobalValue::DLLImportStorageClass);
     return llvm::ConstantExpr::getPtrToInt(GV, WordType());
   }
-#endif
 
   if (auto *F = Module->getFunction(nm)) {
     assert(F->empty());
