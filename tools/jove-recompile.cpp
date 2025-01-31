@@ -1176,7 +1176,7 @@ int RecompileTool::Run(void) {
 
         assert(IsCOFF);
 
-        //Arg("-lldmingw");
+        Arg("-lldmingw");
         Arg("/out:" + chrooted_path.string());
 
         if (IsVeryVerbose()) {
@@ -1199,7 +1199,8 @@ int RecompileTool::Run(void) {
         Arg("/opt:noref");
         Arg("/opt:noicf");
         Arg("/safeseh:no");
-        //Arg("/section:.text,RWE"); /* FIXME mingw */
+
+        Arg("/section:.rdata,RW"); /* FIXME mingw */
 
         // Why do we do this, you may ask? Because if an app suddenly loads a
         // DLL without /NXCOMPAT (and every other DLL previously loaded *did*
@@ -1209,8 +1210,10 @@ int RecompileTool::Run(void) {
         // no more. So, basically we do this to get one step ahead of wine.
         Arg("/nxcompat:no");
 
+#if 0
         Arg("/auto-import:no");
         Arg("/runtime-pseudo-reloc:no");
+#endif
         //Arg("/force:unresolved");
         //Arg("/opt:noref");
         //Arg("/demangle");

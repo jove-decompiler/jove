@@ -3808,9 +3808,9 @@ llvm::Constant *LLVMTool::ImportedFunctionAddress(llvm::StringRef DLL,
                        ? coff::unique_symbol_for_ordinal_in_dll(DLL, Ordinal)
                        : Name.str();
 
-#if 0
+#if 1
   if (IsCOFF && Name == "__initenv") {
-    if (auto *GV = Module->getGlobalVariable("_imp____initenv")) {
+    if (auto *GV = Module->getGlobalVariable("__initenv")) {
       assert(!GV->hasInitializer());
       return llvm::ConstantExpr::getPtrToInt(GV, WordType());
     }
@@ -3821,7 +3821,7 @@ llvm::Constant *LLVMTool::ImportedFunctionAddress(llvm::StringRef DLL,
           false,
           llvm::GlobalValue::ExternalLinkage,
           nullptr,
-          "_imp____initenv");
+          "__initenv");
     GV->setDLLStorageClass(llvm::GlobalValue::DLLImportStorageClass);
     return llvm::ConstantExpr::getPtrToInt(GV, WordType());
   }

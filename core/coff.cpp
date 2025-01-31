@@ -26,19 +26,15 @@ uint64_t va_of_offset(COFFO &O, uint64_t off) {
                            std::to_string(off) + ")");
 }
 
+// isRVACode (lld/COFF/InputFiles.cpp)
 bool isCode(COFFO &O, uint64_t va) {
-  uint64_t RVA = rva_of_va(O, va);
+  uint64_t rva = rva_of_va(O, va);
 
   for (const obj::SectionRef &S : O.sections()) {
-    const obj::coff_section *Section = O.getCOFFSection(S);
-    uint32_t SectionStart = Section->VirtualAddress;
-    uint32_t SectionEnd = Section->VirtualAddress + Section->VirtualSize;
-    if (SectionStart <= RVA && RVA < SectionEnd) {
-      if (Section->SizeOfRawData < Section->VirtualSize &&
-          RVA >= SectionStart + Section->SizeOfRawData)
-        return false;
-
-      return Section->Characteristics & llvm::COFF::IMAGE_SCN_MEM_EXECUTE;
+    const obj::coff_section *sec = O.getCOFFSection(S);
+    if (rva >= sec->VirtualAddress &&
+        rva <= sec->VirtualAddress + sec->VirtualSize) {
+      return (sec->Characteristics & llvm::COFF::IMAGE_SCN_CNT_CODE) != 0;
     }
   }
 
@@ -234,6 +230,11 @@ void gen_module_definition_for_dll(COFFO &O, llvm::StringRef DLL, std::ostream &
         Name.empty())
       continue;
 
+#if 1
+    if (Name == "__initenv")
+    out << "__initenv" << " @" << Ordinal << " DATA" << '\n';
+    else
+#endif
     out << Name.str() << " @ " << Ordinal << '\n';
   }
 
@@ -245,6 +246,12 @@ void gen_module_definition_for_dll(COFFO &O, llvm::StringRef DLL, std::ostream &
 
     if (llvm::errorToBool(Exp.getOrdinal(Ordinal)))
       continue;
+
+#if 1
+    llvm::StringRef Name("");
+    if (!llvm::errorToBool(Exp.getSymbolName(Name)) && Name == "__initenv")
+      continue;
+#endif
 
     out << unique_symbol_for_ordinal_in_dll(DLL, Ordinal) << " @" << Ordinal
         << " NONAME" << '\n';
