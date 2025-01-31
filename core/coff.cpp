@@ -250,8 +250,10 @@ void gen_module_definition_for_dll(COFFO &O, llvm::StringRef DLL, std::ostream &
 
     if (llvm::errorToBool(Exp.getOrdinal(Ordinal)))
       continue;
-    if (!llvm::errorToBool(Exp.getExportRVA(RVA)) && !isRVACode(O, RVA))
-      continue;
+
+    if (!llvm::errorToBool(Exp.getExportRVA(RVA)) && RVA && !isRVACode(O, RVA)) {
+      // FIXME?
+    }
 
     out << unique_symbol_for_ordinal_in_dll(DLL, Ordinal) << " @" << Ordinal
         << " NONAME" << '\n';
