@@ -17,9 +17,9 @@ namespace jove {
 size_t jvDefaultInitialSize(void) {
   switch (sizeof(void *)) {
   case 8:
-    return 9*GiB;
+    return 3*GiB;
   case 4:
-    return 1280*MiB;
+    return 384*MiB;
   }
 
   abort();
