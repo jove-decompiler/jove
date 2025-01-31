@@ -134,12 +134,11 @@ PREBUILTS_ONLY  := $$(filter-out $$(ALL_TESTS),$$(PREBUILTS_NAMES))
 SINGLE_THREADED_TESTS_TO_SKIP :=
 MULTI_THREADED_TESTS_TO_SKIP :=
 
-#ST_TESTS := $$(filter-out $$(SINGLE_THREADED_TESTS_TO_SKIP),$$(ALL_TESTS))
-#MT_TESTS := $$(filter-out $$(MULTI_THREADED_TESTS_TO_SKIP),$$(ALL_TESTS))
+ST_TESTS := $$(filter-out $$(SINGLE_THREADED_TESTS_TO_SKIP),$$(ALL_TESTS))
+MT_TESTS := $$(filter-out $$(MULTI_THREADED_TESTS_TO_SKIP),$$(ALL_TESTS))
 
-# for now, prebuilts only
-ST_TESTS := $$(filter-out $$(SINGLE_THREADED_TESTS_TO_SKIP),$$(PREBUILTS_ONLY))
-MT_TESTS := $$(filter-out $$(MULTI_THREADED_TESTS_TO_SKIP),$$(PREBUILTS_ONLY))
+ST_TESTS += $$(filter-out $$(SINGLE_THREADED_TESTS_TO_SKIP),$$(PREBUILTS_ONLY))
+MT_TESTS += $$(filter-out $$(MULTI_THREADED_TESTS_TO_SKIP),$$(PREBUILTS_ONLY))
 
 .PHONY: build-win-$(1)
 build-win-$(1): $$(foreach test,$$(ALL_TESTS),$$(BINDIR)/$(1)/$$(test).EXE) \
