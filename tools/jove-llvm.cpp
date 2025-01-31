@@ -7,6 +7,7 @@
 #include "disas.h"
 #include "brkpt.h"
 #include "analyze.h"
+#include "win.h"
 
 #include <boost/algorithm/string/replace.hpp>
 #include <boost/container_hash/extensions.hpp>
@@ -3833,7 +3834,14 @@ llvm::Constant *LLVMTool::ImportedFunctionAddress(llvm::StringRef DLL,
                        : Name.str();
 
   const bool IsCode = ({
-    auto b_it = _coff.DLL2Binary.find(lowered_string(DLL.str()));
+    std::string dll_str = lowered_string(DLL.str());
+
+    unordered_map<std::string, binary_index_t>::iterator b_it;
+    if (const char *dll = win::dll_of_apiset(dll_str.c_str()))
+      b_it = _coff.DLL2Binary.find(dll);
+    else
+      b_it = _coff.DLL2Binary.find(dll_str);
+
     if (b_it == _coff.DLL2Binary.end()) {
       WithColor::error() << "DLL2Binary failed on " << DLL << '\n';
     }
