@@ -26,10 +26,11 @@ uint64_t va_of_offset(COFFO &O, uint64_t off) {
                            std::to_string(off) + ")");
 }
 
-// isRVACode (lld/COFF/InputFiles.cpp)
 bool isCode(COFFO &O, uint64_t va) {
-  uint64_t rva = rva_of_va(O, va);
-
+  return isRVACode(O, rva_of_va(O, va));
+}
+bool isRVACode(COFFO &O, uint64_t rva) {
+  // see isRVACode() in lld/COFF/InputFiles.cpp
   for (const obj::SectionRef &S : O.sections()) {
     const obj::coff_section *sec = O.getCOFFSection(S);
     if (rva >= sec->VirtualAddress &&
@@ -222,36 +223,33 @@ void gen_module_definition_for_dll(COFFO &O, llvm::StringRef DLL, std::ostream &
   // named exports
   //
   for (const llvm::object::ExportDirectoryEntryRef &Exp : O.export_directories()) {
+    uint32_t RVA = 0x0;
     uint32_t Ordinal = UINT32_MAX;
     llvm::StringRef Name("");
 
     if (llvm::errorToBool(Exp.getOrdinal(Ordinal)) ||
         llvm::errorToBool(Exp.getSymbolName(Name)) ||
+        llvm::errorToBool(Exp.getExportRVA(RVA)) ||
         Name.empty())
       continue;
 
-#if 1
-    if (Name == "__initenv")
-    out << "__initenv" << " @" << Ordinal << " DATA" << '\n';
-    else
-#endif
-    out << Name.str() << " @ " << Ordinal << '\n';
+    out << Name.str() << " @" << Ordinal;
+    if (!isRVACode(O, RVA))
+      out << " DATA";
+    out << '\n';
   }
 
   //
   // provide a way to call any exported function given its ordinal
   //
   for (const llvm::object::ExportDirectoryEntryRef &Exp : O.export_directories()) {
+    uint32_t RVA = 0x0;
     uint32_t Ordinal = UINT32_MAX;
 
     if (llvm::errorToBool(Exp.getOrdinal(Ordinal)))
       continue;
-
-#if 1
-    llvm::StringRef Name("");
-    if (!llvm::errorToBool(Exp.getSymbolName(Name)) && Name == "__initenv")
+    if (!llvm::errorToBool(Exp.getExportRVA(RVA)) && !isRVACode(O, RVA))
       continue;
-#endif
 
     out << unique_symbol_for_ordinal_in_dll(DLL, Ordinal) << " @" << Ordinal
         << " NONAME" << '\n';
