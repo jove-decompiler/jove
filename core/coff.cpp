@@ -226,15 +226,17 @@ void gen_module_definition_for_dll(COFFO &O, llvm::StringRef DLL, std::ostream &
     uint32_t RVA = 0x0;
     uint32_t Ordinal = UINT32_MAX;
     llvm::StringRef Name("");
+    bool IsForwarder;
 
     if (llvm::errorToBool(Exp.getOrdinal(Ordinal)) ||
         llvm::errorToBool(Exp.getSymbolName(Name)) ||
         llvm::errorToBool(Exp.getExportRVA(RVA)) ||
+        llvm::errorToBool(Exp.isForwarder(IsForwarder)) ||
         Name.empty())
       continue;
 
     out << Name.str() << " @" << Ordinal;
-    if (!isRVACode(O, RVA))
+    if (!IsForwarder && !isRVACode(O, RVA))
       out << " DATA";
     out << '\n';
   }
