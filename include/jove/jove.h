@@ -1355,9 +1355,6 @@ struct binary_base_t {
       return *this;
     }
 
-    template <class Archive>
-    void serialize(Archive &ar, const unsigned int version);
-
     /*** may have use in future ***/
     void addSymDynTarget(const std::string &sym, dynamic_target_t X) {}
     void addRelocDynTarget(taddr_t A, dynamic_target_t X) {}
