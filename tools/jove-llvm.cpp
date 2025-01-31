@@ -284,7 +284,6 @@ struct LLVMTool
     cl::opt<std::string> VersionScript;
     cl::opt<std::string> LinkerScript;
     cl::opt<bool> Trace;
-    cl::opt<bool> NoFixupFSBase;
     cl::opt<bool> PrintPCRel;
     cl::opt<bool> PrintDefAndUse;
     cl::opt<bool> DebugSjlj;
@@ -294,8 +293,6 @@ struct LLVMTool
     cl::opt<bool> VerifyBitcode;
     cl::opt<bool> DumpPreOpt1;
     cl::opt<bool> DumpPostOpt1;
-    cl::opt<bool> DumpPreFSBaseFixup;
-    cl::opt<bool> DumpPostFSBaseFixup;
     cl::opt<bool> DFSan;
     cl::opt<std::string> DFSanOutputModuleID;
     cl::opt<bool> CallStack;
@@ -342,10 +339,6 @@ struct LLVMTool
               cl::desc("Instrument code to output basic block execution trace"),
               cl::cat(JoveCategory)),
 
-          NoFixupFSBase("no-fixup-fsbase",
-                        cl::desc("Don't fixup FS-relative references"),
-                        cl::cat(JoveCategory)),
-
           PrintPCRel("pcrel", cl::desc("Print pc-relative references"),
                      cl::cat(JoveCategory)),
 
@@ -380,14 +373,6 @@ struct LLVMTool
           DumpPostOpt1("dump-post-opt",
                        cl::desc("Dump bitcode after DoOptimize()"),
                        cl::cat(JoveCategory)),
-
-          DumpPreFSBaseFixup("dump-pre-fsbase-fixup",
-                             cl::desc("Dump bitcode after fsbase fixup"),
-                             cl::cat(JoveCategory)),
-
-          DumpPostFSBaseFixup("dump-post-fsbase-fixup",
-                              cl::desc("Dump bitcode after fsbase fixup"),
-                              cl::cat(JoveCategory)),
 
           DFSan("dfsan", cl::desc("Instrument code with DataFlowSanitizer"),
                 cl::cat(JoveCategory)),
