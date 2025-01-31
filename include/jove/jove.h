@@ -2703,19 +2703,14 @@ template <bool MT>
 static inline function_index_t index_of_function_at_address(const binary_base_t<MT> &b,
                                                             taddr_t Addr) {
   function_index_t FIdx = invalid_function_index;
-  bool found;
   if constexpr (MT) {
     b.fnmap.cvisit(Addr, [&](const auto &x) { FIdx = x.second; });
   } else {
     auto it = b.fnmap.find(Addr);
-    if (it == b.fnmap.end()) {
-      found = false;
-    } else {
-      found = true;
+    if (it != b.fnmap.end())
       FIdx = (*it).second;
-    }
   }
-  assert(found);
+  assert(is_function_index_valid(FIdx));
 
   return FIdx;
 }
