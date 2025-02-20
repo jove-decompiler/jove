@@ -6,7 +6,8 @@ set -x
 TRIPLE="aarch64-linux-gnu"
 
 OURCFLAGS=\
-"--target=$TRIPLE"
+"--target=$TRIPLE"\
+" -flto"
 
 EXTRACONF="--enable-jove"
 
