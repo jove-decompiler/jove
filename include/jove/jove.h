@@ -1641,11 +1641,11 @@ struct ip_string_equal_t {
   }
 };
 
-struct JoveBinaryHash : public boost::hash<hash_t> {
+struct JoveBinaryHash {
   using is_avalanching = std::true_type;
 
   std::size_t operator()(const hash_t &x) const noexcept {
-    return boost::hash<hash_t>::operator()(x);
+    return boost::hash<hash_t>()(x);
   }
 };
 
