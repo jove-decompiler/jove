@@ -63,6 +63,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       autoconf \
                       automake \
                       bash \
+                      bc \
                       binutils-dev \
                       bison \
                       bsdextrautils \
