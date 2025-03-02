@@ -322,6 +322,9 @@ clean-bitcode-$(1):
 
 $(BINDIR)/$(1)/linux.copy.h:
 	$(CARBON_EXTRACT) --src $(LINUX_DIR) --bin $(call linux_carbon_build_dir,$(1)) -n jove > $$@
+
+$(BINDIR)/$(1)/env.copy.h:
+	$(CARBON_EXTRACT) --src $(QEMU_DIR) --bin $(call qemu_carbon_build_dir,$(1)) -n jove_env > $$@
 endef
 $(foreach t,$(ALL_TARGETS),$(eval $(call target_template,$(t))))
 
@@ -335,4 +338,8 @@ gen-tcgconstants: $(foreach t,$(ALL_TARGETS),gen-tcgconstants-$(t))
 ccopy: ccopy-linux
 
 .PHONY: ccopy-linux
-ccopy-linux: $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/linux.copy.h)
+ccopy-linux: $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/linux.copy.h) \
+             $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/env.copy.h)
+
+.PHONY: ccopy-env
+ccopy-env: $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/env.copy.h)
