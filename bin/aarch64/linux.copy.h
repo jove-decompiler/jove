@@ -1,3 +1,7 @@
+#define CONFIG_ARM64_GCS 1
+
+#define CONFIG_ARM64_ERRATUM_3194386 1
+
 #define CONFIG_ARM64_ERRATUM_2658417 1
 
 #define CONFIG_ARM64_PTR_AUTH 1
@@ -12,7 +16,7 @@
 
 #define CONFIG_ARM64_MTE 1
 
-#define CONFIG_ARM64_WORKAROUND_SPECULATIVE_SSBS 1
+#define CONFIG_ARM64_HAFT 1
 
 #define CONFIG_ARM64_SVE 1
 
@@ -21,8 +25,6 @@
 #define CONFIG_ARM64_WORKAROUND_REPEAT_TLBI 1
 
 #define CONFIG_ARM64_EPAN 1
-
-#define CONFIG_ARM64_SME 1
 
 #define CONFIG_UNMAP_KERNEL_AT_EL0 1
 
@@ -35,6 +37,8 @@
 #define CONFIG_ILLEGAL_POINTER_VALUE 0xdead000000000000
 
 #define CONFIG_CAVIUM_ERRATUM_23154 1
+
+#define CONFIG_ARM64_POE 1
 
 #define __ARG_PLACEHOLDER_1 0,
 
@@ -121,11 +125,12 @@
 	compiletime_assert(__native_word(t),				\
 		"Need native word sized stores/loads for atomicity.")
 
-#define __AC(X,Y)	(X##Y)
+#define __BUILD_BUG_ON_ZERO_MSG(e, msg) ((int)sizeof(struct {_Static_assert(!(e), msg);}))
 
-#define _AC(X,Y)	__AC(X,Y)
+#define __is_array(a)		(!__same_type((a), &(a)[0]))
 
-#define __must_be_array(a)	BUILD_BUG_ON_ZERO(__same_type((a), &(a)[0]))
+#define __must_be_array(a)	__BUILD_BUG_ON_ZERO_MSG(!__is_array(a), \
+							"must be array")
 
 #define BITS_PER_LONG 64
 
@@ -192,10 +197,6 @@ do {									\
 	__WRITE_ONCE(x, val);						\
 } while (0)
 
-#define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]) + __must_be_array(arr))
-
-#define BUILD_BUG_ON_ZERO(e) ((int)(sizeof(struct { int:(-!!(e)); })))
-
 #define static_assert(expr, ...) __static_assert(expr, ##__VA_ARGS__, #expr)
 
 #define __static_assert(expr, msg, ...) _Static_assert(expr, msg)
@@ -207,6 +208,16 @@ do {									\
 		      "pointer type mismatch in container_of()");	\
 	((type *)(__mptr - offsetof(type, member))); })
 
+# define POISON_POINTER_DELTA _AC(CONFIG_ILLEGAL_POINTER_VALUE, UL)
+
+#define LIST_POISON1  ((void *) 0x100 + POISON_POINTER_DELTA)
+
+#define LIST_POISON2  ((void *) 0x122 + POISON_POINTER_DELTA)
+
+#define __AC(X,Y)	(X##Y)
+
+#define _AC(X,Y)	__AC(X,Y)
+
 #define ARM64_BTI                                     	2
 
 #define ARM64_HAS_ADDRESS_AUTH                        	5
@@ -215,43 +226,51 @@ do {									\
 
 #define ARM64_HAS_EPAN                                	21
 
-#define ARM64_HAS_GENERIC_AUTH                        	26
+#define ARM64_HAS_GCS                                 	26
 
-#define ARM64_HAS_GIC_PRIO_MASKING                    	31
+#define ARM64_HAS_GENERIC_AUTH                        	27
 
-#define ARM64_HAS_PAN                                 	40
+#define ARM64_HAS_GIC_PRIO_MASKING                    	32
 
-#define ARM64_HAS_TLB_RANGE                           	48
+#define ARM64_HAS_PAN                                 	41
 
-#define ARM64_MTE                                     	56
+#define ARM64_HAS_S1POE                               	43
 
-#define ARM64_SME                                     	58
+#define ARM64_HAS_TLB_RANGE                           	50
 
-#define ARM64_SME_FA64                                	59
+#define ARM64_HAFT                                    	54
 
-#define ARM64_SME2                                    	60
+#define ARM64_MPAM                                    	59
 
-#define ARM64_SVE                                     	66
+#define ARM64_MTE                                     	61
 
-#define ARM64_UNMAP_KERNEL_AT_EL0                     	67
+#define ARM64_SME                                     	63
 
-#define ARM64_WORKAROUND_843419                       	69
+#define ARM64_SME_FA64                                	64
 
-#define ARM64_WORKAROUND_1742098                      	76
+#define ARM64_SME2                                    	65
 
-#define ARM64_WORKAROUND_2645198                      	82
+#define ARM64_SVE                                     	71
 
-#define ARM64_WORKAROUND_2658417                      	83
+#define ARM64_UNMAP_KERNEL_AT_EL0                     	72
 
-#define ARM64_WORKAROUND_CAVIUM_23154                 	88
+#define ARM64_WORKAROUND_843419                       	74
 
-#define ARM64_WORKAROUND_NVIDIA_CARMEL_CNP            	95
+#define ARM64_WORKAROUND_1742098                      	81
 
-#define ARM64_WORKAROUND_REPEAT_TLBI                  	97
+#define ARM64_WORKAROUND_2645198                      	87
 
-#define ARM64_WORKAROUND_SPECULATIVE_SSBS             	99
+#define ARM64_WORKAROUND_2658417                      	88
 
-#define ARM64_NCAPS					101
+#define ARM64_WORKAROUND_CAVIUM_23154                 	93
+
+#define ARM64_WORKAROUND_NVIDIA_CARMEL_CNP            	100
+
+#define ARM64_WORKAROUND_REPEAT_TLBI                  	103
+
+#define ARM64_WORKAROUND_SPECULATIVE_SSBS             	105
+
+#define ARM64_NCAPS					107
 
 static __always_inline bool
 cpucap_is_possible(const unsigned int cap)
@@ -285,6 +304,12 @@ cpucap_is_possible(const unsigned int cap)
 		return IS_ENABLED(CONFIG_ARM64_BTI);
 	case ARM64_HAS_TLB_RANGE:
 		return IS_ENABLED(CONFIG_ARM64_TLB_RANGE);
+	case ARM64_HAS_S1POE:
+		return IS_ENABLED(CONFIG_ARM64_POE);
+	case ARM64_HAS_GCS:
+		return IS_ENABLED(CONFIG_ARM64_GCS);
+	case ARM64_HAFT:
+		return IS_ENABLED(CONFIG_ARM64_HAFT);
 	case ARM64_UNMAP_KERNEL_AT_EL0:
 		return IS_ENABLED(CONFIG_UNMAP_KERNEL_AT_EL0);
 	case ARM64_WORKAROUND_843419:
@@ -302,7 +327,12 @@ cpucap_is_possible(const unsigned int cap)
 	case ARM64_WORKAROUND_REPEAT_TLBI:
 		return IS_ENABLED(CONFIG_ARM64_WORKAROUND_REPEAT_TLBI);
 	case ARM64_WORKAROUND_SPECULATIVE_SSBS:
-		return IS_ENABLED(CONFIG_ARM64_WORKAROUND_SPECULATIVE_SSBS);
+		return IS_ENABLED(CONFIG_ARM64_ERRATUM_3194386);
+	case ARM64_MPAM:
+		/*
+		 * KVM MPAM support doesn't rely on the host kernel supporting MPAM.
+		*/
+		return true;
 	}
 
 	return true;
@@ -340,57 +370,6 @@ cpucap_is_possible(const unsigned int cap)
 })
 
 #define smp_load_acquire(p) __smp_load_acquire(p)
-
-static __always_inline unsigned int __fls(unsigned long word)
-{
-	return (sizeof(word) * 8) - 1 - __builtin_clzl(word);
-}
-
-static __always_inline int fls(unsigned int x)
-{
-	return x ? sizeof(x) * 8 - __builtin_clz(x) : 0;
-}
-
-static __always_inline int fls64(__u64 x)
-{
-	if (x == 0)
-		return 0;
-	return __fls(x) + 1;
-}
-
-static __always_inline __attribute__((const))
-int __ilog2_u32(u32 n)
-{
-	return fls(n) - 1;
-}
-
-static __always_inline __attribute__((const))
-int __ilog2_u64(u64 n)
-{
-	return fls64(n) - 1;
-}
-
-#define ilog2(n) \
-( \
-	__builtin_constant_p(n) ?	\
-	((n) < 2 ? 0 :			\
-	 63 - __builtin_clzll(n)) :	\
-	(sizeof(n) <= 4) ?		\
-	__ilog2_u32(n) :		\
-	__ilog2_u64(n)			\
- )
-
-static inline __attribute_const__
-int __order_base_2(unsigned long n)
-{
-	return n > 1 ? ilog2(n - 1) + 1 : 0;
-}
-
-# define POISON_POINTER_DELTA _AC(CONFIG_ILLEGAL_POINTER_VALUE, UL)
-
-#define LIST_POISON1  ((void *) 0x100 + POISON_POINTER_DELTA)
-
-#define LIST_POISON2  ((void *) 0x122 + POISON_POINTER_DELTA)
 
 #define LIST_HEAD_INIT(name) { &(name), &(name) }
 
@@ -600,6 +579,53 @@ static inline void hlist_add_behind(struct hlist_node *n,
 	     pos && ({ n = pos->member.next; 1; });			\
 	     pos = hlist_entry_safe(n, typeof(*pos), member))
 
+#define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]) + __must_be_array(arr))
+
+static __always_inline unsigned int __fls(unsigned long word)
+{
+	return (sizeof(word) * 8) - 1 - __builtin_clzl(word);
+}
+
+static __always_inline int fls(unsigned int x)
+{
+	return x ? sizeof(x) * 8 - __builtin_clz(x) : 0;
+}
+
+static __always_inline int fls64(__u64 x)
+{
+	if (x == 0)
+		return 0;
+	return __fls(x) + 1;
+}
+
+static __always_inline __attribute__((const))
+int __ilog2_u32(u32 n)
+{
+	return fls(n) - 1;
+}
+
+static __always_inline __attribute__((const))
+int __ilog2_u64(u64 n)
+{
+	return fls64(n) - 1;
+}
+
+#define ilog2(n) \
+( \
+	__builtin_constant_p(n) ?	\
+	((n) < 2 ? 0 :			\
+	 63 - __builtin_clzll(n)) :	\
+	(sizeof(n) <= 4) ?		\
+	__ilog2_u32(n) :		\
+	__ilog2_u64(n)			\
+ )
+
+static inline __attribute_const__
+int __order_base_2(unsigned long n)
+{
+	return n > 1 ? ilog2(n - 1) + 1 : 0;
+}
+
 #define hash_long(val, bits) hash_64(val, bits)
 
 #define GOLDEN_RATIO_32 0x61C88647
@@ -693,3 +719,31 @@ static inline void hash_del(struct hlist_node *node)
 #define hash_for_each_possible_safe(name, obj, tmp, member, key)	\
 	hlist_for_each_entry_safe(obj, tmp,\
 		&name[hash_min(key, HASH_BITS(name))], member)
+
+#define KUNIT_EXPECT_FALSE(x, y) do { (void)(y); } while (false)
+
+#define KUNIT_EXPECT_TRUE(x, y) do { (void)(y); } while (false)
+
+#define KUNIT_EXPECT_EQ(x, y, z) do { (void)(y); (void)(z); } while (false)
+
+#define KUNIT_EXPECT_NE(x, y, z) do { (void)(y); (void)(z); } while (false)
+
+#define KUNIT_EXPECT_PTR_EQ(x, y, z) do { (void)(y); (void)(z); } while (false)
+
+struct our_hashtable_test_entry {
+	int key;
+	int data;
+	struct hlist_node node;
+	int visited;
+};
+
+struct our_list_test_struct {
+	int data;
+	struct list_head list;
+};
+
+struct our_hlist_test_struct {
+	int data;
+	struct hlist_node list;
+};
+

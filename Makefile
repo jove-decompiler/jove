@@ -116,10 +116,10 @@ all: helpers \
      utilities
 
 .PHONY: helpers
-helpers: $(foreach t,$(ALL_TARGETS),helpers-$(t))
+helpers: $(foreach t,$(ALL_TARGETS),helpers-$(t)) ccopy
 
 .PHONY: runtime
-runtime: $(foreach t,$(ALL_TARGETS),runtime-$(t))
+runtime: $(foreach t,$(ALL_TARGETS),runtime-$(t)) ccopy
 
 .PHONY: utilities
 utilities: $(UTILBINS)
@@ -266,6 +266,9 @@ CARBON_EXTRACT := /usr/local/bin/carbon-extract
 QEMU_DIR := $(JOVE_ROOT_DIR)/qemu
 qemu_carbon_build_dir = $(QEMU_DIR)/$(1)_carbon_build
 
+LINUX_DIR := $(JOVE_ROOT_DIR)/linux
+linux_carbon_build_dir = $(LINUX_DIR)/$(1)_carbon_build
+
 define target_template
 $(BINDIR)/$(1)/helpers/%.ll: $(BINDIR)/$(1)/helpers/%.bc
 	$(LLVM_OPT) -o $$@ -S --strip-debug $$<
@@ -316,6 +319,9 @@ clean-bitcode-$(1):
 	      $(BINDIR)/$(1)/*.ll \
 	      $(BINDIR)/$(1)/helpers/*.bc \
 	      $(BINDIR)/$(1)/helpers/*.ll
+
+$(BINDIR)/$(1)/linux.copy.h:
+	$(CARBON_EXTRACT) --src $(LINUX_DIR) --bin $(call linux_carbon_build_dir,$(1)) -n jove > $$@
 endef
 $(foreach t,$(ALL_TARGETS),$(eval $(call target_template,$(t))))
 
@@ -324,3 +330,9 @@ check-helpers: $(foreach t,$(ALL_TARGETS),check-$(t))
 
 .PHONY: gen-tcgconstants
 gen-tcgconstants: $(foreach t,$(ALL_TARGETS),gen-tcgconstants-$(t))
+
+.PHONY: ccopy
+ccopy: ccopy-linux
+
+.PHONY: ccopy-linux
+ccopy-linux: $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/linux.copy.h)

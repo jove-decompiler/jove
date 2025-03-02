@@ -4,6 +4,7 @@ tags
 /bin/*/*.d
 /bin/*/*.so
 /bin/*/*.tmp
+/bin/*/linux.copy.h
 /bin/*/helpers/*.c
 /bin/*/helpers/*.bc
 /bin/*/helpers/*.bc.*

@@ -1,4 +1,4 @@
-#define CONFIG_MIPS_L1_CACHE_SHIFT 6
+#define CONFIG_MIPS_L1_CACHE_SHIFT 7
 
 #define CONFIG_64BIT 1
 
@@ -17,6 +17,8 @@
 #define __used                          __attribute__((__used__))
 
 #define MIPS_ISA_LEVEL "mips64r2"
+
+#define MIPS_ISA_LEVEL_RAW mips64r2
 
 #define notrace			__attribute__((__no_instrument_function__))
 
@@ -67,9 +69,12 @@
 	compiletime_assert(__native_word(t),				\
 		"Need native word sized stores/loads for atomicity.")
 
-# define barrier() __asm__ __volatile__("": : :"memory")
+#define __BUILD_BUG_ON_ZERO_MSG(e, msg) ((int)sizeof(struct {_Static_assert(!(e), msg);}))
 
-#define __must_be_array(a)	BUILD_BUG_ON_ZERO(__same_type((a), &(a)[0]))
+#define __is_array(a)		(!__same_type((a), &(a)[0]))
+
+#define __must_be_array(a)	__BUILD_BUG_ON_ZERO_MSG(!__is_array(a), \
+							"must be array")
 
 #define BITS_PER_LONG 64
 
@@ -79,7 +84,7 @@ typedef unsigned short __u16;
 
 typedef unsigned int __u32;
 
-typedef unsigned long __u64;
+typedef unsigned long long __u64;
 
 typedef __u8  u8;
 
@@ -135,10 +140,6 @@ do {									\
 	__WRITE_ONCE(x, val);						\
 } while (0)
 
-#define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]) + __must_be_array(arr))
-
-#define BUILD_BUG_ON_ZERO(e) ((int)(sizeof(struct { int:(-!!(e)); })))
-
 #define static_assert(expr, ...) __static_assert(expr, ##__VA_ARGS__, #expr)
 
 #define __static_assert(expr, msg, ...) _Static_assert(expr, msg)
@@ -150,9 +151,48 @@ do {									\
 		      "pointer type mismatch in container_of()");	\
 	((type *)(__mptr - offsetof(type, member))); })
 
+# define POISON_POINTER_DELTA 0
+
+#define LIST_POISON1  ((void *) 0x100 + POISON_POINTER_DELTA)
+
+#define LIST_POISON2  ((void *) 0x122 + POISON_POINTER_DELTA)
+
+#define __stringify_1(x...)	#x
+
+#define __stringify(x...)	__stringify_1(x)
+
 #define MIPS_ISA_REV __mips_isa_rev
 
-# define __smp_mb()	barrier()
+#define __SYNC_full	0x00
+
+#define __SYNC_always	(1 << 0)
+
+# define __SYNC_rpt(type)	1
+
+# define ____SYNC(_type, _reason, _else)			\
+	.if	(( _type ) != -1) && ( _reason );		\
+	.set	push;						\
+	.set	MIPS_ISA_LEVEL_RAW;				\
+	.rept	__SYNC_rpt(_type);				\
+	sync	_type;						\
+	.endr;							\
+	.set	pop;						\
+	.else;							\
+	_else;							\
+	.endif
+
+# define ___SYNC(type, reason, else)				\
+	__stringify(____SYNC(type, reason, else))
+
+#define __SYNC(type, reason)					\
+	___SYNC(__SYNC_##type, __SYNC_##reason, )
+
+static inline void __sync(void)
+{
+	asm volatile(__SYNC(full, always) ::: "memory");
+}
+
+# define __smp_mb()	__sync()
 
 #define __smp_load_acquire(p)						\
 ({									\
@@ -163,306 +203,6 @@ do {									\
 })
 
 #define smp_load_acquire(p) __smp_load_acquire(p)
-
-#define ___constant_swahw32(x) ((__u32)(			\
-	(((__u32)(x) & (__u32)0x0000ffffUL) << 16) |		\
-	(((__u32)(x) & (__u32)0xffff0000UL) >> 16)))
-
-static inline __attribute_const__ __u32 __fswahw32(__u32 val)
-{
-#ifdef __arch_swahw32
-	return __arch_swahw32(val);
-#else
-	return ___constant_swahw32(val);
-#endif
-}
-
-#define __swahw32(x)				\
-	(__builtin_constant_p((__u32)(x)) ?	\
-	___constant_swahw32(x) :		\
-	__fswahw32(x))
-
-static inline __u32 __swahw32p(const __u32 *p)
-{
-#ifdef __arch_swahw32p
-	return __arch_swahw32p(p);
-#else
-	return __swahw32(*p);
-#endif
-}
-
-#define MIPS_CPU_ISA_M64R1	0x00000040
-
-#define MIPS_CPU_ISA_M64R2	0x00000080
-
-#define MIPS_CPU_ISA_M64R5	0x00000200
-
-#define MIPS_CPU_ISA_M64R6	0x00000800
-
-#define L1_CACHE_SHIFT		CONFIG_MIPS_L1_CACHE_SHIFT
-
-#define L1_CACHE_BYTES		(1 << L1_CACHE_SHIFT)
-
-#define SMP_CACHE_BYTES L1_CACHE_BYTES
-
-struct cache_desc {
-	unsigned int waysize;	/* Bytes per way */
-	unsigned short sets;	/* Number of lines per set */
-	unsigned char ways;	/* Number of ways */
-	unsigned char linesz;	/* Size of line in bytes */
-	unsigned char waybit;	/* Bits to select in a cache set */
-	unsigned char flags;	/* Flags describing cache properties */
-};
-
-struct guest_info {
-	unsigned long		ases;
-	unsigned long		ases_dyn;
-	unsigned long long	options;
-	unsigned long long	options_dyn;
-	int			tlbsize;
-	u8			conf;
-	u8			kscratch_mask;
-};
-
-struct cpuinfo_mips {
-	u64			asid_cache;
-#ifdef CONFIG_MIPS_ASID_BITS_VARIABLE
-	unsigned long		asid_mask;
-#endif
-
-	/*
-	 * Capability and feature descriptor structure for MIPS CPU
-	 */
-	unsigned long		ases;
-	unsigned long long	options;
-	unsigned int		udelay_val;
-	unsigned int		processor_id;
-	unsigned int		fpu_id;
-	unsigned int		fpu_csr31;
-	unsigned int		fpu_msk31;
-	unsigned int		msa_id;
-	unsigned int		cputype;
-	int			isa_level;
-	int			tlbsize;
-	int			tlbsizevtlb;
-	int			tlbsizeftlbsets;
-	int			tlbsizeftlbways;
-	struct cache_desc	icache; /* Primary I-cache */
-	struct cache_desc	dcache; /* Primary D or combined I/D cache */
-	struct cache_desc	vcache; /* Victim cache, between pcache and scache */
-	struct cache_desc	scache; /* Secondary cache */
-	struct cache_desc	tcache; /* Tertiary/split secondary cache */
-	int			srsets; /* Shadow register sets */
-	int			package;/* physical package number */
-	unsigned int		globalnumber;
-#ifdef CONFIG_64BIT
-	int			vmbits; /* Virtual memory size in bits */
-#endif
-	void			*data;	/* Additional data */
-	unsigned int		watch_reg_count;   /* Number that exist */
-	unsigned int		watch_reg_use_cnt; /* Usable by ptrace */
-#define NUM_WATCH_REGS 4
-	u16			watch_reg_masks[NUM_WATCH_REGS];
-	unsigned int		kscratch_mask; /* Usable KScratch mask. */
-	/*
-	 * Cache Coherency attribute for write-combine memory writes.
-	 * (shifted by _CACHE_SHIFT)
-	 */
-	unsigned int		writecombine;
-	/*
-	 * Simple counter to prevent enabling HTW in nested
-	 * htw_start/htw_stop calls
-	 */
-	unsigned int		htw_seq;
-
-	/* VZ & Guest features */
-	struct guest_info	guest;
-	unsigned int		gtoffset_mask;
-	unsigned int		guestid_mask;
-	unsigned int		guestid_cache;
-
-#ifdef CONFIG_CPU_LOONGSON3_CPUCFG_EMULATION
-	/* CPUCFG data for this CPU, synthesized at probe time.
-	 *
-	 * CPUCFG select 0 is PRId, 4 and above are unimplemented for now.
-	 * So the only stored values are for CPUCFG selects 1-3 inclusive.
-	 */
-	u32 loongson3_cpucfg_data[3];
-#endif
-} __attribute__((aligned(SMP_CACHE_BYTES)));
-
-extern struct cpuinfo_mips cpu_data[];
-
-#define cpu_has_clo_clz		1
-
-#define __isa(isa)			(cpu_data[0].isa_level & (isa))
-
-#define __isa_ge_and_flag(isa, flag)	((MIPS_ISA_REV >= (isa)) && __isa(flag))
-
-#define __isa_range(ge, lt) \
-	((MIPS_ISA_REV >= (ge)) && (MIPS_ISA_REV < (lt)))
-
-#define __isa_range_or_flag(ge, lt, flag) \
-	(__isa_range(ge, lt) || ((MIPS_ISA_REV < (lt)) && __isa(flag)))
-
-# define cpu_has_mips64r1	(cpu_has_64bits && \
-				 __isa_range_or_flag(1, 6, MIPS_CPU_ISA_M64R1))
-
-# define cpu_has_mips64r2	(cpu_has_64bits && \
-				 __isa_range_or_flag(2, 6, MIPS_CPU_ISA_M64R2))
-
-# define cpu_has_mips64r5	(cpu_has_64bits && \
-				 __isa_range_or_flag(5, 6, MIPS_CPU_ISA_M64R5))
-
-# define cpu_has_mips64r6	__isa_ge_and_flag(6, MIPS_CPU_ISA_M64R6)
-
-#define cpu_has_mips64	(cpu_has_mips64r1 | cpu_has_mips64r2 | \
-			 cpu_has_mips64r5 | cpu_has_mips64r6)
-
-# define cpu_has_64bits			1
-
-static __always_inline unsigned long __fls(unsigned long word)
-{
-	int num;
-
-	if (BITS_PER_LONG == 32 && !__builtin_constant_p(word) &&
-	    __builtin_constant_p(cpu_has_clo_clz) && cpu_has_clo_clz) {
-		__asm__(
-		"	.set	push					\n"
-		"	.set	"MIPS_ISA_LEVEL"			\n"
-		"	clz	%0, %1					\n"
-		"	.set	pop					\n"
-		: "=r" (num)
-		: "r" (word));
-
-		return 31 - num;
-	}
-
-	if (BITS_PER_LONG == 64 && !__builtin_constant_p(word) &&
-	    __builtin_constant_p(cpu_has_mips64) && cpu_has_mips64) {
-		__asm__(
-		"	.set	push					\n"
-		"	.set	"MIPS_ISA_LEVEL"			\n"
-		"	dclz	%0, %1					\n"
-		"	.set	pop					\n"
-		: "=r" (num)
-		: "r" (word));
-
-		return 63 - num;
-	}
-
-	num = BITS_PER_LONG - 1;
-
-#if BITS_PER_LONG == 64
-	if (!(word & (~0ul << 32))) {
-		num -= 32;
-		word <<= 32;
-	}
-#endif
-	if (!(word & (~0ul << (BITS_PER_LONG-16)))) {
-		num -= 16;
-		word <<= 16;
-	}
-	if (!(word & (~0ul << (BITS_PER_LONG-8)))) {
-		num -= 8;
-		word <<= 8;
-	}
-	if (!(word & (~0ul << (BITS_PER_LONG-4)))) {
-		num -= 4;
-		word <<= 4;
-	}
-	if (!(word & (~0ul << (BITS_PER_LONG-2)))) {
-		num -= 2;
-		word <<= 2;
-	}
-	if (!(word & (~0ul << (BITS_PER_LONG-1))))
-		num -= 1;
-	return num;
-}
-
-static inline int fls(unsigned int x)
-{
-	int r;
-
-	if (!__builtin_constant_p(x) &&
-	    __builtin_constant_p(cpu_has_clo_clz) && cpu_has_clo_clz) {
-		__asm__(
-		"	.set	push					\n"
-		"	.set	"MIPS_ISA_LEVEL"			\n"
-		"	clz	%0, %1					\n"
-		"	.set	pop					\n"
-		: "=r" (x)
-		: "r" (x));
-
-		return 32 - x;
-	}
-
-	r = 32;
-	if (!x)
-		return 0;
-	if (!(x & 0xffff0000u)) {
-		x <<= 16;
-		r -= 16;
-	}
-	if (!(x & 0xff000000u)) {
-		x <<= 8;
-		r -= 8;
-	}
-	if (!(x & 0xf0000000u)) {
-		x <<= 4;
-		r -= 4;
-	}
-	if (!(x & 0xc0000000u)) {
-		x <<= 2;
-		r -= 2;
-	}
-	if (!(x & 0x80000000u)) {
-		x <<= 1;
-		r -= 1;
-	}
-	return r;
-}
-
-static __always_inline int fls64(__u64 x)
-{
-	if (x == 0)
-		return 0;
-	return __fls(x) + 1;
-}
-
-static __always_inline __attribute__((const))
-int __ilog2_u32(u32 n)
-{
-	return fls(n) - 1;
-}
-
-static __always_inline __attribute__((const))
-int __ilog2_u64(u64 n)
-{
-	return fls64(n) - 1;
-}
-
-#define ilog2(n) \
-( \
-	__builtin_constant_p(n) ?	\
-	((n) < 2 ? 0 :			\
-	 63 - __builtin_clzll(n)) :	\
-	(sizeof(n) <= 4) ?		\
-	__ilog2_u32(n) :		\
-	__ilog2_u64(n)			\
- )
-
-static inline __attribute_const__
-int __order_base_2(unsigned long n)
-{
-	return n > 1 ? ilog2(n - 1) + 1 : 0;
-}
-
-# define POISON_POINTER_DELTA 0
-
-#define LIST_POISON1  ((void *) 0x100 + POISON_POINTER_DELTA)
-
-#define LIST_POISON2  ((void *) 0x122 + POISON_POINTER_DELTA)
 
 #define LIST_HEAD_INIT(name) { &(name), &(name) }
 
@@ -672,6 +412,325 @@ static inline void hlist_add_behind(struct hlist_node *n,
 	     pos && ({ n = pos->member.next; 1; });			\
 	     pos = hlist_entry_safe(n, typeof(*pos), member))
 
+#define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]) + __must_be_array(arr))
+
+#define ___constant_swahw32(x) ((__u32)(			\
+	(((__u32)(x) & (__u32)0x0000ffffUL) << 16) |		\
+	(((__u32)(x) & (__u32)0xffff0000UL) >> 16)))
+
+static inline __attribute_const__ __u32 __fswahw32(__u32 val)
+{
+#ifdef __arch_swahw32
+	return __arch_swahw32(val);
+#else
+	return ___constant_swahw32(val);
+#endif
+}
+
+#define __swahw32(x)				\
+	(__builtin_constant_p((__u32)(x)) ?	\
+	___constant_swahw32(x) :		\
+	__fswahw32(x))
+
+static inline __u32 __swahw32p(const __u32 *p)
+{
+#ifdef __arch_swahw32p
+	return __arch_swahw32p(p);
+#else
+	return __swahw32(*p);
+#endif
+}
+
+#define MIPS_CPU_ISA_M32R1	0x00000010
+
+#define MIPS_CPU_ISA_M32R2	0x00000020
+
+#define MIPS_CPU_ISA_M64R1	0x00000040
+
+#define MIPS_CPU_ISA_M64R2	0x00000080
+
+#define MIPS_CPU_ISA_M32R5	0x00000100
+
+#define MIPS_CPU_ISA_M64R5	0x00000200
+
+#define MIPS_CPU_ISA_M32R6	0x00000400
+
+#define MIPS_CPU_ISA_M64R6	0x00000800
+
+#define L1_CACHE_SHIFT		CONFIG_MIPS_L1_CACHE_SHIFT
+
+#define L1_CACHE_BYTES		(1 << L1_CACHE_SHIFT)
+
+#define SMP_CACHE_BYTES L1_CACHE_BYTES
+
+struct cache_desc {
+	unsigned int waysize;	/* Bytes per way */
+	unsigned short sets;	/* Number of lines per set */
+	unsigned char ways;	/* Number of ways */
+	unsigned char linesz;	/* Size of line in bytes */
+	unsigned char waybit;	/* Bits to select in a cache set */
+	unsigned char flags;	/* Flags describing cache properties */
+};
+
+struct guest_info {
+	unsigned long		ases;
+	unsigned long		ases_dyn;
+	unsigned long long	options;
+	unsigned long long	options_dyn;
+	int			tlbsize;
+	u8			conf;
+	u8			kscratch_mask;
+};
+
+struct cpuinfo_mips {
+	u64			asid_cache;
+#ifdef CONFIG_MIPS_ASID_BITS_VARIABLE
+	unsigned long		asid_mask;
+#endif
+
+	/*
+	 * Capability and feature descriptor structure for MIPS CPU
+	 */
+	unsigned long		ases;
+	unsigned long long	options;
+	unsigned int		udelay_val;
+	unsigned int		processor_id;
+	unsigned int		fpu_id;
+	unsigned int		fpu_csr31;
+	unsigned int		fpu_msk31;
+	unsigned int		msa_id;
+	unsigned int		cputype;
+	int			isa_level;
+	int			tlbsize;
+	int			tlbsizevtlb;
+	int			tlbsizeftlbsets;
+	int			tlbsizeftlbways;
+	struct cache_desc	icache; /* Primary I-cache */
+	struct cache_desc	dcache; /* Primary D or combined I/D cache */
+	struct cache_desc	vcache; /* Victim cache, between pcache and scache */
+	struct cache_desc	scache; /* Secondary cache */
+	struct cache_desc	tcache; /* Tertiary/split secondary cache */
+	int			srsets; /* Shadow register sets */
+	int			package;/* physical package number */
+	unsigned int		globalnumber;
+#ifdef CONFIG_64BIT
+	int			vmbits; /* Virtual memory size in bits */
+#endif
+	void			*data;	/* Additional data */
+	unsigned int		watch_reg_count;   /* Number that exist */
+	unsigned int		watch_reg_use_cnt; /* Usable by ptrace */
+#define NUM_WATCH_REGS 4
+	u16			watch_reg_masks[NUM_WATCH_REGS];
+	unsigned int		kscratch_mask; /* Usable KScratch mask. */
+	/*
+	 * Cache Coherency attribute for write-combine memory writes.
+	 * (shifted by _CACHE_SHIFT)
+	 */
+	unsigned int		writecombine;
+	/*
+	 * Simple counter to prevent enabling HTW in nested
+	 * htw_start/htw_stop calls
+	 */
+	unsigned int		htw_seq;
+
+	/* VZ & Guest features */
+	struct guest_info	guest;
+	unsigned int		gtoffset_mask;
+	unsigned int		guestid_mask;
+	unsigned int		guestid_cache;
+
+#ifdef CONFIG_CPU_LOONGSON3_CPUCFG_EMULATION
+	/* CPUCFG data for this CPU, synthesized at probe time.
+	 *
+	 * CPUCFG select 0 is PRId, 4 and above are unimplemented for now.
+	 * So the only stored values are for CPUCFG selects 1-3 inclusive.
+	 */
+	u32 loongson3_cpucfg_data[3];
+#endif
+} __attribute__((aligned(SMP_CACHE_BYTES)));
+
+extern struct cpuinfo_mips cpu_data[];
+
+#define __isa(isa)			(cpu_data[0].isa_level & (isa))
+
+#define __isa_ge_and_flag(isa, flag)	((MIPS_ISA_REV >= (isa)) && __isa(flag))
+
+#define __isa_ge_or_flag(isa, flag)	((MIPS_ISA_REV >= (isa)) || __isa(flag))
+
+#define __isa_range(ge, lt) \
+	((MIPS_ISA_REV >= (ge)) && (MIPS_ISA_REV < (lt)))
+
+#define __isa_range_or_flag(ge, lt, flag) \
+	(__isa_range(ge, lt) || ((MIPS_ISA_REV < (lt)) && __isa(flag)))
+
+# define cpu_has_mips32r1	__isa_range_or_flag(1, 6, MIPS_CPU_ISA_M32R1)
+
+# define cpu_has_mips32r2	__isa_range_or_flag(2, 6, MIPS_CPU_ISA_M32R2)
+
+# define cpu_has_mips32r5	__isa_range_or_flag(5, 6, MIPS_CPU_ISA_M32R5)
+
+# define cpu_has_mips32r6	__isa_ge_or_flag(6, MIPS_CPU_ISA_M32R6)
+
+# define cpu_has_mips64r1	(cpu_has_64bits && \
+				 __isa_range_or_flag(1, 6, MIPS_CPU_ISA_M64R1))
+
+# define cpu_has_mips64r2	(cpu_has_64bits && \
+				 __isa_range_or_flag(2, 6, MIPS_CPU_ISA_M64R2))
+
+# define cpu_has_mips64r5	(cpu_has_64bits && \
+				 __isa_range_or_flag(5, 6, MIPS_CPU_ISA_M64R5))
+
+# define cpu_has_mips64r6	__isa_ge_and_flag(6, MIPS_CPU_ISA_M64R6)
+
+#define cpu_has_mips64	(cpu_has_mips64r1 | cpu_has_mips64r2 | \
+			 cpu_has_mips64r5 | cpu_has_mips64r6)
+
+#define cpu_has_mips_r	(cpu_has_mips32r1 | cpu_has_mips32r2 | \
+			 cpu_has_mips32r5 | cpu_has_mips32r6 | \
+			 cpu_has_mips64r1 | cpu_has_mips64r2 | \
+			 cpu_has_mips64r5 | cpu_has_mips64r6)
+
+#define cpu_has_clo_clz	cpu_has_mips_r
+
+# define cpu_has_64bits			1
+
+static __always_inline unsigned long __fls(unsigned long word)
+{
+	int num;
+
+	if (BITS_PER_LONG == 32 && !__builtin_constant_p(word) &&
+	    __builtin_constant_p(cpu_has_clo_clz) && cpu_has_clo_clz) {
+		__asm__(
+		"	.set	push					\n"
+		"	.set	"MIPS_ISA_LEVEL"			\n"
+		"	clz	%0, %1					\n"
+		"	.set	pop					\n"
+		: "=r" (num)
+		: "r" (word));
+
+		return 31 - num;
+	}
+
+	if (BITS_PER_LONG == 64 && !__builtin_constant_p(word) &&
+	    __builtin_constant_p(cpu_has_mips64) && cpu_has_mips64) {
+		__asm__(
+		"	.set	push					\n"
+		"	.set	"MIPS_ISA_LEVEL"			\n"
+		"	dclz	%0, %1					\n"
+		"	.set	pop					\n"
+		: "=r" (num)
+		: "r" (word));
+
+		return 63 - num;
+	}
+
+	num = BITS_PER_LONG - 1;
+
+#if BITS_PER_LONG == 64
+	if (!(word & (~0ul << 32))) {
+		num -= 32;
+		word <<= 32;
+	}
+#endif
+	if (!(word & (~0ul << (BITS_PER_LONG-16)))) {
+		num -= 16;
+		word <<= 16;
+	}
+	if (!(word & (~0ul << (BITS_PER_LONG-8)))) {
+		num -= 8;
+		word <<= 8;
+	}
+	if (!(word & (~0ul << (BITS_PER_LONG-4)))) {
+		num -= 4;
+		word <<= 4;
+	}
+	if (!(word & (~0ul << (BITS_PER_LONG-2)))) {
+		num -= 2;
+		word <<= 2;
+	}
+	if (!(word & (~0ul << (BITS_PER_LONG-1))))
+		num -= 1;
+	return num;
+}
+
+static inline int fls(unsigned int x)
+{
+	int r;
+
+	if (!__builtin_constant_p(x) &&
+	    __builtin_constant_p(cpu_has_clo_clz) && cpu_has_clo_clz) {
+		__asm__(
+		"	.set	push					\n"
+		"	.set	"MIPS_ISA_LEVEL"			\n"
+		"	clz	%0, %1					\n"
+		"	.set	pop					\n"
+		: "=r" (x)
+		: "r" (x));
+
+		return 32 - x;
+	}
+
+	r = 32;
+	if (!x)
+		return 0;
+	if (!(x & 0xffff0000u)) {
+		x <<= 16;
+		r -= 16;
+	}
+	if (!(x & 0xff000000u)) {
+		x <<= 8;
+		r -= 8;
+	}
+	if (!(x & 0xf0000000u)) {
+		x <<= 4;
+		r -= 4;
+	}
+	if (!(x & 0xc0000000u)) {
+		x <<= 2;
+		r -= 2;
+	}
+	if (!(x & 0x80000000u)) {
+		x <<= 1;
+		r -= 1;
+	}
+	return r;
+}
+
+static __always_inline int fls64(__u64 x)
+{
+	if (x == 0)
+		return 0;
+	return __fls(x) + 1;
+}
+
+static __always_inline __attribute__((const))
+int __ilog2_u32(u32 n)
+{
+	return fls(n) - 1;
+}
+
+static __always_inline __attribute__((const))
+int __ilog2_u64(u64 n)
+{
+	return fls64(n) - 1;
+}
+
+#define ilog2(n) \
+( \
+	__builtin_constant_p(n) ?	\
+	((n) < 2 ? 0 :			\
+	 63 - __builtin_clzll(n)) :	\
+	(sizeof(n) <= 4) ?		\
+	__ilog2_u32(n) :		\
+	__ilog2_u64(n)			\
+ )
+
+static inline __attribute_const__
+int __order_base_2(unsigned long n)
+{
+	return n > 1 ? ilog2(n - 1) + 1 : 0;
+}
+
 #define hash_long(val, bits) hash_64(val, bits)
 
 #define GOLDEN_RATIO_32 0x61C88647
@@ -765,3 +824,31 @@ static inline void hash_del(struct hlist_node *node)
 #define hash_for_each_possible_safe(name, obj, tmp, member, key)	\
 	hlist_for_each_entry_safe(obj, tmp,\
 		&name[hash_min(key, HASH_BITS(name))], member)
+
+#define KUNIT_EXPECT_FALSE(x, y) do { (void)(y); } while (false)
+
+#define KUNIT_EXPECT_TRUE(x, y) do { (void)(y); } while (false)
+
+#define KUNIT_EXPECT_EQ(x, y, z) do { (void)(y); (void)(z); } while (false)
+
+#define KUNIT_EXPECT_NE(x, y, z) do { (void)(y); (void)(z); } while (false)
+
+#define KUNIT_EXPECT_PTR_EQ(x, y, z) do { (void)(y); (void)(z); } while (false)
+
+struct our_hashtable_test_entry {
+	int key;
+	int data;
+	struct hlist_node node;
+	int visited;
+};
+
+struct our_list_test_struct {
+	int data;
+	struct list_head list;
+};
+
+struct our_hlist_test_struct {
+	int data;
+	struct hlist_node list;
+};
+

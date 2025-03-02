@@ -65,7 +65,12 @@
 
 # define barrier() __asm__ __volatile__("": : :"memory")
 
-#define __must_be_array(a)	BUILD_BUG_ON_ZERO(__same_type((a), &(a)[0]))
+#define __BUILD_BUG_ON_ZERO_MSG(e, msg) ((int)sizeof(struct {_Static_assert(!(e), msg);}))
+
+#define __is_array(a)		(!__same_type((a), &(a)[0]))
+
+#define __must_be_array(a)	__BUILD_BUG_ON_ZERO_MSG(!__is_array(a), \
+							"must be array")
 
 typedef unsigned int __u32;
 
@@ -121,10 +126,6 @@ do {									\
 	__WRITE_ONCE(x, val);						\
 } while (0)
 
-#define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]) + __must_be_array(arr))
-
-#define BUILD_BUG_ON_ZERO(e) ((int)(sizeof(struct { int:(-!!(e)); })))
-
 #define static_assert(expr, ...) __static_assert(expr, ##__VA_ARGS__, #expr)
 
 #define __static_assert(expr, msg, ...) _Static_assert(expr, msg)
@@ -135,6 +136,12 @@ do {									\
 		      __same_type(*(ptr), void),			\
 		      "pointer type mismatch in container_of()");	\
 	((type *)(__mptr - offsetof(type, member))); })
+
+# define POISON_POINTER_DELTA 0
+
+#define LIST_POISON1  ((void *) 0x100 + POISON_POINTER_DELTA)
+
+#define LIST_POISON2  ((void *) 0x122 + POISON_POINTER_DELTA)
 
 # define __smp_mb()	barrier()
 
@@ -147,120 +154,6 @@ do {									\
 })
 
 #define smp_load_acquire(p) __smp_load_acquire(p)
-
-#define ___constant_swahw32(x) ((__u32)(			\
-	(((__u32)(x) & (__u32)0x0000ffffUL) << 16) |		\
-	(((__u32)(x) & (__u32)0xffff0000UL) >> 16)))
-
-static inline __attribute_const__ __u32 __fswahw32(__u32 val)
-{
-#ifdef __arch_swahw32
-	return __arch_swahw32(val);
-#else
-	return ___constant_swahw32(val);
-#endif
-}
-
-#define __swahw32(x)				\
-	(__builtin_constant_p((__u32)(x)) ?	\
-	___constant_swahw32(x) :		\
-	__fswahw32(x))
-
-static inline __u32 __swahw32p(const __u32 *p)
-{
-#ifdef __arch_swahw32p
-	return __arch_swahw32p(p);
-#else
-	return __swahw32(*p);
-#endif
-}
-
-#define cpu_has_clo_clz		1
-
-static inline int fls(unsigned int x)
-{
-	int r;
-
-	if (!__builtin_constant_p(x) &&
-	    __builtin_constant_p(cpu_has_clo_clz) && cpu_has_clo_clz) {
-		__asm__(
-		"	.set	push					\n"
-		"	.set	"MIPS_ISA_LEVEL"			\n"
-		"	clz	%0, %1					\n"
-		"	.set	pop					\n"
-		: "=r" (x)
-		: "r" (x));
-
-		return 32 - x;
-	}
-
-	r = 32;
-	if (!x)
-		return 0;
-	if (!(x & 0xffff0000u)) {
-		x <<= 16;
-		r -= 16;
-	}
-	if (!(x & 0xff000000u)) {
-		x <<= 8;
-		r -= 8;
-	}
-	if (!(x & 0xf0000000u)) {
-		x <<= 4;
-		r -= 4;
-	}
-	if (!(x & 0xc0000000u)) {
-		x <<= 2;
-		r -= 2;
-	}
-	if (!(x & 0x80000000u)) {
-		x <<= 1;
-		r -= 1;
-	}
-	return r;
-}
-
-static __always_inline int fls64(__u64 x)
-{
-	__u32 h = x >> 32;
-	if (h)
-		return fls(h) + 32;
-	return fls(x);
-}
-
-static __always_inline __attribute__((const))
-int __ilog2_u32(u32 n)
-{
-	return fls(n) - 1;
-}
-
-static __always_inline __attribute__((const))
-int __ilog2_u64(u64 n)
-{
-	return fls64(n) - 1;
-}
-
-#define ilog2(n) \
-( \
-	__builtin_constant_p(n) ?	\
-	((n) < 2 ? 0 :			\
-	 63 - __builtin_clzll(n)) :	\
-	(sizeof(n) <= 4) ?		\
-	__ilog2_u32(n) :		\
-	__ilog2_u64(n)			\
- )
-
-static inline __attribute_const__
-int __order_base_2(unsigned long n)
-{
-	return n > 1 ? ilog2(n - 1) + 1 : 0;
-}
-
-# define POISON_POINTER_DELTA 0
-
-#define LIST_POISON1  ((void *) 0x100 + POISON_POINTER_DELTA)
-
-#define LIST_POISON2  ((void *) 0x122 + POISON_POINTER_DELTA)
 
 #define LIST_HEAD_INIT(name) { &(name), &(name) }
 
@@ -470,6 +363,116 @@ static inline void hlist_add_behind(struct hlist_node *n,
 	     pos && ({ n = pos->member.next; 1; });			\
 	     pos = hlist_entry_safe(n, typeof(*pos), member))
 
+#define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]) + __must_be_array(arr))
+
+#define ___constant_swahw32(x) ((__u32)(			\
+	(((__u32)(x) & (__u32)0x0000ffffUL) << 16) |		\
+	(((__u32)(x) & (__u32)0xffff0000UL) >> 16)))
+
+static inline __attribute_const__ __u32 __fswahw32(__u32 val)
+{
+#ifdef __arch_swahw32
+	return __arch_swahw32(val);
+#else
+	return ___constant_swahw32(val);
+#endif
+}
+
+#define __swahw32(x)				\
+	(__builtin_constant_p((__u32)(x)) ?	\
+	___constant_swahw32(x) :		\
+	__fswahw32(x))
+
+static inline __u32 __swahw32p(const __u32 *p)
+{
+#ifdef __arch_swahw32p
+	return __arch_swahw32p(p);
+#else
+	return __swahw32(*p);
+#endif
+}
+
+#define cpu_has_clo_clz		1
+
+static inline int fls(unsigned int x)
+{
+	int r;
+
+	if (!__builtin_constant_p(x) &&
+	    __builtin_constant_p(cpu_has_clo_clz) && cpu_has_clo_clz) {
+		__asm__(
+		"	.set	push					\n"
+		"	.set	"MIPS_ISA_LEVEL"			\n"
+		"	clz	%0, %1					\n"
+		"	.set	pop					\n"
+		: "=r" (x)
+		: "r" (x));
+
+		return 32 - x;
+	}
+
+	r = 32;
+	if (!x)
+		return 0;
+	if (!(x & 0xffff0000u)) {
+		x <<= 16;
+		r -= 16;
+	}
+	if (!(x & 0xff000000u)) {
+		x <<= 8;
+		r -= 8;
+	}
+	if (!(x & 0xf0000000u)) {
+		x <<= 4;
+		r -= 4;
+	}
+	if (!(x & 0xc0000000u)) {
+		x <<= 2;
+		r -= 2;
+	}
+	if (!(x & 0x80000000u)) {
+		x <<= 1;
+		r -= 1;
+	}
+	return r;
+}
+
+static __always_inline int fls64(__u64 x)
+{
+	__u32 h = x >> 32;
+	if (h)
+		return fls(h) + 32;
+	return fls(x);
+}
+
+static __always_inline __attribute__((const))
+int __ilog2_u32(u32 n)
+{
+	return fls(n) - 1;
+}
+
+static __always_inline __attribute__((const))
+int __ilog2_u64(u64 n)
+{
+	return fls64(n) - 1;
+}
+
+#define ilog2(n) \
+( \
+	__builtin_constant_p(n) ?	\
+	((n) < 2 ? 0 :			\
+	 63 - __builtin_clzll(n)) :	\
+	(sizeof(n) <= 4) ?		\
+	__ilog2_u32(n) :		\
+	__ilog2_u64(n)			\
+ )
+
+static inline __attribute_const__
+int __order_base_2(unsigned long n)
+{
+	return n > 1 ? ilog2(n - 1) + 1 : 0;
+}
+
 #define hash_long(val, bits) hash_32(val, bits)
 
 #define GOLDEN_RATIO_32 0x61C88647
@@ -548,4 +551,31 @@ static inline void hash_del(struct hlist_node *node)
 #define hash_for_each_possible_safe(name, obj, tmp, member, key)	\
 	hlist_for_each_entry_safe(obj, tmp,\
 		&name[hash_min(key, HASH_BITS(name))], member)
+
+#define KUNIT_EXPECT_FALSE(x, y) do { (void)(y); } while (false)
+
+#define KUNIT_EXPECT_TRUE(x, y) do { (void)(y); } while (false)
+
+#define KUNIT_EXPECT_EQ(x, y, z) do { (void)(y); (void)(z); } while (false)
+
+#define KUNIT_EXPECT_NE(x, y, z) do { (void)(y); (void)(z); } while (false)
+
+#define KUNIT_EXPECT_PTR_EQ(x, y, z) do { (void)(y); (void)(z); } while (false)
+
+struct our_hashtable_test_entry {
+	int key;
+	int data;
+	struct hlist_node node;
+	int visited;
+};
+
+struct our_list_test_struct {
+	int data;
+	struct list_head list;
+};
+
+struct our_hlist_test_struct {
+	int data;
+	struct hlist_node list;
+};
 

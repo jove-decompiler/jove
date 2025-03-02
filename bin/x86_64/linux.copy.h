@@ -16,6 +16,8 @@
 
 #define ASM_INPUT_RM "r"
 
+#define notrace			__attribute__((__no_instrument_function__))
+
 #define inline inline __gnu_inline __inline_maybe_unused notrace
 
 #define __inline_maybe_unused __maybe_unused
@@ -63,13 +65,14 @@
 	compiletime_assert(__native_word(t),				\
 		"Need native word sized stores/loads for atomicity.")
 
-#define __AC(X,Y)	(X##Y)
-
-#define _AC(X,Y)	__AC(X,Y)
-
 # define barrier() __asm__ __volatile__("": : :"memory")
 
-#define __must_be_array(a)	BUILD_BUG_ON_ZERO(__same_type((a), &(a)[0]))
+#define __BUILD_BUG_ON_ZERO_MSG(e, msg) ((int)sizeof(struct {_Static_assert(!(e), msg);}))
+
+#define __is_array(a)		(!__same_type((a), &(a)[0]))
+
+#define __must_be_array(a)	__BUILD_BUG_ON_ZERO_MSG(!__is_array(a), \
+							"must be array")
 
 #define BITS_PER_LONG 64
 
@@ -127,16 +130,6 @@ do {									\
 	__WRITE_ONCE(x, val);						\
 } while (0)
 
-#define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]) + __must_be_array(arr))
-
-#define __stringify_1(x...)	#x
-
-#define __stringify(x...)	__stringify_1(x)
-
-#define notrace __attribute__((no_instrument_function))
-
-#define BUILD_BUG_ON_ZERO(e) ((int)(sizeof(struct { int:(-!!(e)); })))
-
 #define static_assert(expr, ...) __static_assert(expr, ##__VA_ARGS__, #expr)
 
 #define __static_assert(expr, msg, ...) _Static_assert(expr, msg)
@@ -147,6 +140,20 @@ do {									\
 		      __same_type(*(ptr), void),			\
 		      "pointer type mismatch in container_of()");	\
 	((type *)(__mptr - offsetof(type, member))); })
+
+# define POISON_POINTER_DELTA _AC(CONFIG_ILLEGAL_POINTER_VALUE, UL)
+
+#define LIST_POISON1  ((void *) 0x100 + POISON_POINTER_DELTA)
+
+#define LIST_POISON2  ((void *) 0x122 + POISON_POINTER_DELTA)
+
+#define __AC(X,Y)	(X##Y)
+
+#define _AC(X,Y)	__AC(X,Y)
+
+#define __stringify_1(x...)	#x
+
+#define __stringify(x...)	__stringify_1(x)
 
 # define __ASM_FORM(x, ...)		" " __stringify(x,##__VA_ARGS__) " "
 
@@ -173,106 +180,6 @@ do {									\
 })
 
 #define smp_load_acquire(p) __smp_load_acquire(p)
-
-#define RLONG_ADDR(x)			 "m" (*(volatile long *) (x))
-
-#define WBYTE_ADDR(x)			"+m" (*(volatile char *) (x))
-
-#define CONST_MASK_ADDR(nr, addr)	WBYTE_ADDR((void *)(addr) + ((nr)>>3))
-
-#define CONST_MASK(nr)			(1 << ((nr) & 7))
-
-static __always_inline void
-arch_set_bit(long nr, volatile unsigned long *addr)
-{
-	if (__builtin_constant_p(nr)) {
-		asm volatile(LOCK_PREFIX "orb %b1,%0"
-			: CONST_MASK_ADDR(nr, addr)
-			: "iq" (CONST_MASK(nr))
-			: "memory");
-	} else {
-		asm volatile(LOCK_PREFIX __ASM_SIZE(bts) " %1,%0"
-			: : RLONG_ADDR(addr), "Ir" (nr) : "memory");
-	}
-}
-
-static __always_inline int fls(unsigned int x)
-{
-	int r;
-
-	if (__builtin_constant_p(x))
-		return x ? 32 - __builtin_clz(x) : 0;
-
-#ifdef CONFIG_X86_64
-	/*
-	 * AMD64 says BSRL won't clobber the dest reg if x==0; Intel64 says the
-	 * dest reg is undefined if x==0, but their CPU architect says its
-	 * value is written to set it to the same as before, except that the
-	 * top 32 bits will be cleared.
-	 *
-	 * We cannot do this on 32 bits because at the very least some
-	 * 486 CPUs did not behave this way.
-	 */
-	asm("bsrl %1,%0"
-	    : "=r" (r)
-	    : ASM_INPUT_RM (x), "0" (-1));
-#elif defined(CONFIG_X86_CMOV)
-	asm("bsrl %1,%0\n\t"
-	    "cmovzl %2,%0"
-	    : "=&r" (r) : "rm" (x), "rm" (-1));
-#else
-	asm("bsrl %1,%0\n\t"
-	    "jnz 1f\n\t"
-	    "movl $-1,%0\n"
-	    "1:" : "=r" (r) : "rm" (x));
-#endif
-	return r + 1;
-}
-
-static __always_inline int fls64(__u64 x)
-{
-	int bitpos = -1;
-
-	if (__builtin_constant_p(x))
-		return x ? 64 - __builtin_clzll(x) : 0;
-	/*
-	 * AMD64 says BSRQ won't clobber the dest reg if x==0; Intel64 says the
-	 * dest reg is undefined if x==0, but their CPU architect says its
-	 * value is written to set it to the same as before.
-	 */
-	asm("bsrq %1,%q0"
-	    : "+r" (bitpos)
-	    : ASM_INPUT_RM (x));
-	return bitpos + 1;
-}
-
-static __always_inline __attribute__((const))
-int __ilog2_u32(u32 n)
-{
-	return fls(n) - 1;
-}
-
-static __always_inline __attribute__((const))
-int __ilog2_u64(u64 n)
-{
-	return fls64(n) - 1;
-}
-
-#define ilog2(n) \
-( \
-	__builtin_constant_p(n) ?	\
-	((n) < 2 ? 0 :			\
-	 63 - __builtin_clzll(n)) :	\
-	(sizeof(n) <= 4) ?		\
-	__ilog2_u32(n) :		\
-	__ilog2_u64(n)			\
- )
-
-# define POISON_POINTER_DELTA _AC(CONFIG_ILLEGAL_POINTER_VALUE, UL)
-
-#define LIST_POISON1  ((void *) 0x100 + POISON_POINTER_DELTA)
-
-#define LIST_POISON2  ((void *) 0x122 + POISON_POINTER_DELTA)
 
 #define LIST_HEAD_INIT(name) { &(name), &(name) }
 
@@ -482,6 +389,104 @@ static inline void hlist_add_behind(struct hlist_node *n,
 	     pos && ({ n = pos->member.next; 1; });			\
 	     pos = hlist_entry_safe(n, typeof(*pos), member))
 
+#define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]) + __must_be_array(arr))
+
+#define notrace __attribute__((no_instrument_function))
+
+#define RLONG_ADDR(x)			 "m" (*(volatile long *) (x))
+
+#define WBYTE_ADDR(x)			"+m" (*(volatile char *) (x))
+
+#define CONST_MASK_ADDR(nr, addr)	WBYTE_ADDR((void *)(addr) + ((nr)>>3))
+
+#define CONST_MASK(nr)			(1 << ((nr) & 7))
+
+static __always_inline void
+arch_set_bit(long nr, volatile unsigned long *addr)
+{
+	if (__builtin_constant_p(nr)) {
+		asm volatile(LOCK_PREFIX "orb %b1,%0"
+			: CONST_MASK_ADDR(nr, addr)
+			: "iq" (CONST_MASK(nr))
+			: "memory");
+	} else {
+		asm volatile(LOCK_PREFIX __ASM_SIZE(bts) " %1,%0"
+			: : RLONG_ADDR(addr), "Ir" (nr) : "memory");
+	}
+}
+
+static __always_inline int fls(unsigned int x)
+{
+	int r;
+
+	if (__builtin_constant_p(x))
+		return x ? 32 - __builtin_clz(x) : 0;
+
+#ifdef CONFIG_X86_64
+	/*
+	 * AMD64 says BSRL won't clobber the dest reg if x==0; Intel64 says the
+	 * dest reg is undefined if x==0, but their CPU architect says its
+	 * value is written to set it to the same as before, except that the
+	 * top 32 bits will be cleared.
+	 *
+	 * We cannot do this on 32 bits because at the very least some
+	 * 486 CPUs did not behave this way.
+	 */
+	asm("bsrl %1,%0"
+	    : "=r" (r)
+	    : ASM_INPUT_RM (x), "0" (-1));
+#elif defined(CONFIG_X86_CMOV)
+	asm("bsrl %1,%0\n\t"
+	    "cmovzl %2,%0"
+	    : "=&r" (r) : "rm" (x), "rm" (-1));
+#else
+	asm("bsrl %1,%0\n\t"
+	    "jnz 1f\n\t"
+	    "movl $-1,%0\n"
+	    "1:" : "=r" (r) : "rm" (x));
+#endif
+	return r + 1;
+}
+
+static __always_inline int fls64(__u64 x)
+{
+	int bitpos = -1;
+
+	if (__builtin_constant_p(x))
+		return x ? 64 - __builtin_clzll(x) : 0;
+	/*
+	 * AMD64 says BSRQ won't clobber the dest reg if x==0; Intel64 says the
+	 * dest reg is undefined if x==0, but their CPU architect says its
+	 * value is written to set it to the same as before.
+	 */
+	asm("bsrq %1,%q0"
+	    : "+r" (bitpos)
+	    : ASM_INPUT_RM (x));
+	return bitpos + 1;
+}
+
+static __always_inline __attribute__((const))
+int __ilog2_u32(u32 n)
+{
+	return fls(n) - 1;
+}
+
+static __always_inline __attribute__((const))
+int __ilog2_u64(u64 n)
+{
+	return fls64(n) - 1;
+}
+
+#define ilog2(n) \
+( \
+	__builtin_constant_p(n) ?	\
+	((n) < 2 ? 0 :			\
+	 63 - __builtin_clzll(n)) :	\
+	(sizeof(n) <= 4) ?		\
+	__ilog2_u32(n) :		\
+	__ilog2_u64(n)			\
+ )
+
 #define hash_long(val, bits) hash_64(val, bits)
 
 #define GOLDEN_RATIO_32 0x61C88647
@@ -575,3 +580,31 @@ static inline void hash_del(struct hlist_node *node)
 #define hash_for_each_possible_safe(name, obj, tmp, member, key)	\
 	hlist_for_each_entry_safe(obj, tmp,\
 		&name[hash_min(key, HASH_BITS(name))], member)
+
+#define KUNIT_EXPECT_FALSE(x, y) do { (void)(y); } while (false)
+
+#define KUNIT_EXPECT_TRUE(x, y) do { (void)(y); } while (false)
+
+#define KUNIT_EXPECT_EQ(x, y, z) do { (void)(y); (void)(z); } while (false)
+
+#define KUNIT_EXPECT_NE(x, y, z) do { (void)(y); (void)(z); } while (false)
+
+#define KUNIT_EXPECT_PTR_EQ(x, y, z) do { (void)(y); (void)(z); } while (false)
+
+struct our_hashtable_test_entry {
+	int key;
+	int data;
+	struct hlist_node node;
+	int visited;
+};
+
+struct our_list_test_struct {
+	int data;
+	struct list_head list;
+};
+
+struct our_hlist_test_struct {
+	int data;
+	struct hlist_node list;
+};
+

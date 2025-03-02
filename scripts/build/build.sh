@@ -1,6 +1,7 @@
 #!/bin/bash
 set -e
 set -o pipefail
+set -x
 
 # Maximum number of retries for each build
 MAX_RETRIES=5
@@ -30,6 +31,7 @@ jove_path=$build_scripts_path/../..
 qemu_path=$jove_path/qemu
 llvm_path=$jove_path/llvm-project
 wine_path=$jove_path/wine
+linux_path=$jove_path/linux
 
 pushd .
 cd $wine_path
@@ -77,6 +79,14 @@ build_all_variants qemu
 
 cd $llvm_path
 build_all_variants llvm
+
+cd $linux_path
+build_all_variants linux _carbon
+
+pushd .
+cd $linux_path
+retry5 $build_scripts_path/linux/build.sh
+popd
 
 popd
 
