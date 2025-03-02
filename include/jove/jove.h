@@ -928,8 +928,9 @@ struct basic_block_properties_t : public ip_mt_base_rw_accessible_nospin {
     const ip_func_index_set &get(void) const {
       auto s_lck = this->exclusive_access<MT>();
 
-      assert(_p);
-      return *_p;
+      const ip_func_index_set *res = this->_p.get();
+      assert(res);
+      return *res;
     }
 
     template <bool MT>
