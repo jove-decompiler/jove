@@ -340,6 +340,3 @@ ccopy: ccopy-linux
 .PHONY: ccopy-linux
 ccopy-linux: $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/linux.copy.h) \
              $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/env.copy.h)
-
-.PHONY: ccopy-env
-ccopy-env: $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/env.copy.h)
