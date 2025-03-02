@@ -273,14 +273,14 @@ define target_template
 $(BINDIR)/$(1)/helpers/%.ll: $(BINDIR)/$(1)/helpers/%.bc
 	$(LLVM_OPT) -o $$@ -S --strip-debug $$<
 
-$(BINDIR)/$(1)/helpers/%.bc: $(BINDIR)/$(1)/helpers/%.c
+$(BINDIR)/$(1)/helpers/%.bc: $(BINDIR)/$(1)/helpers/%.c | ccopy
 	@echo BC $$<
 	@$(LLVM_CC) -o $$@ $(call helper_cflags,$(1)) -MMD -c -emit-llvm $$<
 	@$(LLVM_OPT) -o $$@.tmp $$@ -passes=internalize --internalize-public-api-list=helper_$$*
 	@$(LLVM_OPT) -o $$@ -O3 $$@.tmp
 	@rm $$@.tmp
 
-$(BINDIR)/$(1)/helpers/%.c: | ccopy
+$(BINDIR)/$(1)/helpers/%.c:
 	@mkdir -p $(BINDIR)/$(1)/helpers
 	$(CARBON_EXTRACT) --src $(QEMU_DIR) --bin $(call qemu_carbon_build_dir,$(1)) helper_$$* $$($(1)-$$*_EXTRICATE_ARGS) > $$@
 
