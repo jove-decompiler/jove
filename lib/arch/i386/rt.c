@@ -1,6 +1,6 @@
 #include "rt.common.h"
 
-#include "cpu_state.h"
+#include "env.h"
 
 _NAKED static void _jove_do_rt_sigreturn(void);
 

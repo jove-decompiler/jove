@@ -1,6 +1,6 @@
 #include "jove.common.h"
 
-#include "cpu_state.h"
+#include "env.h"
 
 #define JOVE_THUNK_EXTRA_ATTR _REGPARM
 typedef uint64_t jove_thunk_return_t;
