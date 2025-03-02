@@ -116,13 +116,13 @@ all: helpers \
      utilities
 
 .PHONY: helpers
-helpers: $(foreach t,$(ALL_TARGETS),helpers-$(t)) ccopy
+helpers: $(foreach t,$(ALL_TARGETS),helpers-$(t))
 
 .PHONY: runtime
-runtime: $(foreach t,$(ALL_TARGETS),runtime-$(t)) ccopy
+runtime: $(foreach t,$(ALL_TARGETS),runtime-$(t))
 
 .PHONY: utilities
-utilities: $(UTILBINS) ccopy
+utilities: $(UTILBINS)
 
 runtime_dlls = $(BINDIR)/$(1)/libjove_rt.st.dll \
                $(BINDIR)/$(1)/libjove_rt.mt.dll \
@@ -151,7 +151,7 @@ runtime-$(1): $(BINDIR)/$(1)/libjove_rt.st.so \
               $(BINDIR)/$(1)/jove.elf.mt.ll \
               $(_DLLS_$(1))
 
-$(BINDIR)/$(1)/%: $(UTILSRCDIR)/%.c
+$(BINDIR)/$(1)/%: $(UTILSRCDIR)/%.c | ccopy
 	clang-19 -o $$@ $(call runtime_cflags,$(1)) $(UTILS_LDFLAGS) $$<
 	llvm-strip-19 $$@
 
@@ -164,16 +164,16 @@ $(BINDIR)/$(1)/dump-vdso.inc: $(BINDIR)/$(1)/dump-vdso
 #
 # starter bitcode
 #
-$(BINDIR)/$(1)/jove.elf.st.bc: lib/arch/$(1)/jove.c
+$(BINDIR)/$(1)/jove.elf.st.bc: lib/arch/$(1)/jove.c | ccopy
 	$(LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -MMD $$<
 
-$(BINDIR)/$(1)/jove.elf.mt.bc: lib/arch/$(1)/jove.c
+$(BINDIR)/$(1)/jove.elf.mt.bc: lib/arch/$(1)/jove.c | ccopy
 	$(LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -D JOVE_MT -MMD $$<
 
-$(BINDIR)/$(1)/jove.coff.st.bc: lib/arch/$(1)/jove.c
+$(BINDIR)/$(1)/jove.coff.st.bc: lib/arch/$(1)/jove.c | ccopy
 	$(LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -fdeclspec -D JOVE_COFF -MMD $$<
 
-$(BINDIR)/$(1)/jove.coff.mt.bc: lib/arch/$(1)/jove.c
+$(BINDIR)/$(1)/jove.coff.mt.bc: lib/arch/$(1)/jove.c | ccopy
 	$(LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -fdeclspec -D JOVE_COFF -D JOVE_MT -MMD $$<
 
 $(BINDIR)/$(1)/jove.%.ll: $(BINDIR)/$(1)/jove.%.bc
@@ -182,16 +182,16 @@ $(BINDIR)/$(1)/jove.%.ll: $(BINDIR)/$(1)/jove.%.bc
 #
 # runtime bitcode
 #
-$(BINDIR)/$(1)/libjove_rt.elf.st.bc: lib/arch/$(1)/rt.c
+$(BINDIR)/$(1)/libjove_rt.elf.st.bc: lib/arch/$(1)/rt.c | ccopy
 	$(LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -MMD $$<
 
-$(BINDIR)/$(1)/libjove_rt.elf.mt.bc: lib/arch/$(1)/rt.c
+$(BINDIR)/$(1)/libjove_rt.elf.mt.bc: lib/arch/$(1)/rt.c | ccopy
 	$(LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -D JOVE_MT -MMD $$<
 
-$(BINDIR)/$(1)/libjove_rt.coff.st.bc: lib/arch/$(1)/rt.c
+$(BINDIR)/$(1)/libjove_rt.coff.st.bc: lib/arch/$(1)/rt.c | ccopy
 	$(LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -fdeclspec -D JOVE_COFF -MMD $$<
 
-$(BINDIR)/$(1)/libjove_rt.coff.mt.bc: lib/arch/$(1)/rt.c
+$(BINDIR)/$(1)/libjove_rt.coff.mt.bc: lib/arch/$(1)/rt.c | ccopy
 	$(LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -fdeclspec -D JOVE_COFF -D JOVE_MT -MMD $$<
 
 #
@@ -280,7 +280,7 @@ $(BINDIR)/$(1)/helpers/%.bc: $(BINDIR)/$(1)/helpers/%.c
 	@$(LLVM_OPT) -o $$@ -O3 $$@.tmp
 	@rm $$@.tmp
 
-$(BINDIR)/$(1)/helpers/%.c:
+$(BINDIR)/$(1)/helpers/%.c: | ccopy
 	@mkdir -p $(BINDIR)/$(1)/helpers
 	$(CARBON_EXTRACT) --src $(QEMU_DIR) --bin $(call qemu_carbon_build_dir,$(1)) helper_$$* $$($(1)-$$*_EXTRICATE_ARGS) > $$@
 
