@@ -122,7 +122,7 @@ helpers: $(foreach t,$(ALL_TARGETS),helpers-$(t)) ccopy
 runtime: $(foreach t,$(ALL_TARGETS),runtime-$(t)) ccopy
 
 .PHONY: utilities
-utilities: $(UTILBINS)
+utilities: $(UTILBINS) ccopy
 
 runtime_dlls = $(BINDIR)/$(1)/libjove_rt.st.dll \
                $(BINDIR)/$(1)/libjove_rt.mt.dll \
