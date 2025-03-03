@@ -375,6 +375,8 @@ void sideband_parser::load(struct pev_event &out,
       ENTRY(SAMPLE)
   };
 
+#undef ENTRY
+
   assert(type < SZ);
   type &= (SZ - 1u);
 #if 1
