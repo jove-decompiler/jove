@@ -35,6 +35,7 @@ cmake -G Ninja \
       -D LLVM_ENABLE_ZSTD=OFF \
       -D LLVM_ENABLE_ZLIB=FORCE_ON \
       -D LLVM_ENABLE_ASSERTIONS=ON \
+      -D LLVM_BUILD_TELEMETRY=OFF \
       -D LLVM_ENABLE_EH=ON \
       -D LLVM_BUILD_DOCS=OFF \
       -D LLVM_BINUTILS_INCDIR=/usr/include \
