@@ -4,10 +4,10 @@ set -o pipefail
 set -x
 
 # Maximum number of retries for each build
-MAX_RETRIES=5
+MAX_RETRIES=20
 
 # Retry function for building. Why? because clang-19 segfaults :(
-retry5() {
+retry() {
   local command="$1"
   local retries=0
 
@@ -38,12 +38,12 @@ cd $wine_path
 
 pushd .
 mkdir -p build64 && cd build64
-retry5 $build_scripts_path/wine/build64.sh
+retry $build_scripts_path/wine/build64.sh
 popd
 
 pushd .
 mkdir -p build && cd build
-retry5 $build_scripts_path/wine/build.sh
+retry $build_scripts_path/wine/build.sh
 popd
 
 popd
@@ -65,7 +65,7 @@ function build_all_variants() {
     pushd .
 
     mkdir -p ${arch}${2}_build && cd ${arch}${2}_build
-    retry5 "$build_scripts_path/$1/build_${arch}.sh $2"
+    retry "$build_scripts_path/$1/build_${arch}.sh $2"
 
     popd
   done
@@ -76,7 +76,7 @@ function build_all_qemu_variants() {
     pushd .
 
     mkdir -p ${hostarch}${1}_build_${arch} && cd ${hostarch}${1}_build_${arch}
-    retry5 "$build_scripts_path/qemu/build_${hostarch}.sh $1 $arch"
+    retry "$build_scripts_path/qemu/build_${hostarch}.sh $1 $arch"
 
     popd
   done
@@ -100,9 +100,9 @@ build_all_variants linux _carbon
 
 pushd .
 cd $linux_path
-retry5 $build_scripts_path/linux/build.sh
+retry $build_scripts_path/linux/build.sh
 popd
 
 popd
 
-retry5 "make -C $jove_path -j$(nproc)"
+retry "make -C $jove_path -j$(nproc)"
