@@ -83,26 +83,23 @@ function build_all_qemu_variants() {
 }
 
 pushd .
-
 cd $qemu_path
 build_all_variants qemu _carbon
 build_all_variants qemu
 
 build_all_qemu_variants _carbon
-
-make -C $jove_path asm-offsets
-
-cd $llvm_path
-build_all_variants llvm
-
-cd $linux_path
-build_all_variants linux _carbon
+popd
 
 pushd .
 cd $linux_path
-retry $build_scripts_path/linux/build.sh
+build_all_variants linux _carbon
 popd
 
+make -C $jove_path asm-offsets
+
+pushd .
+cd $llvm_path
+build_all_variants llvm
 popd
 
 retry "make -C $jove_path -j$(nproc)"
