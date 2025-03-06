@@ -10,7 +10,17 @@ if test "$#" = 1 ; then
   if test "$1" = "_carbon" ; then
     EXTRACONF="--enable-jove-helpers"
     TARGETLIST="x86_64-linux-user"
+  else
+    exit 1
   fi
+elif test "$#" = 2 ; then
+  if test "$1" = "_carbon" ; then
+    EXTRACONF="--enable-jove-helpers"
+  else
+    exit 1
+  fi
+
+  TARGETLIST="$2-linux-user"
 fi
 
 if [ ! -f build.ninja ]; then

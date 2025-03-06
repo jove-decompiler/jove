@@ -71,11 +71,26 @@ function build_all_variants() {
   done
 }
 
+function build_all_qemu_variants() {
+  for arch in $archs ; do
+    pushd .
+
+    mkdir -p ${hostarch}${1}_build_${arch} && cd ${hostarch}${1}_build_${arch}
+    retry5 "$build_scripts_path/qemu/build_${hostarch}.sh $1 $arch"
+
+    popd
+  done
+}
+
 pushd .
 
 cd $qemu_path
 build_all_variants qemu _carbon
 build_all_variants qemu
+
+build_all_qemu_variants _carbon
+
+make -C $jove_path asm-offsets
 
 cd $llvm_path
 build_all_variants llvm

@@ -1,5 +1,6 @@
-#include "qemu_tcg.h"
+#include "qemu.tcg.h"
 #include "../qemu/include/jove.h"
+#include "asm-offsets.h"
 
 #include "tcg.h"
 #include "temp.h"
@@ -789,11 +790,11 @@ void tiny_code_generator_t::print_shit(void) {
   };
   auto program_counter_env_offset = [&](void) -> int {
 #if defined(TARGET_X86_64) || defined(TARGET_I386)
-    return offsetof(CPUX86State, eip);
+    return ASMOFF_ENV_eip;
 #elif defined(TARGET_AARCH64)
     return -1;
 #elif defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
-    return offsetof(CPUMIPSState, active_tc.PC);
+    return ASMOFF_ENV_active_tc_PC;
 #else
 #error
 #endif
@@ -955,7 +956,7 @@ void tiny_code_generator_t::print_shit(void) {
 
 #if defined(TARGET_AARCH64)
   auto tpidr_el0_env_offset = [&](void) -> int {
-    return offsetof(CPUARMState, cp15.tpidr_el[0]);
+    return ASMOFF_ENV_cp15_tpidr_el_0_;
   };
 #endif
 

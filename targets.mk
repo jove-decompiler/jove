@@ -5,6 +5,8 @@ ALL_TARGETS := i386 x86_64 aarch64 mipsel mips64el
 ALL_LINUX_TARGETS := $(ALL_TARGETS)
 ALL_WIN_TARGETS   := i386 x86_64
 
+HOST_TARGET := x86_64
+
 aarch64_TRIPLE  := aarch64-linux-gnu
 i386_TRIPLE     := i686-linux-gnu
 x86_64_TRIPLE   := x86_64-linux-gnu

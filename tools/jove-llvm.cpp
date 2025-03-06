@@ -1,5 +1,6 @@
-#include "qemu_tcg.h"
+#include "qemu.tcg.h"
 #include "../qemu/include/jove.h"
+#include "asm-offsets.h"
 
 #include "tcg.h"
 #include "tool.h"
@@ -10031,24 +10032,24 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
 
         switch (off) {
 #if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
-        case offsetof(CPUMIPSState, active_tc.CP0_UserLocal):
+        case ASMOFF_ENV_active_tc_CP0_UserLocal:
           set(insertThreadPointerInlineAsm(IRB), dst);
           return;
-        case offsetof(CPUMIPSState, lladdr):
+        case ASMOFF_ENV_lladdr:
           set(get(&s->temps[tcg_lladdr_index]), dst);
           return;
-        case offsetof(CPUMIPSState, llval):
+        case ASMOFF_ENV_llval:
           set(get(&s->temps[tcg_llval_index]), dst);
           return;
-        case offsetof(CPUMIPSState, error_code):
+        case ASMOFF_ENV_error_code:
           break;
 #elif defined(TARGET_X86_64)
-        case offsetof(CPUX86State, df):
+        case ASMOFF_ENV_df:
           break;
 #elif defined(TARGET_AARCH64)
-        case offsetof(CPUARMState, vfp.zregs[0])...offsetof(CPUARMState, vfp.zregs[32]) - 1:
+        case ASMOFF_ENV_vfp_zregs_0_...ASMOFF_ENV_vfp_zregs_32_ - 1:
           break;
-        case offsetof(CPUARMState, cp15.tpidr_el[0]):
+        case ASMOFF_ENV_cp15_tpidr_el_0_:
           set(insertThreadPointerInlineAsm(IRB), dst);
           return;
 #endif
@@ -10062,21 +10063,21 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
       } else {
         switch (off) {
 #if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
-        case offsetof(CPUMIPSState, lladdr):
+        case ASMOFF_ENV_lladdr:
           set(get(input_arg(0)), &s->temps[tcg_lladdr_index]);
           return;
-        case offsetof(CPUMIPSState, llval):
+        case ASMOFF_ENV_llval:
           set(get(input_arg(0)), &s->temps[tcg_llval_index]);
           return;
-        case offsetof(CPUMIPSState, error_code):
+        case ASMOFF_ENV_error_code:
           break;
 #elif defined(TARGET_X86_64)
-        case offsetof(CPUX86State, df):
+        case ASMOFF_ENV_df:
           break;
 #elif defined(TARGET_AARCH64)
-        case offsetof(CPUARMState, vfp.zregs[0])...offsetof(CPUARMState, vfp.zregs[32]) - 1:
+        case ASMOFF_ENV_vfp_zregs_0_...ASMOFF_ENV_vfp_zregs_32_ - 1:
           break;
-        case offsetof(CPUARMState, btype):
+        case ASMOFF_ENV_btype:
           break;
 #endif
 
@@ -10619,7 +10620,7 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
 #if defined(TARGET_AARCH64)
 #define __ARCH_LD_OP(off)                                                      \
   {                                                                            \
-    if (off == tcg_tpidr_el0_env_offset) {                                     \
+    if (off == ASMOFF_ENV_cp15_tpidr_el_0_) {                                  \
       TCGTemp *dst = arg_temp(op->args[0]);                                    \
       assert(dst->type == TCG_TYPE_I64);                                       \
       set(insertThreadPointerInlineAsm(IRB), dst);                             \
@@ -10629,21 +10630,21 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
 #elif defined(TARGET_MIPS32)
 #define __ARCH_LD_OP(off)                                                      \
   {                                                                            \
-    if (off == offsetof(CPUMIPSState, active_tc.CP0_UserLocal)) {              \
+    if (off == ASMOFF_ENV_active_tc_CP0_UserLocal) {                           \
       TCGTemp *dst = arg_temp(op->args[0]);                                    \
       assert(dst->type == TCG_TYPE_I32);                                       \
       set(insertThreadPointerInlineAsm(IRB), dst);                             \
       break;                                                                   \
     }                                                                          \
                                                                                \
-    if (off == offsetof(CPUMIPSState, lladdr)) {                               \
+    if (off == ASMOFF_ENV_lladdr) {                                            \
       TCGTemp *dst = arg_temp(op->args[0]);                                    \
       assert(dst->type == TCG_TYPE_I32);                                       \
       set(get(&s->temps[tcg_lladdr_index]), dst);                              \
       break;                                                                   \
     }                                                                          \
                                                                                \
-    if (off == offsetof(CPUMIPSState, llval)) {                                \
+    if (off == ASMOFF_ENV_llval) {                                             \
       TCGTemp *dst = arg_temp(op->args[0]);                                    \
       assert(dst->type == TCG_TYPE_I32);                                       \
       set(get(&s->temps[tcg_llval_index]), dst);                               \
@@ -10712,12 +10713,12 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
 #if defined(TARGET_MIPS32)
 #define __ARCH_ST_OP(off)                                                      \
   {                                                                            \
-    if (off == offsetof(CPUMIPSState, lladdr)) {                               \
+    if (off == ASMOFF_ENV_lladdr) {                                            \
       set(Val, &s->temps[tcg_lladdr_index]);                                   \
       break;                                                                   \
     }                                                                          \
                                                                                \
-    if (off == offsetof(CPUMIPSState, llval)) {                                \
+    if (off == ASMOFF_ENV_llval) {                                             \
       set(Val, &s->temps[tcg_llval_index]);                                    \
       break;                                                                   \
     }                                                                          \

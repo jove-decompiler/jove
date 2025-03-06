@@ -1,0 +1,1 @@
+../mips32/asm-offsets.c

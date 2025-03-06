@@ -124,6 +124,9 @@ runtime: $(foreach t,$(ALL_TARGETS),runtime-$(t))
 .PHONY: utilities
 utilities: $(UTILBINS)
 
+.PHONY: asm-offsets
+asm-offsets: $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/asm-offsets.h)
+
 runtime_dlls = $(BINDIR)/$(1)/libjove_rt.st.dll \
                $(BINDIR)/$(1)/libjove_rt.mt.dll \
                $(BINDIR)/$(1)/jove.coff.st.bc \
@@ -136,6 +139,8 @@ _DLLS_i386   := $(call runtime_dlls,i386)
 
 _DLL_x86_64_LINUX_CALL_CONV := X86_64_SysV
 _DLL_i386_LINUX_CALL_CONV := C
+
+include lib/asm-offsets.mk
 
 define target_code_template
 .PHONY: helpers-$(1)
@@ -161,19 +166,25 @@ $(BINDIR)/$(1)/qemu-starter.inc: $(BINDIR)/$(1)/qemu-starter
 $(BINDIR)/$(1)/dump-vdso.inc: $(BINDIR)/$(1)/dump-vdso
 	xxd -i < $$< > $$@
 
+$(BINDIR)/$(1)/asm-offsets.h: | ccopy
+	@echo $$@
+	@clang-19 -o $(BINDIR)/$(1)/asm-offsets.s $(call runtime_cflags,$(1)) -fverbose-asm -S lib/arch/$(1)/asm-offsets.c
+	@echo "#pragma once" > $$@
+	@sed -ne $(value sed-offsets) < $(BINDIR)/$(1)/asm-offsets.s >> $$@
+
 #
 # starter bitcode
 #
-$(BINDIR)/$(1)/jove.elf.st.bc: lib/arch/$(1)/jove.c | ccopy
+$(BINDIR)/$(1)/jove.elf.st.bc: lib/arch/$(1)/jove.c | ccopy asm-offsets
 	$(LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -MMD $$<
 
-$(BINDIR)/$(1)/jove.elf.mt.bc: lib/arch/$(1)/jove.c | ccopy
+$(BINDIR)/$(1)/jove.elf.mt.bc: lib/arch/$(1)/jove.c | ccopy asm-offsets
 	$(LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -D JOVE_MT -MMD $$<
 
-$(BINDIR)/$(1)/jove.coff.st.bc: lib/arch/$(1)/jove.c | ccopy
+$(BINDIR)/$(1)/jove.coff.st.bc: lib/arch/$(1)/jove.c | ccopy asm-offsets
 	$(LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -fdeclspec -D JOVE_COFF -MMD $$<
 
-$(BINDIR)/$(1)/jove.coff.mt.bc: lib/arch/$(1)/jove.c | ccopy
+$(BINDIR)/$(1)/jove.coff.mt.bc: lib/arch/$(1)/jove.c | ccopy asm-offsets
 	$(LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -fdeclspec -D JOVE_COFF -D JOVE_MT -MMD $$<
 
 $(BINDIR)/$(1)/jove.%.ll: $(BINDIR)/$(1)/jove.%.bc
@@ -182,16 +193,16 @@ $(BINDIR)/$(1)/jove.%.ll: $(BINDIR)/$(1)/jove.%.bc
 #
 # runtime bitcode
 #
-$(BINDIR)/$(1)/libjove_rt.elf.st.bc: lib/arch/$(1)/rt.c | ccopy
+$(BINDIR)/$(1)/libjove_rt.elf.st.bc: lib/arch/$(1)/rt.c | ccopy asm-offsets
 	$(LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -MMD $$<
 
-$(BINDIR)/$(1)/libjove_rt.elf.mt.bc: lib/arch/$(1)/rt.c | ccopy
+$(BINDIR)/$(1)/libjove_rt.elf.mt.bc: lib/arch/$(1)/rt.c | ccopy asm-offsets
 	$(LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -D JOVE_MT -MMD $$<
 
-$(BINDIR)/$(1)/libjove_rt.coff.st.bc: lib/arch/$(1)/rt.c | ccopy
+$(BINDIR)/$(1)/libjove_rt.coff.st.bc: lib/arch/$(1)/rt.c | ccopy asm-offsets
 	$(LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -fdeclspec -D JOVE_COFF -MMD $$<
 
-$(BINDIR)/$(1)/libjove_rt.coff.mt.bc: lib/arch/$(1)/rt.c | ccopy
+$(BINDIR)/$(1)/libjove_rt.coff.mt.bc: lib/arch/$(1)/rt.c | ccopy asm-offsets
 	$(LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -fdeclspec -D JOVE_COFF -D JOVE_MT -MMD $$<
 
 #
@@ -243,6 +254,9 @@ clean-runtime: $(foreach t,$(ALL_TARGETS),clean-runtime-$(t))
 .PHONY: clean-bitcode
 clean-bitcode: $(foreach t,$(ALL_TARGETS),clean-bitcode-$(t))
 
+.PHONY: clean-asm-offsets
+clean-asm-offsets: $(foreach t,$(ALL_TARGETS),clean-asm-offsets-$(t))
+
 .PHONY: distclean
 distclean: clean
 	rm -f jove-v*.tar \
@@ -265,6 +279,7 @@ CARBON_EXTRACT := /usr/local/bin/carbon-extract
 
 QEMU_DIR := $(JOVE_ROOT_DIR)/qemu
 qemu_carbon_build_dir = $(QEMU_DIR)/$(1)_carbon_build
+qemu_carbon_host_build_dir = $(QEMU_DIR)/$(HOST_TARGET)_carbon_build_$(1)
 
 LINUX_DIR := $(JOVE_ROOT_DIR)/linux
 linux_carbon_build_dir = $(LINUX_DIR)/$(1)_carbon_build
@@ -320,11 +335,23 @@ clean-bitcode-$(1):
 	      $(BINDIR)/$(1)/helpers/*.bc \
 	      $(BINDIR)/$(1)/helpers/*.ll
 
+.PHONY: clean-asm-offsets-$(1)
+clean-asm-offsets-$(1):
+	rm -f $(BINDIR)/$(1)/asm-offsets.h
+
 $(BINDIR)/$(1)/linux.copy.h:
 	$(CARBON_EXTRACT) --src $(LINUX_DIR) --bin $(call linux_carbon_build_dir,$(1)) -n jove > $$@
 
 $(BINDIR)/$(1)/env.copy.h:
 	$(CARBON_EXTRACT) --src $(QEMU_DIR) --bin $(call qemu_carbon_build_dir,$(1)) -n jove_env > $$@
+
+$(BINDIR)/$(1)/qemu.tcg.copy.h:
+	@printf '%s\n\n' '#define CONFIG_USER_ONLY' > $$@
+	$(CARBON_EXTRACT) --src $(QEMU_DIR) --bin $(call qemu_carbon_build_dir,$(1)) -n --flatten jove_tcg >> $$@
+
+$(BINDIR)/$(HOST_TARGET)/qemu.tcg.copy.$(1).h:
+	@printf '%s\n\n' '#define CONFIG_USER_ONLY' > $$@
+	$(CARBON_EXTRACT) --src $(QEMU_DIR) --bin $(call qemu_carbon_host_build_dir,$(1)) -n --flatten jove_tcg >> $$@
 endef
 $(foreach t,$(ALL_TARGETS),$(eval $(call target_template,$(t))))
 
@@ -335,8 +362,7 @@ check-helpers: $(foreach t,$(ALL_TARGETS),check-$(t))
 gen-tcgconstants: $(foreach t,$(ALL_TARGETS),gen-tcgconstants-$(t))
 
 .PHONY: ccopy
-ccopy: ccopy-linux
-
-.PHONY: ccopy-linux
-ccopy-linux: $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/linux.copy.h) \
-             $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/env.copy.h)
+ccopy: $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/linux.copy.h) \
+       $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/env.copy.h) \
+       $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/qemu.tcg.copy.h) \
+       $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(HOST_TARGET)/qemu.tcg.copy.$(t).h)

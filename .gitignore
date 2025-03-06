@@ -2,10 +2,14 @@ tags
 /bin/*/*.bc
 /bin/*/*.ll
 /bin/*/*.d
+/bin/*/*.s
 /bin/*/*.so
 /bin/*/*.tmp
+/bin/*/asm-offsets.h
 /bin/*/linux.copy.h
 /bin/*/env.copy.h
+/bin/*/qemu.tcg.copy.h
+/bin/*/qemu.tcg.copy.*.h
 /bin/*/helpers/*.c
 /bin/*/helpers/*.bc
 /bin/*/helpers/*.bc.*
