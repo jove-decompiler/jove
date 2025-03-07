@@ -166,7 +166,7 @@ $(BINDIR)/$(1)/qemu-starter.inc: $(BINDIR)/$(1)/qemu-starter
 $(BINDIR)/$(1)/dump-vdso.inc: $(BINDIR)/$(1)/dump-vdso
 	xxd -i < $$< > $$@
 
-$(BINDIR)/$(1)/asm-offsets.h: | ccopy
+$(BINDIR)/$(1)/asm-offsets.h: lib/arch/$(1)/asm-offsets.c | ccopy
 	@echo $$@
 	@clang-19 -o $(BINDIR)/$(1)/asm-offsets.s $(call runtime_cflags,$(1)) -fverbose-asm -S lib/arch/$(1)/asm-offsets.c
 	@echo "#pragma once" > $$@
