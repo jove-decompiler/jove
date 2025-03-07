@@ -27,6 +27,8 @@ void _jove_begin(uintptr_t rdi,
   _jove_call_entry();
 }
 
+#include "asm-offsets.h"
+
 #define JOVE_THUNK_PROLOGUE                                                    \
   "pushq %%rbp\n"                                                              \
   __ASM_CFI(".cfi_adjust_cfa_offset 8\n")                                      \
@@ -50,20 +52,20 @@ void _jove_begin(uintptr_t rdi,
   "retq\n"
 
 #define JOVE_THUNK_EXTRA_ARGS                                                  \
-  "movsd 832(%%r14),%%xmm0\n"  /* env.xmm_regs[0]._x_ZMMReg[0]._q_XMMReg[0] */ \
-  "movsd 896(%%r14),%%xmm1\n"  /* env.xmm_regs[1]._x_ZMMReg[0]._q_XMMReg[0] */ \
-  "movsd 960(%%r14),%%xmm2\n"  /* env.xmm_regs[2]._x_ZMMReg[0]._q_XMMReg[0] */ \
-  "movsd 1024(%%r14),%%xmm3\n" /* env.xmm_regs[3]._x_ZMMReg[0]._q_XMMReg[0] */ \
-  "movsd 1088(%%r14),%%xmm4\n" /* env.xmm_regs[4]._x_ZMMReg[0]._q_XMMReg[0] */ \
-  "movsd 1152(%%r14),%%xmm5\n" /* env.xmm_regs[5]._x_ZMMReg[0]._q_XMMReg[0] */ \
-  "movsd 1216(%%r14),%%xmm6\n" /* env.xmm_regs[6]._x_ZMMReg[0]._q_XMMReg[0] */ \
-  "movsd 1280(%%r14),%%xmm7\n" /* env.xmm_regs[7]._x_ZMMReg[0]._q_XMMReg[0] */ \
-                                                                               \
-  "movq -32(%%r14),%%rax\n" /* env.regs[R_EAX] */
+  "movsd " BOOST_PP_STRINGIZE(ASMOFF_ENV_FROM_SP_xmm_regs_0___x_ZMMReg_0___q_XMMReg_0_) "(%%r14),%%xmm0\n" \
+  "movsd " BOOST_PP_STRINGIZE(ASMOFF_ENV_FROM_SP_xmm_regs_1___x_ZMMReg_0___q_XMMReg_0_) "(%%r14),%%xmm1\n" \
+  "movsd " BOOST_PP_STRINGIZE(ASMOFF_ENV_FROM_SP_xmm_regs_2___x_ZMMReg_0___q_XMMReg_0_) "(%%r14),%%xmm2\n" \
+  "movsd " BOOST_PP_STRINGIZE(ASMOFF_ENV_FROM_SP_xmm_regs_3___x_ZMMReg_0___q_XMMReg_0_) "(%%r14),%%xmm3\n" \
+  "movsd " BOOST_PP_STRINGIZE(ASMOFF_ENV_FROM_SP_xmm_regs_4___x_ZMMReg_0___q_XMMReg_0_) "(%%r14),%%xmm4\n" \
+  "movsd " BOOST_PP_STRINGIZE(ASMOFF_ENV_FROM_SP_xmm_regs_5___x_ZMMReg_0___q_XMMReg_0_) "(%%r14),%%xmm5\n" \
+  "movsd " BOOST_PP_STRINGIZE(ASMOFF_ENV_FROM_SP_xmm_regs_6___x_ZMMReg_0___q_XMMReg_0_) "(%%r14),%%xmm6\n" \
+  "movsd " BOOST_PP_STRINGIZE(ASMOFF_ENV_FROM_SP_xmm_regs_7___x_ZMMReg_0___q_XMMReg_0_) "(%%r14),%%xmm7\n" \
+  \
+  "movq " BOOST_PP_STRINGIZE(ASMOFF_ENV_FROM_SP_regs_R_EAX_) "(%%r14),%%rax\n"
 
 #define JOVE_THUNK_EXTRA_RETS                                                  \
-  "movsd %%xmm0,832(%%r14)\n"                                                  \
-  "movsd %%xmm1,896(%%r14)\n"
+  "movsd %%xmm0, " BOOST_PP_STRINGIZE(ASMOFF_ENV_FROM_SP_xmm_regs_0___x_ZMMReg_0___q_XMMReg_0_) "(%%r14)\n" \
+  "movsd %%xmm1, " BOOST_PP_STRINGIZE(ASMOFF_ENV_FROM_SP_xmm_regs_1___x_ZMMReg_0___q_XMMReg_0_) "(%%r14)\n"
 
 #define JOVE_THUNK_CORE                                                        \
   JOVE_THUNK_EXTRA_ARGS                                                        \

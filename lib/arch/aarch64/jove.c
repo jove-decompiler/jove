@@ -30,6 +30,8 @@ void _jove_begin(uintptr_t x0,
   _jove_call_entry();
 }
 
+#include "asm-offsets.h"
+
 #define JOVE_THUNK_PROLOGUE                                                    \
   "stp x29, x30, [sp, #-128]!\n" /* push frame */                              \
                                                                                \
@@ -52,24 +54,24 @@ void _jove_begin(uintptr_t x0,
   "ret\n"
 
 #define JOVE_THUNK_EXTRA_ARGS                                                  \
-  "ldr d0, [x21, #2920]\n"                                                     \
-  "ldr d1, [x21, #3176]\n"                                                     \
-  "ldr d2, [x21, #3432]\n"                                                     \
-  "ldr d3, [x21, #3688]\n"                                                     \
-  "ldr d4, [x21, #3944]\n"                                                     \
-  "ldr d5, [x21, #4200]\n"                                                     \
-  "ldr d6, [x21, #4456]\n"                                                     \
-  "ldr d7, [x21, #4712]\n"
+  "ldr d0, [x21, #" BOOST_PP_STRINGIZE(ASMOFF_ENV_FROM_SP_vfp_zregs_0_) "]\n"  \
+  "ldr d1, [x21, #" BOOST_PP_STRINGIZE(ASMOFF_ENV_FROM_SP_vfp_zregs_1_) "]\n"  \
+  "ldr d2, [x21, #" BOOST_PP_STRINGIZE(ASMOFF_ENV_FROM_SP_vfp_zregs_2_) "]\n"  \
+  "ldr d3, [x21, #" BOOST_PP_STRINGIZE(ASMOFF_ENV_FROM_SP_vfp_zregs_3_) "]\n"  \
+  "ldr d4, [x21, #" BOOST_PP_STRINGIZE(ASMOFF_ENV_FROM_SP_vfp_zregs_4_) "]\n"  \
+  "ldr d5, [x21, #" BOOST_PP_STRINGIZE(ASMOFF_ENV_FROM_SP_vfp_zregs_5_) "]\n"  \
+  "ldr d6, [x21, #" BOOST_PP_STRINGIZE(ASMOFF_ENV_FROM_SP_vfp_zregs_6_) "]\n"  \
+  "ldr d7, [x21, #" BOOST_PP_STRINGIZE(ASMOFF_ENV_FROM_SP_vfp_zregs_7_) "]\n"
 
 #define JOVE_THUNK_EXTRA_RETS                                                  \
-  "str d0, [x21, #2920]\n"                                                     \
-  "str d1, [x21, #3176]\n"                                                     \
-  "str d2, [x21, #3432]\n"                                                     \
-  "str d3, [x21, #3688]\n"                                                     \
-  "str d4, [x21, #3944]\n"                                                     \
-  "str d5, [x21, #4200]\n"                                                     \
-  "str d6, [x21, #4456]\n"                                                     \
-  "str d7, [x21, #4712]\n"
+  "str d0, [x21, #" BOOST_PP_STRINGIZE(ASMOFF_ENV_FROM_SP_vfp_zregs_0_) "]\n"  \
+  "str d1, [x21, #" BOOST_PP_STRINGIZE(ASMOFF_ENV_FROM_SP_vfp_zregs_1_) "]\n"  \
+  "str d2, [x21, #" BOOST_PP_STRINGIZE(ASMOFF_ENV_FROM_SP_vfp_zregs_2_) "]\n"  \
+  "str d3, [x21, #" BOOST_PP_STRINGIZE(ASMOFF_ENV_FROM_SP_vfp_zregs_3_) "]\n"  \
+  "str d4, [x21, #" BOOST_PP_STRINGIZE(ASMOFF_ENV_FROM_SP_vfp_zregs_4_) "]\n"  \
+  "str d5, [x21, #" BOOST_PP_STRINGIZE(ASMOFF_ENV_FROM_SP_vfp_zregs_5_) "]\n"  \
+  "str d6, [x21, #" BOOST_PP_STRINGIZE(ASMOFF_ENV_FROM_SP_vfp_zregs_6_) "]\n"  \
+  "str d7, [x21, #" BOOST_PP_STRINGIZE(ASMOFF_ENV_FROM_SP_vfp_zregs_7_) "]\n"
 
 #define JOVE_THUNK_CORE                                                        \
   JOVE_THUNK_EXTRA_ARGS                                                        \

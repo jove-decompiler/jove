@@ -22,6 +22,8 @@ void _jove_begin(uintptr_t a0,
   _jove_call_entry();
 }
 
+#include "asm-offsets.h"
+
 #define JOVE_THUNK_PROLOGUE                                                    \
   ".set noreorder\n"                                                           \
                                                                                \
@@ -41,15 +43,15 @@ void _jove_begin(uintptr_t a0,
   ".set reorder\n"
 
 #define JOVE_THUNK_EXTRA_ARGS                                                  \
-  "ldc1 $f12, 792($s1)\n" /* floating point arguments */                       \
-  "ldc1 $f13, 808($s1)\n"                                                      \
-  "ldc1 $f14, 824($s1)\n"
+  "ldc1 $f12, " BOOST_PP_STRINGIZE(ASMOFF_ENV_FROM_SP_active_fpu_fpr_12__d) "($s1)\n" /* floating point arguments */ \
+  "ldc1 $f13, " BOOST_PP_STRINGIZE(ASMOFF_ENV_FROM_SP_active_fpu_fpr_13__d) "($s1)\n" \
+  "ldc1 $f14, " BOOST_PP_STRINGIZE(ASMOFF_ENV_FROM_SP_active_fpu_fpr_14__d) "($s1)\n"
 
 #define JOVE_THUNK_EXTRA_RETS                                                  \
-  "sdc1 $f0, 600($s1)\n" /* floating point return values */                    \
-  "sdc1 $f1, 616($s1)\n"                                                       \
-  "sdc1 $f2, 632($s1)\n"                                                       \
-  "sdc1 $f3, 648($s1)\n"
+  "sdc1 $f0, " BOOST_PP_STRINGIZE(ASMOFF_ENV_FROM_SP_active_fpu_fpr_0__d) "($s1)\n" /* floating point return values */ \
+  "sdc1 $f1, " BOOST_PP_STRINGIZE(ASMOFF_ENV_FROM_SP_active_fpu_fpr_1__d) "($s1)\n" \
+  "sdc1 $f2, " BOOST_PP_STRINGIZE(ASMOFF_ENV_FROM_SP_active_fpu_fpr_2__d) "($s1)\n" \
+  "sdc1 $f3, " BOOST_PP_STRINGIZE(ASMOFF_ENV_FROM_SP_active_fpu_fpr_3__d) "($s1)\n"
 
 #define JOVE_THUNK_CORE                                                        \
   JOVE_THUNK_EXTRA_ARGS                                                        \
