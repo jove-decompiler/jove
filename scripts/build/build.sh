@@ -59,7 +59,7 @@ hostarch="x86_64"
 
 function build_all_variants() {
   rm -f build
-  ln -sf ${hostarch}_build build
+  ln -sf ${hostarch}${2}_build build
 
   for arch in $archs ; do
     pushd .
