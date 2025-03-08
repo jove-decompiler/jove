@@ -1,6 +1,10 @@
 #pragma once
 #include "jove/jove.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #if defined(__x86_64__)
 #if defined(TARGET_X86_64)
 #include "../bin/x86_64/qemu.tcg.copy.h"
@@ -43,4 +47,8 @@
 #endif
 #else
 #error
+#endif
+
+#ifdef __cplusplus
+}
 #endif
