@@ -95,7 +95,7 @@ cd $linux_path
 build_all_variants linux _carbon
 popd
 
-make -C $jove_path asm-offsets
+make -C $jove_path asm-offsets utilities
 
 pushd .
 cd $llvm_path

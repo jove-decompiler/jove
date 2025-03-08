@@ -105,6 +105,7 @@ UTILSRCDIR := utilities
 UTILSRCS   := $(wildcard $(UTILSRCDIR)/*.c)
 UTILS      := $(patsubst $(UTILSRCDIR)/%.c,%,$(UTILSRCS))
 UTILBINS   := $(foreach t,$(ALL_TARGETS),$(foreach util,$(UTILS),$(BINDIR)/$(t)/$(util)))
+UTILINCS   := $(foreach t,$(ALL_TARGETS),$(foreach util,$(UTILS),$(BINDIR)/$(t)/$(util).inc))
 UTILDEPS   := $(foreach t,$(ALL_TARGETS),$(foreach util,$(UTILS),$(BINDIR)/$(t)/$(util).d))
 
 # disable built-in rules
@@ -122,7 +123,7 @@ helpers: $(foreach t,$(ALL_TARGETS),helpers-$(t))
 runtime: $(foreach t,$(ALL_TARGETS),runtime-$(t))
 
 .PHONY: utilities
-utilities: $(UTILBINS)
+utilities: $(UTILINCS)
 
 .PHONY: asm-offsets
 asm-offsets: $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/asm-offsets.h)
@@ -160,10 +161,7 @@ $(BINDIR)/$(1)/%: $(UTILSRCDIR)/%.c | ccopy
 	clang-19 -o $$@ $(call runtime_cflags,$(1)) $(UTILS_LDFLAGS) $$<
 	llvm-strip-19 $$@
 
-$(BINDIR)/$(1)/qemu-starter.inc: $(BINDIR)/$(1)/qemu-starter
-	xxd -i < $$< > $$@
-
-$(BINDIR)/$(1)/dump-vdso.inc: $(BINDIR)/$(1)/dump-vdso
+$(BINDIR)/$(1)/%.inc: $(BINDIR)/$(1)/%
 	xxd -i < $$< > $$@
 
 $(BINDIR)/$(1)/asm-offsets.h: lib/arch/$(1)/asm-offsets.c | ccopy
@@ -256,6 +254,10 @@ clean-bitcode: $(foreach t,$(ALL_TARGETS),clean-bitcode-$(t))
 
 .PHONY: clean-asm-offsets
 clean-asm-offsets: $(foreach t,$(ALL_TARGETS),clean-asm-offsets-$(t))
+
+.PHONY: clean-utilities
+clean-utilities:
+	rm -f $(UTILINCS) $(UTILBINS)
 
 .PHONY: distclean
 distclean: clean

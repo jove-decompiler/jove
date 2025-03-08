@@ -19,6 +19,8 @@ tags
 /bin/*/*.dll
 /bin/*/*.lib
 /bin/*/qemu-starter
+/bin/*/qemu-starter.inc
 /bin/*/dump-vdso
+/bin/*/dump-vdso.inc
 tests/.t/*
 tests/__pycache__/*
