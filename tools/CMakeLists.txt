@@ -25,6 +25,7 @@ set(JOVE_TOOL_FLAGS
   "-Wno-nested-anon-types"
   "-Wno-sign-compare"
   "-Wno-unused-lambda-capture"
+  "-Wno-missing-template-arg-list-after-template-kw"
 )
 
 set(JOVE_ALL_TARGETS
