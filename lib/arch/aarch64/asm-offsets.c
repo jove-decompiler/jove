@@ -8,6 +8,9 @@ int main(void) {
   DEFINE(ASMOFF_ENV_vfp_zregs_32_, offsetof(CPUARMState, vfp.zregs[32]));
   DEFINE(ASMOFF_ENV_btype, offsetof(CPUARMState, btype));
 
+  // For aarch64, register index 31 depends on context: sometimes it is the
+  // stack pointer, and sometimes it is the zero register.
+
 #define VFP_THING_FROM_SP(n, idx, data) \
   DEFINE(ASMOFF_ENV_FROM_SP_vfp_zregs_##idx##_,\
          offsetof(CPUARMState, vfp.zregs[idx]) - offsetof(CPUARMState, xregs[31]));
