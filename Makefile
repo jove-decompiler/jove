@@ -61,8 +61,7 @@ runtime_cflags = -std=gnu11 \
                  -Wno-missing-variable-declarations \
                  -Wno-gnu-zero-variadic-macro-arguments \
                  -Ofast \
-                 -gline-tables-only \
-                 -gdwarf-4 \
+                 -g \
                  -ffreestanding \
                  -fno-strict-aliasing \
                  -fno-stack-protector \
