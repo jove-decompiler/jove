@@ -73,12 +73,6 @@ void _jove_begin(uintptr_t a0,
                                                                                \
   JOVE_THUNK_EPILOGUE
 
-//
-// NOTE: the magic offset is
-// offsetof(CPUMIPSState, active_fpu.fpr[0].d) -
-// offsetof(CPUMIPSState, active_tc.gpr[29]);
-//
-
 jove_thunk_return_t _jove_thunk0(uintptr_t dstpc,  /* $4 */
                                  uintptr_t *emuspp /* $5 */) {
   asm volatile(JOVE_THUNK_PROLOGUE
