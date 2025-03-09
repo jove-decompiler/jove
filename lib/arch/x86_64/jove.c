@@ -4,7 +4,7 @@
 
 typedef unsigned __int128 jove_thunk_return_t;
 
-#include "jove.common.c"
+#include "jove.common.c.inc"
 
 _HIDDEN
 void _jove_begin(uintptr_t rdi,

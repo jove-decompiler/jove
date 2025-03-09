@@ -2,7 +2,7 @@
 #error
 #endif
 
-#include "rt.util.c"
+#include "rt.util.c.inc"
 #include "rt.mutex.h"
 
 #include <stddef.h>

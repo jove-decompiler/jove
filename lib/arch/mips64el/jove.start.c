@@ -1,1 +1,0 @@
-../mips64/jove.start.c

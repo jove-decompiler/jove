@@ -11,7 +11,7 @@ _NAKED static void _jove_do_rt_sigreturn(void) {
 extern void restore_rt (void) asm ("__restore_rt") __attribute__ ((visibility ("hidden")));
 #endif
 
-#include "rt.common.c"
+#include "rt.common.c.inc"
 
 void _jove_inverse_thunk(void) {
   asm volatile("pushq $0xdead\n"

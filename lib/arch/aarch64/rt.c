@@ -2,7 +2,7 @@
 
 #include "env.h"
 
-#include "rt.common.c"
+#include "rt.common.c.inc"
 
 void _jove_inverse_thunk(void) {
   asm volatile("sub sp, sp, #128\n"

@@ -3,8 +3,8 @@
 #define JOVE_SYS_ATTR _NOINL _UNUSED
 #define JOVE_CRASH_MODE 'a'
 
-#include "jove.util.c"
-#include "jove.start.c"
+#include "jove.util.c.inc"
+#include "jove.start.c.inc"
 
 struct vdso_t {
   void *ptr;

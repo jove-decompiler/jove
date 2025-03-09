@@ -1,5 +1,5 @@
-#include "jove.llvm.c"
-#include "jove.util.c"
+#include "jove.llvm.c.inc"
+#include "jove.util.c.inc"
 #include "jove.recover.h"
 
 DECLARE_JOVE_RT_THREAD_GLOBAL(struct CPUArchState, env)
@@ -2035,5 +2035,5 @@ void __nodce(void **p) {
 #endif
 }
 
-#include "jove.recover.c"
-#include "jove.start.c"
+#include "jove.recover.c.inc"
+#include "jove.start.c.inc"

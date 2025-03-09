@@ -1,5 +1,5 @@
-#include "rt.util.c"
-#include "rt.alloc.c"
+#include "rt.util.c.inc"
+#include "rt.alloc.c.inc"
 #include "rt.recover.h"
 
 #include <signal.h>
@@ -1352,4 +1352,4 @@ void __nodce(void **p) {
   *p++ = &_jove_rt_init;
 }
 
-#include "rt.recover.c"
+#include "rt.recover.c.inc"
