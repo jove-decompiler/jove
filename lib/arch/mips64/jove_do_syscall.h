@@ -24,7 +24,7 @@ static const char *syscall_names[] = {
 
 #define JOVE_SYS_ATTR _INL _UNUSED
 
-#include "jove.util.c"
+#include "jove.util.c.inc"
 
 void do_syscall(CPUMIPSState *env) {
   unsigned long sysnum = env->active_tc.gpr[2];
