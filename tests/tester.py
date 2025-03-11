@@ -261,7 +261,7 @@ class JoveTester:
         testbin = f"/tmp/{testbin_path.name}"
 
         # establish clean slate
-        self.ssh(["rm", "-rf", "/root/.jv", "/root/.jove"])
+        self.ssh(["rm", "-rf", "/root/.jv.*", "/root/.jove"])
 
         # initialize jv
         self.ssh(["jove", "init", testbin])
