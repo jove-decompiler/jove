@@ -264,7 +264,7 @@ using ip_sharable_lock = boost::interprocess::sharable_lock<Mutex>;
 template <typename Mutex>
 using ip_upgradable_lock = boost::interprocess::upgradable_lock<Mutex>;
 
-#include "jove/mt.h"
+#include "jove/mt.h.inc"
 
 //
 // The concurrent and non-concurrent data structures can be move-constructed
@@ -834,7 +834,7 @@ using ip_func_index_sets = possibly_concurrent_node_set<
 
 size_t jvDefaultInitialSize(void);
 
-#include "jove/atomic.h"
+#include "jove/atomic.h.inc"
 
 struct basic_block_properties_t : public ip_mt_base_rw_accessible_nospin {
   struct pub_t : public ip_mt_base_rw_accessible_nospin {
@@ -1278,7 +1278,7 @@ struct function_t {
   function_t &operator=(const function_t &) = delete;
 };
 
-#include "jove/objdump.h"
+#include "jove/objdump.h.inc"
 
 template <bool MT = true>
 struct binary_base_t {
@@ -2826,7 +2826,7 @@ static inline binary_base_t<MT> &get_vdso(jv_base_t<MT> &jv) {
   throw std::runtime_error(std::string(__func__) + ": not found!");
 }
 
-#include "jove/state.h"
+#include "jove/state.h.inc"
 
 } /* namespace jove */
 
