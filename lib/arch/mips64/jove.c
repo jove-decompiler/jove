@@ -14,6 +14,7 @@ void _jove_begin(uintptr_t a0,
   _jove_initialize();
 
   struct CPUArchState *const env = JOVE_RT_THREAD_GLOBALP(env);
+
   env->active_tc.gpr[4] = a0;
   env->active_tc.gpr[5] = a1;
   env->active_tc.gpr[2] = v0;
