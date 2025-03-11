@@ -71,6 +71,7 @@ function build_all_variants() {
   done
 }
 
+# FIXME rename to something better
 function build_all_qemu_variants() {
   for arch in $archs ; do
     pushd .
