@@ -2,6 +2,8 @@
 #include "B.h"
 #include "triple.h"
 
+#include <oneapi/tbb/parallel_invoke.h>
+
 #include <boost/algorithm/string.hpp>
 #include <boost/format.hpp>
 #include <boost/graph/filtered_graph.hpp>
@@ -1440,15 +1442,8 @@ void RecompileTool::worker(dso_t dso) {
                   fs::copy_options::overwrite_existing);
   }
 
-  static constexpr std::array<unsigned, 3> arr3{{0, 1, 2}};
-
-  std::for_each(
-      std::execution::par_unseq,
-      arr3.begin(),
-      arr3.end(),
-      [&](unsigned i) {
-        switch (i) {
-        case 0:
+  oneapi::tbb::parallel_invoke(
+        [&](void) -> void {
           //
           // run llvm-dis on bitcode
           //
@@ -1460,9 +1455,8 @@ void RecompileTool::worker(dso_t dso) {
             Arg(llfp);
             Arg(bcfp);
           });
-          break;
-
-        case 1:
+        },
+        [&](void) -> void {
           //
           // run opt on bitcode to generate stripped ll
           //
@@ -1476,9 +1470,8 @@ void RecompileTool::worker(dso_t dso) {
             Arg("--strip-debug");
             Arg(bcfp);
           });
-          break;
-
-        case 2:
+        },
+        [&](void) -> void {
           //
           // run llc
           //
@@ -1523,12 +1516,8 @@ void RecompileTool::worker(dso_t dso) {
             Arg("--dwarf-version=4");
             Arg("--debugger-tune=gdb");
           });
-          break;
-
-        default:
-          die("");
         }
-      });
+      );
 
   //
   // check exit code
