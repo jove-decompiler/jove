@@ -32,8 +32,6 @@ struct tiny_code_generator_t {
 
   void dump_operations(void);
 
-  void print_shit(void);
-
   int tcg_index_of_named_global(const char *name);
 };
 

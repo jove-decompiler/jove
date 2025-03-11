@@ -67,13 +67,12 @@ runtime_cflags = -std=gnu11 \
                  -fno-stack-protector \
                  -fno-delete-null-pointer-checks \
                  -fwrapv \
-                 -fno-plt \
-                 -fPIC
+                 -fno-plt
 
 UTILS_LDFLAGS := -fuse-ld=lld \
                  -nostdlib \
                  -Wl,-e,_jove_start \
-                 -static
+                 -static-pie
 
 runtime_so_ldflags = -nostdlib \
                      -soname=libjove_rt.so \
@@ -122,10 +121,13 @@ helpers: $(foreach t,$(ALL_TARGETS),helpers-$(t))
 runtime: $(foreach t,$(ALL_TARGETS),runtime-$(t))
 
 .PHONY: utilities
-utilities: $(UTILINCS)
+utilities: $(UTILBINS) $(UTILINCS)
 
 .PHONY: asm-offsets
 asm-offsets: $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/asm-offsets.h)
+
+.PHONY: tcg-constants
+tcg-constants: $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/tcgconstants.h)
 
 runtime_dlls = $(BINDIR)/$(1)/libjove_rt.st.dll \
                $(BINDIR)/$(1)/libjove_rt.mt.dll \
@@ -157,7 +159,7 @@ runtime-$(1): $(BINDIR)/$(1)/libjove_rt.st.so \
               $(_DLLS_$(1))
 
 $(BINDIR)/$(1)/%: $(UTILSRCDIR)/%.c | ccopy
-	clang-19 -o $$@ $(call runtime_cflags,$(1)) $(UTILS_LDFLAGS) $$<
+	clang-19 -o $$@ $(call runtime_cflags,$(1)) -fpie $(UTILS_LDFLAGS) $$<
 	llvm-strip-19 $$@
 
 $(BINDIR)/$(1)/%.inc: $(BINDIR)/$(1)/%
@@ -173,16 +175,16 @@ $(BINDIR)/$(1)/asm-offsets.h: lib/arch/$(1)/asm-offsets.c | ccopy
 # starter bitcode
 #
 $(BINDIR)/$(1)/jove.elf.st.bc: lib/arch/$(1)/jove.c | ccopy asm-offsets
-	$(LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -MMD $$<
+	$(LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -fPIC -MMD $$<
 
 $(BINDIR)/$(1)/jove.elf.mt.bc: lib/arch/$(1)/jove.c | ccopy asm-offsets
-	$(LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -D JOVE_MT -MMD $$<
+	$(LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -fPIC -D JOVE_MT -MMD $$<
 
 $(BINDIR)/$(1)/jove.coff.st.bc: lib/arch/$(1)/jove.c | ccopy asm-offsets
-	$(LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -fdeclspec -D JOVE_COFF -MMD $$<
+	$(LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -fPIC -fdeclspec -D JOVE_COFF -MMD $$<
 
 $(BINDIR)/$(1)/jove.coff.mt.bc: lib/arch/$(1)/jove.c | ccopy asm-offsets
-	$(LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -fdeclspec -D JOVE_COFF -D JOVE_MT -MMD $$<
+	$(LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -fPIC -fdeclspec -D JOVE_COFF -D JOVE_MT -MMD $$<
 
 $(BINDIR)/$(1)/jove.%.ll: $(BINDIR)/$(1)/jove.%.bc
 	$(LLVM_OPT) -o $$@ -S --strip-debug $$<
@@ -191,16 +193,16 @@ $(BINDIR)/$(1)/jove.%.ll: $(BINDIR)/$(1)/jove.%.bc
 # runtime bitcode
 #
 $(BINDIR)/$(1)/libjove_rt.elf.st.bc: lib/arch/$(1)/rt.c | ccopy asm-offsets
-	$(LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -MMD $$<
+	$(LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -fPIC -MMD $$<
 
 $(BINDIR)/$(1)/libjove_rt.elf.mt.bc: lib/arch/$(1)/rt.c | ccopy asm-offsets
-	$(LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -D JOVE_MT -MMD $$<
+	$(LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -fPIC -D JOVE_MT -MMD $$<
 
 $(BINDIR)/$(1)/libjove_rt.coff.st.bc: lib/arch/$(1)/rt.c | ccopy asm-offsets
-	$(LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -fdeclspec -D JOVE_COFF -MMD $$<
+	$(LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -fPIC -fdeclspec -D JOVE_COFF -MMD $$<
 
 $(BINDIR)/$(1)/libjove_rt.coff.mt.bc: lib/arch/$(1)/rt.c | ccopy asm-offsets
-	$(LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -fdeclspec -D JOVE_COFF -D JOVE_MT -MMD $$<
+	$(LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -fPIC -fdeclspec -D JOVE_COFF -D JOVE_MT -MMD $$<
 
 #
 # runtime shared libraries
@@ -225,10 +227,6 @@ $(BINDIR)/$(1)/libjove_rt.%.dll.o: $(BINDIR)/$(1)/libjove_rt.coff.%.bc \
 $(BINDIR)/$(1)/libjove_rt.%.dll: $(BINDIR)/$(1)/libjove_rt.%.dll.o \
                                  $(BINDIR)/$(1)/libjove_rt.%.def
 	$(LLVM_LLD_LINK) /out:$$@ /def:$$(patsubst %.dll,%.def,$$@) /verbose $(call runtime_dll_ldflags,$(1)) $$< $(_DLL_$(1)_LIBGCC)
-
-.PHONY: gen-tcgconstants-$(1)
-gen-tcgconstants-$(1): $(BINDIR)/$(1)/gen-tcgconstants
-	$(BINDIR)/$(1)/gen-tcgconstants > include/jove/tcgconstants-$(1).h
 endef
 $(foreach t,$(ALL_TARGETS),$(eval $(call target_code_template,$(t))))
 
@@ -267,6 +265,7 @@ distclean: clean
 # TCG
 #
 helper_cflags = $(call runtime_cflags,$(1)) \
+                -fPIC \
                 -Wno-initializer-overrides \
                 -Wno-macro-redefined \
                 -Wno-typedef-redefinition \
@@ -355,14 +354,14 @@ $(BINDIR)/$(1)/qemu.tcg.copy.h:
 $(BINDIR)/$(HOST_TARGET)/qemu.tcg.copy.$(1).h:
 	@printf '%s\n\n' '#define CONFIG_USER_ONLY' > $$@
 	$(CARBON_EXTRACT) --src $(QEMU_DIR) --bin $(call qemu_carbon_host_build_dir,$(1)) -n --flatten jove_tcg >> $$@
+
+$(BINDIR)/$(1)/tcgconstants.h: | $(BINDIR)/$(1)/qemu-starter
+	$(call qemu_carbon_host_build_dir,$(1))/qemu-$(1) $(BINDIR)/$(1)/qemu-starter > $$@
 endef
 $(foreach t,$(ALL_TARGETS),$(eval $(call target_template,$(t))))
 
 .PHONY: check-helpers
 check-helpers: $(foreach t,$(ALL_TARGETS),check-$(t))
-
-.PHONY: gen-tcgconstants
-gen-tcgconstants: $(foreach t,$(ALL_TARGETS),gen-tcgconstants-$(t))
 
 .PHONY: ccopy
 ccopy: $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/linux.copy.h) \

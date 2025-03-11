@@ -1,1 +1,0 @@
-../../jove_help_cos.h

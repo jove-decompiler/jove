@@ -1,21 +1,6 @@
 #pragma once
 
-#if defined(TARGET_AARCH64)
-#include <jove/tcgconstants-aarch64.h>
-#elif defined(TARGET_X86_64)
-#include <jove/tcgconstants-x86_64.h>
-#elif defined(TARGET_I386)
-#include <jove/tcgconstants-i386.h>
-#elif defined(TARGET_MIPS64)
-#include <jove/tcgconstants-mips64el.h>
-#elif defined(TARGET_MIPSEL)
-#include <jove/tcgconstants-mipsel.h>
-#elif defined(TARGET_MIPS)
-#include <jove/tcgconstants-mips.h>
-#define TARGET_WORDS_BIGENDIAN
-#else
-#error "unknown target"
-#endif
+#include "tcgconstants.h"
 
 #ifdef __cplusplus
 #include <vector>
@@ -49,6 +34,7 @@ static inline void explode_tcg_global_set(std::vector<unsigned> &out,
       out.push_back(glb);
   }
 }
+
 }
 
 #endif
