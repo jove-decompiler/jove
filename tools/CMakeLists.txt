@@ -98,7 +98,6 @@ function(tool_for_arch arch arch_extra_cflags qemu_objs)
     ../core/wine.cpp
     check-helper.cpp
     dump-vdso.cpp
-    gen-tcgconstants.cpp
     jove-add.cpp
     jove-addr2off.cpp
     jove-analyze.cpp
