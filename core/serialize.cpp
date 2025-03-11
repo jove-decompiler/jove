@@ -368,17 +368,6 @@ static void serialize(Archive &ar, jove::binary_base_t<MT> &b,
       const unsigned int);
 
 //
-// function_t::Analysis_t
-//
-template <class Archive>
-static void serialize(Archive &ar, jove::function_t::Analysis_t &A,
-                      const unsigned int version) {
-  ar &BOOST_SERIALIZATION_NVP(A.args)
-     &BOOST_SERIALIZATION_NVP(A.rets)
-     &BOOST_SERIALIZATION_NVP(A.Stale);
-}
-
-//
 // function_t
 //
 template <class Archive>
@@ -386,10 +375,16 @@ static void serialize(Archive &ar, jove::function_t &f, const unsigned int versi
   ar &BOOST_SERIALIZATION_NVP(f.BIdx)
      &BOOST_SERIALIZATION_NVP(f.Idx)
      &BOOST_SERIALIZATION_NVP(f.Entry)
-     &BOOST_SERIALIZATION_NVP(f.Analysis)
+#if 0
+     &BOOST_SERIALIZATION_NVP(f.Analysis.args)
+     &BOOST_SERIALIZATION_NVP(f.Analysis.rets)
+     &BOOST_SERIALIZATION_NVP(f.Analysis.Stale)
+#endif
      &BOOST_SERIALIZATION_NVP(f.IsABI)
      &BOOST_SERIALIZATION_NVP(f.IsSignalHandler)
      &BOOST_SERIALIZATION_NVP(f.Returns);
+
+  f.Analysis.Stale = true;
 }
 
 //
@@ -417,13 +412,17 @@ static void serialize(Archive &ar, jove::basic_block_properties_t &bbprop,
      &BOOST_SERIALIZATION_NVP(bbprop.Term._call.Target)
      &BOOST_SERIALIZATION_NVP(bbprop.Term._indirect_jump.IsLj)
      &BOOST_SERIALIZATION_NVP(bbprop.Term._return.Returns)
-     &BOOST_SERIALIZATION_NVP(TheDynTargets)
-     &BOOST_SERIALIZATION_NVP(bbprop.DynTargets.Complete)
-     &BOOST_SERIALIZATION_NVP(bbprop.Sj)
+#if 0
      &BOOST_SERIALIZATION_NVP(bbprop.Analysis.live.def)
      &BOOST_SERIALIZATION_NVP(bbprop.Analysis.live.use)
      &BOOST_SERIALIZATION_NVP(bbprop.Analysis.reach.def)
-     &BOOST_SERIALIZATION_NVP(bbprop.Analysis.Stale);
+     &BOOST_SERIALIZATION_NVP(bbprop.Analysis.Stale)
+#endif
+     &BOOST_SERIALIZATION_NVP(TheDynTargets)
+     &BOOST_SERIALIZATION_NVP(bbprop.DynTargets.Complete)
+     &BOOST_SERIALIZATION_NVP(bbprop.Sj);
+
+  bbprop.Analysis.Stale = true;
 
   if (!bbprop.DynTargets._sm)
     bbprop.DynTargets._sm = jv_file.get_segment_manager();
