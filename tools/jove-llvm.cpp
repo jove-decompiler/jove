@@ -9984,7 +9984,7 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
 
     Addr = IRB.CreateZExt(Addr, WordType());
 
-    Addr = IRB.CreateIntToPtr(                                             
+    Addr = IRB.CreateIntToPtr(
         Addr, llvm::PointerType::get(IRB.getIntNTy(BitsOfMemOp(mop)), 0));
 
     llvm::LoadInst *LI = IRB.CreateLoad(IRB.getIntNTy(BitsOfMemOp(mop)), Addr);
