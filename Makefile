@@ -72,7 +72,7 @@ runtime_cflags = -std=gnu11 \
 UTILS_LDFLAGS := -fuse-ld=lld \
                  -nostdlib \
                  -Wl,-e,_jove_start \
-                 -static-pie
+                 -static
 
 runtime_so_ldflags = -nostdlib \
                      -soname=libjove_rt.so \
@@ -159,8 +159,7 @@ runtime-$(1): $(BINDIR)/$(1)/libjove_rt.st.so \
               $(_DLLS_$(1))
 
 $(BINDIR)/$(1)/%: $(UTILSRCDIR)/%.c | ccopy
-	clang-19 -o $$@ $(call runtime_cflags,$(1)) -fpie $(UTILS_LDFLAGS) $$<
-	llvm-strip-19 $$@
+	clang-19 -o $$@ $(call runtime_cflags,$(1)) -fpie $$< $(UTILS_LDFLAGS)
 
 $(BINDIR)/$(1)/%.inc: $(BINDIR)/$(1)/%
 	xxd -i < $$< > $$@
