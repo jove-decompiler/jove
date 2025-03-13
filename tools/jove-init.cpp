@@ -236,7 +236,7 @@ int InitTool::Run(void) {
 
   jv.clear(); /* point of no return */
 
-  jv.hash_to_binary.reserve(2048);
+  //jv.hash_to_binary.reserve(2048);
   //HumanOut() << "cap=" << jv.hash_to_binary.bucket_count() << '\n';
 
   unsigned N = binary_paths.size() + 3;
