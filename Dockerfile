@@ -138,6 +138,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       python3-libtmux \
                       python3-venv \
                       qemu-system \
+                      rustc \
                       sed \
                       ssh \
                       sudo \
