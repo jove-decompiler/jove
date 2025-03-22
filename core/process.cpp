@@ -1,5 +1,7 @@
 #include "process.h"
 
+#include <boost/unordered/unordered_flat_set.hpp>
+
 #include <cassert>
 #include <cstring>
 #include <list>
@@ -19,11 +21,24 @@ pid_t RunExecutable(const std::string &exe_path,
                     const string &stdout_path,
                     const string &stderr_path,
                     before_exec_t before_exec) {
+  boost::unordered_flat_set<string_view> envs;
+
   list<string> arg_str_list;
   list<string> env_str_list;
 
   compute_args([&](const string &s) { arg_str_list.emplace_back(s); });
-  compute_envs([&](const string &s) { env_str_list.emplace_back(s); });
+  compute_envs([&](const string &s) {
+    {
+      string &the_s = env_str_list.emplace_back(s);
+
+      if (!envs.contains(the_s)) {
+        envs.insert(the_s);
+        return;
+      }
+    }
+
+    env_str_list.pop_back();
+  });
 
   vector<const char *> arg_vec;
   vector<const char *> env_vec;
