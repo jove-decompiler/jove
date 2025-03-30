@@ -8,6 +8,7 @@ include $(JOVE_ROOT_DIR)/targets.mk
 
 define include_target_helpers_template
 include $(JOVE_ROOT_DIR)/lib/arch/$(1)/helpers.mk
+-include $(JOVE_ROOT_DIR)/bin/$(1)/all_helpers.mk
 endef
 $(foreach t,$(ALL_TARGETS),$(eval $(call include_target_helpers_template,$(t))))
 
@@ -128,6 +129,9 @@ asm-offsets: $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/asm-offsets.h)
 
 .PHONY: tcg-constants
 tcg-constants: $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/tcgconstants.h)
+
+.PHONY: all-helpers-mk
+all-helpers-mk: $(foreach t,$(ALL_TARGETS),all-helpers-$(t)-mk)
 
 runtime_dlls = $(BINDIR)/$(1)/libjove_rt.st.dll \
                $(BINDIR)/$(1)/libjove_rt.mt.dll \
@@ -355,7 +359,11 @@ $(BINDIR)/$(HOST_TARGET)/qemu.tcg.copy.$(1).h:
 	$(CARBON_EXTRACT) --src $(QEMU_DIR) --bin $(call qemu_carbon_host_build_dir,$(1)) -n --flatten jove_tcg >> $$@
 
 $(BINDIR)/$(1)/tcgconstants.h: | $(BINDIR)/$(1)/qemu-starter
-	$(call qemu_carbon_host_build_dir,$(1))/qemu-$(1) $(BINDIR)/$(1)/qemu-starter > $$@
+	env JOVE_PRINT_CONSTANTS=1 $(call qemu_carbon_host_build_dir,$(1))/qemu-$(1) $(BINDIR)/$(1)/qemu-starter > $$@
+
+.PHONY: all-helpers-$(1)-mk
+all-helpers-$(1)-mk: | $(BINDIR)/$(1)/qemu-starter
+	env JOVE_PRINT_HELPERS=1 $(call qemu_carbon_host_build_dir,$(1))/qemu-$(1) $(BINDIR)/$(1)/qemu-starter > $(BINDIR)/$(1)/all_helpers.mk
 endef
 $(foreach t,$(ALL_TARGETS),$(eval $(call target_template,$(t))))
 

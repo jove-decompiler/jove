@@ -667,7 +667,7 @@ static _UNUSED char *_get_environ(unsigned *np) {
     _mutex_lock(&_mtx);
 
     if (!envs.ptr) {
-      envs = _jove_alloc_buffer(2 * ARG_MAX);
+      envs = _jove_alloc_buffer(JOVE_MAX_ENVIRON);
       n = _jove_read_pseudo_file("/proc/self/environ", envs.ptr, envs.len);
     }
 

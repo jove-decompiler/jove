@@ -1,6 +1,13 @@
 #include "qemu.tcg.h"
+
+using SignedTCGArg = std::make_signed_t<TCGArg>;
+
 #include "../qemu/include/jove.h"
 #include "asm-offsets.h"
+
+static TCGContext *get_tcg_context() {
+  return (TCGContext *)jv_get_tcg_context();
+}
 
 #include "tcg.h"
 #include "tool.h"
@@ -978,7 +985,7 @@ public:
     unsigned glb =
         static_cast<unsigned>(tcg_global_by_offset_lookup_table[off]);
 
-    TCGTemp *ts = &jv_get_tcg_context()->temps[glb];
+    TCGTemp *ts = &get_tcg_context()->temps[glb];
     assert(ts->kind == TEMP_GLOBAL);
     return ts->name;
   }
@@ -1020,7 +1027,7 @@ public:
   }
 
   llvm::IntegerType *TypeOfTCGGlobal(unsigned glb) {
-    TCGContext *s = jv_get_tcg_context();
+    TCGContext *s = get_tcg_context();
 
     return TypeOfTCGType(s->temps[glb].type);
   }
@@ -1353,7 +1360,7 @@ void AnalyzeBasicBlock(tiny_code_generator_t &TCG,
       break;
     }
 
-    TCGContext *s = jv_get_tcg_context();
+    TCGContext *s = get_tcg_context();
 
     TCGOp *op;
     QTAILQ_FOREACH(op, &s->ops, link) {
@@ -3314,7 +3321,7 @@ llvm::FunctionType *LLVMTool::FunctionTypeOfArgsAndRets(tcg_global_set_t args,
                    argTypes.begin(),
                    [&](unsigned glb) -> llvm::Type * {
                      return llvm::Type::getIntNTy(
-                         *Context, bitsOfTCGType(jv_get_tcg_context()->temps[glb].type));
+                         *Context, bitsOfTCGType(get_tcg_context()->temps[glb].type));
                    });
   }
 
@@ -3328,14 +3335,14 @@ llvm::FunctionType *LLVMTool::FunctionTypeOfArgsAndRets(tcg_global_set_t args,
       retTy = VoidType();
     } else if (glbv.size() == 1) {
       retTy = llvm::Type::getIntNTy(
-          *Context, bitsOfTCGType(jv_get_tcg_context()->temps[glbv.front()].type));
+          *Context, bitsOfTCGType(get_tcg_context()->temps[glbv.front()].type));
     } else {
       std::vector<llvm::Type *> retTypes;
       retTypes.resize(glbv.size());
       std::transform(glbv.begin(), glbv.end(), retTypes.begin(),
                      [&](unsigned glb) -> llvm::Type * {
                        return llvm::Type::getIntNTy(
-                           *Context, bitsOfTCGType(jv_get_tcg_context()->temps[glb].type));
+                           *Context, bitsOfTCGType(get_tcg_context()->temps[glb].type));
                      });
 
       retTy = llvm::StructType::get(*Context, retTypes);
@@ -3407,7 +3414,7 @@ int LLVMTool::CreateFunctions(void) {
       unsigned i = 0;
       for (llvm::Argument &A : state.for_function(f).F->args()) {
         std::string name = opts.ForCBE ? "_" : "";
-        name.append(jv_get_tcg_context()->temps[glbv.at(i)].name);
+        name.append(get_tcg_context()->temps[glbv.at(i)].name);
         A.setName(name);
         ++i;
       }
@@ -3446,7 +3453,7 @@ int LLVMTool::CreateFunctions(void) {
       unsigned i = 0;
       for (llvm::Argument &A : state.for_function(f).adapterF->args()) {
         std::string name = opts.ForCBE ? "_" : "";
-        name.append(jv_get_tcg_context()->temps[CallConvArgArray.at(i)].name);
+        name.append(get_tcg_context()->temps[CallConvArgArray.at(i)].name);
         A.setName(name);
         ++i;
       }
@@ -6483,7 +6490,7 @@ LLVMTool::CreateAllocaForGlobal(TranslateContext &TC,
                                 bool InitializeFromEnv) {
   llvm::AllocaInst *res =
       IRB.CreateAlloca(TypeOfTCGGlobal(glb), nullptr,
-                       std::string(jv_get_tcg_context()->temps[glb].name));
+                       std::string(get_tcg_context()->temps[glb].name));
 
   if (InitializeFromEnv) {
     llvm::MDNode *Metadata = AliasScopeMetadata;
@@ -6506,11 +6513,11 @@ llvm::Value *LLVMTool::CPUStateGlobalPointer(llvm::IRBuilderTy &IRB,
 
   llvm::IntegerType *GlbTy = TypeOfTCGGlobal(glb);
 
-  struct TCGTemp *base_tmp = jv_get_tcg_context()->temps[glb].mem_base;
+  struct TCGTemp *base_tmp = get_tcg_context()->temps[glb].mem_base;
   if (unlikely(!base_tmp || temp_idx(base_tmp) != tcg_env_index))
     return nullptr;
 
-  unsigned Off = jv_get_tcg_context()->temps[glb].mem_offset;
+  unsigned Off = get_tcg_context()->temps[glb].mem_offset;
 
   llvm::Value *Env = GetEnv(IRB);
 
@@ -6539,11 +6546,11 @@ llvm::Value *LLVMTool::BuildCPUStatePointer(llvm::IRBuilderTy &IRB,
 
   llvm::IntegerType *GlbTy = TypeOfTCGGlobal(glb);
 
-  struct TCGTemp *base_tmp = jv_get_tcg_context()->temps[glb].mem_base;
+  struct TCGTemp *base_tmp = get_tcg_context()->temps[glb].mem_base;
   if (unlikely(!base_tmp || temp_idx(base_tmp) != tcg_env_index))
     return nullptr;
 
-  unsigned Off = jv_get_tcg_context()->temps[glb].mem_offset;
+  unsigned Off = get_tcg_context()->temps[glb].mem_offset;
 
   llvm::SmallVector<llvm::Value *, 4> Indices;
   if (llvm::Value *res = llvm::getNaturalGEPWithOffset(
@@ -6819,7 +6826,7 @@ int LLVMTool::TranslateFunction(function_t &f) {
               if (glb == tcg_stack_pointer_index) {
                 llvm::Value *ReturnedSP = IRB.CreateExtractValue(
                     Ret, llvm::ArrayRef<unsigned>(i),
-                    jv_get_tcg_context()->temps[glb].name + std::string("_"));
+                    get_tcg_context()->temps[glb].name + std::string("_"));
 
                 llvm::StoreInst *SI = IRB.CreateStore(
                     ReturnedSP, BuildCPUStatePointer(IRB, GetEnv(IRB), glb));
@@ -6832,7 +6839,7 @@ int LLVMTool::TranslateFunction(function_t &f) {
 
                  RetValues.at(Idx) = IRB.CreateExtractValue(
                      Ret, llvm::ArrayRef<unsigned>(i),
-                     jv_get_tcg_context()->temps[glb].name + std::string("_"));
+                     get_tcg_context()->temps[glb].name + std::string("_"));
               } else {
                 ;
               }
@@ -6848,7 +6855,7 @@ int LLVMTool::TranslateFunction(function_t &f) {
                 RetValues.begin(),
                 RetValues.end(), init,
                 [&](llvm::Value *res, llvm::Value *Val) -> llvm::Value * {
-                  std::string nm = std::string("_ret_") + jv_get_tcg_context()->temps[CallConvRetArray.at(j)].name + std::string("_");
+                  std::string nm = std::string("_ret_") + get_tcg_context()->temps[CallConvRetArray.at(j)].name + std::string("_");
 
                   return IRB.CreateInsertValue(res,
                                                Val,
@@ -7487,7 +7494,7 @@ int LLVMTool::RenameFunctionLocals(void) {
     if (glb == 0xff)
       continue;
 
-    const char *nm = jv_get_tcg_context()->temps[glb].name;
+    const char *nm = get_tcg_context()->temps[glb].name;
     for (llvm::User *UU : U->users()) {
       if (llvm::isa<llvm::LoadInst>(UU))
         UU->setName(nm + std::string("_"));
@@ -8077,7 +8084,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
     if (unlikely(ForAddrMatch))
       TCG->dump_operations();
 
-    TCGContext *s = jv_get_tcg_context();
+    TCGContext *s = get_tcg_context();
 
     TempAllocaVec.resize(s->nb_temps);
     LabelVec.resize(s->nb_labels);
@@ -8186,6 +8193,12 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
     for (unsigned i = 0; i < LabelVec.size(); ++i)
       LabelVec[i] = llvm::BasicBlock::Create(
           *Context, (boost::format("l%lx_%u") % ICFG[bb].Addr % i).str(), state.for_function(f).F);
+
+    lstaddr = Addr;
+
+    BOOST_SCOPE_DEFER [&] {
+      lstaddr = 0;
+    };
 
     TCGOp *op;
     QTAILQ_FOREACH(op, &s->ops, link) {
@@ -8586,7 +8599,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
 
           llvm::Value *Val = IRB.CreateExtractValue(
               Ret, llvm::ArrayRef<unsigned>(i),
-              jv_get_tcg_context()->temps[glb].name + std::string("_"));
+              get_tcg_context()->temps[glb].name + std::string("_"));
 
           set(Val, glb);
         }
@@ -8991,8 +9004,8 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
       //assert(Ret->getType()->isIntegerTy(128));
       assert(Ret->getType()->isStructTy());
       {
-        llvm::Value *X = IRB.CreateExtractValue(Ret, 0, jv_get_tcg_context()->temps[CallConvRetArray.at(0)].name + std::string("_"));
-        llvm::Value *Y = IRB.CreateExtractValue(Ret, 1, jv_get_tcg_context()->temps[CallConvRetArray.at(1)].name + std::string("_"));
+        llvm::Value *X = IRB.CreateExtractValue(Ret, 0, get_tcg_context()->temps[CallConvRetArray.at(0)].name + std::string("_"));
+        llvm::Value *Y = IRB.CreateExtractValue(Ret, 1, get_tcg_context()->temps[CallConvRetArray.at(1)].name + std::string("_"));
 
         set(X, CallConvRetArray.at(0));
         set(Y, CallConvRetArray.at(1));
@@ -9005,11 +9018,11 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
       {
         llvm::Value *X =
             IRB.CreateTrunc(Ret, IRB.getInt64Ty(),
-                            jv_get_tcg_context()->temps[CallConvRetArray.at(0)].name + std::string("_"));
+                            get_tcg_context()->temps[CallConvRetArray.at(0)].name + std::string("_"));
 
         llvm::Value *Y = IRB.CreateTrunc(
             IRB.CreateLShr(Ret, IRB.getIntN(128, 64)), IRB.getInt64Ty(),
-            jv_get_tcg_context()->temps[CallConvRetArray.at(1)].name + std::string("_"));
+            get_tcg_context()->temps[CallConvRetArray.at(1)].name + std::string("_"));
 
         set(X, CallConvRetArray.at(0));
         set(Y, CallConvRetArray.at(1));
@@ -9019,11 +9032,11 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
       {
         llvm::Value *X =
             IRB.CreateTrunc(Ret, IRB.getInt32Ty(),
-                            jv_get_tcg_context()->temps[CallConvRetArray.at(0)].name + std::string("_"));
+                            get_tcg_context()->temps[CallConvRetArray.at(0)].name + std::string("_"));
 
         llvm::Value *Y = IRB.CreateTrunc(
             IRB.CreateLShr(Ret, IRB.getInt64(32)), IRB.getInt32Ty(),
-            jv_get_tcg_context()->temps[CallConvRetArray.at(1)].name + std::string("_"));
+            get_tcg_context()->temps[CallConvRetArray.at(1)].name + std::string("_"));
 
 #ifdef TARGET_WORDS_BIGENDIAN
         set(X, CallConvRetArray.at(1));
@@ -9390,9 +9403,9 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
             assert(Ret->getType()->isStructTy());
             {
               llvm::Value *X = IRB.CreateExtractValue(
-                  Ret, 0, jv_get_tcg_context()->temps[CallConvRetArray.at(0)].name + std::string("_"));
+                  Ret, 0, get_tcg_context()->temps[CallConvRetArray.at(0)].name + std::string("_"));
               llvm::Value *Y = IRB.CreateExtractValue(
-                  Ret, 1, jv_get_tcg_context()->temps[CallConvRetArray.at(1)].name + std::string("_"));
+                  Ret, 1, get_tcg_context()->temps[CallConvRetArray.at(1)].name + std::string("_"));
 
               set(X, CallConvRetArray.at(0));
               set(Y, CallConvRetArray.at(1));
@@ -9405,7 +9418,7 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
 
             for (unsigned j = 0; j < CallConvRetArray.size(); ++j) {
               llvm::Value *X = IRB.CreateExtractValue(
-                  Ret, j, jv_get_tcg_context()->temps[CallConvRetArray.at(j)].name + std::string("_"));
+                  Ret, j, get_tcg_context()->temps[CallConvRetArray.at(j)].name + std::string("_"));
               set(X, CallConvRetArray.at(j));
             }
 #elif defined(TARGET_MIPS32) || defined(TARGET_I386)
@@ -9413,11 +9426,11 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
             {
               llvm::Value *X = IRB.CreateTrunc(
                   Ret, IRB.getInt32Ty(),
-                  jv_get_tcg_context()->temps[CallConvRetArray.at(0)].name + std::string("_"));
+                  get_tcg_context()->temps[CallConvRetArray.at(0)].name + std::string("_"));
 
               llvm::Value *Y = IRB.CreateTrunc(
                   IRB.CreateLShr(Ret, IRB.getInt64(32)), IRB.getInt32Ty(),
-                  jv_get_tcg_context()->temps[CallConvRetArray.at(1)].name + std::string("_"));
+                  get_tcg_context()->temps[CallConvRetArray.at(1)].name + std::string("_"));
 
 #ifdef TARGET_WORDS_BIGENDIAN
               set(X, CallConvRetArray.at(1));
@@ -9449,7 +9462,7 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
 
                   llvm::Value *Val =
                       IRB.CreateExtractValue(Ret, llvm::ArrayRef<unsigned>(i),
-                                             jv_get_tcg_context()->temps[glb].name + std::string("_"));
+                                             get_tcg_context()->temps[glb].name + std::string("_"));
 
                   set(Val, glb);
                 }
@@ -9700,7 +9713,7 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
       llvm::Value *retVal = std::accumulate(
           glbv.begin(), glbv.end(), init,
           [&](llvm::Value *res, unsigned glb) -> llvm::Value * {
-            std::string nm = std::string("_ret_") + jv_get_tcg_context()->temps[glb].name + std::string("_");
+            std::string nm = std::string("_ret_") + get_tcg_context()->temps[glb].name + std::string("_");
 
             return IRB.CreateInsertValue(res,
                                          get(glb),
@@ -9801,7 +9814,7 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
   auto &Binary = TC.tool.jv.Binaries.at(TC.tool.BinaryIndex);
   const auto &ICFG = Binary.Analysis.ICFG;
   auto &PCAlloca = TC.PCAlloca;
-  TCGContext *s = jv_get_tcg_context();
+  TCGContext *s = get_tcg_context();
 
   auto immediate_constant = [&](unsigned bits, TCGArg A) -> llvm::Value * {
     if (!pcrel_flag)
@@ -9926,25 +9939,16 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
     SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
   };
 
-  TCGOpcode opc = op->opc;
+  const TCGOpcode opc = op->opc;
 
-#if 0
-  if (opc >= ARRAY_SIZE(tcg_op_defs))
-    return 1;
+  const int nb_oargs = opc == INDEX_op_call ? TCGOP_CALLO(op) : jv_tcgopc_nb_oargs_in_def(opc);
+  const int nb_iargs = opc == INDEX_op_call ? TCGOP_CALLI(op) : jv_tcgopc_nb_iargs_in_def(opc);
+  const int nb_cargs = jv_tcgopc_nb_cargs_in_def(opc);
 
-  const TCGOpDef &def = tcg_op_defs[opc];
-#endif
-
-  int nb_oargs = jv_tcgopc_nb_oargs_in_def(opc);
-  int nb_iargs = jv_tcgopc_nb_iargs_in_def(opc);
-  int nb_cargs = jv_tcgopc_nb_cargs_in_def(opc);
-
-#if 0
-  if (IsVerbose())
+  if (IsVeryVerbose())
     HumanOut() << llvm::formatv("{0} {1}:{2}:{3}\n",
                                 jv_tcgopc_name_in_def(opc),
                                 nb_oargs, nb_iargs, nb_cargs);
-#endif
 
   auto output_arg = [&](int i) -> TCGTemp * {
     assert(i < nb_oargs);
@@ -9958,8 +9962,11 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
     assert(i < nb_cargs);
     return op->args[nb_oargs + nb_iargs + i];
   };
+  auto input_label = [&](int i) -> TCGLabel * {
+    return reinterpret_cast<TCGLabel *>(const_arg(i));
+  };
 
-  /* Set two 32 bit registers from a 64 bit value. */
+  /* Set two 32 bit registers from a 64 bit value (see tci_write_reg64). */
   auto write_reg64 = [&](TCGTemp *high, TCGTemp *low, llvm::Value *value) -> void {
     assert(TCG_TARGET_REG_BITS == 32);
     assert(value->getType()->isIntegerTy(64));
@@ -9969,7 +9976,7 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
                         IRB.getInt32Ty()), high);
   };
 
-  /* Create a 64 bit value from two 32 bit values. */
+  /* Create a 64 bit value from two 32 bit values (see tci_uint64). */
   auto uint64 = [&](llvm::Value *high, llvm::Value *low) -> llvm::Value * {
     assert(high->getType()->isIntegerTy(32));
     assert(low->getType()->isIntegerTy(32));
@@ -10002,8 +10009,6 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
   };
 
   auto do_qemu_st = [&](llvm::Value *Addr, llvm::Value *Val, MemOpIdx oi) -> void {
-    assert(Val->getType()->isIntegerTy(64));
-
     MemOp mop = get_memop(oi);
     assert(!(mop & MO_SIGN));
 
@@ -10023,8 +10028,13 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
   };
 
   auto do_ld_or_store = [&](bool IsLoad, unsigned bits, bool Signed) -> void {
-    TCGArg off = const_arg(0);
+    SignedTCGArg off = const_arg(0);
     TCGTemp *ptr_tmp = input_arg(IsLoad ? 0 : 1);
+
+    if (off < 0) {
+      curiosity("negative access into env (" + std::to_string(off) + ")");
+      return;
+    }
 
     if (temp_idx(ptr_tmp) == tcg_env_index) {
       if (IsLoad) {
@@ -10055,9 +10065,11 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
 #endif
 
         default:
-          if (IsVerbose())
+          if (IsVerbose()) {
+  HumanOut() << llvm::formatv("hello up there: {0}\n", "1");
             curiosity("load(env+" + std::to_string(off) + ") @ " +
                       taddr2str(lstaddr, false));
+          }
           break;
         }
       } else {
@@ -10082,9 +10094,11 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
 #endif
 
         default:
-          if (IsVerbose())
+          if (IsVerbose()) {
+  HumanOut() << llvm::formatv("hello up there: {0}\n", "2");
             curiosity("store(env+" + std::to_string(off) + ") @ " +
                       taddr2str(lstaddr, false));
+          }
           break;
         }
       }
@@ -10201,7 +10215,7 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
     break;
 
   case INDEX_op_set_label: {
-    llvm::BasicBlock* lblB = LabelVec.at(arg_label(op->args[0])->id);
+    llvm::BasicBlock* lblB = LabelVec.at(input_label(0)->id);
     assert(lblB);
 
     if (!IRB.GetInsertBlock()->getTerminator())
@@ -10218,8 +10232,6 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
     break;
 
   case INDEX_op_call: {
-    nb_oargs = TCGOP_CALLO(op);
-    nb_iargs = TCGOP_CALLI(op);
     const char *helper_nm = jv_tcg_find_helper(op);
 
     //
@@ -10261,7 +10273,7 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
             ArgVec.push_back(get(ts));
             ++iarg_idx;
           } else {
-            assert(false);
+            die("");
           }
         } else if (ParamTy->isIntegerTy(64)) {
           if (ts->type == TCG_TYPE_I64) {
@@ -10283,18 +10295,21 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
                                            llvm::APInt(64, 32)));
             ArgVec.push_back(combined);
           } else {
-            assert(false);
+            die("");
           }
         } else {
-          assert(false);
+          die("");
         }
       } else {
-        assert(false);
+        die("");
       }
     }
 
-    assert(ArgVec.size() == hf.F->arg_size());
-    assert(iarg_idx == nb_iargs); /* confirm we consumed all inputs */
+    if (unlikely(ArgVec.size() != hf.F->arg_size()) ||
+        iarg_idx != nb_iargs) { /* confirm we consumed all inputs */
+      die("(1) unhandled number of inputs (" + std::to_string(nb_iargs) +
+          ") for helper " + hf.F->getName().str());
+    }
 
     //
     // does the helper function take a CPUState* parameter?
@@ -10347,31 +10362,36 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
     //
     // does the helper have an output?
     //
-    if (nb_oargs > 0) {
-      if (nb_oargs == 1) {
-        TCGTemp *dst = arg_temp(op->args[0]);
+    if (nb_oargs == 0)
+      break;
 
-        set(Ret, dst);
-      } else if (nb_oargs == 2) {
-        TCGTemp *dst1 = arg_temp(op->args[0]);
-        TCGTemp *dst2 = arg_temp(op->args[1]);
+    if (nb_oargs == 1) {
+      TCGTemp *dst = arg_temp(op->args[0]);
 
-        assert(dst1->type == TCG_TYPE_I32);
-        assert(dst2->type == TCG_TYPE_I32);
+      set(Ret, dst);
+      break;
+    } else if (nb_oargs == 2) {
+      TCGTemp *dst1 = arg_temp(op->args[0]);
+      TCGTemp *dst2 = arg_temp(op->args[1]);
 
-        assert(FTy->getReturnType()->isIntegerTy(64));
-
+      if (dst1->type == TCG_TYPE_I32 &&
+          dst2->type == TCG_TYPE_I32 &&
+          FTy->getReturnType()->isIntegerTy(64)) {
         set(IRB.CreateTrunc(Ret, IRB.getInt32Ty()), dst1);
         set(IRB.CreateTrunc(IRB.CreateLShr(Ret, llvm::APInt(64, 32)),
                             IRB.getInt32Ty()),
             dst2);
+        break;
       } else {
-        __builtin_trap();
-        __builtin_unreachable();
+        llvm::errs() << llvm::formatv(
+            "nb_oargs={0} dst1 bits {1} dst2 bits {2}\n", nb_oargs,
+            bitsOfTCGType(dst1->type),
+            bitsOfTCGType(dst2->type));
       }
     }
 
-    break;
+    die("(2) unhandled number of outputs (" + std::to_string(nb_oargs) +
+        ") for helper " + hf.F->getName().str());
   }
 
 #if 1
@@ -10442,6 +10462,7 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
 
 #undef __EXT_OP
 
+#if 0
   case INDEX_op_qemu_ld_a32_i32:
     taddr = IRB.CreateIntCast(get(input_arg(0)), IRB.getInt32Ty(), false);
     goto do_ld_i32;
@@ -10510,6 +10531,91 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
   do_st_i64:
     do_qemu_st(taddr, tmp64, const_arg(0));
     break;
+#else
+        case INDEX_op_qemu_ld_i32:
+#if 0
+            tci_args_rrm(insn, &r0, &r1, &oi);
+            taddr = regs[r1];
+            regs[r0] = tci_qemu_ld(env, taddr, oi, tb_ptr);
+#else
+            taddr = get(input_arg(0));
+            set(do_qemu_ld(taddr, const_arg(0)), output_arg(0));
+#endif
+            break;
+
+        case INDEX_op_qemu_ld_i64:
+#if 0
+            if (TCG_TARGET_REG_BITS == 64) {
+                tci_args_rrm(insn, &r0, &r1, &oi);
+                taddr = regs[r1];
+                taddr = get(input_arg(0));
+            } else {
+                tci_args_rrrr(insn, &r0, &r1, &r2, &r3);
+                taddr = regs[r2];
+                oi = regs[r3];
+            }
+#else
+            taddr = get(input_arg(0));
+#endif
+#if 0
+            tmp64 = tci_qemu_ld(env, taddr, oi, tb_ptr);
+#else
+            tmp64 = do_qemu_ld(taddr, const_arg(0));
+#endif
+            if (TCG_TARGET_REG_BITS == 32) {
+#if 0
+                tci_write_reg64(regs, r1, r0, tmp64);
+#else
+                write_reg64(output_arg(1), output_arg(0), tmp64);
+#endif
+            } else {
+#if 0
+                regs[r0] = tmp64;
+#else
+                set(tmp64, output_arg(0));
+#endif
+            }
+            break;
+
+        case INDEX_op_qemu_st_i32:
+#if 0
+            tci_args_rrm(insn, &r0, &r1, &oi);
+            taddr = regs[r1];
+            tci_qemu_st(env, taddr, regs[r0], oi, tb_ptr);
+#else
+            taddr = get(input_arg(1));
+            do_qemu_st(taddr, get(input_arg(0)), const_arg(0));
+#endif
+            break;
+
+        case INDEX_op_qemu_st_i64:
+            if (TCG_TARGET_REG_BITS == 64) {
+#if 0
+                tci_args_rrm(insn, &r0, &r1, &oi);
+                tmp64 = regs[r0];
+                taddr = regs[r1];
+#else
+                tmp64 = get(input_arg(0));
+                taddr = get(input_arg(1));
+#endif
+            } else {
+#if 0
+                tci_args_rrrr(insn, &r0, &r1, &r2, &r3);
+                tmp64 = tci_uint64(regs[r1], regs[r0]);
+                taddr = regs[r2];
+                oi = regs[r3];
+#else
+                tmp64 = uint64(get(input_arg(1)), get(input_arg(0)));
+                taddr = get(input_arg(2));
+#endif
+            }
+#if 0
+            tci_qemu_st(env, taddr, tmp64, oi, tb_ptr);
+#else
+            do_qemu_st(taddr, tmp64, const_arg(0));
+#endif
+            break;
+#endif
 
 #define __ARITH_OP(opc_name, LLVMOp, bits)                                     \
   case opc_name: {                                                             \
@@ -10730,7 +10836,6 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
   { ; }
 #endif
 
-
 //
 // store to host memory
 //
@@ -10828,7 +10933,7 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
 
 
   case INDEX_op_br: {
-    llvm::BasicBlock* lblB = LabelVec.at(arg_label(op->args[0])->id);
+    llvm::BasicBlock* lblB = LabelVec.at(input_label(0)->id);
     IRB.CreateBr(lblB);
     IRB.ClearInsertionPoint();
     EnsureInsertPoint();
@@ -10837,14 +10942,32 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
 
 #define __OP_BRCOND_COND(tcg_cond, cond)                                       \
   case tcg_cond:                                                               \
-    V = IRB.CreateICmp##cond(get(arg_temp(op->args[0])),                       \
-                             get(arg_temp(op->args[1])));                      \
+    V = IRB.CreateICmp##cond(get(input_arg(0)),                                \
+                             get(input_arg(1)));                               \
     break;
 
 #define __OP_BRCOND(opc_name, bits)                                            \
   case opc_name: {                                                             \
-    llvm::Value *V;                                                            \
-    switch (op->args[2]) {                                                     \
+    llvm::Value *V = nullptr;                                                  \
+    llvm::Value *V_ = nullptr;                                                 \
+    switch (const_arg(0)) {                                                    \
+    default:                                                                   \
+      die("__OP_BRCOND: unknown cond");                                        \
+    case TCG_COND_TSTEQ:                                                       \
+      V_ = IRB.CreateAnd(get(input_arg(0)), get(input_arg(1)));                \
+      V = IRB.CreateICmpEQ(V_, llvm::Constant::getNullValue(V_->getType()));   \
+      break;                                                                   \
+    case TCG_COND_TSTNE:                                                       \
+      V_ = IRB.CreateAnd(get(input_arg(0)), get(input_arg(1)));                \
+      V = IRB.CreateICmpNE(V_, llvm::Constant::getNullValue(V_->getType()));   \
+      break;                                                                   \
+    case TCG_COND_NEVER:                                                       \
+      V = IRB.getFalse();                                                      \
+      break;                                                                   \
+    case TCG_COND_ALWAYS:                                                      \
+      V = IRB.getTrue();                                                       \
+      break;                                                                   \
+                                                                               \
       __OP_BRCOND_COND(TCG_COND_EQ, EQ)                                        \
       __OP_BRCOND_COND(TCG_COND_NE, NE)                                        \
       __OP_BRCOND_COND(TCG_COND_LT, SLT)                                       \
@@ -10855,10 +10978,9 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
       __OP_BRCOND_COND(TCG_COND_GEU, UGE)                                      \
       __OP_BRCOND_COND(TCG_COND_LEU, ULE)                                      \
       __OP_BRCOND_COND(TCG_COND_GTU, UGT)                                      \
-    default:                                                                   \
-      abort();                                                                 \
     }                                                                          \
-    unsigned lblidx = arg_label(op->args[3])->id;                              \
+    assert(V);                                                                 \
+    unsigned lblidx = input_label(1)->id;                                      \
     llvm::BasicBlock *lblBB = LabelVec.at(lblidx);                             \
     assert(lblBB);                                                             \
     llvm::BasicBlock *fallthruBB = llvm::BasicBlock::Create(                   \
@@ -10876,14 +10998,32 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
 
 #define __OP_SETCOND_COND(tcg_cond, cond)                                      \
   case tcg_cond:                                                               \
-    Val = IRB.CreateICmp##cond(get(arg_temp(op->args[1])),                     \
-                               get(arg_temp(op->args[2])));                    \
+    V = IRB.CreateICmp##cond(get(input_arg(0)),                                \
+                             get(input_arg(1)));                               \
     break;
 
 #define __OP_SETCOND(opc_name, bits)                                           \
   case opc_name: {                                                             \
-    llvm::Value *Val;                                                          \
-    switch (op->args[3]) {                                                     \
+    llvm::Value *V_ = nullptr;                                                 \
+    llvm::Value *V = nullptr;                                                  \
+    switch (const_arg(0)) {                                                    \
+    default:                                                                   \
+      die("__OP_SETCOND: unknown cond");                                       \
+    case TCG_COND_TSTEQ:                                                       \
+      V_ = IRB.CreateAnd(get(input_arg(0)), get(input_arg(1)));                \
+      V = IRB.CreateICmpEQ(V_, llvm::Constant::getNullValue(V_->getType()));   \
+      break;                                                                   \
+    case TCG_COND_TSTNE:                                                       \
+      V_ = IRB.CreateAnd(get(input_arg(0)), get(input_arg(1)));                \
+      V = IRB.CreateICmpNE(V_, llvm::Constant::getNullValue(V_->getType()));   \
+      break;                                                                   \
+    case TCG_COND_NEVER:                                                       \
+      V = IRB.getFalse();                                                      \
+      break;                                                                   \
+    case TCG_COND_ALWAYS:                                                      \
+      V = IRB.getTrue();                                                       \
+      break;                                                                   \
+                                                                               \
       __OP_SETCOND_COND(TCG_COND_EQ, EQ)                                       \
       __OP_SETCOND_COND(TCG_COND_NE, NE)                                       \
       __OP_SETCOND_COND(TCG_COND_LT, SLT)                                      \
@@ -10894,10 +11034,9 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
       __OP_SETCOND_COND(TCG_COND_GEU, UGE)                                     \
       __OP_SETCOND_COND(TCG_COND_LEU, ULE)                                     \
       __OP_SETCOND_COND(TCG_COND_GTU, UGT)                                     \
-    default:                                                                   \
-      die("unrecognized TCG_COND");                                            \
     }                                                                          \
-    set(IRB.CreateZExt(Val, IRB.getIntNTy(bits)), arg_temp(op->args[0]));      \
+    assert(V);                                                                 \
+    set(IRB.CreateZExt(V, IRB.getIntNTy(bits)), output_arg(0));                \
   } break;
 
     __OP_SETCOND(INDEX_op_setcond_i32, 32)
@@ -10908,14 +11047,32 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
 
 #define __OP_MOVCOND_COND(tcg_cond, cond)                                      \
   case tcg_cond:                                                               \
-    CondV = IRB.CreateICmp##cond(get(arg_temp(op->args[1])),                   \
-                                 get(arg_temp(op->args[2])));                  \
+    CondV = IRB.CreateICmp##cond(get(input_arg(0)),                            \
+                                 get(input_arg(1)));                           \
     break;
 
 #define __OP_MOVCOND(opc_name, bits)                                           \
   case opc_name: {                                                             \
-    llvm::Value *CondV;                                                        \
+    llvm::Value *V_ = nullptr;                                                 \
+    llvm::Value *CondV = nullptr;                                              \
     switch (op->args[5]) {                                                     \
+    default:                                                                   \
+      die("__OP_MOVCOND: unknown cond");                                       \
+    case TCG_COND_TSTEQ:                                                       \
+      V_ = IRB.CreateAnd(get(input_arg(0)), get(input_arg(1)));                \
+      CondV = IRB.CreateICmpEQ(V_, llvm::Constant::getNullValue(V_->getType())); \
+      break;                                                                   \
+    case TCG_COND_TSTNE:                                                       \
+      V_ = IRB.CreateAnd(get(input_arg(0)), get(input_arg(1)));                \
+      CondV = IRB.CreateICmpNE(V_, llvm::Constant::getNullValue(V_->getType())); \
+      break;                                                                   \
+    case TCG_COND_NEVER:                                                       \
+      CondV = IRB.getFalse();                                                  \
+      break;                                                                   \
+    case TCG_COND_ALWAYS:                                                      \
+      CondV = IRB.getTrue();                                                   \
+      break;                                                                   \
+                                                                               \
       __OP_MOVCOND_COND(TCG_COND_EQ, EQ)                                       \
       __OP_MOVCOND_COND(TCG_COND_NE, NE)                                       \
       __OP_MOVCOND_COND(TCG_COND_LT, SLT)                                      \
@@ -10926,8 +11083,6 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
       __OP_MOVCOND_COND(TCG_COND_GEU, UGE)                                     \
       __OP_MOVCOND_COND(TCG_COND_LEU, ULE)                                     \
       __OP_MOVCOND_COND(TCG_COND_GTU, UGT)                                     \
-    default:                                                                   \
-      die("unrecognized TCG_COND");                                            \
     }                                                                          \
     llvm::Value *SelV = IRB.CreateSelect(CondV,                                \
                                          get(arg_temp(op->args[3])),           \
@@ -11176,20 +11331,20 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
   case opc_name: {                                                             \
     assert(nb_oargs == 2);                                                     \
                                                                                \
-    TCGTemp *t0_low = arg_temp(op->args[0]);                                   \
-    TCGTemp *t0_high = arg_temp(op->args[1]);                                  \
+    TCGTemp *t0_low = output_arg(0);                                           \
+    TCGTemp *t0_high = output_arg(1);                                          \
                                                                                \
-    TCGTemp *t1_low = arg_temp(op->args[nb_oargs + 0]);                        \
-    TCGTemp *t1_high = arg_temp(op->args[nb_oargs + 1]);                       \
+    TCGTemp *t1_low = input_arg(0);                                            \
+    TCGTemp *t1_high = input_arg(1);                                           \
                                                                                \
-    TCGTemp *t2_low = arg_temp(op->args[nb_oargs + 2]);                        \
-    TCGTemp *t2_high = arg_temp(op->args[nb_oargs + 3]);                       \
+    TCGTemp *t2_low = input_arg(2);                                            \
+    TCGTemp *t2_high = input_arg(3);                                           \
                                                                                \
     assert(t0_low->type == TCG_TYPE_I##bits);                                  \
     assert(t0_high->type == TCG_TYPE_I##bits);                                 \
                                                                                \
     assert(t1_low->type == TCG_TYPE_I##bits);                                  \
-    assert(t1_low->type == TCG_TYPE_I##bits);                                  \
+    assert(t1_high->type == TCG_TYPE_I##bits);                                  \
                                                                                \
     assert(t2_low->type == TCG_TYPE_I##bits);                                  \
     assert(t2_high->type == TCG_TYPE_I##bits);                                 \
@@ -11223,7 +11378,66 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
   }
 
     __ADD2_OR_SUB2(INDEX_op_add2_i32, 32, true)
-    __ADD2_OR_SUB2(INDEX_op_add2_i64, 64, true)
+//  __ADD2_OR_SUB2(INDEX_op_add2_i64, 64, true) /* !!!!!!!!!!!!!!!!!!!!!!!!!! */
+
+  case INDEX_op_add2_i64: {                                                             \
+    assert(nb_oargs == 2);                                                     \
+
+    const auto bits = 64u;
+    const auto isAdd = true;
+                                                                               \
+    TCGTemp *t0_low = output_arg(0);                                           \
+    TCGTemp *t0_high = output_arg(1);                                          \
+                                                                               \
+    TCGTemp *t1_low = input_arg(0);                                            \
+    TCGTemp *t1_high = input_arg(1);                                           \
+                                                                               \
+    TCGTemp *t2_low = input_arg(2);                                            \
+    TCGTemp *t2_high = input_arg(3);                                           \
+                                                                               \
+    assert(t0_low->type == TCG_TYPE_I64);                                  \
+    assert(t0_high->type == TCG_TYPE_I64);                                 \
+                                                                               \
+    assert(t1_low->type == TCG_TYPE_I64);                                  \
+    assert(t1_high->type == TCG_TYPE_I64);                                  \
+                                                                               \
+    assert(t2_low->type == TCG_TYPE_I64);                                  \
+    unsigned x=t2_high->type;
+  HumanOut() << llvm::formatv("hello up there (AHHH): {0}\n", x);
+    llvm::errs() << "t2_high->type=" << t2_high->type << '\n';
+    llvm::outs() << "t2_high->type=" << t2_high->type << '\n';
+    if (t2_high->type != TCG_TYPE_I64) {\
+      die("wtf");
+    }\
+    assert(("what the fuck" BOOST_PP_STRINGIZE(__FILE__) BOOST_PP_STRINGIZE(__LINE__)) && t2_high->type == TCG_TYPE_I64);\
+                                                                               \
+    llvm::Value *t1_low_v = get(t1_low);                                       \
+    llvm::Value *t1_high_v = get(t1_high);                                     \
+                                                                               \
+    llvm::Value *t2_low_v = get(t2_low);                                       \
+    llvm::Value *t2_high_v = get(t2_high);                                     \
+                                                                               \
+    llvm::Value *t1 = IRB.CreateOr(                                            \
+        IRB.CreateZExt(t1_low_v, IRB.getIntNTy(2 * bits)),                     \
+        IRB.CreateShl(IRB.CreateZExt(t1_high_v, IRB.getIntNTy(2 * bits)),      \
+                      llvm::APInt(2 * bits, bits)));                           \
+                                                                               \
+    llvm::Value *t2 = IRB.CreateOr(                                            \
+        IRB.CreateZExt(t2_low_v, IRB.getIntNTy(2 * bits)),                     \
+        IRB.CreateShl(IRB.CreateZExt(t2_high_v, IRB.getIntNTy(2 * bits)),      \
+                      llvm::APInt(2 * bits, bits)));                           \
+                                                                               \
+    llvm::Value *t0 = (isAdd) ? IRB.CreateAdd(t1, t2) : IRB.CreateSub(t1, t2); \
+                                                                               \
+    llvm::Value *t0_low_v = IRB.CreateTrunc(t0, IRB.getIntNTy(bits));          \
+    llvm::Value *t0_high_v = IRB.CreateTrunc(                                  \
+        IRB.CreateLShr(t0, llvm::APInt(2 * bits, bits)), IRB.getIntNTy(bits)); \
+                                                                               \
+    set(t0_low_v, t0_low);                                                     \
+    set(t0_high_v, t0_high);                                                   \
+                                                                               \
+    break;                                                                     \
+  }
 
     __ADD2_OR_SUB2(INDEX_op_sub2_i32, 32, false)
     __ADD2_OR_SUB2(INDEX_op_sub2_i64, 64, false)

@@ -34,6 +34,7 @@
 #define _NAKED  __attribute__((naked))
 #define _NOINL  __attribute__((noinline))
 #define _NORET  __attribute__((noreturn))
+#define _FLATTEN __attribute__((flatten))
 #define _UNUSED __attribute__((unused))
 #define _HIDDEN __attribute__((visibility("hidden")))
 #define _SECTION(name) __attribute__((section(name)))

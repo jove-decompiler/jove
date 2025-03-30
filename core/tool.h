@@ -63,6 +63,9 @@ protected:
   void curiosity(const std::string &message);
 
   bool ShouldSleepOnCrash(void) const;
+  bool ShouldDeleteTemporaryFiles(void) const {
+    return !opt_NoDeleteTemporaryDir;
+  }
 
 public:
   llvm::raw_ostream &HumanOut(void) {

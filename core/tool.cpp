@@ -273,6 +273,7 @@ void Tool::HumanOutToFile(const std::string &path) {
 }
 
 [[noreturn]] void Tool::die(const std::string &reason) {
+  WithColor::error() << llvm::formatv("BUG ({0})\n", reason);
   throw std::runtime_error(reason);
 }
 
@@ -620,9 +621,15 @@ size_t BaseJVTool<MT>::jvCreationSize(void) {
 template <bool MT>
 std::string
 BaseJVTool<MT>::cow_copy_if_possible(const std::string &the_jv_filename) {
-  scoped_fd src_fd(::open(the_jv_filename.c_str(), O_RDONLY));
+  int err;
+  scoped_fd src_fd(({
+    int res = ::open(the_jv_filename.c_str(), O_RDONLY);
+    err = errno;
+    res;
+  }));
   if (!src_fd)
-    throw std::runtime_error("failed to open jv");
+    throw std::runtime_error("failed to open \"" + the_jv_filename + "\" (" +
+                             strerror(err) + '\"');
 
   std::string cow_filename(the_jv_filename + ".copy.XXXXXX");
 

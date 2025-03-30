@@ -90,7 +90,7 @@ int TCGDumpTool::Run(void) {
     return 1;
   }
 
-  jove::tiny_code_generator_t tcg;
+  tiny_code_generator_t tcg;
   disas_t disas;
 
   std::vector<uint8_t> BinBytes;
@@ -112,7 +112,7 @@ int TCGDumpTool::Run(void) {
         }
       }
 
-      jove::terminator_info_t T;
+      terminator_info_t T;
       std::tie(BBSize, T) = tcg.translate(A);
 
       //
@@ -153,39 +153,9 @@ int TCGDumpTool::Run(void) {
       //
       // print basic block terminator
       //
-      HumanOut() << llvm::formatv("{0} @ {1:x}\n",
-                                  description_of_terminator(T.Type),
-                                  T.Addr);
       HumanOut() << llvm::formatv("BBSize: {0}\n", BBSize);
 
-      switch (T.Type) {
-      case jove::TERMINATOR::UNCONDITIONAL_JUMP:
-        HumanOut() << llvm::formatv("Target: {0:x}\n", T._unconditional_jump.Target);
-        break;
-
-      case jove::TERMINATOR::CONDITIONAL_JUMP:
-        HumanOut() << llvm::formatv("Target: {0:x}\n", T._conditional_jump.Target);
-        HumanOut() << llvm::formatv("NextPC: {0:x}\n", T._conditional_jump.NextPC);
-        break;
-
-      case jove::TERMINATOR::INDIRECT_CALL:
-        HumanOut() << llvm::formatv("NextPC: {0:x}\n", T._indirect_call.NextPC);
-        break;
-
-      case jove::TERMINATOR::CALL:
-        HumanOut() << llvm::formatv("Target: {0:x}\n", T._call.Target);
-        HumanOut() << llvm::formatv("NextPC: {0:x}\n", T._call.NextPC);
-        break;
-
-      case jove::TERMINATOR::NONE:
-        HumanOut() << llvm::formatv("NextPC: {0:x}\n", T._none.NextPC);
-        break;
-
-      default:
-        break;
-      }
-
-      HumanOut() << '\n';
+      HumanOut() << description_of_terminator_info(T, false) << '\n';
     }
 
     return true;

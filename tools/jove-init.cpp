@@ -36,19 +36,8 @@ namespace obj = llvm::object;
 using llvm::WithColor;
 
 namespace jove {
-namespace {
 
-struct binary_state_t {
-  std::unique_ptr<llvm::object::Binary> Bin;
-  binary_state_t(const binary_t &b) {
-    Bin = B::Create(b.data());
-  }
-};
-
-}
-
-class InitTool
-    : public StatefulJVTool<ToolKind::Standard, binary_state_t, void, void> {
+class InitTool : public JVTool<ToolKind::Standard> {
   struct Cmdline {
     cl::opt<std::string> Prog;
     cl::opt<bool> Objdump;

@@ -23,7 +23,7 @@ static thread_local jove::terminator_info_t jv_ti;
 
 static thread_local unsigned has_register_thread;
 
-extern "C" const void *_jv_g2h(uint64_t Addr) {
+extern "C" void *_jv_g2h(uint64_t Addr) {
   if (unlikely(!jv_Bin))
     return NULL;
 
@@ -31,7 +31,7 @@ extern "C" const void *_jv_g2h(uint64_t Addr) {
   if (unlikely(!res))
     throw jove::g2h_exception(Addr);
 
-  return res;
+  return const_cast<void *>(res);
 }
 
 extern "C" void jv_term_is_cond_jump(uint64_t Target, uint64_t NextPC) {
@@ -188,9 +188,11 @@ tiny_code_generator_t::translate(uint64_t pc, uint64_t pc_end) {
   int max_insns = 64;
   TranslationBlock tb = {0};
   tb.flags = jv_hflags_of_cpu_env(jv_cpu);
-  tb.cflags = jv_cpu->tcg_cflags | CF_NOIRQ;
+  tb.cflags = jv_cpu->tcg_cflags | CF_NOIRQ | 0u /* CF_PCREL */;
 
+#if 0
   assert(!(tb.cflags & CF_PCREL));
+#endif
 
   //printf("tb.flags=0x%x\n", tb.flags);
   //printf("tb.cflags=0x%x\n", tb.cflags);
@@ -208,9 +210,13 @@ tiny_code_generator_t::translate(uint64_t pc, uint64_t pc_end) {
   jv_end_pc = pc_end;
 
   jv_tcg_func_start(s);
-  gen_intermediate_code(jv_cpu, &tb, &max_insns, pc, NULL);
+
+  CPUState *cs = jv_cpu;
+  tcg_ctx->cpu = cs;
+  cs->cc->tcg_ops->translate_code(cs, &tb, &max_insns, pc, _jv_g2h(pc));
 
   tb_size = tb.size;
+  assert(tb_size != 0);
 
 #if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
   if (jv_ti.Type == TERMINATOR::UNCONDITIONAL_JUMP ||

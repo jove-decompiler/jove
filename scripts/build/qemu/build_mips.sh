@@ -20,7 +20,7 @@ export PKG_CONFIG_LIBDIR=/usr/lib/mips-linux-gnu/pkgconfig
 
 if [ ! -f build.ninja ]; then
 
-../configure \
+AR=llvm-ar-19 RANLIB=llvm-ranlib-19 LD=ld.lld-19 ../configure \
   --target-list=mips-linux-user \
   --cc=clang-19 \
   --host-cc=clang-19 \
@@ -31,17 +31,20 @@ if [ ! -f build.ninja ]; then
   --cross-prefix=mips-linux-gnu- \
   --cpu=mips \
   --enable-tcg-interpreter \
+  --enable-lto \
+  --enable-tools \
   --disable-docs \
   --disable-install-blobs \
   --disable-qom-cast-debug \
   --disable-vhost-kernel \
   --disable-vhost-net \
-  --disable-vhost-user \
+  --enable-vhost-user \
   --disable-vhost-crypto \
   --disable-vhost-vdpa \
   --disable-plugins \
   --disable-stack-protector \
   --disable-capstone \
+  --disable-libdw \
   $EXTRACONF
 
 fi

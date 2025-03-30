@@ -96,6 +96,7 @@ cd $linux_path
 build_all_variants linux _carbon
 popd
 
+make -C $jove_path --output-sync all-helpers-mk -j$(nproc)
 make -C $jove_path --output-sync asm-offsets -j$(nproc)
 make -C $jove_path --output-sync utilities -j$(nproc)
 make -C $jove_path --output-sync tcg-constants -j$(nproc)

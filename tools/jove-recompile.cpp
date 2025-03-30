@@ -4,6 +4,7 @@
 
 #include <oneapi/tbb/parallel_invoke.h>
 
+#include <boost/filesystem.hpp>
 #include <boost/algorithm/string.hpp>
 #include <boost/format.hpp>
 #include <boost/graph/filtered_graph.hpp>
@@ -24,7 +25,6 @@
 #include <sstream>
 #include <string>
 #include <thread>
-#include <filesystem>
 
 #include <fcntl.h>
 #include <unistd.h>
@@ -33,7 +33,7 @@
 
 static void __warn(const char *file, int line);
 
-namespace fs = std::filesystem;
+namespace fs = boost::filesystem;
 namespace cl = llvm::cl;
 namespace obj = llvm::object;
 
@@ -214,10 +214,6 @@ class RecompileTool : public StatefulJVTool<ToolKind::SingleThreadedCopyOnWrite,
   using unordered_set = boost::unordered::unordered_flat_set<T>;
 
   bool IsCOFF = false;
-
-  inline fs::path a2r(const std::string &ap) {
-    return fs::relative(ap, "/");
-  }
 
 public:
   RecompileTool() : opts(JoveCategory) {}
@@ -418,7 +414,7 @@ int RecompileTool::Run(void) {
   //
   // gather dynamic linking information
   //
-  for_each_binary(std::execution::par_unseq, jv, [&](auto &b) {
+  for_each_binary(/* std::execution::par_unseq, */ jv, [&](auto &b) {
     if (!b.is_file())
       return;
 
@@ -428,7 +424,7 @@ int RecompileTool::Run(void) {
     std::tie(x.Base, x.End) = B::bounds_of_binary(*x.Bin);
 
     if (b.is_file())
-      x.chrooted_path = fs::path(opts.Output.getValue()) / a2r(b.path_str());
+      x.chrooted_path = fs::path(opts.Output.getValue()) / b.path_str();
 
     //
     // what is this binary called as far as dynamic linking goes?
@@ -511,14 +507,14 @@ int RecompileTool::Run(void) {
     // make rtld executable (chmod)
     //
     fs::permissions(chrooted_path, fs::perms::others_read |
-                                   fs::perms::others_exec |
+                                   fs::perms::others_exe |
 
                                    fs::perms::group_read |
-                                   fs::perms::group_exec |
+                                   fs::perms::group_exe |
 
                                    fs::perms::owner_read |
                                    fs::perms::owner_write |
-                                   fs::perms::owner_exec);
+                                   fs::perms::owner_exe);
 
     if (!state.for_binary(b).soname.empty()) {
       rtld_soname = state.for_binary(b).soname;
@@ -893,14 +889,14 @@ int RecompileTool::Run(void) {
     }
 
     fs::permissions(chrooted_path, fs::perms::others_read |
-                                   fs::perms::others_exec |
+                                   fs::perms::others_exe |
 
                                    fs::perms::group_read |
-                                   fs::perms::group_exec |
+                                   fs::perms::group_exe |
 
                                    fs::perms::owner_read |
                                    fs::perms::owner_write |
-                                   fs::perms::owner_exec);
+                                   fs::perms::owner_exe);
 
     B::_elf(*x.Bin, [&](ELFO &O) {
 

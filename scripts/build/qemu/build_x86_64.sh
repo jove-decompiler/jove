@@ -25,7 +25,7 @@ fi
 
 if [ ! -f build.ninja ]; then
 
-../configure \
+AR=llvm-ar-19 RANLIB=llvm-ranlib-19 LD=ld.lld-19 ../configure \
   --target-list=$TARGETLIST \
   --cc=clang-19 \
   --host-cc=clang-19 \
@@ -33,19 +33,23 @@ if [ ! -f build.ninja ]; then
   --objcc=clang-19 \
   --cpu=x86_64 \
   --enable-tcg-interpreter \
+  --enable-lto \
   --disable-werror \
   --disable-docs \
+  --enable-tools \
   --disable-install-blobs \
   --disable-qom-cast-debug \
   --disable-vhost-kernel \
   --disable-vhost-net \
-  --disable-vhost-user \
+  --enable-vhost-user \
+  --disable-vhost-user-blk-server \
   --disable-vhost-crypto \
   --disable-vhost-vdpa \
   --disable-plugins \
   --disable-capstone \
   --disable-stack-protector \
   --disable-capstone \
+  --disable-libdw \
   $EXTRACONF
 
 fi

@@ -301,7 +301,8 @@ void *ServerTool::ConnectionProc(void *arg) {
                     jvDefaultInitialSize() /* FIXME */);
 
   BOOST_SCOPE_DEFER [&] {
-    boost::interprocess::file_mapping::remove(tmpjv.c_str());
+    if (ShouldDeleteTemporaryFiles())
+      boost::interprocess::file_mapping::remove(tmpjv.c_str());
   };
 
   jv_t &jv(*jv_file.construct<jv_t>("JV")(jv_file));
