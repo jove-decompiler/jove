@@ -153,6 +153,12 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
     sed -Ei 's,^# (en_US\.UTF-8 .*)$,\1,' /etc/locale.gen && \
     dpkg-reconfigure locales
 
+RUN echo "deb http://deb.debian.org/debian bookworm-backports main" > /etc/apt/sources.list.d/backports.list && \
+    eatmydata apt-get update && \
+    eatmydata apt-get install --no-install-recommends -y -t bookworm-backports meson && \
+    eatmydata apt-get autoremove -y && \
+    eatmydata apt-get autoclean -y
+
 RUN export DEBIAN_FRONTEND=noninteractive && \
     dpkg --add-architecture mipsel && \
     eatmydata apt-get update && \
@@ -188,7 +194,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
 
 ADD . /jove/
 RUN /jove/scripts/ci_build_carbon_copy.sh
-RUN patch -p1 -d /usr/lib/python3/dist-packages -i /jove/patches/meson.diff
+RUN patch -p0 -d / -i /jove/patches/meson.diff
 RUN patch -p1 -d /jove/boost/libs/graph -i /jove/patches/boost-graph.diff
 RUN patch -p1 -d /jove/boost/libs/interprocess -i /jove/patches/boost-interprocess.diff
 RUN patch -p1 -d /jove/boost/libs/unordered -i /jove/patches/boost-unordered.diff
