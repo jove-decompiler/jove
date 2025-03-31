@@ -281,7 +281,7 @@ class JoveTester:
 
         # show user what we're doing
         if not self.unattended:
-          self.fake_run_ssh_command_for_user(jove_loop_args + input_args)
+          self.fake_run_ssh_command_for_user(jove_loop_args + inputs[0])
 
         # for good measure, in case there is new code we run into
         for i in range(0, 2):
