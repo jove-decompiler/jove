@@ -42,7 +42,7 @@ static _INL struct vdso_t _get_vdso(char *maps, const unsigned n) {
     }
   }
 
-   return (struct vdso_t){.ptr = NULL, .len = 0u};
+  return (struct vdso_t){.ptr = NULL, .len = 0u};
 }
 
 _NORET
