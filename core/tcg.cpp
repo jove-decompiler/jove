@@ -116,22 +116,6 @@ extern CPUState *jv_cpu;
 
 namespace jove {
 
-static const char *cstr_of_tcg_type(TCGType x) {
-#define ___CASE(text)                                                          \
-  if (x == BOOST_PP_CAT(TCG_TYPE_, text))                                      \
-    return BOOST_PP_STRINGIZE(text);
-
-  ___CASE(I32);
-  ___CASE(I64);
-  ___CASE(V64);
-  ___CASE(V128);
-  ___CASE(V256);
-
-#undef ___CASE
-
-  abort();
-}
-
 int tiny_code_generator_t::tcg_index_of_named_global(const char *name) {
   assert(tcg_ctx);
 
