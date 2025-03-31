@@ -10062,11 +10062,9 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
 #endif
 
         default:
-          if (IsVerbose()) {
-  HumanOut() << llvm::formatv("hello up there: {0}\n", "1");
+          if (IsVerbose())
             curiosity("load(env+" + std::to_string(off) + ") @ " +
                       taddr2str(lstaddr, false));
-          }
           break;
         }
       } else {
@@ -10091,11 +10089,9 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
 #endif
 
         default:
-          if (IsVerbose()) {
-  HumanOut() << llvm::formatv("hello up there: {0}\n", "2");
+          if (IsVerbose())
             curiosity("store(env+" + std::to_string(off) + ") @ " +
                       taddr2str(lstaddr, false));
-          }
           break;
         }
       }
