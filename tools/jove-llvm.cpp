@@ -1,7 +1,4 @@
 #include "qemu.tcg.h"
-
-using SignedTCGArg = std::make_signed_t<TCGArg>;
-
 #include "../qemu/include/jove.h"
 #include "asm-offsets.h"
 
@@ -11378,66 +11375,7 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
   }
 
     __ADD2_OR_SUB2(INDEX_op_add2_i32, 32, true)
-//  __ADD2_OR_SUB2(INDEX_op_add2_i64, 64, true) /* !!!!!!!!!!!!!!!!!!!!!!!!!! */
-
-  case INDEX_op_add2_i64: {                                                             \
-    assert(nb_oargs == 2);                                                     \
-
-    const auto bits = 64u;
-    const auto isAdd = true;
-                                                                               \
-    TCGTemp *t0_low = output_arg(0);                                           \
-    TCGTemp *t0_high = output_arg(1);                                          \
-                                                                               \
-    TCGTemp *t1_low = input_arg(0);                                            \
-    TCGTemp *t1_high = input_arg(1);                                           \
-                                                                               \
-    TCGTemp *t2_low = input_arg(2);                                            \
-    TCGTemp *t2_high = input_arg(3);                                           \
-                                                                               \
-    assert(t0_low->type == TCG_TYPE_I64);                                  \
-    assert(t0_high->type == TCG_TYPE_I64);                                 \
-                                                                               \
-    assert(t1_low->type == TCG_TYPE_I64);                                  \
-    assert(t1_high->type == TCG_TYPE_I64);                                  \
-                                                                               \
-    assert(t2_low->type == TCG_TYPE_I64);                                  \
-    unsigned x=t2_high->type;
-  HumanOut() << llvm::formatv("hello up there (AHHH): {0}\n", x);
-    llvm::errs() << "t2_high->type=" << t2_high->type << '\n';
-    llvm::outs() << "t2_high->type=" << t2_high->type << '\n';
-    if (t2_high->type != TCG_TYPE_I64) {\
-      die("wtf");
-    }\
-    assert(("what the fuck" BOOST_PP_STRINGIZE(__FILE__) BOOST_PP_STRINGIZE(__LINE__)) && t2_high->type == TCG_TYPE_I64);\
-                                                                               \
-    llvm::Value *t1_low_v = get(t1_low);                                       \
-    llvm::Value *t1_high_v = get(t1_high);                                     \
-                                                                               \
-    llvm::Value *t2_low_v = get(t2_low);                                       \
-    llvm::Value *t2_high_v = get(t2_high);                                     \
-                                                                               \
-    llvm::Value *t1 = IRB.CreateOr(                                            \
-        IRB.CreateZExt(t1_low_v, IRB.getIntNTy(2 * bits)),                     \
-        IRB.CreateShl(IRB.CreateZExt(t1_high_v, IRB.getIntNTy(2 * bits)),      \
-                      llvm::APInt(2 * bits, bits)));                           \
-                                                                               \
-    llvm::Value *t2 = IRB.CreateOr(                                            \
-        IRB.CreateZExt(t2_low_v, IRB.getIntNTy(2 * bits)),                     \
-        IRB.CreateShl(IRB.CreateZExt(t2_high_v, IRB.getIntNTy(2 * bits)),      \
-                      llvm::APInt(2 * bits, bits)));                           \
-                                                                               \
-    llvm::Value *t0 = (isAdd) ? IRB.CreateAdd(t1, t2) : IRB.CreateSub(t1, t2); \
-                                                                               \
-    llvm::Value *t0_low_v = IRB.CreateTrunc(t0, IRB.getIntNTy(bits));          \
-    llvm::Value *t0_high_v = IRB.CreateTrunc(                                  \
-        IRB.CreateLShr(t0, llvm::APInt(2 * bits, bits)), IRB.getIntNTy(bits)); \
-                                                                               \
-    set(t0_low_v, t0_low);                                                     \
-    set(t0_high_v, t0_high);                                                   \
-                                                                               \
-    break;                                                                     \
-  }
+    __ADD2_OR_SUB2(INDEX_op_add2_i64, 64, true)
 
     __ADD2_OR_SUB2(INDEX_op_sub2_i32, 32, false)
     __ADD2_OR_SUB2(INDEX_op_sub2_i64, 64, false)

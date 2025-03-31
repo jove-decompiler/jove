@@ -1,6 +1,4 @@
 #pragma once
-#include "jove/jove.h"
-
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -51,4 +49,11 @@ extern "C" {
 
 #ifdef __cplusplus
 }
-#endif
+
+#include <type_traits>
+
+namespace jove {
+using SignedTCGArg = std::make_signed_t<TCGArg>;
+}
+
+#endif /* __cplusplus */
