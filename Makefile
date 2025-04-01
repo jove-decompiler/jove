@@ -61,7 +61,7 @@ runtime_cflags = -std=gnu11 \
                  -Wno-missing-prototypes \
                  -Wno-missing-variable-declarations \
                  -Wno-gnu-zero-variadic-macro-arguments \
-                 -Ofast \
+                 -O3 \
                  -g \
                  -ffreestanding \
                  -fno-strict-aliasing \
