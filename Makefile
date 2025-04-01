@@ -68,6 +68,7 @@ runtime_cflags = -std=gnu11 \
                  -fno-stack-protector \
                  -fno-delete-null-pointer-checks \
                  -fwrapv \
+                 -fno-strict-overflow \
                  -fno-plt
 
 UTILS_LDFLAGS := -fuse-ld=lld \
