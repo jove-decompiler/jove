@@ -2,7 +2,7 @@
 
 #include "env.h"
 
-#include "rt.common.c.inc"
+#include "rt.c.inc"
 
 void _jove_inverse_thunk(void) {
   asm volatile("sd $v0,96($sp)"  "\n"

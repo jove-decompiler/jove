@@ -4,7 +4,7 @@
 
 _NAKED static void _jove_do_rt_sigreturn(void);
 
-#include "rt.common.c.inc"
+#include "rt.c.inc"
 
 void _jove_do_rt_sigreturn(void) {
   asm volatile("movl   $0xad,%eax\n"

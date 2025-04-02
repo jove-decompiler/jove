@@ -4,7 +4,7 @@
 
 typedef uint64_t jove_thunk_return_t;
 
-#include "jove.common.c.inc"
+#include "jove.c.inc"
 
 _HIDDEN
 void _jove_begin(uintptr_t a0,
