@@ -302,7 +302,7 @@ $(BINDIR)/$(1)/helpers/%.bc: $(BINDIR)/$(1)/helpers/%.c | ccopy
 
 $(BINDIR)/$(1)/helpers/%.c:
 	@mkdir -p $(BINDIR)/$(1)/helpers
-	$(CARBON_EXTRACT) --src $(QEMU_DIR) --bin $(call qemu_carbon_build_dir,$(1)) helper_$$* $$($(1)-$$*_EXTRICATE_ARGS) -o $$@
+	$(CARBON_EXTRACT) --src $(QEMU_DIR) --bin $(call qemu_carbon_build_dir,$(1)) --notfound-empty helper_$$* $$($(1)-$$*_EXTRICATE_ARGS) -o $$@
 
 .PHONY: check-helper-$(1)-%
 check-helper-$(1)-%: $(BINDIR)/$(1)/helpers/%.bc
