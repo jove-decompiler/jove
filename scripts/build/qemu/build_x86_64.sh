@@ -50,6 +50,7 @@ AR=llvm-ar-19 RANLIB=llvm-ranlib-19 LD=ld.lld-19 ../configure \
   --disable-stack-protector \
   --disable-capstone \
   --disable-libdw \
+  --enable-trace-backends=nop \
   $EXTRACONF
 
 fi
