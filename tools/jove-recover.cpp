@@ -25,8 +25,6 @@
 #include <asm/unistd.h>
 #include <sys/uio.h>
 
-#include "jove_macros.h"
-
 namespace fs = boost::filesystem;
 namespace cl = llvm::cl;
 

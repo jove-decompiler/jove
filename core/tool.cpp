@@ -284,6 +284,10 @@ void Tool::curiosity(const std::string &message) {
   HumanOut() << llvm::formatv("CURIOSITY: {0}\n", message);
 }
 
+void Tool::warn(const char *file, int line) {
+  HumanOut() << llvm::formatv("WARNING @ {0}:{1}\n", file, line);
+}
+
 bool Tool::ShouldSleepOnCrash(void) const {
   const char *const s = std::getenv("JOVE_SLEEP_ON_CRASH");
   return s && s[0] == '1';

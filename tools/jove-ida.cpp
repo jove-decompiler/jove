@@ -4,6 +4,7 @@
 #include "explore.h"
 #include "symbolizer.h"
 #include "tcg.h"
+#include "ansi.h"
 
 #include <llvm/Support/CommandLine.h>
 #include <llvm/Support/DataTypes.h>
@@ -20,8 +21,6 @@
 
 #include <algorithm>
 #include <fstream>
-
-#include "jove_macros.h"
 
 namespace obj = llvm::object;
 namespace fs = boost::filesystem;

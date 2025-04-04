@@ -27,8 +27,6 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 
-#include "jove_macros.h"
-
 namespace fs = boost::filesystem;
 namespace cl = llvm::cl;
 namespace obj = llvm::object;

@@ -9,8 +9,6 @@
 #include <llvm/Support/FormatVariadic.h>
 #include <llvm/Support/FileSystem.h>
 
-#include "jove_macros.h"
-
 namespace fs = boost::filesystem;
 namespace cl = llvm::cl;
 

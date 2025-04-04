@@ -13,6 +13,7 @@ static TCGContext *get_tcg_context() {
 #include "brkpt.h"
 #include "analyze.h"
 #include "win.h"
+#include "warn.h"
 
 #include <boost/algorithm/string/replace.hpp>
 #include <boost/container_hash/extensions.hpp>
@@ -75,7 +76,6 @@ static TCGContext *get_tcg_context() {
 #include <random>
 #include <set>
 
-#include "jove_macros.h"
 #include "jove_constants.h"
 
 extern "C" {

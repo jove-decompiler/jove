@@ -29,8 +29,6 @@
 #include <fcntl.h>
 #include <unistd.h>
 
-#include "jove_macros.h"
-
 static void __warn(const char *file, int line);
 
 namespace fs = boost::filesystem;

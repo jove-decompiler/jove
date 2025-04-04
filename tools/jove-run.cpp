@@ -4,6 +4,7 @@
 #include "crypto.h"
 #include "tcg.h"
 #include "explore.h"
+#include "ansi.h"
 
 #include <boost/filesystem.hpp>
 #include <boost/format.hpp>
@@ -27,8 +28,6 @@
 #include <sys/types.h>
 #include <sys/uio.h>
 #include <unistd.h>
-
-#include "jove_macros.h"
 
 namespace fs = boost::filesystem;
 namespace obj = llvm::object;

@@ -22,6 +22,8 @@ static constexpr bool IsI386 =
 #include "vdso.h"
 #include "symbolizer.h"
 #include "serialize.h"
+#include "warn.h"
+#include "ansi.h"
 
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/algorithm/string.hpp>
@@ -75,8 +77,6 @@ static constexpr bool IsI386 =
 #endif
 #include <sys/mman.h>
 //#include <linux/ptrace.h>
-
-#include "jove_macros.h"
 
 #define GET_INSTRINFO_ENUM
 #include "LLVMGenInstrInfo.hpp"

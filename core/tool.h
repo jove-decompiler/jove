@@ -61,6 +61,7 @@ protected:
 
   [[noreturn]] void die(const std::string &reason);
   void curiosity(const std::string &message);
+  void warn(const char *file, int line);
 
   bool ShouldSleepOnCrash(void) const;
   bool ShouldDeleteTemporaryFiles(void) const {

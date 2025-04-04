@@ -2,6 +2,7 @@
 #include "tcg.h"
 #include "B.h"
 #include "disas.h"
+#include "ansi.h"
 
 #include <boost/unordered/unordered_flat_set.hpp>
 
@@ -28,8 +29,6 @@
 
 #include <memory>
 #include <map>
-
-#include "jove_macros.h"
 
 namespace fs = boost::filesystem;
 namespace obj = llvm::object;

@@ -1,6 +1,7 @@
 #include "recovery.h"
 #include "util.h"
 #include "explore.h"
+#include "ansi.h"
 
 #include <stdexcept>
 
@@ -8,8 +9,6 @@
 
 #include <boost/filesystem.hpp>
 #include <boost/format.hpp>
-
-#include "jove_macros.h"
 
 namespace obj = llvm::object;
 namespace fs = boost::filesystem;
