@@ -370,7 +370,7 @@ endef
 $(foreach t,$(ALL_TARGETS),$(eval $(call target_template,$(t))))
 
 .PHONY: check-helpers
-check-helpers: $(foreach t,$(ALL_TARGETS),check-$(t))
+check-helpers: $(foreach t,$(ALL_TARGETS),check-helpers-$(t))
 
 .PHONY: ccopy
 ccopy: $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/linux.copy.h) \
