@@ -1969,7 +1969,7 @@ void _jove_check_return_address(uintptr_t RetAddr,
 //
 // 32-bit DFSan
 //
-extern struct shadow_t __df32_shadow_mem[65536];
+extern struct shadow_t __df32_shadow_mem[1u << 16];
 
 static dfsan_label *__df32_shadow_for(uint32_t A) {
   const uint16_t AddrUpperBits = A >> 16;
