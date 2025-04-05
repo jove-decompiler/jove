@@ -17,8 +17,10 @@ public:
   symbolizer_t();
   ~symbolizer_t();
 
-  std::string addr2line(const binary_t &, uint64_t Addr);
-  std::string addr2desc(const binary_t &, uint64_t Addr);
+  template <bool MT>
+  std::string addr2line(const binary_base_t<MT> &, uint64_t Addr);
+  template <bool MT>
+  std::string addr2desc(const binary_base_t<MT> &, uint64_t Addr);
 };
 
 }

@@ -8,9 +8,10 @@ namespace jove {
 
 class explorer_t;
 
+template <bool MT>
 class CodeRecovery {
   jv_file_t &jv_file;
-  jv_t &jv;
+  jv_base_t<MT> &jv;
 
   explorer_t &E;
 
@@ -18,31 +19,14 @@ class CodeRecovery {
 
   struct binary_state_t {
     std::unique_ptr<llvm::object::Binary> Bin;
-    std::vector<uint64_t> block_term_addr_vec;
 
-    binary_state_t(const binary_t &b) {
-      Bin = B::Create(b.data());
-
-      auto &ICFG = b.Analysis.ICFG;
-      block_term_addr_vec.resize(ICFG.num_vertices());
-
-      //
-      // FIXME we need to record the addresses of terminator instructions at each
-      // basic block, before the indices are messed with, since the code in
-      // jove.recover.c is hard-coded against the version of the jv
-      // that existed when jove-recompile was run.
-      //
-      for_each_basic_block_in_binary(std::execution::par_unseq,
-                                     b, [&](basic_block_t bb) {
-        block_term_addr_vec.at(index_of_basic_block(ICFG, bb)) = ICFG[bb].Term.Addr;
-      });
-    }
+    binary_state_t(const auto &b) { Bin = B::Create(b.data()); }
   };
 
-  jv_state_t<binary_state_t, void, void> state;
+  jv_state_t<binary_state_t, void, void, true, true, false, true, MT> state;
 
 public:
-  CodeRecovery(jv_file_t &, jv_t &, explorer_t &E, symbolizer_t &);
+  CodeRecovery(jv_file_t &, jv_base_t<MT> &, explorer_t &E, symbolizer_t &);
   ~CodeRecovery();
 
   uint64_t AddressOfTerminatorAtBasicBlock(binary_index_t BIdx,

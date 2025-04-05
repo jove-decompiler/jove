@@ -21,7 +21,8 @@ symbolizer_t::symbolizer_t() {
 
 symbolizer_t::~symbolizer_t() {}
 
-std::string symbolizer_t::addr2line(const binary_t &binary, uint64_t Addr) {
+template <bool MT>
+std::string symbolizer_t::addr2line(const binary_base_t<MT> &binary, uint64_t Addr) {
   if (!binary.is_file())
     return std::string();
 
@@ -57,7 +58,8 @@ std::string symbolizer_t::addr2line(const binary_t &binary, uint64_t Addr) {
 	 ":" + std::to_string(LnInfo.Column);
 }
 
-std::string symbolizer_t::addr2desc(const binary_t &binary, uint64_t Addr) {
+template <bool MT>
+std::string symbolizer_t::addr2desc(const binary_base_t<MT> &binary, uint64_t Addr) {
   if (Addr == 0 || ~Addr == 0)
     return "??";
 
@@ -66,12 +68,27 @@ std::string symbolizer_t::addr2desc(const binary_t &binary, uint64_t Addr) {
      % fs::path(binary.path_str()).filename().string()
      % Addr).str();
 
-  std::string src_desc(addr2line(binary, Addr));
+  std::string src_desc(addr2line<MT>(binary, Addr));
 
   if (!src_desc.empty())
     return desc + " [" + src_desc + "]";
   else
     return desc;
 }
+
+#define VALUES_TO_INSTANTIATE_WITH                                             \
+    ((true))                                                                   \
+    ((false))
+#define GET_VALUE(x) BOOST_PP_TUPLE_ELEM(0, x)
+
+#define DO_INSTANTIATE(r, data, elem)                                          \
+  template std::string symbolizer_t::addr2line<GET_VALUE(elem)>(               \
+      const binary_base_t<GET_VALUE(elem)> &, uint64_t Addr);
+BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, VALUES_TO_INSTANTIATE_WITH)
+
+#define DO_INSTANTIATE(r, data, elem)                                          \
+  template std::string symbolizer_t::addr2desc<GET_VALUE(elem)>(               \
+      const binary_base_t<GET_VALUE(elem)> &, uint64_t Addr);
+BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, VALUES_TO_INSTANTIATE_WITH)
 
 }
