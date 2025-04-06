@@ -84,16 +84,16 @@ function build_all_qemu_variants() {
 }
 
 pushd .
+cd $linux_path
+build_all_variants linux _carbon
+popd
+
+pushd .
 cd $qemu_path
 build_all_variants qemu _carbon
 build_all_variants qemu
 
 build_all_qemu_variants _carbon
-popd
-
-pushd .
-cd $linux_path
-build_all_variants linux _carbon
 popd
 
 make -C $jove_path --output-sync all-helpers-mk -j$(nproc)

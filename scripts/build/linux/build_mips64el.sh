@@ -21,7 +21,7 @@ if test "$#" = 1 ; then
     make -C .. "O=$(pwd)" $COMMON_ARGS JOVE_HELPERS=1 ARCH=mips 64r2el_defconfig BOARDS=boston
     alter_config
     fi
-    make -C .. "O=$(pwd)" $COMMON_ARGS JOVE_HELPERS=1 ARCH=mips lib/jove.o BOARDS=boston -j$(nproc)
+    make -C .. "O=$(pwd)" $COMMON_ARGS JOVE_HELPERS=1 ARCH=mips lib/jove.o lib/crc32.o BOARDS=boston -j$(nproc)
 
     exit 0
   fi

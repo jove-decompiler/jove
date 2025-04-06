@@ -1731,7 +1731,7 @@ struct jv_base_t {
         hash_to_binary(std::move(other.hash_to_binary)),
         cached_hashes(std::move(other.cached_hashes)),
         name_to_binaries(std::move(other.name_to_binaries)) {
-    for (binary_base_t<MT2> &b : other.Binaries)
+    for (auto &b : other.Binaries)
       Binaries.container().push_back(std::move(b));
   }
 
@@ -2808,9 +2808,9 @@ static inline void construct_bbmap(const jv_base_t<MT> &jv,
 
 template <bool MT>
 static inline binary_base_t<MT> &get_dynl(jv_base_t<MT> &jv) {
-  for (binary_base_t<MT> &binary : jv.Binaries) {
-    if (binary.IsDynamicLinker)
-      return binary;
+  for (auto &b : jv.Binaries) {
+    if (b.IsDynamicLinker)
+      return b;
   }
 
   throw std::runtime_error(std::string(__func__) + ": not found!");
@@ -2818,9 +2818,9 @@ static inline binary_base_t<MT> &get_dynl(jv_base_t<MT> &jv) {
 
 template <bool MT>
 static inline binary_base_t<MT> &get_vdso(jv_base_t<MT> &jv) {
-  for (binary_base_t<MT> &binary : jv.Binaries) {
-    if (binary.IsVDSO)
-      return binary;
+  for (auto &b : jv.Binaries) {
+    if (b.IsVDSO)
+      return b;
   }
 
   throw std::runtime_error(std::string(__func__) + ": not found!");
