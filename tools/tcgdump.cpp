@@ -102,7 +102,7 @@ int TCGDumpTool::Run(void) {
     if (!End)
       End = Addr + 32;
 
-    HumanOut() << llvm::formatv("{0:x}\n", Addr);
+    llvm::outs() << llvm::formatv("{0:x}\n", Addr);
 
     unsigned BBSize;
     for (uint64_t A = Addr; A < End; A += BBSize) {
@@ -129,7 +129,7 @@ int TCGDumpTool::Run(void) {
             Inst, InstLen, llvm::ArrayRef<uint8_t>(Ptr, BBSize), _A,
             llvm::nulls());
         if (!Disassembled) {
-          HumanOut() << llvm::formatv("failed to disassemble {0:x}\n", _A);
+          llvm::outs() << llvm::formatv("failed to disassemble {0:x}\n", _A);
           break;
         }
 
@@ -139,23 +139,23 @@ int TCGDumpTool::Run(void) {
           disas.IP->printInst(&Inst, _A, "", *disas.STI, StrStream);
         }
 
-        HumanOut() << llvm::formatv("{0:x} {1}\n", _A, inst_str);
+        llvm::outs() << llvm::formatv("{0:x} {1}\n", _A, inst_str);
       }
-      HumanOut() << '\n';
-      HumanOut().flush();
+      llvm::outs() << '\n';
+      llvm::outs().flush();
 
       //
       // print TCG
       //
       tcg.dump_operations();
-      HumanOut() << '\n';
+      llvm::outs() << '\n';
 
       //
       // print basic block terminator
       //
-      HumanOut() << llvm::formatv("BBSize: {0}\n", BBSize);
+      llvm::outs() << llvm::formatv("BBSize: {0}\n", BBSize);
 
-      HumanOut() << description_of_terminator_info(T, false) << '\n';
+      llvm::outs() << description_of_terminator_info(T, false) << '\n';
     }
 
     return true;
