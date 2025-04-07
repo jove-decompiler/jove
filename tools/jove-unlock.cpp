@@ -46,7 +46,6 @@ int UnlockTool::Run(void) {
 
                         bbprop.__force_reset_access();
                         bbprop.pub.__force_reset_access();
-                        bbprop.Parents.__force_reset_access();
         });
       });
 
