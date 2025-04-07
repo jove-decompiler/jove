@@ -321,8 +321,21 @@ protected:
     uint32_t in_header = 0; /* Header vs. normal decode. */
   } tracking;
 
-  static const uint64_t dummy_time;
   struct pev_event incoming_event;
+
+  void last_incoming_event(void) {
+    static const uint64_t dummy_time = std::numeric_limits<uint64_t>::max();
+
+    incoming_event.sample.time = &dummy_time;
+    incoming_event.sample.tsc =
+        std::numeric_limits<decltype(incoming_event.sample.tsc)>::max();
+  }
+
+  void clear_incoming_event(void) {
+    incoming_event.sample.time = nullptr;
+    incoming_event.sample.tsc =
+        std::numeric_limits<decltype(incoming_event.sample.tsc)>::max();
+  }
 
   using straight_line_t = basic_block_properties_t::Analysis_t::straight_line_t;
 
@@ -1250,18 +1263,14 @@ protected:
         //
         // no more sideband records.
         //
-        incoming_event.sample.time = &dummy_time;
-        incoming_event.sample.tsc =
-            std::numeric_limits<decltype(incoming_event.sample.tsc)>::max();
+        last_incoming_event();
         return 1;
       }
 
       //
       // load the next one up
       //
-      incoming_event.sample.time = nullptr;
-      incoming_event.sample.tsc =
-          std::numeric_limits<decltype(incoming_event.sample.tsc)>::max();
+      clear_incoming_event();
       sb_parser.load(incoming_event, *sb_it);
     }
 
@@ -1823,12 +1832,10 @@ public:
     this->config.begin = const_cast<uint8_t *>(this->aux_begin);
     this->config.end = const_cast<uint8_t *>(this->aux_end);
 
-    memset(&incoming_event, 0, sizeof(incoming_event));
     if (sb_it == sb.end()) {
-      incoming_event.sample.time = &dummy_time;
-      incoming_event.sample.tsc =
-          std::numeric_limits<decltype(incoming_event.sample.tsc)>::max();
+      last_incoming_event();
     } else {
+      clear_incoming_event();
       sb_parser.load(incoming_event, *sb_it);
     }
   }
@@ -2402,10 +2409,6 @@ public:
 
 #undef IsVerbose
 #undef IsVeryVerbose
-
-template <IPT_PARAMETERS_DCL, typename Derived>
-const uint64_t ipt_t<IPT_PARAMETERS_DEF, Derived>::dummy_time =
-    std::numeric_limits<uint64_t>::max();
 
 } // namespace jove
 
