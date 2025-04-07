@@ -569,6 +569,14 @@ protected:
     return (Engaged = RightExecMode() && RightProcess());
   }
 
+  void InvalidateCurrPoint(void) {
+    this->CurrPoint.Invalidate();
+
+    if constexpr (IsVeryVerbose()) {
+      fprintf(stderr, "%s\n", "<invalidated curr>");
+    }
+  }
+
   const bool ignore_trunc_aux;
   const bool gathered_bins;
 
@@ -1271,7 +1279,7 @@ protected:
     mapping_t mapping;
     if constexpr (ExeOnly) {
       if (!addr_intvl_contains(pstate.exeOnly.first, IP)) {
-        CurrPoint.Invalidate();
+        this->InvalidateCurrPoint();
         return 0;
       }
 
@@ -1285,7 +1293,7 @@ protected:
           fprintf(stderr, "%016" PRIx64 "\tunknown IP %016" PRIx64 "\n", offset,
                   (uint64_t)IP);
 
-        CurrPoint.Invalidate();
+        this->InvalidateCurrPoint();
         return 1;
       }
 
@@ -1295,7 +1303,7 @@ protected:
           fprintf(stderr, "%016" PRIx64 "\tambiguous IP %016" PRIx64 "\n",
                   offset, (uint64_t)IP);
 
-        CurrPoint.Invalidate();
+        this->InvalidateCurrPoint();
         return 1;
       }
 
@@ -1323,7 +1331,7 @@ protected:
         fprintf(stderr, "%016" PRIx64 "\tno section for %016" PRIx64 "\n",
                 offset, static_cast<uint64_t>(IP));
 
-      CurrPoint.Invalidate();
+      this->InvalidateCurrPoint();
       return 0;
     }
 
@@ -1337,7 +1345,7 @@ protected:
                     "%016" PRIx64 "\tBADIP O[%016" PRIx64 "] %s+%" PRIx64 "\n",
                     offset, IP, b.Name.c_str(), (uint64_t)Addr);
 
-          CurrPoint.Invalidate();
+          this->InvalidateCurrPoint();
           return 1;
         }
       }
@@ -1366,7 +1374,7 @@ protected:
             CurrPoint.SetTermAddr(SL.TermAddr);
             WentNoFurther = intvl_set_contains(SL.addrng, Addr);
           } catch (const infinite_loop_exception &) {
-            CurrPoint.Invalidate();
+            this->InvalidateCurrPoint();
           }
         } else {
           basic_block_index_t NewBBIdx;
@@ -1390,7 +1398,7 @@ protected:
             CurrPoint.SetAddr(SL.Addr);
             CurrPoint.SetTermAddr(SL.TermAddr);
           } catch (const infinite_loop_exception &) {
-            CurrPoint.Invalidate();
+            this->InvalidateCurrPoint();
           }
         } else {
           CurrPoint.SetBlockIndex(StraightLineSlow<false>(
@@ -1431,7 +1439,8 @@ protected:
       if constexpr (IsVeryVerbose())
         fprintf(stderr, "</IP>\n");
 
-      CurrPoint.Invalidate();
+      this->InvalidateCurrPoint();
+
       return 1;
     }
 
@@ -2367,7 +2376,7 @@ public:
               fprintf(stderr, "%016" PRIx64 "\tskipping IP %016" PRIx64 "\n", offset, (uint64_t)IP);
           }
 
-          CurrPoint.Invalidate();
+          this->InvalidateCurrPoint();
           break;
       }
 

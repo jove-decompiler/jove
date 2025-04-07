@@ -764,7 +764,7 @@ void process_packets(uint64_t offset, packet_type &the_packet) {
       if (likely(next_ip))
         this->on_ip(next_ip, offset);
       else
-        this->CurrPoint.Invalidate();
+        this->InvalidateCurrPoint();
     } else {
       if constexpr (IsVeryVerbose())
         if (this->RightProcess())
