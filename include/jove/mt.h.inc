@@ -2,6 +2,30 @@
 #error "only to be included inline in jove/jove.h"
 #endif
 
+typedef boost::interprocess::managed_mapped_file jv_file_t;
+typedef jv_file_t::segment_manager segment_manager_t;
+
+template <typename T>
+using ip_unique_ptr = boost::interprocess::managed_unique_ptr<T, jv_file_t>::type;
+
+typedef boost::interprocess::allocator<void, segment_manager_t>
+    ip_void_allocator_t;
+
+//
+// mutexes & locks
+//
+
+typedef boost::interprocess::interprocess_mutex ip_mutex;
+typedef boost::interprocess::interprocess_sharable_mutex ip_sharable_mutex;
+typedef boost::interprocess::interprocess_upgradable_mutex ip_upgradable_mutex;
+
+template <typename Mutex>
+using ip_scoped_lock = boost::interprocess::scoped_lock<Mutex>;
+template <typename Mutex>
+using ip_sharable_lock = boost::interprocess::sharable_lock<Mutex>;
+template <typename Mutex>
+using ip_upgradable_lock = boost::interprocess::upgradable_lock<Mutex>;
+
 struct UnlockTool;
 
 struct __do_nothing_t {
@@ -179,3 +203,91 @@ struct ip_mt_base_accessible {
 
 using ip_mt_base_accessible_spin = ip_mt_base_accessible<true>;
 using ip_mt_base_accessible_nospin = ip_mt_base_accessible<false>;
+
+//
+// strings
+//
+typedef boost::interprocess::allocator<char, segment_manager_t>
+    ip_char_allocator;
+typedef boost::interprocess::basic_string<char, std::char_traits<char>,
+                                          ip_char_allocator>
+    ip_string;
+
+static inline std::string un_ips(const ip_string &x) {
+  std::string res;
+  res.reserve(x.size());
+  std::copy(x.begin(), x.end(), std::back_inserter(res));
+  return res;
+}
+
+static inline ip_string &to_ips(ip_string &res, std::string_view x) {
+  res.clear();
+  res.reserve(x.size());
+  std::copy(x.begin(), x.end(), std::back_inserter(res));
+  return res;
+}
+
+struct ip_string_hash_t  {
+  using is_transparent = void;
+
+  template <typename A>
+  std::size_t operator()(const boost::interprocess::basic_string<char, std::char_traits<char>, A> &str) const noexcept {
+    return std::hash<std::string_view>{}(std::string_view(str.data(), str.size()));
+  }
+
+  std::size_t operator()(std::string_view sv) const noexcept {
+    return std::hash<std::string_view>{}(sv);
+  }
+
+  std::size_t operator()(const char *s) const noexcept {
+    return std::hash<std::string_view>{}(s);
+  }
+};
+
+struct ip_string_equal_t {
+  using is_transparent = void;
+
+  template <typename A>
+  bool operator()(
+      const boost::interprocess::basic_string<char, std::char_traits<char>, A> &lhs,
+      const boost::interprocess::basic_string<char, std::char_traits<char>, A> &rhs) const noexcept {
+    return lhs == rhs;
+  }
+
+  template <typename A>
+  bool operator()(const boost::interprocess::basic_string<char, std::char_traits<char>, A> &lhs,
+      std::string_view rhs) const noexcept {
+    return lhs == rhs;
+  }
+
+  template <typename A>
+  bool operator()(std::string_view lhs,
+                  const boost::interprocess::basic_string<char, std::char_traits<char>, A> &rhs) const noexcept {
+    return lhs == rhs;
+  }
+
+  bool operator()(std::string_view lhs, std::string_view rhs) const noexcept {
+    return lhs == rhs;
+  }
+
+  template <typename A>
+  bool operator()(const boost::interprocess::basic_string<char, std::char_traits<char>, A> &lhs,
+      const char *rhs) const noexcept {
+    return lhs == rhs;
+  }
+
+  template <typename A>
+  bool operator()(
+      const char *lhs,
+      const boost::interprocess::basic_string<char, std::char_traits<char>, A> &rhs) const noexcept {
+    return lhs == rhs;
+  }
+
+  bool operator()(std::string_view lhs, const char* rhs) const noexcept {
+    return lhs == rhs;
+  }
+
+  bool operator()(const char* lhs, std::string_view rhs) const noexcept {
+    return lhs == rhs;
+  }
+};
