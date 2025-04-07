@@ -1,5 +1,11 @@
 #pragma once
-#include "linux.copy.h" /* data structures from linux kernel come first */
+//
+// header-only data structures from the linux kernel:
+//
+// * linux/hashtable.h
+// * linux/list.h
+//
+#include "linux.copy.h" /* this should come first */
 
 #include <stdint.h>
 #include <stdbool.h>
