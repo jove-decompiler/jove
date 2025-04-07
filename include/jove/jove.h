@@ -904,8 +904,8 @@ struct basic_block_properties_t : public ip_mt_base_rw_accessible_nospin {
     };
   } Analysis;
 
-  class Parents_t : private ip_mt_base_accessible_spin {
-    boost::interprocess::offset_ptr<const ip_func_index_set> _p = nullptr;
+  class Parents_t {
+    AtomicOffsetPtr<const ip_func_index_set> _p;
 
     friend UnlockTool;
     friend basic_block_properties_t;
@@ -918,17 +918,14 @@ struct basic_block_properties_t : public ip_mt_base_rw_accessible_nospin {
 
     template <bool MT>
     void set(const ip_func_index_set &x) {
-      auto e_lck = this->exclusive_access<MT>();
-
-      _p = &x;
+      _p.Store(&x, MT ? std::memory_order_release : std::memory_order_relaxed);
     }
 
   public:
     template <bool MT>
     const ip_func_index_set &get(void) const {
-      auto s_lck = this->exclusive_access<MT>();
-
-      const ip_func_index_set *res = this->_p.get();
+      const ip_func_index_set *res =
+          _p.Load(MT ? std::memory_order_acquire : std::memory_order_relaxed);
       assert(res);
       return *res;
     }
@@ -1096,8 +1093,9 @@ private:
     Sj = other.Sj;
     Analysis = other.Analysis;
 
-    Parents._p = other.Parents._p;
-    other.Parents._p = nullptr;
+    Parents._p.Store(other.Parents._p.Load(std::memory_order_relaxed),
+                     std::memory_order_relaxed);
+    other.Parents._p.Store(nullptr, std::memory_order_relaxed);
 
     DynTargets._sm = other.DynTargets._sm;
     other.DynTargets._sm = nullptr;
