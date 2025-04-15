@@ -28,6 +28,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       libfreetype-dev:i386 \
                       libgav1-dev:i386 \
                       libgd3:i386 \
+                      libgdm-dev:i386 \
                       libglib2.0-dev:i386 \
                       libgnutls28-dev:i386 \
                       libgstreamer-plugins-base1.0-dev:i386 \
@@ -103,6 +104,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       libfontconfig-dev \
                       libfontconfig-dev \
                       libfreetype-dev \
+                      libgdm-dev \
                       libglib2.0-dev \
                       libgnutls28-dev \
                       libgraph-easy-perl \
@@ -155,7 +157,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
 
 RUN echo "deb http://deb.debian.org/debian bookworm-backports main" > /etc/apt/sources.list.d/backports.list && \
     eatmydata apt-get update && \
-    eatmydata apt-get install --no-install-recommends -y -t bookworm-backports meson && \
+    eatmydata apt-get install --no-install-recommends -y -t bookworm-backports meson libgl1-mesa-dri && \
     eatmydata apt-get autoremove -y && \
     eatmydata apt-get autoclean -y
 
@@ -195,6 +197,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
 ADD . /jove/
 RUN /jove/scripts/ci_build_carbon_copy.sh
 RUN patch -p0 -d / -i /jove/patches/meson.diff
+RUN patch -p1 -d /jove/wine -i /jove/patches/wine.diff
 RUN patch -p1 -d /jove/boost/libs/graph -i /jove/patches/boost-graph.diff
 RUN patch -p1 -d /jove/boost/libs/interprocess -i /jove/patches/boost-interprocess.diff
 RUN patch -p1 -d /jove/boost/libs/unordered -i /jove/patches/boost-unordered.diff
