@@ -1797,36 +1797,40 @@ public:
     if (this->process_args(this->ptdump_argc, this->ptdump_argv) != 0)
       throw std::runtime_error("failed to process ptdump arguments");
 
-    if (this->config.cpu.vendor) {
-      int errcode = pt_cpu_errata(&this->config.errata, &this->config.cpu);
-      if (errcode < 0)
-        throw std::runtime_error("failed to determine errata");
+    assert(this->config.cpu.vendor);
 
-      std::vector<uint8_t> zeros(sizeof(this->config.errata), 0);
-      if (memcmp(&this->config.errata, &zeros[0], sizeof(this->config.errata)) != 0) {
-        fprintf(stderr, "WARNING! CPU errata detected:");
+    fprintf(stderr, "FAMILY=%lx MODEL=%lx\n",
+            static_cast<unsigned long>(this->config.cpu.family),
+            static_cast<unsigned long>(this->config.cpu.model));
+
+    int errcode = pt_cpu_errata(&this->config.errata, &this->config.cpu);
+    if (errcode < 0)
+      throw std::runtime_error("failed to determine errata");
+
+    std::vector<uint8_t> zeros(sizeof(this->config.errata), 0);
+    if (memcmp(&this->config.errata, &zeros[0], sizeof(this->config.errata)) != 0) {
+      fprintf(stderr, "WARNING! CPU errata detected:");
 
 #define __ERRATA(x)                                                            \
-  do {                                                                         \
-    if (this->config.errata.x)                                                 \
-      fprintf(stderr, " " #x);                                                 \
-  } while (false)
+do {                                                                         \
+  if (this->config.errata.x)                                                 \
+    fprintf(stderr, " " #x);                                                 \
+} while (false)
 
-        __ERRATA(bdm70);
-        __ERRATA(bdm64);
-        __ERRATA(skd007);
-        __ERRATA(skd022);
-        __ERRATA(skd010);
-        __ERRATA(skl014);
-        __ERRATA(apl12);
-        __ERRATA(apl11);
-        __ERRATA(skl168);
-        __ERRATA(skz84);
+      __ERRATA(bdm70);
+      __ERRATA(bdm64);
+      __ERRATA(skd007);
+      __ERRATA(skd022);
+      __ERRATA(skd010);
+      __ERRATA(skl014);
+      __ERRATA(apl12);
+      __ERRATA(apl11);
+      __ERRATA(skl168);
+      __ERRATA(skz84);
 
 #undef __ERRATA
 
-        fprintf(stderr, "\n");
-      }
+      fprintf(stderr, "\n");
     }
 
     this->config.begin = const_cast<uint8_t *>(this->aux_begin);
