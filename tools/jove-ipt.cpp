@@ -339,6 +339,9 @@ int IPTTool::Run(void) {
           Arg("#" + std::to_string(gid));
         }
 
+        if (IsCOFF)
+          Arg(locator().wine(IsTarget32));
+
         Arg(opts.Prog);
 
         for (const std::string &s : opts.Args)
