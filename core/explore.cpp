@@ -37,7 +37,7 @@ function_index_t explorer_t::_explore_function(binary_base_t<MT> &b,
     if constexpr (MT) {
       inserted = b.fnmap.try_emplace_or_cvisit(
           Addr, b, std::ref(Idx),
-          [&](const typename fnmap_t<MT>::value_type &x) { Idx = x.second; });
+          [&](const typename fnmap_t<MT>::value_type &x) { Idx = static_cast<function_index_t>(x.second); });
     } else {
       auto it = b.fnmap.find(Addr);
       if (it == b.fnmap.end()) {
@@ -45,7 +45,7 @@ function_index_t explorer_t::_explore_function(binary_base_t<MT> &b,
         assert(inserted);
       } else {
         inserted = false;
-        Idx = (*it).second;
+        Idx = static_cast<function_index_t>((*it).second);
       }
     }
 
@@ -328,7 +328,9 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_base_t<MT> &b,
     if constexpr (MT) {
       inserted = b.bbbmap.try_emplace_or_cvisit(
           Addr, b, std::ref(Idx), static_cast<taddr_t>(Addr),
-          [&](const typename bbbmap_t<MT>::value_type &x) { Idx = x.second; });
+          [&](const typename bbbmap_t<MT>::value_type &x) {
+            Idx = static_cast<basic_block_index_t>(x.second);
+          });
     } else {
       auto it = b.bbbmap.find(Addr);
       if (it == b.bbbmap.end()) {
@@ -339,7 +341,7 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_base_t<MT> &b,
         assert(inserted);
       } else {
         inserted = false;
-        Idx = (*it).second;
+        Idx = static_cast<basic_block_index_t>((*it).second);
       }
     }
 

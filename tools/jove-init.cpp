@@ -339,7 +339,7 @@ int InitTool::Run(void) {
           exit(1);
         }
 
-        return std::move(b);
+        return binary_t(std::move(b));
       });
 
   jv.Binaries.at(0).IsExecutable = true;

@@ -100,14 +100,15 @@ struct binary_base_t;
 struct allocates_basic_block_t {
   basic_block_index_t BBIdx = invalid_basic_block_index;
 
-  allocates_basic_block_t () noexcept = default;
+  explicit allocates_basic_block_t () noexcept = default;
 
   // allocates (creates) new basic block in binary, stores index
   template <bool MT>
-  inline allocates_basic_block_t(binary_base_t<MT> &b, basic_block_index_t &store,
-                                 taddr_t Addr) noexcept;
+  explicit inline allocates_basic_block_t(binary_base_t<MT> &b,
+                                          basic_block_index_t &store,
+                                          taddr_t Addr) noexcept;
 
-  operator basic_block_index_t() const { return BBIdx; }
+  explicit operator basic_block_index_t() const { return BBIdx; }
 };
 
 template <bool MT>
@@ -161,13 +162,14 @@ struct BBMap_t : public ip_base_rw_accessible_nospin<MT> {
 struct allocates_function_t {
   function_index_t FIdx = invalid_function_index;
 
-  allocates_function_t() noexcept = default;
+  explicit allocates_function_t() noexcept = default;
 
   // allocates (creates) new function in binary, stores index
   template <bool MT>
-  allocates_function_t(binary_base_t<MT> &b, function_index_t &store) noexcept;
+  explicit allocates_function_t(binary_base_t<MT> &b,
+                                function_index_t &store) noexcept;
 
-  operator function_index_t() const { return FIdx; }
+  explicit operator function_index_t() const { return FIdx; }
 };
 
 template <bool MT>
@@ -401,9 +403,9 @@ struct basic_block_properties_t : public ip_mt_base_rw_accessible_nospin {
     this->Analysis.Stale = true;
   }
 
-  basic_block_properties_t() noexcept = default;
+  explicit basic_block_properties_t() noexcept = default;
 
-  basic_block_properties_t(basic_block_properties_t &&other) noexcept {
+  explicit basic_block_properties_t(basic_block_properties_t &&other) noexcept {
     moveFrom(std::move(other));
   }
 
@@ -422,7 +424,7 @@ struct basic_block_properties_t : public ip_mt_base_rw_accessible_nospin {
     }
   }
 
-  basic_block_properties_t(const basic_block_properties_t &) = delete;
+  explicit basic_block_properties_t(const basic_block_properties_t &) = delete;
   basic_block_properties_t &operator=(const basic_block_properties_t &) = delete;
 
 private:
@@ -610,14 +612,14 @@ struct function_t {
   }
 
   template <bool MT>
-  function_t(binary_base_t<MT> &, function_index_t) noexcept;
-  function_t(segment_manager_t *) noexcept; /* XXX used by serialize */
-  function_t() = delete;
+  explicit function_t(binary_base_t<MT> &, function_index_t) noexcept;
+  explicit function_t(segment_manager_t *) noexcept; /* XXX used by serialize */
+  explicit function_t() = delete;
 
-  function_t(function_t &&) noexcept = default;
+  explicit function_t(function_t &&) noexcept = default;
   function_t &operator=(function_t &&) noexcept = default;
 
-  function_t(const function_t &) = delete;
+  explicit function_t(const function_t &) = delete;
   function_t &operator=(const function_t &) = delete;
 };
 
@@ -672,13 +674,13 @@ struct binary_base_t {
           ICFG(jv_file),
           objdump(jv_file.get_segment_manager()) {}
 
-    Analysis_t(Analysis_t &&other) noexcept
+    explicit Analysis_t(Analysis_t &&other) noexcept
         : EntryFunction(std::move(other.EntryFunction)),
           Functions(std::move(other.Functions)),
           ICFG(std::move(other.ICFG)),
           objdump(std::move(other.objdump)) {}
 
-    Analysis_t(typename binary_base_t<!MT>::Analysis_t &&other) noexcept
+    explicit Analysis_t(typename binary_base_t<!MT>::Analysis_t &&other) noexcept
         : EntryFunction(std::move(other.EntryFunction)),
           Functions(std::move(other.Functions)),
           ICFG(std::move(other.ICFG)),
@@ -776,7 +778,7 @@ struct binary_base_t {
         Analysis(jv_file) {}
 
   template <bool MT2>
-  binary_base_t(binary_base_t<MT2> &&other) noexcept
+  explicit binary_base_t(binary_base_t<MT2> &&other) noexcept
       : Idx(other.Idx),
 
         bbbmap(std::move(other.bbbmap)),
@@ -829,8 +831,8 @@ struct binary_base_t {
     return *this;
   }
 
-  binary_base_t() = delete;
-  binary_base_t(const binary_base_t &) = delete;
+  explicit binary_base_t() = delete;
+  explicit binary_base_t(const binary_base_t &) = delete;
   binary_base_t &operator=(const binary_base_t &) = delete;
 };
 
@@ -894,7 +896,7 @@ struct AddOptions_t;
 struct adds_binary_t {
   binary_index_t BIdx = invalid_basic_block_index;
 
-  adds_binary_t() = default;
+  explicit adds_binary_t() = default;
 
   explicit adds_binary_t(binary_index_t BIdx) noexcept : BIdx(BIdx) {
     assert(is_binary_index_valid(BIdx));
@@ -902,22 +904,22 @@ struct adds_binary_t {
 
   // adds new binary, stores index
   template <bool MT>
-  adds_binary_t(binary_index_t &out,
-                jv_file_t &,
-                jv_base_t<MT> &,
-                explorer_t &,
-                get_data_t get_data,
-                const hash_t &,
-                const char *name,
-                const AddOptions_t &) noexcept(false);
+  explicit adds_binary_t(binary_index_t &out,
+                         jv_file_t &,
+                         jv_base_t<MT> &,
+                         explorer_t &,
+                         get_data_t get_data,
+                         const hash_t &,
+                         const char *name,
+                         const AddOptions_t &) noexcept(false);
 
   // adds new binary, stores index
   template <bool MT>
-  adds_binary_t(binary_index_t &out,
-                jv_base_t<MT> &,
-                binary_base_t<MT> &&) noexcept;
+  explicit adds_binary_t(binary_index_t &out,
+                         jv_base_t<MT> &,
+                         binary_base_t<MT> &&) noexcept;
 
-  operator binary_index_t() const { return BIdx; }
+  explicit operator binary_index_t() const { return BIdx; }
 };
 
 struct JoveBinaryHash {
@@ -1003,18 +1005,25 @@ struct jv_base_t {
         cached_hashes(jv_file.get_segment_manager()),
         name_to_binaries(jv_file.get_segment_manager()) {}
 
-  template <bool MT2>
-  jv_base_t(jv_base_t<MT2> &&other, jv_file_t &jv_file) noexcept
+  explicit jv_base_t(jv_base_t<MT> &&other, jv_file_t &jv_file) noexcept
+      : Binaries(std::move(other.Binaries)),
+        hash_to_binary(std::move(other.hash_to_binary)),
+        cached_hashes(std::move(other.cached_hashes)),
+        name_to_binaries(std::move(other.name_to_binaries)) {}
+
+  explicit jv_base_t(jv_base_t<!MT> &&other, jv_file_t &jv_file) noexcept
       : Binaries(jv_file),
         hash_to_binary(std::move(other.hash_to_binary)),
         cached_hashes(std::move(other.cached_hashes)),
         name_to_binaries(std::move(other.name_to_binaries)) {
-    for (auto &b : other.Binaries)
-      Binaries.container().push_back(std::move(b));
+    for (binary_base_t<!MT> &b : other.Binaries) {
+      binary_base_t<MT> b_(std::move(b));
+      Binaries.container().push_back(std::move(b_));
+    }
   }
 
-  jv_base_t() = delete;
-  jv_base_t(const jv_base_t &) = delete;
+  explicit jv_base_t() = delete;
+  explicit jv_base_t(const jv_base_t &) = delete;
   jv_base_t &operator=(const jv_base_t &) = delete;
   jv_base_t &operator=(jv_base_t &&) = delete;
 
@@ -1576,12 +1585,14 @@ index_of_basic_block_starting_at_address(taddr_t Addr, const binary_base_t<MT> &
   basic_block_index_t res = invalid_basic_block_index;
   bool found;
   if constexpr (MT) {
-    found = b.bbbmap.cvisit(Addr, [&](const auto &x) { res = x.second; });
+    found = b.bbbmap.cvisit(Addr, [&](const auto &x) {
+      res = static_cast<basic_block_index_t>(x.second);
+    });
   } else {
     auto it = b.bbbmap.find(Addr);
     found = it != b.bbbmap.end();
     if (found)
-      res = (*it).second;
+      res = static_cast<basic_block_index_t>((*it).second);
   }
 
   assert(found);
@@ -1617,11 +1628,11 @@ static inline function_index_t index_of_function_at_address(const binary_base_t<
                                                             taddr_t Addr) {
   function_index_t FIdx = invalid_function_index;
   if constexpr (MT) {
-    b.fnmap.cvisit(Addr, [&](const auto &x) { FIdx = x.second; });
+    b.fnmap.cvisit(Addr, [&](const auto &x) { FIdx = static_cast<function_index_t>(x.second); });
   } else {
     auto it = b.fnmap.find(Addr);
     if (it != b.fnmap.end())
-      FIdx = (*it).second;
+      FIdx = static_cast<function_index_t>((*it).second);
   }
   assert(is_function_index_valid(FIdx));
 

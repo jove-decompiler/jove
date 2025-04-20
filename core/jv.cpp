@@ -117,12 +117,12 @@ std::optional<binary_index_t> jv_base_t<MT>::LookupByHash(const hash_t &h) {
   if constexpr (MT) {
     this->hash_to_binary.cvisit(
         h, [&](const typename ip_hash_to_binary_map_type<MT>::value_type &x) -> void {
-          Res = x.second;
+          Res = static_cast<binary_index_t>(x.second);
         });
   } else {
     auto it = this->hash_to_binary.find(h);
     if (it != this->hash_to_binary.end())
-      Res = (*it).second;
+      Res = static_cast<binary_index_t>((*it).second);
   }
 
   return Res;
@@ -182,7 +182,7 @@ std::pair<binary_index_t, bool> jv_base_t<MT>::Add(binary_base_t<MT> &&b,
       isNewBinary = this->hash_to_binary.try_emplace_or_visit(
           h, std::ref(Res), *this, std::move(b),
           [&](const typename ip_hash_to_binary_map_type<MT>::value_type &x) -> void {
-            Res = x.second;
+            Res = static_cast<binary_index_t>(x.second);
           });
     } else {
       auto it = this->hash_to_binary.find(h);
@@ -192,7 +192,7 @@ std::pair<binary_index_t, bool> jv_base_t<MT>::Add(binary_base_t<MT> &&b,
         assert(isNewBinary);
       } else {
         isNewBinary = false;
-        Res = (*it).second;
+        Res = static_cast<binary_index_t>((*it).second);
       }
     }
 
@@ -264,7 +264,7 @@ std::pair<binary_index_t, bool> jv_base_t<MT>::AddFromDataWithHash(
           std::ref(explorer), get_data, std::ref(h), name,
           std::ref(Options),
           [&](const typename ip_hash_to_binary_map_type<MT>::value_type &x)
-              -> void { Res = x.second; });
+              -> void { Res = static_cast<binary_index_t>(x.second); });
     } else {
       auto it = this->hash_to_binary.find(h);
       if (it == this->hash_to_binary.end()) {
@@ -278,7 +278,7 @@ std::pair<binary_index_t, bool> jv_base_t<MT>::AddFromDataWithHash(
         assert(isNewBinary);
       } else {
         isNewBinary = false;
-        Res = (*it).second;
+        Res = static_cast<binary_index_t>((*it).second);
       }
     }
 
@@ -377,7 +377,9 @@ adds_binary_t::adds_binary_t(binary_index_t &out,
 
       BIdx = jv.Binaries.container().size();
       b.Idx = BIdx;
-      jv.Binaries.container().push_back(std::move(b));
+
+      binary_base_t<MT> b_(std::move(b));
+      jv.Binaries.container().push_back(std::move(b_));
     }
   }
 
