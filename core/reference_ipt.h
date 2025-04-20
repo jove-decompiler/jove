@@ -138,7 +138,7 @@ struct reference_ipt_t
         fprintf(stderr, "%016" PRIx64 "\toverflow\n", offset);
 
       if constexpr (IsEngaged)
-        this->InvalidateCurrPoint();
+        this->InvalidateCurrPoint("ovf");
       break;
 
     case ppt_stop:
@@ -152,8 +152,6 @@ struct reference_ipt_t
       if constexpr (IsEngaged) {
         if (likely(IP))
           this->on_ip(IP, offset);
-        else
-          this->InvalidateCurrPoint();
       } else {
         if constexpr (IsVeryVerbose())
           if (this->RightProcess())
@@ -259,7 +257,7 @@ struct reference_ipt_t
                 static_cast<uint64_t>(Saved.GetAddr()));
     }
 
-    this->InvalidateCurrPoint();
+    this->InvalidateCurrPoint("tnt");
 
     return 1;
   }

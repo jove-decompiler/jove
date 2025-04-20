@@ -64,6 +64,7 @@ static void hexdump(FILE *stream, const void *ptr, int buflen) {
 #include <arch/x86_64/syscalls.inc.h>
 static const unsigned nr64_clone3 = VERY_UNIQUE_NUM();
 static const unsigned nr64_mmap_pgoff = VERY_UNIQUE_NUM();
+static const unsigned nr64_old_mmap = VERY_UNIQUE_NUM();
 
 #define ___SYSCALL(nr, nm)                                                     \
   static const unsigned nr32_##nm = nr;                                        \
@@ -582,11 +583,11 @@ protected:
     return (Engaged = RightExecMode() && RightProcess());
   }
 
-  void InvalidateCurrPoint(void) {
+  void InvalidateCurrPoint(const char *reason) {
     this->CurrPoint.Invalidate();
 
     if constexpr (IsVeryVerbose()) {
-      fprintf(stderr, "%s\n", "<invalidated curr>");
+      fprintf(stderr, "%s (%s)\n", "<invalidated curr>", reason);
     }
   }
 
@@ -905,6 +906,11 @@ protected:
           intvl_map_clear(AddressSpace, intvl);
           break;
         }
+
+        case nr_for(old_mmap):
+          if constexpr (IsVerbose())
+            fprintf(stderr, "old_mmap\n");
+          break;
 
         case nr_for(mmap_pgoff):
           is_pgoff = true;
@@ -1288,7 +1294,7 @@ protected:
     mapping_t mapping;
     if constexpr (ExeOnly) {
       if (!addr_intvl_contains(pstate.exeOnly.first, IP)) {
-        this->InvalidateCurrPoint();
+        this->InvalidateCurrPoint("unknown IP");
         return 0;
       }
 
@@ -1302,7 +1308,7 @@ protected:
           fprintf(stderr, "%016" PRIx64 "\tunknown IP %016" PRIx64 "\n", offset,
                   (uint64_t)IP);
 
-        this->InvalidateCurrPoint();
+        this->InvalidateCurrPoint("unknown IP");
         return 1;
       }
 
@@ -1312,7 +1318,7 @@ protected:
           fprintf(stderr, "%016" PRIx64 "\tambiguous IP %016" PRIx64 "\n",
                   offset, (uint64_t)IP);
 
-        this->InvalidateCurrPoint();
+        this->InvalidateCurrPoint("ambiguous IP");
         return 1;
       }
 
@@ -1340,7 +1346,7 @@ protected:
         fprintf(stderr, "%016" PRIx64 "\tno section for %016" PRIx64 "\n",
                 offset, static_cast<uint64_t>(IP));
 
-      this->InvalidateCurrPoint();
+      this->InvalidateCurrPoint("va_of_offset");
       return 0;
     }
 
@@ -1354,7 +1360,7 @@ protected:
                     "%016" PRIx64 "\tBADIP O[%016" PRIx64 "] %s+%" PRIx64 "\n",
                     offset, IP, b.Name.c_str(), (uint64_t)Addr);
 
-          this->InvalidateCurrPoint();
+          this->InvalidateCurrPoint("objdump");
           return 1;
         }
       }
@@ -1383,7 +1389,7 @@ protected:
             CurrPoint.SetTermAddr(SL.TermAddr);
             WentNoFurther = intvl_set_contains(SL.addrng, Addr);
           } catch (const infinite_loop_exception &) {
-            this->InvalidateCurrPoint();
+            this->InvalidateCurrPoint("SLForBlock 1");
           }
         } else {
           basic_block_index_t NewBBIdx;
@@ -1407,7 +1413,7 @@ protected:
             CurrPoint.SetAddr(SL.Addr);
             CurrPoint.SetTermAddr(SL.TermAddr);
           } catch (const infinite_loop_exception &) {
-            this->InvalidateCurrPoint();
+            this->InvalidateCurrPoint("SLForBlock 2");
           }
         } else {
           CurrPoint.SetBlockIndex(StraightLineSlow<false>(
@@ -1448,7 +1454,7 @@ protected:
       if constexpr (IsVeryVerbose())
         fprintf(stderr, "</IP>\n");
 
-      this->InvalidateCurrPoint();
+      this->InvalidateCurrPoint("exploring ip");
 
       return 1;
     }
@@ -1799,7 +1805,7 @@ public:
 
     assert(this->config.cpu.vendor);
 
-    fprintf(stderr, "FAMILY=%lx MODEL=%lx\n",
+    fprintf(stderr, "FAMILY=%#lx MODEL=%#lx\n",
             static_cast<unsigned long>(this->config.cpu.family),
             static_cast<unsigned long>(this->config.cpu.model));
 
@@ -2387,7 +2393,7 @@ do {                                                                         \
               fprintf(stderr, "%016" PRIx64 "\tskipping IP %016" PRIx64 "\n", offset, (uint64_t)IP);
           }
 
-          this->InvalidateCurrPoint();
+          this->InvalidateCurrPoint(""));
           break;
       }
 
