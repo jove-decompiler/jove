@@ -1,6 +1,7 @@
 #include "process.h"
 
 #include <boost/unordered/unordered_flat_set.hpp>
+#include <boost/container/slist.hpp>
 
 #include <cassert>
 #include <cstring>
@@ -23,31 +24,28 @@ pid_t RunExecutable(const std::string &exe_path,
                     before_exec_t before_exec) {
   boost::unordered_flat_set<string_view> envs;
 
-  list<string> arg_str_list;
-  list<string> env_str_list;
-
-  compute_args([&](const string &s) { arg_str_list.emplace_back(s); });
-  compute_envs([&](const string &s) {
-    {
-      string &the_s = env_str_list.emplace_back(s);
-
-      if (!envs.contains(the_s)) {
-        envs.insert(the_s);
-        return;
-      }
-    }
-
-    env_str_list.pop_back();
-  });
+  boost::container::slist<string> arg_str_list;
+  boost::container::slist<string> env_str_list;
 
   vector<const char *> arg_vec;
   vector<const char *> env_vec;
 
-  arg_vec.reserve(arg_str_list.size() + 1);
-  env_vec.reserve(env_str_list.size() + 1);
+  compute_args([&](const string &s) {
+    arg_str_list.push_front(s);
+    string &x = arg_str_list.front();
 
-  for (const string &s : arg_str_list) arg_vec.push_back(s.c_str());
-  for (const string &s : env_str_list) env_vec.push_back(s.c_str());
+    arg_vec.push_back(x.c_str());
+  });
+  compute_envs([&](const string &s) {
+    if (envs.contains(s))
+      return;
+
+    env_str_list.push_front(s);
+    string &x = env_str_list.front();
+
+    envs.insert(x);
+    env_vec.push_back(x.c_str());
+  });
 
   arg_vec.push_back(nullptr);
   env_vec.push_back(nullptr);
