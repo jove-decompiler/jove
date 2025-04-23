@@ -244,7 +244,7 @@ int Trace2LinesTool::Run(void) {
           Arg(binary.path_str());
 
           Arg((fmt("0x%lx") % Addr).str());
-        }, path_to_stdout_txt.c_str());
+        }, path_to_stdout_txt);
 
         std::string stdout_txt = read_file_into_string(path_to_stdout_txt.c_str());
         if (!rc && !stdout_txt.empty()) {

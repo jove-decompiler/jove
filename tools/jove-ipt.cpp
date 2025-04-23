@@ -833,7 +833,7 @@ int IPTTool::UsingLibipt(void) {
           if (RunExecutableToExit(
                   path_to_get_opts.string(),
                   [&](auto Arg) { Arg(path_to_get_opts.string()); },
-                  opts_filename)) {
+                  std::string(opts_filename))) {
             WithColor::error() << "failed to run libipt/script/perf-get-opts.bash\n";
             Failed = true;
             return;

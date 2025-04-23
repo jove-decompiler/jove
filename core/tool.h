@@ -90,18 +90,39 @@ public:
     this->dashdash_args = dashdash_args;
   }
 
+  template <typename ComputeArgs>
   pid_t RunExecutable(const std::string &exe_path,
-      compute_args_t compute_args,
+      ComputeArgs compute_args,
       const std::string &stdout_path = std::string(),
       const std::string &stderr_path = std::string(),
-      before_exec_t before_exec = [](const char **, const char **) -> void {});
+      before_exec_t before_exec = [](const char **, const char **) -> void {}) {
+    using namespace std::placeholders;
 
+    return jove::RunExecutable(
+        exe_path,
+        compute_args,
+        stdout_path,
+        stderr_path,
+        std::bind(&Tool::on_exec, this, before_exec, _1, _2));
+  }
+
+  template <typename ComputeArgs, typename ComputeEnvs>
   pid_t RunExecutable(const std::string &exe_path,
-      compute_args_t compute_args,
-      compute_envs_t compute_envs,
+      ComputeArgs compute_args,
+      ComputeEnvs compute_envs,
       const std::string &stdout_path = std::string(),
       const std::string &stderr_path = std::string(),
-      before_exec_t before_exec = [](const char **, const char **) -> void {});
+      before_exec_t before_exec = [](const char **, const char **) -> void {}) {
+    using namespace std::placeholders;
+
+    return jove::RunExecutable(
+        exe_path,
+        compute_args,
+        compute_envs,
+        stdout_path,
+        stderr_path,
+        std::bind(&Tool::on_exec, this, before_exec, _1, _2));
+  }
 
   struct RunToolExtraArgs {
     struct {
@@ -114,20 +135,100 @@ public:
         : sudo({SudoOn, SudoPreserveEnvironment}) {}
   };
 
+  template <typename ComputeArgs>
   int RunTool(const char *tool_name,
-      compute_args_t compute_args,
+      ComputeArgs compute_args,
       const std::string &stdout_path = std::string(),
       const std::string &stderr_path = std::string(),
       const RunToolExtraArgs &Extra = RunToolExtraArgs(),
-      before_exec_t before_exec = [](const char **, const char **) {});
+      before_exec_t before_exec = [](const char **, const char **) {}) {
+    using namespace std::placeholders;
 
+    if (Extra.sudo.On) {
+      std::string sudo_path = locator().sudo();
+      std::string jove_path = path_to_jove();
+
+      return jove::RunExecutable(sudo_path,
+          [&](auto Arg) {
+            Arg(sudo_path);
+
+            if (Extra.sudo.PreserveEnvironment)
+              Arg("-E");
+
+            Arg(jove_path);
+            Arg(tool_name);
+
+            persist_tool_options(Arg);
+
+            compute_args(Arg);
+          },
+          stdout_path,
+          stderr_path,
+          std::bind(&Tool::on_exec, this, before_exec, _1, _2));
+    }
+
+    return jove::RunExecutable(
+        "/proc/self/exe",
+        [&](auto Arg) {
+          Arg(tool_name);
+
+          persist_tool_options(Arg);
+
+          compute_args(Arg);
+        },
+        stdout_path,
+        stderr_path,
+        std::bind(&Tool::on_exec_tool, this, before_exec, _1, _2));
+  }
+
+  template <typename ComputeArgs, typename ComputeEnvs>
   int RunTool(const char *tool_name,
-      compute_args_t compute_args,
-      compute_envs_t compute_envs,
+      ComputeArgs compute_args,
+      ComputeEnvs compute_envs,
       const std::string &stdout_path = std::string(),
       const std::string &stderr_path = std::string(),
       const RunToolExtraArgs &Extra = RunToolExtraArgs(),
-      before_exec_t before_exec = [](const char **, const char **) {});
+      before_exec_t before_exec = [](const char **, const char **) {}) {
+    using namespace std::placeholders;
+
+    if (Extra.sudo.On) {
+      std::string sudo_path = locator().sudo();
+      std::string jove_path = path_to_jove();
+
+      return jove::RunExecutable(sudo_path,
+          [&](auto Arg) {
+            Arg(sudo_path);
+
+            if (Extra.sudo.PreserveEnvironment)
+              Arg("-E");
+
+            Arg(jove_path);
+            Arg(tool_name);
+
+            persist_tool_options(Arg);
+
+            compute_args(Arg);
+          },
+          compute_envs,
+          stdout_path,
+          stderr_path,
+          std::bind(&Tool::on_exec, this, before_exec, _1, _2));
+    }
+
+    return jove::RunExecutable(
+        "/proc/self/exe",
+        [&](auto Arg) {
+          Arg(tool_name);
+
+          persist_tool_options(Arg);
+
+          compute_args(Arg);
+        },
+        compute_envs,
+        stdout_path,
+        stderr_path,
+        std::bind(&Tool::on_exec_tool, this, before_exec, _1, _2));
+  }
 
   template <typename... Args>
   int RunExecutableToExit(Args &&...args) {

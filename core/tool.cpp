@@ -335,38 +335,6 @@ void Tool::on_exec_tool(before_exec_t before_exec, const char **argv, const char
   before_exec(argv, envp);
 }
 
-pid_t Tool::RunExecutable(const std::string &exe_path,
-                          compute_args_t compute_args,
-                          const std::string &stdout_path,
-                          const std::string &stderr_path,
-                          before_exec_t before_exec) {
-  using namespace std::placeholders;
-
-  return jove::RunExecutable(
-      exe_path,
-      compute_args,
-      stdout_path,
-      stderr_path,
-      std::bind(&Tool::on_exec, this, before_exec, _1, _2));
-}
-
-pid_t Tool::RunExecutable(const std::string &exe_path,
-                          compute_args_t compute_args,
-                          compute_envs_t compute_envs,
-                          const std::string &stdout_path,
-                          const std::string &stderr_path,
-                          before_exec_t before_exec) {
-  using namespace std::placeholders;
-
-  return jove::RunExecutable(
-      exe_path,
-      compute_args,
-      compute_envs,
-      stdout_path,
-      stderr_path,
-      std::bind(&Tool::on_exec, this, before_exec, _1, _2));
-}
-
 void Tool::persist_tool_options(std::function<void(const std::string &)> Arg) {
   if (IsVeryVerbose())
     Arg("-vv");
@@ -387,99 +355,6 @@ std::string Tool::path_to_jove(void) {
     throw std::runtime_error("could not locate jove executable");
 
   return jove_path;
-}
-
-int Tool::RunTool(const char *tool_name,
-                  compute_args_t compute_args,
-                  const std::string &stdout_path,
-                  const std::string &stderr_path,
-                  const RunToolExtraArgs &Extra,
-                  before_exec_t before_exec) {
-  using namespace std::placeholders;
-
-  if (Extra.sudo.On) {
-    std::string sudo_path = locator().sudo();
-    std::string jove_path = path_to_jove();
-
-    return jove::RunExecutable(sudo_path,
-        [&](auto Arg) {
-          Arg(sudo_path);
-
-          if (Extra.sudo.PreserveEnvironment)
-            Arg("-E");
-
-          Arg(jove_path);
-          Arg(tool_name);
-
-          persist_tool_options(Arg);
-
-          compute_args(Arg);
-        },
-        stdout_path,
-        stderr_path,
-        std::bind(&Tool::on_exec, this, before_exec, _1, _2));
-  }
-
-  return jove::RunExecutable(
-      "/proc/self/exe",
-      [&](auto Arg) {
-        Arg(tool_name);
-
-        persist_tool_options(Arg);
-
-        compute_args(Arg);
-      },
-      stdout_path,
-      stderr_path,
-      std::bind(&Tool::on_exec_tool, this, before_exec, _1, _2));
-}
-
-int Tool::RunTool(const char *tool_name,
-                  compute_args_t compute_args,
-                  compute_envs_t compute_envs,
-                  const std::string &stdout_path,
-                  const std::string &stderr_path,
-                  const RunToolExtraArgs &Extra,
-                  before_exec_t before_exec) {
-  using namespace std::placeholders;
-
-  if (Extra.sudo.On) {
-    std::string sudo_path = locator().sudo();
-    std::string jove_path = path_to_jove();
-
-    return jove::RunExecutable(sudo_path,
-        [&](auto Arg) {
-          Arg(sudo_path);
-
-          if (Extra.sudo.PreserveEnvironment)
-            Arg("-E");
-
-          Arg(jove_path);
-          Arg(tool_name);
-
-          persist_tool_options(Arg);
-
-          compute_args(Arg);
-        },
-        compute_envs,
-        stdout_path,
-        stderr_path,
-        std::bind(&Tool::on_exec, this, before_exec, _1, _2));
-  }
-
-  return jove::RunExecutable(
-      "/proc/self/exe",
-      [&](auto Arg) {
-        Arg(tool_name);
-
-        persist_tool_options(Arg);
-
-        compute_args(Arg);
-      },
-      compute_envs,
-      stdout_path,
-      stderr_path,
-      std::bind(&Tool::on_exec_tool, this, before_exec, _1, _2));
 }
 
 std::string Tool::home_dir(void) {
