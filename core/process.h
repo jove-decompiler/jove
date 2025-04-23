@@ -13,10 +13,10 @@
 namespace jove {
 
 namespace process {
-static inline void no_args(std::function<void(const std::string &)> Arg) {
+static inline void no_args(std::function<void(const char *)> Arg) {
   Arg(""); /* prevent "NULL argv" complaints in dmesg */
 }
-static inline void no_envs(std::function<void(const std::string &)>) {}
+static inline void no_envs(std::function<void(const char *)>) {}
 }
 
 typedef std::function<void(const char **, const char **)> before_exec_t;
@@ -104,7 +104,7 @@ static inline int RunExecutableToExit(Args &&...args) {
   return WaitForProcessToExit(pid);
 }
 
-void InitWithEnviron(std::function<void(const std::string &)> Env);
+void InitWithEnviron(std::function<void(const char *)> Env);
 
 template <typename ComputeArgs>
 inline pid_t RunExecutable(const std::string &exe_path,

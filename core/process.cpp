@@ -37,7 +37,7 @@ int WaitForProcessToExit(pid_t pid) {
   abort();
 }
 
-void InitWithEnviron(std::function<void(const std::string &)> Env) {
+void InitWithEnviron(std::function<void(const char *)> Env) {
   for (char **env = ::environ; *env; ++env)
     Env(*env);
 }
