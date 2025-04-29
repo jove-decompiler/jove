@@ -132,7 +132,7 @@ index 85f7e2ed..28bdfa63 100644
  
  #endif // BOOST_GRAPH_ADJ_LIST_SERIALIZE_HPP
 diff --git a/include/boost/graph/adjacency_list.hpp b/include/boost/graph/adjacency_list.hpp
-index e5050b5b..62583dd2 100644
+index 113143a7..ea4d113e 100644
 --- a/include/boost/graph/adjacency_list.hpp
 +++ b/include/boost/graph/adjacency_list.hpp
 @@ -18,153 +18,203 @@
@@ -388,7 +388,7 @@ index e5050b5b..62583dd2 100644
  {
      typedef
          typename detail::is_random_access< VertexListS >::type is_rand_access;
-@@ -295,59 +353,66 @@ public:
+@@ -298,59 +356,66 @@ public:
          edge_bundled;
  
  private:
@@ -460,7 +460,7 @@ index e5050b5b..62583dd2 100644
      }
  
 diff --git a/include/boost/graph/detail/adjacency_list.hpp b/include/boost/graph/detail/adjacency_list.hpp
-index ed5a1d48..a366974a 100644
+index 5358fdba..13a9b30b 100644
 --- a/include/boost/graph/detail/adjacency_list.hpp
 +++ b/include/boost/graph/detail/adjacency_list.hpp
 @@ -323,40 +323,60 @@ namespace detail
@@ -666,7 +666,7 @@ index ed5a1d48..a366974a 100644
      template < class EdgeIterator >
      inline vec_adj_list_impl(
          vertices_size_type num_vertices, EdgeIterator first, EdgeIterator last)
-@@ -2167,119 +2192,123 @@ public:
+@@ -2167,120 +2192,124 @@ public:
      //    protected:
      inline boost::integer_range< vertex_descriptor > vertex_set() const
      {
@@ -734,10 +734,11 @@ index ed5a1d48..a366974a 100644
 +    vec_adj_list_impl< Graph, Config, Base >& g_, _AllocArg&&... AllocArg)
  {
      Graph& g = static_cast< Graph& >(g_);
--    g.m_vertices.resize(g.m_vertices.size() + 1);
+     auto const added_descriptor = g.m_vertices.size();
+-    g.m_vertices.emplace_back();
 +    g.m_vertices.emplace_back(std::forward<_AllocArg>(AllocArg)...);
-     g.added_vertex(g.m_vertices.size() - 1);
-     return g.m_vertices.size() - 1;
+     g.added_vertex(added_descriptor);
+     return added_descriptor;
  }
  
  template < class Graph, class Config, class Base >
@@ -750,10 +751,10 @@ index ed5a1d48..a366974a 100644
      if (optional< vertex_descriptor > v
          = g.vertex_by_property(get_property_value(p, vertex_bundle)))
          return *v;
-     typedef typename Config::stored_vertex stored_vertex;
-     g.m_vertices.push_back(stored_vertex(p));
-     g.added_vertex(g.m_vertices.size() - 1);
-     return g.m_vertices.size() - 1;
+     auto const added_descriptor = g.m_vertices.size();
+     g.m_vertices.emplace_back(p);
+     g.added_vertex(added_descriptor);
+     return added_descriptor;
  }
  
  // Here we override the directed_graph_helper add_edge() function
@@ -794,7 +795,7 @@ index ed5a1d48..a366974a 100644
      typedef typename Config::directed_category Cat;
      Graph& g = static_cast< Graph& >(g_);
      g.removing_vertex(
-@@ -2348,42 +2377,47 @@ namespace detail
+@@ -2349,42 +2378,47 @@ namespace detail
              typedef typename VertexList::iterator vertex_iterator;
  
              // EdgeContainer and StoredEdge
@@ -843,7 +844,7 @@ index ed5a1d48..a366974a 100644
              typedef typename OutEdgeIterTraits::difference_type OutEdgeIterDiff;
  
              typedef out_edge_iter< OutEdgeIter, vertex_descriptor,
-@@ -2419,75 +2453,79 @@ namespace detail
+@@ -2420,75 +2454,79 @@ namespace detail
              typedef adj_list_edge_iterator< vertex_iterator, out_edge_iterator,
                  graph_type >
                  DirectedEdgeIter;
