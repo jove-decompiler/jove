@@ -926,7 +926,9 @@ struct JoveBinaryHash {
   using is_avalanching = std::true_type;
 
   std::size_t operator()(const hash_t &x) const noexcept {
-    return boost::hash<hash_t>()(x);
+    static_assert(sizeof(std::size_t) <= sizeof(hash_t));
+
+    return *reinterpret_cast<const std::size_t *>(&x);
   }
 };
 
