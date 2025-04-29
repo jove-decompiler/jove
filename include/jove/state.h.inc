@@ -255,7 +255,7 @@ public:
     StatePtr<T> &x = __for_##thing(BOOST_PP_CAT(thing,_GET_ARGS));             \
     if constexpr (MultiThreaded) {                                             \
       {                                                                        \
-        std::shared_ptr<T> the_x = x.load(std::memory_order_relaxed);          \
+        std::shared_ptr<T> the_x = x.load(std::memory_order_acquire);          \
         T *const xp = the_x.get();                                             \
         if (likely(xp))                                                        \
           return *xp;                                                          \
