@@ -3,8 +3,12 @@ set -e
 set -o pipefail
 set -x
 
-# Maximum number of retries for each build
-MAX_RETRIES=20
+# If you passed an argument, use it as MAX_RETRIES, otherwise default to 1.
+if (( $# >= 1 )); then
+  MAX_RETRIES="$1"
+else
+  MAX_RETRIES=1
+fi
 
 # Retry function for building. Why? because clang-19 segfaults :(
 retry() {
