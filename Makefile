@@ -134,6 +134,9 @@ tcg-constants: $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/tcgconstants.h)
 .PHONY: all-helpers-mk
 all-helpers-mk: $(foreach t,$(ALL_TARGETS),all-helpers-$(t)-mk)
 
+.PHONY: env-inits
+env-inits: $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/env_init.inc)
+
 runtime_dlls = $(BINDIR)/$(1)/libjove_rt.st.dll \
                $(BINDIR)/$(1)/libjove_rt.mt.dll \
                $(BINDIR)/$(1)/jove.coff.st.bc \
@@ -366,6 +369,9 @@ $(BINDIR)/$(1)/tcgconstants.h: | $(BINDIR)/$(1)/qemu-starter
 .PHONY: all-helpers-$(1)-mk
 all-helpers-$(1)-mk: | $(BINDIR)/$(1)/qemu-starter
 	env JOVE_PRINT_HELPERS=1 $(call qemu_carbon_host_build_dir,$(1))/qemu-$(1) $(BINDIR)/$(1)/qemu-starter > $(BINDIR)/$(1)/all_helpers.mk
+
+$(BINDIR)/$(1)/env_init: | $(BINDIR)/$(1)/qemu-starter
+	env JOVE_DUMP_ENV=1 $(call qemu_carbon_build_dir,$(1))/qemu-$(1) $(BINDIR)/$(1)/qemu-starter > $$@
 endef
 $(foreach t,$(ALL_TARGETS),$(eval $(call target_template,$(t))))
 

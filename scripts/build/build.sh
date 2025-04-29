@@ -100,6 +100,7 @@ make -C $jove_path --output-sync all-helpers-mk -j$(nproc)
 make -C $jove_path --output-sync asm-offsets -j$(nproc)
 make -C $jove_path --output-sync utilities -j$(nproc)
 make -C $jove_path --output-sync tcg-constants -j$(nproc)
+make -C $jove_path --output-sync env-inits -j$(nproc)
 
 pushd .
 cd $llvm_path

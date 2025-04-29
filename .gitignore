@@ -23,6 +23,8 @@ tags
 /bin/*/qemu-starter.inc
 /bin/*/dump-vdso
 /bin/*/dump-vdso.inc
+/bin/*/env_init.inc
+/bin/*/env_init
 /bin/*/all_helpers.mk
 tests/.t/*
 tests/__pycache__/*

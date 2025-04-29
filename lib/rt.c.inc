@@ -419,31 +419,12 @@ void _jove_init_cpu_state(void) {
     return;
   __jove_initialized_env = true;
 
-#if defined(__mips64) || defined(__mips__)
-  __jove_env.hflags = 226;
-#elif defined(__x86_64__) || defined(__i386__)
-  __jove_env.df = 1;
+  static const uint8_t env_init_bytes[] = {
+#include "env_init.inc"
+  };
 
-  __jove_env.fpuc = 0x37f;
-  __jove_env.fptags[0] = 1;
-  __jove_env.fptags[1] = 1;
-  __jove_env.fptags[2] = 1;
-  __jove_env.fptags[3] = 1;
-  __jove_env.fptags[4] = 1;
-  __jove_env.fptags[5] = 1;
-  __jove_env.fptags[6] = 1;
-  __jove_env.fptags[7] = 1;
-#endif
-
-#if defined(__x86_64__) || defined(__i386__)
-#define CPUID_XSAVE_XGETBV1    (1U << 2)
-
-  __jove_env.features[FEAT_XSAVE] |= CPUID_XSAVE_XGETBV1;
-
-#define CR4_OSXSAVE_MASK (1U << 18)
-
-  __jove_env.cr[4] |= CR4_OSXSAVE_MASK;
-#endif
+  static_assert(sizeof(env_init_bytes) == sizeof(struct CPUArchState));
+  __builtin_memcpy_inline(&__jove_env, env_init_bytes, sizeof(env_init_bytes));
 }
 
 static uintptr_t _jove_alloc_callstack(const char *callstack_path) {
@@ -874,6 +855,8 @@ found:
     if (unlikely(Callee.IsForeign))
       _UNREACHABLE("unexpected callee");
 
+    _jove_init_cpu_state(); /* could be thread start */
+
     const uintptr_t FuncSectPtr = Callee.Recompiled.SectPtr;
     const uintptr_t FuncPtr     = Callee.RecompiledFunc;
 
@@ -1130,7 +1113,6 @@ found:
 
     *pc_ptr = FuncPtr;
 
-    _jove_init_cpu_state();
     return;
   }
 
