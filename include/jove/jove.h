@@ -214,7 +214,7 @@ struct basic_block_properties_t : public ip_mt_base_rw_accessible_nospin {
   } Term;
 
   struct {
-    AtomicOffsetPtr<ip_dynamic_target_set> _p; /* TODO atomic ip_unique_ptr.. */
+    AtomicOffsetPtr<ip_dynamic_target_set<>> _p; /* TODO atomic ip_unique_ptr.. */
     boost::interprocess::offset_ptr<segment_manager_t> _sm = nullptr;
     bool Complete = false;
   } DynTargets;
@@ -323,7 +323,7 @@ struct basic_block_properties_t : public ip_mt_base_rw_accessible_nospin {
     DynTargetsForEach(std::execution::seq, proc);
   }
   void DynTargetsForEachWhile(std::function<bool(const dynamic_target_t &)> proc) const {
-    ip_dynamic_target_set *const p =
+    ip_dynamic_target_set<> *const p =
         DynTargets._p.Load(std::memory_order_relaxed);
     if (!p)
       return;
@@ -338,7 +338,7 @@ struct basic_block_properties_t : public ip_mt_base_rw_accessible_nospin {
     });
   }
   bool DynTargetsAnyOf(std::function<bool(const dynamic_target_t &)> proc) const {
-    ip_dynamic_target_set *const p =
+    ip_dynamic_target_set<> *const p =
         DynTargets._p.Load(std::memory_order_relaxed);
     if (!p)
       return false;
@@ -354,7 +354,7 @@ struct basic_block_properties_t : public ip_mt_base_rw_accessible_nospin {
     return res;
   }
   bool DynTargetsAllOf(std::function<bool(const dynamic_target_t &)> proc) const {
-    ip_dynamic_target_set *const p =
+    ip_dynamic_target_set<> *const p =
         DynTargets._p.Load(std::memory_order_relaxed);
     if (!p)
       return true;
@@ -372,7 +372,7 @@ struct basic_block_properties_t : public ip_mt_base_rw_accessible_nospin {
   dynamic_target_t DynTargetsFront(void) const {
     dynamic_target_t res = invalid_dynamic_target;
 
-    ip_dynamic_target_set *const p =
+    ip_dynamic_target_set<> *const p =
         DynTargets._p.Load(std::memory_order_relaxed);
     if (!p)
       return res;

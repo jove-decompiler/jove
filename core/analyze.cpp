@@ -553,11 +553,10 @@ flow_vertex_t analyzer_t<MT>::copy_function_cfg(
             G[E].reach.mask = CallConvRets;
         }
       } else {
-
-      dynamic_target_set DynTargets; /* XXX avoid reentrancy */
-      ICFG[bb].DynTargetsForEach([&](const dynamic_target_t &DynTarget) {
-        DynTargets.insert(DynTarget);
-      });
+      ip_dynamic_target_set<> *TheDynTargets = ICFG[bb].DynTargets._p.Load(std::memory_order_relaxed);
+      assert(TheDynTargets);
+      ip_dynamic_target_set<> DynTargetsCopy(*TheDynTargets);
+      ip_dynamic_target_set<false> DynTargets = std::move(DynTargetsCopy);
 
       bool FirstOne = true;
       std::for_each(DynTargets.cbegin(), DynTargets.cend(),
@@ -773,10 +772,10 @@ flow_vertex_t analyzer_t<MT>::copy_function_cfg(
         if (Returns)
           exitVertices.emplace_back(dummyV, IsABI);
       } else {
-      dynamic_target_set DynTargets; /* XXX avoid reentrancy */
-      ICFG[bb].DynTargetsForEach([&](const dynamic_target_t &DynTarget) {
-        DynTargets.insert(DynTarget);
-      });
+      ip_dynamic_target_set<> *TheDynTargets = ICFG[bb].DynTargets._p.Load(std::memory_order_relaxed);
+      assert(TheDynTargets);
+      ip_dynamic_target_set<> DynTargetsCopy(*TheDynTargets);
+      ip_dynamic_target_set<false> DynTargets = std::move(DynTargetsCopy);
 
       bool FirstOne = true;
       std::for_each(DynTargets.cbegin(), DynTargets.cend(),

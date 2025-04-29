@@ -398,7 +398,7 @@ static void serialize(Archive &ar, jove::basic_block_properties_t &bbprop,
 
   jove::jv_file_t &jv_file = *jove::pFile_hack;
 
-  jove::ip_dynamic_target_set TheDynTargets(jv_file.get_segment_manager());
+  jove::ip_dynamic_target_set<> TheDynTargets(jv_file.get_segment_manager());
 
   if (auto *p = bbprop.DynTargets._p.Load(std::memory_order_relaxed))
     TheDynTargets = *p;
@@ -513,10 +513,10 @@ static inline void load_construct_data(Archive &ar, jove::ip_string *t,
 template <class Archive>
 static inline void
 load_construct_data(Archive &ar,
-                    std::pair<const uint64_t, jove::ip_dynamic_target_set> *t,
+                    std::pair<const uint64_t, jove::ip_dynamic_target_set<>> *t,
                     const unsigned int file_version) {
   assert(jove::pFile_hack);
-  ::new (t) std::pair<const uint64_t, jove::ip_dynamic_target_set>(
+  ::new (t) std::pair<const uint64_t, jove::ip_dynamic_target_set<>>(
       0, jove::pFile_hack->get_segment_manager());
 }
 

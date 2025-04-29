@@ -47,15 +47,15 @@ bool basic_block_properties_t::doInsertDynTarget(const dynamic_target_t &X,
   if (auto *p = DynTargets._p.Load(std::memory_order_relaxed))
     return p->insert(X);
 
-  ip_unique_ptr<ip_dynamic_target_set> TheDynTargets(
+  ip_unique_ptr<ip_dynamic_target_set<>> TheDynTargets(
       boost::interprocess::make_managed_unique_ptr(
-          jv_file.construct<ip_dynamic_target_set>(
+          jv_file.construct<ip_dynamic_target_set<>>(
               boost::interprocess::anonymous_instance)(
               jv_file.get_segment_manager()),
           jv_file));
 
-  ip_dynamic_target_set *expected = nullptr;
-  ip_dynamic_target_set *desired = TheDynTargets.get().get();
+  ip_dynamic_target_set<> *expected = nullptr;
+  ip_dynamic_target_set<> *desired = TheDynTargets.get().get();
   if (DynTargets._p.CompareExchangeStrong(
           expected,
           desired,

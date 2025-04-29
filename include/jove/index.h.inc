@@ -49,21 +49,18 @@ constexpr bool is_block_valid(block_t X) {
          is_basic_block_index_valid(X.second);
 }
 
-typedef boost::concurrent_flat_set<
+template <bool MT = true>
+using ip_dynamic_target_set = possibly_concurrent_flat_set<MT,
     dynamic_target_t, boost::hash<dynamic_target_t>,
     std::equal_to<dynamic_target_t>,
-    boost::interprocess::allocator<dynamic_target_t, segment_manager_t>>
-    ip_dynamic_target_set;
+    boost::interprocess::allocator<dynamic_target_t, segment_manager_t>>;
 
 typedef boost::concurrent_flat_set<
     binary_index_t, boost::hash<binary_index_t>, std::equal_to<binary_index_t>,
     boost::interprocess::allocator<binary_index_t, segment_manager_t>>
     ip_binary_index_set;
 
-typedef boost::container::flat_set<binary_index_t, std::less<binary_index_t>>
-    binary_index_set;
-
-typedef boost::unordered_flat_set<dynamic_target_t> dynamic_target_set;
+typedef std::set<binary_index_t> binary_index_set;
 
 typedef boost::unordered::unordered_flat_set<
     function_index_t, boost::hash<function_index_t>,
