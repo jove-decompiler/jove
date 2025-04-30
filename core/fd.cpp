@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <cstring>
 #include <stdexcept>
+#include <memory>
 
 #include <fcntl.h>
 #include <unistd.h>
@@ -139,31 +140,56 @@ ssize_t robust_receive_file_with_size(int fd, const char *out, unsigned file_per
       file_size_str.push_back(ch);
     } while (ch != '\0');
 
-    file_size = std::atoi(file_size_str.c_str());
-  }
-  assert(file_size > 0);
-
-  std::vector<uint8_t> buff;
-  buff.resize(file_size);
-
-  {
-    ssize_t res = robust_read(fd, &buff[0], buff.size());
-    if (res < 0)
-      return res;
+    file_size = std::strtoul(file_size_str.c_str(), nullptr, 10);
   }
 
-  ssize_t res = -EBADF;
-  {
-    scoped_fd fd(::open(out, O_WRONLY | O_TRUNC | O_CREAT, file_perm));
-    if (!fd)
+  if (unlikely(!file_size))
+    throw std::runtime_error("robust_receive_file_with_size: !file_size");
+
+  int pipefd[2];
+  if (::pipe(pipefd) < 0)
+    return -errno;
+
+  scoped_fd rfd(pipefd[0]);
+  scoped_fd wfd(pipefd[1]);
+
+  scoped_fd out_fd(::open(out, O_WRONLY | O_TRUNC | O_CREAT, file_perm));
+  if (!out_fd)
+    return -errno;
+
+  size_t remaining = file_size;
+  const size_t SPLICE_CHUNK = 64 * 1024; // 64KB per splice
+  while (remaining > 0) {
+    size_t to_move = std::min(remaining, SPLICE_CHUNK);
+
+    // socket → pipe
+    ssize_t n = ::splice(fd, nullptr, wfd.get(), nullptr, to_move,
+                         SPLICE_F_MOVE | SPLICE_F_MORE);
+    if (n < 0)
       return -errno;
 
-    res = robust_write(fd.get(), &buff[0], buff.size());
-    if (res < 0)
-      return res;
+    if (n == 0)
+      break;
+
+    assert(n > 0);
+
+    // pipe → file
+    ssize_t m = ::splice(rfd.get(), nullptr, out_fd.get(), nullptr, n,
+                         SPLICE_F_MOVE | SPLICE_F_MORE);
+    if (m < 0)
+      return -errno;
+
+    if (m == 0)
+      throw std::runtime_error("robust_receive_file_with_size: !m");
+
+    assert(m > 0);
+    remaining -= m;
   }
 
-  return res;
+  if (remaining != 0)
+    throw std::runtime_error("robust_receive_file_with_size: remaining > 0");
+
+  return file_size;
 }
 
 scoped_fd::~scoped_fd() noexcept(false) {
