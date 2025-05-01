@@ -45,13 +45,12 @@ pid_t RunExecutable(const std::string &exe_path,
   compute_envs([&](auto&&... xs) -> void {
     env_str_list.emplace_front(std::forward<decltype(xs)>(xs)...);
 
-    std::string &x = env_str_list.front();
-
-    if (envs.contains(x)) {
+    if (envs.contains(env_str_list.front())) {
       env_str_list.pop_front();
       return;
     }
 
+    std::string &x = env_str_list.front();
     envs.insert(x);
     env_vec.push_back(x.c_str());
   });
