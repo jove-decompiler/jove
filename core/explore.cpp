@@ -566,11 +566,6 @@ explorer_t<MT>::_explore_basic_block(binary_base_t<MT> &b,
     bbprop.Size = Size;
     bbprop.Term.Type = T.Type;
     bbprop.Term.Addr = T.Addr;
-    bbprop.DynTargets.Complete = false;
-    bbprop.Term._call.Target = invalid_function_index;
-    bbprop.Term._indirect_jump.IsLj = false;
-    bbprop.Sj = false;
-    bbprop.Term._return.Returns = false;
 
     //bbprop.InvalidateAnalysis();
     if (is_function_index_valid(ParentIdx))
