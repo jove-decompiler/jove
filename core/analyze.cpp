@@ -266,7 +266,7 @@ int analyzer_t<MT>::analyze_functions(void) {
 
 template <bool MT>
 int analyzer_t<MT>::analyze_function(function_t &f) {
-  if (!__atomic_load_n(&f.Analysis.Stale, __ATOMIC_RELAXED))
+  if (!f.Analysis.Stale.load(std::memory_order_relaxed))
     return 0;
 
   dynamic_target_t X(target_of_function(f));
@@ -281,7 +281,7 @@ int analyzer_t<MT>::analyze_function(function_t &f) {
         inflight.erase(X);
     }
 
-    __atomic_store_n(&f.Analysis.Stale, false, __ATOMIC_RELEASE);
+    f.Analysis.Stale.store(false, std::memory_order_release);
   };
 
   {
@@ -621,8 +621,8 @@ flow_vertex_t analyzer_t<MT>::copy_function_cfg(
         //
         flow_vertex_t dummyV = boost::add_vertex(G);
 
-        static const basic_block_properties_t::Analysis_t DummyAnalysis = {
-            .live = {}, .reach = {.def = CallConvRets}};
+        static const basic_block_properties_t::Analysis_t DummyAnalysis(
+            tcg_global_set_t(), tcg_global_set_t(), CallConvRets);
 
         G[dummyV].Analysis = &DummyAnalysis;
 
@@ -676,7 +676,7 @@ flow_vertex_t analyzer_t<MT>::copy_function_cfg(
         }
       } else if (__atomic_load_n(&callee.Analysis.Stale, __ATOMIC_ACQUIRE)) {
 #else
-      if (__atomic_load_n(&callee.Analysis.Stale, __ATOMIC_ACQUIRE)) {
+      if (callee.Analysis.Stale.load(std::memory_order_acquire)) {
 #endif
       std::vector<exit_vertex_pair_t> calleeExitVertices;
       flow_vertex_t calleeEntryV =
@@ -721,8 +721,8 @@ flow_vertex_t analyzer_t<MT>::copy_function_cfg(
         //
         flow_vertex_t dummyV = boost::add_vertex(G);
 
-        static const basic_block_properties_t::Analysis_t DummyAnalysis = {
-            .live = {}, .reach = {.def = CallConvRets}};
+        static const basic_block_properties_t::Analysis_t DummyAnalysis(
+            tcg_global_set_t(), tcg_global_set_t(), CallConvRets);
 
         G[dummyV].Analysis = &DummyAnalysis;
 
@@ -812,8 +812,8 @@ flow_vertex_t analyzer_t<MT>::copy_function_cfg(
         //
         flow_vertex_t dummyV = boost::add_vertex(G);
 
-        static const basic_block_properties_t::Analysis_t DummyAnalysis = {
-            .live = {}, .reach = {.def = CallConvRets}};
+        static const basic_block_properties_t::Analysis_t DummyAnalysis(
+            tcg_global_set_t(), tcg_global_set_t(), CallConvRets);
 
         G[dummyV].Analysis = &DummyAnalysis;
 
@@ -836,8 +836,8 @@ flow_vertex_t analyzer_t<MT>::copy_function_cfg(
   if (f.Returns && exitVertices.empty()) {
     flow_vertex_t dummyV = boost::add_vertex(G);
 
-    static const basic_block_properties_t::Analysis_t DummyAnalysis = {
-        .live = {}, .reach = {.def = CallConvRets}};
+    static const basic_block_properties_t::Analysis_t DummyAnalysis(
+        tcg_global_set_t(), tcg_global_set_t(), CallConvRets);
 
     G[dummyV].Analysis = &DummyAnalysis;
 
@@ -854,7 +854,7 @@ analyzer_t<MT>::DynTargetsSummary(const bbprop_t &bbprop, bool IsABI) {
 
   bool AllNotStale = bbprop.DynTargetsAllOf([&](dynamic_target_t X) {
     function_t &callee = function_of_target(X, jv);
-    return !__atomic_load_n(&callee.Analysis.Stale, __ATOMIC_ACQUIRE);
+    return !callee.Analysis.Stale.load(std::memory_order_acquire);
   });
 
   if (AllNotStale) {

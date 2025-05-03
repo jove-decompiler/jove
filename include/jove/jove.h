@@ -238,7 +238,31 @@ struct basic_block_properties_t : public ip_mt_base_rw_accessible_nospin {
       tcg_global_set_t def;
     } reach;
 
-    bool Stale = true;
+    std::atomic<bool> Stale = true;
+
+    Analysis_t() noexcept = default;
+
+    Analysis_t(tcg_global_set_t live_def, tcg_global_set_t live_use,
+               tcg_global_set_t reach_def) noexcept
+        : live{.def = live_def, .use = live_use}, reach{.def = reach_def} {}
+
+    Analysis_t(Analysis_t &&other) noexcept
+        : live(other.live), reach(other.reach) {
+      moveFrom(std::move(other));
+    }
+
+    Analysis_t &operator=(Analysis_t &&other) noexcept {
+      moveFrom(std::move(other));
+      return *this;
+    }
+
+    Analysis_t &operator=(const Analysis_t &other) noexcept {
+      live = other.live;
+      reach = other.reach;
+      Stale.store(other.Stale.load(std::memory_order_relaxed),
+                  std::memory_order_relaxed);
+      return *this;
+    }
 
     struct straight_line_t {
       std::atomic<bool> Stale = true;
@@ -250,6 +274,15 @@ struct basic_block_properties_t : public ip_mt_base_rw_accessible_nospin {
       boost::container::static_vector<basic_block_index_t, 2> adj;
       boost::container::flat_set<addr_intvl, addr_intvl_cmp> addrng;
     };
+
+  private:
+    void moveFrom(Analysis_t &&other) {
+      live = other.live;
+      reach = other.reach;
+
+      Stale.store(other.Stale.load(std::memory_order_relaxed),
+                  std::memory_order_relaxed);
+    }
   } Analysis;
 
   class Parents_t {
@@ -438,7 +471,7 @@ private:
     Size = other.Size;
     Term = other.Term;
     Sj = other.Sj;
-    Analysis = other.Analysis;
+    Analysis = std::move(other.Analysis);
 
     Parents._p.Store(other.Parents._p.Load(std::memory_order_relaxed),
                      std::memory_order_relaxed);
@@ -643,7 +676,29 @@ struct function_t {
     tcg_global_set_t args;
     tcg_global_set_t rets;
 
-    bool Stale = true;
+    std::atomic<bool> Stale = true;
+
+    Analysis_t() noexcept = default;
+
+    Analysis_t(Analysis_t &&other) noexcept
+        : args(other.args), rets(other.rets) {
+      moveFrom(std::move(other));
+    }
+
+    Analysis_t &operator=(Analysis_t &&other) noexcept {
+      moveFrom(std::move(other));
+      return *this;
+    }
+
+private:
+    void moveFrom(Analysis_t &&other) {
+      args = other.args;
+      rets = other.rets;
+
+      Stale.store(other.Stale.load(std::memory_order_relaxed),
+                  std::memory_order_relaxed);
+    }
+
   } Analysis;
 
   bool IsABI = false;
