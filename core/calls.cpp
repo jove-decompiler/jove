@@ -54,46 +54,6 @@ call_graph_builder_t<MT>::call_graph_builder_t(const jv_base_t<MT> &jv) noexcept
 }
 
 template <bool MT>
-bool call_graph_builder_t<MT>::best_toposort(
-    std::vector<call_graph_t::vertex_descriptor> &out) const {
-  bool has_cycle = false;
-
-  struct our_dfs_visitor : public boost::default_dfs_visitor {
-    std::vector<call_graph_t::vertex_descriptor> &out;
-    bool &has_cycle;
-
-    our_dfs_visitor(std::vector<call_graph_t::vertex_descriptor> &out,
-                    bool &has_cycle)
-        : out(out), has_cycle(has_cycle) {}
-
-    void back_edge(const call_graph_t::edge_descriptor &,
-                   const call_graph_t &) {
-      has_cycle = true;
-    }
-
-    void finish_vertex(const call_graph_t::vertex_descriptor &u,
-                       const call_graph_t &G) {
-      out.push_back(u);
-    }
-  };
-
-  std::unique_ptr<boost::default_color_type[]> ColorMap(
-      new boost::default_color_type[boost::num_vertices(G)]);
-
-  auto ColorPropMap = boost::make_iterator_property_map(
-      ColorMap.get(), boost::get(boost::vertex_index, G));
-
-  out.reserve(boost::num_vertices(G));
-
-  our_dfs_visitor vis(out, has_cycle);
-  depth_first_search(G, boost::visitor(vis).color_map(ColorPropMap));
-
-  assert(out.size() == boost::num_vertices(G));
-
-  return !has_cycle;
-}
-
-template <bool MT>
 struct graphviz_label_writer {
   const jv_base_t<MT> &jv;
   const call_graph_t &G;

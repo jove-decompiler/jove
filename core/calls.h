@@ -29,8 +29,6 @@ struct call_graph_builder_t {
   call_graph_builder_t(const jv_base_t<MT> &jv) noexcept;
   call_graph_builder_t() = delete;
 
-  /* returns whether topological sort is perfect (acyclic graph) */
-  bool best_toposort(std::vector<call_graph_t::vertex_descriptor> &out) const;
   void write_graphviz(std::ostream &) const;
 };
 
