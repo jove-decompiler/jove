@@ -183,7 +183,6 @@ public:
   template <bool WillChroot>
   int DoRun(void);
 
-  std::atomic<bool> WasDecompilationModified = false;
   bool LivingDangerously = false;
 
   static const char exited_char;
@@ -617,7 +616,7 @@ int RunTool::DoRun(void) {
     disas = std::make_unique<disas_t>();
     tcg = std::make_unique<tiny_code_generator_t>();
     symbolizer = std::make_unique<symbolizer_t>();
-    Explorer = std::make_unique<explorer_t>(*disas, *tcg, VerbosityLevel());
+    Explorer = std::make_unique<explorer_t>(jv, *disas, *tcg, VerbosityLevel());
     Recovery = std::make_unique<CodeRecovery<IsToolMT>>(jv_file, jv, *Explorer, *symbolizer);
   }
 
@@ -1090,17 +1089,6 @@ int RunTool::DoRun(void) {
 
   drop_privileges();
 
-  if (WasDecompilationModified.load()) {
-    /* FIXME */
-#if 0
-    if (opts.ForeignLibs)
-      for_each_function_in_binary(std::execution::par_unseq, jv.Binaries.at(0),
-                                  [&](function_t &f) { f.InvalidateAnalysis(); });
-    else
-#endif
-      jv.InvalidateFunctionAnalyses(); /* FIXME */
-  }
-
   {
     //
     // robust means of determining whether jove-recover has run
@@ -1419,13 +1407,7 @@ void *RunTool::FifoProc(const char *fifo_path) {
     };
 
     try {
-      std::string msg = do_recover();
-
-      if (!msg.empty()) {
-        WasDecompilationModified.store(true);
-
-        HumanOut() << msg << '\n';
-      }
+      HumanOut() << do_recover() << '\n';
     } catch (const std::exception &e) {
       HumanOut() << llvm::formatv(
           __ANSI_RED "failed to recover: {0}" __ANSI_NORMAL_COLOR "\n",

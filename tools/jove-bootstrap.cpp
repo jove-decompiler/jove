@@ -359,8 +359,6 @@ struct BootstrapTool
 
   unordered_map<pid_t, child_syscall_state_t> children_syscall_state;
 
-  bool invalidateAnalyses = false;
-
 #if defined(__mips64) || defined(__mips__)
   //
   // we need to find a code cave that can hold two instructions (8 bytes)
@@ -776,7 +774,7 @@ int BootstrapTool::TracerLoop(pid_t child) {
   disas = std::make_unique<disas_t>();
   tcg = std::make_unique<tiny_code_generator_t>();
   symbolizer = std::make_unique<symbolizer_t>();
-  E = std::make_unique<explorer_t>(*disas, *tcg, VerbosityLevel());
+  E = std::make_unique<explorer_t>(jv, *disas, *tcg, VerbosityLevel());
   E->set_newbb_proc<true>(std::bind(&BootstrapTool::on_new_basic_block, this,
                               std::placeholders::_1, std::placeholders::_2));
   E->set_newfn_proc<true>(std::bind(&BootstrapTool::on_new_function, this,
@@ -1371,16 +1369,11 @@ int BootstrapTool::TracerLoop(pid_t child) {
       }
     });
 
-    if (unsigned c = NumChanged.load()) {
-      jv.InvalidateFunctionAnalyses();
-
-      HumanOut() << llvm::formatv("fixed {0} ambiguous indirect jump{1}\n",
-                                  c, c > 1 ? "s" : "");
-    }
+    if (IsVerbose())
+      if (unsigned c = NumChanged.load())
+        HumanOut() << llvm::formatv("fixed {0} ambiguous indirect jump{1}\n", c,
+                                    c > 1 ? "s" : "");
   }
-
-  if (invalidateAnalyses)
-    jv.InvalidateFunctionAnalyses(); /* FIXME */
 
   return 0;
 }
@@ -3076,11 +3069,16 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
         //
         // non-local goto (aka "long jump")
         //
-        E->explore_basic_block(TargetBinary, *state.for_binary(TargetBinary).ObjectFile,
-                              rva_of_va(Target.Addr, Target.BIdx));
+        const basic_block_index_t BBIdx = E->explore_basic_block(
+            TargetBinary, *state.for_binary(TargetBinary).ObjectFile,
+            rva_of_va(Target.Addr, Target.BIdx));
+
+        assert(is_basic_block_index_valid(BBIdx));
 
         ControlFlow.IsGoto = true;
         Target.isNew = opts.Longjmps;
+
+	TargetICFG[basic_block_of_index(BBIdx, ICFG)].InvalidateAnalysis(jv, TargetBinary);
       } else {
         // on an indirect jump, we must determine one of two possibilities.
         //
@@ -3137,7 +3135,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
           Target.isNew = ICFG.add_edge(bb, TargetBB).second;
 
           if (Target.isNew)
-            bbprop.InvalidateAnalysis();
+            bbprop.InvalidateAnalysis(jv, binary);
   }
 
           ControlFlow.IsGoto = true;
@@ -4608,7 +4606,9 @@ void BootstrapTool::on_return(pid_t child,
     if (isCall && is_function_index_valid(before_Term._call.Target))
       b.Analysis.Functions.at(before_Term._call.Target).Returns = true;
 
-    ICFG.add_edge(before_bb, basic_block_of_index(BBIdx, ICFG)); /* connect */
+    // connect
+    if (ICFG.add_edge(before_bb, basic_block_of_index(BBIdx, ICFG)).second)
+      ICFG[before_bb].InvalidateAnalysis(jv, b);
   }
 }
 

@@ -131,7 +131,7 @@ int IDATool::Run(void) {
 
   tiny_code_generator_t tcg;
   disas_t dis;
-  explorer_t E(dis, tcg);
+  explorer_t E(jv, dis, tcg);
 
   symbolizer_t symbolizer;
 

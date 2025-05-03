@@ -17,16 +17,18 @@ bool binary_base_t<MT>::FixAmbiguousIndirectJump(taddr_t TermAddr,
                                                  jv_base_t<MT> &jv) {
   std::vector<taddr_t> SuccAddrVec;
 
+  basic_block_t bb;
+
   auto &ICFG = this->Analysis.ICFG;
   {
     auto s_lck_bbmap = this->BBMap.shared_access();
 
-    basic_block_t bb = basic_block_at_address(TermAddr, *this);
+    bb = basic_block_at_address(TermAddr, *this);
 
     if (!IsAmbiguousIndirectJump(ICFG, bb))
       return false;
 
-    auto e_lck = ICFG.at(bb).template exclusive_access<MT>();
+    auto e_lck = ICFG[bb].template exclusive_access<MT>();
 
     icfg_t::adjacency_iterator succ_it, succ_it_end;
     std::tie(succ_it, succ_it_end) = ICFG.adjacent_vertices(bb);
@@ -36,13 +38,11 @@ bool binary_base_t<MT>::FixAmbiguousIndirectJump(taddr_t TermAddr,
         succ_it,
         succ_it_end, SuccAddrVec.begin(),
         [&](basic_block_t bb) -> taddr_t { return ICFG.at(bb).Addr; });
-
-    ICFG.template clear_out_edges<false>(bb); /* ambiguous no more */
   }
 
   std::vector<function_index_t> SuccFIdxVec;
   SuccFIdxVec.resize(SuccAddrVec.size());
-  std::transform(std::execution::seq /* par_unseq */,
+  std::transform(std::execution::seq /* TODO par_unseq */,
                  SuccAddrVec.begin(),
                  SuccAddrVec.end(), SuccFIdxVec.begin(),
                  [&](taddr_t Addr) -> function_index_t {
@@ -54,11 +54,15 @@ bool binary_base_t<MT>::FixAmbiguousIndirectJump(taddr_t TermAddr,
   {
     auto s_lck_bbmap = this->BBMap.shared_access();
 
+    ICFG.template clear_out_edges<MT>(bb); /* ambiguous no more */
+
     auto &bbprop = ICFG[basic_block_at_address(TermAddr, *this)];
-    for (function_index_t FIdx : SuccFIdxVec)
+    for (function_index_t FIdx : SuccFIdxVec) /* TODO par_unseq */
       bbprop.insertDynTarget(index_of_binary(*this, jv),
                              {index_of_binary(*this, jv), FIdx}, jv_file, jv);
   }
+
+  ICFG[bb].InvalidateAnalysis(jv, *this);
 
   return true;
 }

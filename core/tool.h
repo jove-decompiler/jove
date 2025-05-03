@@ -307,10 +307,7 @@ struct BaseJVTool : public Tool {
   }
 
   void DoCtorCommon(void) {
-    /* FIXME */
-    for (binary_base_t<MT> &b : jv.Binaries)
-      __builtin_memset(&b.Analysis.ICFG.container().m_property, 0,
-                       sizeof(b.Analysis.ICFG.container().m_property));
+    hack_interprocess_graphs(jv); // XXX FIXME
 
     exclude_from_coredumps(jv_file.get_address(), jv_file.get_size());
     assert(!jv_filename.empty());

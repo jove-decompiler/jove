@@ -348,25 +348,6 @@ static void serialize(Archive &ar, jove::binary_base_t<MT> &b,
      &BOOST_SERIALIZATION_NVP(b.Analysis.ICFG);
 }
 
-#define VALUES_TO_INSTANTIATE_WITH1                                            \
-    ((true))                                                                   \
-    ((false))
-
-#define VALUES_TO_INSTANTIATE_WITH2                                            \
-    ((boost::archive::text_oarchive))                                          \
-    ((boost::archive::text_iarchive))                                          \
-    ((boost::archive::binary_oarchive))                                        \
-    ((boost::archive::binary_iarchive))
-
-#define GET_VALUE(x) BOOST_PP_TUPLE_ELEM(0, x)
-
-#define DO_INSTANTIATE(r, product)                                             \
-  template void serialize<GET_VALUE(BOOST_PP_SEQ_ELEM(1, product)),            \
-                          GET_VALUE(BOOST_PP_SEQ_ELEM(0, product))>(           \
-      GET_VALUE(BOOST_PP_SEQ_ELEM(1, product)) &,                              \
-      jove::binary_base_t<GET_VALUE(BOOST_PP_SEQ_ELEM(0, product))> &,         \
-      const unsigned int);
-
 //
 // function_t
 //
@@ -578,10 +559,7 @@ void SerializeJVToFile(const jv_base_t<MT> &in, jv_file_t &jv_file,
 template <bool MT>
 void UnserializeJV(jv_base_t<MT> &out, jv_file_t &jv_file, std::istream &is,
                    bool text) {
-  /* FIXME */
-  for (binary_base_t<MT> &b : out.Binaries)
-    __builtin_memset(&b.Analysis.ICFG.container().m_property, 0,
-                     sizeof(b.Analysis.ICFG.container().m_property));
+  hack_interprocess_graphs(out); // XXX FIXME
 
   pFile_hack = &jv_file;
 
@@ -599,10 +577,7 @@ void UnserializeJV(jv_base_t<MT> &out, jv_file_t &jv_file, std::istream &is,
     throw std::runtime_error("UnserializeJV failed!");
   }
 
-  /* FIXME */
-  for (binary_base_t<MT> &b : out.Binaries)
-    __builtin_memset(&b.Analysis.ICFG.container().m_property, 0,
-                     sizeof(b.Analysis.ICFG.container().m_property));
+  hack_interprocess_graphs(out); // XXX FIXME
 
   // XXX
   for_each_basic_block(std::execution::unseq, out,

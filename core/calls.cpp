@@ -33,8 +33,9 @@ call_graph_builder_t<MT>::call_graph_builder_t(const jv_base_t<MT> &jv) noexcept
     for (const auto &pair : *pcallers) {
       // determine block in caller
       // look at parents of block
-      auto &caller_b =
-          is_binary_index_valid(pair.first) ? jv.Binaries.at(pair.first) : b;
+      assert(is_binary_index_valid(pair.first));
+
+      auto &caller_b = jv.Binaries.at(pair.first);
       auto &ICFG = caller_b.Analysis.ICFG;
 
       auto s_lck_bbmap = caller_b.BBMap.shared_access();
@@ -42,8 +43,7 @@ call_graph_builder_t<MT>::call_graph_builder_t(const jv_base_t<MT> &jv) noexcept
       basic_block_t bb = basic_block_at_address(pair.second, caller_b);
       const bbprop_t &bbprop = ICFG[bb];
 
-      const auto &parents = bbprop.Parents.get<MT>();
-      for (function_index_t FIdx : parents) {
+      for (function_index_t FIdx : bbprop.Parents.get<MT>()) {
         const function_t &caller = caller_b.Analysis.Functions.at(FIdx);
 
         boost::add_edge(state.for_function(caller).V,

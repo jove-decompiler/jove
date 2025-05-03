@@ -346,6 +346,9 @@ int InitTool::Run(void) {
   jv.Binaries.at(1).IsDynamicLinker = true;
   jv.Binaries.at(2).IsVDSO = true;
 
+  assert(!explorer.get_jvptr());
+  jv.fixup(); // XXX
+
   return 0;
 }
 

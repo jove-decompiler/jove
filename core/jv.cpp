@@ -4,6 +4,7 @@
 #include "sizes.h"
 #include "objdump.h"
 #include "B.h"
+#include "explore.h"
 
 #include <boost/preprocessor/seq/for_each.hpp>
 #include <boost/preprocessor/seq/elem.hpp>
@@ -332,7 +333,7 @@ template <bool MT>
 adds_binary_t::adds_binary_t(binary_index_t &out,
                              jv_file_t &jv_file,
                              jv_base_t<MT> &jv,
-                             explorer_t &explorer,
+                             const explorer_t &explorer_,
                              get_data_t get_data,
                              const hash_t &h,
                              const char *name,
@@ -362,6 +363,8 @@ adds_binary_t::adds_binary_t(binary_index_t &out,
     if (name)
       to_ips(b.Name, name); /* set up name */
 
+    explorer_t explorer(explorer_);
+    assert(!explorer.get_jvptr());
     jv.DoAdd(b, explorer, *Bin, Options);
 
     //
@@ -426,13 +429,46 @@ void jv_base_t<MT>::InvalidateFunctionAnalyses(void) {
 }
 
 template <bool MT>
-void jv_base_t<MT>::fixup_binary(binary_index_t BIdx) {
+void jv_base_t<MT>::fixup_binary(const binary_index_t BIdx) {
+  //
+  // TODO explain why all this is necessary in the first place
+  //
   assert(is_binary_index_valid(BIdx));
-  binary_base_t<MT> &b = Binaries.at(BIdx);
+  auto &b = Binaries.at(BIdx);
   assert(index_of_binary(b) == BIdx);
 
-  for_each_function_in_binary(std::execution::par_unseq, b,
-                              [&](function_t &f) { f.BIdx = BIdx; });
+  for_each_function_in_binary(std::execution::par_unseq, b, [&](function_t &f) {
+    f.BIdx = BIdx;
+  });
+
+  //
+  // we assume that explorer_t::jvptr was NULL when the binary was explored, so
+  // we need to update the callers
+  //
+  for_each_basic_block_in_binary(
+      std::execution::par_unseq, b, [&](basic_block_t bb) {
+        basic_block_properties_t &bbprop = b.Analysis.ICFG[bb];
+        if (bbprop.Term.Type != TERMINATOR::CALL)
+          return;
+
+        function_t &callee = b.Analysis.Functions.at(bbprop.Term._call.Target);
+
+	callee.Callers.insert<MT>(BIdx, bbprop.Term.Addr);
+
+        for (function_index_t FIdx : bbprop.Parents.get<MT>()) { /* TODO par_unseq */
+          function_t &caller = b.Analysis.Functions.at(FIdx);
+
+          Analysis.ReverseCallGraph.template add_edge<MT>(
+              callee.ReverseCGVert<MT>(*this),
+	      caller.ReverseCGVert<MT>(*this));
+        }
+      });
+}
+
+template <bool MT>
+void jv_base_t<MT>::fixup(void) {
+  for_each_binary(std::execution::par_unseq, *this,
+                  [&](auto &b) { fixup_binary(index_of_binary(b)); });
 }
 
 template struct jv_base_t<false>;

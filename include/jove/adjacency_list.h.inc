@@ -94,15 +94,15 @@ struct adjacency_list : public ip_base_rw_accessible<MT, Spin> {
                            EdgeProperty, GraphProperty, EdgeListS, MT2, Spin2,
                            PointUnique> &) = delete;
 
-#define _S_LCK(ShouldLock, Mutex)                                              \
+#define VERT_SHARED_ACCESS(ShouldLock, Mutex)                                  \
   typename std::conditional<ShouldLock && MT,                                  \
-                            ip_sharable_lock<ip_sharable_mutex>,               \
+                            typename VertexProperty::mt_shared_lock_guard,     \
                             __do_nothing_t>::type                              \
   UNIQUE_VAR_NAME(__s_lck)(Mutex)
 
-#define _E_LCK(ShouldLock, Mutex)                                              \
+#define VERT_EXCLUSIVE_ACCESS(ShouldLock, Mutex)                               \
   typename std::conditional<ShouldLock && MT,                                  \
-                            ip_scoped_lock<ip_sharable_mutex>,                 \
+                            typename VertexProperty::mt_exclusive_lock_guard,  \
                             __do_nothing_t>::type                              \
   UNIQUE_VAR_NAME(__e_lck)(Mutex)
 
@@ -176,25 +176,24 @@ struct adjacency_list : public ip_base_rw_accessible<MT, Spin> {
     if (Check)
       assert(Idx < num_vertices()); /* catch bugs */
 
-    // for VertexList=vecS this is just identity map
+    // for VertexList=vecS this is just identity map TODO static_assert
     return boost::vertex(Idx, container());
   }
 
   vertices_size_type index(vertex_descriptor V) const {
-    // for VertexList=vecS this is just identity map
+    // for VertexList=vecS this is just identity map TODO static_assert
     return boost::get(boost::vertex_index, container())[V];
   }
 
-  template <bool L = true, class DFSVisitor>
+  template <class DFSVisitor>
   void depth_first_visit(vertex_descriptor V, DFSVisitor &vis) const {
-    std::map<vertex_descriptor, boost::default_color_type> color;
+    std::vector<boost::default_color_type> ColorVec(actual_num_vertices());
+    auto ColorPropMap = boost::make_iterator_property_map(
+        ColorVec.begin(), boost::get(boost::vertex_index, container()));
 
     auto s_lck = this->shared_access();
 
-    boost::depth_first_visit(
-        container(), V, vis,
-        boost::associative_property_map<
-            std::map<vertex_descriptor, boost::default_color_type>>(color));
+    boost::depth_first_visit(container(), V, vis, ColorPropMap);
   }
 
   template <bool L = true, class BFSVisitor>
@@ -207,7 +206,7 @@ struct adjacency_list : public ip_base_rw_accessible<MT, Spin> {
   template <bool L = true>
   degree_size_type out_degree(vertex_descriptor V) const {
     auto s_lck = this->shared_access();
-    _S_LCK(L, container()[V].mtx);
+    VERT_SHARED_ACCESS(L, container()[V].mtx);
 
     return boost::out_degree(V, container());
   }
@@ -215,7 +214,8 @@ struct adjacency_list : public ip_base_rw_accessible<MT, Spin> {
   template <bool L = true>
   void clear_out_edges(vertex_descriptor V) {
     auto s_lck = this->shared_access();
-    _E_LCK(L, container()[V].mtx);
+
+    VERT_EXCLUSIVE_ACCESS(L, container()[V].mtx);
 
     boost::clear_out_edges(V, container());
   }
@@ -224,14 +224,15 @@ struct adjacency_list : public ip_base_rw_accessible<MT, Spin> {
   std::pair<edge_descriptor, bool> add_edge(vertex_descriptor V1,
                                             vertex_descriptor V2) {
     auto s_lck = this->shared_access();
-    _E_LCK(L, container()[V1].mtx);
+
+    VERT_EXCLUSIVE_ACCESS(L, container()[V1].mtx);
 
     return boost::add_edge(V1, V2, container());
   }
 
   template <bool L = true>
   vertex_descriptor adjacent_front(vertex_descriptor V) const {
-    _S_LCK(L, container()[V].mtx);
+    VERT_SHARED_ACCESS(L, container()[V].mtx);
 
     return *adjacent_vertices(V).first;
   }
@@ -243,7 +244,7 @@ struct adjacency_list : public ip_base_rw_accessible<MT, Spin> {
     std::array<vertex_descriptor, N> res;
 
     {
-      _S_LCK(L, container()[V].mtx);
+      VERT_SHARED_ACCESS(L, container()[V].mtx);
 
       adjacency_iterator it, it_end;
       std::tie(it, it_end) = adjacent_vertices(V);
@@ -288,7 +289,7 @@ struct adjacency_list : public ip_base_rw_accessible<MT, Spin> {
     std::vector<vertex_descriptor> res;
 
 #if 0
-    _S_LCK(L, container()[V].mtx);
+    VERT_SHARED_ACCESS(L, container()[V].mtx);
 #else
     auto s_lck = this->shared_access();
 #endif
@@ -302,7 +303,7 @@ struct adjacency_list : public ip_base_rw_accessible<MT, Spin> {
     return res;
   }
 
-#undef _S_LCK
-#undef _E_LCK
+#undef VERT_SHARED_ACCESS
+#undef VERT_EXCLUSIVE_ACCESS
 };
 

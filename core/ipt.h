@@ -1425,26 +1425,41 @@ protected:
 
     const auto PrevPoint = CurrPoint;
     try {
-      auto obp = [&](basic_block_t bb,
-                     basic_block_properties_t &bbprop) -> void {
-        CurrPoint.SetAddr(bbprop.Addr);
-        CurrPoint.SetTermAddr(bbprop.Term.Addr);
+      bool IsNewBlock = false;
+
+      static basic_block_properties_t dummy_bbprop;
+      std::reference_wrapper<basic_block_properties_t> the_new_bbprop(dummy_bbprop);
+
+      auto obp = [&](basic_block_t the_bb,
+                     basic_block_properties_t &the_bbprop) -> void {
+        IsNewBlock = true;
+        the_new_bbprop = the_bbprop;
+
+        CurrPoint.SetAddr(the_bbprop.Addr);
+        CurrPoint.SetTermAddr(the_bbprop.Term.Addr);
 
         if constexpr (IsVeryVerbose())
-          on_block(b, bbprop, bb);
+          on_block(b, the_bbprop, the_bb);
       };
       auto obp_u = [&](basic_block_index_t BBIdx) -> void {
-        basic_block_properties_t &bbprop =
-            b.Analysis.ICFG[basic_block_of_index(BBIdx, b.Analysis.ICFG)];
+        basic_block_t the_bb = basic_block_of_index(BBIdx, b.Analysis.ICFG);
+        basic_block_properties_t &the_bbprop = b.Analysis.ICFG[the_bb];
 
-        auto s_lck = bbprop.shared_access<MT>();
-        obp(basic_block_of_index(BBIdx, b.Analysis.ICFG), bbprop);
+        auto s_lck = the_bbprop.template shared_access<MT>();
+        CurrPoint.SetAddr(the_bbprop.Addr);
+        CurrPoint.SetTermAddr(the_bbprop.Term.Addr);
+
+        if constexpr (IsVeryVerbose())
+          on_block(b, the_bbprop, the_bb);
       };
 
       CurrPoint.SetBinary(b);
       CurrPoint.SetBlockIndex(
           explorer.explore_basic_block<MT>(b, *x.Bin, Addr, obp, obp_u));
       assert(CurrPoint.Valid());
+
+      if (IsNewBlock) /* (FIXME? (should this be done here?)) */
+        the_new_bbprop.get().InvalidateAnalysis(jv, b);
     } catch (const invalid_control_flow_exception &) {
       if constexpr (1 /* IsVerbose() */)
         fprintf(stderr,
@@ -1705,7 +1720,10 @@ protected:
 
         auto fr_s_lck_bbmap = fr_b.BBMap.shared_access();
 
-        fr_ICFG.add_edge(basic_block_at_address(FrTermAddr, fr_b), to_bb);
+        basic_block_t fr_bb = basic_block_at_address(FrTermAddr, fr_b);
+        fr_ICFG.add_edge(fr_bb, to_bb);
+
+        fr_ICFG[fr_bb].InvalidateAnalysis(jv, fr_b);  /* (FIXME? (should this be done here?)) */
       }
 
       break;
@@ -1750,6 +1768,7 @@ protected:
         }
 
         to_ICFG.add_edge(before_bb, to_bb); /* connect */
+        before_bbprop.InvalidateAnalysis(jv, to_b); /* (FIXME? (should this be done here?)) */
       }
       break;
     }

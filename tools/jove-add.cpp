@@ -36,7 +36,7 @@ JOVE_REGISTER_TOOL("add", AddTool);
 int AddTool::Run(void) {
   tiny_code_generator_t tcg;
   disas_t disas;
-  explorer_t E(disas, tcg, IsVeryVerbose());
+  explorer_t E(jv, disas, tcg, IsVeryVerbose());
 
   for (const std::string &filename : opts.DSO) {
     if (!fs::exists(filename)) {

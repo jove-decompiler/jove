@@ -191,7 +191,7 @@ struct basic_block_properties_t : public ip_mt_base_rw_accessible_nospin {
   bool Speculative = false;
 
   taddr_t Addr = uninit_taddr;
-  uint32_t Size = ~0UL;
+  uint32_t Size = ~uint32_t(0);
 
   struct {
     taddr_t Addr = uninit_taddr;
@@ -399,9 +399,8 @@ struct basic_block_properties_t : public ip_mt_base_rw_accessible_nospin {
 
   bool IsSingleInstruction(void) const { return Addr == Term.Addr; }
 
-  void InvalidateAnalysis(void) {
-    this->Analysis.Stale = true;
-  }
+  template <bool MT>
+  void InvalidateAnalysis(jv_base_t<MT> &, binary_base_t<MT> &);
 
   explicit basic_block_properties_t() noexcept = default;
 
@@ -542,10 +541,9 @@ template <bool MT>
 constexpr block_t block_for_caller_in_binary(const caller_t &caller,
                                              const binary_base_t<MT> &caller_b,
                                              const jv_base_t<MT> &jv) {
-  const binary_index_t BIdx =
-      is_binary_index_valid(caller.first)
-          ? caller.first
-          : index_of_binary(caller_b); /* invalid => binary of caller */
+  const binary_index_t BIdx = caller.first;
+
+  assert(is_binary_index_valid(BIdx));
 
   const binary_base_t<MT> &b = jv.Binaries.at(BIdx);
   const basic_block_index_t BBIdx = ({
@@ -554,13 +552,30 @@ constexpr block_t block_for_caller_in_binary(const caller_t &caller,
     index_of_basic_block_at_address(caller.second, b);
   });
 
-  return {BIdx, BBIdx};
+  return block_t(BIdx, BBIdx);
 }
 
 typedef boost::interprocess::set<
     caller_t, std::less<caller_t>,
     boost::interprocess::node_allocator<caller_t, segment_manager_t>>
     callers_t;
+
+struct call_graph_node_properties_t : public ip_mt_base_rw_accessible_spin {
+  using pair = struct { binary_index_t first; function_index_t second; };
+
+  std::atomic<pair> X = pair{invalid_binary_index, invalid_function_index};
+};
+
+template <bool MT>
+using ip_call_graph_base_t =
+adjacency_list<boost::setS_ip,               /* OutEdgeList */
+               boost::dequeS_ip,             /* VertexList */
+               boost::directedS,             /* Directed */
+               call_graph_node_properties_t, /* VertexProperties */
+               boost::no_property,           /* EdgeProperties */
+               boost::no_property,           /* GraphProperties */
+               boost::vecS_ip,               /* EdgeList */
+               MT, false /* !Spin */>;
 
 struct function_t {
   bool Speculative = false;
@@ -577,6 +592,8 @@ struct function_t {
 
     template <bool MT>
     void insert(binary_index_t BIdx, taddr_t TermAddr) {
+      assert(TermAddr);
+
       auto e_lck = this->exclusive_access<MT>();
 
       set.emplace(BIdx, TermAddr);
@@ -595,6 +612,31 @@ struct function_t {
       return set.empty();
     }
   } Callers;
+
+  struct ReverseCGVertHolder_t : public ip_mt_base_accessible_spin {
+    std::atomic<call_graph_index_t> V = invalid_call_graph_index;
+
+    ReverseCGVertHolder_t() noexcept = default;
+
+    explicit ReverseCGVertHolder_t(ReverseCGVertHolder_t &&other) noexcept {
+      moveFrom(std::move(other));
+    }
+
+    ReverseCGVertHolder_t &operator=(ReverseCGVertHolder_t &&other) noexcept {
+      if (this != &other)
+        moveFrom(std::move(other));
+      return *this;
+    }
+
+  private:
+    void moveFrom(ReverseCGVertHolder_t &&other) noexcept {
+      V.store(other.V.load(std::memory_order_relaxed), std::memory_order_relaxed);
+      other.V.store(invalid_call_graph_index, std::memory_order_relaxed);
+    }
+  } ReverseCGVertIdxHolder;
+
+  template <bool MT>
+  ip_call_graph_base_t<MT>::vertex_descriptor ReverseCGVert(jv_base_t<MT> &);
 
   struct Analysis_t {
     tcg_global_set_t args;
@@ -907,7 +949,7 @@ struct adds_binary_t {
   explicit adds_binary_t(binary_index_t &out,
                          jv_file_t &,
                          jv_base_t<MT> &,
-                         explorer_t &,
+                         const explorer_t &,
                          get_data_t get_data,
                          const hash_t &,
                          const char *name,
@@ -987,11 +1029,43 @@ struct jv_base_t {
         MT>
       Binaries;
 
+  struct Analysis_t {
+    ip_call_graph_base_t<MT> ReverseCallGraph;
+
+#if 0
+    Analysis_t() = delete;
+    Analysis_t(const Analysis_t &) = delete;
+    Analysis_t &operator=(const Analysis_t &) = delete;
+#endif
+
+    explicit Analysis_t(jv_file_t &jv_file) noexcept
+        : ReverseCallGraph(jv_file) {}
+
+    explicit Analysis_t(Analysis_t &&other) noexcept
+        : ReverseCallGraph(std::move(other.ReverseCallGraph)) {}
+
+    explicit Analysis_t(typename jv_base_t<!MT>::Analysis_t &&other) noexcept
+        : ReverseCallGraph(std::move(other.ReverseCallGraph)) {}
+
+#if 0
+    template <bool MT2>
+    Analysis_t &
+    operator=(typename jv_base_t<MT2>::Analysis_t &&other) noexcept {
+      if constexpr (MT == MT2) {
+        if (this == &other)
+          return *this;
+      }
+
+      ReverseCallGraph = std::move(other.ReverseCallGraph);
+      return *this;
+    }
+#endif
+  } Analysis;
+
   ip_hash_to_binary_map_type<MT> hash_to_binary;
   ip_cached_hashes_type<MT> cached_hashes; /* NOT serialized */
 
-  ip_name_to_binaries_map_type<MT> name_to_binaries; /* this is questionable */
-                                                     /* used by LookupByName */
+  ip_name_to_binaries_map_type<MT> name_to_binaries;
 
   void InvalidateFunctionAnalyses(void);
 
@@ -1003,18 +1077,21 @@ struct jv_base_t {
 
   explicit jv_base_t(jv_file_t &jv_file) noexcept
       : Binaries(jv_file),
+        Analysis(jv_file),
         hash_to_binary(jv_file.get_segment_manager()),
         cached_hashes(jv_file.get_segment_manager()),
         name_to_binaries(jv_file.get_segment_manager()) {}
 
   explicit jv_base_t(jv_base_t<MT> &&other, jv_file_t &jv_file) noexcept
       : Binaries(std::move(other.Binaries)),
+        Analysis(std::move(other.Analysis)),
         hash_to_binary(std::move(other.hash_to_binary)),
         cached_hashes(std::move(other.cached_hashes)),
         name_to_binaries(std::move(other.name_to_binaries)) {}
 
   explicit jv_base_t(jv_base_t<!MT> &&other, jv_file_t &jv_file) noexcept
       : Binaries(jv_file),
+        Analysis(std::move(other.Analysis)),
         hash_to_binary(std::move(other.hash_to_binary)),
         cached_hashes(std::move(other.cached_hashes)),
         name_to_binaries(std::move(other.name_to_binaries)) {
@@ -1076,7 +1153,8 @@ public:
 
   friend adds_binary_t;
 
-  void fixup_binary(binary_index_t); /* XXX */
+  void fixup(void);
+  void fixup_binary(const binary_index_t);
 };
 
 typedef jv_base_t<true> jv_t;
@@ -1752,6 +1830,19 @@ static inline binary_base_t<MT> &get_vdso(jv_base_t<MT> &jv) {
   }
 
   throw std::runtime_error(std::string(__func__) + ": not found!");
+}
+
+//
+// until we come up with a cleaner source code patch for boost-graph (to make it
+// work with boost interprocess (stateful) allocators), we need to do this for
+// now XXX FIXME
+//
+template <bool MT>
+static inline void hack_interprocess_graphs(jv_base_t<MT> &jv) {
+  for_each_binary(std::execution::par_unseq, jv, [&](auto &b) {
+    __builtin_memset_inline(&b.Analysis.ICFG.container().m_property, 0,
+                            sizeof(b.Analysis.ICFG.container().m_property));
+  });
 }
 
 #include "jove/state.h.inc"

@@ -49,6 +49,7 @@ static inline void nop_on_block_u(basic_block_index_t) {}
 // performs accurate recursive traversal disassembly
 //
 class explorer_t {
+  void *const jvptr = nullptr;
   disas_t &disas;
   tiny_code_generator_t &tcg;
   const unsigned VerbosityLevel;
@@ -68,12 +69,14 @@ class explorer_t {
              onblockproc_t obp = nop_on_block);
 
   template <bool WithOnBlockProc, bool MT>
-  basic_block_index_t _explore_basic_block(binary_base_t<MT> &,
-                                           llvm::object::Binary &,
-                                           const taddr_t Addr,
-                                           bool Speculative,
-                                           onblockproc_t obp = nop_on_block,
-                                           onblockproc_u_t obp_u = nop_on_block_u);
+  basic_block_index_t _explore_basic_block(
+      binary_base_t<MT> &,
+      llvm::object::Binary &,
+      const taddr_t Addr,
+      bool Speculative,
+      const function_index_t ParentIdx = invalid_function_index,
+      onblockproc_t obp = nop_on_block,
+      onblockproc_u_t obp_u = nop_on_block_u);
 
   template <bool MT>
   function_index_t _explore_function(binary_base_t<MT> &,
@@ -93,8 +96,24 @@ class explorer_t {
   bool IsVeryVerbose(void) const { return unlikely(VerbosityLevel >= 2); }
 
 public:
-  explorer_t(disas_t &disas, tiny_code_generator_t &tcg, unsigned VerbosityLevel = 0)
-      : disas(disas), tcg(tcg), VerbosityLevel(VerbosityLevel) {}
+  template <bool MT>
+  explorer_t(jv_base_t<MT> &jv, disas_t &disas, tiny_code_generator_t &tcg,
+             unsigned VerbosityLevel = 0)
+      : jvptr(&jv), disas(disas), tcg(tcg), VerbosityLevel(VerbosityLevel) {}
+
+  explorer_t(disas_t &disas, tiny_code_generator_t &tcg,
+             unsigned VerbosityLevel = 0)
+      : jvptr(nullptr), disas(disas), tcg(tcg), VerbosityLevel(VerbosityLevel) {}
+
+  explorer_t(const explorer_t &other)
+      : jvptr(nullptr), disas(other.disas), tcg(other.tcg),
+        VerbosityLevel(other.VerbosityLevel),
+
+        the_on_newbb_proc_f(other.the_on_newbb_proc_f),
+        the_on_newbb_proc_t(other.the_on_newbb_proc_t),
+
+        the_on_newfn_proc_f(other.the_on_newfn_proc_f),
+        the_on_newfn_proc_t(other.the_on_newfn_proc_t) {}
 
   //
   // the objective is to translate all the code we can up until indirect
@@ -151,6 +170,10 @@ public:
       the_on_newfn_proc_t = proc;
     else
       the_on_newfn_proc_f = proc;
+  }
+
+  void *get_jvptr(void) const {
+    return jvptr;
   }
 };
 

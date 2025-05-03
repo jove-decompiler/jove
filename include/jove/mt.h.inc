@@ -62,13 +62,16 @@ struct ip_base_rw_accessible {
 
   mutable mutex_type mtx;
 
+  using mt_shared_lock_guard = ip_base_mt_rw_choose_sharable_lock_guard<Spin>;
+
   using shared_lock_guard =
-      std::conditional_t<MT, ip_base_mt_rw_choose_sharable_lock_guard<Spin>,
-                         __do_nothing_t>;
+      std::conditional_t<MT, mt_shared_lock_guard, __do_nothing_t>;
+
+  using mt_exclusive_lock_guard =
+      ip_base_mt_rw_choose_exclusive_lock_guard<Spin>;
 
   using exclusive_lock_guard =
-      std::conditional_t<MT, ip_base_mt_rw_choose_exclusive_lock_guard<Spin>,
-                         __do_nothing_t>;
+      std::conditional_t<MT, mt_exclusive_lock_guard, __do_nothing_t>;
 
   shared_lock_guard shared_access() const {
     return shared_lock_guard{mtx};
@@ -95,7 +98,7 @@ struct ip_base_rw_accessible {
 
   void __force_reset_access(void) {
     if constexpr (sizeof(mtx))
-      __builtin_memset(&mtx, 0, sizeof(mtx));
+      __builtin_memset_inline(&mtx, 0, sizeof(mtx));
   }
 };
 
@@ -113,15 +116,18 @@ struct ip_mt_base_rw_accessible {
 
   mutable mutex_type mtx;
 
+  using mt_shared_lock_guard = ip_base_mt_rw_choose_sharable_lock_guard<Spin>;
+
   template <bool MT>
   using shared_lock_guard =
-      std::conditional_t<MT, ip_base_mt_rw_choose_sharable_lock_guard<Spin>,
-                         __do_nothing_t>;
+      std::conditional_t<MT, mt_shared_lock_guard, __do_nothing_t>;
+
+  using mt_exclusive_lock_guard =
+      ip_base_mt_rw_choose_exclusive_lock_guard<Spin>;
 
   template <bool MT>
   using exclusive_lock_guard =
-      std::conditional_t<MT, ip_base_mt_rw_choose_exclusive_lock_guard<Spin>,
-                         __do_nothing_t>;
+      std::conditional_t<MT, mt_exclusive_lock_guard, __do_nothing_t>;
 
   template <bool MT> shared_lock_guard<MT> shared_access() const {
     return shared_lock_guard<MT>{mtx};
@@ -150,7 +156,7 @@ struct ip_mt_base_rw_accessible {
 
   void __force_reset_access(void) {
     if constexpr (sizeof(mtx))
-      __builtin_memset(&mtx, 0, sizeof(mtx));
+      __builtin_memset_inline(&mtx, 0, sizeof(mtx));
   }
 };
 
@@ -174,10 +180,11 @@ struct ip_mt_base_accessible {
 
   mutable mutex_type mtx;
 
+  using mt_exclusive_lock_guard = ip_base_mt_choose_exclusive_lock_guard<Spin>;
+
   template <bool MT>
   using exclusive_lock_guard =
-      std::conditional_t<MT, ip_base_mt_choose_exclusive_lock_guard<Spin>,
-                         __do_nothing_t>;
+      std::conditional_t<MT, mt_exclusive_lock_guard, __do_nothing_t>;
 
   template <bool MT> exclusive_lock_guard<MT> exclusive_access() const {
     return exclusive_lock_guard<MT>{mtx};
@@ -197,7 +204,7 @@ struct ip_mt_base_accessible {
 
   void __force_reset_access(void) {
     if constexpr (sizeof(mtx))
-      __builtin_memset(&mtx, 0, sizeof(mtx));
+      __builtin_memset_inline(&mtx, 0, sizeof(mtx));
   }
 };
 

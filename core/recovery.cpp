@@ -59,10 +59,12 @@ std::string CodeRecovery<MT>::RecoverDynamicTarget(binary_index_t CallerBIdx,
   uint64_t TermAddr = AddressOfTerminatorAtBasicBlock(CallerBIdx, CallerBBIdx);
   assert(TermAddr);
 
+  basic_block_t bb;
+
   bool Ambig = ({
     auto s_lck = CallerBinary.BBMap.shared_access();
 
-    basic_block_t bb = basic_block_at_address(TermAddr, CallerBinary);
+    bb = basic_block_at_address(TermAddr, CallerBinary);
 
     bool isNewTarget = ICFG[bb].insertDynTarget(
         CallerBIdx, {CalleeBIdx, CalleeFIdx}, jv_file, jv);
@@ -76,6 +78,9 @@ std::string CodeRecovery<MT>::RecoverDynamicTarget(binary_index_t CallerBIdx,
   if (Ambig)
     CallerBinary.FixAmbiguousIndirectJump(
         TermAddr, E, *state.for_binary(CallerBinary).Bin, jv_file, jv);
+
+  callee.InvalidateAnalysis();
+  ICFG[bb].InvalidateAnalysis(jv, CallerBinary);
 
 #if 0
   } else if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL &&
@@ -121,14 +126,18 @@ std::string CodeRecovery<MT>::RecoverBasicBlock(binary_index_t IndBrBIdx,
 
   uint64_t TermAddr = AddressOfTerminatorAtBasicBlock(IndBrBIdx, IndBrBBIdx);
 
+  basic_block_t bb;
+
   bool isNewTarget = ({
     auto s_lck = b.BBMap.shared_access();
 
-    basic_block_t bb = basic_block_at_address(TermAddr, b);
+    bb = basic_block_at_address(TermAddr, b);
     assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP);
 
     ICFG.add_edge(bb, basic_block_of_index(TargetBBIdx, ICFG)).second;
   });
+
+  ICFG[bb].InvalidateAnalysis(jv, b);
 
   if (!isNewTarget)
     return std::string();
@@ -238,7 +247,7 @@ std::string CodeRecovery<MT>::RecoverABI(binary_index_t BIdx,
 
 template <bool MT>
 std::string CodeRecovery<MT>::Returns(binary_index_t CallBIdx,
-                                  basic_block_index_t CallBBIdx) {
+                                      basic_block_index_t CallBBIdx) {
   auto &b = jv.Binaries.at(CallBIdx);
   auto &ICFG = b.Analysis.ICFG;
 
@@ -256,10 +265,12 @@ std::string CodeRecovery<MT>::Returns(binary_index_t CallBIdx,
       E.explore_basic_block(b, *state.for_binary(b).Bin, NextAddr);
   assert(is_basic_block_index_valid(NextBBIdx));
 
+  basic_block_t bb;
+
   bool isNewTarget = ({
     auto s_lck = b.BBMap.shared_access();
 
-    basic_block_t bb = basic_block_at_address(TermAddr, b);
+    bb = basic_block_at_address(TermAddr, b);
 
     bool isCall = ICFG[bb].Term.Type == TERMINATOR::CALL;
     bool isIndirectCall = ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL;
@@ -276,6 +287,8 @@ std::string CodeRecovery<MT>::Returns(binary_index_t CallBIdx,
 
     ICFG.add_edge(bb, basic_block_of_index(NextBBIdx, ICFG)).second;
   });
+
+  ICFG[bb].InvalidateAnalysis(jv, b);
 
   (void)isNewTarget; /* FIXME */
 

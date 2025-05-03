@@ -74,10 +74,60 @@ bool basic_block_properties_t::insertDynTarget(binary_index_t ThisBIdx,
                                                const dynamic_target_t &X,
                                                jv_file_t &jv_file,
                                                jv_base_t<MT> &jv) {
+  assert(is_binary_index_valid(ThisBIdx));
+  auto &caller_b = jv.Binaries.at(ThisBIdx);
+
   function_t &callee = function_of_target(X, jv);
+  callee.InvalidateAnalysis();
   callee.Callers.insert<MT>(ThisBIdx, Term.Addr);
 
-  return doInsertDynTarget(X, jv_file);
+  bool res = doInsertDynTarget(X, jv_file);
+
+  if (res) {
+    auto &RCG = jv.Analysis.ReverseCallGraph;
+
+    for (function_index_t FIdx : Parents.get<MT>()) { /* TODO par_unseq */
+      function_t &caller = caller_b.Analysis.Functions.at(FIdx);
+      caller.InvalidateAnalysis();
+
+      RCG.template add_edge<MT>(callee.ReverseCGVert<MT>(jv),
+                                caller.ReverseCGVert<MT>(jv));
+    }
+  }
+
+  return res;
+}
+
+template <bool MT>
+void basic_block_properties_t::InvalidateAnalysis(jv_base_t<MT> &jv,
+                                                  binary_base_t<MT> &b) {
+  this->Analysis.Stale = true;
+
+  struct function_invalidator_t : public boost::default_dfs_visitor {
+    jv_base_t<MT> &jv;
+
+    function_invalidator_t(jv_base_t<MT> &jv) : jv(jv) {}
+
+    void discover_vertex(ip_call_graph_base_t<MT>::vertex_descriptor V,
+                         const ip_call_graph_base_t<MT>::type &RCG) const {
+      const auto X_ = RCG[V].X.load(std::memory_order_relaxed);
+      dynamic_target_t X(X_.first, X_.second);
+
+      assert(is_dynamic_target_valid(X));
+
+      function_of_target(X, jv).InvalidateAnalysis();
+    }
+  };
+
+  function_invalidator_t invalidator(jv);
+
+  for (function_index_t FIdx : Parents.get<MT>()) { /* TODO par_unseq */
+    function_t &f = b.Analysis.Functions.at(FIdx);
+
+    auto V = f.ReverseCGVert<MT>(jv);
+
+    jv.Analysis.ReverseCallGraph.depth_first_visit(V, invalidator);
+  }
 }
 
 #define VALUES_TO_INSTANTIATE_WITH                                             \
@@ -94,6 +144,11 @@ BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, VALUES_TO_INSTANTIATE_WITH)
 #define DO_INSTANTIATE(r, data, elem)                                          \
   template void basic_block_properties_t::Parents_t::insert(                   \
       function_index_t, binary_base_t<GET_VALUE(elem)> &);
+BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, VALUES_TO_INSTANTIATE_WITH)
+
+#define DO_INSTANTIATE(r, data, elem)                                          \
+  template void basic_block_properties_t::InvalidateAnalysis<GET_VALUE(elem)>( \
+      jv_base_t<GET_VALUE(elem)> &, binary_base_t<GET_VALUE(elem)> &);
 BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, VALUES_TO_INSTANTIATE_WITH)
 
 }

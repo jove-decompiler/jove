@@ -297,7 +297,7 @@ int IPTTool::Run(void) {
 
   TCG = std::make_unique<tiny_code_generator_t>();
   Disas = std::make_unique<disas_t>();
-  Explorer = std::make_unique<explorer_t>(*Disas, *TCG, VerbosityLevel());
+  Explorer = std::make_unique<explorer_t>(jv, *Disas, *TCG, VerbosityLevel());
 
   const std::string prog_path = fs::canonical(opts.Prog).string();
 

@@ -66,7 +66,7 @@ function_index_t explorer_t::_explore_function(binary_base_t<MT> &b,
   get_newfn_proc<MT>()(b, f);
 
   const basic_block_index_t EntryIdx =
-      _explore_basic_block<false, MT>(b, B, Addr, Speculative);
+      _explore_basic_block<false, MT>(b, B, Addr, Speculative, Idx);
 
   assert(is_basic_block_index_valid(EntryIdx));
 
@@ -96,6 +96,11 @@ function_index_t explorer_t::_explore_function(binary_base_t<MT> &b,
   };
 
   rec(basic_block_of_index(EntryIdx, ICFG));
+
+  if (jvptr) {
+    jv_base_t<MT> &jv = *reinterpret_cast<jv_base_t<MT> *>(jvptr); // FIXME assert mt?
+    ICFG[basic_block_of_index(EntryIdx, ICFG)].InvalidateAnalysis(jv, b);
+  }
 
   return Idx;
 }
@@ -206,7 +211,7 @@ on_insn:
       bbprop_1.DynTargets._p.Load(std::memory_order_relaxed),
       std::memory_order_relaxed);
   bbprop_2.DynTargets.Complete = bbprop_1.DynTargets.Complete;
-  bbprop_2.InvalidateAnalysis();
+  //bbprop_2.InvalidateAnalysis();
 
   assert(bbprop_2.Addr + bbprop_2.Size == addr_intvl_upper(intvl));
 
@@ -224,7 +229,7 @@ on_insn:
     bbprop_1.Sj = false;
     bbprop_1.DynTargets._p.Store(nullptr, std::memory_order_relaxed);
     bbprop_1.DynTargets.Complete = false;
-    bbprop_1.InvalidateAnalysis();
+    bbprop_1.Analysis.Stale = true;
 
     //
     // gather up bb_1 edges
@@ -309,12 +314,14 @@ on_insn:
 }
 
 template <bool WithOnBlockProc, bool MT>
-basic_block_index_t explorer_t::_explore_basic_block(binary_base_t<MT> &b,
-                                                     obj::Binary &Bin,
-                                                     const taddr_t Addr,
-                                                     bool Speculative,
-                                                     onblockproc_t obp,
-                                                     onblockproc_u_t obp_u) {
+basic_block_index_t
+explorer_t::_explore_basic_block(binary_base_t<MT> &b,
+                                 obj::Binary &Bin,
+                                 const taddr_t Addr,
+                                 bool Speculative,
+                                 const function_index_t ParentIdx,
+                                 onblockproc_t obp,
+                                 onblockproc_u_t obp_u) {
 #if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
   assert((Addr & 1) == 0);
 #endif
@@ -347,7 +354,7 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_base_t<MT> &b,
 
     assert(is_basic_block_index_valid(Idx));
 
-    if (likely(!inserted)) {
+    if (!inserted) {
       if constexpr (WithOnBlockProc)
         obp_u(Idx);
       return Idx;
@@ -564,7 +571,10 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_base_t<MT> &b,
     bbprop.Term._indirect_jump.IsLj = false;
     bbprop.Sj = false;
     bbprop.Term._return.Returns = false;
-    bbprop.InvalidateAnalysis();
+
+    //bbprop.InvalidateAnalysis();
+    if (is_function_index_valid(ParentIdx))
+      bbprop.Parents.template insert<MT>(ParentIdx, b);
 
     addr_intvl intervl(bbprop.Addr, bbprop.Size);
     if (likely(!Speculative)) {
@@ -627,21 +637,34 @@ basic_block_index_t explorer_t::_explore_basic_block(binary_base_t<MT> &b,
     CalleeAddr &= ~1UL;
 #endif
 
+#if 0
     if (CalleeAddr == 0) {
-      // what.the.fuck.
-      // objdump reports seeing the following:
       //   8fedab:       e8 50 12 70 ff          call   0 <thread_id>
       throw std::runtime_error(
           (fmt("%s: call to zero @ 0x%lx") % __func__ % T.Addr).str());
     }
+#endif
 
     function_index_t CalleeFIdx =
         _explore_function(b, Bin, CalleeAddr, Speculative);
 
     assert(is_function_index_valid(CalleeFIdx));
 
-    function_t &callee = b.Analysis.Functions.at(CalleeFIdx);
-    callee.Callers.insert<MT>(b.Idx /* may =invalid */, T.Addr);
+    if (is_binary_index_valid(b.Idx)) { /* may not know binary index */
+      function_t &callee = b.Analysis.Functions.at(CalleeFIdx);
+      callee.Callers.insert<MT>(b.Idx, T.Addr);
+
+      if (jvptr) {
+        jv_base_t<MT> &jv = *reinterpret_cast<jv_base_t<MT> *>(jvptr); // FIXME assert mt?
+        for (function_index_t FIdx : bbprop.Parents.template get<MT>()) { /* TODO par_unseq */
+          function_t &caller = b.Analysis.Functions.at(FIdx);
+
+          jv.Analysis.ReverseCallGraph.template add_edge<MT>(
+              callee.ReverseCGVert<MT>(jv),
+              caller.ReverseCGVert<MT>(jv));
+        }
+      }
+    }
 
     if (unlikely(Speculative)) {
       ICFG[basic_block_of_index(Idx, ICFG)].Term._call.Target = CalleeFIdx;
@@ -738,7 +761,8 @@ basic_block_index_t explorer_t::explore_basic_block(binary_base_t<MT> &b,
   Addr &= ~1UL;
 #endif
 
-  return _explore_basic_block<true, MT>(b, B, Addr, false, obp, obp_u);
+  return _explore_basic_block<true, MT>(b, B, Addr, false,
+                                        invalid_function_index, obp, obp_u);
 }
 
 template <bool MT>

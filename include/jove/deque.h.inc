@@ -2,6 +2,8 @@
 #error "only to be included inline in jove/jove.h"
 #endif
 
+// deques have a very important property for multi-threaded programming, namely
+// that references to elements are never invalidated. 
 template <typename T, typename Alloc,
           bool MT = true,
           bool Spin = true,

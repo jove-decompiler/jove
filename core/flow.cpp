@@ -7,23 +7,21 @@ namespace jove {
 void verticesInDfsOrder(const flow_graph_t &G, flow_vertex_vec_t &out) {
   out.reserve(boost::num_vertices(G));
 
-  struct flowvert_dfs_visitor : public boost::default_dfs_visitor {
+  struct in_dfs_order_visitor : public boost::default_dfs_visitor {
     flow_vertex_vec_t &out;
 
-    flowvert_dfs_visitor(flow_vertex_vec_t &out) : out(out) {}
+    in_dfs_order_visitor(flow_vertex_vec_t &out) : out(out) {}
 
     void discover_vertex(flow_vertex_t v, const flow_graph_t &) const {
       out.push_back(v);
     }
   };
 
-  std::unique_ptr<boost::default_color_type[]> ColorMap(
-      new boost::default_color_type[boost::num_vertices(G)]);
-
+  std::vector<boost::default_color_type> ColorVec(boost::num_vertices(G));
   auto ColorPropMap = boost::make_iterator_property_map(
-      ColorMap.get(), boost::get(boost::vertex_index, G));
+      ColorVec.begin(), boost::get(boost::vertex_index, G));
 
-  flowvert_dfs_visitor vis(out);
+  in_dfs_order_visitor vis(out);
   boost::depth_first_search(G, boost::visitor(vis).color_map(ColorPropMap));
 }
 
