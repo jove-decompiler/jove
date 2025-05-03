@@ -19,9 +19,10 @@ namespace jove {
 typedef boost::format fmt;
 
 template <bool MT>
-CodeRecovery<MT>::CodeRecovery(jv_file_t &jv_file, jv_base_t<MT> &jv,
-                           explorer_t &E,
-                           symbolizer_t &symbolizer)
+CodeRecovery<MT>::CodeRecovery(jv_file_t &jv_file,
+                               jv_base_t<MT> &jv,
+                               explorer_t<MT> &E,
+                               symbolizer_t &symbolizer)
     : jv_file(jv_file), jv(jv), E(E), symbolizer(symbolizer), state(jv) {}
 
 template <bool MT>
@@ -163,8 +164,8 @@ std::string CodeRecovery<MT>::RecoverFunctionAtAddress(binary_index_t IndCallBId
   if (!is_binary_index_valid(IndCallBIdx) ||
       !is_basic_block_index_valid(IndCallBBIdx))
     return (fmt(__ANSI_CYAN "(call*) -> %s" __ANSI_NORMAL_COLOR)
-	    % symbolizer.addr2desc(CalleeBinary, CalleeAddr))
-	.str();
+            % symbolizer.addr2desc(CalleeBinary, CalleeAddr))
+        .str();
 
   auto &CallerBinary = jv.Binaries.at(IndCallBIdx);
   uint64_t TermAddr = AddressOfTerminatorAtBasicBlock(IndCallBIdx, IndCallBBIdx);

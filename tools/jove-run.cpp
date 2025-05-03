@@ -170,7 +170,7 @@ struct RunTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
   std::unique_ptr<disas_t> disas;
   std::unique_ptr<tiny_code_generator_t> tcg;
   std::unique_ptr<symbolizer_t> symbolizer;
-  std::unique_ptr<explorer_t> Explorer;
+  std::unique_ptr<explorer_t<IsToolMT>> Explorer;
   std::unique_ptr<CodeRecovery<IsToolMT>> Recovery;
 
 public:
@@ -616,7 +616,7 @@ int RunTool::DoRun(void) {
     disas = std::make_unique<disas_t>();
     tcg = std::make_unique<tiny_code_generator_t>();
     symbolizer = std::make_unique<symbolizer_t>();
-    Explorer = std::make_unique<explorer_t>(jv, *disas, *tcg, VerbosityLevel());
+    Explorer = std::make_unique<explorer_t<IsToolMT>>(jv, *disas, *tcg, VerbosityLevel());
     Recovery = std::make_unique<CodeRecovery<IsToolMT>>(jv_file, jv, *Explorer, *symbolizer);
   }
 

@@ -6,6 +6,7 @@
 
 namespace jove {
 
+template <bool MT>
 class explorer_t;
 
 template <bool MT>
@@ -13,7 +14,7 @@ class CodeRecovery {
   jv_file_t &jv_file;
   jv_base_t<MT> &jv;
 
-  explorer_t &E;
+  explorer_t<MT> &E;
 
   symbolizer_t &symbolizer;
 
@@ -26,7 +27,7 @@ class CodeRecovery {
   jv_state_t<binary_state_t, void, void, true, true, false, true, MT> state;
 
 public:
-  CodeRecovery(jv_file_t &, jv_base_t<MT> &, explorer_t &E, symbolizer_t &);
+  CodeRecovery(jv_file_t &, jv_base_t<MT> &, explorer_t<MT> &E, symbolizer_t &);
   ~CodeRecovery();
 
   uint64_t AddressOfTerminatorAtBasicBlock(binary_index_t BIdx,

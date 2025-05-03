@@ -75,6 +75,7 @@ static const unsigned nr32_mmap = VERY_UNIQUE_NUM();
 
 namespace jove {
 
+template <bool MT>
 class explorer_t;
 
 namespace perf {
@@ -301,7 +302,7 @@ protected:
 
   jv_file_t &jv_file;
   jv_base_t<MT> &jv;
-  explorer_t &explorer;
+  explorer_t<MT> &explorer;
 
   perf::data_reader<false> &sb;
   perf::event_iterator sb_it;
@@ -1455,7 +1456,7 @@ protected:
 
       CurrPoint.SetBinary(b);
       CurrPoint.SetBlockIndex(
-          explorer.explore_basic_block<MT>(b, *x.Bin, Addr, obp, obp_u));
+          explorer.explore_basic_block(b, *x.Bin, Addr, obp, obp_u));
       assert(CurrPoint.Valid());
 
       if (IsNewBlock) /* (FIXME? (should this be done here?)) */
@@ -1782,7 +1783,7 @@ public:
   ipt_t(int ptdump_argc,
         char **ptdump_argv,
         jv_base_t<MT> &jv,
-        explorer_t &explorer,
+        explorer_t<MT> &explorer,
         jv_file_t &jv_file,
         unsigned cpu,
         perf::data_reader<false> &sb,

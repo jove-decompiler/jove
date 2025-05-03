@@ -329,7 +329,7 @@ struct BootstrapTool
   std::unique_ptr<tiny_code_generator_t> tcg;
   std::unique_ptr<disas_t> disas;
   std::unique_ptr<symbolizer_t> symbolizer;
-  std::unique_ptr<explorer_t> E;
+  std::unique_ptr<explorer_t<IsToolMT>> E;
 
   std::vector<struct proc_map_t> cached_proc_maps;
 
@@ -774,10 +774,10 @@ int BootstrapTool::TracerLoop(pid_t child) {
   disas = std::make_unique<disas_t>();
   tcg = std::make_unique<tiny_code_generator_t>();
   symbolizer = std::make_unique<symbolizer_t>();
-  E = std::make_unique<explorer_t>(jv, *disas, *tcg, VerbosityLevel());
-  E->set_newbb_proc<true>(std::bind(&BootstrapTool::on_new_basic_block, this,
+  E = std::make_unique<explorer_t<IsToolMT>>(jv, *disas, *tcg, VerbosityLevel());
+  E->set_newbb_proc(std::bind(&BootstrapTool::on_new_basic_block, this,
                               std::placeholders::_1, std::placeholders::_2));
-  E->set_newfn_proc<true>(std::bind(&BootstrapTool::on_new_function, this,
+  E->set_newfn_proc(std::bind(&BootstrapTool::on_new_function, this,
                               std::placeholders::_1, std::placeholders::_2));
 
   siginfo_t si;
@@ -2584,7 +2584,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 #ifdef BOOTSTRAP_MULTI_THREADED
   struct NewBasicBlockProcSetter {
     BootstrapTool &tool;
-    on_newbb_proc_t sav_proc;
+    on_newbb_proc_t<MT> sav_proc;
 
     NewBasicBlockProcSetter(BootstrapTool &tool)
         : tool(tool), sav_proc(tool.E->get_newbb_proc()) {
@@ -3182,7 +3182,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 #ifdef BOOTSTRAP_MULTI_THREADED
   struct NewBasicBlockProcSetter {
     BootstrapTool &tool;
-    on_newbb_proc_t sav_proc;
+    on_newbb_proc_t<MT> sav_proc;
 
     NewBasicBlockProcSetter(BootstrapTool &tool)
         : tool(tool), sav_proc(tool.E->get_newbb_proc()) {
@@ -4324,14 +4324,14 @@ template <bool ValidatePath>
 binary_index_t BootstrapTool::BinaryFromPath(pid_t child, const char *path) {
   struct EmptyBasicBlockProcSetter {
     BootstrapTool &tool;
-    on_newbb_proc_t sav_proc;
+    on_newbb_proc_t<IsToolMT> sav_proc;
 
     EmptyBasicBlockProcSetter(BootstrapTool &tool)
         : tool(tool), sav_proc(tool.E->get_newbb_proc()) {
-      tool.E->set_newbb_proc<true>([](binary_t &, basic_block_t) -> void {});
+      tool.E->set_newbb_proc([](binary_t &, basic_block_t) -> void {});
     }
 
-    ~EmptyBasicBlockProcSetter() { tool.E->set_newbb_proc<true>(sav_proc); }
+    ~EmptyBasicBlockProcSetter() { tool.E->set_newbb_proc(sav_proc); }
   } __EmptyBasicBlockProcSetter(*this); /* on_binary_loaded will place brkpts */
 
   using namespace std::placeholders;
@@ -4344,14 +4344,14 @@ binary_index_t BootstrapTool::BinaryFromData(pid_t child, std::string_view sv,
                                              const char *name) {
   struct EmptyBasicBlockProcSetter {
     BootstrapTool &tool;
-    on_newbb_proc_t sav_proc;
+    on_newbb_proc_t<IsToolMT> sav_proc;
 
     EmptyBasicBlockProcSetter(BootstrapTool &tool)
         : tool(tool), sav_proc(tool.E->get_newbb_proc()) {
-      tool.E->set_newbb_proc<true>([](binary_t &, basic_block_t) -> void {});
+      tool.E->set_newbb_proc([](binary_t &, basic_block_t) -> void {});
     }
 
-    ~EmptyBasicBlockProcSetter() { tool.E->set_newbb_proc<true>(sav_proc); }
+    ~EmptyBasicBlockProcSetter() { tool.E->set_newbb_proc(sav_proc); }
   } __EmptyBasicBlockProcSetter(*this); /* on_binary_loaded will place brkpts */
 
   using namespace std::placeholders;

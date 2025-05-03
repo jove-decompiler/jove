@@ -11,7 +11,7 @@ void binary_base_t<MT>::InvalidateBasicBlockAnalyses(void) {
 
 template <bool MT>
 bool binary_base_t<MT>::FixAmbiguousIndirectJump(taddr_t TermAddr,
-                                                 explorer_t &E,
+                                                 explorer_t<MT> &E,
                                                  llvm::object::Binary &Bin,
                                                  jv_file_t &jv_file,
                                                  jv_base_t<MT> &jv) {

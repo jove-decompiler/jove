@@ -132,7 +132,7 @@ std::optional<binary_index_t> jv_base_t<MT>::LookupByHash(const hash_t &h) {
 template <bool MT>
 template <bool ValidatePath>
 std::pair<binary_index_t, bool>
-jv_base_t<MT>::AddFromPath(explorer_t &explorer,
+jv_base_t<MT>::AddFromPath(explorer_t<MT> &explorer,
                            jv_file_t &jv_file,
                            const char *path,
                            on_newbin_proc_t<MT> on_newbin,
@@ -235,7 +235,7 @@ std::pair<binary_index_t, bool> jv_base_t<MT>::Add(binary_base_t<MT> &&b,
 
 template <bool MT>
 std::pair<binary_index_t, bool>
-jv_base_t<MT>::AddFromData(explorer_t &explorer,
+jv_base_t<MT>::AddFromData(explorer_t<MT> &explorer,
                            jv_file_t &jv_file,
                            std::string_view data,
                            const char *name,
@@ -249,7 +249,7 @@ jv_base_t<MT>::AddFromData(explorer_t &explorer,
 
 template <bool MT>
 std::pair<binary_index_t, bool> jv_base_t<MT>::AddFromDataWithHash(
-    explorer_t &explorer,
+    explorer_t<MT> &explorer,
     jv_file_t &jv_file,
     get_data_t get_data,
     const hash_t &h,
@@ -262,7 +262,7 @@ std::pair<binary_index_t, bool> jv_base_t<MT>::AddFromDataWithHash(
     if constexpr (MT) {
       isNewBinary = this->hash_to_binary.try_emplace_or_visit(
           h, std::ref(Res), jv_file, *this,
-          std::ref(explorer), get_data, std::ref(h), name,
+          explorer, get_data, std::ref(h), name,
           std::ref(Options),
           [&](const typename ip_hash_to_binary_map_type<MT>::value_type &x)
               -> void { Res = static_cast<binary_index_t>(x.second); });
@@ -272,7 +272,7 @@ std::pair<binary_index_t, bool> jv_base_t<MT>::AddFromDataWithHash(
         isNewBinary =
             this->hash_to_binary
                 .try_emplace(h, std::ref(Res), jv_file,
-                             *this, std::ref(explorer),
+                             *this, explorer,
                              get_data, std::ref(h), name,
                              std::ref(Options))
                 .second;
@@ -333,7 +333,7 @@ template <bool MT>
 adds_binary_t::adds_binary_t(binary_index_t &out,
                              jv_file_t &jv_file,
                              jv_base_t<MT> &jv,
-                             const explorer_t &explorer_,
+                             explorer_t<MT> &explorer_,
                              get_data_t get_data,
                              const hash_t &h,
                              const char *name,
@@ -363,9 +363,13 @@ adds_binary_t::adds_binary_t(binary_index_t &out,
     if (name)
       to_ips(b.Name, name); /* set up name */
 
-    explorer_t explorer(explorer_);
-    assert(!explorer.get_jvptr());
-    jv.DoAdd(b, explorer, *Bin, Options);
+    if constexpr (MT == false) {
+      jv.DoAdd(b, explorer_, *Bin, Options);
+    } else {
+      explorer_t<false> explorer(explorer_);
+      assert(!explorer.get_jv());
+      jv.DoAdd(b, explorer, *Bin, Options);
+    }
 
     //
     // success!
@@ -483,7 +487,7 @@ template struct jv_base_t<true>;
 #define DO_INSTANTIATE(r, ValidatePath, elem)                                  \
   template std::pair<binary_index_t, bool>                                     \
   jv_base_t<GET_VALUE(elem)>::AddFromPath<ValidatePath>(                       \
-      explorer_t &, jv_file_t &, const char *,                                 \
+      explorer_t<GET_VALUE(elem)> &, jv_file_t &, const char *,                \
       on_newbin_proc_t<GET_VALUE(elem)>, const AddOptions_t &);
 BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, true, VALUES_TO_INSTANTIATE_WITH)
 BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, false, VALUES_TO_INSTANTIATE_WITH)

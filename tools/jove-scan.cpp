@@ -33,7 +33,7 @@ class ScanTool : public JVTool<ToolKind::Standard> {
 public:
   tiny_code_generator_t tcg;
   disas_t disas;
-  explorer_t E;
+  explorer_t<IsToolMT> E;
 
   ScanTool() : opts(JoveCategory), E(jv, disas, tcg, IsVeryVerbose()) {}
 

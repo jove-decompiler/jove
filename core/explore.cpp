@@ -22,10 +22,10 @@ namespace jove {
 typedef boost::format fmt;
 
 template <bool MT>
-function_index_t explorer_t::_explore_function(binary_base_t<MT> &b,
-                                               obj::Binary &B,
-                                               const taddr_t Addr,
-                                               const bool Speculative) {
+function_index_t explorer_t<MT>::_explore_function(binary_base_t<MT> &b,
+                                                   obj::Binary &B,
+                                                   const taddr_t Addr,
+                                                   const bool Speculative) {
 #if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
   assert((Addr & 1) == 0);
 #endif
@@ -63,10 +63,10 @@ function_index_t explorer_t::_explore_function(binary_base_t<MT> &b,
   f.IsSignalHandler = false;
   f.Returns = false;
 
-  get_newfn_proc<MT>()(b, f);
+  get_newfn_proc()(b, f);
 
   const basic_block_index_t EntryIdx =
-      _explore_basic_block<false, MT>(b, B, Addr, Speculative, Idx);
+      _explore_basic_block<false>(b, B, Addr, Speculative, Idx);
 
   assert(is_basic_block_index_valid(EntryIdx));
 
@@ -97,21 +97,20 @@ function_index_t explorer_t::_explore_function(binary_base_t<MT> &b,
 
   rec(basic_block_of_index(EntryIdx, ICFG));
 
-  if (jvptr) {
-    jv_base_t<MT> &jv = *reinterpret_cast<jv_base_t<MT> *>(jvptr); // FIXME assert mt?
-    ICFG[basic_block_of_index(EntryIdx, ICFG)].InvalidateAnalysis(jv, b);
-  }
+  if (maybe_jv)
+    ICFG[basic_block_of_index(EntryIdx, ICFG)].InvalidateAnalysis(*maybe_jv, b);
 
   return Idx;
 }
 
-template <bool WithOnBlockProc, bool MT>
-bool explorer_t::split(binary_base_t<MT> &b,
-                       obj::Binary &Bin,
-                       bbprop_t::exclusive_lock_guard<MT> e_lck_bb,
-                       bbmap_t::iterator it, const taddr_t Addr,
-                       basic_block_index_t Idx,
-                       onblockproc_t obp) {
+template <bool MT>
+template <bool WithOnBlockProc>
+bool explorer_t<MT>::split(binary_base_t<MT> &b,
+                           obj::Binary &Bin,
+                           bbprop_t::exclusive_lock_guard<MT> e_lck_bb,
+                           bbmap_t::iterator it, const taddr_t Addr,
+                           basic_block_index_t Idx,
+                           onblockproc_t obp) {
   bbmap_t &bbmap = b.BBMap.map;
   auto &ICFG = b.Analysis.ICFG;
 
@@ -313,15 +312,16 @@ on_insn:
   return true;
 }
 
-template <bool WithOnBlockProc, bool MT>
+template <bool MT>
+template <bool WithOnBlockProc>
 basic_block_index_t
-explorer_t::_explore_basic_block(binary_base_t<MT> &b,
-                                 obj::Binary &Bin,
-                                 const taddr_t Addr,
-                                 bool Speculative,
-                                 const function_index_t ParentIdx,
-                                 onblockproc_t obp,
-                                 onblockproc_u_t obp_u) {
+explorer_t<MT>::_explore_basic_block(binary_base_t<MT> &b,
+                                     obj::Binary &Bin,
+                                     const taddr_t Addr,
+                                     bool Speculative,
+                                     const function_index_t ParentIdx,
+                                     onblockproc_t obp,
+                                     onblockproc_u_t obp_u) {
 #if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
   assert((Addr & 1) == 0);
 #endif
@@ -387,9 +387,9 @@ explorer_t::_explore_basic_block(binary_base_t<MT> &b,
     if (it != bbmap.end()) {
       bool success;
       if constexpr (WithOnBlockProc)
-        success = split<true, MT>(b, Bin, boost::move(e_lck_bb), it, Addr, Idx, obp);
+        success = split<true>(b, Bin, boost::move(e_lck_bb), it, Addr, Idx, obp);
       else
-        success = split<false, MT>(b, Bin, boost::move(e_lck_bb), it, Addr, Idx);
+        success = split<false>(b, Bin, boost::move(e_lck_bb), it, Addr, Idx);
       if (likely(success)) {
         return Idx;
       } else {
@@ -594,7 +594,7 @@ explorer_t::_explore_basic_block(binary_base_t<MT> &b,
           "{0} {1}\t\t\t\t\t\t{2}\n", description_of_block(bbprop, false),
           description_of_terminator_info(T, false), b.Name.c_str());
 
-    get_newbb_proc<MT>()(b, bb);
+    get_newbb_proc()(b, bb);
   }
 
   auto control_flow_to = [&](taddr_t Target) -> void {
@@ -654,8 +654,8 @@ explorer_t::_explore_basic_block(binary_base_t<MT> &b,
       function_t &callee = b.Analysis.Functions.at(CalleeFIdx);
       callee.Callers.insert<MT>(b.Idx, T.Addr);
 
-      if (jvptr) {
-        jv_base_t<MT> &jv = *reinterpret_cast<jv_base_t<MT> *>(jvptr); // FIXME assert mt?
+      if (maybe_jv) {
+        jv_base_t<MT> &jv = *maybe_jv;
         for (function_index_t FIdx : bbprop.Parents.template get<MT>()) { /* TODO par_unseq */
           function_t &caller = b.Analysis.Functions.at(FIdx);
 
@@ -701,7 +701,7 @@ explorer_t::_explore_basic_block(binary_base_t<MT> &b,
 }
 
 template <bool MT>
-void explorer_t::_control_flow_to(
+void explorer_t<MT>::_control_flow_to(
     binary_base_t<MT> &b,
     obj::Binary &Bin,
     const taddr_t TermAddr,
@@ -714,7 +714,7 @@ void explorer_t::_control_flow_to(
 
   basic_block_index_t SuccBBIdx = invalid_basic_block_index;
   try {
-    SuccBBIdx = _explore_basic_block<false, MT>(b, Bin, Target, Speculative);
+    SuccBBIdx = _explore_basic_block<false>(b, Bin, Target, Speculative);
   } catch (const invalid_control_flow_exception &e) {
     if (1 /* IsVerbose() */)
       llvm::errs() << llvm::formatv(
@@ -741,40 +741,43 @@ void explorer_t::_control_flow_to(
 }
 
 template <bool MT>
-basic_block_index_t explorer_t::explore_basic_block(binary_base_t<MT> &b,
-                                                    obj::Binary &B,
-                                                    taddr_t Addr) {
+basic_block_index_t explorer_t<MT>::explore_basic_block(binary_base_t<MT> &b,
+                                                        obj::Binary &B,
+                                                        taddr_t Addr) {
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
   Addr &= ~1UL;
 #endif
 
-  return _explore_basic_block<false, MT>(b, B, Addr, false);
+  return _explore_basic_block<false>(b, B, Addr, false);
 }
 
 template <bool MT>
-basic_block_index_t explorer_t::explore_basic_block(binary_base_t<MT> &b,
-                                                    obj::Binary &B,
-                                                    taddr_t Addr,
-                                                    onblockproc_t obp,
-                                                    onblockproc_u_t obp_u) {
+basic_block_index_t explorer_t<MT>::explore_basic_block(binary_base_t<MT> &b,
+                                                        obj::Binary &B,
+                                                        taddr_t Addr,
+                                                        onblockproc_t obp,
+                                                        onblockproc_u_t obp_u) {
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
   Addr &= ~1UL;
 #endif
 
-  return _explore_basic_block<true, MT>(b, B, Addr, false,
-                                        invalid_function_index, obp, obp_u);
+  return _explore_basic_block<true>(b, B, Addr, false,
+                                    invalid_function_index, obp, obp_u);
 }
 
 template <bool MT>
-function_index_t explorer_t::explore_function(binary_base_t<MT> &b,
-                                              obj::Binary &B,
-                                              taddr_t Addr) {
+function_index_t explorer_t<MT>::explore_function(binary_base_t<MT> &b,
+                                                  obj::Binary &B,
+                                                  taddr_t Addr) {
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
   Addr &= ~1UL;
 #endif
 
-  return _explore_function<MT>(b, B, Addr, false);
+  return _explore_function(b, B, Addr, false);
 }
+
+template struct explorer_t<false>;
+template struct explorer_t<true>;
 
 #define VALUES_TO_INSTANTIATE_WITH                                             \
     ((true))                                                                   \
@@ -782,25 +785,7 @@ function_index_t explorer_t::explore_function(binary_base_t<MT> &b,
 #define GET_VALUE(x) BOOST_PP_TUPLE_ELEM(0, x)
 
 #define DO_INSTANTIATE(r, data, elem)                                          \
-  template basic_block_index_t                                                 \
-  explorer_t::explore_basic_block<GET_VALUE(elem)>(                            \
-      binary_base_t<GET_VALUE(elem)> &, obj::Binary &, taddr_t Addr);
-BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, VALUES_TO_INSTANTIATE_WITH)
-
-#define DO_INSTANTIATE(r, data, elem)                                          \
-  template basic_block_index_t                                                 \
-  explorer_t::explore_basic_block<GET_VALUE(elem)>(                            \
-      binary_base_t<GET_VALUE(elem)> &, obj::Binary &, taddr_t Addr,           \
-      onblockproc_t obp, onblockproc_u_t obp_u);
-BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, VALUES_TO_INSTANTIATE_WITH)
-
-#define DO_INSTANTIATE(r, data, elem)                                          \
-  template function_index_t explorer_t::explore_function<GET_VALUE(elem)>(     \
-      binary_base_t<GET_VALUE(elem)> &, obj::Binary &, taddr_t Addr);
-BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, VALUES_TO_INSTANTIATE_WITH)
-
-#define DO_INSTANTIATE(r, data, elem)                                          \
-  template bool explorer_t::split<true, GET_VALUE(elem)>(                      \
+  template bool explorer_t<GET_VALUE(elem)>::split<true>(                      \
       binary_base_t<GET_VALUE(elem)> &, obj::Binary &,                         \
       bbprop_t::exclusive_lock_guard<GET_VALUE(elem)> e_lck_bb,                \
       bbmap_t::iterator it, const taddr_t Addr, basic_block_index_t Idx,       \
@@ -808,7 +793,7 @@ BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, VALUES_TO_INSTANTIATE_WITH)
 BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, VALUES_TO_INSTANTIATE_WITH)
 
 #define DO_INSTANTIATE(r, data, elem)                                          \
-  template bool explorer_t::split<false, GET_VALUE(elem)>(                     \
+  template bool explorer_t<GET_VALUE(elem)>::split<false>(                     \
       binary_base_t<GET_VALUE(elem)> &, obj::Binary &,                         \
       bbprop_t::exclusive_lock_guard<GET_VALUE(elem)> e_lck_bb,                \
       bbmap_t::iterator it, const taddr_t Addr, basic_block_index_t Idx,       \

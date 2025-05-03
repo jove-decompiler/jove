@@ -74,7 +74,6 @@ struct IPTTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
     cl::opt<std::string> Prog;
     cl::list<std::string> Args;
     cl::list<std::string> Envs;
-    cl::opt<bool> UsePerfScript;
     cl::opt<std::string> Decoder;
     cl::opt<bool> Chdir;
     cl::alias ChdirAlias;
@@ -105,11 +104,6 @@ struct IPTTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
           Envs("env", cl::CommaSeparated,
                cl::value_desc("KEY_1=VALUE_1,KEY_2=VALUE_2,...,KEY_n=VALUE_n"),
                cl::desc("Extra environment variables"), cl::cat(JoveCategory)),
-
-          UsePerfScript("use-perf-script",
-                        cl::desc("Use 'perf script' to parse trace. Otherwise "
-                                 "libipt is used."),
-                        cl::init(false), cl::cat(JoveCategory)),
 
           Decoder("decoder",
                   cl::desc("Select decoder (reference, afl, simple)."),
@@ -198,7 +192,6 @@ struct IPTTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
 
   std::unique_ptr<tiny_code_generator_t> TCG;
   std::unique_ptr<disas_t> Disas;
-  std::unique_ptr<explorer_t> Explorer;
 
   std::string buff;
   std::regex line_regex_ab;
@@ -211,6 +204,11 @@ struct IPTTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
   static constexpr const char *sb_filename = "perf.data-sideband.pevent";
   static constexpr const char *opts_filename = "perf.data.opts";
 
+  template <bool MT, typename... Args>
+  std::unique_ptr<explorer_t<MT>> MakeExplorer(Args &&...args) {
+    return std::make_unique<explorer_t<MT>>(std::forward<Args>(args)...);
+  }
+
 public:
   IPTTool()
       : opts(JoveCategory),
@@ -221,13 +219,12 @@ public:
   int UsingPerfScript(void);
   int UsingLibipt(void);
 
-  binary_index_t BinaryFromName(const char *name);
   std::string GetLine(int rfd, tbb::flow_control &);
   void ProcessLine(const std::string &line);
 
   void on_new_binary(binary_t &);
 
-  void gather_binaries(explorer_t &explorer,
+  void gather_binaries(explorer_t<IsToolMT> &explorer,
                        const perf::data_reader<false> &sb,
                        const perf::sideband_parser &sb_parser);
 };
@@ -239,32 +236,6 @@ void IPTTool::on_new_binary(binary_t &b) {
 
   if (IsVerbose())
     llvm::errs() << llvm::formatv("added {0}\n", b.Name.c_str());
-}
-
-binary_index_t IPTTool::BinaryFromName(const char *name) {
-  using namespace std::placeholders;
-
-  binary_index_set BIdxSet;
-  if (jv.LookupByName(name, BIdxSet)) {
-    assert(!BIdxSet.empty());
-
-    binary_index_t BIdx = *BIdxSet.rbegin(); /* most recent (XXX?) */
-    assert(is_binary_index_valid(BIdx));
-
-    return BIdx;
-  }
-
-  bool IsNew;
-  binary_index_t BIdx;
-
-  std::tie(BIdx, IsNew) =
-      jv.AddFromPath(*Explorer, jv_file, name,
-                     std::bind(&IPTTool::on_new_binary, this, _1), AddOptions);
-
-  if (IsVeryVerbose() && !is_binary_index_valid(BIdx))
-    HumanOut() << llvm::formatv("failed to add \"{0}\"\n", name);
-
-  return BIdx;
 }
 
 int IPTTool::Run(void) {
@@ -297,7 +268,6 @@ int IPTTool::Run(void) {
 
   TCG = std::make_unique<tiny_code_generator_t>();
   Disas = std::make_unique<disas_t>();
-  Explorer = std::make_unique<explorer_t>(jv, *Disas, *TCG, VerbosityLevel());
 
   const std::string prog_path = fs::canonical(opts.Prog).string();
 
@@ -386,103 +356,7 @@ int IPTTool::Run(void) {
         Arg("perf.data");
     });
 
-  if (opts.UsePerfScript)
-    return UsingPerfScript();
-  else
-    return UsingLibipt();
-}
-
-int IPTTool::UsingPerfScript(void) {
-#if 0
-  if (int ret = ProcessAppStderr())
-    return ret;
-#endif
-
-  using namespace std::placeholders;
-
-  int pipefd[2];
-  if (::pipe(pipefd) < 0) { /* first, create a pipe */
-    int err = errno;
-    die("pipe(2) failed: " + std::string(strerror(err)));
-  }
-
-  auto rfd = std::make_unique<scoped_fd>(pipefd[0]);
-  auto wfd = std::make_unique<scoped_fd>(pipefd[1]);
-
-  pid_t pid = RunExecutable(
-      perf_path,
-      [&](auto Arg) {
-        Arg(perf_path);
-
-        Arg("script");
-        Arg("--itrace=bcr");
-        Arg("-F");
-        Arg("ip,addr,dso,dsoff");
-      }, "", "",
-      [&](const char **argv, const char **envp) {
-        rfd.reset();
-        ::dup2(wfd->get(), STDOUT_FILENO);
-        wfd.reset();
-      });
-  wfd.reset();
-
-//#define DSOSTR "[/a-zA-Z0-9.]+"
-#define DSOSTR ".*?"
-#define OFFSTR "[0-9a-f]+"
-#define ADDRSTR OFFSTR
-
-  line_regex_ab = std::regex(    "\\s*"
-                                 "(" ADDRSTR ")"
-                                 "\\s+"
-                           "\\(" "(" DSOSTR ")\\+0x(" OFFSTR ")" "\\)"
-                                 "\\s+"
-                                 "=>"
-                                 "\\s+"
-                                 "(" ADDRSTR ")"
-                                 "\\s+"
-                           "\\(" "(" DSOSTR ")\\+0x(" OFFSTR ")" "\\)"
-  );
-
-  line_regex_a = std::regex(    "\\s*"
-                                "(" ADDRSTR ")"
-                                "\\s+"
-                          "\\(" "(" DSOSTR ")\\+0x(" OFFSTR ")" "\\)"
-                                "\\s+"
-                                "=>"
-                                "\\s+"
-                                "0"
-                                "\\s+"
-                          "\\(" "\\[unknown\\]" "\\)"
-  );
-
-  line_regex_b = std::regex(    "\\s*"
-                                "0"
-                                "\\s+"
-                          "\\(" "\\[unknown\\]" "\\)"
-                                "\\s+"
-                                "=>"
-                                "\\s+"
-                                "(" ADDRSTR ")"
-                                "\\s+"
-                          "\\(" "(" DSOSTR ")\\+0x(" OFFSTR ")" "\\)"
-  );
-
-  tbb::parallel_pipeline(
-      1024, tbb::make_filter<void, std::string>(
-                tbb::filter_mode::serial_in_order,
-                std::bind(&IPTTool::GetLine, this, rfd->get(), _1)) &
-                tbb::make_filter<std::string, void>(
-                    tbb::filter_mode::serial_in_order,
-                    std::bind(&IPTTool::ProcessLine, this, _1)));
-
-  //
-  // wait for process to exit
-  //
-  int ret_val = WaitForProcessToExit(pid);
-
-  rfd.reset();
-
-  return ret_val;
+  return UsingLibipt();
 }
 
 std::string IPTTool::GetLine(int rfd, tbb::flow_control &fc) {
@@ -515,235 +389,6 @@ std::string IPTTool::GetLine(int rfd, tbb::flow_control &fc) {
   }
 
   return res;
-}
-
-void IPTTool::ProcessLine(const std::string &line) {
-  if (line.empty())
-    return;
-
-/*
-     7f65c6213a29 (/usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2+0x1ba29) =>     7f65c6212040 (/usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2+0x1a040)
-*/
-
-  {
-    std::smatch line_match_ab;
-    bool ab = std::regex_match(line, line_match_ab, line_regex_ab);
-
-    std::smatch line_match_a;
-    bool a = std::regex_match(line, line_match_a, line_regex_a);
-
-    std::smatch line_match_b;
-    bool b = std::regex_match(line, line_match_b, line_regex_b);
-
-    if (!ab && !a && !b) {
-      if (IsVeryVerbose())
-        WithColor::warning() << llvm::formatv(
-            "unrecognized perf script output: \"{0}\"\n", line);
-      return;
-    }
-
-    bool onlyOneTrue = (a && !b && !ab) || (!a && b && !ab) || (!a && !b && ab);
-    assert(onlyOneTrue);
-
-    binary_index_t src_BIdx = invalid_binary_index;
-    binary_index_t dst_BIdx = invalid_binary_index;
-
-    std::string src_addr_s;
-    std::string dst_addr_s;
-
-    std::string src_dso;
-    std::string dst_dso;
-
-    std::string src_off_s;
-    std::string dst_off_s;
-
-    uint64_t src_off = 0;
-    uint64_t dst_off = 0;
-
-    if (ab) {
-      assert(line_match_ab.size() == 7);
-
-      src_addr_s = line_match_ab[1].str();
-      src_dso    = line_match_ab[2].str();
-      src_off_s  = line_match_ab[3].str();
-      dst_addr_s = line_match_ab[4].str();
-      dst_dso    = line_match_ab[5].str();
-      dst_off_s  = line_match_ab[6].str();
-    } else if (a) {
-      assert(line_match_a.size() == 4);
-
-      src_addr_s = line_match_a[1].str();
-      src_dso    = line_match_a[2].str();
-      src_off_s  = line_match_a[3].str();
-    } else {
-      assert(line_match_b.size() == 4);
-
-      dst_addr_s = line_match_b[1].str();
-      dst_dso    = line_match_b[2].str();
-      dst_off_s  = line_match_b[3].str();
-    }
-
-#if 0
-    llvm::errs() << llvm::formatv("src_addr_s={0} src_dso={1} src_off_s={2} dst_addr_s={3} dst_dso={4} dst_off_s{5}\n",
-                                  src_addr_s, src_dso, src_off_s,
-                                  dst_addr_s, dst_dso, dst_off_s);
-#endif
-
-    if (!src_off_s.empty()) src_off = strtoul(src_off_s.c_str(), nullptr, 16);
-    if (!dst_off_s.empty()) dst_off = strtoul(dst_off_s.c_str(), nullptr, 16);
-
-    if (!src_dso.empty() && src_off != 0x0 && src_dso[0] == '/') src_BIdx = BinaryFromName(src_dso.c_str());
-    if (!dst_dso.empty() && dst_off != 0x0 && dst_dso[0] == '/') dst_BIdx = BinaryFromName(dst_dso.c_str());
-
-    basic_block_index_t src_BBIdx = invalid_basic_block_index;
-    basic_block_index_t dst_BBIdx = invalid_basic_block_index;
-
-    auto _src_bin = [&](void) -> binary_t & { return jv.Binaries.at(src_BIdx); };
-    auto _dst_bin = [&](void) -> binary_t & { return jv.Binaries.at(dst_BIdx); };
-
-    taddr_t dst_va, src_va;
-    try {
-      /* we know dst is the start of a block */
-      if (is_binary_index_valid(dst_BIdx)) {
-        binary_t &dst_bin = _dst_bin();
-        auto &Bin = *state.for_binary(dst_bin).Bin;
-        dst_va = B::va_of_offset(Bin, dst_off);
-
-        Explorer->explore_basic_block(dst_bin, Bin, dst_va);
-      }
-
-      /* if there isn't a block at src we'll start one. */
-      if (is_binary_index_valid(src_BIdx)) {
-        binary_t &src_bin = _src_bin();
-        auto &Bin = *state.for_binary(src_bin).Bin;
-        src_va = B::va_of_offset(Bin, src_off);
-
-        bool ExistsBlock = ({
-          auto s_lck = src_bin.BBMap.shared_access();
-
-          exists_basic_block_at_address(src_va, src_bin);
-        });
-
-        if (!ExistsBlock)
-          Explorer->explore_basic_block(src_bin, Bin, src_va);
-      }
-    } catch (const invalid_control_flow_exception &invalid_cf) {
-      if (IsVerbose())
-        llvm::errs() << llvm::formatv("invalid control-flow to {0} in \"{1}\"\n",
-                                      taddr2str(invalid_cf.pc, false),
-                                      invalid_cf.name_of_binary);
-      return;
-    } catch (const std::exception &e) {
-      if (IsVerbose())
-        llvm::errs() << llvm::formatv("exception! {0}\n", e.what());
-      return;
-    }
-
-    if (!is_basic_block_index_valid(src_BBIdx) ||
-        !is_basic_block_index_valid(dst_BBIdx))
-      return;
-
-    binary_t &src_bin = _src_bin();
-    binary_t &dst_bin = _dst_bin();
-
-    auto &src_ICFG = src_bin.Analysis.ICFG;
-    auto &dst_ICFG = dst_bin.Analysis.ICFG;
-
-    basic_block_t dst = basic_block_of_index(dst_BBIdx, dst_ICFG);
-
-    const auto Term = ({
-      auto s_lck = src_bin.BBMap.shared_access();
-
-      src_ICFG[basic_block_at_address(src_va, src_bin)].Term;
-    });
-
-    auto handle_indirect_call = [&](void) -> void {
-      function_index_t FIdx;
-      try {
-        FIdx = Explorer->explore_function(
-            dst_bin, *state.for_binary(dst_bin).Bin, dst_off);
-      } catch (const invalid_control_flow_exception &invalid_cf) {
-        if (IsVerbose())
-          llvm::errs() << llvm::formatv("invalid control-flow to {0} in \"{1}\"\n",
-                                        taddr2str(invalid_cf.pc, false),
-                                        invalid_cf.name_of_binary);
-        return;
-      }
-
-      if (!is_function_index_valid(FIdx))
-        return;
-
-      auto s_lck = src_bin.BBMap.shared_access();
-
-      basic_block_t src = basic_block_at_address(Term.Addr, src_bin);
-      basic_block_properties_t &src_bbprop = src_ICFG[src];
-
-      src_bbprop.insertDynTarget(src_BIdx, std::make_pair(dst_BIdx, FIdx),
-                                 jv_file, jv);
-    };
-
-    switch (Term.Type) {
-    case TERMINATOR::RETURN: {
-      {
-        auto s_lck = src_bin.BBMap.shared_access();
-
-        src_ICFG[basic_block_at_address(src_va, src_bin)].Term._return.Returns = true;
-      }
-
-      const taddr_t before_pc = dst_va - 1 - IsMIPSTarget * 4;
-
-      auto s_lck = dst_bin.BBMap.shared_access();
-
-      basic_block_t before_bb = basic_block_at_address(before_pc, dst_bin);
-      basic_block_properties_t &before_bbprop = dst_ICFG[before_bb];
-      auto &before_Term = before_bbprop.Term;
-
-      bool isCall = before_Term.Type == TERMINATOR::CALL;
-      bool isIndirectCall = before_Term.Type == TERMINATOR::INDIRECT_CALL;
-      if (isCall || isIndirectCall) {
-        assert(dst_ICFG.out_degree(before_bb) <= 1);
-
-        if (isCall) {
-          if (likely(is_function_index_valid(before_Term._call.Target)))
-            dst_bin.Analysis.Functions.at(before_Term._call.Target).Returns = true;
-        }
-
-        dst_ICFG.add_edge(before_bb, dst); /* connect */
-      }
-
-      break;
-    }
-
-    case TERMINATOR::INDIRECT_CALL:
-      handle_indirect_call();
-      break;
-
-    case TERMINATOR::INDIRECT_JUMP: {
-      if (Term._indirect_jump.IsLj)
-        break;
-
-      const bool TailCall = ({
-        auto s_lck = src_bin.BBMap.shared_access();
-
-        IsDefinitelyTailCall(src_ICFG, basic_block_at_address(src_va, src_bin));
-      });
-
-      if (TailCall || src_BIdx != dst_BIdx) {
-        handle_indirect_call();
-      } else {
-        assert(src_BIdx == dst_BIdx);
-
-        auto e_lck = src_bin.BBMap.exclusive_access();
-
-        src_ICFG.add_edge(basic_block_at_address(src_va, src_bin), dst);
-      }
-      break;
-    }
-
-    default:
-      break;
-    }
-  }
 }
 
 int IPTTool::UsingLibipt(void) {
@@ -1040,13 +685,34 @@ int IPTTool::UsingLibipt(void) {
     return 1;
   }
 
+  std::unique_ptr<explorer_t<true>> mt_Explorer;
+  std::unique_ptr<explorer_t<false>> st_Explorer;
+
+  if constexpr (IsToolMT) {
+    mt_Explorer = MakeExplorer<true>(jv, *Disas, *TCG, VerbosityLevel());
+    st_Explorer = MakeExplorer<false>(*Disas, *TCG, VerbosityLevel());
+  } else {
+    mt_Explorer = MakeExplorer<true>(*Disas, *TCG, VerbosityLevel());
+    st_Explorer = MakeExplorer<false>(jv, *Disas, *TCG, VerbosityLevel());
+  }
+
+  auto select_explorer = [&](void) -> auto & {
+    if constexpr (IsToolMT)
+      return *mt_Explorer;
+    else
+      return *st_Explorer;
+  };
+
+  std::conditional_t<IsToolMT, explorer_t<true>, explorer_t<false>> &Explorer =
+      select_explorer();
+
   perf::data_reader<false> sb(sb_filename);
   perf::sideband_parser sb_parser(ptdump_args);
   if (opts.GatherBins) {
     if (IsVeryVerbose())
       HumanOut() << "gathering binaries...\n";
 
-    gather_binaries(*Explorer, sb, sb_parser);
+    gather_binaries(Explorer, sb, sb_parser);
 
     if (IsVeryVerbose())
       HumanOut() << "gathered binaries.\n";
@@ -1187,9 +853,9 @@ int IPTTool::UsingLibipt(void) {
     }                                                                          \
   } while (false)
 
-#define THE_IPT_ARGS(__jv, __jv_file) \
+#define THE_IPT_ARGS(__jv, __jv_file, __explorer) \
                   ptdump_argv.size() - 1, ptdump_argv.data(), \
-                   __jv, *Explorer, \
+                   __jv, __explorer, \
                   __jv_file, cpu, sb, sb_parser, \
                   const_cast<uint8_t *>(aux.data_begin()), \
                   const_cast<uint8_t *>(aux.data_end()), \
@@ -1198,9 +864,9 @@ int IPTTool::UsingLibipt(void) {
                   true
 
             if constexpr (MT) {
-              SELECT_DECODER_AND_EXPLORE(THE_IPT_ARGS(jv, jv_file));
+              SELECT_DECODER_AND_EXPLORE(THE_IPT_ARGS(jv, jv_file, *mt_Explorer));
             } else {
-              SELECT_DECODER_AND_EXPLORE(THE_IPT_ARGS(*jv2, *jv_file2));
+              SELECT_DECODER_AND_EXPLORE(THE_IPT_ARGS(*jv2, *jv_file2, *st_Explorer));
             }
 
 #undef THE_IPT_ARGS
@@ -1262,7 +928,7 @@ BOOST_PP_SEQ_FOR_EACH_PRODUCT(GENERATE_RUN, IPT_ALL_OPTIONS);
         auto &b1 = jv.Binaries.at(BIdx);
 
         for (const auto &pair : b2.bbbmap) {
-          Explorer->explore_basic_block(b1, *state.for_binary(b1).Bin, pair.first);
+          Explorer.explore_basic_block(b1, *state.for_binary(b1).Bin, pair.first);
         }
       }
     };
@@ -1336,7 +1002,7 @@ void IPTTool::gather_perf_data_aux_files(std::vector<std::pair<unsigned, std::st
   }
 }
 
-void IPTTool::gather_binaries(explorer_t &explorer,
+void IPTTool::gather_binaries(explorer_t<IsToolMT> &explorer,
                               const perf::data_reader<false> &sb,
                               const perf::sideband_parser &sb_parser) {
   tbb::flow::graph g;

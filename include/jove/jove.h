@@ -81,6 +81,7 @@ class Binary;
 
 namespace jove {
 
+template <bool MT>
 class explorer_t;
 template <bool MT>
 struct jv_base_t;
@@ -763,7 +764,8 @@ struct binary_base_t {
   // dynamic targets set for this bb. afterwards, delete the edges in the
   // ICFG that would originate from this basic block.
   //
-  bool FixAmbiguousIndirectJump(taddr_t TermAddr, explorer_t &,
+  bool FixAmbiguousIndirectJump(taddr_t TermAddr,
+                                explorer_t<MT> &,
                                 llvm::object::Binary &,
                                 jv_file_t &,
                                 jv_base_t<MT> &);
@@ -949,7 +951,7 @@ struct adds_binary_t {
   explicit adds_binary_t(binary_index_t &out,
                          jv_file_t &,
                          jv_base_t<MT> &,
-                         const explorer_t &,
+                         explorer_t<MT> &,
                          get_data_t get_data,
                          const hash_t &,
                          const char *name,
@@ -1111,7 +1113,7 @@ struct jv_base_t {
 
   template <bool ValidatePath = true>
   std::pair<binary_index_t, bool>
-  AddFromPath(explorer_t &,
+  AddFromPath(explorer_t<MT> &,
               jv_file_t &,
               const char *path,
               on_newbin_proc_t<MT> on_newbin = [](binary_base_t<MT> &) {},
@@ -1122,7 +1124,7 @@ struct jv_base_t {
       on_newbin_proc_t<MT> on_newbin = [](binary_base_t<MT> &) {});
 
   std::pair<binary_index_t, bool>
-  AddFromData(explorer_t &,
+  AddFromData(explorer_t<MT> &,
               jv_file_t &,
               std::string_view data,
               const char *name = nullptr,
@@ -1137,17 +1139,17 @@ private:
   void LookupAndCacheHash(hash_t &out, const char *path,
                           std::string &file_contents);
 
-  std::pair<binary_index_t, bool> AddFromDataWithHash(explorer_t &E,
+  std::pair<binary_index_t, bool> AddFromDataWithHash(explorer_t<MT> &,
                                                       jv_file_t &,
                                                       get_data_t,
-                                                      const hash_t &h,
+                                                      const hash_t &,
                                                       const char *name,
-                                                      on_newbin_proc_t<MT> on_newbin,
-                                                      const AddOptions_t &Options);
+                                                      on_newbin_proc_t<MT>,
+                                                      const AddOptions_t &);
 public:
   template <bool MT2>
   void DoAdd(binary_base_t<MT2> &,
-             explorer_t &,
+             explorer_t<MT2> &,
              llvm::object::Binary &,
              const AddOptions_t &);
 

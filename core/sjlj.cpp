@@ -12,7 +12,9 @@ namespace obj = llvm::object;
 namespace jove {
 
 template <bool MT>
-void ScanForSjLj(binary_base_t<MT> &b, llvm::object::Binary &Bin, explorer_t &E) {
+void ScanForSjLj(binary_base_t<MT> &b,
+                 llvm::object::Binary &Bin,
+                 explorer_t<MT> &E) {
   std::vector<std::pair<llvm::StringRef, int>> LjPatterns;
   std::vector<llvm::StringRef> SjPatterns;
 
@@ -562,7 +564,8 @@ void ScanForSjLj(binary_base_t<MT> &b, llvm::object::Binary &Bin, explorer_t &E)
 
 #define DO_INSTANTIATE(r, data, elem)                                          \
   template void ScanForSjLj(binary_base_t<GET_VALUE(elem)> &,                  \
-                            llvm::object::Binary &, explorer_t &);
+                            llvm::object::Binary &,                            \
+                            explorer_t<GET_VALUE(elem)> &);
 
 BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, VALUES_TO_INSTANTIATE_WITH)
 

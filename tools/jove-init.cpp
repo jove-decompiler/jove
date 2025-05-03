@@ -241,7 +241,7 @@ int InitTool::Run(void) {
   //
   tiny_code_generator_t tcg;
   disas_t disas;
-  explorer_t explorer(disas, tcg, VerbosityLevel());
+  explorer_t<false> explorer(disas, tcg, VerbosityLevel());
 
   std::transform(
       std::execution::par_unseq,
@@ -346,7 +346,7 @@ int InitTool::Run(void) {
   jv.Binaries.at(1).IsDynamicLinker = true;
   jv.Binaries.at(2).IsVDSO = true;
 
-  assert(!explorer.get_jvptr());
+  assert(!explorer.get_jv());
   jv.fixup(); // XXX
 
   return 0;

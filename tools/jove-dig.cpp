@@ -85,7 +85,7 @@ class CodeDigger : public StatefulJVTool<ToolKind::Standard, binary_state_t, voi
   tiny_code_generator_t tcg;
   symbolizer_t symbolizer;
 
-  explorer_t Explorer;
+  explorer_t<IsToolMT> Explorer;
   CodeRecovery<IsToolMT> Recovery;
 
 public:

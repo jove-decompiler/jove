@@ -23,7 +23,7 @@ namespace jove {
 template <bool MT>
 template <bool MT2>
 void jv_base_t<MT>::DoAdd(binary_base_t<MT2> &b,
-                          explorer_t &explorer,
+                          explorer_t<MT2> &explorer,
                           llvm::object::Binary &Bin,
                           const AddOptions_t &Options) {
   b.IsDynamicLinker = false;
@@ -602,7 +602,7 @@ void jv_base_t<MT>::DoAdd(binary_base_t<MT2> &b,
 #define GET_VALUE(x) BOOST_PP_TUPLE_ELEM(0, x)
 #define DO_INSTANTIATE(r, MT2, elem)                                           \
   template void jv_base_t<GET_VALUE(elem)>::DoAdd<MT2>(                        \
-      binary_base_t<MT2> &, explorer_t &, llvm::object::Binary &,              \
+      binary_base_t<MT2> &, explorer_t<MT2> &, llvm::object::Binary &,         \
       const AddOptions_t &);
 BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, true, VALUES_TO_INSTANTIATE_WITH)
 BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, false, VALUES_TO_INSTANTIATE_WITH)
