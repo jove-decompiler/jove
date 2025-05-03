@@ -4757,30 +4757,6 @@ std::string BootstrapTool::description_of_program_counter(uintptr_t pc, bool Ver
   }
 }
 
-ssize_t _ptrace_memcpy(pid_t child, void *dest, const void *src, size_t n) {
-  std::vector<uint8_t> buff;
-  buff.reserve(n);
-
-  uintptr_t Addr = reinterpret_cast<uintptr_t>(src);
-
-  for (;;) {
-    auto word = _ptrace_peekdata(child, Addr);
-
-    for (unsigned i = 0; i < sizeof(word); ++i) {
-      buff.push_back(reinterpret_cast<uint8_t *>(&word)[i]);
-      if (buff.size() == n) {
-        memcpy(dest, &buff[0], n); /* we're done */
-        return n;
-      }
-    }
-
-    Addr += sizeof(word);
-  }
-
-  __builtin_trap();
-  __builtin_unreachable();
-}
-
 void arch_put_breakpoint(void *code) {
 #if defined(__x86_64__) || defined(__i386__)
   reinterpret_cast<uint8_t *>(code)[0] = 0xcc; /* int3 */
