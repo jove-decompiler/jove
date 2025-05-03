@@ -246,21 +246,27 @@ struct basic_block_properties_t : public ip_mt_base_rw_accessible_nospin {
                tcg_global_set_t reach_def) noexcept
         : live{.def = live_def, .use = live_use}, reach{.def = reach_def} {}
 
+    Analysis_t(const Analysis_t &other) noexcept
+        : live(other.live), reach(other.reach) {
+      Stale.store(other.Stale.load(std::memory_order_relaxed),
+                  std::memory_order_relaxed);
+    }
+
     Analysis_t(Analysis_t &&other) noexcept
         : live(other.live), reach(other.reach) {
-      moveFrom(std::move(other));
+      Stale.store(other.Stale.load(std::memory_order_relaxed),
+                  std::memory_order_relaxed);
     }
 
     Analysis_t &operator=(Analysis_t &&other) noexcept {
-      moveFrom(std::move(other));
-      return *this;
-    }
-
-    Analysis_t &operator=(const Analysis_t &other) noexcept {
       live = other.live;
       reach = other.reach;
       Stale.store(other.Stale.load(std::memory_order_relaxed),
                   std::memory_order_relaxed);
+      return *this;
+    }
+
+    Analysis_t &operator=(const Analysis_t &other) noexcept {
       return *this;
     }
 
