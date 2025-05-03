@@ -12,17 +12,17 @@ include $(JOVE_ROOT_DIR)/lib/arch/$(1)/helpers.mk
 endef
 $(foreach t,$(ALL_TARGETS),$(eval $(call include_target_helpers_template,$(t))))
 
-LLVM_BIN_DIR := $(JOVE_ROOT_DIR)/llvm-project/build/llvm/bin
+OUR_LLVM_BIN_DIR := $(JOVE_ROOT_DIR)/llvm-project/build/llvm/bin
 
-LLVM_DIS := $(LLVM_BIN_DIR)/llvm-dis
-LLVM_CC  := $(LLVM_BIN_DIR)/clang
-LLVM_LLD := $(LLVM_BIN_DIR)/ld.lld
-LLVM_LLC := $(LLVM_BIN_DIR)/llc
-LLVM_CXX := $(LLVM_BIN_DIR)/clang++
-LLVM_OPT := $(LLVM_BIN_DIR)/opt
-LLVM_LLD_LINK := $(LLVM_BIN_DIR)/lld-link
+OUR_LLVM_DIS := $(OUR_LLVM_BIN_DIR)/llvm-dis
+OUR_LLVM_CC  := $(OUR_LLVM_BIN_DIR)/clang
+OUR_LLVM_LLD := $(OUR_LLVM_BIN_DIR)/ld.lld
+OUR_LLVM_LLC := $(OUR_LLVM_BIN_DIR)/llc
+OUR_LLVM_CXX := $(OUR_LLVM_BIN_DIR)/clang++
+OUR_LLVM_OPT := $(OUR_LLVM_BIN_DIR)/opt
+OUR_LLVM_LLD_LINK := $(OUR_LLVM_BIN_DIR)/lld-link
 
-jove_tool = $(LLVM_BIN_DIR)/jove-$(1)
+jove_tool = $(OUR_LLVM_BIN_DIR)/jove-$(1)
 
 JOVE_GITVER := $(shell git log -n1 --format="%h")
 
@@ -182,43 +182,43 @@ $(BINDIR)/$(1)/asm-offsets.h: lib/arch/$(1)/asm-offsets.c | ccopy
 # starter bitcode
 #
 $(BINDIR)/$(1)/jove.elf.st.bc: lib/arch/$(1)/jove.c | ccopy asm-offsets
-	$(LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -fPIC -MMD $$<
+	$(OUR_LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -fPIC -MMD $$<
 
 $(BINDIR)/$(1)/jove.elf.mt.bc: lib/arch/$(1)/jove.c | ccopy asm-offsets
-	$(LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -fPIC -D JOVE_MT -MMD $$<
+	$(OUR_LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -fPIC -D JOVE_MT -MMD $$<
 
 $(BINDIR)/$(1)/jove.coff.st.bc: lib/arch/$(1)/jove.c | ccopy asm-offsets
-	$(LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -fPIC -fdeclspec -D JOVE_COFF -MMD $$<
+	$(OUR_LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -fPIC -fdeclspec -D JOVE_COFF -MMD $$<
 
 $(BINDIR)/$(1)/jove.coff.mt.bc: lib/arch/$(1)/jove.c | ccopy asm-offsets
-	$(LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -fPIC -fdeclspec -D JOVE_COFF -D JOVE_MT -MMD $$<
+	$(OUR_LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -fPIC -fdeclspec -D JOVE_COFF -D JOVE_MT -MMD $$<
 
 $(BINDIR)/$(1)/jove.%.ll: $(BINDIR)/$(1)/jove.%.bc
-	$(LLVM_OPT) -o $$@ -S --strip-debug $$<
+	$(OUR_LLVM_OPT) -o $$@ -S --strip-debug $$<
 
 #
 # runtime bitcode
 #
 $(BINDIR)/$(1)/libjove_rt.elf.st.bc: lib/arch/$(1)/rt.c | ccopy asm-offsets
-	$(LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -fPIC -MMD $$<
+	$(OUR_LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -fPIC -MMD $$<
 
 $(BINDIR)/$(1)/libjove_rt.elf.mt.bc: lib/arch/$(1)/rt.c | ccopy asm-offsets
-	$(LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -fPIC -D JOVE_MT -MMD $$<
+	$(OUR_LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -fPIC -D JOVE_MT -MMD $$<
 
 $(BINDIR)/$(1)/libjove_rt.coff.st.bc: lib/arch/$(1)/rt.c | ccopy asm-offsets
-	$(LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -fPIC -fdeclspec -D JOVE_COFF -MMD $$<
+	$(OUR_LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -fPIC -fdeclspec -D JOVE_COFF -MMD $$<
 
 $(BINDIR)/$(1)/libjove_rt.coff.mt.bc: lib/arch/$(1)/rt.c | ccopy asm-offsets
-	$(LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -fPIC -fdeclspec -D JOVE_COFF -D JOVE_MT -MMD $$<
+	$(OUR_LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -fPIC -fdeclspec -D JOVE_COFF -D JOVE_MT -MMD $$<
 
 #
 # runtime shared libraries
 #
 $(BINDIR)/$(1)/libjove_rt.%.so.o: $(BINDIR)/$(1)/libjove_rt.elf.%.bc
-	$(LLVM_LLC) -o $$@ --filetype=obj --relocation-model=pic $$<
+	$(OUR_LLVM_LLC) -o $$@ --filetype=obj --relocation-model=pic $$<
 
 $(BINDIR)/$(1)/libjove_rt.%.so: $(BINDIR)/$(1)/libjove_rt.%.so.o
-	$(LLVM_LLD) -o $$@ -m $($(1)_LD_EMU) $(call runtime_so_ldflags,$(1)) $$<
+	$(OUR_LLVM_LLD) -o $$@ -m $($(1)_LD_EMU) $(call runtime_so_ldflags,$(1)) $$<
 
 #
 # runtime DLLs
@@ -228,12 +228,12 @@ $(BINDIR)/$(1)/libjove_rt.%.dll.o: $(BINDIR)/$(1)/libjove_rt.coff.%.bc \
                                    $(BINDIR)/$(1)/jove_rt_dll.dllexport.%.syms
 	$(call jove_tool,$(1)) llknife -v -o $$<.2.tmp -i $$< --calling-convention=$(_DLL_$(1)_LINUX_CALL_CONV) $(BINDIR)/$(1)/jove_rt_dll.callconv.$$*.syms
 	$(call jove_tool,$(1)) llknife -v -o $$<.3.tmp -i $$<.2.tmp --dllexport $(BINDIR)/$(1)/jove_rt_dll.dllexport.$$*.syms
-	$(LLVM_DIS) -o $$<.dll.ll $$<.3.tmp
-	$(LLVM_LLC) -o $$@ --filetype=obj --relocation-model=pic --mtriple=$($(1)_COFF_TRIPLE) $$<.3.tmp
+	$(OUR_LLVM_DIS) -o $$<.dll.ll $$<.3.tmp
+	$(OUR_LLVM_LLC) -o $$@ --filetype=obj --relocation-model=pic --mtriple=$($(1)_COFF_TRIPLE) $$<.3.tmp
 
 $(BINDIR)/$(1)/libjove_rt.%.dll: $(BINDIR)/$(1)/libjove_rt.%.dll.o \
                                  $(BINDIR)/$(1)/libjove_rt.%.def
-	$(LLVM_LLD_LINK) /out:$$@ /def:$$(patsubst %.dll,%.def,$$@) /verbose $(call runtime_dll_ldflags,$(1)) $$< $(_DLL_$(1)_LIBGCC)
+	$(OUR_LLVM_LLD_LINK) /out:$$@ /def:$$(patsubst %.dll,%.def,$$@) /verbose $(call runtime_dll_ldflags,$(1)) $$< $(_DLL_$(1)_LIBGCC)
 endef
 $(foreach t,$(ALL_TARGETS),$(eval $(call target_code_template,$(t))))
 
@@ -294,13 +294,13 @@ linux_carbon_build_dir = $(LINUX_DIR)/$(1)_carbon_build
 
 define target_template
 $(BINDIR)/$(1)/helpers/%.ll: $(BINDIR)/$(1)/helpers/%.bc
-	$(LLVM_OPT) -o $$@ -S --strip-debug $$<
+	$(OUR_LLVM_OPT) -o $$@ -S --strip-debug $$<
 
 $(BINDIR)/$(1)/helpers/%.bc: $(BINDIR)/$(1)/helpers/%.c | ccopy
 	@echo BC $$<
-	@$(LLVM_CC) -o $$@ $(call helper_cflags,$(1)) -MMD -c -emit-llvm $$<
-	@$(LLVM_OPT) -o $$@.tmp $$@ -passes=internalize --internalize-public-api-list=helper_$$*
-	@$(LLVM_OPT) -o $$@ -O3 $$@.tmp
+	@$(OUR_LLVM_CC) -o $$@ $(call helper_cflags,$(1)) -MMD -c -emit-llvm $$<
+	@$(OUR_LLVM_OPT) -o $$@.tmp $$@ -passes=internalize --internalize-public-api-list=helper_$$*
+	@$(OUR_LLVM_OPT) -o $$@ -O3 $$@.tmp
 	@rm $$@.tmp
 
 $(BINDIR)/$(1)/helpers/%.c:
@@ -309,7 +309,7 @@ $(BINDIR)/$(1)/helpers/%.c:
 
 .PHONY: check-helper-$(1)-%
 check-helper-$(1)-%: $(BINDIR)/$(1)/helpers/%.bc
-	$(LLVM_BIN_DIR)/jove-$(1) check-helper --vars $$*
+	$(OUR_LLVM_BIN_DIR)/jove-$(1) check-helper --vars $$*
 
 .PHONY: extract-helpers-$(1)
 extract-helpers-$(1): $(foreach h,$($(1)_HELPERS),$(BINDIR)/$(1)/helpers/$(h).c)
