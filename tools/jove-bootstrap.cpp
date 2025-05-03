@@ -24,6 +24,7 @@ static constexpr bool IsI386 =
 #include "serialize.h"
 #include "warn.h"
 #include "ansi.h"
+#include "ptrace.h"
 
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/algorithm/string.hpp>
@@ -65,18 +66,11 @@ static constexpr bool IsI386 =
 #include <sys/stat.h>
 #include <sys/syscall.h>
 #include <sys/types.h>
-#include <sys/uio.h>
-#include <sys/user.h>
 #include <unistd.h>
 #if !defined(__x86_64__) && defined(__i386__)
 #include <asm/ldt.h>
 #endif
-#include <sys/ptrace.h>
-#if defined(__mips__)
-#include <asm/ptrace.h> /* for pt_regs */
-#endif
 #include <sys/mman.h>
-//#include <linux/ptrace.h>
 
 #define GET_INSTRINFO_ENUM
 #include "LLVMGenInstrInfo.hpp"
@@ -489,44 +483,6 @@ public:
 };
 
 JOVE_REGISTER_TOOL("bootstrap", BootstrapTool);
-
-#if !defined(__x86_64__) && defined(__i386__)
-static uintptr_t segment_address_of_selector(pid_t, unsigned segsel);
-#endif
-
-#if defined(__mips64) || defined(__mips__) || defined(__arm__)
-typedef struct pt_regs cpu_state_t;
-#else
-typedef struct user_regs_struct cpu_state_t;
-#endif
-
-static void _ptrace_get_cpu_state(pid_t, cpu_state_t &out);
-static void _ptrace_set_cpu_state(pid_t, const cpu_state_t &in);
-
-static std::string _ptrace_read_string(pid_t, uintptr_t addr);
-
-static unsigned long _ptrace_peekdata(pid_t, uintptr_t addr);
-static void _ptrace_pokedata(pid_t, uintptr_t addr, unsigned long data);
-
-static ssize_t _ptrace_memcpy(pid_t, void *dest, const void *src, size_t n);
-
-static constexpr auto &pc_of_cpu_state(cpu_state_t &cpu_state) {
-  return cpu_state.
-#if defined(__x86_64__)
-      rip
-#elif defined(__i386__)
-      eip
-#elif defined(__aarch64__)
-      pc
-#elif defined(__arm__)
-      uregs[15]
-#elif defined(__mips64) || defined(__mips__)
-      cp0_epc
-#else
-#error
-#endif
-      ;
-}
 
 typedef boost::format fmt;
 
@@ -3947,82 +3903,6 @@ uintptr_t segment_address_of_selector(pid_t child, unsigned segsel) {
   return (*it).base_addr;
 }
 #endif
-
-void _ptrace_get_cpu_state(pid_t child, cpu_state_t &out) {
-#if defined(__mips64) || defined(__mips__)
-  unsigned long _request = PTRACE_GETREGS;
-  unsigned long _pid = child;
-  unsigned long _addr = 0;
-  unsigned long _data = reinterpret_cast<unsigned long>(&out.regs[0]);
-
-  if (syscall(__NR_ptrace, _request, _pid, _addr, _data) < 0)
-    throw std::runtime_error(std::string("PTRACE_GETREGS failed : ") +
-                             std::string(strerror(errno)));
-#else
-  struct iovec iov = {.iov_base = &out,
-                      .iov_len = sizeof(cpu_state_t)};
-
-  unsigned long _request = PTRACE_GETREGSET;
-  unsigned long _pid = child;
-  unsigned long _addr = 1 /* NT_PRSTATUS */;
-  unsigned long _data = reinterpret_cast<unsigned long>(&iov);
-
-  if (syscall(__NR_ptrace, _request, _pid, _addr, _data) < 0)
-    throw std::runtime_error(std::string("PTRACE_GETREGSET failed : ") +
-                             std::string(strerror(errno)));
-#endif
-}
-
-void _ptrace_set_cpu_state(pid_t child, const cpu_state_t &in) {
-#if defined(__mips64) || defined(__mips__)
-  unsigned long _request = PTRACE_SETREGS;
-  unsigned long _pid = child;
-  unsigned long _addr = 1 /* NT_PRSTATUS */;
-  unsigned long _data = reinterpret_cast<unsigned long>(&in.regs[0]);
-
-  if (syscall(__NR_ptrace, _request, _pid, _addr, _data) < 0)
-    throw std::runtime_error(std::string("PTRACE_SETREGS failed : ") +
-                             std::string(strerror(errno)));
-#else
-  struct iovec iov = {.iov_base = const_cast<cpu_state_t *>(&in),
-                      .iov_len = sizeof(cpu_state_t)};
-
-  unsigned long _request = PTRACE_SETREGSET;
-  unsigned long _pid = child;
-  unsigned long _addr = 1 /* NT_PRSTATUS */;
-  unsigned long _data = reinterpret_cast<unsigned long>(&iov);
-
-  if (syscall(__NR_ptrace, _request, _pid, _addr, _data) < 0)
-    throw std::runtime_error(std::string("PTRACE_SETREGSET failed : ") +
-                             std::string(strerror(errno)));
-#endif
-}
-
-unsigned long _ptrace_peekdata(pid_t child, uintptr_t addr) {
-  unsigned long res;
-
-  unsigned long _request = PTRACE_PEEKDATA;
-  unsigned long _pid = child;
-  unsigned long _addr = addr;
-  unsigned long _data = reinterpret_cast<unsigned long>(&res);
-
-  if (syscall(__NR_ptrace, _request, _pid, _addr, _data) < 0)
-    throw std::runtime_error((fmt("PTRACE_PEEKDATA(%d, %p) failed : %s") %
-                              child % addr % strerror(errno)).str());
-
-  return res;
-}
-
-void _ptrace_pokedata(pid_t child, uintptr_t addr, unsigned long data) {
-  unsigned long _request = PTRACE_POKEDATA;
-  unsigned long _pid = child;
-  unsigned long _addr = addr;
-  unsigned long _data = data;
-
-  if (syscall(__NR_ptrace, _request, _pid, _addr, _data) < 0)
-    throw std::runtime_error(std::string("PTRACE_POKEDATA failed : ") +
-                             std::string(strerror(errno)));
-}
 
 int BootstrapTool::ChildProc(int pipefd) {
   scoped_fd pipefd_(pipefd);
