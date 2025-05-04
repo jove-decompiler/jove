@@ -1236,14 +1236,8 @@ int RecompileTool::Run(void) {
         Arg(locator().softfloat_bitcode(IsCOFF));
         Arg(locator().runtime_implib(opts.MT));
 
-        for (const std::string &needed_delay : x._coff.needed_delay_vec) {
-#if 0
-          if (needed_delay == "dsound.dll")
-            continue; /* FIXME */
-#endif
-
+        for (const std::string &needed_delay : x._coff.needed_delay_vec)
           Arg("/delayload:" + needed_delay);
-        }
 
         if (!x._coff.needed_delay_vec.empty()) {
           const char *x = IsX86Target && IsTarget32 ? "___delayLoadHelper2@8"
