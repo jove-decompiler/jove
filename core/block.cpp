@@ -6,9 +6,9 @@
 
 namespace jove {
 
-static bool insertion_sort(const ip_func_index_vec &old,
-                           ip_func_index_vec &out,
-                           function_index_t FIdx) {
+static bool copy_and_insert_sort(const ip_func_index_vec &old,
+                                 ip_func_index_vec &out,
+                                 function_index_t FIdx) {
   auto it = std::lower_bound(old.cbegin(), old.cend(), FIdx);
 
   //
@@ -44,7 +44,7 @@ void basic_block_properties_t::Parents_t::insert(function_index_t FIdx,
   if constexpr (MT) {
     {
       ip_func_index_vec copy(FIdxVec.get_allocator().get_segment_manager());
-      if (!insertion_sort(FIdxVec, copy, FIdx))
+      if (!copy_and_insert_sort(FIdxVec, copy, FIdx))
         return;
 
       const ip_func_index_vec *TheVecPtr = nullptr;
@@ -62,7 +62,7 @@ void basic_block_properties_t::Parents_t::insert(function_index_t FIdx,
     __attribute__((musttail)) return insert<MT>(FIdx, b);
   } else {
     ip_func_index_vec copy(FIdxVec.get_allocator().get_segment_manager());
-    if (insertion_sort(FIdxVec, copy, FIdx))
+    if (copy_and_insert_sort(FIdxVec, copy, FIdx))
       set<MT>(*b.FIdxVecs.insert(boost::move(copy)).first);
   }
 }
