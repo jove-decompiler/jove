@@ -3551,11 +3551,14 @@ void BootstrapTool::harvest_global_GOT_entries(pid_t child) {
 
 void BootstrapTool::harvest_reloc_targets(pid_t child) {
   harvest_irelative_reloc_targets(child);
+
+#if 0
   harvest_addressof_reloc_targets(child);
   harvest_ctor_and_dtors(child);
 
 #if defined(__mips64) || defined(__mips__)
   harvest_global_GOT_entries(child);
+#endif
 #endif
 }
 
