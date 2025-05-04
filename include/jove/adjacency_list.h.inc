@@ -10,7 +10,7 @@ template <class OutEdgeListS,
           class GraphProperty,
           class EdgeListS,
           bool MT = true, bool Spin = true, bool PointUnique = true>
-struct adjacency_list : public ip_base_rw_accessible<MT, Spin> {
+struct ip_adjacency_list : public ip_base_rw_accessible<MT, Spin> {
   using type = boost::adjacency_list<OutEdgeListS, VertexListS, DirectedS,
                                      VertexProperty, EdgeProperty,
                                      GraphProperty, EdgeListS>;
@@ -43,7 +43,7 @@ struct adjacency_list : public ip_base_rw_accessible<MT, Spin> {
 
   std::atomic<uint32_t> _size = 0;
 
-  adjacency_list(jv_file_t &jv_file)
+  ip_adjacency_list(jv_file_t &jv_file)
     requires(PointUnique)
       : _adjacency_list(boost::interprocess::make_managed_unique_ptr(
             jv_file.construct<type>(boost::interprocess::anonymous_instance)(
@@ -51,14 +51,14 @@ struct adjacency_list : public ip_base_rw_accessible<MT, Spin> {
                 jv_file.get_segment_manager()),
             jv_file)) {}
 
-  adjacency_list(jv_file_t &jv_file)
+  ip_adjacency_list(jv_file_t &jv_file)
     requires(!PointUnique)
       : _adjacency_list(typename type::graph_property_type(),
                         jv_file.get_segment_manager()) {}
 
   template <bool MT2, bool Spin2>
-  adjacency_list(
-      adjacency_list<OutEdgeListS, VertexListS, DirectedS, VertexProperty,
+  ip_adjacency_list(
+      ip_adjacency_list<OutEdgeListS, VertexListS, DirectedS, VertexProperty,
                      EdgeProperty, GraphProperty, EdgeListS, MT2, Spin2,
                      PointUnique> &&other) noexcept
       : _adjacency_list(std::move(other._adjacency_list)),
@@ -67,10 +67,10 @@ struct adjacency_list : public ip_base_rw_accessible<MT, Spin> {
   }
 
   template <bool MT2, bool Spin2>
-  adjacency_list &
-  operator=(adjacency_list<OutEdgeListS, VertexListS, DirectedS, VertexProperty,
-                           EdgeProperty, GraphProperty, EdgeListS, MT2, Spin2,
-                           PointUnique> &&other) noexcept {
+  ip_adjacency_list &operator=(
+      ip_adjacency_list<OutEdgeListS, VertexListS, DirectedS, VertexProperty,
+                        EdgeProperty, GraphProperty, EdgeListS, MT2, Spin2,
+                        PointUnique> &&other) noexcept {
     if constexpr (MT == MT2) {
       if (this == &other)
         return *this;
@@ -83,16 +83,16 @@ struct adjacency_list : public ip_base_rw_accessible<MT, Spin> {
   }
 
   template <bool MT2, bool Spin2>
-  adjacency_list(
-      const adjacency_list<OutEdgeListS, VertexListS, DirectedS, VertexProperty,
-                           EdgeProperty, GraphProperty, EdgeListS, MT2, Spin2,
-                           PointUnique> &) = delete;
+  ip_adjacency_list(
+      const ip_adjacency_list<OutEdgeListS, VertexListS, DirectedS,
+                              VertexProperty, EdgeProperty, GraphProperty,
+                              EdgeListS, MT2, Spin2, PointUnique> &) = delete;
 
   template <bool MT2, bool Spin2>
-  adjacency_list &operator=(
-      const adjacency_list<OutEdgeListS, VertexListS, DirectedS, VertexProperty,
-                           EdgeProperty, GraphProperty, EdgeListS, MT2, Spin2,
-                           PointUnique> &) = delete;
+  ip_adjacency_list &operator=(
+      const ip_adjacency_list<OutEdgeListS, VertexListS, DirectedS,
+                              VertexProperty, EdgeProperty, GraphProperty,
+                              EdgeListS, MT2, Spin2, PointUnique> &) = delete;
 
 #define VERT_SHARED_ACCESS(ShouldLock, Mutex)                                  \
   typename std::conditional<ShouldLock && MT,                                  \
