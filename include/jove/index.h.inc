@@ -7,6 +7,7 @@ typedef uint32_t function_index_t;
 typedef uint32_t basic_block_index_t;
 typedef uint32_t call_graph_index_t;
 
+// FIXME make our own custom class so these things are trivially copyable
 typedef std::pair<binary_index_t, function_index_t> dynamic_target_t;
 typedef std::pair<binary_index_t, basic_block_index_t> block_t;
 
