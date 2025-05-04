@@ -600,7 +600,7 @@ typedef boost::interprocess::set<
     boost::interprocess::node_allocator<caller_t, segment_manager_t>>
     callers_t;
 
-struct call_graph_node_properties_t : public ip_mt_base_rw_accessible_spin {
+struct ip_call_graph_node_properties_t : public ip_mt_base_rw_accessible_spin {
   using pair = struct { binary_index_t first; function_index_t second; };
 
   std::atomic<pair> X = pair{invalid_binary_index, invalid_function_index};
@@ -608,14 +608,14 @@ struct call_graph_node_properties_t : public ip_mt_base_rw_accessible_spin {
 
 template <bool MT>
 using ip_call_graph_base_t =
-ip_adjacency_list<boost::setS_ip,               /* OutEdgeList */
-                  boost::dequeS_ip,             /* VertexList */
-                  boost::directedS,             /* Directed */
-                  call_graph_node_properties_t, /* VertexProperties */
-                  boost::no_property,           /* EdgeProperties */
-                  boost::no_property,           /* GraphProperties */
-                  boost::vecS_ip,               /* EdgeList */
-                  MT, false /* !Spin */>;
+    ip_adjacency_list<boost::setS_ip,                  /* OutEdgeList */
+                      boost::dequeS_ip,                /* VertexList */
+                      boost::directedS,                /* Directed */
+                      ip_call_graph_node_properties_t, /* VertexProperties */
+                      boost::no_property,              /* EdgeProperties */
+                      boost::no_property,              /* GraphProperties */
+                      boost::vecS_ip,                  /* EdgeList */
+                      MT, false /* !Spin */>;
 
 struct function_t {
   bool Speculative = false;
