@@ -17,7 +17,7 @@ $ alias jove='jove-x86_64'
 $ jove init /usr/bin/ls               # initialize .jv
 $ jove bootstrap /usr/bin/ls -la /    # recover code executed by command (this step can be skipped)
 $ jove loop /usr/bin/ls -la /         # re-run command through recompilation
-$ jove decompile -o ls.src            # generate decompilation source tree
+$ jove decompile -o ls.src            # generate C code source tree
 $ make -C ls.src                      # make executable from decompilation
 ```
 
