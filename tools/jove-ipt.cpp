@@ -687,9 +687,7 @@ int IPTTool::UsingLibipt(void) {
 
   if constexpr (IsToolMT) {
     mt_Explorer = MakeExplorer<true>(jv, *Disas, *TCG, VerbosityLevel());
-    st_Explorer = MakeExplorer<false>(*Disas, *TCG, VerbosityLevel());
   } else {
-    mt_Explorer = MakeExplorer<true>(*Disas, *TCG, VerbosityLevel());
     st_Explorer = MakeExplorer<false>(jv, *Disas, *TCG, VerbosityLevel());
   }
 
@@ -799,6 +797,11 @@ int IPTTool::UsingLibipt(void) {
 
     if (IsVeryVerbose())
       llvm::errs() << "move constructed jv2.\n";
+  }
+
+  if constexpr (IsToolMT) {
+    if (jv2)
+      st_Explorer = MakeExplorer<false>(*jv2, *Disas, *TCG, VerbosityLevel());
   }
 
   std::vector<char *> ptdump_argv;
