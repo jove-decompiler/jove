@@ -1227,9 +1227,9 @@ int RecompileTool::Run(void) {
           Arg("/dynamicbase");
         }
 
-        for (const std::string &lib_dir : lib_dirs) {
+        for (const std::string &lib_dir : lib_dirs)
           Arg("/libpath:" + lib_dir);
-        }
+
         Arg(objfp);
 
         Arg(locator().builtins(IsCOFF));
