@@ -323,6 +323,9 @@ void sideband_parser::load(struct pev_event &out,
   const uint8_t *const end = begin + hdr.size;
   const uint8_t *pos = begin + sizeof(struct perf_event_header);
 
+  //
+  // we know better than the compiler.
+  //
   static constexpr unsigned MAXNR = std::max({
   PERF_RECORD_MMAP,
   PERF_RECORD_MMAP2,
