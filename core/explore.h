@@ -89,16 +89,18 @@ class explorer_t {
   bool IsVeryVerbose(void) const { return unlikely(VerbosityLevel >= 2); }
 
 public:
-  explorer_t(jv_base_t<MT> &jv, disas_t &disas, tiny_code_generator_t &tcg,
-             unsigned VerbosityLevel = 0)
+  explicit explorer_t(jv_base_t<MT> &jv, disas_t &disas,
+                      tiny_code_generator_t &tcg,
+                      unsigned VerbosityLevel = 0) noexcept
       : maybe_jv(jv), disas(disas), tcg(tcg), VerbosityLevel(VerbosityLevel) {}
 
-  explorer_t(disas_t &disas, tiny_code_generator_t &tcg,
-             unsigned VerbosityLevel = 0)
-      : maybe_jv(boost::none), disas(disas), tcg(tcg), VerbosityLevel(VerbosityLevel) {}
+  explicit explorer_t(disas_t &disas, tiny_code_generator_t &tcg,
+                      unsigned VerbosityLevel = 0) noexcept
+      : maybe_jv(boost::none), disas(disas), tcg(tcg),
+        VerbosityLevel(VerbosityLevel) {}
 
   template <bool MT2>
-  explorer_t(const explorer_t<MT2> &other)
+  explicit explorer_t(const explorer_t<MT2> &other) noexcept
       : maybe_jv(boost::none),
         disas(other.disas),
         tcg(other.tcg),
