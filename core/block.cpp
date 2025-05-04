@@ -22,17 +22,16 @@ static bool insertion_sort(const ip_func_index_vec &old,
   //
   const auto idx = static_cast<size_t>(it - old.cbegin());
 
-  out.resize(old.size() + 1);
-
   auto *const dst = out.data();
   const auto *const src = old.data();
 
-  if (idx > 0)
-    std::memcpy(dst, src, idx * sizeof(function_index_t));
-  dst[idx] = FIdx;
   const auto n = old.size();
-  if (idx < n)
-    std::memcpy(dst + idx + 1, src + idx, (n - idx) * sizeof(function_index_t));
+
+  out.clear();
+  out.reserve(old.size() + 1);
+  out.insert(out.end(), src, src + idx);
+  out.push_back(FIdx);
+  out.insert(out.end(), src + idx, src + n);
 
   return true;
 }
