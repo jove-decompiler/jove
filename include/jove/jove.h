@@ -1095,12 +1095,6 @@ struct jv_base_t {
   struct Analysis_t {
     ip_call_graph_base_t<MT> ReverseCallGraph;
 
-#if 0
-    Analysis_t() = delete;
-    Analysis_t(const Analysis_t &) = delete;
-    Analysis_t &operator=(const Analysis_t &) = delete;
-#endif
-
     explicit Analysis_t(jv_file_t &jv_file) noexcept
         : ReverseCallGraph(jv_file) {}
 
@@ -1109,20 +1103,6 @@ struct jv_base_t {
 
     explicit Analysis_t(typename jv_base_t<!MT>::Analysis_t &&other) noexcept
         : ReverseCallGraph(std::move(other.ReverseCallGraph)) {}
-
-#if 0
-    template <bool MT2>
-    Analysis_t &
-    operator=(typename jv_base_t<MT2>::Analysis_t &&other) noexcept {
-      if constexpr (MT == MT2) {
-        if (this == &other)
-          return *this;
-      }
-
-      ReverseCallGraph = std::move(other.ReverseCallGraph);
-      return *this;
-    }
-#endif
   } Analysis;
 
   ip_hash_to_binary_map_type<MT> hash_to_binary;
