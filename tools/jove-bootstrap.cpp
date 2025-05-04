@@ -704,7 +704,7 @@ uintptr_t BootstrapTool::va_of_rva(uintptr_t Addr, binary_index_t BIdx) {
   return Addr + (state.for_binary(binary).LoadAddr - state.for_binary(binary).LoadOffset);
 }
 
-uintptr_t BootstrapTool::va_of_pc(uintptr_t Addr, binary_index_t BIdx) {
+uintptr_t BootstrapTool::va_of_pc(uintptr_t pc, binary_index_t BIdx) {
   binary_t &binary = jv.Binaries.at(BIdx);
 
   if (!BinFoundVec.test(BIdx))
@@ -713,10 +713,13 @@ uintptr_t BootstrapTool::va_of_pc(uintptr_t Addr, binary_index_t BIdx) {
 
   if (!binary.IsPIC) {
     assert(binary.IsExecutable);
-    return Addr;
+    return pc;
   }
 
-  return Addr - (state.for_binary(binary).LoadAddr - state.for_binary(binary).LoadOffset);
+  binary_state_t &x = state.for_binary(binary);
+
+  uint64_t off = pc - (x.LoadAddr - x.LoadOffset);
+  return B::va_of_offset(*x.ObjectFile, off);
 }
 
 int BootstrapTool::TracerLoop(pid_t child) {
