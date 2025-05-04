@@ -702,7 +702,9 @@ uintptr_t BootstrapTool::pc_of_va(uintptr_t Addr, binary_index_t BIdx) {
   }
 
   binary_state_t &x = state.for_binary(binary);
-  return Addr + (x.LoadAddr - x.LoadOffset);
+
+  uint64_t off = B::offset_of_va(*x.ObjectFile, Addr);
+  return off + (x.LoadAddr - x.LoadOffset);
 }
 
 uintptr_t BootstrapTool::va_of_pc(uintptr_t pc, binary_index_t BIdx) {
