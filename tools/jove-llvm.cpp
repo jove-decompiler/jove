@@ -633,12 +633,11 @@ public:
 
   int Run(void) override;
 
-  int TranslateFunction(function_t &f);
-  int TranslateBasicBlock(TranslateContext *);
-  int TranslateTCGOp(TCGOp *,
-                     llvm::BasicBlock *ExitBB,
-                     llvm::IRBuilderTy &,
-                     TranslateContext &);
+  int TranslateFunction(function_t &);
+  int TranslateBasicBlock(TranslateContext &);
+  int TranslateTCGOps(llvm::BasicBlock *ExitBB,
+                      llvm::IRBuilderTy &,
+                      TranslateContext &);
 
   int InitStateForBinaries(void);
   int CreateModule(void);
@@ -6708,7 +6707,7 @@ int LLVMTool::TranslateFunction(function_t &f) {
   for (basic_block_t bb : state.for_function(f).bbvec) {
     TC.bb = bb;
 
-    int ret = TranslateBasicBlock(&TC);
+    int ret = TranslateBasicBlock(TC);
 
     if (unlikely(ret))
       return ret;
@@ -7936,8 +7935,7 @@ typedef int (*translate_tcg_op_proc_t)(TCGOp *,
 static bool seenOpTable[ARRAY_SIZE(tcg_op_defs)];
 #endif
 
-int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
-  TranslateContext &TC = *ptrTC;
+int LLVMTool::TranslateBasicBlock(TranslateContext &TC) {
   auto &GlobalAllocaArr = TC.GlobalAllocaArr;
   auto &TempAllocaVec = TC.TempAllocaVec;
   auto &LabelVec = TC.LabelVec;
@@ -8197,25 +8195,11 @@ int LLVMTool::TranslateBasicBlock(TranslateContext *ptrTC) {
       lstaddr = 0;
     };
 
-    TCGOp *op;
-    QTAILQ_FOREACH(op, &s->ops, link) {
-#if 0
-      unsigned opc = op->opc;
-
-      if (unlikely(!seenOpTable[opc])) {
-        WithColor::note() << llvm::formatv("[TCG opcode] {0}\n",
-                                           tcg_op_defs[opc].name);
-
-        seenOpTable[opc] = true;
-      }
-#endif
-
-      int ret = TranslateTCGOp(op, ExitBB, IRB, TC);
-      if (unlikely(ret)) {
-        WithColor::warning() << "!TranslateTCGOp\n";
-        TCG->dump_operations();
-        return ret;
-      }
+    int ret = TranslateTCGOps(ExitBB, IRB, TC);
+    if (unlikely(ret)) {
+      WithColor::warning() << "!TranslateTCGOp\n";
+      TCG->dump_operations();
+      return ret;
     }
 
     if (!IRB.GetInsertBlock()->getTerminator()) {
@@ -9792,10 +9776,9 @@ std::string LLVMTool::dyn_target_desc(dynamic_target_t IdxPair) {
   return (fmt("%s+%#lx") % fs::path(b.path_str()).filename().string() % Addr).str();
 }
 
-int LLVMTool::TranslateTCGOp(TCGOp *op,
-                             llvm::BasicBlock *ExitBB,
-                             llvm::IRBuilderTy &IRB,
-                             TranslateContext &TC) {
+int LLVMTool::TranslateTCGOps(llvm::BasicBlock *ExitBB,
+                              llvm::IRBuilderTy &IRB,
+                              TranslateContext &TC) {
   auto EnsureInsertPoint = [&](void) -> void {
     if (IRB.GetInsertBlock() == nullptr)
       IRB.SetInsertPoint(
@@ -9936,11 +9919,11 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
     SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
   };
 
-  const TCGOpcode opc = op->opc;
-
-  const int nb_oargs = opc == INDEX_op_call ? TCGOP_CALLO(op) : jv_tcgopc_nb_oargs_in_def(opc);
-  const int nb_iargs = opc == INDEX_op_call ? TCGOP_CALLI(op) : jv_tcgopc_nb_iargs_in_def(opc);
-  const int nb_cargs = jv_tcgopc_nb_cargs_in_def(opc);
+  TCGOp *op = nullptr;
+  unsigned /* TCGOpcode */ opc = ~0u;
+  int nb_oargs = -1;
+  int nb_iargs = -1;
+  int nb_cargs = -1;
 
   if (IsVeryVerbose())
     HumanOut() << llvm::formatv("{0} {1}:{2}:{3}\n",
@@ -10144,21 +10127,198 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
   llvm::Value *taddr = nullptr;
   llvm::Value *tmp64 = nullptr;
 
+#define JUMP_TABLE_BASE_LABEL do_unknown
+#define REF(Name) &&do_##Name
+#define ENTRY(Name) [INDEX_op_##Name] = REF(Name),
 
 #if TCG_TARGET_REG_BITS == 64
-#define CASE_32_64(x)                                                          \
-  case INDEX_op_##x##_i64:                                                     \
-  case INDEX_op_##x##_i32:
-#define CASE_64(x)                                                             \
-  case INDEX_op_##x##_i64:
+#define ENTRY_CASE_32_64(x) ENTRY(x##_i64) ENTRY(x##_i32)
+#define ENTRY_CASE_64(x) ENTRY(x##_i64)
 #else
-#define CASE_32_64(x)                                                          \
-  case INDEX_op_##x##_i32:
-# define CASE_64(x)
+#define ENTRY_CASE_32_64(x) ENTRY(x##_i32)
+#define ENTRY_CASE_64(x)
 #endif
 
-  switch (opc) {
-  case INDEX_op_insn_start:
+  typedef void *const jumps_elem_t;
+
+  static constexpr unsigned SZ = 1 << 8;
+
+  static const jumps_elem_t jumps[SZ] = {
+      [0 ... SZ - 1] = REF(unknown),
+
+      ENTRY(insn_start)
+      ENTRY(discard)
+      ENTRY(goto_tb)
+      ENTRY(set_label)
+      ENTRY(goto_ptr)
+      ENTRY(exit_tb)
+      ENTRY(call)
+      ENTRY(mov_i64)
+      ENTRY(mov_i32)
+      ENTRY(ext8s_i32)
+      ENTRY(ext8u_i32)
+      ENTRY(ext16s_i32)
+      ENTRY(ext16u_i32)
+
+#if TCG_TARGET_REG_BITS == 64
+      ENTRY(ext8s_i64)
+      ENTRY(ext8u_i64)
+      ENTRY(ext16s_i64)
+      ENTRY(ext16u_i64)
+
+      ENTRY(ext_i32_i64)
+      ENTRY(ext32s_i64)
+
+      ENTRY(extu_i32_i64)
+      ENTRY(ext32u_i64)
+      ENTRY(extrl_i64_i32)
+#endif
+      ENTRY(qemu_ld_i32)
+      ENTRY(qemu_ld_i64)
+
+      ENTRY(qemu_st_i32)
+      ENTRY(qemu_st_i64)
+
+      ENTRY(add_i32)
+      ENTRY(sub_i32)
+      ENTRY(mul_i32)
+
+      ENTRY(div_i32)
+      ENTRY(divu_i32)
+      ENTRY(rem_i32)
+      ENTRY(remu_i32)
+
+      ENTRY(and_i32)
+      ENTRY(or_i32)
+      ENTRY(xor_i32)
+
+      ENTRY(shl_i32)
+      ENTRY(shr_i32)
+      ENTRY(sar_i32)
+
+      ENTRY(add_i64)
+      ENTRY(sub_i64)
+      ENTRY(mul_i64)
+
+      ENTRY(div_i64)
+      ENTRY(divu_i64)
+      ENTRY(rem_i64)
+      ENTRY(remu_i64)
+
+      ENTRY(and_i64)
+      ENTRY(or_i64)
+      ENTRY(xor_i64)
+
+      ENTRY(shl_i64)
+      ENTRY(shr_i64)
+      ENTRY(sar_i64)
+
+      ENTRY(rotl_i32)
+      ENTRY(rotr_i32)
+
+      ENTRY(rotl_i64)
+      ENTRY(rotr_i64)
+
+      ENTRY(andc_i32)
+      ENTRY(andc_i64)
+
+      ENTRY_CASE_32_64(ld8u)
+      ENTRY_CASE_32_64(ld8s)
+      ENTRY_CASE_32_64(ld16u)
+      ENTRY_CASE_32_64(ld16s)
+      ENTRY(ld_i32)
+      ENTRY_CASE_64(ld32u)
+      ENTRY_CASE_32_64(st8)
+      ENTRY_CASE_32_64(st16)
+      ENTRY(st_i32)
+      ENTRY_CASE_64(st32)
+
+#if TCG_TARGET_REG_BITS == 64
+      ENTRY(ld32s_i64)
+      ENTRY(ld_i64)
+      ENTRY(st_i64)
+#endif
+      ENTRY(br)
+      ENTRY(brcond_i32)
+      ENTRY(brcond_i64)
+
+      ENTRY(setcond_i32)
+      ENTRY(setcond_i64)
+      ENTRY(movcond_i32)
+      ENTRY(movcond_i64)
+      ENTRY(mulu2_i32)
+      ENTRY(muls2_i32)
+      ENTRY(mulu2_i64)
+      ENTRY(muls2_i64)
+      ENTRY(not_i32)
+      ENTRY(neg_i32)
+      ENTRY(not_i64)
+      ENTRY(neg_i64)
+      ENTRY(bswap16_i32)
+      ENTRY(bswap32_i32)
+      ENTRY(bswap16_i64)
+      ENTRY(bswap32_i64)
+      ENTRY(bswap64_i64)
+      ENTRY(clz_i32)
+      ENTRY(clz_i64)
+      ENTRY(ctz_i32)
+      ENTRY(ctz_i64)
+      ENTRY(deposit_i32)
+      ENTRY(deposit_i64)
+      ENTRY(extract_i32)
+      ENTRY(sextract_i32)
+      ENTRY(extract_i64)
+      ENTRY(sextract_i64)
+      ENTRY(muluh_i64)
+      ENTRY(mulsh_i64)
+      ENTRY(add2_i32)
+      ENTRY(add2_i64)
+      ENTRY(sub2_i32)
+      ENTRY(sub2_i64)
+      ENTRY(orc_i32)
+      ENTRY(orc_i64)
+      ENTRY(eqv_i32)
+      ENTRY(eqv_i64)
+
+      ENTRY_CASE_32_64(nor)
+      ENTRY(mb)
+  };
+
+#define CASE(x)                                                                \
+  do_##x
+#if TCG_TARGET_REG_BITS == 64
+#define CASE_32_64(x)                                                          \
+  do_##x##_i64:                                                                \
+  do_##x##_i32
+#define CASE_64(x)                                                             \
+  do_##x##_i64
+#else
+#define CASE_32_64(x)                                                          \
+  do_##x##_i32
+# define CASE_64(x)                                                            \
+  do_not_do_##x
+#endif
+
+#define BREAK() goto out
+
+  op = s->ops.tqh_first;
+  assert(op);
+
+  /* TCGOpcode */ opc = op->opc;
+  assert(SZ > opc);
+
+  nb_oargs = opc == INDEX_op_call ? TCGOP_CALLO(op) : jv_tcgopc_nb_oargs_in_def(opc);
+  nb_iargs = opc == INDEX_op_call ? TCGOP_CALLI(op) : jv_tcgopc_nb_iargs_in_def(opc);
+  nb_cargs = jv_tcgopc_nb_cargs_in_def(opc);
+
+  {
+  unsigned bak = opc;
+  opc &= (SZ - 1u);
+  assert(bak == opc);
+  }
+  goto *jumps[opc];
+
+  CASE(insn_start):
     if (const_arg(0) == JOVE_PCREL_MAGIC) {
       pcrel_flag = true;
 
@@ -10189,9 +10349,9 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
       IRB.SetCurrentDebugLocation(llvm::DILocation::get(
           *Context, Line, Column, TC.DebugInformation.Subprogram));
     }
-    break;
+    BREAK();
 
-  case INDEX_op_discard: {
+  CASE(discard): {
     // FIXME
 #if 0
     TCGTemp *dst = arg_temp(op->args[0]);
@@ -10201,13 +10361,13 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
     //set(llvm::UndefValue::get(Ty), dst);
     set(llvm::Constant::getNullValue(Ty), dst);
 #endif
-    break;
+    BREAK();
   }
 
-  case INDEX_op_goto_tb:
-    break;
+  CASE(goto_tb):
+    BREAK();
 
-  case INDEX_op_set_label: {
+  CASE(set_label): {
     llvm::BasicBlock* lblB = LabelVec.at(input_label(0)->id);
     assert(lblB);
 
@@ -10215,23 +10375,23 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
       IRB.CreateBr(lblB);
 
     IRB.SetInsertPoint(lblB);
-    break;
+    BREAK();
   }
 
-  case INDEX_op_goto_ptr:
-  case INDEX_op_exit_tb:
+  CASE(goto_ptr):
+  CASE(exit_tb):
     assert(ExitBB);
     IRB.CreateBr(ExitBB);
-    break;
+    BREAK();
 
-  case INDEX_op_call: {
+  CASE(call): {
     const char *helper_nm = jv_tcg_find_helper(op);
 
     //
     // some helper functions are special-cased
     //
     if (strcmp(helper_nm, "lookup_tb_ptr") == 0) /* FIXME */
-      break;
+      BREAK();
 
     const helper_function_t &hf =
         LookupHelper(*Module, *TCG, op, analyzer_options);
@@ -10356,13 +10516,13 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
     // does the helper have an output?
     //
     if (nb_oargs == 0)
-      break;
+      BREAK();
 
     if (nb_oargs == 1) {
       TCGTemp *dst = arg_temp(op->args[0]);
 
       set(Ret, dst);
-      break;
+      BREAK();
     } else if (nb_oargs == 2) {
       TCGTemp *dst1 = arg_temp(op->args[0]);
       TCGTemp *dst2 = arg_temp(op->args[1]);
@@ -10374,7 +10534,7 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
         set(IRB.CreateTrunc(IRB.CreateLShr(Ret, llvm::APInt(64, 32)),
                             IRB.getInt32Ty()),
             dst2);
-        break;
+        BREAK();
       } else {
         llvm::errs() << llvm::formatv(
             "nb_oargs={0} dst1 bits {1} dst2 bits {2}\n", nb_oargs,
@@ -10388,13 +10548,13 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
   }
 
 #if 1
-  case INDEX_op_mov_i64:
-  case INDEX_op_mov_i32:
+  CASE(mov_i64):
+  CASE(mov_i32):
     set(get(input_arg(0)), output_arg(0));
-    break;
+    BREAK();
 #else
 
-  case INDEX_op_mov_i32: {
+  CASE(op_mov_i32): {
     assert(nb_iargs == 1);
     assert(nb_oargs == 1);
 
@@ -10410,10 +10570,10 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
 
       set(IRB.CreateTrunc(get(src), IRB.getInt32Ty()), dst);
     }
-    break;
+    BREAK();
   }
 
-  case INDEX_op_mov_i64: {
+  CASE(mov_i64): {
     TCGTemp *dst = arg_temp(op->args[0]);
     TCGTemp *src = arg_temp(op->args[1]);
 
@@ -10421,36 +10581,36 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
     assert(src->type == TCG_TYPE_I64);
 
     set(get(src), dst);
-    break;
+    BREAK();
   }
 #endif
 
 #define __EXT_OP(opc_name, truncBits, opBits, signE)                           \
-  case opc_name:                                                               \
+  CASE(opc_name):                                                   \
     set(IRB.Create##signE##Ext(                                                \
             IRB.CreateTrunc(get(arg_temp(op->args[1])),                        \
                             IRB.getIntNTy(truncBits)),                         \
             IRB.getIntNTy(opBits)),                                            \
         arg_temp(op->args[0]));                                                \
-    break;
+    BREAK();
 
-    __EXT_OP(INDEX_op_ext8s_i32, 8, 32, S)
-    __EXT_OP(INDEX_op_ext8u_i32, 8, 32, Z)
-    __EXT_OP(INDEX_op_ext16s_i32, 16, 32, S)
-    __EXT_OP(INDEX_op_ext16u_i32, 16, 32, Z)
+    __EXT_OP(ext8s_i32, 8, 32, S)
+    __EXT_OP(ext8u_i32, 8, 32, Z)
+    __EXT_OP(ext16s_i32, 16, 32, S)
+    __EXT_OP(ext16u_i32, 16, 32, Z)
 
 #if TCG_TARGET_REG_BITS == 64
-    __EXT_OP(INDEX_op_ext8s_i64, 8, 64, S)
-    __EXT_OP(INDEX_op_ext8u_i64, 8, 64, Z)
-    __EXT_OP(INDEX_op_ext16s_i64, 16, 64, S)
-    __EXT_OP(INDEX_op_ext16u_i64, 16, 64, Z)
+    __EXT_OP(ext8s_i64, 8, 64, S)
+    __EXT_OP(ext8u_i64, 8, 64, Z)
+    __EXT_OP(ext16s_i64, 16, 64, S)
+    __EXT_OP(ext16u_i64, 16, 64, Z)
 
-    __EXT_OP(INDEX_op_ext_i32_i64, 32, 64, S)
-    __EXT_OP(INDEX_op_ext32s_i64, 32, 64, S)
+    __EXT_OP(ext_i32_i64, 32, 64, S)
+    __EXT_OP(ext32s_i64, 32, 64, S)
 
-    __EXT_OP(INDEX_op_extu_i32_i64, 32, 64, Z)
-    __EXT_OP(INDEX_op_ext32u_i64, 32, 64, Z)
-    __EXT_OP(INDEX_op_extrl_i64_i32, 32, 64, Z)
+    __EXT_OP(extu_i32_i64, 32, 64, Z)
+    __EXT_OP(ext32u_i64, 32, 64, Z)
+    __EXT_OP(extrl_i64_i32, 32, 64, Z)
 #endif
 
 #undef __EXT_OP
@@ -10525,7 +10685,7 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
     do_qemu_st(taddr, tmp64, const_arg(0));
     break;
 #else
-        case INDEX_op_qemu_ld_i32:
+        CASE(qemu_ld_i32):
 #if 0
             tci_args_rrm(insn, &r0, &r1, &oi);
             taddr = regs[r1];
@@ -10534,9 +10694,9 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
             taddr = get(input_arg(0));
             set(do_qemu_ld(taddr, const_arg(0)), output_arg(0));
 #endif
-            break;
+            BREAK();
 
-        case INDEX_op_qemu_ld_i64:
+        CASE(qemu_ld_i64):
 #if 0
             if (TCG_TARGET_REG_BITS == 64) {
                 tci_args_rrm(insn, &r0, &r1, &oi);
@@ -10568,9 +10728,9 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
                 set(tmp64, output_arg(0));
 #endif
             }
-            break;
+            BREAK();
 
-        case INDEX_op_qemu_st_i32:
+        CASE(qemu_st_i32):
 #if 0
             tci_args_rrm(insn, &r0, &r1, &oi);
             taddr = regs[r1];
@@ -10579,9 +10739,9 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
             taddr = get(input_arg(1));
             do_qemu_st(taddr, get(input_arg(0)), const_arg(0));
 #endif
-            break;
+            BREAK();
 
-        case INDEX_op_qemu_st_i64:
+        CASE(qemu_st_i64):
             if (TCG_TARGET_REG_BITS == 64) {
 #if 0
                 tci_args_rrm(insn, &r0, &r1, &oi);
@@ -10607,11 +10767,11 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
 #else
             do_qemu_st(taddr, tmp64, const_arg(0));
 #endif
-            break;
+            BREAK();
 #endif
 
 #define __ARITH_OP(opc_name, LLVMOp, bits)                                     \
-  case opc_name: {                                                             \
+  CASE(opc_name): {                                                            \
     TCGTemp *x = input_arg(0);                                                 \
     TCGTemp *y = input_arg(1);                                                 \
                                                                                \
@@ -10620,7 +10780,7 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
     /* code will run in 64-bit address-space). hence we configure qemu with  */\
     /* --enable-tcg-interpreter, and here we intervene when computing an env */\
     /* pointer. */                                                             \
-    if (opc_name == INDEX_op_add_i64 && WordBits() == 32) {                    \
+    if (INDEX_op_##opc_name == INDEX_op_add_i64 && WordBits() == 32) {         \
       bool x_isenv = temp_idx(x) == tcg_env_index;                             \
       bool y_isenv = temp_idx(y) == tcg_env_index;                             \
       if (x_isenv || y_isenv) {                                                \
@@ -10630,52 +10790,52 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
         auto *Y = y_isenv ? get_word(y) : IRB.CreateTrunc(get(y), WordType()); \
                                                                                \
         set_word(IRB.Create##LLVMOp(X, Y), output_arg(0));                     \
-        break;                                                                 \
+        BREAK();                                                               \
       }                                                                        \
     }                                                                          \
                                                                                \
     set(IRB.Create##LLVMOp(get(x), get(y)), output_arg(0));                    \
-    break;                                                                     \
+    BREAK();                                                                   \
   }
 
-    __ARITH_OP(INDEX_op_add_i32, Add, 32)
-    __ARITH_OP(INDEX_op_sub_i32, Sub, 32)
-    __ARITH_OP(INDEX_op_mul_i32, Mul, 32)
+    __ARITH_OP(add_i32, Add, 32)
+    __ARITH_OP(sub_i32, Sub, 32)
+    __ARITH_OP(mul_i32, Mul, 32)
 
-    __ARITH_OP(INDEX_op_div_i32, SDiv, 32)
-    __ARITH_OP(INDEX_op_divu_i32, UDiv, 32)
-    __ARITH_OP(INDEX_op_rem_i32, SRem, 32)
-    __ARITH_OP(INDEX_op_remu_i32, URem, 32)
+    __ARITH_OP(div_i32, SDiv, 32)
+    __ARITH_OP(divu_i32, UDiv, 32)
+    __ARITH_OP(rem_i32, SRem, 32)
+    __ARITH_OP(remu_i32, URem, 32)
 
-    __ARITH_OP(INDEX_op_and_i32, And, 32)
-    __ARITH_OP(INDEX_op_or_i32, Or, 32)
-    __ARITH_OP(INDEX_op_xor_i32, Xor, 32)
+    __ARITH_OP(and_i32, And, 32)
+    __ARITH_OP(or_i32, Or, 32)
+    __ARITH_OP(xor_i32, Xor, 32)
 
-    __ARITH_OP(INDEX_op_shl_i32, Shl, 32)
-    __ARITH_OP(INDEX_op_shr_i32, LShr, 32)
-    __ARITH_OP(INDEX_op_sar_i32, AShr, 32)
+    __ARITH_OP(shl_i32, Shl, 32)
+    __ARITH_OP(shr_i32, LShr, 32)
+    __ARITH_OP(sar_i32, AShr, 32)
 
-    __ARITH_OP(INDEX_op_add_i64, Add, 64)
-    __ARITH_OP(INDEX_op_sub_i64, Sub, 64)
-    __ARITH_OP(INDEX_op_mul_i64, Mul, 64)
+    __ARITH_OP(add_i64, Add, 64)
+    __ARITH_OP(sub_i64, Sub, 64)
+    __ARITH_OP(mul_i64, Mul, 64)
 
-    __ARITH_OP(INDEX_op_div_i64, SDiv, 64)
-    __ARITH_OP(INDEX_op_divu_i64, UDiv, 64)
-    __ARITH_OP(INDEX_op_rem_i64, SRem, 64)
-    __ARITH_OP(INDEX_op_remu_i64, URem, 64)
+    __ARITH_OP(div_i64, SDiv, 64)
+    __ARITH_OP(divu_i64, UDiv, 64)
+    __ARITH_OP(rem_i64, SRem, 64)
+    __ARITH_OP(remu_i64, URem, 64)
 
-    __ARITH_OP(INDEX_op_and_i64, And, 64)
-    __ARITH_OP(INDEX_op_or_i64, Or, 64)
-    __ARITH_OP(INDEX_op_xor_i64, Xor, 64)
+    __ARITH_OP(and_i64, And, 64)
+    __ARITH_OP(or_i64, Or, 64)
+    __ARITH_OP(xor_i64, Xor, 64)
 
-    __ARITH_OP(INDEX_op_shl_i64, Shl, 64)
-    __ARITH_OP(INDEX_op_shr_i64, LShr, 64)
-    __ARITH_OP(INDEX_op_sar_i64, AShr, 64)
+    __ARITH_OP(shl_i64, Shl, 64)
+    __ARITH_OP(shr_i64, LShr, 64)
+    __ARITH_OP(sar_i64, AShr, 64)
 
 #undef __ARITH_OP
 
 #define __ARITH_OP_ROT(opc_name, op1, op2, bits)                               \
-  case opc_name: {                                                             \
+  CASE(opc_name): {                                                            \
     llvm::Value *v1 = get(arg_temp(op->args[1]));                              \
     llvm::Value *v2 = get(arg_temp(op->args[2]));                              \
                                                                                \
@@ -10685,18 +10845,19 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
                                                                                \
     set(IRB.CreateOr(IRB.Create##op1(v1, v2), IRB.Create##op2(v1, v)),         \
         arg_temp(op->args[0]));                                                \
-  } break;
+    BREAK();                                                                   \
+  }
 
-    __ARITH_OP_ROT(INDEX_op_rotl_i32, Shl, LShr, 32)
-    __ARITH_OP_ROT(INDEX_op_rotr_i32, LShr, Shl, 32)
+    __ARITH_OP_ROT(rotl_i32, Shl, LShr, 32)
+    __ARITH_OP_ROT(rotr_i32, LShr, Shl, 32)
 
-    __ARITH_OP_ROT(INDEX_op_rotl_i64, Shl, LShr, 64)
-    __ARITH_OP_ROT(INDEX_op_rotr_i64, LShr, Shl, 64)
+    __ARITH_OP_ROT(rotl_i64, Shl, LShr, 64)
+    __ARITH_OP_ROT(rotr_i64, LShr, Shl, 64)
 
 #undef __ARITH_OP_ROT
 
 #define __ANDC_OP(opc_name, bits)                                              \
-  case opc_name: {                                                             \
+  CASE(opc_name): {                                                            \
     llvm::Value *v1 = get(arg_temp(op->args[1]));                              \
     llvm::Value *v2 = get(arg_temp(op->args[2]));                              \
                                                                                \
@@ -10706,10 +10867,11 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
                       v2);                                                     \
                                                                                \
     set(IRB.CreateAnd(v1, notv2), arg_temp(op->args[0]));                      \
-  } break;
+    BREAK();                                                                   \
+  }
 
-    __ANDC_OP(INDEX_op_andc_i32, 32)
-    __ANDC_OP(INDEX_op_andc_i64, 64)
+    __ANDC_OP(andc_i32, 32)
+    __ANDC_OP(andc_i64, 64)
 
 #undef __ANDC_OP
 
@@ -10723,7 +10885,7 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
       TCGTemp *dst = arg_temp(op->args[0]);                                    \
       assert(dst->type == TCG_TYPE_I64);                                       \
       set(insertThreadPointerInlineAsm(IRB), dst);                             \
-      break;                                                                   \
+      BREAK();                                                                 \
     }                                                                          \
   }
 #elif defined(TARGET_MIPS32)
@@ -10733,21 +10895,21 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
       TCGTemp *dst = arg_temp(op->args[0]);                                    \
       assert(dst->type == TCG_TYPE_I32);                                       \
       set(insertThreadPointerInlineAsm(IRB), dst);                             \
-      break;                                                                   \
+      BREAK();                                                                 \
     }                                                                          \
                                                                                \
     if (off == ASMOFF_ENV_lladdr) {                                            \
       TCGTemp *dst = arg_temp(op->args[0]);                                    \
       assert(dst->type == TCG_TYPE_I32);                                       \
       set(get(&s->temps[tcg_lladdr_index]), dst);                              \
-      break;                                                                   \
+      BREAK();                                                                 \
     }                                                                          \
                                                                                \
     if (off == ASMOFF_ENV_llval) {                                             \
       TCGTemp *dst = arg_temp(op->args[0]);                                    \
       assert(dst->type == TCG_TYPE_I32);                                       \
       set(get(&s->temps[tcg_llval_index]), dst);                               \
-      break;                                                                   \
+      BREAK();                                                                 \
     }                                                                          \
                                                                                \
     { curiosity("load(env+" + std::to_string(off) + ")"); }                    \
@@ -10758,7 +10920,7 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
 #endif
 
 #define __LD_OP(opc_name, memBits, regBits, signE)                             \
-  case opc_name: {                                                             \
+  CASE(opc_name): {                                                            \
     unsigned baseidx = temp_idx(arg_temp(op->args[1]));                        \
     assert(baseidx == tcg_env_index);                                          \
                                                                                \
@@ -10786,7 +10948,7 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
       Val = IRB.Create##signE##Ext(Val, IRB.getIntNTy(regBits));               \
                                                                                \
     set(Val, arg_temp(op->args[0]));                                           \
-    break;                                                                     \
+    BREAK();                                                                   \
   }
 
 #if 0
@@ -10814,12 +10976,12 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
   {                                                                            \
     if (off == ASMOFF_ENV_lladdr) {                                            \
       set(Val, &s->temps[tcg_lladdr_index]);                                   \
-      break;                                                                   \
+      BREAK();                                                                 \
     }                                                                          \
                                                                                \
     if (off == ASMOFF_ENV_llval) {                                             \
       set(Val, &s->temps[tcg_llval_index]);                                    \
-      break;                                                                   \
+      BREAK();                                                                 \
     }                                                                          \
                                                                                \
     { curiosity("store(env+" + std::to_string(off) + ")"); }                   \
@@ -10833,7 +10995,7 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
 // store to host memory
 //
 #define __ST_OP(opc_name, memBits, regBits)                                    \
-  case opc_name: {                                                             \
+  CASE(opc_name): {                                                            \
     unsigned baseidx = temp_idx(arg_temp(op->args[1]));                        \
     assert(baseidx == tcg_env_index);                                          \
                                                                                \
@@ -10843,7 +11005,7 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
     if (off == tcg_program_counter_env_offset) {                               \
       assert(memBits == WordBits() && regBits == WordBits());                  \
       IRB.CreateStore(Val, TC.PCAlloca);                                       \
-      break;                                                                   \
+      BREAK();                                                                 \
     }                                                                          \
                                                                                \
     __ARCH_ST_OP(off)                                                          \
@@ -10865,7 +11027,7 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
     Ptr = IRB.CreatePointerCast(                                               \
         Ptr, llvm::PointerType::get(IRB.getIntNTy(memBits), 0));               \
     IRB.CreateStore(Val, Ptr);                                                 \
-    break;                                                                     \
+    BREAK();                                                                   \
   }
 
 #if 0
@@ -10884,53 +11046,53 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
 #undef __ST_OP
 
         /* Load/store operations (32 bit). */
-        CASE_32_64(ld8u)
+        CASE_32_64(ld8u):
             do_ld_or_store(true, 8, false);
-            break;
-        CASE_32_64(ld8s)
+            BREAK();
+        CASE_32_64(ld8s):
             do_ld_or_store(true, 8, true);
-            break;
-        CASE_32_64(ld16u)
+            BREAK();
+        CASE_32_64(ld16u):
             do_ld_or_store(true, 16, false);
-            break;
-        CASE_32_64(ld16s)
+            BREAK();
+        CASE_32_64(ld16s):
             do_ld_or_store(true, 16, true);
-            break;
-        case INDEX_op_ld_i32:
-        CASE_64(ld32u)
+            BREAK();
+        CASE(ld_i32):
+        CASE_64(ld32u):
             do_ld_or_store(true, 32, false);
-            break;
-        CASE_32_64(st8)
+            BREAK();
+        CASE_32_64(st8):
             do_ld_or_store(false, 8, false);
-            break;
-        CASE_32_64(st16)
+            BREAK();
+        CASE_32_64(st16):
             do_ld_or_store(false, 16, false);
-            break;
-        case INDEX_op_st_i32:
-        CASE_64(st32)
+            BREAK();
+        CASE(st_i32):
+        CASE_64(st32):
             do_ld_or_store(false, 32, false);
-            break;
+            BREAK();
 
 #if TCG_TARGET_REG_BITS == 64
          /* Load/store operations (64 bit). */
-        case INDEX_op_ld32s_i64:
+        CASE(ld32s_i64):
             do_ld_or_store(true, 32, true);
-            break;
-        case INDEX_op_ld_i64:
+            BREAK();
+        CASE(ld_i64):
             do_ld_or_store(true, 64, false);
-            break;
-        case INDEX_op_st_i64:
+            BREAK();
+        CASE(st_i64):
             do_ld_or_store(false, 64, false);
-            break;
+            BREAK();
 #endif
 
 
-  case INDEX_op_br: {
+  CASE(br): {
     llvm::BasicBlock* lblB = LabelVec.at(input_label(0)->id);
     IRB.CreateBr(lblB);
     IRB.ClearInsertionPoint();
     EnsureInsertPoint();
-    break;
+    BREAK();
   }
 
 #define __OP_BRCOND_COND(tcg_cond, cond)                                       \
@@ -10940,7 +11102,7 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
     break;
 
 #define __OP_BRCOND(opc_name, bits)                                            \
-  case opc_name: {                                                             \
+  CASE(opc_name): {                                                             \
     llvm::Value *V = nullptr;                                                  \
     llvm::Value *V_ = nullptr;                                                 \
     switch (const_arg(0)) {                                                    \
@@ -10981,10 +11143,11 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
         state.for_function(f).F);                                              \
     IRB.CreateCondBr(V, lblBB, fallthruBB);                                    \
     IRB.SetInsertPoint(fallthruBB);                                            \
-  } break;
+    BREAK();                                                                   \
+  }
 
-    __OP_BRCOND(INDEX_op_brcond_i32, 32)
-    __OP_BRCOND(INDEX_op_brcond_i64, 64)
+    __OP_BRCOND(brcond_i32, 32)
+    __OP_BRCOND(brcond_i64, 64)
 
 #undef __OP_BRCOND_COND
 #undef __OP_BRCOND
@@ -10996,7 +11159,7 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
     break;
 
 #define __OP_SETCOND(opc_name, bits)                                           \
-  case opc_name: {                                                             \
+  CASE(opc_name): {                                                             \
     llvm::Value *V_ = nullptr;                                                 \
     llvm::Value *V = nullptr;                                                  \
     switch (const_arg(0)) {                                                    \
@@ -11030,10 +11193,11 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
     }                                                                          \
     assert(V);                                                                 \
     set(IRB.CreateZExt(V, IRB.getIntNTy(bits)), output_arg(0));                \
-  } break;
+    BREAK();                                                                   \
+  }
 
-    __OP_SETCOND(INDEX_op_setcond_i32, 32)
-    __OP_SETCOND(INDEX_op_setcond_i64, 64)
+    __OP_SETCOND(setcond_i32, 32)
+    __OP_SETCOND(setcond_i64, 64)
 
 #undef __OP_MOVCOND_COND
 #undef __OP_MOVCOND
@@ -11045,7 +11209,7 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
     break;
 
 #define __OP_MOVCOND(opc_name, bits)                                           \
-  case opc_name: {                                                             \
+  CASE(opc_name): {                                                             \
     llvm::Value *V_ = nullptr;                                                 \
     llvm::Value *CondV = nullptr;                                              \
     switch (op->args[5]) {                                                     \
@@ -11081,16 +11245,17 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
                                          get(arg_temp(op->args[3])),           \
                                          get(arg_temp(op->args[4])));          \
     set(SelV, arg_temp(op->args[0]));                                          \
-  } break;
+    BREAK();                                                                   \
+  }
 
-    __OP_MOVCOND(INDEX_op_movcond_i32, 32)
-    __OP_MOVCOND(INDEX_op_movcond_i64, 64)
+    __OP_MOVCOND(movcond_i32, 32)
+    __OP_MOVCOND(movcond_i64, 64)
 
 #undef __OP_MOVCOND_COND
 #undef __OP_MOVCOND
 
 #define __ARITH_OP_MUL2(opc_name, signE, bits)                                 \
-  case opc_name: {                                                             \
+  CASE(opc_name): {                                                            \
     llvm::Value *t1 = get(arg_temp(op->args[2]));                              \
     llvm::Value *t2 = get(arg_temp(op->args[3]));                              \
                                                                                \
@@ -11107,32 +11272,34 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
                                                                                \
     set(t0_low, arg_temp(op->args[0]));                                        \
     set(t0_high, arg_temp(op->args[1]));                                       \
-  } break;
+    BREAK();                                                                   \
+  }
 
-    __ARITH_OP_MUL2(INDEX_op_mulu2_i32, Z, 32)
-    __ARITH_OP_MUL2(INDEX_op_muls2_i32, S, 32)
-    __ARITH_OP_MUL2(INDEX_op_mulu2_i64, Z, 64)
-    __ARITH_OP_MUL2(INDEX_op_muls2_i64, S, 64)
+    __ARITH_OP_MUL2(mulu2_i32, Z, 32)
+    __ARITH_OP_MUL2(muls2_i32, S, 32)
+    __ARITH_OP_MUL2(mulu2_i64, Z, 64)
+    __ARITH_OP_MUL2(muls2_i64, S, 64)
 
 #undef __ARITH_OP_MUL2
 
 #define __ARITH_OP_I(opc_name, LLVMOp, i, bits)                                \
-  case opc_name: {                                                             \
+  CASE(opc_name): {                                                             \
     llvm::Value *v1 = get(arg_temp(op->args[1]));                              \
     assert(v1->getType() == IRB.getIntNTy(bits));                              \
     set(IRB.Create##LLVMOp(IRB.getIntN(bits, i), v1), arg_temp(op->args[0]));  \
-  } break;
+    BREAK();                                                                   \
+  }
 
-    __ARITH_OP_I(INDEX_op_not_i32, Xor, 0xffffffff, 32)
-    __ARITH_OP_I(INDEX_op_neg_i32, Sub, 0, 32)
+    __ARITH_OP_I(not_i32, Xor, 0xffffffff, 32)
+    __ARITH_OP_I(neg_i32, Sub, 0, 32)
 
-    __ARITH_OP_I(INDEX_op_not_i64, Xor, 0xffffffffffffffff, 64)
-    __ARITH_OP_I(INDEX_op_neg_i64, Sub, 0, 64)
+    __ARITH_OP_I(not_i64, Xor, 0xffffffffffffffff, 64)
+    __ARITH_OP_I(neg_i64, Sub, 0, 64)
 
 #undef __ARITH_OP_I
 
 #define __ARITH_OP_BSWAP(opc_name, sBits, bits)                                \
-  case opc_name: {                                                             \
+  CASE(opc_name): {                                                             \
     llvm::Value *v1 = get(arg_temp(op->args[1]));                              \
     assert(v1->getType() == llvm::IntegerType::get(*Context, bits));           \
     llvm::Type *Tys[] = {llvm::IntegerType::get(*Context, sBits)};             \
@@ -11144,19 +11311,20 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
     set(IRB.CreateZExt(IRB.CreateCall(bswap, v),                               \
                        llvm::IntegerType::get(*Context, bits)),                \
         arg_temp(op->args[0]));                                                \
-  } break;
+    BREAK();                                                                   \
+  }
 
-    __ARITH_OP_BSWAP(INDEX_op_bswap16_i32, 16, 32)
-    __ARITH_OP_BSWAP(INDEX_op_bswap32_i32, 32, 32)
+    __ARITH_OP_BSWAP(bswap16_i32, 16, 32)
+    __ARITH_OP_BSWAP(bswap32_i32, 32, 32)
 
-    __ARITH_OP_BSWAP(INDEX_op_bswap16_i64, 16, 64)
-    __ARITH_OP_BSWAP(INDEX_op_bswap32_i64, 32, 64)
-    __ARITH_OP_BSWAP(INDEX_op_bswap64_i64, 64, 64)
+    __ARITH_OP_BSWAP(bswap16_i64, 16, 64)
+    __ARITH_OP_BSWAP(bswap32_i64, 32, 64)
+    __ARITH_OP_BSWAP(bswap64_i64, 64, 64)
 
 #undef __ARITH_OP_BSWAP
 
 #define __CLZ_OP(opc_name, bits)                                               \
-  case opc_name: {                                                             \
+  CASE(opc_name): {                                                            \
     llvm::Type *Tys[] = {llvm::IntegerType::get(*Context, bits)};              \
     llvm::Function *ctlzF =                                                    \
         llvm::Intrinsic::getDeclaration(Module.get(), llvm::Intrinsic::ctlz,   \
@@ -11170,16 +11338,16 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
         IRB.CreateSelect(CondV, IRB.CreateCall(ctlzF, ctlzArgs), v2);          \
                                                                                \
     set(v, arg_temp(op->args[0]));                                             \
-    break;                                                                     \
+    BREAK();                                                                   \
   }
 
-    __CLZ_OP(INDEX_op_clz_i32, 32)
-    __CLZ_OP(INDEX_op_clz_i64, 64)
+    __CLZ_OP(clz_i32, 32)
+    __CLZ_OP(clz_i64, 64)
 
 #undef __CLZ_OP
 
 #define __CTZ_OP(opc_name, bits)                                               \
-  case opc_name: {                                                             \
+  CASE(opc_name): {                                                            \
     llvm::Type *Tys[] = {llvm::IntegerType::get(*Context, bits)};              \
     llvm::Function *cttzF =                                                    \
         llvm::Intrinsic::getDeclaration(Module.get(), llvm::Intrinsic::cttz,   \
@@ -11193,15 +11361,15 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
         IRB.CreateSelect(CondV, IRB.CreateCall(cttzF, ctlzArgs), v2);          \
                                                                                \
     set(v, arg_temp(op->args[0]));                                             \
-    break;                                                                     \
+    BREAK();                                                                   \
   }
 
-    __CTZ_OP(INDEX_op_ctz_i32, 32)
-    __CTZ_OP(INDEX_op_ctz_i64, 64)
+    __CTZ_OP(ctz_i32, 32)
+    __CTZ_OP(ctz_i64, 64)
 
 #undef __CTZ_OP
 
-  case INDEX_op_deposit_i32: {
+  CASE(deposit_i32): {
     TCGTemp *dst = arg_temp(op->args[0]);
     TCGTemp *src1 = arg_temp(op->args[1]);
     TCGTemp *src2 = arg_temp(op->args[2]);
@@ -11215,7 +11383,7 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
 
     if (0 == ofs && 32 == len) {
       set(arg2, dst);
-      break;
+      BREAK();
     }
 
     uint32_t mask = (UINT32_C(1) << len) - 1;
@@ -11231,10 +11399,10 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
     ret = IRB.CreateAnd(arg1, llvm::APInt(32, ~(mask << ofs)));
     ret = IRB.CreateOr(ret, t1);
     set(ret, dst);
-    break;
+    BREAK();
   }
 
-  case INDEX_op_deposit_i64: {
+  CASE(deposit_i64): {
     TCGTemp *dst = output_arg(0);
     TCGTemp *src1 = input_arg(0);
     TCGTemp *src2 = input_arg(1);
@@ -11248,7 +11416,7 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
 
     if (0 == ofs && 64 == len) {
       set(arg2, dst);
-      break;
+      BREAK();
     }
 
     uint64_t mask = (UINT64_C(1) << len) - 1;
@@ -11264,23 +11432,23 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
     ret = IRB.CreateAnd(arg1, llvm::APInt(64, ~(mask << ofs)));
     ret = IRB.CreateOr(ret, t1);
     set(ret, dst);
-    break;
+    BREAK();
   }
 
-  case INDEX_op_extract_i32:
+  CASE(extract_i32):
     do_extract(32, false);
-    break;
-  case INDEX_op_sextract_i32:
+    BREAK();
+  CASE(sextract_i32):
     do_extract(32, true);
-    break;
-  case INDEX_op_extract_i64:
+    BREAK();
+  CASE(extract_i64):
     do_extract(64, false);
-    break;
-  case INDEX_op_sextract_i64:
+    BREAK();
+  CASE(sextract_i64):
     do_extract(64, true);
-    break;
+    BREAK();
 
-  case INDEX_op_muluh_i64: {
+  CASE(muluh_i64): {
     TCGTemp *dst = arg_temp(op->args[0]);
     TCGTemp *src1 = arg_temp(op->args[1]);
     TCGTemp *src2 = arg_temp(op->args[2]);
@@ -11297,10 +11465,10 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
                                      IRB.getInt64Ty());
 
     set(y, dst);
-    break;
+    BREAK();
   }
 
-  case INDEX_op_mulsh_i64: {
+  CASE(mulsh_i64): {
     TCGTemp *dst = arg_temp(op->args[0]);
     TCGTemp *src1 = arg_temp(op->args[1]);
     TCGTemp *src2 = arg_temp(op->args[2]);
@@ -11317,11 +11485,11 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
                                      IRB.getInt64Ty());
 
     set(y, dst);
-    break;
+    BREAK();
   }
 
 #define __ADD2_OR_SUB2(opc_name, bits, isAdd)                                  \
-  case opc_name: {                                                             \
+  CASE(opc_name): {                                                             \
     assert(nb_oargs == 2);                                                     \
                                                                                \
     TCGTemp *t0_low = output_arg(0);                                           \
@@ -11367,19 +11535,19 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
     set(t0_low_v, t0_low);                                                     \
     set(t0_high_v, t0_high);                                                   \
                                                                                \
-    break;                                                                     \
+    BREAK();                                                                   \
   }
 
-    __ADD2_OR_SUB2(INDEX_op_add2_i32, 32, true)
-    __ADD2_OR_SUB2(INDEX_op_add2_i64, 64, true)
+    __ADD2_OR_SUB2(add2_i32, 32, true)
+    __ADD2_OR_SUB2(add2_i64, 64, true)
 
-    __ADD2_OR_SUB2(INDEX_op_sub2_i32, 32, false)
-    __ADD2_OR_SUB2(INDEX_op_sub2_i64, 64, false)
+    __ADD2_OR_SUB2(sub2_i32, 32, false)
+    __ADD2_OR_SUB2(sub2_i64, 64, false)
 
 #undef __ADD2_OR_SUB2
 
 #define __ORC_OP(opc_name, bits)                                               \
-  case opc_name: {                                                             \
+  CASE(opc_name): {                                                             \
     llvm::Value *v1 = get(arg_temp(op->args[1]));                              \
     llvm::Value *v2 = get(arg_temp(op->args[2]));                              \
                                                                                \
@@ -11389,15 +11557,16 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
                       v2);                                                     \
                                                                                \
     set(IRB.CreateOr(v1, notv2), arg_temp(op->args[0]));                       \
-  } break;
+    BREAK();                                                                   \
+  }
 
-    __ORC_OP(INDEX_op_orc_i32, 32)
-    __ORC_OP(INDEX_op_orc_i64, 64)
+    __ORC_OP(orc_i32, 32)
+    __ORC_OP(orc_i64, 64)
 
 #undef __ORC_OP
 
 #define __EQV_OP(opc_name, bits)                                               \
-  case opc_name: {                                                             \
+  CASE(opc_name): {                                                             \
     llvm::Value *v1 = get(arg_temp(op->args[1]));                              \
     llvm::Value *v2 = get(arg_temp(op->args[2]));                              \
                                                                                \
@@ -11407,20 +11576,21 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
                       v2);                                                     \
                                                                                \
     set(IRB.CreateXor(v1, notv2), arg_temp(op->args[0]));                      \
-  } break;
+    BREAK();                                                                   \
+  }
 
-    __EQV_OP(INDEX_op_eqv_i32, 32)
-    __EQV_OP(INDEX_op_eqv_i64, 64)
+    __EQV_OP(eqv_i32, 32)
+    __EQV_OP(eqv_i64, 64)
 
 #undef __EQV_OP
 
-  CASE_32_64(nor)
+  CASE_32_64(nor):
     set(IRB.CreateNot(IRB.CreateOr(get(input_arg(0)),
                                    get(input_arg(1)))),
         output_arg(0));
-    break;
+    BREAK();
 
-  case INDEX_op_mb: {
+  CASE(mb): {
     llvm::StringRef AsmText;
     llvm::StringRef Constraints;
 
@@ -11444,12 +11614,29 @@ int LLVMTool::TranslateTCGOp(TCGOp *op,
         llvm::InlineAsm::get(llvm::FunctionType::get(VoidType(), false),
                              AsmText, Constraints, true /* hasSideEffects */);
     IRB.CreateCall(IA);
-    break;
+    BREAK();
   }
 
-  default:
+  do_unknown:
     die(std::string("unhandled TCGOpcode: ") + jv_tcgopc_name_in_def(opc));
-  }
+
+out:
+    op = op->link.tqe_next;
+    if (likely(op)) {
+      opc = op->opc;
+      assert(SZ > opc);
+
+      nb_oargs = opc == INDEX_op_call ? TCGOP_CALLO(op) : jv_tcgopc_nb_oargs_in_def(opc);
+      nb_iargs = opc == INDEX_op_call ? TCGOP_CALLI(op) : jv_tcgopc_nb_iargs_in_def(opc);
+      nb_cargs = jv_tcgopc_nb_cargs_in_def(opc);
+
+      {
+      unsigned bak = opc;
+      opc &= (SZ - 1u);
+      assert(bak == opc);
+      }
+      goto *jumps[opc];
+    }
 
   return 0;
 }
