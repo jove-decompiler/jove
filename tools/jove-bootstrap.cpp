@@ -442,7 +442,7 @@ public:
   void ScanAddressSpace(pid_t child, bool VMUpdate = true);
 
   uintptr_t va_of_rva(uintptr_t Addr, binary_index_t BIdx);
-  uintptr_t rva_of_va(uintptr_t Addr, binary_index_t BIdx);
+  uintptr_t va_of_pc(uintptr_t Addr, binary_index_t BIdx);
 
   binary_index_t binary_at_program_counter(pid_t, uintptr_t valid_pc);
   std::pair<binary_index_t, basic_block_index_t>
@@ -711,7 +711,7 @@ uintptr_t BootstrapTool::va_of_rva(uintptr_t Addr, binary_index_t BIdx) {
   return Addr + (state.for_binary(binary).LoadAddr - state.for_binary(binary).LoadOffset);
 }
 
-uintptr_t BootstrapTool::rva_of_va(uintptr_t Addr, binary_index_t BIdx) {
+uintptr_t BootstrapTool::va_of_pc(uintptr_t Addr, binary_index_t BIdx) {
   binary_t &binary = jv.Binaries.at(BIdx);
 
   if (!BinFoundVec.test(BIdx))
@@ -2974,7 +2974,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
       function_index_t FIdx =
           E->explore_function(TargetBinary,
                              *state.for_binary(TargetBinary).ObjectFile,
-                             rva_of_va(Target.Addr, Target.BIdx));
+                             va_of_pc(Target.Addr, Target.BIdx));
 
       assert(is_function_index_valid(FIdx));
 
@@ -3027,7 +3027,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
         //
         const basic_block_index_t BBIdx = E->explore_basic_block(
             TargetBinary, *state.for_binary(TargetBinary).ObjectFile,
-            rva_of_va(Target.Addr, Target.BIdx));
+            va_of_pc(Target.Addr, Target.BIdx));
 
         assert(is_basic_block_index_valid(BBIdx));
 
@@ -3048,12 +3048,12 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
             HasDynTarget /* IsDefinitelyTailCall(ICFG, bb) */ ||
             IndBrInfo.BIdx != Target.BIdx ||
             (out_deg == 0 &&
-             exists_function_at_address(TargetBinary, rva_of_va(Target.Addr, Target.BIdx)));
+             exists_function_at_address(TargetBinary, va_of_pc(Target.Addr, Target.BIdx)));
 
         if (isTailCall) {
           function_index_t FIdx =
               E->explore_function(TargetBinary, *state.for_binary(TargetBinary).ObjectFile,
-                                 rva_of_va(Target.Addr, Target.BIdx));
+                                 va_of_pc(Target.Addr, Target.BIdx));
 
           assert(is_function_index_valid(FIdx));
 
@@ -3072,7 +3072,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
         } else {
           const basic_block_index_t TargetBBIdx =
               E->explore_basic_block(TargetBinary, *state.for_binary(TargetBinary).ObjectFile,
-                                    rva_of_va(Target.Addr, Target.BIdx));
+                                    va_of_pc(Target.Addr, Target.BIdx));
 
           assert(is_basic_block_index_valid(TargetBBIdx));
           basic_block_t TargetBB = basic_block_of_index(TargetBBIdx, ICFG);
@@ -3113,7 +3113,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
     HumanOut() << llvm::formatv(
         "on_breakpoint failed: {0} [target: {1}+{2:x} ({3:x}) binary.LoadAddr: {4:x}]\n",
         what, fs::path(TargetBinary.Name.c_str()).filename().string(),
-        rva_of_va(Target.Addr, Target.BIdx), Target.Addr,
+        va_of_pc(Target.Addr, Target.BIdx), Target.Addr,
         state.for_binary(TargetBinary).LoadAddr);
 
     if (IsVerbose())
@@ -3247,7 +3247,7 @@ void BootstrapTool::harvest_irelative_reloc_targets(pid_t child) {
 
     if (IsVeryVerbose())
       HumanOut() << llvm::formatv("IFunc dyn target: {0:x} [R.Offset={1:x}]\n",
-                                  rva_of_va(Resolved.Addr, Resolved.BIdx),
+                                  va_of_pc(Resolved.Addr, Resolved.BIdx),
                                   R.Offset);
 
     if (is_function_index_valid(Resolved.FIdx)) {
@@ -4650,14 +4650,14 @@ BootstrapTool::function_at_program_counter(pid_t child, uintptr_t pc) {
   binary_t &binary = jv.Binaries.at(BIdx);
   basic_block_index_t BBIdx = E->explore_basic_block(binary,
                                                      *state.for_binary(binary).ObjectFile,
-                                                     rva_of_va(pc, BIdx));
+                                                     va_of_pc(pc, BIdx));
   if (!is_basic_block_index_valid(BBIdx))
     return std::make_pair(BIdx, invalid_function_index);
 
   function_index_t FIdx = E->explore_function(
       binary,
       *state.for_binary(binary).ObjectFile,
-      rva_of_va(pc, BIdx));
+      va_of_pc(pc, BIdx));
 
   return std::make_pair(BIdx, FIdx);
 }
@@ -4674,7 +4674,7 @@ BootstrapTool::block_at_program_counter(pid_t child, uintptr_t pc) {
   basic_block_index_t BBIdx = E->explore_basic_block(
       binary,
       *state.for_binary(binary).ObjectFile,
-      rva_of_va(pc, BIdx));
+      va_of_pc(pc, BIdx));
 
   return std::make_pair(BIdx, BBIdx);
 }
@@ -4686,7 +4686,7 @@ BootstrapTool::existing_block_at_program_counter(pid_t child, uintptr_t pc) {
     return std::make_pair(invalid_binary_index, invalid_basic_block_index);
 
   binary_t &b = jv.Binaries.at(BIdx);
-  uintptr_t rva = rva_of_va(pc, BIdx);
+  uintptr_t rva = va_of_pc(pc, BIdx);
 
   basic_block_index_t BBIdx = ({
     auto it = bbmap_find(b.BBMap.map, rva);
