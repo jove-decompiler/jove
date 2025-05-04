@@ -33,8 +33,7 @@ function_t::ReverseCGVert(jv_base_t<MT> &jv) {
       dynamic_target_t X = target_of_function(*this);
       assert(is_dynamic_target_valid(X));
 
-      ip_call_graph_node_properties_t::pair X_{X.first, X.second};
-      RCG[RCG.template vertex<MT>(Res)].X.store(X_, std::memory_order_relaxed);
+      RCG[RCG.template vertex<MT>(Res)].X = X;
     }
   }
 

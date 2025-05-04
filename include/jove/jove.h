@@ -601,9 +601,7 @@ typedef boost::interprocess::set<
     callers_t;
 
 struct ip_call_graph_node_properties_t : public ip_mt_base_rw_accessible_spin {
-  using pair = struct { binary_index_t first; function_index_t second; };
-
-  std::atomic<pair> X = pair{invalid_binary_index, invalid_function_index};
+  dynamic_target_t X;
 };
 
 template <bool MT>

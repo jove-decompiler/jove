@@ -110,8 +110,7 @@ void basic_block_properties_t::InvalidateAnalysis(jv_base_t<MT> &jv,
 
     void discover_vertex(ip_call_graph_base_t<MT>::vertex_descriptor V,
                          const ip_call_graph_base_t<MT>::type &RCG) const {
-      const auto X_ = RCG[V].X.load(std::memory_order_relaxed);
-      dynamic_target_t X(X_.first, X_.second);
+      dynamic_target_t X = RCG[V].X;
 
       assert(is_dynamic_target_valid(X));
 
