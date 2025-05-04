@@ -434,7 +434,7 @@ public:
   bool UpdateVM(pid_t);
   void ScanAddressSpace(pid_t child, bool VMUpdate = true);
 
-  uintptr_t va_of_rva(uintptr_t Addr, binary_index_t BIdx);
+  uintptr_t pc_of_va(uintptr_t Addr, binary_index_t BIdx);
   uintptr_t va_of_pc(uintptr_t Addr, binary_index_t BIdx);
 
   binary_index_t binary_at_program_counter(pid_t, uintptr_t valid_pc);
@@ -689,7 +689,7 @@ int BootstrapTool::Run(void) {
   }
 }
 
-uintptr_t BootstrapTool::va_of_rva(uintptr_t Addr, binary_index_t BIdx) {
+uintptr_t BootstrapTool::pc_of_va(uintptr_t Addr, binary_index_t BIdx) {
   binary_t &binary = jv.Binaries.at(BIdx);
 
   if (!BinFoundVec.test(BIdx))
@@ -701,7 +701,8 @@ uintptr_t BootstrapTool::va_of_rva(uintptr_t Addr, binary_index_t BIdx) {
     return Addr;
   }
 
-  return Addr + (state.for_binary(binary).LoadAddr - state.for_binary(binary).LoadOffset);
+  binary_state_t &x = state.for_binary(binary);
+  return Addr + (x.LoadAddr - x.LoadOffset);
 }
 
 uintptr_t BootstrapTool::va_of_pc(uintptr_t pc, binary_index_t BIdx) {
@@ -1423,7 +1424,7 @@ void BootstrapTool::place_breakpoints_in_block(binary_t &b, basic_block_t bb) {
   //
   if (bbprop.Term.Type == TERMINATOR::INDIRECT_CALL ||
       bbprop.Term.Type == TERMINATOR::INDIRECT_JUMP) {
-    uintptr_t termpc = va_of_rva(bbprop.Term.Addr, BIdx);
+    uintptr_t termpc = pc_of_va(bbprop.Term.Addr, BIdx);
 
 #if 0
     if (IsVeryVerbose())
@@ -1494,7 +1495,7 @@ void BootstrapTool::place_breakpoints_in_block(binary_t &b, basic_block_t bb) {
   // a breakpoint at the correct pc
   //
   if (bbprop.Term.Type == TERMINATOR::RETURN) {
-    uintptr_t termpc = va_of_rva(bbprop.Term.Addr, BIdx);
+    uintptr_t termpc = pc_of_va(bbprop.Term.Addr, BIdx);
 
     assert(RetMap.find(termpc) == RetMap.end());
 
@@ -3223,7 +3224,7 @@ void BootstrapTool::harvest_irelative_reloc_targets(pid_t child) {
     } Resolved;
 
     try {
-      Resolved.Addr = _ptrace_peekdata(child, va_of_rva(R.Offset, BIdx));
+      Resolved.Addr = _ptrace_peekdata(child, pc_of_va(R.Offset, BIdx));
     } catch (const std::exception &e) {
       if (IsVerbose())
         HumanOut()
@@ -3315,7 +3316,7 @@ void BootstrapTool::harvest_addressof_reloc_targets(pid_t child) {
       } Resolved;
 
       try {
-        Resolved.Addr = _ptrace_peekdata(child, va_of_rva(R.Offset, BIdx));
+        Resolved.Addr = _ptrace_peekdata(child, pc_of_va(R.Offset, BIdx));
       } catch (const std::exception &e) {
         if (IsVerbose())
           HumanOut()
@@ -3420,7 +3421,7 @@ void BootstrapTool::harvest_ctor_and_dtors(pid_t child) {
           try {
             uintptr_t rva = Sec.sh_addr + j * sizeof(uintptr_t);
 
-            uintptr_t Proc = _ptrace_peekdata(child, va_of_rva(rva, BIdx));
+            uintptr_t Proc = _ptrace_peekdata(child, pc_of_va(rva, BIdx));
 
 #if defined(__mips64) || defined(__mips__)
             Proc &= ~1UL;
@@ -3512,7 +3513,7 @@ void BootstrapTool::harvest_global_GOT_entries(pid_t child) {
       } Resolved;
 
       try {
-        Resolved.Addr = _ptrace_peekdata(child, va_of_rva(Addr, BIdx));
+        Resolved.Addr = _ptrace_peekdata(child, pc_of_va(Addr, BIdx));
       } catch (const std::exception &e) {
         if (IsVerbose())
           HumanOut() << llvm::formatv("{0}: exception: {1}\n", __func__, e.what());
@@ -3666,7 +3667,7 @@ void BootstrapTool::on_binary_loaded(pid_t child,
         binary.Analysis.Functions.at(binary.Analysis.EntryFunction).Entry,
         binary.Analysis.ICFG);
     uintptr_t entry_rva = binary.Analysis.ICFG[entry_bb].Addr;
-    uintptr_t Addr = va_of_rva(entry_rva, BIdx);
+    uintptr_t Addr = pc_of_va(entry_rva, BIdx);
 
     breakpoint_t &brk = BrkMap[Addr];
     brk.callback = std::bind(&BootstrapTool::harvest_reloc_targets, this, std::placeholders::_1);
@@ -3726,7 +3727,7 @@ void BootstrapTool::on_binary_loaded(pid_t child,
         bbprop.Term.Type != TERMINATOR::INDIRECT_CALL)
       continue;
 
-    uintptr_t Addr = va_of_rva(bbprop.Term.Addr, BIdx);
+    uintptr_t Addr = pc_of_va(bbprop.Term.Addr, BIdx);
 
     assert(IndBrMap.find(Addr) == IndBrMap.end());
 
@@ -3808,7 +3809,7 @@ void BootstrapTool::on_binary_loaded(pid_t child,
     if (bbprop.Term.Type != TERMINATOR::RETURN)
       continue;
 
-    uintptr_t Addr = va_of_rva(bbprop.Term.Addr, BIdx);
+    uintptr_t Addr = pc_of_va(bbprop.Term.Addr, BIdx);
 
     assert(RetMap.find(Addr) == RetMap.end());
 
@@ -4221,7 +4222,7 @@ void BootstrapTool::on_dynamic_linker_loaded(pid_t child,
           SymName == "_dl_debug_addr") {
         WARN_ON(Sym.getType() != llvm::ELF::STT_OBJECT);
 
-        _r_debug.Addr = va_of_rva(Sym.st_value, BIdx);
+        _r_debug.Addr = pc_of_va(Sym.st_value, BIdx);
         _r_debug.Found = true;
 
         rendezvous_with_dynamic_linker(child);
