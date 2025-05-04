@@ -31,7 +31,7 @@ void _ptrace_pokedata(pid_t, uintptr_t addr, unsigned long data);
 ssize_t _ptrace_memcpy(pid_t, void *dest, const void *src, size_t n);
 
 #if !defined(__x86_64__) && defined(__i386__)
-static uintptr_t segment_address_of_selector(pid_t, unsigned segsel);
+uintptr_t segment_address_of_selector(pid_t, unsigned segsel);
 #endif
 
 static constexpr auto &pc_of_cpu_state(cpu_state_t &cpu_state) {
@@ -53,3 +53,7 @@ static constexpr auto &pc_of_cpu_state(cpu_state_t &cpu_state) {
 }
 
 }
+
+#if defined(__mips64) || defined(__mips__)
+#undef PC /* XXX */
+#endif

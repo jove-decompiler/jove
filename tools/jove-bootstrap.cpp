@@ -67,17 +67,10 @@ static constexpr bool IsI386 =
 #include <sys/syscall.h>
 #include <sys/types.h>
 #include <unistd.h>
-#if !defined(__x86_64__) && defined(__i386__)
-#include <asm/ldt.h>
-#endif
 #include <sys/mman.h>
 
 #define GET_INSTRINFO_ENUM
 #include "LLVMGenInstrInfo.hpp"
-
-#if defined(__mips64) || defined(__mips__)
-#undef PC /* XXX */
-#endif
 
 #define GET_REGINFO_ENUM
 #include "LLVMGenRegisterInfo.hpp"
@@ -3868,42 +3861,6 @@ void BootstrapTool::on_binary_loaded(pid_t child,
   }
 }
 
-#if !defined(__x86_64__) && defined(__i386__)
-constexpr unsigned GDT_ENTRY_TLS_ENTRIES = 3;
-
-static void _ptrace_get_segment_descriptors(
-    pid_t child, std::array<struct user_desc, GDT_ENTRY_TLS_ENTRIES> &out) {
-  struct iovec iov = {.iov_base = out.data(),
-                      .iov_len = sizeof(struct user_desc) * out.size()};
-
-  unsigned long _request = PTRACE_GETREGSET;
-  unsigned long _pid = child;
-  unsigned long _addr = 0x200 /* NT_386_TLS */;
-  unsigned long _data = reinterpret_cast<unsigned long>(&iov);
-
-  if (syscall(__NR_ptrace, _request, _pid, _addr, _data) < 0)
-    throw std::runtime_error(std::string("PTRACE_GETREGSET failed : ") +
-                             std::string(strerror(errno)));
-}
-
-uintptr_t segment_address_of_selector(pid_t child, unsigned segsel) {
-  unsigned index = segsel >> 3;
-
-  std::array<struct user_desc, GDT_ENTRY_TLS_ENTRIES> seg_descs;
-  _ptrace_get_segment_descriptors(child, seg_descs);
-
-  auto it = std::find_if(seg_descs.begin(), seg_descs.end(),
-                         [&](const struct user_desc &desc) -> bool {
-                           return desc.entry_number == index;
-                         });
-
-  if (it == seg_descs.end())
-    throw std::runtime_error(std::string("segment_address_of_selector failed"));
-
-  return (*it).base_addr;
-}
-#endif
-
 int BootstrapTool::ChildProc(int pipefd) {
   scoped_fd pipefd_(pipefd);
 
@@ -4490,25 +4447,6 @@ void BootstrapTool::on_return(pid_t child,
     if (ICFG.add_edge(before_bb, basic_block_of_index(BBIdx, ICFG)).second)
       ICFG[before_bb].InvalidateAnalysis(jv, b);
   }
-}
-
-std::string _ptrace_read_string(pid_t child, uintptr_t Addr) {
-  std::string res;
-
-  for (;;) {
-    auto word = _ptrace_peekdata(child, Addr);
-
-    for (unsigned i = 0; i < sizeof(word); ++i) {
-      char ch = reinterpret_cast<char *>(&word)[i];
-      if (ch == '\0')
-        return res;
-      res.push_back(ch);
-    }
-
-    Addr += sizeof(word);
-  }
-
-  return res;
 }
 
 std::string BootstrapTool::StringOfMCInst(llvm::MCInst &Inst) {

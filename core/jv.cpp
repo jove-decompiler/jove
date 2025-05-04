@@ -457,14 +457,14 @@ void jv_base_t<MT>::fixup_binary(const binary_index_t BIdx) {
 
         function_t &callee = b.Analysis.Functions.at(bbprop.Term._call.Target);
 
-	callee.Callers.insert<MT>(BIdx, bbprop.Term.Addr);
+        callee.Callers.insert<MT>(BIdx, bbprop.Term.Addr);
 
         for (function_index_t FIdx : bbprop.Parents.get<MT>()) { /* TODO par_unseq */
           function_t &caller = b.Analysis.Functions.at(FIdx);
 
           Analysis.ReverseCallGraph.template add_edge<MT>(
               callee.ReverseCGVert<MT>(*this),
-	      caller.ReverseCGVert<MT>(*this));
+              caller.ReverseCGVert<MT>(*this));
         }
       });
 }
