@@ -301,7 +301,7 @@ void DumpTool::dumpDecompilation(const jv_base_t<false>& jv) {
           Writer.printHexList("Successors", succs);
         }
 
-        const ip_func_index_set &_Parents = ICFG[bb].Parents.get<false>();
+        const ip_func_index_vec &_Parents = ICFG[bb].Parents.get<false>();
         if (!_Parents.empty())
         {
           std::vector<taddr_t> avec;

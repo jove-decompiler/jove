@@ -84,3 +84,16 @@ using ip_func_index_sets = possibly_concurrent_node_set<
     MT, ip_func_index_set, boost::hash<ip_func_index_set>,
     std::equal_to<ip_func_index_set>,
     boost::interprocess::node_allocator<ip_func_index_set, segment_manager_t>>;
+
+typedef boost::container::vector<
+    function_index_t,
+    boost::interprocess::allocator<function_index_t, segment_manager_t>,
+    boost::container::vector_options<
+        boost::container::stored_size<uint32_t>>::type>
+    ip_func_index_vec;
+
+template <bool MT>
+using ip_func_index_vecs = possibly_concurrent_node_set<
+    MT, ip_func_index_vec, boost::hash<ip_func_index_vec>,
+    std::equal_to<ip_func_index_vec>,
+    boost::interprocess::node_allocator<ip_func_index_vec, segment_manager_t>>;

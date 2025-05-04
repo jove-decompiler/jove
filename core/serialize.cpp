@@ -585,8 +585,8 @@ void UnserializeJV(jv_base_t<MT> &out, jv_file_t &jv_file, std::istream &is,
                          auto &ICFG = b.Analysis.ICFG;
                          bbprop_t &bbprop = ICFG[bb];
 
-                         assert(b.EmptyFIdxSet);
-                         bbprop.Parents.template set<false>(*b.EmptyFIdxSet);
+                         assert(b.EmptyFIdxVec);
+                         bbprop.Parents.template set<false>(*b.EmptyFIdxVec);
                        });
 }
 

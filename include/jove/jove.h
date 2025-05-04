@@ -292,7 +292,7 @@ struct basic_block_properties_t : public ip_mt_base_rw_accessible_nospin {
   } Analysis;
 
   class Parents_t {
-    AtomicOffsetPtr<const ip_func_index_set> _p;
+    AtomicOffsetPtr<const ip_func_index_vec> _p;
 
     friend UnlockTool;
     friend basic_block_properties_t;
@@ -304,14 +304,14 @@ struct basic_block_properties_t : public ip_mt_base_rw_accessible_nospin {
     Parents_t() noexcept = default;
 
     template <bool MT>
-    void set(const ip_func_index_set &x) {
+    void set(const ip_func_index_vec &x) {
       _p.Store(&x, MT ? std::memory_order_release : std::memory_order_relaxed);
     }
 
   public:
     template <bool MT>
-    const ip_func_index_set &get(void) const {
-      const ip_func_index_set *res =
+    const ip_func_index_vec &get(void) const {
+      const ip_func_index_vec *res =
           _p.Load(MT ? std::memory_order_acquire : std::memory_order_relaxed);
       assert(res);
       return *res;
@@ -324,7 +324,9 @@ struct basic_block_properties_t : public ip_mt_base_rw_accessible_nospin {
 
     template <bool MT>
     bool contains(function_index_t FIdx) const {
-      return get<MT>().contains(FIdx);
+      auto &vec = get<MT>();
+
+      return std::binary_search(vec.cbegin(), vec.cend(), FIdx);
     }
 
     template <bool MT>
@@ -746,8 +748,8 @@ struct binary_base_t {
   bool IsPIC = false;
   bool IsDynamicallyLoaded = false;
 
-  ip_unique_ptr<ip_func_index_set> EmptyFIdxSet;
-  ip_func_index_sets<MT> FIdxSets;
+  ip_unique_ptr<ip_func_index_vec> EmptyFIdxVec;
+  ip_func_index_vecs<MT> FIdxVecs;
 
   struct Analysis_t {
     function_index_t EntryFunction = invalid_function_index;
@@ -872,12 +874,12 @@ struct binary_base_t {
         fnmap(jv_file.get_segment_manager()),
         Name(jv_file.get_segment_manager()),
         Data(jv_file.get_segment_manager()),
-        EmptyFIdxSet(boost::interprocess::make_managed_unique_ptr(
-            jv_file.construct<ip_func_index_set>(
+        EmptyFIdxVec(boost::interprocess::make_managed_unique_ptr(
+            jv_file.construct<ip_func_index_vec>(
                 boost::interprocess::anonymous_instance)(
                 jv_file.get_segment_manager()),
             jv_file)),
-        FIdxSets(jv_file.get_segment_manager()),
+        FIdxVecs(jv_file.get_segment_manager()),
         Analysis(jv_file) {}
 
   template <bool MT2>
@@ -898,8 +900,8 @@ struct binary_base_t {
         IsPIC(other.IsPIC),
         IsDynamicallyLoaded(other.IsDynamicallyLoaded),
 
-        EmptyFIdxSet(std::move(other.EmptyFIdxSet)),
-        FIdxSets(std::move(other.FIdxSets)),
+        EmptyFIdxVec(std::move(other.EmptyFIdxVec)),
+        FIdxVecs(std::move(other.FIdxVecs)),
 
         Analysis(std::move(other.Analysis)) {}
 
@@ -926,8 +928,8 @@ struct binary_base_t {
     IsPIC = other.IsPIC;
     IsDynamicallyLoaded = other.IsDynamicallyLoaded;
 
-    EmptyFIdxSet = std::move(other.EmptyFIdxSet);
-    FIdxSets = std::move(other.FIdxSets);
+    EmptyFIdxVec = std::move(other.EmptyFIdxVec);
+    FIdxVecs = std::move(other.FIdxVecs);
 
     Analysis.template operator=<MT2>(std::move(other.Analysis));
 
@@ -960,7 +962,7 @@ allocates_basic_block_t::allocates_basic_block_t(binary_base_t<MT> &b,
   basic_block_index_t Idx = ICFG.index_of_add_vertex(b.get_segment_manager());
   auto &bbprop = ICFG[ICFG.template vertex<false>(Idx)];
   bbprop.Addr = Addr;
-  bbprop.Parents.template set<false>(*b.EmptyFIdxSet);
+  bbprop.Parents.template set<false>(*b.EmptyFIdxVec);
 
   if constexpr (MT) {
     bool success;

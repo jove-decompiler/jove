@@ -651,13 +651,17 @@ explorer_t<MT>::_explore_basic_block(binary_base_t<MT> &b,
 
       if (maybe_jv) {
         jv_base_t<MT> &jv = *maybe_jv;
-        for (function_index_t FIdx : bbprop.Parents.template get<MT>()) { /* TODO par_unseq */
-          function_t &caller = b.Analysis.Functions.at(FIdx);
 
-          jv.Analysis.ReverseCallGraph.template add_edge<MT>(
-              callee.ReverseCGVert<MT>(jv),
-              caller.ReverseCGVert<MT>(jv));
-        }
+        const auto &ParentsVec = bbprop.Parents.template get<MT>();
+        std::for_each(std::execution::par_unseq,
+                      ParentsVec.cbegin(),
+                      ParentsVec.cend(), [&](function_index_t FIdx) {
+                        function_t &caller = b.Analysis.Functions.at(FIdx);
+
+                        jv.Analysis.ReverseCallGraph.template add_edge<MT>(
+                            callee.ReverseCGVert<MT>(jv),
+                            caller.ReverseCGVert<MT>(jv));
+                      });
       }
     }
 

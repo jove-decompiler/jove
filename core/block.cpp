@@ -6,39 +6,64 @@
 
 namespace jove {
 
+static bool insertion_sort(const ip_func_index_vec &old,
+                           ip_func_index_vec &out,
+                           function_index_t FIdx) {
+  auto it = std::lower_bound(old.cbegin(), old.cend(), FIdx);
+
+  //
+  // if already present, bail out
+  //
+  if (it != old.cend() && *it == FIdx)
+    return false;
+
+  //
+  // find the place to insert (first element >= FIdx)
+  //
+  const auto idx = static_cast<size_t>(it - old.cbegin());
+
+  out.resize(old.size() + 1);
+
+  auto *const dst = out.data();
+  const auto *const src = old.data();
+
+  if (idx > 0)
+    std::memcpy(dst, src, idx * sizeof(function_index_t));
+  dst[idx] = FIdx;
+  const auto n = old.size();
+  if (idx < n)
+    std::memcpy(dst + idx + 1, src + idx, (n - idx) * sizeof(function_index_t));
+
+  return true;
+}
+
 template <bool MT>
 void basic_block_properties_t::Parents_t::insert(function_index_t FIdx,
                                                  binary_base_t<MT> &b) {
-  const ip_func_index_set &FIdxSet = get<MT>();
-  if (FIdxSet.contains(FIdx))
-    return;
-
+  const ip_func_index_vec &FIdxVec = get<MT>();
   if constexpr (MT) {
     {
-      ip_func_index_set copy(FIdxSet);
-      copy.insert(FIdx);
+      ip_func_index_vec copy(FIdxVec.get_allocator().get_segment_manager());
+      if (!insertion_sort(FIdxVec, copy, FIdx))
+        return;
 
-      const ip_func_index_set *TheSetPtr = nullptr;
+      const ip_func_index_vec *TheVecPtr = nullptr;
 
-      auto grab = [&](const ip_func_index_set &TheSet) -> void {
-        TheSetPtr = &TheSet;
+      auto grab = [&](const ip_func_index_vec &TheSet) -> void {
+        TheVecPtr = &TheSet;
       };
 
-      b.FIdxSets.insert_and_cvisit(boost::move(copy), grab, grab);
+      b.FIdxVecs.insert_and_cvisit(boost::move(copy), grab, grab);
 
-      assert(TheSetPtr);
-      set<MT>(*TheSetPtr);
+      assert(TheVecPtr);
+      set<MT>(*TheVecPtr);
     }
 
-    if (get<MT>().contains(FIdx))
-      return;
-
-    __attribute__((musttail)) return insert<MT>(FIdx, b); /* try again */
+    __attribute__((musttail)) return insert<MT>(FIdx, b);
   } else {
-    ip_func_index_set copy(FIdxSet);
-    copy.insert(FIdx);
-
-    set<MT>(*b.FIdxSets.insert(boost::move(copy)).first);
+    ip_func_index_vec copy(FIdxVec.get_allocator().get_segment_manager());
+    if (insertion_sort(FIdxVec, copy, FIdx))
+      set<MT>(*b.FIdxVecs.insert(boost::move(copy)).first);
   }
 }
 
@@ -85,14 +110,17 @@ bool basic_block_properties_t::insertDynTarget(binary_index_t ThisBIdx,
 
   if (res) {
     auto &RCG = jv.Analysis.ReverseCallGraph;
+    const auto &ParentsVec = Parents.get<MT>();
 
-    for (function_index_t FIdx : Parents.get<MT>()) { /* TODO par_unseq */
-      function_t &caller = caller_b.Analysis.Functions.at(FIdx);
-      caller.InvalidateAnalysis();
+    std::for_each(std::execution::par_unseq,
+                  ParentsVec.cbegin(),
+                  ParentsVec.cend(), [&](function_index_t FIdx) {
+                    function_t &caller = caller_b.Analysis.Functions.at(FIdx);
+                    caller.InvalidateAnalysis();
 
-      RCG.template add_edge<MT>(callee.ReverseCGVert<MT>(jv),
-                                caller.ReverseCGVert<MT>(jv));
-    }
+                    RCG.template add_edge<MT>(callee.ReverseCGVert<MT>(jv),
+                                              caller.ReverseCGVert<MT>(jv));
+                  });
   }
 
   return res;
@@ -120,13 +148,16 @@ void basic_block_properties_t::InvalidateAnalysis(jv_base_t<MT> &jv,
 
   function_invalidator_t invalidator(jv);
 
-  for (function_index_t FIdx : Parents.get<MT>()) { /* TODO par_unseq */
-    function_t &f = b.Analysis.Functions.at(FIdx);
+  const auto &ParentsVec = Parents.get<MT>();
+  std::for_each(std::execution::par_unseq,
+                ParentsVec.cbegin(),
+                ParentsVec.cend(), [&](function_index_t FIdx) {
+                  function_t &f = b.Analysis.Functions.at(FIdx);
 
-    auto V = f.ReverseCGVert<MT>(jv);
+                  auto V = f.ReverseCGVert<MT>(jv);
 
-    jv.Analysis.ReverseCallGraph.depth_first_visit(V, invalidator);
-  }
+                  jv.Analysis.ReverseCallGraph.depth_first_visit(V, invalidator);
+                });
 }
 
 #define VALUES_TO_INSTANTIATE_WITH                                             \

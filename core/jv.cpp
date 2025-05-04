@@ -459,13 +459,16 @@ void jv_base_t<MT>::fixup_binary(const binary_index_t BIdx) {
 
         callee.Callers.insert<MT>(BIdx, bbprop.Term.Addr);
 
-        for (function_index_t FIdx : bbprop.Parents.get<MT>()) { /* TODO par_unseq */
-          function_t &caller = b.Analysis.Functions.at(FIdx);
+        const auto &ParentsVec = bbprop.Parents.template get<MT>();
+        std::for_each(std::execution::par_unseq,
+                      ParentsVec.cbegin(),
+                      ParentsVec.cend(), [&](function_index_t FIdx) {
+                        function_t &caller = b.Analysis.Functions.at(FIdx);
 
-          Analysis.ReverseCallGraph.template add_edge<MT>(
-              callee.ReverseCGVert<MT>(*this),
-              caller.ReverseCGVert<MT>(*this));
-        }
+                        Analysis.ReverseCallGraph.template add_edge<MT>(
+                            callee.ReverseCGVert<MT>(*this),
+                            caller.ReverseCGVert<MT>(*this));
+                      });
       });
 }
 

@@ -377,7 +377,7 @@ int CFGTool::Run(void) {
       //
       basic_block_t bb = basic_block_at_address(Addr, b);
 
-      const ip_func_index_set &Parents = ICFG[bb].Parents.get<false>();
+      const ip_func_index_vec &Parents = ICFG[bb].Parents.get<false>();
       if (Parents.empty()) {
         WithColor::warning()
             << llvm::formatv("failed to find function for block {0:x} in {1}\n",

@@ -42,7 +42,7 @@ bool binary_base_t<MT>::FixAmbiguousIndirectJump(taddr_t TermAddr,
 
   std::vector<function_index_t> SuccFIdxVec;
   SuccFIdxVec.resize(SuccAddrVec.size());
-  std::transform(std::execution::seq /* TODO par_unseq */,
+  std::transform(std::execution::seq,
                  SuccAddrVec.begin(),
                  SuccAddrVec.end(), SuccFIdxVec.begin(),
                  [&](taddr_t Addr) -> function_index_t {
@@ -57,9 +57,13 @@ bool binary_base_t<MT>::FixAmbiguousIndirectJump(taddr_t TermAddr,
     ICFG.template clear_out_edges<MT>(bb); /* ambiguous no more */
 
     auto &bbprop = ICFG[basic_block_at_address(TermAddr, *this)];
-    for (function_index_t FIdx : SuccFIdxVec) /* TODO par_unseq */
-      bbprop.insertDynTarget(index_of_binary(*this, jv),
-                             {index_of_binary(*this, jv), FIdx}, jv_file, jv);
+    std::for_each(std::execution::par_unseq,
+                  SuccFIdxVec.cbegin(),
+                  SuccFIdxVec.cend(), [&](function_index_t FIdx) {
+                    bbprop.insertDynTarget(index_of_binary(*this, jv),
+                                           {index_of_binary(*this, jv), FIdx},
+                                           jv_file, jv);
+                  });
   }
 
   ICFG[bb].InvalidateAnalysis(jv, *this);
