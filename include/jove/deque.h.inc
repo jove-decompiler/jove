@@ -8,7 +8,7 @@ template <typename T, typename Alloc,
           bool MT = true,
           bool Spin = true,
           bool PointUnique = false>
-struct deque : public ip_base_rw_accessible<MT, Spin> {
+struct ip_deque : public ip_base_rw_accessible<MT, Spin> {
   typedef boost::container::deque_options<
       boost::container::stored_size<uint32_t>>::type DequeOptions;
 
@@ -29,25 +29,25 @@ struct deque : public ip_base_rw_accessible<MT, Spin> {
       return _deque;
   }
 
-  deque() = delete;
+  ip_deque() = delete;
 
-  deque(jv_file_t &jv_file)
+  ip_deque(jv_file_t &jv_file)
     requires(PointUnique)
       : _deque(boost::interprocess::make_managed_unique_ptr(
             jv_file.construct<type>(boost::interprocess::anonymous_instance)(
                 jv_file.get_segment_manager()),
             jv_file)) {}
 
-  deque(jv_file_t &jv_file)
+  ip_deque(jv_file_t &jv_file)
     requires(!PointUnique)
       : _deque(jv_file.get_segment_manager()) {}
 
   template <bool MT2, bool Spin2>
-  deque(deque<T, Alloc, MT2, Spin2, PointUnique> &&other) noexcept
+  ip_deque(ip_deque<T, Alloc, MT2, Spin2, PointUnique> &&other) noexcept
       : _deque(std::move(other._deque)) {}
 
   template <bool MT2, bool Spin2>
-  deque &operator=(deque<T, Alloc, MT2, Spin2, PointUnique> &&other) noexcept {
+  ip_deque &operator=(ip_deque<T, Alloc, MT2, Spin2, PointUnique> &&other) noexcept {
     if constexpr (MT == MT2) {
       if (this == &other)
         return *this;

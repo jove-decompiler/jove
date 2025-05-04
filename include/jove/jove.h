@@ -757,10 +757,10 @@ struct binary_base_t {
     //
     // references to function_t will never be invalidated.
     //
-    deque<function_t,
-          boost::interprocess::private_node_allocator<function_t,
-                                                      segment_manager_t>,
-          MT, true, true>
+    ip_deque<function_t,
+             boost::interprocess::private_node_allocator<function_t,
+                                                         segment_manager_t>,
+             MT, true, true>
         Functions;
 
     //
@@ -1086,10 +1086,10 @@ struct jv_base_t {
   //
   // references to binary_t will never be invalidated.
   //
-  deque<binary_base_t<MT>,
-        boost::interprocess::private_node_allocator<binary_base_t<MT>,
-                                                    segment_manager_t>,
-        MT>
+  ip_deque<binary_base_t<MT>,
+           boost::interprocess::private_node_allocator<binary_base_t<MT>,
+                                                       segment_manager_t>,
+           MT>
       Binaries;
 
   struct Analysis_t {
