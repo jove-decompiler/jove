@@ -179,9 +179,6 @@ struct IPTTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
           MT("mt", cl::desc("Operate on multi-threaded jv"), cl::cat(JoveCategory)) {}
   } opts;
 
-  template <typename T>
-  using unordered_set = boost::unordered::unordered_flat_set<T>;
-
   AddOptions_t AddOptions;
 
   const bool IsCOFF;
