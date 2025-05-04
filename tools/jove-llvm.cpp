@@ -9925,11 +9925,6 @@ int LLVMTool::TranslateTCGOps(llvm::BasicBlock *ExitBB,
   int nb_iargs = -1;
   int nb_cargs = -1;
 
-  if (IsVeryVerbose())
-    HumanOut() << llvm::formatv("{0} {1}:{2}:{3}\n",
-                                jv_tcgopc_name_in_def(opc),
-                                nb_oargs, nb_iargs, nb_cargs);
-
   auto output_arg = [&](int i) -> TCGTemp * {
     assert(i < nb_oargs);
     return arg_temp(op->args[i]);
