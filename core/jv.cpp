@@ -23,7 +23,7 @@ size_t jvDefaultInitialSize(void) {
     return 384*MiB;
   }
 
-  abort();
+  __compiletime_unreachable();
 }
 
 cached_hash_t::cached_hash_t(const char *path, std::string &file_contents,
