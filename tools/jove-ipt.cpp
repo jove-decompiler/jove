@@ -864,8 +864,10 @@ int IPTTool::UsingLibipt(void) {
                   true
 
             if constexpr (MT) {
+              assert(mt_Explorer);
               SELECT_DECODER_AND_EXPLORE(THE_IPT_ARGS(jv, jv_file, *mt_Explorer));
             } else {
+              assert(st_Explorer);
               SELECT_DECODER_AND_EXPLORE(THE_IPT_ARGS(*jv2, *jv_file2, *st_Explorer));
             }
 
