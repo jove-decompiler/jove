@@ -10311,11 +10311,7 @@ int LLVMTool::TranslateTCGOps(llvm::BasicBlock *ExitBB,
   nb_iargs = opc == INDEX_op_call ? TCGOP_CALLI(op) : jv_tcgopc_nb_iargs_in_def(opc);
   nb_cargs = jv_tcgopc_nb_cargs_in_def(opc);
 
-  {
-  unsigned bak = opc;
   opc &= (SZ - 1u);
-  assert(bak == opc);
-  }
   goto *jumps[opc];
 
   CASE(insn_start):
@@ -11630,11 +11626,7 @@ out:
       nb_iargs = opc == INDEX_op_call ? TCGOP_CALLI(op) : jv_tcgopc_nb_iargs_in_def(opc);
       nb_cargs = jv_tcgopc_nb_cargs_in_def(opc);
 
-      {
-      unsigned bak = opc;
       opc &= (SZ - 1u);
-      assert(bak == opc);
-      }
       goto *jumps[opc];
     }
 
