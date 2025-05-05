@@ -252,7 +252,7 @@ namespace boost {
 namespace serialization {
 
 //
-// allocates_basic_block_t
+// ip_adjacency_list
 //
 template <class Archive, bool MT, bool Spin, bool PointUnique, typename... Args>
 static void
@@ -364,7 +364,7 @@ static void serialize(Archive &ar, jove::function_t &f, const unsigned int versi
      &BOOST_SERIALIZATION_NVP(f.BIdx)
      &BOOST_SERIALIZATION_NVP(f.Idx)
      &BOOST_SERIALIZATION_NVP(f.Entry)
-     &BOOST_SERIALIZATION_NVP(f.ReverseCGVertIdxHolder.V)
+     &BOOST_SERIALIZATION_NVP(f.ReverseCGVertIdxHolder.Idx)
      &BOOST_SERIALIZATION_NVP(f.IsABI)
      &BOOST_SERIALIZATION_NVP(f.IsSignalHandler)
      &BOOST_SERIALIZATION_NVP(f.Returns);

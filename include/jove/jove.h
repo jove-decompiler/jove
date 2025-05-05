@@ -662,7 +662,7 @@ struct function_t {
   } Callers;
 
   struct ReverseCGVertHolder_t : public ip_mt_base_accessible_spin {
-    std::atomic<call_graph_index_t> V = invalid_call_graph_index;
+    std::atomic<call_graph_index_t> Idx = invalid_call_graph_index;
 
     ReverseCGVertHolder_t() noexcept = default;
 
@@ -678,8 +678,9 @@ struct function_t {
 
   private:
     void moveFrom(ReverseCGVertHolder_t &&other) noexcept {
-      V.store(other.V.load(std::memory_order_relaxed), std::memory_order_relaxed);
-      other.V.store(invalid_call_graph_index, std::memory_order_relaxed);
+      Idx.store(other.Idx.load(std::memory_order_relaxed),
+                std::memory_order_relaxed);
+      other.Idx.store(invalid_call_graph_index, std::memory_order_relaxed);
     }
   } ReverseCGVertIdxHolder;
 

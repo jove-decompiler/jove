@@ -20,15 +20,15 @@ function_t::ReverseCGVert(jv_base_t<MT> &jv) {
   auto &RCG = jv.Analysis.ReverseCallGraph;
 
   call_graph_index_t Res =
-      this->ReverseCGVertIdxHolder.V.load(std::memory_order_relaxed);
+      this->ReverseCGVertIdxHolder.Idx.load(std::memory_order_relaxed);
 
   if (unlikely(!is_call_graph_index_valid(Res))) {
     auto e_lck = this->ReverseCGVertIdxHolder.exclusive_access<MT>();
 
-    Res = this->ReverseCGVertIdxHolder.V.load(std::memory_order_relaxed);
+    Res = this->ReverseCGVertIdxHolder.Idx.load(std::memory_order_relaxed);
     if (likely(!is_call_graph_index_valid(Res))) {
       Res = RCG.index_of_add_vertex(jv.get_segment_manager());
-      this->ReverseCGVertIdxHolder.V.store(Res, std::memory_order_relaxed);
+      this->ReverseCGVertIdxHolder.Idx.store(Res, std::memory_order_relaxed);
 
       dynamic_target_t X = target_of_function(*this);
       assert(is_dynamic_target_valid(X));
