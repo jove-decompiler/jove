@@ -43,7 +43,7 @@ The classic off-the-shelf abstract interpretation that is widely used, and for w
 ### But isn't `llvm-cbe` like, not perfect?
 We only demand `llvm-cbe` to handle a tiny subset of the LLVM language. That proper subset is produced by `jove llvm`, which translates the straightforward TCG (QEMU's intermediate language) instructions into LLVM instructions. Many times this is essentially just a one-to-one mapping.
 
-Whenever we encounter something with non-trivial semantics, the C code that is produced does *not* involve `llvm-cbe`. [It comes directly from](https://github.com/aleden/carbon-copy) QEMU via `clang`. Luckily, QEMU's is (almost completely) written in C.
+Whenever we encounter something with non-trivial semantics, the C code that is produced does *not* involve `llvm-cbe`. [It comes directly from](https://github.com/aleden/carbon-copy) QEMU via `clang`. Luckily QEMU is almost completely written in C.
 
 ### How is `jove` tested?
 The CI test suite spins up whole-system (i.e. using `qemu-system-*`) debian emulations on every supported architecture. Thus we can test `jove` very easily on different architectures (without needing the physical machines).
