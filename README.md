@@ -53,5 +53,5 @@ The [latest docker image](https://hub.docker.com/repository/docker/aleden22/jove
 [^1]: In theory, VSA would do no better.
 [^2]: `armhf` is an exception, but we don't currently support this architecture.
 [^3]: This processor feature is only available on Intel x86 CPUs.
-[^4]: IDA licenses cost an obscene amount of money.
+[^4]: IDA licenses cost an obscene quantity of money.
 [^5]: The Linux kernel implements UProbe tracepoints in a more general way by copying the instruction (which was replaced by a trap) to a dedicated memory region, possibly patching it (to handle any references to the current value of the instruction pointer)- and executing it _there_.
