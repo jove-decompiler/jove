@@ -36,7 +36,7 @@ The classic abstract interpretation for which there are open-source implementati
 
 **However:** `jove` contains a novel solution for this problem that is _far_ more general: `jove dig` (also known as `CodeDigger`), a fork of [KLEE](https://github.com/jove-decompiler/klee). The idea[^6] is to perform "local" symbolic execution: starting from the program point which jumps into who-knows-what (as opposed to starting from the beginning of the program which leads to an explosion of paths for any serious program), looking backwards we obtain _partial_ program paths. `jove dig` executes these partial paths and [interrogates the solver for a complete set of targets](https://github.com/jove-decompiler/klee/blob/9bede692834bef4ac265b3cb2a3df35e3dd06e78/lib/Core/Executor.cpp#L2265). If the program counter expression is sufficiently constrained, the solver will be able to do so. Obviously there will be still indirect jumps for which we can say practically nothing about[^1]. The drawback of this tool, at the moment, is that it requires considerable time and space.
 
-`jove ida` allows one to import control-flow data from [IDA](https://hex-rays.com/ida-pro). However this is not advisable: since IDA is closed-source, we really don't know what it's actually doing under the covers.
+`jove ida` allows one to import control-flow data from [IDA](https://hex-rays.com/ida-pro). However this is not advisable since IDA is closed-source we really don't know what it's actually doing under the covers.
 
 `jove ida` is very rudimentary. That may change if someone decides to generously donate an IDA license. [^4]
 
