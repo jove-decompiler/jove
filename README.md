@@ -33,7 +33,7 @@ There are currently two ways:
 ### What about statically recovering control-flow?
 Whenever it is sound to do so, `jove` will statically recover code.
 
-The classic off-the-shelf abstract interpretation that is widely used, and for which there are open-source implementations widely available (e.g. BAP), is Value Set Analysis (VSA). `jove` will eventually acquire this feature, but it does not currently contain it.
+The classic off-the-shelf abstract interpretation that is widely used, and for which there are open-source implementations widely available (e.g. BAP), is Value Set Analysis (VSA). `jove` will, probably, eventually acquire this feature.
 
 However, `jove` contains something far more general: namely the `dig` tool (A.K.A. `CodeDigger`). This tool uses a novel approach to control-flow-recovery, and the idea (credit goes to Tim Leek) is to perform local symbolic execution from each program point which has indirect control-flow, and then ask the solver to try and come up with a complete set of feasible values. If there are sufficient constraints, the solver will be able to do so. Obviously, there will still be indirect jumps for which we can say very little (or practically nothing) about[^1]. `CodeDigger` is implemented as a custom fork of `KLEE`.
 
