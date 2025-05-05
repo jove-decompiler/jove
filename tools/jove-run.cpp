@@ -609,6 +609,8 @@ int RunTool::DoRun(void) {
   //
   std::thread recover_thd(&RunTool::FifoProc, this, fifo_file_path.c_str());
 
+  BOOST_SCOPE_DEFER [&] { recover_thd.join(); };
+
   //
   // parse jv
   //
@@ -1076,8 +1078,6 @@ int RunTool::DoRun(void) {
       return 1;
     }
   }
-
-  recover_thd.join();
   }
 
 #if 0 /* is this necessary? */
