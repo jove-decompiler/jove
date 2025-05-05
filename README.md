@@ -46,7 +46,7 @@ We only demand `llvm-cbe` to handle a tiny subset of the [gigantic LLVM language
 Upon encountering machine code with non-trivial semantics, the C code that is produced does *not* involve `llvm-cbe`. [It comes directly from](https://github.com/aleden/carbon-copy) QEMU via `clang`. Luckily QEMU is (almost) completely written in C.
 
 ### How is `jove` tested?
-The CI test suite spins up whole-system debian emulations on every supported architecture (i.e. via `qemu-system-*`). Thus we can test `jove` very easily on different architectures (without needing the physical machines).
+The CI test suite spins up whole-system debian emulations (via `qemu-system-*`) on all architectures. Thus we can test `jove` very easily on different architectures (without needing the physical machines).
 
 The `jove` [docker image](https://hub.docker.com/repository/docker/aleden22/jove/general) is guaranteed to have passed the aforementioned test suite.
 
