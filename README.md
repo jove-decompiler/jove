@@ -45,6 +45,9 @@ We only demand `llvm-cbe` to handle a tiny subset of the LLVM language. All of t
 
 Whenever we encounter something with non-trivial semantics, the C code that is produced does *not* involve `llvm-cbe`. [It comes directly from](https://github.com/aleden/carbon-copy) QEMU. Luckily, QEMU's code-base is written in C.
 
+### How do you test the correctness of `jove`?
+The CI test suite spins up whole-system (i.e. using `qemu-system-*`) debian emulations, so we can test jove easily on different architectures without possessing a physical machine.
+
 [^1]: In theory, VSA would do no better.
 [^2]: `armhf` is an exception, but we don't currently support this architecture.
 [^3]: This processor feature is only available on Intel x86 CPUs.
