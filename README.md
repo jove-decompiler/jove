@@ -30,7 +30,7 @@ For a quickstart, use the [docker image](https://hub.docker.com/repository/docke
 2. `jove ipt` is a custom `Intel Processor Trace`-based tracer[^3] to recover code. Crucially, unlike `jove bootstrap`, its overhead is extremely low, which makes it suitable for real-time applications (e.g. games).
 
 ### What about static control-flow recovery?
-Whenever it is sound to do so, `jove` will statically recover code.
+Whenever `jove` thinks it is sound to do so, it will statically recover code.
 
 The classic off-the-shelf abstract interpretation that is widely used, and for which there are open-source implementations widely available (e.g. [BAP](https://github.com/BinaryAnalysisPlatform/bap)), is Value Set Analysis (VSA). `jove` will probably eventually acquire an implementation of VSA.
 
