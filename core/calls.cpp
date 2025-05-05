@@ -27,7 +27,7 @@ call_graph_builder_t<MT>::call_graph_builder_t(const jv_base_t<MT> &jv) noexcept
   // create the edges
   //
   for_each_function(jv, [&](const function_t &callee, const auto &b) {
-    const callers_t *pcallers;
+    const ip_callers_t *pcallers;
     auto s_lck_callers = callee.Callers.get<MT>(pcallers);
 
     for (const auto &pair : *pcallers) {

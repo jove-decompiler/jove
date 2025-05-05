@@ -389,7 +389,7 @@ void DumpTool::dumpDecompilation(const jv_base_t<false>& jv) {
         Writer.printBoolean("Returns", f.Returns);
 
         if (!f.Callers.empty<false>()) {
-          const callers_t *pcallers;
+          const ip_callers_t *pcallers;
           auto s_lck_callers = f.Callers.get<false>(pcallers);
 
           std::vector<std::string> descv;

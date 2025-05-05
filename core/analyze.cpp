@@ -134,7 +134,7 @@ void analyzer_t<MT>::identify_Sjs(void) {
           f.Returns = true;
 
         if (x.IsSj) {
-          const callers_t *pcallers;
+          const ip_callers_t *pcallers;
           auto s_lck_callers = f.Callers.get<MT>(pcallers);
 
           std::for_each(

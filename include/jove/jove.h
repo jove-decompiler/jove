@@ -604,7 +604,7 @@ constexpr block_t block_for_caller_in_binary(const caller_t &caller,
 typedef boost::interprocess::set<
     caller_t, std::less<caller_t>,
     boost::interprocess::node_allocator<caller_t, segment_manager_t>>
-    callers_t;
+    ip_callers_t;
 
 struct ip_call_graph_node_properties_t : public ip_mt_base_rw_accessible_spin {
   dynamic_target_t X;
@@ -629,7 +629,7 @@ struct function_t {
   basic_block_index_t Entry = invalid_basic_block_index;
 
   class Callers_t : private ip_mt_base_rw_accessible_spin {
-    callers_t set;
+    ip_callers_t set;
 
   public:
     explicit Callers_t(segment_manager_t *sm) noexcept : set(sm) {}
@@ -644,7 +644,7 @@ struct function_t {
     }
 
     template <bool MT>
-    shared_lock_guard<MT> get(const callers_t *&out) const {
+    shared_lock_guard<MT> get(const ip_callers_t *&out) const {
       out = &set;
       return this->shared_access<MT>();
     }
