@@ -1,4 +1,4 @@
-[![CI](https://github.com/jove-decompiler/jove/actions/workflows/CI.yml/badge.svg)](https://github.com/jove-decompiler/jove/actions/workflows/CI.yml)
+[![CI](https://github.com/aleden/jove/actions/workflows/CI.yml/badge.svg)](https://github.com/aleden/jove/actions/workflows/CI.yml)
 
 ![](.araki.png)
 
@@ -46,7 +46,7 @@ The LLVM bitcode we feed to `llvm-cbe` only amounts to a teeny, tiny subset of t
 The C code `jove decompile` produces for non-trivial machine code instructions does **not** involve `llvm-cbe`. It originates from QEMU's sources practically verbatim, by using `clang` to compile QEMU with a [custom plugin](https://github.com/aleden/carbon-copy). Luckily, QEMU is written in C and compiles under `clang`.
 
 ### How on earth is `jove` tested?
-The CI test suite [spins up](https://github.com/jove-decompiler/mk-deb-vm) whole-system debian linux emulations (via `qemu-system-*`) for all the architectures. Thus we can test `jove` with ease on all the architectures, without needing all the elusive physical machines to do so.
+The CI test suite [spins up](https://github.com/jove-decompiler/mk-deb-vm) whole-system debian linux emulations (via `qemu-system-*`) for all the architectures. Thus we can test `jove` with ease without needing the physical machines.
 
 The [latest docker image](https://hub.docker.com/repository/docker/aleden22/jove/general) is guaranteed to have passed the aforementioned test suite.
 
