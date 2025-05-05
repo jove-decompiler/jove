@@ -46,6 +46,8 @@ The LLVM bitcode we feed to `llvm-cbe` only amounts to a teeny, tiny subset of t
 The C code `jove decompile` produces for non-trivial machine code instructions does **not** involve `llvm-cbe`. It originates from QEMU's sources practically verbatim, by using `clang` to compile QEMU with a [custom plugin](https://github.com/aleden/carbon-copy). Luckily, QEMU is written in C and compiles under `clang`.
 
 ### How on earth is `jove` tested?
+The application and its recompiled counterpart are run on the same inputs. The standard output, standard error, and exit codes must be identical from both runs.
+
 The CI test suite [spins up](https://github.com/jove-decompiler/mk-deb-vm) whole-system debian linux emulations (via `qemu-system-*`) for all the architectures. Thus we can test `jove` with ease without needing the physical machines.
 
 The [latest docker image](https://hub.docker.com/repository/docker/aleden22/jove/general) is guaranteed to have passed the aforementioned test suite.
