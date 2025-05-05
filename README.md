@@ -36,7 +36,7 @@ The classic off-the-shelf abstract interpretation that is widely used, and for w
 
 **However:** `jove` contains a novel solution that is far more general, namely `jove dig` (A.K.A. `CodeDigger`). This tool uses a novel approach to control-flow-recovery, and the idea (credit goes to Tim Leek) is to perform local symbolic execution from each program point which has indirect control-flow (rather than trying to find paths from the start of the program, which leads to a nasty explosion of paths). `jove dig` asks the solver to try and come up with a complete set of targets [^6]. If there are sufficient constraints, the solver will be able to do so. Obviously there will still be indirect jumps for which we can say practically nothing about[^1]. `CodeDigger` is implemented as a custom fork of [KLEE](https://github.com/jove-decompiler/klee). The drawback, at the moment, is that it has considerable time and space requirements.
 
-`jove ida` allows one to import control-flow data from [IDA](https://hex-rays.com/ida-pro). However, since IDA is closed-source, we don't really know what it's doing under the covers, so none of that data can be (really) fully trusted.
+`jove ida` allows one to import control-flow data from [IDA](https://hex-rays.com/ida-pro). However, since IDA is closed-source, we don't really know what it's doing under the covers, so doing so is not advisable.
 
 `jove ida` is currently quite rudimentary. That may change if someone decides to donate an IDA license. [^4]
 
@@ -45,7 +45,7 @@ We only demand `llvm-cbe` to handle a tiny subset of the LLVM language. All of t
 
 Whenever we encounter something with non-trivial semantics, the C code that is produced does *not* involve `llvm-cbe`. [It comes directly from](https://github.com/aleden/carbon-copy) QEMU. Luckily, QEMU's code-base is written in C.
 
-### How do you test the correctness of `jove`?
+### How is `jove` tested?
 The CI test suite spins up whole-system (i.e. using `qemu-system-*`) debian emulations on every supported architecture. Thus we can test `jove` very easily on different architectures (without needing the physical machines).
 
 The `jove` [docker image](https://hub.docker.com/repository/docker/aleden22/jove/general) is guaranteed to have passed the aforementioned test suite.
