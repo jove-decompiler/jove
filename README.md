@@ -38,7 +38,7 @@ The classic abstract interpretation for which there are open-source implementati
 
 `jove ida` allows one to import control-flow data from [IDA](https://hex-rays.com/ida-pro). However this is not advisable: since IDA is closed-source, we really don't know what it's actually doing under the covers.
 
-`jove ida` is currently quite rudimentary. That may change if someone decides to generously donate an IDA license. [^4]
+`jove ida` is very rudimentary. That may change if someone decides to generously donate an IDA license. [^4]
 
 ### Doesn't `llvm-cbe` contain flaws?
 We only demand `llvm-cbe` handle a tiny subset of the [gigantic LLVM language specification](https://llvm.org/docs/LangRef.html). This proper subset is produced by `jove llvm`, which translates the straightforward [TCG](https://github.com/qemu/qemu/blob/master/docs/devel/tcg-ops.rst) (QEMU's intermediate language) instructions into LLVM instructions and is (much of the time) essentially a one-to-one mapping.
