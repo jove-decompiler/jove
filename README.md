@@ -47,4 +47,4 @@ We only demand `llvm-cbe` to handle a tiny subset of the LLVM language. All of t
 [^2]: `armhf` is an exception, but we don't currently support this architecture.
 [^3]: This processor feature is only available on Intel x86 CPUs.
 [^4]: IDA costs an obscene amount of money.
-[^5]: The Linux kernel implements UProbe tracepoints in a more general way by copying the instruction (which was replaced by a trap) to an area in memory- possibly patching it (to handle anything IP-relative accesses)- and executing it _there_.
+[^5]: The Linux kernel implements UProbe tracepoints in a more general way by copying the instruction (which was replaced by a trap) to an area in memory- possibly patching it (to account for anything relative to the instruction pointer)- and executing it _there_.
