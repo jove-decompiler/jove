@@ -27,7 +27,7 @@ For a quickstart, use the [docker image](https://hub.docker.com/repository/docke
 
 ### How do you observe control-flow at runtime?
 1. `jove bootstrap` is a custom `ptrace(2)`-based tracer which places software breakpoints at the address of every known block terminator. Luckily, terminator instructions are, essentially, trivial to emulate[^2] in-place. At the moment it only supports linux, but adding support for Windows executables is quite a feasible task.
-2. `jove ipt` is a custom `Intel Processor Trace`-based tracer (this is only available on x86 Intel CPUs) to recover code. Crucially it's overhead is extremely low, which makes it suitable for real-time applications (e.g. games).
+2. `jove ipt` is a custom `Intel Processor Trace`-based tracer[^3] to recover code. Crucially it's overhead is extremely low, which makes it suitable for real-time applications (e.g. games).
 
 ### What about static control-flow recovery?
 Whenever it is sound to do so, `jove` will statically recover code.
@@ -40,6 +40,7 @@ The drawback, at the moment, is that it has considerable time and space requirem
 
 [^1]: In theory, VSA would do no better.
 [^2]: `armhf` is an exception, but we don't currently support this architecture.
+[^3]: This processor feature is only available on Intel x86 CPUs.
 
 ### But isn't `llvm-cbe` not "perfect"?
 We only demand `llvm-cbe` to handle a tiny subset of the LLVM language. All of it is produced by `jove llvm`, which translates the TCG (the QEMU intermediate code) into simple LLVM instructions. Whenever we encounter non-trivial machine code instructions, the C code [comes directly from comes](https://github.com/aleden/carbon-copy) QEMU, which are luckily implemented in C.
