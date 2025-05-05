@@ -57,5 +57,5 @@ The [latest docker image](https://hub.docker.com/repository/docker/aleden22/jove
 [^3]: This processor feature is only available on Intel x86 CPUs.
 [^4]: IDA licenses cost an obscene quantity of money.
 [^5]: The Linux kernel implements UProbe tracepoints in a more general way by copying the instruction (which was replaced by a trap) to a dedicated memory region, possibly patching it (to handle any references to the current value of the instruction pointer)- and executing it _there_.
-[^6]: Credit for goes to [Tim Leek](https://www.ll.mit.edu/biographies/tim-leek).
-[^7]: For example: unless we know that a call instruction _returns_ (either through observation or the presence of an exit block), we won't explore the code it returns to. If the call never returns, whatever comes after it might be garbage. On architectures with variable-length instruction sets, making a mistake like that can cause a ripple effect.
+[^6]: Credit for this idea goes to [Tim Leek](https://www.ll.mit.edu/biographies/tim-leek).
+[^7]: For example: unless we know that a call instruction _returns_ (either through observation or from the presence of an exit block), we won't explore the code it returns to. If the call never returns, whatever comes after it might be garbage. On architectures with variable-length instruction sets, making a mistake like that can cause a ripple effect.
