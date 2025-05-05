@@ -224,8 +224,6 @@ int analyzer_t<MT>::analyze_functions(void) {
 
   tbb::flow::graph flow_graph;
 
-  BOOST_SCOPE_DEFER [&] { flow_graph.wait_for_all(); };
-
   std::unique_ptr<std::atomic<unsigned>[]> counts(
       new std::atomic<unsigned>[boost::num_vertices(CGCondensed)]);
 
@@ -260,6 +258,8 @@ int analyzer_t<MT>::analyze_functions(void) {
       analyze_node.try_put(v);
     }
   }
+
+  flow_graph.wait_for_all();
 
   return 0;
 }
