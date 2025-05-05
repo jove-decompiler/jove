@@ -48,7 +48,7 @@ The C code that is created by `jove decompile` for non-trivial machine code inst
 ### How is `jove` tested?
 The CI test suite spins up whole-system debian emulations (via `qemu-system-*`) on all architectures. Thus we can test `jove` very easily on different architectures (without needing the physical machines).
 
-The [latest `jove` docker image](https://hub.docker.com/repository/docker/aleden22/jove/general) is guaranteed to have passed the aforementioned test suite.
+The [latest docker image](https://hub.docker.com/repository/docker/aleden22/jove/general) is guaranteed to have passed the aforementioned test suite.
 
 [^1]: In theory, VSA would do no better.
 [^2]: `armhf` is an exception, but we don't currently support this architecture.
