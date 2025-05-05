@@ -38,7 +38,7 @@ However, `jove` contains a novel solution that is far more general, namely `jove
 
 `jove ida` allows one to import control-flow data from [IDA](https://hex-rays.com/ida-pro). However, since IDA is closed-source, we don't really know what it's doing under the covers- so none of that data can be fully trusted.
 
-`jove ida` is currently quite rudimentary. That may change if someone decides to donate an IDA license. [^3]
+`jove ida` is currently quite rudimentary. That may change if someone decides to donate an IDA license. [^4]
 
 ### But isn't `llvm-cbe` not perfect?
 We only demand `llvm-cbe` to handle a tiny subset of the LLVM language. All of that subset is produced by `jove llvm`, which translates the straightforward TCG (QEMU intermediate code) into LLVM instructions.
