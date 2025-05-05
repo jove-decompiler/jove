@@ -267,6 +267,10 @@ struct basic_block_properties_t : public ip_mt_base_rw_accessible_nospin {
     }
 
     Analysis_t &operator=(const Analysis_t &other) noexcept {
+      live = other.live;
+      reach = other.reach;
+      Stale.store(other.Stale.load(std::memory_order_relaxed),
+                  std::memory_order_relaxed);
       return *this;
     }
 
