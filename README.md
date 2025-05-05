@@ -30,7 +30,7 @@ There are currently two ways:
 1. `jove bootstrap` is a custom `ptrace(2)`-based tracer which places software breakpoints at the address of every known block terminator. Luckily, terminator instructions are essentially trivial to emulate (`armhf` is an exception, but we don't currently support this architecture). At the moment it only supports linux, but adding support for Windows executables is quite a feasible task.
 2. `jove ipt` is a custom `Intel Processor Trace`-based tracer (this is only available on x86 Intel CPUs) to recover code. Crucially it's overhead is extremely low, which makes it suitable for real-time applications (e.g. games).
 
-### What about statically recovering control-flow?
+### What about static control-flow recovery?
 Whenever it is sound to do so, `jove` will statically recover code.
 
 The classic off-the-shelf abstract interpretation that is widely used, and for which there are open-source implementations widely available (e.g. BAP), is Value Set Analysis (VSA). `jove` will, probably, eventually acquire this feature.
