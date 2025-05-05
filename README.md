@@ -41,7 +41,7 @@ The classic off-the-shelf abstract interpretation, and for which there are open-
 `jove ida` is currently quite rudimentary. That may change if someone decides to donate an IDA license. [^4]
 
 ### But isn't `llvm-cbe` like, not perfect?
-We only demand `llvm-cbe` to handle a tiny subset of the [gigantic LLVM language specification](https://llvm.org/docs/LangRef.html). This proper subset is produced by `jove llvm`, which translates the straightforward TCG (QEMU's intermediate language) instructions into LLVM instructions. Many times this is essentially just a one-to-one mapping.
+We only demand `llvm-cbe` to handle a tiny subset of the [gigantic LLVM language specification](https://llvm.org/docs/LangRef.html). This proper subset is produced by `jove llvm`, which translates the straightforward [TCG](https://github.com/qemu/qemu/blob/master/docs/devel/tcg-ops.rst) (QEMU's intermediate language) instructions into LLVM instructions. Many times this is essentially just a one-to-one mapping.
 
 Upon encountering machine code with non-trivial semantics, the C code that is produced does *not* involve `llvm-cbe`. [It comes directly from](https://github.com/aleden/carbon-copy) QEMU via `clang`. Luckily QEMU is (almost) completely written in C.
 
