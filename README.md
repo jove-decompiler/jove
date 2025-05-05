@@ -36,7 +36,7 @@ The classic off-the-shelf abstract interpretation that is widely used, and for w
 
 However, `jove` contains a novel solution that is far more general, namely `jove dig` (A.K.A. `CodeDigger`). This tool uses a novel approach to control-flow-recovery, and the idea (credit goes to Tim Leek) is to perform local symbolic execution from each program point which has indirect control-flow (rather than trying to find paths from the start of the program, which leads to a nasty explosion of paths). `jove dig` asks the solver to try and come up with a complete set of feasible values. If there are sufficient constraints, the solver will be able to do so. Obviously there will still be indirect jumps for which we can say practically nothing about[^1]. `CodeDigger` is implemented as a custom fork of [KLEE](https://klee-se.org/). The drawback, at the moment, is that it has considerable time and space requirements.
 
-`jove ida` allows one to import control-flow data from [IDA](https://hex-rays.com/ida-pro). However, since IDA is closed-source, we don't really know what it's doing under the covers- so none of that data can be fully trusted.
+`jove ida` allows one to import control-flow data from [IDA](https://hex-rays.com/ida-pro). However, since IDA is closed-source, we don't really know what it's doing under the covers, so none of that data can be (really) fully trusted.
 
 `jove ida` is currently quite rudimentary. That may change if someone decides to donate an IDA license. [^4]
 
