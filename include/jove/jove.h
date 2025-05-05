@@ -712,7 +712,7 @@ private:
   bool Returns = false;
 
   void InvalidateAnalysis(void) {
-    this->Analysis.Stale = true;
+    this->Analysis.Stale.store(true, std::memory_order_relaxed);
   }
 
   template <bool MT>
