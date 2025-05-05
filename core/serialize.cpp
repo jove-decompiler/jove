@@ -254,22 +254,27 @@ namespace serialization {
 //
 // allocates_basic_block_t
 //
-template <class Archive, bool MT>
-static void serialize(Archive &ar, jove::ip_icfg_base_t<MT> &ICFG,
-                      const unsigned int version) {
-  boost::serialization::split_free(ar, ICFG, version);
+template <class Archive, bool MT, bool Spin, bool PointUnique, typename... Args>
+static void
+serialize(Archive &ar,
+          jove::ip_adjacency_list<MT, Spin, PointUnique, Args...> &ip_adj,
+          const unsigned int version) {
+  boost::serialization::split_free(ar, ip_adj, version);
 }
 
-template <class Archive, bool MT>
-static inline void save(Archive &ar,
-                        const jove::ip_icfg_base_t<MT> &ICFG,
-                        const unsigned int file_version) {
-  auto e_lck = ICFG.exclusive_access();
+template <class Archive, bool MT, bool Spin, bool PointUnique, typename... Args>
+static inline void
+save(Archive &ar,
+     const jove::ip_adjacency_list<MT, Spin, PointUnique, Args...> &ip_adj,
+     const unsigned int file_version) {
+  auto e_lck = ip_adj.exclusive_access();
 
-  auto &_ICFG = const_cast<jove::ip_icfg_t::type &>(ICFG.container());
+  auto &ip_adj_ = const_cast<
+      jove::ip_adjacency_list<MT, Spin, PointUnique, Args...>::type &>(
+      ip_adj.container());
 
-  const unsigned num_verts = ICFG.num_vertices();
-  const unsigned num_verts_act = boost::num_vertices(_ICFG);
+  const unsigned num_verts = ip_adj.num_vertices();
+  const unsigned num_verts_act = boost::num_vertices(ip_adj_);
 
   assert(num_verts_act >= num_verts);
 
@@ -279,23 +284,25 @@ static inline void save(Archive &ar,
     // (and so icfg_t::removing_vertex() is a no-op), and none of these vertices
     // have outgoing (or incoming) edges
     //
-    _ICFG.m_vertices.pop_back();
+    ip_adj_.m_vertices.pop_back();
   }
 
-  assert(boost::num_vertices(_ICFG) == num_verts);
+  assert(boost::num_vertices(ip_adj_) == num_verts);
 
-  ar << BOOST_SERIALIZATION_NVP(ICFG.container());
+  ar << BOOST_SERIALIZATION_NVP(ip_adj.container());
 }
 
-template <class Archive, bool MT>
-static inline void load(Archive &ar,
-                        jove::ip_icfg_base_t<MT> &ICFG,
-                        const unsigned int file_version) {
-  auto e_lck = ICFG.exclusive_access();
+template <class Archive, bool MT, bool Spin, bool PointUnique, typename... Args>
+static inline void
+load(Archive &ar,
+     jove::ip_adjacency_list<MT, Spin, PointUnique, Args...> &ip_adj,
+     const unsigned int file_version) {
+  auto e_lck = ip_adj.exclusive_access();
 
-  jove::icfg_t &_ICFG = ICFG.container();
-  ar >> _ICFG;
-  ICFG._size.store(boost::num_vertices(_ICFG), std::memory_order_relaxed);
+  auto &ip_adj_ = ip_adj.container();
+
+  ar >> ip_adj_;
+  ip_adj._size.store(boost::num_vertices(ip_adj_), std::memory_order_relaxed);
 }
 
 //
@@ -353,25 +360,19 @@ static void serialize(Archive &ar, jove::binary_base_t<MT> &b,
 //
 template <class Archive>
 static void serialize(Archive &ar, jove::function_t &f, const unsigned int version) {
-  ar &BOOST_SERIALIZATION_NVP(f.BIdx)
+  ar &BOOST_SERIALIZATION_NVP(f.Speculative)
+     &BOOST_SERIALIZATION_NVP(f.BIdx)
      &BOOST_SERIALIZATION_NVP(f.Idx)
      &BOOST_SERIALIZATION_NVP(f.Entry)
-#if 0
-     &BOOST_SERIALIZATION_NVP(f.Analysis.args)
-     &BOOST_SERIALIZATION_NVP(f.Analysis.rets)
-     &BOOST_SERIALIZATION_NVP(f.Analysis.Stale)
-#endif
+     &BOOST_SERIALIZATION_NVP(f.ReverseCGVertIdxHolder.V)
      &BOOST_SERIALIZATION_NVP(f.IsABI)
      &BOOST_SERIALIZATION_NVP(f.IsSignalHandler)
      &BOOST_SERIALIZATION_NVP(f.Returns);
-
-  f.Analysis.Stale = true;
 }
 
 //
 // basic_block_properties_t
 //
-
 template <class Archive>
 static void serialize(Archive &ar, jove::basic_block_properties_t &bbprop,
                       const unsigned int version) {
@@ -393,12 +394,6 @@ static void serialize(Archive &ar, jove::basic_block_properties_t &bbprop,
      &BOOST_SERIALIZATION_NVP(bbprop.Term._call.Target)
      &BOOST_SERIALIZATION_NVP(bbprop.Term._indirect_jump.IsLj)
      &BOOST_SERIALIZATION_NVP(bbprop.Term._return.Returns)
-#if 0
-     &BOOST_SERIALIZATION_NVP(bbprop.Analysis.live.def)
-     &BOOST_SERIALIZATION_NVP(bbprop.Analysis.live.use)
-     &BOOST_SERIALIZATION_NVP(bbprop.Analysis.reach.def)
-     &BOOST_SERIALIZATION_NVP(bbprop.Analysis.Stale)
-#endif
      &BOOST_SERIALIZATION_NVP(TheDynTargets)
      &BOOST_SERIALIZATION_NVP(bbprop.DynTargets.Complete)
      &BOOST_SERIALIZATION_NVP(bbprop.Sj);
@@ -413,6 +408,15 @@ static void serialize(Archive &ar, jove::basic_block_properties_t &bbprop,
 }
 
 //
+// ip_call_graph_node_properties_t
+//
+template <class Archive>
+static void serialize(Archive &ar, jove::ip_call_graph_node_properties_t &prop,
+                      const unsigned int version) {
+  ar &BOOST_SERIALIZATION_NVP(prop.X);
+}
+
+//
 // jv_t
 //
 
@@ -420,7 +424,8 @@ template <class Archive, bool MT>
 static void serialize(Archive &ar, jove::jv_base_t<MT> &jv, const unsigned int) {
   ar &BOOST_SERIALIZATION_NVP(jv.Binaries.container())
      &BOOST_SERIALIZATION_NVP(jv.hash_to_binary)
-     &BOOST_SERIALIZATION_NVP(jv.name_to_binaries);
+     &BOOST_SERIALIZATION_NVP(jv.name_to_binaries)
+     &BOOST_SERIALIZATION_NVP(jv.Analysis.ReverseCallGraph);
 }
 
 #define VALUES_TO_INSTANTIATE_WITH1                                            \

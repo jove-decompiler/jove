@@ -2,14 +2,14 @@
 #error "only to be included inline in jove/jove.h"
 #endif
 
-template <class OutEdgeListS,
+template <bool MT, bool Spin, bool PointUnique,
+          class OutEdgeListS,
           class VertexListS,
           class DirectedS,
           class VertexProperty,
           class EdgeProperty,
           class GraphProperty,
-          class EdgeListS,
-          bool MT = true, bool Spin = true, bool PointUnique = true>
+          class EdgeListS>
 struct ip_adjacency_list : public ip_base_rw_accessible<MT, Spin> {
   using type = boost::adjacency_list<OutEdgeListS, VertexListS, DirectedS,
                                      VertexProperty, EdgeProperty,
@@ -58,9 +58,9 @@ struct ip_adjacency_list : public ip_base_rw_accessible<MT, Spin> {
 
   template <bool MT2, bool Spin2>
   ip_adjacency_list(
-      ip_adjacency_list<OutEdgeListS, VertexListS, DirectedS, VertexProperty,
-                     EdgeProperty, GraphProperty, EdgeListS, MT2, Spin2,
-                     PointUnique> &&other) noexcept
+      ip_adjacency_list<MT2, Spin2, PointUnique, OutEdgeListS, VertexListS,
+                        DirectedS, VertexProperty, EdgeProperty, GraphProperty,
+                        EdgeListS> &&other) noexcept
       : _adjacency_list(std::move(other._adjacency_list)),
         _size(other._size.load(std::memory_order_relaxed)) {
     other._size.store(0, std::memory_order_relaxed);
@@ -68,9 +68,9 @@ struct ip_adjacency_list : public ip_base_rw_accessible<MT, Spin> {
 
   template <bool MT2, bool Spin2>
   ip_adjacency_list &operator=(
-      ip_adjacency_list<OutEdgeListS, VertexListS, DirectedS, VertexProperty,
-                        EdgeProperty, GraphProperty, EdgeListS, MT2, Spin2,
-                        PointUnique> &&other) noexcept {
+      ip_adjacency_list<MT2, Spin2, PointUnique, OutEdgeListS, VertexListS,
+                        DirectedS, VertexProperty, EdgeProperty, GraphProperty,
+                        EdgeListS> &&other) noexcept {
     if constexpr (MT == MT2) {
       if (this == &other)
         return *this;
@@ -84,15 +84,15 @@ struct ip_adjacency_list : public ip_base_rw_accessible<MT, Spin> {
 
   template <bool MT2, bool Spin2>
   ip_adjacency_list(
-      const ip_adjacency_list<OutEdgeListS, VertexListS, DirectedS,
-                              VertexProperty, EdgeProperty, GraphProperty,
-                              EdgeListS, MT2, Spin2, PointUnique> &) = delete;
+      const ip_adjacency_list<
+          MT2, Spin2, PointUnique, OutEdgeListS, VertexListS, DirectedS,
+          VertexProperty, EdgeProperty, GraphProperty, EdgeListS> &) = delete;
 
   template <bool MT2, bool Spin2>
-  ip_adjacency_list &operator=(
-      const ip_adjacency_list<OutEdgeListS, VertexListS, DirectedS,
-                              VertexProperty, EdgeProperty, GraphProperty,
-                              EdgeListS, MT2, Spin2, PointUnique> &) = delete;
+  ip_adjacency_list &
+  operator=(const ip_adjacency_list<
+            MT2, Spin2, PointUnique, OutEdgeListS, VertexListS, DirectedS,
+            VertexProperty, EdgeProperty, GraphProperty, EdgeListS> &) = delete;
 
 #define VERT_SHARED_ACCESS(ShouldLock, Mutex)                                  \
   typename std::conditional<ShouldLock && MT,                                  \
@@ -306,4 +306,3 @@ struct ip_adjacency_list : public ip_base_rw_accessible<MT, Spin> {
 #undef VERT_SHARED_ACCESS
 #undef VERT_EXCLUSIVE_ACCESS
 };
-

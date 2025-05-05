@@ -504,14 +504,16 @@ typedef basic_block_properties_t bbprop_t;
 
 template <bool MT>
 using ip_icfg_base_t =
-ip_adjacency_list<boost::setS_ip,           /* OutEdgeList */
+ip_adjacency_list<MT,
+                  true /* Spin */,
+                  true /* PointUnique */,
+                  boost::setS_ip,           /* OutEdgeList */
                   boost::dequeS_ip,         /* VertexList */
                   boost::directedS,         /* Directed */
                   basic_block_properties_t, /* VertexProperties */
                   boost::no_property,       /* EdgeProperties */
                   boost::no_property,       /* GraphProperties */
-                  boost::listS_ip,          /* EdgeList */
-                  MT>;
+                  boost::listS_ip>;         /* EdgeList */
 
 typedef ip_icfg_base_t<true> ip_icfg_t;
 
@@ -612,14 +614,16 @@ struct ip_call_graph_node_properties_t : public ip_mt_base_rw_accessible_spin {
 
 template <bool MT>
 using ip_call_graph_base_t =
-    ip_adjacency_list<boost::setS_ip,                  /* OutEdgeList */
+    ip_adjacency_list<MT,
+                      false /* !Spin */,
+                      true /* PointUnique */,
+                      boost::setS_ip,                  /* OutEdgeList */
                       boost::dequeS_ip,                /* VertexList */
                       boost::directedS,                /* Directed */
                       ip_call_graph_node_properties_t, /* VertexProperties */
                       boost::no_property,              /* EdgeProperties */
                       boost::no_property,              /* GraphProperties */
-                      boost::vecS_ip,                  /* EdgeList */
-                      MT, false /* !Spin */>;
+                      boost::vecS_ip>;                 /* EdgeList */
 
 struct function_t {
   bool Speculative = false;
