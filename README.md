@@ -41,7 +41,7 @@ However, `jove` contains a novel solution that is far more general, namely `jove
 `jove ida` is currently quite rudimentary. That may change if someone decides to donate an IDA license. [^3]
 
 ### But isn't `llvm-cbe` not perfect?
-We only demand `llvm-cbe` to handle a tiny subset of the LLVM language. All of that subset is produced by `jove llvm`, which translates the straightforward TCG (QEMU intermediate code) into LLVM instructions. Whenever we encounter something with non-trivial semantics, the C code does *not* involve `llvm-cbe`. [It comes directly from](https://github.com/aleden/carbon-copy) QEMU. Luckily, QEMU's code-base is written in C.
+We only demand `llvm-cbe` to handle a tiny subset of the LLVM language. All of that subset is produced by `jove llvm`, which translates the straightforward TCG (QEMU intermediate code) into LLVM instructions. Whenever we encounter something with non-trivial semantics, the C code that is produced does *not* involve `llvm-cbe`. [It comes directly from](https://github.com/aleden/carbon-copy) QEMU. Luckily, QEMU's code-base is written in C.
 
 [^1]: In theory, VSA would do no better.
 [^2]: `armhf` is an exception, but we don't currently support this architecture.
