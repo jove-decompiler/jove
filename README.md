@@ -32,8 +32,12 @@ There are currently two ways:
 
 ### What about statically recovering control-flow?
 Whenever it is sound to do so, `jove` will statically recover code.
-The classic off-the-shelf abstract interpretation that is widely used, and for which there are open-source implementations widely available (e.g. BAP), is Value Set Analysis (VSA). `jove` will most likely eventually acquire this feature.
-However, the `jove dig` tool (A.K.A. `CodeDigger`) contains a novel approach to control-flow-recovery- one that is far more general than VSA. The idea (credit goes to Tim Leek) is to perform local symbolic execution at each program point which has indirect control-flow, and then we can then ask the solver for a set of feasible values for the destination of the control-flow. If there are sufficient constraints, the solver will be able to provide a complete set of targets. Obviously, there will still be indirect jumps for which we can say very little about, but it's not as if VSA would do better. The implementation of `CodeDigger` is a custom fork of `KLEE`. The drawback, at the moment, is that it has considerable time and space requirements.
+
+The classic off-the-shelf abstract interpretation that is widely used, and for which there are open-source implementations widely available (e.g. BAP), is Value Set Analysis (VSA). `jove` will eventually acquire this feature, but it does not currently contain it.
+
+However, `jove` contains something far more general: namely the `dig` tool (A.K.A. `CodeDigger`). This tool uses a novel approach to control-flow-recovery, and the idea (credit goes to Tim Leek) is to perform local symbolic execution from each program point which has indirect control-flow, and then ask the solver to try and come up with a complete set of feasible values. If there are sufficient constraints, the solver will be able to do so. Obviously, there will still be indirect jumps for which we can say very little (or practically nothing) about, but in theory VSA would do no better. The implementation of `CodeDigger` is a custom fork of `KLEE`.
+
+The drawback, at the moment, is that it has considerable time and space requirements.
 
 ### But isn't `llvm-cbe` not "perfect"?
 We only demand `llvm-cbe` to handle a tiny subset of the LLVM language. All of it is produced by `jove llvm`, which translates the TCG (the QEMU intermediate code) into simple LLVM instructions. Whenever we encounter non-trivial machine code instructions, the C code [comes directly from comes](https://github.com/aleden/carbon-copy) QEMU, which are luckily implemented in C.
