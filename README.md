@@ -26,7 +26,6 @@ For a quickstart, use the [docker image](https://hub.docker.com/repository/docke
 ## FAQ
 
 ### How do you observe control-flow at runtime?
-There are currently two ways:
 1. `jove bootstrap` is a custom `ptrace(2)`-based tracer which places software breakpoints at the address of every known block terminator. Luckily, terminator instructions are, essentially, trivial to emulate[^2] in-place. At the moment it only supports linux, but adding support for Windows executables is quite a feasible task.
 2. `jove ipt` is a custom `Intel Processor Trace`-based tracer (this is only available on x86 Intel CPUs) to recover code. Crucially it's overhead is extremely low, which makes it suitable for real-time applications (e.g. games).
 
