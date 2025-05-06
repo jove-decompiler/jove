@@ -226,15 +226,8 @@ int InitTool::Run(void) {
   //jv.hash_to_binary.reserve(2048);
   //HumanOut() << "cap=" << jv.hash_to_binary.bucket_count() << '\n';
 
-  unsigned N = binary_paths.size() + 3;
-
-  {
-    auto e_lck = jv.Binaries.exclusive_access();
-
-    for (unsigned i = 0; i < N; ++i)
-      jv.Binaries.container().emplace_back(jv_file,
-                                           static_cast<binary_index_t>(i));
-  }
+  const unsigned N = binary_paths.size() + 3;
+  jv.Binaries.len_.store(N, std::memory_order_relaxed);
 
   //
   // add them
@@ -245,9 +238,9 @@ int InitTool::Run(void) {
 
   std::transform(
       std::execution::par_unseq,
-      jv.Binaries.container().cbegin(),
-      jv.Binaries.container().cend(),
-      jv.Binaries.container().begin(),
+      jv.Binaries.cbegin(),
+      jv.Binaries.cend(),
+      jv.Binaries.begin(),
       [&](const binary_t &init) -> binary_t {
         const binary_index_t BIdx = index_of_binary(init);
         binary_base_t<false> b(jv_file, BIdx);

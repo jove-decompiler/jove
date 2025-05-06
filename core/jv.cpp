@@ -379,15 +379,9 @@ adds_binary_t::adds_binary_t(binary_index_t &out,
 
     b.Hash = h;
 
-    {
-      auto e_lck = jv.Binaries.exclusive_access();
-
-      BIdx = jv.Binaries.container().size();
-      b.Idx = BIdx;
-
-      binary_base_t<MT> b_(std::move(b));
-      jv.Binaries.container().push_back(std::move(b_));
-    }
+    BIdx = jv.Binaries.len_.fetch_add(1u, std::memory_order_relaxed);
+    b.Idx = BIdx;
+    jv.Binaries[BIdx] = std::move(b);
   }
 
   jv.fixup_binary(BIdx);
@@ -401,11 +395,10 @@ adds_binary_t::adds_binary_t(binary_index_t &out,
                              binary_base_t<MT> &&b) noexcept {
   // don't ask questions
   {
-    auto e_lck = jv.Binaries.exclusive_access();
+    BIdx  = jv.Binaries.len_.fetch_add(1u, std::memory_order_relaxed);
 
-    BIdx = jv.Binaries.container().size();
     b.Idx = BIdx;
-    jv.Binaries.container().push_back(std::move(b));
+    jv.Binaries[BIdx] = std::move(b);
   }
 
   jv.fixup_binary(BIdx);

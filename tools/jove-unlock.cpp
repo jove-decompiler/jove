@@ -28,11 +28,13 @@ int UnlockTool::Run(void) {
     HumanOut() << "Standard input is not a TTY, skipping confirmation.\n";
   }
 
+#if 0
   jv.Binaries.__force_reset_access();
+#endif
   std::for_each(
       std::execution::par_unseq,
-      jv.Binaries.container().begin(),
-      jv.Binaries.container().end(), [&](binary_t &b) {
+      jv.Binaries.begin(),
+      jv.Binaries.end(), [&](binary_t &b) {
         b.BBMap.__force_reset_access();
         b.Analysis.ICFG.__force_reset_access();
         b.Analysis.Functions.__force_reset_access();

@@ -252,6 +252,18 @@ namespace boost {
 namespace serialization {
 
 //
+// table_t
+//
+template <class Archive, typename T, std::size_t N>
+static void
+serialize(Archive &ar,
+          jove::table_t<T, N> &table,
+          const unsigned int version) {
+  ar & BOOST_SERIALIZATION_NVP(table.len_)
+     & boost::serialization::make_nvp("table.storage_", *static_cast<T(*)[N]>(static_cast<void *>(table.storage_)));
+}
+
+//
 // ip_adjacency_list
 //
 template <class Archive, bool MT, bool Spin, bool PointUnique, typename... Args>
@@ -422,7 +434,7 @@ static void serialize(Archive &ar, jove::ip_call_graph_node_properties_t &prop,
 
 template <class Archive, bool MT>
 static void serialize(Archive &ar, jove::jv_base_t<MT> &jv, const unsigned int) {
-  ar &BOOST_SERIALIZATION_NVP(jv.Binaries.container())
+  ar &BOOST_SERIALIZATION_NVP(jv.Binaries)
      &BOOST_SERIALIZATION_NVP(jv.hash_to_binary)
      &BOOST_SERIALIZATION_NVP(jv.name_to_binaries)
      &BOOST_SERIALIZATION_NVP(jv.Analysis.ReverseCallGraph);

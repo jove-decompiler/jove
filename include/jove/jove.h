@@ -5,6 +5,7 @@
 #include "jove/tcg.h"
 #ifdef __cplusplus
 #include "jove/macros.h"
+#include "jove/constants.h"
 #include "jove/types.h"
 #include "jove/racy.h"
 #include "jove/algo.h"
@@ -50,9 +51,12 @@
 #include <boost/container/adaptive_pool.hpp>
 #include <boost/container/node_allocator.hpp>
 #include <boost/container/scoped_allocator.hpp>
+#include <boost/array.hpp>
 
 #include <algorithm>
 #include <atomic>
+#include <bit>
+#include <cstddef>
 #include <cstdint>
 #include <deque>
 #include <execution>
@@ -60,6 +64,7 @@
 #include <iomanip>
 #include <limits>
 #include <map>
+#include <new>
 #include <numeric>
 #include <shared_mutex>
 #include <sstream>
@@ -71,7 +76,6 @@
 #include <utility>
 #include <variant>
 #include <vector>
-#include <bit>
 
 namespace llvm {
 namespace object {
@@ -93,6 +97,7 @@ struct jv_base_t;
 #include "jove/index.h.inc"
 #include "jove/deque.h.inc"
 #include "jove/adjacency_list.h.inc"
+#include "jove/table.h.inc"
 #include "jove/addr_intvl.h.inc"
 
 template <bool MT>
@@ -878,7 +883,8 @@ struct binary_base_t {
 
   explicit binary_base_t(jv_file_t &jv_file,
                          binary_index_t Idx = invalid_binary_index) noexcept
-      : Idx(Idx), bbbmap(jv_file.get_segment_manager()),
+      : Idx(Idx),
+        bbbmap(jv_file.get_segment_manager()),
         BBMap(jv_file),
         fnmap(jv_file.get_segment_manager()),
         Name(jv_file.get_segment_manager()),
@@ -1011,7 +1017,6 @@ struct adds_binary_t {
   binary_index_t BIdx = invalid_basic_block_index;
 
   explicit adds_binary_t() = default;
-
   explicit adds_binary_t(binary_index_t BIdx) noexcept : BIdx(BIdx) {
     assert(is_binary_index_valid(BIdx));
   }
@@ -1090,16 +1095,22 @@ struct AddOptions_t {
   bool IsVeryVerbose(void) const { return VerbosityLevel >= 2; };
 };
 
+template <bool MT>
+using ip_binary_deque_t =
+    ip_deque<binary_base_t<MT>,
+             boost::interprocess::private_node_allocator<binary_base_t<MT>,
+                                                         segment_manager_t>,
+             MT>;
+
+template <bool MT>
+using ip_binary_table_t = table_t<binary_base_t<MT>, MaxBinaries>;
+
 template <bool MT = true>
 struct jv_base_t {
   //
   // references to binary_t will never be invalidated.
   //
-  ip_deque<binary_base_t<MT>,
-           boost::interprocess::private_node_allocator<binary_base_t<MT>,
-                                                       segment_manager_t>,
-           MT>
-      Binaries;
+  ip_binary_table_t<MT> Binaries;
 
   struct Analysis_t {
     ip_call_graph_base_t<MT> ReverseCallGraph;
@@ -1124,7 +1135,7 @@ struct jv_base_t {
   void clear(bool everything = false);
 
   segment_manager_t *get_segment_manager(void) const {
-    return Binaries.container().get_allocator().get_segment_manager();
+    return hash_to_binary.get_allocator().get_segment_manager();
   }
 
   explicit jv_base_t(jv_file_t &jv_file) noexcept
@@ -1132,14 +1143,24 @@ struct jv_base_t {
         Analysis(jv_file),
         hash_to_binary(jv_file.get_segment_manager()),
         cached_hashes(jv_file.get_segment_manager()),
-        name_to_binaries(jv_file.get_segment_manager()) {}
+        name_to_binaries(jv_file.get_segment_manager()) {
+    init_binary_indices();
+  }
 
   explicit jv_base_t(jv_base_t<MT> &&other, jv_file_t &jv_file) noexcept
-      : Binaries(std::move(other.Binaries)),
+      : Binaries(jv_file),
         Analysis(std::move(other.Analysis)),
         hash_to_binary(std::move(other.hash_to_binary)),
         cached_hashes(std::move(other.cached_hashes)),
-        name_to_binaries(std::move(other.name_to_binaries)) {}
+        name_to_binaries(std::move(other.name_to_binaries)) {
+    init_binary_indices();
+
+    const unsigned N = other.Binaries.len_.load(std::memory_order_relaxed);
+    Binaries.len_.store(N, std::memory_order_relaxed);
+
+    for (unsigned i = 0; i < N; ++i)
+      Binaries[i] = std::move(other.Binaries[i]);
+  }
 
   explicit jv_base_t(jv_base_t<!MT> &&other, jv_file_t &jv_file) noexcept
       : Binaries(jv_file),
@@ -1147,9 +1168,14 @@ struct jv_base_t {
         hash_to_binary(std::move(other.hash_to_binary)),
         cached_hashes(std::move(other.cached_hashes)),
         name_to_binaries(std::move(other.name_to_binaries)) {
-    for (binary_base_t<!MT> &b : other.Binaries) {
-      binary_base_t<MT> b_(std::move(b));
-      Binaries.container().push_back(std::move(b_));
+    init_binary_indices();
+
+    const unsigned N = other.Binaries.len_.load(std::memory_order_relaxed);
+    Binaries.len_.store(N, std::memory_order_relaxed);
+
+    for (unsigned i = 0; i < N; ++i) {
+      binary_base_t<!MT> &b = other.Binaries[i];
+      Binaries[i] = std::move(b);
     }
   }
 
@@ -1196,6 +1222,15 @@ private:
                                                       const char *name,
                                                       on_newbin_proc_t<MT>,
                                                       const AddOptions_t &);
+
+  void init_binary_indices(void) {
+    std::for_each(std::execution::par_unseq,
+                  Binaries.begin(),
+                  Binaries.begin() + MaxBinaries, [&](auto &b) {
+                    const binary_index_t Idx = &b - Binaries.begin();
+                    __atomic_store_n(&b.Idx, Idx, __ATOMIC_RELAXED);
+                  });
+  }
 public:
   template <bool MT2>
   void DoAdd(binary_base_t<MT2> &,
