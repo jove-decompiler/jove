@@ -228,7 +228,7 @@ on_insn:
     bbprop_1.Sj = false;
     bbprop_1.DynTargets._p.Store(nullptr, std::memory_order_relaxed);
     bbprop_1.DynTargets.Complete = false;
-    bbprop_1.Analysis.Stale = true;
+    bbprop_1.Analysis.Stale.store(true, std::memory_order_relaxed);
 
     //
     // gather up bb_1 edges
