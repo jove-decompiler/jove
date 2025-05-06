@@ -10096,7 +10096,7 @@ int LLVMTool::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     }
   };
 
-  auto do_extract = [&](unsigned bits, bool Signed) -> void {
+  auto do_extract = [&](unsigned bits, bool isSigned) -> void {
     assert(bits == 32 || bits == 64);
 
     TCGArg start = const_arg(0);
@@ -10104,17 +10104,21 @@ int LLVMTool::TranslateTCGOps(llvm::BasicBlock *ExitBB,
 
     assert(start >= 0 && length > 0 && length <= bits - start);
 
-    if (Signed) {
-      set(IRB.CreateAShr(
-              IRB.CreateShl(get(input_arg(0)),
-                            IRB.getIntN(bits, bits - length - start)),
-              IRB.getIntN(bits, bits - length)),
-          output_arg(0));
+    llvm::Value *in = get(input_arg(0));
+
+    if (isSigned) {
+      // shift left to move sign-bit into MSB, then arithmetic shift back
+      unsigned shiftL = bits - length - start;
+      unsigned shiftR = bits - length;
+      llvm::Value *shl = IRB.CreateShl(in, IRB.getIntN(bits, shiftL));
+      llvm::Value *ashr = IRB.CreateAShr(shl, IRB.getIntN(bits, shiftR));
+      set(ashr, output_arg(0));
     } else {
-      set(IRB.CreateAnd(
-              IRB.CreateLShr(get(input_arg(0)), IRB.getIntN(bits, start)),
-              IRB.getIntN(bits, ~0ULL >> (bits - length))),
-          output_arg(0));
+      // logical right shift down, then mask low 'length' bits
+      llvm::Value *lshr = IRB.CreateLShr(in, IRB.getIntN(bits, start));
+      llvm::APInt mask = llvm::APInt::getLowBitsSet(bits, length);
+      llvm::Value *andm = IRB.CreateAnd(lshr, IRB.getInt(mask));
+      set(andm, output_arg(0));
     }
   };
 
