@@ -27,7 +27,7 @@ For a quickstart, use the [docker image](https://hub.docker.com/repository/docke
 
 ### How is control-flow observed at runtime?
 1. `jove bootstrap` is a custom `ptrace(2)`-based tracer, which overwrites every known block terminator instruction with a software breakpoint. Luckily, terminator instructions are essentially trivial to emulate[^2] in-place[^5]. At the moment it only supports linux, but it is totally feasible to implement support for Windows executables under WINE.
-2. `jove ipt` is a custom `Intel Processor Trace`-based tracer[^3]. Crucially, unlike `jove bootstrap`, its overhead is extremely low, which makes it suitable for demanding applications (e.g. games). It is supported on all platforms. Unfortunately, there are commonly particularly troublesome "errata" present on old CPUs.
+2. `jove ipt` is a custom `Intel Processor Trace`-based tracer[^3]. Crucially, unlike `jove bootstrap`, its overhead is extremely low, which makes it suitable for demanding applications (e.g. games). It is supported on all platforms. Unfortunately, there are commonly particularly troublesome "errata" present on older CPUs.
 
 ### What about static control-flow recovery?
 Whenever it is safe to do so [^7], `jove` will statically recover code. After all, the goal is to recover as much code as possible.
