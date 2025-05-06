@@ -39,6 +39,12 @@ static inline void nop_on_block(basic_block_t,
                                 basic_block_properties_t &) {}
 static inline void nop_on_block_u(basic_block_index_t) {}
 
+template <bool MT>
+static inline void nop_on_newbb_proc(binary_base_t<MT> &, basic_block_t) {}
+
+template <bool MT>
+static inline void nop_on_newfn_proc(binary_base_t<MT> &, function_t &) {}
+
 //
 // performs accurate recursive traversal disassembly
 //
@@ -52,8 +58,8 @@ class explorer_t {
   tiny_code_generator_t &tcg;
   const unsigned VerbosityLevel;
 
-  on_newbb_proc_t<MT> on_newbb_proc = [](binary_base_t<MT> &, basic_block_t) {};
-  on_newfn_proc_t<MT> on_newfn_proc = [](binary_base_t<MT> &, function_t &) {};
+  on_newbb_proc_t<MT> on_newbb_proc = nop_on_newbb_proc<MT>;
+  on_newfn_proc_t<MT> on_newfn_proc = nop_on_newfn_proc<MT>;
 
   template <bool WithOnBlockProc>
   bool split(binary_base_t<MT> &, llvm::object::Binary &,
@@ -105,8 +111,10 @@ public:
         disas(other.disas),
         tcg(other.tcg),
         VerbosityLevel(other.VerbosityLevel) {
-     assert(!other.on_newbb_proc);
-     assert(!other.on_newfn_proc);
+    if constexpr (MT == MT2) {
+      on_newbb_proc = other.on_newbb_proc;
+      on_newfn_proc = other.on_newfn_proc;
+    }
   }
 
   //
