@@ -1130,6 +1130,16 @@ struct jv_base_t {
 
   ip_name_to_binaries_map_type<MT> name_to_binaries;
 
+  template <typename Proc>
+  void ForEachNameToBinaryEntry(Proc proc) {
+    if constexpr (MT)
+      name_to_binaries.cvisit_all(proc);
+    else
+      std::for_each(name_to_binaries.begin(),
+                    name_to_binaries.end(),
+                    proc);
+  }
+
   void InvalidateFunctionAnalyses(void);
 
   void clear(bool everything = false);
@@ -1143,40 +1153,20 @@ struct jv_base_t {
         Analysis(jv_file),
         hash_to_binary(jv_file.get_segment_manager()),
         cached_hashes(jv_file.get_segment_manager()),
-        name_to_binaries(jv_file.get_segment_manager()) {
-    init_binary_indices();
-  }
+        name_to_binaries(jv_file.get_segment_manager()) {}
 
-  explicit jv_base_t(jv_base_t<MT> &&other, jv_file_t &jv_file) noexcept
+  template <bool MT2>
+  explicit jv_base_t(jv_base_t<MT2> &&other, jv_file_t &jv_file) noexcept
       : Binaries(jv_file),
         Analysis(std::move(other.Analysis)),
         hash_to_binary(std::move(other.hash_to_binary)),
         cached_hashes(std::move(other.cached_hashes)),
         name_to_binaries(std::move(other.name_to_binaries)) {
-    init_binary_indices();
-
     const unsigned N = other.Binaries.len_.load(std::memory_order_relaxed);
     Binaries.len_.store(N, std::memory_order_relaxed);
 
     for (unsigned i = 0; i < N; ++i)
       Binaries[i] = std::move(other.Binaries[i]);
-  }
-
-  explicit jv_base_t(jv_base_t<!MT> &&other, jv_file_t &jv_file) noexcept
-      : Binaries(jv_file),
-        Analysis(std::move(other.Analysis)),
-        hash_to_binary(std::move(other.hash_to_binary)),
-        cached_hashes(std::move(other.cached_hashes)),
-        name_to_binaries(std::move(other.name_to_binaries)) {
-    init_binary_indices();
-
-    const unsigned N = other.Binaries.len_.load(std::memory_order_relaxed);
-    Binaries.len_.store(N, std::memory_order_relaxed);
-
-    for (unsigned i = 0; i < N; ++i) {
-      binary_base_t<!MT> &b = other.Binaries[i];
-      Binaries[i] = std::move(b);
-    }
   }
 
   explicit jv_base_t() = delete;
@@ -1223,12 +1213,11 @@ private:
                                                       on_newbin_proc_t<MT>,
                                                       const AddOptions_t &);
 
-  void init_binary_indices(void) {
+  void initialize_all_binary_indices(void) noexcept {
     std::for_each(std::execution::par_unseq,
                   Binaries.begin(),
                   Binaries.begin() + MaxBinaries, [&](auto &b) {
-                    const binary_index_t Idx = &b - Binaries.begin();
-                    __atomic_store_n(&b.Idx, Idx, __ATOMIC_RELAXED);
+                    b.Idx = &b - Binaries.begin();
                   });
   }
 public:

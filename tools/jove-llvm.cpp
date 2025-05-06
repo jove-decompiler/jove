@@ -115,7 +115,7 @@ struct basic_block_state_t {
 
   llvm::BasicBlock *B = nullptr;
 
-  basic_block_state_t(const binary_base_t<false> &b, basic_block_t bb) {}
+  basic_block_state_t(const auto &b, basic_block_t bb) {}
 };
 
 struct function_state_t {
@@ -144,7 +144,7 @@ struct function_state_t {
   llvm::Function *F = nullptr;
   llvm::Function *adapterF = nullptr;
 
-  function_state_t(const function_t &f, const binary_base_t<false> &b) {
+  function_state_t(const function_t &f, const auto &b) {
     if (!is_basic_block_index_valid(f.Entry))
       return;
 
@@ -181,7 +181,7 @@ struct binary_state_t {
   uint64_t SectsStartAddr = 0;
   uint64_t SectsEndAddr = 0;
 
-  binary_state_t(const binary_base_t<false> &b) {
+  binary_state_t(const auto &b) {
     Bin = B::Create(b.data());
 
     std::tie(SectsStartAddr, SectsEndAddr) = B::bounds_of_binary(*Bin);
@@ -276,10 +276,9 @@ struct section_t {
 
 struct TranslateContext;
 
-struct LLVMTool
-    : public StatefulJVTool<ToolKind::SingleThreadedCopyOnWrite, binary_state_t,
-                            function_state_t, basic_block_state_t, false, true,
-                            true, false, false> {
+struct LLVMTool : public StatefulJVTool<ToolKind::CopyOnWrite, binary_state_t,
+                                        function_state_t, basic_block_state_t,
+                                        false, true, true, false, false> {
   struct Cmdline {
     cl::opt<std::string> Binary;
     cl::alias BinaryAlias;
@@ -3189,7 +3188,7 @@ tcg_global_set_t LLVMTool::DetermineFunctionArgs(function_t &f) {
 #if 0
   AnalyzeFunction<false>(
       jv, *TCG, *Module, f,
-      [&](binary_base_t<false> &b) -> llvm::object::Binary & {
+      [&](auto &b) -> llvm::object::Binary & {
         return *state.for_binary(b).Bin;
       },
       [&](function_t &f) -> std::pair<basic_block_vec_t &, basic_block_vec_t &> {
@@ -3208,7 +3207,7 @@ tcg_global_set_t LLVMTool::DetermineFunctionRets(function_t &f) {
 #if 0
   AnalyzeFunction<false>(
       jv, *TCG, *Module, f,
-      [&](binary_base_t<false> &b) -> llvm::object::Binary & {
+      [&](auto &b) -> llvm::object::Binary & {
         return *state.for_binary(b).Bin;
       },
       [&](function_t &f) -> std::pair<basic_block_vec_t &, basic_block_vec_t &> {
@@ -4024,7 +4023,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
 
   struct PatchContents {
     LLVMTool &tool;
-    binary_base_t<false> &Binary;
+    binary_base_t<IsToolMT> &Binary;
 
     std::vector<std::array<uint8_t, TargetBrkptLen>> Saved;
 
@@ -4035,7 +4034,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
              !tool.state.for_function(f).IsSj;
     }
 
-    PatchContents(LLVMTool &tool, binary_base_t<false> &Binary)
+    PatchContents(LLVMTool &tool, binary_base_t<IsToolMT> &Binary)
         : tool(tool), Binary(Binary) {
       if (!tool.opts.PlaceSectionBreakpoints)
         return;
@@ -6096,12 +6095,12 @@ int LLVMTool::CreateCopyRelocationHack(void) {
 int LLVMTool::CreateBinaryNamesTable(void) {
   bin_paths_vec.resize(jv.Binaries.size());
 
-  for (const auto &x : jv.name_to_binaries) {
+  jv.ForEachNameToBinaryEntry([&](const auto &x) -> void {
     x.second.cvisit_all([&](binary_index_t BIdx) {
       if (jv.Binaries.at(BIdx).is_file())
         bin_paths_vec[BIdx].insert(x.first);
     });
-  }
+  });
 
   std::vector<llvm::Constant *> strArrArr;
   for (const auto &set : bin_paths_vec) {

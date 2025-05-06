@@ -412,6 +412,7 @@ void jv_base_t<MT>::clear(bool everything) {
   hash_to_binary.clear();
 
   this->Binaries.clear();
+  initialize_all_binary_indices();
 
   if (everything)
     cached_hashes.clear();
