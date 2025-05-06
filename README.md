@@ -43,7 +43,7 @@ However, `jove` contains a novel solution for recovering code that is _far_ more
 ### Doesn't `llvm-cbe` contain flaws?
 The LLVM bitcode we feed to `llvm-cbe` only amounts to a teeny, tiny subset of the [gigantic LLVM language specification](https://llvm.org/docs/LangRef.html). This proper subset is produced by `jove llvm`, which translates the straightforward [TCG](https://github.com/qemu/qemu/blob/master/docs/devel/tcg-ops.rst) instructions into LLVM instructions and is (much of the time) essentially a one-to-one mapping.
 
-The C code `jove decompile` produces for non-trivial machine code instructions does **not** involve `llvm-cbe`. It originates from QEMU's sources practically verbatim, by using `clang` to compile QEMU with a [custom plugin](https://github.com/aleden/carbon-copy). Luckily, QEMU is written in C and compiles under `clang`.
+The C code `jove decompile` produces for non-trivial machine code instructions does **not involve `llvm-cbe`**. It originates from QEMU's sources practically verbatim, by using `clang` to compile QEMU with a [custom plugin](https://github.com/aleden/carbon-copy). Luckily, QEMU is written in C and compiles under `clang`.
 
 ### How is `jove` tested?
 The application and its recompiled counterpart are run on the same inputs. The standard output, standard error, and exit codes must be identical.
