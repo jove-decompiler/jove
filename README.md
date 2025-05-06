@@ -36,9 +36,7 @@ The classic, widely used abstract interpretation for which there are open-source
 
 However: `jove dig` (also known as `CodeDigger`), a fork of [KLEE](https://github.com/jove-decompiler/klee), is an experimental tool for static control-flow recovery. The idea[^6] is to perform "local" symbolic executions: starting from the program point which jumps into who-knows-what (as opposed to starting from the beginning of the program which leads to an explosion of paths for any serious program), looking backwards we obtain _partial_ program paths. `jove dig` executes these partial paths and [interrogates the solver for a complete set of targets](https://github.com/jove-decompiler/klee/blob/9bede692834bef4ac265b3cb2a3df35e3dd06e78/lib/Core/Executor.cpp#L2265). If the program counter expression is sufficiently constrained, the solver will be able to do so. Obviously there will be still indirect jumps for which we can say practically nothing about[^1]. The drawback of this tool, at the moment, is that it requires considerable time and space.
 
-`jove ida` allows one to import control-flow data from [IDA](https://hex-rays.com/ida-pro). However this is not advisable since IDA is closed-source we really don't know what it's actually doing under the covers.
-
-`jove ida` is very rudimentary. That may change if someone decides to generously donate an IDA license. [^4]
+`jove ida` allows one to import control-flow data from [IDA](https://hex-rays.com/ida-pro). However this is not advisable since IDA is closed-source we really don't know what it's actually doing under the covers. `jove ida` is curretly pretty rudimentary. That may change if someone decides to generously donate an IDA license. [^4]
 
 ### But doesn't `llvm-cbe` contain flaws?
 The LLVM bitcode we feed to `llvm-cbe` only amounts to a teeny, tiny subset of the [gigantic LLVM language specification](https://llvm.org/docs/LangRef.html). This proper subset is produced by `jove llvm`, which translates the straightforward [TCG](https://github.com/qemu/qemu/blob/master/docs/devel/tcg-ops.rst) instructions into LLVM instructions and is (much of the time) essentially a one-to-one mapping.
