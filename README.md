@@ -53,9 +53,9 @@ The CI test suite [spins up](https://github.com/jove-decompiler/mk-deb-vm) whole
 The [latest docker image](https://hub.docker.com/repository/docker/aleden22/jove/general) is guaranteed to have passed the aforementioned test suite.
 
 ### What filesystem should I use? ###
-Something with:
+Something that supports:
 1. Sparse files
-2. `FICLONE` or `FICLONERANGE` (`ioctl(2)`)
+2. Reflink copies [^8]
 XFS is recommended.
 
 [^1]: In theory, VSA would do no better.
@@ -65,3 +65,4 @@ XFS is recommended.
 [^5]: The Linux kernel implements UProbe tracepoints in a more general way by copying the instruction (which was replaced by a trap) to a dedicated memory region, possibly patching it (to handle any references to the current value of the instruction pointer)- and executing it _there_.
 [^6]: Credit for this idea goes to [Tim Leek](https://www.ll.mit.edu/biographies/tim-leek).
 [^7]: For example, unless we know that a call instruction _returns_ (either through direct observation or from the presence of an exit block in at least one of the callees), we won't explore the code it returns to. If the call never returns, whatever comes after it might be garbage. On architectures with variable-length instruction sets, we can't afford to make such a mistake.
+[^8]: `FICLONE` or `FICLONERANGE` (`ioctl(2)`)
