@@ -58,11 +58,11 @@ struct table_t {
   }
 
   T *begin() { return reinterpret_cast<T *>(storage_); }
-  T *end() { return &reinterpret_cast<T *>(storage_)[size()]; }
+  T *end() { return reinterpret_cast<T *>(storage_) + size(); }
 
   const T *begin() const { return reinterpret_cast<const T *>(storage_); }
-  const T *end() const { return &reinterpret_cast<const T *>(storage_)[size()]; }
+  const T *end() const { return reinterpret_cast<const T *>(storage_) + size(); }
 
   const T *cbegin() const { return reinterpret_cast<const T *>(storage_); }
-  const T *cend() const { return &reinterpret_cast<const T *>(storage_)[size()]; }
+  const T *cend() const { return reinterpret_cast<const T *>(storage_) + size(); }
 };
