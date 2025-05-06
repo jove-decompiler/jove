@@ -17,52 +17,52 @@ struct table_t {
   table_t &operator=(const table_t &) = delete;
 
   template <typename... Args>
-  explicit table_t(Args &&...args) {
+  explicit table_t(Args &&...args) noexcept {
     for (std::size_t i = 0; i < N; ++i)
       new (&reinterpret_cast<T *>(storage_)[i]) T(std::forward<Args>(args)...);
   }
 
-  ~table_t() {
+  ~table_t() noexcept {
     static_assert(std::is_nothrow_destructible_v<T>);
 
     for (std::size_t i = 0; i < N; ++i)
       reinterpret_cast<T *>(storage_)[i].~T();
   }
 
-  unsigned size(void) const {
+  unsigned size(void) const noexcept {
     return len_.load(std::memory_order_relaxed);
   }
 
-  void clear(void) {
+  void clear(void) noexcept {
     len_.store(0, std::memory_order_relaxed);
   }
 
   // NO BOUNDS CHECKING!
-  T &operator[](std::size_t i) {
+  T &operator[](std::size_t i) noexcept {
     return reinterpret_cast<T *>(storage_)[i];
   }
 
   // NO BOUNDS CHECKING!
-  const T &operator[](std::size_t i) const {
+  const T &operator[](std::size_t i) const noexcept {
     return reinterpret_cast<const T *>(storage_)[i];
   }
 
-  T &at(std::size_t i) {
+  T &at(std::size_t i) noexcept {
     assert(i < size());
     return this->operator[](i);
   }
 
-  const T &at(std::size_t i) const {
+  const T &at(std::size_t i) const noexcept {
     assert(i < size());
     return this->operator[](i);
   }
 
-  T *begin() { return reinterpret_cast<T *>(storage_); }
-  T *end() { return reinterpret_cast<T *>(storage_) + size(); }
+  T *begin() noexcept { return reinterpret_cast<T *>(storage_); }
+  T *end() noexcept { return reinterpret_cast<T *>(storage_) + size(); }
 
-  const T *begin() const { return reinterpret_cast<const T *>(storage_); }
-  const T *end() const { return reinterpret_cast<const T *>(storage_) + size(); }
+  const T *begin() const noexcept { return reinterpret_cast<const T *>(storage_); }
+  const T *end() const noexcept { return reinterpret_cast<const T *>(storage_) + size(); }
 
-  const T *cbegin() const { return reinterpret_cast<const T *>(storage_); }
-  const T *cend() const { return reinterpret_cast<const T *>(storage_) + size(); }
+  const T *cbegin() const noexcept { return reinterpret_cast<const T *>(storage_); }
+  const T *cend() const noexcept { return reinterpret_cast<const T *>(storage_) + size(); }
 };
