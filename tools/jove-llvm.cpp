@@ -10122,6 +10122,38 @@ int LLVMTool::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     }
   };
 
+  auto do_deposit = [&](unsigned bits,
+                        llvm::Value *orig,
+                        llvm::Value *fieldval,
+                        unsigned ofs,
+                        unsigned len,
+                        TCGTemp *dst) {
+    assert((bits == 32 || bits == 64) && "bit-width must be 32 or 64");
+    assert(len > 0 && ofs + len <= bits &&
+           "invalid deposit position/length");
+
+    llvm::Type *ty = IRB.getIntNTy(bits);
+
+    llvm::APInt lowBits  = llvm::APInt::getLowBitsSet(bits, len);
+    llvm::APInt posMask  = lowBits << ofs;
+    llvm::APInt clrMask  = ~posMask;
+
+    llvm::Constant *posC = IRB.getInt(posMask);
+    llvm::Constant *clrC = IRB.getInt(clrMask);
+
+    // Truncate & mask-insert new field
+    llvm::Value *fv    = IRB.CreateTruncOrBitCast(fieldval, ty);
+    llvm::Value *ins   = IRB.CreateAnd(fv, IRB.getInt(lowBits));
+    ins                = IRB.CreateShl(ins, IRB.getIntN(bits, ofs));
+
+    // Clear & OR
+    llvm::Value *origN  = IRB.CreateTruncOrBitCast(orig, ty);
+    llvm::Value *cleared= IRB.CreateAnd(origN, clrC);
+    llvm::Value *res    = IRB.CreateOr(cleared, ins);
+
+    set(res, dst);
+  };
+
   llvm::Value *taddr = nullptr;
   llvm::Value *tmp64 = nullptr;
 
@@ -11363,71 +11395,23 @@ int LLVMTool::TranslateTCGOps(llvm::BasicBlock *ExitBB,
 
 #undef __CTZ_OP
 
-  CASE(deposit_i32): {
-    TCGTemp *dst = arg_temp(op->args[0]);
-    TCGTemp *src1 = arg_temp(op->args[1]);
-    TCGTemp *src2 = arg_temp(op->args[2]);
+#define __DO_DEPOSIT(bits)                                                     \
+    do {                                                                       \
+      do_deposit(bits,                                                         \
+                 get(input_arg(0)),                                            \
+                 get(input_arg(1)),                                            \
+                 const_arg(0),                                                 \
+                 const_arg(1),                                                 \
+                 output_arg(0));                                               \
+    } while (false)
 
-    llvm::Value *arg1 = get(src1);
-    llvm::Value *arg2 = get(src2);
-    arg2 = IRB.CreateTrunc(arg2, IRB.getInt32Ty());
-
-    uint32_t ofs = op->args[3];
-    uint32_t len = op->args[4];
-
-    if (0 == ofs && 32 == len) {
-      set(arg2, dst);
-      BREAK();
-    }
-
-    uint32_t mask = (UINT32_C(1) << len) - 1;
-    llvm::Value *t1, *ret;
-
-    if (ofs + len < 32) {
-      t1 = IRB.CreateAnd(arg2, llvm::APInt(32, mask));
-      t1 = IRB.CreateShl(t1, llvm::APInt(32, ofs));
-    } else {
-      t1 = IRB.CreateShl(arg2, llvm::APInt(32, ofs));
-    }
-
-    ret = IRB.CreateAnd(arg1, llvm::APInt(32, ~(mask << ofs)));
-    ret = IRB.CreateOr(ret, t1);
-    set(ret, dst);
+  CASE(deposit_i32):
+    __DO_DEPOSIT(32);
     BREAK();
-  }
 
-  CASE(deposit_i64): {
-    TCGTemp *dst = output_arg(0);
-    TCGTemp *src1 = input_arg(0);
-    TCGTemp *src2 = input_arg(1);
-
-    llvm::Value *arg1 = get(src1);
-    llvm::Value *arg2 = get(src2);
-    arg2 = IRB.CreateTrunc(arg2, IRB.getInt64Ty());
-
-    TCGArg ofs = const_arg(0);
-    TCGArg len = const_arg(1);
-
-    if (0 == ofs && 64 == len) {
-      set(arg2, dst);
-      BREAK();
-    }
-
-    uint64_t mask = (UINT64_C(1) << len) - 1;
-    llvm::Value *t1, *ret;
-
-    if (ofs + len < 64) {
-      t1 = IRB.CreateAnd(arg2, llvm::APInt(64, mask));
-      t1 = IRB.CreateShl(t1, llvm::APInt(64, ofs));
-    } else {
-      t1 = IRB.CreateShl(arg2, llvm::APInt(64, ofs));
-    }
-
-    ret = IRB.CreateAnd(arg1, llvm::APInt(64, ~(mask << ofs)));
-    ret = IRB.CreateOr(ret, t1);
-    set(ret, dst);
+  CASE(deposit_i64):
+    __DO_DEPOSIT(64);
     BREAK();
-  }
 
   CASE(extract_i32):
     do_extract(32, false);
