@@ -1,3 +1,4 @@
+#if !defined(__mips64) && !defined(__mips__)
 #include "tool.h"
 #include "B.h"
 #include "triple.h"
@@ -79,8 +80,8 @@ struct binary_state_t {
 
 typedef boost::format fmt;
 
-class RecompileTool : public StatefulJVTool<ToolKind::SingleThreadedCopyOnWrite,
-                                            binary_state_t, void, void> {
+class RecompileTool
+    : public StatefulJVTool<ToolKind::CopyOnWrite, binary_state_t, void, void> {
   struct Cmdline {
     cl::opt<std::string> Output;
     cl::alias OutputAlias;
@@ -412,7 +413,7 @@ int RecompileTool::Run(void) {
   //
   // gather dynamic linking information
   //
-  for_each_binary(/* std::execution::par_unseq, */ jv, [&](auto &b) {
+  for_each_binary(/* maybe_par_unseq, */ jv, [&](auto &b) {
     if (!b.is_file())
       return;
 
@@ -845,7 +846,7 @@ int RecompileTool::Run(void) {
   // run jove-llvm and llc on all DSOs
   //
   std::for_each(
-    std::execution::par_unseq,
+    maybe_par_unseq,
     Q.begin(),
     Q.end(),
     std::bind(&RecompileTool::worker, this, std::placeholders::_1));
@@ -866,7 +867,7 @@ int RecompileTool::Run(void) {
   // linker to produce each recompiled DSO, this solves "unable to find library"
   // errors XXX
   //
-  for_each_binary(std::execution::par_unseq, jv, [&](auto &b) {
+  for_each_binary(maybe_par_unseq, jv, [&](auto &b) {
     if (!b.is_file())
       return;
 
@@ -930,7 +931,7 @@ int RecompileTool::Run(void) {
     });
   });
 
-  for_each_binary(std::execution::par_unseq, jv, [&](auto &b) {
+  for_each_binary(maybe_par_unseq, jv, [&](auto &b) {
     if (!b.is_file())
       return;
 
@@ -1554,3 +1555,4 @@ binary_index_t RecompileTool::ChooseBinaryWithSoname(const std::string &soname) 
 }
 
 }
+#endif

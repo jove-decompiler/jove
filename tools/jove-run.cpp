@@ -42,7 +42,7 @@ namespace {
 struct binary_state_t {
   std::unique_ptr<llvm::object::Binary> Bin;
 
-  binary_state_t(const binary_t &b) { Bin = B::Create(b.data()); }
+  binary_state_t(const auto &b) { Bin = B::Create(b.data()); }
 };
 
 }

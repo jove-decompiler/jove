@@ -58,7 +58,7 @@ namespace {
 struct binary_state_t {
   std::unique_ptr<llvm::object::Binary> Bin;
 
-  binary_state_t(const binary_t &b) { Bin = B::Create(b.data()); }
+  binary_state_t(const auto &b) { Bin = B::Create(b.data()); }
 };
 
 }
@@ -714,7 +714,7 @@ int IPTTool::UsingLibipt(void) {
 
 #if 0
     if (opts.Objdump)
-      for_each_binary(std::execution::par_unseq, jv, [&](binary_t &b) {
+      for_each_binary(maybe_par_unseq, jv, [&](binary_t &b) {
         if (!b.Analysis.objdump.empty())
           return;
 
@@ -920,7 +920,7 @@ BOOST_PP_SEQ_FOR_EACH_PRODUCT(GENERATE_RUN, IPT_ALL_OPTIONS);
       std::for_each(aux_filenames.begin(),
                     aux_filenames.end(), run);
     else
-      std::for_each(std::execution::par_unseq,
+      std::for_each(maybe_par_unseq,
                     aux_filenames.begin(),
                     aux_filenames.end(), run);
   } else {

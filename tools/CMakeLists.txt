@@ -54,10 +54,7 @@ else()
   endforeach()
 endif()
 
-function(tool_for_arch arch arch_extra_cflags qemu_build_dir)
-  string(TOUPPER "${arch}" uc_arch)
-
-  add_llvm_tool(jove-${arch}
+set(JOVE_SOURCES
     ../core/B.cpp
     ../core/add.cpp
     ../core/analyze.cpp
@@ -115,7 +112,6 @@ function(tool_for_arch arch arch_extra_cflags qemu_build_dir)
     jove-init.cpp
     jove-invalidate.cpp
     jove-ipt.cpp
-    jove-llvm.cpp
     jove-loop.cpp
     jove-numbers.cpp
     jove-off2addr.cpp
@@ -127,6 +123,7 @@ function(tool_for_arch arch arch_extra_cflags qemu_build_dir)
     jove-scan.cpp
     jove-score.cpp
     jove-serialize.cpp
+    jove-llvm.cpp
     jove-server.cpp
     jove-stub.cpp
     jove-trace.cpp
@@ -139,7 +136,12 @@ function(tool_for_arch arch arch_extra_cflags qemu_build_dir)
     jv2xml.cpp
     llknife.cpp
     tcgdump.cpp
-  )
+)
+
+function(tool_for_arch arch arch_extra_cflags qemu_build_dir)
+  string(TOUPPER "${arch}" uc_arch)
+
+  add_llvm_tool(jove-${arch} ${JOVE_SOURCES})
 
   target_link_libraries(jove-${arch} PRIVATE
     -Wl,--push-state,--whole-archive
@@ -165,7 +167,9 @@ function(tool_for_arch arch arch_extra_cflags qemu_build_dir)
   target_link_libraries(jove-${arch} PRIVATE Boost::lockfree)
   target_link_libraries(jove-${arch} PRIVATE Boost::scope)
 
-  target_link_libraries(jove-${arch} PRIVATE TBB::tbb)
+  if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^mips(64el)?$")
+    target_link_libraries(jove-${arch} PRIVATE TBB::tbb)
+  endif()
 
   if (CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86|i[3-6]86|x86_64)$")
     target_link_libraries(jove-${arch} PRIVATE libipt)

@@ -69,7 +69,7 @@ int NumbersTool::Run(void) {
                << '\n';                                                        \
   } while (0)
 
-  PRINT_STRUCT_SIZE(binary_t);
+  PRINT_STRUCT_SIZE(binary_base_t<>);
   PRINT_STRUCT_SIZE(basic_block_properties_t);
   PRINT_STRUCT_SIZE(function_t);
 

@@ -114,6 +114,21 @@ void InitTool::parse_loaded_objects(const std::string &rtld_stdout,
   }
 }
 
+template <bool MT>
+static void init_binaries(unsigned N, jv_file_t &,
+                          ip_binary_table_t<MT> &Binaries) {
+  Binaries.len_.store(N, std::memory_order_relaxed);
+}
+
+template <bool MT>
+static void init_binaries(unsigned N, jv_file_t &jv_file,
+                          ip_binary_deque_t<MT> &Binaries) {
+  auto e_lck = Binaries.exclusive_access();
+
+  for (unsigned i = 0; i < N; ++i)
+    Binaries.container().emplace_back(jv_file, static_cast<binary_index_t>(i));
+}
+
 int InitTool::Run(void) {
   if (!fs::exists(opts.Prog)) {
     WithColor::error() << "binary does not exist\n";
@@ -226,8 +241,7 @@ int InitTool::Run(void) {
   //jv.hash_to_binary.reserve(2048);
   //HumanOut() << "cap=" << jv.hash_to_binary.bucket_count() << '\n';
 
-  const unsigned N = binary_paths.size() + 3;
-  jv.Binaries.len_.store(N, std::memory_order_relaxed);
+  init_binaries(binary_paths.size() + 3, jv_file, jv.Binaries);
 
   //
   // add them
@@ -237,7 +251,7 @@ int InitTool::Run(void) {
   explorer_t<false> explorer(disas, tcg, VerbosityLevel());
 
   std::transform(
-      std::execution::par_unseq,
+      maybe_par_unseq,
       jv.Binaries.cbegin(),
       jv.Binaries.cend(),
       jv.Binaries.begin(),
@@ -314,7 +328,7 @@ int InitTool::Run(void) {
               std::string("\": ") + e.what());
         }
 
-        const bool isNewBinary = jv.hash_to_binary.try_emplace(b.Hash, BIdx);
+        bool isNewBinary = jv.TryHashToBinaryEmplace(b.Hash, BIdx);
         if (!isNewBinary) {
           WithColor::error()
               << llvm::formatv("not new binary: \"{0}\"\n", b.Name.c_str());
@@ -325,7 +339,7 @@ int InitTool::Run(void) {
         BIdxSet.insert(BIdx);
 
         const bool isNewName =
-            jv.name_to_binaries.try_emplace(b.Name, boost::move(BIdxSet));
+            jv.TryNameToBinariesEmplace(b.Name, boost::move(BIdxSet));
         if (!isNewName) {
           WithColor::error()
               << llvm::formatv("not new name: \"{0}\"\n", b.Name.c_str());

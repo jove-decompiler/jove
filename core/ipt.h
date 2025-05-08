@@ -416,7 +416,7 @@ protected:
   struct binary_state_t {
     std::unique_ptr<llvm::object::Binary> Bin;
 
-    binary_state_t(const binary_base_t<MT> &b) {
+    binary_state_t(const auto &b) {
       Bin = B::Create(b.data());
 
       if constexpr (Objdump) {

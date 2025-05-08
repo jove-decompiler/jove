@@ -26,8 +26,7 @@ struct binary_state_t {
 }
 
 class Trace2AddrsTool
-    : public StatefulJVTool<ToolKind::SingleThreadedCopyOnWrite, binary_state_t,
-                            void, void> {
+    : public StatefulJVTool<ToolKind::CopyOnWrite, binary_state_t, void, void> {
   struct Cmdline {
     cl::opt<std::string> TracePath;
     cl::opt<bool> SkipRepeated;

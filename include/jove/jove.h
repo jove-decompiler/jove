@@ -13,12 +13,14 @@
 #include <boost/graph/adjacency_list.hpp>
 #include <boost/graph/breadth_first_search.hpp>
 #include <boost/graph/depth_first_search.hpp>
-#include <boost/unordered/unordered_node_set.hpp>
 #include <boost/unordered/unordered_flat_map.hpp>
+#include <boost/unordered/unordered_node_map.hpp>
+#include <boost/unordered/unordered_node_set.hpp>
 #include <boost/unordered/unordered_flat_set.hpp>
 #include <boost/unordered/concurrent_flat_map.hpp>
 #include <boost/unordered/concurrent_flat_set.hpp>
 #include <boost/unordered/concurrent_node_set.hpp>
+#include <boost/unordered/concurrent_node_map.hpp>
 #include <boost/interprocess/smart_ptr/unique_ptr.hpp>
 #include <boost/smart_ptr/detail/spinlock.hpp>
 #include <boost/interprocess/containers/map.hpp>
@@ -52,6 +54,7 @@
 #include <boost/container/node_allocator.hpp>
 #include <boost/container/scoped_allocator.hpp>
 #include <boost/array.hpp>
+#include <boost/iterator/counting_iterator.hpp>
 
 #include <algorithm>
 #include <atomic>
@@ -62,6 +65,7 @@
 #include <execution>
 #include <functional>
 #include <iomanip>
+#include <ranges>
 #include <limits>
 #include <map>
 #include <new>
@@ -85,12 +89,15 @@ class Binary;
 
 namespace jove {
 
+#include "jove/target.h.inc"
+
 template <bool MT>
 class explorer_t;
-template <bool MT>
+template <bool MT = AreWeMT, bool MinSize = AreWeMinSize>
 struct jv_base_t;
+template <bool MT = AreWeMT, bool MinSize = AreWeMinSize>
+struct binary_base_t;
 
-#include "jove/target.h.inc"
 #include "jove/terminator.h.inc"
 #include "jove/mt.h.inc"
 #include "jove/possibly_concurrent.h.inc"
@@ -99,9 +106,6 @@ struct jv_base_t;
 #include "jove/adjacency_list.h.inc"
 #include "jove/table.h.inc"
 #include "jove/addr_intvl.h.inc"
-
-template <bool MT>
-struct binary_base_t;
 
 struct allocates_basic_block_t {
   basic_block_index_t BBIdx = invalid_basic_block_index;
@@ -117,12 +121,10 @@ struct allocates_basic_block_t {
   explicit operator basic_block_index_t() const { return BBIdx; }
 };
 
-template <bool MT>
-using bbbmap_t = possibly_concurrent_flat_map<
-    MT, std::true_type /* Spin */, taddr_t, allocates_basic_block_t,
-    boost::hash<taddr_t>, std::equal_to<taddr_t>,
-    boost::interprocess::allocator<
-        std::pair<const taddr_t, allocates_basic_block_t>, segment_manager_t>>;
+template <bool MT, bool Node>
+using bbbmap_t = possibly_concurrent_node_or_flat_map<
+    MT, Node, std::true_type /* Spin */, taddr_t, allocates_basic_block_t,
+    boost::hash<taddr_t>, std::equal_to<taddr_t>>;
 
 typedef boost::interprocess::map<
     addr_intvl, basic_block_index_t, addr_intvl_cmp,
@@ -178,12 +180,10 @@ struct allocates_function_t {
   explicit operator function_index_t() const { return FIdx; }
 };
 
-template <bool MT>
-using fnmap_t = possibly_concurrent_flat_map<
-    MT, std::true_type /* Spin */, taddr_t, allocates_function_t,
-    boost::hash<taddr_t>, std::equal_to<taddr_t>,
-    boost::interprocess::allocator<
-        std::pair<const taddr_t, allocates_function_t>, segment_manager_t>>;
+template <bool MT, bool Node>
+using fnmap_t = possibly_concurrent_node_or_flat_map<
+    MT, Node, std::true_type /* Spin */, taddr_t, allocates_function_t,
+    boost::hash<taddr_t>, std::equal_to<taddr_t>>;
 
 size_t jvDefaultInitialSize(void);
 
@@ -743,14 +743,14 @@ private:
 
 #include "jove/objdump.h.inc"
 
-template <bool MT = true>
+template <bool MT, bool MinSize>
 struct binary_base_t {
   binary_index_t Idx = invalid_binary_index;
 
-  bbbmap_t<MT> bbbmap;
+  bbbmap_t<MT, MinSize> bbbmap;
 
   BBMap_t<MT> BBMap;
-  fnmap_t<MT> fnmap;
+  fnmap_t<MT, MinSize> fnmap;
 
   ip_string Name;
   ip_string Data;
@@ -956,8 +956,6 @@ struct binary_base_t {
   binary_base_t &operator=(const binary_base_t &) = delete;
 };
 
-typedef binary_base_t<true> binary_t;
-
 struct objdump_exception {
   taddr_t Addr;
   objdump_exception(taddr_t Addr) : Addr(Addr) {}
@@ -1016,7 +1014,7 @@ struct AddOptions_t;
 struct adds_binary_t {
   binary_index_t BIdx = invalid_basic_block_index;
 
-  explicit adds_binary_t() = default;
+  explicit adds_binary_t() noexcept = default;
   explicit adds_binary_t(binary_index_t BIdx) noexcept : BIdx(BIdx) {
     assert(is_binary_index_valid(BIdx));
   }
@@ -1063,26 +1061,23 @@ struct cached_hash_t {
   void Update(const char *path, std::string &file_contents);
 };
 
-template <bool MT>
-using ip_cached_hashes_type = possibly_concurrent_flat_map<
-    MT, std::false_type /* !Spin */, ip_string, cached_hash_t, ip_string_hash_t,
-    ip_string_equal_t,
-    boost::container::scoped_allocator_adaptor<boost::interprocess::allocator<
-        std::pair<const ip_string, cached_hash_t>, segment_manager_t>>>;
+template <bool MT, bool Node>
+using ip_cached_hashes_type =
+    possibly_concurrent_node_or_flat_map<MT, Node, std::false_type /* !Spin */,
+                                         ip_string, cached_hash_t,
+                                         ip_string_hash_t, ip_string_equal_t>;
 
-template <bool MT>
-using ip_hash_to_binary_map_type = possibly_concurrent_flat_map<
-    MT, std::false_type /* !Spin */, hash_t, adds_binary_t, JoveBinaryHash,
-    std::equal_to<hash_t>,
-    boost::interprocess::allocator<std::pair<const hash_t, adds_binary_t>,
-                                   segment_manager_t>>;
+template <bool MT, bool Node>
+using ip_hash_to_binary_map_type =
+    possibly_concurrent_node_or_flat_map<MT, Node, std::false_type /* !Spin */,
+                                         hash_t, adds_binary_t, JoveBinaryHash,
+                                         std::equal_to<hash_t>>;
 
-template <bool MT>
-using ip_name_to_binaries_map_type = possibly_concurrent_flat_map<
-    MT, std::false_type /* !Spin */, ip_string, ip_binary_index_set,
-    ip_string_hash_t, ip_string_equal_t,
-    boost::container::scoped_allocator_adaptor<boost::interprocess::allocator<
-        std::pair<const ip_string, ip_binary_index_set>, segment_manager_t>>>;
+template <bool MT, bool Node>
+using ip_name_to_binaries_map_type =
+    possibly_concurrent_node_or_flat_map<MT, Node, std::false_type /* !Spin */,
+                                         ip_string, ip_binary_index_set,
+                                         ip_string_hash_t, ip_string_equal_t>;
 
 template <bool MT>
 using on_newbin_proc_t = std::function<void(binary_base_t<MT> &)>;
@@ -1100,17 +1095,19 @@ using ip_binary_deque_t =
     ip_deque<binary_base_t<MT>,
              boost::interprocess::private_node_allocator<binary_base_t<MT>,
                                                          segment_manager_t>,
-             MT>;
+             MT, true, true>;
 
 template <bool MT>
 using ip_binary_table_t = table_t<binary_base_t<MT>, MaxBinaries>;
 
-template <bool MT = true>
+template <bool MT, bool MinSize>
 struct jv_base_t {
   //
   // references to binary_t will never be invalidated.
   //
-  ip_binary_table_t<MT> Binaries;
+  std::conditional_t<MinSize,
+    ip_binary_deque_t<MT>,
+    ip_binary_table_t<MT>> Binaries;
 
   struct Analysis_t {
     ip_call_graph_base_t<MT> ReverseCallGraph;
@@ -1125,10 +1122,10 @@ struct jv_base_t {
         : ReverseCallGraph(std::move(other.ReverseCallGraph)) {}
   } Analysis;
 
-  ip_hash_to_binary_map_type<MT> hash_to_binary;
-  ip_cached_hashes_type<MT> cached_hashes; /* NOT serialized */
+  ip_hash_to_binary_map_type<MT, MinSize> hash_to_binary;
+  ip_cached_hashes_type<MT, MinSize> cached_hashes; /* NOT serialized */
 
-  ip_name_to_binaries_map_type<MT> name_to_binaries;
+  ip_name_to_binaries_map_type<MT, MinSize> name_to_binaries;
 
   template <typename Proc>
   void ForEachNameToBinaryEntry(Proc proc) {
@@ -1138,6 +1135,22 @@ struct jv_base_t {
       std::for_each(name_to_binaries.begin(),
                     name_to_binaries.end(),
                     proc);
+  }
+
+  template <typename... Args>
+  bool TryHashToBinaryEmplace(Args &&...args) {
+    if constexpr (MT)
+      return hash_to_binary.try_emplace(std::forward<Args>(args)...);
+    else
+      return hash_to_binary.try_emplace(std::forward<Args>(args)...).second;
+  }
+
+  template <typename... Args>
+  bool TryNameToBinariesEmplace(Args &&...args) {
+    if constexpr (MT)
+      return name_to_binaries.try_emplace(std::forward<Args>(args)...);
+    else
+      return name_to_binaries.try_emplace(std::forward<Args>(args)...).second;
   }
 
   void InvalidateFunctionAnalyses(void);
@@ -1155,18 +1168,30 @@ struct jv_base_t {
         cached_hashes(jv_file.get_segment_manager()),
         name_to_binaries(jv_file.get_segment_manager()) {}
 
-  template <bool MT2>
-  explicit jv_base_t(jv_base_t<MT2> &&other, jv_file_t &jv_file) noexcept
+  explicit jv_base_t(jv_base_t<MT, MinSize> &&other, jv_file_t &jv_file) noexcept
+      : Binaries(std::move(other.Binaries)),
+        Analysis(std::move(other.Analysis)),
+        hash_to_binary(std::move(other.hash_to_binary)),
+        cached_hashes(std::move(other.cached_hashes)),
+        name_to_binaries(std::move(other.name_to_binaries)) {
+  }
+
+  explicit jv_base_t(jv_base_t<!MT, MinSize> &&other, jv_file_t &jv_file) noexcept
       : Binaries(jv_file),
         Analysis(std::move(other.Analysis)),
         hash_to_binary(std::move(other.hash_to_binary)),
         cached_hashes(std::move(other.cached_hashes)),
         name_to_binaries(std::move(other.name_to_binaries)) {
-    const unsigned N = other.Binaries.len_.load(std::memory_order_relaxed);
-    Binaries.len_.store(N, std::memory_order_relaxed);
+    if constexpr (MinSize) {
+      for (binary_base_t<!MT> &b : other.Binaries)
+        Binaries.container().emplace_back(std::move(b));
+    } else {
+      const unsigned N = other.Binaries.len_.load(std::memory_order_relaxed);
+      Binaries.len_.store(N, std::memory_order_relaxed);
 
-    for (unsigned i = 0; i < N; ++i)
-      Binaries[i] = std::move(other.Binaries[i]);
+      for (unsigned i = 0; i < N; ++i)
+        Binaries[i] = std::move(other.Binaries[i]);
+    }
   }
 
   explicit jv_base_t() = delete;
@@ -1214,12 +1239,23 @@ private:
                                                       const AddOptions_t &);
 
   void initialize_all_binary_indices(void) noexcept {
-    std::for_each(std::execution::par_unseq,
-                  Binaries.begin(),
-                  Binaries.begin() + MaxBinaries, [&](auto &b) {
-                    b.Idx = &b - Binaries.begin();
-                  });
+    if constexpr (MinSize) {
+      auto first = boost::iterators::counting_iterator<std::size_t>(0);
+      auto last  = boost::iterators::counting_iterator<std::size_t>(Binaries.size());
+
+      std::for_each(maybe_par_unseq,
+                    first,
+                    last,
+                    [&](size_t i) { Binaries.at(i).Idx = i; });
+    } else {
+      std::for_each(maybe_par_unseq,
+                    Binaries.begin(),
+                    Binaries.begin() + MaxBinaries, [&](auto &b) {
+                      b.Idx = &b - Binaries.begin();
+                    });
+    }
   }
+
 public:
   template <bool MT2>
   void DoAdd(binary_base_t<MT2> &,
@@ -1232,8 +1268,6 @@ public:
   void fixup(void);
   void fixup_binary(const binary_index_t);
 };
-
-typedef jv_base_t<true> jv_t;
 
 static inline std::string
 description_of_block(const basic_block_properties_t &bbprop,
@@ -1915,7 +1949,7 @@ static inline binary_base_t<MT> &get_vdso(jv_base_t<MT> &jv) {
 //
 template <bool MT>
 static inline void hack_interprocess_graphs(jv_base_t<MT> &jv) {
-  for_each_binary(std::execution::par_unseq, jv, [&](auto &b) {
+  for_each_binary(maybe_par_unseq, jv, [&](auto &b) {
     __builtin_memset_inline(&b.Analysis.ICFG.container().m_property, 0,
                             sizeof(b.Analysis.ICFG.container().m_property));
   });

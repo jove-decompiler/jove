@@ -46,7 +46,7 @@ JOVE_REGISTER_TOOL("scan", ScanTool);
 
 int ScanTool::Run(void) {
   if (opts.Binary.empty()) {
-    for_each_binary(std::execution::par_unseq, jv,
+    for_each_binary(maybe_par_unseq, jv,
                     [&](binary_t &b) { ScanBinary(b); });
   } else {
     binary_index_t BinaryIndex = invalid_binary_index;

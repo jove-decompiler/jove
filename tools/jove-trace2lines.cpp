@@ -21,13 +21,13 @@ namespace {
 
 struct binary_state_t {
   std::unique_ptr<llvm::object::Binary> Bin;
-  binary_state_t(const binary_t &b) { Bin = B::Create(b.data()); }
+  binary_state_t(const auto &b) { Bin = B::Create(b.data()); }
 };
 
 struct function_state_t {
   basic_block_vec_t BasicBlocks;
 
-  function_state_t(const function_t &f, const binary_t &b) {}
+  function_state_t(const auto &f, const auto &b) {}
 };
 
 }

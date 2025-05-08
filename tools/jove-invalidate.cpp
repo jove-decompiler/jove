@@ -41,15 +41,15 @@ struct InvalidateTool : public JVTool<ToolKind::Standard> {
 JOVE_REGISTER_TOOL("invalidate", InvalidateTool);
 
 int InvalidateTool::Run(void) {
-  for_each_binary(std::execution::par_unseq, jv, [&](binary_t &b) {
+  for_each_binary(maybe_par_unseq, jv, [&](binary_t &b) {
     if (opts.Functions)
       for_each_function_in_binary(
-          std::execution::par_unseq, b,
+          maybe_par_unseq, b,
           [&](function_t &f) { f.InvalidateAnalysis(); });
 
     if (opts.Blocks)
       for_each_basic_block_in_binary(
-          std::execution::par_unseq, b, [&](basic_block_t bb) {
+          maybe_par_unseq, b, [&](basic_block_t bb) {
             b.Analysis.ICFG[bb].InvalidateAnalysis(jv, b);
           });
   });

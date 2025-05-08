@@ -32,7 +32,7 @@ int UnlockTool::Run(void) {
   jv.Binaries.__force_reset_access();
 #endif
   std::for_each(
-      std::execution::par_unseq,
+      maybe_par_unseq,
       jv.Binaries.begin(),
       jv.Binaries.end(), [&](binary_t &b) {
         b.BBMap.__force_reset_access();
@@ -41,7 +41,7 @@ int UnlockTool::Run(void) {
 
         auto &ICFG = b.Analysis.ICFG;
         auto it_pair = boost::vertices(ICFG.container());
-        std::for_each(std::execution::par_unseq,
+        std::for_each(maybe_par_unseq,
                       it_pair.first,
                       it_pair.second, [&](basic_block_t bb) {
                         auto &bbprop = ICFG.container()[bb];

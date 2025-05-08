@@ -21,7 +21,7 @@ namespace {
 
 struct binary_state_t {
   std::unique_ptr<llvm::object::Binary> Bin;
-  binary_state_t(const binary_t &b) { Bin = B::Create(b.data()); }
+  binary_state_t(const auto &b) { Bin = B::Create(b.data()); }
 };
 
 }
@@ -50,7 +50,7 @@ public:
   void FindCallStackFiles(const fs::path &dir, const char *env,
                           std::vector<unsigned> &tidvec);
 
-  taddr_t AddrOrOff(const binary_t &, taddr_t);
+  taddr_t AddrOrOff(const binary_t &binary, taddr_t);
 };
 
 JOVE_REGISTER_TOOL("callstack", CallStackTool);
@@ -81,7 +81,7 @@ int CallStackTool::Run(void) {
   }
 
   std::for_each(
-      std::execution::par_unseq, /* CoW map ASAP */
+      maybe_par_unseq, /* CoW map ASAP */
       tidvec.begin(),
       tidvec.end(),
       [&](unsigned tid) {

@@ -58,7 +58,7 @@ int Addr2Off::Run(void) {
     return 1;
   }
 
-  binary_t &b = jv.Binaries.at(BinaryIndex);
+  auto &b = jv.Binaries.at(BinaryIndex);
   auto Bin = B::Create(b.data());
   uint64_t Addr = strtoull(opts.Addr.c_str(), nullptr, 0x10);
 

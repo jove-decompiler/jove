@@ -1,3 +1,4 @@
+#if !defined(__mips64) && !defined(__mips__)
 #include "tool.h"
 #include "B.h"
 #include "tcg.h"
@@ -129,11 +130,11 @@ int AnalyzeTool::AnalyzeBlocks(void) {
 
 int AnalyzeTool::AnalyzeFunctions(void) {
 #if 0 /* force initializing state upfront */
-  for_each_binary(std::execution::par_unseq, jv, [&](binary_t &b) {
+  for_each_binary(maybe_par_unseq, jv, [&](binary_t &b) {
     (void)state.for_binary(b);
 
     for_each_function_in_binary(
-        std::execution::par_unseq, b,
+        maybe_par_unseq, b,
         [&](function_t &f) { (void)state.for_function(f); });
   });
 #endif
@@ -168,7 +169,7 @@ int AnalyzeTool::AnalyzeFunctions(void) {
       analyzer->analyze_functions();
     } else {
       auto analyze_functions_in_binary = [&](auto &b) -> void {
-        for_each_function_in_binary(std::execution::par_unseq, b,
+        for_each_function_in_binary(maybe_par_unseq, b,
                                     [&](function_t &f) {
                                       analyzer->analyze_function(f);
 
@@ -178,7 +179,7 @@ int AnalyzeTool::AnalyzeFunctions(void) {
       if (opts.ForeignLibs)
         analyze_functions_in_binary(jv.Binaries.at(0));
       else
-        for_each_binary(std::execution::par_unseq, jv,
+        for_each_binary(maybe_par_unseq, jv,
                         [&](auto &b) { analyze_functions_in_binary(b); });
     }
   };
@@ -371,3 +372,4 @@ int AnalyzeTool::AnalyzeFunctions(void) {
   return 0;
 }
 }
+#endif

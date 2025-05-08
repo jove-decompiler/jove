@@ -20,12 +20,12 @@ namespace jove {
 
 #include "relocs_common.hpp"
 
-template <bool MT>
+template <bool MT, bool MinSize>
 template <bool MT2>
-void jv_base_t<MT>::DoAdd(binary_base_t<MT2> &b,
-                          explorer_t<MT2> &explorer,
-                          llvm::object::Binary &Bin,
-                          const AddOptions_t &Options) {
+void jv_base_t<MT, MinSize>::DoAdd(binary_base_t<MT2> &b,
+                                   explorer_t<MT2> &explorer,
+                                   llvm::object::Binary &Bin,
+                                   const AddOptions_t &Options) {
   b.IsDynamicLinker = false;
   b.IsExecutable = false;
   b.IsVDSO = false;

@@ -37,7 +37,9 @@ function_index_t explorer_t<MT>::_explore_function(binary_base_t<MT> &b,
     if constexpr (MT) {
       inserted = b.fnmap.try_emplace_or_cvisit(
           Addr, b, std::ref(Idx),
-          [&](const typename fnmap_t<MT>::value_type &x) { Idx = static_cast<function_index_t>(x.second); });
+          [&](const typename fnmap_t<MT, AreWeMinSize>::value_type &x) {
+            Idx = static_cast<function_index_t>(x.second);
+          });
     } else {
       auto it = b.fnmap.find(Addr);
       if (it == b.fnmap.end()) {
@@ -335,7 +337,7 @@ explorer_t<MT>::_explore_basic_block(binary_base_t<MT> &b,
     if constexpr (MT) {
       inserted = b.bbbmap.try_emplace_or_cvisit(
           Addr, b, std::ref(Idx), static_cast<taddr_t>(Addr),
-          [&](const typename bbbmap_t<MT>::value_type &x) {
+          [&](const typename bbbmap_t<MT, AreWeMinSize>::value_type &x) {
             Idx = static_cast<basic_block_index_t>(x.second);
           });
     } else {
@@ -612,7 +614,7 @@ explorer_t<MT>::_explore_basic_block(binary_base_t<MT> &b,
     // explore both destinations concurrently
     std::array<taddr_t, 2> Targets{{T._conditional_jump.Target,
                                      T._conditional_jump.NextPC}};
-    std::for_each(std::execution::par_unseq,
+    std::for_each(maybe_par_unseq,
                   Targets.begin(),
                   Targets.end(),
                   [&](taddr_t Target) {
@@ -653,7 +655,7 @@ explorer_t<MT>::_explore_basic_block(binary_base_t<MT> &b,
         jv_base_t<MT> &jv = *maybe_jv;
 
         const auto &ParentsVec = bbprop.Parents.template get<MT>();
-        std::for_each(std::execution::par_unseq,
+        std::for_each(maybe_par_unseq,
                       ParentsVec.cbegin(),
                       ParentsVec.cend(), [&](function_index_t FIdx) {
                         function_t &caller = b.Analysis.Functions.at(FIdx);

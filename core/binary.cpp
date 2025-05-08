@@ -3,18 +3,19 @@
 
 namespace jove {
 
-template <bool MT>
-void binary_base_t<MT>::InvalidateBasicBlockAnalyses(void) {
-  for_each_function_in_binary(std::execution::par_unseq, *this,
+template <bool MT, bool MinSize>
+void binary_base_t<MT, MinSize>::InvalidateBasicBlockAnalyses(void) {
+  for_each_function_in_binary(maybe_par_unseq, *this,
                               [&](function_t &f) { f.InvalidateAnalysis(); });
 }
 
-template <bool MT>
-bool binary_base_t<MT>::FixAmbiguousIndirectJump(taddr_t TermAddr,
-                                                 explorer_t<MT> &E,
-                                                 llvm::object::Binary &Bin,
-                                                 jv_file_t &jv_file,
-                                                 jv_base_t<MT> &jv) {
+template <bool MT, bool MinSize>
+bool binary_base_t<MT, MinSize>::FixAmbiguousIndirectJump(
+    taddr_t TermAddr,
+    explorer_t<MT> &E,
+    llvm::object::Binary &Bin,
+    jv_file_t &jv_file,
+    jv_base_t<MT> &jv) {
   std::vector<taddr_t> SuccAddrVec;
 
   basic_block_t bb;
@@ -57,7 +58,7 @@ bool binary_base_t<MT>::FixAmbiguousIndirectJump(taddr_t TermAddr,
     ICFG.template clear_out_edges<MT>(bb); /* ambiguous no more */
 
     auto &bbprop = ICFG[basic_block_at_address(TermAddr, *this)];
-    std::for_each(std::execution::par_unseq,
+    std::for_each(maybe_par_unseq,
                   SuccFIdxVec.cbegin(),
                   SuccFIdxVec.cend(), [&](function_index_t FIdx) {
                     bbprop.insertDynTarget(index_of_binary(*this, jv),

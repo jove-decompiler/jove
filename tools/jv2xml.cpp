@@ -20,7 +20,9 @@ using llvm::WithColor;
 
 namespace jove {
 
-struct jv2xmlTool : public Tool {
+struct jv2xmlTool : public JVTool<ToolKind::CopyOnWrite> {
+  using jv_t = BaseJVTool::jv_t;
+
   struct Cmdline {
     cl::opt<std::string> InputFilename;
 
@@ -38,23 +40,6 @@ public:
 JOVE_REGISTER_TOOL("jv2xml", jv2xmlTool);
 
 int jv2xmlTool::Run(void) {
-  jv_file_t jv_file(boost::interprocess::open_copy_on_write, opts.InputFilename.c_str());
-  std::pair<jv_t *, jv_file_t::size_type> search = jv_file.find<jv_t>("JV");
-
-  if (search.second == 0) {
-    llvm::errs() << "jv_t not found\n";
-    return 1;
-  }
-
-  if (search.second > 1) {
-    llvm::errs() << "multiple jv_t found\n";
-    return 1;
-  }
-
-  assert (search.second == 1);
-
-  jv_t &jv = *search.first;
-
   // destructively modify data so the output is printable
   for_each_binary(jv, [&](binary_t &binary) {
     std::fill(binary.Data.begin(), binary.Data.end(), ' ');

@@ -21,7 +21,7 @@ JOVE_REGISTER_TOOL("sanity", SanityCheck);
 int SanityCheck::Run(void) {
   bool ret = 0;
 
-  for_each_binary(std::execution::par_unseq, jv, [&](binary_t &b) {
+  for_each_binary(maybe_par_unseq, jv, [&](binary_t &b) {
     if (!b.is_file())
       return;
 

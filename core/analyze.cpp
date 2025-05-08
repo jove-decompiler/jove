@@ -1,3 +1,4 @@
+#if !defined(__mips64) && !defined(__mips__)
 #include "analyze.h"
 #include "B.h"
 #include "locator.h"
@@ -69,7 +70,7 @@ void analyzer_t<MT>::update_callers(void) {
         }
 
         bbprop.DynTargetsForEach(
-            std::execution::par_unseq, [&](const dynamic_target_t &X) {
+            maybe_par_unseq, [&](const dynamic_target_t &X) {
               assert(TermAddr);
 
               function_t &f = function_of_target(X, jv);
@@ -81,14 +82,14 @@ void analyzer_t<MT>::update_callers(void) {
 
 template <bool MT>
 void analyzer_t<MT>::update_parents(void) {
-  for_each_function(std::execution::par_unseq, jv,
+  for_each_function(maybe_par_unseq, jv,
                     [&](function_t &f, binary_base_t<MT> &b) {
     const function_index_t FIdx = index_of_function_in_binary(f, b);
 
     const auto &bbvec = state.for_function(f).bbvec;
 
     auto &ICFG = b.Analysis.ICFG;
-    std::for_each(std::execution::par_unseq,
+    std::for_each(maybe_par_unseq,
                   bbvec.begin(),
                   bbvec.end(),
                   [&](basic_block_t bb) {
@@ -104,7 +105,7 @@ void analyzer_t<MT>::identify_ABIs(void) {
   //
   // If a function is called from a different binary, it is an ABI.
   //
-  for_each_basic_block(std::execution::par_unseq,
+  for_each_basic_block(maybe_par_unseq,
                        jv, [&](binary_base_t<MT> &b, basic_block_t bb) {
     auto &bbprop = b.Analysis.ICFG[bb];
     if (!bbprop.hasDynTarget())
@@ -114,7 +115,7 @@ void analyzer_t<MT>::identify_ABIs(void) {
 
     if (bbprop.DynTargetsAnyOf(
             [&](const dynamic_target_t &X) { return X.first != BIdx; }))
-      bbprop.DynTargetsForEach(std::execution::par_unseq,
+      bbprop.DynTargetsForEach(maybe_par_unseq,
                                [&](const dynamic_target_t &X) {
                                  racy::set(function_of_target(X, jv).IsABI);
                                });
@@ -125,7 +126,7 @@ void analyzer_t<MT>::identify_ABIs(void) {
 template <bool MT>
 void analyzer_t<MT>::identify_Sjs(void) {
   for_each_function(
-      std::execution::par_unseq, jv, [&](function_t &f, binary_base_t<MT> &b) {
+      maybe_par_unseq, jv, [&](function_t &f, binary_base_t<MT> &b) {
         function_index_t FIdx = index_of_function_in_binary(f, b);
 
         function_state_t &x = state.for_function(f);
@@ -192,7 +193,7 @@ int analyzer_t<MT>::analyze_blocks(void) {
 
   if (options.Conservative >= 1)
     for_each_function_if(
-        std::execution::par_unseq, jv,
+        maybe_par_unseq, jv,
         [](function_t &f) { return f.IsABI; },
         [](function_t &f, binary_base_t<MT> &b) {
           auto &ICFG = b.Analysis.ICFG;
@@ -901,3 +902,4 @@ template struct analyzer_t<false>;
 template struct analyzer_t<true>;
 
 }
+#endif

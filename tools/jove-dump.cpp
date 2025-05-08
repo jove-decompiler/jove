@@ -24,7 +24,7 @@ using llvm::WithColor;
 
 namespace jove {
 
-class DumpTool : public JVTool<ToolKind::SingleThreadedCopyOnWrite> {
+class DumpTool : public JVTool<ToolKind::CopyOnWrite> {
   struct Cmdline {
     cl::opt<std::string> Output;
     cl::alias OutputAlias;
@@ -83,7 +83,7 @@ public:
 
   int Run(void) override;
 
-  void dumpDecompilation(const jv_base_t<false> &);
+  void dumpDecompilation(const jv_t &);
   void dumpInput(const std::string &Path);
 };
 
@@ -91,7 +91,7 @@ JOVE_REGISTER_TOOL("dump", DumpTool);
 
 typedef boost::format fmt;
 
-void DumpTool::dumpDecompilation(const jv_base_t<false>& jv) {
+void DumpTool::dumpDecompilation(const jv_t &jv) {
   std::unique_ptr<llvm::raw_fd_ostream> ostream;
   if (!opts.Output.empty()) {
     std::error_code EC;

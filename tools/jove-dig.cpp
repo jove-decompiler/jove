@@ -28,7 +28,7 @@ namespace {
 struct binary_state_t {
   uint64_t SectsStartAddr, SectsEndAddr;
 
-  binary_state_t(const binary_t &b) {}
+  binary_state_t(const auto &b) {}
 };
 
 }
@@ -191,7 +191,7 @@ int CodeDigger::Run(void) {
     auto t1 = std::chrono::high_resolution_clock::now();
 
     std::for_each(
-      std::execution::par_unseq,
+      maybe_par_unseq,
       Q.begin(),
       Q.end(),
       std::bind(&CodeDigger::Worker, this, std::placeholders::_1));
@@ -212,7 +212,7 @@ int CodeDigger::Run(void) {
   if (opts.NoSave)
     return 0;
 
-  for_each_function(std::execution::par_unseq, jv,
+  for_each_function(maybe_par_unseq, jv,
                     [](function_t &f, binary_t &b) { f.InvalidateAnalysis(); });
 
   if (IsVerbose())

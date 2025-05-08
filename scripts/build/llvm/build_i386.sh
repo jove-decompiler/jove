@@ -30,7 +30,7 @@ cmake -G Ninja \
   -D "LLVM_TABLEGEN=$(pwd)/../build/llvm/bin/llvm-tblgen" \
   -D LLVM_BUILD_TESTS=OFF \
   -D LLVM_INCLUDE_TESTS=OFF \
-  -D "LLVM_ENABLE_PROJECTS=llvm" \
+  -D "LLVM_ENABLE_PROJECTS=clang;lld" \
   -D LLVM_ENABLE_RTTI=ON \
   -D LLVM_ENABLE_LIBXML2=OFF \
   -D LLVM_ENABLE_TERMINFO=OFF \
@@ -50,4 +50,4 @@ cmake -G Ninja \
 
 fi
 
-ninja llvm/bin/jove-i386
+ninja llvm/include/llvm/IR/Attributes.inc && ninja llvm/bin/{llvm-tblgen,llvm-dis,llvm-dlltool,llvm-cbe,opt,llc,clang,clang-tblgen,lld,jove-i386}

@@ -277,32 +277,20 @@ typedef Tool *(*ToolCreationProc)(void);
 
 size_t jvCreationSize(void);
 
-template <bool MT>
+template <bool MT = AreWeMT>
 struct BaseJVTool : public Tool {
   static constexpr bool IsToolMT = MT;
 
+  using jv_t = jv_base_t<MT>;
+  using binary_t = binary_base_t<MT>;
+
   jv_file_t jv_file;
-
-  using mt_jv_ref = std::conditional_t<!MT, jv_base_t<true> &, std::monostate>;
-
-  mt_jv_ref __mt_jv;
-  jv_base_t<MT> &jv;
+  jv_t &jv;
 
   template <typename... Args>
   BaseJVTool(Args &&...args)
-    requires(MT)
       : jv_file(std::forward<Args>(args)...),
-        jv(*jv_file.find_or_construct<jv_base_t<true>>("JV")(jv_file)) {
-    DoCtorCommon();
-  }
-
-  template <typename... Args>
-  BaseJVTool(Args &&...args)
-    requires(!MT)
-      : jv_file(std::forward<Args>(args)...),
-        __mt_jv(*jv_file.find_or_construct<jv_base_t<true>>("JV")(jv_file)),
-        jv(*jv_file.construct<jv_base_t<false>>("JV_tmp")(std::move(__mt_jv),
-                                                          jv_file)) {
+        jv(*jv_file.find_or_construct<jv_t>("JV")(jv_file)) {
     DoCtorCommon();
   }
 
@@ -318,17 +306,16 @@ struct BaseJVTool : public Tool {
   static std::string cow_copy_if_possible(const std::string &filename);
 };
 
-enum class ToolKind { Standard, CopyOnWrite, SingleThreadedCopyOnWrite };
+enum class ToolKind { Standard, CopyOnWrite };
 
 constexpr bool IsToolKindCopyOnWrite(ToolKind Kind) {
-  return Kind == ToolKind::CopyOnWrite ||
-         Kind == ToolKind::SingleThreadedCopyOnWrite;
+  return Kind == ToolKind::CopyOnWrite;
 }
 
 template <ToolKind Kind> struct JVTool {};
 
 template <>
-struct JVTool<ToolKind::Standard> : public BaseJVTool<true> {
+struct JVTool<ToolKind::Standard> : public BaseJVTool<> {
   JVTool()
       : BaseJVTool(boost::interprocess::open_or_create,
                    (jv_filename = get_path_to_jv()).c_str(), jvCreationSize())
@@ -336,26 +323,9 @@ struct JVTool<ToolKind::Standard> : public BaseJVTool<true> {
 };
 
 template <>
-struct JVTool<ToolKind::CopyOnWrite> : public BaseJVTool<true>  {
+struct JVTool<ToolKind::CopyOnWrite> : public BaseJVTool<>  {
   JVTool()
       : BaseJVTool(
-            boost::interprocess::open_copy_on_write,
-            (jv_filename = cow_copy_if_possible(get_path_to_jv())).c_str()) {
-    if (is_jv_cow_copy)
-      ::unlink(path_to_jv().c_str());
-#if 0
-    if (char *var = getenv("JVFORCE")) {
-      if (var[0] == '1')
-        forcefully_unlock(jv);
-    }
-#endif
-  }
-};
-
-template <>
-struct JVTool<ToolKind::SingleThreadedCopyOnWrite> : public BaseJVTool<false> {
-  JVTool()
-      : BaseJVTool<false>(
             boost::interprocess::open_copy_on_write,
             (jv_filename = cow_copy_if_possible(get_path_to_jv())).c_str()) {
     if (is_jv_cow_copy)
@@ -373,7 +343,7 @@ template <ToolKind Kind,
           typename BinaryStateT,
           typename FunctionStateT,
           typename BBStateT,
-          bool MultiThreaded = true,
+          bool MultiThreaded = AreWeMT,
           bool LazyInitialization = true,
           bool Eager = false,
           bool BoundsChecking = true,

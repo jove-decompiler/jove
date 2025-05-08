@@ -47,7 +47,7 @@ struct binary_state_t {
   std::vector<std::string> needed;
   std::string soname;
 
-  binary_state_t(const binary_t &b) {
+  binary_state_t(const auto &b) {
     Bin = B::Create(b.data());
 
     //
@@ -257,7 +257,7 @@ int DecompileTool::Run(void) {
   auto t1 = std::chrono::high_resolution_clock::now();
 
   std::for_each(
-    std::execution::par_unseq,
+    maybe_par_unseq,
     Q.begin(),
     Q.end(),
     [&](binary_index_t BIdx) {
@@ -459,7 +459,7 @@ int DecompileTool::Run(void) {
   });
 
   std::for_each(
-    std::execution::par_unseq,
+    maybe_par_unseq,
     helper_nms.begin(),
     helper_nms.end(),
     [&](const std::string &helper_nm) {

@@ -167,6 +167,17 @@ serialize(Archive &ar,
 }
 
 //
+// ip_deque
+//
+template <class Archive, class T, class Allocator, bool MT, bool Spin, bool PointUnique>
+static inline void
+serialize(Archive &ar,
+          jove::ip_deque<T, Allocator, MT, Spin, PointUnique> &x,
+          const unsigned int file_version) {
+  ar &BOOST_SERIALIZATION_NVP(x.container());
+}
+
+//
 // interprocess map
 //
 
@@ -363,7 +374,7 @@ static void serialize(Archive &ar, jove::binary_base_t<MT> &b,
      &BOOST_SERIALIZATION_NVP(b.IsPIC)
      &BOOST_SERIALIZATION_NVP(b.IsDynamicallyLoaded)
      &BOOST_SERIALIZATION_NVP(b.Analysis.EntryFunction)
-     &BOOST_SERIALIZATION_NVP(b.Analysis.Functions.container())
+     &BOOST_SERIALIZATION_NVP(b.Analysis.Functions)
      &BOOST_SERIALIZATION_NVP(b.Analysis.ICFG);
 }
 
@@ -471,7 +482,7 @@ template <class Archive, bool MT>
 static void load_construct_data(Archive &ar, jove::binary_base_t<MT> *t,
                                 const unsigned int file_version) {
   assert(jove::pFile_hack);
-  ::new (t)jove::binary_t(*jove::pFile_hack);
+  ::new (t)jove::binary_base_t<MT>(*jove::pFile_hack);
 }
 
 #define VALUES_TO_INSTANTIATE_WITH1                                            \

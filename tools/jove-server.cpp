@@ -33,6 +33,9 @@ using llvm::WithColor;
 namespace jove {
 
 class ServerTool : public Tool {
+  using jv_t = jv_base_t<>;
+  using binary_t = binary_base_t<>;
+
   struct Cmdline {
     cl::opt<unsigned> Port;
 

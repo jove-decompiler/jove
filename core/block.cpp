@@ -112,7 +112,7 @@ bool basic_block_properties_t::insertDynTarget(binary_index_t ThisBIdx,
     auto &RCG = jv.Analysis.ReverseCallGraph;
     const auto &ParentsVec = Parents.get<MT>();
 
-    std::for_each(std::execution::par_unseq,
+    std::for_each(maybe_par_unseq,
                   ParentsVec.cbegin(),
                   ParentsVec.cend(), [&](function_index_t FIdx) {
                     function_t &caller = caller_b.Analysis.Functions.at(FIdx);
@@ -149,7 +149,7 @@ void basic_block_properties_t::InvalidateAnalysis(jv_base_t<MT> &jv,
   function_invalidator_t invalidator(jv);
 
   const auto &ParentsVec = Parents.get<MT>();
-  std::for_each(std::execution::par_unseq,
+  std::for_each(maybe_par_unseq,
                 ParentsVec.cbegin(),
                 ParentsVec.cend(), [&](function_index_t FIdx) {
                   function_t &f = b.Analysis.Functions.at(FIdx);

@@ -1,3 +1,4 @@
+#if !defined(__mips64) && !defined(__mips__)
 #include "qemu.tcg.h"
 #include "../qemu/include/jove.h"
 #include "asm-offsets.h"
@@ -144,7 +145,7 @@ struct function_state_t {
   llvm::Function *F = nullptr;
   llvm::Function *adapterF = nullptr;
 
-  function_state_t(const function_t &f, const auto &b) {
+  function_state_t(const auto &f, const auto &b) {
     if (!is_basic_block_index_valid(f.Entry))
       return;
 
@@ -4047,7 +4048,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
       // backup
       //
       for_each_function_if_in_binary(
-          /* std::execution::par_unseq, */ Binary,
+          /* maybe_par_unseq, */ Binary,
           std::bind(&PatchContents::ShouldPlant, this, std::placeholders::_1),
           [&](function_t &f) {
             uint64_t Addr = entry_address_of_function(f, Binary);
@@ -4061,7 +4062,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
       // plant
       //
       for_each_function_if_in_binary(
-          /* std::execution::par_unseq, */ Binary,
+          /* maybe_par_unseq, */ Binary,
           std::bind(&PatchContents::ShouldPlant, this, std::placeholders::_1),
           [&](function_t &f) {
             uint64_t Addr = entry_address_of_function(f, Binary);
@@ -4080,7 +4081,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
       // restore
       //
       for_each_function_if_in_binary(
-          /* std::execution::par_unseq, */ Binary,
+          /* maybe_par_unseq, */ Binary,
           std::bind(&PatchContents::ShouldPlant, this, std::placeholders::_1),
           [&](function_t &f) {
             uint64_t Addr = entry_address_of_function(f, Binary);
@@ -11618,3 +11619,4 @@ out:
 void _qemu_log(const char *cstr) { llvm::errs() << cstr; }
 
 }
+#endif

@@ -109,7 +109,7 @@ struct binary_state_t {
     elf::DynRegionInfo DynPLTRelRegion;
   } _elf;
 
-  binary_state_t(const binary_t &b) {
+  binary_state_t(const auto &b) {
     ObjectFile = B::Create(b.data());
 
     assert(llvm::isa<ELFO>(ObjectFile.get()));
@@ -1293,7 +1293,7 @@ int BootstrapTool::TracerLoop(pid_t child) {
     //
     std::atomic<unsigned> NumChanged = 0;
 
-    for_each_binary(std::execution::par_unseq, jv, [&](binary_t &b) {
+    for_each_binary(maybe_par_unseq, jv, [&](binary_t &b) {
       auto &ICFG = b.Analysis.ICFG;
 
       for (;;) {

@@ -59,24 +59,35 @@ void cached_hash_t::Update(const char *path, std::string &file_contents) {
   mtime.nsec = st.st_mtim.tv_nsec;
 }
 
-template <bool MT>
-void jv_base_t<MT>::LookupAndCacheHash(hash_t &out, const char *path,
-                                       std::string &file_contents) {
+template <bool MT, bool MinSize>
+void jv_base_t<MT, MinSize>::LookupAndCacheHash(
+    hash_t &out,
+    const char *path,
+    std::string &file_contents) {
   assert(path);
   std::string_view sv(path);
 
   if constexpr (MT) {
+    ip_string ips(get_segment_manager());
+    to_ips(ips, sv);
+
     this->cached_hashes.try_emplace_or_visit(
-        sv, path, std::ref(file_contents), std::ref(out),
-        [&](typename ip_cached_hashes_type<MT>::value_type &x) -> void {
+        std::move(ips),
+        path, std::ref(file_contents), std::ref(out),
+        [&](typename ip_cached_hashes_type<MT, MinSize>::value_type &x) -> void {
           x.second.Update(path, file_contents);
           out = x.second.h;
         });
   } else {
     auto it = this->cached_hashes.find(sv);
     if (it == this->cached_hashes.end()) {
-      bool succ = this->cached_hashes.try_emplace(
-          sv, path, std::ref(file_contents), std::ref(out)).second;
+      ip_string ips(get_segment_manager());
+      to_ips(ips, sv);
+
+      bool succ = this->cached_hashes
+                      .try_emplace(std::move(ips), path,
+                                   std::ref(file_contents), std::ref(out))
+                      .second;
       assert(succ);
     } else {
       (*it).second.Update(path, file_contents);
@@ -85,15 +96,15 @@ void jv_base_t<MT>::LookupAndCacheHash(hash_t &out, const char *path,
   }
 }
 
-template <bool MT>
-bool jv_base_t<MT>::LookupByName(const char *name, binary_index_set &out) {
+template <bool MT, bool MinSize>
+bool jv_base_t<MT, MinSize>::LookupByName(const char *name, binary_index_set &out) {
   assert(name);
   std::string_view sv(name);
 
   if constexpr (MT) {
     return static_cast<bool>(this->name_to_binaries.cvisit(
         sv,
-        [&](const typename ip_name_to_binaries_map_type<MT>::value_type &x) -> void {
+        [&](const typename ip_name_to_binaries_map_type<MT, MinSize>::value_type &x) -> void {
           assert(!x.second.empty());
           x.second.cvisit_all(
               [&](binary_index_t BIdx) -> void { out.insert(BIdx); });
@@ -111,13 +122,13 @@ bool jv_base_t<MT>::LookupByName(const char *name, binary_index_set &out) {
   }
 }
 
-template <bool MT>
-std::optional<binary_index_t> jv_base_t<MT>::LookupByHash(const hash_t &h) {
+template <bool MT, bool MinSize>
+std::optional<binary_index_t> jv_base_t<MT, MinSize>::LookupByHash(const hash_t &h) {
   std::optional<binary_index_t> Res = std::nullopt;
 
   if constexpr (MT) {
     this->hash_to_binary.cvisit(
-        h, [&](const typename ip_hash_to_binary_map_type<MT>::value_type &x) -> void {
+        h, [&](const typename ip_hash_to_binary_map_type<MT, MinSize>::value_type &x) -> void {
           Res = static_cast<binary_index_t>(x.second);
         });
   } else {
@@ -129,10 +140,10 @@ std::optional<binary_index_t> jv_base_t<MT>::LookupByHash(const hash_t &h) {
   return Res;
 }
 
-template <bool MT>
+template <bool MT, bool MinSize>
 template <bool ValidatePath>
 std::pair<binary_index_t, bool>
-jv_base_t<MT>::AddFromPath(explorer_t<MT> &explorer,
+jv_base_t<MT, MinSize>::AddFromPath(explorer_t<MT> &explorer,
                            jv_file_t &jv_file,
                            const char *path,
                            on_newbin_proc_t<MT> on_newbin,
@@ -171,8 +182,8 @@ jv_base_t<MT>::AddFromPath(explorer_t<MT> &explorer,
                              on_newbin, Options);
 }
 
-template <bool MT>
-std::pair<binary_index_t, bool> jv_base_t<MT>::Add(binary_base_t<MT> &&b,
+template <bool MT, bool MinSize>
+std::pair<binary_index_t, bool> jv_base_t<MT, MinSize>::Add(binary_base_t<MT> &&b,
                                                    on_newbin_proc_t<MT> on_newbin) {
   binary_index_t Res = invalid_binary_index;
   bool isNewBinary = false;
@@ -182,7 +193,7 @@ std::pair<binary_index_t, bool> jv_base_t<MT>::Add(binary_base_t<MT> &&b,
     if constexpr (MT) {
       isNewBinary = this->hash_to_binary.try_emplace_or_visit(
           h, std::ref(Res), *this, std::move(b),
-          [&](const typename ip_hash_to_binary_map_type<MT>::value_type &x) -> void {
+          [&](const typename ip_hash_to_binary_map_type<MT, MinSize>::value_type &x) -> void {
             Res = static_cast<binary_index_t>(x.second);
           });
     } else {
@@ -211,7 +222,7 @@ std::pair<binary_index_t, bool> jv_base_t<MT>::Add(binary_base_t<MT> &&b,
   if constexpr (MT) {
     isNewName = this->name_to_binaries.try_emplace_or_visit(
         b_.Name, boost::move(ResSet),
-        [&](typename ip_name_to_binaries_map_type<MT>::value_type &x) -> void {
+        [&](typename ip_name_to_binaries_map_type<MT, MinSize>::value_type &x) -> void {
           x.second.insert(Res);
         });
   } else {
@@ -233,9 +244,9 @@ std::pair<binary_index_t, bool> jv_base_t<MT>::Add(binary_base_t<MT> &&b,
   return std::make_pair(Res, isNewBinary || isNewName);
 }
 
-template <bool MT>
+template <bool MT, bool MinSize>
 std::pair<binary_index_t, bool>
-jv_base_t<MT>::AddFromData(explorer_t<MT> &explorer,
+jv_base_t<MT, MinSize>::AddFromData(explorer_t<MT> &explorer,
                            jv_file_t &jv_file,
                            std::string_view data,
                            const char *name,
@@ -247,8 +258,8 @@ jv_base_t<MT>::AddFromData(explorer_t<MT> &explorer,
       hash_data(data), name, on_newbin, Options);
 }
 
-template <bool MT>
-std::pair<binary_index_t, bool> jv_base_t<MT>::AddFromDataWithHash(
+template <bool MT, bool MinSize>
+std::pair<binary_index_t, bool> jv_base_t<MT, MinSize>::AddFromDataWithHash(
     explorer_t<MT> &explorer,
     jv_file_t &jv_file,
     get_data_t get_data,
@@ -261,11 +272,10 @@ std::pair<binary_index_t, bool> jv_base_t<MT>::AddFromDataWithHash(
   try {
     if constexpr (MT) {
       isNewBinary = this->hash_to_binary.try_emplace_or_visit(
-          h, std::ref(Res), jv_file, *this,
-          explorer, get_data, std::ref(h), name,
-          std::ref(Options),
-          [&](const typename ip_hash_to_binary_map_type<MT>::value_type &x)
-              -> void { Res = static_cast<binary_index_t>(x.second); });
+          h, std::ref(Res), jv_file, *this, explorer, get_data, std::ref(h),
+          name, std::ref(Options),
+          [&](const typename ip_hash_to_binary_map_type<MT, MinSize>::value_type
+                  &x) -> void { Res = static_cast<binary_index_t>(x.second); });
     } else {
       auto it = this->hash_to_binary.find(h);
       if (it == this->hash_to_binary.end()) {
@@ -295,17 +305,25 @@ std::pair<binary_index_t, bool> jv_base_t<MT>::AddFromDataWithHash(
   bool isNewName = false;
   std::string_view name_sv(name);
   if constexpr (MT) {
+    ip_string name_ips(get_segment_manager());
+    to_ips(name_ips, name_sv);
+
     isNewName = this->name_to_binaries.try_emplace_or_visit(
-        name_sv, boost::move(ResSet),
-        [&](typename ip_name_to_binaries_map_type<MT>::value_type &x) -> void {
+        std::move(name_ips),
+        boost::move(ResSet),
+        [&](typename ip_name_to_binaries_map_type<MT, MinSize>::value_type &x) -> void {
           x.second.insert(Res);
         });
   } else {
     auto it = this->name_to_binaries.find(name_sv);
     if (it == this->name_to_binaries.end()) {
-      isNewName =
-          this->name_to_binaries.try_emplace(name_sv, boost::move(ResSet))
-              .second;
+      ip_string name_ips(get_segment_manager());
+      to_ips(name_ips, name_sv);
+
+      isNewName = this->name_to_binaries
+                      .try_emplace(std::move(name_ips),
+                                   std::move(ResSet))
+                      .second;
       assert(isNewName);
     } else {
       isNewName = false;
@@ -379,9 +397,17 @@ adds_binary_t::adds_binary_t(binary_index_t &out,
 
     b.Hash = h;
 
-    BIdx = jv.Binaries.len_.fetch_add(1u, std::memory_order_relaxed);
-    b.Idx = BIdx;
-    jv.Binaries[BIdx] = std::move(b);
+    if constexpr (AreWeMinSize) {
+      auto e_lck = jv.Binaries.exclusive_access();
+
+      BIdx = jv.Binaries.container().size();
+      b.Idx = BIdx;
+      jv.Binaries.container().emplace_back(std::move(b));
+    } else {
+      BIdx = jv.Binaries.len_.fetch_add(1u, std::memory_order_relaxed);
+      b.Idx = BIdx;
+      jv.Binaries[BIdx] = std::move(b);
+    }
   }
 
   jv.fixup_binary(BIdx);
@@ -395,10 +421,18 @@ adds_binary_t::adds_binary_t(binary_index_t &out,
                              binary_base_t<MT> &&b) noexcept {
   // don't ask questions
   {
-    BIdx  = jv.Binaries.len_.fetch_add(1u, std::memory_order_relaxed);
+    if constexpr (AreWeMinSize) {
+      auto e_lck = jv.Binaries.exclusive_access();
 
-    b.Idx = BIdx;
-    jv.Binaries[BIdx] = std::move(b);
+      BIdx = jv.Binaries.container().size();
+      b.Idx = BIdx;
+      jv.Binaries.container().push_back(std::move(b));
+    } else {
+      BIdx  = jv.Binaries.len_.fetch_add(1u, std::memory_order_relaxed);
+
+      b.Idx = BIdx;
+      jv.Binaries[BIdx] = std::move(b);
+    }
   }
 
   jv.fixup_binary(BIdx);
@@ -406,8 +440,8 @@ adds_binary_t::adds_binary_t(binary_index_t &out,
   out = BIdx;
 }
 
-template <bool MT>
-void jv_base_t<MT>::clear(bool everything) {
+template <bool MT, bool MinSize>
+void jv_base_t<MT, MinSize>::clear(bool everything) {
   name_to_binaries.clear();
   hash_to_binary.clear();
 
@@ -418,16 +452,16 @@ void jv_base_t<MT>::clear(bool everything) {
     cached_hashes.clear();
 }
 
-template <bool MT>
-void jv_base_t<MT>::InvalidateFunctionAnalyses(void) {
-  for_each_binary(std::execution::par_unseq, *this, [&](binary_base_t<MT> &b) {
-    for_each_function_in_binary(std::execution::par_unseq, b,
+template <bool MT, bool MinSize>
+void jv_base_t<MT, MinSize>::InvalidateFunctionAnalyses(void) {
+  for_each_binary(maybe_par_unseq, *this, [&](binary_base_t<MT> &b) {
+    for_each_function_in_binary(maybe_par_unseq, b,
                                 [&](function_t &f) { f.InvalidateAnalysis(); });
   });
 }
 
-template <bool MT>
-void jv_base_t<MT>::fixup_binary(const binary_index_t BIdx) {
+template <bool MT, bool MinSize>
+void jv_base_t<MT, MinSize>::fixup_binary(const binary_index_t BIdx) {
   //
   // TODO explain why all this is necessary in the first place
   //
@@ -435,7 +469,7 @@ void jv_base_t<MT>::fixup_binary(const binary_index_t BIdx) {
   auto &b = Binaries.at(BIdx);
   assert(index_of_binary(b) == BIdx);
 
-  for_each_function_in_binary(std::execution::par_unseq, b, [&](function_t &f) {
+  for_each_function_in_binary(maybe_par_unseq, b, [&](function_t &f) {
     f.BIdx = BIdx;
   });
 
@@ -444,7 +478,7 @@ void jv_base_t<MT>::fixup_binary(const binary_index_t BIdx) {
   // we need to update the callers
   //
   for_each_basic_block_in_binary(
-      std::execution::par_unseq, b, [&](basic_block_t bb) {
+      maybe_par_unseq, b, [&](basic_block_t bb) {
         basic_block_properties_t &bbprop = b.Analysis.ICFG[bb];
         if (bbprop.Term.Type != TERMINATOR::CALL)
           return;
@@ -454,7 +488,7 @@ void jv_base_t<MT>::fixup_binary(const binary_index_t BIdx) {
         callee.Callers.insert<MT>(BIdx, bbprop.Term.Addr);
 
         const auto &ParentsVec = bbprop.Parents.template get<MT>();
-        std::for_each(std::execution::par_unseq,
+        std::for_each(maybe_par_unseq,
                       ParentsVec.cbegin(),
                       ParentsVec.cend(), [&](function_index_t FIdx) {
                         function_t &caller = b.Analysis.Functions.at(FIdx);
@@ -466,9 +500,9 @@ void jv_base_t<MT>::fixup_binary(const binary_index_t BIdx) {
       });
 }
 
-template <bool MT>
-void jv_base_t<MT>::fixup(void) {
-  for_each_binary(std::execution::par_unseq, *this,
+template <bool MT, bool MinSize>
+void jv_base_t<MT, MinSize>::fixup(void) {
+  for_each_binary(maybe_par_unseq, *this,
                   [&](auto &b) { fixup_binary(index_of_binary(b)); });
 }
 

@@ -22,6 +22,12 @@ struct table_t {
       new (&reinterpret_cast<T *>(storage_)[i]) T(std::forward<Args>(args)...);
   }
 
+  table_t(table_t &&other) noexcept {
+    unsigned M = other.len_.load(std::memory_order_relaxed);
+    len_.store(M, std::memory_order_relaxed);
+    memcpy(storage_, other.storage_, sizeof(T) * M);
+  }
+
   ~table_t() noexcept {
     static_assert(std::is_nothrow_destructible_v<T>);
 

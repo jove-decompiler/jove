@@ -56,6 +56,24 @@ constexpr bool IsTargetLittleEndian =
 #endif
     ;
 
+constexpr auto maybe_par_unseq =
+#if defined(__mips64) || defined(__mips__)
+    std::execution::seq
+#else
+    std::execution::par_unseq
+#endif
+    ;
+
+constexpr bool AreWeMT =
+#if defined(__mips64) || defined(__mips__)
+    false
+#else
+    true
+#endif
+    ;
+
+constexpr bool AreWeMinSize = sizeof(void *) == 4;
+
 #if defined(TARGET_X86_64)
 #define TARGET_SHORT_NAME "x64"
 #elif defined(TARGET_I386)

@@ -26,15 +26,7 @@ else()
   jove_add_boost()
 endif()
 
-# Find TBB. TBB (OneTBB or Intel TBB) is a high-level threading library.
-#
-# By default, we build a bundled one and statically-link the library
-# to jove. If you want to link to the system's libtbb2.so, pass
-# -DJOVE_USE_SYSTEM_TBB=ON.
-option(JOVE_USE_SYSTEM_TBB "Use system or vendored TBB" OFF)
-if(JOVE_USE_SYSTEM_TBB)
-  find_package(TBB REQUIRED)
-else()
+if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^mips(64el)?$")
   function(jove_add_tbb)
     # this is so tbb/src/tbb/semaphore.h doesn't include itself...
     set(CMAKE_INCLUDE_CURRENT_DIR OFF)

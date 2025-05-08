@@ -34,7 +34,7 @@ namespace {
 struct binary_state_t {
   std::unique_ptr<llvm::object::Binary> Bin;
 
-  binary_state_t(const binary_t &b) { Bin = B::Create(b.data()); }
+  binary_state_t(const auto &b) { Bin = B::Create(b.data()); }
 };
 
 }
@@ -1092,7 +1092,7 @@ skip_run:
       // create symlinks as necessary
       //
       if (!opts.NoChroot) {
-        for_each_binary(std::execution::par_unseq, jv, [&](binary_t &b) {
+        for_each_binary(maybe_par_unseq, jv, [&](binary_t &b) {
           if (!b.is_file())
             return;
 
