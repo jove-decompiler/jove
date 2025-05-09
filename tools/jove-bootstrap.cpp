@@ -58,8 +58,6 @@ static constexpr bool IsI386 =
 #include <mutex>
 #include <condition_variable>
 
-#include <tbb/task_group.h>
-
 #include <asm/auxvec.h>
 #include <asm/unistd.h>
 #include <fcntl.h>
