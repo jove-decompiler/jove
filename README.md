@@ -51,10 +51,11 @@ The CI test suite [spins up](https://github.com/jove-decompiler/mk-deb-vm) whole
 The [latest docker image](https://hub.docker.com/repository/docker/aleden22/jove/general) is guaranteed to have passed the aforementioned test suite.
 
 ### What filesystem should I use? ###
-Something that supports:
+Ideally something that supports:
 1. Sparse files
 2. Reflink copies [^8]
-XFS is recommended.
+
+XFS is the recommended filesystem.
 
 [^1]: In theory, VSA would do no better.
 [^2]: 32-bit `arm` is a known exception, but we don't currently support this architecture.
