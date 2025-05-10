@@ -1,4 +1,6 @@
-#if !defined(__mips64) && !defined(__mips__)
+#include "llvm.h"
+
+#ifndef JOVE_NO_BACKEND
 #include "qemu.tcg.h"
 #include "../qemu/include/jove.h"
 #include "asm-offsets.h"
@@ -7,10 +9,6 @@ static TCGContext *get_tcg_context() {
   return (TCGContext *)jv_get_tcg_context();
 }
 
-#include "tcg.h"
-#include "tool.h"
-#include "B.h"
-#include "disas.h"
 #include "brkpt.h"
 #include "analyze.h"
 #include "win.h"
@@ -23,20 +21,14 @@ static TCGContext *get_tcg_context() {
 #include <boost/preprocessor/arithmetic/inc.hpp>
 #include <boost/preprocessor/punctuation/comma_if.hpp>
 #include <boost/preprocessor/repetition/repeat.hpp>
-#include <boost/icl/split_interval_map.hpp>
-#include <boost/unordered/unordered_flat_map.hpp>
-#include <boost/unordered/unordered_flat_set.hpp>
 
 #include <llvm/Analysis/Passes.h>
 #include <llvm/Analysis/TargetTransformInfo.h>
 #include <llvm/Bitcode/BitcodeReader.h>
 #include <llvm/Bitcode/BitcodeWriter.h>
-#include <llvm/IR/Constants.h>
-#include <llvm/IR/DIBuilder.h>
 #include <llvm/IR/DebugInfo.h>
 #include <llvm/IR/GlobalAlias.h>
 #include <llvm/IR/GlobalIFunc.h>
-#include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/InlineAsm.h>
 #include <llvm/IR/IntrinsicInst.h>
 #include <llvm/IR/Intrinsics.h>
@@ -99,943 +91,7 @@ namespace cl = llvm::cl;
 
 using llvm::WithColor;
 
-namespace llvm {
-
-using IRBuilderTy = IRBuilder<ConstantFolder, IRBuilderDefaultInserter>;
-
-}
-
 namespace jove {
-
-struct hook_t;
-
-namespace {
-
-struct basic_block_state_t {
-  tcg_global_set_t IN, OUT;
-
-  llvm::BasicBlock *B = nullptr;
-
-  basic_block_state_t(const auto &b, auto bb_t) {}
-};
-
-struct function_state_t {
-  using bb_t = typename ip_icfg_base_t<AreWeMT>::vertex_descriptor;
-  using bb_vec_t = std::vector<bb_t>;
-
-  bb_vec_t bbvec;
-  bb_vec_t exit_bbvec;
-
-  const hook_t *hook = nullptr;
-  llvm::Function *PreHook = nullptr;
-  llvm::GlobalVariable *PreHookClunk = nullptr;
-  llvm::Function *PostHook = nullptr;
-  llvm::GlobalVariable *PostHookClunk = nullptr;
-
-  struct {
-    llvm::GlobalIFunc *IFunc = nullptr;
-  } _resolver;
-
-  struct {
-    llvm::AllocaInst *SavedCPUState = nullptr;
-  } _signal_handler;
-
-  bool IsNamed = false;
-
-  bool IsLeaf;
-  bool IsSj, IsLj;
-
-  llvm::Function *F = nullptr;
-  llvm::Function *adapterF = nullptr;
-
-  function_state_t(const auto &f, const auto &b) {
-    if (!is_basic_block_index_valid(f.Entry))
-      return;
-
-    basic_blocks_of_function(f, b, bbvec);
-    exit_basic_blocks_of_function(f, b, bbvec, exit_bbvec);
-
-    IsLeaf = IsLeafFunction(f, b, bbvec, exit_bbvec);
-
-    IsSj = IsFunctionSetjmp(f, b, bbvec);
-    IsLj = IsFunctionLongjmp(f, b, bbvec);
-  }
-};
-
-struct binary_state_t {
-  std::unique_ptr<llvm::object::Binary> Bin;
-  struct {
-    elf::DynRegionInfo DynamicTable;
-    llvm::StringRef DynamicStringTable;
-    const Elf_Shdr *SymbolVersionSection;
-    std::vector<elf::VersionMapEntry> VersionMap;
-    std::optional<elf::DynRegionInfo> OptionalDynSymRegion;
-
-    elf::DynRegionInfo DynRelRegion;
-    elf::DynRegionInfo DynRelaRegion;
-    elf::DynRegionInfo DynRelrRegion;
-    elf::DynRegionInfo DynPLTRelRegion;
-  } _elf;
-  struct {
-    boost::unordered::unordered_flat_map<std::string_view, uint32_t> Name2RVA;
-  } _coff;
-  llvm::GlobalVariable *FunctionsTable = nullptr;
-  llvm::GlobalVariable *FunctionsTableClunk = nullptr;
-  llvm::Function *SectsF = nullptr;
-  uint64_t SectsStartAddr = 0;
-  uint64_t SectsEndAddr = 0;
-
-  binary_state_t(const auto &b) {
-    Bin = B::Create(b.data());
-
-    std::tie(SectsStartAddr, SectsEndAddr) = B::bounds_of_binary(*Bin);
-
-    B::_elf(*Bin, [&](ELFO &O) {
-      elf::loadDynamicTable(O, _elf.DynamicTable);
-
-      if (_elf.DynamicTable.Addr) {
-        _elf.OptionalDynSymRegion =
-            loadDynamicSymbols(O,
-                               _elf.DynamicTable,
-                               _elf.DynamicStringTable,
-                               _elf.SymbolVersionSection,
-                               _elf.VersionMap);
-      }
-    });
-
-    B::_coff(*Bin, [&](COFFO &O) {
-      coff::for_each_exported_function(
-          O, [&](uint32_t Ordinal, llvm::StringRef Name, uint64_t RVA) {
-            _coff.Name2RVA.emplace(Name, RVA);
-          });
-    });
-  }
-};
-
-}
-
-typedef boost::unordered::unordered_flat_set<
-    std::pair<binary_index_t, function_index_t>,
-    boost::hash<std::pair<binary_index_t, function_index_t>>>
-    hooks_t;
-
-struct hook_t {
-  struct arg_info_t {
-    unsigned Size;
-    bool isPointer;
-  };
-
-  const char *Sym;
-  std::vector<arg_info_t> Args;
-  arg_info_t Ret;
-
-  bool Pre;
-  bool Post;
-  bool Syscall; // is this a wrapper for performing a system call?
-};
-
-struct section_properties_t {
-  std::string name;
-  llvm::ArrayRef<uint8_t> contents;
-
-  bool w, x;
-
-  struct {
-    bool initArray = false;
-    bool finiArray = false;
-  } _elf;
-
-  bool operator==(const section_properties_t &sect) const {
-    return name == sect.name;
-  }
-
-  bool operator<(const section_properties_t &sect) const {
-    return name < sect.name;
-  }
-};
-typedef std::set<section_properties_t> section_properties_set_t;
-
-struct section_t {
-  std::string Name;
-  llvm::ArrayRef<uint8_t> Contents;
-  uint64_t Addr;
-  unsigned Size;
-
-  bool w = true;
-
-  struct {
-    bool initArray = false;
-    bool finiArray = false;
-  } _elf;
-
-  struct {
-    boost::icl::split_interval_set<uint64_t> Intervals;
-    std::map<unsigned, llvm::Constant *> Constants;
-    std::map<unsigned, llvm::Type *> Types;
-  } Stuff;
-
-  llvm::StructType *T = nullptr;
-  llvm::Constant *C = nullptr;
-};
-
-struct TranslateContext;
-
-struct LLVMTool : public StatefulJVTool<ToolKind::CopyOnWrite, binary_state_t,
-                                        function_state_t, basic_block_state_t,
-                                        false, true, true, false, false> {
-  struct Cmdline {
-    cl::opt<std::string> Binary;
-    cl::alias BinaryAlias;
-    cl::opt<std::string> BinaryIndex;
-    cl::opt<std::string> Output;
-    cl::alias OutputAlias;
-    cl::opt<std::string> VersionScript;
-    cl::opt<std::string> LinkerScript;
-    cl::opt<bool> Trace;
-    cl::opt<bool> PrintPCRel;
-    cl::opt<bool> PrintDefAndUse;
-    cl::opt<bool> DebugSjlj;
-    cl::opt<bool> DumpTCG;
-    cl::opt<std::string> ForAddr;
-    cl::opt<bool> Optimize;
-    cl::opt<bool> VerifyBitcode;
-    cl::opt<bool> DumpPreOpt1;
-    cl::opt<bool> DumpPostOpt1;
-    cl::opt<bool> DFSan;
-    cl::opt<std::string> DFSanOutputModuleID;
-    cl::opt<bool> CallStack;
-    bool CheckEmulatedReturnAddress;
-    cl::opt<bool> ForeignLibs;
-    cl::alias ForeignLibsAlias;
-    cl::list<std::string> PinnedGlobals;
-    cl::opt<bool> ABICalls;
-    cl::opt<bool> InlineHelpers;
-    cl::opt<bool> ForCBE;
-    cl::opt<bool> RuntimeMT;
-    cl::opt<bool> BreakBeforeUnreachables;
-    cl::opt<bool> LayOutSections;
-    cl::opt<bool> PlaceSectionBreakpoints;
-    cl::opt<bool> Debugify;
-
-    Cmdline(llvm::cl::OptionCategory &JoveCategory)
-        : Binary("binary", cl::desc("Binary to translate"),
-                 cl::value_desc("path"), cl::cat(JoveCategory)),
-
-          BinaryAlias("b", cl::desc("Alias for -binary."), cl::aliasopt(Binary),
-                      cl::cat(JoveCategory)),
-
-          BinaryIndex("binary-index", cl::desc("Index of binary to translate"),
-                      cl::cat(JoveCategory)),
-
-          Output("output", cl::desc("Output bitcode"), cl::Required,
-                 cl::value_desc("filename"), cl::cat(JoveCategory)),
-
-          OutputAlias("o", cl::desc("Alias for -output."), cl::aliasopt(Output),
-                      cl::cat(JoveCategory)),
-
-          VersionScript("version-script",
-                        cl::desc("Output version script file for use with ld"),
-                        cl::value_desc("filename"), cl::cat(JoveCategory)),
-
-          LinkerScript("linker-script",
-                       cl::desc("Output linker script file for use with ld"),
-                       cl::value_desc("filename"), cl::cat(JoveCategory)),
-
-          Trace(
-              "trace",
-              cl::desc("Instrument code to output basic block execution trace"),
-              cl::cat(JoveCategory)),
-
-          PrintPCRel("pcrel", cl::desc("Print pc-relative references"),
-                     cl::cat(JoveCategory)),
-
-          PrintDefAndUse(
-              "print-def-and-use",
-              cl::desc("Print use_B and def_B for every basic block B"),
-              cl::cat(JoveCategory)),
-
-          DebugSjlj(
-              "debug-sjlj",
-              cl::desc(
-                  "Before setjmp/longjmp, dump information about the call"),
-              cl::cat(JoveCategory)),
-
-          DumpTCG("dump-tcg",
-                  cl::desc("Dump TCG operations when translating basic blocks"),
-                  cl::cat(JoveCategory)),
-          ForAddr("for-addr", cl::desc("Do stuff for the given address"),
-                  cl::cat(JoveCategory)),
-
-          Optimize("optimize", cl::desc("Optimize bitcode"),
-                   cl::cat(JoveCategory)),
-
-          VerifyBitcode("verify-bitcode",
-                        cl::desc("run llvm::verifyModule on the bitcode"),
-                        cl::cat(JoveCategory)),
-
-          DumpPreOpt1("dump-pre-opt",
-                      cl::desc("Dump bitcode before DoOptimize()"),
-                      cl::cat(JoveCategory)),
-
-          DumpPostOpt1("dump-post-opt",
-                       cl::desc("Dump bitcode after DoOptimize()"),
-                       cl::cat(JoveCategory)),
-
-          DFSan("dfsan", cl::desc("Instrument code with DataFlowSanitizer"),
-                cl::cat(JoveCategory)),
-
-          DFSanOutputModuleID(
-              "dfsan-output-module-id",
-              cl::desc("Write to file containing module ID (which is "
-                       "found from DFSanModuleID metadata"),
-              cl::value_desc("filename"), cl::cat(JoveCategory)),
-
-          CallStack("call-stack",
-                    cl::desc("Write state of recompiled call stack to file "
-                             "path formed from $JOVECALLS"),
-                    cl::cat(JoveCategory)),
-
-          ForeignLibs("foreign-libs",
-                      cl::desc("only recompile the executable itself; "
-                               "treat all other binaries as \"foreign\""),
-                      cl::cat(JoveCategory), cl::init(true)),
-
-          ForeignLibsAlias("x", cl::desc("Exe only. Alias for --foreign-libs."),
-                           cl::aliasopt(ForeignLibs), cl::cat(JoveCategory)),
-
-          PinnedGlobals(
-              "pinned-globals", cl::CommaSeparated,
-              cl::value_desc("glb_1,glb_2,...,glb_n"),
-              cl::desc(
-                  "force specified TCG globals to always go through CPUState"),
-              cl::cat(JoveCategory)),
-
-          ABICalls("abi-calls",
-                   cl::desc("Call ABIs indirectly through _jove_call"),
-                   cl::cat(JoveCategory), cl::init(true)),
-
-          InlineHelpers("inline-helpers",
-                        cl::desc("Try to inline all helper function calls"),
-                        cl::cat(JoveCategory)),
-
-          ForCBE("for-cbe", cl::desc("Generate LLVM for C backend"),
-                 cl::cat(JoveCategory)),
-
-          RuntimeMT("rtmt", cl::desc("Runtime thread model"),
-                    cl::cat(JoveCategory), cl::init(true)),
-
-          BreakBeforeUnreachables("break-before-unreachables",
-                                  cl::desc("Debugging purposes only"),
-                                  cl::cat(JoveCategory)),
-
-          LayOutSections(
-              "lay-out-sections",
-              cl::desc("mode where each section becomes a "
-                       "distinct global variable. we check in "
-                       "_jove_check_sections_laid_out() at runtime to make "
-                       "sure that those aforementioned global variables exist "
-                       "side-by-side in memory in the way we expect them to"),
-              cl::cat(JoveCategory)),
-
-          PlaceSectionBreakpoints(
-              "place-section-breakpoints",
-              cl::desc("In the section globals, overwrite the bytes at the "
-                       "start of every ABI function (which is not setjmp() or "
-                       "longjmp()) with an illegal instruction. This is "
-                       "used to provoke a fault at runtime when such functions "
-                       "are called into from non-recompiled code, so that the "
-                       "recompiled versions are called. Unless JOVESECTS=exe, "
-                       "this is unnecessary because the section globals will "
-                       "not be executable to begin with thus triggering a "
-                       "fault."),
-              cl::cat(JoveCategory)),
-
-          Debugify("debugify", cl::cat(JoveCategory)) {}
-  } opts;
-
-  template <typename Key, typename Value>
-  using unordered_map = boost::unordered::unordered_flat_map<Key, Value>;
-
-  template <typename T>
-  using unordered_set = boost::unordered::unordered_flat_set<T>;
-
-  binary_index_t BinaryIndex = invalid_binary_index;
-
-  tcg_global_set_t PinnedEnvGlbs = InitPinnedEnvGlbs;
-
-  bool IsCOFF = false;
-
-  uint64_t ForAddr = 0;
-
-  std::unique_ptr<tiny_code_generator_t> TCG;
-  std::unique_ptr<llvm::LLVMContext> Context;
-  std::unique_ptr<llvm::Module> Module;
-
-  llvm::DataLayout DL;
-
-  std::string SectsGlobalName, ConstSectsGlobalName;
-
-  llvm::GlobalVariable *SectsGlobal = nullptr;
-  llvm::GlobalVariable *ConstSectsGlobal = nullptr;
-
-  unordered_map<std::string, std::set<dynamic_target_t>> ExportedFunctions;
-
-  struct {
-    unordered_map<std::string, binary_index_t> DLL2Binary;
-  } _coff;
-
-  std::vector<unordered_set<std::string_view>> bin_paths_vec;
-  llvm::GlobalVariable *binNamesTable;
-
-  disas_t disas;
-
-  unordered_set<uint64_t> ConstantRelocationLocs;
-  uint64_t libcEarlyInitAddr = 0;
-
-  llvm::GlobalVariable *EnvGlobal = nullptr;
-  llvm::Function *GetEnvFunc = nullptr;
-  llvm::Value *CachedEnv = nullptr;
-  llvm::Type *CPUStateType = nullptr;
-
-  llvm::GlobalVariable *TraceGlobal = nullptr;
-  llvm::Function *GetTraceFunc = nullptr;
-  llvm::Value *CachedTrace = nullptr;
-
-  llvm::GlobalVariable *CallStackGlobal = nullptr;
-  llvm::Function *GetCallStackFunc = nullptr;
-  llvm::Value *CachedCallStack = nullptr;
-  llvm::GlobalVariable *CallStackBeginGlobal = nullptr;
-  llvm::Function *GetCallStackBeginFunc = nullptr;
-
-  llvm::GlobalVariable *JoveFunctionTablesGlobal = nullptr;
-  llvm::GlobalVariable *JoveForeignFunctionTablesGlobal = nullptr;
-  llvm::Function *JoveRecoverDynTargetFunc = nullptr;
-  llvm::Function *JoveRecoverBasicBlockFunc = nullptr;
-  llvm::Function *JoveRecoverReturnedFunc = nullptr;
-  llvm::Function *JoveRecoverABIFunc = nullptr;
-  llvm::Function *JoveRecoverFunctionFunc = nullptr;
-  llvm::Function *JoveRecoverForeignFunctionFunc = nullptr;
-  llvm::Function *JoveRecoverForeignBinaryFunc = nullptr;
-
-  llvm::Function *JoveInstallForeignFunctionTables = nullptr;
-
-#define __THUNK(n, i, data) llvm::Function *JoveThunk##i##Func;
-
-  BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
-
-#undef __THUNK
-
-  llvm::Function *JoveFail1Func = nullptr;
-  llvm::Function *JoveLog1Func = nullptr;
-  llvm::Function *JoveLog2Func = nullptr;
-
-  llvm::Function *JoveAllocStackFunc = nullptr;
-  llvm::Function *JoveFreeStackFunc = nullptr;
-  llvm::Function *JoveNoDCEFunc = nullptr;
-  llvm::Function *JoveCallFunc = nullptr;
-
-  llvm::Function *JoveMakeSectionsExeFunc = nullptr;
-  llvm::Function *JoveMakeSectionsNotExeFunc = nullptr;
-
-  //
-  // DFSan
-  //
-  llvm::Function *JoveCheckReturnAddrFunc = nullptr;
-  llvm::Function *JoveLogFunctionStart = nullptr;
-  llvm::GlobalVariable *JoveLogFunctionStartClunk = nullptr;
-  llvm::Function *DFSanFiniFunc = nullptr;
-  llvm::GlobalVariable *DFSanFiniClunk = nullptr;
-
-  llvm::GlobalVariable *TLSSectsGlobal = nullptr;
-
-  llvm::GlobalVariable *TLSModGlobal = nullptr;
-
-  llvm::MDNode *AliasScopeMetadata = nullptr;
-
-  std::unique_ptr<llvm::DIBuilder> DIBuilder;
-
-  std::map<uint64_t, llvm::Constant *> TPOFFHack;
-
-  struct {
-    llvm::ArrayType *T = nullptr;
-    llvm::GlobalVariable *GV = nullptr;
-  } TLSDescHack;
-
-  struct {
-    struct {
-      // in memory, the .tbss section is allocated directly following the .tdata
-      // section, with the aligment obeyed
-      unsigned Size;
-    } Data;
-
-    uint64_t Beg, End;
-
-    bool Present;
-  } ThreadLocalStorage;
-
-  struct {
-    llvm::DIFile *File = nullptr;
-    llvm::DICompileUnit *CompileUnit = nullptr;
-  } DebugInformation;
-
-  static constexpr const char *DIVersionKey = "Debug Info Version";
-
-  unsigned NumSections = 0;
-  boost::icl::split_interval_map<uint64_t, section_properties_set_t> SectMap;
-  std::vector<section_t> SectTable;
-  boost::icl::interval_map<uint64_t, unsigned> SectIdxMap;
-
-  std::vector<std::vector<uint8_t>> SegContents;
-
-  struct {
-    llvm::GlobalVariable *HeadGV = nullptr;
-    std::vector<std::pair<llvm::GlobalVariable *, unsigned>> GVVec;
-  } LaidOut;
-
-  unordered_map<std::string, unsigned> GlobalSymbolDefinedSizeMap;
-
-  unordered_map<uint64_t, std::set<llvm::StringRef>> TLSValueToSymbolMap;
-  unordered_map<uint64_t, unsigned> TLSValueToSizeMap;
-
-  boost::icl::split_interval_set<uint64_t> AddressSpaceObjects;
-
-  unordered_map<uint64_t, std::set<std::string>> AddrToSymbolMap;
-  unordered_map<uint64_t, unsigned> AddrToSizeMap;
-  unordered_set<uint64_t> TLSObjects; // XXX
-
-  unordered_set<std::string> CopyRelSyms;
-
-  unordered_map<llvm::Function *, llvm::Function *> CtorStubMap;
-
-  unordered_set<llvm::Function *> MustInlineSjStubs;
-
-  struct {
-    unordered_map<std::string, unordered_set<std::string>> Table;
-  } VersionScript;
-
-  // set {int}0x08053ebc = 0xf7fa83f0
-  std::map<std::pair<uint64_t, unsigned>,
-           std::pair<binary_index_t, std::pair<uint64_t, unsigned>>>
-      CopyRelocMap;
-
-  std::vector<uint64_t> possible_tramps_vec;
-
-  unordered_map<std::string, std::set<unsigned>> ordinal_imports;
-
-  llvm::Constant *__jove_fail_UnknownBranchTarget;
-  llvm::Constant *__jove_fail_UnknownCallee;
-
-  bool pcrel_flag = false; /* FIXME? !MT-safe */
-  uint64_t lstaddr = 0;    /* FIXME? !MT-safe */
-
-  analyzer_options_t analyzer_options;
-
-public:
-  LLVMTool() : opts(JoveCategory), DL("") {}
-
-  int Run(void) override;
-
-  int TranslateFunction(function_t &);
-  int TranslateBasicBlock(TranslateContext &);
-  int TranslateTCGOps(llvm::BasicBlock *ExitBB,
-                      llvm::IRBuilderTy &,
-                      TranslateContext &);
-
-  int InitStateForBinaries(void);
-  int CreateModule(void);
-  int PrepareToTranslateCode(void);
-  int ProcessCOPYRelocations(void);
-  int CreateFunctions(void);
-  int CreateFunctionTables(void);
-  int ProcessBinaryTLSSymbols(void);
-  int LocateHooks(void);
-  int CreateTLSModGlobal(void);
-  int CreateSectionGlobalVariables(void);
-  int CreatePossibleTramps(void);
-  int CreateFunctionTable(void);
-  int CreateBinaryNamesTable(void);
-  int FixupHelperStubs(void);
-  int CreateNoAliasMetadata(void);
-  int ProcessManualRelocations(void);
-  int CreateCopyRelocationHack(void);
-  int TranslateFunctions(void);
-  int InlineSjStubs(void);
-  int PrepareToOptimize(void);
-  int ConstifyRelocationSectionPointers(void);
-  int InternalizeSections(void);
-  int PrepareForCBE(void);
-  int ExpandMemoryIntrinsicCalls(void);
-  int ReplaceAllRemainingUsesOfConstSections(void);
-  int DFSanInstrument(void);
-  int RenameFunctionLocals(void);
-  int WriteVersionScript(void);
-  int WriteLinkerScript(void);
-  int InlineHelpers(void);
-  int BreakBeforeUnreachables(void);
-  int ForceCallConv(void);
-  int WriteModule(void);
-
-  void DumpModule(const char *);
-
-  void ReloadGlobalVariables(void);
-  int DoOptimize(void);
-  int Debugify(void);
-
-  llvm::Type *VoidType(void);
-  llvm::IntegerType *WordType(void);
-  llvm::Type *PointerToWordType(void);
-  llvm::Type *PPointerType(void);
-  llvm::Type *VoidFunctionPointer(void);
-  llvm::Constant *BigWord(void);
-
-  llvm::Value *CPUStateGlobalPointer(llvm::IRBuilderTy &, unsigned glb);
-
-  llvm::Value *BuildCPUStatePointer(llvm::IRBuilderTy &,
-                                    llvm::Value *Env,
-                                    unsigned glb);
-
-  llvm::Value *GetEnv(llvm::IRBuilderTy &IRB) {
-    if (CachedEnv)
-      return CachedEnv;
-
-    if (EnvGlobal)
-      return EnvGlobal;
-
-    assert(GetEnvFunc);
-    return IRB.CreateCall(GetEnvFunc, std::nullopt, "env");
-  }
-
-  llvm::Value *GetCallStack(llvm::IRBuilderTy &IRB) {
-    if (CachedCallStack)
-      return CachedCallStack;
-
-    if (CallStackGlobal)
-      return CallStackGlobal;
-
-    assert(GetCallStackFunc);
-    return IRB.CreateCall(GetCallStackFunc, std::nullopt, "callstack");
-  }
-
-  llvm::Value *GetTrace(llvm::IRBuilderTy &IRB) {
-    if (CachedTrace)
-      return CachedTrace;
-
-    if (TraceGlobal)
-      return TraceGlobal;
-
-    assert(GetTraceFunc);
-    return IRB.CreateCall(GetTraceFunc, std::nullopt, "trace");
-  }
-
-  std::string SectionsTopName(void) {
-    if (LaidOut.HeadGV)
-      return LaidOut.HeadGV->getName().str();
-
-    return SectsGlobalName;
-  }
-
-  llvm::GlobalVariable *SectionsTop(void) {
-    if (LaidOut.HeadGV)
-      return LaidOut.HeadGV;
-
-    assert(SectsGlobal);
-    return SectsGlobal;
-  }
-
-  llvm::Constant *SectionPointer(uint64_t Addr) {
-    auto &Binary = jv.Binaries.at(BinaryIndex);
-
-#if 0 /* we could do this... */
-    if (Binary.IsExecutable && !Binary.IsPIC)
-      return llvm::ConstantInt::get(WordType(), Addr);
-#endif
-
-    int64_t off =
-        static_cast<int64_t>(Addr) -
-        static_cast<int64_t>(state.for_binary(Binary).SectsStartAddr);
-
-    return llvm::ConstantExpr::getAdd(
-        llvm::ConstantExpr::getPtrToInt(SectionsTop(), WordType()),
-        llvm::ConstantInt::getSigned(WordType(), off));
-  }
-
-  bool DynTargetNeedsThunkPred(dynamic_target_t DynTarget) {
-    binary_index_t BIdx = DynTarget.first;
-    const auto &binary = jv.Binaries.at(BIdx);
-
-    if (opts.ForeignLibs)
-      return !binary.IsExecutable;
-
-    return binary.IsDynamicLinker || binary.IsVDSO;
-  }
-
-  template <bool Callable>
-  llvm::Value *
-  GetDynTargetAddress(llvm::IRBuilderTy &IRB,
-                      std::pair<binary_index_t, function_index_t> IdxPair,
-                      llvm::BasicBlock *FailBlock = nullptr) {
-    struct {
-      binary_index_t BIdx;
-      function_index_t FIdx;
-    } DynTarget;
-
-    std::tie(DynTarget.BIdx, DynTarget.FIdx) = IdxPair;
-
-    auto &binary = jv.Binaries.at(DynTarget.BIdx);
-
-    if (DynTarget.BIdx == BinaryIndex) {
-      const function_t &f = binary.Analysis.Functions.at(DynTarget.FIdx);
-      if (Callable) {
-        assert(state.for_function(f).F);
-        return llvm::ConstantExpr::getPtrToInt(state.for_function(f).F, WordType());
-      } else {
-        auto &ICFG = binary.Analysis.ICFG;
-        return SectionPointer(ICFG[basic_block_of_index(f.Entry, ICFG)].Addr);
-      }
-    }
-
-    if (DynTargetNeedsThunkPred(IdxPair)) {
-      llvm::Value *FnsTbl = IRB.CreateLoad(
-          IRB.getPtrTy(),
-          IRB.CreateConstInBoundsGEP2_64(
-              JoveForeignFunctionTablesGlobal->getValueType(),
-              JoveForeignFunctionTablesGlobal, 0, DynTarget.BIdx));
-      return IRB.CreateLoad(WordType(),
-                            IRB.CreateConstGEP1_64(WordType()->getPointerTo(),
-                                                   FnsTbl, DynTarget.FIdx));
-    }
-
-    if (!binary.IsDynamicallyLoaded) {
-      llvm::Value *FnsTbl = IRB.CreateLoad(
-          IRB.getPtrTy(),
-          state.for_binary(jv.Binaries.at(DynTarget.BIdx)).FunctionsTableClunk);
-      assert(FnsTbl);
-
-      return IRB.CreateLoad(WordType(),
-          IRB.CreateConstGEP2_64(state.for_binary(jv.Binaries.at(DynTarget.BIdx)).FunctionsTable->getValueType(),
-                                 FnsTbl, 0, 3 * DynTarget.FIdx + (Callable ? 1 : 0)));
-    }
-
-    //
-    // check if the functions table pointer is NULL. this can happen if a DSO
-    // hasn't been loaded yet
-    //
-    llvm::Value *FnsTbl = IRB.CreateLoad(
-        IRB.getPtrTy(),
-        IRB.CreateConstInBoundsGEP1_64(
-            IRB.getPtrTy()->getPointerTo(),
-            IRB.CreateLoad(IRB.getPtrTy(), JoveFunctionTablesGlobal),
-            DynTarget.BIdx));
-    if (FailBlock) {
-      assert(IRB.GetInsertBlock()->getParent());
-      llvm::BasicBlock *fallthroughB = llvm::BasicBlock::Create(
-          IRB.getContext(), "", IRB.GetInsertBlock()->getParent());
-
-      llvm::Value *EQNullV = IRB.CreateICmpEQ(
-          FnsTbl, llvm::Constant::getNullValue(FnsTbl->getType()));
-      IRB.CreateCondBr(EQNullV, FailBlock, fallthroughB);
-
-      IRB.SetInsertPoint(fallthroughB);
-    }
-
-    return IRB.CreateLoad(
-        WordType(),
-        IRB.CreateConstGEP1_64(IRB.getPtrTy(), FnsTbl,
-                               3 * DynTarget.FIdx + (Callable ? 1 : 0)));
-  }
-
-  llvm::AllocaInst *CreateAllocaForGlobal(TranslateContext &,
-                                          llvm::IRBuilderTy &,
-                                          unsigned glb,
-                                          bool InitializeFromEnv = true);
-
-  void ReferenceInNoDCEFunc(llvm::Value *V) {
-    assert(JoveNoDCEFunc);
-    assert(!JoveNoDCEFunc->empty());
-    assert(!JoveNoDCEFunc->empty());
-    assert(!JoveNoDCEFunc->getEntryBlock().empty());
-
-    static unsigned Idx = 40; /* XXX */
-
-    assert(JoveNoDCEFunc->arg_size() == 1);
-    llvm::Value *OutArg = JoveNoDCEFunc->getArg(0);
-
-    {
-      llvm::IRBuilderTy IRB(&JoveNoDCEFunc->getEntryBlock().front());
-
-      llvm::Value *Ptr = IRB.CreateConstInBoundsGEP1_32(
-          IRB.getPtrTy()->getPointerTo(), OutArg, Idx++);
-
-      IRB.CreateStore(V, Ptr);
-    }
-  }
-
-  void fillInFunctionBody(llvm::Function *F,
-                          std::function<void(llvm::IRBuilderTy &)> funcBuilder,
-                          bool internalize = true);
-
-  llvm::Type *type_of_arg_info(const hook_t::arg_info_t &info) {
-    if (info.isPointer)
-      return llvm::PointerType::get(llvm::Type::getInt8Ty(*Context), 0);
-
-    return llvm::Type::getIntNTy(*Context, info.Size * 8);
-  }
-
-  std::pair<llvm::GlobalVariable *, llvm::Function *>
-  declareHook(const hook_t &h, bool IsPreOrPost);
-
-  std::pair<llvm::GlobalVariable *, llvm::Function *>
-  declarePreHook(const hook_t &h) {
-    return declareHook(h, true);
-  }
-
-  std::pair<llvm::GlobalVariable *, llvm::Function *>
-  declarePostHook(const hook_t &h) {
-    return declareHook(h, false);
-  }
-
-  llvm::GlobalIFunc *buildGlobalIFunc(function_t &f,
-                                      dynamic_target_t,
-                                      llvm::StringRef SymName);
-
-  bool shouldExpandOperationWithSize(llvm::Value *Size);
-  void expandMemIntrinsicUses(llvm::Function &);
-
-  tcg_global_set_t DetermineFunctionArgs(function_t &);
-  tcg_global_set_t DetermineFunctionRets(function_t &);
-
-  void ExplodeFunctionArgs(function_t &f, std::vector<unsigned> &glbv);
-  void ExplodeFunctionRets(function_t &f, std::vector<unsigned> &glbv);
-
-  llvm::FunctionType *FunctionTypeOfArgsAndRets(tcg_global_set_t args,
-                                                tcg_global_set_t rets);
-
-  llvm::FunctionType *DetermineFunctionType(function_t &f) {
-    tcg_global_set_t args = DetermineFunctionArgs(f);
-    tcg_global_set_t rets = DetermineFunctionRets(f);
-
-    if (f.IsABI) {
-      args &= CallConvArgs;
-      rets &= CallConvRets;
-    }
-
-    return FunctionTypeOfArgsAndRets(args, rets);
-  }
-
-  llvm::FunctionType *DetermineFunctionType(dynamic_target_t X) {
-    return DetermineFunctionType(function_of_target(X, jv));
-  }
-
-  llvm::FunctionType *DetermineFunctionType(binary_index_t BIdx,
-                                            function_index_t FIdx) {
-    dynamic_target_t X(BIdx, FIdx);
-    return DetermineFunctionType(X);
-  }
-
-  llvm::Type *elf_type_of_expression_for_relocation(const elf::Relocation &);
-
-  llvm::Constant *elf_expression_for_relocation(const elf::Relocation &,
-                                                const elf::RelSymbol &);
-
-  llvm::ArrayType *TLSDescType(void);
-  llvm::GlobalVariable *TLSDescGV(void);
-
-  bool elf_is_manual_relocation(const elf::Relocation &);
-  bool elf_is_constant_relocation(const elf::Relocation &);
-
-  void elf_compute_manual_relocation(llvm::IRBuilderTy &,
-                                     const elf::Relocation &,
-                                     const elf::RelSymbol &);
-
-  void elf_compute_tpoff_relocation(llvm::IRBuilderTy &,
-                                    const elf::RelSymbol &,
-                                    unsigned Offset);
-
-  void elf_compute_irelative_relocation(llvm::IRBuilderTy &,
-                                        uint64_t resolverAddr);
-
-  llvm::Type *coff_type_of_expression_for_relocation(uint8_t RelocType);
-  llvm::Constant *coff_expression_for_relocation(uint8_t RelocType, uint64_t Offset);
-
-  bool coff_is_constant_relocation(uint8_t RelocType);
-
-  llvm::Constant *SymbolAddress(const elf::RelSymbol &);
-  llvm::Constant *ImportFunction(llvm::StringRef Name);
-  llvm::Constant *ImportFunctionByOrdinal(llvm::StringRef DLL, uint32_t Ordinal);
-  llvm::Constant *ImportedFunctionAddress(llvm::StringRef DLL, uint32_t Ordinal,
-                                          llvm::StringRef Name, uint64_t Addr);
-
-  uint64_t ExtractWordAtAddress(uint64_t Addr);
-
-  std::pair<binary_index_t, std::pair<uint64_t, unsigned>>
-  decipher_copy_relocation(const elf::RelSymbol &S);
-
-  llvm::Value *insertThreadPointerInlineAsm(llvm::IRBuilderTy &);
-
-  std::string dyn_target_desc(dynamic_target_t IdxPair);
-
-  const char *name_of_global_for_offset(unsigned off) {
-    if (!(off < sizeof(tcg_global_by_offset_lookup_table)) ||
-        tcg_global_by_offset_lookup_table[off] == 0xff) {
-      return nullptr;
-    }
-
-    unsigned glb =
-        static_cast<unsigned>(tcg_global_by_offset_lookup_table[off]);
-
-    TCGTemp *ts = &get_tcg_context()->temps[glb];
-    assert(ts->kind == TEMP_GLOBAL);
-    return ts->name;
-  }
-
-  llvm::Function *bswap_i(unsigned bits) {
-    assert(bits > 8);
-
-    llvm::Type *Tys[] = {llvm::Type::getIntNTy(*Context, bits)};
-
-    llvm::Function *bswap =
-        llvm::Intrinsic::getDeclaration(Module.get(), llvm::Intrinsic::bswap,
-                                        llvm::ArrayRef<llvm::Type *>(Tys, 1));
-    return bswap;
-  }
-
-  unsigned bitsOfTCGType(TCGType ty) {
-    if (unlikely(ty > 2))
-      die("bitsOfTCGType: unhandled");
-
-    static_assert(TCG_TYPE_I32 == 0);
-    static_assert(TCG_TYPE_I64 == 1);
-    static_assert(TCG_TYPE_I128 == 2);
-
-    return 1u << (static_cast<unsigned>(ty) + 5);
-  }
-
-  unsigned BitsOfMemOp(MemOp op) {
-    static_assert(MO_8 == 0);
-    static_assert(MO_16 == 1);
-    static_assert(MO_32 == 2);
-    static_assert(MO_64 == 3);
-    static_assert(MO_128 == 4);
-    static_assert(MO_256 == 5);
-    static_assert(MO_512 == 6);
-    static_assert(MO_1024 == 7);
-    static_assert(MO_SIZE == 0x07);
-
-    return 1u << ((static_cast<unsigned>(op) & MO_SIZE) + 3);
-  }
-
-  llvm::IntegerType *TypeOfTCGGlobal(unsigned glb) {
-    TCGContext *s = get_tcg_context();
-
-    return TypeOfTCGType(s->temps[glb].type);
-  }
-
-  llvm::IntegerType *TypeOfTCGType(TCGType ty) {
-    return llvm::Type::getIntNTy(*Context, bitsOfTCGType(ty));
-  }
-};
-
-JOVE_REGISTER_TOOL("llvm", LLVMTool);
 
 typedef boost::format fmt;
 
@@ -1052,6 +108,84 @@ struct helper_function_t {
 static boost::unordered::unordered_flat_map<uintptr_t, helper_function_t>
     HelperFuncMap;
 static std::mutex helper_mtx;
+
+#define WARN()                                                                 \
+  do {                                                                         \
+    this->warning(__FILE__, __LINE__);                                         \
+  } while (false)
+
+template <bool MT, bool MinSize>
+void llvm_t<MT, MinSize>::curiosity(const std::string &message) {
+  if (!IsVerbose())
+    return;
+
+  WithColor::note() << llvm::formatv("CURIOSITY: {0}\n", message);
+}
+
+template <bool MT, bool MinSize>
+void llvm_t<MT, MinSize>::warning(const char *file, int line) {
+  if (!IsVerbose())
+    return;
+
+  WithColor::warning() << llvm::formatv("WARNING @ {0}:{1}\n", file, line);
+}
+
+template <bool MT, bool MinSize>
+[[noreturn]] void llvm_t<MT, MinSize>::die(const std::string &reason) {
+  WithColor::error() << llvm::formatv("BUG ({0})\n", reason);
+  throw std::runtime_error(reason); /* we like destructors */
+}
+
+static unsigned bitsOfTCGType(TCGType ty) {
+  if (unlikely(ty > 2))
+    throw std::runtime_error("bitsOfTCGType: unhandled");
+
+  static_assert(TCG_TYPE_I32 == 0);
+  static_assert(TCG_TYPE_I64 == 1);
+  static_assert(TCG_TYPE_I128 == 2);
+
+  return 1u << (static_cast<unsigned>(ty) + 5);
+}
+
+static unsigned BitsOfMemOp(MemOp op) {
+  static_assert(MO_8 == 0);
+  static_assert(MO_16 == 1);
+  static_assert(MO_32 == 2);
+  static_assert(MO_64 == 3);
+  static_assert(MO_128 == 4);
+  static_assert(MO_256 == 5);
+  static_assert(MO_512 == 6);
+  static_assert(MO_1024 == 7);
+  static_assert(MO_SIZE == 0x07);
+
+  return 1u << ((static_cast<unsigned>(op) & MO_SIZE) + 3);
+}
+
+static llvm::IntegerType *TypeOfTCGType(llvm::LLVMContext &Context,
+                                        TCGType ty) {
+  return llvm::Type::getIntNTy(Context, bitsOfTCGType(ty));
+}
+
+static const char *name_of_global_for_offset(unsigned off) {
+  if (!(off < sizeof(tcg_global_by_offset_lookup_table)) ||
+      tcg_global_by_offset_lookup_table[off] == 0xff) {
+    return nullptr;
+  }
+
+  unsigned glb =
+      static_cast<unsigned>(tcg_global_by_offset_lookup_table[off]);
+
+  TCGTemp *ts = &get_tcg_context()->temps[glb];
+  assert(ts->kind == TEMP_GLOBAL);
+  return ts->name;
+}
+
+template <bool MT, bool MinSize>
+llvm::IntegerType *llvm_t<MT, MinSize>::TypeOfTCGGlobal(unsigned glb) {
+  TCGContext *s = get_tcg_context();
+
+  return TypeOfTCGType(*Context, s->temps[glb].type);
+}
 
 static bool AnalyzeHelper(helper_function_t &hf,
                           const analyzer_options_t &options) {
@@ -1478,28 +612,34 @@ static constexpr unsigned WordBits(void) {
   return WordBytes() * 8;
 }
 
-llvm::Type *LLVMTool::VoidType(void) {
+template <bool MT, bool MinSize>
+llvm::Type *llvm_t<MT, MinSize>::VoidType(void) {
   return llvm::Type::getVoidTy(*Context);
 }
 
-llvm::IntegerType *LLVMTool::WordType(void) {
+template <bool MT, bool MinSize>
+llvm::IntegerType *llvm_t<MT, MinSize>::WordType(void) {
   return llvm::Type::getIntNTy(*Context, WordBits());
 }
 
-llvm::Type *LLVMTool::PointerToWordType(void) {
+template <bool MT, bool MinSize>
+llvm::Type *llvm_t<MT, MinSize>::PointerToWordType(void) {
   return llvm::PointerType::get(WordType(), 0);
 }
 
-llvm::Type *LLVMTool::PPointerType(void) {
+template <bool MT, bool MinSize>
+llvm::Type *llvm_t<MT, MinSize>::PPointerType(void) {
   return llvm::PointerType::get(PointerToWordType(), 0);
 }
 
-llvm::Type *LLVMTool::VoidFunctionPointer(void) {
+template <bool MT, bool MinSize>
+llvm::Type *llvm_t<MT, MinSize>::VoidFunctionPointer(void) {
   llvm::FunctionType *FTy = llvm::FunctionType::get(VoidType(), false);
   return llvm::PointerType::get(FTy, 0);
 }
 
-llvm::Constant *LLVMTool::BigWord(void) {
+template <bool MT, bool MinSize>
+llvm::Constant *llvm_t<MT, MinSize>::BigWord(void) {
   //
   // we want a constant integer sufficiently large to cause a SIGSEGV if
   // dereferenced or otherwise used as a pointer value.
@@ -1525,9 +665,10 @@ static T unwrapOrError(llvm::Expected<T> EO) {
 
 static bool is_builtin_sym(const std::string &);
 
-int LLVMTool::Run(void) {
+template <bool MT, bool MinSize>
+int llvm_t<MT, MinSize>::go(void) {
   //jove::cmdline.argv = argv;
-  opts.CheckEmulatedReturnAddress = opts.DFSan;
+  //opts.CheckEmulatedReturnAddress = opts.DFSan;
 
   //
   // binary index (cmdline)
@@ -1567,6 +708,15 @@ int LLVMTool::Run(void) {
   if (!is_binary_index_valid(BinaryIndex)) {
     WithColor::error() << "must specify binary\n";
     return 1;
+  }
+
+  auto &Binary = jv.Binaries.at(BinaryIndex);
+  assert(state.for_binary(Binary).Bin.get());
+
+  IsCOFF = B::is_coff(*state.for_binary(Binary).Bin);
+  if (IsCOFF) {
+    if (!opts.ForeignLibs)
+      throw std::runtime_error("COFF is only supported in exe-only mode");
   }
 
   SectsGlobalName =
@@ -1683,9 +833,6 @@ int LLVMTool::Run(void) {
               }
             });
       });
-
-  auto &Binary = jv.Binaries.at(BinaryIndex);
-  assert(state.for_binary(Binary).Bin.get());
 
   llvm::ArrayRef<Elf_Sym> BinaryDynSyms = {};
 
@@ -1882,7 +1029,7 @@ int LLVMTool::Run(void) {
                                             VisibilityIsDefault);
         }
 
-        function_t &f = function_at_address(Binary, Sym.st_value);
+        const function_t &f = function_at_address(Binary, Sym.st_value);
 
         if (state.for_function(f)._resolver.IFunc) { /* aliased? */
           llvm::FunctionType *FTy = llvm::FunctionType::get(VoidType(), false);
@@ -2031,7 +1178,8 @@ int LLVMTool::Run(void) {
       || WriteModule();
 }
 
-void LLVMTool::DumpModule(const char *suffix) {
+template <bool MT, bool MinSize>
+void llvm_t<MT, MinSize>::DumpModule(const char *suffix) {
   //
   // deliberately do not try and verify the module since it may be in an
   // undefined state
@@ -2074,7 +1222,8 @@ void LLVMTool::DumpModule(const char *suffix) {
   }
 }
 
-int LLVMTool::InitStateForBinaries(void) {
+template <bool MT, bool MinSize>
+int llvm_t<MT, MinSize>::InitStateForBinaries(void) {
   if (IsVerbose())
     for_each_binary(jv, [&](auto &b) {
       WithColor::note() << llvm::formatv("SectsStartAddr for {0} is {1:x}\n",
@@ -2097,8 +1246,6 @@ int LLVMTool::InitStateForBinaries(void) {
     });
   }
 
-  IsCOFF = B::is_coff(*state.for_binary(Binary).Bin);
-
   for_each_binary(jv, [&](auto &b) {
     if (!b.is_file())
       return;
@@ -2120,9 +1267,10 @@ int LLVMTool::InitStateForBinaries(void) {
 // supplies an IRBuilder for the purpose of building the rest of the
 // function's body
 //
-void LLVMTool::fillInFunctionBody(llvm::Function *F,
-                                  std::function<void(llvm::IRBuilderTy &)> funcBuilder,
-                                  bool internalize) {
+template <bool MT, bool MinSize>
+void llvm_t<MT, MinSize>::fillInFunctionBody(llvm::Function *F,
+                                std::function<void(IRBuilderTy &)> funcBuilder,
+                                bool internalize) {
   assert(F && "function is NULL!");
   assert(F->empty() && "function is already defined!");
 
@@ -2158,7 +1306,7 @@ void LLVMTool::fillInFunctionBody(llvm::Function *F,
 
   llvm::BasicBlock *BB = llvm::BasicBlock::Create(*Context, "", F);
   {
-    llvm::IRBuilderTy IRB(BB);
+    IRBuilderTy IRB(BB);
 
     if (!opts.Debugify)
     IRB.SetCurrentDebugLocation(llvm::DILocation::get(
@@ -2185,7 +1333,8 @@ void LLVMTool::fillInFunctionBody(llvm::Function *F,
   DIBuilder->finalizeSubprogram(DbgSubprogram);
 }
 
-int LLVMTool::CreateModule(void) {
+template <bool MT, bool MinSize>
+int llvm_t<MT, MinSize>::CreateModule(void) {
   Context.reset(new llvm::LLVMContext);
 
   std::string path_to_bitcode =
@@ -2626,8 +1775,9 @@ static const std::array<hook_t, NumHooks> HookArray{{
 #undef POST
 #undef SYSCALL
 
+template <bool MT, bool MinSize>
 std::pair<llvm::GlobalVariable *, llvm::Function *>
-LLVMTool::declareHook(const hook_t &h, bool IsPreOrPost) {
+llvm_t<MT, MinSize>::declareHook(const hook_t &h, bool IsPreOrPost) {
   const char *namePrefix =
     IsPreOrPost ? "__dfs_pre_hook_" : "__dfs_post_hook_";
   const char *clunkNamePrefix =
@@ -2685,7 +1835,8 @@ LLVMTool::declareHook(const hook_t &h, bool IsPreOrPost) {
 //
 // the duty of this function is to map symbol names to (BIdx, FIdx) pairs
 //
-int LLVMTool::LocateHooks(void) {
+template <bool MT, bool MinSize>
+int llvm_t<MT, MinSize>::LocateHooks(void) {
   assert(opts.DFSan);
 
   const bool ForeignLibs = opts.ForeignLibs;
@@ -2705,7 +1856,7 @@ int LLVMTool::LocateHooks(void) {
     assert(!(*it).second.empty());
 
     for (dynamic_target_t IdxPair : (*it).second) {
-      function_t &f = function_of_target(IdxPair, jv);
+      const function_t &f = function_of_target(IdxPair, jv);
 
       if (state.for_function(f).hook) {
         WithColor::warning() << llvm::formatv("hook already installed for {0}\n", h.Sym);
@@ -2731,7 +1882,8 @@ int LLVMTool::LocateHooks(void) {
   return 0;
 }
 
-int LLVMTool::ProcessBinaryTLSSymbols(void) {
+template <bool MT, bool MinSize>
+int llvm_t<MT, MinSize>::ProcessBinaryTLSSymbols(void) {
   auto &b = jv.Binaries.at(BinaryIndex);
 
   B::_elf(*state.for_binary(b).Bin, [&](ELFO &O) {
@@ -2872,9 +2024,11 @@ static llvm::FunctionType *DetermineFunctionType(function_t &);
 static llvm::FunctionType *DetermineFunctionType(binary_index_t, function_index_t);
 static llvm::FunctionType *DetermineFunctionType(dynamic_target_t);
 
-llvm::GlobalIFunc *LLVMTool::buildGlobalIFunc(function_t &f,
-                                              dynamic_target_t IdxPair,
-                                              llvm::StringRef SymName) {
+template <bool MT, bool MinSize>
+llvm::GlobalIFunc *
+llvm_t<MT, MinSize>::buildGlobalIFunc(const function_t &f,
+                                      dynamic_target_t IdxPair,
+                                      llvm::StringRef SymName) {
   assert(SectsGlobal);
 
   llvm::FunctionType *FTy = is_dynamic_target_valid(IdxPair)
@@ -2888,7 +2042,7 @@ llvm::GlobalIFunc *LLVMTool::buildGlobalIFunc(function_t &f,
 
   fillInFunctionBody(F, [&](auto &IRB) -> void {
     if (is_dynamic_target_valid(IdxPair) && IdxPair.first == BinaryIndex) {
-      function_t &f = function_of_target(IdxPair, jv);
+      const function_t &f = function_of_target(IdxPair, jv);
 
       auto &Binary = jv.Binaries.at(BinaryIndex);
       auto &ICFG = Binary.Analysis.ICFG;
@@ -3004,7 +2158,8 @@ llvm::GlobalIFunc *LLVMTool::buildGlobalIFunc(function_t &f,
   return res;
 }
 
-int LLVMTool::ProcessCOPYRelocations(void) {
+template <bool MT, bool MinSize>
+int llvm_t<MT, MinSize>::ProcessCOPYRelocations(void) {
   auto &Binary = jv.Binaries.at(BinaryIndex);
 
   B::_elf(*state.for_binary(Binary).Bin, [&](ELFO &O) {
@@ -3125,23 +2280,10 @@ int LLVMTool::ProcessCOPYRelocations(void) {
   return 0;
 }
 
-int LLVMTool::PrepareToTranslateCode(void) {
-  TCG.reset(new tiny_code_generator_t);
-
-  //
-  // XXX pinned globals (cmdline)
-  //
-  for (const std::string &PinnedGlobalName : opts.PinnedGlobals) {
-    int idx = TCG->tcg_index_of_named_global(PinnedGlobalName.c_str());
-    if (idx < 0)
-      die("unknown global to pin: " + PinnedGlobalName);
-
-    PinnedEnvGlbs.set(idx);
-  }
-
-  analyzer_options.ForCBE = opts.ForCBE;
-  analyzer_options.VerbosityLevel = VerbosityLevel();
-  analyzer_options.PinnedEnvGlbs = PinnedEnvGlbs;
+template <bool MT, bool MinSize>
+int llvm_t<MT, MinSize>::PrepareToTranslateCode(void) {
+  assert(analyzer_options.ForCBE == opts.ForCBE);
+  assert(analyzer_options.PinnedEnvGlbs == opts.PinnedEnvGlbs);
 
   auto &Binary = jv.Binaries.at(BinaryIndex);
 
@@ -3188,10 +2330,12 @@ int LLVMTool::PrepareToTranslateCode(void) {
   return 0;
 }
 
-tcg_global_set_t LLVMTool::DetermineFunctionArgs(function_t &f) {
+template <bool MT, bool MinSize>
+tcg_global_set_t
+llvm_t<MT, MinSize>::DetermineFunctionArgs(const function_t &f) {
 #if 0
   AnalyzeFunction<false>(
-      jv, *TCG, *Module, f,
+      jv, TCG, *Module, f,
       [&](auto &b) -> llvm::object::Binary & {
         return *state.for_binary(b).Bin;
       },
@@ -3207,10 +2351,12 @@ tcg_global_set_t LLVMTool::DetermineFunctionArgs(function_t &f) {
   return f.Analysis.args;
 }
 
-tcg_global_set_t LLVMTool::DetermineFunctionRets(function_t &f) {
+template <bool MT, bool MinSize>
+tcg_global_set_t
+llvm_t<MT, MinSize>::DetermineFunctionRets(const function_t &f) {
 #if 0
   AnalyzeFunction<false>(
-      jv, *TCG, *Module, f,
+      jv, TCG, *Module, f,
       [&](auto &b) -> llvm::object::Binary & {
         return *state.for_binary(b).Bin;
       },
@@ -3286,7 +2432,9 @@ static void sort_tcg_global_rets(std::vector<unsigned> &glbv) {
   });
 }
 
-void LLVMTool::ExplodeFunctionArgs(function_t &f, std::vector<unsigned> &glbv) {
+template <bool MT, bool MinSize>
+void llvm_t<MT, MinSize>::ExplodeFunctionArgs(const function_t &f,
+                                              std::vector<unsigned> &glbv) {
   tcg_global_set_t args = DetermineFunctionArgs(f);
 
   if (f.IsABI)
@@ -3296,7 +2444,9 @@ void LLVMTool::ExplodeFunctionArgs(function_t &f, std::vector<unsigned> &glbv) {
   sort_tcg_global_args(glbv);
 }
 
-void LLVMTool::ExplodeFunctionRets(function_t &f, std::vector<unsigned> &glbv) {
+template <bool MT, bool MinSize>
+void llvm_t<MT, MinSize>::ExplodeFunctionRets(const function_t &f,
+                                              std::vector<unsigned> &glbv) {
   tcg_global_set_t rets = DetermineFunctionRets(f);
 
   if (f.IsABI)
@@ -3306,7 +2456,8 @@ void LLVMTool::ExplodeFunctionRets(function_t &f, std::vector<unsigned> &glbv) {
   sort_tcg_global_rets(glbv);
 }
 
-llvm::FunctionType *LLVMTool::FunctionTypeOfArgsAndRets(tcg_global_set_t args,
+template <bool MT, bool MinSize>
+llvm::FunctionType *llvm_t<MT, MinSize>::FunctionTypeOfArgsAndRets(tcg_global_set_t args,
                                                         tcg_global_set_t rets) {
   std::vector<llvm::Type *> argTypes;
   {
@@ -3368,11 +2519,12 @@ bool is_builtin_sym(const std::string &sym) {
                             ConstCharStarComparator());
 }
 
-int LLVMTool::CreateFunctions(void) {
+template <bool MT, bool MinSize>
+int llvm_t<MT, MinSize>::CreateFunctions(void) {
   auto &Binary = jv.Binaries.at(BinaryIndex);
   const auto &ICFG = Binary.Analysis.ICFG;
 
-  for_each_function_in_binary(Binary, [&](function_t &f) {
+  for_each_function_in_binary(Binary, [&](const function_t &f) {
     if (unlikely(!is_basic_block_index_valid(f.Entry)))
       return;
 
@@ -3420,7 +2572,7 @@ int LLVMTool::CreateFunctions(void) {
     }
   });
 
-  for_each_function_in_binary(Binary, [&](function_t &f) {
+  for_each_function_in_binary(Binary, [&](const function_t &f) {
     if (unlikely(!is_basic_block_index_valid(f.Entry)))
       return;
 
@@ -3462,7 +2614,8 @@ int LLVMTool::CreateFunctions(void) {
   return 0;
 }
 
-int LLVMTool::CreateFunctionTables(void) {
+template <bool MT, bool MinSize>
+int llvm_t<MT, MinSize>::CreateFunctionTables(void) {
   for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
     auto &binary = jv.Binaries.at(BIdx);
     if (binary.IsDynamicLinker)
@@ -3502,7 +2655,8 @@ int LLVMTool::CreateFunctionTables(void) {
   return 0;
 }
 
-int LLVMTool::CreateFunctionTable(void) {
+template <bool MT, bool MinSize>
+int llvm_t<MT, MinSize>::CreateFunctionTable(void) {
   auto &Binary = jv.Binaries.at(BinaryIndex);
   auto &ICFG = Binary.Analysis.ICFG;
 
@@ -3605,7 +2759,7 @@ int LLVMTool::CreateFunctionTable(void) {
 
 namespace llvm {
 
-static Value *getNaturalGEPWithOffset(IRBuilderTy &,
+static Value *getNaturalGEPWithOffset(jove::IRBuilderTy &,
                                       const DataLayout &,
                                       std::pair<Value *, Type *> Ptr,
                                       APInt Offset,
@@ -3616,14 +2770,16 @@ static Value *getNaturalGEPWithOffset(IRBuilderTy &,
 
 namespace jove {
 
-int LLVMTool::CreateTLSModGlobal(void) {
+template <bool MT, bool MinSize>
+int llvm_t<MT, MinSize>::CreateTLSModGlobal(void) {
   TLSModGlobal = new llvm::GlobalVariable(
       *Module, WordType(), true, llvm::GlobalValue::InternalLinkage,
       llvm::ConstantInt::get(WordType(), 0x12345678), "__jove_tpmod");
   return 0;
 }
 
-llvm::ArrayType *LLVMTool::TLSDescType(void) {
+template <bool MT, bool MinSize>
+llvm::ArrayType *llvm_t<MT, MinSize>::TLSDescType(void) {
   llvm::ArrayType *&T = TLSDescHack.T;
 
   if (!T)
@@ -3632,7 +2788,8 @@ llvm::ArrayType *LLVMTool::TLSDescType(void) {
   return TLSDescHack.T;
 }
 
-llvm::GlobalVariable *LLVMTool::TLSDescGV(void) {
+template <bool MT, bool MinSize>
+llvm::GlobalVariable *llvm_t<MT, MinSize>::TLSDescGV(void) {
   assert(IsX86Target); /* FIXME? */
 
   llvm::GlobalVariable *&GV = TLSDescHack.GV;
@@ -3655,7 +2812,8 @@ llvm::GlobalVariable *LLVMTool::TLSDescGV(void) {
   return GV;
 }
 
-llvm::Constant *LLVMTool::SymbolAddress(const elf::RelSymbol &RelSym) {
+template <bool MT, bool MinSize>
+llvm::Constant *llvm_t<MT, MinSize>::SymbolAddress(const elf::RelSymbol &RelSym) {
   assert(RelSym.Sym);
 
   bool IsDefined = !RelSym.Sym->isUndefined() &&
@@ -3785,7 +2943,8 @@ llvm::Constant *LLVMTool::SymbolAddress(const elf::RelSymbol &RelSym) {
   }
 }
 
-llvm::Constant *LLVMTool::ImportFunction(llvm::StringRef Name) {
+template <bool MT, bool MinSize>
+llvm::Constant *llvm_t<MT, MinSize>::ImportFunction(llvm::StringRef Name) {
   llvm::FunctionType *FTy =
       llvm::FunctionType::get(VoidType(), false); /* FIXME? */
   llvm::Function *F = llvm::Function::Create(
@@ -3796,7 +2955,8 @@ llvm::Constant *LLVMTool::ImportFunction(llvm::StringRef Name) {
   return F;
 }
 
-llvm::Constant *LLVMTool::ImportFunctionByOrdinal(llvm::StringRef DLL,
+template <bool MT, bool MinSize>
+llvm::Constant *llvm_t<MT, MinSize>::ImportFunctionByOrdinal(llvm::StringRef DLL,
                                                   uint32_t Ordinal) {
   std::string nm(coff::unique_symbol_for_ordinal_in_dll(DLL, Ordinal));
 
@@ -3815,7 +2975,8 @@ llvm::Constant *LLVMTool::ImportFunctionByOrdinal(llvm::StringRef DLL,
   return F;
 }
 
-llvm::Constant *LLVMTool::ImportedFunctionAddress(llvm::StringRef DLL,
+template <bool MT, bool MinSize>
+llvm::Constant *llvm_t<MT, MinSize>::ImportedFunctionAddress(llvm::StringRef DLL,
                                                   uint32_t Ordinal,
                                                   llvm::StringRef Name,
                                                   uint64_t Addr) {
@@ -3901,8 +3062,9 @@ llvm::Constant *LLVMTool::ImportedFunctionAddress(llvm::StringRef DLL,
   }
 }
 
-void LLVMTool::elf_compute_irelative_relocation(llvm::IRBuilderTy &IRB,
-                                            uint64_t resolverAddr) {
+template <bool MT, bool MinSize>
+void llvm_t<MT, MinSize>::elf_compute_irelative_relocation(IRBuilderTy &IRB,
+                                                           uint64_t resolverAddr) {
   llvm::Value *TemporaryStack = IRB.CreateCall(JoveAllocStackFunc);
 
   llvm::Value *SPPtr =
@@ -3926,7 +3088,7 @@ void LLVMTool::elf_compute_irelative_relocation(llvm::IRBuilderTy &IRB,
 
   auto &Binary = jv.Binaries.at(BinaryIndex);
 
-  function_t &resolver_f = function_at_address(Binary, resolverAddr);
+  const function_t &resolver_f = function_at_address(Binary, resolverAddr);
   assert(resolver_f.IsABI && "resolver function should be ABI!");
 
   llvm::Function *resolverF = state.for_function(resolver_f).F;
@@ -3952,9 +3114,10 @@ void LLVMTool::elf_compute_irelative_relocation(llvm::IRBuilderTy &IRB,
   IRB.CreateRet(Res);
 }
 
-void LLVMTool::elf_compute_tpoff_relocation(llvm::IRBuilderTy &IRB,
-                                        const elf::RelSymbol &RelSym,
-                                        unsigned Offset) {
+template <bool MT, bool MinSize>
+void llvm_t<MT, MinSize>::elf_compute_tpoff_relocation(IRBuilderTy &IRB,
+                                          const elf::RelSymbol &RelSym,
+                                          unsigned Offset) {
   llvm::Value *TLSAddr = nullptr;
   if (RelSym.Sym) {
     TLSAddr = SymbolAddress(RelSym);
@@ -4008,7 +3171,8 @@ void LLVMTool::elf_compute_tpoff_relocation(llvm::IRBuilderTy &IRB,
 #endif
 }
 
-uint64_t LLVMTool::ExtractWordAtAddress(uint64_t Addr) {
+template <bool MT, bool MinSize>
+uint64_t llvm_t<MT, MinSize>::ExtractWordAtAddress(uint64_t Addr) {
   auto &Binary = jv.Binaries.at(BinaryIndex);
 
   auto &Bin = state.for_binary(Binary).Bin;
@@ -4021,13 +3185,14 @@ struct unhandled_relocation_exception {};
 
 #include "relocs_llvm.hpp"
 
-int LLVMTool::CreateSectionGlobalVariables(void) {
+template <bool MT, bool MinSize>
+int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
   auto &Binary = jv.Binaries.at(BinaryIndex);
   auto &Bin = state.for_binary(Binary).Bin;
 
   struct PatchContents {
-    LLVMTool &tool;
-    binary_t &Binary;
+    llvm_t &tool;
+    const binary_t &Binary;
 
     std::vector<std::array<uint8_t, TargetBrkptLen>> Saved;
 
@@ -4038,7 +3203,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
              !tool.state.for_function(f).IsSj;
     }
 
-    PatchContents(LLVMTool &tool, binary_t &Binary)
+    PatchContents(llvm_t &tool, const binary_t &Binary)
         : tool(tool), Binary(Binary) {
       if (!tool.opts.PlaceSectionBreakpoints)
         return;
@@ -4053,7 +3218,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
       for_each_function_if_in_binary(
           /* maybe_par_unseq, */ Binary,
           std::bind(&PatchContents::ShouldPlant, this, std::placeholders::_1),
-          [&](function_t &f) {
+          [&](const function_t &f) {
             uint64_t Addr = entry_address_of_function(f, Binary);
             const void *Ptr = B::toMappedAddr(*Bin, Addr);
 
@@ -4067,7 +3232,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
       for_each_function_if_in_binary(
           /* maybe_par_unseq, */ Binary,
           std::bind(&PatchContents::ShouldPlant, this, std::placeholders::_1),
-          [&](function_t &f) {
+          [&](const function_t &f) {
             uint64_t Addr = entry_address_of_function(f, Binary);
             void *Ptr = const_cast<void *>(B::toMappedAddr(*Bin, Addr));
 
@@ -4086,7 +3251,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
       for_each_function_if_in_binary(
           /* maybe_par_unseq, */ Binary,
           std::bind(&PatchContents::ShouldPlant, this, std::placeholders::_1),
-          [&](function_t &f) {
+          [&](const function_t &f) {
             uint64_t Addr = entry_address_of_function(f, Binary);
             void *Ptr = const_cast<void *>(B::toMappedAddr(*Bin, Addr));
 
@@ -4369,7 +3534,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
 
       if (Sect.Name == ".rsrc") {
         if (_coff.rsrcSectIdx >= 0)
-          die("multiple .rsrc sections in PE file?");
+          throw std::runtime_error("multiple .rsrc sections in PE file?");
 
         _coff.rsrcSectIdx = i;
       }
@@ -4922,7 +4087,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
     const elf::DynRegionInfo &DynSymRegion = *state.for_binary(Binary)._elf.OptionalDynSymRegion;
 
     auto dynamic_table = [&](void) -> Elf_Dyn_Range {
-      return state.for_binary(Binary)._elf.DynamicTable.getAsArrayRef<Elf_Dyn>();
+      return state.for_binary(Binary)._elf.DynamicTable.template getAsArrayRef<Elf_Dyn>();
     };
     auto dynamic_symbols = [&](void) -> Elf_Sym_Range {
       return DynSymRegion.getAsArrayRef<Elf_Sym>();
@@ -5179,7 +4344,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
       const elf::DynRegionInfo &DynSymRegion = *state.for_binary(Binary)._elf.OptionalDynSymRegion;
 
       auto dynamic_table = [&](void) -> Elf_Dyn_Range {
-        return state.for_binary(Binary)._elf.DynamicTable.getAsArrayRef<Elf_Dyn>();
+        return state.for_binary(Binary)._elf.DynamicTable.template getAsArrayRef<Elf_Dyn>();
       };
       auto dynamic_symbols = [&](void) -> Elf_Sym_Range {
         return DynSymRegion.getAsArrayRef<Elf_Sym>();
@@ -5328,7 +4493,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
       const elf::DynRegionInfo &DynSymRegion = *state.for_binary(Binary)._elf.OptionalDynSymRegion;
 
       auto dynamic_table = [&](void) -> Elf_Dyn_Range {
-        return state.for_binary(Binary)._elf.DynamicTable.getAsArrayRef<Elf_Dyn>();
+        return state.for_binary(Binary)._elf.DynamicTable.template getAsArrayRef<Elf_Dyn>();
       };
       auto dynamic_symbols = [&](void) -> Elf_Sym_Range {
         return DynSymRegion.getAsArrayRef<Elf_Sym>();
@@ -5668,7 +4833,8 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
 
     if (state.for_binary(binary)._elf.DynamicTable.Addr) {
       auto dynamic_table = [&](void) -> Elf_Dyn_Range {
-        return state.for_binary(binary)._elf.DynamicTable.getAsArrayRef<Elf_Dyn>();
+        return state.for_binary(binary)
+            ._elf.DynamicTable.template getAsArrayRef<Elf_Dyn>();
       };
 
       for (const Elf_Dyn &Dyn : dynamic_table()) {
@@ -5688,7 +4854,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
           [&](auto &IRB) {
             llvm::Value *Ret = nullptr;
             if (initFunctionAddr) {
-              function_t &initfn_f = function_at_address(Binary, initFunctionAddr);
+              const function_t &initfn_f = function_at_address(Binary, initFunctionAddr);
 
               Ret = llvm::ConstantExpr::getPtrToInt(state.for_function(initfn_f).F, WordType());
             } else {
@@ -5713,7 +4879,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
         [&](auto &IRB) {
           llvm::Value *Ret = nullptr;
           if (libcEarlyInitAddr) {
-            function_t &f = function_at_address(Binary, libcEarlyInitAddr);
+            const function_t &f = function_at_address(Binary, libcEarlyInitAddr);
 
             Ret = llvm::ConstantExpr::getPtrToInt(state.for_function(f).F, WordType());
           } else {
@@ -5759,7 +4925,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
         uintptr_t FileAddr = off + SectsStartAddr;
 
         auto &Binary = jv.Binaries.at(BinaryIndex);
-        function_t &f = function_at_address(Binary, FileAddr);
+        const function_t &f = function_at_address(Binary, FileAddr);
 
         if (!f.IsABI) {
           WithColor::error() << llvm::formatv(
@@ -5811,7 +4977,8 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
   return 0;
 }
 
-int LLVMTool::CreatePossibleTramps(void) {
+template <bool MT, bool MinSize>
+int llvm_t<MT, MinSize>::CreatePossibleTramps(void) {
   if (IsVerbose())
     llvm::errs() << llvm::formatv("# of possible tramps: {0}\n",
                                   possible_tramps_vec.size());
@@ -5851,8 +5018,9 @@ int LLVMTool::CreatePossibleTramps(void) {
   return 0;
 }
 
+template <bool MT, bool MinSize>
 std::pair<binary_index_t, std::pair<uint64_t, unsigned>>
-LLVMTool::decipher_copy_relocation(const elf::RelSymbol &S) {
+llvm_t<MT, MinSize>::decipher_copy_relocation(const elf::RelSymbol &S) {
   assert(jv.Binaries.at(BinaryIndex).IsExecutable);
 
   for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
@@ -5875,7 +5043,9 @@ LLVMTool::decipher_copy_relocation(const elf::RelSymbol &S) {
     if (!state.for_binary(b)._elf.OptionalDynSymRegion)
       continue; /* no dynamic symbols */
 
-    auto DynSyms = state.for_binary(b)._elf.OptionalDynSymRegion->getAsArrayRef<Elf_Sym>();
+    auto DynSyms =
+        state.for_binary(b)
+            ._elf.OptionalDynSymRegion->template getAsArrayRef<Elf_Sym>();
 
     for (unsigned SymNo = 0; SymNo < DynSyms.size(); ++SymNo) {
       const Elf_Sym &Sym = DynSyms[SymNo];
@@ -5926,7 +5096,8 @@ LLVMTool::decipher_copy_relocation(const elf::RelSymbol &S) {
   return {invalid_binary_index, {0, 0}};
 }
 
-int LLVMTool::ProcessManualRelocations(void) {
+template <bool MT, bool MinSize>
+int llvm_t<MT, MinSize>::ProcessManualRelocations(void) {
   auto &Binary = jv.Binaries.at(BinaryIndex);
 
   std::map<uint64_t, llvm::Function *> ManualRelocs;
@@ -6013,7 +5184,8 @@ int LLVMTool::ProcessManualRelocations(void) {
   return 0;
 }
 
-int LLVMTool::CreateCopyRelocationHack(void) {
+template <bool MT, bool MinSize>
+int llvm_t<MT, MinSize>::CreateCopyRelocationHack(void) {
   fillInFunctionBody(
       Module->getFunction("_jove_do_emulate_copy_relocations"),
       [&](auto &IRB) -> void {
@@ -6027,7 +5199,8 @@ int LLVMTool::CreateCopyRelocationHack(void) {
           binary_index_t BIdxFrom = pair.second.first;
           auto &BinaryFrom = jv.Binaries.at(BIdxFrom);
 
-          WARN_ON(pair.second.first < 3);
+          if (pair.second.first < 3)
+            WithColor::warning() << "CreateCopyRelocationHack\n";
 
           if (state.for_binary(BinaryFrom).SectsF) {
             IRB.CreateMemCpyInline(
@@ -6096,7 +5269,8 @@ int LLVMTool::CreateCopyRelocationHack(void) {
   return 0;
 }
 
-int LLVMTool::CreateBinaryNamesTable(void) {
+template <bool MT, bool MinSize>
+int llvm_t<MT, MinSize>::CreateBinaryNamesTable(void) {
   bin_paths_vec.resize(jv.Binaries.size());
 
   jv.ForEachNameToBinaryEntry([&](const auto &x) -> void {
@@ -6139,7 +5313,8 @@ int LLVMTool::CreateBinaryNamesTable(void) {
   return 0;
 }
 
-int LLVMTool::FixupHelperStubs(void) {
+template <bool MT, bool MinSize>
+int llvm_t<MT, MinSize>::FixupHelperStubs(void) {
   auto &Binary = jv.Binaries.at(BinaryIndex);
 
   fillInFunctionBody(
@@ -6213,7 +5388,7 @@ int LLVMTool::FixupHelperStubs(void) {
       Module->getFunction("_jove_call_entry"),
       [&](auto &IRB) -> void {
         if (is_function_index_valid(Binary.Analysis.EntryFunction)) {
-          function_t &f = Binary.Analysis.Functions.at(Binary.Analysis.EntryFunction);
+          const function_t &f = Binary.Analysis.Functions.at(Binary.Analysis.EntryFunction);
 
 	  llvm::Value *Env = GetEnv(IRB);
           std::vector<llvm::Value *> ArgVec;
@@ -6332,7 +5507,7 @@ int LLVMTool::FixupHelperStubs(void) {
 
         llvm::BasicBlock *DefaultBB = llvm::BasicBlock::Create(*Context, "", F);
         {
-          llvm::IRBuilderTy defaultIRB(DefaultBB);
+          IRBuilderTy defaultIRB(DefaultBB);
 
           if (!opts.Debugify)
           defaultIRB.SetCurrentDebugLocation(llvm::DILocation::get(
@@ -6361,7 +5536,7 @@ int LLVMTool::FixupHelperStubs(void) {
               constantTable.resize(binary.Analysis.Functions.size() + 1);
 
               for (function_index_t FIdx = 0; FIdx < binary.Analysis.Functions.size(); ++FIdx) {
-                function_t &f = binary.Analysis.Functions.at(FIdx);
+                const function_t &f = binary.Analysis.Functions.at(FIdx);
 
                 constantTable[FIdx] = llvm::ConstantInt::get(WordType(),
                   B::offset_of_va(*Bin, ICFG[basic_block_of_index(f.Entry, ICFG)].Addr));
@@ -6377,7 +5552,7 @@ int LLVMTool::FixupHelperStubs(void) {
 
               llvm::BasicBlock *CaseBB = llvm::BasicBlock::Create(*Context, "", F);
               {
-                llvm::IRBuilderTy CaseIRB(CaseBB);
+                IRBuilderTy CaseIRB(CaseBB);
 
                 if (!opts.Debugify)
                 CaseIRB.SetCurrentDebugLocation(llvm::DILocation::get(
@@ -6448,7 +5623,8 @@ int LLVMTool::FixupHelperStubs(void) {
   return 0;
 }
 
-int LLVMTool::CreateNoAliasMetadata(void) {
+template <bool MT, bool MinSize>
+int llvm_t<MT, MinSize>::CreateNoAliasMetadata(void) {
   //
   // create noalias metadata
   //
@@ -6464,9 +5640,8 @@ int LLVMTool::CreateNoAliasMetadata(void) {
 }
 
 struct TranslateContext {
-  LLVMTool &tool;
-  function_t &f;
-  LLVMTool::bb_t bb;
+  basic_block_index_t BBIdx = invalid_basic_block_index;
+  const function_t &f;
 
   std::array<llvm::AllocaInst *, tcg_num_globals> GlobalAllocaArr;
   std::vector<llvm::AllocaInst *> TempAllocaVec;
@@ -6477,16 +5652,16 @@ struct TranslateContext {
     llvm::DISubprogram *Subprogram = nullptr;
   } DebugInformation;
 
-  TranslateContext(LLVMTool &tool, function_t &f) : tool(tool), f(f) {
+  TranslateContext(const function_t &f) : f(f) {
     memset(&GlobalAllocaArr[0], 0, sizeof(llvm::AllocaInst *) * GlobalAllocaArr.size());
   }
 };
 
+template <bool MT, bool MinSize>
 llvm::AllocaInst *
-LLVMTool::CreateAllocaForGlobal(TranslateContext &TC,
-                                llvm::IRBuilderTy &IRB,
-                                unsigned glb,
-                                bool InitializeFromEnv) {
+llvm_t<MT, MinSize>::CreateAllocaForGlobal(TranslateContext &TC,
+                                           IRBuilderTy &IRB, unsigned glb,
+                                           bool InitializeFromEnv) {
   llvm::AllocaInst *res =
       IRB.CreateAlloca(TypeOfTCGGlobal(glb), nullptr,
                        std::string(get_tcg_context()->temps[glb].name));
@@ -6505,8 +5680,9 @@ LLVMTool::CreateAllocaForGlobal(TranslateContext &TC,
   return res;
 }
 
-llvm::Value *LLVMTool::CPUStateGlobalPointer(llvm::IRBuilderTy &IRB,
-                                             unsigned glb) {
+template <bool MT, bool MinSize>
+llvm::Value *llvm_t<MT, MinSize>::CPUStateGlobalPointer(IRBuilderTy &IRB,
+                                           unsigned glb) {
   assert(glb < tcg_num_globals);
   assert(glb != tcg_env_index);
 
@@ -6537,9 +5713,10 @@ llvm::Value *LLVMTool::CPUStateGlobalPointer(llvm::IRBuilderTy &IRB,
       GlbTy->getPointerTo());
 }
 
-llvm::Value *LLVMTool::BuildCPUStatePointer(llvm::IRBuilderTy &IRB,
-                                            llvm::Value *Env,
-                                            unsigned glb) {
+template <bool MT, bool MinSize>
+llvm::Value *llvm_t<MT, MinSize>::BuildCPUStatePointer(IRBuilderTy &IRB,
+                                                       llvm::Value *Env,
+                                                       unsigned glb) {
   assert(glb < tcg_num_globals);
   assert(glb != tcg_env_index);
 
@@ -6563,8 +5740,9 @@ llvm::Value *LLVMTool::BuildCPUStatePointer(llvm::IRBuilderTy &IRB,
                             GlbTy->getPointerTo());
 }
 
-int LLVMTool::TranslateFunction(function_t &f) {
-  TranslateContext TC(*this, f);
+template <bool MT, bool MinSize>
+int llvm_t<MT, MinSize>::TranslateFunction(const function_t &f) {
+  TranslateContext TC(f);
 
   auto &Binary = jv.Binaries.at(BinaryIndex);
   const function_index_t FIdx = index_of_function_in_binary(f, Binary);
@@ -6612,7 +5790,7 @@ int LLVMTool::TranslateFunction(function_t &f) {
   auto &GlobalAllocaArr = TC.GlobalAllocaArr;
 
   {
-    llvm::IRBuilderTy IRB(EntryB);
+    IRBuilderTy IRB(EntryB);
 
     if (!opts.Debugify)
     IRB.SetCurrentDebugLocation(
@@ -6708,7 +5886,7 @@ int LLVMTool::TranslateFunction(function_t &f) {
   }
 
   for (bb_t bb : state.for_function(f).bbvec) {
-    TC.bb = bb;
+    TC.BBIdx = index_of_basic_block(ICFG, bb);
 
     int ret = TranslateBasicBlock(TC);
 
@@ -6750,7 +5928,7 @@ int LLVMTool::TranslateFunction(function_t &f) {
     }
 
     {
-      llvm::IRBuilderTy IRB(llvm::BasicBlock::Create(*Context, "", F));
+      IRBuilderTy IRB(llvm::BasicBlock::Create(*Context, "", F));
 
       if (!opts.Debugify)
       IRB.SetCurrentDebugLocation(llvm::DILocation::get(
@@ -6879,7 +6057,8 @@ int LLVMTool::TranslateFunction(function_t &f) {
   return 0;
 }
 
-int LLVMTool::TranslateFunctions(void) {
+template <bool MT, bool MinSize>
+int llvm_t<MT, MinSize>::TranslateFunctions(void) {
   llvm::legacy::FunctionPassManager FPM(Module.get());
 
   FPM.add(llvm::createScopedNoAliasAAWrapperPass());
@@ -6901,7 +6080,7 @@ int LLVMTool::TranslateFunctions(void) {
   FPM.doInitialization();
 
   auto &Binary = jv.Binaries.at(BinaryIndex);
-  for (function_t &f : Binary.Analysis.Functions) {
+  for (const function_t &f : Binary.Analysis.Functions) {
     int ret = TranslateFunction(f);
     if (unlikely(ret))
       return ret;
@@ -6925,7 +6104,8 @@ int LLVMTool::TranslateFunctions(void) {
   return 0;
 }
 
-int LLVMTool::InlineSjStubs(void) {
+template <bool MT, bool MinSize>
+int llvm_t<MT, MinSize>::InlineSjStubs(void) {
   for (llvm::Function *F : MustInlineSjStubs) {
     for (llvm::User *FU : llvm::make_early_inc_range(F->users())) {
       if (!llvm::isa<llvm::CallInst>(FU))
@@ -6945,7 +6125,8 @@ int LLVMTool::InlineSjStubs(void) {
   return 0;
 }
 
-int LLVMTool::PrepareToOptimize(void) {
+template <bool MT, bool MinSize>
+int llvm_t<MT, MinSize>::PrepareToOptimize(void) {
   static bool Inited = false;
   if (Inited)
     return 0;
@@ -6992,12 +6173,14 @@ int LLVMTool::PrepareToOptimize(void) {
   return 0;
 }
 
-void LLVMTool::ReloadGlobalVariables(void) {
+template <bool MT, bool MinSize>
+void llvm_t<MT, MinSize>::ReloadGlobalVariables(void) {
   SectsGlobal      = Module->getGlobalVariable(SectsGlobalName, true);
   ConstSectsGlobal = Module->getGlobalVariable(ConstSectsGlobalName, true);
 }
 
-int LLVMTool::DoOptimize(void) {
+template <bool MT, bool MinSize>
+int llvm_t<MT, MinSize>::DoOptimize(void) {
   PrepareToOptimize();
 
   const bool DoVerify = true;
@@ -7161,7 +6344,8 @@ int LLVMTool::DoOptimize(void) {
   return 0;
 }
 
-int LLVMTool::Debugify(void) {
+template <bool MT, bool MinSize>
+int llvm_t<MT, MinSize>::Debugify(void) {
   assert(opts.Debugify);
 
   if (Module->getModuleFlag(DIVersionKey)) {
@@ -7244,7 +6428,8 @@ int LLVMTool::Debugify(void) {
   return 0;
 }
 
-int LLVMTool::ConstifyRelocationSectionPointers(void) {
+template <bool MT, bool MinSize>
+int llvm_t<MT, MinSize>::ConstifyRelocationSectionPointers(void) {
   return 0;
 
   if (opts.LayOutSections)
@@ -7287,7 +6472,7 @@ int LLVMTool::ConstifyRelocationSectionPointers(void) {
                         ConstantRelocationLocs.end();
 
         if (RelocLoc) {
-          llvm::IRBuilderTy IRB(*Context);
+          IRBuilderTy IRB(*Context);
           llvm::SmallVector<llvm::Value *, 4> Indices;
           llvm::Value *SectionGEP = llvm::getNaturalGEPWithOffset(
               IRB, DL,
@@ -7316,7 +6501,8 @@ int LLVMTool::ConstifyRelocationSectionPointers(void) {
   return 0;
 }
 
-int LLVMTool::InternalizeSections(void) {
+template <bool MT, bool MinSize>
+int llvm_t<MT, MinSize>::InternalizeSections(void) {
   if (SectsGlobal)
     SectsGlobal->setLinkage(llvm::GlobalValue::InternalLinkage);
   if (ConstSectsGlobal)
@@ -7325,7 +6511,8 @@ int LLVMTool::InternalizeSections(void) {
   return 0;
 }
 
-int LLVMTool::PrepareForCBE(void) {
+template <bool MT, bool MinSize>
+int llvm_t<MT, MinSize>::PrepareForCBE(void) {
   assert(opts.ForCBE);
 
   //
@@ -7344,7 +6531,8 @@ int LLVMTool::PrepareForCBE(void) {
   return ConstifyRelocationSectionPointers();
 }
 
-bool LLVMTool::shouldExpandOperationWithSize(llvm::Value *Size) {
+template <bool MT, bool MinSize>
+bool llvm_t<MT, MinSize>::shouldExpandOperationWithSize(llvm::Value *Size) {
 #if 0
   constexpr unsigned MaxStaticSize = 32;
 
@@ -7355,7 +6543,8 @@ bool LLVMTool::shouldExpandOperationWithSize(llvm::Value *Size) {
 #endif
 }
 
-int LLVMTool::ExpandMemoryIntrinsicCalls(void) {
+template <bool MT, bool MinSize>
+int llvm_t<MT, MinSize>::ExpandMemoryIntrinsicCalls(void) {
   if (!opts.ForCBE) { /* FIXME */
 #if 0
   if (!(opts.DFSan && IsTarget32))
@@ -7419,7 +6608,8 @@ int LLVMTool::ExpandMemoryIntrinsicCalls(void) {
   return 0;
 }
 
-int LLVMTool::ReplaceAllRemainingUsesOfConstSections(void) {
+template <bool MT, bool MinSize>
+int llvm_t<MT, MinSize>::ReplaceAllRemainingUsesOfConstSections(void) {
   if (!ConstSectsGlobal)
     return 0;
 
@@ -7434,7 +6624,8 @@ int LLVMTool::ReplaceAllRemainingUsesOfConstSections(void) {
   return 0;
 }
 
-int LLVMTool::RenameFunctionLocals(void) {
+template <bool MT, bool MinSize>
+int llvm_t<MT, MinSize>::RenameFunctionLocals(void) {
   if (opts.ForCBE) {
     for (llvm::Function &Func : *Module) {
       for (llvm::BasicBlock &Block : Func) {
@@ -7503,7 +6694,8 @@ int LLVMTool::RenameFunctionLocals(void) {
   return 0;
 }
 
-int LLVMTool::DFSanInstrument(void) {
+template <bool MT, bool MinSize>
+int llvm_t<MT, MinSize>::DFSanInstrument(void) {
   assert(opts.DFSan);
 
 #if 0
@@ -7608,7 +6800,8 @@ int LLVMTool::DFSanInstrument(void) {
   return 0;
 }
 
-int LLVMTool::WriteVersionScript(void) {
+template <bool MT, bool MinSize>
+int llvm_t<MT, MinSize>::WriteVersionScript(void) {
   assert(!opts.VersionScript.empty());
 
   std::ofstream ofs(opts.VersionScript);
@@ -7630,7 +6823,8 @@ int LLVMTool::WriteVersionScript(void) {
   return 0;
 }
 
-int LLVMTool::WriteLinkerScript(void) {
+template <bool MT, bool MinSize>
+int llvm_t<MT, MinSize>::WriteLinkerScript(void) {
   assert(!opts.LinkerScript.empty());
 
   auto &Binary = jv.Binaries.at(BinaryIndex);
@@ -7676,7 +6870,8 @@ int LLVMTool::WriteLinkerScript(void) {
   return 0;
 }
 
-int LLVMTool::BreakBeforeUnreachables(void) {
+template <bool MT, bool MinSize>
+int llvm_t<MT, MinSize>::BreakBeforeUnreachables(void) {
   assert(opts.BreakBeforeUnreachables);
 
   //
@@ -7690,7 +6885,7 @@ int LLVMTool::BreakBeforeUnreachables(void) {
     for (llvm::BasicBlock &BB : F)
       for (llvm::Instruction &I : llvm::make_early_inc_range(BB))
         if (llvm::isa<llvm::UnreachableInst>(I)) {
-          llvm::IRBuilderTy IRB(&I);
+          IRBuilderTy IRB(&I);
 
           IRB.CreateCall(llvm::Intrinsic::getDeclaration(Module.get(), llvm::Intrinsic::trap));
         }
@@ -7698,7 +6893,8 @@ int LLVMTool::BreakBeforeUnreachables(void) {
   return 0;
 }
 
-int LLVMTool::InlineHelpers(void) {
+template <bool MT, bool MinSize>
+int llvm_t<MT, MinSize>::InlineHelpers(void) {
   if (!opts.Optimize)
     return 0;
 
@@ -7730,7 +6926,8 @@ int LLVMTool::InlineHelpers(void) {
   return 0;
 }
 
-int LLVMTool::ForceCallConv(void) {
+template <bool MT, bool MinSize>
+int llvm_t<MT, MinSize>::ForceCallConv(void) {
   if (!IsCOFF)
     return 0;
 
@@ -7766,7 +6963,7 @@ int LLVMTool::ForceCallConv(void) {
 #undef __THUNK
 
   auto &Binary = jv.Binaries.at(BinaryIndex);
-  for (function_t &f : Binary.Analysis.Functions) {
+  for (const function_t &f : Binary.Analysis.Functions) {
     if (!f.IsABI)
       continue;
 
@@ -7779,7 +6976,8 @@ int LLVMTool::ForceCallConv(void) {
   return 0;
 }
 
-int LLVMTool::WriteModule(void) {
+template <bool MT, bool MinSize>
+int llvm_t<MT, MinSize>::WriteModule(void) {
   if (opts.VerifyBitcode) {
     if (llvm::verifyModule(*Module, &llvm::errs())) {
       WithColor::error() << "WriteModule: failed to verify module\n";
@@ -7812,7 +7010,8 @@ namespace llvm {
 ///
 /// This will return the BasePtr if that is valid, or build a new GEP
 /// instruction using the IRBuilder if GEP-ing is needed.
-static Value *buildGEP(IRBuilderTy &IRB, std::pair<Value *, Type *> BasePtr,
+static Value *buildGEP(jove::IRBuilderTy &IRB,
+                       std::pair<Value *, Type *> BasePtr,
                        SmallVectorImpl<Value *> &Indices,
                        const Twine &NamePrefix) {
   if (Indices.empty())
@@ -7845,7 +7044,8 @@ static Value *buildGEP(IRBuilderTy &IRB, std::pair<Value *, Type *> BasePtr,
 /// TargetTy. If we can't find one with the same type, we at least try to use
 /// one with the same size. If none of that works, we just produce the GEP as
 /// indicated by Indices to have the correct offset.
-static Value *getNaturalGEPWithType(IRBuilderTy &IRB, const DataLayout &DL,
+static Value *getNaturalGEPWithType(jove::IRBuilderTy &IRB,
+                                    const DataLayout &DL,
                                     std::pair<Value *, Type *> BasePtr,
                                     Type *Ty, Type *TargetTy,
                                     SmallVectorImpl<Value *> &Indices,
@@ -7896,7 +7096,8 @@ static Value *getNaturalGEPWithType(IRBuilderTy &IRB, const DataLayout &DL,
 /// Indices, and setting Ty to the result subtype.
 ///
 /// If no natural GEP can be constructed, this function returns null.
-static Value *getNaturalGEPWithOffset(IRBuilderTy &IRB, const DataLayout &DL,
+static Value *getNaturalGEPWithOffset(jove::IRBuilderTy &IRB,
+                                      const DataLayout &DL,
                                       std::pair<Value *, Type *> Ptr,
                                       APInt Offset, Type *TargetTy,
                                       SmallVectorImpl<Value *> &Indices,
@@ -7931,27 +7132,29 @@ namespace jove {
 
 typedef int (*translate_tcg_op_proc_t)(TCGOp *,
                                        llvm::BasicBlock *,
-                                       llvm::IRBuilderTy &,
+                                       IRBuilderTy &,
                                        TranslateContext &);
 
 #if 0
 static bool seenOpTable[ARRAY_SIZE(tcg_op_defs)];
 #endif
 
-int LLVMTool::TranslateBasicBlock(TranslateContext &TC) {
+template <bool MT, bool MinSize>
+int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
   auto &GlobalAllocaArr = TC.GlobalAllocaArr;
   auto &TempAllocaVec = TC.TempAllocaVec;
   auto &LabelVec = TC.LabelVec;
-  bb_t bb = TC.bb;
-  function_t &f = TC.f;
+  const function_t &f = TC.f;
 
   auto &Binary = jv.Binaries.at(BinaryIndex);
   const auto &ICFG = Binary.Analysis.ICFG;
 
+  const bb_t bb = basic_block_of_index(TC.BBIdx, ICFG);
+
   const uint64_t Addr = ICFG[bb].Addr;
   const unsigned Size = ICFG[bb].Size;
 
-  llvm::IRBuilderTy IRB(state.for_basic_block(Binary, bb).B);
+  IRBuilderTy IRB(state.for_basic_block(Binary, bb).B);
 
   if (!opts.Debugify)
   IRB.SetCurrentDebugLocation(llvm::DILocation::get(
@@ -7972,7 +7175,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext &TC) {
 
     llvm::AllocaInst *&Ptr = GlobalAllocaArr.at(glb);
     if (!Ptr) {
-      llvm::IRBuilderTy tmpIRB(state.for_function(f).F->getEntryBlock().getTerminator());
+      IRBuilderTy tmpIRB(state.for_function(f).F->getEntryBlock().getTerminator());
 
       Ptr = CreateAllocaForGlobal(TC, tmpIRB, glb);
     }
@@ -8001,7 +7204,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext &TC) {
 
     llvm::AllocaInst *&Ptr = GlobalAllocaArr.at(glb);
     if (!Ptr) {
-      llvm::IRBuilderTy tmpIRB(state.for_function(f).F->getEntryBlock().getTerminator());
+      IRBuilderTy tmpIRB(state.for_function(f).F->getEntryBlock().getTerminator());
 
       Ptr = CreateAllocaForGlobal(TC, tmpIRB, glb);
     }
@@ -8052,7 +7255,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext &TC) {
     }
   }
 
-  TCG->set_binary(*state.for_binary(Binary).Bin);
+  TCG.set_binary(*state.for_binary(Binary).Bin);
 
   llvm::BasicBlock *ExitBB = nullptr;
 
@@ -8072,7 +7275,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext &TC) {
     unsigned len;
 
     try {
-      std::tie(len, T) = TCG->translate(Addr + size, Addr + Size);
+      std::tie(len, T) = TCG.translate(Addr + size, Addr + Size);
     } catch (const illegal_op_exception &) {
       WithColor::error() << llvm::formatv("tcg: illegal_op_exception @ {0:x}\n",
                                           Addr);
@@ -8080,7 +7283,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext &TC) {
     }
 
     if (unlikely(ForAddrMatch))
-      TCG->dump_operations();
+      TCG.dump_operations();
 
     TCGContext *s = get_tcg_context();
 
@@ -8137,7 +7340,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext &TC) {
             continue;
 
           {
-            llvm::IRBuilderTy tmpIRB(&state.for_function(f).F->getEntryBlock().front());
+            IRBuilderTy tmpIRB(&state.for_function(f).F->getEntryBlock().front());
 
             TempAllocaVec.at(idx) =
               tmpIRB.CreateAlloca(tmpIRB.getIntNTy(bitsOfTCGType(ts->type)), 0,
@@ -8172,7 +7375,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext &TC) {
             continue;
 
           {
-            llvm::IRBuilderTy tmpIRB(&state.for_function(f).F->getEntryBlock().front());
+            IRBuilderTy tmpIRB(&state.for_function(f).F->getEntryBlock().front());
 
             TempAllocaVec.at(idx) =
               tmpIRB.CreateAlloca(tmpIRB.getIntNTy(bitsOfTCGType(ts->type)), 0,
@@ -8201,7 +7404,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext &TC) {
     int ret = TranslateTCGOps(ExitBB, IRB, TC);
     if (unlikely(ret)) {
       WithColor::warning() << "!TranslateTCGOp\n";
-      TCG->dump_operations();
+      TCG.dump_operations();
       return ret;
     }
 
@@ -8354,7 +7557,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext &TC) {
   case TERMINATOR::CALL: {
     function_index_t FIdx = ICFG[bb].Term._call.Target;
 
-    function_t &callee = Binary.Analysis.Functions.at(FIdx);
+    const function_t &callee = Binary.Analysis.Functions.at(FIdx);
 
     //
     // setjmp/longjmp
@@ -8824,7 +8027,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext &TC) {
 
       dynamic_target_t X = DynTargets.Front();
 
-      function_t &callee = function_of_target(X, jv);
+      const function_t &callee = function_of_target(X, jv);
 
       llvm::outs() << llvm::formatv("calling {0} from {1:x} ({2})\n",
                                     Lj ? "longjmp" : "setjmp",
@@ -9122,7 +8325,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext &TC) {
 
           bool foreign = DynTargetNeedsThunkPred(DynTargetsVec[i]);
 
-          function_t &callee = function_of_target(DynTargetsVec[i], jv);
+          const function_t &callee = function_of_target(DynTargetsVec[i], jv);
 
           const bool Lj = state.for_function(callee).IsLj;
           const bool Sj = state.for_function(callee).IsSj;
@@ -9628,7 +8831,7 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
     if (is1) {
       succ1 = succ2 = ICFG.adjacent_front(bb);
     } else {
-      auto succ = ICFG.adjacent_n<2>(bb);
+      auto succ = ICFG.template adjacent_n<2>(bb);
       succ1 = succ[0];
       succ2 = succ[1];
     }
@@ -9717,7 +8920,8 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
   return 0;
 }
 
-llvm::Value *LLVMTool::insertThreadPointerInlineAsm(llvm::IRBuilderTy &IRB) {
+template <bool MT, bool MinSize>
+llvm::Value *llvm_t<MT, MinSize>::insertThreadPointerInlineAsm(IRBuilderTy &IRB) {
   const bool UseTPIntrinsic = /* IsELF || */ opts.ForCBE;
   if (UseTPIntrinsic) {
     llvm::Function *TPIntrinsic = llvm::Intrinsic::getDeclaration(
@@ -9763,7 +8967,8 @@ llvm::Value *LLVMTool::insertThreadPointerInlineAsm(llvm::IRBuilderTy &IRB) {
   return IRB.CreateCall(IA);
 }
 
-std::string LLVMTool::dyn_target_desc(dynamic_target_t IdxPair) {
+template <bool MT, bool MinSize>
+std::string llvm_t<MT, MinSize>::dyn_target_desc(dynamic_target_t IdxPair) {
   struct {
     binary_index_t BIdx;
     function_index_t FIdx;
@@ -9772,7 +8977,7 @@ std::string LLVMTool::dyn_target_desc(dynamic_target_t IdxPair) {
   std::tie(DynTarget.BIdx, DynTarget.FIdx) = IdxPair;
 
   auto &b = jv.Binaries.at(DynTarget.BIdx);
-  function_t &f = b.Analysis.Functions.at(DynTarget.FIdx);
+  const function_t &f = b.Analysis.Functions.at(DynTarget.FIdx);
 
   uint64_t Addr =
       b.Analysis.ICFG[basic_block_of_index(f.Entry, b.Analysis.ICFG)].Addr;
@@ -9780,25 +8985,27 @@ std::string LLVMTool::dyn_target_desc(dynamic_target_t IdxPair) {
   return (fmt("%s+%#lx") % fs::path(b.path_str()).filename().string() % Addr).str();
 }
 
-int LLVMTool::TranslateTCGOps(llvm::BasicBlock *ExitBB,
-                              llvm::IRBuilderTy &IRB,
-                              TranslateContext &TC) {
+template <bool MT, bool MinSize>
+int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
+                                         IRBuilderTy &IRB,
+                                         TranslateContext &TC) {
   auto EnsureInsertPoint = [&](void) -> void {
     if (IRB.GetInsertBlock() == nullptr)
       IRB.SetInsertPoint(
           llvm::BasicBlock::Create(*Context, "", state.for_function(TC.f).F));
   };
 
-  function_t &f = TC.f;
-  bb_t bb = TC.bb;
+  const function_t &f = TC.f;
   auto &GlobalAllocaArr = TC.GlobalAllocaArr;
   auto &TempAllocaVec = TC.TempAllocaVec;
   auto &LabelVec = TC.LabelVec;
 
-  auto &Binary = TC.tool.jv.Binaries.at(TC.tool.BinaryIndex);
+  auto &Binary = jv.Binaries.at(BinaryIndex);
   const auto &ICFG = Binary.Analysis.ICFG;
   auto &PCAlloca = TC.PCAlloca;
   TCGContext *s = get_tcg_context();
+
+  const bb_t bb = basic_block_of_index(TC.BBIdx, ICFG);
 
   auto immediate_constant = [&](unsigned bits, TCGArg A) -> llvm::Value * {
     if (!pcrel_flag)
@@ -9845,7 +9052,7 @@ int LLVMTool::TranslateTCGOps(llvm::BasicBlock *ExitBB,
 
       llvm::AllocaInst *&Ptr = GlobalAllocaArr.at(idx);
       if (!Ptr) {
-        llvm::IRBuilderTy tmpIRB(state.for_function(f).F->getEntryBlock().getTerminator());
+        IRBuilderTy tmpIRB(state.for_function(f).F->getEntryBlock().getTerminator());
 
         Ptr = CreateAllocaForGlobal(TC, tmpIRB, idx);
       }
@@ -9868,7 +9075,7 @@ int LLVMTool::TranslateTCGOps(llvm::BasicBlock *ExitBB,
       return V;
     }
 
-    llvm::LoadInst *LI = IRB.CreateLoad(TypeOfTCGType(ts->type), get_ptr(ts));
+    llvm::LoadInst *LI = IRB.CreateLoad(TypeOfTCGType(*Context, ts->type), get_ptr(ts));
     LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
     return LI;
   };
@@ -9900,7 +9107,7 @@ int LLVMTool::TranslateTCGOps(llvm::BasicBlock *ExitBB,
 
       V = IRB.CreatePtrToInt(V, WordType());
     } else {
-      V = IRB.CreateIntCast(V, TypeOfTCGType(ts->type), false);
+      V = IRB.CreateIntCast(V, TypeOfTCGType(*Context, ts->type), false);
     }
 
     llvm::StoreInst *SI = IRB.CreateStore(V, get_ptr(ts));
@@ -10362,8 +9569,10 @@ int LLVMTool::TranslateTCGOps(llvm::BasicBlock *ExitBB,
       const uint64_t Addr = op->args[0];
       lstaddr = Addr;
 
+#if 0
       if (IsVeryVerbose())
-        HumanOut() << llvm::formatv("insn @ {0:x}\n", Addr);
+        llvm::errs() << llvm::formatv("insn @ {0:x}\n", Addr);
+#endif
 
       static_assert(sizeof(unsigned) == sizeof(uint32_t));
 
@@ -10425,7 +9634,7 @@ int LLVMTool::TranslateTCGOps(llvm::BasicBlock *ExitBB,
       BREAK();
 
     const helper_function_t &hf =
-        LookupHelper(*Module, *TCG, op, analyzer_options);
+        LookupHelper(*Module, TCG, op, analyzer_options);
     llvm::FunctionType *FTy = hf.F->getFunctionType();
 
     //
@@ -11622,5 +10831,18 @@ out:
 
 void _qemu_log(const char *cstr) { llvm::errs() << cstr; }
 
+#define VALUES_TO_INSTANTIATE_WITH1                                            \
+    ((true))                                                                   \
+    ((false))
+#define VALUES_TO_INSTANTIATE_WITH2                                            \
+    ((true))                                                                   \
+    ((false))
+#define GET_VALUE(x) BOOST_PP_TUPLE_ELEM(0, x)
+
+#define DO_INSTANTIATE(r, product)                                             \
+  template struct llvm_t<GET_VALUE(BOOST_PP_SEQ_ELEM(0, product)),         \
+                         GET_VALUE(BOOST_PP_SEQ_ELEM(1, product))>;
+BOOST_PP_SEQ_FOR_EACH_PRODUCT(DO_INSTANTIATE, (VALUES_TO_INSTANTIATE_WITH1)(VALUES_TO_INSTANTIATE_WITH2))
+
 }
-#endif
+#endif /* JOVE_NO_BACKEND */

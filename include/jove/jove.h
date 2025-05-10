@@ -1178,7 +1178,7 @@ struct jv_base_t {
   ip_name_to_binaries_map_type<MT, MinSize> name_to_binaries;
 
   template <typename Proc>
-  void ForEachNameToBinaryEntry(Proc proc) {
+  void ForEachNameToBinaryEntry(Proc proc) const {
     if constexpr (MT)
       name_to_binaries.cvisit_all(proc);
     else
@@ -1422,9 +1422,29 @@ void for_each_binary_if(_ExecutionPolicy &&__exec,
               pred, proc);
 }
 
+template <bool MT, bool MinSize, class _ExecutionPolicy, class Pred, class Proc>
+constexpr
+void for_each_binary_if(_ExecutionPolicy &&__exec,
+                        const jv_base_t<MT, MinSize> &jv,
+                        Pred pred,
+                        Proc proc) {
+  for_each_if(std::forward<_ExecutionPolicy>(__exec),
+              jv.Binaries.begin(),
+              jv.Binaries.end(),
+              pred, proc);
+}
+
 template <bool MT, bool MinSize, class Pred, class Proc>
 constexpr
 void for_each_binary_if(jv_base_t<MT, MinSize> &jv, Pred pred, Proc proc) {
+  for_each_if(jv.Binaries.begin(),
+              jv.Binaries.end(),
+              pred, proc);
+}
+
+template <bool MT, bool MinSize, class Pred, class Proc>
+constexpr
+void for_each_binary_if(const jv_base_t<MT, MinSize> &jv, Pred pred, Proc proc) {
   for_each_if(jv.Binaries.begin(),
               jv.Binaries.end(),
               pred, proc);
@@ -1492,6 +1512,24 @@ constexpr void for_each_function_if_in_binary(_ExecutionPolicy &&__exec,
 template <bool MT, bool MinSize, class Pred, class Proc>
 constexpr
 void for_each_function_if_in_binary(binary_base_t<MT, MinSize> &b,
+                                    Pred pred,
+                                    Proc proc) {
+  for_each_if(b.Analysis.Functions.begin(),
+              b.Analysis.Functions.end(), pred, proc);
+}
+
+template <bool MT, bool MinSize, class _ExecutionPolicy, class Pred, class Proc>
+constexpr void for_each_function_if_in_binary(_ExecutionPolicy &&__exec,
+                                              const binary_base_t<MT, MinSize> &b,
+                                              Pred pred, Proc proc) {
+  for_each_if(std::forward<_ExecutionPolicy>(__exec),
+              b.Analysis.Functions.begin(),
+              b.Analysis.Functions.end(), pred, proc);
+}
+
+template <bool MT, bool MinSize, class Pred, class Proc>
+constexpr
+void for_each_function_if_in_binary(const binary_base_t<MT, MinSize> &b,
                                     Pred pred,
                                     Proc proc) {
   for_each_if(b.Analysis.Functions.begin(),
@@ -2051,7 +2089,8 @@ static inline void construct_bbmap(const jv_base_t<MT, MinSize> &jv,
 }
 
 template <bool MT, bool MinSize>
-static inline binary_base_t<MT, MinSize> &get_dynl(jv_base_t<MT, MinSize> &jv) {
+static inline const binary_base_t<MT, MinSize> &
+get_dynl(const jv_base_t<MT, MinSize> &jv) {
   for (auto &b : jv.Binaries) {
     if (b.IsDynamicLinker)
       return b;
@@ -2061,7 +2100,8 @@ static inline binary_base_t<MT, MinSize> &get_dynl(jv_base_t<MT, MinSize> &jv) {
 }
 
 template <bool MT, bool MinSize>
-static inline binary_base_t<MT, MinSize> &get_vdso(jv_base_t<MT, MinSize> &jv) {
+static inline const binary_base_t<MT, MinSize> &
+get_vdso(const jv_base_t<MT, MinSize> &jv) {
   for (auto &b : jv.Binaries) {
     if (b.IsVDSO)
       return b;

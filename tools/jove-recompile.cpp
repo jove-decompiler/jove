@@ -139,6 +139,8 @@ class RecompileTool : public JVTool<ToolKind::CopyOnWrite> {
 
   } opts;
 
+  recompiler_options_t options;
+
 public:
   RecompileTool() : opts(JoveCategory) {}
 
@@ -150,7 +152,15 @@ public:
 JOVE_REGISTER_TOOL("recompile", RecompileTool);
 
 int RecompileTool::Run(void) {
-  recompiler_options_t options;
+  tiny_code_generator_t TCG;
+
+  for (const std::string &PinnedGlobalName : opts.PinnedGlobals) {
+    int idx = TCG.tcg_index_of_named_global(PinnedGlobalName.c_str());
+    if (idx < 0)
+      die("unknown global to pin: " + PinnedGlobalName);
+
+    options.PinnedEnvGlbs.set(idx);
+  }
 
 #define PROPOGATE_OPTION(name)                                                 \
   do {                                                                         \
@@ -172,16 +182,6 @@ int RecompileTool::Run(void) {
   PROPOGATE_OPTION(BreakBeforeUnreachables);
   PROPOGATE_OPTION(LayOutSections);
   PROPOGATE_OPTION(PlaceSectionBreakpoints);
-
-  tiny_code_generator_t TCG;
-
-  for (const std::string &PinnedGlobalName : opts.PinnedGlobals) {
-    int idx = TCG.tcg_index_of_named_global(PinnedGlobalName.c_str());
-    if (idx < 0)
-      die("unknown global to pin: " + PinnedGlobalName);
-
-    options.PinnedEnvGlbs.set(idx);
-  }
 
   options.temp_dir = temporary_dir();
 

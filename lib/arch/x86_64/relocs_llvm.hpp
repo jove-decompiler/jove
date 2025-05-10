@@ -1,4 +1,5 @@
-llvm::Type *LLVMTool::elf_type_of_expression_for_relocation(const elf::Relocation &R) {
+template <bool MT, bool MinSize>
+llvm::Type *llvm_t<MT, MinSize>::elf_type_of_expression_for_relocation(const elf::Relocation &R) {
   switch (R.Type) {
   case llvm::ELF::R_X86_64_RELATIVE:
   case llvm::ELF::R_X86_64_GLOB_DAT:
@@ -22,8 +23,9 @@ llvm::Type *LLVMTool::elf_type_of_expression_for_relocation(const elf::Relocatio
   }
 }
 
-llvm::Constant *LLVMTool::elf_expression_for_relocation(const elf::Relocation &R,
-                                                        const elf::RelSymbol &RelSym) {
+template <bool MT, bool MinSize>
+llvm::Constant *llvm_t<MT, MinSize>::elf_expression_for_relocation(const elf::Relocation &R,
+                                                      const elf::RelSymbol &RelSym) {
   switch (R.Type) {
   case llvm::ELF::R_X86_64_RELATIVE: {
     //WARN_ON(!R.Addend);
@@ -68,7 +70,8 @@ llvm::Constant *LLVMTool::elf_expression_for_relocation(const elf::Relocation &R
   }
 }
 
-bool LLVMTool::elf_is_manual_relocation(const elf::Relocation &R) {
+template <bool MT, bool MinSize>
+bool llvm_t<MT, MinSize>::elf_is_manual_relocation(const elf::Relocation &R) {
   switch (R.Type) {
   case llvm::ELF::R_X86_64_IRELATIVE:
   case llvm::ELF::R_X86_64_TPOFF64:
@@ -82,9 +85,11 @@ bool LLVMTool::elf_is_manual_relocation(const elf::Relocation &R) {
   }
 }
 
-void LLVMTool::elf_compute_manual_relocation(llvm::IRBuilderTy &IRB,
-                                             const elf::Relocation &R,
-                                             const elf::RelSymbol &RelSym) {
+template <bool MT, bool MinSize>
+void llvm_t<MT, MinSize>::elf_compute_manual_relocation(
+    IRBuilderTy &IRB,
+    const elf::Relocation &R,
+    const elf::RelSymbol &RelSym) {
   switch (R.Type) {
   case llvm::ELF::R_X86_64_IRELATIVE:
     assert(R.Addend);
@@ -132,7 +137,8 @@ void LLVMTool::elf_compute_manual_relocation(llvm::IRBuilderTy &IRB,
   }
 }
 
-bool LLVMTool::elf_is_constant_relocation(const elf::Relocation &R) {
+template <bool MT, bool MinSize>
+bool llvm_t<MT, MinSize>::elf_is_constant_relocation(const elf::Relocation &R) {
   switch (R.Type) {
   case llvm::ELF::R_X86_64_RELATIVE:
   case llvm::ELF::R_X86_64_GLOB_DAT:
@@ -145,11 +151,13 @@ bool LLVMTool::elf_is_constant_relocation(const elf::Relocation &R) {
   }
 }
 
-llvm::Type *LLVMTool::coff_type_of_expression_for_relocation(uint8_t RelocType) {
+template <bool MT, bool MinSize>
+llvm::Type *llvm_t<MT, MinSize>::coff_type_of_expression_for_relocation(uint8_t RelocType) {
   return WordType();
 }
 
-llvm::Constant *LLVMTool::coff_expression_for_relocation(uint8_t RelocType, uint64_t Offset) {
+template <bool MT, bool MinSize>
+llvm::Constant *llvm_t<MT, MinSize>::coff_expression_for_relocation(uint8_t RelocType, uint64_t Offset) {
   switch (RelocType) {
   case llvm::COFF::IMAGE_REL_BASED_DIR64: {
     taddr_t Addr = ExtractWordAtAddress(Offset);
@@ -161,6 +169,7 @@ llvm::Constant *LLVMTool::coff_expression_for_relocation(uint8_t RelocType, uint
   }
 }
 
-bool LLVMTool::coff_is_constant_relocation(uint8_t RelocType) {
+template <bool MT, bool MinSize>
+bool llvm_t<MT, MinSize>::coff_is_constant_relocation(uint8_t RelocType) {
   return true;
 }

@@ -97,9 +97,7 @@ class recompiler_t {
   bool IsVerbose(void) const { return opts.VerbosityLevel >= 1; };
   bool IsVeryVerbose(void) const { return opts.VerbosityLevel >= 2; };
   const std::string &temporary_dir(void) const { return opts.temp_dir; }
-  locator_t &locator(void) {
-    return locator_;
-  }
+  locator_t &locator(void) { return locator_; }
 
 public:
   recompiler_t(const jv_t &jv, const recompiler_options_t &opts,

@@ -68,11 +68,10 @@ template <bool MT, bool MinSize, typename Graph>
 struct graphviz_label_writer {
   using jv_t = jv_base_t<MT, MinSize>;
 
-  jv_t &jv;
+  const jv_t &jv;
   const Graph &g;
 
-  graphviz_label_writer(jv_t &jv, const Graph &g)
-      : jv(jv), g(g) {}
+  graphviz_label_writer(const jv_t &jv, const Graph &g) : jv(jv), g(g) {}
 
   template <typename Vertex>
   void operator()(std::ostream &out, Vertex v) const {
@@ -303,7 +302,7 @@ int recompiler_t<MT, MinSize>::go(void) {
     {
       std::ofstream ofs(chrooted_path.string());
 
-      ofs.write(reinterpret_cast<char *>(&b.Data[0]), b.Data.size());
+      ofs.write(static_cast<const char *>(&b.Data[0]), b.Data.size());
     }
 
     //
@@ -1138,9 +1137,11 @@ void recompiler_t<MT, MinSize>::worker(dso_t dso) {
   //
   std::string path_to_stdout = bcfp + ".llvm.stdout.txt";
   std::string path_to_stderr = bcfp + ".llvm.stderr.txt";
-  rc = RunToolToExit(
-      "llvm",
+  rc = RunExecutableToExit(
+      "/proc/self/exe", /* FIXME */
       [&](auto Arg) {
+        Arg("llvm");
+
         Arg("-o");
         Arg(bcfp);
 
@@ -1338,9 +1339,10 @@ template <bool MT, bool MinSize>
 void recompiler_t<MT, MinSize>::write_dso_graphviz(
     std::ostream &out,
     const dso_graph_t &dso_graph) {
-  boost::write_graphviz(
-      out, dso_graph, graphviz_label_writer(*this, dso_graph),
-      graphviz_edge_prop_writer(dso_graph), graphviz_prop_writer());
+  boost::write_graphviz(out, dso_graph,
+                        graphviz_label_writer(jv, dso_graph),
+                        graphviz_edge_prop_writer(dso_graph),
+                        graphviz_prop_writer());
 }
 
 void handle_sigint(int no) {
@@ -1371,5 +1373,19 @@ recompiler_t<MT, MinSize>::ChooseBinaryWithSoname(const std::string &soname) {
 
   return Res;
 }
+
+#define VALUES_TO_INSTANTIATE_WITH1                                            \
+    ((true))                                                                   \
+    ((false))
+#define VALUES_TO_INSTANTIATE_WITH2                                            \
+    ((true))                                                                   \
+    ((false))
+#define GET_VALUE(x) BOOST_PP_TUPLE_ELEM(0, x)
+
+#define DO_INSTANTIATE(r, product)                                             \
+  template struct recompiler_t<GET_VALUE(BOOST_PP_SEQ_ELEM(0, product)),       \
+                               GET_VALUE(BOOST_PP_SEQ_ELEM(1, product))>;
+BOOST_PP_SEQ_FOR_EACH_PRODUCT(DO_INSTANTIATE, (VALUES_TO_INSTANTIATE_WITH1)(VALUES_TO_INSTANTIATE_WITH2))
+
 }
 #endif /* JOVE_NO_BACKEND */

@@ -17,13 +17,13 @@ struct analyzer_options_t {
   unsigned Precision = 0;
   unsigned Conservative = 1;
   bool ForCBE = false;
-  bool Verbose = false;
+
+  tcg_global_set_t PinnedEnvGlbs = InitPinnedEnvGlbs;
+
   unsigned VerbosityLevel = 0;
 
   bool IsVerbose(void) const { return VerbosityLevel >= 1; };
   bool IsVeryVerbose(void) const { return VerbosityLevel >= 2; };
-
-  tcg_global_set_t PinnedEnvGlbs = InitPinnedEnvGlbs;
 };
 
 template <bool MT, bool MinSize>

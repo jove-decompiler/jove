@@ -108,8 +108,8 @@ void InitWithEnviron(std::function<void(const char *)> Env);
 template <typename ComputeArgs>
 inline pid_t RunExecutable(const std::string &exe_path,
                            ComputeArgs compute_args,
-                           const std::string &stdout_path,
-                           const std::string &stderr_path,
+                           const std::string &stdout_path = std::string(),
+                           const std::string &stderr_path = std::string(),
                            before_exec_t before_exec = [](const char **, const char **) {}) {
   return RunExecutable(
       exe_path,

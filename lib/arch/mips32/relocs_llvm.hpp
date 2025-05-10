@@ -1,4 +1,6 @@
-llvm::Type *LLVMTool::elf_type_of_expression_for_relocation(const elf::Relocation &R) {
+template <bool MT, bool MinSize>
+llvm::Type *llvm_t<MT, MinSize>::elf_type_of_expression_for_relocation(
+    const elf::Relocation &R) {
   switch (R.Type) {
   case llvm::ELF::R_MIPS_REL32:
 //case llvm::ELF::R_MIPS_GLOB_DAT:
@@ -16,8 +18,10 @@ llvm::Type *LLVMTool::elf_type_of_expression_for_relocation(const elf::Relocatio
   }
 }
 
-llvm::Constant *LLVMTool::elf_expression_for_relocation(const elf::Relocation &R,
-                                                    const elf::RelSymbol &RelSym) {
+template <bool MT, bool MinSize>
+llvm::Constant *llvm_t<MT, MinSize>::elf_expression_for_relocation(
+    const elf::Relocation &R,
+    const elf::RelSymbol &RelSym) {
   switch (R.Type) {
   case llvm::ELF::R_MIPS_REL32:
     if (const Elf_Sym *Sym = RelSym.Sym) {
@@ -46,7 +50,8 @@ llvm::Constant *LLVMTool::elf_expression_for_relocation(const elf::Relocation &R
   }
 }
 
-bool LLVMTool::elf_is_manual_relocation(const elf::Relocation &R) {
+template <bool MT, bool MinSize>
+bool llvm_t<MT, MinSize>::elf_is_manual_relocation(const elf::Relocation &R) {
   switch (R.Type) {
   case llvm::ELF::R_MIPS_TLS_TPREL32:
 //case llvm::ELF::R_MIPS_TLS_DTPMOD32:
@@ -57,9 +62,11 @@ bool LLVMTool::elf_is_manual_relocation(const elf::Relocation &R) {
   }
 }
 
-void LLVMTool::elf_compute_manual_relocation(llvm::IRBuilderTy &IRB,
-                                         const elf::Relocation &R,
-                                         const elf::RelSymbol &RelSym) {
+template <bool MT, bool MinSize>
+void llvm_t<MT, MinSize>::elf_compute_manual_relocation(
+    IRBuilderTy &IRB,
+    const elf::Relocation &R,
+    const elf::RelSymbol &RelSym) {
   switch (R.Type) {
   case llvm::ELF::R_MIPS_TLS_TPREL32:
     return elf_compute_tpoff_relocation(IRB, RelSym, ExtractWordAtAddress(R.Offset));
@@ -71,7 +78,8 @@ void LLVMTool::elf_compute_manual_relocation(llvm::IRBuilderTy &IRB,
   }
 }
 
-bool LLVMTool::elf_is_constant_relocation(const elf::Relocation &R) {
+template <bool MT, bool MinSize>
+bool llvm_t<MT, MinSize>::elf_is_constant_relocation(const elf::Relocation &R) {
   switch (R.Type) {
   case llvm::ELF::R_MIPS_REL32:
   case llvm::ELF::R_MIPS_JUMP_SLOT:
@@ -83,17 +91,23 @@ bool LLVMTool::elf_is_constant_relocation(const elf::Relocation &R) {
   }
 }
 
-llvm::Type *LLVMTool::coff_type_of_expression_for_relocation(uint8_t RelocType) {
+template <bool MT, bool MinSize>
+llvm::Type *
+llvm_t<MT, MinSize>::coff_type_of_expression_for_relocation(uint8_t RelocType) {
   return WordType();
 }
 
-llvm::Constant *LLVMTool::coff_expression_for_relocation(uint8_t RelocType, uint64_t Offset) {
+template <bool MT, bool MinSize>
+llvm::Constant *
+llvm_t<MT, MinSize>::coff_expression_for_relocation(uint8_t RelocType,
+                                                    uint64_t Offset) {
   switch (RelocType) {
   default:
     throw unhandled_relocation_exception();
   }
 }
 
-bool LLVMTool::coff_is_constant_relocation(uint8_t RelocType) {
+template <bool MT, bool MinSize>
+bool llvm_t<MT, MinSize>::coff_is_constant_relocation(uint8_t RelocType) {
   return true;
 }

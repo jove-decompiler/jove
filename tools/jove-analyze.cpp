@@ -75,8 +75,8 @@ class AnalyzeTool : public JVTool<ToolKind::Standard> {
   boost::concurrent_flat_set<dynamic_target_t> inflight;
   std::atomic<uint64_t> done = 0;
 
-  std::unique_ptr<tiny_code_generator_t> TCG;
-  std::unique_ptr<analyzer_t<IsToolMT, IsToolMinSize>> analyzer;
+  tiny_code_generator_t TCG;
+  analyzer_t<IsToolMT, IsToolMinSize> analyzer;
 
   analyzer_options_t analyzer_opts;
 
@@ -85,7 +85,8 @@ class AnalyzeTool : public JVTool<ToolKind::Standard> {
   int WriteDecompilation(void);
 
 public:
-  AnalyzeTool() : opts(JoveCategory) {}
+  AnalyzeTool()
+      : opts(JoveCategory), analyzer(analyzer_opts, TCG, jv, inflight, done) {}
 
   int Run(void) override;
 };
@@ -95,13 +96,8 @@ JOVE_REGISTER_TOOL("analyze", AnalyzeTool);
 typedef boost::format fmt;
 
 int AnalyzeTool::Run(void) {
-  //
-  // initialize TCG
-  //
-  TCG.reset(new tiny_code_generator_t);
-
   for (const std::string &PinnedGlobalName : opts.PinnedGlobals) {
-    int idx = TCG->tcg_index_of_named_global(PinnedGlobalName.c_str());
+    int idx = TCG.tcg_index_of_named_global(PinnedGlobalName.c_str());
     if (idx < 0)
       die("unknown global to pin: " + PinnedGlobalName);
 
@@ -111,14 +107,11 @@ int AnalyzeTool::Run(void) {
   analyzer_opts.VerbosityLevel = VerbosityLevel();
   analyzer_opts.Conservative = opts.Conservative;
 
-  analyzer = std::make_unique<analyzer_t<IsToolMT, IsToolMinSize>>(
-      analyzer_opts, *TCG, jv, inflight, done);
-
 #ifndef JOVE_TSAN /* FIXME */
-  analyzer->update_callers();
-  analyzer->update_parents();
-  analyzer->identify_ABIs();
-  analyzer->identify_Sjs();
+  analyzer.update_callers();
+  analyzer.update_parents();
+  analyzer.identify_ABIs();
+  analyzer.identify_Sjs();
 #endif
 
   return AnalyzeBlocks()
@@ -126,7 +119,7 @@ int AnalyzeTool::Run(void) {
 }
 
 int AnalyzeTool::AnalyzeBlocks(void) {
-  return analyzer->analyze_blocks();
+  return analyzer.analyze_blocks();
 }
 
 int AnalyzeTool::AnalyzeFunctions(void) {
@@ -165,41 +158,24 @@ int AnalyzeTool::AnalyzeFunctions(void) {
   cg.best_toposort(topo);
 #endif
 
-  auto do_work = [&](void) -> void {
-    if (opts.New) {
-      analyzer->analyze_functions();
-    } else {
-      auto analyze_functions_in_binary = [&](auto &b) -> void {
-        for_each_function_in_binary(maybe_par_unseq, b,
-                                    [&](function_t &f) {
-                                      analyzer->analyze_function(f);
-
-                                      assert(!f.Analysis.Stale);
-                                    });
-      };
-      if (opts.ForeignLibs)
-        analyze_functions_in_binary(jv.Binaries.at(0));
-      else
-        for_each_binary(maybe_par_unseq, jv,
-                        [&](auto &b) { analyze_functions_in_binary(b); });
-    }
+  auto do_it = [&](void) -> void {
+    analyzer.analyze_functions();
   };
 
-  auto count_stale_functions = [&](auto &b) -> uint64_t {
-    return std::accumulate(b.Analysis.Functions.begin(),
-                           b.Analysis.Functions.end(), 0u,
-                           [&](uint64_t n, const function_t &f) -> uint64_t {
-                             return n + (f.Analysis.Stale ? 1 : 0);
-                           });
+  auto count_stale_functions = [&](const binary_t &b) -> uint64_t {
+    return std::accumulate(
+        b.Analysis.Functions.begin(),
+        b.Analysis.Functions.end(), 0u,
+        [&](uint64_t n, const function_t &f) -> uint64_t {
+          return n + static_cast<unsigned>(f.Analysis.Stale.load(std::memory_order_relaxed));
+        });
   };
 
-  const uint64_t N =
-      !opts.New && opts.ForeignLibs
-          ? count_stale_functions(jv.Binaries.at(0))
-          : std::accumulate(jv.Binaries.begin(), jv.Binaries.end(), 0u,
-                            [&](uint64_t x, const auto &b) {
-                              return x + count_stale_functions(b);
-                            });
+  const uint64_t N = std::accumulate(jv.Binaries.begin(),
+                                     jv.Binaries.end(), 0u,
+                                     [&](uint64_t x, const binary_t &b) {
+                                       return x + count_stale_functions(b);
+                                     });
 
   auto t1 = std::chrono::high_resolution_clock::now();
 
@@ -358,11 +334,11 @@ int AnalyzeTool::AnalyzeFunctions(void) {
           fflush(stdout);
         },
         [&](void) -> void {
-          do_work();
+          do_it();
           cv.notify_one();
         });
   } else {
-    do_work();
+    do_it();
   }
 
 #if 0

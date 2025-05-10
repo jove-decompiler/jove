@@ -73,6 +73,7 @@ set(JOVE_SOURCES
     ../core/ida.cpp
     ../core/jv.cpp
     ../core/locator.cpp
+    ../core/llvm.cpp
     ../core/mmap.cpp
     ../core/objdump.cpp
     ../core/perf.cpp
