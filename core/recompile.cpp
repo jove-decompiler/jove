@@ -1,12 +1,12 @@
 #include "tool.h"
 #include "B.h"
 #include "triple.h"
+#include "recompile.h"
 
 #ifndef JOVE_NO_BACKEND
 
 #include <oneapi/tbb/parallel_invoke.h>
 
-#include <boost/filesystem.hpp>
 #include <boost/algorithm/string.hpp>
 #include <boost/format.hpp>
 #include <boost/graph/filtered_graph.hpp>
@@ -14,7 +14,6 @@
 #include <boost/graph/strong_components.hpp>
 #include <boost/graph/topological_sort.hpp>
 #include <boost/range/adaptor/reversed.hpp>
-#include <boost/unordered/unordered_flat_map.hpp>
 
 #include <llvm/ADT/StringRef.h>
 #include <llvm/Support/FormatVariadic.h>
@@ -31,8 +30,6 @@
 #include <fcntl.h>
 #include <unistd.h>
 
-static void __warn(const char *file, int line);
-
 namespace fs = boost::filesystem;
 namespace cl = llvm::cl;
 namespace obj = llvm::object;
@@ -41,199 +38,7 @@ using llvm::WithColor;
 
 namespace jove {
 
-struct dso_properties_t {
-  unsigned BIdx;
-};
-
-typedef boost::adjacency_list<boost::setS,           /* OutEdgeList */
-                              boost::vecS,           /* VertexList */
-                              boost::bidirectionalS, /* Directed */
-                              dso_properties_t       /* VertexProperties */>
-    dso_graph_t;
-
-typedef dso_graph_t::vertex_descriptor dso_t;
-
-
-namespace {
-
-struct binary_state_t {
-  std::unique_ptr<llvm::object::Binary> Bin;
-
-  fs::path chrooted_path;
-
-  uint64_t Base = 0, End = 0;
-
-  struct {
-    std::optional<std::string> interp;
-  } _elf;
-
-  std::vector<std::string> needed_vec;
-  struct {
-    std::vector<std::string> needed_delay_vec;
-  } _coff;
-  std::string soname;
-  dso_t dso;
-
-  binary_state_t(const auto &b) { Bin = B::Create(b.data()); }
-};
-
-}
-
 typedef boost::format fmt;
-
-class RecompileTool
-    : public StatefulJVTool<ToolKind::CopyOnWrite, binary_state_t, void, void> {
-  struct Cmdline {
-    cl::opt<std::string> Output;
-    cl::alias OutputAlias;
-    cl::opt<bool> Trace;
-    cl::opt<std::string> UseLd;
-    cl::opt<bool> DFSan;
-    cl::opt<bool> CallStack;
-    cl::opt<bool> Optimize;
-    cl::opt<bool> SkipCopyRelocHack;
-    cl::opt<bool> DebugSjlj;
-    cl::opt<bool> CheckEmulatedStackReturnAddress;
-    cl::opt<bool> SkipLLVM;
-    cl::opt<bool> ForeignLibs;
-    cl::alias ForeignLibsAlias;
-    cl::list<std::string> PinnedGlobals;
-    cl::opt<bool> ABICalls;
-    cl::opt<bool> InlineHelpers;
-    cl::opt<bool> RuntimeMT;
-    cl::opt<bool> BreakBeforeUnreachables;
-    cl::opt<bool> LayOutSections;
-    cl::opt<bool> PlaceSectionBreakpoints;
-
-    Cmdline(llvm::cl::OptionCategory &JoveCategory)
-        : Output("output", cl::desc("Output directory"), cl::Required,
-                 cl::cat(JoveCategory)),
-
-          OutputAlias("o", cl::desc("Alias for -output."), cl::aliasopt(Output),
-                      cl::cat(JoveCategory)),
-
-          Trace(
-              "trace",
-              cl::desc("Instrument code to output basic block execution trace"),
-              cl::cat(JoveCategory)),
-
-          UseLd("use-ld",
-                cl::desc("Force using particular linker (lld,bfd,gold)"),
-                cl::cat(JoveCategory)),
-
-          DFSan("dfsan", cl::desc("Run dfsan on bitcode"),
-                cl::cat(JoveCategory)),
-
-          CallStack("call-stack",
-                    cl::desc("Write state of recompiled call stack to file "
-                             "path formed from $JOVECALLS"),
-                    cl::cat(JoveCategory)),
-
-          Optimize("optimize", cl::desc("Run optimizations on bitcode"),
-                   cl::cat(JoveCategory)),
-
-          SkipCopyRelocHack(
-              "skip-copy-reloc-hack",
-              cl::desc("Do not insert COPY relocations in output file (HACK)"),
-              cl::cat(JoveCategory)),
-
-          DebugSjlj(
-              "debug-sjlj",
-              cl::desc(
-                  "Before setjmp/longjmp, dump information about the call"),
-              cl::cat(JoveCategory)),
-
-          CheckEmulatedStackReturnAddress("check-emulated-stack-return-address",
-                                          cl::desc("Check for stack overrun"),
-                                          cl::cat(JoveCategory)),
-
-          SkipLLVM(
-              "skip-llvm",
-              cl::desc(
-                  "Skip running jove-llvm (careful when using this option)"),
-              cl::cat(JoveCategory)),
-
-          ForeignLibs("foreign-libs",
-                      cl::desc("only recompile the executable itself; "
-                               "treat all other binaries as \"foreign\""),
-                      cl::cat(JoveCategory), cl::init(true)),
-
-          ForeignLibsAlias("x", cl::desc("Exe only. Alias for --foreign-libs."),
-                           cl::aliasopt(ForeignLibs), cl::cat(JoveCategory)),
-
-          PinnedGlobals(
-              "pinned-globals", cl::CommaSeparated,
-              cl::value_desc("glb_1,glb_2,...,glb_n"),
-              cl::desc(
-                  "force specified TCG globals to always go through CPUState"),
-              cl::cat(JoveCategory)),
-
-          ABICalls("abi-calls",
-                   cl::desc("Call ABIs indirectly through _jove_call"),
-                   cl::cat(JoveCategory), cl::init(true)),
-
-          InlineHelpers("inline-helpers",
-                        cl::desc("Try to inline all helper function calls"),
-                        cl::cat(JoveCategory)),
-
-          RuntimeMT("rtmt", cl::desc("Thread model (multi)"),
-                    cl::cat(JoveCategory), cl::init(true)),
-
-          BreakBeforeUnreachables("break-before-unreachables",
-                                  cl::desc("Debugging purposes only"),
-                                  cl::cat(JoveCategory)),
-
-          LayOutSections(
-              "lay-out-sections",
-              cl::desc("mode where each section becomes a "
-                       "distinct global variable. we check in "
-                       "_jove_check_sections_laid_out() at runtime to make "
-                       "sure that those aforementioned global variables exist "
-                       "side-by-side in memory in the way we expect them to"),
-              cl::cat(JoveCategory)),
-
-          PlaceSectionBreakpoints(
-              "place-section-breakpoints",
-              cl::desc("In the section globals, overwrite the bytes at the "
-                       "start of every ABI function (which is not setjmp() or "
-                       "longjmp()) with an illegal instruction. This is "
-                       "used to provoke a fault at runtime when such functions "
-                       "are called into from non-recompiled code, so that the "
-                       "recompiled versions are called. Unless JOVESECTS=exe, "
-                       "this is unnecessary because the section globals will "
-                       "not be executable to begin with thus triggering a "
-                       "fault."),
-              cl::cat(JoveCategory)) {}
-
-  } opts;
-
-  template <typename Key, typename Value>
-  using unordered_map = boost::unordered::unordered_flat_map<Key, Value>;
-
-  template <typename T>
-  using unordered_set = boost::unordered::unordered_flat_set<T>;
-
-  bool IsCOFF = false;
-
-public:
-  RecompileTool() : opts(JoveCategory) {}
-
-  int Run(void) override;
-
-  void worker(dso_t);
-
-  void write_dso_graphviz(std::ostream &out, const dso_graph_t &);
-
-  binary_index_t ChooseBinaryWithSoname(const std::string &soname);
-
-  unordered_map<std::string, unordered_set<binary_index_t>> soname_map;
-
-  dso_graph_t dso_graph;
-
-  std::atomic<bool> worker_failed = false;
-};
-
-JOVE_REGISTER_TOOL("recompile", RecompileTool);
 
 static std::atomic<bool> Cancel(false);
 
@@ -259,17 +64,19 @@ struct vert_exists_in_set_t {
   }
 };
 
-template <typename Graph>
+template <bool MT, bool MinSize, typename Graph>
 struct graphviz_label_writer {
-  RecompileTool &tool;
+  using jv_t = jv_base_t<MT, MinSize>;
+
+  jv_t &jv;
   const Graph &g;
 
-  graphviz_label_writer(RecompileTool &tool, const Graph &g)
-      : tool(tool), g(g) {}
+  graphviz_label_writer(jv_t &jv, const Graph &g)
+      : jv(jv), g(g) {}
 
   template <typename Vertex>
   void operator()(std::ostream &out, Vertex v) const {
-    auto &b = tool.jv.Binaries.at(g[v].BIdx);
+    auto &b = jv.Binaries.at(g[v].BIdx);
 
     std::string name;
     if (b.is_file())
@@ -364,30 +171,33 @@ struct graphviz_prop_writer {
   }
 };
 
-int RecompileTool::Run(void) {
+template <bool MT, bool MinSize>
+int recompiler_t<MT, MinSize>::go(void) {
   //
   // sanity checks for output path
   //
-  if (fs::exists(fs::path(opts.Output.getValue()))) {
+  if (fs::exists(fs::path(opts.Output))) {
     if (IsVerbose())
       WithColor::note() << llvm::formatv("reusing output directory {0}\n",
                                          opts.Output);
   } else {
-    if (!fs::create_directory(opts.Output.getValue())) {
+    if (!fs::create_directory(opts.Output)) {
       WithColor::error() << "failed to create directory at \"" << opts.Output
                          << "\"\n";
       return 1;
     }
   }
 
+#if 0
   //
   // create symlink back to jv
   //
-  if (fs::exists(fs::path(opts.Output.getValue()) / ".jv")) // delete any stale symlinks
-    fs::remove(fs::path(opts.Output.getValue()) / ".jv");
+  if (fs::exists(fs::path(opts.Output) / ".jv")) // delete any stale symlinks
+    fs::remove(fs::path(opts.Output) / ".jv");
 
   fs::create_symlink(fs::canonical(get_path_to_jv()),
-                     fs::path(opts.Output.getValue()) / ".jv");
+                     fs::path(opts.Output) / ".jv");
+#endif
 
   //
   // install signal handler for Ctrl-C to gracefully cancel
@@ -424,7 +234,7 @@ int RecompileTool::Run(void) {
     std::tie(x.Base, x.End) = B::bounds_of_binary(*x.Bin);
 
     if (b.is_file())
-      x.chrooted_path = fs::path(opts.Output.getValue()) / b.path_str();
+      x.chrooted_path = fs::path(opts.Output) / b.path_str();
 
     //
     // what is this binary called as far as dynamic linking goes?
@@ -454,27 +264,20 @@ int RecompileTool::Run(void) {
     });
   });
 
-  if (B::is_coff(*state.for_binary(jv.Binaries.at(0)).Bin)) {
-    if (!opts.ForeignLibs)
-      die("COFF is only supported in executable-only mode");
-
-    IsCOFF = true;
-  }
-
   //
   // create basic directories for sysroot
   //
   {
-    fs::create_directories(fs::path(opts.Output.getValue()) / "proc");
-    fs::create_directories(fs::path(opts.Output.getValue()) / "sys");
-    fs::create_directories(fs::path(opts.Output.getValue()) / "dev");
-    fs::create_directories(fs::path(opts.Output.getValue()) / "run");
-    fs::create_directories(fs::path(opts.Output.getValue()) / "tmp");
-    fs::create_directories(fs::path(opts.Output.getValue()) / "etc");
-    fs::create_directories(fs::path(opts.Output.getValue()) / "usr" / "bin");
-    fs::create_directories(fs::path(opts.Output.getValue()) / "usr" / "lib");
-    fs::create_directories(fs::path(opts.Output.getValue()) / "lib"); /* XXX? */
-    fs::create_directories(fs::path(opts.Output.getValue()) / "var" / "run");
+    fs::create_directories(fs::path(opts.Output) / "proc");
+    fs::create_directories(fs::path(opts.Output) / "sys");
+    fs::create_directories(fs::path(opts.Output) / "dev");
+    fs::create_directories(fs::path(opts.Output) / "run");
+    fs::create_directories(fs::path(opts.Output) / "tmp");
+    fs::create_directories(fs::path(opts.Output) / "etc");
+    fs::create_directories(fs::path(opts.Output) / "usr" / "bin");
+    fs::create_directories(fs::path(opts.Output) / "usr" / "lib");
+    fs::create_directories(fs::path(opts.Output) / "lib"); /* XXX? */
+    fs::create_directories(fs::path(opts.Output) / "var" / "run");
   }
 
   //
@@ -548,7 +351,7 @@ int RecompileTool::Run(void) {
   else
   {
     fs::path chrooted_path =
-        fs::path(opts.Output.getValue()) / "usr" / "lib" / "libjove_rt.so";
+        fs::path(opts.Output) / "usr" / "lib" / "libjove_rt.so";
 
     fs::create_directories(chrooted_path.parent_path());
     fs::copy_file(locator().runtime_so(opts.RuntimeMT), chrooted_path,
@@ -559,13 +362,13 @@ int RecompileTool::Run(void) {
     // the following
     //
     if (!fs::equivalent(chrooted_path,
-                        fs::path(opts.Output.getValue()) / "lib" / "libjove_rt.so")) {
-      fs::create_directories(fs::path(opts.Output.getValue()) / "lib");
+                        fs::path(opts.Output) / "lib" / "libjove_rt.so")) {
+      fs::create_directories(fs::path(opts.Output) / "lib");
 
       try {
         // XXX some dynamic linkers only look in /lib
         fs::copy_file(locator().runtime_so(opts.RuntimeMT),
-                      fs::path(opts.Output.getValue()) / "lib" / "libjove_rt.so",
+                      fs::path(opts.Output) / "lib" / "libjove_rt.so",
                       fs::copy_options::overwrite_existing);
       } catch (...) {
         ;
@@ -581,17 +384,17 @@ int RecompileTool::Run(void) {
 
     {
       fs::path chrooted_path =
-          fs::path(opts.Output.getValue()) / "usr" / "lib" / dfsan_rt_filename;
+          fs::path(opts.Output) / "usr" / "lib" / dfsan_rt_filename;
 
       fs::copy_file(locator().dfsan_runtime(), chrooted_path,
                     fs::copy_options::overwrite_existing);
     }
 
-    if (!fs::equivalent(fs::path(opts.Output.getValue()) / "usr" / "lib" / dfsan_rt_filename,
-                        fs::path(opts.Output.getValue()) / "lib" / dfsan_rt_filename)) {
+    if (!fs::equivalent(fs::path(opts.Output) / "usr" / "lib" / dfsan_rt_filename,
+                        fs::path(opts.Output) / "lib" / dfsan_rt_filename)) {
       /* XXX some dynamic linkers only look in /lib */
       fs::path chrooted_path =
-          fs::path(opts.Output.getValue()) / "lib" / dfsan_rt_filename;
+          fs::path(opts.Output) / "lib" / dfsan_rt_filename;
 
       fs::copy_file(locator().dfsan_runtime(), chrooted_path,
                     fs::copy_options::overwrite_existing);
@@ -602,18 +405,18 @@ int RecompileTool::Run(void) {
   // additional stuff for DFSan
   //
   if (opts.DFSan) {
-    fs::create_directories(fs::path(opts.Output.getValue()) / "jove");
-    fs::create_directories(fs::path(opts.Output.getValue()) / "dfsan");
+    fs::create_directories(fs::path(opts.Output) / "jove");
+    fs::create_directories(fs::path(opts.Output) / "dfsan");
 
     {
       std::ofstream ofs(
-          (fs::path(opts.Output.getValue()) / "jove" / "BinaryPathsTable.txt").c_str());
+          (fs::path(opts.Output) / "jove" / "BinaryPathsTable.txt").c_str());
 
       for (const auto &binary : jv.Binaries)
         ofs << binary.Name.c_str() << '\n';
     }
 
-    fs::create_directories(fs::path(opts.Output.getValue()) / "jove" /
+    fs::create_directories(fs::path(opts.Output) / "jove" /
                            "BinaryBlockAddrTables");
 
     for (binary_index_t BIdx = 0; BIdx < jv.Binaries.size(); ++BIdx) {
@@ -621,7 +424,7 @@ int RecompileTool::Run(void) {
       auto &ICFG = binary.Analysis.ICFG;
 
       {
-        std::ofstream ofs((fs::path(opts.Output.getValue()) / "jove" /
+        std::ofstream ofs((fs::path(opts.Output) / "jove" /
                            "BinaryBlockAddrTables" / std::to_string(BIdx))
                               .c_str());
 
@@ -753,11 +556,15 @@ int RecompileTool::Run(void) {
                 .vertex_index_map(boost::associative_property_map<std::map<dso_t, int>>(idx_map)));
     }
 
-    std::map<dso_graph_t::vertices_size_type, unordered_set<dso_t>> comp_verts_map;
+    std::map<dso_graph_t::vertices_size_type,
+             boost::unordered::unordered_flat_set<dso_t>>
+        comp_verts_map;
     for (const auto &el : vert_comps)
       comp_verts_map[el.second].insert(el.first);
 
-    unordered_map<dso_t, unordered_set<dso_t>> bad_edges;
+    boost::unordered::unordered_flat_map<
+        dso_t, boost::unordered::unordered_flat_set<dso_t>>
+        bad_edges;
 
     //
     // examine edges in strongly-connected components
@@ -786,7 +593,7 @@ int RecompileTool::Run(void) {
 
         boost::write_graphviz(
             out, fg,
-            graphviz_label_writer(*this, fg),
+            graphviz_label_writer(jv, fg),
             graphviz_edge_prop_writer(fg),
             graphviz_prop_writer());
       }
@@ -850,7 +657,7 @@ int RecompileTool::Run(void) {
     maybe_par_unseq,
     Q.begin(),
     Q.end(),
-    std::bind(&RecompileTool::worker, this, std::placeholders::_1));
+    std::bind(&recompiler_t::worker, this, std::placeholders::_1));
 
   auto t2 = std::chrono::high_resolution_clock::now();
 
@@ -957,7 +764,7 @@ int RecompileTool::Run(void) {
             Arg("-l");
             Arg(imp_lib_path);
           })))
-        die("failed to run llvm-dlltool");
+        throw std::runtime_error("failed to run llvm-dlltool");
     });
   });
 
@@ -998,9 +805,11 @@ int RecompileTool::Run(void) {
     fs::remove(chrooted_path);
 
 #if 1
-    unordered_set<std::string> lib_dirs({opts.Output + "/usr/lib"});
+    boost::unordered::unordered_flat_set<std::string> lib_dirs(
+        {opts.Output + "/usr/lib"});
 #else
-    unordered_set<std::string> lib_dirs({jove_bin_path, "/usr/lib"});
+    boost::unordered::unordered_flat_set<std::string> lib_dirs(
+        {jove_bin_path, "/usr/lib"});
 #endif
 
     for (const std::string &needed : x.needed_vec) {
@@ -1291,7 +1100,8 @@ int RecompileTool::Run(void) {
   return 0;
 }
 
-void RecompileTool::worker(dso_t dso) {
+template <bool MT, bool MinSize>
+void recompiler_t<MT, MinSize>::worker(dso_t dso) {
   int rc;
 
   binary_index_t BIdx = dso_graph[dso].BIdx;
@@ -1321,8 +1131,7 @@ void RecompileTool::worker(dso_t dso) {
   std::string ldfp(chrooted_path.string() + ".ld");
   std::string dfsan_modid_fp(chrooted_path.string() + ".modid");
 
-  std::string bytecode_loc =
-      (fs::path(opts.Output.getValue()) / "dfsan").string();
+  std::string bytecode_loc = (fs::path(opts.Output) / "dfsan").string();
 
   //
   // run jove-llvm
@@ -1382,6 +1191,7 @@ void RecompileTool::worker(dso_t dso) {
         if (opts.PlaceSectionBreakpoints)
           Arg("--place-section-breakpoints");
 
+#if 0
         if (!opts.PinnedGlobals.empty()) {
           std::string pinned_globals_arg = "--pinned-globals=";
 
@@ -1394,11 +1204,14 @@ void RecompileTool::worker(dso_t dso) {
 
           Arg(pinned_globals_arg);
         }
+#endif
       },
       [&](auto Env) {
         InitWithEnviron(Env);
 
+#if 0
         Env("JVPATH=" + path_to_jv());
+#endif
       },
       path_to_stdout, path_to_stderr);
 
@@ -1521,8 +1334,10 @@ void RecompileTool::worker(dso_t dso) {
   }
 }
 
-void RecompileTool::write_dso_graphviz(std::ostream &out,
-                                       const dso_graph_t &dso_graph) {
+template <bool MT, bool MinSize>
+void recompiler_t<MT, MinSize>::write_dso_graphviz(
+    std::ostream &out,
+    const dso_graph_t &dso_graph) {
   boost::write_graphviz(
       out, dso_graph, graphviz_label_writer(*this, dso_graph),
       graphviz_edge_prop_writer(dso_graph), graphviz_prop_writer());
@@ -1532,7 +1347,9 @@ void handle_sigint(int no) {
   Cancel.store(true);
 }
 
-binary_index_t RecompileTool::ChooseBinaryWithSoname(const std::string &soname) {
+template <bool MT, bool MinSize>
+binary_index_t
+recompiler_t<MT, MinSize>::ChooseBinaryWithSoname(const std::string &soname) {
   auto it = soname_map.find(soname);
   if (it == soname_map.end())
     return invalid_binary_index;
@@ -1554,6 +1371,5 @@ binary_index_t RecompileTool::ChooseBinaryWithSoname(const std::string &soname) 
 
   return Res;
 }
-
 }
 #endif /* JOVE_NO_BACKEND */

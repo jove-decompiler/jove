@@ -80,6 +80,7 @@ set(JOVE_SOURCES
     ../core/process.cpp
     ../core/ptrace.cpp
     ../core/recovery.cpp
+    ../core/recompile.cpp
     ../core/reflink.cpp
     ../core/score.cpp
     ../core/serialize.cpp

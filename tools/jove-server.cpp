@@ -3,6 +3,7 @@
 #include "B.h"
 #include "analyze.h"
 #include "tcg.h"
+#include "recompile.h"
 
 #ifndef JOVE_NO_BACKEND
 
@@ -273,23 +274,23 @@ void *ServerTool::ConnectionProc(void *arg) {
   // parse the header
   //
   struct {
-    bool dfsan, foreign_libs, trace, optimize, skip_copy_reloc_hack, debug_sjlj, abi_calls, rtmt, call_stack, lay_out_sections, mt, min_size;
+    bool DFSan, ForeignLibs, Trace, Optimize, SkipCopyRelocHack, DebugSjlj, ABICalls, RuntimeMT, CallStack, LayOutSections, MT, MinSize;
   } options;
 
   std::bitset<16> headerBits(header);
 
-  options.dfsan        = headerBits.test(0);
-  options.foreign_libs = headerBits.test(1);
-  options.trace        = headerBits.test(2);
-  options.optimize     = headerBits.test(3);
-  options.skip_copy_reloc_hack = headerBits.test(4);
-  options.debug_sjlj = headerBits.test(5);
-  options.abi_calls = headerBits.test(6);
-  options.rtmt = headerBits.test(7);
-  options.call_stack = headerBits.test(8);
-  options.lay_out_sections = headerBits.test(9);
-  options.mt = headerBits.test(10);
-  options.min_size = headerBits.test(11);
+  options.DFSan             = headerBits.test(0);
+  options.ForeignLibs       = headerBits.test(1);
+  options.Trace             = headerBits.test(2);
+  options.Optimize          = headerBits.test(3);
+  options.SkipCopyRelocHack = headerBits.test(4);
+  options.DebugSjlj         = headerBits.test(5);
+  options.ABICalls          = headerBits.test(6);
+  options.RuntimeMT         = headerBits.test(7);
+  options.CallStack         = headerBits.test(8);
+  options.LayOutSections    = headerBits.test(9);
+  options.MT                = headerBits.test(10);
+  options.MinSize           = headerBits.test(11);
 
   std::string jv_s_path = (TemporaryDir / "serialized.jv").string();
   std::string tmpjv = (TemporaryDir / ".jv").string();
@@ -319,6 +320,26 @@ void *ServerTool::ConnectionProc(void *arg) {
   analyzer_options_t analyzer_opts;
   analyzer_opts.VerbosityLevel = VerbosityLevel();
   //analyzer_opts.Conservative = opts.Conservative;
+
+  recompiler_options_t recompiler_opts;
+
+#define PROPOGATE_OPTION(name)                                                 \
+  do {                                                                         \
+    recompiler_opts.name = options.name;                                       \
+  } while (false)
+
+  PROPOGATE_OPTION(DFSan);
+  PROPOGATE_OPTION(ForeignLibs);
+  PROPOGATE_OPTION(Trace);
+  PROPOGATE_OPTION(Optimize);
+  PROPOGATE_OPTION(SkipCopyRelocHack);
+  PROPOGATE_OPTION(DebugSjlj);
+  PROPOGATE_OPTION(ABICalls);
+  PROPOGATE_OPTION(RuntimeMT);
+  PROPOGATE_OPTION(CallStack);
+  PROPOGATE_OPTION(LayOutSections);
+
+  recompiler_opts.temp_dir = temporary_dir();
 
   auto run = [&]<bool MT, bool MinSize>(jv_base_t<MT, MinSize> &jv) {
     using jv_t = jv_base_t<MT, MinSize>;
@@ -355,8 +376,8 @@ void *ServerTool::ConnectionProc(void *arg) {
 #define GET_VALUE(x) BOOST_PP_TUPLE_ELEM(0, x)
 
 #define DO_JV_CASE(r, product)                                                 \
-  if (options.mt       == GET_VALUE(BOOST_PP_SEQ_ELEM(0, product)) &&          \
-      options.min_size == GET_VALUE(BOOST_PP_SEQ_ELEM(1, product))) {          \
+  if (options.MT      == GET_VALUE(BOOST_PP_SEQ_ELEM(0, product)) &&           \
+      options.MinSize == GET_VALUE(BOOST_PP_SEQ_ELEM(1, product))) {           \
     constexpr bool MT      = GET_VALUE(BOOST_PP_SEQ_ELEM(0, product));         \
     constexpr bool MinSize = GET_VALUE(BOOST_PP_SEQ_ELEM(1, product));         \
     using jv_t = jv_base_t<MT, MinSize>;                                       \

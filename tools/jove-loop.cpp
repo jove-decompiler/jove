@@ -891,6 +891,7 @@ skip_run:
       // XXX duplicated code with jove-recompile
       //
 
+#if 0
       //
       // create symlink back to jv
       //
@@ -898,6 +899,7 @@ skip_run:
         fs::remove(fs::path(sysroot) / ".jv");
 
       fs::create_symlink(fs::canonical(path_to_jv()), fs::path(sysroot) / ".jv");
+#endif
 
       //
       // create basic directories (for chroot) XXX duplicated code from recompile
