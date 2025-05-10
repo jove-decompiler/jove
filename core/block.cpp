@@ -37,9 +37,9 @@ static bool copy_and_insert_sort(const ip_func_index_vec &old,
   return true;
 }
 
-template <bool MT>
-void basic_block_properties_t::Parents_t::insert(function_index_t FIdx,
-                                                 binary_base_t<MT> &b) {
+template <bool MT, bool MinSize>
+void bbprop_t::Parents_t::insert(function_index_t FIdx,
+                                 binary_base_t<MT, MinSize> &b) {
   const ip_func_index_vec &FIdxVec = get<MT>();
   if constexpr (MT) {
     {
@@ -67,38 +67,47 @@ void basic_block_properties_t::Parents_t::insert(function_index_t FIdx,
   }
 }
 
-bool basic_block_properties_t::doInsertDynTarget(const dynamic_target_t &X,
-                                                 jv_file_t &jv_file) {
-  if (auto *p = DynTargets._p.Load(std::memory_order_relaxed))
-    return p->insert(X);
+template <bool MT, bool MinSize>
+bool bbprop_t::doInsertDynTarget(const dynamic_target_t &X,
+                                 jv_file_t &jv_file) {
+  using OurDynTargets_t = DynTargets_t<MT, MinSize>;
 
-  ip_unique_ptr<ip_dynamic_target_set<>> TheDynTargets(
+  if (auto *p = pDynTargets.Load(std::memory_order_relaxed))
+    return static_cast<OurDynTargets_t *>(p)->Insert(X);
+
+  //
+  // otherwise...
+  //
+  ip_unique_ptr<OurDynTargets_t> TheDynTargets(
       boost::interprocess::make_managed_unique_ptr(
-          jv_file.construct<ip_dynamic_target_set<>>(
+          jv_file.construct<OurDynTargets_t>(
               boost::interprocess::anonymous_instance)(
               jv_file.get_segment_manager()),
           jv_file));
 
-  ip_dynamic_target_set<> *expected = nullptr;
-  ip_dynamic_target_set<> *desired = TheDynTargets.get().get();
-  if (DynTargets._p.CompareExchangeStrong(
+  OurDynTargets_t &DynTargets = *TheDynTargets.get().get();
+
+  void *expected = nullptr;
+  void *desired = &DynTargets;
+  if (pDynTargets.CompareExchangeStrong(
           expected,
           desired,
           std::memory_order_relaxed, std::memory_order_relaxed)) {
-    DynTargets._sm = jv_file.get_segment_manager();
+    DynTargets.Insert(X);
     TheDynTargets.release();
-    desired->insert(X);
+
+    sm_ = jv_file.get_segment_manager();
     return true; /* it was empty before */
   }
 
-  return expected->insert(X);
+  return static_cast<OurDynTargets_t *>(expected)->Insert(X);
 }
 
-template <bool MT>
-bool basic_block_properties_t::insertDynTarget(binary_index_t ThisBIdx,
-                                               const dynamic_target_t &X,
-                                               jv_file_t &jv_file,
-                                               jv_base_t<MT> &jv) {
+template <bool MT, bool MinSize>
+bool bbprop_t::insertDynTarget(binary_index_t ThisBIdx,
+                               const dynamic_target_t &X,
+                               jv_file_t &jv_file,
+                               jv_base_t<MT, MinSize> &jv) {
   assert(is_binary_index_valid(ThisBIdx));
   auto &caller_b = jv.Binaries.at(ThisBIdx);
 
@@ -106,11 +115,11 @@ bool basic_block_properties_t::insertDynTarget(binary_index_t ThisBIdx,
   callee.InvalidateAnalysis();
   callee.Callers.insert<MT>(ThisBIdx, Term.Addr);
 
-  bool res = doInsertDynTarget(X, jv_file);
+  bool res = doInsertDynTarget<MT, MinSize>(X, jv_file);
 
   if (res) {
     auto &RCG = jv.Analysis.ReverseCallGraph;
-    const auto &ParentsVec = Parents.get<MT>();
+    const auto &ParentsVec = Parents.template get<MT>();
 
     std::for_each(maybe_par_unseq,
                   ParentsVec.cbegin(),
@@ -118,23 +127,24 @@ bool basic_block_properties_t::insertDynTarget(binary_index_t ThisBIdx,
                     function_t &caller = caller_b.Analysis.Functions.at(FIdx);
                     caller.InvalidateAnalysis();
 
-                    RCG.template add_edge<MT>(callee.ReverseCGVert<MT>(jv),
-                                              caller.ReverseCGVert<MT>(jv));
+                    RCG.template add_edge<MT>(
+                        callee.template ReverseCGVert<MT>(jv),
+                        caller.template ReverseCGVert<MT>(jv));
                   });
   }
 
   return res;
 }
 
-template <bool MT>
-void basic_block_properties_t::InvalidateAnalysis(jv_base_t<MT> &jv,
-                                                  binary_base_t<MT> &b) {
+template <bool MT, bool MinSize>
+void bbprop_t::InvalidateAnalysis(jv_base_t<MT, MinSize> &jv,
+                                  binary_base_t<MT, MinSize> &b) {
   this->Analysis.Stale = true;
 
   struct function_invalidator_t : public boost::default_dfs_visitor {
-    jv_base_t<MT> &jv;
+    jv_base_t<MT, MinSize> &jv;
 
-    function_invalidator_t(jv_base_t<MT> &jv) : jv(jv) {}
+    function_invalidator_t(jv_base_t<MT, MinSize> &jv) : jv(jv) {}
 
     void discover_vertex(ip_call_graph_base_t<MT>::vertex_descriptor V,
                          const ip_call_graph_base_t<MT>::type &RCG) const {
@@ -148,7 +158,7 @@ void basic_block_properties_t::InvalidateAnalysis(jv_base_t<MT> &jv,
 
   function_invalidator_t invalidator(jv);
 
-  const auto &ParentsVec = Parents.get<MT>();
+  const auto &ParentsVec = Parents.template get<MT>();
   std::for_each(maybe_par_unseq,
                 ParentsVec.cbegin(),
                 ParentsVec.cend(), [&](function_index_t FIdx) {
@@ -159,26 +169,32 @@ void basic_block_properties_t::InvalidateAnalysis(jv_base_t<MT> &jv,
                   jv.Analysis.ReverseCallGraph.depth_first_visit(V, invalidator);
                 });
 }
-
-#define VALUES_TO_INSTANTIATE_WITH                                             \
+#define VALUES_TO_INSTANTIATE_WITH1                                            \
     ((true))                                                                   \
     ((false))
+#define VALUES_TO_INSTANTIATE_WITH2                                            \
+    ((true))                                                                   \
+    ((false))
+
 #define GET_VALUE(x) BOOST_PP_TUPLE_ELEM(0, x)
 
-#define DO_INSTANTIATE(r, data, elem)                                          \
-  template bool basic_block_properties_t::insertDynTarget(                     \
+#define DO_INSTANTIATE(r, product)                                             \
+  template struct DynTargets_t<GET_VALUE(BOOST_PP_SEQ_ELEM(0, product)),       \
+                               GET_VALUE(BOOST_PP_SEQ_ELEM(1, product))>;      \
+  template void bbprop_t::Parents_t::insert(                                   \
+      function_index_t,                                                        \
+      binary_base_t<GET_VALUE(BOOST_PP_SEQ_ELEM(0, product)),                  \
+                    GET_VALUE(BOOST_PP_SEQ_ELEM(1, product))> &);              \
+  template bool bbprop_t::insertDynTarget(                                     \
       binary_index_t ThisBIdx, const dynamic_target_t &, jv_file_t &,          \
-      jv_base_t<GET_VALUE(elem)> &);
-BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, VALUES_TO_INSTANTIATE_WITH)
+      jv_base_t<GET_VALUE(BOOST_PP_SEQ_ELEM(0, product)),                      \
+                GET_VALUE(BOOST_PP_SEQ_ELEM(1, product))> &);                  \
+  template void bbprop_t::InvalidateAnalysis(                                  \
+      jv_base_t<GET_VALUE(BOOST_PP_SEQ_ELEM(0, product)),                      \
+                GET_VALUE(BOOST_PP_SEQ_ELEM(1, product))> &,                   \
+      binary_base_t<GET_VALUE(BOOST_PP_SEQ_ELEM(0, product)),                  \
+                    GET_VALUE(BOOST_PP_SEQ_ELEM(1, product))> &);
 
-#define DO_INSTANTIATE(r, data, elem)                                          \
-  template void basic_block_properties_t::Parents_t::insert(                   \
-      function_index_t, binary_base_t<GET_VALUE(elem)> &);
-BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, VALUES_TO_INSTANTIATE_WITH)
-
-#define DO_INSTANTIATE(r, data, elem)                                          \
-  template void basic_block_properties_t::InvalidateAnalysis<GET_VALUE(elem)>( \
-      jv_base_t<GET_VALUE(elem)> &, binary_base_t<GET_VALUE(elem)> &);
-BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, VALUES_TO_INSTANTIATE_WITH)
+BOOST_PP_SEQ_FOR_EACH_PRODUCT(DO_INSTANTIATE, (VALUES_TO_INSTANTIATE_WITH1)(VALUES_TO_INSTANTIATE_WITH2))
 
 }

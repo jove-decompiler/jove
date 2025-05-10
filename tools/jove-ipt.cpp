@@ -201,9 +201,9 @@ struct IPTTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
   static constexpr const char *sb_filename = "perf.data-sideband.pevent";
   static constexpr const char *opts_filename = "perf.data.opts";
 
-  template <bool MT, typename... Args>
-  std::unique_ptr<explorer_t<MT>> MakeExplorer(Args &&...args) {
-    return std::make_unique<explorer_t<MT>>(std::forward<Args>(args)...);
+  template <bool MT, bool MinSize, typename... Args>
+  std::unique_ptr<explorer_t<MT, MinSize>> MakeExplorer(Args &&...args) {
+    return std::make_unique<explorer_t<MT, MinSize>>(std::forward<Args>(args)...);
   }
 
 public:
@@ -221,7 +221,7 @@ public:
 
   void on_new_binary(binary_t &);
 
-  void gather_binaries(explorer_t<IsToolMT> &explorer,
+  void gather_binaries(explorer_t<IsToolMT, IsToolMinSize> &explorer,
                        const perf::data_reader<false> &sb,
                        const perf::sideband_parser &sb_parser);
 };
@@ -682,13 +682,13 @@ int IPTTool::UsingLibipt(void) {
     return 1;
   }
 
-  std::unique_ptr<explorer_t<true>> mt_Explorer;
-  std::unique_ptr<explorer_t<false>> st_Explorer;
+  std::unique_ptr<explorer_t<true, IsToolMinSize>> mt_Explorer;
+  std::unique_ptr<explorer_t<false, IsToolMinSize>> st_Explorer;
 
   if constexpr (IsToolMT) {
-    mt_Explorer = MakeExplorer<true>(jv, *Disas, *TCG, VerbosityLevel());
+    mt_Explorer = MakeExplorer<true, IsToolMinSize>(jv, *Disas, *TCG, VerbosityLevel());
   } else {
-    st_Explorer = MakeExplorer<false>(jv, *Disas, *TCG, VerbosityLevel());
+    st_Explorer = MakeExplorer<false, IsToolMinSize>(jv, *Disas, *TCG, VerbosityLevel());
   }
 
   auto select_explorer = [&](void) -> auto & {
@@ -698,8 +698,9 @@ int IPTTool::UsingLibipt(void) {
       return *st_Explorer;
   };
 
-  std::conditional_t<IsToolMT, explorer_t<true>, explorer_t<false>> &Explorer =
-      select_explorer();
+  std::conditional_t<IsToolMT,
+    explorer_t<true, IsToolMinSize>,
+    explorer_t<false, IsToolMinSize>> &Explorer = select_explorer();
 
   perf::data_reader<false> sb(sb_filename);
   perf::sideband_parser sb_parser(ptdump_args);
@@ -757,7 +758,7 @@ int IPTTool::UsingLibipt(void) {
   const unsigned N = jv.Binaries.size();
 
   std::unique_ptr<jv_file_t> jv_file2;
-  jv_base_t<false> *jv2 = nullptr;
+  jv_base_t<false, IsToolMinSize> *jv2 = nullptr;
 
   if (!opts.MT) {
     const int jvfd = jv_file.m_mfile.get_device().m_handle;
@@ -792,7 +793,7 @@ int IPTTool::UsingLibipt(void) {
     if (IsVeryVerbose())
       llvm::errs() << "move constructing jv2...\n";
 
-    jv2 = jv_file2->construct<jv_base_t<false>>("JV_tmp")(std::move(_jv), *jv_file2);
+    jv2 = jv_file2->construct<jv_base_t<false, IsToolMinSize>>("JV_tmp")(std::move(_jv), *jv_file2);
     assert(jv2);
 
     if (IsVeryVerbose())
@@ -801,7 +802,7 @@ int IPTTool::UsingLibipt(void) {
 
   if constexpr (IsToolMT) {
     if (jv2)
-      st_Explorer = MakeExplorer<false>(*jv2, *Disas, *TCG, VerbosityLevel());
+      st_Explorer = MakeExplorer<false, IsToolMinSize>(*jv2, *Disas, *TCG, VerbosityLevel());
   }
 
   std::vector<char *> ptdump_argv;
@@ -1004,7 +1005,7 @@ void IPTTool::gather_perf_data_aux_files(std::vector<std::pair<unsigned, std::st
   }
 }
 
-void IPTTool::gather_binaries(explorer_t<IsToolMT> &explorer,
+void IPTTool::gather_binaries(explorer_t<IsToolMT, IsToolMinSize> &explorer,
                               const perf::data_reader<false> &sb,
                               const perf::sideband_parser &sb_parser) {
   tbb::flow::graph g;

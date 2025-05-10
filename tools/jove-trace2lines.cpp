@@ -21,11 +21,15 @@ namespace {
 
 struct binary_state_t {
   std::unique_ptr<llvm::object::Binary> Bin;
+
   binary_state_t(const auto &b) { Bin = B::Create(b.data()); }
 };
 
 struct function_state_t {
-  basic_block_vec_t BasicBlocks;
+  using bb_t = typename ip_icfg_base_t<AreWeMT>::vertex_descriptor;
+  using bb_vec_t = std::vector<bb_t>;
+
+  bb_vec_t BasicBlocks;
 
   function_state_t(const auto &f, const auto &b) {}
 };
@@ -182,7 +186,7 @@ int Trace2LinesTool::Run(void) {
 
       const auto &ICFG = binary.Analysis.ICFG;
 
-      for (basic_block_t bb : state.for_function(function).BasicBlocks) {
+      for (bb_t bb : state.for_function(function).BasicBlocks) {
         basic_block_index_t BBIdx = index_of_basic_block(ICFG, bb);
 
         Excludes[BIdx].insert(BBIdx);
@@ -224,7 +228,7 @@ int Trace2LinesTool::Run(void) {
 
       const auto &binary = jv.Binaries.at(BIdx);
       const auto &ICFG = binary.Analysis.ICFG;
-      basic_block_t bb = basic_block_of_index(BBIdx, ICFG);
+      bb_t bb = basic_block_of_index(BBIdx, ICFG);
 
       taddr_t Addr = ICFG[bb].Addr;
 

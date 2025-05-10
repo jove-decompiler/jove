@@ -11,10 +11,10 @@ namespace obj = llvm::object;
 
 namespace jove {
 
-template <bool MT>
-void ScanForSjLj(binary_base_t<MT> &b,
+template <bool MT, bool MinSize>
+void ScanForSjLj(binary_base_t<MT, MinSize> &b,
                  llvm::object::Binary &Bin,
-                 explorer_t<MT> &E) {
+                 explorer_t<MT, MinSize> &E) {
   std::vector<std::pair<llvm::StringRef, int>> LjPatterns;
   std::vector<llvm::StringRef> SjPatterns;
 
@@ -476,7 +476,7 @@ void ScanForSjLj(binary_base_t<MT> &b,
     assert(is_basic_block_index_valid(BBIdx));
 
     auto &ICFG = b.Analysis.ICFG;
-    basic_block_t bb = basic_block_of_index(BBIdx, ICFG);
+    auto bb = basic_block_of_index(BBIdx, ICFG);
 
     assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP);
 
@@ -557,16 +557,23 @@ void ScanForSjLj(binary_base_t<MT> &b,
   });
 }
 
-#define VALUES_TO_INSTANTIATE_WITH                                             \
+#define VALUES_TO_INSTANTIATE_WITH1                                            \
     ((true))                                                                   \
     ((false))
+#define VALUES_TO_INSTANTIATE_WITH2                                            \
+    ((true))                                                                   \
+    ((false))
+
 #define GET_VALUE(x) BOOST_PP_TUPLE_ELEM(0, x)
 
-#define DO_INSTANTIATE(r, data, elem)                                          \
-  template void ScanForSjLj(binary_base_t<GET_VALUE(elem)> &,                  \
-                            llvm::object::Binary &,                            \
-                            explorer_t<GET_VALUE(elem)> &);
+#define DO_INSTANTIATE(r, product)                                             \
+  template void ScanForSjLj(                                                   \
+      binary_base_t<GET_VALUE(BOOST_PP_SEQ_ELEM(1, product)),                  \
+                    GET_VALUE(BOOST_PP_SEQ_ELEM(0, product))> &,               \
+      llvm::object::Binary &,                                                  \
+      explorer_t<GET_VALUE(BOOST_PP_SEQ_ELEM(1, product)),                     \
+                 GET_VALUE(BOOST_PP_SEQ_ELEM(0, product))> &);
 
-BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, VALUES_TO_INSTANTIATE_WITH)
+BOOST_PP_SEQ_FOR_EACH_PRODUCT(DO_INSTANTIATE, (VALUES_TO_INSTANTIATE_WITH1)(VALUES_TO_INSTANTIATE_WITH2))
 
 }

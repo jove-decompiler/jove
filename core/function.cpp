@@ -6,17 +6,17 @@
 
 namespace jove {
 
-template <bool MT>
-function_t::function_t(binary_base_t<MT> &b, function_index_t Idx) noexcept
+template <bool MT, bool MinSize>
+function_t::function_t(binary_base_t<MT, MinSize> &b, function_index_t Idx) noexcept
     : BIdx(b.Idx /* could be invalid */), Idx(Idx),
       Callers(b.get_segment_manager()) {}
 
 function_t::function_t(segment_manager_t *sm) noexcept
     : Callers(sm) {}
 
-template <bool MT>
+template <bool MT, bool MinSize>
 ip_call_graph_base_t<MT>::vertex_descriptor
-function_t::ReverseCGVert(jv_base_t<MT> &jv) {
+function_t::ReverseCGVert(jv_base_t<MT, MinSize> &jv) {
   auto &RCG = jv.Analysis.ReverseCallGraph;
 
   call_graph_index_t Res =
@@ -42,20 +42,24 @@ function_t::ReverseCGVert(jv_base_t<MT> &jv) {
   return RCG.template vertex<MT>(Res);
 }
 
-#define VALUES_TO_INSTANTIATE_WITH                                             \
+#define VALUES_TO_INSTANTIATE_WITH1                                            \
     ((true))                                                                   \
     ((false))
-
+#define VALUES_TO_INSTANTIATE_WITH2                                            \
+    ((true))                                                                   \
+    ((false))
 #define GET_VALUE(x) BOOST_PP_TUPLE_ELEM(0, x)
 
-#define DO_INSTANTIATE(r, data, elem)                                          \
-  template function_t::function_t(binary_base_t<GET_VALUE(elem)> &,            \
-                                  function_index_t Idx);
-BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, VALUES_TO_INSTANTIATE_WITH)
-
-#define DO_INSTANTIATE(r, data, elem)                                          \
-  template ip_call_graph_base_t<GET_VALUE(elem)>::vertex_descriptor            \
-  function_t::ReverseCGVert(jv_base_t<GET_VALUE(elem)> &);
-BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, VALUES_TO_INSTANTIATE_WITH)
+#define DO_INSTANTIATE(r, product)                                             \
+  template function_t::function_t(                                             \
+      binary_base_t<GET_VALUE(BOOST_PP_SEQ_ELEM(0, product)),                  \
+                    GET_VALUE(BOOST_PP_SEQ_ELEM(1, product))> &,               \
+      function_index_t Idx);                                                   \
+  template ip_call_graph_base_t<GET_VALUE(                                     \
+      BOOST_PP_SEQ_ELEM(0, product))>::vertex_descriptor                       \
+  function_t::ReverseCGVert(                                                   \
+      jv_base_t<GET_VALUE(BOOST_PP_SEQ_ELEM(0, product)),                      \
+                GET_VALUE(BOOST_PP_SEQ_ELEM(1, product))> &);
+BOOST_PP_SEQ_FOR_EACH_PRODUCT(DO_INSTANTIATE, (VALUES_TO_INSTANTIATE_WITH1)(VALUES_TO_INSTANTIATE_WITH2))
 
 }

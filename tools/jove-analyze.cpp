@@ -75,7 +75,7 @@ class AnalyzeTool : public JVTool<ToolKind::Standard> {
   std::atomic<uint64_t> done = 0;
 
   std::unique_ptr<tiny_code_generator_t> TCG;
-  std::unique_ptr<analyzer_t<IsToolMT>> analyzer;
+  std::unique_ptr<analyzer_t<IsToolMT, IsToolMinSize>> analyzer;
 
   analyzer_options_t analyzer_opts;
 
@@ -110,8 +110,8 @@ int AnalyzeTool::Run(void) {
   analyzer_opts.VerbosityLevel = VerbosityLevel();
   analyzer_opts.Conservative = opts.Conservative;
 
-  analyzer = std::make_unique<analyzer_t<IsToolMT>>(analyzer_opts, *TCG, jv,
-                                                    inflight, done);
+  analyzer = std::make_unique<analyzer_t<IsToolMT, IsToolMinSize>>(
+      analyzer_opts, *TCG, jv, inflight, done);
 
 #ifndef JOVE_TSAN /* FIXME */
   analyzer->update_callers();

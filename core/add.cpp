@@ -21,9 +21,9 @@ namespace jove {
 #include "relocs_common.hpp"
 
 template <bool MT, bool MinSize>
-template <bool MT2>
-void jv_base_t<MT, MinSize>::DoAdd(binary_base_t<MT2> &b,
-                                   explorer_t<MT2> &explorer,
+template <bool MT2, bool MinSize2>
+void jv_base_t<MT, MinSize>::DoAdd(binary_base_t<MT2, MinSize2> &b,
+                                   explorer_t<MT2, MinSize2> &explorer,
                                    llvm::object::Binary &Bin,
                                    const AddOptions_t &Options) {
   b.IsDynamicLinker = false;
@@ -595,16 +595,31 @@ void jv_base_t<MT, MinSize>::DoAdd(binary_base_t<MT2> &b,
   ScanForSjLj(b, Bin, explorer);
 }
 
-#define VALUES_TO_INSTANTIATE_WITH                                             \
+#define VALUES_TO_INSTANTIATE_WITH1                                            \
+    ((true))                                                                   \
+    ((false))
+#define VALUES_TO_INSTANTIATE_WITH2                                            \
+    ((true))                                                                   \
+    ((false))
+#define VALUES_TO_INSTANTIATE_WITH3                                            \
+    ((true))                                                                   \
+    ((false))
+#define VALUES_TO_INSTANTIATE_WITH4                                            \
     ((true))                                                                   \
     ((false))
 
 #define GET_VALUE(x) BOOST_PP_TUPLE_ELEM(0, x)
-#define DO_INSTANTIATE(r, MT2, elem)                                           \
-  template void jv_base_t<GET_VALUE(elem)>::DoAdd<MT2>(                        \
-      binary_base_t<MT2> &, explorer_t<MT2> &, llvm::object::Binary &,         \
-      const AddOptions_t &);
-BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, true, VALUES_TO_INSTANTIATE_WITH)
-BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, false, VALUES_TO_INSTANTIATE_WITH)
+
+#define DO_INSTANTIATE(r, product)                                             \
+  template void jv_base_t<GET_VALUE(BOOST_PP_SEQ_ELEM(0, product)),            \
+                          GET_VALUE(BOOST_PP_SEQ_ELEM(1, product))>::          \
+      DoAdd<GET_VALUE(BOOST_PP_SEQ_ELEM(2, product)),                          \
+            GET_VALUE(BOOST_PP_SEQ_ELEM(3, product))>(                         \
+          binary_base_t<GET_VALUE(BOOST_PP_SEQ_ELEM(2, product)),              \
+                        GET_VALUE(BOOST_PP_SEQ_ELEM(3, product))> &,           \
+          explorer_t<GET_VALUE(BOOST_PP_SEQ_ELEM(2, product)),                 \
+                     GET_VALUE(BOOST_PP_SEQ_ELEM(3, product))> &,              \
+          llvm::object::Binary &, const AddOptions_t &);
+BOOST_PP_SEQ_FOR_EACH_PRODUCT(DO_INSTANTIATE, (VALUES_TO_INSTANTIATE_WITH1)(VALUES_TO_INSTANTIATE_WITH2)(VALUES_TO_INSTANTIATE_WITH3)(VALUES_TO_INSTANTIATE_WITH4))
 
 }

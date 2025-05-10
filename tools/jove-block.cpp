@@ -39,7 +39,7 @@ int Block::Run(void) {
 
   const binary_t &b = jv.Binaries.at(BIdx);
 
-  const basic_block_properties_t &bbprop =
+  const auto &bbprop =
       b.Analysis.ICFG[basic_block_of_index(BBIdx, b)];
 
   llvm::outs() << llvm::formatv("{0} in {1}\n", description_of_block(bbprop),

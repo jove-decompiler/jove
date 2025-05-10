@@ -71,7 +71,7 @@ class LoopTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
     cl::opt<std::string> ChangeDirectory;
     cl::opt<bool> ABICalls;
     cl::opt<bool> InlineHelpers;
-    cl::opt<bool> MT;
+    cl::opt<bool> RuntimeMT;
     cl::opt<std::string> HumanOutput;
     cl::opt<bool> Silent;
     cl::opt<bool> RunAsRoot;
@@ -215,8 +215,8 @@ class LoopTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
                         cl::desc("Try to inline all helper function calls"),
                         cl::cat(JoveCategory)),
 
-          MT("mt", cl::desc("Thread model (multi)"), cl::cat(JoveCategory),
-             cl::init(true)),
+          RuntimeMT("rtmt", cl::desc("Runtime thread model"),
+                    cl::cat(JoveCategory), cl::init(true)),
 
           HumanOutput("human-output",
                       cl::desc("Print messages to the given file path"),
@@ -732,9 +732,11 @@ skip_run:
         headerBits.set(4, opts.SkipCopyRelocHack);
         headerBits.set(5, opts.DebugSjlj);
         headerBits.set(6, opts.ABICalls);
-        headerBits.set(7, opts.MT);
+        headerBits.set(7, opts.RuntimeMT);
         headerBits.set(8, opts.CallStack);
         headerBits.set(9, opts.LayOutSections);
+        headerBits.set(10, IsToolMT);
+        headerBits.set(11, IsToolMinSize);
 
         uint16_t header = headerBits.to_ullong();
 
@@ -877,7 +879,7 @@ skip_run:
                                   .c_str());
 
             for (basic_block_index_t BBIdx = 0; BBIdx < ICFG.num_vertices(); ++BBIdx) {
-              basic_block_t bb = basic_block_of_index(BBIdx, ICFG);
+              bb_t bb = basic_block_of_index(BBIdx, ICFG);
               uint64_t Addr = ICFG[bb].Term.Addr; /* XXX */
               ofs.write(reinterpret_cast<char *>(&Addr), sizeof(Addr));
             }
@@ -1039,7 +1041,7 @@ skip_run:
                                   .c_str());
 
             for (basic_block_index_t BBIdx = 0; BBIdx < ICFG.num_vertices(); ++BBIdx) {
-              basic_block_t bb = basic_block_of_index(BBIdx, ICFG);
+              bb_t bb = basic_block_of_index(BBIdx, ICFG);
               uint64_t Addr = ICFG[bb].Term.Addr; /* XXX */
               ofs.write(reinterpret_cast<char *>(&Addr), sizeof(Addr));
             }
@@ -1197,8 +1199,8 @@ skip_run:
           if (opts.InlineHelpers)
             Arg("--inline-helpers");
 
-          if (!opts.MT)
-            Arg("--mt=0");
+          if (!opts.RuntimeMT)
+            Arg("--rtmt=0");
 
           if (opts.BreakBeforeUnreachables)
             Arg("--break-before-unreachables");

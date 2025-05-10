@@ -43,7 +43,7 @@ int UnlockTool::Run(void) {
         auto it_pair = boost::vertices(ICFG.container());
         std::for_each(maybe_par_unseq,
                       it_pair.first,
-                      it_pair.second, [&](basic_block_t bb) {
+                      it_pair.second, [&](bb_t bb) {
                         auto &bbprop = ICFG.container()[bb];
 
                         bbprop.__force_reset_access();

@@ -9,8 +9,9 @@ template <typename BinaryStateTy = void,
           bool LazyInitialization = true,
           bool Eager = false,
           bool BoundsChecking = true,
+          bool SubjectToChange = true,
           bool MT = true,
-          bool SubjectToChange = true>
+          bool MinSize = true>
 struct jv_state_t {
   static_assert(!std::is_void_v<BinaryStateTy> ||
                 !std::is_void_v<FunctionStateTy> ||
@@ -23,7 +24,8 @@ struct jv_state_t {
   static_assert(!(!BoundsChecking && SubjectToChange),
                 "If no bounds checking must not be subject to change");
 
-  const jv_base_t<MT> &jv;
+  const jv_base_t<MT, MinSize> &jv;
+  using bb_t = typename ip_icfg_base_t<MT>::vertex_descriptor;
 
 private:
   static constexpr bool IsContainerVec =
@@ -99,7 +101,7 @@ private:
   template <typename T> using StatePtrRef = typename StatePtrRefHelper<T>::type;
 
 public:
-  explicit jv_state_t(const jv_base_t<MT> &jv) : jv(jv) {
+  explicit jv_state_t(const jv_base_t<MT, MinSize> &jv) : jv(jv) {
     if constexpr (Eager)
       update();
   }
@@ -116,7 +118,7 @@ public:
         x.reserve(N_B);
 
       for (binary_index_t BIdx = x.size(); BIdx < N_B; ++BIdx) {
-        const binary_base_t<MT> &b = jv.Binaries.at(BIdx);
+        const binary_base_t<MT, MinSize> &b = jv.Binaries.at(BIdx);
 
         if constexpr (std::is_void_v<BinaryStateTy>) {
           x.emplace_back();
@@ -127,7 +129,7 @@ public:
     }
 
     for (binary_index_t BIdx = 0; BIdx < N_B; ++BIdx) {
-      const binary_base_t<MT> &b = jv.Binaries.at(BIdx);
+      const binary_base_t<MT, MinSize> &b = jv.Binaries.at(BIdx);
 
       StateTuple &y = x.at(BIdx);
 
@@ -162,7 +164,7 @@ public:
             state_vec.reserve(N_BB);
 
           for (basic_block_index_t BBIdx = state_vec.size(); BBIdx < N_BB; ++BBIdx) {
-            basic_block_t bb = basic_block_of_index<MT>(BBIdx, b.Analysis.ICFG);
+            bb_t bb = basic_block_of_index<MT>(BBIdx, b.Analysis.ICFG);
 
             state_vec.emplace_back(b, bb);
           }
@@ -171,7 +173,7 @@ public:
     }
   }
 
-  void update(const binary_base_t<MT> &b) /* accomodate b */
+  void update(const binary_base_t<MT, MinSize> &b) /* accomodate b */
     requires(!Eager && !std::is_void_v<BinaryStateTy>)
   {
     const binary_index_t BIdx = index_of_binary<MT>(b, jv);
@@ -202,7 +204,7 @@ public:
     }
   }
 
-  void update(const binary_base_t<MT> &b, const function_t &f,
+  void update(const binary_base_t<MT, MinSize> &b, const function_t &f,
               FunctionStateContainer &y) /* accomodate f */
     requires(!Eager && !std::is_void_v<FunctionStateTy>)
   {
@@ -225,11 +227,11 @@ public:
     }
   }
 
-  void update(const binary_base_t<MT> &b, basic_block_t bb,
+  void update(const binary_base_t<MT, MinSize> &b, bb_t bb,
               BasicBlockStateContainer &y) /* accomodate bb */
     requires(!Eager && !std::is_void_v<BasicBlockStateTy>)
   {
-    const basic_block_t BBIdx = index_of_basic_block<MT>(b.Analysis.ICFG, bb);
+    const basic_block_index_t BBIdx = index_of_basic_block<MT>(b.Analysis.ICFG, bb);
     if (BBIdx < y.size())
       return; /* no action required */
 
@@ -283,7 +285,8 @@ public:
   }
 
   template <typename T = BinaryStateTy>
-  std::enable_if_t<!std::is_void_v<T>, T &> for_binary(const binary_base_t<MT> &b) {
+  std::enable_if_t<!std::is_void_v<T>, T &>
+  for_binary(const binary_base_t<MT, MinSize> &b) {
 #define binary_GET_ARGS b
 #define binary_NEW_ARGS b
     FOR_SOMETHING_BODY(binary)
@@ -301,8 +304,8 @@ public:
   }
 
   template <typename T = BasicBlockStateTy>
-  std::enable_if_t<!std::is_void_v<T>, T &> for_basic_block(const binary_base_t<MT> &b,
-                                                            basic_block_t bb) {
+  std::enable_if_t<!std::is_void_v<T>, T &>
+  for_basic_block(const binary_base_t<MT, MinSize> &b, bb_t bb) {
 #define basic_block_GET_ARGS b, bb
 #define basic_block_NEW_ARGS b, bb
     FOR_SOMETHING_BODY(basic_block)
@@ -313,7 +316,7 @@ public:
 #undef FOR_SOMETHING_BODY
 
 private:
-  StatePtrRef<BinaryStateTy> __for_binary(const binary_base_t<MT> &b)
+  StatePtrRef<BinaryStateTy> __for_binary(const binary_base_t<MT, MinSize> &b)
     requires(!std::is_void_v<BinaryStateTy>)
   {
     if constexpr (BoundsChecking) {
@@ -408,8 +411,8 @@ private:
     }
   }
 
-  StatePtrRef<BasicBlockStateTy> __for_basic_block(const binary_base_t<MT> &b,
-                                                   basic_block_t bb)
+  StatePtrRef<BasicBlockStateTy>
+  __for_basic_block(const binary_base_t<MT, MinSize> &b, bb_t bb)
     requires(!std::is_void_v<BasicBlockStateTy>)
   {
     if constexpr (BoundsChecking) {

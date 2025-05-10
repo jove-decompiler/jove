@@ -12,13 +12,13 @@ void binary_base_t<MT, MinSize>::InvalidateBasicBlockAnalyses(void) {
 template <bool MT, bool MinSize>
 bool binary_base_t<MT, MinSize>::FixAmbiguousIndirectJump(
     taddr_t TermAddr,
-    explorer_t<MT> &E,
+    explorer_t<MT, MinSize> &E,
     llvm::object::Binary &Bin,
     jv_file_t &jv_file,
-    jv_base_t<MT> &jv) {
+    jv_base_t<MT, MinSize> &jv) {
   std::vector<taddr_t> SuccAddrVec;
 
-  basic_block_t bb;
+  typename ip_icfg_base_t<MT>::vertex_descriptor bb;
 
   auto &ICFG = this->Analysis.ICFG;
   {
@@ -31,14 +31,13 @@ bool binary_base_t<MT, MinSize>::FixAmbiguousIndirectJump(
 
     auto e_lck = ICFG[bb].template exclusive_access<MT>();
 
-    icfg_t::adjacency_iterator succ_it, succ_it_end;
-    std::tie(succ_it, succ_it_end) = ICFG.adjacent_vertices(bb);
+    auto succ_it_pair = ICFG.adjacent_vertices(bb);
 
     SuccAddrVec.resize(ICFG.template out_degree<false>(bb));
     std::transform(
-        succ_it,
-        succ_it_end, SuccAddrVec.begin(),
-        [&](basic_block_t bb) -> taddr_t { return ICFG.at(bb).Addr; });
+        succ_it_pair.first,
+        succ_it_pair.second, SuccAddrVec.begin(),
+        [&](bb_t bb) -> taddr_t { return ICFG.at(bb).Addr; });
   }
 
   std::vector<function_index_t> SuccFIdxVec;
@@ -72,7 +71,19 @@ bool binary_base_t<MT, MinSize>::FixAmbiguousIndirectJump(
   return true;
 }
 
-template struct binary_base_t<false>;
-template struct binary_base_t<true>;
+#define VALUES_TO_INSTANTIATE_WITH1                                            \
+    ((true))                                                                   \
+    ((false))
+#define VALUES_TO_INSTANTIATE_WITH2                                            \
+    ((true))                                                                   \
+    ((false))
+
+#define GET_VALUE(x) BOOST_PP_TUPLE_ELEM(0, x)
+
+#define DO_INSTANTIATE(r, product)                                             \
+  template struct binary_base_t<GET_VALUE(BOOST_PP_SEQ_ELEM(1, product)),      \
+                                GET_VALUE(BOOST_PP_SEQ_ELEM(0, product))>;
+
+BOOST_PP_SEQ_FOR_EACH_PRODUCT(DO_INSTANTIATE, (VALUES_TO_INSTANTIATE_WITH1)(VALUES_TO_INSTANTIATE_WITH2))
 
 }

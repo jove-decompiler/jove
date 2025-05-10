@@ -132,7 +132,7 @@ int CallStackTool::Run(void) {
                 is_basic_block_index_valid(BBIdx)) {
               auto &b = jv.Binaries.at(BIdx);
               auto &ICFG = b.Analysis.ICFG;
-              basic_block_t bb = basic_block_of_index(BBIdx, ICFG);
+              bb_t bb = basic_block_of_index(BBIdx, ICFG);
               taddr_t x = ICFG[bb].Addr;
 
               llvm::outs() << llvm::formatv(

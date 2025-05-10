@@ -49,7 +49,7 @@ int InvalidateTool::Run(void) {
 
     if (opts.Blocks)
       for_each_basic_block_in_binary(
-          maybe_par_unseq, b, [&](basic_block_t bb) {
+          maybe_par_unseq, b, [&](bb_t bb) {
             b.Analysis.ICFG[bb].InvalidateAnalysis(jv, b);
           });
   });

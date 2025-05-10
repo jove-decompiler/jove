@@ -314,7 +314,7 @@ struct BootstrapTool
   std::unique_ptr<tiny_code_generator_t> tcg;
   std::unique_ptr<disas_t> disas;
   std::unique_ptr<symbolizer_t> symbolizer;
-  std::unique_ptr<explorer_t<IsToolMT>> E;
+  std::unique_ptr<explorer_t<IsToolMT, IsToolMinSize>> E;
 
   std::vector<struct proc_map_t> cached_proc_maps;
 
@@ -391,9 +391,9 @@ public:
                                 const char *name = nullptr);
 
 #ifdef BOOTSTRAP_MULTI_THREADED
-  void on_new_basic_block_place_later(binary_t &, basic_block_t);
+  void on_new_basic_block_place_later(binary_t &, bb_t);
 #endif
-  void on_new_basic_block(binary_t &, basic_block_t);
+  void on_new_basic_block(binary_t &, bb_t);
 
   void on_new_function(binary_t &, function_t &);
 
@@ -409,7 +409,7 @@ public:
 #ifdef BOOTSTRAP_MULTI_THREADED
   void place_breakpoints_in_new_blocks(void);
 #endif
-  void place_breakpoints_in_block(binary_t &b, basic_block_t bb);
+  void place_breakpoints_in_block(binary_t &b, bb_t);
   void place_breakpoint(pid_t, uintptr_t Addr, breakpoint_t &);
   void on_breakpoint(pid_t);
   void on_return(pid_t child,
@@ -727,7 +727,8 @@ int BootstrapTool::TracerLoop(pid_t child) {
   disas = std::make_unique<disas_t>();
   tcg = std::make_unique<tiny_code_generator_t>();
   symbolizer = std::make_unique<symbolizer_t>();
-  E = std::make_unique<explorer_t<IsToolMT>>(jv, *disas, *tcg, VerbosityLevel());
+  E = std::make_unique<explorer_t<IsToolMT, IsToolMinSize>>(jv, *disas, *tcg,
+                                                            VerbosityLevel());
   E->set_newbb_proc(std::bind(&BootstrapTool::on_new_basic_block, this,
                               std::placeholders::_1, std::placeholders::_2));
   E->set_newfn_proc(std::bind(&BootstrapTool::on_new_function, this,
@@ -1300,9 +1301,9 @@ int BootstrapTool::TracerLoop(pid_t child) {
         {
           auto s_lck = b.BBMap.shared_access();
 
-          icfg_t::vertex_iterator vi, vi_end;
-          for (std::tie(vi, vi_end) = ICFG.vertices(); vi != vi_end; ++vi) {
-            basic_block_t bb = *vi;
+          auto vi_pair = ICFG.vertices();
+          for (auto vi = vi_pair.first; vi != vi_pair.second; ++vi) {
+            bb_t bb = *vi;
 
             if (ICFG[bb].Term.Type != TERMINATOR::INDIRECT_JUMP)
               continue;
@@ -1331,16 +1332,16 @@ int BootstrapTool::TracerLoop(pid_t child) {
   return 0;
 }
 
-void BootstrapTool::on_new_basic_block(binary_t &b, basic_block_t bb) {
+void BootstrapTool::on_new_basic_block(binary_t &b, bb_t bb) {
   place_breakpoints_in_block(b, bb);
 }
 
 #ifdef BOOTSTRAP_MULTI_THREADED
-void BootstrapTool::on_new_basic_block_place_later(binary_t &b, basic_block_t bb) {
+void BootstrapTool::on_new_basic_block_place_later(binary_t &b, bb_t bb) {
   //std::atomic_thread_fence(std::memory_order_release);
 
   binary_index_t BIdx = index_of_binary(b, jv);
-  basic_block_t BBIdx = index_of_basic_block(b.Analysis.ICFG, bb);
+  basic_block_index_t BBIdx = index_of_basic_block(b.Analysis.ICFG, bb);
 
   uint64_t x = (static_cast<uint64_t>(BIdx) << 32) |
                 static_cast<uint64_t>(BBIdx);
@@ -1389,7 +1390,7 @@ void BootstrapTool::place_breakpoints_in_new_blocks(void) {
     assert(BIdx < jv.Binaries.size());
 
     binary_t &b = jv.Binaries.at(BIdx);
-    basic_block_t bb = basic_block_of_index(BBIdx, b.Analysis.ICFG);
+    bb_t bb = basic_block_of_index(BBIdx, b.Analysis.ICFG);
 
     place_breakpoints_in_block(b, bb);
   };
@@ -1398,7 +1399,7 @@ void BootstrapTool::place_breakpoints_in_new_blocks(void) {
 }
 #endif
 
-void BootstrapTool::place_breakpoints_in_block(binary_t &b, basic_block_t bb) {
+void BootstrapTool::place_breakpoints_in_block(binary_t &b, bb_t bb) {
   auto s_lck = b.BBMap.shared_access();
 
   auto &ICFG = b.Analysis.ICFG;
@@ -1409,7 +1410,7 @@ void BootstrapTool::place_breakpoints_in_block(binary_t &b, basic_block_t bb) {
   assert(BIdx < BinFoundVec.size());
   assert(BinFoundVec.at(BIdx));
 
-  const basic_block_properties_t &bbprop = ICFG[bb];
+  const auto &bbprop = ICFG[bb];
 
 #if 0
   if (IsVeryVerbose())
@@ -2654,10 +2655,10 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
   const TERMINATOR TermType = ({
     auto s_lck = binary.BBMap.shared_access();
 
-    basic_block_t bb = basic_block_at_address(IndBrInfo.TermAddr, binary);
+    bb_t bb = basic_block_at_address(IndBrInfo.TermAddr, binary);
     out_deg = ICFG.out_degree(bb);
 
-    const basic_block_properties_t &bbprop = ICFG[bb];
+    const auto &bbprop = ICFG[bb];
 
     HasDynTarget = bbprop.hasDynTarget();
     IsLj = bbprop.Term._indirect_jump.IsLj;
@@ -2979,8 +2980,8 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
   auto s_lck = binary.BBMap.shared_access();
 
 
-      basic_block_t bb = basic_block_at_address(IndBrInfo.TermAddr, binary);
-      basic_block_properties_t &bbprop = ICFG[bb];
+      bb_t bb = basic_block_at_address(IndBrInfo.TermAddr, binary);
+      auto &bbprop = ICFG[bb];
 
       assert(bbprop.Term.Type == TERMINATOR::INDIRECT_CALL);
 
@@ -3006,8 +3007,8 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
   {
   ip_sharable_lock<ip_sharable_mutex> s_lck(binary.bbmap_mtx);
-        basic_block_t bb = basic_block_at_address(IndBrInfo.TermAddr, binary);
-        const basic_block_properties_t &bbprop = ICFG[bb];
+        bb_t bb = basic_block_at_address(IndBrInfo.TermAddr, binary);
+        const auto &bbprop = ICFG[bb];
 
         assert(bbprop.Term.Type == TERMINATOR::INDIRECT_CALL);
 
@@ -3058,8 +3059,8 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
   auto s_lck = binary.BBMap.shared_access();
 
-          basic_block_t bb = basic_block_at_address(IndBrInfo.TermAddr, binary);
-          basic_block_properties_t &bbprop = ICFG[bb];
+          bb_t bb = basic_block_at_address(IndBrInfo.TermAddr, binary);
+          auto &bbprop = ICFG[bb];
 
           assert(bbprop.Term.Type == TERMINATOR::INDIRECT_JUMP);
 
@@ -3072,15 +3073,15 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
                                     va_of_pc(Target.Addr, Target.BIdx));
 
           assert(is_basic_block_index_valid(TargetBBIdx));
-          basic_block_t TargetBB = basic_block_of_index(TargetBBIdx, ICFG);
+          bb_t TargetBB = basic_block_of_index(TargetBBIdx, ICFG);
 
   {
 
   auto s_lck = binary.BBMap.shared_access();
 
 
-          basic_block_t bb = basic_block_at_address(IndBrInfo.TermAddr, binary);
-          basic_block_properties_t &bbprop = ICFG[bb];
+          bb_t bb = basic_block_at_address(IndBrInfo.TermAddr, binary);
+          auto &bbprop = ICFG[bb];
 
           assert(bbprop.Term.Type == TERMINATOR::INDIRECT_JUMP);
 
@@ -3666,7 +3667,7 @@ void BootstrapTool::on_binary_loaded(pid_t child,
   //
   if (binary.IsExecutable &&
       is_function_index_valid(binary.Analysis.EntryFunction)) {
-    basic_block_t entry_bb = basic_block_of_index(
+    bb_t entry_bb = basic_block_of_index(
         binary.Analysis.Functions.at(binary.Analysis.EntryFunction).Entry,
         binary.Analysis.ICFG);
     uintptr_t entry_rva = binary.Analysis.ICFG[entry_bb].Addr;
@@ -3723,9 +3724,9 @@ void BootstrapTool::on_binary_loaded(pid_t child,
   //
   for (basic_block_index_t bbidx = 0;
        bbidx < binary.Analysis.ICFG.num_vertices(); ++bbidx) {
-    basic_block_t bb = basic_block_of_index(bbidx, binary.Analysis.ICFG);
+    bb_t bb = basic_block_of_index(bbidx, binary.Analysis.ICFG);
 
-    basic_block_properties_t &bbprop = binary.Analysis.ICFG[bb];
+    auto &bbprop = binary.Analysis.ICFG[bb];
     if (bbprop.Term.Type != TERMINATOR::INDIRECT_JUMP &&
         bbprop.Term.Type != TERMINATOR::INDIRECT_CALL)
       continue;
@@ -3806,9 +3807,9 @@ void BootstrapTool::on_binary_loaded(pid_t child,
   //
   for (basic_block_index_t bbidx = 0;
        bbidx < binary.Analysis.ICFG.num_vertices(); ++bbidx) {
-    basic_block_t bb = basic_block_of_index(bbidx, binary.Analysis.ICFG);
+    bb_t bb = basic_block_of_index(bbidx, binary.Analysis.ICFG);
 
-    basic_block_properties_t &bbprop = binary.Analysis.ICFG[bb];
+    auto &bbprop = binary.Analysis.ICFG[bb];
     if (bbprop.Term.Type != TERMINATOR::RETURN)
       continue;
 
@@ -4168,11 +4169,11 @@ template <bool ValidatePath>
 binary_index_t BootstrapTool::BinaryFromPath(pid_t child, const char *path) {
   struct EmptyBasicBlockProcSetter {
     BootstrapTool &tool;
-    on_newbb_proc_t<IsToolMT> sav_proc;
+    on_newbb_proc_t<IsToolMT, IsToolMinSize> sav_proc;
 
     EmptyBasicBlockProcSetter(BootstrapTool &tool)
         : tool(tool), sav_proc(tool.E->get_newbb_proc()) {
-      tool.E->set_newbb_proc([](binary_t &, basic_block_t) -> void {});
+      tool.E->set_newbb_proc([](binary_t &, bb_t) -> void {});
     }
 
     ~EmptyBasicBlockProcSetter() { tool.E->set_newbb_proc(sav_proc); }
@@ -4188,11 +4189,11 @@ binary_index_t BootstrapTool::BinaryFromData(pid_t child, std::string_view sv,
                                              const char *name) {
   struct EmptyBasicBlockProcSetter {
     BootstrapTool &tool;
-    on_newbb_proc_t<IsToolMT> sav_proc;
+    on_newbb_proc_t<IsToolMT, IsToolMinSize> sav_proc;
 
     EmptyBasicBlockProcSetter(BootstrapTool &tool)
         : tool(tool), sav_proc(tool.E->get_newbb_proc()) {
-      tool.E->set_newbb_proc([](binary_t &, basic_block_t) -> void {});
+      tool.E->set_newbb_proc([](binary_t &, bb_t) -> void {});
     }
 
     ~EmptyBasicBlockProcSetter() { tool.E->set_newbb_proc(sav_proc); }
@@ -4372,7 +4373,7 @@ void BootstrapTool::on_return(pid_t child,
     assert(BIdx == RetBIdx);
 
     auto &ICFG = b.Analysis.ICFG;
-    basic_block_t bb = basic_block_of_index(BBIdx, ICFG);
+    bb_t bb = basic_block_of_index(BBIdx, ICFG);
 
     if (unlikely(ICFG[bb].Term.Type != TERMINATOR::RETURN))
       die("on_return: block @ " + description_of_program_counter(pc, true) +
@@ -4430,7 +4431,7 @@ void BootstrapTool::on_return(pid_t child,
     }
 
     auto &ICFG = b.Analysis.ICFG;
-    basic_block_t before_bb = basic_block_of_index(Before_BBIdx, ICFG);
+    bb_t before_bb = basic_block_of_index(Before_BBIdx, ICFG);
 
     auto &before_Term = ICFG[before_bb].Term;
 

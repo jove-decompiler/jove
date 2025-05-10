@@ -123,7 +123,7 @@ void DumpTool::dumpDecompilation(const jv_t &jv) {
       llvm::ListScope ___(
           Writer, (fmt("Basic Blocks (%u)") % ICFG.num_vertices()).str());
 
-      for (basic_block_t bb : boost::make_iterator_range(ICFG.vertices())) {
+      for (bb_t bb : boost::make_iterator_range(ICFG.vertices())) {
         llvm::DictScope ____(Writer, (fmt("0x%lX") % ICFG[bb].Addr).str());
 
         if (ICFG[bb].Speculative)
@@ -138,7 +138,7 @@ void DumpTool::dumpDecompilation(const jv_t &jv) {
               std::distance(inv_adj_it_pair.first, inv_adj_it_pair.second));
 
           std::transform(inv_adj_it_pair.first, inv_adj_it_pair.second,
-                         preds.begin(), [&](basic_block_t target) -> taddr_t {
+                         preds.begin(), [&](bb_t target) -> taddr_t {
                            return ICFG[target].Addr;
                          });
 
@@ -263,11 +263,13 @@ void DumpTool::dumpDecompilation(const jv_t &jv) {
 
         Writer.getOStream() << '\n';
 
-        if (ICFG[bb].hasDynTarget()) {
-          std::vector<std::string> descv;
-          descv.reserve(ICFG[bb].getNumDynTargets());
+        if (auto MaybeDynTargets = ICFG[bb].getDynamicTargets(jv)) {
+          auto &DynTargets = *MaybeDynTargets;
 
-          ICFG[bb].DynTargetsForEach([&](const dynamic_target_t &pair) {
+          std::vector<std::string> descv;
+          descv.reserve(DynTargets.size());
+
+          DynTargets.ForEach([&](const dynamic_target_t &pair) {
             binary_index_t BIdx;
             function_index_t FIdx;
             std::tie(BIdx, FIdx) = pair;
@@ -284,9 +286,6 @@ void DumpTool::dumpDecompilation(const jv_t &jv) {
           Writer.printList("DynTargets", descv);
         }
 
-        if (ICFG[bb].DynTargets.Complete)
-          Writer.printBoolean("DynTargetsComplete", true);
-
         {
           auto adj_it_pair = ICFG.adjacent_vertices(bb);
 
@@ -294,7 +293,7 @@ void DumpTool::dumpDecompilation(const jv_t &jv) {
           succs.resize(std::distance(adj_it_pair.first, adj_it_pair.second));
 
           std::transform(adj_it_pair.first, adj_it_pair.second, succs.begin(),
-                         [&](basic_block_t target) -> taddr_t {
+                         [&](bb_t target) -> taddr_t {
                            return ICFG[target].Addr;
                          });
 
@@ -312,7 +311,7 @@ void DumpTool::dumpDecompilation(const jv_t &jv) {
                          avec.begin(),
                          [&](function_index_t FIdx) -> taddr_t {
                            basic_block_index_t EntryIdx = B.Analysis.Functions.at(FIdx).Entry;
-                           basic_block_t Entry = basic_block_of_index(EntryIdx, ICFG);
+                           bb_t Entry = basic_block_of_index(EntryIdx, ICFG);
                            return ICFG[Entry].Addr;
                          });
 
@@ -569,7 +568,7 @@ int DumpTool::Run(void) {
         auto &ICFG = binary.Analysis.ICFG;
 
         for (const function_t &f : binary.Analysis.Functions) {
-          std::vector<basic_block_t> bbvec;
+          std::vector<bb_t> bbvec;
           basic_blocks_of_function(f, binary, bbvec);
 
           std::vector<taddr_t> addrs;
@@ -578,7 +577,7 @@ int DumpTool::Run(void) {
           std::transform(
               bbvec.begin(),
               bbvec.end(), addrs.begin(),
-              [&](basic_block_t bb) -> taddr_t { return ICFG[bb].Addr; });
+              [&](bb_t bb) -> taddr_t { return ICFG[bb].Addr; });
 
           Writer.printHexList("Fn", addrs);
         }

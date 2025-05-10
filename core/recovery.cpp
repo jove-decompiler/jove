@@ -18,25 +18,26 @@ namespace jove {
 
 typedef boost::format fmt;
 
-template <bool MT>
-CodeRecovery<MT>::CodeRecovery(jv_file_t &jv_file,
-                               jv_base_t<MT> &jv,
-                               explorer_t<MT> &E,
-                               symbolizer_t &symbolizer)
+template <bool MT, bool MinSize>
+CodeRecovery<MT, MinSize>::CodeRecovery(jv_file_t &jv_file,
+                                        jv_t &jv,
+                                        explorer_t<MT, MinSize> &E,
+                                        symbolizer_t &symbolizer)
     : jv_file(jv_file), jv(jv), E(E), symbolizer(symbolizer), state(jv) {}
 
-template <bool MT>
-CodeRecovery<MT>::~CodeRecovery() {}
+template <bool MT, bool MinSize>
+CodeRecovery<MT, MinSize>::~CodeRecovery() {}
 
-template <bool MT>
-uint64_t CodeRecovery<MT>::AddressOfTerminatorAtBasicBlock(binary_index_t BIdx,
-                                                       basic_block_index_t BBIdx) {
+template <bool MT, bool MinSize>
+uint64_t CodeRecovery<MT, MinSize>::AddressOfTerminatorAtBasicBlock(
+    binary_index_t BIdx,
+    basic_block_index_t BBIdx) {
   auto &b = jv.Binaries.at(BIdx);
 
   uint64_t TermAddr = 0;
 
   fallthru(jv, BIdx, BBIdx,
-           [&](const basic_block_properties_t &bbprop, basic_block_index_t) {
+           [&](const bbprop_t &bbprop, basic_block_index_t) {
              TermAddr = bbprop.Term.Addr;
            });
 
@@ -44,13 +45,14 @@ uint64_t CodeRecovery<MT>::AddressOfTerminatorAtBasicBlock(binary_index_t BIdx,
   return TermAddr;
 }
 
-template <bool MT>
-std::string CodeRecovery<MT>::RecoverDynamicTarget(binary_index_t CallerBIdx,
-                                               basic_block_index_t CallerBBIdx,
-                                               binary_index_t CalleeBIdx,
-                                               function_index_t CalleeFIdx) {
-  auto &CallerBinary = jv.Binaries.at(CallerBIdx);
-  auto &CalleeBinary = jv.Binaries.at(CalleeBIdx);
+template <bool MT, bool MinSize>
+std::string CodeRecovery<MT, MinSize>::RecoverDynamicTarget(
+    binary_index_t CallerBIdx,
+    basic_block_index_t CallerBBIdx,
+    binary_index_t CalleeBIdx,
+    function_index_t CalleeFIdx) {
+  binary_t &CallerBinary = jv.Binaries.at(CallerBIdx);
+  binary_t &CalleeBinary = jv.Binaries.at(CalleeBIdx);
 
   function_t &callee = CalleeBinary.Analysis.Functions.at(CalleeFIdx);
   assert(is_basic_block_index_valid(callee.Entry));
@@ -60,7 +62,7 @@ std::string CodeRecovery<MT>::RecoverDynamicTarget(binary_index_t CallerBIdx,
   uint64_t TermAddr = AddressOfTerminatorAtBasicBlock(CallerBIdx, CallerBBIdx);
   assert(TermAddr);
 
-  basic_block_t bb;
+  bb_t bb;
 
   bool Ambig = ({
     auto s_lck = CallerBinary.BBMap.shared_access();
@@ -111,10 +113,11 @@ std::string CodeRecovery<MT>::RecoverDynamicTarget(binary_index_t CallerBIdx,
       .str();
 }
 
-template <bool MT>
-std::string CodeRecovery<MT>::RecoverBasicBlock(binary_index_t IndBrBIdx,
-                                            basic_block_index_t IndBrBBIdx,
-                                            uint64_t Addr) {
+template <bool MT, bool MinSize>
+std::string CodeRecovery<MT, MinSize>::RecoverBasicBlock(
+    binary_index_t IndBrBIdx,
+    basic_block_index_t IndBrBBIdx,
+    uint64_t Addr) {
   auto &b = jv.Binaries.at(IndBrBIdx);
   auto &ICFG = b.Analysis.ICFG;
 
@@ -127,7 +130,7 @@ std::string CodeRecovery<MT>::RecoverBasicBlock(binary_index_t IndBrBIdx,
 
   uint64_t TermAddr = AddressOfTerminatorAtBasicBlock(IndBrBIdx, IndBrBBIdx);
 
-  basic_block_t bb;
+  bb_t bb;
 
   bool isNewTarget = ({
     auto s_lck = b.BBMap.shared_access();
@@ -149,11 +152,12 @@ std::string CodeRecovery<MT>::RecoverBasicBlock(binary_index_t IndBrBIdx,
       .str();
 }
 
-template <bool MT>
-std::string CodeRecovery<MT>::RecoverFunctionAtAddress(binary_index_t IndCallBIdx,
-                                                   basic_block_index_t IndCallBBIdx,
-                                                   binary_index_t CalleeBIdx,
-                                                   uint64_t CalleeAddr) {
+template <bool MT, bool MinSize>
+std::string CodeRecovery<MT, MinSize>::RecoverFunctionAtAddress(
+    binary_index_t IndCallBIdx,
+    basic_block_index_t IndCallBBIdx,
+    binary_index_t CalleeBIdx,
+    uint64_t CalleeAddr) {
   auto &CalleeBinary = jv.Binaries.at(CalleeBIdx);
 
   function_index_t CalleeFIdx = E.explore_function(
@@ -175,7 +179,7 @@ std::string CodeRecovery<MT>::RecoverFunctionAtAddress(binary_index_t IndCallBId
   bool Ambig = ({
     auto s_lck = CallerBinary.BBMap.shared_access();
 
-    basic_block_t bb = basic_block_at_address(TermAddr, CallerBinary);
+    bb_t bb = basic_block_at_address(TermAddr, CallerBinary);
 
     bool isNewTarget = ICFG[bb].insertDynTarget(
         IndCallBIdx, {CalleeBIdx, CalleeFIdx}, jv_file, jv);
@@ -216,11 +220,12 @@ std::string CodeRecovery<MT>::RecoverFunctionAtAddress(binary_index_t IndCallBId
       .str();
 }
 
-template <bool MT>
-std::string CodeRecovery<MT>::RecoverFunctionAtOffset(binary_index_t IndCallBIdx,
-                                                  basic_block_index_t IndCallBBIdx,
-                                                  binary_index_t CalleeBIdx,
-                                                  uint64_t CalleeOff) {
+template <bool MT, bool MinSize>
+std::string CodeRecovery<MT, MinSize>::RecoverFunctionAtOffset(
+    binary_index_t IndCallBIdx,
+    basic_block_index_t IndCallBBIdx,
+    binary_index_t CalleeBIdx,
+    uint64_t CalleeOff) {
   auto &CalleeBinary = jv.Binaries.at(CalleeBIdx);
 
   uint64_t CalleeAddr =
@@ -229,9 +234,9 @@ std::string CodeRecovery<MT>::RecoverFunctionAtOffset(binary_index_t IndCallBIdx
   return RecoverFunctionAtAddress(IndCallBIdx, IndCallBBIdx, CalleeBIdx, CalleeAddr);
 }
 
-template <bool MT>
-std::string CodeRecovery<MT>::RecoverABI(binary_index_t BIdx,
-                                     function_index_t FIdx) {
+template <bool MT, bool MinSize>
+std::string CodeRecovery<MT, MinSize>::RecoverABI(binary_index_t BIdx,
+                                                  function_index_t FIdx) {
   dynamic_target_t NewABI(BIdx, FIdx);
 
   function_t &f = function_of_target(NewABI, jv);
@@ -246,9 +251,9 @@ std::string CodeRecovery<MT>::RecoverABI(binary_index_t BIdx,
       .str();
 }
 
-template <bool MT>
-std::string CodeRecovery<MT>::Returns(binary_index_t CallBIdx,
-                                      basic_block_index_t CallBBIdx) {
+template <bool MT, bool MinSize>
+std::string CodeRecovery<MT, MinSize>::Returns(binary_index_t CallBIdx,
+                                               basic_block_index_t CallBBIdx) {
   auto &b = jv.Binaries.at(CallBIdx);
   auto &ICFG = b.Analysis.ICFG;
 
@@ -257,7 +262,7 @@ std::string CodeRecovery<MT>::Returns(binary_index_t CallBIdx,
   uint64_t NextAddr = ({
     auto s_lck = b.BBMap.shared_access();
 
-    basic_block_t bb = basic_block_at_address(TermAddr, b);
+    bb_t bb = basic_block_at_address(TermAddr, b);
 
     ICFG[bb].Addr + ICFG[bb].Size + (unsigned)IsMIPSTarget * 4;
   });
@@ -266,7 +271,7 @@ std::string CodeRecovery<MT>::Returns(binary_index_t CallBIdx,
       E.explore_basic_block(b, *state.for_binary(b).Bin, NextAddr);
   assert(is_basic_block_index_valid(NextBBIdx));
 
-  basic_block_t bb;
+  bb_t bb;
 
   bool isNewTarget = ({
     auto s_lck = b.BBMap.shared_access();
@@ -298,8 +303,8 @@ std::string CodeRecovery<MT>::Returns(binary_index_t CallBIdx,
       .str();
 }
 
-template <bool MT>
-std::string CodeRecovery<MT>::RecoverForeignBinary(const char *path) {
+template <bool MT, bool MinSize>
+std::string CodeRecovery<MT, MinSize>::RecoverForeignBinary(const char *path) {
   bool IsNew;
   binary_index_t BIdx;
 
@@ -311,7 +316,18 @@ std::string CodeRecovery<MT>::RecoverForeignBinary(const char *path) {
   return (fmt(__ANSI_BOLD_MAGENTA "(add) \"%s\"" __ANSI_NORMAL_COLOR) % path).str();
 }
 
-template class CodeRecovery<false>;
-template class CodeRecovery<true>;
+#define VALUES_TO_INSTANTIATE_WITH1                                            \
+    ((true))                                                                   \
+    ((false))
+#define VALUES_TO_INSTANTIATE_WITH2                                            \
+    ((true))                                                                   \
+    ((false))
+
+#define GET_VALUE(x) BOOST_PP_TUPLE_ELEM(0, x)
+
+#define DO_INSTANTIATE(r, product)                                             \
+  template struct CodeRecovery<GET_VALUE(BOOST_PP_SEQ_ELEM(1, product)),       \
+                               GET_VALUE(BOOST_PP_SEQ_ELEM(0, product))>;
+BOOST_PP_SEQ_FOR_EACH_PRODUCT(DO_INSTANTIATE, (VALUES_TO_INSTANTIATE_WITH1)(VALUES_TO_INSTANTIATE_WITH2))
 
 }

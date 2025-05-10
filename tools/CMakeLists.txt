@@ -113,7 +113,6 @@ set(JOVE_SOURCES
     jove-invalidate.cpp
     jove-ipt.cpp
     jove-loop.cpp
-    jove-numbers.cpp
     jove-off2addr.cpp
     jove-readtrace.cpp
     jove-recompile.cpp

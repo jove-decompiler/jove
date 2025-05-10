@@ -9,7 +9,7 @@
 namespace jove {
 
 struct flow_vertex_properties_t {
-  const basic_block_properties_t::Analysis_t *Analysis = nullptr;
+  const bb_analysis_t *Analysis = nullptr;
 
   tcg_global_set_t IN, OUT;
 };
@@ -21,9 +21,8 @@ struct flow_edge_properties_t {
 };
 
 struct flow_graph_dummy_analyses_t {
-  boost::container::slist<
-      bbprop_t::Analysis_t,
-      boost::container::node_allocator<bbprop_t::Analysis_t>>
+  boost::container::slist<bb_analysis_t,
+                          boost::container::node_allocator<bb_analysis_t>>
       extra;
 };
 

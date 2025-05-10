@@ -21,12 +21,13 @@ using llvm::WithColor;
 
 namespace jove {
 
-template <bool MT>
-analyzer_t<MT>::analyzer_t(const analyzer_options_t &options,
-                           tiny_code_generator_t &TCG,
-                           jv_base_t<MT> &jv,
-                           boost::concurrent_flat_set<dynamic_target_t> &inflight,
-                           std::atomic<uint64_t> &done)
+template <bool MT, bool MinSize>
+analyzer_t<MT, MinSize>::analyzer_t(
+    const analyzer_options_t &options,
+    tiny_code_generator_t &TCG,
+    jv_t &jv,
+    boost::concurrent_flat_set<dynamic_target_t> &inflight,
+    std::atomic<uint64_t> &done)
     : options(options), TCG(TCG), jv(jv), state(jv), cg(jv),
       IsCOFF(B::is_coff(*state.for_binary(jv.Binaries.at(0)).Bin)),
       inflight(inflight), done(done) {
@@ -52,11 +53,11 @@ analyzer_t<MT>::analyzer_t(const analyzer_options_t &options,
   Module = std::move(moduleOr.get());
 }
 
-template <bool MT>
-void analyzer_t<MT>::update_callers(void) {
+template <bool MT, bool MinSize>
+void analyzer_t<MT, MinSize>::update_callers(void) {
   for_each_basic_block(
       std::execution::unseq, jv,
-      [&](binary_base_t<MT> &b, basic_block_t bb) {
+      [&](binary_t &b, bb_t bb) {
         auto &ICFG = b.Analysis.ICFG;
         bbprop_t &bbprop = ICFG[bb];
         taddr_t TermAddr = bbprop.Term.Addr;
@@ -69,21 +70,24 @@ void analyzer_t<MT>::update_callers(void) {
           return;
         }
 
-        bbprop.DynTargetsForEach(
-            maybe_par_unseq, [&](const dynamic_target_t &X) {
-              assert(TermAddr);
+        if (auto MaybeDynTargets = bbprop.getDynamicTargets(jv)) {
+          auto &DynTargets = *MaybeDynTargets;
 
-              function_t &f = function_of_target(X, jv);
-              f.Callers.insert<MT>(index_of_binary(b, jv), TermAddr);
-            });
+          DynTargets.ForEach(maybe_par_unseq, [&](const dynamic_target_t &X) {
+            assert(TermAddr);
+
+            function_t &f = function_of_target(X, jv);
+            f.Callers.insert<MT>(index_of_binary(b, jv), TermAddr);
+          });
+        }
       });
 }
 
 
-template <bool MT>
-void analyzer_t<MT>::update_parents(void) {
+template <bool MT, bool MinSize>
+void analyzer_t<MT, MinSize>::update_parents(void) {
   for_each_function(maybe_par_unseq, jv,
-                    [&](function_t &f, binary_base_t<MT> &b) {
+                    [&](function_t &f, binary_t &b) {
     const function_index_t FIdx = index_of_function_in_binary(f, b);
 
     const auto &bbvec = state.for_function(f).bbvec;
@@ -92,7 +96,7 @@ void analyzer_t<MT>::update_parents(void) {
     std::for_each(maybe_par_unseq,
                   bbvec.begin(),
                   bbvec.end(),
-                  [&](basic_block_t bb) {
+                  [&](bb_t bb) {
                     bbprop_t &bbprop = ICFG[bb];
                     if (!bbprop.Parents.contains<MT>(FIdx))
                       bbprop.Parents.insert<MT>(FIdx, b);
@@ -100,33 +104,36 @@ void analyzer_t<MT>::update_parents(void) {
   });
 }
 
-template <bool MT>
-void analyzer_t<MT>::identify_ABIs(void) {
+template <bool MT, bool MinSize>
+void analyzer_t<MT, MinSize>::identify_ABIs(void) {
   //
   // If a function is called from a different binary, it is an ABI.
   //
-  for_each_basic_block(maybe_par_unseq,
-                       jv, [&](binary_base_t<MT> &b, basic_block_t bb) {
+  for_each_basic_block(maybe_par_unseq, jv, [&](binary_t &b, bb_t bb) {
     auto &bbprop = b.Analysis.ICFG[bb];
     if (!bbprop.hasDynTarget())
       return;
 
     const binary_index_t BIdx = index_of_binary(b, jv);
 
-    if (bbprop.DynTargetsAnyOf(
+    auto MaybeDynTargets = bbprop.getDynamicTargets(jv);
+    if (!MaybeDynTargets)
+      return;
+    auto &DynTargets = *MaybeDynTargets;
+
+    if (DynTargets.AnyOf(
             [&](const dynamic_target_t &X) { return X.first != BIdx; }))
-      bbprop.DynTargetsForEach(maybe_par_unseq,
-                               [&](const dynamic_target_t &X) {
-                                 racy::set(function_of_target(X, jv).IsABI);
-                               });
+      DynTargets.ForEach(maybe_par_unseq, [&](const dynamic_target_t &X) {
+        racy::set(function_of_target(X, jv).IsABI);
+      });
   });
 }
 
 
-template <bool MT>
-void analyzer_t<MT>::identify_Sjs(void) {
+template <bool MT, bool MinSize>
+void analyzer_t<MT, MinSize>::identify_Sjs(void) {
   for_each_function(
-      maybe_par_unseq, jv, [&](function_t &f, binary_base_t<MT> &b) {
+      maybe_par_unseq, jv, [&](function_t &f, binary_t &b) {
         function_index_t FIdx = index_of_function_in_binary(f, b);
 
         function_state_t &x = state.for_function(f);
@@ -148,7 +155,7 @@ void analyzer_t<MT>::identify_Sjs(void) {
                   return;
 
                 auto &caller_b = jv.Binaries.at(caller_block.first);
-                basic_block_t caller_bb =
+                bb_t caller_bb =
                     basic_block_of_index(caller_block.second, caller_b);
 
                 auto &caller_ICFG = caller_b.Analysis.ICFG;
@@ -169,13 +176,13 @@ void AnalyzeBasicBlock(tiny_code_generator_t &,
                        bbprop_t &,
                        const analyzer_options_t &);
 
-template <bool MT>
-int analyzer_t<MT>::analyze_blocks(void) {
+template <bool MT, bool MinSize>
+int analyzer_t<MT, MinSize>::analyze_blocks(void) {
   std::atomic<unsigned> count = 0;
 
   for_each_basic_block(
       std::execution::seq, /* FIXME */
-      jv, [&](binary_base_t<MT> &b, basic_block_t bb) {
+      jv, [&](binary_t &b, bb_t bb) {
         auto &ICFG = b.Analysis.ICFG;
         if (ICFG[bb].Analysis.Stale)
           ++count;
@@ -193,9 +200,8 @@ int analyzer_t<MT>::analyze_blocks(void) {
 
   if (options.Conservative >= 1)
     for_each_function_if(
-        maybe_par_unseq, jv,
-        [](function_t &f) { return f.IsABI; },
-        [](function_t &f, binary_base_t<MT> &b) {
+        maybe_par_unseq, jv, [](function_t &f) { return f.IsABI; },
+        [](function_t &f, binary_t &b) {
           auto &ICFG = b.Analysis.ICFG;
           assert(is_basic_block_index_valid(f.Entry));
           ICFG[basic_block_of_index(f.Entry, ICFG)].Analysis.live.use |= CallConvArgs;
@@ -204,8 +210,8 @@ int analyzer_t<MT>::analyze_blocks(void) {
   return 0;
 }
 
-template <bool MT>
-int analyzer_t<MT>::analyze_functions(void) {
+template <bool MT, bool MinSize>
+int analyzer_t<MT, MinSize>::analyze_functions(void) {
   const unsigned N = boost::num_vertices(cg.G);
 
   // which component each vertex in the graph belongs to
@@ -265,8 +271,8 @@ int analyzer_t<MT>::analyze_functions(void) {
   return 0;
 }
 
-template <bool MT>
-int analyzer_t<MT>::analyze_function(function_t &f) {
+template <bool MT, bool MinSize>
+int analyzer_t<MT, MinSize>::analyze_function(function_t &f) {
   if (!f.Analysis.Stale.load(std::memory_order_relaxed))
     return 0;
 
@@ -407,30 +413,14 @@ int analyzer_t<MT>::analyze_function(function_t &f) {
   return 0;
 }
 
-struct vertex_copier {
-  const interprocedural_control_flow_graph_t &ICFG;
-  flow_graph_t &G;
-
-  vertex_copier(const interprocedural_control_flow_graph_t &ICFG,
-                flow_graph_t &G)
-      : ICFG(ICFG), G(G) {}
-
-  void operator()(basic_block_t bb, flow_vertex_t V) const {
-    G[V].Analysis = &ICFG[bb].Analysis;
-  }
-};
-
-struct edge_copier {
-  void operator()(control_flow_t, flow_edge_t) const {}
-};
-
-
-template <bool MT>
-flow_vertex_t analyzer_t<MT>::copy_function_cfg(
-                                       flow_graph_t &G,
-                                       function_t &f,
-                                       std::vector<exit_vertex_pair_t> &exitVertices,
-                                       boost::unordered::unordered_flat_map<function_t *, std::pair<flow_vertex_t, std::vector<exit_vertex_pair_t>>> &memoize) {
+template <bool MT, bool MinSize>
+flow_vertex_t analyzer_t<MT, MinSize>::copy_function_cfg(
+    flow_graph_t &G,
+    function_t &f,
+    std::vector<exit_vertex_pair_t> &exitVertices,
+    boost::unordered::unordered_flat_map<
+        function_t *, std::pair<flow_vertex_t, std::vector<exit_vertex_pair_t>>>
+        &memoize) {
   binary_index_t BIdx = binary_index_of_function(f, jv); /* XXX */
   auto &b = jv.Binaries.at(BIdx);
   auto &ICFG = b.Analysis.ICFG;
@@ -441,7 +431,7 @@ flow_vertex_t analyzer_t<MT>::copy_function_cfg(
   //
   // make sure basic blocks have been analyzed
   //
-  for (basic_block_t bb : bbvec)
+  for (bb_t bb : bbvec)
     AnalyzeBasicBlock(TCG, *Module, *state.for_binary(b).Bin, b.Name.c_str(),
                       ICFG[bb], options);
 
@@ -475,6 +465,23 @@ flow_vertex_t analyzer_t<MT>::copy_function_cfg(
   const unsigned N_1 = boost::num_vertices(G);
 #endif
   {
+
+    struct vertex_copier {
+      const icfg_t::type &ICFG;
+      flow_graph_t &G;
+
+      vertex_copier(const icfg_t::type &ICFG, flow_graph_t &G)
+          : ICFG(ICFG), G(G) {}
+
+      void operator()(bb_t bb, flow_vertex_t V) const {
+        G[V].Analysis = &ICFG[bb].Analysis;
+      }
+    };
+
+    struct edge_copier {
+      void operator()(const icfg_t::edge_descriptor, flow_edge_t) const {}
+    };
+
     vertex_copier vc(ICFG.container(), G);
     edge_copier ec;
 
@@ -488,7 +495,7 @@ flow_vertex_t analyzer_t<MT>::copy_function_cfg(
   llvm::errs() << llvm::formatv("|G|={0} for {1},{2}\n", N_2 - N_1, BIdx, index_of_function(f));
 #endif
 
-  auto Orig2Copy = [&](basic_block_t bb) -> flow_vertex_t {
+  auto Orig2Copy = [&](bb_t bb) -> flow_vertex_t {
     return boost::get(Orig2CopyPropMap, bb);
   };
 
@@ -498,7 +505,7 @@ flow_vertex_t analyzer_t<MT>::copy_function_cfg(
   std::transform(exit_bbvec.begin(),
                  exit_bbvec.end(),
                  exitVertices.begin(),
-                 [&](basic_block_t bb) -> exit_vertex_pair_t {
+                 [&](bb_t bb) -> exit_vertex_pair_t {
                    return exit_vertex_pair_t(Orig2Copy(bb), false);
                  });
 
@@ -509,7 +516,7 @@ flow_vertex_t analyzer_t<MT>::copy_function_cfg(
   // this recursive function's duty is also to inline calls to functions and
   // indirect jumps
   //
-  for (basic_block_t bb : bbvec) {
+  for (bb_t bb : bbvec) {
     const bbprop_t &bbprop = ICFG[bb];
 
     flow_vertex_t V = Orig2Copy(bb);
@@ -530,14 +537,15 @@ flow_vertex_t analyzer_t<MT>::copy_function_cfg(
         savedSuccInDeg = boost::in_degree(succV, G);
       }
 
-      if (bbprop.hasDynTarget()) {
+      if (auto MaybeDynTargets = bbprop.getDynamicTargets(jv)) {
+      auto &DynTargets = *MaybeDynTargets;
 
-      bool IsABI = bbprop.DynTargetsAnyOf([&](dynamic_target_t X) {
+      bool IsABI = DynTargets.AnyOf([&](dynamic_target_t X) {
         return function_of_target(X, jv).IsABI;
       });
 
-      if (auto Summary = DynTargetsSummary(bbprop, IsABI)) {
-        bbprop_t::Analysis_t &TheAnalysis =
+      if (auto Summary = DynTargetsSummary(DynTargets, IsABI)) {
+        bb_analysis_t &TheAnalysis =
             G[boost::graph_bundle].extra.emplace_front();
 
         std::tie(TheAnalysis.live.use, TheAnalysis.reach.def) = *Summary;
@@ -554,13 +562,8 @@ flow_vertex_t analyzer_t<MT>::copy_function_cfg(
             G[E].reach.mask = CallConvRets;
         }
       } else {
-      ip_dynamic_target_set<> *TheDynTargets = ICFG[bb].DynTargets._p.Load(std::memory_order_relaxed);
-      assert(TheDynTargets);
-      ip_dynamic_target_set<> DynTargetsCopy(*TheDynTargets);
-      ip_dynamic_target_set<false> DynTargets = std::move(DynTargetsCopy);
-
       bool FirstOne = true;
-      std::for_each(DynTargets.cbegin(), DynTargets.cend(),
+      DynTargets.ForEach(
         [&](const dynamic_target_t &DynTarget) {
 #if 0
         if (options.Precision == 0) {
@@ -596,7 +599,7 @@ flow_vertex_t analyzer_t<MT>::copy_function_cfg(
           }
 #if 0
           } else { /* we've already analyzed! */
-            bbprop_t::Analysis_t &TheAnalysis =
+            bb_analysis_t &TheAnalysis =
                 G[boost::graph_bundle].extra.emplace_front();
             TheAnalysis.live.use = callee.Analysis.args;
             TheAnalysis.reach.def = callee.Analysis.rets;
@@ -622,7 +625,7 @@ flow_vertex_t analyzer_t<MT>::copy_function_cfg(
         //
         flow_vertex_t dummyV = boost::add_vertex(G);
 
-        static const basic_block_properties_t::Analysis_t DummyAnalysis(
+        static const bb_analysis_t DummyAnalysis(
             tcg_global_set_t(), tcg_global_set_t(), CallConvRets);
 
         G[dummyV].Analysis = &DummyAnalysis;
@@ -660,7 +663,7 @@ flow_vertex_t analyzer_t<MT>::copy_function_cfg(
 
 #if 0 /* the following breaks vararg on x86_64 (eax) */
       if (options.Precision == 0 && callee.IsABI) {
-        static const basic_block_properties_t::Analysis_t DummyAnalysis = {
+        static const bb_analysis_t DummyAnalysis = {
             .live = {.def = {}, .use = CallConvArgs},
             .reach = {.def = CallConvRets}};
 
@@ -698,7 +701,7 @@ flow_vertex_t analyzer_t<MT>::copy_function_cfg(
         }
       }
           } else { /* we've already analyzed! */
-            bbprop_t::Analysis_t &TheAnalysis =
+            bb_analysis_t &TheAnalysis =
                 G[boost::graph_bundle].extra.emplace_front();
             TheAnalysis.live.use = callee.Analysis.args;
             TheAnalysis.reach.def = callee.Analysis.rets;
@@ -722,7 +725,7 @@ flow_vertex_t analyzer_t<MT>::copy_function_cfg(
         //
         flow_vertex_t dummyV = boost::add_vertex(G);
 
-        static const basic_block_properties_t::Analysis_t DummyAnalysis(
+        static const bb_analysis_t DummyAnalysis(
             tcg_global_set_t(), tcg_global_set_t(), CallConvRets);
 
         G[dummyV].Analysis = &DummyAnalysis;
@@ -746,16 +749,18 @@ flow_vertex_t analyzer_t<MT>::copy_function_cfg(
         exitVertices.erase(it); /* exit blocks of callees replace exit block */
       }
 
-      assert(ICFG[bb].hasDynTarget());
+      auto MaybeDynTargets = ICFG[bb].getDynamicTargets(jv);
+      assert(MaybeDynTargets);
+      auto &DynTargets = *MaybeDynTargets;
 
       const unsigned savedNumExitVerts = exitVertices.size();
 
-      bool IsABI = bbprop.DynTargetsAnyOf([&](dynamic_target_t X) {
+      bool IsABI = DynTargets.AnyOf([&](dynamic_target_t X) {
         return function_of_target(X, jv).IsABI;
       });
 
-      if (auto Summary = DynTargetsSummary(bbprop, IsABI)) {
-        bbprop_t::Analysis_t &TheAnalysis =
+      if (auto Summary = DynTargetsSummary(DynTargets, IsABI)) {
+        bb_analysis_t &TheAnalysis =
             G[boost::graph_bundle].extra.emplace_front();
         std::tie(TheAnalysis.live.use, TheAnalysis.reach.def) = *Summary;
 
@@ -766,20 +771,15 @@ flow_vertex_t analyzer_t<MT>::copy_function_cfg(
         if (IsABI)
           G[E].reach.mask = CallConvRets; /* assume ABI */
 
-        bool Returns = bbprop.DynTargetsAnyOf([&](dynamic_target_t X) {
+        bool Returns = DynTargets.AnyOf([&](dynamic_target_t X) {
           return !state.for_function(function_of_target(X, jv)).exit_bbvec.empty();
         });
 
         if (Returns)
           exitVertices.emplace_back(dummyV, IsABI);
       } else {
-      ip_dynamic_target_set<> *TheDynTargets = ICFG[bb].DynTargets._p.Load(std::memory_order_relaxed);
-      assert(TheDynTargets);
-      ip_dynamic_target_set<> DynTargetsCopy(*TheDynTargets);
-      ip_dynamic_target_set<false> DynTargets = std::move(DynTargetsCopy);
-
       bool FirstOne = true;
-      std::for_each(DynTargets.cbegin(), DynTargets.cend(),
+      DynTargets.ForEach(
         [&](const dynamic_target_t &DynTarget) {
 #if 0
         if (options.Precision == 0) {
@@ -813,7 +813,7 @@ flow_vertex_t analyzer_t<MT>::copy_function_cfg(
         //
         flow_vertex_t dummyV = boost::add_vertex(G);
 
-        static const basic_block_properties_t::Analysis_t DummyAnalysis(
+        static const bb_analysis_t DummyAnalysis(
             tcg_global_set_t(), tcg_global_set_t(), CallConvRets);
 
         G[dummyV].Analysis = &DummyAnalysis;
@@ -837,7 +837,7 @@ flow_vertex_t analyzer_t<MT>::copy_function_cfg(
   if (f.Returns && exitVertices.empty()) {
     flow_vertex_t dummyV = boost::add_vertex(G);
 
-    static const basic_block_properties_t::Analysis_t DummyAnalysis(
+    static const bb_analysis_t DummyAnalysis(
         tcg_global_set_t(), tcg_global_set_t(), CallConvRets);
 
     G[dummyV].Analysis = &DummyAnalysis;
@@ -848,22 +848,21 @@ flow_vertex_t analyzer_t<MT>::copy_function_cfg(
   return res;
 }
 
-template <bool MT>
+template <bool MT, bool MinSize>
 std::optional<std::pair<tcg_global_set_t, tcg_global_set_t>>
-analyzer_t<MT>::DynTargetsSummary(const bbprop_t &bbprop, bool IsABI) {
-  assert(bbprop.hasDynTarget());
-
-  bool AllNotStale = bbprop.DynTargetsAllOf([&](dynamic_target_t X) {
+analyzer_t<MT, MinSize>::DynTargetsSummary(
+    const DynTargets_t<MT, MinSize> &DynTargets, bool IsABI) {
+  bool AllNotStale = DynTargets.AllOf([&](dynamic_target_t X) {
     function_t &callee = function_of_target(X, jv);
     return !callee.Analysis.Stale.load(std::memory_order_acquire);
   });
 
   if (AllNotStale) {
-    auto args = bbprop.DynTargetsAccumulate(
+    auto args = DynTargets.Accumulate(
         tcg_global_set_t(), [&](tcg_global_set_t res, dynamic_target_t X) {
           return res | function_of_target(X, jv).Analysis.args;
         });
-    auto rets = bbprop.DynTargetsAccumulate(
+    auto rets = DynTargets.Accumulate(
         tcg_global_set_t(), [&](tcg_global_set_t res, dynamic_target_t X) {
           return res | function_of_target(X, jv).Analysis.rets;
         });
@@ -872,13 +871,13 @@ analyzer_t<MT>::DynTargetsSummary(const bbprop_t &bbprop, bool IsABI) {
 #if 0 /* the following breaks vararg on x86_64 (eax) */
     if (IsABI) {
       return std::make_pair(CallConvArgs, CallConvRets);
-    } else if (bbprop.DynTargetsAnyOf([&](dynamic_target_t X) {
+    } else if (DynTargets.AnyOf([&](dynamic_target_t X) {
                  function_t &callee = function_of_target(X, jv);
                  return !__atomic_load_n(&callee.Analysis.Stale,
                                          __ATOMIC_ACQUIRE);
                })) {
       tcg_global_set_t args, rets;
-      bbprop.DynTargetsForEachWhile([&](dynamic_target_t X) -> bool {
+      DynTargets.ForEachWhile([&](dynamic_target_t X) -> bool {
         function_t &callee = function_of_target(X, jv);
         if (!callee.Analysis.Stale) {
           function_t &callee = function_of_target(X, jv);
@@ -898,8 +897,18 @@ analyzer_t<MT>::DynTargetsSummary(const bbprop_t &bbprop, bool IsABI) {
   return std::nullopt;
 }
 
-template struct analyzer_t<false>;
-template struct analyzer_t<true>;
+#define VALUES_TO_INSTANTIATE_WITH1                                            \
+    ((true))                                                                   \
+    ((false))
+#define VALUES_TO_INSTANTIATE_WITH2                                            \
+    ((true))                                                                   \
+    ((false))
+#define GET_VALUE(x) BOOST_PP_TUPLE_ELEM(0, x)
+
+#define DO_INSTANTIATE(r, product)                                             \
+  template struct analyzer_t<GET_VALUE(BOOST_PP_SEQ_ELEM(0, product)),         \
+                             GET_VALUE(BOOST_PP_SEQ_ELEM(1, product))>;
+BOOST_PP_SEQ_FOR_EACH_PRODUCT(DO_INSTANTIATE, (VALUES_TO_INSTANTIATE_WITH1)(VALUES_TO_INSTANTIATE_WITH2))
 
 }
 #endif

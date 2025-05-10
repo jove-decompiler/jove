@@ -21,8 +21,9 @@ symbolizer_t::symbolizer_t() {
 
 symbolizer_t::~symbolizer_t() {}
 
-template <bool MT>
-std::string symbolizer_t::addr2line(const binary_base_t<MT> &binary, uint64_t Addr) {
+template <bool MT, bool MinSize>
+std::string symbolizer_t::addr2line(const binary_base_t<MT, MinSize> &binary,
+                                    uint64_t Addr) {
   if (!binary.is_file())
     return std::string();
 
@@ -58,8 +59,9 @@ std::string symbolizer_t::addr2line(const binary_base_t<MT> &binary, uint64_t Ad
 	 ":" + std::to_string(LnInfo.Column);
 }
 
-template <bool MT>
-std::string symbolizer_t::addr2desc(const binary_base_t<MT> &binary, uint64_t Addr) {
+template <bool MT, bool MinSize>
+std::string symbolizer_t::addr2desc(const binary_base_t<MT, MinSize> &binary,
+                                    uint64_t Addr) {
   if (Addr == 0 || ~Addr == 0)
     return "??";
 
@@ -76,19 +78,27 @@ std::string symbolizer_t::addr2desc(const binary_base_t<MT> &binary, uint64_t Ad
     return desc;
 }
 
-#define VALUES_TO_INSTANTIATE_WITH                                             \
+#define VALUES_TO_INSTANTIATE_WITH1                                            \
+    ((true))                                                                   \
+    ((false))
+#define VALUES_TO_INSTANTIATE_WITH2                                            \
     ((true))                                                                   \
     ((false))
 #define GET_VALUE(x) BOOST_PP_TUPLE_ELEM(0, x)
 
-#define DO_INSTANTIATE(r, data, elem)                                          \
-  template std::string symbolizer_t::addr2line<GET_VALUE(elem)>(               \
-      const binary_base_t<GET_VALUE(elem)> &, uint64_t Addr);
-BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, VALUES_TO_INSTANTIATE_WITH)
-
-#define DO_INSTANTIATE(r, data, elem)                                          \
-  template std::string symbolizer_t::addr2desc<GET_VALUE(elem)>(               \
-      const binary_base_t<GET_VALUE(elem)> &, uint64_t Addr);
-BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, VALUES_TO_INSTANTIATE_WITH)
+#define DO_INSTANTIATE(r, product)                                             \
+  template std::string                                                         \
+  symbolizer_t::addr2desc<GET_VALUE(BOOST_PP_SEQ_ELEM(0, product)),            \
+                          GET_VALUE(BOOST_PP_SEQ_ELEM(1, product))>(           \
+      const binary_base_t<GET_VALUE(BOOST_PP_SEQ_ELEM(0, product)),            \
+                          GET_VALUE(BOOST_PP_SEQ_ELEM(1, product))> &,         \
+      uint64_t Addr);                                                          \
+  template std::string                                                         \
+  symbolizer_t::addr2line<GET_VALUE(BOOST_PP_SEQ_ELEM(0, product)),            \
+                          GET_VALUE(BOOST_PP_SEQ_ELEM(1, product))>(           \
+      const binary_base_t<GET_VALUE(BOOST_PP_SEQ_ELEM(0, product)),            \
+                          GET_VALUE(BOOST_PP_SEQ_ELEM(1, product))> &,         \
+      uint64_t Addr);
+BOOST_PP_SEQ_FOR_EACH_PRODUCT(DO_INSTANTIATE, (VALUES_TO_INSTANTIATE_WITH1)(VALUES_TO_INSTANTIATE_WITH2))
 
 }

@@ -116,12 +116,15 @@ struct basic_block_state_t {
 
   llvm::BasicBlock *B = nullptr;
 
-  basic_block_state_t(const auto &b, basic_block_t bb) {}
+  basic_block_state_t(const auto &b, auto bb_t) {}
 };
 
 struct function_state_t {
-  basic_block_vec_t bbvec;
-  basic_block_vec_t exit_bbvec;
+  using bb_t = typename ip_icfg_base_t<AreWeMT>::vertex_descriptor;
+  using bb_vec_t = std::vector<bb_t>;
+
+  bb_vec_t bbvec;
+  bb_vec_t exit_bbvec;
 
   const hook_t *hook = nullptr;
   llvm::Function *PreHook = nullptr;
@@ -308,7 +311,7 @@ struct LLVMTool : public StatefulJVTool<ToolKind::CopyOnWrite, binary_state_t,
     cl::opt<bool> ABICalls;
     cl::opt<bool> InlineHelpers;
     cl::opt<bool> ForCBE;
-    cl::opt<bool> MT;
+    cl::opt<bool> RuntimeMT;
     cl::opt<bool> BreakBeforeUnreachables;
     cl::opt<bool> LayOutSections;
     cl::opt<bool> PlaceSectionBreakpoints;
@@ -332,8 +335,7 @@ struct LLVMTool : public StatefulJVTool<ToolKind::CopyOnWrite, binary_state_t,
 
           VersionScript("version-script",
                         cl::desc("Output version script file for use with ld"),
-                        cl::value_desc("filename"),
-                        cl::cat(JoveCategory)),
+                        cl::value_desc("filename"), cl::cat(JoveCategory)),
 
           LinkerScript("linker-script",
                        cl::desc("Output linker script file for use with ld"),
@@ -419,8 +421,8 @@ struct LLVMTool : public StatefulJVTool<ToolKind::CopyOnWrite, binary_state_t,
           ForCBE("for-cbe", cl::desc("Generate LLVM for C backend"),
                  cl::cat(JoveCategory)),
 
-          MT("mt", cl::desc("Thread model (multi)"), cl::cat(JoveCategory),
-             cl::init(true)),
+          RuntimeMT("rtmt", cl::desc("Runtime thread model"),
+                    cl::cat(JoveCategory), cl::init(true)),
 
           BreakBeforeUnreachables("break-before-unreachables",
                                   cl::desc("Debugging purposes only"),
@@ -2186,7 +2188,8 @@ void LLVMTool::fillInFunctionBody(llvm::Function *F,
 int LLVMTool::CreateModule(void) {
   Context.reset(new llvm::LLVMContext);
 
-  std::string path_to_bitcode = locator().starter_bitcode(opts.MT, IsCOFF);
+  std::string path_to_bitcode =
+      locator().starter_bitcode(opts.RuntimeMT, IsCOFF);
 
   llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> BufferOr =
       llvm::MemoryBuffer::getFile(path_to_bitcode);
@@ -4024,7 +4027,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
 
   struct PatchContents {
     LLVMTool &tool;
-    binary_base_t<IsToolMT> &Binary;
+    binary_t &Binary;
 
     std::vector<std::array<uint8_t, TargetBrkptLen>> Saved;
 
@@ -4035,7 +4038,7 @@ int LLVMTool::CreateSectionGlobalVariables(void) {
              !tool.state.for_function(f).IsSj;
     }
 
-    PatchContents(LLVMTool &tool, binary_base_t<IsToolMT> &Binary)
+    PatchContents(LLVMTool &tool, binary_t &Binary)
         : tool(tool), Binary(Binary) {
       if (!tool.opts.PlaceSectionBreakpoints)
         return;
@@ -6463,7 +6466,7 @@ int LLVMTool::CreateNoAliasMetadata(void) {
 struct TranslateContext {
   LLVMTool &tool;
   function_t &f;
-  basic_block_t bb;
+  LLVMTool::bb_t bb;
 
   std::array<llvm::AllocaInst *, tcg_num_globals> GlobalAllocaArr;
   std::vector<llvm::AllocaInst *> TempAllocaVec;
@@ -6571,10 +6574,10 @@ int LLVMTool::TranslateFunction(function_t &f) {
   if (unlikely(state.for_function(f).bbvec.empty()))
     return 0;
 
-  basic_block_t entry_bb = state.for_function(f).bbvec.front();
+  bb_t entry_bb = state.for_function(f).bbvec.front();
 
   llvm::BasicBlock *EntryB = llvm::BasicBlock::Create(*Context, "", F);
-  for (basic_block_t bb : state.for_function(f).bbvec)
+  for (bb_t bb : state.for_function(f).bbvec)
     state.for_basic_block(Binary, bb).B = llvm::BasicBlock::Create(
         *Context, (fmt("l%lx") % ICFG[bb].Addr).str(), F);
 
@@ -6704,7 +6707,7 @@ int LLVMTool::TranslateFunction(function_t &f) {
     IRB.CreateBr(state.for_basic_block(Binary, entry_bb).B);
   }
 
-  for (basic_block_t bb : state.for_function(f).bbvec) {
+  for (bb_t bb : state.for_function(f).bbvec) {
     TC.bb = bb;
 
     int ret = TranslateBasicBlock(TC);
@@ -7939,7 +7942,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext &TC) {
   auto &GlobalAllocaArr = TC.GlobalAllocaArr;
   auto &TempAllocaVec = TC.TempAllocaVec;
   auto &LabelVec = TC.LabelVec;
-  basic_block_t bb = TC.bb;
+  bb_t bb = TC.bb;
   function_t &f = TC.f;
 
   auto &Binary = jv.Binaries.at(BinaryIndex);
@@ -8739,7 +8742,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext &TC) {
                                                 ICFG.out_degree(bb));
 
         for (auto it = it_pair.first; it != it_pair.second; ++it) {
-          basic_block_t succ = *it;
+          bb_t succ = *it;
           SI->addCase(
               IRB.getIntN(WordBits(), ICFG[succ].Addr - state.for_binary(Binary).SectsStartAddr),
               state.for_basic_block(Binary, succ).B);
@@ -8764,7 +8767,6 @@ int LLVMTool::TranslateBasicBlock(TranslateContext &TC) {
 
   case TERMINATOR::INDIRECT_CALL: {
     bool IsCall = T.Type == TERMINATOR::INDIRECT_CALL;
-    const bool &DynTargetsComplete = ICFG[bb].DynTargets.Complete;
 
     llvm::Value *PC = IRB.CreateLoad(WordType(), TC.PCAlloca);
     if (!IsCall && ICFG[bb].Term._indirect_jump.IsLj) {
@@ -8779,7 +8781,8 @@ int LLVMTool::TranslateBasicBlock(TranslateContext &TC) {
       return 0;
     }
 
-    if (!ICFG[bb].hasDynTarget()) {
+    auto MaybeDynTargets = ICFG[bb].getDynamicTargets(jv);
+    if (!MaybeDynTargets) {
 #if 0
       if (IsVerbose())
         WithColor::warning() << llvm::formatv(
@@ -8802,14 +8805,16 @@ int LLVMTool::TranslateBasicBlock(TranslateContext &TC) {
       return 0;
     }
 
+    auto &DynTargets = *MaybeDynTargets;
+
     //
     // setjmp/longjmp
     //
-    const bool Lj = ICFG[bb].DynTargetsAnyOf([&](dynamic_target_t X) -> bool {
+    const bool Lj = DynTargets.AnyOf([&](dynamic_target_t X) -> bool {
       return state.for_function(function_of_target(X, jv)).IsLj;
     });
 
-    const bool Sj = ICFG[bb].DynTargetsAnyOf([&](dynamic_target_t X) -> bool {
+    const bool Sj = DynTargets.AnyOf([&](dynamic_target_t X) -> bool {
       return state.for_function(function_of_target(X, jv)).IsSj;
     });
 
@@ -8817,7 +8822,7 @@ int LLVMTool::TranslateBasicBlock(TranslateContext &TC) {
     if (unlikely(SjLj)) {
       assert(Lj ^ Sj);
 
-      dynamic_target_t X = ICFG[bb].DynTargetsFront();
+      dynamic_target_t X = DynTargets.Front();
 
       function_t &callee = function_of_target(X, jv);
 
@@ -8935,10 +8940,9 @@ int LLVMTool::TranslateBasicBlock(TranslateContext &TC) {
 
     assert(!SjLj);
 
-    bool IsABICall =
-        ICFG[bb].DynTargetsAllOf([&](const dynamic_target_t &X) -> bool {
-          return function_of_target(X, jv).IsABI;
-        });
+    bool IsABICall = DynTargets.AllOf([&](const dynamic_target_t &X) -> bool {
+      return function_of_target(X, jv).IsABI;
+    });
 
     if (opts.ABICalls && IsABICall)
     {
@@ -9043,8 +9047,8 @@ int LLVMTool::TranslateBasicBlock(TranslateContext &TC) {
 
       std::vector<std::pair<binary_index_t, function_index_t>> DynTargetsVec;
 
-      DynTargetsVec.reserve(ICFG[bb].getNumDynTargets());
-      ICFG[bb].DynTargetsForEach(
+      DynTargetsVec.reserve(DynTargets.size());
+      DynTargets.ForEach(
           [&](const dynamic_target_t &X) { DynTargetsVec.push_back(X); });
 
       std::vector<llvm::BasicBlock *> DynTargetsDoCallBVec;
@@ -9620,7 +9624,7 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
 
     bool is1 = ICFG.out_degree(bb) == 1;
 
-    basic_block_t succ1, succ2;
+    bb_t succ1, succ2;
     if (is1) {
       succ1 = succ2 = ICFG.adjacent_front(bb);
     } else {
@@ -9786,7 +9790,7 @@ int LLVMTool::TranslateTCGOps(llvm::BasicBlock *ExitBB,
   };
 
   function_t &f = TC.f;
-  basic_block_t bb = TC.bb;
+  bb_t bb = TC.bb;
   auto &GlobalAllocaArr = TC.GlobalAllocaArr;
   auto &TempAllocaVec = TC.TempAllocaVec;
   auto &LabelVec = TC.LabelVec;

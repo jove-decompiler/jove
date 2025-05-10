@@ -8,8 +8,9 @@ namespace jove {
 
 typedef boost::format fmt;
 
-template <bool MT>
-double compute_score(const jv_base_t<MT> &jv, const binary_base_t<MT> &b) {
+template <bool MT, bool MinSize>
+double compute_score(const jv_base_t<MT, MinSize> &jv,
+                     const binary_base_t<MT, MinSize> &b) {
   auto Bin = B::Create(llvm::StringRef(b.data()));
 
   //
@@ -80,16 +81,21 @@ double compute_score(const jv_base_t<MT> &jv, const binary_base_t<MT> &b) {
   return static_cast<double>(M) / static_cast<double>(N);
 }
 
-#define VALUES_TO_INSTANTIATE_WITH                                             \
+#define VALUES_TO_INSTANTIATE_WITH1                                            \
     ((true))                                                                   \
     ((false))
-
+#define VALUES_TO_INSTANTIATE_WITH2                                            \
+    ((true))                                                                   \
+    ((false))
 #define GET_VALUE(x) BOOST_PP_TUPLE_ELEM(0, x)
 
-#define DO_INSTANTIATE(r, data, elem)                                          \
-  template double compute_score(const jv_base_t<GET_VALUE(elem)> &,            \
-                                const binary_base_t<GET_VALUE(elem)> &);
+#define DO_INSTANTIATE(r, product)                                             \
+  template double compute_score(                                               \
+      const jv_base_t<GET_VALUE(BOOST_PP_SEQ_ELEM(0, product)),                \
+                      GET_VALUE(BOOST_PP_SEQ_ELEM(1, product))> &,             \
+      const binary_base_t<GET_VALUE(BOOST_PP_SEQ_ELEM(0, product)),            \
+                          GET_VALUE(BOOST_PP_SEQ_ELEM(1, product))> &);
 
-BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, VALUES_TO_INSTANTIATE_WITH)
+BOOST_PP_SEQ_FOR_EACH_PRODUCT(DO_INSTANTIATE, (VALUES_TO_INSTANTIATE_WITH1)(VALUES_TO_INSTANTIATE_WITH2))
 
 }

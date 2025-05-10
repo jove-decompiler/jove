@@ -1,6 +1,9 @@
+#if !defined(__mips64) && !defined(__mips__)
 #include "tool.h"
 #include "serialize.h"
 #include "B.h"
+#include "analyze.h"
+#include "tcg.h"
 
 #include <boost/filesystem.hpp>
 
@@ -33,9 +36,6 @@ using llvm::WithColor;
 namespace jove {
 
 class ServerTool : public Tool {
-  using jv_t = jv_base_t<>;
-  using binary_t = binary_base_t<>;
-
   struct Cmdline {
     cl::opt<unsigned> Port;
 
@@ -272,7 +272,7 @@ void *ServerTool::ConnectionProc(void *arg) {
   // parse the header
   //
   struct {
-    bool dfsan, foreign_libs, trace, optimize, skip_copy_reloc_hack, debug_sjlj, abi_calls, mt, call_stack, lay_out_sections;
+    bool dfsan, foreign_libs, trace, optimize, skip_copy_reloc_hack, debug_sjlj, abi_calls, rtmt, call_stack, lay_out_sections, mt, min_size;
   } options;
 
   std::bitset<16> headerBits(header);
@@ -284,9 +284,11 @@ void *ServerTool::ConnectionProc(void *arg) {
   options.skip_copy_reloc_hack = headerBits.test(4);
   options.debug_sjlj = headerBits.test(5);
   options.abi_calls = headerBits.test(6);
-  options.mt = headerBits.test(7);
+  options.rtmt = headerBits.test(7);
   options.call_stack = headerBits.test(8);
   options.lay_out_sections = headerBits.test(9);
+  options.mt = headerBits.test(10);
+  options.min_size = headerBits.test(11);
 
   std::string jv_s_path = (TemporaryDir / "serialized.jv").string();
   std::string tmpjv = (TemporaryDir / ".jv").string();
@@ -308,16 +310,65 @@ void *ServerTool::ConnectionProc(void *arg) {
       boost::interprocess::file_mapping::remove(tmpjv.c_str());
   };
 
-  jv_t &jv(*jv_file.construct<jv_t>("JV")(jv_file));
+  boost::concurrent_flat_set<dynamic_target_t> inflight;
+  std::atomic<uint64_t> done = 0;
 
-  UnserializeJVFromFile(jv, jv_file, jv_s_path.c_str());
+  tiny_code_generator_t TCG;
 
-  const bool IsCOFF = ({
-    binary_t &b = jv.Binaries.at(0);
-    auto Bin = B::Create(b.data());
-    B::is_coff(*Bin);
-  });
+  analyzer_options_t analyzer_opts;
+  analyzer_opts.VerbosityLevel = VerbosityLevel();
+  //analyzer_opts.Conservative = opts.Conservative;
 
+  auto run = [&]<bool MT, bool MinSize>(jv_base_t<MT, MinSize> &jv) {
+    using jv_t = jv_base_t<MT, MinSize>;
+
+    UnserializeJVFromFile(jv, jv_file, jv_s_path.c_str());
+
+    const bool IsCOFF = ({
+      binary_base_t<MT, MinSize> &b = jv.Binaries.at(0);
+      auto Bin = B::Create(b.data());
+      B::is_coff(*Bin);
+    });
+
+    analyzer_t<MT, MinSize> analyzer(analyzer_opts, TCG, jv, inflight, done);
+    analyzer.update_callers();
+    analyzer.update_parents();
+    analyzer.identify_ABIs();
+    analyzer.identify_Sjs();
+    analyzer.analyze_blocks();
+    analyzer.analyze_functions();
+
+#if 0
+    recompiler_t recompiler(jv);
+#endif
+    // TODO FIXME
+  };
+
+#define MT_POSSIBILTIES                                                        \
+    ((true))                                                                   \
+    ((false))
+#define MINSIZE_POSSIBILTIES                                                   \
+    ((true))                                                                   \
+    ((false))
+
+#define GET_VALUE(x) BOOST_PP_TUPLE_ELEM(0, x)
+
+#define DO_JV_CASE(r, product)                                                 \
+  if (options.mt       == GET_VALUE(BOOST_PP_SEQ_ELEM(0, product)) &&          \
+      options.min_size == GET_VALUE(BOOST_PP_SEQ_ELEM(1, product))) {          \
+    constexpr bool MT      = GET_VALUE(BOOST_PP_SEQ_ELEM(0, product));         \
+    constexpr bool MinSize = GET_VALUE(BOOST_PP_SEQ_ELEM(1, product));         \
+    using jv_t = jv_base_t<MT, MinSize>;                                       \
+                                                                               \
+    jv_t &jv(*jv_file.construct<jv_t>("JV")(jv_file));                         \
+    run(jv);                                                                   \
+    return nullptr;                                                            \
+  }
+
+  BOOST_PP_SEQ_FOR_EACH_PRODUCT(DO_JV_CASE,
+                                (MT_POSSIBILTIES)(MINSIZE_POSSIBILTIES))
+
+#if 0
   //
   // analyze
   //
@@ -379,8 +430,8 @@ void *ServerTool::ConnectionProc(void *arg) {
       Arg("--debug-sjlj");
     if (!options.abi_calls)
       Arg("--abi-calls=0");
-    if (!options.mt)
-      Arg("--mt=0");
+    if (!options.rtmt)
+      Arg("--rtmt=0");
 
 #if 0
     if (!PinnedGlobals.empty()) {
@@ -456,8 +507,8 @@ void *ServerTool::ConnectionProc(void *arg) {
       llvm::errs() << "sending jove runtime\n";
 
     ssize_t ret = robust_sendfile_with_size(
-        data_socket, IsCOFF ? locator().runtime_dll(options.mt).c_str()
-                            : locator().runtime_so(options.mt).c_str());
+        data_socket, IsCOFF ? locator().runtime_dll(options.rtmt).c_str()
+                            : locator().runtime_so(options.rtmt).c_str());
 
     if (ret < 0) {
       WithColor::error() << llvm::formatv(
@@ -480,7 +531,10 @@ void *ServerTool::ConnectionProc(void *arg) {
     }
   }
 
+#endif
+
   return nullptr;
 }
 
 }
+#endif

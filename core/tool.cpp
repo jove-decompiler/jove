@@ -460,8 +460,8 @@ void Tool::cleanup_temp_dir(void) {
 
 struct invalid_size_exception {};
 
-template <bool MT>
-std::optional<size_t> BaseJVTool<MT>::jvSize(void) {
+template <bool MT, bool MinSize>
+std::optional<size_t> BaseJVTool<MT, MinSize>::jvSize(void) {
   if (char *var = getenv("JVSIZE")) {
     try {
       if (!var[0])
@@ -490,16 +490,16 @@ std::optional<size_t> BaseJVTool<MT>::jvSize(void) {
   return std::nullopt;
 }
 
-template <bool MT>
-size_t BaseJVTool<MT>::jvCreationSize(void) {
+template <bool MT, bool MinSize>
+size_t BaseJVTool<MT, MinSize>::jvCreationSize(void) {
   if (auto userProvidedSize = jvSize())
     return *userProvidedSize;
   return jvDefaultInitialSize();
 }
 
-template <bool MT>
-std::string
-BaseJVTool<MT>::cow_copy_if_possible(const std::string &the_jv_filename) {
+template <bool MT, bool MinSize>
+std::string BaseJVTool<MT, MinSize>::cow_copy_if_possible(
+    const std::string &the_jv_filename) {
   int err;
   scoped_fd src_fd(({
     int res = ::open(the_jv_filename.c_str(), O_RDONLY);

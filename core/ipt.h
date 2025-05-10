@@ -75,7 +75,7 @@ static const unsigned nr32_mmap = VERY_UNIQUE_NUM();
 
 namespace jove {
 
-template <bool MT>
+template <bool MT, bool MinSize>
 class explorer_t;
 
 namespace perf {
@@ -89,21 +89,24 @@ struct truncated_aux_exception {};
 #define IsVerbose() (Verbosity >= 1)
 #define IsVeryVerbose() (Verbosity >= 2)
 
-template <bool DoNotGoFurther, bool InfiniteLoopThrow, bool MT, unsigned Verbosity = 0>
+template <bool DoNotGoFurther, bool InfiniteLoopThrow, bool MT, bool MinSize,
+	 unsigned Verbosity = 0>
 static std::pair<basic_block_index_t, bool>
-StraightLineGo(const auto &b,
+StraightLineGo(const binary_base_t<MT, MinSize> &b,
                basic_block_index_t Res,
                taddr_t GoNoFurther = 0,
-    std::function<basic_block_index_t(const basic_block_properties_t &, basic_block_index_t)> on_final_block = [](const basic_block_properties_t &, basic_block_index_t Res) -> basic_block_index_t { return Res; },
-    std::function<void(const basic_block_properties_t &, basic_block_index_t)> on_block = [](const basic_block_properties_t &, basic_block_index_t) -> void {}) {
+    std::function<basic_block_index_t(const bbprop_t &, basic_block_index_t)> on_final_block = [](const bbprop_t &, basic_block_index_t Res) -> basic_block_index_t { return Res; },
+    std::function<void(const bbprop_t &, basic_block_index_t)> on_block = [](const bbprop_t &, basic_block_index_t) -> void {}) {
+  using bb_t = binary_base_t<MT, MinSize>::bb_t;
+
   const auto &ICFG = b.Analysis.ICFG;
 
-  std::reference_wrapper<const basic_block_properties_t> the_bbprop =
+  std::reference_wrapper<const bbprop_t> the_bbprop =
       ICFG[basic_block_of_index(Res, b)];
 
   basic_block_index_t ResSav = Res;
   for ((void)({
-         const basic_block_properties_t &bbprop = the_bbprop.get();
+         const bbprop_t &bbprop = the_bbprop.get();
 
          if constexpr (MT) {
            if (!bbprop.pub.is.load(std::memory_order_acquire))
@@ -135,8 +138,8 @@ StraightLineGo(const auto &b,
 
          ResSav = Res;
 
-         basic_block_t newbb = basic_block_of_index(Res, b);
-         const basic_block_properties_t &new_bbprop = ICFG[newbb];
+         bb_t newbb = basic_block_of_index(Res, b);
+         const bbprop_t &new_bbprop = ICFG[newbb];
          the_bbprop = new_bbprop;
 
          if constexpr (MT) {
@@ -148,8 +151,8 @@ StraightLineGo(const auto &b,
          on_block(new_bbprop, Res);
          0;
        })) {
-    basic_block_t bb = basic_block_of_index(Res, b);
-    const basic_block_properties_t &bbprop = the_bbprop.get();
+    bb_t bb = basic_block_of_index(Res, b);
+    const bbprop_t &bbprop = the_bbprop.get();
 
     const auto Addr = bbprop.Addr;
     const auto Size = bbprop.Size;
@@ -292,7 +295,12 @@ struct error_decoding_exception {};
 /* reference IPT decoder */
 template <IPT_PARAMETERS_DCL, typename Derived> struct ipt_t {
   using packet_type = typename ipt_traits<Derived>::packet_type;
+  static constexpr bool MinSize = AreWeMinSize;
 
+  using jv_t = jv_base_t<MT, MinSize>;
+  using binary_t = binary_base_t<MT, MinSize>;
+  using icfg_t = ip_icfg_base_t<MT>;
+  using bb_t = ip_icfg_base_t<MT>::vertex_descriptor;
 
 protected:
   int ptdump_argc;
@@ -301,8 +309,8 @@ protected:
   const uint8_t *const aux_end;
 
   jv_file_t &jv_file;
-  jv_base_t<MT> &jv;
-  explorer_t<MT> &explorer;
+  jv_base_t<MT, MinSize> &jv;
+  explorer_t<MT, MinSize> &explorer;
 
   perf::data_reader<false> &sb;
   perf::event_iterator sb_it;
@@ -339,12 +347,12 @@ protected:
         std::numeric_limits<decltype(incoming_event.sample.tsc)>::max();
   }
 
-  using straight_line_t = basic_block_properties_t::Analysis_t::straight_line_t;
+  using straight_line_t = bb_analysis_t::straight_line_t;
 
   struct basic_block_state_t {
     straight_line_t theSL;
 
-    basic_block_state_t(const binary_base_t<MT> &b, basic_block_t the_bb) {
+    basic_block_state_t(const binary_t &b, bb_t the_bb) {
       if constexpr (!Caching)
         return;
 
@@ -355,22 +363,22 @@ protected:
 
       auto &SL = this->theSL;
 
-      auto on_block = [&](const basic_block_properties_t &bbprop,
+      auto on_block = [&](const bbprop_t &bbprop,
                           basic_block_index_t BBIdx) -> void {
         intvl_set_add(SL.addrng, addr_intvl(bbprop.Addr, bbprop.Size));
       };
 
       SL.BBIdx =
-          StraightLineGo<false, true, MT, Verbosity>(
+          StraightLineGo<false, true, MT, MinSize, Verbosity>(
               b, Idx, 0 /* unused */,
-              [&](const basic_block_properties_t &bbprop,
+              [&](const bbprop_t &bbprop,
                   basic_block_index_t BBIdx) -> basic_block_index_t {
                 SL.Addr = bbprop.Addr;
                 SL.TermType = bbprop.Term.Type;
                 SL.TermAddr = bbprop.Term.Addr;
 
                 {
-                  icfg_t::adjacency_iterator it, it_end;
+                  typename icfg_t::adjacency_iterator it, it_end;
                   std::tie(it, it_end) =
                       ICFG.adjacent_vertices(basic_block_of_index(BBIdx, b));
 
@@ -408,7 +416,7 @@ protected:
 
   template <bool X = Caching>
   std::enable_if_t<X, const straight_line_t &>
-  SLForBlock(const binary_base_t<MT> &b, basic_block_t bb) {
+  SLForBlock(const binary_t &b, bb_t bb) {
     return state.for_basic_block(b, bb).theSL;
   }
   static constexpr bool Lazy = true;
@@ -424,8 +432,8 @@ protected:
           auto e_lck = b.Analysis.objdump.exclusive_access();
 
           if (b.Analysis.objdump.empty_unlocked())
-            binary_base_t<MT>::Analysis_t::objdump_output_type::generate(
-                const_cast<binary_base_t<MT> &>(b).Analysis.objdump,
+            binary_t::Analysis_t::objdump_output_type::generate(
+                const_cast<binary_t &>(b).Analysis.objdump,
                 b.is_file() ? b.Name.c_str() : nullptr, *Bin);
         }
       }
@@ -434,7 +442,9 @@ protected:
 
   using BBState = std::conditional_t<Caching, basic_block_state_t, void>;
 
-  jv_state_t<binary_state_t, void, BBState, false, Lazy, false, true, MT> state;
+  jv_state_t<binary_state_t, void, BBState, false, Lazy, false, true, true, MT,
+             MinSize>
+      state;
 
   const unsigned PageSize;
   const bool IsCOFF;
@@ -487,10 +497,10 @@ protected:
     unsigned ExecBits = 8 * sizeof(taddr_t);
   } Curr;
 
-  binary_base_t<MT> &exe;
+  binary_t &exe;
 
   class Point_t {
-    std::reference_wrapper<binary_base_t<MT>> b;
+    std::reference_wrapper<binary_t> b;
     basic_block_index_t Idx = invalid_basic_block_index;
 
     struct {
@@ -499,9 +509,9 @@ protected:
     } Cached;
 
   public:
-    Point_t(binary_base_t<MT> &b) : b(b) {}
+    Point_t(binary_t &b) : b(b) {}
 
-    binary_base_t<MT> &Binary(void) const { return b; }
+    binary_t &Binary(void) const { return b; }
     binary_index_t BinaryIndex(void) const { return index_of_binary(b.get()); }
 
     basic_block_index_t BlockIndex(void) const { return Idx; }
@@ -510,7 +520,7 @@ protected:
       Idx = NewIdx;
     }
 
-    basic_block_t Block(void) const {
+    bb_t Block(void) const {
       return basic_block_of_index(BlockIndex(), b.get());
     }
 
@@ -549,7 +559,7 @@ protected:
 #endif
     }
 
-    void SetBinary(binary_base_t<MT> &newb) {
+    void SetBinary(binary_t &newb) {
       b = newb;
 #ifndef NDEBUG
       Cached.Addr = uninit_taddr;
@@ -1290,7 +1300,7 @@ protected:
 
     taddr_t Addr = uninit_taddr;
     binary_index_t BIdx = 0;
-    std::reference_wrapper<binary_base_t<MT>> refb = exe;
+    std::reference_wrapper<binary_t> refb = exe;
 
     mapping_t mapping;
     if constexpr (ExeOnly) {
@@ -1329,7 +1339,7 @@ protected:
       mapping.Offset = (*it).second.second;
     }
 
-    binary_base_t<MT> &b = refb.get();
+    binary_t &b = refb.get();
     binary_state_t &x = state.for_binary(b);
 
     assert(is_taddr_valid(mapping.Base));
@@ -1373,7 +1383,7 @@ protected:
 
     if (CurrPoint.Valid()) {
       auto grab_addresses =
-          [&](const basic_block_properties_t &bbprop,
+          [&](const bbprop_t &bbprop,
               basic_block_index_t BBIdx) -> basic_block_index_t {
         CurrPoint.SetAddr(bbprop.Addr);
         CurrPoint.SetTermAddr(bbprop.Term.Addr);
@@ -1428,11 +1438,11 @@ protected:
     try {
       bool IsNewBlock = false;
 
-      static basic_block_properties_t dummy_bbprop;
-      std::reference_wrapper<basic_block_properties_t> the_new_bbprop(dummy_bbprop);
+      static bbprop_t dummy_bbprop;
+      std::reference_wrapper<bbprop_t> the_new_bbprop(dummy_bbprop);
 
-      auto obp = [&](basic_block_t the_bb,
-                     basic_block_properties_t &the_bbprop) -> void {
+      auto obp = [&](bb_t the_bb,
+                     bbprop_t &the_bbprop) -> void {
         IsNewBlock = true;
         the_new_bbprop = the_bbprop;
 
@@ -1443,8 +1453,8 @@ protected:
           on_block(b, the_bbprop, the_bb);
       };
       auto obp_u = [&](basic_block_index_t BBIdx) -> void {
-        basic_block_t the_bb = basic_block_of_index(BBIdx, b.Analysis.ICFG);
-        basic_block_properties_t &the_bbprop = b.Analysis.ICFG[the_bb];
+        bb_t the_bb = basic_block_of_index(BBIdx, b.Analysis.ICFG);
+        bbprop_t &the_bbprop = b.Analysis.ICFG[the_bb];
 
         auto s_lck = the_bbprop.template shared_access<MT>();
         CurrPoint.SetAddr(the_bbprop.Addr);
@@ -1503,23 +1513,23 @@ protected:
 
   template <bool InfiniteLoopThrow = false>
   std::pair<basic_block_index_t, bool> StraightLineUntilSlow(
-      const binary_base_t<MT> &b,
+      const binary_t &b,
       basic_block_index_t From,
       taddr_t GoNoFurther,
-      std::function<basic_block_index_t(const basic_block_properties_t &, basic_block_index_t)> on_final_block = [](const basic_block_properties_t &, basic_block_index_t Res) -> basic_block_index_t {
+      std::function<basic_block_index_t(const bbprop_t &, basic_block_index_t)> on_final_block = [](const bbprop_t &, basic_block_index_t Res) -> basic_block_index_t {
         return Res;
       }) {
-    return StraightLineGo<true, InfiniteLoopThrow, MT, Verbosity>(
+    return StraightLineGo<true, InfiniteLoopThrow, MT, MinSize, Verbosity>(
         b, From, GoNoFurther, on_final_block);
   }
 
   template <bool InfiniteLoopThrow = false>
-  basic_block_index_t StraightLineSlow(const binary_base_t<MT> &b,
+  basic_block_index_t StraightLineSlow(const binary_t &b,
                                        basic_block_index_t From,
-                                       std::function<basic_block_index_t(const basic_block_properties_t &, basic_block_index_t)> on_final_block = [](const basic_block_properties_t &, basic_block_index_t Res) -> basic_block_index_t {
+                                       std::function<basic_block_index_t(const bbprop_t &, basic_block_index_t)> on_final_block = [](const bbprop_t &, basic_block_index_t Res) -> basic_block_index_t {
         return Res;
       }) {
-    return StraightLineGo<false, InfiniteLoopThrow, MT, Verbosity>(
+    return StraightLineGo<false, InfiniteLoopThrow, MT, MinSize, Verbosity>(
                b, From, 0 /* unused */, on_final_block)
         .first;
   }
@@ -1531,7 +1541,7 @@ protected:
     assert(n > 0);
     assert(CurrPoint.Valid());
 
-    binary_base_t<MT> &b = CurrPoint.Binary();
+    binary_t &b = CurrPoint.Binary();
     basic_block_index_t Res = CurrPoint.BlockIndex();
 
     const auto &ICFG = b.Analysis.ICFG;
@@ -1539,7 +1549,7 @@ protected:
       const bool Taken = !!(tnt & (1ull << (n - 1)));
 
       if constexpr (Caching) {
-        basic_block_t bb = basic_block_of_index(Res, b);
+        bb_t bb = basic_block_of_index(Res, b);
         const auto &SL = SLForBlock(b, bb);
         if (unlikely(SL.adj.empty())) {
           if constexpr (IsVerbose())
@@ -1556,9 +1566,9 @@ protected:
       } else {
         Res = StraightLineSlow<true>(
             b, Res,
-            [&](const basic_block_properties_t &bbprop,
+            [&](const bbprop_t &bbprop,
                 basic_block_index_t BBIdx) -> basic_block_index_t {
-              basic_block_t bb = basic_block_of_index(BBIdx, b);
+              bb_t bb = basic_block_of_index(BBIdx, b);
 
               unsigned out_deg = ICFG.template out_degree<false>(bb);
 
@@ -1591,7 +1601,7 @@ protected:
       }
 
       if constexpr (IsVeryVerbose()) {
-        basic_block_t bb = basic_block_of_index(Res, b);
+        bb_t bb = basic_block_of_index(Res, b);
         const auto &bbprop = ICFG[bb];
 
         auto s_lck = bbprop.template shared_access<MT>();
@@ -1606,7 +1616,7 @@ protected:
     } while (--n);
 
     if constexpr (Caching) {
-      basic_block_t bb = basic_block_of_index(Res, b);
+      bb_t bb = basic_block_of_index(Res, b);
       const auto &SL = SLForBlock(b, bb);
       CurrPoint.SetBlockIndex(SL.BBIdx);
       CurrPoint.SetAddr(SL.Addr);
@@ -1614,7 +1624,7 @@ protected:
     } else {
       CurrPoint.SetBlockIndex(StraightLineSlow<true>(
           b, Res,
-          [&](const basic_block_properties_t &bbprop,
+          [&](const bbprop_t &bbprop,
               basic_block_index_t BBIdx) -> basic_block_index_t {
             CurrPoint.SetAddr(bbprop.Addr);
             CurrPoint.SetTermAddr(bbprop.Term.Addr);
@@ -1633,9 +1643,9 @@ protected:
     } Last;
   } OnBlock;
 
-  void on_block(const binary_base_t<MT> &b,
-                const basic_block_properties_t &bbprop,
-                basic_block_t bb) {
+  void on_block(const binary_t &b,
+                const bbprop_t &bbprop,
+                bb_t bb) {
     if constexpr (IsVeryVerbose()) {
       auto &ICFG = b.Analysis.ICFG;
       if (index_of_binary(b) == OnBlock.Last.BIdx &&
@@ -1654,8 +1664,8 @@ protected:
     }
   }
 
-  void block_transfer(binary_base_t<MT> &fr_b, taddr_t FrTermAddr,
-                      binary_base_t<MT> &to_b, taddr_t ToAddr) {
+  void block_transfer(binary_t &fr_b, taddr_t FrTermAddr,
+                      binary_t &to_b, taddr_t ToAddr) {
     const binary_index_t FrBIdx = index_of_binary(fr_b);
     const binary_index_t ToBIdx = index_of_binary(to_b);
 
@@ -1681,7 +1691,7 @@ protected:
       Term_indirect_jump_IsLj = Term._indirect_jump.IsLj;
     });
 
-    basic_block_t to_bb = basic_block_starting_at_address(ToAddr, to_b);
+    bb_t to_bb = basic_block_starting_at_address(ToAddr, to_b);
 
     auto handle_indirect_call = [&](void) -> void {
       function_index_t FIdx =
@@ -1692,8 +1702,8 @@ protected:
 
       auto fr_s_lck = fr_b.BBMap.shared_access();
 
-      basic_block_t fr_bb = basic_block_at_address(FrTermAddr, fr_b);
-      basic_block_properties_t &fr_bbprop = fr_ICFG[fr_bb];
+      bb_t fr_bb = basic_block_at_address(FrTermAddr, fr_b);
+      bbprop_t &fr_bbprop = fr_ICFG[fr_bb];
 
       fr_bbprop.insertDynTarget(FrBIdx, std::make_pair(ToBIdx, FIdx), jv_file,
                                 jv);
@@ -1721,7 +1731,7 @@ protected:
 
         auto fr_s_lck_bbmap = fr_b.BBMap.shared_access();
 
-        basic_block_t fr_bb = basic_block_at_address(FrTermAddr, fr_b);
+        bb_t fr_bb = basic_block_at_address(FrTermAddr, fr_b);
         fr_ICFG.add_edge(fr_bb, to_bb);
 
         fr_ICFG[fr_bb].InvalidateAnalysis(jv, fr_b);  /* (FIXME? (should this be done here?)) */
@@ -1753,8 +1763,8 @@ protected:
       if (!exists_basic_block_at_address(before_pc, to_b))
         break;
 
-      basic_block_t before_bb = basic_block_at_address(before_pc, to_b);
-      basic_block_properties_t &before_bbprop = to_ICFG.at(before_bb);
+      bb_t before_bb = basic_block_at_address(before_pc, to_b);
+      bbprop_t &before_bbprop = to_ICFG.at(before_bb);
       auto &before_Term = before_bbprop.Term;
 
       bool isCall = before_Term.Type == TERMINATOR::CALL;
@@ -1782,8 +1792,8 @@ protected:
 public:
   ipt_t(int ptdump_argc,
         char **ptdump_argv,
-        jv_base_t<MT> &jv,
-        explorer_t<MT> &explorer,
+        jv_base_t<MT, MinSize> &jv,
+        explorer_t<MT, MinSize> &explorer,
         jv_file_t &jv_file,
         unsigned cpu,
         perf::data_reader<false> &sb,

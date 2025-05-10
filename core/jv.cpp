@@ -143,11 +143,11 @@ std::optional<binary_index_t> jv_base_t<MT, MinSize>::LookupByHash(const hash_t 
 template <bool MT, bool MinSize>
 template <bool ValidatePath>
 std::pair<binary_index_t, bool>
-jv_base_t<MT, MinSize>::AddFromPath(explorer_t<MT> &explorer,
-                           jv_file_t &jv_file,
-                           const char *path,
-                           on_newbin_proc_t<MT> on_newbin,
-                           const AddOptions_t &Options) {
+jv_base_t<MT, MinSize>::AddFromPath(explorer_t<MT, MinSize> &explorer,
+                                    jv_file_t &jv_file,
+                                    const char *path,
+                                    on_newbin_proc_t<MT, MinSize> on_newbin,
+                                    const AddOptions_t &Options) {
   assert(path);
 
   std::conditional_t<ValidatePath, fs::path, std::monostate> canon_path;
@@ -183,8 +183,9 @@ jv_base_t<MT, MinSize>::AddFromPath(explorer_t<MT> &explorer,
 }
 
 template <bool MT, bool MinSize>
-std::pair<binary_index_t, bool> jv_base_t<MT, MinSize>::Add(binary_base_t<MT> &&b,
-                                                   on_newbin_proc_t<MT> on_newbin) {
+std::pair<binary_index_t, bool>
+jv_base_t<MT, MinSize>::Add(binary_t &&b,
+                            on_newbin_proc_t<MT, MinSize> on_newbin) {
   binary_index_t Res = invalid_binary_index;
   bool isNewBinary = false;
   try {
@@ -213,7 +214,7 @@ std::pair<binary_index_t, bool> jv_base_t<MT, MinSize>::Add(binary_base_t<MT> &&
     return std::make_pair(invalid_binary_index, false);
   }
 
-  binary_base_t<MT> &b_ = this->Binaries.at(Res);
+  binary_t &b_ = this->Binaries.at(Res);
 
   ip_binary_index_set ResSet(get_segment_manager());
   ResSet.insert(Res);
@@ -245,13 +246,13 @@ std::pair<binary_index_t, bool> jv_base_t<MT, MinSize>::Add(binary_base_t<MT> &&
 }
 
 template <bool MT, bool MinSize>
-std::pair<binary_index_t, bool>
-jv_base_t<MT, MinSize>::AddFromData(explorer_t<MT> &explorer,
-                           jv_file_t &jv_file,
-                           std::string_view data,
-                           const char *name,
-                           on_newbin_proc_t<MT> on_newbin,
-                           const AddOptions_t &Options) {
+std::pair<binary_index_t, bool> jv_base_t<MT, MinSize>::AddFromData(
+    explorer_t<MT, MinSize> &explorer,
+    jv_file_t &jv_file,
+    std::string_view data,
+    const char *name,
+    on_newbin_proc_t<MT, MinSize> on_newbin,
+    const AddOptions_t &Options) {
   return AddFromDataWithHash(
       explorer, jv_file,
       [&](void) -> std::string_view { return data; },
@@ -260,12 +261,12 @@ jv_base_t<MT, MinSize>::AddFromData(explorer_t<MT> &explorer,
 
 template <bool MT, bool MinSize>
 std::pair<binary_index_t, bool> jv_base_t<MT, MinSize>::AddFromDataWithHash(
-    explorer_t<MT> &explorer,
+    explorer_t<MT, MinSize> &explorer,
     jv_file_t &jv_file,
     get_data_t get_data,
     const hash_t &h,
     const char *name,
-    on_newbin_proc_t<MT> on_newbin,
+    on_newbin_proc_t<MT, MinSize> on_newbin,
     const AddOptions_t &Options) {
   binary_index_t Res = invalid_binary_index;
   bool isNewBinary = false;
@@ -332,12 +333,12 @@ std::pair<binary_index_t, bool> jv_base_t<MT, MinSize>::AddFromDataWithHash(
   }
 
   if (isNewBinary) {
-    binary_base_t<MT> &b = this->Binaries.at(Res);
+    binary_t &b = this->Binaries.at(Res);
 
     if (Options.Objdump) {
       std::unique_ptr<llvm::object::Binary> Bin = B::Create(b.data());
 
-      binary_base_t<MT>::Analysis_t::objdump_output_type::generate(
+      binary_t::Analysis_t::objdump_output_type::generate(
           b.Analysis.objdump, b.is_file() ? b.Name.c_str() : nullptr, *Bin);
     }
 
@@ -347,11 +348,11 @@ std::pair<binary_index_t, bool> jv_base_t<MT, MinSize>::AddFromDataWithHash(
   return std::make_pair(Res, isNewBinary || isNewName);
 }
 
-template <bool MT>
+template <bool MT, bool MinSize>
 adds_binary_t::adds_binary_t(binary_index_t &out,
                              jv_file_t &jv_file,
-                             jv_base_t<MT> &jv,
-                             explorer_t<MT> &explorer_,
+                             jv_base_t<MT, MinSize> &jv,
+                             explorer_t<MT, MinSize> &explorer_,
                              get_data_t get_data,
                              const hash_t &h,
                              const char *name,
@@ -376,7 +377,7 @@ adds_binary_t::adds_binary_t(binary_index_t &out,
   // if we make it here then it's most likely a legitimate binary of interest.
   //
   {
-    binary_base_t<false> b(jv_file);
+    binary_base_t<false /* !MT */, MinSize> b(jv_file);
 
     if (name)
       to_ips(b.Name, name); /* set up name */
@@ -384,7 +385,7 @@ adds_binary_t::adds_binary_t(binary_index_t &out,
     if constexpr (MT == false) {
       jv.DoAdd(b, explorer_, *Bin, Options);
     } else {
-      explorer_t<false> explorer(explorer_);
+      explorer_t<false /* !MT */, MinSize> explorer(explorer_);
       assert(!explorer.get_jv());
       jv.DoAdd(b, explorer, *Bin, Options);
     }
@@ -397,7 +398,7 @@ adds_binary_t::adds_binary_t(binary_index_t &out,
 
     b.Hash = h;
 
-    if constexpr (AreWeMinSize) {
+    if constexpr (MinSize) {
       auto e_lck = jv.Binaries.exclusive_access();
 
       BIdx = jv.Binaries.container().size();
@@ -415,13 +416,13 @@ adds_binary_t::adds_binary_t(binary_index_t &out,
   out = BIdx;
 }
 
-template <bool MT>
+template <bool MT, bool MinSize>
 adds_binary_t::adds_binary_t(binary_index_t &out,
-                             jv_base_t<MT> &jv,
-                             binary_base_t<MT> &&b) noexcept {
+                             jv_base_t<MT, MinSize> &jv,
+                             binary_base_t<MT, MinSize> &&b) noexcept {
   // don't ask questions
   {
-    if constexpr (AreWeMinSize) {
+    if constexpr (MinSize) {
       auto e_lck = jv.Binaries.exclusive_access();
 
       BIdx = jv.Binaries.container().size();
@@ -454,7 +455,7 @@ void jv_base_t<MT, MinSize>::clear(bool everything) {
 
 template <bool MT, bool MinSize>
 void jv_base_t<MT, MinSize>::InvalidateFunctionAnalyses(void) {
-  for_each_binary(maybe_par_unseq, *this, [&](binary_base_t<MT> &b) {
+  for_each_binary(maybe_par_unseq, *this, [&](binary_t &b) {
     for_each_function_in_binary(maybe_par_unseq, b,
                                 [&](function_t &f) { f.InvalidateAnalysis(); });
   });
@@ -478,8 +479,8 @@ void jv_base_t<MT, MinSize>::fixup_binary(const binary_index_t BIdx) {
   // we need to update the callers
   //
   for_each_basic_block_in_binary(
-      maybe_par_unseq, b, [&](basic_block_t bb) {
-        basic_block_properties_t &bbprop = b.Analysis.ICFG[bb];
+      maybe_par_unseq, b, [&](bb_t bb) {
+        bbprop_t &bbprop = b.Analysis.ICFG[bb];
         if (bbprop.Term.Type != TERMINATOR::CALL)
           return;
 
@@ -506,21 +507,43 @@ void jv_base_t<MT, MinSize>::fixup(void) {
                   [&](auto &b) { fixup_binary(index_of_binary(b)); });
 }
 
-template struct jv_base_t<false>;
-template struct jv_base_t<true>;
-
-#define VALUES_TO_INSTANTIATE_WITH                                             \
+#define VALUES_TO_INSTANTIATE_WITH1                                            \
+    ((true))                                                                   \
+    ((false))
+#define VALUES_TO_INSTANTIATE_WITH2                                            \
     ((true))                                                                   \
     ((false))
 
 #define GET_VALUE(x) BOOST_PP_TUPLE_ELEM(0, x)
 
-#define DO_INSTANTIATE(r, ValidatePath, elem)                                  \
+#define DO_INSTANTIATE(r, product)                                             \
+  template struct jv_base_t<GET_VALUE(BOOST_PP_SEQ_ELEM(1, product)),          \
+                            GET_VALUE(BOOST_PP_SEQ_ELEM(0, product))>;
+BOOST_PP_SEQ_FOR_EACH_PRODUCT(DO_INSTANTIATE, (VALUES_TO_INSTANTIATE_WITH1)(VALUES_TO_INSTANTIATE_WITH2))
+
+#define VALUES_TO_INSTANTIATE_WITH1                                            \
+    ((true))                                                                   \
+    ((false))
+#define VALUES_TO_INSTANTIATE_WITH2                                            \
+    ((true))                                                                   \
+    ((false))
+#define VALUES_TO_INSTANTIATE_WITH3                                            \
+    ((true))                                                                   \
+    ((false))
+
+#define GET_VALUE(x) BOOST_PP_TUPLE_ELEM(0, x)
+
+#define DO_INSTANTIATE(r, product)                                             \
   template std::pair<binary_index_t, bool>                                     \
-  jv_base_t<GET_VALUE(elem)>::AddFromPath<ValidatePath>(                       \
-      explorer_t<GET_VALUE(elem)> &, jv_file_t &, const char *,                \
-      on_newbin_proc_t<GET_VALUE(elem)>, const AddOptions_t &);
-BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, true, VALUES_TO_INSTANTIATE_WITH)
-BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, false, VALUES_TO_INSTANTIATE_WITH)
+  jv_base_t<GET_VALUE(BOOST_PP_SEQ_ELEM(1, product)),                          \
+            GET_VALUE(BOOST_PP_SEQ_ELEM(0, product))>::                        \
+      AddFromPath<GET_VALUE(BOOST_PP_SEQ_ELEM(2, product))>(                   \
+          explorer_t<GET_VALUE(BOOST_PP_SEQ_ELEM(1, product)),                 \
+                     GET_VALUE(BOOST_PP_SEQ_ELEM(0, product))> &,              \
+          jv_file_t &, const char *,                                           \
+          on_newbin_proc_t<GET_VALUE(BOOST_PP_SEQ_ELEM(1, product)),           \
+                           GET_VALUE(BOOST_PP_SEQ_ELEM(0, product))>,          \
+          const AddOptions_t &);
+BOOST_PP_SEQ_FOR_EACH_PRODUCT(DO_INSTANTIATE, (VALUES_TO_INSTANTIATE_WITH1)(VALUES_TO_INSTANTIATE_WITH2)(VALUES_TO_INSTANTIATE_WITH3))
 
 }

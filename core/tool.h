@@ -277,12 +277,15 @@ typedef Tool *(*ToolCreationProc)(void);
 
 size_t jvCreationSize(void);
 
-template <bool MT = AreWeMT>
+template <bool MT = AreWeMT, bool MinSize = AreWeMinSize>
 struct BaseJVTool : public Tool {
-  static constexpr bool IsToolMT = MT;
+  using jv_t = jv_base_t<MT, MinSize>;
+  using binary_t = binary_base_t<MT, MinSize>;
+  using icfg_t = ip_icfg_base_t<MT>;
+  using bb_t = binary_t::bb_t;
 
-  using jv_t = jv_base_t<MT>;
-  using binary_t = binary_base_t<MT>;
+  static constexpr bool IsToolMT = MT;
+  static constexpr bool IsToolMinSize = MinSize;
 
   jv_file_t jv_file;
   jv_t &jv;
@@ -353,8 +356,8 @@ struct StatefulJVTool : public JVTool<Kind> {
                 "if !CoW then must be subject to change");
 
   jv_state_t<BinaryStateT, FunctionStateT, BBStateT, MultiThreaded,
-             LazyInitialization, Eager, BoundsChecking, JVTool<Kind>::IsToolMT,
-             SubjectToChange>
+             LazyInitialization, Eager, BoundsChecking, SubjectToChange,
+             JVTool<Kind>::IsToolMT, JVTool<Kind>::IsToolMinSize>
       state;
 
   template <typename... Args>

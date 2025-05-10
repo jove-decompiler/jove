@@ -114,15 +114,15 @@ void InitTool::parse_loaded_objects(const std::string &rtld_stdout,
   }
 }
 
-template <bool MT>
+template <bool MT, bool MinSize>
 static void init_binaries(unsigned N, jv_file_t &,
-                          ip_binary_table_t<MT> &Binaries) {
+                          ip_binary_table_t<MT, MinSize> &Binaries) {
   Binaries.len_.store(N, std::memory_order_relaxed);
 }
 
-template <bool MT>
+template <bool MT, bool MinSize>
 static void init_binaries(unsigned N, jv_file_t &jv_file,
-                          ip_binary_deque_t<MT> &Binaries) {
+                          ip_binary_deque_t<MT, MinSize> &Binaries) {
   auto e_lck = Binaries.exclusive_access();
 
   for (unsigned i = 0; i < N; ++i)
@@ -248,7 +248,7 @@ int InitTool::Run(void) {
   //
   tiny_code_generator_t tcg;
   disas_t disas;
-  explorer_t<false> explorer(disas, tcg, VerbosityLevel());
+  explorer_t<false, IsToolMinSize> explorer(disas, tcg, VerbosityLevel());
 
   std::transform(
       maybe_par_unseq,
@@ -257,7 +257,7 @@ int InitTool::Run(void) {
       jv.Binaries.begin(),
       [&](const binary_t &init) -> binary_t {
         const binary_index_t BIdx = index_of_binary(init);
-        binary_base_t<false> b(jv_file, BIdx);
+        binary_base_t<false, IsToolMinSize> b(jv_file, BIdx);
 
         //
         // Name
@@ -307,9 +307,10 @@ int InitTool::Run(void) {
 
         if (AddOptions.Objdump) {
           if (catch_exception([&]() {
-                binary_base_t<false>::Analysis_t::objdump_output_type::generate(
-                    b.Analysis.objdump, b.is_file() ? b.Name.c_str() : nullptr,
-                    *Bin);
+                binary_base_t<false, IsToolMinSize>::Analysis_t::
+                    objdump_output_type::generate(
+                        b.Analysis.objdump,
+                        b.is_file() ? b.Name.c_str() : nullptr, *Bin);
               })) {
             if (IsVerbose()) {
               WithColor::warning() << llvm::formatv(

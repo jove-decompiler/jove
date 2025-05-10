@@ -127,7 +127,7 @@ int Trace2AsmTool::Run(void) {
                                      basic_block_index_t BBIdx) -> std::string {
     auto &binary = jv.Binaries.at(BIdx);
     auto &ICFG = binary.Analysis.ICFG;
-    basic_block_t bb = basic_block_of_index(BBIdx, ICFG);
+    bb_t bb = basic_block_of_index(BBIdx, ICFG);
 
     const ELFF &Elf = llvm::cast<ELFO>(state.for_binary(binary).Bin.get())->getELFFile();
 

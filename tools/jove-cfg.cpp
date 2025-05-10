@@ -130,18 +130,6 @@ JOVE_REGISTER_TOOL("cfg", CFGTool);
 
 typedef boost::format fmt;
 
-struct reached_visitor : public boost::default_bfs_visitor {
-  boost::unordered::unordered_flat_set<basic_block_t> &out;
-
-  reached_visitor(boost::unordered::unordered_flat_set<basic_block_t> &out)
-      : out(out) {}
-
-  void discover_vertex(basic_block_t bb,
-                       const interprocedural_control_flow_graph_t &) const {
-    out.insert(bb);
-  }
-};
-
 template <typename GraphTy>
 struct graphviz_label_writer {
   CFGTool &tool;
@@ -325,15 +313,11 @@ struct graphviz_prop_writer {
   }
 };
 
-typedef boost::filtered_graph<
-    interprocedural_control_flow_graph_t,
-    boost::keep_all,
-    boost::is_in_subset<boost::unordered::unordered_flat_set<basic_block_t>>>
-    control_flow_graph_t;
-
-typedef control_flow_graph_t cfg_t;
-
 int CFGTool::Run(void) {
+  using cfg_t = boost::filtered_graph<
+      icfg_t::type, boost::keep_all,
+      boost::is_in_subset<boost::unordered::unordered_flat_set<bb_t>>>;
+
   std::string path_to_graph_easy = locator().graph_easy();
 
   //
@@ -375,7 +359,7 @@ int CFGTool::Run(void) {
       //
       // the user demands a function...
       //
-      basic_block_t bb = basic_block_at_address(Addr, b);
+      bb_t bb = basic_block_at_address(Addr, b);
 
       const ip_func_index_vec &Parents = ICFG[bb].Parents.get<false>();
       if (Parents.empty()) {
@@ -396,7 +380,7 @@ int CFGTool::Run(void) {
   }
 
   assert(is_basic_block_index_valid(source_BBIdx));
-  basic_block_t source = basic_block_of_index(source_BBIdx, b);
+  bb_t source = basic_block_of_index(source_BBIdx, b);
 
   if (IsVerbose() && opts.Function)
     llvm::errs() << llvm::formatv("function @ {0:x}\n", ICFG[source].Addr);
@@ -426,13 +410,24 @@ int CFGTool::Run(void) {
             std::map<cfg_t::vertex_descriptor, int>>(idx_map));
   };
 
-  unordered_set<basic_block_t> blocks;
+  unordered_set<bb_t> blocks;
+
+  struct reached_visitor : public boost::default_bfs_visitor {
+    boost::unordered::unordered_flat_set<bb_t> &out;
+
+    reached_visitor(boost::unordered::unordered_flat_set<bb_t> &out)
+        : out(out) {}
+
+    void discover_vertex(bb_t bb, const icfg_t::type &) const {
+      out.insert(bb);
+    }
+  };
 
   reached_visitor vis(blocks);
   ICFG.breadth_first_search(basic_block_of_index(source, b), vis);
 
   boost::keep_all e_filter;
-  boost::is_in_subset<unordered_set<basic_block_t>> v_filter(blocks);
+  boost::is_in_subset<unordered_set<bb_t>> v_filter(blocks);
 
   cfg_t cfg(ICFG.container(), e_filter, v_filter);
 
@@ -441,7 +436,7 @@ int CFGTool::Run(void) {
   } else {
     uint64_t indjmp_addr =
         strtoull(opts.LocalGotoAddress.c_str(), nullptr, 0x10);
-    unordered_set<basic_block_t> indjmp_blocks;
+    unordered_set<bb_t> indjmp_blocks;
 
     cfg_t::vertex_iterator vi, vi_end;
     for (std::tie(vi, vi_end) = boost::vertices(cfg); vi != vi_end; ++vi) {
@@ -465,7 +460,7 @@ int CFGTool::Run(void) {
     }
 
     boost::keep_all e_filter;
-    boost::is_in_subset<unordered_set<basic_block_t>> v_filter(indjmp_blocks);
+    boost::is_in_subset<unordered_set<bb_t>> v_filter(indjmp_blocks);
 
     cfg_t _cfg(ICFG.container(), e_filter, v_filter);
 

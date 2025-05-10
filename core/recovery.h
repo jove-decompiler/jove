@@ -6,28 +6,35 @@
 
 namespace jove {
 
-template <bool MT>
+template <bool MT, bool MinSize>
 class explorer_t;
 
-template <bool MT>
+template <bool MT, bool MinSize>
 class CodeRecovery {
-  jv_file_t &jv_file;
-  jv_base_t<MT> &jv;
+  using jv_t = jv_base_t<MT, MinSize>;
+  using binary_t = binary_base_t<MT, MinSize>;
 
-  explorer_t<MT> &E;
+  using bb_t = binary_t::bb_t;
+
+  jv_file_t &jv_file;
+  jv_t &jv;
+
+  explorer_t<MT, MinSize> &E;
 
   symbolizer_t &symbolizer;
 
   struct binary_state_t {
     std::unique_ptr<llvm::object::Binary> Bin;
 
-    binary_state_t(const auto &b) { Bin = B::Create(b.data()); }
+    binary_state_t(const binary_t &b) { Bin = B::Create(b.data()); }
   };
 
-  jv_state_t<binary_state_t, void, void, true, true, false, true, MT> state;
+  jv_state_t<binary_state_t, void, void, AreWeMT, true, false, true, true, MT,
+             MinSize>
+      state;
 
 public:
-  CodeRecovery(jv_file_t &, jv_base_t<MT> &, explorer_t<MT> &E, symbolizer_t &);
+  CodeRecovery(jv_file_t &, jv_t &, explorer_t<MT, MinSize> &E, symbolizer_t &);
   ~CodeRecovery();
 
   uint64_t AddressOfTerminatorAtBasicBlock(binary_index_t BIdx,

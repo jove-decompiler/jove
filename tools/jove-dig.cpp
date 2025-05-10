@@ -85,8 +85,8 @@ class CodeDigger : public StatefulJVTool<ToolKind::Standard, binary_state_t, voi
   tiny_code_generator_t tcg;
   symbolizer_t symbolizer;
 
-  explorer_t<IsToolMT> Explorer;
-  CodeRecovery<IsToolMT> Recovery;
+  explorer_t<IsToolMT, IsToolMinSize> Explorer;
+  CodeRecovery<IsToolMT, IsToolMinSize> Recovery;
 
 public:
   CodeDigger()
@@ -407,7 +407,7 @@ void CodeDigger::Worker(binary_index_t BIdx) {
 }
 
 int CodeDigger::ListLocalGotos() {
-  auto process_basic_block = [&](binary_t &binary, basic_block_t bb) -> void {
+  auto process_basic_block = [&](binary_t &binary, bb_t bb) -> void {
     auto &ICFG = binary.Analysis.ICFG;
     if (ICFG[bb].Term.Type != TERMINATOR::INDIRECT_JUMP)
       return;
@@ -421,7 +421,7 @@ int CodeDigger::ListLocalGotos() {
   if (is_binary_index_valid(SingleBinaryIndex)) {
     binary_t &binary = jv.Binaries.at(SingleBinaryIndex);
     for_each_basic_block_in_binary(
-        binary, [&](basic_block_t bb) { process_basic_block(binary, bb); });
+        binary, [&](bb_t bb) { process_basic_block(binary, bb); });
   } else {
     for_each_basic_block(jv, process_basic_block);
   }

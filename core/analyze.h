@@ -26,25 +26,29 @@ struct analyzer_options_t {
   tcg_global_set_t PinnedEnvGlbs = InitPinnedEnvGlbs;
 };
 
-template <bool MT>
+template <bool MT, bool MinSize>
 struct analyzer_t {
+  using jv_t = jv_base_t<MT, MinSize>;
+  using binary_t = binary_base_t<MT, MinSize>;
+  using icfg_t = ip_icfg_base_t<MT>;
+  using bb_t = typename ip_icfg_base_t<MT>::vertex_descriptor;
   using exit_vertex_pair_t = std::pair<flow_vertex_t, bool>;
 
   struct binary_state_t {
     std::unique_ptr<llvm::object::Binary> Bin;
 
-    binary_state_t(const auto &b) { Bin = B::Create(b.data()); }
+    binary_state_t(const binary_t &b) { Bin = B::Create(b.data()); }
   };
 
   struct function_state_t {
-    basic_block_vec_t bbvec;
-    basic_block_vec_t exit_bbvec;
+    binary_t::bb_vec_t bbvec;
+    binary_t::bb_vec_t exit_bbvec;
 
     bool IsLeaf;
 
     bool IsSj, IsLj;
 
-    function_state_t(const function_t &f, const auto &b) {
+    function_state_t(const function_t &f, const binary_t &b) {
       basic_blocks_of_function(f, b, bbvec);
       exit_basic_blocks_of_function(f, b, bbvec, exit_bbvec);
 
@@ -57,13 +61,13 @@ struct analyzer_t {
   const analyzer_options_t &options;
   
   tiny_code_generator_t &TCG;
-  jv_base_t<MT> &jv;
+  jv_t &jv;
 
-  jv_state_t<binary_state_t, function_state_t, void, true, true, false, true,
-             MT>
+  jv_state_t<binary_state_t, function_state_t, void, AreWeMT, true, false, true,
+             true, MT, MinSize>
       state;
 
-  call_graph_builder_t<MT> cg;
+  call_graph_builder_t<MT, MinSize> cg;
 
   const bool IsCOFF;
 
@@ -75,7 +79,7 @@ struct analyzer_t {
 
   analyzer_t(const analyzer_options_t &,
              tiny_code_generator_t &,
-             jv_base_t<MT> &,
+             jv_t &,
              boost::concurrent_flat_set<dynamic_target_t> &inflight,
              std::atomic<uint64_t> &done);
 
@@ -98,7 +102,7 @@ private:
              boost::unordered::unordered_flat_map<function_t *, std::pair<flow_vertex_t, std::vector<exit_vertex_pair_t>>> &memoize);
 
   std::optional<std::pair<tcg_global_set_t, tcg_global_set_t>>
-  DynTargetsSummary(const bbprop_t &bbprop, bool IsABI);
+  DynTargetsSummary(const DynTargets_t<MT, MinSize> &, bool IsABI);
 };
 
 }

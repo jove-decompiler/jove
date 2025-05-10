@@ -99,7 +99,7 @@ class RecompileTool
     cl::list<std::string> PinnedGlobals;
     cl::opt<bool> ABICalls;
     cl::opt<bool> InlineHelpers;
-    cl::opt<bool> MT;
+    cl::opt<bool> RuntimeMT;
     cl::opt<bool> BreakBeforeUnreachables;
     cl::opt<bool> LayOutSections;
     cl::opt<bool> PlaceSectionBreakpoints;
@@ -175,8 +175,8 @@ class RecompileTool
                         cl::desc("Try to inline all helper function calls"),
                         cl::cat(JoveCategory)),
 
-          MT("mt", cl::desc("Thread model (multi)"), cl::cat(JoveCategory),
-             cl::init(true)),
+          RuntimeMT("rtmt", cl::desc("Thread model (multi)"),
+                    cl::cat(JoveCategory), cl::init(true)),
 
           BreakBeforeUnreachables("break-before-unreachables",
                                   cl::desc("Debugging purposes only"),
@@ -541,7 +541,7 @@ int RecompileTool::Run(void) {
         state.for_binary(jv.Binaries.at(0)).chrooted_path.parent_path() /
         "libjove_rt.dll";
     fs::create_directories(chrooted_path.parent_path());
-    fs::copy_file(locator().runtime_dll(opts.MT), chrooted_path,
+    fs::copy_file(locator().runtime_dll(opts.RuntimeMT), chrooted_path,
                   fs::copy_options::overwrite_existing);
   }
   else
@@ -550,7 +550,7 @@ int RecompileTool::Run(void) {
         fs::path(opts.Output.getValue()) / "usr" / "lib" / "libjove_rt.so";
 
     fs::create_directories(chrooted_path.parent_path());
-    fs::copy_file(locator().runtime_so(opts.MT), chrooted_path,
+    fs::copy_file(locator().runtime_so(opts.RuntimeMT), chrooted_path,
                   fs::copy_options::overwrite_existing);
 
     //
@@ -563,7 +563,7 @@ int RecompileTool::Run(void) {
 
       try {
         // XXX some dynamic linkers only look in /lib
-        fs::copy_file(locator().runtime_so(opts.MT),
+        fs::copy_file(locator().runtime_so(opts.RuntimeMT),
                       fs::path(opts.Output.getValue()) / "lib" / "libjove_rt.so",
                       fs::copy_options::overwrite_existing);
       } catch (...) {
@@ -625,7 +625,7 @@ int RecompileTool::Run(void) {
                               .c_str());
 
         for (basic_block_index_t BBIdx = 0; BBIdx < ICFG.num_vertices(); ++BBIdx) {
-          basic_block_t bb = basic_block_of_index(BBIdx, ICFG);
+          bb_t bb = basic_block_of_index(BBIdx, ICFG);
           uint64_t Addr = ICFG[bb].Term.Addr; /* XXX */
           ofs.write(reinterpret_cast<char *>(&Addr), sizeof(Addr));
         }
@@ -1104,7 +1104,7 @@ int RecompileTool::Run(void) {
         Arg(lib_dir);
       }
 
-      //Arg("-ljove_rt" + std::string(opts.MT ? ".m" : ".s") + "t");
+      //Arg("-ljove_rt" + std::string(opts.RuntimeMT ? ".m" : ".s") + "t");
       Arg("-ljove_rt");
       if (opts.DFSan)
         Arg("-lclang_rt.dfsan.jove-" TARGET_ARCH_NAME);
@@ -1235,7 +1235,7 @@ int RecompileTool::Run(void) {
 
         Arg(locator().builtins(IsCOFF));
         Arg(locator().softfloat_bitcode(IsCOFF));
-        Arg(locator().runtime_implib(opts.MT));
+        Arg(locator().runtime_implib(opts.RuntimeMT));
 
         for (const std::string &needed_delay : x._coff.needed_delay_vec)
           Arg("/delayload:" + needed_delay);
@@ -1372,8 +1372,8 @@ void RecompileTool::worker(dso_t dso) {
           Arg("--abi-calls=0");
         if (opts.InlineHelpers)
           Arg("--inline-helpers");
-        if (!opts.MT)
-          Arg("--mt=0");
+        if (!opts.RuntimeMT)
+          Arg("--rtmt=0");
         if (opts.BreakBeforeUnreachables)
           Arg("--break-before-unreachables");
         if (opts.LayOutSections)

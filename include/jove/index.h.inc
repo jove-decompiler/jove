@@ -56,7 +56,7 @@ constexpr bool is_block_valid(block_t X) {
          is_basic_block_index_valid(X.second);
 }
 
-template <bool MT = true, bool Node = false>
+template <bool MT, bool Node>
 using ip_dynamic_target_set =
     possibly_concurrent_node_or_flat_set<MT, Node, dynamic_target_t,
                                          boost::hash<dynamic_target_t>,

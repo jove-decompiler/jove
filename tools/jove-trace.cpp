@@ -340,7 +340,7 @@ open_events:
       const auto &ICFG = binary.Analysis.ICFG;
 
       for (basic_block_index_t BBIdx = 0; BBIdx < ICFG.num_vertices(); ++BBIdx) {
-        basic_block_t bb = basic_block_of_index(BBIdx, ICFG);
+        bb_t bb = basic_block_of_index(BBIdx, ICFG);
 
         //
         // e.g.

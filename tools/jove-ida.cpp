@@ -346,7 +346,7 @@ int IDATool::Run(void) {
           },
           [&](ida_flowgraph_node_t node) {
             uint64_t node_addr = flowgraph[node].start_ea;
-            basic_block_t indjmp_bb = basic_block_at_address(node_addr, binary);
+            bb_t indjmp_bb = basic_block_at_address(node_addr, binary);
             uint64_t indjmp_addr = ICFG[indjmp_bb].Term.Addr;
 
             assert(ICFG[indjmp_bb].Term.Type == TERMINATOR::INDIRECT_JUMP);
@@ -355,7 +355,7 @@ int IDATool::Run(void) {
             // collect, sort our targets
             //
             struct {
-              std::vector<basic_block_t> succ_vec;
+              std::vector<bb_t> succ_vec;
               std::vector<uint64_t> succ_addr_vec; /* sorted */
             } our;
 
@@ -374,7 +374,7 @@ int IDATool::Run(void) {
               std::transform(our.succ_vec.begin(),
                              our.succ_vec.end(),
                              v.begin(),
-                             [&](basic_block_t succ) -> uint64_t {
+                             [&](bb_t succ) -> uint64_t {
                                return ICFG[succ].Addr;
                              });
 
@@ -512,7 +512,7 @@ int IDATool::Run(void) {
                     return exists_basic_block_at_address(start_ea, binary);
                   },
                   [&](uint64_t start_ea) {
-                    basic_block_t succ_bb =
+                    bb_t succ_bb =
                         basic_block_at_address(start_ea, binary);
                     ICFG.add_edge(indjmp_bb, succ_bb);
                   });

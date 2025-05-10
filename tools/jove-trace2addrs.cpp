@@ -106,7 +106,7 @@ void Trace2AddrsTool::ProcessBlock(llvm::raw_ostream &out,
                                    basic_block_index_t BBIdx) {
   auto &b = jv.Binaries.at(BIdx);
   auto &ICFG = b.Analysis.ICFG;
-  basic_block_t bb = basic_block_of_index(BBIdx, ICFG);
+  bb_t bb = basic_block_of_index(BBIdx, ICFG);
 
   uint64_t x;
   if (opts.Terms) {
