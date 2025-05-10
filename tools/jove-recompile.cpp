@@ -1,7 +1,8 @@
-#if !defined(__mips64) && !defined(__mips__)
 #include "tool.h"
 #include "B.h"
 #include "triple.h"
+
+#ifndef JOVE_NO_BACKEND
 
 #include <oneapi/tbb/parallel_invoke.h>
 
@@ -1555,4 +1556,4 @@ binary_index_t RecompileTool::ChooseBinaryWithSoname(const std::string &soname) 
 }
 
 }
-#endif
+#endif /* JOVE_NO_BACKEND */

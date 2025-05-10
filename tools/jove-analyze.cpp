@@ -1,9 +1,10 @@
-#if !defined(__mips64) && !defined(__mips__)
 #include "tool.h"
 #include "B.h"
 #include "tcg.h"
 #include "calls.h"
 #include "analyze.h"
+
+#ifndef JOVE_NO_BACKEND
 
 #include <boost/filesystem.hpp>
 #include <boost/format.hpp>
@@ -372,4 +373,4 @@ int AnalyzeTool::AnalyzeFunctions(void) {
   return 0;
 }
 }
-#endif
+#endif /* JOVE_NO_BACKEND */

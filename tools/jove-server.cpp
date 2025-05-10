@@ -1,9 +1,10 @@
-#if !defined(__mips64) && !defined(__mips__)
 #include "tool.h"
 #include "serialize.h"
 #include "B.h"
 #include "analyze.h"
 #include "tcg.h"
+
+#ifndef JOVE_NO_BACKEND
 
 #include <boost/filesystem.hpp>
 
@@ -537,4 +538,4 @@ void *ServerTool::ConnectionProc(void *arg) {
 }
 
 }
-#endif
+#endif /* JOVE_NO_BACKEND */

@@ -1,7 +1,8 @@
-#if !defined(__mips64) && !defined(__mips__)
 #include "analyze.h"
 #include "B.h"
 #include "locator.h"
+
+#ifndef JOVE_NO_BACKEND
 
 #include <boost/graph/copy.hpp>
 #include <boost/range/adaptor/reversed.hpp>
@@ -911,4 +912,4 @@ analyzer_t<MT, MinSize>::DynTargetsSummary(
 BOOST_PP_SEQ_FOR_EACH_PRODUCT(DO_INSTANTIATE, (VALUES_TO_INSTANTIATE_WITH1)(VALUES_TO_INSTANTIATE_WITH2))
 
 }
-#endif
+#endif /* JOVE_NO_BACKEND */

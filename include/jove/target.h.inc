@@ -56,21 +56,14 @@ constexpr bool IsTargetLittleEndian =
 #endif
     ;
 
-constexpr auto maybe_par_unseq =
 #if defined(__mips64) || defined(__mips__)
-    std::execution::seq
+constexpr auto maybe_par_unseq = std::execution::seq;
+constexpr bool AreWeMT = false;
+#define JOVE_NO_BACKEND
 #else
-    std::execution::par_unseq
+constexpr auto maybe_par_unseq = std::execution::par_unseq;
+constexpr bool AreWeMT = true;
 #endif
-    ;
-
-constexpr bool AreWeMT =
-#if defined(__mips64) || defined(__mips__)
-    false
-#else
-    true
-#endif
-    ;
 
 constexpr bool AreWeMinSize = sizeof(void *) == 4;
 

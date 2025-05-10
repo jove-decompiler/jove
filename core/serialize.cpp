@@ -497,6 +497,7 @@ static void load(Archive &ar, jove::bbprop_t &bbprop, const unsigned int) {
     if (!DynTargets.empty()) {                                                 \
       TheDynTargets.release();                                                 \
       bbprop.pDynTargets.Store(&DynTargets, std::memory_order_relaxed);        \
+      bbprop.sm_ = jv_file.get_segment_manager();                              \
     }                                                                          \
     return;                                                                    \
   }
