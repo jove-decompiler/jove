@@ -273,7 +273,7 @@ class JoveTester:
 
         # run inputs through recompiled binary
         jove_loop_args = ["jove", "loop", \
-          f"--mt={int(multi_threaded)}", \
+          f"--rtmt={int(multi_threaded)}", \
           "--connect", f"{self.iphost}:{str(self.jove_server_port)}"]
         if self.platform == "win":
           jove_loop_args += ["--lay-out-sections"]
