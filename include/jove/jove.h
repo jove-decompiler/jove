@@ -267,36 +267,41 @@ template <bool MT, bool MinSize>
 void UnserializeJV(jv_base_t<MT, MinSize> &out, jv_file_t &, std::istream &, bool text);
 struct UnlockTool;
 
-template <bool MT, bool MinSize>
-struct DynTargets_t {
-  ip_dynamic_target_set<MT, MinSize> set;
+template <bool MT, bool Node, typename T>
+struct PossiblyConcurrentNodeOrFlatSet_t {
+  possibly_concurrent_node_or_flat_set<MT, Node, T, boost::hash<T>,
+                                       std::equal_to<T>>
+      set;
 
-  explicit DynTargets_t(segment_manager_t *sm) noexcept : set(sm) {}
+  explicit PossiblyConcurrentNodeOrFlatSet_t(segment_manager_t *sm) noexcept
+      : set(sm) {}
 
-  explicit DynTargets_t(const DynTargets_t<MT, MinSize> &other) noexcept
+  explicit PossiblyConcurrentNodeOrFlatSet_t(
+      const PossiblyConcurrentNodeOrFlatSet_t<MT, Node, T> &other) noexcept
       : set(other.set) {}
 
   template <bool MT2>
-  explicit DynTargets_t(DynTargets_t<MT2, MinSize> &&other) noexcept
+  explicit PossiblyConcurrentNodeOrFlatSet_t(
+      PossiblyConcurrentNodeOrFlatSet_t<MT2, Node, T> &&other) noexcept
       : set(std::move(other.set)) {}
 
   template <class _ExecutionPolicy>
   void ForEach(_ExecutionPolicy &&__exec,
-               std::function<void(const dynamic_target_t &)> proc) const {
+               std::function<void(const T &)> proc) const {
     if constexpr (MT)
       set.cvisit_all(std::forward<_ExecutionPolicy>(__exec), proc);
     else
       std::for_each(set.cbegin(), set.cend(), proc);
   }
 
-  void ForEach(std::function<void(const dynamic_target_t &)> proc) const {
+  void ForEach(std::function<void(const T &)> proc) const {
     ForEach(std::execution::seq, proc);
   }
 
-  void ForEachWhile(std::function<bool(const dynamic_target_t &)> proc) const {
+  void ForEachWhile(std::function<bool(const T &)> proc) const {
     if constexpr (MT) {
-      set.cvisit_while([&](const dynamic_target_t &X) -> bool {
-        if (proc(X))
+      set.cvisit_while([&](const T &X) -> bool {
+        if (!proc(X))
           return false;
         return true;
       });
@@ -304,16 +309,16 @@ struct DynTargets_t {
       auto it = set.cbegin();
       auto it_end = set.cend();
       for (; it != it_end; ++it) {
-        const dynamic_target_t &X = *it;
-        if (proc(X))
+        const T &X = *it;
+        if (!proc(X))
           break;
       }
     }
   }
-  bool AnyOf(std::function<bool(const dynamic_target_t &)> proc) const {
+  bool AnyOf(std::function<bool(const T &)> proc) const {
     if constexpr (MT) {
       bool res = false;
-      set.cvisit_while([&](const dynamic_target_t &X) -> bool {
+      set.cvisit_while([&](const T &X) -> bool {
         if (proc(X)) {
           res = true;
           return false;
@@ -325,10 +330,10 @@ struct DynTargets_t {
       return std::any_of(set.cbegin(), set.cend(), proc);
     }
   }
-  bool AllOf(std::function<bool(const dynamic_target_t &)> proc) const {
+  bool AllOf(std::function<bool(const T &)> proc) const {
     if constexpr (MT) {
       bool res = true;
-      set.cvisit_while([&](const dynamic_target_t &X) -> bool {
+      set.cvisit_while([&](const T &X) -> bool {
         if (!proc(X)) {
           res = false;
           return false;
@@ -340,28 +345,30 @@ struct DynTargets_t {
       return std::all_of(set.cbegin(), set.cend(), proc);
     }
   }
-  dynamic_target_t Front(void) const {
-    dynamic_target_t res = invalid_dynamic_target;
-
+  T Front(void) const {
     if constexpr (MT) {
-      set.cvisit_while([&](const dynamic_target_t &X) -> bool {
-        res = X;
-        return false;
-      });
+      T res;
+      if (likely(!set.cvisit_while([&](const T &X) -> bool {
+            res = X;
+            return false;
+          }))) {
+        return res;
+      } else {
+        assert(false);
+        __builtin_trap();
+        __builtin_unreachable();
+      }
     } else {
       assert(!set.empty());
-      res = *set.cbegin();
+      return *set.cbegin();
     }
-
-    assert(is_dynamic_target_valid(res));
-    return res;
   }
 
-  template <class T, class BinaryOperation>
-  T Accumulate(T init, BinaryOperation op) const {
+  template <class ResT>
+  ResT Accumulate(ResT init,
+                  std::function<ResT(const ResT &, const T &)> op) const {
     if constexpr (MT) {
-      set.cvisit_all(
-          [&](dynamic_target_t X) -> void { init = op(std::move(init), X); });
+      set.cvisit_all([&](const T &X) -> void { init = op(std::move(init), X); });
       return init;
     } else {
       return std::accumulate(set.cbegin(), set.cend(), init, op);
@@ -376,13 +383,17 @@ struct DynTargets_t {
     return set.size();
   }
 
-  bool Insert(const dynamic_target_t &X) {
+  bool Insert(const T &X) {
     if constexpr (MT)
       return set.insert(X);
     else
       return set.insert(X).second;
   }
 };
+
+template <bool MT, bool MinSize>
+using DynTargets_t =
+    PossiblyConcurrentNodeOrFlatSet_t<MT, MinSize, dynamic_target_t>;
 
 struct bbprop_t : public ip_mt_base_rw_accessible_nospin {
   struct pub_t : public ip_mt_base_rw_accessible_nospin {
@@ -462,13 +473,13 @@ struct bbprop_t : public ip_mt_base_rw_accessible_nospin {
 
     Parents_t() noexcept = default;
 
-    template <bool MT = AreWeMT>
+    template <bool MT>
     void set(const ip_func_index_vec &x) {
       _p.Store(&x, MT ? std::memory_order_release : std::memory_order_relaxed);
     }
 
   public:
-    template <bool MT = AreWeMT>
+    template <bool MT>
     const ip_func_index_vec &get(void) const {
       const ip_func_index_vec *res =
           _p.Load(MT ? std::memory_order_acquire : std::memory_order_relaxed);
@@ -476,12 +487,12 @@ struct bbprop_t : public ip_mt_base_rw_accessible_nospin {
       return *res;
     }
 
-    template <bool MT = AreWeMT>
+    template <bool MT>
     bool empty(void) const {
       return get<MT>().empty();
     }
 
-    template <bool MT = AreWeMT>
+    template <bool MT>
     bool contains(function_index_t FIdx) const {
       auto &vec = get<MT>();
 
@@ -511,14 +522,8 @@ struct bbprop_t : public ip_mt_base_rw_accessible_nospin {
 
   explicit bbprop_t() noexcept = default;
 
-  explicit bbprop_t(bbprop_t &&other) noexcept { moveFrom(std::move(other)); }
-
-  bbprop_t &operator=(bbprop_t &&other) noexcept {
-    if (this != &other)
-      moveFrom(std::move(other));
-
-    return *this;
-  }
+  explicit bbprop_t(bbprop_t &&other) noexcept = default;
+  bbprop_t &operator=(bbprop_t &&other) noexcept = default;
 
   ~bbprop_t() noexcept {
     // FIXME
@@ -534,30 +539,6 @@ struct bbprop_t : public ip_mt_base_rw_accessible_nospin {
   bbprop_t &operator=(const bbprop_t &) = delete;
 
 private:
-  void moveFrom(bbprop_t &&other) noexcept {
-    pub.is.store(other.pub.is.load(std::memory_order_relaxed),
-                 std::memory_order_relaxed);
-    other.pub.is.store(false, std::memory_order_relaxed);
-
-    Speculative = other.Speculative;
-    Addr = other.Addr;
-    Size = other.Size;
-    Term = other.Term;
-    Sj = other.Sj;
-    Analysis = std::move(other.Analysis);
-
-    Parents._p.Store(other.Parents._p.Load(std::memory_order_relaxed),
-                     std::memory_order_relaxed);
-    other.Parents._p.Store(nullptr, std::memory_order_relaxed);
-
-    sm_ = other.sm_;
-    other.sm_ = nullptr;
-
-    pDynTargets.Store(other.pDynTargets.Load(std::memory_order_relaxed),
-                      std::memory_order_relaxed);
-    other.pDynTargets.Store(nullptr, std::memory_order_relaxed);
-  }
-
   template <bool MT, bool MinSize>
   bool doInsertDynTarget(const dynamic_target_t &,
                          jv_file_t &,
@@ -660,18 +641,13 @@ constexpr block_t block_for_caller_in_binary(const caller_t &caller,
 
   const binary_base_t<MT, MinSize> &b = jv.Binaries.at(BIdx);
   const basic_block_index_t BBIdx = ({
-    auto s_lck_bbmap = b.BBMap.template shared_access<AreWeMT>();
+    auto s_lck_bbmap = b.BBMap.template shared_access<MT>();
 
     index_of_basic_block_at_address(caller.second, b);
   });
 
   return block_t(BIdx, BBIdx);
 }
-
-typedef boost::interprocess::set<
-    caller_t, std::less<caller_t>,
-    boost::interprocess::node_allocator<caller_t, segment_manager_t>>
-    ip_callers_t;
 
 struct ip_call_graph_node_properties_t : public ip_mt_base_rw_accessible_spin {
   dynamic_target_t X;
@@ -690,6 +666,9 @@ using ip_call_graph_base_t =
                       boost::no_property,              /* GraphProperties */
                       boost::vecS_ip>;                 /* EdgeList */
 
+template <bool MT, bool MinSize>
+using Callers_t = PossiblyConcurrentNodeOrFlatSet_t<MT, MinSize, caller_t>;
+
 struct function_t {
   bool Speculative = false;
 
@@ -697,34 +676,32 @@ struct function_t {
   function_index_t Idx = invalid_function_index;
   basic_block_index_t Entry = invalid_basic_block_index;
 
-  class Callers_t : private ip_mt_base_rw_accessible_nospin {
-    ip_callers_t set;
+  AtomicOffsetPtr<void> pCallers;
 
-  public:
-    explicit Callers_t(segment_manager_t *sm) noexcept : set(sm) {}
+  template <bool MT, bool MinSize>
+  const Callers_t<MT, MinSize> &Callers(void) const noexcept {
+    const void *p = pCallers.Load(std::memory_order_relaxed);
+    assert(p);
+    return *static_cast<const Callers_t<MT, MinSize> *>(p);
+  }
 
-    template <bool MT = AreWeMT>
-    void insert(binary_index_t BIdx, taddr_t TermAddr) {
-      assert(TermAddr);
+  template <bool MT, bool MinSize>
+  const Callers_t<MT, MinSize> &
+  Callers(const jv_base_t<MT, MinSize> &) const noexcept {
+    return Callers<MT, MinSize>();
+  }
 
-      auto e_lck = this->exclusive_access<MT>();
+  template <bool MT, bool MinSize>
+  Callers_t<MT, MinSize> &Callers(void) noexcept {
+    void *p = pCallers.Load(std::memory_order_relaxed);
+    assert(p);
+    return *static_cast<Callers_t<MT, MinSize> *>(p);
+  }
 
-      set.emplace(BIdx, TermAddr);
-    }
-
-    template <bool MT = AreWeMT>
-    shared_lock_guard<MT> get(const ip_callers_t *&out) const {
-      out = &set;
-      return this->shared_access<MT>();
-    }
-
-    template <bool MT = AreWeMT>
-    bool empty(void) const {
-      auto s_lck = this->shared_access<MT>();
-
-      return set.empty();
-    }
-  } Callers;
+  template <bool MT, bool MinSize>
+  Callers_t<MT, MinSize> &Callers(const jv_base_t<MT, MinSize> &) noexcept {
+    return Callers<MT, MinSize>();
+  }
 
   struct ReverseCGVertHolder_t : public ip_mt_base_accessible_spin {
     std::atomic<call_graph_index_t> Idx = invalid_call_graph_index;
@@ -835,7 +812,7 @@ struct FunctionIndexVecs : private ip_mt_base_accessible_nospin {
       assert(vecptr);
       return *vecptr;
     } else {
-      auto e_lck = exclusive_access<AreWeMT>();
+      auto e_lck = exclusive_access<MT>();
 
       return *FIdxVecs.insert(boost::move(vec)).first;
     }
@@ -1135,6 +1112,7 @@ struct adds_binary_t {
   // adds new binary, stores index
   template <bool MT, bool MinSize>
   explicit adds_binary_t(binary_index_t &out,
+                         jv_file_t &,
                          jv_base_t<MT, MinSize> &,
                          binary_base_t<MT, MinSize> &&) noexcept;
 
@@ -1295,22 +1273,80 @@ struct jv_base_t {
         hash_to_binary(std::move(other.hash_to_binary)),
         cached_hashes(std::move(other.cached_hashes)),
         name_to_binaries(std::move(other.name_to_binaries)) {
+    const unsigned N = other.Binaries.size();
+
     if constexpr (MinSize) {
       for (binary_base_t<!MT, MinSize> &b : other.Binaries)
         Binaries.container().emplace_back(std::move(b));
     } else {
-      const unsigned N = other.Binaries.len_.load(std::memory_order_relaxed);
       Binaries.len_.store(N, std::memory_order_relaxed);
-
-      for (unsigned i = 0; i < N; ++i)
-        Binaries[i] = std::move(other.Binaries[i]);
     }
+    assert(Binaries.size() == N);
+
+    using OurDynTargets_t = DynTargets_t<MT, MinSize>;
+    using OtherDynTargets_t = DynTargets_t<!MT, MinSize>;
+
+    using OurCallers_t = Callers_t<MT, MinSize>;
+    using OtherCallers_t = Callers_t<!MT, MinSize>;
+
+    auto BIdxBegin = boost::iterators::counting_iterator<unsigned>(0);
+    auto BIdxEnd  = boost::iterators::counting_iterator<unsigned>(N);
+    std::for_each(maybe_par_unseq,
+                  BIdxBegin,
+                  BIdxEnd, [&](unsigned BIdx) {
+      if constexpr (!MinSize)
+        Binaries[BIdx] = std::move(other.Binaries[BIdx]);
+
+      binary_t &b = Binaries.at(BIdx);
+
+      unsigned M = b.Analysis.ICFG.num_vertices();
+
+      auto BBIdxFirst = boost::iterators::counting_iterator<unsigned>(0);
+      auto BBIdxLast = boost::iterators::counting_iterator<unsigned>(M);
+      std::for_each(maybe_par_unseq,
+                    BBIdxFirst,
+                    BBIdxLast, [&](unsigned BBIdx) {
+        bbprop_t &bbprop = b.Analysis.ICFG[b.Analysis.ICFG.vertex(BBIdx)];
+
+        if (void *p = bbprop.pDynTargets.Load(std::memory_order_relaxed)) {
+          OtherDynTargets_t &OtherDynTargets =
+              *static_cast<OtherDynTargets_t *>(p);
+
+          bbprop.pDynTargets.Store(jv_file.construct<OurDynTargets_t>(
+                                       boost::interprocess::anonymous_instance)(
+                                       std::move(OtherDynTargets)),
+                                   std::memory_order_relaxed);
+
+          sm_->destroy_ptr(&OtherDynTargets);
+        }
+      });
+    });
+
+    for_each_function(maybe_par_unseq, *this, [&](function_t &f, binary_t &b) {
+      if (void *p = f.pCallers.Load(std::memory_order_relaxed)) {
+        OtherCallers_t &OtherCallers = *static_cast<OtherCallers_t *>(p);
+
+        f.pCallers.Store(jv_file.construct<OurCallers_t>(
+                             boost::interprocess::anonymous_instance)(
+                             std::move(OtherCallers)),
+                         std::memory_order_relaxed);
+
+        sm_->destroy_ptr(&OtherCallers);
+      } else {
+        f.pCallers.Store(jv_file.construct<OurCallers_t>(
+                             boost::interprocess::anonymous_instance)(
+                             jv_file.get_segment_manager()),
+                         std::memory_order_relaxed);
+      }
+    });
   }
 
   explicit jv_base_t() = delete;
   explicit jv_base_t(const jv_base_t &) = delete;
   jv_base_t &operator=(const jv_base_t &) = delete;
   jv_base_t &operator=(jv_base_t &&) = delete;
+
+  ~jv_base_t() noexcept = default;
 
   std::optional<binary_index_t> LookupByHash(const hash_t &h);
   bool LookupByName(const char *name, binary_index_set &out);
@@ -1324,7 +1360,7 @@ struct jv_base_t {
       const AddOptions_t &Options = AddOptions_t());
 
   std::pair<binary_index_t, bool>
-  Add(binary_t &&, on_newbin_proc_t<MT, MinSize> on_newbin = [](binary_t &) {});
+  Add(jv_file_t &, binary_t &&, on_newbin_proc_t<MT, MinSize> on_newbin = [](binary_t &) {});
 
   std::pair<binary_index_t, bool>
   AddFromData(explorer_t<MT, MinSize> &,
@@ -1378,8 +1414,8 @@ public:
 
   friend adds_binary_t;
 
-  void fixup(void);
-  void fixup_binary(const binary_index_t);
+  void fixup(jv_file_t &);
+  void fixup_binary(jv_file_t &, const binary_index_t);
 };
 
 static inline std::string description_of_block(const bbprop_t &bbprop,

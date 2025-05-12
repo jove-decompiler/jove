@@ -118,6 +118,8 @@ template <bool MT, bool MinSize>
 static void init_binaries(unsigned N, jv_file_t &,
                           ip_binary_table_t<MT, MinSize> &Binaries) {
   Binaries.len_.store(N, std::memory_order_relaxed);
+  for (unsigned i = 0; i < N; ++i)
+    Binaries[i].Idx = static_cast<binary_index_t>(i);
 }
 
 template <bool MT, bool MinSize>
@@ -248,10 +250,10 @@ int InitTool::Run(void) {
   //
   tiny_code_generator_t tcg;
   disas_t disas;
-  explorer_t<false, IsToolMinSize> explorer(disas, tcg, VerbosityLevel());
+  explorer_t<false, IsToolMinSize> explorer(jv_file, disas, tcg,
+                                            VerbosityLevel());
 
   std::transform(
-      maybe_par_unseq,
       jv.Binaries.cbegin(),
       jv.Binaries.cend(),
       jv.Binaries.begin(),
@@ -322,12 +324,16 @@ int InitTool::Run(void) {
         //
         // explore them for real
         //
+#if 0
         try {
+#endif
           jv.DoAdd(b, explorer, *Bin, AddOptions);
+#if 0
         } catch (const std::exception &e) {
           die(std::string("failed to add \"") + b.Name.c_str() +
               std::string("\": ") + e.what());
         }
+#endif
 
         bool isNewBinary = jv.TryHashToBinaryEmplace(b.Hash, BIdx);
         if (!isNewBinary) {
@@ -355,7 +361,7 @@ int InitTool::Run(void) {
   jv.Binaries.at(2).IsVDSO = true;
 
   assert(!explorer.get_jv());
-  jv.fixup(); // XXX
+  jv.fixup(jv_file); // XXX
 
   return 0;
 }

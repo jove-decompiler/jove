@@ -184,7 +184,8 @@ jv_base_t<MT, MinSize>::AddFromPath(explorer_t<MT, MinSize> &explorer,
 
 template <bool MT, bool MinSize>
 std::pair<binary_index_t, bool>
-jv_base_t<MT, MinSize>::Add(binary_t &&b,
+jv_base_t<MT, MinSize>::Add(jv_file_t &jv_file,
+                            binary_t &&b,
                             on_newbin_proc_t<MT, MinSize> on_newbin) {
   binary_index_t Res = invalid_binary_index;
   bool isNewBinary = false;
@@ -193,15 +194,16 @@ jv_base_t<MT, MinSize>::Add(binary_t &&b,
 
     if constexpr (MT) {
       isNewBinary = this->hash_to_binary.try_emplace_or_visit(
-          h, std::ref(Res), *this, std::move(b),
-          [&](const typename ip_hash_to_binary_map_type<MT, MinSize>::value_type &x) -> void {
-            Res = static_cast<binary_index_t>(x.second);
-          });
+          h, std::ref(Res), std::ref(jv_file), *this, std::move(b),
+          [&](const typename ip_hash_to_binary_map_type<MT, MinSize>::value_type
+                  &x) -> void { Res = static_cast<binary_index_t>(x.second); });
     } else {
       auto it = this->hash_to_binary.find(h);
       if (it == this->hash_to_binary.end()) {
-        isNewBinary = this->hash_to_binary.try_emplace(
-          h, std::ref(Res), *this, std::move(b)).second;
+        isNewBinary = this->hash_to_binary
+                          .try_emplace(h, std::ref(Res), std::ref(jv_file),
+                                       *this, std::move(b))
+                          .second;
         assert(isNewBinary);
       } else {
         isNewBinary = false;
@@ -411,13 +413,14 @@ adds_binary_t::adds_binary_t(binary_index_t &out,
     }
   }
 
-  jv.fixup_binary(BIdx);
+  jv.fixup_binary(jv_file, BIdx);
 
   out = BIdx;
 }
 
 template <bool MT, bool MinSize>
 adds_binary_t::adds_binary_t(binary_index_t &out,
+                             jv_file_t &jv_file,
                              jv_base_t<MT, MinSize> &jv,
                              binary_base_t<MT, MinSize> &&b) noexcept {
   // don't ask questions
@@ -436,7 +439,7 @@ adds_binary_t::adds_binary_t(binary_index_t &out,
     }
   }
 
-  jv.fixup_binary(BIdx);
+  jv.fixup_binary(jv_file, BIdx);
 
   out = BIdx;
 }
@@ -462,7 +465,8 @@ void jv_base_t<MT, MinSize>::InvalidateFunctionAnalyses(void) {
 }
 
 template <bool MT, bool MinSize>
-void jv_base_t<MT, MinSize>::fixup_binary(const binary_index_t BIdx) {
+void jv_base_t<MT, MinSize>::fixup_binary(jv_file_t &jv_file,
+                                          const binary_index_t BIdx) {
   //
   // TODO explain why all this is necessary in the first place
   //
@@ -472,6 +476,15 @@ void jv_base_t<MT, MinSize>::fixup_binary(const binary_index_t BIdx) {
 
   for_each_function_in_binary(maybe_par_unseq, b, [&](function_t &f) {
     f.BIdx = BIdx;
+
+    assert(!f.pCallers.Load(std::memory_order_relaxed));
+
+    using OurCallers_t = Callers_t<MT, MinSize>;
+    f.pCallers.Store(jv_file.construct<OurCallers_t>(
+                         boost::interprocess::anonymous_instance)(
+                         jv_file.get_segment_manager()),
+                     std::memory_order_relaxed);
+
   });
 
   //
@@ -486,15 +499,15 @@ void jv_base_t<MT, MinSize>::fixup_binary(const binary_index_t BIdx) {
 
         function_t &callee = b.Analysis.Functions.at(bbprop.Term._call.Target);
 
-        callee.Callers.insert<AreWeMT>(BIdx, bbprop.Term.Addr);
+        callee.Callers(*this).Insert(caller_t(BIdx, bbprop.Term.Addr));
 
-        const auto &ParentsVec = bbprop.Parents.template get<AreWeMT>();
+        const auto &ParentsVec = bbprop.Parents.template get<MT>();
         std::for_each(maybe_par_unseq,
                       ParentsVec.cbegin(),
                       ParentsVec.cend(), [&](function_index_t FIdx) {
                         function_t &caller = b.Analysis.Functions.at(FIdx);
 
-                        Analysis.ReverseCallGraph.template add_edge<AreWeMT>(
+                        Analysis.ReverseCallGraph.template add_edge<MT>(
                             callee.ReverseCGVert(*this),
                             caller.ReverseCGVert(*this));
                       });
@@ -502,9 +515,9 @@ void jv_base_t<MT, MinSize>::fixup_binary(const binary_index_t BIdx) {
 }
 
 template <bool MT, bool MinSize>
-void jv_base_t<MT, MinSize>::fixup(void) {
+void jv_base_t<MT, MinSize>::fixup(jv_file_t& jv_file) {
   for_each_binary(maybe_par_unseq, *this,
-                  [&](auto &b) { fixup_binary(index_of_binary(b)); });
+                  [&](auto &b) { fixup_binary(jv_file, index_of_binary(b)); });
 }
 
 #define VALUES_TO_INSTANTIATE_WITH1                                            \

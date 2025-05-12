@@ -300,7 +300,7 @@ void DumpTool::dumpDecompilation(const jv_t &jv) {
           Writer.printHexList("Successors", succs);
         }
 
-        const ip_func_index_vec &_Parents = ICFG[bb].Parents.get<>();
+        const ip_func_index_vec &_Parents = ICFG[bb].Parents.get<IsToolMT>();
         if (!_Parents.empty())
         {
           std::vector<taddr_t> avec;
@@ -387,27 +387,26 @@ void DumpTool::dumpDecompilation(const jv_t &jv) {
         Writer.printBoolean("IsSignalHandler", f.IsSignalHandler);
         Writer.printBoolean("Returns", f.Returns);
 
-        if (!f.Callers.empty<false>()) {
-          const ip_callers_t *pcallers;
-          auto s_lck_callers = f.Callers.get<false>(pcallers);
-
+        const auto &Callers = f.Callers(jv);
+        if (!Callers.empty()) {
           std::vector<std::string> descv;
-          descv.resize(pcallers->size());
+          descv.reserve(Callers.size());
 
-          std::transform(
-              pcallers->cbegin(),
-	      pcallers->cend(), descv.begin(),
-              [&](const caller_t &x) -> std::string {
-                binary_index_t BIdx;
-                taddr_t TermAddr;
-                std::tie(BIdx, TermAddr) = x;
-                if (!is_binary_index_valid(BIdx))
-                  BIdx = index_of_binary(B, jv);
+          Callers.ForEach([&](const caller_t &x) {
+            std::string desc;
 
-                const auto &b = jv.Binaries.at(BIdx);
+            binary_index_t BIdx;
+            taddr_t TermAddr;
+            std::tie(BIdx, TermAddr) = x;
+            if (!is_binary_index_valid(BIdx))
+              BIdx = index_of_binary(B, jv);
 
-                return (fmt("%s:0x%lX") % b.Name.c_str() % TermAddr).str();
-              });
+            const auto &b = jv.Binaries.at(BIdx);
+
+            desc = (fmt("%s:0x%lX") % b.Name.c_str() % TermAddr).str();
+
+            descv.push_back(std::move(desc));
+          });
 
           Writer.printList("Callers", descv);
         }

@@ -740,8 +740,8 @@ int BootstrapTool::TracerLoop(pid_t child) {
   disas = std::make_unique<disas_t>();
   tcg = std::make_unique<tiny_code_generator_t>();
   symbolizer = std::make_unique<symbolizer_t>();
-  E = std::make_unique<explorer_t<IsToolMT, IsToolMinSize>>(jv, *disas, *tcg,
-                                                            VerbosityLevel());
+  E = std::make_unique<explorer_t<IsToolMT, IsToolMinSize>>(
+      jv_file, jv, *disas, *tcg, VerbosityLevel());
   E->set_newbb_proc(std::bind(&BootstrapTool::on_new_basic_block, this,
                               std::placeholders::_1, std::placeholders::_2));
   E->set_newfn_proc(std::bind(&BootstrapTool::on_new_function, this,
@@ -1311,7 +1311,7 @@ int BootstrapTool::TracerLoop(pid_t child) {
         taddr_t TermAddr = 0;
 
         {
-          auto s_lck = b.BBMap.template shared_access<AreWeMT>();
+          auto s_lck = b.BBMap.template shared_access<IsToolMT>();
 
           auto vi_pair = ICFG.vertices();
           for (auto vi = vi_pair.first; vi != vi_pair.second; ++vi) {
@@ -1412,7 +1412,7 @@ void BootstrapTool::place_breakpoints_in_new_blocks(void) {
 #endif
 
 void BootstrapTool::place_breakpoints_in_block(binary_t &b, bb_t bb) {
-  auto s_lck = b.BBMap.template shared_access<AreWeMT>();
+  auto s_lck = b.BBMap.template shared_access<IsToolMT>();
 
   auto &ICFG = b.Analysis.ICFG;
 
@@ -2665,7 +2665,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
   unsigned out_deg;
   bool HasDynTarget = false;
   const TERMINATOR TermType = ({
-    auto s_lck = binary.BBMap.template shared_access<AreWeMT>();
+    auto s_lck = binary.BBMap.template shared_access<IsToolMT>();
 
     bb_t bb = basic_block_at_address(IndBrInfo.TermAddr, binary);
     out_deg = ICFG.out_degree(bb);
@@ -2989,7 +2989,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
       assert(is_function_index_valid(FIdx));
 
   {
-  auto s_lck = binary.BBMap.template shared_access<AreWeMT>();
+  auto s_lck = binary.BBMap.template shared_access<IsToolMT>();
 
 
       bb_t bb = basic_block_at_address(IndBrInfo.TermAddr, binary);
@@ -3069,7 +3069,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
   Target.isNew = ({
 
-  auto s_lck = binary.BBMap.template shared_access<AreWeMT>();
+  auto s_lck = binary.BBMap.template shared_access<IsToolMT>();
 
           bb_t bb = basic_block_at_address(IndBrInfo.TermAddr, binary);
           auto &bbprop = ICFG[bb];
@@ -3089,7 +3089,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
   {
 
-  auto s_lck = binary.BBMap.template shared_access<AreWeMT>();
+  auto s_lck = binary.BBMap.template shared_access<IsToolMT>();
 
 
           bb_t bb = basic_block_at_address(IndBrInfo.TermAddr, binary);
@@ -4375,7 +4375,7 @@ void BootstrapTool::on_return(pid_t child,
 
     binary_t &b = jv.Binaries.at(RetBIdx);
 
-    auto s_lck = b.BBMap.template shared_access<AreWeMT>();
+    auto s_lck = b.BBMap.template shared_access<IsToolMT>();
 
     binary_index_t BIdx;
     basic_block_index_t BBIdx;
@@ -4420,7 +4420,7 @@ void BootstrapTool::on_return(pid_t child,
 
     binary_t &b = jv.Binaries.at(BIdx);
 
-    auto s_lck = b.BBMap.template shared_access<AreWeMT>();
+    auto s_lck = b.BBMap.template shared_access<IsToolMT>();
 
     //
     // what came before?

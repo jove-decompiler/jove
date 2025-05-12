@@ -686,9 +686,11 @@ int IPTTool::UsingLibipt(void) {
   std::unique_ptr<explorer_t<false, IsToolMinSize>> st_Explorer;
 
   if constexpr (IsToolMT) {
-    mt_Explorer = MakeExplorer<true, IsToolMinSize>(jv, *Disas, *TCG, VerbosityLevel());
+    mt_Explorer = MakeExplorer<true, IsToolMinSize>(jv_file, jv, *Disas, *TCG,
+                                                    VerbosityLevel());
   } else {
-    st_Explorer = MakeExplorer<false, IsToolMinSize>(jv, *Disas, *TCG, VerbosityLevel());
+    st_Explorer = MakeExplorer<false, IsToolMinSize>(jv_file, jv, *Disas, *TCG,
+                                                     VerbosityLevel());
   }
 
   auto select_explorer = [&](void) -> auto & {
@@ -802,7 +804,7 @@ int IPTTool::UsingLibipt(void) {
 
   if constexpr (IsToolMT) {
     if (jv2)
-      st_Explorer = MakeExplorer<false, IsToolMinSize>(*jv2, *Disas, *TCG, VerbosityLevel());
+      st_Explorer = MakeExplorer<false, IsToolMinSize>(jv_file, *jv2, *Disas, *TCG, VerbosityLevel());
   }
 
   std::vector<char *> ptdump_argv;

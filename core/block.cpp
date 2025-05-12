@@ -41,16 +41,17 @@ template <bool MT, bool MinSize>
 void bbprop_t::Parents_t::insert(function_index_t FIdx,
                                  binary_base_t<MT, MinSize> &b) {
   {
-    const ip_func_index_vec &FIdxVec = get<AreWeMT>();
+    const ip_func_index_vec &FIdxVec = get<MT>();
 
     ip_func_index_vec copy(b.get_segment_manager());
     if (!copy_and_insert_sort(FIdxVec, copy, FIdx))
       return;
 
-    set<AreWeMT>(b.FIdxVecs.Add(boost::move(copy)));
+    set<MT>(b.FIdxVecs.Add(boost::move(copy)));
   }
 
-  __attribute__((musttail)) return insert(FIdx, b);
+  if constexpr (MT)
+    __attribute__((musttail)) return insert(FIdx, b);
 }
 
 template <bool MT, bool MinSize>
@@ -100,13 +101,13 @@ bool bbprop_t::insertDynTarget(binary_index_t ThisBIdx,
 
   function_t &callee = function_of_target(X, jv);
   callee.InvalidateAnalysis();
-  callee.Callers.insert<AreWeMT>(ThisBIdx, Term.Addr);
+  callee.Callers(jv).Insert(caller_t(ThisBIdx, Term.Addr));
 
   bool res = doInsertDynTarget(X, jv_file, jv);
 
   if (res) {
     auto &RCG = jv.Analysis.ReverseCallGraph;
-    const auto &ParentsVec = Parents.template get<AreWeMT>();
+    const auto &ParentsVec = Parents.template get<MT>();
 
     std::for_each(maybe_par_unseq,
                   ParentsVec.cbegin(),
@@ -114,7 +115,7 @@ bool bbprop_t::insertDynTarget(binary_index_t ThisBIdx,
                     function_t &caller = caller_b.Analysis.Functions.at(FIdx);
                     caller.InvalidateAnalysis();
 
-                    RCG.template add_edge<AreWeMT>(
+                    RCG.template add_edge<MT>(
                         callee.ReverseCGVert(jv),
                         caller.ReverseCGVert(jv));
                   });
@@ -145,7 +146,7 @@ void bbprop_t::InvalidateAnalysis(jv_base_t<MT, MinSize> &jv,
 
   function_invalidator_t invalidator(jv);
 
-  const auto &ParentsVec = Parents.template get<AreWeMT>();
+  const auto &ParentsVec = Parents.template get<MT>();
   std::for_each(maybe_par_unseq,
                 ParentsVec.cbegin(),
                 ParentsVec.cend(), [&](function_index_t FIdx) {
@@ -166,8 +167,6 @@ void bbprop_t::InvalidateAnalysis(jv_base_t<MT, MinSize> &jv,
 #define GET_VALUE(x) BOOST_PP_TUPLE_ELEM(0, x)
 
 #define DO_INSTANTIATE(r, product)                                             \
-  template struct DynTargets_t<GET_VALUE(BOOST_PP_SEQ_ELEM(0, product)),       \
-                               GET_VALUE(BOOST_PP_SEQ_ELEM(1, product))>;      \
   template void bbprop_t::Parents_t::insert(                                   \
       function_index_t,                                                        \
       binary_base_t<GET_VALUE(BOOST_PP_SEQ_ELEM(0, product)),                  \

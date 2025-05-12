@@ -7,8 +7,25 @@ class AtomicOffsetPtr {
 public:
   AtomicOffsetPtr() : m_offset(1) {}
 
-  AtomicOffsetPtr(const AtomicOffsetPtr &) = delete;
-  AtomicOffsetPtr &operator=(const AtomicOffsetPtr &) = delete;
+  AtomicOffsetPtr(const AtomicOffsetPtr &other) {
+    Store(other.Load(std::memory_order_relaxed), std::memory_order_relaxed);
+  }
+
+  AtomicOffsetPtr &operator=(const AtomicOffsetPtr &other) {
+    Store(other.Load(std::memory_order_relaxed), std::memory_order_relaxed);
+    return *this;
+  }
+
+  AtomicOffsetPtr(AtomicOffsetPtr &&other) {
+    Store(other.Load(std::memory_order_relaxed), std::memory_order_relaxed);
+    other.Store(nullptr, std::memory_order_relaxed);
+  }
+
+  AtomicOffsetPtr &operator=(AtomicOffsetPtr &&other) {
+    Store(other.Load(std::memory_order_relaxed), std::memory_order_relaxed);
+    other.Store(nullptr, std::memory_order_relaxed);
+    return *this;
+  }
 
   T *Load(std::memory_order memoryOrder = std::memory_order_seq_cst) const {
     return static_cast<T *>(

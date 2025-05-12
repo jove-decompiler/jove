@@ -298,10 +298,11 @@ void *ServerTool::ConnectionProc(void *arg) {
   std::string tmpjv = (TemporaryDir / ".jv").string();
 
   if (IsVerbose())
-    WithColor::note() << llvm::formatv("{0}\n", jv_s_path);
+    llvm::errs() << llvm::formatv("receiving {0}...\n", jv_s_path);
 
   {
-    ssize_t ret = robust_receive_file_with_size(data_socket, jv_s_path.c_str(), 0666);
+    ssize_t ret =
+        robust_receive_file_with_size(data_socket, jv_s_path.c_str(), 0666);
     if (ret < 0) {
       WithColor::error()
           << llvm::formatv("failed to receive file {0} from remote: {1}\n",
@@ -310,12 +311,14 @@ void *ServerTool::ConnectionProc(void *arg) {
     }
   }
 
-
   if (IsVerbose())
-    WithColor::note() << llvm::formatv("{0}\n", tmpjv);
+    llvm::errs() << llvm::formatv("received {0}.\n", jv_s_path);
 
   jv_file_t jv_file(boost::interprocess::create_only, tmpjv.c_str(),
                     jvDefaultInitialSize() /* FIXME */);
+
+  if (IsVerbose())
+    WithColor::note() << llvm::formatv("{0}\n", tmpjv);
 
   BOOST_SCOPE_DEFER [&] {
     if (ShouldDeleteTemporaryFiles())
@@ -355,24 +358,31 @@ void *ServerTool::ConnectionProc(void *arg) {
   bool DidRun = false;
 
   auto run = [&]<bool MT, bool MinSize>(void) -> void {
-    jv_base_t<MT, MinSize> &jv(
-        *jv_file.construct<jv_base_t<MT, MinSize>>("JV")(jv_file));
-
     assert(!DidRun);
     DidRun = true;
 
-    UnserializeJVFromFile(jv, jv_file, jv_s_path.c_str());
+    bool IsCOFF = false;
 
-    const bool IsCOFF = ({
-      binary_base_t<MT, MinSize> &b = jv.Binaries.at(0);
-      auto Bin = B::Create(b.data());
+    auto jv1 = std::make_unique<jv_base_t<MT, MinSize>>(jv_file);
+    {
+    auto &jv = *jv1;
+    UnserializeJVFromFile(jv, jv_file, jv_s_path.c_str());
+    }
+
+    auto jv2 = std::make_unique<jv_base_t<AreWeMT, MinSize>>(std::move(*jv1), jv_file);
+    jv1.release();
+    {
+    auto &jv = *jv2;
+
+    IsCOFF = ({
+      auto Bin = B::Create(jv.Binaries.at(0).data());
       B::is_coff(*Bin);
     });
 
     llvm::LLVMContext Context;
 
     int rc = ({
-    analyzer_t<MT, MinSize> analyzer(analyzer_opts, TCG, Context, jv, inflight, done);
+    analyzer_t analyzer(analyzer_opts, TCG, Context, jv, inflight, done);
 
     analyzer.update_callers();
     analyzer.update_parents();
@@ -388,73 +398,89 @@ void *ServerTool::ConnectionProc(void *arg) {
     fs::create_directory(sysroot_dir);
 
     rc = ({
-    recompiler_t<MT, MinSize> recompiler(jv, recompiler_opts, TCG, Context, locator());
+    recompiler_t recompiler(jv, recompiler_opts, TCG, Context, locator());
     recompiler.go();
     });
 
     if (rc)
       throw std::runtime_error("jove recompile failed!");
+    }
 
-    SerializeJVToFile(jv, jv_file, jv_s_path.c_str(), true /* text */);
+    auto jv3 = std::make_unique<jv_base_t<MT, MinSize>>(std::move(*jv2), jv_file);
+    jv2.release();
+    {
+      auto &jv = *jv3;
 
-  {
-    //
-    // send new jv
-    //
-    ssize_t ret = robust_sendfile_with_size(data_socket, jv_s_path.c_str());
-    if (ret < 0)
-      throw std::runtime_error(std::string("robust_sendfile_with_size failed: ") + strerror(-ret));
-  }
+      SerializeJVToFile(jv, jv_file, jv_s_path.c_str(), true /* text */);
 
-  //
-  // send the rest of the DSO's that were recompiled
-  //
-  for (const binary_base_t<MT, MinSize> &binary : jv.Binaries) {
-    if (binary.IsVDSO)
-      continue;
-    if (binary.IsDynamicLinker)
-      continue;
-    if (!binary.is_file())
-      continue;
+      {
+        //
+        // send new jv
+        //
+        ssize_t ret = robust_sendfile_with_size(data_socket, jv_s_path.c_str());
+        if (ret < 0)
+          throw std::runtime_error(
+              std::string("robust_sendfile_with_size failed: ") +
+              strerror(-ret));
+      }
 
-    fs::path chrooted_path(fs::path(sysroot_dir) / binary.path_str());
-    if (!fs::exists(chrooted_path))
-      throw std::runtime_error(chrooted_path.string() + " not found");
+      //
+      // send the rest of the DSO's that were recompiled
+      //
+      for (const auto &binary : jv.Binaries) {
+        if (binary.IsVDSO)
+          continue;
+        if (binary.IsDynamicLinker)
+          continue;
+        if (!binary.is_file())
+          continue;
 
-    if (IsVerbose())
-      llvm::errs() << llvm::formatv("sending {0}\n", chrooted_path.c_str());
+        fs::path chrooted_path(fs::path(sysroot_dir) / binary.path_str());
+        if (!fs::exists(chrooted_path))
+          throw std::runtime_error(chrooted_path.string() + " not found");
 
-    ssize_t ret = robust_sendfile_with_size(data_socket, chrooted_path.c_str());
+        if (IsVerbose())
+          llvm::errs() << llvm::formatv("sending {0}\n", chrooted_path.c_str());
 
-    if (ret < 0)
-      throw std::runtime_error(
-          std::string("robust_sendfile_with_size failed: ") + strerror(-ret));
-  }
+        ssize_t ret =
+            robust_sendfile_with_size(data_socket, chrooted_path.c_str());
 
-  {
-    if (IsVerbose())
-      llvm::errs() << "sending jove runtime\n";
+        if (ret < 0)
+          throw std::runtime_error(
+              std::string("robust_sendfile_with_size failed: ") +
+              strerror(-ret));
+      }
 
-    ssize_t ret = robust_sendfile_with_size(
-        data_socket, IsCOFF ? locator().runtime_dll(options.RuntimeMT).c_str()
-                            : locator().runtime_so(options.RuntimeMT).c_str());
+      {
+        if (IsVerbose())
+          llvm::errs() << "sending jove runtime\n";
 
-    if (ret < 0)
-      throw std::runtime_error(
-          std::string("robust_sendfile_with_size failed: ") + strerror(-ret));
-  }
+        ssize_t ret = robust_sendfile_with_size(
+            data_socket, IsCOFF
+                             ? locator().runtime_dll(options.RuntimeMT).c_str()
+                             : locator().runtime_so(options.RuntimeMT).c_str());
 
-  if (options.DFSan) {
-    if (IsVerbose())
-      llvm::errs() << "sending jove dfsan runtime\n";
+        if (ret < 0)
+          throw std::runtime_error(
+              std::string("robust_sendfile_with_size failed: ") +
+              strerror(-ret));
+      }
 
-    ssize_t ret =
-        robust_sendfile_with_size(data_socket, locator().dfsan_runtime().c_str());
+      if (options.DFSan) {
+        if (IsVerbose())
+          llvm::errs() << "sending jove dfsan runtime\n";
 
-    if (ret < 0)
-      throw std::runtime_error(
-          std::string("robust_sendfile_with_size failed: ") + strerror(-ret));
-  }
+        ssize_t ret = robust_sendfile_with_size(
+            data_socket, locator().dfsan_runtime().c_str());
+
+        if (ret < 0)
+          throw std::runtime_error(
+              std::string("robust_sendfile_with_size failed: ") +
+              strerror(-ret));
+      }
+    }
+
+    jv3.release();
   };
 
 #define MT_POSSIBILTIES                                                        \

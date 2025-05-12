@@ -8,11 +8,9 @@ namespace jove {
 
 template <bool MT, bool MinSize>
 function_t::function_t(binary_base_t<MT, MinSize> &b, function_index_t Idx) noexcept
-    : BIdx(b.Idx /* could be invalid */), Idx(Idx),
-      Callers(b.get_segment_manager()) {}
+    : BIdx(b.Idx /* could be invalid */), Idx(Idx) {}
 
-function_t::function_t(segment_manager_t *sm) noexcept
-    : Callers(sm) {}
+function_t::function_t(segment_manager_t *sm) noexcept {}
 
 template <bool MT, bool MinSize>
 ip_call_graph_base_t<MT>::vertex_descriptor

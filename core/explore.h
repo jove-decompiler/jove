@@ -78,6 +78,7 @@ class explorer_t {
 #undef VALUES1
 #undef VALUES2
 
+  jv_file_t &jv_file;
   boost::optional<jv_t &> maybe_jv;
   disas_t &disas;
   tiny_code_generator_t &tcg;
@@ -121,19 +122,22 @@ class explorer_t {
   bool IsVeryVerbose(void) const { return unlikely(VerbosityLevel >= 2); }
 
 public:
-  explicit explorer_t(jv_t &jv, disas_t &disas,
+  explicit explorer_t(jv_file_t &jv_file, jv_t &jv, disas_t &disas,
                       tiny_code_generator_t &tcg,
                       unsigned VerbosityLevel = 0) noexcept
-      : maybe_jv(jv), disas(disas), tcg(tcg), VerbosityLevel(VerbosityLevel) {}
+      : jv_file(jv_file), maybe_jv(jv), disas(disas), tcg(tcg),
+        VerbosityLevel(VerbosityLevel) {}
 
-  explicit explorer_t(disas_t &disas, tiny_code_generator_t &tcg,
+  explicit explorer_t(jv_file_t &jv_file, disas_t &disas,
+                      tiny_code_generator_t &tcg,
                       unsigned VerbosityLevel = 0) noexcept
-      : maybe_jv(boost::none), disas(disas), tcg(tcg),
+      : jv_file(jv_file), maybe_jv(boost::none), disas(disas), tcg(tcg),
         VerbosityLevel(VerbosityLevel) {}
 
   template <bool MT2>
   explicit explorer_t(const explorer_t<MT2, MinSize> &other) noexcept
-      : maybe_jv(boost::none),
+      : jv_file(other.jv_file),
+        maybe_jv(boost::none),
         disas(other.disas),
         tcg(other.tcg),
         VerbosityLevel(other.VerbosityLevel) {

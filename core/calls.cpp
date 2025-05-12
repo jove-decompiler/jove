@@ -27,10 +27,7 @@ call_graph_builder_t<MT, MinSize>::call_graph_builder_t(const jv_t &jv) noexcept
   // create the edges
   //
   for_each_function(jv, [&](const function_t &callee, const binary_t &b) {
-    const ip_callers_t *pcallers;
-    auto s_lck_callers = callee.Callers.get<AreWeMT>(pcallers);
-
-    for (const auto &pair : *pcallers) {
+    callee.Callers(jv).ForEach([&](const auto &pair) {
       // determine block in caller
       // look at parents of block
       assert(is_binary_index_valid(pair.first));
@@ -43,13 +40,13 @@ call_graph_builder_t<MT, MinSize>::call_graph_builder_t(const jv_t &jv) noexcept
       bb_t bb = basic_block_at_address(pair.second, caller_b);
       const bbprop_t &bbprop = ICFG[bb];
 
-      for (function_index_t FIdx : bbprop.Parents.get<>()) {
+      for (function_index_t FIdx : bbprop.Parents.get<MT>()) {
         const function_t &caller = caller_b.Analysis.Functions.at(FIdx);
 
         boost::add_edge(state.for_function(caller).V,
                         state.for_function(callee).V, G);
       }
-    }
+    });
   });
 }
 

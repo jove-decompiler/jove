@@ -24,11 +24,11 @@ static inline void fallthru(
   for ((void)({
          const bbprop_t &bbprop = the_bbprop.get();
 
-         if constexpr (AreWeMT) {
+         if constexpr (MT) {
            if (!bbprop.pub.is.load(std::memory_order_acquire))
-             bbprop.pub.template shared_access<AreWeMT>();
+             bbprop.pub.template shared_access<MT>();
          }
-         bbprop.template lock_sharable<AreWeMT>(); /* don't change on us */
+         bbprop.template lock_sharable<MT>(); /* don't change on us */
 
 #if 0
          on_block(bbprop, BBIdx);
@@ -57,12 +57,12 @@ static inline void fallthru(
          const bbprop_t &new_bbprop = ICFG[newbb];
          the_bbprop = new_bbprop;
 
-         if constexpr (AreWeMT) {
+         if constexpr (MT) {
            if (!new_bbprop.pub.is.load(std::memory_order_acquire))
-             bbprop_t::pub_t::template shared_lock_guard<AreWeMT>(
+             bbprop_t::pub_t::template shared_lock_guard<MT>(
                  new_bbprop.pub.mtx);
          }
-         new_bbprop.template lock_sharable<AreWeMT>(); /* don't change on us */
+         new_bbprop.template lock_sharable<MT>(); /* don't change on us */
 
 #if 0
          on_block(new_bbprop, BBIdx);
@@ -89,7 +89,7 @@ static inline void fallthru(
       continue;
     }
 
-    bbprop_t::shared_lock_guard<AreWeMT> s_lck_bb(
+    bbprop_t::shared_lock_guard<MT> s_lck_bb(
         bbprop.mtx, boost::interprocess::accept_ownership);
 
     on_block(bbprop, ICFG.vertex(BBIdx));

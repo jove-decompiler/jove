@@ -37,8 +37,7 @@ function_index_t explorer_t<MT, MinSize>::_explore_function(
     bool inserted;
     if constexpr (MT) {
       inserted = b.fnmap.try_emplace_or_cvisit(
-          Addr, b, std::ref(Idx),
-          [&](const typename fnmap_t<MT, AreWeMinSize>::value_type &x) {
+          Addr, b, std::ref(Idx), [&](const auto &x) {
             Idx = static_cast<function_index_t>(x.second);
           });
     } else {
@@ -66,6 +65,15 @@ function_index_t explorer_t<MT, MinSize>::_explore_function(
   f.IsSignalHandler = false;
   f.Returns = false;
 
+  if (maybe_jv) {
+    using OurCallers_t = Callers_t<MT, MinSize>;
+
+    f.pCallers.Store(jv_file.construct<OurCallers_t>(
+                         boost::interprocess::anonymous_instance)(
+                         jv_file.get_segment_manager()),
+                     std::memory_order_relaxed);
+  }
+
   get_newfn_proc()(b, f);
 
   const basic_block_index_t EntryIdx =
@@ -91,7 +99,7 @@ function_index_t explorer_t<MT, MinSize>::_explore_function(
       // if a successor already has this function marked as a parent, then we
       // can assume everything reachable from it is already too
       //
-      if (ICFG[succ].Parents.template contains<AreWeMT>(Idx))
+      if (ICFG[succ].Parents.template contains<MT>(Idx))
         continue;
 
       rec(succ);
@@ -339,7 +347,7 @@ explorer_t<MT, MinSize>::_explore_basic_block(binary_t &b,
     if constexpr (MT) {
       inserted = b.bbbmap.try_emplace_or_cvisit(
           Addr, b, std::ref(Idx), static_cast<taddr_t>(Addr),
-          [&](const typename bbbmap_t<MT, AreWeMinSize>::value_type &x) {
+          [&](const auto &x) {
             Idx = static_cast<basic_block_index_t>(x.second);
           });
     } else {
@@ -652,18 +660,20 @@ explorer_t<MT, MinSize>::_explore_basic_block(binary_t &b,
 
     if (is_binary_index_valid(b.Idx)) { /* may not know binary index */
       function_t &callee = b.Analysis.Functions.at(CalleeFIdx);
-      callee.Callers.insert<AreWeMT>(b.Idx, T.Addr);
+
+      if (callee.pCallers.Load(std::memory_order_relaxed))
+        callee.Callers<MT, MinSize>().Insert(caller_t(b.Idx, T.Addr));
 
       if (maybe_jv) {
         jv_t &jv = *maybe_jv;
 
-        const auto &ParentsVec = bbprop.Parents.template get<AreWeMT>();
+        const auto &ParentsVec = bbprop.Parents.template get<MT>();
         std::for_each(maybe_par_unseq,
                       ParentsVec.cbegin(),
                       ParentsVec.cend(), [&](function_index_t FIdx) {
                         function_t &caller = b.Analysis.Functions.at(FIdx);
 
-                        jv.Analysis.ReverseCallGraph.template add_edge<AreWeMT>(
+                        jv.Analysis.ReverseCallGraph.template add_edge<MT>(
                             callee.ReverseCGVert(jv),
                             caller.ReverseCGVert(jv));
                       });
@@ -673,7 +683,7 @@ explorer_t<MT, MinSize>::_explore_basic_block(binary_t &b,
     if (unlikely(Speculative)) {
       ICFG[basic_block_of_index(Idx, ICFG)].Term._call.Target = CalleeFIdx;
     } else {
-      auto s_lck_bbmap = b.BBMap.template shared_access<AreWeMT>();
+      auto s_lck_bbmap = b.BBMap.template shared_access<MT>();
 
       ICFG[basic_block_at_address(T.Addr, b)].Term._call.Target = CalleeFIdx;
     }
@@ -737,10 +747,10 @@ void explorer_t<MT, MinSize>::_control_flow_to(
   if (unlikely(Speculative)) {
     ICFG.add_edge(bb, basic_block_of_index(SuccBBIdx, b));
   } else {
-    auto s_lck_bbmap = b.BBMap.template shared_access<AreWeMT>();
+    auto s_lck_bbmap = b.BBMap.template shared_access<MT>();
 
-    ICFG.template add_edge<AreWeMT>(basic_block_at_address(TermAddr, b),
-                                    basic_block_of_index(SuccBBIdx, b));
+    ICFG.template add_edge<MT>(basic_block_at_address(TermAddr, b),
+                               basic_block_of_index(SuccBBIdx, b));
   }
 }
 

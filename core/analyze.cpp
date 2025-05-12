@@ -68,7 +68,7 @@ void analyzer_t<MT, MinSize>::update_callers(void) {
           assert(TermAddr);
 
           function_t &callee = b.Analysis.Functions.at(bbprop.Term._call.Target);
-          callee.Callers.insert<AreWeMT>(index_of_binary(b), TermAddr);
+          callee.Callers(jv).Insert(caller_t(index_of_binary(b), TermAddr));
           return;
         }
 
@@ -79,7 +79,7 @@ void analyzer_t<MT, MinSize>::update_callers(void) {
             assert(TermAddr);
 
             function_t &f = function_of_target(X, jv);
-            f.Callers.insert<AreWeMT>(index_of_binary(b, jv), TermAddr);
+            f.Callers(jv).Insert(caller_t(index_of_binary(b, jv), TermAddr));
           });
         }
       });
@@ -142,28 +142,20 @@ void analyzer_t<MT, MinSize>::identify_Sjs(void) {
           f.Returns = true;
 
         if (x.IsSj) {
-          const ip_callers_t *pcallers;
-          auto s_lck_callers = f.Callers.get<AreWeMT>(pcallers);
+          f.Callers(jv).ForEach([&](const caller_t &caller) -> void {
+            block_t caller_block = block_for_caller_in_binary(caller, b, jv);
+            if (caller_block.first != index_of_binary(b))
+              return;
 
-          std::for_each(
-              pcallers->cbegin(),
-              pcallers->cend(),
-              [&](const caller_t &caller) -> void {
-                block_t caller_block =
-                    block_for_caller_in_binary(caller, b, jv);
-                if (caller_block.first != index_of_binary(b))
-                  return;
+            auto &caller_b = jv.Binaries.at(caller_block.first);
+            bb_t caller_bb = basic_block_of_index(caller_block.second, caller_b);
 
-                auto &caller_b = jv.Binaries.at(caller_block.first);
-                bb_t caller_bb =
-                    basic_block_of_index(caller_block.second, caller_b);
+            auto &caller_ICFG = caller_b.Analysis.ICFG;
+            bbprop_t &caller_bbprop = caller_ICFG[caller_bb];
 
-                auto &caller_ICFG = caller_b.Analysis.ICFG;
-                bbprop_t &caller_bbprop = caller_ICFG[caller_bb];
-
-                if (caller_bbprop.Term.Type == TERMINATOR::INDIRECT_JUMP)
-                  racy::set(caller_bbprop.Sj);
-              });
+            if (caller_bbprop.Term.Type == TERMINATOR::INDIRECT_JUMP)
+              racy::set(caller_bbprop.Sj);
+          });
         }
       });
 }
@@ -871,11 +863,11 @@ analyzer_t<MT, MinSize>::DynTargetsSummary(
   });
 
   if (AllNotStale) {
-    auto args = DynTargets.Accumulate(
+    auto args = DynTargets.template Accumulate<tcg_global_set_t>(
         tcg_global_set_t(), [&](tcg_global_set_t res, dynamic_target_t X) {
           return res | function_of_target(X, jv).Analysis.args;
         });
-    auto rets = DynTargets.Accumulate(
+    auto rets = DynTargets.template Accumulate<tcg_global_set_t>(
         tcg_global_set_t(), [&](tcg_global_set_t res, dynamic_target_t X) {
           return res | function_of_target(X, jv).Analysis.rets;
         });
