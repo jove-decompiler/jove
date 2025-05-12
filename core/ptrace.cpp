@@ -71,7 +71,7 @@ unsigned long _ptrace_peekdata(pid_t child, uintptr_t addr) {
   unsigned long _data = reinterpret_cast<unsigned long>(&res);
 
   if (syscall(__NR_ptrace, _request, _pid, _addr, _data) < 0)
-    throw std::runtime_error((fmt("PTRACE_PEEKDATA(%d, %p) failed : %s") %
+    throw std::runtime_error((fmt("PTRACE_PEEKDATA(%d, %#lx) failed : %s") %
                               child % addr % strerror(errno)).str());
 
   return res;
