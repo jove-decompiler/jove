@@ -24,7 +24,7 @@ struct llvm_options_t {
   std::string BinaryIndex;
 
   bool ForeignLibs = true;
-  bool CheckEmulatedReturnAddress = false;
+  bool CheckEmulatedStackReturnAddress = false;
   bool DumpTCG = false;
   bool DFSan = false;
   bool InlineHelpers = false;
@@ -46,7 +46,7 @@ struct llvm_options_t {
 
   std::string ForAddr;
   std::string VersionScript;
-  std::string LinkerScript;
+  std::string LinkerScript; /* FIXME entirely unused */
   std::string DFSanOutputModuleID;
 
   tcg_global_set_t PinnedEnvGlbs = InitPinnedEnvGlbs;
@@ -121,6 +121,14 @@ struct section_t {
   llvm::StructType *T = nullptr;
   llvm::Constant *C = nullptr;
 };
+
+void AnalyzeBasicBlock(tiny_code_generator_t &,
+                       helper_func_map_t &,
+                       llvm::Module &,
+                       llvm::object::Binary &,
+                       const char *B_Name,
+                       bbprop_t &,
+                       const analyzer_options_t &);
 
 template <bool MT, bool MinSize>
 class llvm_t {
@@ -257,10 +265,11 @@ class llvm_t {
 
   uint64_t ForAddr = 0;
 
-  tiny_code_generator_t &TCG;
+  llvm::LLVMContext &Context;
+  std::unique_ptr<llvm::Module> Module; /* initialized from starter bitcode */
+  helper_func_map_t helper_func_map;
 
-  std::unique_ptr<llvm::LLVMContext> Context;
-  std::unique_ptr<llvm::Module> Module;
+  tiny_code_generator_t &TCG;
 
   llvm::DataLayout DL;
 
@@ -421,10 +430,13 @@ class llvm_t {
 
 public:
   llvm_t(const jv_t &jv, const llvm_options_t &llvm_options,
-         const analyzer_options_t &analyzer_options, tiny_code_generator_t &TCG,
+         const analyzer_options_t &analyzer_options,
+         tiny_code_generator_t &TCG,
+         llvm::LLVMContext &Context,
          locator_t &locator_)
       : jv(jv), opts(llvm_options), analyzer_options(analyzer_options),
-        TCG(TCG), locator_(locator_), state(jv), DL("") {}
+        locator_(locator_), Context(Context),
+        state(jv), TCG(TCG), DL("") {}
 
   int go(void);
 
@@ -681,9 +693,9 @@ private:
 
   llvm::Type *type_of_arg_info(const hook_t::arg_info_t &info) {
     if (info.isPointer)
-      return llvm::PointerType::get(llvm::Type::getInt8Ty(*Context), 0);
+      return llvm::PointerType::get(llvm::Type::getInt8Ty(Context), 0);
 
-    return llvm::Type::getIntNTy(*Context, info.Size * 8);
+    return llvm::Type::getIntNTy(Context, info.Size * 8);
   }
 
   std::pair<llvm::GlobalVariable *, llvm::Function *>
@@ -782,7 +794,7 @@ private:
   llvm::Function *bswap_i(unsigned bits) {
     assert(bits > 8);
 
-    llvm::Type *Tys[] = {llvm::Type::getIntNTy(*Context, bits)};
+    llvm::Type *Tys[] = {llvm::Type::getIntNTy(Context, bits)};
 
     llvm::Function *bswap =
         llvm::Intrinsic::getDeclaration(Module.get(), llvm::Intrinsic::bswap,

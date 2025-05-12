@@ -133,7 +133,7 @@ typedef boost::interprocess::map<
     bbmap_t; /* _private_ adaptive pool because of heavyweight bbmap_lock */
 
 template <bool MT>
-struct BBMap_t : public ip_base_rw_accessible_nospin<MT> {
+struct BBMap_t : public ip_mt_base_rw_accessible_nospin {
   ip_unique_ptr<bbmap_t::allocator_type> alloc;
   bbmap_t map;
 
@@ -271,7 +271,14 @@ template <bool MT, bool MinSize>
 struct DynTargets_t {
   ip_dynamic_target_set<MT, MinSize> set;
 
-  DynTargets_t(segment_manager_t *sm) noexcept : set(sm) {}
+  explicit DynTargets_t(segment_manager_t *sm) noexcept : set(sm) {}
+
+  explicit DynTargets_t(const DynTargets_t<MT, MinSize> &other) noexcept
+      : set(other.set) {}
+
+  template <bool MT2>
+  explicit DynTargets_t(DynTargets_t<MT2, MinSize> &&other) noexcept
+      : set(std::move(other.set)) {}
 
   template <class _ExecutionPolicy>
   void ForEach(_ExecutionPolicy &&__exec,
@@ -415,7 +422,7 @@ struct bbprop_t : public ip_mt_base_rw_accessible_nospin {
 
   template <bool MT, bool MinSize>
   boost::optional<const DynTargets_t<MT, MinSize> &>
-  getDynamicTargets(const jv_base_t<MT, MinSize> &) const {
+  getDynamicTargets(void) const {
     if (const void *p = pDynTargets.Load(std::memory_order_relaxed))
       return *static_cast<const DynTargets_t<MT, MinSize> *>(p);
 
@@ -424,11 +431,8 @@ struct bbprop_t : public ip_mt_base_rw_accessible_nospin {
 
   template <bool MT, bool MinSize>
   boost::optional<const DynTargets_t<MT, MinSize> &>
-  getDynamicTargets(void) const {
-    if (const void *p = pDynTargets.Load(std::memory_order_relaxed))
-      return *static_cast<const DynTargets_t<MT, MinSize> *>(p);
-
-    return boost::none;
+  getDynamicTargets(const jv_base_t<MT, MinSize> &) const {
+    return getDynamicTargets<MT, MinSize>();
   }
 
   class Parents_t {
@@ -438,20 +442,33 @@ struct bbprop_t : public ip_mt_base_rw_accessible_nospin {
     friend bbprop_t;
     friend allocates_basic_block_t;
 
-    friend void UnserializeJV<false, false>(jv_base_t<false, false> &, jv_file_t &, std::istream &, bool);
-    friend void UnserializeJV<false, true>(jv_base_t<false, true> &, jv_file_t &, std::istream &, bool);
-    friend void UnserializeJV<true, true>(jv_base_t<true, true> &, jv_file_t &, std::istream &, bool);
-    friend void UnserializeJV<true, false>(jv_base_t<true, false> &, jv_file_t &, std::istream &, bool);
+    //
+    // friends
+    //
+#define VALUES1 ((true))((false))
+#define VALUES2 ((true))((false))
+#define GET_VALUE(x) BOOST_PP_TUPLE_ELEM(0, x)
+#define DO_FRIEND(r, product)                                                  \
+  friend void UnserializeJV<GET_VALUE(BOOST_PP_SEQ_ELEM(1, product)),          \
+                            GET_VALUE(BOOST_PP_SEQ_ELEM(0, product))>(         \
+      jv_base_t<GET_VALUE(BOOST_PP_SEQ_ELEM(1, product)),                      \
+                GET_VALUE(BOOST_PP_SEQ_ELEM(0, product))> &,                   \
+      jv_file_t &, std::istream &, bool);
+    BOOST_PP_SEQ_FOR_EACH_PRODUCT(DO_FRIEND, (VALUES1)(VALUES2))
+#undef DO_FRIEND
+#undef GET_VALUE
+#undef VALUES1
+#undef VALUES2
 
     Parents_t() noexcept = default;
 
-    template <bool MT>
+    template <bool MT = AreWeMT>
     void set(const ip_func_index_vec &x) {
       _p.Store(&x, MT ? std::memory_order_release : std::memory_order_relaxed);
     }
 
   public:
-    template <bool MT>
+    template <bool MT = AreWeMT>
     const ip_func_index_vec &get(void) const {
       const ip_func_index_vec *res =
           _p.Load(MT ? std::memory_order_acquire : std::memory_order_relaxed);
@@ -459,12 +476,12 @@ struct bbprop_t : public ip_mt_base_rw_accessible_nospin {
       return *res;
     }
 
-    template <bool MT>
+    template <bool MT = AreWeMT>
     bool empty(void) const {
       return get<MT>().empty();
     }
 
-    template <bool MT>
+    template <bool MT = AreWeMT>
     bool contains(function_index_t FIdx) const {
       auto &vec = get<MT>();
 
@@ -542,7 +559,9 @@ private:
   }
 
   template <bool MT, bool MinSize>
-  bool doInsertDynTarget(const dynamic_target_t &, jv_file_t &);
+  bool doInsertDynTarget(const dynamic_target_t &,
+                         jv_file_t &,
+                         jv_base_t<MT, MinSize> &);
 };
 
 template <bool MT>
@@ -641,7 +660,7 @@ constexpr block_t block_for_caller_in_binary(const caller_t &caller,
 
   const binary_base_t<MT, MinSize> &b = jv.Binaries.at(BIdx);
   const basic_block_index_t BBIdx = ({
-    auto s_lck_bbmap = b.BBMap.shared_access();
+    auto s_lck_bbmap = b.BBMap.template shared_access<AreWeMT>();
 
     index_of_basic_block_at_address(caller.second, b);
   });
@@ -678,13 +697,13 @@ struct function_t {
   function_index_t Idx = invalid_function_index;
   basic_block_index_t Entry = invalid_basic_block_index;
 
-  class Callers_t : private ip_mt_base_rw_accessible_spin {
+  class Callers_t : private ip_mt_base_rw_accessible_nospin {
     ip_callers_t set;
 
   public:
     explicit Callers_t(segment_manager_t *sm) noexcept : set(sm) {}
 
-    template <bool MT>
+    template <bool MT = AreWeMT>
     void insert(binary_index_t BIdx, taddr_t TermAddr) {
       assert(TermAddr);
 
@@ -693,13 +712,13 @@ struct function_t {
       set.emplace(BIdx, TermAddr);
     }
 
-    template <bool MT>
+    template <bool MT = AreWeMT>
     shared_lock_guard<MT> get(const ip_callers_t *&out) const {
       out = &set;
       return this->shared_access<MT>();
     }
 
-    template <bool MT>
+    template <bool MT = AreWeMT>
     bool empty(void) const {
       auto s_lck = this->shared_access<MT>();
 
@@ -785,6 +804,44 @@ private:
 
 #include "jove/objdump.h.inc"
 
+template <bool MT>
+struct FunctionIndexVecs : private ip_mt_base_accessible_nospin {
+  ip_func_index_vec_set<MT> FIdxVecs;
+
+  explicit FunctionIndexVecs(segment_manager_t *sm) noexcept : FIdxVecs(sm) {}
+
+  template <bool MT2>
+  explicit FunctionIndexVecs(FunctionIndexVecs<MT2> &&other) noexcept
+      : FIdxVecs(std::move(other.FIdxVecs)) {}
+
+  template <bool MT2>
+  FunctionIndexVecs &operator=(FunctionIndexVecs<MT2> &&other) noexcept {
+    if constexpr (MT == MT2) {
+      if (this == &other)
+        return *this;
+    }
+
+    FIdxVecs = std::move(other.FIdxVecs);
+    return *this;
+  }
+
+  const ip_func_index_vec &Add(ip_func_index_vec &&vec) noexcept {
+    if constexpr (MT) {
+      const ip_func_index_vec *vecptr = nullptr;
+      auto grab = [&](const ip_func_index_vec &vec) -> void { vecptr = &vec; };
+
+      FIdxVecs.insert_and_cvisit(boost::move(vec), grab, grab);
+
+      assert(vecptr);
+      return *vecptr;
+    } else {
+      auto e_lck = exclusive_access<AreWeMT>();
+
+      return *FIdxVecs.insert(boost::move(vec)).first;
+    }
+  }
+};
+
 template <bool MT, bool MinSize>
 struct binary_base_t {
   using bb_t = typename ip_icfg_base_t<MT>::vertex_descriptor;
@@ -808,7 +865,7 @@ struct binary_base_t {
   bool IsDynamicallyLoaded = false;
 
   ip_unique_ptr<ip_func_index_vec> EmptyFIdxVec;
-  ip_func_index_vecs<MT> FIdxVecs;
+  FunctionIndexVecs<MT> FIdxVecs;
 
   struct Analysis_t {
     function_index_t EntryFunction = invalid_function_index;
@@ -869,8 +926,8 @@ struct binary_base_t {
     void addRelocDynTarget(taddr_t A, dynamic_target_t X) {}
     void addIFuncDynTarget(taddr_t A, dynamic_target_t X) {}
 
-    typedef objdump_output_t<
-        boost::interprocess::allocator<unsigned long /* FIXME */, segment_manager_t>, MT>
+    typedef objdump_output_t<boost::interprocess::allocator<
+        unsigned long /* FIXME */, segment_manager_t>>
         objdump_output_type;
 
     objdump_output_type objdump;

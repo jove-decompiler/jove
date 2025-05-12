@@ -5,8 +5,13 @@ set -x
 
 if [ ! -f build.ninja ]; then
 
+OURCFLAGS=\
+" -fno-omit-frame-pointer"\
+" -mno-omit-leaf-frame-pointer"\
+" -gline-tables-only"
+
 cmake -G Ninja \
-      -D CMAKE_BUILD_TYPE=Release \
+      -D CMAKE_BUILD_TYPE=RelWithDebInfo \
       -D CMAKE_C_COMPILER=$(which clang-19) \
       -D CMAKE_CXX_COMPILER=$(which clang++-19) \
       -D "CMAKE_C_FLAGS=$OURCFLAGS" \

@@ -65,7 +65,7 @@ std::string CodeRecovery<MT, MinSize>::RecoverDynamicTarget(
   bb_t bb;
 
   bool Ambig = ({
-    auto s_lck = CallerBinary.BBMap.shared_access();
+    auto s_lck = CallerBinary.BBMap.template shared_access<AreWeMT>();
 
     bb = basic_block_at_address(TermAddr, CallerBinary);
 
@@ -133,7 +133,7 @@ std::string CodeRecovery<MT, MinSize>::RecoverBasicBlock(
   bb_t bb;
 
   bool isNewTarget = ({
-    auto s_lck = b.BBMap.shared_access();
+    auto s_lck = b.BBMap.template shared_access<AreWeMT>();
 
     bb = basic_block_at_address(TermAddr, b);
     assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP);
@@ -177,7 +177,7 @@ std::string CodeRecovery<MT, MinSize>::RecoverFunctionAtAddress(
   auto &ICFG = CallerBinary.Analysis.ICFG;
 
   bool Ambig = ({
-    auto s_lck = CallerBinary.BBMap.shared_access();
+    auto s_lck = CallerBinary.BBMap.template shared_access<AreWeMT>();
 
     bb_t bb = basic_block_at_address(TermAddr, CallerBinary);
 
@@ -260,7 +260,7 @@ std::string CodeRecovery<MT, MinSize>::Returns(binary_index_t CallBIdx,
   uint64_t TermAddr = AddressOfTerminatorAtBasicBlock(CallBIdx, CallBBIdx);
 
   uint64_t NextAddr = ({
-    auto s_lck = b.BBMap.shared_access();
+    auto s_lck = b.BBMap.template shared_access<AreWeMT>();
 
     bb_t bb = basic_block_at_address(TermAddr, b);
 
@@ -274,7 +274,7 @@ std::string CodeRecovery<MT, MinSize>::Returns(binary_index_t CallBIdx,
   bb_t bb;
 
   bool isNewTarget = ({
-    auto s_lck = b.BBMap.shared_access();
+    auto s_lck = b.BBMap.template shared_access<AreWeMT>();
 
     bb = basic_block_at_address(TermAddr, b);
 
@@ -326,8 +326,8 @@ std::string CodeRecovery<MT, MinSize>::RecoverForeignBinary(const char *path) {
 #define GET_VALUE(x) BOOST_PP_TUPLE_ELEM(0, x)
 
 #define DO_INSTANTIATE(r, product)                                             \
-  template struct CodeRecovery<GET_VALUE(BOOST_PP_SEQ_ELEM(1, product)),       \
-                               GET_VALUE(BOOST_PP_SEQ_ELEM(0, product))>;
+  template class CodeRecovery<GET_VALUE(BOOST_PP_SEQ_ELEM(1, product)),        \
+                              GET_VALUE(BOOST_PP_SEQ_ELEM(0, product))>;
 BOOST_PP_SEQ_FOR_EACH_PRODUCT(DO_INSTANTIATE, (VALUES_TO_INSTANTIATE_WITH1)(VALUES_TO_INSTANTIATE_WITH2))
 
 }

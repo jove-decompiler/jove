@@ -1,6 +1,9 @@
 #pragma once
 #include "jove/jove.h"
+
+#ifndef JOVE_NO_BACKEND
 #include "tcg.h"
+#include "llvm.h"
 #include <boost/filesystem.hpp>
 
 namespace jove {
@@ -43,6 +46,51 @@ struct recompiler_options_t {
   tcg_global_set_t PinnedEnvGlbs = InitPinnedEnvGlbs;
 
   std::string temp_dir;
+
+  analyzer_options_t to_analyzer_options(void) const {
+    analyzer_options_t res;
+
+#define PROPOGATE(name)                                                        \
+  do {                                                                         \
+    res.name = this->name;                                                     \
+  } while (false)
+
+    PROPOGATE(VerbosityLevel);
+    PROPOGATE(ForCBE);
+    PROPOGATE(PinnedEnvGlbs);
+
+    return res;
+  }
+
+  llvm_options_t to_llvm_options(void) const {
+    llvm_options_t res;
+
+#define PROPOGATE(name)                                                        \
+  do {                                                                         \
+    res.name = this->name;                                                     \
+  } while (false)
+
+    PROPOGATE(VerbosityLevel);
+    PROPOGATE(ForeignLibs);
+    PROPOGATE(DFSan);
+    PROPOGATE(InlineHelpers);
+    PROPOGATE(ForCBE);
+    PROPOGATE(Optimize);
+    PROPOGATE(BreakBeforeUnreachables);
+    PROPOGATE(RuntimeMT);
+    PROPOGATE(Trace);
+    PROPOGATE(PlaceSectionBreakpoints);
+    PROPOGATE(LayOutSections);
+    PROPOGATE(CallStack);
+    PROPOGATE(DebugSjlj);
+    PROPOGATE(ABICalls);
+    PROPOGATE(CheckEmulatedStackReturnAddress);
+    PROPOGATE(PinnedEnvGlbs);
+
+#undef PROPOGATE
+
+    return res;
+  }
 };
 
 template <bool MT, bool MinSize>
@@ -55,7 +103,11 @@ class recompiler_t {
   const jv_t &jv;
 
   const recompiler_options_t &opts;
+  const llvm_options_t llvm_options; /* created from opts */
+  const analyzer_options_t analyzer_options;
+
   tiny_code_generator_t &TCG;
+  llvm::LLVMContext &Context;
 
   locator_t &locator_;
 
@@ -101,8 +153,11 @@ class recompiler_t {
 
 public:
   recompiler_t(const jv_t &jv, const recompiler_options_t &opts,
-               tiny_code_generator_t &TCG, locator_t &locator_)
-      : jv(jv), opts(opts), TCG(TCG), locator_(locator_), state(jv),
+               tiny_code_generator_t &TCG, llvm::LLVMContext &Context,
+               locator_t &locator_)
+      : jv(jv), opts(opts), llvm_options(opts.to_llvm_options()),
+        analyzer_options(opts.to_analyzer_options()), TCG(TCG),
+        Context(Context), locator_(locator_), state(jv),
         IsCOFF(B::is_coff(*state.for_binary(jv.Binaries.at(0)).Bin)) {
     if (IsCOFF) {
       if (!opts.ForeignLibs)
@@ -120,3 +175,4 @@ private:
 };
 
 }
+#endif /* JOVE_NO_BACKEND */

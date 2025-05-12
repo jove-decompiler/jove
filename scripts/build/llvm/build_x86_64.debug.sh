@@ -8,7 +8,7 @@ if [ ! -f build.ninja ]; then
 OURCFLAGS=\
 " -fno-omit-frame-pointer"\
 " -mno-omit-leaf-frame-pointer"\
-" -Og"
+" -O0"
 
 cmake -G Ninja \
       -D CMAKE_BUILD_TYPE=Debug \

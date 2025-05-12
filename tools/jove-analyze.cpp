@@ -75,6 +75,7 @@ class AnalyzeTool : public JVTool<ToolKind::Standard> {
   boost::concurrent_flat_set<dynamic_target_t> inflight;
   std::atomic<uint64_t> done = 0;
 
+  llvm::LLVMContext Context;
   tiny_code_generator_t TCG;
   analyzer_t<IsToolMT, IsToolMinSize> analyzer;
 
@@ -86,7 +87,8 @@ class AnalyzeTool : public JVTool<ToolKind::Standard> {
 
 public:
   AnalyzeTool()
-      : opts(JoveCategory), analyzer(analyzer_opts, TCG, jv, inflight, done) {}
+      : opts(JoveCategory),
+        analyzer(analyzer_opts, TCG, Context, jv, inflight, done) {}
 
   int Run(void) override;
 };

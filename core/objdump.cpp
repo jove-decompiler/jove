@@ -12,10 +12,10 @@
 
 namespace jove {
 
-template <typename Alloc, bool MT>
-int objdump_output_t<Alloc, MT>::generate(objdump_output_t<Alloc, MT> &out,
-                                          const char *filename,
-                                          llvm::object::Binary &Bin) {
+template <typename Alloc>
+int objdump_output_t<Alloc>::generate(objdump_output_t<Alloc> &out,
+                                      const char *filename,
+                                      llvm::object::Binary &Bin) {
   std::unique_ptr<temp_executable> temp_exe;
   if (!filename) {
     temp_exe = std::make_unique<temp_executable>(
@@ -174,15 +174,13 @@ int objdump_output_t<Alloc, MT>::generate(objdump_output_t<Alloc, MT> &out,
 typedef boost::interprocess::allocator<unsigned long, segment_manager_t>
     alloc_t;
 
-#define VALUES_TO_INSTANTIATE_WITH \
-    ((false)) \
-    ((true))
+#define VALUES_TO_INSTANTIATE_WITH ((alloc_t))
 
 #define GET_VALUE(x) BOOST_PP_TUPLE_ELEM(0, x)
 
 #define DO_INSTANTIATE(r, data, elem)                                          \
-  template int objdump_output_t<alloc_t, GET_VALUE(elem)>::generate(           \
-      objdump_output_t<alloc_t, GET_VALUE(elem)> &out, const char *filename,   \
+  template int objdump_output_t<GET_VALUE(elem)>::generate(                    \
+      objdump_output_t<GET_VALUE(elem)> &out, const char *filename,            \
       llvm::object::Binary &Bin);
 
 BOOST_PP_SEQ_FOR_EACH(DO_INSTANTIATE, void, VALUES_TO_INSTANTIATE_WITH)

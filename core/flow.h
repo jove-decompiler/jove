@@ -21,8 +21,8 @@ struct flow_edge_properties_t {
 };
 
 struct flow_graph_dummy_analyses_t {
-  boost::container::slist<bb_analysis_t,
-                          boost::container::node_allocator<bb_analysis_t>>
+  boost::container::slist<bb_analysis_t
+                          /* boost::container::node_allocator<bb_analysis_t> */>
       extra;
 };
 

@@ -63,10 +63,20 @@ class explorer_t {
   using binary_t = binary_base_t<MT, MinSize>;
   using bb_t = ip_icfg_base_t<MT>::vertex_descriptor;
 
-  friend explorer_t<false, false>;
-  friend explorer_t<false, true>;
-  friend explorer_t<true, false>;
-  friend explorer_t<true, true>;
+  //
+  // friends
+  //
+#define VALUES1 ((true))((false))
+#define VALUES2 ((true))((false))
+#define GET_VALUE(x) BOOST_PP_TUPLE_ELEM(0, x)
+#define DO_FRIEND(r, product)                                                  \
+  friend explorer_t<GET_VALUE(BOOST_PP_SEQ_ELEM(1, product)),                  \
+                    GET_VALUE(BOOST_PP_SEQ_ELEM(0, product))>;
+  BOOST_PP_SEQ_FOR_EACH_PRODUCT(DO_FRIEND, (VALUES1)(VALUES2))
+#undef DO_FRIEND
+#undef GET_VALUE
+#undef VALUES1
+#undef VALUES2
 
   boost::optional<jv_t &> maybe_jv;
   disas_t &disas;

@@ -81,7 +81,7 @@ function_index_t explorer_t<MT, MinSize>::_explore_function(
   auto &ICFG = b.Analysis.ICFG;
 
   std::function<void(bb_t bb)> rec = [&](bb_t bb) -> void {
-    ICFG[bb].Parents.template insert<MT>(Idx, b);
+    ICFG[bb].Parents.template insert(Idx, b);
 
     auto adj = ICFG.get_adjacent_vertices(bb);
     for (bb_t succ : adj) {
@@ -91,7 +91,7 @@ function_index_t explorer_t<MT, MinSize>::_explore_function(
       // if a successor already has this function marked as a parent, then we
       // can assume everything reachable from it is already too
       //
-      if (ICFG[succ].Parents.template contains<MT>(Idx))
+      if (ICFG[succ].Parents.template contains<AreWeMT>(Idx))
         continue;
 
       rec(succ);
@@ -377,7 +377,7 @@ explorer_t<MT, MinSize>::_explore_basic_block(binary_t &b,
                                    : std::memory_order_relaxed);
   };
 
-  typename BBMap_t<MT>::exclusive_lock_guard e_lck_bbmap(
+  typename BBMap_t<MT>::template exclusive_lock_guard<MT> e_lck_bbmap(
       b.BBMap.mtx, boost::interprocess::defer_lock);
   bbmap_t &bbmap = b.BBMap.map;
   if (likely(!Speculative)) {
@@ -423,7 +423,8 @@ explorer_t<MT, MinSize>::_explore_basic_block(binary_t &b,
   unsigned Size = 0;
   jove::terminator_info_t T;
 
-  if (IsVeryVerbose() && unlikely(b.Analysis.objdump.is_addr_bad(Addr)))
+  if (IsVeryVerbose() &&
+      unlikely(b.Analysis.objdump.template is_addr_bad<MT>(Addr)))
     llvm::errs() << llvm::formatv("objdump says {0}:{1:x} is BAD\n",
                                   b.Name.c_str(), Addr);
 
@@ -508,7 +509,7 @@ explorer_t<MT, MinSize>::_explore_basic_block(binary_t &b,
     }
 
     if (T.Type == TERMINATOR::NONE) {
-      if (b.Analysis.objdump.is_addr_really_bad(T._none.NextPC)) {
+      if (b.Analysis.objdump.template is_addr_really_bad<MT>(T._none.NextPC)) {
         //
         // it's possible that something prevents the code from going further so,
         // have the block finish with an unreachable terminator.
@@ -573,7 +574,7 @@ explorer_t<MT, MinSize>::_explore_basic_block(binary_t &b,
 
     //bbprop.InvalidateAnalysis();
     if (is_function_index_valid(ParentIdx))
-      bbprop.Parents.template insert<MT>(ParentIdx, b);
+      bbprop.Parents.insert(ParentIdx, b);
 
     addr_intvl intervl(bbprop.Addr, bbprop.Size);
     if (likely(!Speculative)) {
@@ -651,20 +652,20 @@ explorer_t<MT, MinSize>::_explore_basic_block(binary_t &b,
 
     if (is_binary_index_valid(b.Idx)) { /* may not know binary index */
       function_t &callee = b.Analysis.Functions.at(CalleeFIdx);
-      callee.Callers.insert<MT>(b.Idx, T.Addr);
+      callee.Callers.insert<AreWeMT>(b.Idx, T.Addr);
 
       if (maybe_jv) {
         jv_t &jv = *maybe_jv;
 
-        const auto &ParentsVec = bbprop.Parents.template get<MT>();
+        const auto &ParentsVec = bbprop.Parents.template get<AreWeMT>();
         std::for_each(maybe_par_unseq,
                       ParentsVec.cbegin(),
                       ParentsVec.cend(), [&](function_index_t FIdx) {
                         function_t &caller = b.Analysis.Functions.at(FIdx);
 
-                        jv.Analysis.ReverseCallGraph.template add_edge<MT>(
-                            callee.ReverseCGVert<MT>(jv),
-                            caller.ReverseCGVert<MT>(jv));
+                        jv.Analysis.ReverseCallGraph.template add_edge<AreWeMT>(
+                            callee.ReverseCGVert(jv),
+                            caller.ReverseCGVert(jv));
                       });
       }
     }
@@ -672,7 +673,7 @@ explorer_t<MT, MinSize>::_explore_basic_block(binary_t &b,
     if (unlikely(Speculative)) {
       ICFG[basic_block_of_index(Idx, ICFG)].Term._call.Target = CalleeFIdx;
     } else {
-      auto s_lck_bbmap = b.BBMap.shared_access();
+      auto s_lck_bbmap = b.BBMap.template shared_access<AreWeMT>();
 
       ICFG[basic_block_at_address(T.Addr, b)].Term._call.Target = CalleeFIdx;
     }
@@ -736,10 +737,10 @@ void explorer_t<MT, MinSize>::_control_flow_to(
   if (unlikely(Speculative)) {
     ICFG.add_edge(bb, basic_block_of_index(SuccBBIdx, b));
   } else {
-    auto s_lck_bbmap = b.BBMap.shared_access();
+    auto s_lck_bbmap = b.BBMap.template shared_access<AreWeMT>();
 
-    ICFG.template add_edge<false>(basic_block_at_address(TermAddr, b),
-                                  basic_block_of_index(SuccBBIdx, b));
+    ICFG.template add_edge<AreWeMT>(basic_block_at_address(TermAddr, b),
+                                    basic_block_of_index(SuccBBIdx, b));
   }
 }
 

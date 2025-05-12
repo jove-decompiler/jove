@@ -93,7 +93,7 @@ typedef boost::container::vector<
     ip_func_index_vec;
 
 template <bool MT>
-using ip_func_index_vecs = possibly_concurrent_node_set<
+using ip_func_index_vec_set = possibly_concurrent_node_set<
     MT, std::true_type /* Spin */, ip_func_index_vec,
     boost::hash<ip_func_index_vec>, std::equal_to<ip_func_index_vec>,
     boost::interprocess::node_allocator<ip_func_index_vec, segment_manager_t>>;

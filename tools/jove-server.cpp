@@ -46,6 +46,8 @@ class ServerTool : public Tool {
                cl::cat(JoveCategory)) {}
   } opts;
 
+  tiny_code_generator_t TCG;
+
 public:
   ServerTool() : opts(JoveCategory) {}
 
@@ -294,6 +296,10 @@ void *ServerTool::ConnectionProc(void *arg) {
 
   std::string jv_s_path = (TemporaryDir / "serialized.jv").string();
   std::string tmpjv = (TemporaryDir / ".jv").string();
+
+  if (IsVerbose())
+    WithColor::note() << llvm::formatv("{0}\n", jv_s_path);
+
   {
     ssize_t ret = robust_receive_file_with_size(data_socket, jv_s_path.c_str(), 0666);
     if (ret < 0) {
@@ -303,6 +309,10 @@ void *ServerTool::ConnectionProc(void *arg) {
       return nullptr;
     }
   }
+
+
+  if (IsVerbose())
+    WithColor::note() << llvm::formatv("{0}\n", tmpjv);
 
   jv_file_t jv_file(boost::interprocess::create_only, tmpjv.c_str(),
                     jvDefaultInitialSize() /* FIXME */);
@@ -314,8 +324,6 @@ void *ServerTool::ConnectionProc(void *arg) {
 
   boost::concurrent_flat_set<dynamic_target_t> inflight;
   std::atomic<uint64_t> done = 0;
-
-  tiny_code_generator_t TCG;
 
   analyzer_options_t analyzer_opts;
   analyzer_opts.VerbosityLevel = VerbosityLevel();
@@ -341,8 +349,17 @@ void *ServerTool::ConnectionProc(void *arg) {
 
   recompiler_opts.temp_dir = temporary_dir();
 
-  auto run = [&]<bool MT, bool MinSize>(jv_base_t<MT, MinSize> &jv) {
-    using jv_t = jv_base_t<MT, MinSize>;
+  const std::string sysroot_dir = (TemporaryDir / "sysroot").string();
+  recompiler_opts.Output = sysroot_dir;
+
+  bool DidRun = false;
+
+  auto run = [&]<bool MT, bool MinSize>(void) -> void {
+    jv_base_t<MT, MinSize> &jv(
+        *jv_file.construct<jv_base_t<MT, MinSize>>("JV")(jv_file));
+
+    assert(!DidRun);
+    DidRun = true;
 
     UnserializeJVFromFile(jv, jv_file, jv_s_path.c_str());
 
@@ -352,18 +369,92 @@ void *ServerTool::ConnectionProc(void *arg) {
       B::is_coff(*Bin);
     });
 
-    analyzer_t<MT, MinSize> analyzer(analyzer_opts, TCG, jv, inflight, done);
+    llvm::LLVMContext Context;
+
+    int rc = ({
+    analyzer_t<MT, MinSize> analyzer(analyzer_opts, TCG, Context, jv, inflight, done);
+
     analyzer.update_callers();
     analyzer.update_parents();
     analyzer.identify_ABIs();
     analyzer.identify_Sjs();
-    analyzer.analyze_blocks();
-    analyzer.analyze_functions();
 
-#if 0
-    recompiler_t recompiler(jv);
-#endif
-    // TODO FIXME
+    (int)(analyzer.analyze_blocks() || analyzer.analyze_functions());
+    });
+
+    if (rc)
+      throw std::runtime_error("jove analyze failed!");
+
+    fs::create_directory(sysroot_dir);
+
+    rc = ({
+    recompiler_t<MT, MinSize> recompiler(jv, recompiler_opts, TCG, Context, locator());
+    recompiler.go();
+    });
+
+    if (rc)
+      throw std::runtime_error("jove recompile failed!");
+
+    SerializeJVToFile(jv, jv_file, jv_s_path.c_str(), true /* text */);
+
+  {
+    //
+    // send new jv
+    //
+    ssize_t ret = robust_sendfile_with_size(data_socket, jv_s_path.c_str());
+    if (ret < 0)
+      throw std::runtime_error(std::string("robust_sendfile_with_size failed: ") + strerror(-ret));
+  }
+
+  //
+  // send the rest of the DSO's that were recompiled
+  //
+  for (const binary_base_t<MT, MinSize> &binary : jv.Binaries) {
+    if (binary.IsVDSO)
+      continue;
+    if (binary.IsDynamicLinker)
+      continue;
+    if (!binary.is_file())
+      continue;
+
+    fs::path chrooted_path(fs::path(sysroot_dir) / binary.path_str());
+    if (!fs::exists(chrooted_path))
+      throw std::runtime_error(chrooted_path.string() + " not found");
+
+    if (IsVerbose())
+      llvm::errs() << llvm::formatv("sending {0}\n", chrooted_path.c_str());
+
+    ssize_t ret = robust_sendfile_with_size(data_socket, chrooted_path.c_str());
+
+    if (ret < 0)
+      throw std::runtime_error(
+          std::string("robust_sendfile_with_size failed: ") + strerror(-ret));
+  }
+
+  {
+    if (IsVerbose())
+      llvm::errs() << "sending jove runtime\n";
+
+    ssize_t ret = robust_sendfile_with_size(
+        data_socket, IsCOFF ? locator().runtime_dll(options.RuntimeMT).c_str()
+                            : locator().runtime_so(options.RuntimeMT).c_str());
+
+    if (ret < 0)
+      throw std::runtime_error(
+          std::string("robust_sendfile_with_size failed: ") + strerror(-ret));
+  }
+
+  if (options.DFSan) {
+    if (IsVerbose())
+      llvm::errs() << "sending jove dfsan runtime\n";
+
+    ssize_t ret =
+        robust_sendfile_with_size(data_socket, locator().dfsan_runtime().c_str());
+
+    if (ret < 0)
+      throw std::runtime_error(
+          std::string("robust_sendfile_with_size failed: ") + strerror(-ret));
+  }
   };
 
 #define MT_POSSIBILTIES                                                        \
@@ -376,184 +467,15 @@ void *ServerTool::ConnectionProc(void *arg) {
 #define GET_VALUE(x) BOOST_PP_TUPLE_ELEM(0, x)
 
 #define DO_JV_CASE(r, product)                                                 \
-  if (options.MT      == GET_VALUE(BOOST_PP_SEQ_ELEM(0, product)) &&           \
+  if (options.MT == GET_VALUE(BOOST_PP_SEQ_ELEM(0, product)) &&                \
       options.MinSize == GET_VALUE(BOOST_PP_SEQ_ELEM(1, product))) {           \
-    constexpr bool MT      = GET_VALUE(BOOST_PP_SEQ_ELEM(0, product));         \
-    constexpr bool MinSize = GET_VALUE(BOOST_PP_SEQ_ELEM(1, product));         \
-    using jv_t = jv_base_t<MT, MinSize>;                                       \
-                                                                               \
-    jv_t &jv(*jv_file.construct<jv_t>("JV")(jv_file));                         \
-    run(jv);                                                                   \
-    return nullptr;                                                            \
+    run.template operator()<GET_VALUE(BOOST_PP_SEQ_ELEM(0, product)),          \
+                            GET_VALUE(BOOST_PP_SEQ_ELEM(1, product))>();       \
   }
 
-  BOOST_PP_SEQ_FOR_EACH_PRODUCT(DO_JV_CASE,
-                                (MT_POSSIBILTIES)(MINSIZE_POSSIBILTIES))
+  BOOST_PP_SEQ_FOR_EACH_PRODUCT(DO_JV_CASE, (MT_POSSIBILTIES)(MINSIZE_POSSIBILTIES))
 
-#if 0
-  //
-  // analyze
-  //
-  int rc = RunToolToExit("analyze", [&](auto Arg) {
-    if (!options.foreign_libs)
-      Arg("--x=0");
-
-#if 0
-    if (!PinnedGlobals.empty()) {
-      std::string pinned_globals_arg = "--pinned-globals=";
-
-      for (const std::string &PinnedGlbStr : PinnedGlobals) {
-        pinned_globals_arg.append(PinnedGlbStr);
-        pinned_globals_arg.push_back(',');
-      }
-      assert(!pinned_globals_arg.empty());
-      pinned_globals_arg.resize(pinned_globals_arg.size() - 1);
-
-      Arg(pinned_globals_arg);
-    }
-#endif
-  },
-  [&](auto Env) {
-    InitWithEnviron(Env);
-
-    Env("JVPATH=" + tmpjv);
-  });
-
-  if (rc) {
-    WithColor::error() << llvm::formatv("jove analyze failed!\n");
-    return nullptr;
-  }
-
-  //
-  // recompile
-  //
-  std::string sysroot_dir = (TemporaryDir / "sysroot").string();
-  fs::create_directory(sysroot_dir);
-
-  rc = RunToolToExit("recompile", [&](auto Arg) {
-    Arg("-o");
-    Arg(sysroot_dir);
-
-    if (options.dfsan)
-      Arg("--dfsan");
-    if (options.call_stack)
-      Arg("--call-stack");
-    if (options.lay_out_sections)
-      Arg("--lay-out-sections");
-    if (!options.foreign_libs)
-      Arg("--x=0");
-    if (options.trace)
-      Arg("--trace");
-    if (options.optimize)
-      Arg("--optimize");
-    if (options.skip_copy_reloc_hack)
-      Arg("--skip-copy-reloc-hack");
-    if (options.debug_sjlj)
-      Arg("--debug-sjlj");
-    if (!options.abi_calls)
-      Arg("--abi-calls=0");
-    if (!options.rtmt)
-      Arg("--rtmt=0");
-
-#if 0
-    if (!PinnedGlobals.empty()) {
-      std::string pinned_globals_arg = "--pinned-globals=";
-
-      for (const std::string &PinnedGlbStr : PinnedGlobals) {
-        pinned_globals_arg.append(PinnedGlbStr);
-        pinned_globals_arg.push_back(',');
-      }
-      assert(!pinned_globals_arg.empty());
-      pinned_globals_arg.resize(pinned_globals_arg.size() - 1);
-
-      Arg(pinned_globals_arg);
-    }
-#endif
-  },
-  [&](auto Env) {
-    InitWithEnviron(Env);
-
-    Env("JVPATH=" + tmpjv);
-  });
-
-  if (rc) {
-    WithColor::error() << llvm::formatv("jove recompile failed!\n");
-    return nullptr;
-  }
-
-  SerializeJVToFile(jv, jv_file, jv_s_path.c_str(), true /* text */);
-  {
-    //
-    // send new jv
-    //
-    ssize_t ret = robust_sendfile_with_size(data_socket, jv_s_path.c_str());
-    if (ret < 0) {
-      WithColor::error() << llvm::formatv(
-          "robust_sendfile_with_size failed: {0}\n", strerror(-ret));
-      return nullptr;
-    }
-  }
-
-  //
-  // send the rest of the DSO's that were recompiled
-  //
-  for (const binary_t &binary : jv.Binaries) {
-    if (binary.IsVDSO)
-      continue;
-    if (binary.IsDynamicLinker)
-      continue;
-    if (!binary.is_file())
-      continue;
-
-    fs::path chrooted_path(fs::path(sysroot_dir) / binary.path_str());
-    if (!fs::exists(chrooted_path)) {
-      WithColor::error() << llvm::formatv("{0} not found\n",
-                                          chrooted_path.c_str());
-      return nullptr;
-    }
-
-    if (IsVerbose())
-      llvm::errs() << llvm::formatv("sending {0}\n", chrooted_path.c_str());
-
-    ssize_t ret = robust_sendfile_with_size(data_socket, chrooted_path.c_str());
-
-    if (ret < 0) {
-      WithColor::error() << llvm::formatv(
-          "robust_sendfile_with_size failed: {0}\n", strerror(-ret));
-      return nullptr;
-    }
-  }
-
-  {
-    if (IsVerbose())
-      llvm::errs() << "sending jove runtime\n";
-
-    ssize_t ret = robust_sendfile_with_size(
-        data_socket, IsCOFF ? locator().runtime_dll(options.rtmt).c_str()
-                            : locator().runtime_so(options.rtmt).c_str());
-
-    if (ret < 0) {
-      WithColor::error() << llvm::formatv(
-          "robust_sendfile_with_size failed: {0}\n", strerror(-ret));
-      return nullptr;
-    }
-  }
-
-  if (options.dfsan) {
-    if (IsVerbose())
-      llvm::errs() << "sending jove dfsan runtime\n";
-
-    ssize_t ret =
-        robust_sendfile_with_size(data_socket, locator().dfsan_runtime().c_str());
-
-    if (ret < 0) {
-      WithColor::error() << llvm::formatv(
-          "robust_sendfile_with_size failed: {0}\n", strerror(-ret));
-      return nullptr;
-    }
-  }
-
-#endif
+  assert(DidRun);
 
   return nullptr;
 }

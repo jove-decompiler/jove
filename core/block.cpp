@@ -24,8 +24,8 @@ static bool copy_and_insert_sort(const ip_func_index_vec &old,
 
   out.resize(old.size() + 1);
 
-  auto *const dst = out.data();
-  const auto *const src = old.data();
+  function_index_t *const dst = out.data();
+  const function_index_t *const src = old.data();
 
   if (idx > 0)
     std::memcpy(dst, src, idx * sizeof(function_index_t));
@@ -40,36 +40,23 @@ static bool copy_and_insert_sort(const ip_func_index_vec &old,
 template <bool MT, bool MinSize>
 void bbprop_t::Parents_t::insert(function_index_t FIdx,
                                  binary_base_t<MT, MinSize> &b) {
-  const ip_func_index_vec &FIdxVec = get<MT>();
-  if constexpr (MT) {
-    {
-      ip_func_index_vec copy(FIdxVec.get_allocator().get_segment_manager());
-      if (!copy_and_insert_sort(FIdxVec, copy, FIdx))
-        return;
+  {
+    const ip_func_index_vec &FIdxVec = get<AreWeMT>();
 
-      const ip_func_index_vec *TheVecPtr = nullptr;
+    ip_func_index_vec copy(b.get_segment_manager());
+    if (!copy_and_insert_sort(FIdxVec, copy, FIdx))
+      return;
 
-      auto grab = [&](const ip_func_index_vec &TheSet) -> void {
-        TheVecPtr = &TheSet;
-      };
-
-      b.FIdxVecs.insert_and_cvisit(boost::move(copy), grab, grab);
-
-      assert(TheVecPtr);
-      set<MT>(*TheVecPtr);
-    }
-
-    __attribute__((musttail)) return insert<MT>(FIdx, b);
-  } else {
-    ip_func_index_vec copy(FIdxVec.get_allocator().get_segment_manager());
-    if (copy_and_insert_sort(FIdxVec, copy, FIdx))
-      set<MT>(*b.FIdxVecs.insert(boost::move(copy)).first);
+    set<AreWeMT>(b.FIdxVecs.Add(boost::move(copy)));
   }
+
+  __attribute__((musttail)) return insert(FIdx, b);
 }
 
 template <bool MT, bool MinSize>
 bool bbprop_t::doInsertDynTarget(const dynamic_target_t &X,
-                                 jv_file_t &jv_file) {
+                                 jv_file_t &jv_file,
+                                 jv_base_t<MT, MinSize> &) {
   using OurDynTargets_t = DynTargets_t<MT, MinSize>;
 
   if (auto *p = pDynTargets.Load(std::memory_order_relaxed))
@@ -113,13 +100,13 @@ bool bbprop_t::insertDynTarget(binary_index_t ThisBIdx,
 
   function_t &callee = function_of_target(X, jv);
   callee.InvalidateAnalysis();
-  callee.Callers.insert<MT>(ThisBIdx, Term.Addr);
+  callee.Callers.insert<AreWeMT>(ThisBIdx, Term.Addr);
 
-  bool res = doInsertDynTarget<MT, MinSize>(X, jv_file);
+  bool res = doInsertDynTarget(X, jv_file, jv);
 
   if (res) {
     auto &RCG = jv.Analysis.ReverseCallGraph;
-    const auto &ParentsVec = Parents.template get<MT>();
+    const auto &ParentsVec = Parents.template get<AreWeMT>();
 
     std::for_each(maybe_par_unseq,
                   ParentsVec.cbegin(),
@@ -127,9 +114,9 @@ bool bbprop_t::insertDynTarget(binary_index_t ThisBIdx,
                     function_t &caller = caller_b.Analysis.Functions.at(FIdx);
                     caller.InvalidateAnalysis();
 
-                    RCG.template add_edge<MT>(
-                        callee.template ReverseCGVert<MT>(jv),
-                        caller.template ReverseCGVert<MT>(jv));
+                    RCG.template add_edge<AreWeMT>(
+                        callee.ReverseCGVert(jv),
+                        caller.ReverseCGVert(jv));
                   });
   }
 
@@ -158,13 +145,13 @@ void bbprop_t::InvalidateAnalysis(jv_base_t<MT, MinSize> &jv,
 
   function_invalidator_t invalidator(jv);
 
-  const auto &ParentsVec = Parents.template get<MT>();
+  const auto &ParentsVec = Parents.template get<AreWeMT>();
   std::for_each(maybe_par_unseq,
                 ParentsVec.cbegin(),
                 ParentsVec.cend(), [&](function_index_t FIdx) {
                   function_t &f = b.Analysis.Functions.at(FIdx);
 
-                  auto V = f.ReverseCGVert<MT>(jv);
+                  auto V = f.ReverseCGVert(jv);
 
                   jv.Analysis.ReverseCallGraph.depth_first_visit(V, invalidator);
                 });

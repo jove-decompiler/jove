@@ -65,7 +65,7 @@ double compute_score(const jv_base_t<MT, MinSize> &jv,
   // add up all the basic block lengths (M)
   //
   size_t M = ({
-    auto s_lck_bbmap = b.BBMap.shared_access();
+    auto s_lck_bbmap = b.BBMap.template shared_access<AreWeMT>();
 
     std::accumulate(b.BBMap.map.cbegin(),
                     b.BBMap.map.cend(), 0,

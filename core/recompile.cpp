@@ -2,6 +2,7 @@
 #include "B.h"
 #include "triple.h"
 #include "recompile.h"
+#include "llvm.h"
 
 #ifndef JOVE_NO_BACKEND
 
@@ -1137,6 +1138,8 @@ void recompiler_t<MT, MinSize>::worker(dso_t dso) {
   //
   std::string path_to_stdout = bcfp + ".llvm.stdout.txt";
   std::string path_to_stderr = bcfp + ".llvm.stderr.txt";
+
+  if constexpr (MT == AreWeMT && MinSize == AreWeMinSize) {
   rc = RunExecutableToExit(
       "/proc/self/exe", /* FIXME */
       [&](auto Arg) {
@@ -1215,6 +1218,23 @@ void recompiler_t<MT, MinSize>::worker(dso_t dso) {
 #endif
       },
       path_to_stdout, path_to_stderr);
+  } else {
+    llvm_options_t llvm_opts(llvm_options);
+
+    if (B::is_coff(*state.for_binary(b).Bin)) {
+      if (b.IsExecutable)
+        llvm_opts.LinkerScript = ldfp;
+    } else {
+      llvm_opts.VersionScript = mapfp;
+    }
+
+    llvm_opts.Output = bcfp;
+    llvm_opts.BinaryIndex = std::to_string(BIdx);
+    llvm_opts.Optimize = opts.Optimize;
+
+    llvm_t llvm(jv, llvm_opts, analyzer_options, TCG, Context, locator());
+    rc = llvm.go();
+  }
 
   //
   // check exit code

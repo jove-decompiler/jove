@@ -1,6 +1,7 @@
 #include "analyze.h"
 #include "B.h"
 #include "locator.h"
+#include "llvm.h"
 
 #ifndef JOVE_NO_BACKEND
 
@@ -26,17 +27,17 @@ template <bool MT, bool MinSize>
 analyzer_t<MT, MinSize>::analyzer_t(
     const analyzer_options_t &options,
     tiny_code_generator_t &TCG,
+    llvm::LLVMContext &Context,
     jv_t &jv,
     boost::concurrent_flat_set<dynamic_target_t> &inflight,
     std::atomic<uint64_t> &done)
     : options(options), TCG(TCG), jv(jv), state(jv), cg(jv),
       IsCOFF(B::is_coff(*state.for_binary(jv.Binaries.at(0)).Bin)),
+      Context(Context),
       inflight(inflight), done(done) {
   //
   // create LLVM module (necessary to analyze helpers)
   //
-  Context.reset(new llvm::LLVMContext);
-
   std::string path_to_bitcode = locator_t::starter_bitcode(false, IsCOFF);
 
   llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> BufferOr =
@@ -46,7 +47,7 @@ analyzer_t<MT, MinSize>::analyzer_t(
                              BufferOr.getError().message());
 
   llvm::Expected<std::unique_ptr<llvm::Module>> moduleOr =
-      llvm::parseBitcodeFile(BufferOr.get()->getMemBufferRef(), *Context);
+      llvm::parseBitcodeFile(BufferOr.get()->getMemBufferRef(), Context);
   if (!moduleOr)
     throw std::runtime_error(std::string("could not parse helper bitcode: ") +
                              llvm::toString(moduleOr.takeError()));
@@ -67,7 +68,7 @@ void analyzer_t<MT, MinSize>::update_callers(void) {
           assert(TermAddr);
 
           function_t &callee = b.Analysis.Functions.at(bbprop.Term._call.Target);
-          callee.Callers.insert<MT>(index_of_binary(b), TermAddr);
+          callee.Callers.insert<AreWeMT>(index_of_binary(b), TermAddr);
           return;
         }
 
@@ -78,7 +79,7 @@ void analyzer_t<MT, MinSize>::update_callers(void) {
             assert(TermAddr);
 
             function_t &f = function_of_target(X, jv);
-            f.Callers.insert<MT>(index_of_binary(b, jv), TermAddr);
+            f.Callers.insert<AreWeMT>(index_of_binary(b, jv), TermAddr);
           });
         }
       });
@@ -98,9 +99,7 @@ void analyzer_t<MT, MinSize>::update_parents(void) {
                   bbvec.begin(),
                   bbvec.end(),
                   [&](bb_t bb) {
-                    bbprop_t &bbprop = ICFG[bb];
-                    if (!bbprop.Parents.contains<MT>(FIdx))
-                      bbprop.Parents.insert<MT>(FIdx, b);
+                    ICFG[bb].Parents.insert(FIdx, b);
                   });
   });
 }
@@ -144,7 +143,7 @@ void analyzer_t<MT, MinSize>::identify_Sjs(void) {
 
         if (x.IsSj) {
           const ip_callers_t *pcallers;
-          auto s_lck_callers = f.Callers.get<MT>(pcallers);
+          auto s_lck_callers = f.Callers.get<AreWeMT>(pcallers);
 
           std::for_each(
               pcallers->cbegin(),
@@ -169,13 +168,6 @@ void analyzer_t<MT, MinSize>::identify_Sjs(void) {
       });
 }
 
-// defined in tools/llvm.cpp
-void AnalyzeBasicBlock(tiny_code_generator_t &,
-                       llvm::Module &,
-                       llvm::object::Binary &,
-                       const char *B_Name,
-                       bbprop_t &,
-                       const analyzer_options_t &);
 
 template <bool MT, bool MinSize>
 int analyzer_t<MT, MinSize>::analyze_blocks(void) {
@@ -188,8 +180,9 @@ int analyzer_t<MT, MinSize>::analyze_blocks(void) {
         if (ICFG[bb].Analysis.Stale)
           ++count;
 
-        AnalyzeBasicBlock(TCG, *Module, *state.for_binary(b).Bin,
-                          b.Name.c_str(), ICFG[bb], options);
+        AnalyzeBasicBlock(TCG, helper_func_map, *Module,
+                          *state.for_binary(b).Bin, b.Name.c_str(), ICFG[bb],
+                          options);
 
         assert(!ICFG[bb].Analysis.Stale);
       });
@@ -433,8 +426,8 @@ flow_vertex_t analyzer_t<MT, MinSize>::copy_function_cfg(
   // make sure basic blocks have been analyzed
   //
   for (bb_t bb : bbvec)
-    AnalyzeBasicBlock(TCG, *Module, *state.for_binary(b).Bin, b.Name.c_str(),
-                      ICFG[bb], options);
+    AnalyzeBasicBlock(TCG, helper_func_map, *Module, *state.for_binary(b).Bin,
+                      b.Name.c_str(), ICFG[bb], options);
 
   if (!IsLeafFunction(f, b, bbvec, exit_bbvec)) {
     //
@@ -564,8 +557,8 @@ flow_vertex_t analyzer_t<MT, MinSize>::copy_function_cfg(
         }
       } else {
       bool FirstOne = true;
-      DynTargets.ForEach(
-        [&](const dynamic_target_t &DynTarget) {
+      auto process_dynamic_target =
+        [&](const dynamic_target_t &DynTarget) -> void {
 #if 0
         if (options.Precision == 0) {
           if (!FirstOne)
@@ -616,7 +609,16 @@ flow_vertex_t analyzer_t<MT, MinSize>::copy_function_cfg(
               G[E].reach.mask = CallConvRets;
           }
 #endif
-        });
+        };
+
+      if constexpr (MT) { /* XXX prevent reentrancy */
+        DynTargets_t<MT, MinSize> copy(DynTargets);
+        DynTargets_t<false, MinSize> DynTargets_(std::move(copy));
+
+        DynTargets_.ForEach(process_dynamic_target);
+      } else {
+        DynTargets.ForEach(process_dynamic_target);
+      }
       }
       }
 
@@ -780,8 +782,8 @@ flow_vertex_t analyzer_t<MT, MinSize>::copy_function_cfg(
           exitVertices.emplace_back(dummyV, IsABI);
       } else {
       bool FirstOne = true;
-      DynTargets.ForEach(
-        [&](const dynamic_target_t &DynTarget) {
+      auto process_dynamic_target =
+        [&](const dynamic_target_t &DynTarget) -> void {
 #if 0
         if (options.Precision == 0) {
           if (!FirstOne)
@@ -805,7 +807,17 @@ flow_vertex_t analyzer_t<MT, MinSize>::copy_function_cfg(
 
           exitVertices.emplace_back(exitV, callee.IsABI);
         }
-      });
+      };
+
+      if constexpr (MT) { /* XXX prevent reentrancy */
+        DynTargets_t<MT, MinSize> copy(DynTargets);
+        DynTargets_t<false, MinSize> DynTargets_(std::move(copy));
+
+        DynTargets_.ForEach(process_dynamic_target);
+      } else {
+        DynTargets.ForEach(process_dynamic_target);
+      }
+
       }
 
       if (savedNumExitVerts == exitVertices.size()) {

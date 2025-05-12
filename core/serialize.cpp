@@ -588,16 +588,12 @@ void SerializeJV(const jv_base_t<MT, MinSize> &in,
   IsMT_hack = MT;
   IsMinSize_hack = MinSize;
 
-  try {
-    if (text) {
-      boost::archive::text_oarchive oa(os);
-      oa << in;
-    } else {
-      boost::archive::binary_oarchive oa(os);
-      oa << in;
-    }
-  } catch (...) {
-    throw std::runtime_error("SerializeJV failed!");
+  if (text) {
+    boost::archive::text_oarchive oa(os);
+    oa << in;
+  } else {
+    boost::archive::binary_oarchive oa(os);
+    oa << in;
   }
 }
 
@@ -627,16 +623,12 @@ void UnserializeJV(jv_base_t<MT, MinSize> &out,
 
   out.clear();
 
-  try {
-    if (text) {
-      boost::archive::text_iarchive ia(is);
-      ia >> out;
-    } else {
-      boost::archive::binary_iarchive ia(is);
-      ia >> out;
-    }
-  } catch (...) {
-    throw std::runtime_error("UnserializeJV failed!");
+  if (text) {
+    boost::archive::text_iarchive ia(is);
+    ia >> out;
+  } else {
+    boost::archive::binary_iarchive ia(is);
+    ia >> out;
   }
 
   hack_interprocess_graphs(out); // XXX FIXME

@@ -486,17 +486,17 @@ void jv_base_t<MT, MinSize>::fixup_binary(const binary_index_t BIdx) {
 
         function_t &callee = b.Analysis.Functions.at(bbprop.Term._call.Target);
 
-        callee.Callers.insert<MT>(BIdx, bbprop.Term.Addr);
+        callee.Callers.insert<AreWeMT>(BIdx, bbprop.Term.Addr);
 
-        const auto &ParentsVec = bbprop.Parents.template get<MT>();
+        const auto &ParentsVec = bbprop.Parents.template get<AreWeMT>();
         std::for_each(maybe_par_unseq,
                       ParentsVec.cbegin(),
                       ParentsVec.cend(), [&](function_index_t FIdx) {
                         function_t &caller = b.Analysis.Functions.at(FIdx);
 
-                        Analysis.ReverseCallGraph.template add_edge<MT>(
-                            callee.ReverseCGVert<MT>(*this),
-                            caller.ReverseCGVert<MT>(*this));
+                        Analysis.ReverseCallGraph.template add_edge<AreWeMT>(
+                            callee.ReverseCGVert(*this),
+                            caller.ReverseCGVert(*this));
                       });
       });
 }

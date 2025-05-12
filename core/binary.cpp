@@ -22,7 +22,7 @@ bool binary_base_t<MT, MinSize>::FixAmbiguousIndirectJump(
 
   auto &ICFG = this->Analysis.ICFG;
   {
-    auto s_lck_bbmap = this->BBMap.shared_access();
+    auto s_lck_bbmap = this->BBMap.template shared_access<AreWeMT>();
 
     bb = basic_block_at_address(TermAddr, *this);
 
@@ -52,7 +52,7 @@ bool binary_base_t<MT, MinSize>::FixAmbiguousIndirectJump(
                  });
 
   {
-    auto s_lck_bbmap = this->BBMap.shared_access();
+    auto s_lck_bbmap = this->BBMap.template shared_access<AreWeMT>();
 
     ICFG.template clear_out_edges<MT>(bb); /* ambiguous no more */
 

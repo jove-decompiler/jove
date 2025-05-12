@@ -26,6 +26,19 @@ struct analyzer_options_t {
   bool IsVeryVerbose(void) const { return VerbosityLevel >= 2; };
 };
 
+struct helper_function_t {
+  llvm::Function *F;
+  int EnvArgNo;
+
+  struct {
+    bool Simple;
+    tcg_global_set_t InGlbs, OutGlbs;
+  } Analysis;
+};
+
+using helper_func_map_t =
+    boost::unordered::unordered_flat_map<uintptr_t, helper_function_t>;
+
 template <bool MT, bool MinSize>
 struct analyzer_t {
   using jv_t = jv_base_t<MT, MinSize>;
@@ -71,14 +84,16 @@ struct analyzer_t {
 
   const bool IsCOFF;
 
-  std::unique_ptr<llvm::LLVMContext> Context;
-  std::unique_ptr<llvm::Module> Module;
+  llvm::LLVMContext &Context;
+  std::unique_ptr<llvm::Module> Module; /* initialized from starter bitcode */
+  helper_func_map_t helper_func_map;
 
   boost::concurrent_flat_set<dynamic_target_t> &inflight;
   std::atomic<uint64_t> &done;
 
   analyzer_t(const analyzer_options_t &,
              tiny_code_generator_t &,
+             llvm::LLVMContext &,
              jv_t &,
              boost::concurrent_flat_set<dynamic_target_t> &inflight,
              std::atomic<uint64_t> &done);

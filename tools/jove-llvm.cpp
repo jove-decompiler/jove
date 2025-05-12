@@ -29,7 +29,7 @@ struct LLVMTool : public JVTool<ToolKind::CopyOnWrite> {
     cl::opt<bool> DFSan;
     cl::opt<std::string> DFSanOutputModuleID;
     cl::opt<bool> CallStack;
-    bool CheckEmulatedReturnAddress;
+    cl::opt<bool> CheckEmulatedStackReturnAddress;
     cl::opt<bool> ForeignLibs;
     cl::alias ForeignLibsAlias;
     cl::list<std::string> PinnedGlobals;
@@ -119,6 +119,10 @@ struct LLVMTool : public JVTool<ToolKind::CopyOnWrite> {
                     cl::desc("Write state of recompiled call stack to file "
                              "path formed from $JOVECALLS"),
                     cl::cat(JoveCategory)),
+
+          CheckEmulatedStackReturnAddress("check-emu-stack-ret-addr",
+                                          cl::desc("Check for stack smashing"),
+                                          cl::cat(JoveCategory)),
 
           ForeignLibs("foreign-libs",
                       cl::desc("only recompile the executable itself; "
@@ -215,7 +219,7 @@ int LLVMTool::Run(void) {
   PROPOGATE_OPTION(Binary);
   PROPOGATE_OPTION(BinaryIndex);
   PROPOGATE_OPTION(ForeignLibs);
-  PROPOGATE_OPTION(CheckEmulatedReturnAddress);
+  PROPOGATE_OPTION(CheckEmulatedStackReturnAddress);
   PROPOGATE_OPTION(DumpTCG);
   PROPOGATE_OPTION(ForAddr);
   PROPOGATE_OPTION(DFSan);
@@ -241,7 +245,8 @@ int LLVMTool::Run(void) {
 
   analyzer_options.ForCBE = llvm_options.ForCBE; // XXX
 
-  llvm_t llvm(jv, llvm_options, analyzer_options, TCG, locator());
+  llvm::LLVMContext Context;
+  llvm_t llvm(jv, llvm_options, analyzer_options, TCG, Context, locator());
   return llvm.go();
 }
 
