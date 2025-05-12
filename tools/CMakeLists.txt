@@ -26,6 +26,7 @@ set(JOVE_TOOL_FLAGS
   "-Wno-sign-compare"
   "-Wno-unused-lambda-capture"
   "-Wno-missing-template-arg-list-after-template-kw"
+  "-Wno-gnu-label-as-value"
 )
 
 set(JOVE_ALL_TARGETS
