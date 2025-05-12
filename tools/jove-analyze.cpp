@@ -6,6 +6,8 @@
 
 #ifndef JOVE_NO_BACKEND
 
+#include <oneapi/tbb/parallel_invoke.h>
+
 #include <boost/filesystem.hpp>
 #include <boost/format.hpp>
 
@@ -115,6 +117,12 @@ int AnalyzeTool::Run(void) {
   analyzer.identify_ABIs();
   analyzer.identify_Sjs();
 #endif
+
+    oneapi::tbb::parallel_invoke(
+        [&](void) -> void { analyzer.update_callers(); },
+        [&](void) -> void { analyzer.update_parents(); },
+        [&](void) -> void { analyzer.identify_ABIs(); });
+    analyzer.identify_Sjs();
 
   return AnalyzeBlocks()
       || AnalyzeFunctions();

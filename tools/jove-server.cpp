@@ -7,6 +7,8 @@
 
 #ifndef JOVE_NO_BACKEND
 
+#include <oneapi/tbb/parallel_invoke.h>
+
 #include <boost/filesystem.hpp>
 
 #include <llvm/Support/FormatVariadic.h>
@@ -392,9 +394,10 @@ void *ServerTool::ConnectionProc(void *arg) {
     int rc = ({
     analyzer_t analyzer(analyzer_opts, TCG, Context, jv, inflight, done);
 
-    analyzer.update_callers();
-    analyzer.update_parents();
-    analyzer.identify_ABIs();
+    oneapi::tbb::parallel_invoke(
+        [&analyzer](void) -> void { analyzer.update_callers(); },
+        [&analyzer](void) -> void { analyzer.update_parents(); },
+        [&analyzer](void) -> void { analyzer.identify_ABIs(); },
     analyzer.identify_Sjs();
 
     (int)(analyzer.analyze_blocks() || analyzer.analyze_functions());
