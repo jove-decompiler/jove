@@ -72,9 +72,8 @@ void jv_base_t<MT, MinSize>::LookupAndCacheHash(
     to_ips(ips, sv);
 
     this->cached_hashes.try_emplace_or_visit(
-        std::move(ips),
-        path, std::ref(file_contents), std::ref(out),
-        [&](typename ip_cached_hashes_type<MT, MinSize>::value_type &x) -> void {
+        std::move(ips), path, std::ref(file_contents), std::ref(out),
+        [&](auto &x) -> void {
           x.second.Update(path, file_contents);
           out = x.second.h;
         });
@@ -102,9 +101,8 @@ bool jv_base_t<MT, MinSize>::LookupByName(const char *name, binary_index_set &ou
   std::string_view sv(name);
 
   if constexpr (MT) {
-    return static_cast<bool>(this->name_to_binaries.cvisit(
-        sv,
-        [&](const typename ip_name_to_binaries_map_type<MT, MinSize>::value_type &x) -> void {
+    return static_cast<bool>(
+        this->name_to_binaries.cvisit(sv, [&](const auto &x) -> void {
           assert(!x.second.empty());
           x.second.cvisit_all(
               [&](binary_index_t BIdx) -> void { out.insert(BIdx); });
@@ -127,10 +125,9 @@ std::optional<binary_index_t> jv_base_t<MT, MinSize>::LookupByHash(const hash_t 
   std::optional<binary_index_t> Res = std::nullopt;
 
   if constexpr (MT) {
-    this->hash_to_binary.cvisit(
-        h, [&](const typename ip_hash_to_binary_map_type<MT, MinSize>::value_type &x) -> void {
-          Res = static_cast<binary_index_t>(x.second);
-        });
+    this->hash_to_binary.cvisit(h, [&](const auto &x) -> void {
+      Res = static_cast<binary_index_t>(x.second);
+    });
   } else {
     auto it = this->hash_to_binary.find(h);
     if (it != this->hash_to_binary.end())
@@ -195,8 +192,9 @@ jv_base_t<MT, MinSize>::Add(jv_file_t &jv_file,
     if constexpr (MT) {
       isNewBinary = this->hash_to_binary.try_emplace_or_visit(
           h, std::ref(Res), std::ref(jv_file), *this, std::move(b),
-          [&](const typename ip_hash_to_binary_map_type<MT, MinSize>::value_type
-                  &x) -> void { Res = static_cast<binary_index_t>(x.second); });
+          [&](const auto &x) -> void {
+            Res = static_cast<binary_index_t>(x.second);
+          });
     } else {
       auto it = this->hash_to_binary.find(h);
       if (it == this->hash_to_binary.end()) {
@@ -225,9 +223,7 @@ jv_base_t<MT, MinSize>::Add(jv_file_t &jv_file,
   if constexpr (MT) {
     isNewName = this->name_to_binaries.try_emplace_or_visit(
         b_.Name, boost::move(ResSet),
-        [&](typename ip_name_to_binaries_map_type<MT, MinSize>::value_type &x) -> void {
-          x.second.insert(Res);
-        });
+        [&](auto &x) -> void { x.second.insert(Res); });
   } else {
     auto it = this->name_to_binaries.find(b_.Name);
     if (it == this->name_to_binaries.end()) {
@@ -276,9 +272,9 @@ std::pair<binary_index_t, bool> jv_base_t<MT, MinSize>::AddFromDataWithHash(
     if constexpr (MT) {
       isNewBinary = this->hash_to_binary.try_emplace_or_visit(
           h, std::ref(Res), jv_file, *this, explorer, get_data, std::ref(h),
-          name, std::ref(Options),
-          [&](const typename ip_hash_to_binary_map_type<MT, MinSize>::value_type
-                  &x) -> void { Res = static_cast<binary_index_t>(x.second); });
+          name, std::ref(Options), [&](const auto &x) -> void {
+            Res = static_cast<binary_index_t>(x.second);
+          });
     } else {
       auto it = this->hash_to_binary.find(h);
       if (it == this->hash_to_binary.end()) {
@@ -312,11 +308,8 @@ std::pair<binary_index_t, bool> jv_base_t<MT, MinSize>::AddFromDataWithHash(
     to_ips(name_ips, name_sv);
 
     isNewName = this->name_to_binaries.try_emplace_or_visit(
-        std::move(name_ips),
-        boost::move(ResSet),
-        [&](typename ip_name_to_binaries_map_type<MT, MinSize>::value_type &x) -> void {
-          x.second.insert(Res);
-        });
+        std::move(name_ips), boost::move(ResSet),
+        [&](auto &x) -> void { x.second.insert(Res); });
   } else {
     auto it = this->name_to_binaries.find(name_sv);
     if (it == this->name_to_binaries.end()) {
