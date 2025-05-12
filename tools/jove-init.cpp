@@ -324,16 +324,12 @@ int InitTool::Run(void) {
         //
         // explore them for real
         //
-#if 0
         try {
-#endif
           jv.DoAdd(b, explorer, *Bin, AddOptions);
-#if 0
         } catch (const std::exception &e) {
           die(std::string("failed to add \"") + b.Name.c_str() +
               std::string("\": ") + e.what());
         }
-#endif
 
         bool isNewBinary = jv.TryHashToBinaryEmplace(b.Hash, BIdx);
         if (!isNewBinary) {
