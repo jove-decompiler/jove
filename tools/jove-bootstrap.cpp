@@ -432,6 +432,7 @@ public:
   bool UpdateVM(pid_t);
   void ScanAddressSpace(pid_t child, bool VMUpdate = true);
 
+  uintptr_t pc_of_offset(uintptr_t off, binary_index_t BIdx);
   uintptr_t pc_of_va(uintptr_t Addr, binary_index_t BIdx);
   uintptr_t va_of_pc(uintptr_t Addr, binary_index_t BIdx);
 
@@ -685,6 +686,18 @@ int BootstrapTool::Run(void) {
 
     return TracerLoop(-1);
   }
+}
+
+uintptr_t BootstrapTool::pc_of_offset(uintptr_t off, binary_index_t BIdx) {
+  binary_t &binary = jv.Binaries.at(BIdx);
+
+  if (!BinFoundVec.test(BIdx))
+    throw std::runtime_error(std::string(__func__) + ": given binary (" +
+                             binary.Name.c_str() + " is not loaded\n");
+
+  binary_state_t &x = state.for_binary(binary);
+
+  return off + (x.LoadAddr - x.LoadOffset);
 }
 
 uintptr_t BootstrapTool::pc_of_va(uintptr_t Addr, binary_index_t BIdx) {
@@ -1190,8 +1203,7 @@ int BootstrapTool::TracerLoop(pid_t child) {
 
               if (child == saved_child) {
                 if (IsVerbose())
-                  HumanOut() << "Observed program exit.\n";
-                harvest_reloc_targets(child);
+                  HumanOut() << "Child has exited.\n";
               }
               break;
             case PTRACE_EVENT_STOP:
@@ -3225,12 +3237,16 @@ void BootstrapTool::harvest_irelative_reloc_targets(pid_t child) {
     } Resolved;
 
     try {
-      Resolved.Addr = _ptrace_peekdata(child, pc_of_va(R.Offset, BIdx));
+      Resolved.Addr = _ptrace_peekdata(child, pc_of_offset(R.Offset, BIdx));
+      if (IsVerbose())
+        HumanOut() << llvm::formatv(
+            "harvest_irelative_reloc_targets [{0}]: success!\n",
+            b.Name.c_str());
     } catch (const std::exception &e) {
       if (IsVerbose())
-        HumanOut()
-            << llvm::formatv("{0}: exception: {1}\n",
-                             "harvest_irelative_reloc_targets", e.what());
+        HumanOut() << llvm::formatv(
+            "harvest_irelative_reloc_targets [{0}]: exception: {1}\n",
+            b.Name.c_str(), e.what());
       return;
     }
 
@@ -3549,15 +3565,14 @@ void BootstrapTool::harvest_global_GOT_entries(pid_t child) {
 #endif
 
 void BootstrapTool::harvest_reloc_targets(pid_t child) {
-  harvest_irelative_reloc_targets(child);
+  return; /* no longer used FIXME */
 
-#if 0
+  harvest_irelative_reloc_targets(child);
   harvest_addressof_reloc_targets(child);
   harvest_ctor_and_dtors(child);
 
 #if defined(__mips64) || defined(__mips__)
   harvest_global_GOT_entries(child);
-#endif
 #endif
 }
 
@@ -4278,10 +4293,12 @@ void BootstrapTool::rendezvous_with_dynamic_linker(pid_t child) {
       return;
     }
 
-    if (unlikely(IsVerbose()) && unlikely(r_dbg.r_brk))
-      HumanOut() << llvm::formatv("r_brk={0:x}\n", r_dbg.r_brk);
-
     _r_debug.r_brk = r_dbg.r_brk;
+
+    if (_r_debug.r_brk <= 16) /* 0x3 has been witnessed */
+      _r_debug.r_brk = 0;
+    else if (unlikely(IsVerbose()))
+      HumanOut() << llvm::formatv("r_brk is now {0:x}\n", r_dbg.r_brk);
   }
 
   if (_r_debug.r_brk) {
