@@ -666,6 +666,19 @@ using ip_call_graph_base_t =
                       boost::no_property,              /* GraphProperties */
                       boost::vecS_ip>;                 /* EdgeList */
 
+//
+// until we come up with a cleaner source code patch for boost-graph (to make it
+// work with boost interprocess (stateful) allocators), we need to do this for
+// now XXX FIXME
+//
+template <bool MT, bool Spin, bool PointUnique, typename... Args>
+static inline void hack_interprocess_graph(
+    ip_adjacency_list<MT, Spin, PointUnique, Args...> &ip_adj) {
+  auto &x = ip_adj.container();
+
+  __builtin_memset_inline(&x.m_property, 0, sizeof(x.m_property));
+}
+
 template <bool MT, bool MinSize>
 using Callers_t = PossiblyConcurrentNodeOrFlatSet_t<MT, MinSize, caller_t>;
 
@@ -869,19 +882,25 @@ struct binary_base_t {
     explicit Analysis_t(jv_file_t &jv_file) noexcept
         : Functions(jv_file),
           ICFG(jv_file),
-          objdump(jv_file.get_segment_manager()) {}
+          objdump(jv_file.get_segment_manager()) {
+      hack_interprocess_graph(ICFG);
+    }
 
     explicit Analysis_t(Analysis_t &&other) noexcept
         : EntryFunction(std::move(other.EntryFunction)),
           Functions(std::move(other.Functions)),
           ICFG(std::move(other.ICFG)),
-          objdump(std::move(other.objdump)) {}
+          objdump(std::move(other.objdump)) {
+      hack_interprocess_graph(ICFG);
+    }
 
     explicit Analysis_t(typename binary_base_t<!MT, MinSize>::Analysis_t &&other) noexcept
         : EntryFunction(std::move(other.EntryFunction)),
           Functions(std::move(other.Functions)),
           ICFG(std::move(other.ICFG)),
-          objdump(std::move(other.objdump)) {}
+          objdump(std::move(other.objdump)) {
+      hack_interprocess_graph(ICFG);
+    }
 
     template <bool MT2>
     Analysis_t &
@@ -1199,14 +1218,20 @@ struct jv_base_t {
     ip_call_graph_base_t<MT> ReverseCallGraph;
 
     explicit Analysis_t(jv_file_t &jv_file) noexcept
-        : ReverseCallGraph(jv_file) {}
+        : ReverseCallGraph(jv_file) {
+      hack_interprocess_graph(ReverseCallGraph);
+    }
 
     explicit Analysis_t(Analysis_t &&other) noexcept
-        : ReverseCallGraph(std::move(other.ReverseCallGraph)) {}
+        : ReverseCallGraph(std::move(other.ReverseCallGraph)) {
+      hack_interprocess_graph(ReverseCallGraph);
+    }
 
     explicit Analysis_t(
         typename jv_base_t<!MT, MinSize>::Analysis_t &&other) noexcept
-        : ReverseCallGraph(std::move(other.ReverseCallGraph)) {}
+        : ReverseCallGraph(std::move(other.ReverseCallGraph)) {
+      hack_interprocess_graph(ReverseCallGraph);
+    }
   } Analysis;
 
   ip_hash_to_binary_map_type<MT, MinSize> hash_to_binary;
@@ -2216,10 +2241,8 @@ get_vdso(const jv_base_t<MT, MinSize> &jv) {
 //
 template <bool MT, bool MinSize>
 static inline void hack_interprocess_graphs(jv_base_t<MT, MinSize> &jv) {
-  for_each_binary(maybe_par_unseq, jv, [&](auto &b) {
-    __builtin_memset_inline(&b.Analysis.ICFG.container().m_property, 0,
-                            sizeof(b.Analysis.ICFG.container().m_property));
-  });
+  for_each_binary(maybe_par_unseq, jv,
+                  [&](auto &b) { hack_interprocess_graph(b.Analysis.ICFG); });
 }
 
 #include "jove/state.h.inc"
