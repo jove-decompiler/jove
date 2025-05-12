@@ -58,7 +58,7 @@ analyzer_t<MT, MinSize>::analyzer_t(
 template <bool MT, bool MinSize>
 void analyzer_t<MT, MinSize>::update_callers(void) {
   for_each_basic_block(
-      std::execution::unseq, jv,
+      maybe_par_unseq, jv,
       [&](binary_t &b, bb_t bb) {
         auto &ICFG = b.Analysis.ICFG;
         bbprop_t &bbprop = ICFG[bb];

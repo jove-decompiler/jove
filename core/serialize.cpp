@@ -635,7 +635,7 @@ void UnserializeJV(jv_base_t<MT, MinSize> &out,
 
   // XXX
   using bb_t = ip_icfg_base_t<MT>::vertex_descriptor;
-  for_each_basic_block(std::execution::unseq, out,
+  for_each_basic_block(maybe_par_unseq, out,
                        [&](binary_base_t<MT, MinSize> &b, bb_t bb) {
                          auto &ICFG = b.Analysis.ICFG;
                          bbprop_t &bbprop = ICFG[bb];
