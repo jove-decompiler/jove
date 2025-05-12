@@ -1208,6 +1208,8 @@ struct jv_base_t {
   using binary_t = binary_base_t<MT, MinSize>;
   using bb_t = typename ip_icfg_base_t<MT>::vertex_descriptor;
 
+  boost::interprocess::offset_ptr<segment_manager_t> sm_ = nullptr;
+
   //
   // references to binary_t will never be invalidated.
   //
@@ -1265,18 +1267,21 @@ struct jv_base_t {
   void clear(bool everything = false);
 
   segment_manager_t *get_segment_manager(void) const {
-    return hash_to_binary.get_allocator().get_segment_manager();
+    assert(sm_);
+    return sm_.get();
   }
 
   explicit jv_base_t(jv_file_t &jv_file) noexcept
-      : Binaries(jv_file),
+      : sm_(jv_file.get_segment_manager()),
+        Binaries(jv_file),
         Analysis(jv_file),
         hash_to_binary(jv_file.get_segment_manager()),
         cached_hashes(jv_file.get_segment_manager()),
         name_to_binaries(jv_file.get_segment_manager()) {}
 
   explicit jv_base_t(jv_base_t<MT, MinSize> &&other, jv_file_t &jv_file) noexcept
-      : Binaries(std::move(other.Binaries)),
+      : sm_(jv_file.get_segment_manager()),
+        Binaries(std::move(other.Binaries)),
         Analysis(std::move(other.Analysis)),
         hash_to_binary(std::move(other.hash_to_binary)),
         cached_hashes(std::move(other.cached_hashes)),
@@ -1284,7 +1289,8 @@ struct jv_base_t {
   }
 
   explicit jv_base_t(jv_base_t<!MT, MinSize> &&other, jv_file_t &jv_file) noexcept
-      : Binaries(jv_file),
+      : sm_(jv_file.get_segment_manager()),
+        Binaries(jv_file),
         Analysis(std::move(other.Analysis)),
         hash_to_binary(std::move(other.hash_to_binary)),
         cached_hashes(std::move(other.cached_hashes)),
