@@ -112,6 +112,8 @@ class JoveTester:
       self.sess = tmux.new_session(session_name=self.session_name(), window_name=JoveTester.WINDOWS[0])
       print('created tmux session ' + str(self.sess))
 
+      self.sess.set_option('history-limit', 100000)
+
       assert self.sess.windows[0].name == JoveTester.WINDOWS[0]
 
       self.wins[0] = self.sess.windows[0]
@@ -182,6 +184,11 @@ class JoveTester:
 
       p = self.pane("server")
       p.send_keys(" ".join(server_cmd)) # this is unreliable!!!
+
+  def is_server_down(self):
+    if self.serv_process is None:
+      return False
+    return self.serv_process.poll() != None
 
   def is_vm_ready(self):
     return any("login:" in row for row in self.pane("qemu").capture_pane())
@@ -292,8 +299,16 @@ class JoveTester:
         for input_args in inputs:
           count = 0
           while count < 20:
+            if self.is_server_down():
+              print('FAILURE (server is down!)')
+              return 1
+
             p1 = self.ssh_command(self.run + [testbin] + input_args, text=True)
             p2 = self.ssh_command(jove_loop_args + input_args, text=True)
+
+            if self.is_server_down():
+              print('FAILURE (server is down!)')
+              return 1
 
             if self.is_stderr_connection_closed_by_remote_host(p1.stderr) or \
                self.is_stderr_connection_closed_by_remote_host(p2.stderr):
