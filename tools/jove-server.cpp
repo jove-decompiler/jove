@@ -363,13 +363,21 @@ void *ServerTool::ConnectionProc(void *arg) {
 
     bool IsCOFF = false;
 
-    auto jv1 = std::make_unique<jv_base_t<MT, MinSize>>(jv_file);
+    using jv_t_1 = jv_base_t<MT, MinSize>;
+    ip_unique_ptr<jv_t_1> jv1 = boost::interprocess::make_managed_unique_ptr(
+        jv_file.construct<jv_t_1>(boost::interprocess::anonymous_instance)(
+            jv_file),
+        jv_file);
     {
     auto &jv = *jv1;
     UnserializeJVFromFile(jv, jv_file, jv_s_path.c_str());
     }
 
-    auto jv2 = std::make_unique<jv_base_t<AreWeMT, MinSize>>(std::move(*jv1), jv_file);
+    using jv_t_2 = jv_base_t<AreWeMT, MinSize>;
+    ip_unique_ptr<jv_t_2> jv2 = boost::interprocess::make_managed_unique_ptr(
+        jv_file.construct<jv_t_2>(boost::interprocess::anonymous_instance)(
+            std::move(*jv1), jv_file),
+        jv_file);
     jv1.release();
     {
     auto &jv = *jv2;
@@ -406,7 +414,11 @@ void *ServerTool::ConnectionProc(void *arg) {
       throw std::runtime_error("jove recompile failed!");
     }
 
-    auto jv3 = std::make_unique<jv_base_t<MT, MinSize>>(std::move(*jv2), jv_file);
+    using jv_t_3 = jv_t_1;
+    ip_unique_ptr<jv_t_3> jv3 = boost::interprocess::make_managed_unique_ptr(
+        jv_file.construct<jv_t_3>(boost::interprocess::anonymous_instance)(
+            std::move(*jv2), jv_file),
+        jv_file);
     jv2.release();
     {
       auto &jv = *jv3;
