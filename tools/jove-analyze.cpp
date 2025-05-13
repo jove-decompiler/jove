@@ -111,18 +111,10 @@ int AnalyzeTool::Run(void) {
   analyzer_opts.VerbosityLevel = VerbosityLevel();
   analyzer_opts.Conservative = opts.Conservative;
 
-#ifndef JOVE_TSAN /* FIXME */
-  analyzer.update_callers();
-  analyzer.update_parents();
-  analyzer.identify_ABIs();
+  oneapi::tbb::parallel_invoke([&](void) -> void { analyzer.update_callers(); },
+                               [&](void) -> void { analyzer.update_parents(); },
+                               [&](void) -> void { analyzer.identify_ABIs(); });
   analyzer.identify_Sjs();
-#endif
-
-    oneapi::tbb::parallel_invoke(
-        [&](void) -> void { analyzer.update_callers(); },
-        [&](void) -> void { analyzer.update_parents(); },
-        [&](void) -> void { analyzer.identify_ABIs(); });
-    analyzer.identify_Sjs();
 
   return AnalyzeBlocks()
       || AnalyzeFunctions();
