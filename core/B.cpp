@@ -39,12 +39,14 @@ std::unique_ptr<llvm::object::Binary> Create(llvm::StringRef Data) {
                              llvm::toString(BinOrErr.takeError()));
 
   std::unique_ptr<llvm::object::Binary> &Bin = BinOrErr.get();
+#if 0
   if (!llvm::isa<ELFO>(Bin.get()) &&
       (!llvm::isa<COFFO>(Bin.get()) ||
        llvm::cast<COFFO>(Bin.get())->getBytesInAddress() != sizeof(taddr_t)))
     throw std::runtime_error(
         "unexpected binary type (" + std::to_string(Bin->getType()) + ") [" +
         getObjectFormatTypeName(Bin->getTripleObjectFormat()).str());
+#endif
 
   return std::move(*BinOrErr);
 }
