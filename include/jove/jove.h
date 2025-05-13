@@ -795,7 +795,7 @@ private:
 #include "jove/objdump.h.inc"
 
 template <bool MT>
-struct FunctionIndexVecs : private ip_mt_base_accessible_nospin {
+struct FunctionIndexVecs {
   ip_func_index_vec_set<MT> FIdxVecs;
 
   explicit FunctionIndexVecs(segment_manager_t *sm) noexcept : FIdxVecs(sm) {}
@@ -825,8 +825,6 @@ struct FunctionIndexVecs : private ip_mt_base_accessible_nospin {
       assert(vecptr);
       return *vecptr;
     } else {
-      auto e_lck = exclusive_access<MT>();
-
       return *FIdxVecs.insert(boost::move(vec)).first;
     }
   }
@@ -1301,10 +1299,13 @@ struct jv_base_t {
     const unsigned N = other.Binaries.size();
 
     if constexpr (MinSize) {
+      Binaries.container().clear();
       for (binary_base_t<!MT, MinSize> &b : other.Binaries)
         Binaries.container().emplace_back(std::move(b));
+      other.Binaries.clear();
     } else {
       Binaries.len_.store(N, std::memory_order_relaxed);
+      other.Binaries.len_.store(0, std::memory_order_relaxed);
     }
     assert(Binaries.size() == N);
 
