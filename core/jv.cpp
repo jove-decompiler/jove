@@ -140,7 +140,7 @@ std::optional<binary_index_t> jv_base_t<MT, MinSize>::LookupByHash(const hash_t 
 template <bool MT, bool MinSize>
 template <bool ValidatePath>
 std::pair<binary_index_t, bool>
-jv_base_t<MT, MinSize>::AddFromPath(explorer_t<MT, MinSize> &explorer,
+jv_base_t<MT, MinSize>::AddFromPath(const explorer_t<MT, MinSize> &explorer,
                                     jv_file_t &jv_file,
                                     const char *path,
                                     on_newbin_proc_t<MT, MinSize> on_newbin,
@@ -245,7 +245,7 @@ jv_base_t<MT, MinSize>::Add(jv_file_t &jv_file,
 
 template <bool MT, bool MinSize>
 std::pair<binary_index_t, bool> jv_base_t<MT, MinSize>::AddFromData(
-    explorer_t<MT, MinSize> &explorer,
+    const explorer_t<MT, MinSize> &explorer,
     jv_file_t &jv_file,
     std::string_view data,
     const char *name,
@@ -259,7 +259,7 @@ std::pair<binary_index_t, bool> jv_base_t<MT, MinSize>::AddFromData(
 
 template <bool MT, bool MinSize>
 std::pair<binary_index_t, bool> jv_base_t<MT, MinSize>::AddFromDataWithHash(
-    explorer_t<MT, MinSize> &explorer,
+    const explorer_t<MT, MinSize> &explorer,
     jv_file_t &jv_file,
     get_data_t get_data,
     const hash_t &h,
@@ -347,7 +347,7 @@ template <bool MT, bool MinSize>
 adds_binary_t::adds_binary_t(binary_index_t &out,
                              jv_file_t &jv_file,
                              jv_base_t<MT, MinSize> &jv,
-                             explorer_t<MT, MinSize> &explorer_,
+                             const explorer_t<MT, MinSize> &explorer,
                              get_data_t get_data,
                              const hash_t &h,
                              const char *name,
@@ -377,12 +377,11 @@ adds_binary_t::adds_binary_t(binary_index_t &out,
     if (name)
       to_ips(b.Name, name); /* set up name */
 
-    if constexpr (MT == false) {
+    {
+      explorer_t<false /* !MT */, MinSize> explorer_(explorer);
+      assert(!explorer_.get_jv());
+
       jv.DoAdd(b, explorer_, *Bin, Options);
-    } else {
-      explorer_t<false /* !MT */, MinSize> explorer(explorer_);
-      assert(!explorer.get_jv());
-      jv.DoAdd(b, explorer, *Bin, Options);
     }
 
     //
@@ -544,8 +543,8 @@ BOOST_PP_SEQ_FOR_EACH_PRODUCT(DO_INSTANTIATE, (VALUES_TO_INSTANTIATE_WITH1)(VALU
   jv_base_t<GET_VALUE(BOOST_PP_SEQ_ELEM(1, product)),                          \
             GET_VALUE(BOOST_PP_SEQ_ELEM(0, product))>::                        \
       AddFromPath<GET_VALUE(BOOST_PP_SEQ_ELEM(2, product))>(                   \
-          explorer_t<GET_VALUE(BOOST_PP_SEQ_ELEM(1, product)),                 \
-                     GET_VALUE(BOOST_PP_SEQ_ELEM(0, product))> &,              \
+          const explorer_t<GET_VALUE(BOOST_PP_SEQ_ELEM(1, product)),           \
+                           GET_VALUE(BOOST_PP_SEQ_ELEM(0, product))> &,        \
           jv_file_t &, const char *,                                           \
           on_newbin_proc_t<GET_VALUE(BOOST_PP_SEQ_ELEM(1, product)),           \
                            GET_VALUE(BOOST_PP_SEQ_ELEM(0, product))>,          \

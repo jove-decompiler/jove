@@ -1120,7 +1120,7 @@ struct adds_binary_t {
   explicit adds_binary_t(binary_index_t &out,
                          jv_file_t &,
                          jv_base_t<MT, MinSize> &,
-                         explorer_t<MT, MinSize> &,
+                         const explorer_t<MT, MinSize> &,
                          get_data_t get_data,
                          const hash_t &,
                          const char *name,
@@ -1379,7 +1379,7 @@ struct jv_base_t {
 
   template <bool ValidatePath = true>
   std::pair<binary_index_t, bool> AddFromPath(
-      explorer_t<MT, MinSize> &,
+      const explorer_t<MT, MinSize> &,
       jv_file_t &,
       const char *path,
       on_newbin_proc_t<MT, MinSize> on_newbin = [](binary_t &) {},
@@ -1389,7 +1389,7 @@ struct jv_base_t {
   Add(jv_file_t &, binary_t &&, on_newbin_proc_t<MT, MinSize> on_newbin = [](binary_t &) {});
 
   std::pair<binary_index_t, bool>
-  AddFromData(explorer_t<MT, MinSize> &,
+  AddFromData(const explorer_t<MT, MinSize> &,
               jv_file_t &,
               std::string_view data,
               const char *name = nullptr,
@@ -1405,7 +1405,7 @@ private:
                           std::string &file_contents);
 
   std::pair<binary_index_t, bool>
-  AddFromDataWithHash(explorer_t<MT, MinSize> &,
+  AddFromDataWithHash(const explorer_t<MT, MinSize> &,
                       jv_file_t &,
                       get_data_t,
                       const hash_t &,
