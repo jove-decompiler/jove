@@ -111,15 +111,13 @@ void analyzer_t<MT, MinSize>::identify_ABIs(void) {
   //
   for_each_basic_block(maybe_par_unseq, jv, [&](binary_t &b, bb_t bb) {
     auto &bbprop = b.Analysis.ICFG[bb];
-    if (!bbprop.hasDynTarget())
-      return;
-
-    const binary_index_t BIdx = index_of_binary(b, jv);
 
     auto MaybeDynTargets = bbprop.getDynamicTargets(jv);
     if (!MaybeDynTargets)
       return;
     auto &DynTargets = *MaybeDynTargets;
+
+    const binary_index_t BIdx = index_of_binary(b, jv);
 
     if (DynTargets.AnyOf(
             [&](const dynamic_target_t &X) { return X.first != BIdx; }))
