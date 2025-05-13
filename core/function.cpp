@@ -21,7 +21,7 @@ function_t::ReverseCGVert(jv_base_t<MT, MinSize> &jv) {
       this->ReverseCGVertIdxHolder.Idx.load(std::memory_order_relaxed);
 
   if (unlikely(!is_call_graph_index_valid(Res))) {
-    auto e_lck = this->ReverseCGVertIdxHolder.exclusive_access<AreWeMT>();
+    auto e_lck = this->ReverseCGVertIdxHolder.exclusive_access<MT>();
 
     Res = this->ReverseCGVertIdxHolder.Idx.load(std::memory_order_relaxed);
     if (likely(!is_call_graph_index_valid(Res))) {
@@ -31,13 +31,13 @@ function_t::ReverseCGVert(jv_base_t<MT, MinSize> &jv) {
       dynamic_target_t X = target_of_function(*this);
       assert(is_dynamic_target_valid(X));
 
-      RCG[RCG.template vertex<AreWeMT>(Res)].X = X;
+      RCG[RCG.template vertex<MT>(Res)].X = X;
     }
   }
 
   assert(is_call_graph_index_valid(Res));
 
-  return RCG.template vertex<AreWeMT>(Res);
+  return RCG.template vertex<MT>(Res);
 }
 
 #define VALUES_TO_INSTANTIATE_WITH1                                            \
