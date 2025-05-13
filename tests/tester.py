@@ -224,21 +224,24 @@ class JoveTester:
     self.fake_run_command_for_user(["ssh", '-p', str(self.guest_ssh_port), 'root@localhost'] + command)
 
   def ssh_command(self, command, text=True):
-    return subprocess.run(['ssh'] + self.ssh_common_args + ['-p', str(self.guest_ssh_port), 'root@localhost'] + command, capture_output=True, text=text)
+    return subprocess.run(['ssh'] + self.ssh_common_args + ['-p', str(self.guest_ssh_port), 'root@localhost'] + command, check=True, capture_output=True, text=text)
 
   def ssh(self, command):
-    return subprocess.run(['ssh'] + self.ssh_common_args + ['-p', str(self.guest_ssh_port), 'root@localhost'] + command)
+    return subprocess.run(['ssh'] + self.ssh_common_args + ['-p', str(self.guest_ssh_port), 'root@localhost'] + command, check=True)
 
-  def scp(self, src, dst):
-    return subprocess.run(['scp'] + self.ssh_common_args + ['-P', str(self.guest_ssh_port), src, 'root@localhost:' + dst])
+  def scp_to(self, src, dst):
+    return subprocess.run(['scp'] + self.ssh_common_args + ['-P', str(self.guest_ssh_port), src, 'root@localhost:' + dst], check=True)
+
+  def scp_from(self, src, dst):
+    return subprocess.run(['scp'] + self.ssh_common_args + ['-P', str(self.guest_ssh_port), 'root@localhost:' + src, dst], check=True)
 
   def update_jove(self):
-    self.scp(self.jove_client_path, '/usr/local/bin/jove')
+    self.scp_to(self.jove_client_path, '/usr/local/bin/jove')
 
   def update_libjove_rt(self, multi_threaded):
     rtpath = self.jove_rt_mt_path if multi_threaded else self.jove_rt_st_path
     dstdir = "/tmp" if self.platform == "win" else "/lib"
-    self.scp(rtpath, f'{dstdir}/libjove_rt.{self.dsoext}')
+    self.scp_to(rtpath, f'{dstdir}/libjove_rt.{self.dsoext}')
 
   def inputs_for_test(self, test, platform):
     inputs_path = f"{self.tests_dir}/{platform}/inputs/{test}.inputs"
@@ -264,7 +267,7 @@ class JoveTester:
 
         assert(testbin_path.is_file())
 
-        self.scp(testbin_path, '/tmp/')
+        self.scp_to(testbin_path, '/tmp/')
         testbin = f"/tmp/{testbin_path.name}"
 
         # establish clean slate
@@ -278,10 +281,15 @@ class JoveTester:
           for input_args in inputs:
             self.ssh(["jove", "bootstrap", testbin] + input_args)
 
+        path_to_stdout = tempfile.NamedTemporaryFile(delete=False).name
+        path_to_stderr = tempfile.NamedTemporaryFile(delete=False).name
+
         # run inputs through recompiled binary
-        jove_loop_args = ["jove", "loop", \
+        jove_loop_args = ["jove", "loop", "-v", \
           f"--rtmt={int(multi_threaded)}", \
-          "--connect", f"{self.iphost}:{str(self.jove_server_port)}"]
+          "--connect", f"{self.iphost}:{str(self.jove_server_port)}", \
+          f"--stdout=/tmp/stdout",\
+          f"--stderr=/tmp/stderr"]
         if self.platform == "win":
           jove_loop_args += ["--lay-out-sections"]
         jove_loop_args += [testbin]
@@ -300,14 +308,14 @@ class JoveTester:
           count = 0
           while count < 20:
             if self.is_server_down():
-              print('FAILURE (server is down!)')
+              print(f"FAILURE ({self.arch} server is down!)")
               return 1
 
             p1 = self.ssh_command(self.run + [testbin] + input_args, text=True)
             p2 = self.ssh_command(jove_loop_args + input_args, text=True)
 
             if self.is_server_down():
-              print('FAILURE (server is down!)')
+              print(f"FAILURE ({self.arch} server is down!)")
               return 1
 
             if self.is_stderr_connection_closed_by_remote_host(p1.stderr) or \
@@ -317,9 +325,15 @@ class JoveTester:
               count += 1
               continue
 
+            self.scp_from("/tmp/stdout", path_to_stdout);
+            self.scp_from("/tmp/stderr", path_to_stderr);
+
+            p2_stdout = open(path_to_stdout, "r").read()
+            p2_stderr = open(path_to_stderr, "r").read()
+
             return_neq = p1.returncode != p2.returncode
-            stdout_neq = p1.stdout != p2.stdout
-            stderr_neq = p1.stderr != p2.stderr
+            stdout_neq = p1.stdout != p2_stdout
+            stderr_neq = p1.stderr != p2_stderr
 
             failed = return_neq or stdout_neq
             if self.platform != "win": # wine prints a bunch of shit to stderr
@@ -333,9 +347,9 @@ class JoveTester:
               if return_neq:
                 print('%d != %d' % (p1.returncode, p2.returncode))
               if stdout_neq:
-                print('<STDOUT>\n"%s"\n\n!=\n\n"%s"\n' % (p1.stdout, p2.stdout))
+                print('<STDOUT>\n"%s"\n\n!=\n\n"%s"\n' % (p1.stdout, p2_stdout))
               if stderr_neq:
-                print('<STDERR>\n"%s"\n\n!=\n\n"%s"\n' % (p1.stderr, p2.stderr))
+                print('<STDERR>\n"%s"\n\n!=\n\n"%s"\n' % (p1.stderr, p2_stderr))
 
               # make it easy for user to rerun failing test
               if not self.unattended:

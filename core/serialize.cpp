@@ -3,8 +3,8 @@
 
 #include <fstream>
 
-#include <boost/archive/binary_iarchive.hpp>
-#include <boost/archive/binary_oarchive.hpp>
+#include "portable_binary_iarchive.h"
+#include "portable_binary_oarchive.h"
 #include <boost/archive/text_iarchive.hpp>
 #include <boost/archive/text_oarchive.hpp>
 #include <boost/archive/xml_oarchive.hpp>
@@ -175,6 +175,8 @@ static inline void
 serialize(Archive &ar,
           jove::ip_deque<T, Allocator, MT, Spin, PointUnique> &x,
           const unsigned int file_version) {
+  auto e_lck = x.exclusive_access();
+
   ar &BOOST_SERIALIZATION_NVP(x.container());
 }
 
@@ -493,7 +495,7 @@ static void load(Archive &ar, jove::bbprop_t &bbprop, const unsigned int) {
                 jv_file.get_segment_manager()),                                \
             jv_file));                                                         \
     OurDynTargets_t &DynTargets = *TheDynTargets.get().get();                  \
-    ar &DynTargets;                                                            \
+    ar &BOOST_SERIALIZATION_NVP(DynTargets);                                   \
     if (!DynTargets.empty()) {                                                 \
       TheDynTargets.release();                                                 \
       bbprop.pDynTargets.Store(&DynTargets, std::memory_order_relaxed);        \
@@ -588,11 +590,11 @@ void SerializeJV(const jv_base_t<MT, MinSize> &in,
   IsMT_hack = MT;
   IsMinSize_hack = MinSize;
 
-  if (text) {
+  if (true /* FIXME */ || text) {
     boost::archive::text_oarchive oa(os);
     oa << in;
   } else {
-    boost::archive::binary_oarchive oa(os);
+    portable_binary_oarchive oa(os);
     oa << in;
   }
 }
@@ -623,11 +625,11 @@ void UnserializeJV(jv_base_t<MT, MinSize> &out,
 
   out.clear();
 
-  if (text) {
+  if (true /* FIXME */ || text) {
     boost::archive::text_iarchive ia(is);
     ia >> out;
   } else {
-    boost::archive::binary_iarchive ia(is);
+    portable_binary_iarchive ia(is);
     ia >> out;
   }
 

@@ -200,20 +200,41 @@ void *ServerTool::ConnectionProc(void *arg) {
 
   int data_socket = args->data_socket;
 
+  const char our_endianness =
+      __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__ ? 'b' : 'l';
+
+  //
+  // send magic bytes
+  //
+  {
+    char magic[5] = {'J', 'O', 'V', 'E', our_endianness};
+
+    ssize_t ret = robust_write(data_socket, &magic[0], sizeof(magic));
+
+    if (ret < 0) {
+      HumanOut() << llvm::formatv(
+          "failed to send magic bytes: {0}\n", strerror(-ret));
+      return nullptr;
+    }
+  }
+
+
   //
   // check for magic bytes
   //
-  {
-    char magic[4];
+  const char other_endianness = ({
+    char magic[5];
     if (robust_read(data_socket, &magic[0], sizeof(magic)) < 0 ||
        !(magic[0] == 'J' &&
          magic[1] == 'O' &&
          magic[2] == 'V' &&
-         magic[3] == 'E')) {
+         magic[3] == 'E') ||
+       !(magic[4] == 'b' || magic[4] == 'l')) {
       WithColor::error() << "invalid magic bytes\n";
       return nullptr;
     }
-  }
+    magic[4];
+  });
 
   //
   // create a temporary directory
@@ -372,7 +393,9 @@ void *ServerTool::ConnectionProc(void *arg) {
         jv_file);
     {
     auto &jv = *jv1;
-    UnserializeJVFromFile(jv, jv_file, jv_s_path.c_str());
+    UnserializeJVFromFile(jv, jv_file, jv_s_path.c_str(),
+                          our_endianness != other_endianness /* text */);
+    llvm::errs() << llvm::formatv("jv.Binaries.size()={0}\n", jv.Binaries.size());
     }
 
     using jv_t_2 = jv_base_t<AreWeMT, MinSize>;
@@ -383,6 +406,7 @@ void *ServerTool::ConnectionProc(void *arg) {
     jv1.release();
     {
     auto &jv = *jv2;
+    llvm::errs() << llvm::formatv(" jv.Binaries.size()={0}\n", jv.Binaries.size());
 
     IsCOFF = ({
       auto Bin = B::Create(jv.Binaries.at(0).data());
@@ -426,7 +450,10 @@ void *ServerTool::ConnectionProc(void *arg) {
     {
       auto &jv = *jv3;
 
-      SerializeJVToFile(jv, jv_file, jv_s_path.c_str(), true /* text */);
+      llvm::errs() << llvm::formatv("  jv.Binaries.size()={0}\n", jv.Binaries.size());
+
+      SerializeJVToFile(jv, jv_file, jv_s_path.c_str(),
+                        our_endianness != other_endianness /* text */);
 
       {
         //

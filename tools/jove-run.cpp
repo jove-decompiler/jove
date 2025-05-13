@@ -71,6 +71,8 @@ struct RunTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
     cl::alias UserAlias;
     cl::opt<std::string> PIDFifo;
     cl::opt<std::string> WineStderr;
+    cl::opt<std::string> Stdout;
+    cl::opt<std::string> Stderr;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : Prog(cl::Positional, cl::desc("prog"), cl::Required,
@@ -162,7 +164,13 @@ struct RunTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
 
           WineStderr("wine-stderr",
                      cl::desc("Redirect WINEDEBUG output with WINEDEBUGLOG"),
-                     cl::cat(JoveCategory)) {}
+                     cl::cat(JoveCategory)),
+
+          Stdout("stdout", cl::desc("Redirect stdout to file"),
+                 cl::cat(JoveCategory)),
+
+          Stderr("stderr", cl::desc("Redirect stderr to file"),
+                 cl::cat(JoveCategory)) {}
   } opts;
 
   const bool IsCOFF;
@@ -814,8 +822,8 @@ int RunTool::DoRun(void) {
           for (const std::string &s : opts.Envs)
             Env(s);
         },
-        std::string(),
-        std::string(),
+        opts.Stdout,
+        opts.Stderr,
         [&](const char **_argv, const char **_argc) {
           if (LivingDangerously) {
             //

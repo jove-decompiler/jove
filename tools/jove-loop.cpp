@@ -87,6 +87,8 @@ class LoopTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
     cl::opt<bool> PlaceSectionBreakpoints;
     cl::opt<int> Conservative;
     cl::opt<std::string> WineStderr;
+    cl::opt<std::string> Stdout;
+    cl::opt<std::string> Stderr;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : Prog(cl::Positional, cl::desc("prog"), cl::Required,
@@ -287,7 +289,13 @@ class LoopTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
 
           WineStderr("wine-stderr",
                      cl::desc("Redirect WINEDEBUG output with WINEDEBUGLOG"),
-                     cl::cat(JoveCategory)) {}
+                     cl::cat(JoveCategory)),
+
+          Stdout("stdout", cl::desc("Redirect stdout to file"),
+                 cl::cat(JoveCategory)),
+
+          Stderr("stderr", cl::desc("Redirect stderr to file"),
+                 cl::cat(JoveCategory)) {}
   } opts;
 
   const bool IsCOFF;
@@ -487,6 +495,16 @@ run:
 
             Arg("--sysroot");
             Arg(sysroot);
+
+            if (!opts.Stdout.empty()) {
+              Arg("--stdout");
+              Arg(opts.Stdout);
+            }
+
+            if (!opts.Stderr.empty()) {
+              Arg("--stderr");
+              Arg(opts.Stderr);
+            }
 
             if (!opts.HumanOutput.empty()) {
               Arg("--human-output");
@@ -704,11 +722,14 @@ skip_run:
         return 1;
       }
 
+      const char our_endianness =
+          __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__ ? 'b' : 'l';
+
       //
       // send magic bytes
       //
       {
-        char magic[4] = {'J', 'O', 'V', 'E'};
+        char magic[5] = {'J', 'O', 'V', 'E', our_endianness};
 
         ssize_t ret = robust_write(remote_fd.get(), &magic[0], sizeof(magic));
 
@@ -718,6 +739,23 @@ skip_run:
           return 1;
         }
       }
+
+      //
+      // check for magic bytes
+      //
+      const char other_endianness = ({
+        char magic[5];
+        if (robust_read(remote_fd.get(), &magic[0], sizeof(magic)) < 0 ||
+           !(magic[0] == 'J' &&
+             magic[1] == 'O' &&
+             magic[2] == 'V' &&
+             magic[3] == 'E') ||
+           !(magic[4] == 'b' || magic[4] == 'l')) {
+          WithColor::error() << "invalid magic bytes\n";
+          return 1;
+        }
+        magic[4];
+      });
 
       //
       // send header
@@ -787,10 +825,19 @@ skip_run:
       // send the jv
       //
       {
-        SerializeJVToFile(jv, jv_file, tmpjv_path.c_str(), true /* text */);
+        if (IsVerbose())
+          HumanOut() << "serializing...\n";
+
+        HumanOut() << llvm::formatv("jv.Binaries.size()={0}\n", jv.Binaries.size());
+
+        SerializeJVToFile(jv, jv_file, tmpjv_path.c_str(),
+                          our_endianness != other_endianness /* text */);
 
         if (IsVerbose())
-          HumanOut() << llvm::formatv("sending {0}\n", tmpjv_path.c_str());
+          HumanOut() << "serialized.\n";
+
+        if (IsVerbose())
+          HumanOut() << llvm::formatv("sending {0}...\n", tmpjv_path.c_str());
 
         ssize_t ret = robust_sendfile_with_size(remote_fd.get(), tmpjv_path.c_str());
 
@@ -800,6 +847,9 @@ skip_run:
 
           return 1;
         }
+
+        if (IsVerbose())
+          HumanOut() << llvm::formatv("sent {0}.\n", tmpjv_path.c_str());
       }
 
       //
@@ -807,7 +857,7 @@ skip_run:
       //
       {
         if (IsVerbose())
-          HumanOut() << llvm::formatv("receiving {0}\n", tmpjv_path.c_str());
+          HumanOut() << llvm::formatv("receiving {0}...\n", tmpjv_path.c_str());
 
         ssize_t ret = robust_receive_file_with_size(remote_fd.get(), tmpjv_path.c_str(), 0666);
         if (ret < 0) {
@@ -817,7 +867,20 @@ skip_run:
           return 1;
         }
 
-        UnserializeJVFromFile(jv, jv_file, tmpjv_path.c_str()); /* is this necessary? */
+        if (IsVerbose())
+          HumanOut() << llvm::formatv("received {0}.\n", tmpjv_path.c_str());
+
+        if (IsVerbose())
+          HumanOut() << "unserializing...\n";
+
+        // XXX is this really necessary for all cases?
+        UnserializeJVFromFile(jv, jv_file, tmpjv_path.c_str(),
+                              our_endianness != other_endianness /* text */);
+
+        if (IsVerbose())
+          HumanOut() << "unserialized.\n";
+
+        HumanOut() << llvm::formatv(" jv.Binaries.size()={0}\n", jv.Binaries.size());
       }
 
       for (const binary_t &binary : jv.Binaries) {
