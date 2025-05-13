@@ -311,6 +311,8 @@ class JoveTester:
               print(f"FAILURE ({self.arch} server is down!)")
               return 1
 
+            self.ssh(["rm", "-f", "/tmp/stdout", "/tmp/stderr"])
+
             p1 = self.ssh_command(self.run + [testbin] + input_args, text=True)
             p2 = self.ssh_command(jove_loop_args + input_args, text=True)
 
