@@ -397,7 +397,7 @@ void *ServerTool::ConnectionProc(void *arg) {
     oneapi::tbb::parallel_invoke(
         [&analyzer](void) -> void { analyzer.update_callers(); },
         [&analyzer](void) -> void { analyzer.update_parents(); },
-        [&analyzer](void) -> void { analyzer.identify_ABIs(); },
+        [&analyzer](void) -> void { analyzer.identify_ABIs(); });
     analyzer.identify_Sjs();
 
     (int)(analyzer.analyze_blocks() || analyzer.analyze_functions());
