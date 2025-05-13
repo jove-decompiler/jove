@@ -636,13 +636,23 @@ void UnserializeJV(jv_base_t<MT, MinSize> &out,
   // XXX
   using bb_t = ip_icfg_base_t<MT>::vertex_descriptor;
   for_each_basic_block(maybe_par_unseq, out,
-                       [&](binary_base_t<MT, MinSize> &b, bb_t bb) {
+                       [&](auto &b, bb_t bb) {
                          auto &ICFG = b.Analysis.ICFG;
                          bbprop_t &bbprop = ICFG[bb];
 
                          assert(b.EmptyFIdxVec);
                          bbprop.Parents.template set<false>(*b.EmptyFIdxVec);
                        });
+
+  for_each_function(maybe_par_unseq, out, [&](function_t &f, auto &b) {
+    assert(!f.pCallers.Load(std::memory_order_relaxed));
+
+    using OurCallers_t = Callers_t<MT, MinSize>;
+    f.pCallers.Store(jv_file.construct<OurCallers_t>(
+                         boost::interprocess::anonymous_instance)(
+                         jv_file.get_segment_manager()),
+                     std::memory_order_relaxed);
+  });
 }
 
 template <bool MT, bool MinSize>
