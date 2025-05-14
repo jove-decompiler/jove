@@ -60,10 +60,6 @@ function_index_t explorer_t<MT, MinSize>::_explore_function(
   function_t &f = b.Analysis.Functions.at(Idx);
 
   f.Speculative = Speculative;
-  f.Analysis.Stale = true;
-  f.IsABI = false;
-  f.IsSignalHandler = false;
-  f.Returns = false;
 
   if (maybe_jv) {
     using OurCallers_t = Callers_t<MT, MinSize>;
