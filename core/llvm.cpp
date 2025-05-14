@@ -454,10 +454,10 @@ void AnalyzeBasicBlock(tiny_code_generator_t &TCG,
                        const char *B_Name,
                        bbprop_t &bbprop,
                        const analyzer_options_t &options) {
-  if (!bbprop.Analysis.Stale)
+  if (!bbprop.Analysis.Stale.load(std::memory_order_relaxed))
     return;
 
-  bbprop.Analysis.Stale = false;
+  bbprop.Analysis.Stale.store(false, std::memory_order_relaxed);
 
   const uint64_t Addr = bbprop.Addr;
   const unsigned Size = bbprop.Size;

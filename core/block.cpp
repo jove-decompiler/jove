@@ -127,7 +127,7 @@ bool bbprop_t::insertDynTarget(binary_index_t ThisBIdx,
 template <bool MT, bool MinSize>
 void bbprop_t::InvalidateAnalysis(jv_base_t<MT, MinSize> &jv,
                                   binary_base_t<MT, MinSize> &b) {
-  this->Analysis.Stale = true;
+  this->Analysis.Stale.store(true, std::memory_order_relaxed);
 
   struct function_invalidator_t : public boost::default_dfs_visitor {
     jv_base_t<MT, MinSize> &jv;
