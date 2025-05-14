@@ -18,7 +18,7 @@ int main(int argc, char **argv) {
 
   if (setjmp(env) == 1) {
     printf("longjumped! n=%d\n", n);
-    return 1;
+    return 0;
   }
 
   return foo(n);
