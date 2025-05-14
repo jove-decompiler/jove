@@ -186,6 +186,10 @@ public:
   boost::optional<jv_t &> get_jv(void) const {
     return maybe_jv;
   }
+
+  void set_jv(boost::optional<jv_t &> x) {
+    maybe_jv.swap(x);
+  }
 };
 
 }
