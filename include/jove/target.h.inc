@@ -59,10 +59,13 @@ constexpr bool IsTargetLittleEndian =
 #if defined(__mips64) || defined(__mips__)
 constexpr auto maybe_par_unseq = std::execution::seq;
 constexpr bool AreWeMT = false;
+#define __THREAD_IF_WE_ARE_MT
 #define JOVE_NO_BACKEND
 #else
 constexpr auto maybe_par_unseq = std::execution::par_unseq;
 constexpr bool AreWeMT = true;
+#define __THREAD_IF_WE_ARE_MT                                                  \
+  thread_local __attribute__((tls_model("initial-exec")))
 #endif
 
 constexpr bool AreWeMinSize = sizeof(void *) == 4;

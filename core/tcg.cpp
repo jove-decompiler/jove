@@ -16,12 +16,10 @@ extern "C" void gen_intermediate_code(CPUState *cpu, TranslationBlock *tb,
                                       void *host_pc);
 extern "C" void tcg_register_thread(void);
 
-static thread_local llvm::object::Binary *jv_Bin;
-static thread_local uint64_t jv_end_pc;
-
-static thread_local jove::terminator_info_t jv_ti;
-
-static thread_local unsigned has_register_thread;
+static __THREAD_IF_WE_ARE_MT llvm::object::Binary *jv_Bin;
+static __THREAD_IF_WE_ARE_MT uint64_t jv_end_pc;
+static __THREAD_IF_WE_ARE_MT jove::terminator_info_t jv_ti;
+static __THREAD_IF_WE_ARE_MT unsigned has_register_thread;
 
 extern "C" void *_jv_g2h(uint64_t Addr) {
   if (unlikely(!jv_Bin))

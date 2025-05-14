@@ -29,8 +29,8 @@
 
 namespace jove {
 
-static thread_local jv_file_t *pFile_hack = nullptr; /* XXX */
-static thread_local bool IsMT_hack, IsMinSize_hack; /* for DynTargets_t */
+static __THREAD_IF_WE_ARE_MT jv_file_t *pFile_hack = nullptr; /* XXX */
+static __THREAD_IF_WE_ARE_MT bool IsMT_hack, IsMinSize_hack; /* for DynTargets_t */
 
 }
 
