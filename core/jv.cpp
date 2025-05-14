@@ -379,7 +379,7 @@ adds_binary_t::adds_binary_t(binary_index_t &out,
 
     {
       explorer_t<false /* !MT */, MinSize> explorer_(explorer);
-      assert(!explorer_.get_jv());
+      explorer_.set_jv(boost::none);
 
       jv.DoAdd(b, explorer_, *Bin, Options);
     }
