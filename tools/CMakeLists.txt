@@ -171,7 +171,7 @@ function(tool_for_arch arch arch_extra_cflags qemu_build_dir)
   target_link_libraries(jove-${arch} PRIVATE Boost::lockfree)
   target_link_libraries(jove-${arch} PRIVATE Boost::scope)
 
-  if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^mips(64el)?$")
+  if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(mips|mipsel|mips64el)$")
     target_link_libraries(jove-${arch} PRIVATE TBB::tbb)
   endif()
 

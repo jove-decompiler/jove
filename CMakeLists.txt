@@ -26,7 +26,7 @@ else()
   jove_add_boost()
 endif()
 
-if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^mips(64el)?$")
+if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(mips|mipsel|mips64el)$")
   function(jove_add_tbb)
     # this is so tbb/src/tbb/semaphore.h doesn't include itself...
     set(CMAKE_INCLUDE_CURRENT_DIR OFF)
