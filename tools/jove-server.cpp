@@ -356,6 +356,7 @@ void *ServerTool::ConnectionProc(void *arg) {
   //analyzer_opts.Conservative = opts.Conservative;
 
   recompiler_options_t recompiler_opts;
+  recompiler_opts.VerbosityLevel = VerbosityLevel();
 
 #define PROPOGATE_OPTION(name)                                                 \
   do {                                                                         \
