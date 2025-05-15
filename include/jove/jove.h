@@ -298,9 +298,10 @@ struct PossiblyConcurrentNodeOrFlatSet_t {
     ForEach(std::execution::seq, proc);
   }
 
-  void ForEachWhile(std::function<bool(const T &)> proc) const {
+  // returns false iff proc ever returns false
+  bool ForEachWhile(std::function<bool(const T &)> proc) const {
     if constexpr (MT) {
-      set.cvisit_while([&](const T &X) -> bool {
+      return set.cvisit_while([&](const T &X) -> bool {
         if (!proc(X))
           return false;
         return true;
@@ -311,8 +312,9 @@ struct PossiblyConcurrentNodeOrFlatSet_t {
       for (; it != it_end; ++it) {
         const T &X = *it;
         if (!proc(X))
-          break;
+          return false;
       }
+      return true;
     }
   }
   bool AnyOf(std::function<bool(const T &)> proc) const {
