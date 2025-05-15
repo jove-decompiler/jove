@@ -166,15 +166,10 @@ int analyzer_t<MT, MinSize>::analyze_blocks(void) {
   for_each_basic_block(
       std::execution::seq, /* FIXME */
       jv, [&](binary_t &b, bb_t bb) {
-        auto &ICFG = b.Analysis.ICFG;
-        if (ICFG[bb].Analysis.Stale)
-          ++count;
-
-        AnalyzeBasicBlock(TCG, helper_func_map, *Module,
+          if (AnalyzeBasicBlock(TCG, helper_func_map, *Module,
                           *state.for_binary(b).Bin, b.Name.c_str(), ICFG[bb],
-                          options);
-
-        assert(!ICFG[bb].Analysis.Stale);
+                          options))
+            count.fetch_add(1u, std::memory_order_relaxed);
       });
 
   if (options.IsVerbose())
