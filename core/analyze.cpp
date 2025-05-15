@@ -850,49 +850,20 @@ template <bool MT, bool MinSize>
 std::optional<std::pair<tcg_global_set_t, tcg_global_set_t>>
 analyzer_t<MT, MinSize>::DynTargetsSummary(
     const DynTargets_t<MT, MinSize> &DynTargets, bool IsABI) {
-  bool AllNotStale = DynTargets.AllOf([&](dynamic_target_t X) {
-    function_t &callee = function_of_target(X, jv);
-    return !callee.Analysis.Stale.load(std::memory_order_acquire);
-  });
+  tcg_global_set_t args;
+  tcg_global_set_t rets;
 
-  if (AllNotStale) {
-    auto args = DynTargets.template Accumulate<tcg_global_set_t>(
-        tcg_global_set_t(), [&](tcg_global_set_t res, dynamic_target_t X) {
-          return res | function_of_target(X, jv).Analysis.args;
-        });
-    auto rets = DynTargets.template Accumulate<tcg_global_set_t>(
-        tcg_global_set_t(), [&](tcg_global_set_t res, dynamic_target_t X) {
-          return res | function_of_target(X, jv).Analysis.rets;
-        });
-    return std::make_pair(args, rets);
-  } else {
-#if 0 /* the following breaks vararg on x86_64 (eax) */
-    if (IsABI) {
-      return std::make_pair(CallConvArgs, CallConvRets);
-    } else if (DynTargets.AnyOf([&](dynamic_target_t X) {
-                 function_t &callee = function_of_target(X, jv);
-                 return !__atomic_load_n(&callee.Analysis.Stale,
-                                         __ATOMIC_ACQUIRE);
-               })) {
-      tcg_global_set_t args, rets;
-      DynTargets.ForEachWhile([&](dynamic_target_t X) -> bool {
+  if (!DynTargets.ForEachWhile([&](const dynamic_target_t &X) {
         function_t &callee = function_of_target(X, jv);
-        if (!callee.Analysis.Stale) {
-          function_t &callee = function_of_target(X, jv);
+        const bool IsStale =
+            callee.Analysis.Stale.load(std::memory_order_acquire);
+        args |= callee.Analysis.args;
+        args |= callee.Analysis.rets;
+        return !IsStale;
+      }))
+    return std::nullopt;
 
-          args = callee.Analysis.args;
-          rets = callee.Analysis.rets;
-
-          return false;
-        }
-
-        return true;
-      });
-      return std::make_pair(args, rets);
-    }
-#endif
-  }
-  return std::nullopt;
+  return std::make_pair(args, rets);
 }
 
 #define VALUES_TO_INSTANTIATE_WITH1                                            \
