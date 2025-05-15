@@ -42,7 +42,7 @@ private:
       boost::container::stored_size<uint32_t>>::type DequeOptions;
 
   template <typename T>
-  using DequeAlloc = std::allocator<T>;
+  using DequeAlloc = boost::container::adaptive_pool<T>;
   template <typename T>
   using VectorAlloc = boost::container::allocator<T>;
 
@@ -263,7 +263,7 @@ public:
           return *xp;                                                          \
       }                                                                        \
                                                                                \
-      std::shared_ptr<T> new_x = std::make_shared<T>(BOOST_PP_CAT(thing,_NEW_ARGS));\
+      std::shared_ptr<T> new_x = std::allocate_shared<T>(boost::container::adaptive_pool<T>(), BOOST_PP_CAT(thing,_NEW_ARGS));\
       std::shared_ptr<T> expected;                                             \
       if (x.compare_exchange_strong(expected, new_x,                           \
                                     std::memory_order_release,                 \
