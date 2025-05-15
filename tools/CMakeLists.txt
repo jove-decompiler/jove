@@ -20,6 +20,7 @@ set(JOVE_TOOL_FLAGS
   "-Wno-gnu-anonymous-struct"
   "-Wno-gnu-case-range"
   "-Wno-gnu-designator"
+  "-Wno-gnu-statement-expression"
   "-Wno-gnu-statement-expression-from-macro-expansion"
   "-Wno-initializer-overrides"
   "-Wno-nested-anon-types"
