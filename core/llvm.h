@@ -365,12 +365,12 @@ class llvm_t {
     struct {
       // in memory, the .tbss section is allocated directly following the .tdata
       // section, with the aligment obeyed
-      unsigned Size;
+      unsigned Size = ~0u;
     } Data;
 
     uint64_t Beg, End;
 
-    bool Present;
+    bool Present = false;
   } ThreadLocalStorage;
 
   struct {
