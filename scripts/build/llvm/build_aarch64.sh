@@ -7,14 +7,17 @@ TRIPLE="aarch64-linux-gnu"
 
 OURCFLAGS=\
 "--target=$TRIPLE"\
+" -O2"\
+" -g"\
 " -fPIC"\
-" -gline-tables-only"\
-" -gdwarf-4"
+" -fno-omit-frame-pointer"\
+" -mno-omit-leaf-frame-pointer"\
+" -ggdb"
 
 if [ ! -f build.ninja ]; then
 
 cmake -G Ninja \
-  -D CMAKE_BUILD_TYPE=Release \
+  -D CMAKE_BUILD_TYPE=RelWithDebInfo \
   -D CMAKE_SYSTEM_NAME=Linux \
   -D CMAKE_CROSSCOMPILING=True \
   -D CMAKE_SYSTEM_PROCESSOR=aarch64 \
@@ -24,8 +27,8 @@ cmake -G Ninja \
   -D LLVM_HOST_TRIPLE=$TRIPLE \
   -D CMAKE_C_COMPILER=$(which clang-19) \
   -D CMAKE_CXX_COMPILER=$(which clang++-19) \
-  -D "CMAKE_C_FLAGS=$OURCFLAGS" \
-  -D "CMAKE_CXX_FLAGS=$OURCFLAGS" \
+  -D "CMAKE_C_FLAGS_RELWITHDEBINFO=$OURCFLAGS" \
+  -D "CMAKE_CXX_FLAGS_RELWITHDEBINFO=$OURCFLAGS" \
   -D "LLVM_TARGETS_TO_BUILD=AArch64" \
   -D "JOVE_TARGETS_TO_BUILD=aarch64" \
   -D "LLVM_TABLEGEN=$(pwd)/../build/llvm/bin/llvm-tblgen" \
