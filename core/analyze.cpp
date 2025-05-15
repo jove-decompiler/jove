@@ -166,6 +166,7 @@ int analyzer_t<MT, MinSize>::analyze_blocks(void) {
   for_each_basic_block(
       std::execution::seq, /* FIXME */
       jv, [&](binary_t &b, bb_t bb) {
+          auto &ICFG = b.Analysis.ICFG;
           if (AnalyzeBasicBlock(TCG, helper_func_map, *Module,
                           *state.for_binary(b).Bin, b.Name.c_str(), ICFG[bb],
                           options))
