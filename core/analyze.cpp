@@ -252,7 +252,7 @@ int analyzer_t<MT, MinSize>::analyze_functions(void) {
 
 template <bool MT, bool MinSize>
 int analyzer_t<MT, MinSize>::analyze_function(function_t &f) {
-  if (!f.Analysis.Stale.load(std::memory_order_relaxed))
+  if (!f.Analysis.Stale.load(std::memory_order_acquire))
     return 0;
 
   dynamic_target_t X(target_of_function(f));
