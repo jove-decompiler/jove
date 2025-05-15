@@ -7,8 +7,11 @@ TRIPLE="mipsel-linux-gnu"
 
 OURCFLAGS=\
 "--target=$TRIPLE"\
-" -gline-tables-only"\
-" -gdwarf-4"
+" -Oz"\
+" -fno-omit-frame-pointer"\
+" -mno-omit-leaf-frame-pointer"\
+" -g1"\
+" -ggdb"
 
 if [ ! -f build.ninja ]; then
 
@@ -22,8 +25,8 @@ cmake -G Ninja \
   -D LLVM_HOST_TRIPLE=$TRIPLE \
   -D CMAKE_C_COMPILER=$(which clang-19) \
   -D CMAKE_CXX_COMPILER=$(which clang++-19) \
-  -D "CMAKE_C_FLAGS=$OURCFLAGS" \
-  -D "CMAKE_CXX_FLAGS=$OURCFLAGS" \
+  -D "CMAKE_C_FLAGS_MINSIZEREL=$OURCFLAGS" \
+  -D "CMAKE_CXX_FLAGS_MINSIZEREL=$OURCFLAGS" \
   -D "LLVM_TARGETS_TO_BUILD=Mips" \
   -D "JOVE_TARGETS_TO_BUILD=mipsel" \
   -D "LLVM_TABLEGEN=$(pwd)/../build/llvm/bin/llvm-tblgen" \
