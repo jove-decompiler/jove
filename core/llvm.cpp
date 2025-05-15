@@ -3673,8 +3673,9 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
       section_t &Sect = SectTable[i];
 
       if (IsVerbose())
-        llvm::errs() << llvm::formatv("Section: {0} ({1} bytes)\n", Sect.Name,
-                                      Sect.Contents.size());
+        llvm::errs() << llvm::formatv(
+            "Section: \"{0}\" Size={1} Sect.Contents.size()={2}\n", Sect.Name,
+            Sect.Size, Sect.Contents.size());
 
       //
       // check if there's space between the start of this section and the
