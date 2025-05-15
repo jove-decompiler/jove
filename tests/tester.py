@@ -223,17 +223,17 @@ class JoveTester:
   def fake_run_ssh_command_for_user(self, command):
     self.fake_run_command_for_user(["ssh", '-p', str(self.guest_ssh_port), 'root@localhost'] + command)
 
-  def ssh_command(self, command, text=True):
-    return subprocess.run(['ssh'] + self.ssh_common_args + ['-p', str(self.guest_ssh_port), 'root@localhost'] + command, check=True, capture_output=True, text=text)
+  def ssh_command(self, command, check=False, text=True):
+    return subprocess.run(['ssh'] + self.ssh_common_args + ['-p', str(self.guest_ssh_port), 'root@localhost'] + command, check=check, capture_output=True, text=text)
 
-  def ssh(self, command):
-    return subprocess.run(['ssh'] + self.ssh_common_args + ['-p', str(self.guest_ssh_port), 'root@localhost'] + command, check=True)
+  def ssh(self, command, check=False):
+    return subprocess.run(['ssh'] + self.ssh_common_args + ['-p', str(self.guest_ssh_port), 'root@localhost'] + command, check=check)
 
-  def scp_to(self, src, dst):
-    return subprocess.run(['scp'] + self.ssh_common_args + ['-P', str(self.guest_ssh_port), src, 'root@localhost:' + dst], check=True)
+  def scp_to(self, src, dst, check=False):
+    return subprocess.run(['scp'] + self.ssh_common_args + ['-P', str(self.guest_ssh_port), src, 'root@localhost:' + dst], check=check)
 
-  def scp_from(self, src, dst):
-    return subprocess.run(['scp'] + self.ssh_common_args + ['-P', str(self.guest_ssh_port), 'root@localhost:' + src, dst], check=True)
+  def scp_from(self, src, dst, check=False):
+    return subprocess.run(['scp'] + self.ssh_common_args + ['-P', str(self.guest_ssh_port), 'root@localhost:' + src, dst], check=check)
 
   def update_jove(self):
     self.scp_to(self.jove_client_path, '/usr/local/bin/jove')
@@ -241,7 +241,7 @@ class JoveTester:
   def update_libjove_rt(self, multi_threaded):
     rtpath = self.jove_rt_mt_path if multi_threaded else self.jove_rt_st_path
     dstdir = "/tmp" if self.platform == "win" else "/lib"
-    self.scp_to(rtpath, f'{dstdir}/libjove_rt.{self.dsoext}')
+    self.scp_to(rtpath, f'{dstdir}/libjove_rt.{self.dsoext}', check=True)
 
   def inputs_for_test(self, test, platform):
     inputs_path = f"{self.tests_dir}/{platform}/inputs/{test}.inputs"
@@ -267,11 +267,11 @@ class JoveTester:
 
         assert(testbin_path.is_file())
 
-        self.scp_to(testbin_path, '/tmp/')
+        self.scp_to(testbin_path, '/tmp/', check=True)
         testbin = f"/tmp/{testbin_path.name}"
 
         # establish clean slate
-        self.ssh(["rm", "-rf", "/root/.jv.*", "/root/.jove", "/root/.wine32", "/root/.wine64", "/root/.wine"])
+        self.ssh(["rm", "-rf", "/root/.jv.*", "/root/.jove", "/root/.wine32", "/root/.wine64", "/root/.wine"], check=True)
 
         # initialize jv
         self.ssh(["jove", "init", testbin])
@@ -311,7 +311,7 @@ class JoveTester:
               print(f"FAILURE ({self.arch} server is down!)")
               return 1
 
-            self.ssh(["rm", "-f", "/tmp/stdout", "/tmp/stderr"])
+            self.ssh(["rm", "-f", "/tmp/stdout", "/tmp/stderr"], check=True)
 
             p1 = self.ssh_command(self.run + [testbin] + input_args, text=True)
             p2 = self.ssh_command(jove_loop_args + input_args, text=True)
@@ -327,8 +327,8 @@ class JoveTester:
               count += 1
               continue
 
-            self.scp_from("/tmp/stdout", path_to_stdout);
-            self.scp_from("/tmp/stderr", path_to_stderr);
+            self.scp_from("/tmp/stdout", path_to_stdout, check=True);
+            self.scp_from("/tmp/stderr", path_to_stderr, check=True);
 
             p2_stdout = open(path_to_stdout, "r").read()
             p2_stderr = open(path_to_stderr, "r").read()
