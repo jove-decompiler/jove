@@ -398,6 +398,30 @@ using DynTargets_t =
 struct bbprop_t : public ip_mt_base_rw_accessible_nospin {
   struct pub_t : public ip_mt_base_rw_accessible_nospin {
     std::atomic<bool> is = false;
+
+    pub_t() noexcept = default;
+
+    pub_t(pub_t &&other) noexcept {
+      is.store(other.is.load(std::memory_order_relaxed),
+               std::memory_order_relaxed);
+    }
+
+    pub_t(const pub_t &other) noexcept {
+      is.store(other.is.load(std::memory_order_relaxed),
+               std::memory_order_relaxed);
+    }
+
+    pub_t &operator=(pub_t &&other) noexcept {
+      is.store(other.is.load(std::memory_order_relaxed),
+               std::memory_order_relaxed);
+      return *this;
+    }
+
+    pub_t &operator=(const pub_t &other) noexcept {
+      is.store(other.is.load(std::memory_order_relaxed),
+               std::memory_order_relaxed);
+      return *this;
+    }
   } pub;
 
   bool Speculative = false;
