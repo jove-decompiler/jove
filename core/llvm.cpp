@@ -447,7 +447,7 @@ static const helper_function_t &LookupHelper(llvm::Module &M,
   return hf;
 }
 
-void AnalyzeBasicBlock(tiny_code_generator_t &TCG,
+bool AnalyzeBasicBlock(tiny_code_generator_t &TCG,
                        helper_func_map_t &helper_func_map,
                        llvm::Module &M,
                        llvm::object::Binary &B,
@@ -455,7 +455,7 @@ void AnalyzeBasicBlock(tiny_code_generator_t &TCG,
                        bbprop_t &bbprop,
                        const analyzer_options_t &options) {
   if (!bbprop.Analysis.Stale.load(std::memory_order_acquire))
-    return;
+    return false;
 
   BOOST_SCOPE_DEFER [&] {
     bbprop.Analysis.Stale.store(false, std::memory_order_release);
@@ -587,6 +587,7 @@ void AnalyzeBasicBlock(tiny_code_generator_t &TCG,
     llvm::outs() << '\n';
   }
 #endif
+  return true;
 }
 
 static bool is_integral_size(unsigned n) {

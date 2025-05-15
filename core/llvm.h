@@ -122,7 +122,8 @@ struct section_t {
   llvm::Constant *C = nullptr;
 };
 
-void AnalyzeBasicBlock(tiny_code_generator_t &,
+// returns whether the block was actually analyzed
+bool AnalyzeBasicBlock(tiny_code_generator_t &,
                        helper_func_map_t &,
                        llvm::Module &,
                        llvm::object::Binary &,
