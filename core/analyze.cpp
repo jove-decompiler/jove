@@ -163,15 +163,14 @@ template <bool MT, bool MinSize>
 int analyzer_t<MT, MinSize>::analyze_blocks(void) {
   std::atomic<unsigned> count = 0;
 
-  for_each_basic_block(
-      std::execution::seq, /* FIXME */
-      jv, [&](binary_t &b, bb_t bb) {
-          auto &ICFG = b.Analysis.ICFG;
-          if (AnalyzeBasicBlock(TCG, helper_func_map, *Module,
+  for_each_basic_block(maybe_par_unseq, jv,
+                       [&](binary_t &b, bb_t bb) {
+    auto &ICFG = b.Analysis.ICFG;
+    if (AnalyzeBasicBlock(TCG, helper_func_map, *Module,
                           *state.for_binary(b).Bin, b.Name.c_str(), ICFG[bb],
                           options))
-            count.fetch_add(1u, std::memory_order_relaxed);
-      });
+      count.fetch_add(1u, std::memory_order_relaxed);
+  });
 
   if (options.IsVerbose())
   if (unsigned c = count.load())
