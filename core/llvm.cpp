@@ -454,10 +454,12 @@ void AnalyzeBasicBlock(tiny_code_generator_t &TCG,
                        const char *B_Name,
                        bbprop_t &bbprop,
                        const analyzer_options_t &options) {
-  if (!bbprop.Analysis.Stale.load(std::memory_order_relaxed))
+  if (!bbprop.Analysis.Stale.load(std::memory_order_acquire))
     return;
 
-  bbprop.Analysis.Stale.store(false, std::memory_order_relaxed);
+  BOOST_SCOPE_DEFER [&] {
+    bbprop.Analysis.Stale.store(false, std::memory_order_release);
+  };
 
   const uint64_t Addr = bbprop.Addr;
   const unsigned Size = bbprop.Size;
@@ -2330,7 +2332,8 @@ llvm_t<MT, MinSize>::DetermineFunctionArgs(const function_t &f) {
       },
       opts.DFSan, opts.ForCBE, PinnedEnvGlbs, this);
 #else
-  assert(!f.Analysis.Stale);
+  if (unlikely(f.Analysis.Stale.load(std::memory_order_acquire)))
+    die("DetermineFunctionArgs: func #" + std::to_string(f.Idx) + " is stale!");
 #endif
 
   return f.Analysis.args;
@@ -2351,7 +2354,8 @@ llvm_t<MT, MinSize>::DetermineFunctionRets(const function_t &f) {
       },
       opts.DFSan, opts.ForCBE, PinnedEnvGlbs, this);
 #else
-  assert(!f.Analysis.Stale);
+  if (unlikely(f.Analysis.Stale.load(std::memory_order_acquire)))
+    die("DetermineFunctionRets: func #" + std::to_string(f.Idx) + " is stale!");
 #endif
 
   return f.Analysis.rets;
