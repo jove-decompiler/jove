@@ -2896,9 +2896,9 @@ llvm::Constant *llvm_t<MT, MinSize>::SymbolAddress(const elf::RelSymbol &RelSym)
 
       auto it = GlobalSymbolDefinedSizeMap.find(RelSym.Name);
       if (it == GlobalSymbolDefinedSizeMap.end()) {
-        WithColor::warning() << llvm::formatv(
-            "{0}: unknown size for {1}\n",
-            __func__, RelSym.Name);
+        if (IsVerbose())
+          WithColor::warning() << llvm::formatv("{0}: unknown size for {1}\n",
+                                                __func__, RelSym.Name);
 
         Size = WordBytes();
       } else {
