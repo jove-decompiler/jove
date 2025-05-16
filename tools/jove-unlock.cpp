@@ -28,9 +28,9 @@ int UnlockTool::Run(void) {
     HumanOut() << "Standard input is not a TTY, skipping confirmation.\n";
   }
 
-#if 0
-  jv.Binaries.__force_reset_access();
-#endif
+  if (IsToolMinSize)
+    jv.Binaries.__force_reset_access();
+
   std::for_each(
       maybe_par_unseq,
       jv.Binaries.begin(),
