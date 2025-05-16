@@ -76,4 +76,6 @@ struct table_t {
 
   const T *cbegin() const noexcept { return reinterpret_cast<const T *>(storage_); }
   const T *cend() const noexcept { return reinterpret_cast<const T *>(storage_) + size(); }
+
+  void __force_reset_access(void) const noexcept {}
 };
