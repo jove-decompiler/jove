@@ -451,7 +451,6 @@ bool AnalyzeBasicBlock(tiny_code_generator_t &TCG,
                        helper_func_map_t &helper_func_map,
                        llvm::Module &M,
                        llvm::object::Binary &B,
-                       const char *B_Name,
                        bbprop_t &bbprop,
                        const analyzer_options_t &options) {
   if (!bbprop.Analysis.Stale.load(std::memory_order_acquire))

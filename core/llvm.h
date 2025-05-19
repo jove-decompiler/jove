@@ -127,7 +127,6 @@ bool AnalyzeBasicBlock(tiny_code_generator_t &,
                        helper_func_map_t &,
                        llvm::Module &,
                        llvm::object::Binary &,
-                       const char *B_Name,
                        bbprop_t &,
                        const analyzer_options_t &);
 
