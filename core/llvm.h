@@ -124,7 +124,7 @@ struct section_t {
 
 // returns whether the block was actually analyzed
 bool AnalyzeBasicBlock(tiny_code_generator_t &,
-                       helper_func_map_t &,
+                       helpers_context_t &,
                        llvm::Module &,
                        llvm::object::Binary &,
                        bbprop_t &,
@@ -267,7 +267,7 @@ class llvm_t {
 
   llvm::LLVMContext &Context;
   std::unique_ptr<llvm::Module> Module; /* initialized from starter bitcode */
-  helper_func_map_t helper_func_map;
+  helpers_context_t helpers;
 
   tiny_code_generator_t &TCG;
 

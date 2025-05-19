@@ -252,18 +252,20 @@ static bool AnalyzeHelper(helper_function_t &hf,
 }
 
 static const helper_function_t &LookupHelper(llvm::Module &M,
-                                             helper_func_map_t &helper_func_map,
+                                             helpers_context_t &helpers,
                                              tiny_code_generator_t &TCG,
                                              TCGOp *op,
                                              const analyzer_options_t &options) {
+  std::unique_lock<std::mutex> lck(helpers.mtx);
+
   int nb_oargs = TCGOP_CALLO(op);
   int nb_iargs = TCGOP_CALLI(op);
 
   TCGArg helper_addr = op->args[nb_oargs + nb_iargs];
 
   {
-    auto it = helper_func_map.find(helper_addr);
-    if (it != helper_func_map.end())
+    auto it = helpers.map.find(helper_addr);
+    if (it != helpers.map.end())
       return (*it).second;
   }
 
@@ -338,7 +340,7 @@ static const helper_function_t &LookupHelper(llvm::Module &M,
 
   llvm::Linker::linkModules(M, std::move(helperModule));
 
-  helper_function_t &hf = helper_func_map[helper_addr];
+  helper_function_t &hf = helpers.map[helper_addr];
   hf.F = M.getFunction(helper_fn_nm);
   if (unlikely(!hf.F)) {
     WithColor::error() << llvm::formatv("cannot find helper function {0}\n",
@@ -448,7 +450,7 @@ static const helper_function_t &LookupHelper(llvm::Module &M,
 }
 
 bool AnalyzeBasicBlock(tiny_code_generator_t &TCG,
-                       helper_func_map_t &helper_func_map,
+                       helpers_context_t &helpers,
                        llvm::Module &M,
                        llvm::object::Binary &B,
                        bbprop_t &bbprop,
@@ -493,7 +495,7 @@ bool AnalyzeBasicBlock(tiny_code_generator_t &TCG,
         nb_iargs = TCGOP_CALLI(op);
 
         const helper_function_t &hf =
-            LookupHelper(M, helper_func_map, TCG, op, options);
+            LookupHelper(M, helpers, TCG, op, options);
 
         iglbs = hf.Analysis.InGlbs;
         oglbs = hf.Analysis.OutGlbs;
@@ -6508,7 +6510,7 @@ int llvm_t<MT, MinSize>::PrepareForCBE(void) {
   //
   // delete function bodies for TCG helpers
   //
-  for (auto &pair : helper_func_map) {
+  for (auto &pair : helpers.map) {
     helper_function_t &hf = pair.second;
 
     hf.F->setVisibility(llvm::GlobalValue::DefaultVisibility);
@@ -6888,7 +6890,7 @@ int llvm_t<MT, MinSize>::InlineHelpers(void) {
   if (!opts.Optimize)
     return 0;
 
-  for (const auto &pair : helper_func_map) {
+  for (const auto &pair : helpers.map) {
     const helper_function_t &hf = pair.second;
 #if 0
     if (hf.EnvArgNo < 0 || !hf.Analysis.Simple)
@@ -9644,7 +9646,7 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
       BREAK();
 
     const helper_function_t &hf =
-        LookupHelper(*Module, helper_func_map, TCG, op, analyzer_options);
+        LookupHelper(*Module, helpers, TCG, op, analyzer_options);
 
     llvm::Function *const hfF = hf.F;
     if (unlikely(!hfF))

@@ -39,6 +39,11 @@ struct helper_function_t {
 using helper_func_map_t =
     boost::unordered::unordered_flat_map<uintptr_t, helper_function_t>;
 
+struct helpers_context_t {
+  std::mutex mtx;
+  helper_func_map_t map;
+};
+
 template <bool MT, bool MinSize>
 struct analyzer_t {
   using jv_t = jv_base_t<MT, MinSize>;
@@ -86,7 +91,7 @@ struct analyzer_t {
 
   llvm::LLVMContext &Context;
   std::unique_ptr<llvm::Module> Module; /* initialized from starter bitcode */
-  helper_func_map_t helper_func_map;
+  helpers_context_t helpers;
 
   boost::concurrent_flat_set<dynamic_target_t> &inflight;
   std::atomic<uint64_t> &done;

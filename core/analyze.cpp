@@ -167,8 +167,8 @@ int analyzer_t<MT, MinSize>::analyze_blocks(void) {
       std::execution::seq, /* FIXME */
       jv, [&](binary_t &b, bb_t bb) {
           auto &ICFG = b.Analysis.ICFG;
-          if (AnalyzeBasicBlock(TCG, helper_func_map, *Module,
-                                *state.for_binary(b).Bin, ICFG[bb], options))
+          if (AnalyzeBasicBlock(TCG, helpers, *Module, *state.for_binary(b).Bin,
+                                ICFG[bb], options))
             count.fetch_add(1u, std::memory_order_relaxed);
       });
 
@@ -411,8 +411,8 @@ flow_vertex_t analyzer_t<MT, MinSize>::copy_function_cfg(
   // make sure basic blocks have been analyzed
   //
   for (bb_t bb : bbvec)
-    AnalyzeBasicBlock(TCG, helper_func_map, *Module, *state.for_binary(b).Bin,
-                      ICFG[bb], options);
+    AnalyzeBasicBlock(TCG, helpers, *Module, *state.for_binary(b).Bin, ICFG[bb],
+                      options);
 
   if (!IsLeafFunction(f, b, bbvec, exit_bbvec)) {
     //
