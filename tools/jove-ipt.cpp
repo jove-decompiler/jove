@@ -212,9 +212,7 @@ public:
         IsCOFF(B::is_coff(*state.for_binary(jv.Binaries.at(0)).Bin)) {}
 
   int Run(void) override;
-
-  int UsingPerfScript(void);
-  int UsingLibipt(void);
+  int Analyze(void);
 
   std::string GetLine(int rfd, tbb::flow_control &);
   void ProcessLine(const std::string &line);
@@ -353,7 +351,7 @@ int IPTTool::Run(void) {
         Arg("perf.data");
     });
 
-  return UsingLibipt();
+  return Analyze();
 }
 
 std::string IPTTool::GetLine(int rfd, tbb::flow_control &fc) {
@@ -388,7 +386,7 @@ std::string IPTTool::GetLine(int rfd, tbb::flow_control &fc) {
   return res;
 }
 
-int IPTTool::UsingLibipt(void) {
+int IPTTool::Analyze(void) {
   fs::path libipt_scripts_dir = locator().libipt_scripts();
 
   bool Failed = false;
