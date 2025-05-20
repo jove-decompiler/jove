@@ -220,6 +220,8 @@ found_tool:
   jove::DoDefaultOnErrorSignal();
 #endif
 
+  ::srand(time(NULL));
+
   int res = tool->Run();
 
   return res;

@@ -164,6 +164,16 @@ tiny_code_generator_t::translate(uint64_t pc, uint64_t pc_end) {
   int max_insns = 64;
   TranslationBlock tb;
 
+#ifndef NDEBUG
+  //
+  // catch bugs
+  //
+  if (::rand() % 1u == 0u)
+    memset(&tb, 0xff, sizeof(tb));
+  else
+    memset(&tb, 0x00, sizeof(tb));
+#endif
+
   //
   // see tb_gen_code() in qemu/accel/tcg/translate-all.c
   //
