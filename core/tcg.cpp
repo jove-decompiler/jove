@@ -1,6 +1,5 @@
 #include "qemu.tcg.h"
 #include "../qemu/include/jove.h"
-#include "asm-offsets.h"
 
 #include "tcg.h"
 #include "temp.h"
@@ -11,9 +10,6 @@
 #include <llvm/Support/raw_ostream.h>
 
 extern "C" void tcg_dump_ops(TCGContext *s, FILE *f, bool have_prefs);
-extern "C" void gen_intermediate_code(CPUState *cpu, TranslationBlock *tb,
-                                      int *max_insns, target_ulong pc,
-                                      void *host_pc);
 extern "C" void tcg_register_thread(void);
 
 static __THREAD_IF_WE_ARE_MT llvm::object::Binary *jv_Bin;
@@ -152,15 +148,13 @@ void tiny_code_generator_t::dump_operations(void) {
 
 std::pair<unsigned, terminator_info_t>
 tiny_code_generator_t::translate(uint64_t pc, uint64_t pc_end) {
-  rassert(jv_cpu);
+  CPUState *const cs = jv_cpu;
+  assert(cs);
 
   if (!has_register_thread) {
     has_register_thread = 1;
     tcg_register_thread();
   }
-
-  TCGContext *s = tcg_ctx;
-  assert(s);
 
   unsigned tb_size = 0;
 
@@ -168,33 +162,32 @@ tiny_code_generator_t::translate(uint64_t pc, uint64_t pc_end) {
   jv_ti.Addr = ~0UL;
 
   int max_insns = 64;
-  TranslationBlock tb = {0};
-  tb.flags = jv_hflags_of_cpu_env(jv_cpu);
-  tb.cflags = jv_cpu->tcg_cflags | CF_NOIRQ | 0u /* CF_PCREL */;
+  TranslationBlock tb;
 
-#if 0
-  assert(!(tb.cflags & CF_PCREL));
-#endif
+  //
+  // see tb_gen_code() in qemu/accel/tcg/translate-all.c
+  //
+  {
+    TCGTBCPUState s = cs->cc->tcg_ops->get_tb_cpu_state(cs);
 
-  //printf("tb.flags=0x%x\n", tb.flags);
-  //printf("tb.cflags=0x%x\n", tb.cflags);
+    tb.cs_base = s.cs_base;
+    tb.flags = s.flags;
+    tb.cflags = s.flags;
+  }
 
+  tb.cflags |= CF_NOIRQ;
+
+  TCGContext *const s = tcg_ctx;
+  assert(s);
+
+  s->cpu = cs;
   s->gen_tb = &tb;
-  s->addr_type = TCG_TARGET_REG_BITS == 32 ? TCG_TYPE_I32 : TCG_TYPE_I64;
-
-  jv_init_tcg_ctx(s);
-
-#if 0
-  tb.flags = jv_cpu->hflags |
-      (jv_cpu->eflags & (IOPL_MASK | TF_MASK | RF_MASK | VM_MASK | AC_MASK));
-#endif
+  s->addr_type = sizeof(taddr_t) == 4 ? TCG_TYPE_I32 : TCG_TYPE_I64;
+  s->guest_mo = cs->cc->tcg_ops->guest_default_memory_order;
 
   jv_end_pc = pc_end;
 
   jv_tcg_func_start(s);
-
-  CPUState *cs = jv_cpu;
-  tcg_ctx->cpu = cs;
   cs->cc->tcg_ops->translate_code(cs, &tb, &max_insns, pc, _jv_g2h(pc));
 
   tb_size = tb.size;

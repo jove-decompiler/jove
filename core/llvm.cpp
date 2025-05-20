@@ -596,7 +596,7 @@ static bool is_integral_size(unsigned n) {
 }
 
 static constexpr unsigned WordBytes(void) {
-  return sizeof(target_ulong);
+  return sizeof(taddr_t);
 }
 
 static constexpr unsigned WordBits(void) {
@@ -1647,7 +1647,7 @@ static const std::array<hook_t, NumHooks> HookArray{{
 #define ___HOOK0(hook_kind, rett, sym)                                         \
   {                                                                            \
       .Sym = #sym,                                                             \
-      .Ret = {.Size = sizeof(target_ulong),                                    \
+      .Ret = {.Size = sizeof(taddr_t),                                    \
               .isPointer = std::is_pointer<rett>::value},                      \
       .Pre = !!((hook_kind) & PRE),                                            \
       .Post = !!((hook_kind) & POST),                                          \
@@ -1656,9 +1656,9 @@ static const std::array<hook_t, NumHooks> HookArray{{
 #define ___HOOK1(hook_kind, rett, sym, t1)                                     \
   {                                                                            \
       .Sym = #sym,                                                             \
-      .Args = {{.Size = sizeof(target_ulong),                                  \
+      .Args = {{.Size = sizeof(taddr_t),                                  \
                 .isPointer = std::is_pointer<t1>::value}},                     \
-      .Ret = {.Size = sizeof(target_ulong),                                    \
+      .Ret = {.Size = sizeof(taddr_t),                                    \
               .isPointer = std::is_pointer<rett>::value},                      \
       .Pre = !!((hook_kind) & PRE),                                            \
       .Post = !!((hook_kind) & POST),                                          \
@@ -1667,9 +1667,9 @@ static const std::array<hook_t, NumHooks> HookArray{{
 #define ___HOOK2(hook_kind, rett, sym, t1, t2)                                 \
   {                                                                            \
       .Sym = #sym,                                                             \
-      .Args = {{.Size = sizeof(target_ulong),                                  \
+      .Args = {{.Size = sizeof(taddr_t),                                  \
                 .isPointer = std::is_pointer<t1>::value},                      \
-               {.Size = sizeof(target_ulong),                                  \
+               {.Size = sizeof(taddr_t),                                  \
                 .isPointer = std::is_pointer<t2>::value}},                     \
       .Ret = {.Size = sizeof(rett),                                            \
               .isPointer = std::is_pointer<rett>::value},                      \
@@ -1680,13 +1680,13 @@ static const std::array<hook_t, NumHooks> HookArray{{
 #define ___HOOK3(hook_kind, rett, sym, t1, t2, t3)                             \
   {                                                                            \
       .Sym = #sym,                                                             \
-      .Args = {{.Size = sizeof(target_ulong),                                  \
+      .Args = {{.Size = sizeof(taddr_t),                                  \
                 .isPointer = std::is_pointer<t1>::value},                      \
-               {.Size = sizeof(target_ulong),                                  \
+               {.Size = sizeof(taddr_t),                                  \
                 .isPointer = std::is_pointer<t2>::value},                      \
-               {.Size = sizeof(target_ulong),                                  \
+               {.Size = sizeof(taddr_t),                                  \
                 .isPointer = std::is_pointer<t3>::value}},                     \
-      .Ret = {.Size = sizeof(target_ulong),                                    \
+      .Ret = {.Size = sizeof(taddr_t),                                    \
               .isPointer = std::is_pointer<rett>::value},                      \
       .Pre = !!((hook_kind) & PRE),                                            \
       .Post = !!((hook_kind) & POST),                                          \
@@ -1695,15 +1695,15 @@ static const std::array<hook_t, NumHooks> HookArray{{
 #define ___HOOK4(hook_kind, rett, sym, t1, t2, t3, t4)                         \
   {                                                                            \
       .Sym = #sym,                                                             \
-      .Args = {{.Size = sizeof(target_ulong),                                  \
+      .Args = {{.Size = sizeof(taddr_t),                                  \
                 .isPointer = std::is_pointer<t1>::value},                      \
-               {.Size = sizeof(target_ulong),                                  \
+               {.Size = sizeof(taddr_t),                                  \
                 .isPointer = std::is_pointer<t2>::value},                      \
-               {.Size = sizeof(target_ulong),                                  \
+               {.Size = sizeof(taddr_t),                                  \
                 .isPointer = std::is_pointer<t3>::value},                      \
-               {.Size = sizeof(target_ulong),                                  \
+               {.Size = sizeof(taddr_t),                                  \
                 .isPointer = std::is_pointer<t4>::value}},                     \
-      .Ret = {.Size = sizeof(target_ulong),                                    \
+      .Ret = {.Size = sizeof(taddr_t),                                    \
               .isPointer = std::is_pointer<rett>::value},                      \
       .Pre = !!((hook_kind) & PRE),                                            \
       .Post = !!((hook_kind) & POST),                                          \
@@ -1712,17 +1712,17 @@ static const std::array<hook_t, NumHooks> HookArray{{
 #define ___HOOK5(hook_kind, rett, sym, t1, t2, t3, t4, t5)                     \
   {                                                                            \
       .Sym = #sym,                                                             \
-      .Args = {{.Size = sizeof(target_ulong),                                  \
+      .Args = {{.Size = sizeof(taddr_t),                                  \
                 .isPointer = std::is_pointer<t1>::value},                      \
-               {.Size = sizeof(target_ulong),                                  \
+               {.Size = sizeof(taddr_t),                                  \
                 .isPointer = std::is_pointer<t2>::value},                      \
-               {.Size = sizeof(target_ulong),                                  \
+               {.Size = sizeof(taddr_t),                                  \
                 .isPointer = std::is_pointer<t3>::value},                      \
-               {.Size = sizeof(target_ulong),                                  \
+               {.Size = sizeof(taddr_t),                                  \
                 .isPointer = std::is_pointer<t4>::value},                      \
-               {.Size = sizeof(target_ulong),                                  \
+               {.Size = sizeof(taddr_t),                                  \
                 .isPointer = std::is_pointer<t5>::value}},                     \
-      .Ret = {.Size = sizeof(target_ulong),                                    \
+      .Ret = {.Size = sizeof(taddr_t),                                    \
               .isPointer = std::is_pointer<rett>::value},                      \
       .Pre = !!((hook_kind) & PRE),                                            \
       .Post = !!((hook_kind) & POST),                                          \
@@ -1731,19 +1731,19 @@ static const std::array<hook_t, NumHooks> HookArray{{
 #define ___HOOK6(hook_kind, rett, sym, t1, t2, t3, t4, t5, t6)                 \
   {                                                                            \
       .Sym = #sym,                                                             \
-      .Args = {{.Size = sizeof(target_ulong),                                  \
+      .Args = {{.Size = sizeof(taddr_t),                                  \
                 .isPointer = std::is_pointer<t1>::value},                      \
-               {.Size = sizeof(target_ulong),                                  \
+               {.Size = sizeof(taddr_t),                                  \
                 .isPointer = std::is_pointer<t2>::value},                      \
-               {.Size = sizeof(target_ulong),                                  \
+               {.Size = sizeof(taddr_t),                                  \
                 .isPointer = std::is_pointer<t3>::value},                      \
-               {.Size = sizeof(target_ulong),                                  \
+               {.Size = sizeof(taddr_t),                                  \
                 .isPointer = std::is_pointer<t4>::value},                      \
-               {.Size = sizeof(target_ulong),                                  \
+               {.Size = sizeof(taddr_t),                                  \
                 .isPointer = std::is_pointer<t5>::value},                      \
-               {.Size = sizeof(target_ulong),                                  \
+               {.Size = sizeof(taddr_t),                                  \
                 .isPointer = std::is_pointer<t6>::value}},                     \
-      .Ret = {.Size = sizeof(target_ulong),                                    \
+      .Ret = {.Size = sizeof(taddr_t),                                    \
               .isPointer = std::is_pointer<rett>::value},                      \
       .Pre = !!((hook_kind) & PRE),                                            \
       .Post = !!((hook_kind) & POST),                                          \
@@ -9383,17 +9383,13 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
   llvm::Value *taddr = nullptr;
   llvm::Value *tmp64 = nullptr;
 
+  //
+  // modeled after tcg_qemu_tb_exec() in qemu/tcg/tci.c
+  //
+
 #define JUMP_TABLE_BASE_LABEL do_unknown
 #define REF(Name) &&do_##Name
 #define ENTRY(Name) [INDEX_op_##Name] = REF(Name),
-
-#if TCG_TARGET_REG_BITS == 64
-#define ENTRY_CASE_32_64(x) ENTRY(x##_i64) ENTRY(x##_i32)
-#define ENTRY_CASE_64(x) ENTRY(x##_i64)
-#else
-#define ENTRY_CASE_32_64(x) ENTRY(x##_i32)
-#define ENTRY_CASE_64(x)
-#endif
 
   typedef void *const jumps_elem_t;
 
@@ -9403,159 +9399,98 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
       [0 ... SZ - 1] = REF(unknown),
 
       ENTRY(insn_start)
-      ENTRY(discard)
       ENTRY(goto_tb)
       ENTRY(set_label)
       ENTRY(goto_ptr)
       ENTRY(exit_tb)
       ENTRY(call)
-      ENTRY(mov_i64)
-      ENTRY(mov_i32)
-      ENTRY(ext8s_i32)
-      ENTRY(ext8u_i32)
-      ENTRY(ext16s_i32)
-      ENTRY(ext16u_i32)
 
-#if TCG_TARGET_REG_BITS == 64
-      ENTRY(ext8s_i64)
-      ENTRY(ext8u_i64)
-      ENTRY(ext16s_i64)
-      ENTRY(ext16u_i64)
-
-      ENTRY(ext_i32_i64)
-      ENTRY(ext32s_i64)
-
-      ENTRY(extu_i32_i64)
-      ENTRY(ext32u_i64)
-      ENTRY(extrl_i64_i32)
-#endif
-      ENTRY(qemu_ld_i32)
-      ENTRY(qemu_ld_i64)
-
-      ENTRY(qemu_st_i32)
-      ENTRY(qemu_st_i64)
-
-      ENTRY(add_i32)
-      ENTRY(sub_i32)
-      ENTRY(mul_i32)
-
-      ENTRY(div_i32)
-      ENTRY(divu_i32)
-      ENTRY(rem_i32)
-      ENTRY(remu_i32)
-
-      ENTRY(and_i32)
-      ENTRY(or_i32)
-      ENTRY(xor_i32)
-
-      ENTRY(shl_i32)
-      ENTRY(shr_i32)
-      ENTRY(sar_i32)
-
-      ENTRY(add_i64)
-      ENTRY(sub_i64)
-      ENTRY(mul_i64)
-
-      ENTRY(div_i64)
-      ENTRY(divu_i64)
-      ENTRY(rem_i64)
-      ENTRY(remu_i64)
-
-      ENTRY(and_i64)
-      ENTRY(or_i64)
-      ENTRY(xor_i64)
-
-      ENTRY(shl_i64)
-      ENTRY(shr_i64)
-      ENTRY(sar_i64)
-
-      ENTRY(rotl_i32)
-      ENTRY(rotr_i32)
-
-      ENTRY(rotl_i64)
-      ENTRY(rotr_i64)
-
-      ENTRY(andc_i32)
-      ENTRY(andc_i64)
-
-      ENTRY_CASE_32_64(ld8u)
-      ENTRY_CASE_32_64(ld8s)
-      ENTRY_CASE_32_64(ld16u)
-      ENTRY_CASE_32_64(ld16s)
-      ENTRY(ld_i32)
-      ENTRY_CASE_64(ld32u)
-      ENTRY_CASE_32_64(st8)
-      ENTRY_CASE_32_64(st16)
-      ENTRY(st_i32)
-      ENTRY_CASE_64(st32)
-
-#if TCG_TARGET_REG_BITS == 64
-      ENTRY(ld32s_i64)
-      ENTRY(ld_i64)
-      ENTRY(st_i64)
-#endif
       ENTRY(br)
-      ENTRY(brcond_i32)
-      ENTRY(brcond_i64)
-
-      ENTRY(setcond_i32)
-      ENTRY(setcond_i64)
-      ENTRY(movcond_i32)
-      ENTRY(movcond_i64)
-      ENTRY(mulu2_i32)
-      ENTRY(muls2_i32)
-      ENTRY(mulu2_i64)
-      ENTRY(muls2_i64)
-      ENTRY(not_i32)
-      ENTRY(neg_i32)
-      ENTRY(not_i64)
-      ENTRY(neg_i64)
-      ENTRY(bswap16_i32)
-      ENTRY(bswap32_i32)
-      ENTRY(bswap16_i64)
-      ENTRY(bswap32_i64)
-      ENTRY(bswap64_i64)
-      ENTRY(clz_i32)
-      ENTRY(clz_i64)
-      ENTRY(ctz_i32)
-      ENTRY(ctz_i64)
-      ENTRY(deposit_i32)
-      ENTRY(deposit_i64)
-      ENTRY(extract_i32)
-      ENTRY(sextract_i32)
-      ENTRY(extract_i64)
-      ENTRY(sextract_i64)
-      ENTRY(muluh_i64)
-      ENTRY(mulsh_i64)
-      ENTRY(add2_i32)
-      ENTRY(add2_i64)
-      ENTRY(sub2_i32)
-      ENTRY(sub2_i64)
-      ENTRY(orc_i32)
-      ENTRY(orc_i64)
-      ENTRY(eqv_i32)
-      ENTRY(eqv_i64)
-
-      ENTRY_CASE_32_64(nor)
+#if TCG_TARGET_REG_BITS == 32
+      ENTRY(setcond2_i32)
+#elif TCG_TARGET_REG_BITS == 64
+      ENTRY(setcond)
+      ENTRY(movcond)
+#endif
+      ENTRY(mov)
+      ENTRY(tci_movi)
+      ENTRY(tci_movl)
+      ENTRY(tci_setcarry)
+      ENTRY(ld8u)
+      ENTRY(ld8s)
+      ENTRY(ld16u)
+      ENTRY(ld16s)
+      ENTRY(ld)
+      ENTRY(st8)
+      ENTRY(st16)
+      ENTRY(st)
+      ENTRY(add)
+      ENTRY(sub)
+      ENTRY(mul)
+      ENTRY(and)
+      ENTRY(or)
+      ENTRY(xor)
+      ENTRY(andc)
+      ENTRY(orc)
+      ENTRY(eqv)
+      ENTRY(nand)
+      ENTRY(nor)
+      ENTRY(neg)
+      ENTRY(not)
+      ENTRY(ctpop)
+      ENTRY(addco)
+      ENTRY(addci)
+      ENTRY(addcio)
+      ENTRY(subbo)
+      ENTRY(subbi)
+      ENTRY(subbio)
+      ENTRY(muls2)
+      ENTRY(mulu2)
+      ENTRY(tci_divs32)
+      ENTRY(tci_divu32)
+      ENTRY(tci_rems32)
+      ENTRY(tci_remu32)
+      ENTRY(tci_clz32)
+      ENTRY(tci_ctz32)
+      ENTRY(tci_setcond32)
+      ENTRY(tci_movcond32)
+      ENTRY(shl)
+      ENTRY(shr)
+      ENTRY(sar)
+      ENTRY(tci_rotl32)
+      ENTRY(tci_rotr32)
+      ENTRY(deposit)
+      ENTRY(extract)
+      ENTRY(sextract)
+      ENTRY(brcond)
+      ENTRY(bswap16)
+      ENTRY(bswap32)
+#if TCG_TARGET_REG_BITS == 64
+      ENTRY(ld32u)
+      ENTRY(ld32s)
+      ENTRY(st32)
+      ENTRY(divs)
+      ENTRY(divu)
+      ENTRY(rems)
+      ENTRY(remu)
+      ENTRY(clz)
+      ENTRY(ctz)
+      ENTRY(rotl)
+      ENTRY(rotr)
+      ENTRY(ext_i32_i64)
+      ENTRY(extu_i32_i64)
+      ENTRY(bswap64)
+#endif /* TCG_TARGET_REG_BITS == 64 */
+      ENTRY(qemu_ld)
+      ENTRY(qemu_st)
+      ENTRY(qemu_ld2)
+      ENTRY(qemu_st2)
       ENTRY(mb)
   };
 
-#define CASE(x)                                                                \
-  do_##x
-#if TCG_TARGET_REG_BITS == 64
-#define CASE_32_64(x)                                                          \
-  do_##x##_i64:                                                                \
-  do_##x##_i32
-#define CASE_64(x)                                                             \
-  do_##x##_i64
-#else
-#define CASE_32_64(x)                                                          \
-  do_##x##_i32
-# define CASE_64(x)                                                            \
-  do_not_do_##x
-#endif
-
+#define CASE(x) do_##x
 #define BREAK() goto out
+#define TODO() goto do_todo
 
   op = s->ops.tqh_first;
   assert(op);
@@ -9604,19 +9539,6 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
           Context, Line, Column, TC.DebugInformation.Subprogram));
     }
     BREAK();
-
-  CASE(discard): {
-    // FIXME
-#if 0
-    TCGTemp *dst = arg_temp(op->args[0]);
-    unsigned idx = temp_idx(dst);
-
-    llvm::Type *Ty = IRB.getIntNTy(bitsOfTCGType(s->temps[idx].type));
-    //set(llvm::UndefValue::get(Ty), dst);
-    set(llvm::Constant::getNullValue(Ty), dst);
-#endif
-    BREAK();
-  }
 
   CASE(goto_tb):
     BREAK();
@@ -9806,228 +9728,40 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
         ") for helper " + hf.F->getName().str());
   }
 
-#if 1
-  CASE(mov_i64):
-  CASE(mov_i32):
+  CASE(br): {
+    llvm::BasicBlock* lblB = LabelVec.at(input_label(0)->id);
+    IRB.CreateBr(lblB);
+    IRB.ClearInsertionPoint();
+    EnsureInsertPoint();
+    BREAK();
+  }
+
+#if TCG_TARGET_REG_BITS == 32
+  CASE(setcond2_i32):
+#elif TCG_TARGET_REG_BITS == 64
+  CASE(setcond):
+  CASE(movcond):
+#endif
+    TODO();
+
+  CASE(mov):
     set(get(input_arg(0)), output_arg(0));
     BREAK();
-#else
 
-  CASE(op_mov_i32): {
-    assert(nb_iargs == 1);
-    assert(nb_oargs == 1);
+  CASE(tci_movi):
+  CASE(tci_movl):
+  CASE(tci_setcarry):
+    TODO();
 
-    TCGTemp *dst = arg_temp(op->args[0]);
-    TCGTemp *src = arg_temp(op->args[1]);
-
-    if (likely(src->type == dst->type)) {
-      set(get(src), dst);
-    } else {
-      //WithColor::warning() << llvm::formatv("[INDEX_op_mov_i32] {0} (i32)={1} (i64)\n", dst->name ?: "_", src->name ?: "_");
-      assert(dst->type == TCG_TYPE_I32);
-      assert(src->type == TCG_TYPE_I64);
-
-      set(IRB.CreateTrunc(get(src), IRB.getInt32Ty()), dst);
-    }
-    BREAK();
-  }
-
-  CASE(mov_i64): {
-    TCGTemp *dst = arg_temp(op->args[0]);
-    TCGTemp *src = arg_temp(op->args[1]);
-
-    assert(dst->type == TCG_TYPE_I64);
-    assert(src->type == TCG_TYPE_I64);
-
-    set(get(src), dst);
-    BREAK();
-  }
-#endif
-
-#define __EXT_OP(opc_name, truncBits, opBits, signE)                           \
-  CASE(opc_name):                                                   \
-    set(IRB.Create##signE##Ext(                                                \
-            IRB.CreateTrunc(get(arg_temp(op->args[1])),                        \
-                            IRB.getIntNTy(truncBits)),                         \
-            IRB.getIntNTy(opBits)),                                            \
-        arg_temp(op->args[0]));                                                \
-    BREAK();
-
-    __EXT_OP(ext8s_i32, 8, 32, S)
-    __EXT_OP(ext8u_i32, 8, 32, Z)
-    __EXT_OP(ext16s_i32, 16, 32, S)
-    __EXT_OP(ext16u_i32, 16, 32, Z)
-
-#if TCG_TARGET_REG_BITS == 64
-    __EXT_OP(ext8s_i64, 8, 64, S)
-    __EXT_OP(ext8u_i64, 8, 64, Z)
-    __EXT_OP(ext16s_i64, 16, 64, S)
-    __EXT_OP(ext16u_i64, 16, 64, Z)
-
-    __EXT_OP(ext_i32_i64, 32, 64, S)
-    __EXT_OP(ext32s_i64, 32, 64, S)
-
-    __EXT_OP(extu_i32_i64, 32, 64, Z)
-    __EXT_OP(ext32u_i64, 32, 64, Z)
-    __EXT_OP(extrl_i64_i32, 32, 64, Z)
-#endif
-
-#undef __EXT_OP
-
-#if 0
-  case INDEX_op_qemu_ld_a32_i32:
-    taddr = IRB.CreateIntCast(get(input_arg(0)), IRB.getInt32Ty(), false);
-    goto do_ld_i32;
-  case INDEX_op_qemu_ld_a64_i32:
-    if (TCG_TARGET_REG_BITS == 64)
-      taddr = get(input_arg(0));
-    else
-      taddr = uint64(get(input_arg(1)), get(input_arg(0)));
-
-  do_ld_i32:
-    set(do_qemu_ld(taddr, const_arg(0)), output_arg(0));
-    break;
-
-  case INDEX_op_qemu_ld_a32_i64:
-    taddr = IRB.CreateIntCast(get(input_arg(0)), IRB.getInt32Ty(), false);
-    goto do_ld_i64;
-  case INDEX_op_qemu_ld_a64_i64:
-    if (TCG_TARGET_REG_BITS == 64)
-      taddr = get(input_arg(0));
-    else
-      taddr = uint64(get(input_arg(1)), get(input_arg(0)));
-
-  do_ld_i64:
-    tmp64 = do_qemu_ld(taddr, const_arg(0));
-    if (TCG_TARGET_REG_BITS == 32)
-      write_reg64(output_arg(1), output_arg(0), tmp64);
-    else
-      set(tmp64, output_arg(0));
-    break;
-
-  case INDEX_op_qemu_st_a32_i32:
-    taddr = IRB.CreateIntCast(get(input_arg(1)), IRB.getInt32Ty(), false);
-    goto do_st_i32;
-  case INDEX_op_qemu_st_a64_i32:
-    if (TCG_TARGET_REG_BITS == 64)
-      taddr = get(input_arg(1));
-    else
-      taddr = uint64(get(input_arg(2)), get(input_arg(1)));
-
-  do_st_i32:
-    do_qemu_st(taddr,
-               IRB.CreateIntCast(IRB.CreateIntCast(get(input_arg(0)),
-                                                   IRB.getInt32Ty(), false),
-                                 IRB.getInt64Ty(), false),
-               const_arg(0));
-    break;
-
-  case INDEX_op_qemu_st_a32_i64:
-    if (TCG_TARGET_REG_BITS == 64) {
-      tmp64 = get(input_arg(0));
-      taddr = IRB.CreateIntCast(get(input_arg(1)), IRB.getInt32Ty(), false);
-    } else {
-      tmp64 = uint64(get(input_arg(1)), get(input_arg(0)));
-      taddr = get(input_arg(2));
-    }
-    goto do_st_i64;
-  case INDEX_op_qemu_st_a64_i64:
-    if (TCG_TARGET_REG_BITS == 64) {
-      tmp64 = get(input_arg(0));
-      taddr = get(input_arg(1));
-    } else {
-      tmp64 = uint64(get(input_arg(1)), get(input_arg(0)));
-      taddr = uint64(get(input_arg(3)), get(input_arg(2)));
-    }
-
-  do_st_i64:
-    do_qemu_st(taddr, tmp64, const_arg(0));
-    break;
-#else
-        CASE(qemu_ld_i32):
-#if 0
-            tci_args_rrm(insn, &r0, &r1, &oi);
-            taddr = regs[r1];
-            regs[r0] = tci_qemu_ld(env, taddr, oi, tb_ptr);
-#else
-            taddr = get(input_arg(0));
-            set(do_qemu_ld(taddr, const_arg(0)), output_arg(0));
-#endif
-            BREAK();
-
-        CASE(qemu_ld_i64):
-#if 0
-            if (TCG_TARGET_REG_BITS == 64) {
-                tci_args_rrm(insn, &r0, &r1, &oi);
-                taddr = regs[r1];
-                taddr = get(input_arg(0));
-            } else {
-                tci_args_rrrr(insn, &r0, &r1, &r2, &r3);
-                taddr = regs[r2];
-                oi = regs[r3];
-            }
-#else
-            taddr = get(input_arg(0));
-#endif
-#if 0
-            tmp64 = tci_qemu_ld(env, taddr, oi, tb_ptr);
-#else
-            tmp64 = do_qemu_ld(taddr, const_arg(0));
-#endif
-            if (TCG_TARGET_REG_BITS == 32) {
-#if 0
-                tci_write_reg64(regs, r1, r0, tmp64);
-#else
-                write_reg64(output_arg(1), output_arg(0), tmp64);
-#endif
-            } else {
-#if 0
-                regs[r0] = tmp64;
-#else
-                set(tmp64, output_arg(0));
-#endif
-            }
-            BREAK();
-
-        CASE(qemu_st_i32):
-#if 0
-            tci_args_rrm(insn, &r0, &r1, &oi);
-            taddr = regs[r1];
-            tci_qemu_st(env, taddr, regs[r0], oi, tb_ptr);
-#else
-            taddr = get(input_arg(1));
-            do_qemu_st(taddr, get(input_arg(0)), const_arg(0));
-#endif
-            BREAK();
-
-        CASE(qemu_st_i64):
-            if (TCG_TARGET_REG_BITS == 64) {
-#if 0
-                tci_args_rrm(insn, &r0, &r1, &oi);
-                tmp64 = regs[r0];
-                taddr = regs[r1];
-#else
-                tmp64 = get(input_arg(0));
-                taddr = get(input_arg(1));
-#endif
-            } else {
-#if 0
-                tci_args_rrrr(insn, &r0, &r1, &r2, &r3);
-                tmp64 = tci_uint64(regs[r1], regs[r0]);
-                taddr = regs[r2];
-                oi = regs[r3];
-#else
-                tmp64 = uint64(get(input_arg(1)), get(input_arg(0)));
-                taddr = get(input_arg(2));
-#endif
-            }
-#if 0
-            tci_qemu_st(env, taddr, tmp64, oi, tb_ptr);
-#else
-            do_qemu_st(taddr, tmp64, const_arg(0));
-#endif
-            BREAK();
-#endif
+  CASE(ld8u):
+  CASE(ld8s):
+  CASE(ld16u):
+  CASE(ld16s):
+  CASE(ld):
+  CASE(st8):
+  CASE(st16):
+  CASE(st):
+    TODO();
 
 #define __ARITH_OP(opc_name, LLVMOp, bits)                                     \
   CASE(opc_name): {                                                            \
@@ -10057,749 +9791,70 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     BREAK();                                                                   \
   }
 
-    __ARITH_OP(add_i32, Add, 32)
-    __ARITH_OP(sub_i32, Sub, 32)
-    __ARITH_OP(mul_i32, Mul, 32)
+  CASE(add):
+  CASE(sub):
+  CASE(mul):
+  CASE(and):
+  CASE(or):
+  CASE(xor):
+  CASE(andc):
+  CASE(orc):
+  CASE(eqv):
+  CASE(nand):
+  CASE(nor):
+  CASE(neg):
+  CASE(not):
+    TODO();
 
-    __ARITH_OP(div_i32, SDiv, 32)
-    __ARITH_OP(divu_i32, UDiv, 32)
-    __ARITH_OP(rem_i32, SRem, 32)
-    __ARITH_OP(remu_i32, URem, 32)
-
-    __ARITH_OP(and_i32, And, 32)
-    __ARITH_OP(or_i32, Or, 32)
-    __ARITH_OP(xor_i32, Xor, 32)
-
-    __ARITH_OP(shl_i32, Shl, 32)
-    __ARITH_OP(shr_i32, LShr, 32)
-    __ARITH_OP(sar_i32, AShr, 32)
-
-    __ARITH_OP(add_i64, Add, 64)
-    __ARITH_OP(sub_i64, Sub, 64)
-    __ARITH_OP(mul_i64, Mul, 64)
-
-    __ARITH_OP(div_i64, SDiv, 64)
-    __ARITH_OP(divu_i64, UDiv, 64)
-    __ARITH_OP(rem_i64, SRem, 64)
-    __ARITH_OP(remu_i64, URem, 64)
-
-    __ARITH_OP(and_i64, And, 64)
-    __ARITH_OP(or_i64, Or, 64)
-    __ARITH_OP(xor_i64, Xor, 64)
-
-    __ARITH_OP(shl_i64, Shl, 64)
-    __ARITH_OP(shr_i64, LShr, 64)
-    __ARITH_OP(sar_i64, AShr, 64)
-
-#undef __ARITH_OP
-
-#define __ARITH_OP_ROT(opc_name, op1, op2, bits)                               \
-  CASE(opc_name): {                                                            \
-    llvm::Value *v1 = get(arg_temp(op->args[1]));                              \
-    llvm::Value *v2 = get(arg_temp(op->args[2]));                              \
-                                                                               \
-    llvm::Value *v = IRB.CreateSub(                                            \
-        llvm::ConstantInt::get(llvm::IntegerType::get(Context, bits), bits),  \
-        v2);                                                                   \
-                                                                               \
-    set(IRB.CreateOr(IRB.Create##op1(v1, v2), IRB.Create##op2(v1, v)),         \
-        arg_temp(op->args[0]));                                                \
-    BREAK();                                                                   \
-  }
-
-    __ARITH_OP_ROT(rotl_i32, Shl, LShr, 32)
-    __ARITH_OP_ROT(rotr_i32, LShr, Shl, 32)
-
-    __ARITH_OP_ROT(rotl_i64, Shl, LShr, 64)
-    __ARITH_OP_ROT(rotr_i64, LShr, Shl, 64)
-
-#undef __ARITH_OP_ROT
-
-#define __ANDC_OP(opc_name, bits)                                              \
-  CASE(opc_name): {                                                            \
-    llvm::Value *v1 = get(arg_temp(op->args[1]));                              \
-    llvm::Value *v2 = get(arg_temp(op->args[2]));                              \
-                                                                               \
-    llvm::Value *notv2 =                                                       \
-        IRB.CreateXor(bits == 32 ? IRB.getInt32(0xffffffff)                    \
-                                 : IRB.getInt64(0xffffffffffffffff),           \
-                      v2);                                                     \
-                                                                               \
-    set(IRB.CreateAnd(v1, notv2), arg_temp(op->args[0]));                      \
-    BREAK();                                                                   \
-  }
-
-    __ANDC_OP(andc_i32, 32)
-    __ANDC_OP(andc_i64, 64)
-
-#undef __ANDC_OP
-
-//
-// load from host memory
-//
-#if defined(TARGET_AARCH64)
-#define __ARCH_LD_OP(off)                                                      \
-  {                                                                            \
-    if (off == ASMOFF_ENV_cp15_tpidr_el_0_) {                                  \
-      TCGTemp *dst = arg_temp(op->args[0]);                                    \
-      assert(dst->type == TCG_TYPE_I64);                                       \
-      set(insertThreadPointerInlineAsm(IRB), dst);                             \
-      BREAK();                                                                 \
-    }                                                                          \
-  }
-#elif defined(TARGET_MIPS32)
-#define __ARCH_LD_OP(off)                                                      \
-  {                                                                            \
-    if (off == ASMOFF_ENV_active_tc_CP0_UserLocal) {                           \
-      TCGTemp *dst = arg_temp(op->args[0]);                                    \
-      assert(dst->type == TCG_TYPE_I32);                                       \
-      set(insertThreadPointerInlineAsm(IRB), dst);                             \
-      BREAK();                                                                 \
-    }                                                                          \
-                                                                               \
-    if (off == ASMOFF_ENV_lladdr) {                                            \
-      TCGTemp *dst = arg_temp(op->args[0]);                                    \
-      assert(dst->type == TCG_TYPE_I32);                                       \
-      set(get(&s->temps[tcg_lladdr_index]), dst);                              \
-      BREAK();                                                                 \
-    }                                                                          \
-                                                                               \
-    if (off == ASMOFF_ENV_llval) {                                             \
-      TCGTemp *dst = arg_temp(op->args[0]);                                    \
-      assert(dst->type == TCG_TYPE_I32);                                       \
-      set(get(&s->temps[tcg_llval_index]), dst);                               \
-      BREAK();                                                                 \
-    }                                                                          \
-                                                                               \
-    { curiosity("load(env+" + std::to_string(off) + ")"); }                    \
-  }
-#else
-#define __ARCH_LD_OP(off)                                                      \
-  { ; }
-#endif
-
-#define __LD_OP(opc_name, memBits, regBits, signE)                             \
-  CASE(opc_name): {                                                            \
-    unsigned baseidx = temp_idx(arg_temp(op->args[1]));                        \
-    assert(baseidx == tcg_env_index);                                          \
-                                                                               \
-    TCGArg off = op->args[2];                                                  \
-                                                                               \
-    __ARCH_LD_OP(off)                                                          \
-                                                                               \
-    llvm::SmallVector<llvm::Value *, 4> Indices;                               \
-    llvm::Value *Ptr = llvm::getNaturalGEPWithOffset(                          \
-        IRB, DL, GetEnv(IRB), llvm::APInt(64, off), nullptr, Indices, "");     \
-                                                                               \
-    if (!Ptr)                                                                  \
-      Ptr = IRB.CreateIntToPtr(                                                \
-          IRB.CreateAdd(IRB.CreatePtrToInt(GetEnv(IRB), WordType()),           \
-                        IRB.getIntN(WordBits(), off)),                         \
-          llvm::PointerType::get(IRB.getIntNTy(memBits), 0));                  \
-                                                                               \
-    assert(Ptr->getType()->isPointerTy());                                     \
-                                                                               \
-    Ptr = IRB.CreatePointerCast(                                               \
-        Ptr, llvm::PointerType::get(IRB.getIntNTy(memBits), 0));               \
-                                                                               \
-    llvm::Value *Val = IRB.CreateLoad(Ptr);                                    \
-    if (memBits < regBits)                                                     \
-      Val = IRB.Create##signE##Ext(Val, IRB.getIntNTy(regBits));               \
-                                                                               \
-    set(Val, arg_temp(op->args[0]));                                           \
-    BREAK();                                                                   \
-  }
-
-#if 0
-    __LD_OP(INDEX_op_ld8u_i32,  8,  32, Z)
-    __LD_OP(INDEX_op_ld8s_i32,  8,  32, S)
-    __LD_OP(INDEX_op_ld16u_i32, 16, 32, Z)
-    __LD_OP(INDEX_op_ld16s_i32, 16, 32, S)
-    __LD_OP(INDEX_op_ld_i32,    32, 32, Z)
-
+  CASE(ctpop):
+  CASE(addco):
+  CASE(addci):
+  CASE(addcio):
+  CASE(subbo):
+  CASE(subbi):
+  CASE(subbio):
+  CASE(muls2):
+  CASE(mulu2):
+  CASE(tci_divs32):
+  CASE(tci_divu32):
+  CASE(tci_rems32):
+  CASE(tci_remu32):
+  CASE(tci_clz32):
+  CASE(tci_ctz32):
+  CASE(tci_setcond32):
+  CASE(tci_movcond32):
+  CASE(shl):
+  CASE(shr):
+  CASE(sar):
+  CASE(tci_rotl32):
+  CASE(tci_rotr32):
+  CASE(deposit):
+  CASE(extract):
+  CASE(sextract):
+  CASE(brcond):
+  CASE(bswap16):
+  CASE(bswap32):
 #if TCG_TARGET_REG_BITS == 64
-    __LD_OP(INDEX_op_ld8u_i64,  8,  64, Z)
-    __LD_OP(INDEX_op_ld8s_i64,  8,  64, S)
-    __LD_OP(INDEX_op_ld16u_i64, 16, 64, Z)
-    __LD_OP(INDEX_op_ld16s_i64, 16, 64, S)
-    __LD_OP(INDEX_op_ld32u_i64, 32, 64, Z)
-    __LD_OP(INDEX_op_ld32s_i64, 32, 64, S)
-    __LD_OP(INDEX_op_ld_i64,    64, 64, Z)
-#endif
-#endif
-
-#undef __LD_OP
-
-#if defined(TARGET_MIPS32)
-#define __ARCH_ST_OP(off)                                                      \
-  {                                                                            \
-    if (off == ASMOFF_ENV_lladdr) {                                            \
-      set(Val, &s->temps[tcg_lladdr_index]);                                   \
-      BREAK();                                                                 \
-    }                                                                          \
-                                                                               \
-    if (off == ASMOFF_ENV_llval) {                                             \
-      set(Val, &s->temps[tcg_llval_index]);                                    \
-      BREAK();                                                                 \
-    }                                                                          \
-                                                                               \
-    { curiosity("store(env+" + std::to_string(off) + ")"); }                   \
-  }
-#else
-#define __ARCH_ST_OP(off)                                                      \
-  { ; }
-#endif
-
-//
-// store to host memory
-//
-#define __ST_OP(opc_name, memBits, regBits)                                    \
-  CASE(opc_name): {                                                            \
-    unsigned baseidx = temp_idx(arg_temp(op->args[1]));                        \
-    assert(baseidx == tcg_env_index);                                          \
-                                                                               \
-    llvm::Value *Val = get(arg_temp(op->args[0]));                             \
-                                                                               \
-    TCGArg off = op->args[2];                                                  \
-    if (off == tcg_program_counter_env_offset) {                               \
-      assert(memBits == WordBits() && regBits == WordBits());                  \
-      IRB.CreateStore(Val, TC.PCAlloca);                                       \
-      BREAK();                                                                 \
-    }                                                                          \
-                                                                               \
-    __ARCH_ST_OP(off)                                                          \
-                                                                               \
-    if (regBits > memBits)                                                     \
-      Val = IRB.CreateTrunc(Val, IRB.getIntNTy(memBits));                      \
-                                                                               \
-    llvm::SmallVector<llvm::Value *, 4> Indices;                               \
-    llvm::Value *Ptr = llvm::getNaturalGEPWithOffset(                          \
-        IRB, DL, GetEnv(IRB), llvm::APInt(64, off), nullptr, Indices, "");     \
-    if (!Ptr)                                                                  \
-      Ptr = IRB.CreateIntToPtr(                                                \
-          IRB.CreateAdd(IRB.CreatePtrToInt(GetEnv(IRB), WordType()),           \
-                        IRB.getIntN(WordBits(), off)),                         \
-          llvm::PointerType::get(IRB.getIntNTy(memBits), 0));                  \
-                                                                               \
-    assert(Ptr->getType()->isPointerTy());                                     \
-                                                                               \
-    Ptr = IRB.CreatePointerCast(                                               \
-        Ptr, llvm::PointerType::get(IRB.getIntNTy(memBits), 0));               \
-    IRB.CreateStore(Val, Ptr);                                                 \
-    BREAK();                                                                   \
-  }
-
-#if 0
-    __ST_OP(INDEX_op_st8_i32, 8, 32)
-    __ST_OP(INDEX_op_st16_i32, 16, 32)
-    __ST_OP(INDEX_op_st_i32, 32, 32)
-
-#if TCG_TARGET_REG_BITS == 64
-    __ST_OP(INDEX_op_st8_i64, 8, 64)
-    __ST_OP(INDEX_op_st16_i64, 16, 64)
-    __ST_OP(INDEX_op_st32_i64, 32, 64)
-    __ST_OP(INDEX_op_st_i64, 64, 64)
-#endif
-#endif
-
-#undef __ST_OP
-
-        /* Load/store operations (32 bit). */
-        CASE_32_64(ld8u):
-            do_ld_or_store(true, 8, false);
-            BREAK();
-        CASE_32_64(ld8s):
-            do_ld_or_store(true, 8, true);
-            BREAK();
-        CASE_32_64(ld16u):
-            do_ld_or_store(true, 16, false);
-            BREAK();
-        CASE_32_64(ld16s):
-            do_ld_or_store(true, 16, true);
-            BREAK();
-        CASE(ld_i32):
-        CASE_64(ld32u):
-            do_ld_or_store(true, 32, false);
-            BREAK();
-        CASE_32_64(st8):
-            do_ld_or_store(false, 8, false);
-            BREAK();
-        CASE_32_64(st16):
-            do_ld_or_store(false, 16, false);
-            BREAK();
-        CASE(st_i32):
-        CASE_64(st32):
-            do_ld_or_store(false, 32, false);
-            BREAK();
-
-#if TCG_TARGET_REG_BITS == 64
-         /* Load/store operations (64 bit). */
-        CASE(ld32s_i64):
-            do_ld_or_store(true, 32, true);
-            BREAK();
-        CASE(ld_i64):
-            do_ld_or_store(true, 64, false);
-            BREAK();
-        CASE(st_i64):
-            do_ld_or_store(false, 64, false);
-            BREAK();
-#endif
-
-
-  CASE(br): {
-    llvm::BasicBlock* lblB = LabelVec.at(input_label(0)->id);
-    IRB.CreateBr(lblB);
-    IRB.ClearInsertionPoint();
-    EnsureInsertPoint();
-    BREAK();
-  }
-
-#define __OP_BRCOND_COND(tcg_cond, cond)                                       \
-  case tcg_cond:                                                               \
-    V = IRB.CreateICmp##cond(get(input_arg(0)),                                \
-                             get(input_arg(1)));                               \
-    break;
-
-#define __OP_BRCOND(opc_name, bits)                                            \
-  CASE(opc_name): {                                                             \
-    llvm::Value *V = nullptr;                                                  \
-    llvm::Value *V_ = nullptr;                                                 \
-    switch (const_arg(0)) {                                                    \
-    default:                                                                   \
-      die("__OP_BRCOND: unknown cond");                                        \
-    case TCG_COND_TSTEQ:                                                       \
-      V_ = IRB.CreateAnd(get(input_arg(0)), get(input_arg(1)));                \
-      V = IRB.CreateICmpEQ(V_, llvm::Constant::getNullValue(V_->getType()));   \
-      break;                                                                   \
-    case TCG_COND_TSTNE:                                                       \
-      V_ = IRB.CreateAnd(get(input_arg(0)), get(input_arg(1)));                \
-      V = IRB.CreateICmpNE(V_, llvm::Constant::getNullValue(V_->getType()));   \
-      break;                                                                   \
-    case TCG_COND_NEVER:                                                       \
-      V = IRB.getFalse();                                                      \
-      break;                                                                   \
-    case TCG_COND_ALWAYS:                                                      \
-      V = IRB.getTrue();                                                       \
-      break;                                                                   \
-                                                                               \
-      __OP_BRCOND_COND(TCG_COND_EQ, EQ)                                        \
-      __OP_BRCOND_COND(TCG_COND_NE, NE)                                        \
-      __OP_BRCOND_COND(TCG_COND_LT, SLT)                                       \
-      __OP_BRCOND_COND(TCG_COND_GE, SGE)                                       \
-      __OP_BRCOND_COND(TCG_COND_LE, SLE)                                       \
-      __OP_BRCOND_COND(TCG_COND_GT, SGT)                                       \
-      __OP_BRCOND_COND(TCG_COND_LTU, ULT)                                      \
-      __OP_BRCOND_COND(TCG_COND_GEU, UGE)                                      \
-      __OP_BRCOND_COND(TCG_COND_LEU, ULE)                                      \
-      __OP_BRCOND_COND(TCG_COND_GTU, UGT)                                      \
-    }                                                                          \
-    assert(V);                                                                 \
-    unsigned lblidx = input_label(1)->id;                                      \
-    llvm::BasicBlock *lblBB = LabelVec.at(lblidx);                             \
-    assert(lblBB);                                                             \
-    llvm::BasicBlock *fallthruBB = llvm::BasicBlock::Create(                   \
-        Context, (boost::format("l%lx_fallthru") % ICFG[bb].Addr).str(),      \
-        state.for_function(f).F);                                              \
-    IRB.CreateCondBr(V, lblBB, fallthruBB);                                    \
-    IRB.SetInsertPoint(fallthruBB);                                            \
-    BREAK();                                                                   \
-  }
-
-    __OP_BRCOND(brcond_i32, 32)
-    __OP_BRCOND(brcond_i64, 64)
-
-#undef __OP_BRCOND_COND
-#undef __OP_BRCOND
-
-#define __OP_SETCOND_COND(tcg_cond, cond)                                      \
-  case tcg_cond:                                                               \
-    V = IRB.CreateICmp##cond(get(input_arg(0)),                                \
-                             get(input_arg(1)));                               \
-    break;
-
-#define __OP_SETCOND(opc_name, bits)                                           \
-  CASE(opc_name): {                                                             \
-    llvm::Value *V_ = nullptr;                                                 \
-    llvm::Value *V = nullptr;                                                  \
-    switch (const_arg(0)) {                                                    \
-    default:                                                                   \
-      die("__OP_SETCOND: unknown cond");                                       \
-    case TCG_COND_TSTEQ:                                                       \
-      V_ = IRB.CreateAnd(get(input_arg(0)), get(input_arg(1)));                \
-      V = IRB.CreateICmpEQ(V_, llvm::Constant::getNullValue(V_->getType()));   \
-      break;                                                                   \
-    case TCG_COND_TSTNE:                                                       \
-      V_ = IRB.CreateAnd(get(input_arg(0)), get(input_arg(1)));                \
-      V = IRB.CreateICmpNE(V_, llvm::Constant::getNullValue(V_->getType()));   \
-      break;                                                                   \
-    case TCG_COND_NEVER:                                                       \
-      V = IRB.getFalse();                                                      \
-      break;                                                                   \
-    case TCG_COND_ALWAYS:                                                      \
-      V = IRB.getTrue();                                                       \
-      break;                                                                   \
-                                                                               \
-      __OP_SETCOND_COND(TCG_COND_EQ, EQ)                                       \
-      __OP_SETCOND_COND(TCG_COND_NE, NE)                                       \
-      __OP_SETCOND_COND(TCG_COND_LT, SLT)                                      \
-      __OP_SETCOND_COND(TCG_COND_GE, SGE)                                      \
-      __OP_SETCOND_COND(TCG_COND_LE, SLE)                                      \
-      __OP_SETCOND_COND(TCG_COND_GT, SGT)                                      \
-      __OP_SETCOND_COND(TCG_COND_LTU, ULT)                                     \
-      __OP_SETCOND_COND(TCG_COND_GEU, UGE)                                     \
-      __OP_SETCOND_COND(TCG_COND_LEU, ULE)                                     \
-      __OP_SETCOND_COND(TCG_COND_GTU, UGT)                                     \
-    }                                                                          \
-    assert(V);                                                                 \
-    set(IRB.CreateZExt(V, IRB.getIntNTy(bits)), output_arg(0));                \
-    BREAK();                                                                   \
-  }
-
-    __OP_SETCOND(setcond_i32, 32)
-    __OP_SETCOND(setcond_i64, 64)
-
-#undef __OP_MOVCOND_COND
-#undef __OP_MOVCOND
-
-#define __OP_MOVCOND_COND(tcg_cond, cond)                                      \
-  case tcg_cond:                                                               \
-    CondV = IRB.CreateICmp##cond(get(input_arg(0)),                            \
-                                 get(input_arg(1)));                           \
-    break;
-
-#define __OP_MOVCOND(opc_name, bits)                                           \
-  CASE(opc_name): {                                                             \
-    llvm::Value *V_ = nullptr;                                                 \
-    llvm::Value *CondV = nullptr;                                              \
-    switch (op->args[5]) {                                                     \
-    default:                                                                   \
-      die("__OP_MOVCOND: unknown cond");                                       \
-    case TCG_COND_TSTEQ:                                                       \
-      V_ = IRB.CreateAnd(get(input_arg(0)), get(input_arg(1)));                \
-      CondV = IRB.CreateICmpEQ(V_, llvm::Constant::getNullValue(V_->getType())); \
-      break;                                                                   \
-    case TCG_COND_TSTNE:                                                       \
-      V_ = IRB.CreateAnd(get(input_arg(0)), get(input_arg(1)));                \
-      CondV = IRB.CreateICmpNE(V_, llvm::Constant::getNullValue(V_->getType())); \
-      break;                                                                   \
-    case TCG_COND_NEVER:                                                       \
-      CondV = IRB.getFalse();                                                  \
-      break;                                                                   \
-    case TCG_COND_ALWAYS:                                                      \
-      CondV = IRB.getTrue();                                                   \
-      break;                                                                   \
-                                                                               \
-      __OP_MOVCOND_COND(TCG_COND_EQ, EQ)                                       \
-      __OP_MOVCOND_COND(TCG_COND_NE, NE)                                       \
-      __OP_MOVCOND_COND(TCG_COND_LT, SLT)                                      \
-      __OP_MOVCOND_COND(TCG_COND_GE, SGE)                                      \
-      __OP_MOVCOND_COND(TCG_COND_LE, SLE)                                      \
-      __OP_MOVCOND_COND(TCG_COND_GT, SGT)                                      \
-      __OP_MOVCOND_COND(TCG_COND_LTU, ULT)                                     \
-      __OP_MOVCOND_COND(TCG_COND_GEU, UGE)                                     \
-      __OP_MOVCOND_COND(TCG_COND_LEU, ULE)                                     \
-      __OP_MOVCOND_COND(TCG_COND_GTU, UGT)                                     \
-    }                                                                          \
-    llvm::Value *SelV = IRB.CreateSelect(CondV,                                \
-                                         get(arg_temp(op->args[3])),           \
-                                         get(arg_temp(op->args[4])));          \
-    set(SelV, arg_temp(op->args[0]));                                          \
-    BREAK();                                                                   \
-  }
-
-    __OP_MOVCOND(movcond_i32, 32)
-    __OP_MOVCOND(movcond_i64, 64)
-
-#undef __OP_MOVCOND_COND
-#undef __OP_MOVCOND
-
-#define __ARITH_OP_MUL2(opc_name, signE, bits)                                 \
-  CASE(opc_name): {                                                            \
-    llvm::Value *t1 = get(arg_temp(op->args[2]));                              \
-    llvm::Value *t2 = get(arg_temp(op->args[3]));                              \
-                                                                               \
-    assert(t1->getType() == IRB.getIntNTy(bits));                              \
-    assert(t2->getType() == IRB.getIntNTy(bits));                              \
-                                                                               \
-    llvm::Value *t0 =                                                          \
-        IRB.CreateMul(IRB.Create##signE##Ext(t1, IRB.getIntNTy(bits * 2)),     \
-                      IRB.Create##signE##Ext(t2, IRB.getIntNTy(bits * 2)));    \
-                                                                               \
-    llvm::Value *t0_low = IRB.CreateTrunc(t0, IRB.getIntNTy(bits));            \
-    llvm::Value *t0_high = IRB.CreateTrunc(                                    \
-        IRB.CreateLShr(t0, IRB.getIntN(bits * 2, bits)), IRB.getIntNTy(bits)); \
-                                                                               \
-    set(t0_low, arg_temp(op->args[0]));                                        \
-    set(t0_high, arg_temp(op->args[1]));                                       \
-    BREAK();                                                                   \
-  }
-
-    __ARITH_OP_MUL2(mulu2_i32, Z, 32)
-    __ARITH_OP_MUL2(muls2_i32, S, 32)
-    __ARITH_OP_MUL2(mulu2_i64, Z, 64)
-    __ARITH_OP_MUL2(muls2_i64, S, 64)
-
-#undef __ARITH_OP_MUL2
-
-#define __ARITH_OP_I(opc_name, LLVMOp, i, bits)                                \
-  CASE(opc_name): {                                                             \
-    llvm::Value *v1 = get(arg_temp(op->args[1]));                              \
-    assert(v1->getType() == IRB.getIntNTy(bits));                              \
-    set(IRB.Create##LLVMOp(IRB.getIntN(bits, i), v1), arg_temp(op->args[0]));  \
-    BREAK();                                                                   \
-  }
-
-    __ARITH_OP_I(not_i32, Xor, 0xffffffff, 32)
-    __ARITH_OP_I(neg_i32, Sub, 0, 32)
-
-    __ARITH_OP_I(not_i64, Xor, 0xffffffffffffffff, 64)
-    __ARITH_OP_I(neg_i64, Sub, 0, 64)
-
-#undef __ARITH_OP_I
-
-#define __ARITH_OP_BSWAP(opc_name, sBits, bits)                                \
-  CASE(opc_name): {                                                             \
-    llvm::Value *v1 = get(arg_temp(op->args[1]));                              \
-    assert(v1->getType() == llvm::IntegerType::get(Context, bits));           \
-    llvm::Type *Tys[] = {llvm::IntegerType::get(Context, sBits)};             \
-    llvm::Function *bswap =                                                    \
-        llvm::Intrinsic::getDeclaration(Module.get(), llvm::Intrinsic::bswap,  \
-                                        llvm::ArrayRef<llvm::Type *>(Tys, 1)); \
-    llvm::Value *v =                                                           \
-        IRB.CreateTrunc(v1, llvm::IntegerType::get(Context, sBits));          \
-    set(IRB.CreateZExt(IRB.CreateCall(bswap, v),                               \
-                       llvm::IntegerType::get(Context, bits)),                \
-        arg_temp(op->args[0]));                                                \
-    BREAK();                                                                   \
-  }
-
-    __ARITH_OP_BSWAP(bswap16_i32, 16, 32)
-    __ARITH_OP_BSWAP(bswap32_i32, 32, 32)
-
-    __ARITH_OP_BSWAP(bswap16_i64, 16, 64)
-    __ARITH_OP_BSWAP(bswap32_i64, 32, 64)
-    __ARITH_OP_BSWAP(bswap64_i64, 64, 64)
-
-#undef __ARITH_OP_BSWAP
-
-#define __CLZ_OP(opc_name, bits)                                               \
-  CASE(opc_name): {                                                            \
-    llvm::Type *Tys[] = {llvm::IntegerType::get(Context, bits)};              \
-    llvm::Function *ctlzF =                                                    \
-        llvm::Intrinsic::getDeclaration(Module.get(), llvm::Intrinsic::ctlz,   \
-                                        llvm::ArrayRef<llvm::Type *>(Tys, 1)); \
-    llvm::Value *v1 = get(arg_temp(op->args[1]));                              \
-    llvm::Value *v2 = get(arg_temp(op->args[2]));                              \
-                                                                               \
-    llvm::Value *CondV = IRB.CreateICmpNE(v1, IRB.getIntN(bits, 0));           \
-    llvm::Value *ctlzArgs[] = {v1, IRB.getTrue()};                             \
-    llvm::Value *v =                                                           \
-        IRB.CreateSelect(CondV, IRB.CreateCall(ctlzF, ctlzArgs), v2);          \
-                                                                               \
-    set(v, arg_temp(op->args[0]));                                             \
-    BREAK();                                                                   \
-  }
-
-    __CLZ_OP(clz_i32, 32)
-    __CLZ_OP(clz_i64, 64)
-
-#undef __CLZ_OP
-
-#define __CTZ_OP(opc_name, bits)                                               \
-  CASE(opc_name): {                                                            \
-    llvm::Type *Tys[] = {llvm::IntegerType::get(Context, bits)};              \
-    llvm::Function *cttzF =                                                    \
-        llvm::Intrinsic::getDeclaration(Module.get(), llvm::Intrinsic::cttz,   \
-                                        llvm::ArrayRef<llvm::Type *>(Tys, 1)); \
-    llvm::Value *v1 = get(arg_temp(op->args[1]));                              \
-    llvm::Value *v2 = get(arg_temp(op->args[2]));                              \
-                                                                               \
-    llvm::Value *CondV = IRB.CreateICmpNE(v1, IRB.getIntN(bits, 0));           \
-    llvm::Value *ctlzArgs[] = {v1, IRB.getTrue()};                             \
-    llvm::Value *v =                                                           \
-        IRB.CreateSelect(CondV, IRB.CreateCall(cttzF, ctlzArgs), v2);          \
-                                                                               \
-    set(v, arg_temp(op->args[0]));                                             \
-    BREAK();                                                                   \
-  }
-
-    __CTZ_OP(ctz_i32, 32)
-    __CTZ_OP(ctz_i64, 64)
-
-#undef __CTZ_OP
-
-#define __DO_DEPOSIT(bits)                                                     \
-    do {                                                                       \
-      do_deposit(bits,                                                         \
-                 get(input_arg(0)),                                            \
-                 get(input_arg(1)),                                            \
-                 const_arg(0),                                                 \
-                 const_arg(1),                                                 \
-                 output_arg(0));                                               \
-    } while (false)
-
-  CASE(deposit_i32):
-    __DO_DEPOSIT(32);
-    BREAK();
-
-  CASE(deposit_i64):
-    __DO_DEPOSIT(64);
-    BREAK();
-
-  CASE(extract_i32):
-    do_extract(32, false);
-    BREAK();
-  CASE(sextract_i32):
-    do_extract(32, true);
-    BREAK();
-  CASE(extract_i64):
-    do_extract(64, false);
-    BREAK();
-  CASE(sextract_i64):
-    do_extract(64, true);
-    BREAK();
-
-  CASE(muluh_i64): {
-    TCGTemp *dst = arg_temp(op->args[0]);
-    TCGTemp *src1 = arg_temp(op->args[1]);
-    TCGTemp *src2 = arg_temp(op->args[2]);
-
-    assert(dst->type == TCG_TYPE_I64);
-    assert(src1->type == TCG_TYPE_I64);
-    assert(src2->type == TCG_TYPE_I64);
-
-    llvm::Value *x =
-        IRB.CreateMul(IRB.CreateZExt(get(src1), IRB.getInt128Ty()),
-                      IRB.CreateZExt(get(src2), IRB.getInt128Ty()));
-
-    llvm::Value *y = IRB.CreateTrunc(IRB.CreateLShr(x, IRB.getIntN(128, 64)),
-                                     IRB.getInt64Ty());
-
-    set(y, dst);
-    BREAK();
-  }
-
-  CASE(mulsh_i64): {
-    TCGTemp *dst = arg_temp(op->args[0]);
-    TCGTemp *src1 = arg_temp(op->args[1]);
-    TCGTemp *src2 = arg_temp(op->args[2]);
-
-    assert(dst->type == TCG_TYPE_I64);
-    assert(src1->type == TCG_TYPE_I64);
-    assert(src2->type == TCG_TYPE_I64);
-
-    llvm::Value *x =
-        IRB.CreateMul(IRB.CreateSExt(get(src1), IRB.getInt128Ty()),
-                      IRB.CreateSExt(get(src2), IRB.getInt128Ty()));
-
-    llvm::Value *y = IRB.CreateTrunc(IRB.CreateLShr(x, IRB.getIntN(128, 64)),
-                                     IRB.getInt64Ty());
-
-    set(y, dst);
-    BREAK();
-  }
-
-#define __ADD2_OR_SUB2(opc_name, bits, isAdd)                                  \
-  CASE(opc_name): {                                                             \
-    assert(nb_oargs == 2);                                                     \
-                                                                               \
-    TCGTemp *t0_low = output_arg(0);                                           \
-    TCGTemp *t0_high = output_arg(1);                                          \
-                                                                               \
-    TCGTemp *t1_low = input_arg(0);                                            \
-    TCGTemp *t1_high = input_arg(1);                                           \
-                                                                               \
-    TCGTemp *t2_low = input_arg(2);                                            \
-    TCGTemp *t2_high = input_arg(3);                                           \
-                                                                               \
-    assert(t0_low->type == TCG_TYPE_I##bits);                                  \
-    assert(t0_high->type == TCG_TYPE_I##bits);                                 \
-                                                                               \
-    assert(t1_low->type == TCG_TYPE_I##bits);                                  \
-    assert(t1_high->type == TCG_TYPE_I##bits);                                  \
-                                                                               \
-    assert(t2_low->type == TCG_TYPE_I##bits);                                  \
-    assert(t2_high->type == TCG_TYPE_I##bits);                                 \
-                                                                               \
-    llvm::Value *t1_low_v = get(t1_low);                                       \
-    llvm::Value *t1_high_v = get(t1_high);                                     \
-                                                                               \
-    llvm::Value *t2_low_v = get(t2_low);                                       \
-    llvm::Value *t2_high_v = get(t2_high);                                     \
-                                                                               \
-    llvm::Value *t1 = IRB.CreateOr(                                            \
-        IRB.CreateZExt(t1_low_v, IRB.getIntNTy(2 * bits)),                     \
-        IRB.CreateShl(IRB.CreateZExt(t1_high_v, IRB.getIntNTy(2 * bits)),      \
-                      llvm::APInt(2 * bits, bits)));                           \
-                                                                               \
-    llvm::Value *t2 = IRB.CreateOr(                                            \
-        IRB.CreateZExt(t2_low_v, IRB.getIntNTy(2 * bits)),                     \
-        IRB.CreateShl(IRB.CreateZExt(t2_high_v, IRB.getIntNTy(2 * bits)),      \
-                      llvm::APInt(2 * bits, bits)));                           \
-                                                                               \
-    llvm::Value *t0 = (isAdd) ? IRB.CreateAdd(t1, t2) : IRB.CreateSub(t1, t2); \
-                                                                               \
-    llvm::Value *t0_low_v = IRB.CreateTrunc(t0, IRB.getIntNTy(bits));          \
-    llvm::Value *t0_high_v = IRB.CreateTrunc(                                  \
-        IRB.CreateLShr(t0, llvm::APInt(2 * bits, bits)), IRB.getIntNTy(bits)); \
-                                                                               \
-    set(t0_low_v, t0_low);                                                     \
-    set(t0_high_v, t0_high);                                                   \
-                                                                               \
-    BREAK();                                                                   \
-  }
-
-    __ADD2_OR_SUB2(add2_i32, 32, true)
-    __ADD2_OR_SUB2(add2_i64, 64, true)
-
-    __ADD2_OR_SUB2(sub2_i32, 32, false)
-    __ADD2_OR_SUB2(sub2_i64, 64, false)
-
-#undef __ADD2_OR_SUB2
-
-#define __ORC_OP(opc_name, bits)                                               \
-  CASE(opc_name): {                                                             \
-    llvm::Value *v1 = get(arg_temp(op->args[1]));                              \
-    llvm::Value *v2 = get(arg_temp(op->args[2]));                              \
-                                                                               \
-    llvm::Value *notv2 =                                                       \
-        IRB.CreateXor(bits == 32 ? IRB.getInt32(0xffffffff)                    \
-                                 : IRB.getInt64(0xffffffffffffffff),           \
-                      v2);                                                     \
-                                                                               \
-    set(IRB.CreateOr(v1, notv2), arg_temp(op->args[0]));                       \
-    BREAK();                                                                   \
-  }
-
-    __ORC_OP(orc_i32, 32)
-    __ORC_OP(orc_i64, 64)
-
-#undef __ORC_OP
-
-#define __EQV_OP(opc_name, bits)                                               \
-  CASE(opc_name): {                                                             \
-    llvm::Value *v1 = get(arg_temp(op->args[1]));                              \
-    llvm::Value *v2 = get(arg_temp(op->args[2]));                              \
-                                                                               \
-    llvm::Value *notv2 =                                                       \
-        IRB.CreateXor(bits == 32 ? IRB.getInt32(0xffffffff)                    \
-                                 : IRB.getInt64(0xffffffffffffffff),           \
-                      v2);                                                     \
-                                                                               \
-    set(IRB.CreateXor(v1, notv2), arg_temp(op->args[0]));                      \
-    BREAK();                                                                   \
-  }
-
-    __EQV_OP(eqv_i32, 32)
-    __EQV_OP(eqv_i64, 64)
-
-#undef __EQV_OP
-
-  CASE_32_64(nor):
-    set(IRB.CreateNot(IRB.CreateOr(get(input_arg(0)),
-                                   get(input_arg(1)))),
-        output_arg(0));
-    BREAK();
+  CASE(ld32u):
+  CASE(ld32s):
+  CASE(st32):
+  CASE(divs):
+  CASE(divu):
+  CASE(rems):
+  CASE(remu):
+  CASE(clz):
+  CASE(ctz):
+  CASE(rotl):
+  CASE(rotr):
+  CASE(ext_i32_i64):
+  CASE(extu_i32_i64):
+  CASE(bswap64):
+#endif /* TCG_TARGET_REG_BITS == 64 */
+  CASE(qemu_ld):
+  CASE(qemu_st):
+  CASE(qemu_ld2):
+  CASE(qemu_st2):
+    TODO();
 
   CASE(mb): {
     llvm::StringRef AsmText;
@@ -10828,6 +9883,7 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     BREAK();
   }
 
+  do_todo:
   do_unknown:
     die(std::string("unhandled TCGOpcode: ") + jv_tcgopc_name_in_def(opc));
 
