@@ -281,6 +281,7 @@ helper_cflags = $(call runtime_cflags,$(1)) \
                 -Wno-atomic-alignment \
                 -DG_DISABLE_ASSERT \
                 -DNEED_CPU_H \
+                -DCONFIG_USER_ONLY \
                 -DNDEBUG
 
 CARBON_EXTRACT := /usr/local/bin/carbon-extract
