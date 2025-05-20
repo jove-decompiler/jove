@@ -5232,8 +5232,10 @@ int llvm_t<MT, MinSize>::CreateCopyRelocationHack(void) {
                                        ICFG)]
                         .Addr));
 
+#if 0
             llvm::errs() << llvm::formatv("FnsTbl: {0} Type: {1}\n", *FnsTbl,
                                           *FnsTbl->getType());
+#endif
 
             IRB.CreateMemCpyInline(
                 IRB.CreateIntToPtr(SectionPointer(pair.first.first),
