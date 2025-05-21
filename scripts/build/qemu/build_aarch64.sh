@@ -29,6 +29,8 @@ AR=llvm-ar-19 RANLIB=llvm-ranlib-19 LD=ld.lld-19 ../configure \
   --cross-prefix=aarch64-linux-gnu- \
   --cpu=aarch64 \
   --enable-tcg-interpreter \
+  --enable-tcg \
+  --disable-plugins \
   --enable-lto \
   --enable-tools \
   --disable-docs \

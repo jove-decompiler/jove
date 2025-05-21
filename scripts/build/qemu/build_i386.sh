@@ -23,6 +23,8 @@ AR=llvm-ar-19 RANLIB=llvm-ranlib-19 LD=ld.lld-19 ../configure \
   --cross-prefix=i686-linux-gnu- \
   --cpu=i386 \
   --enable-tcg-interpreter \
+  --enable-tcg \
+  --disable-plugins \
   --enable-lto \
   --enable-tools \
   --disable-docs \

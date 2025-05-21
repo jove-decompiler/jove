@@ -33,6 +33,8 @@ AR=llvm-ar-19 RANLIB=llvm-ranlib-19 LD=ld.lld-19 ../configure \
   --objcc=clang-19 \
   --cpu=x86_64 \
   --enable-tcg-interpreter \
+  --enable-tcg \
+  --disable-plugins \
   --enable-lto \
   --disable-werror \
   --disable-docs \
