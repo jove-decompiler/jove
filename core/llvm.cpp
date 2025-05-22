@@ -494,6 +494,9 @@ bool AnalyzeBasicBlock(tiny_code_generator_t &TCG,
         nb_oargs = TCGOP_CALLO(op);
         nb_iargs = TCGOP_CALLI(op);
 
+        if (strcmp(jv_tcg_find_helper(op), "memset") == 0) /* FIXME */
+          continue;
+
         const helper_function_t &hf =
             LookupHelper(M, helpers, TCG, op, options);
 
@@ -9697,6 +9700,17 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     if (strcmp(helper_nm, "lookup_tb_ptr") == 0) /* FIXME */
       BREAK();
 
+    if (strcmp(helper_nm, "memset") == 0) /* FIXME */ {
+      llvm::Value *dest = get(input_arg(0));
+      llvm::Value *val = get(input_arg(1));
+      llvm::Value *len = get(input_arg(2));
+
+      llvm::errs() << llvm::formatv("dest={0} val={1} len={2}\n", *dest, *val, *len);
+
+      IRB.CreateMemSet(dest, val, len, llvm::MaybeAlign())->dump();
+      BREAK();
+    }
+
     const helper_function_t &hf =
         LookupHelper(*Module, helpers, TCG, op, analyzer_options);
 
@@ -10015,7 +10029,11 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
   __ARITH_OP(and, And)
   __ARITH_OP(or, Or)
   __ARITH_OP(xor, Xor)
-  CASE(andc):
+  CASE(andc): {
+    set(IRB.CreateAnd(get(input_arg(0)), IRB.CreateNot(get(input_arg(1)))),
+        output_arg(0));
+    BREAK();
+  }
   CASE(orc):
   CASE(eqv):
   CASE(nand):
