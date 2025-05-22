@@ -9401,6 +9401,13 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     }
   };
 
+  auto do_the_ld = [&](unsigned bits, bool Signed) -> void {
+    return do_ld_or_store(true, bits, Signed);
+  };
+  auto do_the_st = [&](unsigned bits, bool Signed) -> void {
+    return do_ld_or_store(false, bits, Signed);
+  };
+
   auto do_the_extract = [&](unsigned bits, bool isSigned) -> void {
     assert(bits == 32 || bits == 64);
 
@@ -9929,16 +9936,16 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     assert(out_bits1 == out_bits2);
     unsigned out_bits = out_bits1;
 
-    do_ld_or_store(true, out_bits, false);
+    do_the_ld(out_bits, false);
     BREAK();
   }
 
   CASE(st8):
-    do_ld_or_store(false, 8, false);
+    do_the_st(8, false);
     BREAK();
 
   CASE(st16):
-    do_ld_or_store(false, 16, false);
+    do_the_st(16, false);
     BREAK();
 
   CASE(st): {
@@ -9947,7 +9954,7 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     //assert(out_bits1 == out_bits2);
     unsigned out_bits = out_bits1;
 
-    do_ld_or_store(false, out_bits, false);
+    do_the_st(out_bits, false);
     BREAK();
   }
 
@@ -10153,13 +10160,13 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
 
 #if TCG_TARGET_REG_BITS == 64
   CASE(ld32u):
-    do_ld_or_store(true, 32, false);
+    do_the_ld(32, false);
     BREAK();
   CASE(ld32s):
-    do_ld_or_store(true, 32, true);
+    do_the_ld(32, true);
     BREAK();
   CASE(st32):
-    do_ld_or_store(false, 32, false);
+    do_the_st(32, false);
     BREAK();
   CASE(divs):
   CASE(divu):
