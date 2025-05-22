@@ -9302,7 +9302,8 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
       return;
     }
 
-    if (temp_idx(ptr_tmp) == tcg_env_index) {
+    bool IsEnv = temp_idx(ptr_tmp) == tcg_env_index;
+    if (IsEnv) {
       if (IsLoad) {
         TCGTemp *dst = output_arg(0);
 
@@ -9380,13 +9381,20 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
       unsigned out_bits = out_bits1;
 
       llvm::LoadInst *LI = IRB.CreateLoad(IRB.getIntNTy(bits), Ptr);
+      LI->setMetadata(IsEnv ? llvm::LLVMContext::MD_alias_scope
+                            : llvm::LLVMContext::MD_noalias,
+                      AliasScopeMetadata);
 
       llvm::Value *Casted = Signed ? IRB.CreateSExt(LI, IRB.getIntNTy(out_bits))
                                    : IRB.CreateZExt(LI, IRB.getIntNTy(out_bits));
 
       set(Casted, output_arg(0));
     } else {
-      IRB.CreateStore(IRB.CreateTrunc(get(input_arg(0)), IRB.getIntNTy(bits)), Ptr);
+      llvm::StoreInst *SI = IRB.CreateStore(
+          IRB.CreateTrunc(get(input_arg(0)), IRB.getIntNTy(bits)), Ptr);
+      SI->setMetadata(IsEnv ? llvm::LLVMContext::MD_alias_scope
+                            : llvm::LLVMContext::MD_noalias,
+                      AliasScopeMetadata);
     }
   };
 
