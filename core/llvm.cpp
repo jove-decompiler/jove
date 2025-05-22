@@ -9594,9 +9594,11 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
       ENTRY(rotr)
       ENTRY(ext_i32_i64)
       ENTRY(extu_i32_i64)
-        ENTRY(extrl_i64_i32)
       ENTRY(bswap64)
+      ENTRY(extrh_i64_i32)
+      ENTRY(extrl_i64_i32)
 #endif /* TCG_TARGET_REG_BITS == 64 */
+
       ENTRY(qemu_ld)
       ENTRY(qemu_st)
       ENTRY(qemu_ld2)
@@ -10149,15 +10151,6 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
   CASE(bswap32):
     TODO();
 
-#define __EXT_OP(opc_name, truncBits, opBits, signE)                           \
-  CASE(opc_name):                                                              \
-    set(IRB.Create##signE##Ext(                                                \
-            IRB.CreateTrunc(get(input_arg(0)),                                 \
-                            IRB.getIntNTy(truncBits)),                         \
-            IRB.getIntNTy(opBits)),                                            \
-        output_arg(0));                                                        \
-    BREAK();
-
 #if TCG_TARGET_REG_BITS == 64
   CASE(ld32u):
     do_ld_or_store(true, 32, false);
@@ -10172,7 +10165,27 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
   CASE(divu):
   CASE(rems):
   CASE(remu):
-  CASE(clz):
+  CASE(clz): {
+    unsigned bits1 = 8 * tcg_type_size((TCGType)TCGOP_TYPE(op));
+    unsigned bits2 = bitsOfTCGType(s->temps[temp_idx(output_arg(0))].type);
+    assert(bits1 == bits2);
+    unsigned bits = bits1;
+
+    llvm::Type *Tys[] = {llvm::IntegerType::get(Context, bits)};
+    llvm::Function *ctlzF =
+        llvm::Intrinsic::getDeclaration(Module.get(), llvm::Intrinsic::ctlz,
+                                        llvm::ArrayRef<llvm::Type *>(Tys, 1));
+    llvm::Value *v1 = get(input_arg(0));
+    llvm::Value *v2 = get(input_arg(1));
+
+    llvm::Value *CondV = IRB.CreateICmpNE(v1, IRB.getIntN(bits, 0));
+    llvm::Value *ctlzArgs[] = {v1, IRB.getTrue()};
+    llvm::Value *v =
+        IRB.CreateSelect(CondV, IRB.CreateCall(ctlzF, ctlzArgs), v2);
+
+    set(v, output_arg(0));
+    BREAK();
+  }
   CASE(ctz):
     TODO();
   CASE(rotl): {
@@ -10231,17 +10244,27 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
   }
 
   CASE(ext_i32_i64):
+    set(IRB.CreateSExt(get(input_arg(0)), IRB.getInt64Ty()), output_arg(0));
+    BREAK();
+
   CASE(extu_i32_i64):
+    set(IRB.CreateZExt(get(input_arg(0)), IRB.getInt64Ty()), output_arg(0));
+    BREAK();
+
+  CASE(bswap64):
     TODO();
-#if 0
-  __EXT_OP(extrl_i64_i32, 32, 64, Z)
-#else
+
+  CASE(extrh_i64_i32): {
+    llvm::Value *src = get(input_arg(0));
+    llvm::Value *shifted = IRB.CreateLShr(src, llvm::ConstantInt::get(src->getType(), 32));
+    llvm::Value *result = IRB.CreateTrunc(shifted, IRB.getInt32Ty());
+    set(IRB.CreateTrunc(shifted, IRB.getInt32Ty()), output_arg(0));
+    BREAK();
+  }
+
   CASE(extrl_i64_i32):
     set(IRB.CreateTrunc(get(input_arg(0)), IRB.getInt32Ty()), output_arg(0));
     BREAK();
-#endif
-  CASE(bswap64):
-    TODO();
 #endif /* TCG_TARGET_REG_BITS == 64 */
 
   CASE(qemu_ld): {
