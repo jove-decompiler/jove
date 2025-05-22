@@ -9092,10 +9092,9 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
       return immediate_constant(bitsOfTCGType(ts->type), ts->val);
 
     if (llvm::Value *V = get_special(ts)) {
-      if (!V->getType()->isIntegerTy(bitsOfTCGType(ts->type))) {
-        WithColor::error() << ts->name << ' ' << *V->getType() << '\n';
-      }
-      assert(temp_idx(ts) == tcg_env_index ? true : V->getType()->isIntegerTy(bitsOfTCGType(ts->type)));
+      assert(temp_idx(ts) == tcg_env_index
+                 ? true
+                 : V->getType()->isIntegerTy(bitsOfTCGType(ts->type)));
       return V;
     }
 
