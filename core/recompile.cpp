@@ -485,7 +485,7 @@ int recompiler_t<MT, MinSize>::go(void) {
       binary_index_t ChosenBIdx = ChooseBinaryWithSoname(needed);
 
       if (!is_binary_index_valid(ChosenBIdx)) {
-        if (IsVerbose())
+        if (IsVeryVerbose())
         WithColor::warning() << llvm::formatv("unknown \"{0}\" needed by {1}\n",
                                               needed, b.path_str());
         return;
