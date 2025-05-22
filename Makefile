@@ -129,7 +129,8 @@ utilities: $(UTILBINS) $(UTILINCS)
 asm-offsets: $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/asm-offsets.h)
 
 .PHONY: tcg-constants
-tcg-constants: $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/tcgconstants.h)
+tcg-constants: $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/tcgconstants.h) \
+               $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(HOST_TARGET)/tcgconstants.$(t).h)
 
 .PHONY: all-helpers-mk
 all-helpers-mk: $(foreach t,$(ALL_TARGETS),all-helpers-$(t)-mk)
@@ -365,6 +366,9 @@ $(BINDIR)/$(HOST_TARGET)/qemu.tcg.copy.$(1).h:
 	$(CARBON_EXTRACT) --src $(QEMU_DIR) --bin $(call qemu_carbon_host_build_dir,$(1)) -n --flatten jove_tcg >> $$@
 
 $(BINDIR)/$(1)/tcgconstants.h: | $(BINDIR)/$(1)/qemu-starter
+	env JOVE_PRINT_CONSTANTS=1 $(call qemu_carbon_build_dir,$(1))/qemu-$(1) $(BINDIR)/$(1)/qemu-starter > $$@
+
+$(BINDIR)/$(HOST_TARGET)/tcgconstants.$(1).h: | $(BINDIR)/$(1)/qemu-starter
 	env JOVE_PRINT_CONSTANTS=1 $(call qemu_carbon_host_build_dir,$(1))/qemu-$(1) $(BINDIR)/$(1)/qemu-starter > $$@
 
 .PHONY: all-helpers-$(1)-mk

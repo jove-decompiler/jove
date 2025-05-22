@@ -8,6 +8,7 @@ tags
 /bin/*/asm-offsets.h
 /bin/*/linux.copy.h
 /bin/*/tcgconstants.h
+/bin/*/tcgconstants.*.h
 /bin/*/env.copy.h
 /bin/*/qemu.tcg.copy.h
 /bin/*/qemu.tcg.copy.*.h
