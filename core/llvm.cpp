@@ -9532,11 +9532,10 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
       ENTRY(br)
 #if TCG_TARGET_REG_BITS == 32
       ENTRY(setcond2_i32)
-#elif TCG_TARGET_REG_BITS == 64
+#endif
       ENTRY(setcond)
         ENTRY(negsetcond)
       ENTRY(movcond)
-#endif
       ENTRY(mov)
       ENTRY(tci_movi)
       ENTRY(tci_movl)
@@ -9616,7 +9615,7 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
       ENTRY(mb)
   };
 
-#define CASE(x) do_##x: if (!curr_op_nm) curr_op_nm = BOOST_PP_STRINGIZE(x); llvm::errs() << "case: " << BOOST_PP_STRINGIZE(x) << '\n'; lets_do_##x
+#define CASE(x) do_##x: if (!curr_op_nm) curr_op_nm = BOOST_PP_STRINGIZE(x); lets_do_##x
 #define BREAK() curr_op_nm = nullptr; goto out
 #define TODO() goto do_todo
 
@@ -9881,7 +9880,8 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
 #if TCG_TARGET_REG_BITS == 32
   CASE(setcond2_i32):
     TODO();
-#elif TCG_TARGET_REG_BITS == 64
+#endif
+
   CASE(setcond): {
     unsigned out_bits1 = 8 * tcg_type_size((TCGType)TCGOP_TYPE(op));
     unsigned out_bits2 = bitsOfTCGType(s->temps[temp_idx(output_arg(0))].type);
@@ -9927,7 +9927,6 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     set(V, output_arg(0));
     BREAK();
   }
-#endif
 
   CASE(mov):
     set(get(input_arg(0)), output_arg(0));
