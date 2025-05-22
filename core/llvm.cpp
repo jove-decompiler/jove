@@ -1218,7 +1218,7 @@ void llvm_t<MT, MinSize>::DumpModule(const char *suffix) {
 
 template <bool MT, bool MinSize>
 int llvm_t<MT, MinSize>::InitStateForBinaries(void) {
-  if (IsVerbose())
+  if (IsVeryVerbose())
     for_each_binary(jv, [&](auto &b) {
       WithColor::note() << llvm::formatv("SectsStartAddr for {0} is {1:x}\n",
                                          b.Name.c_str(),
@@ -2954,7 +2954,8 @@ llvm::Constant *llvm_t<MT, MinSize>::ImportFunctionByOrdinal(llvm::StringRef DLL
                                                   uint32_t Ordinal) {
   std::string nm(coff::unique_symbol_for_ordinal_in_dll(DLL, Ordinal));
 
-  llvm::errs() << "creating " << nm << '\n';
+  if (IsVeryVerbose())
+    llvm::errs() << "creating " << nm << '\n';
 
   llvm::FunctionType *FTy =
       llvm::FunctionType::get(VoidType(), false); /* FIXME? */
@@ -3006,7 +3007,9 @@ llvm::Constant *llvm_t<MT, MinSize>::ImportedFunctionAddress(llvm::StringRef DLL
       //   Name: DeleteCriticalSection
       //   ForwardedTo: NTDLL.RtlDeleteCriticalSection
       // }
-      WithColor::error() << "Name2RVA failed on " << Name << " in " << DLL << '\n';
+      if (IsVeryVerbose())
+        WithColor::error() << "Name2RVA failed on " << Name << " in " << DLL
+                           << '\n';
     } else {
       //assert(it != x._coff.Name2RVA.end());
       isCode = coff::isRVACode(O, (*it).second);
@@ -3468,7 +3471,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
         } else {
           assert(contents.size() <= Sect.SizeOfRawData);
 
-          if (IsVerbose())
+          if (IsVeryVerbose())
             llvm::errs() << llvm::formatv(
                 "section {0} is {1} bytes (have {2}) (should have {3})\n",
                 Sect.Name,
@@ -3681,7 +3684,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
     for (unsigned i = 0; i < NumSections; ++i) {
       section_t &Sect = SectTable[i];
 
-      if (IsVerbose())
+      if (IsVeryVerbose())
         llvm::errs() << llvm::formatv(
             "Section: \"{0}\" Size={1} Sect.Contents.size()={2}\n", Sect.Name,
             Sect.Size, Sect.Contents.size());
@@ -4008,6 +4011,8 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
     }
   };
 
+  if (IsVeryVerbose()) {
+
   B::_elf(*Bin, [&](ELFO &O) {
 
   const ELFF &Elf = O.getELFFile();
@@ -4287,6 +4292,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
   });
 
   });
+  }
 
   ConstSectsGlobal = nullptr;
   SectsGlobal = nullptr;
@@ -4734,7 +4740,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
         assert(trailingBytes == 0);
       }
 
-      if (IsVerbose())
+      if (IsVeryVerbose())
         llvm::errs() << llvm::formatv("Laying out section {0}\n", Sect.Name);
 
       if (IsCOFF && _coff.rsrcSectIdx >= 0) {
@@ -4974,7 +4980,7 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
 
 template <bool MT, bool MinSize>
 int llvm_t<MT, MinSize>::CreatePossibleTramps(void) {
-  if (IsVerbose())
+  if (IsVeryVerbose())
     llvm::errs() << llvm::formatv("# of possible tramps: {0}\n",
                                   possible_tramps_vec.size());
 
@@ -9214,7 +9220,7 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     assert(high->getType()->isIntegerTy(32));
     assert(low->getType()->isIntegerTy(32));
 
-    return IRB.CreateAdd(
+    return IRB.CreateOr(
         IRB.CreateShl(IRB.CreateZExt(high, IRB.getInt64Ty()), IRB.getInt64(32)),
         IRB.CreateZExt(low, IRB.getInt64Ty()));
   };
@@ -9279,11 +9285,12 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
 
   auto do_the_qemu_st = [&](llvm::Value *Addr,
                             llvm::Value *Val,
-                            MemOpIdx oi) -> void {
+                            MemOpIdx oi,
+                            unsigned bits = ~0u) -> void {
     MemOp mop = get_memop(oi);
     assert(!(mop & MO_SIGN));
 
-    unsigned bits = BitsOfMemOp(mop);
+    bits = !(~bits) ? BitsOfMemOp(mop) : bits;
 
     Val = IRB.CreateTrunc(Val, IRB.getIntNTy(bits));
 
@@ -9303,7 +9310,7 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     SignedTCGArg off = const_arg(0);
     TCGTemp *ptr_tmp = input_arg(IsLoad ? 0 : 1);
 
-    if (off < 0) {
+    if (off < 0 && IsVeryVerbose()) {
       curiosity("negative access into env (" + std::to_string(off) + ")");
       return;
     }
@@ -9338,7 +9345,7 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
 #endif
 
         default:
-          if (IsVerbose())
+          if (IsVeryVerbose())
             curiosity("load(env+" + std::to_string(off) + ") @ " +
                       taddr2str(lstaddr, false));
           break;
@@ -9365,7 +9372,7 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
 #endif
 
         default:
-          if (IsVerbose())
+          if (IsVeryVerbose())
             curiosity("store(env+" + std::to_string(off) + ") @ " +
                       taddr2str(lstaddr, false));
           break;
@@ -9610,8 +9617,10 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
 
       ENTRY(qemu_ld)
       ENTRY(qemu_st)
+#if TCG_TARGET_REG_BITS == 32
       ENTRY(qemu_ld2)
       ENTRY(qemu_st2)
+#endif
       ENTRY(mb)
   };
 
@@ -10306,9 +10315,18 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     BREAK();
   }
 
+#if TCG_TARGET_REG_BITS == 32
   CASE(qemu_ld2):
+    write_reg64(output_arg(0),
+                output_arg(1),
+                do_the_qemu_ld(get(input_arg(0)), const_arg(0), 64));
+    BREAK();
+
   CASE(qemu_st2):
-    TODO();
+    do_the_qemu_st(get(input_arg(2)),
+                   uint64(get(input_arg(1)), get(input_arg(0))), const_arg(0), 64);
+    BREAK();
+#endif
 
   CASE(mb): {
     llvm::StringRef AsmText;
