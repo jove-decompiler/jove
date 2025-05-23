@@ -63,6 +63,8 @@ runtime_cflags = -std=gnu11 \
                  -Wno-gnu-zero-variadic-macro-arguments \
                  -O3 \
                  -g \
+                 -ggdb \
+                 -gdwarf-4 \
                  -ffreestanding \
                  -fno-strict-aliasing \
                  -fno-stack-protector \
