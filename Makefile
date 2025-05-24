@@ -122,7 +122,7 @@ all: helpers \
 helpers: $(foreach t,$(ALL_TARGETS),helpers-$(t))
 
 .PHONY: runtime
-runtime: $(foreach t,$(ALL_TARGETS),runtime-$(t))
+runtime: $(foreach p,$(PLATFORMS),$(foreach t,$(ALL_$(call uc,$p)_TARGETS),runtime-$(t)-$(p)))
 
 .PHONY: utilities
 utilities: $(UTILBINS) $(UTILINCS)
@@ -140,16 +140,6 @@ all-helpers-mk: $(foreach t,$(ALL_TARGETS),all-helpers-$(t)-mk)
 .PHONY: env-inits
 env-inits: $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/env_init.inc)
 
-runtime_dlls = $(BINDIR)/$(1)/libjove_rt.st.dll \
-               $(BINDIR)/$(1)/libjove_rt.mt.dll \
-               $(BINDIR)/$(1)/jove.coff.st.bc \
-               $(BINDIR)/$(1)/jove.coff.st.ll \
-               $(BINDIR)/$(1)/jove.coff.mt.bc \
-               $(BINDIR)/$(1)/jove.coff.mt.ll
-
-_DLLS_x86_64 := $(call runtime_dlls,x86_64)
-_DLLS_i386   := $(call runtime_dlls,i386)
-
 _DLL_x86_64_LINUX_CALL_CONV := X86_64_SysV
 _DLL_i386_LINUX_CALL_CONV := C
 
@@ -160,14 +150,21 @@ define target_code_template
 helpers-$(1): $(foreach h,$($(t)_HELPERS),$(BINDIR)/$(1)/helpers/$(h).ll) \
               $(foreach h,$($(t)_HELPERS),$(BINDIR)/$(1)/helpers/$(h).bc)
 
-.PHONY: runtime-$(1)
-runtime-$(1): $(BINDIR)/$(1)/libjove_rt.st.so \
-              $(BINDIR)/$(1)/libjove_rt.mt.so \
-              $(BINDIR)/$(1)/jove.elf.st.bc \
-              $(BINDIR)/$(1)/jove.elf.mt.bc \
-              $(BINDIR)/$(1)/jove.elf.st.ll \
-              $(BINDIR)/$(1)/jove.elf.mt.ll \
-              $(_DLLS_$(1))
+.PHONY: runtime-$(1)-win
+runtime-$(1)-win: $(BINDIR)/$(1)/libjove_rt.st.dll \
+                  $(BINDIR)/$(1)/libjove_rt.mt.dll \
+                  $(BINDIR)/$(1)/jove.coff.st.bc \
+                  $(BINDIR)/$(1)/jove.coff.st.ll \
+                  $(BINDIR)/$(1)/jove.coff.mt.bc \
+                  $(BINDIR)/$(1)/jove.coff.mt.ll
+
+.PHONY: runtime-$(1)-linux
+runtime-$(1)-linux: $(BINDIR)/$(1)/libjove_rt.st.so \
+                    $(BINDIR)/$(1)/libjove_rt.mt.so \
+                    $(BINDIR)/$(1)/jove.elf.st.bc \
+                    $(BINDIR)/$(1)/jove.elf.mt.bc \
+                    $(BINDIR)/$(1)/jove.elf.st.ll \
+                    $(BINDIR)/$(1)/jove.elf.mt.ll
 
 $(BINDIR)/$(1)/%: $(UTILSRCDIR)/%.c | ccopy
 	clang-19 -o $$@ $(call runtime_cflags,$(1)) -fpie $$< $(UTILS_LDFLAGS)
@@ -218,7 +215,7 @@ $(BINDIR)/$(1)/libjove_rt.coff.mt.bc: lib/arch/$(1)/rt.c | ccopy asm-offsets
 # runtime shared libraries
 #
 $(BINDIR)/$(1)/libjove_rt.%.so.o: $(BINDIR)/$(1)/libjove_rt.elf.%.bc
-	$(OUR_LLVM_LLC) -o $$@ --filetype=obj --relocation-model=pic $$<
+	$(OUR_LLVM_LLC) -o $$@ --dwarf-version=4 --filetype=obj --relocation-model=pic $$<
 
 $(BINDIR)/$(1)/libjove_rt.%.so: $(BINDIR)/$(1)/libjove_rt.%.so.o
 	$(OUR_LLVM_LLD) -o $$@ -m $($(1)_LD_EMU) $(call runtime_so_ldflags,$(1)) $$<
@@ -232,7 +229,7 @@ $(BINDIR)/$(1)/libjove_rt.%.dll.o: $(BINDIR)/$(1)/libjove_rt.coff.%.bc \
 	$(call jove_tool,$(1)) llknife -v -o $$<.2.tmp -i $$< --calling-convention=$(_DLL_$(1)_LINUX_CALL_CONV) $(BINDIR)/$(1)/jove_rt_dll.callconv.$$*.syms
 	$(call jove_tool,$(1)) llknife -v -o $$<.3.tmp -i $$<.2.tmp --dllexport $(BINDIR)/$(1)/jove_rt_dll.dllexport.$$*.syms
 	$(OUR_LLVM_DIS) -o $$<.dll.ll $$<.3.tmp
-	$(OUR_LLVM_LLC) -o $$@ --filetype=obj --relocation-model=pic --mtriple=$($(1)_COFF_TRIPLE) $$<.3.tmp
+	$(OUR_LLVM_LLC) -o $$@ --dwarf-version=4 --filetype=obj --relocation-model=pic --mtriple=$($(1)_COFF_TRIPLE) $$<.3.tmp
 
 $(BINDIR)/$(1)/libjove_rt.%.dll: $(BINDIR)/$(1)/libjove_rt.%.dll.o \
                                  $(BINDIR)/$(1)/libjove_rt.%.def
