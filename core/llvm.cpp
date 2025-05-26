@@ -817,7 +817,7 @@ int llvm_t<MT, MinSize>::go(void) {
                 GlobalSymbolDefinedSizeMap.emplace(SymName, Sym.st_size);
               } else {
                 if ((*it).second != Sym.st_size) {
-                  if (IsVerbose())
+                  if (IsVeryVerbose())
                     WithColor::warning()
                         << llvm::formatv("global symbol {0} is defined with "
                                          "multiple distinct sizes: {1}, {2}\n",
@@ -2904,7 +2904,7 @@ llvm::Constant *llvm_t<MT, MinSize>::SymbolAddress(const elf::RelSymbol &RelSym)
 
       auto it = GlobalSymbolDefinedSizeMap.find(RelSym.Name);
       if (it == GlobalSymbolDefinedSizeMap.end()) {
-        if (IsVerbose())
+        if (IsVeryVerbose())
           WithColor::warning() << llvm::formatv("{0}: unknown size for {1}\n",
                                                 __func__, RelSym.Name);
 
@@ -5263,7 +5263,7 @@ int llvm_t<MT, MinSize>::CreateCopyRelocationHack(void) {
 		IRB.getInt32(pair.first.second), true /* Volatile */);
           }
 
-          if (IsVerbose())
+          if (IsVeryVerbose())
             WithColor::note() << llvm::formatv(
                 "COPY RELOC HACK {0} {1} {2} {3}\n", pair.first.first,
                 pair.first.second, pair.second.second.first,
