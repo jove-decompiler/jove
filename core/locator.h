@@ -25,7 +25,7 @@ struct locator_t {
   std::string ld_bfd(void);
   std::string clang(void);
   std::string builtins(bool IsCOFF);
-  std::string atomics(void);
+  std::string atomics(bool IsCOFF);
 
   std::string dfsan_runtime(void);
   std::string dfsan_abilist(void);

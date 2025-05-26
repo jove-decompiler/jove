@@ -100,12 +100,66 @@ std::string locator_t::builtins(bool IsCOFF) {
     p /= "coff";
   p /= ("libclang_rt.builtins-" TARGET_ARCH_NAME ".a");
 
-  return must_exist(p);
+
+  if (IsCOFF) {
+#if defined(TARGET_X86_64)
+    return must_exist("/usr/lib/gcc/x86_64-w64-mingw32/12-posix/libgcc.a");
+#elif defined(TARGET_I386)
+    return must_exist("/usr/lib/gcc/i686-w64-mingw32/12-posix/libgcc.a");
+#else
+    throw std::runtime_error("unrecognized COFF target");
+#endif
+  } else {
+#if defined(TARGET_AARCH64)
+    return must_exist("/usr/lib/gcc-cross/aarch64-linux-gnu/12/libgcc.a");
+#elif defined(TARGET_X86_64)
+    return must_exist("/usr/lib/gcc/x86_64-linux-gnu/12/libgcc.a");
+#elif defined(TARGET_I386)
+    return must_exist("/usr/lib/gcc-cross/i686-linux-gnu/12/libgcc.a");
+#elif defined(TARGET_MIPS64)
+    return must_exist("/usr/lib/gcc-cross/mips64el-linux-gnuabi64/12/libgcc.a");
+#elif defined(TARGET_MIPSEL)
+    return must_exist(p);
+    return must_exist("/usr/lib/gcc-cross/mipsel-linux-gnu/12/libgcc.a");
+#elif defined(TARGET_MIPS)
+    return must_exist("/usr/lib/gcc-cross/mips-linux-gnu/12/libgcc.a");
+#else
+#error
+#endif
+  }
 }
 
-std::string locator_t::atomics(void) {
+std::string locator_t::atomics(bool IsCOFF) {
+#if 0
   return (prebuilts_path() / "obj" / ("libatomic-" TARGET_ARCH_NAME ".a"))
       .string();
+#endif
+
+  if (IsCOFF) {
+#if defined(TARGET_X86_64)
+    return must_exist("/usr/lib/gcc/x86_64-w64-mingw32/12-posix/libatomic.a");
+#elif defined(TARGET_I386)
+    return must_exist("/usr/lib/gcc/i686-w64-mingw32/12-posix/libatomic.a");
+#else
+    throw std::runtime_error("unrecognized COFF target");
+#endif
+  } else {
+#if defined(TARGET_AARCH64)
+    return must_exist("/usr/lib/gcc-cross/aarch64-linux-gnu/12/libatomic.a");
+#elif defined(TARGET_X86_64)
+    return must_exist("/usr/lib/gcc/x86_64-linux-gnu/12/libatomic.a");
+#elif defined(TARGET_I386)
+    return must_exist("/usr/lib/gcc/x86_64-linux-gnu/12/32/libatomic.a");
+#elif defined(TARGET_MIPS64)
+    return must_exist("/usr/lib/gcc-cross/mips64el-linux-gnuabi64/12/libatomic.a");
+#elif defined(TARGET_MIPSEL)
+    return must_exist("/usr/lib/gcc-cross/mipsel-linux-gnu/12/libatomic.a");
+#elif defined(TARGET_MIPS)
+    return must_exist("/usr/lib/gcc-cross/mips-linux-gnu/12/libatomic.a");
+#else
+#error
+#endif
+  }
 }
 
 std::string locator_t::dfsan_runtime(void) {
@@ -145,14 +199,9 @@ std::string locator_t::ida_scripts(void) {
 }
 
 std::string locator_t::softfloat_bitcode(bool IsCOFF) {
-  fs::path p = prebuilts_path();
-
-  p /= "lib";
-  if (IsCOFF)
-    p /= "coff";
-  p /= "libfpu_soft-" TARGET_ARCH_NAME "-linux-user.a";
-
-  return must_exist(p);
+  fs::path p = arch_bin_path();
+  return must_exist(
+      p / ("softfpu-" + std::string(IsCOFF ? "win" : "linux") + ".o"));
 }
 
 std::string locator_t::gdb(void) {

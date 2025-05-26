@@ -124,6 +124,9 @@ helpers: $(foreach t,$(ALL_TARGETS),helpers-$(t))
 .PHONY: runtime
 runtime: $(foreach p,$(PLATFORMS),$(foreach t,$(ALL_$(call uc,$p)_TARGETS),runtime-$(t)-$(p)))
 
+.PHONY: softfpu
+softfpu: $(foreach p,$(PLATFORMS),$(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/softfpu-$(p).o))
+
 .PHONY: utilities
 utilities: $(UTILBINS) $(UTILINCS)
 
@@ -349,6 +352,12 @@ clean-bitcode-$(1):
 .PHONY: clean-asm-offsets-$(1)
 clean-asm-offsets-$(1):
 	rm -f $(BINDIR)/$(1)/asm-offsets.h
+
+$(BINDIR)/$(1)/softfpu-linux.o: $(call qemu_carbon_build_dir,$(1))/libfpu_soft-$(1)-linux-user.a.p/fpu_softfloat.c.o
+	llc-19 -o $$@ --dwarf-version=4 --filetype=obj --relocation-model=pic $$<
+
+$(BINDIR)/$(1)/softfpu-win.o: $(call qemu_carbon_build_dir,$(1))/libfpu_soft-$(1)-linux-user.a.p/fpu_softfloat.c.o
+	llc-19 -o $$@ --dwarf-version=4 --filetype=obj --relocation-model=pic --mtriple=$($(1)_COFF_TRIPLE) $$<
 
 $(BINDIR)/$(1)/linux.copy.h:
 	$(CARBON_EXTRACT) --src $(LINUX_DIR) --bin $(call linux_carbon_build_dir,$(1)) -n jove > $$@

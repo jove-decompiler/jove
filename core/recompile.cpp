@@ -39,6 +39,17 @@ using llvm::WithColor;
 
 namespace jove {
 
+static inline void print_command(const char **argv) {
+  for (const char **argp = argv; *argp; ++argp) {
+    llvm::errs() << *argp;
+
+    if (*(argp + 1))
+      llvm::errs() << ' ';
+  }
+
+  llvm::errs() << '\n';
+}
+
 typedef boost::format fmt;
 
 static std::atomic<bool> Cancel(false);
@@ -856,8 +867,8 @@ int recompiler_t<MT, MinSize>::go(void) {
       Arg("--as-needed");
       Arg(locator().builtins(IsCOFF));
       Arg(locator().softfloat_bitcode(IsCOFF));
-      if (fs::exists(locator().atomics()))
-        Arg(locator().atomics());
+      if (fs::exists(locator().atomics(IsCOFF)))
+        Arg(locator().atomics(IsCOFF));
       Arg("--pop-state");
       Arg("--exclude-libs");
       Arg("ALL");
@@ -1073,12 +1084,26 @@ int recompiler_t<MT, MinSize>::go(void) {
           fs::path needed_chrooted_path(opts.Output + needed_b.path_str());
           Arg(needed_chrooted_path.replace_extension("lib").string());
         }
-      });
+        },
+        std::string(),
+        std::string(),
+        [&](const char **argv, const char **envp) {
+          if (IsVerbose()) {
+            print_command(argv);
+          }
+        });
     } else {
     auto run_linker = [&](const char *linker_path) -> int {
       return RunExecutableToExit(linker_path, [&](auto Arg) {
         Arg(linker_path);
         linker_args(Arg);
+      },
+      std::string(),
+      std::string(),
+      [&](const char **argv, const char **envp) {
+        if (IsVerbose()) {
+          print_command(argv);
+        }
       });
     };
 
@@ -1280,6 +1305,13 @@ void recompiler_t<MT, MinSize>::worker(dso_t dso) {
             Arg("-o");
             Arg(llfp);
             Arg(bcfp);
+          },
+          std::string(),
+          std::string(),
+          [&](const char **argv, const char **envp) {
+            if (IsVerbose()) {
+              print_command(argv);
+            }
           });
         },
         [&](void) -> void {
@@ -1295,6 +1327,13 @@ void recompiler_t<MT, MinSize>::worker(dso_t dso) {
             Arg("-S");
             Arg("--strip-debug");
             Arg(bcfp);
+          },
+          std::string(),
+          std::string(),
+          [&](const char **argv, const char **envp) {
+            if (IsVerbose()) {
+              print_command(argv);
+            }
           });
         },
         [&](void) -> void {
@@ -1341,6 +1380,13 @@ void recompiler_t<MT, MinSize>::worker(dso_t dso) {
 
             Arg("--dwarf-version=4");
             Arg("--debugger-tune=gdb");
+          },
+          std::string(),
+          std::string(),
+          [&](const char **argv, const char **envp) {
+            if (IsVerbose()) {
+              print_command(argv);
+            }
           });
         }
       );
