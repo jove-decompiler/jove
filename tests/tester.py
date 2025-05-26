@@ -363,6 +363,7 @@ class JoveTester:
             print("SSH FAILURE!!!")
             return 1
 
+    print(f"SUCCESS ({self.arch})")
     return 0
 
   def is_ready(self):
