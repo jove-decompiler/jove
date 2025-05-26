@@ -1898,8 +1898,9 @@ int llvm_t<MT, MinSize>::ProcessBinaryTLSSymbols(void) {
   if (!tlsPhdr) {
     ThreadLocalStorage.Present = false;
 
-    WithColor::note() << llvm::formatv("{0}: No thread local storage\n",
-                                       __func__);
+    if (IsVeryVerbose())
+      WithColor::note() << llvm::formatv("{0}: No thread local storage\n",
+                                         __func__);
     return;
   }
 
@@ -1908,6 +1909,7 @@ int llvm_t<MT, MinSize>::ProcessBinaryTLSSymbols(void) {
   ThreadLocalStorage.Data.Size = tlsPhdr->p_filesz;
   ThreadLocalStorage.End = tlsPhdr->p_vaddr + tlsPhdr->p_memsz;
 
+  if (IsVeryVerbose())
   WithColor::note() << llvm::formatv("Thread-local storage: [{0:x}, {1:x})\n",
                                      ThreadLocalStorage.Beg,
                                      ThreadLocalStorage.End);
@@ -2203,6 +2205,7 @@ int llvm_t<MT, MinSize>::ProcessCOPYRelocations(void) {
           }
         }
 
+        if (IsVeryVerbose())
         llvm::errs() << llvm::formatv("COPY relocation: {0} {1}\n", RelSym.Name, RelSym.Vers);
 
         //
@@ -2237,6 +2240,7 @@ int llvm_t<MT, MinSize>::ProcessCOPYRelocations(void) {
           abort();
         }
 
+        if (IsVeryVerbose())
         WithColor::note() << llvm::formatv(
             "copy relocation @ {0:x} specifies symbol {1} with size {2}\n",
             R.Offset, RelSym.Name, RelSym.Sym->st_size);
@@ -7586,6 +7590,8 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
     const bool SjLj = Lj || Sj;
     if (unlikely(SjLj)) {
       assert(Lj ^ Sj);
+
+      if (IsVeryVerbose())
       llvm::outs() << llvm::formatv("calling {0} {1:x} from {2:x} (call)\n",
                                     Lj ? "longjmp" : "setjmp",
                                     ICFG[basic_block_of_index(callee.Entry, ICFG)].Addr,
@@ -8048,6 +8054,7 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
 
       const function_t &callee = function_of_target(X, jv);
 
+      if (IsVeryVerbose())
       llvm::outs() << llvm::formatv("calling {0} from {1:x} ({2})\n",
                                     Lj ? "longjmp" : "setjmp",
                                     ICFG[bb].Term.Addr,
