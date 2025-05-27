@@ -5436,8 +5436,11 @@ int llvm_t<MT, MinSize>::FixupHelperStubs(void) {
             dynl_binary.Analysis.Functions.begin(),
             dynl_binary.Analysis.Functions.end(), constantTable.begin(),
             [&](const function_t &f) -> llvm::Constant * {
-              uintptr_t Addr = ICFG[basic_block_of_index(f.Entry, ICFG)].Addr;
-              return llvm::ConstantInt::get(WordType(), Addr);
+              return llvm::ConstantInt::get(
+                  WordType(),
+                  B::offset_of_va(
+                      *state.for_binary(dynl_binary).Bin,
+                      ICFG[basic_block_of_index(f.Entry, ICFG)].Addr));
             });
 
         constantTable.push_back(llvm::Constant::getNullValue(WordType()));
@@ -5464,12 +5467,16 @@ int llvm_t<MT, MinSize>::FixupHelperStubs(void) {
         std::vector<llvm::Constant *> constantTable;
         constantTable.resize(vdso_binary.Analysis.Functions.size());
 
-        std::transform(vdso_binary.Analysis.Functions.begin(),
-                       vdso_binary.Analysis.Functions.end(), constantTable.begin(),
-                       [&](const function_t &f) -> llvm::Constant * {
-                         uintptr_t Addr = ICFG[basic_block_of_index(f.Entry, ICFG)].Addr;
-                         return llvm::ConstantInt::get(WordType(), Addr);
-                       });
+        std::transform(
+            vdso_binary.Analysis.Functions.begin(),
+            vdso_binary.Analysis.Functions.end(), constantTable.begin(),
+            [&](const function_t &f) -> llvm::Constant * {
+              return llvm::ConstantInt::get(
+                  WordType(),
+                  B::offset_of_va(
+                      *state.for_binary(vdso_binary).Bin,
+                      ICFG[basic_block_of_index(f.Entry, ICFG)].Addr));
+            });
 
         constantTable.push_back(llvm::Constant::getNullValue(WordType()));
 
