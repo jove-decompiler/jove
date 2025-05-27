@@ -984,6 +984,9 @@ void _jove_install_foreign_function_tables(void) {
   for (uintptr_t *p = dynl_fn_tbl; *p; ++p) *p += dynl_load_bias;
   for (uintptr_t *p = vdso_fn_tbl; *p; ++p) *p += vdso_load_bias;
 
+  __jove_foreign_function_tables_bias[1] = dynl_load_bias;
+  __jove_foreign_function_tables_bias[2] = vdso_load_bias;
+
   __jove_foreign_function_tables[1] = dynl_fn_tbl;
   __jove_foreign_function_tables[2] = vdso_fn_tbl;
 
@@ -2000,7 +2003,12 @@ static dfsan_label *__df32_shadow_for(uint32_t A) {
 #endif
 #endif
 
+static void AssertNonZeroU32(uint32_t x) { _ASSERT(x); }
+static void AssertNonZeroU64(uint64_t x) { _ASSERT(x); }
+
 void __nodce(void **p) {
+  *p++ = AssertNonZeroU32;
+  *p++ = AssertNonZeroU64;
   *p++ = JOVE_RT_THREAD_GLOBALP(trace);
   *p++ = JOVE_RT_THREAD_GLOBALP(trace_begin);
   *p++ = JOVE_RT_THREAD_GLOBALP(callstack);

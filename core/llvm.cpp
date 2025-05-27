@@ -1443,6 +1443,16 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
     JoveForeignFunctionTablesGlobal->setLinkage(
         llvm::GlobalValue::InternalLinkage);
 
+  JoveForeignFunctionTablesBiasGlobal =
+      Module->getGlobalVariable("__jove_foreign_function_tables_bias", true);
+  assert(JoveForeignFunctionTablesBiasGlobal);
+
+  AssertNonZeroU32 = Module->getFunction("AssertNonZeroU32");
+  assert(AssertNonZeroU32);
+
+  AssertNonZeroU64 = Module->getFunction("AssertNonZeroU64");
+  assert(AssertNonZeroU64);
+
   JoveRecoverDynTargetFunc = Module->getFunction("_jove_recover_dyn_target");
   assert(JoveRecoverDynTargetFunc && !JoveRecoverDynTargetFunc->empty());
 
@@ -5229,21 +5239,17 @@ int llvm_t<MT, MinSize>::CreateCopyRelocationHack(void) {
             //
             // get the load address
             //
-            llvm::Value *FnsTbl = IRB.CreateLoad(
-                IRB.getPtrTy(),
-                IRB.CreateConstInBoundsGEP2_64(
-                    JoveForeignFunctionTablesGlobal->getValueType(),
-                    JoveForeignFunctionTablesGlobal, 0, BIdxFrom));
+            llvm::Value *indices[] = {IRB.getInt32(0), IRB.getInt32(BIdxFrom)};
+            llvm::Value *Ptr = IRB.CreateInBoundsGEP(
+                JoveForeignFunctionTablesBiasGlobal->getValueType(),
+                JoveForeignFunctionTablesBiasGlobal, indices);
 
-            llvm::Value *FirstEntry = IRB.CreateLoad(WordType(), FnsTbl);
+            llvm::Value *LoadBias = IRB.CreateLoad(WordType(), Ptr);
 
-            llvm::Value *LoadBias = IRB.CreateSub(
-                FirstEntry,
-                IRB.getIntN(
-                    WordBits(),
-                    ICFG[basic_block_of_index(BinaryFrom.Analysis.Functions.at(0).Entry,
-                                       ICFG)]
-                        .Addr));
+            if (WordBits() == 64)
+              IRB.CreateCall(AssertNonZeroU64, LoadBias);
+            else
+              IRB.CreateCall(AssertNonZeroU32, LoadBias);
 
 #if 0
             llvm::errs() << llvm::formatv("FnsTbl: {0} Type: {1}\n", *FnsTbl,

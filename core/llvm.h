@@ -309,6 +309,7 @@ class llvm_t {
 
   llvm::GlobalVariable *JoveFunctionTablesGlobal = nullptr;
   llvm::GlobalVariable *JoveForeignFunctionTablesGlobal = nullptr;
+  llvm::GlobalVariable *JoveForeignFunctionTablesBiasGlobal = nullptr;
   llvm::Function *JoveRecoverDynTargetFunc = nullptr;
   llvm::Function *JoveRecoverBasicBlockFunc = nullptr;
   llvm::Function *JoveRecoverReturnedFunc = nullptr;
@@ -355,6 +356,9 @@ class llvm_t {
   std::unique_ptr<llvm::DIBuilder> DIBuilder;
 
   std::map<uint64_t, llvm::Constant *> TPOFFHack;
+
+  llvm::Function *AssertNonZeroU32 = nullptr;
+  llvm::Function *AssertNonZeroU64 = nullptr;
 
   struct {
     llvm::ArrayType *T = nullptr;
