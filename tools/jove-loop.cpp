@@ -741,16 +741,22 @@ skip_run:
       }
 
       //
-      // check for magic bytes
+      // receive magic bytes
       //
       const char other_endianness = ({
         char magic[5];
-        if (robust_read(remote_fd.get(), &magic[0], sizeof(magic)) < 0 ||
-           !(magic[0] == 'J' &&
-             magic[1] == 'O' &&
-             magic[2] == 'V' &&
-             magic[3] == 'E') ||
-           !(magic[4] == 'b' || magic[4] == 'l')) {
+        ssize_t ret = robust_read(remote_fd.get(), &magic[0], sizeof(magic));
+        if (ret < 0) {
+          HumanOut() << llvm::formatv(
+              "failed to send magic bytes: {0}\n", strerror(-ret));
+          return 1;
+        }
+
+        if (magic[0] != 'J' ||
+            magic[1] != 'O' ||
+            magic[2] != 'V' ||
+            magic[3] != 'E' ||
+           (magic[4] != 'b' && magic[4] != 'l')) {
           WithColor::error() << "invalid magic bytes\n";
           return 1;
         }

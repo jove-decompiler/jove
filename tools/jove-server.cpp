@@ -196,9 +196,9 @@ std::string string_of_sockaddr(const struct sockaddr *addr, socklen_t addrlen) {
 
 void *ServerTool::ConnectionProc(void *arg) {
   std::unique_ptr<ConnectionProcArgs> args(
-      reinterpret_cast<ConnectionProcArgs *>(arg));
+      static_cast<ConnectionProcArgs *>(arg));
 
-  int data_socket = args->data_socket;
+  const int data_socket = args->data_socket;
 
   const char our_endianness =
       __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__ ? 'b' : 'l';
@@ -220,16 +220,22 @@ void *ServerTool::ConnectionProc(void *arg) {
 
 
   //
-  // check for magic bytes
+  // receive magic bytes
   //
   const char other_endianness = ({
     char magic[5];
-    if (robust_read(data_socket, &magic[0], sizeof(magic)) < 0 ||
-       !(magic[0] == 'J' &&
-         magic[1] == 'O' &&
-         magic[2] == 'V' &&
-         magic[3] == 'E') ||
-       !(magic[4] == 'b' || magic[4] == 'l')) {
+    ssize_t ret = robust_read(data_socket, &magic[0], sizeof(magic));
+    if (ret < 0) {
+      HumanOut() << llvm::formatv(
+          "failed to send magic bytes: {0}\n", strerror(-ret));
+      return nullptr;
+    }
+
+    if (magic[0] != 'J' ||
+        magic[1] != 'O' ||
+        magic[2] != 'V' ||
+        magic[3] != 'E' ||
+       (magic[4] != 'b' && magic[4] != 'l')) {
       WithColor::error() << "invalid magic bytes\n";
       return nullptr;
     }
