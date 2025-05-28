@@ -20,7 +20,7 @@ size_t jvDefaultInitialSize(void) {
   case 8:
     return 3*GiB;
   case 4:
-    return 384*MiB;
+    return 512*MiB;
   }
 
   __compiletime_unreachable();
