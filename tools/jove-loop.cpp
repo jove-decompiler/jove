@@ -748,7 +748,7 @@ skip_run:
         ssize_t ret = robust_read(remote_fd.get(), &magic[0], sizeof(magic));
         if (ret < 0) {
           HumanOut() << llvm::formatv(
-              "failed to send magic bytes: {0}\n", strerror(-ret));
+              "failed to receive magic bytes: {0}\n", strerror(-ret));
           return 1;
         }
 
