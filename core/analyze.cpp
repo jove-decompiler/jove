@@ -857,9 +857,13 @@ analyzer_t<MT, MinSize>::DynTargetsSummary(
         function_t &callee = function_of_target(X, jv);
         const bool IsStale =
             callee.Analysis.Stale.load(std::memory_order_acquire);
-        args |= callee.Analysis.args;
-        rets |= callee.Analysis.rets;
-        return !IsStale;
+        if (IsStale) {
+          return false;
+        } else {
+          args |= callee.Analysis.args;
+          rets |= callee.Analysis.rets;
+          return true;
+        }
       }))
     return std::nullopt;
 
