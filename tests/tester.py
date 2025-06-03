@@ -236,7 +236,7 @@ class JoveTester:
     return subprocess.run(['scp'] + self.ssh_common_args + ['-P', str(self.guest_ssh_port), 'root@localhost:' + src, dst], check=check)
 
   def update_jove(self):
-    self.scp_to(self.jove_client_path, '/usr/local/bin/jove')
+    self.scp_to(self.jove_client_path, '/usr/local/bin/jove', check=True)
 
   def update_libjove_rt(self, multi_threaded):
     rtpath = self.jove_rt_mt_path if multi_threaded else self.jove_rt_st_path
