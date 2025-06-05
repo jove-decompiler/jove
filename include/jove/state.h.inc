@@ -41,8 +41,13 @@ private:
   typedef boost::container::deque_options<
       boost::container::stored_size<uint32_t>>::type DequeOptions;
 
+#ifdef JOVE_TSAN
+  template <typename T>
+  using DequeAlloc = boost::container::allocator<T>;
+#else
   template <typename T>
   using DequeAlloc = boost::container::adaptive_pool<T>;
+#endif
   template <typename T>
   using VectorAlloc = boost::container::allocator<T>;
 
