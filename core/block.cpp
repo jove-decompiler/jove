@@ -37,6 +37,41 @@ static bool copy_and_insert_sort(const ip_func_index_vec &old,
   return true;
 }
 
+bbprop_t::~bbprop_t() noexcept {
+  if (void *const p = pDynTargets.Load(std::memory_order_relaxed)) {
+    pDynTargets.Store(nullptr, std::memory_order_relaxed);
+
+    uintptr_t p_addr = reinterpret_cast<uintptr_t>(p);
+    bool MT      = !!(p_addr & 1u);
+    bool MinSize = !!(p_addr & 2u);
+    p_addr &= ~3ULL;
+
+#define MT_POSSIBILTIES                                                        \
+    ((true))                                                                   \
+    ((false))
+#define MINSIZE_POSSIBILTIES                                                   \
+    ((true))                                                                   \
+    ((false))
+
+#define GET_VALUE(x) BOOST_PP_TUPLE_ELEM(0, x)
+
+#define DO_DYNTARGETS_CASE(r, product)                                         \
+  if (MT      == GET_VALUE(BOOST_PP_SEQ_ELEM(0, product)) &&      \
+      MinSize == GET_VALUE(BOOST_PP_SEQ_ELEM(1, product))) {      \
+    using OurDynTargets_t =                                                    \
+        DynTargets_t<GET_VALUE(BOOST_PP_SEQ_ELEM(0, product)),           \
+                     GET_VALUE(BOOST_PP_SEQ_ELEM(1, product))>;          \
+    assert(p_addr);\
+    assert(sm_);\
+    sm_->destroy_ptr(reinterpret_cast<OurDynTargets_t *>(p_addr));\
+    p_addr = 0;\
+  }
+
+  BOOST_PP_SEQ_FOR_EACH_PRODUCT(DO_DYNTARGETS_CASE,
+                                (MT_POSSIBILTIES)(MINSIZE_POSSIBILTIES))
+  }
+}
+
 template <bool MT, bool MinSize>
 void bbprop_t::Parents_t::insert(function_index_t FIdx,
                                  binary_base_t<MT, MinSize> &b) {
@@ -60,8 +95,17 @@ bool bbprop_t::doInsertDynTarget(const dynamic_target_t &X,
                                  jv_base_t<MT, MinSize> &) {
   using OurDynTargets_t = DynTargets_t<MT, MinSize>;
 
-  if (auto *p = pDynTargets.Load(std::memory_order_relaxed))
-    return static_cast<OurDynTargets_t *>(p)->Insert(X);
+  if (void *const p = pDynTargets.Load(std::memory_order_relaxed)) {
+    uintptr_t p_addr = reinterpret_cast<uintptr_t>(p);
+    bool The_MT      = !!(p_addr & 1u);
+    bool The_MinSize = !!(p_addr & 2u);
+    p_addr &= ~3ULL;
+
+    assert(The_MT == MT);
+    assert(The_MinSize == MinSize);
+
+    return reinterpret_cast<OurDynTargets_t *>(p_addr)->Insert(X);
+  }
 
   //
   // otherwise...
@@ -74,13 +118,15 @@ bool bbprop_t::doInsertDynTarget(const dynamic_target_t &X,
           jv_file));
 
   OurDynTargets_t &DynTargets = *TheDynTargets.get().get();
+  uintptr_t DynTargets_addr = reinterpret_cast<uintptr_t>(&DynTargets);
+  assert(DynTargets_addr);
+  DynTargets_addr |= (MT ? 1u : 0u) | (MinSize ? 2u : 0u);
 
   void *expected = nullptr;
-  void *desired = &DynTargets;
-  if (pDynTargets.CompareExchangeStrong(
-          expected,
-          desired,
-          std::memory_order_relaxed, std::memory_order_relaxed)) {
+  void *desired = reinterpret_cast<void *>(DynTargets_addr);
+  if (pDynTargets.CompareExchangeStrong(expected, desired,
+                                        std::memory_order_relaxed,
+                                        std::memory_order_relaxed)) {
     DynTargets.Insert(X);
     TheDynTargets.release();
 
@@ -88,7 +134,10 @@ bool bbprop_t::doInsertDynTarget(const dynamic_target_t &X,
     return true; /* it was empty before */
   }
 
-  return static_cast<OurDynTargets_t *>(expected)->Insert(X);
+  uintptr_t expected_addr = reinterpret_cast<uintptr_t>(expected);
+  expected_addr &= ~3ULL;
+
+  return reinterpret_cast<OurDynTargets_t *>(expected_addr)->Insert(X);
 }
 
 template <bool MT, bool MinSize>

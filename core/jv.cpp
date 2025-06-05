@@ -443,6 +443,7 @@ void jv_base_t<MT, MinSize>::clear(bool everything) {
 
   this->Binaries.clear();
   initialize_all_binary_indices();
+  this->Analysis.ReverseCallGraph.container().clear();
 
   if (everything)
     cached_hashes.clear();
@@ -472,9 +473,15 @@ void jv_base_t<MT, MinSize>::fixup_binary(jv_file_t &jv_file,
     assert(!f.pCallers.Load(std::memory_order_relaxed));
 
     using OurCallers_t = Callers_t<MT, MinSize>;
-    f.pCallers.Store(jv_file.construct<OurCallers_t>(
+OurCallers_t *OurPtr = jv_file.construct<OurCallers_t>(
                          boost::interprocess::anonymous_instance)(
-                         jv_file.get_segment_manager()),
+                         jv_file.get_segment_manager());
+
+        uintptr_t OurPtrAddr = reinterpret_cast<uintptr_t>(OurPtr);
+        OurPtrAddr |= (MT ? 1u : 0u) | (MinSize ? 2u : 0u);
+        void *OurPtrVal = reinterpret_cast<void *>(OurPtrAddr);
+
+    f.pCallers.Store(OurPtrVal,
                      std::memory_order_relaxed);
 
   });

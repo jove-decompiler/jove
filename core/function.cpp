@@ -8,9 +8,44 @@ namespace jove {
 
 template <bool MT, bool MinSize>
 function_t::function_t(binary_base_t<MT, MinSize> &b, function_index_t Idx) noexcept
-    : BIdx(b.Idx /* could be invalid */), Idx(Idx) {}
+    : BIdx(b.Idx /* could be invalid */), Idx(Idx), sm_(b.get_segment_manager()) {}
 
-function_t::function_t(segment_manager_t *sm) noexcept {}
+function_t::function_t(segment_manager_t *sm) noexcept : sm_(sm) {}
+
+function_t::~function_t() noexcept {
+  if (void *const p = pCallers.Load(std::memory_order_relaxed)) {
+    pCallers.Store(nullptr, std::memory_order_relaxed);
+
+    uintptr_t p_addr = reinterpret_cast<uintptr_t>(p);
+    bool MT      = !!(p_addr & 1u);
+    bool MinSize = !!(p_addr & 2u);
+    p_addr &= ~3ULL;
+
+#define MT_POSSIBILTIES                                                        \
+    ((true))                                                                   \
+    ((false))
+#define MINSIZE_POSSIBILTIES                                                   \
+    ((true))                                                                   \
+    ((false))
+
+#define GET_VALUE(x) BOOST_PP_TUPLE_ELEM(0, x)
+
+#define DO_DYNTARGETS_CASE(r, product)                                         \
+  if (MT      == GET_VALUE(BOOST_PP_SEQ_ELEM(0, product)) &&      \
+      MinSize == GET_VALUE(BOOST_PP_SEQ_ELEM(1, product))) {      \
+    using OurCallers_t =                                                    \
+        Callers_t<GET_VALUE(BOOST_PP_SEQ_ELEM(0, product)),           \
+                  GET_VALUE(BOOST_PP_SEQ_ELEM(1, product))>;          \
+    assert(p_addr); \
+    assert(sm_);\
+    sm_->destroy_ptr(reinterpret_cast<OurCallers_t *>(p_addr));\
+    p_addr = 0; \
+  }
+
+  BOOST_PP_SEQ_FOR_EACH_PRODUCT(DO_DYNTARGETS_CASE,
+                                (MT_POSSIBILTIES)(MINSIZE_POSSIBILTIES))
+  }
+}
 
 template <bool MT, bool MinSize>
 ip_call_graph_base_t<MT>::vertex_descriptor

@@ -64,9 +64,15 @@ function_index_t explorer_t<MT, MinSize>::_explore_function(
   if (maybe_jv) {
     using OurCallers_t = Callers_t<MT, MinSize>;
 
-    f.pCallers.Store(jv_file.construct<OurCallers_t>(
+    OurCallers_t *OurPtr = jv_file.construct<OurCallers_t>(
                          boost::interprocess::anonymous_instance)(
-                         jv_file.get_segment_manager()),
+                         jv_file.get_segment_manager());
+
+        uintptr_t OurPtrAddr = reinterpret_cast<uintptr_t>(OurPtr);
+        OurPtrAddr |= (MT ? 1u : 0u) | (MinSize ? 2u : 0u);
+        void *OurPtrVal = reinterpret_cast<void *>(OurPtrAddr);
+
+    f.pCallers.Store(OurPtrVal,
                      std::memory_order_relaxed);
   }
 
@@ -218,6 +224,7 @@ on_insn:
   bbprop_2.pDynTargets.Store(
       bbprop_1.pDynTargets.Load(std::memory_order_relaxed),
       std::memory_order_relaxed);
+  bbprop_2.sm_ = jv_file.get_segment_manager();
   //bbprop_2.InvalidateAnalysis();
 
   assert(bbprop_2.Addr + bbprop_2.Size == addr_intvl_upper(intvl));
@@ -575,6 +582,7 @@ explorer_t<MT, MinSize>::_explore_basic_block(binary_t &b,
     bbprop.Size = Size;
     bbprop.Term.Type = T.Type;
     bbprop.Term.Addr = T.Addr;
+    bbprop.sm_ = jv_file.get_segment_manager();
 
     //bbprop.InvalidateAnalysis();
     if (is_function_index_valid(ParentIdx))
@@ -796,8 +804,8 @@ function_index_t explorer_t<MT, MinSize>::explore_function(binary_t &b,
 #define GET_VALUE(x) BOOST_PP_TUPLE_ELEM(0, x)
 
 #define DO_INSTANTIATE(r, product)                                             \
-  template struct explorer_t<GET_VALUE(BOOST_PP_SEQ_ELEM(1, product)),         \
-                             GET_VALUE(BOOST_PP_SEQ_ELEM(0, product))>;
+  template class explorer_t<GET_VALUE(BOOST_PP_SEQ_ELEM(1, product)),          \
+                            GET_VALUE(BOOST_PP_SEQ_ELEM(0, product))>;
 BOOST_PP_SEQ_FOR_EACH_PRODUCT(DO_INSTANTIATE, (VALUES_TO_INSTANTIATE_WITH1)(VALUES_TO_INSTANTIATE_WITH2))
 
 }

@@ -460,8 +460,17 @@ struct bbprop_t : public ip_mt_base_rw_accessible_nospin {
   template <bool MT, bool MinSize>
   boost::optional<const DynTargets_t<MT, MinSize> &>
   getDynamicTargets(void) const {
-    if (const void *p = pDynTargets.Load(std::memory_order_relaxed))
-      return *static_cast<const DynTargets_t<MT, MinSize> *>(p);
+    if (const void *const p = pDynTargets.Load(std::memory_order_relaxed)) {
+    uintptr_t p_addr = reinterpret_cast<uintptr_t>(p);
+    bool TheMT      = !!(p_addr & 1u);
+    bool TheMinSize = !!(p_addr & 2u);
+
+    assert(TheMT == MT);
+    assert(TheMinSize == MinSize);
+
+    p_addr &= ~3ULL;
+      return *reinterpret_cast<const DynTargets_t<MT, MinSize> *>(p_addr);
+    }
 
     return boost::none;
   }
@@ -551,15 +560,7 @@ struct bbprop_t : public ip_mt_base_rw_accessible_nospin {
   explicit bbprop_t(bbprop_t &&other) noexcept = default;
   bbprop_t &operator=(bbprop_t &&other) noexcept = default;
 
-  ~bbprop_t() noexcept {
-    // FIXME
-#if 0
-    if (auto *p = pDynTargets.Load(std::memory_order_relaxed)) {
-      assert(sm_);
-      sm_->destroy_ptr(p); /* (boost/ipc/smart_ptr/deleter.hpp) */
-    }
-#endif
-  }
+  ~bbprop_t() noexcept;
 
   explicit bbprop_t(const bbprop_t &) = delete;
   bbprop_t &operator=(const bbprop_t &) = delete;
@@ -716,12 +717,22 @@ struct function_t {
   basic_block_index_t Entry = invalid_basic_block_index;
 
   AtomicOffsetPtr<void> pCallers;
+  boost::interprocess::offset_ptr<segment_manager_t> sm_ = nullptr;
 
   template <bool MT, bool MinSize>
   const Callers_t<MT, MinSize> &Callers(void) const noexcept {
     const void *p = pCallers.Load(std::memory_order_relaxed);
     assert(p);
-    return *static_cast<const Callers_t<MT, MinSize> *>(p);
+
+          uintptr_t p_addr = reinterpret_cast<uintptr_t>(p);
+          bool TheMT      = !!(p_addr & 1u);
+          bool TheMinSize = !!(p_addr & 2u);
+          p_addr &= ~3ULL;
+
+    assert(TheMT == MT);
+    assert(TheMinSize == MinSize);
+
+    return *reinterpret_cast<const Callers_t<MT, MinSize> *>(p_addr);
   }
 
   template <bool MT, bool MinSize>
@@ -734,7 +745,16 @@ struct function_t {
   Callers_t<MT, MinSize> &Callers(void) noexcept {
     void *p = pCallers.Load(std::memory_order_relaxed);
     assert(p);
-    return *static_cast<Callers_t<MT, MinSize> *>(p);
+
+          uintptr_t p_addr = reinterpret_cast<uintptr_t>(p);
+          bool TheMT      = !!(p_addr & 1u);
+          bool TheMinSize = !!(p_addr & 2u);
+          p_addr &= ~3ULL;
+
+    assert(TheMT == MT);
+    assert(TheMinSize == MinSize);
+
+    return *reinterpret_cast<Callers_t<MT, MinSize> *>(p_addr);
   }
 
   template <bool MT, bool MinSize>
@@ -813,6 +833,8 @@ private:
 
   explicit function_t(function_t &&) noexcept = default;
   function_t &operator=(function_t &&) noexcept = default;
+
+  ~function_t() noexcept;
 
   explicit function_t(const function_t &) = delete;
   function_t &operator=(const function_t &) = delete;
@@ -1360,14 +1382,30 @@ struct jv_base_t {
                     BBIdxLast, [&](unsigned BBIdx) {
         bbprop_t &bbprop = b.Analysis.ICFG[b.Analysis.ICFG.vertex(BBIdx)];
 
-        if (void *p = bbprop.pDynTargets.Load(std::memory_order_relaxed)) {
-          OtherDynTargets_t &OtherDynTargets =
-              *static_cast<OtherDynTargets_t *>(p);
+        bbprop.sm_ = sm_;
 
-          bbprop.pDynTargets.Store(jv_file.construct<OurDynTargets_t>(
-                                       boost::interprocess::anonymous_instance)(
-                                       std::move(OtherDynTargets)),
-                                   std::memory_order_relaxed);
+        if (void *const p = bbprop.pDynTargets.Load(std::memory_order_relaxed)) {
+          uintptr_t p_addr = reinterpret_cast<uintptr_t>(p);
+          bool TheMT      = !!(p_addr & 1u);
+          bool TheMinSize = !!(p_addr & 2u);
+          p_addr &= ~3ULL;
+
+          assert(TheMT == !MT);
+          assert(TheMinSize == MinSize);
+
+          OtherDynTargets_t &OtherDynTargets =
+              *reinterpret_cast<OtherDynTargets_t *>(p_addr);
+
+          OurDynTargets_t *OurPtr = jv_file.construct<OurDynTargets_t>(
+              boost::interprocess::anonymous_instance)(
+              std::move(OtherDynTargets));
+
+          uintptr_t OurPtrAddr = reinterpret_cast<uintptr_t>(OurPtr);
+          assert(OurPtrAddr);
+          OurPtrAddr |= (MT ? 1u : 0u) | (MinSize ? 2u : 0u);
+          void *OurPtrVal = reinterpret_cast<void *>(OurPtrAddr);
+
+          bbprop.pDynTargets.Store(OurPtrVal, std::memory_order_relaxed);
 
           sm_->destroy_ptr(&OtherDynTargets);
         }
@@ -1375,20 +1413,41 @@ struct jv_base_t {
     });
 
     for_each_function(maybe_par_unseq, *this, [&](function_t &f, binary_t &b) {
-      if (void *p = f.pCallers.Load(std::memory_order_relaxed)) {
-        OtherCallers_t &OtherCallers = *static_cast<OtherCallers_t *>(p);
+      if (void *const p = f.pCallers.Load(std::memory_order_relaxed)) {
+        uintptr_t p_addr = reinterpret_cast<uintptr_t>(p);
+        bool TheMT      = !!(p_addr & 1u);
+        bool TheMinSize = !!(p_addr & 2u);
+        p_addr &= ~3ULL;
 
-        f.pCallers.Store(jv_file.construct<OurCallers_t>(
+        assert(TheMT == !MT);
+        assert(TheMinSize == MinSize);
+
+        OtherCallers_t &OtherCallers = *reinterpret_cast<OtherCallers_t *>(p_addr);
+
+        OurCallers_t *OurPtr = jv_file.construct<OurCallers_t>(
                              boost::interprocess::anonymous_instance)(
-                             std::move(OtherCallers)),
+                             std::move(OtherCallers));
+
+          uintptr_t OurPtrAddr = reinterpret_cast<uintptr_t>(OurPtr);
+          assert(OurPtrAddr);
+          OurPtrAddr |= (MT ? 1u : 0u) | (MinSize ? 2u : 0u);
+          void *OurPtrVal = reinterpret_cast<void *>(OurPtrAddr);
+
+        f.pCallers.Store(OurPtrVal ,
                          std::memory_order_relaxed);
 
         sm_->destroy_ptr(&OtherCallers);
       } else {
-        f.pCallers.Store(jv_file.construct<OurCallers_t>(
-                             boost::interprocess::anonymous_instance)(
-                             jv_file.get_segment_manager()),
-                         std::memory_order_relaxed);
+        OurCallers_t *OurPtr = jv_file.construct<OurCallers_t>(
+            boost::interprocess::anonymous_instance)(
+            jv_file.get_segment_manager());
+
+        uintptr_t OurPtrAddr = reinterpret_cast<uintptr_t>(OurPtr);
+        assert(OurPtrAddr);
+        OurPtrAddr |= (MT ? 1u : 0u) | (MinSize ? 2u : 0u);
+        void *OurPtrVal = reinterpret_cast<void *>(OurPtrAddr);
+
+        f.pCallers.Store(OurPtrVal, std::memory_order_relaxed);
       }
     });
   }

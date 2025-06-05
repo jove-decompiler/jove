@@ -82,6 +82,7 @@ load(Archive &ar,
   std::string y;
   ar >> y;
 
+  x.clear();
   x.reserve(y.size());
   std::copy(y.begin(), y.end(), std::back_inserter(x));
 }
@@ -327,6 +328,8 @@ load(Archive &ar,
 
   auto &ip_adj_ = ip_adj.container();
 
+  ip_adj_.clear();
+
   ar >> ip_adj_;
   ip_adj._size.store(boost::num_vertices(ip_adj_), std::memory_order_relaxed);
 }
@@ -498,7 +501,9 @@ static void load(Archive &ar, jove::bbprop_t &bbprop, const unsigned int) {
     ar &BOOST_SERIALIZATION_NVP(DynTargets);                                   \
     if (!DynTargets.empty()) {                                                 \
       TheDynTargets.release();                                                 \
-      bbprop.pDynTargets.Store(&DynTargets, std::memory_order_relaxed);        \
+    uintptr_t DynTargets_addr = reinterpret_cast<uintptr_t>(&DynTargets);\
+  DynTargets_addr |= (jove::IsMT_hack ? 1u : 0u) | (jove::IsMinSize_hack ? 2u : 0u);\
+      bbprop.pDynTargets.Store(reinterpret_cast<void *>(DynTargets_addr), std::memory_order_relaxed);        \
       bbprop.sm_ = jv_file.get_segment_manager();                              \
     }                                                                          \
     return;                                                                    \
@@ -644,15 +649,24 @@ void UnserializeJV(jv_base_t<MT, MinSize> &out,
 
                          assert(b.EmptyFIdxVec);
                          bbprop.Parents.template set<false>(*b.EmptyFIdxVec);
+
+                         bbprop.sm_ = jv_file.get_segment_manager();
                        });
 
   for_each_function(maybe_par_unseq, out, [&](function_t &f, auto &b) {
     assert(!f.pCallers.Load(std::memory_order_relaxed));
 
     using OurCallers_t = Callers_t<MT, MinSize>;
-    f.pCallers.Store(jv_file.construct<OurCallers_t>(
+
+    OurCallers_t *OurPtr = jv_file.construct<OurCallers_t>(
                          boost::interprocess::anonymous_instance)(
-                         jv_file.get_segment_manager()),
+                         jv_file.get_segment_manager());
+
+        uintptr_t OurPtrAddr = reinterpret_cast<uintptr_t>(OurPtr);
+        OurPtrAddr |= (MT ? 1u : 0u) | (MinSize ? 2u : 0u);
+        void *OurPtrVal = reinterpret_cast<void *>(OurPtrAddr);
+
+    f.pCallers.Store(OurPtrVal,
                      std::memory_order_relaxed);
   });
 }
