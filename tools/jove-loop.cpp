@@ -349,17 +349,6 @@ static void SigHandler(int no) {
     }
     break;
 
-  case SIGBUS:
-  case SIGSEGV: {
-    const char *msg = "jove-loop crashed! attach with a debugger..";
-    ::write(STDERR_FILENO, msg, strlen(msg));
-
-    for (;;)
-      sleep(1);
-
-    __builtin_unreachable();
-  }
-
   default:
     abort();
   }
@@ -387,9 +376,7 @@ int LoopTool::Run(void) {
     sa.sa_handler = SigHandler;
 
     if (::sigaction(SIGINT, &sa, nullptr) < 0 ||
-        ::sigaction(SIGTERM, &sa, nullptr) < 0 ||
-        ::sigaction(SIGSEGV, &sa, nullptr) < 0 ||
-        ::sigaction(SIGBUS, &sa, nullptr) < 0) {
+        ::sigaction(SIGTERM, &sa, nullptr) < 0) {
       int err = errno;
       HumanOut() << llvm::formatv("{0}: sigaction failed ({1})\n", __func__,
                                   strerror(err));
@@ -1184,7 +1171,7 @@ skip_run:
           fs::path chrooted_path = fs::path(sysroot) / b.path_str();
           std::string binary_filename = fs::path(b.path_str()).filename().string();
 
-          if (IsVerbose())
+          if (IsVeryVerbose())
             HumanOut() << llvm::formatv("{0}'s soname is {1}\n", b.path_str(), soname);
 
           if (binary_filename != soname) {
