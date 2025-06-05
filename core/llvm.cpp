@@ -9305,11 +9305,30 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
   auto do_the_qemu_st = [&](llvm::Value *Addr,
                             llvm::Value *Val,
                             MemOpIdx oi,
-                            unsigned bits = ~0u) -> void {
+                            std::optional<unsigned> provided_bits = std::nullopt) -> void {
     MemOp mop = get_memop(oi);
-    assert(!(mop & MO_SIGN));
 
-    bits = !(~bits) ? BitsOfMemOp(mop) : bits;
+    unsigned bits = ~0u;
+    switch (mop & MO_SIZE) {
+    case MO_UB:
+      bits = 8;
+      break;
+    case MO_UW:
+      bits = 16;
+      break;
+    case MO_UL:
+      bits = 32;
+      break;
+    case MO_UQ:
+      bits = 64;
+      break;
+    default:
+      die("do_the_qemu_st: unrecognized mop");
+    }
+
+    if (provided_bits && bits != *provided_bits)
+      die("do_the_qemu_st: provided_bits=" + std::to_string(*provided_bits) +
+          " but bits=" + std::to_string(bits));
 
     Val = IRB.CreateTrunc(Val, IRB.getIntNTy(bits));
 
