@@ -9329,13 +9329,14 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     SignedTCGArg off = const_arg(0);
     TCGTemp *ptr_tmp = input_arg(IsLoad ? 0 : 1);
 
-    if (off < 0 && IsVeryVerbose()) {
-      curiosity("negative access into env (" + std::to_string(off) + ")");
-      return;
-    }
-
     bool IsEnv = temp_idx(ptr_tmp) == tcg_env_index;
     if (IsEnv) {
+      if (off < 0) {
+        if (IsVeryVerbose())
+          curiosity("negative access into env (" + std::to_string(off) + ")");
+        return;
+      }
+
       if (IsLoad) {
         TCGTemp *dst = output_arg(0);
 
