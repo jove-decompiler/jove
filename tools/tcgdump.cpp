@@ -102,7 +102,7 @@ int TCGDumpTool::Run(void) {
     if (!End)
       End = Addr + 32;
 
-    llvm::outs() << llvm::formatv("{0:x}\n", Addr);
+    printf("0x%" PRIx64 "\n", Addr);
 
     unsigned BBSize;
     for (uint64_t A = Addr; A < End; A += BBSize) {
@@ -129,7 +129,7 @@ int TCGDumpTool::Run(void) {
             Inst, InstLen, llvm::ArrayRef<uint8_t>(Ptr, BBSize), _A,
             llvm::nulls());
         if (!Disassembled) {
-          llvm::outs() << llvm::formatv("failed to disassemble {0:x}\n", _A);
+          printf("failed to disassemble 0x%" PRIx64 "\n", _A);
           break;
         }
 
@@ -139,23 +139,20 @@ int TCGDumpTool::Run(void) {
           disas.IP->printInst(&Inst, _A, "", *disas.STI, StrStream);
         }
 
-        llvm::outs() << llvm::formatv("{0:x} {1}\n", _A, inst_str);
+        printf("0x%" PRIx64 " %s\n", _A, inst_str.c_str());
       }
-      llvm::outs() << '\n';
-      llvm::outs().flush();
+      printf("\n");
 
       //
       // print TCG
       //
-      tcg.dump_operations();
-      llvm::outs() << '\n';
+      tcg.dump_ops(stdout);
 
       //
       // print basic block terminator
       //
-      llvm::outs() << llvm::formatv("BBSize: {0}\n", BBSize);
-
-      llvm::outs() << description_of_terminator_info(T, false) << '\n';
+      std::string term_info_desc = description_of_terminator_info(T, false);
+      printf("\nBBSize: %u\n%s\n", (unsigned)BBSize, term_info_desc.c_str());
     }
 
     return true;

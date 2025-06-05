@@ -7319,7 +7319,7 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
     }
 
     if (unlikely(ForAddrMatch))
-      TCG.dump_operations();
+      TCG.dump_ops(stderr);
 
     TCGContext *s = get_tcg_context();
 
@@ -7440,7 +7440,7 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
     int ret = TranslateTCGOps(ExitBB, IRB, TC);
     if (unlikely(ret)) {
       WithColor::warning() << "!TranslateTCGOp\n";
-      TCG.dump_operations();
+      TCG.dump_ops(stderr);
       return ret;
     }
 
@@ -9160,7 +9160,7 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
                                             curr_op_nm ? curr_op_nm : "",
                                             bitsOfTCGType(ts->base_type),
                                             bitsOfTCGType(ts->type));
-        TCG.dump_operations();
+        TCG.dump_ops(stderr);
       }
 
       assert(VTy->isIntegerTy(bitsOfTCGType(ts->type)));

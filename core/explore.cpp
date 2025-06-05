@@ -569,8 +569,7 @@ explorer_t<MT, MinSize>::_explore_basic_block(binary_t &b,
       llvm::errs() << '\n';
     }
 
-    tcg.dump_operations();
-    fputc('\n', stdout);
+    tcg.dump_ops(stderr);
     abort();
   }
 

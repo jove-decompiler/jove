@@ -30,7 +30,7 @@ struct tiny_code_generator_t {
   std::pair<unsigned, terminator_info_t> translate(uint64_t pc,
                                                    uint64_t pc_end = 0);
 
-  void dump_operations(void);
+  void dump_ops(FILE *);
 
   int tcg_index_of_named_global(const char *name);
 };

@@ -140,10 +140,8 @@ void tiny_code_generator_t::set_binary(llvm::object::Binary &Bin) {
   ::jv_Bin = &Bin;
 }
 
-void tiny_code_generator_t::dump_operations(void) {
-  fflush(stdout);
-  tcg_dump_ops(tcg_ctx, stdout, false);
-  fflush(stdout);
+void tiny_code_generator_t::dump_ops(FILE *out) {
+  tcg_dump_ops(tcg_ctx, out, false);
 }
 
 std::pair<unsigned, terminator_info_t>
