@@ -122,16 +122,7 @@ template <bool MT, bool MinSize>
   throw std::runtime_error(reason); /* we like destructors */
 }
 
-static unsigned bitsOfTCGType(TCGType ty) {
-  if (unlikely(ty > 2))
-    throw std::runtime_error("bitsOfTCGType: unhandled");
-
-  static_assert(TCG_TYPE_I32 == 0);
-  static_assert(TCG_TYPE_I64 == 1);
-  static_assert(TCG_TYPE_I128 == 2);
-
-  return 1u << (static_cast<unsigned>(ty) + 5);
-}
+static unsigned bitsOfTCGType(TCGType ty) { return 8 * tcg_type_size(ty); }
 
 static unsigned BitsOfMemOp(MemOp op) {
   static_assert(MO_8 == 0);
