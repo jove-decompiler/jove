@@ -9674,7 +9674,7 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
   };
 
 #define CASE(x) do_##x: if (!curr_op_nm) curr_op_nm = BOOST_PP_STRINGIZE(x); lets_do_##x
-#define BREAK() curr_op_nm = nullptr; goto out
+#define BREAK() do { curr_op_nm = nullptr; goto out; } while (false)
 #define TODO() goto do_todo
 
   op = s->ops.tqh_first;
@@ -9914,6 +9914,12 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
         set(IRB.CreateTrunc(IRB.CreateLShr(Ret, llvm::APInt(64, 32)),
                             IRB.getInt32Ty()),
             dst2);
+        BREAK();
+      } else if (dst1->type == TCG_TYPE_I64 &&
+                 dst2->type == TCG_TYPE_I64 &&
+          FTy->getReturnType()->isStructTy()) {
+        set(IRB.CreateExtractValue(Ret, 0), dst1);
+        set(IRB.CreateExtractValue(Ret, 1), dst2);
         BREAK();
       } else {
         llvm::errs() << llvm::formatv(
