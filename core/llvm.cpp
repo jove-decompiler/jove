@@ -9278,10 +9278,9 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
 
     llvm::Value *Res = LI;
 
-#ifndef TARGET_WORDS_BIGENDIAN /* XXX */
+    //assert(!(!!(mop & MO_BSWAP)));
     if (mop & MO_BSWAP)
-      Res = IRB.CreateCall(bswap_i(BitsOfMemOp(mop)), Res);
-#endif
+      Res = IRB.CreateCall(bswap_i(load_bits), Res);
 
     switch (mop & MO_SSIZE) {
     case MO_UB:
@@ -9331,6 +9330,8 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
           " but bits=" + std::to_string(bits));
 
     Val = IRB.CreateTrunc(Val, IRB.getIntNTy(bits));
+
+    assert(!(!!(mop & MO_BSWAP)));
 
 #ifndef TARGET_WORDS_BIGENDIAN /* XXX */
     if (mop & MO_BSWAP)
@@ -9437,13 +9438,14 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
                             : llvm::LLVMContext::MD_noalias,
                       AliasScopeMetadata);
 
-      llvm::Value *Casted = Signed ? IRB.CreateSExt(LI, IRB.getIntNTy(out_bits))
-                                   : IRB.CreateZExt(LI, IRB.getIntNTy(out_bits));
+      llvm::Value *Casted =
+          IRB.CreateIntCast(LI, IRB.getIntNTy(out_bits), Signed);
 
       set(Casted, output_arg(0));
     } else {
-      llvm::StoreInst *SI = IRB.CreateStore(
-          IRB.CreateTrunc(get(input_arg(0)), IRB.getIntNTy(bits)), Ptr);
+      llvm::Value *Casted =
+          IRB.CreateIntCast(get(input_arg(0)), IRB.getIntNTy(bits), Signed);
+      llvm::StoreInst *SI = IRB.CreateStore(Casted, Ptr);
       SI->setMetadata(IsEnv ? llvm::LLVMContext::MD_alias_scope
                             : llvm::LLVMContext::MD_noalias,
                       AliasScopeMetadata);
@@ -9930,6 +9932,11 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     TODO();
 #endif
 
+  /*
+
+  regs[r0] = tci_compare64(regs[r1], regs[r2], condition);
+
+  */
   CASE(setcond): {
     unsigned out_bits1 = 8 * tcg_type_size((TCGType)TCGOP_TYPE(op));
     unsigned out_bits2 = bitsOfTCGType(s->temps[temp_idx(output_arg(0))].type);
@@ -9963,6 +9970,12 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     BREAK();
   }
 
+  /*
+
+  tmp32 = tci_compare64(regs[r1], regs[r2], condition);
+  regs[r0] = regs[tmp32 ? r3 : r4];
+
+  */
   CASE(movcond): {
     llvm::Value *V = IRB.CreateSelect(
         CondCompare(const_arg(0),
@@ -9991,13 +10004,13 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
   CASE(ld16s):
     TODO();
 
-  CASE(ld): {
-    unsigned out_bits1 = 8 * tcg_type_size((TCGType)TCGOP_TYPE(op));
-    unsigned out_bits2 = bitsOfTCGType(s->temps[temp_idx(output_arg(0))].type);
-    assert(out_bits1 == out_bits2);
-    unsigned out_bits = out_bits1;
+  /*
 
-    do_the_ld(out_bits, false);
+  regs[r0] = *(tcg_target_ulong *)ptr;
+
+  */
+  CASE(ld): {
+    do_the_ld(TCG_TARGET_REG_BITS, false);
     BREAK();
   }
 
@@ -10009,13 +10022,13 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     do_the_st(16, false);
     BREAK();
 
-  CASE(st): {
-    unsigned out_bits1 = 8 * tcg_type_size((TCGType)TCGOP_TYPE(op));
-    //unsigned out_bits2 = bitsOfTCGType(s->temps[temp_idx(output_arg(0))].type);
-    //assert(out_bits1 == out_bits2);
-    unsigned out_bits = out_bits1;
+  /*
 
-    do_the_st(out_bits, false);
+  *(tcg_target_ulong *)ptr = regs[r0];
+
+  */
+  CASE(st): {
+    do_the_st(TCG_TARGET_REG_BITS, false);
     BREAK();
   }
 
@@ -10237,6 +10250,7 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
   CASE(divu):
   CASE(rems):
   CASE(remu):
+    TODO();
   CASE(clz): {
     unsigned bits1 = 8 * tcg_type_size((TCGType)TCGOP_TYPE(op));
     unsigned bits2 = bitsOfTCGType(s->temps[temp_idx(output_arg(0))].type);
@@ -10260,80 +10274,101 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
   }
   CASE(ctz):
     TODO();
+
+  /*
+  static inline uint64_t rol64(uint64_t word, unsigned int shift)
+  {
+      return (word << (shift & 63)) | (word >> (-shift & 63));
+  }
+
+  regs[r0] = rol64(regs[r1], regs[r2] & 63);
+  */
   CASE(rotl): {
     unsigned out_bits1 = 8 * tcg_type_size((TCGType)TCGOP_TYPE(op));
     unsigned out_bits2 = bitsOfTCGType(s->temps[temp_idx(output_arg(0))].type);
     assert(out_bits1 == out_bits2);
     unsigned out_bits = out_bits1;
+    assert(out_bits == 64);
 
-    llvm::Value *v1 = get(input_arg(0)); // value to rotate
-    llvm::Value *v2 = get(input_arg(1)); // shift amount
+    llvm::Value *word = get(input_arg(0));
+    llvm::Value *shift = get(input_arg(1));
 
-    llvm::IntegerType *IntTy = llvm::IntegerType::get(Context, out_bits);
-    llvm::Value *mask = llvm::ConstantInt::get(IntTy, out_bits - 1);
+    shift = IRB.CreateAnd(shift, IRB.getInt64(63));
 
-    // amt = v2 & (bits - 1)
-    llvm::Value *amt = IRB.CreateAnd(v2, mask);
+    llvm::Value *X = IRB.CreateShl(word, shift);
+    llvm::Value *Y = IRB.CreateLShr(word, IRB.CreateAnd(IRB.CreateNeg(shift), IRB.getInt64(63)));
 
-    // rev_amt = (-amt) & (bits - 1)
-    llvm::Value *neg_amt = IRB.CreateNeg(amt);
-    llvm::Value *rev_amt = IRB.CreateAnd(neg_amt, mask);
-
-    // (v1 << amt) | (v1 >> rev_amt)
-    llvm::Value *shl = IRB.CreateShl(v1, amt);
-    llvm::Value *shr = IRB.CreateLShr(v1, rev_amt);
-    llvm::Value *res = IRB.CreateOr(shl, shr);
-
-    set(res, output_arg(0));
+    set(IRB.CreateOr(X, Y), output_arg(0));
     BREAK();
   }
+  /*
+  static inline uint64_t ror64(uint64_t word, unsigned int shift)
+  {
+      return (word >> (shift & 63)) | (word << (-shift & 63));
+  }
+
+  regs[r0] = ror64(regs[r1], regs[r2] & 63);
+  */
   CASE(rotr): {
     unsigned out_bits1 = 8 * tcg_type_size((TCGType)TCGOP_TYPE(op));
     unsigned out_bits2 = bitsOfTCGType(s->temps[temp_idx(output_arg(0))].type);
     assert(out_bits1 == out_bits2);
     unsigned out_bits = out_bits1;
+    assert(out_bits == 64);
 
-    llvm::Value *v1 = get(input_arg(0)); // value to rotate
-    llvm::Value *v2 = get(input_arg(1)); // shift amount
+    llvm::Value *word = get(input_arg(0));
+    llvm::Value *shift = get(input_arg(1));
 
-    llvm::IntegerType *IntTy = llvm::IntegerType::get(Context, out_bits);
-    llvm::Value *mask = llvm::ConstantInt::get(IntTy, out_bits - 1);
+    shift = IRB.CreateAnd(shift, IRB.getInt64(63));
 
-    // amt = v2 & (bits - 1)
-    llvm::Value *amt = IRB.CreateAnd(v2, mask);
+    llvm::Value *X = IRB.CreateLShr(word, shift);
+    llvm::Value *Y = IRB.CreateShl(word, IRB.CreateAnd(IRB.CreateNeg(shift), IRB.getInt64(63)));
 
-    // rev_amt = (-amt) & (bits - 1)
-    llvm::Value *neg_amt = IRB.CreateNeg(amt);
-    llvm::Value *rev_amt = IRB.CreateAnd(neg_amt, mask);
-
-    // (v1 >> amt) | (v1 << rev_amt)
-    llvm::Value *shr = IRB.CreateLShr(v1, amt);
-    llvm::Value *shl = IRB.CreateShl(v1, rev_amt);
-    llvm::Value *res = IRB.CreateOr(shr, shl);
-
-    set(res, output_arg(0));
+    set(IRB.CreateOr(X, Y), output_arg(0));
     BREAK();
   }
 
+  /*
+
+  regs[r0] = (int32_t)regs[r1];
+
+  */
   CASE(ext_i32_i64):
-    set(IRB.CreateSExt(get(input_arg(0)), IRB.getInt64Ty()), output_arg(0));
+    set(IRB.CreateSExt(IRB.CreateTrunc(get(input_arg(0)), IRB.getInt32Ty()), IRB.getInt64Ty()), output_arg(0));
     BREAK();
 
+  /*
+
+  regs[r0] = (uint32_t)regs[r1];
+
+  */
   CASE(extu_i32_i64):
-    set(IRB.CreateZExt(get(input_arg(0)), IRB.getInt64Ty()), output_arg(0));
+    set(IRB.CreateZExt(IRB.CreateTrunc(get(input_arg(0)), IRB.getInt32Ty()), IRB.getInt64Ty()), output_arg(0));
     BREAK();
 
   CASE(bswap64):
     TODO();
 
-  CASE(extrh_i64_i32): {
-    llvm::Value *src = get(input_arg(0));
-    llvm::Value *shifted = IRB.CreateLShr(src, llvm::ConstantInt::get(src->getType(), 32));
-    llvm::Value *result = IRB.CreateTrunc(shifted, IRB.getInt32Ty());
-    set(IRB.CreateTrunc(shifted, IRB.getInt32Ty()), output_arg(0));
-    BREAK();
-  }
+  /*
+     extrh_i64_i32 *t0*, *t1*
 
+     - | For 64-bit hosts only, extract the high 32-bits of input *t1* and place it
+         into 32-bit output *t0*.  Depending on the host, this may be a simple shift,
+         or may require additional canonicalization.
+  */
+  CASE(extrh_i64_i32):
+    set(IRB.CreateTrunc(IRB.CreateLShr(get(input_arg(0)), IRB.getInt64(32)),
+                        IRB.getInt32Ty()),
+        output_arg(0));
+    BREAK();
+
+  /*
+    extrl_i64_i32 *t0*, *t1*
+
+     - | For 64-bit hosts only, extract the low 32-bits of input *t1* and place it
+         into 32-bit output *t0*.  Depending on the host, this may be a simple move,
+         or may require additional canonicalization.
+  */
   CASE(extrl_i64_i32):
     set(IRB.CreateTrunc(get(input_arg(0)), IRB.getInt32Ty()), output_arg(0));
     BREAK();
