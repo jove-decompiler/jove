@@ -10024,7 +10024,12 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
 
   */
   CASE(ld): {
-    do_the_ld(TCG_TARGET_REG_BITS, false);
+    unsigned out_bits1 = 8 * tcg_type_size((TCGType)TCGOP_TYPE(op));
+    unsigned out_bits2 = bitsOfTCGType(s->temps[temp_idx(output_arg(0))].type);
+    assert(out_bits1 == out_bits2);
+    unsigned out_bits = out_bits1; /* XXX not TCG_TARGET_REG_BITS?? */
+
+    do_the_ld(out_bits, false);
     BREAK();
   }
 
@@ -10042,7 +10047,10 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
 
   */
   CASE(st): {
-    do_the_st(TCG_TARGET_REG_BITS, false);
+    unsigned out_bits1 = 8 * tcg_type_size((TCGType)TCGOP_TYPE(op));
+    unsigned out_bits = out_bits1; /* XXX not TCG_TARGET_REG_BITS?? */
+
+    do_the_st(out_bits, false);
     BREAK();
   }
 
