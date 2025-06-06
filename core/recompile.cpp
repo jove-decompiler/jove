@@ -867,8 +867,7 @@ int recompiler_t<MT, MinSize>::go(void) {
       Arg("--as-needed");
       Arg(locator().builtins(IsCOFF));
       Arg(locator().softfloat_bitcode(IsCOFF));
-      if (fs::exists(locator().atomics(IsCOFF)))
-        Arg(locator().atomics(IsCOFF));
+      Arg(locator().atomics(IsCOFF));
       Arg("--pop-state");
       Arg("--exclude-libs");
       Arg("ALL");
@@ -1056,6 +1055,7 @@ int recompiler_t<MT, MinSize>::go(void) {
 
         Arg(locator().builtins(IsCOFF));
         Arg(locator().softfloat_bitcode(IsCOFF));
+        Arg(locator().atomics(IsCOFF));
         Arg(locator().runtime_implib(opts.RuntimeMT));
 
         for (const std::string &needed_delay : x._coff.needed_delay_vec)
