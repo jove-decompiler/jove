@@ -9371,7 +9371,17 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
         case ASMOFF_ENV_error_code:
           break;
 #elif defined(TARGET_X86_64)
+        case ASMOFF_ENV_segs...ASMOFF_ENV_segs_end - 1:
+        case ASMOFF_ENV_xmm_regs...ASMOFF_ENV_xmm_regs_end - 1:
+        case ASMOFF_ENV_xmm_t0...ASMOFF_ENV_xmm_t0_end - 1:
+        case ASMOFF_ENV_mmx_t0...ASMOFF_ENV_mmx_t0_end - 1:
+        case ASMOFF_ENV_fpop:
+        case ASMOFF_ENV_fpcs:
+        case ASMOFF_ENV_fpds:
+        case ASMOFF_ENV_fpip:
+        case ASMOFF_ENV_fpdp:
         case ASMOFF_ENV_df:
+        case ASMOFF_ENV_eflags:
           break;
 #elif defined(TARGET_AARCH64)
         case ASMOFF_ENV_vfp_zregs_0_...ASMOFF_ENV_vfp_zregs_32_ - 1:
@@ -9399,7 +9409,17 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
         case ASMOFF_ENV_error_code:
           break;
 #elif defined(TARGET_X86_64)
+        case ASMOFF_ENV_segs...ASMOFF_ENV_segs_end - 1:
+        case ASMOFF_ENV_xmm_regs...ASMOFF_ENV_xmm_regs_end - 1:
+        case ASMOFF_ENV_xmm_t0...ASMOFF_ENV_xmm_t0_end - 1:
+        case ASMOFF_ENV_mmx_t0...ASMOFF_ENV_mmx_t0_end - 1:
+        case ASMOFF_ENV_fpop:
+        case ASMOFF_ENV_fpcs:
+        case ASMOFF_ENV_fpds:
+        case ASMOFF_ENV_fpip:
+        case ASMOFF_ENV_fpdp:
         case ASMOFF_ENV_df:
+        case ASMOFF_ENV_eflags:
           break;
 #elif defined(TARGET_AARCH64)
         case ASMOFF_ENV_vfp_zregs_0_...ASMOFF_ENV_vfp_zregs_32_ - 1:
