@@ -9370,7 +9370,7 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
           return;
         case ASMOFF_ENV_error_code:
           break;
-#elif defined(TARGET_X86_64)
+#elif defined(TARGET_X86_64) || defined(TARGET_I386)
         case ASMOFF_ENV_segs...ASMOFF_ENV_segs_end - 1:
         case ASMOFF_ENV_xmm_regs...ASMOFF_ENV_xmm_regs_end - 1:
         case ASMOFF_ENV_xmm_t0...ASMOFF_ENV_xmm_t0_end - 1:
@@ -9408,7 +9408,7 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
           return;
         case ASMOFF_ENV_error_code:
           break;
-#elif defined(TARGET_X86_64)
+#elif defined(TARGET_X86_64) || defined(TARGET_I386)
         case ASMOFF_ENV_segs...ASMOFF_ENV_segs_end - 1:
         case ASMOFF_ENV_xmm_regs...ASMOFF_ENV_xmm_regs_end - 1:
         case ASMOFF_ENV_xmm_t0...ASMOFF_ENV_xmm_t0_end - 1:
