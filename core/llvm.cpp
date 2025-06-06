@@ -9331,12 +9331,9 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
 
     Val = IRB.CreateTrunc(Val, IRB.getIntNTy(bits));
 
-    assert(!(!!(mop & MO_BSWAP)));
-
-#ifndef TARGET_WORDS_BIGENDIAN /* XXX */
+    //assert(!(!!(mop & MO_BSWAP)));
     if (mop & MO_BSWAP)
       Val = IRB.CreateCall(bswap_i(bits), Val);
-#endif
 
     Addr = IRB.CreateZExt(Addr, WordType());
     Addr = IRB.CreateIntToPtr(Addr, IRB.getIntNTy(bits)->getPointerTo());
