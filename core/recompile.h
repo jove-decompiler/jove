@@ -39,6 +39,7 @@ struct recompiler_options_t {
   bool BreakBeforeUnreachables = false;
   bool LayOutSections = false;
   bool PlaceSectionBreakpoints = false;
+  bool DumpPreOpt1 = false;
 
   bool IsVerbose(void) const { return VerbosityLevel >= 1; };
   bool IsVeryVerbose(void) const { return VerbosityLevel >= 2; };
@@ -86,6 +87,7 @@ struct recompiler_options_t {
     PROPOGATE(ABICalls);
     PROPOGATE(CheckEmulatedStackReturnAddress);
     PROPOGATE(PinnedEnvGlbs);
+    PROPOGATE(DumpPreOpt1);
 
 #undef PROPOGATE
 

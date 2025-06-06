@@ -36,6 +36,7 @@ class RecompileTool : public JVTool<ToolKind::CopyOnWrite> {
     cl::opt<bool> BreakBeforeUnreachables;
     cl::opt<bool> LayOutSections;
     cl::opt<bool> PlaceSectionBreakpoints;
+    cl::opt<bool> DumpPreOpt1;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : Output("output", cl::desc("Output directory"), cl::Required,
@@ -135,7 +136,9 @@ class RecompileTool : public JVTool<ToolKind::CopyOnWrite> {
                        "this is unnecessary because the section globals will "
                        "not be executable to begin with thus triggering a "
                        "fault."),
-              cl::cat(JoveCategory)) {}
+              cl::cat(JoveCategory)),
+
+          DumpPreOpt1("dump-pre-opt1", cl::cat(JoveCategory)) {}
 
   } opts;
 
@@ -184,6 +187,7 @@ int RecompileTool::Run(void) {
   PROPOGATE_OPTION(BreakBeforeUnreachables);
   PROPOGATE_OPTION(LayOutSections);
   PROPOGATE_OPTION(PlaceSectionBreakpoints);
+  PROPOGATE_OPTION(DumpPreOpt1);
 
   options.temp_dir = temporary_dir();
 
