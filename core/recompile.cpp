@@ -1380,6 +1380,10 @@ void recompiler_t<MT, MinSize>::worker(dso_t dso) {
 
             Arg("--dwarf-version=4");
             Arg("--debugger-tune=gdb");
+
+#ifdef TARGET_X86_64
+            Arg("-mattr=+cx16");
+#endif
           },
           std::string(),
           std::string(),
