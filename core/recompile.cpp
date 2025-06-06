@@ -1017,6 +1017,8 @@ int recompiler_t<MT, MinSize>::go(void) {
         Arg("/opt:noicf");
         Arg("/safeseh:no");
 
+        Arg("/force:unresolved");
+
         Arg("/section:.rdata,RW"); /* FIXME mingw */
 
         // Why do we do this, you may ask? Because if an app suddenly loads a
