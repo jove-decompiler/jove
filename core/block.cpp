@@ -55,20 +55,20 @@ bbprop_t::~bbprop_t() noexcept {
 
 #define GET_VALUE(x) BOOST_PP_TUPLE_ELEM(0, x)
 
-#define DO_DYNTARGETS_CASE(r, product)                                         \
-  if (MT      == GET_VALUE(BOOST_PP_SEQ_ELEM(0, product)) &&      \
-      MinSize == GET_VALUE(BOOST_PP_SEQ_ELEM(1, product))) {      \
+#define DYNTARGETS_CASE(r, product)                                            \
+  if (MT      == GET_VALUE(BOOST_PP_SEQ_ELEM(0, product)) &&                   \
+      MinSize == GET_VALUE(BOOST_PP_SEQ_ELEM(1, product))) {                   \
     using OurDynTargets_t =                                                    \
-        DynTargets_t<GET_VALUE(BOOST_PP_SEQ_ELEM(0, product)),           \
-                     GET_VALUE(BOOST_PP_SEQ_ELEM(1, product))>;          \
-    assert(p_addr);\
-    assert(sm_);\
-    sm_->destroy_ptr(reinterpret_cast<OurDynTargets_t *>(p_addr));\
-    p_addr = 0;\
+        DynTargets_t<GET_VALUE(BOOST_PP_SEQ_ELEM(0, product)),                 \
+                     GET_VALUE(BOOST_PP_SEQ_ELEM(1, product))>;                \
+    assert(p_addr);                                                            \
+    assert(sm_);                                                               \
+    sm_->destroy_ptr(reinterpret_cast<OurDynTargets_t *>(p_addr));             \
+    p_addr = 0;                                                                \
   }
 
-  BOOST_PP_SEQ_FOR_EACH_PRODUCT(DO_DYNTARGETS_CASE,
-                                (MT_POSSIBILTIES)(MINSIZE_POSSIBILTIES))
+    BOOST_PP_SEQ_FOR_EACH_PRODUCT(DYNTARGETS_CASE,
+                                  (MT_POSSIBILTIES)(MINSIZE_POSSIBILTIES))
   }
 }
 
@@ -150,7 +150,7 @@ bool bbprop_t::insertDynTarget(binary_index_t ThisBIdx,
 
   function_t &callee = function_of_target(X, jv);
   callee.InvalidateAnalysis();
-  callee.Callers(jv).Insert(caller_t(ThisBIdx, Term.Addr));
+  callee.AddCaller(jv_file, jv, caller_t(ThisBIdx, Term.Addr));
 
   bool res = doInsertDynTarget(X, jv_file, jv);
 
@@ -206,6 +206,7 @@ void bbprop_t::InvalidateAnalysis(jv_base_t<MT, MinSize> &jv,
                   jv.Analysis.ReverseCallGraph.depth_first_visit(V, invalidator);
                 });
 }
+
 #define VALUES_TO_INSTANTIATE_WITH1                                            \
     ((true))                                                                   \
     ((false))

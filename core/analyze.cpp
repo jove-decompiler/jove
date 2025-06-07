@@ -28,10 +28,11 @@ analyzer_t<MT, MinSize>::analyzer_t(
     const analyzer_options_t &options,
     tiny_code_generator_t &TCG,
     llvm::LLVMContext &Context,
+    jv_file_t &jv_file,
     jv_t &jv,
     boost::concurrent_flat_set<dynamic_target_t> &inflight,
     std::atomic<uint64_t> &done)
-    : options(options), TCG(TCG), jv(jv), state(jv), cg(jv),
+    : options(options), TCG(TCG), jv_file(jv_file), jv(jv), state(jv), cg(jv),
       IsCOFF(B::is_coff(*state.for_binary(jv.Binaries.at(0)).Bin)),
       Context(Context),
       inflight(inflight), done(done) {
@@ -68,7 +69,7 @@ void analyzer_t<MT, MinSize>::update_callers(void) {
           assert(TermAddr);
 
           function_t &callee = b.Analysis.Functions.at(bbprop.Term._call.Target);
-          callee.Callers(jv).Insert(caller_t(index_of_binary(b), TermAddr));
+          callee.AddCaller(jv_file, jv, caller_t(index_of_binary(b), TermAddr));
           return;
         }
 
@@ -79,7 +80,7 @@ void analyzer_t<MT, MinSize>::update_callers(void) {
             assert(TermAddr);
 
             function_t &f = function_of_target(X, jv);
-            f.Callers(jv).Insert(caller_t(index_of_binary(b, jv), TermAddr));
+            f.AddCaller(jv_file, jv, caller_t(index_of_binary(b, jv), TermAddr));
           });
         }
       });
@@ -140,7 +141,7 @@ void analyzer_t<MT, MinSize>::identify_Sjs(void) {
           f.Returns = true;
 
         if (x.IsSj) {
-          f.Callers(jv).ForEach([&](const caller_t &caller) -> void {
+          f.ForEachCaller(jv, [&](const caller_t &caller) -> void {
             block_t caller_block = block_for_caller_in_binary(caller, b, jv);
             if (caller_block.first != index_of_binary(b))
               return;

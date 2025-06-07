@@ -719,47 +719,66 @@ struct function_t {
   AtomicOffsetPtr<void> pCallers;
   boost::interprocess::offset_ptr<segment_manager_t> sm_ = nullptr;
 
-  template <bool MT, bool MinSize>
-  const Callers_t<MT, MinSize> &Callers(void) const noexcept {
-    const void *p = pCallers.Load(std::memory_order_relaxed);
-    assert(p);
-
-          uintptr_t p_addr = reinterpret_cast<uintptr_t>(p);
-          bool TheMT      = !!(p_addr & 1u);
-          bool TheMinSize = !!(p_addr & 2u);
-          p_addr &= ~3ULL;
-
-    assert(TheMT == MT);
-    assert(TheMinSize == MinSize);
-
-    return *reinterpret_cast<const Callers_t<MT, MinSize> *>(p_addr);
+  bool hasCaller(void) const noexcept {
+    return !!pCallers.Load(std::memory_order_relaxed);
   }
 
   template <bool MT, bool MinSize>
-  const Callers_t<MT, MinSize> &
-  Callers(const jv_base_t<MT, MinSize> &) const noexcept {
-    return Callers<MT, MinSize>();
+  unsigned numCallers(const jv_base_t<MT, MinSize> &) const noexcept {
+    using OurCallers_t = Callers_t<MT, MinSize>;
+
+    if (void *const p = pCallers.Load(std::memory_order_relaxed)) {
+      uintptr_t p_addr = reinterpret_cast<uintptr_t>(p);
+      bool TheMT      = !!(p_addr & 1u);
+      bool TheMinSize = !!(p_addr & 2u);
+      p_addr &= ~3ULL;
+
+      assert(TheMT == MT);
+      assert(TheMinSize == MinSize);
+
+      const OurCallers_t &Callers = *reinterpret_cast<OurCallers_t *>(p_addr);
+      return Callers.size();
+    }
+
+    return 0;
   }
 
   template <bool MT, bool MinSize>
-  Callers_t<MT, MinSize> &Callers(void) noexcept {
-    void *p = pCallers.Load(std::memory_order_relaxed);
-    assert(p);
+  bool AddCaller(jv_file_t &, const caller_t &) noexcept;
 
-          uintptr_t p_addr = reinterpret_cast<uintptr_t>(p);
-          bool TheMT      = !!(p_addr & 1u);
-          bool TheMinSize = !!(p_addr & 2u);
-          p_addr &= ~3ULL;
+  template <bool MT, bool MinSize>
+  bool AddCaller(jv_file_t &jv_file,
+		 const jv_base_t<MT, MinSize> &,
+                 const caller_t &caller) noexcept {
+    return AddCaller<MT, MinSize>(jv_file, caller);
+  }
 
-    assert(TheMT == MT);
-    assert(TheMinSize == MinSize);
+  template <bool MT, bool MinSize, class _ExecutionPolicy>
+  void
+  ForEachCaller(_ExecutionPolicy &&__exec,
+		const jv_base_t<MT, MinSize> &,
+                std::function<void(const caller_t &)> proc) const noexcept {
+    using OurCallers_t = Callers_t<MT, MinSize>;
 
-    return *reinterpret_cast<Callers_t<MT, MinSize> *>(p_addr);
+    if (void *const p = pCallers.Load(std::memory_order_relaxed)) {
+      uintptr_t p_addr = reinterpret_cast<uintptr_t>(p);
+      bool TheMT      = !!(p_addr & 1u);
+      bool TheMinSize = !!(p_addr & 2u);
+      p_addr &= ~3ULL;
+
+      assert(TheMT == MT);
+      assert(TheMinSize == MinSize);
+
+      const OurCallers_t &Callers = *reinterpret_cast<OurCallers_t *>(p_addr);
+      Callers.ForEach(std::forward<_ExecutionPolicy>(__exec), proc);
+    }
   }
 
   template <bool MT, bool MinSize>
-  Callers_t<MT, MinSize> &Callers(const jv_base_t<MT, MinSize> &) noexcept {
-    return Callers<MT, MinSize>();
+  void
+  ForEachCaller(const jv_base_t<MT, MinSize> &jv,
+                std::function<void(const caller_t &)> proc) const noexcept {
+    ForEachCaller(std::execution::seq, jv, proc);
   }
 
   struct ReverseCGVertHolder_t : public ip_mt_base_accessible_spin {
@@ -1373,6 +1392,8 @@ struct jv_base_t {
 
       binary_t &b = Binaries.at(BIdx);
 
+    oneapi::tbb::parallel_invoke(
+      [&](void) -> void {
       unsigned M = b.Analysis.ICFG.num_vertices();
 
       auto BBIdxFirst = boost::iterators::counting_iterator<unsigned>(0);
@@ -1410,9 +1431,8 @@ struct jv_base_t {
           sm_->destroy_ptr(&OtherDynTargets);
         }
       });
-    });
-
-    for_each_function(maybe_par_unseq, *this, [&](function_t &f, binary_t &b) {
+      }, [&](void) -> void {
+    for_each_function_in_binary(maybe_par_unseq, b, [&](function_t &f) {
       if (void *const p = f.pCallers.Load(std::memory_order_relaxed)) {
         uintptr_t p_addr = reinterpret_cast<uintptr_t>(p);
         bool TheMT      = !!(p_addr & 1u);
@@ -1437,18 +1457,9 @@ struct jv_base_t {
                          std::memory_order_relaxed);
 
         sm_->destroy_ptr(&OtherCallers);
-      } else {
-        OurCallers_t *OurPtr = jv_file.construct<OurCallers_t>(
-            boost::interprocess::anonymous_instance)(
-            jv_file.get_segment_manager());
-
-        uintptr_t OurPtrAddr = reinterpret_cast<uintptr_t>(OurPtr);
-        assert(OurPtrAddr);
-        OurPtrAddr |= (MT ? 1u : 0u) | (MinSize ? 2u : 0u);
-        void *OurPtrVal = reinterpret_cast<void *>(OurPtrAddr);
-
-        f.pCallers.Store(OurPtrVal, std::memory_order_relaxed);
       }
+    });
+      });
     });
   }
 

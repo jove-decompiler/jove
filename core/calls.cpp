@@ -27,7 +27,7 @@ call_graph_builder_t<MT, MinSize>::call_graph_builder_t(const jv_t &jv) noexcept
   // create the edges
   //
   for_each_function(jv, [&](const function_t &callee, const binary_t &b) {
-    callee.Callers(jv).ForEach([&](const auto &pair) {
+    callee.ForEachCaller(jv, [&](const auto &pair) {
       // determine block in caller
       // look at parents of block
       assert(is_binary_index_valid(pair.first));

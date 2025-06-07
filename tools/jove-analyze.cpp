@@ -90,7 +90,7 @@ class AnalyzeTool : public JVTool<ToolKind::Standard> {
 public:
   AnalyzeTool()
       : opts(JoveCategory),
-        analyzer(analyzer_opts, TCG, Context, jv, inflight, done) {}
+        analyzer(analyzer_opts, TCG, Context, jv_file, jv, inflight, done) {}
 
   int Run(void) override;
 };

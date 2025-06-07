@@ -61,21 +61,6 @@ function_index_t explorer_t<MT, MinSize>::_explore_function(
 
   f.Speculative = Speculative;
 
-  if (maybe_jv) {
-    using OurCallers_t = Callers_t<MT, MinSize>;
-
-    OurCallers_t *OurPtr = jv_file.construct<OurCallers_t>(
-                         boost::interprocess::anonymous_instance)(
-                         jv_file.get_segment_manager());
-
-        uintptr_t OurPtrAddr = reinterpret_cast<uintptr_t>(OurPtr);
-        OurPtrAddr |= (MT ? 1u : 0u) | (MinSize ? 2u : 0u);
-        void *OurPtrVal = reinterpret_cast<void *>(OurPtrAddr);
-
-    f.pCallers.Store(OurPtrVal,
-                     std::memory_order_relaxed);
-  }
-
   get_newfn_proc()(b, f);
 
   const basic_block_index_t EntryIdx =
@@ -665,7 +650,7 @@ explorer_t<MT, MinSize>::_explore_basic_block(binary_t &b,
       function_t &callee = b.Analysis.Functions.at(CalleeFIdx);
 
       if (callee.pCallers.Load(std::memory_order_relaxed))
-        callee.Callers<MT, MinSize>().Insert(caller_t(b.Idx, T.Addr));
+        callee.AddCaller<MT, MinSize>(jv_file, caller_t(b.Idx, T.Addr));
 
       if (maybe_jv) {
         jv_t &jv = *maybe_jv;

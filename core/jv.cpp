@@ -467,24 +467,8 @@ void jv_base_t<MT, MinSize>::fixup_binary(jv_file_t &jv_file,
   auto &b = Binaries.at(BIdx);
   assert(index_of_binary(b) == BIdx);
 
-  for_each_function_in_binary(maybe_par_unseq, b, [&](function_t &f) {
-    f.BIdx = BIdx;
-
-    assert(!f.pCallers.Load(std::memory_order_relaxed));
-
-    using OurCallers_t = Callers_t<MT, MinSize>;
-OurCallers_t *OurPtr = jv_file.construct<OurCallers_t>(
-                         boost::interprocess::anonymous_instance)(
-                         jv_file.get_segment_manager());
-
-        uintptr_t OurPtrAddr = reinterpret_cast<uintptr_t>(OurPtr);
-        OurPtrAddr |= (MT ? 1u : 0u) | (MinSize ? 2u : 0u);
-        void *OurPtrVal = reinterpret_cast<void *>(OurPtrAddr);
-
-    f.pCallers.Store(OurPtrVal,
-                     std::memory_order_relaxed);
-
-  });
+  for_each_function_in_binary(maybe_par_unseq, b,
+                              [&](function_t &f) { f.BIdx = BIdx; });
 
   //
   // we assume that explorer_t::jvptr was NULL when the binary was explored, so
@@ -498,7 +482,7 @@ OurCallers_t *OurPtr = jv_file.construct<OurCallers_t>(
 
         function_t &callee = b.Analysis.Functions.at(bbprop.Term._call.Target);
 
-        callee.Callers(*this).Insert(caller_t(BIdx, bbprop.Term.Addr));
+        callee.AddCaller(jv_file, *this, caller_t(BIdx, bbprop.Term.Addr));
 
         const auto &ParentsVec = bbprop.Parents.template get<MT>();
         std::for_each(maybe_par_unseq,

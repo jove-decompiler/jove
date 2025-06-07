@@ -423,7 +423,7 @@ void *ServerTool::ConnectionProc(void *arg) {
     llvm::LLVMContext Context;
 
     int rc = ({
-    analyzer_t analyzer(analyzer_opts, TCG, Context, jv, inflight, done);
+    analyzer_t analyzer(analyzer_opts, TCG, Context, jv_file, jv, inflight, done);
 
     oneapi::tbb::parallel_invoke(
         [&analyzer](void) -> void { analyzer.update_callers(); },

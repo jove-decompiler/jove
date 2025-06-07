@@ -387,12 +387,11 @@ void DumpTool::dumpDecompilation(const jv_t &jv) {
         Writer.printBoolean("IsSignalHandler", f.IsSignalHandler);
         Writer.printBoolean("Returns", f.Returns);
 
-        const auto &Callers = f.Callers(jv);
-        if (!Callers.empty()) {
+        if (f.hasCaller()) {
           std::vector<std::string> descv;
-          descv.reserve(Callers.size());
+          descv.reserve(f.numCallers(jv));
 
-          Callers.ForEach([&](const caller_t &x) {
+          f.ForEachCaller(jv, [&](const caller_t &x) {
             std::string desc;
 
             binary_index_t BIdx;

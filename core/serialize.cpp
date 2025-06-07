@@ -652,23 +652,6 @@ void UnserializeJV(jv_base_t<MT, MinSize> &out,
 
                          bbprop.sm_ = jv_file.get_segment_manager();
                        });
-
-  for_each_function(maybe_par_unseq, out, [&](function_t &f, auto &b) {
-    assert(!f.pCallers.Load(std::memory_order_relaxed));
-
-    using OurCallers_t = Callers_t<MT, MinSize>;
-
-    OurCallers_t *OurPtr = jv_file.construct<OurCallers_t>(
-                         boost::interprocess::anonymous_instance)(
-                         jv_file.get_segment_manager());
-
-        uintptr_t OurPtrAddr = reinterpret_cast<uintptr_t>(OurPtr);
-        OurPtrAddr |= (MT ? 1u : 0u) | (MinSize ? 2u : 0u);
-        void *OurPtrVal = reinterpret_cast<void *>(OurPtrAddr);
-
-    f.pCallers.Store(OurPtrVal,
-                     std::memory_order_relaxed);
-  });
 }
 
 template <bool MT, bool MinSize>

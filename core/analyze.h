@@ -79,6 +79,7 @@ struct analyzer_t {
   const analyzer_options_t &options;
   
   tiny_code_generator_t &TCG;
+  jv_file_t &jv_file;
   jv_t &jv;
 
   jv_state_t<binary_state_t, function_state_t, void, AreWeMT, true, false, true,
@@ -99,6 +100,7 @@ struct analyzer_t {
   analyzer_t(const analyzer_options_t &,
              tiny_code_generator_t &,
              llvm::LLVMContext &,
+             jv_file_t &,
              jv_t &,
              boost::concurrent_flat_set<dynamic_target_t> &inflight,
              std::atomic<uint64_t> &done);
