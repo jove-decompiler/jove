@@ -9762,9 +9762,9 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
       llvm::Value *val = get(input_arg(1));
       llvm::Value *len = get(input_arg(2));
 
-      llvm::errs() << llvm::formatv("dest={0} val={1} len={2}\n", *dest, *val, *len);
-
-      IRB.CreateMemSet(dest, val, len, llvm::MaybeAlign())->dump();
+      IRB.CreateMemSet(
+          IRB.CreateIntToPtr(dest, IRB.getInt8Ty()->getPointerTo()),
+          IRB.CreateTrunc(val, IRB.getInt8Ty()), len, llvm::MaybeAlign());
       BREAK();
     }
 
@@ -10013,10 +10013,20 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     TODO();
 
   CASE(ld8u):
+    do_the_ld(8, false);
+    BREAK();
+
   CASE(ld8s):
+    do_the_ld(8, true);
+    BREAK();
+
   CASE(ld16u):
+    do_the_ld(16, false);
+    BREAK();
+
   CASE(ld16s):
-    TODO();
+    do_the_ld(16, true);
+    BREAK();
 
   /*
 
@@ -10082,53 +10092,62 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     BREAK();                                                                   \
   }
 
-#define __ARITH_OP_I(opc_name, LLVMOp, i, bits)                                \
-  CASE(opc_name): {                                                            \
-    llvm::Value *v1 = get(input_arg(0));                                       \
-    assert(v1->getType() == IRB.getIntNTy(bits));                              \
-    set(IRB.Create##LLVMOp(IRB.getIntN(bits, i), v1), output_arg(0));          \
-    BREAK();                                                                   \
-  }
-
-#define __ARITH_OP_ROT(opc_name, op1, op2, bits)                               \
-  CASE(opc_name): {                                                            \
-    llvm::Value *v1 = get(input_arg(0));                                       \
-    llvm::Value *v2 = get(input_arg(1));                                       \
-                                                                               \
-    llvm::Value *v = IRB.CreateSub(                                            \
-        llvm::ConstantInt::get(llvm::IntegerType::get(Context, bits), bits),   \
-        v2);                                                                   \
-                                                                               \
-    set(IRB.CreateOr(IRB.Create##op1(v1, v2),                                  \
-                     IRB.Create##op2(v1, v)),                                  \
-        output_arg(0));                                                        \
-    BREAK();                                                                   \
-  }
-
   __ARITH_OP(add, Add)
   __ARITH_OP(sub, Sub)
   __ARITH_OP(mul, Mul)
   __ARITH_OP(and, And)
   __ARITH_OP(or, Or)
   __ARITH_OP(xor, Xor)
-  CASE(andc): {
+
+  CASE(andc):
     set(IRB.CreateAnd(get(input_arg(0)), IRB.CreateNot(get(input_arg(1)))),
         output_arg(0));
     BREAK();
-  }
+
   CASE(orc):
+    set(IRB.CreateOr(get(input_arg(0)), IRB.CreateNot(get(input_arg(1)))),
+        output_arg(0));
+    BREAK();
+
   CASE(eqv):
+    set(IRB.CreateNot(IRB.CreateXor(get(input_arg(0)), get(input_arg(1)))),
+        output_arg(0));
+    BREAK();
+
   CASE(nand):
+    set(IRB.CreateNot(IRB.CreateAnd(get(input_arg(0)), get(input_arg(1)))),
+        output_arg(0));
+    BREAK();
+
   CASE(nor):
-    TODO();
+    set(IRB.CreateNot(IRB.CreateOr(get(input_arg(0)), get(input_arg(1)))),
+        output_arg(0));
+    BREAK();
+
   CASE(neg):
     set(IRB.CreateNeg(get(input_arg(0))), output_arg(0));
     BREAK();
+
   CASE(not):
     set(IRB.CreateNot(get(input_arg(0))), output_arg(0));
     BREAK();
 
-  CASE(ctpop):
+  CASE(ctpop): {
+    unsigned bits1 = 8 * tcg_type_size((TCGType)TCGOP_TYPE(op));
+    unsigned bits2 = bitsOfTCGType(s->temps[temp_idx(output_arg(0))].type);
+    assert(bits1 == bits2);
+    unsigned bits = bits1;
+
+    llvm::Type *Tys[] = {llvm::IntegerType::get(Context, bits)};
+    llvm::Function *F =
+        llvm::Intrinsic::getDeclaration(Module.get(), llvm::Intrinsic::ctpop,
+                                        llvm::ArrayRef<llvm::Type *>(Tys, 1));
+    llvm::Value *Args[] = {get(input_arg(0))};
+
+    set(IRB.CreateCall(F, Args), output_arg(0));
+    BREAK();
+  }
+
   CASE(addco):
   CASE(addci):
   CASE(addcio):
@@ -10136,6 +10155,7 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
   CASE(subbi):
   CASE(subbio):
     TODO();
+
   CASE(muls2): {
 #if TCG_TARGET_REG_BITS == 32
     llvm::Value *X = get(input_arg(0));
@@ -10155,7 +10175,6 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
 
     a = IRB.CreateSExt(a, IRB.getInt128Ty());
     b = IRB.CreateSExt(b, IRB.getInt128Ty());
-
 
     llvm::Value *tmp128 = IRB.CreateMul(a, b);
     write_reg128(output_arg(1), output_arg(0), tmp128);
@@ -10198,9 +10217,11 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
   CASE(tci_setcond32):
   CASE(tci_movcond32):
     TODO();
+
   __ARITH_OP(shl, Shl)
   __ARITH_OP(shr, LShr)
   __ARITH_OP(sar, AShr)
+
   CASE(tci_rotl32):
   CASE(tci_rotr32):
     TODO();
@@ -10254,25 +10275,122 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     BREAK();
   }
 
-  CASE(bswap16):
-  CASE(bswap32):
-    TODO();
+  CASE(bswap16): {
+    unsigned out_bits1 = 8 * tcg_type_size((TCGType)TCGOP_TYPE(op));
+    unsigned out_bits2 = bitsOfTCGType(s->temps[temp_idx(output_arg(0))].type);
+    assert(out_bits1 == out_bits2);
+    unsigned out_bits = out_bits1;
+
+    llvm::Type *Tys[] = {IRB.getInt16Ty()};
+    llvm::Function *bswap =
+        llvm::Intrinsic::getDeclaration(Module.get(), llvm::Intrinsic::bswap,
+                                        llvm::ArrayRef<llvm::Type *>(Tys, 1));
+    llvm::Value *v = IRB.CreateTrunc(get(input_arg(0)), IRB.getInt16Ty());
+    set(IRB.CreateZExt(IRB.CreateCall(bswap, v),
+                       IRB.getIntNTy(out_bits)),
+        output_arg(0));
+    BREAK();
+  }
+
+  CASE(bswap32): {
+    unsigned out_bits1 = 8 * tcg_type_size((TCGType)TCGOP_TYPE(op));
+    unsigned out_bits2 = bitsOfTCGType(s->temps[temp_idx(output_arg(0))].type);
+    assert(out_bits1 == out_bits2);
+    unsigned out_bits = out_bits1;
+
+    llvm::Type *Tys[] = {IRB.getInt32Ty()};
+    llvm::Function *bswap =
+        llvm::Intrinsic::getDeclaration(Module.get(), llvm::Intrinsic::bswap,
+                                        llvm::ArrayRef<llvm::Type *>(Tys, 1));
+    llvm::Value *v = IRB.CreateTrunc(get(input_arg(0)), IRB.getInt32Ty());
+    set(IRB.CreateZExt(IRB.CreateCall(bswap, v),
+                       IRB.getIntNTy(out_bits)),
+        output_arg(0));
+    BREAK();
+  }
 
 #if TCG_TARGET_REG_BITS == 64
   CASE(ld32u):
     do_the_ld(32, false);
     BREAK();
+
   CASE(ld32s):
     do_the_ld(32, true);
     BREAK();
+
   CASE(st32):
     do_the_st(32, false);
     BREAK();
-  CASE(divs):
-  CASE(divu):
-  CASE(rems):
-  CASE(remu):
-    TODO();
+
+  /*
+
+  regs[r0] = (int64_t)regs[r1] / (int64_t)regs[r2];
+
+  */
+  CASE(divs): {
+    llvm::Value *X = get(input_arg(0));
+    llvm::Value *Y = get(input_arg(1));
+
+    assert(X->getType()->isIntegerTy(64));
+    assert(Y->getType()->isIntegerTy(64));
+
+    set(IRB.CreateSDiv(X, Y), output_arg(0));
+    BREAK();
+  }
+
+  /*
+
+  regs[r0] = (uint64_t)regs[r1] / (uint64_t)regs[r2];
+
+  */
+  CASE(divu): {
+    llvm::Value *X = get(input_arg(0));
+    llvm::Value *Y = get(input_arg(1));
+
+    assert(X->getType()->isIntegerTy(64));
+    assert(Y->getType()->isIntegerTy(64));
+
+    set(IRB.CreateUDiv(X, Y), output_arg(0));
+    BREAK();
+  }
+
+  /*
+
+  regs[r0] = (int64_t)regs[r1] % (int64_t)regs[r2];
+
+  */
+  CASE(rems): {
+    llvm::Value *X = get(input_arg(0));
+    llvm::Value *Y = get(input_arg(1));
+
+    assert(X->getType()->isIntegerTy(64));
+    assert(Y->getType()->isIntegerTy(64));
+
+    set(IRB.CreateSRem(X, Y), output_arg(0));
+    BREAK();
+  }
+
+  /*
+
+  regs[r0] = (uint64_t)regs[r1] % (uint64_t)regs[r2];
+
+  */
+  CASE(remu): {
+    llvm::Value *X = get(input_arg(0));
+    llvm::Value *Y = get(input_arg(1));
+
+    assert(X->getType()->isIntegerTy(64));
+    assert(Y->getType()->isIntegerTy(64));
+
+    set(IRB.CreateURem(X, Y), output_arg(0));
+    BREAK();
+  }
+
+  /*
+
+  regs[r0] = regs[r1] ? clz64(regs[r1]) : regs[r2];
+
+  */
   CASE(clz): {
     unsigned bits1 = 8 * tcg_type_size((TCGType)TCGOP_TYPE(op));
     unsigned bits2 = bitsOfTCGType(s->temps[temp_idx(output_arg(0))].type);
@@ -10280,22 +10398,45 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     unsigned bits = bits1;
 
     llvm::Type *Tys[] = {llvm::IntegerType::get(Context, bits)};
-    llvm::Function *ctlzF =
+    llvm::Function *F =
         llvm::Intrinsic::getDeclaration(Module.get(), llvm::Intrinsic::ctlz,
                                         llvm::ArrayRef<llvm::Type *>(Tys, 1));
     llvm::Value *v1 = get(input_arg(0));
     llvm::Value *v2 = get(input_arg(1));
 
     llvm::Value *CondV = IRB.CreateICmpNE(v1, IRB.getIntN(bits, 0));
-    llvm::Value *ctlzArgs[] = {v1, IRB.getTrue()};
-    llvm::Value *v =
-        IRB.CreateSelect(CondV, IRB.CreateCall(ctlzF, ctlzArgs), v2);
+    llvm::Value *Args[] = {v1, IRB.getTrue()};
+    llvm::Value *v = IRB.CreateSelect(CondV, IRB.CreateCall(F, Args), v2);
 
     set(v, output_arg(0));
     BREAK();
   }
-  CASE(ctz):
-    TODO();
+
+  /*
+
+  regs[r0] = regs[r1] ? ctz64(regs[r1]) : regs[r2];
+
+  */
+  CASE(ctz): {
+    unsigned bits1 = 8 * tcg_type_size((TCGType)TCGOP_TYPE(op));
+    unsigned bits2 = bitsOfTCGType(s->temps[temp_idx(output_arg(0))].type);
+    assert(bits1 == bits2);
+    unsigned bits = bits1;
+
+    llvm::Type *Tys[] = {llvm::IntegerType::get(Context, bits)};
+    llvm::Function *F =
+        llvm::Intrinsic::getDeclaration(Module.get(), llvm::Intrinsic::cttz,
+                                        llvm::ArrayRef<llvm::Type *>(Tys, 1));
+    llvm::Value *v1 = get(input_arg(0));
+    llvm::Value *v2 = get(input_arg(1));
+
+    llvm::Value *CondV = IRB.CreateICmpNE(v1, IRB.getIntN(bits, 0));
+    llvm::Value *Args[] = {v1, IRB.getTrue()};
+    llvm::Value *v = IRB.CreateSelect(CondV, IRB.CreateCall(F, Args), v2);
+
+    set(v, output_arg(0));
+    BREAK();
+  }
 
   /*
   static inline uint64_t rol64(uint64_t word, unsigned int shift)
@@ -10323,6 +10464,7 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     set(IRB.CreateOr(X, Y), output_arg(0));
     BREAK();
   }
+
   /*
   static inline uint64_t ror64(uint64_t word, unsigned int shift)
   {
@@ -10356,7 +10498,9 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
 
   */
   CASE(ext_i32_i64):
-    set(IRB.CreateSExt(IRB.CreateTrunc(get(input_arg(0)), IRB.getInt32Ty()), IRB.getInt64Ty()), output_arg(0));
+    set(IRB.CreateSExt(IRB.CreateTrunc(get(input_arg(0)), IRB.getInt32Ty()),
+                       IRB.getInt64Ty()),
+        output_arg(0));
     BREAK();
 
   /*
@@ -10365,11 +10509,27 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
 
   */
   CASE(extu_i32_i64):
-    set(IRB.CreateZExt(IRB.CreateTrunc(get(input_arg(0)), IRB.getInt32Ty()), IRB.getInt64Ty()), output_arg(0));
+    set(IRB.CreateZExt(IRB.CreateTrunc(get(input_arg(0)), IRB.getInt32Ty()),
+                       IRB.getInt64Ty()),
+        output_arg(0));
     BREAK();
 
-  CASE(bswap64):
-    TODO();
+  CASE(bswap64): {
+    unsigned out_bits1 = 8 * tcg_type_size((TCGType)TCGOP_TYPE(op));
+    unsigned out_bits2 = bitsOfTCGType(s->temps[temp_idx(output_arg(0))].type);
+    assert(out_bits1 == out_bits2);
+    unsigned out_bits = out_bits1;
+
+    llvm::Type *Tys[] = {IRB.getInt64Ty()};
+    llvm::Function *bswap =
+        llvm::Intrinsic::getDeclaration(Module.get(), llvm::Intrinsic::bswap,
+                                        llvm::ArrayRef<llvm::Type *>(Tys, 1));
+    llvm::Value *v = IRB.CreateTrunc(get(input_arg(0)), IRB.getInt64Ty());
+    set(IRB.CreateZExt(IRB.CreateCall(bswap, v),
+                       IRB.getIntNTy(out_bits)),
+        output_arg(0));
+    BREAK();
+  }
 
   /*
      extrh_i64_i32 *t0*, *t1*
