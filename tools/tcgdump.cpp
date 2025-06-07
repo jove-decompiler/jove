@@ -129,7 +129,7 @@ int TCGDumpTool::Run(void) {
             Inst, InstLen, llvm::ArrayRef<uint8_t>(Ptr, BBSize), _A,
             llvm::nulls());
         if (!Disassembled) {
-          printf("failed to disassemble 0x%" PRIx64 "\n", _A);
+          fprintf(stderr, "failed to disassemble 0x%" PRIx64 "\n", _A);
           break;
         }
 
