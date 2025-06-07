@@ -407,12 +407,12 @@ class JoveTester:
       self.ssh(['systemctl', 'poweroff'])
       time.sleep(3)
 
-      assert self.serv_process is not None
-      try:
-        self.serv_process.terminate()  # Gracefully terminate
-        self.serv_process.wait(timeout=5)  # Wait for the process to exit
-      except Exception as e:
-        self.serv_process.kill()  # Forcefully kill if it doesn't exit
-        print(f"Forced server subprocess termination: {e}")
+      if self.serv_process is not None:
+        try:
+          self.serv_process.terminate()  # Gracefully terminate
+          self.serv_process.wait(timeout=5)  # Wait for the process to exit
+        except Exception as e:
+          self.serv_process.kill()  # Forcefully kill if it doesn't exit
+          print(f"Forced server subprocess termination: {e}")
 
       self.sess.kill_session()
