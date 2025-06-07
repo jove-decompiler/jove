@@ -1,7 +1,6 @@
 FROM docker.io/library/debian:12-slim AS builder
 
-RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list && \
-    export DEBIAN_FRONTEND=noninteractive && \
+RUN export DEBIAN_FRONTEND=noninteractive && \
     apt-get update && \
     apt-get install -y eatmydata && \
     dpkg --add-architecture i386 && \
