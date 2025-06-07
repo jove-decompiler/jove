@@ -1370,7 +1370,7 @@ void recompiler_t<MT, MinSize>::worker(dso_t dso) {
             } else {
               assert(b.IsExecutable);
 
-              if (IsMips64elTarget)
+              if (IsMIPSTarget)
                 Arg("--relocation-model=pic"); /* FIXME otherwise plt stubs broken */
               else
                 Arg(IsCOFF ? "--relocation-model=dynamic-no-pic"
