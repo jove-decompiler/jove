@@ -345,6 +345,7 @@ class JoveTester:
               print("/////////\n///////// %s TEST FAILURE %s [%s %s]\n/////////" % \
                 ("MULTI-THREADED" if multi_threaded else "SINGLE-THREADED", \
                  testbin, self.platform, self.arch))
+              print(jove_loop_args)
 
               if return_neq:
                 print('%d != %d' % (p1.returncode, p2.returncode))
@@ -363,7 +364,7 @@ class JoveTester:
             print("SSH FAILURE!!!")
             return 1
 
-    print(f"SUCCESS ({self.arch})")
+    print(f"SUCCESS ({self.arch} {self.platform})")
     return 0
 
   def is_ready(self):
