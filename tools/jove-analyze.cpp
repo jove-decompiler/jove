@@ -123,8 +123,6 @@ int AnalyzeTool::AnalyzeFunctions(void) {
     analyzer.analyze_functions();
   };
 
-  auto t1 = std::chrono::high_resolution_clock::now();
-
   if (IsVerbose()) {
     auto count_stale_functions = [&](const binary_t &b) -> uint64_t {
       return std::accumulate(
@@ -142,6 +140,8 @@ int AnalyzeTool::AnalyzeFunctions(void) {
                                        });
 
     const bool smartterm = is_smart_terminal();
+
+    auto t1 = std::chrono::high_resolution_clock::now();
 
     //
     // show progress to stdout
