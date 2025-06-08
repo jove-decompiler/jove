@@ -443,7 +443,7 @@ void jv_base_t<MT, MinSize>::clear(bool everything) {
 
   this->Binaries.clear();
   initialize_all_binary_indices();
-  this->Analysis.ReverseCallGraph.container().clear();
+  this->Analysis.ReverseCallGraph.clear();
 
   if (everything)
     cached_hashes.clear();

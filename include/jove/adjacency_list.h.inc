@@ -211,6 +211,12 @@ struct ip_adjacency_list : public ip_base_rw_accessible<MT, Spin> {
     return boost::out_degree(V, container());
   }
 
+  void clear(void) {
+    auto e_lck = this->exclusive_access();
+
+    container().clear();
+  }
+
   template <bool L = true>
   void clear_out_edges(vertex_descriptor V) {
     auto s_lck = this->shared_access();
