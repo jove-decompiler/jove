@@ -40,7 +40,6 @@ class AnalyzeTool : public JVTool<ToolKind::Standard> {
     cl::list<std::string> PinnedGlobals;
     cl::opt<int> Conservative;
     cl::opt<unsigned> WaitMilli;
-    cl::opt<bool> New;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : ForeignLibs("foreign-libs",
@@ -66,12 +65,7 @@ class AnalyzeTool : public JVTool<ToolKind::Standard> {
           WaitMilli(
               "wait-for",
               cl::desc("Number of milliseconds to update message in -v mode."),
-              cl::cat(JoveCategory), cl::init(1000u)),
-
-          New("new",
-              cl::desc("Use newer version of algorithm which computes SCCs and "
-                       "topologically sorts them"),
-              cl::init(true), cl::cat(JoveCategory)) {}
+              cl::cat(JoveCategory), cl::init(1000u)) {}
   } opts;
 
   boost::concurrent_flat_set<dynamic_target_t> inflight;
@@ -125,63 +119,28 @@ int AnalyzeTool::AnalyzeBlocks(void) {
 }
 
 int AnalyzeTool::AnalyzeFunctions(void) {
-#if 0 /* force initializing state upfront */
-  for_each_binary(maybe_par_unseq, jv, [&](binary_t &b) {
-    (void)state.for_binary(b);
-
-    for_each_function_in_binary(
-        maybe_par_unseq, b,
-        [&](function_t &f) { (void)state.for_function(f); });
-  });
-#endif
-
-#if 0 /* dump topo */
-  for (call_graph_t::vertex_descriptor V : topo) {
-    function_t &f = function_of_target(call_graph[V], jv);
-    auto &b = binary_of_function(f, jv);
-
-    HumanOut() << llvm::formatv("{0}.{1}\n", b.Name.c_str(),
-                                index_of_function(f));
-  }
-#endif
-
-  //jv.InvalidateFunctionAnalyses();
-
-#if 0
-  call_graph_builder_t cg(jv);
-
-  if (IsVeryVerbose()) {
-    std::string dot_path = (fs::path(temporary_dir()) / "call_graph.dot").string();
-    std::ofstream ofs(dot_path);
-    cg.write_graphviz(ofs);
-  }
-
-  std::vector<call_graph_t::vertex_descriptor> topo;
-  cg.best_toposort(topo);
-#endif
-
-  auto do_it = [&](void) -> void {
+  auto go = [&](void) -> void {
     analyzer.analyze_functions();
   };
-
-  auto count_stale_functions = [&](const binary_t &b) -> uint64_t {
-    return std::accumulate(
-        b.Analysis.Functions.begin(),
-        b.Analysis.Functions.end(), 0u,
-        [&](uint64_t n, const function_t &f) -> uint64_t {
-          return n + static_cast<unsigned>(f.Analysis.Stale.load(std::memory_order_relaxed));
-        });
-  };
-
-  const uint64_t N = std::accumulate(jv.Binaries.begin(),
-                                     jv.Binaries.end(), 0u,
-                                     [&](uint64_t x, const binary_t &b) {
-                                       return x + count_stale_functions(b);
-                                     });
 
   auto t1 = std::chrono::high_resolution_clock::now();
 
   if (IsVerbose()) {
+    auto count_stale_functions = [&](const binary_t &b) -> uint64_t {
+      return std::accumulate(
+          b.Analysis.Functions.begin(),
+          b.Analysis.Functions.end(), 0u,
+          [&](uint64_t n, const function_t &f) -> uint64_t {
+            return n + static_cast<unsigned>(f.Analysis.Stale.load(std::memory_order_relaxed));
+          });
+    };
+
+    const uint64_t N = std::accumulate(jv.Binaries.begin(),
+                                       jv.Binaries.end(), 0u,
+                                       [&](uint64_t x, const binary_t &b) {
+                                         return x + count_stale_functions(b);
+                                       });
+
     const bool smartterm = is_smart_terminal();
 
     //
@@ -336,17 +295,12 @@ int AnalyzeTool::AnalyzeFunctions(void) {
           fflush(stdout);
         },
         [&](void) -> void {
-          do_it();
+          go();
           cv.notify_one();
         });
   } else {
-    do_it();
+    go();
   }
-
-#if 0
-
-  HumanOut() << llvm::formatv(" {0} s\n", s_double.count());
-#endif
 
   return 0;
 }
