@@ -1392,8 +1392,7 @@ struct jv_base_t {
 
       binary_t &b = Binaries.at(BIdx);
 
-    oneapi::tbb::parallel_invoke(
-      [&](void) -> void {
+      auto move_dyn_targets = [&](void) -> void {
       unsigned M = b.Analysis.ICFG.num_vertices();
 
       auto BBIdxFirst = boost::iterators::counting_iterator<unsigned>(0);
@@ -1431,7 +1430,8 @@ struct jv_base_t {
           sm_->destroy_ptr(&OtherDynTargets);
         }
       });
-      }, [&](void) -> void {
+      };
+      auto move_callers = [&](void) -> void {
     for_each_function_in_binary(maybe_par_unseq, b, [&](function_t &f) {
       if (void *const p = f.pCallers.Load(std::memory_order_relaxed)) {
         uintptr_t p_addr = reinterpret_cast<uintptr_t>(p);
@@ -1459,7 +1459,15 @@ struct jv_base_t {
         sm_->destroy_ptr(&OtherCallers);
       }
     });
-      });
+      };
+
+    if constexpr (AreWeMT) {
+    oneapi::tbb::parallel_invoke(move_dyn_targets, move_callers);
+    } else {
+    move_dyn_targets();
+    move_callers();
+    }
+
     });
   }
 
