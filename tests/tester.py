@@ -400,6 +400,7 @@ class JoveTester:
     #
     if self.unattended or self.create_serv:
       self.start_server()
+      time.sleep(1.0) # ?? we are seeing apparently weird poll() behavior
 
   def __del__(self):
     print(f"tester: cleaning up... [{self.platform} {self.arch}]")
