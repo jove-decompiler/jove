@@ -9645,7 +9645,6 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
       ENTRY(brcond)
       ENTRY(bswap16)
       ENTRY(bswap32)
-#if TCG_TARGET_REG_BITS == 64
       ENTRY(ld32u)
       ENTRY(ld32s)
       ENTRY(st32)
@@ -9657,6 +9656,7 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
       ENTRY(ctz)
       ENTRY(rotl)
       ENTRY(rotr)
+#if TCG_TARGET_REG_BITS == 64
       ENTRY(ext_i32_i64)
       ENTRY(extu_i32_i64)
       ENTRY(bswap64)
@@ -10309,7 +10309,6 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     BREAK();
   }
 
-#if TCG_TARGET_REG_BITS == 64
   CASE(ld32u):
     do_the_ld(32, false);
     BREAK();
@@ -10331,8 +10330,8 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     llvm::Value *X = get(input_arg(0));
     llvm::Value *Y = get(input_arg(1));
 
-    assert(X->getType()->isIntegerTy(64));
-    assert(Y->getType()->isIntegerTy(64));
+    //assert(X->getType()->isIntegerTy(64));
+    //assert(Y->getType()->isIntegerTy(64));
 
     set(IRB.CreateSDiv(X, Y), output_arg(0));
     BREAK();
@@ -10347,8 +10346,8 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     llvm::Value *X = get(input_arg(0));
     llvm::Value *Y = get(input_arg(1));
 
-    assert(X->getType()->isIntegerTy(64));
-    assert(Y->getType()->isIntegerTy(64));
+    //assert(X->getType()->isIntegerTy(64));
+    //assert(Y->getType()->isIntegerTy(64));
 
     set(IRB.CreateUDiv(X, Y), output_arg(0));
     BREAK();
@@ -10363,8 +10362,8 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     llvm::Value *X = get(input_arg(0));
     llvm::Value *Y = get(input_arg(1));
 
-    assert(X->getType()->isIntegerTy(64));
-    assert(Y->getType()->isIntegerTy(64));
+    //assert(X->getType()->isIntegerTy(64));
+    //assert(Y->getType()->isIntegerTy(64));
 
     set(IRB.CreateSRem(X, Y), output_arg(0));
     BREAK();
@@ -10379,8 +10378,8 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     llvm::Value *X = get(input_arg(0));
     llvm::Value *Y = get(input_arg(1));
 
-    assert(X->getType()->isIntegerTy(64));
-    assert(Y->getType()->isIntegerTy(64));
+    //assert(X->getType()->isIntegerTy(64));
+    //assert(Y->getType()->isIntegerTy(64));
 
     set(IRB.CreateURem(X, Y), output_arg(0));
     BREAK();
@@ -10451,15 +10450,16 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     unsigned out_bits2 = bitsOfTCGType(s->temps[temp_idx(output_arg(0))].type);
     assert(out_bits1 == out_bits2);
     unsigned out_bits = out_bits1;
-    assert(out_bits == 64);
 
     llvm::Value *word = get(input_arg(0));
     llvm::Value *shift = get(input_arg(1));
 
-    shift = IRB.CreateAnd(shift, IRB.getInt64(63));
+    llvm::Value *mask = IRB.getIntN(out_bits, out_bits-1);
+
+    shift = IRB.CreateAnd(shift, mask);
 
     llvm::Value *X = IRB.CreateShl(word, shift);
-    llvm::Value *Y = IRB.CreateLShr(word, IRB.CreateAnd(IRB.CreateNeg(shift), IRB.getInt64(63)));
+    llvm::Value *Y = IRB.CreateLShr(word, IRB.CreateAnd(IRB.CreateNeg(shift), mask));
 
     set(IRB.CreateOr(X, Y), output_arg(0));
     BREAK();
@@ -10478,19 +10478,22 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     unsigned out_bits2 = bitsOfTCGType(s->temps[temp_idx(output_arg(0))].type);
     assert(out_bits1 == out_bits2);
     unsigned out_bits = out_bits1;
-    assert(out_bits == 64);
 
     llvm::Value *word = get(input_arg(0));
     llvm::Value *shift = get(input_arg(1));
 
-    shift = IRB.CreateAnd(shift, IRB.getInt64(63));
+    llvm::Value *mask = IRB.getIntN(out_bits, out_bits-1);
+
+    shift = IRB.CreateAnd(shift, mask);
 
     llvm::Value *X = IRB.CreateLShr(word, shift);
-    llvm::Value *Y = IRB.CreateShl(word, IRB.CreateAnd(IRB.CreateNeg(shift), IRB.getInt64(63)));
+    llvm::Value *Y = IRB.CreateShl(word, IRB.CreateAnd(IRB.CreateNeg(shift), mask));
 
     set(IRB.CreateOr(X, Y), output_arg(0));
     BREAK();
   }
+
+#if TCG_TARGET_REG_BITS == 64
 
   /*
 
