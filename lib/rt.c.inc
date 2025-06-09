@@ -541,7 +541,7 @@ void _jove_trace_init(void) {
 void _jove_flush_trace(void) {
   _VERBOSE_DUMP_FUNC();
 
-  uint64_t *TracePtr = __jove_trace;
+  uint64_t *const TracePtr   = __jove_trace;
   uint64_t *const TraceBegin = __jove_trace_begin;
 
   if (unlikely(TraceBegin == TracePtr))
