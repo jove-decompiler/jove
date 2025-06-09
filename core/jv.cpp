@@ -542,11 +542,9 @@ jv_base_t<MT, MinSize>::jv_base_t(jv_base_t<!MT, MinSize> &&other,
     auto move_dyn_targets = [&](void) -> void {
       unsigned M = b.Analysis.ICFG.num_vertices();
 
-      auto BBIdxFirst = boost::iterators::counting_iterator<unsigned>(0);
-      auto BBIdxLast = boost::iterators::counting_iterator<unsigned>(M);
-      std::for_each(
-          maybe_par_unseq, BBIdxFirst, BBIdxLast, [&](unsigned BBIdx) {
-            bbprop_t &bbprop = b.Analysis.ICFG[b.Analysis.ICFG.vertex(BBIdx)];
+      for_each_basic_block_in_binary(
+          maybe_par_unseq, b, [&](bb_t bb) {
+            bbprop_t &bbprop = b.Analysis.ICFG[bb];
 
             bbprop.sm_ = sm_;
 
