@@ -254,6 +254,7 @@ int InitTool::Run(void) {
                                             VerbosityLevel());
 
   std::transform(
+      maybe_par_unseq,
       jv.Binaries.cbegin(),
       jv.Binaries.cend(),
       jv.Binaries.begin(),
