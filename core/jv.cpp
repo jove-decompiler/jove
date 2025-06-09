@@ -603,7 +603,7 @@ jv_base_t<MT, MinSize>::jv_base_t(jv_base_t<!MT, MinSize> &&other,
       });
     };
 
-#ifdef JOVE_NO_BACKEND
+#ifdef JOVE_NO_TBB
     move_dyn_targets();
     move_callers();
 #else

@@ -61,6 +61,7 @@ constexpr auto maybe_par_unseq = std::execution::seq;
 constexpr bool AreWeMT = false;
 #define __THREAD_IF_WE_ARE_MT
 #define JOVE_NO_BACKEND
+#define JOVE_NO_TBB
 #else
 constexpr auto maybe_par_unseq = std::execution::par_unseq;
 constexpr bool AreWeMT = true;
