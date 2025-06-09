@@ -540,8 +540,6 @@ jv_base_t<MT, MinSize>::jv_base_t(jv_base_t<!MT, MinSize> &&other,
     binary_t &b = Binaries.at(BIdx);
 
     auto move_dyn_targets = [&](void) -> void {
-      unsigned M = b.Analysis.ICFG.num_vertices();
-
       for_each_basic_block_in_binary(
           maybe_par_unseq, b, [&](bb_t bb) {
             bbprop_t &bbprop = b.Analysis.ICFG[bb];
@@ -605,12 +603,12 @@ jv_base_t<MT, MinSize>::jv_base_t(jv_base_t<!MT, MinSize> &&other,
       });
     };
 
-    if constexpr (AreWeMT) {
-      oneapi::tbb::parallel_invoke(move_dyn_targets, move_callers);
-    } else {
-      move_dyn_targets();
-      move_callers();
-    }
+#ifdef JOVE_NO_BACKEND
+    move_dyn_targets();
+    move_callers();
+#else
+    oneapi::tbb::parallel_invoke(move_dyn_targets, move_callers);
+#endif
   });
 }
 
