@@ -5658,6 +5658,7 @@ struct TranslateContext {
   std::vector<llvm::AllocaInst *> TempAllocaVec;
   std::vector<llvm::BasicBlock *> LabelVec;
   llvm::AllocaInst *PCAlloca;
+  llvm::AllocaInst *CarryAlloca;
 
   struct {
     llvm::DISubprogram *Subprogram = nullptr;
@@ -5844,6 +5845,8 @@ int llvm_t<MT, MinSize>::TranslateFunction(const function_t &f) {
 
       TC.PCAlloca = AI;
     }
+
+    TC.CarryAlloca = IRB.CreateAlloca(IRB.getInt1Ty(), 0, "carry");
 
     //
     // initialize globals which are passed by value to function
@@ -9033,6 +9036,7 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
   auto &Binary = jv.Binaries.at(BinaryIndex);
   const auto &ICFG = Binary.Analysis.ICFG;
   auto &PCAlloca = TC.PCAlloca;
+  auto &CarryAlloca = TC.CarryAlloca;
   TCGContext *s = get_tcg_context();
 
   const bb_t bb = basic_block_of_index(TC.BBIdx, ICFG);
@@ -10151,8 +10155,32 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
   CASE(addco):
   CASE(addci):
   CASE(addcio):
-  CASE(subbo):
-  CASE(subbi):
+    TODO();
+
+  CASE(subbo): {
+    auto *OverflowOp =
+        IRB.CreateBinaryIntrinsic(llvm::Intrinsic::usub_with_overflow,
+                                  get(input_arg(0)), get(input_arg(1)));
+    IRB.CreateStore(IRB.CreateExtractValue(OverflowOp, 1), CarryAlloca);
+    set(IRB.CreateExtractValue(OverflowOp, 0), output_arg(0));
+    BREAK();
+  }
+
+  CASE(subbi): {
+    unsigned bits1 = 8 * tcg_type_size((TCGType)TCGOP_TYPE(op));
+    unsigned bits2 = bitsOfTCGType(s->temps[temp_idx(output_arg(0))].type);
+    assert(bits1 == bits2);
+    unsigned bits = bits1;
+
+    set(IRB.CreateSub(
+            IRB.CreateSub(get(input_arg(0)), get(input_arg(1))),
+            IRB.CreateZExt(IRB.CreateLoad(IRB.getInt1Ty(), CarryAlloca),
+                           IRB.getIntNTy(bits))),
+        output_arg(0));
+
+    BREAK();
+  }
+
   CASE(subbio):
     TODO();
 
