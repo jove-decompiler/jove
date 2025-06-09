@@ -35,7 +35,7 @@ call_graph_builder_t<MT, MinSize>::call_graph_builder_t(const jv_t &jv) noexcept
       const binary_t &caller_b = jv.Binaries.at(pair.first);
       const icfg_t &ICFG = caller_b.Analysis.ICFG;
 
-      auto s_lck_bbmap = caller_b.BBMap.template shared_access<AreWeMT>();
+      auto s_lck_bbmap = caller_b.BBMap.shared_access();
 
       bb_t bb = basic_block_at_address(pair.second, caller_b);
       const bbprop_t &bbprop = ICFG[bb];

@@ -1683,7 +1683,7 @@ protected:
     bool Term_indirect_jump_IsLj;
 
     ({
-      auto fr_s_lck_bbmap = fr_b.BBMap.template shared_access<MT>();
+      auto fr_s_lck_bbmap = fr_b.BBMap.shared_access();
 
       const auto &Term = fr_ICFG[basic_block_at_address(FrTermAddr, fr_b)].Term;
 
@@ -1700,7 +1700,7 @@ protected:
       if (!is_function_index_valid(FIdx))
         return;
 
-      auto fr_s_lck = fr_b.BBMap.template shared_access<MT>();
+      auto fr_s_lck = fr_b.BBMap.shared_access();
 
       bb_t fr_bb = basic_block_at_address(FrTermAddr, fr_b);
       bbprop_t &fr_bbprop = fr_ICFG[fr_bb];
@@ -1715,7 +1715,7 @@ protected:
         break;
 
       const bool TailCall = ({
-        auto fr_s_lck_bbmap = fr_b.BBMap.template shared_access<MT>();
+        auto fr_s_lck_bbmap = fr_b.BBMap.shared_access();
 
         IsDefinitelyTailCall(fr_ICFG, basic_block_at_address(FrTermAddr, fr_b));
       });
@@ -1729,7 +1729,7 @@ protected:
       } else {
         assert(FrBIdx == ToBIdx);
 
-        auto fr_s_lck_bbmap = fr_b.BBMap.template shared_access<MT>();
+        auto fr_s_lck_bbmap = fr_b.BBMap.shared_access();
 
         bb_t fr_bb = basic_block_at_address(FrTermAddr, fr_b);
         fr_ICFG.add_edge(fr_bb, to_bb);
@@ -1747,7 +1747,7 @@ protected:
 
     case TERMINATOR::RETURN: {
       {
-        auto fr_s_lck_bbmap = fr_b.BBMap.template shared_access<MT>();
+        auto fr_s_lck_bbmap = fr_b.BBMap.shared_access();
 
         racy::set(fr_ICFG[basic_block_at_address(FrTermAddr, fr_b)]
                       .Term._return.Returns);
@@ -1758,7 +1758,7 @@ protected:
       //
       const taddr_t before_pc = ToAddr - 1;
 
-      auto to_s_lck_bbmap = to_b.BBMap.template shared_access<MT>();
+      auto to_s_lck_bbmap = to_b.BBMap.shared_access();
 
       if (!exists_basic_block_at_address(before_pc, to_b))
         break;

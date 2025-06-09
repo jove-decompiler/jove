@@ -373,7 +373,7 @@ explorer_t<MT, MinSize>::_explore_basic_block(binary_t &b,
                                    : std::memory_order_relaxed);
   };
 
-  typename BBMap_t<MT>::template exclusive_lock_guard<MT> e_lck_bbmap(
+  typename BBMap_t<MT>::exclusive_lock_guard e_lck_bbmap(
       b.BBMap.mtx, boost::interprocess::defer_lock);
   bbmap_t &bbmap = b.BBMap.map;
   if (likely(!Speculative)) {
@@ -671,7 +671,7 @@ explorer_t<MT, MinSize>::_explore_basic_block(binary_t &b,
     if (unlikely(Speculative)) {
       ICFG[basic_block_of_index(Idx, ICFG)].Term._call.Target = CalleeFIdx;
     } else {
-      auto s_lck_bbmap = b.BBMap.template shared_access<MT>();
+      auto s_lck_bbmap = b.BBMap.shared_access();
 
       ICFG[basic_block_at_address(T.Addr, b)].Term._call.Target = CalleeFIdx;
     }
@@ -735,7 +735,7 @@ void explorer_t<MT, MinSize>::_control_flow_to(
   if (unlikely(Speculative)) {
     ICFG.add_edge(bb, basic_block_of_index(SuccBBIdx, b));
   } else {
-    auto s_lck_bbmap = b.BBMap.template shared_access<MT>();
+    auto s_lck_bbmap = b.BBMap.shared_access();
 
     ICFG.template add_edge<MT>(basic_block_at_address(TermAddr, b),
                                basic_block_of_index(SuccBBIdx, b));

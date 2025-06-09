@@ -133,7 +133,7 @@ typedef boost::interprocess::map<
     bbmap_t; /* _private_ adaptive pool because of heavyweight bbmap_lock */
 
 template <bool MT>
-struct BBMap_t : public ip_mt_base_rw_accessible_nospin {
+struct BBMap_t : public ip_base_rw_accessible_nospin<MT> {
   ip_unique_ptr<bbmap_t::allocator_type> alloc;
   bbmap_t map;
 
@@ -668,7 +668,7 @@ constexpr block_t block_for_caller_in_binary(const caller_t &caller,
 
   const binary_base_t<MT, MinSize> &b = jv.Binaries.at(BIdx);
   const basic_block_index_t BBIdx = ({
-    auto s_lck_bbmap = b.BBMap.template shared_access<MT>();
+    auto s_lck_bbmap = b.BBMap.shared_access();
 
     index_of_basic_block_at_address(caller.second, b);
   });
