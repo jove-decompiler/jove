@@ -1347,129 +1347,17 @@ struct jv_base_t {
         cached_hashes(jv_file.get_segment_manager()),
         name_to_binaries(jv_file.get_segment_manager()) {}
 
-  explicit jv_base_t(jv_base_t<MT, MinSize> &&other, jv_file_t &jv_file) noexcept
+  explicit jv_base_t(jv_base_t<MT, MinSize> &&other,
+                     jv_file_t &jv_file) noexcept
       : sm_(jv_file.get_segment_manager()),
         Binaries(std::move(other.Binaries)),
         Analysis(std::move(other.Analysis)),
         hash_to_binary(std::move(other.hash_to_binary)),
         cached_hashes(std::move(other.cached_hashes)),
-        name_to_binaries(std::move(other.name_to_binaries)) {
-  }
+        name_to_binaries(std::move(other.name_to_binaries)) {}
 
-  explicit jv_base_t(jv_base_t<!MT, MinSize> &&other, jv_file_t &jv_file) noexcept
-      : sm_(jv_file.get_segment_manager()),
-        Binaries(jv_file),
-        Analysis(std::move(other.Analysis)),
-        hash_to_binary(std::move(other.hash_to_binary)),
-        cached_hashes(std::move(other.cached_hashes)),
-        name_to_binaries(std::move(other.name_to_binaries)) {
-    const unsigned N = other.Binaries.size();
-
-    if constexpr (MinSize) {
-      Binaries.container().clear();
-      for (binary_base_t<!MT, MinSize> &b : other.Binaries)
-        Binaries.container().emplace_back(std::move(b));
-      other.Binaries.clear();
-    } else {
-      Binaries.len_.store(N, std::memory_order_relaxed);
-      other.Binaries.len_.store(0, std::memory_order_relaxed);
-    }
-    assert(Binaries.size() == N);
-
-    using OurDynTargets_t = DynTargets_t<MT, MinSize>;
-    using OtherDynTargets_t = DynTargets_t<!MT, MinSize>;
-
-    using OurCallers_t = Callers_t<MT, MinSize>;
-    using OtherCallers_t = Callers_t<!MT, MinSize>;
-
-    auto BIdxBegin = boost::iterators::counting_iterator<unsigned>(0);
-    auto BIdxEnd  = boost::iterators::counting_iterator<unsigned>(N);
-    std::for_each(maybe_par_unseq,
-                  BIdxBegin,
-                  BIdxEnd, [&](unsigned BIdx) {
-      if constexpr (!MinSize)
-        Binaries[BIdx] = std::move(other.Binaries[BIdx]);
-
-      binary_t &b = Binaries.at(BIdx);
-
-      auto move_dyn_targets = [&](void) -> void {
-      unsigned M = b.Analysis.ICFG.num_vertices();
-
-      auto BBIdxFirst = boost::iterators::counting_iterator<unsigned>(0);
-      auto BBIdxLast = boost::iterators::counting_iterator<unsigned>(M);
-      std::for_each(maybe_par_unseq,
-                    BBIdxFirst,
-                    BBIdxLast, [&](unsigned BBIdx) {
-        bbprop_t &bbprop = b.Analysis.ICFG[b.Analysis.ICFG.vertex(BBIdx)];
-
-        bbprop.sm_ = sm_;
-
-        if (void *const p = bbprop.pDynTargets.Load(std::memory_order_relaxed)) {
-          uintptr_t p_addr = reinterpret_cast<uintptr_t>(p);
-          bool TheMT      = !!(p_addr & 1u);
-          bool TheMinSize = !!(p_addr & 2u);
-          p_addr &= ~3ULL;
-
-          assert(TheMT == !MT);
-          assert(TheMinSize == MinSize);
-
-          OtherDynTargets_t &OtherDynTargets =
-              *reinterpret_cast<OtherDynTargets_t *>(p_addr);
-
-          OurDynTargets_t *OurPtr = jv_file.construct<OurDynTargets_t>(
-              boost::interprocess::anonymous_instance)(
-              std::move(OtherDynTargets));
-
-          uintptr_t OurPtrAddr = reinterpret_cast<uintptr_t>(OurPtr);
-          assert(OurPtrAddr);
-          OurPtrAddr |= (MT ? 1u : 0u) | (MinSize ? 2u : 0u);
-          void *OurPtrVal = reinterpret_cast<void *>(OurPtrAddr);
-
-          bbprop.pDynTargets.Store(OurPtrVal, std::memory_order_relaxed);
-
-          sm_->destroy_ptr(&OtherDynTargets);
-        }
-      });
-      };
-      auto move_callers = [&](void) -> void {
-    for_each_function_in_binary(maybe_par_unseq, b, [&](function_t &f) {
-      if (void *const p = f.pCallers.Load(std::memory_order_relaxed)) {
-        uintptr_t p_addr = reinterpret_cast<uintptr_t>(p);
-        bool TheMT      = !!(p_addr & 1u);
-        bool TheMinSize = !!(p_addr & 2u);
-        p_addr &= ~3ULL;
-
-        assert(TheMT == !MT);
-        assert(TheMinSize == MinSize);
-
-        OtherCallers_t &OtherCallers = *reinterpret_cast<OtherCallers_t *>(p_addr);
-
-        OurCallers_t *OurPtr = jv_file.construct<OurCallers_t>(
-                             boost::interprocess::anonymous_instance)(
-                             std::move(OtherCallers));
-
-          uintptr_t OurPtrAddr = reinterpret_cast<uintptr_t>(OurPtr);
-          assert(OurPtrAddr);
-          OurPtrAddr |= (MT ? 1u : 0u) | (MinSize ? 2u : 0u);
-          void *OurPtrVal = reinterpret_cast<void *>(OurPtrAddr);
-
-        f.pCallers.Store(OurPtrVal ,
-                         std::memory_order_relaxed);
-
-        sm_->destroy_ptr(&OtherCallers);
-      }
-    });
-      };
-
-    if constexpr (AreWeMT) {
-    oneapi::tbb::parallel_invoke(move_dyn_targets, move_callers);
-    } else {
-    move_dyn_targets();
-    move_callers();
-    }
-
-    });
-  }
+  explicit jv_base_t(jv_base_t<!MT, MinSize> &&other,
+                     jv_file_t &jv_file) noexcept;
 
   explicit jv_base_t() = delete;
   explicit jv_base_t(const jv_base_t &) = delete;
