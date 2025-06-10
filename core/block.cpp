@@ -149,12 +149,12 @@ bool bbprop_t::insertDynTarget(binary_index_t ThisBIdx,
   auto &caller_b = jv.Binaries.at(ThisBIdx);
 
   function_t &callee = function_of_target(X, jv);
-  callee.InvalidateAnalysis();
-  callee.AddCaller(jv_file, jv, caller_t(ThisBIdx, Term.Addr));
 
   bool res = doInsertDynTarget(X, jv_file, jv);
-
   if (res) {
+    callee.InvalidateAnalysis();
+    callee.AddCaller(jv_file, jv, caller_t(ThisBIdx, Term.Addr));
+
     auto &RCG = jv.Analysis.ReverseCallGraph;
     const auto &ParentsVec = Parents.template get<MT>();
 
