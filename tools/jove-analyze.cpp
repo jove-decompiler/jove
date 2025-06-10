@@ -105,8 +105,8 @@ int AnalyzeTool::Run(void) {
   analyzer_opts.VerbosityLevel = VerbosityLevel();
   analyzer_opts.Conservative = opts.Conservative;
 
+  analyzer.update_parents();
   oneapi::tbb::parallel_invoke([&](void) -> void { analyzer.update_callers(); },
-                               [&](void) -> void { analyzer.update_parents(); },
                                [&](void) -> void { analyzer.identify_ABIs(); });
   analyzer.identify_Sjs();
 

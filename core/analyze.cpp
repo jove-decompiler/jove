@@ -70,6 +70,21 @@ void analyzer_t<MT, MinSize>::update_callers(void) {
 
           function_t &callee = b.Analysis.Functions.at(bbprop.Term._call.Target);
           callee.AddCaller(jv_file, jv, caller_t(index_of_binary(b), TermAddr));
+
+          auto &RCG = jv.Analysis.ReverseCallGraph;
+          const auto &ParentsVec = bbprop.Parents.template get<MT>();
+
+          std::for_each(maybe_par_unseq,
+                        ParentsVec.cbegin(),
+                        ParentsVec.cend(), [&](function_index_t FIdx) {
+                          function_t &caller = b.Analysis.Functions.at(FIdx);
+
+                          if (RCG.template add_edge<MT>(
+                                     callee.ReverseCGVert(jv),
+                                     caller.ReverseCGVert(jv))
+                                  .second)
+                            caller.InvalidateAnalysis();
+                        });
           return;
         }
 
@@ -79,8 +94,23 @@ void analyzer_t<MT, MinSize>::update_callers(void) {
           DynTargets.ForEach(maybe_par_unseq, [&](const dynamic_target_t &X) {
             assert(TermAddr);
 
-            function_t &f = function_of_target(X, jv);
-            f.AddCaller(jv_file, jv, caller_t(index_of_binary(b, jv), TermAddr));
+            function_t &callee = function_of_target(X, jv);
+            callee.AddCaller(jv_file, jv, caller_t(index_of_binary(b, jv), TermAddr));
+
+            auto &RCG = jv.Analysis.ReverseCallGraph;
+            const auto &ParentsVec = bbprop.Parents.template get<MT>();
+
+            std::for_each(maybe_par_unseq,
+                          ParentsVec.cbegin(),
+                          ParentsVec.cend(), [&](function_index_t FIdx) {
+                            function_t &caller = b.Analysis.Functions.at(FIdx);
+
+                            if (RCG.template add_edge<MT>(
+                                       callee.ReverseCGVert(jv),
+                                       caller.ReverseCGVert(jv))
+                                    .second)
+                              caller.InvalidateAnalysis();
+                          });
           });
         }
       });
