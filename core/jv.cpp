@@ -533,7 +533,9 @@ jv_base_t<MT, MinSize>::jv_base_t(jv_base_t<!MT, MinSize> &&other,
 
   auto BIdxBegin = boost::iterators::counting_iterator<unsigned>(0);
   auto BIdxEnd = boost::iterators::counting_iterator<unsigned>(N);
-  std::for_each(maybe_par_unseq, BIdxBegin, BIdxEnd, [&](unsigned BIdx) {
+  std::for_each(std::execution::seq /* XXX maybe_par_unseq deadlocks in boost segment manager (when make_empty_arrays() is called) */,
+                BIdxBegin,
+                BIdxEnd, [&](unsigned BIdx) {
     if constexpr (!MinSize)
       Binaries[BIdx] = std::move(other.Binaries[BIdx]);
 
