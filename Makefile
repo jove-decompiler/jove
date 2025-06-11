@@ -121,11 +121,13 @@ all: helpers \
 .PHONY: helpers
 helpers: $(foreach t,$(ALL_TARGETS),helpers-$(t))
 
+get_targets_for_platform = $(ALL_$(call uc,$1)_TARGETS)
+
 .PHONY: runtime
-runtime: $(foreach p,$(PLATFORMS),$(foreach t,$(ALL_$(call uc,$p)_TARGETS),runtime-$(t)-$(p)))
+runtime: $(foreach p,$(PLATFORMS),$(foreach t,$(call get_targets_for_platform,$(p)),runtime-$(t)-$(p)))
 
 .PHONY: softfpu
-softfpu: $(foreach p,$(PLATFORMS),$(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/softfpu-$(p).o))
+softfpu: $(foreach p,$(PLATFORMS),$(foreach t,$(call get_targets_for_platform,$(p)),$(BINDIR)/$(t)/softfpu-$(p).o))
 
 .PHONY: utilities
 utilities: $(UTILBINS) $(UTILINCS)
@@ -301,10 +303,9 @@ $(BINDIR)/$(1)/helpers/%.ll: $(BINDIR)/$(1)/helpers/%.bc
 	$(OUR_LLVM_OPT) -o $$@ -S --strip-debug $$<
 
 $(BINDIR)/$(1)/helpers/%.bc: $(BINDIR)/$(1)/helpers/%.c | ccopy
-	@echo BC $$<
-	@$(OUR_LLVM_CC) -o $$@ $(call helper_cflags,$(1)) -MMD -c -emit-llvm $$<
-	@$(OUR_LLVM_OPT) -o $$@.tmp $$@ -passes=internalize --internalize-public-api-list=helper_$$*
-	@$(OUR_LLVM_OPT) -o $$@ -O3 $$@.tmp
+	$(OUR_LLVM_CC) -o $$@ $(call helper_cflags,$(1)) -MMD -c -emit-llvm $$<
+	$(OUR_LLVM_OPT) -o $$@.tmp $$@ -passes=internalize --internalize-public-api-list=helper_$$*
+	$(OUR_LLVM_OPT) -o $$@ -O3 $$@.tmp
 	@rm $$@.tmp
 
 $(BINDIR)/$(1)/helpers/%.c:
@@ -354,10 +355,10 @@ clean-asm-offsets-$(1):
 	rm -f $(BINDIR)/$(1)/asm-offsets.h
 
 $(BINDIR)/$(1)/softfpu-linux.o: $(call qemu_carbon_build_dir,$(1))/libfpu_soft-$(1)-linux-user.a.p/fpu_softfloat.c.o
-	llc-19 -o $$@ --dwarf-version=4 --filetype=obj --relocation-model=pic $$<
+	llc-19 -o $$@ --dwarf-version=4 --filetype=obj --trap-unreachable -O0 --relocation-model=pic $$<
 
 $(BINDIR)/$(1)/softfpu-win.o: $(call qemu_carbon_build_dir,$(1))/libfpu_soft-$(1)-linux-user.a.p/fpu_softfloat.c.o
-	llc-19 -o $$@ --dwarf-version=4 --filetype=obj --relocation-model=pic --mtriple=$($(1)_COFF_TRIPLE) $$<
+	llc-19 -o $$@ --dwarf-version=4 --filetype=obj --trap-unreachable -O0 --relocation-model=pic --mtriple=$($(1)_COFF_TRIPLE) $$<
 
 $(BINDIR)/$(1)/linux.copy.h:
 	$(CARBON_EXTRACT) --src $(LINUX_DIR) --bin $(call linux_carbon_build_dir,$(1)) -n jove > $$@
