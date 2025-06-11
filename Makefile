@@ -303,7 +303,7 @@ $(BINDIR)/$(1)/helpers/%.ll: $(BINDIR)/$(1)/helpers/%.bc
 	$(OUR_LLVM_OPT) -o $$@ -S --strip-debug $$<
 
 $(BINDIR)/$(1)/helpers/%.bc: $(BINDIR)/$(1)/helpers/%.c | ccopy
-	$(OUR_LLVM_CC) -o $$@ $(call helper_cflags,$(1)) -MMD -c -emit-llvm $$<
+	$(OUR_LLVM_CC) -o $$@ $(call helper_cflags,$(1)) -MMD -c -emit-llvm -mllvm -trap-unreachable $$<
 	$(OUR_LLVM_OPT) -o $$@.tmp $$@ -passes=internalize --internalize-public-api-list=helper_$$*
 	$(OUR_LLVM_OPT) -o $$@ -O3 $$@.tmp
 	@rm $$@.tmp
