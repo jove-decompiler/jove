@@ -355,10 +355,10 @@ clean-asm-offsets-$(1):
 	rm -f $(BINDIR)/$(1)/asm-offsets.h
 
 $(BINDIR)/$(1)/softfpu-linux.o: $(call qemu_carbon_build_dir,$(1))/libfpu_soft-$(1)-linux-user.a.p/fpu_softfloat.c.o
-	llc-19 -o $$@ --dwarf-version=4 --filetype=obj --trap-unreachable -O0 --relocation-model=pic $$<
+	llc-19 -o $$@ --dwarf-version=4 --filetype=obj --trap-unreachable --relocation-model=pic $$<
 
 $(BINDIR)/$(1)/softfpu-win.o: $(call qemu_carbon_build_dir,$(1))/libfpu_soft-$(1)-linux-user.a.p/fpu_softfloat.c.o
-	llc-19 -o $$@ --dwarf-version=4 --filetype=obj --trap-unreachable -O0 --relocation-model=pic --mtriple=$($(1)_COFF_TRIPLE) $$<
+	llc-19 -o $$@ --dwarf-version=4 --filetype=obj --trap-unreachable --relocation-model=pic --mtriple=$($(1)_COFF_TRIPLE) $$<
 
 $(BINDIR)/$(1)/linux.copy.h:
 	$(CARBON_EXTRACT) --src $(LINUX_DIR) --bin $(call linux_carbon_build_dir,$(1)) -n jove > $$@
