@@ -30,7 +30,7 @@ void _jove_begin(uintptr_t x0,
   _jove_call_entry();
 }
 
-#include "asm-offsets.h"
+#include "asm-offsets.inc.h"
 
 #define JOVE_THUNK_PROLOGUE                                                    \
   "stp x29, x30, [sp, #-128]!\n" /* push frame */                              \

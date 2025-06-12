@@ -5,7 +5,7 @@ tags
 /bin/*/*.s
 /bin/*/*.so
 /bin/*/*.tmp
-/bin/*/asm-offsets.h
+/bin/*/asm-offsets-*.h
 /bin/*/linux.copy.h
 /bin/*/tcgconstants.h
 /bin/*/tcgconstants.*.h

@@ -32,8 +32,22 @@ _HIDDEN void _jove_thunk_handle_st0(uintptr_t f32) {
   helper_flds_ST0(env, f32);
 #else
   env->fpstt = env->fpstt & 7;
-  env->fp_status.float_exception_flags = 0;
   ST0 = float32_to_floatx80(f32, &env->fp_status);
+
+#if 0
+  env->fp_status.float_exception_flags = 0;
+  env->fp_status.float_rounding_mode = float_round_nearest_even;
+  env->fp_status.default_nan_pattern = 0b11000000;
+  env->fp_status.float_2nan_prop_rule = float_2nan_prop_x87;
+
+  env->mmx_status.float_rounding_mode = float_round_nearest_even;
+  env->mmx_status.default_nan_pattern = 0b11000000;
+  env->mmx_status.float_2nan_prop_rule = float_2nan_prop_x87;
+
+  env->sse_status.float_rounding_mode = float_round_nearest_even;
+  env->sse_status.default_nan_pattern = 0b11000000;
+  env->sse_status.float_2nan_prop_rule = float_2nan_prop_x87;
+#endif
 #endif
 }
 

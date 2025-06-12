@@ -23,7 +23,7 @@ void _jove_begin(uintptr_t a0,
   _jove_call_entry();
 }
 
-#include "asm-offsets.h"
+#include "asm-offsets.inc.h"
 
 #define JOVE_THUNK_PROLOGUE                                                    \
   ".set noreorder\n"                                                           \

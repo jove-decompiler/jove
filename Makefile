@@ -133,7 +133,7 @@ softfpu: $(foreach p,$(PLATFORMS),$(foreach t,$(call get_targets_for_platform,$(
 utilities: $(UTILBINS) $(UTILINCS)
 
 .PHONY: asm-offsets
-asm-offsets: $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/asm-offsets.h)
+asm-offsets: $(foreach p,$(PLATFORMS),$(foreach t,$(call get_targets_for_platform,$(p)),$(BINDIR)/$(t)/asm-offsets-$(p).h))
 
 .PHONY: tcg-constants
 tcg-constants: $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/tcgconstants.h) \
@@ -177,11 +177,15 @@ $(BINDIR)/$(1)/%: $(UTILSRCDIR)/%.c | ccopy
 $(BINDIR)/$(1)/%.inc: $(BINDIR)/$(1)/%
 	xxd -i < $$< > $$@
 
-$(BINDIR)/$(1)/asm-offsets.h: lib/arch/$(1)/asm-offsets.c | ccopy
-	@echo $$@
-	@clang-19 -o $(BINDIR)/$(1)/asm-offsets.s $(call runtime_cflags,$(1)) -fverbose-asm -S lib/arch/$(1)/asm-offsets.c
+$(BINDIR)/$(1)/asm-offsets-win.h: lib/arch/$(1)/asm-offsets.c | ccopy
+	$(OUR_LLVM_CC) -o $(BINDIR)/$(1)/asm-offsets-win.s $(call runtime_cflags,$(1)) -fverbose-asm -S -mllvm -trap-unreachable --target=$($(1)_COFF_TRIPLE) lib/arch/$(1)/asm-offsets.c
 	@echo "#pragma once" > $$@
-	@sed -ne $(value sed-offsets) < $(BINDIR)/$(1)/asm-offsets.s >> $$@
+	@sed -ne $(value sed-offsets) < $(BINDIR)/$(1)/asm-offsets-win.s >> $$@
+
+$(BINDIR)/$(1)/asm-offsets-linux.h: lib/arch/$(1)/asm-offsets.c | ccopy
+	$(OUR_LLVM_CC) -o $(BINDIR)/$(1)/asm-offsets-linux.s $(call runtime_cflags,$(1)) -fverbose-asm -S lib/arch/$(1)/asm-offsets.c
+	@echo "#pragma once" > $$@
+	@sed -ne $(value sed-offsets) < $(BINDIR)/$(1)/asm-offsets-linux.s >> $$@
 
 #
 # starter bitcode
@@ -294,6 +298,7 @@ CARBON_EXTRACT := /usr/local/bin/carbon-extract
 QEMU_DIR := $(JOVE_ROOT_DIR)/qemu
 qemu_carbon_build_dir = $(QEMU_DIR)/$(1)_carbon_build
 qemu_carbon_host_build_dir = $(QEMU_DIR)/$(HOST_TARGET)_carbon_build_$(1)
+qemu_softfpu_build_dir = $(QEMU_DIR)/$(1)_softfpu_build
 
 LINUX_DIR := $(JOVE_ROOT_DIR)/linux
 linux_carbon_build_dir = $(LINUX_DIR)/$(1)_carbon_build
@@ -354,11 +359,11 @@ clean-bitcode-$(1):
 clean-asm-offsets-$(1):
 	rm -f $(BINDIR)/$(1)/asm-offsets.h
 
-$(BINDIR)/$(1)/softfpu-linux.o: $(call qemu_carbon_build_dir,$(1))/libfpu_soft-$(1)-linux-user.a.p/fpu_softfloat.c.o
-	llc-19 -o $$@ --dwarf-version=4 --filetype=obj --trap-unreachable --relocation-model=pic $$<
+$(BINDIR)/$(1)/softfpu-linux.o: $(call qemu_softfpu_build_dir,$(1))/libfpu_soft-$(1)-linux-user.a.p/fpu_softfloat.c.o
+	$(OUR_LLVM_LLC) -o $$@ --dwarf-version=4 --filetype=obj --trap-unreachable -O0 --relocation-model=pic $$<
 
-$(BINDIR)/$(1)/softfpu-win.o: $(call qemu_carbon_build_dir,$(1))/libfpu_soft-$(1)-linux-user.a.p/fpu_softfloat.c.o
-	llc-19 -o $$@ --dwarf-version=4 --filetype=obj --trap-unreachable --relocation-model=pic --mtriple=$($(1)_COFF_TRIPLE) $$<
+$(BINDIR)/$(1)/softfpu-win.o: $(call qemu_softfpu_build_dir,$(1))/libfpu_soft-$(1)-linux-user.a.p/fpu_softfloat.c.o
+	$(OUR_LLVM_LLC) -o $$@ --dwarf-version=4 --filetype=obj --trap-unreachable -O0 --relocation-model=pic --mtriple=$($(1)_COFF_TRIPLE) $$<
 
 $(BINDIR)/$(1)/linux.copy.h:
 	$(CARBON_EXTRACT) --src $(LINUX_DIR) --bin $(call linux_carbon_build_dir,$(1)) -n jove > $$@

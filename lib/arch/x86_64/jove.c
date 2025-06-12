@@ -27,7 +27,7 @@ void _jove_begin(uintptr_t rdi,
   _jove_call_entry();
 }
 
-#include "asm-offsets.h"
+#include "asm-offsets.inc.h"
 
 #define JOVE_THUNK_PROLOGUE                                                    \
   "pushq %%rbp\n"                                                              \
