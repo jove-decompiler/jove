@@ -148,7 +148,8 @@ struct BBMap_t : public ip_base_rw_accessible_nospin<MT> {
 
   template <bool MT2>
   BBMap_t(BBMap_t<MT2> &&other) noexcept
-      : alloc(std::move(other.alloc)), map(std::move(other.map), *alloc) {}
+      : alloc(std::move(other.alloc)),
+        map(std::move(other.map), *alloc) {}
 
   template <bool MT2>
   BBMap_t &operator=(BBMap_t<MT2> &&other) noexcept {
@@ -158,8 +159,7 @@ struct BBMap_t : public ip_base_rw_accessible_nospin<MT> {
     }
 
     alloc = std::move(other.alloc);
-    std::swap(map, other.map);
-
+    map = std::move(other.map);
     return *this;
   }
 
@@ -1093,7 +1093,10 @@ struct binary_base_t {
     Idx = other.Idx;
 
     bbbmap = std::move(other.bbbmap);
-    BBMap = std::move(other.BBMap);
+    {
+      auto e_lck = other.BBMap.exclusive_access();
+      BBMap = std::move(other.BBMap);
+    }
     fnmap = std::move(other.fnmap);
 
     Name = std::move(other.Name);
