@@ -47,6 +47,7 @@ static fs::path wine_path(void) {
 }
 
 static fs::path prebuilts_path(void) { return jove_path() / "prebuilts"; }
+static fs::path qemu_path(void) { return jove_path() / "qemu"; }
 
 std::string locator_t::runtime_so(bool mt) {
   const char *fnm = mt ? "libjove_rt.mt.so" : "libjove_rt.st.so";
@@ -198,7 +199,14 @@ std::string locator_t::ida_scripts(void) {
   return must_exist(scripts_path()  / "ida" / "_");
 }
 
-std::string locator_t::softfloat_bitcode(bool IsCOFF) {
+std::string locator_t::softfloat_bitcode(void) {
+  return must_exist(
+      qemu_path() / (std::string(TARGET_ARCH_NAME) + "_softfpu_build") /
+      (std::string("libfpu_soft-") + TARGET_ARCH_NAME + "-linux-user.a.p") /
+      "fpu_softfloat.c.o");
+}
+
+std::string locator_t::softfloat_obj(bool IsCOFF) {
   fs::path p = arch_bin_path();
   return must_exist(
       p / ("softfpu-" + std::string(IsCOFF ? "win" : "linux") + ".o"));

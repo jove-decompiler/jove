@@ -866,7 +866,7 @@ int recompiler_t<MT, MinSize>::go(void) {
       }
       Arg("--as-needed");
       Arg(locator().builtins(IsCOFF));
-      Arg(locator().softfloat_bitcode(IsCOFF));
+      Arg(locator().softfloat_bitcode());
       Arg(locator().atomics(IsCOFF));
       Arg("--pop-state");
       Arg("--exclude-libs");
@@ -1056,7 +1056,7 @@ int recompiler_t<MT, MinSize>::go(void) {
         Arg(objfp);
 
         Arg(locator().builtins(IsCOFF));
-        Arg(locator().softfloat_bitcode(IsCOFF));
+        //Arg(locator().softfloat_bitcode());
         Arg(locator().atomics(IsCOFF));
         Arg(locator().runtime_implib(opts.RuntimeMT));
 
@@ -1385,8 +1385,10 @@ void recompiler_t<MT, MinSize>::worker(dso_t dso) {
             Arg("--dwarf-version=4");
             Arg("--debugger-tune=gdb");
 
-#ifdef TARGET_X86_64
+#if defined(TARGET_X86_64)
             Arg("-mattr=+cx16");
+#elif defined(TARGET_I386)
+            Arg("-mattr=+sse2");
 #endif
           },
           std::string(),

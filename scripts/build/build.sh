@@ -112,4 +112,9 @@ cd $llvm_path
 build_all_variants llvm
 popd
 
+pushd .
+cd $qemu_path
+build_all_variants qemu _softfpu
+popd
+
 retry "make -C $jove_path -j$(nproc)"

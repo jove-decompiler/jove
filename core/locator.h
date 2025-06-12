@@ -12,7 +12,8 @@ struct locator_t {
   static std::string starter_bitcode(bool mt, bool IsCOFF); // jove.bc
   static std::string helper_bitcode(const std::string &name);
 
-  std::string softfloat_bitcode(bool IsCOFF);
+  static std::string softfloat_bitcode(void);
+  static std::string softfloat_obj(bool IsCOFF);
 
   std::string cbe(void); // llvm-cbe
   std::string dis(void); // llvm-dis

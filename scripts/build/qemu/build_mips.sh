@@ -10,9 +10,23 @@ OURCFLAGS=\
 
 EXTRACONF="--enable-jove"
 
+THE_CC=clang-19
+THE_CXX=clang++-19
+THE_AR=llvm-ar-19
+THE_RANLIB=llvm-ranlib-19
+THE_LD=ld.lld-19
+
 if test "$#" = 1 ; then
   if test "$1" = "_carbon" ; then
     EXTRACONF="--enable-jove-helpers"
+  fi
+  if test "$1" = "_softfpu" ; then
+    EXTRACONF="--enable-jove-helpers"
+    THE_CC=$(pwd)/../../llvm-project/build/llvm/bin/clang
+    THE_CXX=$(pwd)/../../llvm-project/build/llvm/bin/clang++
+    THE_AR=$(pwd)/../../llvm-project/build/llvm/bin/llvm-ar
+    THE_RANLIB=$(pwd)/../../llvm-project/build/llvm/bin/llvm-ranlib
+    THE_LD=$(pwd)/../../llvm-project/build/llvm/bin/ld.lld
   fi
 fi
 
@@ -20,12 +34,12 @@ export PKG_CONFIG_LIBDIR=/usr/lib/mips-linux-gnu/pkgconfig
 
 if [ ! -f build.ninja ]; then
 
-AR=llvm-ar-19 RANLIB=llvm-ranlib-19 LD=ld.lld-19 ../configure \
+AR=$THE_AR RANLIB=$THE_RANLIB LD=$THE_LD ../configure \
   --target-list=mips-linux-user \
-  --cc=clang-19 \
-  --host-cc=clang-19 \
-  --cxx=clang++-19 \
-  --objcc=clang-19 \
+  --cc=$THE_CC \
+  --host-cc=$THE_CC \
+  --cxx=$THE_CXX \
+  --objcc=$THE_CC \
   --disable-werror \
   --extra-cflags="$OURCFLAGS" \
   --cross-prefix=mips-linux-gnu- \

@@ -482,6 +482,7 @@ private:
   int WriteLinkerScript(void);
   int InlineHelpers(void);
   int BreakBeforeUnreachables(void);
+  int LinkInSoftFPU(void);
   int ForceCallConv(void);
   int WriteModule(void);
 

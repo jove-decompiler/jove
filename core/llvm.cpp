@@ -1151,6 +1151,7 @@ int llvm_t<MT, MinSize>::go(void) {
       || (opts.DumpPreOpt1 ? (RenameFunctionLocals(), DumpModule("pre.opt"), 1) : 0)
       || ((opts.Optimize || opts.ForCBE) ? DoOptimize() : 0)
       || (opts.DumpPostOpt1 ? (RenameFunctionLocals(), DumpModule("post.opt"), 1) : 0)
+      || LinkInSoftFPU()
       || ForceCallConv()
       || ExpandMemoryIntrinsicCalls()
       || ReplaceAllRemainingUsesOfConstSections()
@@ -6937,6 +6938,28 @@ int llvm_t<MT, MinSize>::InlineHelpers(void) {
       F->eraseFromParent();
   }
 
+  return 0;
+}
+
+template <bool MT, bool MinSize>
+int llvm_t<MT, MinSize>::LinkInSoftFPU(void) {
+  if (!IsCOFF)
+    return 0; /* ld.lld can read bitcode on the command-line */
+
+  llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> BufferOr =
+      llvm::MemoryBuffer::getFile(locator_t::softfloat_bitcode());
+  if (!BufferOr)
+    die("could not open softfpu bitcode at " + locator_t::softfloat_bitcode());
+
+  llvm::Expected<std::unique_ptr<llvm::Module>> ExpectedModule =
+      llvm::parseBitcodeFile(BufferOr.get()->getMemBufferRef(),
+                             Module->getContext());
+  if (!ExpectedModule)
+    die("could not parse softfpu bitcode at " + locator_t::softfloat_bitcode());
+
+  std::unique_ptr<llvm::Module> &softfpuModule = ExpectedModule.get();
+
+  llvm::Linker::linkModules(*Module, std::move(softfpuModule));
   return 0;
 }
 
