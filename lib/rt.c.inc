@@ -11,8 +11,6 @@
 
 DEFINE_JOVE_RT_THREAD_GLOBAL(struct CPUArchState, env, {0})
 
-static _JTHREAD bool __jove_initialized_env = false;
-
 DEFINE_JOVE_RT_THREAD_GLOBAL(uint64_t *, trace, NULL)
 DEFINE_JOVE_RT_THREAD_GLOBAL(uint64_t *, trace_begin, NULL)
 
@@ -414,17 +412,37 @@ BOOL WINAPI _DllMainCRTStartup(HMODULE hModule, DWORD ul_reason_for_call,
 
 #endif
 
+static _JTHREAD bool __jove_initialized_env = false;
+
 void _jove_init_cpu_state(void) {
   if (__jove_initialized_env)
     return;
   __jove_initialized_env = true;
+
+  struct CPUArchState *const env = &__jove_env;
+
+  if (unlikely(__jove_opts.Debug.Verbose)) {
+    char s[128];
+    s[0] = '\0';
+
+    _strcat(s, "_jove_init_cpu_state [0x");
+    {
+      char buff[65];
+      _uint_to_string((uintptr_t)env, buff, 0x10);
+
+      _strcat(s, buff);
+    }
+    _strcat(s, "]\n");
+
+    _DUMP(s);
+  }
 
   static const uint8_t env_init_bytes[] = {
 #include "env_init.inc"
   };
 
   static_assert(sizeof(env_init_bytes) == sizeof(struct CPUArchState));
-  __builtin_memcpy_inline(&__jove_env, env_init_bytes, sizeof(env_init_bytes));
+  __builtin_memcpy_inline(env, env_init_bytes, sizeof(env_init_bytes));
 }
 
 static uintptr_t _jove_alloc_callstack(const char *callstack_path) {
