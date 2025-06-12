@@ -3,7 +3,7 @@
 #ifndef JOVE_NO_BACKEND
 #include "qemu.tcg.h"
 #include "../qemu/include/jove.h"
-#include "asm-offsets.h"
+#include "asm-offsets-linux.h" /* FIXME!!! */
 
 static TCGContext *get_tcg_context() {
   return (TCGContext *)jv_get_tcg_context();
