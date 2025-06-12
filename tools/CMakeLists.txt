@@ -37,6 +37,7 @@ set(JOVE_ALL_TARGETS
   mips64el
 )
 
+option(JOVE_STATIC_BUILD "Building with -static" ON)
 option(JOVE_SANITIZE_THREAD "Building with -fsanitize=thread" OFF)
 
 set(JOVE_TARGETS_TO_BUILD "all"
@@ -186,6 +187,16 @@ function(tool_for_arch arch arch_extra_cflags qemu_build_dir)
 
   if(JOVE_SANITIZE_THREAD)
     add_definitions(-DJOVE_TSAN)
+  endif()
+
+  if(JOVE_STATIC_BUILD)
+    target_link_options(jove-${arch} PRIVATE "-static")
+
+    # force CMake to write (an empty) RPATH at build time rather than patch at install
+    set_target_properties(jove-${arch} PROPERTIES
+      INSTALL_RPATH ""          # don't embed RPATH
+      SKIP_BUILD_RPATH  TRUE    # don't put any build-RPATH in the binary either
+    )
   endif()
 
   target_include_directories(jove-${arch} PRIVATE

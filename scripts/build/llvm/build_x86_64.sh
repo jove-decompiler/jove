@@ -37,6 +37,7 @@ cmake -G Ninja \
       -D LLVM_BUILD_DOCS=OFF \
       -D LLVM_BINUTILS_INCDIR=/usr/include \
       -D LLVM_ENABLE_PIC=ON \
+      -D JOVE_STATIC_BUILD=ON \
       -D LLVM_ENABLE_Z3_SOLVER=OFF \
       -D LLVM_ENABLE_LTO=OFF \
       -D "CMAKE_EXE_LINKER_FLAGS=-static" \

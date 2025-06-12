@@ -41,8 +41,8 @@ cmake -G Ninja \
   -D LLVM_ENABLE_BINDINGS=OFF \
   -D LLVM_ENABLE_EH=ON \
   -D LLVM_ENABLE_PIC=ON \
+  -D JOVE_STATIC_BUILD=ON \
   -D LLVM_BUILD_DOCS=OFF \
-  -D "CMAKE_EXE_LINKER_FLAGS=-static" \
   -D LLVM_BINUTILS_INCDIR=/usr/include \
   -D LLVM_USE_LINKER=lld \
   -S $(pwd)/.. -B $(pwd)
