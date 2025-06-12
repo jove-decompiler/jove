@@ -1380,6 +1380,8 @@ void recompiler_t<MT, MinSize>::worker(dso_t dso) {
             if (IsCOFF)
               Arg("--mtriple=" + getTargetTriple(true).normalize()); /* force */
 
+            Arg("--trap-unreachable");
+
             Arg("--dwarf-version=4");
             Arg("--debugger-tune=gdb");
 
