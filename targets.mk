@@ -8,7 +8,7 @@ ALL_WIN_TARGETS   := i386 x86_64
 HOST_TARGET := x86_64
 
 aarch64_TRIPLE  := aarch64-linux-gnu
-i386_TRIPLE     := i686-linux-gnu
+i386_TRIPLE     := i386-linux-gnu
 x86_64_TRIPLE   := x86_64-linux-gnu
 mipsel_TRIPLE   := mipsel-linux-gnu
 mips_TRIPLE     := mips-linux-gnu
