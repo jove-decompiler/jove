@@ -2006,7 +2006,43 @@ static dfsan_label *__df32_shadow_for(uint32_t A) {
 static void AssertNonZeroU32(uint32_t x) { _ASSERT(x); }
 static void AssertNonZeroU64(uint64_t x) { _ASSERT(x); }
 
+__attribute__((__noreturn__)) void _jove_assert_fail(const char *file,
+                                                     unsigned line,
+                                                     void *retaddr) {
+  char *s;
+  JOVE_SCOPED_BUFF(s, JOVE_LARGE_BUFF_SIZE);
+  s[0] = '\0';
+
+  _ASSERT(file);
+
+  _strcat(s, "_jove_assert_fail: \"");
+  _strcat(s, file);
+  _strcat(s, "\":");
+
+  {
+    char buff[65];
+    _uint_to_string(line, buff, 10);
+
+    _strcat(s, buff);
+  }
+
+  _strcat(s, " from=0x");
+
+  {
+    char buff[65];
+    _uint_to_string((uintptr_t)retaddr, buff, 0x10);
+
+    _strcat(s, buff);
+  }
+
+  _strcat(s, "\n");
+
+  _DUMP(s);
+  _UNREACHABLE();
+}
+
 void __nodce(void **p) {
+  *p++ = &_jove_assert_fail;
   *p++ = AssertNonZeroU32;
   *p++ = AssertNonZeroU64;
   *p++ = JOVE_RT_THREAD_GLOBALP(trace);
