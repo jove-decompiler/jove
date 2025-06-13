@@ -62,9 +62,6 @@ archs="x86_64 i386 mipsel mips64el aarch64"
 hostarch="x86_64"
 
 function build_all_variants() {
-  rm -f build
-  ln -sf ${hostarch}${2}_build build
-
   for arch in $archs ; do
     pushd .
 
@@ -97,6 +94,9 @@ cd $qemu_path
 build_all_variants qemu _carbon
 build_all_variants qemu
 
+rm -f build
+ln -sf ${hostarch}_build build
+
 build_all_qemu_variants _carbon
 popd
 
@@ -109,6 +109,9 @@ make -C $jove_path --output-sync asm-offsets -j$(nproc)
 pushd .
 cd $llvm_path
 build_all_variants llvm
+
+rm -f build
+ln -sf ${hostarch}_build build
 popd
 
 pushd .
