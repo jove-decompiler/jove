@@ -107,11 +107,14 @@ make -C $jove_path --output-sync env-inits -j$(nproc)
 make -C $jove_path --output-sync asm-offsets -j$(nproc)
 
 pushd .
+
 cd $llvm_path
+
+# XXX we are making a broken symlink...
+rm -f build && ln -s ${hostarch}_build build
+
 build_all_variants llvm
 
-rm -f build
-ln -sf ${hostarch}_build build
 popd
 
 pushd .
