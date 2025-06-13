@@ -111,11 +111,12 @@ build_all_variants llvm
 popd
 
 make -C $jove_path --output-sync asm-offsets -j$(nproc)
-make -C $jove_path --output-sync softfpu -j$(nproc)
 
 pushd .
 cd $qemu_path
 build_all_variants qemu _softfpu
 popd
+
+make -C $jove_path --output-sync softfpu -j$(nproc)
 
 retry "make -C $jove_path -j$(nproc)"
