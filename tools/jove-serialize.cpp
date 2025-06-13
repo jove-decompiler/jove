@@ -37,4 +37,3 @@ int SerializeTool::Run(void) {
 }
 
 }
-
