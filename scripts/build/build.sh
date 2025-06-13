@@ -118,4 +118,4 @@ popd
 
 make -C $jove_path --output-sync softfpu -j$(nproc)
 
-retry "make -C $jove_path -j$(nproc)"
+make -C $jove_path --output-sync -j$(nproc)
