@@ -5,7 +5,7 @@ set -o pipefail
 pushd .
 
 cd /jove/carbon-copy
-mkdir build && cd build
+rm -rf build && mkdir build && cd build
 
 CC=clang-19 CXX=clang++-19 cmake -G Ninja -D CMAKE_BUILD_TYPE=Release -D CMAKE_INSTALL_PREFIX=/usr/local -S $(pwd)/.. -B $(pwd)
 
