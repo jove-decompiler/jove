@@ -1,6 +1,7 @@
 #!/bin/bash
 set -e
 set -o pipefail
+set -x
 
 alter_config() {
   sed -i 's/^CONFIG_PREEMPT_BUILD=.*/CONFIG_PREEMPT_BUILD=n/' .config
