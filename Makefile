@@ -178,12 +178,12 @@ $(BINDIR)/$(1)/%.inc: $(BINDIR)/$(1)/%
 	xxd -i < $$< > $$@
 
 $(BINDIR)/$(1)/asm-offsets-win.h: lib/arch/$(1)/asm-offsets.c | ccopy
-	$(OUR_LLVM_CC) -o $(BINDIR)/$(1)/asm-offsets-win.s $(call runtime_cflags,$(1)) -fverbose-asm -S -mllvm -trap-unreachable --target=$($(1)_COFF_TRIPLE) lib/arch/$(1)/asm-offsets.c
+	clang-16 -o $(BINDIR)/$(1)/asm-offsets-win.s $(call runtime_cflags,$(1)) -fverbose-asm -S -mllvm -trap-unreachable --target=$($(1)_COFF_TRIPLE) lib/arch/$(1)/asm-offsets.c
 	@echo "#pragma once" > $$@
 	@sed -ne $(value sed-offsets) < $(BINDIR)/$(1)/asm-offsets-win.s >> $$@
 
 $(BINDIR)/$(1)/asm-offsets-linux.h: lib/arch/$(1)/asm-offsets.c | ccopy
-	$(OUR_LLVM_CC) -o $(BINDIR)/$(1)/asm-offsets-linux.s $(call runtime_cflags,$(1)) -fverbose-asm -S lib/arch/$(1)/asm-offsets.c
+	clang-16 -o $(BINDIR)/$(1)/asm-offsets-linux.s $(call runtime_cflags,$(1)) -fverbose-asm -S lib/arch/$(1)/asm-offsets.c
 	@echo "#pragma once" > $$@
 	@sed -ne $(value sed-offsets) < $(BINDIR)/$(1)/asm-offsets-linux.s >> $$@
 

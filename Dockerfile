@@ -69,6 +69,8 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
                       bison \
                       bsdextrautils \
                       ca-certificates \
+                      clang++-16 \
+                      clang-16 \
                       clang++-19 \
                       clang-19 \
                       cmake \
