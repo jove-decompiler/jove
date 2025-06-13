@@ -2,25 +2,101 @@ diff --git a/dlls/ntdll/unix/debug.c b/dlls/ntdll/unix/debug.c
 index e84a47f58a4..06501a502a3 100644
 --- a/dlls/ntdll/unix/debug.c
 +++ b/dlls/ntdll/unix/debug.c
-@@ -34,4 +34,5 @@
+@@ -16,66 +16,68 @@
+  * You should have received a copy of the GNU Lesser General Public
+  * License along with this library; if not, write to the Free Software
+  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
+  */
+ 
+ #if 0
+ #pragma makedep unix
+ #endif
+ 
+ #include "config.h"
+ 
+ #include <assert.h>
+ #include <fcntl.h>
+ #include <stdarg.h>
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <string.h>
+ #include <sys/types.h>
  #include <sys/stat.h>
  #include <unistd.h>
 +#include <errno.h>
  
  #include "ntstatus.h"
-@@ -60,4 +61,5 @@ static BOOL init_done;
+ #define WIN32_NO_STATUS
+ #include "windef.h"
+ #include "winnt.h"
+ #include "winternl.h"
+ #include "unix_private.h"
+ #include "wine/debug.h"
+ 
+ WINE_DECLARE_DEBUG_CHANNEL(pid);
+ WINE_DECLARE_DEBUG_CHANNEL(timestamp);
+ WINE_DEFAULT_DEBUG_CHANNEL(ntdll);
+ 
+ struct debug_info
+ {
+     unsigned int str_pos;       /* current position in strings buffer */
+     unsigned int out_pos;       /* current position in output buffer */
+     char         strings[1020]; /* buffer for temporary strings */
+     char         output[1020];  /* current output line */
+ };
+ 
+ C_ASSERT( sizeof(struct debug_info) == 0x800 );
+ 
+ static BOOL init_done;
  static struct debug_info initial_info;  /* debug info for initial thread */
  static unsigned char default_flags = (1 << __WINE_DBCL_ERR) | (1 << __WINE_DBCL_FIXME);
 +int logfd = 2;
  static int nb_debug_options = -1;
  static int options_size;
-@@ -201,4 +203,5 @@ static void debug_usage(void)
+ static struct __wine_debug_channel *debug_options;
+ 
+ static const char * const debug_classes[] = { "fixme", "err", "warn", "trace" };
+ 
+ /* get the debug info pointer for the current thread */
+ static inline struct debug_info *get_info(void)
+ {
+     if (!init_done) return &initial_info;
+ #ifdef _WIN64
+     return (struct debug_info *)((TEB32 *)((char *)NtCurrentTeb() + teb_offset) + 1);
+ #else
+     return (struct debug_info *)(NtCurrentTeb() + 1);
+ #endif
+ }
+ 
+ /* add a string to the output buffer */
+ static int append_output( struct debug_info *info, const char *str, size_t len )
+ {
+@@ -183,46 +185,61 @@ static void parse_options( const char *str, const char *app_name )
+     }
+     free( options );
+ }
+ 
+ /* print the usage message */
+ static void debug_usage(void)
+ {
+     static const char usage[] =
+         "Syntax of the WINEDEBUG variable:\n"
+         "  WINEDEBUG=[[process:]class]+xxx,[[process:]class]-yyy,...\n\n"
+         "Example: WINEDEBUG=+relay,warn-heap\n"
+         "    turns on relay traces, disable heap warnings\n"
+         "Available message classes: err, warn, fixme, trace\n";
+     write( 2, usage, sizeof(usage) - 1 );
+     exit(1);
+ }
+ 
+ /* initialize all options at startup */
  static void init_options(void)
  {
 +    char *wine_debug_log = getenv("WINEDEBUGLOG");
      char *wine_debug = getenv("WINEDEBUG");
      const char *app_name, *p;
-@@ -207,4 +210,18 @@ static void init_options(void)
+     struct stat st1, st2;
+ 
      nb_debug_options = 0;
  
 +    if (wine_debug_log) {
@@ -39,39 +115,208 @@ index e84a47f58a4..06501a502a3 100644
 +
      /* check for stderr pointing to /dev/null */
      if (!fstat( 2, &st1 ) && S_ISCHR(st1.st_mode) &&
-@@ -280,5 +297,5 @@ NTSTATUS unixcall_wine_dbg_write( void *args )
+         !stat( "/dev/null", &st2 ) && S_ISCHR(st2.st_mode) &&
+         st1.st_rdev == st2.st_rdev)
+     {
+         default_flags = 0;
+         return;
+     }
+     if (!wine_debug) return;
+     if (!strcmp( wine_debug, "help" )) debug_usage();
+ 
+     app_name = main_argv[1];
+     while ((p = strpbrk( app_name, "/\\" ))) app_name = p + 1;
+ 
+     parse_options( wine_debug, app_name );
+ }
+ 
+ /***********************************************************************
+  *		__wine_dbg_get_channel_flags  (NTDLL.@)
+  *
+@@ -262,72 +279,72 @@ unsigned char __cdecl __wine_dbg_get_channel_flags( struct __wine_debug_channel
+  */
+ const char * __cdecl __wine_dbg_strdup( const char *str )
+ {
+     struct debug_info *info = get_info();
+     unsigned int pos = info->str_pos;
+     size_t n = strlen( str ) + 1;
+ 
+     assert( n <= sizeof(info->strings) );
+     if (pos + n > sizeof(info->strings)) pos = 0;
+     info->str_pos = pos + n;
+     return memcpy( info->strings + pos, str, n );
+ }
+ 
+ /***********************************************************************
+  *		unixcall_wine_dbg_write
+  */
+ NTSTATUS unixcall_wine_dbg_write( void *args )
+ {
      struct wine_dbg_write_params *params = args;
  
 -    return write( 2, params->str, params->len );
 +    return write( logfd, params->str, params->len );
  }
  
-@@ -311,5 +328,5 @@ int __cdecl __wine_dbg_output( const char *str )
+ #ifdef _WIN64
+ /***********************************************************************
+  *		wow64_wine_dbg_write
+  */
+ NTSTATUS wow64_wine_dbg_write( void *args )
+ {
+     struct
+     {
+         ULONG        str;
+         unsigned int len;
+     } const *params32 = args;
+ 
+     return write( 2, ULongToPtr(params32->str), params32->len );
+ }
+ #endif
+ 
+ /***********************************************************************
+  *		__wine_dbg_output  (NTDLL.@)
+  */
+ int __cdecl __wine_dbg_output( const char *str )
+ {
+     struct debug_info *info = get_info();
+     const char *end = strrchr( str, '\n' );
+     int ret = 0;
+ 
+     if (end)
      {
          ret += append_output( info, str, end + 1 - str );
 -        write( 2, info->output, info->out_pos );
 +        write( logfd, info->output, info->out_pos );
          info->out_pos = 0;
          str = end + 1;
+     }
+     if (*str) ret += append_output( info, str, strlen( str ));
+     return ret;
+ }
+ 
+ /***********************************************************************
+  *		__wine_dbg_header  (NTDLL.@)
+  */
+ int __cdecl __wine_dbg_header( enum __wine_debug_class cls, struct __wine_debug_channel *channel,
+                                const char *function )
+ {
+     static const char * const classes[] = { "fixme", "err", "warn", "trace" };
+     struct debug_info *info = get_info();
+     char *pos = info->output;
+ 
+     if (!(__wine_dbg_get_channel_flags( channel ) & (1 << cls))) return -1;
+ 
+     /* only print header if we are at the beginning of the line */
 diff --git a/dlls/ntdll/unix/virtual.c b/dlls/ntdll/unix/virtual.c
-index ca5d50b0fe6..fe2679d8f76 100644
+index ca5d50b0fe6..46866679278 100644
 --- a/dlls/ntdll/unix/virtual.c
 +++ b/dlls/ntdll/unix/virtual.c
-@@ -84,4 +84,6 @@
+@@ -66,40 +66,42 @@
+ #define host_page_size mac_host_page_size
+ # include <mach/mach_init.h>
+ # include <mach/mach_vm.h>
+ # include <mach/task.h>
+ # include <mach/thread_state.h>
+ # include <mach/vm_map.h>
+ #undef host_page_size
+ #endif
+ 
+ #include "ntstatus.h"
+ #define WIN32_NO_STATUS
+ #include "windef.h"
+ #include "winnt.h"
+ #include "winternl.h"
+ #include "ddk/wdm.h"
+ #include "wine/list.h"
+ #include "wine/rbtree.h"
+ #include "unix_private.h"
  #include "wine/debug.h"
  
 +extern int logfd;
 +
  WINE_DEFAULT_DEBUG_CHANNEL(virtual);
  WINE_DECLARE_DEBUG_CHANNEL(module);
-@@ -225,5 +227,5 @@ static const size_t view_block_size = 0x100000;
+ WINE_DECLARE_DEBUG_CHANNEL(virtual_ranges);
+ 
+ struct preload_info
+ {
+     void  *addr;
+     size_t size;
+ };
+ 
+ struct reserved_area
+ {
+     struct list entry;
+     void       *base;
+     size_t      size;
+ };
+ 
+ static struct list reserved_areas = LIST_INIT(reserved_areas);
+ 
+ struct builtin_module
+@@ -207,41 +209,41 @@ static struct list teb_list = LIST_INIT( teb_list );
+ #define VIRTUAL_DEBUG_DUMP_VIEW(view) do { if (TRACE_ON(virtual)) dump_view(view); } while (0)
+ #define VIRTUAL_DEBUG_DUMP_RANGES() do { if (TRACE_ON(virtual_ranges)) dump_free_ranges(); } while (0)
+ 
+ #ifndef MAP_NORESERVE
+ #define MAP_NORESERVE 0
+ #endif
+ 
+ #ifdef _WIN64  /* on 64-bit the page protection bytes use a 2-level table */
+ static const size_t pages_vprot_shift = 20;
+ static const size_t pages_vprot_mask = (1 << 20) - 1;
+ static size_t pages_vprot_size;
+ static BYTE **pages_vprot;
+ #else  /* on 32-bit we use a simple array with one byte per page */
+ static BYTE *pages_vprot;
+ #endif
+ 
+ static struct file_view *view_block_start, *view_block_end, *next_free_view;
+ static const size_t view_block_size = 0x100000;
  static void *preload_reserve_start;
  static void *preload_reserve_end;
 -static BOOL force_exec_prot;  /* whether to force PROT_EXEC on all PROT_READ mmaps */
 +static BOOL force_exec_prot = TRUE;  /* whether to force PROT_EXEC on all PROT_READ mmaps */
  static BOOL enable_write_exceptions;  /* raise exception on writes to executable memory */
  
-@@ -2844,4 +2846,19 @@ static IMAGE_BASE_RELOCATION *process_relocation_block( char *page, IMAGE_BASE_R
+ struct range_entry
+ {
+     void *base;
+     void *end;
+ };
+ 
+ static struct range_entry *free_ranges;
+ static struct range_entry *free_ranges_end;
+ 
+ 
+ static inline BOOL is_beyond_limit( const void *addr, size_t size, const void *limit )
+ {
+     return (addr >= limit || (const char *)addr + size > (const char *)limit);
+ }
+ 
+ static inline BOOL is_vprot_exec_write( BYTE vprot )
+ {
+     return (vprot & VPROT_EXEC) && (vprot & (VPROT_WRITE | VPROT_WRITECOPY));
+@@ -2826,61 +2828,77 @@ static IMAGE_BASE_RELOCATION *process_relocation_block( char *page, IMAGE_BASE_R
+             WORD hi = ((inst[1] << 1) & 0x0800) + ((inst[1] << 12) & 0xf000) +
+                       ((inst[1] >> 20) & 0x0700) + ((inst[1] >> 16) & 0x00ff);
+             DWORD imm = MAKELONG( lo, hi ) + delta;
+ 
+             lo = LOWORD( imm );
+             hi = HIWORD( imm );
+             inst[0] = (inst[0] & 0x8f00fbf0) + ((lo >> 1) & 0x0400) + ((lo >> 12) & 0x000f) +
+                                                ((lo << 20) & 0x70000000) + ((lo << 16) & 0xff0000);
+             inst[1] = (inst[1] & 0x8f00fbf0) + ((hi >> 1) & 0x0400) + ((hi >> 12) & 0x000f) +
+                                                ((hi << 20) & 0x70000000) + ((hi << 16) & 0xff0000);
+             break;
+         }
+         default:
+             FIXME( "Unknown/unsupported relocation %x\n", *reloc );
+             return NULL;
+         }
+     }
+     return (IMAGE_BASE_RELOCATION *)reloc;  /* return address of next block */
  }
  
 +static ssize_t path_of_fd(int fd, char *out, size_t len) {
@@ -91,15 +336,86 @@ index ca5d50b0fe6..fe2679d8f76 100644
 +}
  
  /***********************************************************************
-@@ -2865,4 +2882,5 @@ static NTSTATUS map_image_into_view( struct file_view *view, const WCHAR *filena
+  *           map_image_into_view
+  *
+  * Map an executable (PE format) image into an existing view.
+  * virtual_mutex must be held by caller.
+  */
+ static NTSTATUS map_image_into_view( struct file_view *view, const WCHAR *filename, int fd,
+                                      struct pe_image_info *image_info, USHORT machine,
+                                      int shared_fd, BOOL removable )
+ {
+     IMAGE_DOS_HEADER *dos;
+     IMAGE_NT_HEADERS *nt;
+     IMAGE_SECTION_HEADER *sections = NULL, *sec;
+     IMAGE_DATA_DIRECTORY *imports, *dir;
+     NTSTATUS status = STATUS_CONFLICTING_ADDRESSES;
+     int i;
+     off_t pos;
+     struct stat st;
      char *header_end;
      char *ptr = view->base;
 +    char fd_path[MAX_PATH+1];
      SIZE_T header_size, header_map_size, total_size = view->size;
      SIZE_T align_mask = max( image_info->alignment - 1, page_mask );
-@@ -2983,4 +3001,5 @@ static NTSTATUS map_image_into_view( struct file_view *view, const WCHAR *filena
+     INT_PTR delta;
+ 
+     TRACE_(module)( "mapping PE file %s at %p-%p\n", debugstr_w(filename), ptr, ptr + total_size );
+ 
+     /* map the header */
+ 
+     fstat( fd, &st );
+     header_size = min( image_info->header_size, st.st_size );
+     header_map_size = min( image_info->header_map_size, ROUND_SIZE( 0, st.st_size, host_page_mask ));
+     if ((status = map_pe_header( view->base, header_size, header_map_size, fd, &removable )))
+         return status;
+ 
+     status = STATUS_INVALID_IMAGE_FORMAT;  /* generic error */
+     dos = (IMAGE_DOS_HEADER *)ptr;
+     nt = (IMAGE_NT_HEADERS *)(ptr + dos->e_lfanew);
+     header_end = ptr + ROUND_SIZE( 0, header_size, align_mask );
+     memset( ptr + header_size, 0, header_end - (ptr + header_size) );
+     if ((char *)(nt + 1) > header_end) return status;
+@@ -2964,41 +2982,41 @@ static NTSTATUS map_image_into_view( struct file_view *view, const WCHAR *filena
+                 goto done;
+             }
+ 
+             /* check if the import directory falls inside this section */
+             if (imports && imports->VirtualAddress >= sec[i].VirtualAddress &&
+                 imports->VirtualAddress < sec[i].VirtualAddress + map_size)
+             {
+                 UINT_PTR base = imports->VirtualAddress & ~host_page_mask;
+                 UINT_PTR end = base + ROUND_SIZE( imports->VirtualAddress, imports->Size, host_page_mask );
+                 if (end > sec[i].VirtualAddress + map_size) end = sec[i].VirtualAddress + map_size;
+                 if (end > base)
+                     map_file_into_view( view, shared_fd, base, end - base,
+                                         pos + (base - sec[i].VirtualAddress),
+                                         VPROT_COMMITTED | VPROT_READ | VPROT_WRITECOPY, FALSE );
+             }
+             pos += map_size;
+             continue;
+         }
+ 
          TRACE_(module)( "mapping %s section %.8s at %p off %x size %x virt %x flags %x\n",
-                         debugstr_w(filename), sec[i].Name, ptr + sec[i].VirtualAddress,
+-                        debugstr_w(filename), sec[i].Name, ptr + sec[i].VirtualAddress,
 +                        logfd != 2 && path_of_fd(fd, fd_path, sizeof(fd_path)) > 0 ? fd_path : debugstr_w(filename), sec[i].Name, ptr + sec[i].VirtualAddress,
                          (int)sec[i].PointerToRawData, (int)sec[i].SizeOfRawData,
                          (int)sec[i].Misc.VirtualSize, (int)sec[i].Characteristics );
+ 
+         if (!sec[i].PointerToRawData || !file_size) continue;
+ 
+         /* Note: if the section is not aligned properly map_file_into_view will magically
+          *       fall back to read(), so we don't need to check anything here.
+          */
+         end = file_start + file_size;
+         if (sec[i].PointerToRawData >= st.st_size ||
+             end > ((st.st_size + sector_align) & ~sector_align) ||
+             end < file_start ||
+             map_file_into_view( view, fd, sec[i].VirtualAddress, file_size, file_start,
+                                 VPROT_COMMITTED | VPROT_READ | VPROT_WRITECOPY,
+                                 removable ) != STATUS_SUCCESS)
+         {
+             ERR_(module)( "Could not map %s section %.8s, file probably truncated\n",
+                           debugstr_w(filename), sec[i].Name );
+             goto done;
+         }
