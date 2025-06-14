@@ -43,6 +43,7 @@ struct llvm_options_t {
   bool DebugSjlj = false;
   bool ABICalls = true;
   bool PrintPCRel = false;
+  bool SoftfpuBitcode = false;
 
   std::string ForAddr;
   std::string VersionScript;

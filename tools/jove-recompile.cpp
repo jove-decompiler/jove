@@ -37,6 +37,7 @@ class RecompileTool : public JVTool<ToolKind::CopyOnWrite> {
     cl::opt<bool> LayOutSections;
     cl::opt<bool> PlaceSectionBreakpoints;
     cl::opt<bool> DumpPreOpt1;
+    cl::opt<bool> SoftfpuBitcode;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : Output("output", cl::desc("Output directory"), cl::Required,
@@ -138,7 +139,12 @@ class RecompileTool : public JVTool<ToolKind::CopyOnWrite> {
                        "fault."),
               cl::cat(JoveCategory)),
 
-          DumpPreOpt1("dump-pre-opt1", cl::cat(JoveCategory)) {}
+          DumpPreOpt1("dump-pre-opt1", cl::cat(JoveCategory)),
+
+          SoftfpuBitcode(
+              "softfpu-bitcode",
+              cl::desc("Link the softfpu bitcode rather than the object file"),
+              cl::cat(JoveCategory)) {}
 
   } opts;
 
@@ -188,6 +194,7 @@ int RecompileTool::Run(void) {
   PROPOGATE_OPTION(LayOutSections);
   PROPOGATE_OPTION(PlaceSectionBreakpoints);
   PROPOGATE_OPTION(DumpPreOpt1);
+  PROPOGATE_OPTION(SoftfpuBitcode);
 
   options.temp_dir = temporary_dir();
 

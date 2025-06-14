@@ -41,6 +41,7 @@ struct LLVMTool : public JVTool<ToolKind::CopyOnWrite> {
     cl::opt<bool> LayOutSections;
     cl::opt<bool> PlaceSectionBreakpoints;
     cl::opt<bool> Debugify;
+    cl::opt<bool> SoftfpuBitcode;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : Binary("binary", cl::desc("Binary to translate"),
@@ -179,7 +180,11 @@ struct LLVMTool : public JVTool<ToolKind::CopyOnWrite> {
                        "fault."),
               cl::cat(JoveCategory)),
 
-          Debugify("debugify", cl::cat(JoveCategory)) {}
+          Debugify("debugify", cl::cat(JoveCategory)),
+
+          SoftfpuBitcode("softfpu-bitcode",
+                         cl::desc("Link in the softfpu bitcode"),
+                         cl::cat(JoveCategory)) {}
   } opts;
 
   analyzer_options_t analyzer_options;
@@ -242,6 +247,7 @@ int LLVMTool::Run(void) {
   PROPOGATE_OPTION(DebugSjlj);
   PROPOGATE_OPTION(ABICalls);
   PROPOGATE_OPTION(PrintPCRel);
+  PROPOGATE_OPTION(SoftfpuBitcode);
 
   analyzer_options.ForCBE = llvm_options.ForCBE; // XXX
 

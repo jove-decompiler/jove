@@ -89,6 +89,7 @@ class LoopTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
     cl::opt<std::string> WineStderr;
     cl::opt<std::string> Stdout;
     cl::opt<std::string> Stderr;
+    cl::opt<bool> SoftfpuBitcode;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : Prog(cl::Positional, cl::desc("prog"), cl::Required,
@@ -295,7 +296,12 @@ class LoopTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
                  cl::cat(JoveCategory)),
 
           Stderr("stderr", cl::desc("Redirect stderr to file"),
-                 cl::cat(JoveCategory)) {}
+                 cl::cat(JoveCategory)),
+
+          SoftfpuBitcode(
+              "softfpu-bitcode",
+              cl::desc("Link the softfpu bitcode rather than the object file"),
+              cl::cat(JoveCategory)) {}
   } opts;
 
   const bool IsCOFF;
@@ -1265,6 +1271,9 @@ skip_run:
 
           if (opts.LayOutSections)
             Arg("--lay-out-sections");
+
+          if (opts.SoftfpuBitcode)
+            Arg("--softfpu-bitcode");
 
           if (opts.PlaceSectionBreakpoints)
             Arg("--place-section-breakpoints");

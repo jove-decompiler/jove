@@ -40,6 +40,7 @@ struct recompiler_options_t {
   bool LayOutSections = false;
   bool PlaceSectionBreakpoints = false;
   bool DumpPreOpt1 = false;
+  bool SoftfpuBitcode = false;
 
   bool IsVerbose(void) const { return VerbosityLevel >= 1; };
   bool IsVeryVerbose(void) const { return VerbosityLevel >= 2; };
@@ -88,6 +89,7 @@ struct recompiler_options_t {
     PROPOGATE(CheckEmulatedStackReturnAddress);
     PROPOGATE(PinnedEnvGlbs);
     PROPOGATE(DumpPreOpt1);
+    PROPOGATE(SoftfpuBitcode);
 
 #undef PROPOGATE
 
