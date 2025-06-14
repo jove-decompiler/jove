@@ -64,6 +64,7 @@ static TCGContext *get_tcg_context() {
 #include <llvm/Transforms/Utils/Debugify.h>
 #include <llvm/Transforms/Utils/LowerMemIntrinsics.h>
 #include <llvm/Transforms/Utils/ModuleUtils.h>
+#include <llvm/Transforms/IPO/Internalize.h>
 
 #include <cctype>
 #include <random>
@@ -1151,7 +1152,7 @@ int llvm_t<MT, MinSize>::go(void) {
       || (opts.DumpPreOpt1 ? (RenameFunctionLocals(), DumpModule("pre.opt"), 1) : 0)
       || ((opts.Optimize || opts.ForCBE) ? DoOptimize() : 0)
       || (opts.DumpPostOpt1 ? (RenameFunctionLocals(), DumpModule("post.opt"), 1) : 0)
-      || LinkInSoftFPU()
+      || (opts.SoftfpuBitcode ? LinkInSoftFPU() : 0)
       || ForceCallConv()
       || ExpandMemoryIntrinsicCalls()
       || ReplaceAllRemainingUsesOfConstSections()
@@ -2866,7 +2867,10 @@ llvm::Constant *llvm_t<MT, MinSize>::SymbolAddress(const elf::RelSymbol &RelSym)
   } else {
     if (IsCode) {
       if (auto *F = Module->getFunction(RelSym.Name)) {
-        assert(F->empty());
+        if (IsVerbose() && !F->empty()) {
+	  WithColor::warning() << llvm::formatv("Function {0} not empty!\n", F->getName());
+	}
+        //assert(F->empty());
         return llvm::ConstantExpr::getPtrToInt(F, WordType());
       }
 
@@ -6560,12 +6564,14 @@ bool llvm_t<MT, MinSize>::shouldExpandOperationWithSize(llvm::Value *Size) {
 
 template <bool MT, bool MinSize>
 int llvm_t<MT, MinSize>::ExpandMemoryIntrinsicCalls(void) {
+#if 0
   if (!opts.ForCBE) { /* FIXME */
 #if 0
   if (!(opts.DFSan && IsTarget32))
 #endif
     return 0; /* erase all notions of contiguous memory */
   }
+#endif
 
   //
   // lower memory intrinsics (memcpy, memset, memmove)
@@ -6943,8 +6949,7 @@ int llvm_t<MT, MinSize>::InlineHelpers(void) {
 
 template <bool MT, bool MinSize>
 int llvm_t<MT, MinSize>::LinkInSoftFPU(void) {
-  if (!IsCOFF)
-    return 0; /* ld.lld can read bitcode on the command-line */
+  assert(opts.SoftfpuBitcode);
 
   llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> BufferOr =
       llvm::MemoryBuffer::getFile(locator_t::softfloat_bitcode());
@@ -6959,7 +6964,21 @@ int llvm_t<MT, MinSize>::LinkInSoftFPU(void) {
 
   std::unique_ptr<llvm::Module> &softfpuModule = ExpectedModule.get();
 
-  llvm::Linker::linkModules(*Module, std::move(softfpuModule));
+  llvm::StringSet<> SoftFPUSymbols;
+  for (const auto &GV : softfpuModule->global_values()) {
+    if (!GV.isDeclaration()) {
+      SoftFPUSymbols.insert(GV.getName());
+    }
+  }
+
+  llvm::Linker::linkModules(
+      *Module, std::move(softfpuModule), llvm::Linker::LinkOnlyNeeded,
+      [&](llvm::Module &M, const llvm::StringSet<> &S) {
+        llvm::internalizeModule(M, [&](const llvm::GlobalValue &GV) {
+          return !GV.hasName() || !SoftFPUSymbols.contains(GV.getName());
+        });
+      });
+
   return 0;
 }
 

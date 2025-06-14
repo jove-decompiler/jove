@@ -866,7 +866,8 @@ int recompiler_t<MT, MinSize>::go(void) {
       }
       Arg("--as-needed");
       Arg(locator().builtins(IsCOFF));
-      Arg(locator().softfloat_bitcode());
+      if (!opts.SoftfpuBitcode)
+        Arg(locator().softfloat_obj(IsCOFF));
       Arg(locator().atomics(IsCOFF));
       Arg("--pop-state");
       Arg("--exclude-libs");
@@ -1056,7 +1057,8 @@ int recompiler_t<MT, MinSize>::go(void) {
         Arg(objfp);
 
         Arg(locator().builtins(IsCOFF));
-        //Arg(locator().softfloat_bitcode());
+        if (!opts.SoftfpuBitcode)
+          Arg(locator().softfloat_obj(IsCOFF));
         Arg(locator().atomics(IsCOFF));
         Arg(locator().runtime_implib(opts.RuntimeMT));
 

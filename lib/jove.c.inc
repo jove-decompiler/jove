@@ -2041,6 +2041,16 @@ __attribute__((__noreturn__)) void _jove_assert_fail(const char *file,
   _UNREACHABLE();
 }
 
+// XXX is this really necessary?
+void *memset(void *dst, int c, size_t n) {
+  return __builtin_memset(dst, c, n);
+}
+
+// XXX is this really necessary?
+void *memcpy(void *dst, const void *src, size_t n) {
+  return __builtin_memcpy(dst, src, n);
+}
+
 void __nodce(void **p) {
   *p++ = &_jove_assert_fail;
   *p++ = AssertNonZeroU32;
