@@ -533,7 +533,7 @@ jv_base_t<MT, MinSize>::jv_base_t(jv_base_t<!MT, MinSize> &&other,
 
   auto BIdxBegin = boost::iterators::counting_iterator<unsigned>(0);
   auto BIdxEnd = boost::iterators::counting_iterator<unsigned>(N);
-  std::for_each(maybe_par_unseq  /* XXX deadlocks in boost segment manager (when make_empty_arrays() is called) */,
+  std::for_each(std::execution::seq  /* XXX deadlocks in boost segment manager (when make_empty_arrays() is called) */,
                 BIdxBegin,
                 BIdxEnd, [&](unsigned BIdx) {
     if constexpr (!MinSize)
