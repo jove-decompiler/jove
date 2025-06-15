@@ -432,7 +432,7 @@ protected:
           auto e_lck = b.Analysis.objdump.template exclusive_access<MT>();
 
           if (b.Analysis.objdump.empty_unlocked())
-            binary_t::Analysis_t::objdump_output_type::generate(
+            binary_analysis_t<MT, MinSize>::objdump_output_type::generate(
                 const_cast<binary_t &>(b).Analysis.objdump,
                 b.is_file() ? b.Name.c_str() : nullptr, *Bin);
         }

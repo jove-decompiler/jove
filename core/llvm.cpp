@@ -2867,10 +2867,9 @@ llvm::Constant *llvm_t<MT, MinSize>::SymbolAddress(const elf::RelSymbol &RelSym)
   } else {
     if (IsCode) {
       if (auto *F = Module->getFunction(RelSym.Name)) {
-        if (IsVerbose() && !F->empty()) {
-	  WithColor::warning() << llvm::formatv("Function {0} not empty!\n", F->getName());
-	}
-        //assert(F->empty());
+        if (!F->empty())
+          die("SymbolAddress: Function " + F->getName().str() + " not empty!");
+
         return llvm::ConstantExpr::getPtrToInt(F, WordType());
       }
 

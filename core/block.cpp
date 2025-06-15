@@ -41,10 +41,10 @@ bbprop_t::~bbprop_t() noexcept {
   if (void *const p = pDynTargets.Load(std::memory_order_relaxed)) {
     pDynTargets.Store(nullptr, std::memory_order_relaxed);
 
-    uintptr_t p_addr = reinterpret_cast<uintptr_t>(p);
-    bool MT      = !!(p_addr & 1u);
-    bool MinSize = !!(p_addr & 2u);
-    p_addr &= ~3ULL;
+    uintptr_t addr = reinterpret_cast<uintptr_t>(p);
+    bool MT      = !!(addr & 1u);
+    bool MinSize = !!(addr & 2u);
+    addr &= ~3ULL;
 
 #define MT_POSSIBILTIES                                                        \
     ((true))                                                                   \
@@ -61,10 +61,11 @@ bbprop_t::~bbprop_t() noexcept {
     using OurDynTargets_t =                                                    \
         DynTargets_t<GET_VALUE(BOOST_PP_SEQ_ELEM(0, product)),                 \
                      GET_VALUE(BOOST_PP_SEQ_ELEM(1, product))>;                \
-    assert(p_addr);                                                            \
+    assert(addr);                                                              \
     assert(sm_);                                                               \
-    sm_->destroy_ptr(reinterpret_cast<OurDynTargets_t *>(p_addr));             \
-    p_addr = 0;                                                                \
+    reinterpret_cast<OurDynTargets_t *>(addr)->~OurDynTargets_t();             \
+    sm_->deallocate(reinterpret_cast<OurDynTargets_t *>(addr));                \
+    addr = 0;                                                                  \
   }
 
     BOOST_PP_SEQ_FOR_EACH_PRODUCT(DYNTARGETS_CASE,
@@ -110,34 +111,46 @@ bool bbprop_t::doInsertDynTarget(const dynamic_target_t &X,
   //
   // otherwise...
   //
-  ip_unique_ptr<OurDynTargets_t> TheDynTargets(
-      boost::interprocess::make_managed_unique_ptr(
-          jv_file.construct<OurDynTargets_t>(
-              boost::interprocess::anonymous_instance)(
-              jv_file.get_segment_manager()),
-          jv_file));
+  segment_manager_t *const sm = sm_.get();
+  assert(sm);
 
-  OurDynTargets_t &DynTargets = *TheDynTargets.get().get();
-  uintptr_t DynTargets_addr = reinterpret_cast<uintptr_t>(&DynTargets);
-  assert(DynTargets_addr);
-  DynTargets_addr |= (MT ? 1u : 0u) | (MinSize ? 2u : 0u);
+  static_assert(alignof(OurDynTargets_t) >= 4);
+  void *mem =
+      sm->allocate_aligned(sizeof(OurDynTargets_t), alignof(OurDynTargets_t));
+  assert(mem);
 
-  void *expected = nullptr;
-  void *desired = reinterpret_cast<void *>(DynTargets_addr);
-  if (pDynTargets.CompareExchangeStrong(expected, desired,
-                                        std::memory_order_relaxed,
-                                        std::memory_order_relaxed)) {
-    DynTargets.Insert(X);
-    TheDynTargets.release();
+  OurDynTargets_t *const pTheDynTargets =
+      new (mem) OurDynTargets_t(jv_file.get_segment_manager());
 
+  uintptr_t addr = reinterpret_cast<uintptr_t>(pTheDynTargets);
+  assert(addr);
+  addr |= (MT ? 1u : 0u) | (MinSize ? 2u : 0u);
+
+  if constexpr (MT) {
+    void *expected = nullptr;
+    void *desired = reinterpret_cast<void *>(addr);
+    if (pDynTargets.CompareExchangeStrong(expected, desired,
+                                          std::memory_order_relaxed,
+                                          std::memory_order_relaxed)) {
+      pTheDynTargets->Insert(X);
+
+      sm_ = jv_file.get_segment_manager();
+      return true; /* it was empty before */
+    }
+
+    pTheDynTargets->~OurDynTargets_t();
+    sm->deallocate(pTheDynTargets);
+
+    uintptr_t expected_addr = reinterpret_cast<uintptr_t>(expected);
+    expected_addr &= ~3ULL;
+
+    return reinterpret_cast<OurDynTargets_t *>(expected_addr)->Insert(X);
+  } else {
+    pTheDynTargets->Insert(X);
     sm_ = jv_file.get_segment_manager();
-    return true; /* it was empty before */
+    pDynTargets.Store(reinterpret_cast<void *>(addr), std::memory_order_relaxed);
+    return true;
   }
-
-  uintptr_t expected_addr = reinterpret_cast<uintptr_t>(expected);
-  expected_addr &= ~3ULL;
-
-  return reinterpret_cast<OurDynTargets_t *>(expected_addr)->Insert(X);
 }
 
 template <bool MT, bool MinSize>

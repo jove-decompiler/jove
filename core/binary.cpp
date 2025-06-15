@@ -4,6 +4,115 @@
 namespace jove {
 
 template <bool MT, bool MinSize>
+void binary_analysis_t<MT, MinSize>::move_stuff(void) noexcept {
+#ifdef JOVE_NO_TBB
+  move_dyn_targets();
+  move_callers();
+#else
+  oneapi::tbb::parallel_invoke([&](void) -> void { move_dyn_targets(); },
+                               [&](void) -> void { move_callers(); });
+#endif
+}
+
+template <bool MT, bool MinSize>
+void binary_analysis_t<MT, MinSize>::move_dyn_targets(void) noexcept {
+  using OurDynTargets_t = DynTargets_t<MT, MinSize>;
+  using OtherDynTargets_t = DynTargets_t<!MT, MinSize>;
+
+  segment_manager_t *const sm = sm_.get();
+  assert(sm);
+
+  for_each_basic_block_in_binary(maybe_par_unseq, *this, [&](bb_t bb) {
+    bbprop_t &bbprop = this->ICFG[bb];
+
+    void *const p = bbprop.pDynTargets.Load(std::memory_order_relaxed);
+    if (!p)
+      return;
+
+    {
+      segment_manager_t *const bbprop_sm = bbprop.sm_.get();
+      assert(bbprop_sm);
+      assert(bbprop_sm == sm);
+    }
+
+    uintptr_t p_addr = reinterpret_cast<uintptr_t>(p);
+    bool TheMT      = !!(p_addr & 1u);
+    bool TheMinSize = !!(p_addr & 2u);
+    p_addr &= ~3ULL;
+
+    assert(TheMT == !MT);
+    assert(TheMinSize == MinSize);
+
+    OtherDynTargets_t *const pOtherDynTargets =
+        reinterpret_cast<OtherDynTargets_t *>(p_addr);
+
+    static_assert(alignof(OurDynTargets_t) >= 4);
+    void *mem =
+        sm->allocate_aligned(sizeof(OurDynTargets_t), alignof(OurDynTargets_t));
+    assert(mem);
+
+    uintptr_t OurPtrAddr = reinterpret_cast<uintptr_t>(
+        new (mem) OurDynTargets_t(std::move(*pOtherDynTargets)));
+    assert(OurPtrAddr);
+    OurPtrAddr |= (MT ? 1u : 0u) | (MinSize ? 2u : 0u);
+
+    bbprop.pDynTargets.Store(reinterpret_cast<void *>(OurPtrAddr),
+                             std::memory_order_relaxed);
+
+    pOtherDynTargets->~OtherDynTargets_t();
+    sm->deallocate(pOtherDynTargets);
+  });
+}
+
+template <bool MT, bool MinSize>
+void binary_analysis_t<MT, MinSize>::move_callers(void) noexcept {
+  using OurCallers_t = Callers_t<MT, MinSize>;
+  using OtherCallers_t = Callers_t<!MT, MinSize>;
+
+  segment_manager_t *const sm = sm_.get();
+  assert(sm);
+
+  for_each_function_in_binary(maybe_par_unseq, *this, [&](function_t &f) {
+    void *const p = f.pCallers.Load(std::memory_order_relaxed);
+    if (!p)
+      return;
+
+    {
+      segment_manager_t *const f_sm = f.sm_.get();
+      assert(f_sm);
+      assert(f_sm == sm);
+    }
+
+    uintptr_t p_addr = reinterpret_cast<uintptr_t>(p);
+    bool TheMT      = !!(p_addr & 1u);
+    bool TheMinSize = !!(p_addr & 2u);
+    p_addr &= ~3ULL;
+
+    assert(TheMT == !MT);
+    assert(TheMinSize == MinSize);
+
+    OtherCallers_t *const pOtherCallers =
+        reinterpret_cast<OtherCallers_t *>(p_addr);
+
+    static_assert(alignof(OurCallers_t) >= 4);
+    void *mem =
+        sm->allocate_aligned(sizeof(OurCallers_t), alignof(OurCallers_t));
+    assert(mem);
+
+    uintptr_t OurPtrAddr = reinterpret_cast<uintptr_t>(
+        new (mem) OurCallers_t(std::move(*pOtherCallers)));
+    assert(OurPtrAddr);
+    OurPtrAddr |= (MT ? 1u : 0u) | (MinSize ? 2u : 0u);
+
+    f.pCallers.Store(reinterpret_cast<void *>(OurPtrAddr),
+                     std::memory_order_relaxed);
+
+    pOtherCallers->~OtherCallers_t();
+    sm->deallocate(pOtherCallers);
+  });
+}
+
+template <bool MT, bool MinSize>
 void binary_base_t<MT, MinSize>::InvalidateBasicBlockAnalyses(void) {
   for_each_function_in_binary(maybe_par_unseq, *this,
                               [&](function_t &f) { f.InvalidateAnalysis(); });
@@ -82,7 +191,9 @@ bool binary_base_t<MT, MinSize>::FixAmbiguousIndirectJump(
 
 #define DO_INSTANTIATE(r, product)                                             \
   template struct binary_base_t<GET_VALUE(BOOST_PP_SEQ_ELEM(1, product)),      \
-                                GET_VALUE(BOOST_PP_SEQ_ELEM(0, product))>;
+                                GET_VALUE(BOOST_PP_SEQ_ELEM(0, product))>;     \
+  template struct binary_analysis_t<GET_VALUE(BOOST_PP_SEQ_ELEM(1, product)),  \
+                                    GET_VALUE(BOOST_PP_SEQ_ELEM(0, product))>;
 
 BOOST_PP_SEQ_FOR_EACH_PRODUCT(DO_INSTANTIATE, (VALUES_TO_INSTANTIATE_WITH1)(VALUES_TO_INSTANTIATE_WITH2))
 

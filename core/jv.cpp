@@ -333,7 +333,7 @@ std::pair<binary_index_t, bool> jv_base_t<MT, MinSize>::AddFromDataWithHash(
     if (Options.Objdump) {
       std::unique_ptr<llvm::object::Binary> Bin = B::Create(b.data());
 
-      binary_t::Analysis_t::objdump_output_type::generate(
+      binary_analysis_t<MT, MinSize>::objdump_output_type::generate(
           b.Analysis.objdump, b.is_file() ? b.Name.c_str() : nullptr, *Bin);
     }
 
@@ -464,6 +464,7 @@ void jv_base_t<MT, MinSize>::fixup_binary(jv_file_t &jv_file,
   // TODO explain why all this is necessary in the first place
   //
   assert(is_binary_index_valid(BIdx));
+  assert(BIdx < Binaries.size());
   auto &b = Binaries.at(BIdx);
   assert(index_of_binary(b) == BIdx);
 
@@ -480,7 +481,10 @@ void jv_base_t<MT, MinSize>::fixup_binary(jv_file_t &jv_file,
         if (bbprop.Term.Type != TERMINATOR::CALL)
           return;
 
-        function_t &callee = b.Analysis.Functions.at(bbprop.Term._call.Target);
+        const function_index_t Target = bbprop.Term._call.Target;
+        assert(is_function_index_valid(Target));
+        assert(Target < b.Analysis.Functions.size());
+        function_t &callee = b.Analysis.Functions.at(Target);
 
         callee.AddCaller(jv_file, *this, caller_t(BIdx, bbprop.Term.Addr));
 
@@ -488,6 +492,7 @@ void jv_base_t<MT, MinSize>::fixup_binary(jv_file_t &jv_file,
         std::for_each(maybe_par_unseq,
                       ParentsVec.cbegin(),
                       ParentsVec.cend(), [&](function_index_t FIdx) {
+                        assert(FIdx < b.Analysis.Functions.size());
                         function_t &caller = b.Analysis.Functions.at(FIdx);
 
                         Analysis.ReverseCallGraph.template add_edge<MT>(
@@ -516,101 +521,23 @@ jv_base_t<MT, MinSize>::jv_base_t(jv_base_t<!MT, MinSize> &&other,
 
   if constexpr (MinSize) {
     Binaries.container().clear();
+
+    auto e_lck = other.Binaries.exclusive_access();
     for (binary_base_t<!MT, MinSize> &b : other.Binaries)
       Binaries.container().emplace_back(std::move(b));
-    other.Binaries.clear();
+    other.Binaries.container().clear();
   } else {
     Binaries.len_.store(N, std::memory_order_relaxed);
     other.Binaries.len_.store(0, std::memory_order_relaxed);
   }
   assert(Binaries.size() == N);
 
-  using OurDynTargets_t = DynTargets_t<MT, MinSize>;
-  using OtherDynTargets_t = DynTargets_t<!MT, MinSize>;
-
-  using OurCallers_t = Callers_t<MT, MinSize>;
-  using OtherCallers_t = Callers_t<!MT, MinSize>;
-
   auto BIdxBegin = boost::iterators::counting_iterator<unsigned>(0);
   auto BIdxEnd = boost::iterators::counting_iterator<unsigned>(N);
-  std::for_each(std::execution::seq  /* XXX deadlocks in boost segment manager (when make_empty_arrays() is called) */,
-                BIdxBegin,
+  std::for_each(BIdxBegin,
                 BIdxEnd, [&](unsigned BIdx) {
     if constexpr (!MinSize)
       Binaries[BIdx] = std::move(other.Binaries[BIdx]);
-
-    binary_t &b = Binaries.at(BIdx);
-
-    auto move_dyn_targets = [&](void) -> void {
-      for_each_basic_block_in_binary(
-          maybe_par_unseq, b, [&](bb_t bb) {
-            bbprop_t &bbprop = b.Analysis.ICFG[bb];
-
-            bbprop.sm_ = sm_;
-
-            if (void *const p =
-                    bbprop.pDynTargets.Load(std::memory_order_relaxed)) {
-              uintptr_t p_addr = reinterpret_cast<uintptr_t>(p);
-              bool TheMT = !!(p_addr & 1u);
-              bool TheMinSize = !!(p_addr & 2u);
-              p_addr &= ~3ULL;
-
-              assert(TheMT == !MT);
-              assert(TheMinSize == MinSize);
-
-              OtherDynTargets_t &OtherDynTargets =
-                  *reinterpret_cast<OtherDynTargets_t *>(p_addr);
-
-              OurDynTargets_t *OurPtr = jv_file.construct<OurDynTargets_t>(
-                  boost::interprocess::anonymous_instance)(
-                  std::move(OtherDynTargets));
-
-              uintptr_t OurPtrAddr = reinterpret_cast<uintptr_t>(OurPtr);
-              assert(OurPtrAddr);
-              OurPtrAddr |= (MT ? 1u : 0u) | (MinSize ? 2u : 0u);
-              void *OurPtrVal = reinterpret_cast<void *>(OurPtrAddr);
-
-              bbprop.pDynTargets.Store(OurPtrVal, std::memory_order_relaxed);
-
-              sm_->destroy_ptr(&OtherDynTargets);
-            }
-          });
-    };
-    auto move_callers = [&](void) -> void {
-      for_each_function_in_binary(maybe_par_unseq, b, [&](function_t &f) {
-        if (void *const p = f.pCallers.Load(std::memory_order_relaxed)) {
-          uintptr_t p_addr = reinterpret_cast<uintptr_t>(p);
-          bool TheMT = !!(p_addr & 1u);
-          bool TheMinSize = !!(p_addr & 2u);
-          p_addr &= ~3ULL;
-
-          assert(TheMT == !MT);
-          assert(TheMinSize == MinSize);
-
-          OtherCallers_t &OtherCallers =
-              *reinterpret_cast<OtherCallers_t *>(p_addr);
-
-          OurCallers_t *OurPtr = jv_file.construct<OurCallers_t>(
-              boost::interprocess::anonymous_instance)(std::move(OtherCallers));
-
-          uintptr_t OurPtrAddr = reinterpret_cast<uintptr_t>(OurPtr);
-          assert(OurPtrAddr);
-          OurPtrAddr |= (MT ? 1u : 0u) | (MinSize ? 2u : 0u);
-          void *OurPtrVal = reinterpret_cast<void *>(OurPtrAddr);
-
-          f.pCallers.Store(OurPtrVal, std::memory_order_relaxed);
-
-          sm_->destroy_ptr(&OtherCallers);
-        }
-      });
-    };
-
-#ifdef JOVE_NO_TBB
-    move_dyn_targets();
-    move_callers();
-#else
-    oneapi::tbb::parallel_invoke(move_dyn_targets, move_callers);
-#endif
   });
 }
 

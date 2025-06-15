@@ -362,6 +362,40 @@ static void serialize(Archive &ar, jove::allocates_function_t &af,
 }
 
 //
+// BBMap_t
+//
+template <class Archive, bool MT>
+static void save(Archive &ar, const jove::BBMap_t<MT> &BBMap,
+                 const unsigned int) {
+  auto s_lck = BBMap.shared_access();
+
+  assert(BBMap.map);
+  jove::bbmap_t &map = *BBMap.map;
+
+  ar &BOOST_SERIALIZATION_NVP(map);
+}
+
+template <class Archive, bool MT>
+static void load(Archive &ar, jove::BBMap_t<MT> &BBMap, const unsigned int) {
+  assert(jove::pFile_hack);
+  jove::jv_file_t &jv_file = *jove::pFile_hack;
+
+  jove::BBMap_t<MT> TheBBMap(jv_file);
+
+  jove::bbmap_t &map = *TheBBMap.map;
+
+  ar &BOOST_SERIALIZATION_NVP(map);
+
+  BBMap = std::move(TheBBMap);
+}
+
+template <class Archive, bool MT>
+static void serialize(Archive &ar, jove::BBMap_t<MT> &BBMap,
+                      const unsigned int version) {
+  boost::serialization::split_free(ar, BBMap, version);
+}
+
+//
 // binary_t
 //
 template <class Archive, bool MT, bool MinSize>
@@ -369,7 +403,7 @@ static void serialize(Archive &ar, jove::binary_base_t<MT, MinSize> &b,
                       const unsigned int version) {
   ar &BOOST_SERIALIZATION_NVP(b.Idx)
      &BOOST_SERIALIZATION_NVP(b.bbbmap)
-     &BOOST_SERIALIZATION_NVP(b.BBMap.map)
+     &BOOST_SERIALIZATION_NVP(b.BBMap)
      &BOOST_SERIALIZATION_NVP(b.fnmap)
      &BOOST_SERIALIZATION_NVP(b.Name)
      &BOOST_SERIALIZATION_NVP(b.Data)
@@ -491,20 +525,30 @@ static void load(Archive &ar, jove::bbprop_t &bbprop, const unsigned int) {
     using OurDynTargets_t =                                                    \
         jove::DynTargets_t<GET_VALUE(BOOST_PP_SEQ_ELEM(0, product)),           \
                            GET_VALUE(BOOST_PP_SEQ_ELEM(1, product))>;          \
-    jove::ip_unique_ptr<OurDynTargets_t> TheDynTargets(                        \
-        boost::interprocess::make_managed_unique_ptr(                          \
-            jv_file.construct<OurDynTargets_t>(                                \
-                boost::interprocess::anonymous_instance)(                      \
-                jv_file.get_segment_manager()),                                \
-            jv_file));                                                         \
-    OurDynTargets_t &DynTargets = *TheDynTargets.get().get();                  \
-    ar &BOOST_SERIALIZATION_NVP(DynTargets);                                   \
-    if (!DynTargets.empty()) {                                                 \
-      TheDynTargets.release();                                                 \
-    uintptr_t DynTargets_addr = reinterpret_cast<uintptr_t>(&DynTargets);\
-  DynTargets_addr |= (jove::IsMT_hack ? 1u : 0u) | (jove::IsMinSize_hack ? 2u : 0u);\
-      bbprop.pDynTargets.Store(reinterpret_cast<void *>(DynTargets_addr), std::memory_order_relaxed);        \
-      bbprop.sm_ = jv_file.get_segment_manager();                              \
+                                                                               \
+    jove::segment_manager_t *const sm = jv_file.get_segment_manager();         \
+                                                                               \
+    static_assert(alignof(OurDynTargets_t) >= 4);                              \
+    void *mem = sm->allocate_aligned(sizeof(OurDynTargets_t),                  \
+                                     alignof(OurDynTargets_t));                \
+    assert(mem);                                                               \
+                                                                               \
+    OurDynTargets_t *const pTheDynTargets = new (mem) OurDynTargets_t(sm);     \
+                                                                               \
+    {                                                                          \
+      OurDynTargets_t &DynTargets = *pTheDynTargets;                           \
+      ar &BOOST_SERIALIZATION_NVP(DynTargets);                                 \
+    }                                                                          \
+                                                                               \
+    if (pTheDynTargets->empty()) {                                             \
+      pTheDynTargets->~OurDynTargets_t();                                      \
+      sm->deallocate(pTheDynTargets);                                          \
+    } else {                                                                   \
+      uintptr_t addr = reinterpret_cast<uintptr_t>(pTheDynTargets);            \
+      addr |= (jove::IsMT_hack ? 1u : 0u) | (jove::IsMinSize_hack ? 2u : 0u);  \
+      bbprop.pDynTargets.Store(reinterpret_cast<void *>(addr),                 \
+                               std::memory_order_relaxed);                     \
+      bbprop.sm_ = sm;                                                         \
     }                                                                          \
     return;                                                                    \
   }

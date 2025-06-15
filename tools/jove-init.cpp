@@ -127,6 +127,7 @@ static void init_binaries(unsigned N, jv_file_t &jv_file,
                           ip_binary_deque_t<MT, MinSize> &Binaries) {
   auto e_lck = Binaries.exclusive_access();
 
+  assert(Binaries.container().empty());
   for (unsigned i = 0; i < N; ++i)
     Binaries.container().emplace_back(jv_file, static_cast<binary_index_t>(i));
 }
@@ -310,10 +311,9 @@ int InitTool::Run(void) {
 
         if (AddOptions.Objdump) {
           if (catch_exception([&]() {
-                binary_base_t<false, IsToolMinSize>::Analysis_t::
-                    objdump_output_type::generate(
-                        b.Analysis.objdump,
-                        b.is_file() ? b.Name.c_str() : nullptr, *Bin);
+                binary_analysis_t<false, IsToolMinSize>::objdump_output_type::
+                    generate(b.Analysis.objdump,
+                             b.is_file() ? b.Name.c_str() : nullptr, *Bin);
               })) {
             if (IsVerbose()) {
               WithColor::warning() << llvm::formatv(

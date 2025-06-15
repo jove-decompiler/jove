@@ -111,7 +111,9 @@ bool explorer_t<MT, MinSize>::split(
     const taddr_t Addr,
     basic_block_index_t Idx,
     onblockproc_t<MT> obp) {
-  bbmap_t &bbmap = b.BBMap.map;
+  bbmap_t *const pbbmap = b.BBMap.map.get();
+  assert(pbbmap);
+  bbmap_t &bbmap = *pbbmap;
   auto &ICFG = b.Analysis.ICFG;
 
   assert(it != bbmap.end());
@@ -375,7 +377,11 @@ explorer_t<MT, MinSize>::_explore_basic_block(binary_t &b,
 
   typename BBMap_t<MT>::exclusive_lock_guard e_lck_bbmap(
       b.BBMap.mtx, boost::interprocess::defer_lock);
-  bbmap_t &bbmap = b.BBMap.map;
+
+  bbmap_t *const pbbmap = b.BBMap.map.get();
+  assert(pbbmap);
+  bbmap_t &bbmap = *pbbmap;
+
   if (likely(!Speculative)) {
     e_lck_bbmap.lock();
 
@@ -641,10 +647,24 @@ explorer_t<MT, MinSize>::_explore_basic_block(binary_t &b,
     }
 #endif
 
+    assert(T.Addr);
     function_index_t CalleeFIdx =
         _explore_function(b, Bin, CalleeAddr, Speculative);
 
     assert(is_function_index_valid(CalleeFIdx));
+
+    if (unlikely(Speculative)) {
+      assert(bbprop.Term.Type == TERMINATOR::CALL);
+
+      bbprop.Term._call.Target = CalleeFIdx;
+    } else {
+      auto s_lck_bbmap = b.BBMap.shared_access();
+
+      if (bbprop.Term.Type == TERMINATOR::CALL)
+        bbprop.Term._call.Target = CalleeFIdx;
+      else
+        ICFG[basic_block_at_address(T.Addr, b)].Term._call.Target = CalleeFIdx;
+    }
 
     if (is_binary_index_valid(b.Idx)) { /* may not know binary index */
       function_t &callee = b.Analysis.Functions.at(CalleeFIdx);
@@ -666,14 +686,6 @@ explorer_t<MT, MinSize>::_explore_basic_block(binary_t &b,
                             caller.ReverseCGVert(jv));
                       });
       }
-    }
-
-    if (unlikely(Speculative)) {
-      ICFG[basic_block_of_index(Idx, ICFG)].Term._call.Target = CalleeFIdx;
-    } else {
-      auto s_lck_bbmap = b.BBMap.shared_access();
-
-      ICFG[basic_block_at_address(T.Addr, b)].Term._call.Target = CalleeFIdx;
     }
 
     break;

@@ -67,8 +67,12 @@ double compute_score(const jv_base_t<MT, MinSize> &jv,
   size_t M = ({
     auto s_lck_bbmap = b.BBMap.shared_access();
 
-    std::accumulate(b.BBMap.map.cbegin(),
-                    b.BBMap.map.cend(), 0,
+    bbmap_t *pbbmap = b.BBMap.map.get();
+    assert(pbbmap);
+    bbmap_t &bbmap = *pbbmap;
+
+    std::accumulate(bbmap.cbegin(),
+                    bbmap.cend(), 0,
                     [&](size_t res, const auto &pair) -> size_t {
                       const addr_intvl &intvl = pair.first;
                       return res + intvl.second;

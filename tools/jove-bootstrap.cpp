@@ -442,7 +442,8 @@ public:
   std::pair<binary_index_t, function_index_t>
   function_at_program_counter(pid_t, uintptr_t valid_pc);
 
-  std::pair<binary_index_t, basic_block_index_t> existing_block_at_program_counter(pid_t child, uintptr_t pc);
+  std::pair<binary_index_t, basic_block_index_t>
+  existing_block_at_program_counter(pid_t child, uintptr_t pc);
 
   std::string description_of_program_counter(uintptr_t, bool Verbose = false);
   std::string StringOfMCInst(llvm::MCInst &);
@@ -4652,8 +4653,11 @@ BootstrapTool::existing_block_at_program_counter(pid_t child, uintptr_t pc) {
   uintptr_t rva = va_of_pc(pc, BIdx);
 
   basic_block_index_t BBIdx = ({
-    auto it = bbmap_find(b.BBMap.map, rva);
-    if (it == b.BBMap.map.end())
+    bbmap_t *const pbbmap = b.BBMap.map.get();
+    assert(pbbmap);
+    bbmap_t &bbmap = *pbbmap;
+    auto it = bbmap_find(bbmap, rva);
+    if (it == bbmap.end())
       return std::make_pair(BIdx, invalid_basic_block_index);
 
     (*it).second;

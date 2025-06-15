@@ -18,58 +18,68 @@ bool function_t::AddCaller(jv_file_t &jv_file,
   using OurCallers_t = Callers_t<MT, MinSize>;
 
   if (void *const p = pCallers.Load(std::memory_order_relaxed)) {
-    uintptr_t p_addr = reinterpret_cast<uintptr_t>(p);
-    bool The_MT      = !!(p_addr & 1u);
-    bool The_MinSize = !!(p_addr & 2u);
-    p_addr &= ~3ULL;
+    uintptr_t addr = reinterpret_cast<uintptr_t>(p);
+    bool The_MT      = !!(addr & 1u);
+    bool The_MinSize = !!(addr & 2u);
+    addr &= ~3ULL;
 
     assert(The_MT == MT);
     assert(The_MinSize == MinSize);
 
-    return reinterpret_cast<OurCallers_t *>(p_addr)->Insert(caller);
+    return reinterpret_cast<OurCallers_t *>(addr)->Insert(caller);
   }
 
   //
   // otherwise...
   //
-  ip_unique_ptr<OurCallers_t> TheCallers(
-      boost::interprocess::make_managed_unique_ptr(
-          jv_file.construct<OurCallers_t>(
-              boost::interprocess::anonymous_instance)(
-              jv_file.get_segment_manager()),
-          jv_file));
+  segment_manager_t *const sm = sm_.get();
+  assert(sm);
 
-  OurCallers_t &Callers = *TheCallers.get().get();
-  uintptr_t Callers_addr = reinterpret_cast<uintptr_t>(&Callers);
-  assert(Callers_addr);
-  Callers_addr |= (MT ? 1u : 0u) | (MinSize ? 2u : 0u);
+  static_assert(alignof(OurCallers_t) >= 4);
+  void *mem = sm->allocate_aligned(sizeof(OurCallers_t), alignof(OurCallers_t));
+  assert(mem);
 
-  void *expected = nullptr;
-  void *desired = reinterpret_cast<void *>(Callers_addr);
-  if (pCallers.CompareExchangeStrong(expected, desired,
-                                     std::memory_order_relaxed,
-                                     std::memory_order_relaxed)) {
-    Callers.Insert(caller);
-    TheCallers.release();
+  OurCallers_t *const pTheCallers =
+      new (mem) OurCallers_t(jv_file.get_segment_manager());
 
+  uintptr_t addr = reinterpret_cast<uintptr_t>(pTheCallers);
+  assert(addr);
+  addr |= (MT ? 1u : 0u) | (MinSize ? 2u : 0u);
+
+  if constexpr (MT) {
+    void *expected = nullptr;
+    void *desired = reinterpret_cast<void *>(addr);
+    if (pCallers.CompareExchangeStrong(expected, desired,
+                                       std::memory_order_relaxed,
+                                       std::memory_order_relaxed)) {
+      pTheCallers->Insert(caller);
+      sm_ = jv_file.get_segment_manager();
+      return true; /* it was empty before */
+    }
+
+    pTheCallers->~OurCallers_t();
+    sm->deallocate(pTheCallers);
+
+    uintptr_t expected_addr = reinterpret_cast<uintptr_t>(expected);
+    expected_addr &= ~3ULL;
+
+    return reinterpret_cast<OurCallers_t *>(expected_addr)->Insert(caller);
+  } else {
+    pTheCallers ->Insert(caller);
     sm_ = jv_file.get_segment_manager();
-    return true; /* it was empty before */
+    pCallers.Store(reinterpret_cast<void *>(addr), std::memory_order_relaxed);
+    return true;
   }
-
-  uintptr_t expected_addr = reinterpret_cast<uintptr_t>(expected);
-  expected_addr &= ~3ULL;
-
-  return reinterpret_cast<OurCallers_t *>(expected_addr)->Insert(caller);
 }
 
 function_t::~function_t() noexcept {
   if (void *const p = pCallers.Load(std::memory_order_relaxed)) {
     pCallers.Store(nullptr, std::memory_order_relaxed);
 
-    uintptr_t p_addr = reinterpret_cast<uintptr_t>(p);
-    bool MT      = !!(p_addr & 1u);
-    bool MinSize = !!(p_addr & 2u);
-    p_addr &= ~3ULL;
+    uintptr_t addr = reinterpret_cast<uintptr_t>(p);
+    bool MT      = !!(addr & 1u);
+    bool MinSize = !!(addr & 2u);
+    addr &= ~3ULL;
 
 #define MT_POSSIBILTIES                                                        \
     ((true))                                                                   \
@@ -85,10 +95,11 @@ function_t::~function_t() noexcept {
       MinSize == GET_VALUE(BOOST_PP_SEQ_ELEM(1, product))) {                   \
     using OurCallers_t = Callers_t<GET_VALUE(BOOST_PP_SEQ_ELEM(0, product)),   \
                                    GET_VALUE(BOOST_PP_SEQ_ELEM(1, product))>;  \
-    assert(p_addr);                                                            \
+    assert(addr);                                                              \
     assert(sm_);                                                               \
-    sm_->destroy_ptr(reinterpret_cast<OurCallers_t *>(p_addr));                \
-    p_addr = 0;                                                                \
+    reinterpret_cast<OurCallers_t *>(addr)->~OurCallers_t();                   \
+    sm_->deallocate(reinterpret_cast<OurCallers_t *>(addr));                   \
+    addr = 0;                                                                  \
   }
 
     BOOST_PP_SEQ_FOR_EACH_PRODUCT(CALLERS_CASE,
