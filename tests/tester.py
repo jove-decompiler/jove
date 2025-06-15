@@ -305,63 +305,50 @@ class JoveTester:
 
         # compare result of executing testbin and recompiled testbin
         for input_args in inputs:
-          count = 0
-          while count < 20:
-            if self.is_server_down():
-              print(f"FAILURE ({self.arch} server is down!)")
-              return 1
+          if self.is_server_down():
+            print(f"FAILURE ({self.arch} server is down!)")
+            return 1
 
-            self.ssh(["rm", "-f", "/tmp/stdout", "/tmp/stderr"], check=True)
+          self.ssh(["rm", "-f", "/tmp/stdout", "/tmp/stderr"], check=True)
 
-            p1 = self.ssh_command(self.run + [testbin] + input_args, text=True)
-            p2 = self.ssh_command(jove_loop_args + input_args, text=True)
+          p1 = self.ssh_command(self.run + [testbin] + input_args, text=True)
+          p2 = self.ssh_command(jove_loop_args + input_args, text=True)
 
-            if self.is_server_down():
-              print(f"FAILURE ({self.arch} server is down!)")
-              return 1
+          if self.is_server_down():
+            print(f"FAILURE ({self.arch} server is down!)")
+            return 1
 
-            if self.is_stderr_connection_closed_by_remote_host(p1.stderr) or \
-               self.is_stderr_connection_closed_by_remote_host(p2.stderr):
-              print('failed to ssh, wtf? trying again (%d)...' % count)
-              time.sleep(1.25)
-              count += 1
-              continue
+          self.scp_from("/tmp/stdout", path_to_stdout, check=True);
+          self.scp_from("/tmp/stderr", path_to_stderr, check=True);
 
-            self.scp_from("/tmp/stdout", path_to_stdout, check=True);
-            self.scp_from("/tmp/stderr", path_to_stderr, check=True);
+          p2_stdout = open(path_to_stdout, "r").read()
+          p2_stderr = open(path_to_stderr, "r").read()
 
-            p2_stdout = open(path_to_stdout, "r").read()
-            p2_stderr = open(path_to_stderr, "r").read()
+          return_neq = p1.returncode != p2.returncode
+          stdout_neq = p1.stdout != p2_stdout
+          stderr_neq = p1.stderr != p2_stderr
 
-            return_neq = p1.returncode != p2.returncode
-            stdout_neq = p1.stdout != p2_stdout
-            stderr_neq = p1.stderr != p2_stderr
+          failed = return_neq or stdout_neq
+          if self.platform != "win": # wine prints a bunch of shit to stderr
+            failed = failed or stderr_neq
 
-            failed = return_neq or stdout_neq
-            if self.platform != "win": # wine prints a bunch of shit to stderr
-              failed = failed or stderr_neq
+          if failed:
+            print("/////////\n///////// %s TEST FAILURE %s [%s %s]\n/////////" % \
+              ("MULTI-THREADED" if multi_threaded else "SINGLE-THREADED", \
+               testbin, self.platform, self.arch))
+            print(jove_loop_args)
 
-            if failed:
-              print("/////////\n///////// %s TEST FAILURE %s [%s %s]\n/////////" % \
-                ("MULTI-THREADED" if multi_threaded else "SINGLE-THREADED", \
-                 testbin, self.platform, self.arch))
-              print(jove_loop_args)
+            if return_neq:
+              print('%d != %d' % (p1.returncode, p2.returncode))
+            if stdout_neq:
+              print('<STDOUT>\n"%s"\n\n!=\n\n"%s"\n' % (p1.stdout, p2_stdout))
+            if stderr_neq:
+              print('<STDERR>\n"%s"\n\n!=\n\n"%s"\n' % (p1.stderr, p2_stderr))
 
-              if return_neq:
-                print('%d != %d' % (p1.returncode, p2.returncode))
-              if stdout_neq:
-                print('<STDOUT>\n"%s"\n\n!=\n\n"%s"\n' % (p1.stdout, p2_stdout))
-              if stderr_neq:
-                print('<STDERR>\n"%s"\n\n!=\n\n"%s"\n' % (p1.stderr, p2_stderr))
+            # make it easy for user to rerun failing test
+            if not self.unattended:
+              self.set_up_ssh_command_for_user(jove_loop_args + input_args)
 
-              # make it easy for user to rerun failing test
-              if not self.unattended:
-                self.set_up_ssh_command_for_user(jove_loop_args + input_args)
-
-              return 1
-            break
-          if count >= 20:
-            print("SSH FAILURE!!!")
             return 1
 
     print(f"SUCCESS ({self.arch} {self.platform})")
