@@ -2041,15 +2041,17 @@ __attribute__((__noreturn__)) void _jove_assert_fail(const char *file,
   _UNREACHABLE();
 }
 
-// XXX is this really necessary?
+#if 0 /* FIXME the problem is that this can be called into by recompiled code, \
+         but it has no function table entry, so we think it's "new" code when  \
+         it's not. */
 void *memset(void *dst, int c, size_t n) {
   return __builtin_memset(dst, c, n);
 }
 
-// XXX is this really necessary?
 void *memcpy(void *dst, const void *src, size_t n) {
   return __builtin_memcpy(dst, src, n);
 }
+#endif
 
 void __nodce(void **p) {
   *p++ = &_jove_assert_fail;
