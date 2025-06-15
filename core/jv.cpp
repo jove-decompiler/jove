@@ -451,9 +451,8 @@ void jv_base_t<MT, MinSize>::clear(bool everything) {
 
 template <bool MT, bool MinSize>
 void jv_base_t<MT, MinSize>::InvalidateFunctionAnalyses(void) {
-  for_each_binary(maybe_par_unseq, *this, [&](binary_t &b) {
-    for_each_function_in_binary(maybe_par_unseq, b,
-                                [&](function_t &f) { f.InvalidateAnalysis(); });
+  for_each_function(maybe_par_unseq, *this, [&](function_t &f, binary_t &b) {
+    f.InvalidateAnalysis();
   });
 }
 
