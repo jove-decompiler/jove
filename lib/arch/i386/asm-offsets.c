@@ -23,5 +23,7 @@ int main(void) {
   DEFINE(ASMOFF_ENV_fpip, offsetof(CPUX86State, fpip));
   DEFINE(ASMOFF_ENV_fpdp, offsetof(CPUX86State, fpdp));
 
+  DEFINE(ASMOFF_ENV_fp_status, offsetof(CPUX86State, fp_status));
+
   return 0;
 }
