@@ -528,16 +528,14 @@ jv_base_t<MT, MinSize>::jv_base_t(jv_base_t<!MT, MinSize> &&other,
   } else {
     Binaries.len_.store(N, std::memory_order_relaxed);
     other.Binaries.len_.store(0, std::memory_order_relaxed);
+
+    auto BIdxBegin = boost::iterators::counting_iterator<unsigned>(0);
+    auto BIdxEnd = boost::iterators::counting_iterator<unsigned>(N);
+    std::for_each(BIdxBegin, BIdxEnd, [&](unsigned BIdx) {
+      Binaries[BIdx] = std::move(other.Binaries[BIdx]);
+    });
   }
   assert(Binaries.size() == N);
-
-  auto BIdxBegin = boost::iterators::counting_iterator<unsigned>(0);
-  auto BIdxEnd = boost::iterators::counting_iterator<unsigned>(N);
-  std::for_each(BIdxBegin,
-                BIdxEnd, [&](unsigned BIdx) {
-    if constexpr (!MinSize)
-      Binaries[BIdx] = std::move(other.Binaries[BIdx]);
-  });
 }
 
 #define VALUES_TO_INSTANTIATE_WITH1                                            \
