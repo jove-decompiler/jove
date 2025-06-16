@@ -13,6 +13,8 @@ static TCGContext *get_tcg_context() {
 #include "analyze.h"
 #include "win.h"
 #include "warn.h"
+#include "sret.h"
+#include "byval.h"
 
 #include <boost/algorithm/string/replace.hpp>
 #include <boost/container_hash/extensions.hpp>
@@ -6597,14 +6599,14 @@ int llvm_t<MT, MinSize>::ExpandMemoryIntrinsicCalls(void) {
 
     switch (F.getIntrinsicID()) {
     case llvm::Intrinsic::memcpy:
-    case llvm::Intrinsic::memcpy_inline:
+//  case llvm::Intrinsic::memcpy_inline:
       ExpandFunc = DoExpandMemcpy;
       break;
     case llvm::Intrinsic::memmove:
       ExpandFunc = DoExpandMemmove;
       break;
     case llvm::Intrinsic::memset:
-    case llvm::Intrinsic::memset_inline:
+//  case llvm::Intrinsic::memset_inline:
       ExpandFunc = DoExpandMemset;
       break;
 
@@ -6977,6 +6979,11 @@ int llvm_t<MT, MinSize>::LinkInSoftFPU(void) {
           return !GV.hasName() || !SoftFPUSymbols.contains(GV.getName());
         });
       });
+
+  if (IsCOFF) {
+    squashSRetFunctions(*Module);
+    squashByvalFunctions(*Module);
+  }
 
   return 0;
 }
