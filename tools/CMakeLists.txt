@@ -64,6 +64,7 @@ set(JOVE_SOURCES
     ../core/calls.cpp
     ../core/coff.cpp
     ../core/crypto.cpp
+    ../core/byval.cpp
     ../core/disas.cpp
     ../core/elf.cpp
     ../core/explore.cpp
@@ -87,6 +88,7 @@ set(JOVE_SOURCES
     ../core/recompile.cpp
     ../core/reflink.cpp
     ../core/score.cpp
+    ../core/sret.cpp
     ../core/serialize.cpp
     ../core/sideband.cpp
     ../core/sjlj.cpp
