@@ -1,5 +1,7 @@
 #include "gen-asm-offsets.h"
 
+#include <boost/preprocessor/repetition/repeat.hpp>
+
 int main(void) {
   DEFINE(ASMOFF_ENV_df, offsetof(CPUX86State, df));
   DEFINE(ASMOFF_ENV_eip, offsetof(CPUX86State, eip));
@@ -24,6 +26,13 @@ int main(void) {
   DEFINE(ASMOFF_ENV_fpdp, offsetof(CPUX86State, fpdp));
 
   DEFINE(ASMOFF_ENV_fp_status, offsetof(CPUX86State, fp_status));
+  DEFINE(ASMOFF_ENV_sse_status, offsetof(CPUX86State, sse_status));
+
+#define XMM_THING_FROM_SP(n, idx, data) \
+  DEFINE(ASMOFF_ENV_FROM_SP_xmm_regs_##idx##___x_ZMMReg_0___q_XMMReg_0_, \
+         offsetof(CPUX86State, xmm_regs[idx]._x_ZMMReg[0]._q_XMMReg[0]) - offsetof(CPUX86State, regs[R_ESP]));
+
+  BOOST_PP_REPEAT(8, XMM_THING_FROM_SP, void)
 
   return 0;
 }

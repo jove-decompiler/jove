@@ -11,15 +11,25 @@ typedef uint64_t jove_thunk_return_t;
 #error
 #endif
 
+_REGPARM
 _HIDDEN
-void _jove_begin(uintptr_t init_sp) {
+void _jove_begin(uintptr_t eax,
+                 uintptr_t edx,
+                 uintptr_t ecx,
+                 uintptr_t init_sp) {
   _jove_initialize();
 
   struct CPUArchState *const env = JOVE_RT_THREAD_GLOBALP(env);
+  env->regs[R_EAX] = eax;
+  env->regs[R_EDX] = edx;
+  env->regs[R_ECX] = ecx;
+  env->regs[R_EBP] = 0;
   env->regs[R_ESP] = _jove_begin_setup_emulated_stack(init_sp);
 
   _jove_call_entry();
 }
+
+#include "asm-offsets.inc.h"
 
 extern floatx80 float32_to_floatx80(float32, float_status *status);
 
@@ -34,20 +44,7 @@ _HIDDEN void _jove_thunk_handle_st0(uintptr_t f32) {
   env->fpstt = env->fpstt & 7;
   ST0 = float32_to_floatx80(f32, &env->fp_status);
 
-#if 0
   env->fp_status.float_exception_flags = 0;
-  env->fp_status.float_rounding_mode = float_round_nearest_even;
-  env->fp_status.default_nan_pattern = 0b11000000;
-  env->fp_status.float_2nan_prop_rule = float_2nan_prop_x87;
-
-  env->mmx_status.float_rounding_mode = float_round_nearest_even;
-  env->mmx_status.default_nan_pattern = 0b11000000;
-  env->mmx_status.float_2nan_prop_rule = float_2nan_prop_x87;
-
-  env->sse_status.float_rounding_mode = float_round_nearest_even;
-  env->sse_status.default_nan_pattern = 0b11000000;
-  env->sse_status.float_2nan_prop_rule = float_2nan_prop_x87;
-#endif
 #endif
 }
 
@@ -62,6 +59,11 @@ _HIDDEN void _jove_thunk_handle_st0(uintptr_t f32) {
   "popl %%ebp\n"                                                               \
   "ret\n"
 
+#define JOVE_THUNK_EXTRA_ARGS                                                  \
+  "movsd " BOOST_PP_STRINGIZE(ASMOFF_ENV_FROM_SP_xmm_regs_0___x_ZMMReg_0___q_XMMReg_0_) "(%%edi),%%xmm0\n" \
+  "movsd " BOOST_PP_STRINGIZE(ASMOFF_ENV_FROM_SP_xmm_regs_1___x_ZMMReg_0___q_XMMReg_0_) "(%%edi),%%xmm1\n" \
+  "movsd " BOOST_PP_STRINGIZE(ASMOFF_ENV_FROM_SP_xmm_regs_2___x_ZMMReg_0___q_XMMReg_0_) "(%%edi),%%xmm2\n"
+
 #define JOVE_THUNK_EXTRA_RETS                                                  \
   "pushl %%eax\n" /* preserve */                                               \
   "pushl %%edx\n" /* preserve */                                               \
@@ -75,6 +77,8 @@ _HIDDEN void _jove_thunk_handle_st0(uintptr_t f32) {
   "popl %%eax\n"
 
 #define JOVE_THUNK_CORE                                                        \
+  JOVE_THUNK_EXTRA_ARGS                                                        \
+                                                                               \
   "movl %%esp, %%ebp\n" /* save sp in ebp */                                   \
                                                                                \
   "movl (%%edi), %%esp\n" /* sp=*emusp */                                      \
