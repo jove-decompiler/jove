@@ -181,8 +181,8 @@ class JoveTester:
       self.serv_process = subprocess.Popen(server_cmd, stdin=subprocess.DEVNULL)
     else:
       self.serv_process = None
-
       p = self.pane("server")
+      print(" ".join(server_cmd))
       p.send_keys(" ".join(server_cmd)) # this is unreliable!!!
 
   def is_server_down(self):
