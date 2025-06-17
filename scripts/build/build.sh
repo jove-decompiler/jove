@@ -65,8 +65,8 @@ function build_all_variants() {
   for arch in $archs ; do
     pushd .
 
-    mkdir -p ${arch}${2}${3}_build && cd ${arch}${2}${3}_build
-    retry "$build_scripts_path/$1/build_${arch}.sh $2 $3"
+    mkdir -p ${arch}${2}_build && cd ${arch}${2}_build
+    retry "$build_scripts_path/$1/build_${arch}.sh $2"
 
     popd
   done
@@ -118,8 +118,7 @@ popd
 
 pushd .
 cd $qemu_path
-build_all_variants qemu _softfpu _linux
-build_all_variants qemu _softfpu _win
+build_all_variants qemu _softfpu
 popd
 
 make -C $jove_path --output-sync softfpu -j$(nproc)

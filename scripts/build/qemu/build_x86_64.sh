@@ -15,11 +15,10 @@ TARGETLIST="i386-linux-user,x86_64-linux-user,mipsel-linux-user,mips-linux-user,
 
 if test "$#" -ge 1 ; then
   if test "$1" = "_carbon" ; then
+    EXTRACONF="--enable-jove-helpers"
     if test "$#" = 2 ; then
-      EXTRACONF="--enable-jove-helpers"
       TARGETLIST="$2-linux-user"
     else
-      EXTRACONF="--enable-jove-helpers"
       TARGETLIST="x86_64-linux-user"
     fi
   elif test "$1" = "_softfpu" ; then
@@ -30,9 +29,6 @@ if test "$#" -ge 1 ; then
     THE_AR=$(pwd)/../../llvm-project/build/llvm/bin/llvm-ar
     THE_RANLIB=$(pwd)/../../llvm-project/build/llvm/bin/llvm-ranlib
     THE_LD=$(pwd)/../../llvm-project/build/llvm/bin/ld.lld
-    if test "$2" = "_win" ; then
-      EXTRACONF+=" --enable-jove-helpers-win"
-    fi
   else
     exit 1
   fi

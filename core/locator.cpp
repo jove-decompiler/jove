@@ -203,8 +203,11 @@ std::string locator_t::ida_scripts(void) {
 std::string locator_t::softfloat_bitcode(bool IsCOFF) {
   return must_exist(
       qemu_path() /
-      (std::string(TARGET_ARCH_NAME) + "_softfpu_" +
-       std::string(IsCOFF ? "win" : "linux") + "_build") /
+      (std::string(TARGET_ARCH_NAME) + "_softfpu" +
+#if 0
+       std::string(IsCOFF ? "_win" : "_linux")
+#endif
+       + "_build") /
       (std::string("libfpu_soft-") + TARGET_ARCH_NAME + "-linux-user.a.p") /
       "fpu_softfloat.c.o");
 }
