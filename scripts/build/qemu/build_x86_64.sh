@@ -13,10 +13,15 @@ THE_LD=ld.lld-19
 
 TARGETLIST="i386-linux-user,x86_64-linux-user,mipsel-linux-user,mips-linux-user,mips64el-linux-user,aarch64-linux-user"
 
-if test "$#" = 1 ; then
+if test "$#" -ge 1 ; then
   if test "$1" = "_carbon" ; then
-    EXTRACONF="--enable-jove-helpers"
-    TARGETLIST="x86_64-linux-user"
+    if test "$#" = 2 ; then
+      EXTRACONF="--enable-jove-helpers"
+      TARGETLIST="$2-linux-user"
+    else
+      EXTRACONF="--enable-jove-helpers"
+      TARGETLIST="x86_64-linux-user"
+    fi
   elif test "$1" = "_softfpu" ; then
     EXTRACONF="--enable-jove-helpers"
     TARGETLIST="x86_64-linux-user"
@@ -25,17 +30,12 @@ if test "$#" = 1 ; then
     THE_AR=$(pwd)/../../llvm-project/build/llvm/bin/llvm-ar
     THE_RANLIB=$(pwd)/../../llvm-project/build/llvm/bin/llvm-ranlib
     THE_LD=$(pwd)/../../llvm-project/build/llvm/bin/ld.lld
+    if test "$2" = "_win" ; then
+      EXTRACONF+=" --enable-jove-helpers-win"
+    fi
   else
     exit 1
   fi
-elif test "$#" = 2 ; then
-  if test "$1" = "_carbon" ; then
-    EXTRACONF="--enable-jove-helpers"
-  else
-    exit 1
-  fi
-
-  TARGETLIST="$2-linux-user"
 fi
 
 if [ ! -f build.ninja ]; then

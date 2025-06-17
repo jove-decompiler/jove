@@ -16,7 +16,7 @@ THE_AR=llvm-ar-19
 THE_RANLIB=llvm-ranlib-19
 THE_LD=ld.lld-19
 
-if test "$#" = 1 ; then
+if test "$#" -ge 1 ; then
   if test "$1" = "_carbon" ; then
     EXTRACONF="--enable-jove-helpers"
   fi
@@ -27,6 +27,10 @@ if test "$#" = 1 ; then
     THE_AR=$(pwd)/../../llvm-project/build/llvm/bin/llvm-ar
     THE_RANLIB=$(pwd)/../../llvm-project/build/llvm/bin/llvm-ranlib
     THE_LD=$(pwd)/../../llvm-project/build/llvm/bin/ld.lld
+
+    if test "$2" = "_win" ; then
+      EXTRACONF+=" --enable-jove-helpers-win"
+    fi
   fi
 fi
 
@@ -34,7 +38,7 @@ export PKG_CONFIG_LIBDIR=/usr/lib/mipsel-linux-gnu/pkgconfig
 
 if [ ! -f build.ninja ]; then
 
-AR=llvm-ar-19 RANLIB=llvm-ranlib-19 LD=ld.lld-19 ../configure \
+AR=$THE_AR RANLIB=$THE_RANLIB LD=$THE_LD ../configure \
   --target-list=mipsel-linux-user \
   --cc=$THE_CC \
   --host-cc=$THE_CC \
