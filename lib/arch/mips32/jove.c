@@ -20,6 +20,8 @@ void _jove_begin(uintptr_t a0,
   env->active_tc.gpr[2] = v0;
   env->active_tc.gpr[29] = _jove_begin_setup_emulated_stack(init_sp);
 
+  MAYBE_PAUSE(Begin);
+
   _jove_call_entry();
 }
 

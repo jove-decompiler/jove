@@ -15,7 +15,7 @@ struct jove_opts_t {
   } Debug;
 
   struct {
-    bool WinMain;
+    bool Begin;
     bool Call;
     bool UnknownCallee;
   } Pause;

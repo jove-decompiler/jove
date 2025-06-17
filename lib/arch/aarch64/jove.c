@@ -27,6 +27,8 @@ void _jove_begin(uintptr_t x0,
   env->xregs[6] = x6;
   env->xregs[31] = _jove_begin_setup_emulated_stack(init_sp);
 
+  MAYBE_PAUSE(Begin);
+
   _jove_call_entry();
 }
 

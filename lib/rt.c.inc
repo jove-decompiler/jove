@@ -233,7 +233,7 @@ void _jove_parse_debug_string(char *const s) {
 }
 
 static const struct debug_option_pair pause_opt_tbl[] = {
-  {"WinMain", &__jove_opts.Pause.WinMain},
+  {"Begin", &__jove_opts.Pause.Begin},
   {"Call", &__jove_opts.Pause.Call},
   {"UnknownCallee", &__jove_opts.Pause.UnknownCallee}
 };
@@ -259,7 +259,19 @@ void _jove_parse_pause_string(char *const s) {
       }
     }
 
-    _ASSERT(found_opt);
+    if (!found_opt) {
+      char *s;
+      JOVE_SCOPED_BUFF(s, JOVE_LARGE_BUFF_SIZE);
+      s[0] = '\0';
+
+      _strcat(s, "invalid JOVEPAUSE environment variable: \"");
+      _strcat(s, opt);
+      _strcat(s, "\"\n");
+
+      _DUMP(s);
+      _jove_sys_exit_group(1);
+      __UNREACHABLE();
+    }
   }
 }
 

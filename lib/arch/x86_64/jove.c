@@ -24,6 +24,8 @@ void _jove_begin(uintptr_t rdi,
   env->regs[R_R8] = r8;
   env->regs[R_ESP] = _jove_begin_setup_emulated_stack(init_sp);
 
+  MAYBE_PAUSE(Begin);
+
   _jove_call_entry();
 }
 
