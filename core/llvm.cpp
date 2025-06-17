@@ -246,6 +246,7 @@ static bool AnalyzeHelper(helper_function_t &hf,
 }
 
 static const helper_function_t &LookupHelper(llvm::Module &M,
+                                             bool IsCOFF,
                                              helpers_context_t &helpers,
                                              tiny_code_generator_t &TCG,
                                              TCGOp *op,
@@ -279,11 +280,11 @@ static const helper_function_t &LookupHelper(llvm::Module &M,
   std::string suffix = DFSan ? ".dfsan.bc" : ".bc";
 
   llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> BufferOr =
-      llvm::MemoryBuffer::getFile(locator_t::helper_bitcode(helper_nm));
+      llvm::MemoryBuffer::getFile(locator_t::helper_bitcode(IsCOFF, helper_nm));
   if (!BufferOr) {
     WithColor::error() << "could not open bitcode for helper_" << helper_nm
-                       << " at " << locator_t::helper_bitcode(helper_nm) << " ("
-                       << BufferOr.getError().message() << ")\n";
+                       << " at " << locator_t::helper_bitcode(IsCOFF, helper_nm)
+                       << " (" << BufferOr.getError().message() << ")\n";
     exit(1);
   }
 
@@ -456,6 +457,8 @@ bool AnalyzeBasicBlock(tiny_code_generator_t &TCG,
     bbprop.Analysis.Stale.store(false, std::memory_order_release);
   };
 
+  const bool IsCOFF = B::is_coff(B);
+
   const uint64_t Addr = bbprop.Addr;
   const unsigned Size = bbprop.Size;
 
@@ -492,7 +495,7 @@ bool AnalyzeBasicBlock(tiny_code_generator_t &TCG,
           continue;
 
         const helper_function_t &hf =
-            LookupHelper(M, helpers, TCG, op, options);
+            LookupHelper(M, IsCOFF, helpers, TCG, op, options);
 
         iglbs = hf.Analysis.InGlbs;
         oglbs = hf.Analysis.OutGlbs;
@@ -6953,15 +6956,17 @@ int llvm_t<MT, MinSize>::LinkInSoftFPU(void) {
   assert(opts.SoftfpuBitcode);
 
   llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> BufferOr =
-      llvm::MemoryBuffer::getFile(locator_t::softfloat_bitcode());
+      llvm::MemoryBuffer::getFile(locator_t::softfloat_bitcode(IsCOFF));
   if (!BufferOr)
-    die("could not open softfpu bitcode at " + locator_t::softfloat_bitcode());
+    die("could not open softfpu bitcode at " +
+        locator_t::softfloat_bitcode(IsCOFF));
 
   llvm::Expected<std::unique_ptr<llvm::Module>> ExpectedModule =
       llvm::parseBitcodeFile(BufferOr.get()->getMemBufferRef(),
                              Module->getContext());
   if (!ExpectedModule)
-    die("could not parse softfpu bitcode at " + locator_t::softfloat_bitcode());
+    die("could not parse softfpu bitcode at " +
+        locator_t::softfloat_bitcode(IsCOFF));
 
   std::unique_ptr<llvm::Module> &softfpuModule = ExpectedModule.get();
 
@@ -6980,10 +6985,12 @@ int llvm_t<MT, MinSize>::LinkInSoftFPU(void) {
         });
       });
 
+#if 1
   if (IsCOFF) {
     squashSRetFunctions(*Module);
     squashByvalFunctions(*Module);
   }
+#endif
 
   return 0;
 }
@@ -9821,7 +9828,7 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     }
 
     const helper_function_t &hf =
-        LookupHelper(*Module, helpers, TCG, op, analyzer_options);
+        LookupHelper(*Module, IsCOFF, helpers, TCG, op, analyzer_options);
 
     llvm::Function *const hfF = hf.F;
     if (unlikely(!hfF))

@@ -463,7 +463,7 @@ int DecompileTool::Run(void) {
     helper_nms.begin(),
     helper_nms.end(),
     [&](const std::string &helper_nm) {
-      std::string helper_bc_fp = locator().helper_bitcode(helper_nm);
+      std::string helper_bc_fp = locator().helper_bitcode(IsCOFF, helper_nm);
 
       std::string tmpbc_fp = (fs::path(temporary_dir()) / helper_nm).string() + ".bc";
       std::string o_fp = (fs::path(opts.Output) / ".obj" / helper_nm).string() + ".o";
@@ -521,7 +521,7 @@ int DecompileTool::Run(void) {
   fs::copy_file(locator().builtins(IsCOFF),
                 fs::path(opts.Output) / ".obj" / "builtins.a",
                 fs::copy_options::overwrite_existing);
-  fs::copy_file(locator().softfloat_bitcode(),
+  fs::copy_file(locator().softfloat_bitcode(IsCOFF),
                 fs::path(opts.Output) / ".obj" / "libfpu_softfloat.bc",
                 fs::copy_options::overwrite_existing);
   fs::create_directories(fs::path(opts.Output) / ".lib" / "lib");

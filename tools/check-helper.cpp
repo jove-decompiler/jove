@@ -55,7 +55,7 @@ int CheckHelpersTool::Run(void) {
 
 void CheckHelpersTool::checkHelper(const std::string &helper_nm) {
   llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> BufferOr =
-      llvm::MemoryBuffer::getFile(locator().helper_bitcode(helper_nm));
+      llvm::MemoryBuffer::getFile(locator().helper_bitcode(false /* FIXME */, helper_nm));
   if (!BufferOr) {
     WithColor::error() << "could not open bitcode for helper_" << helper_nm
                        << " (" << BufferOr.getError().message() << ")\n";

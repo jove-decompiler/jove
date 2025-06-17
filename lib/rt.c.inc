@@ -438,7 +438,11 @@ void _jove_init_cpu_state(void) {
   }
 
   static const uint8_t env_init_bytes[] = {
-#include "env_init.inc"
+#ifdef JOVE_COFF
+#include "env_init.win.inc"
+#else
+#include "env_init.linux.inc"
+#endif
   };
 
   static_assert(sizeof(env_init_bytes) == sizeof(struct CPUArchState));

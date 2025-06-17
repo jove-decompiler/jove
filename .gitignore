@@ -13,10 +13,10 @@ tags
 /bin/*/qemu.tcg.copy.h
 /bin/*/qemu.tcg.copy.*.h
 /bin/*/helpers/*.c
-/bin/*/helpers/*.bc
-/bin/*/helpers/*.bc.*
-/bin/*/helpers/*.ll
-/bin/*/helpers/*.d
+/bin/*/helpers/*/*.bc
+/bin/*/helpers/*/*.bc.*
+/bin/*/helpers/*/*.ll
+/bin/*/helpers/*/*.d
 /bin/*/*.o
 /bin/*/*.dll
 /bin/*/*.lib
@@ -24,8 +24,8 @@ tags
 /bin/*/qemu-starter.inc
 /bin/*/dump-vdso
 /bin/*/dump-vdso.inc
-/bin/*/env_init.inc
-/bin/*/env_init
+/bin/*/env_init.*.inc
+/bin/*/env_init.*
 /bin/*/all_helpers.mk
 tests/.t/*
 tests/__pycache__/*

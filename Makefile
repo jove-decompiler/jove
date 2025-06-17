@@ -6,6 +6,8 @@ include gmsl
 include $(JOVE_ROOT_DIR)/version.mk
 include $(JOVE_ROOT_DIR)/targets.mk
 
+get_targets_for_platform = $(ALL_$(call uc,$1)_TARGETS)
+
 define include_target_helpers_template
 include $(JOVE_ROOT_DIR)/lib/arch/$(1)/helpers.mk
 -include $(JOVE_ROOT_DIR)/bin/$(1)/all_helpers.mk
@@ -28,14 +30,11 @@ JOVE_GITVER := $(shell git log -n1 --format="%h")
 
 BINDIR := bin
 
-$(foreach t,$(ALL_TARGETS),$(shell mkdir -p $(BINDIR)/$(t)/helpers))
-
 mipsel_RUNTIME_CFLAGS   := -D TARGET_MIPS32
 mips_RUNTIME_CFLAGS     := -D TARGET_MIPS32
 mips64el_RUNTIME_CFLAGS := -D TARGET_MIPS64
 
 runtime_cflags = -std=gnu11 \
-                 --target=$($(1)_TRIPLE) \
                  -I include \
                  -I lib \
                  -I lib/arch/$(1) \
@@ -118,10 +117,10 @@ all: helpers \
      runtime \
      utilities
 
-.PHONY: helpers
-helpers: $(foreach t,$(ALL_TARGETS),helpers-$(t))
+$(foreach p,$(PLATFORMS),$(foreach t,$(call get_targets_for_platform,$(p)),$(shell mkdir -p $(BINDIR)/$(t)/helpers/$(p))))
 
-get_targets_for_platform = $(ALL_$(call uc,$1)_TARGETS)
+.PHONY: helpers
+helpers: $(foreach p,$(PLATFORMS),$(foreach t,$(call get_targets_for_platform,$(p)),helpers-$(t)-$(p)))
 
 .PHONY: runtime
 runtime: $(foreach p,$(PLATFORMS),$(foreach t,$(call get_targets_for_platform,$(p)),runtime-$(t)-$(p)))
@@ -143,7 +142,7 @@ tcg-constants: $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/tcgconstants.h) \
 all-helpers-mk: $(foreach t,$(ALL_TARGETS),all-helpers-$(t)-mk)
 
 .PHONY: env-inits
-env-inits: $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/env_init.inc)
+env-inits: $(foreach p,$(PLATFORMS),$(foreach t,$(call get_targets_for_platform,$(p)),$(BINDIR)/$(t)/env_init.$(p).inc))
 
 _DLL_x86_64_LINUX_CALL_CONV := X86_64_SysV
 _DLL_i386_LINUX_CALL_CONV := C
@@ -151,9 +150,12 @@ _DLL_i386_LINUX_CALL_CONV := C
 include lib/asm-offsets.mk
 
 define target_code_template
-.PHONY: helpers-$(1)
-helpers-$(1): $(foreach h,$($(t)_HELPERS),$(BINDIR)/$(1)/helpers/$(h).ll) \
-              $(foreach h,$($(t)_HELPERS),$(BINDIR)/$(1)/helpers/$(h).bc)
+.PHONY: helpers-$(1)-linux
+helpers-$(1)-linux: $(foreach h,$($(t)_HELPERS),$(BINDIR)/$(1)/helpers/linux/$(h).ll) \
+                    $(foreach h,$($(t)_HELPERS),$(BINDIR)/$(1)/helpers/linux/$(h).bc)
+.PHONY: helpers-$(1)-win
+helpers-$(1)-win: $(foreach h,$($(t)_HELPERS),$(BINDIR)/$(1)/helpers/win/$(h).ll) \
+                  $(foreach h,$($(t)_HELPERS),$(BINDIR)/$(1)/helpers/win/$(h).bc)
 
 .PHONY: runtime-$(1)-win
 runtime-$(1)-win: $(BINDIR)/$(1)/libjove_rt.st.dll \
@@ -172,18 +174,22 @@ runtime-$(1)-linux: $(BINDIR)/$(1)/libjove_rt.st.so \
                     $(BINDIR)/$(1)/jove.elf.mt.ll
 
 $(BINDIR)/$(1)/%: $(UTILSRCDIR)/%.c | ccopy
-	clang-19 -o $$@ $(call runtime_cflags,$(1)) -fpie $$< $(UTILS_LDFLAGS)
+	clang-19 -o $$@ --target=$($(1)_TRIPLE) $(call runtime_cflags,$(1)) -fpie $$< $(UTILS_LDFLAGS)
 
 $(BINDIR)/$(1)/%.inc: $(BINDIR)/$(1)/%
 	xxd -i < $$< > $$@
 
+#
+# we use clang-16 here to avoid a catch-22 during build. if our clang's version
+# ever changes, we should change this, too.
+#
 $(BINDIR)/$(1)/asm-offsets-win.h: lib/arch/$(1)/asm-offsets.c | ccopy
-	clang-16 -o $(BINDIR)/$(1)/asm-offsets-win.s $(call runtime_cflags,$(1)) -fverbose-asm -S -mllvm -trap-unreachable --target=$($(1)_COFF_TRIPLE) lib/arch/$(1)/asm-offsets.c
+	clang-16 -o $(BINDIR)/$(1)/asm-offsets-win.s --target=$($(1)_COFF_TRIPLE) -mms-bitfields $(call runtime_cflags,$(1)) -fverbose-asm -S lib/arch/$(1)/asm-offsets.c
 	@echo "#pragma once" > $$@
 	@sed -ne $(value sed-offsets) < $(BINDIR)/$(1)/asm-offsets-win.s >> $$@
 
 $(BINDIR)/$(1)/asm-offsets-linux.h: lib/arch/$(1)/asm-offsets.c | ccopy
-	clang-16 -o $(BINDIR)/$(1)/asm-offsets-linux.s $(call runtime_cflags,$(1)) -fverbose-asm -S lib/arch/$(1)/asm-offsets.c
+	clang-16 -o $(BINDIR)/$(1)/asm-offsets-linux.s --target=$($(1)_TRIPLE) $(call runtime_cflags,$(1)) -fverbose-asm -S lib/arch/$(1)/asm-offsets.c
 	@echo "#pragma once" > $$@
 	@sed -ne $(value sed-offsets) < $(BINDIR)/$(1)/asm-offsets-linux.s >> $$@
 
@@ -191,16 +197,16 @@ $(BINDIR)/$(1)/asm-offsets-linux.h: lib/arch/$(1)/asm-offsets.c | ccopy
 # starter bitcode
 #
 $(BINDIR)/$(1)/jove.elf.st.bc: lib/arch/$(1)/jove.c | ccopy asm-offsets
-	$(OUR_LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -fPIC -MMD $$<
+	$(OUR_LLVM_CC) -o $$@ -c -emit-llvm --target=$($(1)_TRIPLE) $(call runtime_cflags,$(1)) -fPIC -MMD $$<
 
 $(BINDIR)/$(1)/jove.elf.mt.bc: lib/arch/$(1)/jove.c | ccopy asm-offsets
-	$(OUR_LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -fPIC -D JOVE_MT -MMD $$<
+	$(OUR_LLVM_CC) -o $$@ -c -emit-llvm --target=$($(1)_TRIPLE) $(call runtime_cflags,$(1)) -fPIC -D JOVE_MT -MMD $$<
 
 $(BINDIR)/$(1)/jove.coff.st.bc: lib/arch/$(1)/jove.c | ccopy asm-offsets
-	$(OUR_LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -fPIC -fdeclspec -D JOVE_COFF -MMD $$<
+	$(OUR_LLVM_CC) -o $$@ -c -emit-llvm --target=$($(1)_TRIPLE) $(call runtime_cflags,$(1)) -fPIC -fdeclspec -D JOVE_COFF -mms-bitfields -MMD $$<
 
 $(BINDIR)/$(1)/jove.coff.mt.bc: lib/arch/$(1)/jove.c | ccopy asm-offsets
-	$(OUR_LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -fPIC -fdeclspec -D JOVE_COFF -D JOVE_MT -MMD $$<
+	$(OUR_LLVM_CC) -o $$@ -c -emit-llvm --target=$($(1)_TRIPLE) $(call runtime_cflags,$(1)) -fPIC -fdeclspec -D JOVE_COFF -mms-bitfields -D JOVE_MT -MMD $$<
 
 $(BINDIR)/$(1)/jove.%.ll: $(BINDIR)/$(1)/jove.%.bc
 	$(OUR_LLVM_OPT) -o $$@ -S --strip-debug $$<
@@ -209,16 +215,16 @@ $(BINDIR)/$(1)/jove.%.ll: $(BINDIR)/$(1)/jove.%.bc
 # runtime bitcode
 #
 $(BINDIR)/$(1)/libjove_rt.elf.st.bc: lib/arch/$(1)/rt.c | ccopy asm-offsets
-	$(OUR_LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -fPIC -MMD $$<
+	$(OUR_LLVM_CC) -o $$@ -c -emit-llvm --target=$($(1)_TRIPLE) $(call runtime_cflags,$(1)) -fPIC -MMD $$<
 
 $(BINDIR)/$(1)/libjove_rt.elf.mt.bc: lib/arch/$(1)/rt.c | ccopy asm-offsets
-	$(OUR_LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -fPIC -D JOVE_MT -MMD $$<
+	$(OUR_LLVM_CC) -o $$@ -c -emit-llvm --target=$($(1)_TRIPLE) $(call runtime_cflags,$(1)) -fPIC -D JOVE_MT -MMD $$<
 
 $(BINDIR)/$(1)/libjove_rt.coff.st.bc: lib/arch/$(1)/rt.c | ccopy asm-offsets
-	$(OUR_LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -fPIC -fdeclspec -D JOVE_COFF -MMD $$<
+	$(OUR_LLVM_CC) -o $$@ -c -emit-llvm --target=$($(1)_TRIPLE) $(call runtime_cflags,$(1)) -fPIC -fdeclspec -D JOVE_COFF -mms-bitfields -MMD $$<
 
 $(BINDIR)/$(1)/libjove_rt.coff.mt.bc: lib/arch/$(1)/rt.c | ccopy asm-offsets
-	$(OUR_LLVM_CC) -o $$@ -c -emit-llvm $(call runtime_cflags,$(1)) -fPIC -fdeclspec -D JOVE_COFF -D JOVE_MT -MMD $$<
+	$(OUR_LLVM_CC) -o $$@ -c -emit-llvm --target=$($(1)_TRIPLE) $(call runtime_cflags,$(1)) -fPIC -fdeclspec -D JOVE_COFF -mms-bitfields -D JOVE_MT -MMD $$<
 
 #
 # runtime shared libraries
@@ -254,7 +260,8 @@ $(foreach t,$(ALL_TARGETS),$(eval $(call target_code_template,$(t))))
 -include $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/jove.elf.mt.d)
 -include $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/jove.coff.st.d)
 -include $(foreach t,$(ALL_TARGETS),$(BINDIR)/$(t)/jove.coff.mt.d)
--include $(foreach t,$(ALL_TARGETS),$(foreach h,$($(t)_HELPERS),$(BINDIR)/$(t)/helpers/$(h).d))
+-include $(foreach t,$(ALL_TARGETS),$(foreach h,$($(t)_HELPERS),$(BINDIR)/$(t)/helpers/linux/$(h).d))
+-include $(foreach t,$(ALL_TARGETS),$(foreach h,$($(t)_HELPERS),$(BINDIR)/$(t)/helpers/win/$(h).d))
 
 .PHONY: clean-helpers
 clean-helpers: $(foreach t,$(ALL_TARGETS),clean-helpers-$(t))
@@ -266,7 +273,7 @@ clean-runtime: $(foreach t,$(ALL_TARGETS),clean-runtime-$(t))
 clean-bitcode: $(foreach t,$(ALL_TARGETS),clean-bitcode-$(t))
 
 .PHONY: clean-asm-offsets
-clean-asm-offsets: $(foreach t,$(ALL_TARGETS),clean-asm-offsets-$(t))
+clean-asm-offsets: $(foreach p,$(PLATFORMS),$(foreach t,$(call get_targets_for_platform,$(p)),clean-asm-offsets-$(t)-$(p)))
 
 .PHONY: clean-utilities
 clean-utilities:
@@ -298,17 +305,32 @@ CARBON_EXTRACT := /usr/local/bin/carbon-extract
 QEMU_DIR := $(JOVE_ROOT_DIR)/qemu
 qemu_carbon_build_dir = $(QEMU_DIR)/$(1)_carbon_build
 qemu_carbon_host_build_dir = $(QEMU_DIR)/$(HOST_TARGET)_carbon_build_$(1)
-qemu_softfpu_build_dir = $(QEMU_DIR)/$(1)_softfpu_build
+qemu_softfpu_build_dir = $(QEMU_DIR)/$(1)_softfpu_$(2)_build
 
 LINUX_DIR := $(JOVE_ROOT_DIR)/linux
 linux_carbon_build_dir = $(LINUX_DIR)/$(1)_carbon_build
 
 define target_template
-$(BINDIR)/$(1)/helpers/%.ll: $(BINDIR)/$(1)/helpers/%.bc
+
+#
+# FIXME there is code duplication here between the platforms. there's
+# essentially only a single difference between helpers built for linux and
+# helpers built for windows, namely '-mms-bitfields'
+#
+$(BINDIR)/$(1)/helpers/linux/%.ll: $(BINDIR)/$(1)/helpers/linux/%.bc
 	$(OUR_LLVM_OPT) -o $$@ -S --strip-debug $$<
 
-$(BINDIR)/$(1)/helpers/%.bc: $(BINDIR)/$(1)/helpers/%.c | ccopy
-	$(OUR_LLVM_CC) -o $$@ $(call helper_cflags,$(1)) -MMD -c -emit-llvm -mllvm -trap-unreachable $$<
+$(BINDIR)/$(1)/helpers/win/%.ll: $(BINDIR)/$(1)/helpers/win/%.bc
+	$(OUR_LLVM_OPT) -o $$@ -S --strip-debug $$<
+
+$(BINDIR)/$(1)/helpers/linux/%.bc: $(BINDIR)/$(1)/helpers/%.c | ccopy
+	$(OUR_LLVM_CC) -o $$@ --target=$($(1)_TRIPLE) $(call helper_cflags,$(1)) -MMD -c -emit-llvm -mllvm -trap-unreachable $$<
+	$(OUR_LLVM_OPT) -o $$@.tmp $$@ -passes=internalize --internalize-public-api-list=helper_$$*
+	$(OUR_LLVM_OPT) -o $$@ -O3 $$@.tmp
+	@rm $$@.tmp
+
+$(BINDIR)/$(1)/helpers/win/%.bc: $(BINDIR)/$(1)/helpers/%.c | ccopy
+	$(OUR_LLVM_CC) -o $$@ --target=$($(1)_TRIPLE) -mms-bitfields $(call helper_cflags,$(1)) -MMD -c -emit-llvm -mllvm -trap-unreachable $$<
 	$(OUR_LLVM_OPT) -o $$@.tmp $$@ -passes=internalize --internalize-public-api-list=helper_$$*
 	$(OUR_LLVM_OPT) -o $$@ -O3 $$@.tmp
 	@rm $$@.tmp
@@ -327,12 +349,19 @@ extract-helpers-$(1): $(foreach h,$($(1)_HELPERS),$(BINDIR)/$(1)/helpers/$(h).c)
 .PHONY: check-helpers-$(1)
 check-helpers-$(1): $(foreach h,$($(1)_HELPERS),check-helper-$(1)-$(h))
 
-.PHONY: clean-helpers-$(1)
-clean-helpers-$(1):
+.PHONY: clean-helpers-$(1)-linux
+clean-helpers-$(1)-linux:
 	rm -f $(foreach h,$($(1)_HELPERS),$(BINDIR)/$(1)/helpers/$(h).c) \
-	      $(foreach h,$($(1)_HELPERS),$(BINDIR)/$(1)/helpers/$(h).bc) \
-	      $(foreach h,$($(1)_HELPERS),$(BINDIR)/$(1)/helpers/$(h).ll) \
-	      $(foreach h,$($(1)_HELPERS),$(BINDIR)/$(1)/helpers/$(h).d)
+	      $(foreach h,$($(1)_HELPERS),$(BINDIR)/$(1)/helpers/linux/$(h).bc)\
+	      $(foreach h,$($(1)_HELPERS),$(BINDIR)/$(1)/helpers/linux/$(h).ll)\
+	      $(foreach h,$($(1)_HELPERS),$(BINDIR)/$(1)/helpers/linux/$(h).d)
+
+.PHONY: clean-helpers-$(1)-win
+clean-helpers-$(1)-win:
+	rm -f $(foreach h,$($(1)_HELPERS),$(BINDIR)/$(1)/helpers/$(h).c)   \
+	      $(foreach h,$($(1)_HELPERS),$(BINDIR)/$(1)/helpers/win/$(h).bc)  \
+	      $(foreach h,$($(1)_HELPERS),$(BINDIR)/$(1)/helpers/win/$(h).ll)  \
+	      $(foreach h,$($(1)_HELPERS),$(BINDIR)/$(1)/helpers/win/$(h).d)
 
 .PHONY: clean-runtime-$(1)
 clean-runtime-$(1):
@@ -352,18 +381,24 @@ clean-runtime-$(1):
 clean-bitcode-$(1):
 	rm -f $(BINDIR)/$(1)/*.bc \
 	      $(BINDIR)/$(1)/*.ll \
-	      $(BINDIR)/$(1)/helpers/*.bc \
-	      $(BINDIR)/$(1)/helpers/*.ll
+	      $(BINDIR)/$(1)/helpers/linux/*.bc \
+	      $(BINDIR)/$(1)/helpers/linux/*.ll \
+	      $(BINDIR)/$(1)/helpers/win/*.bc \
+	      $(BINDIR)/$(1)/helpers/win/*.ll
 
-.PHONY: clean-asm-offsets-$(1)
-clean-asm-offsets-$(1):
-	rm -f $(BINDIR)/$(1)/asm-offsets.h
+.PHONY: clean-asm-offsets-$(1)-linux
+clean-asm-offsets-$(1)-linux:
+	rm -f $(BINDIR)/$(1)/asm-offsets-linux.h
 
-$(BINDIR)/$(1)/softfpu-linux.o: $(call qemu_softfpu_build_dir,$(1))/libfpu_soft-$(1)-linux-user.a.p/fpu_softfloat.c.o
-	$(OUR_LLVM_LLC) -o $$@ --dwarf-version=4 --filetype=obj --trap-unreachable -O0 --relocation-model=pic $$<
+.PHONY: clean-asm-offsets-$(1)-win
+clean-asm-offsets-$(1)-win:
+	rm -f $(BINDIR)/$(1)/asm-offsets-win.h
 
-$(BINDIR)/$(1)/softfpu-win.o: $(call qemu_softfpu_build_dir,$(1))/libfpu_soft-$(1)-linux-user.a.p/fpu_softfloat.c.o
-	$(OUR_LLVM_LLC) -o $$@ --dwarf-version=4 --filetype=obj --trap-unreachable -O0 --relocation-model=pic --mtriple=$($(1)_COFF_TRIPLE) $$<
+$(BINDIR)/$(1)/softfpu-linux.o: $(call qemu_softfpu_build_dir,$(1),linux)/libfpu_soft-$(1)-linux-user.a.p/fpu_softfloat.c.o
+	$(OUR_LLVM_LLC) -o $$@ --dwarf-version=4 --filetype=obj --trap-unreachable --relocation-model=pic $$<
+
+$(BINDIR)/$(1)/softfpu-win.o: $(call qemu_softfpu_build_dir,$(1),win)/libfpu_soft-$(1)-linux-user.a.p/fpu_softfloat.c.o
+	$(OUR_LLVM_LLC) -o $$@ --dwarf-version=4 --filetype=obj --trap-unreachable --relocation-model=pic --mtriple=$($(1)_COFF_TRIPLE) $$<
 
 $(BINDIR)/$(1)/linux.copy.h:
 	$(CARBON_EXTRACT) --src $(LINUX_DIR) --bin $(call linux_carbon_build_dir,$(1)) -n jove > $$@
@@ -380,7 +415,7 @@ $(BINDIR)/$(HOST_TARGET)/qemu.tcg.copy.$(1).h:
 	$(CARBON_EXTRACT) --src $(QEMU_DIR) --bin $(call qemu_carbon_host_build_dir,$(1)) -n --flatten jove_tcg >> $$@
 
 $(BINDIR)/$(1)/tcgconstants.h: | $(BINDIR)/$(1)/qemu-starter
-	env JOVE_PRINT_CONSTANTS=1 $(call qemu_carbon_build_dir,$(1))/qemu-$(1) $(BINDIR)/$(1)/qemu-starter > $$@
+	env JOVE_PRINT_CONSTANTS=1 $(call qemu_softfpu_build_dir,$(1),linux)/qemu-$(1) $(BINDIR)/$(1)/qemu-starter > $$@
 
 $(BINDIR)/$(HOST_TARGET)/tcgconstants.$(1).h: | $(BINDIR)/$(1)/qemu-starter
 	env JOVE_PRINT_CONSTANTS=1 $(call qemu_carbon_host_build_dir,$(1))/qemu-$(1) $(BINDIR)/$(1)/qemu-starter > $$@
@@ -389,8 +424,11 @@ $(BINDIR)/$(HOST_TARGET)/tcgconstants.$(1).h: | $(BINDIR)/$(1)/qemu-starter
 all-helpers-$(1)-mk: | $(BINDIR)/$(1)/qemu-starter
 	env JOVE_PRINT_HELPERS=1 $(call qemu_carbon_host_build_dir,$(1))/qemu-$(1) $(BINDIR)/$(1)/qemu-starter > $(BINDIR)/$(1)/all_helpers.mk
 
-$(BINDIR)/$(1)/env_init: | $(BINDIR)/$(1)/qemu-starter
-	env JOVE_DUMP_ENV=1 $(call qemu_carbon_build_dir,$(1))/qemu-$(1) $(BINDIR)/$(1)/qemu-starter > $$@
+$(BINDIR)/$(1)/env_init.linux: | $(BINDIR)/$(1)/qemu-starter
+	env JOVE_DUMP_ENV=1 $(call qemu_softfpu_build_dir,$(1),linux)/qemu-$(1) $(BINDIR)/$(1)/qemu-starter > $$@
+
+$(BINDIR)/$(1)/env_init.win: | $(BINDIR)/$(1)/qemu-starter
+	env JOVE_DUMP_ENV=1 $(call qemu_softfpu_build_dir,$(1),win)/qemu-$(1) $(BINDIR)/$(1)/qemu-starter > $$@
 endef
 $(foreach t,$(ALL_TARGETS),$(eval $(call target_template,$(t))))
 

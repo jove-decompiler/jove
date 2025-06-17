@@ -74,8 +74,9 @@ std::string locator_t::starter_bitcode(bool mt, bool IsCOFF) {
   return must_exist(arch_bin_path() / fnm);
 }
 
-std::string locator_t::helper_bitcode(const std::string &name) {
-  return must_exist(arch_bin_path() / "helpers" / (name + ".bc"));
+std::string locator_t::helper_bitcode(bool IsCOFF, const std::string &name) {
+  return must_exist(arch_bin_path() / "helpers" / (IsCOFF ? "win" : "linux") /
+                    (name + ".bc"));
 }
 
 #define JUST_IN_PARENT_DIR(fn, name)                                           \
@@ -199,9 +200,11 @@ std::string locator_t::ida_scripts(void) {
   return must_exist(scripts_path()  / "ida" / "_");
 }
 
-std::string locator_t::softfloat_bitcode(void) {
+std::string locator_t::softfloat_bitcode(bool IsCOFF) {
   return must_exist(
-      qemu_path() / (std::string(TARGET_ARCH_NAME) + "_softfpu_build") /
+      qemu_path() /
+      (std::string(TARGET_ARCH_NAME) + "_softfpu_" +
+       std::string(IsCOFF ? "win" : "linux") + "_build") /
       (std::string("libfpu_soft-") + TARGET_ARCH_NAME + "-linux-user.a.p") /
       "fpu_softfloat.c.o");
 }

@@ -10,9 +10,9 @@ struct locator_t {
   std::string runtime_dll(bool mt); // libjove_rt.dll
   std::string runtime_implib(bool mt); // libjove_rt.lib
   static std::string starter_bitcode(bool mt, bool IsCOFF); // jove.bc
-  static std::string helper_bitcode(const std::string &name);
+  static std::string helper_bitcode(bool IsCOFF, const std::string &name);
 
-  static std::string softfloat_bitcode(void);
+  static std::string softfloat_bitcode(bool IsCOFF);
   static std::string softfloat_obj(bool IsCOFF);
 
   std::string cbe(void); // llvm-cbe
