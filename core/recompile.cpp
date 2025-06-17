@@ -1009,7 +1009,7 @@ int recompiler_t<MT, MinSize>::go(void) {
         if (!subsystem.empty())
           Arg("/subsystem:" + subsystem);
 
-        Arg("/entry:JoveWinMain");
+        Arg("/entry:_jove_begin");
 
         Arg("/debug:dwarf");
         Arg("/largeaddressaware");
