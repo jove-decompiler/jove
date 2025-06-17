@@ -34,5 +34,11 @@ int main(void) {
 
   BOOST_PP_REPEAT(8, XMM_THING_FROM_SP, void)
 
+#define MMX_THING_FROM_SP(n, idx, data) \
+  DEFINE(ASMOFF_ENV_FROM_SP_fpregs_##idx##_mmx, \
+         offsetof(CPUX86State, fpregs[idx].mmx) - offsetof(CPUX86State, regs[R_ESP]));
+
+  BOOST_PP_REPEAT(8, MMX_THING_FROM_SP, void)
+
   return 0;
 }
