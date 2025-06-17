@@ -501,26 +501,7 @@ void _jove_identify_trampolines(struct jove_trampoline_t *tramp_p,
 uint32_t _tls_index = 0;
 
 void WINAPI JoveWinMain(void) {
-  //
-  // TODO? __getmainargs()
-  //
-  {
-    uintptr_t env_stack_beg = _jove_alloc_stack();
-    uintptr_t env_stack_end = env_stack_beg + JOVE_STACK_SIZE;
-
-    uintptr_t emu_sp = env_stack_end - JOVE_PAGE_SIZE - JOVE_PAGE_SIZE;
-
-    emu_sp &= ~31UL;
-    emu_sp -= sizeof(uintptr_t);
-
-    JOVE_RT_THREAD_GLOBAL(env).regs[R_ESP] = emu_sp;
-  }
-
-  _jove_initialize();
-
-  MAYBE_PAUSE(WinMain);
-
-  _jove_call_entry();
+  _UNREACHABLE("JoveWinMain is no longer in use");
 }
 
 #endif
