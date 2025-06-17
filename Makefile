@@ -415,7 +415,7 @@ $(BINDIR)/$(HOST_TARGET)/qemu.tcg.copy.$(1).h:
 	$(CARBON_EXTRACT) --src $(QEMU_DIR) --bin $(call qemu_carbon_host_build_dir,$(1)) -n --flatten jove_tcg >> $$@
 
 $(BINDIR)/$(1)/tcgconstants.h: | $(BINDIR)/$(1)/qemu-starter
-	env JOVE_PRINT_CONSTANTS=1 $(call qemu_softfpu_build_dir,$(1),linux)/qemu-$(1) $(BINDIR)/$(1)/qemu-starter > $$@
+	env JOVE_PRINT_CONSTANTS=1 $(call qemu_carbon_build_dir,$(1))/qemu-$(1) $(BINDIR)/$(1)/qemu-starter > $$@
 
 $(BINDIR)/$(HOST_TARGET)/tcgconstants.$(1).h: | $(BINDIR)/$(1)/qemu-starter
 	env JOVE_PRINT_CONSTANTS=1 $(call qemu_carbon_host_build_dir,$(1))/qemu-$(1) $(BINDIR)/$(1)/qemu-starter > $$@
