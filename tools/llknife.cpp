@@ -135,7 +135,7 @@ int KnifeTool::Run(void) {
 
       for (llvm::BasicBlock &BB : F) {
         for (llvm::Instruction &I : BB) {
-	  // clear metadata
+          // clear metadata
           I.setMetadata(llvm::LLVMContext::MD_noalias, nullptr);
           I.setMetadata(llvm::LLVMContext::MD_alias_scope, nullptr);
 
