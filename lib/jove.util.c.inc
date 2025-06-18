@@ -37,6 +37,9 @@ static void _jove_on_crash(char mode) {
   case '\0':
     _jove_sys_exit_group(0x77);
     __UNREACHABLE();
+  case 'x':
+    _jove_sys_exit_group(1);
+    __UNREACHABLE();
 
   default: /* interpret as exit status */
     _jove_sys_exit_group((int)mode);

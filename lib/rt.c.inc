@@ -299,6 +299,7 @@ void _jove_parse_crash_string(char *const s) {
   switch (ch) {
   case 'a':
   case 's':
+  case 'x':
     break;
 
   default:
@@ -671,6 +672,7 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
       sig != SIGILL)
     _UNREACHABLE("BUG");
 
+#if 0
   if (unlikely(__jove_opts.Debug.Verbose)) {
     char s[128];
     s[0] = '\0';
@@ -686,6 +688,7 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
 
     _DUMP(s);
   }
+#endif
 
   _ASSERT(entered.enteredp && "haven't reentered");
 
