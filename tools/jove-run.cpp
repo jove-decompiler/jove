@@ -573,24 +573,24 @@ int RunTool::DoRun(void) {
   // code recovery fifo. why don't we use an anonymous pipe? because the
   // program being recompiled may decide to close all the open file descriptors
   //
-  std::string fifo_dir;
+  std::string stuff_dir;
   if (WillChroot)
-    fifo_dir = opts.sysroot;
-  fifo_dir.append("/tmp/jove.XXXXXX");
+    stuff_dir = opts.sysroot;
+  stuff_dir.append("/tmp/jove.XXXXXX");
 
-  if (!mkdtemp(&fifo_dir[0])) {
+  if (!mkdtemp(&stuff_dir[0])) {
     int err = errno;
     throw std::runtime_error("failed to make temporary directory: " +
                              std::string(strerror(err)));
   }
 
-  if (::chmod(fifo_dir.c_str(), 0777) < 0) {
+  if (::chmod(stuff_dir.c_str(), 0777) < 0) {
     int err = errno;
     throw std::runtime_error("failed to change permissions of temporary directory: " +
                              std::string(strerror(err)));
   }
 
-  std::string fifo_path = fifo_dir + "/jove.fifo";
+  std::string fifo_path = stuff_dir + "/jove.fifo";
   if (mkfifo(fifo_path.c_str(), 0666) < 0) {
     int err = errno;
     HumanOut() << llvm::formatv("mkfifo failed : %s\n", strerror(err));
@@ -609,7 +609,10 @@ int RunTool::DoRun(void) {
   if (WillChroot)
     fifo_path_under_sysroot = "/" + fs::relative(fifo_file_path, fs::canonical(opts.sysroot)).string();
 
-  BOOST_SCOPE_DEFER [&] { fs::remove_all(fifo_dir); };
+  BOOST_SCOPE_DEFER [&] {
+    if (ShouldDeleteTemporaryFiles())
+      fs::remove_all(stuff_dir);
+  };
 
   {
   //
@@ -783,14 +786,30 @@ int RunTool::DoRun(void) {
                     ;
 
                 if (IsVerbose())
-                  WithColor::note() << llvm::formatv("setting WINEPREFIX={0}\n", new_wine_prefix);
+                  WithColor::note() << llvm::formatv("setting WINEPREFIX={0}\n",
+                                                     new_wine_prefix);
                 Env("WINEPREFIX=" + new_wine_prefix);
               }
 
               if (!getenv("WINEARCH")) {
                 // it simplifies things if we can forget about WOW64
-                Env(std::string("export WINEARCH=win") + (IsTarget32 ? "32" : "64"));
+                Env(std::string("WINEARCH=win") + (IsTarget32 ? "32" : "64"));
               }
+
+              assert(opts.WineStderr.empty()); /* FIXME */
+              assert(!WillChroot);
+
+              std::string wine_stderr_path = stuff_dir + "/wine.stderr";
+              if (IsVeryVerbose())
+                WithColor::note()
+                    << llvm::formatv("WINEDEBUGLOG={0}\n", wine_stderr_path);
+
+              // FIXME look for preexisting WINEDEBUG
+              Env("WINEDEBUG=+module,+loaddll,+err");
+              Env("WINEDEBUGLOG=" + wine_stderr_path);
+            } else {
+              Env("LD_LIBRARY_PATH=" +
+                  (fs::path(opts.sysroot) / "usr" / "lib").string());
             }
           }
 
@@ -801,23 +820,12 @@ int RunTool::DoRun(void) {
           Env(fifo_env);
 
           if (IsVerbose())
-            HumanOut() << fifo_env << '\n';
+            HumanOut() << stuff_dir << '\n';
 
           SetupEnvironForRun(Env);
 
           if (fs::exists("/firmadyne/libnvram.so")) /* XXX firmadyne */
             Env("LD_PRELOAD=/firmadyne/libnvram.so");
-
-          if (!opts.WineStderr.empty()) {
-            // TODO look for preexisting WINEDEBUG
-            Env("WINEDEBUG=+module,+loaddll");
-            Env("WINEDEBUGLOG=" + opts.WineStderr);
-          }
-
-          if (!IsCOFF) {
-            Env("LD_LIBRARY_PATH=" +
-                (fs::path(opts.sysroot) / "usr" / "lib").string());
-          }
 
           for (const std::string &s : opts.Envs)
             Env(s);

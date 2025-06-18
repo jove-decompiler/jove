@@ -1274,3 +1274,329 @@ matched:
     }
   }
 }
+
+#ifdef JOVE_COFF
+
+void _jove_recover_anonymous_foreign_function(uint32_t BBIdx, uintptr_t pc) {
+  _VERBOSE_DUMP_FUNC();
+  char *wine_stderr_path = _getenv("WINEDEBUGLOG");
+  if (!wine_stderr_path)
+    return;
+
+  char *beg;
+  JOVE_SCOPED_BUFF(beg, JOVE_LARGE_BUFF_SIZE);
+  unsigned n =
+      _jove_read_pseudo_file(wine_stderr_path, beg, JOVE_LARGE_BUFF_SIZE);
+
+  char *line;
+  char *eol;
+  for_each_str_eos_delim_know_end(line, eol, '\n', beg, n) {
+    unsigned left = eol - line;
+    const char *needle1 = ":trace:module:map_image_into_view mapping ";
+    char *map_image_into_view = _memmem(line, left, needle1, _strlen(needle1));
+    if (!map_image_into_view)
+      continue;
+
+    char *path_beg = map_image_into_view + _strlen(needle1);
+
+    char *p = map_image_into_view; /* space */
+    left = eol - p;
+
+    // const char *needle2 = "section .text at ";
+    const char *needle2 = " section ";
+
+    char *section = _memmem(p, left, needle2, _strlen(needle2));
+    if (!section)
+      continue;
+
+    char *const path_end = section;
+
+    char *const sectnm_beg = section + _strlen(needle2);
+    char *const sectnm_end = _memchr(sectnm_beg, ' ', eol - sectnm_beg);
+    _ASSERT(sectnm_end);
+
+    p = sectnm_end;
+    _ASSERT(p[0] == ' ' && p[1] == 'a' && p[2] == 't' && p[3] == ' ' &&
+            p[4] == '0' && p[5] == 'x');
+
+    char *const min_beg = p + _strlen(" at 0x");
+    char *const min_end = _memchr(min_beg, ' ', eol - min_beg);
+    _ASSERT(min_end);
+
+    uint64_t min = _u64ofhexstr(min_beg, min_end);
+
+    char *const off_beg = min_end + _strlen(" off ");
+    char *const off_end = _memchr(off_beg, ' ', eol - off_beg);
+    _ASSERT(off_end);
+
+    uint64_t off = _u64ofhexstr(off_beg, off_end);
+
+    char *const size_beg = off_end + _strlen("size  ");
+    char *const size_end = _memchr(size_beg, ' ', eol - size_beg);
+    _ASSERT(size_end);
+
+    uint64_t size = _u64ofhexstr(size_beg, size_end);
+
+    if (!(pc >= min && pc < (min + size)))
+      continue;
+
+    //
+    // found the mapping where the address is located
+    //
+    *path_end = '\0';
+
+    //
+    // verify that we know about this binary.
+    //
+    unsigned N = _jove_foreign_lib_count();
+    for (unsigned i = 0; i < N; ++i) {
+      const char **pforeign_dso_path_beg;
+      for_each_binary_paths(i + 3, pforeign_dso_path_beg) {
+        const char *const foreign_dso_path_beg = *pforeign_dso_path_beg;
+        const unsigned foreign_dso_path_len = _strlen(foreign_dso_path_beg);
+        const char *foreign_dso_path_end =
+            &foreign_dso_path_beg[foreign_dso_path_len];
+
+        {
+          bool match = true;
+
+          const char *s1 = foreign_dso_path_end - 1;
+          const char *s2 = path_end - 1;
+          for (;;) {
+            if (*s1 != *s2) {
+              match = false;
+              break;
+            }
+
+            if (s1 == foreign_dso_path_beg)
+              break; /* we're done here */
+
+            --s1;
+            --s2;
+          }
+
+          if (!match)
+            continue;
+        }
+
+        //
+        // we've found a match.
+        //
+        uintptr_t *const fntbl = _jove_foreign_lib_function_table(i);
+
+        ptrdiff_t curr_bias = __jove_foreign_function_tables_bias[i + 3];
+        ptrdiff_t load_bias = min - off;
+
+        bool JustLoaded = __jove_foreign_function_tables[i + 3] == NULL;
+        bool Reloaded = !JustLoaded && load_bias != curr_bias;
+        const bool Changed = JustLoaded || Reloaded;
+
+        if (Changed) {
+          if (unlikely(__jove_opts.Debug.Verbose)) {
+            char *s;
+            JOVE_SCOPED_BUFF(s, 2 * PATH_MAX);
+            s[0] = '\0';
+
+            _strcat(s, "[found \"");
+            _strcat(s, foreign_dso_path_beg);
+            _strcat(s, "\" ");
+            if (Reloaded)
+              _strcat(s, "now ");
+            _strcat(s, "@ 0x");
+            {
+              char buff[65];
+              _uint_to_string(load_bias, buff, 0x10);
+
+              _strcat(s, buff);
+            }
+            if (Reloaded) {
+              _strcat(s, " was @ 0x");
+              {
+                char buff[65];
+                _uint_to_string(curr_bias, buff, 0x10);
+
+                _strcat(s, buff);
+              }
+            }
+            _strcat(s, "]\n");
+
+            _DUMP(s);
+          }
+
+          if (Reloaded) {
+            //
+            // undo our modifications to the function pointers
+            //
+            for (unsigned FIdx = 0; fntbl[FIdx]; ++FIdx)
+              fntbl[FIdx] -= curr_bias;
+          }
+
+          for (unsigned FIdx = 0; fntbl[FIdx]; ++FIdx)
+            fntbl[FIdx] += load_bias;
+
+          __jove_foreign_function_tables_bias[i + 3] = load_bias;
+          if (JustLoaded) {
+            __jove_foreign_function_tables[i + 3] = fntbl;
+          }
+        }
+
+        //
+        // determine if given program counter is already regarded as fn
+        //
+        for (unsigned FIdx = 0; fntbl[FIdx]; ++FIdx) {
+          if (pc == fntbl[FIdx]) {
+            //
+            // yep, we know about it.
+            //
+            _jove_found_dyn_target(BBIdx, i + 3, FIdx);
+            _jove_sys_exit_group('f');
+            __UNREACHABLE();
+          }
+        }
+
+        //
+        // nope, we don't know about this function
+        //
+        _jove_recover_foreign_function_at_offset(BBIdx, i + 3,
+                                                 (pc - min) + off);
+        _UNREACHABLE();
+      }
+    }
+
+    return; /* we don't know about this binary... */
+  }
+}
+
+void _jove_recover_anonymous_foreign_binary(uintptr_t pc) {
+  _VERBOSE_DUMP_FUNC();
+
+  char *wine_stderr_path = _getenv("WINEDEBUGLOG");
+  if (!wine_stderr_path)
+    return;
+
+  {
+    char s[512];
+    s[0] = '\0';
+
+    _strcat(s, "_jove_recover_anonymous_binary: 0x");
+    {
+      char buff[65];
+      _uint_to_string(pc, buff, 0x10);
+
+      _strcat(s, buff);
+    }
+    _strcat(s, "\n");
+    _DUMP(s);
+  }
+
+  char *beg;
+  JOVE_SCOPED_BUFF(beg, JOVE_LARGE_BUFF_SIZE);
+  unsigned n =
+      _jove_read_pseudo_file(wine_stderr_path, beg, JOVE_LARGE_BUFF_SIZE);
+
+  char *line;
+  char *eol;
+  for_each_str_eos_delim_know_end(line, eol, '\n', beg, n) {
+    unsigned left = eol - line;
+    const char *needle1 = ":trace:module:map_image_into_view mapping ";
+    char *map_image_into_view = _memmem(line, left, needle1, _strlen(needle1));
+    if (!map_image_into_view)
+      continue;
+
+    char *path_beg = map_image_into_view + _strlen(needle1);
+
+    char *p = map_image_into_view; /* space */
+    left = eol - p;
+
+    // const char *needle2 = "section .text at ";
+    const char *needle2 = " section ";
+
+    char *section = _memmem(p, left, needle2, _strlen(needle2));
+    if (!section)
+      continue;
+
+    char *const path_end = section;
+
+    char *const sectnm_beg = section + _strlen(needle2);
+    char *const sectnm_end = _memchr(sectnm_beg, ' ', eol - sectnm_beg);
+    _ASSERT(sectnm_end);
+
+    p = sectnm_end;
+    _ASSERT(p[0] == ' ' &&
+            p[1] == 'a' &&
+            p[2] == 't' &&
+            p[3] == ' ' &&
+            p[4] == '0' &&
+            p[5] == 'x');
+
+    char *const min_beg = p + _strlen(" at 0x");
+    char *const min_end = _memchr(min_beg, ' ', eol - min_beg);
+    _ASSERT(min_end);
+
+    uint64_t min = _u64ofhexstr(min_beg, min_end);
+
+    char *const off_beg = min_end + _strlen(" off ");
+    char *const off_end = _memchr(off_beg, ' ', eol - off_beg);
+    _ASSERT(off_end);
+
+    uint64_t off = _u64ofhexstr(off_beg, off_end);
+
+    char *const size_beg = off_end + _strlen("size  ");
+    char *const size_end = _memchr(size_beg, ' ', eol - size_beg);
+    _ASSERT(size_end);
+
+    uint64_t size = _u64ofhexstr(size_beg, size_end);
+
+    const bool Found = pc >= min && pc < min + size;
+    if (!Found)
+      continue;
+    //
+    // we've identified the mapping from WINEDEBUGLOG.
+    //
+    *path_end = '\0';
+
+#if 1
+    //
+    // sanity check: we should not already know about this binary
+    //
+    unsigned N = _jove_foreign_lib_count();
+    for (unsigned i = 0; i < N; ++i) {
+      const char **pforeign_dso_path_beg;
+      for_each_binary_paths(i + 3, pforeign_dso_path_beg) {
+        const char *const foreign_dso_path_beg = *pforeign_dso_path_beg;
+        const unsigned foreign_dso_path_len = _strlen(foreign_dso_path_beg);
+        const char *foreign_dso_path_end =
+            &foreign_dso_path_beg[foreign_dso_path_len];
+
+        bool match = true;
+        {
+          const char *s1 = foreign_dso_path_end - 1;
+          const char *s2 = path_end - 1;
+          for (;;) {
+            if (*s1 != *s2) {
+              match = false;
+              break;
+            }
+
+            if (s1 == foreign_dso_path_beg)
+              break; /* we're done here */
+
+            --s1;
+            --s2;
+          }
+          if (!match)
+            continue;
+        }
+
+        if (match) {
+          _UNREACHABLE("foreign binary already known!");
+        }
+      }
+    }
+#endif
+
+    _jove_recover_foreign_binary_with_path(path_beg);
+  }
+}
+
+#endif

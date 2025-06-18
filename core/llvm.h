@@ -318,6 +318,8 @@ class llvm_t {
   llvm::Function *JoveRecoverFunctionFunc = nullptr;
   llvm::Function *JoveRecoverForeignFunctionFunc = nullptr;
   llvm::Function *JoveRecoverForeignBinaryFunc = nullptr;
+  llvm::Function *JoveRecoverAnonymousForeignFunction = nullptr;
+  llvm::Function *JoveRecoverAnonymousForeignBinary = nullptr;
 
   llvm::Function *JoveInstallForeignFunctionTables = nullptr;
 

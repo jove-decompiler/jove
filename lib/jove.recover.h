@@ -13,3 +13,8 @@ _NORET static void _jove_recover_foreign_binary_with_path(const char *path);
 static void _jove_found_dyn_target(uint32_t CallerBBIdx,
                                    uint32_t CalleeBIdx,
                                    uint32_t CalleeFIdx);
+#ifdef JOVE_COFF
+_HIDDEN void _jove_recover_anonymous_foreign_function(uint32_t BBIdx,
+                                                      uintptr_t pc);
+_HIDDEN void _jove_recover_anonymous_foreign_binary(uintptr_t pc);
+#endif

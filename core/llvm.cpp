@@ -1472,6 +1472,16 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
   JoveRecoverForeignBinaryFunc = Module->getFunction("_jove_recover_foreign_binary");
   assert(JoveRecoverForeignBinaryFunc && !JoveRecoverForeignBinaryFunc->empty());
 
+  JoveRecoverAnonymousForeignFunction = Module->getFunction(
+      "_jove_recover_anonymous_foreign_function");
+  assert(!JoveRecoverAnonymousForeignFunction ||
+         !JoveRecoverAnonymousForeignFunction->empty());
+
+  JoveRecoverAnonymousForeignBinary = Module->getFunction(
+      "_jove_recover_anonymous_foreign_binary");
+  assert(!JoveRecoverAnonymousForeignBinary ||
+         !JoveRecoverAnonymousForeignBinary->empty());
+
   JoveAllocStackFunc = Module->getFunction("_jove_alloc_stack");
   assert(JoveAllocStackFunc);
 
@@ -6985,7 +6995,7 @@ int llvm_t<MT, MinSize>::LinkInSoftFPU(void) {
         });
       });
 
-#if 1
+#if 0
   if (IsCOFF) {
     squashSRetFunctions(*Module);
     squashByvalFunctions(*Module);
@@ -8042,7 +8052,8 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
       IRB.SetInsertPoint(ElseBlock);
 
       llvm::Value *RecoverArgs1[] = {PC};
-      llvm::Value *RecoverArgs[] = {IRB.getInt32(index_of_basic_block(ICFG, bb)), PC};
+      llvm::Value *RecoverArgs[] = {
+          IRB.getInt32(index_of_basic_block(ICFG, bb)), PC};
       llvm::Value *FailArgs[] = {PC, __jove_fail_UnknownBranchTarget};
 
       IRB.CreateCall(JoveRecoverBasicBlockFunc, RecoverArgs)->setIsNoInline();
@@ -8050,6 +8061,11 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
       IRB.CreateCall(JoveRecoverFunctionFunc, RecoverArgs)->setIsNoInline();
       IRB.CreateCall(JoveRecoverForeignFunctionFunc, RecoverArgs)->setIsNoInline();
       IRB.CreateCall(JoveRecoverForeignBinaryFunc, RecoverArgs1)->setIsNoInline();
+      if (JoveRecoverAnonymousForeignFunction) {
+        IRB.CreateCall(JoveRecoverAnonymousForeignFunction, RecoverArgs)->setIsNoInline();
+        assert(JoveRecoverAnonymousForeignBinary);
+        IRB.CreateCall(JoveRecoverAnonymousForeignBinary, RecoverArgs1)->setIsNoInline();
+      }
       IRB.CreateCall(JoveFail1Func, FailArgs)->setIsNoInline();
       IRB.CreateUnreachable();
       break;
@@ -8081,7 +8097,8 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
 #endif
 
       llvm::Value *RecoverArgs1[] = {PC};
-      llvm::Value *RecoverArgs[] = {IRB.getInt32(index_of_basic_block(ICFG, bb)), PC};
+      llvm::Value *RecoverArgs[] = {
+          IRB.getInt32(index_of_basic_block(ICFG, bb)), PC};
 
       IRB.CreateCall(JoveRecoverDynTargetFunc, RecoverArgs)->setIsNoInline();
       if (!IsCall)
@@ -8089,6 +8106,11 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
       IRB.CreateCall(JoveRecoverFunctionFunc, RecoverArgs)->setIsNoInline();
       IRB.CreateCall(JoveRecoverForeignFunctionFunc, RecoverArgs)->setIsNoInline();
       IRB.CreateCall(JoveRecoverForeignBinaryFunc, RecoverArgs1)->setIsNoInline();
+      if (JoveRecoverAnonymousForeignFunction) {
+        IRB.CreateCall(JoveRecoverAnonymousForeignFunction, RecoverArgs)->setIsNoInline();
+        assert(JoveRecoverAnonymousForeignBinary);
+        IRB.CreateCall(JoveRecoverAnonymousForeignBinary, RecoverArgs1)->setIsNoInline();
+      }
       IRB.CreateCall(JoveFail1Func, {PC, __jove_fail_UnknownCallee})->setIsNoInline();
       IRB.CreateUnreachable();
 
@@ -8395,6 +8417,11 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
         IRB.CreateCall(JoveRecoverFunctionFunc, RecoverArgs)->setIsNoInline();
         IRB.CreateCall(JoveRecoverForeignFunctionFunc, RecoverArgs)->setIsNoInline();
         IRB.CreateCall(JoveRecoverForeignBinaryFunc, RecoverArgs1)->setIsNoInline();
+        if (JoveRecoverAnonymousForeignFunction) {
+          IRB.CreateCall(JoveRecoverAnonymousForeignFunction, RecoverArgs)->setIsNoInline();
+          assert(JoveRecoverAnonymousForeignBinary);
+          IRB.CreateCall(JoveRecoverAnonymousForeignBinary, RecoverArgs1)->setIsNoInline();
+        }
         IRB.CreateCall(JoveFail1Func, FailArgs)->setIsNoInline();
         IRB.CreateUnreachable();
       }

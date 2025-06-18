@@ -28,6 +28,9 @@ if test "$#" -ge 1 ; then
     THE_RANLIB=$(pwd)/../../llvm-project/build/llvm/bin/llvm-ranlib
     THE_LD=$(pwd)/../../llvm-project/build/llvm/bin/ld.lld
   fi
+  if test "$2" = "_win" ; then
+    EXTRACONF+=" --enable-ms-bitfields"
+  fi
 fi
 
 export PKG_CONFIG_LIBDIR=/usr/lib/mips-linux-gnu/pkgconfig
