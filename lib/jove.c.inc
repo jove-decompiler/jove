@@ -1941,12 +1941,30 @@ matched:
             _jove_recover_foreign_binary_with_path(path_beg);
             __UNREACHABLE();
           }
+
+          //
+          // we found nothing
+          //
+          {
+            char s[1024];
+            s[0] = '\0';
+
+            _strcat(s, "giving up; program counter in unknown anonymous memory region (0x");
+            {
+              char buff[65];
+              _uint_to_string(pc, buff, 0x10);
+
+              _strcat(s, buff);
+            }
+            _strcat(s, ")\n");
+
+            _DUMP(s);
+          }
+
+          _jove_sys_exit_group(1);
+          __UNREACHABLE();
         }
 #endif
-        //
-        // we found nothing
-        //
-        _UNREACHABLE("program counter in unknown anonymous memory region");
       }
     }
   }
