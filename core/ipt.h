@@ -1,5 +1,6 @@
 #pragma once
-#if defined(__x86_64__) && (defined(TARGET_X86_64) || defined(TARGET_I386))
+#if (defined(__x86_64__) || defined(__i386__)) &&                              \
+    (defined(TARGET_X86_64) || defined(TARGET_I386))
 #include "B.h"
 #include "augmented_raw_syscalls.h"
 #include "explore.h"
