@@ -9200,23 +9200,6 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     return LI;
   };
 
-  /* load word from temp */
-  auto get_word = [&](TCGTemp *ts) -> llvm::Value * {
-    assert(bitsOfTCGType(ts->type) >= WordBits());
-
-    if (ts->kind == TEMP_CONST)
-      return immediate_constant(WordBits(), ts->val);
-
-    if (llvm::Value *V = get_special(ts)) {
-      assert(V->getType()->isIntegerTy(WordBits()));
-      return V;
-    }
-
-    llvm::LoadInst *LI = IRB.CreateLoad(WordType(), get_ptr(ts));
-    LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
-    return LI;
-  };
-
   /* store to temp */
   auto set = [&](llvm::Value *V, TCGTemp *ts) -> void {
     assert(temp_idx(ts) != tcg_env_index);
@@ -9241,24 +9224,6 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
       }
 
       assert(VTy->isIntegerTy(bitsOfTCGType(ts->type)));
-    }
-
-    llvm::StoreInst *SI = IRB.CreateStore(V, get_ptr(ts));
-    SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
-  };
-
-  /* store word to temp */
-  auto set_word = [&](llvm::Value *V, TCGTemp *ts) -> void {
-    assert(temp_idx(ts) != tcg_env_index);
-    assert(ts->kind != TEMP_CONST);
-
-    llvm::Type *const VTy = V->getType();
-    if (VTy->isPointerTy()) {
-      assert(bitsOfTCGType(ts->type) == WordBits());
-
-      V = IRB.CreatePtrToInt(V, WordType());
-    } else {
-      assert(V->getType()->isIntegerTy(bitsOfTCGType(ts->type)));
     }
 
     llvm::StoreInst *SI = IRB.CreateStore(V, get_ptr(ts));
@@ -9514,12 +9479,16 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
       }
     }
 
-    llvm::Value *UPtr = IRB.CreateAdd(
-        get(ptr_tmp),
-        llvm::ConstantInt::getSigned(IRB.getIntNTy(WordBits()), off));
+    llvm::Value *Ptr = get(ptr_tmp);
 
-    llvm::Value *Ptr = IRB.CreateIntToPtr(
-        UPtr, llvm::PointerType::get(IRB.getIntNTy(bits), 0));
+    //
+    // if the target is 32-bit and the host is 64-bit, we may encounter a 64-bit
+    // integer being used as an address. XXX
+    //
+    Ptr = IRB.CreateTrunc(Ptr, WordType());
+
+    Ptr = IRB.CreateAdd(Ptr, llvm::ConstantInt::getSigned(WordType(), off));
+    Ptr = IRB.CreateIntToPtr(Ptr, IRB.getIntNTy(bits)->getPointerTo());
 
     if (IsLoad) {
       unsigned out_bits1 = 8 * tcg_type_size((TCGType)TCGOP_TYPE(op));
@@ -9884,7 +9853,7 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
 
         ++iarg_idx;
       } else if (ParamTy->isPointerTy()) {
-        ArgVec.push_back(IRB.CreateIntToPtr(get_word(ts), ParamTy));
+        ArgVec.push_back(IRB.CreateIntToPtr(IRB.CreateTrunc(get(ts), WordType()), ParamTy));
         ++iarg_idx;
       } else if (ParamTy->isIntegerTy()) {
         if (ParamTy->isIntegerTy(32)) {
@@ -10155,26 +10124,30 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     TCGTemp *x = input_arg(0);                                                 \
     TCGTemp *y = input_arg(1);                                                 \
                                                                                \
-    /* XXX when cross-compiling to 32-bit target on 64-bit host qemu will    */\
-    /* generate code to compute 64-bit addresses (because it assumes the     */\
-    /* code will run in 64-bit address-space). hence we configure qemu with  */\
-    /* --enable-tcg-interpreter, and here we intervene when computing an env */\
-    /* pointer. */                                                             \
-    if (INDEX_op_##opc_name == INDEX_op_add && WordBits() == 32) {             \
-      bool x_isenv = temp_idx(x) == tcg_env_index;                             \
-      bool y_isenv = temp_idx(y) == tcg_env_index;                             \
-      if (x_isenv || y_isenv) {                                                \
-        assert(x_isenv ^ y_isenv);                                             \
+    llvm::Value *X = get(x);                                                   \
+    llvm::Value *Y = get(y);                                                   \
                                                                                \
-        auto *X = x_isenv ? get_word(x) : IRB.CreateTrunc(get(x), WordType()); \
-        auto *Y = y_isenv ? get_word(y) : IRB.CreateTrunc(get(y), WordType()); \
-                                                                               \
-        set_word(IRB.Create##LLVMOp(X, Y), output_arg(0));                     \
+    if (X->getType() != Y->getType()) {                                        \
+      unsigned bits1 = 8 * tcg_type_size((TCGType)TCGOP_TYPE(op));             \
+      unsigned bits2 = bitsOfTCGType(s->temps[temp_idx(output_arg(0))].type);  \
+      assert(bits1 == bits2);                                                  \
+      unsigned bits = bits1;                                                   \
+      if (WordBits() == 32 &&                                                  \
+          INDEX_op_##opc_name == INDEX_op_add &&                               \
+          bits == 64 &&                                                        \
+          temp_idx(x) == tcg_env_index &&                                      \
+          X->getType()->isIntegerTy(32) &&                                     \
+          Y->getType()->isIntegerTy(64)) {                                     \
+        /* FIXME cross-compiling to 32-bit target on 64-bit host */            \
+        set(IRB.CreateAdd(IRB.CreateZExt(X, IRB.getInt64Ty()), Y),             \
+            output_arg(0));                                                    \
         BREAK();                                                               \
       }                                                                        \
+                                                                               \
+      die("args have different types. [" + std::string(curr_op_nm) + "]");     \
     }                                                                          \
                                                                                \
-    set(IRB.Create##LLVMOp(get(x), get(y)), output_arg(0));                    \
+    set(IRB.Create##LLVMOp(X, Y), output_arg(0));                              \
     BREAK();                                                                   \
   }
 
