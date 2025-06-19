@@ -169,6 +169,11 @@ void DumpTool::dumpDecompilation(const jv_t &jv) {
             }
           }
 
+#if defined(TARGET_X86_64) || defined(TARGET_I386)
+          if (ICFG[bb].Term.Type == TERMINATOR::CONDITIONAL_JUMP)
+            Writer.printBoolean("String", ICFG[bb].Term._conditional_jump.String);
+#endif
+
           if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP)
             Writer.printBoolean("IsLj", ICFG[bb].Term._indirect_jump.IsLj);
 

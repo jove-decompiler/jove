@@ -463,6 +463,15 @@ struct bbprop_t : public ip_mt_base_rw_accessible_nospin {
     } _indirect_jump;
 
     struct {
+#if defined(TARGET_X86_64) || defined(TARGET_I386)
+      //
+      // is this a string‐manipulation instruction?
+      //
+      bool String = false;
+#endif
+    } _conditional_jump;
+
+    struct {
     } _indirect_call;
 
     struct {

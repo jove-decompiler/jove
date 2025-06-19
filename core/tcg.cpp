@@ -34,6 +34,14 @@ extern "C" void jv_term_is_cond_jump(uint64_t Target, uint64_t NextPC) {
   jv_ti._conditional_jump.NextPC = NextPC;
 }
 
+extern "C" void jv_term_is_string_op(void) {
+#if defined(TARGET_X86_64) || defined(TARGET_I386)
+  jv_ti._conditional_jump.String = true;
+#else
+  abort();
+#endif
+}
+
 extern "C" void jv_term_is_uncond_jump(uint64_t Target) {
   jv_ti.Type = jove::TERMINATOR::UNCONDITIONAL_JUMP;
   jv_ti._unconditional_jump.Target = Target;
@@ -158,6 +166,10 @@ tiny_code_generator_t::translate(uint64_t pc, uint64_t pc_end) {
 
   jv_ti.Type = TERMINATOR::UNKNOWN;
   jv_ti.Addr = ~0UL;
+
+#if defined(TARGET_X86_64) || defined(TARGET_I386)
+  jv_ti._conditional_jump.String = false;
+#endif
 
   int max_insns = 64;
   TranslationBlock tb;

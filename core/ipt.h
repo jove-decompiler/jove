@@ -228,8 +228,6 @@ StraightLineGo(const binary_base_t<MT, MinSize> &b,
     }
     case TERMINATOR::CONDITIONAL_JUMP:
       //
-      // recognize this:
-      //
       // ┌─────────────────────────────────────┐
       // │                                     │ ───┐
       // │ rep  stosq qword ptr es:[rdi], rax  │    │
@@ -239,17 +237,16 @@ StraightLineGo(const binary_base_t<MT, MinSize> &b,
       // there are no TNT packets for this "single-instruction" loop. we just
       // need to move past it.
       //
-      if (unlikely(bbprop.IsSingleInstruction())) {
-        if (likely(ICFG.template out_degree<false>(bb) == 2)) {
-          auto succ = ICFG.template adjacent_n<2, false>(bb);
-          if (succ[0] == bb) {
-            Res = index_of_basic_block(ICFG, succ[1]);
-            continue;
-          } else if (succ[1] == bb) {
-            Res = index_of_basic_block(ICFG, succ[0]);
-            continue;
-          }
+      if (bbprop.Term._conditional_jump.String) {
+        assert(ICFG.template out_degree<false>(bb) == 2);
+        auto succ = ICFG.template adjacent_n<2, false>(bb);
+        if (succ[0] == bb) {
+          Res = index_of_basic_block(ICFG, succ[1]);
+        } else {
+          assert(succ[1] == bb);
+          Res = index_of_basic_block(ICFG, succ[0]);
         }
+        continue;
       }
       break;
     }

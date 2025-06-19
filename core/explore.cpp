@@ -574,6 +574,10 @@ explorer_t<MT, MinSize>::_explore_basic_block(binary_t &b,
     bbprop.Term.Addr = T.Addr;
     bbprop.sm_ = jv_file.get_segment_manager();
 
+#if defined(TARGET_X86_64) || defined(TARGET_I386)
+    bbprop.Term._conditional_jump.String = T._conditional_jump.String;
+#endif
+
     //bbprop.InvalidateAnalysis();
     if (is_function_index_valid(ParentIdx))
       bbprop.Parents.insert(ParentIdx, b);

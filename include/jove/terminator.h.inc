@@ -76,6 +76,10 @@ struct terminator_info_t {
     struct {
       taddr_t Target;
       taddr_t NextPC;
+
+#if defined(TARGET_X86_64) || defined(TARGET_I386)
+      bool String = false;
+#endif
     } _conditional_jump;
 
     struct {
