@@ -227,17 +227,17 @@ StraightLineGo(const binary_base_t<MT, MinSize> &b,
       continue;
     }
     case TERMINATOR::CONDITIONAL_JUMP:
-      //
-      // ┌─────────────────────────────────────┐
-      // │                                     │ ───┐
-      // │ rep  stosq qword ptr es:[rdi], rax  │    │
-      // │                                     │ ◀──┘
-      // └─────────────────────────────────────┘
-      //
-      // there are no TNT packets for this "single-instruction" loop. we just
-      // need to move past it.
-      //
       if (bbprop.Term._conditional_jump.String) {
+        //
+        // ┌─────────────────────────────────────┐
+        // │                                     │ ───┐
+        // │ rep  stosq qword ptr es:[rdi], rax  │    │
+        // │                                     │ ◀──┘
+        // └─────────────────────────────────────┘
+        //
+        // there are no TNT packets for this "single-instruction" loop. we just
+        // need to move past it.
+        //
         assert(ICFG.template out_degree<false>(bb) == 2);
         auto succ = ICFG.template adjacent_n<2, false>(bb);
         if (succ[0] == bb) {
