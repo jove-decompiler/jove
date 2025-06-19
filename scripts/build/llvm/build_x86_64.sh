@@ -40,7 +40,6 @@ cmake -G Ninja \
       -D JOVE_STATIC_BUILD=ON \
       -D LLVM_ENABLE_Z3_SOLVER=OFF \
       -D LLVM_ENABLE_LTO=OFF \
-      -D "CMAKE_EXE_LINKER_FLAGS=-static" \
       -D LLVM_USE_LINKER=lld \
       -S $(pwd)/.. -B $(pwd)
 
