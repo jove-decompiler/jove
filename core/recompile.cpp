@@ -774,6 +774,13 @@ int recompiler_t<MT, MinSize>::go(void) {
             Arg(def_path);
             Arg("-l");
             Arg(imp_lib_path);
+          },
+          std::string(),
+          std::string(),
+          [&](const char **argv, const char **envp) {
+            if (IsVeryVerbose()) {
+              print_command(argv);
+            }
           })))
         throw std::runtime_error("failed to run llvm-dlltool");
     });
