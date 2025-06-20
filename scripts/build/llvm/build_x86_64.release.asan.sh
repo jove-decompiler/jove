@@ -16,17 +16,18 @@ set -x
 if [ ! -f build.ninja ]; then
 
 OURCFLAGS=\
-" -gline-tables-only"\
+" -Og"\
+" -g1"\
+" -ggdb"\
 " -fno-omit-frame-pointer"\
-" -mno-omit-leaf-frame-pointer"\
-" -ggdb"
+" -mno-omit-leaf-frame-pointer"
 
 cmake -G Ninja \
       -D CMAKE_BUILD_TYPE=RelWithDebInfo \
       -D CMAKE_C_COMPILER=$(which clang-19) \
       -D CMAKE_CXX_COMPILER=$(which clang++-19) \
-      -D "CMAKE_C_FLAGS=$OURCFLAGS" \
-      -D "CMAKE_CXX_FLAGS=$OURCFLAGS" \
+      -D "CMAKE_C_FLAGS_RELWITHDEBINFO=$OURCFLAGS" \
+      -D "CMAKE_CXX_FLAGS_RELWITHDEBINFO=$OURCFLAGS" \
       -D "LLVM_TARGETS_TO_BUILD=Mips;X86;AArch64" \
       -D "JOVE_TARGETS_TO_BUILD=i386;x86_64;mipsel;mips64el;aarch64" \
       -D JOVE_HAVE_MEMFD=ON \
@@ -44,13 +45,15 @@ cmake -G Ninja \
       -D LLVM_ENABLE_ZLIB=FORCE_ON \
       -D LLVM_ENABLE_ASSERTIONS=OFF \
       -D LLVM_BUILD_TELEMETRY=OFF \
+      -D LLVM_ENABLE_BACKTRACES=OFF \
       -D LLVM_ENABLE_EH=ON \
       -D LLVM_BUILD_DOCS=OFF \
       -D LLVM_BINUTILS_INCDIR=/usr/include \
       -D LLVM_ENABLE_PIC=OFF \
       -D JOVE_STATIC_BUILD=OFF \
       -D LLVM_ENABLE_Z3_SOLVER=OFF \
-      -D JOVE_USE_SYSTEM_TBB=ON \
+      -D JOVE_USE_SYSTEM_TBB=OFF \
+      -D TBB_SANITIZE=address \
       -D "LLVM_USE_SANITIZER=Address;Undefined" \
       -D LLVM_ENABLE_LTO=OFF \
       -D LLVM_USE_LINKER=lld \
