@@ -184,7 +184,7 @@ $(BINDIR)/$(1)/%.inc: $(BINDIR)/$(1)/%
 # ever changes, we should change this, too.
 #
 $(BINDIR)/$(1)/asm-offsets-win.h: lib/arch/$(1)/asm-offsets.c | ccopy
-	clang-16 -o $(BINDIR)/$(1)/asm-offsets-win.s --target=$($(1)_COFF_TRIPLE) -mms-bitfields $(call runtime_cflags,$(1)) -fverbose-asm -S lib/arch/$(1)/asm-offsets.c
+	clang-16 -o $(BINDIR)/$(1)/asm-offsets-win.s --target=$($(1)_COFF_TRIPLE) $(call runtime_cflags,$(1)) -fverbose-asm -S lib/arch/$(1)/asm-offsets.c
 	@echo "#pragma once" > $$@
 	@sed -ne $(value sed-offsets) < $(BINDIR)/$(1)/asm-offsets-win.s >> $$@
 
@@ -203,11 +203,11 @@ $(BINDIR)/$(1)/jove.elf.mt.bc: lib/arch/$(1)/jove.c | ccopy asm-offsets
 	$(OUR_LLVM_CC) -o $$@ -c -emit-llvm --target=$($(1)_TRIPLE) $(call runtime_cflags,$(1)) -fPIC -D JOVE_MT -MMD $$<
 
 $(BINDIR)/$(1)/jove.coff.st.bc: lib/arch/$(1)/jove.c | ccopy asm-offsets
-	$(OUR_LLVM_CC) -o $$@.tmp -c -emit-llvm --target=$($(1)_TRIPLE) $(call runtime_cflags,$(1)) -fPIC -fdeclspec -D JOVE_COFF -mms-bitfields -MMD $$<
+	$(OUR_LLVM_CC) -o $$@.tmp -c -emit-llvm --target=$($(1)_TRIPLE) $(call runtime_cflags,$(1)) -fPIC -fdeclspec -D JOVE_COFF -MMD $$<
 	$(call jove_tool,$(1)) llknife -v -o $$@ -i $$@.tmp --calling-convention=$(_DLL_$(1)_LINUX_CALL_CONV) $(BINDIR)/$(1)/jove.coff.callconv.st.syms
 
 $(BINDIR)/$(1)/jove.coff.mt.bc: lib/arch/$(1)/jove.c | ccopy asm-offsets
-	$(OUR_LLVM_CC) -o $$@.tmp -c -emit-llvm --target=$($(1)_TRIPLE) $(call runtime_cflags,$(1)) -fPIC -fdeclspec -D JOVE_COFF -mms-bitfields -D JOVE_MT -MMD $$<
+	$(OUR_LLVM_CC) -o $$@.tmp -c -emit-llvm --target=$($(1)_TRIPLE) $(call runtime_cflags,$(1)) -fPIC -fdeclspec -D JOVE_COFF -D JOVE_MT -MMD $$<
 	$(call jove_tool,$(1)) llknife -v -o $$@ -i $$@.tmp --calling-convention=$(_DLL_$(1)_LINUX_CALL_CONV) $(BINDIR)/$(1)/jove.coff.callconv.mt.syms
 
 $(BINDIR)/$(1)/jove.%.ll: $(BINDIR)/$(1)/jove.%.bc
@@ -223,10 +223,10 @@ $(BINDIR)/$(1)/libjove_rt.elf.mt.bc: lib/arch/$(1)/rt.c | ccopy asm-offsets
 	$(OUR_LLVM_CC) -o $$@ -c -emit-llvm --target=$($(1)_TRIPLE) $(call runtime_cflags,$(1)) -fPIC -D JOVE_MT -MMD $$<
 
 $(BINDIR)/$(1)/libjove_rt.coff.st.bc: lib/arch/$(1)/rt.c | ccopy asm-offsets
-	$(OUR_LLVM_CC) -o $$@ -c -emit-llvm --target=$($(1)_TRIPLE) $(call runtime_cflags,$(1)) -fPIC -fdeclspec -D JOVE_COFF -mms-bitfields -MMD $$<
+	$(OUR_LLVM_CC) -o $$@ -c -emit-llvm --target=$($(1)_TRIPLE) $(call runtime_cflags,$(1)) -fPIC -fdeclspec -D JOVE_COFF -MMD $$<
 
 $(BINDIR)/$(1)/libjove_rt.coff.mt.bc: lib/arch/$(1)/rt.c | ccopy asm-offsets
-	$(OUR_LLVM_CC) -o $$@ -c -emit-llvm --target=$($(1)_TRIPLE) $(call runtime_cflags,$(1)) -fPIC -fdeclspec -D JOVE_COFF -D JOVE_MT -mms-bitfields -MMD $$<
+	$(OUR_LLVM_CC) -o $$@ -c -emit-llvm --target=$($(1)_TRIPLE) $(call runtime_cflags,$(1)) -fPIC -fdeclspec -D JOVE_COFF -D JOVE_MT -MMD $$<
 
 #
 # runtime shared libraries
@@ -314,11 +314,6 @@ linux_carbon_build_dir = $(LINUX_DIR)/$(1)_carbon_build
 
 define target_template
 
-#
-# FIXME there is code duplication here between the platforms. there's
-# essentially only a single difference between helpers built for linux and
-# helpers built for windows, namely '-mms-bitfields'
-#
 $(BINDIR)/$(1)/helpers/linux/%.ll: $(BINDIR)/$(1)/helpers/linux/%.bc
 	$(OUR_LLVM_OPT) -o $$@ -S --strip-debug $$<
 
@@ -332,7 +327,7 @@ $(BINDIR)/$(1)/helpers/linux/%.bc: $(BINDIR)/$(1)/helpers/%.c | ccopy
 	@rm $$@.tmp
 
 $(BINDIR)/$(1)/helpers/win/%.bc: $(BINDIR)/$(1)/helpers/%.c | ccopy
-	$(OUR_LLVM_CC) -o $$@ --target=$($(1)_TRIPLE) $(call helper_cflags,$(1)) -mms-bitfields -MMD -c -emit-llvm -mllvm -trap-unreachable $$<
+	$(OUR_LLVM_CC) -o $$@ --target=$($(1)_TRIPLE) $(call helper_cflags,$(1)) -D JOVE_COFF -MMD -c -emit-llvm -mllvm -trap-unreachable $$<
 	$(OUR_LLVM_OPT) -o $$@.tmp $$@ -passes=internalize --internalize-public-api-list=helper_$$*
 	$(OUR_LLVM_OPT) -o $$@ -O3 $$@.tmp
 	@rm $$@.tmp
