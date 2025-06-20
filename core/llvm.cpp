@@ -2556,21 +2556,29 @@ int llvm_t<MT, MinSize>::CreateFunctions(void) {
                                  jove_name, Module.get());
     //x.F->addFnAttr(llvm::Attribute::NoInline);
 
-    if (f.IsABI)
+    if (f.IsABI) {
       x.F->setVisibility(llvm::GlobalValue::HiddenVisibility);
 
 #if defined(TARGET_I386)
-    //
-    // XXX i386 quirk
-    //
-    if (f.IsABI) {
+      //
+      // XXX i386 quirk
+      //
       for (unsigned i = 0; i < x.F->arg_size(); ++i) {
         assert(i < 3);
 
         x.F->addParamAttr(i, llvm::Attribute::InReg);
       }
-    }
 #endif
+
+#ifdef TARGET_X86_64
+      if (IsCOFF) {
+        //
+        // XXX x86_64 windows: force calling convention
+        //
+        x.F->setCallingConv(llvm::CallingConv::X86_64_SysV);
+      }
+#endif
+    }
 
     //
     // assign names to the arguments, the registers they represent
@@ -2614,6 +2622,15 @@ int llvm_t<MT, MinSize>::CreateFunctions(void) {
         assert(i < 3);
 
         x.adapterF->addParamAttr(i, llvm::Attribute::InReg);
+      }
+#endif
+
+#ifdef TARGET_X86_64
+      if (IsCOFF) {
+	//
+	// XXX x86_64 windows: force calling convention
+	//
+        x.adapterF->setCallingConv(llvm::CallingConv::X86_64_SysV);
       }
 #endif
 
@@ -7864,10 +7881,19 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
 
 #if defined(TARGET_I386)
       //
-      // on i386 ABIs have first three registers
+      // XXX i386 quirk
       //
       for (unsigned j = 0; j < std::min<unsigned>(3, Ret->getNumOperands() - 1); ++j)
         Ret->addParamAttr(j, llvm::Attribute::InReg);
+#endif
+
+#ifdef TARGET_X86_64
+      if (IsCOFF) {
+	//
+	// XXX x86_64 windows: force calling convention
+	//
+        Ret->setCallingConv(llvm::CallingConv::X86_64_SysV);
+      }
 #endif
 
       reload_stack_pointer();
@@ -8297,8 +8323,20 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
       reload_stack_pointer();
 
 #if defined(TARGET_I386)
+      //
+      // XXX i386 quirk
+      //
       for (unsigned j = 0; j < std::min<unsigned>(3, Ret->getNumOperands() - 1); ++j)
         Ret->addParamAttr(j, llvm::Attribute::InReg);
+#endif
+
+#ifdef TARGET_X86_64
+      if (IsCOFF) {
+        //
+	// XXX x86_64 windows: force calling convention
+	//
+        Ret->setCallingConv(llvm::CallingConv::X86_64_SysV);
+      }
 #endif
 
 #if defined(TARGET_X86_64)
@@ -8630,8 +8668,19 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
             }
 
 #if defined(TARGET_I386)
+            //
+            // XXX i386 quirk
+            //
             for (unsigned j = 0; j < std::min<unsigned>(3, Ret->getNumOperands() - 1); ++j)
               Ret->addParamAttr(j, llvm::Attribute::InReg);
+#endif
+#ifdef TARGET_X86_64
+            if (IsCOFF) {
+              //
+              // XXX x86_64 windows: force calling convention
+              //
+              Ret->setCallingConv(llvm::CallingConv::X86_64_SysV);
+            }
 #endif
 
             pop_off_callstack(); /* thunk won't */
@@ -8678,12 +8727,19 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
             if (callee.IsABI) {
 #if defined(TARGET_I386)
               //
-              // on i386 ABIs have first three registers
+              // XXX i386 quirk
               //
               for (unsigned j = 0; j < std::min<unsigned>(3, Ret->getNumOperands() - 1); ++j)
                 Ret->addParamAttr(j, llvm::Attribute::InReg);
 #endif
-
+#ifdef TARGET_X86_64
+              if (IsCOFF) {
+                //
+                // XXX x86_64 windows: force calling convention
+                //
+                Ret->setCallingConv(llvm::CallingConv::X86_64_SysV);
+              }
+#endif
               reload_stack_pointer();
             }
           }
