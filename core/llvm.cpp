@@ -2548,25 +2548,26 @@ int llvm_t<MT, MinSize>::CreateFunctions(void) {
 
     std::string jove_name = (fmt("%c%lx") % (f.IsABI ? 'J' : 'j') % Addr).str();
 
-    state.for_function(f).F =
-        llvm::Function::Create(DetermineFunctionType(f),
-                               f.IsABI ? llvm::GlobalValue::ExternalLinkage
-                                       : llvm::GlobalValue::InternalLinkage,
-                               jove_name, Module.get());
-    //state.for_function(f).F->addFnAttr(llvm::Attribute::NoInline);
+    function_state_t &x = state.for_function(f);
+
+    x.F = llvm::Function::Create(DetermineFunctionType(f),
+                                 f.IsABI ? llvm::GlobalValue::ExternalLinkage
+                                         : llvm::GlobalValue::InternalLinkage,
+                                 jove_name, Module.get());
+    //x.F->addFnAttr(llvm::Attribute::NoInline);
 
     if (f.IsABI)
-      state.for_function(f).F->setVisibility(llvm::GlobalValue::HiddenVisibility);
+      x.F->setVisibility(llvm::GlobalValue::HiddenVisibility);
 
 #if defined(TARGET_I386)
     //
     // XXX i386 quirk
     //
     if (f.IsABI) {
-      for (unsigned i = 0; i < state.for_function(f).F->arg_size(); ++i) {
+      for (unsigned i = 0; i < x.F->arg_size(); ++i) {
         assert(i < 3);
 
-        state.for_function(f).F->addParamAttr(i, llvm::Attribute::InReg);
+        x.F->addParamAttr(i, llvm::Attribute::InReg);
       }
     }
 #endif
@@ -2579,7 +2580,7 @@ int llvm_t<MT, MinSize>::CreateFunctions(void) {
       ExplodeFunctionArgs(f, glbv);
 
       unsigned i = 0;
-      for (llvm::Argument &A : state.for_function(f).F->args()) {
+      for (llvm::Argument &A : x.F->args()) {
         std::string name = opts.ForCBE ? "_" : "";
         name.append(get_tcg_context()->temps[glbv.at(i)].name);
         A.setName(name);
@@ -2595,10 +2596,12 @@ int llvm_t<MT, MinSize>::CreateFunctions(void) {
     const uint64_t Addr = ICFG[basic_block_of_index(f.Entry, ICFG)].Addr;
 
     if (!f.IsABI) {
+      function_state_t &x = state.for_function(f);
+
       //
       // create "ABI adapter"
       //
-      state.for_function(f).adapterF = llvm::Function::Create(
+      x.adapterF = llvm::Function::Create(
           FunctionTypeOfArgsAndRets(CallConvArgs, CallConvRets),
           llvm::GlobalValue::ExternalLinkage,
           (fmt("Jj%lx") % Addr).str(), Module.get());
@@ -2607,10 +2610,10 @@ int llvm_t<MT, MinSize>::CreateFunctions(void) {
       //
       // XXX i386 quirk
       //
-      for (unsigned i = 0; i < state.for_function(f).adapterF->arg_size(); ++i) {
+      for (unsigned i = 0; i < x.adapterF->arg_size(); ++i) {
         assert(i < 3);
 
-        state.for_function(f).adapterF->addParamAttr(i, llvm::Attribute::InReg);
+        x.adapterF->addParamAttr(i, llvm::Attribute::InReg);
       }
 #endif
 
@@ -2618,7 +2621,7 @@ int llvm_t<MT, MinSize>::CreateFunctions(void) {
       // assign names to the arguments, the registers they represent
       //
       unsigned i = 0;
-      for (llvm::Argument &A : state.for_function(f).adapterF->args()) {
+      for (llvm::Argument &A : x.adapterF->args()) {
         std::string name = opts.ForCBE ? "_" : "";
         name.append(get_tcg_context()->temps[CallConvArgArray.at(i)].name);
         A.setName(name);
