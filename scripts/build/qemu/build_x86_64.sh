@@ -30,7 +30,7 @@ if test "$#" -ge 1 ; then
     THE_RANLIB=$(pwd)/../../llvm-project/build/llvm/bin/llvm-ranlib
     THE_LD=$(pwd)/../../llvm-project/build/llvm/bin/ld.lld
     if test "$2" = "_win" ; then
-      EXTRACONF+=" --enable-ms-bitfields"
+#     EXTRACONF+=" --enable-ms-bitfields"
     fi
   else
     exit 1
