@@ -544,7 +544,29 @@ static _UNUSED uintptr_t _jove_begin_setup_emulated_stack(uintptr_t init_sp) {
   }
 
   uintptr_t stack_end = _end_of_mapping_at_address(init_sp, m, n);
-  _ASSERT(stack_end);
+  if (unlikely(!stack_end)) {
+    char *s;
+    JOVE_SCOPED_BUFF(s, JOVE_LARGE_BUFF_SIZE);
+    s[0] = '\0';
+
+    _strcat(s, "could not locate stack pointer (0x");
+
+    {
+      char buff[64];
+
+      _uint_to_string(init_sp, buff, 0x10);
+      _strcat(s, buff);
+    }
+
+
+    _strcat(s, ") in /proc/self/maps!\n");
+    _strcat(s, m);
+
+    _DUMP(s);
+
+    _jove_sys_exit_group(1);
+    __UNREACHABLE();
+  }
 
   //
   // there may be a nonempty sequence of contiguous readable mappings directly
