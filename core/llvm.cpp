@@ -7030,6 +7030,11 @@ int llvm_t<MT, MinSize>::ForceCallConv(void) {
   if (!IsCOFF)
     return 0;
 
+  //
+  // NOTE: this function *should* be unnecessary, since we're eager about
+  // forcing the calling convention.
+  //
+
   auto force_callconv = [&](llvm::Function *F) -> void {
     F->setCallingConv(llvm::CallingConv::X86_64_SysV);
 
@@ -7046,10 +7051,10 @@ int llvm_t<MT, MinSize>::ForceCallConv(void) {
   };
 
 #if defined(TARGET_X86_64)
+  //
+  // [Win64] force callconv for ABI functions and _jove_thunk_* and _jove_call
+  //
 
-  //
-  // [Win64] force callconv for ABI functions and _jove_thunk_*
-  //
 #define __THUNK(n, i, data)                                                    \
   JoveThunk##i##Func = Module->getFunction("_jove_thunk" #i);                  \
   if (JoveThunk##i##Func) {                                                    \
@@ -7060,6 +7065,8 @@ int llvm_t<MT, MinSize>::ForceCallConv(void) {
   BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
 
 #undef __THUNK
+
+  force_callconv(JoveCallFunc);
 
   auto &Binary = jv.Binaries.at(BinaryIndex);
   for (const function_t &f : Binary.Analysis.Functions) {
