@@ -662,6 +662,8 @@ static void _jove_clear_entered(const struct _entered_t *entered) {
   *entered->enteredp = false;
 }
 
+static void dump_detailed_ucontext(ucontext_t *, siginfo_t *);
+
 void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
   const struct _entered_t entered _CLEANUP(_jove_clear_entered) =
       _jove_entered(&_sighandler_reentered);
@@ -889,8 +891,10 @@ found:
   // native -> recompiled call
   //
   {
-    if (unlikely(Callee.IsForeign))
+    if (unlikely(Callee.IsForeign)) {
+      dump_detailed_ucontext(uctx, si);
       _UNREACHABLE("unexpected callee");
+    }
 
     _jove_init_cpu_state(); /* could be thread start */
 
@@ -1155,136 +1159,159 @@ found:
 
 not_found:
 on_crash:
+  //
+  // if we get here we'll assume it's a crash.
+  //
+  dump_detailed_ucontext(uctx, si);
+
+  //
+  // flush trace
+  //
+  _jove_flush_trace();
+
+  //
+  // flush dfsan_log.pb
+  //
+#if defined(JOVE_DFSAN)
+  void (*dfsan_flush_ptr)(void) = __jove_dfsan_flush;
+  if (dfsan_flush_ptr) {
+    _DUMP(__ANSI_BOLD_BLUE "calling __jove_dfsan_flush\n" __ANSI_NORMAL_COLOR);
+    dfsan_flush_ptr();
+  }
+#endif
+
+  _jove_on_crash(__jove_opts.OnCrash);
+  __UNREACHABLE();
+}
+
+void dump_detailed_ucontext(ucontext_t *uctx, siginfo_t *si) {
+  char *maps;
+  unsigned maps_n;
+  LOAD_PROC_SELF_MAPS(maps, maps_n);
+
+  char *s;
+  JOVE_SCOPED_BUFF(s, JOVE_LARGE_BUFF_SIZE);
+  s[0] = '\0';
+
+  _strcat(s, "*** crash? *** [");
   {
-    //
-    // if we get here we'll assume it's a crash.
-    //
-    char *maps;
-    unsigned maps_n;
-    LOAD_PROC_SELF_MAPS(maps, maps_n);
+    char buff[65];
+    _uint_to_string(_jove_sys_gettid(), buff, 10);
 
-    char *s;
-    JOVE_SCOPED_BUFF(s, JOVE_LARGE_BUFF_SIZE);
-    s[0] = '\0';
+    _strcat(s, buff);
+  }
+  _strcat(s, "]\n");
 
-    _strcat(s, "*** crash (jove) *** [");
-    {
-      char buff[65];
-      _uint_to_string(_jove_sys_gettid(), buff, 10);
-
-      _strcat(s, buff);
-    }
-    _strcat(s, "]\n");
-
-    char *buff;
-    JOVE_SCOPED_BUFF(buff, 2*PATH_MAX);
-    buff[0] = '\0';
+  char *buff;
+  JOVE_SCOPED_BUFF(buff, 2*PATH_MAX);
+  buff[0] = '\0';
 
 #define _FIELD(name, init)                                                     \
-    do {                                                                       \
-      _strcat(s, name " 0x");                                                  \
-      {                                                                        \
-        char _buff[65];                                                        \
-        _uint_to_string((uintptr_t)init, _buff, 0x10);                         \
-                                                                               \
-        _strcat(s, _buff);                                                     \
-      }                                                                        \
-      if (_description_of_address_for_maps(buff, (uintptr_t)(init), maps, maps_n)) {\
-        _strcat(s, " <");                                                      \
-        _strcat(s, buff);                                                      \
-        _strcat(s, ">");                                                       \
-      }                                                                        \
-      _strcat(s, "\n");                                                        \
-    } while (false)
+  do {                                                                       \
+    _strcat(s, name " 0x");                                                  \
+    {                                                                        \
+      char _buff[65];                                                        \
+      _uint_to_string((uintptr_t)init, _buff, 0x10);                         \
+                                                                             \
+      _strcat(s, _buff);                                                     \
+    }                                                                        \
+    if (_description_of_address_for_maps(buff, (uintptr_t)(init), maps, maps_n)) {\
+      _strcat(s, " <");                                                      \
+      _strcat(s, buff);                                                      \
+      _strcat(s, ">");                                                       \
+    }                                                                        \
+    _strcat(s, "\n");                                                        \
+  } while (false)
 
-    if (si)
-      _FIELD("si_addr", si->si_addr);
-
-    _FIELD("pc", saved_pc);
+  if (si)
+    _FIELD("si_addr", si->si_addr);
 
 #if defined(__x86_64__)
 
-    _FIELD("rax", uctx->uc_mcontext.gregs[REG_RAX]);
-    _FIELD("rcx", uctx->uc_mcontext.gregs[REG_RCX]);
-    _FIELD("rdx", uctx->uc_mcontext.gregs[REG_RDX]);
-    _FIELD("rbx", uctx->uc_mcontext.gregs[REG_RBX]);
-    _FIELD("rsp", uctx->uc_mcontext.gregs[REG_RSP]);
-    _FIELD("rbp", uctx->uc_mcontext.gregs[REG_RBP]);
-    _FIELD("rsi", uctx->uc_mcontext.gregs[REG_RSI]);
-    _FIELD("rdi", uctx->uc_mcontext.gregs[REG_RDI]);
-    _FIELD("r8 ", uctx->uc_mcontext.gregs[REG_R8]);
-    _FIELD("r9 ", uctx->uc_mcontext.gregs[REG_R9]);
-    _FIELD("r10", uctx->uc_mcontext.gregs[REG_R10]);
-    _FIELD("r11", uctx->uc_mcontext.gregs[REG_R11]);
-    _FIELD("r12", uctx->uc_mcontext.gregs[REG_R12]);
-    _FIELD("r13", uctx->uc_mcontext.gregs[REG_R13]);
-    _FIELD("r14", uctx->uc_mcontext.gregs[REG_R14]);
-    _FIELD("r15", uctx->uc_mcontext.gregs[REG_R15]);
+  _FIELD("pc", uctx->uc_mcontext.gregs[REG_RIP]);
+  _FIELD("rax", uctx->uc_mcontext.gregs[REG_RAX]);
+  _FIELD("rcx", uctx->uc_mcontext.gregs[REG_RCX]);
+  _FIELD("rdx", uctx->uc_mcontext.gregs[REG_RDX]);
+  _FIELD("rbx", uctx->uc_mcontext.gregs[REG_RBX]);
+  _FIELD("rsp", uctx->uc_mcontext.gregs[REG_RSP]);
+  _FIELD("rbp", uctx->uc_mcontext.gregs[REG_RBP]);
+  _FIELD("rsi", uctx->uc_mcontext.gregs[REG_RSI]);
+  _FIELD("rdi", uctx->uc_mcontext.gregs[REG_RDI]);
+  _FIELD("r8 ", uctx->uc_mcontext.gregs[REG_R8]);
+  _FIELD("r9 ", uctx->uc_mcontext.gregs[REG_R9]);
+  _FIELD("r10", uctx->uc_mcontext.gregs[REG_R10]);
+  _FIELD("r11", uctx->uc_mcontext.gregs[REG_R11]);
+  _FIELD("r12", uctx->uc_mcontext.gregs[REG_R12]);
+  _FIELD("r13", uctx->uc_mcontext.gregs[REG_R13]);
+  _FIELD("r14", uctx->uc_mcontext.gregs[REG_R14]);
+  _FIELD("r15", uctx->uc_mcontext.gregs[REG_R15]);
 
 #elif defined(__i386__)
 
-    _FIELD("GS ", uctx->uc_mcontext.gregs[REG_GS]);
-    _FIELD("FS ", uctx->uc_mcontext.gregs[REG_FS]);
-    _FIELD("ES ", uctx->uc_mcontext.gregs[REG_ES]);
-    _FIELD("DS ", uctx->uc_mcontext.gregs[REG_DS]);
-    _FIELD("EDI", uctx->uc_mcontext.gregs[REG_EDI]);
-    _FIELD("ESI", uctx->uc_mcontext.gregs[REG_ESI]);
-    _FIELD("EBP", uctx->uc_mcontext.gregs[REG_EBP]);
-    _FIELD("ESP", uctx->uc_mcontext.gregs[REG_ESP]);
-    _FIELD("EBX", uctx->uc_mcontext.gregs[REG_EBX]);
-    _FIELD("EDX", uctx->uc_mcontext.gregs[REG_EDX]);
-    _FIELD("ECX", uctx->uc_mcontext.gregs[REG_ECX]);
-    _FIELD("EAX", uctx->uc_mcontext.gregs[REG_EAX]);
-    _FIELD("TRAPNO", uctx->uc_mcontext.gregs[REG_TRAPNO]);
-    _FIELD("ERR", uctx->uc_mcontext.gregs[REG_ERR]);
-    _FIELD("EIP", uctx->uc_mcontext.gregs[REG_EIP]);
-    _FIELD("CS", uctx->uc_mcontext.gregs[REG_CS]);
-    _FIELD("EFL", uctx->uc_mcontext.gregs[REG_EFL]);
-    _FIELD("UESP", uctx->uc_mcontext.gregs[REG_UESP]);
-    _FIELD("SS", uctx->uc_mcontext.gregs[REG_SS]);
+  _FIELD("pc", uctx->uc_mcontext.gregs[REG_EIP]);
+  _FIELD("GS ", uctx->uc_mcontext.gregs[REG_GS]);
+  _FIELD("FS ", uctx->uc_mcontext.gregs[REG_FS]);
+  _FIELD("ES ", uctx->uc_mcontext.gregs[REG_ES]);
+  _FIELD("DS ", uctx->uc_mcontext.gregs[REG_DS]);
+  _FIELD("EDI", uctx->uc_mcontext.gregs[REG_EDI]);
+  _FIELD("ESI", uctx->uc_mcontext.gregs[REG_ESI]);
+  _FIELD("EBP", uctx->uc_mcontext.gregs[REG_EBP]);
+  _FIELD("ESP", uctx->uc_mcontext.gregs[REG_ESP]);
+  _FIELD("EBX", uctx->uc_mcontext.gregs[REG_EBX]);
+  _FIELD("EDX", uctx->uc_mcontext.gregs[REG_EDX]);
+  _FIELD("ECX", uctx->uc_mcontext.gregs[REG_ECX]);
+  _FIELD("EAX", uctx->uc_mcontext.gregs[REG_EAX]);
+  _FIELD("TRAPNO", uctx->uc_mcontext.gregs[REG_TRAPNO]);
+  _FIELD("ERR", uctx->uc_mcontext.gregs[REG_ERR]);
+  _FIELD("EIP", uctx->uc_mcontext.gregs[REG_EIP]);
+  _FIELD("CS", uctx->uc_mcontext.gregs[REG_CS]);
+  _FIELD("EFL", uctx->uc_mcontext.gregs[REG_EFL]);
+  _FIELD("UESP", uctx->uc_mcontext.gregs[REG_UESP]);
+  _FIELD("SS", uctx->uc_mcontext.gregs[REG_SS]);
 
 #elif defined(__mips64) || defined(__mips__)
 
-    _FIELD("r0", uctx->uc_mcontext.gregs[0]);
-    _FIELD("at", uctx->uc_mcontext.gregs[1]);
-    _FIELD("v0", uctx->uc_mcontext.gregs[2]);
-    _FIELD("v1", uctx->uc_mcontext.gregs[3]);
-    _FIELD("a0", uctx->uc_mcontext.gregs[4]);
-    _FIELD("a1", uctx->uc_mcontext.gregs[5]);
-    _FIELD("a2", uctx->uc_mcontext.gregs[6]);
-    _FIELD("a3", uctx->uc_mcontext.gregs[7]);
-    _FIELD("t0", uctx->uc_mcontext.gregs[8]);
-    _FIELD("t1", uctx->uc_mcontext.gregs[9]);
-    _FIELD("t2", uctx->uc_mcontext.gregs[10]);
-    _FIELD("t3", uctx->uc_mcontext.gregs[11]);
-    _FIELD("t4", uctx->uc_mcontext.gregs[12]);
-    _FIELD("t5", uctx->uc_mcontext.gregs[13]);
-    _FIELD("t6", uctx->uc_mcontext.gregs[14]);
-    _FIELD("t7", uctx->uc_mcontext.gregs[15]);
-    _FIELD("s0", uctx->uc_mcontext.gregs[16]);
-    _FIELD("s1", uctx->uc_mcontext.gregs[17]);
-    _FIELD("s2", uctx->uc_mcontext.gregs[18]);
-    _FIELD("s3", uctx->uc_mcontext.gregs[19]);
-    _FIELD("s4", uctx->uc_mcontext.gregs[20]);
-    _FIELD("s5", uctx->uc_mcontext.gregs[21]);
-    _FIELD("s6", uctx->uc_mcontext.gregs[22]);
-    _FIELD("s7", uctx->uc_mcontext.gregs[23]);
-    _FIELD("t8", uctx->uc_mcontext.gregs[24]);
-    _FIELD("t9", uctx->uc_mcontext.gregs[25]);
-    _FIELD("k0", uctx->uc_mcontext.gregs[26]);
-    _FIELD("k1", uctx->uc_mcontext.gregs[27]);
-    _FIELD("gp", uctx->uc_mcontext.gregs[28]);
-    _FIELD("sp", uctx->uc_mcontext.gregs[29]);
-    _FIELD("s8", uctx->uc_mcontext.gregs[30]);
-    _FIELD("ra", uctx->uc_mcontext.gregs[31]);
+  _FIELD("pc", uctx->uc_mcontext.pc);
+  _FIELD("r0", uctx->uc_mcontext.gregs[0]);
+  _FIELD("at", uctx->uc_mcontext.gregs[1]);
+  _FIELD("v0", uctx->uc_mcontext.gregs[2]);
+  _FIELD("v1", uctx->uc_mcontext.gregs[3]);
+  _FIELD("a0", uctx->uc_mcontext.gregs[4]);
+  _FIELD("a1", uctx->uc_mcontext.gregs[5]);
+  _FIELD("a2", uctx->uc_mcontext.gregs[6]);
+  _FIELD("a3", uctx->uc_mcontext.gregs[7]);
+  _FIELD("t0", uctx->uc_mcontext.gregs[8]);
+  _FIELD("t1", uctx->uc_mcontext.gregs[9]);
+  _FIELD("t2", uctx->uc_mcontext.gregs[10]);
+  _FIELD("t3", uctx->uc_mcontext.gregs[11]);
+  _FIELD("t4", uctx->uc_mcontext.gregs[12]);
+  _FIELD("t5", uctx->uc_mcontext.gregs[13]);
+  _FIELD("t6", uctx->uc_mcontext.gregs[14]);
+  _FIELD("t7", uctx->uc_mcontext.gregs[15]);
+  _FIELD("s0", uctx->uc_mcontext.gregs[16]);
+  _FIELD("s1", uctx->uc_mcontext.gregs[17]);
+  _FIELD("s2", uctx->uc_mcontext.gregs[18]);
+  _FIELD("s3", uctx->uc_mcontext.gregs[19]);
+  _FIELD("s4", uctx->uc_mcontext.gregs[20]);
+  _FIELD("s5", uctx->uc_mcontext.gregs[21]);
+  _FIELD("s6", uctx->uc_mcontext.gregs[22]);
+  _FIELD("s7", uctx->uc_mcontext.gregs[23]);
+  _FIELD("t8", uctx->uc_mcontext.gregs[24]);
+  _FIELD("t9", uctx->uc_mcontext.gregs[25]);
+  _FIELD("k0", uctx->uc_mcontext.gregs[26]);
+  _FIELD("k1", uctx->uc_mcontext.gregs[27]);
+  _FIELD("gp", uctx->uc_mcontext.gregs[28]);
+  _FIELD("sp", uctx->uc_mcontext.gregs[29]);
+  _FIELD("s8", uctx->uc_mcontext.gregs[30]);
+  _FIELD("ra", uctx->uc_mcontext.gregs[31]);
 
 #elif defined(__aarch64__)
 
-    _FIELD("fault_address ", uctx->uc_mcontext.fault_address);
-    _FIELD("sp ", uctx->uc_mcontext.sp);
-    _FIELD("pc ", uctx->uc_mcontext.pc);
+  _FIELD("fault_address ", uctx->uc_mcontext.fault_address);
+  _FIELD("sp ", uctx->uc_mcontext.sp);
+  _FIELD("pc ", uctx->uc_mcontext.pc);
 
-    // TODO
+  // TODO
 
 #else
 #error
@@ -1292,40 +1319,10 @@ on_crash:
 
 #undef _FIELD
 
-    _strcat(s, "\n");
+  _strcat(s, "\n");
+  _strcat(s, maps);
 
-    maps[min(maps_n, JOVE_MAX_PROC_MAPS - 1)] = '\0';
-    _strcat(s, maps);
-
-    _DUMP(s);
-
-#if 0
-    {
-      int fd = _jove_sys_open("/tmp/hack.tmp", O_WRONLY | O_CREAT | O_TRUNC, S_IRWXU);
-      _jove_sys_write(fd, buff, _strlen(buff));
-      _jove_sys_close(fd);
-    }
-#endif
-
-    //
-    // flush trace
-    //
-    _jove_flush_trace();
-
-    //
-    // flush dfsan_log.pb
-    //
-#if defined(JOVE_DFSAN)
-    void (*dfsan_flush_ptr)(void) = __jove_dfsan_flush;
-    if (dfsan_flush_ptr) {
-      _DUMP(__ANSI_BOLD_BLUE "calling __jove_dfsan_flush\n" __ANSI_NORMAL_COLOR);
-      dfsan_flush_ptr();
-    }
-#endif
-  }
-
-  _jove_on_crash(__jove_opts.OnCrash);
-  __UNREACHABLE();
+  _DUMP(s);
 }
 
 uintptr_t _jove_handle_signal_delivery(uintptr_t SignalDelivery,
