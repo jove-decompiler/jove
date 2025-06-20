@@ -6,6 +6,7 @@ _jove_thunk3
 _jove_thunk4
 _jove_thunk5
 _jove_thunk6
+_jove_call
 _jove_init
 _jove__libc_early_init
 _jove_do_call_rt_init
