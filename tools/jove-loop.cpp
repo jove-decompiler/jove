@@ -774,6 +774,7 @@ skip_run:
         headerBits.set(9, opts.LayOutSections);
         headerBits.set(10, IsToolMT);
         headerBits.set(11, IsToolMinSize);
+        headerBits.set(12, opts.SoftfpuBitcode);
 
         uint16_t header = headerBits.to_ullong();
 
