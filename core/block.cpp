@@ -214,6 +214,8 @@ void bbprop_t::InvalidateAnalysis(jv_base_t<MT, MinSize> &jv,
                 ParentsVec.cend(), [&](function_index_t FIdx) {
                   function_t &f = b.Analysis.Functions.at(FIdx);
 
+                  f.InvalidateAnalysis();
+
                   auto V = f.ReverseCGVert(jv);
 
                   jv.Analysis.ReverseCallGraph.depth_first_visit(V, invalidator);
