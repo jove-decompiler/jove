@@ -90,6 +90,7 @@ class LoopTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
     cl::opt<std::string> Stdout;
     cl::opt<std::string> Stderr;
     cl::opt<bool> SoftfpuBitcode;
+    cl::opt<bool> DumpPreOpt1;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : Prog(cl::Positional, cl::desc("prog"), cl::Required,
@@ -301,7 +302,9 @@ class LoopTool : public StatefulJVTool<ToolKind::Standard, binary_state_t, void,
           SoftfpuBitcode(
               "softfpu-bitcode",
               cl::desc("Link the softfpu bitcode rather than the object file"),
-              cl::cat(JoveCategory)) {}
+              cl::cat(JoveCategory)),
+
+          DumpPreOpt1("dump-pre-opt1", cl::cat(JoveCategory)) {}
   } opts;
 
   const bool IsCOFF;
@@ -1275,6 +1278,9 @@ skip_run:
 
           if (opts.SoftfpuBitcode)
             Arg("--softfpu-bitcode");
+
+          if (opts.DumpPreOpt1)
+            Arg("--dump-pre-opt1");
 
           if (opts.PlaceSectionBreakpoints)
             Arg("--place-section-breakpoints");
