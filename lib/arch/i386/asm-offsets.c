@@ -40,5 +40,7 @@ int main(void) {
 
   BOOST_PP_REPEAT(8, MMX_THING_FROM_SP, void)
 
+  DEFINE(ASMOFF_ENV_FROM_SP_regs_R_EAX_, offsetof(CPUX86State, regs[R_EAX]) - offsetof(CPUX86State, regs[R_ESP]));
+
   return 0;
 }
