@@ -460,6 +460,10 @@ void _jove_init_cpu_state(void) {
 
   static_assert(sizeof(env_init_bytes) == sizeof(struct CPUArchState));
   __builtin_memcpy_inline(env, env_init_bytes, sizeof(env_init_bytes));
+
+#if defined(TARGET_X86_64) || defined(TARGET_I386)
+  _ASSERT(env->df == 1 || env->df == -1);
+#endif
 }
 
 static uintptr_t _jove_alloc_callstack(const char *callstack_path) {
