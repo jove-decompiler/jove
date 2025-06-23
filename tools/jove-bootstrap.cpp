@@ -73,10 +73,6 @@ static constexpr bool IsI386 =
 #define GET_REGINFO_ENUM
 #include "LLVMGenRegisterInfo.hpp"
 
-#if !defined(__mips__)
-//#define BOOTSTRAP_MULTI_THREADED
-#endif
-
 //#define JOVE_HAVE_MEMFD
 
 namespace fs = boost::filesystem;
@@ -372,10 +368,6 @@ struct BootstrapTool
 public:
   BootstrapTool()
       : opts(JoveCategory)
-#ifdef BOOTSTRAP_MULTI_THREADED
-        ,
-        bb_brk_lckfree_q(8)
-#endif
   {}
 
   int Run(void) override;
@@ -390,9 +382,6 @@ public:
   binary_index_t BinaryFromData(pid_t, std::string_view data,
                                 const char *name = nullptr);
 
-#ifdef BOOTSTRAP_MULTI_THREADED
-  void on_new_basic_block_place_later(binary_t &, bb_t);
-#endif
   void on_new_basic_block(binary_t &, bb_t);
 
   void on_new_function(binary_t &, function_t &);
@@ -406,9 +395,6 @@ public:
 
   void on_dynamic_linker_loaded(pid_t, binary_index_t, const proc_map_t &);
 
-#ifdef BOOTSTRAP_MULTI_THREADED
-  void place_breakpoints_in_new_blocks(void);
-#endif
   void place_breakpoints_in_block(binary_t &b, bb_t);
   void place_breakpoint(pid_t, uintptr_t Addr, breakpoint_t &);
   void on_breakpoint(pid_t);
@@ -457,18 +443,6 @@ public:
   std::atomic<bool> ToggleTurbo = false;
 
   static_assert(sizeof(binary_index_t) + sizeof(basic_block_index_t) == 8);
-
-#ifdef BOOTSTRAP_MULTI_THREADED
-  boost::lockfree::queue<uint64_t, boost::lockfree::fixed_sized<false>>
-      bb_brk_lckfree_q;
-
-  struct {
-    std::mutex mtx;
-    std::condition_variable cv;
-
-    std::atomic<bool> done = false;
-  } _bb_brk;
-#endif
 
   bool DidAttach(void) {
     return opts.PID != 0;
@@ -1349,28 +1323,6 @@ void BootstrapTool::on_new_basic_block(binary_t &b, bb_t bb) {
   place_breakpoints_in_block(b, bb);
 }
 
-#ifdef BOOTSTRAP_MULTI_THREADED
-void BootstrapTool::on_new_basic_block_place_later(binary_t &b, bb_t bb) {
-  //std::atomic_thread_fence(std::memory_order_release);
-
-  binary_index_t BIdx = index_of_binary(b, jv);
-  basic_block_index_t BBIdx = index_of_basic_block(b.Analysis.ICFG, bb);
-
-  uint64_t x = (static_cast<uint64_t>(BIdx) << 32) |
-                static_cast<uint64_t>(BBIdx);
-
-  {
-  bool success = bb_brk_lckfree_q.push(x);
-  assert(success);
-  }
-
-  {
-    std::lock_guard<std::mutex> lock(_bb_brk.mtx);
-    _bb_brk.cv.notify_one();
-  }
-}
-#endif
-
 void BootstrapTool::on_new_function(binary_t &b, function_t &f) {
   //state.update();
 }
@@ -1391,24 +1343,6 @@ BootstrapTool::basic_blocks_for_function(binary_index_t BIdx,
   basic_blocks_of_function(b.Analysis.Functions.at(FIdx), b, x.bbvec);
 
   return x.bbvec;
-}
-#endif
-
-#ifdef BOOTSTRAP_MULTI_THREADED
-void BootstrapTool::place_breakpoints_in_new_blocks(void) {
-  auto do_place = [&](uint64_t x) -> void {
-    binary_index_t BIdx = static_cast<binary_index_t>(x >> 32);
-    basic_block_index_t BBIdx = static_cast<basic_block_index_t>(x);
-
-    assert(BIdx < jv.Binaries.size());
-
-    binary_t &b = jv.Binaries.at(BIdx);
-    bb_t bb = basic_block_of_index(BBIdx, b.Analysis.ICFG);
-
-    place_breakpoints_in_block(b, bb);
-  };
-
-  bb_brk_lckfree_q.consume_all(do_place);
 }
 #endif
 
@@ -2510,25 +2444,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
       const uintptr_t AddrOfRet = saved_pc;
       const uintptr_t RetAddr = pc;
 
-#ifdef BOOTSTRAP_MULTI_THREADED
-      struct {
-        std::mutex mtx;
-        std::condition_variable cond;
-      } _do_ret;
-
-  std::atomic<bool> do_ret_ran = false;
-#endif
-
     auto do_ret = [&](void) -> void {
-#ifdef BOOTSTRAP_MULTI_THREADED
-      do_ret_ran.store(true);
-      {
-      std::unique_lock<std::mutex> _lck(_do_ret.mtx);
-      _lck.unlock();
-      _do_ret.cond.notify_one();
-      }
-#endif
-
     //llvm::errs() << "<RET>\n";
       try {
         on_return(child, ret.BIdx, AddrOfRet, RetAddr);
@@ -2536,88 +2452,10 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
         HumanOut() << llvm::formatv("{0} failed: {1}\n", __func__, e.what());
       }
 
-#ifdef BOOTSTRAP_MULTI_THREADED
-    //llvm::errs() << "</RET>\n";
-    _bb_brk.done.store(true);
-
-    {
-      std::lock_guard<std::mutex> lock(_bb_brk.mtx);
-    _bb_brk.cv.notify_one(); // work is done
-    }
-#endif
     return;
     };
 
-#ifdef BOOTSTRAP_MULTI_THREADED
-  struct NewBasicBlockProcSetter {
-    BootstrapTool &tool;
-    on_newbb_proc_t<MT> sav_proc;
-
-    NewBasicBlockProcSetter(BootstrapTool &tool)
-        : tool(tool), sav_proc(tool.E->get_newbb_proc()) {
-      tool.E->set_newbb_proc(std::bind(&BootstrapTool::on_new_basic_block_place_later, &tool,
-                                       std::placeholders::_1,
-                                       std::placeholders::_2));
-    }
-
-    ~NewBasicBlockProcSetter() {
-      tool.E->set_newbb_proc(sav_proc);
-    }
-  } __NewBasicBlockProcSetter(*this);
-
-  {
-    uint64_t x;
-    assert(!bb_brk_lckfree_q.pop(x));
-  }
-
-  assert(!_bb_brk.done.load());
-  {
-    std::unique_ptr<tbb::task_group> tg;
-
-    bool timed_out = false;
-    do {
-      if (tg)
-        tg->wait();
-    tg = std::make_unique<tbb::task_group>();
-
-    {
-      std::unique_lock<std::mutex> _lck(_do_ret.mtx);
-
-    //llvm::errs() << "<THE_RET>\n";
-  tg->run(do_ret);
-    //llvm::errs() << "</THE_RET>\n";
-      timed_out = _do_ret.cond.wait_for(_lck, std::chrono::seconds(1)) == std::cv_status::timeout;
-
-      }
-    } while (timed_out);
-
-  assert(do_ret_ran.load());
-
-  // Main thread will act as the consumer
-  while (true) {
-    place_breakpoints_in_new_blocks();
-
-    if (_bb_brk.done.load())
-      break;
-
-    std::unique_lock<std::mutex> lock(_bb_brk.mtx);
-
-    _bb_brk.cv.wait_for(lock, std::chrono::seconds(1),
-                        [&] { return _bb_brk.done.load(); });
-  }
-
-  tg->wait();
-  }
-
-  assert(_bb_brk.done.load());
-  _bb_brk.done.store(false);
-  {
-    uint64_t x;
-    assert(!bb_brk_lckfree_q.pop(x));
-  }
-#else
   do_ret();
-#endif
 
       return;
   }
@@ -2956,25 +2794,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
     bool IsGoto = false;
   } ControlFlow;
 
-#ifdef BOOTSTRAP_MULTI_THREADED
-  struct {
-    std::mutex mtx;
-    std::condition_variable cond;
-  } _producer;
-
-  std::atomic<bool> producer_ran = false;
-#endif
-
   auto producer = [&](void) -> void {
-#ifdef BOOTSTRAP_MULTI_THREADED
-    producer_ran.store(true);
-      {
-      std::unique_lock<std::mutex> _lck(_producer.mtx);
-      _lck.unlock();
-      _producer.cond.notify_one();
-      }
-#endif
-
     //llvm::errs() << "<PRODUCER>\n";
 #if 0
     llvm::errs() << "<producer> " << TargetBinary.Analysis.Functions.size() << ',' << binary.Analysis.Functions.size() << '\n';
@@ -3134,91 +2954,10 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
     llvm::errs() << "</producer> " << TargetBinary.Analysis.Functions.size() << '\n';
 #endif
 
-#ifdef BOOTSTRAP_MULTI_THREADED
-    //llvm::errs() << "</PRODUCER>\n";
-    _bb_brk.done.store(true);
-
-    {
-      std::lock_guard<std::mutex> lock(_bb_brk.mtx);
-    _bb_brk.cv.notify_one(); // work is done
-    }
-#endif
     return;
   };
 
-#ifdef BOOTSTRAP_MULTI_THREADED
-  struct NewBasicBlockProcSetter {
-    BootstrapTool &tool;
-    on_newbb_proc_t<MT> sav_proc;
-
-    NewBasicBlockProcSetter(BootstrapTool &tool)
-        : tool(tool), sav_proc(tool.E->get_newbb_proc()) {
-      tool.E->set_newbb_proc(std::bind(&BootstrapTool::on_new_basic_block_place_later, &tool,
-                                       std::placeholders::_1,
-                                       std::placeholders::_2));
-    }
-
-    ~NewBasicBlockProcSetter() {
-      tool.E->set_newbb_proc(sav_proc);
-    }
-  } __NewBasicBlockProcSetter(*this);
-
-  {
-    uint64_t x;
-    assert(!bb_brk_lckfree_q.pop(x));
-  }
-  assert(!_bb_brk.done.load());
-
-  {
-    std::unique_ptr<tbb::task_group> tg;
-
-
-    bool timed_out = false;
-    do {
-      if (tg)
-        tg->wait();
-    tg = std::make_unique<tbb::task_group>();
-
-      {
-      std::unique_lock<std::mutex> _lck(_producer.mtx);
-
-  // Run the producer in a separate task
-    //llvm::errs() << "<THE_PRODUCER>\n";
-  tg->run(producer);
-    //llvm::errs() << "</THE_PRODUCER>\n";
-
-    timed_out = _producer.cond.wait_for(_lck, std::chrono::seconds(1)) == std::cv_status::timeout;
-      }
-    } while (timed_out);
-
-
-  assert(producer_ran.load());
-
-  // Main thread will act as the consumer
-  while (true) {
-    place_breakpoints_in_new_blocks();
-
-    if (_bb_brk.done.load())
-      break;
-
-    std::unique_lock<std::mutex> lock(_bb_brk.mtx);
-
-    _bb_brk.cv.wait_for(lock, std::chrono::seconds(1),
-                        [&] { return _bb_brk.done.load(); });
-  }
-
-  tg->wait(); // Wait for the producer task to complete
-  }
-
-  assert(_bb_brk.done.load());
-  _bb_brk.done.store(false);
-  {
-    uint64_t x;
-    assert(!bb_brk_lckfree_q.pop(x));
-  }
-#else
   producer();
-#endif
 }
 
 #include "relocs_common.hpp"
