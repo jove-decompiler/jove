@@ -3,6 +3,9 @@ set(JOVE_VERSION "v0.94")
 set(JOVE_TOOL_FLAGS
   "-fwrapv"
 
+  "-D_GNU_SOURCE"
+  "-D_FILE_OFFSET_BITS=64"
+
   "-DBOOST_ICL_USE_STATIC_BOUNDED_INTERVALS"
 
   # opiniated stuff...
