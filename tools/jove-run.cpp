@@ -393,7 +393,7 @@ int RunTool::DoRun(void) {
   // if we were given a pipefd, then communicate the app child's PID
   //
   if (!opts.PIDFifo.empty()) {
-    pid_fd = ::open(opts.PIDFifo.c_str(), O_WRONLY);
+    pid_fd = ::open(opts.PIDFifo.c_str(), O_WRONLY | O_CLOEXEC);
     if (pid_fd < 0) {
       int err = errno;
       HumanOut() << llvm::formatv("failed to open pid fifo: {0}\n",
@@ -1069,7 +1069,7 @@ int RunTool::DoRun(void) {
     int fd = -1;
     int err = 0;
     do {
-      fd = ::open(fifo_file_path.c_str(), O_WRONLY);
+      fd = ::open(fifo_file_path.c_str(), O_WRONLY | O_CLOEXEC);
       err = errno;
     } while (fd < 0 && err == EINTR);
 
@@ -1121,7 +1121,7 @@ int RunTool::DoRun(void) {
 void touch(const fs::path &p) {
   fs::create_directories(p.parent_path());
   if (!fs::exists(p))
-    ::close(::open(p.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0666));
+    ::close(::open(p.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0666));
 }
 
 void *RunTool::FifoProc(const char *fifo_path) {
@@ -1131,7 +1131,7 @@ void *RunTool::FifoProc(const char *fifo_path) {
   int fd = -1;
   int err = 0;
   do {
-    fd = ::open(fifo_path, O_RDONLY);
+    fd = ::open(fifo_path, O_RDONLY | O_CLOEXEC);
     err = errno;
   } while (fd < 0 && err == EINTR);
 

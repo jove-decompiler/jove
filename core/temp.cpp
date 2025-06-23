@@ -7,6 +7,7 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <fcntl.h>
 
 namespace jove {
 
@@ -16,7 +17,7 @@ temp_executable::temp_executable(const void *contents, size_t size,
   int fd = -1;
 
 #ifdef JOVE_HAVE_MEMFD
-  fd = ::memfd_create(temp_prefix.c_str(), 0);
+  fd = ::memfd_create(temp_prefix.c_str(), MFD_CLOEXEC);
   if (fd < 0)
     throw std::runtime_error(std::string("memfd_create failed: ") + strerror(errno));
 
@@ -24,7 +25,7 @@ temp_executable::temp_executable(const void *contents, size_t size,
 #else
   _path = "/tmp/" + temp_prefix + ".XXXXXX";
 
-  fd = mkstemp(&_path[0]);
+  fd = mkostemp(&_path[0], O_CLOEXEC);
   if (fd < 0)
     throw std::runtime_error(std::string("mkstemp failed: ") + strerror(errno));
 #endif
