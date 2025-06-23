@@ -290,7 +290,6 @@ template <typename Derived> struct ipt_traits {
 struct end_of_trace_exception {};
 struct error_decoding_exception {};
 
-/* reference IPT decoder */
 template <IPT_PARAMETERS_DCL, typename Derived> struct ipt_t {
   using packet_type = typename ipt_traits<Derived>::packet_type;
   static constexpr bool MinSize = AreWeMinSize;
