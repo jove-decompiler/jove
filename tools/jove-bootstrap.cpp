@@ -2444,18 +2444,12 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
       const uintptr_t AddrOfRet = saved_pc;
       const uintptr_t RetAddr = pc;
 
-    auto do_ret = [&](void) -> void {
     //llvm::errs() << "<RET>\n";
       try {
         on_return(child, ret.BIdx, AddrOfRet, RetAddr);
       } catch (const std::exception &e) {
         HumanOut() << llvm::formatv("{0} failed: {1}\n", __func__, e.what());
       }
-
-    return;
-    };
-
-  do_ret();
 
       return;
   }
