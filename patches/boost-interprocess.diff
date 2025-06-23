@@ -1,50 +1,8 @@
 diff --git a/include/boost/interprocess/detail/file_wrapper.hpp b/include/boost/interprocess/detail/file_wrapper.hpp
-index 84b4953..5c632d5 100644
+index 84b4953..a1f4c5c 100644
 --- a/include/boost/interprocess/detail/file_wrapper.hpp
 +++ b/include/boost/interprocess/detail/file_wrapper.hpp
-@@ -74,40 +74,41 @@ class file_wrapper
-    //! 
-    //!Note: This function is only available on operating systems with
-    //!      native wchar_t APIs (e.g. Windows).
-    file_wrapper(open_or_create_t, const wchar_t *name, mode_t mode, const permissions &perm  = permissions())
-    {  this->priv_open_or_create(ipcdetail::DoOpenOrCreate, name, mode, perm);  }
- 
-    //!Tries to open a file with name "name", with the access mode "mode".
-    //!If the file does not previously exist, it throws an error.
-    //! 
-    //!Note: This function is only available on operating systems with
-    //!      native wchar_t APIs (e.g. Windows).
-    file_wrapper(open_only_t, const wchar_t *name, mode_t mode)
-    {  this->priv_open_or_create(ipcdetail::DoOpen, name, mode, permissions());  }
- 
-    #endif   //defined(BOOST_INTERPROCESS_WCHAR_NAMED_RESOURCES) || defined(BOOST_INTERPROCESS_DOXYGEN_INVOKED)
-    //!Moves the ownership of "moved"'s file to *this.
-    //!After the call, "moved" does not represent any file.
-    //!Does not throw
-    file_wrapper(BOOST_RV_REF(file_wrapper) moved)
-       :  m_handle(file_handle_t(ipcdetail::invalid_file()))
-+      ,  m_mode(read_only)
-    {  this->swap(moved);   }
- 
-    //!Moves the ownership of "moved"'s file to *this.
-    //!After the call, "moved" does not represent any file.
-    //!Does not throw
-    file_wrapper &operator=(BOOST_RV_REF(file_wrapper) moved)
-    {
-       file_wrapper tmp(boost::move(moved));
-       this->swap(tmp);
-       return *this;
-    }
- 
-    //!Swaps to file_wrappers.
-    //!Does not throw
-    void swap(file_wrapper &other);
- 
-    //!Erases a file from the system.
-    //!Returns false on error. Never throws
-    static bool remove(const char *name);
- 
-@@ -124,40 +125,41 @@ class file_wrapper
+@@ -124,42 +124,43 @@ class file_wrapper
  
     //!Returns the name of the file
     //!used in the constructor
@@ -67,7 +25,8 @@ index 84b4953..5c632d5 100644
  
 +   public:
     file_handle_t  m_handle;
-    mode_t         m_mode;
+-   mode_t         m_mode;
++   mode_t         m_mode = (mode_t)0;
  };
  
  inline file_wrapper::file_wrapper()
@@ -86,6 +45,96 @@ index 84b4953..5c632d5 100644
     (simple_swap)(m_handle,  other.m_handle);
     (simple_swap)(m_mode,    other.m_mode);
  }
+ 
+ inline mapping_handle_t file_wrapper::get_mapping_handle() const
+diff --git a/include/boost/interprocess/detail/os_file_functions.hpp b/include/boost/interprocess/detail/os_file_functions.hpp
+index 137409d..0c5460c 100644
+--- a/include/boost/interprocess/detail/os_file_functions.hpp
++++ b/include/boost/interprocess/detail/os_file_functions.hpp
+@@ -533,79 +533,79 @@ inline bool open_or_create_shared_directory(const char *path)
+ }
+ 
+ inline bool remove_directory(const char *path)
+ {  return ::rmdir(path) == 0; }
+ 
+ inline bool get_temporary_path(char *buffer, std::size_t buf_len, std::size_t &required_len)
+ {
+    required_len = 5u;
+    if(buf_len < required_len)
+       return false;
+    else{
+       std::strcpy(buffer, "/tmp");
+    }
+    return true;
+ }
+ 
+ inline file_handle_t create_new_file
+    (const char *name, mode_t mode, const permissions & perm = permissions(), bool temporary = false)
+ {
+    (void)temporary;
+-   int ret = BOOST_INTERPROCESS_EINTR_RETRY(int, -1, ::open(name, ((int)mode) | O_EXCL | O_CREAT, perm.get_permissions()));
++   int ret = BOOST_INTERPROCESS_EINTR_RETRY(int, -1, ::open(name, ((int)mode) | O_EXCL | O_CREAT | O_CLOEXEC, perm.get_permissions()));
+    if(ret >= 0){
+       int rc = BOOST_INTERPROCESS_EINTR_RETRY(int, -1, ::fchmod(ret, perm.get_permissions()));
+       (void)rc;
+    }
+    return ret;
+ }
+ 
+ inline file_handle_t create_or_open_file
+    (const char *name, mode_t mode, const permissions & perm = permissions(), bool temporary = false)
+ {
+    (void)temporary;
+    int ret = -1;
+    //We need a loop to change permissions correctly using fchmod, since
+    //with "O_CREAT only" ::open we don't know if we've created or opened the file.
+    while(true){
+-      ret = BOOST_INTERPROCESS_EINTR_RETRY(int, -1, ::open(name, ((int)mode) | O_EXCL | O_CREAT, perm.get_permissions()));
++      ret = BOOST_INTERPROCESS_EINTR_RETRY(int, -1, ::open(name, ((int)mode) | O_EXCL | O_CREAT | O_CLOEXEC, perm.get_permissions()));
+       if(ret >= 0){
+          int rc = BOOST_INTERPROCESS_EINTR_RETRY(int, -1, ::fchmod(ret, perm.get_permissions()));
+          (void)rc;
+          break;
+       }
+       else if(errno == EEXIST){
+-         if((ret = BOOST_INTERPROCESS_EINTR_RETRY(int, -1, ::open(name, (int)mode))) >= 0 || errno != ENOENT){
++         if((ret = BOOST_INTERPROCESS_EINTR_RETRY(int, -1, ::open(name, (int)mode | O_CLOEXEC))) >= 0 || errno != ENOENT){
+             break;
+          }
+       }
+       else{
+          break;
+       }
+    }
+    return ret;
+ }
+ 
+ inline file_handle_t open_existing_file
+    (const char *name, mode_t mode, bool temporary = false)
+ {
+    (void)temporary;
+-   return BOOST_INTERPROCESS_EINTR_RETRY(int, -1, ::open(name, (int)mode));
++   return BOOST_INTERPROCESS_EINTR_RETRY(int, -1, ::open(name, (int)mode | O_CLOEXEC));
+ }
+ 
+ inline bool delete_file(const char *name)
+ {  return BOOST_INTERPROCESS_EINTR_RETRY(int, -1, ::unlink(name)) == 0;   }
+ 
+ inline bool truncate_file (file_handle_t hnd, std::size_t size)
+ {
+    typedef boost::move_detail::make_unsigned<off_t>::type uoff_t;
+    BOOST_INTERPROCESS_STATIC_ASSERT(( sizeof(uoff_t) >= sizeof(std::size_t) ));
+    if( uoff_t(-1)/2u < uoff_t(size) ){
+       errno = EINVAL;
+       return false;
+    }
+    return 0 == BOOST_INTERPROCESS_EINTR_RETRY(int, -1, ::ftruncate(hnd, off_t(size)));
+ }
+ 
+ inline bool get_file_size(file_handle_t hnd, offset_t &size)
+ {
+    struct stat data;
+    bool ret = 0 == BOOST_INTERPROCESS_EINTR_RETRY(int, -1, ::fstat(hnd, &data));
 diff --git a/include/boost/interprocess/managed_mapped_file.hpp b/include/boost/interprocess/managed_mapped_file.hpp
 index 3c4570c..4117d6b 100644
 --- a/include/boost/interprocess/managed_mapped_file.hpp
