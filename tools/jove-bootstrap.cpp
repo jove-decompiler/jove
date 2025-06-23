@@ -2794,7 +2794,6 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
     bool IsGoto = false;
   } ControlFlow;
 
-  auto producer = [&](void) -> void {
     //llvm::errs() << "<PRODUCER>\n";
 #if 0
     llvm::errs() << "<producer> " << TargetBinary.Analysis.Functions.size() << ',' << binary.Analysis.Functions.size() << '\n';
@@ -2953,11 +2952,6 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 #if 0
     llvm::errs() << "</producer> " << TargetBinary.Analysis.Functions.size() << '\n';
 #endif
-
-    return;
-  };
-
-  producer();
 }
 
 #include "relocs_common.hpp"
