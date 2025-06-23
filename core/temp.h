@@ -15,7 +15,7 @@ struct temp_executable {
   std::string _path;
 
   temp_executable(const void *contents, size_t size,
-                  const std::string &temp_prefix);
+                  const std::string &temp_prefix, bool close_on_exec = true);
   ~temp_executable();
 
   void store(void);

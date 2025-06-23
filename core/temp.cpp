@@ -12,12 +12,16 @@
 namespace jove {
 
 temp_executable::temp_executable(const void *contents, size_t size,
-                                 const std::string &temp_prefix)
+                                 const std::string &temp_prefix,
+                                 bool close_on_exec)
     : contents(contents), size(size) {
   int fd = -1;
 
 #ifdef JOVE_HAVE_MEMFD
-  fd = ::memfd_create(temp_prefix.c_str(), MFD_CLOEXEC);
+  unsigned flags = 0;
+  if (close_on_exec)
+    flags |= MFD_CLOEXEC;
+  fd = ::memfd_create(temp_prefix.c_str(), flags);
   if (fd < 0)
     throw std::runtime_error(std::string("memfd_create failed: ") + strerror(errno));
 

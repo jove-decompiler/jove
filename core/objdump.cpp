@@ -21,7 +21,7 @@ int objdump_output_t<Alloc>::generate(objdump_output_t<Alloc> &out,
     temp_exe = std::make_unique<temp_executable>(
         Bin.getMemoryBufferRef().getBufferStart(),
         Bin.getMemoryBufferRef().getBufferSize(),
-        "objdump-" TARGET_ARCH_NAME);
+        "objdump-" TARGET_ARCH_NAME, false);
     temp_exe->store();
     filename = temp_exe->path().c_str();
   }
