@@ -142,7 +142,12 @@ bool bbprop_t::doInsertDynTarget(const dynamic_target_t &X,
     sm->deallocate(pTheDynTargets);
 
     uintptr_t expected_addr = reinterpret_cast<uintptr_t>(expected);
+    bool The_MT      = !!(expected_addr & 1u);
+    bool The_MinSize = !!(expected_addr & 2u);
     expected_addr &= ~3ULL;
+
+    assert(The_MT == MT);
+    assert(The_MinSize == MinSize);
 
     return reinterpret_cast<OurDynTargets_t *>(expected_addr)->Insert(X);
   } else {

@@ -61,7 +61,12 @@ bool function_t::AddCaller(jv_file_t &jv_file,
     sm->deallocate(pTheCallers);
 
     uintptr_t expected_addr = reinterpret_cast<uintptr_t>(expected);
+    bool The_MT      = !!(expected_addr & 1u);
+    bool The_MinSize = !!(expected_addr & 2u);
     expected_addr &= ~3ULL;
+
+    assert(The_MT == MT);
+    assert(The_MinSize == MinSize);
 
     return reinterpret_cast<OurCallers_t *>(expected_addr)->Insert(caller);
   } else {
