@@ -212,6 +212,7 @@ on_insn:
       bbprop_1.pDynTargets.Load(std::memory_order_relaxed),
       std::memory_order_relaxed);
   bbprop_2.sm_ = jv_file.get_segment_manager();
+  bbprop_2.Analysis.Stale.store(true, std::memory_order_relaxed);
   //bbprop_2.InvalidateAnalysis();
 
   assert(bbprop_2.Addr + bbprop_2.Size == addr_intvl_upper(intvl));
