@@ -366,9 +366,7 @@ struct BootstrapTool
   }
 
 public:
-  BootstrapTool()
-      : opts(JoveCategory)
-  {}
+  BootstrapTool() : opts(JoveCategory) {}
 
   int Run(void) override;
 
@@ -4544,11 +4542,27 @@ void SignalHandler(int no) {
 //
 #include "tool.h"
 
+namespace cl = llvm::cl;
+
 namespace jove {
 
 struct BootstrapTool : public Tool {
+  struct Cmdline {
+    cl::opt<std::string> Prog;
+    cl::list<std::string> Args;
+
+    Cmdline(llvm::cl::OptionCategory &JoveCategory)
+        : Prog(cl::Positional, cl::desc("prog"), cl::Required,
+               cl::value_desc("filename"), cl::cat(JoveCategory)),
+
+          Args("args", cl::CommaSeparated, cl::ConsumeAfter,
+               cl::desc("<program arguments>..."), cl::cat(JoveCategory)) {}
+  } opts;
+
+  BootstrapTool() : opts(JoveCategory) {}
+
   int Run(void) override {
-    HumanOut() << "bootstrap: host architecture != target\n";
+    HumanOut() << "bootstrap: invalid host arch for target\n";
     return 1;
   }
 };
