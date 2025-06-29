@@ -73,12 +73,9 @@ constexpr auto _X(llvm::object::Binary &Bin,
     return eproc(*llvm::cast<ELFO>(&Bin));
   } else if (llvm::isa<COFFO>(&Bin)) {
     return cproc(*llvm::cast<COFFO>(&Bin));
-  } else {
-    abort();
   }
 
-  __builtin_trap();
-  __builtin_unreachable();
+  abort();
 }
 
 #define BFUNCTION_2(rett, name)                                                \
