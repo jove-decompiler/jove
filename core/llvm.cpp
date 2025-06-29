@@ -2347,21 +2347,8 @@ int llvm_t<MT, MinSize>::PrepareToTranslateCode(void) {
 template <bool MT, bool MinSize>
 tcg_global_set_t
 llvm_t<MT, MinSize>::DetermineFunctionArgs(const function_t &f) {
-#if 0
-  AnalyzeFunction<false>(
-      jv, TCG, *Module, f,
-      [&](auto &b) -> llvm::object::Binary & {
-        return *state.for_binary(b).Bin;
-      },
-      [&](function_t &f) -> std::pair<basic_block_vec_t &, basic_block_vec_t &> {
-        function_state_t &x = state.for_function(f);
-        return std::pair<basic_block_vec_t &, basic_block_vec_t &>(x.bbvec, x.exit_bbvec);
-      },
-      opts.DFSan, opts.ForCBE, PinnedEnvGlbs, this);
-#else
-  if (unlikely(f.Analysis.Stale.load(std::memory_order_acquire)))
+  if (unlikely(f.Analysis.Stale.load(std::memory_order_relaxed)))
     die("DetermineFunctionArgs: func #" + std::to_string(f.Idx) + " is stale!");
-#endif
 
   return f.Analysis.args;
 }
@@ -2369,21 +2356,8 @@ llvm_t<MT, MinSize>::DetermineFunctionArgs(const function_t &f) {
 template <bool MT, bool MinSize>
 tcg_global_set_t
 llvm_t<MT, MinSize>::DetermineFunctionRets(const function_t &f) {
-#if 0
-  AnalyzeFunction<false>(
-      jv, TCG, *Module, f,
-      [&](auto &b) -> llvm::object::Binary & {
-        return *state.for_binary(b).Bin;
-      },
-      [&](function_t &f) -> std::pair<basic_block_vec_t &, basic_block_vec_t &> {
-        function_state_t &x = state.for_function(f);
-        return std::pair<basic_block_vec_t &, basic_block_vec_t &>(x.bbvec, x.exit_bbvec);
-      },
-      opts.DFSan, opts.ForCBE, PinnedEnvGlbs, this);
-#else
-  if (unlikely(f.Analysis.Stale.load(std::memory_order_acquire)))
+  if (unlikely(f.Analysis.Stale.load(std::memory_order_relaxed)))
     die("DetermineFunctionRets: func #" + std::to_string(f.Idx) + " is stale!");
-#endif
 
   return f.Analysis.rets;
 }
