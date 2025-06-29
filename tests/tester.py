@@ -376,7 +376,7 @@ class JoveTester:
     #
     # get IP of host seen by guest
     #
-    self.iphost = self.ssh_command(['ip', 'route', 'show']).stdout.strip().split()[2]
+    self.iphost = self.ssh_command(['ip', 'route', 'show'], check=True).stdout.strip().split()[2]
     print("iphost: %s" % self.iphost)
 
     if update_jove:
