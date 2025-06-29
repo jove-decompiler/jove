@@ -4184,7 +4184,7 @@ void BootstrapTool::on_return(pid_t child,
     bool isIndirectCall = before_Term.Type == TERMINATOR::INDIRECT_CALL;
 
     if (!isCall && !isIndirectCall) {
-      if (!IsI386 || IsVeryVerbose()) /* hack in qemu/target/i386/tcg/translate.c */
+      if (IsVeryVerbose())
         HumanOut() << llvm::formatv("on_return: unexpected term {0} @ {1}\n",
                                     description_of_terminator(before_Term.Type),
                                     description_of_program_counter(before_pc, true));
