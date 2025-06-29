@@ -3,15 +3,6 @@
     (defined(__aarch64__) && defined(TARGET_AARCH64)) || \
     (defined(__mips64)    && defined(TARGET_MIPS64))  || \
     (defined(__mips__)    && defined(TARGET_MIPS32))
-
-static constexpr bool IsI386 =
-#if !defined(__x86_64__) && defined(__i386__)
-    true
-#else
-    false
-#endif
-    ;
-
 #include "tool.h"
 #include "B.h"
 #include "tcg.h"
