@@ -2890,11 +2890,6 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
     bool IsGoto = false;
   } ControlFlow;
 
-    //llvm::errs() << "<PRODUCER>\n";
-#if 0
-    llvm::errs() << "<producer> " << TargetBinary.Analysis.Functions.size() << ',' << binary.Analysis.Functions.size() << '\n';
-#endif
-
   try {
     if (TermType == TERMINATOR::INDIRECT_CALL) {
       function_index_t FIdx =
@@ -2917,31 +2912,6 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
         out_deg = ICFG.out_degree(bb);
       }
-
-#if 0
-      if (Target.isNew &&
-          out_deg == 0 &&
-          ({does_function_return_fast(TargetICFG, basic_blocks_for_function(Target.BIdx, FIdx)); })) {
-        //
-        // this call instruction will return, so explore the return block
-        //
-        basic_block_index_t NextBBIdx =
-            E->explore_basic_block(binary, x.ObjectFile,
-                                  IndBrInfo.TermAddr + IndBrInfo.InsnBytes.size());
-
-        assert(is_basic_block_index_valid(NextBBIdx));
-
-  {
-  ip_sharable_lock<ip_sharable_mutex> s_lck(binary.bbmap_mtx);
-        bb_t bb = basic_block_at_address(IndBrInfo.TermAddr, binary);
-        const auto &bbprop = ICFG[bb];
-
-        assert(bbprop.Term.Type == TERMINATOR::INDIRECT_CALL);
-
-        ICFG.add_edge(bb, basic_block_of_index(NextBBIdx, ICFG));
-  }
-      }
-#endif
     } else {
       assert(TermType == TERMINATOR::INDIRECT_JUMP);
 
@@ -3039,9 +3009,6 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
     if (IsVerbose())
       HumanOut() << ProcMapsForPid(child);
   }
-#if 0
-    llvm::errs() << "</producer> " << TargetBinary.Analysis.Functions.size() << '\n';
-#endif
 }
 
 static bool load_proc_maps(pid_t child, std::vector<struct proc_map_t> &out);
