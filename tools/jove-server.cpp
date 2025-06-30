@@ -87,6 +87,20 @@ struct ConnectionProcArgs {
 
 int ServerTool::Run(void) {
   //
+  // Ignore SIGCHLD — children will be reaped automatically
+  //
+  struct sigaction sa;
+  sa.sa_handler = SIG_IGN;
+  sa.sa_flags = SA_NOCLDWAIT;
+  sigemptyset(&sa.sa_mask);
+  if (sigaction(SIGCHLD, &sa, nullptr) < 0) {
+    int err = errno;
+    WithColor::error() << llvm::formatv("sigaction failed: {0}\n",
+                                        strerror(err));
+    return 1;
+  }
+
+  //
   // Create TCP socket
   //
   int connection_socket = ::socket(AF_INET, SOCK_STREAM, 0);
@@ -165,11 +179,11 @@ int ServerTool::Run(void) {
         string_of_sockaddr((struct sockaddr *)&args->addr, args->addrlen));
 
     //
-    // Create thread to service that connection
+    // Create process to service that connection
     //
-    {
-      std::thread thd(&ServerTool::ConnectionProc, this, args);
-      thd.detach();
+    if (!::fork()) {
+      ConnectionProc(args);
+      exit(0);
     }
   }
 
