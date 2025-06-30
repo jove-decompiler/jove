@@ -376,6 +376,8 @@ struct BootstrapTool
   }
 
   void Reset(void) noexcept {
+    RightArch = true;
+
     IndBrMap.clear();
     RetMap.clear();
     BrkMap.clear();
@@ -1248,8 +1250,6 @@ int BootstrapTool::TracerLoop(pid_t child) {
               // it still may exec a 32-bit windows program (i.e. the preloader)
               // as part of the startup sequence.
               //
-              RightArch = true;
-
               unsigned long new_pid;
               if (::ptrace(PTRACE_GETEVENTMSG, child, 0UL, &new_pid) >= 0) {
                 char exe_path[PATH_MAX];
@@ -1283,7 +1283,8 @@ int BootstrapTool::TracerLoop(pid_t child) {
                     return 1;
                   }
 
-                  RightArch = B::is_elf(*Bin) || B::is_coff(*Bin);
+                  if (!B::is_elf(*Bin) && !B::is_coff(*Bin))
+                    RightArch = false;
                 }
               }
 
