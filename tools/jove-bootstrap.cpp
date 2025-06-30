@@ -458,11 +458,6 @@ public:
   std::string description_of_program_counter(uintptr_t, bool Verbose = false);
   std::string StringOfMCInst(llvm::MCInst &);
 
-#if 0
-  basic_block_vec_t &basic_blocks_for_function(binary_index_t BIdx,
-                                               function_index_t FIdx);
-#endif
-
   pid_t saved_child;
   std::atomic<bool> ToggleTurbo = false;
 
@@ -784,15 +779,6 @@ int BootstrapTool::TracerLoop(pid_t child) {
   {
     for (;;) {
       if (likely(!(child < 0))) {
-#if 0
-        _child = child;
-        cpu_state_t cpu_state;
-        _ptrace_get_cpu_state(child, cpu_state);
-        llvm::errs() << llvm::formatv(
-            "FOO: {0}\n",
-            description_of_program_counter(pc_of_cpu_state(cpu_state), true));
-#endif
-
         if (unlikely(::ptrace(opts.Syscalls || unlikely(!AllLoaded())
                                 ? PTRACE_SYSCALL
                                 : PTRACE_CONT,
@@ -1308,13 +1294,6 @@ int BootstrapTool::TracerLoop(pid_t child) {
             }
           } else {
             on_breakpoint(child);
-#if 0
-            catch (const std::exception &e) {
-              /* TODO rate-limit */
-              HumanOut() << llvm::formatv(
-                  "{0}: on_breakpoint failed: {1}\n", __func__, e.what());
-            }
-#endif
           }
         } else if (::ptrace(PTRACE_GETSIGINFO, child, 0UL, &si) < 0) {
           //
@@ -1435,25 +1414,6 @@ void BootstrapTool::on_new_function(binary_t &b, function_t &f) {
   //state.update();
 }
 
-#if 0
-basic_block_vec_t &
-BootstrapTool::basic_blocks_for_function(binary_index_t BIdx,
-                                         function_index_t FIdx) {
-  function_state_t &x = state.for_function(BIdx, FIdx);
-
-  if (!x.bbvec.empty())
-    return x.bbvec;
-
-  binary_t &b = jv.Binaries.at(BIdx);
-
-  ip_sharable_lock<ip_sharable_mutex> s_lck(b.bbmap_mtx);
-
-  basic_blocks_of_function(b.Analysis.Functions.at(FIdx), b, x.bbvec);
-
-  return x.bbvec;
-}
-#endif
-
 void BootstrapTool::place_breakpoints_in_block(binary_t &b, bb_t bb) {
   auto s_lck = b.BBMap.shared_access();
 
@@ -1467,13 +1427,6 @@ void BootstrapTool::place_breakpoints_in_block(binary_t &b, bb_t bb) {
 
   const auto &bbprop = ICFG[bb];
 
-#if 0
-  if (IsVeryVerbose())
-    HumanOut() << llvm::formatv("place_breakpoints_in_block: {0}/{1} {2}\n",
-                                BIdx, BBIdx,
-                                string_of_terminator(bbprop.Term.Type));
-#endif
-
   //
   // if it's an indirect branch, we need to (1) add it to the indirect branch
   // map and (2) install a breakpoint at the correct program counter
@@ -1481,14 +1434,6 @@ void BootstrapTool::place_breakpoints_in_block(binary_t &b, bb_t bb) {
   if (bbprop.Term.Type == TERMINATOR::INDIRECT_CALL ||
       bbprop.Term.Type == TERMINATOR::INDIRECT_JUMP) {
     uintptr_t termpc = pc_of_va(bbprop.Term.Addr, BIdx);
-
-#if 0
-    if (IsVeryVerbose())
-      llvm::errs() << llvm::formatv("IndBr2 {0} {1}\tTERM @ {2}\n",
-                                    description_of_program_counter(termpc),
-                                    taddr2str(bbprop.Addr, false),
-                                    taddr2str(bbprop.Term.Addr, false));
-#endif
 
     assert(IndBrMap.find(termpc) == IndBrMap.end());
 
@@ -3462,13 +3407,6 @@ bool load_proc_maps(pid_t child, std::vector<struct proc_map_t> &out) {
       if (boost::algorithm::ends_with(nm, " (deleted)"))
         nm = nm.substr(0, nm.size() - sizeof(" (deleted)") + 1); /* chop it off */
     }
-#endif
-
-#if 0
-    llvm::errs() << llvm::formatv(
-        "[{0:x}, {1:x}) {2} {3} {4} {5} {6:x} \"{7}\"\n", proc_map.beg,
-        proc_map.end, proc_map.r, proc_map.w, proc_map.x, proc_map.p,
-        proc_map.off, nm);
 #endif
   }
 
