@@ -2904,21 +2904,19 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
       assert(is_function_index_valid(FIdx));
 
-  {
-  auto s_lck = binary.BBMap.shared_access();
+      {
+        auto s_lck = binary.BBMap.shared_access();
 
+        bb_t bb = basic_block_at_address(IndBrInfo.TermAddr, binary);
+        auto &bbprop = ICFG[bb];
 
-      bb_t bb = basic_block_at_address(IndBrInfo.TermAddr, binary);
-      auto &bbprop = ICFG[bb];
+        assert(bbprop.Term.Type == TERMINATOR::INDIRECT_CALL);
 
-      assert(bbprop.Term.Type == TERMINATOR::INDIRECT_CALL);
+        Target.isNew = bbprop.insertDynTarget(IndBrInfo.BIdx,
+                                              {Target.BIdx, FIdx}, jv_file, jv);
 
-
-      Target.isNew = bbprop.insertDynTarget(IndBrInfo.BIdx, {Target.BIdx, FIdx}, jv_file, jv);
-
-    out_deg = ICFG.out_degree(bb);
-  }
-
+        out_deg = ICFG.out_degree(bb);
+      }
 
 #if 0
       if (Target.isNew &&
@@ -2983,18 +2981,17 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
           assert(is_function_index_valid(FIdx));
 
-  Target.isNew = ({
+          Target.isNew = ({
+            auto s_lck = binary.BBMap.shared_access();
 
-  auto s_lck = binary.BBMap.shared_access();
+            bb_t bb = basic_block_at_address(IndBrInfo.TermAddr, binary);
+            auto &bbprop = ICFG[bb];
 
-          bb_t bb = basic_block_at_address(IndBrInfo.TermAddr, binary);
-          auto &bbprop = ICFG[bb];
+            assert(bbprop.Term.Type == TERMINATOR::INDIRECT_JUMP);
 
-          assert(bbprop.Term.Type == TERMINATOR::INDIRECT_JUMP);
-
-
-          bbprop.insertDynTarget(IndBrInfo.BIdx, {Target.BIdx, FIdx}, jv_file, jv);
-  });
+            bbprop.insertDynTarget(IndBrInfo.BIdx, {Target.BIdx, FIdx}, jv_file,
+                                   jv);
+          });
         } else {
           const basic_block_index_t TargetBBIdx =
               E->explore_basic_block(TargetBinary, *x.ObjectFile,
@@ -3003,22 +3000,19 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
           assert(is_basic_block_index_valid(TargetBBIdx));
           bb_t TargetBB = basic_block_of_index(TargetBBIdx, ICFG);
 
-  {
+          {
+            auto s_lck = binary.BBMap.shared_access();
 
-  auto s_lck = binary.BBMap.shared_access();
+            bb_t bb = basic_block_at_address(IndBrInfo.TermAddr, binary);
+            auto &bbprop = ICFG[bb];
 
+            assert(bbprop.Term.Type == TERMINATOR::INDIRECT_JUMP);
 
-          bb_t bb = basic_block_at_address(IndBrInfo.TermAddr, binary);
-          auto &bbprop = ICFG[bb];
+            Target.isNew = ICFG.add_edge(bb, TargetBB).second;
 
-          assert(bbprop.Term.Type == TERMINATOR::INDIRECT_JUMP);
-
-
-          Target.isNew = ICFG.add_edge(bb, TargetBB).second;
-
-          if (Target.isNew)
-            bbprop.InvalidateAnalysis(jv, binary);
-  }
+            if (Target.isNew)
+              bbprop.InvalidateAnalysis(jv, binary);
+          }
 
           ControlFlow.IsGoto = true;
         }
