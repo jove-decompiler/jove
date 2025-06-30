@@ -360,6 +360,9 @@ adds_binary_t::adds_binary_t(binary_index_t &out,
   std::unique_ptr<llvm::object::Binary> Bin;
   try {
     Bin = B::Create(data);
+
+    if (!B::is_elf(*Bin) && !B::is_coff(*Bin))
+      throw std::runtime_error("incorrect architecture for binary");
   } catch (...) {
     //
     // we're making note here that this is *not* a (valid) binary
