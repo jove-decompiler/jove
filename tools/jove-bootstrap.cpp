@@ -97,10 +97,7 @@ struct binary_state_t {
   binary_state_t(const auto &b) {
     ObjectFile = B::Create(b.data());
 
-    assert(llvm::isa<ELFO>(ObjectFile.get()));
-
-    ELFO &Obj = *llvm::cast<ELFO>(ObjectFile.get());
-
+    B::_elf(*ObjectFile, [&](ELFO &Obj) {
     elf::loadDynamicTable(Obj, _elf.DynamicTable);
 
     _elf.OptionalDynSymRegion =
@@ -116,6 +113,7 @@ struct binary_state_t {
                            _elf.DynRelaRegion,
                            _elf.DynRelrRegion,
                            _elf.DynPLTRelRegion);
+    });
   }
 };
 
@@ -298,6 +296,8 @@ struct BootstrapTool
   template <typename Key, typename Value>
   using unordered_map = boost::unordered::unordered_flat_map<Key, Value>;
 
+  const bool IsCOFF;
+
   std::unique_ptr<tiny_code_generator_t> tcg;
   std::unique_ptr<disas_t> disas;
   std::unique_ptr<symbolizer_t> symbolizer;
@@ -357,7 +357,9 @@ struct BootstrapTool
   }
 
 public:
-  BootstrapTool() : opts(JoveCategory) {}
+  BootstrapTool()
+      : opts(JoveCategory),
+        IsCOFF(B::is_coff(*state.for_binary(jv.Binaries.at(0)).ObjectFile)) {}
 
   int Run(void) override;
 
@@ -3911,6 +3913,9 @@ binary_index_t BootstrapTool::BinaryFromPath(pid_t child, const char *path) {
     ~EmptyBasicBlockProcSetter() { tool.E->set_newbb_proc(sav_proc); }
   } __EmptyBasicBlockProcSetter(*this); /* on_binary_loaded will place brkpts */
 
+  if (IsVerbose())
+    llvm::errs() << llvm::formatv("BinaryFromPath: \"{0}\"\n", path);
+
   using namespace std::placeholders;
 
   return jv.AddFromPath<ValidatePath>(*E, jv_file, path,
@@ -3930,6 +3935,9 @@ binary_index_t BootstrapTool::BinaryFromData(pid_t child, std::string_view sv,
 
     ~EmptyBasicBlockProcSetter() { tool.E->set_newbb_proc(sav_proc); }
   } __EmptyBasicBlockProcSetter(*this); /* on_binary_loaded will place brkpts */
+
+  if (IsVerbose())
+    llvm::errs() << llvm::formatv("BinaryFromData: \"{0}\"\n", name);
 
   using namespace std::placeholders;
 
