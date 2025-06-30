@@ -82,6 +82,11 @@ struct binary_state_t {
   uintptr_t LoadAddr = std::numeric_limits<uintptr_t>::max();
   uintptr_t LoadOffset = std::numeric_limits<uintptr_t>::max();
 
+  bool Loaded(void) const {
+    return LoadAddr != std::numeric_limits<uintptr_t>::max() &&
+           LoadOffset != std::numeric_limits<uintptr_t>::max();
+  }
+
   std::unique_ptr<llvm::object::Binary> ObjectFile;
   struct {
     elf::DynRegionInfo DynamicTable;
@@ -298,9 +303,13 @@ struct BootstrapTool
   template <typename Key, typename Value>
   using unordered_map = boost::unordered::unordered_flat_map<Key, Value>;
 
+  template <typename T>
+  using unordered_set = boost::unordered::unordered_flat_set<T>;
+
   boost::interprocess::mapped_region shared_mem;
   int &shared_err;
 
+  bool RightArch = true;
   const bool IsCOFF;
 
   std::unique_ptr<tiny_code_generator_t> tcg;
@@ -315,13 +324,16 @@ struct BootstrapTool
 
   pmm_t pmm;
 
-  address_space_t AddressSpace;
+  unordered_set<binary_index_t> Loaded;
+  bool AllLoaded(void) const { return Loaded.size() == jv.Binaries.size(); }
 
-  boost::dynamic_bitset<> BinFoundVec;
+  address_space_t AddressSpace;
 
   unsigned TurboToggle = 0;
 
   pid_t _child = 0; /* XXX */
+
+  std::string path_to_exe;
 
   unordered_map<uintptr_t, indirect_branch_t> IndBrMap;
   unordered_map<uintptr_t, return_t> RetMap;
@@ -330,8 +342,13 @@ struct BootstrapTool
   struct {
     bool Found = false;
     uintptr_t Addr = 0;
-
     uintptr_t r_brk = 0;
+
+    void Reset(void) {
+      Found = false;
+      Addr = 0;
+      r_brk = 0;
+    }
   } _r_debug;
 
   unordered_map<pid_t, child_syscall_state_t> children_syscall_state;
@@ -354,11 +371,27 @@ struct BootstrapTool
 
     b.IsDynamicallyLoaded = true;
 
-    BinFoundVec.resize(BinFoundVec.size() + 1, false);
-    assert(BinFoundVec.size() == jv.NumBinaries());
-
     if (IsVerbose())
       HumanOut() << llvm::formatv("added {0}\n", b.Name.c_str());
+  }
+
+  void Reset(void) noexcept {
+    IndBrMap.clear();
+    RetMap.clear();
+    BrkMap.clear();
+    Loaded.clear();
+    cached_proc_maps.clear();
+    pmm.clear();
+    AddressSpace.clear();
+    children_syscall_state.clear();
+
+    _r_debug.Reset();
+
+#if defined(__mips64) || defined(__mips__)
+    ExecutableRegionAddress = 0;
+#endif
+
+    TurboToggle = 0;
   }
 
 public:
@@ -451,6 +484,17 @@ JOVE_REGISTER_TOOL("bootstrap", BootstrapTool);
 
 typedef boost::format fmt;
 
+static inline void print_command(const char **argv) {
+  for (const char **argp = argv; *argp; ++argp) {
+    llvm::errs() << *argp;
+
+    if (*(argp + 1))
+      llvm::errs() << ' ';
+  }
+
+  llvm::errs() << '\n';
+}
+
 static std::string ProcMapsForPid(pid_t);
 
 static BootstrapTool *pTool;
@@ -498,11 +542,6 @@ int BootstrapTool::Run(void) {
     INSTALL_SIG(SIGSEGV);
     INSTALL_SIG(SIGABRT);
   }
-
-  //
-  // initialize state associated with every binary
-  //
-  BinFoundVec.resize(jv.Binaries.size());
 
   //
   // bootstrap has two modes of execution.
@@ -560,6 +599,26 @@ int BootstrapTool::Run(void) {
     //
     // mode 2: create new process
     //
+    try {
+      path_to_exe = fs::canonical(opts.Prog).string();
+    } catch (...) {
+      WithColor::error() << llvm::formatv(
+          "failed to canonicalize given path (\"{0}\")\n", opts.Prog);
+      return 1;
+    }
+
+    if (!fs::exists(path_to_exe)) {
+      WithColor::error() << llvm::formatv(
+          "no executable at given path (\"{0}\")\n", path_to_exe);
+      return 1;
+    }
+
+    if (!fs::equivalent(path_to_exe, jv.Binaries.at(0).path_str())) {
+      WithColor::error() << llvm::formatv("unexpected executable \"{0}\"\n",
+                                          jv.Binaries.at(0).Name.c_str());
+      return 1;
+    }
+
     int pipefd[2];
     if (::pipe(pipefd) < 0) { /* first, create a pipe */
       HumanOut() << "pipe(2) failed. bug?\n";
@@ -671,29 +730,27 @@ int BootstrapTool::Run(void) {
 
 uintptr_t BootstrapTool::pc_of_offset(uintptr_t off, binary_index_t BIdx) {
   binary_t &binary = jv.Binaries.at(BIdx);
+  binary_state_t &x = state.for_binary(binary);
 
-  if (!BinFoundVec.test(BIdx))
+  if (!x.Loaded())
     throw std::runtime_error(std::string(__func__) + ": given binary (" +
                              binary.Name.c_str() + " is not loaded\n");
-
-  binary_state_t &x = state.for_binary(binary);
 
   return off + (x.LoadAddr - x.LoadOffset);
 }
 
 uintptr_t BootstrapTool::pc_of_va(uintptr_t Addr, binary_index_t BIdx) {
   binary_t &binary = jv.Binaries.at(BIdx);
+  binary_state_t &x = state.for_binary(binary);
 
-  if (!BinFoundVec.test(BIdx))
+  if (!x.Loaded())
     throw std::runtime_error(std::string(__func__) + ": given binary (" +
                              binary.Name.c_str() + " is not loaded\n");
 
   if (!binary.IsPIC) {
-    assert(binary.IsExecutable);
+    //assert(binary.IsExecutable);
     return Addr;
   }
-
-  binary_state_t &x = state.for_binary(binary);
 
   uint64_t off = B::offset_of_va(*x.ObjectFile, Addr);
   return off + (x.LoadAddr - x.LoadOffset);
@@ -701,17 +758,16 @@ uintptr_t BootstrapTool::pc_of_va(uintptr_t Addr, binary_index_t BIdx) {
 
 uintptr_t BootstrapTool::va_of_pc(uintptr_t pc, binary_index_t BIdx) {
   binary_t &binary = jv.Binaries.at(BIdx);
+  binary_state_t &x = state.for_binary(binary);
 
-  if (!BinFoundVec.test(BIdx))
+  if (!x.Loaded())
     throw std::runtime_error(std::string(__func__) + ": given binary (" +
                              binary.Name.c_str() + " is not loaded\n");
 
   if (!binary.IsPIC) {
-    assert(binary.IsExecutable);
+    //assert(binary.IsExecutable);
     return pc;
   }
-
-  binary_state_t &x = state.for_binary(binary);
 
   uint64_t off = pc - (x.LoadAddr - x.LoadOffset);
   return B::va_of_offset(*x.ObjectFile, off);
@@ -744,7 +800,7 @@ int BootstrapTool::TracerLoop(pid_t child) {
             description_of_program_counter(pc_of_cpu_state(cpu_state), true));
 #endif
 
-        if (unlikely(::ptrace(opts.Syscalls || unlikely(!BinFoundVec.all())
+        if (unlikely(::ptrace(opts.Syscalls || unlikely(!AllLoaded())
                                 ? PTRACE_SYSCALL
                                 : PTRACE_CONT,
                             child, nullptr, reinterpret_cast<void *>(sig)) < 0))
@@ -784,7 +840,7 @@ int BootstrapTool::TracerLoop(pid_t child) {
 
           ScanAddressSpace(saved_child);
 
-          if (!DidAttach()) {
+          if (IsVerbose() && !DidAttach()) {
             //
             // we should be at the entry point of the dynamic linker
             //
@@ -805,14 +861,14 @@ int BootstrapTool::TracerLoop(pid_t child) {
           }
 
           //
-          // do *not* have ptrace option PTRACE_O_TRACEEXEC set
+          // do *not* trace any more forks.
           //
           int ptrace_options = PTRACE_O_TRACESYSGOOD |
                             /* PTRACE_O_EXITKILL   | */
                                PTRACE_O_TRACEEXIT  |
-                            /* PTRACE_O_TRACEEXEC  | */
-                               PTRACE_O_TRACEFORK  |
-                               PTRACE_O_TRACEVFORK |
+                               PTRACE_O_TRACEEXEC  |
+                            /* PTRACE_O_TRACEFORK  | */
+                            /* PTRACE_O_TRACEVFORK | */
                                PTRACE_O_TRACECLONE;
 
           if (::ptrace(PTRACE_SETOPTIONS, child, 0UL, ptrace_options) < 0) {
@@ -1136,7 +1192,7 @@ int BootstrapTool::TracerLoop(pid_t child) {
           if (unlikely(opts.PrintLinkMap))
             scan_rtld_link_map(child);
 
-          if (unlikely(!BinFoundVec.all()))
+          if (unlikely(!AllLoaded()))
             ScanAddressSpace(child);
         } else if (stopsig == SIGTRAP) {
           const unsigned int event = (unsigned int)status >> 16;
@@ -1153,11 +1209,12 @@ int BootstrapTool::TracerLoop(pid_t child) {
                 HumanOut() << "ptrace event (PTRACE_EVENT_VFORK) [" << child
                            << "]\n";
               break;
-            case PTRACE_EVENT_FORK:
+            case PTRACE_EVENT_FORK: {
               if (opts.PrintPtraceEvents)
                 HumanOut() << "ptrace event (PTRACE_EVENT_FORK) [" << child
                            << "]\n";
               break;
+            }
             case PTRACE_EVENT_CLONE: {
               pid_t new_child;
               ::ptrace(PTRACE_GETEVENTMSG, child, nullptr, &new_child);
@@ -1172,11 +1229,71 @@ int BootstrapTool::TracerLoop(pid_t child) {
                 HumanOut() << "ptrace event (PTRACE_EVENT_VFORK_DONE) ["
                            << child << "]\n";
               break;
-            case PTRACE_EVENT_EXEC:
+            case PTRACE_EVENT_EXEC: {
               if (opts.PrintPtraceEvents)
                 HumanOut() << "ptrace event (PTRACE_EVENT_EXEC) [" << child
                            << "]\n";
+
+              //
+              // the address space has been reset, so we need
+              // to clear our breakpoint tables and anything else that is
+              // dependent on the tracee's state.
+              //
+              this->Reset();
+
+              //
+              // check that the executable architecture matches our target.
+              //
+              // even if one provides a 64-bit windows program for WINE to run,
+              // it still may exec a 32-bit windows program (i.e. the preloader)
+              // as part of the startup sequence.
+              //
+              RightArch = true;
+
+              unsigned long new_pid;
+              if (::ptrace(PTRACE_GETEVENTMSG, child, 0UL, &new_pid) >= 0) {
+                char exe_path[PATH_MAX];
+
+                ssize_t len = ({
+                  char path[PATH_MAX];
+                  snprintf(path, sizeof(path), "/proc/%lu/exe", new_pid);
+
+                  readlink(path, exe_path, sizeof(exe_path) - 1);
+                });
+
+                if (len > 0) {
+                  exe_path[len] = '\0';
+
+                  std::vector<uint8_t> BinBytes;
+                  std::unique_ptr<llvm::object::Binary> Bin;
+
+                  //
+                  // XXX memfd cover-up
+                  //
+                  std::string the_exe_path = exe_path;
+                  if (boost::algorithm::starts_with(the_exe_path,
+                                                    "/memfd:jove/bootstrap"))
+                    Bin = B::Create(jv.Binaries.at(0).data());
+                  else
+                    Bin = B::CreateFromFile(exe_path, BinBytes);
+
+                  if (!Bin) {
+                    WithColor::error() << llvm::formatv(
+                        "exec'd unrecognized binary: \"{0}\"\n", exe_path);
+                    return 1;
+                  }
+
+                  RightArch = B::is_elf(*Bin) || B::is_coff(*Bin);
+                }
+              }
+
+              if (IsVerbose() && !RightArch)
+                HumanOut() << "executable has wrong arch. ignoring...\n";
+
+              ScanAddressSpace(child, true);
               break;
+            }
+
             case PTRACE_EVENT_EXIT:
               if (opts.PrintPtraceEvents)
                 HumanOut() << "ptrace event (PTRACE_EVENT_EXIT) [" << child
@@ -1355,13 +1472,13 @@ BootstrapTool::basic_blocks_for_function(binary_index_t BIdx,
 void BootstrapTool::place_breakpoints_in_block(binary_t &b, bb_t bb) {
   auto s_lck = b.BBMap.shared_access();
 
+  binary_state_t &x = state.for_binary(b);
   auto &ICFG = b.Analysis.ICFG;
 
   const binary_index_t BIdx = index_of_binary(b, jv);
   const basic_block_index_t BBIdx = index_of_basic_block(ICFG, bb);
 
-  assert(BIdx < BinFoundVec.size());
-  assert(BinFoundVec.at(BIdx));
+  assert(x.Loaded());
 
   const auto &bbprop = ICFG[bb];
 
@@ -1400,14 +1517,11 @@ void BootstrapTool::place_breakpoints_in_block(binary_t &b, bb_t bb) {
     assert(indbr.InsnBytes.size() == 2 * sizeof(uint32_t));
 #endif
 
-    assert(state.for_binary(b).ObjectFile.get());
-    const ELFF &Elf = llvm::cast<ELFO>(state.for_binary(b).ObjectFile.get())->getELFFile();
+    assert(x.ObjectFile.get());
 
-    llvm::Expected<const uint8_t *> ExpectedPtr = Elf.toMappedAddr(bbprop.Term.Addr);
-    if (!ExpectedPtr)
-      abort();
+    const void *Ptr = B::toMappedAddr(*x.ObjectFile, bbprop.Term.Addr);
 
-    memcpy(&indbr.InsnBytes[0], *ExpectedPtr, indbr.InsnBytes.size());
+    memcpy(&indbr.InsnBytes[0], Ptr, indbr.InsnBytes.size());
 
     //
     // now that we have the bytes for each indirect branch, disassemble them
@@ -1463,14 +1577,10 @@ void BootstrapTool::place_breakpoints_in_block(binary_t &b, bb_t bb) {
     assert(RetInfo.InsnBytes.size() == sizeof(uint64_t));
 #endif
 
-    assert(state.for_binary(b).ObjectFile.get());
-    const ELFF &Elf = llvm::cast<ELFO>(state.for_binary(b).ObjectFile.get())->getELFFile();
+    assert(x.ObjectFile.get());
+    const void *Ptr = B::toMappedAddr(*x.ObjectFile, bbprop.Term.Addr);
 
-    llvm::Expected<const uint8_t *> ExpectedPtr = Elf.toMappedAddr(bbprop.Term.Addr);
-    if (!ExpectedPtr)
-      abort();
-
-    memcpy(&RetInfo.InsnBytes[0], *ExpectedPtr, RetInfo.InsnBytes.size());
+    memcpy(&RetInfo.InsnBytes[0], Ptr, RetInfo.InsnBytes.size());
 
     {
       uint64_t InstLen;
@@ -2782,13 +2892,14 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
     return;
   }
 
-  assert(BinFoundVec.at(Target.BIdx)); /* XXX this is important */
-
   //
   // update the jv based on the target
   //
   binary_t &TargetBinary = jv.Binaries.at(Target.BIdx);
   auto &TargetICFG = TargetBinary.Analysis.ICFG;
+  binary_state_t &x = state.for_binary(TargetBinary);
+
+  assert(x.Loaded()); /* XXX this is important */
 
   struct {
     bool IsGoto = false;
@@ -2803,7 +2914,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
     if (TermType == TERMINATOR::INDIRECT_CALL) {
       function_index_t FIdx =
           E->explore_function(TargetBinary,
-                             *state.for_binary(TargetBinary).ObjectFile,
+                             *x.ObjectFile,
                              va_of_pc(Target.Addr, Target.BIdx));
 
       assert(is_function_index_valid(FIdx));
@@ -2832,7 +2943,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
         // this call instruction will return, so explore the return block
         //
         basic_block_index_t NextBBIdx =
-            E->explore_basic_block(binary, *state.for_binary(binary).ObjectFile,
+            E->explore_basic_block(binary, x.ObjectFile,
                                   IndBrInfo.TermAddr + IndBrInfo.InsnBytes.size());
 
         assert(is_basic_block_index_valid(NextBBIdx));
@@ -2856,7 +2967,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
         // non-local goto (aka "long jump")
         //
         const basic_block_index_t BBIdx = E->explore_basic_block(
-            TargetBinary, *state.for_binary(TargetBinary).ObjectFile,
+            TargetBinary, *x.ObjectFile,
             va_of_pc(Target.Addr, Target.BIdx));
 
         assert(is_basic_block_index_valid(BBIdx));
@@ -2882,7 +2993,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
         if (isTailCall) {
           function_index_t FIdx =
-              E->explore_function(TargetBinary, *state.for_binary(TargetBinary).ObjectFile,
+              E->explore_function(TargetBinary, *x.ObjectFile,
                                  va_of_pc(Target.Addr, Target.BIdx));
 
           assert(is_function_index_valid(FIdx));
@@ -2901,7 +3012,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
   });
         } else {
           const basic_block_index_t TargetBBIdx =
-              E->explore_basic_block(TargetBinary, *state.for_binary(TargetBinary).ObjectFile,
+              E->explore_basic_block(TargetBinary, *x.ObjectFile,
                                     va_of_pc(Target.Addr, Target.BIdx));
 
           assert(is_basic_block_index_valid(TargetBBIdx));
@@ -2944,7 +3055,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
         "on_breakpoint failed: {0} [target: {1}+{2:x} ({3:x}) binary.LoadAddr: {4:x}]\n",
         what, fs::path(TargetBinary.Name.c_str()).filename().string(),
         va_of_pc(Target.Addr, Target.BIdx), Target.Addr,
-        state.for_binary(TargetBinary).LoadAddr);
+        x.LoadAddr);
 
     if (IsVerbose())
       HumanOut() << ProcMapsForPid(child);
@@ -3011,12 +3122,16 @@ void BootstrapTool::harvest_irelative_reloc_targets(pid_t child) {
     if (b.IsVDSO)
       continue;
 
-    if (!BinFoundVec[BIdx])
+    binary_state_t &x = state.for_binary(b);
+    if (!x.Loaded())
       continue;
 
-    std::unique_ptr<obj::Binary> &Bin = state.for_binary(b).ObjectFile;
-
+    std::unique_ptr<obj::Binary> &Bin = x.ObjectFile;
     assert(Bin.get());
+
+    if (!B::is_elf(*Bin))
+      continue;
+
     assert(llvm::isa<ELFO>(Bin.get()));
     ELFO &Obj = *llvm::cast<ELFO>(Bin.get());
     const ELFF &Elf = Obj.getELFFile();
@@ -3040,8 +3155,11 @@ void BootstrapTool::harvest_addressof_reloc_targets(pid_t child) {
       return;
 
     std::unique_ptr<obj::Binary> &Bin = state.for_binary(b).ObjectFile;
-
     assert(Bin.get());
+
+    if (!B::is_elf(*Bin))
+      return;
+
     assert(llvm::isa<ELFO>(Bin.get()));
     ELFO &Obj = *llvm::cast<ELFO>(Bin.get());
     const ELFF &Elf = Obj.getELFFile();
@@ -3101,15 +3219,19 @@ void BootstrapTool::harvest_addressof_reloc_targets(pid_t child) {
     if (b.IsVDSO)
       continue;
 
-    if (!BinFoundVec[BIdx])
+    binary_state_t &x = state.for_binary(b);
+    if (!x.Loaded())
       continue;
 
     if (!state.for_binary(b)._elf.OptionalDynSymRegion)
       continue;
 
-    std::unique_ptr<obj::Binary> &Bin = state.for_binary(b).ObjectFile;
-
+    std::unique_ptr<obj::Binary> &Bin = x.ObjectFile;
     assert(Bin.get());
+
+    if (!B::is_elf(*Bin))
+      continue;
+
     assert(llvm::isa<ELFO>(Bin.get()));
     ELFO &Obj = *llvm::cast<ELFO>(Bin.get());
     const ELFF &Elf = Obj.getELFFile();
@@ -3131,12 +3253,16 @@ void BootstrapTool::harvest_ctor_and_dtors(pid_t child) {
     if (Binary.IsVDSO)
       continue;
 
-    if (!BinFoundVec[BIdx])
+    binary_state_t &x = state.for_binary(Binary);
+    if (!x.Loaded())
       continue;
 
-    std::unique_ptr<obj::Binary> &ObjectFile = state.for_binary(Binary).ObjectFile;
-
+    std::unique_ptr<obj::Binary> &ObjectFile = x.ObjectFile;
     assert(ObjectFile.get());
+
+    if (!B::is_elf(*ObjectFile))
+      continue;
+
     assert(llvm::isa<ELFO>(ObjectFile.get()));
     ELFO &Obj = *llvm::cast<ELFO>(ObjectFile.get());
     const ELFF &Elf = Obj.getELFFile();
@@ -3205,25 +3331,29 @@ void BootstrapTool::harvest_global_GOT_entries(pid_t child) {
     if (b.IsVDSO)
       continue;
 
-    if (!BinFoundVec[BIdx])
+    binary_state_t &x = state.for_binary(b);
+    if (!x.Loaded())
       continue;
 
-    if (!state.for_binary(b)._elf.OptionalDynSymRegion)
+    if (!x._elf.OptionalDynSymRegion)
       continue;
 
-    std::unique_ptr<obj::Binary> &ObjectFile = state.for_binary(b).ObjectFile;
-
+    std::unique_ptr<obj::Binary> &ObjectFile = x.ObjectFile;
     assert(ObjectFile.get());
+
+    if (!B::is_elf(*ObjectFile))
+      return;
+
     assert(llvm::isa<ELFO>(ObjectFile.get()));
     ELFO &O = *llvm::cast<ELFO>(ObjectFile.get());
     const ELFF &Elf = O.getELFFile();
 
     auto dynamic_table = [&](void) -> Elf_Dyn_Range {
-      return state.for_binary(b)._elf.DynamicTable.getAsArrayRef<Elf_Dyn>();
+      return x._elf.DynamicTable.getAsArrayRef<Elf_Dyn>();
     };
 
     auto dynamic_symbols = [&](void) -> Elf_Sym_Range {
-      return state.for_binary(b)._elf.OptionalDynSymRegion->getAsArrayRef<Elf_Sym>();
+      return x._elf.OptionalDynSymRegion->getAsArrayRef<Elf_Sym>();
     };
 
     elf::MipsGOTParser Parser(Elf, b.Name.c_str());
@@ -3247,7 +3377,7 @@ void BootstrapTool::harvest_global_GOT_entries(pid_t child) {
       if (Sym->getType() != llvm::ELF::STT_FUNC)
         continue;
 
-      llvm::Expected<llvm::StringRef> ExpectedSymName = Sym->getName(state.for_binary(b)._elf.DynamicStringTable);
+      llvm::Expected<llvm::StringRef> ExpectedSymName = Sym->getName(x._elf.DynamicStringTable);
       if (!ExpectedSymName)
         continue;
 
@@ -3328,9 +3458,12 @@ bool BootstrapTool::UpdateVM(pid_t child) {
 }
 
 void BootstrapTool::ScanAddressSpace(pid_t child, bool VMUpdate) {
+  if (unlikely(!RightArch))
+    return;
+
   if (VMUpdate) {
-    if (unlikely(!UpdateVM(child)))
-      return;
+    if (!UpdateVM(child))
+      WithColor::warning() << "failed to update view of /proc/<PID>/maps\n";
   }
 
   //
@@ -3344,17 +3477,16 @@ void BootstrapTool::ScanAddressSpace(pid_t child, bool VMUpdate) {
   });
 
   for (const proc_map_t &pm : cached_proc_maps) {
-    if (pm.nm.empty())
-      continue;
-
     if (!pm.x) /* XXX this is important, but why? */
       continue;
 
-    binary_index_t BIdx = invalid_binary_index;
-
     const std::string &nm = pm.nm;
-    if (nm[0] != '/') {
-      if (nm[0] != '[')
+    if (nm.empty())
+      continue;
+
+    binary_index_t BIdx = invalid_binary_index;
+    if (nm.front() != '/') {
+      if (nm.front() != '[')
         die("unrecognized mapping \"" + nm + "\"");
 
       //
@@ -3385,15 +3517,13 @@ void BootstrapTool::ScanAddressSpace(pid_t child, bool VMUpdate) {
 
     intvl_map_add(AddressSpace, right_open_addr_intvl(pm.beg, pm.end), BIdx);
 
+    bool NewlyLoaded = Loaded.insert(BIdx).second;
     if (updateVariable(state.for_binary(b).LoadAddr,
                        std::min(state.for_binary(b).LoadAddr, pm.beg)))
       state.for_binary(b).LoadOffset = pm.off;
 
-    if (!BinFoundVec.test(BIdx)) {
-      BinFoundVec.set(BIdx);
-
+    if (NewlyLoaded)
       on_binary_loaded(child, BIdx, pm);
-    }
   }
 }
 
@@ -3401,8 +3531,9 @@ void BootstrapTool::on_binary_loaded(pid_t child,
                                      binary_index_t BIdx,
                                      const proc_map_t &pm) {
   binary_t &binary = jv.Binaries.at(BIdx);
+  binary_state_t &x = state.for_binary(binary);
 
-  auto &ObjectFile = state.for_binary(binary).ObjectFile;
+  auto &ObjectFile = x.ObjectFile;
 
   if (IsVerbose())
     HumanOut() << (fmt("found binary %s @ [%#lx, %#lx)")
@@ -3411,6 +3542,7 @@ void BootstrapTool::on_binary_loaded(pid_t child,
                    % pm.end).str()
                << '\n';
 
+#if 0
   //
   // if Prog has been loaded, set a breakpoint on the entry point of prog
   //
@@ -3431,6 +3563,7 @@ void BootstrapTool::on_binary_loaded(pid_t child,
       HumanOut() << llvm::formatv("failed to place breakpoint: {0}\n", e.what());
     }
   }
+#endif
 
   //
   // if it's the dynamic linker, we need to set a breakpoint on the address of a
@@ -3504,13 +3637,9 @@ void BootstrapTool::on_binary_loaded(pid_t child,
 #endif
 
     assert(ObjectFile.get());
-    const ELFF &Elf = llvm::cast<ELFO>(ObjectFile.get())->getELFFile();
+    const void *Ptr = B::toMappedAddr(*ObjectFile, bbprop.Term.Addr);
 
-    llvm::Expected<const uint8_t *> ExpectedPtr = Elf.toMappedAddr(bbprop.Term.Addr);
-    if (!ExpectedPtr)
-      abort();
-
-    memcpy(&IndBrInfo.InsnBytes[0], *ExpectedPtr, IndBrInfo.InsnBytes.size());
+    memcpy(&IndBrInfo.InsnBytes[0], Ptr, IndBrInfo.InsnBytes.size());
 
     //
     // now that we have the bytes for each indirect branch, disassemble them
@@ -3577,13 +3706,9 @@ void BootstrapTool::on_binary_loaded(pid_t child,
 #endif
 
     assert(ObjectFile.get());
-    const ELFF &Elf = llvm::cast<ELFO>(ObjectFile.get())->getELFFile();
+    const void *Ptr = B::toMappedAddr(*ObjectFile, bbprop.Term.Addr);
 
-    llvm::Expected<const uint8_t *> ExpectedPtr = Elf.toMappedAddr(bbprop.Term.Addr);
-    if (!ExpectedPtr)
-      abort();
-
-    memcpy(&RetInfo.InsnBytes[0], *ExpectedPtr, RetInfo.InsnBytes.size());
+    memcpy(&RetInfo.InsnBytes[0], Ptr, RetInfo.InsnBytes.size());
 
     {
       uint64_t InstLen;
@@ -3621,8 +3746,33 @@ void BootstrapTool::on_binary_loaded(pid_t child,
 int BootstrapTool::ChildProc(int pipefd) {
   scoped_fd pipefd_(pipefd);
 
+  std::unique_ptr<scoped_fd> memfd;
+#ifdef JOVE_HAVE_MEMFD
+  if (!IsCOFF) {
+    std::string name = "jove/bootstrap" + jv.Binaries.at(0).path_str();
+    memfd = std::make_unique<scoped_fd>(::memfd_create(name.c_str(), 0));
+    assert(*memfd);
+
+    const unsigned N = jv.Binaries.at(0).Data.size();
+    if (robust_write(memfd->get(), &jv.Binaries.at(0).Data[0], N) == N)
+      path_to_exe = "/proc/self/fd/" + std::to_string(memfd->get());
+  }
+#endif
+
+  std::string exe_path = path_to_exe;
+
   std::vector<const char *> arg_vec;
-  arg_vec.push_back(opts.Prog.c_str());
+
+  std::string path_to_wine;
+  if (IsCOFF) {
+    path_to_wine = locator().wine(IsTarget32);
+    arg_vec.push_back(path_to_wine.c_str());
+  }
+
+  arg_vec.push_back(path_to_exe.c_str());
+
+  if (IsCOFF)
+    exe_path = path_to_wine;
 
   for (const std::string &Arg : opts.Args)
     arg_vec.push_back(Arg.c_str());
@@ -3660,22 +3810,11 @@ int BootstrapTool::ChildProc(int pipefd) {
   // signal-delivery-stop.
   //
 
-#ifdef JOVE_HAVE_MEMFD
-  std::string name = "jove/bootstrap" + jv.Binaries.at(0).path_str();
-  int fd = ::memfd_create(name.c_str(), MFD_CLOEXEC);
-  if (fd < 0) {
-    abort();
+  if (IsVerbose()) {
+    print_command(arg_vec.data());
+    if (IsVeryVerbose())
+      HumanOut() << llvm::formatv("(executing \"{0}\")\n", exe_path);
   }
-  scoped_fd fd_(fd);
-  if (robust_write(fd,
-                   &jv.Binaries.at(0).Data[0],
-                   jv.Binaries.at(0).Data.size()) < 0) {
-    abort();
-  }
-  std::string exe_path = "/proc/self/fd/" + std::to_string(fd);
-#else
-  std::string exe_path = arg_vec[0];
-#endif
 
   /* "If the current program is being ptraced, a SIGTRAP signal is sent to it
    * after a successful execve()" */
@@ -3685,6 +3824,7 @@ int BootstrapTool::ChildProc(int pipefd) {
 
   /* if we got here, execve failed */
   int err = errno;
+  assert(err != 0);
   __atomic_store_n(&shared_err, err, __ATOMIC_RELAXED);
 
   return 1;
@@ -3928,7 +4068,7 @@ binary_index_t BootstrapTool::BinaryFromPath(pid_t child, const char *path) {
     ~EmptyBasicBlockProcSetter() { tool.E->set_newbb_proc(sav_proc); }
   } __EmptyBasicBlockProcSetter(*this); /* on_binary_loaded will place brkpts */
 
-  if (IsVerbose())
+  if (IsVeryVerbose())
     llvm::errs() << llvm::formatv("BinaryFromPath: \"{0}\"\n", path);
 
   using namespace std::placeholders;
@@ -3951,7 +4091,7 @@ binary_index_t BootstrapTool::BinaryFromData(pid_t child, std::string_view sv,
     ~EmptyBasicBlockProcSetter() { tool.E->set_newbb_proc(sav_proc); }
   } __EmptyBasicBlockProcSetter(*this); /* on_binary_loaded will place brkpts */
 
-  if (IsVerbose())
+  if (IsVeryVerbose())
     llvm::errs() << llvm::formatv("BinaryFromData: \"{0}\"\n", name);
 
   using namespace std::placeholders;
@@ -4001,6 +4141,9 @@ Found:
 }
 
 void BootstrapTool::rendezvous_with_dynamic_linker(pid_t child) {
+  if (!opts.RtldDbgBrk)
+    return;
+
   if (!_r_debug.Found)
     return;
 
@@ -4042,7 +4185,7 @@ void BootstrapTool::rendezvous_with_dynamic_linker(pid_t child) {
   }
 
   if (_r_debug.r_brk) {
-    if (unlikely(BrkMap.find(_r_debug.r_brk) == BrkMap.end()) && opts.RtldDbgBrk) {
+    if (unlikely(BrkMap.find(_r_debug.r_brk) == BrkMap.end())) {
       try {
         breakpoint_t brk;
         brk.callback = std::bind(&BootstrapTool::scan_rtld_link_map, this, std::placeholders::_1);
@@ -4082,7 +4225,7 @@ void BootstrapTool::rendezvous_with_dynamic_linker(pid_t child) {
 
         BrkMap.insert({_r_debug.r_brk, brk});
       } catch (const std::exception &e) {
-        if (IsVerbose())
+        if (IsVeryVerbose())
           HumanOut() << llvm::formatv(
               "{0}: couldn't place breakpoint at r_brk [{1:x}] ({2})\n",
               __func__,
@@ -4348,18 +4491,20 @@ BootstrapTool::function_at_program_counter(pid_t child, uintptr_t pc) {
   if (!is_binary_index_valid(BIdx))
     return std::make_pair(invalid_binary_index, invalid_function_index);
 
-  assert(BinFoundVec.test(BIdx));
-
   binary_t &binary = jv.Binaries.at(BIdx);
+  binary_state_t &x = state.for_binary(binary);
+
+  assert(x.Loaded());
+
   basic_block_index_t BBIdx = E->explore_basic_block(binary,
-                                                     *state.for_binary(binary).ObjectFile,
+                                                     *x.ObjectFile,
                                                      va_of_pc(pc, BIdx));
   if (!is_basic_block_index_valid(BBIdx))
     return std::make_pair(BIdx, invalid_function_index);
 
   function_index_t FIdx = E->explore_function(
       binary,
-      *state.for_binary(binary).ObjectFile,
+      *x.ObjectFile,
       va_of_pc(pc, BIdx));
 
   return std::make_pair(BIdx, FIdx);
@@ -4371,12 +4516,14 @@ BootstrapTool::block_at_program_counter(pid_t child, uintptr_t pc) {
   if (!is_binary_index_valid(BIdx))
     return std::make_pair(invalid_binary_index, invalid_basic_block_index);
 
-  assert(BinFoundVec.test(BIdx));
-
   binary_t &binary = jv.Binaries.at(BIdx);
+  binary_state_t &x = state.for_binary(binary);
+
+  assert(x.Loaded());
+
   basic_block_index_t BBIdx = E->explore_basic_block(
       binary,
-      *state.for_binary(binary).ObjectFile,
+      *x.ObjectFile,
       va_of_pc(pc, BIdx));
 
   return std::make_pair(BIdx, BBIdx);
@@ -4436,13 +4583,13 @@ std::string BootstrapTool::description_of_program_counter(uintptr_t pc, bool Ver
     auto it = intvl_map_find(AddressSpace, pc);
     if (it != AddressSpace.end()) {
       binary_index_t BIdx = (*it).second;
+      binary_t &b = jv.Binaries.at(BIdx);
+      binary_state_t &x = state.for_binary(b);
 
-      if (BinFoundVec.test(BIdx)) {
+      if (x.Loaded()) {
         //
         // pc is in binary that's been "loaded"
         //
-        binary_t &b = jv.Binaries.at(BIdx);
-        binary_state_t &x = state.for_binary(b);
 
         ptrdiff_t off = pc - (pm.beg - pm.off);
         uintptr_t Addr = B::va_of_offset(*x.ObjectFile, off);
