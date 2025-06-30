@@ -276,10 +276,9 @@ class JoveTester:
         # initialize jv
         self.ssh(["jove", "init", testbin])
 
-        if self.platform != "win":
-          # run inputs through prog, recovering code
-          for input_args in inputs:
-            self.ssh(["jove", "bootstrap", testbin] + input_args)
+        # run inputs through prog, recovering code
+        for input_args in inputs:
+          self.ssh(["jove", "bootstrap", testbin] + input_args)
 
         path_to_stdout = tempfile.NamedTemporaryFile(delete=False).name
         path_to_stderr = tempfile.NamedTemporaryFile(delete=False).name
