@@ -1316,18 +1316,12 @@ int BootstrapTool::TracerLoop(pid_t child) {
               break;
             }
           } else {
-            try {
-              on_breakpoint(child);
-            } catch (const boost::interprocess::bad_alloc &) {
-              HumanOut() << "jv_t memory exhausted\n";
-              return 1;
+            on_breakpoint(child);
 #if 0
-            } catch (const std::exception &e) {
+            catch (const std::exception &e) {
               /* TODO rate-limit */
               HumanOut() << llvm::formatv(
                   "{0}: on_breakpoint failed: {1}\n", __func__, e.what());
-            }
-#else
             }
 #endif
           }

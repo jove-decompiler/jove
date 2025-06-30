@@ -222,7 +222,16 @@ found_tool:
 
   ::srand(time(NULL));
 
-  int res = tool->Run();
+  int res;
+  try {
+    res = tool->Run();
+  } catch (const boost::interprocess::bad_alloc &) {
+    WithColor::error()
+        << "exhausted all available memory for .jv. try removing ~/.jv.* and "
+           "setting the JVSIZE environment variable to something larger than "
+           "the default (e.g. JVSIZE=8G jove init /path/to/program)\n";
+    return 1;
+  }
 
   return res;
 }
