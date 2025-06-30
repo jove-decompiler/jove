@@ -3753,20 +3753,20 @@ int BootstrapTool::ChildProc(int pipefd) {
   }
 #endif
 
-  std::string exe_path = path_to_exe;
-
   std::vector<const char *> arg_vec;
 
+  std::string exe_path;
   std::string path_to_wine;
   if (IsCOFF) {
     path_to_wine = locator().wine(IsTarget32);
-    arg_vec.push_back(path_to_wine.c_str());
-  }
-
-  arg_vec.push_back(path_to_exe.c_str());
-
-  if (IsCOFF)
     exe_path = path_to_wine;
+
+    arg_vec.push_back(path_to_wine.c_str());
+    arg_vec.push_back(path_to_exe.c_str());
+  } else {
+    arg_vec.push_back(opts.Prog.c_str());
+    exe_path = path_to_exe;
+  }
 
   for (const std::string &Arg : opts.Args)
     arg_vec.push_back(Arg.c_str());
