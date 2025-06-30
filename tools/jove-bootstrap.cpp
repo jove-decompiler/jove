@@ -27,6 +27,8 @@
 #include <boost/preprocessor/repetition/repeat_from_to.hpp>
 #include <boost/lockfree/queue.hpp>
 #include <boost/unordered/unordered_flat_map.hpp>
+#include <boost/interprocess/managed_shared_memory.hpp>
+#include <boost/interprocess/anonymous_shared_memory.hpp>
 
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
@@ -296,6 +298,9 @@ struct BootstrapTool
   template <typename Key, typename Value>
   using unordered_map = boost::unordered::unordered_flat_map<Key, Value>;
 
+  boost::interprocess::mapped_region shared_mem;
+  int &shared_err;
+
   const bool IsCOFF;
 
   std::unique_ptr<tiny_code_generator_t> tcg;
@@ -359,6 +364,8 @@ struct BootstrapTool
 public:
   BootstrapTool()
       : opts(JoveCategory),
+        shared_mem(boost::interprocess::anonymous_shared_memory(sizeof(int))),
+        shared_err(*static_cast<int *>(shared_mem.get_address())),
         IsCOFF(B::is_coff(*state.for_binary(jv.Binaries.at(0)).ObjectFile)) {}
 
   int Run(void) override;
@@ -562,6 +569,7 @@ int BootstrapTool::Run(void) {
     int rfd = pipefd[0];
     int wfd = pipefd[1];
 
+    __atomic_store_n(&shared_err, 0, __ATOMIC_RELAXED);
     child = ::fork();
     if (!child) {
       {
@@ -648,6 +656,13 @@ int BootstrapTool::Run(void) {
       /* if we got here, the other end of the pipe must have been closed,
        * most likely by close-on-exec */
       ::close(rfd);
+    }
+
+    if (int err = __atomic_load_n(&shared_err, __ATOMIC_RELAXED)) {
+      //
+      // execve(2) failed. errno is in shared_err.
+      //
+      die("execve() failed: " + std::string(strerror(err)));
     }
 
     return TracerLoop(-1);
@@ -3670,8 +3685,8 @@ int BootstrapTool::ChildProc(int pipefd) {
 
   /* if we got here, execve failed */
   int err = errno;
-  HumanOut() << llvm::formatv("failed to execve (reason: {0})",
-                              strerror(err));
+  __atomic_store_n(&shared_err, err, __ATOMIC_RELAXED);
+
   return 1;
 }
 
