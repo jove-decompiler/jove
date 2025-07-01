@@ -465,6 +465,10 @@ void Tool::cleanup_temp_dir(void) {
   if (!_temp_dir.empty() &&
       fs::exists(_temp_dir) &&
       fs::is_directory(_temp_dir)) {
+    if (IsVerbose())
+      HumanOut() << llvm::formatv("removing temporary directory at {0}\n",
+                                  _temp_dir);
+
     fs::remove_all(_temp_dir);
   }
 }
