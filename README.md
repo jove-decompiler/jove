@@ -49,6 +49,8 @@ To recover the full C code of the program from its compiled representation, we'l
 
 In each new iteration (i.e. running of the recompiled program), we recover more code. Essentially, the input is _pushed_ through the program.
 
+For a look at an example of a more typical and full-featured program, see [ls -la /](/Documentation/.demo.ls.gif).
+
 ## FAQ
 
 ### How is control-flow observed at runtime?
