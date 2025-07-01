@@ -47,12 +47,16 @@ std::string symbolizer_t::addr2line(const binary_base_t<MT, MinSize> &binary,
   fs::path sourcePath = LnInfo.FileName;
 
   if (fs::path(sourcePath).is_relative())
-    sourcePath = fs::path("/usr/src/debug") /
+    sourcePath = /* fs::path("/usr/src/debug") / */
                  fs::path(binary.path_str()).stem() /
                  LnInfo.FileName;
+  else
+    sourcePath = fs::path(LnInfo.FileName).filename();
 
   if (fs::exists(sourcePath))
-    sourcePath = fs::canonical(sourcePath);
+    ; //sourcePath = fs::canonical(sourcePath);
+  else
+    sourcePath = sourcePath.lexically_normal();
 
   return sourcePath.string() +
          ":" + std::to_string(LnInfo.Line) +
