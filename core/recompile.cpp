@@ -1398,6 +1398,8 @@ void recompiler_t<MT, MinSize>::worker(dso_t dso) {
             Arg("-mattr=+cx16");
 #elif defined(TARGET_I386)
             Arg("-mattr=+sse2");
+#elif defined(TARGET_MIPS32)
+	    Arg("-mno-check-zero-division");
 #endif
           },
           std::string(),

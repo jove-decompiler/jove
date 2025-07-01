@@ -34,6 +34,9 @@ mipsel_RUNTIME_CFLAGS   := -D TARGET_MIPS32
 mips_RUNTIME_CFLAGS     := -D TARGET_MIPS32
 mips64el_RUNTIME_CFLAGS := -D TARGET_MIPS64
 
+mips_RUNTIME_CFLAGS   += -mno-check-zero-division
+mipsel_RUNTIME_CFLAGS += -mno-check-zero-division
+
 runtime_cflags = -std=gnu11 \
                  -I include \
                  -I lib \
