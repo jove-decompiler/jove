@@ -1208,9 +1208,46 @@ int BootstrapTool::TracerLoop(pid_t child) {
                            << child << "]\n";
               break;
             case PTRACE_EVENT_EXEC: {
+              unsigned long new_pid;
+              if (::ptrace(PTRACE_GETEVENTMSG, child, 0UL, &new_pid) < 0) {
+                int err = errno;
+                WithColor::warning() << llvm::formatv(
+                    "PTRACE_GETEVENTMSG failed: {0} (PTRACE_EVENT_EXEC)\n",
+                    strerror(err));
+
+                new_pid = child;
+              }
+
+              std::string exe_path;
+              exe_path.resize(2 * PATH_MAX);
+
+              ssize_t len = -1;
+              {
+                char buff[PATH_MAX];
+                snprintf(buff, sizeof(buff), "/proc/%lu/exe", new_pid);
+
+                len = ::readlink(buff, &exe_path[0], exe_path.size() - 1);
+                if (len < 0) {
+                  len = 0;
+
+                  int err = errno;
+                  WithColor::warning() << llvm::formatv(
+                      "readlink() of {0} failed: {1} (PTRACE_EVENT_EXEC)\n",
+                      buff, strerror(err));
+                }
+              }
+
+              assert(len < exe_path.size());
+              exe_path.resize(len);
+
               if (opts.PrintPtraceEvents)
-                HumanOut() << "ptrace event (PTRACE_EVENT_EXEC) [" << child
+                HumanOut() << "ptrace event (PTRACE_EVENT_EXEC) [" << new_pid
                            << "]\n";
+
+              if (IsVerbose())
+                HumanOut() << llvm::formatv(
+                    "tracee {0} exec'd!{1}\n", new_pid,
+                    IsVeryVerbose() ? (" (" + exe_path + ")") : "");
 
               //
               // the address space has been reset, so we need
@@ -1226,42 +1263,27 @@ int BootstrapTool::TracerLoop(pid_t child) {
               // it still may exec a 32-bit windows program (i.e. the preloader)
               // as part of the startup sequence.
               //
-              unsigned long new_pid;
-              if (::ptrace(PTRACE_GETEVENTMSG, child, 0UL, &new_pid) >= 0) {
-                char exe_path[PATH_MAX];
+              if (!exe_path.empty()) {
+                std::vector<uint8_t> BinBytes;
+                std::unique_ptr<llvm::object::Binary> Bin;
 
-                ssize_t len = ({
-                  char path[PATH_MAX];
-                  snprintf(path, sizeof(path), "/proc/%lu/exe", new_pid);
+                //
+                // XXX memfd cover-up
+                //
+                if (boost::algorithm::starts_with(exe_path,
+                                                  "/memfd:jove/bootstrap"))
+                  Bin = B::Create(jv.Binaries.at(0).data());
+                else
+                  Bin = B::CreateFromFile(exe_path.c_str(), BinBytes);
 
-                  readlink(path, exe_path, sizeof(exe_path) - 1);
-                });
-
-                if (len > 0) {
-                  exe_path[len] = '\0';
-
-                  std::vector<uint8_t> BinBytes;
-                  std::unique_ptr<llvm::object::Binary> Bin;
-
-                  //
-                  // XXX memfd cover-up
-                  //
-                  std::string the_exe_path = exe_path;
-                  if (boost::algorithm::starts_with(the_exe_path,
-                                                    "/memfd:jove/bootstrap"))
-                    Bin = B::Create(jv.Binaries.at(0).data());
-                  else
-                    Bin = B::CreateFromFile(exe_path, BinBytes);
-
-                  if (!Bin) {
-                    WithColor::error() << llvm::formatv(
-                        "exec'd unrecognized binary: \"{0}\"\n", exe_path);
-                    return 1;
-                  }
-
-                  if (!B::is_elf(*Bin) && !B::is_coff(*Bin))
-                    RightArch = false;
+                if (!Bin) {
+                  WithColor::error() << llvm::formatv(
+                      "exec'd unrecognized binary: \"{0}\"\n", exe_path);
+                  return 1;
                 }
+
+                if (!B::is_elf(*Bin) && !B::is_coff(*Bin))
+                  RightArch = false;
               }
 
               if (IsVerbose() && !RightArch)
