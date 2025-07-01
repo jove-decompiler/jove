@@ -147,6 +147,15 @@ all-helpers-mk: $(foreach t,$(ALL_TARGETS),all-helpers-$(t)-mk)
 .PHONY: env-inits
 env-inits: $(foreach p,$(PLATFORMS),$(foreach t,$(call get_targets_for_platform,$(p)),$(BINDIR)/$(t)/env_init.$(p).inc))
 
+.PHONY: version
+version: $(BINDIR)/version.inc
+
+$(BINDIR)/version.inc:
+	@mkdir -p $(dir $@)
+	@echo 'Generating $@...'
+	@printf 'VERS("%s", "%s")\n' jove $(shell git rev-parse HEAD) > $@
+	@git submodule status | awk '{printf "VERS(\"%s\", \"%s\")\n", $$2, $$1}' >> $@
+
 _DLL_x86_64_LINUX_CALL_CONV := X86_64_SysV
 _DLL_i386_LINUX_CALL_CONV := C
 

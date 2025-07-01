@@ -181,7 +181,14 @@ found_tool:
   //
   llvm::cl::HideUnrelatedOptions({&tool->JoveCategory, &llvm::getColorCategory()});
   llvm::cl::AddExtraVersionPrinter([](llvm::raw_ostream &OS) -> void {
-    OS << "jove version " JOVE_VERSION "\n";
+    static const char *rev_tbl[][2] = {
+#define VERS(NAME, REV) {NAME, REV},
+#include "version.inc"
+#undef VERS
+    };
+
+    for (unsigned i = 0; i < std::size(rev_tbl); ++i)
+      OS << llvm::formatv("{0}\t{1}\n", rev_tbl[i][0], rev_tbl[i][1]);
   });
   std::string Desc = (std::string("jove-") + name) + "\n";
   llvm::cl::ParseCommandLineOptions(argc, argv, Desc);
