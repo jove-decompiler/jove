@@ -70,6 +70,7 @@ runtime_cflags = -std=gnu11 \
                  -ffreestanding \
                  -fno-strict-aliasing \
                  -fno-stack-protector \
+                 -fno-stack-check \
                  -fno-delete-null-pointer-checks \
                  -fwrapv \
                  -fno-strict-overflow \
