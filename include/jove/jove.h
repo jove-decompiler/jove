@@ -156,6 +156,8 @@ struct BBMap_t : public ip_base_rw_accessible_nospin<MT> {
   }
 
   ~BBMap_t() noexcept {
+    auto e_lck_us = this->exclusive_access();
+
     if (map) {
       assert(sm_);
       sm_->destroy_ptr(map.get());
