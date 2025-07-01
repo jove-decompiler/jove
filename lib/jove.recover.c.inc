@@ -371,10 +371,10 @@ void _jove_found_dyn_target(uint32_t CallerBBIdx,
         char buff[sizeof(char) + 4 * sizeof(uint32_t)];
 
         buff[0] = ch;
-        *((uint32_t *)&buff[sizeof(char) + 0 * sizeof(uint32_t)]) = CallerBIdx;
-        *((uint32_t *)&buff[sizeof(char) + 1 * sizeof(uint32_t)]) = CallerBBIdx;
-        *((uint32_t *)&buff[sizeof(char) + 2 * sizeof(uint32_t)]) = CalleeBIdx;
-        *((uint32_t *)&buff[sizeof(char) + 3 * sizeof(uint32_t)]) = CalleeFIdx;
+        _memcpy(&buff[sizeof(char) + 0 * sizeof(uint32_t)], &CallerBIdx,  sizeof(CallerBIdx));
+        _memcpy(&buff[sizeof(char) + 1 * sizeof(uint32_t)], &CallerBBIdx, sizeof(CallerBBIdx));
+        _memcpy(&buff[sizeof(char) + 2 * sizeof(uint32_t)], &CalleeBIdx,  sizeof(CalleeBIdx));
+        _memcpy(&buff[sizeof(char) + 3 * sizeof(uint32_t)], &CalleeFIdx,  sizeof(CalleeFIdx));
 
         if (_jove_sys_write(recover_fd, &buff[0], sizeof(buff)) != sizeof(buff))
           _UNREACHABLE();
@@ -482,10 +482,10 @@ found:
         char buff[sizeof(char) + 3 * sizeof(uint32_t) + sizeof(uintptr_t)];
 
         buff[0] = ch;
-        *((uint32_t *)&buff[sizeof(char) + 0 * sizeof(uint32_t)]) = IndCall.BIdx;
-        *((uint32_t *)&buff[sizeof(char) + 1 * sizeof(uint32_t)]) = IndCall.BBIdx;
-        *((uint32_t *)&buff[sizeof(char) + 2 * sizeof(uint32_t)]) = Callee.BIdx;
-        *((uintptr_t*)&buff[sizeof(char) + 3 * sizeof(uint32_t)]) = Callee.Addr;
+        _memcpy(&buff[sizeof(char) + 0 * sizeof(uint32_t)], &IndCall.BIdx,  sizeof(IndCall.BIdx));
+        _memcpy(&buff[sizeof(char) + 1 * sizeof(uint32_t)], &IndCall.BBIdx, sizeof(IndCall.BBIdx));
+        _memcpy(&buff[sizeof(char) + 2 * sizeof(uint32_t)], &Callee.BIdx,   sizeof(Callee.BIdx));
+        _memcpy(&buff[sizeof(char) + 3 * sizeof(uint32_t)], &Callee.Addr,   sizeof(Callee.Addr));
 
         if (_jove_sys_write(recover_fd, &buff[0], sizeof(buff)) != sizeof(buff))
           _UNREACHABLE();
@@ -789,10 +789,10 @@ found:
         char buff[sizeof(char) + 3 * sizeof(uint32_t) + sizeof(uintptr_t)];
 
         buff[0] = ch;
-        *((uint32_t *)&buff[sizeof(char) + 0 * sizeof(uint32_t)]) = IndCall.BIdx;
-        *((uint32_t *)&buff[sizeof(char) + 1 * sizeof(uint32_t)]) = IndCall.BBIdx;
-        *((uint32_t *)&buff[sizeof(char) + 2 * sizeof(uint32_t)]) = Callee.BIdx;
-        *((uintptr_t*)&buff[sizeof(char) + 3 * sizeof(uint32_t)]) = Callee.Offset;
+        _memcpy(&buff[sizeof(char) + 0 * sizeof(uint32_t)], &IndCall.BIdx,  sizeof(IndCall.BIdx));
+        _memcpy(&buff[sizeof(char) + 1 * sizeof(uint32_t)], &IndCall.BBIdx, sizeof(IndCall.BBIdx));
+        _memcpy(&buff[sizeof(char) + 2 * sizeof(uint32_t)], &Callee.BIdx,   sizeof(Callee.BIdx));
+        _memcpy(&buff[sizeof(char) + 3 * sizeof(uint32_t)], &Callee.Offset, sizeof(Callee.Offset));
 
         if (_jove_sys_write(recover_fd, &buff[0], sizeof(buff)) != sizeof(buff))
           _UNREACHABLE();
@@ -879,9 +879,9 @@ found:
         char buff[sizeof(char) + 2 * sizeof(uint32_t) + sizeof(uintptr_t)];
 
         buff[0] = ch;
-        *((uint32_t *)&buff[sizeof(char) + 0 * sizeof(uint32_t)]) = IndBr.BIdx;
-        *((uint32_t *)&buff[sizeof(char) + 1 * sizeof(uint32_t)]) = IndBr.BBIdx;
-        *((uintptr_t*)&buff[sizeof(char) + 2 * sizeof(uint32_t)]) = Addr;
+        _memcpy(&buff[sizeof(char) + 0 * sizeof(uint32_t)], &IndBr.BIdx,  sizeof(IndBr.BIdx));
+        _memcpy(&buff[sizeof(char) + 1 * sizeof(uint32_t)], &IndBr.BBIdx, sizeof(IndBr.BBIdx));
+        _memcpy(&buff[sizeof(char) + 2 * sizeof(uint32_t)], &Addr,        sizeof(Addr));
 
         if (_jove_sys_write(recover_fd, &buff[0], sizeof(buff)) != sizeof(buff))
           _UNREACHABLE();
@@ -945,8 +945,8 @@ found:
         char buff[sizeof(char) + 2 * sizeof(uint32_t)];
 
         buff[0] = ch;
-        *((uint32_t *)&buff[sizeof(char) + 0 * sizeof(uint32_t)]) = Call.BIdx;
-        *((uint32_t *)&buff[sizeof(char) + 1 * sizeof(uint32_t)]) = Call.BBIdx;
+        _memcpy(&buff[sizeof(char) + 0 * sizeof(uint32_t)], &Call.BIdx,  sizeof(Call.BIdx));
+        _memcpy(&buff[sizeof(char) + 1 * sizeof(uint32_t)], &Call.BBIdx, sizeof(Call.BBIdx));
 
         if (_jove_sys_write(recover_fd, &buff[0], sizeof(buff)) != sizeof(buff))
           _UNREACHABLE();
@@ -1010,8 +1010,8 @@ found:
         char buff[sizeof(char) + 2 * sizeof(uint32_t)];
 
         buff[0] = ch;
-        *((uint32_t *)&buff[sizeof(char) + 0 * sizeof(uint32_t)]) = NewABI.BIdx;
-        *((uint32_t *)&buff[sizeof(char) + 1 * sizeof(uint32_t)]) = NewABI.FIdx;
+        _memcpy(&buff[sizeof(char) + 0 * sizeof(uint32_t)], &NewABI.BIdx, sizeof(NewABI.BIdx));
+        _memcpy(&buff[sizeof(char) + 1 * sizeof(uint32_t)], &NewABI.FIdx, sizeof(NewABI.FIdx));
 
         if (_jove_sys_write(recover_fd, &buff[0], sizeof(buff)) != sizeof(buff))
           _UNREACHABLE();
@@ -1053,7 +1053,7 @@ void _jove_recover_foreign_binary_with_path(const char *path) {
         JOVE_SCOPED_BUFF(buff, PATH_MAX + 1);
 
         buff[0] = ch;
-        *((uint32_t *)&buff[sizeof(char)]) = PathLen;
+        _memcpy(&buff[sizeof(char)], &PathLen, sizeof(PathLen));
         _memcpy(&buff[sizeof(char) + 1 * sizeof(uint32_t)], path, PathLen);
 
         unsigned N = 1 + sizeof(uint32_t) + PathLen;
