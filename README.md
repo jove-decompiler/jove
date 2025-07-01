@@ -42,9 +42,12 @@ f:write(1,"!\n",2);n++;goto L;
   return 0;
 }
 ```
+
 To recover the full C code of the program, we'll run a suitable input through its recompilation.
+
 ![](Documentation/.demo.gif)
-In each new iteration (i.e. run), we recover more code.
+
+In each new iteration (i.e. run), we recover more code. Essentially, the input is _pushed_ through the program.
 
 ## FAQ
 
