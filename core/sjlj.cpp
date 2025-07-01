@@ -460,8 +460,9 @@ void ScanForSjLj(binary_base_t<MT, MinSize> &b,
 #endif
 
   auto found_setjmp = [&](uint64_t A) -> void {
-    WithColor::note() << llvm::formatv("found setjmp @ {0}:{1:x}\n",
-                                       b.Name.c_str(), A);
+    if (E.IsVerbose())
+      WithColor::note() << llvm::formatv("found setjmp @ {0}:{1:x}\n",
+					 b.Name.c_str(), A);
 
     basic_block_index_t BBIdx = E.explore_basic_block(b, Bin, A);
     assert(is_basic_block_index_valid(BBIdx));
@@ -471,8 +472,9 @@ void ScanForSjLj(binary_base_t<MT, MinSize> &b,
   };
 
   auto found_longjmp = [&](uint64_t A) -> void {
-    WithColor::note() << llvm::formatv("found longjmp @ {0}:{1:x}\n",
-                                       b.Name.c_str(), A);
+    if (E.IsVerbose())
+      WithColor::note() << llvm::formatv("found longjmp @ {0}:{1:x}\n",
+					 b.Name.c_str(), A);
 
     basic_block_index_t BBIdx = E.explore_basic_block(b, Bin, A);
     assert(is_basic_block_index_valid(BBIdx));
@@ -483,8 +485,9 @@ void ScanForSjLj(binary_base_t<MT, MinSize> &b,
     assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP);
 
     if (ICFG.out_degree(bb) != 0) {
-      WithColor::note()
-          << llvm::formatv("jump aint local! @ {0:x}\n", ICFG[bb].Addr);
+      if (E.IsVerbose())
+        WithColor::note() << llvm::formatv("jump aint local! @ {0:x}\n",
+                                           ICFG[bb].Addr);
       ICFG.clear_out_edges(bb);
     }
 

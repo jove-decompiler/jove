@@ -118,9 +118,6 @@ class explorer_t {
                         const bool Speculative,
                         bb_t bb /* unused if !Speculative */);
 
-  bool IsVerbose(void) const { return unlikely(VerbosityLevel >= 1); }
-  bool IsVeryVerbose(void) const { return unlikely(VerbosityLevel >= 2); }
-
 public:
   explicit explorer_t(jv_file_t &jv_file, jv_t &jv, disas_t &disas,
                       tiny_code_generator_t &tcg,
@@ -146,6 +143,9 @@ public:
       on_newfn_proc = other.on_newfn_proc;
     }
   }
+
+  bool IsVerbose(void) const { return unlikely(VerbosityLevel >= 1); }
+  bool IsVeryVerbose(void) const { return unlikely(VerbosityLevel >= 2); }
 
   //
   // the objective is to translate all the code we can up until indirect
