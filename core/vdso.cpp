@@ -62,7 +62,7 @@ template <typename StringTy>
 bool capture_vdso(StringTy &out) {
   temp_executable temp_exe(&dumper_bin_bytes[0],
                            sizeof(dumper_bin_bytes),
-                           "dump-vdso-" TARGET_ARCH_NAME);
+                           "dump-vdso-" TARGET_ARCH_NAME, false);
   temp_exe.store();
 
   int pipefd[2];
