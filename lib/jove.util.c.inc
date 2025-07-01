@@ -639,7 +639,7 @@ static _UNUSED bool _description_of_address_for_maps(char *out,
 
     _strcat(out, "+0x");
 
-    uint64_t Offset = (Addr - vm.min) + offset;
+    uint64_t Offset = Addr - (vm.min - offset);
 
     {
       char buff[65];
@@ -689,22 +689,8 @@ static _UNUSED char *_getenv(const char *name) {
 
   char *env;
   for_each_in_environ(env, envs, n) {
-    const char *s1 = name;
-    char *s2 = env;
-    for (;;) {
-      char ch1 = *s1++;
-      char ch2 = *s2++;
-
-      if (ch1 != ch2)
-        break;
-
-      if ((s1 - name) == name_len) {
-        if (*s2 == '=')
-          return s2 + 1;
-
-        break;
-      }
-    }
+    if (_strncmp(env, name, name_len) == 0 && env[name_len] == '=')
+      return env + name_len + 1;
   }
 
   return NULL;
