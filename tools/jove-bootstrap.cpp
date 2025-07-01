@@ -2873,7 +2873,8 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
         ControlFlow.IsGoto = true;
         Target.isNew = opts.Longjmps;
 
-	TargetICFG[basic_block_of_index(BBIdx, ICFG)].InvalidateAnalysis(jv, TargetBinary);
+        TargetICFG[basic_block_of_index(BBIdx, ICFG)].InvalidateAnalysis(
+            jv, TargetBinary);
       } else {
         // on an indirect jump, we must determine one of two possibilities.
         //
