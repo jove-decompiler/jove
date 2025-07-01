@@ -193,11 +193,6 @@ int Trace2LinesTool::Run(void) {
       }
     }
 
-#if 0
-    binary_t &vdso_b = get_vdso(jv);
-    temp_executable vdso_exe(vdso_b.data(), vdso_b.Data.size());
-#endif
-
     llvm::symbolize::LLVMSymbolizer::Options Opts;
     Opts.PrintFunctions = llvm::symbolize::FunctionNameKind::None;
     Opts.UseSymbolTable = false;
