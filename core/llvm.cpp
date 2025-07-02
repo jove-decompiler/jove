@@ -9339,6 +9339,7 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
 
   /* Create a 64 bit value from two 32 bit values (see tci_uint64). */
   auto uint64 = [&](llvm::Value *high, llvm::Value *low) -> llvm::Value * {
+    assert(TCG_TARGET_REG_BITS == 32);
     assert(high->getType()->isIntegerTy(32));
     assert(low->getType()->isIntegerTy(32));
 
