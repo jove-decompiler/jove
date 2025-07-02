@@ -10099,7 +10099,6 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
                     get(input_arg(1))),
         get(input_arg(2)),
         get(input_arg(3)));
-    assert(V);
 
     set(V, output_arg(0));
     BREAK();
