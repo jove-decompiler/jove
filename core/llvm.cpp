@@ -9165,6 +9165,7 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
 
   auto &Binary = jv.Binaries.at(BinaryIndex);
   auto &ICFG = Binary.Analysis.ICFG;
+
   auto &PCAlloca = TC.PCAlloca;
   auto &CarryAlloca = TC.CarryAlloca;
   TCGContext *s = get_tcg_context();
