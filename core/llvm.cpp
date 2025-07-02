@@ -9317,6 +9317,7 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     __n;                                                                       \
   })
 
+#if TCG_TARGET_REG_BITS == 32
   /* Set two 32 bit registers from a 64 bit value (see tci_write_reg64). */
   auto write_reg64 = [&](TCGTemp *high, TCGTemp *low, llvm::Value *value) -> void {
     assert(TCG_TARGET_REG_BITS == 32);
@@ -9326,7 +9327,9 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     set(IRB.CreateTrunc(IRB.CreateLShr(value, IRB.getInt64(32)),
                         IRB.getInt32Ty()), high);
   };
+#endif
 
+#if TCG_TARGET_REG_BITS == 64
   /* Set two 64 bit registers from a 128 bit value */
   auto write_reg128 = [&](TCGTemp *high, TCGTemp *low, llvm::Value *V) -> void {
     assert(TCG_TARGET_REG_BITS == 64);
@@ -9336,7 +9339,9 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     set(IRB.CreateTrunc(IRB.CreateLShr(V, IRB.getIntN(128, 64)),
                         IRB.getInt64Ty()), high);
   };
+#endif
 
+#if TCG_TARGET_REG_BITS == 32
   /* Create a 64 bit value from two 32 bit values (see tci_uint64). */
   auto uint64 = [&](llvm::Value *high, llvm::Value *low) -> llvm::Value * {
     assert(TCG_TARGET_REG_BITS == 32);
@@ -9347,6 +9352,7 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
         IRB.CreateShl(IRB.CreateZExt(high, IRB.getInt64Ty()), IRB.getInt64(32)),
         IRB.CreateZExt(low, IRB.getInt64Ty()));
   };
+#endif
 
   auto do_the_qemu_ld = [&](llvm::Value *Addr, MemOpIdx oi,
                             const unsigned bits) -> llvm::Value * {
