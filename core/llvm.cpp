@@ -10428,69 +10428,10 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     do_the_st(32, false);
     BREAK();
 
-  /*
-
-  regs[r0] = (int64_t)regs[r1] / (int64_t)regs[r2];
-
-  */
-  CASE(divs): {
-    llvm::Value *X = get(input_arg(0));
-    llvm::Value *Y = get(input_arg(1));
-
-    //assert(X->getType()->isIntegerTy(64));
-    //assert(Y->getType()->isIntegerTy(64));
-
-    set(IRB.CreateSDiv(X, Y), output_arg(0));
-    BREAK();
-  }
-
-  /*
-
-  regs[r0] = (uint64_t)regs[r1] / (uint64_t)regs[r2];
-
-  */
-  CASE(divu): {
-    llvm::Value *X = get(input_arg(0));
-    llvm::Value *Y = get(input_arg(1));
-
-    //assert(X->getType()->isIntegerTy(64));
-    //assert(Y->getType()->isIntegerTy(64));
-
-    set(IRB.CreateUDiv(X, Y), output_arg(0));
-    BREAK();
-  }
-
-  /*
-
-  regs[r0] = (int64_t)regs[r1] % (int64_t)regs[r2];
-
-  */
-  CASE(rems): {
-    llvm::Value *X = get(input_arg(0));
-    llvm::Value *Y = get(input_arg(1));
-
-    //assert(X->getType()->isIntegerTy(64));
-    //assert(Y->getType()->isIntegerTy(64));
-
-    set(IRB.CreateSRem(X, Y), output_arg(0));
-    BREAK();
-  }
-
-  /*
-
-  regs[r0] = (uint64_t)regs[r1] % (uint64_t)regs[r2];
-
-  */
-  CASE(remu): {
-    llvm::Value *X = get(input_arg(0));
-    llvm::Value *Y = get(input_arg(1));
-
-    //assert(X->getType()->isIntegerTy(64));
-    //assert(Y->getType()->isIntegerTy(64));
-
-    set(IRB.CreateURem(X, Y), output_arg(0));
-    BREAK();
-  }
+  __ARITH_OP(divs, SDiv)
+  __ARITH_OP(divu, UDiv)
+  __ARITH_OP(rems, SRem)
+  __ARITH_OP(remu, URem)
 
   /*
 
