@@ -9308,6 +9308,15 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     reinterpret_cast<TCGLabel *>(const_arg(__i));                              \
   })
 
+#define __out_bits() ({ 8u * tcg_type_size((TCGType)TCGOP_TYPE(op)); })
+
+#define out_bits()                                                             \
+  ({                                                                           \
+    unsigned __n = __out_bits();                                               \
+    assert(__n == bitsOfTCGType(s->temps[temp_idx(output_arg(0))].type));      \
+    __n;                                                                       \
+  })
+
   /* Set two 32 bit registers from a 64 bit value (see tci_write_reg64). */
   auto write_reg64 = [&](TCGTemp *high, TCGTemp *low, llvm::Value *value) -> void {
     assert(TCG_TARGET_REG_BITS == 32);
@@ -9339,7 +9348,7 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
   };
 
   auto do_the_qemu_ld = [&](llvm::Value *Addr, MemOpIdx oi,
-                            unsigned out_bits) -> llvm::Value * {
+                            const unsigned bits) -> llvm::Value * {
     MemOp mop = get_memop(oi);
 
     Addr = IRB.CreateZExt(Addr, WordType());
@@ -9381,12 +9390,12 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     case MO_UW:
     case MO_UL:
     case MO_UQ:
-      Res = IRB.CreateZExt(Res, IRB.getIntNTy(out_bits));
+      Res = IRB.CreateZExt(Res, IRB.getIntNTy(bits));
       break;
     case MO_SB:
     case MO_SW:
     case MO_SL:
-      Res = IRB.CreateSExt(Res, IRB.getIntNTy(out_bits));
+      Res = IRB.CreateSExt(Res, IRB.getIntNTy(bits));
       break;
     default:
       die("Unsupported MO_SSIZE in qemu_ld");
@@ -9543,18 +9552,13 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     Ptr = IRB.CreateIntToPtr(Ptr, IRB.getIntNTy(bits)->getPointerTo());
 
     if (IsLoad) {
-      unsigned out_bits1 = 8 * tcg_type_size((TCGType)TCGOP_TYPE(op));
-      unsigned out_bits2 = bitsOfTCGType(s->temps[temp_idx(output_arg(0))].type);
-      assert(out_bits1 == out_bits2);
-      unsigned out_bits = out_bits1;
-
       llvm::LoadInst *LI = IRB.CreateLoad(IRB.getIntNTy(bits), Ptr);
       LI->setMetadata(IsEnv ? llvm::LLVMContext::MD_alias_scope
                             : llvm::LLVMContext::MD_noalias,
                       AliasScopeMetadata);
 
       llvm::Value *Casted =
-          IRB.CreateIntCast(LI, IRB.getIntNTy(out_bits), Signed);
+          IRB.CreateIntCast(LI, IRB.getIntNTy(out_bits()), Signed);
 
       set(Casted, output_arg(0));
     } else {
@@ -10059,32 +10063,22 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
 
   */
   CASE(setcond): {
-    unsigned out_bits1 = 8 * tcg_type_size((TCGType)TCGOP_TYPE(op));
-    unsigned out_bits2 = bitsOfTCGType(s->temps[temp_idx(output_arg(0))].type);
-    assert(out_bits1 == out_bits2);
-    unsigned out_bits = out_bits1;
-
     llvm::Value *V = IRB.CreateZExt(
         CondCompare(const_arg(0),
                     get(input_arg(0)),
                     get(input_arg(1))),
-        IRB.getIntNTy(out_bits));
+        IRB.getIntNTy(out_bits()));
 
     set(V, output_arg(0));
     BREAK();
   }
 
   CASE(negsetcond): {
-    unsigned out_bits1 = 8 * tcg_type_size((TCGType)TCGOP_TYPE(op));
-    unsigned out_bits2 = bitsOfTCGType(s->temps[temp_idx(output_arg(0))].type);
-    assert(out_bits1 == out_bits2);
-    unsigned out_bits = out_bits1;
-
     llvm::Value *V = IRB.CreateZExt(
         CondCompare(const_arg(0),
                     get(input_arg(0)),
                     get(input_arg(1))),
-        IRB.getIntNTy(out_bits));
+        IRB.getIntNTy(out_bits()));
     V = IRB.CreateNeg(V);
 
     set(V, output_arg(0));
@@ -10141,12 +10135,7 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
 
   */
   CASE(ld): {
-    unsigned out_bits1 = 8 * tcg_type_size((TCGType)TCGOP_TYPE(op));
-    unsigned out_bits2 = bitsOfTCGType(s->temps[temp_idx(output_arg(0))].type);
-    assert(out_bits1 == out_bits2);
-    unsigned out_bits = out_bits1; /* XXX not TCG_TARGET_REG_BITS?? */
-
-    do_the_ld(out_bits, false);
+    do_the_ld(out_bits(), false);
     BREAK();
   }
 
@@ -10164,10 +10153,7 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
 
   */
   CASE(st): {
-    unsigned out_bits1 = 8 * tcg_type_size((TCGType)TCGOP_TYPE(op));
-    unsigned out_bits = out_bits1; /* XXX not TCG_TARGET_REG_BITS?? */
-
-    do_the_st(out_bits, false);
+    do_the_st(__out_bits(), false);
     BREAK();
   }
 
@@ -10180,13 +10166,9 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     llvm::Value *Y = get(y);                                                   \
                                                                                \
     if (X->getType() != Y->getType()) {                                        \
-      unsigned bits1 = 8 * tcg_type_size((TCGType)TCGOP_TYPE(op));             \
-      unsigned bits2 = bitsOfTCGType(s->temps[temp_idx(output_arg(0))].type);  \
-      assert(bits1 == bits2);                                                  \
-      unsigned bits = bits1;                                                   \
       if (WordBits() == 32 &&                                                  \
           INDEX_op_##opc_name == INDEX_op_add &&                               \
-          bits == 64 &&                                                        \
+          out_bits() == 64 &&                                                        \
           temp_idx(x) == tcg_env_index &&                                      \
           X->getType()->isIntegerTy(32) &&                                     \
           Y->getType()->isIntegerTy(64)) {                                     \
@@ -10353,12 +10335,7 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     TODO();
 
   CASE(deposit): {
-    unsigned out_bits1 = 8 * tcg_type_size((TCGType)TCGOP_TYPE(op));
-    unsigned out_bits2 = bitsOfTCGType(s->temps[temp_idx(output_arg(0))].type);
-    assert(out_bits1 == out_bits2);
-    unsigned out_bits = out_bits1;
-
-    do_the_deposit(out_bits,
+    do_the_deposit(out_bits(),
                    get(input_arg(0)),
                    get(input_arg(1)),
                    const_arg(0),
@@ -10368,22 +10345,12 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
   }
 
   CASE(extract): {
-    unsigned out_bits1 = 8 * tcg_type_size((TCGType)TCGOP_TYPE(op));
-    unsigned out_bits2 = bitsOfTCGType(s->temps[temp_idx(output_arg(0))].type);
-    assert(out_bits1 == out_bits2);
-    unsigned out_bits = out_bits1;
-
-    do_the_extract(out_bits, false);
+    do_the_extract(out_bits(), false);
     BREAK();
   }
 
   CASE(sextract): {
-    unsigned out_bits1 = 8 * tcg_type_size((TCGType)TCGOP_TYPE(op));
-    unsigned out_bits2 = bitsOfTCGType(s->temps[temp_idx(output_arg(0))].type);
-    assert(out_bits1 == out_bits2);
-    unsigned out_bits = out_bits1;
-
-    do_the_extract(out_bits, true);
+    do_the_extract(out_bits(), true);
     BREAK();
   }
 
@@ -10403,17 +10370,11 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
 
 #define __BSWAP_OP(bits)                                                       \
   CASE(bswap##bits) : {                                                        \
-    unsigned out_bits1 = 8 * tcg_type_size((TCGType)TCGOP_TYPE(op));           \
-    unsigned out_bits2 =                                                       \
-        bitsOfTCGType(s->temps[temp_idx(output_arg(0))].type);                 \
-    assert(out_bits1 == out_bits2);                                            \
-    unsigned out_bits = out_bits1;                                             \
-                                                                               \
     auto *BSwap = IRB.CreateUnaryIntrinsic(                                    \
         llvm::Intrinsic::bswap,                                                \
         IRB.CreateTrunc(get(input_arg(0)), IRB.getInt##bits##Ty()));           \
                                                                                \
-    set(IRB.CreateZExt(BSwap, IRB.getIntNTy(out_bits)), output_arg(0));        \
+    set(IRB.CreateZExt(BSwap, IRB.getIntNTy(out_bits())), output_arg(0));      \
     BREAK();                                                                   \
   }
 
@@ -10476,15 +10437,12 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
   regs[r0] = rol64(regs[r1], regs[r2] & 63);
   */
   CASE(rotl): {
-    unsigned out_bits1 = 8 * tcg_type_size((TCGType)TCGOP_TYPE(op));
-    unsigned out_bits2 = bitsOfTCGType(s->temps[temp_idx(output_arg(0))].type);
-    assert(out_bits1 == out_bits2);
-    unsigned out_bits = out_bits1;
+    const unsigned bits = out_bits();
 
     llvm::Value *word = get(input_arg(0));
     llvm::Value *shift = get(input_arg(1));
 
-    llvm::Value *mask = IRB.getIntN(out_bits, out_bits-1);
+    llvm::Value *mask = IRB.getIntN(bits, bits-1);
 
     shift = IRB.CreateAnd(shift, mask);
 
@@ -10504,15 +10462,12 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
   regs[r0] = ror64(regs[r1], regs[r2] & 63);
   */
   CASE(rotr): {
-    unsigned out_bits1 = 8 * tcg_type_size((TCGType)TCGOP_TYPE(op));
-    unsigned out_bits2 = bitsOfTCGType(s->temps[temp_idx(output_arg(0))].type);
-    assert(out_bits1 == out_bits2);
-    unsigned out_bits = out_bits1;
+    const unsigned bits = out_bits();
 
     llvm::Value *word = get(input_arg(0));
     llvm::Value *shift = get(input_arg(1));
 
-    llvm::Value *mask = IRB.getIntN(out_bits, out_bits-1);
+    llvm::Value *mask = IRB.getIntN(bits, bits-1);
 
     shift = IRB.CreateAnd(shift, mask);
 
@@ -10575,12 +10530,7 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
 #endif /* TCG_TARGET_REG_BITS == 64 */
 
   CASE(qemu_ld): {
-    unsigned out_bits1 = 8 * tcg_type_size((TCGType)TCGOP_TYPE(op));
-    unsigned out_bits2 = bitsOfTCGType(s->temps[temp_idx(output_arg(0))].type);
-    assert(out_bits1 == out_bits2);
-    unsigned out_bits = out_bits1;
-
-    set(do_the_qemu_ld(get(input_arg(0)), const_arg(0), out_bits), output_arg(0));
+    set(do_the_qemu_ld(get(input_arg(0)), const_arg(0), out_bits()), output_arg(0));
     BREAK();
   }
 
