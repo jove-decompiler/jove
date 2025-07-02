@@ -9286,18 +9286,21 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
 
 #define output_arg(i)                                                          \
   ({                                                                           \
-    assert((i) < nb_oargs && "output_arg present");                            \
-    arg_temp(op->args[i]);                                                     \
+    int _i = (i);                                                              \
+    assert(_i < nb_oargs && "output_arg present");                             \
+    arg_temp(op->args[_i]);                                                    \
   })
 #define input_arg(i)                                                           \
   ({                                                                           \
-    assert((i) < nb_iargs && "input_arg present");                             \
-    arg_temp(op->args[nb_oargs + (i)]);                                        \
+    int _i = (i);                                                              \
+    assert(_i < nb_iargs && "input_arg present");                              \
+    arg_temp(op->args[nb_oargs + _i]);                                         \
   })
 #define const_arg(i)                                                           \
   ({                                                                           \
-    assert((i) < nb_cargs && "const_arg present");                             \
-    op->args[nb_oargs + nb_iargs + (i)];                                       \
+    int _i = (i);                                                              \
+    assert(_i < nb_cargs && "const_arg present");                              \
+    op->args[nb_oargs + nb_iargs + _i];                                        \
   })
 
   auto input_label = [&](int i) -> TCGLabel * {
