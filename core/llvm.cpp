@@ -10392,6 +10392,7 @@ static inline uint64_t deposit64(uint64_t value, int start, int length,
 */
   CASE(deposit): {
     const unsigned bits = out_bits();
+
     llvm::Value *value = get(input_arg(0));
     llvm::Value *fieldval = get(input_arg(1));
     const int start = const_arg(0);
@@ -10412,9 +10413,29 @@ static inline uint64_t deposit64(uint64_t value, int start, int length,
     BREAK();
   }
 
-  CASE(extract):
-    do_the_extract(out_bits(), false);
+/*
+static inline uint64_t extract64(uint64_t value, int start, int length)
+{
+    assert(start >= 0 && length > 0 && length <= 64 - start);
+    return (value >> start) & (~0ULL >> (64 - length));
+}
+
+            regs[r0] = extract64(regs[r1], pos, len);
+*/
+  CASE(extract): {
+    const unsigned bits = out_bits();
+
+    llvm::Value *value = get(input_arg(0));
+    const int start = const_arg(0);
+    const int length = const_arg(1);
+
+    assert(start >= 0 && length > 0 && length <= bits - start);
+
+    set(IRB.CreateAnd(IRB.CreateLShr(value, IRB.getIntN(bits, start)),
+                      IRB.getInt(llvm::APInt::getLowBitsSet(bits, length))),
+        output_arg(0));
     BREAK();
+  }
 
   CASE(sextract):
     do_the_extract(out_bits(), true);
