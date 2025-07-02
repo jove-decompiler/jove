@@ -10397,39 +10397,24 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     BREAK();
   }
 
-  CASE(bswap16): {
-    unsigned out_bits1 = 8 * tcg_type_size((TCGType)TCGOP_TYPE(op));
-    unsigned out_bits2 = bitsOfTCGType(s->temps[temp_idx(output_arg(0))].type);
-    assert(out_bits1 == out_bits2);
-    unsigned out_bits = out_bits1;
-
-    llvm::Type *Tys[] = {IRB.getInt16Ty()};
-    llvm::Function *bswap =
-        llvm::Intrinsic::getDeclaration(Module.get(), llvm::Intrinsic::bswap,
-                                        llvm::ArrayRef<llvm::Type *>(Tys, 1));
-    llvm::Value *v = IRB.CreateTrunc(get(input_arg(0)), IRB.getInt16Ty());
-    set(IRB.CreateZExt(IRB.CreateCall(bswap, v),
-                       IRB.getIntNTy(out_bits)),
-        output_arg(0));
-    BREAK();
+#define __BSWAP_OP(bits)                                                       \
+  CASE(bswap##bits) : {                                                        \
+    unsigned out_bits1 = 8 * tcg_type_size((TCGType)TCGOP_TYPE(op));           \
+    unsigned out_bits2 =                                                       \
+        bitsOfTCGType(s->temps[temp_idx(output_arg(0))].type);                 \
+    assert(out_bits1 == out_bits2);                                            \
+    unsigned out_bits = out_bits1;                                             \
+                                                                               \
+    auto *BSwap = IRB.CreateUnaryIntrinsic(                                    \
+        llvm::Intrinsic::bswap,                                                \
+        IRB.CreateTrunc(get(input_arg(0)), IRB.getInt##bits##Ty()));           \
+                                                                               \
+    set(IRB.CreateZExt(BSwap, IRB.getIntNTy(out_bits)), output_arg(0));        \
+    BREAK();                                                                   \
   }
 
-  CASE(bswap32): {
-    unsigned out_bits1 = 8 * tcg_type_size((TCGType)TCGOP_TYPE(op));
-    unsigned out_bits2 = bitsOfTCGType(s->temps[temp_idx(output_arg(0))].type);
-    assert(out_bits1 == out_bits2);
-    unsigned out_bits = out_bits1;
-
-    llvm::Type *Tys[] = {IRB.getInt32Ty()};
-    llvm::Function *bswap =
-        llvm::Intrinsic::getDeclaration(Module.get(), llvm::Intrinsic::bswap,
-                                        llvm::ArrayRef<llvm::Type *>(Tys, 1));
-    llvm::Value *v = IRB.CreateTrunc(get(input_arg(0)), IRB.getInt32Ty());
-    set(IRB.CreateZExt(IRB.CreateCall(bswap, v),
-                       IRB.getIntNTy(out_bits)),
-        output_arg(0));
-    BREAK();
-  }
+  __BSWAP_OP(16)
+  __BSWAP_OP(32)
 
   CASE(ld32u):
     do_the_ld(32, false);
@@ -10639,22 +10624,7 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
         output_arg(0));
     BREAK();
 
-  CASE(bswap64): {
-    unsigned out_bits1 = 8 * tcg_type_size((TCGType)TCGOP_TYPE(op));
-    unsigned out_bits2 = bitsOfTCGType(s->temps[temp_idx(output_arg(0))].type);
-    assert(out_bits1 == out_bits2);
-    unsigned out_bits = out_bits1;
-
-    llvm::Type *Tys[] = {IRB.getInt64Ty()};
-    llvm::Function *bswap =
-        llvm::Intrinsic::getDeclaration(Module.get(), llvm::Intrinsic::bswap,
-                                        llvm::ArrayRef<llvm::Type *>(Tys, 1));
-    llvm::Value *v = IRB.CreateTrunc(get(input_arg(0)), IRB.getInt64Ty());
-    set(IRB.CreateZExt(IRB.CreateCall(bswap, v),
-                       IRB.getIntNTy(out_bits)),
-        output_arg(0));
-    BREAK();
-  }
+  __BSWAP_OP(64)
 
   /*
      extrh_i64_i32 *t0*, *t1*
