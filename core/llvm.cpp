@@ -9302,10 +9302,11 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     assert(_i < nb_cargs && "const_arg present");                              \
     op->args[nb_oargs + nb_iargs + _i];                                        \
   })
-
-  auto input_label = [&](int i) -> TCGLabel * {
-    return reinterpret_cast<TCGLabel *>(const_arg(i));
-  };
+#define input_label(i)                                                         \
+  ({                                                                           \
+    int __i = (i);                                                             \
+    reinterpret_cast<TCGLabel *>(const_arg(__i));                              \
+  })
 
   /* Set two 32 bit registers from a 64 bit value (see tci_write_reg64). */
   auto write_reg64 = [&](TCGTemp *high, TCGTemp *low, llvm::Value *value) -> void {
