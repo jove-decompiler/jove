@@ -10265,10 +10265,10 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     TODO();
 
   CASE(muls2): {
-#if TCG_TARGET_REG_BITS == 32
     llvm::Value *X = get(input_arg(0));
     llvm::Value *Y = get(input_arg(1));
 
+#if TCG_TARGET_REG_BITS == 32
     X = IRB.CreateTrunc(X, IRB.getInt32Ty());
     Y = IRB.CreateTrunc(Y, IRB.getInt32Ty());
 
@@ -10278,23 +10278,20 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     llvm::Value *tmp64 = IRB.CreateMul(X, Y);
     write_reg64(output_arg(1), output_arg(0), tmp64);
 #else
-    llvm::Value *a = get(input_arg(0));
-    llvm::Value *b = get(input_arg(1));
+    X = IRB.CreateSExt(X, IRB.getInt128Ty());
+    Y = IRB.CreateSExt(Y, IRB.getInt128Ty());
 
-    a = IRB.CreateSExt(a, IRB.getInt128Ty());
-    b = IRB.CreateSExt(b, IRB.getInt128Ty());
-
-    llvm::Value *tmp128 = IRB.CreateMul(a, b);
+    llvm::Value *tmp128 = IRB.CreateMul(X, Y);
     write_reg128(output_arg(1), output_arg(0), tmp128);
 #endif
     BREAK();
   }
 
   CASE(mulu2): {
-#if TCG_TARGET_REG_BITS == 32
     llvm::Value *X = get(input_arg(0));
     llvm::Value *Y = get(input_arg(1));
 
+#if TCG_TARGET_REG_BITS == 32
     X = IRB.CreateTrunc(X, IRB.getInt32Ty());
     Y = IRB.CreateTrunc(Y, IRB.getInt32Ty());
 
@@ -10304,13 +10301,10 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     llvm::Value *tmp64 = IRB.CreateMul(X, Y);
     write_reg64(output_arg(1), output_arg(0), tmp64);
 #else
-    llvm::Value *a = get(input_arg(0));
-    llvm::Value *b = get(input_arg(1));
+    X = IRB.CreateZExt(X, IRB.getInt128Ty());
+    Y = IRB.CreateZExt(Y, IRB.getInt128Ty());
 
-    a = IRB.CreateZExt(a, IRB.getInt128Ty());
-    b = IRB.CreateZExt(b, IRB.getInt128Ty());
-
-    llvm::Value *tmp128 = IRB.CreateMul(a, b);
+    llvm::Value *tmp128 = IRB.CreateMul(X, Y);
     write_reg128(output_arg(1), output_arg(0), tmp128);
 #endif
     BREAK();
