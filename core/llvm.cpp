@@ -10278,6 +10278,9 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     llvm::Value *tmp64 = IRB.CreateMul(X, Y);
     write_reg64(output_arg(1), output_arg(0), tmp64);
 #else
+    X = IRB.CreateTrunc(X, IRB.getInt64Ty());
+    Y = IRB.CreateTrunc(Y, IRB.getInt64Ty());
+
     X = IRB.CreateSExt(X, IRB.getInt128Ty());
     Y = IRB.CreateSExt(Y, IRB.getInt128Ty());
 
@@ -10301,6 +10304,9 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     llvm::Value *tmp64 = IRB.CreateMul(X, Y);
     write_reg64(output_arg(1), output_arg(0), tmp64);
 #else
+    X = IRB.CreateTrunc(X, IRB.getInt64Ty());
+    Y = IRB.CreateTrunc(Y, IRB.getInt64Ty());
+
     X = IRB.CreateZExt(X, IRB.getInt128Ty());
     Y = IRB.CreateZExt(Y, IRB.getInt128Ty());
 
