@@ -10135,10 +10135,9 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
   regs[r0] = *(tcg_target_ulong *)ptr;
 
   */
-  CASE(ld): {
+  CASE(ld):
     do_the_ld(out_bits(), false);
     BREAK();
-  }
 
   CASE(st8):
     do_the_st(8, false);
@@ -10153,10 +10152,9 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
   *(tcg_target_ulong *)ptr = regs[r0];
 
   */
-  CASE(st): {
+  CASE(st):
     do_the_st(__out_bits(), false);
     BREAK();
-  }
 
 #define __ARITH_OP(opc_name, LLVMOp)                                           \
   CASE(opc_name): {                                                            \
@@ -10335,7 +10333,7 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
   CASE(tci_rotr32):
     TODO();
 
-  CASE(deposit): {
+  CASE(deposit):
     do_the_deposit(out_bits(),
                    get(input_arg(0)),
                    get(input_arg(1)),
@@ -10343,17 +10341,14 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
                    const_arg(1),
                    output_arg(0));
     BREAK();
-  }
 
-  CASE(extract): {
+  CASE(extract):
     do_the_extract(out_bits(), false);
     BREAK();
-  }
 
-  CASE(sextract): {
+  CASE(sextract):
     do_the_extract(out_bits(), true);
     BREAK();
-  }
 
   CASE(brcond): {
     unsigned lblidx = input_label(1)->id;
@@ -10530,15 +10525,13 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     BREAK();
 #endif /* TCG_TARGET_REG_BITS == 64 */
 
-  CASE(qemu_ld): {
+  CASE(qemu_ld):
     set(do_the_qemu_ld(get(input_arg(0)), const_arg(0), out_bits()), output_arg(0));
     BREAK();
-  }
 
-  CASE(qemu_st): {
+  CASE(qemu_st):
     do_the_qemu_st(get(input_arg(1)), get(input_arg(0)), const_arg(0));
     BREAK();
-  }
 
 #if TCG_TARGET_REG_BITS == 32
   CASE(qemu_ld2):
