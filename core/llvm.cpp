@@ -10167,7 +10167,7 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     llvm::Value *Y = get(y);                                                   \
                                                                                \
     if (X->getType() != Y->getType()) {                                        \
-      if (WordBits() == 32 &&                                                  \
+      if (sizeof(taddr_t) == 4 &&                                                  \
           INDEX_op_##opc_name == INDEX_op_add &&                               \
           out_bits() == 64 &&                                                        \
           temp_idx(x) == tcg_env_index &&                                      \
