@@ -9579,32 +9579,6 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     return do_ld_or_store(false, bits, Signed);
   };
 
-  auto do_the_extract = [&](unsigned bits, bool isSigned) -> void {
-    assert(bits == 32 || bits == 64);
-
-    TCGArg start = const_arg(0);
-    TCGArg length = const_arg(1);
-
-    assert(start >= 0 && length > 0 && length <= bits - start);
-
-    llvm::Value *in = get(input_arg(0));
-
-    if (isSigned) {
-      // shift left to move sign-bit into MSB, then arithmetic shift back
-      unsigned shiftL = bits - length - start;
-      unsigned shiftR = bits - length;
-      llvm::Value *shl = IRB.CreateShl(in, IRB.getIntN(bits, shiftL));
-      llvm::Value *ashr = IRB.CreateAShr(shl, IRB.getIntN(bits, shiftR));
-      set(ashr, output_arg(0));
-    } else {
-      // logical right shift down, then mask low 'length' bits
-      llvm::Value *lshr = IRB.CreateLShr(in, IRB.getIntN(bits, start));
-      llvm::APInt mask = llvm::APInt::getLowBitsSet(bits, length);
-      llvm::Value *andm = IRB.CreateAnd(lshr, IRB.getInt(mask));
-      set(andm, output_arg(0));
-    }
-  };
-
   auto CondCompare = [&](TCGArg cond, llvm::Value *X,
                          llvm::Value *Y) -> llvm::Value * {
     llvm::Value *V = nullptr;
