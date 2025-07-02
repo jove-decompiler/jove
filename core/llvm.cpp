@@ -9605,38 +9605,6 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     }
   };
 
-  auto do_the_deposit = [&](unsigned bits,
-                            llvm::Value *orig,
-                            llvm::Value *fieldval,
-                            unsigned ofs,
-                            unsigned len,
-                            TCGTemp *dst) {
-    assert((bits == 32 || bits == 64) && "bit-width must be 32 or 64");
-    assert(len > 0 && ofs + len <= bits &&
-           "invalid deposit position/length");
-
-    llvm::Type *ty = IRB.getIntNTy(bits);
-
-    llvm::APInt lowBits  = llvm::APInt::getLowBitsSet(bits, len);
-    llvm::APInt posMask  = lowBits << ofs;
-    llvm::APInt clrMask  = ~posMask;
-
-    llvm::Constant *posC = IRB.getInt(posMask);
-    llvm::Constant *clrC = IRB.getInt(clrMask);
-
-    // Truncate & mask-insert new field
-    llvm::Value *fv    = IRB.CreateTruncOrBitCast(fieldval, ty);
-    llvm::Value *ins   = IRB.CreateAnd(fv, IRB.getInt(lowBits));
-    ins                = IRB.CreateShl(ins, IRB.getIntN(bits, ofs));
-
-    // Clear & OR
-    llvm::Value *origN  = IRB.CreateTruncOrBitCast(orig, ty);
-    llvm::Value *cleared= IRB.CreateAnd(origN, clrC);
-    llvm::Value *res    = IRB.CreateOr(cleared, ins);
-
-    set(res, dst);
-  };
-
   auto CondCompare = [&](TCGArg cond, llvm::Value *X,
                          llvm::Value *Y) -> llvm::Value * {
     llvm::Value *V = nullptr;
@@ -10411,14 +10379,38 @@ static inline void mulu64(uint64_t *plow, uint64_t *phigh,
   CASE(tci_rotr32):
     TODO();
 
-  CASE(deposit):
-    do_the_deposit(out_bits(),
-                   get(input_arg(0)),
-                   get(input_arg(1)),
-                   const_arg(0),
-                   const_arg(1),
-                   output_arg(0));
+/*
+static inline uint64_t deposit64(uint64_t value, int start, int length,
+                                 uint64_t fieldval)
+{
+    uint64_t mask;
+    assert(start >= 0 && length > 0 && length <= 64 - start);
+    mask = (~0ULL >> (64 - length)) << start;
+    return (value & ~mask) | ((fieldval << start) & mask);
+}
+            regs[r0] = deposit64(regs[r1], pos, len, regs[r2]);
+*/
+  CASE(deposit): {
+    const unsigned bits = out_bits();
+    llvm::Value *value = get(input_arg(0));
+    llvm::Value *fieldval = get(input_arg(1));
+    const int start = const_arg(0);
+    const int length = const_arg(1);
+
+    assert(value->getType()->isIntegerTy(bits));
+    assert(fieldval->getType()->isIntegerTy(bits));
+
+    assert(start >= 0 && length > 0 && length <= bits - start);
+
+    llvm::APInt mask = llvm::APInt::getLowBitsSet(bits, length) << start;
+
+    set(IRB.CreateOr(
+            IRB.CreateAnd(value, IRB.CreateNot(IRB.getInt(mask))),
+            IRB.CreateAnd(IRB.CreateShl(fieldval, IRB.getIntN(bits, start)),
+                          IRB.getInt(mask))),
+        output_arg(0));
     BREAK();
+  }
 
   CASE(extract):
     do_the_extract(out_bits(), false);
