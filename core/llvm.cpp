@@ -9382,7 +9382,7 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
 
     //assert(!(!!(mop & MO_BSWAP)));
     if (mop & MO_BSWAP)
-      Res = IRB.CreateCall(bswap_i(load_bits), Res);
+      Res = IRB.CreateUnaryIntrinsic(llvm::Intrinsic::bswap, Res);
 
     switch (mop & MO_SSIZE) {
     case MO_UB:
@@ -9435,7 +9435,7 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
 
     //assert(!(!!(mop & MO_BSWAP)));
     if (mop & MO_BSWAP)
-      Val = IRB.CreateCall(bswap_i(bits), Val);
+      Val = IRB.CreateUnaryIntrinsic(llvm::Intrinsic::bswap, Val);
 
     Addr = IRB.CreateZExt(Addr, WordType());
     Addr = IRB.CreateIntToPtr(Addr, IRB.getIntNTy(bits)->getPointerTo());
