@@ -10245,20 +10245,14 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     BREAK();
   }
 
-  CASE(subbi): {
-    unsigned bits1 = 8 * tcg_type_size((TCGType)TCGOP_TYPE(op));
-    unsigned bits2 = bitsOfTCGType(s->temps[temp_idx(output_arg(0))].type);
-    assert(bits1 == bits2);
-    unsigned bits = bits1;
-
+  CASE(subbi):
     set(IRB.CreateSub(
             IRB.CreateSub(get(input_arg(0)), get(input_arg(1))),
             IRB.CreateZExt(IRB.CreateLoad(IRB.getInt1Ty(), CarryAlloca),
-                           IRB.getIntNTy(bits))),
+                           IRB.getIntNTy(out_bits()))),
         output_arg(0));
 
     BREAK();
-  }
 
   CASE(subbio):
     TODO();
