@@ -9675,7 +9675,7 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
   };
 
   //
-  // modeled after tcg_qemu_tb_exec() in qemu/tcg/tci.c
+  // The following is modeled after tcg_qemu_tb_exec() in qemu/tcg/tci.c.
   //
 
 #define JUMP_TABLE_BASE_LABEL do_unknown
@@ -9801,6 +9801,35 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
 
   opc &= (SZ - 1u);
   goto *jumps[opc];
+
+  //
+  // Broadly speaking, for each TCG operation, the structure of our C++ code
+  // should be:
+  //
+  ///*
+  //<ANY RELEVANT C CODE>
+  //<TCI IMPLEMENTATION OF OPERATION>
+  //*/
+  //  CASE(op): {
+  //    <TRANSLATION TO LLVM>
+  //    BREAK();
+  //  }
+  //
+  // NOTE: The TCI implementation, and any relevant C code, should both be
+  // literally YANKED ('yy' in vim) and pasted into llvm.cpp, without any
+  // modification whatsoever (no clang-format!). The idea behind this style of
+  // doing things is to make it easy for us to ask an LLM to double-check our
+  // code.
+  //
+  // We will omit the TCI implementations for those TCG operations which do not
+  // have a straightforward translation, or for where it simply makes no sense
+  // to do so. Note: some of these operations do not have a corresponding TCI
+  // implementation (this state of things is suboptimal). [1]
+  //
+  // [1] The idea of using clang to compile the TCI interpreter implementation
+  // itself (i.e. tcg_qemu_tb_exec) to LLVM- that would be the basis for our
+  // translation- was floated. This would be cool, if it were ever practical.
+  //
 
   CASE(insn_start):
     if (const_arg(0) == JOVE_PCREL_MAGIC) {
@@ -10058,11 +10087,9 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     TODO();
 #endif
 
-  /*
-
-  regs[r0] = tci_compare64(regs[r1], regs[r2], condition);
-
-  */
+/*
+            regs[r0] = tci_compare64(regs[r1], regs[r2], condition);
+*/
   CASE(setcond): {
     llvm::Value *V = IRB.CreateZExt(
         CondCompare(const_arg(0),
@@ -10086,12 +10113,10 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     BREAK();
   }
 
-  /*
-
-  tmp32 = tci_compare64(regs[r1], regs[r2], condition);
-  regs[r0] = regs[tmp32 ? r3 : r4];
-
-  */
+/*
+            tmp32 = tci_compare64(regs[r1], regs[r2], condition);
+            regs[r0] = regs[tmp32 ? r3 : r4];
+*/
   CASE(movcond): {
     llvm::Value *V = IRB.CreateSelect(
         CondCompare(const_arg(0),
@@ -10104,6 +10129,9 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     BREAK();
   }
 
+/*
+            regs[r0] = regs[r1];
+*/
   CASE(mov):
     set(get(input_arg(0)), output_arg(0));
     BREAK();
@@ -10129,11 +10157,6 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     do_the_ld(16, true);
     BREAK();
 
-  /*
-
-  regs[r0] = *(tcg_target_ulong *)ptr;
-
-  */
   CASE(ld):
     do_the_ld(out_bits(), false);
     BREAK();
@@ -10146,11 +10169,6 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     do_the_st(16, false);
     BREAK();
 
-  /*
-
-  *(tcg_target_ulong *)ptr = regs[r0];
-
-  */
   CASE(st):
     do_the_st(__out_bits(), false);
     BREAK();
@@ -10190,39 +10208,67 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
   __ARITH_OP(or, Or)
   __ARITH_OP(xor, Xor)
 
+/*
+            regs[r0] = regs[r1] & ~regs[r2];
+*/
   CASE(andc):
     set(IRB.CreateAnd(get(input_arg(0)), IRB.CreateNot(get(input_arg(1)))),
         output_arg(0));
     BREAK();
 
+/*
+            regs[r0] = regs[r1] | ~regs[r2];
+*/
   CASE(orc):
     set(IRB.CreateOr(get(input_arg(0)), IRB.CreateNot(get(input_arg(1)))),
         output_arg(0));
     BREAK();
 
+/*
+            regs[r0] = ~(regs[r1] ^ regs[r2]);
+*/
   CASE(eqv):
     set(IRB.CreateNot(IRB.CreateXor(get(input_arg(0)), get(input_arg(1)))),
         output_arg(0));
     BREAK();
 
+/*
+            regs[r0] = ~(regs[r1] & regs[r2]);
+*/
   CASE(nand):
     set(IRB.CreateNot(IRB.CreateAnd(get(input_arg(0)), get(input_arg(1)))),
         output_arg(0));
     BREAK();
 
+/*
+            regs[r0] = ~(regs[r1] | regs[r2]);
+*/
   CASE(nor):
     set(IRB.CreateNot(IRB.CreateOr(get(input_arg(0)), get(input_arg(1)))),
         output_arg(0));
     BREAK();
 
+/*
+            regs[r0] = -regs[r1];
+*/
   CASE(neg):
     set(IRB.CreateNeg(get(input_arg(0))), output_arg(0));
     BREAK();
 
+/*
+            regs[r0] = ~regs[r1];
+*/
   CASE(not):
     set(IRB.CreateNot(get(input_arg(0))), output_arg(0));
     BREAK();
 
+/*
+static inline int ctpop64(uint64_t val)
+{
+    return __builtin_popcountll(val);
+}
+            regs[r0] = ctpop64(regs[r1]);
+*/
   CASE(ctpop): {
     auto *PopCnt =
         IRB.CreateUnaryIntrinsic(llvm::Intrinsic::ctpop, get(input_arg(0)));
@@ -10235,6 +10281,10 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
   CASE(addcio):
     TODO();
 
+/*
+            carry = regs[r1] < regs[r2];
+            regs[r0] = regs[r1] - regs[r2];
+*/
   CASE(subbo): {
     auto *OverflowOp =
         IRB.CreateBinaryIntrinsic(llvm::Intrinsic::usub_with_overflow,
@@ -10244,6 +10294,9 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     BREAK();
   }
 
+/*
+            regs[r0] = regs[r1] - regs[r2] - carry;
+*/
   CASE(subbi):
     set(IRB.CreateSub(
             IRB.CreateSub(get(input_arg(0)), get(input_arg(1))),
@@ -10256,6 +10309,22 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
   CASE(subbio):
     TODO();
 
+/*
+static inline void muls64(uint64_t *plow, uint64_t *phigh,
+                          int64_t a, int64_t b)
+{
+    __int128_t r = (__int128_t)a * b;
+    *plow = r;
+    *phigh = r >> 64;
+}
+
+#if TCG_TARGET_REG_BITS == 32
+            tmp64 = (int64_t)(int32_t)regs[r2] * (int32_t)regs[r3];
+            tci_write_reg64(regs, r1, r0, tmp64);
+#else
+            muls64(&regs[r0], &regs[r1], regs[r2], regs[r3]);
+#endif
+*/
   CASE(muls2): {
     llvm::Value *X = get(input_arg(0));
     llvm::Value *Y = get(input_arg(1));
@@ -10282,6 +10351,22 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     BREAK();
   }
 
+/*
+static inline void mulu64(uint64_t *plow, uint64_t *phigh,
+                          uint64_t a, uint64_t b)
+{
+    __uint128_t r = (__uint128_t)a * b;
+    *plow = r;
+    *phigh = r >> 64;
+}
+
+#if TCG_TARGET_REG_BITS == 32
+            tmp64 = (uint64_t)(uint32_t)regs[r2] * (uint32_t)regs[r3];
+            tci_write_reg64(regs, r1, r0, tmp64);
+#else
+            mulu64(&regs[r0], &regs[r1], regs[r2], regs[r3]);
+#endif
+*/
   CASE(mulu2): {
     llvm::Value *X = get(input_arg(0));
     llvm::Value *Y = get(input_arg(1));
@@ -10387,11 +10472,14 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
   __ARITH_OP(rems, SRem)
   __ARITH_OP(remu, URem)
 
-  /*
+/*
+static inline int clz64(uint64_t val)
+{
+    return val ? __builtin_clzll(val) : 64;
+}
 
-  regs[r0] = regs[r1] ? clz64(regs[r1]) : regs[r2];
-
-  */
+            regs[r0] = regs[r1] ? clz64(regs[r1]) : regs[r2];
+*/
   CASE(clz): {
     llvm::Value *X = get(input_arg(0));
     llvm::Value *Y = get(input_arg(1));
@@ -10402,11 +10490,14 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     BREAK();
   }
 
-  /*
+/*
+static inline int ctz64(uint64_t val)
+{
+    return val ? __builtin_ctzll(val) : 64;
+}
 
-  regs[r0] = regs[r1] ? ctz64(regs[r1]) : regs[r2];
-
-  */
+            regs[r0] = regs[r1] ? ctz64(regs[r1]) : regs[r2];
+*/
   CASE(ctz): {
     llvm::Value *X = get(input_arg(0));
     llvm::Value *Y = get(input_arg(1));
@@ -10417,14 +10508,14 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     BREAK();
   }
 
-  /*
-  static inline uint64_t rol64(uint64_t word, unsigned int shift)
-  {
-      return (word << (shift & 63)) | (word >> (-shift & 63));
-  }
+/*
+static inline uint64_t rol64(uint64_t word, unsigned int shift)
+{
+    return (word << (shift & 63)) | (word >> (-shift & 63));
+}
 
-  regs[r0] = rol64(regs[r1], regs[r2] & 63);
-  */
+            regs[r0] = rol64(regs[r1], regs[r2] & 63);
+*/
   CASE(rotl): {
     const unsigned bits = out_bits();
 
@@ -10442,14 +10533,14 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     BREAK();
   }
 
-  /*
-  static inline uint64_t ror64(uint64_t word, unsigned int shift)
-  {
-      return (word >> (shift & 63)) | (word << (-shift & 63));
-  }
+/*
+static inline uint64_t ror64(uint64_t word, unsigned int shift)
+{
+    return (word >> (shift & 63)) | (word << (-shift & 63));
+}
 
-  regs[r0] = ror64(regs[r1], regs[r2] & 63);
-  */
+            regs[r0] = ror64(regs[r1], regs[r2] & 63);
+*/
   CASE(rotr): {
     const unsigned bits = out_bits();
 
@@ -10469,22 +10560,18 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
 
 #if TCG_TARGET_REG_BITS == 64
 
-  /*
-
-  regs[r0] = (int32_t)regs[r1];
-
-  */
+/*
+            regs[r0] = (int32_t)regs[r1];
+*/
   CASE(ext_i32_i64):
     set(IRB.CreateSExt(IRB.CreateTrunc(get(input_arg(0)), IRB.getInt32Ty()),
                        IRB.getInt64Ty()),
         output_arg(0));
     BREAK();
 
-  /*
-
-  regs[r0] = (uint32_t)regs[r1];
-
-  */
+/*
+            regs[r0] = (uint32_t)regs[r1];
+*/
   CASE(extu_i32_i64):
     set(IRB.CreateZExt(IRB.CreateTrunc(get(input_arg(0)), IRB.getInt32Ty()),
                        IRB.getInt64Ty()),
@@ -10539,6 +10626,12 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     BREAK();
 #endif
 
+/*
+#define barrier()   ({ asm volatile("" ::: "memory"); (void)0; })
+#define smp_mb()                     ({ barrier(); __atomic_thread_fence(__ATOMIC_SEQ_CST); })
+
+            smp_mb();
+*/
   CASE(mb): {
     llvm::StringRef AsmText;
     llvm::StringRef Constraints;
