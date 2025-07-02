@@ -24,7 +24,7 @@ $ make -C ls.src                      # make executable from decompilation
 For a quickstart, use the [docker image](https://hub.docker.com/repository/docker/aleden22/jove/general) and see [Examples.md](/Documentation/Examples.md).
 
 ## BASIC DEMO
-Consider the following C program:
+Consider the following [C program](/tests/linux/src/wtf.c):
 ```c
 #include<unistd.h>
 #include<stdlib.h>
