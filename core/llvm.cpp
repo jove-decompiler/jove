@@ -10439,23 +10439,12 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
 
   */
   CASE(clz): {
-    unsigned bits1 = 8 * tcg_type_size((TCGType)TCGOP_TYPE(op));
-    unsigned bits2 = bitsOfTCGType(s->temps[temp_idx(output_arg(0))].type);
-    assert(bits1 == bits2);
-    unsigned bits = bits1;
-
-    llvm::Type *Tys[] = {llvm::IntegerType::get(Context, bits)};
-    llvm::Function *F =
-        llvm::Intrinsic::getDeclaration(Module.get(), llvm::Intrinsic::ctlz,
-                                        llvm::ArrayRef<llvm::Type *>(Tys, 1));
-    llvm::Value *v1 = get(input_arg(0));
-    llvm::Value *v2 = get(input_arg(1));
-
-    llvm::Value *CondV = IRB.CreateICmpNE(v1, IRB.getIntN(bits, 0));
-    llvm::Value *Args[] = {v1, IRB.getTrue()};
-    llvm::Value *v = IRB.CreateSelect(CondV, IRB.CreateCall(F, Args), v2);
-
-    set(v, output_arg(0));
+    llvm::Value *X = get(input_arg(0));
+    llvm::Value *Y = get(input_arg(1));
+    set(IRB.CreateSelect(
+            IRB.CreateICmpNE(X, llvm::ConstantInt::get(X->getType(), 0)),
+            IRB.CreateBinaryIntrinsic(llvm::Intrinsic::ctlz, X, IRB.getTrue()), Y),
+        output_arg(0));
     BREAK();
   }
 
