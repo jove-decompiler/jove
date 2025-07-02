@@ -10240,18 +10240,9 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     BREAK();
 
   CASE(ctpop): {
-    unsigned bits1 = 8 * tcg_type_size((TCGType)TCGOP_TYPE(op));
-    unsigned bits2 = bitsOfTCGType(s->temps[temp_idx(output_arg(0))].type);
-    assert(bits1 == bits2);
-    unsigned bits = bits1;
-
-    llvm::Type *Tys[] = {llvm::IntegerType::get(Context, bits)};
-    llvm::Function *F =
-        llvm::Intrinsic::getDeclaration(Module.get(), llvm::Intrinsic::ctpop,
-                                        llvm::ArrayRef<llvm::Type *>(Tys, 1));
-    llvm::Value *Args[] = {get(input_arg(0))};
-
-    set(IRB.CreateCall(F, Args), output_arg(0));
+    auto *PopCnt =
+        IRB.CreateUnaryIntrinsic(llvm::Intrinsic::ctpop, get(input_arg(0)));
+    set(PopCnt, output_arg(0));
     BREAK();
   }
 
