@@ -9543,11 +9543,13 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
 
     llvm::Value *Ptr = get(ptr_tmp);
 
-    //
-    // if the target is 32-bit and the host is 64-bit, we may encounter a 64-bit
-    // integer being used as an address. XXX
-    //
-    Ptr = IRB.CreateTrunc(Ptr, WordType());
+    if (sizeof(taddr_t) == 4 && TCG_TARGET_REG_BITS == 64) {
+      //
+      // if the target is 32-bit and the host is 64-bit, we may encounter a
+      // 64-bit integer being used as an address. XXX
+      //
+      Ptr = IRB.CreateTrunc(Ptr, WordType());
+    }
 
     Ptr = IRB.CreateAdd(Ptr, llvm::ConstantInt::getSigned(WordType(), off));
     Ptr = IRB.CreateIntToPtr(Ptr, IRB.getIntNTy(bits)->getPointerTo());
