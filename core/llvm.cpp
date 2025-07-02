@@ -9262,15 +9262,6 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
 
       V = IRB.CreatePtrToInt(V, WordType());
     } else {
-      if (!VTy->isIntegerTy(bitsOfTCGType(ts->type))) {
-        WithColor::error() << llvm::formatv("VTy={0} bits={1} op_nm={2} bitsOfTCGType(ts->base_type)={3} bitsOfTCGType(ts->type)={4}\n",
-                                            *VTy, bitsOfTCGType(ts->type),
-                                            curr_op_nm ? curr_op_nm : "",
-                                            bitsOfTCGType(ts->base_type),
-                                            bitsOfTCGType(ts->type));
-        TCG.dump_ops(stderr);
-      }
-
       assert(VTy->isIntegerTy(bitsOfTCGType(ts->type)));
     }
 
