@@ -43,7 +43,7 @@ f:write(1,"!\n",2);n++;goto L;
 }
 ```
 
-To recover the full C code of the program from its compiled representation, we'll run its recompilation with a suitable command-line input.
+To recover the full C code of the program from its compiled representation, we'll run its recompiled form (over-and-over) with a suitable command-line input.
 
 ![](Documentation/.demo.gif)
 
