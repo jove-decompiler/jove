@@ -490,28 +490,6 @@ ip_adjacency_list<MT,
                   boost::no_property, /* GraphProperties */
                   boost::listS_ip>;   /* EdgeList */
 
-#if 0
-typedef ip_icfg_base_t<true> ip_icfg_t;
-
-typedef ip_icfg_t::type interprocedural_control_flow_graph_t;
-
-typedef interprocedural_control_flow_graph_t icfg_t;
-
-typedef interprocedural_control_flow_graph_t::vertex_descriptor basic_block_t;
-typedef interprocedural_control_flow_graph_t::edge_descriptor control_flow_t;
-
-typedef std::vector<basic_block_t> basic_block_vec_t;
-
-static inline bb_t NullBasicBlock(void) {
-  return boost::graph_traits<
-      interprocedural_control_flow_graph_t>::null_vertex();
-}
-
-template <bool MT, bool MinSize>
-using bb_vec_t =
-    std::vector<typename ip_icfg_base_t<MT>::vertex_descriptor>;
-#endif
-
 constexpr bool IsDefinitelyTailCall(const auto &ICFG, auto bb) {
   auto &bbprop = ICFG[bb];
 
