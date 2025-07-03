@@ -230,6 +230,7 @@
     __UNREACHABLE();                                                           \
   } while (false)
 
+/* "release" assert */
 #define _RASSERT(cond)                                                  \
   do {                                                                         \
     if (!likely(cond))                                                         \
