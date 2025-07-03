@@ -554,13 +554,13 @@ int ServerTool::ConnectionProc(ConnectionProcArgs &&args) {
       options.MinSize == GET_VALUE(BOOST_PP_SEQ_ELEM(1, product))) {           \
     run.template operator()<GET_VALUE(BOOST_PP_SEQ_ELEM(0, product)),          \
                             GET_VALUE(BOOST_PP_SEQ_ELEM(1, product))>();       \
+    return 0;                                                                  \
   }
 
   BOOST_PP_SEQ_FOR_EACH_PRODUCT(DO_JV_CASE, (MT_POSSIBILTIES)(MINSIZE_POSSIBILTIES))
 
-  assert(DidRun);
-
-  return 0;
+  assert(false);
+  return 1;
 }
 
 }
