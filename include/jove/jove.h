@@ -2070,7 +2070,9 @@ index_of_function_at_address(const binary_base_t<MT, MinSize> &b,
                              taddr_t Addr) {
   function_index_t FIdx = invalid_function_index;
   if constexpr (MT) {
-    b.fnmap.cvisit(Addr, [&](const auto &x) { FIdx = static_cast<function_index_t>(x.second); });
+    b.fnmap.cvisit(Addr, [&](const auto &x) {
+      FIdx = static_cast<function_index_t>(x.second);
+    });
   } else {
     auto it = b.fnmap.find(Addr);
     if (it != b.fnmap.end())
