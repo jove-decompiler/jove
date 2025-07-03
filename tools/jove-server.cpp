@@ -175,11 +175,10 @@ int ServerTool::Run(void) {
   // This is the main loop for handling connections
   //
   for (;;) {
-    sockaddr_in addr;
-
     //
     // Wait for incoming connection
     //
+    sockaddr_in addr;
     socklen_t addrlen = sizeof(addr);
     int data_socket = ::accept(connection_socket.get(),
                                (struct sockaddr *)&addr, &addrlen);
