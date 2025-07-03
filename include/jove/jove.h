@@ -2175,20 +2175,6 @@ address_of_block_terminator(const block_t &Block,
 }
 
 template <bool MT, bool MinSize>
-static inline void construct_bbmap(const jv_base_t<MT, MinSize> &jv,
-                                   const binary_base_t<MT, MinSize> &b,
-                                   bbmap_t &out) {
-  auto &ICFG = b.Analysis.ICFG;
-
-  for_each_basic_block_in_binary(
-      b, [&](typename ip_icfg_base_t<MT>::vertex_descriptor bb) {
-        const auto &bbprop = ICFG[bb];
-
-        bbmap_add(out, addr_intvl(bbprop.Addr, bbprop.Size), ICFG.index(bb));
-      });
-}
-
-template <bool MT, bool MinSize>
 static inline const binary_base_t<MT, MinSize> &
 get_dynl(const jv_base_t<MT, MinSize> &jv) {
   for (auto &b : jv.Binaries) {
