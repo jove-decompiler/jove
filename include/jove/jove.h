@@ -1278,6 +1278,12 @@ struct jv_base_t {
     return Binaries.size();
   }
 
+  void hack_interprocess_graphs(void) noexcept {
+    for_each_binary(maybe_par_unseq, *this, [&](binary_t &b) {
+      hack_interprocess_graph(b.Analysis.ICFG);
+    });
+  }
+
 private:
   void LookupAndCacheHash(hash_t &out, const char *path,
                           std::string &file_contents);
@@ -2202,17 +2208,6 @@ get_vdso(const jv_base_t<MT, MinSize> &jv) {
   }
 
   throw std::runtime_error(std::string(__func__) + ": not found!");
-}
-
-//
-// until we come up with a cleaner source code patch for boost-graph (to make it
-// work with boost interprocess (stateful) allocators), we need to do this for
-// now XXX FIXME
-//
-template <bool MT, bool MinSize>
-static inline void hack_interprocess_graphs(jv_base_t<MT, MinSize> &jv) {
-  for_each_binary(maybe_par_unseq, jv,
-                  [&](auto &b) { hack_interprocess_graph(b.Analysis.ICFG); });
 }
 
 #include "jove/state.h.inc"

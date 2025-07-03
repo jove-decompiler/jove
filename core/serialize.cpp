@@ -670,7 +670,7 @@ void UnserializeJV(jv_base_t<MT, MinSize> &out,
   IsMT_hack = MT;
   IsMinSize_hack = MinSize;
 
-  hack_interprocess_graphs(out); // XXX FIXME
+  out.hack_interprocess_graphs();
 
   out.clear();
 
@@ -682,7 +682,7 @@ void UnserializeJV(jv_base_t<MT, MinSize> &out,
     ia >> out;
   }
 
-  hack_interprocess_graphs(out); // XXX FIXME
+  out.hack_interprocess_graphs();
 
   // XXX
   using bb_t = ip_icfg_base_t<MT>::vertex_descriptor;

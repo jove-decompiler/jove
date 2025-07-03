@@ -298,7 +298,7 @@ struct BaseJVTool : public Tool {
   }
 
   void DoCtorCommon(void) {
-    hack_interprocess_graphs(jv); // XXX FIXME
+    jv.hack_interprocess_graphs();
 
     exclude_from_coredumps(jv_file.get_address(), jv_file.get_size());
     assert(!jv_filename.empty());
