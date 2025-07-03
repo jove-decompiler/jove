@@ -22,7 +22,7 @@ class JoveTester:
     },
   }
 
-  PLATFORM_AND_ARCH_2RUN = {
+  PLATFORM_AND_ARCH_2LOADER = {
     'win': {
       'i386'   : ['/usr/lib/wine/wine'],
       'x86_64' : ['/usr/lib/wine/wine64'],
@@ -46,8 +46,8 @@ class JoveTester:
     self.dsoext = "so" if platform == "linux" else "dll"
     self.variants = ["exe", "pic"] if platform == "linux" else ["EXE", "PIC"]
     self.run = []
-    if platform in JoveTester.PLATFORM_AND_ARCH_2RUN:
-      self.run = JoveTester.PLATFORM_AND_ARCH_2RUN[platform][arch]
+    if platform in JoveTester.PLATFORM_AND_ARCH_2LOADER:
+      self.run = JoveTester.PLATFORM_AND_ARCH_2LOADER[platform][arch]
 
     self.extra_server_args = extra_server_args
     self.extra_bringup_args = extra_bringup_args
