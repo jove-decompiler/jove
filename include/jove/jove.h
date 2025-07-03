@@ -89,6 +89,7 @@ class Binary;
 
 namespace jove {
 
+#include "jove/host.h.inc"
 #include "jove/target.h.inc"
 
 template <bool MT, bool MinSize>
