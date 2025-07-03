@@ -274,15 +274,6 @@ struct bb_analysis_t {
     boost::container::static_vector<basic_block_index_t, 2> adj;
     boost::container::flat_set<addr_intvl, addr_intvl_cmp> addrng;
   };
-
-private:
-  void moveFrom(bb_analysis_t &&other) {
-    live = other.live;
-    reach = other.reach;
-
-    Stale.store(other.Stale.load(std::memory_order_relaxed),
-                std::memory_order_relaxed);
-  }
 };
 
 template <bool MT, bool MinSize>
