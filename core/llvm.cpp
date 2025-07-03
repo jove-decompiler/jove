@@ -9745,8 +9745,7 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
   goto *jumps[opc];
 
   //
-  // Broadly speaking, for each TCG operation, the structure of our C++ code
-  // should be:
+  // Broadly speaking, for each TCG operation, our C++ code should be:
   //
   ///*
   //<ANY RELEVANT C CODE>
