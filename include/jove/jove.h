@@ -594,7 +594,7 @@ struct function_t {
   }
 
   template <bool MT, bool MinSize>
-  unsigned numCallers(const jv_base_t<MT, MinSize> &) const noexcept {
+  unsigned numCallers(void) const noexcept {
     using OurCallers_t = Callers_t<MT, MinSize>;
 
     if (void *const p = pCallers.Load(std::memory_order_relaxed)) {
@@ -614,11 +614,16 @@ struct function_t {
   }
 
   template <bool MT, bool MinSize>
+  unsigned numCallers(const jv_base_t<MT, MinSize> &) const noexcept {
+    return numCallers<MT, MinSize>();
+  }
+
+  template <bool MT, bool MinSize>
   bool AddCaller(jv_file_t &, const caller_t &) noexcept;
 
   template <bool MT, bool MinSize>
   bool AddCaller(jv_file_t &jv_file,
-		 const jv_base_t<MT, MinSize> &,
+                 const jv_base_t<MT, MinSize> &,
                  const caller_t &caller) noexcept {
     return AddCaller<MT, MinSize>(jv_file, caller);
   }
@@ -626,7 +631,6 @@ struct function_t {
   template <bool MT, bool MinSize, class _ExecutionPolicy>
   void
   ForEachCaller(_ExecutionPolicy &&__exec,
-		const jv_base_t<MT, MinSize> &,
                 std::function<void(const caller_t &)> proc) const noexcept {
     using OurCallers_t = Callers_t<MT, MinSize>;
 
@@ -646,9 +650,9 @@ struct function_t {
 
   template <bool MT, bool MinSize>
   void
-  ForEachCaller(const jv_base_t<MT, MinSize> &jv,
+  ForEachCaller(const jv_base_t<MT, MinSize> &,
                 std::function<void(const caller_t &)> proc) const noexcept {
-    ForEachCaller(std::execution::seq, jv, proc);
+    ForEachCaller<MT, MinSize>(std::execution::seq, proc);
   }
 
   struct ReverseCGVertHolder_t : public ip_mt_base_accessible_spin {
