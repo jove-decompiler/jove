@@ -565,13 +565,13 @@ using ip_call_graph_base_t =
     ip_adjacency_list<MT,
                       false /* !Spin */,
                       true /* PointUnique */,
-                      boost::setS_ip,                  /* OutEdgeList */
-                      boost::dequeS_ip,                /* VertexList */
-                      boost::directedS,                /* Directed */
-                      ip_call_graph_node_properties_t, /* VertexProperties */
-                      boost::no_property,              /* EdgeProperties */
-                      boost::no_property,              /* GraphProperties */
-                      boost::vecS_ip>;                 /* EdgeList */
+                      boost::setS_ip, /* no parallel edges! */ /* OutEdgeList */
+                      boost::dequeS_ip,                        /* VertexList */
+                      boost::directedS,                        /* Directed */
+                      ip_call_graph_node_properties_t,         /* VertexProperties */
+                      boost::no_property,                      /* EdgeProperties */
+                      boost::no_property,                      /* GraphProperties */
+                      boost::vecS_ip>;                         /* EdgeList */
 
 template <bool MT, bool MinSize>
 using Callers_t = PossiblyConcurrentNodeOrFlatSet_t<MT, MinSize, caller_t>;
