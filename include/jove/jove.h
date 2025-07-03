@@ -1297,24 +1297,6 @@ private:
                       on_newbin_proc_t<MT, MinSize>,
                       const AddOptions_t &);
 
-  void initialize_all_binary_indices(void) noexcept {
-    if constexpr (MinSize) {
-      auto first = boost::iterators::counting_iterator<std::size_t>(0);
-      auto last  = boost::iterators::counting_iterator<std::size_t>(Binaries.size());
-
-      std::for_each(maybe_par_unseq,
-                    first,
-                    last,
-                    [&](size_t i) { Binaries.at(i).Idx = i; });
-    } else {
-      std::for_each(maybe_par_unseq,
-                    Binaries.begin(),
-                    Binaries.begin() + MaxBinaries, [&](auto &b) {
-                      b.Idx = &b - Binaries.begin();
-                    });
-    }
-  }
-
 public:
   template <bool MT2, bool MinSize2>
   void DoAdd(binary_base_t<MT2, MinSize2> &,

@@ -445,7 +445,6 @@ void jv_base_t<MT, MinSize>::clear(bool everything) {
   hash_to_binary.clear();
 
   this->Binaries.clear();
-  initialize_all_binary_indices();
   this->Analysis.ReverseCallGraph.clear();
 
   if (everything)
