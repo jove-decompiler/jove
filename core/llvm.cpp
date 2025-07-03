@@ -9579,7 +9579,8 @@ int llvm_t<MT, MinSize>::TranslateTCGOps(llvm::BasicBlock *ExitBB,
     return do_ld_or_store(false, bits, Signed);
   };
 
-  auto CondCompare = [&](TCGArg cond, llvm::Value *X,
+  auto CondCompare = [&](TCGArg cond,
+                         llvm::Value *X,
                          llvm::Value *Y) -> llvm::Value * {
     llvm::Value *V = nullptr;
 
