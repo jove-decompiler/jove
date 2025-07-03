@@ -97,3 +97,39 @@ using ip_func_index_vec_set = possibly_concurrent_node_set<
     MT, std::true_type /* Spin */, ip_func_index_vec,
     boost::hash<ip_func_index_vec>, std::equal_to<ip_func_index_vec>,
     boost::interprocess::node_allocator<ip_func_index_vec, segment_manager_t>>;
+
+template <bool MT>
+struct FunctionIndexVecs {
+  ip_func_index_vec_set<MT> FIdxVecs;
+
+  explicit FunctionIndexVecs(segment_manager_t *sm) noexcept : FIdxVecs(sm) {}
+
+  template <bool MT2>
+  explicit FunctionIndexVecs(FunctionIndexVecs<MT2> &&other) noexcept
+      : FIdxVecs(std::move(other.FIdxVecs)) {}
+
+  template <bool MT2>
+  FunctionIndexVecs &operator=(FunctionIndexVecs<MT2> &&other) noexcept {
+    if constexpr (MT == MT2) {
+      if (this == &other)
+        return *this;
+    }
+
+    FIdxVecs = std::move(other.FIdxVecs);
+    return *this;
+  }
+
+  const ip_func_index_vec &Add(ip_func_index_vec &&vec) noexcept {
+    if constexpr (MT) {
+      const ip_func_index_vec *vecptr = nullptr;
+      auto grab = [&](const ip_func_index_vec &vec) -> void { vecptr = &vec; };
+
+      FIdxVecs.insert_and_cvisit(boost::move(vec), grab, grab);
+
+      assert(vecptr);
+      return *vecptr;
+    } else {
+      return *FIdxVecs.insert(boost::move(vec)).first;
+    }
+  }
+};
