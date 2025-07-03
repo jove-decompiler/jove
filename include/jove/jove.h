@@ -1338,11 +1338,13 @@ static inline std::string description_of_block(const bbprop_t &bbprop,
 template <bool MT>
 constexpr auto basic_block_of_index(basic_block_index_t BBIdx,
                                     const ip_icfg_base_t<MT> &ICFG) {
+#ifndef NDEBUG
   if (unlikely(!is_basic_block_index_valid(BBIdx)))
     throw std::runtime_error("basic_block_of_index: invalid index");
 
   if (unlikely(BBIdx >= ICFG.num_vertices()))
     throw std::runtime_error("basic_block_of_index: out-of-range index");
+#endif
 
   return ICFG.vertex(BBIdx);
 }
