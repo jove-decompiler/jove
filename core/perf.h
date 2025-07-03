@@ -11,7 +11,7 @@
 
 namespace jove {
 
-struct scoped_fd;
+class scoped_fd;
 
 namespace perf {
 

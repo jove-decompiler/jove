@@ -39,6 +39,46 @@ using llvm::WithColor;
 
 namespace jove {
 
+static std::string string_of_sockaddr(const struct sockaddr *addr,
+                                      socklen_t addrlen) {
+  char hbuf[NI_MAXHOST];
+  int ret = getnameinfo(addr, addrlen, hbuf, sizeof(hbuf), nullptr, 0,
+                        NI_NUMERICHOST);
+  if (ret != 0) {
+    llvm::errs() << llvm::formatv("{0}: getnameinfo failed ({1})", __func__,
+                                  gai_strerror(ret));
+    return "";
+  }
+
+  return std::string(hbuf);
+}
+
+struct ConnectionProcArgs {
+  scoped_fd data_socket;
+
+  const struct sockaddr_in addr;
+  const socklen_t addrlen;
+
+  ConnectionProcArgs() = delete;
+
+  explicit ConnectionProcArgs(int data_socket,
+                              const struct sockaddr_in &addr,
+                              socklen_t addrlen)
+      : data_socket(data_socket), addr(addr), addrlen(addrlen) {
+    assert(this->data_socket);
+
+    WithColor::note() << llvm::formatv(
+        "connection established [{0}]\n",
+        string_of_sockaddr((struct sockaddr *)&this->addr, this->addrlen));
+  }
+
+  ~ConnectionProcArgs() {
+    WithColor::note() << llvm::formatv(
+        "connection closed [{0}]\n",
+        string_of_sockaddr((struct sockaddr *)&this->addr, this->addrlen));
+  }
+};
+
 class ServerTool : public Tool {
   struct Cmdline {
     cl::opt<unsigned> Port;
@@ -55,35 +95,12 @@ public:
 
   int Run(void) override;
 
-  void *ConnectionProc(void *);
+  int ConnectionProc(ConnectionProcArgs &&);
 };
 
 JOVE_REGISTER_TOOL("server", ServerTool);
 
 static std::string string_of_sockaddr(const struct sockaddr *addr, socklen_t addrlen);
-
-struct ConnectionProcArgs {
-  int data_socket = -1;
-
-  struct sockaddr_in addr;
-  socklen_t addrlen;
-
-  ConnectionProcArgs() {
-    addrlen = sizeof(addr);
-  }
-
-  ~ConnectionProcArgs() {
-    WithColor::note() << llvm::formatv(
-        "connection closed [{0}]\n",
-        string_of_sockaddr((struct sockaddr *)&this->addr, this->addrlen));
-
-    if (::close(data_socket) < 0) {
-      int err = errno;
-      WithColor::warning() << llvm::formatv(
-          "failed to close data_socket: {0}]\n", strerror(err));
-    }
-  }
-};
 
 int ServerTool::Run(void) {
   //
@@ -158,57 +175,37 @@ int ServerTool::Run(void) {
   // This is the main loop for handling connections
   //
   for (;;) {
+    sockaddr_in addr;
+
     //
     // Wait for incoming connection
     //
-    ConnectionProcArgs *args = new ConnectionProcArgs;
-
+    socklen_t addrlen = sizeof(addr);
     int data_socket = ::accept(connection_socket.get(),
-                               (struct sockaddr *)&args->addr, &args->addrlen);
+                               (struct sockaddr *)&addr, &addrlen);
     if (unlikely(data_socket < 0)) {
       int err = errno;
-      WithColor::error() << llvm::formatv("accept failed: {0}\n", strerror(err));
 
-      delete args;
+      WithColor::error() << llvm::formatv("accept failed: {0}\n", strerror(err));
       return 1;
     }
 
-    args->data_socket = data_socket;
-
-    WithColor::note() << llvm::formatv(
-        "connection established [{0}]\n",
-        string_of_sockaddr((struct sockaddr *)&args->addr, args->addrlen));
+    ConnectionProcArgs args(data_socket, addr, addrlen);
 
     //
     // Create process to service that connection
     //
     if (!::fork()) {
-      ConnectionProc(args);
-      return 0;
+      connection_socket.close();
+      return ConnectionProc(std::move(args));
     }
   }
 
   return 0;
 }
 
-std::string string_of_sockaddr(const struct sockaddr *addr, socklen_t addrlen) {
-  char hbuf[NI_MAXHOST];
-  int ret = getnameinfo(addr, addrlen, hbuf, sizeof(hbuf), nullptr, 0,
-                        NI_NUMERICHOST);
-  if (ret != 0) {
-    llvm::errs() << llvm::formatv("{0}: getnameinfo failed ({1})", __func__,
-                                  gai_strerror(ret));
-    return "";
-  }
-
-  return std::string(hbuf);
-}
-
-void *ServerTool::ConnectionProc(void *arg) {
-  std::unique_ptr<ConnectionProcArgs> args(
-      static_cast<ConnectionProcArgs *>(arg));
-
-  const int data_socket = args->data_socket;
+int ServerTool::ConnectionProc(ConnectionProcArgs &&args) {
+  const int data_socket = args.data_socket.get();
 
   const char our_endianness =
       __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__ ? 'b' : 'l';
@@ -224,7 +221,7 @@ void *ServerTool::ConnectionProc(void *arg) {
     if (ret < 0) {
       HumanOut() << llvm::formatv(
           "failed to send magic bytes: {0}\n", strerror(-ret));
-      return nullptr;
+      return 1;
     }
   }
 
@@ -238,7 +235,7 @@ void *ServerTool::ConnectionProc(void *arg) {
     if (ret < 0) {
       HumanOut() << llvm::formatv(
           "failed to send magic bytes: {0}\n", strerror(-ret));
-      return nullptr;
+      return 1;
     }
 
     if (magic[0] != 'J' ||
@@ -247,7 +244,7 @@ void *ServerTool::ConnectionProc(void *arg) {
         magic[3] != 'E' ||
        (magic[4] != 'b' && magic[4] != 'l')) {
       WithColor::error() << "invalid magic bytes\n";
-      return nullptr;
+      return 1;
     }
     magic[4];
   });
@@ -269,7 +266,7 @@ void *ServerTool::ConnectionProc(void *arg) {
   uint16_t header;
   if (robust_read(data_socket, &header, sizeof(header)) != sizeof(header)) {
     WithColor::error() << "failed to read header\n";
-    return nullptr;
+    return 1;
   }
 
   //
@@ -280,7 +277,7 @@ void *ServerTool::ConnectionProc(void *arg) {
     uint8_t NPinnedGlobals = 0;
     if (robust_read(data_socket, &NPinnedGlobals, sizeof(NPinnedGlobals)) != sizeof(NPinnedGlobals)) {
       WithColor::error() << "failed to read NPinnedGlobals\n";
-      return nullptr;
+      return 1;
     }
 
     PinnedGlobals.resize(NPinnedGlobals);
@@ -296,7 +293,7 @@ void *ServerTool::ConnectionProc(void *arg) {
       uint8_t PinnedGlobalStrLen;
       if (robust_read(data_socket, &PinnedGlobalStrLen, sizeof(PinnedGlobalStrLen)) != sizeof(PinnedGlobalStrLen)) {
         WithColor::error() << "failed to read PinnedGlobalStrLen\n";
-        return nullptr;
+        return 1;
       }
 
       PinnedGlobalStr.resize(PinnedGlobalStrLen);
@@ -307,7 +304,7 @@ void *ServerTool::ConnectionProc(void *arg) {
 
     if (robust_read(data_socket, &PinnedGlobalStr[0], PinnedGlobalStr.size()) != PinnedGlobalStr.size()) {
       WithColor::error() << "failed to read PinnedGlobalStr\n";
-      return nullptr;
+      return 1;
     }
   }
 
@@ -347,7 +344,7 @@ void *ServerTool::ConnectionProc(void *arg) {
       WithColor::error()
           << llvm::formatv("failed to receive file {0} from remote: {1}\n",
                            jv_s_path.c_str(), strerror(-ret));
-      return nullptr;
+      return 1;
     }
   }
 
@@ -564,7 +561,7 @@ void *ServerTool::ConnectionProc(void *arg) {
 
   assert(DidRun);
 
-  return nullptr;
+  return 0;
 }
 
 }

@@ -5,6 +5,8 @@
 #include <cstddef>
 #include <cassert>
 #include <cstdint>
+#include <stdexcept>
+#include <cstring> /* strerror */
 
 namespace jove {
 
@@ -17,22 +19,49 @@ ssize_t robust_receive_file_with_size(int fd, const char *out, unsigned file_per
 ssize_t robust_copy_file_range(int in_fd, off_t *in_off, int out_fd,
                                off_t *out_off, size_t len);
 
-struct scoped_fd {
-  const int fd;
+class scoped_fd {
+  int fd = -1;
 
+public:
   scoped_fd() = delete;
   scoped_fd(const scoped_fd &) = delete;
   scoped_fd &operator=(const scoped_fd &) = delete;
 
-  explicit scoped_fd(int fd) : fd(fd) {}
-  ~scoped_fd() noexcept(false); /* throws if fails to close valid fd */
+  explicit scoped_fd(int fd) noexcept : fd(fd) {}
+  explicit scoped_fd(scoped_fd &&other) noexcept : fd(other.fd) {
+    other.fd = -1;
+  }
 
-  int get(void) const {
-    assert(fd >= 0);
-    return fd;
+  scoped_fd &operator=(scoped_fd &&other) noexcept(false) {
+    if (this != &other) {
+      close();
+
+      fd = other.fd;
+      other.fd = -1;
+    }
+    return *this;
+  }
+
+  ~scoped_fd() noexcept(false) { /* throws if fails to close valid fd */
+    close();
   }
 
   explicit operator bool(void) const { return fd >= 0; }
+
+  int get(void) const {
+    assert(*this);
+    return fd;
+  }
+
+  void close(void) noexcept(false) {
+    if (*this) {
+      if (::close(fd) < 0)
+        throw std::runtime_error(
+            std::string("scoped_fd: failed to close fd: ") + strerror(errno));
+
+      fd = -1;
+    }
+  }
 };
 
 }

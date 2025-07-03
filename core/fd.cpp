@@ -192,12 +192,4 @@ ssize_t robust_receive_file_with_size(int fd, const char *out, unsigned file_per
   return file_size;
 }
 
-scoped_fd::~scoped_fd() noexcept(false) {
-  if (*this) {
-    if (::close(fd) < 0)
-      throw std::runtime_error(std::string("scoped_fd: failed to close fd: ") +
-                               strerror(errno));
-  }
-}
-
 }
