@@ -576,19 +576,6 @@ using ip_call_graph_base_t =
                       boost::no_property,              /* GraphProperties */
                       boost::vecS_ip>;                 /* EdgeList */
 
-//
-// until we come up with a cleaner source code patch for boost-graph (to make it
-// work with boost interprocess (stateful) allocators), we need to do this for
-// now XXX FIXME
-//
-template <bool MT, bool Spin, bool PointUnique, typename... Args>
-static inline void hack_interprocess_graph(
-    ip_adjacency_list<MT, Spin, PointUnique, Args...> &ip_adj) {
-  auto &x = ip_adj.container();
-
-  __builtin_memset_inline(&x.m_property, 0, sizeof(x.m_property));
-}
-
 template <bool MT, bool MinSize>
 using Callers_t = PossiblyConcurrentNodeOrFlatSet_t<MT, MinSize, caller_t>;
 

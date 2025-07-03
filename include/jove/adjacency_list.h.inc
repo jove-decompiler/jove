@@ -312,3 +312,16 @@ struct ip_adjacency_list : public ip_base_rw_accessible<MT, Spin> {
 #undef VERT_SHARED_ACCESS
 #undef VERT_EXCLUSIVE_ACCESS
 };
+
+//
+// until we come up with a cleaner source code patch for boost-graph (to make it
+// work with boost interprocess (stateful) allocators), we need to do this for
+// now XXX FIXME
+//
+template <bool MT, bool Spin, bool PointUnique, typename... Args>
+static inline void hack_interprocess_graph(
+    ip_adjacency_list<MT, Spin, PointUnique, Args...> &ip_adj) {
+  auto &x = ip_adj.container();
+
+  __builtin_memset_inline(&x.m_property, 0, sizeof(x.m_property));
+}
