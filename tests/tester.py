@@ -274,7 +274,7 @@ class JoveTester:
         self.ssh(["rm", "-rf", "/root/.jv.*", "/root/.jove", "/root/.wine32", "/root/.wine64", "/root/.wine"], check=True)
 
         # initialize jv
-        self.ssh(["jove", "init", testbin])
+        self.ssh(["jove", "init", testbin], check=True)
 
         # run inputs through prog, recovering code
         for input_args in inputs:
