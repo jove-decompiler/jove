@@ -1702,8 +1702,7 @@ protected:
       bb_t fr_bb = basic_block_at_address(FrTermAddr, fr_b);
       bbprop_t &fr_bbprop = fr_ICFG[fr_bb];
 
-      fr_bbprop.insertDynTarget(FrBIdx, std::make_pair(ToBIdx, FIdx), jv_file,
-                                jv);
+      fr_bbprop.insertDynTarget(FrBIdx, std::make_pair(ToBIdx, FIdx), jv);
     };
 
     switch (TermType) {

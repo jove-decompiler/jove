@@ -170,8 +170,7 @@ bool binary_base_t<MT, MinSize>::FixAmbiguousIndirectJump(
                   SuccFIdxVec.cbegin(),
                   SuccFIdxVec.cend(), [&](function_index_t FIdx) {
                     bbprop.insertDynTarget(index_of_binary(*this, jv),
-                                           {index_of_binary(*this, jv), FIdx},
-                                           jv_file, jv);
+                                           {index_of_binary(*this, jv), FIdx}, jv);
                   });
   }
 

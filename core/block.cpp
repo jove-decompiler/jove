@@ -155,7 +155,6 @@ bool bbprop_t::doInsertDynTarget(const dynamic_target_t &X) {
 template <bool MT, bool MinSize>
 bool bbprop_t::insertDynTarget(binary_index_t ThisBIdx,
                                const dynamic_target_t &X,
-                               jv_file_t &jv_file,
                                jv_base_t<MT, MinSize> &jv) {
   assert(is_binary_index_valid(ThisBIdx));
   auto &caller_b = jv.Binaries.at(ThisBIdx);
@@ -236,7 +235,7 @@ void bbprop_t::InvalidateAnalysis(jv_base_t<MT, MinSize> &jv,
       binary_base_t<GET_VALUE(BOOST_PP_SEQ_ELEM(0, product)),                  \
                     GET_VALUE(BOOST_PP_SEQ_ELEM(1, product))> &);              \
   template bool bbprop_t::insertDynTarget(                                     \
-      binary_index_t ThisBIdx, const dynamic_target_t &, jv_file_t &,          \
+      binary_index_t ThisBIdx, const dynamic_target_t &,                       \
       jv_base_t<GET_VALUE(BOOST_PP_SEQ_ELEM(0, product)),                      \
                 GET_VALUE(BOOST_PP_SEQ_ELEM(1, product))> &);                  \
   template void bbprop_t::InvalidateAnalysis(                                  \

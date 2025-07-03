@@ -2874,8 +2874,8 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
         assert(bbprop.Term.Type == TERMINATOR::INDIRECT_CALL);
 
-        Target.isNew = bbprop.insertDynTarget(IndBrInfo.BIdx,
-                                              {Target.BIdx, FIdx}, jv_file, jv);
+        Target.isNew =
+            bbprop.insertDynTarget(IndBrInfo.BIdx, {Target.BIdx, FIdx}, jv);
 
         out_deg = ICFG.out_degree(bb);
       }
@@ -2927,8 +2927,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
             assert(bbprop.Term.Type == TERMINATOR::INDIRECT_JUMP);
 
-            bbprop.insertDynTarget(IndBrInfo.BIdx, {Target.BIdx, FIdx}, jv_file,
-                                   jv);
+            bbprop.insertDynTarget(IndBrInfo.BIdx, {Target.BIdx, FIdx}, jv);
           });
         } else {
           const basic_block_index_t TargetBBIdx =

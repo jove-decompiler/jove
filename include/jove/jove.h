@@ -450,7 +450,6 @@ struct bbprop_t : public ip_mt_base_rw_accessible_nospin {
   template <bool MT, bool MinSize>
   bool insertDynTarget(binary_index_t ThisBIdx,
                        const dynamic_target_t &,
-                       jv_file_t &,
                        jv_base_t<MT, MinSize> &);
 
 

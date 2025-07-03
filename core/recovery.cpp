@@ -69,8 +69,8 @@ std::string CodeRecovery<MT, MinSize>::RecoverDynamicTarget(
 
     bb = basic_block_at_address(TermAddr, CallerBinary);
 
-    bool isNewTarget = ICFG[bb].insertDynTarget(
-        CallerBIdx, {CalleeBIdx, CalleeFIdx}, jv_file, jv);
+    bool isNewTarget =
+        ICFG[bb].insertDynTarget(CallerBIdx, {CalleeBIdx, CalleeFIdx}, jv);
     if (!isNewTarget)
       return std::string();
 
@@ -181,8 +181,8 @@ std::string CodeRecovery<MT, MinSize>::RecoverFunctionAtAddress(
 
     bb_t bb = basic_block_at_address(TermAddr, CallerBinary);
 
-    bool isNewTarget = ICFG[bb].insertDynTarget(
-        IndCallBIdx, {CalleeBIdx, CalleeFIdx}, jv_file, jv);
+    bool isNewTarget =
+        ICFG[bb].insertDynTarget(IndCallBIdx, {CalleeBIdx, CalleeFIdx}, jv);
     (void)isNewTarget; /* FIXME */
 
     ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP &&
