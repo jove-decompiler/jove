@@ -119,14 +119,23 @@ extern CPUState *jv_cpu;
 namespace jove {
 
 int tiny_code_generator_t::tcg_index_of_named_global(const char *name) {
-  assert(tcg_ctx);
+  TCGContext *const s = tcg_ctx;
+  assert(s);
 
-  for (int i = 0; i < tcg_ctx->nb_globals; i++) {
-    if (strcmp(tcg_ctx->temps[i].name, name) == 0)
+  for (int i = 0; i < s->nb_globals; i++) {
+    if (strcmp(s->temps[i].name, name) == 0)
       return i;
   }
 
   return -1;
+}
+
+const char *tiny_code_generator_t::tcg_name_of_global(unsigned glb) {
+  TCGContext *const s = tcg_ctx;
+  assert(s);
+
+  assert(glb < s->nb_globals);
+  return s->temps[glb].name;
 }
 
 static const uint8_t starter_bin_bytes[] = {

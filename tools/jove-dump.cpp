@@ -1,5 +1,6 @@
 #include "tool.h"
 #include "hash.h"
+#include "tcg.h"
 
 #include <llvm/Support/CommandLine.h>
 #include <llvm/Support/DataTypes.h>
@@ -36,6 +37,7 @@ class DumpTool : public JVTool<ToolKind::CopyOnWrite> {
     cl::opt<std::string> ListFunctions;
     cl::alias ListFunctionsAlias;
     cl::opt<std::string> ListFunctionBBs;
+    cl::opt<bool> TCGGlobalNames;
 
     Cmdline(llvm::cl::OptionCategory &JoveCategory)
         : Output("output", cl::desc("Destination for output"),
@@ -73,10 +75,15 @@ class DumpTool : public JVTool<ToolKind::CopyOnWrite> {
           ListFunctionBBs(
               "list-fn-bbs",
               cl::desc("List basic blocks for functions for given binary"),
-              cl::cat(JoveCategory))
+              cl::cat(JoveCategory)),
 
-    {}
+          TCGGlobalNames("tcg-names",
+                         cl::desc("Translate TCG global set bits into names"),
+                         cl::init(true), cl::cat(JoveCategory))
+          {}
   } opts;
+
+  std::unique_ptr<tiny_code_generator_t> TCG;
 
 public:
   DumpTool() : opts(JoveCategory) {}
@@ -92,6 +99,9 @@ JOVE_REGISTER_TOOL("dump", DumpTool);
 typedef boost::format fmt;
 
 void DumpTool::dumpDecompilation(const jv_t &jv) {
+  if (opts.TCGGlobalNames)
+    TCG = std::make_unique<tiny_code_generator_t>();
+
   std::unique_ptr<llvm::raw_fd_ostream> ostream;
   if (!opts.Output.empty()) {
     std::error_code EC;
@@ -202,41 +212,41 @@ void DumpTool::dumpDecompilation(const jv_t &jv) {
             llvm::DictScope ______(Writer, "live");
 
             {
-#if 0
-              std::vector<unsigned> glbv;
-              explode_tcg_global_set(glbv, ICFG[bb].Analysis.live.def);
+              if (opts.TCGGlobalNames) {
+                std::vector<unsigned> glbv;
+                explode_tcg_global_set(glbv, ICFG[bb].Analysis.live.def);
 
-              std::vector<std::string> descv;
-              descv.resize(glbv.size());
+                std::vector<std::string> descv;
+                descv.resize(glbv.size());
 
-              std::transform(glbv.begin(), glbv.end(), descv.begin(),
-                             [&](unsigned glb) -> std::string {
-                               return tcg._ctx.temps[glb].name;
-                             });
+                std::transform(glbv.begin(), glbv.end(), descv.begin(),
+                               [&](unsigned glb) -> std::string {
+                                 return TCG->tcg_name_of_global(glb);
+                               });
 
-              Writer.printList("def", descv);
-#else
-              Writer.printString("def", ICFG[bb].Analysis.live.def.to_string());
-#endif
+                Writer.printList("def", descv);
+              } else {
+                Writer.printString("def", ICFG[bb].Analysis.live.def.to_string());
+              }
             }
 
             {
-#if 0
-              std::vector<unsigned> glbv;
-              explode_tcg_global_set(glbv, ICFG[bb].Analysis.live.use);
+              if (opts.TCGGlobalNames) {
+                std::vector<unsigned> glbv;
+                explode_tcg_global_set(glbv, ICFG[bb].Analysis.live.use);
 
-              std::vector<std::string> descv;
-              descv.resize(glbv.size());
+                std::vector<std::string> descv;
+                descv.resize(glbv.size());
 
-              std::transform(glbv.begin(), glbv.end(), descv.begin(),
-                             [&](unsigned glb) -> std::string {
-                               return tcg._ctx.temps[glb].name;
-                             });
+                std::transform(glbv.begin(), glbv.end(), descv.begin(),
+                               [&](unsigned glb) -> std::string {
+                                 return TCG->tcg_name_of_global(glb);
+                               });
 
-              Writer.printList("use", descv);
-#else
-              Writer.printString("use", ICFG[bb].Analysis.live.use.to_string());
-#endif
+                Writer.printList("use", descv);
+              } else {
+                Writer.printString("use", ICFG[bb].Analysis.live.use.to_string());
+              }
             }
           }
 
@@ -244,22 +254,22 @@ void DumpTool::dumpDecompilation(const jv_t &jv) {
             llvm::DictScope ______(Writer, "reach");
 
             {
-#if 0
-              std::vector<unsigned> glbv;
-              explode_tcg_global_set(glbv, ICFG[bb].Analysis.reach.def);
+              if (opts.TCGGlobalNames) {
+                std::vector<unsigned> glbv;
+                explode_tcg_global_set(glbv, ICFG[bb].Analysis.reach.def);
 
-              std::vector<std::string> descv;
-              descv.resize(glbv.size());
+                std::vector<std::string> descv;
+                descv.resize(glbv.size());
 
-              std::transform(glbv.begin(), glbv.end(), descv.begin(),
-                             [&](unsigned glb) -> std::string {
-                               return tcg._ctx.temps[glb].name;
-                             });
+                std::transform(glbv.begin(), glbv.end(), descv.begin(),
+                               [&](unsigned glb) -> std::string {
+                                 return TCG->tcg_name_of_global(glb);
+                               });
 
-              Writer.printList("def", descv);
-#else
-              Writer.printString("def", ICFG[bb].Analysis.reach.def.to_string());
-#endif
+                Writer.printList("def", descv);
+              } else {
+                Writer.printString("def", ICFG[bb].Analysis.reach.def.to_string());
+              }
             }
           }
 
@@ -348,41 +358,41 @@ void DumpTool::dumpDecompilation(const jv_t &jv) {
           llvm::DictScope _____(Writer, "Analysis");
 
           {
-#if 0
-            std::vector<unsigned> glbv;
-            explode_tcg_global_set(glbv, f.Analysis.args);
+            if (opts.TCGGlobalNames) {
+              std::vector<unsigned> glbv;
+              explode_tcg_global_set(glbv, f.Analysis.args);
 
-            std::vector<std::string> descv;
-            descv.resize(glbv.size());
+              std::vector<std::string> descv;
+              descv.resize(glbv.size());
 
-            std::transform(glbv.begin(), glbv.end(), descv.begin(),
-                           [&](unsigned glb) -> std::string {
-                             return tcg._ctx.temps[glb].name;
-                           });
+              std::transform(glbv.begin(), glbv.end(), descv.begin(),
+                             [&](unsigned glb) -> std::string {
+                               return TCG->tcg_name_of_global(glb);
+                             });
 
-            Writer.printList("Args", descv);
-#else
-            Writer.printString("Args", f.Analysis.args.to_string());
-#endif
+              Writer.printList("Args", descv);
+            } else {
+              Writer.printString("Args", f.Analysis.args.to_string());
+            }
           }
 
           {
-#if 0
-            std::vector<unsigned> glbv;
-            explode_tcg_global_set(glbv, f.Analysis.rets);
+            if (opts.TCGGlobalNames) {
+              std::vector<unsigned> glbv;
+              explode_tcg_global_set(glbv, f.Analysis.rets);
 
-            std::vector<std::string> descv;
-            descv.resize(glbv.size());
+              std::vector<std::string> descv;
+              descv.resize(glbv.size());
 
-            std::transform(glbv.begin(), glbv.end(), descv.begin(),
-                           [&](unsigned glb) -> std::string {
-                             return tcg._ctx.temps[glb].name;
-                           });
+              std::transform(glbv.begin(), glbv.end(), descv.begin(),
+                             [&](unsigned glb) -> std::string {
+                               return TCG->tcg_name_of_global(glb);
+                             });
 
-            Writer.printList("Rets", descv);
-#else
-            Writer.printString("Rets", f.Analysis.rets.to_string());
-#endif
+              Writer.printList("Rets", descv);
+            } else {
+              Writer.printString("Rets", f.Analysis.rets.to_string());
+            }
           }
 
           Writer.printBoolean("Stale", f.Analysis.Stale);
