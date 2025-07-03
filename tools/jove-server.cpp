@@ -103,8 +103,8 @@ int ServerTool::Run(void) {
   //
   // Create TCP socket
   //
-  int connection_socket = ::socket(AF_INET, SOCK_STREAM, 0);
-  if (connection_socket < 0) {
+  scoped_fd connection_socket(::socket(AF_INET, SOCK_STREAM, 0));
+  if (!connection_socket) {
     int err = errno;
     WithColor::error() << llvm::formatv("socket failed: {0}\n", strerror(err));
     return 1;
@@ -114,7 +114,7 @@ int ServerTool::Run(void) {
   // Set SO_REUSEADDR option
   //
   int opt = 1;
-  if (::setsockopt(connection_socket, SOL_SOCKET, SO_REUSEADDR, &opt,
+  if (::setsockopt(connection_socket.get(), SOL_SOCKET, SO_REUSEADDR, &opt,
                    sizeof(opt)) < 0) {
     int err = errno;
     WithColor::error() << llvm::formatv("setsockopt failed: {0}\n",
@@ -128,7 +128,7 @@ int ServerTool::Run(void) {
     server_addr.sin_port = htons(opts.Port);
     server_addr.sin_addr.s_addr = INADDR_ANY;
 
-    int ret = ::bind(connection_socket,
+    int ret = ::bind(connection_socket.get(),
                      (const struct sockaddr *)&server_addr,
                      sizeof(server_addr));
     if (ret < 0) {
@@ -146,7 +146,7 @@ int ServerTool::Run(void) {
   {
     constexpr unsigned BACKLOG = 20;
 
-    int ret = ::listen(connection_socket, BACKLOG);
+    int ret = ::listen(connection_socket.get(), BACKLOG);
     if (ret < 0) {
       int err = errno;
       WithColor::error() << llvm::formatv("listen failed: {0}\n", strerror(err));
@@ -163,7 +163,8 @@ int ServerTool::Run(void) {
     //
     ConnectionProcArgs *args = new ConnectionProcArgs;
 
-    int data_socket = ::accept(connection_socket, (struct sockaddr *)&args->addr, &args->addrlen);
+    int data_socket = ::accept(connection_socket.get(),
+                               (struct sockaddr *)&args->addr, &args->addrlen);
     if (unlikely(data_socket < 0)) {
       int err = errno;
       WithColor::error() << llvm::formatv("accept failed: {0}\n", strerror(err));
@@ -183,14 +184,9 @@ int ServerTool::Run(void) {
     //
     if (!::fork()) {
       ConnectionProc(args);
-      exit(0);
+      return 0;
     }
   }
-
-  //
-  // cleanup
-  //
-  ::close(connection_socket);
 
   return 0;
 }
