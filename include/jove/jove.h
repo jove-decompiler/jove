@@ -836,10 +836,11 @@ struct binary_analysis_t {
     return *this;
   }
 
-  /*** may have use in future ***/
+#if 0
   void addSymDynTarget(const std::string &sym, dynamic_target_t X) {}
   void addRelocDynTarget(taddr_t A, dynamic_target_t X) {}
   void addIFuncDynTarget(taddr_t A, dynamic_target_t X) {}
+#endif
 
   typedef objdump_output_t<boost::interprocess::allocator<
       unsigned long /* FIXME */, segment_manager_t>>
