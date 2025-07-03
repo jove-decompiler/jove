@@ -675,7 +675,7 @@ explorer_t<MT, MinSize>::_explore_basic_block(binary_t &b,
       function_t &callee = b.Analysis.Functions.at(CalleeFIdx);
 
       if (callee.pCallers.Load(std::memory_order_relaxed))
-        callee.AddCaller<MT, MinSize>(jv_file, caller_t(b.Idx, T.Addr));
+        callee.AddCaller<MT, MinSize>(caller_t(b.Idx, T.Addr));
 
       if (maybe_jv) {
         jv_t &jv = *maybe_jv;

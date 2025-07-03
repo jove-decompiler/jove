@@ -91,9 +91,7 @@ void bbprop_t::Parents_t::insert(function_index_t FIdx,
 }
 
 template <bool MT, bool MinSize>
-bool bbprop_t::doInsertDynTarget(const dynamic_target_t &X,
-                                 jv_file_t &jv_file,
-                                 jv_base_t<MT, MinSize> &) {
+bool bbprop_t::doInsertDynTarget(const dynamic_target_t &X) {
   using OurDynTargets_t = DynTargets_t<MT, MinSize>;
 
   if (void *const p = pDynTargets.Load(std::memory_order_relaxed)) {
@@ -119,8 +117,7 @@ bool bbprop_t::doInsertDynTarget(const dynamic_target_t &X,
       sm->allocate_aligned(sizeof(OurDynTargets_t), alignof(OurDynTargets_t));
   assert(mem);
 
-  OurDynTargets_t *const pTheDynTargets =
-      new (mem) OurDynTargets_t(jv_file.get_segment_manager());
+  OurDynTargets_t *const pTheDynTargets = new (mem) OurDynTargets_t(sm);
 
   uintptr_t addr = reinterpret_cast<uintptr_t>(pTheDynTargets);
   assert(addr);
@@ -133,8 +130,6 @@ bool bbprop_t::doInsertDynTarget(const dynamic_target_t &X,
                                           std::memory_order_relaxed,
                                           std::memory_order_relaxed)) {
       pTheDynTargets->Insert(X);
-
-      sm_ = jv_file.get_segment_manager();
       return true; /* it was empty before */
     }
 
@@ -152,7 +147,6 @@ bool bbprop_t::doInsertDynTarget(const dynamic_target_t &X,
     return reinterpret_cast<OurDynTargets_t *>(expected_addr)->Insert(X);
   } else {
     pTheDynTargets->Insert(X);
-    sm_ = jv_file.get_segment_manager();
     pDynTargets.Store(reinterpret_cast<void *>(addr), std::memory_order_relaxed);
     return true;
   }
@@ -168,10 +162,10 @@ bool bbprop_t::insertDynTarget(binary_index_t ThisBIdx,
 
   function_t &callee = function_of_target(X, jv);
 
-  bool res = doInsertDynTarget(X, jv_file, jv);
+  bool res = doInsertDynTarget<MT, MinSize>(X);
   if (res) {
     callee.InvalidateAnalysis();
-    callee.AddCaller(jv_file, jv, caller_t(ThisBIdx, Term.Addr));
+    callee.AddCaller<MT, MinSize>(caller_t(ThisBIdx, Term.Addr));
 
     auto &RCG = jv.Analysis.ReverseCallGraph;
     const auto &ParentsVec = Parents.template get<MT>();

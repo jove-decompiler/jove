@@ -472,9 +472,7 @@ struct bbprop_t : public ip_mt_base_rw_accessible_nospin {
 
 private:
   template <bool MT, bool MinSize>
-  bool doInsertDynTarget(const dynamic_target_t &,
-                         jv_file_t &,
-                         jv_base_t<MT, MinSize> &);
+  bool doInsertDynTarget(const dynamic_target_t &);
 };
 
 template <bool MT>
@@ -619,13 +617,12 @@ struct function_t {
   }
 
   template <bool MT, bool MinSize>
-  bool AddCaller(jv_file_t &, const caller_t &) noexcept;
+  bool AddCaller(const caller_t &) noexcept;
 
   template <bool MT, bool MinSize>
-  bool AddCaller(jv_file_t &jv_file,
-                 const jv_base_t<MT, MinSize> &,
+  bool AddCaller(const jv_base_t<MT, MinSize> &,
                  const caller_t &caller) noexcept {
-    return AddCaller<MT, MinSize>(jv_file, caller);
+    return AddCaller<MT, MinSize>(caller);
   }
 
   template <bool MT, bool MinSize, class _ExecutionPolicy>

@@ -488,7 +488,7 @@ void jv_base_t<MT, MinSize>::fixup_binary(jv_file_t &jv_file,
         assert(Target < b.Analysis.Functions.size());
         function_t &callee = b.Analysis.Functions.at(Target);
 
-        callee.AddCaller(jv_file, *this, caller_t(BIdx, bbprop.Term.Addr));
+        callee.AddCaller(*this, caller_t(BIdx, bbprop.Term.Addr));
 
         const auto &ParentsVec = bbprop.Parents.template get<MT>();
         std::for_each(maybe_par_unseq,

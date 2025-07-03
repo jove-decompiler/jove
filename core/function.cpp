@@ -13,8 +13,7 @@ function_t::function_t(binary_base_t<MT, MinSize> &b, function_index_t Idx) noex
 function_t::function_t(segment_manager_t *sm) noexcept : sm_(sm) {}
 
 template <bool MT, bool MinSize>
-bool function_t::AddCaller(jv_file_t &jv_file,
-                           const caller_t &caller) noexcept {
+bool function_t::AddCaller(const caller_t &caller) noexcept {
   using OurCallers_t = Callers_t<MT, MinSize>;
 
   if (void *const p = pCallers.Load(std::memory_order_relaxed)) {
@@ -39,8 +38,7 @@ bool function_t::AddCaller(jv_file_t &jv_file,
   void *mem = sm->allocate_aligned(sizeof(OurCallers_t), alignof(OurCallers_t));
   assert(mem);
 
-  OurCallers_t *const pTheCallers =
-      new (mem) OurCallers_t(jv_file.get_segment_manager());
+  OurCallers_t *const pTheCallers = new (mem) OurCallers_t(sm);
 
   uintptr_t addr = reinterpret_cast<uintptr_t>(pTheCallers);
   assert(addr);
@@ -53,7 +51,6 @@ bool function_t::AddCaller(jv_file_t &jv_file,
                                        std::memory_order_relaxed,
                                        std::memory_order_relaxed)) {
       pTheCallers->Insert(caller);
-      sm_ = jv_file.get_segment_manager();
       return true; /* it was empty before */
     }
 
@@ -71,7 +68,6 @@ bool function_t::AddCaller(jv_file_t &jv_file,
     return reinterpret_cast<OurCallers_t *>(expected_addr)->Insert(caller);
   } else {
     pTheCallers ->Insert(caller);
-    sm_ = jv_file.get_segment_manager();
     pCallers.Store(reinterpret_cast<void *>(addr), std::memory_order_relaxed);
     return true;
   }
@@ -161,7 +157,7 @@ function_t::ReverseCGVert(jv_base_t<MT, MinSize> &jv) {
   template bool                                                                \
   function_t::AddCaller<GET_VALUE(BOOST_PP_SEQ_ELEM(0, product)),              \
                         GET_VALUE(BOOST_PP_SEQ_ELEM(1, product))>(             \
-      jv_file_t &, const caller_t &);
+      const caller_t &);
 BOOST_PP_SEQ_FOR_EACH_PRODUCT(DO_INSTANTIATE, (VALUES_TO_INSTANTIATE_WITH1)(VALUES_TO_INSTANTIATE_WITH2))
 
 }

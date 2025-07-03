@@ -69,7 +69,7 @@ void analyzer_t<MT, MinSize>::update_callers(void) {
           assert(TermAddr);
 
           function_t &callee = b.Analysis.Functions.at(bbprop.Term._call.Target);
-          callee.AddCaller(jv_file, jv, caller_t(index_of_binary(b), TermAddr));
+          callee.AddCaller(jv, caller_t(index_of_binary(b), TermAddr));
 
           auto &RCG = jv.Analysis.ReverseCallGraph;
           const auto &ParentsVec = bbprop.Parents.template get<MT>();
@@ -95,7 +95,7 @@ void analyzer_t<MT, MinSize>::update_callers(void) {
             assert(TermAddr);
 
             function_t &callee = function_of_target(X, jv);
-            callee.AddCaller(jv_file, jv, caller_t(index_of_binary(b, jv), TermAddr));
+            callee.AddCaller(jv, caller_t(index_of_binary(b, jv), TermAddr));
 
             auto &RCG = jv.Analysis.ReverseCallGraph;
             const auto &ParentsVec = bbprop.Parents.template get<MT>();
