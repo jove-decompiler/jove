@@ -29,7 +29,7 @@ class JoveTester:
     },
   }
 
-  WINDOWS = [
+  TMUX_WINDOW_NAMES = [
     'qemu',
     'server',
     'ssh'
@@ -69,7 +69,7 @@ class JoveTester:
       if not os.path.isdir(self.vm_dir):
         os.mkdir(self.vm_dir)
 
-    self.wins = [None for _ in JoveTester.WINDOWS]
+    self.wins = [None for _ in JoveTester.TMUX_WINDOW_NAMES]
     self.create_list = []
     self.create_qemu = None
     self.create_serv = None
@@ -98,10 +98,10 @@ class JoveTester:
   def establish_tmux_session(self):
     tmux = self.tmux
 
-    res = [False for _ in JoveTester.WINDOWS]
+    res = [False for _ in JoveTester.TMUX_WINDOW_NAMES]
 
     self.sess = None
-    self.wins = [None for _ in JoveTester.WINDOWS]
+    self.wins = [None for _ in JoveTester.TMUX_WINDOW_NAMES]
 
     try:
       self.sess = tmux.sessions.get(name=self.session_name())
@@ -109,12 +109,12 @@ class JoveTester:
       self.sess = None
 
     if self.sess is None:
-      self.sess = tmux.new_session(session_name=self.session_name(), window_name=JoveTester.WINDOWS[0])
+      self.sess = tmux.new_session(session_name=self.session_name(), window_name=JoveTester.TMUX_WINDOW_NAMES[0])
       print('created tmux session ' + str(self.sess))
 
       self.sess.set_option('history-limit', 100000)
 
-      assert self.sess.windows[0].name == JoveTester.WINDOWS[0]
+      assert self.sess.windows[0].name == JoveTester.TMUX_WINDOW_NAMES[0]
 
       self.wins[0] = self.sess.windows[0]
       res[0] = True
@@ -123,14 +123,14 @@ class JoveTester:
     else:
       for win in self.sess.windows:
         try:
-          self.wins[JoveTester.WINDOWS.index(win.name)] = win
+          self.wins[JoveTester.TMUX_WINDOW_NAMES.index(win.name)] = win
         except ValueError:
           continue
 
     for idx in range(0, len(self.wins)):
       if self.wins[idx] is None:
         res[idx] = True
-        self.wins[idx] = self.sess.new_window(window_name=JoveTester.WINDOWS[idx])
+        self.wins[idx] = self.sess.new_window(window_name=JoveTester.TMUX_WINDOW_NAMES[idx])
         print('created tmux window ' + str(self.wins[idx]))
 
     return res
@@ -159,7 +159,7 @@ class JoveTester:
 
   def pane(self, name):
     self.establish_tmux_session()
-    res = self.wins[JoveTester.WINDOWS.index(name)].attached_pane
+    res = self.wins[JoveTester.TMUX_WINDOW_NAMES.index(name)].attached_pane
     res.select_pane()
     return res
 
