@@ -30,27 +30,26 @@ pid_t RunExecutable(const std::string &exe_path,
     before_exec_t before_exec = [](const char **, const char **) {}) {
   boost::unordered_flat_set<std::string_view> envs;
 
-  boost::container::slist<std::string> arg_str_list;
-  boost::container::slist<std::string> env_str_list;
+  boost::container::slist<std::string> sl;
 
   std::vector<const char *> arg_vec;
   std::vector<const char *> env_vec;
 
   compute_args([&](auto &&...xs) -> void {
-    arg_str_list.emplace_front(std::forward<decltype(xs)>(xs)...);
+    sl.emplace_front(std::forward<decltype(xs)>(xs)...);
 
-    std::string &x = arg_str_list.front();
+    std::string &x = sl.front();
     arg_vec.push_back(x.c_str());
   });
   compute_envs([&](auto &&...xs) -> void {
-    env_str_list.emplace_front(std::forward<decltype(xs)>(xs)...);
+    sl.emplace_front(std::forward<decltype(xs)>(xs)...);
 
-    if (envs.contains(env_str_list.front())) {
-      env_str_list.pop_front();
+    if (envs.contains(sl.front())) {
+      sl.pop_front();
       return;
     }
 
-    std::string &x = env_str_list.front();
+    std::string &x = sl.front();
     envs.insert(x);
     env_vec.push_back(x.c_str());
   });
