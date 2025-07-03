@@ -27,11 +27,11 @@ struct analyzer_options_t {
 };
 
 struct helper_function_t {
-  llvm::Function *F;
-  int EnvArgNo;
+  llvm::Function *F = nullptr;
+  int EnvArgNo = -1;
 
   struct {
-    bool Simple;
+    bool Simple = false;
     tcg_global_set_t InGlbs, OutGlbs;
   } Analysis;
 };
