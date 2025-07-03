@@ -36,13 +36,13 @@ pid_t RunExecutable(const std::string &exe_path,
   std::vector<const char *> arg_vec;
   std::vector<const char *> env_vec;
 
-  compute_args([&](auto&&... xs) -> void {
+  compute_args([&](auto &&...xs) -> void {
     arg_str_list.emplace_front(std::forward<decltype(xs)>(xs)...);
 
     std::string &x = arg_str_list.front();
     arg_vec.push_back(x.c_str());
   });
-  compute_envs([&](auto&&... xs) -> void {
+  compute_envs([&](auto &&...xs) -> void {
     env_str_list.emplace_front(std::forward<decltype(xs)>(xs)...);
 
     if (envs.contains(env_str_list.front())) {
