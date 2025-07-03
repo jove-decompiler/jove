@@ -812,6 +812,12 @@ struct binary_analysis_t {
 
   objdump_output_type objdump;
 
+  segment_manager_t *get_segment_manager(void) const {
+    segment_manager_t *const sm = sm_.get();
+    assert(sm);
+    return sm;
+  }
+
 private:
   void move_stuff(void) noexcept;
   void move_callers(void) noexcept;
@@ -892,7 +898,7 @@ struct binary_base_t {
   }
 
   segment_manager_t *get_segment_manager(void) const {
-    return Analysis.Functions.container().get_allocator().get_segment_manager();
+    return Analysis.get_segment_manager();
   }
 
   explicit binary_base_t(jv_file_t &jv_file,
