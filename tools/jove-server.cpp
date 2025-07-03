@@ -45,8 +45,8 @@ static std::string string_of_sockaddr(const struct sockaddr *addr,
   int ret = getnameinfo(addr, addrlen, hbuf, sizeof(hbuf), nullptr, 0,
                         NI_NUMERICHOST);
   if (ret != 0) {
-    llvm::errs() << llvm::formatv("{0}: getnameinfo failed ({1})", __func__,
-                                  gai_strerror(ret));
+    WithColor::error() << llvm::formatv(
+        "string_of_sockaddr: getnameinfo failed ({0})", gai_strerror(ret));
     return "";
   }
 
