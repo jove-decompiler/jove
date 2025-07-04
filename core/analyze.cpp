@@ -57,7 +57,7 @@ analyzer_t<MT, MinSize>::analyzer_t(
 }
 
 template <bool MT, bool MinSize>
-void analyzer_t<MT, MinSize>::update_callers(void) {
+void analyzer_t<MT, MinSize>::examine_callers(void) {
   for_each_basic_block(
       maybe_par_unseq, jv,
       [&](binary_t &b, bb_t bb) {
@@ -118,20 +118,33 @@ void analyzer_t<MT, MinSize>::update_callers(void) {
 
 
 template <bool MT, bool MinSize>
-void analyzer_t<MT, MinSize>::update_parents(void) {
+void analyzer_t<MT, MinSize>::examine_blocks(void) {
   for_each_function(maybe_par_unseq, jv,
                     [&](function_t &f, binary_t &b) {
-    const function_index_t FIdx = index_of_function_in_binary(f, b);
+    function_state_t &x = state.for_function(f);
 
-    const auto &bbvec = state.for_function(f).bbvec;
+    const auto &bbvec = x.bbvec;
 
     auto &ICFG = b.Analysis.ICFG;
-    std::for_each(maybe_par_unseq,
-                  bbvec.begin(),
-                  bbvec.end(),
-                  [&](bb_t bb) {
-                    ICFG[bb].Parents.insert(FIdx, b);
-                  });
+
+    oneapi::tbb::parallel_invoke(
+        [&](void) -> void {
+          const auto &exit_bbvec = x.exit_bbvec;
+
+          if (!exit_bbvec.empty())
+            f.Returns = true;
+
+          f.Analysis.IsLeaf = IsLeafFunction(f, b, bbvec, exit_bbvec);
+          f.Analysis.IsSj = IsFunctionSetjmp(f, b, bbvec);
+          f.Analysis.IsLj = IsFunctionLongjmp(f, b, bbvec);
+        },
+
+        [&](void) -> void {
+          const function_index_t FIdx = index_of_function_in_binary(f, b);
+
+          std::for_each(maybe_par_unseq, bbvec.begin(), bbvec.end(),
+                        [&](bb_t bb) { ICFG[bb].Parents.insert(FIdx, b); });
+        });
   });
 }
 
@@ -161,16 +174,15 @@ void analyzer_t<MT, MinSize>::identify_ABIs(void) {
 
 template <bool MT, bool MinSize>
 void analyzer_t<MT, MinSize>::identify_Sjs(void) {
-  for_each_function(
-      maybe_par_unseq, jv, [&](function_t &f, binary_t &b) {
-        function_index_t FIdx = index_of_function_in_binary(f, b);
-
+  for_each_function_if(
+      maybe_par_unseq, jv,
+      [&](function_t &f) -> bool {
+        return f.Analysis.IsSj;
+      },
+      [&](function_t &f, binary_t &b) {
         function_state_t &x = state.for_function(f);
 
-        if (!x.exit_bbvec.empty())
-          f.Returns = true;
-
-        if (x.IsSj) {
+        if (f.Analysis.IsSj) {
           f.Analysis.ForEachCaller(jv, [&](const caller_t &caller) -> void {
             block_t caller_block = block_for_caller_in_binary(caller, b, jv);
             if (caller_block.first != index_of_binary(b))

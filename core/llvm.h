@@ -226,9 +226,6 @@ class llvm_t {
 
     bool IsNamed = false;
 
-    bool IsLeaf;
-    bool IsSj, IsLj;
-
     llvm::Function *F = nullptr;
     llvm::Function *adapterF = nullptr;
 
@@ -238,11 +235,6 @@ class llvm_t {
 
       basic_blocks_of_function(f, b, bbvec);
       exit_basic_blocks_of_function(f, b, bbvec, exit_bbvec);
-
-      IsLeaf = IsLeafFunction(f, b, bbvec, exit_bbvec);
-
-      IsSj = IsFunctionSetjmp(f, b, bbvec);
-      IsLj = IsFunctionLongjmp(f, b, bbvec);
     }
   };
 

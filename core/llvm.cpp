@@ -3214,8 +3214,8 @@ int llvm_t<MT, MinSize>::CreateSectionGlobalVariables(void) {
     bool ShouldPlant(const function_t &f) {
       return is_basic_block_index_valid(f.Entry) &&
              f.IsABI &&
-             !tool.state.for_function(f).IsLj &&
-             !tool.state.for_function(f).IsSj;
+             !f.Analysis.IsLj &&
+             !f.Analysis.IsSj;
     }
 
     PatchContents(llvm_t &tool, const binary_t &Binary)
@@ -7658,8 +7658,8 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
     //
     // setjmp/longjmp
     //
-    const bool Lj = state.for_function(callee).IsLj;
-    const bool Sj = state.for_function(callee).IsSj;
+    const bool Lj = callee.Analysis.IsLj;
+    const bool Sj = callee.Analysis.IsSj;
     const bool SjLj = Lj || Sj;
     if (unlikely(SjLj)) {
       assert(Lj ^ Sj);
@@ -8138,11 +8138,11 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
     // setjmp/longjmp
     //
     const bool Lj = DynTargets.AnyOf([&](dynamic_target_t X) -> bool {
-      return state.for_function(function_of_target(X, jv)).IsLj;
+      return function_of_target(X, jv).Analysis.IsLj;
     });
 
     const bool Sj = DynTargets.AnyOf([&](dynamic_target_t X) -> bool {
-      return state.for_function(function_of_target(X, jv)).IsSj;
+      return function_of_target(X, jv).Analysis.IsSj;
     });
 
     const bool SjLj = Lj || Sj;
@@ -8474,8 +8474,8 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
 
           const function_t &callee = function_of_target(DynTargetsVec[i], jv);
 
-          const bool Lj = state.for_function(callee).IsLj;
-          const bool Sj = state.for_function(callee).IsSj;
+          const bool Lj = callee.Analysis.IsLj;
+          const bool Sj = callee.Analysis.IsSj;
           const bool SjLj = Lj || Sj;
 
           if (unlikely(SjLj)) {

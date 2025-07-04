@@ -62,22 +62,14 @@ struct analyzer_t {
     binary_t::bb_vec_t bbvec;
     binary_t::bb_vec_t exit_bbvec;
 
-    bool IsLeaf;
-
-    bool IsSj, IsLj;
-
     function_state_t(const function_t &f, const binary_t &b) {
       basic_blocks_of_function(f, b, bbvec);
       exit_basic_blocks_of_function(f, b, bbvec, exit_bbvec);
-
-      IsLeaf = IsLeafFunction(f, b, bbvec, exit_bbvec);
-      IsSj = IsFunctionSetjmp(f, b, bbvec);
-      IsLj = IsFunctionLongjmp(f, b, bbvec);
     }
   };
 
   const analyzer_options_t &options;
-  
+ 
   tiny_code_generator_t &TCG;
   jv_file_t &jv_file;
   jv_t &jv;
@@ -105,8 +97,8 @@ struct analyzer_t {
              boost::concurrent_flat_set<dynamic_target_t> &inflight,
              std::atomic<uint64_t> &done);
 
-  void update_callers(void);
-  void update_parents(void);
+  void examine_callers(void);
+  void examine_blocks(void);
 
   void identify_ABIs(void);
   void identify_Sjs(void);

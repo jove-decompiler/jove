@@ -577,6 +577,10 @@ struct function_analysis_t {
 
   AtomicOffsetPtr<void> pCallers;
 
+  bool IsLeaf = false;
+  bool IsSj = false;
+  bool IsLj = false;
+
   struct ReverseCGVertHolder_t : public ip_mt_base_accessible_spin {
     std::atomic<call_graph_index_t> Idx = invalid_call_graph_index;
 

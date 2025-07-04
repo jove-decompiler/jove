@@ -428,9 +428,9 @@ int ServerTool::ConnectionProc(ConnectionProcArgs &&args) {
     int rc = ({
     analyzer_t analyzer(analyzer_opts, TCG, Context, jv_file, jv, inflight, done);
 
-    analyzer.update_parents();
+    analyzer.examine_blocks();
     oneapi::tbb::parallel_invoke(
-        [&analyzer](void) -> void { analyzer.update_callers(); },
+        [&analyzer](void) -> void { analyzer.examine_callers(); },
         [&analyzer](void) -> void { analyzer.identify_ABIs(); });
     analyzer.identify_Sjs();
 
