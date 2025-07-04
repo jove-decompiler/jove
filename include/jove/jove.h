@@ -577,6 +577,29 @@ struct function_analysis_t {
 
   AtomicOffsetPtr<void> pCallers;
 
+  struct ReverseCGVertHolder_t : public ip_mt_base_accessible_spin {
+    std::atomic<call_graph_index_t> Idx = invalid_call_graph_index;
+
+    ReverseCGVertHolder_t() noexcept = default;
+
+    explicit ReverseCGVertHolder_t(ReverseCGVertHolder_t &&other) noexcept {
+      moveFrom(std::move(other));
+    }
+
+    ReverseCGVertHolder_t &operator=(ReverseCGVertHolder_t &&other) noexcept {
+      if (this != &other)
+        moveFrom(std::move(other));
+      return *this;
+    }
+
+  private:
+    void moveFrom(ReverseCGVertHolder_t &&other) noexcept {
+      Idx.store(other.Idx.load(std::memory_order_relaxed),
+                std::memory_order_relaxed);
+      other.Idx.store(invalid_call_graph_index, std::memory_order_relaxed);
+    }
+  } ReverseCGVertIdxHolder;
+
   segment_manager_t *get_segment_manager(void) const {
     segment_manager_t *const sm = sm_.get();
     assert(sm);
@@ -647,29 +670,6 @@ struct function_analysis_t {
                 std::function<void(const caller_t &)> proc) const noexcept {
     ForEachCaller<MT, MinSize>(std::execution::seq, proc);
   }
-
-  struct ReverseCGVertHolder_t : public ip_mt_base_accessible_spin {
-    std::atomic<call_graph_index_t> Idx = invalid_call_graph_index;
-
-    ReverseCGVertHolder_t() noexcept = default;
-
-    explicit ReverseCGVertHolder_t(ReverseCGVertHolder_t &&other) noexcept {
-      moveFrom(std::move(other));
-    }
-
-    ReverseCGVertHolder_t &operator=(ReverseCGVertHolder_t &&other) noexcept {
-      if (this != &other)
-        moveFrom(std::move(other));
-      return *this;
-    }
-
-  private:
-    void moveFrom(ReverseCGVertHolder_t &&other) noexcept {
-      Idx.store(other.Idx.load(std::memory_order_relaxed),
-                std::memory_order_relaxed);
-      other.Idx.store(invalid_call_graph_index, std::memory_order_relaxed);
-    }
-  } ReverseCGVertIdxHolder;
 
   template <bool MT, bool MinSize>
   ip_call_graph_base_t<MT>::vertex_descriptor
