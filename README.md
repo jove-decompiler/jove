@@ -95,4 +95,4 @@ XFS is the recommended filesystem.
 [^8]: `FICLONE` or `FICLONERANGE` (`ioctl(2)`)
 [^9]: It is recommended to use a tool like `jove bootstrap` or `jove ipt` for the following reason: suppose the program calls a `setjmp(3)`, through an indirect branch (e.g. a stub or trampoline). Since we don't know yet that the program is calling `setjmp(3)`, we can't add our special handling for it. Consequently, the "naive" recompilation will crash. Some kind of static analysis could be an effective solution here.
 
-Similarily, signal handlers in a program under recompilation can pose a problem: if we don't know about them, we can't specially handle them. `jove bootstrap` traces system calls for this reason, to examine calls to `rt_sigaction(2)`, to identify the handlers.
+    Similarily, signal handlers in a program under recompilation can pose a problem: if we don't know about them, we can't specially handle them. `jove bootstrap` traces system calls for this reason, to examine calls to `rt_sigaction(2)`, to identify the handlers.
