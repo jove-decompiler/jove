@@ -568,8 +568,14 @@ template <bool MT, bool MinSize>
 using Callers_t = PossiblyConcurrentNodeOrFlatSet_t<MT, MinSize, caller_t>;
 
 struct function_analysis_t {
-  AtomicOffsetPtr<void> pCallers;
   boost::interprocess::offset_ptr<segment_manager_t> sm_ = nullptr;
+
+  tcg_global_set_t args;
+  tcg_global_set_t rets;
+
+  std::atomic<bool> Stale = true;
+
+  AtomicOffsetPtr<void> pCallers;
 
   segment_manager_t *get_segment_manager(void) const {
     segment_manager_t *const sm = sm_.get();
@@ -668,11 +674,6 @@ struct function_analysis_t {
   template <bool MT, bool MinSize>
   ip_call_graph_base_t<MT>::vertex_descriptor
   ReverseCGVert(jv_base_t<MT, MinSize> &);
-
-    tcg_global_set_t args;
-    tcg_global_set_t rets;
-
-    std::atomic<bool> Stale = true;
 
     explicit function_analysis_t(segment_manager_t *sm) noexcept : sm_(sm) {}
     explicit function_analysis_t() = delete;
