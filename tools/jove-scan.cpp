@@ -35,8 +35,7 @@ public:
   disas_t disas;
   explorer_t<IsToolMT, IsToolMinSize> E;
 
-  ScanTool()
-      : opts(JoveCategory), E(jv_file, jv, disas, tcg, IsVeryVerbose()) {}
+  ScanTool() : opts(JoveCategory), E(jv_file, jv, disas, tcg) {}
 
   int Run(void) override;
 
@@ -46,6 +45,8 @@ public:
 JOVE_REGISTER_TOOL("scan", ScanTool);
 
 int ScanTool::Run(void) {
+  E.SetVerbosity(VerbosityLevel());
+
   if (opts.Binary.empty()) {
     for_each_binary(maybe_par_unseq, jv,
                     [&](binary_t &b) { ScanBinary(b); });

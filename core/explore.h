@@ -82,7 +82,7 @@ class explorer_t {
   boost::optional<jv_t &> maybe_jv;
   disas_t &disas;
   tiny_code_generator_t &tcg;
-  const unsigned VerbosityLevel;
+  unsigned VerbosityLevel;
 
   on_newbb_proc_t<MT, MinSize> on_newbb_proc = nop_on_newbb_proc<MT, MinSize>;
   on_newfn_proc_t<MT, MinSize> on_newfn_proc = nop_on_newfn_proc<MT, MinSize>;
@@ -144,6 +144,7 @@ public:
     }
   }
 
+  void SetVerbosity(unsigned VerbLevel) { VerbosityLevel = VerbLevel; }
   bool IsVerbose(void) const { return unlikely(VerbosityLevel >= 1); }
   bool IsVeryVerbose(void) const { return unlikely(VerbosityLevel >= 2); }
 
