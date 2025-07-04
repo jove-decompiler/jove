@@ -459,10 +459,12 @@ void ScanForSjLj(binary_base_t<MT, MinSize> &b,
   }
 #endif
 
+  std::string PrintStr;
+  llvm::raw_string_ostream OS(PrintStr);
+
   auto found_setjmp = [&](uint64_t A) -> void {
     if (E.IsVerbose())
-      WithColor::note() << llvm::formatv("found setjmp @ {0}:{1:x}\n",
-					 b.Name.c_str(), A);
+      OS << llvm::formatv("found setjmp @ {0}:{1:x}\n", b.Name.c_str(), A);
 
     basic_block_index_t BBIdx = E.explore_basic_block(b, Bin, A);
     assert(is_basic_block_index_valid(BBIdx));
@@ -473,8 +475,7 @@ void ScanForSjLj(binary_base_t<MT, MinSize> &b,
 
   auto found_longjmp = [&](uint64_t A) -> void {
     if (E.IsVerbose())
-      WithColor::note() << llvm::formatv("found longjmp @ {0}:{1:x}\n",
-					 b.Name.c_str(), A);
+      OS << llvm::formatv("found longjmp @ {0}:{1:x}\n", b.Name.c_str(), A);
 
     basic_block_index_t BBIdx = E.explore_basic_block(b, Bin, A);
     assert(is_basic_block_index_valid(BBIdx));
@@ -486,13 +487,16 @@ void ScanForSjLj(binary_base_t<MT, MinSize> &b,
 
     if (ICFG.out_degree(bb) != 0) {
       if (E.IsVerbose())
-        WithColor::note() << llvm::formatv("jump aint local! @ {0:x}\n",
-                                           ICFG[bb].Addr);
+        OS << llvm::formatv("jump aint local! @ {0:x}\n", ICFG[bb].Addr);
       ICFG.clear_out_edges(bb);
     }
 
     ICFG[bb].Term._indirect_jump.IsLj = true;
   };
+
+
+  if (E.IsVeryVerbose())
+    OS << llvm::formatv("sjlj: {0}\n", b.Name.c_str());
 
   B::_elf(Bin, [&](ELFO &O) {
   const ELFF &Elf = O.getELFFile();
@@ -507,6 +511,10 @@ void ScanForSjLj(binary_base_t<MT, MinSize> &b,
     for (const Elf_Phdr *P : LoadSegments) {
       llvm::StringRef SectionStr(
           reinterpret_cast<const char *>(Elf.base() + P->p_offset), P->p_filesz);
+
+      if (E.IsVeryVerbose())
+        OS << llvm::formatv("  PT_LOAD [0x{0:x},0x{1:x})\t{2}\n", P->p_vaddr,
+                            P->p_vaddr + P->p_memsz, b.Name.c_str());
 
       for (const auto &pair : LjPatterns) {
         llvm::StringRef pattern = pair.first;
@@ -560,6 +568,13 @@ void ScanForSjLj(binary_base_t<MT, MinSize> &b,
       }
     }
   });
+
+  {
+    static std::mutex mtx;
+    std::unique_lock<std::mutex> lk(mtx);
+
+    llvm::errs() << PrintStr;
+  }
 }
 
 #define VALUES_TO_INSTANTIATE_WITH1                                            \
