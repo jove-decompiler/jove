@@ -567,15 +567,15 @@ using ip_call_graph_base_t =
 template <bool MT, bool MinSize>
 using Callers_t = PossiblyConcurrentNodeOrFlatSet_t<MT, MinSize, caller_t>;
 
-struct function_t {
-  bool Speculative = false;
-
-  binary_index_t BIdx = invalid_binary_index;
-  function_index_t Idx = invalid_function_index;
-  basic_block_index_t Entry = invalid_basic_block_index;
-
+struct function_analysis_t {
   AtomicOffsetPtr<void> pCallers;
   boost::interprocess::offset_ptr<segment_manager_t> sm_ = nullptr;
+
+  segment_manager_t *get_segment_manager(void) const {
+    segment_manager_t *const sm = sm_.get();
+    assert(sm);
+    return sm;
+  }
 
   bool hasCaller(void) const noexcept {
     return !!pCallers.Load(std::memory_order_relaxed);
@@ -669,41 +669,71 @@ struct function_t {
   ip_call_graph_base_t<MT>::vertex_descriptor
   ReverseCGVert(jv_base_t<MT, MinSize> &);
 
-  struct Analysis_t {
     tcg_global_set_t args;
     tcg_global_set_t rets;
 
     std::atomic<bool> Stale = true;
 
-    Analysis_t() noexcept = default;
+    explicit function_analysis_t(segment_manager_t *sm) noexcept : sm_(sm) {}
+    explicit function_analysis_t() = delete;
 
-    Analysis_t(Analysis_t &&other) noexcept
-        : args(other.args), rets(other.rets) {
-      moveFrom(std::move(other));
+    explicit function_analysis_t(function_analysis_t &&other) noexcept
+        : sm_(other.sm_),
+          args(other.args),
+          rets(other.rets),
+          ReverseCGVertIdxHolder(std::move(other.ReverseCGVertIdxHolder)) {
+      Stale.store(other.Stale.load(std::memory_order_relaxed),
+                  std::memory_order_relaxed);
+
+      pCallers.Store(other.pCallers.Load(std::memory_order_relaxed),
+                     std::memory_order_relaxed);
+      other.pCallers.Store(nullptr, std::memory_order_relaxed);
     }
 
-    Analysis_t &operator=(Analysis_t &&other) noexcept {
-      moveFrom(std::move(other));
-      return *this;
-    }
-
-private:
-    void moveFrom(Analysis_t &&other) {
-      args = other.args;
-      rets = other.rets;
+    function_analysis_t &operator=(function_analysis_t &&other) noexcept {
+      sm_ = other.sm_;
+      args = std::move(other.args);
+      rets = std::move(other.rets);
+      ReverseCGVertIdxHolder = std::move(other.ReverseCGVertIdxHolder);
 
       Stale.store(other.Stale.load(std::memory_order_relaxed),
                   std::memory_order_relaxed);
+
+      pCallers.Store(other.pCallers.Load(std::memory_order_relaxed),
+                     std::memory_order_relaxed);
+      other.pCallers.Store(nullptr, std::memory_order_relaxed);
+      return *this;
     }
 
-  } Analysis;
+  void Invalidate(void) {
+    this->Stale.store(true, std::memory_order_relaxed);
+  }
+
+  explicit function_analysis_t(const function_analysis_t &) = delete;
+  function_analysis_t &operator=(const function_analysis_t &) = delete;
+
+  ~function_analysis_t() noexcept;
+};
+
+struct function_t {
+  bool Speculative = false;
+
+  binary_index_t BIdx = invalid_binary_index;
+  function_index_t Idx = invalid_function_index;
+  basic_block_index_t Entry = invalid_basic_block_index;
 
   bool IsABI = false;
   bool IsSignalHandler = false;
   bool Returns = false;
 
+  function_analysis_t Analysis;
+
+  segment_manager_t *get_segment_manager(void) const {
+    return Analysis.get_segment_manager();
+  }
+
   void InvalidateAnalysis(void) {
-    this->Analysis.Stale.store(true, std::memory_order_relaxed);
+    this->Analysis.Invalidate();
   }
 
   template <bool MT, bool MinSize>
@@ -713,8 +743,6 @@ private:
 
   explicit function_t(function_t &&) noexcept = default;
   function_t &operator=(function_t &&) noexcept = default;
-
-  ~function_t() noexcept;
 
   explicit function_t(const function_t &) = delete;
   function_t &operator=(const function_t &) = delete;

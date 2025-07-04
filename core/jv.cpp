@@ -487,7 +487,7 @@ void jv_base_t<MT, MinSize>::fixup_binary(jv_file_t &jv_file,
         assert(Target < b.Analysis.Functions.size());
         function_t &callee = b.Analysis.Functions.at(Target);
 
-        callee.AddCaller(*this, caller_t(BIdx, bbprop.Term.Addr));
+        callee.Analysis.AddCaller(*this, caller_t(BIdx, bbprop.Term.Addr));
 
         const auto &ParentsVec = bbprop.Parents.template get<MT>();
         std::for_each(maybe_par_unseq,
@@ -497,8 +497,8 @@ void jv_base_t<MT, MinSize>::fixup_binary(jv_file_t &jv_file,
                         function_t &caller = b.Analysis.Functions.at(FIdx);
 
                         Analysis.ReverseCallGraph.template add_edge<MT>(
-                            callee.ReverseCGVert(*this),
-                            caller.ReverseCGVert(*this));
+                            callee.Analysis.ReverseCGVert(*this),
+                            caller.Analysis.ReverseCGVert(*this));
                       });
       });
 }

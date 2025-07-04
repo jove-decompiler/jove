@@ -513,6 +513,13 @@ constexpr dynamic_target_t target_of_function(const function_t &f) {
   return {binary_index_of_function(f), index_of_function(f)};
 }
 
+static inline dynamic_target_t
+target_of_function(const function_analysis_t &Analysis) {
+  const function_t &f =
+      *JOVE_CONTAINER_OF_CONST(&Analysis, function_t, Analysis);
+  return {binary_index_of_function(f), index_of_function(f)};
+}
+
 template <bool MT, bool MinSize>
 static inline void basic_blocks_of_function_at_block(
     typename ip_icfg_base_t<MT>::vertex_descriptor entry,

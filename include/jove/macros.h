@@ -1,4 +1,5 @@
 #pragma once
+#include <stddef.h>
 #include <boost/preprocessor/cat.hpp>
 
 #ifndef likely
@@ -51,3 +52,11 @@ __compiletime_unreachable(void);
 #else
 #define rassert(cond) assert(cond)
 #endif
+
+#define JOVE_CONTAINER_OF(ptr, T, member)                                      \
+  (reinterpret_cast<T *>(reinterpret_cast<char *>(ptr) -                       \
+                         __builtin_offsetof(T, member)))
+
+#define JOVE_CONTAINER_OF_CONST(ptr, T, member)                                \
+  (reinterpret_cast<const T *>(reinterpret_cast<const char *>(ptr) -           \
+                               __builtin_offsetof(T, member)))

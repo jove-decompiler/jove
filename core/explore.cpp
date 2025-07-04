@@ -674,8 +674,8 @@ explorer_t<MT, MinSize>::_explore_basic_block(binary_t &b,
     if (is_binary_index_valid(b.Idx)) { /* may not know binary index */
       function_t &callee = b.Analysis.Functions.at(CalleeFIdx);
 
-      if (callee.pCallers.Load(std::memory_order_relaxed))
-        callee.AddCaller<MT, MinSize>(caller_t(b.Idx, T.Addr));
+      if (callee.Analysis.pCallers.Load(std::memory_order_relaxed))
+        callee.Analysis.AddCaller<MT, MinSize>(caller_t(b.Idx, T.Addr));
 
       if (maybe_jv) {
         jv_t &jv = *maybe_jv;
@@ -687,8 +687,8 @@ explorer_t<MT, MinSize>::_explore_basic_block(binary_t &b,
                         function_t &caller = b.Analysis.Functions.at(FIdx);
 
                         jv.Analysis.ReverseCallGraph.template add_edge<MT>(
-                            callee.ReverseCGVert(jv),
-                            caller.ReverseCGVert(jv));
+                            callee.Analysis.ReverseCGVert(jv),
+                            caller.Analysis.ReverseCGVert(jv));
                       });
       }
     }

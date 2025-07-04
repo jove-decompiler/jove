@@ -69,7 +69,7 @@ void analyzer_t<MT, MinSize>::update_callers(void) {
           assert(TermAddr);
 
           function_t &callee = b.Analysis.Functions.at(bbprop.Term._call.Target);
-          callee.AddCaller(jv, caller_t(index_of_binary(b), TermAddr));
+          callee.Analysis.AddCaller(jv, caller_t(index_of_binary(b), TermAddr));
 
           auto &RCG = jv.Analysis.ReverseCallGraph;
           const auto &ParentsVec = bbprop.Parents.template get<MT>();
@@ -80,10 +80,10 @@ void analyzer_t<MT, MinSize>::update_callers(void) {
                           function_t &caller = b.Analysis.Functions.at(FIdx);
 
                           if (RCG.template add_edge<MT>(
-                                     callee.ReverseCGVert(jv),
-                                     caller.ReverseCGVert(jv))
+                                     callee.Analysis.ReverseCGVert(jv),
+                                     caller.Analysis.ReverseCGVert(jv))
                                   .second)
-                            caller.InvalidateAnalysis();
+                            caller.Analysis.Invalidate();
                         });
           return;
         }
@@ -95,7 +95,7 @@ void analyzer_t<MT, MinSize>::update_callers(void) {
             assert(TermAddr);
 
             function_t &callee = function_of_target(X, jv);
-            callee.AddCaller(jv, caller_t(index_of_binary(b, jv), TermAddr));
+            callee.Analysis.AddCaller(jv, caller_t(index_of_binary(b, jv), TermAddr));
 
             auto &RCG = jv.Analysis.ReverseCallGraph;
             const auto &ParentsVec = bbprop.Parents.template get<MT>();
@@ -106,10 +106,10 @@ void analyzer_t<MT, MinSize>::update_callers(void) {
                             function_t &caller = b.Analysis.Functions.at(FIdx);
 
                             if (RCG.template add_edge<MT>(
-                                       callee.ReverseCGVert(jv),
-                                       caller.ReverseCGVert(jv))
+                                       callee.Analysis.ReverseCGVert(jv),
+                                       caller.Analysis.ReverseCGVert(jv))
                                     .second)
-                              caller.InvalidateAnalysis();
+                              caller.Analysis.Invalidate();
                           });
           });
         }
@@ -171,7 +171,7 @@ void analyzer_t<MT, MinSize>::identify_Sjs(void) {
           f.Returns = true;
 
         if (x.IsSj) {
-          f.ForEachCaller(jv, [&](const caller_t &caller) -> void {
+          f.Analysis.ForEachCaller(jv, [&](const caller_t &caller) -> void {
             block_t caller_block = block_for_caller_in_binary(caller, b, jv);
             if (caller_block.first != index_of_binary(b))
               return;

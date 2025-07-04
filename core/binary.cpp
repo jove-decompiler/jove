@@ -73,15 +73,11 @@ void binary_analysis_t<MT, MinSize>::move_callers(void) noexcept {
   assert(sm);
 
   for_each_function_in_binary(maybe_par_unseq, *this, [&](function_t &f) {
-    void *const p = f.pCallers.Load(std::memory_order_relaxed);
+    void *const p = f.Analysis.pCallers.Load(std::memory_order_relaxed);
     if (!p)
       return;
 
-    {
-      segment_manager_t *const f_sm = f.sm_.get();
-      assert(f_sm);
-      assert(f_sm == sm);
-    }
+    assert(f.Analysis.get_segment_manager() == sm);
 
     uintptr_t p_addr = reinterpret_cast<uintptr_t>(p);
     bool TheMT      = !!(p_addr & 1u);
@@ -104,8 +100,8 @@ void binary_analysis_t<MT, MinSize>::move_callers(void) noexcept {
     assert(OurPtrAddr);
     OurPtrAddr |= (MT ? 1u : 0u) | (MinSize ? 2u : 0u);
 
-    f.pCallers.Store(reinterpret_cast<void *>(OurPtrAddr),
-                     std::memory_order_relaxed);
+    f.Analysis.pCallers.Store(reinterpret_cast<void *>(OurPtrAddr),
+                              std::memory_order_relaxed);
 
     pOtherCallers->~OtherCallers_t();
     sm->deallocate(pOtherCallers);

@@ -164,7 +164,7 @@ bool bbprop_t::insertDynTarget(binary_index_t ThisBIdx,
   bool res = doInsertDynTarget<MT, MinSize>(X);
   if (res) {
     callee.InvalidateAnalysis();
-    callee.AddCaller<MT, MinSize>(caller_t(ThisBIdx, Term.Addr));
+    callee.Analysis.AddCaller<MT, MinSize>(caller_t(ThisBIdx, Term.Addr));
 
     auto &RCG = jv.Analysis.ReverseCallGraph;
     const auto &ParentsVec = Parents.template get<MT>();
@@ -176,8 +176,8 @@ bool bbprop_t::insertDynTarget(binary_index_t ThisBIdx,
                     caller.InvalidateAnalysis();
 
                     RCG.template add_edge<MT>(
-                        callee.ReverseCGVert(jv),
-                        caller.ReverseCGVert(jv));
+                        callee.Analysis.ReverseCGVert(jv),
+                        caller.Analysis.ReverseCGVert(jv));
                   });
   }
 
@@ -212,9 +212,9 @@ void bbprop_t::InvalidateAnalysis(jv_base_t<MT, MinSize> &jv,
                 ParentsVec.cend(), [&](function_index_t FIdx) {
                   function_t &f = b.Analysis.Functions.at(FIdx);
 
-                  f.InvalidateAnalysis();
+                  f.Analysis.Invalidate();
 
-                  auto V = f.ReverseCGVert(jv);
+                  auto V = f.Analysis.ReverseCGVert(jv);
 
                   jv.Analysis.ReverseCallGraph.depth_first_visit(V, invalidator);
                 });

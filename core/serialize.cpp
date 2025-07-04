@@ -427,7 +427,7 @@ static void serialize(Archive &ar, jove::function_t &f, const unsigned int versi
      &BOOST_SERIALIZATION_NVP(f.BIdx)
      &BOOST_SERIALIZATION_NVP(f.Idx)
      &BOOST_SERIALIZATION_NVP(f.Entry)
-     &BOOST_SERIALIZATION_NVP(f.ReverseCGVertIdxHolder.Idx)
+//   &BOOST_SERIALIZATION_NVP(f.Analysis)
      &BOOST_SERIALIZATION_NVP(f.IsABI)
      &BOOST_SERIALIZATION_NVP(f.IsSignalHandler)
      &BOOST_SERIALIZATION_NVP(f.Returns);
@@ -456,6 +456,7 @@ static void save(Archive &ar, const jove::bbprop_t &bbprop, const unsigned int) 
      &BOOST_SERIALIZATION_NVP(bbprop.Term._call.Target)
      &BOOST_SERIALIZATION_NVP(bbprop.Term._indirect_jump.IsLj)
      &BOOST_SERIALIZATION_NVP(bbprop.Term._return.Returns)
+//   &BOOST_SERIALIZATION_NVP(bbprop.Analysis)
      &BOOST_SERIALIZATION_NVP(bbprop.Sj);
 
   assert(jove::pFile_hack);
@@ -505,6 +506,7 @@ static void load(Archive &ar, jove::bbprop_t &bbprop, const unsigned int) {
      &BOOST_SERIALIZATION_NVP(bbprop.Term._call.Target)
      &BOOST_SERIALIZATION_NVP(bbprop.Term._indirect_jump.IsLj)
      &BOOST_SERIALIZATION_NVP(bbprop.Term._return.Returns)
+//   &BOOST_SERIALIZATION_NVP(bbprop.Analysis)
      &BOOST_SERIALIZATION_NVP(bbprop.Sj);
 
   assert(jove::pFile_hack);
