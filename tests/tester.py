@@ -253,11 +253,18 @@ class JoveTester:
   def is_stderr_connection_closed_by_remote_host(self, s):
     return "Connection to localhost closed by remote host.\n" == s
 
-  def run_tests(self, tests, multi_threaded=True):
+  def run_tests(self, tests, multi_threaded=True, remote=True):
+    mode = 'remote' if remote else 'local'
+    print(f"running {len(tests)} {mode} tests [{self.platform} {self.arch}]...")
+
+    if remote:
+      self.run_remote_tests(tests, multi_threaded)
+    else:
+      self.run_local_tests(tests, multi_threaded)
+
+  def run_remote_tests(self, tests, multi_threaded):
     assert self.is_ready()
     self.update_libjove_rt(multi_threaded=multi_threaded)
-
-    print(f"running {len(tests)} tests [{self.platform} {self.arch}]...")
 
     for test in tests:
       inputs = self.inputs_for_test(test, self.platform)
@@ -265,7 +272,7 @@ class JoveTester:
       for variant in self.variants:
         testbin_path = Path(self.tests_dir) / self.platform / "bin" / self.arch / f"{test}.{variant}"
 
-        assert(testbin_path.is_file())
+        assert testbin_path.is_file()
 
         self.scp_to(testbin_path, '/tmp/', check=True)
         testbin = f"/tmp/{testbin_path.name}"
@@ -276,7 +283,7 @@ class JoveTester:
         # initialize jv
         self.ssh(["jove", "init", testbin], check=True)
 
-        # run inputs through prog, recovering code
+        # bootstrap each input
         for input_args in inputs:
           self.ssh(["jove", "bootstrap", testbin] + input_args)
 
@@ -332,7 +339,7 @@ class JoveTester:
             failed = failed or stderr_neq
 
           if failed:
-            print("/////////\n///////// %s TEST FAILURE %s [%s %s]\n/////////" % \
+            print("/////////\n///////// %s REMOTE TEST FAILURE %s [%s %s]\n/////////" % \
               ("MULTI-THREADED" if multi_threaded else "SINGLE-THREADED", \
                testbin, self.platform, self.arch))
             print(jove_loop_args)
@@ -350,13 +357,86 @@ class JoveTester:
 
             return 1
 
-    print(f"SUCCESS ({self.arch} {self.platform})")
+    print(f"SUCCESS <remote> ({self.arch} {self.platform})")
     return 0
+
+  def run_local_tests(self, tests, multi_threaded):
+    for test in tests:
+      inputs = self.inputs_for_test(test, self.platform)
+
+      for variant in self.variants:
+        testbin_path = Path(self.tests_dir) / self.platform / "bin" / self.arch / f"{test}.{variant}"
+
+        assert testbin_path.is_file()
+
+        # establish clean slate
+        subprocess.run(["rm", "-rf", os.path.expanduser("~/.jv.*"), os.path.expanduser("~/.jove"), os.path.expanduser("~/.wine*")], check=True)
+
+        # initialize jv
+        subprocess.run([f'jove-{self.arch}', "init", "-v", str(testbin_path)], check=True)
+
+        # bootstrap each input
+        for input_args in inputs:
+          subprocess.run([f'jove-{self.arch}', "bootstrap", "-v", str(testbin_path)] + input_args)
+
+        path_to_stdout = tempfile.NamedTemporaryFile(delete=False).name
+        path_to_stderr = tempfile.NamedTemporaryFile(delete=False).name
+
+        # prepare loop command (no --connect for local)
+        jove_loop_base = [
+          f'jove-{self.arch}', "loop", "-v",
+          f'--rtmt={int(multi_threaded)}',
+          f'--stdout={path_to_stdout}',
+          f'--stderr={path_to_stderr}'
+        ]
+
+        if self.platform == "win":
+          jove_loop_base.insert(-1, "--lay-out-sections")
+
+        # for good measure, in case there is new code we run into
+        for i in range(0, 2):
+          for input_args in inputs:
+            subprocess.run(jove_loop_base + [str(testbin_path)] + input_args)
+
+        # compare result of executing testbin and recompiled testbin
+        for input_args in inputs:
+          p1 = subprocess.run(self.run + [str(testbin_path)] + input_args, capture_output=True)
+          p2 = subprocess.run(jove_loop_base + [str(testbin_path)] + input_args)
+
+          p2_stdout = open(path_to_stdout, "rb").read()
+          p2_stderr = open(path_to_stderr, "rb").read()
+
+          return_neq = p1.returncode != p2.returncode
+          stdout_neq = p1.stdout != p2_stdout
+          stderr_neq = p1.stderr != p2_stderr if self.platform != "win" else False
+
+          failed = return_neq or stdout_neq
+          if self.platform != "win": # wine prints a bunch of shit to stderr
+            failed = failed or stderr_neq
+
+          if failed:
+            print("/////////\n///////// %s LOCAL TEST FAILURE %s [%s %s]\n/////////" % \
+              ("MULTI-THREADED" if multi_threaded else "SINGLE-THREADED", \
+               str(testbin_path), self.platform, self.arch))
+            print(jove_loop_args)
+
+            if return_neq:
+              print('%d != %d' % (p1.returncode, p2.returncode))
+            if stdout_neq:
+              print('<STDOUT>\n"%s"\n\n!=\n\n"%s"\n' % (p1.stdout, p2_stdout))
+            if stderr_neq:
+              print('<STDERR>\n"%s"\n\n!=\n\n"%s"\n' % (p1.stderr, p2_stderr))
+
+            return 1
+
+    print(f"SUCCESS <local> ({self.arch} {self.platform})")
+    return 0
+
 
   def is_ready(self):
     return not (self.iphost is None)
 
-  def get_ready(self, update_jove=True):
+  def get_remote_ready(self, update_jove=True):
     self.create_list = self.establish_tmux_session()
     self.create_qemu, self.create_serv, self.create_ssh = tuple(self.create_list)
 

@@ -65,6 +65,15 @@ $(foreach p,$(PLATFORMS),$(foreach t,$(ALL_$(call uc,$p)_TARGETS),$(eval $(call 
 
 define template_linux
 
+SINGLE_THREADED_TESTS_TO_SKIP := multi_threaded
+
+# it's tricky to run jove loop on a program which calls `setjmp(3)` without
+# performing some dynamic analysis first, and we can't run jove bootstrap locally.
+LOCAL_TESTS_TO_SKIP := longjmp
+
+# FIXME
+MULTI_THREADED_TESTS_TO_SKIP := longjmp
+
 SRCDIR := $(ROOT_DIR)/linux/src
 BINDIR := $(ROOT_DIR)/linux/bin
 
@@ -76,25 +85,35 @@ $$(shell mkdir -p $$(BINDIR)/$(1))
 SRCS      := $$(wildcard $$(SRCDIR)/*.c)
 ALL_TESTS := $$(patsubst $$(SRCDIR)/%.c,%,$$(SRCS))
 
-SINGLE_THREADED_TESTS_TO_SKIP := multi_threaded
-MULTI_THREADED_TESTS_TO_SKIP := longjmp
-
 ST_TESTS := $$(filter-out $$(SINGLE_THREADED_TESTS_TO_SKIP),$$(ALL_TESTS))
 MT_TESTS := $$(filter-out $$(MULTI_THREADED_TESTS_TO_SKIP),$$(ALL_TESTS))
+
+ST_LOCAL_TESTS := $$(filter-out $$(LOCAL_TESTS_TO_SKIP),$$(ST_TESTS))
+MT_LOCAL_TESTS := $$(filter-out $$(LOCAL_TESTS_TO_SKIP),$$(MT_TESTS))
+
+ST_REMOTE_TESTS := $(ST_TESTS)
+MT_REMOTE_TESTS := $(MT_TESTS)
 
 .PHONY: build-linux-$(1)
 build-linux-$(1): $$(foreach test,$$(ALL_TESTS),$$(BINDIR)/$(1)/$$(test).exe) \
                   $$(foreach test,$$(ALL_TESTS),$$(BINDIR)/$(1)/$$(test).pic)
 
 $(shell mkdir -p .t)
-$$(file > .t/linux.tests.$(1).st,$$(ST_TESTS))
-$$(file > .t/linux.tests.$(1).mt,$$(MT_TESTS))
+$$(file > .t/linux.tests.$(1).st.local,$$(ST_LOCAL_TESTS))
+$$(file > .t/linux.tests.$(1).st.remote,$$(ST_REMOTE_TESTS))
+$$(file > .t/linux.tests.$(1).mt.local,$$(MT_LOCAL_TESTS))
+$$(file > .t/linux.tests.$(1).mt.remote,$$(MT_REMOTE_TESTS))
 
 .PHONY: check-linux-$(1)
 check-linux-$(1): build-linux-$(1)
 	$(ROOT_DIR)/run.py -a $(1) -p linux \
-	                   --single-threaded $$(shell cat $(ROOT_DIR)/.t/linux.tests.$(1).st) \
-	                    --multi-threaded $$(shell cat $(ROOT_DIR)/.t/linux.tests.$(1).mt)
+                           --local \
+                           --single-threaded $$(shell cat $(ROOT_DIR)/.t/linux.tests.$(1).st.local) \
+                            --multi-threaded $$(shell cat $(ROOT_DIR)/.t/linux.tests.$(1).mt.local)
+	$(ROOT_DIR)/run.py -a $(1) -p linux \
+                           --remote \
+                           --single-threaded $$(shell cat $(ROOT_DIR)/.t/linux.tests.$(1).st.remote) \
+                            --multi-threaded $$(shell cat $(ROOT_DIR)/.t/linux.tests.$(1).mt.remote)
 
 $$(BINDIR)/$(1)/%.exe: $$(SRCDIR)/%.c
 	$(CC) -o $$@ $(CFLAGS) --target=$($(1)_TRIPLE) $$< -fno-pic -no-pie $$(EXTRAFLAGS)
@@ -151,8 +170,9 @@ $$(file > .t/win.tests.$(1).mt,$$(MT_TESTS))
 .PHONY: check-win-$(1)
 check-win-$(1): build-win-$(1)
 	$(ROOT_DIR)/run.py -a $(1) -p win \
-	                   --single-threaded $$(shell cat $(ROOT_DIR)/.t/win.tests.$(1).st) \
-	                    --multi-threaded $$(shell cat $(ROOT_DIR)/.t/win.tests.$(1).mt)
+                           --local-and-remote \
+                           --single-threaded $$(shell cat $(ROOT_DIR)/.t/win.tests.$(1).st) \
+                            --multi-threaded $$(shell cat $(ROOT_DIR)/.t/win.tests.$(1).mt)
 
 $$(BINDIR)/$(1)/%.EXE: $$(SRCDIR)/%.c
 	$(WIN_$(1)_CC) -o $$@ $(CFLAGS) $$< -fno-pic -no-pie

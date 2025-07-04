@@ -15,6 +15,14 @@ def parse_arguments():
   parser.add_argument('--single-threaded', nargs='+', help='Single-threaded tests')
   parser.add_argument('--multi-threaded', nargs='+', help='Multi-threaded tests')
 
+  group = parser.add_mutually_exclusive_group(required=True)
+  group.add_argument('--local', action='store_true',
+                     help="Run tests locally")
+  group.add_argument('--remote', action='store_true',
+                     help="Run tests remotely")
+  group.add_argument('--local-and-remote', action='store_true',
+                     help="Run tests both locally and remotely")
+
   return parser.parse_args()
 
 def main():
@@ -46,26 +54,40 @@ def main():
                       unattended=unattended)
 
   if args.just_update_jove:
+    tester.get_remote_ready()
     tester.update_jove()
     return 0
 
-  tester.get_ready()
-
+  test_configs = []
   if args.single_threaded:
-      print(f"running single-threaded tests ({args.single_threaded})")
-
-  if args.single_threaded:
-    ret = tester.run_tests(args.single_threaded, multi_threaded=False)
-    if ret != 0:
-      return ret
-
+      test_configs.append((args.single_threaded, False))
   if args.multi_threaded:
-      print(f"running multi-threaded tests: ({args.multi_threaded})")
+      test_configs.append((args.multi_threaded, True))
 
-  if args.multi_threaded:
-    ret = tester.run_tests(args.multi_threaded, multi_threaded=True)
-    if ret != 0:
-      return ret
+  run_modes = []
+  if args.local or args.local_and_remote:
+      run_modes.append(False)  # Local
+  if args.remote or args.local_and_remote:
+      run_modes.append(True)   # Remote
+
+  remoteReady = False
+
+  # Run all combinations of test types and modes
+  for tests, multi_flag in test_configs:
+    label = 'multi-threaded' if multi_flag else 'single-threaded'
+    for remote in run_modes:
+      if remote and not remoteReady:
+        tester.get_remote_ready()
+        remoteReady = True
+      mode = 'remote' if remote else 'local'
+      print(f"Running {label} {mode} tests...")
+      ret = tester.run_tests(
+        tests,
+        multi_threaded=multi_flag,
+        remote=remote
+      )
+      if ret:
+        return ret
 
   del tester
 
