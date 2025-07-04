@@ -47,7 +47,7 @@ To recover the full C code of the program from its compiled representation, we'l
 
 ![](Documentation/.demo.gif)
 
-In each new iteration (i.e. running of the recompiled program), we recover more code. Essentially, the input is _pushed_ through the program.
+In each new iteration (i.e. running of the recompiled program), we recover more code. [^9]
 
 For a look at an example of a more typical and full-featured program, see [ls -la /](/Documentation/.demo.ls.gif).
 
@@ -93,3 +93,6 @@ XFS is the recommended filesystem.
 [^6]: Credit for this idea goes to [Tim Leek](https://www.ll.mit.edu/biographies/tim-leek).
 [^7]: For example, unless we know that a call instruction _returns_ (either through direct observation or from the presence of an exit block in at least one of the callees), we won't explore the code it returns to. If the call never returns, whatever comes after it might be garbage. On architectures with variable-length instruction sets, we can't afford to make such a mistake.
 [^8]: `FICLONE` or `FICLONERANGE` (`ioctl(2)`)
+[^9]: It is recommended to use a tool like `jove bootstrap` or `jove ipt` for the following reason: suppose the program calls a `setjmp(3)`, through an indirect branch (e.g. a stub or trampoline). Since we don't know yet that the program is calling `setjmp(3)`, we can't add our special handling for it. Consequently, the "naive" recompilation will crash. Some kind of static analysis could be an effective solution here.
+
+Similarily, signal handlers in a program under recompilation can pose a problem: if we don't know about them, we can't specially handle them. `jove bootstrap` traces system calls for this reason, to examine calls to `rt_sigaction(2)`, to identify the handlers.
