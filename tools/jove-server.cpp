@@ -393,12 +393,7 @@ int ServerTool::ConnectionProc(ConnectionProcArgs &&args) {
   const std::string sysroot_dir = (TemporaryDir / "sysroot").string();
   recompiler_opts.Output = sysroot_dir;
 
-  bool DidRun = false;
-
   auto run = [&]<bool MT, bool MinSize>(void) -> void {
-    assert(!DidRun);
-    DidRun = true;
-
     bool IsCOFF = false;
 
     using jv_t_1 = jv_base_t<MT, MinSize>;
