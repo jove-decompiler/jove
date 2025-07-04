@@ -395,6 +395,12 @@ void DumpTool::dumpDecompilation(const jv_t &jv) {
             }
           }
 
+          Writer.printBoolean("IsLeaf", f.Analysis.IsLeaf);
+          if (f.Analysis.IsSj)
+            Writer.printBoolean("IsSj", f.Analysis.IsSj);
+          if (f.Analysis.IsLj)
+            Writer.printBoolean("IsLj", f.Analysis.IsLj);
+
           Writer.printBoolean("Stale", f.Analysis.Stale);
         }
 
