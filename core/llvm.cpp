@@ -7664,11 +7664,13 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
     if (unlikely(SjLj)) {
       assert(Lj ^ Sj);
 
+      std::string DynTargetDesc = dyn_target_desc({BinaryIndex, FIdx});
+
       if (IsVeryVerbose())
-      llvm::outs() << llvm::formatv("calling {0} {1:x} from {2:x} (call)\n",
+      llvm::outs() << llvm::formatv("calling {0} {1:x} from {2:x} (call) <{3}>\n",
                                     Lj ? "longjmp" : "setjmp",
                                     ICFG[basic_block_of_index(callee.Entry, ICFG)].Addr,
-                                    ICFG[bb].Term.Addr);
+                                    ICFG[bb].Term.Addr, DynTargetDesc);
 
       if (Sj)
         save_callstack();
@@ -7712,7 +7714,7 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
         std::string message =
             (fmt("doing %s (call) to %s @ %s+0x%x")
              % (Lj ? "longjmp" : "setjmp")
-             % dyn_target_desc({BinaryIndex, FIdx})
+             % DynTargetDesc
              % fs::path(Binary.path_str()).filename().string()
              % ICFG[bb].Term.Addr).str();
         IRB.CreateCall(JoveLog1Func,
@@ -8148,14 +8150,16 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
       assert(Lj ^ Sj);
 
       dynamic_target_t X = DynTargets.Front();
+      std::string DynTargetDesc = dyn_target_desc(X);
 
       const function_t &callee = function_of_target(X, jv);
 
       if (IsVeryVerbose())
-      llvm::outs() << llvm::formatv("calling {0} from {1:x} ({2})\n",
+      llvm::outs() << llvm::formatv("calling {0} from {1:x} ({2}) <{3}>\n",
                                     Lj ? "longjmp" : "setjmp",
                                     ICFG[bb].Term.Addr,
-                                    IsCall ? "indcall" : "indjmp");
+                                    IsCall ? "indcall" : "indjmp",
+                                    DynTargetDesc);
 
       if (Sj)
         save_callstack();
@@ -8203,7 +8207,7 @@ int llvm_t<MT, MinSize>::TranslateBasicBlock(TranslateContext &TC) {
             (fmt("doing %s (%s) to %s @ %s+0x%x")
              % (Lj ? "longjmp" : "setjmp")
              % (IsCall ? "indcall" : "indjmp")
-             % dyn_target_desc(X)
+             % DynTargetDesc
              % fs::path(Binary.path_str()).filename().string()
              % ICFG[bb].Term.Addr).str();
         IRB.CreateCall(
