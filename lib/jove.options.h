@@ -12,6 +12,7 @@ struct jove_opts_t {
     bool Verbose;
     bool Insn;
     bool Interactive;
+    bool Detailed;
   } Debug;
 
   struct {

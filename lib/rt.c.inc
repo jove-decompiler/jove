@@ -205,6 +205,7 @@ static const struct debug_option_pair debug_opt_tbl[] = {
   {"verbose", &__jove_opts.Debug.Verbose},
   {"insn",    &__jove_opts.Debug.Insn},
   {"interactive", &__jove_opts.Debug.Interactive},
+  {"detailed", &__jove_opts.Debug.Detailed},
 };
 
 void _jove_parse_debug_string(char *const s) {

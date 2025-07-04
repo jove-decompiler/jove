@@ -1331,6 +1331,24 @@ jove_thunk_return_t _jove_call(
 
       _strcat(s, buff);
     }
+
+    if (unlikely(__jove_opts.Debug.Detailed)) {
+      char *maps;
+      unsigned n;
+      LOAD_PROC_SELF_MAPS(maps, n);
+
+      {
+        char *buff;
+        JOVE_SCOPED_BUFF(buff, 2 * PATH_MAX);
+        buff[0] = '\0';
+
+        if (_description_of_address_for_maps(buff, pc, maps, n)) {
+          _strcat(s, " <");
+          _strcat(s, buff);
+          _strcat(s, ">");
+        }
+      }
+    }
     _strcat(s, ")");
 
     _DUMP(s);
