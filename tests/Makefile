@@ -85,14 +85,11 @@ $$(shell mkdir -p $$(BINDIR)/$(1))
 SRCS      := $$(wildcard $$(SRCDIR)/*.c)
 ALL_TESTS := $$(patsubst $$(SRCDIR)/%.c,%,$$(SRCS))
 
-ST_TESTS := $$(filter-out $$(SINGLE_THREADED_TESTS_TO_SKIP),$$(ALL_TESTS))
-MT_TESTS := $$(filter-out $$(MULTI_THREADED_TESTS_TO_SKIP),$$(ALL_TESTS))
+ST_LOCAL_TESTS := $$(filter-out $$(LOCAL_TESTS_TO_SKIP),$$(filter-out $$(SINGLE_THREADED_TESTS_TO_SKIP),$$(ALL_TESTS)))
+MT_LOCAL_TESTS := $$(filter-out $$(LOCAL_TESTS_TO_SKIP),$$(filter-out $$(MULTI_THREADED_TESTS_TO_SKIP),$$(ALL_TESTS)))
 
-ST_LOCAL_TESTS := $$(filter-out $$(LOCAL_TESTS_TO_SKIP),$$(ST_TESTS))
-MT_LOCAL_TESTS := $$(filter-out $$(LOCAL_TESTS_TO_SKIP),$$(MT_TESTS))
-
-ST_REMOTE_TESTS := $(ST_TESTS)
-MT_REMOTE_TESTS := $(MT_TESTS)
+ST_REMOTE_TESTS := $$(filter-out $$(SINGLE_THREADED_TESTS_TO_SKIP),$$(ALL_TESTS))
+MT_REMOTE_TESTS := $$(filter-out $$(MULTI_THREADED_TESTS_TO_SKIP),$$(ALL_TESTS))
 
 .PHONY: build-linux-$(1)
 build-linux-$(1): $$(foreach test,$$(ALL_TESTS),$$(BINDIR)/$(1)/$$(test).exe) \
