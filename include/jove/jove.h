@@ -675,40 +675,38 @@ struct function_analysis_t {
   ip_call_graph_base_t<MT>::vertex_descriptor
   ReverseCGVert(jv_base_t<MT, MinSize> &);
 
-    explicit function_analysis_t(segment_manager_t *sm) noexcept : sm_(sm) {}
-    explicit function_analysis_t() = delete;
+  explicit function_analysis_t(segment_manager_t *sm) noexcept : sm_(sm) {}
+  explicit function_analysis_t() = delete;
 
-    explicit function_analysis_t(function_analysis_t &&other) noexcept
-        : sm_(other.sm_),
-          args(other.args),
-          rets(other.rets),
-          ReverseCGVertIdxHolder(std::move(other.ReverseCGVertIdxHolder)) {
-      Stale.store(other.Stale.load(std::memory_order_relaxed),
-                  std::memory_order_relaxed);
+  explicit function_analysis_t(function_analysis_t &&other) noexcept
+      : sm_(other.sm_),
+        args(other.args),
+        rets(other.rets),
+        ReverseCGVertIdxHolder(std::move(other.ReverseCGVertIdxHolder)) {
+    Stale.store(other.Stale.load(std::memory_order_relaxed),
+                std::memory_order_relaxed);
 
-      pCallers.Store(other.pCallers.Load(std::memory_order_relaxed),
-                     std::memory_order_relaxed);
-      other.pCallers.Store(nullptr, std::memory_order_relaxed);
-    }
-
-    function_analysis_t &operator=(function_analysis_t &&other) noexcept {
-      sm_ = other.sm_;
-      args = other.args;
-      rets = other.rets;
-      ReverseCGVertIdxHolder = std::move(other.ReverseCGVertIdxHolder);
-
-      Stale.store(other.Stale.load(std::memory_order_relaxed),
-                  std::memory_order_relaxed);
-
-      pCallers.Store(other.pCallers.Load(std::memory_order_relaxed),
-                     std::memory_order_relaxed);
-      other.pCallers.Store(nullptr, std::memory_order_relaxed);
-      return *this;
-    }
-
-  void Invalidate(void) {
-    this->Stale.store(true, std::memory_order_relaxed);
+    pCallers.Store(other.pCallers.Load(std::memory_order_relaxed),
+                   std::memory_order_relaxed);
+    other.pCallers.Store(nullptr, std::memory_order_relaxed);
   }
+
+  function_analysis_t &operator=(function_analysis_t &&other) noexcept {
+    sm_ = other.sm_;
+    args = other.args;
+    rets = other.rets;
+    ReverseCGVertIdxHolder = std::move(other.ReverseCGVertIdxHolder);
+
+    Stale.store(other.Stale.load(std::memory_order_relaxed),
+                std::memory_order_relaxed);
+
+    pCallers.Store(other.pCallers.Load(std::memory_order_relaxed),
+                   std::memory_order_relaxed);
+    other.pCallers.Store(nullptr, std::memory_order_relaxed);
+    return *this;
+  }
+
+  void Invalidate(void) { this->Stale.store(true, std::memory_order_relaxed); }
 
   explicit function_analysis_t(const function_analysis_t &) = delete;
   function_analysis_t &operator=(const function_analysis_t &) = delete;
