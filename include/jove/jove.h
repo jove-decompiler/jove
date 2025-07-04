@@ -692,8 +692,8 @@ struct function_analysis_t {
 
     function_analysis_t &operator=(function_analysis_t &&other) noexcept {
       sm_ = other.sm_;
-      args = std::move(other.args);
-      rets = std::move(other.rets);
+      args = other.args;
+      rets = other.rets;
       ReverseCGVertIdxHolder = std::move(other.ReverseCGVertIdxHolder);
 
       Stale.store(other.Stale.load(std::memory_order_relaxed),
