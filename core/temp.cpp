@@ -57,7 +57,7 @@ void temp_file::store(void) noexcept(false) {
 
 temp_file::~temp_file() {
 #ifndef JOVE_HAVE_MEMFD
-  ::unlink(readlink_path());
+  ::unlink(path_.c_str());
 #endif
 }
 
