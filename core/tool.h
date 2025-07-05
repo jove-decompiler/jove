@@ -23,7 +23,7 @@ class raw_fd_ostream;
 
 namespace jove {
 
-class Tool {
+class Tool : public VerboseThing {
   llvm::raw_ostream *HumanOutputStreamPtr;
   std::unique_ptr<llvm::raw_fd_ostream> HumanOutputFileStream;
 
@@ -47,6 +47,10 @@ protected:
   static std::string jv_filename; /* XXX must set this *before* ctor */
 
   locator_t loc;
+
+  void ConfigureVerbosity(VerboseThing &Thing) {
+    Thing.SetVerbosityLevel(this->opt_Verbose, this->opt_VeryVerbose);
+  }
 public:
   const char *_name = nullptr;
 
@@ -54,6 +58,7 @@ public:
   Tool();
   virtual ~Tool();
 
+  void UpdateVerbosity(void);
   virtual int Run(void) = 0;
 
 protected:
@@ -72,18 +77,6 @@ protected:
 public:
   llvm::raw_ostream &HumanOut(void) {
     return *HumanOutputStreamPtr;
-  }
-
-  unsigned VerbosityLevel(void) const {
-    return IsVeryVerbose() ? 2 : (IsVerbose() ? 1 : 0);
-  }
-
-  inline bool IsVerbose(void) const {
-    return unlikely(opt_Verbose || opt_VeryVerbose);
-  }
-
-  inline bool IsVeryVerbose(void) const {
-    return unlikely(opt_VeryVerbose);
   }
 
   std::vector<char *> dashdash_args;

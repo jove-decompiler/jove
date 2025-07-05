@@ -3,6 +3,7 @@
 #include "locator.h"
 #include "sizes.h"
 #include "reflink.h"
+#include "ansi.h"
 
 #include <stdexcept>
 #include <fstream>
@@ -193,6 +194,8 @@ found_tool:
   std::string Desc = (std::string("jove-") + name) + "\n";
   llvm::cl::ParseCommandLineOptions(argc, argv, Desc);
 
+  tool->UpdateVerbosity();
+
 #if 0
   /*
    * unfortunately, llvm::sys::PrintStackTrace() can trigger a deadlocks like
@@ -278,6 +281,10 @@ Tool::Tool()
 
 Tool::~Tool() {
   cleanup_temp_dir();
+}
+
+void Tool::UpdateVerbosity(void) {
+  this->SetVerbosityLevel(opt_Verbose, opt_VeryVerbose);
 }
 
 void Tool::HumanOutToFile(const std::string &path) {

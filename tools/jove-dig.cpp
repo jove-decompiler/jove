@@ -91,7 +91,7 @@ class CodeDigger : public StatefulJVTool<ToolKind::Standard, binary_state_t, voi
 public:
   CodeDigger()
       : opts(JoveCategory),
-        Explorer(jv_file, jv, disas, tcg, VerbosityLevel()),
+        Explorer(jv_file, jv, disas, tcg),
         Recovery(jv_file, jv, Explorer, symbolizer) {}
 
   int Run(void) override;
@@ -128,6 +128,8 @@ void CodeDigger::queue_binaries(void) {
 }
 
 int CodeDigger::Run(void) {
+  ConfigureVerbosity(Explorer);
+
   //
   // operate on single binary? (cmdline)
   //

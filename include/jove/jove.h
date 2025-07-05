@@ -9,6 +9,7 @@
 #include "jove/types.h"
 #include "jove/racy.h"
 #include "jove/algo.h"
+#include "jove/verbose.h"
 
 #include <boost/graph/adjacency_list.hpp>
 #include <boost/graph/breadth_first_search.hpp>
@@ -1124,12 +1125,8 @@ using ip_name_to_binaries_map_type =
 template <bool MT, bool MinSize>
 using on_newbin_proc_t = std::function<void(binary_base_t<MT, MinSize> &)>;
 
-struct AddOptions_t {
+struct AddOptions_t : public VerboseThing {
   bool Objdump = false;
-  unsigned VerbosityLevel = 0;
-
-  bool IsVerbose(void) const { return VerbosityLevel >= 1; };
-  bool IsVeryVerbose(void) const { return VerbosityLevel >= 2; };
 };
 
 template <bool MT, bool MinSize>

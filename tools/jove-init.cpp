@@ -138,8 +138,8 @@ int InitTool::Run(void) {
     return 1;
   }
 
+  ConfigureVerbosity(AddOptions);
   AddOptions.Objdump = opts.Objdump;
-  AddOptions.VerbosityLevel = VerbosityLevel();
 
   fs::path prog = fs::canonical(opts.Prog);
 
@@ -252,7 +252,7 @@ int InitTool::Run(void) {
   tiny_code_generator_t tcg;
   disas_t disas;
   explorer_t<false, IsToolMinSize> explorer(jv_file, disas, tcg,
-                                            VerbosityLevel());
+                                            GetVerbosity());
 
   std::transform(
       maybe_par_unseq,

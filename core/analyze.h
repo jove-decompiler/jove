@@ -13,17 +13,12 @@ namespace jove {
 
 struct tiny_code_generator_t;
 
-struct analyzer_options_t {
+struct analyzer_options_t : public VerboseThing {
   unsigned Precision = 0;
   unsigned Conservative = 1;
   bool ForCBE = false;
 
   tcg_global_set_t PinnedEnvGlbs = InitPinnedEnvGlbs;
-
-  unsigned VerbosityLevel = 0;
-
-  bool IsVerbose(void) const { return VerbosityLevel >= 1; };
-  bool IsVeryVerbose(void) const { return VerbosityLevel >= 2; };
 };
 
 struct helper_function_t {

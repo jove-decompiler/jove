@@ -630,7 +630,7 @@ int RunTool::DoRun(void) {
     tcg = std::make_unique<tiny_code_generator_t>();
     symbolizer = std::make_unique<symbolizer_t>();
     Explorer = std::make_unique<explorer_t<IsToolMT, IsToolMinSize>>(
-        jv_file, jv, *disas, *tcg, VerbosityLevel());
+        jv_file, jv, *disas, *tcg, GetVerbosity());
     Recovery = std::make_unique<CodeRecovery<IsToolMT, IsToolMinSize>>(jv_file, jv, *Explorer, *symbolizer);
   }
 

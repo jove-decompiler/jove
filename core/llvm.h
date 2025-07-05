@@ -18,7 +18,7 @@
 
 namespace jove {
 
-struct llvm_options_t {
+struct llvm_options_t : public VerboseThing {
   std::string Output;
   std::string Binary;
   std::string BinaryIndex;
@@ -51,11 +51,6 @@ struct llvm_options_t {
   std::string DFSanOutputModuleID;
 
   tcg_global_set_t PinnedEnvGlbs = InitPinnedEnvGlbs;
-
-  unsigned VerbosityLevel = 0;
-
-  bool IsVerbose(void) const { return VerbosityLevel >= 1; };
-  bool IsVeryVerbose(void) const { return VerbosityLevel >= 2; };
 
   std::string temp_dir;
 };

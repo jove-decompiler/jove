@@ -210,8 +210,8 @@ int LLVMTool::Run(void) {
     llvm_options.PinnedEnvGlbs.set(idx);
   }
 
-  analyzer_options.VerbosityLevel =
-      llvm_options.VerbosityLevel = VerbosityLevel();
+  ConfigureVerbosity(analyzer_options);
+  ConfigureVerbosity(llvm_options);
 
   llvm_options.temp_dir = temporary_dir();
 

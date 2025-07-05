@@ -45,7 +45,7 @@ public:
 JOVE_REGISTER_TOOL("scan", ScanTool);
 
 int ScanTool::Run(void) {
-  E.SetVerbosity(VerbosityLevel());
+  ConfigureVerbosity(E);
 
   if (opts.Binary.empty()) {
     for_each_binary(maybe_par_unseq, jv,

@@ -368,16 +368,17 @@ int ServerTool::ConnectionProc(ConnectionProcArgs &&args) {
   std::atomic<uint64_t> done = 0;
 
   analyzer_options_t analyzer_opts;
-  analyzer_opts.VerbosityLevel = VerbosityLevel();
-  //analyzer_opts.Conservative = opts.Conservative;
-
   recompiler_options_t recompiler_opts;
-  recompiler_opts.VerbosityLevel = VerbosityLevel();
+
+  ConfigureVerbosity(analyzer_opts);
+  ConfigureVerbosity(recompiler_opts);
 
 #define PROPOGATE_OPTION(name)                                                 \
   do {                                                                         \
     recompiler_opts.name = options.name;                                       \
   } while (false)
+
+  //analyzer_opts.Conservative = opts.Conservative;
 
   PROPOGATE_OPTION(DFSan);
   PROPOGATE_OPTION(ForeignLibs);

@@ -58,7 +58,7 @@ static inline void nop_on_newfn_proc(binary_base_t<MT, MinSize> &,
 // performs accurate recursive traversal disassembly
 //
 template <bool MT, bool MinSize>
-class explorer_t {
+class explorer_t : public VerboseThing {
   using jv_t = jv_base_t<MT, MinSize>;
   using binary_t = binary_base_t<MT, MinSize>;
   using bb_t = ip_icfg_base_t<MT>::vertex_descriptor;
@@ -143,10 +143,6 @@ public:
       on_newfn_proc = other.on_newfn_proc;
     }
   }
-
-  void SetVerbosity(unsigned VerbLevel) { VerbosityLevel = VerbLevel; }
-  bool IsVerbose(void) const { return unlikely(VerbosityLevel >= 1); }
-  bool IsVeryVerbose(void) const { return unlikely(VerbosityLevel >= 2); }
 
   //
   // the objective is to translate all the code we can up until indirect

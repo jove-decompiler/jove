@@ -171,7 +171,7 @@ int RecompileTool::Run(void) {
     options.PinnedEnvGlbs.set(idx);
   }
 
-  options.VerbosityLevel = VerbosityLevel();
+  ConfigureVerbosity(options);
 
 #define PROPOGATE_OPTION(name)                                                 \
   do {                                                                         \

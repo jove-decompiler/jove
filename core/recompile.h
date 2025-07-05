@@ -20,9 +20,8 @@ typedef boost::adjacency_list<boost::setS,           /* OutEdgeList */
 
 typedef dso_graph_t::vertex_descriptor dso_t;
 
-struct recompiler_options_t {
+struct recompiler_options_t : public VerboseThing {
   bool ForCBE = false;
-  bool Verbose = false;
   unsigned VerbosityLevel = 0;
   std::string Output;
   bool ForeignLibs = true;
@@ -41,9 +40,6 @@ struct recompiler_options_t {
   bool PlaceSectionBreakpoints = false;
   bool DumpPreOpt1 = false;
   bool SoftfpuBitcode = false;
-
-  bool IsVerbose(void) const { return VerbosityLevel >= 1; };
-  bool IsVeryVerbose(void) const { return VerbosityLevel >= 2; };
 
   tcg_global_set_t PinnedEnvGlbs = InitPinnedEnvGlbs;
 
