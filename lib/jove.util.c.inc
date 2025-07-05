@@ -512,11 +512,22 @@ typedef struct jove_buffer_t {
 static jove_buffer_t _jove_alloc_buffer(size_t len) {
   len = QEMU_ALIGN_UP(len, JOVE_PAGE_SIZE);
 
+  const size_t saved_len = len;
+
+  len += 2*JOVE_PAGE_SIZE; /* guard pages */
+
   uintptr_t ret = _mmap_rw_anonymous_private_memory(len);
   if (IS_ERR_VALUE(ret))
     _UNREACHABLE("failed to allocate buffer");
 
-  return (jove_buffer_t){.ptr = (void *)ret, .len = len};
+  if (_jove_sys_mprotect(ret, JOVE_PAGE_SIZE, PROT_NONE) < 0)
+    _UNREACHABLE("failed to create guard page #1");
+
+  if (_jove_sys_mprotect(ret + len - JOVE_PAGE_SIZE, JOVE_PAGE_SIZE, PROT_NONE) < 0)
+    _UNREACHABLE("failed to create guard page #2");
+
+  return (jove_buffer_t){.ptr = (void *)(ret + JOVE_PAGE_SIZE),
+                         .len = saved_len};
 }
 
 static void _jove_free_buffer(const jove_buffer_t *buff) {
